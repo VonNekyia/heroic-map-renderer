@@ -353,3 +353,45 @@ fn durchsichtige_nachbarn_verdecken_nichts() {
         );
     }
 }
+
+/// Ein zwei Blöcke hohes Modell liegt mit seiner oberen Hälfte vor einem
+/// Block, dessen Ursprung eine Ebene höher liegt. Nach Blockursprüngen
+/// sortiert käme dieser Block zuletzt und übermalte das Modell; nach
+/// Würfeln sortiert nicht.
+#[test]
+fn hohe_modelle_werden_nicht_uebermalt() {
+    let turm_allein = |x: i32, y: i32, z: i32| {
+        if (x, y, z) == (8, 4, 8) {
+            "minecraft:turm"
+        } else {
+            "minecraft:air"
+        }
+    };
+    let mit_nachbar = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 4, 8) => "minecraft:turm",
+        (8, 5, 7) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+
+    let a = szene(&tempdir(), turm_allein);
+    let b = szene(&tempdir(), mit_nachbar);
+
+    // Der Nachbar liegt hinter dem Turm: wo der Turm allein deckend ist,
+    // darf sich nichts ändern.
+    let mut gedeckt = 0;
+    for (x, y, pixel) in a.enumerate_pixels() {
+        if pixel.0[3] != 255 {
+            continue;
+        }
+        gedeckt += 1;
+        assert_eq!(
+            b.get_pixel(x, y),
+            pixel,
+            "Pixel ({x}, {y}) wurde vom hinteren Block übermalt"
+        );
+    }
+    assert!(gedeckt > 100, "zu wenig Prüffläche");
+
+    // Gegenprobe: der Nachbar ist überhaupt zu sehen.
+    assert_ne!(a.as_raw(), b.as_raw());
+}

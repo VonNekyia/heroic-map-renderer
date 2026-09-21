@@ -251,8 +251,9 @@ fn render_world(
     path: &Path,
 ) -> Result<()> {
     // Das Rechteck so schieben, dass die gewünschte Blockspalte in der
-    // Bildmitte landet.
-    let (cx, cy) = projection.project([center.0 as f32, 0.0, center.1 as f32]);
+    // Bildmitte landet. project_block und nicht project: --center nimmt
+    // Weltkoordinaten entgegen, und die brauchen f64.
+    let (cx, cy) = projection.project_block([center.0, 0, center.1]);
     let rect = ScreenRect {
         x: cx.round() as i32 - size as i32 / 2,
         y: cy.round() as i32 - size as i32 / 2,
@@ -280,6 +281,15 @@ fn render_world(
         states.len(),
         sprites.len()
     );
+    // Modelle, die ihren Blockwürfel verlassen, kosten im Renderpfad eine
+    // Suche je leerem Würfel. Wenn es langsam wird, steht hier warum.
+    if !sprites.foreign_cells().is_empty() {
+        println!(
+            "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",
+            sprites.overhanging(),
+            sprites.foreign_cells()
+        );
+    }
 
     let image = render_area(world, &sprites, rect, Y_RANGE)?;
     image

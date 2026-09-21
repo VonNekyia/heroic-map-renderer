@@ -5,7 +5,7 @@ use image::{Rgba, RgbaImage};
 
 use crate::world::{Chunk, World};
 
-use super::{Projection, SpriteId, SpriteSet};
+use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
 ///
@@ -45,16 +45,22 @@ impl ScreenRect {
 
 /// Rendert einen Ausschnitt der Welt.
 ///
-/// Gezeichnet wird nach dem Maleralgorithmus, sortiert erst nach Höhe `y`
-/// und innerhalb einer Höhe nach Tiefe `v = x + z`. Beides zusammen ist
-/// nötig und zusammen auch hinreichend:
+/// Gezeichnet wird nach dem Maleralgorithmus, und zwar je Blockwürfel:
+/// erst nach Höhe `y`, innerhalb einer Höhe nach Tiefe `v = x + z`. Beides
+/// zusammen ist eine gültige Reihenfolge:
 ///
-/// - Verdeckt B den Block A, dann liegt B nie tiefer (`y_B >= y_A`). Sonst
-///   wäre der senkrechte Abstand auf dem Bild mindestens eine Blockhöhe,
-///   und die Umrisse berührten sich höchstens.
+/// - Verdeckt Würfel B den Würfel A, dann liegt B nie tiefer
+///   (`y_B >= y_A`). Sonst wäre der senkrechte Abstand auf dem Bild
+///   mindestens eine Blockhöhe, und die Umrisse berührten sich höchstens.
 /// - Auf gleicher Höhe heisst "verdeckt" genau `v_B > v_A`, denn
 ///   `depth = x + y + z = v + y`. Der Südnachbar `(x, y, z+1)` verdeckt die
 ///   Südfläche von `(x, y, z)`, der Ostnachbar `(x+1, y, z)` die Ostfläche.
+///
+/// Entscheidend ist "je Würfel" und nicht "je Block": ein Modell, das über
+/// seinen Blockwürfel hinausragt, ist in `SpriteSet` bereits in Teile
+/// zerlegt, und jeder Teil wird zu dem Zeitpunkt gezeichnet, der zu seinem
+/// eigenen Würfel gehört. Sonst käme ein hohes Modell zu früh, und ein
+/// Block dahinter mit höherem Ursprung übermalte es.
 ///
 /// Ein globaler Tiefenpuffer ist damit unnötig. `columns_at` liefert die
 /// Spalten bereits in dieser Reihenfolge.
@@ -67,20 +73,73 @@ pub fn render_area(
     let projection = sprites.projection();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
     let mut chunks = ChunkCache::new(world);
+    // Fast immer leer. Dann fällt die Suche nach Überhängen ganz weg.
+    let ueberhaenge = !sprites.foreign_cells().is_empty();
 
     for y in y_range.0..=y_range.1 {
         for (x, z) in columns_at(projection, rect, y) {
-            let Some(id) = chunks.sprite_at(sprites, x, y, z)? else {
-                continue;
-            };
-            if is_hidden(&mut chunks, sprites, id, x, y, z)? {
+            let own = chunks.sprite_at(sprites, x, y, z)?;
+
+            // Erst suchen, dann auf Verdeckung prüfen: der Test kostet drei
+            // Nachschläge und lohnt nur, wenn hier überhaupt etwas liegt.
+            if own.is_none() && !(ueberhaenge && anything_foreign(&mut chunks, sprites, x, y, z)?) {
                 continue;
             }
-            blit(&mut canvas, sprites, id, rect, [x, y, z]);
+            if is_hidden(&mut chunks, sprites, own, x, y, z)? {
+                continue;
+            }
+
+            if let Some(id) = own
+                && let Some(part) = sprites.part(id, OWN_CELL)
+            {
+                blit(&mut canvas, part, rect, projection, [x, y, z]);
+            }
+            if ueberhaenge {
+                for &cell in sprites.foreign_cells() {
+                    let anchor = anchor_of([x, y, z], cell);
+                    let Some(id) = chunks.sprite_at(sprites, anchor[0], anchor[1], anchor[2])?
+                    else {
+                        continue;
+                    };
+                    if let Some(part) = sprites.part(id, cell) {
+                        blit(&mut canvas, part, rect, projection, anchor);
+                    }
+                }
+            }
         }
     }
 
     Ok(canvas)
+}
+
+/// Der Block, dessen Modell in `cell` hineinragen würde.
+fn anchor_of([x, y, z]: [i32; 3], cell: Cell) -> [i32; 3] {
+    [x - cell[0], y - cell[1], z - cell[2]]
+}
+
+/// Ragt irgendein Nachbarmodell in diesen Würfel?
+///
+/// `foreign_cells` ist leer, solange kein Modell seinen Blockwürfel
+/// verlässt — dann kostet das hier nichts. Sonst ist es ein Nachschlagen
+/// je Versatz und Würfel.
+// ponytail: unbedingte Suche je leerem Würfel. Erst nötig, wenn eine Welt
+// mit Feuer das Budget sprengt; dann eine Bitmaske je Section.
+fn anything_foreign(
+    chunks: &mut ChunkCache,
+    sprites: &SpriteSet,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> Result<bool> {
+    for &cell in sprites.foreign_cells() {
+        let anchor = anchor_of([x, y, z], cell);
+        if let Some(id) = chunks.sprite_at(sprites, anchor[0], anchor[1], anchor[2])?
+            && sprites.part(id, cell).is_some()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Alle Chunks, deren Blöcke in das Rechteck fallen können.
@@ -143,24 +202,23 @@ fn columns_at(
     })
 }
 
-/// Ein Block ist unsichtbar, wenn seine drei kamerazugewandten Nachbarn
-/// volle, deckende Blöcke sind — und sein eigenes Sprite den Blockumriss
-/// nicht verlässt.
+/// Ein Würfel ist unsichtbar, wenn seine drei kamerazugewandten Nachbarn
+/// volle, deckende Blöcke sind: deren Umrisse setzen genau den eigenen
+/// zusammen.
 ///
-/// Die drei Nachbarumrisse setzen genau den eigenen Umriss zusammen, keinen
-/// Quadratmillimeter mehr. Was darüber hinausragt, bleibt sichtbar: Feuer
-/// ist höher als ein Block, und ein Modell mit negativem `from` ragt zur
-/// Seite heraus. Ohne die Prüfung auf `is_contained` verschwände so ein
-/// Sprite vollständig, obwohl die Hälfte davon zu sehen wäre.
+/// Das gilt für alles, was in diesem Würfel liegt — auch für Teile fremder
+/// Modelle, denn die Zerlegung in `SpriteSet` hält jeden Teil in seinem
+/// Würfel. Wo sie das nicht schafft, meldet `is_contained` es, und die
+/// Abkürzung entfällt.
 fn is_hidden(
     chunks: &mut ChunkCache,
     sprites: &SpriteSet,
-    id: SpriteId,
+    own: Option<SpriteId>,
     x: i32,
     y: i32,
     z: i32,
 ) -> Result<bool> {
-    if !sprites.is_contained(id) {
+    if own.is_some_and(|id| !sprites.is_contained(id)) {
         return Ok(false);
     }
     for (dx, dy, dz) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)] {
@@ -174,13 +232,12 @@ fn is_hidden(
 
 fn blit(
     canvas: &mut RgbaImage,
-    sprites: &SpriteSet,
-    id: SpriteId,
+    sprite: &Sprite,
     rect: ScreenRect,
+    projection: Projection,
     [x, y, z]: [i32; 3],
 ) {
-    let sprite = sprites.sprite(id);
-    let (sx, sy) = sprites.projection().project_block([x, y, z]);
+    let (sx, sy) = projection.project_block([x, y, z]);
     let origin_x = sx.round() as i32 + sprite.offset.0 - rect.x;
     let origin_y = sy.round() as i32 + sprite.offset.1 - rect.y;
 
@@ -198,7 +255,6 @@ fn blit(
     }
 }
 
-/// Quelle über Ziel, beide mit geradem Alpha.
 fn over(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     if src[3] == 255 {
         return src;

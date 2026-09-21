@@ -17,7 +17,7 @@ zusammenhängendes Bild. Kacheln, Zoomstufen und Frontend fehlen noch.
 
 ![Karte](docs/map.png)
 
-900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 1,7 s einkernig.
+900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 2,1 s einkernig.
 
 | Schritt | Inhalt | Status |
 |---------|--------|--------|
@@ -107,7 +107,7 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 
 ```
 Render:     292 Chunks im Ausschnitt, 292 generiert, 258 Blockstates, 235 Sprites
-            900x900 px um (-64, 416) bei scale 16 in 1.7 s -> docs/map.png
+            900x900 px um (-64, 416) bei scale 16 in 2.1 s -> docs/map.png
 ```
 
 `--center` nennt die Blockspalte, die in der Bildmitte landet, `--scale` die
@@ -182,7 +182,8 @@ synthetisch, bildet aber die Formen ab, die eine Bestandsaufnahme über
 Vanilla 26.2 und das TerraNova-Pack ergeben hat.
 
 `renderer/tests/metatile.rs` baut aus diesem Assetbaum ganze Welten im
-Speicher und rendert sie. Dazu gehört ein Goldbild unter
+Speicher und rendert sie; `renderer/tests/cli.rs` ruft dafür die echte
+Binärdatei auf, weil der Weg über `--center` eine eigene Fehlerquelle ist. Dazu gehört ein Goldbild unter
 `tests/fixtures/golden/`: jede Änderung an Projektion, Baking, Rasterizer oder
 Maleralgorithmus fällt damit auf. Neu erzeugen nach einer gewollten Änderung:
 
@@ -225,12 +226,30 @@ aus, sondern nach Textur — links läuft `u` aussen, rechts `v`:
 ![Zeichenreihenfolge](docs/zeichenreihenfolge.png)
 
 Das Muster links sind die Süd- und Ostflächen jedes Blattblocks, die durch den
-Block davor schlagen. Ein Block wird übersprungen, wenn seine drei kamerazugewandten
-Nachbarn volle, deckende Blöcke sind **und** sein eigenes Sprite den
-Blockumriss nicht verlässt — die drei Nachbarumrisse setzen genau den eigenen
-zusammen, mehr nicht. Was darüber hinausragt, bleibt sichtbar. Ob ein Sprite
-"deckend" ist, entscheidet sein fertiges Bild und nicht sein Modell, damit
-Glas von selbst herausfällt.
+Block davor schlagen.
+
+Sortiert wird nach Blockwürfeln und nicht nach Blöcken. Der Unterschied zählt
+für Modelle, die ihren Würfel verlassen — Feuer ist höher als ein Block. Solche
+Sprites zerfallen beim Bauen der Sprite-Tabelle in einen Teil je Würfel, und
+jeder Teil wird zu dem Zeitpunkt gezeichnet, der zu seinem eigenen Würfel
+gehört. Sonst käme ein zwei Blöcke hohes Modell zu früh, und ein Block
+dahinter mit höherem Ursprung übermalte seine obere Hälfte.
+
+Zugeordnet wird über den Bildschirm: die Umrisse benachbarter Würfel kacheln
+die Ebene lückenlos, ein Pixel liegt also in genau einem — bis auf die
+Blickachse, wo Würfel im Abstand (1, 1, 1) aufeinanderfallen. Dort gewinnt der
+vordere, und genau dessen Geometrie hat auch der Tiefenpuffer des Rasterizers
+stehen lassen. Ein Modell, das zwei Würfel entlang der Blickachse ausfüllt,
+wäre so nicht auflösbar; in Vanilla gibt es keines.
+
+Ein Würfel wird übersprungen, wenn seine drei kamerazugewandten Nachbarn volle,
+deckende Blöcke sind — deren Umrisse setzen genau den eigenen zusammen, mehr
+nicht. Ob ein Sprite "deckend" ist, entscheidet sein fertiges Bild und nicht
+sein Modell, damit Glas von selbst herausfällt.
+
+Die Suche nach hineinragenden Nachbarmodellen kostet nichts, solange kein
+Modell seinen Würfel verlässt. In einem Ausschnitt mit Feuer kostet sie ein
+Nachschlagen je leerem Würfel, rund ein Viertel der Renderzeit.
 
 Weltkoordinaten werden in `f64` projiziert. Minecraft erlaubt knapp 30
 Millionen Blöcke in jede Richtung; ab 2²⁴ kann `f32` benachbarte ganzzahlige

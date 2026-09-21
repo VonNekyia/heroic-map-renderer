@@ -1,0 +1,2 @@
+# Regionsdateien niemals durch Zeilenende-Konvertierung laufen lassen
+*.mca binary

@@ -1,0 +1,22 @@
+[package]
+name = "terranova-render"
+version = "0.1.0"
+edition = "2024"
+description = "Isometrischer Offline-Renderer für Minecraft-Java-Welten"
+license = "MIT"
+
+[[bin]]
+name = "terranova-render"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+# nur das Containerformat (.mca); die "render"-Standardfeature zieht image 0.23 + tar + serde_json nach
+fastanvil = { version = "0.32", default-features = false }
+fastnbt = "2"       # kommt ohnehin mit fastanvil; simdnbt 0.10 ist nightly-only
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+opt-level = 3
+codegen-units = 1

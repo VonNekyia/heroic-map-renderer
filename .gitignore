@@ -1,0 +1,16 @@
+# Rust
+target/
+
+# Eingabedaten gehören nicht ins Repo
+/world/
+/assets/
+/vanilla-assets/
+
+# Renderausgabe
+/dist/
+/out/
+/tiles/
+
+# Frontend
+node_modules/
+web/dist/

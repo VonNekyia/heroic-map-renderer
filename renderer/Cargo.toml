@@ -1,0 +1,25 @@
+[package]
+name = "terranova-render"
+version = "0.1.0"
+edition = "2024"
+description = "Isometrischer Offline-Renderer für Minecraft-Java-Welten"
+license = "MIT"
+
+[[bin]]
+name = "terranova-render"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+fastnbt = "2"                       # NBT; simdnbt 0.10 ist nightly-only
+flate2 = "1"                        # gzip/zlib der Chunkdaten
+lz4-java-wrc = "0.2"                # Kompressionsverfahren 4 (Paper)
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1

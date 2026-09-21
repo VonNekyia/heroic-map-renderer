@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use image::RgbaImage;
+use serde::Deserialize;
 
 use super::{find_file, split_id};
 
@@ -52,7 +53,7 @@ impl Textures {
 
         let (namespace, name) = split_id(id);
         let loaded = find_file(roots, namespace, "textures", name, "png")
-            .and_then(|path| read_texture(&path));
+            .and_then(|(layer, path)| read_texture(roots, layer, namespace, name, &path));
 
         let texture = match loaded {
             Some(image) => {
@@ -95,20 +96,81 @@ impl Textures {
     }
 }
 
-/// Lädt eine PNG-Datei und schneidet bei animierten Texturen das erste Bild
-/// heraus.
-fn read_texture(path: &Path) -> Option<RgbaImage> {
+/// Lädt eine PNG-Datei und schneidet bei animierten Texturen das erste
+/// deklarierte Bild heraus.
+fn read_texture(
+    roots: &[PathBuf],
+    png_layer: usize,
+    namespace: &str,
+    name: &str,
+    path: &Path,
+) -> Option<RgbaImage> {
     let image = image::open(path).ok()?.into_rgba8();
-
-    // Animierte Texturen sind senkrechte Streifen; erkennbar an der
-    // .mcmeta-Datei daneben. Ohne sie wären hohe Texturen wie die von
-    // Truhen nicht von Animationen zu unterscheiden.
-    let meta = PathBuf::from(format!("{}.mcmeta", path.display()));
-    if meta.is_file() && image.height() > image.width() {
-        let size = image.width();
-        return Some(image::imageops::crop_imm(&image, 0, 0, size, size).to_image());
+    match animation(roots, png_layer, namespace, name, path) {
+        Some(animation) => Some(first_frame(&image, &animation)),
+        None => Some(image),
     }
-    Some(image)
+}
+
+/// Sucht die `.mcmeta`-Datei im Packstapel und liest den `animation`-Teil.
+///
+/// Minecraft nimmt Metadaten aus derselben oder einer höher priorisierten
+/// Schicht als die PNG-Datei — ein Overlay darf also allein die `.mcmeta`
+/// mitbringen. Ohne `animation` ist die Textur statisch, auch wenn die Datei
+/// existiert: 48 der Vanilla-mcmeta enthalten nur `texture`-Flags.
+fn animation(
+    roots: &[PathBuf],
+    png_layer: usize,
+    namespace: &str,
+    name: &str,
+    png_path: &Path,
+) -> Option<Animation> {
+    let meta = find_file(
+        &roots[png_layer..],
+        namespace,
+        "textures",
+        name,
+        "png.mcmeta",
+    )
+    .map(|(_, path)| path)
+    .or_else(|| {
+        // Fällt nur an, wenn die PNG nicht über den Stapel kam.
+        let beside = PathBuf::from(format!("{}.mcmeta", png_path.display()));
+        beside.is_file().then_some(beside)
+    })?;
+
+    let text = std::fs::read_to_string(&meta).ok()?;
+    serde_json::from_str::<McMeta>(&text).ok()?.animation
+}
+
+/// Schneidet das erste deklarierte Bild einer Animation heraus.
+fn first_frame(image: &RgbaImage, animation: &Animation) -> RgbaImage {
+    let (width, height) = image.dimensions();
+
+    // Ohne Angabe ist ein Bild so breit wie die Textur und ebenso hoch —
+    // der senkrechte Streifen, den Minecraft dokumentiert.
+    let frame_width = animation.width.unwrap_or(width).clamp(1, width);
+    let frame_height = animation.height.unwrap_or(frame_width).clamp(1, height);
+
+    let columns = width / frame_width;
+    let rows = height / frame_height;
+    if columns == 0 || rows == 0 {
+        return image.clone();
+    }
+
+    // `frames` gibt die Abspielreihenfolge an; das erste Bild darin ist nicht
+    // zwingend Nummer 0. Vanilla nutzt das in fire_0 und soul_fire_0.
+    let index = animation.frames.first().map_or(0, Frame::index);
+    let index = if index < columns * rows { index } else { 0 };
+
+    image::imageops::crop_imm(
+        image,
+        (index % columns) * frame_width,
+        (index / columns) * frame_height,
+        frame_width,
+        frame_height,
+    )
+    .to_image()
 }
 
 /// Das magenta-schwarze Karo, das Minecraft für fehlende Texturen zeigt.
@@ -122,9 +184,54 @@ fn placeholder() -> RgbaImage {
     })
 }
 
+#[derive(Deserialize)]
+struct McMeta {
+    animation: Option<Animation>,
+}
+
+#[derive(Deserialize)]
+struct Animation {
+    width: Option<u32>,
+    height: Option<u32>,
+    #[serde(default)]
+    frames: Vec<Frame>,
+}
+
+/// Ein Eintrag in `frames`: entweder eine Nummer oder ein Objekt mit eigener
+/// Anzeigedauer.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Frame {
+    Index(u32),
+    Detailed { index: u32 },
+}
+
+impl Frame {
+    fn index(&self) -> u32 {
+        match self {
+            Frame::Index(i) => *i,
+            Frame::Detailed { index } => *index,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Jede 16 Pixel hohe Zeile bekommt ihre Nummer als Rotwert.
+    fn streifen(width: u32, height: u32) -> RgbaImage {
+        RgbaImage::from_fn(width, height, |_, y| {
+            image::Rgba([(y / 16) as u8, 0, 0, 255])
+        })
+    }
+
+    fn animation(json: &str) -> Animation {
+        serde_json::from_str::<McMeta>(json)
+            .unwrap()
+            .animation
+            .unwrap()
+    }
 
     #[test]
     fn platzhalter_ist_id_null() {
@@ -155,5 +262,68 @@ mod tests {
         let textures = Textures::new();
         assert_eq!(textures.image(TextureId(999)).dimensions(), (16, 16));
         assert_eq!(textures.name(TextureId(999)), "<unbekannt>");
+    }
+
+    #[test]
+    fn senkrechter_streifen_ohne_angaben() {
+        let frame = first_frame(&streifen(16, 48), &animation(r#"{"animation": {}}"#));
+        assert_eq!(frame.dimensions(), (16, 16));
+        assert_eq!(frame.get_pixel(0, 0).0[0], 0);
+    }
+
+    /// Vanilla-fire_0 beginnt mit Bild 16, nicht mit 0.
+    #[test]
+    fn erstes_deklariertes_bild_gewinnt() {
+        let frame = first_frame(
+            &streifen(16, 512),
+            &animation(r#"{"animation": {"frames": [16, 17, 0]}}"#),
+        );
+        assert_eq!(frame.dimensions(), (16, 16));
+        assert_eq!(frame.get_pixel(0, 0).0[0], 16);
+    }
+
+    #[test]
+    fn frames_als_objekte() {
+        let frame = first_frame(
+            &streifen(16, 512),
+            &animation(r#"{"animation": {"frames": [{"index": 3, "time": 2}]}}"#),
+        );
+        assert_eq!(frame.get_pixel(0, 0).0[0], 3);
+    }
+
+    #[test]
+    fn eigene_bildgroesse() {
+        let frame = first_frame(
+            &streifen(16, 32),
+            &animation(r#"{"animation": {"height": 8}}"#),
+        );
+        assert_eq!(frame.dimensions(), (16, 8));
+    }
+
+    /// Waagerecht angeordnete Bilder: 32x16 mit 16x16-Bildern.
+    #[test]
+    fn waagerechte_anordnung() {
+        let frame = first_frame(
+            &streifen(32, 16),
+            &animation(r#"{"animation": {"width": 16, "height": 16}}"#),
+        );
+        assert_eq!(frame.dimensions(), (16, 16));
+    }
+
+    #[test]
+    fn unsinnige_angaben_brechen_nicht() {
+        let frame = first_frame(
+            &streifen(16, 16),
+            &animation(r#"{"animation": {"width": 999, "frames": [42]}}"#),
+        );
+        assert_eq!(frame.dimensions(), (16, 16));
+    }
+
+    /// 48 der Vanilla-mcmeta enthalten nur `texture`-Flags. Solche Texturen
+    /// sind statisch und dürfen nicht zugeschnitten werden.
+    #[test]
+    fn mcmeta_ohne_animation_ist_keine_animation() {
+        let meta: McMeta = serde_json::from_str(r#"{"texture": {"blur": true}}"#).unwrap();
+        assert!(meta.animation.is_none());
     }
 }

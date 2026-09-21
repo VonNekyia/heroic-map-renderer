@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use terranova_render::assets::{Assets, Axis, Face, Textures};
+use terranova_render::assets::{Assets, Face, Textures};
 use terranova_render::world::BlockState;
 
 fn fixture(name: &str) -> PathBuf {
@@ -125,8 +125,7 @@ fn flaechendaten_werden_uebernommen() {
     let element = &variants[1].model.elements[0];
 
     let rotation = element.rotation.expect("Element ist gedreht");
-    assert_eq!(rotation.axis, Axis::Y);
-    assert_eq!(rotation.angle, 22.5);
+    assert_eq!(rotation.angles, [0.0, 22.5, 0.0]);
     assert_eq!(rotation.origin, [8.0, 8.0, 8.0]);
     assert!(rotation.rescale);
 
@@ -278,4 +277,115 @@ fn blockstate_namen_werden_aufgelistet() {
             .count(),
         1
     );
+}
+
+/// Vanilla 26.2 schreibt in `block/template_hanging_sign_rot_3` Rotationen um
+/// drei Achsen gleichzeitig, das TerraNova-Pack in
+/// `bvb_template_sign_rot_3`. Wer nur `axis`/`angle` liest, verliert sie
+/// stillschweigend.
+#[test]
+fn mehrachsige_rotation_ueberlebt() {
+    let mut assets = base();
+    let variants = assets.variants(&state("mehrachsig")).unwrap();
+    let elements = &variants[0].model.elements;
+
+    let neu = elements[0].rotation.expect("neue Schreibweise");
+    assert_eq!(neu.angles, [180.0, -67.5, -180.0]);
+    assert_eq!(neu.origin, [8.0, 0.0, 8.0]);
+
+    let alt = elements[1].rotation.expect("klassische Schreibweise");
+    assert_eq!(alt.angles, [0.0, -22.5, 0.0]);
+}
+
+/// Seit Minecraft 1.21.11 darf ein Modellverweis auch um Z gedreht sein.
+#[test]
+fn z_drehung_der_variante_ueberlebt() {
+    let mut assets = base();
+    let variant = &assets.variants(&state("mehrachsig")).unwrap()[0];
+    assert_eq!((variant.x, variant.y, variant.z), (90, 0, 270));
+}
+
+#[test]
+fn negierte_bedingung_waehlt_aus() {
+    let mut assets = base();
+    assert_eq!(
+        assets
+            .variants(&state("negiert[facing=east]"))
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        assets
+            .variants(&state("negiert[facing=north]"))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+/// Ein Multipart ohne zutreffende Bedingung hat schlicht keine Geometrie.
+/// Eine Variantentabelle ohne Treffer bleibt dagegen ein Fehler.
+#[test]
+fn leeres_multipart_ist_kein_fehler() {
+    let mut assets = base();
+    assert!(
+        assets
+            .variants(&state("nur_wenn_multipart[powered=false]"))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        assets
+            .variants(&state("nur_wenn_multipart[powered=true]"))
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(assets.variants(&state("nur_wenn[facing=south]")).is_err());
+}
+
+/// Minecraft sucht Texturmetadaten in derselben oder einer höher
+/// priorisierten Packschicht. Ein Overlay darf also allein die `.mcmeta`
+/// beisteuern, während die PNG aus der Basis kommt.
+#[test]
+fn mcmeta_darf_allein_im_overlay_liegen() {
+    let mut nur_basis = base();
+    let texture = nur_basis.variants(&state("nur_mcmeta_im_overlay")).unwrap()[0]
+        .model
+        .elements[0]
+        .faces[0]
+        .1
+        .texture;
+    assert_eq!(
+        nur_basis.textures().image(texture).dimensions(),
+        (16, 48),
+        "ohne Overlay gibt es keine Animationsangabe"
+    );
+
+    let mut mit_overlay = layered();
+    let texture = mit_overlay
+        .variants(&state("nur_mcmeta_im_overlay"))
+        .unwrap()[0]
+        .model
+        .elements[0]
+        .faces[0]
+        .1
+        .texture;
+    let image = mit_overlay.textures().image(texture);
+    assert_eq!(image.dimensions(), (16, 16));
+    assert_eq!(image.get_pixel(0, 0).0[0], 10, "erstes Bild des Streifens");
+}
+
+/// 48 der Vanilla-mcmeta enthalten nur `texture`-Flags wie `blur`. Solche
+/// Texturen sind statisch, auch wenn sie höher als breit sind.
+#[test]
+fn mcmeta_ohne_animation_schneidet_nicht_zu() {
+    let mut assets = base();
+    let texture = assets.variants(&state("statische_mcmeta")).unwrap()[0]
+        .model
+        .elements[0]
+        .faces[0]
+        .1
+        .texture;
+    assert_eq!(assets.textures().image(texture).dimensions(), (16, 32));
 }

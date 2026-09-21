@@ -1,0 +1,18 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": { "all": "minecraft:block/planks" },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "rotation": { "origin": [8, 0, 8], "x": 180, "y": -67.5, "z": -180 },
+      "faces": { "up": { "texture": "#all" } }
+    },
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "rotation": { "origin": [8, 0, 8], "axis": "y", "angle": -22.5 },
+      "faces": { "up": { "texture": "#all" } }
+    }
+  ]
+}

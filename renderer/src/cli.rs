@@ -150,6 +150,9 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
         if variant.y != 0 {
             drehung += &format!(" y={}", variant.y);
         }
+        if variant.z != 0 {
+            drehung += &format!(" z={}", variant.z);
+        }
         if variant.uvlock {
             drehung += " uvlock";
         }

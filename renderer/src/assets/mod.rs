@@ -10,7 +10,7 @@ use anyhow::{Context, Result, anyhow, bail};
 
 use crate::world::BlockState;
 pub use blockstate::{BlockStateDef, ModelRef};
-pub use model::{Axis, Element, ElementFace, Face, ResolvedModel, Rotation};
+pub use model::{Element, ElementFace, Face, ResolvedModel, Rotation};
 pub use texture::{TextureId, Textures};
 
 /// Wie tief die `parent`-Kette eines Modells verfolgt wird, bevor ein Zyklus
@@ -28,6 +28,8 @@ pub struct ResolvedVariant {
     pub x: i32,
     /// Drehung um die Y-Achse in Grad, Vielfache von 90.
     pub y: i32,
+    /// Drehung um die Z-Achse in Grad; seit Minecraft 1.21.11 erlaubt.
+    pub z: i32,
     /// Texturen mitdrehen statt der Drehung folgen zu lassen.
     pub uvlock: bool,
 }
@@ -67,7 +69,7 @@ impl Assets {
     }
 
     fn find(&self, namespace: &str, kind: &str, path: &str, extension: &str) -> Option<PathBuf> {
-        find_file(&self.roots, namespace, kind, path, extension)
+        find_file(&self.roots, namespace, kind, path, extension).map(|(_, path)| path)
     }
 
     /// Alle Blockstate-Namen, die in irgendeiner Wurzel definiert sind.
@@ -118,7 +120,7 @@ impl Assets {
     pub fn variants(&mut self, state: &BlockState) -> Result<Vec<ResolvedVariant>> {
         let def = self.blockstate_def(state.name())?;
         let refs = def.select(state);
-        if refs.is_empty() {
+        if refs.is_empty() && !def.is_multipart() {
             bail!("{state} passt auf keine Variante der Blockstate-Datei");
         }
         refs.into_iter()
@@ -128,6 +130,7 @@ impl Assets {
                     model_id: r.model,
                     x: r.x,
                     y: r.y,
+                    z: r.z,
                     uvlock: r.uvlock,
                 })
             })
@@ -193,20 +196,24 @@ impl Assets {
 
 /// Erste Datei, die von hinten nach vorne in den Wurzeln gefunden wird —
 /// die zuletzt angegebene Wurzel gewinnt.
+///
+/// Liefert zusätzlich den Index der Wurzel, damit zusammengehörige Dateien
+/// wie `.png` und `.png.mcmeta` in derselben oder einer höheren Schicht
+/// gesucht werden können.
 fn find_file(
     roots: &[PathBuf],
     namespace: &str,
     kind: &str,
     path: &str,
     extension: &str,
-) -> Option<PathBuf> {
-    roots.iter().rev().find_map(|root| {
+) -> Option<(usize, PathBuf)> {
+    roots.iter().enumerate().rev().find_map(|(layer, root)| {
         let mut file = path
             .split('/')
             .fold(root.join(namespace).join(kind), |acc, part| acc.join(part));
         file.as_mut_os_string().push(".");
         file.as_mut_os_string().push(extension);
-        file.is_file().then_some(file)
+        file.is_file().then_some((layer, file))
     })
 }
 

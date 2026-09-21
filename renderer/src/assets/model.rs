@@ -46,19 +46,17 @@ impl Face {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Axis {
-    X,
-    Y,
-    Z,
-}
-
-/// Drehung eines Elements um eine Achse, wie im Modell-JSON angegeben.
-#[derive(Debug, Clone, Copy)]
+/// Drehung eines Elements, wie im Modell-JSON angegeben.
+///
+/// Minecraft kennt zwei Schreibweisen: die klassische mit `axis` und `angle`
+/// und seit 1.21.11 eine mit `x`, `y` und `z` gleichzeitig. Beide landen hier
+/// in `angles`; die klassische setzt genau einen Eintrag. Angewendet werden
+/// die Winkel erst vom Baker in Schritt 3.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rotation {
     pub origin: [f32; 3],
-    pub axis: Axis,
-    pub angle: f32,
+    /// Winkel um X, Y und Z in Grad.
+    pub angles: [f32; 3],
     pub rescale: bool,
 }
 
@@ -147,21 +145,7 @@ impl ResolvedModel {
             out.push(Element {
                 from: element.from,
                 to: element.to,
-                rotation: element.rotation.and_then(|r| {
-                    Some(Rotation {
-                        origin: r.origin,
-                        // Ohne Achse ist die Angabe bedeutungslos; solche
-                        // Elemente kommen in Vanilla-Schildmodellen vor.
-                        axis: match r.axis.as_deref()? {
-                            "x" => Axis::X,
-                            "y" => Axis::Y,
-                            "z" => Axis::Z,
-                            _ => return None,
-                        },
-                        angle: r.angle,
-                        rescale: r.rescale,
-                    })
-                }),
+                rotation: element.rotation.map(Rotation::from),
                 shade: element.shade,
                 faces,
             });
@@ -188,6 +172,29 @@ fn resolve_texture(
         current = value.sprite().to_string();
     }
     None
+}
+
+impl From<RotationJson> for Rotation {
+    fn from(json: RotationJson) -> Rotation {
+        // Die klassische Schreibweise hat Vorrang; nur wenn sie fehlt,
+        // zählen x, y und z. Vanilla mischt beides innerhalb einer Datei,
+        // etwa in block/template_hanging_sign_rot_3.
+        let angles = match json.axis.as_deref() {
+            Some("x") => [json.angle.unwrap_or(0.0), 0.0, 0.0],
+            Some("y") => [0.0, json.angle.unwrap_or(0.0), 0.0],
+            Some("z") => [0.0, 0.0, json.angle.unwrap_or(0.0)],
+            _ => [
+                json.x.unwrap_or(0.0),
+                json.y.unwrap_or(0.0),
+                json.z.unwrap_or(0.0),
+            ],
+        };
+        Rotation {
+            origin: json.origin,
+            angles,
+            rescale: json.rescale,
+        }
+    }
 }
 
 // ------------------------------------------------------------- JSON-Layout
@@ -254,12 +261,14 @@ struct FaceJson {
 }
 
 #[derive(Deserialize)]
-struct RotationJson {
+pub(super) struct RotationJson {
     #[serde(default)]
     origin: [f32; 3],
     axis: Option<String>,
-    #[serde(default)]
-    angle: f32,
+    angle: Option<f32>,
+    x: Option<f32>,
+    y: Option<f32>,
+    z: Option<f32>,
     #[serde(default)]
     rescale: bool,
 }
@@ -313,6 +322,41 @@ mod tests {
         assert_eq!(resolve_texture("#weg", &map(&[])), None);
         let zyklus = map(&[("a", "#b"), ("b", "#a")]);
         assert_eq!(resolve_texture("#a", &zyklus), None);
+    }
+
+    fn rotation(json: &str) -> Rotation {
+        serde_json::from_str::<RotationJson>(json).unwrap().into()
+    }
+
+    #[test]
+    fn klassische_rotation() {
+        let r = rotation(r#"{"origin": [8, 0, 8], "axis": "y", "angle": -22.5}"#);
+        assert_eq!(r.angles, [0.0, -22.5, 0.0]);
+        assert_eq!(r.origin, [8.0, 0.0, 8.0]);
+        assert!(!r.rescale);
+    }
+
+    /// Vanilla 26.2 nutzt das in block/template_hanging_sign_rot_3 und das
+    /// TerraNova-Pack in bvb_template_sign_rot_3.
+    #[test]
+    fn mehrachsen_rotation() {
+        let r = rotation(r#"{"x": 180, "y": -67.5, "z": -180, "origin": [8, 0, 8]}"#);
+        assert_eq!(r.angles, [180.0, -67.5, -180.0]);
+        assert_eq!(r.origin, [8.0, 0.0, 8.0]);
+    }
+
+    #[test]
+    fn klassische_schreibweise_hat_vorrang() {
+        let r = rotation(r#"{"axis": "y", "angle": 45, "x": 180, "z": 90}"#);
+        assert_eq!(r.angles, [0.0, 45.0, 0.0]);
+    }
+
+    #[test]
+    fn rotation_ohne_winkel_bleibt_erhalten() {
+        // kommt in Vanilla-Schildmodellen vor: nur origin, keine Winkel
+        let r = rotation(r#"{"origin": [8, 8, 8]}"#);
+        assert_eq!(r.angles, [0.0, 0.0, 0.0]);
+        assert_eq!(r.origin, [8.0, 8.0, 8.0]);
     }
 
     #[test]

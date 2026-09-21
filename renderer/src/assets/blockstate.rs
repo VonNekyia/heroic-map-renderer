@@ -25,6 +25,8 @@ pub struct ModelRef {
     pub model: String,
     pub x: i32,
     pub y: i32,
+    /// Seit Minecraft 1.21.11 auch für Blockstate-Varianten erlaubt.
+    pub z: i32,
     pub uvlock: bool,
 }
 
@@ -37,9 +39,36 @@ pub struct Case {
 #[derive(Debug)]
 pub enum Condition {
     /// Alle Paare müssen passen; der Wert darf `a|b` als Alternativen listen.
-    Props(Vec<(String, Vec<String>)>),
+    Props(Vec<(String, Vec<Term>)>),
     And(Vec<Condition>),
     Or(Vec<Condition>),
+}
+
+/// Ein Wert in einer Multipart-Bedingung. Ein führendes `!` negiert ihn, wie
+/// `KeyValueCondition.Term` in Minecraft.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Term {
+    value: String,
+    negated: bool,
+}
+
+impl Term {
+    fn parse(text: &str) -> Term {
+        match text.strip_prefix('!') {
+            Some(rest) => Term {
+                value: rest.to_string(),
+                negated: true,
+            },
+            None => Term {
+                value: text.to_string(),
+                negated: false,
+            },
+        }
+    }
+
+    fn matches(&self, value: &str) -> bool {
+        (self.value == value) != self.negated
+    }
 }
 
 impl BlockStateDef {
@@ -78,6 +107,13 @@ impl BlockStateDef {
         bail!("weder variants noch multipart")
     }
 
+    /// Multipart darf leer ausgehen: trifft keine Bedingung zu, hat der
+    /// Zustand schlicht keine Geometrie. Eine Variantentabelle ohne Treffer
+    /// ist dagegen ein Fehler im Pack.
+    pub fn is_multipart(&self) -> bool {
+        matches!(self, BlockStateDef::Multipart(_))
+    }
+
     /// Die Modelle, die für diese Blockstate gelten.
     ///
     /// Bei gewichteten Listen gewinnt immer der erste Eintrag, damit zwei
@@ -110,10 +146,10 @@ impl BlockStateDef {
 impl Condition {
     fn matches(&self, state: &BlockState) -> bool {
         match self {
-            Condition::Props(props) => props.iter().all(|(name, allowed)| {
+            Condition::Props(props) => props.iter().all(|(name, terms)| {
                 state
                     .prop(name)
-                    .is_some_and(|value| allowed.iter().any(|a| a == value))
+                    .is_some_and(|value| terms.iter().any(|term| term.matches(value)))
             }),
             Condition::And(list) => list.iter().all(|c| c.matches(state)),
             Condition::Or(list) => list.iter().any(|c| c.matches(state)),
@@ -151,6 +187,7 @@ fn parse_model_ref(value: &Value) -> Result<ModelRef> {
             .to_string(),
         x: value.get("x").and_then(Value::as_i64).unwrap_or(0) as i32,
         y: value.get("y").and_then(Value::as_i64).unwrap_or(0) as i32,
+        z: value.get("z").and_then(Value::as_i64).unwrap_or(0) as i32,
         uvlock: value
             .get("uvlock")
             .and_then(Value::as_bool)
@@ -185,7 +222,7 @@ fn parse_condition(value: &Value) -> Result<Condition> {
                     .ok_or_else(|| anyhow!("Bedingung {name} hat keinen einfachen Wert"))?;
                 Ok((
                     name.clone(),
-                    value.split('|').map(str::to_string).collect::<Vec<_>>(),
+                    value.split('|').map(Term::parse).collect::<Vec<_>>(),
                 ))
             })
             .collect::<Result<_>>()?,
@@ -319,6 +356,53 @@ mod tests {
         let d = def(r#"{"multipart": [{"apply": {"model": "m"}, "when": {"lit": true}}]}"#);
         assert_eq!(d.select(&state("minecraft:x[lit=true]")).len(), 1);
         assert_eq!(d.select(&state("minecraft:x[lit=false]")).len(), 0);
+    }
+
+    /// Minecraft behandelt ein führendes `!` als Negation
+    /// (`KeyValueCondition.Term`). Ohne das wird `!north` wörtlich
+    /// verglichen und passt auf keinen gültigen Wert.
+    #[test]
+    fn negierte_bedingungen() {
+        let d = def(r#"{"multipart": [{"apply": {"model": "m"}, "when": {"facing": "!north"}}]}"#);
+        assert_eq!(d.select(&state("minecraft:x[facing=east]")).len(), 1);
+        assert_eq!(d.select(&state("minecraft:x[facing=north]")).len(), 0);
+    }
+
+    #[test]
+    fn negierte_bedingungen_mit_alternativen() {
+        let d =
+            def(r#"{"multipart": [{"apply": {"model": "m"}, "when": {"facing": "!north|east"}}]}"#);
+        // Erst an `|` trennen, dann jeden Term auf `!` prüfen; es genügt,
+        // wenn einer passt.
+        assert_eq!(d.select(&state("minecraft:x[facing=east]")).len(), 1);
+        assert_eq!(d.select(&state("minecraft:x[facing=south]")).len(), 1);
+        // north scheitert an beiden Termen
+        assert_eq!(d.select(&state("minecraft:x[facing=north]")).len(), 0);
+    }
+
+    /// Trifft in einem Multipart keine Bedingung zu, hat der Zustand keine
+    /// Geometrie — das ist kein Fehler.
+    #[test]
+    fn multipart_darf_leer_ausgehen() {
+        let d = def(r#"{"multipart": [{"apply": {"model": "m"}, "when": {"powered": "true"}}]}"#);
+        assert!(d.is_multipart());
+        assert!(d.select(&state("minecraft:x[powered=false]")).is_empty());
+    }
+
+    #[test]
+    fn variantentabelle_ist_kein_multipart() {
+        assert!(!def(r#"{"variants": {"": {"model": "m"}}}"#).is_multipart());
+    }
+
+    /// Seit Minecraft 1.21.11 dürfen Modellverweise auch um Z gedreht sein.
+    #[test]
+    fn z_drehung_wird_gelesen() {
+        let d = def(r#"{"variants": {"": {"model": "m", "x": 90, "y": 180, "z": 270}}}"#);
+        let m = &d.select(&state("minecraft:x"))[0];
+        assert_eq!((m.x, m.y, m.z), (90, 180, 270));
+
+        let d = def(r#"{"variants": {"": {"model": "m"}}}"#);
+        assert_eq!(d.select(&state("minecraft:x"))[0].z, 0);
     }
 
     #[test]

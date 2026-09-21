@@ -1,0 +1,147 @@
+//! Prüft Projektion, Baking und Rasterizer zusammen: von der Blockstate bis
+//! zu den Pixeln des Sprites.
+//!
+//! Die Zahlen sind aus der Projektion ausgerechnet, nicht aus einem früheren
+//! Lauf abgelesen — ein Goldbild käme erst in Schritt 4 dazu.
+
+use std::path::PathBuf;
+
+use terranova_render::assets::{Assets, bake};
+use terranova_render::render::{Projection, render};
+use terranova_render::world::BlockState;
+
+fn assets() -> Assets {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
+    Assets::open(vec![base]).unwrap()
+}
+
+fn state(text: &str) -> BlockState {
+    BlockState::parse(text).unwrap()
+}
+
+/// Rastert eine Blockstate des Fixtures.
+fn sprite(assets: &mut Assets, text: &str, scale: u32) -> Option<terranova_render::render::Sprite> {
+    let variants = assets.variants(&state(text)).unwrap();
+    render(&bake(&variants), assets.textures(), &Projection::new(scale))
+}
+
+#[test]
+fn voller_wuerfel_belegt_scale_mal_scale() {
+    let mut assets = assets();
+    for scale in [16, 32, 64] {
+        let sprite = sprite(&mut assets, "einfarbig", scale).expect("Sprite");
+        assert_eq!(sprite.image.dimensions(), (scale, scale), "scale {scale}");
+        assert_eq!(
+            sprite.offset,
+            (-(scale as i32) / 2, -(scale as i32) / 2),
+            "scale {scale}"
+        );
+    }
+}
+
+/// Von dieser Kamera sind genau drei Seiten zu sehen: oben, Süden (links)
+/// und Osten (rechts). Minecraft hellt sie unterschiedlich ab, sonst sähe
+/// ein Würfel flach aus.
+#[test]
+fn drei_sichtbare_seiten_mit_abgestufter_helligkeit() {
+    let mut assets = assets();
+    let sprite = sprite(&mut assets, "einfarbig", 16).expect("Sprite");
+
+    // Aus der Projektion gerechnet: Mittelpunkt der jeweiligen Fläche.
+    let oben = sprite.image.get_pixel(8, 4).0;
+    let sueden = sprite.image.get_pixel(4, 10).0;
+    let osten = sprite.image.get_pixel(12, 10).0;
+
+    for pixel in [oben, sueden, osten] {
+        assert_eq!(pixel[3], 255, "alle drei Flächen sind gedeckt");
+    }
+    assert!(
+        oben[0] > sueden[0] && sueden[0] > osten[0],
+        "erwartet oben > Süden > Osten, bekommen {} > {} > {}",
+        oben[0],
+        sueden[0],
+        osten[0]
+    );
+
+    // Die Textur ist einfarbig (150, 110, 60); oben bleibt sie unverändert.
+    assert_eq!(oben, [150, 110, 60, 255]);
+}
+
+/// Ein isometrischer Würfel ist ein Sechseck: die Ecken des umschließenden
+/// Rechtecks bleiben frei.
+#[test]
+fn ecken_bleiben_durchsichtig() {
+    let mut assets = assets();
+    let sprite = sprite(&mut assets, "einfarbig", 16).expect("Sprite");
+    for (x, y) in [(0, 0), (15, 0), (0, 15), (15, 15)] {
+        assert_eq!(
+            sprite.image.get_pixel(x, y).0[3],
+            0,
+            "Ecke ({x}, {y}) sollte leer sein"
+        );
+    }
+    assert_eq!(sprite.image.get_pixel(8, 8).0[3], 255, "Mitte ist gedeckt");
+}
+
+#[test]
+fn tintindex_faerbt_die_flaeche() {
+    let mut assets = assets();
+    let ohne = sprite(&mut assets, "einfarbig", 16).expect("Sprite");
+    let mit = sprite(&mut assets, "einfarbig_getoent", 16).expect("Sprite");
+
+    let a = ohne.image.get_pixel(8, 4).0;
+    let b = mit.image.get_pixel(8, 4).0;
+    assert_eq!(a, [150, 110, 60, 255], "ungetönt bleibt die Texturfarbe");
+
+    // Die Textur ist bräunlich; „grüner" heißt hier, dass Grün gegenüber
+    // Rot zulegt, nicht dass Grün absolut überwiegt.
+    let anteil = |p: [u8; 4]| p[1] as f32 / p[0] as f32;
+    assert!(
+        anteil(b) > anteil(a),
+        "getönt sollte grünstichiger sein: {a:?} -> {b:?}"
+    );
+}
+
+/// Regression: die Geometrie wurde aus `uv` abgeleitet statt aus der
+/// Elementgröße. Ein Element mit abweichendem `uv` ragte dadurch aus dem
+/// Block heraus — bei Türen gut sichtbar als loser Balken daneben.
+#[test]
+fn abweichendes_uv_verschiebt_die_flaeche_nicht() {
+    let mut assets = assets();
+    let sprite = sprite(&mut assets, "schmal", 16).expect("Sprite");
+
+    // Das Element ist 3 von 16 dick und 16 hoch. Breiter als ein voller
+    // Block kann sein Sprite nie werden.
+    let (w, h) = sprite.image.dimensions();
+    assert!(
+        w <= 16 && h <= 16,
+        "Sprite ist {w}x{h}, erwartet höchstens 16x16"
+    );
+}
+
+/// Mehrachsige Rotationen kommen in Vanilla-Schildmodellen vor und dürfen
+/// den Rasterizer nicht aus dem Tritt bringen.
+#[test]
+fn mehrachsige_rotation_wird_gerastert() {
+    let mut assets = assets();
+    let sprite = sprite(&mut assets, "mehrachsig", 32).expect("Sprite");
+    let gedeckt = sprite.image.pixels().filter(|p| p.0[3] > 0).count();
+    assert!(gedeckt > 0, "das gedrehte Element muss sichtbar sein");
+}
+
+#[test]
+fn modell_ohne_elemente_ergibt_kein_sprite() {
+    let mut assets = assets();
+    assert!(sprite(&mut assets, "chest", 16).is_none());
+}
+
+/// Zwei Läufe müssen dasselbe Bild erzeugen, sonst ist eine Zoom-Pyramide
+/// später nicht reproduzierbar.
+#[test]
+fn rastern_ist_deterministisch() {
+    let mut assets = assets();
+    let a = sprite(&mut assets, "einfarbig", 24).expect("Sprite");
+    let b = sprite(&mut assets, "einfarbig", 24).expect("Sprite");
+    assert_eq!(a.image.as_raw(), b.image.as_raw());
+    assert_eq!(a.offset, b.offset);
+}

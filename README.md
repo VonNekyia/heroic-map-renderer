@@ -219,7 +219,13 @@ Höhe `y`, innerhalb einer Höhe nach Tiefe `v = x + z`. Beides ist nötig:
   `depth = x + y + z = v + y`.
 
 Zusammen ergibt das eine gültige Reihenfolge, und ein globaler Tiefenpuffer
-wird unnötig. Ein Block wird übersprungen, wenn seine drei kamerazugewandten
+wird unnötig. Die zweite Regel wegzulassen sieht nicht nach einem Sortierfehler
+aus, sondern nach Textur — links läuft `u` aussen, rechts `v`:
+
+![Zeichenreihenfolge](docs/zeichenreihenfolge.png)
+
+Das Muster links sind die Süd- und Ostflächen jedes Blattblocks, die durch den
+Block davor schlagen. Ein Block wird übersprungen, wenn seine drei kamerazugewandten
 Nachbarn volle, deckende Blöcke sind **und** sein eigenes Sprite den
 Blockumriss nicht verlässt — die drei Nachbarumrisse setzen genau den eigenen
 zusammen, mehr nicht. Was darüber hinausragt, bleibt sichtbar. Ob ein Sprite

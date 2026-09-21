@@ -1,0 +1,7 @@
+{
+  "multipart": [
+    { "apply": { "model": "minecraft:block/fence_post" } },
+    { "apply": { "model": "minecraft:block/fence_side" }, "when": { "north": "true" } },
+    { "apply": { "model": "minecraft:block/fence_side", "y": 90, "uvlock": true }, "when": { "east": "true" } }
+  ]
+}

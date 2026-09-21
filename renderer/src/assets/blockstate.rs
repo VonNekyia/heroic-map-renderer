@@ -1,0 +1,328 @@
+use anyhow::{Result, anyhow, bail};
+use serde_json::Value;
+
+use crate::world::BlockState;
+
+/// Der Inhalt einer `blockstates/*.json`: entweder eine Variantentabelle oder
+/// eine Liste von Multipart-Fällen.
+#[derive(Debug)]
+pub enum BlockStateDef {
+    Variants(Vec<Variant>),
+    Multipart(Vec<Case>),
+}
+
+/// Ein Eintrag der Variantentabelle. `when` ist leer für den Schlüssel `""`,
+/// der auf jede Blockstate passt.
+#[derive(Debug)]
+pub struct Variant {
+    pub when: Vec<(String, String)>,
+    pub apply: Vec<ModelRef>,
+}
+
+/// Verweis auf ein Modell samt Drehung aus der Blockstate-Datei.
+#[derive(Debug, Clone)]
+pub struct ModelRef {
+    pub model: String,
+    pub x: i32,
+    pub y: i32,
+    pub uvlock: bool,
+}
+
+#[derive(Debug)]
+pub struct Case {
+    pub when: Option<Condition>,
+    pub apply: Vec<ModelRef>,
+}
+
+#[derive(Debug)]
+pub enum Condition {
+    /// Alle Paare müssen passen; der Wert darf `a|b` als Alternativen listen.
+    Props(Vec<(String, Vec<String>)>),
+    And(Vec<Condition>),
+    Or(Vec<Condition>),
+}
+
+impl BlockStateDef {
+    pub fn parse(json: &Value) -> Result<BlockStateDef> {
+        if let Some(variants) = json.get("variants") {
+            let object = variants
+                .as_object()
+                .ok_or_else(|| anyhow!("variants ist kein Objekt"))?;
+            let mut out = Vec::with_capacity(object.len());
+            for (key, value) in object {
+                out.push(Variant {
+                    when: parse_variant_key(key)?,
+                    apply: parse_apply(value)?,
+                });
+            }
+            return Ok(BlockStateDef::Variants(out));
+        }
+
+        if let Some(multipart) = json.get("multipart") {
+            let list = multipart
+                .as_array()
+                .ok_or_else(|| anyhow!("multipart ist keine Liste"))?;
+            let mut cases = Vec::with_capacity(list.len());
+            for case in list {
+                let apply = case
+                    .get("apply")
+                    .ok_or_else(|| anyhow!("Multipart-Fall ohne apply"))?;
+                cases.push(Case {
+                    when: case.get("when").map(parse_condition).transpose()?,
+                    apply: parse_apply(apply)?,
+                });
+            }
+            return Ok(BlockStateDef::Multipart(cases));
+        }
+
+        bail!("weder variants noch multipart")
+    }
+
+    /// Die Modelle, die für diese Blockstate gelten.
+    ///
+    /// Bei gewichteten Listen gewinnt immer der erste Eintrag, damit zwei
+    /// Läufe dasselbe Bild erzeugen.
+    // ponytail: Vanilla würfelt die Variante aus der Blockposition. Für
+    // Abwechslung bei Stein und Erde später die Position hineinreichen.
+    pub fn select(&self, state: &BlockState) -> Vec<ModelRef> {
+        match self {
+            BlockStateDef::Variants(variants) => variants
+                .iter()
+                .find(|variant| {
+                    variant
+                        .when
+                        .iter()
+                        .all(|(name, value)| state.prop(name) == Some(value.as_str()))
+                })
+                .and_then(|variant| variant.apply.first())
+                .cloned()
+                .into_iter()
+                .collect(),
+            BlockStateDef::Multipart(cases) => cases
+                .iter()
+                .filter(|case| case.when.as_ref().is_none_or(|c| c.matches(state)))
+                .filter_map(|case| case.apply.first().cloned())
+                .collect(),
+        }
+    }
+}
+
+impl Condition {
+    fn matches(&self, state: &BlockState) -> bool {
+        match self {
+            Condition::Props(props) => props.iter().all(|(name, allowed)| {
+                state
+                    .prop(name)
+                    .is_some_and(|value| allowed.iter().any(|a| a == value))
+            }),
+            Condition::And(list) => list.iter().all(|c| c.matches(state)),
+            Condition::Or(list) => list.iter().any(|c| c.matches(state)),
+        }
+    }
+}
+
+/// `"facing=east,half=bottom"` -> Paare. Der leere Schlüssel passt immer.
+fn parse_variant_key(key: &str) -> Result<Vec<(String, String)>> {
+    if key.is_empty() {
+        return Ok(Vec::new());
+    }
+    key.split(',')
+        .map(|pair| {
+            pair.split_once('=')
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .ok_or_else(|| anyhow!("Variantenschlüssel ohne '=': {pair}"))
+        })
+        .collect()
+}
+
+fn parse_apply(value: &Value) -> Result<Vec<ModelRef>> {
+    match value {
+        Value::Array(list) => list.iter().map(parse_model_ref).collect(),
+        object => Ok(vec![parse_model_ref(object)?]),
+    }
+}
+
+fn parse_model_ref(value: &Value) -> Result<ModelRef> {
+    Ok(ModelRef {
+        model: value
+            .get("model")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("Modellverweis ohne model"))?
+            .to_string(),
+        x: value.get("x").and_then(Value::as_i64).unwrap_or(0) as i32,
+        y: value.get("y").and_then(Value::as_i64).unwrap_or(0) as i32,
+        uvlock: value
+            .get("uvlock")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+fn parse_condition(value: &Value) -> Result<Condition> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| anyhow!("when ist kein Objekt"))?;
+
+    for (key, combine) in [
+        ("OR", Condition::Or as fn(Vec<Condition>) -> Condition),
+        ("AND", Condition::And),
+    ] {
+        if let Some(list) = object.get(key) {
+            let list = list
+                .as_array()
+                .ok_or_else(|| anyhow!("{key} ist keine Liste"))?;
+            return Ok(combine(
+                list.iter().map(parse_condition).collect::<Result<_>>()?,
+            ));
+        }
+    }
+
+    Ok(Condition::Props(
+        object
+            .iter()
+            .map(|(name, value)| {
+                let value = value_as_string(value)
+                    .ok_or_else(|| anyhow!("Bedingung {name} hat keinen einfachen Wert"))?;
+                Ok((
+                    name.clone(),
+                    value.split('|').map(str::to_string).collect::<Vec<_>>(),
+                ))
+            })
+            .collect::<Result<_>>()?,
+    ))
+}
+
+/// Blockstate-Werte sind Strings, manche Packs schreiben aber `true` oder `3`.
+fn value_as_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(s) => Some(s.clone()),
+        Value::Bool(b) => Some(b.to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state(text: &str) -> BlockState {
+        BlockState::parse(text).unwrap()
+    }
+
+    fn def(json: &str) -> BlockStateDef {
+        BlockStateDef::parse(&serde_json::from_str(json).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn variante_ohne_schluessel_passt_immer() {
+        let d = def(r#"{"variants": {"": {"model": "block/stone"}}}"#);
+        let models = d.select(&state("minecraft:stone"));
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].model, "block/stone");
+    }
+
+    #[test]
+    fn gewichtete_liste_nimmt_den_ersten() {
+        let d = def(r#"{"variants": {"": [
+                {"model": "block/stone"},
+                {"model": "block/stone_mirrored", "y": 180}
+            ]}}"#);
+        let models = d.select(&state("minecraft:stone"));
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].model, "block/stone");
+        assert_eq!(models[0].y, 0);
+    }
+
+    #[test]
+    fn variante_waehlt_nach_properties() {
+        let d = def(r#"{"variants": {
+                "facing=east,half=bottom": {"model": "block/stairs", "y": 270, "uvlock": true},
+                "facing=west,half=bottom": {"model": "block/stairs", "y": 90}
+            }}"#);
+        let models = d.select(&state(
+            "minecraft:oak_stairs[facing=east,half=bottom,shape=straight]",
+        ));
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].y, 270);
+        assert!(models[0].uvlock);
+
+        // Eine Property, die in keinem Schlüssel steht, stört nicht; eine
+        // fehlende Übereinstimmung schon.
+        assert!(
+            d.select(&state("minecraft:oak_stairs[facing=north,half=bottom]"))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn multipart_sammelt_alle_treffer() {
+        let d = def(r#"{"multipart": [
+                {"apply": {"model": "block/post"}},
+                {"apply": {"model": "block/side"}, "when": {"north": "true"}},
+                {"apply": {"model": "block/side", "y": 90}, "when": {"east": "true"}}
+            ]}"#);
+        let models = d.select(&state(
+            "minecraft:oak_fence[east=true,north=true,south=false]",
+        ));
+        assert_eq!(models.len(), 3);
+        let models = d.select(&state("minecraft:oak_fence[east=false,north=false]"));
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].model, "block/post");
+    }
+
+    #[test]
+    fn bedingungen_mit_oder_und_alternativen() {
+        let d = def(r#"{"multipart": [
+                {"apply": {"model": "block/dot"}, "when": {"OR": [
+                    {"north": "none", "east": "none"},
+                    {"north": "side|up"}
+                ]}}
+            ]}"#);
+        assert_eq!(
+            d.select(&state("minecraft:redstone_wire[east=none,north=none]"))
+                .len(),
+            1
+        );
+        assert_eq!(
+            d.select(&state("minecraft:redstone_wire[east=side,north=up]"))
+                .len(),
+            1
+        );
+        assert_eq!(
+            d.select(&state("minecraft:redstone_wire[east=side,north=none]"))
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn bedingungen_mit_und() {
+        let d = def(r#"{"multipart": [
+                {"apply": {"model": "block/x"}, "when": {"AND": [
+                    {"up": "true"},
+                    {"down": "false"}
+                ]}}
+            ]}"#);
+        assert_eq!(
+            d.select(&state("minecraft:vine[up=true,down=false]")).len(),
+            1
+        );
+        assert_eq!(
+            d.select(&state("minecraft:vine[up=true,down=true]")).len(),
+            0
+        );
+    }
+
+    #[test]
+    fn nicht_string_werte_werden_akzeptiert() {
+        let d = def(r#"{"multipart": [{"apply": {"model": "m"}, "when": {"lit": true}}]}"#);
+        assert_eq!(d.select(&state("minecraft:x[lit=true]")).len(), 1);
+        assert_eq!(d.select(&state("minecraft:x[lit=false]")).len(), 0);
+    }
+
+    #[test]
+    fn datei_ohne_variants_und_multipart_ist_fehler() {
+        assert!(BlockStateDef::parse(&serde_json::json!({"foo": 1})).is_err());
+    }
+}

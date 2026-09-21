@@ -4,7 +4,7 @@ use std::fmt;
 ///
 /// Properties werden beim Anlegen nach Schlüssel sortiert, damit `Display`,
 /// `Eq` und `Hash` unabhängig von der Reihenfolge in der NBT-Datei sind.
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct BlockState {
     name: String,
     props: Vec<(String, String)>,
@@ -17,6 +17,40 @@ impl BlockState {
             name: name.into(),
             props,
         }
+    }
+
+    /// Liest die Schreibweise, die [`Display`](fmt::Display) erzeugt:
+    /// `minecraft:oak_stairs[facing=east,half=bottom]`. Ohne Namensraum gilt
+    /// `minecraft`.
+    pub fn parse(text: &str) -> Result<BlockState, String> {
+        let (name, props) = match text.split_once('[') {
+            None => (text.trim(), ""),
+            Some((name, rest)) => (
+                name.trim(),
+                rest.strip_suffix(']')
+                    .ok_or_else(|| format!("'{text}': schließende Klammer fehlt"))?,
+            ),
+        };
+        if name.is_empty() {
+            return Err(format!("'{text}': kein Blockname"));
+        }
+
+        let props = props
+            .split(',')
+            .filter(|pair| !pair.trim().is_empty())
+            .map(|pair| {
+                pair.split_once('=')
+                    .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                    .ok_or_else(|| format!("'{pair}': erwartet name=wert"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let name = if name.contains(':') {
+            name.to_string()
+        } else {
+            format!("minecraft:{name}")
+        };
+        Ok(BlockState::new(name, props))
     }
 
     pub fn name(&self) -> &str {
@@ -208,6 +242,24 @@ mod tests {
         let idx = PackedIndices::new(vec![0i64], 16, 4);
         assert_eq!(idx.get(0), 0);
         assert_eq!(idx.get(4095), 0);
+    }
+
+    #[test]
+    fn blockstate_aus_text() {
+        let p = |s| BlockState::parse(s).unwrap().to_string();
+        assert_eq!(p("minecraft:stone"), "minecraft:stone");
+        assert_eq!(p("stone"), "minecraft:stone");
+        assert_eq!(
+            p("minecraft:oak_stairs[half=bottom,facing=east]"),
+            "minecraft:oak_stairs[facing=east,half=bottom]"
+        );
+        assert_eq!(p("terranova:x[a=1]"), "terranova:x[a=1]");
+        // Leerzeichen und ein überzähliges Komma stören nicht
+        assert_eq!(p("stone[ a = 1 ,]"), "minecraft:stone[a=1]");
+
+        assert!(BlockState::parse("stone[a=1").is_err());
+        assert!(BlockState::parse("stone[a]").is_err());
+        assert!(BlockState::parse("[a=1]").is_err());
     }
 
     #[test]

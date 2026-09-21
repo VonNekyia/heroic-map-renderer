@@ -7,8 +7,14 @@ use clap::Parser;
 
 use image::{Rgba, RgbaImage};
 use terranova_render::assets::{Assets, bake};
-use terranova_render::render::{Projection, render};
+use terranova_render::render::{
+    Projection, ScreenRect, SpriteSet, chunks_for, render, render_area,
+};
 use terranova_render::world::{BlockState, REGION, World};
+
+/// Höhenbereich, den Minecraft seit 1.18 verwendet. Sections ausserhalb
+/// liefert der Welt-Reader ohnehin nicht.
+const Y_RANGE: (i32, i32) = (-64, 319);
 
 #[derive(Parser)]
 #[command(name = "terranova-render", version, about)]
@@ -38,6 +44,18 @@ pub struct Args {
     #[arg(long, default_value_t = Projection::DEFAULT_SCALE)]
     scale: u32,
 
+    /// Einen Weltausschnitt in diese PNG rendern
+    #[arg(long, value_name = "DATEI")]
+    render: Option<PathBuf>,
+
+    /// Blockkoordinate, die in der Bildmitte landet: --center X Z
+    #[arg(long, num_args = 2, allow_negative_numbers = true, value_names = ["X", "Z"], default_values_t = [0, 0])]
+    center: Vec<i32>,
+
+    /// Kantenlänge des gerenderten Bildes in Pixeln
+    #[arg(long, default_value_t = 1024)]
+    size: u32,
+
     /// Jeden Chunk der Welt dekodieren; mit --assets auch jede Blockstate auflösen
     #[arg(long)]
     scan: bool,
@@ -54,6 +72,9 @@ pub fn run() -> Result<()> {
     }
     if args.sprite.is_some() && args.block.is_empty() {
         bail!("--sprite braucht mindestens ein --block");
+    }
+    if args.render.is_some() && (args.world.is_none() || args.assets.is_empty()) {
+        bail!("--render braucht --world und --assets");
     }
 
     let mut assets = match args.assets.as_slice() {
@@ -113,6 +134,16 @@ pub fn run() -> Result<()> {
         }
         if let Some(at) = &args.at {
             at_coordinate(world, assets.as_mut(), at[0], at[1], at[2])?;
+        }
+        if let Some(path) = &args.render {
+            render_world(
+                world,
+                assets.as_mut().expect("oben geprüft"),
+                Projection::new(args.scale),
+                (args.center[0], args.center[1]),
+                args.size,
+                path,
+            )?;
         }
     }
 
@@ -203,6 +234,75 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
             println!("      (kein Modell — wird von Minecraft als Entity gezeichnet)");
         }
     }
+    Ok(())
+}
+
+/// Rendert einen Ausschnitt der Welt in eine PNG.
+///
+/// Die Sprite-Tabelle entsteht vorher aus den Blockstates, die in genau
+/// diesem Ausschnitt vorkommen. Danach greift der Renderpfad nur noch
+/// darauf zu.
+fn render_world(
+    world: &World,
+    assets: &mut Assets,
+    projection: Projection,
+    center: (i32, i32),
+    size: u32,
+    path: &Path,
+) -> Result<()> {
+    // Das Rechteck so schieben, dass die gewünschte Blockspalte in der
+    // Bildmitte landet. project_block und nicht project: --center nimmt
+    // Weltkoordinaten entgegen, und die brauchen f64.
+    let (cx, cy) = projection.project_block([center.0, 0, center.1]);
+    let rect = ScreenRect {
+        x: cx.round() as i32 - size as i32 / 2,
+        y: cy.round() as i32 - size as i32 / 2,
+        width: size,
+        height: size,
+    };
+
+    let started = Instant::now();
+    let chunks = chunks_for(projection, rect, Y_RANGE);
+    let mut states = BTreeSet::new();
+    let mut vorhanden = 0u32;
+    for &(cx, cz) in &chunks {
+        if let Some(chunk) = world.chunk(cx, cz)? {
+            vorhanden += 1;
+            for section in chunk.sections() {
+                states.extend(section.blocks().palette().iter().cloned());
+            }
+        }
+    }
+
+    let sprites = SpriteSet::build(assets, &states, projection)?;
+    println!(
+        "\nRender:     {} Chunks im Ausschnitt, {vorhanden} generiert, {} Blockstates, {} Sprites",
+        chunks.len(),
+        states.len(),
+        sprites.len()
+    );
+    // Modelle, die ihren Blockwürfel verlassen, kosten im Renderpfad eine
+    // Suche je leerem Würfel. Wenn es langsam wird, steht hier warum.
+    if !sprites.foreign_cells().is_empty() {
+        println!(
+            "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",
+            sprites.overhanging(),
+            sprites.foreign_cells()
+        );
+    }
+
+    let image = render_area(world, &sprites, rect, Y_RANGE)?;
+    image
+        .save(path)
+        .with_context(|| format!("{} schreiben", path.display()))?;
+    println!(
+        "            {size}x{size} px um ({}, {}) bei scale {} in {:.1} s -> {}",
+        center.0,
+        center.1,
+        projection.scale(),
+        started.elapsed().as_secs_f64(),
+        path.display()
+    );
     Ok(())
 }
 

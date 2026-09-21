@@ -14,3 +14,6 @@ target/
 # Frontend
 node_modules/
 web/dist/
+
+# Ist-Bild eines gefallenen Goldbild-Tests
+metatile-ist.png

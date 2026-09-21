@@ -12,18 +12,19 @@ Der Browser rendert keine Minecraft-Geometrie, sondern nur fertige Rasterkacheln
 
 ## Stand
 
-Schritt 3 von 8: **Baking und Rasterizer**. Der Renderer liest die Welt, löst
-jede Blockstate zu Modellen und Texturen auf und rastert sie isometrisch zu
-einem Sprite. Eine Karte entsteht noch nicht — das ist Schritt 4.
+Schritt 4 von 8: **Metatile-Renderer**. Aus Welt plus Assets entsteht ein
+zusammenhängendes Bild. Kacheln, Zoomstufen und Frontend fehlen noch.
 
-![Sprites](docs/sprites.png)
+![Karte](docs/map.png)
+
+900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 2,1 s einkernig.
 
 | Schritt | Inhalt | Status |
 |---------|--------|--------|
 | 1 | Welt-Reader (Region, Chunk, Palette) | **fertig** |
 | 2 | Resourcepack: Blockstates, Models, Texturen | **fertig** |
 | 3 | Model-Baking und Iso-Sprite-Rasterizer | **fertig** |
-| 4 | Metatile-Renderer | offen |
+| 4 | Metatile-Renderer | **fertig** |
 | 5 | Rayon-Parallelisierung, Tiles, WebP | offen |
 | 6 | Zoom-Pyramide und `map.json` | offen |
 | 7 | Frontend (Vite, TypeScript, Leaflet) | offen |
@@ -90,11 +91,42 @@ minecraft:oak_fence[east=true,north=true]
       block/oak_fence_planks
 ```
 
-Blockstates als Sprites rastern. Das Bild oben entsteht so:
+Einzelne Blockstates als Sprites rastern:
 
 ```bash
 cargo run --release --manifest-path renderer/Cargo.toml -- --assets ./vanilla-assets --assets ./assets --scale 64 --sprite docs/sprites.png --block stone --block "grass_block[snowy=false]" --block "furnace[facing=east,lit=false]"
 ```
+
+![Sprites](docs/sprites.png)
+
+Einen Weltausschnitt rendern:
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --render docs/map.png --center -64 416 --size 900 --scale 16
+```
+
+```
+Render:     292 Chunks im Ausschnitt, 292 generiert, 258 Blockstates, 235 Sprites
+            900x900 px um (-64, 416) bei scale 16 in 2.1 s -> docs/map.png
+```
+
+`--center` nennt die Blockspalte, die in der Bildmitte landet, `--scale` die
+Pixelbreite eines Blocks. Gesucht wird nur, was im Bild landen kann: der
+sichtbare Bereich ist ein schmales diagonales Band in x und z, kein Rechteck.
+Wer stattdessen die Hüllbox nähme, läse für einen 1024er Ausschnitt rund das
+Sechzehnfache an Chunks.
+
+### Wasser fehlt
+
+Flüssigkeiten haben kein Blockmodell — Minecraft zeichnet sie über einen
+eigenen Pfad. Der Renderer überspringt sie deshalb, und Ozeane erscheinen als
+nackter Meeresboden. In einer Nahaufnahme fällt das kaum auf, über der ganzen
+Welt sehr:
+
+![Übersicht](docs/map-wide.png)
+
+Die grauen Flächen sind Ozean, das Blau oben rechts ist Eis — Eis ist ein
+gewöhnlicher Block und wird gezeichnet. Wasser steht in Schritt 8.
 
 Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, jede
 vorkommende Blockstate auflöst und sie rastert:
@@ -149,6 +181,19 @@ Für den Asset-Layer liegt unter `renderer/tests/fixtures/assets-base` und
 synthetisch, bildet aber die Formen ab, die eine Bestandsaufnahme über
 Vanilla 26.2 und das TerraNova-Pack ergeben hat.
 
+`renderer/tests/metatile.rs` baut aus diesem Assetbaum ganze Welten im
+Speicher und rendert sie; `renderer/tests/cli.rs` ruft dafür die echte
+Binärdatei auf, weil der Weg über `--center` eine eigene Fehlerquelle ist. Dazu gehört ein Goldbild unter
+`tests/fixtures/golden/`: jede Änderung an Projektion, Baking, Rasterizer oder
+Maleralgorithmus fällt damit auf. Neu erzeugen nach einer gewollten Änderung:
+
+```bash
+UPDATE_GOLDEN=1 cargo test --test metatile
+```
+
+Fällt der Test, schreibt er das Ist-Bild daneben als `metatile-ist.png`; in CI
+liegt es als Artefakt am fehlgeschlagenen Lauf.
+
 ## Die Kamera
 
 Fest und orthographisch, alle Faktoren stehen in `render/projection.rs`:
@@ -161,8 +206,55 @@ screen_y = (x + z) * scale/4 - y * scale/2
 Damit belegt ein voller Würfel genau `scale` mal `scale` Pixel. Sichtbar sind
 immer dieselben drei Seiten: oben, Süden (links im Bild) und Osten (rechts).
 Die Blickachse ist (1, 1, 1) — Punkte, die sich um ein Vielfaches davon
-unterscheiden, landen auf demselben Pixel. Daraus folgt die Zeichenreihenfolge
-für Schritt 4: wer einen anderen Block verdeckt, liegt nie tiefer.
+unterscheiden, landen auf demselben Pixel.
+
+Daraus folgt die Zeichenreihenfolge. Der Metatile-Renderer sortiert erst nach
+Höhe `y`, innerhalb einer Höhe nach Tiefe `v = x + z`. Beides ist nötig:
+
+- Verdeckt B den Block A, dann liegt B nie tiefer. Sonst wäre der senkrechte
+  Abstand im Bild mindestens eine Blockhöhe, und die Umrisse berührten sich
+  höchstens.
+- Auf gleicher Höhe verdecken Blöcke einander sehr wohl: der Südnachbar
+  `(x, y, z+1)` verdeckt die Südfläche von `(x, y, z)`, der Ostnachbar
+  `(x+1, y, z)` die Ostfläche. Dort heisst "verdeckt" genau `v_B > v_A`, denn
+  `depth = x + y + z = v + y`.
+
+Zusammen ergibt das eine gültige Reihenfolge, und ein globaler Tiefenpuffer
+wird unnötig. Die zweite Regel wegzulassen sieht nicht nach einem Sortierfehler
+aus, sondern nach Textur — links läuft `u` aussen, rechts `v`:
+
+![Zeichenreihenfolge](docs/zeichenreihenfolge.png)
+
+Das Muster links sind die Süd- und Ostflächen jedes Blattblocks, die durch den
+Block davor schlagen.
+
+Sortiert wird nach Blockwürfeln und nicht nach Blöcken. Der Unterschied zählt
+für Modelle, die ihren Würfel verlassen — Feuer ist höher als ein Block. Solche
+Sprites zerfallen beim Bauen der Sprite-Tabelle in einen Teil je Würfel, und
+jeder Teil wird zu dem Zeitpunkt gezeichnet, der zu seinem eigenen Würfel
+gehört. Sonst käme ein zwei Blöcke hohes Modell zu früh, und ein Block
+dahinter mit höherem Ursprung übermalte seine obere Hälfte.
+
+Zugeordnet wird über den Bildschirm: die Umrisse benachbarter Würfel kacheln
+die Ebene lückenlos, ein Pixel liegt also in genau einem — bis auf die
+Blickachse, wo Würfel im Abstand (1, 1, 1) aufeinanderfallen. Dort gewinnt der
+vordere, und genau dessen Geometrie hat auch der Tiefenpuffer des Rasterizers
+stehen lassen. Ein Modell, das zwei Würfel entlang der Blickachse ausfüllt,
+wäre so nicht auflösbar; in Vanilla gibt es keines.
+
+Ein Würfel wird übersprungen, wenn seine drei kamerazugewandten Nachbarn volle,
+deckende Blöcke sind — deren Umrisse setzen genau den eigenen zusammen, mehr
+nicht. Ob ein Sprite "deckend" ist, entscheidet sein fertiges Bild und nicht
+sein Modell, damit Glas von selbst herausfällt.
+
+Die Suche nach hineinragenden Nachbarmodellen kostet nichts, solange kein
+Modell seinen Würfel verlässt. In einem Ausschnitt mit Feuer kostet sie ein
+Nachschlagen je leerem Würfel, rund ein Viertel der Renderzeit.
+
+Weltkoordinaten werden in `f64` projiziert. Minecraft erlaubt knapp 30
+Millionen Blöcke in jede Richtung; ab 2²⁴ kann `f32` benachbarte ganzzahlige
+Blöcke nicht mehr auseinanderhalten, und zwei Nachbarn landen auf demselben
+Pixel.
 
 ## Entwurfsregel
 

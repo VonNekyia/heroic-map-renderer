@@ -40,6 +40,22 @@ impl Projection {
         ((x - z) * half, (x + z) * quarter - y * half)
     }
 
+    /// Blockkoordinaten auf Bildschirmpixel abbilden.
+    ///
+    /// Rechnet in f64, anders als `project`. Minecraft erlaubt Koordinaten
+    /// bis knapp 30 Millionen; ab 2^24 kann f32 benachbarte ganzzahlige
+    /// Blöcke nicht mehr auseinanderhalten, und zwei Nachbarn landen auf
+    /// demselben Pixel. Für Modellecken innerhalb eines Blocks reicht f32,
+    /// für Weltkoordinaten nicht.
+    pub fn project_block(&self, [x, y, z]: [i32; 3]) -> (f64, f64) {
+        let half = self.scale as f64 / 2.0;
+        let quarter = self.scale as f64 / 4.0;
+        (
+            (x as f64 - z as f64) * half,
+            (x as f64 + z as f64) * quarter - y as f64 * half,
+        )
+    }
+
     /// Tiefe entlang der Blickachse. Größer heißt näher an der Kamera.
     ///
     /// Die Blickrichtung ist (1, 1, 1): genau die Punkte, die sich um ein
@@ -114,5 +130,34 @@ mod tests {
     #[test]
     fn scale_hat_eine_untergrenze() {
         assert_eq!(Projection::new(0).scale(), 2);
+    }
+
+    /// Jenseits von 2^24 unterscheidet f32 benachbarte Blöcke nicht mehr.
+    /// project_block muss es trotzdem tun.
+    #[test]
+    fn weit_entfernte_nachbarn_fallen_nicht_zusammen() {
+        let p = Projection::new(32);
+        let weit = 1 << 24;
+        let a = p.project_block([weit, 4, weit]);
+        let b = p.project_block([weit + 1, 4, weit]);
+        assert_ne!(a, b);
+        assert_eq!(b.0 - a.0, 16.0);
+
+        // Gegenprobe: genau das geht mit f32 schief.
+        let f32_a = p.project([weit as f32, 4.0, weit as f32]);
+        let f32_b = p.project([(weit + 1) as f32, 4.0, weit as f32]);
+        assert_eq!(f32_a, f32_b, "f32 kann das hier nicht mehr");
+    }
+
+    /// Verschiebung um einen festen Vektor verschiebt das Bild genau
+    /// mit — auch weit draussen.
+    #[test]
+    fn projektion_ist_verschiebungstreu() {
+        let p = Projection::new(16);
+        for anker in [0, 1 << 20, 1 << 24, 29_999_984] {
+            let a = p.project_block([anker, 70, anker]);
+            let b = p.project_block([anker + 3, 70, anker - 5]);
+            assert_eq!((b.0 - a.0, b.1 - a.1), (64.0, -8.0), "bei {anker}");
+        }
     }
 }

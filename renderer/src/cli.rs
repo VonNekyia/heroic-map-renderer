@@ -1,11 +1,13 @@
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 
-use terranova_render::assets::Assets;
+use image::{Rgba, RgbaImage};
+use terranova_render::assets::{Assets, bake};
+use terranova_render::render::{Projection, render};
 use terranova_render::world::{BlockState, REGION, World};
 
 #[derive(Parser)]
@@ -23,9 +25,18 @@ pub struct Args {
     #[arg(long, num_args = 3, allow_negative_numbers = true, value_names = ["X", "Y", "Z"])]
     at: Option<Vec<i32>>,
 
-    /// Eine Blockstate direkt auflösen, z.B. "oak_fence[north=true]"
+    /// Eine Blockstate direkt auflösen, z.B. "oak_fence[north=true]";
+    /// mehrfach angebbar
     #[arg(long, value_name = "BLOCKSTATE")]
-    block: Option<String>,
+    block: Vec<String>,
+
+    /// Die Blockstates aus --block als Sprite-Raster in diese PNG schreiben
+    #[arg(long, value_name = "DATEI")]
+    sprite: Option<PathBuf>,
+
+    /// Pixelbreite eines Blocks
+    #[arg(long, default_value_t = Projection::DEFAULT_SCALE)]
+    scale: u32,
 
     /// Jeden Chunk der Welt dekodieren; mit --assets auch jede Blockstate auflösen
     #[arg(long)]
@@ -38,8 +49,11 @@ pub fn run() -> Result<()> {
     if args.world.is_none() && (args.at.is_some() || args.scan) {
         bail!("--at und --scan brauchen --world");
     }
-    if args.assets.is_empty() && args.block.is_some() {
+    if args.assets.is_empty() && !args.block.is_empty() {
         bail!("--block braucht --assets");
+    }
+    if args.sprite.is_some() && args.block.is_empty() {
+        bail!("--sprite braucht mindestens ein --block");
     }
 
     let mut assets = match args.assets.as_slice() {
@@ -76,15 +90,26 @@ pub fn run() -> Result<()> {
         }
     };
 
-    if let Some(text) = &args.block {
-        let state = BlockState::parse(text).map_err(|e| anyhow::anyhow!(e))?;
-        println!();
-        describe(assets.as_mut().expect("oben geprüft"), &state)?;
+    if !args.block.is_empty() {
+        let assets = assets.as_mut().expect("oben geprüft");
+        let states = args
+            .block
+            .iter()
+            .map(|text| BlockState::parse(text).map_err(|e| anyhow::anyhow!(e)))
+            .collect::<Result<Vec<_>>>()?;
+
+        for state in &states {
+            println!();
+            describe(assets, state)?;
+        }
+        if let Some(path) = &args.sprite {
+            write_sprites(assets, &states, Projection::new(args.scale), path)?;
+        }
     }
 
     if let Some((world, regions)) = &world {
         if args.scan {
-            scan(world, regions, assets.as_mut())?;
+            scan(world, regions, assets.as_mut(), Projection::new(args.scale))?;
         }
         if let Some(at) = &args.at {
             at_coordinate(world, assets.as_mut(), at[0], at[1], at[2])?;
@@ -181,10 +206,136 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
     Ok(())
 }
 
+/// Backt und rastert jede vorkommende Blockstate.
+///
+/// Der einzige belastbare Test für Baker und Rasterizer: ein Fixture prüft
+/// nur die Formen, die ich mir vorgestellt habe.
+fn bake_all(assets: &mut Assets, states: &BTreeSet<BlockState>, projection: Projection) {
+    let started = Instant::now();
+    let (mut sprites, mut pixels, mut groesstes) = (0u64, 0u64, (0u32, String::new()));
+    let mut unsichtbar: BTreeSet<&str> = BTreeSet::new();
+
+    for state in states {
+        let Ok(variants) = assets.variants(state) else {
+            continue;
+        };
+        let model = bake(&variants);
+        let Some(sprite) = render(&model, assets.textures(), &projection) else {
+            // Alle Flächen zeigen von der Kamera weg — aus dieser Richtung
+            // ist der Block schlicht nicht zu sehen.
+            if !model.is_empty() {
+                unsichtbar.insert(state.name());
+            }
+            continue;
+        };
+        let (w, h) = sprite.image.dimensions();
+        sprites += 1;
+        pixels += u64::from(w) * u64::from(h);
+        if w * h > groesstes.0 {
+            groesstes = (w * h, format!("{state} ({w}x{h})"));
+        }
+    }
+
+    let seconds = started.elapsed().as_secs_f64();
+    println!(
+        "Sprites:    {sprites} gerastert bei scale {} in {seconds:.1} s ({:.0}/s)",
+        projection.scale(),
+        sprites as f64 / seconds
+    );
+    println!(
+        "            {:.1} MB Sprite-Pixel, größtes: {}",
+        pixels as f64 * 4.0 / 1_048_576.0,
+        groesstes.1
+    );
+    if !unsichtbar.is_empty() {
+        println!(
+            "            {} Blöcke sind aus dieser Blickrichtung unsichtbar: {}",
+            unsichtbar.len(),
+            unsichtbar.iter().copied().collect::<Vec<_>>().join(", ")
+        );
+    }
+}
+
+/// Zeichnet die Sprites der Blockstates nebeneinander in eine PNG.
+///
+/// Das ist die Abnahme für Schritt 3: die Projektion, die Drehungen und die
+/// UV-Zuordnung lassen sich nur ansehen, nicht ausrechnen.
+fn write_sprites(
+    assets: &mut Assets,
+    states: &[BlockState],
+    projection: Projection,
+    path: &Path,
+) -> Result<()> {
+    let cell = projection.scale() * 2;
+    let columns = (states.len() as f64).sqrt().ceil() as u32;
+    let rows = states.len().div_ceil(columns as usize) as u32;
+
+    let mut sheet = karomuster(columns * cell, rows * cell);
+
+    for (i, state) in states.iter().enumerate() {
+        let variants = assets.variants(state)?;
+        let Some(sprite) = render(&bake(&variants), assets.textures(), &projection) else {
+            continue;
+        };
+
+        // Der Blockursprung landet in der Mitte der Zelle.
+        let origin_x = (i as u32 % columns) * cell + cell / 2;
+        let origin_y = (i as u32 / columns) * cell + cell / 2;
+        for (x, y, pixel) in sprite.image.enumerate_pixels() {
+            let tx = origin_x as i64 + sprite.offset.0 as i64 + x as i64;
+            let ty = origin_y as i64 + sprite.offset.1 as i64 + y as i64;
+            if tx < 0 || ty < 0 || tx >= sheet.width() as i64 || ty >= sheet.height() as i64 {
+                continue;
+            }
+            let unten = sheet.get_pixel(tx as u32, ty as u32).0;
+            sheet.put_pixel(tx as u32, ty as u32, Rgba(ueber(pixel.0, unten)));
+        }
+    }
+
+    sheet
+        .save(path)
+        .with_context(|| format!("{} schreiben", path.display()))?;
+    println!(
+        "\nSprites:    {} Blockstates, {}x{} Zellen zu {cell} px -> {}",
+        states.len(),
+        columns,
+        rows,
+        path.display()
+    );
+    Ok(())
+}
+
+/// Grauer Schachbrettgrund, damit Transparenz im Bild sichtbar bleibt.
+fn karomuster(width: u32, height: u32) -> RgbaImage {
+    RgbaImage::from_fn(width, height, |x, y| {
+        if (x / 8 + y / 8) % 2 == 0 {
+            Rgba([70, 70, 74, 255])
+        } else {
+            Rgba([58, 58, 62, 255])
+        }
+    })
+}
+
+/// Alpha-Überblendung von `oben` über `unten`.
+fn ueber(oben: [u8; 4], unten: [u8; 4]) -> [u8; 4] {
+    let a = oben[3] as f32 / 255.0;
+    let mut out = [0u8; 4];
+    for c in 0..3 {
+        out[c] = (oben[c] as f32 * a + unten[c] as f32 * (1.0 - a)).round() as u8;
+    }
+    out[3] = 255;
+    out
+}
+
 /// Dekodiert jeden Chunk der Welt. Einziger Weg, die Annahmen des Decoders
 /// gegen echte Daten statt gegen Testfixtures zu prüfen. Mit Assets wird
 /// zusätzlich jede vorkommende Blockstate aufgelöst.
-fn scan(world: &World, regions: &[(i32, i32)], assets: Option<&mut Assets>) -> Result<()> {
+fn scan(
+    world: &World,
+    regions: &[(i32, i32)],
+    assets: Option<&mut Assets>,
+    projection: Projection,
+) -> Result<()> {
     let started = Instant::now();
     let (mut chunks, mut errors) = (0u64, 0u64);
     let mut states: BTreeSet<BlockState> = BTreeSet::new();
@@ -258,6 +409,8 @@ fn scan(world: &World, regions: &[(i32, i32)], assets: Option<&mut Assets>) -> R
     for name in &leer {
         println!("            {name}");
     }
+
+    bake_all(assets, &states, projection);
     Ok(())
 }
 

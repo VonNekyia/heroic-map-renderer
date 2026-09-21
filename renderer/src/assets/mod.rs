@@ -1,3 +1,4 @@
+pub mod baker;
 pub mod blockstate;
 pub mod model;
 pub mod texture;
@@ -9,6 +10,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow, bail};
 
 use crate::world::BlockState;
+pub use baker::{BakedModel, Quad, bake};
 pub use blockstate::{BlockStateDef, ModelRef};
 pub use model::{Element, ElementFace, Face, ResolvedModel, Rotation};
 pub use texture::{TextureId, Textures};

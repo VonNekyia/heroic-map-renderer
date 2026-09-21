@@ -12,15 +12,17 @@ Der Browser rendert keine Minecraft-Geometrie, sondern nur fertige Rasterkacheln
 
 ## Stand
 
-Schritt 2 von 8: **Resourcepack**. Der Renderer liest die Welt und löst jede
-Blockstate über einen gestapelten Asset-Baum zu Modellen und Texturen auf. Es
-wird noch nichts gerendert.
+Schritt 3 von 8: **Baking und Rasterizer**. Der Renderer liest die Welt, löst
+jede Blockstate zu Modellen und Texturen auf und rastert sie isometrisch zu
+einem Sprite. Eine Karte entsteht noch nicht — das ist Schritt 4.
+
+![Sprites](docs/sprites.png)
 
 | Schritt | Inhalt | Status |
 |---------|--------|--------|
 | 1 | Welt-Reader (Region, Chunk, Palette) | **fertig** |
 | 2 | Resourcepack: Blockstates, Models, Texturen | **fertig** |
-| 3 | Model-Baking und Iso-Sprite-Rasterizer | offen |
+| 3 | Model-Baking und Iso-Sprite-Rasterizer | **fertig** |
 | 4 | Metatile-Renderer | offen |
 | 5 | Rayon-Parallelisierung, Tiles, WebP | offen |
 | 6 | Zoom-Pyramide und `map.json` | offen |
@@ -88,8 +90,14 @@ minecraft:oak_fence[east=true,north=true]
       block/oak_fence_planks
 ```
 
-Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert und jede
-vorkommende Blockstate auflöst:
+Blockstates als Sprites rastern. Das Bild oben entsteht so:
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --assets ./vanilla-assets --assets ./assets --scale 64 --sprite docs/sprites.png --block stone --block "grass_block[snowy=false]" --block "furnace[facing=east,lit=false]"
+```
+
+Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, jede
+vorkommende Blockstate auflöst und sie rastert:
 
 ```bash
 cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --scan
@@ -102,6 +110,8 @@ Assets:     3110 Blockstates aufgelöst in 1.0 s, 0 ungelöst
             10 Blöcke ohne Modell: air, cave_air, water, lava, bubble_column,
             chest, decorated_pot, skeleton_skull, brown_wall_banner,
             white_wall_banner
+Sprites:    3069 gerastert bei scale 16 in 0.1 s (25608/s)
+            2.3 MB Sprite-Pixel, größtes: minecraft:fire[...] (16x20)
 Texturen:   734 geladen, 0 fehlen
 ```
 
@@ -138,6 +148,21 @@ Für den Asset-Layer liegt unter `renderer/tests/fixtures/assets-base` und
 `assets-overlay` ein kleiner, von Hand geschriebener Assetbaum. Er ist
 synthetisch, bildet aber die Formen ab, die eine Bestandsaufnahme über
 Vanilla 26.2 und das TerraNova-Pack ergeben hat.
+
+## Die Kamera
+
+Fest und orthographisch, alle Faktoren stehen in `render/projection.rs`:
+
+```text
+screen_x = (x - z) * scale/2
+screen_y = (x + z) * scale/4 - y * scale/2
+```
+
+Damit belegt ein voller Würfel genau `scale` mal `scale` Pixel. Sichtbar sind
+immer dieselben drei Seiten: oben, Süden (links im Bild) und Osten (rechts).
+Die Blickachse ist (1, 1, 1) — Punkte, die sich um ein Vielfaches davon
+unterscheiden, landen auf demselben Pixel. Daraus folgt die Zeichenreihenfolge
+für Schritt 4: wer einen anderen Block verdeckt, liegt nie tiefer.
 
 ## Entwurfsregel
 

@@ -12,18 +12,19 @@ Der Browser rendert keine Minecraft-Geometrie, sondern nur fertige Rasterkacheln
 
 ## Stand
 
-Schritt 3 von 8: **Baking und Rasterizer**. Der Renderer liest die Welt, löst
-jede Blockstate zu Modellen und Texturen auf und rastert sie isometrisch zu
-einem Sprite. Eine Karte entsteht noch nicht — das ist Schritt 4.
+Schritt 4 von 8: **Metatile-Renderer**. Aus Welt plus Assets entsteht ein
+zusammenhängendes Bild. Kacheln, Zoomstufen und Frontend fehlen noch.
 
-![Sprites](docs/sprites.png)
+![Karte](docs/map.png)
+
+900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 1,7 s einkernig.
 
 | Schritt | Inhalt | Status |
 |---------|--------|--------|
 | 1 | Welt-Reader (Region, Chunk, Palette) | **fertig** |
 | 2 | Resourcepack: Blockstates, Models, Texturen | **fertig** |
 | 3 | Model-Baking und Iso-Sprite-Rasterizer | **fertig** |
-| 4 | Metatile-Renderer | offen |
+| 4 | Metatile-Renderer | **fertig** |
 | 5 | Rayon-Parallelisierung, Tiles, WebP | offen |
 | 6 | Zoom-Pyramide und `map.json` | offen |
 | 7 | Frontend (Vite, TypeScript, Leaflet) | offen |
@@ -90,11 +91,42 @@ minecraft:oak_fence[east=true,north=true]
       block/oak_fence_planks
 ```
 
-Blockstates als Sprites rastern. Das Bild oben entsteht so:
+Einzelne Blockstates als Sprites rastern:
 
 ```bash
 cargo run --release --manifest-path renderer/Cargo.toml -- --assets ./vanilla-assets --assets ./assets --scale 64 --sprite docs/sprites.png --block stone --block "grass_block[snowy=false]" --block "furnace[facing=east,lit=false]"
 ```
+
+![Sprites](docs/sprites.png)
+
+Einen Weltausschnitt rendern:
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --render docs/map.png --center -64 416 --size 900 --scale 16
+```
+
+```
+Render:     292 Chunks im Ausschnitt, 292 generiert, 258 Blockstates, 235 Sprites
+            900x900 px um (-64, 416) bei scale 16 in 1.7 s -> docs/map.png
+```
+
+`--center` nennt die Blockspalte, die in der Bildmitte landet, `--scale` die
+Pixelbreite eines Blocks. Gesucht wird nur, was im Bild landen kann: der
+sichtbare Bereich ist ein schmales diagonales Band in x und z, kein Rechteck.
+Wer stattdessen die Hüllbox nähme, läse für einen 1024er Ausschnitt rund das
+Sechzehnfache an Chunks.
+
+### Wasser fehlt
+
+Flüssigkeiten haben kein Blockmodell — Minecraft zeichnet sie über einen
+eigenen Pfad. Der Renderer überspringt sie deshalb, und Ozeane erscheinen als
+nackter Meeresboden. In einer Nahaufnahme fällt das kaum auf, über der ganzen
+Welt sehr:
+
+![Übersicht](docs/map-wide.png)
+
+Die grauen Flächen sind Ozean, das Blau oben rechts ist Eis — Eis ist ein
+gewöhnlicher Block und wird gezeichnet. Wasser steht in Schritt 8.
 
 Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, jede
 vorkommende Blockstate auflöst und sie rastert:
@@ -149,6 +181,18 @@ Für den Asset-Layer liegt unter `renderer/tests/fixtures/assets-base` und
 synthetisch, bildet aber die Formen ab, die eine Bestandsaufnahme über
 Vanilla 26.2 und das TerraNova-Pack ergeben hat.
 
+`renderer/tests/metatile.rs` baut aus diesem Assetbaum ganze Welten im
+Speicher und rendert sie. Dazu gehört ein Goldbild unter
+`tests/fixtures/golden/`: jede Änderung an Projektion, Baking, Rasterizer oder
+Maleralgorithmus fällt damit auf. Neu erzeugen nach einer gewollten Änderung:
+
+```bash
+UPDATE_GOLDEN=1 cargo test --test metatile
+```
+
+Fällt der Test, schreibt er das Ist-Bild daneben als `metatile-ist.png`; in CI
+liegt es als Artefakt am fehlgeschlagenen Lauf.
+
 ## Die Kamera
 
 Fest und orthographisch, alle Faktoren stehen in `render/projection.rs`:
@@ -161,8 +205,14 @@ screen_y = (x + z) * scale/4 - y * scale/2
 Damit belegt ein voller Würfel genau `scale` mal `scale` Pixel. Sichtbar sind
 immer dieselben drei Seiten: oben, Süden (links im Bild) und Osten (rechts).
 Die Blickachse ist (1, 1, 1) — Punkte, die sich um ein Vielfaches davon
-unterscheiden, landen auf demselben Pixel. Daraus folgt die Zeichenreihenfolge
-für Schritt 4: wer einen anderen Block verdeckt, liegt nie tiefer.
+unterscheiden, landen auf demselben Pixel.
+
+Daraus folgt die Zeichenreihenfolge: wer einen anderen Block verdeckt, liegt
+nie tiefer. Der Metatile-Renderer malt deshalb einfach von unten nach oben und
+braucht keinen globalen Tiefenpuffer. Ein Block, dessen drei kamerazugewandte
+Nachbarn volle, deckende Blöcke sind, wird übersprungen; ob ein Sprite
+"deckend" ist, entscheidet sein fertiges Bild und nicht sein Modell, damit
+Glas von selbst herausfällt.
 
 ## Entwurfsregel
 

@@ -43,6 +43,16 @@ jobs:
       - name: Tests
         run: cargo nextest run --all-targets
 
+      # Das Goldbild sagt nur, dass sich etwas geändert hat. Ohne das
+      # Ist-Bild ist im Log nicht zu sehen, was.
+      - name: Goldbild-Abweichung sichern
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldbild-ist-${{ matrix.os }}
+          path: renderer/tests/fixtures/golden/metatile-ist.png
+          if-no-files-found: ignore
+
       # Überlauf-Semantik unterscheidet sich zwischen Debug und Release; die
       # Prüfungen im Regionsleser müssen in beiden greifen.
       - name: Tests (release)

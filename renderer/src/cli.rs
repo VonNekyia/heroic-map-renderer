@@ -1,9 +1,10 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use terranova_render::world::World;
+use terranova_render::world::{REGION, World};
 
 #[derive(Parser)]
 #[command(name = "terranova-render", version, about)]
@@ -15,6 +16,10 @@ pub struct Args {
     /// Blockstate an dieser Weltkoordinate ausgeben: --at X Y Z
     #[arg(long, num_args = 3, allow_negative_numbers = true, value_names = ["X", "Y", "Z"])]
     at: Option<Vec<i32>>,
+
+    /// Jeden Chunk der Welt dekodieren und Fehler melden
+    #[arg(long)]
+    scan: bool,
 }
 
 pub fn run() -> Result<()> {
@@ -31,6 +36,10 @@ pub fn run() -> Result<()> {
             regions.len()
         ),
         None => println!("            keine Regionsdateien gefunden"),
+    }
+
+    if args.scan {
+        scan(&world, &regions)?;
     }
 
     if let Some(at) = args.at {
@@ -68,6 +77,40 @@ pub fn run() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Dekodiert jeden Chunk der Welt. Einziger Weg, die Annahmen des Decoders
+/// gegen echte Daten statt gegen Testfixtures zu prüfen.
+fn scan(world: &World, regions: &[(i32, i32)]) -> Result<()> {
+    let started = Instant::now();
+    let (mut chunks, mut errors) = (0u64, 0u64);
+
+    for &(rx, rz) in regions {
+        let Some(mut region) = world.region(rx, rz)? else {
+            continue;
+        };
+        for lz in 0..REGION {
+            for lx in 0..REGION {
+                match region.chunk(rx * REGION + lx, rz * REGION + lz) {
+                    Ok(Some(_)) => chunks += 1,
+                    Ok(None) => {}
+                    Err(error) => {
+                        errors += 1;
+                        if errors <= 10 {
+                            eprintln!("  {error:#}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let seconds = started.elapsed().as_secs_f64();
+    println!(
+        "\nScan:       {chunks} Chunks in {seconds:.1} s ({:.0} Chunks/s), {errors} Fehler",
+        chunks as f64 / seconds
+    );
     Ok(())
 }
 

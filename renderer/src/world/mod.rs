@@ -11,7 +11,7 @@ pub use palette::BlockState;
 pub use region::{REGION, Region};
 
 /// Beide Verzeichnislayouts, die in freier Wildbahn vorkommen: das klassische
-/// `world/region` und das ab 1.21 von Paper/Vanilla genutzte
+/// `world/region` und das seit Minecraft 26.1 genutzte
 /// `world/dimensions/minecraft/overworld/region`.
 const REGION_DIRS: [&[&str]; 2] = [
     &["region"],

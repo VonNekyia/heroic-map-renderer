@@ -47,9 +47,18 @@ Höchster Block in Spalte:  y=71  minecraft:oak_leaves[distance=2,persistent=fal
 Biom:                      minecraft:forest
 ```
 
-Beide Weltlayouts werden erkannt: das klassische `world/region` und das ab
-1.21 von Paper und Vanilla genutzte
-`world/dimensions/minecraft/overworld/region`.
+Beide Weltlayouts werden erkannt: das klassische `world/region` und das seit
+Minecraft 26.1 genutzte `world/dimensions/minecraft/overworld/region`.
+
+Ein Durchlauf über die gesamte Testwelt:
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --scan
+```
+
+```
+Scan:       316223 Chunks in 174.8 s (1809 Chunks/s), 0 Fehler
+```
 
 ## Eingabedaten
 
@@ -59,9 +68,11 @@ allein ist 2,4 GB. Sie werden dem Renderer über CLI-Argumente übergeben.
 ## Entwicklung
 
 ```bash
+cd renderer
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo nextest run --all-targets
+cargo nextest run --all-targets --release
 cargo deny check
 ```
 
@@ -69,6 +80,11 @@ Das Fixture unter `renderer/tests/fixtures/` ist eine 40 KB große Region mit
 2×2 echten Terrain-Chunks aus der Zielwelt (Paper 26.2, DataVersion 4903).
 Die Sollwerte der Tests stammen aus einem unabhängig geschriebenen
 Python-Decoder, damit die Tests nicht dieselbe Annahme prüfen wie der Code.
+
+Beschädigte Regionsdateien lassen sich nicht aus einer echten Welt
+extrahieren. `renderer/tests/region_format.rs` baut sie deshalb zur Laufzeit:
+ausgelagerte `.mcc`-Chunks, kaputte Längenfelder und Tabelleneinträge,
+Paletten ohne Indexdaten, Indizes jenseits der Palette.
 
 ## Entwurfsregel
 

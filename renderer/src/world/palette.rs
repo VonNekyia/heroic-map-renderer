@@ -91,6 +91,20 @@ impl PackedIndices {
         self.data.len()
     }
 
+    /// Erster Index, der über die Palette hinauszeigt.
+    ///
+    /// Der Scan entfällt, wenn die Bitbreite gar keinen zu großen Index
+    /// darstellen kann — das ist bei jeder Palette mit Zweierpotenz-Größe der
+    /// Fall und damit der häufigste Ausgang.
+    pub fn first_index_beyond(&self, entries: usize, palette_len: usize) -> Option<usize> {
+        if palette_len >= 1usize << self.bits {
+            return None;
+        }
+        (0..entries)
+            .map(|i| self.get(i))
+            .find(|&i| i >= palette_len)
+    }
+
     /// Index an Position `i`. Liefert 0 statt zu panicken, falls die Datei
     /// zu wenige Longs enthält — ein kaputter Chunk soll keinen Renderlauf
     /// über hunderte Regionen abbrechen.

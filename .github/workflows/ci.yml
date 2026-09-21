@@ -43,6 +43,12 @@ jobs:
       - name: Tests
         run: cargo nextest run --all-targets
 
+      # Überlauf-Semantik unterscheidet sich zwischen Debug und Release; die
+      # Prüfungen im Regionsleser müssen in beiden greifen.
+      - name: Tests (release)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo nextest run --all-targets --release
+
   deny:
     name: Dependencies
     runs-on: ubuntu-latest

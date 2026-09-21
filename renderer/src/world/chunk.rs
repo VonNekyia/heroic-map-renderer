@@ -162,7 +162,12 @@ impl Chunk {
                 continue;
             }
             for local_y in (0..SECTION).rev() {
-                let block = section.block(x, local_y, z)?;
+                // `None` wäre ein unauflösbarer Palettenindex. Der Decoder
+                // lässt so etwas nicht durch; falls doch, darf eine einzelne
+                // kaputte Position nicht die ganze Spalte als leer melden.
+                let Some(block) = section.block(x, local_y, z) else {
+                    continue;
+                };
                 if !block.is_air() {
                     return Some((section.y as i32 * SECTION + local_y, block));
                 }
@@ -234,15 +239,36 @@ fn paletted<T>(
     y: i8,
     what: &str,
 ) -> Result<Paletted<T>> {
+    if palette.is_empty() {
+        bail!("Section {y}: {what} hat eine leere Palette");
+    }
+
     let Some(data) = data else {
+        // Minecraft lässt `data` nur weg, wenn die ganze Section aus einem
+        // einzigen Wert besteht. Fehlt es bei größerer Palette, sind die
+        // Indizes verloren — die Section still mit dem ersten Eintrag zu
+        // füllen würde falsches Terrain erzeugen statt einen Fehler.
+        if palette.len() > 1 {
+            bail!(
+                "Section {y}: {what} hat {} Paletteneinträge, aber keine Indexdaten",
+                palette.len()
+            );
+        }
         return Ok(Paletted::new(palette, None));
     };
+
     let indices = PackedIndices::new(data.into_inner(), palette.len(), min_bits);
     let expected = indices.expected_longs(entries);
     if indices.longs() != expected {
         bail!(
             "Section {y}: {what} hat {} Longs, erwartet {expected} für {} Paletteneinträge",
             indices.longs(),
+            palette.len()
+        );
+    }
+    if let Some(index) = indices.first_index_beyond(entries, palette.len()) {
+        bail!(
+            "Section {y}: {what} verweist auf Paletten-Index {index}, die Palette hat nur {} Einträge",
             palette.len()
         );
     }

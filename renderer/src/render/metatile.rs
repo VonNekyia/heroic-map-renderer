@@ -45,11 +45,19 @@ impl ScreenRect {
 
 /// Rendert einen Ausschnitt der Welt.
 ///
-/// Gezeichnet wird von unten nach oben nach dem Maleralgorithmus. Das
-/// genügt, weil ein Block bei dieser Kamera nur dann einen anderen
-/// verdecken kann, wenn er nicht tiefer liegt: die Blickachse ist (1, 1, 1),
-/// also unterscheiden sich verdeckende Blöcke in allen drei Achsen im
-/// selben Vorzeichen. Ein globaler Tiefenpuffer ist damit unnötig.
+/// Gezeichnet wird nach dem Maleralgorithmus, sortiert erst nach Höhe `y`
+/// und innerhalb einer Höhe nach Tiefe `v = x + z`. Beides zusammen ist
+/// nötig und zusammen auch hinreichend:
+///
+/// - Verdeckt B den Block A, dann liegt B nie tiefer (`y_B >= y_A`). Sonst
+///   wäre der senkrechte Abstand auf dem Bild mindestens eine Blockhöhe,
+///   und die Umrisse berührten sich höchstens.
+/// - Auf gleicher Höhe heisst "verdeckt" genau `v_B > v_A`, denn
+///   `depth = x + y + z = v + y`. Der Südnachbar `(x, y, z+1)` verdeckt die
+///   Südfläche von `(x, y, z)`, der Ostnachbar `(x+1, y, z)` die Ostfläche.
+///
+/// Ein globaler Tiefenpuffer ist damit unnötig. `columns_at` liefert die
+/// Spalten bereits in dieser Reihenfolge.
 pub fn render_area(
     world: &World,
     sprites: &SpriteSet,
@@ -65,7 +73,7 @@ pub fn render_area(
             let Some(id) = chunks.sprite_at(sprites, x, y, z)? else {
                 continue;
             };
-            if is_hidden(&mut chunks, sprites, x, y, z)? {
+            if is_hidden(&mut chunks, sprites, id, x, y, z)? {
                 continue;
             }
             blit(&mut canvas, sprites, id, rect, [x, y, z]);
@@ -95,41 +103,66 @@ pub fn chunks_for(
 }
 
 /// Alle Blockspalten, deren Sprite auf dieser Höhe in das Rechteck fallen
-/// kann.
+/// kann — in Zeichenreihenfolge.
 ///
 /// Statt über x und z zu laufen, läuft die Schleife über die beiden
 /// Bildschirmachsen: `u = x - z` steuert die waagerechte, `v = x + z` die
 /// senkrechte Position. Damit ist der Bereich je Höhe ein schmales Band
 /// statt der gesamten Grundfläche.
+///
+/// `v` läuft aussen, und das ist kein Geschmack: `v` ist auf einer Höhe
+/// genau die Tiefe entlang der Blickachse (`depth = x + y + z`). Zwei
+/// Blöcke derselben Höhe überdecken einander sehr wohl — der Südnachbar
+/// `(x, y, z+1)` verdeckt die Südfläche von `(x, y, z)`. Liefe `u` aussen,
+/// käme er zu früh und würde übermalt.
 fn columns_at(
     projection: Projection,
     rect: ScreenRect,
     y: i32,
 ) -> impl Iterator<Item = (i32, i32)> {
-    let scale = projection.scale() as f32;
-    let bleed = BLEED_BLOCKS as f32 * scale;
+    // f64, weil rect und Weltkoordinaten bis knapp 30 Millionen gehen:
+    // siehe Projection::project_block.
+    let scale = projection.scale() as f64;
+    let bleed = BLEED_BLOCKS as f64 * scale;
 
     // screen_x = u * scale/2
-    let u_min = ((rect.x as f32 - bleed) / (scale / 2.0)).floor() as i32;
-    let u_max = ((rect.right() as f32 + bleed) / (scale / 2.0)).ceil() as i32;
+    let u_min = ((rect.x as f64 - bleed) / (scale / 2.0)).floor() as i32;
+    let u_max = ((rect.right() as f64 + bleed) / (scale / 2.0)).ceil() as i32;
 
     // screen_y = v * scale/4 - y * scale/2
-    let offset = y as f32 * scale / 2.0;
-    let v_min = ((rect.y as f32 - bleed + offset) / (scale / 4.0)).floor() as i32;
-    let v_max = ((rect.bottom() as f32 + bleed + offset) / (scale / 4.0)).ceil() as i32;
+    let offset = y as f64 * scale / 2.0;
+    let v_min = ((rect.y as f64 - bleed + offset) / (scale / 4.0)).floor() as i32;
+    let v_max = ((rect.bottom() as f64 + bleed + offset) / (scale / 4.0)).ceil() as i32;
 
-    (u_min..=u_max).flat_map(move |u| {
+    (v_min..=v_max).flat_map(move |v| {
         // x und z sind ganzzahlig, also haben u und v dieselbe Parität.
-        let start = v_min + (v_min - u).rem_euclid(2);
-        (start..=v_max)
+        let start = u_min + (u_min - v).rem_euclid(2);
+        (start..=u_max)
             .step_by(2)
-            .map(move |v| ((u + v) / 2, (v - u) / 2))
+            .map(move |u| ((u + v) / 2, (v - u) / 2))
     })
 }
 
 /// Ein Block ist unsichtbar, wenn seine drei kamerazugewandten Nachbarn
-/// volle, deckende Blöcke sind: deren Umrisse überdecken ihn vollständig.
-fn is_hidden(chunks: &mut ChunkCache, sprites: &SpriteSet, x: i32, y: i32, z: i32) -> Result<bool> {
+/// volle, deckende Blöcke sind — und sein eigenes Sprite den Blockumriss
+/// nicht verlässt.
+///
+/// Die drei Nachbarumrisse setzen genau den eigenen Umriss zusammen, keinen
+/// Quadratmillimeter mehr. Was darüber hinausragt, bleibt sichtbar: Feuer
+/// ist höher als ein Block, und ein Modell mit negativem `from` ragt zur
+/// Seite heraus. Ohne die Prüfung auf `is_contained` verschwände so ein
+/// Sprite vollständig, obwohl die Hälfte davon zu sehen wäre.
+fn is_hidden(
+    chunks: &mut ChunkCache,
+    sprites: &SpriteSet,
+    id: SpriteId,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> Result<bool> {
+    if !sprites.is_contained(id) {
+        return Ok(false);
+    }
     for (dx, dy, dz) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)] {
         match chunks.sprite_at(sprites, x + dx, y + dy, z + dz)? {
             Some(id) if sprites.is_opaque(id) => {}
@@ -147,7 +180,7 @@ fn blit(
     [x, y, z]: [i32; 3],
 ) {
     let sprite = sprites.sprite(id);
-    let (sx, sy) = sprites.projection().project([x as f32, y as f32, z as f32]);
+    let (sx, sy) = sprites.projection().project_block([x, y, z]);
     let origin_x = sx.round() as i32 + sprite.offset.0 - rect.x;
     let origin_y = sy.round() as i32 + sprite.offset.1 - rect.y;
 
@@ -275,6 +308,21 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Die Reihenfolge ist Teil des Vertrags: der Maleralgorithmus
+    /// verlässt sich darauf, dass die Tiefe `v = x + z` innerhalb einer
+    /// Höhe nie fällt.
+    #[test]
+    fn spalten_kommen_nach_tiefe_sortiert() {
+        let mut vorher = i32::MIN;
+        let mut gesehen = 0;
+        for (x, z) in columns_at(Projection::new(16), rect(), 7) {
+            assert!(x + z >= vorher, "v fällt von {vorher} auf {}", x + z);
+            vorher = x + z;
+            gesehen += 1;
+        }
+        assert!(gesehen > 100, "nur {gesehen} Spalten geprüft");
     }
 
     /// Eine höhere Ebene verschiebt das Band nach unten in der Welt.

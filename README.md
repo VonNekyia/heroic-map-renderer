@@ -207,12 +207,29 @@ immer dieselben drei Seiten: oben, Süden (links im Bild) und Osten (rechts).
 Die Blickachse ist (1, 1, 1) — Punkte, die sich um ein Vielfaches davon
 unterscheiden, landen auf demselben Pixel.
 
-Daraus folgt die Zeichenreihenfolge: wer einen anderen Block verdeckt, liegt
-nie tiefer. Der Metatile-Renderer malt deshalb einfach von unten nach oben und
-braucht keinen globalen Tiefenpuffer. Ein Block, dessen drei kamerazugewandte
-Nachbarn volle, deckende Blöcke sind, wird übersprungen; ob ein Sprite
+Daraus folgt die Zeichenreihenfolge. Der Metatile-Renderer sortiert erst nach
+Höhe `y`, innerhalb einer Höhe nach Tiefe `v = x + z`. Beides ist nötig:
+
+- Verdeckt B den Block A, dann liegt B nie tiefer. Sonst wäre der senkrechte
+  Abstand im Bild mindestens eine Blockhöhe, und die Umrisse berührten sich
+  höchstens.
+- Auf gleicher Höhe verdecken Blöcke einander sehr wohl: der Südnachbar
+  `(x, y, z+1)` verdeckt die Südfläche von `(x, y, z)`, der Ostnachbar
+  `(x+1, y, z)` die Ostfläche. Dort heisst "verdeckt" genau `v_B > v_A`, denn
+  `depth = x + y + z = v + y`.
+
+Zusammen ergibt das eine gültige Reihenfolge, und ein globaler Tiefenpuffer
+wird unnötig. Ein Block wird übersprungen, wenn seine drei kamerazugewandten
+Nachbarn volle, deckende Blöcke sind **und** sein eigenes Sprite den
+Blockumriss nicht verlässt — die drei Nachbarumrisse setzen genau den eigenen
+zusammen, mehr nicht. Was darüber hinausragt, bleibt sichtbar. Ob ein Sprite
 "deckend" ist, entscheidet sein fertiges Bild und nicht sein Modell, damit
 Glas von selbst herausfällt.
+
+Weltkoordinaten werden in `f64` projiziert. Minecraft erlaubt knapp 30
+Millionen Blöcke in jede Richtung; ab 2²⁴ kann `f32` benachbarte ganzzahlige
+Blöcke nicht mehr auseinanderhalten, und zwei Nachbarn landen auf demselben
+Pixel.
 
 ## Entwurfsregel
 

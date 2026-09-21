@@ -86,8 +86,7 @@ pub fn chunk_nbt(cx: i32, cz: i32, sections: Vec<SectionNbt>) -> Vec<u8> {
 /// Schreibt eine wohlgeformte Welt mit einer Section (y 0..15) je Chunk.
 ///
 /// `block` wird mit Weltkoordinaten aufgerufen und liefert den Blocknamen.
-/// Alle Chunks müssen in Region (0, 0) liegen, also Chunkkoordinaten 0..31
-/// haben — mehr braucht kein Test.
+/// Alle Chunks müssen in dieselbe Region fallen — mehr braucht kein Test.
 pub fn write_world(
     dir: &Path,
     chunks: &[(i32, i32)],
@@ -96,14 +95,15 @@ pub fn write_world(
     let region_dir = dir.join("region");
     std::fs::create_dir_all(&region_dir).expect("region-Verzeichnis");
 
+    let (rx, rz) = (chunks[0].0 >> 5, chunks[0].1 >> 5);
     let mut header = vec![0u8; 2 * SECTOR];
     let mut sectors = Vec::new();
     let mut next = 2u32;
 
     for &(cx, cz) in chunks {
         assert!(
-            (0..32).contains(&cx) && (0..32).contains(&cz),
-            "Chunk ({cx}, {cz}) liegt nicht in Region (0, 0)"
+            (cx >> 5, cz >> 5) == (rx, rz),
+            "Chunk ({cx}, {cz}) liegt nicht in Region ({rx}, {rz})"
         );
 
         let payload = chunk_nbt(cx, cz, vec![section(cx, cz, &block)]);
@@ -113,7 +113,7 @@ pub fn write_world(
         record.extend_from_slice(&payload);
         record.resize(record.len().next_multiple_of(SECTOR), 0);
 
-        let index = (cx + cz * 32) as usize * 4;
+        let index = (cx.rem_euclid(32) + cz.rem_euclid(32) * 32) as usize * 4;
         header[index..index + 3].copy_from_slice(&next.to_be_bytes()[1..]);
         header[index + 3] = (record.len() / SECTOR) as u8;
         header[SECTOR + index..SECTOR + index + 4].copy_from_slice(&1i32.to_be_bytes());
@@ -122,7 +122,8 @@ pub fn write_world(
     }
 
     header.extend_from_slice(&sectors);
-    std::fs::write(region_dir.join("r.0.0.mca"), header).expect("Regionsdatei schreiben");
+    std::fs::write(region_dir.join(format!("r.{rx}.{rz}.mca")), header)
+        .expect("Regionsdatei schreiben");
     dir.to_path_buf()
 }
 

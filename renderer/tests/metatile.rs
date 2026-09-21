@@ -36,27 +36,50 @@ fn gelaende(x: i32, y: i32, z: i32) -> &'static str {
 }
 
 /// Baut die Welt, sammelt ihre Blockstates und rendert den Ausschnitt.
-fn render(dir: &TempDir, block: impl Fn(i32, i32, i32) -> &'static str, size: u32) -> RgbaImage {
-    common::write_world(dir.path(), &[(0, 0), (1, 0), (0, 1), (1, 1)], block);
+fn render_chunks(
+    dir: &TempDir,
+    chunks: &[(i32, i32)],
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    projection: Projection,
+    rect: ScreenRect,
+) -> RgbaImage {
+    common::write_world(dir.path(), chunks, block);
     let world = World::open(dir.path()).unwrap();
 
     let mut states = Vec::new();
-    for cz in 0..2 {
-        for cx in 0..2 {
-            let chunk = world.chunk(cx, cz).unwrap().unwrap();
-            for section in chunk.sections() {
-                states.extend(section.blocks().palette().iter().cloned());
-            }
+    for &(cx, cz) in chunks {
+        let chunk = world.chunk(cx, cz).unwrap().unwrap();
+        for section in chunk.sections() {
+            states.extend(section.blocks().palette().iter().cloned());
         }
     }
 
-    let projection = Projection::new(16);
     let sprites = SpriteSet::build(&mut assets(), &states, projection).unwrap();
-    // Der Blockursprung liegt in der Bildmitte. Damit fällt Block
-    // (8, 8, 8) genau dorthin — die Stelle, an der der Occlusion-Test
-    // nachsieht.
-    let rect = ScreenRect::centered(size, size);
     render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+}
+
+/// Vier Chunks bei scale 16, Blockursprung in der Bildmitte. Damit fällt
+/// Block (8, 8, 8) genau dorthin — die Stelle, an der der Occlusion-Test
+/// nachsieht.
+fn render(dir: &TempDir, block: impl Fn(i32, i32, i32) -> &'static str, size: u32) -> RgbaImage {
+    render_chunks(
+        dir,
+        &[(0, 0), (1, 0), (0, 1), (1, 1)],
+        block,
+        Projection::new(16),
+        ScreenRect::centered(size, size),
+    )
+}
+
+/// Eine Szene aus wenigen Blöcken in Chunk (0, 0), scale 16.
+fn szene(dir: &TempDir, block: impl Fn(i32, i32, i32) -> &'static str) -> RgbaImage {
+    render_chunks(
+        dir,
+        &[(0, 0)],
+        block,
+        Projection::new(16),
+        ScreenRect::centered(128, 128),
+    )
 }
 
 fn tempdir() -> TempDir {
@@ -182,4 +205,151 @@ fn leere_welt_ergibt_ein_leeres_bild() {
 fn blockstate_parsen_bleibt_kompatibel() {
     // Die Welt benutzt genau die Namen, die der Assetbaum kennt.
     assert!(BlockState::parse("minecraft:einfarbig").is_ok());
+}
+
+/// Innerhalb einer Höhenebene verdecken Blöcke einander sehr wohl: der
+/// Südnachbar (x, y, z+1) liegt vor (x, y, z), der Ostnachbar (x+1, y, z)
+/// ebenso. Beide müssen später gezeichnet werden.
+///
+/// Geprüft wird ohne Geometrie: wo der vordere Würfel allein deckend ist,
+/// muss das Bild mit beiden Würfeln pixelgleich sein.
+#[test]
+fn nachbarn_derselben_hoehe_liegen_vorne() {
+    for (dx, dz) in [(0, 1), (1, 0)] {
+        let vorne = (8 + dx, 4, 8 + dz);
+        let allein = |x: i32, y: i32, z: i32| {
+            if (x, y, z) == vorne {
+                "minecraft:blauwuerfel"
+            } else {
+                "minecraft:air"
+            }
+        };
+        let beide = |x: i32, y: i32, z: i32| match (x, y, z) {
+            p if p == vorne => "minecraft:blauwuerfel",
+            (8, 4, 8) => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        };
+
+        let a = szene(&tempdir(), allein);
+        let b = szene(&tempdir(), beide);
+
+        let mut gedeckt = 0;
+        for (x, y, pixel) in a.enumerate_pixels() {
+            if pixel.0[3] != 255 {
+                continue;
+            }
+            gedeckt += 1;
+            assert_eq!(
+                b.get_pixel(x, y),
+                pixel,
+                "({dx}, {dz}): Pixel ({x}, {y}) wurde vom hinteren Würfel übermalt"
+            );
+        }
+        assert!(gedeckt > 100, "({dx}, {dz}): zu wenig Prüffläche");
+    }
+}
+
+/// Ein Modell, das über seinen Blockumriss hinausragt, darf nicht
+/// weggeworfen werden, nur weil die drei Nachbarn deckend sind — die
+/// decken nämlich genau den Umriss ab und keinen Millimeter mehr.
+#[test]
+fn ueberhaengende_modelle_bleiben_sichtbar() {
+    let nachbarn = |x: i32, y: i32, z: i32| matches!((x, y, z), (9, 4, 8) | (8, 5, 8) | (8, 4, 9));
+    let ohne = move |x: i32, y: i32, z: i32| {
+        if nachbarn(x, y, z) {
+            "minecraft:einfarbig"
+        } else {
+            "minecraft:air"
+        }
+    };
+    let mit = move |x: i32, y: i32, z: i32| {
+        if (x, y, z) == (8, 4, 8) {
+            "minecraft:ueberhang"
+        } else if nachbarn(x, y, z) {
+            "minecraft:einfarbig"
+        } else {
+            "minecraft:air"
+        }
+    };
+
+    let a = szene(&tempdir(), ohne);
+    let b = szene(&tempdir(), mit);
+
+    assert_ne!(a.as_raw(), b.as_raw(), "der Überhang muss zu sehen sein");
+
+    // Der Überhang ist blau, die Nachbarn sind braun. Vor der Korrektur
+    // waren es null blaue Pixel — das ganze Sprite fiel weg. Sichtbar
+    // bleibt nur der Keil westlich des Blockumrisses, daher die kleine
+    // Zahl.
+    let blau = b
+        .pixels()
+        .filter(|p| p.0[3] == 255 && p.0[2] > p.0[0])
+        .count();
+    assert!(blau > 40, "nur {blau} blaue Pixel");
+}
+
+/// Dieselbe Szene weit draussen muss dasselbe Bild ergeben. Ab 2^24 kann
+/// f32 benachbarte Blöcke nicht mehr unterscheiden — Weltkoordinaten
+/// müssen deshalb mit mehr Präzision projiziert werden.
+#[test]
+fn weit_entfernte_szenen_rendern_gleich() {
+    let projection = Projection::new(16);
+    let bauen = |anker: i32| {
+        move |x: i32, y: i32, z: i32| match (x - anker, y, z - anker) {
+            (8, 4, 8) => "minecraft:einfarbig",
+            (9, 4, 8) => "minecraft:blauwuerfel",
+            (8, 4, 9) => "minecraft:stone",
+            _ => "minecraft:air",
+        }
+    };
+
+    let nah = render_chunks(
+        &tempdir(),
+        &[(0, 0)],
+        bauen(0),
+        projection,
+        ScreenRect::centered(128, 128),
+    );
+
+    let anker = 1 << 24;
+    let (dx, dy) = projection.project_block([anker, 0, anker]);
+    let fern = render_chunks(
+        &tempdir(),
+        &[(anker >> 4, anker >> 4)],
+        bauen(anker),
+        projection,
+        ScreenRect {
+            x: -64 + dx as i32,
+            y: -64 + dy as i32,
+            width: 128,
+            height: 128,
+        },
+    );
+
+    assert_eq!(nah.as_raw(), fern.as_raw());
+}
+
+/// Durchsichtige Nachbarn dürfen nichts verdecken. Bei scale 2 fehlt der
+/// Abdeckungsprüfung die Auflösung; dann muss sie verzichten statt raten.
+#[test]
+fn durchsichtige_nachbarn_verdecken_nichts() {
+    let aufbau = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (9, 4, 8) | (8, 5, 8) | (8, 4, 9) => "minecraft:durchsichtig",
+        _ => "minecraft:air",
+    };
+
+    for scale in [2, 4, 16] {
+        let bild = render_chunks(
+            &tempdir(),
+            &[(0, 0)],
+            aufbau,
+            Projection::new(scale),
+            ScreenRect::centered(64, 64),
+        );
+        assert!(
+            bild.pixels().any(|p| p.0[3] > 0),
+            "bei scale {scale} ist der sichtbare Block verschwunden"
+        );
+    }
 }

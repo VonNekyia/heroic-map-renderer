@@ -1,0 +1,23 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": { "grund": "minecraft:block/planks", "auflage": "minecraft:block/overlay" },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "up":    { "texture": "#grund" },
+        "south": { "texture": "#grund" },
+        "east":  { "texture": "#grund" }
+      }
+    },
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "south": { "texture": "#auflage" },
+        "east":  { "texture": "#auflage" }
+      }
+    }
+  ]
+}

@@ -145,3 +145,85 @@ fn rastern_ist_deterministisch() {
     assert_eq!(a.image.as_raw(), b.image.as_raw());
     assert_eq!(a.offset, b.offset);
 }
+
+/// Regression: Die Unterseite gewann den Tiefentest gegen die
+/// deckungsgleiche Oberseite und trug ihre Helligkeit 0,5 ins Sprite ein.
+/// Vanilla `lily_pad.json` ist genau so gebaut: `down` und `up` in
+/// derselben Ebene.
+#[test]
+fn abgewandte_flaechen_werden_verworfen() {
+    let mut assets = assets();
+    let sprite = sprite(&mut assets, "seerose", 16).expect("Sprite");
+
+    // Die Oberseite trägt planks (150, 110, 60) bei voller Helligkeit,
+    // die Unterseite eine blaue Textur. Blau darf nirgends auftauchen.
+    let mut gedeckt = 0;
+    for pixel in sprite.image.pixels() {
+        if pixel.0[3] == 0 {
+            continue;
+        }
+        gedeckt += 1;
+        assert!(
+            pixel.0[2] < pixel.0[0],
+            "Unterseite sichtbar: {:?}",
+            pixel.0
+        );
+    }
+    assert!(gedeckt > 0, "die Oberseite muss sichtbar sein");
+}
+
+/// Regression: Deckungsgleiche Schichten gingen verloren, weil bei gleicher
+/// Tiefe die zuerst gezeichnete Fläche gewann. Vanilla `grass_block.json`
+/// legt vier Overlay-Flächen auf den Grundwürfel; ohne sie fehlt die
+/// eingefärbte seitliche Grasschicht.
+#[test]
+fn deckungsgleiche_auflage_wird_sichtbar() {
+    let mut assets = assets();
+    let mit = sprite(&mut assets, "mit_overlay", 16).expect("Sprite");
+    let ohne = sprite(&mut assets, "ohne_overlay", 16).expect("Sprite");
+
+    assert_ne!(
+        mit.image.as_raw(),
+        ohne.image.as_raw(),
+        "die Auflage muss das Bild verändern"
+    );
+
+    // Die Auflage ist in der oberen Hälfte deckend rot, unten durchsichtig.
+    // Südseite bei y=0.75 und y=0.25, aus der Projektion gerechnet.
+    let oben = mit.image.get_pixel(4, 8).0;
+    let unten = mit.image.get_pixel(4, 12).0;
+    assert!(
+        oben[0] > oben[1] && oben[0] > oben[2],
+        "obere Hälfte sollte die rote Auflage zeigen, ist {oben:?}"
+    );
+    assert_eq!(
+        unten,
+        ohne.image.get_pixel(4, 12).0,
+        "wo die Auflage durchsichtig ist, bleibt der Grund stehen"
+    );
+}
+
+/// Ein Modell mit absurden Koordinaten darf keinen riesigen Puffer
+/// anfordern, sondern nur diesen einen Block auslassen.
+#[test]
+fn unsinnig_grosse_modelle_werden_uebersprungen() {
+    use terranova_render::assets::Textures;
+    use terranova_render::assets::baker::{BakedModel, Quad};
+
+    let riesig = BakedModel {
+        quads: vec![Quad {
+            corners: [
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 10_000.0],
+                [10_000.0, 10_000.0, 10_000.0],
+                [10_000.0, 10_000.0, 0.0],
+            ],
+            uvs: [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            texture: Textures::MISSING,
+            tint_index: None,
+            shade: true,
+            force_translucent: false,
+        }],
+    };
+    assert!(render(&riesig, &Textures::new(), &Projection::new(16)).is_none());
+}

@@ -213,12 +213,19 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
 fn bake_all(assets: &mut Assets, states: &BTreeSet<BlockState>, projection: Projection) {
     let started = Instant::now();
     let (mut sprites, mut pixels, mut groesstes) = (0u64, 0u64, (0u32, String::new()));
+    let mut unsichtbar: BTreeSet<&str> = BTreeSet::new();
 
     for state in states {
         let Ok(variants) = assets.variants(state) else {
             continue;
         };
-        let Some(sprite) = render(&bake(&variants), assets.textures(), &projection) else {
+        let model = bake(&variants);
+        let Some(sprite) = render(&model, assets.textures(), &projection) else {
+            // Alle Flächen zeigen von der Kamera weg — aus dieser Richtung
+            // ist der Block schlicht nicht zu sehen.
+            if !model.is_empty() {
+                unsichtbar.insert(state.name());
+            }
             continue;
         };
         let (w, h) = sprite.image.dimensions();
@@ -240,6 +247,13 @@ fn bake_all(assets: &mut Assets, states: &BTreeSet<BlockState>, projection: Proj
         pixels as f64 * 4.0 / 1_048_576.0,
         groesstes.1
     );
+    if !unsichtbar.is_empty() {
+        println!(
+            "            {} Blöcke sind aus dieser Blickrichtung unsichtbar: {}",
+            unsichtbar.len(),
+            unsichtbar.iter().copied().collect::<Vec<_>>().join(", ")
+        );
+    }
 }
 
 /// Zeichnet die Sprites der Blockstates nebeneinander in eine PNG.

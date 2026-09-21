@@ -12,6 +12,11 @@ use super::Projection;
 /// nicht im Renderpfad.
 const SUPERSAMPLE: u32 = 2;
 
+/// Obergrenze für die Kantenlänge eines Sprites, in Blockbreiten. Modelle
+/// dürfen von -16 bis 32 reichen, also drei Blöcke; alles darüber ist
+/// kaputt.
+const MAX_SPRITE_BLOCKS: u32 = 8;
+
 /// Helligkeit je Flächenrichtung, wie Minecraft sie verwendet. Ohne diese
 /// Abstufung sieht ein isometrischer Würfel flach aus.
 const SHADE_TOP: f32 = 1.0;
@@ -42,12 +47,22 @@ pub fn render(model: &BakedModel, textures: &Textures, projection: &Projection) 
     let projected: Vec<ProjectedQuad> = model
         .quads
         .iter()
+        .filter(|quad| faces_camera(quad))
         .map(|quad| ProjectedQuad::new(quad, projection))
         .collect();
 
     let (min_x, min_y, max_x, max_y) = bounds(&projected)?;
     let width = (max_x - min_x).max(1) as u32;
     let height = (max_y - min_y).max(1) as u32;
+
+    // Ein Modell aus einem Pack kann beliebige Koordinaten enthalten. Ein
+    // Sprite, das um Größenordnungen zu groß ausfällt, würde einen
+    // Renderlauf über hunderte Regionen an der Speicheranforderung
+    // abbrechen — dann lieber diesen einen Block auslassen.
+    let limit = projection.scale() * MAX_SPRITE_BLOCKS;
+    if width > limit || height > limit {
+        return None;
+    }
 
     let mut canvas = Canvas::new(width * SUPERSAMPLE, height * SUPERSAMPLE);
     for quad in &projected {
@@ -130,6 +145,18 @@ impl<'a> ProjectedQuad<'a> {
             );
         }
     }
+}
+
+/// True, wenn die Fläche der Kamera zugewandt ist.
+///
+/// Die Kamera blickt entlang (-1, -1, -1); eine Fläche ist also sichtbar,
+/// wenn ihre Normale eine Komponente in Richtung (1, 1, 1) hat. Ohne diese
+/// Prüfung gewinnen abgewandte Flächen den Tiefentest, wenn sie mit einer
+/// sichtbaren zusammenfallen — beim Seerosenblatt liegen `down` und `up` in
+/// derselben Ebene.
+fn faces_camera(quad: &Quad) -> bool {
+    let n = quad.normal();
+    n[0] + n[1] + n[2] > 0.0
 }
 
 /// Helligkeit nach der Richtung, in die die Fläche am stärksten zeigt.
@@ -229,7 +256,12 @@ impl Canvas {
 
                 let index = (y as usize) * (self.width as usize) + x as usize;
                 let depth = w0 * v[0].depth + w1 * v[1].depth + w2 * v[2].depth;
-                if depth <= self.depth[index] {
+                // Bei gleicher Tiefe gewinnt die später gezeichnete Fläche.
+                // Vanilla legt deckungsgleiche Schichten übereinander: der
+                // Grasblock hat vier Overlay-Flächen auf dem Grundwürfel.
+                // Deren durchsichtige Texel lassen den Grund stehen, weil
+                // Alpha 0 vorher übersprungen wird.
+                if depth < self.depth[index] {
                     continue;
                 }
 
@@ -353,10 +385,10 @@ mod tests {
 
         let ost = quad(
             [
-                [1.0, 0.0, 0.0],
                 [1.0, 0.0, 1.0],
-                [1.0, 1.0, 1.0],
+                [1.0, 0.0, 0.0],
                 [1.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0],
             ],
             true,
         );
@@ -410,10 +442,10 @@ mod tests {
             ),
             quad(
                 [
-                    [1.0, 0.0, 0.0],
                     [1.0, 0.0, 1.0],
-                    [1.0, 1.0, 1.0],
+                    [1.0, 0.0, 0.0],
                     [1.0, 1.0, 0.0],
+                    [1.0, 1.0, 1.0],
                 ],
                 true,
             ),

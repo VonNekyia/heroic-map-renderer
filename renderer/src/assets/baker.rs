@@ -162,31 +162,38 @@ fn rotate_element(point: [f32; 3], rotation: &Rotation) -> [f32; 3] {
         point[2] - origin[2],
     ];
 
-    v = rotate_x(v, rotation.angles[0]);
-    v = rotate_y(v, rotation.angles[1]);
-    v = rotate_z(v, rotation.angles[2]);
-
+    // Minecraft skaliert lokal, also vor dem Drehen.
     if rotation.rescale {
-        v = rescale(v, rotation.angles);
+        let factors = rescale_factors(rotation.angles);
+        for (axis, factor) in v.iter_mut().zip(factors) {
+            *axis *= factor;
+        }
     }
+    v = rotate_all(v, rotation.angles);
 
     [v[0] + origin[0], v[1] + origin[1], v[2] + origin[2]]
 }
 
 /// `rescale` dehnt das gedrehte Element so, dass es seinen ursprünglichen
-/// Platz wieder ausfüllt. Minecraft erlaubt das nur für eine einzelne Achse.
-fn rescale(v: [f32; 3], angles: [f32; 3]) -> [f32; 3] {
-    let gesetzt: Vec<usize> = (0..3).filter(|&i| angles[i] != 0.0).collect();
-    let [axis] = gesetzt[..] else { return v };
+/// Platz wieder ausfüllt.
+///
+/// Der Faktor je Achse ist der Kehrwert der größten Komponente der gedrehten
+/// Einheitsachse, wie in `CuboidRotation.computeRescale`. Das gilt für eine
+/// wie für mehrere Achsen und ist durch Wurzel 3 nach oben begrenzt — die
+/// naheliegende Formel `1/cos(winkel)` wächst dagegen bei 90 Grad über alle
+/// Grenzen.
+fn rescale_factors(angles: [f32; 3]) -> [f32; 3] {
+    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]].map(|achse| {
+        let gedreht = rotate_all(achse, angles);
+        let groesste = gedreht[0].abs().max(gedreht[1].abs()).max(gedreht[2].abs());
+        if groesste > 1e-6 { 1.0 / groesste } else { 1.0 }
+    })
+}
 
-    let factor = 1.0 / angles[axis].to_radians().cos().abs();
-    let mut out = v;
-    for (i, wert) in out.iter_mut().enumerate() {
-        if i != axis {
-            *wert *= factor;
-        }
-    }
-    out
+/// Dreht um X, dann Y, dann Z — die Reihenfolge, die Minecraft für die
+/// mehrachsige Schreibweise verwendet.
+fn rotate_all(v: [f32; 3], angles: [f32; 3]) -> [f32; 3] {
+    rotate_z(rotate_y(rotate_x(v, angles[0]), angles[1]), angles[2])
 }
 
 /// Drehung des ganzen Modells um den Blockmittelpunkt, wie sie in der
@@ -336,16 +343,70 @@ mod tests {
         assert_eq!(rund(p), [3.0, 5.0, 7.0]);
     }
 
+    /// Bei den Winkeln, die in Vanilla und im Pack vorkommen, stimmt der
+    /// Faktor mit 1/cos überein — das Bild ändert sich durch die neue
+    /// Formel also nicht.
     #[test]
-    fn rescale_dehnt_nur_die_anderen_achsen() {
-        let v = rescale([1.0, 1.0, 1.0], [0.0, 45.0, 0.0]);
-        let faktor = 1.0 / 45f32.to_radians().cos();
-        assert!((v[0] - faktor).abs() < 0.001);
-        assert_eq!(v[1], 1.0, "die Drehachse bleibt");
-        assert!((v[2] - faktor).abs() < 0.001);
+    fn rescale_bei_den_ueblichen_winkeln() {
+        for winkel in [22.5f32, -22.5, 45.0, -45.0] {
+            let f = rescale_factors([0.0, winkel, 0.0]);
+            let erwartet = 1.0 / winkel.to_radians().cos().abs();
+            assert!((f[0] - erwartet).abs() < 1e-4, "{winkel}: {f:?}");
+            assert!((f[1] - 1.0).abs() < 1e-6, "die Drehachse bleibt");
+            assert!((f[2] - erwartet).abs() < 1e-4, "{winkel}: {f:?}");
+        }
+    }
 
-        // Mehrachsig lässt Minecraft kein rescale zu
-        assert_eq!(rescale([1.0, 1.0, 1.0], [45.0, 45.0, 0.0]), [1.0, 1.0, 1.0]);
+    /// Regression: `1/cos` läuft bei 90 Grad gegen unendlich und erzeugte
+    /// Koordinaten in Millionenhöhe. Der Kehrwert der größten Komponente
+    /// bleibt bei 1.
+    #[test]
+    fn rescale_bleibt_bei_jedem_winkel_begrenzt() {
+        assert_eq!(rund(rescale_factors([0.0, 90.0, 0.0])), [1.0, 1.0, 1.0]);
+
+        // 60 Grad: die größte Komponente ist sin, nicht cos
+        let f = rescale_factors([0.0, 60.0, 0.0]);
+        assert!((f[0] - 1.1547).abs() < 1e-3, "{f:?}");
+
+        // obere Schranke ist Wurzel 3, wenn die Achse auf eine Raumdiagonale
+        // zeigt
+        for winkel in (0..360).step_by(7) {
+            for achse in 0..3 {
+                let mut angles = [0.0; 3];
+                angles[achse] = winkel as f32;
+                for f in rescale_factors(angles) {
+                    assert!(
+                        f.is_finite() && (1.0..=1.7321).contains(&f),
+                        "{winkel}: {f}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Minecraft erlaubt `rescale` auch für mehrachsige Drehungen.
+    #[test]
+    fn rescale_gilt_auch_mehrachsig() {
+        for f in rescale_factors([45.0, 45.0, 0.0]) {
+            assert!(f.is_finite() && (1.0..=1.7321).contains(&f), "{f}");
+        }
+    }
+
+    /// Eine Vierteldrehung bildet den Würfel auf sich selbst ab; mit
+    /// `rescale` darf er den Einheitswürfel nicht verlassen.
+    #[test]
+    fn vierteldrehung_mit_rescale_bleibt_im_wuerfel() {
+        let rotation = Rotation {
+            origin: [8.0, 8.0, 8.0],
+            angles: [0.0, 90.0, 0.0],
+            rescale: true,
+        };
+        for ecke in [[0.0, 0.0, 0.0], [16.0, 16.0, 16.0], [0.0, 16.0, 0.0]] {
+            let p = rotate_element(ecke, &rotation);
+            for a in p {
+                assert!((-0.001..=16.001).contains(&a), "{ecke:?} -> {p:?}");
+            }
+        }
     }
 
     #[test]

@@ -135,10 +135,12 @@ impl Chunk {
     }
 
     pub fn section(&self, section_y: i8) -> Option<&Section> {
-        self.sections
-            .binary_search_by_key(&section_y, |s| s.y)
-            .ok()
-            .map(|i| &self.sections[i])
+        self.section_index(section_y).map(|i| &self.sections[i])
+    }
+
+    /// Position der Section in [`Chunk::sections`].
+    pub fn section_index(&self, section_y: i8) -> Option<usize> {
+        self.sections.binary_search_by_key(&section_y, |s| s.y).ok()
     }
 
     /// Unterste Blockkoordinate, die dieser Chunk abdeckt.

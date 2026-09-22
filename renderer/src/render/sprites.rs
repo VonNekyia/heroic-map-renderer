@@ -67,6 +67,13 @@ pub struct Family {
     /// darf ein verdeckter Block uebersprungen werden, ohne dass etwas
     /// von ihm haette herausragen koennen.
     pub contained: bool,
+    /// Volles Wasser und sonst nichts: verdeckt gleiches Wasser hinter
+    /// sich, und ist selbst unsichtbar, wo es nur an Wasser und deckende
+    /// Bloecke grenzt.
+    pub water: bool,
+    /// Ragt eine Alternative in Nachbarwuerfel? Dann muss der Renderer
+    /// von diesem Block aus auch dort zeichnen.
+    pub foreign: bool,
 }
 
 impl Family {
@@ -206,6 +213,18 @@ impl SpriteSet {
             let contained = alternatives
                 .iter()
                 .all(|(_, id)| id.is_none_or(|id| set.sprites[id.0 as usize].contained));
+            let water = matches!(fluid, Some((Fluid::Water, height)) if height >= 1.0)
+                && models
+                    .iter()
+                    .all(|(_, model)| model.quads.iter().all(|q| q.fluid.is_some()));
+            let foreign = alternatives.iter().any(|(_, id)| {
+                id.is_some_and(|id| {
+                    set.sprites[id.0 as usize]
+                        .parts
+                        .iter()
+                        .any(|(cell, _)| *cell != OWN_CELL)
+                })
+            });
             set.by_state
                 .insert(state.clone(), set.families.len() as u32);
             set.families.push(Family {
@@ -214,6 +233,8 @@ impl SpriteSet {
                 fluid,
                 opaque,
                 contained,
+                water,
+                foreign,
             });
         }
 
@@ -702,6 +723,8 @@ mod tests {
             fluid: None,
             opaque: false,
             contained: true,
+            water: false,
+            foreign: false,
         };
         let vier = family(&[1, 1, 1, 1]);
         let drei = family(&[1, 1, 1]);

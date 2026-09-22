@@ -796,9 +796,10 @@ fn render_coarser(
 /// je Worker — aber es zerteilt die Arbeit beim Stehlen bis auf einzelne
 /// Kacheln, und jede bekäme einen kalten Cache: mit 24 Threads lud jede
 /// Kachel wieder ihre hundert Chunks. Feste Stapel halten die Nachbarn
-/// zusammen; klein genug, damit auch ein kleiner Lauf alle Kerne füllt.
+/// zusammen. Die erste Kachel eines Stapels lädt kalt, also nicht unter
+/// sechzehn; darüber so gross, dass ein kleiner Lauf noch alle Kerne füllt.
 fn batch_size(tiles: usize) -> usize {
-    (tiles / (rayon::current_num_threads() * 4)).clamp(1, 64)
+    (tiles / rayon::current_num_threads()).clamp(16, 64)
 }
 
 /// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen.

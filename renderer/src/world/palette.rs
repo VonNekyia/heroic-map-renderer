@@ -149,6 +149,30 @@ impl PackedIndices {
         let shift = (i % self.per_long) * self.bits as usize;
         ((long as u64 >> shift) & ((1u64 << self.bits) - 1)) as usize
     }
+
+    /// Die ersten `entries` Indizes der Reihe nach, wie `get` sie liefern
+    /// würde — aber ohne Division je Eintrag. Für alles, was eine ganze
+    /// Section auf einmal durchgeht.
+    pub fn for_each(&self, entries: usize, mut f: impl FnMut(usize, usize)) {
+        let mask = (1u64 << self.bits) - 1;
+        let mut i = 0;
+        for &long in &self.data {
+            let mut word = long as u64;
+            for _ in 0..self.per_long {
+                if i == entries {
+                    return;
+                }
+                f(i, (word & mask) as usize);
+                word >>= self.bits;
+                i += 1;
+            }
+        }
+        // Fehlende Longs zählen als Index 0, wie bei `get`.
+        while i < entries {
+            f(i, 0);
+            i += 1;
+        }
+    }
 }
 
 /// Bits pro Eintrag für eine Palette dieser Größe: `ceil(log2(len))`, min. 1.
@@ -194,11 +218,38 @@ impl<T> Paletted<T> {
     pub fn is_uniform(&self) -> bool {
         self.indices.is_none() || self.palette.len() <= 1
     }
+
+    /// Palettenindex je Position, der Reihe nach — siehe
+    /// [`PackedIndices::for_each`].
+    pub fn for_each_index(&self, entries: usize, mut f: impl FnMut(usize, usize)) {
+        match &self.indices {
+            None => (0..entries).for_each(|i| f(i, 0)),
+            Some(idx) => idx.for_each(entries, f),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `for_each` muss Eintrag für Eintrag dasselbe liefern wie `get` —
+    /// auch bei einer Bitbreite, die 64 nicht teilt, und bei fehlenden
+    /// Longs am Ende.
+    #[test]
+    fn for_each_liefert_dasselbe_wie_get() {
+        let data: Vec<i64> = (1..=7u64)
+            .map(|k| 0x9E37_79B9_7F4A_7C15u64.wrapping_mul(k) as i64)
+            .collect();
+        // 20 Einträge: 5 Bits, 12 je Long, 84 Einträge in 7 Longs.
+        let packed = PackedIndices::new(data, 20, 4);
+        let mut seen = Vec::new();
+        packed.for_each(100, |i, index| seen.push((i, index)));
+        assert_eq!(seen.len(), 100);
+        for (i, index) in seen {
+            assert_eq!(index, packed.get(i), "Index {i}");
+        }
+    }
 
     #[test]
     fn bits_pro_eintrag() {

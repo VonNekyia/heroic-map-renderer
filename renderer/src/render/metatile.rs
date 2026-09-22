@@ -81,6 +81,13 @@ pub fn render_area(
 /// Aufeinanderfolgende Kacheln liegen untereinander und teilen sich fast
 /// alle Chunks. Wer sie je Kachel neu lädt, gibt ein Drittel der Renderzeit
 /// fürs Dekodieren aus, das er gerade erst gemacht hat.
+///
+/// Zwei Durchgänge. Der erste sammelt die Kandidaten — Blöcke, von denen
+/// etwas zu sehen sein kann — aus den Bitmasken der Sections, ohne einen
+/// einzigen Luftblock anzufassen. Der zweite sortiert sie in die
+/// Zeichenreihenfolge und zeichnet. Das Ergebnis ist dasselbe wie beim
+/// Ablaufen aller Blöcke im Band; nur die Reihenfolge, in der die Blöcke
+/// *gefunden* werden, ist eine andere.
 pub fn render_area_with(
     chunks: &mut ChunkCache,
     rect: ScreenRect,
@@ -90,39 +97,27 @@ pub fn render_area_with(
     let sprites = chunks.sprites;
     let projection = sprites.projection();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
-    // Fast immer leer. Dann fällt die Suche nach Überhängen ganz weg.
-    let ueberhaenge = !sprites.foreign_cells().is_empty();
+    let foreign: Vec<Cell> = sprites.foreign_cells().iter().copied().collect();
 
-    for y in y_range.0..=y_range.1 {
-        for (x, z) in columns_at(projection, rect, y) {
-            // Erst die Familie, ein Nachschlag. Das Sprite erst, wenn der
-            // Block sichtbar ist: neun von zehn Blöcken liegen unter der
-            // Oberfläche, und für die würde die Sprite-Wahl — Alternative
-            // würfeln, Wasserflächen, Biom — ins Leere laufen.
-            let family = chunks.family_at(x, y, z)?;
-            if family.is_none() && !(ueberhaenge && anything_foreign(chunks, x, y, z)?) {
-                continue;
-            }
-            if is_hidden(chunks, family, x, y, z)? {
-                continue;
-            }
+    let mut candidates = chunks.candidates(rect, y_range, &foreign)?;
+    candidates.sort_unstable_by_key(|c| c.key);
 
-            if let Some(id) = chunks.sprite_at(x, y, z)?
-                && let Some(part) = sprites.part(id, OWN_CELL)
-            {
-                blit(&mut canvas, part, rect, projection, [x, y, z]);
-            }
-            if ueberhaenge {
-                for &cell in sprites.foreign_cells() {
-                    let anchor = anchor_of([x, y, z], cell);
-                    let Some(id) = chunks.sprite_at(anchor[0], anchor[1], anchor[2])? else {
-                        continue;
-                    };
-                    if let Some(part) = sprites.part(id, cell) {
-                        blit(&mut canvas, part, rect, projection, anchor);
-                    }
-                }
-            }
+    for c in &candidates {
+        let (id, cell, anchor) = if c.kind == 0 {
+            (chunks.sprite_at(c.x, c.y, c.z)?, OWN_CELL, [c.x, c.y, c.z])
+        } else {
+            let cell = foreign[c.kind as usize - 1];
+            let anchor = anchor_of([c.x, c.y, c.z], cell);
+            (
+                chunks.sprite_at(anchor[0], anchor[1], anchor[2])?,
+                cell,
+                anchor,
+            )
+        };
+        if let Some(id) = id
+            && let Some(part) = sprites.part(id, cell)
+        {
+            blit(&mut canvas, part, rect, projection, anchor);
         }
     }
 
@@ -134,24 +129,17 @@ fn anchor_of([x, y, z]: [i32; 3], cell: Cell) -> [i32; 3] {
     [x - cell[0], y - cell[1], z - cell[2]]
 }
 
-/// Ragt irgendein Nachbarmodell in diesen Würfel?
-///
-/// `foreign_cells` ist leer, solange kein Modell seinen Blockwürfel
-/// verlässt — dann kostet das hier nichts. Sonst ist es ein Nachschlagen
-/// je Versatz und Würfel.
-// ponytail: unbedingte Suche je leerem Würfel. Erst nötig, wenn eine Welt
-// mit Feuer das Budget sprengt; dann eine Bitmaske je Section.
-fn anything_foreign(chunks: &mut ChunkCache, x: i32, y: i32, z: i32) -> Result<bool> {
-    let sprites = chunks.sprites;
-    for &cell in sprites.foreign_cells() {
-        let anchor = anchor_of([x, y, z], cell);
-        if let Some(id) = chunks.sprite_at(anchor[0], anchor[1], anchor[2])?
-            && sprites.part(id, cell).is_some()
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+/// Ein Block, von dem etwas zu sehen sein kann, mit seinem Platz in der
+/// Zeichenreihenfolge.
+struct Candidate {
+    /// `(y, v, u, kind)` in einem Wort, damit das Sortieren billig ist.
+    key: u64,
+    x: i32,
+    y: i32,
+    z: i32,
+    /// 0: der Block selbst; sonst 1 + Index des fremden Würfels, in den
+    /// ein Nachbarmodell hineinragt.
+    kind: u8,
 }
 
 /// Alle Chunks, deren Blöcke in das Rechteck fallen können.
@@ -173,6 +161,31 @@ pub fn chunks_for(
     out
 }
 
+/// Bereich von `u = x - z`, dessen Spalten in das Rechteck fallen können.
+///
+/// `screen_x = u * scale/2`. f64, weil rect und Weltkoordinaten bis knapp
+/// 30 Millionen gehen: siehe Projection::project_block.
+fn u_window(projection: Projection, rect: ScreenRect) -> (i32, i32) {
+    let scale = projection.scale() as f64;
+    let bleed = BLEED_BLOCKS as f64 * scale;
+    (
+        ((rect.x as f64 - bleed) / (scale / 2.0)).floor() as i32,
+        ((rect.right() as f64 + bleed) / (scale / 2.0)).ceil() as i32,
+    )
+}
+
+/// Bereich von `v = x + z` auf dieser Höhe: `screen_y = v * scale/4 - y *
+/// scale/2`.
+fn v_window(projection: Projection, rect: ScreenRect, y: i32) -> (i32, i32) {
+    let scale = projection.scale() as f64;
+    let bleed = BLEED_BLOCKS as f64 * scale;
+    let offset = y as f64 * scale / 2.0;
+    (
+        ((rect.y as f64 - bleed + offset) / (scale / 4.0)).floor() as i32,
+        ((rect.bottom() as f64 + bleed + offset) / (scale / 4.0)).ceil() as i32,
+    )
+}
+
 /// Alle Blockspalten, deren Sprite auf dieser Höhe in das Rechteck fallen
 /// kann — in Zeichenreihenfolge.
 ///
@@ -191,19 +204,8 @@ fn columns_at(
     rect: ScreenRect,
     y: i32,
 ) -> impl Iterator<Item = (i32, i32)> {
-    // f64, weil rect und Weltkoordinaten bis knapp 30 Millionen gehen:
-    // siehe Projection::project_block.
-    let scale = projection.scale() as f64;
-    let bleed = BLEED_BLOCKS as f64 * scale;
-
-    // screen_x = u * scale/2
-    let u_min = ((rect.x as f64 - bleed) / (scale / 2.0)).floor() as i32;
-    let u_max = ((rect.right() as f64 + bleed) / (scale / 2.0)).ceil() as i32;
-
-    // screen_y = v * scale/4 - y * scale/2
-    let offset = y as f64 * scale / 2.0;
-    let v_min = ((rect.y as f64 - bleed + offset) / (scale / 4.0)).floor() as i32;
-    let v_max = ((rect.bottom() as f64 + bleed + offset) / (scale / 4.0)).ceil() as i32;
+    let (u_min, u_max) = u_window(projection, rect);
+    let (v_min, v_max) = v_window(projection, rect, y);
 
     (v_min..=v_max).flat_map(move |v| {
         // x und z sind ganzzahlig, also haben u und v dieselbe Parität.
@@ -212,33 +214,6 @@ fn columns_at(
             .step_by(2)
             .map(move |u| ((u + v) / 2, (v - u) / 2))
     })
-}
-
-/// Ein Würfel ist unsichtbar, wenn seine drei kamerazugewandten Nachbarn
-/// volle, deckende Blöcke sind: deren Umrisse setzen genau den eigenen
-/// zusammen.
-///
-/// Das gilt für alles, was in diesem Würfel liegt — auch für Teile fremder
-/// Modelle, denn die Zerlegung in `SpriteSet` hält jeden Teil in seinem
-/// Würfel. Wo sie das nicht schafft, meldet `is_contained` es, und die
-/// Abkürzung entfällt.
-fn is_hidden(
-    chunks: &mut ChunkCache,
-    own: Option<&Family>,
-    x: i32,
-    y: i32,
-    z: i32,
-) -> Result<bool> {
-    if own.is_some_and(|family| !family.contained) {
-        return Ok(false);
-    }
-    for (dx, dy, dz) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)] {
-        match chunks.family_at(x + dx, y + dy, z + dz)? {
-            Some(family) if family.opaque => {}
-            _ => return Ok(false),
-        }
-    }
-    Ok(true)
 }
 
 fn blit(
@@ -307,6 +282,106 @@ struct Slot {
 struct Loaded {
     chunk: Chunk,
     families: Vec<Vec<Option<u32>>>,
+    /// Je Section ihre Bitmasken.
+    masks: Vec<Masks>,
+    /// Je Section die Kandidaten, sobald einmal berechnet — dafür müssen
+    /// die Nachbarchunks da sein, deshalb nicht beim Laden.
+    exposed: Vec<Option<Box<Exposed>>>,
+}
+
+/// Bitmasken einer Section: je Spalte `z * 16 + x` ein Wort, Bit `y`.
+///
+/// Damit ist die Frage "ist dieser Block von seinen drei Nachbarn
+/// verdeckt?" für sechzehn Blöcke einer Spalte auf einmal ein paar
+/// Wortoperationen — statt drei Nachschläge je Block, für neun von zehn
+/// Blöcken, die dann doch unter der Oberfläche liegen.
+struct Masks {
+    /// Irgendeine Familie: der Block könnte etwas zeichnen.
+    present: [u16; 256],
+    /// Deckende Familie: verdeckt, was hinter ihr liegt.
+    solid: [u16; 256],
+    /// Volles, reines Wasser: verdeckt nur gleiches Wasser.
+    water: [u16; 256],
+    /// Familie, die nicht in ihrem Würfel bleibt: nie überspringen.
+    loose: [u16; 256],
+    /// Familie mit Teilen in Nachbarwürfeln.
+    foreign: [u16; 256],
+    /// Steht überhaupt etwas in der Section?
+    any: bool,
+}
+
+/// Was in einer Section gezeichnet werden muss.
+struct Exposed {
+    /// Blöcke, von denen etwas zu sehen sein kann.
+    own: [u16; 256],
+    /// Würfel, deren drei kamerazugewandte Nachbarn deckend sind. Ein
+    /// fremdes Modellteil in so einem Würfel wäre unsichtbar.
+    hidden: [u16; 256],
+}
+
+impl Masks {
+    fn of(section: &crate::world::Section, families: &[Option<u32>], sprites: &SpriteSet) -> Masks {
+        let mut m = Masks {
+            present: [0; 256],
+            solid: [0; 256],
+            water: [0; 256],
+            loose: [0; 256],
+            foreign: [0; 256],
+            any: false,
+        };
+        // Je Paletteneintrag ein Bitfeld: 1 vorhanden, 2 deckend, 4 Wasser,
+        // 8 nicht im Würfel, 16 mit fremden Teilen.
+        let flags: Vec<u8> = families
+            .iter()
+            .map(|family| {
+                family.map_or(0, |index| {
+                    let f = sprites.family(index);
+                    1 | (f.opaque as u8) << 1
+                        | (f.water as u8) << 2
+                        | (!f.contained as u8) << 3
+                        | (f.foreign as u8) << 4
+                })
+            })
+            .collect();
+        let blocks = section.blocks();
+        let mut set = |col: usize, bit: u16, flag: u8| {
+            m.present[col] |= bit;
+            if flag & 2 != 0 {
+                m.solid[col] |= bit;
+            }
+            if flag & 4 != 0 {
+                m.water[col] |= bit;
+            }
+            if flag & 8 != 0 {
+                m.loose[col] |= bit;
+            }
+            if flag & 16 != 0 {
+                m.foreign[col] |= bit;
+            }
+        };
+        if blocks.is_uniform() {
+            let flag = flags.first().copied().unwrap_or(0);
+            if flag != 0 {
+                for col in 0..256 {
+                    set(col, u16::MAX, flag);
+                }
+                m.any = true;
+            }
+            return m;
+        }
+        let mut any = false;
+        blocks.for_each_index(4096, |i, index| {
+            // Ein Index über die Palette hinaus wäre ein kaputter Chunk;
+            // der zählt wie Luft, genau wie beim Nachschlagen je Block.
+            let flag = flags.get(index).copied().unwrap_or(0);
+            if flag != 0 {
+                set(i & 255, 1 << (i >> 8), flag);
+                any = true;
+            }
+        });
+        m.any = any;
+        m
+    }
 }
 
 impl<'a> ChunkCache<'a> {
@@ -368,7 +443,7 @@ impl<'a> ChunkCache<'a> {
         };
         let sprites = self.sprites;
         let loaded = chunk.map(|chunk| {
-            let families = chunk
+            let families: Vec<Vec<Option<u32>>> = chunk
                 .sections()
                 .iter()
                 .map(|section| {
@@ -380,7 +455,19 @@ impl<'a> ChunkCache<'a> {
                         .collect()
                 })
                 .collect();
-            Loaded { chunk, families }
+            let masks = chunk
+                .sections()
+                .iter()
+                .zip(&families)
+                .map(|(section, families)| Masks::of(section, families, sprites))
+                .collect();
+            let exposed = chunk.sections().iter().map(|_| None).collect();
+            Loaded {
+                chunk,
+                families,
+                masks,
+                exposed,
+            }
         });
         self.slots.push(Slot {
             key,
@@ -390,6 +477,213 @@ impl<'a> ChunkCache<'a> {
         let i = self.slots.len() - 1;
         self.index.insert(key, i);
         Ok(i)
+    }
+
+    /// Randspalten einer Nachbarsection: `(deckend, Wasser)` je Spalte am
+    /// Rand `x = 0` (Index z) oder `z = 0` (Index x). Ohne Chunk oder
+    /// Section ist das Luft.
+    fn edge(&mut self, key: (i32, i32), section_y: i8, x_edge: bool) -> Result<[(u16, u16); 16]> {
+        let i = self.slot(key)?;
+        let mut out = [(0, 0); 16];
+        if let Some(loaded) = &self.slots[i].loaded
+            && let Some(s) = loaded.chunk.section_index(section_y)
+        {
+            let m = &loaded.masks[s];
+            for (j, edge) in out.iter_mut().enumerate() {
+                let col = if x_edge { j * 16 } else { j };
+                *edge = (m.solid[col], m.water[col]);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Rechnet die Kandidaten einer Section aus, falls noch nicht geschehen.
+    ///
+    /// Ein Block ist verdeckt, wenn seine Nachbarn nach +x, +y und +z
+    /// deckend sind. Für volles Wasser zählt auch gleiches Wasser als
+    /// Deckung: seine Flächen dorthin entfallen ohnehin, und was an
+    /// deckende Blöcke grenzt, übermalen diese danach. Nach +y ist das
+    /// Bit des Nachbarn in derselben Spalte, eins höher — ein Shift; am
+    /// oberen Rand kommt es aus der Section darüber, an den Rändern +x
+    /// und +z aus dem Nachbarchunk.
+    fn expose(&mut self, slot: usize, s: usize) -> Result<()> {
+        let (key, section_y) = {
+            let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
+            if loaded.exposed[s].is_some() {
+                return Ok(());
+            }
+            (self.slots[slot].key, loaded.chunk.sections()[s].y)
+        };
+        let nx = self.edge((key.0 + 1, key.1), section_y, true)?;
+        let nz = self.edge((key.0, key.1 + 1), section_y, false)?;
+
+        let loaded = self.slots[slot].loaded.as_mut().expect("geladen");
+        let above = loaded
+            .chunk
+            .section_index(section_y.saturating_add(1))
+            .map(|i| &loaded.masks[i]);
+        let m = &loaded.masks[s];
+        let mut ex = Exposed {
+            own: [0; 256],
+            hidden: [0; 256],
+        };
+        for col in 0..256 {
+            let (x, z) = (col & 15, col >> 4);
+            let up = above.map_or((0, 0), |a| (a.solid[col] & 1, a.water[col] & 1));
+            let (sx, wx) = if x < 15 {
+                (m.solid[col + 1], m.water[col + 1])
+            } else {
+                nx[z]
+            };
+            let (sz, wz) = if z < 15 {
+                (m.solid[col + 16], m.water[col + 16])
+            } else {
+                nz[x]
+            };
+            let sy = (m.solid[col] >> 1) | (up.0 << 15);
+            let hidden = sx & sy & sz;
+            let wy = sy | (m.water[col] >> 1) | (up.1 << 15);
+            let water_hidden = (sx | wx) & wy & (sz | wz);
+            ex.hidden[col] = hidden;
+            ex.own[col] = (m.present[col] & !m.water[col] & !hidden)
+                | (m.water[col] & !water_hidden)
+                | m.loose[col];
+        }
+        loaded.exposed[s] = Some(Box::new(ex));
+        Ok(())
+    }
+
+    /// Ist der Würfel von seinen drei Nachbarn verdeckt — und darf man
+    /// ihn deshalb übergehen? Ein Block, der nicht in seinem Würfel
+    /// bleibt, darf das nie.
+    fn hidden_at(&mut self, x: i32, y: i32, z: i32) -> Result<bool> {
+        let slot = self.slot((x >> 4, z >> 4))?;
+        let Some(loaded) = &self.slots[slot].loaded else {
+            return Ok(false);
+        };
+        let Some(s) = i8::try_from(y >> 4)
+            .ok()
+            .and_then(|sy| loaded.chunk.section_index(sy))
+        else {
+            return Ok(false);
+        };
+        self.expose(slot, s)?;
+        let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
+        let col = ((z & 15) * 16 + (x & 15)) as usize;
+        let bit = 1u16 << (y & 15);
+        let ex = loaded.exposed[s].as_ref().expect("eben berechnet");
+        Ok(ex.hidden[col] & !loaded.masks[s].loose[col] & bit != 0)
+    }
+
+    /// Erster Durchgang: alle Blöcke im Band, von denen etwas zu sehen
+    /// sein kann, samt der Würfel, in die fremde Modellteile hineinragen.
+    fn candidates(
+        &mut self,
+        rect: ScreenRect,
+        y_range: (i32, i32),
+        foreign: &[Cell],
+    ) -> Result<Vec<Candidate>> {
+        let projection = self.sprites.projection();
+        let (u_min, u_max) = u_window(projection, rect);
+        let v_lo = v_window(projection, rect, y_range.0).0;
+        let v_hi = v_window(projection, rect, y_range.1).1;
+        // Ein fremdes Teil kann von einem Block ausserhalb des Bands
+        // hereinragen; so weit reicht die Suche über das Band hinaus.
+        let pad = foreign
+            .iter()
+            .map(|c| c[0].abs() + c[2].abs())
+            .max()
+            .unwrap_or(0);
+        let key_of = |y: i32, v: i32, u: i32, kind: u8| -> u64 {
+            ((y - y_range.0) as u64) << 48
+                | ((v - v_lo + pad) as u64 & 0xFFFF) << 32
+                | ((u - u_min + pad) as u64 & 0xFFFF) << 8
+                | kind as u64
+        };
+        let in_band = |y: i32, v: i32, u: i32| {
+            if y < y_range.0 || y > y_range.1 || u < u_min || u > u_max {
+                return false;
+            }
+            let (v_min, v_max) = v_window(projection, rect, y);
+            v >= v_min && v <= v_max
+        };
+
+        let mut out = Vec::new();
+        let mut anchors: Vec<[i32; 3]> = Vec::new();
+        for key in band_chunks(u_min - pad, u_max + pad, v_lo - pad, v_hi + pad) {
+            let slot = self.slot(key)?;
+            let sections = match &self.slots[slot].loaded {
+                Some(loaded) => loaded.chunk.sections().len(),
+                None => continue,
+            };
+            for s in 0..sections {
+                if self.slots[slot].loaded.as_ref().expect("geladen").masks[s].any {
+                    self.expose(slot, s)?;
+                }
+            }
+            let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
+            for (s, section) in loaded.chunk.sections().iter().enumerate() {
+                let m = &loaded.masks[s];
+                if !m.any {
+                    continue;
+                }
+                let ex = loaded.exposed[s].as_ref().expect("eben berechnet");
+                let sy = section.y as i32 * 16;
+                for col in 0..256 {
+                    let own = ex.own[col];
+                    let fo = m.foreign[col];
+                    if own == 0 && fo == 0 {
+                        continue;
+                    }
+                    let x = key.0 * 16 + (col & 15) as i32;
+                    let z = key.1 * 16 + (col >> 4) as i32;
+                    let (u, v) = (x - z, x + z);
+                    let mut bits = own;
+                    while bits != 0 {
+                        let y = sy + bits.trailing_zeros() as i32;
+                        bits &= bits - 1;
+                        if in_band(y, v, u) {
+                            out.push(Candidate {
+                                key: key_of(y, v, u, 0),
+                                x,
+                                y,
+                                z,
+                                kind: 0,
+                            });
+                        }
+                    }
+                    let mut bits = fo;
+                    while bits != 0 {
+                        anchors.push([x, sy + bits.trailing_zeros() as i32, z]);
+                        bits &= bits - 1;
+                    }
+                }
+            }
+        }
+
+        // Fremde Teile: vom Anker aus in jeden Würfel, den ein Modell der
+        // Familie belegen kann. Gezeichnet wird dort, wenn der Würfel im
+        // Band liegt und nicht verdeckt ist — genau wie ein eigener Block.
+        for anchor in anchors {
+            for (i, cell) in foreign.iter().enumerate() {
+                let [x, y, z] = [
+                    anchor[0] + cell[0],
+                    anchor[1] + cell[1],
+                    anchor[2] + cell[2],
+                ];
+                let (u, v) = (x - z, x + z);
+                if in_band(y, v, u) && !self.hidden_at(x, y, z)? {
+                    out.push(Candidate {
+                        key: key_of(y, v, u, i as u8 + 1),
+                        x,
+                        y,
+                        z,
+                        kind: i as u8 + 1,
+                    });
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Sprite an einer Weltkoordinate, oder `None` für Luft, fehlende
@@ -467,6 +761,29 @@ impl<'a> ChunkCache<'a> {
             .flatten()
             .map(|index| self.sprites.family(index)))
     }
+}
+
+/// Alle Chunks, die das Band `u ∈ [u_min, u_max]`, `v ∈ [v_lo, v_hi]`
+/// berühren können — grob über die Hüllbox, dann je Chunk gegen das Band.
+/// Ein paar Chunks zu viel schaden nicht: jeder Kandidat wird ohnehin
+/// einzeln gegen das Band geprüft.
+fn band_chunks(u_min: i32, u_max: i32, v_lo: i32, v_hi: i32) -> Vec<(i32, i32)> {
+    // x = (u + v) / 2, z = (v - u) / 2
+    let x0 = (u_min + v_lo).div_euclid(2) - 1;
+    let x1 = (u_max + v_hi).div_euclid(2) + 1;
+    let z0 = (v_lo - u_max).div_euclid(2) - 1;
+    let z1 = (v_hi - u_min).div_euclid(2) + 1;
+    let mut out = Vec::new();
+    for cz in (z0 >> 4)..=(z1 >> 4) {
+        for cx in (x0 >> 4)..=(x1 >> 4) {
+            let (bx0, bx1, bz0, bz1) = (cx * 16, cx * 16 + 15, cz * 16, cz * 16 + 15);
+            if bx1 - bz0 < u_min || bx0 - bz1 > u_max || bx1 + bz1 < v_lo || bx0 + bz0 > v_hi {
+                continue;
+            }
+            out.push((cx, cz));
+        }
+    }
+    out
 }
 
 #[cfg(test)]

@@ -328,29 +328,48 @@ Umbau weiter unten.
 
 Das ist keine Eigenschaft der Welt, sondern des Renderers. Eine Kachel
 ist ein schräger Schnitt durch die volle Bauhöhe von 384 Blöcken: rund
-320 000 Blockbesuche, gut hundert Chunks, und neun von zehn nicht-leeren
+320 000 Blockpositionen, gut hundert Chunks, und neun von zehn nicht-leeren
 Blöcken liegen unter der Oberfläche. Gemessen an einem 4096er-Ausschnitt um
 (0, 0), einfädig, je Kachel:
 
-| Phase | vorher | nachher |
-|---|---|---|
-| Blöcke ablaufen und Sprite wählen | 39 ms | 20 ms |
-| Chunks laden und dekodieren | 15 ms (106 Chunks) | 1 ms (6,5 Chunks) |
-| Sprites zeichnen (4688 Blits) | 9 ms | 9 ms |
-| WebP kodieren | 0,5 ms | 0,5 ms |
-| gesamt | 64 ms | 30 ms |
+| Phase | ursprünglich | Cache je Stapel | Bitmasken |
+|---|---|---|---|
+| Blöcke finden und Sprite wählen | 39 ms | 20 ms | 4,5 ms |
+| Chunks laden und dekodieren | 15 ms (106 Chunks) | 1 ms (6,5) | 1,5 ms (9) |
+| Sprites zeichnen (4688 bzw. 3934 Blits) | 9 ms | 9 ms | 8 ms |
+| WebP kodieren | 0,5 ms | 0,5 ms | 0,6 ms |
+| gesamt | 64 ms | 30 ms | 13 ms |
+| 24 Threads, 8192er-Ausschnitt | 159 Kacheln/s | 318 | 532 |
 
-Drei Umbauten, keiner ändert einen Pixel — der 8192er-Ausschnitt ist vorher
-wie nachher Byte für Byte gleich, alle 1393 Dateien: der Chunk-Cache lebt je
-Stapel von Kacheln statt je Kachel; ein verdeckter Block wird erkannt,
-bevor sein Sprite gewählt wird (Alternative würfeln, Wasserflächen, Biom);
-und der Nachschlag im Cache merkt sich den letzten Chunk, statt je Block
-zweimal zu hashen. Auf 24 Threads sind das 318 statt 159 Kacheln/s.
+Keiner der Umbauten ändert einen Pixel: der 8192er-Ausschnitt ist nach jedem
+Byte für Byte gleich, alle 1393 Dateien.
 
-Was bleibt, ist ehrlich verteilt: 13 ms für die Blockbesuche (40 ns je
-Besuch, die meisten Luft über dem Gelände), 7 ms Sprite-Wahl für die
-sichtbaren Blöcke, 9 ms Zeichnen bei 1,3 ns je Pixel. Der nächste grosse
-Schritt wäre, Luft-Sections gar nicht erst zu besuchen.
+**Cache je Stapel.** Der Chunk-Cache lebt je Stapel aufeinanderfolgender
+Kacheln statt je Kachel, und der Nachschlag merkt sich den letzten Chunk,
+statt je Block zweimal zu hashen.
+
+**Bitmasken statt Blockbesuche.** Der Renderer lief über jede Position im
+Band, fragte je Block die Familie ab und für jeden nicht-leeren Block drei
+Nachbarn — und wählte für neun von zehn erst das Sprite, bevor er merkte,
+dass der Block verdeckt ist. Jetzt hält jede Section je Spalte ein 16-Bit-Wort
+(Bit = y) für "vorhanden", "deckend", "volles Wasser", "ragt heraus":
+verdeckt ist ein Block, wenn die Nachbarn nach +x, +y und +z deckend sind,
+und das ist je Spalte eine Handvoll Wortoperationen für sechzehn Blöcke auf
+einmal — nach +y ein Shift, an den Rändern kommt das Bit aus der Section
+darüber oder dem Nachbarchunk. Für volles Wasser zählt gleiches Wasser als
+Deckung, damit das Innere eines Ozeans gar nicht erst zur Sprite-Wahl kommt.
+Aus den Masken fallen die Kandidaten heraus, ohne dass Luft je angefasst
+wird; sortiert nach `(y, v, u)` sind sie genau die Zeichenreihenfolge des
+Maleralgorithmus. Der zweite Durchgang zeichnet nur noch.
+
+**mimalloc.** Parallel dauerte ein Chunk-Dekodieren sechsmal so lang wie
+allein: der Windows-Heap serialisiert die vielen kleinen Allokationen des
+NBT-Lesers über 24 Threads. Mit mimalloc hat jeder Thread seinen Heap; das
+war der Unterschied zwischen 245 und 532 Kacheln/s.
+
+Was bleibt: das Zeichnen. 8 der 13 ms gehen in die Blits, 1,3 ns je Pixel,
+aber 70-fach überzeichnet — jeder sichtbare Block zeichnet seine drei
+Flächen, auch die, die der Nachbar gleich übermalt.
 
 WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
 wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den

@@ -173,8 +173,10 @@ werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
 Chunks werden deshalb zweimal gelesen; der Vorlauf kostet 11 Sekunden für die
 ganze Welt.
 
-Gerendert wird mit Rayon über die Kacheln. Jeder Worker hält seinen eigenen
-Chunk- und Regionscache, geteilt wird nur die unveränderliche Sprite-Tabelle.
+Gerendert wird mit Rayon über die Kacheln. Geteilt wird nur die
+unveränderliche Sprite-Tabelle; jede Kachel legt sich ihren Chunk- und
+Regionscache neu an. Benachbarte Kacheln dekodieren dieselben Chunks also
+mehrfach — das ist der grösste Kostenblock des Renders, siehe unten.
 
 `--center` und `--size` schränken auf einen Ausschnitt ein:
 
@@ -242,19 +244,32 @@ ja weiterhin da. Und `map.json` beschreibt den ganzen Baum, nicht den letzten
 Lauf. An einer unveränderten Welt ändert ein Nachrendern deshalb keine einzige
 Datei.
 
-Die gröberen Stufen werden nicht alle verkleinert. Solange ein Block
-noch zwei Pixel breit ist — bei scale 32 also vier Stufen lang, 16, 8, 4
-und 2 —, rendert der Renderer die Stufe aus der Welt, mit Sprites in
-dieser Grösse. Verkleinern mittelt Nachbarblöcke ineinander, und schon
-zwei Stufen unter der Basis wäre aus jeder Kante Brei; ein nativer Render
-hält den Umriss jedes Blocks scharf und mittelt stattdessen die Textur
-über den Block, was auf einer Karte niemand vermisst. Das kostet ein
-Drittel des Basisrenders obendrauf. Erst darunter, bei einem Pixel je
-Block und weniger, wird verkleinert.
-
-Gemittelt wird dabei in linearem Licht, nicht in sRGB-Werten: die sind
+Gemittelt wird in linearem Licht, nicht in sRGB-Werten: die sind
 gammakodiert, ihr Mittel ist zu dunkel, und jede Stufe verdunkelt weiter.
 Halb Schwarz, halb Weiss ergibt so 188 statt 128.
+
+Verkleinern mittelt Nachbarblöcke ineinander; zwei Stufen unter der Basis
+ist ein Block noch acht Pixel breit, und Blockkanten werden zu Verläufen.
+Wer die Kanten länger scharf haben will, lässt mit `--native-levels N` die
+ersten N gröberen Stufen aus der Welt rendern, mit Sprites in der
+kleineren Grösse; das geht, solange ein Block noch zwei Pixel breit ist.
+Der Preis ist ehrlich hoch: jede native Stufe ist ein weiterer Durchlauf
+durch die Welt und kostet etwa so viel wie die Basis, denn der Renderer
+zahlt je Block, nicht je Pixel. Deshalb ist die Vorgabe 0.
+
+#### Pyramide nachbauen, Karte während des Renders ansehen
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --tiles ./tiles --pyramid
+```
+
+`--pyramid` rendert nichts. Es baut die gröberen Stufen und `map.json` aus
+den Basiskacheln, die auf der Platte liegen — und zwar nur über
+Basiskacheln, die jünger sind als ihre Elternkachel. Der Aufruf lässt sich
+deshalb wiederholen, während ein Vollrender noch Stunden läuft: die Karte
+im Browser zeigt, was fertig ist, und wächst mit jedem Aufruf. `--scale`
+muss zum laufenden Render passen, die Zoomstufen kommen wie immer aus der
+Ausdehnung der Welt.
 
 ### `map.json`
 
@@ -294,6 +309,22 @@ verbrennen.
 Eine Kachel ist immer 256x256 px, und ihr Inhalt ist bei scale 8 genauso dicht
 wie bei 16 — sie zeigt nur viermal so viel Welt. Der Massstab wirkt also rein
 über die Kachelzahl.
+
+Der erste Vollrender einer grossen Welt hat die Rechnung geerdet:
+Interconnect, 2,5 Millionen Chunks (30 GB), scale 32.
+
+| | |
+|---|---|
+| Vorlauf | 259 s |
+| Basiskacheln | 2 504 461, rund 120 kB je Kachel, also ~300 GB |
+| Rate | 44 Kacheln/s auf 24 Threads, davon nur 9 Kerne frei |
+| Basisstufe | rund 15 Stunden |
+
+Das ist keine Eigenschaft der Welt, sondern des Renderers: eine Kachel
+kostet etwa eine halbe CPU-Sekunde, weil sie ein schräger Schnitt durch
+die volle Bauhöhe von 384 Blöcken ist, dafür 50 bis 70 Chunks lädt und
+dekodiert, und weil der Chunk-Cache je Kachel neu entsteht. Der Vorlauf
+liest dieselben Chunks einmal in vier Minuten.
 
 WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
 wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den

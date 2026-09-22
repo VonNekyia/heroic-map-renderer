@@ -320,15 +320,19 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
 }
 
 /// Jede gröbere Zoomstufe ist entweder nativ aus der Welt gerendert —
-/// solange ein Block noch zwei Pixel breit ist — oder genau die
+/// so viele Stufen, wie `--native-levels` verlangt — oder genau die
 /// Verkleinerung ihrer vier Kinder. Und keine Kachel darf fehlen.
 #[test]
 fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
     let out = tempdir();
-    // scale 8: eine native Stufe (4), dann Verkleinerungen — beide Wege.
-    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+    // scale 8 mit einer nativen Stufe (4), dann Verkleinerungen — beide Wege.
+    gelungen(&tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "8", "--native-levels", "1"],
+    ));
 
     let basis = max_zoom(out.path());
     assert!(basis > 1, "kein Stapel zu prüfen");
@@ -350,7 +354,8 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
         assert!(!eltern.is_empty(), "Zoom {z} ist leer");
 
         let scale = 8 >> (basis - z);
-        let sprites = (scale >= 2).then(|| {
+        // Genau eine Stufe nativ, wie oben verlangt.
+        let sprites = (basis - z == 1).then(|| {
             let mut assets = Assets::open(vec![assets()]).unwrap();
             SpriteSet::build(&mut assets, &states, Projection::new(scale)).unwrap()
         });
@@ -394,6 +399,66 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
         nativ > 0 && verkleinert > 0,
         "{nativ} nativ, {verkleinert} verkleinert"
     );
+}
+
+/// `--pyramid` baut aus den Basiskacheln auf der Platte dieselben
+/// Zoomstufen und dieselbe `map.json` wie der Export selbst — und beim
+/// zweiten Mal nichts mehr, weil keine Kachel jünger ist als ihre Eltern.
+#[test]
+fn pyramide_laesst_sich_aus_den_kacheln_nachbauen() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+    let soll = inhalte(out.path());
+    let basis = max_zoom(out.path());
+    assert!(basis > 0);
+
+    for z in 0..basis {
+        let stufe = out.path().join(z.to_string());
+        if stufe.is_dir() {
+            std::fs::remove_dir_all(&stufe).unwrap();
+        }
+    }
+    std::fs::remove_file(out.path().join("map.json")).unwrap();
+
+    let pyramide = |out: &Path| {
+        cli(&[
+            OsStr::new("--world"),
+            welt.path().as_ref(),
+            OsStr::new("--tiles"),
+            out.as_ref(),
+            OsStr::new("--scale"),
+            OsStr::new("8"),
+            OsStr::new("--pyramid"),
+        ])
+    };
+    gelungen(&pyramide(out.path()));
+    assert_eq!(inhalte(out.path()), soll);
+
+    let ausgabe = pyramide(out.path());
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    assert!(
+        meldung.contains(", 0 neuer als ihre Elternkachel"),
+        "Meldung: {meldung}"
+    );
+    assert_eq!(inhalte(out.path()), soll);
+}
+
+/// Alle Kacheln und `map.json` mit Inhalt, für Vergleiche zweier Läufe.
+fn inhalte(dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut out: Vec<(String, Vec<u8>)> = dateien(dir)
+        .into_iter()
+        .map(|rel| {
+            let bytes = std::fs::read(dir.join(&rel)).unwrap();
+            (rel, bytes)
+        })
+        .collect();
+    out.push((
+        "map.json".to_string(),
+        std::fs::read(dir.join("map.json")).unwrap(),
+    ));
+    out
 }
 
 /// `map.json` muss beschreiben, was tatsächlich dasteht.

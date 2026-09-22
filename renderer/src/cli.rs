@@ -76,6 +76,18 @@ pub struct Args {
     /// Jeden Chunk der Welt dekodieren; mit --assets auch jede Blockstate auflösen
     #[arg(long)]
     scan: bool,
+
+    /// So viele gröbere Zoomstufen aus der Welt rendern statt aus der
+    /// feineren Stufe verkleinern. Hält Blockkanten scharf, kostet aber je
+    /// Stufe einen weiteren Durchlauf durch die Welt.
+    #[arg(long, default_value_t = 0, value_name = "N")]
+    native_levels: u32,
+
+    /// Nur die Zoomstufen und map.json aus den Basiskacheln in --tiles
+    /// nachbauen, ohne zu rendern. Nimmt nur Kacheln, die neuer sind als
+    /// ihre Elternkachel — auch während ein Render läuft
+    #[arg(long)]
+    pyramid: bool,
 }
 
 pub fn run() -> Result<()> {
@@ -93,7 +105,10 @@ pub fn run() -> Result<()> {
     if args.render.is_some() && (args.world.is_none() || args.assets.is_empty()) {
         bail!("--render braucht --world und --assets");
     }
-    if args.tiles.is_some() && (args.world.is_none() || args.assets.is_empty()) {
+    if args.pyramid && args.tiles.is_none() {
+        bail!("--pyramid braucht --tiles");
+    }
+    if args.tiles.is_some() && (args.world.is_none() || (args.assets.is_empty() && !args.pyramid)) {
         bail!("--tiles braucht --world und --assets");
     }
 
@@ -173,13 +188,18 @@ pub fn run() -> Result<()> {
             )?;
         }
         if let Some(dir) = &args.tiles {
-            write_tiles(
-                world,
-                assets.as_mut().expect("oben geprüft"),
-                projection,
-                args.size.map(|size| window(projection, center, size)),
-                dir,
-            )?;
+            if args.pyramid {
+                rebuild_pyramid(world, projection, dir)?;
+            } else {
+                write_tiles(
+                    world,
+                    assets.as_mut().expect("oben geprüft"),
+                    projection,
+                    args.size.map(|size| window(projection, center, size)),
+                    dir,
+                    args.native_levels,
+                )?;
+            }
         }
     }
 
@@ -442,6 +462,7 @@ fn write_tiles(
     projection: Projection,
     bounds: Option<ScreenRect>,
     dir: &Path,
+    native_levels: u32,
 ) -> Result<()> {
     let started = Instant::now();
     let survey = survey(world, projection, Y_RANGE, bounds)?;
@@ -542,9 +563,52 @@ fn write_tiles(
         dir,
         max_zoom,
         kandidaten,
+        native_levels,
     )?;
     build_pyramid(dir, z, kandidaten)?;
+    write_map_json(dir, projection, max_zoom)
+}
 
+/// Baut die Zoomstufen über den Basiskacheln nach, die auf der Platte
+/// liegen, und schreibt `map.json` — ohne die Welt zu rendern.
+///
+/// Neu gebaut werden nur die Eltern von Basiskacheln, die jünger sind als
+/// ihre Elternkachel. Damit lässt sich der Aufruf wiederholen, während ein
+/// Render noch läuft: die Karte im Browser wächst mit, und der Aufwand
+/// bleibt bei dem, was seit dem letzten Mal dazugekommen ist.
+fn rebuild_pyramid(world: &World, projection: Projection, dir: &Path) -> Result<()> {
+    let welt =
+        world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
+    let max_zoom = pyramid::depth(&corner_tiles(welt));
+    let basis = vorhandene(dir, max_zoom)?;
+    let neu: BTreeSet<TileId> = basis
+        .iter()
+        .copied()
+        .filter(|tile| juenger_als_eltern(dir, max_zoom, *tile))
+        .collect();
+    println!(
+        "\nPyramide:   {} Basiskacheln auf Zoom {max_zoom}, {} neuer als ihre Elternkachel",
+        basis.len(),
+        neu.len()
+    );
+    build_pyramid(dir, max_zoom, neu)?;
+    write_map_json(dir, projection, max_zoom)
+}
+
+/// Ist die Kachel jünger als ihre Elternkachel — oder die Elternkachel gar
+/// nicht da?
+fn juenger_als_eltern(dir: &Path, z: u32, tile: TileId) -> bool {
+    if z == 0 {
+        return false;
+    }
+    let mtime = |path: PathBuf| std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    match mtime(tile_path(dir, z - 1, tile.parent())) {
+        None => true,
+        Some(eltern) => mtime(tile_path(dir, z, tile)).is_some_and(|kind| kind > eltern),
+    }
+}
+
+fn write_map_json(dir: &Path, projection: Projection, max_zoom: u32) -> Result<()> {
     // Die Grenzen beschreiben den ganzen Kachelbaum, nicht diesen Lauf.
     // Nach einem nachgerenderten Ausschnitt lägen sonst die unberührten
     // Kacheln ausserhalb, und das Frontend startete im falschen
@@ -632,21 +696,23 @@ fn build_pyramid(dir: &Path, max_zoom: u32, kandidaten: BTreeSet<TileId>) -> Res
 }
 
 /// Bis zu welchem scale gröbere Zoomstufen noch aus der Welt gerendert
-/// werden statt aus der feineren Stufe verkleinert. Bei 2 ist ein Block
-/// noch ein Rhombus aus vier Pixeln; darunter bleibt nur Mitteln.
+/// werden können. Bei 2 ist ein Block noch ein Rhombus aus vier Pixeln;
+/// darunter bleibt nur Mitteln.
 const NATIVE_MIN_SCALE: u32 = 2;
 
-/// Rendert die gröberen Zoomstufen aus der Welt, solange ein Block noch
-/// [`NATIVE_MIN_SCALE`] Pixel breit ist.
+/// Rendert bis zu `levels` gröbere Zoomstufen aus der Welt, solange ein
+/// Block noch [`NATIVE_MIN_SCALE`] Pixel breit ist.
 ///
 /// Verkleinern mittelt Nachbarblöcke ineinander, und schon zwei Stufen
 /// unter der Basis ist aus Kanten Brei geworden. Ein nativer Render hält
 /// jede Blockkante scharf, die Textur wird dafür im Sprite über den Block
-/// gemittelt — auf der Karte zählt der Umriss, nicht das Texel. Kostet
-/// ein Drittel des Basisrenders obendrauf: ein Viertel je Stufe.
+/// gemittelt. Der Preis: jede Stufe ist ein weiterer Durchlauf durch die
+/// Welt und kostet etwa so viel wie die Basis, denn der Renderer zahlt je
+/// Block, nicht je Pixel. Deshalb ist die Vorgabe 0.
 ///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
 /// [`build_pyramid`].
+#[allow(clippy::too_many_arguments)]
 fn render_coarser(
     world: &World,
     assets: &mut Assets,
@@ -655,12 +721,16 @@ fn render_coarser(
     dir: &Path,
     max_zoom: u32,
     kandidaten: BTreeSet<TileId>,
+    levels: u32,
 ) -> Result<(u32, BTreeSet<TileId>)> {
     let mut z = max_zoom;
     let mut scale = projection.scale();
     let mut kandidaten = kandidaten;
 
-    while z > 0 && scale.is_multiple_of(2) && scale / 2 >= NATIVE_MIN_SCALE {
+    for _ in 0..levels {
+        if z == 0 || !scale.is_multiple_of(2) || scale / 2 < NATIVE_MIN_SCALE {
+            break;
+        }
         z -= 1;
         scale /= 2;
         let started = Instant::now();

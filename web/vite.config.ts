@@ -5,4 +5,8 @@ export default defineConfig({
   // liegen koennen, ohne neu gebaut zu werden.
   base: './',
   build: { outDir: 'dist', emptyOutDir: true },
+  // Die Kacheln sind Millionen Dateien, die ein laufender Render ständig
+  // anlegt. Der Watcher des Devservers würde sie alle beobachten und
+  // dabei Kerne verbrennen, die der Render braucht.
+  server: { watch: { ignored: ['**/public/tiles/**'] } },
 });

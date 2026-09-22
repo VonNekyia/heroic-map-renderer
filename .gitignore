@@ -17,3 +17,8 @@ web/dist/
 
 # Ist-Bild eines gefallenen Goldbild-Tests
 metatile-ist.png
+
+# Playwright
+web/test-results/
+web/playwright-report/
+web/public/tiles/

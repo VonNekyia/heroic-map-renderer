@@ -478,17 +478,28 @@ fn write_tiles(
         bytes as f64 / basis.len().max(1) as f64 / 1024.0,
     );
 
-    build_pyramid(dir, max_zoom, kandidaten, basis.clone())?;
+    build_pyramid(dir, max_zoom, kandidaten)?;
 
-    let info = MapInfo::new(projection.scale(), max_zoom, &basis);
+    // Die Grenzen beschreiben den ganzen Kachelbaum, nicht diesen Lauf.
+    // Nach einem nachgerenderten Ausschnitt lägen sonst die unberührten
+    // Kacheln ausserhalb, und das Frontend startete im falschen
+    // Ausschnitt.
+    let bestand = vorhandene(dir, max_zoom)?;
+    let info = MapInfo::new(projection.scale(), max_zoom, &bestand);
+
+    // Auch ohne eine einzige sichtbare Kachel muss map.json geschrieben
+    // werden können — bis hierher hat vielleicht nichts das Verzeichnis
+    // angelegt.
+    std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
     let path = dir.join("map.json");
     let datei = File::create(&path).with_context(|| format!("{} anlegen", path.display()))?;
     serde_json::to_writer_pretty(BufWriter::new(datei), &info)
         .with_context(|| format!("{} schreiben", path.display()))?;
     println!(
-        "Karte:      Zoom {}..{}, {} bis {} px -> {}",
+        "Karte:      Zoom {}..{}, {} Basiskacheln, {} bis {} px -> {}",
         info.min_zoom,
         info.max_zoom,
+        bestand.len(),
         format_args!("{}/{}", info.bounds[0], info.bounds[1]),
         format_args!("{}/{}", info.bounds[2], info.bounds[3]),
         path.display()
@@ -501,31 +512,31 @@ fn write_tiles(
 /// Jede Stufe entsteht allein aus der darunter — die Welt wird dafür nicht
 /// noch einmal angefasst.
 ///
-/// `kandidaten` sind die Kacheln, die der Vorlauf für möglich hielt,
-/// `geschrieben` die, in denen wirklich etwas lag. Der Unterschied zählt:
-/// eine Kachel, die leer geworden ist, muss ihre alte Datei verlieren —
-/// auf jeder Stufe, nicht nur auf der Basis.
-fn build_pyramid(
-    dir: &Path,
-    max_zoom: u32,
-    kandidaten: BTreeSet<TileId>,
-    basis: BTreeSet<TileId>,
-) -> Result<()> {
+/// `kandidaten` sind die Kacheln, die dieser Lauf angefasst hat. Nur deren
+/// Eltern müssen neu; alles andere im Baum ist unverändert und bleibt
+/// liegen.
+///
+/// Welche Kinder eine Elternkachel hat, entscheidet die Platte und nicht
+/// dieser Lauf. Ein Ausschnittexport in einen bestehenden Baum berührt nur
+/// einen Teil der Geschwister — die anderen liegen weiterhin da und
+/// gehören genauso in die Elternkachel. Die leer gewordenen sind zu diesem
+/// Zeitpunkt bereits gelöscht.
+fn build_pyramid(dir: &Path, max_zoom: u32, kandidaten: BTreeSet<TileId>) -> Result<()> {
     let started = Instant::now();
     let mut kandidaten = kandidaten;
-    let mut geschrieben = basis;
     let mut bytes = 0usize;
     let mut gesamt = 0usize;
 
     for z in (0..max_zoom).rev() {
         kandidaten = pyramid::parents(&kandidaten);
-        let stufe: Vec<(TileId, usize)> = kandidaten
+        let stufe: Vec<usize> = kandidaten
             .par_iter()
-            .map(|parent| -> Result<Option<(TileId, usize)>> {
+            .map(|parent| -> Result<Option<usize>> {
                 let mut teile = Vec::new();
                 for kind in parent.children() {
-                    if geschrieben.contains(&kind) {
-                        teile.push((kind, lies(&tile_path(dir, z + 1, kind))?));
+                    let pfad = tile_path(dir, z + 1, kind);
+                    if pfad.is_file() {
+                        teile.push((kind, lies(&pfad)?));
                     }
                 }
                 if teile.is_empty() {
@@ -533,17 +544,16 @@ fn build_pyramid(
                     return Ok(None);
                 }
                 let bild = pyramid::merge(*parent, &teile);
-                Ok(Some((*parent, schreibe(dir, z, *parent, &bild)?)))
+                Ok(Some(schreibe(dir, z, *parent, &bild)?))
             })
             .collect::<Result<Vec<_>>>()?
             .into_iter()
             .flatten()
             .collect();
 
-        bytes += stufe.iter().map(|(_, n)| n).sum::<usize>();
+        bytes += stufe.iter().sum::<usize>();
         gesamt += stufe.len();
         println!("Zoom {z:>2}:     {} Kacheln", stufe.len());
-        geschrieben = stufe.into_iter().map(|(tile, _)| tile).collect();
     }
 
     if max_zoom > 0 {
@@ -554,6 +564,30 @@ fn build_pyramid(
         );
     }
     Ok(())
+}
+
+/// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen.
+fn vorhandene(dir: &Path, z: u32) -> Result<BTreeSet<TileId>> {
+    let stufe = dir.join(z.to_string());
+    let Ok(spalten) = std::fs::read_dir(&stufe) else {
+        return Ok(BTreeSet::new());
+    };
+    let mut out = BTreeSet::new();
+    for spalte in spalten {
+        let spalte = spalte.with_context(|| format!("{} lesen", stufe.display()))?;
+        let Ok(x) = spalte.file_name().to_string_lossy().parse::<i32>() else {
+            continue;
+        };
+        for datei in std::fs::read_dir(spalte.path())
+            .with_context(|| format!("{} lesen", spalte.path().display()))?
+        {
+            let name = datei?.file_name().to_string_lossy().into_owned();
+            if let Some(y) = name.strip_suffix(".webp").and_then(|y| y.parse().ok()) {
+                out.insert(TileId { x, y });
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Schreibt eine Kachel und liefert ihre Grösse in Bytes.

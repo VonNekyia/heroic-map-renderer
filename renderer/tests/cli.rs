@@ -91,6 +91,19 @@ fn max_zoom(dir: &Path) -> u32 {
     info["maxZoom"].as_u64().expect("maxZoom") as u32
 }
 
+/// Alle Ausgabedateien mit Inhalt, `map.json` eingeschlossen.
+fn schnappschuss(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    dateien(dir)
+        .into_iter()
+        .chain(std::iter::once("map.json".to_string()))
+        .filter(|rel| dir.join(rel).is_file())
+        .map(|rel| {
+            let inhalt = std::fs::read(dir.join(&rel)).expect("Ausgabedatei lesen");
+            (rel, inhalt)
+        })
+        .collect()
+}
+
 /// Die Kacheln einer Zoomstufe.
 fn kacheln(dir: &Path, z: u32) -> BTreeMap<TileId, PathBuf> {
     let mut out = BTreeMap::new();
@@ -410,4 +423,73 @@ fn zoomstufen_haengen_am_massstab() {
         max_zoom(fein.path()),
         max_zoom(grob.path())
     );
+}
+
+/// Ein Ausschnitt, in einen fertigen Kachelbaum nachgerendert, darf an
+/// einer unveränderten Welt nichts ändern.
+///
+/// Die Elternkacheln am Rand des Ausschnitts haben Geschwister ausserhalb.
+/// Wer beim Neubauen nur die Kacheln dieses Laufs berücksichtigt, schreibt
+/// sie mit durchsichtigen Lücken zu — und `map.json` schrumpft auf den
+/// Ausschnitt zusammen.
+#[test]
+fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(2, 0), (4, 0)], |x, y, z| match (x, y, z) {
+        (44, 4, 8) => "minecraft:einfarbig",
+        (76, 4, 8) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    });
+
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+    let vorher = schnappschuss(out.path());
+    assert!(
+        vorher.len() > 3,
+        "zu wenig zum Vergleichen: {:?}",
+        vorher.keys().collect::<Vec<_>>()
+    );
+
+    // Dieselbe Welt, nur ein Ausschnitt um den ersten Block, in dasselbe
+    // Verzeichnis.
+    gelungen(&tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "16", "--center", "44", "8", "--size", "4"],
+    ));
+
+    let nachher = schnappschuss(out.path());
+    assert_eq!(
+        nachher.keys().collect::<Vec<_>>(),
+        vorher.keys().collect::<Vec<_>>(),
+        "der Baum hat andere Dateien als vorher"
+    );
+    for (rel, alt) in &vorher {
+        assert_eq!(&nachher[rel], alt, "{rel} hat sich verändert");
+    }
+}
+
+/// Auch wenn nichts sichtbar ist, muss `map.json` geschrieben werden — und
+/// dafür muss das Zielverzeichnis erst einmal entstehen.
+#[test]
+fn leeres_ergebnis_legt_das_ziel_trotzdem_an() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], |x, y, z| {
+        if (x, y, z) == (8, 4, 8) {
+            "minecraft:durchsichtig"
+        } else {
+            "minecraft:air"
+        }
+    });
+
+    let eltern = tempdir();
+    let ziel = eltern.path().join("gibt-es-noch-nicht");
+    gelungen(&tiles(
+        welt.path(),
+        &ziel,
+        &["--scale", "16", "--size", "256"],
+    ));
+
+    assert!(ziel.join("map.json").is_file(), "map.json fehlt");
+    assert!(dateien(&ziel).is_empty(), "es dürfte keine Kachel geben");
 }

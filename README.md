@@ -190,8 +190,14 @@ zu sehen.
 
 Die Nummerierung hängt an der **Welt**, nicht am Ausschnitt: `maxZoom` kommt
 aus der Ausdehnung aller Regionsdateien, und dafür wird kein einziger Chunk
-gelesen. Ein nachgerenderter Ausschnitt passt damit in einen bestehenden
-Kachelbaum.
+gelesen.
+
+Ein nachgerenderter Ausschnitt passt damit in einen bestehenden Kachelbaum.
+Welche Kinder in eine Elternkachel gehören, entscheidet dabei die Platte und
+nicht der laufende Export: die Geschwister ausserhalb des Ausschnitts liegen
+ja weiterhin da. Und `map.json` beschreibt den ganzen Baum, nicht den letzten
+Lauf. An einer unveränderten Welt ändert ein Nachrendern deshalb keine einzige
+Datei.
 
 ### `map.json`
 

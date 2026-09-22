@@ -63,6 +63,10 @@ pub struct Family {
     /// Decken alle Alternativen den Blockumriss? Dann verdeckt der Block
     /// seine Nachbarn — egal, welche Drehung die Position wuerfelt.
     pub opaque: bool,
+    /// Bleibt jede Alternative im Umriss ihres eigenen Wuerfels? Nur dann
+    /// darf ein verdeckter Block uebersprungen werden, ohne dass etwas
+    /// von ihm haette herausragen koennen.
+    pub contained: bool,
 }
 
 impl Family {
@@ -199,6 +203,9 @@ impl SpriteSet {
             let opaque = alternatives
                 .iter()
                 .all(|(_, id)| id.is_some_and(|id| set.sprites[id.0 as usize].opaque));
+            let contained = alternatives
+                .iter()
+                .all(|(_, id)| id.is_none_or(|id| set.sprites[id.0 as usize].contained));
             set.by_state
                 .insert(state.clone(), set.families.len() as u32);
             set.families.push(Family {
@@ -206,6 +213,7 @@ impl SpriteSet {
                 total,
                 fluid,
                 opaque,
+                contained,
             });
         }
 
@@ -693,6 +701,7 @@ mod tests {
             total: weights.iter().sum(),
             fluid: None,
             opaque: false,
+            contained: true,
         };
         let vier = family(&[1, 1, 1, 1]);
         let drei = family(&[1, 1, 1]);

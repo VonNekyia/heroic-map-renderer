@@ -461,6 +461,42 @@ fn inhalte(dir: &Path) -> Vec<(String, Vec<u8>)> {
     out
 }
 
+/// `--resume` rendert nur, was fehlt: vorhandene Basiskacheln bleiben
+/// unangetastet, gelöschte kommen wieder, und am Ende steht Byte für Byte
+/// dasselbe da wie nach einem Lauf in einem Stück.
+#[test]
+fn resume_rendert_nur_was_fehlt() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+    let soll = inhalte(out.path());
+    let basis = kacheln(out.path(), max_zoom(out.path()));
+    assert!(basis.len() > 2);
+
+    let mut basis = basis.into_values();
+    let (weg, bleibt) = (basis.next().unwrap(), basis.next().unwrap());
+    std::fs::remove_file(&weg).unwrap();
+    let vorher = std::fs::metadata(&bleibt).unwrap().modified().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8", "--resume"]);
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    assert!(
+        meldung.contains(&format!(
+            "{} vorhandene Kacheln übersprungen",
+            basis.len() + 1
+        )),
+        "Meldung: {meldung}"
+    );
+    assert!(weg.is_file(), "die gelöschte Kachel fehlt weiterhin");
+    assert_eq!(
+        std::fs::metadata(&bleibt).unwrap().modified().unwrap(),
+        vorher
+    );
+    assert_eq!(inhalte(out.path()), soll);
+}
+
 /// `map.json` muss beschreiben, was tatsächlich dasteht.
 #[test]
 fn map_json_beschreibt_die_kacheln() {

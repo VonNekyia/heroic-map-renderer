@@ -173,10 +173,10 @@ werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
 Chunks werden deshalb zweimal gelesen; der Vorlauf kostet 11 Sekunden für die
 ganze Welt.
 
-Gerendert wird mit Rayon über die Kacheln. Geteilt wird nur die
-unveränderliche Sprite-Tabelle; jede Kachel legt sich ihren Chunk- und
-Regionscache neu an. Benachbarte Kacheln dekodieren dieselben Chunks also
-mehrfach — das ist der grösste Kostenblock des Renders, siehe unten.
+Gerendert wird mit Rayon über Stapel aufeinanderfolgender Kacheln. Jeder
+Stapel hält seinen Chunk- und Regionscache, geteilt wird nur die
+unveränderliche Sprite-Tabelle. Kacheln untereinander teilen sich fast alle
+Chunks; der Cache lädt je Kachel nur die paar neuen am unteren Rand.
 
 `--center` und `--size` schränken auf einen Ausschnitt ein:
 
@@ -218,6 +218,11 @@ Die Kacheln liegen als `tiles/<z>/<x>/<y>.webp`; x und y dürfen negativ sein,
 weil der Blockursprung mitten in der Welt liegt. Wird eine Kachel bei einem
 erneuten Lauf leer, löscht der Export die alte Datei — auf jeder Stufe, sonst
 zeigte die Karte weiter, was inzwischen abgerissen wurde.
+
+`--resume` setzt einen abgebrochenen Lauf fort: vorhandene Basiskacheln
+bleiben stehen, gerendert wird nur, was fehlt, und die Zoomstufen entstehen
+danach über allen Basiskacheln. Für eine veränderte Welt ist das der falsche
+Schalter — dann rendert erst ein Lauf ohne ihn die alten Kacheln neu.
 
 ### Zoomstufen
 
@@ -311,7 +316,8 @@ wie bei 16 — sie zeigt nur viermal so viel Welt. Der Massstab wirkt also rein
 über die Kachelzahl.
 
 Der erste Vollrender einer grossen Welt hat die Rechnung geerdet:
-Interconnect, 2,5 Millionen Chunks (30 GB), scale 32.
+Interconnect, 2,5 Millionen Chunks (30 GB), scale 32, gemessen vor dem
+Umbau weiter unten.
 
 | | |
 |---|---|
@@ -320,11 +326,31 @@ Interconnect, 2,5 Millionen Chunks (30 GB), scale 32.
 | Rate | 44 Kacheln/s auf 24 Threads, davon nur 9 Kerne frei |
 | Basisstufe | rund 15 Stunden |
 
-Das ist keine Eigenschaft der Welt, sondern des Renderers: eine Kachel
-kostet etwa eine halbe CPU-Sekunde, weil sie ein schräger Schnitt durch
-die volle Bauhöhe von 384 Blöcken ist, dafür 50 bis 70 Chunks lädt und
-dekodiert, und weil der Chunk-Cache je Kachel neu entsteht. Der Vorlauf
-liest dieselben Chunks einmal in vier Minuten.
+Das ist keine Eigenschaft der Welt, sondern des Renderers. Eine Kachel
+ist ein schräger Schnitt durch die volle Bauhöhe von 384 Blöcken: rund
+320 000 Blockbesuche, gut hundert Chunks, und neun von zehn nicht-leeren
+Blöcken liegen unter der Oberfläche. Gemessen an einem 4096er-Ausschnitt um
+(0, 0), einfädig, je Kachel:
+
+| Phase | vorher | nachher |
+|---|---|---|
+| Blöcke ablaufen und Sprite wählen | 39 ms | 20 ms |
+| Chunks laden und dekodieren | 15 ms (106 Chunks) | 1 ms (6,5 Chunks) |
+| Sprites zeichnen (4688 Blits) | 9 ms | 9 ms |
+| WebP kodieren | 0,5 ms | 0,5 ms |
+| gesamt | 64 ms | 30 ms |
+
+Drei Umbauten, keiner ändert einen Pixel — der 8192er-Ausschnitt ist vorher
+wie nachher Byte für Byte gleich, alle 1393 Dateien: der Chunk-Cache lebt je
+Stapel von Kacheln statt je Kachel; ein verdeckter Block wird erkannt,
+bevor sein Sprite gewählt wird (Alternative würfeln, Wasserflächen, Biom);
+und der Nachschlag im Cache merkt sich den letzten Chunk, statt je Block
+zweimal zu hashen. Auf 24 Threads sind das 318 statt 159 Kacheln/s.
+
+Was bleibt, ist ehrlich verteilt: 13 ms für die Blockbesuche (40 ns je
+Besuch, die meisten Luft über dem Gelände), 7 ms Sprite-Wahl für die
+sichtbaren Blöcke, 9 ms Zeichnen bei 1,3 ns je Pixel. Der nächste grosse
+Schritt wäre, Luft-Sections gar nicht erst zu besuchen.
 
 WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
 wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den

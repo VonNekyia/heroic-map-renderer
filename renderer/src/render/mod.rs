@@ -5,7 +5,9 @@ pub mod rasterizer;
 pub mod sprites;
 pub mod tiles;
 
-pub use metatile::{BLEED_BLOCKS, ScreenRect, chunks_for, render_area};
+pub use metatile::{
+    BLEED_BLOCKS, ChunkCache, ScreenRect, chunks_for, render_area, render_area_with,
+};
 pub use projection::Projection;
 pub use pyramid::{MapInfo, depth, merge, parents, shrink};
 pub use rasterizer::{Sprite, render};

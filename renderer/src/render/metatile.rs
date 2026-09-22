@@ -73,26 +73,41 @@ pub fn render_area(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
+    render_area_with(&mut ChunkCache::new(world, sprites), rect, y_range)
+}
+
+/// Wie [`render_area`], mit einem Cache, der über Kacheln hinweg lebt.
+///
+/// Aufeinanderfolgende Kacheln liegen untereinander und teilen sich fast
+/// alle Chunks. Wer sie je Kachel neu lädt, gibt ein Drittel der Renderzeit
+/// fürs Dekodieren aus, das er gerade erst gemacht hat.
+pub fn render_area_with(
+    chunks: &mut ChunkCache,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+) -> Result<RgbaImage> {
+    chunks.next_tile();
+    let sprites = chunks.sprites;
     let projection = sprites.projection();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
-    let mut chunks = ChunkCache::new(world);
     // Fast immer leer. Dann fällt die Suche nach Überhängen ganz weg.
     let ueberhaenge = !sprites.foreign_cells().is_empty();
 
     for y in y_range.0..=y_range.1 {
         for (x, z) in columns_at(projection, rect, y) {
-            let own = chunks.sprite_at(sprites, x, y, z)?;
-
-            // Erst suchen, dann auf Verdeckung prüfen: der Test kostet drei
-            // Nachschläge und lohnt nur, wenn hier überhaupt etwas liegt.
-            if own.is_none() && !(ueberhaenge && anything_foreign(&mut chunks, sprites, x, y, z)?) {
+            // Erst die Familie, ein Nachschlag. Das Sprite erst, wenn der
+            // Block sichtbar ist: neun von zehn Blöcken liegen unter der
+            // Oberfläche, und für die würde die Sprite-Wahl — Alternative
+            // würfeln, Wasserflächen, Biom — ins Leere laufen.
+            let family = chunks.family_at(x, y, z)?;
+            if family.is_none() && !(ueberhaenge && anything_foreign(chunks, x, y, z)?) {
                 continue;
             }
-            if is_hidden(&mut chunks, sprites, own, x, y, z)? {
+            if is_hidden(chunks, family, x, y, z)? {
                 continue;
             }
 
-            if let Some(id) = own
+            if let Some(id) = chunks.sprite_at(x, y, z)?
                 && let Some(part) = sprites.part(id, OWN_CELL)
             {
                 blit(&mut canvas, part, rect, projection, [x, y, z]);
@@ -100,8 +115,7 @@ pub fn render_area(
             if ueberhaenge {
                 for &cell in sprites.foreign_cells() {
                     let anchor = anchor_of([x, y, z], cell);
-                    let Some(id) = chunks.sprite_at(sprites, anchor[0], anchor[1], anchor[2])?
-                    else {
+                    let Some(id) = chunks.sprite_at(anchor[0], anchor[1], anchor[2])? else {
                         continue;
                     };
                     if let Some(part) = sprites.part(id, cell) {
@@ -127,16 +141,11 @@ fn anchor_of([x, y, z]: [i32; 3], cell: Cell) -> [i32; 3] {
 /// je Versatz und Würfel.
 // ponytail: unbedingte Suche je leerem Würfel. Erst nötig, wenn eine Welt
 // mit Feuer das Budget sprengt; dann eine Bitmaske je Section.
-fn anything_foreign(
-    chunks: &mut ChunkCache,
-    sprites: &SpriteSet,
-    x: i32,
-    y: i32,
-    z: i32,
-) -> Result<bool> {
+fn anything_foreign(chunks: &mut ChunkCache, x: i32, y: i32, z: i32) -> Result<bool> {
+    let sprites = chunks.sprites;
     for &cell in sprites.foreign_cells() {
         let anchor = anchor_of([x, y, z], cell);
-        if let Some(id) = chunks.sprite_at(sprites, anchor[0], anchor[1], anchor[2])?
+        if let Some(id) = chunks.sprite_at(anchor[0], anchor[1], anchor[2])?
             && sprites.part(id, cell).is_some()
         {
             return Ok(true);
@@ -215,17 +224,16 @@ fn columns_at(
 /// Abkürzung entfällt.
 fn is_hidden(
     chunks: &mut ChunkCache,
-    sprites: &SpriteSet,
-    own: Option<SpriteId>,
+    own: Option<&Family>,
     x: i32,
     y: i32,
     z: i32,
 ) -> Result<bool> {
-    if own.is_some_and(|id| !sprites.is_contained(id)) {
+    if own.is_some_and(|family| !family.contained) {
         return Ok(false);
     }
     for (dx, dy, dz) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)] {
-        match chunks.family_at(sprites, x + dx, y + dy, z + dz)? {
+        match chunks.family_at(x + dx, y + dy, z + dz)? {
             Some(family) if family.opaque => {}
             _ => return Ok(false),
         }
@@ -258,17 +266,39 @@ fn blit(
     }
 }
 
+/// Wie viele Chunks ein Cache höchstens hält, bevor er verwirft, was die
+/// vorige Kachel nicht gebraucht hat. Eine Kachel bei scale 32 berührt gut
+/// hundert Chunks; die nächste liegt direkt darunter und teilt sich fast
+/// alle davon.
+// ponytail: Verfallsdatum je Kachel statt echtem LRU. Reicht, solange die
+// Kacheln in Leseordnung kommen; sonst lädt jede Kachel ihre hundert neu.
+const CACHE_CHUNKS: usize = 256;
+
 /// Chunks, die während eines Renderlaufs gebraucht werden.
 ///
-/// Jeder Worker bekommt später seinen eigenen Cache; geteilt würde er eine
-/// Sperre im Renderpfad bedeuten.
-struct ChunkCache<'a> {
+/// Ein Cache gehört zu einer Sprite-Tabelle: er hält je Paletteneintrag
+/// den Familienindex daraus. Über Kacheln hinweg lebt er je Worker —
+/// geteilt zwischen Workern wäre er eine Sperre im Renderpfad.
+pub struct ChunkCache<'a> {
     world: &'a World,
+    sprites: &'a SpriteSet,
     /// Offene Regionsdateien. `World::chunk` würde die Datei für jeden
-    /// Chunk neu öffnen — bei rund fünfzig Chunks je Kachel sind das
-    /// fünfzig Öffnungen statt einer Handvoll.
+    /// Chunk neu öffnen — bei rund hundert Chunks je Kachel sind das
+    /// hundert Öffnungen statt einer Handvoll.
     regions: HashMap<(i32, i32), Option<Region>>,
-    chunks: HashMap<(i32, i32), Option<Loaded>>,
+    slots: Vec<Slot>,
+    index: HashMap<(i32, i32), usize>,
+    /// Der zuletzt benutzte Slot. Benachbarte Blöcke liegen fast immer im
+    /// selben Chunk; der Merker spart das Hashen.
+    last: usize,
+    /// Laufende Kachelnummer — das Verfallsdatum der Slots.
+    tile: u32,
+}
+
+struct Slot {
+    key: (i32, i32),
+    loaded: Option<Loaded>,
+    used: u32,
 }
 
 /// Ein Chunk samt der Familie je Paletteneintrag. Die Blockstate wird
@@ -280,15 +310,53 @@ struct Loaded {
 }
 
 impl<'a> ChunkCache<'a> {
-    fn new(world: &'a World) -> ChunkCache<'a> {
+    pub fn new(world: &'a World, sprites: &'a SpriteSet) -> ChunkCache<'a> {
         ChunkCache {
             world,
+            sprites,
             regions: HashMap::new(),
-            chunks: HashMap::new(),
+            slots: Vec::new(),
+            index: HashMap::new(),
+            last: usize::MAX,
+            tile: 0,
         }
     }
 
-    fn load(&mut self, sprites: &SpriteSet, key: (i32, i32)) -> Result<()> {
+    /// Beginnt eine neue Kachel. Ist der Cache voll, geht alles, was die
+    /// vorige Kachel nicht gebraucht hat.
+    fn next_tile(&mut self) {
+        self.tile += 1;
+        self.last = usize::MAX;
+        if self.slots.len() <= CACHE_CHUNKS {
+            return;
+        }
+        let tile = self.tile;
+        self.slots.retain(|slot| slot.used + 1 >= tile);
+        self.index = self
+            .slots
+            .iter()
+            .enumerate()
+            .map(|(i, slot)| (slot.key, i))
+            .collect();
+    }
+
+    /// Slot des Chunks, geladen falls nötig.
+    fn slot(&mut self, key: (i32, i32)) -> Result<usize> {
+        if let Some(slot) = self.slots.get(self.last)
+            && slot.key == key
+        {
+            return Ok(self.last);
+        }
+        let i = match self.index.get(&key) {
+            Some(&i) => i,
+            None => self.load(key)?,
+        };
+        self.slots[i].used = self.tile;
+        self.last = i;
+        Ok(i)
+    }
+
+    fn load(&mut self, key: (i32, i32)) -> Result<usize> {
         let region_key = (key.0.div_euclid(REGION), key.1.div_euclid(REGION));
         if !self.regions.contains_key(&region_key) {
             let region = self.world.region(region_key.0, region_key.1)?;
@@ -298,6 +366,7 @@ impl<'a> ChunkCache<'a> {
             Some(Some(region)) => region.chunk(key.0, key.1)?,
             _ => None,
         };
+        let sprites = self.sprites;
         let loaded = chunk.map(|chunk| {
             let families = chunk
                 .sections()
@@ -313,8 +382,14 @@ impl<'a> ChunkCache<'a> {
                 .collect();
             Loaded { chunk, families }
         });
-        self.chunks.insert(key, loaded);
-        Ok(())
+        self.slots.push(Slot {
+            key,
+            loaded,
+            used: self.tile,
+        });
+        let i = self.slots.len() - 1;
+        self.index.insert(key, i);
+        Ok(i)
     }
 
     /// Sprite an einer Weltkoordinate, oder `None` für Luft, fehlende
@@ -323,14 +398,9 @@ impl<'a> ChunkCache<'a> {
     /// Drei Entscheidungen fallen hier: welche Alternative die Position
     /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken und
     /// welche Biomfassung gilt. Alles davon ist vorab gerastert.
-    fn sprite_at(
-        &mut self,
-        sprites: &SpriteSet,
-        x: i32,
-        y: i32,
-        z: i32,
-    ) -> Result<Option<SpriteId>> {
-        let Some(family) = self.family_at(sprites, x, y, z)? else {
+    fn sprite_at(&mut self, x: i32, y: i32, z: i32) -> Result<Option<SpriteId>> {
+        let sprites = self.sprites;
+        let Some(family) = self.family_at(x, y, z)? else {
             return Ok(None);
         };
         let Some(mut id) = family.pick([x, y, z]) else {
@@ -345,7 +415,7 @@ impl<'a> ChunkCache<'a> {
         if let Some((fluid, height)) = family.fluid {
             let mut mask = 0u8;
             for (bit, [dx, dy, dz]) in [[1, 0, 0], [0, 1, 0], [0, 0, 1]].into_iter().enumerate() {
-                if let Some(other) = self.family_at(sprites, x + dx, y + dy, z + dz)?
+                if let Some(other) = self.family_at(x + dx, y + dy, z + dz)?
                     && let Some((other_fluid, other_height)) = other.fluid
                     && other_fluid == fluid
                     && (dy == 1 || other_height >= height)
@@ -360,7 +430,7 @@ impl<'a> ChunkCache<'a> {
             while mask & mask_bit(Face::Up) == 0
                 && depth + 1 < DEPTHS
                 && self
-                    .family_at(sprites, x, y - 1 - depth as i32, z)?
+                    .family_at(x, y - 1 - depth as i32, z)?
                     .and_then(|below| below.fluid)
                     .is_some_and(|(other, _)| other == fluid)
             {
@@ -374,27 +444,16 @@ impl<'a> ChunkCache<'a> {
 
         // Das Biom kostet einen zweiten Nachschlag; `in_biome` fragt nur
         // fuer Sprites danach, die ueberhaupt Fassungen haben.
-        let chunk = &self.chunks[&(x >> 4, z >> 4)]
-            .as_ref()
-            .expect("eben geladen")
-            .chunk;
+        let i = self.slot((x >> 4, z >> 4))?;
+        let chunk = &self.slots[i].loaded.as_ref().expect("eben geladen").chunk;
         Ok(Some(sprites.in_biome(id, || chunk.biome_at(x, y, z))))
     }
 
     /// Die Familie des Blocks an einer Weltkoordinate — ein Nachschlag im
     /// Chunk-Cache und zwei Indizes, ohne die Blockstate zu hashen.
-    fn family_at<'s>(
-        &mut self,
-        sprites: &'s SpriteSet,
-        x: i32,
-        y: i32,
-        z: i32,
-    ) -> Result<Option<&'s Family>> {
-        let key = (x >> 4, z >> 4);
-        if !self.chunks.contains_key(&key) {
-            self.load(sprites, key)?;
-        }
-        let Some(loaded) = self.chunks[&key].as_ref() else {
+    fn family_at(&mut self, x: i32, y: i32, z: i32) -> Result<Option<&'a Family>> {
+        let i = self.slot((x >> 4, z >> 4))?;
+        let Some(loaded) = self.slots[i].loaded.as_ref() else {
             return Ok(None);
         };
         let Some((section, slot)) = loaded.chunk.slot(x, y, z) else {
@@ -406,7 +465,7 @@ impl<'a> ChunkCache<'a> {
             .and_then(|families| families.get(slot))
             .copied()
             .flatten()
-            .map(|index| sprites.family(index)))
+            .map(|index| self.sprites.family(index)))
     }
 }
 

@@ -13,8 +13,8 @@ use rayon::prelude::*;
 use terranova_render::assets::{Assets, model_of};
 use terranova_render::render::pyramid;
 use terranova_render::render::{
-    MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for, corner_tiles,
-    encode_webp, render, render_area, survey, world_box,
+    ChunkCache, MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for, corner_tiles,
+    encode_webp, render, render_area, render_area_with, survey, world_box,
 };
 use terranova_render::world::{BlockState, REGION, World};
 
@@ -88,6 +88,11 @@ pub struct Args {
     /// ihre Elternkachel — auch während ein Render läuft
     #[arg(long)]
     pyramid: bool,
+
+    /// Vorhandene Basiskacheln stehen lassen statt sie neu zu rendern:
+    /// setzt einen abgebrochenen Lauf fort
+    #[arg(long)]
+    resume: bool,
 }
 
 pub fn run() -> Result<()> {
@@ -198,6 +203,7 @@ pub fn run() -> Result<()> {
                     args.size.map(|size| window(projection, center, size)),
                     dir,
                     args.native_levels,
+                    args.resume,
                 )?;
             }
         }
@@ -463,6 +469,7 @@ fn write_tiles(
     bounds: Option<ScreenRect>,
     dir: &Path,
     native_levels: u32,
+    resume: bool,
 ) -> Result<()> {
     let started = Instant::now();
     let survey = survey(world, projection, Y_RANGE, bounds)?;
@@ -512,28 +519,37 @@ fn write_tiles(
 
     let started = Instant::now();
     let fertig = AtomicUsize::new(0);
+    let uebersprungen = AtomicUsize::new(0);
     let bytes = AtomicUsize::new(0);
     let gesamt = survey.tiles.len();
 
     let basis: BTreeSet<TileId> = survey
         .tiles
-        .par_iter()
-        .map(|tile| -> Result<Option<TileId>> {
-            let image = render_area(world, &sprites, tile.rect(), Y_RANGE)?;
-            let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
-            if erledigt.is_multiple_of(200) || erledigt == gesamt {
-                println!("            {erledigt}/{gesamt} Kacheln");
+        .par_chunks(batch_size(gesamt))
+        .map(|stapel| -> Result<Vec<TileId>> {
+            let mut chunks = ChunkCache::new(world, &sprites);
+            let mut geschrieben = Vec::with_capacity(stapel.len());
+            for tile in stapel {
+                let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
+                if erledigt.is_multiple_of(200) || erledigt == gesamt {
+                    println!("            {erledigt}/{gesamt} Kacheln");
+                }
+                if resume && tile_path(dir, max_zoom, *tile).is_file() {
+                    uebersprungen.fetch_add(1, Ordering::Relaxed);
+                    geschrieben.push(*tile);
+                    continue;
+                }
+                let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
+                // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob
+                // eine Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
+                if image.pixels().all(|p| p.0[3] == 0) {
+                    entferne(&tile_path(dir, max_zoom, *tile))?;
+                    continue;
+                }
+                bytes.fetch_add(schreibe(dir, max_zoom, *tile, &image)?, Ordering::Relaxed);
+                geschrieben.push(*tile);
             }
-
-            // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
-            // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
-            if image.pixels().all(|p| p.0[3] == 0) {
-                entferne(&tile_path(dir, max_zoom, *tile))?;
-                return Ok(None);
-            }
-
-            bytes.fetch_add(schreibe(dir, max_zoom, *tile, &image)?, Ordering::Relaxed);
-            Ok(Some(*tile))
+            Ok(geschrieben)
         })
         .collect::<Result<Vec<_>>>()?
         .into_iter()
@@ -542,12 +558,16 @@ fn write_tiles(
 
     let seconds = started.elapsed().as_secs_f64();
     let bytes = bytes.load(Ordering::Relaxed);
+    let uebersprungen = uebersprungen.load(Ordering::Relaxed);
     println!(
         "Kacheln:    {} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads",
-        basis.len(),
+        basis.len() - uebersprungen,
         gesamt - basis.len(),
         rayon::current_num_threads()
     );
+    if resume {
+        println!("            {uebersprungen} vorhandene Kacheln übersprungen (--resume)");
+    }
     println!(
         "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s, {:.0} kB je Kachel)",
         bytes as f64 / 1_048_576.0,
@@ -738,16 +758,22 @@ fn render_coarser(
         kandidaten = pyramid::parents(&kandidaten);
 
         let bytes = AtomicUsize::new(0);
-        let geschrieben: BTreeSet<TileId> = kandidaten
-            .par_iter()
-            .map(|tile| -> Result<Option<TileId>> {
-                let image = render_area(world, &sprites, tile.rect(), Y_RANGE)?;
-                if image.pixels().all(|p| p.0[3] == 0) {
-                    entferne(&tile_path(dir, z, *tile))?;
-                    return Ok(None);
+        let liste: Vec<TileId> = kandidaten.iter().copied().collect();
+        let geschrieben: BTreeSet<TileId> = liste
+            .par_chunks(batch_size(liste.len()))
+            .map(|stapel| -> Result<Vec<TileId>> {
+                let mut chunks = ChunkCache::new(world, &sprites);
+                let mut geschrieben = Vec::with_capacity(stapel.len());
+                for tile in stapel {
+                    let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
+                    if image.pixels().all(|p| p.0[3] == 0) {
+                        entferne(&tile_path(dir, z, *tile))?;
+                        continue;
+                    }
+                    bytes.fetch_add(schreibe(dir, z, *tile, &image)?, Ordering::Relaxed);
+                    geschrieben.push(*tile);
                 }
-                bytes.fetch_add(schreibe(dir, z, *tile, &image)?, Ordering::Relaxed);
-                Ok(Some(*tile))
+                Ok(geschrieben)
             })
             .collect::<Result<Vec<_>>>()?
             .into_iter()
@@ -761,6 +787,18 @@ fn render_coarser(
         );
     }
     Ok((z, kandidaten))
+}
+
+/// Wie viele aufeinanderfolgende Kacheln sich einen Chunk-Cache teilen.
+///
+/// Die Kacheln kommen sortiert, Nachbarn untereinander teilen sich fast
+/// alle Chunks. Rayons `map_init` wäre der naheliegende Weg zu einem Cache
+/// je Worker — aber es zerteilt die Arbeit beim Stehlen bis auf einzelne
+/// Kacheln, und jede bekäme einen kalten Cache: mit 24 Threads lud jede
+/// Kachel wieder ihre hundert Chunks. Feste Stapel halten die Nachbarn
+/// zusammen; klein genug, damit auch ein kleiner Lauf alle Kerne füllt.
+fn batch_size(tiles: usize) -> usize {
+    (tiles / (rayon::current_num_threads() * 4)).clamp(1, 64)
 }
 
 /// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen.

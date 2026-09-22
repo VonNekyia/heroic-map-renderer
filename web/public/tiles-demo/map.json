@@ -1,0 +1,13 @@
+{
+  "tileSize": 256,
+  "scale": 16,
+  "minZoom": 0,
+  "maxZoom": 2,
+  "tiles": "{z}/{x}/{y}.webp",
+  "bounds": [
+    0,
+    0,
+    512,
+    512
+  ]
+}

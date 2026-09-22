@@ -12,13 +12,11 @@ Der Browser rendert keine Minecraft-Geometrie, sondern nur fertige Rasterkacheln
 
 ## Stand
 
-Schritt 6 von 8: **Zoompyramide**. Über den gerenderten Kacheln stapeln
-sich die gröberen Zoomstufen, und `map.json` sagt dem Frontend, was es
-vorfindet. Das Frontend selbst fehlt noch.
+Schritt 7 von 8: **Frontend**. Die Karte läuft im Browser — Vite,
+TypeScript, Leaflet, sonst nichts. Offen bleiben Wasser, Biomfärbung und
+die Modelldetails aus Schritt 8.
 
-![Karte](docs/map.png)
-
-900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 2,1 s einkernig.
+![Frontend](docs/frontend.png)
 
 | Schritt | Inhalt | Status |
 |---------|--------|--------|
@@ -28,7 +26,7 @@ vorfindet. Das Frontend selbst fehlt noch.
 | 4 | Metatile-Renderer | **fertig** |
 | 5 | Rayon-Parallelisierung, Tiles, WebP | **fertig** |
 | 6 | Zoom-Pyramide und `map.json` | **fertig** |
-| 7 | Frontend (Vite, TypeScript, Leaflet) | offen |
+| 7 | Frontend (Vite, TypeScript, Leaflet) | **fertig** |
 | 8 | Modelle und Transparenz im Detail | offen |
 
 ## Assets besorgen
@@ -278,6 +276,44 @@ Texturen:   734 geladen, 0 fehlen
 Blöcke ohne Modell zeichnet Minecraft über Entity-Modelle oder als
 Flüssigkeit — beides kennt V1 noch nicht.
 
+## Frontend
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --tiles web/public/tiles --scale 16
+cd web && npm install && npm run dev
+```
+
+Der Renderer schreibt die Kacheln direkt dorthin, wo Vite sie ausliefert;
+damit braucht das Frontend keine Konfiguration. `npm run build` legt alles
+unter `web/dist` ab, statisch ausliefern reicht.
+
+Ohne echte Kacheln zeigt `http://localhost:5173/?tiles=/tiles-demo` einen
+kleinen Kachelbaum, der mit im Repository liegt — 7 Dateien, 6,6 kB. Er ist
+zugleich das Fixture des Smoke-Tests.
+
+### Was das Frontend tut
+
+Es liest `map.json` und baut daraus ein Koordinatensystem, in dem eine
+Karteneinheit ein Pixel der feinsten Stufe ist. Leaflets `CRS.Simple`
+rechnet mit `2^zoom`; hier bekommt stattdessen die feinste Stufe den Faktor
+1:
+
+```ts
+scale: (zoom: number) => 2 ** (zoom - info.maxZoom),
+zoom: (scale: number) => Math.log2(scale) + info.maxZoom,
+```
+
+Gespiegelt wird nicht: `screen_y` des Renderers zeigt schon nach unten.
+Negative Kachelkoordinaten sind damit kein Sonderfall.
+
+Über die feinste gerenderte Stufe hinaus sind zwei weitere Zoomstufen
+erlaubt. Dort vergrössert Leaflet nur noch die vorhandenen Kacheln
+(`maxNativeZoom`), und `image-rendering: pixelated` hält die Pixelkunst
+scharf, statt sie zu verwischen.
+
+Mehr ist es nicht: keine Marker, keine Spieler, kein Zustand. Der Browser
+bekommt fertige Bilder und ein Koordinatensystem.
+
 ## Eingabedaten
 
 `world/`, `assets/` und `vanilla-assets/` sind in `.gitignore` — die Testwelt
@@ -292,6 +328,13 @@ cargo clippy --all-targets -- -D warnings
 cargo nextest run --all-targets
 cargo nextest run --all-targets --release
 cargo deny check
+```
+
+```bash
+cd web
+npm run check     # tsc --noEmit
+npm run lint      # ESLint
+npm test          # Playwright, baut vorher und prüft den Build
 ```
 
 Das Fixture unter `renderer/tests/fixtures/` ist eine 40 KB große Region mit

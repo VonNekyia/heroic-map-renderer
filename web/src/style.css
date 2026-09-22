@@ -1,0 +1,24 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+#map {
+  height: 100%;
+  background: #12161c;
+}
+
+/* Die Kacheln sind Pixelkunst. Jenseits der feinsten gerenderten Stufe
+   vergroessert Leaflet sie nur noch, und der Browser darf dabei nicht
+   glaetten. */
+.leaflet-tile {
+  image-rendering: pixelated;
+}
+
+.error {
+  margin: 0;
+  padding: 2rem;
+  color: #e6e6e6;
+  font: 1rem/1.5 system-ui, sans-serif;
+}

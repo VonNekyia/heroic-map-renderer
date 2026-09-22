@@ -14,9 +14,15 @@ use super::Projection;
 /// dasselbe Pixel teilen oder ob eine durch die andere scheint — ein
 /// geschlossenes Wasserbecken bekäme an jeder Blockgrenze eine hellere
 /// Naht, ein Boden aus deckenden Blöcken dunkle Linien. Die Textur dagegen
-/// wird über den Pixel gemittelt: eine Seitenfläche ist bei scale 16 acht
-/// Pixel breit für sechzehn Texel, ohne Mittelung fiele jeder zweite weg.
-const TEXTURE_SAMPLES: u32 = 2;
+/// wird über den Pixel gemittelt, und zwar so dicht, dass jeder Texel
+/// erfasst wird: eine Seitenfläche ist `scale / 2` Pixel breit für
+/// sechzehn Texel, also liegen `32 / scale` Texel unter jedem Pixel.
+/// Mindestens zwei Abtastpunkte, damit auch bei scale 32 die Mitte
+/// zwischen zwei Texeln stimmt; höchstens sechzehn, mehr Texel hat eine
+/// Textur nicht.
+fn texture_samples(scale: u32) -> u32 {
+    (32 / scale.max(1)).clamp(2, 16)
+}
 
 /// Obergrenze für die Kantenlänge eines Sprites, in Blockbreiten. Modelle
 /// dürfen von -16 bis 32 reichen, also drei Blöcke; alles darüber ist
@@ -86,8 +92,9 @@ pub fn render(
     }
 
     let mut canvas = Canvas::new(width, height);
+    let samples = texture_samples(projection.scale());
     for quad in &projected {
-        quad.draw(&mut canvas, textures, min_x, min_y, tints);
+        quad.draw(&mut canvas, textures, min_x, min_y, tints, samples);
     }
 
     Some(Sprite {
@@ -140,7 +147,15 @@ impl<'a> ProjectedQuad<'a> {
         }
     }
 
-    fn draw(&self, canvas: &mut Canvas, textures: &Textures, min_x: i32, min_y: i32, tints: Tints) {
+    fn draw(
+        &self,
+        canvas: &mut Canvas,
+        textures: &Textures,
+        min_x: i32,
+        min_y: i32,
+        tints: Tints,
+        samples: u32,
+    ) {
         let texture = textures.image(self.quad.texture);
         let (tw, th) = texture.dimensions();
         if tw == 0 || th == 0 {
@@ -173,12 +188,18 @@ impl<'a> ProjectedQuad<'a> {
             Some(_) => tints.block,
         }
         .map(|tint| tint.map(|c| c as f32 / 255.0));
-        // Knapp unter der Obergrenze, sonst landet die Abtastung im
-        // Texel dahinter. Ein Ausschnitt ohne Breite bleibt ein Punkt.
+        // Abtastpunkte ausserhalb des Ausschnitts liegen ausserhalb der
+        // Fläche und zählen nicht — sonst zöge bei kleinen Flächen der
+        // Randtexel das Mittel zu sich. Knapp unter der Obergrenze bleiben,
+        // sonst landet die Abtastung im Texel dahinter; ein Ausschnitt
+        // ohne Breite bleibt ein Punkt.
         let hi = [
             (bounds[1][0] - 1e-4).max(bounds[0][0]),
             (bounds[1][1] - 1e-4).max(bounds[0][1]),
         ];
+        let inside = |u: f32, v: f32| {
+            (bounds[0][0]..=bounds[1][0]).contains(&u) && (bounds[0][1]..=bounds[1][1]).contains(&v)
+        };
         let sample = |u: f32, v: f32| {
             sample(
                 texture,
@@ -192,9 +213,13 @@ impl<'a> ProjectedQuad<'a> {
             canvas.triangle(
                 [vertices[a], vertices[b], vertices[c]],
                 &sample,
-                self.shade,
-                tint,
-                self.quad.layers,
+                &inside,
+                Shading {
+                    shade: self.shade,
+                    tint,
+                    layers: self.quad.layers,
+                },
+                samples,
             );
         }
     }
@@ -255,6 +280,15 @@ struct Vertex {
     v: f32,
 }
 
+/// Wie ein Texel zur Farbe wird: Helligkeit der Fläche, Färbung und die
+/// Zahl der Schichten für die Deckkraft.
+#[derive(Clone, Copy)]
+struct Shading {
+    shade: f32,
+    tint: Option<[f32; 3]>,
+    layers: u8,
+}
+
 /// Farb- und Tiefenpuffer in Überabtastung.
 struct Canvas {
     width: u32,
@@ -282,10 +316,15 @@ impl Canvas {
         &mut self,
         v: [Vertex; 3],
         sample: &impl Fn(f32, f32) -> [u8; 4],
-        shade: f32,
-        tint: Option<[f32; 3]>,
-        layers: u8,
+        inside: &impl Fn(f32, f32) -> bool,
+        shading: Shading,
+        samples: u32,
     ) {
+        let Shading {
+            shade,
+            tint,
+            layers,
+        } = shading;
         let area = edge(v[0], v[1], v[2].x, v[2].y);
         if area.abs() < 1e-6 {
             return;
@@ -326,7 +365,7 @@ impl Canvas {
                 if depth < self.depth[index] {
                     continue;
                 }
-                let Some(texel) = filtered(&v, area, px, py, sample) else {
+                let Some(texel) = filtered(&v, area, px, py, sample, inside, samples) else {
                     continue;
                 };
 
@@ -364,33 +403,51 @@ fn weights(v: &[Vertex; 3], area: f32, px: f32, py: f32) -> [f32; 3] {
 }
 
 /// Mittelwert der Texel unter einem Pixel, mit vormultipliziertem Alpha —
-/// sonst zögen durchsichtige Texel ihre Farbe in die Nachbarn. `None`, wenn
-/// keiner davon deckt.
+/// sonst zögen durchsichtige Texel ihre Farbe in die Nachbarn. Gezählt
+/// werden nur Abtastpunkte innerhalb der Fläche; liegt keiner darin, weil
+/// die Fläche schmaler ist als ein Pixel, gilt der Mittelpunkt. `None`,
+/// wenn kein Texel deckt.
 fn filtered(
     v: &[Vertex; 3],
     area: f32,
     px: f32,
     py: f32,
     sample: &impl Fn(f32, f32) -> [u8; 4],
+    inside: &impl Fn(f32, f32) -> bool,
+    n: u32,
 ) -> Option<[u8; 4]> {
-    let n = TEXTURE_SAMPLES;
-    let mut sum = [0.0f32; 3];
-    let mut alpha = 0.0f32;
+    // Summe der vormultiplizierten Farben, Summe der Alphas, Anzahl.
+    let mut acc = ([0.0f32; 3], 0.0f32, 0u32);
+    fn add(acc: &mut ([f32; 3], f32, u32), texel: [u8; 4]) {
+        let a = texel[3] as f32 / 255.0;
+        for (sum, &value) in acc.0.iter_mut().zip(&texel[..3]) {
+            *sum += value as f32 * a;
+        }
+        acc.1 += a;
+        acc.2 += 1;
+    }
+    let uv = |x: f32, y: f32| {
+        let w = weights(v, area, x, y);
+        (
+            w[0] * v[0].u + w[1] * v[1].u + w[2] * v[2].u,
+            w[0] * v[0].v + w[1] * v[1].v + w[2] * v[2].v,
+        )
+    };
     for sy in 0..n {
         for sx in 0..n {
             let dx = (sx as f32 + 0.5) / n as f32 - 0.5;
             let dy = (sy as f32 + 0.5) / n as f32 - 0.5;
-            let w = weights(v, area, px + dx, py + dy);
-            let u = w[0] * v[0].u + w[1] * v[1].u + w[2] * v[2].u;
-            let vv = w[0] * v[0].v + w[1] * v[1].v + w[2] * v[2].v;
-            let texel = sample(u, vv);
-            let a = texel[3] as f32 / 255.0;
-            for c in 0..3 {
-                sum[c] += texel[c] as f32 * a;
+            let (u, vv) = uv(px + dx, py + dy);
+            if inside(u, vv) {
+                add(&mut acc, sample(u, vv));
             }
-            alpha += a;
         }
     }
+    if acc.2 == 0 {
+        let (u, vv) = uv(px, py);
+        add(&mut acc, sample(u, vv));
+    }
+    let (sum, alpha, count) = acc;
     if alpha <= 0.0 {
         return None;
     }
@@ -398,7 +455,7 @@ fn filtered(
         (sum[0] / alpha).round() as u8,
         (sum[1] / alpha).round() as u8,
         (sum[2] / alpha).round() as u8,
-        (alpha / (n * n) as f32 * 255.0).round() as u8,
+        (alpha / count as f32 * 255.0).round() as u8,
     ])
 }
 
@@ -443,6 +500,17 @@ fn edge(a: Vertex, b: Vertex, px: f32, py: f32) -> f32 {
 mod tests {
     use super::*;
     use crate::assets::baker::Quad;
+
+    #[test]
+    fn abtastung_folgt_dem_scale() {
+        assert_eq!(texture_samples(64), 2);
+        assert_eq!(texture_samples(32), 2);
+        assert_eq!(texture_samples(16), 2);
+        assert_eq!(texture_samples(8), 4);
+        assert_eq!(texture_samples(4), 8);
+        assert_eq!(texture_samples(2), 16);
+        assert_eq!(texture_samples(1), 16);
+    }
 
     /// Ein Texturausschnitt ohne Breite darf nicht zum Absturz führen —
     /// `clamp` verlangt min <= max. Vanilla hat solche Flächen.

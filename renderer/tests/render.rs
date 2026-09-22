@@ -315,3 +315,21 @@ fn wasser_mischt_sich_ueber_den_zaun() {
     assert_ne!(ist, pixel(&wasser, sx, sy), "Pfosten muss durchscheinen");
     assert_ne!(ist, pixel(&trocken, sx, sy), "Wasser muss darüberliegen");
 }
+
+/// Bei kleinem scale liegen viele Texel unter einem Pixel. Die Abtastung
+/// muss alle erfassen: eine Textur aus abwechselnd schwarzen und weissen
+/// Spalten ist bei scale 4 grau — und nicht weiss, weil jeder zweite
+/// Abtastpunkt zufällig eine weisse Spalte trifft.
+#[test]
+fn kleine_scales_mitteln_alle_texel() {
+    let mut assets = assets();
+    for scale in [2u32, 4, 8] {
+        let sprite = sprite(&mut assets, "spalten", scale).expect("Sprite");
+        // Der Pixel, der die Mitte der Oberseite (0, -scale/4) enthält.
+        let p = pixel(&sprite, 0, -((scale as i32 + 3) / 4));
+        assert!(
+            (p[0] as i32 - 128).abs() <= 24 && p[3] == 255,
+            "scale {scale}: {p:?} ist nicht grau"
+        );
+    }
+}

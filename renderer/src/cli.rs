@@ -525,7 +525,16 @@ fn write_tiles(
         bytes as f64 / basis.len().max(1) as f64 / 1024.0,
     );
 
-    build_pyramid(dir, max_zoom, kandidaten)?;
+    let (z, kandidaten) = render_coarser(
+        world,
+        assets,
+        &survey.states,
+        projection,
+        dir,
+        max_zoom,
+        kandidaten,
+    )?;
+    build_pyramid(dir, z, kandidaten)?;
 
     // Die Grenzen beschreiben den ganzen Kachelbaum, nicht diesen Lauf.
     // Nach einem nachgerenderten Ausschnitt lägen sonst die unberührten
@@ -611,6 +620,68 @@ fn build_pyramid(dir: &Path, max_zoom: u32, kandidaten: BTreeSet<TileId>) -> Res
         );
     }
     Ok(())
+}
+
+/// Bis zu welchem scale gröbere Zoomstufen noch aus der Welt gerendert
+/// werden statt aus der feineren Stufe verkleinert. Bei 2 ist ein Block
+/// noch ein Rhombus aus vier Pixeln; darunter bleibt nur Mitteln.
+const NATIVE_MIN_SCALE: u32 = 2;
+
+/// Rendert die gröberen Zoomstufen aus der Welt, solange ein Block noch
+/// [`NATIVE_MIN_SCALE`] Pixel breit ist.
+///
+/// Verkleinern mittelt Nachbarblöcke ineinander, und schon zwei Stufen
+/// unter der Basis ist aus Kanten Brei geworden. Ein nativer Render hält
+/// jede Blockkante scharf, die Textur wird dafür im Sprite über den Block
+/// gemittelt — auf der Karte zählt der Umriss, nicht das Texel. Kostet
+/// ein Drittel des Basisrenders obendrauf: ein Viertel je Stufe.
+///
+/// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
+/// [`build_pyramid`].
+fn render_coarser(
+    world: &World,
+    assets: &mut Assets,
+    states: &BTreeSet<BlockState>,
+    projection: Projection,
+    dir: &Path,
+    max_zoom: u32,
+    kandidaten: BTreeSet<TileId>,
+) -> Result<(u32, BTreeSet<TileId>)> {
+    let mut z = max_zoom;
+    let mut scale = projection.scale();
+    let mut kandidaten = kandidaten;
+
+    while z > 0 && scale.is_multiple_of(2) && scale / 2 >= NATIVE_MIN_SCALE {
+        z -= 1;
+        scale /= 2;
+        let started = Instant::now();
+        let sprites = SpriteSet::build(assets, states, Projection::new(scale))?;
+        kandidaten = pyramid::parents(&kandidaten);
+
+        let bytes = AtomicUsize::new(0);
+        let geschrieben: BTreeSet<TileId> = kandidaten
+            .par_iter()
+            .map(|tile| -> Result<Option<TileId>> {
+                let image = render_area(world, &sprites, tile.rect(), Y_RANGE)?;
+                if image.pixels().all(|p| p.0[3] == 0) {
+                    entferne(&tile_path(dir, z, *tile))?;
+                    return Ok(None);
+                }
+                bytes.fetch_add(schreibe(dir, z, *tile, &image)?, Ordering::Relaxed);
+                Ok(Some(*tile))
+            })
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        println!(
+            "Zoom {z:>2}:     {} Kacheln nativ bei scale {scale}, {:.1} MB in {:.1} s",
+            geschrieben.len(),
+            bytes.load(Ordering::Relaxed) as f64 / 1_048_576.0,
+            started.elapsed().as_secs_f64()
+        );
+    }
+    Ok((z, kandidaten))
 }
 
 /// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen.

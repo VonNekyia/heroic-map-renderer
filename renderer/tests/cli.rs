@@ -5,14 +5,16 @@
 
 mod common;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use image::RgbaImage;
 use tempfile::TempDir;
-use terranova_render::render::{TileId, pyramid};
+use terranova_render::assets::Assets;
+use terranova_render::render::{Projection, SpriteSet, TileId, pyramid, render_area};
+use terranova_render::world::World;
 
 fn assets() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base")
@@ -317,25 +319,53 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
     assert!(meldung.contains("gibt_es_nicht"), "Meldung: {meldung}");
 }
 
-/// Jede gröbere Zoomstufe muss genau die Verkleinerung ihrer vier Kinder
-/// sein — und keine Kachel darf fehlen.
+/// Jede gröbere Zoomstufe ist entweder nativ aus der Welt gerendert —
+/// solange ein Block noch zwei Pixel breit ist — oder genau die
+/// Verkleinerung ihrer vier Kinder. Und keine Kachel darf fehlen.
 #[test]
 fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
     let out = tempdir();
-    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+    // scale 8: eine native Stufe (4), dann Verkleinerungen — beide Wege.
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
 
     let basis = max_zoom(out.path());
-    assert!(basis > 0, "kein Stapel zu prüfen");
+    assert!(basis > 1, "kein Stapel zu prüfen");
     assert!(!kacheln(out.path(), basis).is_empty());
+
+    let world = World::open(welt.path()).unwrap();
+    let mut states = BTreeSet::new();
+    for &(cx, cz) in &[(0, 0), (2, 2)] {
+        for section in world.chunk(cx, cz).unwrap().unwrap().sections() {
+            states.extend(section.blocks().palette().iter().cloned());
+        }
+    }
+    let mut nativ = 0;
+    let mut verkleinert = 0;
 
     for z in (0..basis).rev() {
         let eltern = kacheln(out.path(), z);
         let kinder = kacheln(out.path(), z + 1);
         assert!(!eltern.is_empty(), "Zoom {z} ist leer");
 
+        let scale = 8 >> (basis - z);
+        let sprites = (scale >= 2).then(|| {
+            let mut assets = Assets::open(vec![assets()]).unwrap();
+            SpriteSet::build(&mut assets, &states, Projection::new(scale)).unwrap()
+        });
+
         for (parent, pfad) in &eltern {
+            if let Some(sprites) = &sprites {
+                let soll = render_area(&world, sprites, parent.rect(), (0, 15)).unwrap();
+                assert_eq!(
+                    bild(pfad).as_raw(),
+                    soll.as_raw(),
+                    "Zoom {z}, {parent:?} ist nicht nativ bei scale {scale} gerendert"
+                );
+                nativ += 1;
+                continue;
+            }
             let teile: Vec<(TileId, RgbaImage)> = parent
                 .children()
                 .into_iter()
@@ -348,6 +378,7 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
                 pyramid::merge(*parent, &teile).as_raw(),
                 "Zoom {z}, {parent:?} ist nicht die Verkleinerung seiner Kinder"
             );
+            verkleinert += 1;
         }
 
         // Gegenrichtung: kein Kind ohne Elternkachel.
@@ -359,6 +390,10 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
             );
         }
     }
+    assert!(
+        nativ > 0 && verkleinert > 0,
+        "{nativ} nativ, {verkleinert} verkleinert"
+    );
 }
 
 /// `map.json` muss beschreiben, was tatsächlich dasteht.

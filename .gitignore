@@ -23,3 +23,6 @@ metatile-ist.png
 web/test-results/
 web/playwright-report/
 web/public/tiles/
+
+# Zweites Build-Verzeichnis, wenn target/ von einem laufenden Render belegt ist
+renderer/target2/

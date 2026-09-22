@@ -231,7 +231,17 @@ ja weiterhin da. Und `map.json` beschreibt den ganzen Baum, nicht den letzten
 Lauf. An einer unveränderten Welt ändert ein Nachrendern deshalb keine einzige
 Datei.
 
-Gemittelt wird in linearem Licht, nicht in sRGB-Werten: die sind
+Die gröberen Stufen werden nicht alle verkleinert. Solange ein Block
+noch zwei Pixel breit ist — bei scale 32 also vier Stufen lang, 16, 8, 4
+und 2 —, rendert der Renderer die Stufe aus der Welt, mit Sprites in
+dieser Grösse. Verkleinern mittelt Nachbarblöcke ineinander, und schon
+zwei Stufen unter der Basis wäre aus jeder Kante Brei; ein nativer Render
+hält den Umriss jedes Blocks scharf und mittelt stattdessen die Textur
+über den Block, was auf einer Karte niemand vermisst. Das kostet ein
+Drittel des Basisrenders obendrauf. Erst darunter, bei einem Pixel je
+Block und weniger, wird verkleinert.
+
+Gemittelt wird dabei in linearem Licht, nicht in sRGB-Werten: die sind
 gammakodiert, ihr Mittel ist zu dunkel, und jede Stufe verdunkelt weiter.
 Halb Schwarz, halb Weiss ergibt so 188 statt 128.
 

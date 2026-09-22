@@ -72,6 +72,56 @@ pub fn snap_to_tiles(rect: ScreenRect) -> ScreenRect {
     }
 }
 
+/// Die vier Eckkacheln eines Bildbereichs.
+///
+/// Für die Tiefe der Zoompyramide genügen sie: Halbieren ist monoton, also
+/// entscheiden allein die Extreme, wann es nichts mehr zusammenfasst.
+pub fn corner_tiles(rect: ScreenRect) -> BTreeSet<TileId> {
+    let tile = TILE as i32;
+    let x0 = rect.x.div_euclid(tile);
+    let x1 = (rect.right() - 1).div_euclid(tile);
+    let y0 = rect.y.div_euclid(tile);
+    let y1 = (rect.bottom() - 1).div_euclid(tile);
+    [(x0, y0), (x1, y0), (x0, y1), (x1, y1)]
+        .into_iter()
+        .map(|(x, y)| TileId { x, y })
+        .collect()
+}
+
+/// Bildbereich, in dem die ganze Welt liegen kann.
+///
+/// Gelesen werden nur die Regionsdateinamen, kein einziger Chunk. Das
+/// reicht für die Zoomstufen: die Nummerierung darf nicht davon abhängen,
+/// welchen Ausschnitt gerade jemand exportiert, sonst passen zwei Läufe
+/// derselben Welt nicht zusammen.
+pub fn world_box(
+    world: &World,
+    projection: Projection,
+    y_range: (i32, i32),
+) -> Result<Option<ScreenRect>> {
+    let kante = REGION * CHUNK;
+    let mut ganz: Option<ScreenRect> = None;
+    for (rx, rz) in world.regions()? {
+        let rect = column_box(projection, rx * kante, rz * kante, y_range, kante);
+        ganz = Some(match ganz {
+            None => rect,
+            Some(bisher) => union(bisher, rect),
+        });
+    }
+    Ok(ganz)
+}
+
+fn union(a: ScreenRect, b: ScreenRect) -> ScreenRect {
+    let x = a.x.min(b.x);
+    let y = a.y.min(b.y);
+    ScreenRect {
+        x,
+        y,
+        width: (a.right().max(b.right()) - x) as u32,
+        height: (a.bottom().max(b.bottom()) - y) as u32,
+    }
+}
+
 /// Was ein Kachellauf vorher wissen muss.
 #[derive(Default)]
 pub struct Survey {

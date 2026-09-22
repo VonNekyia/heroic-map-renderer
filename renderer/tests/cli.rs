@@ -5,11 +5,14 @@
 
 mod common;
 
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use image::RgbaImage;
 use tempfile::TempDir;
+use terranova_render::render::{TileId, pyramid};
 
 fn assets() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base")
@@ -58,24 +61,71 @@ fn gelungen(out: &Output) -> &Output {
     out
 }
 
-/// Alle geschriebenen Kacheln als `<x>/<y>.webp`, sortiert.
+/// Alle geschriebenen Kacheln als `<z>/<x>/<y>.webp`, sortiert.
 fn dateien(dir: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    let Ok(spalten) = std::fs::read_dir(dir) else {
-        return out;
-    };
-    for spalte in spalten.flatten() {
-        let name = spalte.file_name().to_string_lossy().into_owned();
-        for datei in std::fs::read_dir(spalte.path())
-            .into_iter()
-            .flatten()
-            .flatten()
-        {
-            out.push(format!("{name}/{}", datei.file_name().to_string_lossy()));
+    let mut stapel = vec![(dir.to_path_buf(), String::new())];
+    while let Some((pfad, prefix)) = stapel.pop() {
+        for eintrag in std::fs::read_dir(&pfad).into_iter().flatten().flatten() {
+            let name = eintrag.file_name().to_string_lossy().into_owned();
+            let rel = if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if eintrag.path().is_dir() {
+                stapel.push((eintrag.path(), rel));
+            } else if rel.ends_with(".webp") {
+                out.push(rel);
+            }
         }
     }
     out.sort();
     out
+}
+
+/// Die feinste Zoomstufe, wie `map.json` sie nennt.
+fn max_zoom(dir: &Path) -> u32 {
+    let text = std::fs::read_to_string(dir.join("map.json")).expect("map.json lesen");
+    let info: serde_json::Value = serde_json::from_str(&text).expect("map.json auswerten");
+    info["maxZoom"].as_u64().expect("maxZoom") as u32
+}
+
+/// Alle Ausgabedateien mit Inhalt, `map.json` eingeschlossen.
+fn schnappschuss(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    dateien(dir)
+        .into_iter()
+        .chain(std::iter::once("map.json".to_string()))
+        .filter(|rel| dir.join(rel).is_file())
+        .map(|rel| {
+            let inhalt = std::fs::read(dir.join(&rel)).expect("Ausgabedatei lesen");
+            (rel, inhalt)
+        })
+        .collect()
+}
+
+/// Die Kacheln einer Zoomstufe.
+fn kacheln(dir: &Path, z: u32) -> BTreeMap<TileId, PathBuf> {
+    let mut out = BTreeMap::new();
+    let vorsatz = format!("{z}/");
+    for rel in dateien(dir) {
+        let Some(rest) = rel.strip_prefix(&vorsatz) else {
+            continue;
+        };
+        let (x, y) = rest.split_once('/').expect("<x>/<y>.webp");
+        let tile = TileId {
+            x: x.parse().expect("Kachel-x"),
+            y: y.trim_end_matches(".webp").parse().expect("Kachel-y"),
+        };
+        out.insert(tile, dir.join(&rel));
+    }
+    out
+}
+
+fn bild(path: &Path) -> RgbaImage {
+    image::open(path)
+        .unwrap_or_else(|e| panic!("{} lesen: {e}", path.display()))
+        .into_rgba8()
 }
 
 /// Eine Treppenlandschaft über mehrere Chunks. Der entfernte Chunk
@@ -173,8 +223,20 @@ fn ausschnitt_liefert_dieselben_kacheln_wie_der_vollexport() {
         &["--scale", "16", "--center", "4", "8", "--size", "4"],
     ));
 
-    let geschrieben = dateien(teil.path());
-    assert!(!geschrieben.is_empty(), "der Ausschnitt schrieb nichts");
+    // Die Zoomnummern müssen übereinstimmen: sie hängen an der Welt, nicht
+    // am Ausschnitt.
+    let basis = max_zoom(ganz.path());
+    assert_eq!(max_zoom(teil.path()), basis, "Ausschnitt nummeriert anders");
+
+    let vorsatz = format!("{basis}/");
+    let geschrieben: Vec<String> = dateien(teil.path())
+        .into_iter()
+        .filter(|rel| rel.starts_with(&vorsatz))
+        .collect();
+    assert!(
+        !geschrieben.is_empty(),
+        "der Ausschnitt schrieb keine Basis"
+    );
     for rel in geschrieben {
         let aus_teil = std::fs::read(teil.path().join(&rel)).unwrap();
         let aus_ganz = std::fs::read(ganz.path().join(&rel))
@@ -253,4 +315,181 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
     );
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(meldung.contains("gibt_es_nicht"), "Meldung: {meldung}");
+}
+
+/// Jede gröbere Zoomstufe muss genau die Verkleinerung ihrer vier Kinder
+/// sein — und keine Kachel darf fehlen.
+#[test]
+fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+
+    let basis = max_zoom(out.path());
+    assert!(basis > 0, "kein Stapel zu prüfen");
+    assert!(!kacheln(out.path(), basis).is_empty());
+
+    for z in (0..basis).rev() {
+        let eltern = kacheln(out.path(), z);
+        let kinder = kacheln(out.path(), z + 1);
+        assert!(!eltern.is_empty(), "Zoom {z} ist leer");
+
+        for (parent, pfad) in &eltern {
+            let teile: Vec<(TileId, RgbaImage)> = parent
+                .children()
+                .into_iter()
+                .filter(|kind| kinder.contains_key(kind))
+                .map(|kind| (kind, bild(&kinder[&kind])))
+                .collect();
+            assert!(!teile.is_empty(), "Zoom {z}, {parent:?} ohne Kinder");
+            assert_eq!(
+                bild(pfad).as_raw(),
+                pyramid::merge(*parent, &teile).as_raw(),
+                "Zoom {z}, {parent:?} ist nicht die Verkleinerung seiner Kinder"
+            );
+        }
+
+        // Gegenrichtung: kein Kind ohne Elternkachel.
+        for kind in kinder.keys() {
+            assert!(
+                eltern.contains_key(&kind.parent()),
+                "{kind:?} auf Zoom {} hat keine Elternkachel",
+                z + 1
+            );
+        }
+    }
+}
+
+/// `map.json` muss beschreiben, was tatsächlich dasteht.
+#[test]
+fn map_json_beschreibt_die_kacheln() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+
+    let text = std::fs::read_to_string(out.path().join("map.json")).unwrap();
+    let info: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(info["tileSize"], 256);
+    assert_eq!(info["minZoom"], 0);
+    assert_eq!(info["scale"], 8);
+    assert_eq!(info["tiles"], "{z}/{x}/{y}.webp");
+
+    let basis = info["maxZoom"].as_u64().unwrap() as u32;
+    assert!(
+        !kacheln(out.path(), basis).is_empty(),
+        "auf maxZoom liegt nichts"
+    );
+    assert!(
+        kacheln(out.path(), basis + 1).is_empty(),
+        "unter maxZoom liegt noch eine Stufe"
+    );
+
+    // bounds muss jede Basiskachel umschliessen.
+    let grenzen: Vec<i32> = info["bounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_i64().unwrap() as i32)
+        .collect();
+    let tile = info["tileSize"].as_i64().unwrap() as i32;
+    for kachel in kacheln(out.path(), basis).keys() {
+        assert!(kachel.x * tile >= grenzen[0], "{kachel:?} links raus");
+        assert!(kachel.y * tile >= grenzen[1], "{kachel:?} oben raus");
+        assert!(
+            (kachel.x + 1) * tile <= grenzen[2],
+            "{kachel:?} rechts raus"
+        );
+        assert!((kachel.y + 1) * tile <= grenzen[3], "{kachel:?} unten raus");
+    }
+}
+
+/// Die Zoomnummer hängt an der Welt, nicht am Massstab des Laufs — aber
+/// die Zahl der Stufen sehr wohl.
+#[test]
+fn zoomstufen_haengen_am_massstab() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+
+    let fein = tempdir();
+    let grob = tempdir();
+    gelungen(&tiles(welt.path(), fein.path(), &["--scale", "16"]));
+    gelungen(&tiles(welt.path(), grob.path(), &["--scale", "4"]));
+
+    assert!(
+        max_zoom(fein.path()) > max_zoom(grob.path()),
+        "feiner Massstab braucht mehr Stufen: {} gegen {}",
+        max_zoom(fein.path()),
+        max_zoom(grob.path())
+    );
+}
+
+/// Ein Ausschnitt, in einen fertigen Kachelbaum nachgerendert, darf an
+/// einer unveränderten Welt nichts ändern.
+///
+/// Die Elternkacheln am Rand des Ausschnitts haben Geschwister ausserhalb.
+/// Wer beim Neubauen nur die Kacheln dieses Laufs berücksichtigt, schreibt
+/// sie mit durchsichtigen Lücken zu — und `map.json` schrumpft auf den
+/// Ausschnitt zusammen.
+#[test]
+fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(2, 0), (4, 0)], |x, y, z| match (x, y, z) {
+        (44, 4, 8) => "minecraft:einfarbig",
+        (76, 4, 8) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    });
+
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+    let vorher = schnappschuss(out.path());
+    assert!(
+        vorher.len() > 3,
+        "zu wenig zum Vergleichen: {:?}",
+        vorher.keys().collect::<Vec<_>>()
+    );
+
+    // Dieselbe Welt, nur ein Ausschnitt um den ersten Block, in dasselbe
+    // Verzeichnis.
+    gelungen(&tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "16", "--center", "44", "8", "--size", "4"],
+    ));
+
+    let nachher = schnappschuss(out.path());
+    assert_eq!(
+        nachher.keys().collect::<Vec<_>>(),
+        vorher.keys().collect::<Vec<_>>(),
+        "der Baum hat andere Dateien als vorher"
+    );
+    for (rel, alt) in &vorher {
+        assert_eq!(&nachher[rel], alt, "{rel} hat sich verändert");
+    }
+}
+
+/// Auch wenn nichts sichtbar ist, muss `map.json` geschrieben werden — und
+/// dafür muss das Zielverzeichnis erst einmal entstehen.
+#[test]
+fn leeres_ergebnis_legt_das_ziel_trotzdem_an() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], |x, y, z| {
+        if (x, y, z) == (8, 4, 8) {
+            "minecraft:durchsichtig"
+        } else {
+            "minecraft:air"
+        }
+    });
+
+    let eltern = tempdir();
+    let ziel = eltern.path().join("gibt-es-noch-nicht");
+    gelungen(&tiles(
+        welt.path(),
+        &ziel,
+        &["--scale", "16", "--size", "256"],
+    ));
+
+    assert!(ziel.join("map.json").is_file(), "map.json fehlt");
+    assert!(dateien(&ziel).is_empty(), "es dürfte keine Kachel geben");
 }

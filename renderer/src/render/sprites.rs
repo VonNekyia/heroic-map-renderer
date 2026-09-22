@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::Result;
 use image::RgbaImage;
@@ -47,6 +47,10 @@ pub struct SpriteSet {
     by_biome: HashMap<SpriteId, HashMap<String, SpriteId>>,
     projection: Projection,
     foreign: BTreeSet<Cell>,
+    /// Blockarten, die die Assets nicht aufloesen konnten, mit dem Grund.
+    /// Sie bleiben auf der Karte leer wie Luft — ein Mod-Block oder eine
+    /// Umbenennung darf keinen stundenlangen Render abbrechen.
+    unresolved: BTreeMap<String, String>,
 }
 
 /// Die Alternativen einer Blockstate mit ihren Gewichten.
@@ -164,13 +168,22 @@ impl SpriteSet {
             by_biome: HashMap::new(),
             projection,
             foreign: BTreeSet::new(),
+            unresolved: BTreeMap::new(),
         };
 
         for state in states {
             if state.is_air() || set.by_state.contains_key(state) {
                 continue;
             }
-            let models = models_of(assets, state)?;
+            let models = match models_of(assets, state) {
+                Ok(models) => models,
+                Err(error) => {
+                    set.unresolved
+                        .entry(state.name().to_string())
+                        .or_insert_with(|| format!("{error:#}"));
+                    continue;
+                }
+            };
             let fluid = models.first().and_then(|(_, model)| fluid_of(model));
             let alternatives: Vec<(u32, Option<SpriteId>)> = models
                 .iter()
@@ -338,6 +351,12 @@ impl SpriteSet {
 
     pub fn family_of(&self, state: &BlockState) -> Option<&Family> {
         self.by_state.get(state).map(|&i| self.family(i))
+    }
+
+    /// Blockarten ohne Sprite, weil die Assets sie nicht kennen — je Name
+    /// der erste Fehler.
+    pub fn unresolved(&self) -> &BTreeMap<String, String> {
+        &self.unresolved
     }
 
     /// Index der Familie einer Blockstate, fuer Caches je Paletteneintrag.

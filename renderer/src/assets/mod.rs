@@ -152,6 +152,13 @@ impl Assets {
         let (namespace, name) = split_id(block);
         let path = self
             .find(namespace, "blockstates", name, "json")
+            .or_else(|| {
+                let (_, new) = RENAMES
+                    .iter()
+                    .find(|(old, _)| split_id(old) == (namespace, name))?;
+                let (namespace, name) = split_id(new);
+                self.find(namespace, "blockstates", name, "json")
+            })
             .ok_or_else(|| anyhow!("keine Blockstate-Datei für {block}"))?;
         let def = Arc::new(
             BlockStateDef::parse(&read_json(&path)?)
@@ -277,6 +284,16 @@ fn find_file(
 
 /// `minecraft:block/stone` -> `("minecraft", "block/stone")`. Ohne Namensraum
 /// gilt `minecraft`.
+/// Blöcke, die Minecraft nach dem Speichern eines Chunks umbenannt hat: der
+/// Chunk trägt noch den alten Namen, die Assets kennen nur den neuen. Im
+/// Spiel biegt das der DataFixer beim Laden gerade; hier reicht die Tabelle,
+/// solange nur der Name wechselt und nicht die Properties.
+const RENAMES: &[(&str, &str)] = &[
+    ("minecraft:grass_path", "minecraft:dirt_path"), // 1.17
+    ("minecraft:grass", "minecraft:short_grass"),    // 1.20.3
+    ("minecraft:chain", "minecraft:iron_chain"),     // 1.21.9
+];
+
 pub fn split_id(id: &str) -> (&str, &str) {
     match id.split_once(':') {
         Some((namespace, path)) => (namespace, path),

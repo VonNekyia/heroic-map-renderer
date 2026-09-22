@@ -165,11 +165,18 @@ nebeneinander, die Grenzen rot eingezeichnet:
 
 ### Was das kostet
 
-Der Vorlauf über die ganze Welt ist gemessen: 316223 Chunks in 10,7 s und
-73920 Kacheln. Den Vollrender habe ich nach 6746 Kacheln und 801 MB
-abgebrochen — daraus hochgerechnet rund **9 GB** und gut eine Stunde auf 24
-Kernen. Wem das zu viel ist, halbiert mit `--scale 8` die Kantenlänge und
-viertelt damit die Kachelzahl.
+Der Vorlauf über die ganze Welt ist gemessen, der Vollrender hochgerechnet:
+abgebrochen nach 6746 Kacheln und 801 MB, statt eine Stunde Plattenplatz zu
+verbrennen.
+
+| `--scale` | Vorlauf | Kacheln | je Kachel | hochgerechnet |
+|-----------|---------|---------|-----------|---------------|
+| 16 | 10,7 s | 73 920 | 134 kB | ~9 GB |
+| 8 | 6,4 s | 18 951 | 137 kB | ~2,5 GB |
+
+Eine Kachel ist immer 256x256 px, und ihr Inhalt ist bei scale 8 genauso dicht
+wie bei 16 — sie zeigt nur viermal so viel Welt. Der Massstab wirkt also rein
+über die Kachelzahl.
 
 WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
 wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den

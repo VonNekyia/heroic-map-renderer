@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use anyhow::Result;
 use image::{Rgba, RgbaImage};
 
-use crate::world::{Chunk, World};
+use crate::world::{Chunk, REGION, Region, World};
 
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
@@ -12,7 +12,7 @@ use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 /// Sprites dürfen über den Blockumriss hinausragen — Feuer ist höher als
 /// ein Block, Zäune breiter. Ohne diese Reserve fehlen an den Rändern
 /// Blöcke, deren Ursprung knapp ausserhalb liegt.
-const BLEED_BLOCKS: i32 = 3;
+pub const BLEED_BLOCKS: i32 = 3;
 
 /// Ein rechteckiger Ausschnitt der projizierten Ebene, in Pixeln.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,11 +34,11 @@ impl ScreenRect {
         }
     }
 
-    fn right(&self) -> i32 {
+    pub fn right(&self) -> i32 {
         self.x + self.width as i32
     }
 
-    fn bottom(&self) -> i32 {
+    pub fn bottom(&self) -> i32 {
         self.y + self.height as i32
     }
 }
@@ -280,6 +280,10 @@ fn over(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
 /// Sperre im Renderpfad bedeuten.
 struct ChunkCache<'a> {
     world: &'a World,
+    /// Offene Regionsdateien. `World::chunk` würde die Datei für jeden
+    /// Chunk neu öffnen — bei rund fünfzig Chunks je Kachel sind das
+    /// fünfzig Öffnungen statt einer Handvoll.
+    regions: HashMap<(i32, i32), Option<Region>>,
     chunks: HashMap<(i32, i32), Option<Chunk>>,
 }
 
@@ -287,8 +291,23 @@ impl<'a> ChunkCache<'a> {
     fn new(world: &'a World) -> ChunkCache<'a> {
         ChunkCache {
             world,
+            regions: HashMap::new(),
             chunks: HashMap::new(),
         }
+    }
+
+    fn load(&mut self, key: (i32, i32)) -> Result<()> {
+        let region_key = (key.0.div_euclid(REGION), key.1.div_euclid(REGION));
+        if !self.regions.contains_key(&region_key) {
+            let region = self.world.region(region_key.0, region_key.1)?;
+            self.regions.insert(region_key, region);
+        }
+        let chunk = match self.regions.get_mut(&region_key) {
+            Some(Some(region)) => region.chunk(key.0, key.1)?,
+            _ => None,
+        };
+        self.chunks.insert(key, chunk);
+        Ok(())
     }
 
     /// Sprite an einer Weltkoordinate, oder `None` für Luft, fehlende
@@ -305,8 +324,7 @@ impl<'a> ChunkCache<'a> {
     ) -> Result<Option<SpriteId>> {
         let key = (x >> 4, z >> 4);
         if !self.chunks.contains_key(&key) {
-            let chunk = self.world.chunk(key.0, key.1)?;
-            self.chunks.insert(key, chunk);
+            self.load(key)?;
         }
         let Some(chunk) = self.chunks[&key].as_ref() else {
             return Ok(None);

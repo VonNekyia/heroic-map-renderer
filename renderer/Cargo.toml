@@ -14,8 +14,9 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 fastnbt = "2"                       # NBT; simdnbt 0.10 ist nightly-only
 flate2 = "1"                        # gzip/zlib der Chunkdaten
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "webp"] }
 lz4-java-wrc = "0.2"                # Kompressionsverfahren 4 (Paper)
+rayon = "1"                          # Parallelisierung ueber Kacheln
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

@@ -12,8 +12,9 @@ Der Browser rendert keine Minecraft-Geometrie, sondern nur fertige Rasterkacheln
 
 ## Stand
 
-Schritt 4 von 8: **Metatile-Renderer**. Aus Welt plus Assets entsteht ein
-zusammenhängendes Bild. Kacheln, Zoomstufen und Frontend fehlen noch.
+Schritt 5 von 8: **Kacheln**. Die Welt wird parallel in WebP-Kacheln
+gerendert, die ein Browser einzeln nachladen kann. Zoomstufen und Frontend
+fehlen noch.
 
 ![Karte](docs/map.png)
 
@@ -25,7 +26,7 @@ zusammenhängendes Bild. Kacheln, Zoomstufen und Frontend fehlen noch.
 | 2 | Resourcepack: Blockstates, Models, Texturen | **fertig** |
 | 3 | Model-Baking und Iso-Sprite-Rasterizer | **fertig** |
 | 4 | Metatile-Renderer | **fertig** |
-| 5 | Rayon-Parallelisierung, Tiles, WebP | offen |
+| 5 | Rayon-Parallelisierung, Tiles, WebP | **fertig** |
 | 6 | Zoom-Pyramide und `map.json` | offen |
 | 7 | Frontend (Vite, TypeScript, Leaflet) | offen |
 | 8 | Modelle und Transparenz im Detail | offen |
@@ -116,6 +117,82 @@ sichtbare Bereich ist ein schmales diagonales Band in x und z, kein Rechteck.
 Wer stattdessen die Hüllbox nähme, läse für einen 1024er Ausschnitt rund das
 Sechzehnfache an Chunks.
 
+### Die ganze Welt als Kacheln
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --tiles ./tiles --scale 16
+```
+
+```
+Vorlauf:    316223 Chunks in 10.7 s, 3110 Blockstates, 73920 Kacheln
+            3057 Sprites bei scale 16
+            82 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
+            200/73920 Kacheln
+            400/73920 Kacheln
+```
+
+Der Vorlauf liest jeden Chunk einmal und beantwortet zwei Fragen auf einmal:
+welche Blockstates vorkommen, und welche Kacheln überhaupt etwas zeigen. Erst
+danach steht die Sprite-Tabelle — und erst dann kann parallel gerendert
+werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
+Chunks werden deshalb zweimal gelesen; der Vorlauf kostet 11 Sekunden für die
+ganze Welt.
+
+Gerendert wird mit Rayon über die Kacheln. Jeder Worker hält seinen eigenen
+Chunk- und Regionscache, geteilt wird nur die unveränderliche Sprite-Tabelle.
+
+`--center` und `--size` schränken auf einen Ausschnitt ein:
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --tiles ./tiles --center -64 416 --size 2048
+```
+
+```
+Vorlauf:    8192 Chunks in 0.4 s, 266 Blockstates, 72 Kacheln
+Kacheln:    72 geschrieben, 0 leer, 256x256 px, 24 Threads
+            9.4 MB in 1.5 s (46 Kacheln/s, 134 kB je Kachel) -> ./tiles
+```
+
+Der Ausschnitt wird dabei auf ganze Kacheln aufgerundet, bevor der Vorlauf
+irgendetwas ausschliesst — ausgegeben werden immer vollständige Kacheln, also
+muss auch der Vorlauf sie vollständig abdecken. Umgekehrt sammelt er
+Blockstates nur aus Chunks, die tatsächlich in eine ausgegebene Kachel fallen:
+ein kleiner Ausschnitt braucht deshalb keine Assets für Blöcke am anderen Ende
+der Welt.
+
+Die Kacheln liegen als `tiles/<x>/<y>.webp`; beide Koordinaten dürfen negativ
+sein, weil der Blockursprung mitten in der Welt liegt. Die Zoomstufe kommt in
+Schritt 6 dazu. Wird eine Kachel bei einem erneuten Lauf leer, löscht der
+Export die alte Datei — sonst zeigte die Karte weiter, was inzwischen
+abgerissen wurde.
+
+Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines grossen
+Renderings gleichen, sonst stünden im Browser Kanten dazwischen. Neun Kacheln
+nebeneinander, die Grenzen rot eingezeichnet:
+
+![Kacheln](docs/kacheln.png)
+
+### Was das kostet
+
+Der Vorlauf über die ganze Welt ist gemessen, der Vollrender hochgerechnet:
+abgebrochen nach 6746 Kacheln und 801 MB, statt eine Stunde Plattenplatz zu
+verbrennen.
+
+| `--scale` | Vorlauf | Kacheln | je Kachel | hochgerechnet |
+|-----------|---------|---------|-----------|---------------|
+| 16 | 10,7 s | 73 920 | 134 kB | ~9 GB |
+| 8 | 6,4 s | 18 951 | 137 kB | ~2,5 GB |
+
+Eine Kachel ist immer 256x256 px, und ihr Inhalt ist bei scale 8 genauso dicht
+wie bei 16 — sie zeigt nur viermal so viel Welt. Der Massstab wirkt also rein
+über die Kachelzahl.
+
+WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
+wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den
+Kachelrändern sähe man die Artefakte im Raster. Gegenüber PNG spart
+verlustfreies WebP auf diesem Inhalt 20 bis 40 Prozent — dieselbe Kachel wiegt
+als PNG 173 kB und als WebP 108 kB.
+
 ### Wasser fehlt
 
 Flüssigkeiten haben kein Blockmodell — Minecraft zeichnet sie über einen
@@ -183,7 +260,9 @@ Vanilla 26.2 und das TerraNova-Pack ergeben hat.
 
 `renderer/tests/metatile.rs` baut aus diesem Assetbaum ganze Welten im
 Speicher und rendert sie; `renderer/tests/cli.rs` ruft dafür die echte
-Binärdatei auf, weil der Weg über `--center` eine eigene Fehlerquelle ist. Dazu gehört ein Goldbild unter
+Binärdatei auf, weil der Weg über `--center` eine eigene Fehlerquelle ist.
+`renderer/tests/tiles.rs` prüft die Naht: jede einzeln gerenderte Kachel gegen
+den entsprechenden Ausschnitt eines grossen Renderings. Dazu gehört ein Goldbild unter
 `tests/fixtures/golden/`: jede Änderung an Projektion, Baking, Rasterizer oder
 Maleralgorithmus fällt damit auf. Neu erzeugen nach einer gewollten Änderung:
 

@@ -1,14 +1,17 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 
 use image::{Rgba, RgbaImage};
+use rayon::prelude::*;
 use terranova_render::assets::{Assets, bake};
 use terranova_render::render::{
-    Projection, ScreenRect, SpriteSet, chunks_for, render, render_area,
+    Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for, encode_webp, render, render_area,
+    survey,
 };
 use terranova_render::world::{BlockState, REGION, World};
 
@@ -52,9 +55,14 @@ pub struct Args {
     #[arg(long, num_args = 2, allow_negative_numbers = true, value_names = ["X", "Z"], default_values_t = [0, 0])]
     center: Vec<i32>,
 
-    /// Kantenlänge des gerenderten Bildes in Pixeln
-    #[arg(long, default_value_t = 1024)]
-    size: u32,
+    /// Die Welt als WebP-Kacheln in dieses Verzeichnis schreiben
+    #[arg(long, value_name = "VERZEICHNIS")]
+    tiles: Option<PathBuf>,
+
+    /// Kantenlänge des Bildausschnitts in Pixeln. Für --render mit
+    /// Vorgabe 1024; ohne Angabe deckt --tiles die ganze Welt ab.
+    #[arg(long)]
+    size: Option<u32>,
 
     /// Jeden Chunk der Welt dekodieren; mit --assets auch jede Blockstate auflösen
     #[arg(long)]
@@ -75,6 +83,9 @@ pub fn run() -> Result<()> {
     }
     if args.render.is_some() && (args.world.is_none() || args.assets.is_empty()) {
         bail!("--render braucht --world und --assets");
+    }
+    if args.tiles.is_some() && (args.world.is_none() || args.assets.is_empty()) {
+        bail!("--tiles braucht --world und --assets");
     }
 
     let mut assets = match args.assets.as_slice() {
@@ -135,14 +146,25 @@ pub fn run() -> Result<()> {
         if let Some(at) = &args.at {
             at_coordinate(world, assets.as_mut(), at[0], at[1], at[2])?;
         }
+        let projection = Projection::new(args.scale);
+        let center = (args.center[0], args.center[1]);
         if let Some(path) = &args.render {
+            let size = args.size.unwrap_or(1024);
             render_world(
                 world,
                 assets.as_mut().expect("oben geprüft"),
-                Projection::new(args.scale),
-                (args.center[0], args.center[1]),
-                args.size,
+                projection,
+                window(projection, center, size),
                 path,
+            )?;
+        }
+        if let Some(dir) = &args.tiles {
+            write_tiles(
+                world,
+                assets.as_mut().expect("oben geprüft"),
+                projection,
+                args.size.map(|size| window(projection, center, size)),
+                dir,
             )?;
         }
     }
@@ -246,21 +268,9 @@ fn render_world(
     world: &World,
     assets: &mut Assets,
     projection: Projection,
-    center: (i32, i32),
-    size: u32,
+    rect: ScreenRect,
     path: &Path,
 ) -> Result<()> {
-    // Das Rechteck so schieben, dass die gewünschte Blockspalte in der
-    // Bildmitte landet. project_block und nicht project: --center nimmt
-    // Weltkoordinaten entgegen, und die brauchen f64.
-    let (cx, cy) = projection.project_block([center.0, 0, center.1]);
-    let rect = ScreenRect {
-        x: cx.round() as i32 - size as i32 / 2,
-        y: cy.round() as i32 - size as i32 / 2,
-        width: size,
-        height: size,
-    };
-
     let started = Instant::now();
     let chunks = chunks_for(projection, rect, Y_RANGE);
     let mut states = BTreeSet::new();
@@ -296,9 +306,11 @@ fn render_world(
         .save(path)
         .with_context(|| format!("{} schreiben", path.display()))?;
     println!(
-        "            {size}x{size} px um ({}, {}) bei scale {} in {:.1} s -> {}",
-        center.0,
-        center.1,
+        "            {}x{} px bei ({}, {}) und scale {} in {:.1} s -> {}",
+        rect.width,
+        rect.height,
+        rect.x,
+        rect.y,
         projection.scale(),
         started.elapsed().as_secs_f64(),
         path.display()
@@ -354,6 +366,122 @@ fn bake_all(assets: &mut Assets, states: &BTreeSet<BlockState>, projection: Proj
             unsichtbar.iter().copied().collect::<Vec<_>>().join(", ")
         );
     }
+}
+
+/// Bildausschnitt um eine Blockspalte.
+///
+/// `project_block` und nicht `project`: `--center` nimmt Weltkoordinaten
+/// entgegen, und die brauchen f64.
+fn window(projection: Projection, center: (i32, i32), size: u32) -> ScreenRect {
+    let (cx, cy) = projection.project_block([center.0, 0, center.1]);
+    ScreenRect {
+        x: cx.round() as i32 - size as i32 / 2,
+        y: cy.round() as i32 - size as i32 / 2,
+        width: size,
+        height: size,
+    }
+}
+
+/// Schreibt die Welt als WebP-Kacheln.
+///
+/// Zwei Durchläufe: der Vorlauf liest jeden Chunk einmal und sagt, welche
+/// Blockstates vorkommen und welche Kacheln überhaupt etwas zeigen. Erst
+/// danach steht die Sprite-Tabelle, und erst danach kann parallel gerendert
+/// werden — ohne sie müsste jeder Worker sie unter einer Sperre füllen.
+fn write_tiles(
+    world: &World,
+    assets: &mut Assets,
+    projection: Projection,
+    bounds: Option<ScreenRect>,
+    dir: &Path,
+) -> Result<()> {
+    let started = Instant::now();
+    let survey = survey(world, projection, Y_RANGE, bounds)?;
+    println!(
+        "\nVorlauf:    {} Chunks in {:.1} s, {} Blockstates, {} Kacheln",
+        survey.chunks,
+        started.elapsed().as_secs_f64(),
+        survey.states.len(),
+        survey.tiles.len()
+    );
+    if survey.tiles.is_empty() {
+        bail!("keine Kachel enthält etwas — falscher Ausschnitt?");
+    }
+
+    let sprites = SpriteSet::build(assets, &survey.states, projection)?;
+    println!(
+        "            {} Sprites bei scale {}",
+        sprites.len(),
+        projection.scale()
+    );
+    if !sprites.foreign_cells().is_empty() {
+        println!(
+            "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",
+            sprites.overhanging(),
+            sprites.foreign_cells()
+        );
+    }
+
+    let started = Instant::now();
+    let fertig = AtomicUsize::new(0);
+    let leer = AtomicUsize::new(0);
+    let bytes = AtomicUsize::new(0);
+    let gesamt = survey.tiles.len();
+
+    survey.tiles.par_iter().try_for_each(|tile| -> Result<()> {
+        let image = render_area(world, &sprites, tile.rect(), Y_RANGE)?;
+        let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
+        if erledigt.is_multiple_of(200) || erledigt == gesamt {
+            println!("            {erledigt}/{gesamt} Kacheln");
+        }
+
+        // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
+        // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
+        let path = tile_path(dir, *tile);
+        if image.pixels().all(|p| p.0[3] == 0) {
+            leer.fetch_add(1, Ordering::Relaxed);
+            // Eine leer gewordene Kachel darf ihren alten Inhalt nicht
+            // behalten, sonst zeigt die Karte nach einem zweiten Lauf noch,
+            // was inzwischen abgerissen wurde.
+            return match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    Err(e).with_context(|| format!("{} entfernen", path.display()))
+                }
+                _ => Ok(()),
+            };
+        }
+
+        let data = encode_webp(&image)?;
+        bytes.fetch_add(data.len(), Ordering::Relaxed);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("{} anlegen", parent.display()))?;
+        }
+        std::fs::write(&path, &data).with_context(|| format!("{} schreiben", path.display()))
+    })?;
+
+    let seconds = started.elapsed().as_secs_f64();
+    let leer = leer.load(Ordering::Relaxed);
+    let geschrieben = gesamt - leer;
+    let bytes = bytes.load(Ordering::Relaxed);
+    println!(
+        "Kacheln:    {geschrieben} geschrieben, {leer} leer, {TILE}x{TILE} px, {} Threads",
+        rayon::current_num_threads()
+    );
+    println!(
+        "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s, {:.0} kB je Kachel) -> {}",
+        bytes as f64 / 1_048_576.0,
+        gesamt as f64 / seconds,
+        bytes as f64 / geschrieben.max(1) as f64 / 1024.0,
+        dir.display()
+    );
+    Ok(())
+}
+
+/// `<dir>/<x>/<y>.webp`. Die Zoomstufe kommt in Schritt 6 dazu.
+fn tile_path(dir: &Path, tile: TileId) -> PathBuf {
+    dir.join(tile.x.to_string())
+        .join(format!("{}.webp", tile.y))
 }
 
 /// Zeichnet die Sprites der Blockstates nebeneinander in eine PNG.

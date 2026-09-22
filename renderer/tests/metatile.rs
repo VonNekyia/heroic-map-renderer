@@ -605,3 +605,43 @@ fn alternativen_werden_aus_der_position_gewuerfelt() {
         }
     }
 }
+
+/// Die Wasseroberfläche trägt die Deckkraft aller Schichten darunter: durch
+/// einen Block Wasser sieht man den Grund, durch vier praktisch nicht mehr.
+#[test]
+fn tiefes_wasser_deckt() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 320);
+    // Säulen der Tiefe 1 bis 5 bei x = 2, 4, ..., 10 auf z = 8, Oberfläche y = 10.
+    let dir = tempdir();
+    let bild = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| {
+            let tiefe = if z == 8 && x % 2 == 0 && (2..=10).contains(&x) {
+                x / 2
+            } else {
+                0
+            };
+            if y <= 10 && y > 10 - tiefe {
+                "minecraft:water"
+            } else {
+                "minecraft:air"
+            }
+        },
+        projection,
+        rect,
+    );
+    // Alpha nach d Schichten von 180: 255 - 255 * (75 / 255)^d, ab vier gedeckelt.
+    let erwartet = [180u8, 233, 249, 253, 253];
+    for (i, alpha) in erwartet.into_iter().enumerate() {
+        let x = 2 * (i as i32 + 1);
+        let p = oberseite(&bild, projection, rect, [x, 10, 8]);
+        assert!(
+            (p[3] as i32 - alpha as i32).abs() <= 1,
+            "Tiefe {}: Alpha {}, erwartet {alpha}",
+            i + 1,
+            p[3]
+        );
+    }
+}

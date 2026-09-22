@@ -159,10 +159,11 @@ impl<'a> ProjectedQuad<'a> {
             Some(_) => tints.block,
         }
         .map(|tint| tint.map(|c| c as f32 / 255.0));
+        let layers = self.quad.layers;
         for [a, b, c] in [[0, 1, 2], [0, 2, 3]] {
             canvas.triangle(
                 [vertices[a], vertices[b], vertices[c]],
-                |u, v| sample(texture, tw, th, u, v),
+                |u, v| stacked(sample(texture, tw, th, u, v), layers),
                 self.shade,
                 tint,
             );
@@ -196,6 +197,16 @@ fn shade_factor(quad: &Quad) -> f32 {
     } else {
         SHADE_EAST_WEST
     }
+}
+
+/// Alpha von `layers` Schichten desselben Texels hintereinander: was eine
+/// Schicht durchlässt, lässt die nächste wieder nur zum Teil durch.
+fn stacked(mut texel: [u8; 4], layers: u8) -> [u8; 4] {
+    if layers > 1 && texel[3] > 0 && texel[3] < 255 {
+        let through = (1.0 - texel[3] as f32 / 255.0).powi(layers as i32);
+        texel[3] = 255 - (through * 255.0).round() as u8;
+    }
+    texel
 }
 
 /// Texel an normierten Koordinaten. Außerhalb von 0..1 wird wiederholt —
@@ -388,6 +399,7 @@ mod tests {
             shade,
             force_translucent: false,
             fluid: None,
+            layers: 1,
         }
     }
 

@@ -3,10 +3,11 @@ use std::collections::{BTreeSet, HashMap};
 use anyhow::Result;
 use image::{Rgba, RgbaImage};
 
+use crate::assets::Face;
 use crate::world::{Chunk, REGION, Region, World};
 
 use super::rasterizer::over;
-use super::sprites::Family;
+use super::sprites::{DEPTHS, Family, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
@@ -352,7 +353,20 @@ impl<'a> ChunkCache<'a> {
                     mask |= 1 << bit;
                 }
             }
-            match sprites.masked(id, mask) {
+            // Die Oberfläche trägt die Deckkraft aller Schichten darunter:
+            // durch einen Block Wasser sieht man den Grund, durch vier nicht
+            // mehr. Gezählt wird nur, wenn es eine Oberfläche gibt.
+            let mut depth = 0;
+            while mask & mask_bit(Face::Up) == 0
+                && depth + 1 < DEPTHS
+                && self
+                    .family_at(sprites, x, y - 1 - depth as i32, z)?
+                    .and_then(|below| below.fluid)
+                    .is_some_and(|(other, _)| other == fluid)
+            {
+                depth += 1;
+            }
+            match sprites.masked(id, mask, depth) {
                 Some(masked) => id = masked,
                 None => return Ok(None),
             }

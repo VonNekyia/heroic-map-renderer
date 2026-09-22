@@ -37,10 +37,10 @@ pub struct SpriteSet {
     /// je Paletteneintrag und spart sich das Hashen der Blockstate je Block.
     families: Vec<Family>,
     by_state: HashMap<BlockState, u32>,
-    /// Fassungen einer Fluessigkeit ohne die Flaechen zu gleichen Nachbarn,
-    /// indiziert mit der Maske aus `mask_bit`. Eintrag 0 ist das Sprite
-    /// selbst.
-    by_mask: HashMap<SpriteId, [Option<SpriteId>; 8]>,
+    /// Fassungen einer Fluessigkeit: je Maske aus verdeckten Flaechen
+    /// (`mask_bit`) eine, und fuer Masken mit Oberflaeche je Tiefe darunter
+    /// eine — Index `mask + 8 * tiefe`. Eintrag 0 ist das Sprite selbst.
+    by_mask: HashMap<SpriteId, Vec<Option<SpriteId>>>,
     /// Fassungen je Biom, nur fuer Sprites mit gefaerbten Flaechen. Das
     /// Sprite fuehrt zur Fassung des Standardklimas, von dort geht es
     /// ueber den Biomnamen weiter.
@@ -109,9 +109,14 @@ fn java_random_int(seed: i64) -> i32 {
     next()
 }
 
+/// Wie viele Schichten Wasser unter einer Oberflaeche noch unterschieden
+/// werden. Bei Alpha 180 laesst eine Schicht 29 Prozent durch, vier noch
+/// 0,7 — darunter sieht man nichts mehr, also gilt ab da dieselbe Fassung.
+pub const DEPTHS: usize = 4;
+
 /// Bit in der Verdeckungsmaske fuer eine Fluessigkeitsflaeche: die drei
 /// Seiten, die die Kamera sieht, in der Reihenfolge der Nachbarn +x, +y, +z.
-fn mask_bit(face: Face) -> u8 {
+pub fn mask_bit(face: Face) -> u8 {
     match face {
         Face::East => 1,
         Face::Up => 2,
@@ -195,7 +200,8 @@ impl SpriteSet {
     }
 
     /// Ein Modell mit allen Fassungen: bei einer Fluessigkeit je Maske aus
-    /// verdeckten Flaechen eine, und davon je Biom eine.
+    /// verdeckten Flaechen eine, fuer die Oberflaeche je Tiefe darunter
+    /// eine, und davon je Biom eine.
     fn insert_fluid(
         &mut self,
         assets: &Assets,
@@ -204,22 +210,44 @@ impl SpriteSet {
         has_fluid: bool,
     ) -> Option<SpriteId> {
         let base = self.insert_tinted(assets, state, model)?;
-        if has_fluid {
-            let mut masked = [None; 8];
-            masked[0] = Some(base);
-            for mask in 1..8u8 {
-                let culled = BakedModel {
-                    quads: model
-                        .quads
-                        .iter()
-                        .filter(|q| q.fluid.is_none_or(|(_, face)| mask & mask_bit(face) == 0))
-                        .cloned()
-                        .collect(),
-                };
-                masked[mask as usize] = self.insert_tinted(assets, state, &culled);
-            }
-            self.by_mask.insert(base, masked);
+        if !has_fluid {
+            return Some(base);
         }
+        // Deckt die Textur schon, gibt es keine Tiefe zu zeichnen: Lava.
+        let translucent = model.quads.iter().any(|q| {
+            q.fluid.is_some()
+                && assets
+                    .textures()
+                    .image(q.texture)
+                    .pixels()
+                    .any(|p| p.0[3] > 0 && p.0[3] < 255)
+        });
+        let mut variants = vec![None; 8 * DEPTHS];
+        variants[0] = Some(base);
+        for mask in 0..8u8 {
+            let surface = mask & mask_bit(Face::Up) == 0;
+            let depths = if surface && translucent { DEPTHS } else { 1 };
+            for depth in 0..depths {
+                if mask == 0 && depth == 0 {
+                    continue;
+                }
+                let quads = model
+                    .quads
+                    .iter()
+                    .filter(|q| q.fluid.is_none_or(|(_, face)| mask & mask_bit(face) == 0))
+                    .cloned()
+                    .map(|mut q| {
+                        if q.fluid.is_some_and(|(_, face)| face == Face::Up) {
+                            q.layers = depth as u8 + 1;
+                        }
+                        q
+                    })
+                    .collect();
+                variants[mask as usize + 8 * depth] =
+                    self.insert_tinted(assets, state, &BakedModel { quads });
+            }
+        }
+        self.by_mask.insert(base, variants);
         Some(base)
     }
 
@@ -322,11 +350,14 @@ impl SpriteSet {
     }
 
     /// Die Fassung einer Fluessigkeit ohne die Flaechen zu Nachbarn mit
-    /// derselben Fluessigkeit; `mask` traegt je Nachbar +x, +y, +z ein Bit.
+    /// derselben Fluessigkeit; `mask` traegt je Nachbar +x, +y, +z ein Bit,
+    /// `depth` zaehlt die Schichten unter der Oberflaeche (0 = keine).
     /// `None`, wenn nichts uebrig bleibt — ein Wasserblock mitten im Meer.
-    pub fn masked(&self, id: SpriteId, mask: u8) -> Option<SpriteId> {
+    pub fn masked(&self, id: SpriteId, mask: u8, depth: usize) -> Option<SpriteId> {
         match self.by_mask.get(&id) {
-            Some(masked) => masked[mask as usize],
+            Some(variants) => {
+                variants[mask as usize + 8 * depth.min(DEPTHS - 1)].or(variants[mask as usize])
+            }
             None => Some(id),
         }
     }

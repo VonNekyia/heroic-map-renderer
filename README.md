@@ -295,10 +295,19 @@ aber der Renderer, und er wählt je Block die Fassung ohne die Flächen zu
 gleichem Wasser daneben und darüber. Sonst läge in jedem Becken Wasser
 über Wasser, die Deckkraft stiege an jeder Blockgrenze, und der Grund
 schimmerte durch ein Raster. Ein Wasserblock mitten im Ozean hat danach
-keine Fläche mehr und kostet nichts. Gras und Laub funktionieren wie das
-Wasser: die Textur ist grau, das Biom liefert Temperatur und Niederschlag,
-und die Colormaps `grass.png` und `foliage.png` aus den Assets machen
-daraus die Farbe.
+keine Fläche mehr und kostet nichts.
+
+Die Oberfläche trägt dafür die Deckkraft aller Schichten darunter. Eine
+Schicht der Wassertextur lässt 29 Prozent durch, zwei noch 9, vier noch
+unter 1: durch einen Block Wasser sieht man den Grund, durch vier nicht
+mehr. Der Renderer zählt je Oberflächenblock die Wasserblöcke darunter
+und nimmt die Fassung mit dem entsprechend hochgerechneten Alpha — ohne
+das sähe ein Ozean aus wie ein Meeresboden hinter Milchglas, mit
+sichtbarem Kies in jeder Tiefe. Im Spiel erledigt das der Unterwassernebel.
+
+Gras und Laub funktionieren wie das Wasser: die Textur ist grau, das Biom
+liefert Temperatur und Niederschlag, und die Colormaps `grass.png` und
+`foliage.png` aus den Assets machen daraus die Farbe.
 Fichten, Birken und Seerosen haben feste Farben, der Sumpf seinen eigenen
 Grünton, der Dunkelwald eine Abdunkelung — alles wie in `BlockColors`, nur
 beschränkt auf das, was auf einer Karte Fläche macht. Redstone, Ranken und

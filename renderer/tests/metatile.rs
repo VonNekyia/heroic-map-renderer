@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
+use terranova_render::render::rasterizer::over;
 use terranova_render::render::{Projection, ScreenRect, SpriteSet, render_area};
 use terranova_render::world::{BlockState, World};
 
@@ -430,8 +431,8 @@ fn biome_faerben_denselben_block_verschieden() {
     let projection = Projection::new(16);
     let sprites = SpriteSet::build(&mut assets, &states, projection).unwrap();
     // plains ist das Standardklima und teilt sich das Sprite mit der
-    // Grundfassung; swamp, frozen und terranova:heide bekommen eigene.
-    assert_eq!(sprites.variants(), 3);
+    // Grundfassung; swamp, frozen, heide und hoehle/pilzwald bekommen eigene.
+    assert_eq!(sprites.variants(), 4);
 
     let rect = ScreenRect {
         x: -16,
@@ -464,4 +465,143 @@ fn biome_faerben_denselben_block_verschieden() {
         erwartet([0x12, 0x34, 0x56]),
         "Chunk 1 ist frozen"
     );
+}
+
+/// Mitte der Oberseite eines Blocks im Bild.
+fn oberseite(
+    bild: &RgbaImage,
+    projection: Projection,
+    rect: ScreenRect,
+    [x, y, z]: [i32; 3],
+) -> [u8; 4] {
+    let (sx, sy) = projection.project_block([x, y + 1, z]);
+    let sx = sx - rect.x as f64;
+    let sy = sy + projection.scale() as f64 / 4.0 - rect.y as f64;
+    bild.get_pixel(sx.round() as u32, sy.round() as u32).0
+}
+
+/// Ein Becken aus einer Schicht Wasser. Flächen zwischen zwei
+/// Wasserblöcken dürfen nicht gezeichnet werden: sonst liegt dort Wasser
+/// über Wasser, die Deckkraft steigt, und über dem Grund entsteht ein
+/// Raster aus zu dunklen Linien.
+#[test]
+fn innere_wasserflaechen_werden_nicht_gezeichnet() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 192);
+    let assets = assets();
+    let wasser = assets
+        .colors()
+        .tints("minecraft:water", None)
+        .water
+        .unwrap();
+    let becken = |x: i32, z: i32| (4..7).contains(&x) && (4..7).contains(&z);
+
+    // Ohne Grund: jede Stelle des Beckens trägt genau eine Schicht.
+    let dir = tempdir();
+    let ohne = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| {
+            if y == 1 && becken(x, z) {
+                "minecraft:water"
+            } else {
+                "minecraft:air"
+            }
+        },
+        projection,
+        rect,
+    );
+    // Mit deckendem Grund: genau `over(Wasser, Grund)`.
+    let dir = tempdir();
+    let mit = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| {
+            if y == 0 {
+                "minecraft:einfarbig"
+            } else if y == 1 && becken(x, z) {
+                "minecraft:water"
+            } else {
+                "minecraft:air"
+            }
+        },
+        projection,
+        rect,
+    );
+
+    // Die Wassertextur der Fixture ist (60, 100, 220, 180), oben unbeschattet.
+    let schicht = [
+        (60.0 * wasser[0] as f32 / 255.0).round() as u8,
+        (100.0 * wasser[1] as f32 / 255.0).round() as u8,
+        (220.0 * wasser[2] as f32 / 255.0).round() as u8,
+        180,
+    ];
+    let ueber_grund = over(schicht, [150, 110, 60, 255]);
+    for x in 4..7 {
+        for z in 4..7 {
+            let a = oberseite(&ohne, projection, rect, [x, 1, z]);
+            let b = oberseite(&mit, projection, rect, [x, 1, z]);
+            for c in 0..4 {
+                assert!(
+                    (a[c] as i32 - schicht[c] as i32).abs() <= 1,
+                    "({x}, {z}) ohne Grund: erwartet {schicht:?}, bekommen {a:?}"
+                );
+                assert!(
+                    (b[c] as i32 - ueber_grund[c] as i32).abs() <= 1,
+                    "({x}, {z}) über Grund: erwartet {ueber_grund:?}, bekommen {b:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Eine Blockstate mit zwei Alternativen: welche ein Block bekommt, würfelt
+/// seine Position. Beide müssen vorkommen, und die Wahl muss bei jedem Lauf
+/// dieselbe sein — auch wenn der Ausschnitt ein anderer ist.
+#[test]
+fn alternativen_werden_aus_der_position_gewuerfelt() {
+    let projection = Projection::new(16);
+    let boden = |_: i32, y: i32, _: i32| {
+        if y == 0 {
+            "minecraft:zufall"
+        } else {
+            "minecraft:air"
+        }
+    };
+
+    let dir = tempdir();
+    let rect = ScreenRect::centered(512, 256);
+    let bild = render_chunks(&dir, &[(0, 0)], boden, projection, rect);
+
+    let mut braun = 0;
+    let mut blau = 0;
+    for x in 0..16 {
+        for z in 0..16 {
+            match oberseite(&bild, projection, rect, [x, 0, z]) {
+                [150, 110, 60, 255] => braun += 1,
+                [r, g, b, 255] if b > r && b > g => blau += 1,
+                p => panic!("({x}, {z}): weder Holz noch Blau: {p:?}"),
+            }
+        }
+    }
+    // Gewichte 1 und 3: das Blau muss klar überwiegen, das Holz vorkommen.
+    assert!(braun > 20 && blau > 2 * braun, "{braun} Holz, {blau} Blau");
+
+    // Derselbe Boden in einem verschobenen Ausschnitt: Block für Block gleich.
+    let dir = tempdir();
+    let verschoben = ScreenRect {
+        x: rect.x + 37,
+        y: rect.y + 19,
+        ..rect
+    };
+    let bild2 = render_chunks(&dir, &[(0, 0)], boden, projection, verschoben);
+    for x in 0..16 {
+        for z in 0..16 {
+            assert_eq!(
+                oberseite(&bild, projection, rect, [x, 0, z]),
+                oberseite(&bild2, projection, verschoben, [x, 0, z]),
+                "({x}, {z}) hängt vom Ausschnitt ab"
+            );
+        }
+    }
 }

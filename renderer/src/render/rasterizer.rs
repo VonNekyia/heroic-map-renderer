@@ -387,6 +387,7 @@ mod tests {
             tint_index: None,
             shade,
             force_translucent: false,
+            fluid: None,
         }
     }
 

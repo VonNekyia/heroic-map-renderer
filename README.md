@@ -14,13 +14,15 @@ Der Browser rendert keine Minecraft-Geometrie, sondern nur fertige Rasterkacheln
 
 Schritt 8 von 8: **Modelle und Transparenz im Detail**. Wasser und Lava
 werden gezeichnet, Gras, Laub und Wasser bekommen die Farbe ihres Bioms,
-`uvlock` hält Texturen an der Welt fest, und durchsichtige Flächen mischen
-sich im Sprite statt zu überschreiben.
+`uvlock` hält Texturen an der Welt fest, durchsichtige Flächen mischen
+sich im Sprite statt zu überschreiben, und Blöcke mit mehreren Varianten —
+Sand, Stein, Erde — würfeln ihre Drehung aus der Position wie das Spiel.
 
 ![Karte](docs/map.png)
 
-900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 2,6 s einkernig —
-dieselbe Stelle wie in Schritt 4, jetzt mit Wasser und Biomfarben.
+900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 3,4 s einkernig —
+dieselbe Stelle wie in Schritt 4, jetzt mit Wasser, Biomfarben und
+gewürfelten Drehungen.
 
 | Schritt | Inhalt | Status |
 |---------|--------|--------|
@@ -66,8 +68,19 @@ New-Item -ItemType Directory -Force vanilla-data\minecraft\worldgen | Out-Null; 
 
 66 Dateien, 352 kB. Ohne `--data` bekommt jeder Block die Farben von
 `plains`; Ozeane und Wälder sehen dann überall gleich aus, aber nicht
-falsch. Ein Datenpaket mit eigenen Biomen geht genauso: `--data` erwartet
-`<DIR>/<namespace>/worldgen/biome/*.json`.
+falsch. Datenpakete mit eigenen Biomen kommen als weitere Wurzeln dazu,
+spätere überschreiben frühere — auch Vanilla-Biome, die ein Paket
+umdefiniert:
+
+```bash
+--data ./vanilla-data --data ./terralith-data
+```
+
+Erwartet wird `<DIR>/<namespace>/worldgen/biome/**/*.json`; Unterordner
+gehören zur ID, `terralith:cave/underground_jungle` liegt unter
+`biome/cave/underground_jungle.json`. Kommt in der Welt ein Biom vor, für
+das keine Definition geladen ist, sagt der Renderer es beim Start und
+färbt es wie `plains`.
 
 ## Benutzung
 
@@ -276,11 +289,16 @@ sonst jede Schicht eines Ozeans eine Fuge.
 ![Übersicht](docs/map-wide.png)
 
 Die Wassertextur ist grau und durchscheinend. Ihre Farbe kommt aus
-`water_color` des Bioms, und weil jede Schicht die darunter durchscheinen
-lässt, wird ein Ozean mit der Tiefe dunkler, während man in Ufernähe den
-Grund sieht. Gras und Laub funktionieren genauso: die Textur ist grau, das
-Biom liefert Temperatur und Niederschlag, und die Colormaps
-`grass.png` und `foliage.png` aus den Assets machen daraus die Farbe.
+`water_color` des Bioms. Flächen zwischen zwei Wasserblöcken werden nicht
+gezeichnet — wie im Spiel: ein Sprite kennt seine Nachbarn zwar nicht,
+aber der Renderer, und er wählt je Block die Fassung ohne die Flächen zu
+gleichem Wasser daneben und darüber. Sonst läge in jedem Becken Wasser
+über Wasser, die Deckkraft stiege an jeder Blockgrenze, und der Grund
+schimmerte durch ein Raster. Ein Wasserblock mitten im Ozean hat danach
+keine Fläche mehr und kostet nichts. Gras und Laub funktionieren wie das
+Wasser: die Textur ist grau, das Biom liefert Temperatur und Niederschlag,
+und die Colormaps `grass.png` und `foliage.png` aus den Assets machen
+daraus die Farbe.
 Fichten, Birken und Seerosen haben feste Farben, der Sumpf seinen eigenen
 Grünton, der Dunkelwald eine Abdunkelung — alles wie in `BlockColors`, nur
 beschränkt auf das, was auf einer Karte Fläche macht. Redstone, Ranken und
@@ -295,6 +313,18 @@ eines Sprites: die Flächen werden von hinten nach vorne gezeichnet, und
 ein durchscheinendes Texel legt sich über das, was schon da ist. Vorher
 gewann der Tiefenpuffer, und ein gefluteter Zaun war ein Wasserwürfel ohne
 Zaun.
+
+### Varianten aus der Position
+
+34 Vanilla-Blockstates liegen als Liste vor — Sand, Stein, Erde, Grasblock
+in vier Drehungen. Welche ein Block bekommt, würfelt Minecraft aus seiner
+Position: `Mth.getSeed(x, y, z)` als Saat für `java.util.Random`, der erste
+`nextLong` gekürzt auf 32 Bit, davon der Betrag modulo Gesamtgewicht.
+Der Renderer rechnet genau das nach, geprüft gegen ein echtes
+`java.util.Random`. Damit sieht Sand aus wie im Spiel statt wie eine
+Tapete, und die Wahl hängt weder von der Kachel noch vom Thread ab. Alle
+Alternativen sind vorab gerastert; der Renderpfad rechnet je Block nur
+die Saat.
 
 Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, jede
 vorkommende Blockstate auflöst und sie rastert:

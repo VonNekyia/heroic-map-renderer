@@ -28,6 +28,8 @@ pub struct ModelRef {
     /// Seit Minecraft 1.21.11 auch für Blockstate-Varianten erlaubt.
     pub z: i32,
     pub uvlock: bool,
+    /// Gewicht in einer Variantenliste; ohne Angabe 1.
+    pub weight: u32,
 }
 
 #[derive(Debug)]
@@ -114,13 +116,25 @@ impl BlockStateDef {
         matches!(self, BlockStateDef::Multipart(_))
     }
 
-    /// Die Modelle, die für diese Blockstate gelten.
-    ///
-    /// Bei gewichteten Listen gewinnt immer der erste Eintrag, damit zwei
-    /// Läufe dasselbe Bild erzeugen.
-    // ponytail: Vanilla würfelt die Variante aus der Blockposition. Für
-    // Abwechslung bei Stein und Erde später die Position hineinreichen.
+    /// Die Modelle der ersten Alternative — für Sprite-Raster und
+    /// Diagnose, wo es auf eine feste Wahl ankommt.
     pub fn select(&self, state: &BlockState) -> Vec<ModelRef> {
+        self.alternatives(state)
+            .into_iter()
+            .next()
+            .map(|(_, refs)| refs)
+            .unwrap_or_default()
+    }
+
+    /// Alle Alternativen mit ihrem Gewicht.
+    ///
+    /// Eine Variantenliste ist Vanillas Zufall: Sand, Stein und Erde
+    /// liegen in vier Drehungen vor, und welche ein Block bekommt, würfelt
+    /// seine Position. Bei `multipart` gilt je Fall der erste Eintrag —
+    /// Listen haben dort nur Bambus, Chorus und Feuer.
+    // ponytail: multipart ohne Zufall. Erst nötig, wenn jemand die
+    // Bambus-Varianten vermisst.
+    pub fn alternatives(&self, state: &BlockState) -> Vec<(u32, Vec<ModelRef>)> {
         match self {
             BlockStateDef::Variants(variants) => variants
                 .iter()
@@ -130,15 +144,22 @@ impl BlockStateDef {
                         .iter()
                         .all(|(name, value)| state.prop(name) == Some(value.as_str()))
                 })
-                .and_then(|variant| variant.apply.first())
-                .cloned()
-                .into_iter()
-                .collect(),
-            BlockStateDef::Multipart(cases) => cases
-                .iter()
-                .filter(|case| case.when.as_ref().is_none_or(|c| c.matches(state)))
-                .filter_map(|case| case.apply.first().cloned())
-                .collect(),
+                .map(|variant| {
+                    variant
+                        .apply
+                        .iter()
+                        .map(|r| (r.weight.max(1), vec![r.clone()]))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            BlockStateDef::Multipart(cases) => vec![(
+                1,
+                cases
+                    .iter()
+                    .filter(|case| case.when.as_ref().is_none_or(|c| c.matches(state)))
+                    .filter_map(|case| case.apply.first().cloned())
+                    .collect(),
+            )],
         }
     }
 }
@@ -180,6 +201,7 @@ fn parse_apply(value: &Value) -> Result<Vec<ModelRef>> {
 
 fn parse_model_ref(value: &Value) -> Result<ModelRef> {
     Ok(ModelRef {
+        weight: value.get("weight").and_then(Value::as_u64).unwrap_or(1) as u32,
         model: value
             .get("model")
             .and_then(Value::as_str)

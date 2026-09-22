@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use anyhow::Result;
 use image::{Rgba, RgbaImage};
 
+use crate::assets::fluid::Fluid;
 use crate::world::{Chunk, REGION, Region, World};
 
 use super::rasterizer::over;
@@ -294,8 +295,12 @@ impl<'a> ChunkCache<'a> {
 
     /// Sprite an einer Weltkoordinate, oder `None` für Luft, fehlende
     /// Chunks und Blöcke ohne sichtbare Geometrie.
+    ///
+    /// Drei Entscheidungen fallen hier: welche Alternative die Position
+    /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken und
+    /// welche Biomfassung gilt. Alles davon ist vorab gerastert.
     // ponytail: schlägt je Block in der Hashtabelle nach. Schneller wäre,
-    // beim Laden eines Chunks je Section einmal Palettenindex -> SpriteId
+    // beim Laden eines Chunks je Section einmal Palettenindex -> Family
     // abzulegen. Lohnt sich, sobald der Vollrender misst.
     fn sprite_at(
         &mut self,
@@ -311,12 +316,64 @@ impl<'a> ChunkCache<'a> {
         let Some(chunk) = self.chunks[&key].as_ref() else {
             return Ok(None);
         };
-        let Some(id) = chunk.block_at(x, y, z).and_then(|block| sprites.id(block)) else {
+        let Some(family) = chunk
+            .block_at(x, y, z)
+            .and_then(|block| sprites.family(block))
+        else {
             return Ok(None);
         };
+        let Some(mut id) = family.pick([x, y, z]) else {
+            return Ok(None);
+        };
+
+        // Flächen zu einem Nachbarn mit derselben Flüssigkeit entfallen.
+        // Sonst mischt sich jede innere Fläche eines Beckens mit dazu, und
+        // ein Ozean wäre ein Raster aus doppelt gedecktem Wasser. Seitlich
+        // nur, wenn der Nachbar mindestens so hoch steht; darüber verdeckt
+        // jede Flüssigkeit die eigene Oberfläche.
+        if let Some((fluid, height)) = family.fluid {
+            let mut mask = 0u8;
+            for (bit, [dx, dy, dz]) in [[1, 0, 0], [0, 1, 0], [0, 0, 1]].into_iter().enumerate() {
+                if let Some((other, other_height)) =
+                    self.fluid_at(sprites, x + dx, y + dy, z + dz)?
+                    && other == fluid
+                    && (dy == 1 || other_height >= height)
+                {
+                    mask |= 1 << bit;
+                }
+            }
+            match sprites.masked(id, mask) {
+                Some(masked) => id = masked,
+                None => return Ok(None),
+            }
+        }
+
         // Das Biom kostet einen zweiten Nachschlag; `in_biome` fragt nur
         // fuer Sprites danach, die ueberhaupt Fassungen haben.
+        let chunk = self.chunks[&key].as_ref().expect("eben geladen");
         Ok(Some(sprites.in_biome(id, || chunk.biome_at(x, y, z))))
+    }
+
+    /// Flüssigkeit an einer Weltkoordinate — für die Nachbarn eines
+    /// Flüssigkeitsblocks.
+    fn fluid_at(
+        &mut self,
+        sprites: &SpriteSet,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Result<Option<(Fluid, f32)>> {
+        let key = (x >> 4, z >> 4);
+        if !self.chunks.contains_key(&key) {
+            self.load(key)?;
+        }
+        let Some(chunk) = self.chunks[&key].as_ref() else {
+            return Ok(None);
+        };
+        Ok(chunk
+            .block_at(x, y, z)
+            .and_then(|block| sprites.family(block))
+            .and_then(|family| family.fluid))
     }
 }
 

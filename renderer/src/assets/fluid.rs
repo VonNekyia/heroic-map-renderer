@@ -6,6 +6,14 @@
 //! auffälligste Fehlbestand.
 
 use super::baker::{BakedModel, box_quads};
+
+/// Welche Flüssigkeit ein Block enthält. Flächen zu einem Nachbarn mit
+/// derselben Flüssigkeit entfallen beim Rendern.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Fluid {
+    Water,
+    Lava,
+}
 use super::{Assets, TextureId, split_id};
 use crate::world::BlockState;
 
@@ -26,10 +34,10 @@ const WATER: &str = "block/water_still";
 
 /// Hängt die Flüssigkeit an das gebackene Modell einer Blockstate.
 pub fn add(model: &mut BakedModel, state: &BlockState, assets: &mut Assets) {
-    let water = |level| (WATER, level, Some(TINT_INDEX));
-    let (textur, level, tint) = match split_id(state.name()).1 {
+    let water = |level| (WATER, level, Some(TINT_INDEX), Fluid::Water);
+    let (textur, level, tint, fluid) = match split_id(state.name()).1 {
         "water" => water(level_of(state)),
-        "lava" => ("block/lava_still", level_of(state), None),
+        "lava" => ("block/lava_still", level_of(state), None, Fluid::Lava),
         // Eine Blasensäule ist Wasser mit Luftblasen; die Blasen sind ein
         // Partikeleffekt, das Wasser darunter ist ein voller Block.
         "bubble_column" => water(0),
@@ -44,6 +52,7 @@ pub fn add(model: &mut BakedModel, state: &BlockState, assets: &mut Assets) {
         [16.0, height(level), 16.0],
         texture,
         tint,
+        Some(fluid),
     ));
 }
 

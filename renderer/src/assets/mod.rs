@@ -19,15 +19,25 @@ pub use model::{Element, ElementFace, Face, ResolvedModel, Rotation};
 pub use texture::{TextureId, Textures};
 
 /// Das fertige Modell einer Blockstate: gebacken und um die Flüssigkeit
-/// ergänzt, die kein Modell-JSON beschreibt.
+/// ergänzt, die kein Modell-JSON beschreibt. Bei Alternativen die erste.
+pub fn model_of(assets: &mut Assets, state: &BlockState) -> Result<BakedModel> {
+    Ok(models_of(assets, state)?.swap_remove(0).1)
+}
+
+/// Alle Alternativen einer Blockstate mit Gewicht, fertig gebacken.
 ///
 /// Jeder Pfad, der ein Sprite baut, geht hier durch — sonst hätte der eine
 /// Wasser und der andere nicht.
-pub fn model_of(assets: &mut Assets, state: &BlockState) -> Result<BakedModel> {
-    let variants = assets.variants(state)?;
-    let mut model = bake(&variants);
-    fluid::add(&mut model, state, assets);
-    Ok(model)
+pub fn models_of(assets: &mut Assets, state: &BlockState) -> Result<Vec<(u32, BakedModel)>> {
+    assets
+        .alternatives(state)?
+        .into_iter()
+        .map(|(weight, variants)| {
+            let mut model = bake(&variants);
+            fluid::add(&mut model, state, assets);
+            Ok((weight, model))
+        })
+        .collect()
 }
 
 /// Wie tief die `parent`-Kette eines Modells verfolgt wird, bevor ein Zyklus
@@ -151,24 +161,36 @@ impl Assets {
         Ok(def)
     }
 
-    /// Modelle, die für diese Blockstate gelten — bei `multipart` können es
-    /// mehrere sein, bei `variants` genau eines.
+    /// Modelle der ersten Alternative — bei `multipart` können es mehrere
+    /// sein, bei `variants` genau eines.
     pub fn variants(&mut self, state: &BlockState) -> Result<Vec<ResolvedVariant>> {
+        Ok(self.alternatives(state)?.swap_remove(0).1)
+    }
+
+    /// Alle Alternativen einer Blockstate mit ihrem Gewicht.
+    pub fn alternatives(&mut self, state: &BlockState) -> Result<Vec<(u32, Vec<ResolvedVariant>)>> {
         let def = self.blockstate_def(state.name())?;
-        let refs = def.select(state);
-        if refs.is_empty() && !def.is_multipart() {
+        let alternatives = def.alternatives(state);
+        if alternatives.is_empty() {
             bail!("{state} passt auf keine Variante der Blockstate-Datei");
         }
-        refs.into_iter()
-            .map(|r| {
-                Ok(ResolvedVariant {
-                    model: self.model(&r.model)?,
-                    model_id: r.model,
-                    x: r.x,
-                    y: r.y,
-                    z: r.z,
-                    uvlock: r.uvlock,
-                })
+        alternatives
+            .into_iter()
+            .map(|(weight, refs)| {
+                let variants = refs
+                    .into_iter()
+                    .map(|r| {
+                        Ok(ResolvedVariant {
+                            model: self.model(&r.model)?,
+                            model_id: r.model,
+                            x: r.x,
+                            y: r.y,
+                            z: r.z,
+                            uvlock: r.uvlock,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Ok((weight, variants))
             })
             .collect()
     }

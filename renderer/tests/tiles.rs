@@ -30,7 +30,9 @@ fn assets() -> Assets {
 fn gelaende(x: i32, y: i32, z: i32) -> &'static str {
     let hoehe = 3 + x.rem_euclid(16) / 4 + z.rem_euclid(16) / 4;
     if y < 3 {
-        "minecraft:einfarbig"
+        // Zwei Alternativen, aus der Position gewürfelt: die Wahl darf
+        // nicht davon abhängen, in welcher Kachel der Block gerendert wird.
+        "minecraft:zufall"
     } else if y < hoehe {
         "minecraft:mit_overlay"
     } else if y == hoehe && (x + z).rem_euclid(5) == 0 {

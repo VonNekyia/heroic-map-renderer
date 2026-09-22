@@ -129,6 +129,8 @@ pub struct Survey {
     pub tiles: Vec<TileId>,
     /// Blockstates, die vorkommen. Daraus entsteht die Sprite-Tabelle.
     pub states: BTreeSet<BlockState>,
+    /// Biome, die vorkommen — um zu melden, welche keine Definition haben.
+    pub biomes: BTreeSet<String>,
     /// Chunks, die gelesen wurden.
     pub chunks: usize,
 }
@@ -170,6 +172,7 @@ pub fn survey(
     for teil in teile {
         tiles.extend(teil.tiles);
         survey.states.extend(teil.states);
+        survey.biomes.extend(teil.biomes);
         survey.chunks += teil.chunks;
     }
     survey.tiles = tiles.into_iter().collect();
@@ -225,6 +228,9 @@ fn survey_region(
                 survey
                     .states
                     .extend(section.blocks().palette().iter().cloned());
+                survey
+                    .biomes
+                    .extend(section.biomes().palette().iter().cloned());
             }
         }
     }

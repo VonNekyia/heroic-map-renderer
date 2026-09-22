@@ -1,3 +1,4 @@
+use super::fluid::Fluid;
 use super::model::{Face, Rotation};
 use super::{ResolvedVariant, TextureId};
 
@@ -16,6 +17,9 @@ pub struct Quad {
     pub tint_index: Option<u32>,
     pub shade: bool,
     pub force_translucent: bool,
+    /// Gesetzt für die Flächen einer Flüssigkeit, mit ihrer Richtung: die
+    /// Fläche entfällt, wenn der Nachbar dort dieselbe Flüssigkeit führt.
+    pub fluid: Option<(Fluid, Face)>,
 }
 
 impl Quad {
@@ -99,6 +103,7 @@ pub fn bake(variants: &[ResolvedVariant]) -> BakedModel {
                     tint_index: data.tint_index,
                     shade: element.shade,
                     force_translucent: data.force_translucent,
+                    fluid: None,
                 });
             }
         }
@@ -117,6 +122,7 @@ pub fn box_quads(
     to: [f32; 3],
     texture: TextureId,
     tint_index: Option<u32>,
+    fluid: Option<Fluid>,
 ) -> impl Iterator<Item = Quad> {
     [
         Face::Down,
@@ -138,6 +144,7 @@ pub fn box_quads(
             tint_index,
             shade: true,
             force_translucent: false,
+            fluid: fluid.map(|fluid| (fluid, face)),
         }
     })
 }

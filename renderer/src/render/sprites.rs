@@ -4,7 +4,8 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::baker::BakedModel;
-use crate::assets::{Assets, Tints, fluid, model_of};
+use crate::assets::fluid::Fluid;
+use crate::assets::{Assets, Face, Tints, fluid, models_of};
 use crate::world::BlockState;
 
 use super::{Projection, Sprite, render};
@@ -31,13 +32,95 @@ const MAX_CELLS: usize = 64;
 /// Dateizugriffe.
 pub struct SpriteSet {
     sprites: Vec<Entry>,
-    by_state: HashMap<BlockState, SpriteId>,
-    /// Fassungen je Biom, nur fuer Sprites mit gefaerbten Flaechen. Die
-    /// Blockstate fuehrt zur Fassung des Standardklimas, von dort geht es
+    /// Blockstate -> ihre Alternativen. Welche ein Block bekommt, wuerfelt
+    /// seine Position, wie in Vanilla.
+    by_state: HashMap<BlockState, Family>,
+    /// Fassungen einer Fluessigkeit ohne die Flaechen zu gleichen Nachbarn,
+    /// indiziert mit der Maske aus `mask_bit`. Eintrag 0 ist das Sprite
+    /// selbst.
+    by_mask: HashMap<SpriteId, [Option<SpriteId>; 8]>,
+    /// Fassungen je Biom, nur fuer Sprites mit gefaerbten Flaechen. Das
+    /// Sprite fuehrt zur Fassung des Standardklimas, von dort geht es
     /// ueber den Biomnamen weiter.
     by_biome: HashMap<SpriteId, HashMap<String, SpriteId>>,
     projection: Projection,
     foreign: BTreeSet<Cell>,
+}
+
+/// Die Alternativen einer Blockstate mit ihren Gewichten.
+pub struct Family {
+    alternatives: Vec<(u32, Option<SpriteId>)>,
+    total: u32,
+    /// Fluessigkeit samt Hoehe ihrer Oberflaeche in Blockeinheiten, falls
+    /// die Blockstate eine enthaelt.
+    pub fluid: Option<(Fluid, f32)>,
+}
+
+impl Family {
+    /// Die Alternative fuer einen Block — dieselbe, die `WeightedBakedModel`
+    /// aus `Mth.getSeed` der Position wuerfelt. Damit sieht die Karte aus
+    /// wie das Spiel, und die Wahl haengt weder von Kachelgrenzen noch von
+    /// der Renderreihenfolge ab.
+    pub fn pick(&self, pos: [i32; 3]) -> Option<SpriteId> {
+        if self.alternatives.len() == 1 {
+            return self.alternatives[0].1;
+        }
+        let mut n = java_random_int(seed(pos))
+            .wrapping_abs()
+            .rem_euclid(self.total as i32);
+        for &(weight, id) in &self.alternatives {
+            n -= weight as i32;
+            if n < 0 {
+                return id;
+            }
+        }
+        None
+    }
+}
+
+/// `Mth.getSeed`: Minecrafts Zufallssaat aus einer Blockposition. Die
+/// erste Multiplikation laeuft in 32 Bit, alles danach in 64.
+fn seed([x, y, z]: [i32; 3]) -> i64 {
+    let l = (x.wrapping_mul(3129871) as i64) ^ (z as i64).wrapping_mul(116129781) ^ (y as i64);
+    let l = l
+        .wrapping_mul(l)
+        .wrapping_mul(42317861)
+        .wrapping_add(l.wrapping_mul(11));
+    l >> 16
+}
+
+/// `(int) new java.util.Random(seed).nextLong()`: der Wert, mit dem
+/// `WeightedBakedModel` seine Liste befragt. Von `nextLong` bleiben nach
+/// dem Kuerzen genau die unteren 32 Bit, also der zweite `next(32)`.
+fn java_random_int(seed: i64) -> i32 {
+    const MULT: i64 = 0x5DEECE66D;
+    const MASK: i64 = (1 << 48) - 1;
+    let mut state = (seed ^ MULT) & MASK;
+    let mut next = || {
+        state = (state.wrapping_mul(MULT).wrapping_add(0xB)) & MASK;
+        (state >> 16) as i32
+    };
+    next();
+    next()
+}
+
+/// Bit in der Verdeckungsmaske fuer eine Fluessigkeitsflaeche: die drei
+/// Seiten, die die Kamera sieht, in der Reihenfolge der Nachbarn +x, +y, +z.
+fn mask_bit(face: Face) -> u8 {
+    match face {
+        Face::East => 1,
+        Face::Up => 2,
+        Face::South => 4,
+        _ => 0,
+    }
+}
+
+/// Fluessigkeit eines Modells samt Oberflaechenhoehe.
+fn fluid_of(model: &BakedModel) -> Option<(Fluid, f32)> {
+    model.quads.iter().find_map(|q| match q.fluid {
+        Some((fluid, Face::Up)) => Some((fluid, q.corners[0][1])),
+        _ => None,
+    })
 }
 
 struct Entry {
@@ -66,6 +149,7 @@ impl SpriteSet {
         let mut set = SpriteSet {
             sprites: Vec::new(),
             by_state: HashMap::new(),
+            by_mask: HashMap::new(),
             by_biome: HashMap::new(),
             projection,
             foreign: BTreeSet::new(),
@@ -75,58 +159,114 @@ impl SpriteSet {
             if state.is_air() || set.by_state.contains_key(state) {
                 continue;
             }
-            let model = model_of(assets, state)?;
-
-            // Welche Faerbungen das Modell ueberhaupt traegt. Nur die
-            // unterscheiden Fassungen — sonst bekaeme jeder Grasblock eine
-            // Fassung je Wasserfarbe.
-            let uses = model
-                .quads
+            let models = models_of(assets, state)?;
+            let fluid = models.first().and_then(|(_, model)| fluid_of(model));
+            let alternatives: Vec<(u32, Option<SpriteId>)> = models
                 .iter()
-                .fold((false, false), |(block, water), q| match q.tint_index {
-                    None => (block, water),
-                    Some(fluid::TINT_INDEX) => (block, true),
-                    Some(_) => (true, water),
-                });
-            let tints = |biome: Option<&str>| {
-                let t = assets.colors().tints(state.name(), biome);
-                Tints {
-                    block: t.block.filter(|_| uses.0),
-                    water: t.water.filter(|_| uses.1),
-                }
-            };
-
-            let default = tints(None);
-            let Some(sprite) = render(&model, assets.textures(), &projection, default) else {
-                continue;
-            };
-            let id = set.insert(sprite, &model);
-            set.by_state.insert(state.clone(), id);
-
-            if default == Tints::default() {
+                .map(|(weight, model)| {
+                    let id = set.insert_fluid(assets, state, model, fluid.is_some());
+                    (*weight, id)
+                })
+                .collect();
+            if alternatives.iter().all(|(_, id)| id.is_none()) {
                 continue;
             }
-            // Eine Fassung je Biom; gleiche Farben teilen sich das Sprite.
-            let mut by_tints = HashMap::from([(default, id)]);
-            let mut by_biome = HashMap::new();
-            for biome in assets.colors().biomes() {
-                let tints = tints(Some(biome));
-                let variant = match by_tints.get(&tints) {
-                    Some(&variant) => variant,
-                    None => {
-                        let sprite = render(&model, assets.textures(), &projection, tints)
-                            .expect("dasselbe Modell, nur anders gefaerbt");
-                        let variant = set.insert(sprite, &model);
-                        by_tints.insert(tints, variant);
-                        variant
-                    }
-                };
-                by_biome.insert(biome.to_string(), variant);
-            }
-            set.by_biome.insert(id, by_biome);
+            let total = alternatives.iter().map(|(weight, _)| *weight).sum();
+            set.by_state.insert(
+                state.clone(),
+                Family {
+                    alternatives,
+                    total,
+                    fluid,
+                },
+            );
         }
 
         Ok(set)
+    }
+
+    /// Ein Modell mit allen Fassungen: bei einer Fluessigkeit je Maske aus
+    /// verdeckten Flaechen eine, und davon je Biom eine.
+    fn insert_fluid(
+        &mut self,
+        assets: &Assets,
+        state: &BlockState,
+        model: &BakedModel,
+        has_fluid: bool,
+    ) -> Option<SpriteId> {
+        let base = self.insert_tinted(assets, state, model)?;
+        if has_fluid {
+            let mut masked = [None; 8];
+            masked[0] = Some(base);
+            for mask in 1..8u8 {
+                let culled = BakedModel {
+                    quads: model
+                        .quads
+                        .iter()
+                        .filter(|q| q.fluid.is_none_or(|(_, face)| mask & mask_bit(face) == 0))
+                        .cloned()
+                        .collect(),
+                };
+                masked[mask as usize] = self.insert_tinted(assets, state, &culled);
+            }
+            self.by_mask.insert(base, masked);
+        }
+        Some(base)
+    }
+
+    /// Rastert ein Modell in der Farbe des Standardklimas und, wenn es
+    /// gefaerbte Flaechen hat, je Biom noch einmal.
+    fn insert_tinted(
+        &mut self,
+        assets: &Assets,
+        state: &BlockState,
+        model: &BakedModel,
+    ) -> Option<SpriteId> {
+        // Welche Faerbungen das Modell ueberhaupt traegt. Nur die
+        // unterscheiden Fassungen — sonst bekaeme jeder Grasblock eine
+        // Fassung je Wasserfarbe.
+        let uses = model
+            .quads
+            .iter()
+            .fold((false, false), |(block, water), q| match q.tint_index {
+                None => (block, water),
+                Some(fluid::TINT_INDEX) => (block, true),
+                Some(_) => (true, water),
+            });
+        let tints = |biome: Option<&str>| {
+            let t = assets.colors().tints(state.name(), biome);
+            Tints {
+                block: t.block.filter(|_| uses.0),
+                water: t.water.filter(|_| uses.1),
+            }
+        };
+
+        let default = tints(None);
+        let sprite = render(model, assets.textures(), &self.projection, default)?;
+        let id = self.insert(sprite, model);
+
+        if default == Tints::default() {
+            return Some(id);
+        }
+        // Eine Fassung je Biom; gleiche Farben teilen sich das Sprite.
+        let mut by_tints = HashMap::from([(default, id)]);
+        let mut by_biome = HashMap::new();
+        for biome in assets.colors().biomes() {
+            let tints = tints(Some(biome));
+            let variant = match by_tints.get(&tints) {
+                Some(&variant) => variant,
+                None => {
+                    let sprite = render(model, assets.textures(), &self.projection, tints)
+                        .expect("dasselbe Modell, nur anders gefaerbt");
+                    let variant = self.insert(sprite, model);
+                    by_tints.insert(tints, variant);
+                    variant
+                }
+            };
+            by_biome.insert(biome.to_string(), variant);
+        }
+        self.by_biome.insert(id, by_biome);
+        Some(id)
     }
 
     /// Zerlegt ein Sprite in seine Wuerfel und nimmt es in die Tabelle auf.
@@ -154,8 +294,23 @@ impl SpriteSet {
         SpriteId(self.sprites.len() as u32 - 1)
     }
 
+    /// Das Sprite der ersten Alternative.
     pub fn id(&self, state: &BlockState) -> Option<SpriteId> {
-        self.by_state.get(state).copied()
+        self.family(state).and_then(|f| f.alternatives[0].1)
+    }
+
+    pub fn family(&self, state: &BlockState) -> Option<&Family> {
+        self.by_state.get(state)
+    }
+
+    /// Die Fassung einer Fluessigkeit ohne die Flaechen zu Nachbarn mit
+    /// derselben Fluessigkeit; `mask` traegt je Nachbar +x, +y, +z ein Bit.
+    /// `None`, wenn nichts uebrig bleibt — ein Wasserblock mitten im Meer.
+    pub fn masked(&self, id: SpriteId, mask: u8) -> Option<SpriteId> {
+        match self.by_mask.get(&id) {
+            Some(masked) => masked[mask as usize],
+            None => Some(id),
+        }
     }
 
     /// Die Fassung eines Sprites fuer ein Biom.
@@ -173,7 +328,8 @@ impl SpriteSet {
         }
     }
 
-    /// Wie viele Sprites Biomfassungen anderer Sprites sind.
+    /// Wie viele Sprites Fassungen sind: Alternativen, Biome, verdeckte
+    /// Fluessigkeitsflaechen.
     pub fn variants(&self) -> usize {
         self.sprites.len() - self.by_state.len()
     }
@@ -435,6 +591,58 @@ fn cells_of(model: &BakedModel, projection: Projection) -> Vec<(Cell, f32, f32)>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assets::model_of;
+
+    /// Referenzwerte aus einem echten `java.util.Random` mit `Mth.getSeed`
+    /// (OpenJDK 26): Position, Saat, `(int) nextLong()`.
+    const JAVA: [([i32; 3], i64, i32); 7] = [
+        ([0, 0, 0], 0, -723955400),
+        ([1, 0, 0], 133076631897947, -136055449),
+        ([-64, 64, 416], 435218090705, -889319201),
+        ([12345, -3, -98765], 131000016891455, 84444920),
+        ([2147483647, 319, -2147483648], 12517264342920, 599139326),
+        ([100, 7, 100], -134188025211418, 1476735360),
+        ([-1, -64, -1], 52541653973741, 262207512),
+    ];
+
+    #[test]
+    fn positionssaat_wie_in_java() {
+        for (pos, saat, wert) in JAVA {
+            assert_eq!(seed(pos), saat, "Saat fuer {pos:?}");
+            assert_eq!(java_random_int(saat), wert, "Random fuer {pos:?}");
+        }
+    }
+
+    /// `Math.abs(int) % total` und das Abzaehlen der Gewichte, wie
+    /// `WeightedRandom.getWeightedItem`.
+    #[test]
+    fn gewichtete_wahl_wie_in_java() {
+        let family = |weights: &[u32]| Family {
+            alternatives: weights
+                .iter()
+                .enumerate()
+                .map(|(i, &w)| (w, Some(SpriteId(i as u32))))
+                .collect(),
+            total: weights.iter().sum(),
+            fluid: None,
+        };
+        let vier = family(&[1, 1, 1, 1]);
+        let drei = family(&[1, 1, 1]);
+        // pick4 und pick3 aus demselben Java-Lauf
+        let erwartet = [(0, 2), (1, 1), (1, 2), (0, 2), (2, 2), (0, 0), (0, 0)];
+        for ((pos, _, _), (p4, p3)) in JAVA.into_iter().zip(erwartet) {
+            assert_eq!(vier.pick(pos), Some(SpriteId(p4)), "vier bei {pos:?}");
+            assert_eq!(drei.pick(pos), Some(SpriteId(p3)), "drei bei {pos:?}");
+        }
+        // Gewichte zaehlen: bei [1, 3] faellt n = 0 auf die erste und
+        // n = 1..3 auf die zweite Alternative — derselbe Rest wie bei vier
+        // gleich schweren.
+        let schwer = family(&[1, 3]);
+        for ((pos, _, _), (p4, _)) in JAVA.into_iter().zip(erwartet) {
+            let soll = if p4 == 0 { 0 } else { 1 };
+            assert_eq!(schwer.pick(pos), Some(SpriteId(soll)), "schwer bei {pos:?}");
+        }
+    }
     use std::path::PathBuf;
 
     fn assets() -> Assets {
@@ -461,7 +669,9 @@ mod tests {
         let mut assets = assets();
         let states = [state("einfarbig"), state("einfarbig"), state("stone")];
         let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
-        assert_eq!(set.len(), 2);
+        assert_eq!(set.by_state.len(), 2, "einfarbig nur einmal");
+        // stone liegt in der Fixture in zwei Alternativen vor
+        assert_eq!(set.len(), 3);
     }
 
     #[test]

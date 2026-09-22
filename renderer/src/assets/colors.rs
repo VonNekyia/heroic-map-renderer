@@ -133,34 +133,50 @@ impl Colors {
         }
     }
 
-    /// Liest `<dir>/<namespace>/worldgen/biome/*.json` — das `data/` aus dem
-    /// Client-JAR oder einem Datenpaket.
+    /// Liest `<dir>/<namespace>/worldgen/biome/**/*.json` — das `data/` aus
+    /// dem Client-JAR oder einem Datenpaket. Spätere Aufrufe überschreiben
+    /// Biome gleichen Namens, wie gestapelte Datenpakete.
     pub fn load_biomes(&mut self, dir: &Path) -> Result<usize> {
         let mut count = 0;
         for namespace in std::fs::read_dir(dir)
             .with_context(|| format!("{} lesen", dir.display()))?
             .flatten()
         {
-            let biome_dir = namespace.path().join("worldgen").join("biome");
-            let Ok(files) = std::fs::read_dir(&biome_dir) else {
-                continue;
-            };
-            for file in files.flatten() {
-                let path = file.path();
-                if path.extension().is_none_or(|e| e != "json") {
+            let root = namespace.path().join("worldgen").join("biome");
+            let namespace = namespace.file_name().to_string_lossy().into_owned();
+
+            // Datenpakete legen Biome auch in Unterordner, und der Pfad
+            // gehört zur ID: `terralith:cave/underground_jungle` liegt
+            // unter `biome/cave/underground_jungle.json`.
+            let mut pending = vec![root.clone()];
+            while let Some(current) = pending.pop() {
+                let Ok(entries) = std::fs::read_dir(&current) else {
                     continue;
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        pending.push(path);
+                        continue;
+                    }
+                    if path.extension().is_none_or(|e| e != "json") {
+                        continue;
+                    }
+                    let text = std::fs::read_to_string(&path)
+                        .with_context(|| format!("{} lesen", path.display()))?;
+                    let json: BiomeJson = serde_json::from_str(&text)
+                        .with_context(|| format!("{} ist keine Biomdefinition", path.display()))?;
+                    let id = path
+                        .strip_prefix(&root)
+                        .unwrap_or(&path)
+                        .with_extension("")
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    self.biomes.insert(format!("{namespace}:{id}"), json.into());
+                    count += 1;
                 }
-                let text = std::fs::read_to_string(&path)
-                    .with_context(|| format!("{} lesen", path.display()))?;
-                let json: BiomeJson = serde_json::from_str(&text)
-                    .with_context(|| format!("{} ist keine Biomdefinition", path.display()))?;
-                let name = format!(
-                    "{}:{}",
-                    namespace.file_name().to_string_lossy(),
-                    path.file_stem().unwrap_or_default().to_string_lossy()
-                );
-                self.biomes.insert(name, json.into());
-                count += 1;
             }
         }
         if count == 0 {
@@ -238,13 +254,17 @@ fn lookup(map: &RgbaImage, temperature: f32, downfall: f32) -> Tint {
     [p[0], p[1], p[2]]
 }
 
-/// `GrassColorModifier.DARK_FOREST`: `(color & 0xFEFEFE) + 0x28340A >> 1`,
-/// je Kanal gerechnet.
+/// `GrassColorModifier.DARK_FOREST`: `(color & 0xFEFEFE) + 0x28340A >> 1`.
+///
+/// Je Kanal gerechnet, und das ist dasselbe wie Minecrafts Rechnung im
+/// gepackten Wert: die Maske macht jede Kanalsumme gerade, also wandert
+/// beim Halbieren kein Bit über eine Kanalgrenze. Die Summe darf über 255
+/// liegen — erst nach dem Halbieren passt sie wieder in ein Byte.
 fn dark_forest(tint: Tint) -> Tint {
     let add = [0x28u16, 0x34, 0x0A];
     let mut out = [0u8; 3];
     for c in 0..3 {
-        out[c] = (((tint[c] & 0xFE) as u16 + add[c]).min(255) >> 1) as u8;
+        out[c] = (((tint[c] & 0xFE) as u16 + add[c]) >> 1) as u8;
     }
     out
 }
@@ -336,6 +356,14 @@ mod tests {
     fn dunkelwald_mischt_ins_braune() {
         // (0x90 + 0x28) / 2, (0xBC + 0x34) / 2, (0x58 + 0x0A) / 2
         assert_eq!(dark_forest([0x91, 0xBD, 0x59]), [0x5C, 0x78, 0x31]);
+    }
+
+    /// Regression: die Summe wurde vor dem Halbieren auf 255 gekappt. Bei
+    /// hellen Grasfarben aus Datenpaketen kam so Grau statt Minecrafts
+    /// `(0xFEFEFE + 0x28340A) >> 1`.
+    #[test]
+    fn dunkelwald_kappt_helle_farben_nicht() {
+        assert_eq!(dark_forest([0xFF, 0xFF, 0xFF]), [147, 153, 132]);
     }
 
     #[test]

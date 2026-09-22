@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
@@ -33,10 +33,11 @@ pub struct Args {
     #[arg(long = "assets", value_name = "DIR")]
     assets: Vec<PathBuf>,
 
-    /// Datenwurzel mit den Biomdefinitionen unter minecraft/worldgen/biome,
-    /// für die Färbung von Gras, Laub und Wasser
-    #[arg(long, value_name = "DIR")]
-    data: Option<PathBuf>,
+    /// Datenwurzel mit Biomdefinitionen unter <namespace>/worldgen/biome,
+    /// für die Färbung von Gras, Laub und Wasser; mehrfach angebbar,
+    /// spätere überschreiben frühere
+    #[arg(long = "data", value_name = "DIR")]
+    data: Vec<PathBuf>,
 
     /// Blockstate an dieser Weltkoordinate ausgeben: --at X Y Z
     #[arg(long, num_args = 3, allow_negative_numbers = true, value_names = ["X", "Y", "Z"])]
@@ -109,7 +110,7 @@ pub fn run() -> Result<()> {
                 assets.block_names()?.len(),
                 assets.colors().maps()
             );
-            if let Some(dir) = &args.data {
+            for dir in &args.data {
                 let biomes = assets.load_biomes(dir)?;
                 println!("            {biomes} Biome aus {}", dir.display());
             }
@@ -287,17 +288,20 @@ fn render_world(
     let started = Instant::now();
     let chunks = chunks_for(projection, rect, Y_RANGE);
     let mut states = BTreeSet::new();
+    let mut biomes = BTreeSet::new();
     let mut vorhanden = 0u32;
     for &(cx, cz) in &chunks {
         if let Some(chunk) = world.chunk(cx, cz)? {
             vorhanden += 1;
             for section in chunk.sections() {
                 states.extend(section.blocks().palette().iter().cloned());
+                biomes.extend(section.biomes().palette().iter().cloned());
             }
         }
     }
 
     let sprites = SpriteSet::build(assets, &states, projection)?;
+    warn_unknown_biomes(assets, &biomes);
     println!(
         "\nRender:     {} Chunks im Ausschnitt, {vorhanden} generiert, {} Blockstates, {} Sprites",
         chunks.len(),
@@ -401,6 +405,33 @@ fn window(projection: Projection, center: (i32, i32), size: u32) -> ScreenRect {
 
 /// Schreibt die Welt als WebP-Kacheln.
 ///
+/// Biome der Welt, für die keine Definition geladen ist. Sie bekommen die
+/// Farben von `plains` — das soll niemand erst auf der Karte bemerken.
+fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
+    let known: HashSet<&str> = assets.colors().biomes().collect();
+    let unknown: Vec<&str> = biomes
+        .iter()
+        .map(String::as_str)
+        .filter(|biome| !known.contains(biome))
+        .collect();
+    if unknown.is_empty() {
+        return;
+    }
+    let mut liste = unknown
+        .iter()
+        .take(8)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if unknown.len() > 8 {
+        liste.push_str(", …");
+    }
+    println!(
+        "            {} Biome ohne Definition, gefärbt wie plains: {liste}",
+        unknown.len()
+    );
+}
+
 /// Zwei Durchläufe: der Vorlauf liest jeden Chunk einmal und sagt, welche
 /// Blockstates vorkommen und welche Kacheln überhaupt etwas zeigen. Erst
 /// danach steht die Sprite-Tabelle, und erst danach kann parallel gerendert
@@ -427,11 +458,12 @@ fn write_tiles(
 
     let sprites = SpriteSet::build(assets, &survey.states, projection)?;
     println!(
-        "            {} Sprites bei scale {}, davon {} Biomfassungen",
+        "            {} Sprites bei scale {}, davon {} Fassungen",
         sprites.len(),
         projection.scale(),
         sprites.variants()
     );
+    warn_unknown_biomes(assets, &survey.biomes);
     if !sprites.foreign_cells().is_empty() {
         println!(
             "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",

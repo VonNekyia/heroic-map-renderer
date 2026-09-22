@@ -78,6 +78,10 @@ impl Section {
         &self.blocks
     }
 
+    pub fn biomes(&self) -> &Paletted<String> {
+        &self.biomes
+    }
+
     /// True, wenn die Section komplett aus Luft besteht — der billigste
     /// Filter, den der Renderer hat.
     pub fn is_empty(&self) -> bool {

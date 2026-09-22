@@ -234,6 +234,7 @@ fn unsinnig_grosse_modelle_werden_uebersprungen() {
             tint_index: None,
             shade: true,
             force_translucent: false,
+            fluid: None,
         }],
     };
     assert!(

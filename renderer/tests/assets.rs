@@ -423,7 +423,7 @@ fn farben_ohne_biomdaten() {
 #[test]
 fn biome_aus_den_daten() {
     let mut assets = base();
-    assert_eq!(assets.load_biomes(&fixture("data-base")).unwrap(), 4);
+    assert_eq!(assets.load_biomes(&fixture("data-base")).unwrap(), 5);
     let colors = assets.colors();
     assert_eq!(
         colors.biomes().collect::<Vec<_>>(),
@@ -431,8 +431,22 @@ fn biome_aus_den_daten() {
             "minecraft:frozen",
             "minecraft:plains",
             "minecraft:swamp",
-            "terranova:heide"
+            "terranova:heide",
+            "terranova:hoehle/pilzwald"
         ]
+    );
+    // Datenpakete legen Biome in Unterordner; der Pfad gehört zur ID.
+    assert_eq!(
+        colors
+            .tints("water", Some("terranova:hoehle/pilzwald"))
+            .water,
+        Some([0x44, 0x55, 0x66])
+    );
+    assert_eq!(
+        colors
+            .tints("oak_leaves", Some("terranova:hoehle/pilzwald"))
+            .block,
+        Some([0x00, 0xFF, 0x00])
     );
 
     // Colormap nach Klima

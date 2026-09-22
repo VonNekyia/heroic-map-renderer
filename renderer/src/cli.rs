@@ -10,7 +10,7 @@ use clap::Parser;
 
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
-use terranova_render::assets::{Assets, bake};
+use terranova_render::assets::{Assets, model_of};
 use terranova_render::render::pyramid;
 use terranova_render::render::{
     MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for, corner_tiles,
@@ -32,6 +32,11 @@ pub struct Args {
     /// Asset-Wurzel; mehrfach angebbar, spätere überschreiben frühere
     #[arg(long = "assets", value_name = "DIR")]
     assets: Vec<PathBuf>,
+
+    /// Datenwurzel mit den Biomdefinitionen unter minecraft/worldgen/biome,
+    /// für die Färbung von Gras, Laub und Wasser
+    #[arg(long, value_name = "DIR")]
+    data: Option<PathBuf>,
 
     /// Blockstate an dieser Weltkoordinate ausgeben: --at X Y Z
     #[arg(long, num_args = 3, allow_negative_numbers = true, value_names = ["X", "Y", "Z"])]
@@ -94,15 +99,20 @@ pub fn run() -> Result<()> {
     let mut assets = match args.assets.as_slice() {
         [] => None,
         roots => {
-            let assets = Assets::open(roots.to_vec())?;
+            let mut assets = Assets::open(roots.to_vec())?;
             println!("Assets:     {} Wurzeln", roots.len());
             for root in roots {
                 println!("            {}", root.display());
             }
             println!(
-                "            {} Blockstate-Dateien",
-                assets.block_names()?.len()
+                "            {} Blockstate-Dateien, {} Colormaps",
+                assets.block_names()?.len(),
+                assets.colors().maps()
             );
+            if let Some(dir) = &args.data {
+                let biomes = assets.load_biomes(dir)?;
+                println!("            {biomes} Biome aus {}", dir.display());
+            }
             Some(assets)
         }
     };
@@ -331,11 +341,15 @@ fn bake_all(assets: &mut Assets, states: &BTreeSet<BlockState>, projection: Proj
     let mut unsichtbar: BTreeSet<&str> = BTreeSet::new();
 
     for state in states {
-        let Ok(variants) = assets.variants(state) else {
+        let Ok(model) = model_of(assets, state) else {
             continue;
         };
-        let model = bake(&variants);
-        let Some(sprite) = render(&model, assets.textures(), &projection) else {
+        let Some(sprite) = render(
+            &model,
+            assets.textures(),
+            &projection,
+            assets.colors().tints(state.name(), None),
+        ) else {
             // Alle Flächen zeigen von der Kamera weg — aus dieser Richtung
             // ist der Block schlicht nicht zu sehen.
             if !model.is_empty() {
@@ -413,9 +427,10 @@ fn write_tiles(
 
     let sprites = SpriteSet::build(assets, &survey.states, projection)?;
     println!(
-        "            {} Sprites bei scale {}",
+        "            {} Sprites bei scale {}, davon {} Biomfassungen",
         sprites.len(),
-        projection.scale()
+        projection.scale(),
+        sprites.variants()
     );
     if !sprites.foreign_cells().is_empty() {
         println!(
@@ -641,8 +656,13 @@ fn write_sprites(
     let mut sheet = karomuster(columns * cell, rows * cell);
 
     for (i, state) in states.iter().enumerate() {
-        let variants = assets.variants(state)?;
-        let Some(sprite) = render(&bake(&variants), assets.textures(), &projection) else {
+        let model = model_of(assets, state)?;
+        let Some(sprite) = render(
+            &model,
+            assets.textures(),
+            &projection,
+            assets.colors().tints(state.name(), None),
+        ) else {
             continue;
         };
 

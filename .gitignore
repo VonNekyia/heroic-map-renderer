@@ -5,6 +5,7 @@ target/
 /world/
 /assets/
 /vanilla-assets/
+/vanilla-data/
 
 # Renderausgabe
 /dist/

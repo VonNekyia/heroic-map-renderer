@@ -395,3 +395,73 @@ fn hohe_modelle_werden_nicht_uebermalt() {
     // Gegenprobe: der Nachbar ist überhaupt zu sehen.
     assert_ne!(a.as_raw(), b.as_raw());
 }
+
+/// Derselbe Grasblock in zwei Biomen: die Farbe kommt aus dem Biom, nicht
+/// aus der Blockstate.
+#[test]
+fn biome_faerben_denselben_block_verschieden() {
+    let dir = tempdir();
+    let chunks = [(0, 0), (1, 0)];
+    common::write_world_in(
+        dir.path(),
+        &chunks,
+        |_, y, _| {
+            if y == 0 {
+                "minecraft:grass_block"
+            } else {
+                "minecraft:air"
+            }
+        },
+        |cx, _| {
+            Some(if cx == 0 {
+                "minecraft:plains"
+            } else {
+                "minecraft:frozen"
+            })
+        },
+    );
+    let world = World::open(dir.path()).unwrap();
+
+    let mut assets = assets();
+    assets
+        .load_biomes(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base"))
+        .unwrap();
+    let states = [BlockState::parse("minecraft:grass_block").unwrap()];
+    let projection = Projection::new(16);
+    let sprites = SpriteSet::build(&mut assets, &states, projection).unwrap();
+    // plains ist das Standardklima und teilt sich das Sprite mit der
+    // Grundfassung; swamp, frozen und terranova:heide bekommen eigene.
+    assert_eq!(sprites.variants(), 3);
+
+    let rect = ScreenRect {
+        x: -16,
+        y: 40,
+        width: 192,
+        height: 112,
+    };
+    let bild = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+
+    // Mitte der Oberseite eines Blocks auf y=0, unbeschattet.
+    let oben = |x: i32, z: i32| {
+        let (sx, sy) = projection.project_block([x, 1, z]);
+        let sx = sx + projection.scale() as f64 * 0.0 - rect.x as f64;
+        let sy = sy + projection.scale() as f64 / 4.0 - rect.y as f64;
+        bild.get_pixel(sx.round() as u32, sy.round() as u32).0
+    };
+    // Die Textur ist (150, 110, 60); die Färbung multipliziert je Kanal.
+    let erwartet = |tint: [u32; 3]| {
+        let mut p = [0u8; 4];
+        for c in 0..3 {
+            p[c] = ((([150u32, 110, 60][c] * tint[c]) as f32 / 255.0).round()) as u8;
+        }
+        p[3] = 255;
+        p
+    };
+    // plains: Colormap-Pixel (50, 173, 0); frozen: grass_color #123456
+    assert_eq!(oben(8, 8), erwartet([50, 173, 0]), "Chunk 0 ist plains");
+    assert_eq!(
+        oben(24, 8),
+        erwartet([0x12, 0x34, 0x56]),
+        "Chunk 1 ist frozen"
+    );
+}

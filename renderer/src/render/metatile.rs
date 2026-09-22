@@ -5,6 +5,7 @@ use image::{Rgba, RgbaImage};
 
 use crate::world::{Chunk, REGION, Region, World};
 
+use super::rasterizer::over;
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
@@ -255,25 +256,6 @@ fn blit(
     }
 }
 
-fn over(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
-    if src[3] == 255 {
-        return src;
-    }
-    let sa = src[3] as f32 / 255.0;
-    let da = dst[3] as f32 / 255.0;
-    let out_a = sa + da * (1.0 - sa);
-    if out_a <= 0.0 {
-        return [0, 0, 0, 0];
-    }
-    let mut out = [0u8; 4];
-    for c in 0..3 {
-        let value = (src[c] as f32 * sa + dst[c] as f32 * da * (1.0 - sa)) / out_a;
-        out[c] = value.round().clamp(0.0, 255.0) as u8;
-    }
-    out[3] = (out_a * 255.0).round() as u8;
-    out
-}
-
 /// Chunks, die während eines Renderlaufs gebraucht werden.
 ///
 /// Jeder Worker bekommt später seinen eigenen Cache; geteilt würde er eine
@@ -329,7 +311,12 @@ impl<'a> ChunkCache<'a> {
         let Some(chunk) = self.chunks[&key].as_ref() else {
             return Ok(None);
         };
-        Ok(chunk.block_at(x, y, z).and_then(|block| sprites.id(block)))
+        let Some(id) = chunk.block_at(x, y, z).and_then(|block| sprites.id(block)) else {
+            return Ok(None);
+        };
+        // Das Biom kostet einen zweiten Nachschlag; `in_biome` fragt nur
+        // fuer Sprites danach, die ueberhaupt Fassungen haben.
+        Ok(Some(sprites.in_biome(id, || chunk.biome_at(x, y, z))))
     }
 }
 

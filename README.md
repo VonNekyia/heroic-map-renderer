@@ -12,11 +12,15 @@ Der Browser rendert keine Minecraft-Geometrie, sondern nur fertige Rasterkacheln
 
 ## Stand
 
-Schritt 7 von 8: **Frontend**. Die Karte läuft im Browser — Vite,
-TypeScript, Leaflet, sonst nichts. Offen bleiben Wasser, Biomfärbung und
-die Modelldetails aus Schritt 8.
+Schritt 8 von 8: **Modelle und Transparenz im Detail**. Wasser und Lava
+werden gezeichnet, Gras, Laub und Wasser bekommen die Farbe ihres Bioms,
+`uvlock` hält Texturen an der Welt fest, und durchsichtige Flächen mischen
+sich im Sprite statt zu überschreiben.
 
-![Frontend](docs/frontend.png)
+![Karte](docs/map.png)
+
+900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 2,6 s einkernig —
+dieselbe Stelle wie in Schritt 4, jetzt mit Wasser und Biomfarben.
 
 | Schritt | Inhalt | Status |
 |---------|--------|--------|
@@ -27,7 +31,7 @@ die Modelldetails aus Schritt 8.
 | 5 | Rayon-Parallelisierung, Tiles, WebP | **fertig** |
 | 6 | Zoom-Pyramide und `map.json` | **fertig** |
 | 7 | Frontend (Vite, TypeScript, Leaflet) | **fertig** |
-| 8 | Modelle und Transparenz im Detail | offen |
+| 8 | Modelle und Transparenz im Detail | **fertig** |
 
 ## Assets besorgen
 
@@ -47,6 +51,23 @@ Danach wird der Baum gestapelt übergeben, spätere Wurzeln gewinnen:
 ```bash
 --assets ./vanilla-assets --assets ./assets
 ```
+
+Für die Färbung von Gras, Laub und Wasser braucht der Renderer ausserdem
+die Biomdefinitionen. Sie liegen im selben JAR unter `data/`, nicht unter
+`assets/`:
+
+```powershell
+New-Item -ItemType Directory -Force vanilla-data\minecraft\worldgen | Out-Null; Move-Item "$env:TEMP\mc\data\minecraft\worldgen\biome" vanilla-data\minecraft\worldgen\biome
+```
+
+```bash
+--data ./vanilla-data
+```
+
+66 Dateien, 352 kB. Ohne `--data` bekommt jeder Block die Farben von
+`plains`; Ozeane und Wälder sehen dann überall gleich aus, aber nicht
+falsch. Ein Datenpaket mit eigenen Biomen geht genauso: `--data` erwartet
+`<DIR>/<namespace>/worldgen/biome/*.json`.
 
 ## Benutzung
 
@@ -101,7 +122,7 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --assets ./vanilla-as
 Einen Weltausschnitt rendern:
 
 ```bash
-cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --render docs/map.png --center -64 416 --size 900 --scale 16
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --render docs/map.png --center -64 416 --size 900 --scale 16
 ```
 
 ```
@@ -118,7 +139,7 @@ Sechzehnfache an Chunks.
 ### Die ganze Welt als Kacheln
 
 ```bash
-cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --tiles ./tiles --scale 16
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles ./tiles --scale 16
 ```
 
 ```
@@ -242,17 +263,38 @@ Kachelrändern sähe man die Artefakte im Raster. Gegenüber PNG spart
 verlustfreies WebP auf diesem Inhalt 20 bis 40 Prozent — dieselbe Kachel wiegt
 als PNG 173 kB und als WebP 108 kB.
 
-### Wasser fehlt
+### Wasser und Biomfarben
 
-Flüssigkeiten haben kein Blockmodell — Minecraft zeichnet sie über einen
-eigenen Pfad. Der Renderer überspringt sie deshalb, und Ozeane erscheinen als
-nackter Meeresboden. In einer Nahaufnahme fällt das kaum auf, über der ganzen
-Welt sehr:
+Flüssigkeiten haben kein Blockmodell — Minecraft baut ihre Geometrie im
+Code. Der Renderer tut dasselbe: `water`, `lava`, `bubble_column`, Seegras
+und Kelp sowie jede Blockstate mit `waterlogged=true` bekommen einen Würfel
+mit der Flüssigkeitstextur, fliessendes Wasser (`level` 1 bis 7) einen
+flacheren. Quellen und fallendes Wasser füllen den Block ganz; Minecraft
+lässt sie einen Pixel tiefer enden, doch ohne Nachbarschaftswissen bekäme
+sonst jede Schicht eines Ozeans eine Fuge.
 
 ![Übersicht](docs/map-wide.png)
 
-Die grauen Flächen sind Ozean, das Blau oben rechts ist Eis — Eis ist ein
-gewöhnlicher Block und wird gezeichnet. Wasser steht in Schritt 8.
+Die Wassertextur ist grau und durchscheinend. Ihre Farbe kommt aus
+`water_color` des Bioms, und weil jede Schicht die darunter durchscheinen
+lässt, wird ein Ozean mit der Tiefe dunkler, während man in Ufernähe den
+Grund sieht. Gras und Laub funktionieren genauso: die Textur ist grau, das
+Biom liefert Temperatur und Niederschlag, und die Colormaps
+`grass.png` und `foliage.png` aus den Assets machen daraus die Farbe.
+Fichten, Birken und Seerosen haben feste Farben, der Sumpf seinen eigenen
+Grünton, der Dunkelwald eine Abdunkelung — alles wie in `BlockColors`, nur
+beschränkt auf das, was auf einer Karte Fläche macht. Redstone, Ranken und
+Kürbisstiele bleiben ungefärbt.
+
+Welche Blöcke gefärbt werden, steht nicht in den Assets. Minecraft
+verdrahtet das im Code, und der Renderer tut es in
+`renderer/src/assets/colors.rs` — eine Tabelle mit rund zwanzig Einträgen.
+
+Durchsichtige Flächen mischen sich seit diesem Schritt auch innerhalb
+eines Sprites: die Flächen werden von hinten nach vorne gezeichnet, und
+ein durchscheinendes Texel legt sich über das, was schon da ist. Vorher
+gewann der Tiefenpuffer, und ein gefluteter Zaun war ein Wasserwürfel ohne
+Zaun.
 
 Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, jede
 vorkommende Blockstate auflöst und sie rastert:
@@ -279,7 +321,7 @@ Flüssigkeit — beides kennt V1 noch nicht.
 ## Frontend
 
 ```bash
-cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --tiles web/public/tiles --scale 16
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles web/public/tiles --scale 16
 cd web && npm install && npm run dev
 ```
 
@@ -316,8 +358,9 @@ bekommt fertige Bilder und ein Koordinatensystem.
 
 ## Eingabedaten
 
-`world/`, `assets/` und `vanilla-assets/` sind in `.gitignore` — die Testwelt
-allein ist 2,4 GB. Sie werden dem Renderer über CLI-Argumente übergeben.
+`world/`, `assets/`, `vanilla-assets/` und `vanilla-data/` sind in
+`.gitignore` — die Testwelt allein ist 2,4 GB. Sie werden dem Renderer über
+CLI-Argumente übergeben.
 
 ## Entwicklung
 

@@ -4,7 +4,7 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::baker::BakedModel;
-use crate::assets::{Assets, bake};
+use crate::assets::{Assets, Tints, fluid, model_of};
 use crate::world::BlockState;
 
 use super::{Projection, Sprite, render};
@@ -32,6 +32,10 @@ const MAX_CELLS: usize = 64;
 pub struct SpriteSet {
     sprites: Vec<Entry>,
     by_state: HashMap<BlockState, SpriteId>,
+    /// Fassungen je Biom, nur fuer Sprites mit gefaerbten Flaechen. Die
+    /// Blockstate fuehrt zur Fassung des Standardklimas, von dort geht es
+    /// ueber den Biomnamen weiter.
+    by_biome: HashMap<SpriteId, HashMap<String, SpriteId>>,
     projection: Projection,
     foreign: BTreeSet<Cell>,
 }
@@ -62,6 +66,7 @@ impl SpriteSet {
         let mut set = SpriteSet {
             sprites: Vec::new(),
             by_state: HashMap::new(),
+            by_biome: HashMap::new(),
             projection,
             foreign: BTreeSet::new(),
         };
@@ -70,41 +75,107 @@ impl SpriteSet {
             if state.is_air() || set.by_state.contains_key(state) {
                 continue;
             }
-            let variants = assets.variants(state)?;
-            let model = bake(&variants);
-            let Some(sprite) = render(&model, assets.textures(), &projection) else {
-                continue;
+            let model = model_of(assets, state)?;
+
+            // Welche Faerbungen das Modell ueberhaupt traegt. Nur die
+            // unterscheiden Fassungen — sonst bekaeme jeder Grasblock eine
+            // Fassung je Wasserfarbe.
+            let uses = model
+                .quads
+                .iter()
+                .fold((false, false), |(block, water), q| match q.tint_index {
+                    None => (block, water),
+                    Some(fluid::TINT_INDEX) => (block, true),
+                    Some(_) => (true, water),
+                });
+            let tints = |biome: Option<&str>| {
+                let t = assets.colors().tints(state.name(), biome);
+                Tints {
+                    block: t.block.filter(|_| uses.0),
+                    water: t.water.filter(|_| uses.1),
+                }
             };
 
-            let parts = split(sprite, &model, projection);
-            let opaque = parts
-                .iter()
-                .find(|(cell, _)| *cell == OWN_CELL)
-                .is_some_and(|(_, sprite)| covers_cell(sprite, projection));
-            let contained = parts
-                .iter()
-                .all(|(cell, sprite)| fits_cell(sprite, *cell, projection));
+            let default = tints(None);
+            let Some(sprite) = render(&model, assets.textures(), &projection, default) else {
+                continue;
+            };
+            let id = set.insert(sprite, &model);
+            set.by_state.insert(state.clone(), id);
 
-            set.foreign.extend(
-                parts
-                    .iter()
-                    .map(|(cell, _)| *cell)
-                    .filter(|cell| *cell != OWN_CELL),
-            );
-            set.by_state
-                .insert(state.clone(), SpriteId(set.sprites.len() as u32));
-            set.sprites.push(Entry {
-                parts,
-                opaque,
-                contained,
-            });
+            if default == Tints::default() {
+                continue;
+            }
+            // Eine Fassung je Biom; gleiche Farben teilen sich das Sprite.
+            let mut by_tints = HashMap::from([(default, id)]);
+            let mut by_biome = HashMap::new();
+            for biome in assets.colors().biomes() {
+                let tints = tints(Some(biome));
+                let variant = match by_tints.get(&tints) {
+                    Some(&variant) => variant,
+                    None => {
+                        let sprite = render(&model, assets.textures(), &projection, tints)
+                            .expect("dasselbe Modell, nur anders gefaerbt");
+                        let variant = set.insert(sprite, &model);
+                        by_tints.insert(tints, variant);
+                        variant
+                    }
+                };
+                by_biome.insert(biome.to_string(), variant);
+            }
+            set.by_biome.insert(id, by_biome);
         }
 
         Ok(set)
     }
 
+    /// Zerlegt ein Sprite in seine Wuerfel und nimmt es in die Tabelle auf.
+    fn insert(&mut self, sprite: Sprite, model: &BakedModel) -> SpriteId {
+        let parts = split(sprite, model, self.projection);
+        let opaque = parts
+            .iter()
+            .find(|(cell, _)| *cell == OWN_CELL)
+            .is_some_and(|(_, sprite)| covers_cell(sprite, self.projection));
+        let contained = parts
+            .iter()
+            .all(|(cell, sprite)| fits_cell(sprite, *cell, self.projection));
+
+        self.foreign.extend(
+            parts
+                .iter()
+                .map(|(cell, _)| *cell)
+                .filter(|cell| *cell != OWN_CELL),
+        );
+        self.sprites.push(Entry {
+            parts,
+            opaque,
+            contained,
+        });
+        SpriteId(self.sprites.len() as u32 - 1)
+    }
+
     pub fn id(&self, state: &BlockState) -> Option<SpriteId> {
         self.by_state.get(state).copied()
+    }
+
+    /// Die Fassung eines Sprites fuer ein Biom.
+    ///
+    /// `biome` wird nur befragt, wenn das Sprite Fassungen hat — fuer die
+    /// allermeisten Bloecke kostet der Aufruf damit nur einen Nachschlag.
+    /// Ein unbekanntes Biom bekommt die Fassung des Standardklimas.
+    pub fn in_biome<'b>(&self, id: SpriteId, biome: impl FnOnce() -> Option<&'b str>) -> SpriteId {
+        match self.by_biome.get(&id) {
+            Some(variants) => biome()
+                .and_then(|name| variants.get(name))
+                .copied()
+                .unwrap_or(id),
+            None => id,
+        }
+    }
+
+    /// Wie viele Sprites Biomfassungen anderer Sprites sind.
+    pub fn variants(&self) -> usize {
+        self.sprites.len() - self.by_state.len()
     }
 
     /// Der Teil dieses Sprites, der in `cell` liegt.
@@ -499,9 +570,8 @@ mod tests {
         let projection = Projection::new(16);
         for name in ["turm", "ueberhang", "einfarbig", "seerose", "oak_fence"] {
             let mut assets = assets();
-            let variants = assets.variants(&state(name)).unwrap();
-            let model = bake(&variants);
-            let ganz = render(&model, assets.textures(), &projection).unwrap();
+            let model = model_of(&mut assets, &state(name)).unwrap();
+            let ganz = render(&model, assets.textures(), &projection, Tints::default()).unwrap();
 
             let sichtbar = |sprite: &Sprite| {
                 let offset = sprite.offset;

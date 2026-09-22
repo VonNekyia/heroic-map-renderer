@@ -389,3 +389,101 @@ fn mcmeta_ohne_animation_schneidet_nicht_zu() {
         .texture;
     assert_eq!(assets.textures().image(texture).dimensions(), (16, 32));
 }
+
+/// Ohne Biomdaten gilt das Klima von `plains`; die Colormaps kommen aus den
+/// Assets, hier eine Fixture mit `(x, y, 0)` je Pixel.
+#[test]
+fn farben_ohne_biomdaten() {
+    let assets = base();
+    let colors = assets.colors();
+    assert_eq!(colors.maps(), 2, "grass und foliage, kein dry_foliage");
+    assert_eq!(colors.biomes().count(), 0);
+
+    // plains-Klima in der Colormap: x = (1 - 0.8) * 255, y = (1 - 0.4 * 0.8) * 255
+    assert_eq!(
+        colors.tints("minecraft:grass_block", None).block,
+        Some([50, 173, 0])
+    );
+    assert_eq!(
+        colors.tints("minecraft:oak_leaves", None).block,
+        Some([30, 160, 40])
+    );
+    // dry_foliage fehlt als Colormap: fester Ersatzwert
+    assert_eq!(
+        colors.tints("minecraft:leaf_litter", None).block,
+        Some([0xA3, 0x75, 0x46])
+    );
+    assert_eq!(colors.tints("minecraft:stone", None).block, None);
+    assert_eq!(
+        colors.tints("minecraft:stone", None).water,
+        Some([0x3F, 0x76, 0xE4])
+    );
+}
+
+#[test]
+fn biome_aus_den_daten() {
+    let mut assets = base();
+    assert_eq!(assets.load_biomes(&fixture("data-base")).unwrap(), 4);
+    let colors = assets.colors();
+    assert_eq!(
+        colors.biomes().collect::<Vec<_>>(),
+        [
+            "minecraft:frozen",
+            "minecraft:plains",
+            "minecraft:swamp",
+            "terranova:heide"
+        ]
+    );
+
+    // Colormap nach Klima
+    assert_eq!(
+        colors.tints("grass_block", Some("minecraft:plains")).block,
+        Some([50, 173, 0])
+    );
+    // heide: 0.5 / 0.5 -> x = 127, y = (1 - 0.25) * 255 = 191
+    assert_eq!(
+        colors.tints("fern", Some("terranova:heide")).block,
+        Some([127, 191, 0])
+    );
+    // Sumpf: fester Grasmodifikator, Laubfarbe als Zahl, Wasser als Zahl
+    assert_eq!(
+        colors.tints("grass_block", Some("minecraft:swamp")).block,
+        Some([0x6A, 0x70, 0x39])
+    );
+    assert_eq!(
+        colors.tints("oak_leaves", Some("minecraft:swamp")).block,
+        Some([0x6A, 0x70, 0x39])
+    );
+    assert_eq!(
+        colors.tints("water", Some("minecraft:swamp")).water,
+        Some([0x61, 0x7B, 0x64])
+    );
+    // Grasfarbe als Hex-String, anderer Namensraum
+    assert_eq!(
+        colors.tints("fern", Some("minecraft:frozen")).block,
+        Some([0x12, 0x34, 0x56])
+    );
+    assert_eq!(
+        colors.tints("kelp", Some("terranova:heide")).water,
+        Some([0x11, 0x22, 0x33])
+    );
+    // Feste Farben bleiben fest
+    assert_eq!(
+        colors.tints("birch_leaves", Some("minecraft:swamp")).block,
+        Some([0x80, 0xA7, 0x55])
+    );
+    // Unbekanntes Biom: Standardklima
+    assert_eq!(
+        colors.tints("grass_block", Some("minecraft:nirgends")),
+        colors.tints("grass_block", None)
+    );
+}
+
+#[test]
+fn fehlende_biomdaten_sind_ein_fehler() {
+    let mut assets = base();
+    assert!(assets.load_biomes(&fixture("gibt-es-nicht")).is_err());
+    // existiert, enthält aber keine worldgen/biome-Verzeichnisse
+    assert!(assets.load_biomes(&fixture("assets-base")).is_err());
+    assert_eq!(assets.colors().biomes().count(), 0);
+}

@@ -35,6 +35,14 @@ pub struct SectionNbt {
     #[serde(rename = "Y")]
     pub y: i8,
     pub block_states: BlockStatesNbt,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub biomes: Option<BiomesNbt>,
+}
+
+/// Biome einer Section: ein Wert für alle 64 Zellen, deshalb ohne `data`.
+#[derive(Serialize)]
+pub struct BiomesNbt {
+    pub palette: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -92,6 +100,17 @@ pub fn write_world(
     chunks: &[(i32, i32)],
     block: impl Fn(i32, i32, i32) -> &'static str,
 ) -> PathBuf {
+    write_world_in(dir, chunks, block, |_, _| None)
+}
+
+/// Wie `write_world`, dazu ein Biom je Chunk — oder keines, dann fehlt der
+/// Eintrag wie in Welten vor 1.18.
+pub fn write_world_in(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    biome: impl Fn(i32, i32) -> Option<&'static str>,
+) -> PathBuf {
     let region_dir = dir.join("region");
     std::fs::create_dir_all(&region_dir).expect("region-Verzeichnis");
 
@@ -106,7 +125,7 @@ pub fn write_world(
             "Chunk ({cx}, {cz}) liegt nicht in Region ({rx}, {rz})"
         );
 
-        let payload = chunk_nbt(cx, cz, vec![section(cx, cz, &block)]);
+        let payload = chunk_nbt(cx, cz, vec![section(cx, cz, &block, biome(cx, cz))]);
         let mut record = Vec::new();
         record.extend_from_slice(&(payload.len() as u32 + 1).to_be_bytes());
         record.push(3); // unkomprimiert
@@ -128,7 +147,12 @@ pub fn write_world(
 }
 
 /// Baut die Section Y=0 eines Chunks aus der Blockfunktion.
-fn section(cx: i32, cz: i32, block: &impl Fn(i32, i32, i32) -> &'static str) -> SectionNbt {
+fn section(
+    cx: i32,
+    cz: i32,
+    block: &impl Fn(i32, i32, i32) -> &'static str,
+    biome: Option<&'static str>,
+) -> SectionNbt {
     let mut names: Vec<&'static str> = Vec::new();
     let mut index_of: HashMap<&'static str, usize> = HashMap::new();
     let mut indices = vec![0usize; 4096];
@@ -154,5 +178,8 @@ fn section(cx: i32, cz: i32, block: &impl Fn(i32, i32, i32) -> &'static str) -> 
             palette: palette(&names),
             data: (names.len() > 1).then(|| packed(&indices, bits)),
         },
+        biomes: biome.map(|name| BiomesNbt {
+            palette: vec![name.to_string()],
+        }),
     }
 }

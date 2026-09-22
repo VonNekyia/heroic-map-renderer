@@ -1,7 +1,7 @@
 use image::{Rgba, RgbaImage};
 
-use crate::assets::Textures;
 use crate::assets::baker::{BakedModel, Quad};
+use crate::assets::{Textures, Tints, fluid};
 
 use super::Projection;
 
@@ -24,13 +24,6 @@ const SHADE_BOTTOM: f32 = 0.5;
 const SHADE_NORTH_SOUTH: f32 = 0.8;
 const SHADE_EAST_WEST: f32 = 0.6;
 
-/// Vorläufige Färbung für Flächen mit `tintindex`.
-///
-/// Richtig wäre die Colormap des Bioms. Bis Schritt 8 die liest, sorgt ein
-/// fester Grünton dafür, dass Gras und Laub nicht weiß bleiben.
-// ponytail: fester Wert, ersetzt durch die Biom-Colormap in Schritt 8.
-const PROVISIONAL_TINT: [f32; 3] = [0.56, 0.74, 0.35];
-
 /// Das fertig gerasterte Bild einer Blockstate.
 pub struct Sprite {
     pub image: RgbaImage,
@@ -43,13 +36,35 @@ pub struct Sprite {
 ///
 /// Da die Kamera fest steht, sieht jede Blockstate immer gleich aus. Das
 /// Sprite entsteht deshalb einmal und wird im Renderpfad nur noch kopiert.
-pub fn render(model: &BakedModel, textures: &Textures, projection: &Projection) -> Option<Sprite> {
-    let projected: Vec<ProjectedQuad> = model
+pub fn render(
+    model: &BakedModel,
+    textures: &Textures,
+    projection: &Projection,
+    tints: Tints,
+) -> Option<Sprite> {
+    let mut projected: Vec<ProjectedQuad> = model
         .quads
         .iter()
         .filter(|quad| faces_camera(quad))
         .map(|quad| ProjectedQuad::new(quad, projection))
         .collect();
+
+    // Von hinten nach vorne, damit durchsichtige Flächen das Richtige
+    // untermischen: Wasser über einem Zaunpfosten, Glas über dem, was
+    // im selben Block dahinter liegt. Für deckende Flächen ist die
+    // Reihenfolge egal, da entscheidet der Tiefenpuffer.
+    //
+    // Sortiert wird nach der hintersten Ecke, nicht nach der Mitte. Eine
+    // Fläche, die eine andere umschliesst — die Wasserhülle um einen
+    // Zaunpfosten —, reicht immer mindestens so weit nach hinten und
+    // kommt damit nach ihr. Nach der Mitte sortiert käme der Pfosten
+    // zuletzt und stünde trocken im Wasser.
+    //
+    // Stabil, damit deckungsgleiche Flächen ihre Modellreihenfolge
+    // behalten: der Grasblock legt sein Overlay so auf den Grundwürfel,
+    // und die Wasseroberfläche liegt genauso auf der Stufe einer
+    // gefluteten Treppe.
+    projected.sort_by(|a, b| a.depth.total_cmp(&b.depth));
 
     let (min_x, min_y, max_x, max_y) = bounds(&projected)?;
     let width = (max_x - min_x).max(1) as u32;
@@ -66,7 +81,7 @@ pub fn render(model: &BakedModel, textures: &Textures, projection: &Projection) 
 
     let mut canvas = Canvas::new(width * SUPERSAMPLE, height * SUPERSAMPLE);
     for quad in &projected {
-        quad.draw(&mut canvas, textures, min_x, min_y);
+        quad.draw(&mut canvas, textures, min_x, min_y, tints);
     }
 
     Some(Sprite {
@@ -100,6 +115,8 @@ struct ProjectedQuad<'a> {
     quad: &'a Quad,
     /// x, y, Tiefe
     screen: [(f32, f32, f32); 4],
+    /// Tiefe der hintersten Ecke, nur zum Sortieren.
+    depth: f32,
     shade: f32,
 }
 
@@ -112,11 +129,12 @@ impl<'a> ProjectedQuad<'a> {
         ProjectedQuad {
             quad,
             screen,
+            depth: screen.iter().map(|&(_, _, d)| d).fold(f32::MIN, f32::max),
             shade: shade_factor(quad),
         }
     }
 
-    fn draw(&self, canvas: &mut Canvas, textures: &Textures, min_x: i32, min_y: i32) {
+    fn draw(&self, canvas: &mut Canvas, textures: &Textures, min_x: i32, min_y: i32, tints: Tints) {
         let texture = textures.image(self.quad.texture);
         let (tw, th) = texture.dimensions();
         if tw == 0 || th == 0 {
@@ -135,7 +153,12 @@ impl<'a> ProjectedQuad<'a> {
             }
         });
 
-        let tint = self.quad.tint_index.map(|_| PROVISIONAL_TINT);
+        let tint = match self.quad.tint_index {
+            None => None,
+            Some(fluid::TINT_INDEX) => tints.water,
+            Some(_) => tints.block,
+        }
+        .map(|tint| tint.map(|c| c as f32 / 255.0));
         for [a, b, c] in [[0, 1, 2], [0, 2, 3]] {
             canvas.triangle(
                 [vertices[a], vertices[b], vertices[c]],
@@ -273,7 +296,9 @@ impl Canvas {
                 }
 
                 self.depth[index] = depth;
-                self.color[index] = shaded(texel, shade, tint);
+                // Durchsichtige Texel mischen sich mit dem, was schon da
+                // steht; die Flächen kommen dafür von hinten nach vorne.
+                self.color[index] = over(shaded(texel, shade, tint), self.color[index]);
             }
         }
     }
@@ -321,6 +346,26 @@ fn shaded(texel: [u8; 4], shade: f32, tint: Option<[f32; 3]>) -> [u8; 4] {
             .clamp(0.0, 255.0) as u8;
     }
     out[3] = texel[3];
+    out
+}
+
+/// Quelle über Ziel, beide mit unvormultipliziertem Alpha.
+pub fn over(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
+    if src[3] == 255 || dst[3] == 0 {
+        return src;
+    }
+    let sa = src[3] as f32 / 255.0;
+    let da = dst[3] as f32 / 255.0;
+    let out_a = sa + da * (1.0 - sa);
+    if out_a <= 0.0 {
+        return [0, 0, 0, 0];
+    }
+    let mut out = [0u8; 4];
+    for c in 0..3 {
+        let value = (src[c] as f32 * sa + dst[c] as f32 * da * (1.0 - sa)) / out_a;
+        out[c] = value.round().clamp(0.0, 255.0) as u8;
+    }
+    out[3] = (out_a * 255.0).round() as u8;
     out
 }
 
@@ -412,7 +457,15 @@ mod tests {
     #[test]
     fn leeres_modell_ergibt_kein_sprite() {
         let leer = BakedModel::default();
-        assert!(render(&leer, &Textures::new(), &Projection::default()).is_none());
+        assert!(
+            render(
+                &leer,
+                &Textures::new(),
+                &Projection::default(),
+                Tints::default()
+            )
+            .is_none()
+        );
     }
 
     /// Ein voller Würfel belegt genau scale mal scale Pixel und sitzt
@@ -455,6 +508,7 @@ mod tests {
             &BakedModel { quads },
             &Textures::new(),
             &Projection::new(16),
+            Tints::default(),
         )
         .expect("Sprite");
         assert_eq!(sprite.image.dimensions(), (16, 16));

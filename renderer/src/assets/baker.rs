@@ -71,6 +71,11 @@ pub fn bake(variants: &[ResolvedVariant]) -> BakedModel {
                 // daran hängt die Helligkeit der Fläche.
                 let ecken = |r: [f32; 4]| [[r[0], r[3]], [r[2], r[3]], [r[2], r[1]], [r[0], r[1]]];
                 let texture_corners = ecken(uv);
+                let texture_corners = if variant.uvlock {
+                    texture_corners.map(|p| lock_uv(*face, p, variant.x, variant.y, variant.z))
+                } else {
+                    texture_corners
+                };
                 let mut corners = ecken(extent).map(|[u, v]| corner(*face, u, v, plane));
 
                 for point in &mut corners {
@@ -102,6 +107,41 @@ pub fn bake(variants: &[ResolvedVariant]) -> BakedModel {
     BakedModel { quads }
 }
 
+/// Die sechs Seiten eines achsenparallelen Kastens.
+///
+/// Flüssigkeiten haben kein Modell-JSON, ihre Geometrie entsteht im Code.
+/// Die Ecken kommen trotzdem aus derselben Zuordnung wie beim Backen, damit
+/// Umlaufsinn, Normale und Texturrichtung zusammenpassen.
+pub fn box_quads(
+    from: [f32; 3],
+    to: [f32; 3],
+    texture: TextureId,
+    tint_index: Option<u32>,
+) -> impl Iterator<Item = Quad> {
+    [
+        Face::Down,
+        Face::Up,
+        Face::North,
+        Face::South,
+        Face::West,
+        Face::East,
+    ]
+    .into_iter()
+    .map(move |face| {
+        let plane = plane_of(face, from, to);
+        let extent = default_uv(face, from, to);
+        let ecken = |r: [f32; 4]| [[r[0], r[3]], [r[2], r[3]], [r[2], r[1]], [r[0], r[1]]];
+        Quad {
+            corners: ecken(extent).map(|[u, v]| corner(face, u, v, plane).map(|a| a / BLOCK)),
+            uvs: ecken(extent).map(|[u, v]| [u / BLOCK, v / BLOCK]),
+            texture,
+            tint_index,
+            shade: true,
+            force_translucent: false,
+        }
+    })
+}
+
 /// Ebene, in der eine Seite liegt.
 fn plane_of(face: Face, from: [f32; 3], to: [f32; 3]) -> f32 {
     match face {
@@ -127,6 +167,65 @@ fn corner(face: Face, u: f32, v: f32, plane: f32) -> [f32; 3] {
         Face::West => [plane, BLOCK - v, u],
         Face::East => [plane, BLOCK - v, BLOCK - u],
     }
+}
+
+/// Texturkoordinate aus einem Punkt auf der Seite — die Umkehrung von
+/// `corner`, die Ebene fällt dabei weg.
+fn uv_of(face: Face, [x, y, z]: [f32; 3]) -> [f32; 2] {
+    match face {
+        Face::Down => [x, BLOCK - z],
+        Face::Up => [x, z],
+        Face::North => [BLOCK - x, BLOCK - y],
+        Face::South => [x, BLOCK - y],
+        Face::West => [z, BLOCK - y],
+        Face::East => [BLOCK - z, BLOCK - y],
+    }
+}
+
+/// Auf welche Seite eine Variantendrehung eine Seite abbildet.
+fn rotate_face(face: Face, x: i32, y: i32, z: i32) -> Face {
+    // Die Normale mitdrehen. Blockstates erlauben nur Vielfache von 90 Grad,
+    // also liegt sie danach wieder auf einer Achse.
+    let n = match face {
+        Face::Down => [0.0, -1.0, 0.0],
+        Face::Up => [0.0, 1.0, 0.0],
+        Face::North => [0.0, 0.0, -1.0],
+        Face::South => [0.0, 0.0, 1.0],
+        Face::West => [-1.0, 0.0, 0.0],
+        Face::East => [1.0, 0.0, 0.0],
+    };
+    let n = rotate_z(rotate_y(rotate_x(n, -(x as f32)), -(y as f32)), -(z as f32));
+
+    let achse = if n[0].abs() >= n[1].abs() && n[0].abs() >= n[2].abs() {
+        0
+    } else if n[1].abs() >= n[2].abs() {
+        1
+    } else {
+        2
+    };
+    match (achse, n[achse] > 0.0) {
+        (0, true) => Face::East,
+        (0, false) => Face::West,
+        (1, true) => Face::Up,
+        (1, false) => Face::Down,
+        (_, true) => Face::South,
+        (_, false) => Face::North,
+    }
+}
+
+/// `uvlock`: die Textur bleibt an der Welt ausgerichtet, statt sich mit dem
+/// Modell mitzudrehen. 143 Vanilla-Blockstates setzen das Flag, fast alle
+/// Treppen, Zäune und Falltüren darunter.
+///
+/// Die Texturkoordinate wandert dafür auf ihre Seite des Einheitswürfels,
+/// dreht sich mit und wird auf der Zielseite wieder zur Texturkoordinate.
+/// Dass sie dabei an derselben Geometrieecke bleibt, erledigt der
+/// gemeinsame Eckenumlauf in `bake`.
+fn lock_uv(face: Face, [u, v]: [f32; 2], x: i32, y: i32, z: i32) -> [f32; 2] {
+    let plane = plane_of(face, [0.0; 3], [BLOCK; 3]);
+    let punkt = rotate_variant(corner(face, u, v, plane), x, y, z);
+    // Vierteldrehungen über sin/cos treffen die ganzen Zahlen knapp daneben.
+    uv_of(rotate_face(face, x, y, z), punkt).map(|a| (a * 1000.0).round() / 1000.0)
 }
 
 /// Fehlt `uv` im Modell, leitet Minecraft sie aus der Größe des Elements ab.

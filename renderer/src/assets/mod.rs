@@ -1,5 +1,7 @@
 pub mod baker;
 pub mod blockstate;
+pub mod colors;
+pub mod fluid;
 pub mod model;
 pub mod texture;
 
@@ -12,8 +14,21 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::world::BlockState;
 pub use baker::{BakedModel, Quad, bake};
 pub use blockstate::{BlockStateDef, ModelRef};
+pub use colors::{Colors, Tint, Tints};
 pub use model::{Element, ElementFace, Face, ResolvedModel, Rotation};
 pub use texture::{TextureId, Textures};
+
+/// Das fertige Modell einer Blockstate: gebacken und um die Flüssigkeit
+/// ergänzt, die kein Modell-JSON beschreibt.
+///
+/// Jeder Pfad, der ein Sprite baut, geht hier durch — sonst hätte der eine
+/// Wasser und der andere nicht.
+pub fn model_of(assets: &mut Assets, state: &BlockState) -> Result<BakedModel> {
+    let variants = assets.variants(state)?;
+    let mut model = bake(&variants);
+    fluid::add(&mut model, state, assets);
+    Ok(model)
+}
 
 /// Wie tief die `parent`-Kette eines Modells verfolgt wird, bevor ein Zyklus
 /// angenommen wird. Vanilla-Ketten sind höchstens vier Glieder lang.
@@ -46,6 +61,7 @@ pub struct Assets {
     textures: Textures,
     blockstates: HashMap<String, Arc<BlockStateDef>>,
     models: HashMap<String, Arc<ResolvedModel>>,
+    colors: Colors,
 }
 
 impl Assets {
@@ -59,11 +75,29 @@ impl Assets {
             }
         }
         Ok(Assets {
+            colors: Colors::load(&roots),
             roots,
             textures: Textures::new(),
             blockstates: HashMap::new(),
             models: HashMap::new(),
         })
+    }
+
+    /// Colormaps und Biome für die Färbung von Gras, Laub und Wasser.
+    pub fn colors(&self) -> &Colors {
+        &self.colors
+    }
+
+    /// Liest Biomdefinitionen aus einer Datenwurzel — das `data/` aus dem
+    /// Client-JAR oder ein Datenpaket.
+    pub fn load_biomes(&mut self, dir: &Path) -> Result<usize> {
+        self.colors.load_biomes(dir)
+    }
+
+    /// Lädt eine Textur nach Namen. Flüssigkeiten brauchen ihre Textur,
+    /// ohne dass ein Modell sie nennt.
+    pub fn texture(&mut self, id: &str) -> TextureId {
+        self.textures.load(&self.roots, id)
     }
 
     pub fn textures(&self) -> &Textures {

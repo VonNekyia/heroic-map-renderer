@@ -12,9 +12,9 @@ Der Browser rendert keine Minecraft-Geometrie, sondern nur fertige Rasterkacheln
 
 ## Stand
 
-Schritt 5 von 8: **Kacheln**. Die Welt wird parallel in WebP-Kacheln
-gerendert, die ein Browser einzeln nachladen kann. Zoomstufen und Frontend
-fehlen noch.
+Schritt 6 von 8: **Zoompyramide**. Über den gerenderten Kacheln stapeln
+sich die gröberen Zoomstufen, und `map.json` sagt dem Frontend, was es
+vorfindet. Das Frontend selbst fehlt noch.
 
 ![Karte](docs/map.png)
 
@@ -27,7 +27,7 @@ fehlen noch.
 | 3 | Model-Baking und Iso-Sprite-Rasterizer | **fertig** |
 | 4 | Metatile-Renderer | **fertig** |
 | 5 | Rayon-Parallelisierung, Tiles, WebP | **fertig** |
-| 6 | Zoom-Pyramide und `map.json` | offen |
+| 6 | Zoom-Pyramide und `map.json` | **fertig** |
 | 7 | Frontend (Vite, TypeScript, Leaflet) | offen |
 | 8 | Modelle und Transparenz im Detail | offen |
 
@@ -131,6 +131,9 @@ Vorlauf:    316223 Chunks in 10.7 s, 3110 Blockstates, 73920 Kacheln
             400/73920 Kacheln
 ```
 
+Danach stapelt der Lauf die gröberen Zoomstufen darüber und schreibt
+`map.json`.
+
 Der Vorlauf liest jeden Chunk einmal und beantwortet zwei Fragen auf einmal:
 welche Blockstates vorkommen, und welche Kacheln überhaupt etwas zeigen. Erst
 danach steht die Sprite-Tabelle — und erst dann kann parallel gerendert
@@ -150,7 +153,13 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 Vorlauf:    8192 Chunks in 0.4 s, 266 Blockstates, 72 Kacheln
 Kacheln:    72 geschrieben, 0 leer, 256x256 px, 24 Threads
-            9.4 MB in 1.5 s (46 Kacheln/s, 134 kB je Kachel) -> ./tiles
+            9.4 MB in 1.7 s (44 Kacheln/s, 134 kB je Kachel)
+Zoom  8:     25 Kacheln
+Zoom  7:     9 Kacheln
+Zoom  6:     4 Kacheln
+...
+Pyramide:   45 Kacheln, 3.1 MB in 0.0 s
+Karte:      Zoom 0..9, -4864/256 bis -2816/2560 px -> ./tiles/map.json
 ```
 
 Der Ausschnitt wird dabei auf ganze Kacheln aufgerundet, bevor der Vorlauf
@@ -160,11 +169,47 @@ Blockstates nur aus Chunks, die tatsächlich in eine ausgegebene Kachel fallen:
 ein kleiner Ausschnitt braucht deshalb keine Assets für Blöcke am anderen Ende
 der Welt.
 
-Die Kacheln liegen als `tiles/<x>/<y>.webp`; beide Koordinaten dürfen negativ
-sein, weil der Blockursprung mitten in der Welt liegt. Die Zoomstufe kommt in
-Schritt 6 dazu. Wird eine Kachel bei einem erneuten Lauf leer, löscht der
-Export die alte Datei — sonst zeigte die Karte weiter, was inzwischen
-abgerissen wurde.
+Die Kacheln liegen als `tiles/<z>/<x>/<y>.webp`; x und y dürfen negativ sein,
+weil der Blockursprung mitten in der Welt liegt. Wird eine Kachel bei einem
+erneuten Lauf leer, löscht der Export die alte Datei — auf jeder Stufe, sonst
+zeigte die Karte weiter, was inzwischen abgerissen wurde.
+
+### Zoomstufen
+
+Gerendert wird nur die feinste Stufe. Jede gröbere entsteht aus vier Kacheln
+der darunterliegenden, auf die halbe Kantenlänge gestaucht — die Welt wird
+dafür kein zweites Mal angefasst. Für den Ausschnitt oben kosten alle Stufen
+zusammen 3,1 MB gegenüber 9,4 MB für die Basis, also das erwartete Drittel.
+
+![Zoomstufen](docs/zoomstufen.png)
+
+Gemittelt wird mit vormultipliziertem Alpha. Geradeaus gemittelt zögen
+durchsichtige Pixel ihre Farbe in die Nachbarn, und jede Kante gegen Luft
+bekäme einen dunklen Saum — auf einer Karte voller Blattwerk wäre das überall
+zu sehen.
+
+Die Nummerierung hängt an der **Welt**, nicht am Ausschnitt: `maxZoom` kommt
+aus der Ausdehnung aller Regionsdateien, und dafür wird kein einziger Chunk
+gelesen. Ein nachgerenderter Ausschnitt passt damit in einen bestehenden
+Kachelbaum.
+
+### `map.json`
+
+```json
+{
+  "tileSize": 256,
+  "scale": 16,
+  "minZoom": 0,
+  "maxZoom": 9,
+  "tiles": "{z}/{x}/{y}.webp",
+  "bounds": [-4864, 256, -2816, 2560]
+}
+```
+
+`bounds` ist der belegte Bereich auf der feinsten Stufe in Pixeln, als
+`[links, oben, rechts, unten]`. Die Projektion selbst steht nicht drin: sie
+hängt allein an `scale`, und die Formel gehört in den Renderer, nicht in eine
+Datei.
 
 Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines grossen
 Renderings gleichen, sonst stünden im Browser Kanten dazwischen. Neun Kacheln
@@ -262,7 +307,9 @@ Vanilla 26.2 und das TerraNova-Pack ergeben hat.
 Speicher und rendert sie; `renderer/tests/cli.rs` ruft dafür die echte
 Binärdatei auf, weil der Weg über `--center` eine eigene Fehlerquelle ist.
 `renderer/tests/tiles.rs` prüft die Naht: jede einzeln gerenderte Kachel gegen
-den entsprechenden Ausschnitt eines grossen Renderings. Dazu gehört ein Goldbild unter
+den entsprechenden Ausschnitt eines grossen Renderings. Und `tests/cli.rs`
+hält die ganze Exportkette fest — unter anderem, dass jede Kachel einer
+gröberen Stufe Pixel für Pixel die Verkleinerung ihrer vier Kinder ist. Dazu gehört ein Goldbild unter
 `tests/fixtures/golden/`: jede Änderung an Projektion, Baking, Rasterizer oder
 Maleralgorithmus fällt damit auf. Neu erzeugen nach einer gewollten Änderung:
 

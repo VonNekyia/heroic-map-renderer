@@ -1,4 +1,6 @@
 use std::collections::BTreeSet;
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -9,9 +11,10 @@ use clap::Parser;
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 use terranova_render::assets::{Assets, bake};
+use terranova_render::render::pyramid;
 use terranova_render::render::{
-    Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for, encode_webp, render, render_area,
-    survey,
+    MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for, corner_tiles,
+    encode_webp, render, render_area, survey, world_box,
 };
 use terranova_render::world::{BlockState, REGION, World};
 
@@ -422,65 +425,168 @@ fn write_tiles(
         );
     }
 
+    // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
+    // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
+    // einer anderen Stufe, und zwei Läufe passten nicht zusammen.
+    let welt =
+        world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
+    let max_zoom = pyramid::depth(&corner_tiles(welt));
+    let kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
+
     let started = Instant::now();
     let fertig = AtomicUsize::new(0);
-    let leer = AtomicUsize::new(0);
     let bytes = AtomicUsize::new(0);
     let gesamt = survey.tiles.len();
 
-    survey.tiles.par_iter().try_for_each(|tile| -> Result<()> {
-        let image = render_area(world, &sprites, tile.rect(), Y_RANGE)?;
-        let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
-        if erledigt.is_multiple_of(200) || erledigt == gesamt {
-            println!("            {erledigt}/{gesamt} Kacheln");
-        }
+    let basis: BTreeSet<TileId> = survey
+        .tiles
+        .par_iter()
+        .map(|tile| -> Result<Option<TileId>> {
+            let image = render_area(world, &sprites, tile.rect(), Y_RANGE)?;
+            let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
+            if erledigt.is_multiple_of(200) || erledigt == gesamt {
+                println!("            {erledigt}/{gesamt} Kacheln");
+            }
 
-        // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
-        // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
-        let path = tile_path(dir, *tile);
-        if image.pixels().all(|p| p.0[3] == 0) {
-            leer.fetch_add(1, Ordering::Relaxed);
-            // Eine leer gewordene Kachel darf ihren alten Inhalt nicht
-            // behalten, sonst zeigt die Karte nach einem zweiten Lauf noch,
-            // was inzwischen abgerissen wurde.
-            return match std::fs::remove_file(&path) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                    Err(e).with_context(|| format!("{} entfernen", path.display()))
-                }
-                _ => Ok(()),
-            };
-        }
+            // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
+            // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
+            if image.pixels().all(|p| p.0[3] == 0) {
+                entferne(&tile_path(dir, max_zoom, *tile))?;
+                return Ok(None);
+            }
 
-        let data = encode_webp(&image)?;
-        bytes.fetch_add(data.len(), Ordering::Relaxed);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("{} anlegen", parent.display()))?;
-        }
-        std::fs::write(&path, &data).with_context(|| format!("{} schreiben", path.display()))
-    })?;
+            bytes.fetch_add(schreibe(dir, max_zoom, *tile, &image)?, Ordering::Relaxed);
+            Ok(Some(*tile))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
 
     let seconds = started.elapsed().as_secs_f64();
-    let leer = leer.load(Ordering::Relaxed);
-    let geschrieben = gesamt - leer;
     let bytes = bytes.load(Ordering::Relaxed);
     println!(
-        "Kacheln:    {geschrieben} geschrieben, {leer} leer, {TILE}x{TILE} px, {} Threads",
+        "Kacheln:    {} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads",
+        basis.len(),
+        gesamt - basis.len(),
         rayon::current_num_threads()
     );
     println!(
-        "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s, {:.0} kB je Kachel) -> {}",
+        "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s, {:.0} kB je Kachel)",
         bytes as f64 / 1_048_576.0,
         gesamt as f64 / seconds,
-        bytes as f64 / geschrieben.max(1) as f64 / 1024.0,
-        dir.display()
+        bytes as f64 / basis.len().max(1) as f64 / 1024.0,
+    );
+
+    build_pyramid(dir, max_zoom, kandidaten, basis.clone())?;
+
+    let info = MapInfo::new(projection.scale(), max_zoom, &basis);
+    let path = dir.join("map.json");
+    let datei = File::create(&path).with_context(|| format!("{} anlegen", path.display()))?;
+    serde_json::to_writer_pretty(BufWriter::new(datei), &info)
+        .with_context(|| format!("{} schreiben", path.display()))?;
+    println!(
+        "Karte:      Zoom {}..{}, {} bis {} px -> {}",
+        info.min_zoom,
+        info.max_zoom,
+        format_args!("{}/{}", info.bounds[0], info.bounds[1]),
+        format_args!("{}/{}", info.bounds[2], info.bounds[3]),
+        path.display()
     );
     Ok(())
 }
 
-/// `<dir>/<x>/<y>.webp`. Die Zoomstufe kommt in Schritt 6 dazu.
-fn tile_path(dir: &Path, tile: TileId) -> PathBuf {
-    dir.join(tile.x.to_string())
+/// Stapelt über der gerenderten Basis die gröberen Zoomstufen.
+///
+/// Jede Stufe entsteht allein aus der darunter — die Welt wird dafür nicht
+/// noch einmal angefasst.
+///
+/// `kandidaten` sind die Kacheln, die der Vorlauf für möglich hielt,
+/// `geschrieben` die, in denen wirklich etwas lag. Der Unterschied zählt:
+/// eine Kachel, die leer geworden ist, muss ihre alte Datei verlieren —
+/// auf jeder Stufe, nicht nur auf der Basis.
+fn build_pyramid(
+    dir: &Path,
+    max_zoom: u32,
+    kandidaten: BTreeSet<TileId>,
+    basis: BTreeSet<TileId>,
+) -> Result<()> {
+    let started = Instant::now();
+    let mut kandidaten = kandidaten;
+    let mut geschrieben = basis;
+    let mut bytes = 0usize;
+    let mut gesamt = 0usize;
+
+    for z in (0..max_zoom).rev() {
+        kandidaten = pyramid::parents(&kandidaten);
+        let stufe: Vec<(TileId, usize)> = kandidaten
+            .par_iter()
+            .map(|parent| -> Result<Option<(TileId, usize)>> {
+                let mut teile = Vec::new();
+                for kind in parent.children() {
+                    if geschrieben.contains(&kind) {
+                        teile.push((kind, lies(&tile_path(dir, z + 1, kind))?));
+                    }
+                }
+                if teile.is_empty() {
+                    entferne(&tile_path(dir, z, *parent))?;
+                    return Ok(None);
+                }
+                let bild = pyramid::merge(*parent, &teile);
+                Ok(Some((*parent, schreibe(dir, z, *parent, &bild)?)))
+            })
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect();
+
+        bytes += stufe.iter().map(|(_, n)| n).sum::<usize>();
+        gesamt += stufe.len();
+        println!("Zoom {z:>2}:     {} Kacheln", stufe.len());
+        geschrieben = stufe.into_iter().map(|(tile, _)| tile).collect();
+    }
+
+    if max_zoom > 0 {
+        println!(
+            "Pyramide:   {gesamt} Kacheln, {:.1} MB in {:.1} s",
+            bytes as f64 / 1_048_576.0,
+            started.elapsed().as_secs_f64()
+        );
+    }
+    Ok(())
+}
+
+/// Schreibt eine Kachel und liefert ihre Grösse in Bytes.
+fn schreibe(dir: &Path, z: u32, tile: TileId, image: &RgbaImage) -> Result<usize> {
+    let data = encode_webp(image)?;
+    let path = tile_path(dir, z, tile);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("{} anlegen", parent.display()))?;
+    }
+    std::fs::write(&path, &data).with_context(|| format!("{} schreiben", path.display()))?;
+    Ok(data.len())
+}
+
+fn lies(path: &Path) -> Result<RgbaImage> {
+    Ok(image::open(path)
+        .with_context(|| format!("{} lesen", path.display()))?
+        .into_rgba8())
+}
+
+/// Entfernt eine Kachel, falls sie noch dasteht.
+fn entferne(path: &Path) -> Result<()> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err(e).with_context(|| format!("{} entfernen", path.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// `<dir>/<z>/<x>/<y>.webp`, wie Leaflet es erwartet.
+fn tile_path(dir: &Path, z: u32, tile: TileId) -> PathBuf {
+    dir.join(z.to_string())
+        .join(tile.x.to_string())
         .join(format!("{}.webp", tile.y))
 }
 

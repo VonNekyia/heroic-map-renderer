@@ -32,9 +32,11 @@ const MAX_CELLS: usize = 64;
 /// Dateizugriffe.
 pub struct SpriteSet {
     sprites: Vec<Entry>,
-    /// Blockstate -> ihre Alternativen. Welche ein Block bekommt, wuerfelt
-    /// seine Position, wie in Vanilla.
-    by_state: HashMap<BlockState, Family>,
+    /// Je Blockstate ihre Alternativen. Welche ein Block bekommt, wuerfelt
+    /// seine Position, wie in Vanilla. Der Renderpfad haelt sich den Index
+    /// je Paletteneintrag und spart sich das Hashen der Blockstate je Block.
+    families: Vec<Family>,
+    by_state: HashMap<BlockState, u32>,
     /// Fassungen einer Fluessigkeit ohne die Flaechen zu gleichen Nachbarn,
     /// indiziert mit der Maske aus `mask_bit`. Eintrag 0 ist das Sprite
     /// selbst.
@@ -54,6 +56,9 @@ pub struct Family {
     /// Fluessigkeit samt Hoehe ihrer Oberflaeche in Blockeinheiten, falls
     /// die Blockstate eine enthaelt.
     pub fluid: Option<(Fluid, f32)>,
+    /// Decken alle Alternativen den Blockumriss? Dann verdeckt der Block
+    /// seine Nachbarn — egal, welche Drehung die Position wuerfelt.
+    pub opaque: bool,
 }
 
 impl Family {
@@ -148,6 +153,7 @@ impl SpriteSet {
     ) -> Result<SpriteSet> {
         let mut set = SpriteSet {
             sprites: Vec::new(),
+            families: Vec::new(),
             by_state: HashMap::new(),
             by_mask: HashMap::new(),
             by_biome: HashMap::new(),
@@ -172,14 +178,17 @@ impl SpriteSet {
                 continue;
             }
             let total = alternatives.iter().map(|(weight, _)| *weight).sum();
-            set.by_state.insert(
-                state.clone(),
-                Family {
-                    alternatives,
-                    total,
-                    fluid,
-                },
-            );
+            let opaque = alternatives
+                .iter()
+                .all(|(_, id)| id.is_some_and(|id| set.sprites[id.0 as usize].opaque));
+            set.by_state
+                .insert(state.clone(), set.families.len() as u32);
+            set.families.push(Family {
+                alternatives,
+                total,
+                fluid,
+                opaque,
+            });
         }
 
         Ok(set)
@@ -296,11 +305,20 @@ impl SpriteSet {
 
     /// Das Sprite der ersten Alternative.
     pub fn id(&self, state: &BlockState) -> Option<SpriteId> {
-        self.family(state).and_then(|f| f.alternatives[0].1)
+        self.family_of(state).and_then(|f| f.alternatives[0].1)
     }
 
-    pub fn family(&self, state: &BlockState) -> Option<&Family> {
-        self.by_state.get(state)
+    pub fn family_of(&self, state: &BlockState) -> Option<&Family> {
+        self.by_state.get(state).map(|&i| self.family(i))
+    }
+
+    /// Index der Familie einer Blockstate, fuer Caches je Paletteneintrag.
+    pub fn family_index(&self, state: &BlockState) -> Option<u32> {
+        self.by_state.get(state).copied()
+    }
+
+    pub fn family(&self, index: u32) -> &Family {
+        &self.families[index as usize]
     }
 
     /// Die Fassung einer Fluessigkeit ohne die Flaechen zu Nachbarn mit
@@ -331,7 +349,7 @@ impl SpriteSet {
     /// Wie viele Sprites Fassungen sind: Alternativen, Biome, verdeckte
     /// Fluessigkeitsflaechen.
     pub fn variants(&self) -> usize {
-        self.sprites.len() - self.by_state.len()
+        self.sprites.len() - self.families.len()
     }
 
     /// Der Teil dieses Sprites, der in `cell` liegt.
@@ -625,6 +643,7 @@ mod tests {
                 .collect(),
             total: weights.iter().sum(),
             fluid: None,
+            opaque: false,
         };
         let vier = family(&[1, 1, 1, 1]);
         let drei = family(&[1, 1, 1]);

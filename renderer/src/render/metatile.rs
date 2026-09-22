@@ -3,10 +3,10 @@ use std::collections::{BTreeSet, HashMap};
 use anyhow::Result;
 use image::{Rgba, RgbaImage};
 
-use crate::assets::fluid::Fluid;
 use crate::world::{Chunk, REGION, Region, World};
 
 use super::rasterizer::over;
+use super::sprites::Family;
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
@@ -224,8 +224,8 @@ fn is_hidden(
         return Ok(false);
     }
     for (dx, dy, dz) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)] {
-        match chunks.sprite_at(sprites, x + dx, y + dy, z + dz)? {
-            Some(id) if sprites.is_opaque(id) => {}
+        match chunks.family_at(sprites, x + dx, y + dy, z + dz)? {
+            Some(family) if family.opaque => {}
             _ => return Ok(false),
         }
     }
@@ -267,7 +267,15 @@ struct ChunkCache<'a> {
     /// Chunk neu öffnen — bei rund fünfzig Chunks je Kachel sind das
     /// fünfzig Öffnungen statt einer Handvoll.
     regions: HashMap<(i32, i32), Option<Region>>,
-    chunks: HashMap<(i32, i32), Option<Chunk>>,
+    chunks: HashMap<(i32, i32), Option<Loaded>>,
+}
+
+/// Ein Chunk samt der Familie je Paletteneintrag. Die Blockstate wird
+/// damit einmal je Section gehasht statt einmal je Block — im Renderpfad
+/// war das der teuerste Schritt.
+struct Loaded {
+    chunk: Chunk,
+    families: Vec<Vec<Option<u32>>>,
 }
 
 impl<'a> ChunkCache<'a> {
@@ -279,7 +287,7 @@ impl<'a> ChunkCache<'a> {
         }
     }
 
-    fn load(&mut self, key: (i32, i32)) -> Result<()> {
+    fn load(&mut self, sprites: &SpriteSet, key: (i32, i32)) -> Result<()> {
         let region_key = (key.0.div_euclid(REGION), key.1.div_euclid(REGION));
         if !self.regions.contains_key(&region_key) {
             let region = self.world.region(region_key.0, region_key.1)?;
@@ -289,7 +297,22 @@ impl<'a> ChunkCache<'a> {
             Some(Some(region)) => region.chunk(key.0, key.1)?,
             _ => None,
         };
-        self.chunks.insert(key, chunk);
+        let loaded = chunk.map(|chunk| {
+            let families = chunk
+                .sections()
+                .iter()
+                .map(|section| {
+                    section
+                        .blocks()
+                        .palette()
+                        .iter()
+                        .map(|state| sprites.family_index(state))
+                        .collect()
+                })
+                .collect();
+            Loaded { chunk, families }
+        });
+        self.chunks.insert(key, loaded);
         Ok(())
     }
 
@@ -299,9 +322,6 @@ impl<'a> ChunkCache<'a> {
     /// Drei Entscheidungen fallen hier: welche Alternative die Position
     /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken und
     /// welche Biomfassung gilt. Alles davon ist vorab gerastert.
-    // ponytail: schlägt je Block in der Hashtabelle nach. Schneller wäre,
-    // beim Laden eines Chunks je Section einmal Palettenindex -> Family
-    // abzulegen. Lohnt sich, sobald der Vollrender misst.
     fn sprite_at(
         &mut self,
         sprites: &SpriteSet,
@@ -309,17 +329,7 @@ impl<'a> ChunkCache<'a> {
         y: i32,
         z: i32,
     ) -> Result<Option<SpriteId>> {
-        let key = (x >> 4, z >> 4);
-        if !self.chunks.contains_key(&key) {
-            self.load(key)?;
-        }
-        let Some(chunk) = self.chunks[&key].as_ref() else {
-            return Ok(None);
-        };
-        let Some(family) = chunk
-            .block_at(x, y, z)
-            .and_then(|block| sprites.family(block))
-        else {
+        let Some(family) = self.family_at(sprites, x, y, z)? else {
             return Ok(None);
         };
         let Some(mut id) = family.pick([x, y, z]) else {
@@ -334,9 +344,9 @@ impl<'a> ChunkCache<'a> {
         if let Some((fluid, height)) = family.fluid {
             let mut mask = 0u8;
             for (bit, [dx, dy, dz]) in [[1, 0, 0], [0, 1, 0], [0, 0, 1]].into_iter().enumerate() {
-                if let Some((other, other_height)) =
-                    self.fluid_at(sprites, x + dx, y + dy, z + dz)?
-                    && other == fluid
+                if let Some(other) = self.family_at(sprites, x + dx, y + dy, z + dz)?
+                    && let Some((other_fluid, other_height)) = other.fluid
+                    && other_fluid == fluid
                     && (dy == 1 || other_height >= height)
                 {
                     mask |= 1 << bit;
@@ -350,30 +360,39 @@ impl<'a> ChunkCache<'a> {
 
         // Das Biom kostet einen zweiten Nachschlag; `in_biome` fragt nur
         // fuer Sprites danach, die ueberhaupt Fassungen haben.
-        let chunk = self.chunks[&key].as_ref().expect("eben geladen");
+        let chunk = &self.chunks[&(x >> 4, z >> 4)]
+            .as_ref()
+            .expect("eben geladen")
+            .chunk;
         Ok(Some(sprites.in_biome(id, || chunk.biome_at(x, y, z))))
     }
 
-    /// Flüssigkeit an einer Weltkoordinate — für die Nachbarn eines
-    /// Flüssigkeitsblocks.
-    fn fluid_at(
+    /// Die Familie des Blocks an einer Weltkoordinate — ein Nachschlag im
+    /// Chunk-Cache und zwei Indizes, ohne die Blockstate zu hashen.
+    fn family_at<'s>(
         &mut self,
-        sprites: &SpriteSet,
+        sprites: &'s SpriteSet,
         x: i32,
         y: i32,
         z: i32,
-    ) -> Result<Option<(Fluid, f32)>> {
+    ) -> Result<Option<&'s Family>> {
         let key = (x >> 4, z >> 4);
         if !self.chunks.contains_key(&key) {
-            self.load(key)?;
+            self.load(sprites, key)?;
         }
-        let Some(chunk) = self.chunks[&key].as_ref() else {
+        let Some(loaded) = self.chunks[&key].as_ref() else {
             return Ok(None);
         };
-        Ok(chunk
-            .block_at(x, y, z)
-            .and_then(|block| sprites.family(block))
-            .and_then(|family| family.fluid))
+        let Some((section, slot)) = loaded.chunk.slot(x, y, z) else {
+            return Ok(None);
+        };
+        Ok(loaded
+            .families
+            .get(section)
+            .and_then(|families| families.get(slot))
+            .copied()
+            .flatten()
+            .map(|index| sprites.family(index)))
     }
 }
 

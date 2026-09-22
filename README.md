@@ -20,7 +20,7 @@ Sand, Stein, Erde — würfeln ihre Drehung aus der Position wie das Spiel.
 
 ![Karte](docs/map.png)
 
-900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 3,4 s einkernig —
+900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 3,2 s einkernig —
 dieselbe Stelle wie in Schritt 4, jetzt mit Wasser, Biomfarben und
 gewürfelten Drehungen.
 

@@ -437,14 +437,22 @@ fn write_tiles(
 
         // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
         // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
+        let path = tile_path(dir, *tile);
         if image.pixels().all(|p| p.0[3] == 0) {
             leer.fetch_add(1, Ordering::Relaxed);
-            return Ok(());
+            // Eine leer gewordene Kachel darf ihren alten Inhalt nicht
+            // behalten, sonst zeigt die Karte nach einem zweiten Lauf noch,
+            // was inzwischen abgerissen wurde.
+            return match std::fs::remove_file(&path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    Err(e).with_context(|| format!("{} entfernen", path.display()))
+                }
+                _ => Ok(()),
+            };
         }
 
         let data = encode_webp(&image)?;
         bytes.fetch_add(data.len(), Ordering::Relaxed);
-        let path = tile_path(dir, *tile);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("{} anlegen", parent.display()))?;

@@ -148,14 +148,23 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Vorlauf:    8192 Chunks in 0.7 s, 1169 Blockstates, 72 Kacheln
+Vorlauf:    8192 Chunks in 0.4 s, 266 Blockstates, 72 Kacheln
 Kacheln:    72 geschrieben, 0 leer, 256x256 px, 24 Threads
-            9.4 MB in 1.8 s (40 Kacheln/s, 134 kB je Kachel) -> ./tiles
+            9.4 MB in 1.5 s (46 Kacheln/s, 134 kB je Kachel) -> ./tiles
 ```
+
+Der Ausschnitt wird dabei auf ganze Kacheln aufgerundet, bevor der Vorlauf
+irgendetwas ausschliesst — ausgegeben werden immer vollständige Kacheln, also
+muss auch der Vorlauf sie vollständig abdecken. Umgekehrt sammelt er
+Blockstates nur aus Chunks, die tatsächlich in eine ausgegebene Kachel fallen:
+ein kleiner Ausschnitt braucht deshalb keine Assets für Blöcke am anderen Ende
+der Welt.
 
 Die Kacheln liegen als `tiles/<x>/<y>.webp`; beide Koordinaten dürfen negativ
 sein, weil der Blockursprung mitten in der Welt liegt. Die Zoomstufe kommt in
-Schritt 6 dazu.
+Schritt 6 dazu. Wird eine Kachel bei einem erneuten Lauf leer, löscht der
+Export die alte Datei — sonst zeigte die Karte weiter, was inzwischen
+abgerissen wurde.
 
 Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines grossen
 Renderings gleichen, sonst stünden im Browser Kanten dazwischen. Neun Kacheln

@@ -50,6 +50,28 @@ pub fn covering(rect: ScreenRect) -> impl Iterator<Item = TileId> {
     (y0..=y1).flat_map(move |y| (x0..=x1).map(move |x| TileId { x, y }))
 }
 
+/// Rundet ein Rechteck auf ganze Kacheln auf.
+///
+/// Ausgegeben werden immer vollständige Kacheln. Wer den Vorlauf auf den
+/// angeforderten Ausschnitt begrenzt, lässt Blöcke weg, die in derselben
+/// Kachel liegen — und die fehlen dann stillschweigend im Bild.
+pub fn snap_to_tiles(rect: ScreenRect) -> ScreenRect {
+    if rect.width == 0 || rect.height == 0 {
+        return rect;
+    }
+    let tile = TILE as i32;
+    let x = rect.x.div_euclid(tile) * tile;
+    let y = rect.y.div_euclid(tile) * tile;
+    let right = (rect.right() - 1).div_euclid(tile) * tile + tile;
+    let bottom = (rect.bottom() - 1).div_euclid(tile) * tile + tile;
+    ScreenRect {
+        x,
+        y,
+        width: (right - x) as u32,
+        height: (bottom - y) as u32,
+    }
+}
+
 /// Was ein Kachellauf vorher wissen muss.
 #[derive(Default)]
 pub struct Survey {
@@ -78,6 +100,10 @@ pub fn survey(
     y_range: (i32, i32),
     bounds: Option<ScreenRect>,
 ) -> Result<Survey> {
+    // Auf ganze Kacheln runden, bevor irgendetwas ausgeschlossen wird:
+    // gerendert wird die ganze Kachel, also muss auch der Vorlauf sie
+    // ganz abdecken.
+    let bounds = bounds.map(snap_to_tiles);
     let kante = REGION * CHUNK;
     let regions = world.regions()?;
     let teile: Vec<Survey> = regions
@@ -134,17 +160,21 @@ fn survey_region(
             };
             let oben = belegt.next_back().unwrap_or(unten) + CHUNK;
 
+            let rect = column_box(projection, cx * CHUNK, cz * CHUNK, (unten, oben), CHUNK);
+            match bounds {
+                // Erst ausschliessen, dann Paletten sammeln. Sonst
+                // verlangt ein kleiner Ausschnitt die Assets für jeden
+                // Block der Region, und ein einziger unbekannter Block
+                // weit draussen bricht den ganzen Export ab.
+                Some(bounds) if !overlaps(bounds, rect) => continue,
+                Some(bounds) => tiles.extend(covering(clip(rect, bounds))),
+                None => tiles.extend(covering(rect)),
+            }
+
             for section in chunk.sections() {
                 survey
                     .states
                     .extend(section.blocks().palette().iter().cloned());
-            }
-
-            let rect = column_box(projection, cx * CHUNK, cz * CHUNK, (unten, oben), CHUNK);
-            match bounds {
-                Some(bounds) if !overlaps(bounds, rect) => continue,
-                Some(bounds) => tiles.extend(covering(clip(rect, bounds))),
-                None => tiles.extend(covering(rect)),
             }
         }
     }
@@ -276,6 +306,64 @@ mod tests {
             covering(ueber_kante).collect::<Vec<_>>(),
             vec![TileId { x: -1, y: 0 }, TileId { x: 0, y: 0 }]
         );
+    }
+
+    /// Aufrunden muss das Rechteck immer vergrössern, nie verkleinern,
+    /// und genau dieselben Kacheln treffen.
+    #[test]
+    fn aufrunden_deckt_dieselben_kacheln_ab() {
+        for rect in [
+            ScreenRect {
+                x: 10,
+                y: 10,
+                width: 4,
+                height: 4,
+            },
+            ScreenRect {
+                x: -10,
+                y: -300,
+                width: 1,
+                height: 1,
+            },
+            ScreenRect {
+                x: 0,
+                y: 0,
+                width: TILE,
+                height: TILE,
+            },
+            ScreenRect {
+                x: -1,
+                y: -1,
+                width: 2 * TILE,
+                height: 3 * TILE,
+            },
+        ] {
+            let gerundet = snap_to_tiles(rect);
+            assert!(gerundet.x <= rect.x && gerundet.y <= rect.y, "{rect:?}");
+            assert!(
+                gerundet.right() >= rect.right() && gerundet.bottom() >= rect.bottom(),
+                "{rect:?}"
+            );
+            assert_eq!(gerundet.width % TILE, 0, "{rect:?}");
+            assert_eq!(gerundet.height % TILE, 0, "{rect:?}");
+            assert_eq!(
+                covering(gerundet).collect::<Vec<_>>(),
+                covering(rect).collect::<Vec<_>>(),
+                "{rect:?} trifft nach dem Aufrunden andere Kacheln"
+            );
+        }
+    }
+
+    /// Ein aufgerundetes Rechteck ist schon rund.
+    #[test]
+    fn aufrunden_ist_idempotent() {
+        let einmal = snap_to_tiles(ScreenRect {
+            x: -7,
+            y: 300,
+            width: 9,
+            height: 9,
+        });
+        assert_eq!(snap_to_tiles(einmal), einmal);
     }
 
     #[test]

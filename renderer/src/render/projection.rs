@@ -19,9 +19,11 @@ pub struct Projection {
 }
 
 impl Projection {
-    /// 16 Pixel pro Block: Texturen erscheinen etwa halb so groß wie im
-    /// Spiel, die Karte bleibt handlich. Siehe `--scale`.
-    pub const DEFAULT_SCALE: u32 = 16;
+    /// 32 Pixel je Block: eine Seitenfläche ist halb so breit wie der
+    /// Würfel, erst so zeigt sie alle 16 Texel einer Textur. Bei 16 fiele
+    /// jede zweite Texelspalte weg; dafür sind es viermal so viele
+    /// Kacheln. Siehe `--scale`.
+    pub const DEFAULT_SCALE: u32 = 32;
 
     pub fn new(scale: u32) -> Projection {
         Projection {

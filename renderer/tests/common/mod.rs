@@ -56,19 +56,34 @@ pub struct BlockStatesNbt {
 pub struct PaletteEntry {
     #[serde(rename = "Name")]
     pub name: String,
+    #[serde(rename = "Properties", skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, String>>,
 }
 
+/// Paletteneinträge aus Blocknamen, wahlweise mit Eigenschaften wie
+/// `minecraft:oak_fence[north=true,waterlogged=true]`.
 pub fn palette(names: &[&str]) -> Vec<PaletteEntry> {
     names
         .iter()
-        .map(|n| PaletteEntry {
-            name: (*n).to_string(),
+        .map(|full| {
+            let (name, props) = match full.split_once('[') {
+                Some((name, rest)) => (name, rest.trim_end_matches(']')),
+                None => (*full, ""),
+            };
+            PaletteEntry {
+                name: name.to_string(),
+                properties: (!props.is_empty()).then(|| {
+                    props
+                        .split(',')
+                        .filter_map(|kv| kv.split_once('='))
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect()
+                }),
+            }
         })
         .collect()
 }
 
-/// Packt Indizes so, wie Minecraft es tut: keine Überlappung über
-/// Long-Grenzen hinweg.
 pub fn packed(entries: &[usize], bits: u32) -> fastnbt::LongArray {
     let per_long = 64 / bits as usize;
     let mut longs = vec![0i64; entries.len().div_ceil(per_long)];

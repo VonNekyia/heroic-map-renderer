@@ -152,7 +152,7 @@ Sechzehnfache an Chunks.
 ### Die ganze Welt als Kacheln
 
 ```bash
-cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles ./tiles --scale 16
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles ./tiles
 ```
 
 ```
@@ -230,6 +230,10 @@ nicht der laufende Export: die Geschwister ausserhalb des Ausschnitts liegen
 ja weiterhin da. Und `map.json` beschreibt den ganzen Baum, nicht den letzten
 Lauf. An einer unveränderten Welt ändert ein Nachrendern deshalb keine einzige
 Datei.
+
+Gemittelt wird in linearem Licht, nicht in sRGB-Werten: die sind
+gammakodiert, ihr Mittel ist zu dunkel, und jede Stufe verdunkelt weiter.
+Halb Schwarz, halb Weiss ergibt so 188 statt 128.
 
 ### `map.json`
 
@@ -323,6 +327,28 @@ ein durchscheinendes Texel legt sich über das, was schon da ist. Vorher
 gewann der Tiefenpuffer, und ein gefluteter Zaun war ein Wasserwürfel ohne
 Zaun.
 
+### Keine Nähte
+
+Sprite-Kanten werden nicht geglättet. Die Geometrie wird nur im
+Pixelmittelpunkt geprüft, damit jeder Pixel genau einer Fläche gehört und
+Nachbarflächen nahtlos aneinanderstossen. Geglättete Kanten trügen
+Teildeckung im Alpha, und beim Zusammensetzen der Sprites könnte niemand
+mehr unterscheiden, ob zwei Nachbarflächen dasselbe Pixel teilen oder ob
+eine durch die andere scheint: ein Wasserbecken bekam an jeder Blockgrenze
+eine hellere Naht, ein Boden aus deckenden Blöcken dunkle Linien — bis
+Schritt 8 hatte das Goldbild sie. Die Textur dagegen wird über den Pixel
+gemittelt, sonst fiele auf einer acht Pixel breiten Seitenfläche jeder
+zweite Texel weg.
+
+### scale 32
+
+`scale` ist die Breite des ganzen Würfels; eine Seitenfläche ist halb so
+breit. Bei scale 16 hat sie acht Pixel für sechzehn Texel, bei scale 32
+sechzehn — erst dann ist die Textur vollständig zu sehen. Deshalb ist 32
+jetzt der Standard. Der Preis: viermal so viele Kacheln, für die Testwelt
+rund 300 000 statt 74 000 bei scale 16. Wer die Hälfte der Texturzeilen
+verschmerzen kann, gibt `--scale 16` an.
+
 ### Varianten aus der Position
 
 34 Vanilla-Blockstates liegen als Liste vor — Sand, Stein, Erde, Grasblock
@@ -360,7 +386,7 @@ Flüssigkeit — beides kennt V1 noch nicht.
 ## Frontend
 
 ```bash
-cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles web/public/tiles --scale 16
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles web/public/tiles
 cd web && npm install && npm run dev
 ```
 

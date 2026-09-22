@@ -5,12 +5,18 @@ use crate::assets::{Textures, Tints, fluid};
 
 use super::Projection;
 
-/// Wie viele Abtastpunkte je Pixelkante beim Rastern verwendet werden.
+/// Abtastpunkte je Pixelkante für die Textur.
 ///
-/// Die Oberseite eines Blocks wird auf die halbe Höhe gestaucht; ohne
-/// Überabtastung treppen die Kanten sichtbar. Das kostet nur beim Backen,
-/// nicht im Renderpfad.
-const SUPERSAMPLE: u32 = 2;
+/// Die Geometrie wird nur im Pixelmittelpunkt geprüft: jeder Pixel gehört
+/// genau einer Fläche, und benachbarte Flächen stossen nahtlos aneinander.
+/// Geglättete Kanten trügen Teildeckung im Alpha, und beim Zusammensetzen
+/// der Sprites könnte niemand mehr unterscheiden, ob zwei Nachbarflächen
+/// dasselbe Pixel teilen oder ob eine durch die andere scheint — ein
+/// geschlossenes Wasserbecken bekäme an jeder Blockgrenze eine hellere
+/// Naht, ein Boden aus deckenden Blöcken dunkle Linien. Die Textur dagegen
+/// wird über den Pixel gemittelt: eine Seitenfläche ist bei scale 16 acht
+/// Pixel breit für sechzehn Texel, ohne Mittelung fiele jeder zweite weg.
+const TEXTURE_SAMPLES: u32 = 2;
 
 /// Obergrenze für die Kantenlänge eines Sprites, in Blockbreiten. Modelle
 /// dürfen von -16 bis 32 reichen, also drei Blöcke; alles darüber ist
@@ -79,13 +85,13 @@ pub fn render(
         return None;
     }
 
-    let mut canvas = Canvas::new(width * SUPERSAMPLE, height * SUPERSAMPLE);
+    let mut canvas = Canvas::new(width, height);
     for quad in &projected {
         quad.draw(&mut canvas, textures, min_x, min_y, tints);
     }
 
     Some(Sprite {
-        image: canvas.downsample(width, height),
+        image: canvas.into_image(),
         offset: (min_x, min_y),
     })
 }
@@ -141,17 +147,25 @@ impl<'a> ProjectedQuad<'a> {
             return;
         }
 
-        let scale = SUPERSAMPLE as f32;
         let vertices: [Vertex; 4] = std::array::from_fn(|i| {
             let (x, y, depth) = self.screen[i];
             Vertex {
-                x: (x - min_x as f32) * scale,
-                y: (y - min_y as f32) * scale,
+                x: x - min_x as f32,
+                y: y - min_y as f32,
                 depth,
                 u: self.quad.uvs[i][0],
                 v: self.quad.uvs[i][1],
             }
         });
+        // Die Texturmittelung tastet knapp neben dem Pixelmittelpunkt ab,
+        // am Rand also knapp ausserhalb der Fläche. Dort bleibt sie im
+        // Ausschnitt, den die Fläche aus der Textur nimmt — eine Tür soll
+        // nicht ihre Rückseite an die Kante mischen.
+        let mut bounds = [[f32::MAX, f32::MAX], [f32::MIN, f32::MIN]];
+        for [u, v] in self.quad.uvs {
+            bounds[0] = [bounds[0][0].min(u), bounds[0][1].min(v)];
+            bounds[1] = [bounds[1][0].max(u), bounds[1][1].max(v)];
+        }
 
         let tint = match self.quad.tint_index {
             None => None,
@@ -159,13 +173,28 @@ impl<'a> ProjectedQuad<'a> {
             Some(_) => tints.block,
         }
         .map(|tint| tint.map(|c| c as f32 / 255.0));
-        let layers = self.quad.layers;
+        // Knapp unter der Obergrenze, sonst landet die Abtastung im
+        // Texel dahinter. Ein Ausschnitt ohne Breite bleibt ein Punkt.
+        let hi = [
+            (bounds[1][0] - 1e-4).max(bounds[0][0]),
+            (bounds[1][1] - 1e-4).max(bounds[0][1]),
+        ];
+        let sample = |u: f32, v: f32| {
+            sample(
+                texture,
+                tw,
+                th,
+                u.clamp(bounds[0][0], hi[0]),
+                v.clamp(bounds[0][1], hi[1]),
+            )
+        };
         for [a, b, c] in [[0, 1, 2], [0, 2, 3]] {
             canvas.triangle(
                 [vertices[a], vertices[b], vertices[c]],
-                |u, v| stacked(sample(texture, tw, th, u, v), layers),
+                &sample,
                 self.shade,
                 tint,
+                self.quad.layers,
             );
         }
     }
@@ -252,9 +281,10 @@ impl Canvas {
     fn triangle(
         &mut self,
         v: [Vertex; 3],
-        sample: impl Fn(f32, f32) -> [u8; 4],
+        sample: &impl Fn(f32, f32) -> [u8; 4],
         shade: f32,
         tint: Option<[f32; 3]>,
+        layers: u8,
     ) {
         let area = edge(v[0], v[1], v[2].x, v[2].y);
         if area.abs() < 1e-6 {
@@ -281,15 +311,13 @@ impl Canvas {
         for y in min_y..max_y {
             for x in min_x..max_x {
                 let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-                let w0 = edge(v[1], v[2], px, py) / area;
-                let w1 = edge(v[2], v[0], px, py) / area;
-                let w2 = edge(v[0], v[1], px, py) / area;
-                if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                let w = weights(&v, area, px, py);
+                if w[0] < 0.0 || w[1] < 0.0 || w[2] < 0.0 {
                     continue;
                 }
 
                 let index = (y as usize) * (self.width as usize) + x as usize;
-                let depth = w0 * v[0].depth + w1 * v[1].depth + w2 * v[2].depth;
+                let depth = w[0] * v[0].depth + w[1] * v[1].depth + w[2] * v[2].depth;
                 // Bei gleicher Tiefe gewinnt die später gezeichnete Fläche.
                 // Vanilla legt deckungsgleiche Schichten übereinander: der
                 // Grasblock hat vier Overlay-Flächen auf dem Grundwürfel.
@@ -298,54 +326,80 @@ impl Canvas {
                 if depth < self.depth[index] {
                     continue;
                 }
-
-                let u = w0 * v[0].u + w1 * v[1].u + w2 * v[2].u;
-                let vv = w0 * v[0].v + w1 * v[1].v + w2 * v[2].v;
-                let texel = sample(u, vv);
-                if texel[3] == 0 {
+                let Some(texel) = filtered(&v, area, px, py, sample) else {
                     continue;
-                }
+                };
+
+                // Die hochgerechnete Deckkraft steht für das Wasser unter
+                // dem Block. Sie gilt nur, wo der Block selbst nichts
+                // dahinter hat: ein Zaunpfosten an der Oberfläche bleibt
+                // sichtbar, egal wie tief das Wasser unter ihm steht.
+                let layers = if self.color[index][3] == 0 { layers } else { 1 };
 
                 self.depth[index] = depth;
                 // Durchsichtige Texel mischen sich mit dem, was schon da
                 // steht; die Flächen kommen dafür von hinten nach vorne.
-                self.color[index] = over(shaded(texel, shade, tint), self.color[index]);
+                self.color[index] = over(
+                    shaded(stacked(texel, layers), shade, tint),
+                    self.color[index],
+                );
             }
         }
     }
 
-    /// Mittelt die Überabtastung zurück auf die Zielgröße. Gerechnet wird
-    /// mit vormultipliziertem Alpha, sonst bekommen weiche Kanten einen
-    /// dunklen Saum.
-    fn downsample(&self, width: u32, height: u32) -> RgbaImage {
-        let factor = SUPERSAMPLE;
-        RgbaImage::from_fn(width, height, |x, y| {
-            let mut sum = [0.0f32; 3];
-            let mut alpha = 0.0f32;
-            for dy in 0..factor {
-                for dx in 0..factor {
-                    let index = ((y * factor + dy) as usize) * (self.width as usize)
-                        + (x * factor + dx) as usize;
-                    let p = self.color[index];
-                    let a = p[3] as f32 / 255.0;
-                    for c in 0..3 {
-                        sum[c] += p[c] as f32 * a;
-                    }
-                    alpha += a;
-                }
-            }
-            if alpha <= 0.0 {
-                return Rgba([0, 0, 0, 0]);
-            }
-            let samples = (factor * factor) as f32;
-            Rgba([
-                (sum[0] / alpha).round() as u8,
-                (sum[1] / alpha).round() as u8,
-                (sum[2] / alpha).round() as u8,
-                (alpha / samples * 255.0).round() as u8,
-            ])
+    fn into_image(self) -> RgbaImage {
+        RgbaImage::from_fn(self.width, self.height, |x, y| {
+            Rgba(self.color[(y * self.width + x) as usize])
         })
     }
+}
+
+/// Baryzentrische Gewichte eines Punkts.
+fn weights(v: &[Vertex; 3], area: f32, px: f32, py: f32) -> [f32; 3] {
+    [
+        edge(v[1], v[2], px, py) / area,
+        edge(v[2], v[0], px, py) / area,
+        edge(v[0], v[1], px, py) / area,
+    ]
+}
+
+/// Mittelwert der Texel unter einem Pixel, mit vormultipliziertem Alpha —
+/// sonst zögen durchsichtige Texel ihre Farbe in die Nachbarn. `None`, wenn
+/// keiner davon deckt.
+fn filtered(
+    v: &[Vertex; 3],
+    area: f32,
+    px: f32,
+    py: f32,
+    sample: &impl Fn(f32, f32) -> [u8; 4],
+) -> Option<[u8; 4]> {
+    let n = TEXTURE_SAMPLES;
+    let mut sum = [0.0f32; 3];
+    let mut alpha = 0.0f32;
+    for sy in 0..n {
+        for sx in 0..n {
+            let dx = (sx as f32 + 0.5) / n as f32 - 0.5;
+            let dy = (sy as f32 + 0.5) / n as f32 - 0.5;
+            let w = weights(v, area, px + dx, py + dy);
+            let u = w[0] * v[0].u + w[1] * v[1].u + w[2] * v[2].u;
+            let vv = w[0] * v[0].v + w[1] * v[1].v + w[2] * v[2].v;
+            let texel = sample(u, vv);
+            let a = texel[3] as f32 / 255.0;
+            for c in 0..3 {
+                sum[c] += texel[c] as f32 * a;
+            }
+            alpha += a;
+        }
+    }
+    if alpha <= 0.0 {
+        return None;
+    }
+    Some([
+        (sum[0] / alpha).round() as u8,
+        (sum[1] / alpha).round() as u8,
+        (sum[2] / alpha).round() as u8,
+        (alpha / (n * n) as f32 * 255.0).round() as u8,
+    ])
 }
 
 fn shaded(texel: [u8; 4], shade: f32, tint: Option<[f32; 3]>) -> [u8; 4] {
@@ -389,6 +443,34 @@ fn edge(a: Vertex, b: Vertex, px: f32, py: f32) -> f32 {
 mod tests {
     use super::*;
     use crate::assets::baker::Quad;
+
+    /// Ein Texturausschnitt ohne Breite darf nicht zum Absturz führen —
+    /// `clamp` verlangt min <= max. Vanilla hat solche Flächen.
+    #[test]
+    fn texturausschnitt_ohne_breite() {
+        let mut schmal = quad(
+            [
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0],
+            ],
+            true,
+        );
+        schmal.uvs = [[0.5, 0.0], [0.5, 0.0], [0.5, 1.0], [0.5, 1.0]];
+        let model = BakedModel {
+            quads: vec![schmal],
+        };
+        assert!(
+            render(
+                &model,
+                &Textures::new(),
+                &Projection::new(16),
+                Tints::default()
+            )
+            .is_some()
+        );
+    }
 
     fn quad(corners: [[f32; 3]; 4], shade: bool) -> Quad {
         Quad {

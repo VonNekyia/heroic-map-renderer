@@ -472,8 +472,8 @@ fn covers_cell(sprite: &Sprite, projection: Projection) -> bool {
         return false;
     }
 
-    // Eine Pixelbreite Rand bleibt aussen vor: die Ueberabtastung laesst
-    // genau dort Alpha unter 255 zurueck, und eine Blockkante um ein Pixel
+    // Eine Pixelbreite Rand bleibt aussen vor: die Texturmittelung kann
+    // genau dort Alpha unter 255 lassen, und eine Blockkante um ein Pixel
     // durchscheinen zu lassen ist harmlos.
     let mut geprueft = 0u32;
     for (x, y, pixel) in sprite.image.enumerate_pixels() {
@@ -495,8 +495,7 @@ fn covers_cell(sprite: &Sprite, projection: Projection) -> bool {
 
 /// Prueft, ob ein Sprite ganz im Umriss eines Wuerfels bleibt.
 ///
-/// Die eine Pixelbreite Toleranz entspricht der von `covers_cell`: an der
-/// Sechseckkante laesst die Ueberabtastung ohnehin Teilalpha zurueck.
+/// Die eine Pixelbreite Toleranz entspricht der von `covers_cell`.
 fn fits_cell(sprite: &Sprite, cell: Cell, projection: Projection) -> bool {
     let half = projection.scale() as f32 / 2.0;
     let (cx, cy) = cell_center(cell, projection);

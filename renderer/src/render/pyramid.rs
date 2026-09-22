@@ -7,6 +7,8 @@
 use std::collections::BTreeSet;
 
 use image::{Rgba, RgbaImage};
+use std::sync::LazyLock;
+
 use serde::Serialize;
 
 use super::{TILE, TileId};
@@ -92,10 +94,15 @@ pub fn merge(parent: TileId, children: &[(TileId, RgbaImage)]) -> RgbaImage {
 /// durchsichtige Pixel ihre Farbe in die Nachbarn, und jede Kante gegen
 /// Luft bekäme einen dunklen Saum — auf einer Karte voller Blattwerk und
 /// Zäune wäre das überall zu sehen.
+///
+/// Gemittelt wird ausserdem in linearem Licht, nicht in sRGB-Werten: die
+/// sind gammakodiert, und ihr Mittel ist zu dunkel. Halb Schwarz, halb
+/// Weiss ergibt so 188 statt 128 — kontrastreiche Texturen fallen beim
+/// Herauszoomen sonst zusammen, und jede Stufe verdunkelt weiter.
 pub fn shrink(image: &RgbaImage) -> RgbaImage {
     let mut out = RgbaImage::new(image.width() / 2, image.height() / 2);
     for (x, y, ziel) in out.enumerate_pixels_mut() {
-        let mut farbe = [0u32; 3];
+        let mut farbe = [0.0f32; 3];
         let mut alpha = 0u32;
         for dy in 0..2 {
             for dx in 0..2 {
@@ -103,13 +110,17 @@ pub fn shrink(image: &RgbaImage) -> RgbaImage {
                 let a = pixel[3] as u32;
                 alpha += a;
                 for (summe, &wert) in farbe.iter_mut().zip(&pixel[..3]) {
-                    *summe += wert as u32 * a;
+                    *summe += LINEAR[wert as usize] * a as f32;
                 }
             }
         }
         // Ohne Deckung gibt es keine Farbe zu mitteln, und das Pixel ist
         // ohnehin durchsichtig.
-        let mittel = |summe: u32| (summe + alpha / 2).checked_div(alpha).unwrap_or(0) as u8;
+        if alpha == 0 {
+            *ziel = Rgba([0, 0, 0, 0]);
+            continue;
+        }
+        let mittel = |summe: f32| to_srgb(summe / alpha as f32);
         *ziel = Rgba([
             mittel(farbe[0]),
             mittel(farbe[1]),
@@ -118,6 +129,29 @@ pub fn shrink(image: &RgbaImage) -> RgbaImage {
         ]);
     }
     out
+}
+
+/// sRGB-Wert nach linearem Licht, als Tabelle: die Pyramide läuft über
+/// jedes Pixel jeder Stufe.
+static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
+    std::array::from_fn(|i| {
+        let c = i as f32 / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    })
+});
+
+/// Lineares Licht zurück nach sRGB.
+fn to_srgb(linear: f32) -> u8 {
+    let c = if linear <= 0.003_130_8 {
+        linear * 12.92
+    } else {
+        1.055 * linear.powf(1.0 / 2.4) - 0.055
+    };
+    (c * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
 /// Was das Frontend über die Karte wissen muss.
@@ -246,6 +280,26 @@ mod tests {
         let p = klein.get_pixel(0, 0).0;
         assert_eq!(&p[..3], &[255, 0, 0], "Farbe verwässert: {p:?}");
         assert_eq!(p[3], 64, "Alpha ist der Mittelwert");
+    }
+
+    /// Jeder sRGB-Wert muss die Reise nach linear und zurück unverändert
+    /// überstehen, sonst verfärbt sich eine einfarbige Fläche je Stufe.
+    #[test]
+    fn srgb_rundreise_ist_verlustfrei() {
+        for c in 0..=255u8 {
+            assert_eq!(to_srgb(LINEAR[c as usize]), c);
+        }
+    }
+
+    /// Halb Schwarz, halb Weiss: in linearem Licht gemittelt ist das
+    /// deutlich heller als der sRGB-Mittelwert 128.
+    #[test]
+    fn verkleinern_mittelt_in_linearem_licht() {
+        let mut bild = RgbaImage::from_pixel(2, 2, Rgba([0, 0, 0, 255]));
+        bild.put_pixel(0, 0, Rgba([255, 255, 255, 255]));
+        bild.put_pixel(1, 1, Rgba([255, 255, 255, 255]));
+        let p = shrink(&bild).get_pixel(0, 0).0;
+        assert_eq!(p, [188, 188, 188, 255]);
     }
 
     #[test]

@@ -645,3 +645,137 @@ fn tiefes_wasser_deckt() {
         );
     }
 }
+
+/// Pixel, der einen Punkt in Blockkoordinaten enthält.
+fn punkt(bild: &RgbaImage, projection: Projection, rect: ScreenRect, p: [f64; 3]) -> [u8; 4] {
+    let s = projection.scale() as f64;
+    let sx = (p[0] - p[2]) * s / 2.0 - rect.x as f64;
+    let sy = (p[0] + p[2]) * s / 4.0 - p[1] * s / 2.0 - rect.y as f64;
+    bild.get_pixel(sx.floor() as u32, sy.floor() as u32).0
+}
+
+/// Wo zwei Flächen aneinanderstossen, darf keine Naht entstehen: eine
+/// geschlossene Wasserfläche hat an jeder inneren Blockgrenze dasselbe
+/// Alpha wie in der Mitte, ein Boden aus deckenden Blöcken dieselbe Farbe.
+/// Geglättete Sprite-Kanten hätten dort Teildeckung übereinandergelegt.
+#[test]
+fn flaechen_stossen_nahtlos_aneinander() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 192);
+    let becken = |x: i32, z: i32| (4..7).contains(&x) && (4..7).contains(&z);
+
+    let dir = tempdir();
+    let wasser = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| {
+            if y == 1 && becken(x, z) {
+                "minecraft:water"
+            } else {
+                "minecraft:air"
+            }
+        },
+        projection,
+        rect,
+    );
+    let dir = tempdir();
+    let boden = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| {
+            if y == 1 && becken(x, z) {
+                "minecraft:einfarbig"
+            } else {
+                "minecraft:air"
+            }
+        },
+        projection,
+        rect,
+    );
+
+    // Mittelpunkte der inneren Kanten: zwischen (x, z) und (x + 1, z) sowie
+    // (x, z + 1), nur wo beide Seiten im Becken liegen.
+    let mut kanten = Vec::new();
+    for x in 4..7 {
+        for z in 4..7 {
+            if x + 1 < 7 {
+                kanten.push([x as f64 + 1.0, 2.0, z as f64 + 0.5]);
+            }
+            if z + 1 < 7 {
+                kanten.push([x as f64 + 0.5, 2.0, z as f64 + 1.0]);
+            }
+        }
+    }
+    assert_eq!(kanten.len(), 12);
+    for kante in kanten {
+        // Der Pixel links und rechts der Kante — beide gehören genau einer
+        // Fläche und tragen deren volle Deckung.
+        for dx in [-0.05, 0.05] {
+            let p = [kante[0] + dx, kante[1], kante[2] - dx];
+            assert_eq!(
+                punkt(&wasser, projection, rect, p)[3],
+                180,
+                "Wasser an {kante:?}"
+            );
+            assert_eq!(
+                punkt(&boden, projection, rect, p),
+                [150, 110, 60, 255],
+                "Boden an {kante:?}"
+            );
+        }
+    }
+}
+
+/// Die Tiefe unter einem gefluteten Block darf dessen eigene Geometrie
+/// nicht ausblenden: der Pfosten eines Zauns an der Oberfläche sieht über
+/// tiefem Wasser genauso aus wie über flachem, denn zwischen Kamera und
+/// Pfosten liegt in beiden Fällen dasselbe Wasser.
+#[test]
+fn tiefe_blendet_eigene_geometrie_nicht_aus() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 256);
+    let zaun = "minecraft:oak_fence[north=true,waterlogged=true]";
+
+    // Flach: Zaun auf dem Boden. Tief: Zaun über drei Blöcken Wasser.
+    let dir = tempdir();
+    let flach = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (8, 1, 8) => zaun,
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let dir = tempdir();
+    let tief = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (8, 4, 8) => zaun,
+            (8, 1..=3, 8) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+
+    // Oberseite des Pfostens, in beiden Welten die Blockmitte.
+    let pfosten_flach = oberseite(&flach, projection, rect, [8, 1, 8]);
+    let pfosten_tief = oberseite(&tief, projection, rect, [8, 4, 8]);
+    assert_eq!(pfosten_flach, pfosten_tief, "Pfosten über tiefem Wasser");
+    assert_ne!(
+        pfosten_flach[..3],
+        [150, 110, 60],
+        "Wasser liegt über dem Pfosten"
+    );
+
+    // Neben dem Pfosten sieht man durch das Wasser: flach den Boden, tief
+    // fast nur noch Wasser.
+    let neben_flach = punkt(&flach, projection, rect, [8.2, 2.0, 8.2]);
+    let neben_tief = punkt(&tief, projection, rect, [8.2, 5.0, 8.2]);
+    assert_ne!(neben_flach, neben_tief, "Tiefe wirkt neben dem Pfosten");
+}

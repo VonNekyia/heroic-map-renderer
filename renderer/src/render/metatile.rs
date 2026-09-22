@@ -1,13 +1,13 @@
 use std::collections::{BTreeSet, HashMap};
 
 use anyhow::Result;
-use image::{Rgba, RgbaImage};
+use image::RgbaImage;
 
 use crate::assets::Face;
 use crate::world::{Chunk, REGION, Region, World};
 
 use super::rasterizer::over;
-use super::sprites::{DEPTHS, Family, mask_bit};
+use super::sprites::{Cover, DEPTHS, Family, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
@@ -96,6 +96,7 @@ pub fn render_area_with(
     chunks.next_tile();
     let sprites = chunks.sprites;
     let projection = sprites.projection();
+    let cover = sprites.cover();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
     let foreign: Vec<Cell> = sprites.foreign_cells().iter().copied().collect();
 
@@ -117,7 +118,10 @@ pub fn render_area_with(
         if let Some(id) = id
             && let Some(part) = sprites.part(id, cell)
         {
-            blit(&mut canvas, part, rect, projection, anchor);
+            // Fremde Teile liegen in einem anderen Würfel als dem Anker;
+            // die Deckungstabelle gilt nur für den eigenen.
+            let skip = if c.kind == 0 { c.skip } else { 0 };
+            blit(&mut canvas, part, rect, projection, anchor, cover, skip);
         }
     }
 
@@ -140,6 +144,9 @@ struct Candidate {
     /// 0: der Block selbst; sonst 1 + Index des fremden Würfels, in den
     /// ein Nachbarmodell hineinragt.
     kind: u8,
+    /// Nachbarn (`mask_bit`), die deckend sind und gezeichnet werden: was
+    /// in ihrem Umriss liegt, übermalen sie ohnehin.
+    skip: u8,
 }
 
 /// Alle Chunks, deren Blöcke in das Rechteck fallen können.
@@ -216,28 +223,57 @@ fn columns_at(
     })
 }
 
+/// Zeichnet ein Sprite an seinen Block — ohne die Pixel, die ein Nachbar
+/// aus `skip` ohnehin übermalt.
+///
+/// Ein sichtbarer Block zeichnet sonst alle drei Flächen, auch die, die der
+/// deckende Nachbar gleich darüberlegt: auf flachem Gelände zwei von drei.
+/// Übersprungen wird nur, was im Umriss eines Nachbarn liegt, der deckend
+/// ist *und* in dieser Kachel gezeichnet wird — dann ist der Pixel danach
+/// Alpha 255 vom Nachbarn, egal was vorher da stand. Das Bild ist dasselbe.
 fn blit(
     canvas: &mut RgbaImage,
     sprite: &Sprite,
     rect: ScreenRect,
     projection: Projection,
     [x, y, z]: [i32; 3],
+    cover: &Cover,
+    skip: u8,
 ) {
     let (sx, sy) = projection.project_block([x, y, z]);
     let origin_x = sx.round() as i32 + sprite.offset.0 - rect.x;
     let origin_y = sy.round() as i32 + sprite.offset.1 - rect.y;
+    let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
+    let (cw, ch) = (canvas.width() as i32, canvas.height() as i32);
 
-    for (px, py, pixel) in sprite.image.enumerate_pixels() {
-        if pixel.0[3] == 0 {
-            continue;
+    // Der Teil des Sprites, der auf die Leinwand fällt.
+    let (x0, x1) = ((-origin_x).max(0), (cw - origin_x).min(w));
+    let (y0, y1) = ((-origin_y).max(0), (ch - origin_y).min(h));
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+
+    let src = sprite.image.as_raw();
+    let dst: &mut [u8] = canvas;
+    for py in y0..y1 {
+        let row = &src[(py * w * 4) as usize..][..(w * 4) as usize];
+        let drow = &mut dst[((origin_y + py) * cw * 4) as usize..][..(cw * 4) as usize];
+        for px in x0..x1 {
+            let s = &row[(px * 4) as usize..][..4];
+            if s[3] == 0 {
+                continue;
+            }
+            if skip != 0 && cover.at(sprite.offset.0 + px, sprite.offset.1 + py) & skip != 0 {
+                continue;
+            }
+            let d = &mut drow[((origin_x + px) * 4) as usize..][..4];
+            if s[3] == 255 {
+                d.copy_from_slice(s);
+            } else {
+                let out = over([s[0], s[1], s[2], s[3]], [d[0], d[1], d[2], d[3]]);
+                d.copy_from_slice(&out);
+            }
         }
-        let tx = origin_x + px as i32;
-        let ty = origin_y + py as i32;
-        if tx < 0 || ty < 0 || tx >= canvas.width() as i32 || ty >= canvas.height() as i32 {
-            continue;
-        }
-        let under = canvas.get_pixel(tx as u32, ty as u32).0;
-        canvas.put_pixel(tx as u32, ty as u32, Rgba(over(pixel.0, under)));
     }
 }
 
@@ -317,6 +353,12 @@ struct Exposed {
     /// Würfel, deren drei kamerazugewandte Nachbarn deckend sind. Ein
     /// fremdes Modellteil in so einem Würfel wäre unsichtbar.
     hidden: [u16; 256],
+    /// Je Richtung: der Nachbar ist deckend und selbst Kandidat, wird also
+    /// gezeichnet und übermalt seinen Umriss. An Section- und Chunkrändern
+    /// vorsichtshalber nie — dort müsste der Nachbar erst berechnet werden.
+    skip_x: [u16; 256],
+    skip_y: [u16; 256],
+    skip_z: [u16; 256],
 }
 
 impl Masks {
@@ -526,6 +568,9 @@ impl<'a> ChunkCache<'a> {
         let mut ex = Exposed {
             own: [0; 256],
             hidden: [0; 256],
+            skip_x: [0; 256],
+            skip_y: [0; 256],
+            skip_z: [0; 256],
         };
         for col in 0..256 {
             let (x, z) = (col & 15, col >> 4);
@@ -548,6 +593,14 @@ impl<'a> ChunkCache<'a> {
             ex.own[col] = (m.present[col] & !m.water[col] & !hidden)
                 | (m.water[col] & !water_hidden)
                 | m.loose[col];
+        }
+        // Deckende Kandidaten: die übermalen, was in ihrem Umriss liegt.
+        let drawn = |col: usize| ex.own[col] & m.solid[col];
+        for col in 0..256 {
+            let (x, z) = (col & 15, col >> 4);
+            ex.skip_x[col] = if x < 15 { drawn(col + 1) } else { 0 };
+            ex.skip_z[col] = if z < 15 { drawn(col + 16) } else { 0 };
+            ex.skip_y[col] = drawn(col) >> 1;
         }
         loaded.exposed[s] = Some(Box::new(ex));
         Ok(())
@@ -640,17 +693,32 @@ impl<'a> ChunkCache<'a> {
                     let (u, v) = (x - z, x + z);
                     let mut bits = own;
                     while bits != 0 {
-                        let y = sy + bits.trailing_zeros() as i32;
+                        let b = bits.trailing_zeros();
+                        let y = sy + b as i32;
                         bits &= bits - 1;
-                        if in_band(y, v, u) {
-                            out.push(Candidate {
-                                key: key_of(y, v, u, 0),
-                                x,
-                                y,
-                                z,
-                                kind: 0,
-                            });
+                        if !in_band(y, v, u) {
+                            continue;
                         }
+                        // Der Nachbar übermalt nur, was diese Kachel auch
+                        // zeichnet: er muss selbst im Band liegen.
+                        let mut skip = 0;
+                        if ex.skip_x[col] >> b & 1 != 0 && in_band(y, v + 1, u + 1) {
+                            skip |= mask_bit(Face::East);
+                        }
+                        if ex.skip_y[col] >> b & 1 != 0 && in_band(y + 1, v, u) {
+                            skip |= mask_bit(Face::Up);
+                        }
+                        if ex.skip_z[col] >> b & 1 != 0 && in_band(y, v + 1, u - 1) {
+                            skip |= mask_bit(Face::South);
+                        }
+                        out.push(Candidate {
+                            key: key_of(y, v, u, 0),
+                            x,
+                            y,
+                            z,
+                            kind: 0,
+                            skip,
+                        });
                     }
                     let mut bits = fo;
                     while bits != 0 {
@@ -679,6 +747,7 @@ impl<'a> ChunkCache<'a> {
                         y,
                         z,
                         kind: i as u8 + 1,
+                        skip: 0,
                     });
                 }
             }

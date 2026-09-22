@@ -47,6 +47,8 @@ pub struct SpriteSet {
     by_biome: HashMap<SpriteId, HashMap<String, SpriteId>>,
     projection: Projection,
     foreign: BTreeSet<Cell>,
+    /// Welche Nachbarn welche Pixel eines Blocks uebermalen wuerden.
+    cover: Cover,
     /// Blockarten, die die Assets nicht aufloesen konnten, mit dem Grund.
     /// Sie bleiben auf der Karte leer wie Luft — ein Mod-Block oder eine
     /// Umbenennung darf keinen stundenlangen Render abbrechen.
@@ -179,6 +181,7 @@ impl SpriteSet {
             by_biome: HashMap::new(),
             projection,
             foreign: BTreeSet::new(),
+            cover: Cover::new(projection),
             unresolved: BTreeMap::new(),
         };
 
@@ -463,6 +466,10 @@ impl SpriteSet {
         &self.foreign
     }
 
+    pub fn cover(&self) -> &Cover {
+        &self.cover
+    }
+
     /// Wie viele Sprites ihren eigenen Blockwürfel verlassen.
     pub fn overhanging(&self) -> usize {
         self.sprites.iter().filter(|e| e.parts.len() > 1).count()
@@ -505,6 +512,61 @@ fn pixel_center(sprite: &Sprite, x: u32, y: u32) -> (f32, f32) {
 fn cell_center(cell: Cell, projection: Projection) -> (f32, f32) {
     let (x, y) = projection.project_block(cell);
     (x as f32, y as f32)
+}
+
+/// Welche der drei kamerazugewandten Nachbarn einen Pixel des eigenen
+/// Sprites uebermalen wuerden — je Pixelposition relativ zum Blockursprung
+/// ein Bitfeld aus [`mask_bit`]: Osten, oben, Sueden.
+///
+/// Ein deckender Nachbar, der gezeichnet wird, setzt jeden Pixel in seinem
+/// Umriss auf Alpha 255 — und kommt in der Zeichenreihenfolge nach diesem
+/// Block. Was er uebermalt, muss der Block gar nicht erst zeichnen. Das ist
+/// derselbe Umriss, den `covers_cell` prueft, samt der Pixelbreite Rand,
+/// die dort ausgenommen ist: nur innerhalb ist Alpha 255 garantiert.
+///
+/// Die Tabelle haengt nur an der Projektion; eine je Sprite-Tabelle.
+pub struct Cover {
+    origin: i32,
+    size: i32,
+    bits: Vec<u8>,
+}
+
+impl Cover {
+    fn new(projection: Projection) -> Cover {
+        let scale = projection.scale() as i32;
+        let half = (scale / 2) as f32;
+        let (origin, size) = (-2 * scale, 4 * scale);
+        let mut bits = vec![0u8; (size * size) as usize];
+        for py in 0..size {
+            for px in 0..size {
+                let (cx, cy) = ((origin + px) as f32 + 0.5, (origin + py) as f32 + 0.5);
+                let mut b = 0;
+                for (face, cell) in [
+                    (Face::East, [1, 0, 0]),
+                    (Face::Up, [0, 1, 0]),
+                    (Face::South, [0, 0, 1]),
+                ] {
+                    let (nx, ny) = cell_center(cell, projection);
+                    if in_outline(cx - nx, cy - ny, half, -1.0) {
+                        b |= mask_bit(face);
+                    }
+                }
+                bits[(py * size + px) as usize] = b;
+            }
+        }
+        Cover { origin, size, bits }
+    }
+
+    /// Bitfeld des Pixels an dieser Position relativ zum Blockursprung.
+    /// Ausserhalb der Tabelle deckt niemand.
+    #[inline]
+    pub fn at(&self, x: i32, y: i32) -> u8 {
+        let (px, py) = (x - self.origin, y - self.origin);
+        if px < 0 || py < 0 || px >= self.size || py >= self.size {
+            return 0;
+        }
+        self.bits[(py * self.size + px) as usize]
+    }
 }
 
 /// Prueft, ob ein Sprite den Umriss eines vollen Blocks lueckenlos und
@@ -707,6 +769,24 @@ mod tests {
             assert_eq!(seed(pos), saat, "Saat fuer {pos:?}");
             assert_eq!(java_random_int(saat), wert, "Random fuer {pos:?}");
         }
+    }
+
+    /// Die Mitte der Oberseite uebermalt nur der Nachbar darueber, die
+    /// Mitte der Ostseite nur der oestliche; weit weg deckt niemand, und
+    /// den Rand des Nachbarumrisses nimmt die Tabelle aus — dort ist
+    /// Alpha 255 nicht garantiert.
+    #[test]
+    fn deckung_je_nachbar() {
+        let cover = Cover::new(Projection::new(16));
+        // Oberseite: Mitte bei (0, -4), Ostseite: (4, 2), Suedseite: (-4, 2).
+        assert_eq!(cover.at(0, -4), mask_bit(Face::Up));
+        assert_eq!(cover.at(4, 2), mask_bit(Face::East));
+        assert_eq!(cover.at(-5, 2), mask_bit(Face::South));
+        assert_eq!(cover.at(100, 100), 0);
+        // Der Umriss des oberen Nachbarn reicht bis y = -16; seine oberste
+        // Pixelreihe bleibt Rand.
+        assert_eq!(cover.at(0, -16), 0);
+        assert_eq!(cover.at(0, -15), mask_bit(Face::Up));
     }
 
     /// `Math.abs(int) % total` und das Abzaehlen der Gewichte, wie

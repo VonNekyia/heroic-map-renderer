@@ -332,14 +332,15 @@ ist ein schräger Schnitt durch die volle Bauhöhe von 384 Blöcken: rund
 Blöcken liegen unter der Oberfläche. Gemessen an einem 4096er-Ausschnitt um
 (0, 0), einfädig, je Kachel:
 
-| Phase | ursprünglich | Cache je Stapel | Bitmasken |
-|---|---|---|---|
-| Blöcke finden und Sprite wählen | 39 ms | 20 ms | 4,5 ms |
-| Chunks laden und dekodieren | 15 ms (106 Chunks) | 1 ms (6,5) | 1,5 ms (9) |
-| Sprites zeichnen (4688 bzw. 3934 Blits) | 9 ms | 9 ms | 8 ms |
-| WebP kodieren | 0,5 ms | 0,5 ms | 0,6 ms |
-| gesamt | 64 ms | 30 ms | 13 ms |
-| 24 Threads, 8192er-Ausschnitt | 159 Kacheln/s | 318 | 532 |
+| Phase | ursprünglich | Cache je Stapel | Bitmasken | Flächen |
+|---|---|---|---|---|
+| Blöcke finden und Sprite wählen | 39 ms | 20 ms | 4,5 ms | 4,5 ms |
+| Chunks laden und dekodieren | 15 ms (106 Chunks) | 1 ms (6,5) | 1,5 ms (9) | 1,5 ms |
+| Sprites zeichnen | 9 ms | 9 ms | 8 ms | ~3 ms |
+| WebP kodieren | 0,5 ms | 0,5 ms | 0,6 ms | 0,6 ms |
+| gesamt, ein Kern | 64 ms | 30 ms | 13 ms | 7,8 ms |
+| 12 Threads, 8192er-Ausschnitt | | | 411 Kacheln/s | 620 |
+| 24 Threads, 8192er-Ausschnitt | 159 Kacheln/s | 318 | 532 | 731 |
 
 Keiner der Umbauten ändert einen Pixel: der 8192er-Ausschnitt ist nach jedem
 Byte für Byte gleich, alle 1393 Dateien.
@@ -367,9 +368,22 @@ allein: der Windows-Heap serialisiert die vielen kleinen Allokationen des
 NBT-Lesers über 24 Threads. Mit mimalloc hat jeder Thread seinen Heap; das
 war der Unterschied zwischen 245 und 532 Kacheln/s.
 
-Was bleibt: das Zeichnen. 8 der 13 ms gehen in die Blits, 1,3 ns je Pixel,
-aber 70-fach überzeichnet — jeder sichtbare Block zeichnet seine drei
-Flächen, auch die, die der Nachbar gleich übermalt.
+**Flächen überspringen.** Ein sichtbarer Block zeichnete alle drei Flächen,
+auch die, die der deckende Nachbar gleich übermalt: 70-fach überzeichnet,
+auf flachem Gelände zwei von drei Flächen umsonst. Jetzt kennt der Renderer
+je Pixelposition eines Sprites, in welchem Nachbarumriss sie liegt — eine
+Tabelle je Projektion, nicht je Sprite —, und lässt die Pixel aus, deren
+Nachbar deckend ist und in derselben Kachel gezeichnet wird. Der setzt sie
+danach ohnehin auf Alpha 255; was vorher dort stand, ist egal. Genommen
+wird nur der Umriss ohne seinen Pixelrand, denn nur innen garantiert
+`covers_cell` das Alpha. Dazu schreibt der Blit deckende Pixel direkt
+statt durch `over`.
+
+Was bleibt, verteilt sich: die Kandidaten aus den Masken, die Sprite-Wahl
+der sichtbaren Blöcke, das Zeichnen der wirklich sichtbaren Flächen. Auf
+24 Threads sind es 4,6-mal so viele Kacheln je Sekunde wie am Anfang, auf
+einem Kern 8-mal; die Differenz ist Hyperthreading auf 12 Kernen plus
+das, was 24 Threads sich an Speicherbandbreite teilen.
 
 WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
 wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den

@@ -173,10 +173,13 @@ werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
 Chunks werden deshalb zweimal gelesen; der Vorlauf kostet 11 Sekunden für die
 ganze Welt.
 
-Gerendert wird mit Rayon über Stapel aufeinanderfolgender Kacheln. Jeder
-Stapel hält seinen Chunk- und Regionscache, geteilt wird nur die
+Gerendert wird in Paketen aus acht Kachelspalten, Zeile für Zeile. Jeder
+Thread hält seinen Chunk- und Regionscache über die Pakete hinweg und
+bekommt als nächstes das Paket unter seinem; geteilt wird nur die
 unveränderliche Sprite-Tabelle. Kacheln untereinander teilen sich fast alle
-Chunks; der Cache lädt je Kachel nur die paar neuen am unteren Rand.
+Chunks, so kommen je Kachel noch knapp zwei neue dazu. Die fertigen
+WebP-Bytes gehen an acht Schreibthreads, damit kein Renderthread auf das
+Dateisystem wartet.
 
 `--center` und `--size` schränken auf einen Ausschnitt ein:
 
@@ -381,7 +384,8 @@ Nachbar deckend ist und in derselben Kachel gezeichnet wird. Der setzt sie
 danach ohnehin auf Alpha 255; was vorher dort stand, ist egal. Genommen
 wird nur der Umriss ohne seinen Pixelrand, denn nur innen garantiert
 `covers_cell` das Alpha. Dazu schreibt der Blit deckende Pixel direkt
-statt durch `over`.
+statt durch `over`. Die Deckungsmaske der zweiten Runde (unten) hat diese
+Tabelle wieder abgelöst.
 
 **Sammeln nur, wo das Band hinreicht.** Die Sammelschleife lief je Kachel
 über alle 24 Sections aller gut hundert Band-Chunks, 256 Spalten je
@@ -461,6 +465,66 @@ vorher auf der CPU; die Tests, die eine Karte brauchen, überspringen sich
 dann und sagen es. In CI laufen sie auf Software-Adaptern, lavapipe
 (Vulkan) auf Ubuntu und WARP (DX12) auf Windows: derselbe Shader-Weg wie
 auf einer echten Karte, nur langsam.
+
+### Die grossen Posten, zweite Runde
+
+Vier Untersuchungen über den Stand von oben — Chunks, Skalierung über
+die Threads, Schreiben und Pyramide, Blit und Kandidaten — und daraus die
+vier grössten Posten. Gemessen auf einem 65536er-Ausschnitt um (0, 0),
+65 536 Kacheln und 6,7 GB, weil der 8192er nur acht Spaltenstreifen hat
+und 24 Threads daran nichts Verlässliches zeigen; die Ein-Kern-Zahl auf
+dem 8192er. Kein Umbau ändert einen Pixel: der 16384er-Ausschnitt ist
+nach jedem Byte für Byte gleich, alle 5484 Dateien.
+
+| | ein Kern, 8192er | 24 Threads, 65536er | dito mit GPU |
+|---|---|---|---|
+| Stand von oben | 182 Kacheln/s | 871 | 1043 |
+| Pakete aus acht Spalten | 243 | 1001 | 1271 |
+| Kandidaten ausserhalb der Kachel weg | 275 | 1046 | 1328 |
+| Schreibthreads | 298 | 1065 | 1373 |
+| Deckungsmaske | 381 | 1278 | 1440 |
+
+**Pakete aus acht Spalten.** Rayon verteilte Stapel aus je einer Spalte,
+und wer einen Stapel stahl, fing mit kaltem Cache an: 8,1 Chunks je
+Kachel neu dekodiert statt der knapp zwei, die eine Kachel wirklich neu
+braucht. Jetzt sind die Pakete acht Spalten breit und ein paar Zeilen
+hoch, jeder Thread behält seinen Cache über Pakete hinweg und bekommt als
+nächstes das Paket unter seinem — ein eigener Verteiler statt Rayons
+Diebstahl, der die Streifen sonst zerlegt. 1,9 Chunks je Kachel.
+
+**Kandidaten ausserhalb der Kachel.** Das Band um die Kachel hat drei
+Blöcke Reserve, weil ein Modell so weit über seinen Block hinausragen
+darf. Sprites, die in ihrem Würfel bleiben (fast alle), reichen aber nur
+gut einen halben Block über den Ursprung — mehr als die Hälfte der
+Kandidaten lag damit ausserhalb der Kachel, bekam eine Sprite-Wahl und
+endete im ersten Vergleich des Blits. Für sie gilt jetzt der genaue
+Kasten aus dem Umriss, lose Familien behalten das Band.
+
+**Schreibthreads.** Ohne Dateischreiben schaffte der CPU-Pfad auf 24
+Threads 2300 Kacheln je Sekunde, mit 1010: das Anlegen und Schliessen
+jeder Datei wartet auf NTFS und auf den Echtzeitschutz, der jede neue
+Datei beim Schliessen prüft — zwölf bis dreizehn Kerne lang, gemessen an
+`MsMpEng` während der Kachelphase. Der Renderthread kodiert noch selbst
+und gibt die Bytes über einen begrenzten Kanal an acht Schreibthreads ab.
+Mehr Schreiber bringen nichts (24 statt 8: 1094 statt 1065), der Prüfer
+bleibt. Eine Ausnahme für das Kachelverzeichnis im Defender ist eine
+Einstellung des Rechners, nicht des Renderers; sie holt den Rest.
+
+**Deckungsmaske.** Jeder Pixel wurde im Schnitt siebenmal gemalt. Die
+Kandidaten laufen jetzt von vorn nach hinten über eine Bitmaske je
+Leinwandpixel: ein Block, dessen ganzer Umriss schon bedeckt ist, bekommt
+keine Sprite-Wahl; ein Sprite ohne sichtbares Pixel kommt nicht in die
+Liste; und der Rest merkt sich je Zeile die freien Pixel, nur die setzt
+der Blit. Das löst die Nachbartabelle von oben ab, die nur drei Nachbarn
+in derselben Kachel sah. Die Grafikkarte bekommt die Liste weiter ohne
+Maske: sie zeichnete die verdeckten Pixel ohnehin nebenbei, und die Maske
+kostete dort nur CPU-Zeit — mit Maske 1286 Kacheln/s statt 1440.
+
+Nicht im Code, weil gemessen ohne Gewinn oder nicht Sache des Renderers:
+ein schnellerer verlustfreier WebP-Kodierer (es gibt keinen), mehr als
+acht Schreibthreads, und zwei Dinge am Rechner — der Echtzeitschutz von
+oben und der Arbeitsspeicher, der hier ohne XMP-Profil mit 2133 statt
+3600 MT/s läuft, während sich 24 Threads die Bandbreite teilen.
 
 ### Wasser und Biomfarben
 

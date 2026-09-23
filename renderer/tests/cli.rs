@@ -514,6 +514,21 @@ fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
     }
 }
 
+/// Wasser hat kein Modell-JSON, der Renderer baut es im Code. `--block`
+/// darf es deshalb nicht als modelllos melden.
+#[test]
+fn block_nennt_wasser_nicht_modelllos() {
+    let ausgabe = cli(&[
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--block"),
+        OsStr::new("water"),
+    ]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(!text.contains("kein Modell"), "{text}");
+    assert!(text.contains("Flüssigkeit: Water"), "{text}");
+}
+
 /// Ein vergessenes `--scale` darf einen bestehenden Baum nicht zerlegen:
 /// die neuen Kacheln lägen eine Stufe tiefer als die alten, und `map.json`
 /// beschriebe danach nur noch den Ausschnitt.

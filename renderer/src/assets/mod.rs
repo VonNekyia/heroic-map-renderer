@@ -5,7 +5,7 @@ pub mod fluid;
 pub mod model;
 pub mod texture;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -72,6 +72,7 @@ pub struct Assets {
     blockstates: HashMap<String, Arc<BlockStateDef>>,
     models: HashMap<String, Arc<ResolvedModel>>,
     colors: Colors,
+    skipped: BTreeSet<String>,
 }
 
 impl Assets {
@@ -90,7 +91,14 @@ impl Assets {
             textures: Textures::new(),
             blockstates: HashMap::new(),
             models: HashMap::new(),
+            skipped: BTreeSet::new(),
         })
+    }
+
+    /// Alternativen, die weggefallen sind, weil ihr Modell fehlt oder
+    /// kaputt ist — je Blockstate mit dem ersten Fehler.
+    pub fn skipped(&self) -> &BTreeSet<String> {
+        &self.skipped
     }
 
     /// Colormaps und Biome für die Färbung von Gras, Laub und Wasser.
@@ -168,31 +176,48 @@ impl Assets {
     }
 
     /// Alle Alternativen einer Blockstate mit ihrem Gewicht.
+    ///
+    /// Eine Alternative, deren Modell fehlt oder kaputt ist, fällt weg,
+    /// solange sich eine andere auflösen lässt: ein Pack mit einem Tippfehler
+    /// in einer Variantenliste soll nicht den ganzen Lauf abbrechen, und der
+    /// Block bekommt die übrigen Drehungen. Was wegfällt, steht in
+    /// [`Assets::skipped`]. Fehlen alle, ist das ein Fehler.
     pub fn alternatives(&mut self, state: &BlockState) -> Result<Vec<(u32, Vec<ResolvedVariant>)>> {
         let def = self.blockstate_def(state.name())?;
         let alternatives = def.alternatives(state);
         if alternatives.is_empty() {
             bail!("{state} passt auf keine Variante der Blockstate-Datei");
         }
-        alternatives
-            .into_iter()
-            .map(|(weight, refs)| {
-                let variants = refs
-                    .into_iter()
-                    .map(|r| {
-                        Ok(ResolvedVariant {
-                            model: self.model(&r.model)?,
-                            model_id: r.model,
-                            x: r.x,
-                            y: r.y,
-                            z: r.z,
-                            uvlock: r.uvlock,
-                        })
+        let mut out = Vec::new();
+        let mut fehler = Vec::new();
+        for (weight, refs) in alternatives {
+            let variants = refs
+                .into_iter()
+                .map(|r| {
+                    Ok(ResolvedVariant {
+                        model: self.model(&r.model)?,
+                        model_id: r.model,
+                        x: r.x,
+                        y: r.y,
+                        z: r.z,
+                        uvlock: r.uvlock,
                     })
-                    .collect::<Result<Vec<_>>>()?;
-                Ok((weight, variants))
-            })
-            .collect()
+                })
+                .collect::<Result<Vec<_>>>();
+            match variants {
+                Ok(variants) => out.push((weight, variants)),
+                Err(error) => fehler.push(error),
+            }
+        }
+        let mut fehler = fehler.into_iter();
+        match fehler.next() {
+            Some(error) if out.is_empty() => Err(error),
+            Some(error) => {
+                self.skipped.insert(format!("{state}: {error:#}"));
+                Ok(out)
+            }
+            None => Ok(out),
+        }
     }
 
     /// Modell mit aufgelöster `parent`-Kette und aufgelösten Texturen.

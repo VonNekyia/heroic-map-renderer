@@ -10,7 +10,7 @@ use clap::Parser;
 
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
-use terranova_render::assets::{Assets, model_of};
+use terranova_render::assets::{Assets, fluid, model_of};
 use terranova_render::render::pyramid;
 use terranova_render::render::{
     MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for, corner_tiles,
@@ -266,9 +266,14 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
         for texture in textures {
             println!("      {texture}");
         }
-        if variant.model.is_empty() {
+        if variant.model.is_empty() && fluid::of(state).is_none() {
             println!("      (kein Modell — wird von Minecraft als Entity gezeichnet)");
         }
+    }
+    // Wasser und Lava haben kein Modell-JSON; der Renderer baut sie im
+    // Code, wie das Spiel.
+    if let Some(fluid) = fluid::of(state) {
+        println!("  Flüssigkeit: {fluid:?}, als Würfel aus dem Code");
     }
     Ok(())
 }
@@ -958,7 +963,7 @@ fn scan(
     for state in &states {
         match assets.variants(state) {
             Ok(variants) => {
-                if variants.iter().all(|v| v.model.is_empty()) {
+                if variants.iter().all(|v| v.model.is_empty()) && fluid::of(state).is_none() {
                     leer.insert(state.name());
                 }
             }
@@ -1002,6 +1007,20 @@ fn report_missing_textures(assets: &Assets) {
     }
     if missing.len() > 20 {
         println!("            ... und {} weitere", missing.len() - 20);
+    }
+
+    let skipped = assets.skipped();
+    if !skipped.is_empty() {
+        println!(
+            "Varianten:  {} Blockstates ohne einzelne Alternativen, deren Modell fehlt",
+            skipped.len()
+        );
+        for line in skipped.iter().take(20) {
+            println!("            {line}");
+        }
+        if skipped.len() > 20 {
+            println!("            ... und {} weitere", skipped.len() - 20);
+        }
     }
 }
 

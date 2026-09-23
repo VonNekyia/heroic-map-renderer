@@ -168,6 +168,26 @@ fn fehlendes_modell_ist_fehler() {
     );
 }
 
+/// Ein fehlendes Modell in einer Variantenliste nimmt nur diese eine
+/// Alternative weg, nicht den ganzen Block — und schon gar nicht den Lauf.
+#[test]
+fn kaputte_alternative_faellt_weg() {
+    let mut assets = base();
+    let alternativen = assets.alternatives(&state("halb_kaputt")).unwrap();
+    assert_eq!(alternativen.len(), 1);
+    assert_eq!(alternativen[0].1[0].model_id, "minecraft:block/einfarbig");
+    assert!(
+        assets
+            .skipped()
+            .iter()
+            .any(|zeile| zeile.contains("gibt_es_nicht")),
+        "{:?}",
+        assets.skipped()
+    );
+    // Fehlt jede Alternative, bleibt es ein Fehler.
+    assert!(assets.alternatives(&state("kaputt")).is_err());
+}
+
 #[test]
 fn parent_zyklus_ist_fehler() {
     let mut assets = base();

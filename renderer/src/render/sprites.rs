@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use anyhow::Result;
 use image::RgbaImage;
 
-use crate::assets::baker::BakedModel;
+use crate::assets::baker::{BakedModel, Quad, box_quads};
 use crate::assets::fluid::Fluid;
 use crate::assets::{Assets, Face, Tints, fluid, models_of};
 use crate::world::BlockState;
@@ -59,6 +59,11 @@ pub struct Family {
     /// Decken alle Alternativen den Blockumriss? Dann verdeckt der Block
     /// seine Nachbarn — egal, welche Drehung die Position wuerfelt.
     pub opaque: bool,
+    /// Nur Fluessigkeit, keine eigene Geometrie: Wasser, Lava,
+    /// Blasensaeule. Nur solche Bloecke zaehlen als Schicht hinter einer
+    /// Oberflaeche; Kelp oder ein gefluteter Zaun sind etwas, das der
+    /// Blickstrahl trifft.
+    pub bare: bool,
 }
 
 impl Family {
@@ -119,9 +124,9 @@ fn java_next_int(seed: i64, bound: i32) -> i32 {
     }
 }
 
-/// Wie viele Schichten Wasser unter einer Oberflaeche noch unterschieden
+/// Wie viele Schichten Wasser hinter einer Oberflaeche noch unterschieden
 /// werden. Bei Alpha 180 laesst eine Schicht 29 Prozent durch, vier noch
-/// 0,7 — darunter sieht man nichts mehr, also gilt ab da dieselbe Fassung.
+/// 0,7 — dahinter sieht man nichts mehr, also gilt ab da dieselbe Fassung.
 pub const DEPTHS: usize = 4;
 
 /// Bit in der Verdeckungsmaske fuer eine Fluessigkeitsflaeche: die drei
@@ -133,6 +138,27 @@ pub fn mask_bit(face: Face) -> u8 {
         Face::South => 4,
         _ => 0,
     }
+}
+
+/// Das Modell mit seiner Fluessigkeit auf voller Blockhoehe.
+fn full_height(model: &BakedModel) -> BakedModel {
+    let mut quads: Vec<Quad> = model
+        .quads
+        .iter()
+        .filter(|q| q.fluid.is_none())
+        .cloned()
+        .collect();
+    if let Some(q) = model.quads.iter().find(|q| q.fluid.is_some()) {
+        let fluid = q.fluid.map(|(fluid, _)| fluid);
+        quads.extend(box_quads(
+            [0.0; 3],
+            [16.0; 3],
+            q.texture,
+            q.tint_index,
+            fluid,
+        ));
+    }
+    BakedModel { quads }
 }
 
 /// Fluessigkeit eines Modells samt Oberflaechenhoehe.
@@ -196,6 +222,10 @@ impl SpriteSet {
             let opaque = alternatives
                 .iter()
                 .all(|(_, id)| id.is_some_and(|id| set.sprites[id.0 as usize].opaque));
+            let bare = fluid.is_some()
+                && models
+                    .iter()
+                    .all(|(_, model)| model.quads.iter().all(|q| q.fluid.is_some()));
             set.by_state
                 .insert(state.clone(), set.families.len() as u32);
             set.families.push(Family {
@@ -203,6 +233,7 @@ impl SpriteSet {
                 total,
                 fluid,
                 opaque,
+                bare,
             });
         }
 
@@ -232,16 +263,21 @@ impl SpriteSet {
                     .pixels()
                     .any(|p| p.0[3] > 0 && p.0[3] < 255)
         });
+        // Steht dieselbe Fluessigkeit darueber, reicht sie bis zur
+        // Blockkante (`FlowingFluid.getHeight`); an der Oberflaeche endet
+        // sie bei ihrer eigenen Hoehe.
+        let voll = full_height(model);
         let mut variants = vec![None; 8 * DEPTHS];
         variants[0] = Some(base);
         for mask in 0..8u8 {
             let surface = mask & mask_bit(Face::Up) == 0;
             let depths = if surface && translucent { DEPTHS } else { 1 };
+            let quelle = if surface { model } else { &voll };
             for depth in 0..depths {
                 if mask == 0 && depth == 0 {
                     continue;
                 }
-                let quads = model
+                let quads = quelle
                     .quads
                     .iter()
                     .filter(|q| q.fluid.is_none_or(|(_, face)| mask & mask_bit(face) == 0))
@@ -684,6 +720,7 @@ mod tests {
             total: weights.iter().sum(),
             fluid: None,
             opaque: false,
+            bare: false,
         };
         let listen = [
             family(&[1, 1, 1, 1]),

@@ -269,8 +269,8 @@ fn uvlock_dreht_die_textur_zurueck() {
     );
 }
 
-/// Wasser hat kein Modell und bekommt trotzdem ein Sprite: ein voller
-/// Würfel für die Quelle, flacher für fliessende Stufen.
+/// Wasser hat kein Modell und bekommt trotzdem ein Sprite: ein Würfel bis
+/// 8/9 der Blockhöhe für die Quelle, flacher für fliessende Stufen.
 #[test]
 fn wasser_bekommt_geometrie_aus_der_blockstate() {
     let mut assets = assets();
@@ -278,7 +278,7 @@ fn wasser_bekommt_geometrie_aus_der_blockstate() {
     assert_eq!(
         quelle.image.dimensions(),
         (16, 16),
-        "Quelle füllt den Block"
+        "Quelle belegt den Blockumriss"
     );
     assert_eq!(
         pixel(&quelle, 0, -4)[3],
@@ -294,7 +294,9 @@ fn wasser_bekommt_geometrie_aus_der_blockstate() {
 }
 
 /// Ein gefluteter Zaun bleibt unter dem Wasser sichtbar: das Sprite mischt
-/// die Wasserfläche über den Pfosten, statt ihn zu überschreiben.
+/// die Wasserfläche über den Pfosten, statt ihn zu überschreiben. Und die
+/// Oberseite des Pfostens ragt trocken heraus, denn das Wasser endet bei
+/// 8/9 des Blocks — wie im Spiel.
 #[test]
 fn wasser_mischt_sich_ueber_den_zaun() {
     let mut assets = assets();
@@ -303,7 +305,14 @@ fn wasser_mischt_sich_ueber_den_zaun() {
     let nass = sprite(&mut assets, "oak_fence[north=true,waterlogged=true]", 16).expect("Sprite");
 
     // Mitte der Pfostenoberseite, aus der Projektion gerechnet.
-    let (sx, sy) = (0, -4);
+    assert_eq!(
+        pixel(&nass, 0, -4),
+        pixel(&trocken, 0, -4),
+        "die Pfostenoberseite liegt über dem Wasser"
+    );
+
+    // Südseite des Pfostens auf halber Höhe, hinter der Wasseroberfläche.
+    let (sx, sy) = (-1, 0);
     let erwartet = over(pixel(&wasser, sx, sy), pixel(&trocken, sx, sy));
     let ist = pixel(&nass, sx, sy);
     for c in 0..4 {

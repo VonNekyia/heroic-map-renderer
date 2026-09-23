@@ -33,19 +33,15 @@ pub const TINT_INDEX: u32 = u32::MAX;
 const WATER: &str = "block/water_still";
 
 /// Hängt die Flüssigkeit an das gebackene Modell einer Blockstate.
+///
+/// Der Würfel endet bei der eigenen Höhe der Flüssigkeit, wie an einer
+/// Oberfläche. Steht darüber dieselbe Flüssigkeit, reicht sie bis zur
+/// Blockkante — diese Fassung baut `SpriteSet`, denn nur der Renderer
+/// kennt den Nachbarn.
 pub fn add(model: &mut BakedModel, state: &BlockState, assets: &mut Assets) {
-    let water = |level| (WATER, level, Some(TINT_INDEX), Fluid::Water);
-    let (textur, level, tint, fluid) = match split_id(state.name()).1 {
-        "water" => water(level_of(state)),
-        "lava" => ("block/lava_still", level_of(state), None, Fluid::Lava),
-        // Eine Blasensäule ist Wasser mit Luftblasen; die Blasen sind ein
-        // Partikeleffekt, das Wasser darunter ist ein voller Block.
-        "bubble_column" => water(0),
-        name if IMMER_IM_WASSER.contains(&name) => water(0),
-        _ if state.prop("waterlogged") == Some("true") => water(0),
-        _ => return,
+    let Some((textur, level, tint, fluid)) = kind(state) else {
+        return;
     };
-
     let texture: TextureId = assets.texture(textur);
     model.quads.extend(box_quads(
         [0.0, 0.0, 0.0],
@@ -56,6 +52,26 @@ pub fn add(model: &mut BakedModel, state: &BlockState, assets: &mut Assets) {
     ));
 }
 
+/// Die Flüssigkeit einer Blockstate, falls sie eine enthält.
+pub fn of(state: &BlockState) -> Option<Fluid> {
+    kind(state).map(|(_, _, _, fluid)| fluid)
+}
+
+/// Textur, Stufe, Färbung und Art der Flüssigkeit einer Blockstate.
+fn kind(state: &BlockState) -> Option<(&'static str, u32, Option<u32>, Fluid)> {
+    let water = |level| (WATER, level, Some(TINT_INDEX), Fluid::Water);
+    Some(match split_id(state.name()).1 {
+        "water" => water(level_of(state)),
+        "lava" => ("block/lava_still", level_of(state), None, Fluid::Lava),
+        // Eine Blasensäule ist Wasser mit Luftblasen; die Blasen sind ein
+        // Partikeleffekt, das Wasser darunter ist ein voller Block.
+        "bubble_column" => water(0),
+        name if IMMER_IM_WASSER.contains(&name) => water(0),
+        _ if state.prop("waterlogged") == Some("true") => water(0),
+        _ => return None,
+    })
+}
+
 /// `level` einer Flüssigkeit, 0 für die Quelle.
 fn level_of(state: &BlockState) -> u32 {
     state
@@ -64,21 +80,18 @@ fn level_of(state: &BlockState) -> u32 {
         .unwrap_or(0)
 }
 
-/// Höhe der Flüssigkeitsoberfläche in Modellkoordinaten.
-///
-/// Minecraft rechnet `(8 - level) / 9` und lässt eine Quelle damit gut
-/// einen Pixel unter der Blockkante enden. Das gilt hier nur für fliessende
-/// Stufen: ohne Nachbarschaftswissen bekäme sonst jede Schicht eines Ozeans
-/// eine Fuge, denn das Sprite kennt nur seine eigene Blockstate.
-// ponytail: Quelle und fallendes Wasser auf volle Höhe. Erst nötig, wenn
-// der Renderer Nachbarn kennt — dann die Oberfläche nur anheben, wenn
-// darüber wieder Flüssigkeit steht.
+/// Höhe der Flüssigkeitsoberfläche in Modellkoordinaten, wenn darüber
+/// keine Flüssigkeit steht: `FlowingFluid.getOwnHeight`, die Menge durch
+/// neun. Quelle und fallendes Wasser haben die Menge 8 und enden knapp zwei
+/// Pixel unter der Blockkante — darüber ragen Stufen, Zaunpfosten und
+/// obere Platten trocken heraus, wie im Spiel.
 fn height(level: u32) -> f32 {
-    if level == 0 || level >= 8 {
-        16.0
+    let amount = if level == 0 || level >= 8 {
+        8
     } else {
-        16.0 * (8 - level) as f32 / 9.0
-    }
+        8 - level
+    };
+    16.0 * amount as f32 / 9.0
 }
 
 #[cfg(test)]
@@ -86,10 +99,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn quelle_und_fallendes_wasser_fuellen_den_block() {
-        assert_eq!(height(0), 16.0);
-        assert_eq!(height(8), 16.0);
-        assert_eq!(height(15), 16.0);
+    fn quelle_und_fallendes_wasser_enden_bei_acht_neunteln() {
+        for level in [0, 8, 15] {
+            assert!((height(level) - 16.0 * 8.0 / 9.0).abs() < 1e-4, "{level}");
+        }
     }
 
     /// Fliessendes Wasser wird mit jeder Stufe flacher.

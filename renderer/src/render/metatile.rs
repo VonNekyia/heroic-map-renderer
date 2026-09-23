@@ -353,17 +353,23 @@ impl<'a> ChunkCache<'a> {
                     mask |= 1 << bit;
                 }
             }
-            // Die Oberfläche trägt die Deckkraft aller Schichten darunter:
+            // Die Oberfläche trägt die Deckkraft des Wassers dahinter:
             // durch einen Block Wasser sieht man den Grund, durch vier nicht
-            // mehr. Gezählt wird nur, wenn es eine Oberfläche gibt.
+            // mehr. Gezählt wird entlang des Blickstrahls, nicht senkrecht —
+            // hinter der Oberseite von (x, y, z) liegt auf denselben Pixeln
+            // die von (x-1, y-1, z-1). Und nur Blöcke, die allein aus der
+            // Flüssigkeit bestehen: Kelp, Riffe und geflutete Zäune knapp
+            // unter einer tiefen Oberfläche zeigen sich so durch das Wasser
+            // davor und nicht durch das daneben.
             let mut depth = 0;
-            while mask & mask_bit(Face::Up) == 0
-                && depth + 1 < DEPTHS
-                && self
-                    .family_at(sprites, x, y - 1 - depth as i32, z)?
-                    .and_then(|below| below.fluid)
-                    .is_some_and(|(other, _)| other == fluid)
-            {
+            while mask & mask_bit(Face::Up) == 0 && depth + 1 < DEPTHS {
+                let d = 1 + depth as i32;
+                let dahinter = self.family_at(sprites, x - d, y - d, z - d)?;
+                if !dahinter.is_some_and(|behind| {
+                    behind.bare && behind.fluid.is_some_and(|(other, _)| other == fluid)
+                }) {
+                    break;
+                }
                 depth += 1;
             }
             match sprites.masked(id, mask, depth) {

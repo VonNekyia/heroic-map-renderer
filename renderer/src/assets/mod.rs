@@ -177,11 +177,13 @@ impl Assets {
 
     /// Alle Alternativen einer Blockstate mit ihrem Gewicht.
     ///
-    /// Eine Alternative, deren Modell fehlt oder kaputt ist, fällt weg,
-    /// solange sich eine andere auflösen lässt: ein Pack mit einem Tippfehler
-    /// in einer Variantenliste soll nicht den ganzen Lauf abbrechen, und der
-    /// Block bekommt die übrigen Drehungen. Was wegfällt, steht in
-    /// [`Assets::skipped`]. Fehlen alle, ist das ein Fehler.
+    /// Eine Alternative, deren Modell fehlt oder kaputt ist, wird zum
+    /// Missing-Würfel, solange sich eine andere auflösen lässt — wie im
+    /// Client, der den Eintrag samt Gewicht behält. Fiele sie weg, sänke
+    /// das Gesamtgewicht, und `nextInt` würfelte an den meisten Positionen
+    /// anders als das Spiel. Ein Pack mit einem Tippfehler in einer
+    /// Variantenliste bricht so nicht den ganzen Lauf ab; was fehlt, steht
+    /// in [`Assets::skipped`]. Fehlen alle, ist das ein Fehler.
     pub fn alternatives(&mut self, state: &BlockState) -> Result<Vec<(u32, Vec<ResolvedVariant>)>> {
         let def = self.blockstate_def(state.name())?;
         let alternatives = def.alternatives(state);
@@ -189,7 +191,8 @@ impl Assets {
             bail!("{state} passt auf keine Variante der Blockstate-Datei");
         }
         let mut out = Vec::new();
-        let mut fehler = Vec::new();
+        let mut erster_fehler = None;
+        let mut aufgeloest = 0;
         for (weight, refs) in alternatives {
             let variants = refs
                 .into_iter()
@@ -205,13 +208,26 @@ impl Assets {
                 })
                 .collect::<Result<Vec<_>>>();
             match variants {
-                Ok(variants) => out.push((weight, variants)),
-                Err(error) => fehler.push(error),
+                Ok(variants) => {
+                    aufgeloest += 1;
+                    out.push((weight, variants));
+                }
+                Err(error) => {
+                    let missing = ResolvedVariant {
+                        model_id: "minecraft:builtin/missing".to_string(),
+                        model: Arc::new(ResolvedModel::missing()),
+                        x: 0,
+                        y: 0,
+                        z: 0,
+                        uvlock: false,
+                    };
+                    out.push((weight, vec![missing]));
+                    erster_fehler.get_or_insert(error);
+                }
             }
         }
-        let mut fehler = fehler.into_iter();
-        match fehler.next() {
-            Some(error) if out.is_empty() => Err(error),
+        match erster_fehler {
+            Some(error) if aufgeloest == 0 => Err(error),
             Some(error) => {
                 self.skipped.insert(format!("{state}: {error:#}"));
                 Ok(out)

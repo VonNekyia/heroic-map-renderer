@@ -168,14 +168,24 @@ fn fehlendes_modell_ist_fehler() {
     );
 }
 
-/// Ein fehlendes Modell in einer Variantenliste nimmt nur diese eine
-/// Alternative weg, nicht den ganzen Block — und schon gar nicht den Lauf.
+/// Ein fehlendes Modell in einer Variantenliste wird zum Missing-Würfel,
+/// wie im Client, und behält sein Gewicht: sonst würfelte `nextInt` an den
+/// meisten Positionen anders als das Spiel. Den Lauf bricht es nicht ab.
 #[test]
-fn kaputte_alternative_faellt_weg() {
+fn kaputte_alternative_wird_missing_wuerfel() {
     let mut assets = base();
     let alternativen = assets.alternatives(&state("halb_kaputt")).unwrap();
-    assert_eq!(alternativen.len(), 1);
+    let gewichte: Vec<u32> = alternativen.iter().map(|(w, _)| *w).collect();
+    assert_eq!(gewichte, [1, 3]);
     assert_eq!(alternativen[0].1[0].model_id, "minecraft:block/einfarbig");
+    let missing = &alternativen[1].1[0];
+    assert_eq!(missing.model.elements.len(), 1);
+    assert!(
+        missing.model.elements[0]
+            .faces
+            .iter()
+            .all(|(_, face)| face.texture == Textures::MISSING)
+    );
     assert!(
         assets
             .skipped()

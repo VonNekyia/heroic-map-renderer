@@ -102,6 +102,40 @@ impl ResolvedModel {
         self.elements.is_empty()
     }
 
+    /// Der Würfel, den Minecraft für ein fehlendes Modell zeichnet
+    /// (`ModelDiscovery.missingModel`): voll, mit der Karotextur.
+    pub fn missing() -> ResolvedModel {
+        let face = ElementFace {
+            texture: Textures::MISSING,
+            force_translucent: false,
+            uv: None,
+            cullface: None,
+            rotation: 0,
+            tint_index: None,
+        };
+        let mut faces: Vec<(Face, ElementFace)> = [
+            Face::Down,
+            Face::Up,
+            Face::North,
+            Face::South,
+            Face::West,
+            Face::East,
+        ]
+        .into_iter()
+        .map(|side| (side, face.clone()))
+        .collect();
+        faces.sort_by_key(|(side, _)| *side);
+        ResolvedModel {
+            elements: vec![Element {
+                from: [0.0; 3],
+                to: [16.0; 3],
+                rotation: None,
+                shade: true,
+                faces,
+            }],
+        }
+    }
+
     pub(super) fn build(
         elements: Vec<ElementJson>,
         textures: &HashMap<String, TextureValue>,

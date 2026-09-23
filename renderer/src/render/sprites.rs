@@ -43,8 +43,12 @@ pub struct SpriteSet {
     by_mask: HashMap<SpriteId, Vec<Option<SpriteId>>>,
     /// Fassungen je Biom, nur fuer Sprites mit gefaerbten Flaechen. Das
     /// Sprite fuehrt zur Fassung des Standardklimas, von dort geht es
-    /// ueber den Biomnamen weiter.
-    by_biome: HashMap<SpriteId, HashMap<String, SpriteId>>,
+    /// ueber den Index des Bioms weiter.
+    by_biome: HashMap<SpriteId, Vec<SpriteId>>,
+    /// Index je Biomname, in der Reihenfolge von `Colors::biomes`. Eine
+    /// Karte je Sprite mit allen Biomnamen als Schluessel waren bei
+    /// Interconnect gut zwei Millionen Strings.
+    biome_index: HashMap<String, usize>,
     projection: Projection,
     foreign: BTreeSet<Cell>,
 }
@@ -140,6 +144,30 @@ pub fn mask_bit(face: Face) -> u8 {
     }
 }
 
+/// Alles, was das Bild einer Blockstate bestimmt: der Name (er entscheidet
+/// die Faerbung), die aufgeloesten Modelle samt Drehung und Gewicht, und
+/// Art und Menge der Fluessigkeit.
+type FamilyKey = (
+    String,
+    Vec<(u32, Vec<(String, i32, i32, i32, bool)>)>,
+    Option<(Fluid, u32)>,
+);
+
+fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
+    let alternatives = assets
+        .alternatives(state)?
+        .into_iter()
+        .map(|(weight, variants)| {
+            let variants = variants
+                .into_iter()
+                .map(|v| (v.model_id, v.x, v.y, v.z, v.uvlock))
+                .collect();
+            (weight, variants)
+        })
+        .collect();
+    Ok((state.name().to_string(), alternatives, fluid::key(state)))
+}
+
 /// Das Modell mit seiner Fluessigkeit auf voller Blockhoehe.
 fn full_height(model: &BakedModel) -> BakedModel {
     let mut quads: Vec<Quad> = model
@@ -198,12 +226,30 @@ impl SpriteSet {
             by_state: HashMap::new(),
             by_mask: HashMap::new(),
             by_biome: HashMap::new(),
+            biome_index: assets
+                .colors()
+                .biomes()
+                .enumerate()
+                .map(|(i, biome)| (biome.to_string(), i))
+                .collect(),
             projection,
             foreign: BTreeSet::new(),
         };
 
+        // Blockstates, die sich nur in Eigenschaften ohne Einfluss aufs
+        // Bild unterscheiden — Laub nach Entfernung, Kelp nach Alter, Wasser
+        // nach Fallstufe —, teilen sich eine Familie, statt jede Fassung
+        // noch einmal zu rastern.
+        let mut known: HashMap<FamilyKey, Option<u32>> = HashMap::new();
         for state in states {
             if state.is_air() || set.by_state.contains_key(state) {
+                continue;
+            }
+            let key = family_key(assets, state)?;
+            if let Some(&family) = known.get(&key) {
+                if let Some(index) = family {
+                    set.by_state.insert(state.clone(), index);
+                }
                 continue;
             }
             let models = models_of(assets, state)?;
@@ -216,6 +262,7 @@ impl SpriteSet {
                 })
                 .collect();
             if alternatives.iter().all(|(_, id)| id.is_none()) {
+                known.insert(key, None);
                 continue;
             }
             let total = alternatives.iter().map(|(weight, _)| *weight).sum();
@@ -226,8 +273,8 @@ impl SpriteSet {
                 && models
                     .iter()
                     .all(|(_, model)| model.quads.iter().all(|q| q.fluid.is_some()));
-            set.by_state
-                .insert(state.clone(), set.families.len() as u32);
+            let index = set.families.len() as u32;
+            set.by_state.insert(state.clone(), index);
             set.families.push(Family {
                 alternatives,
                 total,
@@ -235,6 +282,7 @@ impl SpriteSet {
                 opaque,
                 bare,
             });
+            known.insert(key, Some(index));
         }
 
         Ok(set)
@@ -333,7 +381,7 @@ impl SpriteSet {
         }
         // Eine Fassung je Biom; gleiche Farben teilen sich das Sprite.
         let mut by_tints = HashMap::from([(default, id)]);
-        let mut by_biome = HashMap::new();
+        let mut by_biome = Vec::with_capacity(self.biome_index.len());
         for biome in assets.colors().biomes() {
             let tints = tints(Some(biome));
             let variant = match by_tints.get(&tints) {
@@ -346,7 +394,7 @@ impl SpriteSet {
                     variant
                 }
             };
-            by_biome.insert(biome.to_string(), variant);
+            by_biome.push(variant);
         }
         self.by_biome.insert(id, by_biome);
         Some(id)
@@ -416,9 +464,8 @@ impl SpriteSet {
     pub fn in_biome<'b>(&self, id: SpriteId, biome: impl FnOnce() -> Option<&'b str>) -> SpriteId {
         match self.by_biome.get(&id) {
             Some(variants) => biome()
-                .and_then(|name| variants.get(name))
-                .copied()
-                .unwrap_or(id),
+                .and_then(|name| self.biome_index.get(name))
+                .map_or(id, |&i| variants[i]),
             None => id,
         }
     }
@@ -897,6 +944,30 @@ mod tests {
             nachher.sort_by_key(|(pos, _)| *pos);
             assert_eq!(vorher, nachher, "{name}");
         }
+    }
+
+    /// Blockstates mit demselben Bild teilen sich die Familie: Eigenschaften,
+    /// die kein Modell auswaehlt, und Wasser gleicher Menge.
+    #[test]
+    fn gleiche_bilder_teilen_sich_die_familie() {
+        let mut assets = assets();
+        let states = [
+            state("einfarbig[alter=1]"),
+            state("einfarbig[alter=2]"),
+            state("water[level=0]"),
+            state("water[level=8]"),
+            state("water[level=3]"),
+        ];
+        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let index = |text: &str| set.family_index(&state(text)).unwrap();
+        assert_eq!(index("einfarbig[alter=1]"), index("einfarbig[alter=2]"));
+        assert_eq!(
+            index("water[level=0]"),
+            index("water[level=8]"),
+            "Quelle und Fall haben dieselbe Menge"
+        );
+        assert_ne!(index("water[level=0]"), index("water[level=3]"));
+        assert_eq!(set.families.len(), 3);
     }
 
     /// Blöcke ohne sichtbare Geometrie tauchen gar nicht erst auf.

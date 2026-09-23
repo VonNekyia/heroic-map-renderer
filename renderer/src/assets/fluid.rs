@@ -57,6 +57,13 @@ pub fn of(state: &BlockState) -> Option<Fluid> {
     kind(state).map(|(_, _, _, fluid)| fluid)
 }
 
+/// Art und Menge der Flüssigkeit: zwei Blockstates mit demselben Schlüssel
+/// bekommen denselben Würfel. Quelle und fallendes Wasser haben beide die
+/// Menge 8.
+pub fn key(state: &BlockState) -> Option<(Fluid, u32)> {
+    kind(state).map(|(_, level, _, fluid)| (fluid, amount(level)))
+}
+
 /// Textur, Stufe, Färbung und Art der Flüssigkeit einer Blockstate.
 fn kind(state: &BlockState) -> Option<(&'static str, u32, Option<u32>, Fluid)> {
     let water = |level| (WATER, level, Some(TINT_INDEX), Fluid::Water);
@@ -86,12 +93,16 @@ fn level_of(state: &BlockState) -> u32 {
 /// Pixel unter der Blockkante — darüber ragen Stufen, Zaunpfosten und
 /// obere Platten trocken heraus, wie im Spiel.
 fn height(level: u32) -> f32 {
-    let amount = if level == 0 || level >= 8 {
+    16.0 * amount(level) as f32 / 9.0
+}
+
+/// `FlowingFluid.getAmount`: 8 für Quelle und Fall, sonst 8 minus Stufe.
+fn amount(level: u32) -> u32 {
+    if level == 0 || level >= 8 {
         8
     } else {
         8 - level
-    };
-    16.0 * amount as f32 / 9.0
+    }
 }
 
 #[cfg(test)]

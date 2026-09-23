@@ -20,7 +20,7 @@ pub struct Variant {
 }
 
 /// Verweis auf ein Modell samt Drehung aus der Blockstate-Datei.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModelRef {
     pub model: String,
     pub x: i32,

@@ -11,5 +11,6 @@ pub use pyramid::{MapInfo, depth, merge, parents, shrink};
 pub use rasterizer::{Sprite, render};
 pub use sprites::{Cell, OWN_CELL, SpriteId, SpriteSet};
 pub use tiles::{
-    Survey, TILE, TileId, corner_tiles, covering, encode_webp, snap_to_tiles, survey, world_box,
+    Survey, TILE, TileId, corner_tiles, covering, encode_webp, snap_to_grid, snap_to_tiles, survey,
+    world_box,
 };

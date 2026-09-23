@@ -1,9 +1,11 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
+use crate::assets::blockstate::ModelRef;
 use crate::assets::fluid::Fluid;
 use crate::assets::{Assets, Face, Tints, fluid, models_of};
 use crate::world::BlockState;
@@ -50,6 +52,13 @@ pub struct SpriteSet {
     /// Karte je Sprite mit allen Biomnamen als Schluessel waren bei
     /// Interconnect gut zwei Millionen Strings.
     biome_index: HashMap<String, usize>,
+    /// Sprites nach dem Hash ihrer Pixel und ihrer Faerbung: pixelgleiche
+    /// teilen sich den Eintrag, wenn sie sich in jedem Biom gleich faerben.
+    by_content: HashMap<(u64, u64), Vec<SpriteId>>,
+    /// Streifen einer Seitenflaeche ueber einem niedrigeren Nachbarn
+    /// derselben Fluessigkeit: je Art, eigener Hoehe und Nachbarhoehe in
+    /// Neunteln und je Seite.
+    strips: HashMap<(Fluid, u8, u8, Face), SpriteId>,
     projection: Projection,
     foreign: BTreeSet<Cell>,
 }
@@ -58,17 +67,21 @@ pub struct SpriteSet {
 pub struct Family {
     alternatives: Vec<(u32, Option<SpriteId>)>,
     total: u32,
-    /// Fluessigkeit samt Hoehe ihrer Oberflaeche in Blockeinheiten, falls
-    /// die Blockstate eine enthaelt.
-    pub fluid: Option<(Fluid, f32)>,
+    /// Fluessigkeit samt Menge in Neunteln der Blockhoehe, falls die
+    /// Blockstate eine enthaelt.
+    pub fluid: Option<(Fluid, u8)>,
     /// Decken alle Alternativen den Blockumriss? Dann verdeckt der Block
     /// seine Nachbarn — egal, welche Drehung die Position wuerfelt.
     pub opaque: bool,
-    /// Nur Fluessigkeit, keine eigene Geometrie: Wasser, Lava,
-    /// Blasensaeule. Nur solche Bloecke zaehlen als Schicht hinter einer
-    /// Oberflaeche; Kelp oder ein gefluteter Zaun sind etwas, das der
-    /// Blickstrahl trifft.
-    pub bare: bool,
+    /// Decken alle Alternativen den Boden ihres Wuerfels, also die
+    /// Oberseite des Blocks darunter? Lava endet bei 8/9 und deckt den
+    /// Umriss nicht mehr, den Block darunter aber schon.
+    pub covers_floor: bool,
+    /// Decken alle Alternativen den Umriss ueberwiegend? Dann trifft der
+    /// Blickstrahl den Block. Sonst laeuft er hindurch: Seegras, Kelp und
+    /// ein gefluteter Pfosten zaehlen wie das Wasser um sie herum, wenn
+    /// die Tiefe hinter einer Oberflaeche gezaehlt wird.
+    pub covers: bool,
 }
 
 impl Family {
@@ -146,27 +159,30 @@ pub fn mask_bit(face: Face) -> u8 {
 }
 
 /// Alles, was das Bild einer Blockstate bestimmt: der Name (er entscheidet
-/// die Faerbung), die aufgeloesten Modelle samt Drehung und Gewicht, und
-/// Art und Menge der Fluessigkeit.
-type FamilyKey = (
-    String,
-    Vec<(u32, Vec<(String, i32, i32, i32, bool)>)>,
-    Option<(Fluid, u32)>,
-);
+/// die Faerbung), die Modellverweise samt Drehung und Gewicht, und Art und
+/// Menge der Fluessigkeit. Die Verweise reichen, die Modelle selbst laedt
+/// erst die Familie.
+type FamilyKey = (String, Vec<(u32, Vec<ModelRef>)>, Option<(Fluid, u8)>);
 
 fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
-    let alternatives = assets
-        .alternatives(state)?
-        .into_iter()
-        .map(|(weight, variants)| {
-            let variants = variants
-                .into_iter()
-                .map(|v| (v.model_id, v.x, v.y, v.z, v.uvlock))
-                .collect();
-            (weight, variants)
-        })
-        .collect();
+    let alternatives = assets.blockstate_def(state.name())?.alternatives(state);
+    if alternatives.is_empty() {
+        bail!("{state} passt auf keine Variante der Blockstate-Datei");
+    }
     Ok((state.name().to_string(), alternatives, fluid::key(state)))
+}
+
+/// Die Biome, mit denen eine Familie vorkommt: `None` heisst alle.
+type Biomes<'a> = Option<BTreeSet<&'a str>>;
+
+fn merge_biomes<'a>(a: Biomes<'a>, b: Biomes<'a>) -> Biomes<'a> {
+    match (a, b) {
+        (Some(mut a), Some(b)) => {
+            a.extend(b);
+            Some(a)
+        }
+        _ => None,
+    }
 }
 
 /// Das Modell mit seiner Fluessigkeit auf voller Blockhoehe.
@@ -190,14 +206,6 @@ fn full_height(model: &BakedModel) -> BakedModel {
     BakedModel { quads }
 }
 
-/// Fluessigkeit eines Modells samt Oberflaechenhoehe.
-fn fluid_of(model: &BakedModel) -> Option<(Fluid, f32)> {
-    model.quads.iter().find_map(|q| match q.fluid {
-        Some((fluid, Face::Up)) => Some((fluid, q.corners[0][1])),
-        _ => None,
-    })
-}
-
 struct Entry {
     /// Das Sprite, zerlegt nach den Wuerfeln, in denen seine Geometrie
     /// liegt. Fast immer genau ein Teil in `OWN_CELL`.
@@ -205,6 +213,11 @@ struct Entry {
     /// Deckt der eigene Teil den Blockumriss lueckenlos ab? Nur dann darf
     /// der Block etwas dahinter verdecken.
     opaque: bool,
+    /// Deckt der eigene Teil den Boden des Wuerfels — die Oberseite des
+    /// Blocks darunter?
+    covers_floor: bool,
+    /// Deckt der eigene Teil den Umriss ueberwiegend?
+    covers: bool,
     /// Bleibt jeder Teil im Umriss seines eigenen Wuerfels? Nach der
     /// Zerlegung ist das der Normalfall; schlaegt sie fehl, verzichtet der
     /// Renderer auf die Verdeckungsabkuerzung.
@@ -221,6 +234,23 @@ impl SpriteSet {
         states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
     ) -> Result<SpriteSet> {
+        Self::build_in(
+            assets,
+            states.into_iter().map(|state| (state, None)),
+            projection,
+        )
+    }
+
+    /// Wie [`SpriteSet::build`], aber gefaerbte Fassungen nur fuer die
+    /// Biome, mit denen eine Blockstate im Vorlauf eine Section teilt;
+    /// `None` heisst alle. Auf der ganzen Welt kommen alle Biome vor, aber
+    /// nicht jeder Block in jedem: Wasser hat in elf Wasserfarben keinen
+    /// Sinn, wo es nur in dreien steht.
+    pub fn build_in<'a>(
+        assets: &mut Assets,
+        states: impl IntoIterator<Item = (&'a BlockState, Option<&'a BTreeSet<String>>)>,
+        projection: Projection,
+    ) -> Result<SpriteSet> {
         let mut set = SpriteSet {
             sprites: Vec::new(),
             families: Vec::new(),
@@ -233,60 +263,111 @@ impl SpriteSet {
                 .enumerate()
                 .map(|(i, biome)| (biome.to_string(), i))
                 .collect(),
+            by_content: HashMap::new(),
+            strips: HashMap::new(),
             projection,
             foreign: BTreeSet::new(),
         };
 
-        // Blockstates, die sich nur in Eigenschaften ohne Einfluss aufs
-        // Bild unterscheiden — Laub nach Entfernung, Kelp nach Alter, Wasser
-        // nach Fallstufe —, teilen sich eine Familie, statt jede Fassung
-        // noch einmal zu rastern.
-        let mut known: HashMap<FamilyKey, Option<u32>> = HashMap::new();
-        for state in states {
-            if state.is_air() || set.by_state.contains_key(state) {
+        // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
+        // Einfluss aufs Bild unterscheiden — Laub nach Entfernung, Kelp nach
+        // Alter, Wasser nach Fallstufe —, teilen sich eine Familie, und die
+        // Familie bekommt die Biome aller ihrer Blockstates.
+        let mut groups: Vec<(Vec<&'a BlockState>, Biomes<'a>)> = Vec::new();
+        let mut index: HashMap<FamilyKey, usize> = HashMap::new();
+        let mut seen: HashSet<&BlockState> = HashSet::new();
+        for (state, biomes) in states {
+            if state.is_air() || !seen.insert(state) {
                 continue;
             }
             let key = family_key(assets, state)?;
-            if let Some(&family) = known.get(&key) {
-                if let Some(index) = family {
-                    set.by_state.insert(state.clone(), index);
+            let biomes = biomes.map(|b| b.iter().map(String::as_str).collect());
+            match index.get(&key) {
+                Some(&i) => {
+                    groups[i].0.push(state);
+                    groups[i].1 = merge_biomes(groups[i].1.take(), biomes);
                 }
-                continue;
+                None => {
+                    index.insert(key, groups.len());
+                    groups.push((vec![state], biomes));
+                }
             }
+        }
+
+        let mut fluids: BTreeMap<Fluid, Biomes<'a>> = BTreeMap::new();
+        for (members, biomes) in groups {
+            let state = members[0];
             let models = models_of(assets, state)?;
-            let fluid = models.first().and_then(|(_, model)| fluid_of(model));
+            let fluid = fluid::key(state);
             let alternatives: Vec<(u32, Option<SpriteId>)> = models
                 .iter()
                 .map(|(weight, model)| {
-                    let id = set.insert_fluid(assets, state, model, fluid.is_some());
+                    let id =
+                        set.insert_fluid(assets, state, model, fluid.is_some(), biomes.as_ref());
                     (*weight, id)
                 })
                 .collect();
             if alternatives.iter().all(|(_, id)| id.is_none()) {
-                known.insert(key, None);
                 continue;
             }
-            let total = alternatives.iter().map(|(weight, _)| *weight).sum();
-            let opaque = alternatives
-                .iter()
-                .all(|(_, id)| id.is_some_and(|id| set.sprites[id.0 as usize].opaque));
-            let bare = fluid.is_some()
-                && models
+            let entries = || {
+                alternatives
                     .iter()
-                    .all(|(_, model)| model.quads.iter().all(|q| q.fluid.is_some()));
-            let index = set.families.len() as u32;
-            set.by_state.insert(state.clone(), index);
-            set.families.push(Family {
-                alternatives,
-                total,
+                    .map(|(_, id)| id.map(|id| &set.sprites[id.0 as usize]))
+            };
+            let all = |test: fn(&Entry) -> bool| entries().all(|e| e.is_some_and(test));
+            let family = Family {
+                total: alternatives.iter().map(|(weight, _)| *weight).sum(),
+                opaque: all(|e| e.opaque),
+                covers_floor: all(|e| e.covers_floor),
+                covers: all(|e| e.covers),
                 fluid,
-                opaque,
-                bare,
-            });
-            known.insert(key, Some(index));
+                alternatives,
+            };
+            let index = set.families.len() as u32;
+            for member in members {
+                set.by_state.insert(member.clone(), index);
+            }
+            set.families.push(family);
+            if let Some((fluid, _)) = fluid {
+                let known = fluids
+                    .remove(&fluid)
+                    .unwrap_or_else(|| Some(BTreeSet::new()));
+                fluids.insert(fluid, merge_biomes(known, biomes));
+            }
         }
 
+        for (fluid, biomes) in fluids {
+            set.insert_strips(assets, fluid, biomes.as_ref());
+        }
         Ok(set)
+    }
+
+    /// Streifen der Seitenflaechen ueber niedrigeren Nachbarn derselben
+    /// Fluessigkeit, je Paar aus eigener Hoehe und Nachbarhoehe in Neunteln
+    /// und je Seite — der Renderer haengt sie an, wo eine Oberflaeche an
+    /// eine hoehere Saeule oder eine Stufe fliessenden Wassers stoesst.
+    fn insert_strips(
+        &mut self,
+        assets: &mut Assets,
+        fluid: Fluid,
+        biomes: Option<&BTreeSet<&str>>,
+    ) {
+        let name = match fluid {
+            Fluid::Water => "minecraft:water",
+            Fluid::Lava => "minecraft:lava",
+        };
+        let state = BlockState::parse(name).expect("gueltiger Blockname");
+        for own in 2..=fluid::FULL {
+            for below in 1..own {
+                for face in [Face::East, Face::South] {
+                    let model = fluid::strip(assets, fluid, face, below, own);
+                    if let Some(id) = self.insert_tinted(assets, &state, &model, biomes) {
+                        self.strips.insert((fluid, own, below, face), id);
+                    }
+                }
+            }
+        }
     }
 
     /// Ein Modell mit allen Fassungen: bei einer Fluessigkeit je Maske aus
@@ -298,8 +379,9 @@ impl SpriteSet {
         state: &BlockState,
         model: &BakedModel,
         has_fluid: bool,
+        biomes: Option<&BTreeSet<&str>>,
     ) -> Option<SpriteId> {
-        let base = self.insert_tinted(assets, state, model)?;
+        let base = self.insert_tinted(assets, state, model, biomes)?;
         if !has_fluid {
             return Some(base);
         }
@@ -339,10 +421,12 @@ impl SpriteSet {
                     })
                     .collect();
                 variants[mask as usize + 8 * depth] =
-                    self.insert_tinted(assets, state, &BakedModel { quads });
+                    self.insert_tinted(assets, state, &BakedModel { quads }, biomes);
             }
         }
-        self.by_mask.insert(base, variants);
+        // Teilen sich zwei Familien das Bild, teilen sie sich auch die
+        // Fassungen; die erste hat sie schon eingetragen.
+        self.by_mask.entry(base).or_insert(variants);
         Some(base)
     }
 
@@ -353,6 +437,7 @@ impl SpriteSet {
         assets: &Assets,
         state: &BlockState,
         model: &BakedModel,
+        biomes: Option<&BTreeSet<&str>>,
     ) -> Option<SpriteId> {
         // Welche Faerbungen das Modell ueberhaupt traegt. Nur die
         // unterscheiden Fassungen — sonst bekaeme jeder Grasblock eine
@@ -378,39 +463,93 @@ impl SpriteSet {
 
         let default = tints(None);
         let sprite = render(model, assets.textures(), &self.projection, default)?;
-        let id = self.insert(sprite, model);
+        // Die Faerbung je Biom als Signatur. Zwei Familien mit gleichem Bild
+        // teilen sich das Sprite samt seinen Biomfassungen — das darf nur,
+        // wer sich in jedem Biom gleich faerbt, sonst bekaeme Wasser die
+        // Fassungen einer Blasensaeule aus weniger Biomen.
+        let allowed = |biome: &str| biomes.is_none_or(|erlaubt| erlaubt.contains(biome));
+        let class = if default == Tints::default() {
+            0
+        } else {
+            let mut hasher = std::hash::DefaultHasher::new();
+            for biome in assets.colors().biomes() {
+                allowed(biome).then(|| tints(Some(biome))).hash(&mut hasher);
+            }
+            hasher.finish() | 1
+        };
+        let id = self.insert(sprite, model, class);
 
-        if default == Tints::default() {
+        if class == 0 {
             return Some(id);
         }
         // Eine Fassung je Biom; gleiche Farben teilen sich das Sprite.
         let mut by_tints = HashMap::from([(default, id)]);
         let mut by_biome = Vec::with_capacity(self.biome_index.len());
         for biome in assets.colors().biomes() {
+            // Biome, mit denen die Blockstate nie zusammen vorkommt, zeigen
+            // auf das Standardklima und werden nie gefragt.
+            if !allowed(biome) {
+                by_biome.push(id);
+                continue;
+            }
             let tints = tints(Some(biome));
             let variant = match by_tints.get(&tints) {
                 Some(&variant) => variant,
                 None => {
                     let sprite = render(model, assets.textures(), &self.projection, tints)
                         .expect("dasselbe Modell, nur anders gefaerbt");
-                    let variant = self.insert(sprite, model);
+                    let variant = self.insert(sprite, model, 0);
                     by_tints.insert(tints, variant);
                     variant
                 }
             };
             by_biome.push(variant);
         }
-        self.by_biome.insert(id, by_biome);
+        self.by_biome.entry(id).or_insert(by_biome);
         Some(id)
     }
 
     /// Zerlegt ein Sprite in seine Wuerfel und nimmt es in die Tabelle auf.
-    fn insert(&mut self, sprite: Sprite, model: &BakedModel) -> SpriteId {
+    ///
+    /// Pixelgleiche Sprites teilen sich den Eintrag: die Tiefenfassungen
+    /// einer gefluteten oberen Platte sind gleich, weil ihr Wasser in der
+    /// deckenden Haelfte liegt, und eine Blasensaeule sieht aus wie Wasser.
+    /// Nur fuer Sprites im eigenen Wuerfel — die Zerlegung eines
+    /// ueberhaengenden haengt am Modell, nicht nur am Bild.
+    ///
+    /// `class` ist die Faerbungs-Signatur aus `insert_tinted`: nur Sprites
+    /// derselben Klasse teilen sich den Eintrag. Fassungen je Biom haben
+    /// die Klasse 0 wie ungefaerbte Sprites; Biomfassungen haengen nur am
+    /// Sprite der Standardfarbe.
+    fn insert(&mut self, sprite: Sprite, model: &BakedModel, class: u64) -> SpriteId {
+        let key =
+            fits_cell(&sprite, OWN_CELL, self.projection).then(|| (content_hash(&sprite), class));
+        if let Some(key) = key
+            && let Some(ids) = self.by_content.get(&key)
+            && let Some(&id) = ids
+                .iter()
+                .find(|&&id| same_image(&self.sprites[id.0 as usize].parts[0].1, &sprite))
+        {
+            return id;
+        }
+
         let parts = split(sprite, model, self.projection);
-        let opaque = parts
+        let own = parts
             .iter()
             .find(|(cell, _)| *cell == OWN_CELL)
-            .is_some_and(|(_, sprite)| covers_cell(sprite, self.projection));
+            .map(|(_, sprite)| sprite);
+        let half = self.projection.scale() as f32 / 2.0;
+        let opaque = own.is_some_and(|sprite| {
+            covers_region(sprite, self.projection, |px, py| {
+                in_outline(px, py, half, -1.0)
+            })
+        });
+        let covers_floor = own.is_some_and(|sprite| {
+            covers_region(sprite, self.projection, |px, py| {
+                in_floor(px, py, half, -1.0)
+            })
+        });
+        let covers = own.is_some_and(|sprite| covers_mostly(sprite, self.projection));
         let contained = parts
             .iter()
             .all(|(cell, sprite)| fits_cell(sprite, *cell, self.projection));
@@ -424,9 +563,21 @@ impl SpriteSet {
         self.sprites.push(Entry {
             parts,
             opaque,
+            covers_floor,
+            covers,
             contained,
         });
-        SpriteId(self.sprites.len() as u32 - 1)
+        let id = SpriteId(self.sprites.len() as u32 - 1);
+        if let Some(key) = key {
+            self.by_content.entry(key).or_default().push(id);
+        }
+        id
+    }
+
+    /// Der Streifen einer Seite zwischen der Hoehe eines niedrigeren
+    /// Nachbarn und der eigenen, beide in Neunteln.
+    pub fn strip(&self, fluid: Fluid, own: u8, below: u8, face: Face) -> Option<SpriteId> {
+        self.strips.get(&(fluid, own, below, face)).copied()
     }
 
     /// Das Sprite der ersten Alternative.
@@ -556,38 +707,86 @@ fn cell_center(cell: Cell, projection: Projection) -> (f32, f32) {
     (x as f32, y as f32)
 }
 
-/// Prueft, ob ein Sprite den Umriss eines vollen Blocks lueckenlos und
-/// undurchsichtig ausfuellt.
+/// Der Boden des Umrisses: die untere Raute, auf der die Oberseite des
+/// Blocks darunter liegt. `slack` wie bei `in_outline`.
+fn in_floor(px: f32, py: f32, half: f32, slack: f32) -> bool {
+    py - px.abs() / 2.0 >= -slack && py + px.abs() / 2.0 <= half + slack
+}
+
+/// Alpha eines Pixelmittelpunkts relativ zum Blockursprung; ausserhalb des
+/// Bilds ist nichts.
+fn alpha_at(sprite: &Sprite, x: i32, y: i32) -> u8 {
+    let (sx, sy) = (x - sprite.offset.0, y - sprite.offset.1);
+    if sx < 0 || sy < 0 || sx >= sprite.image.width() as i32 || sy >= sprite.image.height() as i32 {
+        return 0;
+    }
+    sprite.image.get_pixel(sx as u32, sy as u32).0[3]
+}
+
+/// Prueft, ob ein Sprite einen Bereich des Blockumrisses lueckenlos und
+/// undurchsichtig ausfuellt: den ganzen Umriss, damit der Block etwas
+/// dahinter verdecken darf, oder nur seinen Boden.
 ///
-/// Das ist die Bedingung dafuer, dass der Block etwas dahinter verdecken
-/// darf. Geprueft wird am fertigen Bild statt am Modell: ein Wuerfel mit
-/// durchsichtiger Textur wie Glas faellt so von selbst heraus.
-fn covers_cell(sprite: &Sprite, projection: Projection) -> bool {
-    let scale = projection.scale();
-    let half = scale as i32 / 2;
-    if sprite.image.dimensions() != (scale, scale) || sprite.offset != (-half, -half) {
-        return false;
-    }
-
-    // Eine Pixelbreite Rand bleibt aussen vor: die Texturmittelung kann
-    // genau dort Alpha unter 255 lassen, und eine Blockkante um ein Pixel
-    // durchscheinen zu lassen ist harmlos.
+/// Geprueft wird am fertigen Bild statt am Modell: ein Wuerfel mit
+/// durchsichtiger Textur wie Glas faellt so von selbst heraus. Eine
+/// Pixelbreite Rand bleibt aussen vor: die Texturmittelung kann genau dort
+/// Alpha unter 255 lassen, und eine Blockkante um ein Pixel durchscheinen
+/// zu lassen ist harmlos.
+fn covers_region(
+    sprite: &Sprite,
+    projection: Projection,
+    region: impl Fn(f32, f32) -> bool,
+) -> bool {
+    let half = projection.scale() as i32 / 2;
     let mut geprueft = 0u32;
-    for (x, y, pixel) in sprite.image.enumerate_pixels() {
-        let (px, py) = pixel_center(sprite, x, y);
-        if !in_outline(px, py, half as f32, -1.0) {
-            continue;
+    for y in -half..half {
+        for x in -half..half {
+            if !region(x as f32 + 0.5, y as f32 + 0.5) {
+                continue;
+            }
+            if alpha_at(sprite, x, y) < 255 {
+                return false;
+            }
+            geprueft += 1;
         }
-        if pixel.0[3] < 255 {
-            return false;
-        }
-        geprueft += 1;
     }
-
-    // Unter scale 4 schrumpft das Sechseck auf nichts zusammen: kein
+    // Unter scale 4 schrumpft der Bereich auf nichts zusammen: kein
     // Pixelmittelpunkt liegt mehr darin, und die Schleife oben wuerde
     // wortlos "deckend" melden. Eine leere Pruefmenge beweist nichts.
     geprueft > 0
+}
+
+/// Deckt das Sprite mindestens die Haelfte des Umrisses undurchsichtig?
+/// Dann trifft der Blickstrahl den Block eher, als dass er hindurchlaeuft.
+fn covers_mostly(sprite: &Sprite, projection: Projection) -> bool {
+    let half = projection.scale() as i32 / 2;
+    let (mut deckend, mut gesamt) = (0u32, 0u32);
+    for y in -half..half {
+        for x in -half..half {
+            if !in_outline(x as f32 + 0.5, y as f32 + 0.5, half as f32, 0.0) {
+                continue;
+            }
+            gesamt += 1;
+            if alpha_at(sprite, x, y) == 255 {
+                deckend += 1;
+            }
+        }
+    }
+    gesamt > 0 && 2 * deckend >= gesamt
+}
+
+fn content_hash(sprite: &Sprite) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    sprite.offset.hash(&mut hasher);
+    sprite.image.dimensions().hash(&mut hasher);
+    sprite.image.as_raw().hash(&mut hasher);
+    hasher.finish()
+}
+
+fn same_image(a: &Sprite, b: &Sprite) -> bool {
+    a.offset == b.offset
+        && a.image.dimensions() == b.image.dimensions()
+        && a.image.as_raw() == b.image.as_raw()
 }
 
 /// Prueft, ob ein Sprite ganz im Umriss eines Wuerfels bleibt.
@@ -771,7 +970,8 @@ mod tests {
             total: weights.iter().sum(),
             fluid: None,
             opaque: false,
-            bare: false,
+            covers_floor: false,
+            covers: false,
         };
         let listen = [
             family(&[1, 1, 1, 1]),
@@ -817,8 +1017,13 @@ mod tests {
         let states = [state("einfarbig"), state("einfarbig"), state("stone")];
         let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
         assert_eq!(set.by_state.len(), 2, "einfarbig nur einmal");
-        // stone liegt in der Fixture in zwei Alternativen vor
-        assert_eq!(set.len(), 3);
+        // stone liegt in der Fixture in zwei Alternativen vor, um 180 Grad
+        // gedreht. Die Textur ist dafuer symmetrisch, beide sehen gleich
+        // aus und teilen sich das Sprite.
+        let stone = set.family_of(&state("stone")).unwrap();
+        assert_eq!(stone.alternatives.len(), 2);
+        assert_eq!(stone.alternatives[0].1, stone.alternatives[1].1);
+        assert_eq!(set.len(), 2);
     }
 
     #[test]
@@ -991,6 +1196,163 @@ mod tests {
             !set.by_biome.contains_key(&innen),
             "Maske 7 zeigt kein Wasser"
         );
+    }
+
+    /// Eine Alternative mit fehlendem Modell bleibt als Missing-Wuerfel in
+    /// der Liste und behaelt ihr Gewicht: die Wahl je Position bleibt die
+    /// des Clients. Fiele sie weg, zeigte der Block an jeder Position die
+    /// uebrige Alternative.
+    #[test]
+    fn kaputte_alternative_behaelt_ihr_gewicht() {
+        let mut assets = assets();
+        let set =
+            SpriteSet::build(&mut assets, [&state("halb_kaputt")], Projection::new(16)).unwrap();
+        let family = set.family_of(&state("halb_kaputt")).unwrap();
+        assert_eq!(family.total, 4);
+        assert_eq!(family.alternatives.len(), 2);
+        for (pos, _, erwartet) in CLIENT {
+            assert_eq!(
+                family.pick(pos),
+                family.alternatives[erwartet[2] as usize].1,
+                "{pos:?}"
+            );
+        }
+    }
+
+    /// Gefaerbte Fassungen nur fuer die Biome, mit denen die Blockstate
+    /// vorkommt; die anderen zeigen auf das Standardklima.
+    #[test]
+    fn faerbung_nur_fuer_biome_aus_dem_vorlauf() {
+        let mut assets = assets();
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
+        assets.load_biomes(&data).unwrap();
+        let wasser = state("water[level=0]");
+        let alle = SpriteSet::build(&mut assets, [&wasser], Projection::new(16)).unwrap();
+        let nur_frozen: BTreeSet<String> = ["minecraft:frozen".to_string()].into();
+        let eines = SpriteSet::build_in(
+            &mut assets,
+            [(&wasser, Some(&nur_frozen))],
+            Projection::new(16),
+        )
+        .unwrap();
+        assert!(
+            eines.len() < alle.len(),
+            "{} gegen {}",
+            eines.len(),
+            alle.len()
+        );
+        let base = eines.id(&wasser).unwrap();
+        assert_ne!(eines.in_biome(base, || Some("minecraft:frozen")), base);
+        assert_eq!(eines.in_biome(base, || Some("terranova:heide")), base);
+        assert_ne!(
+            alle.in_biome(alle.id(&wasser).unwrap(), || Some("terranova:heide")),
+            alle.id(&wasser).unwrap()
+        );
+    }
+
+    /// Teilen sich zwei Familien ein Bild, aber nicht die Biome, bleiben
+    /// die Sprites getrennt: sonst bestimmte die zuerst gebaute Familie die
+    /// Fassungen der anderen. Die Blasensaeule steht alphabetisch vor dem
+    /// Wasser.
+    #[test]
+    fn verschiedene_biome_trennen_gleiche_bilder() {
+        let mut assets = assets();
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
+        assets.load_biomes(&data).unwrap();
+        let wasser = state("water[level=0]");
+        let saeule = state("bubble_column");
+        let frozen: BTreeSet<String> = ["minecraft:frozen".to_string()].into();
+        let beide: BTreeSet<String> = ["minecraft:frozen", "minecraft:swamp"]
+            .map(String::from)
+            .into();
+        let set = SpriteSet::build_in(
+            &mut assets,
+            [(&saeule, Some(&frozen)), (&wasser, Some(&beide))],
+            Projection::new(16),
+        )
+        .unwrap();
+        let id = set.id(&wasser).unwrap();
+        assert_ne!(
+            set.in_biome(id, || Some("minecraft:swamp")),
+            id,
+            "Wasser im Sumpf hat seine eigene Farbe"
+        );
+    }
+
+    /// Pixelgleiche Sprites teilen sich den Eintrag, auch ueber Familien
+    /// hinweg: eine Blasensaeule sieht aus wie Wasser.
+    #[test]
+    fn pixelgleiche_sprites_teilen_sich_den_eintrag() {
+        let mut assets = assets();
+        let states = [state("water[level=0]"), state("bubble_column")];
+        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(set.families.len(), 2);
+        assert_eq!(set.id(&states[0]), set.id(&states[1]));
+        assert_eq!(
+            set.len(),
+            SpriteSet::build(&mut assets, &states[..1], Projection::new(16))
+                .unwrap()
+                .len()
+        );
+    }
+
+    /// Lava endet bei 8/9: sie deckt den Umriss nicht mehr, den Block
+    /// darunter aber schon. Ein Zaunpfosten deckt fast nichts, ein voller
+    /// Wuerfel alles. Bei scale 32, denn bei 16 ist der Streifen ueber der
+    /// Lava keinen Pixel hoch und faellt in den Rand, den die Pruefung
+    /// ohnehin auslaesst.
+    #[test]
+    fn deckung_nach_bereich() {
+        let mut assets = assets();
+        let states = [
+            state("lava"),
+            state("einfarbig"),
+            state("oak_fence[north=true]"),
+            state("water"),
+        ];
+        let set = SpriteSet::build(&mut assets, &states, Projection::new(32)).unwrap();
+        let flags = |text: &str| {
+            let f = set.family_of(&state(text)).unwrap();
+            (f.opaque, f.covers_floor, f.covers)
+        };
+        assert_eq!(flags("lava"), (false, true, true));
+        assert_eq!(flags("einfarbig"), (true, true, true));
+        assert_eq!(flags("oak_fence[north=true]"), (false, false, false));
+        assert_eq!(
+            flags("water"),
+            (false, false, false),
+            "durchscheinend deckt nichts"
+        );
+    }
+
+    /// Streifen gibt es je Paar aus eigener Hoehe und Nachbarhoehe, fuer
+    /// beide sichtbaren Seiten, und sie liegen ueber der Nachbarhoehe.
+    #[test]
+    fn streifen_fuer_jede_stufe() {
+        let mut assets = assets();
+        let set = SpriteSet::build(&mut assets, [&state("water")], Projection::new(16)).unwrap();
+        assert!(set.strip(Fluid::Water, 9, 8, Face::East).is_some());
+        assert!(set.strip(Fluid::Water, 8, 1, Face::South).is_some());
+        assert!(
+            set.strip(Fluid::Water, 8, 8, Face::East).is_none(),
+            "kein Streifen ohne Hoehenunterschied"
+        );
+        assert!(
+            set.strip(Fluid::Lava, 9, 8, Face::East).is_none(),
+            "keine Lava in der Welt"
+        );
+        let id = set.strip(Fluid::Water, 9, 8, Face::East).unwrap();
+        let sprite = set.part(id, OWN_CELL).unwrap();
+        // Ein Neuntel Blockhoehe ist bei scale 16 knapp ein Pixel hoch: je
+        // Spalte hoechstens zwei Pixel, schraeg ueber die ganze Seite.
+        let (w, h) = sprite.image.dimensions();
+        for x in 0..w {
+            let dicke = (0..h)
+                .filter(|&y| sprite.image.get_pixel(x, y).0[3] > 0)
+                .count();
+            assert!(dicke <= 2, "Spalte {x}: {dicke} Pixel");
+        }
+        assert!(sprite.image.pixels().any(|p| p.0[3] > 0));
     }
 
     /// Blöcke ohne sichtbare Geometrie tauchen gar nicht erst auf.

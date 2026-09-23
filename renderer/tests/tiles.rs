@@ -129,7 +129,7 @@ fn vorlauf_findet_jede_kachel_mit_inhalt() {
     assert!(
         gefunden
             .states
-            .iter()
+            .keys()
             .any(|s| s.name() == "minecraft:seerose"),
         "die Blockstates der Welt müssen im Vorlauf auftauchen"
     );

@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use image::{Rgba, RgbaImage};
 use std::sync::LazyLock;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{TILE, TileId};
 
@@ -188,7 +188,7 @@ static SRGB_STEPS: LazyLock<[f32; 255]> = LazyLock::new(|| {
 ///
 /// Die Projektion selbst steht nicht drin: sie hängt allein an `scale`,
 /// und die Formel gehört in den Renderer, nicht in eine Datei.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MapInfo {
     /// Kantenlänge einer Kachel in Pixeln.

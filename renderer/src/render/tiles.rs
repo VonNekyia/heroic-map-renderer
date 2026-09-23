@@ -1,7 +1,7 @@
 //! Die Bildebene in Kacheln zerlegen und herausfinden, welche davon etwas
 //! zeigen.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::Result;
 use image::codecs::webp::WebPEncoder;
@@ -56,14 +56,22 @@ pub fn covering(rect: ScreenRect) -> impl Iterator<Item = TileId> {
 /// angeforderten Ausschnitt begrenzt, lässt Blöcke weg, die in derselben
 /// Kachel liegen — und die fehlen dann stillschweigend im Bild.
 pub fn snap_to_tiles(rect: ScreenRect) -> ScreenRect {
+    snap_to_grid(rect, TILE)
+}
+
+/// Rundet ein Rechteck nach aussen auf ein Raster der Kantenlänge `edge`
+/// — auf ganze Kacheln einer gröberen Stufe, wenn die nativ aus der Welt
+/// gerendert wird: dann muss auch die Basis so weit reichen, sonst zeigen
+/// die Stufen verschiedene Weltstände.
+pub fn snap_to_grid(rect: ScreenRect, edge: u32) -> ScreenRect {
     if rect.width == 0 || rect.height == 0 {
         return rect;
     }
-    let tile = TILE as i32;
-    let x = rect.x.div_euclid(tile) * tile;
-    let y = rect.y.div_euclid(tile) * tile;
-    let right = (rect.right() - 1).div_euclid(tile) * tile + tile;
-    let bottom = (rect.bottom() - 1).div_euclid(tile) * tile + tile;
+    let edge = edge as i32;
+    let x = rect.x.div_euclid(edge) * edge;
+    let y = rect.y.div_euclid(edge) * edge;
+    let right = (rect.right() - 1).div_euclid(edge) * edge + edge;
+    let bottom = (rect.bottom() - 1).div_euclid(edge) * edge + edge;
     ScreenRect {
         x,
         y,
@@ -127,8 +135,10 @@ fn union(a: ScreenRect, b: ScreenRect) -> ScreenRect {
 pub struct Survey {
     /// Kacheln, in denen etwas liegen kann.
     pub tiles: Vec<TileId>,
-    /// Blockstates, die vorkommen. Daraus entsteht die Sprite-Tabelle.
-    pub states: BTreeSet<BlockState>,
+    /// Blockstates, die vorkommen, je mit den Biomen, mit denen sie eine
+    /// Section teilen. Daraus entsteht die Sprite-Tabelle: gefärbte
+    /// Fassungen nur für diese Biome.
+    pub states: BTreeMap<BlockState, BTreeSet<String>>,
     /// Biome, die vorkommen — um zu melden, welche keine Definition haben.
     pub biomes: BTreeSet<String>,
     /// Chunks, die gelesen wurden.
@@ -171,7 +181,9 @@ pub fn survey(
     let mut survey = Survey::default();
     for teil in teile {
         tiles.extend(teil.tiles);
-        survey.states.extend(teil.states);
+        for (state, biomes) in teil.states {
+            survey.states.entry(state).or_default().extend(biomes);
+        }
         survey.biomes.extend(teil.biomes);
         survey.chunks += teil.chunks;
     }
@@ -190,6 +202,14 @@ fn survey_region(
     let Some(mut region) = world.region(rx, rz)? else {
         return Ok(survey);
     };
+
+    // Je Blockstate die Biome, mit denen sie eine Section teilt, als
+    // Bitmaske über die Biome dieser Region: je Paletteneintrag ein Oder.
+    // Mehr als 128 Biome in einer Region — dann bekommt jede Blockstate
+    // alle.
+    let mut biome_bits: HashMap<String, u32> = HashMap::new();
+    let mut states: HashMap<BlockState, u128> = HashMap::new();
+    let mut zu_viele = false;
 
     let mut tiles = BTreeSet::new();
     for local_z in 0..REGION {
@@ -225,16 +245,51 @@ fn survey_region(
             }
 
             for section in chunk.sections() {
-                survey
-                    .states
-                    .extend(section.blocks().palette().iter().cloned());
-                survey
-                    .biomes
-                    .extend(section.biomes().palette().iter().cloned());
+                let mut bits = 0u128;
+                for biome in section.biomes().palette() {
+                    let bit = match biome_bits.get(biome) {
+                        Some(&bit) => bit,
+                        None => {
+                            let bit = biome_bits.len() as u32;
+                            biome_bits.insert(biome.clone(), bit);
+                            bit
+                        }
+                    };
+                    if bit < 128 {
+                        bits |= 1 << bit;
+                    } else {
+                        zu_viele = true;
+                    }
+                }
+                for state in section.blocks().palette() {
+                    match states.get_mut(state) {
+                        Some(known) => *known |= bits,
+                        None => {
+                            states.insert(state.clone(), bits);
+                        }
+                    }
+                }
             }
         }
     }
 
+    let mut names = vec![String::new(); biome_bits.len()];
+    for (name, bit) in biome_bits {
+        names[bit as usize] = name;
+    }
+    survey.biomes = names.iter().cloned().collect();
+    survey.states = states
+        .into_iter()
+        .map(|(state, bits)| {
+            let biomes = names
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| zu_viele || (i < 128 && (bits >> i) & 1 == 1))
+                .map(|(_, name)| name.clone())
+                .collect();
+            (state, biomes)
+        })
+        .collect();
     survey.tiles = tiles.into_iter().collect();
     Ok(survey)
 }
@@ -420,6 +475,28 @@ mod tests {
             height: 9,
         });
         assert_eq!(snap_to_tiles(einmal), einmal);
+    }
+
+    /// Ein Ausschnitt wird auf ganze Kacheln der gröbsten nativen Stufe
+    /// aufgerundet, bei drei Stufen über der Basis also auf 2048 Pixel.
+    #[test]
+    fn ausschnitt_rundet_auf_das_grobe_raster() {
+        let rect = ScreenRect {
+            x: -8704,
+            y: 1792,
+            width: 2048,
+            height: 2048,
+        };
+        assert_eq!(
+            snap_to_grid(rect, TILE << 3),
+            ScreenRect {
+                x: -10240,
+                y: 0,
+                width: 4096,
+                height: 4096
+            }
+        );
+        assert_eq!(snap_to_grid(rect, TILE), rect, "schon auf Kacheln gerundet");
     }
 
     #[test]

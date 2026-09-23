@@ -320,8 +320,8 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
 }
 
 /// Jede gröbere Zoomstufe ist entweder nativ aus der Welt gerendert —
-/// solange ein Block noch zwei Pixel breit ist — oder genau die
-/// Verkleinerung ihrer vier Kinder. Und keine Kachel darf fehlen.
+/// solange ein Block auf ganzen Pixeln liegt, also bis scale 4 — oder
+/// genau die Verkleinerung ihrer vier Kinder. Und keine Kachel darf fehlen.
 #[test]
 fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
     let welt = tempdir();
@@ -512,6 +512,169 @@ fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
     for (rel, alt) in &vorher {
         assert_eq!(&nachher[rel], alt, "{rel} hat sich verändert");
     }
+}
+
+/// Ein Ausschnitt mit nativen Stufen braucht die Blöcke seiner ganzen
+/// Elternfläche. Fehlt dort ein Asset, bricht der Lauf ab, bevor er eine
+/// Kachel schreibt — nicht erst nach der Basis, mit alten gröberen Stufen
+/// und in einem frischen Verzeichnis ohne Karte.
+#[test]
+fn unbekannter_block_in_der_elternflaeche_bricht_vor_dem_schreiben_ab() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (6, 6)], |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (100, 4, 100) => "minecraft:gibt_es_nicht",
+        _ => "minecraft:air",
+    });
+    let out = tempdir();
+    let ausgabe = tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "16", "--center", "8", "8", "--size", "4"],
+    );
+    assert!(
+        !ausgabe.status.success(),
+        "der Block liegt in der Elternfläche und fehlt"
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("gibt_es_nicht"), "Meldung: {meldung}");
+    assert_eq!(
+        dateien(out.path()),
+        Vec::<String>::new(),
+        "vor dem Fehler geschrieben"
+    );
+}
+
+/// Nachgerendert wird ein Ausschnitt einer veränderten Welt. Die nativen
+/// Stufen zeigen ganze Elternkacheln; damit alle Stufen denselben Stand
+/// zeigen, reicht auch die Basis so weit. Danach gleicht der Baum einem
+/// Vollexport der neuen Welt — sonst stünde ein Neubau neben dem
+/// Ausschnitt nur auf den gröberen Stufen.
+#[test]
+fn nachrendern_zeigt_auf_allen_stufen_denselben_stand() {
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(2, 0), (4, 0)], |x, y, z| match (x, y, z) {
+        (44, 4, 8) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    });
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(2, 0), (4, 0)], |x, y, z| match (x, y, z) {
+        (44, 4, 8) => "minecraft:einfarbig",
+        (76, 4, 8) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    });
+
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    gelungen(&tiles(
+        neu.path(),
+        baum.path(),
+        &["--scale", "16", "--center", "44", "8", "--size", "4"],
+    ));
+    let voll = tempdir();
+    gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
+
+    let nachher = schnappschuss(baum.path());
+    let soll = schnappschuss(voll.path());
+    assert_eq!(
+        nachher.keys().collect::<Vec<_>>(),
+        soll.keys().collect::<Vec<_>>()
+    );
+    for (rel, inhalt) in &soll {
+        assert_eq!(&nachher[rel], inhalt, "{rel} zeigt einen anderen Stand");
+    }
+}
+
+/// Wächst die Welt über eine Zweierpotenz an Kacheln hinaus, behält ein
+/// bestehender Baum seine Nummerierung, und der nächste Lauf rendert weiter
+/// hinein, statt abzubrechen. Zoom 0 zeigt dann mehr als eine Kachel.
+#[test]
+fn gewachsene_welt_behaelt_die_nummerierung() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], |x, y, z| {
+        if (x, y, z) == (8, 4, 8) {
+            "minecraft:einfarbig"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let baum = tempdir();
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
+    let vorher = max_zoom(baum.path());
+
+    // Eine neue Region weit draussen.
+    common::write_world(welt.path(), &[(160, 0)], |x, y, z| {
+        if (x, y, z) == (2568, 4, 8) {
+            "minecraft:blauwuerfel"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let frisch = tempdir();
+    gelungen(&tiles(welt.path(), frisch.path(), &["--scale", "16"]));
+    let neu = max_zoom(frisch.path());
+    assert!(neu > vorher, "die Welt ist nicht gewachsen: {neu}");
+
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
+    assert_eq!(max_zoom(baum.path()), vorher, "Nummerierung verloren");
+    // Die Basis ist dieselbe wie im frischen Baum, nur unter ihrer alten
+    // Nummer.
+    let basis = kacheln(baum.path(), vorher);
+    let soll = kacheln(frisch.path(), neu);
+    assert_eq!(
+        basis.keys().collect::<Vec<_>>(),
+        soll.keys().collect::<Vec<_>>()
+    );
+    for (tile, pfad) in &soll {
+        assert_eq!(
+            std::fs::read(&basis[tile]).unwrap(),
+            std::fs::read(pfad).unwrap(),
+            "{tile:?}"
+        );
+    }
+    assert!(!kacheln(baum.path(), 0).is_empty(), "Zoom 0 fehlt");
+}
+
+/// Bricht der erste Lauf ab, steht trotzdem schon im `map.json`, zu welchem
+/// scale der Baum gehört. Sonst mischte der nächste Lauf mit anderem scale
+/// seine Kacheln unter die des abgebrochenen.
+#[test]
+fn abgebrochener_lauf_hinterlaesst_map_json() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], |x, y, z| {
+        if (x, y, z) == (8, 4, 8) {
+            "minecraft:gibt_es_nicht"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let out = tempdir();
+    assert!(
+        !tiles(welt.path(), out.path(), &["--scale", "16"])
+            .status
+            .success(),
+        "der erste Lauf hätte am fehlenden Asset scheitern müssen"
+    );
+    let ausgabe = tiles(welt.path(), out.path(), &[]);
+    assert!(!ausgabe.status.success());
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("scale 16"), "Meldung: {meldung}");
+}
+
+/// Eine geflutete Truhe bleibt eine Truhe, die Minecraft als Entity
+/// zeichnet; auf der Karte steht dort nur ihr Wasser. `--block` muss das
+/// sagen, auch wenn der Block Wasser enthält.
+#[test]
+fn geflutete_truhe_bleibt_ein_entity() {
+    let ausgabe = cli(&[
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--block"),
+        OsStr::new("chest[waterlogged=true]"),
+    ]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(text.contains("kein Modell"), "{text}");
+    assert!(text.contains("Flüssigkeit: Water"), "{text}");
 }
 
 /// Wasser hat kein Modell-JSON, der Renderer baut es im Code. `--block`

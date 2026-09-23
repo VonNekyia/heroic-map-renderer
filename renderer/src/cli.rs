@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,7 @@ use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 use terranova_render::assets::{Assets, fluid, model_of};
 use terranova_render::render::pyramid;
+use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
     MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for, corner_tiles,
     encode_webp, render, render_area, survey, world_box,
@@ -52,8 +53,8 @@ pub struct Args {
     #[arg(long, value_name = "DATEI")]
     sprite: Option<PathBuf>,
 
-    /// Pixelbreite eines Blocks
-    #[arg(long, default_value_t = Projection::DEFAULT_SCALE)]
+    /// Pixelbreite eines Blocks, ein Vielfaches von 4
+    #[arg(long, default_value_t = Projection::DEFAULT_SCALE, value_parser = parse_scale)]
     scale: u32,
 
     /// Einen Weltausschnitt in diese PNG rendern
@@ -76,6 +77,20 @@ pub struct Args {
     /// Jeden Chunk der Welt dekodieren; mit --assets auch jede Blockstate auflösen
     #[arg(long)]
     scan: bool,
+}
+
+/// Die Projektion setzt Blöcke in Schritten von scale/4 Pixeln. Nur bei
+/// einem Vielfachen von 4 liegt jeder Block auf ganzen Pixeln; sonst
+/// rundet `blit` jede zweite Blockreihe, und benachbarte Reihen überdecken
+/// sich. Dann halbiert auch jede native Stufe exakt.
+fn parse_scale(text: &str) -> std::result::Result<u32, String> {
+    let scale: u32 = text.parse().map_err(|e| format!("{e}"))?;
+    if scale < 4 || !scale.is_multiple_of(4) {
+        return Err(format!(
+            "{scale} ist kein Vielfaches von 4: jede zweite Blockreihe läge auf einem halben Pixel"
+        ));
+    }
+    Ok(scale)
 }
 
 pub fn run() -> Result<()> {
@@ -266,7 +281,10 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
         for texture in textures {
             println!("      {texture}");
         }
-        if variant.model.is_empty() && fluid::of(state).is_none() {
+        // Wasser, Lava und Blasensäule haben kein Modell-JSON und trotzdem
+        // ein Bild. Eine geflutete Truhe dagegen zeichnet Minecraft als
+        // Entity, auf der Karte steht dort nur ihr Wasser.
+        if variant.model.is_empty() && !fluid::is_block(state) {
             println!("      (kein Modell — wird von Minecraft als Entity gezeichnet)");
         }
     }
@@ -292,20 +310,30 @@ fn render_world(
 ) -> Result<()> {
     let started = Instant::now();
     let chunks = chunks_for(projection, rect, Y_RANGE);
-    let mut states = BTreeSet::new();
+    let mut states: BTreeMap<BlockState, BTreeSet<String>> = BTreeMap::new();
     let mut biomes = BTreeSet::new();
     let mut vorhanden = 0u32;
     for &(cx, cz) in &chunks {
         if let Some(chunk) = world.chunk(cx, cz)? {
             vorhanden += 1;
             for section in chunk.sections() {
-                states.extend(section.blocks().palette().iter().cloned());
-                biomes.extend(section.biomes().palette().iter().cloned());
+                let im_abschnitt = section.biomes().palette();
+                for state in section.blocks().palette() {
+                    states
+                        .entry(state.clone())
+                        .or_default()
+                        .extend(im_abschnitt.iter().cloned());
+                }
+                biomes.extend(im_abschnitt.iter().cloned());
             }
         }
     }
 
-    let sprites = SpriteSet::build(assets, &states, projection)?;
+    let sprites = SpriteSet::build_in(
+        assets,
+        states.iter().map(|(state, biomes)| (state, Some(biomes))),
+        projection,
+    )?;
     warn_unknown_biomes(assets, &biomes);
     println!(
         "\nRender:     {} Chunks im Ausschnitt, {vorhanden} generiert, {} Blockstates, {} Sprites",
@@ -453,8 +481,25 @@ fn write_tiles(
     // einer anderen Stufe, und zwei Läufe passten nicht zusammen.
     let welt =
         world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
-    let max_zoom = pyramid::depth(&corner_tiles(welt));
-    pruefe_bestand(dir, projection.scale(), max_zoom)?;
+    // Ein bestehender Baum behält seine Nummerierung, auch wenn die Welt
+    // inzwischen gewachsen ist: dann zeigt Zoom 0 eben mehr als eine
+    // Kachel. Sonst müsste jeder Baum nach der ersten neuen Region von
+    // vorn entstehen.
+    let max_zoom = match pruefe_bestand(dir, projection.scale())? {
+        Some(alt) => alt.max_zoom,
+        None => pyramid::depth(&corner_tiles(welt)),
+    };
+    // Gleich festhalten, wozu der Baum gehört: bricht dieser Lauf ab, hat
+    // der nächste etwas zu prüfen.
+    schreibe_map_json(dir, projection.scale(), max_zoom)?;
+
+    // Die nativen Stufen rendern ihre Elternkacheln ganz. Damit alle
+    // Stufen denselben Weltstand zeigen, reicht die Basis genauso weit:
+    // ein Ausschnitt wird auf ganze Kacheln der gröbsten nativen Stufe
+    // aufgerundet, und der Vorlauf sieht jeden Block, den irgendeine
+    // Stufe braucht.
+    let stufen = native_levels(projection.scale(), max_zoom);
+    let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
 
     let started = Instant::now();
     let survey = survey(world, projection, Y_RANGE, bounds)?;
@@ -469,7 +514,14 @@ fn write_tiles(
         bail!("keine Kachel enthält etwas — falscher Ausschnitt?");
     }
 
-    let sprites = SpriteSet::build(assets, &survey.states, projection)?;
+    let sprites = SpriteSet::build_in(
+        assets,
+        survey
+            .states
+            .iter()
+            .map(|(state, biomes)| (state, Some(biomes))),
+        projection,
+    )?;
     println!(
         "            {} Sprites bei scale {}, davon {} Fassungen",
         sprites.len(),
@@ -532,51 +584,49 @@ fn write_tiles(
         bytes as f64 / basis.len().max(1) as f64 / 1024.0,
     );
 
-    // Die nativen Stufen rendern ihre Elternkacheln ganz, auch über den
-    // Ausschnitt hinaus. Ihre Sprite-Tabelle braucht deshalb die Blöcke der
-    // ganzen Elternfläche: aus den Blockstates des Ausschnitts allein würde
-    // draussen alles zu Luft, und die richtigen Kacheln auf der Platte
-    // würden überschrieben.
-    let stufen = native_levels(projection.scale(), max_zoom);
-    let flaeche;
-    let states = match bounds {
-        Some(_) if stufen > 0 => {
-            let rect = eltern_flaeche(&survey.tiles, stufen);
-            flaeche = survey_states(world, projection, rect)?;
-            &flaeche
-        }
-        _ => &survey.states,
-    };
+    // Die nativen Stufen bauen ihre eigenen Tabellen; die der Basis wird
+    // nicht mehr gebraucht.
+    drop(sprites);
     let (z, kandidaten) = render_coarser(
-        world, assets, states, projection, dir, max_zoom, kandidaten, stufen,
+        world,
+        assets,
+        &survey.states,
+        projection,
+        dir,
+        max_zoom,
+        kandidaten,
+        stufen,
     )?;
     build_pyramid(dir, z, kandidaten)?;
 
-    // Die Grenzen beschreiben den ganzen Kachelbaum, nicht diesen Lauf.
-    // Nach einem nachgerenderten Ausschnitt lägen sonst die unberührten
-    // Kacheln ausserhalb, und das Frontend startete im falschen
-    // Ausschnitt.
-    let bestand = vorhandene(dir, max_zoom)?;
-    let info = MapInfo::new(projection.scale(), max_zoom, &bestand);
-
-    // Auch ohne eine einzige sichtbare Kachel muss map.json geschrieben
-    // werden können — bis hierher hat vielleicht nichts das Verzeichnis
-    // angelegt.
-    std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
-    let path = dir.join("map.json");
-    let datei = File::create(&path).with_context(|| format!("{} anlegen", path.display()))?;
-    serde_json::to_writer_pretty(BufWriter::new(datei), &info)
-        .with_context(|| format!("{} schreiben", path.display()))?;
+    let (info, basis, path) = schreibe_map_json(dir, projection.scale(), max_zoom)?;
     println!(
-        "Karte:      Zoom {}..{}, {} Basiskacheln, {} bis {} px -> {}",
+        "Karte:      Zoom {}..{}, {basis} Basiskacheln, {} bis {} px -> {}",
         info.min_zoom,
         info.max_zoom,
-        bestand.len(),
         format_args!("{}/{}", info.bounds[0], info.bounds[1]),
         format_args!("{}/{}", info.bounds[2], info.bounds[3]),
         path.display()
     );
     Ok(())
+}
+
+/// Schreibt `map.json` für den Baum, wie er auf der Platte steht.
+///
+/// Die Grenzen beschreiben den ganzen Kachelbaum, nicht diesen Lauf. Nach
+/// einem nachgerenderten Ausschnitt lägen sonst die unberührten Kacheln
+/// ausserhalb, und das Frontend startete im falschen Ausschnitt. Auch
+/// ohne eine einzige sichtbare Kachel muss die Datei entstehen können —
+/// bis hierher hat vielleicht nichts das Verzeichnis angelegt.
+fn schreibe_map_json(dir: &Path, scale: u32, max_zoom: u32) -> Result<(MapInfo, usize, PathBuf)> {
+    let bestand = vorhandene(dir, max_zoom)?;
+    let info = MapInfo::new(scale, max_zoom, &bestand);
+    std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
+    let path = dir.join("map.json");
+    let datei = File::create(&path).with_context(|| format!("{} anlegen", path.display()))?;
+    serde_json::to_writer_pretty(BufWriter::new(datei), &info)
+        .with_context(|| format!("{} schreiben", path.display()))?;
+    Ok((info, bestand.len(), path))
 }
 
 /// Stapelt über der gerenderten Basis die gröberen Zoomstufen.
@@ -659,59 +709,33 @@ fn native_levels(scale: u32, max_zoom: u32) -> u32 {
     stufen
 }
 
-/// Die Fläche der Elternkacheln `stufen` Stufen über `tiles`, in Pixeln
-/// der Basis.
-fn eltern_flaeche(tiles: &[TileId], stufen: u32) -> ScreenRect {
-    let kante = TILE as i32 * (1 << stufen);
-    let x0 = tiles.iter().map(|t| t.x >> stufen).min().unwrap_or(0);
-    let y0 = tiles.iter().map(|t| t.y >> stufen).min().unwrap_or(0);
-    let x1 = tiles.iter().map(|t| (t.x >> stufen) + 1).max().unwrap_or(0);
-    let y1 = tiles.iter().map(|t| (t.y >> stufen) + 1).max().unwrap_or(0);
-    ScreenRect {
-        x: x0 * kante,
-        y: y0 * kante,
-        width: ((x1 - x0) * kante) as u32,
-        height: ((y1 - y0) * kante) as u32,
-    }
-}
-
-/// Die Blockstates der Chunks, die in eine Fläche fallen.
-fn survey_states(
-    world: &World,
-    projection: Projection,
-    rect: ScreenRect,
-) -> Result<BTreeSet<BlockState>> {
-    Ok(survey(world, projection, Y_RANGE, Some(rect))?.states)
-}
-
-/// Ein bestehender Kachelbaum mit anderem scale oder anderer Stufenzahl
-/// passt nicht zu diesem Lauf: die neuen Kacheln lägen auf anderen Stufen
-/// als die alten, und `map.json` beschriebe danach nur noch den Ausschnitt.
-/// Seit scale 32 der Standard ist, reicht dafür ein vergessenes `--scale`.
-fn pruefe_bestand(dir: &Path, scale: u32, max_zoom: u32) -> Result<()> {
+/// Liest das `map.json` eines bestehenden Kachelbaums.
+///
+/// Ein Baum mit anderem scale passt nicht zu diesem Lauf: die neuen Kacheln
+/// hätten einen anderen Massstab als die alten. Seit scale 32 der Standard
+/// ist, reicht dafür ein vergessenes `--scale`. `maxZoom` prüft sie nicht:
+/// der Baum behält seine Nummerierung, auch wenn die Welt gewachsen ist.
+fn pruefe_bestand(dir: &Path, scale: u32) -> Result<Option<MapInfo>> {
     let pfad = dir.join("map.json");
     let Ok(text) = std::fs::read_to_string(&pfad) else {
-        return Ok(());
+        return Ok(None);
     };
-    let alt: serde_json::Value = serde_json::from_str(&text).with_context(|| {
+    let alt: MapInfo = serde_json::from_str(&text).with_context(|| {
         format!(
             "{} ist kein gültiges map.json — löschen, wenn der Baum neu entstehen soll",
             pfad.display()
         )
     })?;
-    if alt["scale"].as_u64() != Some(scale.into())
-        || alt["maxZoom"].as_u64() != Some(max_zoom.into())
-    {
+    if alt.scale != scale {
         bail!(
-            "{} gehört zu einem Baum mit scale {} und maxZoom {}; dieser Lauf hätte scale {scale} \
-             und maxZoom {max_zoom}. Mit --scale {} weiterrendern oder ein neues Verzeichnis nehmen.",
+            "{} gehört zu einem Baum mit scale {}, dieser Lauf hätte scale {scale}. \
+             Mit --scale {} weiterrendern oder ein neues Verzeichnis nehmen.",
             pfad.display(),
-            alt["scale"],
-            alt["maxZoom"],
-            alt["scale"]
+            alt.scale,
+            alt.scale
         );
     }
-    Ok(())
+    Ok(Some(alt))
 }
 
 /// Rendert die gröberen Zoomstufen aus der Welt, solange ein Block noch
@@ -730,7 +754,7 @@ fn pruefe_bestand(dir: &Path, scale: u32, max_zoom: u32) -> Result<()> {
 fn render_coarser(
     world: &World,
     assets: &mut Assets,
-    states: &BTreeSet<BlockState>,
+    states: &BTreeMap<BlockState, BTreeSet<String>>,
     projection: Projection,
     dir: &Path,
     max_zoom: u32,
@@ -745,7 +769,11 @@ fn render_coarser(
         z -= 1;
         scale /= 2;
         let started = Instant::now();
-        let sprites = SpriteSet::build(assets, states, Projection::new(scale))?;
+        let sprites = SpriteSet::build_in(
+            assets,
+            states.iter().map(|(state, biomes)| (state, Some(biomes))),
+            Projection::new(scale),
+        )?;
         kandidaten = pyramid::parents(&kandidaten);
 
         let bytes = AtomicUsize::new(0);
@@ -963,7 +991,7 @@ fn scan(
     for state in &states {
         match assets.variants(state) {
             Ok(variants) => {
-                if variants.iter().all(|v| v.model.is_empty()) && fluid::of(state).is_none() {
+                if variants.iter().all(|v| v.model.is_empty()) && !fluid::is_block(state) {
                     leer.insert(state.name());
                 }
             }
@@ -977,12 +1005,11 @@ fn scan(
         started.elapsed().as_secs_f64(),
         ungeloest.len()
     );
-    for (state, error) in ungeloest.iter().take(20) {
-        println!("            {state}: {error}");
-    }
-    if ungeloest.len() > 20 {
-        println!("            ... und {} weitere", ungeloest.len() - 20);
-    }
+    print_list(
+        ungeloest
+            .iter()
+            .map(|(state, error)| format!("{state}: {error}")),
+    );
 
     // Blöcke, die Minecraft über Entity-Modelle zeichnet. V1 kennt die nicht,
     // sie bleiben auf der Karte leer.
@@ -995,6 +1022,17 @@ fn scan(
     Ok(())
 }
 
+/// Höchstens zwanzig Zeilen, dann die Zahl der übrigen.
+fn print_list<T: std::fmt::Display>(items: impl ExactSizeIterator<Item = T>) {
+    let gesamt = items.len();
+    for item in items.take(20) {
+        println!("            {item}");
+    }
+    if gesamt > 20 {
+        println!("            ... und {} weitere", gesamt - 20);
+    }
+}
+
 fn report_missing_textures(assets: &Assets) {
     let missing = assets.textures().missing();
     println!(
@@ -1002,12 +1040,7 @@ fn report_missing_textures(assets: &Assets) {
         assets.textures().len() - 1,
         missing.len()
     );
-    for name in missing.iter().take(20) {
-        println!("            {name}");
-    }
-    if missing.len() > 20 {
-        println!("            ... und {} weitere", missing.len() - 20);
-    }
+    print_list(missing.iter());
 
     let skipped = assets.skipped();
     if !skipped.is_empty() {
@@ -1015,12 +1048,7 @@ fn report_missing_textures(assets: &Assets) {
             "Varianten:  {} Blockstates ohne einzelne Alternativen, deren Modell fehlt",
             skipped.len()
         );
-        for line in skipped.iter().take(20) {
-            println!("            {line}");
-        }
-        if skipped.len() > 20 {
-            println!("            ... und {} weitere", skipped.len() - 20);
-        }
+        print_list(skipped.iter());
     }
 }
 
@@ -1064,6 +1092,21 @@ mod tests {
         );
     }
 
+    /// `--scale` nimmt nur Vielfache von 4: bei 2, 6 oder 9 lägen Blöcke
+    /// auf halben Pixeln, und native Stufen hätten den falschen Massstab.
+    #[test]
+    fn scale_nur_als_vielfaches_von_vier() {
+        for gut in ["4", "8", "12", "32", "64"] {
+            assert!(Args::try_parse_from(["x", "--scale", gut]).is_ok(), "{gut}");
+        }
+        for schlecht in ["0", "2", "6", "9", "17", "33"] {
+            assert!(
+                Args::try_parse_from(["x", "--scale", schlecht]).is_err(),
+                "{schlecht}"
+            );
+        }
+    }
+
     #[test]
     fn native_stufen_nur_auf_ganzen_pixeln() {
         assert_eq!(native_levels(32, 9), 3, "16, 8, 4");
@@ -1076,20 +1119,6 @@ mod tests {
             native_levels(32, 2),
             2,
             "nicht mehr Stufen als die Pyramide hat"
-        );
-    }
-
-    #[test]
-    fn elternflaeche_umfasst_die_ganzen_elternkacheln() {
-        let tiles = [TileId { x: 1, y: 0 }, TileId { x: -1, y: 2 }];
-        assert_eq!(
-            eltern_flaeche(&tiles, 2),
-            ScreenRect {
-                x: -1024,
-                y: 0,
-                width: 2048,
-                height: 1024
-            }
         );
     }
 

@@ -651,66 +651,167 @@ fn tiefes_wasser_deckt() {
     }
 }
 
-/// Was knapp unter einer tiefen Oberfläche liegt, sieht man durch das
-/// Wasser davor. Senkrecht gezählt trügen die Oberflächenblöcke vor dem
-/// Pfosten die Deckkraft ihrer eigenen, vier Blöcke tiefen Spalten, und
-/// der Pfosten verschwände fast ganz — ebenso Kelp, Riffe und Wracks.
-#[test]
-fn tiefe_zaehlt_entlang_des_blickstrahls() {
-    let projection = Projection::new(32);
-    let rect = ScreenRect::centered(512, 512);
-    let assets = assets();
+/// Eine Schicht der Wassertextur des Fixtures in der Standardfarbe.
+fn wasserschicht(assets: &Assets) -> [u8; 4] {
     let wasser = assets
         .colors()
         .tints("minecraft:water", None)
         .water
         .unwrap();
+    [
+        (60.0 * wasser[0] as f32 / 255.0).round() as u8,
+        (100.0 * wasser[1] as f32 / 255.0).round() as u8,
+        (220.0 * wasser[2] as f32 / 255.0).round() as u8,
+        180,
+    ]
+}
 
-    // Ein See vier Blöcke tief, ein Zaunpfosten reicht bis einen Block
-    // unter die Oberfläche.
+/// Was knapp unter einer tiefen Oberfläche liegt, sieht man durch das
+/// Wasser davor, nicht durch das daneben. Senkrecht gezählt trüge der
+/// Oberflächenblock vor dem Stein die Deckkraft seiner eigenen, vier
+/// Blöcke tiefen Spalte, und der Stein verschwände fast ganz — ebenso
+/// Riffe und Wracks.
+#[test]
+fn tiefe_zaehlt_entlang_des_blickstrahls() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let schicht = wasserschicht(&assets());
+
+    // Ein See vier Blöcke tief, ein Stein reicht bis einen Block unter die
+    // Oberfläche.
     let dir = tempdir();
     let see = render_chunks(
         &dir,
         &[(0, 0)],
         |x, y, z| match (x, y, z) {
-            (_, 0, _) => "minecraft:einfarbig",
-            (8, 3, 8) => "minecraft:oak_fence[north=true,waterlogged=true]",
+            (_, 0, _) | (7, 3, 7) => "minecraft:einfarbig",
             (_, 1..=4, _) => "minecraft:water",
             _ => "minecraft:air",
         },
         projection,
         rect,
     );
-    // Derselbe Pfosten an Land.
+    // Derselbe Stein an Land.
     let dir = tempdir();
     let trocken = render_chunks(
         &dir,
         &[(0, 0)],
         |x, y, z| match (x, y, z) {
-            (8, 3, 8) => "minecraft:oak_fence[north=true]",
+            (7, 3, 7) => "minecraft:einfarbig",
             _ => "minecraft:air",
         },
         projection,
         rect,
     );
 
-    // Vor der Pfostenoberseite liegt genau eine Oberfläche, die von
-    // (9, 4, 9), und hinter der steht der Pfosten, kein Wasser.
-    let schicht = [
-        (60.0 * wasser[0] as f32 / 255.0).round() as u8,
-        (100.0 * wasser[1] as f32 / 255.0).round() as u8,
-        (220.0 * wasser[2] as f32 / 255.0).round() as u8,
-        180,
-    ];
-    let mitte = [8.5, 4.0, 8.5];
+    // Vor der Steinoberseite liegt genau eine Oberfläche, die von
+    // (8, 4, 8), und hinter der steht der Stein, kein Wasser.
+    let mitte = [7.5, 4.0, 7.5];
     let erwartet = over(schicht, punkt(&trocken, projection, rect, mitte));
     let ist = punkt(&see, projection, rect, mitte);
     for c in 0..4 {
         assert!(
             (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
-            "Pfosten unter der Oberfläche: erwartet {erwartet:?}, bekommen {ist:?}"
+            "Stein unter der Oberfläche: erwartet {erwartet:?}, bekommen {ist:?}"
         );
     }
+    // Daneben läuft der Strahl am Stein vorbei bis zum Grund: vier
+    // Schichten, der Grund ist kaum noch zu sehen.
+    let tief = punkt(&see, projection, rect, [10.5, 4.0 + 8.0 / 9.0, 10.5]);
+    assert_ne!(tief, ist, "die Tiefe wirkt neben dem Stein");
+}
+
+/// Dünne Modelle im Wasser — Seegras, Kelp, ein gefluteter Pfosten —
+/// lassen den Blickstrahl durch. Die Oberfläche vor ihnen bleibt so tief
+/// wie ohne sie; sonst wäre jeder Fluss mit Seegras auf dem Grund
+/// gesprenkelt.
+#[test]
+fn duenne_modelle_machen_die_flaeche_nicht_flach() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 256);
+    let fluss = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) => "minecraft:einfarbig",
+        (_, 1..=2, _) => "minecraft:water",
+        _ => "minecraft:air",
+    };
+    let dir = tempdir();
+    let ohne = render_chunks(&dir, &[(0, 0)], fluss, projection, rect);
+    let dir = tempdir();
+    let mit = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| match (x, y, z) {
+            (7, 1, 7) => "minecraft:oak_fence[north=true,waterlogged=true]",
+            _ => fluss(x, y, z),
+        },
+        projection,
+        rect,
+    );
+    // Die Oberfläche von (8, 2, 8) hat den Pfosten auf ihrem Strahl. Von
+    // diesem Punkt aus läuft der Strahl durch den Block des Pfostens, aber
+    // an ihm vorbei bis zum Grund: dort sieht sie aus wie ohne ihn, zwei
+    // Schichten über dem Grund. Zählte der Pfosten als Ende, wäre es eine.
+    let p = [8.9, 2.0 + 8.0 / 9.0, 8.1];
+    assert_eq!(
+        punkt(&mit, projection, rect, p),
+        punkt(&ohne, projection, rect, p),
+        "der Pfosten macht die Fläche flach"
+    );
+}
+
+/// Wo eine Wassersäule neben einer niedrigeren Oberfläche derselben
+/// Flüssigkeit steht — der Fuss eines Wasserfalls, eine Stufe fliessenden
+/// Wassers —, bleibt über dem Nachbarn ein Streifen der eigenen Seite frei.
+/// Vanilla hebt dort die Ecken der Oberfläche an; hier schliesst ein
+/// Streifen die Lücke. Und unter der Nachbaroberfläche liegt keine
+/// Seitenfläche mehr, die sich mit ihr doppelt mischte.
+#[test]
+fn wasserstufen_schliessen_die_luecke_ohne_doppelung() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+
+    // Ein Wasserfall in einen See, ohne Grund: hinter dem Streifen ist
+    // nichts, also zählt sein Alpha allein.
+    let dir = tempdir();
+    let fall = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (8, 1..=4, 8) => "minecraft:water",
+            (4..=12, 1, 4..=12) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    // Ostseite der Säule zwischen der Seeoberfläche bei 8/9 und der Kante.
+    let streifen = punkt(&fall, projection, rect, [9.0, 1.95, 8.5]);
+    assert_eq!(
+        streifen[3], 180,
+        "Lücke am Fuss des Wasserfalls: {streifen:?}"
+    );
+
+    // Eine Quelle neben fliessendem Wasser der Stufe 1, das bei 7/9 endet.
+    let dir = tempdir();
+    let stufe = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (8, 1, 8) => "minecraft:water[level=0]",
+            (9, 1, 8) => "minecraft:water[level=1]",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let streifen = punkt(&stufe, projection, rect, [9.0, 1.0 + 7.5 / 9.0, 8.5]);
+    assert_eq!(streifen[3], 180, "Lücke an der Stufe: {streifen:?}");
+    // Unter der Oberfläche des Nachbarn deckt nur dessen Oberseite.
+    let darunter = punkt(&stufe, projection, rect, [9.0, 1.0 + 3.0 / 9.0, 8.5]);
+    assert_eq!(
+        darunter[3], 180,
+        "Seitenfläche unter der Nachbaroberfläche: {darunter:?}"
+    );
 }
 
 /// Steht Wasser über Wasser, füllt das untere den Block bis zur Kante.
@@ -735,6 +836,11 @@ fn wasser_unter_wasser_reicht_bis_zur_kante() {
     // der Höhe, bei der eine Oberfläche enden würde.
     let p = punkt(&bild, projection, rect, [9.0, 1.95, 8.5]);
     assert_eq!(p[3], 180, "Spalt in der Wassersäule: {p:?}");
+    // Der obere Block ist die Oberfläche und endet bei 8/9. An seiner
+    // hinteren Ecke bleibt darüber ein Streifen frei, den ein voller Würfel
+    // decken würde.
+    let p = punkt(&bild, projection, rect, [8.0, 3.0, 8.0]);
+    assert_eq!(p[3], 0, "Wasser über der Oberfläche: {p:?}");
 }
 
 /// Pixel, der einen Punkt in Blockkoordinaten enthält.

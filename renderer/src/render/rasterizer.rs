@@ -242,7 +242,7 @@ impl<'a> ProjectedQuad<'a> {
 /// Prüfung gewinnen abgewandte Flächen den Tiefentest, wenn sie mit einer
 /// sichtbaren zusammenfallen — beim Seerosenblatt liegen `down` und `up` in
 /// derselben Ebene.
-fn faces_camera(quad: &Quad) -> bool {
+pub(crate) fn faces_camera(quad: &Quad) -> bool {
     let n = quad.normal();
     n[0] + n[1] + n[2] > 0.0
 }

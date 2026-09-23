@@ -8,6 +8,7 @@ use crate::assets::fluid::Fluid;
 use crate::assets::{Assets, Face, Tints, fluid, models_of};
 use crate::world::BlockState;
 
+use super::rasterizer::faces_camera;
 use super::{Projection, Sprite, render};
 
 /// Verweis in die Sprite-Tabelle.
@@ -355,15 +356,18 @@ impl SpriteSet {
     ) -> Option<SpriteId> {
         // Welche Faerbungen das Modell ueberhaupt traegt. Nur die
         // unterscheiden Fassungen — sonst bekaeme jeder Grasblock eine
-        // Fassung je Wasserfarbe.
-        let uses = model
-            .quads
-            .iter()
-            .fold((false, false), |(block, water), q| match q.tint_index {
+        // Fassung je Wasserfarbe. Gezaehlt wird nur, was der Rasterizer
+        // zeichnet: ein gefluteter Zaun mitten im Wasser behaelt vom
+        // Wasserwuerfel nur die abgewandten Seiten, und die gaeben sonst
+        // je Wasserfarbe eine pixelgleiche Fassung.
+        let uses = model.quads.iter().filter(|q| faces_camera(q)).fold(
+            (false, false),
+            |(block, water), q| match q.tint_index {
                 None => (block, water),
                 Some(fluid::TINT_INDEX) => (block, true),
                 Some(_) => (true, water),
-            });
+            },
+        );
         let tints = |biome: Option<&str>| {
             let t = assets.colors().tints(state.name(), biome);
             Tints {
@@ -968,6 +972,25 @@ mod tests {
         );
         assert_ne!(index("water[level=0]"), index("water[level=3]"));
         assert_eq!(set.families.len(), 3);
+    }
+
+    /// Mitten im Wasser zeigt ein gefluteter Zaun kein Wasser mehr. Die
+    /// abgewandten Seiten des Wasserwuerfels zeichnet der Rasterizer nicht,
+    /// ihre Farbe darf keine Fassungen je Biom erzeugen.
+    #[test]
+    fn abgewandte_flaechen_faerben_nicht() {
+        let mut assets = assets();
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
+        assets.load_biomes(&data).unwrap();
+        let states = [state("oak_fence[waterlogged=true]")];
+        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let base = set.families[0].alternatives[0].1.unwrap();
+        assert!(set.by_biome.contains_key(&base), "Wasser sichtbar");
+        let innen = set.by_mask[&base][7].unwrap();
+        assert!(
+            !set.by_biome.contains_key(&innen),
+            "Maske 7 zeigt kein Wasser"
+        );
     }
 
     /// Blöcke ohne sichtbare Geometrie tauchen gar nicht erst auf.

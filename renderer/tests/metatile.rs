@@ -655,6 +655,53 @@ fn alternativen_werden_aus_der_position_gewuerfelt() {
     }
 }
 
+/// Obere Hälften von Doppelpflanzen und Türen würfeln im Client mit der
+/// Position der unteren (`getSeed`), beide Hälften passen also immer
+/// zusammen. Mit der eigenen Position passten sie an jeder zweiten Stelle
+/// nicht.
+#[test]
+fn doppelbloecke_wuerfeln_beide_haelften_gleich() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(512, 384);
+    // Abstand 3: mit 2 verdeckt die Säule schräg davor die Südseite.
+    let spalte = |x: i32, z: i32| x % 3 == 0 && z % 3 == 0;
+    let dir = tempdir();
+    let bild = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| match y {
+            1 if spalte(x, z) => "minecraft:hohe_pflanze[half=lower]",
+            2 if spalte(x, z) => "minecraft:hohe_pflanze[half=upper]",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let blau = |p: [u8; 4]| p[2] > p[0];
+    let (mut gleich, mut blaue) = (0, 0);
+    for x in (0..16).step_by(3) {
+        for z in (0..16).step_by(3) {
+            // Oben die Oberseite der oberen Hälfte, unten die Südseite der
+            // unteren.
+            let oben = oberseite(&bild, projection, rect, [x, 2, z]);
+            let unten = punkt(
+                &bild,
+                projection,
+                rect,
+                [x as f64 + 0.5, 1.5, z as f64 + 1.0],
+            );
+            assert_eq!(
+                blau(oben),
+                blau(unten),
+                "({x}, {z}): {oben:?} über {unten:?}"
+            );
+            gleich += 1;
+            blaue += blau(oben) as i32;
+        }
+    }
+    assert!(blaue > 8 && blaue < gleich - 8, "{blaue} von {gleich} blau");
+}
+
 /// Die Wasseroberfläche trägt die Deckkraft des Wassers hinter ihr: durch
 /// einen Block Wasser sieht man den Grund, durch vier praktisch nicht mehr.
 ///

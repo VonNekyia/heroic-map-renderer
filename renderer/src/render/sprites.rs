@@ -129,6 +129,9 @@ fn covers_all(sprite: &Sprite, pixels: &[(i32, i32)], dy: i32) -> bool {
 pub struct Family {
     alternatives: Vec<(u32, Option<SpriteId>)>,
     total: u32,
+    /// Wo der Client die Saat nimmt, relativ zum Block: siehe
+    /// `seed_offset`.
+    seed_offset: [i32; 3],
     /// Fluessigkeit samt Menge in Neunteln der Blockhoehe, falls die
     /// Blockstate eine enthaelt.
     pub fluid: Option<(Fluid, u8)>,
@@ -160,6 +163,8 @@ impl Family {
         if self.alternatives.len() == 1 {
             return self.alternatives[0].1;
         }
+        let [dx, dy, dz] = self.seed_offset;
+        let pos = [pos[0] + dx, pos[1] + dy, pos[2] + dz];
         let mut n = java_next_int(seed(pos), self.total as i32);
         for &(weight, id) in &self.alternatives {
             n -= weight as i32;
@@ -169,6 +174,28 @@ impl Family {
         }
         None
     }
+}
+
+/// Wo der Client die Saat einer Blockstate nimmt. Obere Haelften von
+/// Tueren und Doppelpflanzen wuerfeln mit der Position der unteren, das
+/// Fussende eines Betts mit der des Kopfendes, beide Haelften passen so
+/// immer zusammen: `DoorBlock`, `DoublePlantBlock` und `BedBlock`
+/// ueberschreiben `getSeed`, per javap am 26.2-Client. Nur diese Bloecke
+/// tragen `half=upper` und `part=foot`.
+fn seed_offset(state: &BlockState) -> [i32; 3] {
+    if state.prop("half") == Some("upper") {
+        return [0, -1, 0];
+    }
+    if state.prop("part") == Some("foot") {
+        return match state.prop("facing") {
+            Some("north") => [0, 0, -1],
+            Some("south") => [0, 0, 1],
+            Some("west") => [-1, 0, 0],
+            Some("east") => [1, 0, 0],
+            _ => [0, 0, 0],
+        };
+    }
+    [0, 0, 0]
 }
 
 /// `Mth.getSeed`: Minecrafts Zufallssaat aus einer Blockposition. Die
@@ -224,14 +251,24 @@ pub fn mask_bit(face: Face) -> u8 {
 }
 
 /// Alles, was das Bild einer Blockstate bestimmt: der Name (er entscheidet
-/// die Faerbung), die Modellverweise samt Drehung und Gewicht, und Art und
-/// Menge der Fluessigkeit. Die Verweise reichen, die Modelle selbst laedt
-/// erst die Familie.
-type FamilyKey = (String, Vec<(u32, Vec<ModelRef>)>, Option<(Fluid, u8)>);
+/// die Faerbung), die Modellverweise samt Drehung und Gewicht, Art und
+/// Menge der Fluessigkeit, und wo die Wahl der Alternative ihre Saat
+/// nimmt. Die Verweise reichen, die Modelle selbst laedt erst die Familie.
+type FamilyKey = (
+    String,
+    Vec<(u32, Vec<ModelRef>)>,
+    Option<(Fluid, u8)>,
+    [i32; 3],
+);
 
 fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
     let alternatives = assets.alternative_refs(state)?;
-    Ok((state.name().to_string(), alternatives, fluid::key(state)))
+    Ok((
+        state.name().to_string(),
+        alternatives,
+        fluid::key(state),
+        seed_offset(state),
+    ))
 }
 
 /// Die Biome, mit denen eine Familie vorkommt: `None` heisst alle.
@@ -387,6 +424,7 @@ impl SpriteSet {
                 .all(|((_, model), &(_, id))| set.covers_rays(assets, model, id));
             let family = Family {
                 total: alternatives.iter().map(|(weight, _)| *weight).sum(),
+                seed_offset: seed_offset(state),
                 opaque: all(|e| e.opaque),
                 covers_floor: all(|e| e.covers_floor),
                 covers,
@@ -1021,6 +1059,7 @@ mod tests {
             opaque: false,
             covers_floor: false,
             covers: false,
+            seed_offset: [0, 0, 0],
         };
         let listen = [
             family(&[1, 1, 1, 1]),
@@ -1265,6 +1304,31 @@ mod tests {
                 family.alternatives[erwartet[2] as usize].1,
                 "{pos:?}"
             );
+        }
+    }
+
+    /// Die Saat der oberen Haelfte liegt einen Block tiefer, die des
+    /// Fussendes eines Betts einen Schritt in Blickrichtung — beim
+    /// Kopfende. Alles andere wuerfelt an der eigenen Position.
+    #[test]
+    fn saat_wie_getseed_im_client() {
+        let faelle = [
+            ("tall_grass[half=upper]", [0, -1, 0]),
+            ("tall_grass[half=lower]", [0, 0, 0]),
+            (
+                "oak_door[facing=east,half=upper,hinge=left,open=false]",
+                [0, -1, 0],
+            ),
+            ("red_bed[facing=north,part=foot]", [0, 0, -1]),
+            ("red_bed[facing=south,part=foot]", [0, 0, 1]),
+            ("red_bed[facing=west,part=foot]", [-1, 0, 0]),
+            ("red_bed[facing=east,part=foot]", [1, 0, 0]),
+            ("red_bed[facing=east,part=head]", [0, 0, 0]),
+            ("oak_slab[type=top]", [0, 0, 0]),
+            ("oak_stairs[half=top]", [0, 0, 0]),
+        ];
+        for (text, erwartet) in faelle {
+            assert_eq!(seed_offset(&state(text)), erwartet, "{text}");
         }
     }
 

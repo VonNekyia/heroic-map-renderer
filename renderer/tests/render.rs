@@ -326,6 +326,59 @@ fn wasser_mischt_sich_ueber_den_zaun() {
     assert_ne!(ist, pixel(&trocken, sx, sy), "Wasser muss darüberliegen");
 }
 
+/// Zwei Dreiecke mit gemeinsamer Kante müssen jeden Pixel darauf genau
+/// einmal nehmen. Bei gedrehter Geometrie rundet f32 die Kante von
+/// verschiedenen Ecken aus verschieden; wird sie nicht von derselben Ecke
+/// aus gerechnet, fällt ein Pixel bei beiden durch — ein Loch im selben
+/// Pixel jedes Kreuzmodells, bei scale 32 in (10, 10).
+#[test]
+fn kreuzmodell_hat_keine_loecher() {
+    let mut assets = assets();
+    for scale in [8u32, 16, 32, 64] {
+        let sprite = sprite(&mut assets, "kreuz", scale).expect("Sprite");
+        let (w, h) = sprite.image.dimensions();
+        let alpha = |x: i32, y: i32| sprite.image.get_pixel(x as u32, y as u32).0[3];
+        let nachbarn = [
+            (-1, -1),
+            (0, -1),
+            (1, -1),
+            (-1, 0),
+            (1, 0),
+            (-1, 1),
+            (0, 1),
+            (1, 1),
+        ];
+        for y in 1..h as i32 - 1 {
+            for x in 1..w as i32 - 1 {
+                assert!(
+                    alpha(x, y) > 0 || nachbarn.iter().any(|&(dx, dy)| alpha(x + dx, y + dy) == 0),
+                    "scale {scale}: Loch bei ({x}, {y})"
+                );
+            }
+        }
+    }
+}
+
+/// Die Seiten eines gefluteten Blocks bleiben trocken. Der Wasserwürfel
+/// liegt mit seinen Seiten genau auf der Blockgrenze, und bei gleicher
+/// Tiefe gewann bisher das Wasser: ein Film auf jeder gefluteten Platte
+/// und Treppe. Vanilla rückt jede Flüssigkeitsfläche ein Tausendstel nach
+/// innen; hier rückt sie in der Tiefe nach hinten.
+#[test]
+fn gefluteter_wuerfel_bleibt_trocken() {
+    let mut assets = assets();
+    for scale in [16u32, 32] {
+        let trocken = sprite(&mut assets, "einfarbig", scale).expect("Sprite");
+        let nass = sprite(&mut assets, "einfarbig[waterlogged=true]", scale).expect("Sprite");
+        assert_eq!(nass.offset, trocken.offset);
+        assert_eq!(
+            nass.image.as_raw(),
+            trocken.image.as_raw(),
+            "scale {scale}: Wasserfilm auf dem Würfel"
+        );
+    }
+}
+
 /// Bei kleinem scale liegen viele Texel unter einem Pixel. Die Abtastung
 /// muss alle erfassen: eine Textur aus abwechselnd schwarzen und weissen
 /// Spalten ist bei scale 4 grau — und nicht weiss, weil jeder zweite

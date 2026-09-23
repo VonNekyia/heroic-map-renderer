@@ -30,6 +30,11 @@ fn texture_samples(scale: u32) -> u32 {
 /// kaputt.
 const MAX_SPRITE_BLOCKS: u32 = 8;
 
+/// Um so viel liegt eine Flüssigkeitsfläche in der Tiefe hinter der
+/// Blockfläche an derselben Stelle. Weit über dem Rundungsrauschen der
+/// interpolierten Tiefe, weit unter jedem echten Abstand im Modell.
+const FLUID_BEHIND: f32 = 1e-3;
+
 /// Helligkeit je Flächenrichtung, wie Minecraft sie verwendet. Ohne diese
 /// Abstufung sieht ein isometrischer Würfel flach aus.
 const SHADE_TOP: f32 = 1.0;
@@ -171,12 +176,23 @@ impl<'a> ProjectedQuad<'a> {
             return;
         }
 
+        // Vanilla rückt jede Flüssigkeitsfläche ein Tausendstel ins
+        // Blockinnere (`LiquidBlockRenderer`); hier rückt sie stattdessen
+        // in der Tiefe nach hinten. Die Seiten eines gefluteten Blocks
+        // liegen genau auf der Blockgrenze, wo auch der Wasserwürfel
+        // endet, und bei gleicher Tiefe gewann das Wasser: ein Film auf
+        // jeder gefluteten Platte, Treppe und Falltür.
+        let behind = if self.quad.fluid.is_some() {
+            FLUID_BEHIND
+        } else {
+            0.0
+        };
         let vertices: [Vertex; 4] = std::array::from_fn(|i| {
             let (x, y, depth) = self.screen[i];
             Vertex {
                 x: x - min_x as f32,
                 y: y - min_y as f32,
-                depth,
+                depth: depth - behind,
                 u: self.quad.uvs[i][0],
                 v: self.quad.uvs[i][1],
             }
@@ -579,8 +595,16 @@ pub fn over(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     out
 }
 
-/// Vorzeichenbehaftete Fläche des Dreiecks aus zwei Ecken und einem Punkt.
+/// Vorzeichenbehaftete Fläche des Dreiecks aus zwei Ecken und einem Punkt,
+/// immer von der lexikographisch kleineren Ecke aus gerechnet. Zwei
+/// Dreiecke mit gemeinsamer Kante bekommen so exakt entgegengesetzte
+/// Werte. Von verschiedenen Ecken aus rundet f32 verschieden, und ein
+/// Pixel genau auf der Kante fiel bei beiden durch — ein Loch im selben
+/// Pixel jedes Kreuzmodells, und je nach libm auch in Türen und Knöpfen.
 fn edge(a: Vertex, b: Vertex, px: f32, py: f32) -> f32 {
+    if (a.x, a.y) > (b.x, b.y) {
+        return -edge(b, a, px, py);
+    }
     (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x)
 }
 

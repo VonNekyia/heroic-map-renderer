@@ -93,16 +93,53 @@ pub fn render_area_with(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
-    chunks.next_tile();
-    let sprites = chunks.sprites;
-    let projection = sprites.projection();
-    let cover = sprites.cover();
+    let cover = chunks.sprites.cover();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
+    draw_all(&mut canvas, &draw_list(chunks, rect, y_range)?, cover);
+    Ok(canvas)
+}
+
+/// Zeichnet eine Liste auf die Leinwand — der CPU-Weg, an dem sich der
+/// GPU-Weg messen lassen muss.
+pub fn draw_all(canvas: &mut RgbaImage, draws: &[Draw], cover: &Cover) {
+    for d in draws {
+        blit(canvas, d.sprite, d.origin, cover, d.skip);
+    }
+}
+
+/// Ein Sprite-Teil an seinem Platz auf der Leinwand.
+///
+/// Der Renderlauf stellt je Kachel diese Liste auf, fertig sortiert, und
+/// zeichnet sie dann selbst ([`render_area_with`]) oder gibt sie an die
+/// Grafikkarte ([`super::gpu::Worker`]). Beide malen dasselbe Bild.
+#[derive(Clone, Copy)]
+pub struct Draw<'a> {
+    pub sprite: &'a Sprite,
+    /// Schlüssel für den Sprite-Atlas der Grafikkarte: Tabelle, Sprite,
+    /// Würfel.
+    pub key: (u64, SpriteId, Cell),
+    /// Linke obere Ecke des Sprites in Leinwandpixeln; darf über den Rand
+    /// hinausragen.
+    pub origin: (i32, i32),
+    /// Nachbarn (`mask_bit`), deren Umriss der Blit auslassen darf.
+    pub skip: u8,
+}
+
+/// Die Zeichenliste eines Ausschnitts, in Zeichenreihenfolge.
+pub fn draw_list<'a>(
+    chunks: &mut ChunkCache<'a>,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+) -> Result<Vec<Draw<'a>>> {
+    chunks.next_tile();
+    let sprites: &'a SpriteSet = chunks.sprites;
+    let projection = sprites.projection();
     let foreign: Vec<Cell> = sprites.foreign_cells().iter().copied().collect();
 
     let mut candidates = chunks.candidates(rect, y_range, &foreign)?;
     candidates.sort_unstable_by_key(|c| c.key);
 
+    let mut draws = Vec::with_capacity(candidates.len());
     for c in &candidates {
         let (id, cell, anchor) = if c.kind == 0 {
             (chunks.sprite_at(c.x, c.y, c.z)?, OWN_CELL, [c.x, c.y, c.z])
@@ -118,14 +155,22 @@ pub fn render_area_with(
         if let Some(id) = id
             && let Some(part) = sprites.part(id, cell)
         {
-            // Fremde Teile liegen in einem anderen Würfel als dem Anker;
-            // die Deckungstabelle gilt nur für den eigenen.
-            let skip = if c.kind == 0 { c.skip } else { 0 };
-            blit(&mut canvas, part, rect, projection, anchor, cover, skip);
+            let (sx, sy) = projection.project_block(anchor);
+            draws.push(Draw {
+                sprite: part,
+                key: (sprites.table_id(), id, cell),
+                origin: (
+                    sx.round() as i32 + part.offset.0 - rect.x,
+                    sy.round() as i32 + part.offset.1 - rect.y,
+                ),
+                // Fremde Teile liegen in einem anderen Würfel als dem
+                // Anker; die Deckungstabelle gilt nur für den eigenen.
+                skip: if c.kind == 0 { c.skip } else { 0 },
+            });
         }
     }
 
-    Ok(canvas)
+    Ok(draws)
 }
 
 /// Der Block, dessen Modell in `cell` hineinragen würde.
@@ -234,15 +279,10 @@ fn columns_at(
 fn blit(
     canvas: &mut RgbaImage,
     sprite: &Sprite,
-    rect: ScreenRect,
-    projection: Projection,
-    [x, y, z]: [i32; 3],
+    (origin_x, origin_y): (i32, i32),
     cover: &Cover,
     skip: u8,
 ) {
-    let (sx, sy) = projection.project_block([x, y, z]);
-    let origin_x = sx.round() as i32 + sprite.offset.0 - rect.x;
-    let origin_y = sy.round() as i32 + sprite.offset.1 - rect.y;
     let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
     let (cw, ch) = (canvas.width() as i32, canvas.height() as i32);
 

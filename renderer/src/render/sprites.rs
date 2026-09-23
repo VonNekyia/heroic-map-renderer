@@ -53,7 +53,13 @@ pub struct SpriteSet {
     /// Sie bleiben auf der Karte leer wie Luft — ein Mod-Block oder eine
     /// Umbenennung darf keinen stundenlangen Render abbrechen.
     unresolved: BTreeMap<String, String>,
+    /// Laufende Nummer der Tabelle. `SpriteId`s zaehlen je Tabelle von 0;
+    /// wer Sprites ueber Tabellen hinweg merkt (der GPU-Atlas), braucht
+    /// dazu die Tabelle.
+    id: u64,
 }
+
+static NAECHSTE_TABELLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// Die Alternativen einer Blockstate mit ihren Gewichten.
 pub struct Family {
@@ -174,6 +180,7 @@ impl SpriteSet {
         projection: Projection,
     ) -> Result<SpriteSet> {
         let mut set = SpriteSet {
+            id: NAECHSTE_TABELLE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             sprites: Vec::new(),
             families: Vec::new(),
             by_state: HashMap::new(),
@@ -392,6 +399,11 @@ impl SpriteSet {
     }
 
     /// Index der Familie einer Blockstate, fuer Caches je Paletteneintrag.
+    /// Kennung dieser Tabelle, eindeutig im Prozess.
+    pub fn table_id(&self) -> u64 {
+        self.id
+    }
+
     pub fn family_index(&self, state: &BlockState) -> Option<u32> {
         self.by_state.get(state).copied()
     }

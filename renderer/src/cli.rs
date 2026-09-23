@@ -6,15 +6,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 use terranova_render::assets::{Assets, model_of};
 use terranova_render::render::pyramid;
 use terranova_render::render::{
-    ChunkCache, MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for, corner_tiles,
-    encode_webp, render, render_area, render_area_with, survey, world_box,
+    ChunkCache, Gpu, MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for,
+    corner_tiles, draw_list, encode_webp, render, render_area, render_area_with, survey, world_box,
 };
 use terranova_render::world::{BlockState, REGION, World};
 
@@ -93,7 +93,24 @@ pub struct Args {
     /// setzt einen abgebrochenen Lauf fort
     #[arg(long)]
     resume: bool,
+
+    /// Grafikkarte zum Zeichnen der Kacheln: `auto` nimmt sie, wenn eine da
+    /// ist, `on` verlangt eine (auch einen Software-Adapter) und bricht
+    /// sonst ab.
+    #[arg(long, value_enum, default_value_t = GpuMode::Auto)]
+    gpu: GpuMode,
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum GpuMode {
+    Auto,
+    Off,
+    On,
+}
+
+/// Kacheln je Durchgang auf der Grafikkarte. Mehr spart Wartezeiten je
+/// Absenden, kostet aber je Thread Puffer — 16 Kacheln sind 8 MB.
+const GPU_TILES: u32 = 16;
 
 pub fn run() -> Result<()> {
     let args = Args::parse();
@@ -196,6 +213,7 @@ pub fn run() -> Result<()> {
             if args.pyramid {
                 rebuild_pyramid(world, projection, dir)?;
             } else {
+                let gpu = oeffne_gpu(args.gpu)?;
                 write_tiles(
                     world,
                     assets.as_mut().expect("oben geprüft"),
@@ -204,6 +222,7 @@ pub fn run() -> Result<()> {
                     dir,
                     args.native_levels,
                     args.resume,
+                    gpu.as_ref(),
                 )?;
             }
         }
@@ -297,6 +316,27 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Öffnet die Grafikkarte nach Wunsch. Bei `auto` ist ein Fehler beim
+/// Öffnen kein Grund abzubrechen — dann zeichnet die CPU.
+fn oeffne_gpu(mode: GpuMode) -> Result<Option<Gpu>> {
+    let gpu = match mode {
+        GpuMode::Off => None,
+        GpuMode::Auto => match Gpu::new(false) {
+            Ok(gpu) => gpu,
+            Err(e) => {
+                println!("GPU:        {e:#} — die CPU zeichnet");
+                None
+            }
+        },
+        GpuMode::On => Some(Gpu::new(true)?.context("keine Grafikkarte gefunden (--gpu on)")?),
+    };
+    match &gpu {
+        Some(gpu) => println!("GPU:        {}", gpu.name),
+        None => println!("GPU:        keine, die CPU zeichnet"),
+    }
+    Ok(gpu)
 }
 
 /// Rendert einen Ausschnitt der Welt in eine PNG.
@@ -462,6 +502,7 @@ fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
 /// Blockstates vorkommen und welche Kacheln überhaupt etwas zeigen. Erst
 /// danach steht die Sprite-Tabelle, und erst danach kann parallel gerendert
 /// werden — ohne sie müsste jeder Worker sie unter einer Sperre füllen.
+#[allow(clippy::too_many_arguments)]
 fn write_tiles(
     world: &World,
     assets: &mut Assets,
@@ -470,6 +511,7 @@ fn write_tiles(
     dir: &Path,
     native_levels: u32,
     resume: bool,
+    gpu: Option<&Gpu>,
 ) -> Result<()> {
     let started = Instant::now();
     let survey = survey(world, projection, Y_RANGE, bounds)?;
@@ -528,26 +570,53 @@ fn write_tiles(
         .par_chunks(batch_size(gesamt))
         .map(|stapel| -> Result<Vec<TileId>> {
             let mut chunks = ChunkCache::new(world, &sprites);
+            let mut worker = gpu.map(|gpu| gpu.worker(GPU_TILES, TILE));
             let mut geschrieben = Vec::with_capacity(stapel.len());
-            for tile in stapel {
-                let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
-                if erledigt.is_multiple_of(200) || erledigt == gesamt {
-                    println!("            {erledigt}/{gesamt} Kacheln");
+            // Die Grafikkarte bekommt mehrere Kacheln je Durchgang; die
+            // CPU eine nach der anderen.
+            let je_durchgang = if worker.is_some() {
+                GPU_TILES as usize
+            } else {
+                1
+            };
+            for gruppe in stapel.chunks(je_durchgang) {
+                let mut offen = Vec::with_capacity(gruppe.len());
+                for tile in gruppe {
+                    let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
+                    if erledigt.is_multiple_of(200) || erledigt == gesamt {
+                        println!("            {erledigt}/{gesamt} Kacheln");
+                    }
+                    if resume && tile_path(dir, max_zoom, *tile).is_file() {
+                        uebersprungen.fetch_add(1, Ordering::Relaxed);
+                        geschrieben.push(*tile);
+                    } else {
+                        offen.push(*tile);
+                    }
                 }
-                if resume && tile_path(dir, max_zoom, *tile).is_file() {
-                    uebersprungen.fetch_add(1, Ordering::Relaxed);
+                let bilder = match &mut worker {
+                    Some(worker) => {
+                        let listen = offen
+                            .iter()
+                            .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE))
+                            .collect::<Result<Vec<_>>>()?;
+                        worker.render(&listen)?
+                    }
+                    None => offen
+                        .iter()
+                        .map(|tile| render_area_with(&mut chunks, tile.rect(), Y_RANGE))
+                        .collect::<Result<Vec<_>>>()?,
+                };
+                for (tile, image) in offen.iter().zip(bilder) {
+                    // Der Vorlauf kennt nur die Hüllkästen der Blockspalten;
+                    // ob eine Kachel wirklich etwas zeigt, weiss erst der
+                    // Renderlauf.
+                    if image.pixels().all(|p| p.0[3] == 0) {
+                        entferne(&tile_path(dir, max_zoom, *tile))?;
+                        continue;
+                    }
+                    bytes.fetch_add(schreibe(dir, max_zoom, *tile, &image)?, Ordering::Relaxed);
                     geschrieben.push(*tile);
-                    continue;
                 }
-                let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
-                // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob
-                // eine Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
-                if image.pixels().all(|p| p.0[3] == 0) {
-                    entferne(&tile_path(dir, max_zoom, *tile))?;
-                    continue;
-                }
-                bytes.fetch_add(schreibe(dir, max_zoom, *tile, &image)?, Ordering::Relaxed);
-                geschrieben.push(*tile);
             }
             Ok(geschrieben)
         })
@@ -560,10 +629,11 @@ fn write_tiles(
     let bytes = bytes.load(Ordering::Relaxed);
     let uebersprungen = uebersprungen.load(Ordering::Relaxed);
     println!(
-        "Kacheln:    {} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads",
+        "Kacheln:    {} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads{}",
         basis.len() - uebersprungen,
         gesamt - basis.len(),
-        rayon::current_num_threads()
+        rayon::current_num_threads(),
+        if gpu.is_some() { " + GPU" } else { "" }
     );
     if resume {
         println!("            {uebersprungen} vorhandene Kacheln übersprungen (--resume)");

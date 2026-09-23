@@ -629,3 +629,33 @@ fn leeres_ergebnis_legt_das_ziel_trotzdem_an() {
     assert!(ziel.join("map.json").is_file(), "map.json fehlt");
     assert!(dateien(&ziel).is_empty(), "es dürfte keine Kachel geben");
 }
+
+/// `--gpu on` liefert dieselben Dateien wie `--gpu off`, Byte für Byte —
+/// Kacheln, Pyramide, `map.json`. Ohne Adapter (auch keinen
+/// Software-Adapter) wird übersprungen und gesagt.
+#[test]
+fn gpu_liefert_dieselben_kacheln() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (1, 1)], gelaende);
+
+    let cpu = tempdir();
+    let gpu = tempdir();
+    gelungen(&tiles(
+        welt.path(),
+        cpu.path(),
+        &["--scale", "16", "--gpu", "off"],
+    ));
+    let lauf = tiles(welt.path(), gpu.path(), &["--scale", "16", "--gpu", "on"]);
+    if !lauf.status.success()
+        && String::from_utf8_lossy(&lauf.stderr).contains("keine Grafikkarte gefunden")
+    {
+        eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
+        return;
+    }
+    gelungen(&lauf);
+    assert!(
+        String::from_utf8_lossy(&lauf.stdout).contains("Threads + GPU"),
+        "die Ausgabe nennt die GPU nicht"
+    );
+    assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
+}

@@ -11,6 +11,7 @@ allow = [
     "Apache-2.0",
     "Unicode-3.0",
     "Zlib",
+    "ISC",        # libloading: wgpu laedt Vulkan und GL zur Laufzeit
 ]
 
 [bans]

@@ -23,7 +23,7 @@ use std::sync::mpsc::{TryRecvError, channel};
 use anyhow::{Context, Result, anyhow, bail};
 use image::RgbaImage;
 
-use super::metatile::Draw;
+use super::metatile::DrawList;
 use super::{Cell, Sprite, SpriteId};
 
 /// Kantenlänge der Zellen, in die eine Kachel zerlegt wird: eine
@@ -395,7 +395,7 @@ impl Worker<'_> {
 
     /// Zeichnet je Liste eine Kachel. Höchstens so viele, wie der Zeichner
     /// angelegt wurde.
-    pub fn render(&mut self, lists: &[Vec<Draw>]) -> Result<Vec<RgbaImage>> {
+    pub fn render(&mut self, lists: &[DrawList]) -> Result<Vec<RgbaImage>> {
         if lists.is_empty() {
             return Ok(Vec::new());
         }
@@ -423,7 +423,7 @@ impl Worker<'_> {
             spans.clear();
             counts.fill(0);
             let first = instances;
-            for d in list {
+            for d in &list.draws {
                 let (w, h) = (
                     d.sprite.image.width() as i32,
                     d.sprite.image.height() as i32,

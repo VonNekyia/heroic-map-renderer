@@ -7,7 +7,7 @@ use crate::assets::Face;
 use crate::world::{Chunk, REGION, Region, World};
 
 use super::rasterizer::over;
-use super::sprites::{Cover, DEPTHS, Family, mask_bit};
+use super::sprites::{DEPTHS, Family, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
@@ -93,18 +93,27 @@ pub fn render_area_with(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
-    let cover = chunks.sprites.cover();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
-    draw_all(&mut canvas, &draw_list(chunks, rect, y_range)?, cover);
+    draw_all(&mut canvas, &draw_list(chunks, rect, y_range)?);
     Ok(canvas)
 }
 
 /// Zeichnet eine Liste auf die Leinwand — der CPU-Weg, an dem sich der
 /// GPU-Weg messen lassen muss.
-pub fn draw_all(canvas: &mut RgbaImage, draws: &[Draw], cover: &Cover) {
-    for d in draws {
-        blit(canvas, d.sprite, d.origin, cover, d.skip);
+pub fn draw_all(canvas: &mut RgbaImage, list: &DrawList) {
+    for d in &list.draws {
+        blit(canvas, d, &list.vis);
     }
+}
+
+/// Die Zeichenliste einer Kachel: die Draws in Zeichenreihenfolge und je
+/// Draw die Pixel, die am Ende noch zu sehen sind.
+pub struct DrawList<'a> {
+    pub draws: Vec<Draw<'a>>,
+    /// Sichtbare Pixel, als Leinwandwörter: je Draw und Sprite-Zeile
+    /// `Draw::nk` Wörter ab Leinwandwort `Draw::k0`; Bit `x % 64` in Wort
+    /// `x / 64` steht für Leinwandspalte `x`.
+    pub vis: Vec<u64>,
 }
 
 /// Ein Sprite-Teil an seinem Platz auf der Leinwand.
@@ -121,16 +130,31 @@ pub struct Draw<'a> {
     /// Linke obere Ecke des Sprites in Leinwandpixeln; darf über den Rand
     /// hinausragen.
     pub origin: (i32, i32),
-    /// Nachbarn (`mask_bit`), deren Umriss der Blit auslassen darf.
-    pub skip: u8,
+    /// Anfang der Sichtbarkeitswörter in [`DrawList::vis`].
+    pub vis: usize,
+    /// Erstes Leinwandwort und Wörter je Zeile der Sichtbarkeit.
+    pub k0: u32,
+    pub nk: u32,
 }
 
-/// Die Zeichenliste eines Ausschnitts, in Zeichenreihenfolge.
+/// Die Zeichenliste eines Ausschnitts, in Zeichenreihenfolge — nur mit
+/// dem, was am Ende zu sehen ist.
+///
+/// Die Kandidaten kommen sortiert von hinten nach vorn. Hier laufen sie
+/// rückwärts, also von vorn nach hinten, mit einer Bitmaske je
+/// Leinwandpixel: "hier liegt schon ein deckender Pixel". Ein Block, dessen
+/// ganzer Umriss bedeckt ist, bekommt nicht einmal eine Sprite-Wahl; ein
+/// Sprite, von dem kein Pixel mehr durchscheint, kommt nicht in die Liste;
+/// und was bleibt, merkt sich je Zeile, welche Pixel noch frei sind. Das
+/// Bild ist dasselbe: übersprungen wird nur, was ein späterer Draw mit
+/// Alpha 255 ohnehin übermalt, und alles andere wird in der alten
+/// Reihenfolge gemischt. Vorher wurde jeder Pixel im Schnitt siebenmal
+/// gemalt.
 pub fn draw_list<'a>(
     chunks: &mut ChunkCache<'a>,
     rect: ScreenRect,
     y_range: (i32, i32),
-) -> Result<Vec<Draw<'a>>> {
+) -> Result<DrawList<'a>> {
     chunks.next_tile();
     let sprites: &'a SpriteSet = chunks.sprites;
     let projection = sprites.projection();
@@ -139,38 +163,163 @@ pub fn draw_list<'a>(
     let mut candidates = chunks.candidates(rect, y_range, &foreign)?;
     candidates.sort_unstable_by_key(|c| c.key);
 
-    let mut draws = Vec::with_capacity(candidates.len());
-    for c in &candidates {
-        let (id, cell, anchor) = if c.kind == 0 {
-            (chunks.sprite_at(c.x, c.y, c.z)?, OWN_CELL, [c.x, c.y, c.z])
+    let (width, height) = (rect.width as i32, rect.height as i32);
+    let words = (rect.width as usize).div_ceil(64);
+    let mut coverage = vec![0u64; words * rect.height as usize];
+    let hexagon = outline_rows(projection);
+    let mut list = DrawList {
+        draws: Vec::with_capacity(candidates.len()),
+        vis: Vec::with_capacity(candidates.len() * 64),
+    };
+    let mut any = vec![0u64; words];
+    let mut full = vec![0u64; words];
+
+    for c in candidates.iter().rev() {
+        let (anchor, cell) = if c.kind == 0 {
+            ([c.x, c.y, c.z], OWN_CELL)
         } else {
             let cell = foreign[c.kind as usize - 1];
-            let anchor = anchor_of([c.x, c.y, c.z], cell);
-            (
-                chunks.sprite_at(anchor[0], anchor[1], anchor[2])?,
-                cell,
-                anchor,
-            )
+            (anchor_of([c.x, c.y, c.z], cell), cell)
         };
-        if let Some(id) = id
-            && let Some(part) = sprites.part(id, cell)
+        let (sx, sy) = projection.project_block(anchor);
+        let (bx, by) = (sx.round() as i32 - rect.x, sy.round() as i32 - rect.y);
+        // Erst der Umriss: liegt der ganze Würfel schon unter deckenden
+        // Pixeln, spart sich der Block die Sprite-Wahl. Nur für Sprites,
+        // die im Würfel bleiben — lose und fremde Teile gehen den genauen
+        // Weg über ihre Zeilenmasken.
+        if c.kind == 0 && !c.loose && covered(&coverage, words, (width, height), (bx, by), &hexagon)
         {
-            let (sx, sy) = projection.project_block(anchor);
-            draws.push(Draw {
-                sprite: part,
-                key: (sprites.table_id(), id, cell),
-                origin: (
-                    sx.round() as i32 + part.offset.0 - rect.x,
-                    sy.round() as i32 + part.offset.1 - rect.y,
-                ),
-                // Fremde Teile liegen in einem anderen Würfel als dem
-                // Anker; die Deckungstabelle gilt nur für den eigenen.
-                skip: if c.kind == 0 { c.skip } else { 0 },
-            });
+            continue;
+        }
+        let Some(id) = chunks.sprite_at(anchor[0], anchor[1], anchor[2])? else {
+            continue;
+        };
+        let Some(part) = sprites.part(id, cell) else {
+            continue;
+        };
+        let sprite = &part.sprite;
+        let origin = (bx + sprite.offset.0, by + sprite.offset.1);
+        let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
+        let (x0, x1) = (origin.0.max(0), (origin.0 + w).min(width));
+        if x0 >= x1 {
+            continue;
+        }
+        let (k0, k1) = ((x0 >> 6) as usize, ((x1 - 1) >> 6) as usize);
+        let nk = k1 - k0 + 1;
+        // Dann Zeile für Zeile: was das Sprite zeichnet, abzüglich dessen,
+        // was davor schon deckt — und seine deckenden Pixel kommen dazu.
+        let start = list.vis.len();
+        let mut visible = false;
+        for r in 0..h {
+            let ty = origin.1 + r;
+            if ty < 0 || ty >= height {
+                list.vis.extend(std::iter::repeat_n(0, nk));
+                continue;
+            }
+            shift_into(part.rows.any_row(r as usize), origin.0, width, &mut any);
+            shift_into(part.rows.full_row(r as usize), origin.0, width, &mut full);
+            let row = &mut coverage[ty as usize * words..][..words];
+            for k in k0..=k1 {
+                let vis = any[k] & !row[k];
+                visible |= vis != 0;
+                list.vis.push(vis);
+                row[k] |= full[k];
+            }
+        }
+        if !visible {
+            list.vis.truncate(start);
+            continue;
+        }
+        list.draws.push(Draw {
+            sprite,
+            key: (sprites.table_id(), id, cell),
+            origin,
+            vis: start,
+            k0: k0 as u32,
+            nk: nk as u32,
+        });
+    }
+    list.draws.reverse();
+    Ok(list)
+}
+
+/// Schiebt eine Sprite-Zeile (Wörter ab Sprite-Spalte 0) an Leinwandspalte
+/// `x` und legt sie in `out` ab (Leinwandwörter); Bits ausserhalb der
+/// Leinwand fallen weg.
+fn shift_into(src: &[u64], x: i32, width: i32, out: &mut [u64]) {
+    out.fill(0);
+    let words = out.len() as i64;
+    for (j, &m) in src.iter().enumerate() {
+        let base = x as i64 + 64 * j as i64;
+        let (k, s) = (base.div_euclid(64), base.rem_euclid(64) as u32);
+        if (0..words).contains(&k) {
+            out[k as usize] |= m << s;
+        }
+        if s > 0 && (0..words).contains(&(k + 1)) {
+            out[(k + 1) as usize] |= m >> (64 - s);
         }
     }
+    if width % 64 != 0 {
+        out[out.len() - 1] &= (1u64 << (width % 64)) - 1;
+    }
+}
 
-    Ok(draws)
+/// Der Umriss eines Blocks, in dem ein Sprite bleibt, das in seinen Würfel
+/// passt (`fits_cell`): je Pixelzeile relativ zum Blockursprung der Bereich
+/// der Spalten, um ein Pixel nach aussen aufgerundet.
+fn outline_rows(projection: Projection) -> Vec<(i32, i32, i32)> {
+    let limit = projection.scale() as f32 / 2.0 + 1.0;
+    let reach = (1.5 * limit) as i32 + 2;
+    (-reach..=reach)
+        .filter_map(|dy| {
+            let py = dy as f32 + 0.5;
+            let lo = (-limit)
+                .max(-2.0 * limit - 2.0 * py)
+                .max(2.0 * py - 2.0 * limit);
+            let hi = limit
+                .min(2.0 * limit - 2.0 * py)
+                .min(2.0 * py + 2.0 * limit);
+            (lo <= hi).then(|| {
+                (
+                    dy,
+                    (lo - 0.5).floor() as i32 - 1,
+                    (hi - 0.5).ceil() as i32 + 1,
+                )
+            })
+        })
+        .collect()
+}
+
+/// Ist jeder Leinwandpixel des Umrisses um `(bx, by)` schon deckend belegt
+/// — oder liegt er ausserhalb der Leinwand?
+fn covered(
+    coverage: &[u64],
+    words: usize,
+    (width, height): (i32, i32),
+    (bx, by): (i32, i32),
+    hexagon: &[(i32, i32, i32)],
+) -> bool {
+    for &(dy, dx0, dx1) in hexagon {
+        let ty = by + dy;
+        if ty < 0 || ty >= height {
+            continue;
+        }
+        let (x0, x1) = ((bx + dx0).max(0), (bx + dx1).min(width - 1));
+        if x0 > x1 {
+            continue;
+        }
+        let row = &coverage[ty as usize * words..][..words];
+        let (ka, kb) = ((x0 >> 6) as usize, (x1 >> 6) as usize);
+        for (k, &word) in row.iter().enumerate().take(kb + 1).skip(ka) {
+            let lo = (x0 - 64 * k as i32).max(0) as u32;
+            let hi = (x1 - 64 * k as i32).min(63) as u32;
+            let mask = (u64::MAX >> (63 - hi)) & (u64::MAX << lo);
+            if word & mask != mask {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Der Block, dessen Modell in `cell` hineinragen würde.
@@ -189,9 +338,8 @@ struct Candidate {
     /// 0: der Block selbst; sonst 1 + Index des fremden Würfels, in den
     /// ein Nachbarmodell hineinragt.
     kind: u8,
-    /// Nachbarn (`mask_bit`), die deckend sind und gezeichnet werden: was
-    /// in ihrem Umriss liegt, übermalen sie ohnehin.
-    skip: u8,
+    /// Familie, die nicht in ihrem Würfel bleibt: kein Umriss-Test.
+    loose: bool,
 }
 
 /// Alle Chunks, deren Blöcke in das Rechteck fallen können.
@@ -268,52 +416,42 @@ fn columns_at(
     })
 }
 
-/// Zeichnet ein Sprite an seinen Block — ohne die Pixel, die ein Nachbar
-/// aus `skip` ohnehin übermalt.
-///
-/// Ein sichtbarer Block zeichnet sonst alle drei Flächen, auch die, die der
-/// deckende Nachbar gleich darüberlegt: auf flachem Gelände zwei von drei.
-/// Übersprungen wird nur, was im Umriss eines Nachbarn liegt, der deckend
-/// ist *und* in dieser Kachel gezeichnet wird — dann ist der Pixel danach
-/// Alpha 255 vom Nachbarn, egal was vorher da stand. Das Bild ist dasselbe.
-fn blit(
-    canvas: &mut RgbaImage,
-    sprite: &Sprite,
-    (origin_x, origin_y): (i32, i32),
-    cover: &Cover,
-    skip: u8,
-) {
+/// Zeichnet die sichtbaren Pixel eines Draws.
+fn blit(canvas: &mut RgbaImage, d: &Draw, vis: &[u64]) {
+    let sprite = d.sprite;
     let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
-    let (cw, ch) = (canvas.width() as i32, canvas.height() as i32);
-
-    // Der Teil des Sprites, der auf die Leinwand fällt.
-    let (x0, x1) = ((-origin_x).max(0), (cw - origin_x).min(w));
-    let (y0, y1) = ((-origin_y).max(0), (ch - origin_y).min(h));
-    if x0 >= x1 || y0 >= y1 {
-        return;
-    }
-
+    let ch = canvas.height() as i32;
+    let cw = canvas.width() as usize;
     let src = sprite.image.as_raw();
     let dst: &mut [u8] = canvas;
-    for py in y0..y1 {
-        let row = &src[(py * w * 4) as usize..][..(w * 4) as usize];
-        let drow = &mut dst[((origin_y + py) * cw * 4) as usize..][..(cw * 4) as usize];
-        for px in x0..x1 {
-            let s = &row[(px * 4) as usize..][..4];
-            if s[3] == 0 {
-                continue;
-            }
-            if skip != 0 && cover.at(sprite.offset.0 + px, sprite.offset.1 + py) & skip != 0 {
-                continue;
-            }
-            let d = &mut drow[((origin_x + px) * 4) as usize..][..4];
-            if s[3] == 255 {
-                d.copy_from_slice(s);
-            } else {
-                let out = over([s[0], s[1], s[2], s[3]], [d[0], d[1], d[2], d[3]]);
-                d.copy_from_slice(&out);
+    let (ox, oy) = d.origin;
+    let nk = d.nk as usize;
+    let mut at = d.vis;
+    for r in 0..h {
+        let ty = oy + r;
+        if ty < 0 || ty >= ch {
+            at += nk;
+            continue;
+        }
+        let row = &src[(r * w * 4) as usize..][..(w * 4) as usize];
+        let drow = &mut dst[ty as usize * cw * 4..][..cw * 4];
+        for k in 0..nk {
+            let mut bits = vis[at + k];
+            while bits != 0 {
+                let tx = (d.k0 as usize + k) * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let sx = tx as i32 - ox;
+                let s = &row[(sx * 4) as usize..][..4];
+                let dd = &mut drow[tx * 4..][..4];
+                if s[3] == 255 {
+                    dd.copy_from_slice(s);
+                } else {
+                    let out = over([s[0], s[1], s[2], s[3]], [dd[0], dd[1], dd[2], dd[3]]);
+                    dd.copy_from_slice(&out);
+                }
             }
         }
+        at += nk;
     }
 }
 
@@ -403,12 +541,6 @@ struct Exposed {
     /// Würfel, deren drei kamerazugewandte Nachbarn deckend sind. Ein
     /// fremdes Modellteil in so einem Würfel wäre unsichtbar.
     hidden: [u16; 256],
-    /// Je Richtung: der Nachbar ist deckend und selbst Kandidat, wird also
-    /// gezeichnet und übermalt seinen Umriss. An Section- und Chunkrändern
-    /// vorsichtshalber nie — dort müsste der Nachbar erst berechnet werden.
-    skip_x: [u16; 256],
-    skip_y: [u16; 256],
-    skip_z: [u16; 256],
     /// Gibt es in der Section überhaupt einen Kandidaten? Unter der
     /// Oberfläche meist nicht — dann entfällt die Schleife über 256
     /// Spalten.
@@ -661,9 +793,6 @@ impl<'a> ChunkCache<'a> {
         let mut ex = Exposed {
             own: [0; 256],
             hidden: [0; 256],
-            skip_x: [0; 256],
-            skip_y: [0; 256],
-            skip_z: [0; 256],
             any_own: false,
         };
         for col in 0..256 {
@@ -689,14 +818,6 @@ impl<'a> ChunkCache<'a> {
                 | m.loose[col];
         }
         ex.any_own = ex.own.iter().any(|&o| o != 0);
-        // Deckende Kandidaten: die übermalen, was in ihrem Umriss liegt.
-        let drawn = |col: usize| ex.own[col] & m.solid[col];
-        for col in 0..256 {
-            let (x, z) = (col & 15, col >> 4);
-            ex.skip_x[col] = if x < 15 { drawn(col + 1) } else { 0 };
-            ex.skip_z[col] = if z < 15 { drawn(col + 16) } else { 0 };
-            ex.skip_y[col] = drawn(col) >> 1;
-        }
         loaded.exposed[s] = Some(Box::new(ex));
         Ok(())
     }
@@ -841,7 +962,8 @@ impl<'a> ChunkCache<'a> {
                         bits &= bits - 1;
                         // Lose Familien können über den Würfel hinausragen;
                         // für sie bleibt das Band.
-                        let drin = if m.loose[col] >> b & 1 != 0 {
+                        let loose = m.loose[col] >> b & 1 != 0;
+                        let drin = if loose {
                             in_band(y, v, u)
                         } else {
                             touches(x, y, z)
@@ -849,25 +971,13 @@ impl<'a> ChunkCache<'a> {
                         if !drin {
                             continue;
                         }
-                        // Der Nachbar übermalt nur, was diese Kachel auch
-                        // zeichnet: er muss selbst im Band liegen.
-                        let mut skip = 0;
-                        if ex.skip_x[col] >> b & 1 != 0 && in_band(y, v + 1, u + 1) {
-                            skip |= mask_bit(Face::East);
-                        }
-                        if ex.skip_y[col] >> b & 1 != 0 && in_band(y + 1, v, u) {
-                            skip |= mask_bit(Face::Up);
-                        }
-                        if ex.skip_z[col] >> b & 1 != 0 && in_band(y, v + 1, u - 1) {
-                            skip |= mask_bit(Face::South);
-                        }
                         out.push(Candidate {
                             key: key_of(y, v, u, 0),
                             x,
                             y,
                             z,
                             kind: 0,
-                            skip,
+                            loose,
                         });
                     }
                     let mut bits = fo;
@@ -897,7 +1007,7 @@ impl<'a> ChunkCache<'a> {
                         y,
                         z,
                         kind: i as u8 + 1,
-                        skip: 0,
+                        loose: false,
                     });
                 }
             }
@@ -1100,5 +1210,34 @@ mod tests {
     #[test]
     fn auf_leerem_grund_bleibt_die_quelle() {
         assert_eq!(over([10, 20, 30, 128], [0, 0, 0, 0]), [10, 20, 30, 128]);
+    }
+
+    #[test]
+    fn zeilenmaske_ragt_ueber_beide_raender() {
+        // Bits 62 und 63 an Spalte -63: Spalte -1 faellt weg, Spalte 0 bleibt.
+        let mut out = [0u64; 2];
+        shift_into(&[0b11 << 62], -63, 100, &mut out);
+        assert_eq!(out, [1, 0]);
+        // Ueber die Wortgrenze nach rechts, gekappt am Leinwandrand.
+        shift_into(&[0b111], 63, 66, &mut out);
+        assert_eq!(out, [1 << 63, 0b11]);
+        shift_into(&[0b111], 63, 65, &mut out);
+        assert_eq!(out, [1 << 63, 0b1]);
+    }
+
+    #[test]
+    fn bedeckt_heisst_jedes_bit_im_umriss_gesetzt() {
+        // Ein Umriss aus einer Zeile, drei Spalten um den Ursprung; die
+        // Leinwand ist 128 px breit (zwei Woerter) und drei Zeilen hoch.
+        let zeile = [(0, -1, 1)];
+        let mut coverage = vec![0u64; 2 * 3];
+        assert!(!covered(&coverage, 2, (128, 3), (64, 1), &zeile));
+        coverage[2] |= 1 << 63; // Spalte 63
+        coverage[3] |= 0b11; // Spalten 64 und 65
+        assert!(covered(&coverage, 2, (128, 3), (64, 1), &zeile));
+        assert!(!covered(&coverage, 2, (128, 3), (65, 1), &zeile));
+        assert!(!covered(&coverage, 2, (128, 3), (64, 0), &zeile));
+        // Ausserhalb der Leinwand zaehlt als bedeckt.
+        assert!(covered(&coverage, 2, (128, 3), (-5, 1), &zeile));
     }
 }

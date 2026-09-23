@@ -8,8 +8,8 @@ pub mod tiles;
 
 pub use gpu::Gpu;
 pub use metatile::{
-    BLEED_BLOCKS, ChunkCache, Draw, PAKET_SPALTEN, ScreenRect, chunks_for, draw_all, draw_list,
-    render_area, render_area_with,
+    BLEED_BLOCKS, ChunkCache, Draw, DrawList, PAKET_SPALTEN, ScreenRect, chunks_for, draw_all,
+    draw_list, render_area, render_area_with,
 };
 pub use projection::Projection;
 pub use pyramid::{MapInfo, depth, merge, parents, shrink};

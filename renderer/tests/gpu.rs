@@ -12,7 +12,7 @@ use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::{
-    ChunkCache, Draw, Gpu, Projection, ScreenRect, SpriteSet, TILE, TileId, covering, draw_all,
+    ChunkCache, DrawList, Gpu, Projection, ScreenRect, SpriteSet, TILE, TileId, covering, draw_all,
     draw_list, render_area,
 };
 use terranova_render::world::World;
@@ -152,6 +152,7 @@ fn voller_atlas_wird_geleert_und_bleibt_richtig() {
             let liste = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
             let mut gesehen = HashSet::new();
             let bytes: usize = liste
+                .draws
                 .iter()
                 .filter(|d| gesehen.insert(d.key))
                 .map(|d| d.sprite.image.as_raw().len())
@@ -197,26 +198,30 @@ fn lange_listen_vergroessern_die_puffer() {
     let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
     let tile = kacheln()[3];
     let kurz = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
-    assert!(!kurz.is_empty());
+    assert!(!kurz.draws.is_empty());
 
     // Dieselbe Liste in ganzen Runden hintereinander, gut 20 000 Einträge:
     // 320 kB Instanzen, die Anfangspuffer fassen 64 kB. Ganze Runden, weil
     // die Deckungsmaske eines Blocks voraussetzt, dass sein Nachbar nach
     // ihm noch einmal kommt.
-    let runden = 20_000 / kurz.len() + 1;
-    let lang: Vec<Draw> = kurz
-        .iter()
-        .cycle()
-        .take(runden * kurz.len())
-        .copied()
-        .collect();
+    let runden = 20_000 / kurz.draws.len() + 1;
+    let lang = DrawList {
+        draws: kurz
+            .draws
+            .iter()
+            .cycle()
+            .take(runden * kurz.draws.len())
+            .copied()
+            .collect(),
+        vis: kurz.vis.clone(),
+    };
     let mut worker = gpu.worker(1, TILE);
     let bild = worker
         .render(std::slice::from_ref(&lang))
         .unwrap()
         .remove(0);
     let mut cpu = RgbaImage::new(TILE, TILE);
-    draw_all(&mut cpu, &lang, welt.sprites.cover());
+    draw_all(&mut cpu, &lang);
     assert_eq!(cpu.as_raw(), bild.as_raw(), "lange Liste weicht ab");
 
     // Danach die kurze Liste mit den gewachsenen Puffern.
@@ -236,7 +241,11 @@ fn leere_listen_ergeben_leere_kacheln() {
     };
     let mut worker = gpu.worker(2, TILE);
     assert!(worker.render(&[]).unwrap().is_empty());
-    let bilder = worker.render(&[Vec::new(), Vec::new()]).unwrap();
+    let leer = || DrawList {
+        draws: Vec::new(),
+        vis: Vec::new(),
+    };
+    let bilder = worker.render(&[leer(), leer()]).unwrap();
     assert_eq!(bilder.len(), 2);
     assert!(
         bilder

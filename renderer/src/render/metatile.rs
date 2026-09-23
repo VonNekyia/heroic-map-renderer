@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use anyhow::Result;
 use image::RgbaImage;
@@ -317,13 +317,19 @@ fn blit(
     }
 }
 
+/// Kachelspalten, die ein Paket nebeneinander rendert, Zeile für Zeile —
+/// und so viele Kacheln behält der Cache: die Kachel unter der ersten
+/// Spalte kommt erst, wenn die Zeile durch ist.
+pub const PAKET_SPALTEN: usize = 8;
+
 /// Wie viele Chunks ein Cache höchstens hält, bevor er verwirft, was die
-/// vorige Kachel nicht gebraucht hat. Eine Kachel bei scale 32 berührt gut
-/// hundert Chunks; die nächste liegt direkt darunter und teilt sich fast
-/// alle davon.
+/// letzten `PAKET_SPALTEN` Kacheln nicht gebraucht haben. Eine Kachel bei
+/// scale 32 berührt gut hundert Chunks; eine Zeile aus acht Nachbarn und
+/// die Zeile darunter teilen sich die meisten davon, zusammen sind es rund
+/// dreihundert.
 // ponytail: Verfallsdatum je Kachel statt echtem LRU. Reicht, solange die
-// Kacheln in Leseordnung kommen; sonst lädt jede Kachel ihre hundert neu.
-const CACHE_CHUNKS: usize = 256;
+// Kacheln in Paketordnung kommen; sonst lädt jede Kachel ihre hundert neu.
+const CACHE_CHUNKS: usize = 384;
 
 /// Chunks, die während eines Renderlaufs gebraucht werden.
 ///
@@ -344,6 +350,8 @@ pub struct ChunkCache<'a> {
     last: usize,
     /// Laufende Kachelnummer — das Verfallsdatum der Slots.
     tile: u32,
+    /// Wie viele Chunks dieser Cache dekodiert hat.
+    loads: usize,
 }
 
 struct Slot {
@@ -504,11 +512,17 @@ impl<'a> ChunkCache<'a> {
             index: HashMap::new(),
             last: usize::MAX,
             tile: 0,
+            loads: 0,
         }
     }
 
+    /// Wie viele Chunks dieser Cache bisher dekodiert hat.
+    pub fn loads(&self) -> usize {
+        self.loads
+    }
+
     /// Beginnt eine neue Kachel. Ist der Cache voll, geht alles, was die
-    /// vorige Kachel nicht gebraucht hat.
+    /// letzten `PAKET_SPALTEN` Kacheln nicht gebraucht haben.
     fn next_tile(&mut self) {
         self.tile += 1;
         self.last = usize::MAX;
@@ -516,13 +530,23 @@ impl<'a> ChunkCache<'a> {
             return;
         }
         let tile = self.tile;
-        self.slots.retain(|slot| slot.used + 1 >= tile);
+        self.slots
+            .retain(|slot| slot.used + PAKET_SPALTEN as u32 >= tile);
         self.index = self
             .slots
             .iter()
             .enumerate()
             .map(|(i, slot)| (slot.key, i))
             .collect();
+        // Regionsdateien, die kein Slot mehr braucht, gehen mit: ein Paket
+        // wandert über die ganze Welt, sonst hielte jeder Thread am Ende
+        // tausende Dateien offen.
+        let gebraucht: HashSet<(i32, i32)> = self
+            .slots
+            .iter()
+            .map(|slot| (slot.key.0.div_euclid(REGION), slot.key.1.div_euclid(REGION)))
+            .collect();
+        self.regions.retain(|key, _| gebraucht.contains(key));
     }
 
     /// Slot des Chunks, geladen falls nötig.
@@ -551,6 +575,7 @@ impl<'a> ChunkCache<'a> {
             Some(Some(region)) => region.chunk(key.0, key.1)?,
             _ => None,
         };
+        self.loads += chunk.is_some() as usize;
         let sprites = self.sprites;
         let loaded = chunk.map(|chunk| {
             let families: Vec<Vec<Option<u32>>> = chunk

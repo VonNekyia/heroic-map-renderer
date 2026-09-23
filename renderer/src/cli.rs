@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -11,10 +11,12 @@ use clap::{Parser, ValueEnum};
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 use terranova_render::assets::{Assets, model_of};
+use terranova_render::render::gpu::Worker;
 use terranova_render::render::pyramid;
 use terranova_render::render::{
-    ChunkCache, Gpu, MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for,
-    corner_tiles, draw_list, encode_webp, render, render_area, render_area_with, survey, world_box,
+    ChunkCache, Gpu, MapInfo, PAKET_SPALTEN, Projection, ScreenRect, SpriteSet, TILE, TileId,
+    chunks_for, corner_tiles, draw_list, encode_webp, render, render_area, render_area_with,
+    survey, world_box,
 };
 use terranova_render::world::{BlockState, REGION, World};
 
@@ -565,13 +567,18 @@ fn write_tiles(
     let bytes = AtomicUsize::new(0);
     let gesamt = survey.tiles.len();
 
-    let basis: BTreeSet<TileId> = survey
-        .tiles
-        .par_chunks(batch_size(gesamt))
-        .map(|stapel| -> Result<Vec<TileId>> {
-            let mut chunks = ChunkCache::new(world, &sprites);
-            let mut worker = gpu.map(|gpu| gpu.worker(GPU_TILES, TILE));
-            let mut geschrieben = Vec::with_capacity(stapel.len());
+    let geladen = AtomicUsize::new(0);
+    let basis: BTreeSet<TileId> = verteile(
+        &pakete(&survey.tiles),
+        || {
+            (
+                ChunkCache::new(world, &sprites),
+                gpu.map(|gpu| gpu.worker(GPU_TILES, TILE)),
+            )
+        },
+        |(chunks, worker): &mut (ChunkCache, Option<Worker>), paket| -> Result<Vec<TileId>> {
+            let vorher = chunks.loads();
+            let mut geschrieben = Vec::with_capacity(paket.len());
             // Die Grafikkarte bekommt mehrere Kacheln je Durchgang; die
             // CPU eine nach der anderen.
             let je_durchgang = if worker.is_some() {
@@ -579,7 +586,7 @@ fn write_tiles(
             } else {
                 1
             };
-            for gruppe in stapel.chunks(je_durchgang) {
+            for gruppe in paket.chunks(je_durchgang) {
                 let mut offen = Vec::with_capacity(gruppe.len());
                 for tile in gruppe {
                     let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
@@ -593,23 +600,23 @@ fn write_tiles(
                         offen.push(*tile);
                     }
                 }
-                let bilder = match &mut worker {
+                let bilder = match worker {
                     Some(worker) => {
                         let listen = offen
                             .iter()
-                            .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE))
+                            .map(|tile| draw_list(chunks, tile.rect(), Y_RANGE))
                             .collect::<Result<Vec<_>>>()?;
                         worker.render(&listen)?
                     }
                     None => offen
                         .iter()
-                        .map(|tile| render_area_with(&mut chunks, tile.rect(), Y_RANGE))
+                        .map(|tile| render_area_with(chunks, tile.rect(), Y_RANGE))
                         .collect::<Result<Vec<_>>>()?,
                 };
                 for (tile, image) in offen.iter().zip(bilder) {
-                    // Der Vorlauf kennt nur die Hüllkästen der Blockspalten;
-                    // ob eine Kachel wirklich etwas zeigt, weiss erst der
-                    // Renderlauf.
+                    // Der Vorlauf kennt nur die Hüllkästen der
+                    // Blockspalten; ob eine Kachel wirklich etwas zeigt,
+                    // weiss erst der Renderlauf.
                     if image.pixels().all(|p| p.0[3] == 0) {
                         entferne(&tile_path(dir, max_zoom, *tile))?;
                         continue;
@@ -618,12 +625,13 @@ fn write_tiles(
                     geschrieben.push(*tile);
                 }
             }
+            geladen.fetch_add(chunks.loads() - vorher, Ordering::Relaxed);
             Ok(geschrieben)
-        })
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .flatten()
-        .collect();
+        },
+    )?
+    .into_iter()
+    .flatten()
+    .collect();
 
     let seconds = started.elapsed().as_secs_f64();
     let bytes = bytes.load(Ordering::Relaxed);
@@ -638,6 +646,11 @@ fn write_tiles(
     if resume {
         println!("            {uebersprungen} vorhandene Kacheln übersprungen (--resume)");
     }
+    let geladen = geladen.load(Ordering::Relaxed);
+    println!(
+        "            {geladen} Chunks dekodiert, {:.1} je Kachel",
+        geladen as f64 / gesamt as f64
+    );
     println!(
         "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s, {:.0} kB je Kachel)",
         bytes as f64 / 1_048_576.0,
@@ -829,13 +842,13 @@ fn render_coarser(
 
         let bytes = AtomicUsize::new(0);
         let liste: Vec<TileId> = kandidaten.iter().copied().collect();
-        let geschrieben: BTreeSet<TileId> = liste
-            .par_chunks(batch_size(liste.len()))
-            .map(|stapel| -> Result<Vec<TileId>> {
-                let mut chunks = ChunkCache::new(world, &sprites);
-                let mut geschrieben = Vec::with_capacity(stapel.len());
-                for tile in stapel {
-                    let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
+        let geschrieben: BTreeSet<TileId> = verteile(
+            &pakete(&liste),
+            || ChunkCache::new(world, &sprites),
+            |chunks, paket| -> Result<Vec<TileId>> {
+                let mut geschrieben = Vec::with_capacity(paket.len());
+                for tile in paket {
+                    let image = render_area_with(chunks, tile.rect(), Y_RANGE)?;
                     if image.pixels().all(|p| p.0[3] == 0) {
                         entferne(&tile_path(dir, z, *tile))?;
                         continue;
@@ -844,11 +857,11 @@ fn render_coarser(
                     geschrieben.push(*tile);
                 }
                 Ok(geschrieben)
-            })
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .flatten()
-            .collect();
+            },
+        )?
+        .into_iter()
+        .flatten()
+        .collect();
         println!(
             "Zoom {z:>2}:     {} Kacheln nativ bei scale {scale}, {:.1} MB in {:.1} s",
             geschrieben.len(),
@@ -859,17 +872,96 @@ fn render_coarser(
     Ok((z, kandidaten))
 }
 
-/// Wie viele aufeinanderfolgende Kacheln sich einen Chunk-Cache teilen.
+/// Kacheln in Paketen: `PAKET_SPALTEN` Spalten breit, Zeile für Zeile.
 ///
-/// Die Kacheln kommen sortiert, Nachbarn untereinander teilen sich fast
-/// alle Chunks. Rayons `map_init` wäre der naheliegende Weg zu einem Cache
-/// je Worker — aber es zerteilt die Arbeit beim Stehlen bis auf einzelne
-/// Kacheln, und jede bekäme einen kalten Cache: mit 24 Threads lud jede
-/// Kachel wieder ihre hundert Chunks. Feste Stapel halten die Nachbarn
-/// zusammen. Die erste Kachel eines Stapels lädt kalt, also nicht unter
-/// sechzehn; darüber so gross, dass ein kleiner Lauf noch alle Kerne füllt.
-fn batch_size(tiles: usize) -> usize {
-    (tiles / rayon::current_num_threads()).clamp(16, 64)
+/// Ein Stapel war bisher ein Stück einer einzigen Kachelspalte. Jeder
+/// Chunk liegt aber im Band von rund sechs Spalten und wurde in jeder
+/// davon neu dekodiert — acht Ladungen je Kachel im Vollrender, wo eine
+/// reichte. Acht Spalten nebeneinander, Zeile für Zeile, und ein Cache,
+/// der die letzten acht Kacheln behält, bringen das auf unter zwei. Die
+/// Pakete sind so hoch, dass jeder Thread mehrere bekommt: sonst misst ein
+/// kleiner Lauf am Ende nur noch den Schwanz, in dem die meisten Threads
+/// schon fertig sind. Verteilt werden sie mit [`verteile`]: jeder Thread
+/// bleibt in seinem Streifen, solange dort Pakete frei sind.
+fn pakete(tiles: &[TileId]) -> Vec<Vec<TileId>> {
+    let spalten = PAKET_SPALTEN as i32;
+    let zeilen =
+        (tiles.len() / (PAKET_SPALTEN * 4 * rayon::current_num_threads())).clamp(4, 64) as i32;
+    let paket = |t: &TileId| (t.x.div_euclid(spalten), t.y.div_euclid(zeilen));
+    let mut sortiert = tiles.to_vec();
+    sortiert.sort_by_key(|t| (paket(t), t.y, t.x));
+    sortiert
+        .chunk_by(|a, b| paket(a) == paket(b))
+        .map(<[TileId]>::to_vec)
+        .collect()
+}
+
+/// Verteilt die Pakete auf alle Threads, mit einem Zustand je Thread
+/// (Chunk-Cache, GPU-Zeichner), der über Pakete hinweg lebt.
+///
+/// Jeder Thread fängt einen Streifen an und nimmt danach das Paket
+/// darunter, solange es noch frei ist — warm im Cache, denn die Zeile
+/// darüber liegt noch drin. Erst wenn kein Streifen mehr anzufangen ist,
+/// greift er nach irgendeinem freien Paket. Rayons eigene Verteilung
+/// (`par_iter`, `map_init`) zerteilt die Liste beim Stehlen so, dass fast
+/// jedes Paket auf einem anderen Thread landet: dann startet jedes kalt
+/// (gemessen 9,8 Ladungen je Kachel statt 4), und ein Cache je Thread
+/// nützt nichts.
+fn verteile<S>(
+    pakete: &[Vec<TileId>],
+    start: impl Fn() -> S + Sync,
+    arbeit: impl Fn(&mut S, &[TileId]) -> Result<Vec<TileId>> + Sync,
+) -> Result<Vec<Vec<TileId>>> {
+    let streifen = |paket: &[TileId]| paket[0].x.div_euclid(PAKET_SPALTEN as i32);
+    let anfaenge: Vec<usize> = (0..pakete.len())
+        .filter(|&i| i == 0 || streifen(&pakete[i - 1]) != streifen(&pakete[i]))
+        .collect();
+    let vergeben: Vec<AtomicBool> = pakete.iter().map(|_| AtomicBool::new(false)).collect();
+    let nimm = |i: usize| {
+        vergeben[i]
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    };
+    let (naechster_anfang, naechstes_paket) = (AtomicUsize::new(0), AtomicUsize::new(0));
+    let naechstes = |vorher: Option<usize>| -> Option<usize> {
+        if let Some(p) = vorher
+            && p + 1 < pakete.len()
+            && streifen(&pakete[p]) == streifen(&pakete[p + 1])
+            && nimm(p + 1)
+        {
+            return Some(p + 1);
+        }
+        loop {
+            let a = naechster_anfang.fetch_add(1, Ordering::Relaxed);
+            let Some(&i) = anfaenge.get(a) else { break };
+            if nimm(i) {
+                return Some(i);
+            }
+        }
+        loop {
+            let i = naechstes_paket.fetch_add(1, Ordering::Relaxed);
+            if i >= pakete.len() {
+                return None;
+            }
+            if nimm(i) {
+                return Some(i);
+            }
+        }
+    };
+    let mut alle = Vec::with_capacity(pakete.len());
+    for ergebnis in rayon::broadcast(|_| -> Result<Vec<Vec<TileId>>> {
+        let mut zustand = start();
+        let mut fertig = Vec::new();
+        let mut vorher = None;
+        while let Some(i) = naechstes(vorher) {
+            fertig.push(arbeit(&mut zustand, &pakete[i])?);
+            vorher = Some(i);
+        }
+        Ok(fertig)
+    }) {
+        alle.extend(ergebnis?);
+    }
+    Ok(alle)
 }
 
 /// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen.
@@ -1153,5 +1245,58 @@ mod tests {
         assert_eq!(bounds(&[]), None);
         assert_eq!(bounds(&[(3, -1)]), Some((3, 3, -1, -1)));
         assert_eq!(bounds(&[(3, -1), (-2, 5), (0, 0)]), Some((-2, 3, -1, 5)));
+    }
+
+    /// Jedes Paket genau einmal, auf allen Threads zusammen.
+    #[test]
+    fn verteile_gibt_jedes_paket_genau_einmal() {
+        let pakete: Vec<Vec<TileId>> = (0..50)
+            .map(|i| {
+                vec![TileId {
+                    x: i / 5 * 8,
+                    y: i % 5,
+                }]
+            })
+            .collect();
+        let mut alle: Vec<TileId> = verteile(&pakete, || (), |(), p| Ok(p.to_vec()))
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        alle.sort();
+        let mut soll: Vec<TileId> = pakete.iter().flatten().copied().collect();
+        soll.sort();
+        assert_eq!(alle, soll);
+    }
+
+    /// Jede Kachel genau einmal, je Paket ein Spaltenstreifen in
+    /// Zeilenordnung, und genug Pakete für alle Threads.
+    #[test]
+    fn pakete_sind_spaltenstreifen_in_zeilenordnung() {
+        let tiles: Vec<TileId> = (0..300)
+            .flat_map(|y| (0..20).map(move |x| TileId { x: x - 3, y }))
+            .collect();
+        let pakete = pakete(&tiles);
+        let mut alle: Vec<TileId> = pakete.iter().flatten().copied().collect();
+        alle.sort();
+        let mut soll = tiles.clone();
+        soll.sort();
+        assert_eq!(alle, soll, "jede Kachel genau einmal");
+        let spalten = PAKET_SPALTEN as i32;
+        for paket in &pakete {
+            let streifen = paket[0].x.div_euclid(spalten);
+            assert!(paket.iter().all(|t| t.x.div_euclid(spalten) == streifen));
+            assert!(
+                paket
+                    .windows(2)
+                    .all(|w| (w[0].y, w[0].x) < (w[1].y, w[1].x)),
+                "Zeile für Zeile"
+            );
+        }
+        assert!(
+            pakete.len() >= 4 * rayon::current_num_threads().min(64),
+            "nur {} Pakete",
+            pakete.len()
+        );
     }
 }

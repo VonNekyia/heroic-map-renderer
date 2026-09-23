@@ -6,7 +6,8 @@
 
 use std::path::PathBuf;
 
-use terranova_render::assets::{Assets, Tints, model_of};
+use terranova_render::assets::baker::box_quads;
+use terranova_render::assets::{Assets, BakedModel, Quad, TextureId, Tints, model_of};
 use terranova_render::render::rasterizer::over;
 use terranova_render::render::{Projection, render};
 use terranova_render::world::BlockState;
@@ -328,7 +329,9 @@ fn wasser_mischt_sich_ueber_den_zaun() {
 /// Bei kleinem scale liegen viele Texel unter einem Pixel. Die Abtastung
 /// muss alle erfassen: eine Textur aus abwechselnd schwarzen und weissen
 /// Spalten ist bei scale 4 grau — und nicht weiss, weil jeder zweite
-/// Abtastpunkt zufällig eine weisse Spalte trifft.
+/// Abtastpunkt zufällig eine weisse Spalte trifft. Gemittelt wird in
+/// linearem Licht wie in der Pyramide: halb Schwarz, halb Weiss ist 188,
+/// nicht die 128 aus dem Mittel der sRGB-Werte.
 #[test]
 fn kleine_scales_mitteln_alle_texel() {
     let mut assets = assets();
@@ -337,8 +340,91 @@ fn kleine_scales_mitteln_alle_texel() {
         // Der Pixel, der die Mitte der Oberseite (0, -scale/4) enthält.
         let p = pixel(&sprite, 0, -((scale as i32 + 3) / 4));
         assert!(
-            (p[0] as i32 - 128).abs() <= 24 && p[3] == 255,
-            "scale {scale}: {p:?} ist nicht grau"
+            (p[0] as i32 - 188).abs() <= 24 && p[3] == 255,
+            "scale {scale}: {p:?} ist nicht das Grau aus linearem Licht"
         );
     }
+}
+
+/// Die zwei Dreiecke einer Fläche teilen sich eine Diagonale. Liegt ein
+/// Pixelmittelpunkt genau darauf — bei scale 2, 6 und 10 auf jeder vollen
+/// Oberseite —, darf ihn nur eines der beiden bekommen. Sonst mischt ein
+/// durchsichtiges Texel dort doppelt: Alpha 233 statt 180.
+#[test]
+fn diagonale_mischt_nur_einmal() {
+    let mut assets = assets();
+    let glas = assets.texture("block/water_still");
+    let wuerfel = BakedModel {
+        quads: box_quads([0.0; 3], [16.0; 3], glas, None, None).collect(),
+    };
+    for scale in [2, 6, 10, 16] {
+        let sprite = render(
+            &wuerfel,
+            assets.textures(),
+            &Projection::new(scale),
+            Tints::default(),
+        )
+        .expect("Sprite");
+        for (x, y, p) in sprite.image.enumerate_pixels() {
+            assert!(
+                p.0[3] == 0 || p.0[3] == 180,
+                "scale {scale}, Pixel ({x}, {y}): Alpha {}",
+                p.0[3]
+            );
+        }
+    }
+}
+
+/// Eine Fläche nach +z zwischen `von` und `bis` in x und y.
+fn flaeche(z: f32, von: f32, bis: f32, texture: TextureId) -> Quad {
+    Quad {
+        corners: [[von, von, z], [bis, von, z], [bis, bis, z], [von, bis, z]],
+        uvs: [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+        texture,
+        tint_index: None,
+        shade: true,
+        force_translucent: false,
+        fluid: None,
+        layers: 1,
+    }
+}
+
+/// Eine Fläche, deren Textur am Pixel nur zum Teil deckt, verdeckt die
+/// Fläche dahinter nicht ganz. Gemittelt wird über den Pixel: bei scale 16
+/// liegen zwei Texelspalten darunter, von einem Gitter aus deckenden und
+/// leeren Spalten also eine halbe Deckung — wie an der Kante eines
+/// Weizenhalms. Die vordere Fläche kommt hier in der Sortierung zuerst;
+/// setzte sie die Tiefe, fiele die hintere dort weg, und das Pixel bliebe
+/// halb durchsichtig.
+#[test]
+fn teildeckung_verdeckt_nicht() {
+    let mut assets = assets();
+    let gitter = assets.texture("block/gitter");
+    let blau = assets.texture("block/blau");
+    let projection = Projection::new(16);
+
+    let allein = BakedModel {
+        quads: vec![flaeche(0.75, 0.0, 1.0, gitter)],
+    };
+    let allein = render(&allein, assets.textures(), &projection, Tints::default()).unwrap();
+    assert!(
+        allein.image.pixels().any(|p| p.0[3] > 0 && p.0[3] < 255),
+        "das Gitter deckt nirgends halb — der Test prüft nichts"
+    );
+
+    // Die grosse Fläche dahinter reicht mit ihrer vordersten Ecke weiter
+    // nach vorn und wird deshalb nach dem Gitter gezeichnet.
+    let beide = BakedModel {
+        quads: vec![
+            flaeche(0.75, 0.0, 1.0, gitter),
+            flaeche(0.25, -1.0, 2.0, blau),
+        ],
+    };
+    let sprite = render(&beide, assets.textures(), &projection, Tints::default()).unwrap();
+    let halb = sprite
+        .image
+        .pixels()
+        .filter(|p| p.0[3] > 0 && p.0[3] < 255)
+        .count();
+    assert_eq!(halb, 0, "{halb} Pixel sind halb durchsichtig");
 }

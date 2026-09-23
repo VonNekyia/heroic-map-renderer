@@ -133,7 +133,7 @@ pub fn shrink(image: &RgbaImage) -> RgbaImage {
 
 /// sRGB-Wert nach linearem Licht, als Tabelle: die Pyramide läuft über
 /// jedes Pixel jeder Stufe.
-static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
+pub(crate) static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
     std::array::from_fn(|i| {
         let c = i as f32 / 255.0;
         if c <= 0.04045 {
@@ -145,7 +145,7 @@ static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
 });
 
 /// Lineares Licht zurück nach sRGB.
-fn to_srgb(linear: f32) -> u8 {
+pub(crate) fn to_srgb(linear: f32) -> u8 {
     let c = if linear <= 0.003_130_8 {
         linear * 12.92
     } else {

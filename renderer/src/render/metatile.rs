@@ -344,6 +344,8 @@ struct Masks {
     foreign: [u16; 256],
     /// Steht überhaupt etwas in der Section?
     any: bool,
+    /// Ragt irgendetwas in Nachbarwürfel?
+    any_foreign: bool,
 }
 
 /// Was in einer Section gezeichnet werden muss.
@@ -359,6 +361,10 @@ struct Exposed {
     skip_x: [u16; 256],
     skip_y: [u16; 256],
     skip_z: [u16; 256],
+    /// Gibt es in der Section überhaupt einen Kandidaten? Unter der
+    /// Oberfläche meist nicht — dann entfällt die Schleife über 256
+    /// Spalten.
+    any_own: bool,
 }
 
 impl Masks {
@@ -370,6 +376,7 @@ impl Masks {
             loose: [0; 256],
             foreign: [0; 256],
             any: false,
+            any_foreign: false,
         };
         // Je Paletteneintrag ein Bitfeld: 1 vorhanden, 2 deckend, 4 Wasser,
         // 8 nicht im Würfel, 16 mit fremden Teilen.
@@ -385,44 +392,65 @@ impl Masks {
                 })
             })
             .collect();
+        let union = flags.iter().fold(0, |acc, f| acc | f);
         let blocks = section.blocks();
-        let mut set = |col: usize, bit: u16, flag: u8| {
-            m.present[col] |= bit;
-            if flag & 2 != 0 {
-                m.solid[col] |= bit;
-            }
-            if flag & 4 != 0 {
-                m.water[col] |= bit;
-            }
-            if flag & 8 != 0 {
-                m.loose[col] |= bit;
-            }
-            if flag & 16 != 0 {
-                m.foreign[col] |= bit;
-            }
-        };
         if blocks.is_uniform() {
             let flag = flags.first().copied().unwrap_or(0);
             if flag != 0 {
                 for col in 0..256 {
-                    set(col, u16::MAX, flag);
+                    m.set(col, u16::MAX, flag);
                 }
                 m.any = true;
+                m.any_foreign = flag & 16 != 0;
             }
             return m;
         }
         let mut any = false;
-        blocks.for_each_index(4096, |i, index| {
-            // Ein Index über die Palette hinaus wäre ein kaputter Chunk;
-            // der zählt wie Luft, genau wie beim Nachschlagen je Block.
-            let flag = flags.get(index).copied().unwrap_or(0);
-            if flag != 0 {
-                set(i & 255, 1 << (i >> 8), flag);
-                any = true;
-            }
-        });
+        if union & !3 == 0 {
+            // Der Normalfall: nur Luft, deckende und einfache Blöcke. Dann
+            // braucht es je Block zwei Masken statt fünf.
+            blocks.for_each_index(4096, |i, index| {
+                let flag = flags.get(index).copied().unwrap_or(0);
+                if flag != 0 {
+                    let (col, bit) = (i & 255, 1 << (i >> 8));
+                    m.present[col] |= bit;
+                    if flag & 2 != 0 {
+                        m.solid[col] |= bit;
+                    }
+                    any = true;
+                }
+            });
+        } else {
+            blocks.for_each_index(4096, |i, index| {
+                // Ein Index über die Palette hinaus wäre ein kaputter Chunk;
+                // der zählt wie Luft, genau wie beim Nachschlagen je Block.
+                let flag = flags.get(index).copied().unwrap_or(0);
+                if flag != 0 {
+                    m.set(i & 255, 1 << (i >> 8), flag);
+                    any = true;
+                }
+            });
+        }
         m.any = any;
+        m.any_foreign = union & 16 != 0 && m.foreign.iter().any(|&f| f != 0);
         m
+    }
+
+    #[inline]
+    fn set(&mut self, col: usize, bit: u16, flag: u8) {
+        self.present[col] |= bit;
+        if flag & 2 != 0 {
+            self.solid[col] |= bit;
+        }
+        if flag & 4 != 0 {
+            self.water[col] |= bit;
+        }
+        if flag & 8 != 0 {
+            self.loose[col] |= bit;
+        }
+        if flag & 16 != 0 {
+            self.foreign[col] |= bit;
+        }
     }
 }
 
@@ -571,6 +599,7 @@ impl<'a> ChunkCache<'a> {
             skip_x: [0; 256],
             skip_y: [0; 256],
             skip_z: [0; 256],
+            any_own: false,
         };
         for col in 0..256 {
             let (x, z) = (col & 15, col >> 4);
@@ -594,6 +623,7 @@ impl<'a> ChunkCache<'a> {
                 | (m.water[col] & !water_hidden)
                 | m.loose[col];
         }
+        ex.any_own = ex.own.iter().any(|&o| o != 0);
         // Deckende Kandidaten: die übermalen, was in ihrem Umriss liegt.
         let drawn = |col: usize| ex.own[col] & m.solid[col];
         for col in 0..256 {
@@ -661,7 +691,21 @@ impl<'a> ChunkCache<'a> {
             v >= v_min && v <= v_max
         };
 
-        let mut out = Vec::new();
+        let pad_y = foreign.iter().map(|c| c[1].abs()).max().unwrap_or(0);
+        let scale = projection.scale() as f64;
+        let bleed = BLEED_BLOCKS as f64 * scale;
+        // Höhen, die das Band in einem Chunk erreichen kann: die Umkehrung
+        // von `v_window` für die kleinste und grösste Tiefe `v` des Chunks,
+        // grosszügig gerundet. Entscheidend bleibt `in_band` je Block; das
+        // hier spart nur die Schleife über Sections, die das Band in
+        // diesem Chunk gar nicht berührt — von 24 sind es meist drei.
+        let y_span = |va: i32, vb: i32| {
+            let lo = ((va - 1) as f64 * scale / 4.0 - rect.bottom() as f64 - bleed) / (scale / 2.0);
+            let hi = ((vb + 1) as f64 * scale / 4.0 - rect.y as f64 + bleed) / (scale / 2.0);
+            (lo.floor() as i32 - 1 - pad_y, hi.ceil() as i32 + 1 + pad_y)
+        };
+
+        let mut out = Vec::with_capacity(8192);
         let mut anchors: Vec<[i32; 3]> = Vec::new();
         for key in band_chunks(u_min - pad, u_max + pad, v_lo - pad, v_hi + pad) {
             let slot = self.slot(key)?;
@@ -669,18 +713,28 @@ impl<'a> ChunkCache<'a> {
                 Some(loaded) => loaded.chunk.sections().len(),
                 None => continue,
             };
+            let v0 = key.0 * 16 + key.1 * 16;
+            let (y_lo, y_hi) = y_span(v0, v0 + 30);
+            let in_reach = |sy: i8| {
+                let base = sy as i32 * 16;
+                base + 15 >= y_lo && base <= y_hi
+            };
             for s in 0..sections {
-                if self.slots[slot].loaded.as_ref().expect("geladen").masks[s].any {
+                let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
+                if loaded.masks[s].any && in_reach(loaded.chunk.sections()[s].y) {
                     self.expose(slot, s)?;
                 }
             }
             let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
             for (s, section) in loaded.chunk.sections().iter().enumerate() {
                 let m = &loaded.masks[s];
-                if !m.any {
+                if !m.any || !in_reach(section.y) {
                     continue;
                 }
                 let ex = loaded.exposed[s].as_ref().expect("eben berechnet");
+                if !ex.any_own && !m.any_foreign {
+                    continue;
+                }
                 let sy = section.y as i32 * 16;
                 for col in 0..256 {
                     let own = ex.own[col];

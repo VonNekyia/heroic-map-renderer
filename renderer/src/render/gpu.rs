@@ -39,6 +39,10 @@ const ATLAS_MAX: u64 = 256 << 20;
 /// Kacheln eines Durchgangs. Weit über dem, was vorkommt.
 const WORKER_MAX: u64 = 64 << 20;
 
+/// Ein Sprite-Teil im Atlas: Tabelle, Sprite, Würfel — der Schlüssel aus
+/// [`Draw`].
+type Key = (u64, SpriteId, Cell);
+
 /// Eine geöffnete Grafikkarte mit dem Shader und dem Sprite-Atlas.
 /// Teilen sich alle Threads; jeder holt sich einen [`Worker`].
 pub struct Gpu {
@@ -56,7 +60,7 @@ struct Atlas {
     capacity: u64,
     used: u64,
     /// Wortindex je Sprite-Teil.
-    offsets: HashMap<(u64, SpriteId, Cell), u32>,
+    offsets: HashMap<Key, u32>,
     /// Wie oft der Atlas voll war und geleert wurde.
     leerungen: usize,
 }
@@ -191,11 +195,20 @@ impl Gpu {
         );
         self.queue
             .write_buffer(&params, 0, &bytes(&[size, size, cells_x, cells_per_tile]));
+        // Der Puffer des Atlas wechselt nie; sein Griff reicht für die
+        // Bindung, ohne die Sperre.
+        let atlas = self
+            .atlas
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .buffer
+            .clone();
         let mut worker = Worker {
             gpu: self,
             tiles,
             size,
             cells_x,
+            atlas,
             instances: make("instances", 64 << 10, storage),
             lists: make("lists", 256 << 10, storage),
             params,
@@ -210,50 +223,11 @@ impl Gpu {
                 wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             ),
             bind: None,
-            inst_data: Vec::new(),
+            inst_bytes: Vec::new(),
             list_data: Vec::new(),
         };
-        let atlas = self.atlas.lock().unwrap_or_else(|e| e.into_inner());
-        worker.bind = Some(worker.bind_group(&atlas.buffer));
+        worker.bind = Some(worker.bind_group());
         worker
-    }
-}
-
-impl Atlas {
-    /// Lädt hoch, was von den Listen noch fehlt. Reicht der Platz nicht,
-    /// fliegt alles raus und die Sprites dieses Durchgangs kommen neu.
-    fn ensure(&mut self, queue: &wgpu::Queue, lists: &[Vec<Draw>]) -> Result<()> {
-        let sammle = |offsets: &HashMap<(u64, SpriteId, Cell), u32>| {
-            let mut missing: HashMap<(u64, SpriteId, Cell), &Sprite> = HashMap::new();
-            let mut need = 0;
-            for d in lists.iter().flatten() {
-                if !offsets.contains_key(&d.key) && !missing.contains_key(&d.key) {
-                    missing.insert(d.key, d.sprite);
-                    need += bytes_of(d.sprite);
-                }
-            }
-            (missing, need)
-        };
-        let (mut missing, mut need) = sammle(&self.offsets);
-        if self.used + need > self.capacity {
-            self.offsets.clear();
-            self.used = 0;
-            self.leerungen += 1;
-            (missing, need) = sammle(&self.offsets);
-            if need > self.capacity {
-                bail!(
-                    "die Sprites eines Durchgangs brauchen {:.1} MB, der GPU-Atlas fasst {:.1} MB",
-                    need as f64 / 1_048_576.0,
-                    self.capacity as f64 / 1_048_576.0
-                );
-            }
-        }
-        for (key, sprite) in missing {
-            queue.write_buffer(&self.buffer, self.used, sprite.image.as_raw());
-            self.offsets.insert(key, (self.used / 4) as u32);
-            self.used += bytes_of(sprite);
-        }
-        Ok(())
     }
 }
 
@@ -261,9 +235,9 @@ impl Atlas {
 /// Linux, und mit Mesa auf dem Server ohnehin der einzige. DX12 und GL nur,
 /// wenn kein brauchbarer Vulkan-Adapter da ist: WARP in der Windows-CI,
 /// eine alte Onboard-Grafik ohne Vulkan-Treiber. Unter den Adaptern die
-/// staerkste Karte, auf einem Laptop also nicht die Onboard. `WGPU_BACKEND`
-/// und `WGPU_ADAPTER_NAME` uebersteuern das wie bei wgpu ueblich, etwa
-/// `WGPU_ADAPTER_NAME="Basic Render"` fuer WARP.
+/// stärkste Karte, auf einem Laptop also nicht die Onboard. `WGPU_BACKEND`
+/// und `WGPU_ADAPTER_NAME` übersteuern das wie bei wgpu üblich, etwa
+/// `WGPU_ADAPTER_NAME="Basic Render"` für WARP.
 fn adapter(software: bool) -> Option<(wgpu::Adapter, wgpu::AdapterInfo)> {
     let vorgabe = std::env::var_os("WGPU_BACKEND").is_some()
         || std::env::var_os("WGPU_ADAPTER_NAME").is_some();
@@ -306,6 +280,48 @@ fn adapter(software: bool) -> Option<(wgpu::Adapter, wgpu::AdapterInfo)> {
     None
 }
 
+impl Atlas {
+    /// Liefert je Schlüssel den Wortindex im Atlas und lädt hoch, was noch
+    /// fehlt. Reicht der Platz nicht, fliegt alles raus und die Sprites
+    /// dieses Durchgangs kommen neu.
+    fn ensure(&mut self, queue: &wgpu::Queue, keys: &[(Key, &Sprite)]) -> Result<Vec<u32>> {
+        let need = |offsets: &HashMap<Key, u32>| -> u64 {
+            keys.iter()
+                .filter(|(key, _)| !offsets.contains_key(key))
+                .map(|(_, sprite)| bytes_of(sprite))
+                .sum()
+        };
+        if self.used + need(&self.offsets) > self.capacity {
+            self.offsets.clear();
+            self.used = 0;
+            self.leerungen += 1;
+            let need = need(&self.offsets);
+            if need > self.capacity {
+                bail!(
+                    "die Sprites eines Durchgangs brauchen {:.1} MB, der GPU-Atlas fasst {:.1} MB",
+                    need as f64 / 1_048_576.0,
+                    self.capacity as f64 / 1_048_576.0
+                );
+            }
+        }
+        let mut out = Vec::with_capacity(keys.len());
+        for (key, sprite) in keys {
+            let offset = match self.offsets.get(key) {
+                Some(&offset) => offset,
+                None => {
+                    queue.write_buffer(&self.buffer, self.used, sprite.image.as_raw());
+                    let offset = (self.used / 4) as u32;
+                    self.offsets.insert(*key, offset);
+                    self.used += bytes_of(sprite);
+                    offset
+                }
+            };
+            out.push(offset);
+        }
+        Ok(out)
+    }
+}
+
 fn bytes_of(sprite: &Sprite) -> u64 {
     sprite.image.as_raw().len() as u64
 }
@@ -320,21 +336,20 @@ pub struct Worker<'g> {
     tiles: u32,
     size: u32,
     cells_x: u32,
+    atlas: wgpu::Buffer,
     instances: wgpu::Buffer,
     lists: wgpu::Buffer,
     params: wgpu::Buffer,
     out: wgpu::Buffer,
     readback: wgpu::Buffer,
     bind: Option<wgpu::BindGroup>,
-    inst_data: Vec<u32>,
+    /// Instanzen, 16 Bytes je Stück, fertig für den Puffer.
+    inst_bytes: Vec<u8>,
     list_data: Vec<u32>,
 }
 
 impl Worker<'_> {
-    /// Der Atlas kommt herein, statt hier gesperrt zu werden: `render`
-    /// hält die Sperre bereits, und ein Mutex lässt sich nicht zweimal
-    /// vom selben Thread nehmen.
-    fn bind_group(&self, atlas: &wgpu::Buffer) -> wgpu::BindGroup {
+    fn bind_group(&self) -> wgpu::BindGroup {
         fn entry(binding: u32, buffer: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_> {
             wgpu::BindGroupEntry {
                 binding,
@@ -347,7 +362,7 @@ impl Worker<'_> {
                 label: Some("kachel"),
                 layout: &self.gpu.layout,
                 entries: &[
-                    entry(0, atlas),
+                    entry(0, &self.atlas),
                     entry(1, &self.instances),
                     entry(2, &self.lists),
                     entry(3, &self.out),
@@ -357,7 +372,7 @@ impl Worker<'_> {
     }
 
     /// Vergrössert die Listenpuffer, wenn ein Durchgang mehr braucht.
-    fn ensure(&mut self, atlas: &wgpu::Buffer, inst_bytes: u64, list_bytes: u64) {
+    fn ensure(&mut self, inst_bytes: u64, list_bytes: u64) {
         let mut neu = false;
         for (buffer, need, label) in [
             (&mut self.instances, inst_bytes, "instances"),
@@ -374,7 +389,7 @@ impl Worker<'_> {
             }
         }
         if neu {
-            self.bind = Some(self.bind_group(atlas));
+            self.bind = Some(self.bind_group());
         }
     }
 
@@ -391,26 +406,23 @@ impl Worker<'_> {
         let size = self.size as i32;
         let cells_x = self.cells_x as usize;
         let cells_per_tile = cells_x * cells_x;
-        self.inst_data.clear();
-        // Vorne die Zellentabelle aller Kacheln, dahinter die Indizes.
+
+        // Erst alles, was den Atlas nicht braucht — und damit keine Sperre:
+        // Instanzen, Zellentabelle, Listen. Das Sprite steht in der Instanz
+        // vorerst als laufende Nummer; die Atlasadresse kommt zum Schluss.
+        self.inst_bytes.clear();
         let table = 2 * lists.len() * cells_per_tile;
         self.list_data.clear();
         self.list_data.resize(table, 0);
-
-        // Die Sperre hält, bis der Durchgang abgeschickt ist: die
-        // Wortindizes im Atlas gelten nur, solange ihn niemand leert.
-        // ponytail: eine Sperre für Atlas und Absenden; feiner, wenn die
-        // GPU-Seite je bremst.
-        let gpu = self.gpu;
-        let mut atlas = gpu.atlas.lock().unwrap_or_else(|e| e.into_inner());
-        atlas.ensure(&gpu.queue, lists)?;
-
+        let mut keys: Vec<(Key, &Sprite)> = Vec::new();
+        let mut nummer: HashMap<Key, u32> = HashMap::new();
         let mut counts = vec![0u32; cells_per_tile];
         let mut spans: Vec<[usize; 4]> = Vec::new();
+        let mut instances = 0usize;
         for (t, list) in lists.iter().enumerate() {
             spans.clear();
             counts.fill(0);
-            let first = self.inst_data.len() / 4;
+            let first = instances;
             for d in list {
                 let (w, h) = (
                     d.sprite.image.width() as i32,
@@ -421,12 +433,19 @@ impl Worker<'_> {
                 if x0 >= x1 || y0 >= y1 {
                     continue;
                 }
-                self.inst_data.extend([
-                    atlas.offsets[&d.key],
+                let n = *nummer.entry(d.key).or_insert_with(|| {
+                    keys.push((d.key, d.sprite));
+                    keys.len() as u32 - 1
+                });
+                for word in [
+                    n,
                     w as u32 | (h as u32) << 16,
                     d.origin.0 as u32,
                     d.origin.1 as u32,
-                ]);
+                ] {
+                    self.inst_bytes.extend_from_slice(&word.to_le_bytes());
+                }
+                instances += 1;
                 let span = [
                     x0 as usize / CELL as usize,
                     y0 as usize / CELL as usize,
@@ -462,22 +481,36 @@ impl Worker<'_> {
                 }
             }
         }
-
-        let inst_bytes = bytes(&self.inst_data).max_len(16);
+        // Ein leerer Puffer lässt sich nicht binden; ein paar Nullbytes schon.
+        if self.inst_bytes.is_empty() {
+            self.inst_bytes.resize(16, 0);
+        }
         let list_bytes = bytes(&self.list_data);
-        self.ensure(
-            &atlas.buffer,
-            inst_bytes.len() as u64,
-            list_bytes.len() as u64,
-        );
-        let queue = &self.gpu.queue;
-        queue.write_buffer(&self.instances, 0, &inst_bytes);
-        queue.write_buffer(&self.lists, 0, &list_bytes);
+        self.ensure(self.inst_bytes.len() as u64, list_bytes.len() as u64);
+        let gpu = self.gpu;
+        gpu.queue.write_buffer(&self.lists, 0, &list_bytes);
+
+        // Jetzt der Atlas. Die Sperre hält, bis der Durchgang abgeschickt
+        // ist: die Adressen gelten nur, solange ihn niemand leert.
+        // ponytail: eine Sperre für Atlas und Absenden; feiner, wenn die
+        // GPU-Seite je bremst.
+        let mut atlas = gpu.atlas.lock().unwrap_or_else(|e| e.into_inner());
+        let offsets = atlas.ensure(&gpu.queue, &keys)?;
+        for inst in self
+            .inst_bytes
+            .as_chunks_mut::<16>()
+            .0
+            .iter_mut()
+            .take(instances)
+        {
+            let n = u32::from_le_bytes([inst[0], inst[1], inst[2], inst[3]]) as usize;
+            inst[..4].copy_from_slice(&offsets[n].to_le_bytes());
+        }
+        gpu.queue.write_buffer(&self.instances, 0, &self.inst_bytes);
 
         let tile_bytes = u64::from(self.size) * u64::from(self.size) * 4;
         let out_bytes = tile_bytes * lists.len() as u64;
-        let mut encoder = self
-            .gpu
+        let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("kachel"),
@@ -487,12 +520,12 @@ impl Worker<'_> {
                 label: Some("kachel"),
                 timestamp_writes: None,
             });
-            pass.set_pipeline(&self.gpu.pipeline);
+            pass.set_pipeline(&gpu.pipeline);
             pass.set_bind_group(0, self.bind.as_ref().expect("angelegt"), &[]);
             pass.dispatch_workgroups(self.cells_x, self.cells_x, lists.len() as u32);
         }
         encoder.copy_buffer_to_buffer(&self.out, 0, &self.readback, 0, Some(out_bytes));
-        let index = queue.submit([encoder.finish()]);
+        let index = gpu.queue.submit([encoder.finish()]);
         drop(atlas);
 
         let (tx, rx) = channel();
@@ -500,8 +533,7 @@ impl Worker<'_> {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        self.gpu
-            .device
+        gpu.device
             .poll(wgpu::PollType::Wait {
                 submission_index: Some(index),
                 timeout: None,
@@ -511,8 +543,7 @@ impl Worker<'_> {
             match rx.try_recv() {
                 Ok(result) => break result.map_err(|e| anyhow!("Kacheln zurücklesen: {e:?}"))?,
                 Err(TryRecvError::Empty) => {
-                    self.gpu
-                        .device
+                    gpu.device
                         .poll(wgpu::PollType::wait_indefinitely())
                         .map_err(|e| anyhow!("auf die GPU warten: {e:?}"))?;
                 }
@@ -537,19 +568,5 @@ impl Worker<'_> {
         };
         self.readback.unmap();
         Ok(images)
-    }
-}
-
-/// Ein leerer Puffer lässt sich nicht binden; ein paar Nullbytes schon.
-trait MaxLen {
-    fn max_len(self, n: usize) -> Self;
-}
-
-impl MaxLen for Vec<u8> {
-    fn max_len(mut self, n: usize) -> Self {
-        if self.len() < n {
-            self.resize(n, 0);
-        }
-        self
     }
 }

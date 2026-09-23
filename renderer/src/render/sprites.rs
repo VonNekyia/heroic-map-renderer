@@ -62,17 +62,17 @@ pub struct Family {
 }
 
 impl Family {
-    /// Die Alternative fuer einen Block — dieselbe, die `WeightedBakedModel`
-    /// aus `Mth.getSeed` der Position wuerfelt. Damit sieht die Karte aus
-    /// wie das Spiel, und die Wahl haengt weder von Kachelgrenzen noch von
-    /// der Renderreihenfolge ab.
+    /// Die Alternative fuer einen Block — dieselbe, die der 26.2-Client
+    /// wuerfelt: `ModelBlockRenderer` saet seinen Zufallsgenerator mit
+    /// `Mth.getSeed` der Position, `WeightedList.getRandomOrThrow` zieht
+    /// daraus `nextInt(total)` und zaehlt die Gewichte in Listenreihenfolge
+    /// ab. Damit sieht die Karte aus wie das Spiel, und die Wahl haengt
+    /// weder von Kachelgrenzen noch von der Renderreihenfolge ab.
     pub fn pick(&self, pos: [i32; 3]) -> Option<SpriteId> {
         if self.alternatives.len() == 1 {
             return self.alternatives[0].1;
         }
-        let mut n = java_random_int(seed(pos))
-            .wrapping_abs()
-            .rem_euclid(self.total as i32);
+        let mut n = java_next_int(seed(pos), self.total as i32);
         for &(weight, id) in &self.alternatives {
             n -= weight as i32;
             if n < 0 {
@@ -94,19 +94,29 @@ fn seed([x, y, z]: [i32; 3]) -> i64 {
     l >> 16
 }
 
-/// `(int) new java.util.Random(seed).nextLong()`: der Wert, mit dem
-/// `WeightedBakedModel` seine Liste befragt. Von `nextLong` bleiben nach
-/// dem Kuerzen genau die unteren 32 Bit, also der zweite `next(32)`.
-fn java_random_int(seed: i64) -> i32 {
+/// `nextInt(bound)` eines frisch mit `seed` gesaeten Generators: der LCG
+/// aus `java.util.Random`, den auch `SingleThreadedRandomSource` rechnet.
+/// Bei einer Zweierpotenz die oberen Bits, sonst der Rest — mit der
+/// Verwerfungsschleife, die Java gegen die Schieflage am oberen Ende hat.
+/// Bis 1.21.4 nahm Minecraft stattdessen `abs((int) nextLong()) % total`.
+fn java_next_int(seed: i64, bound: i32) -> i32 {
     const MULT: i64 = 0x5DEECE66D;
     const MASK: i64 = (1 << 48) - 1;
     let mut state = (seed ^ MULT) & MASK;
-    let mut next = || {
-        state = (state.wrapping_mul(MULT).wrapping_add(0xB)) & MASK;
-        (state >> 16) as i32
+    let mut next31 = || {
+        state = state.wrapping_mul(MULT).wrapping_add(0xB) & MASK;
+        (state >> 17) as i32
     };
-    next();
-    next()
+    if bound & (bound - 1) == 0 {
+        return ((bound as i64 * next31() as i64) >> 31) as i32;
+    }
+    loop {
+        let bits = next31();
+        let value = bits % bound;
+        if bits.wrapping_sub(value).wrapping_add(bound - 1) >= 0 {
+            return value;
+        }
+    }
 }
 
 /// Wie viele Schichten Wasser unter einer Oberflaeche noch unterschieden
@@ -641,30 +651,30 @@ mod tests {
     use super::*;
     use crate::assets::model_of;
 
-    /// Referenzwerte aus einem echten `java.util.Random` mit `Mth.getSeed`
-    /// (OpenJDK 26): Position, Saat, `(int) nextLong()`.
-    const JAVA: [([i32; 3], i64, i32); 7] = [
-        ([0, 0, 0], 0, -723955400),
-        ([1, 0, 0], 133076631897947, -136055449),
-        ([-64, 64, 416], 435218090705, -889319201),
-        ([12345, -3, -98765], 131000016891455, 84444920),
-        ([2147483647, 319, -2147483648], 12517264342920, 599139326),
-        ([100, 7, 100], -134188025211418, 1476735360),
-        ([-1, -64, -1], 52541653973741, 262207512),
+    /// Referenzwerte aus den Klassen des 26.2-Clients selbst:
+    /// `Mth.getSeed` und `SingleThreadedRandomSource.nextInt`, abgezaehlt
+    /// wie `WeightedList`. Je Position die Saat und die Wahl bei den
+    /// Gewichten [1, 1, 1, 1], [1, 1, 1], [1, 3] und [2, 1, 1, 1] — zwei
+    /// Zweierpotenzen, zwei Reste.
+    const CLIENT: [([i32; 3], i64, [u32; 4]); 7] = [
+        ([0, 0, 0], 0, [2, 0, 1, 0]),
+        ([1, 0, 0], 133076631897947, [0, 1, 0, 2]),
+        ([-64, 64, 416], 435218090705, [1, 2, 1, 3]),
+        ([12345, -3, -98765], 131000016891455, [1, 1, 1, 0]),
+        ([2147483647, 319, -2147483648], 12517264342920, [0, 2, 0, 1]),
+        ([100, 7, 100], -134188025211418, [3, 1, 1, 3]),
+        ([-1, -64, -1], 52541653973741, [3, 0, 1, 0]),
     ];
 
     #[test]
-    fn positionssaat_wie_in_java() {
-        for (pos, saat, wert) in JAVA {
+    fn positionssaat_wie_im_client() {
+        for (pos, saat, _) in CLIENT {
             assert_eq!(seed(pos), saat, "Saat fuer {pos:?}");
-            assert_eq!(java_random_int(saat), wert, "Random fuer {pos:?}");
         }
     }
 
-    /// `Math.abs(int) % total` und das Abzaehlen der Gewichte, wie
-    /// `WeightedRandom.getWeightedItem`.
     #[test]
-    fn gewichtete_wahl_wie_in_java() {
+    fn gewichtete_wahl_wie_im_client() {
         let family = |weights: &[u32]| Family {
             alternatives: weights
                 .iter()
@@ -675,21 +685,21 @@ mod tests {
             fluid: None,
             opaque: false,
         };
-        let vier = family(&[1, 1, 1, 1]);
-        let drei = family(&[1, 1, 1]);
-        // pick4 und pick3 aus demselben Java-Lauf
-        let erwartet = [(0, 2), (1, 1), (1, 2), (0, 2), (2, 2), (0, 0), (0, 0)];
-        for ((pos, _, _), (p4, p3)) in JAVA.into_iter().zip(erwartet) {
-            assert_eq!(vier.pick(pos), Some(SpriteId(p4)), "vier bei {pos:?}");
-            assert_eq!(drei.pick(pos), Some(SpriteId(p3)), "drei bei {pos:?}");
-        }
-        // Gewichte zaehlen: bei [1, 3] faellt n = 0 auf die erste und
-        // n = 1..3 auf die zweite Alternative — derselbe Rest wie bei vier
-        // gleich schweren.
-        let schwer = family(&[1, 3]);
-        for ((pos, _, _), (p4, _)) in JAVA.into_iter().zip(erwartet) {
-            let soll = if p4 == 0 { 0 } else { 1 };
-            assert_eq!(schwer.pick(pos), Some(SpriteId(soll)), "schwer bei {pos:?}");
+        let listen = [
+            family(&[1, 1, 1, 1]),
+            family(&[1, 1, 1]),
+            family(&[1, 3]),
+            family(&[2, 1, 1, 1]),
+        ];
+        for (pos, _, erwartet) in CLIENT {
+            for (liste, soll) in listen.iter().zip(erwartet) {
+                assert_eq!(
+                    liste.pick(pos),
+                    Some(SpriteId(soll)),
+                    "{pos:?} bei {} Alternativen",
+                    liste.alternatives.len()
+                );
+            }
         }
     }
     use std::path::PathBuf;

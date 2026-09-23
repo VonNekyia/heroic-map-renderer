@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use terranova_render::assets::{Assets, Face, Textures};
+use terranova_render::assets::{Assets, Face, MISSING_MODEL, Textures};
 use terranova_render::world::BlockState;
 
 fn fixture(name: &str) -> PathBuf {
@@ -158,14 +158,43 @@ fn builtin_entity_bleibt_leer() {
     assert!(variants[0].model.is_empty());
 }
 
+/// Ein fehlendes Modell bricht den Lauf nicht ab: der Client zeichnet dort
+/// den Missing-Würfel, der Renderer auch, und nennt den Grund.
 #[test]
-fn fehlendes_modell_ist_fehler() {
+fn fehlendes_modell_wird_missing_wuerfel() {
     let mut assets = base();
-    let error = assets.variants(&state("kaputt")).unwrap_err();
+    let variants = assets.variants(&state("kaputt")).unwrap();
+    assert_eq!(variants.len(), 1);
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
     assert!(
-        format!("{error:#}").contains("nicht gefunden"),
-        "unerwarteter Fehler: {error:#}"
+        variants[0].model.elements[0]
+            .faces
+            .iter()
+            .all(|(_, face)| face.texture == Textures::MISSING)
     );
+    let grund = &assets.skipped()["minecraft:kaputt"];
+    assert!(grund.contains("nicht gefunden"), "{grund}");
+}
+
+/// Bei `multipart` wird nur der kaputte Teil zum Missing-Würfel, mit der
+/// Drehung seines Eintrags; der Pfosten bleibt.
+#[test]
+fn kaputter_teil_wird_missing_wuerfel() {
+    let mut assets = base();
+    let teile = assets.variants(&state("teil_kaputt[north=true]")).unwrap();
+    assert_eq!(teile.len(), 2);
+    assert_eq!(teile[0].model_id, "minecraft:block/fence_post");
+    assert_eq!(teile[1].model_id, MISSING_MODEL);
+    assert_eq!(teile[1].y, 90, "der Missing-Würfel dreht mit");
+    assert!(
+        assets
+            .skipped()
+            .contains_key("minecraft:teil_kaputt[north=true]"),
+        "{:?}",
+        assets.skipped()
+    );
+    let ohne = assets.variants(&state("teil_kaputt[north=false]")).unwrap();
+    assert_eq!(ohne.len(), 1, "ohne den kaputten Teil nur der Pfosten");
 }
 
 /// Ein fehlendes Modell in einer Variantenliste wird zum Missing-Würfel,
@@ -187,25 +216,19 @@ fn kaputte_alternative_wird_missing_wuerfel() {
             .all(|(_, face)| face.texture == Textures::MISSING)
     );
     assert!(
-        assets
-            .skipped()
-            .iter()
-            .any(|zeile| zeile.contains("gibt_es_nicht")),
+        assets.skipped()["minecraft:halb_kaputt"].contains("gibt_es_nicht"),
         "{:?}",
         assets.skipped()
     );
-    // Fehlt jede Alternative, bleibt es ein Fehler.
-    assert!(assets.alternatives(&state("kaputt")).is_err());
 }
 
 #[test]
-fn parent_zyklus_ist_fehler() {
+fn parent_zyklus_wird_missing_wuerfel() {
     let mut assets = base();
-    let error = assets.variants(&state("zyklus")).unwrap_err();
-    assert!(
-        format!("{error:#}").contains("Zyklus"),
-        "unerwarteter Fehler: {error:#}"
-    );
+    let variants = assets.variants(&state("zyklus")).unwrap();
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:zyklus"];
+    assert!(grund.contains("Zyklus"), "{grund}");
 }
 
 #[test]
@@ -218,17 +241,17 @@ fn unbekannter_block_ist_fehler() {
     );
 }
 
+/// Passt keine Variante, füllt der Client die Blockstate mit dem
+/// Missing-Modell auf (`ModelManager`), der Renderer ebenso.
 #[test]
-fn blockstate_ohne_passende_variante_ist_fehler() {
+fn blockstate_ohne_passende_variante_wird_missing_wuerfel() {
     let mut assets = base();
     assert!(assets.variants(&state("nur_wenn[facing=north]")).is_ok());
-    let error = assets
-        .variants(&state("nur_wenn[facing=south]"))
-        .unwrap_err();
-    assert!(
-        format!("{error:#}").contains("keine Variante"),
-        "unerwarteter Fehler: {error:#}"
-    );
+    assert!(assets.skipped().is_empty());
+    let variants = assets.variants(&state("nur_wenn[facing=south]")).unwrap();
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:nur_wenn[facing=south]"];
+    assert!(grund.contains("keine Variante"), "{grund}");
 }
 
 /// Fehlende Texturdateien und unauflösbare `#ref` dürfen den Lauf nicht
@@ -371,7 +394,11 @@ fn leeres_multipart_ist_kein_fehler() {
             .len(),
         1
     );
-    assert!(assets.variants(&state("nur_wenn[facing=south]")).is_err());
+    assert_eq!(
+        assets.variants(&state("nur_wenn[facing=south]")).unwrap()[0].model_id,
+        MISSING_MODEL,
+        "keine passende Variante"
+    );
 }
 
 /// Minecraft sucht Texturmetadaten in derselben oder einer höher

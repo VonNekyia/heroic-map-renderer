@@ -32,6 +32,20 @@ pub struct ModelRef {
     pub weight: u32,
 }
 
+impl ModelRef {
+    /// Der Verweis auf den Missing-Würfel, ungedreht.
+    pub fn missing() -> ModelRef {
+        ModelRef {
+            model: super::MISSING_MODEL.to_string(),
+            x: 0,
+            y: 0,
+            z: 0,
+            uvlock: false,
+            weight: 1,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Case {
     pub when: Option<Condition>,

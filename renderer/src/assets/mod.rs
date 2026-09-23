@@ -5,7 +5,7 @@ pub mod fluid;
 pub mod model;
 pub mod texture;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -40,6 +40,9 @@ pub fn models_of(assets: &mut Assets, state: &BlockState) -> Result<Vec<(u32, Ba
         .collect()
 }
 
+/// Der Verweis, unter dem ein fehlendes Modell als Missing-Würfel steht.
+pub const MISSING_MODEL: &str = "minecraft:builtin/missing";
+
 /// Wie tief die `parent`-Kette eines Modells verfolgt wird, bevor ein Zyklus
 /// angenommen wird. Vanilla-Ketten sind höchstens vier Glieder lang.
 const MAX_PARENT_DEPTH: usize = 16;
@@ -72,7 +75,7 @@ pub struct Assets {
     blockstates: HashMap<String, Arc<BlockStateDef>>,
     models: HashMap<String, Arc<ResolvedModel>>,
     colors: Colors,
-    skipped: BTreeSet<String>,
+    skipped: BTreeMap<String, String>,
 }
 
 impl Assets {
@@ -91,13 +94,14 @@ impl Assets {
             textures: Textures::new(),
             blockstates: HashMap::new(),
             models: HashMap::new(),
-            skipped: BTreeSet::new(),
+            skipped: BTreeMap::new(),
         })
     }
 
-    /// Alternativen, die weggefallen sind, weil ihr Modell fehlt oder
-    /// kaputt ist — je Blockstate mit dem ersten Fehler.
-    pub fn skipped(&self) -> &BTreeSet<String> {
+    /// Blockstates, die ganz oder teilweise den Missing-Würfel zeichnen,
+    /// weil ein Modell fehlt oder kaputt ist oder keine Variante passt —
+    /// je Blockstate mit dem ersten Grund.
+    pub fn skipped(&self) -> &BTreeMap<String, String> {
         &self.skipped
     }
 
@@ -175,64 +179,77 @@ impl Assets {
         Ok(self.alternatives(state)?.swap_remove(0).1)
     }
 
-    /// Alle Alternativen einer Blockstate mit ihrem Gewicht.
+    /// Die Modellverweise einer Blockstate mit Gewicht, wie die
+    /// Blockstate-Datei sie nennt.
     ///
-    /// Eine Alternative, deren Modell fehlt oder kaputt ist, wird zum
-    /// Missing-Würfel, solange sich eine andere auflösen lässt — wie im
-    /// Client, der den Eintrag samt Gewicht behält. Fiele sie weg, sänke
-    /// das Gesamtgewicht, und `nextInt` würfelte an den meisten Positionen
-    /// anders als das Spiel. Ein Pack mit einem Tippfehler in einer
-    /// Variantenliste bricht so nicht den ganzen Lauf ab; was fehlt, steht
-    /// in [`Assets::skipped`]. Fehlen alle, ist das ein Fehler.
+    /// Passt keine Variante, gilt wie im Client der Missing-Würfel:
+    /// `ModelManager` füllt jede Blockstate ohne Modell damit auf. Was
+    /// fehlt, steht in [`Assets::skipped`].
+    pub fn alternative_refs(&mut self, state: &BlockState) -> Result<Vec<(u32, Vec<ModelRef>)>> {
+        let refs = self.blockstate_def(state.name())?.alternatives(state);
+        if refs.is_empty() {
+            self.skip(
+                state,
+                "passt auf keine Variante der Blockstate-Datei".to_string(),
+            );
+            return Ok(vec![(1, vec![ModelRef::missing()])]);
+        }
+        Ok(refs)
+    }
+
+    /// Alle Alternativen einer Blockstate mit ihrem Gewicht, die Modelle
+    /// aufgelöst.
+    ///
+    /// Ein Modell, das fehlt oder kaputt ist, wird zum Missing-Würfel, mit
+    /// der Drehung seines Eintrags — wie im Client, der jeden Verweis für
+    /// sich auflöst. Bei `multipart` trifft das nur den kaputten Teil, und
+    /// eine Alternative behält ihr Gewicht: fiele sie weg, würfelte
+    /// `nextInt` an den meisten Positionen anders als das Spiel. Ein Pack
+    /// mit einem Tippfehler bricht so keinen Lauf ab.
     pub fn alternatives(&mut self, state: &BlockState) -> Result<Vec<(u32, Vec<ResolvedVariant>)>> {
-        let def = self.blockstate_def(state.name())?;
-        let alternatives = def.alternatives(state);
-        if alternatives.is_empty() {
-            bail!("{state} passt auf keine Variante der Blockstate-Datei");
-        }
         let mut out = Vec::new();
-        let mut erster_fehler = None;
-        let mut aufgeloest = 0;
-        for (weight, refs) in alternatives {
-            let variants = refs
-                .into_iter()
-                .map(|r| {
-                    Ok(ResolvedVariant {
-                        model: self.model(&r.model)?,
-                        model_id: r.model,
-                        x: r.x,
-                        y: r.y,
-                        z: r.z,
-                        uvlock: r.uvlock,
-                    })
-                })
-                .collect::<Result<Vec<_>>>();
-            match variants {
-                Ok(variants) => {
-                    aufgeloest += 1;
-                    out.push((weight, variants));
-                }
-                Err(error) => {
-                    let missing = ResolvedVariant {
-                        model_id: "minecraft:builtin/missing".to_string(),
-                        model: Arc::new(ResolvedModel::missing()),
-                        x: 0,
-                        y: 0,
-                        z: 0,
-                        uvlock: false,
-                    };
-                    out.push((weight, vec![missing]));
-                    erster_fehler.get_or_insert(error);
-                }
+        for (weight, refs) in self.alternative_refs(state)? {
+            let mut variants = Vec::with_capacity(refs.len());
+            for r in refs {
+                let (model_id, model) = if r.model == MISSING_MODEL {
+                    (r.model, Arc::new(ResolvedModel::missing()))
+                } else {
+                    match self.model(&r.model) {
+                        Ok(model) => (r.model, model),
+                        Err(error) => {
+                            self.skip(state, format!("{error:#}"));
+                            (
+                                MISSING_MODEL.to_string(),
+                                Arc::new(ResolvedModel::missing()),
+                            )
+                        }
+                    }
+                };
+                variants.push(ResolvedVariant {
+                    model_id,
+                    model,
+                    x: r.x,
+                    y: r.y,
+                    z: r.z,
+                    uvlock: r.uvlock,
+                });
             }
+            out.push((weight, variants));
         }
-        match erster_fehler {
-            Some(error) if aufgeloest == 0 => Err(error),
-            Some(error) => {
-                self.skipped.insert(format!("{state}: {error:#}"));
-                Ok(out)
-            }
-            None => Ok(out),
+        Ok(out)
+    }
+
+    /// Merkt sich den ersten Grund, aus dem eine Blockstate den
+    /// Missing-Würfel zeichnet.
+    fn skip(&mut self, state: &BlockState, why: String) {
+        self.skipped.entry(state.to_string()).or_insert(why);
+    }
+
+    /// Überträgt den Grund auf eine Blockstate derselben Familie: die
+    /// Modelle löst nur ihr erstes Mitglied auf.
+    pub fn skip_like(&mut self, state: &BlockState, like: &BlockState) {
+        if let Some(why) = self.skipped.get(&like.to_string()).cloned() {
+            self.skip(state, why);
         }
     }
 

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
@@ -230,10 +230,7 @@ pub fn mask_bit(face: Face) -> u8 {
 type FamilyKey = (String, Vec<(u32, Vec<ModelRef>)>, Option<(Fluid, u8)>);
 
 fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
-    let alternatives = assets.blockstate_def(state.name())?.alternatives(state);
-    if alternatives.is_empty() {
-        bail!("{state} passt auf keine Variante der Blockstate-Datei");
-    }
+    let alternatives = assets.alternative_refs(state)?;
     Ok((state.name().to_string(), alternatives, fluid::key(state)))
 }
 
@@ -363,6 +360,9 @@ impl SpriteSet {
         for (members, biomes) in groups {
             let state = members[0];
             let models = models_of(assets, state)?;
+            for member in &members[1..] {
+                assets.skip_like(member, state);
+            }
             let fluid = fluid::key(state);
             let alternatives: Vec<(u32, Option<SpriteId>)> = models
                 .iter()
@@ -719,10 +719,17 @@ impl SpriteSet {
         }
     }
 
-    /// Wie viele Sprites Fassungen sind: Alternativen, Biome, verdeckte
-    /// Fluessigkeitsflaechen.
+    /// Wie viele Sprites Fassungen sind: Masken, Tiefen, Biome und
+    /// Streifen — alles, was nicht das Grundbild einer Alternative ist.
+    /// Familien teilen sich pixelgleiche Grundbilder, es kann also mehr
+    /// Familien geben als Sprites.
     pub fn variants(&self) -> usize {
-        self.sprites.len() - self.families.len()
+        let grundbilder: HashSet<SpriteId> = self
+            .families
+            .iter()
+            .flat_map(|family| family.alternatives.iter().filter_map(|&(_, id)| id))
+            .collect();
+        self.sprites.len() - grundbilder.len()
     }
 
     /// Der Teil dieses Sprites, der in `cell` liegt.
@@ -1259,6 +1266,39 @@ mod tests {
                 "{pos:?}"
             );
         }
+    }
+
+    /// Zwei Blockstates mit demselben Modell, wie `copper_block` und
+    /// `waxed_copper_block`: zwei Familien, ein Sprite, keine Fassung. Die
+    /// Zahl der Fassungen war Sprites minus Familien und lief hier unter
+    /// null.
+    #[test]
+    fn geteilte_grundbilder_sind_keine_fassungen() {
+        let mut assets = assets();
+        let states = [state("einfarbig"), state("einfarbig_gewachst")];
+        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(set.families.len(), 2);
+        assert_eq!(set.len(), 1);
+        assert_eq!(set.variants(), 0);
+    }
+
+    /// Eine Familie loest ihre Modelle nur fuer ihr erstes Mitglied auf.
+    /// Den Missing-Wuerfel zeichnen aber alle, und alle stehen in der
+    /// Liste — Laub mit einer kaputten Alternative sieben Mal, nicht einmal.
+    #[test]
+    fn jede_blockstate_der_familie_steht_in_der_liste() {
+        let mut assets = assets();
+        let states = [
+            state("halb_kaputt[distance=1]"),
+            state("halb_kaputt[distance=2]"),
+            state("kaputt[distance=1]"),
+            state("kaputt[distance=2]"),
+        ];
+        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(set.families.len(), 2, "je Block eine Familie");
+        assert_eq!(assets.skipped().len(), 4, "{:?}", assets.skipped());
+        // Auch eine Blockstate ganz ohne heiles Modell bricht nichts ab.
+        assert!(set.family_of(&state("kaputt[distance=1]")).is_some());
     }
 
     /// Gefaerbte Fassungen nur fuer die Biome, mit denen die Blockstate

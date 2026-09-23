@@ -475,12 +475,13 @@ fn biome_faerben_denselben_block_verschieden() {
     assets
         .load_biomes(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base"))
         .unwrap();
-    let states = [BlockState::parse("minecraft:grass_block").unwrap()];
     let projection = Projection::new(16);
-    let sprites = SpriteSet::build(&mut assets, &states, projection).unwrap();
-    // plains ist das Standardklima und teilt sich das Sprite mit der
-    // Grundfassung; swamp, frozen, heide und hoehle/pilzwald bekommen eigene.
-    assert_eq!(sprites.variants(), 4);
+    // Gebaut wie im Export: der Vorlauf sammelt je Blockstate die Biome
+    // ihrer Sections. Gefärbt wird nur für plains und frozen, und plains
+    // ist das Standardklima und teilt sich das Sprite mit der Grundfassung.
+    // Für alle geladenen Biome gäbe es vier Fassungen.
+    let sprites = tabelle(&mut assets, &world, projection);
+    assert_eq!(sprites.variants(), 1);
 
     let rect = ScreenRect {
         x: -16,

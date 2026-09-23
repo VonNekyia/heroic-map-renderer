@@ -1045,10 +1045,10 @@ fn report_missing_textures(assets: &Assets) {
     let skipped = assets.skipped();
     if !skipped.is_empty() {
         println!(
-            "Varianten:  {} Blockstates ohne einzelne Alternativen, deren Modell fehlt",
+            "Modelle:    {} Blockstates zeichnen den Missing-Würfel, ein Modell oder eine Variante fehlt",
             skipped.len()
         );
-        print_list(skipped.iter());
+        print_list(skipped.iter().map(|(state, why)| format!("{state}: {why}")));
     }
 }
 

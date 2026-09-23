@@ -202,6 +202,81 @@ fn vorlauf_beachtet_die_grenzen() {
     assert_eq!(klein.chunks, ganz.chunks, "gelesen wird trotzdem alles");
 }
 
+/// Die Biome, die der Vorlauf einer Blockstate zuordnet.
+fn biome_von(gefunden: &terranova_render::render::Survey, name: &str) -> Vec<String> {
+    let (_, biome) = gefunden
+        .states
+        .iter()
+        .find(|(state, _)| state.name() == name)
+        .unwrap_or_else(|| panic!("{name} fehlt im Vorlauf"));
+    biome.iter().cloned().collect()
+}
+
+/// Der Vorlauf merkt sich je Blockstate die Biome ihrer Sections, nicht
+/// die der ganzen Region: gefärbte Fassungen entstehen nur, wo ein Block
+/// steht. Hat eine Region mehr Biome, als die Bitmaske fasst, bekommt
+/// jede Blockstate alle.
+#[test]
+fn vorlauf_kennt_die_biome_je_blockstate() {
+    let dir = tempdir();
+    common::write_world_in(
+        dir.path(),
+        &[(0, 0), (1, 0)],
+        |x, y, _| match (x < 16, y) {
+            (_, 0) => "minecraft:einfarbig",
+            (true, 1) => "minecraft:grass_block",
+            (false, 1) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        |cx, _| {
+            Some(if cx == 0 {
+                "minecraft:plains"
+            } else {
+                "minecraft:frozen"
+            })
+        },
+    );
+    let world = World::open(dir.path()).unwrap();
+    let gefunden = survey(&world, Projection::new(16), Y_RANGE, None).unwrap();
+    assert_eq!(
+        biome_von(&gefunden, "minecraft:einfarbig"),
+        ["minecraft:frozen", "minecraft:plains"]
+    );
+    assert_eq!(
+        biome_von(&gefunden, "minecraft:grass_block"),
+        ["minecraft:plains"]
+    );
+    assert_eq!(
+        biome_von(&gefunden, "minecraft:water"),
+        ["minecraft:frozen"]
+    );
+
+    // 130 Biome in einer Region, je Chunk eines; das Gras steht nur im
+    // ersten.
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..130).map(|i| (i % 32, i / 32)).collect();
+    let namen: Vec<&'static str> = (0..130)
+        .map(|i| &*Box::leak(format!("test:b{i}").into_boxed_str()))
+        .collect();
+    common::write_world_in(
+        dir.path(),
+        &chunks,
+        |x, y, z| match (x, y, z) {
+            (0, 0, 0) => "minecraft:grass_block",
+            (_, 0, _) => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        },
+        |cx, cz| Some(namen[(cx + 32 * cz) as usize]),
+    );
+    let world = World::open(dir.path()).unwrap();
+    let gefunden = survey(&world, Projection::new(16), Y_RANGE, None).unwrap();
+    assert_eq!(
+        biome_von(&gefunden, "minecraft:grass_block").len(),
+        130,
+        "mehr als 128 Biome: jede Blockstate bekommt alle"
+    );
+}
+
 /// WebP verlustfrei: die Pixel müssen die Runde überstehen.
 #[test]
 fn webp_ist_verlustfrei() {

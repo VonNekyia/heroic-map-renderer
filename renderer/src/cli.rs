@@ -403,8 +403,6 @@ fn window(projection: Projection, center: (i32, i32), size: u32) -> ScreenRect {
     }
 }
 
-/// Schreibt die Welt als WebP-Kacheln.
-///
 /// Biome der Welt, für die keine Definition geladen ist. Sie bekommen die
 /// Farben von `plains` — das soll niemand erst auf der Karte bemerken.
 fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
@@ -432,6 +430,8 @@ fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
     );
 }
 
+/// Schreibt die Welt als WebP-Kacheln.
+///
 /// Zwei Durchläufe: der Vorlauf liest jeden Chunk einmal und sagt, welche
 /// Blockstates vorkommen und welche Kacheln überhaupt etwas zeigen. Erst
 /// danach steht die Sprite-Tabelle, und erst danach kann parallel gerendert
@@ -443,6 +443,14 @@ fn write_tiles(
     bounds: Option<ScreenRect>,
     dir: &Path,
 ) -> Result<()> {
+    // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
+    // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
+    // einer anderen Stufe, und zwei Läufe passten nicht zusammen.
+    let welt =
+        world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
+    let max_zoom = pyramid::depth(&corner_tiles(welt));
+    pruefe_bestand(dir, projection.scale(), max_zoom)?;
+
     let started = Instant::now();
     let survey = survey(world, projection, Y_RANGE, bounds)?;
     println!(
@@ -472,12 +480,6 @@ fn write_tiles(
         );
     }
 
-    // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
-    // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
-    // einer anderen Stufe, und zwei Läufe passten nicht zusammen.
-    let welt =
-        world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
-    let max_zoom = pyramid::depth(&corner_tiles(welt));
     let kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
 
     let started = Instant::now();
@@ -525,14 +527,23 @@ fn write_tiles(
         bytes as f64 / basis.len().max(1) as f64 / 1024.0,
     );
 
+    // Die nativen Stufen rendern ihre Elternkacheln ganz, auch über den
+    // Ausschnitt hinaus. Ihre Sprite-Tabelle braucht deshalb die Blöcke der
+    // ganzen Elternfläche: aus den Blockstates des Ausschnitts allein würde
+    // draussen alles zu Luft, und die richtigen Kacheln auf der Platte
+    // würden überschrieben.
+    let stufen = native_levels(projection.scale(), max_zoom);
+    let flaeche;
+    let states = match bounds {
+        Some(_) if stufen > 0 => {
+            let rect = eltern_flaeche(&survey.tiles, stufen);
+            flaeche = survey_states(world, projection, rect)?;
+            &flaeche
+        }
+        _ => &survey.states,
+    };
     let (z, kandidaten) = render_coarser(
-        world,
-        assets,
-        &survey.states,
-        projection,
-        dir,
-        max_zoom,
-        kandidaten,
+        world, assets, states, projection, dir, max_zoom, kandidaten, stufen,
     )?;
     build_pyramid(dir, z, kandidaten)?;
 
@@ -623,12 +634,84 @@ fn build_pyramid(dir: &Path, max_zoom: u32, kandidaten: BTreeSet<TileId>) -> Res
 }
 
 /// Bis zu welchem scale gröbere Zoomstufen noch aus der Welt gerendert
-/// werden statt aus der feineren Stufe verkleinert. Bei 2 ist ein Block
-/// noch ein Rhombus aus vier Pixeln; darunter bleibt nur Mitteln.
-const NATIVE_MIN_SCALE: u32 = 2;
+/// werden statt aus der feineren Stufe verkleinert. Die Projektion setzt
+/// Blöcke in Schritten von scale/4 Pixeln, und nur bei einem Vielfachen von
+/// 4 liegt jeder Block auf ganzen Pixeln. Bei scale 2 läge jede zweite
+/// Blockreihe auf einem halben, das Runden in `blit` kippte an Bildzeile 0,
+/// und benachbarte Reihen überdeckten sich ganz — durchscheinendes Wasser
+/// mischte dort doppelt.
+const NATIVE_MIN_SCALE: u32 = 4;
+
+/// Wie viele Stufen über der Basis nativ gerendert werden: solange der
+/// halbe scale noch ein Vielfaches von 4 ist, bei scale 32 also drei (16,
+/// 8, 4), bei 16 zwei, bei 12 keine.
+fn native_levels(scale: u32, max_zoom: u32) -> u32 {
+    let (mut stufen, mut scale) = (0, scale);
+    while stufen < max_zoom && (scale / 2).is_multiple_of(4) && scale / 2 >= NATIVE_MIN_SCALE {
+        stufen += 1;
+        scale /= 2;
+    }
+    stufen
+}
+
+/// Die Fläche der Elternkacheln `stufen` Stufen über `tiles`, in Pixeln
+/// der Basis.
+fn eltern_flaeche(tiles: &[TileId], stufen: u32) -> ScreenRect {
+    let kante = TILE as i32 * (1 << stufen);
+    let x0 = tiles.iter().map(|t| t.x >> stufen).min().unwrap_or(0);
+    let y0 = tiles.iter().map(|t| t.y >> stufen).min().unwrap_or(0);
+    let x1 = tiles.iter().map(|t| (t.x >> stufen) + 1).max().unwrap_or(0);
+    let y1 = tiles.iter().map(|t| (t.y >> stufen) + 1).max().unwrap_or(0);
+    ScreenRect {
+        x: x0 * kante,
+        y: y0 * kante,
+        width: ((x1 - x0) * kante) as u32,
+        height: ((y1 - y0) * kante) as u32,
+    }
+}
+
+/// Die Blockstates der Chunks, die in eine Fläche fallen.
+fn survey_states(
+    world: &World,
+    projection: Projection,
+    rect: ScreenRect,
+) -> Result<BTreeSet<BlockState>> {
+    Ok(survey(world, projection, Y_RANGE, Some(rect))?.states)
+}
+
+/// Ein bestehender Kachelbaum mit anderem scale oder anderer Stufenzahl
+/// passt nicht zu diesem Lauf: die neuen Kacheln lägen auf anderen Stufen
+/// als die alten, und `map.json` beschriebe danach nur noch den Ausschnitt.
+/// Seit scale 32 der Standard ist, reicht dafür ein vergessenes `--scale`.
+fn pruefe_bestand(dir: &Path, scale: u32, max_zoom: u32) -> Result<()> {
+    let pfad = dir.join("map.json");
+    let Ok(text) = std::fs::read_to_string(&pfad) else {
+        return Ok(());
+    };
+    let alt: serde_json::Value = serde_json::from_str(&text).with_context(|| {
+        format!(
+            "{} ist kein gültiges map.json — löschen, wenn der Baum neu entstehen soll",
+            pfad.display()
+        )
+    })?;
+    if alt["scale"].as_u64() != Some(scale.into())
+        || alt["maxZoom"].as_u64() != Some(max_zoom.into())
+    {
+        bail!(
+            "{} gehört zu einem Baum mit scale {} und maxZoom {}; dieser Lauf hätte scale {scale} \
+             und maxZoom {max_zoom}. Mit --scale {} weiterrendern oder ein neues Verzeichnis nehmen.",
+            pfad.display(),
+            alt["scale"],
+            alt["maxZoom"],
+            alt["scale"]
+        );
+    }
+    Ok(())
+}
 
 /// Rendert die gröberen Zoomstufen aus der Welt, solange ein Block noch
-/// [`NATIVE_MIN_SCALE`] Pixel breit ist.
+/// mindestens [`NATIVE_MIN_SCALE`] Pixel breit ist und auf ganzen Pixeln
+/// liegt — [`native_levels`] Stufen.
 ///
 /// Verkleinern mittelt Nachbarblöcke ineinander, und schon zwei Stufen
 /// unter der Basis ist aus Kanten Brei geworden. Ein nativer Render hält
@@ -638,6 +721,7 @@ const NATIVE_MIN_SCALE: u32 = 2;
 ///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
 /// [`build_pyramid`].
+#[allow(clippy::too_many_arguments)]
 fn render_coarser(
     world: &World,
     assets: &mut Assets,
@@ -646,12 +730,13 @@ fn render_coarser(
     dir: &Path,
     max_zoom: u32,
     kandidaten: BTreeSet<TileId>,
+    stufen: u32,
 ) -> Result<(u32, BTreeSet<TileId>)> {
     let mut z = max_zoom;
     let mut scale = projection.scale();
     let mut kandidaten = kandidaten;
 
-    while z > 0 && scale.is_multiple_of(2) && scale / 2 >= NATIVE_MIN_SCALE {
+    for _ in 0..stufen {
         z -= 1;
         scale /= 2;
         let started = Instant::now();
@@ -957,6 +1042,35 @@ mod tests {
         assert_eq!(
             args.assets,
             vec![PathBuf::from("vanilla"), PathBuf::from("pack")]
+        );
+    }
+
+    #[test]
+    fn native_stufen_nur_auf_ganzen_pixeln() {
+        assert_eq!(native_levels(32, 9), 3, "16, 8, 4");
+        assert_eq!(native_levels(16, 9), 2);
+        assert_eq!(native_levels(8, 9), 1);
+        assert_eq!(native_levels(4, 9), 0);
+        assert_eq!(native_levels(12, 9), 0, "6 läge auf halben Pixeln");
+        assert_eq!(native_levels(24, 9), 1, "12, dann 6 nicht mehr");
+        assert_eq!(
+            native_levels(32, 2),
+            2,
+            "nicht mehr Stufen als die Pyramide hat"
+        );
+    }
+
+    #[test]
+    fn elternflaeche_umfasst_die_ganzen_elternkacheln() {
+        let tiles = [TileId { x: 1, y: 0 }, TileId { x: -1, y: 2 }];
+        assert_eq!(
+            eltern_flaeche(&tiles, 2),
+            ScreenRect {
+                x: -1024,
+                y: 0,
+                width: 2048,
+                height: 1024
+            }
         );
     }
 

@@ -349,8 +349,10 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
         let kinder = kacheln(out.path(), z + 1);
         assert!(!eltern.is_empty(), "Zoom {z} ist leer");
 
+        // Nativ nur, solange ein Block auf ganzen Pixeln liegt: scale 4 ja,
+        // scale 2 nicht mehr.
         let scale = 8 >> (basis - z);
-        let sprites = (scale >= 2).then(|| {
+        let sprites = (scale >= 4).then(|| {
             let mut assets = Assets::open(vec![assets()]).unwrap();
             SpriteSet::build(&mut assets, &states, Projection::new(scale)).unwrap()
         });
@@ -467,13 +469,21 @@ fn zoomstufen_haengen_am_massstab() {
 /// Wer beim Neubauen nur die Kacheln dieses Laufs berücksichtigt, schreibt
 /// sie mit durchsichtigen Lücken zu — und `map.json` schrumpft auf den
 /// Ausschnitt zusammen.
+///
+/// Die nativen Stufen rendern ihre Elternkacheln ganz aus der Welt. Der
+/// Stein in Chunk (10, 4) liegt weit ausserhalb des Ausschnitts, aber in
+/// derselben Elternkachel zwei Stufen darüber: fehlt er in deren
+/// Sprite-Tabelle, wird er dort zu Luft.
 #[test]
 fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
     let welt = tempdir();
-    common::write_world(welt.path(), &[(2, 0), (4, 0)], |x, y, z| match (x, y, z) {
-        (44, 4, 8) => "minecraft:einfarbig",
-        (76, 4, 8) => "minecraft:blauwuerfel",
-        _ => "minecraft:air",
+    common::write_world(welt.path(), &[(2, 0), (4, 0), (10, 4)], |x, y, z| {
+        match (x, y, z) {
+            (44, 4, 8) => "minecraft:einfarbig",
+            (76, 4, 8) => "minecraft:blauwuerfel",
+            (165, 4, 65) => "minecraft:stone",
+            _ => "minecraft:air",
+        }
     });
 
     let out = tempdir();
@@ -502,6 +512,36 @@ fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
     for (rel, alt) in &vorher {
         assert_eq!(&nachher[rel], alt, "{rel} hat sich verändert");
     }
+}
+
+/// Ein vergessenes `--scale` darf einen bestehenden Baum nicht zerlegen:
+/// die neuen Kacheln lägen eine Stufe tiefer als die alten, und `map.json`
+/// beschriebe danach nur noch den Ausschnitt.
+#[test]
+fn anderer_scale_wird_abgelehnt() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+    let vorher = schnappschuss(out.path());
+
+    // Ohne --scale: der Standard ist 32.
+    let ausgabe = tiles(
+        welt.path(),
+        out.path(),
+        &["--center", "4", "8", "--size", "4"],
+    );
+    assert!(
+        !ausgabe.status.success(),
+        "der Lauf mit scale 32 hätte abbrechen müssen"
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("scale 16"), "Meldung: {meldung}");
+    assert_eq!(
+        schnappschuss(out.path()),
+        vorher,
+        "der Baum hat sich verändert"
+    );
 }
 
 /// Auch wenn nichts sichtbar ist, muss `map.json` geschrieben werden — und

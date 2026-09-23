@@ -755,6 +755,30 @@ impl<'a> ChunkCache<'a> {
             let (v_min, v_max) = v_window(projection, rect, y);
             v >= v_min && v <= v_max
         };
+        // Der genaue Test für Sprites, die in ihrem Würfel bleiben: ihre
+        // Pixel liegen im Sechseck des Blockumrisses plus einem Pixel Rand
+        // (`fits_cell`), also höchstens `half + 1` neben und anderthalbmal
+        // so weit über und unter dem Blockursprung. Grosszügig gerundet —
+        // es geht nur darum, niemanden zu verwerfen, der noch einen Pixel
+        // auf der Kachel hätte. Das Band mit seiner Reserve von drei
+        // Blöcken ist für solche Sprites viel zu weit: mehr als die Hälfte
+        // der Kandidaten berührte die Kachel gar nicht und bekam trotzdem
+        // eine Sprite-Wahl.
+        let half = (projection.scale() as i32 + 1) / 2;
+        let reach_x = half + 2;
+        let reach_y = 3 * (half + 1) / 2 + 2;
+        let touches = |x: i32, y: i32, z: i32| {
+            if y < y_range.0 || y > y_range.1 {
+                return false;
+            }
+            let (sx, sy) = projection.project_block([x, y, z]);
+            let px = sx.round() as i32 - rect.x;
+            let py = sy.round() as i32 - rect.y;
+            px + reach_x >= 0
+                && px - reach_x < rect.width as i32
+                && py + reach_y >= 0
+                && py - reach_y < rect.height as i32
+        };
 
         let pad_y = foreign.iter().map(|c| c[1].abs()).max().unwrap_or(0);
         let scale = projection.scale() as f64;
@@ -815,7 +839,14 @@ impl<'a> ChunkCache<'a> {
                         let b = bits.trailing_zeros();
                         let y = sy + b as i32;
                         bits &= bits - 1;
-                        if !in_band(y, v, u) {
+                        // Lose Familien können über den Würfel hinausragen;
+                        // für sie bleibt das Band.
+                        let drin = if m.loose[col] >> b & 1 != 0 {
+                            in_band(y, v, u)
+                        } else {
+                            touches(x, y, z)
+                        };
+                        if !drin {
                             continue;
                         }
                         // Der Nachbar übermalt nur, was diese Kachel auch

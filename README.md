@@ -20,7 +20,7 @@ Sand, Stein, Erde — würfeln ihre Drehung aus der Position wie das Spiel.
 
 ![Karte](docs/map.png)
 
-900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 3,2 s einkernig —
+900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 2,1 s einkernig —
 dieselbe Stelle wie in Schritt 4, jetzt mit Wasser, Biomfarben und
 gewürfelten Drehungen.
 
@@ -139,12 +139,13 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Render:     292 Chunks im Ausschnitt, 292 generiert, 258 Blockstates, 235 Sprites
-            900x900 px um (-64, 416) bei scale 16 in 2.1 s -> docs/map.png
+Render:     292 Chunks im Ausschnitt, 292 generiert, 258 Blockstates, 13226 Sprites
+            900x900 px bei (-4290, 958) und scale 16 in 2.1 s -> docs/map.png
 ```
 
 `--center` nennt die Blockspalte, die in der Bildmitte landet, `--scale` die
-Pixelbreite eines Blocks. Gesucht wird nur, was im Bild landen kann: der
+Pixelbreite eines Blocks. Die Ausgabe nennt die linke obere Bildecke in
+Pixeln. Gesucht wird nur, was im Bild landen kann: der
 sichtbare Bereich ist ein schmales diagonales Band in x und z, kein Rechteck.
 Wer stattdessen die Hüllbox nähme, läse für einen 1024er Ausschnitt rund das
 Sechzehnfache an Chunks.
@@ -156,11 +157,11 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Vorlauf:    316223 Chunks in 10.7 s, 3110 Blockstates, 73920 Kacheln
-            3057 Sprites bei scale 16
-            82 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
-            200/73920 Kacheln
-            400/73920 Kacheln
+Vorlauf:    316223 Chunks in 8.5 s, 3110 Blockstates, 292836 Kacheln
+            100688 Sprites bei scale 32, davon 98189 Fassungen
+            18 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
+            200/292836 Kacheln
+            400/292836 Kacheln
 ```
 
 Danach stapelt der Lauf die gröberen Zoomstufen darüber und schreibt
@@ -170,8 +171,8 @@ Der Vorlauf liest jeden Chunk einmal und beantwortet zwei Fragen auf einmal:
 welche Blockstates vorkommen, und welche Kacheln überhaupt etwas zeigen. Erst
 danach steht die Sprite-Tabelle — und erst dann kann parallel gerendert
 werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
-Chunks werden deshalb zweimal gelesen; der Vorlauf kostet 11 Sekunden für die
-ganze Welt.
+Chunks werden deshalb zweimal gelesen; der Vorlauf kostet für die ganze Welt
+6 bis 11 Sekunden.
 
 Gerendert wird mit Rayon über die Kacheln. Jeder Worker hält seinen eigenen
 Chunk- und Regionscache, geteilt wird nur die unveränderliche Sprite-Tabelle.
@@ -179,19 +180,23 @@ Chunk- und Regionscache, geteilt wird nur die unveränderliche Sprite-Tabelle.
 `--center` und `--size` schränken auf einen Ausschnitt ein:
 
 ```bash
-cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --tiles ./tiles --center -64 416 --size 2048
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles ./tiles --center -64 416 --size 2048
 ```
 
 ```
-Vorlauf:    8192 Chunks in 0.4 s, 266 Blockstates, 72 Kacheln
-Kacheln:    72 geschrieben, 0 leer, 256x256 px, 24 Threads
-            9.4 MB in 1.7 s (44 Kacheln/s, 134 kB je Kachel)
-Zoom  8:     25 Kacheln
-Zoom  7:     9 Kacheln
-Zoom  6:     4 Kacheln
+Vorlauf:    6144 Chunks in 0.3 s, 213 Blockstates, 64 Kacheln
+            7125 Sprites bei scale 32, davon 6933 Fassungen
+            1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
+            64/64 Kacheln
+Kacheln:    64 geschrieben, 0 leer, 256x256 px, 24 Threads
+            8.6 MB in 0.7 s (90 Kacheln/s, 137 kB je Kachel)
+Zoom  9:     20 Kacheln nativ bei scale 16, 2.7 MB in 0.7 s
+Zoom  8:     9 Kacheln nativ bei scale 8, 1.1 MB in 0.7 s
+Zoom  7:     4 Kacheln nativ bei scale 4, 0.5 MB in 1.6 s
+Zoom  6:     2 Kacheln
 ...
-Pyramide:   45 Kacheln, 3.1 MB in 0.0 s
-Karte:      Zoom 0..9, -4864/256 bis -2816/2560 px -> ./tiles/map.json
+Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
+Karte:      Zoom 0..10, 64 Basiskacheln, -8704/1792 bis -6656/3840 px -> ./tiles/map.json
 ```
 
 Der Ausschnitt wird dabei auf ganze Kacheln aufgerundet, bevor der Vorlauf
@@ -208,10 +213,10 @@ zeigte die Karte weiter, was inzwischen abgerissen wurde.
 
 ### Zoomstufen
 
-Gerendert wird nur die feinste Stufe. Jede gröbere entsteht aus vier Kacheln
-der darunterliegenden, auf die halbe Kantenlänge gestaucht — die Welt wird
-dafür kein zweites Mal angefasst. Für den Ausschnitt oben kosten alle Stufen
-zusammen 3,1 MB gegenüber 9,4 MB für die Basis, also das erwartete Drittel.
+Gröbere Stufen entstehen aus vier Kacheln der darunterliegenden, auf die
+halbe Kantenlänge gestaucht — die Welt wird dafür kein zweites Mal
+angefasst. Ausgenommen sind die nativen Stufen direkt unter der Basis,
+siehe unten.
 
 ![Zoomstufen](docs/zoomstufen.png)
 
@@ -231,15 +236,26 @@ ja weiterhin da. Und `map.json` beschreibt den ganzen Baum, nicht den letzten
 Lauf. An einer unveränderten Welt ändert ein Nachrendern deshalb keine einzige
 Datei.
 
-Die gröberen Stufen werden nicht alle verkleinert. Solange ein Block
-noch zwei Pixel breit ist — bei scale 32 also vier Stufen lang, 16, 8, 4
-und 2 —, rendert der Renderer die Stufe aus der Welt, mit Sprites in
-dieser Grösse. Verkleinern mittelt Nachbarblöcke ineinander, und schon
-zwei Stufen unter der Basis wäre aus jeder Kante Brei; ein nativer Render
-hält den Umriss jedes Blocks scharf und mittelt stattdessen die Textur
-über den Block, was auf einer Karte niemand vermisst. Das kostet ein
-Drittel des Basisrenders obendrauf. Erst darunter, bei einem Pixel je
-Block und weniger, wird verkleinert.
+Dafür muss der Lauf zum Baum passen. Weichen `scale` oder `maxZoom` vom
+`map.json` im Zielverzeichnis ab, bricht der Export ab, bevor er einen
+Chunk liest. Sonst landeten die neuen Kacheln eine Stufe daneben, und
+`map.json` beschriebe danach nur noch den Ausschnitt.
+
+Die gröberen Stufen werden nicht alle verkleinert. Solange jeder Block
+auf ganzen Pixeln liegt, der scale der Stufe also durch vier teilbar ist
+— bei scale 32 drei Stufen lang, 16, 8 und 4 —, rendert der Renderer die
+Stufe aus der Welt, mit Sprites in dieser Grösse. Verkleinern mittelt
+Nachbarblöcke ineinander, und schon zwei Stufen unter der Basis wäre aus
+jeder Kante Brei; ein nativer Render hält den Umriss jedes Blocks scharf
+und mittelt stattdessen die Textur über den Block, was auf einer Karte
+niemand vermisst. Das kostet ein Drittel des Basisrenders obendrauf. Bei
+scale 2 läge jede zweite Blockreihe auf einem halben Pixel, und
+benachbarte Reihen überdeckten sich; ab dort wird verkleinert.
+
+Ein Ausschnitt mit `--size` braucht dafür mehr Welt als sich selbst: eine
+native Elternkachel zeigt auch, was neben dem Ausschnitt liegt. Der
+Export liest deshalb die Blockstates der ganzen Elternfläche, bevor er
+die Sprites baut.
 
 Gemittelt wird dabei in linearem Licht, nicht in sRGB-Werten: die sind
 gammakodiert, ihr Mittel ist zu dunkel, und jede Stufe verdunkelt weiter.
@@ -250,11 +266,11 @@ Halb Schwarz, halb Weiss ergibt so 188 statt 128.
 ```json
 {
   "tileSize": 256,
-  "scale": 16,
+  "scale": 32,
   "minZoom": 0,
-  "maxZoom": 9,
+  "maxZoom": 10,
   "tiles": "{z}/{x}/{y}.webp",
-  "bounds": [-4864, 256, -2816, 2560]
+  "bounds": [-8704, 1792, -6656, 3840]
 }
 ```
 
@@ -296,9 +312,12 @@ Flüssigkeiten haben kein Blockmodell — Minecraft baut ihre Geometrie im
 Code. Der Renderer tut dasselbe: `water`, `lava`, `bubble_column`, Seegras
 und Kelp sowie jede Blockstate mit `waterlogged=true` bekommen einen Würfel
 mit der Flüssigkeitstextur, fliessendes Wasser (`level` 1 bis 7) einen
-flacheren. Quellen und fallendes Wasser füllen den Block ganz; Minecraft
-lässt sie einen Pixel tiefer enden, doch ohne Nachbarschaftswissen bekäme
-sonst jede Schicht eines Ozeans eine Fuge.
+flacheren. Wie im Spiel endet eine Quelle bei 8/9 der Blockhöhe, knapp
+zwei Texturpixel unter der Kante, und die Oberseiten gefluteter oberer
+Platten, Treppen und Zaunpfosten bleiben trocken. Liegt dieselbe
+Flüssigkeit darüber, reicht der Würfel bis oben, sonst hätte jede Schicht
+eines Ozeans eine Fuge. Die Ecken gleicht der Renderer nicht an die
+Nachbarn an wie Minecraft, jede Oberfläche bleibt eben.
 
 ![Übersicht](docs/map-wide.png)
 
@@ -311,13 +330,18 @@ gleichem Wasser daneben und darüber. Sonst läge in jedem Becken Wasser
 schimmerte durch ein Raster. Ein Wasserblock mitten im Ozean hat danach
 keine Fläche mehr und kostet nichts.
 
-Die Oberfläche trägt dafür die Deckkraft aller Schichten darunter. Eine
+Die Oberfläche trägt dafür die Deckkraft aller Schichten dahinter. Eine
 Schicht der Wassertextur lässt 29 Prozent durch, zwei noch 9, vier noch
 unter 1: durch einen Block Wasser sieht man den Grund, durch vier nicht
-mehr. Der Renderer zählt je Oberflächenblock die Wasserblöcke darunter
-und nimmt die Fassung mit dem entsprechend hochgerechneten Alpha — ohne
-das sähe ein Ozean aus wie ein Meeresboden hinter Milchglas, mit
-sichtbarem Kies in jeder Tiefe. Im Spiel erledigt das der Unterwassernebel.
+mehr. Der Renderer zählt je Oberflächenblock die Wasserblöcke entlang
+des Blickstrahls, also schräg nach hinten unten auf der Diagonale
+(x-1, y-1, z-1), und nimmt die Fassung mit dem entsprechend
+hochgerechneten Alpha — ohne das sähe ein Ozean aus wie ein Meeresboden
+hinter Milchglas, mit sichtbarem Kies in jeder Tiefe. Im Spiel erledigt
+das der Unterwassernebel. Senkrecht gezählt verschwände, was knapp unter
+einer tiefen Oberfläche liegt, Kelp oder ein Wrack. Mit zählt nur reines
+Wasser: ein gefluteter Zaun oder Kelp ist etwas, das der Blickstrahl
+trifft, und bleibt durch die Schichten davor zu sehen.
 
 Gras und Laub funktionieren wie das Wasser: die Textur ist grau, das Biom
 liefert Temperatur und Niederschlag, und die Colormaps `grass.png` und
@@ -332,23 +356,31 @@ verdrahtet das im Code, und der Renderer tut es in
 `renderer/src/assets/colors.rs` — eine Tabelle mit rund zwanzig Einträgen.
 
 Durchsichtige Flächen mischen sich seit diesem Schritt auch innerhalb
-eines Sprites: die Flächen werden von hinten nach vorne gezeichnet, und
-ein durchscheinendes Texel legt sich über das, was schon da ist. Vorher
-gewann der Tiefenpuffer, und ein gefluteter Zaun war ein Wasserwürfel ohne
-Zaun.
+eines Sprites: jede Fläche legt je Pixel ein Fragment ab, und am Schluss
+wird je Pixel von hinten nach vorne gemischt. Ein durchscheinendes Texel
+liegt so immer über dem, was dahinter liegt, und eine Halmkante, die den
+Pixel nur zum Teil deckt, verdeckt die Fläche dahinter nicht. Vorher
+gewann ein Tiefenpuffer, und ein gefluteter Zaun war ein Wasserwürfel
+ohne Zaun.
 
 ### Keine Nähte
 
 Sprite-Kanten werden nicht geglättet. Die Geometrie wird nur im
-Pixelmittelpunkt geprüft, damit jeder Pixel genau einer Fläche gehört und
-Nachbarflächen nahtlos aneinanderstossen. Geglättete Kanten trügen
+Pixelmittelpunkt geprüft, damit an einer gemeinsamen Kante jeder Pixel
+genau einer der beiden Flächen gehört und Nachbarflächen nahtlos
+aneinanderstossen. Liegt ein Mittelpunkt genau auf der Kante, entscheidet
+die Füllregel der Grafikkarten: der Pixel gehört dem Dreieck, für das die
+Kante oben oder links liegt. Ohne sie nahmen beide Dreiecke einer Fläche
+die Pixel auf ihrer Diagonale an, und bei scale 2 bekam Wasser dort
+Alpha 233 statt 180. Geglättete Kanten trügen
 Teildeckung im Alpha, und beim Zusammensetzen der Sprites könnte niemand
 mehr unterscheiden, ob zwei Nachbarflächen dasselbe Pixel teilen oder ob
 eine durch die andere scheint: ein Wasserbecken bekam an jeder Blockgrenze
 eine hellere Naht, ein Boden aus deckenden Blöcken dunkle Linien — bis
 Schritt 8 hatte das Goldbild sie. Die Textur dagegen wird über den Pixel
 gemittelt, sonst fiele auf einer acht Pixel breiten Seitenfläche jeder
-zweite Texel weg.
+zweite Texel weg. Gemittelt wird wie in der Pyramide in linearem Licht
+und mit vormultipliziertem Alpha.
 
 ### scale 32
 
@@ -363,13 +395,13 @@ verschmerzen kann, gibt `--scale 16` an.
 
 34 Vanilla-Blockstates liegen als Liste vor — Sand, Stein, Erde, Grasblock
 in vier Drehungen. Welche ein Block bekommt, würfelt Minecraft aus seiner
-Position: `Mth.getSeed(x, y, z)` als Saat für `java.util.Random`, der erste
-`nextLong` gekürzt auf 32 Bit, davon der Betrag modulo Gesamtgewicht.
-Der Renderer rechnet genau das nach, geprüft gegen ein echtes
-`java.util.Random`. Damit sieht Sand aus wie im Spiel statt wie eine
-Tapete, und die Wahl hängt weder von der Kachel noch vom Thread ab. Alle
-Alternativen sind vorab gerastert; der Renderpfad rechnet je Block nur
-die Saat.
+Position: `Mth.getSeed(x, y, z)` wird die Saat, `nextInt` über das
+Gesamtgewicht zieht eine Zahl, und die Gewichte werden der Reihe nach
+abgezählt, bis sie verbraucht ist. Der Renderer rechnet genau das nach,
+geprüft an sieben Positionen gegen die Klassen des 26.2-Clients. Damit
+sieht Sand aus wie im Spiel statt wie eine Tapete, und die Wahl hängt
+weder von der Kachel noch vom Thread ab. Alle Alternativen sind vorab
+gerastert; der Renderpfad rechnet je Block nur die Saat.
 
 Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, jede
 vorkommende Blockstate auflöst und sie rastert:
@@ -379,19 +411,27 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Scan:       316223 Chunks in 80.8 s (3911 Chunks/s), 0 Fehler
+Scan:       316223 Chunks in 60.1 s (5260 Chunks/s), 0 Fehler
             3110 verschiedene Blockstates
-Assets:     3110 Blockstates aufgelöst in 1.0 s, 0 ungelöst
-            10 Blöcke ohne Modell: air, cave_air, water, lava, bubble_column,
-            chest, decorated_pot, skeleton_skull, brown_wall_banner,
-            white_wall_banner
-Sprites:    3069 gerastert bei scale 16 in 0.1 s (25608/s)
-            2.3 MB Sprite-Pixel, größtes: minecraft:fire[...] (16x20)
-Texturen:   734 geladen, 0 fehlen
+Assets:     3110 Blockstates aufgelöst in 0.5 s, 0 ungelöst
+            7 Blöcke ohne Modell:
+            minecraft:air
+            minecraft:brown_wall_banner
+            minecraft:cave_air
+            minecraft:chest
+            minecraft:decorated_pot
+            minecraft:skeleton_skull
+            minecraft:white_wall_banner
+Sprites:    3076 gerastert bei scale 32 in 0.3 s (8960/s)
+            9.1 MB Sprite-Pixel, größtes: minecraft:brain_coral_fan[waterlogged=true] (46x31)
+            1 Blöcke sind aus dieser Blickrichtung unsichtbar: minecraft:fire
+
+Texturen:   738 geladen, 0 fehlen
 ```
 
-Blöcke ohne Modell zeichnet Minecraft über Entity-Modelle oder als
-Flüssigkeit — beides kennt V1 noch nicht.
+Truhen, Banner, Schädel und Töpfe zeichnet Minecraft über Entity-Modelle,
+die kennt der Renderer noch nicht. Wasser und Lava fehlen in der Liste,
+weil der Renderer sie wie das Spiel im Code baut.
 
 ## Frontend
 

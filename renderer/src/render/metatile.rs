@@ -94,13 +94,17 @@ pub fn render_area_with(
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
     let mut canvas = RgbaImage::new(rect.width, rect.height);
-    draw_all(&mut canvas, &draw_list(chunks, rect, y_range)?);
+    draw_all(&mut canvas, &draw_list(chunks, rect, y_range, true)?);
     Ok(canvas)
 }
 
 /// Zeichnet eine Liste auf die Leinwand — der CPU-Weg, an dem sich der
 /// GPU-Weg messen lassen muss.
 pub fn draw_all(canvas: &mut RgbaImage, list: &DrawList) {
+    assert!(
+        list.draws.is_empty() || !list.vis.is_empty(),
+        "Liste ohne Masken, die gehört der Grafikkarte"
+    );
     for d in &list.draws {
         blit(canvas, d, &list.vis);
     }
@@ -112,7 +116,8 @@ pub struct DrawList<'a> {
     pub draws: Vec<Draw<'a>>,
     /// Sichtbare Pixel, als Leinwandwörter: je Draw und Sprite-Zeile
     /// `Draw::nk` Wörter ab Leinwandwort `Draw::k0`; Bit `x % 64` in Wort
-    /// `x / 64` steht für Leinwandspalte `x`.
+    /// `x / 64` steht für Leinwandspalte `x`. Leer, wenn die Liste ohne
+    /// Maske für die Grafikkarte aufgestellt wurde.
     pub vis: Vec<u64>,
 }
 
@@ -150,10 +155,15 @@ pub struct Draw<'a> {
 /// Alpha 255 ohnehin übermalt, und alles andere wird in der alten
 /// Reihenfolge gemischt. Vorher wurde jeder Pixel im Schnitt siebenmal
 /// gemalt.
+///
+/// Ohne `mask` kommt jeder Kandidat mit Sprite in die Liste und `vis`
+/// bleibt leer — für die Grafikkarte, die verdeckte Pixel ohnehin nebenbei
+/// zeichnet; die Maske kostete dort nur CPU-Zeit.
 pub fn draw_list<'a>(
     chunks: &mut ChunkCache<'a>,
     rect: ScreenRect,
     y_range: (i32, i32),
+    mask: bool,
 ) -> Result<DrawList<'a>> {
     chunks.next_tile();
     let sprites: &'a SpriteSet = chunks.sprites;
@@ -169,7 +179,7 @@ pub fn draw_list<'a>(
     let hexagon = outline_rows(projection);
     let mut list = DrawList {
         draws: Vec::with_capacity(candidates.len()),
-        vis: Vec::with_capacity(candidates.len() * 64),
+        vis: Vec::with_capacity(if mask { candidates.len() * 64 } else { 0 }),
     };
     let mut any = vec![0u64; words];
     let mut full = vec![0u64; words];
@@ -187,7 +197,10 @@ pub fn draw_list<'a>(
         // Pixeln, spart sich der Block die Sprite-Wahl. Nur für Sprites,
         // die im Würfel bleiben — lose und fremde Teile gehen den genauen
         // Weg über ihre Zeilenmasken.
-        if c.kind == 0 && !c.loose && covered(&coverage, words, (width, height), (bx, by), &hexagon)
+        if mask
+            && c.kind == 0
+            && !c.loose
+            && covered(&coverage, words, (width, height), (bx, by), &hexagon)
         {
             continue;
         }
@@ -202,6 +215,17 @@ pub fn draw_list<'a>(
         let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
         let (x0, x1) = (origin.0.max(0), (origin.0 + w).min(width));
         if x0 >= x1 {
+            continue;
+        }
+        if !mask {
+            list.draws.push(Draw {
+                sprite,
+                key: (sprites.table_id(), id, cell),
+                origin,
+                vis: 0,
+                k0: 0,
+                nk: 0,
+            });
             continue;
         }
         let (k0, k1) = ((x0 >> 6) as usize, ((x1 - 1) >> 6) as usize);

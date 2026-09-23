@@ -106,7 +106,7 @@ fn gpu_zeichnet_dasselbe_wie_die_cpu() {
         let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
         let listen: Vec<_> = tiles
             .iter()
-            .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap())
+            .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE, false).unwrap())
             .collect();
         let mut worker = gpu.worker(tiles.len() as u32, TILE);
         let bilder = worker.render(&listen).unwrap();
@@ -149,7 +149,7 @@ fn voller_atlas_wird_geleert_und_bleibt_richtig() {
     for (w, welt) in welten.iter().enumerate() {
         let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
         for tile in kacheln() {
-            let liste = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
+            let liste = draw_list(&mut chunks, tile.rect(), Y_RANGE, false).unwrap();
             let mut gesehen = HashSet::new();
             let bytes: usize = liste
                 .draws
@@ -197,7 +197,7 @@ fn lange_listen_vergroessern_die_puffer() {
     let welt = welt(Projection::new(16));
     let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
     let tile = kacheln()[3];
-    let kurz = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
+    let kurz = draw_list(&mut chunks, tile.rect(), Y_RANGE, true).unwrap();
     assert!(!kurz.draws.is_empty());
 
     // Dieselbe Liste in ganzen Runden hintereinander, gut 20 000 Einträge:

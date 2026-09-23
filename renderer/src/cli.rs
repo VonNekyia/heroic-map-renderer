@@ -607,7 +607,7 @@ fn write_tiles(
                     Some(worker) => {
                         let listen = offen
                             .iter()
-                            .map(|tile| draw_list(chunks, tile.rect(), Y_RANGE))
+                            .map(|tile| draw_list(chunks, tile.rect(), Y_RANGE, false))
                             .collect::<Result<Vec<_>>>()?;
                         worker.render(&listen)?
                     }

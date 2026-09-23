@@ -224,6 +224,10 @@ bleiben stehen, gerendert wird nur, was fehlt, und die Zoomstufen entstehen
 danach über allen Basiskacheln. Für eine veränderte Welt ist das der falsche
 Schalter — dann rendert erst ein Lauf ohne ihn die alten Kacheln neu.
 
+`--gpu off` lässt die Grafikkarte aus, `--gpu on` verlangt eine; ohne den
+Schalter wird sie genommen, wenn eine da ist. Siehe
+[Auf der Grafikkarte](#auf-der-grafikkarte).
+
 ### Zoomstufen
 
 Gerendert wird nur die feinste Stufe. Jede gröbere entsteht aus vier Kacheln
@@ -405,6 +409,58 @@ wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den
 Kachelrändern sähe man die Artefakte im Raster. Gegenüber PNG spart
 verlustfreies WebP auf diesem Inhalt 20 bis 40 Prozent — dieselbe Kachel wiegt
 als PNG 173 kB und als WebP 108 kB.
+
+### Auf der Grafikkarte
+
+`--gpu auto` (Standard) zeichnet die Kacheln auf der Grafikkarte, wenn eine
+da ist; `--gpu off` lässt die CPU zeichnen, `--gpu on` verlangt eine Karte
+und nimmt auch einen Software-Adapter. Das Bild ist in allen Fällen
+dasselbe, Byte für Byte — dafür sorgt die ganzzahlige Mischformel unten,
+und ein Test prüft es auf jeder Karte, auf der er läuft.
+
+Die Karte übernimmt nur das Zeichnen. Der Renderlauf stellt je Kachel wie
+bisher die Zeichenliste auf — Chunks lesen, Kandidaten aus den Bitmasken,
+Sprites wählen, sortieren — und schickt sie als Liste von Sprite-Nummern
+und Positionen hinüber. Ein Compute-Shader (`gpu.wgsl`) setzt sie
+zusammen: die Kachel ist in Zellen von 16×16 Pixeln zerlegt, je Zelle
+steht die Liste der Sprites, die sie berühren, in Zeichenreihenfolge, und
+jeder Pixel-Thread geht seine Liste durch und mischt. Die Sprites liegen in
+einem Atlas auf der Karte (bis 256 MB) und kommen beim ersten Gebrauch
+hinauf; ist er voll, wird er geleert. Sechzehn Kacheln gehen je Durchgang
+hinüber, die fertigen Bilder kommen zurück und werden wie bisher als WebP
+geschrieben.
+
+Ganzzahlig, weil Gleitkomma auf jeder Karte anders rundet: `over` rechnet
+auf 1/255² erweitert und rundet einmal am Schluss, im Shader genauso wie
+auf der CPU. Die Gleitkommafassung davor ergab in den Testbildern dieselben
+Pixel, und auf dem 8192er-Ausschnitt der Interconnect-Welt sind alle 1392
+Kacheln byte-gleich mit dem Stand davor.
+
+Gemessen mit einer RX 6900 XT (Vulkan), derselbe Ausschnitt wie oben:
+
+| | CPU | mit GPU |
+|---|---|---|
+| ein Kern, 4096er-Ausschnitt | 185 Kacheln/s | 278 |
+| 12 Threads, 8192er-Ausschnitt | 791 | 913 |
+| 24 Threads, 8192er-Ausschnitt | 853 | 884 |
+
+Auf einem Kern anderthalbmal so schnell, auf 24 Threads kaum: die Karte
+ersetzt nur den Blit, und auf 24 Threads teilen sich die Threads ohnehin
+Kerne und Speicherbandbreite — was einer beim Blit spart, holt er sich
+beim Dekodieren und Sammeln wieder. Chunks dekodieren, Kandidaten sammeln,
+Sprite-Wahl und WebP bleiben auf der CPU. Eine Onboard-Grafik wie die
+Radeon 780M ist nicht gemessen; sie teilt sich den Speicher mit der CPU,
+der Gewinn dort ist also eher kleiner. Im Log steht je Lauf, ob die Karte
+zeichnet (`Threads + GPU`); `--gpu off` ist der Vergleich.
+
+Backends: Vulkan zuerst, auf Windows wie auf Linux; DX12 und GL nur, wenn
+kein brauchbarer Vulkan-Adapter da ist. `WGPU_BACKEND` und
+`WGPU_ADAPTER_NAME` übersteuern das — `WGPU_ADAPTER_NAME="Basic Render"`
+nimmt WARP, den Software-Adapter von Windows. Ohne Karte läuft alles wie
+vorher auf der CPU; die Tests, die eine Karte brauchen, überspringen sich
+dann und sagen es. In CI laufen sie auf Software-Adaptern, lavapipe
+(Vulkan) auf Ubuntu und WARP (DX12) auf Windows: derselbe Shader-Weg wie
+auf einer echten Karte, nur langsam.
 
 ### Wasser und Biomfarben
 

@@ -69,7 +69,7 @@ enum Source {
 fn source_of(block: &str) -> Option<Source> {
     Some(match split_id(block).1 {
         "grass_block" | "short_grass" | "tall_grass" | "fern" | "large_fern" | "potted_fern"
-        | "sugar_cane" => Source::Grass,
+        | "bush" | "sugar_cane" => Source::Grass,
         "oak_leaves" | "jungle_leaves" | "acacia_leaves" | "dark_oak_leaves"
         | "mangrove_leaves" | "vine" => Source::Foliage,
         "leaf_litter" => Source::DryFoliage,
@@ -244,9 +244,14 @@ impl Colors {
 /// Pixel der Colormap für ein Klima, wie `GrassColor.get`: Temperatur läuft
 /// von rechts nach links, Niederschlag — mit der Temperatur gewichtet — von
 /// unten nach oben.
+///
+/// Geklemmt wird in `float`, gerechnet in `double`, wie in
+/// `Biome.getGrassColorFromTexture` und `ColorMapColorUtil.get`. In `f32`
+/// landen acht Vanilla-Biome eine Zeile oder Spalte daneben, die Wiese
+/// etwa in Zeile 153 statt 152.
 fn lookup(map: &RgbaImage, temperature: f32, downfall: f32) -> Tint {
-    let temperature = temperature.clamp(0.0, 1.0);
-    let downfall = downfall.clamp(0.0, 1.0) * temperature;
+    let temperature = temperature.clamp(0.0, 1.0) as f64;
+    let downfall = downfall.clamp(0.0, 1.0) as f64 * temperature;
     let x = ((1.0 - temperature) * 255.0) as u32;
     let y = ((1.0 - downfall) * 255.0) as u32;
     let (w, h) = map.dimensions();
@@ -350,6 +355,11 @@ mod tests {
         assert_eq!(lookup(&map, 0.0, 1.0), [255, 255, 0]);
         // plains
         assert_eq!(lookup(&map, 0.8, 0.4), [50, 173, 0]);
+        // Wiese und Kirschhain: in f32 wäre es Zeile 153.
+        assert_eq!(lookup(&map, 0.5, 0.8), [127, 152, 0]);
+        // Taiga: Zeile 203; Steinstrand: Spalte 203.
+        assert_eq!(lookup(&map, 0.25, 0.8)[1], 203);
+        assert_eq!(lookup(&map, 0.2, 0.3)[0], 203);
     }
 
     #[test]
@@ -385,6 +395,11 @@ mod tests {
         assert_eq!(
             colors.tints("minecraft:spruce_leaves", None).block,
             Some(SPRUCE)
+        );
+        // `BlockColors` färbt den Busch mit Farn und Kurzgras zusammen.
+        assert_eq!(
+            colors.tints("minecraft:bush", None).block,
+            Some(DEFAULT_GRASS)
         );
     }
 }

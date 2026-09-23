@@ -134,9 +134,13 @@ impl PackedIndices {
         if palette_len >= 1usize << self.bits {
             return None;
         }
-        (0..entries)
-            .map(|i| self.get(i))
-            .find(|&i| i >= palette_len)
+        let mut found = None;
+        self.for_each(entries, |_, index| {
+            if found.is_none() && index >= palette_len {
+                found = Some(index);
+            }
+        });
+        found
     }
 
     /// Index an Position `i`. Liefert 0 statt zu panicken, falls die Datei

@@ -332,15 +332,15 @@ ist ein schräger Schnitt durch die volle Bauhöhe von 384 Blöcken: rund
 Blöcken liegen unter der Oberfläche. Gemessen an einem 4096er-Ausschnitt um
 (0, 0), einfädig, je Kachel:
 
-| Phase | ursprünglich | Cache je Stapel | Bitmasken | Flächen |
-|---|---|---|---|---|
-| Blöcke finden und Sprite wählen | 39 ms | 20 ms | 4,5 ms | 4,5 ms |
-| Chunks laden und dekodieren | 15 ms (106 Chunks) | 1 ms (6,5) | 1,5 ms (9) | 1,5 ms |
-| Sprites zeichnen | 9 ms | 9 ms | 8 ms | ~3 ms |
-| WebP kodieren | 0,5 ms | 0,5 ms | 0,6 ms | 0,6 ms |
-| gesamt, ein Kern | 64 ms | 30 ms | 13 ms | 7,8 ms |
-| 12 Threads, 8192er-Ausschnitt | | | 411 Kacheln/s | 620 |
-| 24 Threads, 8192er-Ausschnitt | 159 Kacheln/s | 318 | 532 | 731 |
+| Phase | ursprünglich | Cache je Stapel | Bitmasken | Flächen | Sammeln |
+|---|---|---|---|---|---|
+| Blöcke finden und Sprite wählen | 39 ms | 20 ms | 4,5 ms | 4,5 ms | 3,3 ms |
+| Chunks laden und dekodieren | 15 ms (106 Chunks) | 1 ms (6,5) | 1,5 ms (9) | 1,5 ms | 1,5 ms |
+| Sprites zeichnen | 9 ms | 9 ms | 8 ms | ~3 ms | ~3 ms |
+| WebP kodieren | 0,5 ms | 0,5 ms | 0,6 ms | 0,6 ms | 0,6 ms |
+| gesamt, ein Kern | 64 ms | 30 ms | 13 ms | 7,8 ms | 6,3 ms |
+| 12 Threads, 8192er-Ausschnitt | | | 411 Kacheln/s | 620 | 700 |
+| 24 Threads, 8192er-Ausschnitt | 159 Kacheln/s | 318 | 532 | 731 | 813 |
 
 Keiner der Umbauten ändert einen Pixel: der 8192er-Ausschnitt ist nach jedem
 Byte für Byte gleich, alle 1393 Dateien.
@@ -379,11 +379,26 @@ wird nur der Umriss ohne seinen Pixelrand, denn nur innen garantiert
 `covers_cell` das Alpha. Dazu schreibt der Blit deckende Pixel direkt
 statt durch `over`.
 
-Was bleibt, verteilt sich: die Kandidaten aus den Masken, die Sprite-Wahl
-der sichtbaren Blöcke, das Zeichnen der wirklich sichtbaren Flächen. Auf
-24 Threads sind es 4,6-mal so viele Kacheln je Sekunde wie am Anfang, auf
-einem Kern 8-mal; die Differenz ist Hyperthreading auf 12 Kernen plus
-das, was 24 Threads sich an Speicherbandbreite teilen.
+**Sammeln nur, wo das Band hinreicht.** Die Sammelschleife lief je Kachel
+über alle 24 Sections aller gut hundert Band-Chunks, 256 Spalten je
+Section — 1,3 ms, mehr als das Auswerten der Masken selbst. Das Band
+erreicht in einem Chunk aber nur rund 36 Höhen, also drei Sections; die
+Umkehrung von `v_window` grenzt sie ein, und ein Flag je Section sagt, ob
+überhaupt ein Kandidat drinsteht. Sections ohne Wasser, lose oder
+herausragende Familien bauen nur die zwei Masken, die sie brauchen.
+
+Drei Dinge, die gemessen nichts gebracht haben und deshalb nicht im Code
+sind: Zeilenspannen im Blit samt `memcpy` deckender Zeilen (pixelgleich,
+aber nicht schneller — der Blit wartet auf Sprite-Pixel aus dem Speicher,
+nicht auf die Schleife), der Nachbar auf der Blickachse als vierte
+Deckungsrichtung (kommt zu selten vor, die Prüfung je Pixel kostet mehr),
+und `zlib-rs` statt `miniz` zum Entpacken der Chunks (kein Unterschied).
+
+Was bleibt, verteilt sich: Chunks dekodieren, die Kandidaten aus den
+Masken, die Sprite-Wahl, das Zeichnen. Auf 24 Threads sind es 5-mal so
+viele Kacheln je Sekunde wie am Anfang, auf einem Kern 10-mal; die
+Differenz ist Hyperthreading auf 12 Kernen plus das, was 24 Threads sich
+an Speicherbandbreite teilen.
 
 WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
 wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den

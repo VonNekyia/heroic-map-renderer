@@ -145,7 +145,17 @@ pub(crate) static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
 });
 
 /// Lineares Licht zurück nach sRGB.
+///
+/// Statt der Kurve mit `powf` je Aufruf eine Tabelle der 255 Schwellen, ab
+/// denen der gerundete sRGB-Wert um eins steigt; `partition_point` zählt,
+/// wie viele davon unter dem Wert liegen. Der Rasterizer ruft das je Kanal
+/// und Pixel, bei scale 32 rund dreizehn Millionen Mal je Sprite-Tabelle.
 pub(crate) fn to_srgb(linear: f32) -> u8 {
+    SRGB_STEPS.partition_point(|&step| step <= linear) as u8
+}
+
+/// Die sRGB-Kurve mit Rundung, wie sie vor der Tabelle je Kanal lief.
+fn srgb_curve(linear: f32) -> u8 {
     let c = if linear <= 0.003_130_8 {
         linear * 12.92
     } else {
@@ -153,6 +163,26 @@ pub(crate) fn to_srgb(linear: f32) -> u8 {
     };
     (c * 255.0).round().clamp(0.0, 255.0) as u8
 }
+
+/// Schwelle `i`: der kleinste f32, den die Kurve auf mindestens `i + 1`
+/// rundet. Per Bisektion über die Bitmuster aus der Kurve selbst gesucht
+/// statt aus der Umkehrformel gerechnet: die Kurve ist in f32 nicht exakt,
+/// und die Tabelle soll bitgleich zu ihr sein.
+static SRGB_STEPS: LazyLock<[f32; 255]> = LazyLock::new(|| {
+    std::array::from_fn(|i| {
+        let ziel = i as u8 + 1;
+        let (mut unter, mut ab) = (0.0f32, 1.0f32);
+        while unter.next_up() < ab {
+            let mitte = f32::from_bits(unter.to_bits().midpoint(ab.to_bits()));
+            if srgb_curve(mitte) >= ziel {
+                ab = mitte;
+            } else {
+                unter = mitte;
+            }
+        }
+        ab
+    })
+});
 
 /// Was das Frontend über die Karte wissen muss.
 ///
@@ -286,6 +316,27 @@ mod tests {
     /// überstehen, sonst verfärbt sich eine einfarbige Fläche je Stufe.
     #[test]
     fn srgb_rundreise_ist_verlustfrei() {
+        for c in 0..=255u8 {
+            assert_eq!(to_srgb(LINEAR[c as usize]), c);
+        }
+    }
+
+    /// Die Tabelle rundet wie die Kurve: über eine Million Werte zwischen
+    /// 0 und 1, dazu die Nachbarn jeder Schwelle.
+    #[test]
+    fn schwellentabelle_rundet_wie_die_kurve() {
+        for i in 0..=1_000_000u32 {
+            let x = i as f32 / 1_000_000.0;
+            assert_eq!(to_srgb(x), srgb_curve(x), "bei {x}");
+        }
+        for &step in SRGB_STEPS.iter() {
+            for x in [step.next_down(), step, step.next_up()] {
+                assert_eq!(to_srgb(x), srgb_curve(x), "an der Schwelle {step}");
+            }
+        }
+        assert_eq!(to_srgb(-1.0), 0);
+        assert_eq!(to_srgb(2.0), 255);
+        assert_eq!(to_srgb(f32::NAN), 0);
         for c in 0..=255u8 {
             assert_eq!(to_srgb(LINEAR[c as usize]), c);
         }

@@ -407,7 +407,7 @@ impl Canvas {
                 }
 
                 let index = (y as usize) * (self.width as usize) + x as usize;
-                let w = weights(&v, area, px, py);
+                let w = e.map(|e| e / area);
                 let depth = w[0] * v[0].depth + w[1] * v[1].depth + w[2] * v[2].depth;
                 if depth < self.front[index] {
                     continue;
@@ -493,8 +493,9 @@ fn filtered(
 ) -> Option<[u8; 4]> {
     // Summe der vormultiplizierten Farben in linearem Licht, Summe der
     // Alphas, Anzahl — und ob alle Abtastpunkte dasselbe Texel trafen.
-    // Das ist bei scale 32 fast überall so, und dann ist das Texel selbst
-    // das Mittel, ohne Umweg über lineares Licht.
+    // Bei scale 32 ist das je nach Textur bei einem Zehntel bis gut einem
+    // Drittel der Pixel so, und dann ist das Texel selbst das Mittel, ohne
+    // Umweg über lineares Licht.
     let mut acc = ([0.0f32; 3], 0.0f32, 0u32);
     let mut einzig: Option<Option<[u8; 4]>> = None;
     let mut add = |acc: &mut ([f32; 3], f32, u32), texel: [u8; 4]| {

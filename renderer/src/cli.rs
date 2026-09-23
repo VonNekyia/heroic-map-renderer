@@ -3,6 +3,9 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -564,11 +567,11 @@ fn write_tiles(
     let started = Instant::now();
     let fertig = AtomicUsize::new(0);
     let uebersprungen = AtomicUsize::new(0);
-    let bytes = AtomicUsize::new(0);
     let gesamt = survey.tiles.len();
+    let schreiber = Schreiber::new(SCHREIBER);
 
     let geladen = AtomicUsize::new(0);
-    let basis: BTreeSet<TileId> = verteile(
+    let basis = verteile(
         &pakete(&survey.tiles),
         || {
             (
@@ -621,20 +624,21 @@ fn write_tiles(
                         entferne(&tile_path(dir, max_zoom, *tile))?;
                         continue;
                     }
-                    bytes.fetch_add(schreibe(dir, max_zoom, *tile, &image)?, Ordering::Relaxed);
+                    schreiber.gib(tile_path(dir, max_zoom, *tile), encode_webp(&image)?)?;
                     geschrieben.push(*tile);
                 }
             }
             geladen.fetch_add(chunks.loads() - vorher, Ordering::Relaxed);
             Ok(geschrieben)
         },
-    )?
-    .into_iter()
-    .flatten()
-    .collect();
+    );
+    // Erst die Schreiber einholen: ein Fehler beim Schreiben ist der
+    // Grund, wenn das Rendern deswegen abgebrochen hat.
+    let bytes = schreiber.fertig();
+    let basis: BTreeSet<TileId> = basis?.into_iter().flatten().collect();
+    let bytes = bytes?;
 
     let seconds = started.elapsed().as_secs_f64();
-    let bytes = bytes.load(Ordering::Relaxed);
     let uebersprungen = uebersprungen.load(Ordering::Relaxed);
     println!(
         "Kacheln:    {} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads{}",
@@ -991,12 +995,101 @@ fn vorhandene(dir: &Path, z: u32) -> Result<BTreeSet<TileId>> {
 /// Schreibt eine Kachel und liefert ihre Grösse in Bytes.
 fn schreibe(dir: &Path, z: u32, tile: TileId, image: &RgbaImage) -> Result<usize> {
     let data = encode_webp(image)?;
-    let path = tile_path(dir, z, tile);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| format!("{} anlegen", parent.display()))?;
-    }
-    std::fs::write(&path, &data).with_context(|| format!("{} schreiben", path.display()))?;
+    schreibe_datei(&tile_path(dir, z, tile), &data)?;
     Ok(data.len())
+}
+
+/// Legt das Verzeichnis nur an, wenn es fehlt: `create_dir_all` je Datei
+/// waren zwei Dateisystemaufrufe umsonst, bei Millionen Dateien.
+fn schreibe_datei(path: &Path, data: &[u8]) -> Result<()> {
+    match std::fs::write(path, data) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("{} anlegen", parent.display()))?;
+            }
+            std::fs::write(path, data)
+        }
+        sonst => sonst,
+    }
+    .with_context(|| format!("{} schreiben", path.display()))
+}
+
+/// Wie viele Threads Kacheln auf die Platte schreiben.
+// ponytail: feste Zahl. Wenn der Defender die Dateien beim Schliessen
+// prüft, wartet jeder Schreiber Millisekunden je Datei; mehr Schreiber
+// verstecken das, kosten aber nur blockierte Threads.
+const SCHREIBER: usize = 8;
+
+/// Schreibt Kacheln in eigenen Threads.
+///
+/// Der Renderthread kodiert noch selbst — das ist Rechenarbeit, die sich
+/// verteilt — und gibt die fertigen Bytes ab. Das Anlegen und Schliessen
+/// der Datei wartet auf NTFS und auf den Echtzeitschutz, und wenn alle 24
+/// Renderthreads darauf warten, steht die Hälfte der Zeit still: ohne
+/// Schreiben 2300 Kacheln/s, mit 1010. Der Kanal ist begrenzt, damit die
+/// Renderthreads nicht Gigabytes vorlegen, wenn die Platte nicht nachkommt.
+struct Schreiber {
+    tx: Option<SyncSender<(PathBuf, Vec<u8>)>>,
+    threads: Vec<JoinHandle<Result<usize>>>,
+    fehler: Arc<AtomicBool>,
+}
+
+impl Schreiber {
+    fn new(n: usize) -> Schreiber {
+        let (tx, rx) = sync_channel::<(PathBuf, Vec<u8>)>(256);
+        let rx: Arc<Mutex<Receiver<_>>> = Arc::new(Mutex::new(rx));
+        let fehler = Arc::new(AtomicBool::new(false));
+        let threads = (0..n)
+            .map(|_| {
+                let (rx, fehler) = (Arc::clone(&rx), Arc::clone(&fehler));
+                thread::spawn(move || -> Result<usize> {
+                    let mut bytes = 0;
+                    loop {
+                        let job = rx.lock().unwrap_or_else(|e| e.into_inner()).recv();
+                        let Ok((path, data)) = job else {
+                            return Ok(bytes);
+                        };
+                        if let Err(e) = schreibe_datei(&path, &data) {
+                            fehler.store(true, Ordering::Relaxed);
+                            return Err(e);
+                        }
+                        bytes += data.len();
+                    }
+                })
+            })
+            .collect();
+        Schreiber {
+            tx: Some(tx),
+            threads,
+            fehler,
+        }
+    }
+
+    /// Gibt eine Datei zum Schreiben ab; wartet, wenn der Kanal voll ist.
+    fn gib(&self, path: PathBuf, data: Vec<u8>) -> Result<()> {
+        if self.fehler.load(Ordering::Relaxed) {
+            bail!("ein Schreiber ist gescheitert");
+        }
+        self.tx
+            .as_ref()
+            .expect("Kanal offen")
+            .send((path, data))
+            .map_err(|_| anyhow::anyhow!("kein Schreiber mehr da"))
+    }
+
+    /// Wartet, bis alles geschrieben ist, und liefert die Bytes — oder den
+    /// ersten Fehler.
+    fn fertig(mut self) -> Result<usize> {
+        drop(self.tx.take());
+        let mut bytes = 0;
+        for thread in self.threads.drain(..) {
+            bytes += thread
+                .join()
+                .map_err(|_| anyhow::anyhow!("ein Schreiber ist abgestürzt"))??;
+        }
+        Ok(bytes)
+    }
 }
 
 fn lies(path: &Path) -> Result<RgbaImage> {

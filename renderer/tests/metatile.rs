@@ -11,7 +11,9 @@ use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::rasterizer::over;
-use terranova_render::render::{Projection, ScreenRect, SpriteSet, render_area};
+use terranova_render::render::{
+    Projection, ScreenRect, SpriteSet, render_area, render_area_without_culling, survey,
+};
 use terranova_render::world::{BlockState, World};
 
 /// Die gebaute Welt reicht von y=0 bis y=15.
@@ -36,6 +38,21 @@ fn gelaende(x: i32, y: i32, z: i32) -> &'static str {
     }
 }
 
+/// Die Sprite-Tabelle einer Welt, gebaut wie im Export: aus dem Vorlauf,
+/// mit den Biomen, die jede Blockstate mit ihren Sections teilt.
+fn tabelle(assets: &mut Assets, world: &World, projection: Projection) -> SpriteSet {
+    let survey = survey(world, projection, Y_RANGE, None).unwrap();
+    SpriteSet::build_in(
+        assets,
+        survey
+            .states
+            .iter()
+            .map(|(state, biomes)| (state, Some(biomes))),
+        projection,
+    )
+    .unwrap()
+}
+
 /// Baut die Welt, sammelt ihre Blockstates und rendert den Ausschnitt.
 fn render_chunks(
     dir: &TempDir,
@@ -46,17 +63,48 @@ fn render_chunks(
 ) -> RgbaImage {
     common::write_world(dir.path(), chunks, block);
     let world = World::open(dir.path()).unwrap();
-
-    let mut states = Vec::new();
-    for &(cx, cz) in chunks {
-        let chunk = world.chunk(cx, cz).unwrap().unwrap();
-        for section in chunk.sections() {
-            states.extend(section.blocks().palette().iter().cloned());
-        }
-    }
-
-    let sprites = SpriteSet::build(&mut assets(), &states, projection).unwrap();
+    let sprites = tabelle(&mut assets(), &world, projection);
     render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+}
+
+/// Verdecken ist nur eine Abkürzung: ein Würfel fällt weg, wenn seine
+/// Nachbarn jeden seiner Pixel deckend übermalen. Mit und ohne sie muss
+/// jedes Bild gleich sein — unter flachen Modellen mit schmalem Rand, unter
+/// Lava und Seerosen, hinter einer eingerückten Säule, und bei den kleinen
+/// scales der nativen Stufen. Mit einer Pixelbreite Toleranz beim Prüfen
+/// der Deckung fiel der Block unter einer Druckplatte weg, und ihr Rand
+/// zeigte den Hintergrund.
+#[test]
+fn verdecken_aendert_kein_pixel() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (5, 0, 8) => "minecraft:saeule",
+        (_, 0, _) => "minecraft:einfarbig",
+        (2, 1, 2) => "minecraft:druckplatte",
+        (5, 1, 2) => "minecraft:kuchen",
+        (8, 1, 2) => "minecraft:teppich",
+        (11, 1, 2) => "minecraft:lava",
+        (2, 1, 5) => "minecraft:seerose",
+        (4, 1, 8) => "minecraft:einfarbig",
+        (2..=4, 1, 11..=13) => "minecraft:lava",
+        (10..=12, 1..=3, 8..=10) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], welt);
+    let world = World::open(dir.path()).unwrap();
+    for scale in [32, 16, 8, 4] {
+        let projection = Projection::new(scale);
+        let rect = ScreenRect::centered(20 * scale, 20 * scale);
+        let sprites = tabelle(&mut assets(), &world, projection);
+        let mit = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+        let ohne = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+        let falsch = mit
+            .pixels()
+            .zip(ohne.pixels())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(falsch, 0, "scale {scale}: Verdecken ändert {falsch} Pixel");
+    }
 }
 
 /// Vier Chunks bei scale 16, Blockursprung in der Bildmitte. Damit fällt
@@ -715,10 +763,76 @@ fn tiefe_zaehlt_entlang_des_blickstrahls() {
             "Stein unter der Oberfläche: erwartet {erwartet:?}, bekommen {ist:?}"
         );
     }
-    // Daneben läuft der Strahl am Stein vorbei bis zum Grund: vier
-    // Schichten, der Grund ist kaum noch zu sehen.
-    let tief = punkt(&see, projection, rect, [10.5, 4.0 + 8.0 / 9.0, 10.5]);
-    assert_ne!(tief, ist, "die Tiefe wirkt neben dem Stein");
+    // Die Oberfläche direkt über dem Stein, (7, 4, 7): senkrecht gezählt
+    // läge dort eine Schicht, der Strahl läuft aber schräg am Stein vorbei
+    // bis zum Grund. Vier Schichten, der Grund ist kaum noch zu sehen.
+    let ueber = [7.5, 4.0 + 8.0 / 9.0, 7.5];
+    let erwartet = over(
+        [schicht[0], schicht[1], schicht[2], 253],
+        [150, 110, 60, 255],
+    );
+    let ist = punkt(&see, projection, rect, ueber);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+            "über dem Stein: erwartet {erwartet:?}, bekommen {ist:?}"
+        );
+    }
+}
+
+/// Ein gefluteter Block, der die Oberseite seines Würfels deckt, beendet
+/// die Zählung wie ein Stein: hinter der Oberfläche liegt eine Schicht,
+/// dann die Platte. Eine untere Platte deckt dort nur ein Viertel, die
+/// meisten Strahlen laufen über sie hinweg, und die Oberfläche trägt die
+/// Tiefe des Sees.
+#[test]
+fn deckende_bloecke_beenden_die_zaehlung() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let schicht = wasserschicht(&assets());
+    let see = |platte: &'static str| {
+        move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (7, 3, 7) => platte,
+            (_, 1..=4, _) => "minecraft:water",
+            _ => "minecraft:air",
+        }
+    };
+    let dir = tempdir();
+    let oben = render_chunks(
+        &dir,
+        &[(0, 0)],
+        see("minecraft:obere_platte[waterlogged=true]"),
+        projection,
+        rect,
+    );
+    let dir = tempdir();
+    let unten = render_chunks(
+        &dir,
+        &[(0, 0)],
+        see("minecraft:untere_platte[waterlogged=true]"),
+        projection,
+        rect,
+    );
+    // Die Mitte der Oberseite von (8, 4, 8): ihr Strahl trifft die Platte.
+    let mitte = [8.5, 4.0 + 8.0 / 9.0, 8.5];
+    let holz = [150, 110, 60, 255];
+    let erwartet = over(schicht, holz);
+    let ist = punkt(&oben, projection, rect, mitte);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+            "obere Platte: erwartet {erwartet:?}, bekommen {ist:?}"
+        );
+    }
+    let erwartet = over([schicht[0], schicht[1], schicht[2], 253], holz);
+    let ist = punkt(&unten, projection, rect, mitte);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+            "untere Platte: erwartet {erwartet:?}, bekommen {ist:?}"
+        );
+    }
 }
 
 /// Dünne Modelle im Wasser — Seegras, Kelp, ein gefluteter Pfosten —

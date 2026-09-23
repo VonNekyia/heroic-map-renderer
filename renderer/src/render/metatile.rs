@@ -74,6 +74,28 @@ pub fn render_area(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
+    draw(world, sprites, rect, y_range, true)
+}
+
+/// Wie [`render_area`], aber ohne die Abkürzung über verdeckte Würfel: die
+/// Referenz, gegen die Tests die Abkürzung prüfen. Sie darf kein Pixel
+/// ändern.
+pub fn render_area_without_culling(
+    world: &World,
+    sprites: &SpriteSet,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+) -> Result<RgbaImage> {
+    draw(world, sprites, rect, y_range, false)
+}
+
+fn draw(
+    world: &World,
+    sprites: &SpriteSet,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+    verdecken: bool,
+) -> Result<RgbaImage> {
     let projection = sprites.projection();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
     let mut chunks = ChunkCache::new(world);
@@ -90,7 +112,7 @@ pub fn render_area(
             {
                 continue;
             }
-            if is_hidden(&mut chunks, sprites, own.sprite, x, y, z)? {
+            if verdecken && is_hidden(&mut chunks, sprites, own.sprite, x, y, z)? {
                 continue;
             }
 
@@ -233,8 +255,11 @@ fn columns_at(
 }
 
 /// Ein Würfel ist unsichtbar, wenn seine drei kamerazugewandten Nachbarn
-/// volle, deckende Blöcke sind: deren Umrisse setzen genau den eigenen
-/// zusammen.
+/// ihn ganz decken: deren Umrisse setzen genau den eigenen zusammen. Der
+/// Ost- und der Südnachbar müssen dafür ihren ganzen Umriss deckend
+/// füllen, dem Nachbarn darüber genügt sein Boden — Lava endet bei 8/9 und
+/// deckt trotzdem den Block darunter. Geprüft ist beides Pixel für Pixel
+/// gegen einen vollen Würfel, siehe `SpriteSet`.
 ///
 /// Das gilt für alles, was in diesem Würfel liegt — auch für Teile fremder
 /// Modelle, denn die Zerlegung in `SpriteSet` hält jeden Teil in seinem
@@ -252,8 +277,6 @@ fn is_hidden(
         return Ok(false);
     }
     for (dx, dy, dz) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)] {
-        // Von oben genügt, was den Boden deckt: Lava endet bei 8/9 und
-        // deckt den Umriss nicht mehr, den Block darunter aber schon.
         let deckt = |family: &Family| {
             if dy == 1 {
                 family.covers_floor

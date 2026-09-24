@@ -229,19 +229,41 @@ impl MapInfo {
     }
 }
 
-/// Die Kennung einer Welt im Kachelbaum: SipHash-2-4 ihres Seeds.
-/// `map.json` liegt öffentlich neben den Kacheln, und den Seed selbst soll
-/// dort niemand ablesen. Zurückrechnen hiesse, bis zu 2^64 Seeds
-/// durchzuprobieren; ein Seed aus einem Text hat nur 2^32, den schützt es
-/// nicht. Von Hand und nicht `DefaultHasher`: dessen Algorithmus darf sich
-/// mit jeder Rust-Version ändern, und jeder bestehende Baum gälte dann als
+/// Wie oft [`world_id`] SipHash verkettet.
+const ROUNDS: u32 = 1 << 20;
+
+/// Die Kennung einer Welt im Kachelbaum: das Salz des Baums und ein Hash
+/// ihres Seeds, als `"<salz>-<hash>"` in Hexziffern.
+///
+/// `map.json` liegt öffentlich neben den Kacheln, und den Seed soll dort
+/// niemand ablesen. Ein Zufallsseed hat aber nur 2^48 Werte: Vanilla zieht
+/// ihn mit `LegacyRandomSource`, 48 Bit Zustand. Mit einem einzelnen
+/// SipHash liessen sich alle in Stunden bis Tagen durchprobieren. Deshalb
+/// läuft er eine Million Mal hintereinander, 2^68 Aufrufe für alle Zufallsseeds,
+/// und das Salz zwingt jeden Versuch, für jeden Baum von vorn anzufangen.
+/// Ein Seed aus einem Text hat nur 2^32 Werte, 2^52 Aufrufe: den schützt
+/// das für Stunden bis Tage, nicht für immer.
+///
+/// Von Hand und nicht `DefaultHasher`: dessen Algorithmus darf sich mit
+/// jeder Rust-Version ändern, und jeder bestehende Baum gälte dann als
 /// fremd.
-pub fn world_id(seed: i64) -> String {
-    let key = [
-        u64::from_le_bytes(*b"terranov"),
-        u64::from_le_bytes(*b"a-render"),
-    ];
-    format!("{:016x}", siphash24(key, &seed.to_le_bytes()))
+pub fn world_id(seed: i64, salt: u64) -> String {
+    let key = [salt, u64::from_le_bytes(*b"a-render")];
+    let mut hash = siphash24(key, &seed.to_le_bytes());
+    for _ in 1..ROUNDS {
+        hash = siphash24(key, &hash.to_le_bytes());
+    }
+    format!("{salt:016x}-{hash:016x}")
+}
+
+/// Das Salz einer Kennung aus `map.json`. `None` bei einem anderen Format;
+/// eine solche Kennung passt zu keiner Welt.
+pub fn salt_of(id: &str) -> Option<u64> {
+    let (salt, hash) = id.split_once('-')?;
+    if salt.len() != 16 || hash.len() != 16 {
+        return None;
+    }
+    u64::from_str_radix(salt, 16).ok()
 }
 
 /// SipHash-2-4 nach Aumasson und Bernstein.
@@ -465,9 +487,16 @@ mod tests {
         assert_eq!(siphash24(key, &[]), 0x726f_db47_dd0e_0e31);
         let message: Vec<u8> = (0..15).collect();
         assert_eq!(siphash24(key, &message), 0xa129_ca61_49be_45e5);
-        assert_eq!(world_id(0), "56007c963ac3acc6");
-        assert_eq!(world_id(4_815_162_342), "f39bc820d10860f2");
-        assert_eq!(world_id(-1), "8b8b99076788c5f1");
+        // Gegengerechnet mit einer eigenen Python-Fassung. Die Werte dürfen
+        // sich nie ändern, sonst gälte jeder bestehende Baum als fremd.
+        assert_eq!(world_id(0, 0), "0000000000000000-ac33c1f297ee6f13");
+        assert_eq!(
+            world_id(4_815_162_342, 0x0123_4567_89ab_cdef),
+            "0123456789abcdef-37586d827e567ae4"
+        );
+        assert_eq!(world_id(-1, u64::MAX), "ffffffffffffffff-1dda0381f53628e8");
+        assert_eq!(salt_of(&world_id(7, 42)), Some(42));
+        assert_eq!(salt_of("56007c963ac3acc6"), None, "ohne Salz");
     }
 
     #[test]

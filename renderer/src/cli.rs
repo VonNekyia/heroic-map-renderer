@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
+use std::hash::{BuildHasher, RandomState};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -465,12 +466,19 @@ fn write_tiles(
     // einer anderen Stufe, und zwei Läufe passten nicht zusammen.
     let welt =
         world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
-    let kennung = world.seed()?.map(pyramid::world_id);
+    let bestand = lies_bestand(dir)?;
+    let kennung = kennung(world, bestand.as_ref())?;
+    let uebernommen = pruefe_bestand(
+        dir,
+        bestand.as_ref(),
+        projection.scale(),
+        kennung.as_deref(),
+    )?;
     // Ein bestehender Baum behält seine Nummerierung, auch wenn die Welt
-    // inzwischen gewachsen ist: dann zeigt Zoom 0 eben mehr als eine
-    // Kachel. Sonst müsste jeder Baum nach der ersten neuen Region von
-    // vorn entstehen.
-    let max_zoom = match pruefe_bestand(dir, projection.scale(), kennung.as_deref())? {
+    // inzwischen gewachsen ist: dann bekommt Zoom 0 mehr Kacheln, und das
+    // Frontend zoomt darunter. Sonst müsste jeder Baum nach der ersten
+    // neuen Region von vorn entstehen.
+    let max_zoom = match &bestand {
         Some(alt) => alt.max_zoom,
         None => pyramid::depth(&corner_tiles(welt)),
     };
@@ -509,7 +517,13 @@ fn write_tiles(
     // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
     // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
     // er vorher, legt er für das Verzeichnis nichts fest.
-    schreibe_map_json(dir, projection.scale(), max_zoom, kennung.as_deref())?;
+    let (_, _, pfad) = schreibe_map_json(dir, projection.scale(), max_zoom, kennung.as_deref())?;
+    if uebernommen {
+        println!(
+            "Karte:      {} nannte keine Welt, ein älterer Stand: der Baum gehört ab jetzt zu dieser",
+            pfad.display()
+        );
+    }
 
     // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt, etwa
     // weil ein Editor ihn zurückgesetzt hat. Der Vorlauf sieht sie nicht;
@@ -711,34 +725,61 @@ fn native_levels(scale: u32, max_zoom: u32) -> u32 {
     stufen
 }
 
-/// Liest das `map.json` eines bestehenden Kachelbaums.
-///
-/// Ein Baum einer anderen Welt passt nicht zu diesem Lauf: ihre Basis
-/// landete auf seiner Stufe, und wo sie keine Chunks hat, blieben seine
-/// Kacheln stehen. Ein Baum mit anderem scale auch nicht: die neuen Kacheln
-/// hätten einen anderen Massstab als die alten. Seit scale 32 der Standard
-/// ist, reicht dafür ein vergessenes `--scale`. `maxZoom` prüft sie nicht:
-/// der Baum behält seine Nummerierung, auch wenn die Welt gewachsen ist.
-fn pruefe_bestand(dir: &Path, scale: u32, kennung: Option<&str>) -> Result<Option<MapInfo>> {
+/// Das `map.json` eines bestehenden Kachelbaums, falls es eines gibt.
+fn lies_bestand(dir: &Path) -> Result<Option<MapInfo>> {
     let pfad = dir.join("map.json");
     let Ok(text) = std::fs::read_to_string(&pfad) else {
         return Ok(None);
     };
-    let alt: MapInfo = serde_json::from_str(&text).with_context(|| {
+    let alt = serde_json::from_str(&text).with_context(|| {
         format!(
             "{} ist kein gültiges map.json — löschen, wenn der Baum neu entstehen soll",
             pfad.display()
         )
     })?;
+    Ok(Some(alt))
+}
+
+/// Die Kennung dieser Welt für den Baum: mit dem Salz, das er schon
+/// trägt, sonst mit einem neuen. `RandomState` holt seine Schlüssel vom
+/// Betriebssystem; für ein Salz, das nur je Baum verschieden sein muss,
+/// reicht das.
+fn kennung(world: &World, bestand: Option<&MapInfo>) -> Result<Option<String>> {
+    let Some(seed) = world.seed()? else {
+        return Ok(None);
+    };
+    let salt = bestand
+        .and_then(|alt| alt.world.as_deref())
+        .and_then(pyramid::salt_of)
+        .unwrap_or_else(|| RandomState::new().hash_one(0u8));
+    Ok(Some(pyramid::world_id(seed, salt)))
+}
+
+/// Prüft, ob der bestehende Baum zu diesem Lauf passt, und sagt, ob er ihn
+/// übernimmt.
+///
+/// Ein Baum einer anderen Welt passt nicht: ihre Basis landete auf seiner
+/// Stufe, und wo sie keine Chunks hat, blieben seine Kacheln stehen. Ein
+/// Baum mit anderem scale auch nicht: die neuen Kacheln hätten einen
+/// anderen Massstab als die alten. Seit scale 32 der Standard ist, reicht
+/// dafür ein vergessenes `--scale`. `maxZoom` prüft sie nicht: der Baum
+/// behält seine Nummerierung, auch wenn die Welt gewachsen ist.
+fn pruefe_bestand(
+    dir: &Path,
+    bestand: Option<&MapInfo>,
+    scale: u32,
+    kennung: Option<&str>,
+) -> Result<bool> {
+    let Some(alt) = bestand else {
+        return Ok(false);
+    };
+    let pfad = dir.join("map.json");
     // Ein Baum ohne Kennung stammt aus einem älteren Stand. Er gehört ab
     // jetzt zu dieser Welt; sonst müsste jeder bestehende Baum neu
-    // entstehen, bei einer grossen Welt über Stunden.
-    if alt.world.is_none() && kennung.is_some() {
-        println!(
-            "Karte:      {} nennt keine Welt, ein älterer Stand: der Baum gehört ab jetzt zu dieser",
-            pfad.display()
-        );
-    } else if alt.world.as_deref() != kennung {
+    // entstehen, bei einer grossen Welt über Stunden. Gesagt wird das erst
+    // vor der ersten Kachel, wenn es wirklich so kommt.
+    let uebernehmen = alt.world.is_none() && kennung.is_some();
+    if !uebernehmen && alt.world.as_deref() != kennung {
         let nenne = |kennung: Option<&str>| kennung.unwrap_or("keine").to_string();
         bail!(
             "{} gehört zu einer anderen Welt: Kennung dort {}, hier {}. Ein neues Verzeichnis nehmen.",
@@ -762,7 +803,7 @@ fn pruefe_bestand(dir: &Path, scale: u32, kennung: Option<&str>) -> Result<Optio
             alt.scale
         );
     }
-    Ok(Some(alt))
+    Ok(uebernehmen)
 }
 
 /// Rendert die gröberen Zoomstufen aus der Welt, solange ein Block noch

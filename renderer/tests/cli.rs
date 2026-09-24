@@ -742,14 +742,16 @@ fn fremde_welt_wird_abgelehnt() {
     // `map.json` liegt öffentlich neben den Kacheln: den Seed selbst
     // verrät es nicht, nur seine Kennung.
     let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
-    assert!(karte.contains(r#""world": "f39bc820d10860f2""#), "{karte}");
-    assert!(!karte.contains("4815162342"), "{karte}");
+    let kennung = kennung_in(&karte);
+    let seed = 4_815_162_342_i64;
+    assert!(!karte.contains(&seed.to_string()), "{karte}");
+    assert!(!karte.contains(&format!("{seed:x}")), "{karte}");
     let vorher = schnappschuss(out.path());
     let ausgabe = tiles(zweite.path(), out.path(), &["--scale", "16"]);
     assert!(!ausgabe.status.success(), "die fremde Welt lief durch");
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(
-        meldung.contains("anderen Welt: Kennung dort f39bc820d10860f2"),
+        meldung.contains(&format!("anderen Welt: Kennung dort {kennung}")),
         "Meldung: {meldung}"
     );
     assert_eq!(
@@ -778,9 +780,14 @@ fn alter_baum_ohne_kennung_wird_uebernommen() {
     common::write_level_dat(welt.path(), 4_815_162_342);
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
     let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
-    assert!(text.contains("nennt keine Welt"), "{text}");
+    assert!(text.contains("nannte keine Welt"), "{text}");
     let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
-    assert!(karte.contains(r#""world": "f39bc820d10860f2""#), "{karte}");
+    kennung_in(&karte);
+
+    // Der nächste Lauf nimmt das Salz aus dem Baum und erkennt die Welt.
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+    let danach = std::fs::read_to_string(out.path().join("map.json")).unwrap();
+    assert_eq!(danach, karte, "die Kennung hat sich geändert");
 
     let fremd = tempdir();
     common::write_world(fremd.path(), &[(0, 0)], gelaende);
@@ -800,6 +807,7 @@ fn alter_baum_ohne_kennung_wird_uebernommen() {
 fn alter_scale_nennt_den_ausweg() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
+    common::write_level_dat(welt.path(), 4_815_162_342);
     let out = tempdir();
     std::fs::write(
         out.path().join("map.json"),
@@ -811,6 +819,25 @@ fn alter_scale_nennt_den_ausweg() {
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(meldung.contains("neues Verzeichnis"), "Meldung: {meldung}");
     assert!(!meldung.contains("--scale 6"), "Meldung: {meldung}");
+    // Der Baum ohne Kennung wäre übernommen worden. Gemeldet wird das erst
+    // vor der ersten Kachel, und die kommt nie.
+    let text = String::from_utf8_lossy(&ausgabe.stdout);
+    assert!(!text.contains("keine Welt"), "{text}");
+}
+
+/// Die Kennung aus `map.json`: Salz und Hash, je 16 Hexziffern.
+fn kennung_in(karte: &str) -> String {
+    let json: serde_json::Value = serde_json::from_str(karte).unwrap();
+    let kennung = json["world"].as_str().expect("map.json nennt die Welt");
+    let teile: Vec<&str> = kennung.split('-').collect();
+    assert!(
+        teile.len() == 2
+            && teile
+                .iter()
+                .all(|t| t.len() == 16 && t.chars().all(|c| c.is_ascii_hexdigit())),
+        "Kennung {kennung}"
+    );
+    kennung.to_string()
 }
 
 /// `--size 0` gäbe ein leeres Rechteck. Das rundet nicht auf das Raster

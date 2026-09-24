@@ -310,7 +310,7 @@ Halb Schwarz, halb Weiss ergibt so 188 statt 128.
   "maxZoom": 10,
   "tiles": "{z}/{x}/{y}.webp",
   "bounds": [-10240, 0, -6144, 4096],
-  "world": "9648148a8e859d02"
+  "world": "05ff03f95077be56-07ba487af40a087d"
 }
 ```
 
@@ -319,13 +319,19 @@ Halb Schwarz, halb Weiss ergibt so 188 statt 128.
 hängt allein an `scale`, und die Formel gehört in den Renderer, nicht in eine
 Datei.
 
-`world` ist die Kennung der Welt, ein SipHash-2-4 ihres Seeds. Den Seed
-liest der Renderer aus der Weltwurzel: seit 26.1 aus
-`data/minecraft/world_gen_settings.dat`, bei Paper aus der Datei der
-Oberwelt, davor aus `level.dat`. Er selbst steht nicht in der Datei:
-`map.json` liegt öffentlich neben den Kacheln, und mit dem Seed fände jeder
-Strukturen und Erze ohne zu suchen. Zurückrechnen hiesse, bis zu 2^64 Seeds
-durchzuprobieren; ein Seed aus einem Text hat nur 2^32. Ohne `level.dat`
+`world` ist die Kennung der Welt: vorn ein Salz, das der Baum bei seinem
+ersten Lauf zufällig bekommt, dahinter ein Hash ihres Seeds, SipHash-2-4
+mit diesem Salz, eine Million Mal verkettet. Den Seed liest der Renderer
+aus der Weltwurzel: seit 26.1 aus `data/minecraft/world_gen_settings.dat`,
+bei Paper aus der Datei der Oberwelt, davor aus `level.dat`. Er selbst
+steht nicht in der Datei: `map.json` liegt öffentlich neben den Kacheln,
+und mit dem Seed fände jeder Strukturen und Erze ohne zu suchen. Ein
+Zufallsseed hat nur 2^48 Werte, Vanilla zieht ihn mit 48 Bit Zustand; mit
+einem einzelnen Hash liessen sich alle in Stunden bis Tagen durchprobieren.
+Verkettet sind es 2^68 Aufrufe je Baum, auf einer Grafikkarte Jahrzehnte,
+und der Export zahlt dafür 16 ms je Lauf. Ein Seed aus einem Text hat nur
+2^32 Werte, 2^52 Aufrufe: den schützt die Kennung für Stunden bis Tage,
+nicht für immer. Ohne `level.dat`
 ist das Verzeichnis keine Weltwurzel, etwa eine einzelne Dimension, und das
 Feld fehlt; Paper legt dort denselben Seed ab wie bei der Oberwelt.
 

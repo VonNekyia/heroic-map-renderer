@@ -14,7 +14,7 @@ use anyhow::{Context, Result, bail};
 use image::RgbaImage;
 use serde::Deserialize;
 
-use super::{find_file, split_id};
+use super::{find_file, read_text, split_id};
 
 /// Eine Färbung als RGB-Faktor.
 pub type Tint = [u8; 3];
@@ -162,8 +162,7 @@ impl Colors {
                     if path.extension().is_none_or(|e| e != "json") {
                         continue;
                     }
-                    let text = std::fs::read_to_string(&path)
-                        .with_context(|| format!("{} lesen", path.display()))?;
+                    let text = read_text(&path)?;
                     let json: BiomeJson = serde_json::from_str(&text)
                         .with_context(|| format!("{} ist keine Biomdefinition", path.display()))?;
                     let id = path

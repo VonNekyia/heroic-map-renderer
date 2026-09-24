@@ -397,7 +397,7 @@ fn ungueltiger_parent_macht_das_modell_kaputt() {
     let variants = assets.variants(&state("grosser_parent")).unwrap();
     assert_eq!(variants[0].model_id, MISSING_MODEL);
     let grund = &assets.skipped()["minecraft:grosser_parent"];
-    assert!(grund.contains("kein gültiger Modellname"), "{grund}");
+    assert!(grund.contains("kein gültiger Name"), "{grund}");
 }
 
 /// Der Client verfolgt eine parent-Kette beliebig weit, nur ein Zyklus
@@ -420,7 +420,7 @@ fn lange_parent_kette() {
     }
     std::fs::write(
         models.join("k20.json"),
-        r#"{"elements": [{"from": [0, 0, 0], "to": [16, 8, 16]}]}"#,
+        r##"{"elements": [{"from": [0, 0, 0], "to": [16, 8, 16], "faces": {"up": {"texture": "#a"}}}]}"##,
     )
     .unwrap();
     let mut assets = Assets::open(vec![dir.path().to_path_buf()]).unwrap();
@@ -429,23 +429,179 @@ fn lange_parent_kette() {
     assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
 }
 
-/// Ein Name, der kein `Identifier` ist, findet keine Datei. Unter Windows
-/// fände `block/Planks` sonst `block/planks.png`; der Client läse das
-/// Modell dann gar nicht erst.
+/// Ein Texturname mit Grossbuchstaben ist kein `Identifier`; wie im Client
+/// macht er schon das Modell kaputt (`Material.CODEC`).
 #[test]
-fn grossbuchstaben_finden_keine_datei() {
+fn grossbuchstaben_im_texturnamen_machen_das_modell_kaputt() {
     let mut assets = base();
     let variants = assets.variants(&state("grosse_textur")).unwrap();
-    let textur = variants[0].model.elements[0].faces[0].1.texture;
-    assert_eq!(textur, Textures::MISSING);
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:grosse_textur"];
     assert!(
-        assets
-            .textures()
-            .missing()
-            .contains("minecraft:block/Planks"),
+        grund.contains("block/Planks ist kein gültiger Name"),
+        "{grund}"
+    );
+}
+
+/// Der Client listet die Dateien eines Packs und übergeht jeden Namen, der
+/// kein `Identifier` ist. Oben liegen `Stone.json`, `Planks.png` und
+/// `Gross.json`, unten `stone.json` und `planks.png`: es gilt das untere
+/// Pack, und `Gross` gibt es nicht. Dass `stone` nicht `Stone.json` findet,
+/// kann nur eine Platte zeigen, die Grossbuchstaben nicht unterscheidet,
+/// also der Windows-Lauf.
+#[test]
+fn dateinamen_zaehlen_nur_in_ihrer_schreibweise() {
+    let unten = tempfile::tempdir().unwrap();
+    let oben = tempfile::tempdir().unwrap();
+    let schreibe = |wurzel: &std::path::Path, datei: &str, inhalt: &[u8]| {
+        let pfad = wurzel.join("minecraft").join(datei);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(pfad, inhalt).unwrap();
+    };
+    let png = |farbe: [u8; 4]| {
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_pixel(16, 16, image::Rgba(farbe))
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    };
+    let modell = br##"{"textures": {"all": "block/planks"}, "elements": [{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {"up": {"texture": "#all"}}}]}"##;
+    schreibe(
+        unten.path(),
+        "blockstates/stone.json",
+        br#"{"variants": {"": {"model": "block/unten"}}}"#,
+    );
+    schreibe(unten.path(), "models/block/unten.json", modell);
+    schreibe(
+        unten.path(),
+        "textures/block/planks.png",
+        &png([255, 0, 0, 255]),
+    );
+    schreibe(
+        oben.path(),
+        "blockstates/Stone.json",
+        br#"{"variants": {"": {"model": "block/oben"}}}"#,
+    );
+    schreibe(
+        oben.path(),
+        "blockstates/Gross.json",
+        br#"{"variants": {"": {"model": "block/unten"}}}"#,
+    );
+    schreibe(oben.path(), "models/block/oben.json", modell);
+    schreibe(
+        oben.path(),
+        "textures/block/Planks.png",
+        &png([0, 0, 255, 255]),
+    );
+
+    let mut assets = Assets::open(vec![unten.path().into(), oben.path().into()]).unwrap();
+    let variants = assets.variants(&state("stone")).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/unten");
+    let textur = variants[0].model.elements[0].faces[0].1.texture;
+    assert_eq!(
+        assets.textures().image(textur).get_pixel(0, 0).0,
+        [255, 0, 0, 255]
+    );
+    assert!(assets.variants(&state("Gross")).is_err());
+    assert_eq!(assets.block_names().unwrap(), ["minecraft:stone"]);
+}
+
+/// Wie `DirectoryValidator`: ein Pack mit einem Symlink darin lässt der
+/// Client aus. Der Renderer bricht dann ab, statt still anders zu zeichnen.
+#[test]
+fn symlink_im_pack_bricht_ab() {
+    let pack = tempfile::tempdir().unwrap();
+    let ziel = tempfile::tempdir().unwrap();
+    let block = pack.path().join("minecraft/models/block");
+    std::fs::create_dir_all(&block).unwrap();
+    std::fs::write(ziel.path().join("stone.json"), "{}").unwrap();
+    #[cfg(unix)]
+    let link = std::os::unix::fs::symlink(ziel.path().join("stone.json"), block.join("stone.json"));
+    #[cfg(windows)]
+    let link = std::os::windows::fs::symlink_file(
+        ziel.path().join("stone.json"),
+        block.join("stone.json"),
+    );
+    if let Err(error) = link {
+        // Windows erlaubt Symlinks nur mit Entwicklermodus oder als Admin.
+        eprintln!("kein Symlink möglich, Test entfällt: {error}");
+        return;
+    }
+    let fehler = Assets::open(vec![pack.path().into()]).err().unwrap();
+    assert!(format!("{fehler:#}").contains("Symlink"), "{fehler:#}");
+}
+
+/// `heavy_core` schreibt `"texture": "all"` ohne `#`. Auch das ist im Client
+/// der Name eines Slots, kein Pfad.
+#[test]
+fn flaechentextur_ohne_raute_ist_ein_slot() {
+    let mut assets = base();
+    let variants = assets.variants(&state("schwerer_kern")).unwrap();
+    for (seite, face) in &variants[0].model.elements[0].faces {
+        assert_eq!(
+            assets.textures().name(face.texture),
+            "minecraft:block/planks",
+            "{seite:?}"
+        );
+    }
+    assert!(
+        assets.textures().missing().is_empty(),
         "{:?}",
         assets.textures().missing()
     );
+}
+
+/// `builtin/missing` kennt der Client als Modell. Als Parent ergibt es den
+/// Missing-Würfel, und es fehlt nichts.
+#[test]
+fn builtin_missing_ist_ein_bekannter_parent() {
+    let mut assets = base();
+    let variants = assets.variants(&state("missing_parent")).unwrap();
+    let elemente = &variants[0].model.elements;
+    assert_eq!(elemente.len(), 1);
+    assert!(elemente[0].faces.iter().all(|(seite, face)| {
+        face.texture == Textures::MISSING && face.cullface == Some(*seite)
+    }));
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+    assert!(
+        assets.textures().missing().is_empty(),
+        "{:?}",
+        assets.textures().missing()
+    );
+}
+
+/// Ein Byte-Order-Mark vorn überspringt der Client auch in `.mcmeta` und in
+/// Biomen. Ohne das verlöre die Textur ihre Animation, und das Biom bräche
+/// den Lauf ab.
+#[test]
+fn byte_order_mark_auch_in_mcmeta_und_biomen() {
+    let pack = tempfile::tempdir().unwrap();
+    let block = pack.path().join("minecraft/textures/block");
+    std::fs::create_dir_all(&block).unwrap();
+    image::RgbaImage::new(16, 32)
+        .save(block.join("streifen.png"))
+        .unwrap();
+    std::fs::write(
+        block.join("streifen.png.mcmeta"),
+        b"\xef\xbb\xbf{\"animation\": {}}",
+    )
+    .unwrap();
+    let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+    let textur = assets.texture("minecraft:block/streifen");
+    assert_eq!(assets.textures().image(textur).dimensions(), (16, 16));
+
+    let daten = tempfile::tempdir().unwrap();
+    let biome = daten.path().join("minecraft/worldgen/biome");
+    std::fs::create_dir_all(&biome).unwrap();
+    std::fs::write(
+        biome.join("ebene.json"),
+        b"\xef\xbb\xbf{\"temperature\": 0.8}",
+    )
+    .unwrap();
+    assert_eq!(assets.load_biomes(daten.path()).unwrap(), 1);
 }
 
 /// Ein Byte-Order-Mark vorn überspringt Gson, in Blockstates wie in
@@ -460,16 +616,18 @@ fn byte_order_mark_wird_uebersprungen() {
     assert!(assets.broken().is_empty(), "{:?}", assets.broken());
 }
 
-/// `..` in einem Modellnamen führt nicht aus dem Pack heraus: der Client
-/// findet so keine Datei (`FileUtil.decomposePath`), der Renderer auch
-/// nicht.
+/// `..`, `.` und ein leerer Teil in einem Modellnamen finden im Client keine
+/// Datei (`FileUtil.decomposePath`), im Renderer auch nicht, obwohl
+/// `block/einfarbig` daneben liegt.
 #[test]
 fn punkte_im_pfad_finden_nichts() {
     let mut assets = base();
-    let variants = assets.variants(&state("ausbruch")).unwrap();
-    assert_eq!(variants[0].model_id, MISSING_MODEL);
-    let grund = &assets.skipped()["minecraft:ausbruch"];
-    assert!(grund.contains("nicht gefunden"), "{grund}");
+    for block in ["ausbruch", "punkt", "leerer_teil"] {
+        let variants = assets.variants(&state(block)).unwrap();
+        assert_eq!(variants[0].model_id, MISSING_MODEL, "{block}");
+        let grund = &assets.skipped()[&format!("minecraft:{block}")];
+        assert!(grund.contains("nicht gefunden"), "{grund}");
+    }
 }
 
 /// Eine Multipart-Bedingung mit unbekanntem Wert wirft im Client beim

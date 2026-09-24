@@ -585,7 +585,7 @@ Sprites:    3076 gerastert bei scale 32 in 0.4 s (7351/s)
             9.0 MB Sprite-Pixel, größtes: minecraft:brain_coral_fan[waterlogged=true] (46x31)
             1 Blöcke sind aus dieser Blickrichtung unsichtbar: minecraft:fire
 
-Texturen:   738 geladen, 0 fehlen
+Texturen:   716 geladen, 0 fehlen
 ```
 
 Truhen, Banner, Schädel und Töpfe zeichnet Minecraft über Entity-Modelle,
@@ -615,11 +615,22 @@ Gson:
   Eigenschaft namens `OR`, und alte Packs dürfen Zahlen und
   Wahrheitswerte schreiben.
 
-`null` zählt wie im Client als fehlend, `"when": null` gilt also immer.
-Ein Byte-Order-Mark vorn überspringt Gson, auch in Modellen, und kaputtes
-UTF-8 wird zu U+FFFD. Ein `..` in einem Pfad findet keine Datei, wie bei
-`FileUtil.decomposePath`, und ein Name, der kein `Identifier` ist, auch
-nicht: unter Windows fände `Block/X` sonst `block/x`.
+Ein Feld mit `null` zählt wie im Client als fehlend, `"when": null` gilt
+also immer. Als Wert einer Variante oder in einer Liste ist `null` ein
+Fehler. Zahlen liest der Renderer so, wie sie in der Datei stehen, und
+schneidet sie ab wie Gsons `intValue`, auch jenseits von 64 Bit: ein
+Gewicht 18446744073709551617 ist 1. Eine Zahl mit mehr als 10000 Zeichen
+macht die Datei kaputt, ebenso `1e10000`: Gsons `NumberLimits` lehnt ab
+10000 Stellen zwischen letzter Ziffer und Komma ab.
+
+Ein Byte-Order-Mark vorn überspringt Gson, auch in Modellen, `.mcmeta`
+und Biomen, und kaputtes UTF-8 wird zu U+FFFD. Wie beim Auflisten eines
+Packs im Client zählt eine Datei nur, wenn ihr Pfad auf der Platte ein
+`Identifier` ist, Stufe für Stufe genau so geschrieben: unter Windows
+fände `block/stone` sonst auch `Stone.json`, das der Client übergeht.
+`..`, `.` und leere Teile in einem Namen finden keine Datei, wie bei
+`FileUtil.decomposePath`. Ein Pack mit Symlink lässt der Client ganz aus;
+der Renderer bricht dann ab, statt still anders zu zeichnen.
 
 Den Rest prüft der Client gegen die Definition des Blocks: welche
 Eigenschaften er hat und welche Werte. Die stehen in
@@ -643,6 +654,21 @@ dem Parent unter „Modelle“ in der Ausgabe, wie „Missing block model“ im
 Log des Clients; sonst sähe man einen Tippfehler im `parent` nur an
 fehlenden Texturen. 26.2 kennt dabei nur `builtin/missing` und
 `builtin/generated`; ein `builtin/entity` aus älteren Packs fehlt.
+
+Modelle liest der Renderer wie `CuboidModel` im Client. Die Textur einer
+Fläche ist immer der Name eines Slots, mit oder ohne `#` davor;
+`heavy_core` schreibt `"texture": "all"`. Verweise zwischen Slots löst er
+bis zum Ende auf, nur ein Zyklus bleibt offen. Hier liest Gson die Felder,
+nicht DFU, und `null` ist ein Fehler. Kaputt ist ein Modell auch, wenn
+`from` oder `to` nicht zwischen -16 und 32 liegt, ein Element keine Seite
+hat, eine Seite einen unbekannten Namen trägt, einer Drehung `origin` oder
+der Winkel fehlt oder eine Textur kein `Identifier` ist. Das gilt auch für
+`display`, `gui_light` und `ambientocclusion`, die der Renderer sonst nicht
+braucht. Dafür nimmt der Client Zahlen, wie `intValue` und
+`Float.parseFloat` sie lesen: eine Flächendrehung -90 ist 270, und
+`"tintindex": 0.0` ist 0. Die Achse `"Y"` gilt als `y` und eine unbekannte
+`cullface` als keine. Eine Fläche ohne Ausdehnung fällt weg, bevor der
+Client ihre Textur sucht.
 
 Alle 1198 Blockstate-Dateien von Vanilla 26.2 und die 39 des
 TerraNova-Packs lesen sich so ohne Fehler und ohne verworfenen Eintrag,

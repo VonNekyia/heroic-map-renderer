@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::LazyLock;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
-use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+use serde_json::{Number, Value};
 
 use crate::world::BlockState;
 
@@ -185,11 +184,11 @@ impl BlockStateDef {
     /// darf nichts mehr kommen (`StrictJsonParser`), und was der Codec
     /// ablehnt, macht die ganze Datei kaputt. `null` zählt als fehlend.
     pub fn read(text: &str) -> Result<BlockStateDef> {
-        let json: Json = serde_json::from_str(text).context("kein gültiges JSON")?;
-        ensure!(matches!(json, Json::Object(_)), "kein Objekt");
-        let variants = match json.field("variants") {
+        let json: Value = serde_json::from_str(text).context("kein gültiges JSON")?;
+        ensure!(json.is_object(), "kein Objekt");
+        let variants = match field(&json, "variants") {
             None => Vec::new(),
-            Some(Json::Object(entries)) => {
+            Some(Value::Object(entries)) => {
                 ensure!(!entries.is_empty(), "variants ist leer");
                 entries
                     .iter()
@@ -204,9 +203,9 @@ impl BlockStateDef {
             }
             Some(_) => bail!("variants ist kein Objekt"),
         };
-        let multipart = match json.field("multipart") {
+        let multipart = match field(&json, "multipart") {
             None => None,
-            Some(Json::Array(cases)) => {
+            Some(Value::Array(cases)) => {
                 ensure!(!cases.is_empty(), "multipart ist leer");
                 Some(cases.iter().map(parse_case).collect::<Result<_>>()?)
             }
@@ -367,17 +366,17 @@ fn parse_variant_key(key: &str) -> Option<Vec<(String, String)>> {
 
 /// `BlockStateModel.Unbaked.CODEC`: eine nichtleere Liste mit Gewichten,
 /// sonst ein einzelnes Objekt. Dessen `weight` liest der Client nicht.
-fn parse_apply(json: &Json) -> Result<Vec<ModelRef>> {
-    let Json::Array(list) = json else {
+fn parse_apply(json: &Value) -> Result<Vec<ModelRef>> {
+    let Value::Array(list) = json else {
         return Ok(vec![parse_model_ref(json)?]);
     };
     ensure!(!list.is_empty(), "leere Modellliste");
     let mut refs = Vec::with_capacity(list.len());
     let mut total = 0u64;
     for element in list {
-        let weight = match element.field("weight") {
+        let weight = match field(element, "weight") {
             None => 1,
-            Some(weight) => weight.int().context("weight")?,
+            Some(weight) => int(weight).context("weight")?,
         };
         ensure!(weight >= 1, "Gewicht {weight} ist nicht positiv");
         total += weight as u64;
@@ -396,19 +395,16 @@ fn parse_apply(json: &Json) -> Result<Vec<ModelRef>> {
 }
 
 /// `Variant.MAP_CODEC`: ein Modell, die Drehungen und `uvlock`.
-fn parse_model_ref(json: &Json) -> Result<ModelRef> {
-    ensure!(
-        matches!(json, Json::Object(_)),
-        "Modellverweis ist kein Objekt"
-    );
-    let model = match json.field("model") {
-        Some(Json::String(id)) => identifier(id)?,
+fn parse_model_ref(json: &Value) -> Result<ModelRef> {
+    ensure!(json.is_object(), "Modellverweis ist kein Objekt");
+    let model = match field(json, "model") {
+        Some(Value::String(id)) => identifier(id)?,
         Some(_) => bail!("model ist kein Text"),
         None => bail!("Modellverweis ohne model"),
     };
-    let uvlock = match json.field("uvlock") {
+    let uvlock = match field(json, "uvlock") {
         None => false,
-        Some(Json::Bool(uvlock)) => *uvlock,
+        Some(Value::Bool(uvlock)) => *uvlock,
         Some(_) => bail!("uvlock ist kein Wahrheitswert"),
     };
     Ok(ModelRef {
@@ -423,11 +419,11 @@ fn parse_model_ref(json: &Json) -> Result<ModelRef> {
 
 /// `Quadrant.CODEC`: eine Zahl, modulo 360 eine von 0, 90, 180 und 270.
 /// -90 ist also 270, 45 ein Fehler.
-fn quadrant(json: &Json, axis: &str) -> Result<i32> {
-    let Some(value) = json.field(axis) else {
+fn quadrant(json: &Value, axis: &str) -> Result<i32> {
+    let Some(value) = field(json, axis) else {
         return Ok(0);
     };
-    let degrees = value.int().context(axis.to_string())?;
+    let degrees = int(value).context(axis.to_string())?;
     let quadrant = degrees.rem_euclid(360);
     ensure!(
         quadrant % 90 == 0,
@@ -442,7 +438,7 @@ pub(super) fn identifier(text: &str) -> Result<String> {
     let (namespace, path) = super::split_id(text);
     ensure!(
         is_identifier(namespace, path),
-        "{text} ist kein gültiger Modellname"
+        "{text} ist kein gültiger Name"
     );
     Ok(format!("{namespace}:{path}"))
 }
@@ -455,16 +451,11 @@ pub(super) fn is_identifier(namespace: &str, path: &str) -> bool {
 }
 
 /// `Selector.CODEC`: `when` darf fehlen, `apply` nicht.
-fn parse_case(json: &Json) -> Result<Case> {
-    ensure!(
-        matches!(json, Json::Object(_)),
-        "Multipart-Fall ist kein Objekt"
-    );
-    let apply = json
-        .field("apply")
-        .ok_or_else(|| anyhow!("Multipart-Fall ohne apply"))?;
+fn parse_case(json: &Value) -> Result<Case> {
+    ensure!(json.is_object(), "Multipart-Fall ist kein Objekt");
+    let apply = field(json, "apply").ok_or_else(|| anyhow!("Multipart-Fall ohne apply"))?;
     Ok(Case {
-        when: json.field("when").map(parse_condition).transpose()?,
+        when: field(json, "when").map(parse_condition).transpose()?,
         apply: parse_apply(apply)?,
     })
 }
@@ -472,40 +463,41 @@ fn parse_case(json: &Json) -> Result<Case> {
 /// `Condition.CODEC`: genau ein Schlüssel `OR` oder `AND` mit einer Liste,
 /// sonst eine nichtleere Tabelle von Eigenschaften. Ein `OR` mit Text statt
 /// Liste ist also eine Eigenschaft namens `OR`.
-fn parse_condition(json: &Json) -> Result<Condition> {
-    let Json::Object(entries) = json else {
+fn parse_condition(json: &Value) -> Result<Condition> {
+    let Value::Object(entries) = json else {
         bail!("Bedingung ist kein Objekt");
     };
-    match entries.as_slice() {
-        [(op, Json::Array(list))] if op == "OR" || op == "AND" => {
-            let list = list.iter().map(parse_condition).collect::<Result<_>>()?;
-            Ok(if op == "OR" {
-                Condition::Or(list)
-            } else {
-                Condition::And(list)
-            })
-        }
-        [] => bail!("leere Bedingung"),
-        _ => Ok(Condition::Props(
-            entries
-                .iter()
-                .map(|(name, value)| {
-                    let terms = parse_terms(value).with_context(|| format!("Bedingung {name}"))?;
-                    Ok((name.clone(), terms))
-                })
-                .collect::<Result<_>>()?,
-        )),
+    if entries.len() == 1
+        && let Some((op, Value::Array(list))) = entries.iter().next()
+        && (op == "OR" || op == "AND")
+    {
+        let list = list.iter().map(parse_condition).collect::<Result<_>>()?;
+        return Ok(if op == "OR" {
+            Condition::Or(list)
+        } else {
+            Condition::And(list)
+        });
     }
+    ensure!(!entries.is_empty(), "leere Bedingung");
+    Ok(Condition::Props(
+        entries
+            .iter()
+            .map(|(name, value)| {
+                let terms = parse_terms(value).with_context(|| format!("Bedingung {name}"))?;
+                Ok((name.clone(), terms))
+            })
+            .collect::<Result<_>>()?,
+    ))
 }
 
 /// `Terms.CODEC`: ein Text, alte Packs schreiben auch Zahlen und
 /// Wahrheitswerte. Getrennt an `|`, ein `!` vorn verneint den Term, und
 /// ein leerer Term wirft (`Empty term`).
-fn parse_terms(json: &Json) -> Result<Vec<Term>> {
+fn parse_terms(json: &Value) -> Result<Vec<Term>> {
     let text = match json {
-        Json::String(text) => text.clone(),
-        Json::Bool(value) => value.to_string(),
-        number => number.int()?.to_string(),
+        Value::String(text) => text.clone(),
+        Value::Bool(value) => value.to_string(),
+        number => int(number)?.to_string(),
     };
     text.split('|')
         .map(|part| {
@@ -522,104 +514,57 @@ fn parse_terms(json: &Json) -> Result<Vec<Term>> {
         .collect()
 }
 
-/// JSON, wie Gson es liest: Objekte in der Reihenfolge der Datei, ein
+/// Ein Feld, wie DFU es liest: `null` zählt als fehlend. Das JSON selbst
+/// liest serde_json wie Gson: Objekte in der Reihenfolge der Datei, ein
 /// doppelter Schlüssel behält seinen ersten Platz und nimmt den letzten
-/// Wert (`LinkedTreeMap.put`). Die Reihenfolge zählt bei überlappenden
-/// Variantenschlüsseln, und `serde_json::Value` sortiert sie.
-#[derive(Debug)]
-enum Json {
-    Null,
-    Bool(bool),
-    Int(i128),
-    Float(f64),
-    String(String),
-    Array(Vec<Json>),
-    Object(Vec<(String, Json)>),
+/// Wert (`LinkedTreeMap.put`), Zahlen so, wie sie dastehen.
+// ponytail: ein Objekt, dessen erster Schlüssel `$serde_json::private::Number`
+// heisst, liest serde_json als Zahl. So schreibt kein Pack.
+pub(super) fn field<'a>(json: &'a Value, name: &str) -> Option<&'a Value> {
+    json.get(name).filter(|value| !value.is_null())
 }
 
-impl Json {
-    /// Ein Feld, wie DFU es liest: `null` zählt als fehlend.
-    fn field(&self, name: &str) -> Option<&Json> {
-        let Json::Object(entries) = self else {
-            return None;
-        };
-        entries
-            .iter()
-            .find(|(key, _)| key == name)
-            .map(|(_, value)| value)
-            .filter(|value| !matches!(value, Json::Null))
-    }
-
-    /// `Codec.INT`: nur eine JSON-Zahl, abgeschnitten wie
-    /// `Number.intValue`. 90.5 ist also 90, und 2^32 + 90 auch.
-    // ponytail: Kommazahlen ab 2^127 sättigen statt abzuschneiden; so
-    // schreibt kein Pack.
-    fn int(&self) -> Result<i32> {
-        match *self {
-            Json::Int(n) => Ok(n as i32),
-            Json::Float(f) => Ok(f as i128 as i32),
-            _ => bail!("keine Zahl"),
-        }
+/// `Codec.INT`: nur eine JSON-Zahl, abgeschnitten wie `Number.intValue`.
+fn int(json: &Value) -> Result<i32> {
+    match json {
+        Value::Number(number) => int_value(number),
+        _ => bail!("keine Zahl"),
     }
 }
 
-impl<'de> Deserialize<'de> for Json {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Json, D::Error> {
-        deserializer.deserialize_any(JsonVisitor)
+/// Gsons `LazilyParsedNumber.intValue` aus der Zahl, wie sie in der Datei
+/// steht: `Integer.parseInt`, dann `Long.parseLong`, sonst `BigDecimal`,
+/// Richtung 0 abgeschnitten. Es zählen die unteren 32 Bit, 2^32 + 90 ist
+/// also 90 und 90.5 auch. Über `NumberLimits` wirft eine Zahl mit mehr als
+/// 10000 Zeichen oder einer Skala ab 10000.
+pub(super) fn int_value(number: &Number) -> Result<i32> {
+    let text = number.as_str();
+    if let Ok(n) = text.parse::<i64>() {
+        return Ok(n as i32);
     }
-}
-
-struct JsonVisitor;
-
-impl<'de> Visitor<'de> for JsonVisitor {
-    type Value = Json;
-
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("JSON")
+    ensure!(text.len() <= 10_000, "Zahl mit {} Zeichen", text.len());
+    let (mantissa, exponent) = text.split_once(['e', 'E']).unwrap_or((text, "0"));
+    let (negative, mantissa) = match mantissa.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, mantissa),
+    };
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let exponent: i128 = exponent
+        .parse()
+        .with_context(|| format!("Exponent von {text}"))?;
+    let scale = fraction.len() as i128 - exponent;
+    ensure!(scale.abs() < 10_000, "Skala {scale} von {text}");
+    let digits = format!("{whole}{fraction}");
+    let kept = &digits[..digits.len().saturating_sub(scale.max(0) as usize)];
+    let mut low = kept.bytes().fold(0u32, |low, digit| {
+        low.wrapping_mul(10).wrapping_add(u32::from(digit - b'0'))
+    });
+    // Ab 10^32 sind die unteren 32 Bit null.
+    for _ in 0..(-scale).clamp(0, 32) {
+        low = low.wrapping_mul(10);
     }
-
-    fn visit_unit<E>(self) -> Result<Json, E> {
-        Ok(Json::Null)
-    }
-
-    fn visit_bool<E>(self, value: bool) -> Result<Json, E> {
-        Ok(Json::Bool(value))
-    }
-
-    fn visit_i64<E>(self, value: i64) -> Result<Json, E> {
-        Ok(Json::Int(value.into()))
-    }
-
-    fn visit_u64<E>(self, value: u64) -> Result<Json, E> {
-        Ok(Json::Int(value.into()))
-    }
-
-    fn visit_f64<E>(self, value: f64) -> Result<Json, E> {
-        Ok(Json::Float(value))
-    }
-
-    fn visit_str<E>(self, value: &str) -> Result<Json, E> {
-        Ok(Json::String(value.to_string()))
-    }
-
-    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Json, A::Error> {
-        let mut list = Vec::new();
-        while let Some(item) = seq.next_element()? {
-            list.push(item);
-        }
-        Ok(Json::Array(list))
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Json, A::Error> {
-        let mut entries: Vec<(String, Json)> = Vec::new();
-        while let Some((key, value)) = map.next_entry::<String, Json>()? {
-            match entries.iter_mut().find(|(k, _)| *k == key) {
-                Some(entry) => entry.1 = value,
-                None => entries.push((key, value)),
-            }
-        }
-        Ok(Json::Object(entries))
-    }
+    let low = low as i32;
+    Ok(if negative { low.wrapping_neg() } else { low })
 }
 
 #[cfg(test)]
@@ -819,6 +764,8 @@ mod tests {
             r#"{"variants": {"": [{"model": "m", "weight": true}]}}"#.to_string(),
             r#"{"variants": {"": [{"model": "a", "weight": 2}, {"model": "b", "weight": 2147483647}]}}"#.to_string(),
             r#"{"variants": {"": [{"model": "m", "weight": 2147483648}]}}"#.to_string(),
+            r#"{"variants": {"": [{"model": "m", "weight": 1e10000}]}}"#.to_string(),
+            r#"{"variants": {"": [{"model": "m", "weight": 1e400}]}}"#.to_string(),
             r#"{"multipart": [{"apply": [{"model": "m", "weight": 0}]}]}"#.to_string(),
             // Modellname nach `Identifier`
             r#"{"variants": {"": {"model": "block/Stone"}}}"#.to_string(),
@@ -868,6 +815,8 @@ mod tests {
             ("null", 1),
             ("1.5", 1),
             ("4294967297", 1),
+            ("18446744073709551617", 1),
+            ("1.99999999999999999999", 1),
             ("2147483647", 2147483647),
         ] {
             let d = def(&format!(
@@ -1056,6 +1005,36 @@ mod tests {
         assert_eq!(chest.index(&s), Some(9));
         assert!(Definition::of("minecraft:einfarbig").is_none());
         assert!(Definition::of("terranova:stone").is_none());
+    }
+
+    /// Die Tabelle aus Gson 2.14.0, gegengeprüft mit dem echten
+    /// `LazilyParsedNumber`, dazu Zahlen, die f64 nicht fasst.
+    #[test]
+    fn int_value_wie_gson() {
+        let zahl = |text: &str| int_value(&text.parse().unwrap());
+        for (text, soll) in [
+            ("1.0", 1),
+            ("1.5", 1),
+            ("1e2", 100),
+            ("1.50E+1", 15),
+            ("3000000000", -1294967296),
+            ("-0.5", 0),
+            ("-1.5", -1),
+            ("2147483648", -2147483648),
+            ("1e10", 1410065408),
+            ("1e32", 0),
+            ("1e9999", 0),
+            ("18446744073709551617", 1),
+            ("-18446744073709551617", -1),
+            ("2.99999999999999999999", 2),
+            ("123456789012e-3", 123456789),
+        ] {
+            assert_eq!(zahl(text).unwrap(), soll, "{text}");
+        }
+        assert!(zahl("1e10000").is_err());
+        assert!(zahl("1e-10000").is_err());
+        assert!(zahl(&format!("1{}", "0".repeat(10_000))).is_err());
+        assert_eq!(zahl(&format!("1{}", "0".repeat(9_999))).unwrap(), 0);
     }
 
     /// Seit Minecraft 1.21.11 dürfen Modellverweise auch um Z gedreht sein.

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use image::RgbaImage;
 use serde::Deserialize;
 
-use super::{find_file, split_id};
+use super::{find_file, read_text, split_id};
 
 /// Verweis in die Texturtabelle. Id 0 ist immer der Platzhalter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -139,7 +139,7 @@ fn animation(
         beside.is_file().then_some(beside)
     })?;
 
-    let text = std::fs::read_to_string(&meta).ok()?;
+    let text = read_text(&meta).ok()?;
     serde_json::from_str::<McMeta>(&text).ok()?.animation
 }
 

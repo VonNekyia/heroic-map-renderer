@@ -15,6 +15,7 @@ use crate::world::BlockState;
 pub use baker::{BakedModel, Quad, bake};
 pub use blockstate::{BlockStateDef, Definition, ModelRef};
 pub use colors::{Colors, Tint, Tints};
+use model::ModelFile;
 pub use model::{Element, ElementFace, Face, ResolvedModel, Rotation};
 pub use texture::{TextureId, Textures};
 
@@ -99,6 +100,12 @@ impl Assets {
             if !root.is_dir() {
                 bail!("Asset-Verzeichnis {} existiert nicht", root.display());
             }
+            if let Some(link) = symlink_in(root)? {
+                bail!(
+                    "{} ist ein Symlink; ein Pack mit Symlink lässt der Client aus",
+                    link.display()
+                );
+            }
         }
         Ok(Assets {
             colors: Colors::load(&roots),
@@ -168,7 +175,9 @@ impl Assets {
                     let path = entry.path();
                     if path.extension().is_some_and(|e| e == "json") {
                         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-                        names.push(format!("{namespace}:{stem}"));
+                        if blockstate::is_identifier(&namespace, &stem) {
+                            names.push(format!("{namespace}:{stem}"));
+                        }
                     }
                 }
             }
@@ -282,23 +291,16 @@ impl Assets {
         for (weight, refs) in self.alternative_refs(state)? {
             let mut variants = Vec::with_capacity(refs.len());
             for r in refs {
-                let (model_id, model) = if r.model == MISSING_MODEL {
-                    (r.model, Arc::new(ResolvedModel::missing()))
-                } else {
-                    match self.model(&r.model) {
-                        Ok(model) => {
-                            if let Some(why) = self.parent_problems.get(&r.model).cloned() {
-                                self.skip(state, why);
-                            }
-                            (r.model, model)
+                let (model_id, model) = match self.model(&r.model) {
+                    Ok(model) => {
+                        if let Some(why) = self.parent_problems.get(&r.model).cloned() {
+                            self.skip(state, why);
                         }
-                        Err(error) => {
-                            self.skip(state, format!("{error:#}"));
-                            (
-                                MISSING_MODEL.to_string(),
-                                Arc::new(ResolvedModel::missing()),
-                            )
-                        }
+                        (r.model, model)
+                    }
+                    Err(error) => {
+                        self.skip(state, format!("{error:#}"));
+                        (MISSING_MODEL.to_string(), self.model(MISSING_MODEL)?)
                     }
                 };
                 variants.push(ResolvedVariant {
@@ -336,7 +338,8 @@ impl Assets {
     /// Parent oder ist er kaputt, setzt der Client das Missing-Modell an
     /// seine Stelle ("Missing block model"): die eigenen Elemente des
     /// Kindes bleiben, auch leere, sonst erbt es den Missing-Würfel. Den
-    /// Grund merkt sich der Renderer für [`Assets::skipped`].
+    /// Grund merkt sich der Renderer für [`Assets::skipped`]. Den Parent
+    /// `builtin/missing` kennt der Client, er ist kein Fehler.
     pub fn model(&mut self, id: &str) -> Result<Arc<ResolvedModel>> {
         if let Some(model) = self.models.get(id) {
             return Ok(Arc::clone(model));
@@ -344,7 +347,7 @@ impl Assets {
 
         // parent-Kette einsammeln: das Kind gewinnt bei Texturen, die
         // erstbeste Definition gewinnt bei elements.
-        let mut textures: HashMap<String, model::TextureValue> = HashMap::new();
+        let mut textures: HashMap<String, model::Slot> = HashMap::new();
         let mut elements = None;
         let mut current = Some(id.to_string());
         let mut seen = Vec::new();
@@ -357,31 +360,31 @@ impl Assets {
 
             let (namespace, name) = split_id(&model_id);
             // Das Itemmodell, das der Client aus `layer0` erzeugt; eine
-            // Blockgeometrie hat es nicht. Sonst kennt 26.2 kein builtin.
+            // Blockgeometrie hat es nicht. Sonst kennt 26.2 nur noch
+            // `builtin/missing`.
             if (namespace, name) == ("minecraft", "builtin/generated") {
                 break;
             }
-            let raw = match self.read_model(namespace, name) {
-                Ok(raw) => raw,
-                Err(error) if seen.len() == 1 => {
-                    return Err(error.context(format!("Modell {model_id}")));
-                }
-                Err(error) => {
-                    self.parent_problems.insert(
-                        id.to_string(),
-                        format!("Parent {model_id} von {id}: {error:#}"),
-                    );
-                    if elements.is_some() {
-                        break;
+            let raw = if model_id == MISSING_MODEL {
+                ModelFile::missing()
+            } else {
+                match self.read_model(namespace, name) {
+                    Ok(raw) => raw,
+                    Err(error) if seen.len() == 1 => {
+                        return Err(error.context(format!("Modell {model_id}")));
                     }
-                    let missing = Arc::new(ResolvedModel::missing());
-                    self.models.insert(id.to_string(), Arc::clone(&missing));
-                    return Ok(missing);
+                    Err(error) => {
+                        self.parent_problems.insert(
+                            id.to_string(),
+                            format!("Parent {model_id} von {id}: {error:#}"),
+                        );
+                        ModelFile::missing()
+                    }
                 }
             };
 
-            for (key, value) in raw.textures {
-                textures.entry(key).or_insert(value);
+            for (key, slot) in raw.textures {
+                textures.entry(key).or_insert(slot);
             }
             if elements.is_none() {
                 elements = raw.elements;
@@ -400,21 +403,12 @@ impl Assets {
         Ok(model)
     }
 
-    /// Eine Modelldatei, wie `CuboidModel` sie liest. Ein leerer `parent`
-    /// heisst keiner, ein ungültiger macht die Datei kaputt.
-    fn read_model(&self, namespace: &str, name: &str) -> Result<model::ModelJson> {
+    /// Eine Modelldatei, wie `CuboidModel` sie liest ([`ModelFile::read`]).
+    fn read_model(&self, namespace: &str, name: &str) -> Result<ModelFile> {
         let path = self
             .find(namespace, "models", name, "json")
             .ok_or_else(|| anyhow!("nicht gefunden"))?;
-        let mut raw: model::ModelJson = serde_json::from_value(read_json(&path)?)
-            .with_context(|| format!("{} lesen", path.display()))?;
-        raw.parent = raw
-            .parent
-            .filter(|parent| !parent.is_empty())
-            .map(|parent| blockstate::identifier(&parent))
-            .transpose()
-            .with_context(|| format!("{} lesen", path.display()))?;
-        Ok(raw)
+        ModelFile::read(&read_json(&path)?).with_context(|| format!("{} lesen", path.display()))
     }
 }
 
@@ -436,10 +430,13 @@ fn find_file(
     })
 }
 
-/// Die Datei in genau dieser Wurzel, falls es sie gibt. Nur für einen
-/// gültigen `Identifier` und ohne leere Teile, `.` und `..`, wie
-/// `FileUtil.decomposePath`: aus seinem Verzeichnis kommt ein Pack nicht
-/// heraus, und unter Windows findet `Block/X` nicht `block/x`.
+/// Die Datei in genau dieser Wurzel, falls es sie gibt, und nur so, wie
+/// der Client sie beim Auflisten des Packs findet: der Name ein gültiger
+/// `Identifier` ohne leere Teile, `.` und `..` (`FileUtil.decomposePath`),
+/// und jede Stufe auf der Platte genau so geschrieben. Unter Windows fände
+/// `block/stone` sonst auch `Block/Stone.json`, das der Client als
+/// ungültigen Namen übergeht. Symlinks gibt es in einer Wurzel nicht
+/// ([`Assets::open`]), aus ihr heraus führt also kein Name.
 fn file_in(
     root: &Path,
     namespace: &str,
@@ -452,12 +449,39 @@ fn file_in(
     {
         return None;
     }
-    let mut file = path
-        .split('/')
-        .fold(root.join(namespace).join(kind), |acc, part| acc.join(part));
-    file.as_mut_os_string().push(".");
-    file.as_mut_os_string().push(extension);
-    file.is_file().then_some(file)
+    let mut tail: PathBuf = [namespace, kind]
+        .into_iter()
+        .chain(path.split('/'))
+        .collect();
+    tail.as_mut_os_string().push(".");
+    tail.as_mut_os_string().push(extension);
+    let file = root.join(&tail);
+    let real = std::fs::canonicalize(&file).ok()?;
+    (real.ends_with(&tail) && real.is_file()).then_some(file)
+}
+
+/// Der erste Symlink in einem Pack, wie `DirectoryValidator` ihn sucht:
+/// die Wurzel selbst und alles darunter.
+// ponytail: unter Windows zählt auch eine Junction, die Java als Ordner
+// nimmt.
+fn symlink_in(root: &Path) -> Result<Option<PathBuf>> {
+    if root.symlink_metadata()?.is_symlink() {
+        return Ok(Some(root.to_path_buf()));
+    }
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).with_context(|| format!("{} lesen", dir.display()))? {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_symlink() {
+                return Ok(Some(entry.path()));
+            }
+            if kind.is_dir() {
+                pending.push(entry.path());
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// `minecraft:block/stone` -> `("minecraft", "block/stone")`. Ohne Namensraum,
@@ -494,6 +518,18 @@ fn read_json(path: &Path) -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Wie `InputStreamReader` und `JsonReader`: kaputtes UTF-8 wird zu
+    /// U+FFFD, genau ein Byte-Order-Mark vorn fällt weg.
+    #[test]
+    fn text_wie_im_client() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("x.json");
+        std::fs::write(&file, b"\xef\xbb\xbfa\xffb").unwrap();
+        assert_eq!(read_text(&file).unwrap(), "a\u{fffd}b");
+        std::fs::write(&file, b"\xef\xbb\xbf\xef\xbb\xbfa").unwrap();
+        assert_eq!(read_text(&file).unwrap(), "\u{feff}a");
+    }
 
     #[test]
     fn namensraum_abtrennen() {

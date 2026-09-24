@@ -27,7 +27,7 @@ const Y_RANGE: (i32, i32) = (-64, 319);
 #[derive(Parser)]
 #[command(name = "terranova-render", version, about)]
 pub struct Args {
-    /// Weltverzeichnis (das mit level.dat)
+    /// Weltverzeichnis: die Wurzel mit level.dat oder eine Dimension darin
     #[arg(long)]
     world: Option<PathBuf>,
 
@@ -480,7 +480,7 @@ fn write_tiles(
         dir,
         bestand.as_ref(),
         projection.scale(),
-        kennung.as_deref(),
+        kennung.as_deref().ok_or(ohne_kennung(world)),
     )?;
     // Ein bestehender Baum behält seine Nummerierung, auch wenn die Welt
     // inzwischen gewachsen ist: dann bekommt Zoom 0 mehr Kacheln, und das
@@ -818,6 +818,20 @@ fn kennung(world: &World, bestand: Option<&MapInfo>) -> Result<Option<String>> {
     Ok(Some(pyramid::world_id(seed, dimension, salt)))
 }
 
+/// Warum eine Welt keine Kennung hat, mit dem Ausweg.
+fn ohne_kennung(world: &World) -> &'static str {
+    match world.dimension() {
+        None => {
+            "Zu diesem --world fand sich keine Weltwurzel mit level.dat: --world auf die \
+             Wurzel richten oder auf eine Dimension darin."
+        }
+        Some(_) => {
+            "Die Welt nennt keinen Seed, weder in data/minecraft/world_gen_settings.dat noch \
+             in level.dat. Fehlt die Datei nur in einer Kopie, sie dazulegen."
+        }
+    }
+}
+
 /// Prüft, ob der bestehende Baum zu diesem Lauf passt, und sagt, ob er ihn
 /// übernimmt.
 ///
@@ -826,12 +840,13 @@ fn kennung(world: &World, bestand: Option<&MapInfo>) -> Result<Option<String>> {
 /// Baum mit anderem scale auch nicht: die neuen Kacheln hätten einen
 /// anderen Massstab als die alten. Seit scale 32 der Standard ist, reicht
 /// dafür ein vergessenes `--scale`. `maxZoom` prüft sie nicht: der Baum
-/// behält seine Nummerierung, auch wenn die Welt gewachsen ist.
+/// behält seine Nummerierung, auch wenn die Welt gewachsen ist. `kennung`
+/// ist die Kennung dieser Welt oder der Grund, warum sie keine hat.
 fn pruefe_bestand(
     dir: &Path,
     bestand: Option<&MapInfo>,
     scale: u32,
-    kennung: Option<&str>,
+    kennung: std::result::Result<&str, &str>,
 ) -> Result<bool> {
     let Some(alt) = bestand else {
         return Ok(false);
@@ -840,31 +855,31 @@ fn pruefe_bestand(
     // Ein Baum ohne das Feld stammt aus einem älteren Stand. Er gehört ab
     // jetzt zu dieser Welt; sonst müsste jeder bestehende Baum neu
     // entstehen, bei einer grossen Welt über Stunden. Gesagt wird das erst
-    // vor der ersten Kachel, wenn es wirklich so kommt. Einer aus einer
-    // Welt ohne Kennung trägt `null` und nimmt keine mit Kennung auf.
+    // vor der ersten Kachel, wenn es wirklich so kommt. Eine Welt ohne
+    // Kennung übernimmt ihn nicht, sonst trüge er danach `null` und nähme
+    // seine eigene Welt nicht mehr auf. Einer aus einer Welt ohne Kennung
+    // trägt `null` und nimmt keine mit Kennung auf.
     let uebernehmen = alt.world.is_none();
-    if let Some(dort) = &alt.world
-        && dort.as_deref() != kennung
-    {
-        let pfad = pfad.display();
-        match (dort.as_deref(), kennung) {
-            (Some(dort), None) => bail!(
-                "{pfad} gehört zur Welt mit Kennung {dort}. Hier fehlt level.dat, und ohne sie \
-                 ist die Welt nicht zu erkennen: --world auf die Weltwurzel richten oder auf \
-                 eine Dimension darin."
-            ),
-            (None, Some(hier)) => bail!(
-                "{pfad} gehört zu einer Welt ohne Kennung, diese hat {hier}. Ein neues \
-                 Verzeichnis nehmen, oder \"world\" aus map.json entfernen, wenn der Baum \
-                 sicher zu dieser Welt gehört."
-            ),
-            (dort, hier) => bail!(
-                "{pfad} gehört zu einer anderen Welt oder Dimension: Kennung dort {}, hier {}. \
-                 Ein neues Verzeichnis nehmen.",
-                dort.unwrap_or("keine"),
-                hier.unwrap_or("keine")
-            ),
+    let anzeige = pfad.display();
+    match (&alt.world, kennung) {
+        (None, Err(warum)) => bail!(
+            "{anzeige} stammt aus einem älteren Stand und nennt keine Welt, und diese hat keine \
+             Kennung. {warum} Ohne Kennung übernimmt der Renderer den Baum nicht, sonst nähme \
+             er seine eigene Welt danach nicht mehr auf."
+        ),
+        (Some(Some(dort)), Err(warum)) => {
+            bail!("{anzeige} gehört zur Welt mit Kennung {dort}, diese hat keine Kennung. {warum}")
         }
+        (Some(None), Ok(hier)) => bail!(
+            "{anzeige} gehört zu einer Welt ohne Kennung, diese hat {hier}. Ein neues \
+             Verzeichnis nehmen, oder \"world\" aus map.json entfernen, wenn der Baum sicher \
+             zu dieser Welt gehört."
+        ),
+        (Some(Some(dort)), Ok(hier)) if dort != hier => bail!(
+            "{anzeige} gehört zu einer anderen Welt oder Dimension: Kennung dort {dort}, hier \
+             {hier}. Ein neues Verzeichnis nehmen."
+        ),
+        _ => {}
     }
     if alt.scale != scale {
         // Ältere Stände nahmen auch scale, die kein Vielfaches von 4 sind.

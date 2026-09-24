@@ -290,8 +290,9 @@ Ende noch einmal: bricht ein Lauf beim Schreiben ab, steht schon fest, wozu
 der Baum gehört, und scheitert er vorher, etwa an einem fehlenden Asset,
 legt er nichts fest. Ein Baum eines älteren Stands, dessen `map.json` gar
 kein Feld `world` hat, gehört ab dem nächsten Lauf zu dessen Welt, der
-Lauf sagt es; einer mit scale 2, 6 oder 10 lässt sich nicht fortsetzen,
-`--scale` nimmt nur noch Vielfache von 4.
+Lauf sagt es. Eine Welt ohne Kennung übernimmt ihn nicht, sonst nähme er
+danach seine eigene nicht mehr auf. Einer mit scale 2, 6 oder 10 lässt
+sich nicht fortsetzen, `--scale` nimmt nur noch Vielfache von 4.
 
 Die gröberen Stufen werden nicht alle verkleinert. Solange jeder Block
 auf ganzen Pixeln liegt, der scale der Stufe also durch vier teilbar ist
@@ -342,7 +343,10 @@ tragen: sonst käme der Nether in den Baum der Oberwelt und die Oberwelt in
 seinen. `--world` zeigt auf die Weltwurzel, das Verzeichnis mit
 `level.dat`, oder auf eine Dimension darin, `dimensions/<namensraum>/<name>`
 oder bis 1.21 `DIM-1` und `DIM1`. Die Wurzel ist die Oberwelt, auch über
-`dimensions/minecraft/overworld`. Den Seed liest der Renderer aus der
+`dimensions/minecraft/overworld`; eine Kopie von `level.dat` in einer
+Dimension macht diese nicht zur Oberwelt. Der Pfad zählt so, wie er auf der
+Platte steht: unter Windows gibt `dim-1` dieselbe Kennung wie `DIM-1`, und
+ein Weg über `..` dieselbe wie der direkte. Den Seed liest der Renderer aus der
 Weltwurzel, in dieser Reihenfolge: seit 26.1 aus
 `data/minecraft/world_gen_settings.dat`, bei Paper aus der Datei der
 Oberwelt, davor aus `level.dat`. Er selbst
@@ -356,10 +360,11 @@ und der Export zahlt dafür 16 ms je Lauf. Ein Seed aus einem Text hat nur
 nicht für immer. Das gilt nur, wenn man alle durchprobieren muss. Jeder
 geratene Seed kostet einen Versuch von 16 ms, und ein eingetippter wie
 12345 oder einer aus einer öffentlichen Liste steht in jedem Wörterbuch:
-den findet man in Sekunden. Ohne `level.dat` in der Wurzel ist die Welt nicht zu
-erkennen, etwa bei einer Kopie ohne sie. Dann steht `"world": null` da, und
-ein solcher Baum nimmt keine Welt mit Kennung auf; zwei Welten ohne
-Kennung kann der Renderer nicht auseinanderhalten.
+den findet man in Sekunden. Ohne `level.dat` darüber ist die Welt nicht zu
+erkennen, etwa bei einer Kopie ohne sie, und ohne Seed auch nicht, etwa bei
+einer Kopie ohne `data`; die Meldung sagt, was fehlt. Dann steht
+`"world": null` da, und ein solcher Baum nimmt keine Welt mit Kennung auf;
+zwei Welten ohne Kennung kann der Renderer nicht auseinanderhalten.
 
 Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines grossen
 Renderings gleichen, sonst stünden im Browser Kanten dazwischen. Neun Kacheln

@@ -124,6 +124,61 @@ fn findet_seed_und_dimension_in_jedem_layout() {
     assert_eq!(world().seed().unwrap(), None);
 }
 
+/// Die Dimension steht so da, wie sie auf der Platte heisst: `..` ist kein
+/// Name, ein relativer Pfad führt zur selben Welt, und unter Windows
+/// öffnet `dim-1` dieselben Regionen wie `DIM-1`. Eine Kopie von
+/// `level.dat` in einer Dimension macht sie nicht zur Oberwelt, und nicht
+/// nur `minecraft` hat Dimensionen.
+#[test]
+fn dimension_wie_auf_der_platte() {
+    let welt = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    for sub in [
+        "region",
+        "DIM-1/region",
+        "dimensions/minecraft/the_nether/region",
+        "dimensions/terralith/abgrund/region",
+    ] {
+        std::fs::create_dir_all(welt.path().join(sub)).unwrap();
+    }
+    common::write_level_dat(welt.path(), 42);
+    let nether = || (Some(42), Some("minecraft:the_nether".to_string()));
+    assert_eq!(herkunft(&welt.path().join("DIM-1/region/..")), nether());
+    assert_eq!(herkunft(&relativ(&welt.path().join("DIM-1"))), nether());
+    let abgrund = welt.path().join("dimensions/terralith/abgrund");
+    let terralith = (Some(42), Some("terralith:abgrund".to_string()));
+    assert_eq!(herkunft(&abgrund), terralith);
+    // Nur eine Platte, die Grossbuchstaben nicht unterscheidet, findet
+    // diese Pfade, also der Windows-Lauf.
+    for anders in ["dim-1", "DIMENSIONS/MINECRAFT/THE_NETHER"] {
+        let pfad = welt.path().join(anders);
+        if pfad.is_dir() {
+            assert_eq!(herkunft(&pfad), nether(), "{anders}");
+        }
+    }
+    let the_nether = welt.path().join("dimensions/minecraft/the_nether");
+    common::write_level_dat(&the_nether, 7);
+    assert_eq!(herkunft(&the_nether), nether());
+}
+
+/// Der Weg vom Arbeitsverzeichnis zu `ziel`, damit ein Test einen
+/// relativen Pfad übergibt. Beide liegen unter dem Target-Verzeichnis
+/// derselben Platte.
+fn relativ(ziel: &Path) -> PathBuf {
+    let hier = std::env::current_dir().unwrap();
+    let gleich = hier
+        .components()
+        .zip(ziel.components())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut weg = PathBuf::new();
+    for _ in gleich..hier.components().count() {
+        weg.push("..");
+    }
+    weg.extend(ziel.components().skip(gleich));
+    assert!(weg.is_relative(), "{}", weg.display());
+    weg
+}
+
 #[test]
 fn findet_obersten_block_und_biom() {
     let chunk = world().chunk(CX, CZ).unwrap().unwrap();

@@ -1005,10 +1005,23 @@ fn alter_baum_ohne_kennung_wird_uebernommen() {
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(meldung.contains("Welt ohne Kennung"), "{meldung}");
 
-    // So sieht ein Baum eines älteren Stands aus.
+    // So sieht ein Baum eines älteren Stands aus. Eine Welt ohne Kennung
+    // übernimmt ihn nicht, er bleibt für seine eigene.
     let mut alt: serde_json::Value = serde_json::from_str(&karte).unwrap();
     alt.as_object_mut().unwrap().remove("world");
-    std::fs::write(out.path().join("map.json"), alt.to_string()).unwrap();
+    let alt = alt.to_string();
+    std::fs::write(out.path().join("map.json"), &alt).unwrap();
+    let ohne = tempdir();
+    common::write_world(ohne.path(), &[(0, 0)], gelaende);
+    let ausgabe = tiles(ohne.path(), out.path(), &["--scale", "16"]);
+    assert!(
+        !ausgabe.status.success(),
+        "die Welt ohne Kennung kam hinein"
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("älteren Stand"), "{meldung}");
+    let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
+    assert_eq!(karte, alt, "map.json hat sich geändert");
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
     let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
     assert!(text.contains("nannte keine Welt"), "{text}");
@@ -1060,7 +1073,8 @@ fn alter_scale_nennt_den_ausweg() {
 /// Dimension dazu: der Nether kommt nicht in den Baum der Oberwelt und die
 /// Oberwelt nicht in seinen. Die Oberwelt, einmal über die Wurzel und
 /// einmal über ihr Dimensionsverzeichnis, ist dieselbe Welt. Einer Kopie
-/// ohne level.dat rät die Meldung zur Wurzel statt zu einem neuen Baum.
+/// ohne level.dat rät die Meldung zur Wurzel statt zu einem neuen Baum,
+/// einer mit level.dat, aber ohne Seed, nicht noch einmal zur Wurzel.
 #[test]
 fn dimensionen_haben_eigene_kennungen() {
     let welt = tempdir();
@@ -1091,28 +1105,52 @@ fn dimensionen_haben_eigene_kennungen() {
 
     let kopie = tempdir();
     common::write_world(kopie.path(), &[(0, 0)], gelaende);
-    let ausgabe = tiles(kopie.path(), baum.path(), &["--scale", "16"]);
-    assert!(!ausgabe.status.success());
-    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
-    assert!(meldung.contains("Hier fehlt level.dat"), "{meldung}");
-    assert!(!meldung.contains("neues Verzeichnis"), "{meldung}");
+    let meldung = || {
+        let ausgabe = tiles(kopie.path(), baum.path(), &["--scale", "16"]);
+        assert!(!ausgabe.status.success());
+        String::from_utf8_lossy(&ausgabe.stderr).into_owned()
+    };
+    let ohne_wurzel = meldung();
+    assert!(
+        ohne_wurzel.contains("keine Weltwurzel mit level.dat"),
+        "{ohne_wurzel}"
+    );
+    assert!(!ohne_wurzel.contains("neues Verzeichnis"), "{ohne_wurzel}");
+    common::write_level_dat_ohne_seed(kopie.path());
+    let ohne_seed = meldung();
+    assert!(ohne_seed.contains("nennt keinen Seed"), "{ohne_seed}");
+    assert!(!ohne_seed.contains("Wurzel richten"), "{ohne_seed}");
 }
 
 /// Jeder neue Baum zieht sein eigenes Salz. Mit einem festen liesse sich
 /// eine Tabelle über alle Seeds einmal rechnen und gegen jeden Baum
-/// halten.
+/// halten. Zweimal dasselbe Verzeichnis und zwei andere: ein Salz aus dem
+/// Zielpfad wäre beim ersten Paar gleich. Eines mit 8 Bit bliebe unter 256;
+/// dass vier zufällige mit 64 Bit alle unter 2^56 liegen, ist 2^-32.
 #[test]
 fn zwei_baeume_bekommen_verschiedene_salze() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
     common::write_level_dat(welt.path(), 4_815_162_342);
-    let salz = || {
-        let baum = tempdir();
-        gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
-        let karte = std::fs::read_to_string(baum.path().join("map.json")).unwrap();
-        kennung_in(&karte).split('-').next().unwrap().to_string()
+    let salz = |baum: &Path| {
+        gelungen(&tiles(welt.path(), baum, &["--scale", "16"]));
+        let karte = std::fs::read_to_string(baum.join("map.json")).unwrap();
+        std::fs::remove_dir_all(baum).unwrap();
+        std::fs::create_dir(baum).unwrap();
+        let kennung = kennung_in(&karte);
+        u64::from_str_radix(kennung.split('-').next().unwrap(), 16).unwrap()
     };
-    assert_ne!(salz(), salz());
+    let baum = tempdir();
+    let salze = [
+        salz(baum.path()),
+        salz(baum.path()),
+        salz(tempdir().path()),
+        salz(tempdir().path()),
+    ];
+    for (i, a) in salze.iter().enumerate() {
+        assert!(!salze[i + 1..].contains(a), "{salze:x?}");
+    }
+    assert!(salze.iter().any(|&s| s >= 1 << 56), "{salze:x?}");
 }
 
 /// Die Kennung aus `map.json`: Salz und Hash, je 16 Hexziffern.

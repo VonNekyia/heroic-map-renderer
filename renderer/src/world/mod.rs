@@ -58,29 +58,33 @@ fn under(root: &Path, parts: &[&str]) -> PathBuf {
 /// Die anderen Dimensionen liegen darunter: seit 1.16 und in 26.x unter
 /// `dimensions/<namensraum>/<name>`, Nether und End bis 1.21 als `DIM-1`
 /// und `DIM1`, bei Bukkit in eigenen Welten wie `world_nether/DIM-1` mit
-/// eigenem `level.dat`. Ohne `level.dat` in der Wurzel lässt sich die Welt
-/// nicht erkennen, etwa bei einer Kopie ohne sie.
+/// eigenem `level.dat`. Diese Layouts gehen vor, eine Kopie von `level.dat`
+/// in einer Dimension macht sie nicht zur Oberwelt. Ohne `level.dat` darüber
+/// lässt sich die Welt nicht erkennen, etwa bei einer Kopie ohne sie.
+///
+/// Es zählt der Pfad, wie er auf der Platte steht: unter Windows öffnet
+/// `dim-1` dieselben Regionen wie `DIM-1`, und `..` ist kein Name.
 fn locate(dir: &Path) -> Option<(PathBuf, String)> {
-    let dir = std::path::absolute(dir).ok()?;
+    let dir = std::fs::canonicalize(dir).ok()?;
     let is_root = |dir: &Path| dir.join("level.dat").is_file();
-    if is_root(&dir) {
-        return Some((dir, "minecraft:overworld".to_string()));
-    }
-    let name = dir.file_name()?.to_str()?;
-    let parent = dir.parent()?;
-    let legacy = match name {
-        "DIM-1" => Some("minecraft:the_nether"),
-        "DIM1" => Some("minecraft:the_end"),
-        _ => None,
+    let dimension = || {
+        let name = dir.file_name()?.to_str()?;
+        let parent = dir.parent()?;
+        let legacy = match name {
+            "DIM-1" => Some("minecraft:the_nether"),
+            "DIM1" => Some("minecraft:the_end"),
+            _ => None,
+        };
+        if let Some(dimension) = legacy {
+            return is_root(parent).then(|| (parent.to_path_buf(), dimension.to_string()));
+        }
+        let namespace = parent.file_name()?.to_str()?;
+        let dimensions = parent.parent()?;
+        let root = dimensions.parent()?;
+        (dimensions.file_name()? == "dimensions" && is_root(root))
+            .then(|| (root.to_path_buf(), format!("{namespace}:{name}")))
     };
-    if let Some(dimension) = legacy {
-        return is_root(parent).then(|| (parent.to_path_buf(), dimension.to_string()));
-    }
-    let namespace = parent.file_name()?.to_str()?;
-    let dimensions = parent.parent()?;
-    let root = dimensions.parent()?;
-    (dimensions.file_name()? == "dimensions" && is_root(root))
-        .then(|| (root.to_path_buf(), format!("{namespace}:{name}")))
+    dimension().or_else(|| is_root(&dir).then(|| (dir.clone(), "minecraft:overworld".to_string())))
 }
 
 impl World {

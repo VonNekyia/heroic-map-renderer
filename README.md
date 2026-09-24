@@ -616,7 +616,7 @@ Sprites:    3076 gerastert bei scale 32 in 0.4 s (7351/s)
             9.0 MB Sprite-Pixel, größtes: minecraft:brain_coral_fan[waterlogged=true] (46x31)
             1 Blöcke sind aus dieser Blickrichtung unsichtbar: minecraft:fire
 
-Texturen:   716 geladen, 0 fehlen
+Texturen:   715 geladen, 0 fehlen
 ```
 
 Truhen, Banner, Schädel und Töpfe zeichnet Minecraft über Entity-Modelle,

@@ -1033,20 +1033,26 @@ mod tests {
             0
         );
         // Neben Unbekanntem liest der Renderer das Bekannte wie der Client,
-        // `07` ist 7.
+        // `07` ist 7, davor und dahinter.
         let weizen = Definition::of("minecraft:wheat").unwrap();
-        let mut d = def(
-            r#"{"multipart": [{"when": {"OR": [{"age": "07"}, {"foo": "x"}]}, "apply": {"model": "m"}}]}"#,
-        );
-        let unbekannt: Vec<String> = d.instantiate(weizen).into_iter().collect();
-        assert_eq!(unbekannt, ["Eigenschaft foo"]);
         let reif = state("minecraft:wheat[age=7]");
-        assert_eq!(
-            d.alternatives(&reif, weizen.index(&reif)).unwrap()[0]
-                .1
-                .len(),
-            1
-        );
+        for oder in [
+            r#"[{"age": "07"}, {"foo": "x"}]"#,
+            r#"[{"foo": "x"}, {"age": "07"}]"#,
+        ] {
+            let mut d = def(&format!(
+                r#"{{"multipart": [{{"when": {{"OR": {oder}}}, "apply": {{"model": "m"}}}}]}}"#
+            ));
+            let unbekannt: Vec<String> = d.instantiate(weizen).into_iter().collect();
+            assert_eq!(unbekannt, ["Eigenschaft foo"], "{oder}");
+            assert_eq!(
+                d.alternatives(&reif, weizen.index(&reif)).unwrap()[0]
+                    .1
+                    .len(),
+                1,
+                "{oder}"
+            );
+        }
     }
 
     /// Die Tabelle stimmt mit dem Report von 26.2 überein: 1196 Blöcke,

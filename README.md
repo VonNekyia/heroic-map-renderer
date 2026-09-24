@@ -273,8 +273,10 @@ er einen Chunk liest; sonst lägen im Baum Kacheln zweier Welten oder zweier
 Massstäbe. `map.json` entsteht deshalb direkt vor der ersten Kachel und am
 Ende noch einmal: bricht ein Lauf beim Schreiben ab, steht schon fest, wozu
 der Baum gehört, und scheitert er vorher, etwa an einem fehlenden Asset,
-legt er nichts fest. Ein Baum eines älteren Stands mit scale 2, 6 oder 10
-lässt sich nicht fortsetzen, `--scale` nimmt nur noch Vielfache von 4.
+legt er nichts fest. Ein Baum eines älteren Stands ohne Kennung gehört ab
+dem nächsten Lauf zu dessen Welt, der Lauf sagt es; einer mit scale 2, 6
+oder 10 lässt sich nicht fortsetzen, `--scale` nimmt nur noch Vielfache
+von 4.
 
 Die gröberen Stufen werden nicht alle verkleinert. Solange jeder Block
 auf ganzen Pixeln liegt, der scale der Stufe also durch vier teilbar ist

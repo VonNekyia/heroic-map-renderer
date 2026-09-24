@@ -730,7 +730,15 @@ fn pruefe_bestand(dir: &Path, scale: u32, kennung: Option<&str>) -> Result<Optio
             pfad.display()
         )
     })?;
-    if alt.world.as_deref() != kennung {
+    // Ein Baum ohne Kennung stammt aus einem älteren Stand. Er gehört ab
+    // jetzt zu dieser Welt; sonst müsste jeder bestehende Baum neu
+    // entstehen, bei einer grossen Welt über Stunden.
+    if alt.world.is_none() && kennung.is_some() {
+        println!(
+            "Karte:      {} nennt keine Welt, ein älterer Stand: der Baum gehört ab jetzt zu dieser",
+            pfad.display()
+        );
+    } else if alt.world.as_deref() != kennung {
         let nenne = |kennung: Option<&str>| kennung.unwrap_or("keine").to_string();
         bail!(
             "{} gehört zu einer anderen Welt: Kennung dort {}, hier {}. Ein neues Verzeichnis nehmen.",

@@ -762,6 +762,37 @@ fn fremde_welt_wird_abgelehnt() {
     gelungen(&tiles(erste.path(), out.path(), &["--scale", "16"]));
 }
 
+/// Ein Baum eines älteren Stands trägt keine Kennung. Er gehört ab dem
+/// nächsten Lauf zu dessen Welt, und danach ist er geschützt wie jeder
+/// andere. Sonst müsste jeder bestehende Baum neu entstehen.
+#[test]
+fn alter_baum_ohne_kennung_wird_uebernommen() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let out = tempdir();
+    // Ohne level.dat hat die Welt keinen Seed, wie ein Baum von früher.
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+    let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
+    assert!(!karte.contains("world"), "{karte}");
+
+    common::write_level_dat(welt.path(), 4_815_162_342);
+    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    assert!(text.contains("nennt keine Welt"), "{text}");
+    let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
+    assert!(karte.contains(r#""world": "f39bc820d10860f2""#), "{karte}");
+
+    let fremd = tempdir();
+    common::write_world(fremd.path(), &[(0, 0)], gelaende);
+    common::write_level_dat(fremd.path(), 2_718_281_828);
+    assert!(
+        !tiles(fremd.path(), out.path(), &["--scale", "16"])
+            .status
+            .success(),
+        "nach dem Übernehmen ist der Baum geschützt"
+    );
+}
+
 /// Ein Baum eines älteren Stands mit scale 6 lässt sich nicht fortsetzen:
 /// `--scale 6` nimmt dieser Stand nicht mehr an. Die Meldung darf das
 /// nicht raten.

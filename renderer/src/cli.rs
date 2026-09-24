@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
 use std::io::BufWriter;
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -516,28 +517,23 @@ fn write_tiles(
     // Ausschnitt sucht nur in seiner Fläche, die ist auf ganze Kacheln
     // gerundet. Gesucht wird, bevor ein leerer Vorlauf abbricht: über
     // einer ganz zurückgesetzten Fläche findet er nichts, aufzuräumen gibt
-    // es dort trotzdem.
-    let mut kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
-    // Eine Kachel der Stufe z gehört zum Lauf, wenn sie etwas aus seiner
-    // Fläche zeigt. Auf der Basis und den nativen Stufen liegt sie dann ganz
-    // darin, darüber schneidet sie die Fläche vielleicht nur an.
-    let im_lauf = |z: u32, tile: &TileId| {
-        bounds.is_none_or(|b| {
-            let stufe = |px: i32| px.div_euclid(TILE as i32) >> (max_zoom - z);
-            (stufe(b.x)..=stufe(b.right() - 1)).contains(&tile.x)
-                && (stufe(b.y)..=stufe(b.bottom() - 1)).contains(&tile.y)
-        })
-    };
-    let bestehend: BTreeSet<TileId> = vorhandene(dir, max_zoom)?
-        .into_iter()
-        .filter(|tile| im_lauf(max_zoom, tile))
+    // es dort trotzdem. Die Basis liest der Lauf dafür einmal ganz, sie
+    // gibt auch die Grenzen in map.json.
+    let kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
+    let flaeche_auf = |z: u32| flaeche(bounds, max_zoom, z);
+    let basis = vorhandene(dir, max_zoom, None)?;
+    let bestehend: BTreeSet<TileId> = basis
+        .iter()
+        .filter(|tile| in_flaeche(flaeche_auf(max_zoom).as_ref(), tile))
+        .copied()
         .collect();
     let veraltet: BTreeSet<TileId> = bestehend.difference(&kandidaten).copied().collect();
-    let waisen = waisen(dir, max_zoom, im_lauf)?;
+    let waisen = waisen(dir, max_zoom, &bestehend, flaeche_auf)?;
     let anteil = format!("{} von {} Basiskacheln", veraltet.len(), bestehend.len());
     // Mit --prune ist auch ein leerer Lauf keiner über dem falschen
-    // Ausschnitt: dort ist vielleicht schon aufgeräumt.
-    if kandidaten.is_empty() && !prune {
+    // Ausschnitt: dort ist vielleicht schon aufgeräumt. Und fehlt Kacheln
+    // hier die Elternkachel, baut er sie nach.
+    if kandidaten.is_empty() && !prune && waisen.is_empty() {
         if veraltet.is_empty() {
             bail!("keine Kachel enthält etwas — falscher Ausschnitt?");
         }
@@ -560,7 +556,13 @@ fn write_tiles(
     // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
     // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
     // er vorher, legt er für das Verzeichnis nichts fest.
-    let (_, _, pfad) = schreibe_map_json(dir, projection.scale(), max_zoom, kennung.as_deref())?;
+    let (_, _, pfad) = schreibe_map_json(
+        dir,
+        projection.scale(),
+        max_zoom,
+        kennung.as_deref(),
+        &basis,
+    )?;
     if uebernommen {
         println!(
             "Karte:      {} nannte keine Welt, ein älterer Stand: der Baum gehört ab jetzt zu dieser",
@@ -569,14 +571,13 @@ fn write_tiles(
     }
 
     // Angesagt wird vor der Basis: bis zum Ende des Laufs bleibt Zeit für
-    // Strg+C, erst dann verschwindet etwas.
+    // Strg+C. Bis dahin läuft er wie einer ohne --prune, erst dann räumt er
+    // auf (`ohne_veraltete`).
     if !veraltet.is_empty() {
         if prune {
             println!(
                 "Aufräumen:  {anteil} berührt kein Chunk dieser Welt mehr; sie verschwinden am Ende des Laufs"
             );
-            // Ihre Eltern entstehen neu.
-            kandidaten.extend(&veraltet);
         } else {
             println!(
                 "Aufräumen:  {anteil} berührt kein Chunk dieser Welt mehr; sie bleiben stehen. \
@@ -593,7 +594,8 @@ fn write_tiles(
     // Kacheln, die leer geworden sind, verschwinden erst am Ende des Laufs,
     // auf jeder Stufe, zusammen mit denen ohne Chunk; bis dahin zeigen sie
     // schon nichts mehr (`verblasse`). Bricht der Lauf vorher ab, hat er
-    // nichts entfernt.
+    // nichts entfernt. Eine leere Elternkachel über einem Kind, das bleibt,
+    // bleibt durchsichtig stehen.
     let leer: Vec<TileId> = survey
         .tiles
         .par_iter()
@@ -620,9 +622,6 @@ fn write_tiles(
         .collect();
     let geschrieben = gesamt - leer.len();
     let mut weg: BTreeSet<(u32, TileId)> = leer.iter().map(|tile| (max_zoom, *tile)).collect();
-    if prune {
-        weg.extend(veraltet.iter().map(|tile| (max_zoom, *tile)));
-    }
 
     let seconds = started.elapsed().as_secs_f64();
     let bytes = bytes.load(Ordering::Relaxed);
@@ -641,7 +640,7 @@ fn write_tiles(
     // Die nativen Stufen bauen ihre eigenen Tabellen; die der Basis wird
     // nicht mehr gebraucht.
     drop(sprites);
-    let (z, kandidaten) = render_coarser(
+    let (z, kandidaten, gezeigt) = render_coarser(
         world,
         assets,
         &survey.states,
@@ -654,6 +653,9 @@ fn write_tiles(
         &mut weg,
     )?;
     build_pyramid(dir, z, kandidaten, &waisen, &mut weg)?;
+    if prune && !veraltet.is_empty() {
+        ohne_veraltete(dir, max_zoom, stufen, &veraltet, &gezeigt, &mut weg)?;
+    }
 
     // Erst jetzt verschwindet etwas, von der gröbsten Stufe bis zur Basis.
     // Bricht der Lauf hier ab, stehen die feineren Kacheln noch da, auch die
@@ -666,10 +668,20 @@ fn write_tiles(
         println!("Aufräumen:  {} Kacheln ohne Chunk entfernt", veraltet.len());
     }
 
-    let (info, basis, path) =
-        schreibe_map_json(dir, projection.scale(), max_zoom, kennung.as_deref())?;
+    // Die Basis nach dem Lauf: die von vorher, dazu die gerenderten, ohne
+    // die entfernten.
+    let mut basis = basis;
+    basis.extend(&survey.tiles);
+    basis.retain(|tile| !weg.contains(&(max_zoom, *tile)));
+    let (info, anzahl, path) = schreibe_map_json(
+        dir,
+        projection.scale(),
+        max_zoom,
+        kennung.as_deref(),
+        &basis,
+    )?;
     println!(
-        "Karte:      Zoom {}..{}, {basis} Basiskacheln, {} bis {} px -> {}",
+        "Karte:      Zoom {}..{}, {anzahl} Basiskacheln, {} bis {} px -> {}",
         info.min_zoom,
         info.max_zoom,
         format_args!("{}/{}", info.bounds[0], info.bounds[1]),
@@ -679,7 +691,7 @@ fn write_tiles(
     Ok(())
 }
 
-/// Schreibt `map.json` für den Baum, wie er auf der Platte steht.
+/// Schreibt `map.json` für den Baum mit dieser Basis.
 ///
 /// Die Grenzen beschreiben den ganzen Kachelbaum, nicht diesen Lauf. Nach
 /// einem nachgerenderten Ausschnitt lägen sonst die unberührten Kacheln
@@ -691,18 +703,18 @@ fn schreibe_map_json(
     scale: u32,
     max_zoom: u32,
     kennung: Option<&str>,
+    basis: &BTreeSet<TileId>,
 ) -> Result<(MapInfo, usize, PathBuf)> {
-    let bestand = vorhandene(dir, max_zoom)?;
     let info = MapInfo {
         world: Some(kennung.map(str::to_string)),
-        ..MapInfo::new(scale, max_zoom, &bestand)
+        ..MapInfo::new(scale, max_zoom, basis)
     };
     std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
     let path = dir.join("map.json");
     let datei = File::create(&path).with_context(|| format!("{} anlegen", path.display()))?;
     serde_json::to_writer_pretty(BufWriter::new(datei), &info)
         .with_context(|| format!("{} schreiben", path.display()))?;
-    Ok((info, bestand.len(), path))
+    Ok((info, basis.len(), path))
 }
 
 /// Stapelt über der gerenderten Basis die gröberen Zoomstufen.
@@ -718,10 +730,11 @@ fn schreibe_map_json(
 /// dieser Lauf. Ein Ausschnittexport in einen bestehenden Baum berührt nur
 /// einen Teil der Geschwister — die anderen liegen weiterhin da und
 /// gehören genauso in die Elternkachel. `weg` sind Kacheln, die noch
-/// dastehen, aber nicht mehr dazugehören: leer gewordene jeder Stufe und
-/// Basiskacheln ohne Chunk. Sie verschwinden erst am Ende des Laufs; die
-/// Pyramide lässt sie aus und legt ihre eigenen leer gewordenen dazu.
-/// `waisen` bekommen ihre Elternkachel neu.
+/// dastehen, aber nicht mehr dazugehören: leer gewordene jeder Stufe. Sie
+/// verschwinden erst am Ende des Laufs; die Pyramide lässt sie aus und legt
+/// ihre eigenen leer gewordenen dazu. Basiskacheln ohne Chunk nimmt erst
+/// danach [`ohne_veraltete`] heraus. `waisen` bekommen ihre Elternkachel
+/// neu.
 fn build_pyramid(
     dir: &Path,
     max_zoom: u32,
@@ -737,36 +750,10 @@ fn build_pyramid(
     for z in (0..max_zoom).rev() {
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
-        let bisher = &*weg;
-        let stufe: Vec<(TileId, Option<usize>)> = kandidaten
-            .par_iter()
-            .map(|parent| -> Result<(TileId, Option<usize>)> {
-                let mut teile = Vec::new();
-                for kind in parent.children() {
-                    if bisher.contains(&(z + 1, kind)) {
-                        continue;
-                    }
-                    let pfad = tile_path(dir, z + 1, kind);
-                    if pfad.is_file() {
-                        teile.push((kind, lies(&pfad)?));
-                    }
-                }
-                if teile.is_empty() {
-                    verblasse(dir, z, *parent)?;
-                    return Ok((*parent, None));
-                }
-                let bild = pyramid::merge(*parent, &teile);
-                Ok((*parent, Some(schreibe(dir, z, *parent, &bild)?)))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        let geschrieben: Vec<usize> = stufe.iter().filter_map(|(_, b)| *b).collect();
-        weg.extend(
-            stufe
-                .iter()
-                .filter(|(_, b)| b.is_none())
-                .map(|(parent, _)| (z, *parent)),
-        );
+        let (geschrieben, leer) = setze_zusammen(dir, z, &kandidaten, weg)?;
+        leer.par_iter()
+            .try_for_each(|parent| verblasse(dir, z, *parent))?;
+        weg.extend(leer.into_iter().map(|parent| (z, parent)));
         bytes += geschrieben.iter().sum::<usize>();
         gesamt += geschrieben.len();
         println!("Zoom {z:>2}:     {} Kacheln", geschrieben.len());
@@ -778,6 +765,83 @@ fn build_pyramid(
             bytes as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
+    }
+    Ok(())
+}
+
+/// Setzt jede dieser Elternkacheln der Stufe z aus ihren Kindern auf der
+/// Platte zusammen, ohne die aus `weg`, und schreibt sie. Liefert die
+/// Bytes je geschriebener Kachel und die Eltern, die nichts mehr zeigen;
+/// die schreibt es nicht.
+fn setze_zusammen(
+    dir: &Path,
+    z: u32,
+    eltern: &BTreeSet<TileId>,
+    weg: &BTreeSet<(u32, TileId)>,
+) -> Result<(Vec<usize>, Vec<TileId>)> {
+    let stufe: Vec<(TileId, Option<usize>)> = eltern
+        .par_iter()
+        .map(|parent| -> Result<(TileId, Option<usize>)> {
+            let mut teile = Vec::new();
+            for kind in parent.children() {
+                if weg.contains(&(z + 1, kind)) {
+                    continue;
+                }
+                let pfad = tile_path(dir, z + 1, kind);
+                if pfad.is_file() {
+                    teile.push((kind, lies(&pfad)?));
+                }
+            }
+            if teile.is_empty() {
+                return Ok((*parent, None));
+            }
+            let bild = pyramid::merge(*parent, &teile);
+            Ok((*parent, Some(schreibe(dir, z, *parent, &bild)?)))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let geschrieben = stufe.iter().filter_map(|(_, b)| *b).collect();
+    let leer = stufe
+        .iter()
+        .filter(|(_, b)| b.is_none())
+        .map(|(parent, _)| *parent)
+        .collect();
+    Ok((geschrieben, leer))
+}
+
+/// Mit --prune, nach der Pyramide: nimmt die Basiskacheln ohne Chunk aus
+/// dem Baum und setzt ihre Vorfahren ohne sie neu zusammen. Bis hierher
+/// lief der Lauf wie einer ohne den Schalter; ein Abbruch vorher hat den
+/// Baum also nur so verändert, wie es auch ein Lauf ohne ihn getan hätte.
+/// Auch jetzt wird nichts durchsichtig, was leer wird, kommt nach `weg`
+/// und verschwindet am Ende.
+///
+/// Native Stufen zeigen die Welt, nicht ihre Kinder; dort geht nur, was
+/// in diesem Lauf nichts gezeigt hat (`gezeigt`) und kein Kind mehr hat.
+/// Nicht gerendert hat er solche Kacheln, unter denen nur Kacheln ohne
+/// Chunk liegen.
+fn ohne_veraltete(
+    dir: &Path,
+    max_zoom: u32,
+    stufen: u32,
+    veraltet: &BTreeSet<TileId>,
+    gezeigt: &Kacheln,
+    weg: &mut BTreeSet<(u32, TileId)>,
+) -> Result<()> {
+    weg.extend(veraltet.iter().map(|tile| (max_zoom, *tile)));
+    let mut geaendert = veraltet.clone();
+    for z in (0..max_zoom).rev() {
+        let eltern = pyramid::parents(&geaendert);
+        if z >= max_zoom - stufen {
+            geaendert = eltern
+                .into_iter()
+                .filter(|tile| !gezeigt.contains(&(z, *tile)) && !kind_bleibt(dir, z, *tile, weg))
+                .collect();
+            weg.extend(geaendert.iter().map(|tile| (z, *tile)));
+        } else {
+            let (_, leer) = setze_zusammen(dir, z, &eltern, weg)?;
+            weg.extend(leer.into_iter().map(|tile| (z, tile)));
+            geaendert = eltern;
+        }
     }
     Ok(())
 }
@@ -928,8 +992,9 @@ fn pruefe_bestand(
 /// Gemessen bei scale 32: 12,1 s für die drei Stufen, 13,6 s für die Basis.
 ///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
-/// [`build_pyramid`]. Leer gewordene Kacheln kommen nach `weg` und
-/// verschwinden erst am Ende des Laufs.
+/// [`build_pyramid`]. Dazu die Kacheln jeder nativen Stufe, die etwas
+/// zeigen. Leer gewordene Kacheln kommen nach `weg` und verschwinden erst
+/// am Ende des Laufs.
 #[allow(clippy::too_many_arguments)]
 fn render_coarser(
     world: &World,
@@ -942,10 +1007,11 @@ fn render_coarser(
     stufen: u32,
     waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
-) -> Result<(u32, BTreeSet<TileId>)> {
+) -> Result<(u32, BTreeSet<TileId>, Kacheln)> {
     let mut z = max_zoom;
     let mut scale = projection.scale();
     let mut kandidaten = kandidaten;
+    let mut gezeigt = BTreeSet::new();
 
     for _ in 0..stufen {
         z -= 1;
@@ -957,35 +1023,44 @@ fn render_coarser(
 
         let bytes = AtomicUsize::new(0);
         let bisher = &*weg;
-        let leer: Vec<TileId> = kandidaten
+        // Je Kachel: zeigt sie etwas, und bleibt sie stehen?
+        let stufe: Vec<(TileId, bool, bool)> = kandidaten
             .par_iter()
-            .map(|tile| -> Result<Option<TileId>> {
+            .map(|tile| -> Result<(TileId, bool, bool)> {
                 let image = render_area(world, &sprites, tile.rect(), Y_RANGE)?;
+                let zeigt = image.pixels().any(|p| p.0[3] > 0);
                 // Leer, aber über einer Kachel, die bleibt: dann bleibt sie
                 // auch, durchsichtig, sonst stünde die darunter ohne Eltern.
-                // Das trifft Kacheln ohne Chunk, die ein Lauf ohne --prune
-                // stehen lässt.
-                if image.pixels().all(|p| p.0[3] == 0) && !kind_bleibt(dir, z, *tile, bisher) {
+                // Das trifft Kacheln ohne Chunk: ohne --prune bleiben sie,
+                // mit ihm bis zum Ende des Laufs.
+                if !zeigt && !kind_bleibt(dir, z, *tile, bisher) {
                     verblasse(dir, z, *tile)?;
-                    return Ok(Some(*tile));
+                    return Ok((*tile, false, false));
                 }
                 bytes.fetch_add(schreibe(dir, z, *tile, &image)?, Ordering::Relaxed);
-                Ok(None)
+                Ok((*tile, zeigt, true))
             })
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .flatten()
-            .collect();
+            .collect::<Result<_>>()?;
+        let bleiben = stufe.iter().filter(|(_, _, bleibt)| *bleibt).count();
         println!(
-            "Zoom {z:>2}:     {} Kacheln nativ bei scale {scale}, {:.1} MB in {:.1} s",
-            kandidaten.len() - leer.len(),
+            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}, {:.1} MB in {:.1} s",
             bytes.load(Ordering::Relaxed) as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
-        weg.extend(leer.into_iter().map(|tile| (z, tile)));
+        for (tile, zeigt, bleibt) in stufe {
+            if zeigt {
+                gezeigt.insert((z, tile));
+            }
+            if !bleibt {
+                weg.insert((z, tile));
+            }
+        }
     }
-    Ok((z, kandidaten))
+    Ok((z, kandidaten, gezeigt))
 }
+
+/// Kacheln mit ihrer Zoomstufe.
+type Kacheln = BTreeSet<(u32, TileId)>;
 
 /// Steht unter dieser Kachel ein Kind, das nach dem Lauf bleibt?
 fn kind_bleibt(dir: &Path, z: u32, tile: TileId, weg: &BTreeSet<(u32, TileId)>) -> bool {
@@ -1008,19 +1083,21 @@ fn verblasse(dir: &Path, z: u32, tile: TileId) -> Result<()> {
 /// Kacheln, deren Elternkachel fehlt, je Stufe, etwa weil ein Lauf beim
 /// Entfernen abbrach: entfernt wird von der gröbsten Stufe an. Ihre Eltern
 /// entstehen in diesem Lauf neu, nativ oder aus ihren Kindern. Ein
-/// Ausschnitt nimmt nur, was seine Fläche berührt.
+/// Ausschnitt nimmt nur, was seine Fläche berührt, und liest dafür nur
+/// deren Spalten. `basis` sind die Basiskacheln in der Fläche.
 fn waisen(
     dir: &Path,
     max_zoom: u32,
-    im_lauf: impl Fn(u32, &TileId) -> bool,
+    basis: &BTreeSet<TileId>,
+    flaeche: impl Fn(u32) -> Option<Flaeche>,
 ) -> Result<BTreeMap<u32, BTreeSet<TileId>>> {
     let mut out = BTreeMap::new();
-    let mut stufe = vorhandene(dir, max_zoom)?;
+    let mut stufe = basis.clone();
     for z in (1..=max_zoom).rev() {
-        let oben = vorhandene(dir, z - 1)?;
+        let oben = vorhandene(dir, z - 1, flaeche(z - 1).as_ref())?;
         let ohne: BTreeSet<TileId> = stufe
             .iter()
-            .filter(|tile| !oben.contains(&tile.parent()) && im_lauf(z, tile))
+            .filter(|tile| !oben.contains(&tile.parent()))
             .copied()
             .collect();
         if !ohne.is_empty() {
@@ -1031,24 +1108,74 @@ fn waisen(
     Ok(out)
 }
 
-/// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen.
-fn vorhandene(dir: &Path, z: u32) -> Result<BTreeSet<TileId>> {
+/// Spalten und Zeilen der Kacheln einer Stufe, die ein Ausschnitt berührt.
+type Flaeche = (RangeInclusive<i32>, RangeInclusive<i32>);
+
+/// Die Kacheln der Stufe z, die etwas aus einem Ausschnitt zeigen, `None`
+/// für die ganze Welt. Auf der Basis und den nativen Stufen liegen sie
+/// ganz darin, darüber schneiden sie ihn vielleicht nur an.
+fn flaeche(bounds: Option<ScreenRect>, max_zoom: u32, z: u32) -> Option<Flaeche> {
+    bounds.map(|b| {
+        let stufe = |px: i32| px.div_euclid(TILE as i32) >> (max_zoom - z);
+        (
+            stufe(b.x)..=stufe(b.right() - 1),
+            stufe(b.y)..=stufe(b.bottom() - 1),
+        )
+    })
+}
+
+fn in_flaeche(flaeche: Option<&Flaeche>, tile: &TileId) -> bool {
+    flaeche.is_none_or(|(spalten, zeilen)| spalten.contains(&tile.x) && zeilen.contains(&tile.y))
+}
+
+/// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen, unter den
+/// Namen, die [`tile_path`] schreibt. In einer Fläche nur die darin; dann
+/// liest es nur deren Spaltenordner.
+fn vorhandene(dir: &Path, z: u32, flaeche: Option<&Flaeche>) -> Result<BTreeSet<TileId>> {
     let stufe = dir.join(z.to_string());
-    let Ok(spalten) = std::fs::read_dir(&stufe) else {
-        return Ok(BTreeSet::new());
+    let spalten: Vec<i32> = match flaeche {
+        Some((spalten, _)) => spalten.clone().collect(),
+        None => {
+            let Ok(eintraege) = std::fs::read_dir(&stufe) else {
+                return Ok(BTreeSet::new());
+            };
+            let mut out = Vec::new();
+            for spalte in eintraege {
+                let name = spalte
+                    .with_context(|| format!("{} lesen", stufe.display()))?
+                    .file_name();
+                let name = name.to_string_lossy();
+                if let Ok(x) = name.parse::<i32>()
+                    && x.to_string() == name
+                {
+                    out.push(x);
+                }
+            }
+            out
+        }
     };
     let mut out = BTreeSet::new();
-    for spalte in spalten {
-        let spalte = spalte.with_context(|| format!("{} lesen", stufe.display()))?;
-        let Ok(x) = spalte.file_name().to_string_lossy().parse::<i32>() else {
-            continue;
+    for x in spalten {
+        let spalte = stufe.join(x.to_string());
+        let eintraege = match std::fs::read_dir(&spalte) {
+            Ok(eintraege) => eintraege,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e).with_context(|| format!("{} lesen", spalte.display())),
         };
-        for datei in std::fs::read_dir(spalte.path())
-            .with_context(|| format!("{} lesen", spalte.path().display()))?
-        {
-            let name = datei?.file_name().to_string_lossy().into_owned();
-            if let Some(y) = name.strip_suffix(".webp").and_then(|y| y.parse().ok()) {
-                out.insert(TileId { x, y });
+        for datei in eintraege {
+            let name = datei
+                .with_context(|| format!("{} lesen", spalte.display()))?
+                .file_name();
+            let name = name.to_string_lossy();
+            if let Some(y) = name
+                .strip_suffix(".webp")
+                .and_then(|y| y.parse::<i32>().ok())
+                && format!("{y}.webp") == name
+            {
+                let tile = TileId { x, y };
+                if in_flaeche(flaeche, &tile) {
+                    out.insert(tile);
+                }
             }
         }
     }

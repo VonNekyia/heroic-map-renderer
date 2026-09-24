@@ -106,6 +106,17 @@ fn schnappschuss(dir: &Path) -> BTreeMap<String, Vec<u8>> {
         .collect()
 }
 
+/// Eine Kopie des Baums in einem neuen Verzeichnis.
+fn kopie(dir: &Path) -> TempDir {
+    let ziel = tempdir();
+    for (rel, inhalt) in schnappschuss(dir) {
+        let pfad = ziel.path().join(rel);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(pfad, inhalt).unwrap();
+    }
+    ziel
+}
+
 /// Die Kacheln einer Zoomstufe.
 fn kacheln(dir: &Path, z: u32) -> BTreeMap<TileId, PathBuf> {
     let mut out = BTreeMap::new();
@@ -451,6 +462,98 @@ fn ausschnitt_heilt_auch_angeschnittene_waisen() {
     assert_eq!(schnappschuss(baum.path()), schnappschuss(voll.path()));
 }
 
+/// Auch einer Waise auf einer nativen Stufe baut der nächste Lauf die
+/// Elternkachel nach, aus der Welt. So steht der Baum, wenn ein Lauf mit
+/// --prune beim Aufräumen zwischen zwei Stufen abbrach: entfernt wird von
+/// der gröbsten an. Der Test entfernt die Kachel zwei Stufen über dem
+/// Stein von Hand, den der Lauf danach nicht mehr in der Welt findet. Bei
+/// scale 16 sind beide Stufen über der Basis nativ.
+#[test]
+fn waise_auf_nativer_stufe_bekommt_eltern() {
+    let block = |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (200, 4, 8) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    };
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], block);
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    let z = max_zoom(baum.path());
+    std::fs::remove_file(baum.path().join(format!("{}/1/0.webp", z - 2))).unwrap();
+    assert_eq!(
+        waisen(baum.path()),
+        [format!("{}/2/1", z - 1), format!("{}/3/1", z - 1)]
+    );
+    gelungen(&tiles(neu.path(), baum.path(), &["--scale", "16"]));
+    assert_eq!(waisen(baum.path()), Vec::<String>::new());
+}
+
+/// Auch über einer Fläche ohne Chunk baut ein Lauf ohne --prune fehlende
+/// Eltern nach. So steht der Baum, wenn ein Lauf mit --prune dort beim
+/// Aufräumen abbrach; der Test entfernt die Stufe über dem Stein von Hand.
+/// Früher brach der Lauf vorher mit „keine Kachel enthält etwas“ ab.
+#[test]
+fn leerer_ausschnitt_heilt_waisen() {
+    let block = |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (200, 4, 8) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    };
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], block);
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    let z = max_zoom(baum.path());
+    for x in [2, 3] {
+        std::fs::remove_file(baum.path().join(format!("{}/{x}/1.webp", z - 1))).unwrap();
+    }
+    assert_eq!(
+        waisen(baum.path()),
+        [format!("{z}/5/3"), format!("{z}/6/3")]
+    );
+
+    let ausschnitt = ["--scale", "16", "--center", "200", "8", "--size", "1"];
+    let ausgabe = tiles(neu.path(), baum.path(), &ausschnitt);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(text.contains("sie bleiben stehen"), "{text}");
+    assert_eq!(waisen(baum.path()), Vec::<String>::new());
+}
+
+/// Ein Ausschnitt heilt nur Waisen, die er berührt; eine direkt daneben
+/// bleibt, wie sie ist. Er liegt links vom Bildursprung, bei Pixel -1024
+/// bis 0. Dort rundet `div_euclid` anders als eine Division, die zur Null
+/// hin kürzt, und die nähme die Spalte rechts daneben mit. In ihr steht der
+/// zweite Block, seiner Basiskachel fehlt die Elternkachel. Nähme der
+/// Ausschnitt sie mit, renderte er die Elternkachel mit einer
+/// Sprite-Tabelle ohne diesen Block, und sie zeigte nichts. Bei scale 16
+/// mit nativen Stufen.
+#[test]
+fn ausschnitt_laesst_waisen_daneben_stehen() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 4), (2, 1)], |x, y, z| match (x, y, z) {
+        (0, 4, 64) => "minecraft:einfarbig",
+        (40, 4, 24) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    });
+    let baum = tempdir();
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
+    let z = max_zoom(baum.path());
+    std::fs::remove_file(baum.path().join(format!("{}/0/0.webp", z - 1))).unwrap();
+    assert_eq!(waisen(baum.path()), [format!("{z}/0/0")]);
+    let vorher = schnappschuss(baum.path());
+
+    let ausschnitt = ["--scale", "16", "--center", "0", "64", "--size", "16"];
+    let ausgabe = tiles(welt.path(), baum.path(), &ausschnitt);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(!text.contains("berührt kein Chunk"), "{text}");
+    assert_eq!(schnappschuss(baum.path()), vorher);
+}
+
 /// Ohne --prune bleiben Kacheln ohne Chunk stehen, und mit ihnen ihre
 /// Eltern. Rendert eine native Elternkachel leer, weil der Rest der Welt
 /// dort nichts mehr hat, bleibt sie durchsichtig stehen. Früher verschwand
@@ -602,15 +705,14 @@ fn waisen(dir: &Path) -> Vec<String> {
     out
 }
 
-/// Ein Lauf mit --prune entfernt erst ganz am Ende etwas, auch keine leer
-/// gewordene Elternkachel. Bricht er in der Pyramide ab, steht jede Datei
-/// noch da. Ein Lauf ohne den Schalter hinterlässt danach keine Kachel
-/// ohne Eltern, so wenig wie ohne Abbruch davor
-/// (`ohne_prune_bleibt_keine_kachel_ohne_eltern`), und einer mit ihm heilt
-/// den Baum. Früher verschwanden die
-/// leer gewordenen nativen Stufen sofort; ein Lauf ohne --prune liess die
-/// Kacheln ohne Chunk dann ohne Eltern stehen. Bei scale 16 mit nativen
-/// Stufen, bei 12 ohne.
+/// Ein Lauf mit --prune läuft bis zum Ende wie einer ohne den Schalter
+/// und räumt erst dann auf. Bricht er in der Pyramide ab, steht jede Datei
+/// noch da, und ein Lauf ohne den Schalter ergibt danach denselben Baum
+/// wie ohne den Abbruch davor, bis aufs Byte. Einer mit ihm heilt den
+/// Baum. Früher wurden die Stufen über den Kacheln ohne Chunk vorher schon
+/// durchsichtig, und kein Lauf ohne --prune stellte sie wieder her; noch
+/// früher verschwanden sie sofort. Bei scale 16 mit nativen Stufen, bei 12
+/// ohne.
 ///
 /// Den Abbruch erzwingt ein Verzeichnis an der Stelle einer Kachel der
 /// Stufe 0, die die Pyramide neu schreibt: dort liegt der erste Block.
@@ -633,6 +735,8 @@ fn abbruch_in_der_pyramide_entfernt_nichts() {
         gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
         assert!(max_zoom(baum.path()) > 2, "scale {scale}: zu wenig Stufen");
         let vorher = dateien(baum.path());
+        let ohne = kopie(baum.path());
+        gelungen(&tiles(neu.path(), ohne.path(), &["--scale", scale]));
 
         let (_, pfad) = kacheln(baum.path(), 0)
             .into_iter()
@@ -651,6 +755,11 @@ fn abbruch_in_der_pyramide_entfernt_nichts() {
         std::fs::remove_dir(&pfad).unwrap();
         gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));
         assert_eq!(waisen(baum.path()), Vec::<String>::new(), "scale {scale}");
+        assert_eq!(
+            schnappschuss(baum.path()),
+            schnappschuss(ohne.path()),
+            "scale {scale}: der Abbruch hat etwas verändert"
+        );
         gelungen(&tiles(
             neu.path(),
             baum.path(),

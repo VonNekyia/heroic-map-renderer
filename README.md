@@ -232,11 +232,15 @@ seiner Fläche, bricht der Lauf ab, bevor er die erste Kachel schreibt.
 Die Kacheln liegen als `tiles/<z>/<x>/<y>.webp`; x und y dürfen negativ sein,
 weil der Blockursprung mitten in der Welt liegt. Wird eine Kachel bei einem
 erneuten Lauf leer, löscht der Export die alte Datei — auf jeder Stufe, sonst
-zeigte die Karte weiter, was inzwischen abgerissen wurde.
+zeigte die Karte weiter, was inzwischen abgerissen wurde. Nur eine native
+Elternkachel, unter der eine Kachel stehen bleibt, bleibt durchsichtig
+stehen, siehe unten.
 
 Eine Basiskachel, die gar kein Chunk mehr berührt, weil ein Editor ihn
 zurückgesetzt hat, entfernt der Export nur mit `--prune`, dann auf jeder
-Stufe. Ohne den Schalter zählt er sie und lässt sie stehen; nur wo der Lauf
+Stufe. Bis zum Ende läuft ein Lauf mit dem Schalter wie einer ohne ihn;
+erst dann nimmt er diese Kacheln heraus und setzt die Stufen über ihnen
+ohne sie neu zusammen. Ohne den Schalter zählt er sie und lässt sie stehen; nur wo der Lauf
 eine native Elternkachel ohnehin neu rendert, fehlt dort schon, was sie
 zeigen. Die Elternkachel bleibt dann durchsichtig stehen, damit keine
 Kachel ohne Eltern dasteht. Einer Teilkopie der Welt fehlt vieles, und ein
@@ -251,10 +255,12 @@ geworden ist, von der gröbsten Stufe bis zur Basis. Bis dahin zeigt eine
 leer gewordene Kachel schon nichts mehr, der Lauf überschreibt sie
 durchsichtig. Bricht er vorher ab, hat er nichts gelöscht, und auch ein
 späterer Ausschnitt holt nichts Abgerissenes in eine Elternkachel zurück.
-Bricht er beim Entfernen ab, fehlen feineren Kacheln die Eltern. Jeder
-Lauf sucht solche Kacheln, soweit sie seine Fläche berühren, und baut ihnen
-die Eltern neu; einer mit `--prune` räumt dann auch die Kacheln ohne Chunk
-weg.
+Über den Kacheln ohne Chunk hat ein Lauf mit `--prune` bis dahin nur
+verändert, was auch ein Lauf ohne ihn verändert hätte. Bricht er beim
+Entfernen ab, fehlen feineren Kacheln die Eltern. Jeder Lauf sucht solche
+Kacheln, soweit sie seine Fläche berühren, und baut ihnen die Eltern neu,
+auch einer, dessen Vorlauf dort nichts mehr findet; einer mit `--prune`
+räumt dann auch die Kacheln ohne Chunk weg.
 
 ### Zoomstufen
 

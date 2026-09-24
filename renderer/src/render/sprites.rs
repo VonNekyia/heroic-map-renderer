@@ -172,12 +172,13 @@ impl Family {
     /// Wasseroberflaeche dieser Hoehe an ihrer Stelle belegen wuerde? Dort
     /// treffen die Strahlen hinter der Oberflaeche den Block auf der
     /// Diagonalen, und die meisten enden an ihm. Sonst laufen sie hindurch:
-    /// Seegras, Kelp, ein gefluteter Zaunpfosten und eine untere Platte
-    /// zaehlen wie das Wasser um sie herum. Hinter fliessendem Wasser der
-    /// Menge a treten die Strahlen bei a/9 ein, tiefer als bei einer
-    /// Quelle, und eine untere Platte deckt dort mehr. Gemessen wird immer
-    /// bei scale 32, damit die nativen Stufen dieselbe Tiefe zaehlen wie
-    /// die Basis.
+    /// unter einer Quelle zaehlen Seegras, Kelp, ein gefluteter
+    /// Zaunpfosten und eine untere Platte wie das Wasser um sie herum.
+    /// Hinter fliessendem Wasser der Menge a treten die Strahlen bei a/9
+    /// ein, tiefer als bei einer Quelle: dort deckt eine untere Platte
+    /// mehr, eine obere bei 1/9 weniger, und Seegras haelt bei 1/9 und 2/9
+    /// auf. Die Zahlen stehen im README. Gemessen wird immer bei scale 32,
+    /// damit die nativen Stufen dieselbe Tiefe zaehlen wie die Basis.
     pub fn covers(&self, ninths: u8) -> bool {
         (self.cover_bits >> (ninths.clamp(1, 8) - 1)) & 1 == 1
     }

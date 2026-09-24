@@ -325,7 +325,7 @@ Halb Schwarz, halb Weiss ergibt so 188 statt 128.
   "maxZoom": 10,
   "tiles": "{z}/{x}/{y}.webp",
   "bounds": [-10240, 0, -6144, 4096],
-  "world": "05ff03f95077be56-07ba487af40a087d"
+  "world": "cb13a94d6c88dae1-6872d5d8ff54db07"
 }
 ```
 
@@ -353,7 +353,10 @@ einem einzelnen Hash liessen sich alle in Stunden bis Tagen durchprobieren.
 Verkettet sind es 2^68 Aufrufe je Baum, auf einer Grafikkarte Jahrzehnte,
 und der Export zahlt dafür 16 ms je Lauf. Ein Seed aus einem Text hat nur
 2^32 Werte, 2^52 Aufrufe: den schützt die Kennung für Stunden bis Tage,
-nicht für immer. Ohne `level.dat` in der Wurzel ist die Welt nicht zu
+nicht für immer. Das gilt nur, wenn man alle durchprobieren muss. Jeder
+geratene Seed kostet einen Versuch von 16 ms, und ein eingetippter wie
+12345 oder einer aus einer öffentlichen Liste steht in jedem Wörterbuch:
+den findet man in Sekunden. Ohne `level.dat` in der Wurzel ist die Welt nicht zu
 erkennen, etwa bei einer Kopie ohne sie. Dann steht `"world": null` da, und
 ein solcher Baum nimmt keine Welt mit Kennung auf; zwei Welten ohne
 Kennung kann der Renderer nicht auseinanderhalten.
@@ -437,21 +440,37 @@ hinter Milchglas, mit sichtbarem Kies in jeder Tiefe. Im Spiel erledigt
 das der Unterwassernebel. Senkrecht gezählt verschwände, was knapp unter
 einer tiefen Oberfläche liegt, ein Wrack oder ein Riff. Die Zählung endet
 an dem, was den Strahl aufhält: dem Grund, dem Ufer, einem Stein. Dünne
-Modelle zählen als Wasser, denn neben Seegras, Kelp oder einem gefluteten
-Zaun geht der Strahl weiter bis zum Grund; endete die Zählung an ihnen,
-stünde über jedem Seegras ein heller Fleck. Ob ein Block den Strahl
+Modelle zählen unter einer Quelle als Wasser, denn neben Seegras, Kelp oder
+einem gefluteten Zaun geht der Strahl weiter bis zum Grund; endete die
+Zählung an ihnen, stünde über jedem Seegras ein heller Fleck. Ob ein Block den Strahl
 aufhält, misst der Renderer an den Pixeln, die die Oberfläche an seiner
 Stelle belegen würde, auf ihrer Höhe und immer bei scale 32: hinter
 fliessendem Wasser treten die Strahlen tiefer ein als hinter einer Quelle,
 und jede Stufe soll gleich zählen. Deckt er mehr als die Hälfte davon,
-endet die Zählung: eine obere
-Platte und ein Mauerpfosten halten den Strahl auf, eine untere Platte nicht,
-denn über sie gehen drei von fünf Strahlen hinweg. Hohes Seegras deckt genau
-die Hälfte und zählt wie Wasser; sonst stünde über ihm ein heller Fleck. Der
-Preis: jedes dünne Modell einen Block unter der Oberfläche verschwindet
-fast, wenn dahinter tiefes Wasser steht — Seegras, Kelp, Zaunpfosten,
-Korallenfächer. Die Oberfläche darüber trägt die Deckkraft aller Schichten
-dahinter, und statt 29 Prozent bleibt von ihm unter 1 Prozent sichtbar.
+endet die Zählung. Hinter einer Quelle halten eine obere Platte und ein
+Mauerpfosten den Strahl auf, eine untere Platte nicht, denn über sie gehen
+156 von 256 Strahlen hinweg. Hohes Seegras deckt dort höchstens die Hälfte
+und zählt wie Wasser; sonst stünde über ihm ein heller Fleck. Hinter
+fliessendem Wasser verschiebt sich das. Gemessen an Vanilla 26.2 bei
+scale 32, je `level` des Wassers davor, deckt ein Block so viele der 256
+Pixel; fett heisst, die Zählung endet an ihm:
+
+| Block | Quelle | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| untere Platte | 100 | **132** | **182** | **226** | **256** | **256** | **256** | **256** |
+| obere Platte | **256** | **256** | **256** | **256** | **226** | **182** | **132** | 100 |
+| Seegras | 37 | 51 | 70 | 82 | 103 | 119 | **141** | **131** |
+| hohes Seegras, unten | 128 | **151** | **163** | **167** | **180** | **188** | **194** | **179** |
+| hohes Seegras, oben | 75 | 90 | 113 | 122 | **129** | **131** | **130** | 116 |
+| Kelp | 80 | 102 | 119 | 128 | 128 | 125 | 106 | 94 |
+| Zaunpfosten | 80 | 92 | 108 | 112 | 112 | 108 | 92 | 80 |
+| Mauerpfosten | **160** | **184** | **192** | **192** | **192** | **192** | **184** | **160** |
+
+Der Preis: unter einer Quelle verschwindet ein dünnes Modell einen Block
+unter der Oberfläche fast, wenn dahinter tiefes Wasser steht, Seegras,
+Kelp, Zaunpfosten, Korallenfächer. Die Oberfläche darüber trägt die
+Deckkraft aller Schichten dahinter, und statt 29 Prozent bleibt von ihm
+unter 1 Prozent sichtbar.
 
 Gras und Laub funktionieren wie das Wasser: die Textur ist grau, das Biom
 liefert Temperatur und Niederschlag, und die Colormaps `grass.png` und
@@ -563,7 +582,7 @@ Assets:     3110 Blockstates aufgelöst in 0.6 s, 0 ungelöst
             minecraft:skeleton_skull
             minecraft:white_wall_banner
 Sprites:    3076 gerastert bei scale 32 in 0.4 s (7351/s)
-            9.1 MB Sprite-Pixel, größtes: minecraft:brain_coral_fan[waterlogged=true] (46x31)
+            9.0 MB Sprite-Pixel, größtes: minecraft:brain_coral_fan[waterlogged=true] (46x31)
             1 Blöcke sind aus dieser Blickrichtung unsichtbar: minecraft:fire
 
 Texturen:   738 geladen, 0 fehlen

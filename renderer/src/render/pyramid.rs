@@ -257,7 +257,10 @@ const ROUNDS: u32 = 1 << 20;
 /// läuft er eine Million Mal hintereinander, 2^68 Aufrufe für alle Zufallsseeds,
 /// und das Salz zwingt jeden Versuch, für jeden Baum von vorn anzufangen.
 /// Ein Seed aus einem Text hat nur 2^32 Werte, 2^52 Aufrufe: den schützt
-/// das für Stunden bis Tage, nicht für immer.
+/// das für Stunden bis Tage, nicht für immer. Und nur, wenn man alle
+/// durchprobieren muss: ein eingetippter Seed wie 12345 oder einer aus
+/// einer öffentlichen Liste kostet einen Versuch von 16 ms und steht in
+/// jedem Wörterbuch.
 ///
 /// Von Hand und nicht `DefaultHasher`: dessen Algorithmus darf sich mit
 /// jeder Rust-Version ändern, und jeder bestehende Baum gälte dann als

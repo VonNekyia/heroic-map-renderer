@@ -5,9 +5,13 @@
 //! Lauf abgelesen — ein Goldbild käme erst in Schritt 4 dazu.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use terranova_render::assets::baker::box_quads;
-use terranova_render::assets::{Assets, BakedModel, Quad, TextureId, Tints, model_of};
+use terranova_render::assets::{
+    Assets, BakedModel, Element, ElementFace, Face, Quad, ResolvedModel, ResolvedVariant, Rotation,
+    TextureId, Tints, bake, model_of,
+};
 use terranova_render::render::rasterizer::over;
 use terranova_render::render::{Projection, render};
 use terranova_render::world::BlockState;
@@ -459,10 +463,10 @@ fn diagonale_mischt_nur_einmal() {
 }
 
 /// Jede Kante zwischen zwei Dreiecken nimmt jeden Pixel darauf genau
-/// einmal, in jeder Lage: Quader auf dem 1/16-Raster, gedreht wie
-/// Elemente um 22,5 und 45 Grad und wie Varianten um Vielfache von 90 —
-/// Kreuzmodelle, Türen, Knöpfe, Falltüren —, bei jedem scale. Gedreht wird
-/// in f32 wie im Baker, mit derselben Rundung. Ein Quader projiziert sich
+/// einmal, in jeder Lage: Quader auf dem 1/16-Raster, als Element um 22,5
+/// und 45 Grad gedreht, mit und ohne `rescale`, und als Variante um
+/// Vielfache von 90 — Kreuzmodelle, Türen, Knöpfe, Falltüren —, bei jedem
+/// scale. Gedreht wird vom Baker selbst. Ein Quader projiziert sich
 /// konvex, und jeder Pixelmittelpunkt darin gehört genau einer
 /// Vorderfläche. Mit durchsichtiger Textur zeigt sich ein doppelter Pixel
 /// als zu hohes Alpha, ein Loch als leerer Pixel innen.
@@ -478,14 +482,23 @@ fn kanten_nehmen_jeden_pixel_genau_einmal() {
         zustand ^= zustand << 17;
         zustand % n
     };
-    let drehe = |[x, y, z]: [f32; 3], achse: u64, grad: f32| {
-        let (sin, cos) = grad.to_radians().sin_cos();
-        match achse {
-            0 => [x, y * cos - z * sin, y * sin + z * cos],
-            1 => [x * cos + z * sin, y, -x * sin + z * cos],
-            _ => [x * cos - y * sin, x * sin + y * cos, z],
-        }
+    let flaeche = ElementFace {
+        texture: glas,
+        force_translucent: false,
+        uv: None,
+        cullface: None,
+        rotation: 0,
+        tint_index: None,
     };
+    let seiten = [
+        Face::Down,
+        Face::Up,
+        Face::North,
+        Face::South,
+        Face::West,
+        Face::East,
+    ]
+    .map(|seite| (seite, flaeche.clone()));
 
     let mut innen = 0;
     for _ in 0..300 {
@@ -497,23 +510,34 @@ fn kanten_nehmen_jeden_pixel_genau_einmal() {
             from[i] = a.min(b) as f32;
             to[i] = (a.max(b) + 1) as f32;
         }
-        let achse = zufall(3);
-        let grad = [22.5f32, -22.5, 45.0, -45.0, 90.0, 180.0, 270.0][zufall(7) as usize];
-        let mitte = [zufall(17), zufall(17), zufall(17)].map(|a| a as f32 / 16.0);
-        let quads: Vec<Quad> = box_quads(from, to, glas, None, None)
-            .map(|mut q| {
-                q.corners = q.corners.map(|p| {
-                    let v = drehe(
-                        [p[0] - mitte[0], p[1] - mitte[1], p[2] - mitte[2]],
-                        achse,
-                        grad,
-                    );
-                    [v[0] + mitte[0], v[1] + mitte[1], v[2] + mitte[2]]
-                });
-                q
-            })
-            .collect();
-        let modell = BakedModel { quads };
+        // Ein Viertel der Elemente bleibt ungedreht.
+        let achse = zufall(4) as usize;
+        let rotation = (achse < 3).then(|| {
+            let mut angles = [0.0f32; 3];
+            angles[achse] = [22.5, -22.5, 45.0, -45.0][zufall(4) as usize];
+            Rotation {
+                origin: [zufall(17), zufall(17), zufall(17)].map(|a| a as f32),
+                angles,
+                rescale: zufall(2) == 1,
+            }
+        });
+        let (vx, vy) = (zufall(4) as i32 * 90, zufall(4) as i32 * 90);
+        let modell = bake(&[ResolvedVariant {
+            model_id: String::new(),
+            model: Arc::new(ResolvedModel {
+                elements: vec![Element {
+                    from,
+                    to,
+                    rotation,
+                    shade: true,
+                    faces: seiten.to_vec(),
+                }],
+            }),
+            x: vx,
+            y: vy,
+            z: 0,
+            uvlock: false,
+        }]);
 
         for scale in [4u32, 8, 16, 32, 64] {
             let projection = Projection::new(scale);
@@ -533,8 +557,9 @@ fn kanten_nehmen_jeden_pixel_genau_einmal() {
             for (x, y, p) in sprite.image.enumerate_pixels() {
                 let px = (x as i32 + sprite.offset.0) as f64 + 0.5;
                 let py = (y as i32 + sprite.offset.1) as f64 + 0.5;
-                let fall =
-                    format!("scale {scale}, {from:?}..{to:?}, {grad} um {achse}, ({px}, {py})");
+                let fall = format!(
+                    "scale {scale}, {from:?}..{to:?}, {rotation:?}, x {vx} y {vy}, ({px}, {py})"
+                );
                 assert!(
                     p.0[3] == 0 || p.0[3] == 180,
                     "doppelt: {fall}, Alpha {}",

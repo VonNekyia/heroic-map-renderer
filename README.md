@@ -480,7 +480,14 @@ beiden durch — bei scale 32 derselbe Pixel in jedem Kreuzmodell. Ohne die
 Regel nahmen beide Dreiecke einer Fläche
 die Pixel auf ihrer Diagonale an, und bei scale 2 bekam Wasser dort
 Alpha 233 statt 180. Geprüft ist beides an 300 zufällig gedrehten Quadern
-bei scale 4 bis 64. Geglättete Kanten trügen
+bei scale 4 bis 64, gedreht vom Baker selbst. Dabei zeigte sich eine
+Fläche genau parallel zur Blickrichtung: f32 legt ihre Normale knapp neben
+null, und lag sie davor, zeichnete die Fläche einen hauchdünnen Streifen,
+dessen Pixel auf der Kante des Nachbarn zweimal kam. Solche Flächen zählen
+jetzt als abgewandt. In Vanilla und im Pack haben 82 Blockstates eine,
+etwa Kerzen, Hängeschilder und schräge Schienen. Ihre Pixel bleiben auf
+allen fünf scales gleich, nur 370 von 1705 Sprites bekommen einen kleineren
+Rahmen. Geglättete Kanten trügen
 Teildeckung im Alpha, und beim Zusammensetzen der Sprites könnte niemand
 mehr unterscheiden, ob zwei Nachbarflächen dasselbe Pixel teilen oder ob
 eine durch die andere scheint: ein Wasserbecken bekam an jeder Blockgrenze

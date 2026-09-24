@@ -35,6 +35,16 @@ const MAX_SPRITE_BLOCKS: u32 = 8;
 /// interpolierten Tiefe, weit unter jedem echten Abstand im Modell.
 const FLUID_BEHIND: f32 = 1e-3;
 
+/// Bis zu diesem Anteil ihrer Normalen steht eine Fläche parallel zur
+/// Blickrichtung und hat im Bild keine Fläche. Der Baker dreht in f32, und
+/// eine solche Fläche behält eine Normale, deren Summe um 1e-7 ihrer Länge
+/// neben null liegt, mal davor, mal dahinter. Davor legte sie einen
+/// Streifen von 2e-7 Pixeln Breite auf die Kante ihres Nachbarn, und ein
+/// Pixelmittelpunkt genau darauf bekam beide. Echte Drehungen liegen weit
+/// darüber: um eine Achse in Schritten von 22,5 Grad, dazu Vielfache von
+/// 90, ist die kleinste Summe ungleich null 0,54 der Länge.
+const EDGE_ON: f32 = 1e-4;
+
 /// Helligkeit je Flächenrichtung, wie Minecraft sie verwendet. Ohne diese
 /// Abstufung sieht ein isometrischer Würfel flach aus.
 const SHADE_TOP: f32 = 1.0;
@@ -257,10 +267,12 @@ impl<'a> ProjectedQuad<'a> {
 /// wenn ihre Normale eine Komponente in Richtung (1, 1, 1) hat. Ohne diese
 /// Prüfung gewinnen abgewandte Flächen den Tiefentest, wenn sie mit einer
 /// sichtbaren zusammenfallen — beim Seerosenblatt liegen `down` und `up` in
-/// derselben Ebene.
+/// derselben Ebene. Eine Fläche parallel zur Blickrichtung zählt nicht,
+/// siehe `EDGE_ON`.
 pub(crate) fn faces_camera(quad: &Quad) -> bool {
     let n = quad.normal();
-    n[0] + n[1] + n[2] > 0.0
+    let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    n[0] + n[1] + n[2] > EDGE_ON * length
 }
 
 /// Helligkeit nach der Richtung, in die die Fläche am stärksten zeigt.

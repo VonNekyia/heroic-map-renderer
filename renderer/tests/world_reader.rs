@@ -4,7 +4,7 @@
 
 mod common;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use terranova_render::world::World;
 
@@ -46,40 +46,79 @@ fn dekodiert_blockstates() {
     assert_eq!(block(9240, 200, 6664).as_deref(), Some("minecraft:air"));
 }
 
-/// Der Seed ist die Grundlage der Kennung im Kachelbaum. Vanilla legt ihn
-/// seit 26.1 in `data/minecraft` der Weltwurzel ab, Paper in jede
-/// Dimension, bis 1.21 stand er in `level.dat`. Ohne `level.dat` ist das
-/// Verzeichnis keine Weltwurzel: eine einzelne Dimension trüge bei Paper
-/// sonst den Seed der Oberwelt.
+/// Seed und Dimension einer Welt, wie `World` sie sieht.
+fn herkunft(dir: &Path) -> (Option<i64>, Option<String>) {
+    let world = World::open(dir).unwrap();
+    (world.seed().unwrap(), world.dimension().map(str::to_string))
+}
+
+/// Seed und Dimension sind die Grundlage der Kennung im Kachelbaum. Den
+/// Seed tragen alle Dimensionen einer Welt gleich, gelesen wird er an der
+/// Weltwurzel, dem Verzeichnis mit `level.dat`: seit 26.1 bei Vanilla aus
+/// `data/minecraft`, bei Paper aus der Oberwelt, bis 1.21 aus `level.dat`,
+/// in dieser Reihenfolge. Eine Dimension darunter findet ihre Wurzel, eine
+/// Kopie ohne sie hat keine Kennung.
 #[test]
-fn liest_den_seed_aus_jedem_layout() {
+fn findet_seed_und_dimension_in_jedem_layout() {
+    let oberwelt = || Some("minecraft:overworld".to_string());
+    let nether = || Some("minecraft:the_nether".to_string());
+
+    // Vanilla 26: Seed an der Wurzel, Regionen je Dimension.
     let vanilla = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(vanilla.path().join("dimensions/minecraft/overworld/region")).unwrap();
+    let dims = vanilla.path().join("dimensions/minecraft");
+    std::fs::create_dir_all(dims.join("overworld/region")).unwrap();
+    std::fs::create_dir_all(dims.join("the_nether/region")).unwrap();
     common::write_level_dat_ohne_seed(vanilla.path());
     common::write_gen_settings(vanilla.path(), 7_331);
-    assert_eq!(
-        World::open(vanilla.path()).unwrap().seed().unwrap(),
-        Some(7_331)
-    );
+    assert_eq!(herkunft(vanilla.path()), (Some(7_331), oberwelt()));
+    assert_eq!(herkunft(&dims.join("overworld")), (Some(7_331), oberwelt()));
+    assert_eq!(herkunft(&dims.join("the_nether")), (Some(7_331), nether()));
 
+    // Paper 26: Seed in jeder Dimension, gelesen wird der der Oberwelt.
     let paper = tempfile::tempdir().unwrap();
-    let oberwelt = paper.path().join("dimensions/minecraft/overworld");
-    std::fs::create_dir_all(oberwelt.join("region")).unwrap();
+    let dims = paper.path().join("dimensions/minecraft");
+    std::fs::create_dir_all(dims.join("overworld/region")).unwrap();
+    std::fs::create_dir_all(dims.join("the_nether/region")).unwrap();
     common::write_level_dat_ohne_seed(paper.path());
-    common::write_gen_settings(&oberwelt, -4_172_144_997_902_289_642);
-    let seed = World::open(paper.path()).unwrap().seed().unwrap();
-    assert_eq!(seed, Some(-4_172_144_997_902_289_642));
+    common::write_gen_settings(&dims.join("overworld"), -4_172_144_997_902_289_642);
+    common::write_gen_settings(&dims.join("the_nether"), -4_172_144_997_902_289_642);
+    let seed = Some(-4_172_144_997_902_289_642);
+    assert_eq!(herkunft(paper.path()), (seed, oberwelt()));
+    assert_eq!(herkunft(&dims.join("the_nether")), (seed, nether()));
 
-    let nether = paper.path().join("dimensions/minecraft/the_nether");
-    std::fs::create_dir_all(nether.join("region")).unwrap();
-    common::write_gen_settings(&nether, -4_172_144_997_902_289_642);
-    let seed = World::open(&nether).unwrap().seed().unwrap();
-    assert_eq!(seed, None, "eine Dimension allein ist keine Welt");
-
+    // Bis 1.21: Seed in level.dat, Nether und End als DIM-1 und DIM1, bei
+    // Bukkit in einer eigenen Welt.
     let alt = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(alt.path().join("region")).unwrap();
+    for sub in ["region", "DIM-1/region", "DIM1/region"] {
+        std::fs::create_dir_all(alt.path().join(sub)).unwrap();
+    }
     common::write_level_dat(alt.path(), 42);
-    assert_eq!(World::open(alt.path()).unwrap().seed().unwrap(), Some(42));
+    assert_eq!(herkunft(alt.path()), (Some(42), oberwelt()));
+    assert_eq!(herkunft(&alt.path().join("DIM-1")), (Some(42), nether()));
+    let ende = Some("minecraft:the_end".to_string());
+    assert_eq!(herkunft(&alt.path().join("DIM1")), (Some(42), ende));
+    let bukkit = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(bukkit.path().join("DIM-1/region")).unwrap();
+    common::write_level_dat(bukkit.path(), 42);
+    assert_eq!(herkunft(&bukkit.path().join("DIM-1")), (Some(42), nether()));
+
+    // Die Reihenfolge der Orte: Vanilla vor Paper vor level.dat.
+    let alle = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(alle.path().join("region")).unwrap();
+    let paper_ort = alle.path().join("dimensions/minecraft/overworld");
+    common::write_level_dat(alle.path(), 3);
+    assert_eq!(herkunft(alle.path()).0, Some(3));
+    common::write_gen_settings(&paper_ort, 2);
+    assert_eq!(herkunft(alle.path()).0, Some(2));
+    common::write_gen_settings(alle.path(), 1);
+    assert_eq!(herkunft(alle.path()).0, Some(1));
+
+    // Eine Kopie einer Dimension ohne ihre Wurzel.
+    let kopie = tempfile::tempdir().unwrap();
+    let the_nether = kopie.path().join("the_nether");
+    std::fs::create_dir_all(the_nether.join("region")).unwrap();
+    common::write_gen_settings(&the_nether, 7_331);
+    assert_eq!(herkunft(&the_nether), (None, None));
 
     // Die Fixture hat nur Regionen.
     assert_eq!(world().seed().unwrap(), None);

@@ -965,7 +965,9 @@ fn fremde_welt_wird_abgelehnt() {
     assert!(!ausgabe.status.success(), "die fremde Welt lief durch");
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(
-        meldung.contains(&format!("anderen Welt: Kennung dort {kennung}")),
+        meldung.contains(&format!(
+            "anderen Welt oder Dimension: Kennung dort {kennung}"
+        )),
         "Meldung: {meldung}"
     );
     assert_eq!(
@@ -978,20 +980,35 @@ fn fremde_welt_wird_abgelehnt() {
     gelungen(&tiles(erste.path(), out.path(), &["--scale", "16"]));
 }
 
-/// Ein Baum eines älteren Stands trägt keine Kennung. Er gehört ab dem
+/// Ein Baum eines älteren Stands trägt kein Feld `world`. Er gehört ab dem
 /// nächsten Lauf zu dessen Welt, und danach ist er geschützt wie jeder
-/// andere. Sonst müsste jeder bestehende Baum neu entstehen.
+/// andere. Sonst müsste jeder bestehende Baum neu entstehen. Ein Baum einer
+/// Welt ohne Kennung trägt dagegen `"world": null` und nimmt keine Welt
+/// mit Kennung auf; früher sah er aus wie einer von früher, und jede Welt
+/// kam hinein.
 #[test]
 fn alter_baum_ohne_kennung_wird_uebernommen() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
     let out = tempdir();
-    // Ohne level.dat hat die Welt keinen Seed, wie ein Baum von früher.
+    // Ohne level.dat hat die Welt keine Kennung.
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
     let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
-    assert!(!karte.contains("world"), "{karte}");
+    assert!(karte.contains("\"world\": null"), "{karte}");
 
     common::write_level_dat(welt.path(), 4_815_162_342);
+    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
+    assert!(
+        !ausgabe.status.success(),
+        "die Welt kam in einen fremden Baum"
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("Welt ohne Kennung"), "{meldung}");
+
+    // So sieht ein Baum eines älteren Stands aus.
+    let mut alt: serde_json::Value = serde_json::from_str(&karte).unwrap();
+    alt.as_object_mut().unwrap().remove("world");
+    std::fs::write(out.path().join("map.json"), alt.to_string()).unwrap();
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
     let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
     assert!(text.contains("nannte keine Welt"), "{text}");
@@ -1037,6 +1054,65 @@ fn alter_scale_nennt_den_ausweg() {
     // vor der ersten Kachel, und die kommt nie.
     let text = String::from_utf8_lossy(&ausgabe.stdout);
     assert!(!text.contains("keine Welt"), "{text}");
+}
+
+/// Alle Dimensionen einer Welt tragen denselben Seed. Die Kennung nimmt die
+/// Dimension dazu: der Nether kommt nicht in den Baum der Oberwelt und die
+/// Oberwelt nicht in seinen. Die Oberwelt, einmal über die Wurzel und
+/// einmal über ihr Dimensionsverzeichnis, ist dieselbe Welt. Einer Kopie
+/// ohne level.dat rät die Meldung zur Wurzel statt zu einem neuen Baum.
+#[test]
+fn dimensionen_haben_eigene_kennungen() {
+    let welt = tempdir();
+    let oberwelt = welt.path().join("dimensions/minecraft/overworld");
+    let nether = welt.path().join("dimensions/minecraft/the_nether");
+    common::write_world(&oberwelt, &[(0, 0)], gelaende);
+    common::write_world(&nether, &[(0, 0)], gelaende);
+    common::write_level_dat(welt.path(), 4_815_162_342);
+
+    let baum = tempdir();
+    gelungen(&tiles(&nether, baum.path(), &["--scale", "16"]));
+    let karte = std::fs::read_to_string(baum.path().join("map.json")).unwrap();
+    kennung_in(&karte);
+    let ausgabe = tiles(welt.path(), baum.path(), &["--scale", "16"]);
+    assert!(
+        !ausgabe.status.success(),
+        "die Oberwelt kam in den Netherbaum"
+    );
+
+    let baum = tempdir();
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
+    let ausgabe = tiles(&nether, baum.path(), &["--scale", "16"]);
+    assert!(
+        !ausgabe.status.success(),
+        "der Nether kam in den Baum der Oberwelt"
+    );
+    gelungen(&tiles(&oberwelt, baum.path(), &["--scale", "16"]));
+
+    let kopie = tempdir();
+    common::write_world(kopie.path(), &[(0, 0)], gelaende);
+    let ausgabe = tiles(kopie.path(), baum.path(), &["--scale", "16"]);
+    assert!(!ausgabe.status.success());
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("Hier fehlt level.dat"), "{meldung}");
+    assert!(!meldung.contains("neues Verzeichnis"), "{meldung}");
+}
+
+/// Jeder neue Baum zieht sein eigenes Salz. Mit einem festen liesse sich
+/// eine Tabelle über alle Seeds einmal rechnen und gegen jeden Baum
+/// halten.
+#[test]
+fn zwei_baeume_bekommen_verschiedene_salze() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    common::write_level_dat(welt.path(), 4_815_162_342);
+    let salz = || {
+        let baum = tempdir();
+        gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
+        let karte = std::fs::read_to_string(baum.path().join("map.json")).unwrap();
+        kennung_in(&karte).split('-').next().unwrap().to_string()
+    };
+    assert_ne!(salz(), salz());
 }
 
 /// Die Kennung aus `map.json`: Salz und Hash, je 16 Hexziffern.

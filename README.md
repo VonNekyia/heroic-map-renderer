@@ -288,10 +288,10 @@ er einen Chunk liest; sonst lägen im Baum Kacheln zweier Welten oder zweier
 Massstäbe. `map.json` entsteht deshalb direkt vor der ersten Kachel und am
 Ende noch einmal: bricht ein Lauf beim Schreiben ab, steht schon fest, wozu
 der Baum gehört, und scheitert er vorher, etwa an einem fehlenden Asset,
-legt er nichts fest. Ein Baum eines älteren Stands ohne Kennung gehört ab
-dem nächsten Lauf zu dessen Welt, der Lauf sagt es; einer mit scale 2, 6
-oder 10 lässt sich nicht fortsetzen, `--scale` nimmt nur noch Vielfache
-von 4.
+legt er nichts fest. Ein Baum eines älteren Stands, dessen `map.json` gar
+kein Feld `world` hat, gehört ab dem nächsten Lauf zu dessen Welt, der
+Lauf sagt es; einer mit scale 2, 6 oder 10 lässt sich nicht fortsetzen,
+`--scale` nimmt nur noch Vielfache von 4.
 
 Die gröberen Stufen werden nicht alle verkleinert. Solange jeder Block
 auf ganzen Pixeln liegt, der scale der Stufe also durch vier teilbar ist
@@ -335,10 +335,17 @@ hängt allein an `scale`, und die Formel gehört in den Renderer, nicht in eine
 Datei.
 
 `world` ist die Kennung der Welt: vorn ein Salz, das der Baum bei seinem
-ersten Lauf zufällig bekommt, dahinter ein Hash ihres Seeds, SipHash-2-4
-mit diesem Salz, eine Million Mal verkettet. Den Seed liest der Renderer
-aus der Weltwurzel: seit 26.1 aus `data/minecraft/world_gen_settings.dat`,
-bei Paper aus der Datei der Oberwelt, davor aus `level.dat`. Er selbst
+ersten Lauf zufällig bekommt, dahinter ein Hash ihres Seeds und ihrer
+Dimension, SipHash-2-4 mit diesem Salz, eine Million Mal verkettet. Die
+Dimension gehört dazu, weil alle Dimensionen einer Welt denselben Seed
+tragen: sonst käme der Nether in den Baum der Oberwelt und die Oberwelt in
+seinen. `--world` zeigt auf die Weltwurzel, das Verzeichnis mit
+`level.dat`, oder auf eine Dimension darin, `dimensions/<namensraum>/<name>`
+oder bis 1.21 `DIM-1` und `DIM1`. Die Wurzel ist die Oberwelt, auch über
+`dimensions/minecraft/overworld`. Den Seed liest der Renderer aus der
+Weltwurzel, in dieser Reihenfolge: seit 26.1 aus
+`data/minecraft/world_gen_settings.dat`, bei Paper aus der Datei der
+Oberwelt, davor aus `level.dat`. Er selbst
 steht nicht in der Datei: `map.json` liegt öffentlich neben den Kacheln,
 und mit dem Seed fände jeder Strukturen und Erze ohne zu suchen. Ein
 Zufallsseed hat nur 2^48 Werte, Vanilla zieht ihn mit 48 Bit Zustand; mit
@@ -346,9 +353,10 @@ einem einzelnen Hash liessen sich alle in Stunden bis Tagen durchprobieren.
 Verkettet sind es 2^68 Aufrufe je Baum, auf einer Grafikkarte Jahrzehnte,
 und der Export zahlt dafür 16 ms je Lauf. Ein Seed aus einem Text hat nur
 2^32 Werte, 2^52 Aufrufe: den schützt die Kennung für Stunden bis Tage,
-nicht für immer. Ohne `level.dat`
-ist das Verzeichnis keine Weltwurzel, etwa eine einzelne Dimension, und das
-Feld fehlt; Paper legt dort denselben Seed ab wie bei der Oberwelt.
+nicht für immer. Ohne `level.dat` in der Wurzel ist die Welt nicht zu
+erkennen, etwa bei einer Kopie ohne sie. Dann steht `"world": null` da, und
+ein solcher Baum nimmt keine Welt mit Kennung auf; zwei Welten ohne
+Kennung kann der Renderer nicht auseinanderhalten.
 
 Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines grossen
 Renderings gleichen, sonst stünden im Browser Kanten dazwischen. Neun Kacheln

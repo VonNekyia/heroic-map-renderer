@@ -204,10 +204,23 @@ pub struct MapInfo {
     /// Belegter Bereich auf der feinsten Stufe, in Pixeln:
     /// `[links, oben, rechts, unten]`.
     pub bounds: [i32; 4],
-    /// Kennung der Welt, zu der der Baum gehört, siehe [`world_id`]; fehlt
-    /// bei Welten ohne Seed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub world: Option<String>,
+    /// Zu welcher Welt der Baum gehört, siehe [`world_id`]; `null` bei einer
+    /// Welt ohne Kennung. Fehlt das Feld, stammt der Baum aus einem älteren
+    /// Stand.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "vorhanden"
+    )]
+    pub world: Option<Option<String>>,
+}
+
+/// Liest ein Feld, das auch `null` sein darf: nur ein fehlendes bleibt
+/// `None`.
+fn vorhanden<'de, D: serde::Deserializer<'de>>(
+    feld: D,
+) -> std::result::Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(feld).map(Some)
 }
 
 impl MapInfo {
@@ -233,7 +246,9 @@ impl MapInfo {
 const ROUNDS: u32 = 1 << 20;
 
 /// Die Kennung einer Welt im Kachelbaum: das Salz des Baums und ein Hash
-/// ihres Seeds, als `"<salz>-<hash>"` in Hexziffern.
+/// ihres Seeds und ihrer Dimension, als `"<salz>-<hash>"` in Hexziffern.
+/// Alle Dimensionen einer Welt tragen denselben Seed; ohne die Dimension
+/// käme der Nether in den Baum der Oberwelt und die Oberwelt in seinen.
 ///
 /// `map.json` liegt öffentlich neben den Kacheln, und den Seed soll dort
 /// niemand ablesen. Ein Zufallsseed hat aber nur 2^48 Werte: Vanilla zieht
@@ -247,9 +262,11 @@ const ROUNDS: u32 = 1 << 20;
 /// Von Hand und nicht `DefaultHasher`: dessen Algorithmus darf sich mit
 /// jeder Rust-Version ändern, und jeder bestehende Baum gälte dann als
 /// fremd.
-pub fn world_id(seed: i64, salt: u64) -> String {
+pub fn world_id(seed: i64, dimension: &str, salt: u64) -> String {
     let key = [salt, u64::from_le_bytes(*b"a-render")];
-    let mut hash = siphash24(key, &seed.to_le_bytes());
+    // Der Seed hat feste Länge, die Nachricht bleibt so eindeutig.
+    let message = [&seed.to_le_bytes()[..], dimension.as_bytes()].concat();
+    let mut hash = siphash24(key, &message);
     for _ in 1..ROUNDS {
         hash = siphash24(key, &hash.to_le_bytes());
     }
@@ -489,13 +506,25 @@ mod tests {
         assert_eq!(siphash24(key, &message), 0xa129_ca61_49be_45e5);
         // Gegengerechnet mit einer eigenen Python-Fassung. Die Werte dürfen
         // sich nie ändern, sonst gälte jeder bestehende Baum als fremd.
-        assert_eq!(world_id(0, 0), "0000000000000000-ac33c1f297ee6f13");
+        let oberwelt = "minecraft:overworld";
         assert_eq!(
-            world_id(4_815_162_342, 0x0123_4567_89ab_cdef),
-            "0123456789abcdef-37586d827e567ae4"
+            world_id(0, oberwelt, 0),
+            "0000000000000000-21035ca95f557704"
         );
-        assert_eq!(world_id(-1, u64::MAX), "ffffffffffffffff-1dda0381f53628e8");
-        assert_eq!(salt_of(&world_id(7, 42)), Some(42));
+        let salt = 0x0123_4567_89ab_cdef;
+        assert_eq!(
+            world_id(4_815_162_342, oberwelt, salt),
+            "0123456789abcdef-0adf0e2365ce474f"
+        );
+        assert_eq!(
+            world_id(4_815_162_342, "minecraft:the_nether", salt),
+            "0123456789abcdef-85810263e60694e1"
+        );
+        assert_eq!(
+            world_id(-1, "minecraft:the_end", u64::MAX),
+            "ffffffffffffffff-66708158e556a415"
+        );
+        assert_eq!(salt_of(&world_id(7, oberwelt, 42)), Some(42));
         assert_eq!(salt_of("56007c963ac3acc6"), None, "ohne Salz");
     }
 

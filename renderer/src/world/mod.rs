@@ -23,7 +23,7 @@ const REGION_DIRS: [&[&str]; 2] = [
 
 /// Wo die Server den Seed ablegen, relativ zur Weltwurzel: Vanilla seit
 /// 26.1 in seinem `LevelResource.DATA`, Paper bei jeder Dimension, gelesen
-/// wird der der Oberwelt.
+/// wird der der Oberwelt. In dieser Reihenfolge, danach `level.dat`.
 const SEED_FILES: [&[&str]; 2] = [
     &["data", "minecraft", "world_gen_settings.dat"],
     &[
@@ -37,7 +37,9 @@ const SEED_FILES: [&[&str]; 2] = [
 ];
 
 pub struct World {
-    root: PathBuf,
+    /// Weltwurzel und Dimension, falls das Verzeichnis zu einer Welt
+    /// gehört, siehe [`locate`].
+    home: Option<(PathBuf, String)>,
     region_dir: PathBuf,
 }
 
@@ -49,13 +51,45 @@ fn under(root: &Path, parts: &[&str]) -> PathBuf {
         .fold(root.to_path_buf(), |dir, part| dir.join(part))
 }
 
+/// Weltwurzel und Dimension zu dem Verzeichnis, das `--world` nennt.
+///
+/// Die Wurzel, das Verzeichnis mit `level.dat`, ist die Oberwelt, auch wenn
+/// ihre Regionen seit 26.1 unter `dimensions/minecraft/overworld` liegen.
+/// Die anderen Dimensionen liegen darunter: seit 1.16 und in 26.x unter
+/// `dimensions/<namensraum>/<name>`, Nether und End bis 1.21 als `DIM-1`
+/// und `DIM1`, bei Bukkit in eigenen Welten wie `world_nether/DIM-1` mit
+/// eigenem `level.dat`. Ohne `level.dat` in der Wurzel lässt sich die Welt
+/// nicht erkennen, etwa bei einer Kopie ohne sie.
+fn locate(dir: &Path) -> Option<(PathBuf, String)> {
+    let dir = std::path::absolute(dir).ok()?;
+    let is_root = |dir: &Path| dir.join("level.dat").is_file();
+    if is_root(&dir) {
+        return Some((dir, "minecraft:overworld".to_string()));
+    }
+    let name = dir.file_name()?.to_str()?;
+    let parent = dir.parent()?;
+    let legacy = match name {
+        "DIM-1" => Some("minecraft:the_nether"),
+        "DIM1" => Some("minecraft:the_end"),
+        _ => None,
+    };
+    if let Some(dimension) = legacy {
+        return is_root(parent).then(|| (parent.to_path_buf(), dimension.to_string()));
+    }
+    let namespace = parent.file_name()?.to_str()?;
+    let dimensions = parent.parent()?;
+    let root = dimensions.parent()?;
+    (dimensions.file_name()? == "dimensions" && is_root(root))
+        .then(|| (root.to_path_buf(), format!("{namespace}:{name}")))
+}
+
 impl World {
     pub fn open(root: &Path) -> Result<World> {
         for candidate in REGION_DIRS {
             let dir = under(root, candidate);
             if dir.is_dir() {
                 return Ok(World {
-                    root: root.to_path_buf(),
+                    home: locate(root),
                     region_dir: dir,
                 });
             }
@@ -99,14 +133,17 @@ impl World {
         region.chunk(cx, cz)
     }
 
-    /// Der Seed der Welt, Grundlage ihrer Kennung im Kachelbaum.
-    ///
-    /// Nur eine Weltwurzel hat einen, ein Verzeichnis mit `level.dat`. Eine
-    /// einzelne Dimension hat keinen: Paper legt dort denselben Seed ab wie
-    /// bei der Oberwelt, und ihre Kacheln kämen sonst in deren Baum. Seit
-    /// 26.1 steht er in `world_gen_settings.dat` unter `data.seed`, siehe
-    /// `SEED_FILES`, davor in `level.dat` unter
-    /// `Data.WorldGenSettings.seed`.
+    /// Die Dimension, etwa `minecraft:the_nether`, falls das Verzeichnis zu
+    /// einer Welt gehört.
+    pub fn dimension(&self) -> Option<&str> {
+        self.home.as_ref().map(|(_, dimension)| dimension.as_str())
+    }
+
+    /// Der Seed der Welt, mit der Dimension Grundlage ihrer Kennung im
+    /// Kachelbaum. Alle Dimensionen einer Welt tragen denselben, gelesen
+    /// wird er an der Weltwurzel, siehe [`locate`]. Seit 26.1 steht er in
+    /// `world_gen_settings.dat` unter `data.seed`, siehe `SEED_FILES`,
+    /// davor in `level.dat` unter `Data.WorldGenSettings.seed`.
     pub fn seed(&self) -> Result<Option<i64>> {
         #[derive(Deserialize)]
         struct Seed {
@@ -127,17 +164,17 @@ impl World {
             settings: Option<Seed>,
         }
 
-        let level = self.root.join("level.dat");
-        if !level.is_file() {
+        let Some((root, _)) = &self.home else {
             return Ok(None);
-        }
+        };
         for parts in SEED_FILES {
-            let path = under(&self.root, parts);
+            let path = under(root, parts);
             if path.is_file() {
                 return Ok(Some(read_nbt::<GenSettings>(&path)?.data.seed));
             }
         }
-        Ok(read_nbt::<Level>(&level)?.data.settings.map(|s| s.seed))
+        let level = read_nbt::<Level>(&root.join("level.dat"))?;
+        Ok(level.data.settings.map(|s| s.seed))
     }
 }
 

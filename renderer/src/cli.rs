@@ -682,7 +682,7 @@ fn schreibe_map_json(
 ) -> Result<(MapInfo, usize, PathBuf)> {
     let bestand = vorhandene(dir, max_zoom)?;
     let info = MapInfo {
-        world: kennung.map(str::to_string),
+        world: Some(kennung.map(str::to_string)),
         ..MapInfo::new(scale, max_zoom, &bestand)
     };
     std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
@@ -802,19 +802,20 @@ fn lies_bestand(dir: &Path) -> Result<Option<MapInfo>> {
     Ok(Some(alt))
 }
 
-/// Die Kennung dieser Welt für den Baum: mit dem Salz, das er schon
-/// trägt, sonst mit einem neuen. `RandomState` holt seine Schlüssel vom
-/// Betriebssystem; für ein Salz, das nur je Baum verschieden sein muss,
-/// reicht das.
+/// Die Kennung dieser Welt und Dimension für den Baum: mit dem Salz, das
+/// er schon trägt, sonst mit einem neuen. `RandomState` holt seine
+/// Schlüssel vom Betriebssystem; für ein Salz, das nur je Baum verschieden
+/// sein muss, reicht das.
 fn kennung(world: &World, bestand: Option<&MapInfo>) -> Result<Option<String>> {
-    let Some(seed) = world.seed()? else {
+    let (Some(seed), Some(dimension)) = (world.seed()?, world.dimension()) else {
         return Ok(None);
     };
     let salt = bestand
-        .and_then(|alt| alt.world.as_deref())
+        .and_then(|alt| alt.world.as_ref())
+        .and_then(|welt| welt.as_deref())
         .and_then(pyramid::salt_of)
         .unwrap_or_else(|| RandomState::new().hash_one(0u8));
-    Ok(Some(pyramid::world_id(seed, salt)))
+    Ok(Some(pyramid::world_id(seed, dimension, salt)))
 }
 
 /// Prüft, ob der bestehende Baum zu diesem Lauf passt, und sagt, ob er ihn
@@ -836,19 +837,34 @@ fn pruefe_bestand(
         return Ok(false);
     };
     let pfad = dir.join("map.json");
-    // Ein Baum ohne Kennung stammt aus einem älteren Stand. Er gehört ab
+    // Ein Baum ohne das Feld stammt aus einem älteren Stand. Er gehört ab
     // jetzt zu dieser Welt; sonst müsste jeder bestehende Baum neu
     // entstehen, bei einer grossen Welt über Stunden. Gesagt wird das erst
-    // vor der ersten Kachel, wenn es wirklich so kommt.
-    let uebernehmen = alt.world.is_none() && kennung.is_some();
-    if !uebernehmen && alt.world.as_deref() != kennung {
-        let nenne = |kennung: Option<&str>| kennung.unwrap_or("keine").to_string();
-        bail!(
-            "{} gehört zu einer anderen Welt: Kennung dort {}, hier {}. Ein neues Verzeichnis nehmen.",
-            pfad.display(),
-            nenne(alt.world.as_deref()),
-            nenne(kennung)
-        );
+    // vor der ersten Kachel, wenn es wirklich so kommt. Einer aus einer
+    // Welt ohne Kennung trägt `null` und nimmt keine mit Kennung auf.
+    let uebernehmen = alt.world.is_none();
+    if let Some(dort) = &alt.world
+        && dort.as_deref() != kennung
+    {
+        let pfad = pfad.display();
+        match (dort.as_deref(), kennung) {
+            (Some(dort), None) => bail!(
+                "{pfad} gehört zur Welt mit Kennung {dort}. Hier fehlt level.dat, und ohne sie \
+                 ist die Welt nicht zu erkennen: --world auf die Weltwurzel richten oder auf \
+                 eine Dimension darin."
+            ),
+            (None, Some(hier)) => bail!(
+                "{pfad} gehört zu einer Welt ohne Kennung, diese hat {hier}. Ein neues \
+                 Verzeichnis nehmen, oder \"world\" aus map.json entfernen, wenn der Baum \
+                 sicher zu dieser Welt gehört."
+            ),
+            (dort, hier) => bail!(
+                "{pfad} gehört zu einer anderen Welt oder Dimension: Kennung dort {}, hier {}. \
+                 Ein neues Verzeichnis nehmen.",
+                dort.unwrap_or("keine"),
+                hier.unwrap_or("keine")
+            ),
+        }
     }
     if alt.scale != scale {
         // Ältere Stände nahmen auch scale, die kein Vielfaches von 4 sind.

@@ -3,12 +3,13 @@ use serde_json::Value;
 
 use crate::world::BlockState;
 
-/// Der Inhalt einer `blockstates/*.json`: entweder eine Variantentabelle oder
-/// eine Liste von Multipart-Fällen.
+/// Der Inhalt einer `blockstates/*.json`: eine Variantentabelle, eine Liste
+/// von Multipart-Fällen oder beides. Wie im Client gilt zuerst die Tabelle,
+/// und Multipart deckt jeden Zustand, den sie nicht nennt.
 #[derive(Debug)]
-pub enum BlockStateDef {
-    Variants(Vec<Variant>),
-    Multipart(Vec<Case>),
+pub struct BlockStateDef {
+    variants: Vec<Variant>,
+    multipart: Option<Vec<Case>>,
 }
 
 /// Ein Eintrag der Variantentabelle. `when` ist leer für den Schlüssel `""`,
@@ -88,93 +89,100 @@ impl Term {
 }
 
 impl BlockStateDef {
+    /// Liest eine Definition so streng wie der Client: eine leere
+    /// Variantentabelle, eine leere Liste und ein Gewicht unter 1 lehnt er
+    /// ab, wie eine Datei mit keinem von beiden.
     pub fn parse(json: &Value) -> Result<BlockStateDef> {
-        if let Some(variants) = json.get("variants") {
-            let object = variants
+        let mut variants = Vec::new();
+        if let Some(value) = json.get("variants") {
+            let object = value
                 .as_object()
                 .ok_or_else(|| anyhow!("variants ist kein Objekt"))?;
-            let mut out = Vec::with_capacity(object.len());
+            if object.is_empty() {
+                bail!("variants ist leer");
+            }
             for (key, value) in object {
-                out.push(Variant {
+                variants.push(Variant {
                     when: parse_variant_key(key)?,
                     apply: parse_apply(value)?,
                 });
             }
-            return Ok(BlockStateDef::Variants(out));
         }
 
-        if let Some(multipart) = json.get("multipart") {
-            let list = multipart
-                .as_array()
-                .ok_or_else(|| anyhow!("multipart ist keine Liste"))?;
-            let mut cases = Vec::with_capacity(list.len());
-            for case in list {
-                let apply = case
-                    .get("apply")
-                    .ok_or_else(|| anyhow!("Multipart-Fall ohne apply"))?;
-                cases.push(Case {
-                    when: case.get("when").map(parse_condition).transpose()?,
-                    apply: parse_apply(apply)?,
-                });
+        let multipart = match json.get("multipart") {
+            Some(value) => {
+                let list = value
+                    .as_array()
+                    .ok_or_else(|| anyhow!("multipart ist keine Liste"))?;
+                let mut cases = Vec::with_capacity(list.len());
+                for case in list {
+                    let apply = case
+                        .get("apply")
+                        .ok_or_else(|| anyhow!("Multipart-Fall ohne apply"))?;
+                    cases.push(Case {
+                        when: case.get("when").map(parse_condition).transpose()?,
+                        apply: parse_apply(apply)?,
+                    });
+                }
+                Some(cases)
             }
-            return Ok(BlockStateDef::Multipart(cases));
+            None => None,
+        };
+
+        if variants.is_empty() && multipart.is_none() {
+            bail!("weder variants noch multipart");
         }
-
-        bail!("weder variants noch multipart")
-    }
-
-    /// Multipart darf leer ausgehen: trifft keine Bedingung zu, hat der
-    /// Zustand schlicht keine Geometrie. Eine Variantentabelle ohne Treffer
-    /// ist dagegen ein Fehler im Pack.
-    pub fn is_multipart(&self) -> bool {
-        matches!(self, BlockStateDef::Multipart(_))
+        Ok(BlockStateDef {
+            variants,
+            multipart,
+        })
     }
 
     /// Die Modelle der ersten Alternative — für Sprite-Raster und
     /// Diagnose, wo es auf eine feste Wahl ankommt.
     pub fn select(&self, state: &BlockState) -> Vec<ModelRef> {
         self.alternatives(state)
-            .into_iter()
-            .next()
+            .and_then(|alternativen| alternativen.into_iter().next())
             .map(|(_, refs)| refs)
             .unwrap_or_default()
     }
 
-    /// Alle Alternativen mit ihrem Gewicht.
+    /// Alle Alternativen mit ihrem Gewicht, oder `None`, wenn die Datei den
+    /// Zustand nicht kennt: keine Variante passt, und Multipart gibt es
+    /// nicht. Dann gilt die Datei eines tieferen Packs.
     ///
     /// Eine Variantenliste ist Vanillas Zufall: Sand, Stein und Erde
     /// liegen in vier Drehungen vor, und welche ein Block bekommt, würfelt
     /// seine Position. Bei `multipart` gilt je Fall der erste Eintrag —
-    /// Listen haben dort nur Bambus, Chorus und Feuer.
+    /// Listen haben dort nur Bambus, Chorus und Feuer. Multipart darf leer
+    /// ausgehen: trifft keine Bedingung zu, hat der Zustand keine Geometrie.
     // ponytail: multipart ohne Zufall. Erst nötig, wenn jemand die
     // Bambus-Varianten vermisst.
-    pub fn alternatives(&self, state: &BlockState) -> Vec<(u32, Vec<ModelRef>)> {
-        match self {
-            BlockStateDef::Variants(variants) => variants
+    pub fn alternatives(&self, state: &BlockState) -> Option<Vec<(u32, Vec<ModelRef>)>> {
+        let variant = self.variants.iter().find(|variant| {
+            variant
+                .when
                 .iter()
-                .find(|variant| {
-                    variant
-                        .when
-                        .iter()
-                        .all(|(name, value)| state.prop(name) == Some(value.as_str()))
-                })
-                .map(|variant| {
-                    variant
-                        .apply
-                        .iter()
-                        .map(|r| (r.weight.max(1), vec![r.clone()]))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            BlockStateDef::Multipart(cases) => vec![(
-                1,
-                cases
+                .all(|(name, value)| state.prop(name) == Some(value.as_str()))
+        });
+        if let Some(variant) = variant {
+            return Some(
+                variant
+                    .apply
                     .iter()
-                    .filter(|case| case.when.as_ref().is_none_or(|c| c.matches(state)))
-                    .filter_map(|case| case.apply.first().cloned())
+                    .map(|r| (r.weight, vec![r.clone()]))
                     .collect(),
-            )],
+            );
         }
+        let cases = self.multipart.as_ref()?;
+        Some(vec![(
+            1,
+            cases
+                .iter()
+                .filter(|case| case.when.as_ref().is_none_or(|c| c.matches(state)))
+                .filter_map(|case| case.apply.first().cloned())
+                .collect(),
+        )])
     }
 }
 
@@ -208,14 +216,23 @@ fn parse_variant_key(key: &str) -> Result<Vec<(String, String)>> {
 
 fn parse_apply(value: &Value) -> Result<Vec<ModelRef>> {
     match value {
+        Value::Array(list) if list.is_empty() => bail!("leere Modellliste"),
         Value::Array(list) => list.iter().map(parse_model_ref).collect(),
         object => Ok(vec![parse_model_ref(object)?]),
     }
 }
 
 fn parse_model_ref(value: &Value) -> Result<ModelRef> {
+    let weight = match value.get("weight") {
+        None => 1,
+        Some(weight) => weight
+            .as_u64()
+            .filter(|&weight| weight >= 1)
+            .and_then(|weight| u32::try_from(weight).ok())
+            .ok_or_else(|| anyhow!("Gewicht {weight} ist keine positive Zahl"))?,
+    };
     Ok(ModelRef {
-        weight: value.get("weight").and_then(Value::as_u64).unwrap_or(1) as u32,
+        weight,
         model: value
             .get("model")
             .and_then(Value::as_str)
@@ -417,17 +434,44 @@ mod tests {
     }
 
     /// Trifft in einem Multipart keine Bedingung zu, hat der Zustand keine
-    /// Geometrie — das ist kein Fehler.
+    /// Geometrie — das ist kein Fehler, und der Zustand gilt als gedeckt.
     #[test]
     fn multipart_darf_leer_ausgehen() {
         let d = def(r#"{"multipart": [{"apply": {"model": "m"}, "when": {"powered": "true"}}]}"#);
-        assert!(d.is_multipart());
-        assert!(d.select(&state("minecraft:x[powered=false]")).is_empty());
+        let leer = d.alternatives(&state("minecraft:x[powered=false]"));
+        assert_eq!(leer, Some(vec![(1, Vec::new())]));
     }
 
+    /// Eine Variantentabelle ohne Treffer kennt den Zustand nicht; dann
+    /// gilt ein tieferes Pack.
     #[test]
-    fn variantentabelle_ist_kein_multipart() {
-        assert!(!def(r#"{"variants": {"": {"model": "m"}}}"#).is_multipart());
+    fn variantentabelle_ohne_treffer_kennt_den_zustand_nicht() {
+        let d = def(r#"{"variants": {"lit=true": {"model": "m"}}}"#);
+        assert!(d.alternatives(&state("minecraft:x[lit=false]")).is_none());
+    }
+
+    /// Beides in einer Datei: zuerst die Tabelle, Multipart für den Rest,
+    /// wie `BlockStateModelDispatcher.instantiate` mit `putIfAbsent`.
+    #[test]
+    fn variants_vor_multipart() {
+        let d = def(r#"{"variants": {"lit=true": {"model": "a"}},
+                "multipart": [{"apply": {"model": "b"}}]}"#);
+        assert_eq!(d.select(&state("minecraft:x[lit=true]"))[0].model, "a");
+        assert_eq!(d.select(&state("minecraft:x[lit=false]"))[0].model, "b");
+    }
+
+    /// Was der Client ablehnt, lehnt auch der Renderer ab: dann gilt die
+    /// Datei eines tieferen Packs.
+    #[test]
+    fn leere_listen_und_gewicht_null_sind_fehler() {
+        for json in [
+            r#"{"variants": {}}"#,
+            r#"{"variants": {"": []}}"#,
+            r#"{"variants": {"": [{"model": "m", "weight": 0}]}}"#,
+        ] {
+            let json = serde_json::from_str(json).unwrap();
+            assert!(BlockStateDef::parse(&json).is_err(), "{json}");
+        }
     }
 
     /// Seit Minecraft 1.21.11 dürfen Modellverweise auch um Z gedreht sein.

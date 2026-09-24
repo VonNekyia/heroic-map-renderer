@@ -66,17 +66,24 @@ pub struct ResolvedVariant {
 
 /// Ein aufgelöster Asset-Baum aus einem oder mehreren Wurzelverzeichnissen.
 ///
-/// Spätere Wurzeln überschreiben frühere, Datei für Datei — genau so, wie
-/// Minecraft Resourcepacks stapelt. Ein Overlay-Pack, das nur 39 Blockstates
-/// mitbringt, funktioniert damit über einer vollständigen Vanilla-Basis.
+/// Spätere Wurzeln überschreiben frühere, so wie Minecraft Resourcepacks
+/// stapelt: Modelle und Texturen Datei für Datei, Blockstates Zustand für
+/// Zustand. Ein Overlay-Pack, das nur 39 Blockstates mitbringt,
+/// funktioniert damit über einer vollständigen Vanilla-Basis, und eines,
+/// das in einer Datei nur einen Teil der Zustände nennt, auch.
 pub struct Assets {
     roots: Vec<PathBuf>,
     textures: Textures,
-    blockstates: HashMap<String, Arc<BlockStateDef>>,
+    blockstates: HashMap<String, Arc<BlockStateStack>>,
     models: HashMap<String, Arc<ResolvedModel>>,
     colors: Colors,
     skipped: BTreeMap<String, String>,
+    broken: BTreeMap<String, String>,
 }
+
+/// Die Blockstate-Dateien eines Blocks aus allen Wurzeln, die oberste
+/// zuerst. Eine kaputte steht mit ihrem Fehler da.
+type BlockStateStack = Vec<std::result::Result<BlockStateDef, String>>;
 
 impl Assets {
     pub fn open(roots: Vec<PathBuf>) -> Result<Assets> {
@@ -95,6 +102,7 @@ impl Assets {
             blockstates: HashMap::new(),
             models: HashMap::new(),
             skipped: BTreeMap::new(),
+            broken: BTreeMap::new(),
         })
     }
 
@@ -103,6 +111,12 @@ impl Assets {
     /// je Blockstate mit dem ersten Grund.
     pub fn skipped(&self) -> &BTreeMap<String, String> {
         &self.skipped
+    }
+
+    /// Blockstate-Dateien, die der Client verwerfen würde, je Pfad mit dem
+    /// Grund. Für ihre Zustände gilt die Datei eines tieferen Packs.
+    pub fn broken(&self) -> &BTreeMap<String, String> {
+        &self.broken
     }
 
     /// Colormaps und Biome für die Färbung von Gras, Laub und Wasser.
@@ -157,20 +171,35 @@ impl Assets {
         Ok(names)
     }
 
-    pub fn blockstate_def(&mut self, block: &str) -> Result<Arc<BlockStateDef>> {
-        if let Some(def) = self.blockstates.get(block) {
-            return Ok(Arc::clone(def));
+    /// Die Blockstate-Dateien eines Blocks aus allen Wurzeln. Streng
+    /// gelesen wie im Client (`StrictJsonParser`), eine kaputte Datei steht
+    /// mit ihrem Fehler da und landet in [`Assets::broken`].
+    fn blockstate_stack(&mut self, block: &str) -> Result<Arc<BlockStateStack>> {
+        if let Some(stack) = self.blockstates.get(block) {
+            return Ok(Arc::clone(stack));
         }
         let (namespace, name) = split_id(block);
-        let path = self
-            .find(namespace, "blockstates", name, "json")
-            .ok_or_else(|| anyhow!("keine Blockstate-Datei für {block}"))?;
-        let def = Arc::new(
-            BlockStateDef::parse(&read_json(&path)?)
-                .with_context(|| format!("{} lesen", path.display()))?,
-        );
-        self.blockstates.insert(block.to_string(), Arc::clone(&def));
-        Ok(def)
+        let mut stack = Vec::new();
+        for root in self.roots.iter().rev() {
+            let Some(path) = file_in(root, namespace, "blockstates", name, "json") else {
+                continue;
+            };
+            let def = read_json_strict(&path).and_then(|json| {
+                BlockStateDef::parse(&json).with_context(|| format!("{} lesen", path.display()))
+            });
+            if let Err(error) = &def {
+                self.broken
+                    .insert(path.display().to_string(), format!("{error:#}"));
+            }
+            stack.push(def.map_err(|error| format!("{error:#}")));
+        }
+        if stack.is_empty() {
+            bail!("keine Blockstate-Datei für {block}");
+        }
+        let stack = Arc::new(stack);
+        self.blockstates
+            .insert(block.to_string(), Arc::clone(&stack));
+        Ok(stack)
     }
 
     /// Modelle der ersten Alternative — bei `multipart` können es mehrere
@@ -180,21 +209,32 @@ impl Assets {
     }
 
     /// Die Modellverweise einer Blockstate mit Gewicht, wie die
-    /// Blockstate-Datei sie nennt.
+    /// Blockstate-Dateien sie nennen.
     ///
-    /// Passt keine Variante, gilt wie im Client der Missing-Würfel:
-    /// `ModelManager` füllt jede Blockstate ohne Modell damit auf. Was
-    /// fehlt, steht in [`Assets::skipped`].
+    /// Die Packs stapeln sich je Zustand wie in
+    /// `loadBlockStateDefinitionStack`: die oberste Datei, die den Zustand
+    /// kennt, gewinnt, und eine kaputte fällt aus. Kennt ihn keine, gilt wie
+    /// im Client der Missing-Würfel: `ModelManager` füllt jede Blockstate
+    /// ohne Modell damit auf. Was fehlt, steht in [`Assets::skipped`].
     pub fn alternative_refs(&mut self, state: &BlockState) -> Result<Vec<(u32, Vec<ModelRef>)>> {
-        let refs = self.blockstate_def(state.name())?.alternatives(state);
-        if refs.is_empty() {
-            self.skip(
-                state,
-                "passt auf keine Variante der Blockstate-Datei".to_string(),
-            );
-            return Ok(vec![(1, vec![ModelRef::missing()])]);
+        let stack = self.blockstate_stack(state.name())?;
+        let mut grund = None;
+        for def in stack.iter() {
+            match def {
+                Ok(def) => {
+                    if let Some(refs) = def.alternatives(state) {
+                        return Ok(refs);
+                    }
+                }
+                Err(error) => {
+                    grund.get_or_insert_with(|| error.clone());
+                }
+            }
         }
-        Ok(refs)
+        let grund =
+            grund.unwrap_or_else(|| "passt auf keine Variante der Blockstate-Datei".to_string());
+        self.skip(state, grund);
+        Ok(vec![(1, vec![ModelRef::missing()])])
     }
 
     /// Alle Alternativen einer Blockstate mit ihrem Gewicht, die Modelle
@@ -278,8 +318,11 @@ impl Assets {
             let (namespace, name) = split_id(&model_id);
             // builtin/... hat keine Datei; solche Blöcke (Truhen, Banner)
             // rendert Minecraft über Entity-Modelle, die V1 nicht kennt.
+            // Fehlt ein Parent, setzt der Client an seine Stelle das
+            // Missing-Modell ("Missing block model"): die eigenen Elemente
+            // des Kindes bleiben, sonst erbt es den Missing-Würfel.
             let Some(path) = self.find(namespace, "models", name, "json") else {
-                if name.starts_with("builtin/") {
+                if name.starts_with("builtin/") || (seen.len() > 1 && elements.is_some()) {
                     break;
                 }
                 bail!("Modell {model_id} nicht gefunden (verlangt von {id})");
@@ -324,13 +367,24 @@ fn find_file(
     extension: &str,
 ) -> Option<(usize, PathBuf)> {
     roots.iter().enumerate().rev().find_map(|(layer, root)| {
-        let mut file = path
-            .split('/')
-            .fold(root.join(namespace).join(kind), |acc, part| acc.join(part));
-        file.as_mut_os_string().push(".");
-        file.as_mut_os_string().push(extension);
-        file.is_file().then_some((layer, file))
+        file_in(root, namespace, kind, path, extension).map(|file| (layer, file))
     })
+}
+
+/// Die Datei in genau dieser Wurzel, falls es sie gibt.
+fn file_in(
+    root: &Path,
+    namespace: &str,
+    kind: &str,
+    path: &str,
+    extension: &str,
+) -> Option<PathBuf> {
+    let mut file = path
+        .split('/')
+        .fold(root.join(namespace).join(kind), |acc, part| acc.join(part));
+    file.as_mut_os_string().push(".");
+    file.as_mut_os_string().push(extension);
+    file.is_file().then_some(file)
 }
 
 /// `minecraft:block/stone` -> `("minecraft", "block/stone")`. Ohne Namensraum
@@ -342,8 +396,9 @@ pub fn split_id(id: &str) -> (&str, &str) {
     }
 }
 
-/// Liest JSON so nachsichtig wie Minecraft: alles hinter dem ersten Dokument
-/// wird ignoriert. In Packs kommen aneinandergehängte Blockbench-Exporte vor.
+/// Liest ein Modell so wie Minecraft (`GsonHelper.fromJson`): alles hinter
+/// dem ersten Dokument wird ignoriert. In Packs kommen aneinandergehängte
+/// Blockbench-Exporte vor.
 fn read_json(path: &Path) -> Result<serde_json::Value> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("{} lesen", path.display()))?;
@@ -351,6 +406,15 @@ fn read_json(path: &Path) -> Result<serde_json::Value> {
     stream
         .next()
         .ok_or_else(|| anyhow!("{} ist leer", path.display()))?
+        .with_context(|| format!("{} ist kein gültiges JSON", path.display()))
+}
+
+/// Liest eine Blockstate-Datei so streng wie der Client
+/// (`StrictJsonParser`): nach dem ersten Dokument darf nichts mehr kommen.
+fn read_json_strict(path: &Path) -> Result<serde_json::Value> {
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("{} lesen", path.display()))?;
+    serde_json::from_str(&text)
         .with_context(|| format!("{} ist kein gültiges JSON", path.display()))
 }
 

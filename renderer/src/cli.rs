@@ -1155,6 +1155,15 @@ fn report_missing_textures(assets: &Assets) {
         );
         print_list(skipped.iter().map(|(state, why)| format!("{state}: {why}")));
     }
+
+    let broken = assets.broken();
+    if !broken.is_empty() {
+        println!(
+            "Blockstates: {} Dateien kaputt, wie im Client gilt dort das Pack darunter",
+            broken.len()
+        );
+        print_list(broken.values());
+    }
 }
 
 fn bounds(regions: &[(i32, i32)]) -> Option<(i32, i32, i32, i32)> {

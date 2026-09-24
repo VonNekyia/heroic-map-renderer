@@ -1,0 +1,4 @@
+{ "variants": {
+    "facing=north": { "model": "minecraft:block/einfarbig" },
+    "facing=south": { "model": "minecraft:block/einfarbig", "y": 180 }
+} }

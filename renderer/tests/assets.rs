@@ -254,6 +254,68 @@ fn blockstate_ohne_passende_variante_wird_missing_wuerfel() {
     assert!(grund.contains("keine Variante"), "{grund}");
 }
 
+/// Packs stapeln sich je Zustand, wie `loadBlockStateDefinitionStack` im
+/// Client: die oberste Datei, die einen Zustand kennt, gewinnt. Ein Pack,
+/// das nur Norden neu definiert, lässt Süden beim Pack darunter. Vorher
+/// galt die ganze oberste Datei, und Süden wurde zum Missing-Würfel.
+#[test]
+fn packs_stapeln_sich_je_zustand() {
+    let mut assets = layered();
+    let norden = assets.variants(&state("gestapelt[facing=north]")).unwrap();
+    assert_eq!(norden[0].model_id, "minecraft:block/blauwuerfel");
+    let sueden = assets.variants(&state("gestapelt[facing=south]")).unwrap();
+    assert_eq!(sueden[0].model_id, "minecraft:block/einfarbig");
+    assert_eq!(sueden[0].y, 180);
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+}
+
+/// Eine kaputte Blockstate-Datei verwirft der Client nur für ihr Pack, die
+/// darunter gilt weiter: ein Verweis ohne `model`, oder etwas hinter dem
+/// ersten Dokument. Blockstates liest 26.2 streng (`StrictJsonParser`),
+/// Modelle nicht. Vorher brach die erste den Lauf ab, und die zweite galt.
+#[test]
+fn kaputte_blockstate_datei_faellt_auf_das_pack_darunter() {
+    let mut assets = layered();
+    for block in ["pack_kaputt", "pack_anhang"] {
+        let variants = assets.variants(&state(block)).unwrap();
+        assert_eq!(variants[0].model_id, "minecraft:block/einfarbig", "{block}");
+    }
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+    let kaputt = assets.broken();
+    assert_eq!(kaputt.len(), 2, "{kaputt:?}");
+    assert!(
+        kaputt.values().any(|grund| grund.contains("ohne model")),
+        "{kaputt:?}"
+    );
+}
+
+/// Ist die einzige Datei kaputt, zeichnet der Client den Missing-Würfel;
+/// der Lauf bricht nicht ab.
+#[test]
+fn einzige_kaputte_blockstate_datei_wird_missing_wuerfel() {
+    let mut assets = base();
+    let variants = assets.variants(&state("datei_kaputt")).unwrap();
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:datei_kaputt"];
+    assert!(grund.contains("kein gültiges JSON"), "{grund}");
+}
+
+/// Fehlt ein Parent, setzt der Client das Missing-Modell an seine Stelle:
+/// die eigenen Elemente des Kindes bleiben. Vorher wurde der ganze Verweis
+/// zum Missing-Würfel.
+#[test]
+fn fehlender_parent_laesst_die_eigenen_elemente() {
+    let mut assets = base();
+    let variants = assets.variants(&state("eigene_elemente")).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/eigene_elemente");
+    let elemente = &variants[0].model.elements;
+    assert_eq!(elemente.len(), 1);
+    assert_eq!(elemente[0].to, [16.0, 8.0, 16.0]);
+    let textur = elemente[0].faces[0].1.texture;
+    assert_eq!(assets.textures().name(textur), "minecraft:block/planks");
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+}
+
 /// Fehlende Texturdateien und unauflösbare `#ref` dürfen den Lauf nicht
 /// abbrechen: Minecraft zeigt dafür das magenta-schwarze Karo.
 #[test]

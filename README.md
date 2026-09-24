@@ -517,7 +517,13 @@ Missing-Würfel, und ihr Gewicht bleibt. Fiele sie weg, würfelten auch die
 intakten Positionen anders als im Client. Das gilt für jeden kaputten
 Verweis: auch wenn alle Alternativen einer Blockstate kaputt sind, und für
 den einen kaputten Teil eines Multipart-Modells, jeweils mit der Drehung
-des Eintrags. Nur eine fehlende Blockstate-Datei bleibt ein Fehler.
+des Eintrags. Fehlt einem Modell sein Parent, bleiben wie im Client seine
+eigenen Elemente. Packs stapeln sich dabei Zustand für Zustand: nennt die
+Datei eines oberen Packs nur einen Teil der Zustände, gilt für den Rest
+die darunter. Eine kaputte Blockstate-Datei verwirft der Renderer wie der
+Client nur für ihr Pack, und er liest sie so streng wie 26.2: auch etwas
+hinter dem ersten Dokument macht sie kaputt. Nur eine ganz fehlende
+Blockstate-Datei bleibt ein Fehler.
 
 Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, jede
 vorkommende Blockstate auflöst und sie rastert:

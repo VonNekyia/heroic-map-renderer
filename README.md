@@ -651,11 +651,14 @@ Wert fällt weg, nur dieser Eintrag. Zahlen liest `IntegerProperty` mit
 bekommt wie im Client der erste gemeinsame Zustand den späteren Eintrag,
 und der Rest des späteren fällt weg; dafür behält der Renderer die
 Reihenfolge der Datei. Eine Multipart-Bedingung mit unbekannter
-Eigenschaft oder unbekanntem Wert dagegen verwirft den ganzen Block,
-über alle Packs: jeder Zustand wird zum Missing-Würfel, auch wenn ein
-Pack darunter heil ist. So endet etwa eine Mauer aus einem Pack vor 1.16
-mit `"north": "true"`. Für Blöcke und Zustände, die 26.2 nicht kennt,
-gibt es kein Vorbild; dort gilt der erste Schlüssel, der als Text passt.
+Eigenschaft oder unbekanntem Wert dagegen verwirft im Client von 26.2 den
+ganzen Block, über alle Packs. So endet etwa eine Mauer aus einem Pack vor
+1.16 mit `"north": "true"`. Ob die Assets zu 26.2 gehören, weiss der
+Renderer aber nicht; in einer späteren Version gibt es die Eigenschaft
+oder den Wert vielleicht. Er vergleicht dort den Text und nennt die Datei
+unter „Blockstates“ in der Ausgabe. Für Blöcke und Zustände, die 26.2 nicht
+kennt, gibt es kein Vorbild; dort gilt der erste Schlüssel, der als Text
+passt.
 
 Fehlt einem Modell sein Parent, oder ist dessen Datei kaputt, setzt der
 Client das Missing-Modell an seine Stelle: die eigenen Elemente des Kindes
@@ -688,7 +691,9 @@ Blockstate-Datei bleibt ein Fehler.
 
 Für eine andere Version wird die Tabelle neu erzeugt, aus dem Server-JAR
 dieser Version in einem leeren Verzeichnis; danach kommt `blocks.txt` nach
-`renderer/src/assets/`. Für 26.2 ergibt das genau die Datei im Repository:
+`renderer/src/assets/`. Sie ist einkompiliert, der Renderer muss danach neu
+gebaut werden, und der Test `blocktabelle_aus_26_2` bekommt die Zahlen der
+neuen Version. Für 26.2 ergibt das genau die Datei im Repository:
 
 ```bash
 java -DbundlerMainClass=net.minecraft.data.Main -jar server.jar --reports

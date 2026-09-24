@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::LazyLock;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
@@ -227,9 +227,13 @@ impl BlockStateDef {
     /// unbekanntem Wert verwirft der Client, nur diesen Eintrag. Überlappen
     /// sich zwei, bekommt der erste gemeinsame Zustand den späteren, und
     /// der Rest des späteren fällt weg (`Overlapping definition`). Eine
-    /// solche Multipart-Bedingung dagegen wirft: dann hat der Block über
-    /// alle Packs kein Modell.
-    pub fn instantiate(&mut self, definition: &Definition) -> Result<()> {
+    /// solche Multipart-Bedingung dagegen wirft im Client von 26.2, dann
+    /// hat der Block über alle Packs kein Modell. Ob die Assets zu 26.2
+    /// gehören, weiss der Renderer aber nicht; in einer späteren Version
+    /// gibt es die Eigenschaft oder den Wert vielleicht. Er vergleicht dort
+    /// den Text, wie bei einem Block, den 26.2 nicht kennt, und gibt zurück,
+    /// was die Definition nicht kennt.
+    pub fn instantiate(&mut self, definition: &Definition) -> BTreeSet<String> {
         let mut owners = vec![None; definition.states()];
         for (entry, variant) in self.variants.iter().enumerate() {
             let Some(key) = variant.key.as_deref().and_then(|k| definition.resolve(k)) else {
@@ -243,12 +247,13 @@ impl BlockStateDef {
             }
         }
         self.owners = Some(owners);
+        let mut unbekannt = BTreeSet::new();
         for case in self.multipart.iter_mut().flatten() {
             if let Some(when) = &mut case.when {
-                when.instantiate(definition)?;
+                when.instantiate(definition, &mut unbekannt);
             }
         }
-        Ok(())
+        unbekannt
     }
 
     /// Alle Alternativen mit ihrem Gewicht, oder `None`, wenn die Datei den
@@ -314,29 +319,32 @@ impl Condition {
 
     /// `Condition.instantiate`: jede Eigenschaft und jeden Wert gegen die
     /// Definition prüfen und die Werte so schreiben, wie der Zustand sie
-    /// trägt.
-    fn instantiate(&mut self, definition: &Definition) -> Result<()> {
+    /// trägt. Was die Definition nicht kennt, bleibt Text und kommt nach
+    /// `unbekannt`.
+    fn instantiate(&mut self, definition: &Definition, unbekannt: &mut BTreeSet<String>) {
         match self {
             Condition::Props(props) => {
                 for (name, terms) in props {
-                    let prop = definition
-                        .prop(name)
-                        .ok_or_else(|| anyhow!("unbekannte Eigenschaft {name}"))?;
+                    let Some(prop) = definition.prop(name) else {
+                        unbekannt.insert(format!("Eigenschaft {name}"));
+                        continue;
+                    };
                     for term in terms {
-                        let value = definition
-                            .value(prop, &term.value)
-                            .ok_or_else(|| anyhow!("unbekannter Wert {} für {name}", term.value))?;
-                        term.value = definition.props[prop].1[value].to_string();
+                        match definition.value(prop, &term.value) {
+                            Some(value) => term.value = definition.props[prop].1[value].to_string(),
+                            None => {
+                                unbekannt.insert(format!("Wert {} für {name}", term.value));
+                            }
+                        }
                     }
                 }
             }
             Condition::And(list) | Condition::Or(list) => {
                 for condition in list {
-                    condition.instantiate(definition)?;
+                    condition.instantiate(definition, unbekannt);
                 }
             }
         }
-        Ok(())
     }
 }
 
@@ -593,7 +601,7 @@ mod tests {
         let mut d = def(json);
         let s = state(text);
         let definition = Definition::of(s.name()).unwrap();
-        d.instantiate(definition).unwrap();
+        assert!(d.instantiate(definition).is_empty());
         let index = definition.index(&s).expect("Zustand gibt es in 26.2");
         Some(d.alternatives(&s, Some(index))?[0].1[0].model.clone())
     }
@@ -943,7 +951,7 @@ mod tests {
         let when = r#"{"multipart": [{"when": {"age": "07|+1"}, "apply": {"model": "a"}}]}"#;
         let mut d = def(when);
         let definition = Definition::of("minecraft:wheat").unwrap();
-        d.instantiate(definition).unwrap();
+        assert!(d.instantiate(definition).is_empty());
         for (age, n) in [(7, 1), (1, 1), (0, 0)] {
             let s = state(&format!("minecraft:wheat[age={age}]"));
             let refs = d.alternatives(&s, definition.index(&s)).unwrap();
@@ -952,24 +960,53 @@ mod tests {
     }
 
     /// Eine Multipart-Bedingung mit unbekannter Eigenschaft oder
-    /// unbekanntem Wert wirft beim Instanziieren, etwa eine Mauer aus
-    /// einem Pack vor 1.16 mit `"north": "true"`.
+    /// unbekanntem Wert bleibt Text, und `instantiate` nennt sie. So steht
+    /// eine Mauer aus einem Pack vor 1.16 mit `"north": "true"` da, aber
+    /// auch eine aus einer Version, die den Wert kennt. Der Client von 26.2
+    /// wirft dort.
     #[test]
-    fn unbekannte_bedingung_wirft() {
+    fn unbekannte_bedingung_bleibt_text() {
         let wall = Definition::of("minecraft:cobblestone_wall").unwrap();
-        for (when, ok) in [
-            (r#"{"north": "low|tall"}"#, true),
-            (r#"{"OR": [{"up": "true"}, {"north": "!none"}]}"#, true),
-            (r#"{"north": "true"}"#, false),
-            (r#"{"OR": [{"up": "true"}, {"nord": "low"}]}"#, false),
-            (r#"{"north": "!!low"}"#, false),
-            (r#"{"OR": "x"}"#, false),
+        for (when, unbekannt) in [
+            (r#"{"north": "low|tall"}"#, ""),
+            (r#"{"OR": [{"up": "true"}, {"north": "!none"}]}"#, ""),
+            (r#"{"north": "true|low"}"#, "Wert true für north"),
+            (
+                r#"{"OR": [{"up": "true"}, {"nord": "low"}]}"#,
+                "Eigenschaft nord",
+            ),
+            (r#"{"north": "!!low"}"#, "Wert !low für north"),
+            (r#"{"OR": "x"}"#, "Eigenschaft OR"),
+            (
+                r#"{"nord": "low", "north": "true"}"#,
+                "Eigenschaft nord, Wert true für north",
+            ),
+            (
+                r#"{"AND": [{"up": "ja"}, {"up": "ja|nein"}]}"#,
+                "Wert ja für up, Wert nein für up",
+            ),
         ] {
             let mut d = def(&format!(
                 r#"{{"multipart": [{{"when": {when}, "apply": {{"model": "m"}}}}]}}"#
             ));
-            assert_eq!(d.instantiate(wall).is_ok(), ok, "{when}");
+            let gefunden: Vec<String> = d.instantiate(wall).into_iter().collect();
+            assert_eq!(gefunden.join(", "), unbekannt, "{when}");
         }
+        // Als Text passt die neue Mauer, eine aus 26.2 trifft keinen Fall.
+        let mut d = def(r#"{"multipart": [{"when": {"north": "true"}, "apply": {"model": "m"}}]}"#);
+        assert_eq!(d.instantiate(wall).len(), 1);
+        let neu = state("minecraft:cobblestone_wall[north=true]");
+        assert_eq!(
+            d.alternatives(&neu, wall.index(&neu)).unwrap()[0].1.len(),
+            1
+        );
+        let alt = state(
+            "minecraft:cobblestone_wall[east=none,north=low,south=none,up=true,waterlogged=false,west=none]",
+        );
+        assert_eq!(
+            d.alternatives(&alt, wall.index(&alt)).unwrap()[0].1.len(),
+            0
+        );
     }
 
     /// Die Tabelle stimmt mit dem Report von 26.2 überein: 1196 Blöcke,

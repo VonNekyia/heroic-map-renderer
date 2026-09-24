@@ -630,28 +630,33 @@ fn punkte_im_pfad_finden_nichts() {
     }
 }
 
-/// Eine Multipart-Bedingung mit unbekanntem Wert wirft im Client beim
-/// Instanziieren, hier eine Mauer aus einem Pack vor 1.16 mit
-/// `"north": "true"`. Dann hat der Block in keinem Pack ein Modell, auch
-/// nicht aus der heilen Datei darunter.
+/// Eine Multipart-Bedingung mit unbekanntem Wert wirft im Client von 26.2
+/// beim Instanziieren, hier eine Mauer mit `"north": "true"`. Die kann aus
+/// einem Pack vor 1.16 stammen oder aus einer Version, die den Wert kennt.
+/// Der Renderer weiss nicht, woher; er vergleicht den Text und nennt die
+/// Datei. Die Mauer aus 26.2 trifft dann keinen Fall, die mit dem neuen
+/// Wert schon, und die heile Datei darunter gilt für keine der beiden.
 #[test]
-fn unbekannte_bedingung_verwirft_den_block_in_allen_packs() {
+fn unbekannte_bedingung_gilt_als_text() {
     let mauer = state(
         "cobblestone_wall[east=none,north=low,south=none,up=true,waterlogged=false,west=none]",
     );
     let mut nur_basis = base();
     let variants = nur_basis.variants(&mauer).unwrap();
     assert_eq!(variants[0].model_id, "minecraft:block/einfarbig");
+    assert!(nur_basis.unchecked().is_empty());
 
     let mut assets = layered();
-    for zustand in [mauer, state("cobblestone_wall[north=true]")] {
-        let variants = assets.variants(&zustand).unwrap();
-        assert_eq!(variants[0].model_id, MISSING_MODEL, "{zustand}");
-        let grund = &assets.skipped()[&zustand.to_string()];
-        assert!(grund.contains("unbekannter Wert true"), "{grund}");
-        assert!(grund.contains("in keinem Pack"), "{grund}");
-    }
+    assert!(assets.variants(&mauer).unwrap().is_empty());
+    let neu = state("cobblestone_wall[north=true]");
+    let variants = assets.variants(&neu).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/blauwuerfel");
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
     assert!(assets.broken().is_empty(), "{:?}", assets.broken());
+    let unchecked: Vec<_> = assets.unchecked().iter().collect();
+    assert_eq!(unchecked.len(), 1, "{unchecked:?}");
+    assert!(unchecked[0].0.contains("assets-overlay"), "{unchecked:?}");
+    assert_eq!(unchecked[0].1, "Wert true für north");
 }
 
 /// Fehlende Texturdateien und unauflösbare `#ref` dürfen den Lauf nicht

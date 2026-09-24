@@ -1430,6 +1430,35 @@ fn block_nennt_wasser_nicht_modelllos() {
     assert!(text.contains("Flüssigkeit: Water"), "{text}");
 }
 
+/// Fragt ein Pack in multipart, was blocks.txt nicht kennt, sagt der Lauf
+/// es, nennt die Datei und den Ausweg für neuere Assets.
+#[test]
+fn unbekannte_bedingung_nennt_blocks_txt() {
+    let overlay = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-overlay");
+    let ausgabe = cli(&[
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--assets"),
+        overlay.as_os_str(),
+        OsStr::new("--block"),
+        OsStr::new("cobblestone_wall[north=true]"),
+    ]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(text.contains("minecraft:block/blauwuerfel"), "{text}");
+    assert!(
+        text.contains("was blocks.txt aus 26.2 nicht kennt"),
+        "{text}"
+    );
+    assert!(
+        text.contains("blocks.txt neu erzeugen und neu bauen"),
+        "{text}"
+    );
+    assert!(
+        text.contains("cobblestone_wall.json: Wert true für north"),
+        "{text}"
+    );
+}
+
 /// Ein vergessenes `--scale` darf einen bestehenden Baum nicht zerlegen:
 /// die neuen Kacheln hätten auf denselben Stufen einen anderen Massstab als
 /// die alten.

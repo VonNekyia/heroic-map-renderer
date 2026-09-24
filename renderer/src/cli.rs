@@ -1288,6 +1288,21 @@ fn report_missing_textures(assets: &Assets) {
         );
         print_list(broken.values());
     }
+
+    let unchecked = assets.unchecked();
+    if !unchecked.is_empty() {
+        println!(
+            "Blockstates: {} Dateien fragen in multipart, was blocks.txt aus 26.2 nicht kennt; dort \
+             gilt der Text. Der Client von 26.2 gäbe diesen Blöcken kein Modell, einer, der sie \
+             kennt, schon. Für neuere Assets blocks.txt neu erzeugen und neu bauen, siehe README.",
+            unchecked.len()
+        );
+        print_list(
+            unchecked
+                .iter()
+                .map(|(path, what)| format!("{path}: {what}")),
+        );
+    }
 }
 
 fn bounds(regions: &[(i32, i32)]) -> Option<(i32, i32, i32, i32)> {

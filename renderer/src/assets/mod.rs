@@ -78,6 +78,7 @@ pub struct Assets {
     colors: Colors,
     skipped: BTreeMap<String, String>,
     broken: BTreeMap<String, String>,
+    unchecked: BTreeMap<String, String>,
 }
 
 /// Die Blockstate-Dateien eines Blocks aus allen Wurzeln, die oberste
@@ -86,9 +87,6 @@ struct BlockStateStack {
     files: Vec<std::result::Result<BlockStateDef, String>>,
     /// Die Definition aus 26.2, falls es den Block dort gibt.
     definition: Option<&'static Definition>,
-    /// Warf eine Datei beim Instanziieren, hat der Block wie im Client in
-    /// keinem Pack ein Modell.
-    failed: Option<String>,
 }
 
 impl Assets {
@@ -116,6 +114,7 @@ impl Assets {
             parent_problems: HashMap::new(),
             skipped: BTreeMap::new(),
             broken: BTreeMap::new(),
+            unchecked: BTreeMap::new(),
         })
     }
 
@@ -131,6 +130,13 @@ impl Assets {
     /// Grund. Für ihre Zustände gilt die Datei eines tieferen Packs.
     pub fn broken(&self) -> &BTreeMap<String, String> {
         &self.broken
+    }
+
+    /// Blockstate-Dateien, deren Multipart-Bedingungen etwas fragen, das
+    /// die Definition aus 26.2 nicht kennt, je Pfad mit dem Unbekannten.
+    /// Dort vergleicht der Renderer den Text ([`BlockStateDef::instantiate`]).
+    pub fn unchecked(&self) -> &BTreeMap<String, String> {
+        &self.unchecked
     }
 
     /// Colormaps und Biome für die Färbung von Gras, Laub und Wasser.
@@ -199,7 +205,6 @@ impl Assets {
         let mut stack = BlockStateStack {
             files: Vec::new(),
             definition: Definition::of(block),
-            failed: None,
         };
         for root in self.roots.iter().rev() {
             let Some(path) = file_in(root, namespace, "blockstates", name, "json") else {
@@ -210,15 +215,13 @@ impl Assets {
                 .with_context(|| format!("{} lesen", path.display()));
             match def {
                 Ok(mut def) => {
-                    if let Some(definition) = stack.definition
-                        && let Err(error) = def.instantiate(definition)
-                    {
-                        // Der Client geht die Packs von unten durch und
-                        // meldet das unterste.
-                        stack.failed = Some(format!(
-                            "{}: {error:#}; wie im Client hat der Block dann in keinem Pack ein Modell",
-                            path.display()
-                        ));
+                    if let Some(definition) = stack.definition {
+                        let unbekannt: Vec<String> =
+                            def.instantiate(definition).into_iter().collect();
+                        if !unbekannt.is_empty() {
+                            self.unchecked
+                                .insert(path.display().to_string(), unbekannt.join(", "));
+                        }
                     }
                     stack.files.push(Ok(def));
                 }
@@ -255,18 +258,16 @@ impl Assets {
     pub fn alternative_refs(&mut self, state: &BlockState) -> Result<Vec<(u32, Vec<ModelRef>)>> {
         let stack = self.blockstate_stack(state.name())?;
         let index = stack.definition.and_then(|d| d.index(state));
-        let mut grund = stack.failed.clone();
-        if grund.is_none() {
-            for def in &stack.files {
-                match def {
-                    Ok(def) => {
-                        if let Some(refs) = def.alternatives(state, index) {
-                            return Ok(refs);
-                        }
+        let mut grund = None;
+        for def in &stack.files {
+            match def {
+                Ok(def) => {
+                    if let Some(refs) = def.alternatives(state, index) {
+                        return Ok(refs);
                     }
-                    Err(error) => {
-                        grund.get_or_insert_with(|| error.clone());
-                    }
+                }
+                Err(error) => {
+                    grund.get_or_insert_with(|| error.clone());
                 }
             }
         }

@@ -509,6 +509,38 @@ fn dateinamen_zaehlen_nur_in_ihrer_schreibweise() {
     assert_eq!(assets.block_names().unwrap(), ["minecraft:stone"]);
 }
 
+/// Eine Seite ohne Fläche fällt wie in `UnbakedCuboidGeometry.bake` weg,
+/// bevor der Client sie anfasst. Hier eine flache Platte: ihre Nordseite
+/// ist `null`, ihre Westseite hat keinen Texturnamen. Auf einer Seite mit
+/// Fläche machte beides das Modell kaputt. So verlieren in Vanilla 22
+/// Zustände von `mangrove_propagule` und `pitcher_plant` Seiten.
+#[test]
+fn seite_ohne_flaeche_faellt_beim_backen_weg() {
+    let pack = tempfile::tempdir().unwrap();
+    let schreibe = |datei: &str, inhalt: &str| {
+        let pfad = pack.path().join("minecraft").join(datei);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(pfad, inhalt).unwrap();
+    };
+    schreibe(
+        "blockstates/stone.json",
+        r#"{"variants": {"": {"model": "block/platte"}}}"#,
+    );
+    schreibe(
+        "models/block/platte.json",
+        r##"{"textures": {"a": "block/stone"}, "elements": [{"from": [0, 0, 0], "to": [16, 0, 16], "faces": {"up": {"texture": "#a"}, "north": null, "west": {"texture": ""}}}]}"##,
+    );
+    let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+    let variants = assets.variants(&state("stone")).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/platte");
+    let seiten: Vec<Face> = variants[0].model.elements[0]
+        .faces
+        .iter()
+        .map(|(seite, _)| *seite)
+        .collect();
+    assert_eq!(seiten, [Face::Up]);
+}
+
 /// Wie `DirectoryValidator`: ein Pack mit einem Symlink darin lässt der
 /// Client aus. Der Renderer bricht dann ab, statt still anders zu zeichnen.
 #[test]

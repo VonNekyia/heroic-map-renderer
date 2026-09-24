@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Map, Value};
 
+use super::Pack;
 use super::blockstate::{field, identifier, int_value};
 use super::texture::{TextureId, Textures};
 
@@ -112,7 +112,7 @@ impl ResolvedModel {
         elements: Vec<Option<ElementJson>>,
         textures: &HashMap<String, Slot>,
         registry: &mut Textures,
-        roots: &[PathBuf],
+        packs: &[Pack],
         model_id: &str,
     ) -> Result<ResolvedModel> {
         let mut out = Vec::with_capacity(elements.len());
@@ -138,12 +138,12 @@ impl ResolvedModel {
                 let (texture, force_translucent) = match resolve_texture(&face.texture, textures) {
                     // `MaterialBaker.get`: dafür gibt es kein Bild.
                     Some(("minecraft:missingno", translucent)) => (Textures::MISSING, translucent),
-                    Some((sprite, translucent)) => (registry.load(roots, sprite), translucent),
+                    Some((sprite, translucent)) => (registry.load(packs, sprite), translucent),
                     // Unauflösbarer Slot: wie bei einer fehlenden Datei den
                     // Platzhalter nehmen, damit das Pack den Lauf nicht
                     // abbricht.
                     None => (
-                        registry.load(roots, &format!("{model_id}#{}", face.texture)),
+                        registry.load(packs, &format!("{model_id}#{}", face.texture)),
                         false,
                     ),
                 };

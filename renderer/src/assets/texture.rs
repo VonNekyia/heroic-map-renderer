@@ -1,10 +1,10 @@
 use std::collections::{BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use image::RgbaImage;
 use serde::Deserialize;
 
-use super::{find_file, read_text, split_id};
+use super::{Pack, find_file, read_text, split_id};
 
 /// Verweis in die Texturtabelle. Id 0 ist immer der Platzhalter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -46,27 +46,30 @@ impl Textures {
     /// Eine fehlende Datei ist kein Fehler: Minecraft zeigt dafür das
     /// magenta-schwarze Karo, und ein halb vollständiges Pack soll einen
     /// Renderlauf nicht abbrechen. Die Namen sammelt [`Textures::missing`].
-    pub fn load(&mut self, roots: &[PathBuf], id: &str) -> TextureId {
-        if let Some(&existing) = self.ids.get(id) {
+    /// Ohne Namensraum gilt `minecraft`, wie im Client: `block/stone` ist
+    /// dieselbe Textur wie `minecraft:block/stone`.
+    pub fn load(&mut self, packs: &[Pack], id: &str) -> TextureId {
+        let (namespace, name) = split_id(id);
+        let id = format!("{namespace}:{name}");
+        if let Some(&existing) = self.ids.get(&id) {
             return existing;
         }
 
-        let (namespace, name) = split_id(id);
-        let loaded = find_file(roots, namespace, "textures", name, "png")
-            .and_then(|(layer, path)| read_texture(roots, layer, namespace, name, &path));
+        let loaded = find_file(packs, namespace, "textures", name, "png")
+            .and_then(|(layer, path)| read_texture(packs, layer, namespace, name, path));
 
         let texture = match loaded {
             Some(image) => {
                 self.images.push(image);
-                self.names.push(id.to_string());
+                self.names.push(id.clone());
                 TextureId(self.images.len() as u32 - 1)
             }
             None => {
-                self.missing.insert(id.to_string());
+                self.missing.insert(id.clone());
                 Textures::MISSING
             }
         };
-        self.ids.insert(id.to_string(), texture);
+        self.ids.insert(id, texture);
         texture
     }
 
@@ -99,14 +102,14 @@ impl Textures {
 /// Lädt eine PNG-Datei und schneidet bei animierten Texturen das erste
 /// deklarierte Bild heraus.
 fn read_texture(
-    roots: &[PathBuf],
+    packs: &[Pack],
     png_layer: usize,
     namespace: &str,
     name: &str,
     path: &Path,
 ) -> Option<RgbaImage> {
     let image = image::open(path).ok()?.into_rgba8();
-    match animation(roots, png_layer, namespace, name, path) {
+    match animation(packs, png_layer, namespace, name) {
         Some(animation) => Some(first_frame(&image, &animation)),
         None => Some(image),
     }
@@ -116,30 +119,20 @@ fn read_texture(
 ///
 /// Minecraft nimmt Metadaten aus derselben oder einer höher priorisierten
 /// Schicht als die PNG-Datei — ein Overlay darf also allein die `.mcmeta`
-/// mitbringen. Ohne `animation` ist die Textur statisch, auch wenn die Datei
-/// existiert: 48 der Vanilla-mcmeta enthalten nur `texture`-Flags.
-fn animation(
-    roots: &[PathBuf],
-    png_layer: usize,
-    namespace: &str,
-    name: &str,
-    png_path: &Path,
-) -> Option<Animation> {
-    let meta = find_file(
-        &roots[png_layer..],
+/// mitbringen. Gepaart wird über den aufgelisteten Namen, wie in
+/// `FallbackResourceManager.listResources`. Ohne `animation` ist die
+/// Textur statisch, auch wenn die Datei existiert: 48 der Vanilla-mcmeta
+/// enthalten nur `texture`-Flags.
+fn animation(packs: &[Pack], png_layer: usize, namespace: &str, name: &str) -> Option<Animation> {
+    let (_, meta) = find_file(
+        &packs[png_layer..],
         namespace,
         "textures",
         name,
         "png.mcmeta",
-    )
-    .map(|(_, path)| path)
-    .or_else(|| {
-        // Fällt nur an, wenn die PNG nicht über den Stapel kam.
-        let beside = PathBuf::from(format!("{}.mcmeta", png_path.display()));
-        beside.is_file().then_some(beside)
-    })?;
+    )?;
 
-    let text = read_text(&meta).ok()?;
+    let text = read_text(meta).ok()?;
     serde_json::from_str::<McMeta>(&text).ok()?.animation
 }
 
@@ -245,15 +238,14 @@ mod tests {
 
     #[test]
     fn fehlende_textur_wird_gesammelt_statt_zu_scheitern() {
+        let leer = tempfile::tempdir().unwrap();
+        let packs = [Pack::open(leer.path(), &super::super::pack::ASSETS).unwrap()];
         let mut textures = Textures::new();
-        let id = textures.load(&[PathBuf::from("gibt/es/nicht")], "minecraft:block/nope");
+        let id = textures.load(&packs, "minecraft:block/nope");
         assert_eq!(id, Textures::MISSING);
         assert!(textures.missing().contains("minecraft:block/nope"));
-        // zweiter Aufruf trifft den Cache
-        assert_eq!(
-            textures.load(&[], "minecraft:block/nope"),
-            Textures::MISSING
-        );
+        // zweiter Aufruf trifft den Cache, auch ohne Namensraum
+        assert_eq!(textures.load(&[], "block/nope"), Textures::MISSING);
         assert_eq!(textures.missing().len(), 1);
     }
 

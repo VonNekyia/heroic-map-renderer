@@ -4,7 +4,7 @@
 //! hat: Variantenlisten, Multipart mit Bedingungen, parent-Ketten,
 //! `#ref`-Texturen, Modelle ohne Elemente, animierte Streifen.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use terranova_render::assets::{
     Assets, Face, MISSING_MODEL, ResolvedVariant, Textures, bake, model_of,
@@ -541,29 +541,137 @@ fn seite_ohne_flaeche_faellt_beim_backen_weg() {
     assert_eq!(seiten, [Face::Up]);
 }
 
-/// Wie `DirectoryValidator`: ein Pack mit einem Symlink darin lässt der
-/// Client aus. Der Renderer bricht dann ab, statt still anders zu zeichnen.
+/// Wie der Client liest der Renderer eine Wurzel auch über einen Link, und
+/// jeden Namensraum darin. Darunter übergeht er, was Java für einen Link
+/// hält (`listPath`), statt den Lauf abzubrechen. Eine Junction ist für
+/// Java unter Windows ein Ordner, dem es folgt, einen Symlink übergeht
+/// es. So verlinkt man unter Windows ein Pack von einer anderen Platte;
+/// früher brach damit jeder Lauf ab.
 #[test]
-fn symlink_im_pack_bricht_ab() {
-    let pack = tempfile::tempdir().unwrap();
-    let ziel = tempfile::tempdir().unwrap();
-    let block = pack.path().join("minecraft/models/block");
-    std::fs::create_dir_all(&block).unwrap();
-    std::fs::write(ziel.path().join("stone.json"), "{}").unwrap();
-    #[cfg(unix)]
-    let link = std::os::unix::fs::symlink(ziel.path().join("stone.json"), block.join("stone.json"));
-    #[cfg(windows)]
-    let link = std::os::windows::fs::symlink_file(
-        ziel.path().join("stone.json"),
-        block.join("stone.json"),
+fn links_wie_im_client() {
+    let tmp = env!("CARGO_TARGET_TMPDIR");
+    let inhalt = tempfile::tempdir_in(tmp).unwrap();
+    let png = |pfad: &Path| {
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        image::RgbaImage::new(16, 16).save(pfad).unwrap();
+    };
+    png(&inhalt.path().join("ns/textures/block/stein.png"));
+    png(&inhalt.path().join("draussen/fern.png"));
+    link(
+        &inhalt.path().join("draussen"),
+        &inhalt.path().join("ns/textures/block/ordner"),
     );
-    if let Err(error) = link {
-        // Windows erlaubt Symlinks nur mit Entwicklermodus oder als Admin.
-        eprintln!("kein Symlink möglich, Test entfällt: {error}");
-        return;
+    // Auch den Anfang einer Liste liest Java ohne Links, hier
+    // `textures/block` selbst.
+    std::fs::create_dir_all(inhalt.path().join("anfang/textures")).unwrap();
+    link(
+        &inhalt.path().join("draussen"),
+        &inhalt.path().join("anfang/textures/block"),
+    );
+    let wurzeln = tempfile::tempdir_in(tmp).unwrap();
+    let als_link = wurzeln.path().join("pack");
+    link(inhalt.path(), &als_link);
+    let mit_namensraum = wurzeln.path().join("zweites");
+    std::fs::create_dir(&mit_namensraum).unwrap();
+    link(&inhalt.path().join("ns"), &mit_namensraum.join("mc"));
+
+    let mut assets = Assets::open(vec![als_link]).unwrap();
+    assert_ne!(assets.texture("ns:block/stein"), Textures::MISSING);
+    let folgt = assets.texture("ns:block/ordner/fern") != Textures::MISSING;
+    assert_eq!(folgt, cfg!(windows), "Junction folgen, Symlink übergehen");
+    let folgt = assets.texture("anfang:block/fern") != Textures::MISSING;
+    assert_eq!(folgt, cfg!(windows), "am Anfang einer Liste ebenso");
+    let mut assets = Assets::open(vec![mit_namensraum]).unwrap();
+    assert_ne!(assets.texture("mc:block/stein"), Textures::MISSING);
+
+    // Einen Symlink auf eine Datei übergeht Java überall. Windows legt ihn
+    // nur mit Entwicklermodus oder als Admin an.
+    let datei = inhalt.path().join("ns/textures/block/datei.png");
+    #[cfg(unix)]
+    let angelegt = std::os::unix::fs::symlink(inhalt.path().join("draussen/fern.png"), &datei);
+    #[cfg(windows)]
+    let angelegt =
+        std::os::windows::fs::symlink_file(inhalt.path().join("draussen/fern.png"), &datei);
+    match angelegt {
+        Ok(()) => {
+            let mut assets = Assets::open(vec![inhalt.path().into()]).unwrap();
+            assert_eq!(assets.texture("ns:block/datei"), Textures::MISSING);
+        }
+        Err(error) => eprintln!("kein Symlink auf eine Datei möglich: {error}"),
     }
-    let fehler = Assets::open(vec![pack.path().into()]).err().unwrap();
-    assert!(format!("{fehler:#}").contains("Symlink"), "{fehler:#}");
+}
+
+/// Legt `pfad` als Link auf das Verzeichnis `ziel` an: unter Windows eine
+/// Junction, die jeder anlegen darf, sonst einen Symlink. `mklink` nähme
+/// einen Schrägstrich im Pfad als Schalter, `absolute` setzt Backslashes.
+fn link(ziel: &Path, pfad: &Path) {
+    #[cfg(windows)]
+    {
+        let ausgabe = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(std::path::absolute(pfad).unwrap())
+            .arg(std::path::absolute(ziel).unwrap())
+            .output()
+            .unwrap();
+        assert!(
+            ausgabe.status.success(),
+            "{}",
+            String::from_utf8_lossy(&ausgabe.stderr)
+        );
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(ziel, pfad).unwrap();
+}
+
+/// Die Anfänge seiner Listen, `models` und `textures/block`, nennt der
+/// Client selbst; unter Windows findet er sie in jeder Schreibweise. Die
+/// Namen darunter nimmt er von der Platte, eine `.mcmeta` gehört also nur
+/// in genau dieser Schreibweise zur PNG. Früher verlangte der Renderer
+/// auch die Anfänge so, und unter Windows nahm er `.MCMETA`.
+#[test]
+fn anfaenge_in_jeder_schreibweise() {
+    let pack = tempfile::tempdir().unwrap();
+    let schreibe = |datei: &str, inhalt: &[u8]| {
+        let pfad = pack.path().join("minecraft").join(datei);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(pfad, inhalt).unwrap();
+    };
+    schreibe(
+        "blockstates/stone.json",
+        br#"{"variants": {"": {"model": "block/gross"}}}"#,
+    );
+    schreibe(
+        "Models/block/gross.json",
+        br##"{"textures": {"all": "block/streifen"}, "elements": [{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {"up": {"texture": "#all"}}}]}"##,
+    );
+    let block = pack.path().join("minecraft/Textures/Block");
+    std::fs::create_dir_all(&block).unwrap();
+    image::RgbaImage::new(16, 32)
+        .save(block.join("streifen.png"))
+        .unwrap();
+    std::fs::write(block.join("streifen.png.MCMETA"), r#"{"animation": {}}"#).unwrap();
+
+    let gleich = pack.path().join("minecraft/models").is_dir();
+    let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+    let variants = assets.variants(&state("stone")).unwrap();
+    assert_eq!(variants[0].model_id != MISSING_MODEL, gleich);
+    if gleich {
+        let textur = variants[0].model.elements[0].faces[0].1.texture;
+        assert_eq!(assets.textures().image(textur).dimensions(), (16, 32));
+    }
+}
+
+/// Ohne Namensraum gilt `minecraft`, auch für Texturen: das Wasser, das der
+/// Renderer an einen Block hängt, ist dieselbe Textur wie die aus einem
+/// Modell. Früher lag sie für einen gefüllten Kessel zweimal in der
+/// Tabelle.
+#[test]
+fn textur_ohne_namensraum_ist_dieselbe() {
+    let mut assets = base();
+    let ohne = assets.texture("block/stone");
+    assert_eq!(assets.texture("minecraft:block/stone"), ohne);
+    assert_ne!(ohne, Textures::MISSING);
+    assert_eq!(assets.textures().name(ohne), "minecraft:block/stone");
 }
 
 /// `heavy_core` schreibt `"texture": "all"` ohne `#`. Auch das ist im Client

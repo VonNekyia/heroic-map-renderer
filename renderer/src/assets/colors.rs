@@ -8,13 +8,13 @@
 //! Nachbau davon, beschränkt auf das, was auf einer Karte Fläche macht.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use image::RgbaImage;
 use serde::Deserialize;
 
-use super::{find_file, read_text, split_id};
+use super::{Pack, read_text, split_id};
 
 /// Eine Färbung als RGB-Faktor.
 pub type Tint = [u8; 3];
@@ -113,17 +113,18 @@ pub struct Colors {
 
 impl Colors {
     /// Liest die Colormaps aus den Asset-Wurzeln; fehlende sind kein Fehler.
-    pub fn load(roots: &[PathBuf]) -> Colors {
+    /// Der Client öffnet sie direkt, statt sie aufzulisten
+    /// (`LegacyStuffWrapper.getPixels`), aus dem obersten Pack, das sie hat.
+    pub fn load(packs: &[Pack]) -> Colors {
         let map = |name: &str| {
-            find_file(
-                roots,
-                "minecraft",
-                "textures",
-                &format!("colormap/{name}"),
-                "png",
-            )
-            .and_then(|(_, path)| image::open(path).ok())
-            .map(|image| image.into_rgba8())
+            packs
+                .iter()
+                .rev()
+                .find_map(|pack| {
+                    pack.resource("minecraft", &format!("textures/colormap/{name}.png"))
+                })
+                .and_then(|path| image::open(path).ok())
+                .map(|image| image.into_rgba8())
         };
         Colors {
             grass: map("grass"),

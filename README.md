@@ -648,13 +648,21 @@ macht die Datei kaputt, ebenso `1e10000`: Gsons `NumberLimits` lehnt ab
 10000 Stellen zwischen letzter Ziffer und Komma ab.
 
 Ein Byte-Order-Mark vorn überspringt Gson, auch in Modellen, `.mcmeta`
-und Biomen, und kaputtes UTF-8 wird zu U+FFFD. Wie beim Auflisten eines
-Packs im Client zählt eine Datei nur, wenn ihr Pfad auf der Platte ein
-`Identifier` ist, Stufe für Stufe genau so geschrieben: unter Windows
-fände `block/stone` sonst auch `Stone.json`, das der Client übergeht.
-`..`, `.` und leere Teile in einem Namen finden keine Datei, wie bei
-`FileUtil.decomposePath`. Ein Pack mit Symlink lässt der Client ganz aus;
-der Renderer bricht dann ab, statt still anders zu zeichnen.
+und Biomen, und kaputtes UTF-8 wird zu U+FFFD.
+
+Jede Wurzel listet der Renderer einmal auf, so wie der Client ein Pack
+(`PathPackResources`). Der Wurzel folgt er, auch über einen Link, und
+ebenso jedem Namensraum darin. Die Anfänge der Listen nennt der Client
+selbst, `blockstates`, `models` und `textures/block`; unter Windows gelten
+sie also in jeder Schreibweise. Darunter zählt eine Datei nur, wenn ihr
+Name auf der Platte ein `Identifier` ist: unter Windows fände
+`block/stone` sonst auch `Stone.json`, das der Client übergeht, und eine
+`.mcmeta` gehört nur in genau dieser Schreibweise zur PNG. Einen Link
+darunter übergeht der Client, wie `Files.find` ohne `FOLLOW_LINKS`; eine
+Junction ist für Java unter Windows aber ein Ordner, und dem folgt er.
+Ganz aus lässt er ein Pack mit einem Link nur im Ordner `resourcepacks`
+(`DirectoryValidator`), die Wurzeln hier nennt der Nutzer. Eine Colormap
+öffnet der Client direkt, dort folgt er jedem Link.
 
 Den Rest prüft der Client gegen die Definition des Blocks: welche
 Eigenschaften er hat und welche Werte. Die stehen in

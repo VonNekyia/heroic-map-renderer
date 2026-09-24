@@ -3,6 +3,7 @@ pub mod blockstate;
 pub mod colors;
 pub mod fluid;
 pub mod model;
+pub mod pack;
 pub mod texture;
 
 use std::collections::{BTreeMap, HashMap};
@@ -17,6 +18,7 @@ pub use blockstate::{BlockStateDef, Definition, ModelRef};
 pub use colors::{Colors, Tint, Tints};
 use model::ModelFile;
 pub use model::{Element, ElementFace, Face, ResolvedModel, Rotation};
+pub use pack::Pack;
 pub use texture::{TextureId, Textures};
 
 /// Das fertige Modell einer Blockstate: gebacken und um die Flüssigkeit
@@ -67,9 +69,10 @@ pub struct ResolvedVariant {
 /// stapelt: Modelle und Texturen Datei für Datei, Blockstates Zustand für
 /// Zustand. Ein Overlay-Pack, das nur 39 Blockstates mitbringt,
 /// funktioniert damit über einer vollständigen Vanilla-Basis, und eines,
-/// das in einer Datei nur einen Teil der Zustände nennt, auch.
+/// das in einer Datei nur einen Teil der Zustände nennt, auch. Jede Wurzel
+/// liest der Renderer wie der Client, siehe [`Pack`].
 pub struct Assets {
-    roots: Vec<PathBuf>,
+    packs: Vec<Pack>,
     textures: Textures,
     blockstates: HashMap<String, Arc<BlockStateStack>>,
     models: HashMap<String, Arc<ResolvedModel>>,
@@ -94,20 +97,16 @@ impl Assets {
         if roots.is_empty() {
             bail!("kein Asset-Verzeichnis angegeben");
         }
+        let mut packs = Vec::with_capacity(roots.len());
         for root in &roots {
             if !root.is_dir() {
                 bail!("Asset-Verzeichnis {} existiert nicht", root.display());
             }
-            if let Some(link) = symlink_in(root)? {
-                bail!(
-                    "{} ist ein Symlink; ein Pack mit Symlink lässt der Client aus",
-                    link.display()
-                );
-            }
+            packs.push(Pack::open(root, &pack::ASSETS)?);
         }
         Ok(Assets {
-            colors: Colors::load(&roots),
-            roots,
+            colors: Colors::load(&packs),
+            packs,
             textures: Textures::new(),
             blockstates: HashMap::new(),
             models: HashMap::new(),
@@ -153,41 +152,29 @@ impl Assets {
     /// Lädt eine Textur nach Namen. Flüssigkeiten brauchen ihre Textur,
     /// ohne dass ein Modell sie nennt.
     pub fn texture(&mut self, id: &str) -> TextureId {
-        self.textures.load(&self.roots, id)
+        self.textures.load(&self.packs, id)
     }
 
     pub fn textures(&self) -> &Textures {
         &self.textures
     }
 
-    fn find(&self, namespace: &str, kind: &str, path: &str, extension: &str) -> Option<PathBuf> {
-        find_file(&self.roots, namespace, kind, path, extension).map(|(_, path)| path)
+    fn find(&self, namespace: &str, kind: &str, path: &str, extension: &str) -> Option<&Path> {
+        find_file(&self.packs, namespace, kind, path, extension).map(|(_, path)| path)
     }
 
     /// Alle Blockstate-Namen, die in irgendeiner Wurzel definiert sind.
     pub fn block_names(&self) -> Result<Vec<String>> {
-        let mut names = Vec::new();
-        for root in &self.roots {
-            let Ok(namespaces) = std::fs::read_dir(root) else {
-                continue;
-            };
-            for namespace in namespaces.flatten() {
-                let dir = namespace.path().join("blockstates");
-                let Ok(entries) = std::fs::read_dir(&dir) else {
-                    continue;
-                };
-                let namespace = namespace.file_name().to_string_lossy().into_owned();
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().is_some_and(|e| e == "json") {
-                        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-                        if blockstate::is_identifier(&namespace, &stem) {
-                            names.push(format!("{namespace}:{stem}"));
-                        }
-                    }
-                }
-            }
-        }
+        let mut names: Vec<String> = self
+            .packs
+            .iter()
+            .flat_map(Pack::names)
+            .filter_map(|name| {
+                let (namespace, rest) = name.split_once('/')?;
+                let block = rest.strip_prefix("blockstates/")?.strip_suffix(".json")?;
+                (!block.contains('/')).then(|| format!("{namespace}:{block}"))
+            })
+            .collect();
         names.sort_unstable();
         names.dedup();
         Ok(names)
@@ -206,11 +193,11 @@ impl Assets {
             files: Vec::new(),
             definition: Definition::of(block),
         };
-        for root in self.roots.iter().rev() {
-            let Some(path) = file_in(root, namespace, "blockstates", name, "json") else {
+        for pack in self.packs.iter().rev() {
+            let Some(path) = pack.listed(namespace, "blockstates", name, "json") else {
                 continue;
             };
-            let def = read_text(&path)
+            let def = read_text(path)
                 .and_then(|text| BlockStateDef::read(&text))
                 .with_context(|| format!("{} lesen", path.display()));
             match def {
@@ -397,7 +384,7 @@ impl Assets {
             elements.unwrap_or_default(),
             &textures,
             &mut self.textures,
-            &self.roots,
+            &self.packs,
             id,
         )?);
         self.models.insert(id.to_string(), Arc::clone(&model));
@@ -409,80 +396,28 @@ impl Assets {
         let path = self
             .find(namespace, "models", name, "json")
             .ok_or_else(|| anyhow!("nicht gefunden"))?;
-        ModelFile::read(&read_json(&path)?).with_context(|| format!("{} lesen", path.display()))
+        ModelFile::read(&read_json(path)?).with_context(|| format!("{} lesen", path.display()))
     }
 }
 
 /// Erste Datei, die von hinten nach vorne in den Wurzeln gefunden wird —
-/// die zuletzt angegebene Wurzel gewinnt.
+/// die zuletzt angegebene Wurzel gewinnt. Gefunden wird, was der Client
+/// beim Auflisten findet ([`Pack::listed`]).
 ///
 /// Liefert zusätzlich den Index der Wurzel, damit zusammengehörige Dateien
 /// wie `.png` und `.png.mcmeta` in derselben oder einer höheren Schicht
 /// gesucht werden können.
-fn find_file(
-    roots: &[PathBuf],
+fn find_file<'a>(
+    packs: &'a [Pack],
     namespace: &str,
     kind: &str,
     path: &str,
     extension: &str,
-) -> Option<(usize, PathBuf)> {
-    roots.iter().enumerate().rev().find_map(|(layer, root)| {
-        file_in(root, namespace, kind, path, extension).map(|file| (layer, file))
+) -> Option<(usize, &'a Path)> {
+    packs.iter().enumerate().rev().find_map(|(layer, pack)| {
+        pack.listed(namespace, kind, path, extension)
+            .map(|file| (layer, file))
     })
-}
-
-/// Die Datei in genau dieser Wurzel, falls es sie gibt, und nur so, wie
-/// der Client sie beim Auflisten des Packs findet: der Name ein gültiger
-/// `Identifier` ohne leere Teile, `.` und `..` (`FileUtil.decomposePath`),
-/// und jede Stufe auf der Platte genau so geschrieben. Unter Windows fände
-/// `block/stone` sonst auch `Block/Stone.json`, das der Client als
-/// ungültigen Namen übergeht. Symlinks gibt es in einer Wurzel nicht
-/// ([`Assets::open`]), aus ihr heraus führt also kein Name.
-fn file_in(
-    root: &Path,
-    namespace: &str,
-    kind: &str,
-    path: &str,
-    extension: &str,
-) -> Option<PathBuf> {
-    if !blockstate::is_identifier(namespace, path)
-        || path.split('/').any(|part| matches!(part, "" | "." | ".."))
-    {
-        return None;
-    }
-    let mut tail: PathBuf = [namespace, kind]
-        .into_iter()
-        .chain(path.split('/'))
-        .collect();
-    tail.as_mut_os_string().push(".");
-    tail.as_mut_os_string().push(extension);
-    let file = root.join(&tail);
-    let real = std::fs::canonicalize(&file).ok()?;
-    (real.ends_with(&tail) && real.is_file()).then_some(file)
-}
-
-/// Der erste Symlink in einem Pack, wie `DirectoryValidator` ihn sucht:
-/// die Wurzel selbst und alles darunter.
-// ponytail: unter Windows zählt auch eine Junction, die Java als Ordner
-// nimmt.
-fn symlink_in(root: &Path) -> Result<Option<PathBuf>> {
-    if root.symlink_metadata()?.is_symlink() {
-        return Ok(Some(root.to_path_buf()));
-    }
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in std::fs::read_dir(&dir).with_context(|| format!("{} lesen", dir.display()))? {
-            let entry = entry?;
-            let kind = entry.file_type()?;
-            if kind.is_symlink() {
-                return Ok(Some(entry.path()));
-            }
-            if kind.is_dir() {
-                pending.push(entry.path());
-            }
-        }
-    }
-    Ok(None)
 }
 
 /// `minecraft:block/stone` -> `("minecraft", "block/stone")`. Ohne Namensraum,

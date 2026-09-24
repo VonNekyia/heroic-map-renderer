@@ -359,11 +359,8 @@ fn kreuzmodell_hat_keine_loecher() {
     }
 }
 
-/// Die Seiten eines gefluteten Blocks bleiben trocken. Der Wasserwürfel
-/// liegt mit seinen Seiten genau auf der Blockgrenze, und bei gleicher
-/// Tiefe gewann bisher das Wasser: ein Film auf jeder gefluteten Platte
-/// und Treppe. Vanilla rückt jede Flüssigkeitsfläche ein Tausendstel nach
-/// innen; hier rückt sie in der Tiefe nach hinten.
+/// Ein gefluteter voller Würfel sieht aus wie ein trockener: das Wasser
+/// liegt ganz in ihm.
 #[test]
 fn gefluteter_wuerfel_bleibt_trocken() {
     let mut assets = assets();
@@ -376,6 +373,39 @@ fn gefluteter_wuerfel_bleibt_trocken() {
             trocken.image.as_raw(),
             "scale {scale}: Wasserfilm auf dem Würfel"
         );
+    }
+}
+
+/// Die Seiten einer gefluteten Platte bleiben trocken. Der Wasserwürfel
+/// liegt mit seinen Seiten genau auf der Blockgrenze, wie die Seiten der
+/// Platte, und bei gleicher Tiefe gewann bisher das Wasser: ein Film auf
+/// jeder gefluteten Platte und Treppe. Vanilla rückt jede
+/// Flüssigkeitsfläche ein Tausendstel nach innen; hier rückt sie in der
+/// Tiefe nach hinten. Über der Oberseite der Platte liegt dagegen Wasser.
+#[test]
+fn geflutete_platte_bleibt_an_den_seiten_trocken() {
+    let mut assets = assets();
+    let oben = [150, 110, 60, 255];
+    for scale in [16u32, 32] {
+        let trocken = sprite(&mut assets, "untere_platte", scale).expect("Sprite");
+        let nass = sprite(&mut assets, "untere_platte[waterlogged=true]", scale).expect("Sprite");
+        let (mut seiten, mut unter_wasser) = (0, 0);
+        for (x, y, p) in trocken.image.enumerate_pixels() {
+            let sx = x as i32 + trocken.offset.0;
+            let sy = y as i32 + trocken.offset.1;
+            if p.0[3] < 255 {
+                continue;
+            }
+            let q = pixel(&nass, sx, sy);
+            if p.0 == oben {
+                unter_wasser += 1;
+                assert_ne!(q, p.0, "scale {scale}: kein Wasser über ({sx}, {sy})");
+            } else {
+                seiten += 1;
+                assert_eq!(q, p.0, "scale {scale}: Wasserfilm bei ({sx}, {sy})");
+            }
+        }
+        assert!(seiten > 0 && unter_wasser > 0, "{seiten} {unter_wasser}");
     }
 }
 
@@ -426,6 +456,128 @@ fn diagonale_mischt_nur_einmal() {
             );
         }
     }
+}
+
+/// Jede Kante zwischen zwei Dreiecken nimmt jeden Pixel darauf genau
+/// einmal, in jeder Lage: Quader auf dem 1/16-Raster, gedreht wie
+/// Elemente um 22,5 und 45 Grad und wie Varianten um Vielfache von 90 —
+/// Kreuzmodelle, Türen, Knöpfe, Falltüren —, bei jedem scale. Gedreht wird
+/// in f32 wie im Baker, mit derselben Rundung. Ein Quader projiziert sich
+/// konvex, und jeder Pixelmittelpunkt darin gehört genau einer
+/// Vorderfläche. Mit durchsichtiger Textur zeigt sich ein doppelter Pixel
+/// als zu hohes Alpha, ein Loch als leerer Pixel innen.
+#[test]
+fn kanten_nehmen_jeden_pixel_genau_einmal() {
+    let mut assets = assets();
+    let glas = assets.texture("block/water_still");
+    // xorshift: reproduzierbar ohne weitere Abhängigkeit.
+    let mut zustand = 0x2545_f491_4f6c_dd1d_u64;
+    let mut zufall = move |n: u64| {
+        zustand ^= zustand << 13;
+        zustand ^= zustand >> 7;
+        zustand ^= zustand << 17;
+        zustand % n
+    };
+    let drehe = |[x, y, z]: [f32; 3], achse: u64, grad: f32| {
+        let (sin, cos) = grad.to_radians().sin_cos();
+        match achse {
+            0 => [x, y * cos - z * sin, y * sin + z * cos],
+            1 => [x * cos + z * sin, y, -x * sin + z * cos],
+            _ => [x * cos - y * sin, x * sin + y * cos, z],
+        }
+    };
+
+    let mut innen = 0;
+    for _ in 0..300 {
+        let mut from = [0.0f32; 3];
+        let mut to = [0.0f32; 3];
+        for i in 0..3 {
+            let (a, b) = (zufall(16), zufall(16));
+            // In Sechzehnteln, wie im Modell-JSON.
+            from[i] = a.min(b) as f32;
+            to[i] = (a.max(b) + 1) as f32;
+        }
+        let achse = zufall(3);
+        let grad = [22.5f32, -22.5, 45.0, -45.0, 90.0, 180.0, 270.0][zufall(7) as usize];
+        let mitte = [zufall(17), zufall(17), zufall(17)].map(|a| a as f32 / 16.0);
+        let quads: Vec<Quad> = box_quads(from, to, glas, None, None)
+            .map(|mut q| {
+                q.corners = q.corners.map(|p| {
+                    let v = drehe(
+                        [p[0] - mitte[0], p[1] - mitte[1], p[2] - mitte[2]],
+                        achse,
+                        grad,
+                    );
+                    [v[0] + mitte[0], v[1] + mitte[1], v[2] + mitte[2]]
+                });
+                q
+            })
+            .collect();
+        let modell = BakedModel { quads };
+
+        for scale in [4u32, 8, 16, 32, 64] {
+            let projection = Projection::new(scale);
+            let umriss = huelle(
+                modell
+                    .quads
+                    .iter()
+                    .flat_map(|q| q.corners)
+                    .map(|p| {
+                        let (x, y) = projection.project(p);
+                        [x as f64, y as f64]
+                    })
+                    .collect(),
+            );
+            let sprite =
+                render(&modell, assets.textures(), &projection, Tints::default()).expect("Sprite");
+            for (x, y, p) in sprite.image.enumerate_pixels() {
+                let px = (x as i32 + sprite.offset.0) as f64 + 0.5;
+                let py = (y as i32 + sprite.offset.1) as f64 + 0.5;
+                let fall =
+                    format!("scale {scale}, {from:?}..{to:?}, {grad} um {achse}, ({px}, {py})");
+                assert!(
+                    p.0[3] == 0 || p.0[3] == 180,
+                    "doppelt: {fall}, Alpha {}",
+                    p.0[3]
+                );
+                if drinnen(&umriss, px, py, 0.01) {
+                    innen += 1;
+                    assert_eq!(p.0[3], 180, "Loch: {fall}");
+                }
+            }
+        }
+    }
+    assert!(innen > 100_000, "nur {innen} Pixel geprüft");
+}
+
+/// Konvexe Hülle, gegen den Uhrzeigersinn (monotone Kette).
+fn huelle(mut punkte: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
+    punkte.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mut h: Vec<[f64; 2]> = Vec::new();
+    for richtung in [punkte.clone(), punkte.into_iter().rev().collect()] {
+        let start = h.len();
+        for p in richtung {
+            while h.len() >= start + 2 && kreuz(h[h.len() - 2], h[h.len() - 1], p) <= 0.0 {
+                h.pop();
+            }
+            h.push(p);
+        }
+        h.pop();
+    }
+    h
+}
+
+fn kreuz(o: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+}
+
+/// Liegt der Punkt mindestens `abstand` Pixel innerhalb der Hülle?
+fn drinnen(huelle: &[[f64; 2]], x: f64, y: f64, abstand: f64) -> bool {
+    (0..huelle.len()).all(|i| {
+        let (a, b) = (huelle[i], huelle[(i + 1) % huelle.len()]);
+        let laenge = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
+        kreuz(a, b, [x, y]) > abstand * laenge
+    })
 }
 
 /// Eine Fläche nach +z zwischen `von` und `bis` in x und y.

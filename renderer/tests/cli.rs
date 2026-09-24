@@ -493,19 +493,18 @@ fn zoomstufen_haengen_am_massstab() {
 /// Ein Ausschnitt, in einen fertigen Kachelbaum nachgerendert, darf an
 /// einer unveränderten Welt nichts ändern.
 ///
-/// Die Elternkacheln am Rand des Ausschnitts haben Geschwister ausserhalb.
-/// Wer beim Neubauen nur die Kacheln dieses Laufs berücksichtigt, schreibt
-/// sie mit durchsichtigen Lücken zu — und `map.json` schrumpft auf den
-/// Ausschnitt zusammen.
+/// Die nativen Stufen rendern ihre Elternkacheln ganz aus der Welt, der
+/// Export rundet den Ausschnitt deshalb auf ihr Raster auf. Der Stein in
+/// Chunk (10, 4) liegt ausserhalb des angefragten Ausschnitts, aber in
+/// derselben Elternkachel zwei Stufen darüber: rundete der Export nicht
+/// auf, fehlte er in deren Sprite-Tabelle und würde dort zu Luft.
 ///
-/// Die nativen Stufen rendern ihre Elternkacheln ganz aus der Welt. Der
-/// Stein in Chunk (10, 4) liegt weit ausserhalb des Ausschnitts, aber in
-/// derselben Elternkachel zwei Stufen darüber: fehlt er in deren
-/// Sprite-Tabelle, wird er dort zu Luft.
-///
-/// Chunk (20, 0) liegt auch ausserhalb der gerundeten Fläche. Der Vorlauf
-/// sieht ihn nicht, und doch darf der Lauf seine Kacheln nicht für
-/// verwaist halten.
+/// Chunk (20, 0) liegt auch ausserhalb der gerundeten Fläche. Weiter oben
+/// in der Pyramide teilen sich seine Kacheln Eltern mit denen des
+/// Ausschnitts: wer beim Neubauen nur die Kacheln dieses Laufs nimmt,
+/// schreibt sie mit durchsichtigen Lücken zu, und `map.json` schrumpft auf
+/// den Ausschnitt. Und der Lauf darf seine Kacheln nicht für verwaist
+/// halten, nur weil der Vorlauf ihn nicht sieht.
 #[test]
 fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
     let welt = tempdir();
@@ -809,6 +808,35 @@ fn geflutete_truhe_bleibt_ein_entity() {
     assert!(text.contains("Flüssigkeit: Water"), "{text}");
 }
 
+/// `--scan` nennt dieselben Blöcke ohne Modell wie `--block`: die
+/// geflutete Truhe ja, Wasser nicht.
+#[test]
+fn scan_nennt_die_geflutete_truhe_aber_nicht_das_wasser() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:chest[waterlogged=true]",
+        (9, 4, 8) => "minecraft:water",
+        (10, 4, 8) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    });
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--scan"),
+    ]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    let (_, liste) = text.split_once("Blöcke ohne Modell:").expect(&text);
+    let namen: Vec<&str> = liste
+        .lines()
+        .skip(1)
+        .map(str::trim)
+        .take_while(|zeile| zeile.starts_with("minecraft:"))
+        .collect();
+    assert_eq!(namen, ["minecraft:chest"], "{text}");
+}
+
 /// Wasser hat kein Modell-JSON, der Renderer baut es im Code. `--block`
 /// darf es deshalb nicht als modelllos melden.
 #[test]
@@ -825,8 +853,8 @@ fn block_nennt_wasser_nicht_modelllos() {
 }
 
 /// Ein vergessenes `--scale` darf einen bestehenden Baum nicht zerlegen:
-/// die neuen Kacheln lägen eine Stufe tiefer als die alten, und `map.json`
-/// beschriebe danach nur noch den Ausschnitt.
+/// die neuen Kacheln hätten auf denselben Stufen einen anderen Massstab als
+/// die alten.
 #[test]
 fn anderer_scale_wird_abgelehnt() {
     let welt = tempdir();

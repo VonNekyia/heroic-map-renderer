@@ -66,6 +66,12 @@ fn render_chunks(
 /// scales der nativen Stufen. Mit einer Pixelbreite Toleranz beim Prüfen
 /// der Deckung fiel der Block unter einer Druckplatte weg, und ihr Rand
 /// zeigte den Hintergrund.
+///
+/// Eine obere Platte deckt ihre eigene Oberseite, aber weder den Boden
+/// noch ihren ganzen Umriss. Liegt sie auf dem Boden, bleibt dessen
+/// Oberseite darunter sichtbar; steht sie östlich eines sonst verdeckten
+/// Würfels, bleibt dessen Ostseite unter ihr sichtbar. Wer den Boden an der
+/// falschen Stelle prüft oder den Umriss nur oben, verdeckt beides.
 #[test]
 fn verdecken_aendert_kein_pixel() {
     let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
@@ -79,6 +85,8 @@ fn verdecken_aendert_kein_pixel() {
         (4, 1, 8) => "minecraft:einfarbig",
         (2..=4, 1, 11..=13) => "minecraft:lava",
         (10..=12, 1..=3, 8..=10) => "minecraft:einfarbig",
+        (7, 1, 5) | (14, 1, 5) => "minecraft:obere_platte",
+        (13, 1..=2, 5) | (13, 1, 6) => "minecraft:einfarbig",
         _ => "minecraft:air",
     };
     let dir = tempdir();
@@ -519,6 +527,42 @@ fn oberseite(
     let sx = sx - rect.x as f64;
     let sy = sy + projection.scale() as f64 / 4.0 - rect.y as f64;
     bild.get_pixel(sx.round() as u32, sy.round() as u32).0
+}
+
+/// In tiefem Wasser hat keine innere Ost- oder Südseite einen Streifen:
+/// der Nachbar reicht bis zur Blockkante, weil über ihm auch Wasser steht.
+/// Zählte nur seine eigene Menge, läge an jeder inneren Seite knapp unter
+/// der Oberfläche ein Streifen, und durch die Oberfläche sähe man ein
+/// Raster. Die Streifen träfen die Oberseiten an ihrem Ost- und Südrand.
+#[test]
+fn tiefes_wasser_hat_innen_keine_streifen() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(512, 384);
+    let dir = tempdir();
+    let bild = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (2..=9, 1..=3, 2..=9) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    // Über dem Inneren sieht jeder Strahl drei Schichten und dann den Grund.
+    let oben = 3.0 + 8.0 / 9.0;
+    let soll = punkt(&bild, projection, rect, [7.5, oben, 7.5]);
+    for x in 5..=8 {
+        for z in 5..=8 {
+            for u in (0..10).map(|i| 0.05 + 0.1 * i as f64) {
+                for v in (0..10).map(|i| 0.05 + 0.1 * i as f64) {
+                    let p = [x as f64 + u, oben, z as f64 + v];
+                    assert_eq!(punkt(&bild, projection, rect, p), soll, "{p:?}");
+                }
+            }
+        }
+    }
 }
 
 /// Ein Becken aus einer Schicht Wasser. Flächen zwischen zwei
@@ -966,6 +1010,29 @@ fn wasserstufen_schliessen_die_luecke_ohne_doppelung() {
         darunter[3], 180,
         "Seitenfläche unter der Nachbaroberfläche: {darunter:?}"
     );
+}
+
+/// Lava bekommt ihre Streifen wie Wasser, nur deckend: an einer Stufe
+/// fliessender Lava bliebe sonst ein Loch bis zum Hintergrund.
+#[test]
+fn lavastufen_schliessen_die_luecke() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let dir = tempdir();
+    let stufe = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (8, 1, 8) => "minecraft:lava[level=0]",
+            // Endet bei 6/9.
+            (9, 1, 8) => "minecraft:lava[level=2]",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let streifen = punkt(&stufe, projection, rect, [9.0, 1.0 + 7.0 / 9.0, 8.5]);
+    assert_eq!(streifen[3], 255, "Loch an der Lavastufe: {streifen:?}");
 }
 
 /// Steht Wasser über Wasser, füllt das untere den Block bis zur Kante.

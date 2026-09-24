@@ -426,9 +426,11 @@ an dem, was den Strahl aufhält: dem Grund, dem Ufer, einem Stein. Dünne
 Modelle zählen als Wasser, denn neben Seegras, Kelp oder einem gefluteten
 Zaun geht der Strahl weiter bis zum Grund; endete die Zählung an ihnen,
 stünde über jedem Seegras ein heller Fleck. Ob ein Block den Strahl
-aufhält, misst der Renderer an den Pixeln, die eine Wasseroberfläche an
-seiner Stelle belegen würde, und immer bei scale 32, damit jede Stufe gleich
-zählt. Deckt er mehr als die Hälfte davon, endet die Zählung: eine obere
+aufhält, misst der Renderer an den Pixeln, die die Oberfläche an seiner
+Stelle belegen würde, auf ihrer Höhe und immer bei scale 32: hinter
+fliessendem Wasser treten die Strahlen tiefer ein als hinter einer Quelle,
+und jede Stufe soll gleich zählen. Deckt er mehr als die Hälfte davon,
+endet die Zählung: eine obere
 Platte und ein Mauerpfosten halten den Strahl auf, eine untere Platte nicht,
 denn über sie gehen drei von fünf Strahlen hinweg. Hohes Seegras deckt genau
 die Hälfte und zählt wie Wasser; sonst stünde über ihm ein heller Fleck. Der

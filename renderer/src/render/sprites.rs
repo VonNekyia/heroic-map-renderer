@@ -63,8 +63,9 @@ pub struct SpriteSet {
     /// Die Pixel eines vollen Wuerfels bei diesem scale, gegen die Deckung
     /// geprueft wird.
     masks: Masks,
-    /// Die Oberseite einer Wasseroberflaeche bei scale 32, fuer `covers`.
-    cover_top: Vec<(i32, i32)>,
+    /// Die Oberseite einer Wasseroberflaeche bei scale 32, je Hoehe in
+    /// Neunteln von 1 bis 8, fuer `Family::covers`.
+    cover_tops: [Vec<(i32, i32)>; 8],
     foreign: BTreeSet<Cell>,
 }
 
@@ -91,10 +92,15 @@ impl Masks {
     }
 }
 
-/// Die Oberseite einer Wasseroberflaeche bei 8/9: durch sie treten die
-/// Strahlen in die Tiefe ein, deren Ende `covers` misst.
-fn surface_top(textures: &Textures, projection: Projection) -> Vec<(i32, i32)> {
-    pixels_of(textures, projection, block(16.0 * 8.0 / 9.0, true))
+/// Die Oberseite einer Wasseroberflaeche auf dieser Hoehe in Neunteln:
+/// durch sie treten die Strahlen in die Tiefe ein, deren Ende `covers`
+/// misst. Eine Quelle endet bei 8/9, fliessendes Wasser tiefer.
+fn surface_top(textures: &Textures, projection: Projection, ninths: u8) -> Vec<(i32, i32)> {
+    pixels_of(
+        textures,
+        projection,
+        block(16.0 * f32::from(ninths) / 9.0, true),
+    )
 }
 
 /// Ein deckender Block bis zur Hoehe `top`, wahlweise nur seine Oberseite.
@@ -156,17 +162,26 @@ pub struct Family {
     /// Oberseite des Blocks darunter? Lava endet bei 8/9 und deckt den
     /// Umriss nicht mehr, den Block darunter aber schon.
     pub covers_floor: bool,
-    /// Decken alle Alternativen mehr als die Haelfte der Oberseite ihres
-    /// Wuerfels? Dort treffen die Strahlen hinter einer Wasseroberflaeche
-    /// den Block auf der Diagonalen, und die meisten enden an ihm. Sonst
-    /// laufen sie hindurch: Seegras, Kelp, ein gefluteter Zaunpfosten und
-    /// eine untere Platte zaehlen wie das Wasser um sie herum. Gemessen wird
-    /// immer bei scale 32, damit die nativen Stufen dieselbe Tiefe zaehlen
-    /// wie die Basis.
-    pub covers: bool,
+    /// Je Hoehe einer Wasseroberflaeche in Neunteln ein Bit, siehe
+    /// [`Family::covers`].
+    cover_bits: u8,
 }
 
 impl Family {
+    /// Decken alle Alternativen mehr als die Haelfte dessen, was eine
+    /// Wasseroberflaeche dieser Hoehe an ihrer Stelle belegen wuerde? Dort
+    /// treffen die Strahlen hinter der Oberflaeche den Block auf der
+    /// Diagonalen, und die meisten enden an ihm. Sonst laufen sie hindurch:
+    /// Seegras, Kelp, ein gefluteter Zaunpfosten und eine untere Platte
+    /// zaehlen wie das Wasser um sie herum. Hinter fliessendem Wasser der
+    /// Menge a treten die Strahlen bei a/9 ein, tiefer als bei einer
+    /// Quelle, und eine untere Platte deckt dort mehr. Gemessen wird immer
+    /// bei scale 32, damit die nativen Stufen dieselbe Tiefe zaehlen wie
+    /// die Basis.
+    pub fn covers(&self, ninths: u8) -> bool {
+        (self.cover_bits >> (ninths.clamp(1, 8) - 1)) & 1 == 1
+    }
+
     /// Die Alternative fuer einen Block — dieselbe, die der 26.2-Client
     /// wuerfelt: `ModelBlockRenderer` saet seinen Zufallsgenerator mit
     /// `Mth.getSeed` der Position, `WeightedList.getRandomOrThrow` zieht
@@ -355,7 +370,9 @@ impl SpriteSet {
             strips: HashMap::new(),
             projection,
             masks: Masks::new(assets.textures(), projection),
-            cover_top: surface_top(assets.textures(), cover_projection()),
+            cover_tops: std::array::from_fn(|i| {
+                surface_top(assets.textures(), cover_projection(), i as u8 + 1)
+            }),
             foreign: BTreeSet::new(),
         };
 
@@ -408,16 +425,18 @@ impl SpriteSet {
                     .map(|(_, id)| id.map(|id| &set.sprites[id.0 as usize]))
             };
             let all = |test: fn(&Entry) -> bool| entries().all(|e| e.is_some_and(test));
-            let covers = models
+            let cover_bits = models
                 .iter()
                 .zip(&alternatives)
-                .all(|((_, model), &(_, id))| set.covers_rays(assets, model, id));
+                .fold(u8::MAX, |bits, ((_, model), &(_, id))| {
+                    bits & set.covers_rays(assets, model, id)
+                });
             let family = Family {
                 total: alternatives.iter().map(|(weight, _)| *weight).sum(),
                 seed_offset: seed_offset(state),
                 opaque: all(|e| e.opaque),
                 covers_floor: all(|e| e.covers_floor),
-                covers,
+                cover_bits,
                 fluid,
                 alternatives,
             };
@@ -437,11 +456,11 @@ impl SpriteSet {
         Ok(set)
     }
 
-    /// Deckt ein Modell mehr als die Haelfte dessen, was eine
-    /// Wasseroberflaeche an seiner Stelle belegen wuerde, gemessen bei
-    /// scale 32? Bei scale 32 misst das fertige Sprite, sonst eine eigene
-    /// Rasterung dafuer.
-    fn covers_rays(&self, assets: &Assets, model: &BakedModel, id: Option<SpriteId>) -> bool {
+    /// Je Hoehe einer Wasseroberflaeche ein Bit: deckt ein Modell mehr als
+    /// die Haelfte dessen, was sie an seiner Stelle belegen wuerde,
+    /// gemessen bei scale 32? Bei scale 32 misst das fertige Sprite, sonst
+    /// eine eigene Rasterung dafuer.
+    fn covers_rays(&self, assets: &Assets, model: &BakedModel, id: Option<SpriteId>) -> u8 {
         let reference = cover_projection();
         let own = id
             .filter(|_| self.projection.scale() == reference.scale())
@@ -455,11 +474,13 @@ impl SpriteSet {
                 gerastert = render(model, assets.textures(), &reference, Tints::default());
                 match &gerastert {
                     Some(sprite) => sprite,
-                    None => return false,
+                    None => return 0,
                 }
             }
         };
-        covers_most(sprite, &self.cover_top)
+        (0..8)
+            .filter(|&i| covers_most(sprite, &self.cover_tops[i]))
+            .fold(0, |bits, i| bits | 1 << i)
     }
 
     /// Streifen der Seitenflaechen ueber niedrigeren Nachbarn derselben
@@ -1031,7 +1052,7 @@ mod tests {
             fluid: None,
             opaque: false,
             covers_floor: false,
-            covers: false,
+            cover_bits: 0,
             seed_offset: [0, 0, 0],
         };
         let listen = [
@@ -1442,7 +1463,7 @@ mod tests {
             let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let flags = |text: &str| {
                 let f = set.family_of(&state(text)).unwrap();
-                (f.opaque, f.covers_floor, f.covers)
+                (f.opaque, f.covers_floor, f.covers(8))
             };
             assert_eq!(flags("einfarbig"), (true, true, true), "scale {scale}");
             assert_eq!(flags("water"), (false, false, false), "scale {scale}");
@@ -1450,7 +1471,7 @@ mod tests {
         let set = build(&mut assets, &states, Projection::new(32)).unwrap();
         let flags = |text: &str| {
             let f = set.family_of(&state(text)).unwrap();
-            (f.opaque, f.covers_floor, f.covers)
+            (f.opaque, f.covers_floor, f.covers(8))
         };
         assert_eq!(flags("lava"), (false, true, true));
         assert_eq!(flags("oak_fence[north=true]"), (false, false, false));
@@ -1482,7 +1503,7 @@ mod tests {
         ];
         for scale in [32, 16, 8, 4] {
             let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
-            let covers = |text: &str| set.family_of(&state(text)).unwrap().covers;
+            let covers = |text: &str| set.family_of(&state(text)).unwrap().covers(8);
             assert!(covers("schmal"), "scale {scale}");
             assert!(!covers("untere_platte[waterlogged=true]"), "scale {scale}");
             assert!(covers("obere_platte[waterlogged=true]"), "scale {scale}");
@@ -1492,6 +1513,21 @@ mod tests {
             );
             assert!(covers("einfarbig"), "scale {scale}");
         }
+    }
+
+    /// Hinter fliessendem Wasser der Menge a treten die Strahlen bei a/9
+    /// ein, tiefer als bei einer Quelle. Eine untere Platte deckt bei 8/9
+    /// 100 von 256 Pixeln und laesst die Strahlen durch, bei 7/9 mehr als
+    /// die Haelfte, und bei 1/9 steht die Oberflaeche ganz vor ihr.
+    #[test]
+    fn deckung_je_hoehe_der_oberflaeche() {
+        let mut assets = assets();
+        let platte = state("untere_platte[waterlogged=true]");
+        let set = build(&mut assets, [&platte], Projection::new(32)).unwrap();
+        let family = set.family_of(&platte).unwrap();
+        assert!(!family.covers(8));
+        assert!(family.covers(7));
+        assert!(family.covers(1));
     }
 
     /// Genau die Haelfte haelt den Strahl nicht auf, eins mehr schon. Hohes

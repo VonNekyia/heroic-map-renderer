@@ -871,6 +871,16 @@ fn tiefe_zaehlt_entlang_des_blickstrahls() {
 /// Tiefe des Sees.
 #[test]
 fn deckende_bloecke_beenden_die_zaehlung() {
+    zaehlung_endet_an_der_platte("minecraft:water", 8);
+    zaehlung_endet_an_der_platte("minecraft:water[level=1]", 7);
+}
+
+/// Die Prüfung aus `deckende_bloecke_beenden_die_zaehlung` für einen See,
+/// dessen oberste Schicht `oben` ist, mit Oberfläche bei `neuntel`/9.
+/// Hinter fliessendem Wasser der Menge 7 treten die Strahlen tiefer ein
+/// als bei einer Quelle, und dort hält auch die untere Platte sie auf:
+/// sie deckt mehr als die Hälfte. Gemessen wurde vorher immer bei 8/9.
+fn zaehlung_endet_an_der_platte(oben: &'static str, neuntel: u8) {
     let projection = Projection::new(32);
     let rect = ScreenRect::centered(512, 512);
     let schicht = wasserschicht(&assets());
@@ -878,7 +888,8 @@ fn deckende_bloecke_beenden_die_zaehlung() {
         move |x: i32, y: i32, z: i32| match (x, y, z) {
             (_, 0, _) => "minecraft:einfarbig",
             (7, 3, 7) => platte,
-            (_, 1..=4, _) => "minecraft:water",
+            (_, 1..=3, _) => "minecraft:water",
+            (_, 4, _) => oben,
             _ => "minecraft:air",
         }
     };
@@ -899,7 +910,7 @@ fn deckende_bloecke_beenden_die_zaehlung() {
         rect,
     );
     // Die Mitte der Oberseite von (8, 4, 8): ihr Strahl trifft die Platte.
-    let mitte = [8.5, 4.0 + 8.0 / 9.0, 8.5];
+    let mitte = [8.5, 4.0 + f64::from(neuntel) / 9.0, 8.5];
     let holz = [150, 110, 60, 255];
     let erwartet = over(schicht, holz);
     let ist = punkt(&oben, projection, rect, mitte);
@@ -909,12 +920,16 @@ fn deckende_bloecke_beenden_die_zaehlung() {
             "obere Platte: erwartet {erwartet:?}, bekommen {ist:?}"
         );
     }
-    let erwartet = over([schicht[0], schicht[1], schicht[2], 253], holz);
+    let hinter_der_platte = if neuntel == 8 { 253 } else { schicht[3] };
+    let erwartet = over(
+        [schicht[0], schicht[1], schicht[2], hinter_der_platte],
+        holz,
+    );
     let ist = punkt(&unten, projection, rect, mitte);
     for c in 0..4 {
         assert!(
             (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
-            "untere Platte: erwartet {erwartet:?}, bekommen {ist:?}"
+            "untere Platte bei {neuntel}/9: erwartet {erwartet:?}, bekommen {ist:?}"
         );
     }
 }

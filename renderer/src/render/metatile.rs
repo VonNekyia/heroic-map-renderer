@@ -420,14 +420,14 @@ impl<'a> ChunkCache<'a> {
             // mehr. Gezählt wird entlang des Blickstrahls, nicht senkrecht:
             // hinter der Oberseite von (x, y, z) liegt auf denselben Pixeln
             // die von (x-1, y-1, z-1). Was den Strahl aufhält, beendet die
-            // Zählung — der Grund, eine Platte, das Ufer. Dünne Modelle im
-            // Wasser lässt er durch: Seegras oder ein Pfosten machen die
-            // Fläche nicht flach.
+            // Zählung — der Grund, eine Platte, das Ufer —, gemessen an der
+            // Höhe dieser Oberfläche. Dünne Modelle im Wasser lässt er
+            // durch: Seegras oder ein Pfosten machen die Fläche nicht flach.
             let mut depth = 0;
             while !above && depth + 1 < DEPTHS {
                 let d = 1 + depth as i32;
                 let behind = self.family_at(sprites, x - d, y - d, z - d)?;
-                if !same(behind) || behind.is_some_and(|b| b.covers) {
+                if !same(behind) || behind.is_some_and(|b| b.covers(own)) {
                     break;
                 }
                 depth += 1;

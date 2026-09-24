@@ -20,7 +20,7 @@ Sand, Stein, Erde — würfeln ihre Drehung aus der Position wie das Spiel.
 
 ![Karte](docs/map.png)
 
-900 mal 900 Pixel um (-64, 416), scale 16, 292 Chunks, 1,7 s einkernig —
+900 mal 900 Pixel um (-64, 416), scale 16, 390 Chunks, 1,4 s —
 dieselbe Stelle wie in Schritt 4, jetzt mit Wasser, Biomfarben und
 gewürfelten Drehungen.
 
@@ -147,19 +147,21 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Render:     292 Chunks im Ausschnitt, 292 generiert, 258 Blockstates, 1638 Sprites
+Render:     390 Chunks gelesen, 215 Blockstates, 1207 Sprites
             1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
-            900x900 px bei (-4290, 958) und scale 16 in 1.7 s -> docs/map.png
+            900x900 px bei (-4290, 958) und scale 16 in 1.4 s -> docs/map.png
 
 Texturen:   103 geladen, 0 fehlen
 ```
 
 `--center` nennt die Blockspalte, die in der Bildmitte landet, `--scale` die
-Pixelbreite eines Blocks. Die Ausgabe nennt die linke obere Bildecke in
-Pixeln. Gesucht wird nur, was im Bild landen kann: der
-sichtbare Bereich ist ein schmales diagonales Band in x und z, kein Rechteck.
-Wer stattdessen die Hüllbox nähme, läse für einen 1024er Ausschnitt rund das
-Sechzehnfache an Chunks.
+Pixelbreite eines Blocks, `--size` die Kantenlänge, mindestens 1. Die
+Ausgabe nennt die linke obere Bildecke in Pixeln. Die Sprite-Tabelle kommt
+aus demselben Vorlauf wie beim Kachelexport, nur über den Ausschnitt, und
+der dekodiert nur, was im Bild landen kann: der sichtbare Bereich ist ein
+schmales diagonales Band in x und z, kein Rechteck. Wer stattdessen die
+Hüllbox nähme, läse für einen 1024er Ausschnitt rund das Sechzehnfache an
+Chunks.
 
 ### Die ganze Welt als Kacheln
 
@@ -168,8 +170,8 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Vorlauf:    316223 Chunks in 8.3 s, 3110 Blockstates, 292836 Kacheln
-            33762 Sprites bei scale 32, davon 31263 Fassungen
+Vorlauf:    316223 Chunks in 5.5 s, 3110 Blockstates, 292836 Kacheln
+            33762 Sprites bei scale 32, davon 31265 Fassungen
             18 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
             200/292836 Kacheln
             400/292836 Kacheln
@@ -182,8 +184,12 @@ Der Vorlauf liest jeden Chunk einmal und beantwortet zwei Fragen auf einmal:
 welche Blockstates vorkommen, und welche Kacheln überhaupt etwas zeigen. Erst
 danach steht die Sprite-Tabelle — und erst dann kann parallel gerendert
 werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
-Chunks werden deshalb zweimal gelesen; der Vorlauf kostet für die ganze Welt
-6 bis 11 Sekunden.
+Chunks werden deshalb mehrmals gelesen: vom Vorlauf, von der Basis und von
+jeder nativen Stufe, bei scale 32 also fünfmal. Der Vorlauf kostet für die
+ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes Sprite, das nicht
+selbst Alternative einer Blockstate ist: eines je Maske verdeckter
+Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu die Streifen
+an Wasserstufen.
 
 Gerendert wird mit Rayon über die Kacheln. Jeder Worker hält seinen eigenen
 Chunk- und Regionscache, geteilt wird nur die unveränderliche Sprite-Tabelle.
@@ -195,19 +201,19 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Vorlauf:    8192 Chunks in 0.6 s, 247 Blockstates, 256 Kacheln
-            1580 Sprites bei scale 32, davon 1355 Fassungen
+Vorlauf:    788 Chunks in 0.1 s, 247 Blockstates, 256 Kacheln
+            1580 Sprites bei scale 32, davon 1336 Fassungen
             1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
             200/256 Kacheln
             256/256 Kacheln
 Kacheln:    256 geschrieben, 0 leer, 256x256 px, 24 Threads
-            31.2 MB in 2.6 s (98 Kacheln/s, 125 kB je Kachel)
-Zoom  9:     64 Kacheln nativ bei scale 16, 8.0 MB in 1.4 s
+            31.2 MB in 2.2 s (119 Kacheln/s, 125 kB je Kachel)
+Zoom  9:     64 Kacheln nativ bei scale 16, 8.0 MB in 1.2 s
 Zoom  8:     16 Kacheln nativ bei scale 8, 1.9 MB in 0.7 s
-Zoom  7:     4 Kacheln nativ bei scale 4, 0.5 MB in 1.5 s
+Zoom  7:     4 Kacheln nativ bei scale 4, 0.5 MB in 1.2 s
 Zoom  6:     2 Kacheln
 ...
-Pyramide:   9 Kacheln, 0.2 MB in 0.1 s
+Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
 Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/map.json
 ```
 
@@ -217,14 +223,18 @@ scale 32 auf 2048 Pixel, aus 2048 mal 2048 werden hier 4096 mal 4096. Die
 nativen Stufen zeigen ganze Elternkacheln, und alle Stufen sollen denselben
 Stand der Welt zeigen: sonst stünde ein Neubau neben dem Ausschnitt nur auf
 den gröberen. Umgekehrt sammelt der Vorlauf Blockstates nur aus Chunks, die
-tatsächlich in eine ausgegebene Kachel fallen. Ein kleiner Ausschnitt braucht
+tatsächlich in eine ausgegebene Kachel fallen, und was die gerundete Fläche
+gar nicht berühren kann, dekodiert er nicht einmal: hier 788 Chunks statt
+der 8192 aller Regionen, die sie schneiden. Ein kleiner Ausschnitt braucht
 deshalb keine Assets für Blöcke am anderen Ende der Welt; fehlt eines in
 seiner Fläche, bricht der Lauf ab, bevor er die erste Kachel schreibt.
 
 Die Kacheln liegen als `tiles/<z>/<x>/<y>.webp`; x und y dürfen negativ sein,
 weil der Blockursprung mitten in der Welt liegt. Wird eine Kachel bei einem
-erneuten Lauf leer, löscht der Export die alte Datei — auf jeder Stufe, sonst
-zeigte die Karte weiter, was inzwischen abgerissen wurde.
+erneuten Lauf leer, oder berührt sie kein Chunk mehr, weil ein Editor ihn
+zurückgesetzt hat, löscht der Export die alte Datei — auf jeder Stufe, sonst
+zeigte die Karte weiter, was inzwischen abgerissen wurde. Ein Ausschnitt
+räumt dabei nur in seiner gerundeten Fläche.
 
 ### Zoomstufen
 
@@ -242,10 +252,13 @@ zu sehen.
 
 Die Nummerierung hängt an der **Welt**, nicht am Ausschnitt: `maxZoom` kommt
 beim ersten Lauf aus der Ausdehnung aller Regionsdateien, und dafür wird kein
-einziger Chunk gelesen. Ein bestehender Baum behält sie. Wächst die Welt über
-eine Zweierpotenz an Kacheln hinaus, bleibt die Basis auf ihrer Stufe, und
-Zoom 0 zeigt dann mehr als eine Kachel — sonst müsste der ganze Baum nach der
-ersten neuen Region von vorn entstehen.
+einziger Chunk gelesen. Ein bestehender Baum behält sie. Zoom 0 hat dabei
+ohnehin bis zu vier Kacheln: das Stapeln endet an den vier Kacheln um den
+Ursprung, sie sind ihre eigenen Eltern. Wächst die Welt über eine
+Zweierpotenz an Kacheln hinaus, bleibt die Basis auf ihrer Stufe, und
+Zoom 0 bekommt mehr — sonst müsste der ganze Baum nach der ersten neuen
+Region von vorn entstehen. Passt Zoom 0 dann nicht mehr ins Fenster, zoomt
+das Frontend darunter weiter heraus.
 
 Ein nachgerenderter Ausschnitt passt damit in einen bestehenden Kachelbaum.
 Welche Kinder in eine Elternkachel gehören, entscheidet dabei die Platte und
@@ -254,11 +267,14 @@ ja weiterhin da. Und `map.json` beschreibt den ganzen Baum, nicht den letzten
 Lauf. An einer unveränderten Welt ändert ein Nachrendern deshalb keine einzige
 Datei.
 
-Dafür muss der Massstab passen. Weicht `scale` vom `map.json` im
-Zielverzeichnis ab, bricht der Export ab, bevor er einen Chunk liest;
-sonst lägen im Baum Kacheln zweier Massstäbe. `map.json` entsteht deshalb
-schon zu Beginn eines Laufs und am Ende noch einmal: auch ein abgebrochener
-erster Lauf hält so fest, wozu der Baum gehört.
+Dafür müssen Welt und Massstab passen. Weicht die Kennung der Welt oder
+`scale` vom `map.json` im Zielverzeichnis ab, bricht der Export ab, bevor
+er einen Chunk liest; sonst lägen im Baum Kacheln zweier Welten oder zweier
+Massstäbe. `map.json` entsteht deshalb direkt vor der ersten Kachel und am
+Ende noch einmal: bricht ein Lauf beim Schreiben ab, steht schon fest, wozu
+der Baum gehört, und scheitert er vorher, etwa an einem fehlenden Asset,
+legt er nichts fest. Ein Baum eines älteren Stands mit scale 2, 6 oder 10
+lässt sich nicht fortsetzen, `--scale` nimmt nur noch Vielfache von 4.
 
 Die gröberen Stufen werden nicht alle verkleinert. Solange jeder Block
 auf ganzen Pixeln liegt, der scale der Stufe also durch vier teilbar ist
@@ -267,10 +283,11 @@ Stufe aus der Welt, mit Sprites in dieser Grösse. Verkleinern mittelt
 Nachbarblöcke ineinander, und schon zwei Stufen unter der Basis wäre aus
 jeder Kante Brei; ein nativer Render hält den Umriss jedes Blocks scharf
 und mittelt stattdessen die Textur über den Block, was auf einer Karte
-niemand vermisst. Das kostet ein Drittel des Basisrenders obendrauf. Bei
-scale 2 läge jede zweite Blockreihe auf einem halben Pixel, und
-benachbarte Reihen überdeckten sich; ab dort wird verkleinert. Aus
-demselben Grund nimmt `--scale` nur Vielfache von 4.
+niemand vermisst. In Bytes kommt damit bei scale 32 ein Drittel dazu, in
+Zeit fast noch einmal die Basis, denn jede Stufe zeichnet jeden Block ihrer
+Fläche erneut; siehe unten. Bei scale 2 läge jede zweite Blockreihe auf
+einem halben Pixel, und benachbarte Reihen überdeckten sich; ab dort wird
+verkleinert. Aus demselben Grund nimmt `--scale` nur Vielfache von 4.
 
 Ein Ausschnitt mit `--size` braucht dafür mehr Welt als sich selbst: eine
 native Elternkachel zeigt auch, was neben dem Ausschnitt liegt. Der
@@ -290,7 +307,8 @@ Halb Schwarz, halb Weiss ergibt so 188 statt 128.
   "minZoom": 0,
   "maxZoom": 10,
   "tiles": "{z}/{x}/{y}.webp",
-  "bounds": [-10240, 0, -6144, 4096]
+  "bounds": [-10240, 0, -6144, 4096],
+  "world": "9648148a8e859d02"
 }
 ```
 
@@ -298,6 +316,14 @@ Halb Schwarz, halb Weiss ergibt so 188 statt 128.
 `[links, oben, rechts, unten]`. Die Projektion selbst steht nicht drin: sie
 hängt allein an `scale`, und die Formel gehört in den Renderer, nicht in eine
 Datei.
+
+`world` ist die Kennung der Welt, ein SipHash-2-4 ihres Seeds. Den Seed
+liest der Renderer seit 26.1 aus `world_gen_settings.dat` neben den
+Regionen, davor aus `level.dat`. Er selbst steht nicht in der Datei:
+`map.json` liegt öffentlich neben den Kacheln, und mit dem Seed fände jeder
+Strukturen und Erze ohne zu suchen. Zurückrechnen hiesse, bis zu 2^64 Seeds
+durchzuprobieren; ein Seed aus einem Text hat nur 2^32. Hat eine Welt keine
+der beiden Dateien, fehlt das Feld.
 
 Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines grossen
 Renderings gleichen, sonst stünden im Browser Kanten dazwischen. Neun Kacheln
@@ -307,20 +333,25 @@ nebeneinander, die Grenzen rot eingezeichnet:
 
 ### Was das kostet
 
-Der Vorlauf über die ganze Welt ist gemessen, der Vollrender hochgerechnet:
-abgebrochen nach 6746 Kacheln und 801 MB, statt eine Stunde Plattenplatz zu
-verbrennen. Für scale 32 gibt es zwei Stichproben, die ersten 379 Kacheln
-eines Vollrenders und den Ausschnitt oben.
+Gemessen an einem Ausschnitt, hochgerechnet auf die ganze Welt: derselbe
+Weltausschnitt um (-64, 416) bei jedem scale, mit nativen Stufen und
+Pyramide, also `--size 8192` bei scale 32, `4096` bei 16 und `2048` bei 8.
+Das sind 1600, 400 und 100 Basiskacheln, gerendert auf 24 Threads. Die
+Kachelzahl der ganzen Welt nennt der Vorlauf.
 
-| `--scale` | Vorlauf | Kacheln | je Kachel | hochgerechnet |
-|-----------|---------|---------|-----------|---------------|
-| 32 | 8,3 s | 292 836 | 98–125 kB | ~27–35 GB |
-| 16 | 10,7 s | 73 920 | 134 kB | ~9 GB |
-| 8 | 6,4 s | 18 951 | 137 kB | ~2,5 GB |
+| `--scale` | Kacheln der Welt | je Kachel | Basis | native Stufen | zusammen | Dauer |
+|-----------|------------------|-----------|-------|---------------|----------|-------|
+| 32 | 292 836 | 109 kB | ~30 GB | ~10 GB | ~40 GB | ~80 min |
+| 16 | 73 920 | 111 kB | ~7,8 GB | ~2,1 GB | ~10 GB | ~40 min |
+| 8 | 18 951 | 101 kB | ~1,8 GB | ~0,4 GB | ~2,2 GB | ~20 min |
 
-Eine Kachel ist immer 256x256 px, und ihr Inhalt ist bei scale 8 genauso dicht
-wie bei 16 — sie zeigt nur viermal so viel Welt. Der Massstab wirkt also rein
-über die Kachelzahl.
+Auf demselben Ausschnitt wiegt eine Kachel bei jedem scale rund 100 bis
+110 kB: sie zeigt bei kleinerem scale mehr Welt, aber gleich viele Pixel.
+Der Platz hängt deshalb fast nur an der Kachelzahl. Die Dauer nicht: jede
+native Stufe zeichnet jeden Block ihrer Fläche noch einmal, und zusammen
+kosten sie fast so viel Zeit wie die Basis, bei scale 32 12,1 s gegen
+13,6 s. In Bytes sind sie ein Fünftel bis ein Drittel. Die Sprite-Tabellen
+aller 3110 Blockstates brauchen über die vier Stufen zusammen rund 12 s.
 
 WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
 wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den
@@ -345,6 +376,8 @@ ein Tausendstel ins Blockinnere, der Renderer legt sie dafür in der Tiefe
 knapp hinter die Blockfläche an derselben Stelle.
 
 ![Übersicht](docs/map-wide.png)
+
+Um den Ursprung, `--center 0 0 --size 900 --scale 4`, sonst wie oben.
 
 Die Wassertextur ist grau und durchscheinend. Ihre Farbe kommt aus
 `water_color` des Bioms. Flächen zwischen zwei Wasserblöcken werden nicht
@@ -373,8 +406,15 @@ einer tiefen Oberfläche liegt, ein Wrack oder ein Riff. Die Zählung endet
 an dem, was den Strahl aufhält: dem Grund, dem Ufer, einem Stein. Dünne
 Modelle zählen als Wasser, denn neben Seegras, Kelp oder einem gefluteten
 Zaun geht der Strahl weiter bis zum Grund; endete die Zählung an ihnen,
-stünde über jedem Seegras ein heller Fleck. Der Preis: Kelp knapp unter der
-Oberfläche verschwindet, wenn dahinter tiefes Wasser steht.
+stünde über jedem Seegras ein heller Fleck. Ob ein Block den Strahl
+aufhält, misst der Renderer an den Pixeln, die eine Wasseroberfläche an
+seiner Stelle belegen würde, und immer bei scale 32, damit jede Stufe gleich
+zählt: eine obere Platte hält ihn auf, eine untere nicht, denn über sie
+gehen drei Viertel der Strahlen hinweg. Der Preis: jedes dünne Modell einen
+Block unter der Oberfläche verschwindet fast, wenn dahinter tiefes Wasser
+steht — Kelp, Zaun- und Mauerpfosten, Korallenfächer. Die Oberfläche
+darüber trägt die Deckkraft aller Schichten dahinter, und statt 29 Prozent
+bleibt von ihm unter 1 Prozent sichtbar.
 
 Gras und Laub funktionieren wie das Wasser: die Textur ist grau, das Biom
 liefert Temperatur und Niederschlag, und die Colormaps `grass.png` und
@@ -416,7 +456,8 @@ gedrehter Geometrie verschieden, und ein Pixel genau auf der Kante fiel bei
 beiden durch — bei scale 32 derselbe Pixel in jedem Kreuzmodell. Ohne die
 Regel nahmen beide Dreiecke einer Fläche
 die Pixel auf ihrer Diagonale an, und bei scale 2 bekam Wasser dort
-Alpha 233 statt 180. Geglättete Kanten trügen
+Alpha 233 statt 180. Geprüft ist beides an 300 zufällig gedrehten Quadern
+bei scale 4 bis 64. Geglättete Kanten trügen
 Teildeckung im Alpha, und beim Zusammensetzen der Sprites könnte niemand
 mehr unterscheiden, ob zwei Nachbarflächen dasselbe Pixel teilen oder ob
 eine durch die andere scheint: ein Wasserbecken bekam an jeder Blockgrenze
@@ -441,14 +482,21 @@ verschmerzen kann, gibt `--scale 16` an.
 in vier Drehungen. Welche ein Block bekommt, würfelt Minecraft aus seiner
 Position: `Mth.getSeed(x, y, z)` wird die Saat, `nextInt` über das
 Gesamtgewicht zieht eine Zahl, und die Gewichte werden der Reihe nach
-abgezählt, bis sie verbraucht ist. Der Renderer rechnet genau das nach,
+abgezählt, bis sie verbraucht ist. Obere Hälften von Doppelpflanzen und
+Türen nehmen die Position der unteren, das Fussende eines Betts die des
+Kopfendes: `DoublePlantBlock`, `DoorBlock` und `BedBlock` überschreiben
+`getSeed`, und beide Hälften passen so immer zusammen. Der Renderer rechnet
+genau das nach,
 geprüft an sieben Positionen gegen die Klassen des 26.2-Clients. Damit
 sieht Sand aus wie im Spiel statt wie eine Tapete, und die Wahl hängt
 weder von der Kachel noch vom Thread ab. Alle Alternativen sind vorab
 gerastert; der Renderpfad rechnet je Block nur die Saat. Fehlt einer
 Alternative das Modell, zeichnet der Renderer dort wie das Spiel den
 Missing-Würfel, und ihr Gewicht bleibt. Fiele sie weg, würfelten auch die
-intakten Positionen anders als im Client.
+intakten Positionen anders als im Client. Das gilt für jeden kaputten
+Verweis: auch wenn alle Alternativen einer Blockstate kaputt sind, und für
+den einen kaputten Teil eines Multipart-Modells, jeweils mit der Drehung
+des Eintrags. Nur eine fehlende Blockstate-Datei bleibt ein Fehler.
 
 Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, jede
 vorkommende Blockstate auflöst und sie rastert:
@@ -515,6 +563,10 @@ Negative Kachelkoordinaten sind damit kein Sonderfall.
 erlaubt. Dort vergrössert Leaflet nur noch die vorhandenen Kacheln
 (`maxNativeZoom`), und `image-rendering: pixelated` hält die Pixelkunst
 scharf, statt sie zu verwischen.
+
+Nach unten geht es unter Zoom 0, wenn die ganze Karte dort nicht ins
+Fenster passt, etwa nachdem die Welt gewachsen ist. Dann verkleinert
+Leaflet die Kacheln von Zoom 0 (`minNativeZoom`), bis alles zu sehen ist.
 
 Mehr ist es nicht: keine Marker, keine Spieler, kein Zustand. Der Browser
 bekommt fertige Bilder und ein Koordinatensystem.
@@ -623,10 +675,15 @@ vordere, und genau dessen Geometrie hat auch der Tiefenpuffer des Rasterizers
 stehen lassen. Ein Modell, das zwei Würfel entlang der Blickachse ausfüllt,
 wäre so nicht auflösbar; in Vanilla gibt es keines.
 
-Ein Würfel wird übersprungen, wenn seine drei kamerazugewandten Nachbarn volle,
-deckende Blöcke sind — deren Umrisse setzen genau den eigenen zusammen, mehr
-nicht. Ob ein Sprite "deckend" ist, entscheidet sein fertiges Bild und nicht
-sein Modell, damit Glas von selbst herausfällt.
+Ein Würfel wird übersprungen, wenn seine drei kamerazugewandten Nachbarn ihn
+ganz decken — deren Umrisse setzen genau den eigenen zusammen, mehr nicht.
+Der Ost- und der Südnachbar müssen dafür ihren ganzen Umriss deckend füllen,
+dem Nachbarn darüber genügt sein Boden: Lava endet bei 8/9 und deckt
+trotzdem den Block darunter. Ob ein Sprite deckt, entscheidet sein fertiges
+Bild und nicht sein Modell, Pixel für Pixel gegen einen gerasterten vollen
+Würfel, damit Glas von selbst herausfällt. Mit einer Pixelbreite Toleranz
+fiele der Block unter einer Druckplatte weg, und ihr Rand zeigte den
+Hintergrund.
 
 Die Suche nach hineinragenden Nachbarmodellen kostet nichts, solange kein
 Modell seinen Würfel verlässt. In einem Ausschnitt mit Feuer kostet sie ein

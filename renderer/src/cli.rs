@@ -764,8 +764,10 @@ fn pruefe_bestand(dir: &Path, scale: u32, kennung: Option<&str>) -> Result<Optio
 /// Verkleinern mittelt Nachbarblöcke ineinander, und schon zwei Stufen
 /// unter der Basis ist aus Kanten Brei geworden. Ein nativer Render hält
 /// jede Blockkante scharf, die Textur wird dafür im Sprite über den Block
-/// gemittelt — auf der Karte zählt der Umriss, nicht das Texel. Kostet
-/// ein Drittel des Basisrenders obendrauf: ein Viertel je Stufe.
+/// gemittelt — auf der Karte zählt der Umriss, nicht das Texel. In Bytes
+/// kommt ein Drittel dazu, ein Viertel je Stufe; in Zeit fast noch einmal
+/// die Basis, denn jede Stufe zeichnet jeden Block ihrer Fläche erneut.
+/// Gemessen bei scale 32: 12,1 s für die drei Stufen, 13,6 s für die Basis.
 ///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
 /// [`build_pyramid`].

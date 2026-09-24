@@ -732,19 +732,24 @@ fn gescheiterter_lauf_legt_nichts_fest() {
 fn fremde_welt_wird_abgelehnt() {
     let erste = tempdir();
     common::write_world(erste.path(), &[(0, 0), (2, 2)], gelaende);
-    common::write_level_dat(erste.path(), 1);
+    common::write_level_dat(erste.path(), 4_815_162_342);
     let zweite = tempdir();
     common::write_world(zweite.path(), &[(0, 0)], gelaende);
-    common::write_level_dat(zweite.path(), 2);
+    common::write_level_dat(zweite.path(), 2_718_281_828);
 
     let out = tempdir();
     gelungen(&tiles(erste.path(), out.path(), &["--scale", "16"]));
+    // `map.json` liegt öffentlich neben den Kacheln: den Seed selbst
+    // verrät es nicht, nur seine Kennung.
+    let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
+    assert!(karte.contains(r#""world": "f39bc820d10860f2""#), "{karte}");
+    assert!(!karte.contains("4815162342"), "{karte}");
     let vorher = schnappschuss(out.path());
     let ausgabe = tiles(zweite.path(), out.path(), &["--scale", "16"]);
     assert!(!ausgabe.status.success(), "die fremde Welt lief durch");
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(
-        meldung.contains("Seed dort 1, hier 2"),
+        meldung.contains("anderen Welt: Kennung dort f39bc820d10860f2"),
         "Meldung: {meldung}"
     );
     assert_eq!(

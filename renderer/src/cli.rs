@@ -465,12 +465,12 @@ fn write_tiles(
     // einer anderen Stufe, und zwei Läufe passten nicht zusammen.
     let welt =
         world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
-    let seed = world.seed()?;
+    let kennung = world.seed()?.map(pyramid::world_id);
     // Ein bestehender Baum behält seine Nummerierung, auch wenn die Welt
     // inzwischen gewachsen ist: dann zeigt Zoom 0 eben mehr als eine
     // Kachel. Sonst müsste jeder Baum nach der ersten neuen Region von
     // vorn entstehen.
-    let max_zoom = match pruefe_bestand(dir, projection.scale(), seed)? {
+    let max_zoom = match pruefe_bestand(dir, projection.scale(), kennung.as_deref())? {
         Some(alt) => alt.max_zoom,
         None => pyramid::depth(&corner_tiles(welt)),
     };
@@ -509,7 +509,7 @@ fn write_tiles(
     // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
     // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
     // er vorher, legt er für das Verzeichnis nichts fest.
-    schreibe_map_json(dir, projection.scale(), max_zoom, seed)?;
+    schreibe_map_json(dir, projection.scale(), max_zoom, kennung.as_deref())?;
 
     // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt, etwa
     // weil ein Editor ihn zurückgesetzt hat. Der Vorlauf sieht sie nicht;
@@ -592,7 +592,8 @@ fn write_tiles(
     )?;
     build_pyramid(dir, z, kandidaten)?;
 
-    let (info, basis, path) = schreibe_map_json(dir, projection.scale(), max_zoom, seed)?;
+    let (info, basis, path) =
+        schreibe_map_json(dir, projection.scale(), max_zoom, kennung.as_deref())?;
     println!(
         "Karte:      Zoom {}..{}, {basis} Basiskacheln, {} bis {} px -> {}",
         info.min_zoom,
@@ -615,11 +616,11 @@ fn schreibe_map_json(
     dir: &Path,
     scale: u32,
     max_zoom: u32,
-    seed: Option<i64>,
+    kennung: Option<&str>,
 ) -> Result<(MapInfo, usize, PathBuf)> {
     let bestand = vorhandene(dir, max_zoom)?;
     let info = MapInfo {
-        seed,
+        world: kennung.map(str::to_string),
         ..MapInfo::new(scale, max_zoom, &bestand)
     };
     std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
@@ -718,7 +719,7 @@ fn native_levels(scale: u32, max_zoom: u32) -> u32 {
 /// hätten einen anderen Massstab als die alten. Seit scale 32 der Standard
 /// ist, reicht dafür ein vergessenes `--scale`. `maxZoom` prüft sie nicht:
 /// der Baum behält seine Nummerierung, auch wenn die Welt gewachsen ist.
-fn pruefe_bestand(dir: &Path, scale: u32, seed: Option<i64>) -> Result<Option<MapInfo>> {
+fn pruefe_bestand(dir: &Path, scale: u32, kennung: Option<&str>) -> Result<Option<MapInfo>> {
     let pfad = dir.join("map.json");
     let Ok(text) = std::fs::read_to_string(&pfad) else {
         return Ok(None);
@@ -729,13 +730,13 @@ fn pruefe_bestand(dir: &Path, scale: u32, seed: Option<i64>) -> Result<Option<Ma
             pfad.display()
         )
     })?;
-    if alt.seed != seed {
-        let nenne = |seed: Option<i64>| seed.map_or("unbekannt".to_string(), |s| s.to_string());
+    if alt.world.as_deref() != kennung {
+        let nenne = |kennung: Option<&str>| kennung.unwrap_or("keine").to_string();
         bail!(
-            "{} gehört zu einer anderen Welt: Seed dort {}, hier {}. Ein neues Verzeichnis nehmen.",
+            "{} gehört zu einer anderen Welt: Kennung dort {}, hier {}. Ein neues Verzeichnis nehmen.",
             pfad.display(),
-            nenne(alt.seed),
-            nenne(seed)
+            nenne(alt.world.as_deref()),
+            nenne(kennung)
         );
     }
     if alt.scale != scale {

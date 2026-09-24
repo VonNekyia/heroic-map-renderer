@@ -204,9 +204,10 @@ pub struct MapInfo {
     /// Belegter Bereich auf der feinsten Stufe, in Pixeln:
     /// `[links, oben, rechts, unten]`.
     pub bounds: [i32; 4],
-    /// Seed der Welt, zu der der Baum gehört; fehlt bei Welten ohne.
+    /// Kennung der Welt, zu der der Baum gehört, siehe [`world_id`]; fehlt
+    /// bei Welten ohne Seed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seed: Option<i64>,
+    pub world: Option<String>,
 }
 
 impl MapInfo {
@@ -223,9 +224,66 @@ impl MapInfo {
             max_zoom,
             tiles: "{z}/{x}/{y}.webp".to_string(),
             bounds: [links, oben, rechts, unten],
-            seed: None,
+            world: None,
         }
     }
+}
+
+/// Die Kennung einer Welt im Kachelbaum: SipHash-2-4 ihres Seeds.
+/// `map.json` liegt öffentlich neben den Kacheln, und den Seed selbst soll
+/// dort niemand ablesen. Zurückrechnen hiesse, bis zu 2^64 Seeds
+/// durchzuprobieren; ein Seed aus einem Text hat nur 2^32, den schützt es
+/// nicht. Von Hand und nicht `DefaultHasher`: dessen Algorithmus darf sich
+/// mit jeder Rust-Version ändern, und jeder bestehende Baum gälte dann als
+/// fremd.
+pub fn world_id(seed: i64) -> String {
+    let key = [
+        u64::from_le_bytes(*b"terranov"),
+        u64::from_le_bytes(*b"a-render"),
+    ];
+    format!("{:016x}", siphash24(key, &seed.to_le_bytes()))
+}
+
+/// SipHash-2-4 nach Aumasson und Bernstein.
+fn siphash24(key: [u64; 2], message: &[u8]) -> u64 {
+    let mut v = [
+        key[0] ^ 0x736f_6d65_7073_6575,
+        key[1] ^ 0x646f_7261_6e64_6f6d,
+        key[0] ^ 0x6c79_6765_6e65_7261,
+        key[1] ^ 0x7465_6462_7974_6573,
+    ];
+    let round = |v: &mut [u64; 4]| {
+        v[0] = v[0].wrapping_add(v[1]);
+        v[1] = v[1].rotate_left(13) ^ v[0];
+        v[0] = v[0].rotate_left(32);
+        v[2] = v[2].wrapping_add(v[3]);
+        v[3] = v[3].rotate_left(16) ^ v[2];
+        v[0] = v[0].wrapping_add(v[3]);
+        v[3] = v[3].rotate_left(21) ^ v[0];
+        v[2] = v[2].wrapping_add(v[1]);
+        v[1] = v[1].rotate_left(17) ^ v[2];
+        v[2] = v[2].rotate_left(32);
+    };
+    let compress = |v: &mut [u64; 4], m: u64| {
+        v[3] ^= m;
+        round(v);
+        round(v);
+        v[0] ^= m;
+    };
+    let (blocks, rest) = message.as_chunks::<8>();
+    for block in blocks {
+        compress(&mut v, u64::from_le_bytes(*block));
+    }
+    let mut last = (message.len() as u64) << 56;
+    for (i, &byte) in rest.iter().enumerate() {
+        last |= (byte as u64) << (8 * i);
+    }
+    compress(&mut v, last);
+    v[2] ^= 0xff;
+    for _ in 0..4 {
+        round(&mut v);
+    }
+    v[0] ^ v[1] ^ v[2] ^ v[3]
 }
 
 #[cfg(test)]
@@ -396,6 +454,20 @@ mod tests {
 
         assert_eq!(bild.get_pixel(TILE / 2 + 1, TILE / 2 + 1).0[3], 255);
         assert_eq!(bild.get_pixel(1, 1).0[3], 0, "leeres Viertel");
+    }
+
+    /// Die Testvektoren aus dem SipHash-Paper: Schlüssel 00..0f, Nachricht
+    /// leer und 00..0e. Und die Kennung selbst darf sich nie ändern, sonst
+    /// gälte jeder bestehende Baum als fremd.
+    #[test]
+    fn kennung_ist_siphash_des_seeds() {
+        let key = [0x0706_0504_0302_0100, 0x0f0e_0d0c_0b0a_0908];
+        assert_eq!(siphash24(key, &[]), 0x726f_db47_dd0e_0e31);
+        let message: Vec<u8> = (0..15).collect();
+        assert_eq!(siphash24(key, &message), 0xa129_ca61_49be_45e5);
+        assert_eq!(world_id(0), "56007c963ac3acc6");
+        assert_eq!(world_id(4_815_162_342), "f39bc820d10860f2");
+        assert_eq!(world_id(-1), "8b8b99076788c5f1");
     }
 
     #[test]

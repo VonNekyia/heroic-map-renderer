@@ -118,11 +118,13 @@ fn pixels_of(textures: &Textures, projection: Projection, model: BakedModel) -> 
 }
 
 /// Deckt `sprite` jeden dieser Pixel undurchsichtig, um `dy` nach unten
-/// verschoben?
+/// verschoben? Eine leere Maske deckt nichts: sonst gaelte bei einem
+/// Raster ohne Pixel jeder Block als deckend.
 fn covers_all(sprite: &Sprite, pixels: &[(i32, i32)], dy: i32) -> bool {
-    pixels
-        .iter()
-        .all(|&(x, y)| alpha_at(sprite, x, y + dy) == 255)
+    !pixels.is_empty()
+        && pixels
+            .iter()
+            .all(|&(x, y)| alpha_at(sprite, x, y + dy) == 255)
 }
 
 /// Die Alternativen einer Blockstate mit ihren Gewichten.
@@ -1427,13 +1429,23 @@ mod tests {
             state("druckplatte"),
             state("teppich"),
         ];
+        // Auf jeder Stufe gleich, auch bei scale 4: dort blieb vom
+        // geschrumpften Boden frueher kein Pixel, und nichts wurde verdeckt.
+        for scale in [32, 16, 8, 4] {
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let flags = |text: &str| {
+                let f = set.family_of(&state(text)).unwrap();
+                (f.opaque, f.covers_floor, f.covers)
+            };
+            assert_eq!(flags("einfarbig"), (true, true, true), "scale {scale}");
+            assert_eq!(flags("water"), (false, false, false), "scale {scale}");
+        }
         let set = build(&mut assets, &states, Projection::new(32)).unwrap();
         let flags = |text: &str| {
             let f = set.family_of(&state(text)).unwrap();
             (f.opaque, f.covers_floor, f.covers)
         };
         assert_eq!(flags("lava"), (false, true, true));
-        assert_eq!(flags("einfarbig"), (true, true, true));
         assert_eq!(flags("oak_fence[north=true]"), (false, false, false));
         assert_eq!(
             flags("water"),

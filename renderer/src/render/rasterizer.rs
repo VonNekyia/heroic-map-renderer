@@ -490,6 +490,10 @@ fn weights(v: &[Vertex; 3], area: f32, px: f32, py: f32) -> [f32; 3] {
     ]
 }
 
+// ponytail: uv je Abtastpunkt über `weights`, bei scale 4 sind das 192
+// Kantenauswertungen je Pixel. Gradienten je Dreieck sparten sie, änderten
+// aber die Rundung der uv. Gemessen kostet der ganze Sprite-Bau der
+// Testwelt über alle vier Stufen rund 12 s, der Vollrender rund 45 min.
 /// Mittelwert der Texel unter einem Pixel, mit vormultipliziertem Alpha —
 /// sonst zögen durchsichtige Texel ihre Farbe in die Nachbarn — und in
 /// linearem Licht wie die Pyramide: das Mittel von sRGB-Werten ist zu

@@ -89,9 +89,9 @@ pub struct Element {
 
 /// Ein Modell mit aufgelöster `parent`-Kette und aufgelösten Texturen.
 ///
-/// Ohne Elemente ist das Modell leer: Truhen, Banner und Schilder verweisen
-/// auf `builtin/entity` und werden von Minecraft über Entity-Modelle
-/// gezeichnet, die es in V1 nicht gibt.
+/// Ohne Elemente ist das Modell leer: Truhen, Banner und Schilder haben in
+/// 26.2 nur eine Partikeltextur und werden von Minecraft über
+/// Entity-Modelle gezeichnet, die es in V1 nicht gibt.
 #[derive(Debug)]
 pub struct ResolvedModel {
     pub elements: Vec<Element>,

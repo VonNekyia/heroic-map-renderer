@@ -540,13 +540,8 @@ Missing-Würfel, und ihr Gewicht bleibt. Fiele sie weg, würfelten auch die
 intakten Positionen anders als im Client. Das gilt für jeden kaputten
 Verweis: auch wenn alle Alternativen einer Blockstate kaputt sind, und für
 den einen kaputten Teil eines Multipart-Modells, jeweils mit der Drehung
-des Eintrags. Fehlt einem Modell sein Parent, bleiben wie im Client seine
-eigenen Elemente. Packs stapeln sich dabei Zustand für Zustand: nennt die
-Datei eines oberen Packs nur einen Teil der Zustände, gilt für den Rest
-die darunter. Eine kaputte Blockstate-Datei verwirft der Renderer wie der
-Client nur für ihr Pack, und er liest sie so streng wie 26.2: auch etwas
-hinter dem ersten Dokument macht sie kaputt. Nur eine ganz fehlende
-Blockstate-Datei bleibt ein Fehler.
+des Eintrags. Wie der Renderer Blockstate-Dateien liest, steht unten
+unter „Blockstates wie im Client“.
 
 Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, jede
 vorkommende Blockstate auflöst und sie rastert:
@@ -578,6 +573,72 @@ Truhen, Banner, Schädel und Töpfe zeichnet Minecraft über Entity-Modelle,
 die kennt der Renderer noch nicht. Wasser, Lava und Blasensäule fehlen in
 der Liste, weil der Renderer sie wie das Spiel im Code baut; eine geflutete
 Truhe steht trotzdem darin, auf der Karte ist dort nur ihr Wasser.
+
+### Blockstates wie im Client
+
+Packs stapeln sich Zustand für Zustand: nennt die Datei eines oberen Packs
+nur einen Teil der Zustände, gilt für den Rest die darunter. Eine kaputte
+Blockstate-Datei verwirft der Renderer wie der Client nur für ihr Pack.
+Kaputt ist, was 26.2 ablehnt, belegt per javap am Client samt DFU und
+Gson:
+
+- etwas hinter dem ersten Dokument, wie bei `StrictJsonParser`;
+- `"variants": {}`, `"multipart": []` und eine leere Modellliste;
+- ein Gewicht unter 1 oder eines, das keine Zahl ist, und eine Summe der
+  Gewichte über 2147483647. Gewichte liest der Client nur in einer Liste,
+  das `weight` eines einzelnen Objekts zählt nicht;
+- ein Modellname, der kein `Identifier` ist, etwa mit Grossbuchstaben;
+- eine Drehung, die modulo 360 nicht 0, 90, 180 oder 270 ist. -90 ist
+  270, 90.5 ist 90, wie `intValue` abschneidet. `uvlock` muss ein
+  Wahrheitswert sein;
+- eine Bedingung `{}`, `OR` oder `AND` neben weiteren Schlüsseln und ein
+  leerer Term wie in `"a||b"`. Ein `OR` mit Text statt Liste ist eine
+  Eigenschaft namens `OR`, und alte Packs dürfen Zahlen und
+  Wahrheitswerte schreiben.
+
+`null` zählt wie im Client als fehlend, `"when": null` gilt also immer.
+Ein Byte-Order-Mark vorn überspringt Gson, auch in Modellen, und kaputtes
+UTF-8 wird zu U+FFFD. Ein `..` in einem Pfad findet keine Datei, wie bei
+`FileUtil.decomposePath`, und ein Name, der kein `Identifier` ist, auch
+nicht: unter Windows fände `Block/X` sonst `block/x`.
+
+Den Rest prüft der Client gegen die Definition des Blocks: welche
+Eigenschaften er hat und welche Werte. Die stehen in
+`renderer/src/assets/blocks.txt`, 1196 Blöcke aus dem Datengenerator von
+26.2. Ein Variantenschlüssel mit unbekannter Eigenschaft oder unbekanntem
+Wert fällt weg, nur dieser Eintrag. Zahlen liest `IntegerProperty` mit
+`parseInt`, `age=07` ist also `age=7`. Überlappen sich zwei Schlüssel,
+bekommt wie im Client der erste gemeinsame Zustand den späteren Eintrag,
+und der Rest des späteren fällt weg; dafür behält der Renderer die
+Reihenfolge der Datei. Eine Multipart-Bedingung mit unbekannter
+Eigenschaft oder unbekanntem Wert dagegen verwirft den ganzen Block,
+über alle Packs: jeder Zustand wird zum Missing-Würfel, auch wenn ein
+Pack darunter heil ist. So endet etwa eine Mauer aus einem Pack vor 1.16
+mit `"north": "true"`. Für Blöcke und Zustände, die 26.2 nicht kennt,
+gibt es kein Vorbild; dort gilt der erste Schlüssel, der als Text passt.
+
+Fehlt einem Modell sein Parent, oder ist dessen Datei kaputt, setzt der
+Client das Missing-Modell an seine Stelle: die eigenen Elemente des Kindes
+bleiben, sonst erbt es den Missing-Würfel. Die Blockstate steht dann mit
+dem Parent unter „Modelle“ in der Ausgabe, wie „Missing block model“ im
+Log des Clients; sonst sähe man einen Tippfehler im `parent` nur an
+fehlenden Texturen. 26.2 kennt dabei nur `builtin/missing` und
+`builtin/generated`; ein `builtin/entity` aus älteren Packs fehlt.
+
+Alle 1198 Blockstate-Dateien von Vanilla 26.2 und die 39 des
+TerraNova-Packs lesen sich so ohne Fehler und ohne verworfenen Eintrag,
+und für jeden Zustand jedes Blocks wählt der Renderer damit dasselbe wie
+mit dem ersten passenden Schlüssel. Nur eine ganz fehlende
+Blockstate-Datei bleibt ein Fehler.
+
+Für eine andere Version wird die Tabelle neu erzeugt, aus dem Server-JAR
+dieser Version in einem leeren Verzeichnis; danach kommt `blocks.txt` nach
+`renderer/src/assets/`. Für 26.2 ergibt das genau die Datei im Repository:
+
+```bash
+java -DbundlerMainClass=net.minecraft.data.Main -jar server.jar --reports
+python -c "import json; d = json.load(open('generated/reports/blocks.json')); open('blocks.txt', 'w', newline='\n').writelines(' '.join([n.removeprefix('minecraft:')] + [p + '=' + ','.join(v) for p, v in b.get('properties', {}).items()]) + '\n' for n, b in d.items())"
+```
 
 ## Frontend
 

@@ -1,0 +1,1 @@
+{ "multipart": [ { "when": { "north": "true" }, "apply": { "model": "minecraft:block/blauwuerfel" } } ] }

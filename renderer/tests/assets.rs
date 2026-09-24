@@ -2,7 +2,7 @@
 //! Assetbaum. Die Dateien sind synthetisch, spiegeln aber die Formen wider,
 //! die die Bestandsaufnahme über Vanilla 26.2 und das TerraNova-Pack ergeben
 //! hat: Variantenlisten, Multipart mit Bedingungen, parent-Ketten,
-//! `#ref`-Texturen, `builtin/entity`, animierte Streifen.
+//! `#ref`-Texturen, Modelle ohne Elemente, animierte Streifen.
 
 use std::path::PathBuf;
 
@@ -149,11 +149,11 @@ fn flaechendaten_werden_uebernommen() {
     );
 }
 
-/// Truhen, Banner und Schilder verweisen auf `builtin/entity`. Minecraft
-/// zeichnet sie über Entity-Modelle; hier bleiben sie leer, statt den Lauf
-/// abzubrechen.
+/// Truhen, Banner und Schilder haben in 26.2 ein Modell ohne Elemente, nur
+/// mit Partikeltextur. Minecraft zeichnet sie über Entity-Modelle; hier
+/// bleiben sie leer.
 #[test]
-fn builtin_entity_bleibt_leer() {
+fn modell_ohne_elemente_bleibt_leer() {
     let mut assets = base();
     let variants = assets.variants(&state("chest")).unwrap();
     assert_eq!(variants.len(), 1);
@@ -330,19 +330,170 @@ fn einzige_kaputte_blockstate_datei_wird_missing_wuerfel() {
 }
 
 /// Fehlt ein Parent, setzt der Client das Missing-Modell an seine Stelle:
-/// die eigenen Elemente des Kindes bleiben. Vorher wurde der ganze Verweis
-/// zum Missing-Würfel.
+/// die eigenen Elemente des Kindes bleiben. Einen kaputten Parent liest er
+/// gar nicht erst, er fehlt also ebenso. Wie das "Missing block model" im
+/// Log des Clients nennt der Renderer den Parent; sonst sähe man einen
+/// Tippfehler nur an fehlenden Texturen.
 #[test]
 fn fehlender_parent_laesst_die_eigenen_elemente() {
     let mut assets = base();
-    let variants = assets.variants(&state("eigene_elemente")).unwrap();
-    assert_eq!(variants[0].model_id, "minecraft:block/eigene_elemente");
-    let elemente = &variants[0].model.elements;
-    assert_eq!(elemente.len(), 1);
-    assert_eq!(elemente[0].to, [16.0, 8.0, 16.0]);
-    let textur = elemente[0].faces[0].1.texture;
-    assert_eq!(assets.textures().name(textur), "minecraft:block/planks");
+    for (block, parent) in [
+        ("eigene_elemente", "minecraft:block/gibt_es_nicht"),
+        ("kaputter_parent", "minecraft:block/kaputt"),
+    ] {
+        let variants = assets.variants(&state(block)).unwrap();
+        assert_eq!(variants[0].model_id, format!("minecraft:block/{block}"));
+        let elemente = &variants[0].model.elements;
+        assert_eq!(elemente.len(), 1, "{block}");
+        assert_eq!(elemente[0].to, [16.0, 8.0, 16.0]);
+        let textur = elemente[0].faces[0].1.texture;
+        assert_eq!(assets.textures().name(textur), "minecraft:block/planks");
+        let grund = &assets.skipped()[&format!("minecraft:{block}")];
+        assert!(grund.contains(&format!("Parent {parent}")), "{grund}");
+    }
+}
+
+/// Hat das Kind keine eigenen Elemente, erbt es vom Missing-Modell den
+/// Würfel. Das gilt auch für `builtin/entity` aus älteren Packs: 26.2
+/// kennt nur `builtin/missing` und `builtin/generated`.
+#[test]
+fn fehlender_parent_ohne_elemente_wird_missing_wuerfel() {
+    let mut assets = base();
+    for block in ["ohne_parent", "altes_builtin"] {
+        let variants = assets.variants(&state(block)).unwrap();
+        let elemente = &variants[0].model.elements;
+        assert_eq!(elemente.len(), 1, "{block}");
+        assert_eq!((elemente[0].from, elemente[0].to), ([0.0; 3], [16.0; 3]));
+        assert_eq!(elemente[0].faces.len(), 6);
+        assert!(
+            elemente[0]
+                .faces
+                .iter()
+                .all(|(_, face)| face.texture == Textures::MISSING),
+            "{block}"
+        );
+        let grund = &assets.skipped()[&format!("minecraft:{block}")];
+        assert!(grund.contains("Parent"), "{grund}");
+    }
+}
+
+/// Ein leerer `parent` heisst keiner (`CuboidModel`); das Modell steht für
+/// sich und fehlt nichts.
+#[test]
+fn leerer_parent_heisst_keiner() {
+    let mut assets = base();
+    let variants = assets.variants(&state("leerer_parent")).unwrap();
+    assert_eq!(variants[0].model.elements.len(), 1);
+    assert_eq!(variants[0].model.elements[0].to, [16.0, 8.0, 16.0]);
     assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+}
+
+/// Ein `parent`, der kein `Identifier` ist, macht schon das Kind kaputt:
+/// `Identifier.parse` wirft beim Lesen. Der Verweis wird zum
+/// Missing-Würfel, die eigenen Elemente zählen nicht.
+#[test]
+fn ungueltiger_parent_macht_das_modell_kaputt() {
+    let mut assets = base();
+    let variants = assets.variants(&state("grosser_parent")).unwrap();
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:grosser_parent"];
+    assert!(grund.contains("kein gültiger Modellname"), "{grund}");
+}
+
+/// Der Client verfolgt eine parent-Kette beliebig weit, nur ein Zyklus
+/// bricht sie ab. Vanilla-Ketten haben höchstens vier Glieder, diese 21.
+#[test]
+fn lange_parent_kette() {
+    let dir = tempfile::tempdir().unwrap();
+    let wurzel = dir.path().join("minecraft");
+    let models = wurzel.join("models/block");
+    std::fs::create_dir_all(&models).unwrap();
+    std::fs::create_dir_all(wurzel.join("blockstates")).unwrap();
+    std::fs::write(
+        wurzel.join("blockstates/kette.json"),
+        r#"{"variants": {"": {"model": "block/k0"}}}"#,
+    )
+    .unwrap();
+    for i in 0..20 {
+        let json = format!(r#"{{"parent": "block/k{}"}}"#, i + 1);
+        std::fs::write(models.join(format!("k{i}.json")), json).unwrap();
+    }
+    std::fs::write(
+        models.join("k20.json"),
+        r#"{"elements": [{"from": [0, 0, 0], "to": [16, 8, 16]}]}"#,
+    )
+    .unwrap();
+    let mut assets = Assets::open(vec![dir.path().to_path_buf()]).unwrap();
+    let variants = assets.variants(&state("kette")).unwrap();
+    assert_eq!(variants[0].model.elements[0].to, [16.0, 8.0, 16.0]);
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+}
+
+/// Ein Name, der kein `Identifier` ist, findet keine Datei. Unter Windows
+/// fände `block/Planks` sonst `block/planks.png`; der Client läse das
+/// Modell dann gar nicht erst.
+#[test]
+fn grossbuchstaben_finden_keine_datei() {
+    let mut assets = base();
+    let variants = assets.variants(&state("grosse_textur")).unwrap();
+    let textur = variants[0].model.elements[0].faces[0].1.texture;
+    assert_eq!(textur, Textures::MISSING);
+    assert!(
+        assets
+            .textures()
+            .missing()
+            .contains("minecraft:block/Planks"),
+        "{:?}",
+        assets.textures().missing()
+    );
+}
+
+/// Ein Byte-Order-Mark vorn überspringt Gson, in Blockstates wie in
+/// Modellen. serde_json allein hielte beide Dateien für kaputt.
+#[test]
+fn byte_order_mark_wird_uebersprungen() {
+    let mut assets = base();
+    let variants = assets.variants(&state("mit_bom")).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/mit_bom");
+    assert_eq!(variants[0].model.elements.len(), 1);
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+    assert!(assets.broken().is_empty(), "{:?}", assets.broken());
+}
+
+/// `..` in einem Modellnamen führt nicht aus dem Pack heraus: der Client
+/// findet so keine Datei (`FileUtil.decomposePath`), der Renderer auch
+/// nicht.
+#[test]
+fn punkte_im_pfad_finden_nichts() {
+    let mut assets = base();
+    let variants = assets.variants(&state("ausbruch")).unwrap();
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:ausbruch"];
+    assert!(grund.contains("nicht gefunden"), "{grund}");
+}
+
+/// Eine Multipart-Bedingung mit unbekanntem Wert wirft im Client beim
+/// Instanziieren, hier eine Mauer aus einem Pack vor 1.16 mit
+/// `"north": "true"`. Dann hat der Block in keinem Pack ein Modell, auch
+/// nicht aus der heilen Datei darunter.
+#[test]
+fn unbekannte_bedingung_verwirft_den_block_in_allen_packs() {
+    let mauer = state(
+        "cobblestone_wall[east=none,north=low,south=none,up=true,waterlogged=false,west=none]",
+    );
+    let mut nur_basis = base();
+    let variants = nur_basis.variants(&mauer).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/einfarbig");
+
+    let mut assets = layered();
+    for zustand in [mauer, state("cobblestone_wall[north=true]")] {
+        let variants = assets.variants(&zustand).unwrap();
+        assert_eq!(variants[0].model_id, MISSING_MODEL, "{zustand}");
+        let grund = &assets.skipped()[&zustand.to_string()];
+        assert!(grund.contains("unbekannter Wert true"), "{grund}");
+        assert!(grund.contains("in keinem Pack"), "{grund}");
+    }
+    assert!(assets.broken().is_empty(), "{:?}", assets.broken());
 }
 
 /// Fehlende Texturdateien und unauflösbare `#ref` dürfen den Lauf nicht

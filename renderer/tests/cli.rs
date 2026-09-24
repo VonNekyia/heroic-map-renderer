@@ -287,6 +287,37 @@ fn zweiter_lauf_raeumt_leer_gewordene_kacheln_weg() {
     );
 }
 
+/// Verschwindet ein Chunk aus der Welt, etwa weil ein Editor ihn
+/// zurückgesetzt hat, sieht der Vorlauf ihn nicht mehr. Seine alten
+/// Kacheln müssen trotzdem weg, auf jeder Stufe: danach gleicht der Baum
+/// einem frischen Export.
+#[test]
+fn verschwundener_chunk_verschwindet_auf_jeder_stufe() {
+    let block = |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (104, 4, 104) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    };
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (6, 6)], block);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], block);
+
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    let vorher = dateien(baum.path());
+    gelungen(&tiles(neu.path(), baum.path(), &["--scale", "16"]));
+    let voll = tempdir();
+    gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
+
+    let soll = schnappschuss(voll.path());
+    assert!(
+        vorher.len() > soll.len(),
+        "der Chunk hatte keine eigenen Kacheln: {vorher:?}"
+    );
+    assert_eq!(schnappschuss(baum.path()), soll);
+}
+
 /// Ein Ausschnitt darf nicht an einem Block scheitern, der weit ausserhalb
 /// liegt und gar nicht gezeichnet wird.
 #[test]
@@ -474,17 +505,24 @@ fn zoomstufen_haengen_am_massstab() {
 /// Stein in Chunk (10, 4) liegt weit ausserhalb des Ausschnitts, aber in
 /// derselben Elternkachel zwei Stufen darüber: fehlt er in deren
 /// Sprite-Tabelle, wird er dort zu Luft.
+///
+/// Chunk (20, 0) liegt auch ausserhalb der gerundeten Fläche. Der Vorlauf
+/// sieht ihn nicht, und doch darf der Lauf seine Kacheln nicht für
+/// verwaist halten.
 #[test]
 fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
     let welt = tempdir();
-    common::write_world(welt.path(), &[(2, 0), (4, 0), (10, 4)], |x, y, z| {
-        match (x, y, z) {
+    common::write_world(
+        welt.path(),
+        &[(2, 0), (4, 0), (10, 4), (20, 0)],
+        |x, y, z| match (x, y, z) {
             (44, 4, 8) => "minecraft:einfarbig",
             (76, 4, 8) => "minecraft:blauwuerfel",
             (165, 4, 65) => "minecraft:stone",
+            (328, 4, 8) => "minecraft:einfarbig",
             _ => "minecraft:air",
-        }
-    });
+        },
+    );
 
     let out = tempdir();
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));

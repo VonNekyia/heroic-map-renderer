@@ -542,7 +542,26 @@ fn write_tiles(
     // er vorher, legt er für das Verzeichnis nichts fest.
     schreibe_map_json(dir, projection.scale(), max_zoom, seed)?;
 
-    let kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
+    // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt, etwa
+    // weil ein Editor ihn zurückgesetzt hat. Der Vorlauf sieht sie nicht;
+    // sie gehören weg, und ihre Eltern müssen neu. Ein Ausschnitt räumt nur
+    // in seiner Fläche, die ist auf ganze Kacheln gerundet.
+    let mut kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
+    let im_lauf = |tile: &TileId| {
+        let r = tile.rect();
+        bounds.is_none_or(|b| (b.x..b.right()).contains(&r.x) && (b.y..b.bottom()).contains(&r.y))
+    };
+    let veraltet: Vec<TileId> = vorhandene(dir, max_zoom)?
+        .into_iter()
+        .filter(|tile| im_lauf(tile) && !kandidaten.contains(tile))
+        .collect();
+    for tile in &veraltet {
+        entferne(&tile_path(dir, max_zoom, *tile))?;
+    }
+    if !veraltet.is_empty() {
+        println!("            {} Kacheln ohne Chunk entfernt", veraltet.len());
+    }
+    kandidaten.extend(veraltet);
 
     let started = Instant::now();
     let fertig = AtomicUsize::new(0);

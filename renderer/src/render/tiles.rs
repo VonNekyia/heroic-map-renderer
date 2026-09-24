@@ -166,15 +166,18 @@ pub fn survey(
     // gerendert wird die ganze Kachel, also muss auch der Vorlauf sie
     // ganz abdecken.
     let bounds = bounds.map(snap_to_tiles);
+    // Bis zur Oberkante des obersten Blocks, wie der genaue Kasten je
+    // Chunk unten.
+    let hoehe = (y_range.0, y_range.1 + 1);
     let kante = REGION * CHUNK;
     let regions = world.regions()?;
     let teile: Vec<Survey> = regions
         .par_iter()
         .filter(|&&(rx, rz)| {
-            let ganz = column_box(projection, rx * kante, rz * kante, y_range, kante);
+            let ganz = column_box(projection, rx * kante, rz * kante, hoehe, kante);
             bounds.is_none_or(|b| overlaps(b, ganz))
         })
-        .map(|&(rx, rz)| survey_region(world, projection, bounds, rx, rz))
+        .map(|&(rx, rz)| survey_region(world, projection, bounds, hoehe, rx, rz))
         .collect::<Result<_>>()?;
 
     let mut tiles: BTreeSet<TileId> = BTreeSet::new();
@@ -195,6 +198,7 @@ fn survey_region(
     world: &World,
     projection: Projection,
     bounds: Option<ScreenRect>,
+    hoehe: (i32, i32),
     rx: i32,
     rz: i32,
 ) -> Result<Survey> {
@@ -215,6 +219,12 @@ fn survey_region(
     for local_z in 0..REGION {
         for local_x in 0..REGION {
             let (cx, cz) = (rx * REGION + local_x, rz * REGION + local_z);
+            // Was den Ausschnitt über die ganze Welthöhe nicht berührt,
+            // wird gar nicht erst dekodiert.
+            let ganz = column_box(projection, cx * CHUNK, cz * CHUNK, hoehe, CHUNK);
+            if bounds.is_some_and(|b| !overlaps(b, ganz)) {
+                continue;
+            }
             let Some(chunk) = region.chunk(cx, cz)? else {
                 continue;
             };

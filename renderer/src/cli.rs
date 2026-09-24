@@ -14,8 +14,8 @@ use terranova_render::assets::{Assets, fluid, model_of};
 use terranova_render::render::pyramid;
 use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
-    MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, chunks_for, corner_tiles,
-    encode_webp, render, render_area, survey, world_box,
+    MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, corner_tiles, encode_webp, render,
+    render_area, survey, world_box,
 };
 use terranova_render::world::{BlockState, REGION, World};
 
@@ -311,47 +311,17 @@ fn render_world(
     path: &Path,
 ) -> Result<()> {
     let started = Instant::now();
-    let chunks = chunks_for(projection, rect, Y_RANGE);
-    let mut states: BTreeMap<BlockState, BTreeSet<String>> = BTreeMap::new();
-    let mut biomes = BTreeSet::new();
-    let mut vorhanden = 0u32;
-    for &(cx, cz) in &chunks {
-        if let Some(chunk) = world.chunk(cx, cz)? {
-            vorhanden += 1;
-            for section in chunk.sections() {
-                let im_abschnitt = section.biomes().palette();
-                for state in section.blocks().palette() {
-                    states
-                        .entry(state.clone())
-                        .or_default()
-                        .extend(im_abschnitt.iter().cloned());
-                }
-                biomes.extend(im_abschnitt.iter().cloned());
-            }
-        }
-    }
-
-    let sprites = SpriteSet::build_in(
-        assets,
-        states.iter().map(|(state, biomes)| (state, Some(biomes))),
-        projection,
-    )?;
-    warn_unknown_biomes(assets, &biomes);
+    // Derselbe Vorlauf wie beim Kachelexport, nur über den Ausschnitt.
+    let survey = survey(world, projection, Y_RANGE, Some(rect))?;
+    let sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
+    warn_unknown_biomes(assets, &survey.biomes);
     println!(
-        "\nRender:     {} Chunks im Ausschnitt, {vorhanden} generiert, {} Blockstates, {} Sprites",
-        chunks.len(),
-        states.len(),
+        "\nRender:     {} Chunks gelesen, {} Blockstates, {} Sprites",
+        survey.chunks,
+        survey.states.len(),
         sprites.len()
     );
-    // Modelle, die ihren Blockwürfel verlassen, kosten im Renderpfad eine
-    // Suche je leerem Würfel. Wenn es langsam wird, steht hier warum.
-    if !sprites.foreign_cells().is_empty() {
-        println!(
-            "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",
-            sprites.overhanging(),
-            sprites.foreign_cells()
-        );
-    }
+    melde_ueberhang(&sprites);
 
     let image = render_area(world, &sprites, rect, Y_RANGE)?;
     image
@@ -438,6 +408,18 @@ fn window(projection: Projection, center: (i32, i32), size: u32) -> ScreenRect {
     }
 }
 
+/// Modelle, die ihren Blockwürfel verlassen, kosten im Renderpfad eine
+/// Suche je leerem Würfel. Wenn es langsam wird, steht hier warum.
+fn melde_ueberhang(sprites: &SpriteSet) {
+    if !sprites.foreign_cells().is_empty() {
+        println!(
+            "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",
+            sprites.overhanging(),
+            sprites.foreign_cells()
+        );
+    }
+}
+
 /// Biome der Welt, für die keine Definition geladen ist. Sie bekommen die
 /// Farben von `plains` — das soll niemand erst auf der Karte bemerken.
 fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
@@ -514,14 +496,7 @@ fn write_tiles(
         bail!("keine Kachel enthält etwas — falscher Ausschnitt?");
     }
 
-    let sprites = SpriteSet::build_in(
-        assets,
-        survey
-            .states
-            .iter()
-            .map(|(state, biomes)| (state, Some(biomes))),
-        projection,
-    )?;
+    let sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
     println!(
         "            {} Sprites bei scale {}, davon {} Fassungen",
         sprites.len(),
@@ -529,13 +504,7 @@ fn write_tiles(
         sprites.variants()
     );
     warn_unknown_biomes(assets, &survey.biomes);
-    if !sprites.foreign_cells().is_empty() {
-        println!(
-            "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",
-            sprites.overhanging(),
-            sprites.foreign_cells()
-        );
-    }
+    melde_ueberhang(&sprites);
 
     // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
     // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
@@ -818,11 +787,7 @@ fn render_coarser(
         z -= 1;
         scale /= 2;
         let started = Instant::now();
-        let sprites = SpriteSet::build_in(
-            assets,
-            states.iter().map(|(state, biomes)| (state, Some(biomes))),
-            Projection::new(scale),
-        )?;
+        let sprites = SpriteSet::build_in(assets, states, Projection::new(scale))?;
         kandidaten = pyramid::parents(&kandidaten);
 
         let bytes = AtomicUsize::new(0);

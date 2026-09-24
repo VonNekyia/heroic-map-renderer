@@ -42,15 +42,7 @@ fn gelaende(x: i32, y: i32, z: i32) -> &'static str {
 /// mit den Biomen, die jede Blockstate mit ihren Sections teilt.
 fn tabelle(assets: &mut Assets, world: &World, projection: Projection) -> SpriteSet {
     let survey = survey(world, projection, Y_RANGE, None).unwrap();
-    SpriteSet::build_in(
-        assets,
-        survey
-            .states
-            .iter()
-            .map(|(state, biomes)| (state, Some(biomes))),
-        projection,
-    )
-    .unwrap()
+    SpriteSet::build_in(assets, &survey.states, projection).unwrap()
 }
 
 /// Baut die Welt, sammelt ihre Blockstates und rendert den Ausschnitt.

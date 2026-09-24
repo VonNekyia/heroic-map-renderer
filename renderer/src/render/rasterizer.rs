@@ -177,7 +177,7 @@ impl<'a> ProjectedQuad<'a> {
         }
 
         // Vanilla rückt jede Flüssigkeitsfläche ein Tausendstel ins
-        // Blockinnere (`LiquidBlockRenderer`); hier rückt sie stattdessen
+        // Blockinnere (`FluidRenderer`); hier rückt sie stattdessen
         // in der Tiefe nach hinten. Die Seiten eines gefluteten Blocks
         // liegen genau auf der Blockgrenze, wo auch der Wasserwürfel
         // endet, und bei gleicher Tiefe gewann das Wasser: ein Film auf
@@ -361,8 +361,7 @@ impl Canvas {
     /// dem Dreieck, für das die Kante oben oder links liegt. Zwei Dreiecke
     /// mit gemeinsamer Kante — die Hälften einer Fläche, zwei Flächen eines
     /// Würfels — bekommen ihn so genau einmal. Ohne die Regel mischte ein
-    /// durchsichtiges Texel auf der Diagonalen einer Fläche doppelt, bei
-    /// scale 2 auf jeder vollen Oberseite.
+    /// durchsichtiges Texel auf einer solchen Kante doppelt.
     fn triangle(
         &mut self,
         v: [Vertex; 3],

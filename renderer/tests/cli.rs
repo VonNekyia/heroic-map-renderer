@@ -5,7 +5,7 @@
 
 mod common;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -13,7 +13,7 @@ use std::process::{Command, Output};
 use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
-use terranova_render::render::{Projection, SpriteSet, TileId, pyramid, render_area};
+use terranova_render::render::{Projection, SpriteSet, TileId, pyramid, render_area, survey};
 use terranova_render::world::World;
 
 fn assets() -> PathBuf {
@@ -366,12 +366,9 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
     assert!(!kacheln(out.path(), basis).is_empty());
 
     let world = World::open(welt.path()).unwrap();
-    let mut states = BTreeSet::new();
-    for &(cx, cz) in &[(0, 0), (2, 2)] {
-        for section in world.chunk(cx, cz).unwrap().unwrap().sections() {
-            states.extend(section.blocks().palette().iter().cloned());
-        }
-    }
+    let states = survey(&world, Projection::new(8), (0, 15), None)
+        .unwrap()
+        .states;
     let mut nativ = 0;
     let mut verkleinert = 0;
 
@@ -385,7 +382,7 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
         let scale = 8 >> (basis - z);
         let sprites = (scale >= 4).then(|| {
             let mut assets = Assets::open(vec![assets()]).unwrap();
-            SpriteSet::build(&mut assets, &states, Projection::new(scale)).unwrap()
+            SpriteSet::build_in(&mut assets, &states, Projection::new(scale)).unwrap()
         });
 
         for (parent, pfad) in &eltern {

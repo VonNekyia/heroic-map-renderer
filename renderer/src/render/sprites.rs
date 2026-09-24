@@ -271,18 +271,8 @@ fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
     ))
 }
 
-/// Die Biome, mit denen eine Familie vorkommt: `None` heisst alle.
-type Biomes<'a> = Option<BTreeSet<&'a str>>;
-
-fn merge_biomes<'a>(a: Biomes<'a>, b: Biomes<'a>) -> Biomes<'a> {
-    match (a, b) {
-        (Some(mut a), Some(b)) => {
-            a.extend(b);
-            Some(a)
-        }
-        _ => None,
-    }
-}
+/// Die Biome, mit denen eine Familie vorkommt.
+type Biomes<'a> = BTreeSet<&'a str>;
 
 /// Das Modell mit seiner Fluessigkeit auf voller Blockhoehe.
 fn full_height(model: &BakedModel) -> BakedModel {
@@ -322,30 +312,17 @@ struct Entry {
 }
 
 impl SpriteSet {
-    /// Backt und rastert jede Blockstate genau einmal.
+    /// Backt und rastert jede Blockstate genau einmal, gefaerbte Fassungen
+    /// nur fuer die Biome, mit denen sie im Vorlauf eine Section teilt. Auf
+    /// der ganzen Welt kommen alle Biome vor, aber nicht jeder Block in
+    /// jedem: Wasser hat in elf Wasserfarben keinen Sinn, wo es nur in
+    /// dreien steht.
     ///
     /// Blockstates ohne sichtbare Geometrie — Luft, Truhen, Deckenfeuer —
     /// landen nicht in der Tabelle und werden beim Rendern uebersprungen.
-    pub fn build<'a>(
-        assets: &mut Assets,
-        states: impl IntoIterator<Item = &'a BlockState>,
-        projection: Projection,
-    ) -> Result<SpriteSet> {
-        Self::build_in(
-            assets,
-            states.into_iter().map(|state| (state, None)),
-            projection,
-        )
-    }
-
-    /// Wie [`SpriteSet::build`], aber gefaerbte Fassungen nur fuer die
-    /// Biome, mit denen eine Blockstate im Vorlauf eine Section teilt;
-    /// `None` heisst alle. Auf der ganzen Welt kommen alle Biome vor, aber
-    /// nicht jeder Block in jedem: Wasser hat in elf Wasserfarben keinen
-    /// Sinn, wo es nur in dreien steht.
     pub fn build_in<'a>(
         assets: &mut Assets,
-        states: impl IntoIterator<Item = (&'a BlockState, Option<&'a BTreeSet<String>>)>,
+        states: impl IntoIterator<Item = (&'a BlockState, &'a BTreeSet<String>)>,
         projection: Projection,
     ) -> Result<SpriteSet> {
         let mut set = SpriteSet {
@@ -380,15 +357,15 @@ impl SpriteSet {
                 continue;
             }
             let key = family_key(assets, state)?;
-            let biomes = biomes.map(|b| b.iter().map(String::as_str).collect());
+            let biomes = biomes.iter().map(String::as_str);
             match index.get(&key) {
                 Some(&i) => {
                     groups[i].0.push(state);
-                    groups[i].1 = merge_biomes(groups[i].1.take(), biomes);
+                    groups[i].1.extend(biomes);
                 }
                 None => {
                     index.insert(key, groups.len());
-                    groups.push((vec![state], biomes));
+                    groups.push((vec![state], biomes.collect()));
                 }
             }
         }
@@ -404,8 +381,7 @@ impl SpriteSet {
             let alternatives: Vec<(u32, Option<SpriteId>)> = models
                 .iter()
                 .map(|(weight, model)| {
-                    let id =
-                        set.insert_fluid(assets, state, model, fluid.is_some(), biomes.as_ref());
+                    let id = set.insert_fluid(assets, state, model, fluid.is_some(), &biomes);
                     (*weight, id)
                 })
                 .collect();
@@ -437,15 +413,12 @@ impl SpriteSet {
             }
             set.families.push(family);
             if let Some((fluid, _)) = fluid {
-                let known = fluids
-                    .remove(&fluid)
-                    .unwrap_or_else(|| Some(BTreeSet::new()));
-                fluids.insert(fluid, merge_biomes(known, biomes));
+                fluids.entry(fluid).or_default().extend(biomes);
             }
         }
 
         for (fluid, biomes) in fluids {
-            set.insert_strips(assets, fluid, biomes.as_ref());
+            set.insert_strips(assets, fluid, &biomes);
         }
         Ok(set)
     }
@@ -484,17 +457,8 @@ impl SpriteSet {
     /// Fluessigkeit, je Paar aus eigener Hoehe und Nachbarhoehe in Neunteln
     /// und je Seite — der Renderer haengt sie an, wo eine Oberflaeche an
     /// eine hoehere Saeule oder eine Stufe fliessenden Wassers stoesst.
-    fn insert_strips(
-        &mut self,
-        assets: &mut Assets,
-        fluid: Fluid,
-        biomes: Option<&BTreeSet<&str>>,
-    ) {
-        let name = match fluid {
-            Fluid::Water => "minecraft:water",
-            Fluid::Lava => "minecraft:lava",
-        };
-        let state = BlockState::parse(name).expect("gueltiger Blockname");
+    fn insert_strips(&mut self, assets: &mut Assets, fluid: Fluid, biomes: &BTreeSet<&str>) {
+        let state = fluid.source();
         for own in 2..=fluid::FULL {
             for below in 1..own {
                 for face in [Face::East, Face::South] {
@@ -516,7 +480,7 @@ impl SpriteSet {
         state: &BlockState,
         model: &BakedModel,
         has_fluid: bool,
-        biomes: Option<&BTreeSet<&str>>,
+        biomes: &BTreeSet<&str>,
     ) -> Option<SpriteId> {
         let base = self.insert_tinted(assets, state, model, biomes)?;
         // Teilen sich zwei Familien das Bild, teilen sie sich auch die
@@ -575,7 +539,7 @@ impl SpriteSet {
         assets: &Assets,
         state: &BlockState,
         model: &BakedModel,
-        biomes: Option<&BTreeSet<&str>>,
+        biomes: &BTreeSet<&str>,
     ) -> Option<SpriteId> {
         // Welche Faerbungen das Modell ueberhaupt traegt. Nur die
         // unterscheiden Fassungen — sonst bekaeme jeder Grasblock eine
@@ -605,7 +569,7 @@ impl SpriteSet {
         // teilen sich das Sprite samt seinen Biomfassungen — das darf nur,
         // wer sich in jedem Biom gleich faerbt, sonst bekaeme Wasser die
         // Fassungen einer Blasensaeule aus weniger Biomen.
-        let allowed = |biome: &str| biomes.is_none_or(|erlaubt| erlaubt.contains(biome));
+        let allowed = |biome: &str| biomes.contains(biome);
         let class = if default == Tints::default() {
             0
         } else {
@@ -1089,11 +1053,21 @@ mod tests {
         BlockState::parse(text).unwrap()
     }
 
+    /// Die Tabelle fuer Blockstates, die in jedem geladenen Biom vorkommen.
+    fn build<'a>(
+        assets: &mut Assets,
+        states: impl IntoIterator<Item = &'a BlockState>,
+        projection: Projection,
+    ) -> Result<SpriteSet> {
+        let alle: BTreeSet<String> = assets.colors().biomes().map(str::to_string).collect();
+        SpriteSet::build_in(assets, states.into_iter().map(|s| (s, &alle)), projection)
+    }
+
     #[test]
     fn luft_kommt_nicht_in_die_tabelle() {
         let mut assets = assets();
         let states = [state("minecraft:air"), state("einfarbig")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert_eq!(set.len(), 1);
         assert!(set.id(&state("minecraft:air")).is_none());
         assert!(set.id(&state("einfarbig")).is_some());
@@ -1103,7 +1077,7 @@ mod tests {
     fn jede_blockstate_nur_einmal() {
         let mut assets = assets();
         let states = [state("einfarbig"), state("einfarbig"), state("stone")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert_eq!(set.by_state.len(), 2, "einfarbig nur einmal");
         // stone liegt in der Fixture in zwei Alternativen vor, um 180 Grad
         // gedreht. Die Textur ist dafuer symmetrisch, beide sehen gleich
@@ -1118,7 +1092,7 @@ mod tests {
     fn voller_wuerfel_gilt_als_deckend() {
         let mut assets = assets();
         let states = [state("einfarbig")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let id = set.id(&state("einfarbig")).unwrap();
         assert!(set.is_opaque(id), "ein voller Würfel deckt ab");
     }
@@ -1129,7 +1103,7 @@ mod tests {
     fn flaches_modell_deckt_nicht_ab() {
         let mut assets = assets();
         let states = [state("seerose")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let id = set.id(&state("seerose")).unwrap();
         assert!(!set.is_opaque(id));
     }
@@ -1143,7 +1117,7 @@ mod tests {
         for scale in [2, 3, 4, 16, 64] {
             let mut assets = assets();
             let states = [state("durchsichtig")];
-            let set = SpriteSet::build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let id = set.id(&state("durchsichtig")).unwrap();
             assert!(!set.is_opaque(id), "bei scale {scale}");
         }
@@ -1157,7 +1131,7 @@ mod tests {
         for scale in [4, 16, 64] {
             let mut assets = assets();
             let states = [state("einfarbig")];
-            let set = SpriteSet::build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let id = set.id(&state("einfarbig")).unwrap();
             assert!(set.is_opaque(id), "bei scale {scale}");
         }
@@ -1169,7 +1143,7 @@ mod tests {
     fn gewoehnliche_modelle_haben_nur_den_eigenen_wuerfel() {
         let mut assets = assets();
         let states = [state("einfarbig"), state("seerose"), state("oak_fence")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         for name in ["einfarbig", "seerose", "oak_fence"] {
             let id = set.id(&state(name)).unwrap();
             assert!(set.part(id, OWN_CELL).is_some(), "{name}");
@@ -1184,7 +1158,7 @@ mod tests {
     fn ueberhaengendes_modell_zerfaellt_in_wuerfel() {
         let mut assets = assets();
         let states = [state("ueberhang")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let id = set.id(&state("ueberhang")).unwrap();
 
         assert!(set.part(id, OWN_CELL).is_some(), "eigener Würfel");
@@ -1205,7 +1179,7 @@ mod tests {
     fn hohes_modell_zerfaellt_nach_oben() {
         let mut assets = assets();
         let states = [state("turm")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let id = set.id(&state("turm")).unwrap();
 
         assert!(set.part(id, OWN_CELL).is_some());
@@ -1255,7 +1229,7 @@ mod tests {
             state("water[level=8]"),
             state("water[level=3]"),
         ];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let index = |text: &str| set.family_index(&state(text)).unwrap();
         assert_eq!(index("einfarbig[alter=1]"), index("einfarbig[alter=2]"));
         assert_eq!(
@@ -1276,7 +1250,7 @@ mod tests {
         let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
         assets.load_biomes(&data).unwrap();
         let states = [state("oak_fence[waterlogged=true]")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let base = set.families[0].alternatives[0].1.unwrap();
         assert!(set.by_biome.contains_key(&base), "Wasser sichtbar");
         let innen = set.by_mask[&base][7].unwrap();
@@ -1293,8 +1267,7 @@ mod tests {
     #[test]
     fn kaputte_alternative_behaelt_ihr_gewicht() {
         let mut assets = assets();
-        let set =
-            SpriteSet::build(&mut assets, [&state("halb_kaputt")], Projection::new(16)).unwrap();
+        let set = build(&mut assets, [&state("halb_kaputt")], Projection::new(16)).unwrap();
         let family = set.family_of(&state("halb_kaputt")).unwrap();
         assert_eq!(family.total, 4);
         assert_eq!(family.alternatives.len(), 2);
@@ -1340,7 +1313,7 @@ mod tests {
     fn geteilte_grundbilder_sind_keine_fassungen() {
         let mut assets = assets();
         let states = [state("einfarbig"), state("einfarbig_gewachst")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert_eq!(set.families.len(), 2);
         assert_eq!(set.len(), 1);
         assert_eq!(set.variants(), 0);
@@ -1358,7 +1331,7 @@ mod tests {
             state("kaputt[distance=1]"),
             state("kaputt[distance=2]"),
         ];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert_eq!(set.families.len(), 2, "je Block eine Familie");
         assert_eq!(assets.skipped().len(), 4, "{:?}", assets.skipped());
         // Auch eine Blockstate ganz ohne heiles Modell bricht nichts ab.
@@ -1373,14 +1346,10 @@ mod tests {
         let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
         assets.load_biomes(&data).unwrap();
         let wasser = state("water[level=0]");
-        let alle = SpriteSet::build(&mut assets, [&wasser], Projection::new(16)).unwrap();
+        let alle = build(&mut assets, [&wasser], Projection::new(16)).unwrap();
         let nur_frozen: BTreeSet<String> = ["minecraft:frozen".to_string()].into();
-        let eines = SpriteSet::build_in(
-            &mut assets,
-            [(&wasser, Some(&nur_frozen))],
-            Projection::new(16),
-        )
-        .unwrap();
+        let eines = SpriteSet::build_in(&mut assets, [(&wasser, &nur_frozen)], Projection::new(16))
+            .unwrap();
         assert!(
             eines.len() < alle.len(),
             "{} gegen {}",
@@ -1413,7 +1382,7 @@ mod tests {
             .into();
         let set = SpriteSet::build_in(
             &mut assets,
-            [(&saeule, Some(&frozen)), (&wasser, Some(&beide))],
+            [(&saeule, &frozen), (&wasser, &beide)],
             Projection::new(16),
         )
         .unwrap();
@@ -1431,12 +1400,12 @@ mod tests {
     fn pixelgleiche_sprites_teilen_sich_den_eintrag() {
         let mut assets = assets();
         let states = [state("water[level=0]"), state("bubble_column")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert_eq!(set.families.len(), 2);
         assert_eq!(set.id(&states[0]), set.id(&states[1]));
         assert_eq!(
             set.len(),
-            SpriteSet::build(&mut assets, &states[..1], Projection::new(16))
+            build(&mut assets, &states[..1], Projection::new(16))
                 .unwrap()
                 .len()
         );
@@ -1458,7 +1427,7 @@ mod tests {
             state("druckplatte"),
             state("teppich"),
         ];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(32)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(32)).unwrap();
         let flags = |text: &str| {
             let f = set.family_of(&state(text)).unwrap();
             (f.opaque, f.covers_floor, f.covers)
@@ -1491,7 +1460,7 @@ mod tests {
             state("einfarbig"),
         ];
         for scale in [32, 16, 8, 4] {
-            let set = SpriteSet::build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let covers = |text: &str| set.family_of(&state(text)).unwrap().covers;
             assert!(!covers("untere_platte[waterlogged=true]"), "scale {scale}");
             assert!(covers("obere_platte[waterlogged=true]"), "scale {scale}");
@@ -1508,7 +1477,7 @@ mod tests {
     #[test]
     fn streifen_fuer_jede_stufe() {
         let mut assets = assets();
-        let set = SpriteSet::build(&mut assets, [&state("water")], Projection::new(16)).unwrap();
+        let set = build(&mut assets, [&state("water")], Projection::new(16)).unwrap();
         assert!(set.strip(Fluid::Water, 9, 8, Face::East).is_some());
         assert!(set.strip(Fluid::Water, 8, 1, Face::South).is_some());
         assert!(
@@ -1538,7 +1507,7 @@ mod tests {
     fn modell_ohne_flaechen_faellt_heraus() {
         let mut assets = assets();
         let states = [state("chest")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert!(set.is_empty());
     }
 }

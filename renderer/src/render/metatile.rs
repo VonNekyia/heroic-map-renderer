@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use image::{Rgba, RgbaImage};
@@ -192,25 +192,6 @@ impl Drawn {
     fn is_empty(&self) -> bool {
         self.sprite.is_none() && self.strips.iter().all(Option::is_none)
     }
-}
-
-/// Alle Chunks, deren Blöcke in das Rechteck fallen können.
-///
-/// Der Bereich ist ein schmales diagonales Band, kein Rechteck in x und z.
-/// Wer stattdessen die Hüllbox nimmt, lädt für einen 1024er Ausschnitt rund
-/// das Sechzehnfache an Chunks.
-pub fn chunks_for(
-    projection: Projection,
-    rect: ScreenRect,
-    y_range: (i32, i32),
-) -> BTreeSet<(i32, i32)> {
-    let mut out = BTreeSet::new();
-    for y in y_range.0..=y_range.1 {
-        for (x, z) in columns_at(projection, rect, y) {
-            out.insert((x >> 4, z >> 4));
-        }
-    }
-    out
 }
 
 /// Alle Blockspalten, deren Sprite auf dieser Höhe in das Rechteck fallen

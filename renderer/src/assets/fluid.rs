@@ -1,7 +1,7 @@
 //! Wasser und Lava, die es als Modell nicht gibt.
 //!
 //! `water.json` und `lava.json` nennen nur eine Partikeltextur; die
-//! Geometrie baut Minecraft im Code (`LiquidBlockRenderer`). Ohne diesen
+//! Geometrie baut Minecraft im Code (`FluidRenderer`). Ohne diesen
 //! Nachbau bleiben Ozeane nackter Meeresboden — im Frontend war das der
 //! auffälligste Fehlbestand.
 
@@ -13,6 +13,26 @@ use super::baker::{BakedModel, box_quads};
 pub enum Fluid {
     Water,
     Lava,
+}
+
+/// Die Blöcke, die selbst Flüssigkeit sind, statt nur geflutet. Eine
+/// Blasensäule ist Wasser mit Luftblasen; die Blasen sind ein
+/// Partikeleffekt, das Wasser darunter ist ein voller Block.
+const BLOCKS: [(&str, Fluid); 3] = [
+    ("water", Fluid::Water),
+    ("lava", Fluid::Lava),
+    ("bubble_column", Fluid::Water),
+];
+
+impl Fluid {
+    /// Die Quelle dieser Flüssigkeit als Blockstate.
+    pub fn source(self) -> BlockState {
+        let (name, _) = BLOCKS
+            .iter()
+            .find(|&&(_, fluid)| fluid == self)
+            .expect("jede Flüssigkeit ist ein Block");
+        BlockState::parse(&format!("minecraft:{name}")).expect("gültiger Blockname")
+    }
 }
 use super::{Assets, Face, TextureId, split_id};
 use crate::world::BlockState;
@@ -67,7 +87,15 @@ pub fn of(state: &BlockState) -> Option<Fluid> {
 /// statt nur geflutet? Nur die haben ohne Modell trotzdem ein Bild; eine
 /// geflutete Truhe bleibt eine Truhe, die Minecraft als Entity zeichnet.
 pub fn is_block(state: &BlockState) -> bool {
-    matches!(split_id(state.name()).1, "water" | "lava" | "bubble_column")
+    block_fluid(state).is_some()
+}
+
+fn block_fluid(state: &BlockState) -> Option<Fluid> {
+    let name = split_id(state.name()).1;
+    BLOCKS
+        .iter()
+        .find(|&&(n, _)| n == name)
+        .map(|&(_, fluid)| fluid)
 }
 
 /// Art und Menge der Flüssigkeit in Neunteln der Blockhöhe
@@ -107,16 +135,13 @@ fn texture_of(fluid: Fluid) -> (&'static str, Option<u32>) {
 
 /// Stufe und Art der Flüssigkeit einer Blockstate.
 fn kind(state: &BlockState) -> Option<(u32, Fluid)> {
-    Some(match split_id(state.name()).1 {
-        "water" => (level_of(state), Fluid::Water),
-        "lava" => (level_of(state), Fluid::Lava),
-        // Eine Blasensäule ist Wasser mit Luftblasen; die Blasen sind ein
-        // Partikeleffekt, das Wasser darunter ist ein voller Block.
-        "bubble_column" => (0, Fluid::Water),
-        name if IMMER_IM_WASSER.contains(&name) => (0, Fluid::Water),
-        _ if state.prop("waterlogged") == Some("true") => (0, Fluid::Water),
-        _ => return None,
-    })
+    // Eine Blasensäule hat kein `level` und ist damit eine Quelle.
+    if let Some(fluid) = block_fluid(state) {
+        return Some((level_of(state), fluid));
+    }
+    let geflutet = IMMER_IM_WASSER.contains(&split_id(state.name()).1)
+        || state.prop("waterlogged") == Some("true");
+    geflutet.then_some((0, Fluid::Water))
 }
 
 /// `level` einer Flüssigkeit, 0 für die Quelle.

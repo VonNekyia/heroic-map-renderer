@@ -204,6 +204,9 @@ pub struct MapInfo {
     /// Belegter Bereich auf der feinsten Stufe, in Pixeln:
     /// `[links, oben, rechts, unten]`.
     pub bounds: [i32; 4],
+    /// Seed der Welt, zu der der Baum gehört; fehlt bei Welten ohne.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
 }
 
 impl MapInfo {
@@ -220,6 +223,7 @@ impl MapInfo {
             max_zoom,
             tiles: "{z}/{x}/{y}.webp".to_string(),
             bounds: [links, oben, rechts, unten],
+            seed: None,
         }
     }
 }

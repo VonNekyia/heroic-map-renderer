@@ -91,6 +91,17 @@ function isMapInfo(value: unknown): value is MapInfo {
   );
 }
 
+/**
+ * Die feinste Stufe, auf der die ganze Karte in ein Fenster dieser Grösse
+ * passt. Ohne Fläche oder ohne Fenster gilt `minZoom` aus `map.json`.
+ */
+function fitZoom(info: MapInfo, size: L.Point): number {
+  const [left, top, right, bottom] = info.bounds;
+  const faktor = Math.min(size.x / (right - left), size.y / (bottom - top));
+  if (!(faktor > 0 && Number.isFinite(faktor))) return info.minZoom;
+  return info.maxZoom + Math.floor(Math.log2(faktor));
+}
+
 async function start(): Promise<void> {
   // Ohne Angabe liegen die Kacheln neben der Seite. Der Parameter ist für
   // den Smoke-Test und für mehrere Karten auf demselben Server da.
@@ -102,17 +113,22 @@ async function start(): Promise<void> {
 
   const map = L.map('map', {
     crs: crs(info),
-    minZoom: info.minZoom,
     maxZoom: info.maxZoom + EXTRA_ZOOM,
     attributionControl: false,
   });
+  // Ein Baum behält seine Stufen, wenn die Welt wächst, und Zoom 0 passt
+  // dann nicht mehr ins Fenster. Darunter verkleinert Leaflet die Kacheln
+  // von Zoom 0, bis die ganze Karte zu sehen ist.
+  const minZoom = Math.min(info.minZoom, fitZoom(info, map.getSize()));
+  map.setMinZoom(minZoom);
 
   L.tileLayer(`${base}/${info.tiles}`, {
     tileSize: info.tileSize,
-    minZoom: info.minZoom,
+    minZoom,
     maxZoom: info.maxZoom + EXTRA_ZOOM,
     // Über die gerenderte Stufe hinaus gibt es keine Kacheln mehr; Leaflet
     // soll dann die vorhandenen vergrössern statt ins Leere zu laden.
+    // Unter Zoom 0 ebenso, nur verkleinert.
     maxNativeZoom: info.maxZoom,
     minNativeZoom: info.minZoom,
     // Ausserhalb liegt nichts. Ohne diese Grenze fragt Leaflet beim

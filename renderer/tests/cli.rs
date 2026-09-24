@@ -635,13 +635,40 @@ fn gewachsene_welt_behaelt_die_nummerierung() {
     assert!(!kacheln(baum.path(), 0).is_empty(), "Zoom 0 fehlt");
 }
 
-/// Bricht der erste Lauf ab, steht trotzdem schon im `map.json`, zu welchem
-/// scale der Baum gehört. Sonst mischte der nächste Lauf mit anderem scale
-/// seine Kacheln unter die des abgebrochenen.
+/// Bricht der erste Lauf beim Schreiben der Kacheln ab, steht trotzdem
+/// schon im `map.json`, zu welchem scale der Baum gehört. Sonst mischte
+/// der nächste Lauf mit anderem scale seine Kacheln unter die des
+/// abgebrochenen.
 #[test]
 fn abgebrochener_lauf_hinterlaesst_map_json() {
     let welt = tempdir();
-    common::write_world(welt.path(), &[(0, 0)], |x, y, z| {
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let probe = tempdir();
+    gelungen(&tiles(welt.path(), probe.path(), &["--scale", "16"]));
+    // Wo die letzte Kachel hin soll, steht ein Verzeichnis: sie zu
+    // schreiben scheitert.
+    let out = tempdir();
+    let kachel = dateien(probe.path()).pop().expect("eine Kachel");
+    std::fs::create_dir_all(out.path().join(&kachel)).unwrap();
+    assert!(
+        !tiles(welt.path(), out.path(), &["--scale", "16"])
+            .status
+            .success(),
+        "{kachel} hätte sich nicht schreiben lassen dürfen"
+    );
+    let ausgabe = tiles(welt.path(), out.path(), &[]);
+    assert!(!ausgabe.status.success());
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("scale 16"), "Meldung: {meldung}");
+}
+
+/// Scheitert ein Lauf vor der ersten Kachel, etwa an einem fehlenden
+/// Asset, legt er für das Verzeichnis nichts fest: der nächste darf einen
+/// anderen scale nehmen.
+#[test]
+fn gescheiterter_lauf_legt_nichts_fest() {
+    let kaputt = tempdir();
+    common::write_world(kaputt.path(), &[(0, 0)], |x, y, z| {
         if (x, y, z) == (8, 4, 8) {
             "minecraft:gibt_es_nicht"
         } else {
@@ -650,15 +677,85 @@ fn abgebrochener_lauf_hinterlaesst_map_json() {
     });
     let out = tempdir();
     assert!(
-        !tiles(welt.path(), out.path(), &["--scale", "16"])
+        !tiles(kaputt.path(), out.path(), &["--scale", "16"])
             .status
             .success(),
         "der erste Lauf hätte am fehlenden Asset scheitern müssen"
     );
-    let ausgabe = tiles(welt.path(), out.path(), &[]);
+    assert!(!out.path().join("map.json").exists(), "map.json festgelegt");
+
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+    let text = std::fs::read_to_string(out.path().join("map.json")).unwrap();
+    assert!(text.contains(r#""scale": 8"#), "{text}");
+}
+
+/// Ein Baum gehört zu einer Welt. Eine andere mit demselben scale renderte
+/// sonst still hinein: ihre Basis landete auf der Stufe der ersten, und wo
+/// sie keine Chunks hat, blieben deren Kacheln stehen.
+#[test]
+fn fremde_welt_wird_abgelehnt() {
+    let erste = tempdir();
+    common::write_world(erste.path(), &[(0, 0), (2, 2)], gelaende);
+    common::write_level_dat(erste.path(), 1);
+    let zweite = tempdir();
+    common::write_world(zweite.path(), &[(0, 0)], gelaende);
+    common::write_level_dat(zweite.path(), 2);
+
+    let out = tempdir();
+    gelungen(&tiles(erste.path(), out.path(), &["--scale", "16"]));
+    let vorher = schnappschuss(out.path());
+    let ausgabe = tiles(zweite.path(), out.path(), &["--scale", "16"]);
+    assert!(!ausgabe.status.success(), "die fremde Welt lief durch");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        meldung.contains("Seed dort 1, hier 2"),
+        "Meldung: {meldung}"
+    );
+    assert_eq!(
+        schnappschuss(out.path()),
+        vorher,
+        "der Baum hat sich verändert"
+    );
+
+    // Dieselbe Welt darf weiter.
+    gelungen(&tiles(erste.path(), out.path(), &["--scale", "16"]));
+}
+
+/// Ein Baum eines älteren Stands mit scale 6 lässt sich nicht fortsetzen:
+/// `--scale 6` nimmt dieser Stand nicht mehr an. Die Meldung darf das
+/// nicht raten.
+#[test]
+fn alter_scale_nennt_den_ausweg() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let out = tempdir();
+    std::fs::write(
+        out.path().join("map.json"),
+        r#"{"tileSize":256,"scale":6,"minZoom":0,"maxZoom":3,"tiles":"{z}/{x}/{y}.webp","bounds":[0,0,256,256]}"#,
+    )
+    .unwrap();
+    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8"]);
     assert!(!ausgabe.status.success());
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
-    assert!(meldung.contains("scale 16"), "Meldung: {meldung}");
+    assert!(meldung.contains("neues Verzeichnis"), "Meldung: {meldung}");
+    assert!(!meldung.contains("--scale 6"), "Meldung: {meldung}");
+}
+
+/// `--size 0` gäbe ein leeres Rechteck. Das rundet nicht auf das Raster
+/// der nativen Stufen auf: der Vorlauf sähe nur den Mittelpunkt, und den
+/// nativen Stufen fehlten die Blöcke ihrer Elternkacheln.
+#[test]
+fn size_null_wird_abgelehnt() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let out = tempdir();
+    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16", "--size", "0"]);
+    assert!(!ausgabe.status.success(), "--size 0 lief durch");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("--size"), "Meldung: {meldung}");
+    assert!(schnappschuss(out.path()).is_empty(), "etwas geschrieben");
 }
 
 /// Eine geflutete Truhe bleibt eine Truhe, die Minecraft als Entity

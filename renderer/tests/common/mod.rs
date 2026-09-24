@@ -104,6 +104,68 @@ pub fn chunk_nbt(cx: i32, cz: i32, sections: Vec<SectionNbt>) -> Vec<u8> {
     .expect("NBT serialisieren")
 }
 
+/// Wo der Seed liegt: bis 1.21 in `level.dat`, seit 26.1 in
+/// `world_gen_settings.dat` neben den Regionen der Oberwelt. Beide Dateien
+/// tragen mehr, der Renderer liest nur den Seed.
+#[derive(Serialize)]
+struct LevelDat {
+    #[serde(rename = "Data")]
+    data: LevelData,
+}
+
+#[derive(Serialize)]
+struct LevelData {
+    #[serde(rename = "WorldGenSettings")]
+    settings: SeedNbt,
+}
+
+#[derive(Serialize)]
+struct GenSettingsDat {
+    #[serde(rename = "DataVersion")]
+    data_version: i32,
+    data: SeedNbt,
+}
+
+#[derive(Serialize)]
+struct SeedNbt {
+    seed: i64,
+}
+
+fn write_gzip_nbt(path: &Path, value: &impl Serialize) {
+    use std::io::Write;
+    std::fs::create_dir_all(path.parent().unwrap()).expect("Verzeichnis anlegen");
+    let mut gz = flate2::write::GzEncoder::new(
+        std::fs::File::create(path).expect("NBT-Datei anlegen"),
+        flate2::Compression::default(),
+    );
+    gz.write_all(&fastnbt::to_bytes(value).expect("NBT serialisieren"))
+        .expect("NBT schreiben");
+    gz.finish().expect("gzip abschliessen");
+}
+
+/// `level.dat` mit dem Seed, wie Minecraft bis 1.21 sie schreibt.
+pub fn write_level_dat(world: &Path, seed: i64) {
+    let level = LevelDat {
+        data: LevelData {
+            settings: SeedNbt { seed },
+        },
+    };
+    write_gzip_nbt(&world.join("level.dat"), &level);
+}
+
+/// `world_gen_settings.dat` mit dem Seed, wie Minecraft seit 26.1 sie in
+/// `dimensions/minecraft/overworld/data/minecraft` schreibt.
+pub fn write_gen_settings(dimension: &Path, seed: i64) {
+    let settings = GenSettingsDat {
+        data_version: 4903,
+        data: SeedNbt { seed },
+    };
+    write_gzip_nbt(
+        &dimension.join("data/minecraft/world_gen_settings.dat"),
+        &settings,
+    );
+}
+
 // -------------------------------------------------------------- Weltenbau
 
 /// Schreibt eine wohlgeformte Welt mit einer Section (y 0..15) je Chunk.

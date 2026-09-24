@@ -2,6 +2,8 @@
 //! (Paper 26.2, DataVersion 4903): 2×2 vollständig generierte Chunks,
 //! 40 KB. Die Sollwerte stammen aus einem unabhängigen Python-Decoder.
 
+mod common;
+
 use std::path::PathBuf;
 
 use terranova_render::world::World;
@@ -42,6 +44,26 @@ fn dekodiert_blockstates() {
     assert_eq!(block(9240, 62, 6664).as_deref(), Some("minecraft:stone"));
     assert_eq!(block(9247, 40, 6671).as_deref(), Some("minecraft:andesite"));
     assert_eq!(block(9240, 200, 6664).as_deref(), Some("minecraft:air"));
+}
+
+/// Der Seed ist die Kennung der Welt im Kachelbaum. Seit 26.1 steht er in
+/// `world_gen_settings.dat` neben den Regionen, davor in `level.dat`.
+#[test]
+fn liest_den_seed_aus_beiden_layouts() {
+    let neu = tempfile::tempdir().unwrap();
+    let oberwelt = neu.path().join("dimensions/minecraft/overworld");
+    std::fs::create_dir_all(oberwelt.join("region")).unwrap();
+    common::write_gen_settings(&oberwelt, -4_172_144_997_902_289_642);
+    let seed = World::open(neu.path()).unwrap().seed().unwrap();
+    assert_eq!(seed, Some(-4_172_144_997_902_289_642));
+
+    let alt = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(alt.path().join("region")).unwrap();
+    common::write_level_dat(alt.path(), 42);
+    assert_eq!(World::open(alt.path()).unwrap().seed().unwrap(), Some(42));
+
+    // Die Fixture hat nur Regionen.
+    assert_eq!(world().seed().unwrap(), None);
 }
 
 #[test]

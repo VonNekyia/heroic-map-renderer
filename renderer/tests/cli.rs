@@ -304,11 +304,11 @@ fn verschwundener_chunk_verschwindet_auf_jeder_stufe() {
         let baum = tempdir();
         gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
         let vorher = dateien(baum.path());
-        gelungen(&tiles(
-            neu.path(),
-            baum.path(),
-            &["--scale", scale, "--prune"],
-        ));
+        let ausgabe = tiles(neu.path(), baum.path(), &["--scale", scale, "--prune"]);
+        let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+        // Angesagt wird vor der Basis: bis zum Ende bleibt Zeit für Strg+C.
+        let ansage = text.find("Aufräumen:").expect("keine Ansage");
+        assert!(ansage < text.find("Kacheln:").unwrap(), "{text}");
         let voll = tempdir();
         gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
 
@@ -330,9 +330,9 @@ fn zwei_bloecke(x: i32, y: i32, z: i32) -> &'static str {
 }
 
 /// Ohne --prune bleiben Kacheln stehen, die kein Chunk mehr berührt: einer
-/// Teilkopie der Welt oder einer anderen Dimension mit demselben Seed
-/// fehlt vieles, und der Lauf leerte sonst den Baum. Er zählt sie und sagt,
-/// wie sie weggehen.
+/// Teilkopie der Welt fehlt vieles, und der Lauf leerte sonst den Baum. Er
+/// zählt sie, sagt, wie sie weggehen, und dass das nur mit der
+/// vollständigen Welt geht: bei einer Teilkopie zerstörte der Schalter.
 #[test]
 fn ohne_prune_bleiben_kacheln_ohne_chunk_stehen() {
     let alt = tempdir();
@@ -345,16 +345,25 @@ fn ohne_prune_bleiben_kacheln_ohne_chunk_stehen() {
     let basis = kacheln(baum.path(), max_zoom(baum.path()));
     let ausgabe = tiles(neu.path(), baum.path(), &["--scale", "16"]);
     let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
-    assert!(text.contains("--prune entfernt sie"), "{text}");
+    assert!(
+        text.contains(
+            "2 von 4 Basiskacheln berührt kein Chunk dieser Welt mehr; sie bleiben stehen"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("--prune entfernt sie, aber nur mit der vollständigen Welt"),
+        "{text}"
+    );
     assert_eq!(kacheln(baum.path(), max_zoom(baum.path())), basis);
 }
 
-/// Bricht ein Lauf mit --prune nach der Basis ab, stehen die Kacheln ohne
-/// Chunk noch da, denn entfernt werden sie erst, wenn alle Stufen darüber
-/// neu stehen. Der nächste Lauf findet sie wieder und baut ihre Eltern
-/// neu. Früher verschwanden sie vor der Basis; nach einem Abbruch fand
-/// dann kein Lauf mehr ihre Eltern, und die zeigten das Abgerissene bis
-/// in die gröberen Stufen.
+/// Bricht ein Lauf mit --prune erst beim Entfernen ab, stehen die
+/// Kacheln ohne Chunk noch da: entfernt wird von der gröbsten Stufe bis
+/// zur Basis, und sie gehen zuletzt. Der nächste Lauf findet sie wieder
+/// und baut ihre Eltern neu. Früher verschwanden sie vor der Basis; nach
+/// einem Abbruch fand dann kein Lauf mehr ihre Eltern, und die zeigten
+/// das Abgerissene bis in die gröberen Stufen.
 ///
 /// Der Stein bei (200, 4, 8) liegt weit rechts vom ersten Block: seine
 /// Eltern teilt er zwei Stufen lang mit niemandem. Den Abbruch erzwingt
@@ -396,6 +405,129 @@ fn abgebrochenes_aufraeumen_heilt_im_naechsten_lauf() {
         &["--scale", "16", "--prune"],
     ));
     assert_eq!(schnappschuss(baum.path()), schnappschuss(voll.path()));
+}
+
+/// Kacheln, deren Elternkachel fehlt, als `<z>/<x>/<y>`.
+fn waisen(dir: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    for z in 1..=max_zoom(dir) {
+        let oben = kacheln(dir, z - 1);
+        for tile in kacheln(dir, z).keys() {
+            if !oben.contains_key(&tile.parent()) {
+                out.push(format!("{z}/{}/{}", tile.x, tile.y));
+            }
+        }
+    }
+    out
+}
+
+/// Ein Lauf mit --prune entfernt erst ganz am Ende etwas, auch keine leer
+/// gewordene Elternkachel. Bricht er in der Pyramide ab, steht jede Datei
+/// noch da. Ein Lauf ohne den Schalter hinterlässt danach keine Kachel
+/// ohne Eltern, und einer mit ihm heilt den Baum. Früher verschwanden die
+/// leer gewordenen nativen Stufen sofort; ein Lauf ohne --prune liess die
+/// Kacheln ohne Chunk dann ohne Eltern stehen. Bei scale 16 mit nativen
+/// Stufen, bei 12 ohne.
+///
+/// Den Abbruch erzwingt ein Verzeichnis an der Stelle einer Kachel der
+/// Stufe 0, die die Pyramide neu schreibt: dort liegt der erste Block.
+#[test]
+fn abbruch_in_der_pyramide_entfernt_nichts() {
+    let block = |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (200, 4, 8) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    };
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], block);
+
+    for scale in ["16", "12"] {
+        let voll = tempdir();
+        gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
+        let baum = tempdir();
+        gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
+        assert!(max_zoom(baum.path()) > 2, "scale {scale}: zu wenig Stufen");
+        let vorher = dateien(baum.path());
+
+        let (_, pfad) = kacheln(baum.path(), 0)
+            .into_iter()
+            .find(|(tile, _)| kacheln(voll.path(), 0).contains_key(tile))
+            .expect("der erste Block hat eine Kachel auf Stufe 0");
+        std::fs::remove_file(&pfad).unwrap();
+        std::fs::create_dir(&pfad).unwrap();
+        let ausgabe = tiles(neu.path(), baum.path(), &["--scale", scale, "--prune"]);
+        assert!(!ausgabe.status.success(), "scale {scale}: kein Abbruch");
+        let fehlt: Vec<&String> = vorher
+            .iter()
+            .filter(|rel| !baum.path().join(rel).is_file() && baum.path().join(rel) != pfad)
+            .collect();
+        assert!(fehlt.is_empty(), "scale {scale}: entfernt {fehlt:?}");
+
+        std::fs::remove_dir(&pfad).unwrap();
+        gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));
+        assert_eq!(waisen(baum.path()), Vec::<String>::new(), "scale {scale}");
+        gelungen(&tiles(
+            neu.path(),
+            baum.path(),
+            &["--scale", scale, "--prune"],
+        ));
+        assert_eq!(
+            schnappschuss(baum.path()),
+            schnappschuss(voll.path()),
+            "scale {scale}"
+        );
+    }
+}
+
+/// Ein Ausschnitt mit --prune über einer ganz zurückgesetzten Fläche: der
+/// Vorlauf findet dort nichts mehr, aufzuräumen gibt es trotzdem. Früher
+/// brach der Lauf vorher mit „keine Kachel enthält etwas“ ab, und die
+/// alten Kacheln blieben stehen.
+#[test]
+fn prune_raeumt_auch_ueber_leerer_flaeche_auf() {
+    let block = |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (200, 4, 8) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    };
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], block);
+    let voll = tempdir();
+    gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
+
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    let ausschnitt = ["--scale", "16", "--center", "200", "8", "--size", "1"];
+    let ohne = tiles(neu.path(), baum.path(), &ausschnitt);
+    let text = String::from_utf8_lossy(&ohne.stderr);
+    assert!(!ohne.status.success());
+    assert!(text.contains("--prune entfernt sie"), "{text}");
+
+    let mut mit = ausschnitt.to_vec();
+    mit.push("--prune");
+    gelungen(&tiles(neu.path(), baum.path(), &mit));
+    assert_eq!(schnappschuss(baum.path()), schnappschuss(voll.path()));
+}
+
+/// Ohne --tiles gibt es nichts aufzuräumen; still übergangen hiesse der
+/// Schalter etwas, das er nicht tut.
+#[test]
+fn prune_braucht_tiles() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], zwei_bloecke);
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--scan"),
+        OsStr::new("--prune"),
+    ]);
+    assert!(!ausgabe.status.success());
+    let text = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(text.contains("--tiles"), "{text}");
 }
 
 /// Ein Ausschnitt darf nicht an einem Block scheitern, der weit ausserhalb

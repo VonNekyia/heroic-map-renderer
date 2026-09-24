@@ -84,7 +84,7 @@ pub struct Args {
     /// Mit --tiles Kacheln entfernen, die kein Chunk der Welt mehr berührt,
     /// etwa nach dem Zurücksetzen mit einem Editor. Nur mit der
     /// vollständigen Welt: bei einer Teilkopie verschwände, was ihr fehlt.
-    #[arg(long)]
+    #[arg(long, requires = "tiles")]
     prune: bool,
 }
 
@@ -508,8 +508,34 @@ fn write_tiles(
         survey.states.len(),
         survey.tiles.len()
     );
-    if survey.tiles.is_empty() {
-        bail!("keine Kachel enthält etwas — falscher Ausschnitt?");
+
+    // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt, etwa
+    // weil ein Editor ihn zurückgesetzt hat. Der Vorlauf sieht sie nicht.
+    // Weg kommen sie nur mit --prune: einer Teilkopie der Welt fehlt
+    // vieles, und ohne Schalter leerte ein solcher Lauf den Baum. Ein
+    // Ausschnitt sucht nur in seiner Fläche, die ist auf ganze Kacheln
+    // gerundet. Gesucht wird, bevor ein leerer Vorlauf abbricht: über
+    // einer ganz zurückgesetzten Fläche findet er nichts, aufzuräumen gibt
+    // es dort trotzdem.
+    let mut kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
+    let im_lauf = |tile: &TileId| {
+        let r = tile.rect();
+        bounds.is_none_or(|b| (b.x..b.right()).contains(&r.x) && (b.y..b.bottom()).contains(&r.y))
+    };
+    let bestehend: BTreeSet<TileId> = vorhandene(dir, max_zoom)?
+        .into_iter()
+        .filter(im_lauf)
+        .collect();
+    let veraltet: BTreeSet<TileId> = bestehend.difference(&kandidaten).copied().collect();
+    let anteil = format!("{} von {} Basiskacheln", veraltet.len(), bestehend.len());
+    if kandidaten.is_empty() && (veraltet.is_empty() || !prune) {
+        if veraltet.is_empty() {
+            bail!("keine Kachel enthält etwas — falscher Ausschnitt?");
+        }
+        bail!(
+            "keine Kachel enthält etwas, und {anteil} berührt kein Chunk dieser Welt mehr. \
+             --prune entfernt sie, aber nur mit der vollständigen Welt."
+        );
     }
 
     let sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
@@ -533,30 +559,21 @@ fn write_tiles(
         );
     }
 
-    // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt, etwa
-    // weil ein Editor ihn zurückgesetzt hat. Der Vorlauf sieht sie nicht.
-    // Weg kommen sie nur mit --prune: einer Teilkopie der Welt oder einer
-    // anderen Dimension mit demselben Seed fehlt vieles, und ohne Schalter
-    // leerte ein solcher Lauf den Baum. Ein Ausschnitt sucht nur in seiner
-    // Fläche, die ist auf ganze Kacheln gerundet.
-    let mut kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
-    let im_lauf = |tile: &TileId| {
-        let r = tile.rect();
-        bounds.is_none_or(|b| (b.x..b.right()).contains(&r.x) && (b.y..b.bottom()).contains(&r.y))
-    };
-    let mut veraltet: BTreeSet<TileId> = vorhandene(dir, max_zoom)?
-        .into_iter()
-        .filter(|tile| im_lauf(tile) && !kandidaten.contains(tile))
-        .collect();
-    if prune {
-        // Ihre Eltern entstehen neu; sie selbst verschwinden erst am Ende.
-        kandidaten.extend(&veraltet);
-    } else if !veraltet.is_empty() {
-        println!(
-            "            {} Kacheln ohne Chunk bleiben stehen, --prune entfernt sie",
-            veraltet.len()
-        );
-        veraltet.clear();
+    // Angesagt wird vor der Basis: bis zum Ende des Laufs bleibt Zeit für
+    // Strg+C, erst dann verschwindet etwas.
+    if !veraltet.is_empty() {
+        if prune {
+            println!(
+                "Aufräumen:  {anteil} berührt kein Chunk dieser Welt mehr; sie verschwinden am Ende des Laufs"
+            );
+            // Ihre Eltern entstehen neu.
+            kandidaten.extend(&veraltet);
+        } else {
+            println!(
+                "Aufräumen:  {anteil} berührt kein Chunk dieser Welt mehr; sie bleiben stehen. \
+                 --prune entfernt sie, aber nur mit der vollständigen Welt."
+            );
+        }
     }
 
     let started = Instant::now();
@@ -564,7 +581,10 @@ fn write_tiles(
     let bytes = AtomicUsize::new(0);
     let gesamt = survey.tiles.len();
 
-    let basis: BTreeSet<TileId> = survey
+    // Kacheln, die leer geworden sind, verschwinden erst am Ende des Laufs,
+    // auf jeder Stufe, zusammen mit denen ohne Chunk. Bricht der Lauf
+    // vorher ab, hat er nichts entfernt.
+    let leer: Vec<TileId> = survey
         .tiles
         .par_iter()
         .map(|tile| -> Result<Option<TileId>> {
@@ -577,31 +597,34 @@ fn write_tiles(
             // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
             // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
             if image.pixels().all(|p| p.0[3] == 0) {
-                entferne(&tile_path(dir, max_zoom, *tile))?;
-                return Ok(None);
+                return Ok(Some(*tile));
             }
 
             bytes.fetch_add(schreibe(dir, max_zoom, *tile, &image)?, Ordering::Relaxed);
-            Ok(Some(*tile))
+            Ok(None)
         })
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .flatten()
         .collect();
+    let geschrieben = gesamt - leer.len();
+    let mut weg: BTreeSet<(u32, TileId)> = leer.iter().map(|tile| (max_zoom, *tile)).collect();
+    if prune {
+        weg.extend(veraltet.iter().map(|tile| (max_zoom, *tile)));
+    }
 
     let seconds = started.elapsed().as_secs_f64();
     let bytes = bytes.load(Ordering::Relaxed);
     println!(
-        "Kacheln:    {} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads",
-        basis.len(),
-        gesamt - basis.len(),
+        "Kacheln:    {geschrieben} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads",
+        leer.len(),
         rayon::current_num_threads()
     );
     println!(
         "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s, {:.0} kB je Kachel)",
         bytes as f64 / 1_048_576.0,
         gesamt as f64 / seconds,
-        bytes as f64 / basis.len().max(1) as f64 / 1024.0,
+        bytes as f64 / geschrieben.max(1) as f64 / 1024.0,
     );
 
     // Die nativen Stufen bauen ihre eigenen Tabellen; die der Basis wird
@@ -616,22 +639,18 @@ fn write_tiles(
         max_zoom,
         kandidaten,
         stufen,
+        &mut weg,
     )?;
-    // Kacheln ohne Chunk erst entfernen, wenn alle Stufen darüber neu
-    // stehen: bricht der Lauf vorher ab, findet der nächste sie wieder und
-    // baut ihre Eltern neu. Stapelt die Pyramide direkt auf der Basis,
-    // lässt sie sie bis dahin aus.
-    let leer = BTreeSet::new();
-    build_pyramid(
-        dir,
-        z,
-        kandidaten,
-        if z == max_zoom { &veraltet } else { &leer },
-    )?;
-    for tile in &veraltet {
-        entferne(&tile_path(dir, max_zoom, *tile))?;
+    build_pyramid(dir, z, kandidaten, &mut weg)?;
+
+    // Erst jetzt verschwindet etwas, von der gröbsten Stufe bis zur Basis.
+    // Die Kacheln ohne Chunk gehen zuletzt: bricht der Lauf hier ab, stehen
+    // sie noch da, und der nächste Lauf mit --prune findet sie wieder und
+    // baut ihre Eltern neu.
+    for (z, tile) in &weg {
+        entferne(&tile_path(dir, *z, *tile))?;
     }
-    if !veraltet.is_empty() {
+    if prune && !veraltet.is_empty() {
         println!("Aufräumen:  {} Kacheln ohne Chunk entfernt", veraltet.len());
     }
 
@@ -686,15 +705,15 @@ fn schreibe_map_json(
 /// Welche Kinder eine Elternkachel hat, entscheidet die Platte und nicht
 /// dieser Lauf. Ein Ausschnittexport in einen bestehenden Baum berührt nur
 /// einen Teil der Geschwister — die anderen liegen weiterhin da und
-/// gehören genauso in die Elternkachel. Die leer gewordenen sind zu diesem
-/// Zeitpunkt bereits gelöscht. `ohne` sind Kacheln der Stufe `max_zoom`,
-/// die noch dastehen, aber nicht mehr dazugehören: Basiskacheln ohne
-/// Chunk, die erst nach der Pyramide verschwinden.
+/// gehören genauso in die Elternkachel. `weg` sind Kacheln, die noch
+/// dastehen, aber nicht mehr dazugehören: leer gewordene jeder Stufe und
+/// Basiskacheln ohne Chunk. Sie verschwinden erst am Ende des Laufs; die
+/// Pyramide lässt sie aus und legt ihre eigenen leer gewordenen dazu.
 fn build_pyramid(
     dir: &Path,
     max_zoom: u32,
     kandidaten: BTreeSet<TileId>,
-    ohne: &BTreeSet<TileId>,
+    weg: &mut BTreeSet<(u32, TileId)>,
 ) -> Result<()> {
     let started = Instant::now();
     let mut kandidaten = kandidaten;
@@ -703,12 +722,13 @@ fn build_pyramid(
 
     for z in (0..max_zoom).rev() {
         kandidaten = pyramid::parents(&kandidaten);
-        let stufe: Vec<usize> = kandidaten
+        let bisher = &*weg;
+        let stufe: Vec<(TileId, Option<usize>)> = kandidaten
             .par_iter()
-            .map(|parent| -> Result<Option<usize>> {
+            .map(|parent| -> Result<(TileId, Option<usize>)> {
                 let mut teile = Vec::new();
                 for kind in parent.children() {
-                    if z + 1 == max_zoom && ohne.contains(&kind) {
+                    if bisher.contains(&(z + 1, kind)) {
                         continue;
                     }
                     let pfad = tile_path(dir, z + 1, kind);
@@ -717,20 +737,23 @@ fn build_pyramid(
                     }
                 }
                 if teile.is_empty() {
-                    entferne(&tile_path(dir, z, *parent))?;
-                    return Ok(None);
+                    return Ok((*parent, None));
                 }
                 let bild = pyramid::merge(*parent, &teile);
-                Ok(Some(schreibe(dir, z, *parent, &bild)?))
+                Ok((*parent, Some(schreibe(dir, z, *parent, &bild)?)))
             })
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .flatten()
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
 
-        bytes += stufe.iter().sum::<usize>();
-        gesamt += stufe.len();
-        println!("Zoom {z:>2}:     {} Kacheln", stufe.len());
+        let geschrieben: Vec<usize> = stufe.iter().filter_map(|(_, b)| *b).collect();
+        weg.extend(
+            stufe
+                .iter()
+                .filter(|(_, b)| b.is_none())
+                .map(|(parent, _)| (z, *parent)),
+        );
+        bytes += geschrieben.iter().sum::<usize>();
+        gesamt += geschrieben.len();
+        println!("Zoom {z:>2}:     {} Kacheln", geschrieben.len());
     }
 
     if max_zoom > 0 {
@@ -858,7 +881,8 @@ fn pruefe_bestand(
 /// Gemessen bei scale 32: 12,1 s für die drei Stufen, 13,6 s für die Basis.
 ///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
-/// [`build_pyramid`].
+/// [`build_pyramid`]. Leer gewordene Kacheln kommen nach `weg` und
+/// verschwinden erst am Ende des Laufs.
 #[allow(clippy::too_many_arguments)]
 fn render_coarser(
     world: &World,
@@ -869,6 +893,7 @@ fn render_coarser(
     max_zoom: u32,
     kandidaten: BTreeSet<TileId>,
     stufen: u32,
+    weg: &mut BTreeSet<(u32, TileId)>,
 ) -> Result<(u32, BTreeSet<TileId>)> {
     let mut z = max_zoom;
     let mut scale = projection.scale();
@@ -882,16 +907,15 @@ fn render_coarser(
         kandidaten = pyramid::parents(&kandidaten);
 
         let bytes = AtomicUsize::new(0);
-        let geschrieben: BTreeSet<TileId> = kandidaten
+        let leer: Vec<TileId> = kandidaten
             .par_iter()
             .map(|tile| -> Result<Option<TileId>> {
                 let image = render_area(world, &sprites, tile.rect(), Y_RANGE)?;
                 if image.pixels().all(|p| p.0[3] == 0) {
-                    entferne(&tile_path(dir, z, *tile))?;
-                    return Ok(None);
+                    return Ok(Some(*tile));
                 }
                 bytes.fetch_add(schreibe(dir, z, *tile, &image)?, Ordering::Relaxed);
-                Ok(Some(*tile))
+                Ok(None)
             })
             .collect::<Result<Vec<_>>>()?
             .into_iter()
@@ -899,10 +923,11 @@ fn render_coarser(
             .collect();
         println!(
             "Zoom {z:>2}:     {} Kacheln nativ bei scale {scale}, {:.1} MB in {:.1} s",
-            geschrieben.len(),
+            kandidaten.len() - leer.len(),
             bytes.load(Ordering::Relaxed) as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
+        weg.extend(leer.into_iter().map(|tile| (z, tile)));
     }
     Ok((z, kandidaten))
 }

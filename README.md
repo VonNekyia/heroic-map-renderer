@@ -238,12 +238,18 @@ Eine Basiskachel, die gar kein Chunk mehr berührt, weil ein Editor ihn
 zurückgesetzt hat, entfernt der Export nur mit `--prune`, dann auf jeder
 Stufe. Ohne den Schalter zählt er sie und lässt sie stehen; nur wo der Lauf
 eine native Elternkachel ohnehin neu rendert, fehlt dort schon, was sie
-zeigen. Einer Teilkopie der Welt oder einer anderen Dimension mit demselben
-Seed fehlt vieles, und ein Lauf mit `--prune` leerte über ihr den Baum: der
-Schalter gehört nur an die vollständige Welt. Entfernt wird erst, wenn alle
-Stufen darüber neu stehen. Bricht ein Lauf vorher ab, findet der nächste
-die Kacheln wieder und baut ihre Eltern neu. Ein Ausschnitt sucht nur in
-seiner gerundeten Fläche.
+zeigen. Einer Teilkopie der Welt fehlt vieles, und ein Lauf mit `--prune`
+leerte über ihr den Baum: der Schalter gehört nur an die vollständige
+Welt. Der Lauf nennt deshalb vor der Basis, wie viele Kacheln es trifft,
+von wie vielen. Ein Ausschnitt sucht nur in seiner gerundeten Fläche, auch
+wenn der Vorlauf dort gar nichts mehr findet.
+
+Entfernt wird erst am Ende des Laufs, auf allen Stufen, auch was nur leer
+geworden ist: von der gröbsten Stufe bis zur Basis, die Kacheln ohne Chunk
+zuletzt. Bricht ein Lauf mit `--prune` vorher ab, hat er nichts gelöscht,
+und der nächste Lauf mit `--prune` findet die Kacheln wieder und baut ihre
+Eltern neu. Einer ohne den Schalter lässt sie stehen wie jede Kachel ohne
+Chunk.
 
 ### Zoomstufen
 

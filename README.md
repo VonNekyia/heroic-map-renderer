@@ -320,12 +320,14 @@ hängt allein an `scale`, und die Formel gehört in den Renderer, nicht in eine
 Datei.
 
 `world` ist die Kennung der Welt, ein SipHash-2-4 ihres Seeds. Den Seed
-liest der Renderer seit 26.1 aus `world_gen_settings.dat` neben den
-Regionen, davor aus `level.dat`. Er selbst steht nicht in der Datei:
+liest der Renderer aus der Weltwurzel: seit 26.1 aus
+`data/minecraft/world_gen_settings.dat`, bei Paper aus der Datei der
+Oberwelt, davor aus `level.dat`. Er selbst steht nicht in der Datei:
 `map.json` liegt öffentlich neben den Kacheln, und mit dem Seed fände jeder
 Strukturen und Erze ohne zu suchen. Zurückrechnen hiesse, bis zu 2^64 Seeds
-durchzuprobieren; ein Seed aus einem Text hat nur 2^32. Hat eine Welt keine
-der beiden Dateien, fehlt das Feld.
+durchzuprobieren; ein Seed aus einem Text hat nur 2^32. Ohne `level.dat`
+ist das Verzeichnis keine Weltwurzel, etwa eine einzelne Dimension, und das
+Feld fehlt; Paper legt dort denselben Seed ab wie bei der Oberwelt.
 
 Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines grossen
 Renderings gleichen, sonst stünden im Browser Kanten dazwischen. Neun Kacheln

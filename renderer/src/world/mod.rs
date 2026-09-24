@@ -21,18 +21,43 @@ const REGION_DIRS: [&[&str]; 2] = [
     &["dimensions", "minecraft", "overworld", "region"],
 ];
 
+/// Wo die Server den Seed ablegen, relativ zur Weltwurzel: Vanilla seit
+/// 26.1 in seinem `LevelResource.DATA`, Paper bei jeder Dimension, gelesen
+/// wird der der Oberwelt.
+const SEED_FILES: [&[&str]; 2] = [
+    &["data", "minecraft", "world_gen_settings.dat"],
+    &[
+        "dimensions",
+        "minecraft",
+        "overworld",
+        "data",
+        "minecraft",
+        "world_gen_settings.dat",
+    ],
+];
+
 pub struct World {
+    root: PathBuf,
     region_dir: PathBuf,
+}
+
+/// Hängt Pfadkomponenten einzeln an. Ein Schrägstrich in `join` scheitert
+/// unter Windows an Pfaden mit dem Präfix für lange Pfade.
+fn under(root: &Path, parts: &[&str]) -> PathBuf {
+    parts
+        .iter()
+        .fold(root.to_path_buf(), |dir, part| dir.join(part))
 }
 
 impl World {
     pub fn open(root: &Path) -> Result<World> {
         for candidate in REGION_DIRS {
-            let dir = candidate
-                .iter()
-                .fold(root.to_path_buf(), |dir, part| dir.join(part));
+            let dir = under(root, candidate);
             if dir.is_dir() {
-                return Ok(World { region_dir: dir });
+                return Ok(World {
+                    root: root.to_path_buf(),
+                    region_dir: dir,
+                });
             }
         }
         bail!(
@@ -74,11 +99,14 @@ impl World {
         region.chunk(cx, cz)
     }
 
-    /// Der Seed der Welt, ihre Kennung im Kachelbaum. Seit 26.1 steht er
-    /// neben den Regionen der Oberwelt in
-    /// `data/minecraft/world_gen_settings.dat` unter `data.seed`, davor in
-    /// `level.dat` unter `Data.WorldGenSettings.seed`. `None`, wenn keine
-    /// der beiden Dateien da ist.
+    /// Der Seed der Welt, Grundlage ihrer Kennung im Kachelbaum.
+    ///
+    /// Nur eine Weltwurzel hat einen, ein Verzeichnis mit `level.dat`. Eine
+    /// einzelne Dimension hat keinen: Paper legt dort denselben Seed ab wie
+    /// bei der Oberwelt, und ihre Kacheln kämen sonst in deren Baum. Seit
+    /// 26.1 steht er in `world_gen_settings.dat` unter `data.seed`, siehe
+    /// `SEED_FILES`, davor in `level.dat` unter
+    /// `Data.WorldGenSettings.seed`.
     pub fn seed(&self) -> Result<Option<i64>> {
         #[derive(Deserialize)]
         struct Seed {
@@ -99,16 +127,17 @@ impl World {
             settings: Option<Seed>,
         }
 
-        let dir = self.region_dir.parent().expect("region liegt in der Welt");
-        let neu = dir.join("data/minecraft/world_gen_settings.dat");
-        if neu.is_file() {
-            return Ok(Some(read_nbt::<GenSettings>(&neu)?.data.seed));
+        let level = self.root.join("level.dat");
+        if !level.is_file() {
+            return Ok(None);
         }
-        let alt = dir.join("level.dat");
-        if alt.is_file() {
-            return Ok(read_nbt::<Level>(&alt)?.data.settings.map(|s| s.seed));
+        for parts in SEED_FILES {
+            let path = under(&self.root, parts);
+            if path.is_file() {
+                return Ok(Some(read_nbt::<GenSettings>(&path)?.data.seed));
+            }
         }
-        Ok(None)
+        Ok(read_nbt::<Level>(&level)?.data.settings.map(|s| s.seed))
     }
 }
 

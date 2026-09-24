@@ -46,16 +46,35 @@ fn dekodiert_blockstates() {
     assert_eq!(block(9240, 200, 6664).as_deref(), Some("minecraft:air"));
 }
 
-/// Der Seed ist die Kennung der Welt im Kachelbaum. Seit 26.1 steht er in
-/// `world_gen_settings.dat` neben den Regionen, davor in `level.dat`.
+/// Der Seed ist die Grundlage der Kennung im Kachelbaum. Vanilla legt ihn
+/// seit 26.1 in `data/minecraft` der Weltwurzel ab, Paper in jede
+/// Dimension, bis 1.21 stand er in `level.dat`. Ohne `level.dat` ist das
+/// Verzeichnis keine Weltwurzel: eine einzelne Dimension trüge bei Paper
+/// sonst den Seed der Oberwelt.
 #[test]
-fn liest_den_seed_aus_beiden_layouts() {
-    let neu = tempfile::tempdir().unwrap();
-    let oberwelt = neu.path().join("dimensions/minecraft/overworld");
+fn liest_den_seed_aus_jedem_layout() {
+    let vanilla = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(vanilla.path().join("dimensions/minecraft/overworld/region")).unwrap();
+    common::write_level_dat_ohne_seed(vanilla.path());
+    common::write_gen_settings(vanilla.path(), 7_331);
+    assert_eq!(
+        World::open(vanilla.path()).unwrap().seed().unwrap(),
+        Some(7_331)
+    );
+
+    let paper = tempfile::tempdir().unwrap();
+    let oberwelt = paper.path().join("dimensions/minecraft/overworld");
     std::fs::create_dir_all(oberwelt.join("region")).unwrap();
+    common::write_level_dat_ohne_seed(paper.path());
     common::write_gen_settings(&oberwelt, -4_172_144_997_902_289_642);
-    let seed = World::open(neu.path()).unwrap().seed().unwrap();
+    let seed = World::open(paper.path()).unwrap().seed().unwrap();
     assert_eq!(seed, Some(-4_172_144_997_902_289_642));
+
+    let nether = paper.path().join("dimensions/minecraft/the_nether");
+    std::fs::create_dir_all(nether.join("region")).unwrap();
+    common::write_gen_settings(&nether, -4_172_144_997_902_289_642);
+    let seed = World::open(&nether).unwrap().seed().unwrap();
+    assert_eq!(seed, None, "eine Dimension allein ist keine Welt");
 
     let alt = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(alt.path().join("region")).unwrap();

@@ -288,34 +288,114 @@ fn zweiter_lauf_raeumt_leer_gewordene_kacheln_weg() {
 }
 
 /// Verschwindet ein Chunk aus der Welt, etwa weil ein Editor ihn
-/// zurückgesetzt hat, sieht der Vorlauf ihn nicht mehr. Seine alten
-/// Kacheln müssen trotzdem weg, auf jeder Stufe: danach gleicht der Baum
-/// einem frischen Export.
+/// zurückgesetzt hat, sieht der Vorlauf ihn nicht mehr. Mit --prune müssen
+/// seine alten Kacheln trotzdem weg, auf jeder Stufe: danach gleicht der
+/// Baum einem frischen Export. Bei scale 16 mit nativen Stufen, bei 12
+/// ohne; dort stapelt die Pyramide direkt auf der Basis, während die
+/// veralteten Kacheln noch dastehen.
 #[test]
 fn verschwundener_chunk_verschwindet_auf_jeder_stufe() {
-    let block = |x, y, z| match (x, y, z) {
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (6, 6)], zwei_bloecke);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], zwei_bloecke);
+
+    for scale in ["16", "12"] {
+        let baum = tempdir();
+        gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
+        let vorher = dateien(baum.path());
+        gelungen(&tiles(
+            neu.path(),
+            baum.path(),
+            &["--scale", scale, "--prune"],
+        ));
+        let voll = tempdir();
+        gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
+
+        let soll = schnappschuss(voll.path());
+        assert!(
+            vorher.len() > soll.len(),
+            "scale {scale}: der Chunk hatte keine eigenen Kacheln: {vorher:?}"
+        );
+        assert_eq!(schnappschuss(baum.path()), soll, "scale {scale}");
+    }
+}
+
+fn zwei_bloecke(x: i32, y: i32, z: i32) -> &'static str {
+    match (x, y, z) {
         (8, 4, 8) => "minecraft:einfarbig",
         (104, 4, 104) => "minecraft:blauwuerfel",
         _ => "minecraft:air",
-    };
+    }
+}
+
+/// Ohne --prune bleiben Kacheln stehen, die kein Chunk mehr berührt: einer
+/// Teilkopie der Welt oder einer anderen Dimension mit demselben Seed
+/// fehlt vieles, und der Lauf leerte sonst den Baum. Er zählt sie und sagt,
+/// wie sie weggehen.
+#[test]
+fn ohne_prune_bleiben_kacheln_ohne_chunk_stehen() {
     let alt = tempdir();
-    common::write_world(alt.path(), &[(0, 0), (6, 6)], block);
+    common::write_world(alt.path(), &[(0, 0), (6, 6)], zwei_bloecke);
     let neu = tempdir();
-    common::write_world(neu.path(), &[(0, 0)], block);
+    common::write_world(neu.path(), &[(0, 0)], zwei_bloecke);
 
     let baum = tempdir();
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
-    let vorher = dateien(baum.path());
-    gelungen(&tiles(neu.path(), baum.path(), &["--scale", "16"]));
+    let basis = kacheln(baum.path(), max_zoom(baum.path()));
+    let ausgabe = tiles(neu.path(), baum.path(), &["--scale", "16"]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    assert!(text.contains("--prune entfernt sie"), "{text}");
+    assert_eq!(kacheln(baum.path(), max_zoom(baum.path())), basis);
+}
+
+/// Bricht ein Lauf mit --prune nach der Basis ab, stehen die Kacheln ohne
+/// Chunk noch da, denn entfernt werden sie erst, wenn alle Stufen darüber
+/// neu stehen. Der nächste Lauf findet sie wieder und baut ihre Eltern
+/// neu. Früher verschwanden sie vor der Basis; nach einem Abbruch fand
+/// dann kein Lauf mehr ihre Eltern, und die zeigten das Abgerissene bis
+/// in die gröberen Stufen.
+///
+/// Der Stein bei (200, 4, 8) liegt weit rechts vom ersten Block: seine
+/// Eltern teilt er zwei Stufen lang mit niemandem. Den Abbruch erzwingt
+/// ein Verzeichnis dort, wo seine Elternkachel verschwinden soll.
+#[test]
+fn abgebrochenes_aufraeumen_heilt_im_naechsten_lauf() {
+    let block = |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (200, 4, 8) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    };
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], block);
     let voll = tempdir();
     gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
 
-    let soll = schnappschuss(voll.path());
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    let z = max_zoom(baum.path()) - 1;
+    let soll = kacheln(voll.path(), z);
+    let (eltern, pfad) = kacheln(baum.path(), z)
+        .into_iter()
+        .find(|(tile, _)| !soll.contains_key(tile))
+        .expect("der Stein hat eine eigene Elternkachel");
+    std::fs::remove_file(&pfad).unwrap();
+    std::fs::create_dir(&pfad).unwrap();
+
+    let ausgabe = tiles(neu.path(), baum.path(), &["--scale", "16", "--prune"]);
     assert!(
-        vorher.len() > soll.len(),
-        "der Chunk hatte keine eigenen Kacheln: {vorher:?}"
+        !ausgabe.status.success(),
+        "der Lauf hätte an {eltern:?} scheitern müssen"
     );
-    assert_eq!(schnappschuss(baum.path()), soll);
+    std::fs::remove_dir(&pfad).unwrap();
+    gelungen(&tiles(
+        neu.path(),
+        baum.path(),
+        &["--scale", "16", "--prune"],
+    ));
+    assert_eq!(schnappschuss(baum.path()), schnappschuss(voll.path()));
 }
 
 /// Ein Ausschnitt darf nicht an einem Block scheitern, der weit ausserhalb
@@ -504,7 +584,7 @@ fn zoomstufen_haengen_am_massstab() {
 /// Ausschnitts: wer beim Neubauen nur die Kacheln dieses Laufs nimmt,
 /// schreibt sie mit durchsichtigen Lücken zu, und `map.json` schrumpft auf
 /// den Ausschnitt. Und der Lauf darf seine Kacheln nicht für verwaist
-/// halten, nur weil der Vorlauf ihn nicht sieht.
+/// halten, nur weil der Vorlauf ihn nicht sieht, auch nicht mit --prune.
 #[test]
 fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
     let welt = tempdir();
@@ -534,7 +614,9 @@ fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
     gelungen(&tiles(
         welt.path(),
         out.path(),
-        &["--scale", "16", "--center", "44", "8", "--size", "4"],
+        &[
+            "--scale", "16", "--center", "44", "8", "--size", "4", "--prune",
+        ],
     ));
 
     let nachher = schnappschuss(out.path());

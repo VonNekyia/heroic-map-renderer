@@ -231,10 +231,19 @@ seiner Fläche, bricht der Lauf ab, bevor er die erste Kachel schreibt.
 
 Die Kacheln liegen als `tiles/<z>/<x>/<y>.webp`; x und y dürfen negativ sein,
 weil der Blockursprung mitten in der Welt liegt. Wird eine Kachel bei einem
-erneuten Lauf leer, oder berührt sie kein Chunk mehr, weil ein Editor ihn
-zurückgesetzt hat, löscht der Export die alte Datei — auf jeder Stufe, sonst
-zeigte die Karte weiter, was inzwischen abgerissen wurde. Ein Ausschnitt
-räumt dabei nur in seiner gerundeten Fläche.
+erneuten Lauf leer, löscht der Export die alte Datei — auf jeder Stufe, sonst
+zeigte die Karte weiter, was inzwischen abgerissen wurde.
+
+Eine Basiskachel, die gar kein Chunk mehr berührt, weil ein Editor ihn
+zurückgesetzt hat, entfernt der Export nur mit `--prune`, dann auf jeder
+Stufe. Ohne den Schalter zählt er sie und lässt sie stehen; nur wo der Lauf
+eine native Elternkachel ohnehin neu rendert, fehlt dort schon, was sie
+zeigen. Einer Teilkopie der Welt oder einer anderen Dimension mit demselben
+Seed fehlt vieles, und ein Lauf mit `--prune` leerte über ihr den Baum: der
+Schalter gehört nur an die vollständige Welt. Entfernt wird erst, wenn alle
+Stufen darüber neu stehen. Bricht ein Lauf vorher ab, findet der nächste
+die Kacheln wieder und baut ihre Eltern neu. Ein Ausschnitt sucht nur in
+seiner gerundeten Fläche.
 
 ### Zoomstufen
 

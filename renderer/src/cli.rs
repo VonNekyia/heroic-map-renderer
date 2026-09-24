@@ -80,6 +80,12 @@ pub struct Args {
     /// Jeden Chunk der Welt dekodieren; mit --assets auch jede Blockstate auflösen
     #[arg(long)]
     scan: bool,
+
+    /// Mit --tiles Kacheln entfernen, die kein Chunk der Welt mehr berührt,
+    /// etwa nach dem Zurücksetzen mit einem Editor. Nur mit der
+    /// vollständigen Welt: bei einer Teilkopie verschwände, was ihr fehlt.
+    #[arg(long)]
+    prune: bool,
 }
 
 /// Die Projektion setzt Blöcke in Schritten von scale/4 Pixeln. Nur bei
@@ -197,6 +203,7 @@ pub fn run() -> Result<()> {
                 projection,
                 args.size.map(|size| window(projection, center, size)),
                 dir,
+                args.prune,
             )?;
         }
     }
@@ -460,6 +467,7 @@ fn write_tiles(
     projection: Projection,
     bounds: Option<ScreenRect>,
     dir: &Path,
+    prune: bool,
 ) -> Result<()> {
     // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
     // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
@@ -526,25 +534,30 @@ fn write_tiles(
     }
 
     // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt, etwa
-    // weil ein Editor ihn zurückgesetzt hat. Der Vorlauf sieht sie nicht;
-    // sie gehören weg, und ihre Eltern müssen neu. Ein Ausschnitt räumt nur
-    // in seiner Fläche, die ist auf ganze Kacheln gerundet.
+    // weil ein Editor ihn zurückgesetzt hat. Der Vorlauf sieht sie nicht.
+    // Weg kommen sie nur mit --prune: einer Teilkopie der Welt oder einer
+    // anderen Dimension mit demselben Seed fehlt vieles, und ohne Schalter
+    // leerte ein solcher Lauf den Baum. Ein Ausschnitt sucht nur in seiner
+    // Fläche, die ist auf ganze Kacheln gerundet.
     let mut kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
     let im_lauf = |tile: &TileId| {
         let r = tile.rect();
         bounds.is_none_or(|b| (b.x..b.right()).contains(&r.x) && (b.y..b.bottom()).contains(&r.y))
     };
-    let veraltet: Vec<TileId> = vorhandene(dir, max_zoom)?
+    let mut veraltet: BTreeSet<TileId> = vorhandene(dir, max_zoom)?
         .into_iter()
         .filter(|tile| im_lauf(tile) && !kandidaten.contains(tile))
         .collect();
-    for tile in &veraltet {
-        entferne(&tile_path(dir, max_zoom, *tile))?;
+    if prune {
+        // Ihre Eltern entstehen neu; sie selbst verschwinden erst am Ende.
+        kandidaten.extend(&veraltet);
+    } else if !veraltet.is_empty() {
+        println!(
+            "            {} Kacheln ohne Chunk bleiben stehen, --prune entfernt sie",
+            veraltet.len()
+        );
+        veraltet.clear();
     }
-    if !veraltet.is_empty() {
-        println!("            {} Kacheln ohne Chunk entfernt", veraltet.len());
-    }
-    kandidaten.extend(veraltet);
 
     let started = Instant::now();
     let fertig = AtomicUsize::new(0);
@@ -604,7 +617,23 @@ fn write_tiles(
         kandidaten,
         stufen,
     )?;
-    build_pyramid(dir, z, kandidaten)?;
+    // Kacheln ohne Chunk erst entfernen, wenn alle Stufen darüber neu
+    // stehen: bricht der Lauf vorher ab, findet der nächste sie wieder und
+    // baut ihre Eltern neu. Stapelt die Pyramide direkt auf der Basis,
+    // lässt sie sie bis dahin aus.
+    let leer = BTreeSet::new();
+    build_pyramid(
+        dir,
+        z,
+        kandidaten,
+        if z == max_zoom { &veraltet } else { &leer },
+    )?;
+    for tile in &veraltet {
+        entferne(&tile_path(dir, max_zoom, *tile))?;
+    }
+    if !veraltet.is_empty() {
+        println!("Aufräumen:  {} Kacheln ohne Chunk entfernt", veraltet.len());
+    }
 
     let (info, basis, path) =
         schreibe_map_json(dir, projection.scale(), max_zoom, kennung.as_deref())?;
@@ -658,8 +687,15 @@ fn schreibe_map_json(
 /// dieser Lauf. Ein Ausschnittexport in einen bestehenden Baum berührt nur
 /// einen Teil der Geschwister — die anderen liegen weiterhin da und
 /// gehören genauso in die Elternkachel. Die leer gewordenen sind zu diesem
-/// Zeitpunkt bereits gelöscht.
-fn build_pyramid(dir: &Path, max_zoom: u32, kandidaten: BTreeSet<TileId>) -> Result<()> {
+/// Zeitpunkt bereits gelöscht. `ohne` sind Kacheln der Stufe `max_zoom`,
+/// die noch dastehen, aber nicht mehr dazugehören: Basiskacheln ohne
+/// Chunk, die erst nach der Pyramide verschwinden.
+fn build_pyramid(
+    dir: &Path,
+    max_zoom: u32,
+    kandidaten: BTreeSet<TileId>,
+    ohne: &BTreeSet<TileId>,
+) -> Result<()> {
     let started = Instant::now();
     let mut kandidaten = kandidaten;
     let mut bytes = 0usize;
@@ -672,6 +708,9 @@ fn build_pyramid(dir: &Path, max_zoom: u32, kandidaten: BTreeSet<TileId>) -> Res
             .map(|parent| -> Result<Option<usize>> {
                 let mut teile = Vec::new();
                 for kind in parent.children() {
+                    if z + 1 == max_zoom && ohne.contains(&kind) {
+                        continue;
+                    }
                     let pfad = tile_path(dir, z + 1, kind);
                     if pfad.is_file() {
                         teile.push((kind, lies(&pfad)?));

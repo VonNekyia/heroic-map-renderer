@@ -358,16 +358,16 @@ fn ohne_prune_bleiben_kacheln_ohne_chunk_stehen() {
     assert_eq!(kacheln(baum.path(), max_zoom(baum.path())), basis);
 }
 
-/// Bricht ein Lauf mit --prune erst beim Entfernen ab, stehen die
-/// Kacheln ohne Chunk noch da: entfernt wird von der gröbsten Stufe bis
-/// zur Basis, und sie gehen zuletzt. Der nächste Lauf findet sie wieder
-/// und baut ihre Eltern neu. Früher verschwanden sie vor der Basis; nach
-/// einem Abbruch fand dann kein Lauf mehr ihre Eltern, und die zeigten
-/// das Abgerissene bis in die gröberen Stufen.
+/// Bricht ein Lauf mit --prune erst beim Entfernen ab, stehen Kacheln ohne
+/// Chunk noch da: entfernt wird von der gröbsten Stufe bis zur Basis. Ihre
+/// Eltern sind dann schon fort. Der nächste Lauf baut sie nach, auch einer
+/// ohne --prune, und einer mit ihm räumt auf. Früher fand nach einem
+/// solchen Abbruch kein Lauf mehr ihre Eltern.
 ///
 /// Der Stein bei (200, 4, 8) liegt weit rechts vom ersten Block: seine
-/// Eltern teilt er zwei Stufen lang mit niemandem. Den Abbruch erzwingt
-/// ein Verzeichnis dort, wo seine Elternkachel verschwinden soll.
+/// Eltern teilt er zwei Stufen lang mit niemandem. Er liegt auf der Grenze
+/// zweier Basiskacheln. Den Abbruch erzwingt ein Verzeichnis an der Stelle
+/// der ersten, die zweite steht danach ohne Eltern da.
 #[test]
 fn abgebrochenes_aufraeumen_heilt_im_naechsten_lauf() {
     let block = |x, y, z| match (x, y, z) {
@@ -384,27 +384,208 @@ fn abgebrochenes_aufraeumen_heilt_im_naechsten_lauf() {
 
     let baum = tempdir();
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
-    let z = max_zoom(baum.path()) - 1;
+    let z = max_zoom(baum.path());
     let soll = kacheln(voll.path(), z);
-    let (eltern, pfad) = kacheln(baum.path(), z)
+    let stein: Vec<PathBuf> = kacheln(baum.path(), z)
         .into_iter()
-        .find(|(tile, _)| !soll.contains_key(tile))
-        .expect("der Stein hat eine eigene Elternkachel");
-    std::fs::remove_file(&pfad).unwrap();
-    std::fs::create_dir(&pfad).unwrap();
+        .filter(|(tile, _)| !soll.contains_key(tile))
+        .map(|(_, pfad)| pfad)
+        .collect();
+    assert_eq!(stein.len(), 2, "{stein:?}");
+    std::fs::remove_file(&stein[0]).unwrap();
+    std::fs::create_dir(&stein[0]).unwrap();
 
     let ausgabe = tiles(neu.path(), baum.path(), &["--scale", "16", "--prune"]);
     assert!(
         !ausgabe.status.success(),
-        "der Lauf hätte an {eltern:?} scheitern müssen"
+        "der Lauf hätte an {} scheitern müssen",
+        stein[0].display()
     );
-    std::fs::remove_dir(&pfad).unwrap();
+    std::fs::remove_dir(&stein[0]).unwrap();
+    assert!(stein[1].is_file());
+    assert_eq!(waisen(baum.path()), [format!("{z}/6/3")]);
+    gelungen(&tiles(neu.path(), baum.path(), &["--scale", "16"]));
+    assert_eq!(waisen(baum.path()), Vec::<String>::new());
     gelungen(&tiles(
         neu.path(),
         baum.path(),
         &["--scale", "16", "--prune"],
     ));
     assert_eq!(schnappschuss(baum.path()), schnappschuss(voll.path()));
+}
+
+/// Auch ein Ausschnitt baut fehlende Eltern nach, bei einer groben Kachel,
+/// die er nur anschneidet. So steht der Baum nach einem Ausschnitt mit
+/// --prune, der beim Aufräumen abbrach: die Elternkachel über dem alten
+/// Block links ist fort, der Block noch da; der Test entfernt sie von Hand.
+/// Der Ausschnitt reicht über den alten Block und den neuen rechts daneben,
+/// die Kachel über dem alten beginnt links ausserhalb. Bei scale 12 ist
+/// jede Stufe über der Basis verkleinert.
+#[test]
+fn ausschnitt_heilt_auch_angeschnittene_waisen() {
+    let block = |x, y, z| match (x, y, z) {
+        (85, 4, -60) => "minecraft:blauwuerfel",
+        (115, 4, -85) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(5, -4), (7, -6)], block);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(7, -6)], block);
+    let voll = tempdir();
+    gelungen(&tiles(neu.path(), voll.path(), &["--scale", "12"]));
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "12"]));
+    let z = max_zoom(baum.path());
+    let basis: Vec<TileId> = kacheln(baum.path(), z).into_keys().collect();
+    assert_eq!(basis, [TileId { x: 3, y: 0 }, TileId { x: 4, y: 0 }]);
+    std::fs::remove_file(baum.path().join(format!("{}/0/0.webp", z - 2))).unwrap();
+    assert_eq!(waisen(baum.path()), [format!("{}/1/0", z - 1)]);
+
+    let ausschnitt = ["--scale", "12", "--center", "107", "-64", "--size", "16"];
+    gelungen(&tiles(neu.path(), baum.path(), &ausschnitt));
+    assert_eq!(waisen(baum.path()), Vec::<String>::new());
+    let mut mit = ausschnitt.to_vec();
+    mit.push("--prune");
+    gelungen(&tiles(neu.path(), baum.path(), &mit));
+    assert_eq!(schnappschuss(baum.path()), schnappschuss(voll.path()));
+}
+
+/// Ohne --prune bleiben Kacheln ohne Chunk stehen, und mit ihnen ihre
+/// Eltern. Rendert eine native Elternkachel leer, weil der Rest der Welt
+/// dort nichts mehr hat, bleibt sie durchsichtig stehen. Früher verschwand
+/// sie, und die Kachel darunter stand ohne Eltern. Hier ist der Stein aus
+/// Chunk (1, -1) fort, bei scale 16 in Basiskachel (1, -1), bei 32 in
+/// (2, -1). Seine Elternkachel teilt er mit Vorlaufkacheln des ersten
+/// Chunks, die leer rendern: bei 16 auf der ersten nativen Stufe, bei 32
+/// auf der zweiten.
+#[test]
+fn ohne_prune_bleibt_keine_kachel_ohne_eltern() {
+    let block = |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (24, 12, -10) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    };
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0)], block);
+    common::write_world(alt.path(), &[(1, -1)], block);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], block);
+    for (scale, stein) in [
+        ("16", TileId { x: 1, y: -1 }),
+        ("32", TileId { x: 2, y: -1 }),
+    ] {
+        let baum = tempdir();
+        gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
+        let z = max_zoom(baum.path());
+        assert!(
+            kacheln(baum.path(), z).contains_key(&stein),
+            "scale {scale}"
+        );
+        gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));
+        assert!(
+            kacheln(baum.path(), z).contains_key(&stein),
+            "scale {scale}"
+        );
+        assert_eq!(waisen(baum.path()), Vec::<String>::new(), "scale {scale}");
+    }
+}
+
+/// Eine Kachel, die leer geworden ist, verschwindet erst am Ende des Laufs,
+/// zeigt aber schon ab dem Rendern nichts mehr. Bricht der Lauf danach ab,
+/// steht sie noch da, durchsichtig: ein späterer Ausschnitt nähme sonst
+/// ihren alten Inhalt in die Elternkachel. Der zweite Block bei (0, 4, 0)
+/// reicht in die Kacheln (-1, -1) und (0, -1) der Basis und der Stufe
+/// darüber, der erste nicht, auch wenn der Vorlauf sie nennt. Den Abbruch
+/// erzwingt ein Verzeichnis an der Stelle einer Kachel des ersten Blocks
+/// zwei Stufen über der Basis; bis dahin sind die beiden fertig. Bei
+/// scale 16 sind sie nativ, bei 12 verkleinert.
+#[test]
+fn leer_gewordene_kachel_zeigt_nach_abbruch_nichts() {
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (0, 4, 0) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    });
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    });
+    let leer_geworden = [TileId { x: -1, y: -1 }, TileId { x: 0, y: -1 }];
+    for scale in ["16", "12"] {
+        let voll = tempdir();
+        gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
+        let baum = tempdir();
+        gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
+        let z = max_zoom(baum.path());
+        let stufen = [z, z - 1];
+        for (stufe, tile) in stufen.iter().flat_map(|&s| leer_geworden.map(|t| (s, t))) {
+            let alt = bild(&kacheln(baum.path(), stufe)[&tile]);
+            assert!(
+                alt.pixels().any(|p| p.0[3] > 0),
+                "scale {scale}: {stufe} {tile:?}"
+            );
+            assert!(
+                !kacheln(voll.path(), stufe).contains_key(&tile),
+                "scale {scale}"
+            );
+        }
+        let vorher: Vec<BTreeMap<TileId, PathBuf>> =
+            stufen.iter().map(|&s| kacheln(baum.path(), s)).collect();
+        let sperre = baum.path().join(format!("{}/0/0.webp", z - 2));
+        std::fs::remove_file(&sperre).unwrap();
+        std::fs::create_dir(&sperre).unwrap();
+        let ausgabe = tiles(neu.path(), baum.path(), &["--scale", scale]);
+        assert!(!ausgabe.status.success(), "scale {scale}: kein Abbruch");
+        for (stufe, bestand) in stufen.iter().zip(&vorher) {
+            for tile in &leer_geworden {
+                assert!(
+                    bild(&bestand[tile]).pixels().all(|p| p.0[3] == 0),
+                    "scale {scale}: {stufe} {tile:?} zeigt noch den alten Inhalt"
+                );
+            }
+        }
+        std::fs::remove_dir(&sperre).unwrap();
+        gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));
+        assert_eq!(
+            schnappschuss(baum.path()),
+            schnappschuss(voll.path()),
+            "scale {scale}"
+        );
+    }
+}
+
+/// Die Ansage mit --prune steht vor der ersten Kachel: bricht der Lauf
+/// schon beim Schreiben der Basis ab, ist sie gesagt. Dazu liegt ein
+/// Verzeichnis an der Stelle einer Basiskachel, die der Lauf schreibt.
+#[test]
+fn ansage_kommt_vor_der_ersten_kachel() {
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (6, 6)], zwei_bloecke);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], zwei_bloecke);
+    let voll = tempdir();
+    gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    let z = max_zoom(baum.path());
+    let soll = kacheln(voll.path(), z);
+    let (_, pfad) = kacheln(baum.path(), z)
+        .into_iter()
+        .find(|(tile, _)| soll.contains_key(tile))
+        .expect("der erste Block hat eine Basiskachel");
+    std::fs::remove_file(&pfad).unwrap();
+    std::fs::create_dir(&pfad).unwrap();
+    let ausgabe = tiles(neu.path(), baum.path(), &["--scale", "16", "--prune"]);
+    assert!(!ausgabe.status.success(), "kein Abbruch");
+    let text = String::from_utf8_lossy(&ausgabe.stdout);
+    assert!(
+        text.contains("sie verschwinden am Ende des Laufs"),
+        "{text}"
+    );
+    assert!(!text.contains("Kacheln:"), "{text}");
 }
 
 /// Kacheln, deren Elternkachel fehlt, als `<z>/<x>/<y>`.
@@ -424,7 +605,9 @@ fn waisen(dir: &Path) -> Vec<String> {
 /// Ein Lauf mit --prune entfernt erst ganz am Ende etwas, auch keine leer
 /// gewordene Elternkachel. Bricht er in der Pyramide ab, steht jede Datei
 /// noch da. Ein Lauf ohne den Schalter hinterlässt danach keine Kachel
-/// ohne Eltern, und einer mit ihm heilt den Baum. Früher verschwanden die
+/// ohne Eltern, so wenig wie ohne Abbruch davor
+/// (`ohne_prune_bleibt_keine_kachel_ohne_eltern`), und einer mit ihm heilt
+/// den Baum. Früher verschwanden die
 /// leer gewordenen nativen Stufen sofort; ein Lauf ohne --prune liess die
 /// Kacheln ohne Chunk dann ohne Eltern stehen. Bei scale 16 mit nativen
 /// Stufen, bei 12 ohne.
@@ -509,6 +692,10 @@ fn prune_raeumt_auch_ueber_leerer_flaeche_auf() {
 
     let mut mit = ausschnitt.to_vec();
     mit.push("--prune");
+    gelungen(&tiles(neu.path(), baum.path(), &mit));
+    assert_eq!(schnappschuss(baum.path()), schnappschuss(voll.path()));
+    // Noch einmal: dort ist schon aufgeräumt, das ist kein falscher
+    // Ausschnitt.
     gelungen(&tiles(neu.path(), baum.path(), &mit));
     assert_eq!(schnappschuss(baum.path()), schnappschuss(voll.path()));
 }

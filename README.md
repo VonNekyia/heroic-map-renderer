@@ -238,18 +238,23 @@ Eine Basiskachel, die gar kein Chunk mehr berührt, weil ein Editor ihn
 zurückgesetzt hat, entfernt der Export nur mit `--prune`, dann auf jeder
 Stufe. Ohne den Schalter zählt er sie und lässt sie stehen; nur wo der Lauf
 eine native Elternkachel ohnehin neu rendert, fehlt dort schon, was sie
-zeigen. Einer Teilkopie der Welt fehlt vieles, und ein Lauf mit `--prune`
-leerte über ihr den Baum: der Schalter gehört nur an die vollständige
-Welt. Der Lauf nennt deshalb vor der Basis, wie viele Kacheln es trifft,
-von wie vielen. Ein Ausschnitt sucht nur in seiner gerundeten Fläche, auch
-wenn der Vorlauf dort gar nichts mehr findet.
+zeigen. Die Elternkachel bleibt dann durchsichtig stehen, damit keine
+Kachel ohne Eltern dasteht. Einer Teilkopie der Welt fehlt vieles, und ein
+Lauf mit `--prune` leerte über ihr den Baum: der Schalter gehört nur an die
+vollständige Welt. Der Lauf nennt deshalb vor der ersten Kachel, wie viele
+Kacheln es trifft, von wie vielen. Ein Ausschnitt sucht nur in seiner
+gerundeten Fläche. Mit `--prune` läuft er auch dann, wenn der Vorlauf dort
+gar nichts mehr findet, und auch, wenn dort schon aufgeräumt ist.
 
 Entfernt wird erst am Ende des Laufs, auf allen Stufen, auch was nur leer
-geworden ist: von der gröbsten Stufe bis zur Basis, die Kacheln ohne Chunk
-zuletzt. Bricht ein Lauf mit `--prune` vorher ab, hat er nichts gelöscht,
-und der nächste Lauf mit `--prune` findet die Kacheln wieder und baut ihre
-Eltern neu. Einer ohne den Schalter lässt sie stehen wie jede Kachel ohne
-Chunk.
+geworden ist, von der gröbsten Stufe bis zur Basis. Bis dahin zeigt eine
+leer gewordene Kachel schon nichts mehr, der Lauf überschreibt sie
+durchsichtig. Bricht er vorher ab, hat er nichts gelöscht, und auch ein
+späterer Ausschnitt holt nichts Abgerissenes in eine Elternkachel zurück.
+Bricht er beim Entfernen ab, fehlen feineren Kacheln die Eltern. Jeder
+Lauf sucht solche Kacheln, soweit sie seine Fläche berühren, und baut ihnen
+die Eltern neu; einer mit `--prune` räumt dann auch die Kacheln ohne Chunk
+weg.
 
 ### Zoomstufen
 

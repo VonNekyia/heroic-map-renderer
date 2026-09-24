@@ -518,17 +518,26 @@ fn write_tiles(
     // einer ganz zurückgesetzten Fläche findet er nichts, aufzuräumen gibt
     // es dort trotzdem.
     let mut kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
-    let im_lauf = |tile: &TileId| {
-        let r = tile.rect();
-        bounds.is_none_or(|b| (b.x..b.right()).contains(&r.x) && (b.y..b.bottom()).contains(&r.y))
+    // Eine Kachel der Stufe z gehört zum Lauf, wenn sie etwas aus seiner
+    // Fläche zeigt. Auf der Basis und den nativen Stufen liegt sie dann ganz
+    // darin, darüber schneidet sie die Fläche vielleicht nur an.
+    let im_lauf = |z: u32, tile: &TileId| {
+        bounds.is_none_or(|b| {
+            let stufe = |px: i32| px.div_euclid(TILE as i32) >> (max_zoom - z);
+            (stufe(b.x)..=stufe(b.right() - 1)).contains(&tile.x)
+                && (stufe(b.y)..=stufe(b.bottom() - 1)).contains(&tile.y)
+        })
     };
     let bestehend: BTreeSet<TileId> = vorhandene(dir, max_zoom)?
         .into_iter()
-        .filter(im_lauf)
+        .filter(|tile| im_lauf(max_zoom, tile))
         .collect();
     let veraltet: BTreeSet<TileId> = bestehend.difference(&kandidaten).copied().collect();
+    let waisen = waisen(dir, max_zoom, im_lauf)?;
     let anteil = format!("{} von {} Basiskacheln", veraltet.len(), bestehend.len());
-    if kandidaten.is_empty() && (veraltet.is_empty() || !prune) {
+    // Mit --prune ist auch ein leerer Lauf keiner über dem falschen
+    // Ausschnitt: dort ist vielleicht schon aufgeräumt.
+    if kandidaten.is_empty() && !prune {
         if veraltet.is_empty() {
             bail!("keine Kachel enthält etwas — falscher Ausschnitt?");
         }
@@ -582,8 +591,9 @@ fn write_tiles(
     let gesamt = survey.tiles.len();
 
     // Kacheln, die leer geworden sind, verschwinden erst am Ende des Laufs,
-    // auf jeder Stufe, zusammen mit denen ohne Chunk. Bricht der Lauf
-    // vorher ab, hat er nichts entfernt.
+    // auf jeder Stufe, zusammen mit denen ohne Chunk; bis dahin zeigen sie
+    // schon nichts mehr (`verblasse`). Bricht der Lauf vorher ab, hat er
+    // nichts entfernt.
     let leer: Vec<TileId> = survey
         .tiles
         .par_iter()
@@ -597,6 +607,7 @@ fn write_tiles(
             // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
             // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
             if image.pixels().all(|p| p.0[3] == 0) {
+                verblasse(dir, max_zoom, *tile)?;
                 return Ok(Some(*tile));
             }
 
@@ -639,14 +650,15 @@ fn write_tiles(
         max_zoom,
         kandidaten,
         stufen,
+        &waisen,
         &mut weg,
     )?;
-    build_pyramid(dir, z, kandidaten, &mut weg)?;
+    build_pyramid(dir, z, kandidaten, &waisen, &mut weg)?;
 
     // Erst jetzt verschwindet etwas, von der gröbsten Stufe bis zur Basis.
-    // Die Kacheln ohne Chunk gehen zuletzt: bricht der Lauf hier ab, stehen
-    // sie noch da, und der nächste Lauf mit --prune findet sie wieder und
-    // baut ihre Eltern neu.
+    // Bricht der Lauf hier ab, stehen die feineren Kacheln noch da, auch die
+    // ohne Chunk: der nächste Lauf mit --prune findet sie wieder, und jeder
+    // Lauf baut ihnen die fehlenden Eltern nach (`waisen`).
     for (z, tile) in &weg {
         entferne(&tile_path(dir, *z, *tile))?;
     }
@@ -709,10 +721,12 @@ fn schreibe_map_json(
 /// dastehen, aber nicht mehr dazugehören: leer gewordene jeder Stufe und
 /// Basiskacheln ohne Chunk. Sie verschwinden erst am Ende des Laufs; die
 /// Pyramide lässt sie aus und legt ihre eigenen leer gewordenen dazu.
+/// `waisen` bekommen ihre Elternkachel neu.
 fn build_pyramid(
     dir: &Path,
     max_zoom: u32,
     kandidaten: BTreeSet<TileId>,
+    waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
 ) -> Result<()> {
     let started = Instant::now();
@@ -721,6 +735,7 @@ fn build_pyramid(
     let mut gesamt = 0usize;
 
     for z in (0..max_zoom).rev() {
+        kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
         let bisher = &*weg;
         let stufe: Vec<(TileId, Option<usize>)> = kandidaten
@@ -737,6 +752,7 @@ fn build_pyramid(
                     }
                 }
                 if teile.is_empty() {
+                    verblasse(dir, z, *parent)?;
                     return Ok((*parent, None));
                 }
                 let bild = pyramid::merge(*parent, &teile);
@@ -924,6 +940,7 @@ fn render_coarser(
     max_zoom: u32,
     kandidaten: BTreeSet<TileId>,
     stufen: u32,
+    waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
 ) -> Result<(u32, BTreeSet<TileId>)> {
     let mut z = max_zoom;
@@ -935,14 +952,21 @@ fn render_coarser(
         scale /= 2;
         let started = Instant::now();
         let sprites = SpriteSet::build_in(assets, states, Projection::new(scale))?;
+        kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
 
         let bytes = AtomicUsize::new(0);
+        let bisher = &*weg;
         let leer: Vec<TileId> = kandidaten
             .par_iter()
             .map(|tile| -> Result<Option<TileId>> {
                 let image = render_area(world, &sprites, tile.rect(), Y_RANGE)?;
-                if image.pixels().all(|p| p.0[3] == 0) {
+                // Leer, aber über einer Kachel, die bleibt: dann bleibt sie
+                // auch, durchsichtig, sonst stünde die darunter ohne Eltern.
+                // Das trifft Kacheln ohne Chunk, die ein Lauf ohne --prune
+                // stehen lässt.
+                if image.pixels().all(|p| p.0[3] == 0) && !kind_bleibt(dir, z, *tile, bisher) {
+                    verblasse(dir, z, *tile)?;
                     return Ok(Some(*tile));
                 }
                 bytes.fetch_add(schreibe(dir, z, *tile, &image)?, Ordering::Relaxed);
@@ -961,6 +985,50 @@ fn render_coarser(
         weg.extend(leer.into_iter().map(|tile| (z, tile)));
     }
     Ok((z, kandidaten))
+}
+
+/// Steht unter dieser Kachel ein Kind, das nach dem Lauf bleibt?
+fn kind_bleibt(dir: &Path, z: u32, tile: TileId, weg: &BTreeSet<(u32, TileId)>) -> bool {
+    tile.children()
+        .into_iter()
+        .any(|kind| !weg.contains(&(z + 1, kind)) && tile_path(dir, z + 1, kind).is_file())
+}
+
+/// Eine Kachel, die nichts mehr zeigt und am Ende des Laufs verschwindet,
+/// zeigt schon jetzt nichts mehr, falls es sie gibt: bricht der Lauf
+/// vorher ab, übernähme ein späterer sonst ihren alten Inhalt in ihre
+/// Elternkachel.
+fn verblasse(dir: &Path, z: u32, tile: TileId) -> Result<()> {
+    if tile_path(dir, z, tile).is_file() {
+        schreibe(dir, z, tile, &RgbaImage::new(TILE, TILE))?;
+    }
+    Ok(())
+}
+
+/// Kacheln, deren Elternkachel fehlt, je Stufe, etwa weil ein Lauf beim
+/// Entfernen abbrach: entfernt wird von der gröbsten Stufe an. Ihre Eltern
+/// entstehen in diesem Lauf neu, nativ oder aus ihren Kindern. Ein
+/// Ausschnitt nimmt nur, was seine Fläche berührt.
+fn waisen(
+    dir: &Path,
+    max_zoom: u32,
+    im_lauf: impl Fn(u32, &TileId) -> bool,
+) -> Result<BTreeMap<u32, BTreeSet<TileId>>> {
+    let mut out = BTreeMap::new();
+    let mut stufe = vorhandene(dir, max_zoom)?;
+    for z in (1..=max_zoom).rev() {
+        let oben = vorhandene(dir, z - 1)?;
+        let ohne: BTreeSet<TileId> = stufe
+            .iter()
+            .filter(|tile| !oben.contains(&tile.parent()) && im_lauf(z, tile))
+            .copied()
+            .collect();
+        if !ohne.is_empty() {
+            out.insert(z, ohne);
+        }
+        stufe = oben;
+    }
+    Ok(out)
 }
 
 /// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen.

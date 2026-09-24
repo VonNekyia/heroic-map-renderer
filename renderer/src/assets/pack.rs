@@ -228,3 +228,30 @@ fn ist_symlink(pfad: &Path) -> Result<bool> {
     }
     Ok(info.ReparseTag == IO_REPARSE_TAG_SYMLINK)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Direkt öffnet der Client nur einen gültigen Namen ohne leere Teile,
+    /// `.` und `..`, in einem Namensraum des Packs. Unter Windows fände die
+    /// Platte `Textures/a.png` sonst auch.
+    #[test]
+    fn direkt_nur_ein_gueltiger_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let datei = dir.path().join("minecraft").join("textures").join("a.png");
+        std::fs::create_dir_all(datei.parent().unwrap()).unwrap();
+        std::fs::write(&datei, b"").unwrap();
+        let pack = Pack::open(dir.path(), &[]).unwrap();
+        assert_eq!(pack.resource("minecraft", "textures/a.png"), Some(datei));
+        for pfad in [
+            "textures/../textures/a.png",
+            "textures/./a.png",
+            "textures//a.png",
+            "Textures/a.png",
+        ] {
+            assert_eq!(pack.resource("minecraft", pfad), None, "{pfad}");
+        }
+        assert_eq!(pack.resource("anders", "textures/a.png"), None);
+    }
+}

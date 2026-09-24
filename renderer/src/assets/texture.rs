@@ -444,6 +444,7 @@ mod tests {
         assert_eq!(frame.get_pixel(0, 0).0[0], 2);
         for json in [
             r#"{"animation": {"width": 999}}"#,
+            r#"{"animation": {"width": 16, "height": 20}}"#,
             r#"{"animation": {"frames": [3]}}"#,
             r#"{"animation": {"frames": [42, 0]}}"#,
             r#"{"animation": {"frames": []}}"#,

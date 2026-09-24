@@ -538,6 +538,8 @@ mod tests {
             assert!(parse_json(&doppelt, ganz).is_err());
             let text = format!(r#"{{"a": "{}"}}"#, zahl(2000));
             assert!(parse_json(&text, ganz).is_ok(), "in einer Zeichenkette");
+            let text = format!(r#"{{"a": "\"{}"}}"#, zahl(2000));
+            assert!(parse_json(&text, ganz).is_ok(), "hinter einem Escape");
         }
         assert!(parse_json(&format!("{{}} [{}]", zahl(1024)), false).is_ok());
         assert!(parse_json("{} []", true).is_err());

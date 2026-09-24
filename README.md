@@ -245,11 +245,11 @@ stehen, siehe unten.
 
 Eine Basiskachel, die gar kein Chunk mehr berührt, weil ein Editor ihn
 zurückgesetzt hat, entfernt der Export nur mit `--prune`, dann auf jeder
-Stufe. Bis zum Ende läuft ein Lauf mit dem Schalter wie einer ohne ihn;
-erst dann nimmt er diese Kacheln heraus und setzt die Stufen über ihnen
-ohne sie neu zusammen. Ohne den Schalter zählt er sie und lässt sie stehen; nur wo der Lauf
-eine native Elternkachel ohnehin neu rendert, fehlt dort schon, was sie
-zeigen. Die Elternkachel bleibt dann durchsichtig stehen, damit keine
+Stufe. Bis zum Ende läuft ein Lauf mit dem Schalter wie einer ohne ihn; erst
+dann nimmt er diese Kacheln heraus und setzt die Stufen über ihnen ohne sie
+neu zusammen. Ohne den Schalter zählt er sie und lässt sie stehen; nur wo
+der Lauf eine native Elternkachel ohnehin neu rendert, fehlt dort schon, was
+sie zeigen. Die Elternkachel bleibt dann durchsichtig stehen, damit keine
 Kachel ohne Eltern dasteht. Einer Teilkopie der Welt fehlt vieles, und ein
 Lauf mit `--prune` leerte über ihr den Baum: der Schalter gehört nur an die
 vollständige Welt. Der Lauf nennt deshalb vor der ersten Kachel, wie viele

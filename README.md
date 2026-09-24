@@ -191,7 +191,7 @@ selbst Alternative einer Blockstate ist: eines je Maske verdeckter
 Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu die Streifen
 an Wasserstufen.
 
-Gerendert wird mit Rayon über die Kacheln. Jeder Worker hält seinen eigenen
+Gerendert wird mit Rayon über die Kacheln. Jede Kachel hält ihren eigenen
 Chunk- und Regionscache, geteilt wird nur die unveränderliche Sprite-Tabelle.
 
 `--center` und `--size` schränken auf einen Ausschnitt ein:

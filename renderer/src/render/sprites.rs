@@ -1139,9 +1139,8 @@ mod tests {
     }
 
     /// Ein Würfel mit vollständig durchsichtiger Textur darf nie als
-    /// deckend gelten — auch nicht bei der kleinsten erlaubten
-    /// Skalierung, wo das Blocksechseck keinen Pixelmittelpunkt mehr
-    /// enthält und die Prüfschleife leer durchläuft.
+    /// deckend gelten, auch nicht bei scale 2 und 3, wo sein Umriss nur
+    /// vier und sechs Pixel hat.
     #[test]
     fn durchsichtiger_wuerfel_deckt_nie_ab() {
         for scale in [2, 3, 4, 16, 64] {
@@ -1153,12 +1152,11 @@ mod tests {
         }
     }
 
-    /// Gegenprobe: ein voller Würfel deckt bei jeder brauchbaren
-    /// Skalierung ab. Unter scale 4 verzichtet die Prüfung bewusst
-    /// darauf, weil ihr die Auflösung fehlt.
+    /// Gegenprobe: ein voller Würfel deckt auf jeder Stufe ab, auch bei
+    /// scale 2 und 3.
     #[test]
-    fn voller_wuerfel_deckt_ab_sobald_die_aufloesung_reicht() {
-        for scale in [4, 16, 64] {
+    fn voller_wuerfel_deckt_auf_jeder_stufe_ab() {
+        for scale in [2, 3, 4, 16, 64] {
             let mut assets = assets();
             let states = [state("einfarbig")];
             let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
@@ -1441,11 +1439,12 @@ mod tests {
         );
     }
 
-    /// Lava endet bei 8/9: sie deckt den Umriss nicht mehr, den Block
-    /// darunter aber schon. Ein Zaunpfosten deckt fast nichts, ein voller
-    /// Wuerfel alles, eine Druckplatte ihren Boden nicht: ihr Rand ist zu
-    /// sehen. Bei scale 32, denn bei 16 ist der Streifen ueber der Lava
-    /// keinen Pixel hoch — dann deckt sie ihren Umriss tatsaechlich.
+    /// Lava endet bei 8/9: sie deckt den Umriss nicht, den Block darunter
+    /// aber schon. Frei bleiben bei scale 32 64 von 768 Pixeln des
+    /// Umrisses, bei 16 16 von 192 und bei 8 4 von 48. Erst bei scale 4 ist
+    /// der Streifen ueber ihr keinen Pixel hoch, und sie deckt ihren Umriss
+    /// tatsaechlich. Ein Zaunpfosten deckt fast nichts, ein voller Wuerfel
+    /// alles, eine Druckplatte ihren Boden nicht: ihr Rand ist zu sehen.
     #[test]
     fn deckung_nach_bereich() {
         let mut assets = assets();
@@ -1459,6 +1458,7 @@ mod tests {
         ];
         // Auf jeder Stufe gleich, auch bei scale 4: dort blieb vom
         // geschrumpften Boden frueher kein Pixel, und nichts wurde verdeckt.
+        // Nur Lava deckt bei scale 4 auch ihren Umriss.
         for scale in [32, 16, 8, 4] {
             let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let flags = |text: &str| {
@@ -1467,13 +1467,13 @@ mod tests {
             };
             assert_eq!(flags("einfarbig"), (true, true, true), "scale {scale}");
             assert_eq!(flags("water"), (false, false, false), "scale {scale}");
+            assert_eq!(flags("lava"), (scale == 4, true, true), "scale {scale}");
         }
         let set = build(&mut assets, &states, Projection::new(32)).unwrap();
         let flags = |text: &str| {
             let f = set.family_of(&state(text)).unwrap();
             (f.opaque, f.covers_floor, f.covers(8))
         };
-        assert_eq!(flags("lava"), (false, true, true));
         assert_eq!(flags("oak_fence[north=true]"), (false, false, false));
         assert_eq!(
             flags("water"),

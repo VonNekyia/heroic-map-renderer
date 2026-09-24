@@ -298,10 +298,10 @@ fn blit(
     }
 }
 
-/// Chunks, die während eines Renderlaufs gebraucht werden.
+/// Chunks, die eine Kachel braucht.
 ///
-/// Jeder Worker bekommt später seinen eigenen Cache; geteilt würde er eine
-/// Sperre im Renderpfad bedeuten.
+/// Jede Kachel hält ihren eigenen Cache; geteilt bedeutete er eine Sperre
+/// im Renderpfad.
 struct ChunkCache<'a> {
     world: &'a World,
     /// Offene Regionsdateien. `World::chunk` würde die Datei für jeden

@@ -72,6 +72,11 @@ fn render_chunks(
 /// Oberseite darunter sichtbar; steht sie östlich eines sonst verdeckten
 /// Würfels, bleibt dessen Ostseite unter ihr sichtbar. Wer den Boden an der
 /// falschen Stelle prüft oder den Umriss nur oben, verdeckt beides.
+///
+/// Lava deckt ihren Boden immer, ihren Umriss erst bei scale 4. Sie steht
+/// östlich und südlich je eines sonst verdeckten Würfels und an einer
+/// Stufe über fliessender Lava: wer an den Seiten nur den Boden prüft,
+/// verdeckt die Würfel auch bei den grossen scales.
 #[test]
 fn verdecken_aendert_kein_pixel() {
     let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
@@ -87,6 +92,12 @@ fn verdecken_aendert_kein_pixel() {
         (10..=12, 1..=3, 8..=10) => "minecraft:einfarbig",
         (7, 1, 5) | (14, 1, 5) => "minecraft:obere_platte",
         (13, 1..=2, 5) | (13, 1, 6) => "minecraft:einfarbig",
+        (8, 1, 12) | (14, 1, 10) | (13, 1, 13) => "minecraft:lava",
+        (7, 1..=2, 12) | (7, 1, 13) => "minecraft:einfarbig",
+        (14, 1..=2, 9) | (15, 1, 9) => "minecraft:einfarbig",
+        (14, 1, 13) | (13, 1, 14) => "minecraft:lava[level=2]",
+        (15, 1, 13) => "minecraft:lava[level=4]",
+        (12, 1..=2, 13) | (12, 1, 14) => "minecraft:einfarbig",
         _ => "minecraft:air",
     };
     let dir = tempdir();
@@ -866,7 +877,7 @@ fn tiefe_zaehlt_entlang_des_blickstrahls() {
 
 /// Ein gefluteter Block, der die Oberseite seines Würfels deckt, beendet
 /// die Zählung wie ein Stein: hinter der Oberfläche liegt eine Schicht,
-/// dann die Platte. Eine untere Platte deckt dort nur ein Viertel, die
+/// dann die Platte. Eine untere Platte deckt dort 100 von 256 Pixeln, die
 /// meisten Strahlen laufen über sie hinweg, und die Oberfläche trägt die
 /// Tiefe des Sees.
 #[test]

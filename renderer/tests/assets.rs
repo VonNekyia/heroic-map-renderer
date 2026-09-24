@@ -6,7 +6,9 @@
 
 use std::path::PathBuf;
 
-use terranova_render::assets::{Assets, Face, MISSING_MODEL, Textures};
+use terranova_render::assets::{
+    Assets, Face, MISSING_MODEL, ResolvedVariant, Textures, bake, model_of,
+};
 use terranova_render::world::BlockState;
 
 fn fixture(name: &str) -> PathBuf {
@@ -177,7 +179,10 @@ fn fehlendes_modell_wird_missing_wuerfel() {
 }
 
 /// Bei `multipart` wird nur der kaputte Teil zum Missing-Würfel, mit der
-/// Drehung seines Eintrags; der Pfosten bleibt.
+/// Drehung seines Eintrags; der Pfosten bleibt. Gebacken liegen beide im
+/// Modell, der Würfel um 90 Grad gedreht: von oben gesehen im
+/// Uhrzeigersinn, (x, z) wird zu (1 - z, x). Ein voller Würfel sieht
+/// gedreht gleich aus, nur seine Flächen tauschen die Ecken.
 #[test]
 fn kaputter_teil_wird_missing_wuerfel() {
     let mut assets = base();
@@ -186,6 +191,30 @@ fn kaputter_teil_wird_missing_wuerfel() {
     assert_eq!(teile[0].model_id, "minecraft:block/fence_post");
     assert_eq!(teile[1].model_id, MISSING_MODEL);
     assert_eq!(teile[1].y, 90, "der Missing-Würfel dreht mit");
+
+    let gebacken = model_of(&mut assets, &state("teil_kaputt[north=true]")).unwrap();
+    let pfosten = bake(&teile[..1]);
+    let ungedreht = bake(&[ResolvedVariant {
+        y: 0,
+        ..teile[1].clone()
+    }]);
+    let (vorn, wuerfel) = gebacken.quads.split_at(pfosten.quads.len());
+    assert!(
+        vorn.iter()
+            .zip(&pfosten.quads)
+            .all(|(a, b)| a.corners == b.corners)
+    );
+    assert_eq!(wuerfel.len(), 6, "der Missing-Würfel fehlt im Modell");
+    for (quad, vorher) in wuerfel.iter().zip(&ungedreht.quads) {
+        assert_eq!(quad.texture, Textures::MISSING);
+        for (ist, p) in quad.corners.iter().zip(vorher.corners) {
+            let soll = [1.0 - p[2], p[1], p[0]];
+            assert!(
+                (0..3).all(|i| (ist[i] - soll[i]).abs() < 1e-5),
+                "Ecke {ist:?}, erwartet {soll:?}"
+            );
+        }
+    }
     assert!(
         assets
             .skipped()

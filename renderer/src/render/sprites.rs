@@ -127,6 +127,18 @@ fn covers_all(sprite: &Sprite, pixels: &[(i32, i32)], dy: i32) -> bool {
             .all(|&(x, y)| alpha_at(sprite, x, y + dy) == 255)
 }
 
+/// Deckt `sprite` mehr als die Haelfte dieser Pixel undurchsichtig? Bei
+/// genau der Haelfte nicht: dann geht ebenso viel an ihm vorbei, wie an ihm
+/// endet, und ein heller Fleck ueber hohem Seegras faellt mehr auf als ein
+/// fast verschwundener Halm.
+fn covers_most(sprite: &Sprite, pixels: &[(i32, i32)]) -> bool {
+    let deckend = pixels
+        .iter()
+        .filter(|&&(x, y)| alpha_at(sprite, x, y) == 255)
+        .count();
+    2 * deckend > pixels.len()
+}
+
 /// Die Alternativen einer Blockstate mit ihren Gewichten.
 pub struct Family {
     alternatives: Vec<(u32, Option<SpriteId>)>,
@@ -144,13 +156,13 @@ pub struct Family {
     /// Oberseite des Blocks darunter? Lava endet bei 8/9 und deckt den
     /// Umriss nicht mehr, den Block darunter aber schon.
     pub covers_floor: bool,
-    /// Decken alle Alternativen die Oberseite ihres Wuerfels mindestens zur
-    /// Haelfte? Dort treffen die Strahlen hinter einer Wasseroberflaeche den
-    /// Block auf der Diagonalen, und die meisten enden an ihm. Sonst laufen
-    /// sie hindurch: Seegras, Kelp, ein gefluteter Pfosten und eine untere
-    /// Platte zaehlen wie das Wasser um sie herum. Gemessen wird immer bei
-    /// scale 32, damit die nativen Stufen dieselbe Tiefe zaehlen wie die
-    /// Basis.
+    /// Decken alle Alternativen mehr als die Haelfte der Oberseite ihres
+    /// Wuerfels? Dort treffen die Strahlen hinter einer Wasseroberflaeche
+    /// den Block auf der Diagonalen, und die meisten enden an ihm. Sonst
+    /// laufen sie hindurch: Seegras, Kelp, ein gefluteter Zaunpfosten und
+    /// eine untere Platte zaehlen wie das Wasser um sie herum. Gemessen wird
+    /// immer bei scale 32, damit die nativen Stufen dieselbe Tiefe zaehlen
+    /// wie die Basis.
     pub covers: bool,
 }
 
@@ -425,7 +437,7 @@ impl SpriteSet {
         Ok(set)
     }
 
-    /// Deckt ein Modell mindestens die Haelfte dessen, was eine
+    /// Deckt ein Modell mehr als die Haelfte dessen, was eine
     /// Wasseroberflaeche an seiner Stelle belegen wuerde, gemessen bei
     /// scale 32? Bei scale 32 misst das fertige Sprite, sonst eine eigene
     /// Rasterung dafuer.
@@ -447,12 +459,7 @@ impl SpriteSet {
                 }
             }
         };
-        let deckend = self
-            .cover_top
-            .iter()
-            .filter(|&&(x, y)| alpha_at(sprite, x, y) == 255)
-            .count();
-        2 * deckend >= self.cover_top.len()
+        covers_most(sprite, &self.cover_top)
     }
 
     /// Streifen der Seitenflaechen ueber niedrigeren Nachbarn derselben
@@ -1458,10 +1465,11 @@ mod tests {
 
     /// Ob der Strahl hinter einer Wasseroberflaeche an einem Block endet,
     /// entscheidet, was er von ihrer Oberseite deckt, und zwar auf jeder
-    /// Stufe gleich. Eine untere Platte deckt dort ein Viertel, eine obere
-    /// alles; am ganzen Umriss gemessen deckte die untere zwei Drittel und
-    /// beendete die Zaehlung. Bei scale 4 deckt sie im eigenen Raster die
-    /// Haelfte — gemessen wird deshalb immer bei scale 32.
+    /// Stufe gleich. Eine untere Platte deckt dort 100 von 256 Pixeln, eine
+    /// obere alles; am ganzen Umriss gemessen deckte die untere zwei Drittel
+    /// und beendete die Zaehlung. Ein schmales Brett an der Westkante deckt
+    /// bei scale 32 154 von 256, im eigenen Raster bei scale 4 aber nur
+    /// einen von vier Pixeln — gemessen wird deshalb immer bei scale 32.
     #[test]
     fn strahlen_enden_an_der_oberseite() {
         let mut assets = assets();
@@ -1470,10 +1478,12 @@ mod tests {
             state("obere_platte[waterlogged=true]"),
             state("oak_fence[north=true,waterlogged=true]"),
             state("einfarbig"),
+            state("schmal"),
         ];
         for scale in [32, 16, 8, 4] {
             let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let covers = |text: &str| set.family_of(&state(text)).unwrap().covers;
+            assert!(covers("schmal"), "scale {scale}");
             assert!(!covers("untere_platte[waterlogged=true]"), "scale {scale}");
             assert!(covers("obere_platte[waterlogged=true]"), "scale {scale}");
             assert!(
@@ -1482,6 +1492,25 @@ mod tests {
             );
             assert!(covers("einfarbig"), "scale {scale}");
         }
+    }
+
+    /// Genau die Haelfte haelt den Strahl nicht auf, eins mehr schon. Hohes
+    /// Seegras deckt bei scale 32 genau 128 der 256 Pixel; mit
+    /// "mindestens die Haelfte" beendete es die Zaehlung, und ueber ihm
+    /// stuende ein heller Fleck.
+    #[test]
+    fn gleichstand_zaehlt_als_wasser() {
+        let pixels: Vec<(i32, i32)> = (0..4).map(|x| (x, 0)).collect();
+        let mut sprite = Sprite {
+            image: RgbaImage::new(4, 1),
+            offset: (0, 0),
+        };
+        for x in 0..2 {
+            sprite.image.put_pixel(x, 0, image::Rgba([0, 0, 0, 255]));
+        }
+        assert!(!covers_most(&sprite, &pixels), "zwei von vier");
+        sprite.image.put_pixel(2, 0, image::Rgba([0, 0, 0, 255]));
+        assert!(covers_most(&sprite, &pixels), "drei von vier");
     }
 
     /// Streifen gibt es je Paar aus eigener Hoehe und Nachbarhoehe, fuer

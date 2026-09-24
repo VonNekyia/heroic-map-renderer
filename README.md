@@ -151,7 +151,7 @@ Render:     390 Chunks gelesen, 215 Blockstates, 1207 Sprites
             1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
             900x900 px bei (-4290, 958) und scale 16 in 1.4 s -> docs/map.png
 
-Texturen:   103 geladen, 0 fehlen
+Texturen:   92 geladen, 0 fehlen
 ```
 
 `--center` nennt die Blockspalte, die in der Bildmitte landet, `--scale` die
@@ -411,12 +411,14 @@ Zaun geht der Strahl weiter bis zum Grund; endete die Zählung an ihnen,
 stünde über jedem Seegras ein heller Fleck. Ob ein Block den Strahl
 aufhält, misst der Renderer an den Pixeln, die eine Wasseroberfläche an
 seiner Stelle belegen würde, und immer bei scale 32, damit jede Stufe gleich
-zählt: eine obere Platte hält ihn auf, eine untere nicht, denn über sie
-gehen drei Viertel der Strahlen hinweg. Der Preis: jedes dünne Modell einen
-Block unter der Oberfläche verschwindet fast, wenn dahinter tiefes Wasser
-steht — Kelp, Zaun- und Mauerpfosten, Korallenfächer. Die Oberfläche
-darüber trägt die Deckkraft aller Schichten dahinter, und statt 29 Prozent
-bleibt von ihm unter 1 Prozent sichtbar.
+zählt. Deckt er mehr als die Hälfte davon, endet die Zählung: eine obere
+Platte und ein Mauerpfosten halten den Strahl auf, eine untere Platte nicht,
+denn über sie gehen drei von fünf Strahlen hinweg. Hohes Seegras deckt genau
+die Hälfte und zählt wie Wasser; sonst stünde über ihm ein heller Fleck. Der
+Preis: jedes dünne Modell einen Block unter der Oberfläche verschwindet
+fast, wenn dahinter tiefes Wasser steht — Seegras, Kelp, Zaunpfosten,
+Korallenfächer. Die Oberfläche darüber trägt die Deckkraft aller Schichten
+dahinter, und statt 29 Prozent bleibt von ihm unter 1 Prozent sichtbar.
 
 Gras und Laub funktionieren wie das Wasser: die Textur ist grau, das Biom
 liefert Temperatur und Niederschlag, und die Colormaps `grass.png` und

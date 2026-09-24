@@ -349,7 +349,7 @@ Datei.
 `world` ist die Kennung der Welt: vorn ein Salz, das der Baum bei seinem
 ersten Lauf zufällig bekommt, dahinter ein Hash ihres Seeds und ihrer
 Dimension, SipHash-2-4 mit diesem Salz, eine Million Mal verkettet. Die
-Dimension gehört dazu, weil alle Dimensionen einer Welt denselben Seed
+Dimension gehört dazu, weil die Dimensionen einer Welt meist denselben Seed
 tragen: sonst käme der Nether in den Baum der Oberwelt und die Oberwelt in
 seinen. `--world` zeigt auf die Weltwurzel, das Verzeichnis mit
 `level.dat`, oder auf eine Dimension darin, `dimensions/<namensraum>/<name>`
@@ -357,12 +357,19 @@ oder bis 1.21 `DIM-1` und `DIM1`. Die Wurzel ist die Oberwelt, auch über
 `dimensions/minecraft/overworld`; eine Kopie von `level.dat` in einer
 Dimension macht diese nicht zur Oberwelt. Der Pfad zählt so, wie er auf der
 Platte steht: unter Windows gibt `dim-1` dieselbe Kennung wie `DIM-1`, und
-ein Weg über `..` dieselbe wie der direkte. Den Seed liest der Renderer aus der
-Weltwurzel, in dieser Reihenfolge: seit 26.1 aus
-`data/minecraft/world_gen_settings.dat`, bei Paper aus der Datei der
-Oberwelt, davor aus `level.dat`. Er selbst
-steht nicht in der Datei: `map.json` liegt öffentlich neben den Kacheln,
-und mit dem Seed fände jeder Strukturen und Erze ohne zu suchen. Ein
+ein Weg über `..` dieselbe wie der direkte. Führt er auf der Platte über
+einen Link aus der Welt hinaus, etwa zu einer Dimension auf einer anderen
+Platte, zählt er so, wie er angegeben ist.
+
+Den Seed liest der Renderer zuerst aus der Dimension selbst, aus
+`data/minecraft/world_gen_settings.dat` darin: so schreibt Paper ihn je
+Dimension, und eine Plugin-Welt hat oft einen eigenen. Sonst aus derselben
+Datei an der Weltwurzel, wie Vanilla seit 26.1, oder aus der der
+Paper-Oberwelt, von beiden aus der jüngeren, bei gleichem Alter aus der von
+Paper: unter Paper bleibt an der Wurzel eine ältere liegen. Zuletzt aus
+`level.dat`, wie bis 1.21. Er selbst steht nicht in der Datei: `map.json`
+liegt öffentlich neben den Kacheln, und mit dem Seed fände jeder Strukturen
+und Erze ohne zu suchen. Ein
 Zufallsseed hat nur 2^48 Werte, Vanilla zieht ihn mit 48 Bit Zustand; mit
 einem einzelnen Hash liessen sich alle in Stunden bis Tagen durchprobieren.
 Verkettet sind es 2^68 Aufrufe je Baum, auf einer Grafikkarte Jahrzehnte,
@@ -373,9 +380,10 @@ geratene Seed kostet einen Versuch von 16 ms, und ein eingetippter wie
 12345 oder einer aus einer öffentlichen Liste steht in jedem Wörterbuch:
 den findet man in Sekunden. Ohne `level.dat` darüber ist die Welt nicht zu
 erkennen, etwa bei einer Kopie ohne sie, und ohne Seed auch nicht, etwa bei
-einer Kopie ohne `data`; die Meldung sagt, was fehlt. Dann steht
-`"world": null` da, und ein solcher Baum nimmt keine Welt mit Kennung auf;
-zwei Welten ohne Kennung kann der Renderer nicht auseinanderhalten.
+einer Kopie ohne `data`. Die Ausgabe sagt dann, was fehlt, und nennt jeden
+Ort, an dem der Seed gesucht wurde. Dann steht `"world": null` da, und ein
+solcher Baum nimmt keine Welt mit Kennung auf; zwei Welten ohne Kennung
+kann der Renderer nicht auseinanderhalten.
 
 Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines grossen
 Renderings gleichen, sonst stünden im Browser Kanten dazwischen. Neun Kacheln

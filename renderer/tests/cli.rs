@@ -1418,6 +1418,54 @@ fn dimensionen_haben_eigene_kennungen() {
     assert!(!ohne_seed.contains("Wurzel richten"), "{ohne_seed}");
 }
 
+/// Ohne Seed nennt die Ausgabe jeden Ort, an dem er gesucht wurde, von der
+/// Datei der Dimension bis level.dat. Ein neuer Baum entsteht trotzdem,
+/// mit `"world": null`, und der Lauf sagt, warum.
+#[test]
+fn ohne_seed_nennt_jeden_ort() {
+    let welt = tempdir();
+    let nether = welt.path().join("dimensions/minecraft/the_nether");
+    common::write_world(&nether, &[(0, 0)], gelaende);
+    common::write_level_dat_ohne_seed(welt.path());
+    let baum = tempdir();
+    let ausgabe = tiles(&nether, baum.path(), &["--scale", "16"]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    let orte = "weder in dimensions/minecraft/the_nether/data/minecraft/world_gen_settings.dat, \
+                data/minecraft/world_gen_settings.dat, \
+                dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat \
+                noch in level.dat";
+    assert!(text.contains(orte), "{text}");
+    assert!(text.contains("\"world\": null"), "{text}");
+    let karte = std::fs::read_to_string(baum.path().join("map.json")).unwrap();
+    assert!(karte.contains("\"world\": null"), "{karte}");
+}
+
+/// Ein relativer Pfad führt zur selben Welt wie der absolute, auch `.` in
+/// einer Dimension: der Baum nimmt den zweiten Lauf auf. Ohne den Weg zur
+/// Wurzel hätte `.` keinen Namen und die Welt keine Kennung.
+#[test]
+fn punkt_als_welt_hat_dieselbe_kennung() {
+    let welt = tempdir();
+    let nether = welt.path().join("DIM-1");
+    common::write_world(&nether, &[(0, 0)], gelaende);
+    common::write_level_dat(welt.path(), 42);
+    let baum = tempdir();
+    gelungen(&tiles(&nether, baum.path(), &["--scale", "16"]));
+    let karte = || std::fs::read_to_string(baum.path().join("map.json")).unwrap();
+    let vorher = kennung_in(&karte());
+    let ausgabe = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+        .current_dir(&nether)
+        .args(["--world", ".", "--assets"])
+        .arg(assets())
+        .arg("--tiles")
+        .arg(baum.path())
+        .args(["--scale", "16"])
+        .output()
+        .expect("terranova-render starten");
+    gelungen(&ausgabe);
+    assert_eq!(kennung_in(&karte()), vorher);
+}
+
 /// Jeder neue Baum zieht sein eigenes Salz. Mit einem festen liesse sich
 /// eine Tabelle über alle Seeds einmal rechnen und gegen jeden Baum
 /// halten. Zweimal dasselbe Verzeichnis und zwei andere: ein Salz aus dem

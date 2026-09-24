@@ -477,11 +477,12 @@ fn write_tiles(
         world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
     let bestand = lies_bestand(dir)?;
     let kennung = kennung(world, bestand.as_ref())?;
+    let warum = ohne_kennung(world);
     let uebernommen = pruefe_bestand(
         dir,
         bestand.as_ref(),
         projection.scale(),
-        kennung.as_deref().ok_or(ohne_kennung(world)),
+        kennung.as_deref().ok_or(warum.as_str()),
     )?;
     // Ein bestehender Baum behält seine Nummerierung, auch wenn die Welt
     // inzwischen gewachsen ist: dann bekommt Zoom 0 mehr Kacheln, und das
@@ -568,6 +569,9 @@ fn write_tiles(
             "Karte:      {} nannte keine Welt, ein älterer Stand: der Baum gehört ab jetzt zu dieser",
             pfad.display()
         );
+    }
+    if kennung.is_none() {
+        println!("Karte:      ohne Kennung, dort steht \"world\": null. {warum}");
     }
 
     // Angesagt wird vor der Basis: bis zum Ende des Laufs bleibt Zeit für
@@ -898,18 +902,30 @@ fn kennung(world: &World, bestand: Option<&MapInfo>) -> Result<Option<String>> {
     Ok(Some(pyramid::world_id(seed, dimension, salt)))
 }
 
-/// Warum eine Welt keine Kennung hat, mit dem Ausweg.
-fn ohne_kennung(world: &World) -> &'static str {
-    match world.dimension() {
-        None => {
-            "Zu diesem --world fand sich keine Weltwurzel mit level.dat: --world auf die \
-             Wurzel richten oder auf eine Dimension darin."
-        }
-        Some(_) => {
-            "Die Welt nennt keinen Seed, weder in data/minecraft/world_gen_settings.dat noch \
-             in level.dat. Fehlt die Datei nur in einer Kopie, sie dazulegen."
-        }
+/// Warum eine Welt keine Kennung hat, mit dem Ausweg. Ohne Seed nennt sie
+/// jeden Ort, an dem er gesucht wurde.
+fn ohne_kennung(world: &World) -> String {
+    if world.dimension().is_none() {
+        return "Zu diesem --world fand sich keine Weltwurzel mit level.dat: --world auf die \
+                Wurzel richten oder auf eine Dimension darin."
+            .to_string();
     }
+    let mut orte: Vec<String> = world
+        .seed_files()
+        .iter()
+        .map(|ort| {
+            ort.components()
+                .map(|teil| teil.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .collect();
+    let letzter = orte.pop().unwrap_or_default();
+    format!(
+        "Die Welt nennt keinen Seed, weder in {} noch in {letzter}. Fehlt eine Datei nur in \
+         einer Kopie, sie dazulegen.",
+        orte.join(", ")
+    )
 }
 
 /// Prüft, ob der bestehende Baum zu diesem Lauf passt, und sagt, ob er ihn

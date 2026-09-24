@@ -4,7 +4,9 @@
 
 mod common;
 
+use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, UNIX_EPOCH};
 
 use terranova_render::world::World;
 
@@ -53,11 +55,11 @@ fn herkunft(dir: &Path) -> (Option<i64>, Option<String>) {
 }
 
 /// Seed und Dimension sind die Grundlage der Kennung im Kachelbaum. Den
-/// Seed tragen alle Dimensionen einer Welt gleich, gelesen wird er an der
-/// Weltwurzel, dem Verzeichnis mit `level.dat`: seit 26.1 bei Vanilla aus
-/// `data/minecraft`, bei Paper aus der Oberwelt, bis 1.21 aus `level.dat`,
-/// in dieser Reihenfolge. Eine Dimension darunter findet ihre Wurzel, eine
-/// Kopie ohne sie hat keine Kennung.
+/// Seed liest eine Dimension zuerst aus ihrer eigenen Datei, wie Paper sie
+/// schreibt, sonst an der Weltwurzel, dem Verzeichnis mit `level.dat`:
+/// seit 26.1 bei Vanilla aus `data/minecraft`, bis 1.21 aus `level.dat`.
+/// Eine Dimension darunter findet ihre Wurzel, eine Kopie ohne sie hat
+/// keine Kennung.
 #[test]
 fn findet_seed_und_dimension_in_jedem_layout() {
     let oberwelt = || Some("minecraft:overworld".to_string());
@@ -74,17 +76,23 @@ fn findet_seed_und_dimension_in_jedem_layout() {
     assert_eq!(herkunft(&dims.join("overworld")), (Some(7_331), oberwelt()));
     assert_eq!(herkunft(&dims.join("the_nether")), (Some(7_331), nether()));
 
-    // Paper 26: Seed in jeder Dimension, gelesen wird der der Oberwelt.
+    // Paper 26: Seed in jeder Dimension, jede liest ihren eigenen. Eine
+    // Plugin-Welt hat oft einen anderen als die Oberwelt.
     let paper = tempfile::tempdir().unwrap();
     let dims = paper.path().join("dimensions/minecraft");
+    let plugin = paper.path().join("dimensions/terralith/abgrund");
     std::fs::create_dir_all(dims.join("overworld/region")).unwrap();
     std::fs::create_dir_all(dims.join("the_nether/region")).unwrap();
+    std::fs::create_dir_all(plugin.join("region")).unwrap();
     common::write_level_dat_ohne_seed(paper.path());
     common::write_gen_settings(&dims.join("overworld"), -4_172_144_997_902_289_642);
-    common::write_gen_settings(&dims.join("the_nether"), -4_172_144_997_902_289_642);
+    common::write_gen_settings(&dims.join("the_nether"), 99);
+    common::write_gen_settings(&plugin, 1_234);
     let seed = Some(-4_172_144_997_902_289_642);
     assert_eq!(herkunft(paper.path()), (seed, oberwelt()));
-    assert_eq!(herkunft(&dims.join("the_nether")), (seed, nether()));
+    assert_eq!(herkunft(&dims.join("the_nether")), (Some(99), nether()));
+    let abgrund = Some("terralith:abgrund".to_string());
+    assert_eq!(herkunft(&plugin), (Some(1_234), abgrund));
 
     // Bis 1.21: Seed in level.dat, Nether und End als DIM-1 und DIM1, bei
     // Bukkit in einer eigenen Welt.
@@ -102,16 +110,47 @@ fn findet_seed_und_dimension_in_jedem_layout() {
     common::write_level_dat(bukkit.path(), 42);
     assert_eq!(herkunft(&bukkit.path().join("DIM-1")), (Some(42), nether()));
 
-    // Die Reihenfolge der Orte: Vanilla vor Paper vor level.dat.
+    // Die Reihenfolge der Orte: die Datei der Dimension, dann von der an
+    // der Wurzel und der der Paper-Oberwelt die jüngere, bei gleichem Alter
+    // die von Paper, zuletzt level.dat. Unter Paper bleibt an der Wurzel
+    // eine ältere liegen.
     let alle = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(alle.path().join("region")).unwrap();
+    let the_nether = alle.path().join("dimensions/minecraft/the_nether");
     let paper_ort = alle.path().join("dimensions/minecraft/overworld");
+    std::fs::create_dir_all(alle.path().join("region")).unwrap();
+    std::fs::create_dir_all(the_nether.join("region")).unwrap();
     common::write_level_dat(alle.path(), 3);
-    assert_eq!(herkunft(alle.path()).0, Some(3));
-    common::write_gen_settings(&paper_ort, 2);
-    assert_eq!(herkunft(alle.path()).0, Some(2));
+    assert_eq!(herkunft(&the_nether).0, Some(3));
     common::write_gen_settings(alle.path(), 1);
-    assert_eq!(herkunft(alle.path()).0, Some(1));
+    assert_eq!(herkunft(&the_nether).0, Some(1));
+    common::write_gen_settings(&paper_ort, 2);
+    let alter = |dir: &Path, sekunden: u64| {
+        File::options()
+            .write(true)
+            .open(dir.join("data/minecraft/world_gen_settings.dat"))
+            .unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_secs(sekunden))
+            .unwrap();
+    };
+    alter(alle.path(), 2_000);
+    alter(&paper_ort, 1_000);
+    assert_eq!(
+        herkunft(&the_nether).0,
+        Some(1),
+        "die an der Wurzel ist jünger"
+    );
+    assert_eq!(
+        herkunft(alle.path()).0,
+        Some(2),
+        "die Oberwelt hat ihre eigene"
+    );
+    alter(&paper_ort, 2_000);
+    assert_eq!(herkunft(&the_nether).0, Some(2), "gleich alt");
+    alter(&paper_ort, 3_000);
+    assert_eq!(herkunft(&the_nether).0, Some(2), "die von Paper ist jünger");
+    common::write_gen_settings(&the_nether, 4);
+    alter(&the_nether, 0);
+    assert_eq!(herkunft(&the_nether).0, Some(4), "die eigene zuerst");
 
     // Eine Kopie einer Dimension ohne ihre Wurzel.
     let kopie = tempfile::tempdir().unwrap();
@@ -158,6 +197,62 @@ fn dimension_wie_auf_der_platte() {
     let the_nether = welt.path().join("dimensions/minecraft/the_nether");
     common::write_level_dat(&the_nether, 7);
     assert_eq!(herkunft(&the_nether), nether());
+}
+
+/// Liegt eine Dimension hinter einem Link, etwa auf einer anderen Platte,
+/// führt ihr kanonischer Pfad aus der Welt hinaus. Dann zählt der Pfad, wie
+/// er angegeben ist. Unter Windows eine Junction, die jeder anlegen darf,
+/// sonst ein Symlink.
+#[test]
+fn dimension_hinter_einem_link() {
+    let welt = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let draussen = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    std::fs::create_dir_all(welt.path().join("region")).unwrap();
+    std::fs::create_dir_all(welt.path().join("dimensions/minecraft")).unwrap();
+    for sub in ["nether/region", "alt/region"] {
+        std::fs::create_dir_all(draussen.path().join(sub)).unwrap();
+    }
+    common::write_level_dat(welt.path(), 42);
+    let the_nether = welt.path().join("dimensions/minecraft/the_nether");
+    link(&draussen.path().join("nether"), &the_nether);
+    link(&draussen.path().join("alt"), &welt.path().join("DIM-1"));
+    let nether = (Some(42), Some("minecraft:the_nether".to_string()));
+    assert_eq!(herkunft(&the_nether), nether);
+    assert_eq!(herkunft(&welt.path().join("DIM-1")), nether);
+}
+
+/// Legt `pfad` als Link auf das Verzeichnis `ziel` an. `mklink` nähme
+/// einen Schrägstrich im Pfad als Schalter, `absolute` setzt Backslashes.
+fn link(ziel: &Path, pfad: &Path) {
+    #[cfg(windows)]
+    {
+        let ausgabe = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(std::path::absolute(pfad).unwrap())
+            .arg(std::path::absolute(ziel).unwrap())
+            .output()
+            .unwrap();
+        assert!(
+            ausgabe.status.success(),
+            "{}",
+            String::from_utf8_lossy(&ausgabe.stderr)
+        );
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(ziel, pfad).unwrap();
+}
+
+/// Die Wurzel steht in Meldungen, wie man sie schreibt, ohne das Präfix
+/// `\\?\`, das `canonicalize` unter Windows voranstellt.
+#[test]
+fn meldung_nennt_die_wurzel_ohne_praefix() {
+    let welt = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    std::fs::create_dir_all(welt.path().join("region")).unwrap();
+    std::fs::write(welt.path().join("level.dat"), b"kein gzip").unwrap();
+    let fehler = World::open(welt.path()).unwrap().seed().unwrap_err();
+    let text = format!("{fehler:#}");
+    assert!(text.contains("level.dat"), "{text}");
+    assert!(!text.contains(r"\\?\"), "{text}");
 }
 
 /// Der Weg vom Arbeitsverzeichnis zu `ziel`, damit ein Test einen

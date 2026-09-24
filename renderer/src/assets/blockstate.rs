@@ -184,7 +184,7 @@ impl BlockStateDef {
     /// darf nichts mehr kommen (`StrictJsonParser`), und was der Codec
     /// ablehnt, macht die ganze Datei kaputt. `null` zählt als fehlend.
     pub fn read(text: &str) -> Result<BlockStateDef> {
-        let json: Value = serde_json::from_str(text).context("kein gültiges JSON")?;
+        let json = super::parse_json(text, true)?;
         ensure!(json.is_object(), "kein Objekt");
         let variants = match field(&json, "variants") {
             None => Vec::new(),
@@ -533,34 +533,51 @@ pub(super) fn field<'a>(json: &'a Value, name: &str) -> Option<&'a Value> {
 }
 
 /// `Codec.INT`: nur eine JSON-Zahl, abgeschnitten wie `Number.intValue`.
-fn int(json: &Value) -> Result<i32> {
+pub(super) fn int(json: &Value) -> Result<i32> {
     match json {
         Value::Number(number) => int_value(number),
         _ => bail!("keine Zahl"),
     }
 }
 
+/// `Codec.FLOAT`: nur eine JSON-Zahl, gerundet wie `Float.parseFloat`, eine
+/// zu grosse also unendlich.
+pub(super) fn float(json: &Value) -> Result<f32> {
+    match json {
+        Value::Number(number) => number
+            .as_str()
+            .parse()
+            .with_context(|| format!("Zahl {number}")),
+        _ => bail!("keine Zahl"),
+    }
+}
+
+/// `Codec.BOOL`: nur ein Wahrheitswert, wie `JsonOps.getBooleanValue`.
+pub(super) fn boolean(json: &Value) -> Result<bool> {
+    json.as_bool().ok_or_else(|| anyhow!("kein Wahrheitswert"))
+}
+
 /// Gsons `LazilyParsedNumber.intValue` aus der Zahl, wie sie in der Datei
 /// steht: `Integer.parseInt`, dann `Long.parseLong`, sonst `BigDecimal`,
 /// Richtung 0 abgeschnitten. Es zählen die unteren 32 Bit, 2^32 + 90 ist
-/// also 90 und 90.5 auch. Über `NumberLimits` wirft eine Zahl mit mehr als
-/// 10000 Zeichen oder einer Skala ab 10000.
+/// also 90 und 90.5 auch. Über `NumberLimits` wirft eine Zahl mit einer
+/// Skala ab 10000, und `BigDecimal` eine, deren Exponent kein `int` ist.
+/// Länger als 1023 Zeichen ist keine, das prüft schon [`super::parse_json`].
 pub(super) fn int_value(number: &Number) -> Result<i32> {
     let text = number.as_str();
     if let Ok(n) = text.parse::<i64>() {
         return Ok(n as i32);
     }
-    ensure!(text.len() <= 10_000, "Zahl mit {} Zeichen", text.len());
     let (mantissa, exponent) = text.split_once(['e', 'E']).unwrap_or((text, "0"));
     let (negative, mantissa) = match mantissa.strip_prefix('-') {
         Some(rest) => (true, rest),
         None => (false, mantissa),
     };
     let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
-    let exponent: i128 = exponent
+    let exponent: i32 = exponent
         .parse()
         .with_context(|| format!("Exponent von {text}"))?;
-    let scale = fraction.len() as i128 - exponent;
+    let scale = fraction.len() as i64 - i64::from(exponent);
     ensure!(scale.abs() < 10_000, "Skala {scale} von {text}");
     let digits = format!("{whole}{fraction}");
     let kept = &digits[..digits.len().saturating_sub(scale.max(0) as usize)];
@@ -773,6 +790,7 @@ mod tests {
             r#"{"variants": {"": [{"model": "a", "weight": 2}, {"model": "b", "weight": 2147483647}]}}"#.to_string(),
             r#"{"variants": {"": [{"model": "m", "weight": 2147483648}]}}"#.to_string(),
             r#"{"variants": {"": [{"model": "m", "weight": 1e10000}]}}"#.to_string(),
+            format!(r#"{{"variants": {{"": [{{"model": "m", "weight": 1{}}}]}}}}"#, "0".repeat(1023)),
             r#"{"variants": {"": [{"model": "m", "weight": 1e400}]}}"#.to_string(),
             r#"{"multipart": [{"apply": [{"model": "m", "weight": 0}]}]}"#.to_string(),
             // Modellname nach `Identifier`
@@ -1007,6 +1025,28 @@ mod tests {
             d.alternatives(&alt, wall.index(&alt)).unwrap()[0].1.len(),
             0
         );
+        // Unbekanntes gilt nicht als wahr: `nord` hat die Mauer nicht.
+        let mut d = def(r#"{"multipart": [{"when": {"nord": "low"}, "apply": {"model": "m"}}]}"#);
+        assert_eq!(d.instantiate(wall).len(), 1);
+        assert_eq!(
+            d.alternatives(&alt, wall.index(&alt)).unwrap()[0].1.len(),
+            0
+        );
+        // Neben Unbekanntem liest der Renderer das Bekannte wie der Client,
+        // `07` ist 7.
+        let weizen = Definition::of("minecraft:wheat").unwrap();
+        let mut d = def(
+            r#"{"multipart": [{"when": {"OR": [{"age": "07"}, {"foo": "x"}]}, "apply": {"model": "m"}}]}"#,
+        );
+        let unbekannt: Vec<String> = d.instantiate(weizen).into_iter().collect();
+        assert_eq!(unbekannt, ["Eigenschaft foo"]);
+        let reif = state("minecraft:wheat[age=7]");
+        assert_eq!(
+            d.alternatives(&reif, weizen.index(&reif)).unwrap()[0]
+                .1
+                .len(),
+            1
+        );
     }
 
     /// Die Tabelle stimmt mit dem Report von 26.2 überein: 1196 Blöcke,
@@ -1070,8 +1110,11 @@ mod tests {
         }
         assert!(zahl("1e10000").is_err());
         assert!(zahl("1e-10000").is_err());
-        assert!(zahl(&format!("1{}", "0".repeat(10_000))).is_err());
-        assert_eq!(zahl(&format!("1{}", "0".repeat(9_999))).unwrap(), 0);
+        // Ein Exponent, der kein `int` ist, und einer, bei dem die Skala
+        // in i128 überliefe: `BigDecimal` wirft, der Renderer auch.
+        assert!(zahl("1e2147483648").is_err());
+        assert!(zahl("1e-170141183460469231731687303715884105728").is_err());
+        assert_eq!(zahl(&format!("1{}", "0".repeat(1_000))).unwrap(), 0);
     }
 
     /// Seit Minecraft 1.21.11 dürfen Modellverweise auch um Z gedreht sein.

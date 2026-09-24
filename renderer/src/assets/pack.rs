@@ -84,9 +84,11 @@ impl Pack {
             .map(PathBuf::as_path)
     }
 
-    /// Alle aufgelisteten Namen.
-    pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.files.keys().map(String::as_str)
+    /// Alle aufgelisteten Namen mit ihrem Pfad auf der Platte.
+    pub fn files(&self) -> impl Iterator<Item = (&str, &Path)> {
+        self.files
+            .iter()
+            .map(|(name, pfad)| (name.as_str(), pfad.as_path()))
     }
 
     /// Eine Datei, die der Client direkt öffnet statt sie aufzulisten, wie

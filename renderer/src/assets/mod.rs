@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 
 use crate::world::BlockState;
 pub use baker::{BakedModel, Quad, bake};
@@ -168,8 +168,8 @@ impl Assets {
         let mut names: Vec<String> = self
             .packs
             .iter()
-            .flat_map(Pack::names)
-            .filter_map(|name| {
+            .flat_map(Pack::files)
+            .filter_map(|(name, _)| {
                 let (namespace, rest) = name.split_once('/')?;
                 let block = rest.strip_prefix("blockstates/")?.strip_suffix(".json")?;
                 (!block.contains('/')).then(|| format!("{namespace}:{block}"))
@@ -443,12 +443,69 @@ fn read_text(path: &Path) -> Result<String> {
 /// dem ersten Dokument wird ignoriert. In Packs kommen aneinandergehängte
 /// Blockbench-Exporte vor.
 fn read_json(path: &Path) -> Result<serde_json::Value> {
-    let text = read_text(path)?;
-    let mut stream = serde_json::Deserializer::from_str(&text).into_iter::<serde_json::Value>();
-    stream
-        .next()
-        .ok_or_else(|| anyhow!("{} ist leer", path.display()))?
-        .with_context(|| format!("{} ist kein gültiges JSON", path.display()))
+    parse_json(&read_text(path)?, false).with_context(|| format!("{} lesen", path.display()))
+}
+
+/// Liest JSON so streng wie Gson im Modus `STRICT`, den der Client für
+/// Blockstates, Modelle, `.mcmeta` und Biome setzt. Mit `ganz` darf hinter
+/// dem ersten Dokument nichts mehr stehen, wie bei `StrictJsonParser`;
+/// sonst liest es nur das erste, wie `GsonHelper`. Eine Zahl ab 1024
+/// Zeichen lehnt schon der Tokenizer ab: so lang ist sein Puffer
+/// (`JsonReader.peekNumber`), und nur im Modus `LENIENT` ginge es weiter.
+/// Gezählt wird im Text, also auch bei einem Schlüssel, den ein späterer
+/// gleichen Namens überschreibt.
+fn parse_json(text: &str, ganz: bool) -> Result<serde_json::Value> {
+    let (json, ende) = if ganz {
+        let json = serde_json::from_str(text).context("kein gültiges JSON")?;
+        (json, text.len())
+    } else {
+        let mut stream = serde_json::Deserializer::from_str(text).into_iter();
+        let json = stream
+            .next()
+            .ok_or_else(|| anyhow!("leer"))?
+            .context("kein gültiges JSON")?;
+        (json, stream.byte_offset())
+    };
+    let laenge = laengste_zahl(&text[..ende]);
+    ensure!(
+        laenge < 1024,
+        "eine Zahl mit {laenge} Zeichen, Gson liest höchstens 1023"
+    );
+    Ok(json)
+}
+
+/// Die längste Zahl in gültigem JSON: ausserhalb von Zeichenketten jede
+/// Folge ab `-` oder einer Ziffer aus Ziffern, `-`, `+`, `.`, `e` und `E`.
+fn laengste_zahl(text: &str) -> usize {
+    let mut laengste = 0;
+    let mut zeichen = text.bytes().peekable();
+    while let Some(b) = zeichen.next() {
+        match b {
+            b'"' => {
+                while let Some(b) = zeichen.next() {
+                    match b {
+                        b'\\' => {
+                            zeichen.next();
+                        }
+                        b'"' => break,
+                        _ => {}
+                    }
+                }
+            }
+            b'-' | b'0'..=b'9' => {
+                let mut laenge = 1;
+                while zeichen
+                    .next_if(|b| matches!(b, b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E'))
+                    .is_some()
+                {
+                    laenge += 1;
+                }
+                laengste = laengste.max(laenge);
+            }
+            _ => {}
+        }
+    }
+    laengste
 }
 
 #[cfg(test)]
@@ -465,6 +522,39 @@ mod tests {
         assert_eq!(read_text(&file).unwrap(), "a\u{fffd}b");
         std::fs::write(&file, b"\xef\xbb\xbf\xef\xbb\xbfa").unwrap();
         assert_eq!(read_text(&file).unwrap(), "\u{feff}a");
+    }
+
+    /// Gson liest eine Zahl bis 1023 Zeichen, eine längere lehnt der
+    /// Tokenizer ab, auch unter einem Schlüssel, den ein späterer gleichen
+    /// Namens überschreibt, und auch in einem ersten Dokument, hinter dem
+    /// noch etwas steht. Was dahinter steht, liest `GsonHelper` nicht.
+    #[test]
+    fn zahlen_bis_1023_zeichen() {
+        let zahl = |laenge: usize| format!("1{}", "0".repeat(laenge - 1));
+        for ganz in [true, false] {
+            assert!(parse_json(&format!("[{}]", zahl(1023)), ganz).is_ok());
+            assert!(parse_json(&format!("[{}]", zahl(1024)), ganz).is_err());
+            let doppelt = format!(r#"{{"a": {}, "a": 1}}"#, zahl(1024));
+            assert!(parse_json(&doppelt, ganz).is_err());
+            let text = format!(r#"{{"a": "{}"}}"#, zahl(2000));
+            assert!(parse_json(&text, ganz).is_ok(), "in einer Zeichenkette");
+        }
+        assert!(parse_json(&format!("{{}} [{}]", zahl(1024)), false).is_ok());
+        assert!(parse_json("{} []", true).is_err());
+    }
+
+    /// Auch ein Modell liest der Renderer so: eine Zahl ab 1024 Zeichen
+    /// macht die Datei kaputt, was hinter dem ersten Dokument steht, zählt
+    /// nicht.
+    #[test]
+    fn modell_mit_zu_langer_zahl() {
+        let dir = tempfile::tempdir().unwrap();
+        let datei = dir.path().join("m.json");
+        let zahl = format!("1{}", "0".repeat(1023));
+        std::fs::write(&datei, format!(r#"{{"x": {zahl}}}"#)).unwrap();
+        assert!(read_json(&datei).is_err());
+        std::fs::write(&datei, format!(r#"{{}} {{"x": {zahl}}}"#)).unwrap();
+        assert!(read_json(&datei).is_ok());
     }
 
     #[test]

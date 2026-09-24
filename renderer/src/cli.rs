@@ -139,6 +139,18 @@ pub fn run() -> Result<()> {
                 let biomes = assets.load_biomes(dir)?;
                 println!("            {biomes} Biome aus {}", dir.display());
             }
+            let kaputt = assets.colors().broken_biomes();
+            if !kaputt.is_empty() {
+                println!(
+                    "            {} Biome kaputt, übergangen; der Client lüde ihr Datenpaket nicht:",
+                    kaputt.len()
+                );
+                print_list(
+                    kaputt
+                        .iter()
+                        .map(|(pfad, grund)| format!("{pfad}: {grund}")),
+                );
+            }
             Some(assets)
         }
     };
@@ -1413,6 +1425,18 @@ fn report_missing_textures(assets: &Assets) {
         missing.len()
     );
     print_list(missing.iter());
+    let kaputt = assets.textures().broken();
+    if !kaputt.is_empty() {
+        println!(
+            "            davon {} mit Datei, die der Client verwirft:",
+            kaputt.len()
+        );
+        print_list(
+            kaputt
+                .iter()
+                .map(|(name, grund)| format!("{name}: {grund}")),
+        );
+    }
 
     let skipped = assets.skipped();
     if !skipped.is_empty() {

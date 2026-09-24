@@ -509,6 +509,40 @@ fn dateinamen_zaehlen_nur_in_ihrer_schreibweise() {
     assert_eq!(assets.block_names().unwrap(), ["minecraft:stone"]);
 }
 
+/// Ein Element `null`, eine Seite `null` oder eine ohne Texturnamen lassen
+/// sich lesen, aber auf einer Seite mit Fläche nicht backen: das Modell ist
+/// kaputt, und der Zustand zeigt den Missing-Würfel.
+#[test]
+fn null_und_leerer_name_machen_das_modell_kaputt() {
+    for elemente in [
+        "[null]",
+        r#"[{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {"up": null}}]"#,
+        r#"[{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {"up": {"texture": ""}}}]"#,
+    ] {
+        let pack = tempfile::tempdir().unwrap();
+        let schreibe = |datei: &str, inhalt: &str| {
+            let pfad = pack.path().join("minecraft").join(datei);
+            std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+            std::fs::write(pfad, inhalt).unwrap();
+        };
+        schreibe(
+            "blockstates/stone.json",
+            r#"{"variants": {"": {"model": "block/kaputt"}}}"#,
+        );
+        schreibe(
+            "models/block/kaputt.json",
+            &format!(r#"{{"textures": {{"a": "block/stone"}}, "elements": {elemente}}}"#),
+        );
+        let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+        let variants = assets.variants(&state("stone")).unwrap();
+        assert_eq!(variants[0].model_id, MISSING_MODEL, "{elemente}");
+        assert!(
+            assets.skipped().contains_key("minecraft:stone"),
+            "{elemente}"
+        );
+    }
+}
+
 /// Eine Seite ohne Fläche fällt wie in `UnbakedCuboidGeometry.bake` weg,
 /// bevor der Client sie anfasst. Hier eine flache Platte: ihre Nordseite
 /// ist `null`, ihre Westseite hat keinen Texturnamen. Auf einer Seite mit
@@ -738,10 +772,47 @@ fn byte_order_mark_auch_in_mcmeta_und_biomen() {
     std::fs::create_dir_all(&biome).unwrap();
     std::fs::write(
         biome.join("ebene.json"),
-        b"\xef\xbb\xbf{\"temperature\": 0.8}",
+        "\u{feff}{\"has_precipitation\": true, \"temperature\": 0.8, \"downfall\": 0.4, \"effects\": {\"water_color\": 4159204}}",
     )
     .unwrap();
     assert_eq!(assets.load_biomes(daten.path()).unwrap(), 1);
+    assert!(assets.colors().broken_biomes().is_empty());
+    assert_eq!(
+        assets.colors().biomes().collect::<Vec<_>>(),
+        ["minecraft:ebene"]
+    );
+}
+
+/// Ein Biom, das der Codec ablehnt, übergeht der Renderer und nennt es,
+/// statt den Lauf abzubrechen; der Client lüde sein Datenpaket nicht. Eine
+/// Farbe als Liste von Kommazahlen nimmt 26.2 an. Früher brach eine solche
+/// Farbe jeden Lauf ab.
+#[test]
+fn kaputtes_biom_wird_uebergangen() {
+    let daten = tempfile::tempdir().unwrap();
+    let biome = daten.path().join("minecraft/worldgen/biome");
+    std::fs::create_dir_all(&biome).unwrap();
+    let biom = |wasser: &str| {
+        format!(
+            r#"{{"has_precipitation": true, "temperature": 0.8, "downfall": 0.4, "effects": {{"water_color": {wasser}}}}}"#
+        )
+    };
+    std::fs::write(biome.join("liste.json"), biom("[0.2, 0.4, 0.8]")).unwrap();
+    std::fs::write(biome.join("kaputt.json"), biom(r#""blau""#)).unwrap();
+    let mut assets = base();
+    assert_eq!(assets.load_biomes(daten.path()).unwrap(), 1);
+    assert_eq!(
+        assets
+            .colors()
+            .tints("water", Some("minecraft:liste"))
+            .water,
+        Some([51, 102, 204])
+    );
+    let kaputt = assets.colors().broken_biomes();
+    assert_eq!(kaputt.len(), 1, "{kaputt:?}");
+    let (pfad, grund) = kaputt.iter().next().unwrap();
+    assert!(pfad.ends_with("kaputt.json"), "{pfad}");
+    assert!(grund.contains("water_color"), "{grund}");
 }
 
 /// Ein Byte-Order-Mark vorn überspringt Gson, in Blockstates wie in

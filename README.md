@@ -82,6 +82,13 @@ gehören zur ID, `terralith:cave/underground_jungle` liegt unter
 das keine Definition geladen ist, sagt der Renderer es beim Start und
 färbt es wie `plains`.
 
+Was er aus einem Biom braucht, liest der Renderer wie `Biome.DIRECT_CODEC`
+in 26.2: Pflicht sind `has_precipitation`, `temperature`, `downfall`,
+`effects` und darin `water_color`. Eine Farbe darf wie im Client eine
+ganze Zahl sein, `#rrggbb` oder drei Kommazahlen von 0 bis 1 wie
+`[0.2, 0.4, 0.8]`. Ein Biom, das der Codec ablehnt, übergeht der Renderer
+und nennt es beim Start; der Client lüde sein Datenpaket gar nicht.
+
 ## Benutzung
 
 ```bash
@@ -643,8 +650,10 @@ Ein Feld mit `null` zählt wie im Client als fehlend, `"when": null` gilt
 also immer. Als Wert einer Variante oder in einer Liste ist `null` ein
 Fehler. Zahlen liest der Renderer so, wie sie in der Datei stehen, und
 schneidet sie ab wie Gsons `intValue`, auch jenseits von 64 Bit: ein
-Gewicht 18446744073709551617 ist 1. Eine Zahl mit mehr als 10000 Zeichen
-macht die Datei kaputt, ebenso `1e10000`: Gsons `NumberLimits` lehnt ab
+Gewicht 18446744073709551617 ist 1. Eine Zahl ab 1024 Zeichen macht die
+Datei kaputt: so lang ist der Puffer von Gsons `JsonReader`, und nur im
+Modus `LENIENT` liest er weiter. Das gilt für jede JSON-Datei, die der
+Renderer liest. Ebenso kaputt ist `1e10000`: `NumberLimits` lehnt ab
 10000 Stellen zwischen letzter Ziffer und Komma ab.
 
 Ein Byte-Order-Mark vorn überspringt Gson, auch in Modellen, `.mcmeta`
@@ -694,7 +703,9 @@ Modelle liest der Renderer wie `CuboidModel` im Client. Die Textur einer
 Fläche ist immer der Name eines Slots, mit oder ohne `#` davor;
 `heavy_core` schreibt `"texture": "all"`. Verweise zwischen Slots löst er
 bis zum Ende auf, nur ein Zyklus bleibt offen. Hier liest Gson die Felder,
-nicht DFU, und `null` ist ein Fehler. Kaputt ist ein Modell auch, wenn
+nicht DFU: wo das Modell einen Wert braucht, ist `null` ein Fehler. Eine
+Ansicht in `display`, `force_translucent` und eine Seite ohne Fläche
+nehmen `null` hin. Kaputt ist ein Modell auch, wenn
 `from` oder `to` nicht zwischen -16 und 32 liegt, ein Element keine Seite
 hat, eine Seite einen unbekannten Namen trägt, einer Drehung `origin` oder
 der Winkel fehlt oder eine Textur kein `Identifier` ist. Das gilt auch für
@@ -704,6 +715,17 @@ braucht. Dafür nimmt der Client Zahlen, wie `intValue` und
 `"tintindex": 0.0` ist 0. Die Achse `"Y"` gilt als `y` und eine unbekannte
 `cullface` als keine. Eine Fläche ohne Ausdehnung fällt weg, bevor der
 Client ihre Textur sucht.
+
+Eine `.mcmeta` liest der Renderer wie der Block-Atlas: `animation` und
+`texture` je mit ihrem Codec. Was einer davon ablehnt, etwa
+`"frametime": 0` oder `"blur": 1`, macht die Textur wie im Client zur
+Missing-Textur, und die Ausgabe nennt den Grund. `"width": 16.0` ist 16.
+Fehlt eine Bildgrösse, gilt die andere, fehlen beide, die kürzere Seite
+des Bildes; teilt sie das Bild nicht, ist die Textur ebenso kaputt. Der
+Renderer zeigt das Bild, mit dem der Client beginnt: das erste gültige
+aus `frames`. Bleibt nur eines, ist die Textur statisch, und ist das Bild
+dann grösser als eines, scheitert im Client der Atlas; der Renderer zeigt
+die Missing-Textur.
 
 Alle 1198 Blockstate-Dateien von Vanilla 26.2 und die 39 des
 TerraNova-Packs lesen sich so ohne Fehler und ohne verworfenen Eintrag,

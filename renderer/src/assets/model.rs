@@ -812,6 +812,9 @@ mod tests {
         };
         assert!(!kiste(r#", "shade": false"#).unwrap().unwrap().shade);
         assert!(kiste(r#", "light_emission": 1.5"#).is_ok());
+        // `firefly_bush` und `open_eyeblossom` leuchten mit 15.
+        assert!(kiste(r#", "light_emission": 15"#).is_ok());
+        assert!(kiste(r#", "light_emission": 0"#).is_ok());
         assert!(element("null").unwrap().is_none());
         let null_seite =
             element(r#"{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {"up": null}}"#).unwrap();

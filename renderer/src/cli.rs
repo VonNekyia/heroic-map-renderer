@@ -546,7 +546,7 @@ fn write_tiles(
     let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
 
     let started = Instant::now();
-    let survey = survey(world, projection, Y_RANGE, bounds)?;
+    let mut survey = survey(world, projection, Y_RANGE, bounds)?;
     println!(
         "\nVorlauf:    {} Chunks in {:.1} s, {} Blockstates, {} Kacheln",
         survey.chunks,
@@ -639,6 +639,12 @@ fn write_tiles(
     let fertig = AtomicUsize::new(0);
     let bytes = AtomicUsize::new(0);
     let gesamt = survey.tiles.len();
+    // In Blöcken von 16 mal 16 Kacheln statt Spalte für Spalte: Geschwister
+    // werden so kurz nacheinander fertig, und ein `--pyramid` neben dem
+    // Render baut ihre Elternkachel seltener mehrmals.
+    survey
+        .tiles
+        .sort_unstable_by_key(|tile| (tile.x >> 4, tile.y >> 4, tile.x, tile.y));
 
     // Kacheln, die leer geworden sind, verschwinden erst am Ende des Laufs,
     // auf jeder Stufe, zusammen mit denen ohne Chunk; bis dahin zeigen sie

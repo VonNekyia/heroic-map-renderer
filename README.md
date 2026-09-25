@@ -203,11 +203,11 @@ Sprite, das nicht selbst Alternative einer Blockstate ist: eines je Maske
 verdeckter Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu
 die Streifen an Wasserstufen.
 
-Gerendert wird mit Rayon über die Kacheln. Geteilt wird nur die
-unveränderliche Sprite-Tabelle; jede Kachel legt sich ihren Chunk- und
-Regionscache neu an. Benachbarte Kacheln dekodieren dieselben Chunks also
-mehrfach, siehe unten. Wie viel davon die Zeit einer Kachel ausmacht, ist
-nicht gemessen; vor einer Optimierung dort gehört ein Profil.
+Gerendert wird mit Rayon über die Kacheln, in Blöcken von 16 mal 16. Geteilt
+wird nur die unveränderliche Sprite-Tabelle; jede Kachel legt sich ihren
+Chunk- und Regionscache neu an. Benachbarte Kacheln dekodieren dieselben
+Chunks also mehrfach, siehe unten. Wie viel davon die Zeit einer Kachel
+ausmacht, ist nicht gemessen; vor einer Optimierung dort gehört ein Profil.
 
 `--center` und `--size` schränken auf einen Ausschnitt ein:
 
@@ -387,7 +387,9 @@ nächsten. Die Zeiten kommen aus der Liste jeder Stufe: unter Windows
 stehen sie im Verzeichnis, unter Linux kostet jede Kachel einen `statx`,
 aber kein Öffnen. Der Aufruf lässt sich deshalb wiederholen, während ein
 Vollrender noch Stunden läuft: die Karte im Browser zeigt, was fertig ist,
-und wächst mit jedem Aufruf.
+und wächst mit jedem Aufruf. Die Basis rendert in Blöcken von 16 mal 16
+Kacheln, damit Geschwister kurz nacheinander fertig werden und ein Aufruf
+ihre Elternkachel selten zweimal baut.
 
 Jede Kachel, die `--pyramid` schreibt, und `map.json` tragen als Zeit den
 Beginn des Aufrufs, zwei Sekunden früher. Ein Kind, das der Render

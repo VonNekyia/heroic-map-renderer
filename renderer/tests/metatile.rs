@@ -126,8 +126,11 @@ fn verdecken_aendert_kein_pixel() {
 /// die Oberfläche tiefer liegt als der Boden des Dachs, und zwei
 /// Wassertaschen unter Stein, die zu einer Seite an Stein grenzen und zur
 /// anderen an Wasser mit Wasser darüber: ihre Oberfläche ragt in die Seite
-/// zum Wasser hinein und scheint durch. Dazu Glas im Wasser,
-/// Lava in Stufen und unter Lava, ein 15/16 hoher Block wie Ackerboden
+/// zum Wasser hinein und scheint durch. Dazu Glas im Wasser, Lava in
+/// Stufen und unter Lava, ein Lavasee mit Wänden nach +x und +z, eine
+/// Lavatasche wie die Wassertaschen, zwei Lavasäulen, die zur einen Seite
+/// über einer Stufe stehen und zur anderen an Stein grenzen, ein 15/16
+/// hoher Block wie Ackerboden
 /// neben Lava und gestapelt, Platten, Kuchen, eine Seerose, ein gefluteter
 /// Zaun, eine Blasensäule, Säulen durch beide Section-Grenzen und Modelle,
 /// die in Nachbarwürfel ragen. Einmal ganz im Bild, einmal von einem
@@ -152,6 +155,11 @@ fn schneller_weg_gleicht_der_referenz() {
             (8, 22, 20) => "minecraft:seerose",
             (2..=4, 3, 20..=23) | (3, 4, 21) => "minecraft:lava",
             (2, 4, 24) | (4, 3, 24) => "minecraft:lava[level=2]",
+            (0..=3, 3..=5, 0..=3) | (29, 3, 1) | (29, 3..=4, 2) => "minecraft:lava",
+            (1, 3..=4, 8) | (2, 3, 8) | (1, 3..=4, 12) | (1, 3, 13) => "minecraft:lava",
+            (1, 3, 9) | (2, 3, 12) => "minecraft:einfarbig",
+            (4, 3..=6, 0..=4) | (0..=3, 3..=6, 4) => "minecraft:einfarbig",
+            (29, 4, 1) | (30, 3..=4, 1..=2) | (29, 5, 2) | (29, 3..=4, 3) => "minecraft:einfarbig",
             (5, 3, 20..=22) | (26, 3..=6, 3..=5) => "minecraft:ackerboden",
             (28, 3..=40, 28) | (27, 15..=17, 27) | (27, 31..=33, 26) => "minecraft:einfarbig",
             (17, 3, 28) | (16, 31, 2) => "minecraft:turm",

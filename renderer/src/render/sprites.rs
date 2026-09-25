@@ -173,7 +173,10 @@ pub struct Family {
     pub foreign: bool,
     /// Besteht jede Alternative nur aus der Fluessigkeit, ohne Modell
     /// daneben: Wasser, Lava, Blasensaeule. Dann bleibt vom Block nichts,
-    /// wenn die Fluessigkeit nach allen drei Seiten an ihresgleichen grenzt.
+    /// wo ueber ihm dieselbe Fluessigkeit steht und zu beiden Seiten
+    /// dieselbe mit derselben darueber oder ein deckender Block; sonst
+    /// bleibt die Oberflaeche oder ein Streifen. Siehe `expose` im
+    /// Metatile-Renderer.
     pub pure_fluid: bool,
     /// Je Hoehe einer Wasseroberflaeche in Neunteln ein Bit, siehe
     /// [`Family::covers`].

@@ -378,15 +378,21 @@ const SOLID: usize = 1;
 const PLAIN: usize = 2;
 /// Deckt den Boden des Würfels, die Oberseite des Blocks darunter.
 const FLOOR: usize = 3;
-/// Enthält Wasser: für Wasser nebenan dieselbe Flüssigkeit.
-const WET: usize = 4;
-/// Nur Wasser, ohne Modell daneben.
-const PURE: usize = 5;
+/// Enthält Wasser, [`LAVA`] Lava: für dieselbe Flüssigkeit nebenan
+/// dieselbe.
+const WATER: usize = 4;
+const LAVA: usize = 5;
+/// Nur Wasser, [`PURE_LAVA`] nur Lava, ohne Modell daneben.
+const PURE_WATER: usize = 6;
+const PURE_LAVA: usize = 7;
 /// Bleibt nicht in ihrem Würfel: nie überspringen.
-const LOOSE: usize = 6;
+const LOOSE: usize = 8;
 /// Hat Teile in Nachbarwürfeln.
-const FOREIGN: usize = 7;
-const FLAGS: usize = 8;
+const FOREIGN: usize = 9;
+const FLAGS: usize = 10;
+/// Je Flüssigkeit, in der Reihenfolge von [`Masks::up`]: das Bit "enthält
+/// sie" und das Bit "nur sie".
+const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
 
 /// Bitmasken einer Section: je Eigenschaft und Spalte `z * 16 + x` ein
 /// Wort, Bit `y`.
@@ -397,10 +403,23 @@ const FLAGS: usize = 8;
 /// Blöcken, die dann doch unter der Oberfläche liegen.
 struct Masks {
     bits: [[u16; 256]; FLAGS],
-    /// Liegt über dem Block Wasser, auch aus der Section darüber?
-    wet_up: [u16; 256],
+    /// Je Flüssigkeit aus [`FLUIDS`]: liegt über dem Block dieselbe, auch
+    /// aus der Section darüber?
+    up: [[u16; 256]; 2],
     /// Ragt irgendetwas in Nachbarwürfel?
     any_foreign: bool,
+}
+
+/// Eine Randspalte für [`ChunkCache::expose`]: deckend, dazu je
+/// Flüssigkeit aus [`FLUIDS`] "enthält sie" und "dieselbe darüber".
+type Rand = (u16, [u16; 2], [u16; 2]);
+
+fn rand(m: &Masks, col: usize) -> Rand {
+    (
+        m.bits[SOLID][col],
+        [m.bits[WATER][col], m.bits[LAVA][col]],
+        [m.up[0][col], m.up[1][col]],
+    )
 }
 
 /// Was in einer Section gezeichnet werden muss.
@@ -423,15 +442,17 @@ struct Exposed {
 }
 
 /// Die Bits einer Familie für [`Masks`].
-fn flags(family: &Family) -> u8 {
-    let water = family.fluid.is_some_and(|(kind, _)| kind == Fluid::Water);
-    let bit = |set: bool, flag: usize| (set as u8) << flag;
+fn flags(family: &Family) -> u16 {
+    let fluid = |kind: Fluid| family.fluid.is_some_and(|(k, _)| k == kind);
+    let bit = |set: bool, flag: usize| (set as u16) << flag;
     bit(true, PRESENT)
         | bit(family.opaque, SOLID)
         | bit(family.opaque && family.fluid.is_none(), PLAIN)
         | bit(family.covers_floor, FLOOR)
-        | bit(water, WET)
-        | bit(water && family.pure_fluid, PURE)
+        | bit(fluid(Fluid::Water), WATER)
+        | bit(fluid(Fluid::Lava), LAVA)
+        | bit(fluid(Fluid::Water) && family.pure_fluid, PURE_WATER)
+        | bit(fluid(Fluid::Lava) && family.pure_fluid, PURE_LAVA)
         | bit(!family.contained, LOOSE)
         | bit(family.foreign, FOREIGN)
 }
@@ -439,7 +460,7 @@ fn flags(family: &Family) -> u8 {
 impl Masks {
     /// `None`, wenn in der Section keine Familie steht.
     fn of(section: &Section, families: &[Option<u32>], sprites: &SpriteSet) -> Option<Box<Masks>> {
-        let flags: Vec<u8> = families
+        let flags: Vec<u16> = families
             .iter()
             .map(|family| family.map_or(0, |index| flags(sprites.family(index))))
             .collect();
@@ -449,7 +470,7 @@ impl Masks {
         }
         let mut m = Box::new(Masks {
             bits: [[0; 256]; FLAGS],
-            wet_up: [0; 256],
+            up: [[0; 256]; 2],
             any_foreign: false,
         });
         let blocks = section.blocks();
@@ -465,7 +486,7 @@ impl Masks {
             // Bits: Luft, deckender Stein, Wasser, eine Blume. Je Block
             // genügt ein OR in die Maske seiner Klasse; die Masken je
             // Eigenschaft setzen sich danach aus den Klassen zusammen.
-            let mut klassen: Vec<u8> = Vec::new();
+            let mut klassen: Vec<u16> = Vec::new();
             let klasse: Vec<usize> = flags
                 .iter()
                 .map(|&flag| {
@@ -524,18 +545,20 @@ impl Loaded {
             .zip(&families)
             .map(|(section, families)| Masks::of(section, families, sprites))
             .collect();
-        // Wasser über dem obersten Block einer Section steht in der
+        // Flüssigkeit über dem obersten Block einer Section steht in der
         // Section darüber, im selben Chunk.
         for s in 0..masks.len() {
             let above = chunk.sections()[s]
                 .y
                 .checked_add(1)
                 .and_then(|y| chunk.section_index(y))
-                .and_then(|i| masks[i].as_ref().map(|a| a.bits[WET]));
+                .and_then(|i| masks[i].as_ref().map(|a| [a.bits[WATER], a.bits[LAVA]]));
             if let Some(m) = &mut masks[s] {
-                for col in 0..256 {
-                    let top = above.map_or(0, |a| a[col] & 1);
-                    m.wet_up[col] = (m.bits[WET][col] >> 1) | (top << 15);
+                for (f, &(bit, _)) in FLUIDS.iter().enumerate() {
+                    for col in 0..256 {
+                        let top = above.map_or(0, |a| a[f][col] & 1);
+                        m.up[f][col] = (m.bits[bit][col] >> 1) | (top << 15);
+                    }
                 }
             }
         }
@@ -617,24 +640,18 @@ impl<'a> ChunkCache<'a> {
         Ok(i)
     }
 
-    /// Randspalten einer Nachbarsection: `(deckend, Wasser, Wasser darüber)`
-    /// je Spalte am Rand `x = 0` (Index z) oder `z = 0` (Index x). Ohne
-    /// Chunk oder Section ist das Luft.
-    fn edge(
-        &mut self,
-        key: (i32, i32),
-        section_y: i8,
-        x_edge: bool,
-    ) -> Result<[(u16, u16, u16); 16]> {
+    /// Randspalten einer Nachbarsection ([`Rand`]) je Spalte am Rand `x = 0`
+    /// (Index z) oder `z = 0` (Index x). Ohne Chunk oder Section ist das
+    /// Luft.
+    fn edge(&mut self, key: (i32, i32), section_y: i8, x_edge: bool) -> Result<[Rand; 16]> {
         let i = self.slot(key)?;
-        let mut out = [(0, 0, 0); 16];
+        let mut out = [(0, [0; 2], [0; 2]); 16];
         if let Some(loaded) = &self.slots[i].loaded
             && let Some(s) = loaded.chunk.section_index(section_y)
             && let Some(m) = &loaded.masks[s]
         {
             for (j, edge) in out.iter_mut().enumerate() {
-                let col = if x_edge { j * 16 } else { j };
-                *edge = (m.bits[SOLID][col], m.bits[WET][col], m.wet_up[col]);
+                *edge = rand(m, if x_edge { j * 16 } else { j });
             }
         }
         Ok(out)
@@ -648,16 +665,17 @@ impl<'a> ChunkCache<'a> {
     /// Spalte, eins höher — ein Shift; am oberen Rand kommt es aus der
     /// Section darüber, an den Rändern +x und +z aus dem Nachbarchunk.
     ///
-    /// Reines Wasser zeichnet ausserdem nichts, wo über ihm Wasser steht und
-    /// es zu beiden Seiten an Wasser grenzt, das selbst Wasser über sich
-    /// hat: die Flächen dorthin entfallen, und ein Streifen über einem
-    /// niedrigeren Nachbarn kann nicht entstehen. Seitlich darf statt Wasser
-    /// auch ein deckender Nachbar stehen; mit Wasser darüber reicht die
-    /// Seitenfläche bis zur Kante, und der Nachbar übermalt sie danach. Oben
-    /// dagegen nicht: ohne Wasser darüber endet die Oberfläche bei ihrer
-    /// Höhe, tiefer als der Boden des Blocks darüber, und ragt in die
-    /// Seiten hinein. So kommt das Innere eines Ozeans gar nicht erst zur
-    /// Sprite-Wahl.
+    /// Reine Flüssigkeit, Wasser wie Lava, zeichnet ausserdem nichts, wo
+    /// über ihr dieselbe steht und sie zu beiden Seiten an dieselbe grenzt,
+    /// die selbst dieselbe über sich hat: die Flächen dorthin entfallen, und
+    /// ein Streifen über einem niedrigeren Nachbarn kann nicht entstehen.
+    /// Seitlich darf statt der Flüssigkeit auch ein deckender Nachbar stehen;
+    /// mit derselben darüber reicht die Seitenfläche bis zur Kante, und der
+    /// Nachbar übermalt sie danach. Oben dagegen nicht: ohne dieselbe
+    /// darüber endet die Oberfläche bei ihrer Höhe, tiefer als der Boden des
+    /// Blocks darüber, und ragt in die Seiten hinein. So kommt das Innere
+    /// eines Ozeans oder eines Lavasees gar nicht erst zur Sprite-Wahl;
+    /// Lava deckt nur bei scale 4, sonst fiele dort kein Block weg.
     fn expose(&mut self, slot: usize, s: usize) -> Result<()> {
         let (key, section_y) = {
             let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
@@ -685,18 +703,22 @@ impl<'a> ChunkCache<'a> {
             skip_z: [0; 256],
             any_own: false,
         });
-        let side = |col: usize| (m.bits[SOLID][col], m.bits[WET][col], m.wet_up[col]);
         for col in 0..256 {
             let (x, z) = (col & 15, col >> 4);
-            let (sx, wx, ux) = if x < 15 { side(col + 1) } else { nx[z] };
-            let (sz, wz, uz) = if z < 15 { side(col + 16) } else { nz[x] };
+            let (sx, fx, ux) = if x < 15 { rand(m, col + 1) } else { nx[z] };
+            let (sz, fz, uz) = if z < 15 { rand(m, col + 16) } else { nz[x] };
             let top = above.map_or(0, |a| a.bits[FLOOR][col] & 1);
             let floor_up = (m.bits[FLOOR][col] >> 1) | (top << 15);
             let hidden = sx & floor_up & sz;
-            let water_hidden =
-                m.bits[PURE][col] & m.wet_up[col] & (sx | (wx & ux)) & (sz | (wz & uz));
+            let mut fluid_hidden = 0;
+            for (f, &(_, pure)) in FLUIDS.iter().enumerate() {
+                fluid_hidden |= m.bits[pure][col]
+                    & m.up[f][col]
+                    & (sx | (fx[f] & ux[f]))
+                    & (sz | (fz[f] & uz[f]));
+            }
             ex.hidden[col] = hidden;
-            ex.own[col] = m.bits[PRESENT][col] & (m.bits[LOOSE][col] | !(hidden | water_hidden));
+            ex.own[col] = m.bits[PRESENT][col] & (m.bits[LOOSE][col] | !(hidden | fluid_hidden));
         }
         ex.any_own = ex.own.iter().any(|&o| o != 0);
         // Deckende Kandidaten: die übermalen, was in ihrem Umriss liegt.

@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use image::RgbaImage;
 use serde_json::Value;
 
 use super::blockstate::{boolean, field, float, int};
+use super::pack::ASSETS;
 use super::{Pack, find_file, parse_json, read_text, split_id};
 
 /// Verweis in die Texturtabelle. Id 0 ist immer der Platzhalter.
@@ -53,7 +54,7 @@ impl Textures {
     /// ([`read_texture`]). Die Namen sammelt [`Textures::missing`], die
     /// verworfenen mit Grund [`Textures::broken`]. Ohne Namensraum gilt
     /// `minecraft`, wie im Client: `block/stone` ist dieselbe Textur wie
-    /// `minecraft:block/stone`.
+    /// `minecraft:block/stone`. Wo die Datei liegt, sagt [`datei`].
     pub fn load(&mut self, packs: &[Pack], id: &str) -> TextureId {
         let (namespace, name) = split_id(id);
         let id = format!("{namespace}:{name}");
@@ -61,8 +62,8 @@ impl Textures {
             return existing;
         }
 
-        let loaded = find_file(packs, namespace, "textures", name, "png")
-            .map(|(layer, path)| read_texture(packs, layer, namespace, name, path));
+        let loaded = datei(packs, namespace, name, "png")
+            .map(|(layer, path)| read_texture(packs, layer, namespace, name, &path));
 
         let texture = match loaded {
             Some(Ok(image)) => {
@@ -140,26 +141,51 @@ fn read_texture(
 ///
 /// Minecraft nimmt Metadaten aus derselben oder einer höher priorisierten
 /// Schicht als die PNG-Datei — ein Overlay darf also allein die `.mcmeta`
-/// mitbringen. Gepaart wird über den aufgelisteten Namen, wie in
-/// `FallbackResourceManager.listResources`. Ohne `animation` ist die
-/// Textur statisch, auch wenn die Datei existiert: 48 der Vanilla-mcmeta
-/// enthalten nur `texture`-Flags.
+/// mitbringen. Gepaart wird wie die PNG gefunden wurde ([`datei`]): über
+/// den aufgelisteten Namen wie in `FallbackResourceManager.listResources`,
+/// sonst direkt wie in `createStackMetadataFinder`. Ohne `animation` ist
+/// die Textur statisch, auch wenn die Datei existiert: 48 der
+/// Vanilla-mcmeta enthalten nur `texture`-Flags.
 fn animation(
     packs: &[Pack],
     png_layer: usize,
     namespace: &str,
     name: &str,
 ) -> Result<Option<Animation>> {
-    let Some((_, meta)) = find_file(
-        &packs[png_layer..],
-        namespace,
-        "textures",
-        name,
-        "png.mcmeta",
-    ) else {
+    let Some((_, meta)) = datei(&packs[png_layer..], namespace, name, "png.mcmeta") else {
         return Ok(None);
     };
-    mcmeta(&read_text(meta)?).with_context(|| format!("{} lesen", meta.display()))
+    mcmeta(&read_text(&meta)?).with_context(|| format!("{} lesen", meta.display()))
+}
+
+/// Die Datei zur Textur `name` mit der `endung`, `png` oder `png.mcmeta`,
+/// und ihre Schicht im Packstapel, die oberste zuerst.
+///
+/// Aus einem Ordner des Block-Atlas nimmt der Client nur, was er dort
+/// auflistet ([`ASSETS`]). Seine beiden einzelnen Quellen,
+/// `entity/bell/bell_body` und `entity/enchantment/enchanting_table_book`,
+/// öffnet er direkt (`SingleFile`, `getResource`). So öffnet der Renderer
+/// jede Textur ausserhalb der Ordner. Für die übrigen zeigte der Client
+/// die Missing-Textur, es sei denn, ein Pack erweitert
+/// `atlases/blocks.json`; das liest der Renderer nicht.
+fn datei(packs: &[Pack], namespace: &str, name: &str, endung: &str) -> Option<(usize, PathBuf)> {
+    let im_ordner = ASSETS
+        .iter()
+        .filter_map(|liste| liste.strip_prefix(&["textures"][..]))
+        .any(|ordner| {
+            name.strip_prefix(&ordner.join("/"))
+                .is_some_and(|rest| rest.starts_with('/'))
+        });
+    if im_ordner {
+        return find_file(packs, namespace, "textures", name, endung)
+            .map(|(layer, pfad)| (layer, pfad.to_path_buf()));
+    }
+    let pfad = format!("textures/{name}.{endung}");
+    packs
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(layer, pack)| pack.resource(namespace, &pfad).map(|datei| (layer, datei)))
 }
 
 /// Die Angaben aus `animation`, die das erste Bild bestimmen.

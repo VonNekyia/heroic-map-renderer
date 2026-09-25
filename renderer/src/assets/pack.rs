@@ -11,14 +11,15 @@ use super::blockstate::is_identifier;
 
 /// Die Verzeichnisse einer Asset-Wurzel, die der Client auflistet und der
 /// Renderer braucht, je Namensraum: Blockstates und Modelle, wie
-/// `FileToIdConverter` sie sucht, und die Texturen des Block-Atlas, dessen
-/// Quelle in 26.2 `block` ist. Andere Texturen sucht der Renderer unter
-/// `textures`.
+/// `FileToIdConverter` sie sucht, und die Ordner des Block-Atlas, in 26.2
+/// `block` und `entity/conduit` (`atlases/blocks.json`). Andere Ordner
+/// unter `textures` listet der Renderer nicht auf; eine Textur ausserhalb
+/// dieser Ordner öffnet er direkt, siehe `Textures::load`.
 pub const ASSETS: [&[&str]; 4] = [
     &["blockstates"],
     &["models"],
     &["textures", "block"],
-    &["textures"],
+    &["textures", "entity", "conduit"],
 ];
 
 /// Die Biome einer Datenwurzel, `RegistryDataLoader` listet sie so auf.
@@ -210,8 +211,9 @@ fn art(_pfad: &Path, meta: &std::fs::Metadata) -> std::io::Result<Art> {
 /// Java hält unter Windows nur einen Analysepunkt mit dem Tag
 /// `IO_REPARSE_TAG_SYMLINK` für einen Link (`WindowsFileAttributes`). Eine
 /// Junction ist ein Ordner, dem es folgt, eine Datei mit anderem Tag
-/// keine Datei (`isOther`). Rust hält beides für einen Link, nur der Tag
-/// unterscheidet sie.
+/// keine Datei (`isOther`). So in Java 25, auf dem 26.2 läuft; ab Java 26
+/// ist kein Analysepunkt mehr ein Ordner. Rust hält beides für einen Link,
+/// nur der Tag unterscheidet sie.
 #[cfg(windows)]
 fn art(pfad: &Path, meta: &std::fs::Metadata) -> std::io::Result<Art> {
     use std::os::windows::fs::MetadataExt;

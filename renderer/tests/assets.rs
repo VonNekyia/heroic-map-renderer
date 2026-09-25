@@ -651,25 +651,29 @@ fn links_wie_im_client() {
     }
 }
 
-/// Zeigt der Anfang einer Liste, hier `models`, auf ein Ziel, das es
-/// nicht mehr gibt, listet der Client dort nichts: `listPath` fängt
-/// `NoSuchFileException` ab. Der Rest des Packs gilt, das Modell fehlt.
-/// Früher brach unter Windows der ganze Lauf ab, dort ist es eine Junction,
-/// die Java für einen Ordner hält, sonst ein Symlink, den schon die Liste
-/// übergeht.
+/// Zeigt der Anfang einer Liste, hier `models` und die Ordner des
+/// Block-Atlas, auf ein Ziel, das es nicht mehr gibt, listet der Client
+/// dort nichts: `listPath` fängt `NoSuchFileException` ab. Der Rest des
+/// Packs gilt, Modell und Texturen fehlen. Früher brach unter Windows der
+/// ganze Lauf ab, an `textures/block` auch noch über die Liste `textures`.
+/// Dort ist es eine Junction, die Java für einen Ordner hält, sonst ein
+/// Symlink, den schon die Liste übergeht.
 #[test]
 fn kaputter_link_am_anfang_listet_nichts() {
     let tmp = env!("CARGO_TARGET_TMPDIR");
     let pack = tempfile::tempdir_in(tmp).unwrap();
-    let blockstates = pack.path().join("minecraft/blockstates");
-    std::fs::create_dir_all(&blockstates).unwrap();
+    let minecraft = pack.path().join("minecraft");
+    std::fs::create_dir_all(minecraft.join("blockstates")).unwrap();
     std::fs::write(
-        blockstates.join("stone.json"),
+        minecraft.join("blockstates/stone.json"),
         r#"{"variants": {"": {"model": "block/stone"}}}"#,
     )
     .unwrap();
+    std::fs::create_dir_all(minecraft.join("textures/entity")).unwrap();
     let ziel = tempfile::tempdir_in(tmp).unwrap();
-    common::link(ziel.path(), &pack.path().join("minecraft/models"));
+    for anfang in ["models", "textures/block", "textures/entity/conduit"] {
+        common::link(ziel.path(), &minecraft.join(anfang));
+    }
     let weg = ziel.path().to_path_buf();
     drop(ziel);
     assert!(!weg.exists());
@@ -680,15 +684,20 @@ fn kaputter_link_am_anfang_listet_nichts() {
         assets.variants(&state("stone")).unwrap()[0].model_id,
         MISSING_MODEL
     );
+    for textur in ["block/stone", "entity/conduit/base"] {
+        assert_eq!(assets.texture(textur), Textures::MISSING, "{textur}");
+    }
     assert!(assets.unreadable().is_empty(), "{:?}", assets.unreadable());
 }
 
 /// Lässt sich der Anfang einer Liste aus einem anderen Grund nicht lesen,
 /// listet der Client dort ebenso nichts, schreibt den Fehler aber ins Log
 /// (`listPath`). Der Renderer nennt ihn, für Assets wie für Biome, und
-/// findet er gar kein Biom, auch in dieser Meldung. Unter Windows ist der
-/// Anfang eine Junction auf sich selbst, sonst ein Ordner ohne Rechte; den
-/// liest root trotzdem, in der CI muss es gehen.
+/// findet er gar kein Biom, auch in dieser Meldung. `textures/font` listet
+/// der Client nie auf, der Renderer ebenso wenig; dort fällt nichts auf.
+/// Unter Windows ist ein solcher Ordner eine Junction auf sich selbst,
+/// sonst einer ohne Rechte; den liest root trotzdem, in der CI muss es
+/// gehen.
 #[test]
 fn unlesbarer_anfang_wird_genannt() {
     let tmp = env!("CARGO_TARGET_TMPDIR");
@@ -711,14 +720,16 @@ fn unlesbarer_anfang_wird_genannt() {
     let ohne_biom = tempfile::tempdir_in(tmp).unwrap();
     // So gebaut wie in `Pack`, damit die Pfade gleich geschrieben sind.
     let models = pack.path().join("minecraft").join("models");
+    let block = pack.path().join("minecraft").join("textures").join("block");
+    let font = pack.path().join("minecraft").join("textures").join("font");
     let anders = daten.path().join("anders").join("worldgen").join("biome");
     let nur_unlesbar = ohne_biom
         .path()
         .join("minecraft")
         .join("worldgen")
         .join("biome");
-    let unlesbar = [&models, &anders, &nur_unlesbar];
-    let gesperrt = unlesbar.map(|pfad| sperre(pfad)) == [true; 3];
+    let unlesbar = [&models, &block, &font, &anders, &nur_unlesbar];
+    let gesperrt = unlesbar.map(|pfad| sperre(pfad)) == [true; 5];
 
     if gesperrt {
         let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
@@ -726,9 +737,10 @@ fn unlesbarer_anfang_wird_genannt() {
             assets.variants(&state("stone")).unwrap()[0].model_id,
             MISSING_MODEL
         );
+        assert_eq!(assets.texture("block/stone"), Textures::MISSING);
         assert_eq!(assets.load_biomes(daten.path()).unwrap(), 1);
         let meldung = format!("{:#}", assets.load_biomes(ohne_biom.path()).unwrap_err());
-        let mut soll = [&models, &anders].map(|pfad| pfad.display().to_string());
+        let mut soll = [&models, &block, &anders].map(|pfad| pfad.display().to_string());
         soll.sort();
         assert_eq!(assets.unreadable().into_keys().collect::<Vec<_>>(), soll);
         assert!(
@@ -749,9 +761,9 @@ fn unlesbarer_anfang_wird_genannt() {
 }
 
 /// Steht im Pfad vor dem Anfang einer Liste eine Datei, hier `textures`
-/// vor `textures/block`, meldet Linux das schon beim Lesen der Angaben
-/// (`ENOTDIR`). Das wirft in Java keine `NotDirectoryException`, und
-/// `listPath` schreibt es ins Log. Windows meldet einen fehlenden Pfad,
+/// vor den Ordnern des Block-Atlas, meldet Linux das schon beim Lesen der
+/// Angaben (`ENOTDIR`). Das wirft in Java keine `NotDirectoryException`,
+/// und `listPath` schreibt es ins Log. Windows meldet einen fehlenden Pfad,
 /// den Java still übergeht.
 #[test]
 fn datei_vor_dem_anfang() {
@@ -764,9 +776,50 @@ fn datei_vor_dem_anfang() {
     if cfg!(windows) {
         assert!(genannt.is_empty(), "{genannt:?}");
     } else {
-        let block = minecraft.join("textures").join("block");
-        assert_eq!(genannt, [block.display().to_string()]);
+        let textures = minecraft.join("textures");
+        let soll = [
+            textures.join("block"),
+            textures.join("entity").join("conduit"),
+        ];
+        assert_eq!(genannt, soll.map(|pfad| pfad.display().to_string()));
     }
+}
+
+/// Aus den Ordnern des Block-Atlas nimmt der Client nur, was er dort
+/// auflistet: `entity/conduit/Base.png` ist unter Windows nicht
+/// `entity/conduit/base`. Seine beiden einzelnen Quellen, hier
+/// `entity/bell/bell_body`, öffnet er direkt, samt einer `.mcmeta` aus
+/// derselben oder einer höheren Schicht (`createStackMetadataFinder`). So
+/// öffnet der Renderer jede Textur ausserhalb der Ordner, auch `item/apfel`,
+/// die der Client ohne einen erweiterten Atlas nicht zeigte.
+#[test]
+fn texturen_ausserhalb_der_atlas_ordner_direkt() {
+    let unten = tempfile::tempdir().unwrap();
+    let oben = tempfile::tempdir().unwrap();
+    let png = |wurzel: &Path, name: &str, hoehe: u32| {
+        let pfad = wurzel
+            .join("minecraft/textures")
+            .join(format!("{name}.png"));
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        image::RgbaImage::new(16, hoehe).save(pfad).unwrap();
+    };
+    png(unten.path(), "entity/bell/bell_body", 32);
+    png(unten.path(), "item/apfel", 16);
+    png(unten.path(), "entity/conduit/wind", 16);
+    png(unten.path(), "entity/conduit/Base", 16);
+    let meta = oben
+        .path()
+        .join("minecraft/textures/entity/bell/bell_body.png.mcmeta");
+    std::fs::create_dir_all(meta.parent().unwrap()).unwrap();
+    std::fs::write(&meta, r#"{"animation": {}}"#).unwrap();
+
+    let mut assets = Assets::open(vec![unten.path().into(), oben.path().into()]).unwrap();
+    let glocke = assets.texture("entity/bell/bell_body");
+    assert_ne!(glocke, Textures::MISSING);
+    assert_eq!(assets.textures().image(glocke).dimensions(), (16, 16));
+    assert_ne!(assets.texture("item/apfel"), Textures::MISSING);
+    assert_ne!(assets.texture("entity/conduit/wind"), Textures::MISSING);
+    assert_eq!(assets.texture("entity/conduit/base"), Textures::MISSING);
 }
 
 /// Macht `pfad` zu einem Ordner, der sich nicht auflisten lässt: unter

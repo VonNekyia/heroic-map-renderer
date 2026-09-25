@@ -673,16 +673,25 @@ und Biomen, und kaputtes UTF-8 wird zu U+FFFD.
 Jede Wurzel listet der Renderer einmal auf, so wie der Client ein Pack
 (`PathPackResources`). Der Wurzel folgt er, auch über einen Link, und
 ebenso jedem Namensraum darin. Die Anfänge der Listen nennt der Client
-selbst, `blockstates`, `models` und `textures/block`; unter Windows gelten
-sie also in jeder Schreibweise. Darunter zählt eine Datei nur, wenn ihr
+selbst: `blockstates`, `models` und die Ordner des Block-Atlas, in 26.2
+`textures/block` und `textures/entity/conduit`; unter Windows gelten sie
+also in jeder Schreibweise. Darunter zählt eine Datei nur, wenn ihr
 Name auf der Platte ein `Identifier` ist: unter Windows fände
 `block/stone` sonst auch `Stone.json`, das der Client übergeht, und eine
 `.mcmeta` gehört nur in genau dieser Schreibweise zur PNG. Einen Link
 darunter übergeht der Client, wie `Files.find` ohne `FOLLOW_LINKS`; eine
-Junction ist für Java unter Windows aber ein Ordner, und dem folgt er.
-Ganz aus lässt er ein Pack mit einem Link nur im Ordner `resourcepacks`
-(`DirectoryValidator`), die Wurzeln hier nennt der Nutzer. Eine Colormap
-öffnet der Client direkt, dort folgt er jedem Link.
+Junction ist für Java 25, auf dem 26.2 läuft, unter Windows aber ein
+Ordner, und dem folgt er; ab Java 26 nicht mehr. Ganz aus lässt er ein
+Pack mit einem Link nur im Ordner `resourcepacks` (`DirectoryValidator`),
+die Wurzeln hier nennt der Nutzer.
+
+Eine Colormap öffnet der Client direkt, ohne Liste, und folgt dabei jedem
+Link; ebenso die beiden einzelnen Texturen des Block-Atlas,
+`entity/bell/bell_body` und `entity/enchantment/enchanting_table_book`.
+So öffnet der Renderer auch jede andere Textur ausserhalb der Ordner des
+Atlas. Der Client zeigte für sie die Missing-Textur, es sei denn, ein Pack
+erweitert `atlases/blocks.json`; diese Dateien liest der Renderer nicht.
+Andere Ordner unter `textures` listet er wie der Client nicht auf.
 
 Lässt sich der Anfang einer Liste nicht lesen, listet der Client dort
 nichts. Fehlt er, fehlt sein Ziel oder ist es kein Ordner, etwa bei einer

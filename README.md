@@ -300,9 +300,14 @@ dahinter. Ansehen lässt sich das einer Kachel nicht sicher, auch der
 Dekoder liest zwei von drei zerrissenen ohne Fehler. Die übrigen nimmt der
 Lauf ungelesen. Die nativen Stufen rendert er ganz neu, denn dort kann
 `--pyramid` verkleinerte Kacheln abgelegt haben, womöglich bevor die Basis
-darunter fertig war. Von den verkleinerten Stufen darüber baut er nur neu,
-was fehlt, aus denselben zwei Minuten stammt oder älter als eines seiner
-Kinder ist, wie `--pyramid`. Der Schalter
+darunter fertig war, und damit baut er auch die Pyramide darüber ganz neu:
+sparen lässt sich mit nativen Stufen nur an der Basis. Ohne sie baut er von
+der Pyramide nur neu, was fehlt, was er darunter selbst geschrieben hat,
+was aus denselben zwei Minuten stammt, und wo ein Kind nicht mindestens
+eine Minute älter ist. Die Zeiten kommen womöglich von zwei Uhren, der des
+Rechners in `--pyramid` und der einer Freigabe, und was der Lauf selbst
+geschrieben hat, merkt er sich, statt es in der Liste zu suchen: die einer
+Freigabe zeigt es womöglich erst Sekunden später. Der Schalter
 passt nur, wenn alle vorhandenen Kacheln aus dem abgebrochenen Lauf
 stammen: nach einer Änderung der Welt, neuen Assets oder einem neuen Pack
 behielte er jede alte Kachel, die der Lauf noch nicht erreicht hat. Dann

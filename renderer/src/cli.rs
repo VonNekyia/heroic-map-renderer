@@ -102,7 +102,8 @@ pub struct Args {
     /// älteren Stand der Welt oder der Assets, bleiben sie das. Neu rendert
     /// er nur die aus den letzten zwei Minuten vor der jüngsten, die kann ein
     /// Stromausfall getroffen haben, und die nativen Stufen, dort kann
-    /// --pyramid verkleinert haben
+    /// --pyramid verkleinert haben; mit ihnen baut er auch die Pyramide
+    /// darüber ganz neu
     #[arg(long, requires = "tiles")]
     resume: bool,
 
@@ -743,7 +744,13 @@ fn write_tiles(
         &waisen,
         &mut weg,
     )?;
-    build_pyramid(dir, z, kandidaten, &waisen, &mut weg, resume)?;
+    // Mit nativen Stufen baut auch --resume die ganze Pyramide neu, siehe
+    // `build_pyramid`.
+    let stand = zeiten.filter(|_| stufen == 0).map(|kinder| Stand {
+        geaendert: geschriebene(&reihe, &leer, |tile| kinder.contains_key(tile)),
+        kinder,
+    });
+    build_pyramid(dir, z, kandidaten, &waisen, &mut weg, stand)?;
     if prune && !veraltet.is_empty() {
         ohne_veraltete(dir, max_zoom, stufen, &veraltet, &gezeigt, &mut weg)?;
     }
@@ -1075,54 +1082,60 @@ fn schreibe_info(dir: &Path, info: &MapInfo, zeit: Option<SystemTime>) -> Result
 /// danach [`ohne_veraltete`] heraus. `waisen` bekommen ihre Elternkachel
 /// neu.
 ///
-/// Mit `--resume` stehen die meisten Eltern schon, aus dem abgebrochenen
-/// Lauf oder aus `--pyramid` daneben. Neu baut es dann nur, was
-/// [`veraltet`] ist; bei 90 % übersprungenen Basiskacheln wären es sonst
-/// trotzdem alle Eltern, bei einer grossen Welt Hunderttausende.
+/// Mit `--resume` ohne native Stufen (`stand`) stehen die meisten Eltern
+/// schon, aus dem abgebrochenen Lauf oder aus `--pyramid` daneben. Neu baut
+/// es dann nur, was [`veraltet`] ist; bei 90 % übersprungenen Basiskacheln
+/// wären es sonst trotzdem alle Eltern, bei einer grossen Welt
+/// Hunderttausende. Mit nativen Stufen spart das nichts: über der gröbsten
+/// hat jede Elternkachel ein eben gerendertes Kind. Dort baut auch
+/// `--resume` alles neu.
 fn build_pyramid(
     dir: &Path,
     max_zoom: u32,
     kandidaten: BTreeSet<TileId>,
     waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
-    resume: bool,
+    stand: Option<Stand>,
 ) -> Result<()> {
     let started = Instant::now();
     let mut kandidaten = kandidaten;
+    let mut stand = stand;
+    let fortsetzen = stand.is_some();
     let (mut bytes, mut gesamt, mut aktuell) = (0usize, 0usize, 0usize);
-    let mut kinder = if resume {
-        vorhandene_mit_zeit(dir, max_zoom)?
-    } else {
-        BTreeMap::new()
-    };
 
     for z in (0..max_zoom).rev() {
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
-        let veraltete: BTreeSet<TileId>;
-        let bauen = if resume {
-            let eltern = vorhandene_mit_zeit(dir, z)?;
-            let frisch = frische(&eltern, SystemTime::now());
-            veraltete = kandidaten
-                .iter()
-                .filter(|parent| veraltet(z, **parent, &eltern, &frisch, &kinder, weg))
-                .copied()
-                .collect();
-            aktuell += kandidaten.len() - veraltete.len();
-            &veraltete
+        let eltern = if fortsetzen {
+            vorhandene_mit_zeit(dir, z)?
         } else {
-            &kandidaten
+            BTreeMap::new()
+        };
+        let veraltete: BTreeSet<TileId>;
+        let bauen = match &stand {
+            Some(stand) => {
+                let frisch = frische(&eltern, SystemTime::now());
+                veraltete = kandidaten
+                    .iter()
+                    .filter(|parent| veraltet(**parent, &eltern, &frisch, stand))
+                    .copied()
+                    .collect();
+                aktuell += kandidaten.len() - veraltete.len();
+                &veraltete
+            }
+            None => &kandidaten,
         };
         let (geschrieben, leer) = setze_zusammen(dir, z, bauen, weg)?;
         leer.par_iter()
             .try_for_each(|parent| verblasse(dir, z, *parent))?;
+        if let Some(stand) = &mut stand {
+            stand.geaendert = geschriebene(bauen, &leer, |parent| eltern.contains_key(parent));
+            stand.kinder = eltern;
+        }
         weg.extend(leer.into_iter().map(|parent| (z, parent)));
         bytes += geschrieben.iter().sum::<usize>();
         gesamt += geschrieben.len();
         println!("Zoom {z:>2}:     {} Kacheln", geschrieben.len());
-        if resume {
-            kinder = vorhandene_mit_zeit(dir, z)?;
-        }
     }
 
     if max_zoom > 0 {
@@ -1131,34 +1144,64 @@ fn build_pyramid(
             bytes as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
-        if resume {
+        if fortsetzen {
             println!("            {aktuell} Kacheln waren aktuell und bleiben (--resume)");
         }
     }
     Ok(())
 }
 
-/// Ob `--resume` diese Elternkachel neu bauen muss, nach der Regel von
-/// [`rebuild_pyramid`]: sie fehlt, oder ein Kind auf der Platte ist jünger
-/// als sie oder kommt weg. Dazu, wenn [`frische`] sie trifft (`frisch`).
-/// Ein Kind, das leer gerendert hat und nie dastand, ändert an ihr nichts.
-/// `eltern` und `kinder` sind die Listen der beiden Stufen mit Zeiten.
+/// Was `--resume` ohne native Stufen von einer Stufe der Pyramide zur
+/// nächsten mitführt: die Liste der Stufe mit Zeiten von vor dem Lauf und
+/// die Kacheln, die der Lauf dort geschrieben hat ([`geschriebene`]).
+struct Stand {
+    kinder: BTreeMap<TileId, SystemTime>,
+    geaendert: BTreeSet<TileId>,
+}
+
+/// Was der Lauf auf einer Stufe geschrieben hat: jede dieser Kacheln, eine
+/// aus `leer` nur, wenn sie dastand (`stand_da`) und `verblasse` sie
+/// überschrieb.
+fn geschriebene<'a>(
+    kacheln: impl IntoIterator<Item = &'a TileId>,
+    leer: &[TileId],
+    stand_da: impl Fn(&TileId) -> bool,
+) -> BTreeSet<TileId> {
+    let leer: BTreeSet<&TileId> = leer.iter().collect();
+    kacheln
+        .into_iter()
+        .filter(|tile| !leer.contains(tile) || stand_da(tile))
+        .copied()
+        .collect()
+}
+
+/// Um wie viel älter als seine Elternkachel ein Kind aus einem früheren
+/// Lauf sein muss, damit `--resume` sie stehen lässt. Die Zeiten stammen
+/// womöglich von zwei Uhren, der des Rechners in den Stempeln von
+/// `--pyramid` und der einer Freigabe, und eine Uhr springt auch einmal
+/// zurück.
+const ABSTAND: Duration = Duration::from_secs(60);
+
+/// Ob `--resume` ohne native Stufen diese Elternkachel neu bauen muss: wenn
+/// sie fehlt oder [`frische`] sie trifft (`frisch`), wenn der Lauf ein Kind
+/// geschrieben hat, oder wenn ein Kind aus einem früheren Lauf nicht
+/// mindestens [`ABSTAND`] älter ist als sie. Was der Lauf geschrieben hat,
+/// kommt aus `stand`, nicht aus einer neuen Liste: die einer Freigabe zeigt
+/// eigene Schreibvorgänge womöglich erst nach Sekunden. `eltern` ist die
+/// Liste der Stufe mit Zeiten.
 fn veraltet(
-    z: u32,
     parent: TileId,
     eltern: &BTreeMap<TileId, SystemTime>,
     frisch: &BTreeSet<TileId>,
-    kinder: &BTreeMap<TileId, SystemTime>,
-    weg: &BTreeSet<(u32, TileId)>,
+    stand: &Stand,
 ) -> bool {
     let Some(&zeit) = eltern.get(&parent) else {
         return true;
     };
     frisch.contains(&parent)
         || parent.children().iter().any(|kind| {
-            kinder
-                .get(kind)
-                .is_some_and(|&k| k > zeit || weg.contains(&(z + 1, *kind)))
+            stand.geaendert.contains(kind)
+                || stand.kinder.get(kind).is_some_and(|&k| k + ABSTAND > zeit)
         })
 }
 

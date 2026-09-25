@@ -1576,6 +1576,14 @@ fn resume_rendert_nur_was_fehlt() {
     }
     setze_zeit(&zerrissen, damals + Duration::from_secs(600));
     let vorher = zeit_von(&bleibt);
+    // Mit nativen Stufen baut der Lauf die ganze Pyramide darüber neu.
+    let oben: Vec<PathBuf> = (0..z - 1)
+        .flat_map(|stufe| kacheln(out.path(), stufe).into_values())
+        .collect();
+    assert!(!oben.is_empty(), "keine Pyramide über der nativen Stufe");
+    for pfad in &oben {
+        setze_zeit(pfad, damals);
+    }
 
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8", "--resume"]);
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
@@ -1596,16 +1604,31 @@ fn resume_rendert_nur_was_fehlt() {
         vorher,
         "vorhandene Basiskachel neu gerendert"
     );
+    assert!(!meldung.contains("waren aktuell"), "{meldung}");
+    for pfad in &oben {
+        assert_ne!(
+            zeit_von(pfad),
+            damals,
+            "{} nicht neu gebaut",
+            pfad.display()
+        );
+    }
     assert_eq!(schnappschuss(out.path()), soll);
 }
 
-/// Beim Fortsetzen baut die Pyramide nur neu, was veraltet ist: hier die
-/// Vorfahren einer fehlenden Basiskachel und eine Elternkachel, die ein
-/// Stromausfall zerrissen hat, samt ihren Vorfahren. Die Zeiten sind über
-/// Tage gestaffelt wie in einem grossen Baum, frisch ist je Stufe nur die
-/// jüngste: darüber die zerrissene und ihre Vorfahren, auf der Basis ein
-/// Geschwister der fehlenden. Alle anderen behalten ihre Zeit, und am Ende
-/// steht derselbe Baum da wie nach einem Lauf in einem Stück.
+/// Beim Fortsetzen ohne native Stufen baut die Pyramide nur neu, was
+/// veraltet ist, jeweils samt den Vorfahren:
+/// - über einer fehlenden Basiskachel, die der Lauf rendert;
+/// - über einer, die leer geworden ist: `--pyramid` hat sie eingebaut, und
+///   der Lauf rendert sie als jüngste neu, leer;
+/// - eine Elternkachel, die ein Stromausfall zerrissen hat, die jüngste
+///   ihrer Stufe;
+/// - eine, die keine Minute nach ihrem jüngsten Kind entstand;
+/// - eine mit einer Zeit in der Zukunft.
+///
+/// Die Zeiten sind über Tage gestaffelt wie in einem grossen Baum, frisch
+/// ist je Stufe nur die jüngste. Alle anderen behalten ihre Zeit, und am
+/// Ende steht derselbe Baum da wie nach einem Lauf in einem Stück.
 #[test]
 fn resume_baut_nur_veraltete_eltern() {
     let welt = tempdir();
@@ -1620,21 +1643,38 @@ fn resume_baut_nur_veraltete_eltern() {
     let basis = max_zoom(out.path());
     assert!(basis > 1, "keine Pyramide zu prüfen");
 
+    // Der Vorlauf nennt sie, aber sie rendert leer und fehlt deshalb. Ihre
+    // Elternkachel zeigt noch ein anderes Kind.
     let unten = kacheln(out.path(), basis);
-    let (kind, geschwister) = unten
+    let world = World::open(welt.path()).unwrap();
+    let leer = survey(&world, Projection::new(8), (-64, 319), None)
+        .unwrap()
+        .tiles
+        .into_iter()
+        .find(|tile| !unten.contains_key(tile) && unten.keys().any(|t| t.parent() == tile.parent()))
+        .expect("leere Kachel neben einer sichtbaren");
+    let pfad = kachel_pfad(out.path(), basis, leer);
+    std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+    std::fs::write(
+        &pfad,
+        std::fs::read(unten.values().next().unwrap()).unwrap(),
+    )
+    .unwrap();
+    gelungen(&pyramide(out.path()));
+
+    let kind = *unten
         .keys()
-        .find_map(|tile| {
-            let bruder = unten
-                .keys()
-                .find(|t| *t != tile && t.parent() == tile.parent())?;
-            Some((*tile, *bruder))
-        })
-        .expect("Geschwister auf der Basis");
-    std::fs::remove_file(&unten[&kind]).unwrap();
-    let zerrissen = *kacheln(out.path(), basis - 1)
-        .keys()
-        .find(|tile| **tile != kind.parent())
+        .find(|tile| tile.parent() != leer.parent())
         .expect("zweite Elternkachel");
+    std::fs::remove_file(&unten[&kind]).unwrap();
+    let mut eltern = kacheln(out.path(), basis - 1)
+        .into_keys()
+        .filter(|tile| *tile != kind.parent() && *tile != leer.parent());
+    let (zerrissen, knapp, zukunft) = (
+        eltern.next().unwrap(),
+        eltern.next().unwrap(),
+        eltern.next().expect("fünf Elternkacheln"),
+    );
     let pfad = kachel_pfad(out.path(), basis - 1, zerrissen);
     let mut bytes = std::fs::read(&pfad).unwrap();
     let haelfte = bytes.len() / 2;
@@ -1646,12 +1686,29 @@ fn resume_baut_nur_veraltete_eltern() {
         })
     };
     let mut zuletzt: BTreeSet<(u32, TileId)> = vorfahren(basis - 1, zerrissen).collect();
-    zuletzt.insert((basis, geschwister));
+    zuletzt.insert((basis, leer));
     staffeln(out.path(), &zuletzt);
+    let juengstes = knapp
+        .children()
+        .iter()
+        .filter_map(|tile| unten.get(tile))
+        .map(|pfad| zeit_von(pfad))
+        .max()
+        .unwrap();
+    let dreissig = Duration::from_secs(30);
+    setze_zeit(
+        &kachel_pfad(out.path(), basis - 1, knapp),
+        juengstes + dreissig,
+    );
+    let morgen = SystemTime::now() + Duration::from_secs(86_400);
+    setze_zeit(&kachel_pfad(out.path(), basis - 1, zukunft), morgen);
 
     let neu: BTreeSet<(u32, TileId)> = vorfahren(basis, kind)
         .skip(1)
+        .chain(vorfahren(basis, leer).skip(1))
         .chain(vorfahren(basis - 1, zerrissen))
+        .chain(vorfahren(basis - 1, knapp))
+        .chain(vorfahren(basis - 1, zukunft))
         .collect();
     let vorher: BTreeMap<(u32, TileId), SystemTime> = (0..basis)
         .flat_map(|z| {

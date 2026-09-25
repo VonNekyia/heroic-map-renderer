@@ -2,6 +2,7 @@
 //! (`PathPackResources`).
 
 use std::collections::{HashMap, HashSet};
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -111,7 +112,10 @@ impl Pack {
     /// `listPath`: alles unter `start`, was Java ohne Links für eine Datei
     /// hält, unter `name` und den Namen auf der Platte, und nur, wenn der
     /// Name als `Identifier` taugt. Ist `start` selbst ein Link oder fehlt
-    /// es, gibt es nichts.
+    /// es, gibt es nichts, ebenso, wenn es sich nicht als Ordner öffnen
+    /// lässt, etwa eine Junction ohne Ziel: das fängt `listPath` ab. Tiefer
+    /// im Baum fängt es nichts, dort scheitert im Client das Laden der Packs
+    /// und hier der Lauf.
     fn liste(&mut self, namespace: &str, start: &Path, name: &str) -> Result<()> {
         match std::fs::symlink_metadata(start) {
             Ok(meta) if art(start, &meta)? == Art::Ordner => {}
@@ -119,9 +123,17 @@ impl Pack {
         }
         let mut offen = vec![(start.to_path_buf(), name.to_string())];
         while let Some((dir, name)) = offen.pop() {
-            for eintrag in
-                std::fs::read_dir(&dir).with_context(|| format!("{} lesen", dir.display()))?
-            {
+            let eintraege = match std::fs::read_dir(&dir) {
+                Ok(eintraege) => eintraege,
+                Err(e)
+                    if dir == start
+                        && matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) =>
+                {
+                    return Ok(());
+                }
+                Err(e) => return Err(e).with_context(|| format!("{} lesen", dir.display())),
+            };
+            for eintrag in eintraege {
                 let eintrag = eintrag.with_context(|| format!("{} lesen", dir.display()))?;
                 let Ok(teil) = eintrag.file_name().into_string() else {
                     continue;

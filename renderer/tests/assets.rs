@@ -651,6 +651,37 @@ fn links_wie_im_client() {
     }
 }
 
+/// Zeigt der Anfang einer Liste, hier `models`, auf ein Ziel, das es
+/// nicht mehr gibt, listet der Client dort nichts: `listPath` fängt
+/// `NoSuchFileException` ab. Der Rest des Packs gilt, das Modell fehlt.
+/// Früher brach unter Windows der ganze Lauf ab, dort ist es eine Junction,
+/// die Java für einen Ordner hält, sonst ein Symlink, den schon die Liste
+/// übergeht.
+#[test]
+fn kaputter_link_am_anfang_listet_nichts() {
+    let tmp = env!("CARGO_TARGET_TMPDIR");
+    let pack = tempfile::tempdir_in(tmp).unwrap();
+    let blockstates = pack.path().join("minecraft/blockstates");
+    std::fs::create_dir_all(&blockstates).unwrap();
+    std::fs::write(
+        blockstates.join("stone.json"),
+        r#"{"variants": {"": {"model": "block/stone"}}}"#,
+    )
+    .unwrap();
+    let ziel = tempfile::tempdir_in(tmp).unwrap();
+    common::link(ziel.path(), &pack.path().join("minecraft/models"));
+    let weg = ziel.path().to_path_buf();
+    drop(ziel);
+    assert!(!weg.exists());
+
+    let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+    assert_eq!(assets.block_names().unwrap(), ["minecraft:stone"]);
+    assert_eq!(
+        assets.variants(&state("stone")).unwrap()[0].model_id,
+        MISSING_MODEL
+    );
+}
+
 /// Die Anfänge seiner Listen, `models` und `textures/block`, nennt der
 /// Client selbst; unter Windows findet er sie in jeder Schreibweise. Die
 /// Namen darunter nimmt er von der Platte, eine `.mcmeta` gehört also nur

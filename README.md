@@ -371,7 +371,9 @@ Dimension macht diese nicht zur Oberwelt. Der Pfad zählt so, wie er auf der
 Platte steht: unter Windows gibt `dim-1` dieselbe Kennung wie `DIM-1`, und
 ein Weg über `..` dieselbe wie der direkte. Führt er auf der Platte über
 einen Link aus der Welt hinaus, etwa zu einer Dimension auf einer anderen
-Platte, zählt er so, wie er angegeben ist.
+Platte, oder lässt er sich dort nicht auflösen, zählt er so, wie er
+angegeben ist, auch in seiner Schreibweise: `dimensions\Minecraft\the_nether`
+gibt dann die Kennung von `Minecraft:the_nether`, `dim-1` gar keine.
 
 Den Seed liest der Renderer zuerst aus der Dimension selbst, aus
 `data/minecraft/world_gen_settings.dat` darin: so schreibt Paper ihn je
@@ -379,7 +381,11 @@ Dimension, und eine Plugin-Welt hat oft einen eigenen. Sonst aus derselben
 Datei an der Weltwurzel, wie Vanilla seit 26.1, oder aus der der
 Paper-Oberwelt, von beiden aus der jüngeren, bei gleichem Alter aus der von
 Paper: unter Paper bleibt an der Wurzel eine ältere liegen. Zuletzt aus
-`level.dat`, wie bis 1.21. Er selbst steht nicht in der Datei: `map.json`
+`level.dat`, wie bis 1.21. Frühere Stände des Renderers lasen zuerst die
+Datei an der Wurzel. Hat eine Dimension eine eigene mit anderem Seed, passt
+ihr Baum aus einem solchen Stand nicht mehr zu ihr, und der Lauf lehnt ihn
+ab, er gehöre zu einer anderen Welt oder Dimension; einen solchen Baum neu
+rendern. Er selbst steht nicht in der Datei: `map.json`
 liegt öffentlich neben den Kacheln, und mit dem Seed fände jeder Strukturen
 und Erze ohne zu suchen. Ein
 Zufallsseed hat nur 2^48 Werte, Vanilla zieht ihn mit 48 Bit Zustand; mit

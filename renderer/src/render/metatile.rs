@@ -580,7 +580,13 @@ impl<'a> ChunkCache<'a> {
             Some(Some(region)) => region.chunk(key.0, key.1)?,
             _ => None,
         };
-        let loaded = chunk.map(|chunk| Loaded::new(chunk, self.sprites));
+        // Ein Chunk, dessen Position nicht zu seinem Platz in der Region
+        // passt, zählt wie ein fehlender: `Chunk::slot` liesse ihn für
+        // keine Spalte antworten, und seine Masken dürfen keinen Nachbarn
+        // verdecken.
+        let loaded = chunk
+            .filter(|chunk| (chunk.x, chunk.z) == key)
+            .map(|chunk| Loaded::new(chunk, self.sprites));
         self.slots.push(Slot {
             key,
             loaded,

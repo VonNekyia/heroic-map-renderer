@@ -200,6 +200,47 @@ fn schneller_weg_gleicht_der_referenz() {
     }
 }
 
+/// Ein Chunk, dessen Position nicht zu seinem Platz in der Region passt —
+/// etwa aus einer von Hand kopierten Regionsdatei —, zeichnet nichts, und
+/// er verdeckt auch nichts: die Randblöcke seiner Nachbarn bleiben
+/// sichtbar, wie die Referenz sie zeichnet.
+#[test]
+fn versetzter_chunk_verdeckt_nichts() {
+    let dir = tempdir();
+    let welt = |_: i32, y: i32, _: i32| {
+        if y < 8 {
+            "minecraft:einfarbig"
+        } else {
+            "minecraft:air"
+        }
+    };
+    common::write_world(dir.path(), &[(0, 0), (1, 0), (0, 1)], welt);
+    // Der Chunk auf Platz (1, 0) nennt sich (5, 0): xPos steht unkomprimiert
+    // als Int-Tag in der Regionsdatei.
+    let pfad = dir.path().join("region/r.0.0.mca");
+    let mut bytes = std::fs::read(&pfad).unwrap();
+    let muster = [3, 0, 4, b'x', b'P', b'o', b's', 0, 0, 0, 1];
+    let stelle = bytes
+        .windows(muster.len())
+        .position(|w| w == muster)
+        .expect("xPos 1");
+    bytes[stelle + 10] = 5;
+    std::fs::write(&pfad, bytes).unwrap();
+
+    let world = World::open(dir.path()).unwrap();
+    for scale in [4, 16, 32] {
+        let projection = Projection::new(scale);
+        let sprites = tabelle(&mut assets(), &world, projection);
+        let rect = ScreenRect::centered(40 * scale, 40 * scale);
+        let schnell = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+        let referenz = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+        assert!(
+            schnell == referenz,
+            "scale {scale}: versetzter Chunk verdeckt"
+        );
+    }
+}
+
 /// Vier Chunks bei scale 16, Blockursprung in der Bildmitte. Damit fällt
 /// Block (8, 8, 8) genau dorthin — die Stelle, an der der Occlusion-Test
 /// nachsieht.

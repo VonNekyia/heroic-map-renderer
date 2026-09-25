@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/gibt_es_nicht",
+  "textures": { "all": "minecraft:block/planks" },
+  "elements": [
+    { "from": [0, 0, 0], "to": [16, 8, 16], "faces": { "up": { "texture": "#all" } } }
+  ]
+}

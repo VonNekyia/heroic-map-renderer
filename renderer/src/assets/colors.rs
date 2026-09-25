@@ -8,13 +8,15 @@
 //! Nachbau davon, beschränkt auf das, was auf einer Karte Fläche macht.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use image::RgbaImage;
-use serde::Deserialize;
+use serde_json::Value;
 
-use super::{find_file, split_id};
+use super::blockstate::{boolean, field, float, int_value};
+use super::pack::{self, Pack};
+use super::{parse_json, read_text, split_id};
 
 /// Eine Färbung als RGB-Faktor.
 pub type Tint = [u8; 3];
@@ -69,7 +71,7 @@ enum Source {
 fn source_of(block: &str) -> Option<Source> {
     Some(match split_id(block).1 {
         "grass_block" | "short_grass" | "tall_grass" | "fern" | "large_fern" | "potted_fern"
-        | "sugar_cane" => Source::Grass,
+        | "bush" | "sugar_cane" => Source::Grass,
         "oak_leaves" | "jungle_leaves" | "acacia_leaves" | "dark_oak_leaves"
         | "mangrove_leaves" | "vine" => Source::Foliage,
         "leaf_litter" => Source::DryFoliage,
@@ -109,83 +111,92 @@ pub struct Colors {
     foliage: Option<RgbaImage>,
     dry_foliage: Option<RgbaImage>,
     biomes: BTreeMap<String, Biome>,
+    broken_biomes: BTreeMap<String, String>,
+    unreadable: BTreeMap<String, String>,
 }
 
 impl Colors {
     /// Liest die Colormaps aus den Asset-Wurzeln; fehlende sind kein Fehler.
-    pub fn load(roots: &[PathBuf]) -> Colors {
+    /// Der Client öffnet sie direkt, statt sie aufzulisten
+    /// (`LegacyStuffWrapper.getPixels`), aus dem obersten Pack, das sie hat.
+    pub fn load(packs: &[Pack]) -> Colors {
         let map = |name: &str| {
-            find_file(
-                roots,
-                "minecraft",
-                "textures",
-                &format!("colormap/{name}"),
-                "png",
-            )
-            .and_then(|(_, path)| image::open(path).ok())
-            .map(|image| image.into_rgba8())
+            packs
+                .iter()
+                .rev()
+                .find_map(|pack| {
+                    pack.resource("minecraft", &format!("textures/colormap/{name}.png"))
+                })
+                .and_then(|path| image::open(path).ok())
+                .map(|image| image.into_rgba8())
         };
         Colors {
             grass: map("grass"),
             foliage: map("foliage"),
             dry_foliage: map("dry_foliage"),
-            biomes: BTreeMap::new(),
+            ..Colors::default()
         }
     }
 
     /// Liest `<dir>/<namespace>/worldgen/biome/**/*.json` — das `data/` aus
-    /// dem Client-JAR oder einem Datenpaket. Spätere Aufrufe überschreiben
-    /// Biome gleichen Namens, wie gestapelte Datenpakete.
+    /// dem Client-JAR oder einem Datenpaket —, aufgelistet wie im Client
+    /// ([`Pack`]). Der Pfad gehört zur ID: `terralith:cave/underground_jungle`
+    /// liegt unter `biome/cave/underground_jungle.json`. Spätere Aufrufe
+    /// überschreiben Biome gleichen Namens, wie gestapelte Datenpakete. Ein
+    /// Biom, das der Codec ablehnt ([`biome`]), übergeht der Renderer und
+    /// nennt es in [`Colors::broken_biomes`]; der Client lüde das
+    /// Datenpaket gar nicht. Liefert, wie viele Biome es gelesen hat.
     pub fn load_biomes(&mut self, dir: &Path) -> Result<usize> {
+        let pack = Pack::open(dir, &pack::BIOME)?;
+        let mut dateien = 0;
         let mut count = 0;
-        for namespace in std::fs::read_dir(dir)
-            .with_context(|| format!("{} lesen", dir.display()))?
-            .flatten()
-        {
-            let root = namespace.path().join("worldgen").join("biome");
-            let namespace = namespace.file_name().to_string_lossy().into_owned();
-
-            // Datenpakete legen Biome auch in Unterordner, und der Pfad
-            // gehört zur ID: `terralith:cave/underground_jungle` liegt
-            // unter `biome/cave/underground_jungle.json`.
-            let mut pending = vec![root.clone()];
-            while let Some(current) = pending.pop() {
-                let Ok(entries) = std::fs::read_dir(&current) else {
-                    continue;
-                };
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        pending.push(path);
-                        continue;
-                    }
-                    if path.extension().is_none_or(|e| e != "json") {
-                        continue;
-                    }
-                    let text = std::fs::read_to_string(&path)
-                        .with_context(|| format!("{} lesen", path.display()))?;
-                    let json: BiomeJson = serde_json::from_str(&text)
-                        .with_context(|| format!("{} ist keine Biomdefinition", path.display()))?;
-                    let id = path
-                        .strip_prefix(&root)
-                        .unwrap_or(&path)
-                        .with_extension("")
-                        .components()
-                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-                        .collect::<Vec<_>>()
-                        .join("/");
-                    self.biomes.insert(format!("{namespace}:{id}"), json.into());
+        for (name, pfad) in pack.files() {
+            let Some((namespace, rest)) = name.split_once('/') else {
+                continue;
+            };
+            let Some(id) = rest
+                .strip_prefix("worldgen/biome/")
+                .and_then(|id| id.strip_suffix(".json"))
+            else {
+                continue;
+            };
+            dateien += 1;
+            let biom = read_text(pfad).and_then(|text| biome(&parse_json(&text, true)?));
+            match biom {
+                Ok(biom) => {
+                    self.biomes.insert(format!("{namespace}:{id}"), biom);
                     count += 1;
+                }
+                Err(grund) => {
+                    self.broken_biomes
+                        .insert(pfad.display().to_string(), format!("{grund:#}"));
                 }
             }
         }
-        if count == 0 {
+        if dateien == 0 {
+            let unlesbar: String = pack
+                .unreadable()
+                .iter()
+                .map(|(pfad, grund)| format!("; {pfad} nicht lesbar: {grund}"))
+                .collect();
             bail!(
-                "keine Biome unter {} — erwartet wird <dir>/minecraft/worldgen/biome/*.json",
+                "keine Biome unter {} — erwartet wird <dir>/minecraft/worldgen/biome/*.json{unlesbar}",
                 dir.display()
             );
         }
+        self.unreadable.extend(pack.unreadable().clone());
         Ok(count)
+    }
+
+    /// Biomdateien, die der Codec ablehnt, je Pfad mit dem Grund.
+    pub fn broken_biomes(&self) -> &BTreeMap<String, String> {
+        &self.broken_biomes
+    }
+
+    /// Anfänge von Listen in den Datenwurzeln, die sich nicht lesen
+    /// liessen ([`Pack::unreadable`]).
+    pub fn unreadable(&self) -> &BTreeMap<String, String> {
+        &self.unreadable
     }
 
     /// Wie viele Colormaps gefunden wurden, höchstens drei.
@@ -244,9 +255,14 @@ impl Colors {
 /// Pixel der Colormap für ein Klima, wie `GrassColor.get`: Temperatur läuft
 /// von rechts nach links, Niederschlag — mit der Temperatur gewichtet — von
 /// unten nach oben.
+///
+/// Geklemmt wird in `float`, gerechnet in `double`, wie in
+/// `Biome.getGrassColorFromTexture` und `ColorMapColorUtil.get`. In `f32`
+/// landen acht Vanilla-Biome eine Zeile oder Spalte daneben, die Wiese
+/// etwa in Zeile 153 statt 152.
 fn lookup(map: &RgbaImage, temperature: f32, downfall: f32) -> Tint {
-    let temperature = temperature.clamp(0.0, 1.0);
-    let downfall = downfall.clamp(0.0, 1.0) * temperature;
+    let temperature = temperature.clamp(0.0, 1.0) as f64;
+    let downfall = downfall.clamp(0.0, 1.0) as f64 * temperature;
     let x = ((1.0 - temperature) * 255.0) as u32;
     let y = ((1.0 - downfall) * 255.0) as u32;
     let (w, h) = map.dimensions();
@@ -269,73 +285,148 @@ fn dark_forest(tint: Tint) -> Tint {
     out
 }
 
-#[derive(Deserialize)]
-struct BiomeJson {
-    temperature: f32,
-    #[serde(default)]
-    downfall: f32,
-    #[serde(default)]
-    effects: EffectsJson,
-}
-
-#[derive(Deserialize, Default)]
-struct EffectsJson {
-    water_color: Option<ColorJson>,
-    grass_color: Option<ColorJson>,
-    foliage_color: Option<ColorJson>,
-    dry_foliage_color: Option<ColorJson>,
-    grass_color_modifier: Option<String>,
-}
-
-/// Eine Farbe steht bis 1.21 als Zahl in der Datei, seit 26.x als `#rrggbb`.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum ColorJson {
-    Number(i64),
-    Text(String),
-}
-
-impl ColorJson {
-    fn rgb(&self) -> Option<Tint> {
-        let n = match self {
-            ColorJson::Number(n) => *n,
-            ColorJson::Text(text) => i64::from_str_radix(text.strip_prefix('#')?, 16).ok()?,
-        };
-        Some([(n >> 16) as u8, (n >> 8) as u8, n as u8])
+/// Ein Biom, soweit der Renderer es braucht, gelesen wie
+/// `Biome.DIRECT_CODEC`: `ClimateSettings` ganz, aus `effects` die Farben
+/// und `grass_color_modifier`. Pflicht sind `has_precipitation`,
+/// `temperature`, `downfall`, `effects` und darin `water_color`; `null`
+/// zählt wie im Codec als fehlend.
+fn biome(json: &Value) -> Result<Biome> {
+    ensure!(json.is_object(), "kein Objekt");
+    let pflicht = |json: &Value, name: &str| {
+        field(json, name)
+            .cloned()
+            .ok_or_else(|| anyhow!("{name} fehlt"))
+    };
+    boolean(&pflicht(json, "has_precipitation")?).context("has_precipitation")?;
+    let temperature = float(&pflicht(json, "temperature")?).context("temperature")?;
+    if let Some(wert) = field(json, "temperature_modifier") {
+        name_aus(wert, &["none", "frozen"]).context("temperature_modifier")?;
     }
+    let downfall = float(&pflicht(json, "downfall")?).context("downfall")?;
+    let effects = pflicht(json, "effects")?;
+    ensure!(effects.is_object(), "effects ist kein Objekt");
+    let farbe = |name: &str| {
+        field(&effects, name)
+            .map(|wert| color(wert).with_context(|| name.to_string()))
+            .transpose()
+    };
+    let water = color(&pflicht(&effects, "water_color")?).context("water_color")?;
+    let modifier = match field(&effects, "grass_color_modifier") {
+        None => Modifier::None,
+        Some(wert) => match name_aus(wert, &["none", "dark_forest", "swamp"])
+            .context("grass_color_modifier")?
+        {
+            "dark_forest" => Modifier::DarkForest,
+            "swamp" => Modifier::Swamp,
+            _ => Modifier::None,
+        },
+    };
+    Ok(Biome {
+        temperature,
+        downfall,
+        water: Some(water),
+        grass: farbe("grass_color")?,
+        foliage: farbe("foliage_color")?,
+        dry_foliage: farbe("dry_foliage_color")?,
+        modifier,
+    })
 }
 
-impl From<BiomeJson> for Biome {
-    fn from(json: BiomeJson) -> Biome {
-        let e = json.effects;
-        Biome {
-            temperature: json.temperature,
-            downfall: json.downfall,
-            water: e.water_color.as_ref().and_then(ColorJson::rgb),
-            grass: e.grass_color.as_ref().and_then(ColorJson::rgb),
-            foliage: e.foliage_color.as_ref().and_then(ColorJson::rgb),
-            dry_foliage: e.dry_foliage_color.as_ref().and_then(ColorJson::rgb),
-            modifier: match e.grass_color_modifier.as_deref() {
-                Some("swamp") => Modifier::Swamp,
-                Some("dark_forest") => Modifier::DarkForest,
-                _ => Modifier::None,
-            },
+/// Ein Name aus `StringRepresentable`: nur Text, und nur einer der Werte.
+fn name_aus<'a>(json: &'a Value, namen: &[&str]) -> Result<&'a str> {
+    json.as_str()
+        .filter(|name| namen.contains(name))
+        .ok_or_else(|| anyhow!("{json} ist keiner von {}", namen.join(", ")))
+}
+
+/// `ExtraCodecs.STRING_RGB_COLOR`: `#rrggbb` mit genau sechs Hexziffern,
+/// sonst eine ganze Zahl (`Codec.INT`, abgeschnitten wie `intValue`), sonst
+/// drei Kommazahlen (`VECTOR3F`), je Kanal `Mth.floor(x * 255)`, in `float`
+/// gerechnet und auf acht Bit gekappt wie `ARGB.color`. Es zählen die
+/// unteren 24 Bit.
+fn color(json: &Value) -> Result<Tint> {
+    let rgb = match json {
+        Value::String(text) => {
+            let hex = text
+                .strip_prefix('#')
+                .filter(|hex| hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+                .ok_or_else(|| anyhow!("{text} ist kein #rrggbb"))?;
+            u32::from_str_radix(hex, 16)?
         }
-    }
+        Value::Number(number) => int_value(number)? as u32,
+        Value::Array(liste) => {
+            ensure!(liste.len() == 3, "{} statt 3 Werte", liste.len());
+            let kanal = |wert: &Value| -> Result<u32> {
+                Ok((f64::from(float(wert)? * 255.0).floor() as i32 & 0xFF) as u32)
+            };
+            kanal(&liste[0])? << 16 | kanal(&liste[1])? << 8 | kanal(&liste[2])?
+        }
+        _ => bail!("{json} ist keine Farbe"),
+    };
+    Ok([(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Wie `STRING_RGB_COLOR` in 26.2: Text, ganze Zahl oder drei
+    /// Kommazahlen, belegt per javap samt DFU 10.0.21.
     #[test]
-    fn farben_als_zahl_und_als_hex() {
-        assert_eq!(ColorJson::Number(0x3F76E4).rgb(), Some([0x3F, 0x76, 0xE4]));
-        assert_eq!(
-            ColorJson::Text("#3f76e4".into()).rgb(),
-            Some([0x3F, 0x76, 0xE4])
-        );
-        assert_eq!(ColorJson::Text("blau".into()).rgb(), None);
+    fn farben_wie_der_codec() {
+        let farbe = |json: &str| color(&serde_json::from_str(json).unwrap());
+        for (json, soll) in [
+            ("4159204", [0x3F, 0x76, 0xE4]),
+            ("4159204.9", [0x3F, 0x76, 0xE4]),
+            ("-12618012", [0x3F, 0x76, 0xE4]),
+            (r##""#3f76e4""##, [0x3F, 0x76, 0xE4]),
+            (r##""#3F76E4""##, [0x3F, 0x76, 0xE4]),
+            ("[0.2, 0.4, 0.8]", [51, 102, 204]),
+            ("[1, 2.0, -0.5]", [255, 254, 128]),
+        ] {
+            assert_eq!(farbe(json).unwrap(), soll, "{json}");
+        }
+        for json in [
+            r##""#3f76e""##,
+            r##""#+3f76e""##,
+            r##""3f76e4""##,
+            r#""blau""#,
+            "[1, 2]",
+            r#"[1, 2, "3"]"#,
+            "true",
+            "{}",
+        ] {
+            assert!(farbe(json).is_err(), "{json}");
+        }
+    }
+
+    /// Ein Biom liest der Renderer wie der Codec: was fehlt oder nicht
+    /// passt, macht es kaputt. Ein doppelter Schlüssel nimmt wie in Gson
+    /// den letzten Wert, `null` zählt als fehlend.
+    #[test]
+    fn biom_wie_der_codec() {
+        let lies = |json: &str| biome(&parse_json(json, true).unwrap());
+        let gut = r##"{"has_precipitation": true, "temperature": 0.5, "temperature": 0.9, "downfall": 0.4, "effects": {"water_color": [0.2, 0.4, 0.8], "grass_color": "#91bd59", "foliage_color": null, "grass_color_modifier": "swamp"}}"##;
+        let biom = lies(gut).unwrap();
+        assert_eq!(biom.temperature, 0.9);
+        assert_eq!(biom.water, Some([51, 102, 204]));
+        assert_eq!(biom.grass, Some([0x91, 0xBD, 0x59]));
+        assert_eq!(biom.foliage, None);
+        assert_eq!(biom.modifier, Modifier::Swamp);
+        for json in [
+            r#"{"temperature": 0.5, "downfall": 0.4, "effects": {"water_color": 1}}"#,
+            r#"{"has_precipitation": true, "temperature": 0.5, "effects": {"water_color": 1}}"#,
+            r#"{"has_precipitation": true, "temperature": "0.5", "downfall": 0.4, "effects": {"water_color": 1}}"#,
+            r#"{"has_precipitation": 1, "temperature": 0.5, "downfall": 0.4, "effects": {"water_color": 1}}"#,
+            r#"{"has_precipitation": true, "temperature": 0.5, "downfall": 0.4}"#,
+            r#"{"has_precipitation": true, "temperature": 0.5, "downfall": 0.4, "effects": {}}"#,
+            r#"{"has_precipitation": true, "temperature": 0.5, "downfall": 0.4, "effects": {"water_color": null}}"#,
+            r#"{"has_precipitation": true, "temperature": 0.5, "downfall": 0.4, "effects": {"water_color": 1, "grass_color": "gruen"}}"#,
+            r#"{"has_precipitation": true, "temperature": 0.5, "downfall": 0.4, "effects": {"water_color": 1, "grass_color_modifier": "wald"}}"#,
+            r#"{"has_precipitation": true, "temperature": 0.5, "temperature_modifier": "warm", "downfall": 0.4, "effects": {"water_color": 1}}"#,
+        ] {
+            assert!(lies(json).is_err(), "{json}");
+        }
     }
 
     /// Die Formel aus `GrassColor.get`, an den bekannten Ecken der Colormap.
@@ -350,6 +441,11 @@ mod tests {
         assert_eq!(lookup(&map, 0.0, 1.0), [255, 255, 0]);
         // plains
         assert_eq!(lookup(&map, 0.8, 0.4), [50, 173, 0]);
+        // Wiese und Kirschhain: in f32 wäre es Zeile 153.
+        assert_eq!(lookup(&map, 0.5, 0.8), [127, 152, 0]);
+        // Taiga: Zeile 203; Steinstrand: Spalte 203.
+        assert_eq!(lookup(&map, 0.25, 0.8)[1], 203);
+        assert_eq!(lookup(&map, 0.2, 0.3)[0], 203);
     }
 
     #[test]
@@ -385,6 +481,11 @@ mod tests {
         assert_eq!(
             colors.tints("minecraft:spruce_leaves", None).block,
             Some(SPRUCE)
+        );
+        // `BlockColors` färbt den Busch mit Farn und Kurzgras zusammen.
+        assert_eq!(
+            colors.tints("minecraft:bush", None).block,
+            Some(DEFAULT_GRASS)
         );
     }
 }

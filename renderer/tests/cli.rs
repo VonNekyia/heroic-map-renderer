@@ -1296,8 +1296,10 @@ fn pyramide_holt_jede_aenderung_nach() {
 /// Eine Kachel oder `map.json` mit einer Zeit in der Zukunft stammt von
 /// einer Uhr, die vorging, nicht von einem Render daneben. `--pyramid`
 /// behandelt sie wie jede andere: Über einer geänderten Basiskachel baut es
-/// eine solche Kachel zwei Stufen höher neu, und `map.json` bekommt die
-/// richtigen Grenzen. Früher blieb beides stehen, bis die Uhr es einholte.
+/// eine solche Kachel direkt darüber neu, obwohl die Basiskachel älter ist
+/// als ihre Zeit, und ebenso eine zwei Stufen höher; `map.json` bekommt die
+/// richtigen Grenzen. Früher blieb all das stehen, auch als die Uhr es
+/// eingeholt hatte.
 /// Was wirklich fremd ist, prüft `cli::tests::fremd_nur_auf_nativen_stufen`
 /// im Binär, dort lässt sich der Beginn von aussen setzen.
 #[test]
@@ -1327,6 +1329,7 @@ fn zukunft_ist_nicht_fremd() {
     );
     let oben = eine.parent().parent();
     let rot = RgbaImage::from_pixel(256, 256, image::Rgba([200, 0, 0, 255]));
+    setze(out.path(), basis - 1, eine.parent(), &rot);
     setze(out.path(), basis - 2, oben, &rot);
     let karte = out.path().join("map.json");
     let mut info: serde_json::Value =
@@ -1334,6 +1337,7 @@ fn zukunft_ist_nicht_fremd() {
     info["bounds"] = serde_json::json!([0, 0, 256, 256]);
     std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
     let spaeter = SystemTime::now() + Duration::from_secs(3600);
+    setze_zeit(&kachel_pfad(out.path(), basis - 1, eine.parent()), spaeter);
     setze_zeit(&kachel_pfad(out.path(), basis - 2, oben), spaeter);
     setze_zeit(&karte, spaeter);
 

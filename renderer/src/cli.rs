@@ -784,7 +784,8 @@ fn write_tiles(
 /// prüft der Aufruf erst direkt vor dem Tausch und vor dem Entfernen. Eine
 /// verkleinerte Kachel hängt dagegen allein an ihren Kindern; sie baut der
 /// Aufruf auch dann neu, wenn ein Export sie eben erst aus einem alten
-/// Kind zusammengesetzt hat.
+/// Kind zusammengesetzt hat, und ebenso, wenn ihre Zeit mehr als zwei
+/// Sekunden nach der Liste liegt: die stammt von einer Uhr, die vorging.
 ///
 /// Ein Kind, das sich nicht lesen lässt, lässt der Aufruf aus. Die
 /// Elternkachel bekommt dann eine Zeit vor der des Kinds, damit der nächste
@@ -801,11 +802,16 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
         )
     })?;
     let max_zoom = alt.max_zoom;
-    // Ohne das Feld stammt der Baum aus master, und der rendert alle
-    // nativen Stufen, die der scale hergibt.
-    let nativ = alt
-        .native_levels
-        .unwrap_or_else(|| native_levels(alt.scale, max_zoom));
+    // Ohne das Feld stammt der Baum aus einem älteren Stand. Nennt er eine
+    // Welt, rendert der alle nativen Stufen, die der scale hergibt; ohne
+    // Welt ist er älter als die nativen Stufen und hat keine.
+    let nativ = alt.native_levels.unwrap_or_else(|| {
+        if alt.world.is_some() {
+            native_levels(alt.scale, max_zoom)
+        } else {
+            0
+        }
+    });
     let mut kinder = vorhandene_mit_zeit(dir, max_zoom)?;
     if kinder.is_empty() {
         bail!(
@@ -853,7 +859,14 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
                 .children()
                 .iter()
                 .any(|kind| geaendert.contains(kind))
-                || zeit.is_none_or(|zeit| teile.iter().any(|kind| kinder[kind] > zeit))
+                || zeit.is_none_or(|zeit| {
+                    teile.iter().any(|kind| kinder[kind] > zeit)
+                        // Gegen eine Zeit nach der Liste wäre kein Kind je
+                        // jünger. Auf einer verkleinerten Stufe bekommt so
+                        // eine Kachel einmal den Stempel und zählt danach
+                        // wie jede andere.
+                        || (!schuetzen && zeit > gelistet + Duration::from_secs(2))
+                })
             {
                 bauen.push((parent, teile));
             }
@@ -861,34 +874,13 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
 
         let stufe = bauen
             .par_iter()
-            .map(|(parent, teile)| -> Result<Neubau> {
-                let mut bilder = Vec::new();
-                let mut kaputt = Vec::new();
-                let mut zeit = stempel;
-                for kind in teile {
-                    match lies_falls_da(&tile_path(dir, z + 1, *kind)) {
-                        Ok(Some(bild)) => bilder.push((*kind, bild)),
-                        Ok(None) => {}
-                        Err(e) => {
-                            kaputt.push(format!("{e:#}"));
-                            zeit = zeit.min(kinder[kind] - Duration::from_secs(2));
-                        }
-                    }
-                }
-                let data = encode_webp(&pyramid::merge(*parent, &bilder))?;
-                // Erst jetzt, direkt vor dem Tausch: offen bleibt nur das
-                // Schreiben der Nebendatei.
-                let pfad = tile_path(dir, z, *parent);
-                let jetzt = aenderungszeit(&pfad);
-                if jetzt != eltern.get(parent).copied() {
-                    return Ok((*parent, None, jetzt, kaputt));
-                }
-                lege_ab(&pfad, &data, Some(zeit))?;
-                Ok((*parent, Some(data.len()), Some(zeit), kaputt))
+            .map(|(parent, teile)| {
+                let zeit = eltern.get(parent).copied();
+                baue_neu(dir, z, *parent, teile, &kinder, zeit, stempel)
             })
             .collect::<Result<Vec<_>>>()?;
         let mut neu = 0;
-        for (parent, groesse, zeit, kaputt) in stufe {
+        for (parent, groesse, zeit, kaputt) in stufe.into_iter().flatten() {
             if let Some(groesse) = groesse {
                 bytes += groesse;
                 neu += 1;
@@ -936,12 +928,61 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
     Ok(())
 }
 
+/// Baut eine Elternkachel für `--pyramid` aus ihren Kindern auf der Platte
+/// neu, falls sie noch so dasteht wie gelistet (`gelistet`). Ein Kind, das
+/// sich nicht lesen lässt, fehlt im Bild, und die Kachel bekommt eine Zeit
+/// vor der des Kinds, damit der nächste Aufruf es wieder versucht.
+///
+/// `None`, wenn keines der Kinder mehr dasteht und keines kaputt ist, etwa
+/// weil ein Export sie am Ende eben entfernt hat: dann schreibt der Aufruf
+/// nichts und meldet nichts als geändert, und der nächste sieht die Stufe
+/// richtig. Eine leere Kachel an ihrer Stelle bliebe bis dahin stehen, und
+/// über ihr würde eine native Kachel verkleinert.
+fn baue_neu(
+    dir: &Path,
+    z: u32,
+    parent: TileId,
+    teile: &[TileId],
+    kinder: &BTreeMap<TileId, SystemTime>,
+    gelistet: Option<SystemTime>,
+    stempel: SystemTime,
+) -> Result<Option<Neubau>> {
+    let mut bilder = Vec::new();
+    let mut kaputt = Vec::new();
+    let mut zeit = stempel;
+    for kind in teile {
+        match lies_falls_da(&tile_path(dir, z + 1, *kind)) {
+            Ok(Some(bild)) => bilder.push((*kind, bild)),
+            Ok(None) => {}
+            Err(e) => {
+                kaputt.push(format!("{e:#}"));
+                zeit = zeit.min(kinder[kind] - Duration::from_secs(2));
+            }
+        }
+    }
+    if bilder.is_empty() && kaputt.is_empty() {
+        return Ok(None);
+    }
+    let data = encode_webp(&pyramid::merge(parent, &bilder))?;
+    // Erst jetzt, direkt vor dem Tausch: offen bleibt nur das Schreiben der
+    // Nebendatei.
+    let pfad = tile_path(dir, z, parent);
+    let jetzt = aenderungszeit(&pfad);
+    if jetzt != gelistet {
+        return Ok(Some((parent, None, jetzt, kaputt)));
+    }
+    lege_ab(&pfad, &data, Some(zeit))?;
+    Ok(Some((parent, Some(data.len()), Some(zeit), kaputt)))
+}
+
 /// Ob jemand anders die Datei geschrieben hat, nachdem `--pyramid` begann
-/// und bevor es nachsah. Eine Zeit in der Zukunft kommt von einer Uhr, die
-/// vorging, nicht von einem Render daneben; so eine Datei bliebe sonst
-/// stehen, bis die Uhr sie einholt.
+/// und bevor es nachsah, mit den zwei Sekunden Spielraum, die auch der
+/// Stempel hat: FAT legt Schreibzeiten in Schritten von zwei Sekunden ab,
+/// und die Uhr einer Freigabe geht womöglich so weit vor. Eine Zeit weiter
+/// in der Zukunft kommt von einer Uhr, die vorging, nicht von einem Render
+/// daneben; so eine Datei bliebe sonst stehen, bis die Uhr sie einholt.
 fn fremd(zeit: Option<SystemTime>, beginn: SystemTime, bis: SystemTime) -> bool {
-    zeit.is_some_and(|zeit| beginn < zeit && zeit <= bis)
+    zeit.is_some_and(|zeit| beginn < zeit && zeit <= bis + Duration::from_secs(2))
 }
 
 /// Eine Kachel aus `--pyramid`: die Bytes, wenn der Aufruf sie geschrieben
@@ -1245,8 +1286,9 @@ fn ohne_kennung(world: &World) -> String {
     )
 }
 
-/// Der Ausweg für eine Welt vor 26.1: `DIM-1` und `DIM1` und den Seed in
-/// `level.dat` liest der Renderer nicht, siehe README.
+/// Der Ausweg für eine Welt vor 26.1: in `DIM-1` und `DIM1` öffnet der
+/// Renderer die Regionen, erkennt darin aber keine Dimension, und den Seed
+/// in `level.dat` liest er nicht, siehe README.
 const VOR_26_1: &str =
     "Eine Welt vor 26.1 vorher mit Minecraft 26.2 und --forceUpgrade hochziehen.";
 
@@ -1919,18 +1961,22 @@ mod tests {
 
     /// Fremd ist nur, was nach dem Beginn und vor der Liste entstand, und
     /// stehen bleibt es nur auf nativen Stufen. Der Baum hat Basis 3 und
-    /// scale 16, `map.json` nennt keine Zahl, wie in master: also zwei
-    /// native Stufen. Der Beginn liegt eine Stunde zurück, so lässt sich jede
-    /// Zeit von Hand setzen:
+    /// scale 16, `map.json` nennt keine Zahl, aber eine Welt, wie ein Baum
+    /// aus #8: also zwei native Stufen, Zoom 2 und 1. Der Beginn liegt eine
+    /// Stunde zurück, so lässt sich jede Zeit von Hand setzen:
     /// - N auf Zoom 2 ist nativ, fremd und älter als sein Kind: bleibt.
     /// - M daneben stammt aus der Sekunde vor dem Beginn, sein Kind ist
-    ///   jünger: wird neu gebaut.
+    ///   jünger: wird neu gebaut, ebenso K, zwei Kacheln weiter.
+    /// - P auf Zoom 1, der gröbsten nativen Stufe, ist fremd, und K darunter
+    ///   wird neu: P bleibt.
     /// - Q auf Zoom 1 ist nativ, liegt aber in der Zukunft: wird mit M neu.
     /// - R auf Zoom 0 ist fremd, aber verkleinert: wird mit Q neu.
     /// - `map.json` in der Zukunft wird ersetzt.
     ///
     /// Danach nennt `map.json` 0 native Stufen und ist selbst fremd: sie
-    /// bleibt, und M, jetzt fremd, aber verkleinert, wird wieder neu.
+    /// bleibt, und M, jetzt fremd, aber verkleinert, wird wieder neu. Nennt
+    /// sie zuletzt weder die Zahl noch eine Welt, stammt der Baum von vor den
+    /// nativen Stufen: N, fremd, ist verkleinert und wird neu.
     #[test]
     fn fremd_nur_auf_nativen_stufen() {
         let dir = tempfile::tempdir().unwrap();
@@ -1940,6 +1986,14 @@ mod tests {
         let (beginn, spaeter) = (jetzt - stunde, jetzt + stunde);
         let mitte = jetzt - stunde / 2;
         let minute = Duration::from_secs(60);
+        let setze_zeit = |pfad: &Path, zeit: SystemTime| {
+            File::options()
+                .write(true)
+                .open(pfad)
+                .unwrap()
+                .set_modified(zeit)
+                .unwrap();
+        };
         let kachel = |z: u32, x: i32, farbe: [u8; 4], zeit: SystemTime| {
             let tile = TileId { x, y: 0 };
             schreibe(
@@ -1950,67 +2004,104 @@ mod tests {
             )
             .unwrap();
             let pfad = tile_path(dir, z, tile);
-            File::options()
-                .write(true)
-                .open(&pfad)
-                .unwrap()
-                .set_modified(zeit)
-                .unwrap();
+            setze_zeit(&pfad, zeit);
             pfad
         };
         let grau = [90, 90, 90, 255];
         let sekunde = Duration::from_secs(1);
         kachel(3, 0, grau, mitte + minute);
         let b = kachel(3, 2, grau, beginn - sekunde / 2);
+        kachel(3, 4, grau, mitte + minute);
         let n = kachel(2, 0, [200, 0, 0, 255], mitte);
         let m = kachel(2, 1, grau, beginn - sekunde);
+        let k = kachel(2, 2, grau, beginn - sekunde);
         let q = kachel(1, 0, [0, 0, 200, 255], spaeter);
+        let p = kachel(1, 1, [200, 200, 0, 255], mitte);
         let r = kachel(0, 0, [0, 200, 0, 255], mitte);
-        let basis = BTreeSet::from([TileId { x: 0, y: 0 }, TileId { x: 2, y: 0 }]);
+        let basis = BTreeSet::from([
+            TileId { x: 0, y: 0 },
+            TileId { x: 2, y: 0 },
+            TileId { x: 4, y: 0 },
+        ]);
         let richtig = MapInfo::new(16, 3, &basis);
-        let falsch = |nativ, zeit| {
+        let falsch = |nativ, world, zeit| {
             let info = MapInfo {
                 native_levels: nativ,
-                world: Some(None),
+                world,
                 bounds: [0, 0, 1, 1],
                 ..MapInfo::new(16, 3, &basis)
             };
             let karte = schreibe_info(dir, &info, None).unwrap();
-            File::options()
-                .write(true)
-                .open(&karte)
-                .unwrap()
-                .set_modified(zeit)
-                .unwrap();
+            setze_zeit(&karte, zeit);
             karte
         };
-        falsch(None, spaeter);
-        let vorher = std::fs::read(&n).unwrap();
+        falsch(None, Some(None), spaeter);
+        let vorher = [std::fs::read(&n).unwrap(), std::fs::read(&p).unwrap()];
 
         rebuild_pyramid(dir, beginn).unwrap();
         let zeit = |pfad: &Path| std::fs::metadata(pfad).unwrap().modified().unwrap();
         let stempel = beginn - Duration::from_secs(2);
-        assert_eq!(std::fs::read(&n).unwrap(), vorher, "N ist nativ und fremd");
-        assert_eq!(zeit(&n), mitte);
-        for (name, pfad) in [("M", &m), ("Q", &q), ("R", &r)] {
+        let nachher = [std::fs::read(&n).unwrap(), std::fs::read(&p).unwrap()];
+        assert_eq!(nachher, vorher, "N und P sind nativ und fremd");
+        assert_eq!([zeit(&n), zeit(&p)], [mitte, mitte]);
+        for (name, pfad) in [("M", &m), ("K", &k), ("Q", &q), ("R", &r)] {
             assert_eq!(zeit(pfad), stempel, "{name} ist nicht neu gebaut");
         }
         let bestand = lies_bestand(dir).unwrap().unwrap();
         assert_eq!(bestand.bounds, richtig.bounds, "map.json aus der Zukunft");
 
-        let karte = falsch(Some(0), mitte);
+        let karte = falsch(Some(0), Some(None), mitte);
         let vorher = std::fs::read(&karte).unwrap();
-        for (pfad, zeit) in [(&m, mitte), (&b, mitte + minute)] {
-            File::options()
-                .write(true)
-                .open(pfad)
-                .unwrap()
-                .set_modified(zeit)
-                .unwrap();
-        }
+        setze_zeit(&m, mitte);
+        setze_zeit(&b, mitte + minute);
         rebuild_pyramid(dir, beginn).unwrap();
         assert_eq!(std::fs::read(&karte).unwrap(), vorher, "fremde map.json");
         assert_eq!(zeit(&m), stempel, "M ist fremd, aber nicht mehr nativ");
+
+        falsch(None, None, mitte);
+        setze_zeit(&n, mitte);
+        rebuild_pyramid(dir, beginn).unwrap();
+        assert_eq!(
+            zeit(&n),
+            stempel,
+            "ohne Welt hat der Baum keine native Stufe"
+        );
+    }
+
+    /// Fremd ist, was nach dem Beginn und bis zwei Sekunden nach der Liste
+    /// entstand; eine Zeit weiter in der Zukunft kommt von einer Uhr, die
+    /// vorging.
+    #[test]
+    fn fremd_mit_zwei_sekunden_spielraum() {
+        let beginn = SystemTime::now();
+        let bis = beginn + Duration::from_secs(10);
+        let sekunde = Duration::from_secs(1);
+        assert!(!fremd(Some(beginn), beginn, bis));
+        assert!(fremd(Some(beginn + sekunde), beginn, bis));
+        assert!(fremd(Some(bis + 2 * sekunde), beginn, bis));
+        assert!(!fremd(Some(bis + 3 * sekunde), beginn, bis));
+        assert!(!fremd(None, beginn, bis));
+    }
+
+    /// Ist beim Lesen keines der Kinder mehr da, schreibt `--pyramid` die
+    /// Elternkachel nicht und meldet sie nicht als geändert.
+    #[test]
+    fn ohne_kinder_entsteht_keine_kachel() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
+        let kind = TileId { x: 0, y: 0 };
+        let kinder = BTreeMap::from([(kind, SystemTime::now())]);
+        let neu = baue_neu(
+            dir,
+            0,
+            kind.parent(),
+            &[kind],
+            &kinder,
+            None,
+            SystemTime::now(),
+        );
+        assert!(neu.unwrap().is_none());
+        assert!(!tile_path(dir, 0, kind.parent()).exists());
     }
 
     /// Entfernt wird eine Kachel nur, wenn sie noch so dasteht, wie die

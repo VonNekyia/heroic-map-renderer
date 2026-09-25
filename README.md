@@ -353,8 +353,11 @@ Die Zahl gehört zum Baum wie der scale: `map.json` hält sie als
 einer mit einer anderen bricht ab, bevor er einen Chunk liest. Sonst lägen
 über einem nachgerenderten Ausschnitt verkleinerte Kacheln neben nativen,
 und an einer unveränderten Welt änderte ein Nachrendern Dateien. Mehr, als
-der scale hergibt, heisst alle. Ein Baum eines älteren Stands, dessen
-`map.json` das Feld nicht hat, bekommt die Zahl seines nächsten Laufs.
+der scale hergibt, heisst alle. Nennt die `map.json` eines Baums aus einem
+älteren Stand die Zahl nicht, bricht ein Lauf ohne den Schalter ab und fragt
+nach ihr: der Stand davor renderte alle Stufen nativ, die der scale hergibt,
+und mit 0 lägen über dem Ausschnitt verkleinerte Kacheln neben nativen. Ein
+Lauf mit dem Schalter hält die Zahl fest.
 
 Ein Ausschnitt mit `--size` braucht mit nativen Stufen mehr Welt als sich
 selbst: eine native Elternkachel zeigt auch, was neben dem Ausschnitt

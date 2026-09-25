@@ -1080,8 +1080,10 @@ const NATIVE_MIN_SCALE: u32 = 4;
 /// mit einer anderen bricht er ab, bevor er einen Chunk liest. Sonst lägen
 /// über einem nachgerenderten Ausschnitt verkleinerte Kacheln neben
 /// nativen, und an einer unveränderten Welt änderte ein Nachrendern
-/// Dateien. Ein Baum eines älteren Stands, dessen `map.json` die Zahl
-/// nicht nennt, bekommt die dieses Laufs, wie beim Feld `world`.
+/// Dateien. Nennt die `map.json` eines Baums aus einem älteren Stand die
+/// Zahl nicht, braucht der Lauf den Schalter: der Stand davor renderte
+/// alle Stufen nativ, die der scale hergibt, und mit 0 lägen über dem
+/// Ausschnitt verkleinerte Kacheln neben nativen.
 fn native_stufen(
     dir: &Path,
     bestand: Option<&MapInfo>,
@@ -1091,14 +1093,20 @@ fn native_stufen(
 ) -> Result<u32> {
     let moeglich = native_levels(scale, max_zoom);
     let hier = verlangt.map(|n| n.min(moeglich));
-    match (bestand.and_then(|alt| alt.native_levels), hier) {
-        (Some(dort), Some(hier)) if dort != hier => bail!(
+    match (bestand.map(|alt| alt.native_levels), hier) {
+        (Some(Some(dort)), Some(hier)) if dort != hier => bail!(
             "{} gehört zu einem Baum mit {dort} nativen Stufen, dieser Lauf hätte {hier}. Mit \
              --native-levels {dort} weiterrendern oder ein neues Verzeichnis nehmen.",
             dir.join("map.json").display()
         ),
-        (Some(dort), _) => Ok(dort.min(moeglich)),
-        (None, hier) => Ok(hier.unwrap_or(0)),
+        (Some(Some(dort)), _) => Ok(dort.min(moeglich)),
+        (Some(None), None) => bail!(
+            "{} nennt keine Zahl nativer Stufen, der Baum stammt aus einem älteren Stand. Mit \
+             --native-levels so vielen weiterrendern, wie er hat, danach steht sie in \
+             map.json: {moeglich}, wenn sein Stand alle rendert, die der scale hergibt, sonst 0.",
+            dir.join("map.json").display()
+        ),
+        (_, hier) => Ok(hier.unwrap_or(0)),
     }
 }
 

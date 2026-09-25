@@ -1309,8 +1309,9 @@ fn pyramide_braucht_einen_baum() {
 /// dort und ändert an einer unveränderten Welt keine Datei; eines mit
 /// einer anderen Zahl bricht ab, bevor es etwas schreibt. Mehr, als der
 /// scale hergibt, heisst alle. Ein neuer Baum rendert ohne den Schalter
-/// keine Stufe nativ, und einer aus einem älteren Stand ohne das Feld
-/// bekommt die Zahl seines nächsten Laufs.
+/// keine Stufe nativ. Einer aus einem älteren Stand ohne das Feld braucht
+/// den Schalter einmal, ohne ihn bricht der Lauf ab, bevor er etwas
+/// schreibt; danach steht die Zahl in `map.json`.
 #[test]
 fn native_stufen_gehoeren_zum_baum() {
     let welt = tempdir();
@@ -1355,11 +1356,21 @@ fn native_stufen_gehoeren_zum_baum() {
         serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
     info.as_object_mut().unwrap().remove("nativeLevels");
     std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    let vorher = schnappschuss(neu.path());
+    let ausgabe = export(welt.path(), neu.path(), &["--scale", "16"]);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("nennt keine Zahl nativer Stufen"),
+        "{meldung}"
+    );
+    assert!(schnappschuss(neu.path()) == vorher);
     gelungen(&export(
         welt.path(),
         neu.path(),
         &["--scale", "16", "--native-levels", "1"],
     ));
+    assert_eq!(native_in(neu.path()), Some(1));
+    gelungen(&export(welt.path(), neu.path(), &["--scale", "16"]));
     assert_eq!(native_in(neu.path()), Some(1));
 }
 

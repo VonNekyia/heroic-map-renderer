@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 use super::palette::{BlockState, PackedIndices, Paletted};
 
@@ -47,31 +48,9 @@ struct PalettedNbt<T> {
 struct PaletteEntry {
     #[serde(rename = "Name")]
     name: String,
-    /// Direkt als Paare, nicht erst über eine HashMap: `BlockState` will
-    /// ohnehin eine sortierte Liste.
-    #[serde(rename = "Properties", default, deserialize_with = "pairs")]
-    properties: Vec<(String, String)>,
-}
-
-fn pairs<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<(String, String)>, D::Error> {
-    struct Pairs;
-    impl<'de> serde::de::Visitor<'de> for Pairs {
-        type Value = Vec<(String, String)>;
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("Properties als Compound")
-        }
-        fn visit_map<A: serde::de::MapAccess<'de>>(
-            self,
-            mut map: A,
-        ) -> Result<Self::Value, A::Error> {
-            let mut out = Vec::with_capacity(map.size_hint().unwrap_or(0));
-            while let Some(pair) = map.next_entry::<String, String>()? {
-                out.push(pair);
-            }
-            Ok(out)
-        }
-    }
-    d.deserialize_map(Pairs)
+    /// Sortiert, wie `BlockState` sie will.
+    #[serde(rename = "Properties", default)]
+    properties: BTreeMap<String, String>,
 }
 
 /// Eine 16×16×16-Section eines Chunks.
@@ -249,7 +228,7 @@ fn decode_section(nbt: SectionNbt) -> Result<Option<Section>> {
     let palette = block_states
         .palette
         .into_iter()
-        .map(|entry| BlockState::new(entry.name, entry.properties))
+        .map(|entry| BlockState::new(entry.name, entry.properties.into_iter().collect()))
         .collect();
 
     let blocks = paletted(

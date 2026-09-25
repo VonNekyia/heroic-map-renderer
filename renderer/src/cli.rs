@@ -91,9 +91,10 @@ pub struct Args {
     /// So viele gröbere Zoomstufen aus der Welt rendern statt aus der
     /// feineren Stufe verkleinern, höchstens so viele, wie der scale
     /// hergibt: bei 32 drei. Hält Blockkanten scharf, aber jede Stufe ist
-    /// ein weiterer Durchlauf durch die Welt
-    #[arg(long, default_value_t = 0, value_name = "N")]
-    native_levels: u32,
+    /// ein weiterer Durchlauf durch die Welt. Vorgabe 0; ein bestehender
+    /// Baum behält die Zahl aus seiner map.json
+    #[arg(long, value_name = "N")]
+    native_levels: Option<u32>,
 
     /// Die Zoomstufen und map.json dieses Kachelbaums aus seinen
     /// Basiskacheln nachbauen, ohne Welt und ohne Assets. Baut nur, was
@@ -514,7 +515,7 @@ fn write_tiles(
     projection: Projection,
     bounds: Option<ScreenRect>,
     dir: &Path,
-    native: u32,
+    native: Option<u32>,
     prune: bool,
 ) -> Result<()> {
     // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
@@ -545,7 +546,7 @@ fn write_tiles(
     // ein Ausschnitt wird auf ganze Kacheln der gröbsten nativen Stufe
     // aufgerundet, und der Vorlauf sieht jeden Block, den irgendeine
     // Stufe braucht.
-    let stufen = native_levels(projection.scale(), max_zoom).min(native);
+    let stufen = native_stufen(dir, bestand.as_ref(), native, projection.scale(), max_zoom)?;
     let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
 
     let started = Instant::now();
@@ -608,6 +609,7 @@ fn write_tiles(
         dir,
         projection.scale(),
         max_zoom,
+        stufen,
         kennung.as_deref(),
         &basis,
     )?;
@@ -728,6 +730,7 @@ fn write_tiles(
         dir,
         projection.scale(),
         max_zoom,
+        stufen,
         kennung.as_deref(),
         &basis,
     )?;
@@ -868,6 +871,7 @@ fn rebuild_pyramid(dir: &Path) -> Result<()> {
     }
 
     let info = MapInfo {
+        native_levels: alt.native_levels,
         world: alt.world,
         ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
@@ -908,10 +912,12 @@ fn schreibe_map_json(
     dir: &Path,
     scale: u32,
     max_zoom: u32,
+    stufen: u32,
     kennung: Option<&str>,
     basis: &BTreeSet<TileId>,
 ) -> Result<(MapInfo, usize, PathBuf)> {
     let info = MapInfo {
+        native_levels: Some(stufen),
         world: Some(kennung.map(str::to_string)),
         ..MapInfo::new(scale, max_zoom, basis)
     };
@@ -1068,6 +1074,33 @@ fn ohne_veraltete(
 /// und benachbarte Reihen überdeckten sich ganz — durchscheinendes Wasser
 /// mischte dort doppelt.
 const NATIVE_MIN_SCALE: u32 = 4;
+
+/// Wie viele Stufen dieser Lauf nativ rendert. Ein bestehender Baum behält
+/// seine Zahl: ohne `--native-levels` nimmt der Lauf sie aus `map.json`,
+/// mit einer anderen bricht er ab, bevor er einen Chunk liest. Sonst lägen
+/// über einem nachgerenderten Ausschnitt verkleinerte Kacheln neben
+/// nativen, und an einer unveränderten Welt änderte ein Nachrendern
+/// Dateien. Ein Baum eines älteren Stands, dessen `map.json` die Zahl
+/// nicht nennt, bekommt die dieses Laufs, wie beim Feld `world`.
+fn native_stufen(
+    dir: &Path,
+    bestand: Option<&MapInfo>,
+    verlangt: Option<u32>,
+    scale: u32,
+    max_zoom: u32,
+) -> Result<u32> {
+    let moeglich = native_levels(scale, max_zoom);
+    let hier = verlangt.map(|n| n.min(moeglich));
+    match (bestand.and_then(|alt| alt.native_levels), hier) {
+        (Some(dort), Some(hier)) if dort != hier => bail!(
+            "{} gehört zu einem Baum mit {dort} nativen Stufen, dieser Lauf hätte {hier}. Mit \
+             --native-levels {dort} weiterrendern oder ein neues Verzeichnis nehmen.",
+            dir.join("map.json").display()
+        ),
+        (Some(dort), _) => Ok(dort.min(moeglich)),
+        (None, hier) => Ok(hier.unwrap_or(0)),
+    }
+}
 
 /// Wie viele Stufen über der Basis nativ gerendert werden können: solange
 /// der halbe scale noch ein Vielfaches von 4 ist, bei scale 32 also drei

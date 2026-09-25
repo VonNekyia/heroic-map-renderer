@@ -36,10 +36,8 @@ fn cli(args: &[&OsStr]) -> Output {
         .expect("terranova-render starten")
 }
 
-/// Kachelexport über die Binärdatei. Ohne eigenes `--native-levels` mit
-/// allen nativen Stufen, die der scale hergibt: bei 16 zwei, bei 12 keine.
-/// So prüfen die Tests beide Wege, den nativen und das Verkleinern.
-fn tiles(welt: &Path, out: &Path, extra: &[&str]) -> Output {
+/// Kachelexport über die Binärdatei, genau mit diesen Schaltern.
+fn export(welt: &Path, out: &Path, extra: &[&str]) -> Output {
     let mut args: Vec<&OsStr> = vec![
         OsStr::new("--world"),
         welt.as_ref(),
@@ -48,11 +46,20 @@ fn tiles(welt: &Path, out: &Path, extra: &[&str]) -> Output {
         OsStr::new("--tiles"),
         out.as_ref(),
     ];
-    if !extra.contains(&"--native-levels") {
-        args.extend([OsStr::new("--native-levels"), OsStr::new("9")]);
-    }
     args.extend(extra.iter().map(OsStr::new));
     cli(&args)
+}
+
+/// Kachelexport über die Binärdatei. Ohne eigenes `--native-levels` mit
+/// allen nativen Stufen, die der scale hergibt: bei 16 zwei, bei 12 keine.
+/// So prüfen die Tests beide Wege, den nativen und das Verkleinern.
+fn tiles(welt: &Path, out: &Path, extra: &[&str]) -> Output {
+    if extra.contains(&"--native-levels") {
+        return export(welt, out, extra);
+    }
+    let mut mit = vec!["--native-levels", "9"];
+    mit.extend(extra);
+    export(welt, out, &mit)
 }
 
 /// `assets()` als geliehener Pfad — die Binärdatei bekommt ihn mehrfach.
@@ -1295,6 +1302,72 @@ fn pyramide_braucht_einen_baum() {
             "{schalter:?}: {meldung}"
         );
     }
+}
+
+/// Die Zahl der nativen Stufen gehört zum Baum wie der scale, `map.json`
+/// hält sie fest. Ein Nachrendern ohne `--native-levels` nimmt sie von
+/// dort und ändert an einer unveränderten Welt keine Datei; eines mit
+/// einer anderen Zahl bricht ab, bevor es etwas schreibt. Mehr, als der
+/// scale hergibt, heisst alle. Ein neuer Baum rendert ohne den Schalter
+/// keine Stufe nativ, und einer aus einem älteren Stand ohne das Feld
+/// bekommt die Zahl seines nächsten Laufs.
+#[test]
+fn native_stufen_gehoeren_zum_baum() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let baum = tempdir();
+    gelungen(&export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--native-levels", "2"],
+    ));
+    assert_eq!(native_in(baum.path()), Some(2));
+    let vorher = schnappschuss(baum.path());
+
+    let ausschnitt = ["--scale", "16", "--center", "8", "8", "--size", "4"];
+    gelungen(&export(welt.path(), baum.path(), &ausschnitt));
+    assert!(
+        schnappschuss(baum.path()) == vorher,
+        "ohne Schalter nicht mehr nativ"
+    );
+
+    let anders = [&ausschnitt[..], &["--native-levels", "1"]].concat();
+    let ausgabe = export(welt.path(), baum.path(), &anders);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("Mit --native-levels 2 weiterrendern"),
+        "{meldung}"
+    );
+    assert!(schnappschuss(baum.path()) == vorher);
+
+    let alle = [&ausschnitt[..], &["--native-levels", "9"]].concat();
+    gelungen(&export(welt.path(), baum.path(), &alle));
+    assert!(schnappschuss(baum.path()) == vorher);
+
+    let neu = tempdir();
+    let ausgabe = export(welt.path(), neu.path(), &["--scale", "16"]);
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    assert!(!meldung.contains("nativ bei scale"), "{meldung}");
+    assert_eq!(native_in(neu.path()), Some(0));
+
+    let karte = neu.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info.as_object_mut().unwrap().remove("nativeLevels");
+    std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    gelungen(&export(
+        welt.path(),
+        neu.path(),
+        &["--scale", "16", "--native-levels", "1"],
+    ));
+    assert_eq!(native_in(neu.path()), Some(1));
+}
+
+/// Die Zahl der nativen Stufen, wie `map.json` sie nennt.
+fn native_in(dir: &Path) -> Option<u64> {
+    let text = std::fs::read_to_string(dir.join("map.json")).expect("map.json lesen");
+    let info: serde_json::Value = serde_json::from_str(&text).expect("map.json auswerten");
+    info["nativeLevels"].as_u64()
 }
 
 /// `map.json` muss beschreiben, was tatsächlich dasteht.

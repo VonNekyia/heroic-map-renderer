@@ -342,6 +342,14 @@ drei Stufen kommt bei scale 32 in Bytes ein Drittel dazu, in Zeit fast
 noch einmal die Basis, denn jede Stufe zeichnet jeden Block ihrer Fläche
 erneut; siehe unten. Deshalb ist die Vorgabe 0.
 
+Die Zahl gehört zum Baum wie der scale: `map.json` hält sie als
+`nativeLevels` fest. Ein Lauf ohne `--native-levels` nimmt sie von dort,
+einer mit einer anderen bricht ab, bevor er einen Chunk liest. Sonst lägen
+über einem nachgerenderten Ausschnitt verkleinerte Kacheln neben nativen,
+und an einer unveränderten Welt änderte ein Nachrendern Dateien. Mehr, als
+der scale hergibt, heisst alle. Ein Baum eines älteren Stands, dessen
+`map.json` das Feld nicht hat, bekommt die Zahl seines nächsten Laufs.
+
 Ein Ausschnitt mit `--size` braucht mit nativen Stufen mehr Welt als sich
 selbst: eine native Elternkachel zeigt auch, was neben dem Ausschnitt
 liegt. Der Export rundet ihn deshalb auf ganze Kacheln der gröbsten
@@ -393,6 +401,7 @@ ganz neu.
   "maxZoom": 10,
   "tiles": "{z}/{x}/{y}.webp",
   "bounds": [-10240, 0, -6144, 4096],
+  "nativeLevels": 0,
   "world": "cb13a94d6c88dae1-6872d5d8ff54db07"
 }
 ```

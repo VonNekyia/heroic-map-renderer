@@ -707,12 +707,15 @@ fn waisen(dir: &Path) -> Vec<String> {
 
 /// Ein Lauf mit --prune läuft bis zum Ende wie einer ohne den Schalter
 /// und räumt erst dann auf. Bricht er in der Pyramide ab, steht jede Datei
-/// noch da, und ein Lauf ohne den Schalter ergibt danach denselben Baum
-/// wie ohne den Abbruch davor, bis aufs Byte. Einer mit ihm heilt den
-/// Baum. Früher wurden die Stufen über den Kacheln ohne Chunk vorher schon
+/// noch da, der Baum ist derselbe wie nach dem Abbruch eines Laufs ohne
+/// den Schalter, und ein Lauf ohne ihn ergibt danach denselben Baum wie
+/// ohne den Abbruch davor, bis aufs Byte. Einer mit ihm heilt den Baum.
+/// Früher wurden die Stufen über den Kacheln ohne Chunk vorher schon
 /// durchsichtig, und kein Lauf ohne --prune stellte sie wieder her; noch
 /// früher verschwanden sie sofort. Bei scale 16 mit nativen Stufen, bei 12
-/// ohne.
+/// ohne. Der dritte Block liegt neben dem ersten: bei scale 12 teilen sich
+/// ihre Basiskacheln eine Elternkachel, und die setzte die Pyramide früher
+/// schon ohne ihn zusammen.
 ///
 /// Den Abbruch erzwingt ein Verzeichnis an der Stelle einer Kachel der
 /// Stufe 0, die die Pyramide neu schreibt: dort liegt der erste Block.
@@ -720,11 +723,11 @@ fn waisen(dir: &Path) -> Vec<String> {
 fn abbruch_in_der_pyramide_entfernt_nichts() {
     let block = |x, y, z| match (x, y, z) {
         (8, 4, 8) => "minecraft:einfarbig",
-        (200, 4, 8) => "minecraft:blauwuerfel",
+        (200, 4, 8) | (64, 4, 0) => "minecraft:blauwuerfel",
         _ => "minecraft:air",
     };
     let alt = tempdir();
-    common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
+    common::write_world(alt.path(), &[(0, 0), (12, 0), (4, 0)], block);
     let neu = tempdir();
     common::write_world(neu.path(), &[(0, 0)], block);
 
@@ -744,6 +747,15 @@ fn abbruch_in_der_pyramide_entfernt_nichts() {
             .expect("der erste Block hat eine Kachel auf Stufe 0");
         std::fs::remove_file(&pfad).unwrap();
         std::fs::create_dir(&pfad).unwrap();
+        let ohne_schalter = kopie(baum.path());
+        std::fs::create_dir_all(
+            ohne_schalter
+                .path()
+                .join(pfad.strip_prefix(baum.path()).unwrap()),
+        )
+        .unwrap();
+        let ausgabe = tiles(neu.path(), ohne_schalter.path(), &["--scale", scale]);
+        assert!(!ausgabe.status.success(), "scale {scale}: kein Abbruch");
         let ausgabe = tiles(neu.path(), baum.path(), &["--scale", scale, "--prune"]);
         assert!(!ausgabe.status.success(), "scale {scale}: kein Abbruch");
         let fehlt: Vec<&String> = vorher
@@ -751,6 +763,18 @@ fn abbruch_in_der_pyramide_entfernt_nichts() {
             .filter(|rel| !baum.path().join(rel).is_file() && baum.path().join(rel) != pfad)
             .collect();
         assert!(fehlt.is_empty(), "scale {scale}: entfernt {fehlt:?}");
+        // Auf Stufe 0 bricht der Lauf ab; was dort daneben schon
+        // geschrieben ist, hängt an der Reihenfolge der Threads.
+        let bis_zum_abbruch = |dir: &Path| {
+            let mut stand = schnappschuss(dir);
+            stand.retain(|rel, _| !rel.starts_with("0/"));
+            stand
+        };
+        assert_eq!(
+            bis_zum_abbruch(baum.path()),
+            bis_zum_abbruch(ohne_schalter.path()),
+            "scale {scale}: mit --prune anders als ohne"
+        );
 
         std::fs::remove_dir(&pfad).unwrap();
         gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));

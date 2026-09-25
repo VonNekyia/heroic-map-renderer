@@ -1489,6 +1489,34 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
 
+    /// Eine grobe Kachel, die ein Ausschnitt nur anschneidet, gehört zu
+    /// seiner Fläche, auch wenn im Ausschnitt nichts unter ihr steht. Fehlt
+    /// ihr die Elternkachel, ist sie eine Waise des Ausschnitts. Hier steht
+    /// ihr einziges Kind links daneben.
+    #[test]
+    fn angeschnittene_waise_ohne_kind_im_ausschnitt() {
+        let dir = tempfile::tempdir().unwrap();
+        for (z, x) in [(2, 2), (1, 1)] {
+            let pfad = tile_path(dir.path(), z, TileId { x, y: 0 });
+            std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+            std::fs::write(pfad, b"").unwrap();
+        }
+        let ausschnitt = ScreenRect {
+            x: 3 * TILE as i32,
+            y: 0,
+            width: TILE,
+            height: TILE,
+        };
+        let gefunden = waisen(dir.path(), 2, &BTreeSet::new(), |z| {
+            flaeche(Some(ausschnitt), 2, z)
+        })
+        .unwrap();
+        assert_eq!(
+            gefunden,
+            BTreeMap::from([(1, BTreeSet::from([TileId { x: 1, y: 0 }]))])
+        );
+    }
+
     #[test]
     fn cli_ist_konsistent() {
         Args::command().debug_assert();

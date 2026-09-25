@@ -652,8 +652,8 @@ Fehler. Zahlen liest der Renderer so, wie sie in der Datei stehen, und
 schneidet sie ab wie Gsons `intValue`, auch jenseits von 64 Bit: ein
 Gewicht 18446744073709551617 ist 1. Eine Zahl ab 1024 Zeichen macht die
 Datei kaputt: so lang ist der Puffer von Gsons `JsonReader`, und nur im
-Modus `LENIENT` liest er weiter. Das gilt für jede JSON-Datei, die der
-Renderer liest. Ebenso kaputt ist `1e10000`: `NumberLimits` lehnt ab
+Modus `LENIENT` liest er weiter. Das gilt für Blockstates, Modelle,
+`.mcmeta` und Biome. Ebenso kaputt ist `1e10000`: `NumberLimits` lehnt ab
 10000 Stellen zwischen letzter Ziffer und Komma ab.
 
 Ein Byte-Order-Mark vorn überspringt Gson, auch in Modellen, `.mcmeta`

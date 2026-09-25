@@ -748,8 +748,8 @@ fn builtin_missing_ist_ein_bekannter_parent() {
 }
 
 /// Ein Byte-Order-Mark vorn überspringt der Client auch in `.mcmeta` und in
-/// Biomen. Ohne das verlöre die Textur ihre Animation, und das Biom bräche
-/// den Lauf ab.
+/// Biomen. Ohne das wäre die Textur kaputt, eine Missing-Textur, die auch
+/// 16x16 misst, und das Biom fiele aus.
 #[test]
 fn byte_order_mark_auch_in_mcmeta_und_biomen() {
     let pack = tempfile::tempdir().unwrap();
@@ -765,6 +765,12 @@ fn byte_order_mark_auch_in_mcmeta_und_biomen() {
     .unwrap();
     let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
     let textur = assets.texture("minecraft:block/streifen");
+    assert_ne!(
+        textur,
+        Textures::MISSING,
+        "{:?}",
+        assets.textures().broken()
+    );
     assert_eq!(assets.textures().image(textur).dimensions(), (16, 16));
 
     let daten = tempfile::tempdir().unwrap();

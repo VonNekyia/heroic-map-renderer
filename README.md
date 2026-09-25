@@ -350,16 +350,38 @@ nativen Stufe auf, siehe oben.
 #### Pyramide nachbauen, Karte während des Renders ansehen
 
 ```bash
-cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --tiles ./tiles --pyramid
+cargo run --release --manifest-path renderer/Cargo.toml -- --pyramid ./tiles
 ```
 
-`--pyramid` rendert nichts. Es baut die gröberen Stufen und `map.json` aus
-den Basiskacheln, die auf der Platte liegen — und zwar nur über
-Basiskacheln, die jünger sind als ihre Elternkachel. Der Aufruf lässt sich
-deshalb wiederholen, während ein Vollrender noch Stunden läuft: die Karte
-im Browser zeigt, was fertig ist, und wächst mit jedem Aufruf. `--scale`
-muss zum laufenden Render passen, die Zoomstufen kommen wie immer aus der
-Ausdehnung der Welt.
+`--pyramid` rendert nichts und braucht weder Welt noch Assets. Es baut die
+gröberen Stufen und `map.json` aus den Basiskacheln, die auf der Platte
+liegen. Basisstufe, scale und Welt nennt `map.json`, das jeder Export vor
+seiner ersten Kachel schreibt; ohne diese Datei, oder wenn auf ihrer
+Basisstufe keine Kachel liegt, ändert es nichts. Native Stufen rendert es
+nicht, es verkleinert auch dort. Ein laufender Render ersetzt sie am Ende
+durch native.
+
+Neu gebaut wird nur, was sich geändert hat: eine Kachel, unter der ein
+Kind jünger ist als sie oder in diesem Aufruf neu gebaut oder entfernt
+wurde, und eine, die fehlt. Eine Kachel ohne Kinder verschwindet.
+Verglichen wird auf jeder Stufe, ein abgebrochener Aufruf heilt also im
+nächsten. Die Zeiten stehen im Verzeichnis, eine Abfrage je Kachel
+braucht es nicht. Der Aufruf lässt sich deshalb wiederholen, während ein
+Vollrender noch Stunden läuft: die Karte im Browser zeigt, was fertig ist,
+und wächst mit jedem Aufruf.
+
+Jede Kachel, die `--pyramid` schreibt, trägt als Zeit den Beginn des
+Aufrufs, zwei Sekunden früher. Ein Kind, das der Render währenddessen
+fertigstellt, ist so jünger als seine Elternkachel, und der nächste
+Aufruf holt es. Zwei Sekunden, weil keine gängige Uhr eines Dateisystems
+gröber zählt; eine Kachel aus diesen zwei Sekunden baut der nächste
+Aufruf nur noch einmal ein. Eine Kachel, die jemand anders seit der Liste
+geschrieben hat, etwa der Render seine nativen Stufen, lässt er stehen.
+Eine unlesbare Kachel lässt er aus und nennt sie. Nicht bemerkt wird ein
+einzelnes Kind, das von aussen verschwindet, solange Geschwister bleiben,
+und eine Kachel, die mit ihrer alten Zeit aus einer Sicherung
+zurückkommt. Dann die gröberen Stufen löschen, und `--pyramid` baut sie
+ganz neu.
 
 ### `map.json`
 

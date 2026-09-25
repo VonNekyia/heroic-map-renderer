@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
@@ -95,11 +95,15 @@ pub struct Args {
     #[arg(long, default_value_t = 0, value_name = "N")]
     native_levels: u32,
 
-    /// Nur die Zoomstufen und map.json aus den Basiskacheln in --tiles
-    /// nachbauen, ohne zu rendern. Nimmt nur Kacheln, die neuer sind als
-    /// ihre Elternkachel — auch während ein Render läuft
-    #[arg(long)]
-    pyramid: bool,
+    /// Die Zoomstufen und map.json dieses Kachelbaums aus seinen
+    /// Basiskacheln nachbauen, ohne Welt und ohne Assets. Baut nur, was
+    /// sich seit dem letzten Mal geändert hat, auch während ein Render läuft
+    #[arg(
+        long,
+        value_name = "VERZEICHNIS",
+        conflicts_with_all = ["tiles", "render", "size", "center", "scale", "native_levels"]
+    )]
+    pyramid: Option<PathBuf>,
 }
 
 /// Die Projektion setzt Blöcke in Schritten von scale/4 Pixeln. Nur bei
@@ -131,10 +135,7 @@ pub fn run() -> Result<()> {
     if args.render.is_some() && (args.world.is_none() || args.assets.is_empty()) {
         bail!("--render braucht --world und --assets");
     }
-    if args.pyramid && args.tiles.is_none() {
-        bail!("--pyramid braucht --tiles");
-    }
-    if args.tiles.is_some() && (args.world.is_none() || (args.assets.is_empty() && !args.pyramid)) {
+    if args.tiles.is_some() && (args.world.is_none() || args.assets.is_empty()) {
         bail!("--tiles braucht --world und --assets");
     }
 
@@ -238,20 +239,20 @@ pub fn run() -> Result<()> {
             )?;
         }
         if let Some(dir) = &args.tiles {
-            if args.pyramid {
-                rebuild_pyramid(world, projection, dir)?;
-            } else {
-                write_tiles(
-                    world,
-                    assets.as_mut().expect("oben geprüft"),
-                    projection,
-                    args.size.map(|size| window(projection, center, size)),
-                    dir,
-                    args.native_levels,
-                    args.prune,
-                )?;
-            }
+            write_tiles(
+                world,
+                assets.as_mut().expect("oben geprüft"),
+                projection,
+                args.size.map(|size| window(projection, center, size)),
+                dir,
+                args.native_levels,
+                args.prune,
+            )?;
         }
+    }
+
+    if let Some(dir) = &args.pyramid {
+        rebuild_pyramid(dir)?;
     }
 
     if let Some(assets) = &assets {
@@ -734,54 +735,155 @@ fn write_tiles(
     Ok(())
 }
 
-/// Baut die Zoomstufen über den Basiskacheln nach, die auf der Platte
-/// liegen, und schreibt `map.json` — ohne die Welt zu rendern.
+/// Baut die Zoomstufen über den Basiskacheln eines Kachelbaums nach und
+/// schreibt `map.json`, ohne Welt und ohne Assets. Basisstufe, scale und
+/// Welt nennt `map.json`, das jeder Export vor seiner ersten Kachel
+/// schreibt; ohne diese Datei oder ohne Kachel auf ihrer Basisstufe ändert
+/// der Aufruf nichts.
 ///
-/// Neu gebaut werden nur die Eltern von Basiskacheln, die jünger sind als
-/// ihre Elternkachel. Damit lässt sich der Aufruf wiederholen, während ein
-/// Render noch läuft: die Karte im Browser wächst mit, und der Aufwand
-/// bleibt bei dem, was seit dem letzten Mal dazugekommen ist. Wozu der
-/// Baum gehört, übernimmt `map.json` unverändert.
-fn rebuild_pyramid(world: &World, projection: Projection, dir: &Path) -> Result<()> {
-    let welt =
-        world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
-    let max_zoom = pyramid::depth(&corner_tiles(welt));
-    let basis = vorhandene(dir, max_zoom, None)?;
-    let neu: BTreeSet<TileId> = basis
-        .iter()
-        .copied()
-        .filter(|tile| juenger_als_eltern(dir, max_zoom, *tile))
-        .collect();
-    println!(
-        "\nPyramide:   {} Basiskacheln auf Zoom {max_zoom}, {} neuer als ihre Elternkachel",
-        basis.len(),
-        neu.len()
-    );
-    let mut weg = BTreeSet::new();
-    build_pyramid(dir, max_zoom, neu, &BTreeMap::new(), &mut weg)?;
-    for (z, tile) in &weg {
-        entferne(&tile_path(dir, *z, *tile))?;
+/// Verglichen wird auf jeder Stufe, jede Kachel mit ihren Kindern auf der
+/// Platte. Neu gebaut wird sie, wenn ein Kind jünger ist als sie, wenn
+/// dieser Aufruf ein Kind neu gebaut oder entfernt hat, oder wenn sie
+/// fehlt. Eine Kachel ohne Kinder verschwindet. Bricht ein Aufruf ab, holt
+/// der nächste nach, was fehlt. Die Zeiten kommen aus der Liste jeder
+/// Stufe, eine Abfrage je Kachel braucht es dafür nicht.
+///
+/// Jede Kachel, die der Aufruf schreibt, trägt als Zeit seinen Beginn,
+/// zwei Sekunden früher: ein Kind, das ein laufender Render danach
+/// schreibt, ist jünger als sie, auch wenn sie erst danach fertig wird.
+/// Zwei Sekunden, weil keine gängige Uhr eines Dateisystems gröber zählt;
+/// ein Kind aus diesen zwei Sekunden baut der nächste Aufruf nur noch
+/// einmal ein. Hat jemand anders eine Kachel seit der Liste geschrieben,
+/// etwa ein Render seine nativen Stufen, bleibt sie, wie sie ist.
+fn rebuild_pyramid(dir: &Path) -> Result<()> {
+    let started = Instant::now();
+    let beginn = SystemTime::now() - Duration::from_secs(2);
+    let karte = dir.join("map.json");
+    let alt = lies_bestand(dir)?.with_context(|| {
+        format!(
+            "{} fehlt: --pyramid baut nur über einem Baum, den ein Export angelegt hat",
+            karte.display()
+        )
+    })?;
+    let max_zoom = alt.max_zoom;
+    let mut kinder = vorhandene_mit_zeit(dir, max_zoom)?;
+    if kinder.is_empty() {
+        bail!(
+            "{} nennt Zoom {max_zoom} als Basis, dort liegt aber keine Kachel",
+            karte.display()
+        );
     }
+    let basis: BTreeSet<TileId> = kinder.keys().copied().collect();
+    println!(
+        "\nPyramide:   {} Basiskacheln auf Zoom {max_zoom}",
+        basis.len()
+    );
+
+    // Die Kacheln der Stufe darunter, die dieser Aufruf neu gebaut oder
+    // entfernt hat, oder die jemand anders seit der Liste geschrieben hat.
+    let mut geaendert: BTreeSet<TileId> = BTreeSet::new();
+    let (mut gebaut, mut entfernt, mut bytes) = (0usize, 0usize, 0usize);
+    let mut unlesbar = Vec::new();
+    for z in (0..max_zoom).rev() {
+        let mut eltern = vorhandene_mit_zeit(dir, z)?;
+        let mut kandidaten: BTreeSet<TileId> = eltern.keys().copied().collect();
+        kandidaten.extend(kinder.keys().map(TileId::parent));
+        let mut bauen = Vec::new();
+        let mut naechste = BTreeSet::new();
+        let mut weg = 0;
+        for parent in kandidaten {
+            let teile: Vec<TileId> = parent
+                .children()
+                .into_iter()
+                .filter(|kind| kinder.contains_key(kind))
+                .collect();
+            if teile.is_empty() {
+                entferne(&tile_path(dir, z, parent))?;
+                eltern.remove(&parent);
+                naechste.insert(parent);
+                weg += 1;
+            } else if parent
+                .children()
+                .iter()
+                .any(|kind| geaendert.contains(kind))
+                || eltern
+                    .get(&parent)
+                    .is_none_or(|&zeit| teile.iter().any(|kind| kinder[kind] > zeit))
+            {
+                bauen.push((parent, teile));
+            }
+        }
+
+        let stufe = bauen
+            .par_iter()
+            .map(|(parent, teile)| -> Result<Neubau> {
+                let mut bilder = Vec::new();
+                let mut kaputt = Vec::new();
+                for kind in teile {
+                    match lies(&tile_path(dir, z + 1, *kind)) {
+                        Ok(bild) => bilder.push((*kind, bild)),
+                        Err(e) => kaputt.push(format!("{e:#}")),
+                    }
+                }
+                let pfad = tile_path(dir, z, *parent);
+                let jetzt = aenderungszeit(&pfad);
+                if jetzt != eltern.get(parent).copied() {
+                    return Ok((*parent, None, jetzt, kaputt));
+                }
+                let bild = pyramid::merge(*parent, &bilder);
+                let groesse = schreibe_am(dir, z, *parent, &bild, Some(beginn))?;
+                Ok((*parent, Some(groesse), Some(beginn), kaputt))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut neu = 0;
+        for (parent, groesse, zeit, kaputt) in stufe {
+            if let Some(groesse) = groesse {
+                bytes += groesse;
+                neu += 1;
+            }
+            match zeit {
+                Some(zeit) => eltern.insert(parent, zeit),
+                None => eltern.remove(&parent),
+            };
+            naechste.insert(parent);
+            unlesbar.extend(kaputt);
+        }
+        println!("Zoom {z:>2}:     {neu} neu, {weg} entfernt");
+        gebaut += neu;
+        entfernt += weg;
+        kinder = eltern;
+        geaendert = naechste;
+    }
+    println!(
+        "Pyramide:   {gebaut} Kacheln neu, {entfernt} entfernt, {:.1} MB in {:.1} s",
+        bytes as f64 / 1_048_576.0,
+        started.elapsed().as_secs_f64()
+    );
+    if !unlesbar.is_empty() {
+        println!(
+            "            {} Kacheln nicht lesbar, übergangen; ein Export über ihre Fläche schreibt sie neu:",
+            unlesbar.len()
+        );
+        print_list(unlesbar.iter());
+    }
+
     let info = MapInfo {
-        world: lies_bestand(dir)?.and_then(|alt| alt.world),
-        ..MapInfo::new(projection.scale(), max_zoom, &basis)
+        world: alt.world,
+        ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
     let path = schreibe_info(dir, &info)?;
     melde_karte(&info, basis.len(), &path);
     Ok(())
 }
 
-/// Ist die Kachel jünger als ihre Elternkachel — oder die Elternkachel gar
-/// nicht da?
-fn juenger_als_eltern(dir: &Path, z: u32, tile: TileId) -> bool {
-    if z == 0 {
-        return false;
-    }
-    let mtime = |path: PathBuf| std::fs::metadata(path).and_then(|m| m.modified()).ok();
-    match mtime(tile_path(dir, z - 1, tile.parent())) {
-        None => true,
-        Some(eltern) => mtime(tile_path(dir, z, tile)).is_some_and(|kind| kind > eltern),
-    }
+/// Eine Kachel aus `--pyramid`: die Bytes, wenn der Aufruf sie geschrieben
+/// hat, ihre Zeit danach, `None`, wenn es sie nicht mehr gibt, und die
+/// Kinder, die sich nicht lesen liessen.
+type Neubau = (TileId, Option<usize>, Option<SystemTime>, Vec<String>);
+
+/// Wann die Datei zuletzt geschrieben wurde, `None`, wenn es sie nicht gibt.
+fn aenderungszeit(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 fn melde_karte(info: &MapInfo, anzahl: usize, path: &Path) {
@@ -1259,12 +1361,49 @@ fn in_flaeche(flaeche: Option<&Flaeche>, tile: &TileId) -> bool {
 /// Namen, die [`tile_path`] schreibt. In einer Fläche nur die darin; dann
 /// liest es nur deren Spaltenordner.
 fn vorhandene(dir: &Path, z: u32, flaeche: Option<&Flaeche>) -> Result<BTreeSet<TileId>> {
+    let mut out = BTreeSet::new();
+    je_kachel(dir, z, flaeche, |tile, _| {
+        out.insert(tile);
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+/// Wie [`vorhandene`] für die ganze Stufe, mit der Zeit, zu der jede
+/// Kachel zuletzt geschrieben wurde. Die steht schon im Verzeichnis:
+/// unter Windows kostet sie nichts, unter Linux einen `statx` je Datei,
+/// aber kein Öffnen. Was zwischen Liste und Abfrage verschwindet, fehlt.
+fn vorhandene_mit_zeit(dir: &Path, z: u32) -> Result<BTreeMap<TileId, SystemTime>> {
+    let mut out = BTreeMap::new();
+    je_kachel(dir, z, None, |tile, eintrag| {
+        match eintrag.metadata().and_then(|m| m.modified()) {
+            Ok(zeit) => {
+                out.insert(tile, zeit);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(e).with_context(|| format!("{} lesen", eintrag.path().display()));
+            }
+        }
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+/// Ruft `je` für jede Kachel aus [`vorhandene`] mit ihrem Eintrag im
+/// Verzeichnis.
+fn je_kachel(
+    dir: &Path,
+    z: u32,
+    flaeche: Option<&Flaeche>,
+    mut je: impl FnMut(TileId, &std::fs::DirEntry) -> Result<()>,
+) -> Result<()> {
     let stufe = dir.join(z.to_string());
     let spalten: Vec<i32> = match flaeche {
         Some((spalten, _)) => spalten.clone().collect(),
         None => {
             let Ok(eintraege) = std::fs::read_dir(&stufe) else {
-                return Ok(BTreeSet::new());
+                return Ok(());
             };
             let mut out = Vec::new();
             for spalte in eintraege {
@@ -1281,7 +1420,6 @@ fn vorhandene(dir: &Path, z: u32, flaeche: Option<&Flaeche>) -> Result<BTreeSet<
             out
         }
     };
-    let mut out = BTreeSet::new();
     for x in spalten {
         let spalte = stufe.join(x.to_string());
         let eintraege = match std::fs::read_dir(&spalte) {
@@ -1290,9 +1428,8 @@ fn vorhandene(dir: &Path, z: u32, flaeche: Option<&Flaeche>) -> Result<BTreeSet<
             Err(e) => return Err(e).with_context(|| format!("{} lesen", spalte.display())),
         };
         for datei in eintraege {
-            let name = datei
-                .with_context(|| format!("{} lesen", spalte.display()))?
-                .file_name();
+            let datei = datei.with_context(|| format!("{} lesen", spalte.display()))?;
+            let name = datei.file_name();
             let name = name.to_string_lossy();
             if let Some(y) = name
                 .strip_suffix(".webp")
@@ -1301,22 +1438,41 @@ fn vorhandene(dir: &Path, z: u32, flaeche: Option<&Flaeche>) -> Result<BTreeSet<
             {
                 let tile = TileId { x, y };
                 if in_flaeche(flaeche, &tile) {
-                    out.insert(tile);
+                    je(tile, &datei)?;
                 }
             }
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// Schreibt eine Kachel und liefert ihre Grösse in Bytes.
 fn schreibe(dir: &Path, z: u32, tile: TileId, image: &RgbaImage) -> Result<usize> {
+    schreibe_am(dir, z, tile, image, None)
+}
+
+/// Wie [`schreibe`], mit dieser Zeit als letzter Änderung statt der Uhr.
+fn schreibe_am(
+    dir: &Path,
+    z: u32,
+    tile: TileId,
+    image: &RgbaImage,
+    zeit: Option<SystemTime>,
+) -> Result<usize> {
     let data = encode_webp(image)?;
     let path = tile_path(dir, z, tile);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("{} anlegen", parent.display()))?;
     }
-    std::fs::write(&path, &data).with_context(|| format!("{} schreiben", path.display()))?;
+    let schreiben = || -> std::io::Result<()> {
+        let mut datei = File::create(&path)?;
+        datei.write_all(&data)?;
+        if let Some(zeit) = zeit {
+            datei.set_modified(zeit)?;
+        }
+        Ok(())
+    };
+    schreiben().with_context(|| format!("{} schreiben", path.display()))?;
     Ok(data.len())
 }
 

@@ -9,11 +9,14 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::{Duration, SystemTime};
 
 use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
-use terranova_render::render::{Projection, SpriteSet, TileId, pyramid, render_area, survey};
+use terranova_render::render::{
+    Projection, SpriteSet, TileId, encode_webp, pyramid, render_area, survey,
+};
 use terranova_render::world::World;
 
 fn assets() -> PathBuf {
@@ -1064,10 +1067,52 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
     );
 }
 
+/// `--pyramid` über dem Baum in diesem Verzeichnis, ohne Welt und Assets.
+fn pyramide(dir: &Path) -> Output {
+    cli(&[OsStr::new("--pyramid"), dir.as_ref()])
+}
+
+/// Setzt jede Kachel des Baums auf dieselbe Zeit eine Stunde zurück, als
+/// wäre er lange vor dem nächsten `--pyramid` entstanden. Eine Kachel aus
+/// den zwei Sekunden vor einem Aufruf baut der nächste noch einmal ein.
+fn altern(dir: &Path) {
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for z in 0..=max_zoom(dir) {
+        for pfad in kacheln(dir, z).values() {
+            let datei = std::fs::File::options().write(true).open(pfad).unwrap();
+            datei.set_modified(damals).unwrap();
+        }
+    }
+}
+
+/// Schreibt eine Kachel mit diesem Bild, jetzt.
+fn setze(dir: &Path, z: u32, tile: TileId, bild: &RgbaImage) {
+    let pfad = dir.join(format!("{z}/{}/{}.webp", tile.x, tile.y));
+    std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+    std::fs::write(pfad, encode_webp(bild).unwrap()).unwrap();
+}
+
+/// Was `--pyramid` aus der Basis dieses Baums und seiner `map.json` von
+/// Grund auf baut.
+fn von_grund_auf(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    let basis = format!("{}/", max_zoom(dir));
+    let frisch = tempdir();
+    for (rel, inhalt) in schnappschuss(dir) {
+        if rel == "map.json" || rel.starts_with(&basis) {
+            let pfad = frisch.path().join(rel);
+            std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+            std::fs::write(pfad, inhalt).unwrap();
+        }
+    }
+    gelungen(&pyramide(frisch.path()));
+    schnappschuss(frisch.path())
+}
+
 /// `--pyramid` baut aus den Basiskacheln auf der Platte dieselben
-/// Zoomstufen und dieselbe `map.json` wie ein Export ohne native Stufen —
-/// und beim zweiten Mal nichts mehr, weil keine Kachel jünger ist als ihre
-/// Eltern. `map.json` bleibt liegen: das Salz der Kennung steht nur dort.
+/// Zoomstufen und dieselbe `map.json` wie ein Export ohne native Stufen,
+/// ohne Welt und ohne Assets. Beim zweiten Mal baut es nichts mehr.
+/// `map.json` bleibt liegen: Basisstufe, scale und das Salz der Kennung
+/// stehen nur dort.
 #[test]
 fn pyramide_laesst_sich_aus_den_kacheln_nachbauen() {
     let welt = tempdir();
@@ -1083,33 +1128,172 @@ fn pyramide_laesst_sich_aus_den_kacheln_nachbauen() {
     assert!(basis > 0);
 
     for z in 0..basis {
-        let stufe = out.path().join(z.to_string());
-        if stufe.is_dir() {
-            std::fs::remove_dir_all(&stufe).unwrap();
-        }
+        std::fs::remove_dir_all(out.path().join(z.to_string())).unwrap();
     }
-
-    let pyramide = |out: &Path| {
-        cli(&[
-            OsStr::new("--world"),
-            welt.path().as_ref(),
-            OsStr::new("--tiles"),
-            out.as_ref(),
-            OsStr::new("--scale"),
-            OsStr::new("8"),
-            OsStr::new("--pyramid"),
-        ])
-    };
+    altern(out.path());
     gelungen(&pyramide(out.path()));
     assert_eq!(schnappschuss(out.path()), soll);
 
     let ausgabe = pyramide(out.path());
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
     assert!(
-        meldung.contains(", 0 neuer als ihre Elternkachel"),
+        meldung.contains("Pyramide:   0 Kacheln neu, 0 entfernt"),
         "Meldung: {meldung}"
     );
     assert_eq!(schnappschuss(out.path()), soll);
+}
+
+/// `--pyramid` holt nach, was sich unter einer Kachel geändert hat, auf
+/// jeder Stufe: eine neu geschriebene Basiskachel; eine Stufe, die ein
+/// abgebrochener Aufruf schon neu geschrieben hat, ihre Eltern aber nicht
+/// mehr; Kinder, die alle verschwunden sind. Das Ergebnis ist jedes Mal
+/// dasselbe wie von Grund auf. Was der Aufruf schreibt, trägt eine Zeit
+/// vor seinem Beginn: ein Kind, das ein Render währenddessen fertigstellt,
+/// ist danach jünger als seine Elternkachel.
+#[test]
+fn pyramide_holt_jede_aenderung_nach() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = tempdir();
+    gelungen(&tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "8", "--native-levels", "0"],
+    ));
+    let basis = max_zoom(out.path());
+    assert!(basis > 2, "zu wenig Stufen");
+    altern(out.path());
+    // Die Kachel über der Basis, die gleich ihre Kinder verliert, hat ein
+    // Geschwister: dann bleibt ihre Elternkachel stehen und muss neu.
+    let mitte = kacheln(out.path(), basis - 1);
+    let oben = *mitte
+        .keys()
+        .find(|p| mitte.keys().filter(|q| q.parent() == p.parent()).count() > 1)
+        .expect("keine Geschwister über der Basis");
+    let unten = kacheln(out.path(), basis);
+    let (&eine, _) = unten.iter().find(|(k, _)| k.parent() == oben).unwrap();
+    let (&andere, _) = unten.iter().find(|(k, _)| k.parent() != oben).unwrap();
+    let vorlage = bild(&unten[&andere]);
+
+    let pruefe = |fall: &str| {
+        let vorher = SystemTime::now();
+        let ausgabe = pyramide(out.path());
+        let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+        assert_eq!(
+            schnappschuss(out.path()),
+            von_grund_auf(out.path()),
+            "{fall}: {meldung}"
+        );
+        for z in 0..basis {
+            for (tile, pfad) in kacheln(out.path(), z) {
+                let zeit = std::fs::metadata(&pfad).unwrap().modified().unwrap();
+                assert!(
+                    zeit < vorher,
+                    "{fall}: Zoom {z}, {tile:?} trägt die Uhrzeit"
+                );
+            }
+        }
+        meldung
+    };
+
+    // Eine Basiskachel bekommt den Inhalt einer anderen: neu sind genau
+    // ihre Vorfahren, einer je Stufe.
+    setze(out.path(), basis, eine, &vorlage);
+    let meldung = pruefe("neue Basiskachel");
+    assert!(
+        meldung.contains(&format!("Pyramide:   {basis} Kacheln neu, 0 entfernt")),
+        "{meldung}"
+    );
+
+    // Ein Aufruf brach nach der ersten Stufe ab: die zeigt schon die
+    // geänderte Basiskachel, die Stufen darüber noch die alte.
+    let mut blass = vorlage.clone();
+    for pixel in blass.pixels_mut() {
+        pixel.0[3] /= 2;
+    }
+    setze(out.path(), basis, eine, &blass);
+    let kinder: Vec<(TileId, RgbaImage)> = kacheln(out.path(), basis)
+        .into_iter()
+        .filter(|(kind, _)| kind.parent() == oben)
+        .map(|(kind, pfad)| (kind, bild(&pfad)))
+        .collect();
+    setze(out.path(), basis - 1, oben, &pyramid::merge(oben, &kinder));
+    pruefe("abgebrochener Aufruf");
+
+    // Alle Kinder einer Kachel verschwinden, und mit ihnen die Kachel.
+    for (kind, pfad) in kacheln(out.path(), basis) {
+        if kind.parent() == oben {
+            std::fs::remove_file(pfad).unwrap();
+        }
+    }
+    let meldung = pruefe("verschwundene Kinder");
+    assert!(
+        !kacheln(out.path(), basis - 1).contains_key(&oben),
+        "{meldung}"
+    );
+
+    // Eine Kachel ist abgeschnitten, etwa von einem Absturz beim Schreiben:
+    // der Aufruf lässt sie aus und sagt es, statt abzubrechen.
+    std::fs::write(&unten[&andere], b"RIFF").unwrap();
+    let meldung = pruefe("abgeschnittene Kachel");
+    assert!(
+        meldung.contains("1 Kacheln nicht lesbar, übergangen"),
+        "{meldung}"
+    );
+}
+
+/// `--pyramid` braucht nur das Verzeichnis, aber eines mit Baum. Ohne
+/// `map.json`, oder wenn auf deren Basisstufe keine Kachel liegt, ändert
+/// es nichts; ein vergessenes `--scale` kann es so gar nicht geben.
+/// Schalter, die nur zum Export gehören, lehnt es ab.
+#[test]
+fn pyramide_braucht_einen_baum() {
+    let leer = tempdir();
+    let ausgabe = pyramide(leer.path());
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("map.json fehlt"),
+        "{meldung}"
+    );
+    assert!(std::fs::read_dir(leer.path()).unwrap().next().is_none());
+
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+    let karte = out.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info["maxZoom"] = (max_zoom(out.path()) + 1).into();
+    std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    let vorher = schnappschuss(out.path());
+    let ausgabe = pyramide(out.path());
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("dort liegt aber keine Kachel"),
+        "{meldung}"
+    );
+    assert_eq!(schnappschuss(out.path()), vorher);
+
+    for schalter in [
+        &["--size", "2048"][..],
+        &["--center", "0", "0"],
+        &["--scale", "16"],
+        &["--native-levels", "1"],
+        &["--tiles", "anderswo"],
+    ] {
+        let mut args = vec![OsStr::new("--pyramid"), out.path().as_os_str()];
+        args.extend(schalter.iter().map(OsStr::new));
+        let ausgabe = cli(&args);
+        let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(
+            !ausgabe.status.success() && meldung.contains("cannot be used with"),
+            "{schalter:?}: {meldung}"
+        );
+    }
 }
 
 /// `map.json` muss beschreiben, was tatsächlich dasteht.

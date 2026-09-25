@@ -860,9 +860,12 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 cd web && npm install && npm run dev
 ```
 
-Der Renderer schreibt die Kacheln direkt dorthin, wo Vite sie ausliefert;
-damit braucht das Frontend keine Konfiguration. `npm run build` legt alles
-unter `web/dist` ab, statisch ausliefern reicht.
+Der Renderer schreibt die Kacheln direkt dorthin, wo der Devserver sie
+ausliefert; damit braucht das Frontend keine Konfiguration. `npm run build`
+legt die Seite unter `web/dist` ab, ohne `public/tiles`: dort liegt oft ein
+Link auf Hunderte Gigabyte, und Vite folgte ihm beim Kopieren, auch unter
+`npm test`. Beim Ausliefern gehören die Kacheln als `tiles/` neben die
+Seite, oder `?tiles=` nennt ihren Pfad; statisch ausliefern reicht.
 
 Wer einem langen Render zusehen will, legt die Kacheln woanders ab und
 setzt einen Link: unter Windows `mklink /J web\public\tiles D:\tiles`, sonst

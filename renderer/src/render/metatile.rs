@@ -461,17 +461,40 @@ impl Masks {
                 }
             }
         } else {
-            let bits = &mut m.bits;
+            // Die Familien einer Section fallen in wenige Klassen gleicher
+            // Bits: Luft, deckender Stein, Wasser, eine Blume. Je Block
+            // genügt ein OR in die Maske seiner Klasse; die Masken je
+            // Eigenschaft setzen sich danach aus den Klassen zusammen.
+            let mut klassen: Vec<u8> = Vec::new();
+            let klasse: Vec<usize> = flags
+                .iter()
+                .map(|&flag| {
+                    if flag == 0 {
+                        return usize::MAX;
+                    }
+                    klassen.iter().position(|&k| k == flag).unwrap_or_else(|| {
+                        klassen.push(flag);
+                        klassen.len() - 1
+                    })
+                })
+                .collect();
+            let mut je_klasse = vec![[0u16; 256]; klassen.len()];
             blocks.for_each_index(4096, |i, index| {
                 // Ein Index über die Palette hinaus wäre ein kaputter Chunk;
                 // der zählt wie Luft, genau wie beim Nachschlagen je Block.
-                let mut flag = flags.get(index).copied().unwrap_or(0);
-                let (col, bit) = (i & 255, 1 << (i >> 8));
-                while flag != 0 {
-                    bits[flag.trailing_zeros() as usize][col] |= bit;
-                    flag &= flag - 1;
+                if let Some(maske) = klasse.get(index).and_then(|&k| je_klasse.get_mut(k)) {
+                    maske[i & 255] |= 1 << (i >> 8);
                 }
             });
+            for (&flag, maske) in klassen.iter().zip(&je_klasse) {
+                for (b, bits) in m.bits.iter_mut().enumerate() {
+                    if flag >> b & 1 != 0 {
+                        for (bits, spalte) in bits.iter_mut().zip(maske) {
+                            *bits |= spalte;
+                        }
+                    }
+                }
+            }
         }
         if !m.bits[PRESENT].iter().any(|&p| p != 0) {
             return None;

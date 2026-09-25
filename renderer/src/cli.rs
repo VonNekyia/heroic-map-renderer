@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -922,9 +922,8 @@ fn schreibe_map_json(
 fn schreibe_info(dir: &Path, info: &MapInfo) -> Result<PathBuf> {
     std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
     let path = dir.join("map.json");
-    let datei = File::create(&path).with_context(|| format!("{} anlegen", path.display()))?;
-    serde_json::to_writer_pretty(BufWriter::new(datei), info)
-        .with_context(|| format!("{} schreiben", path.display()))?;
+    let text = serde_json::to_vec_pretty(info)?;
+    tausche(&path, &text, None).with_context(|| format!("{} schreiben", path.display()))?;
     Ok(path)
 }
 
@@ -1464,16 +1463,32 @@ fn schreibe_am(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("{} anlegen", parent.display()))?;
     }
-    let schreiben = || -> std::io::Result<()> {
-        let mut datei = File::create(&path)?;
-        datei.write_all(&data)?;
+    tausche(&path, &data, zeit).with_context(|| format!("{} schreiben", path.display()))?;
+    Ok(data.len())
+}
+
+/// Ersetzt eine Datei, ohne dass jemand eine halbe sieht: erst eine eigene
+/// daneben, dann umbenennen. Wer die alte gerade liest, liest sie zu Ende,
+/// und bricht der Lauf mittendrin ab, steht die alte noch da. Daneben
+/// bleibt dann höchstens die halbe eigene, `<name>.<pid>.tmp`, und die
+/// sucht kein Leser.
+fn tausche(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> std::io::Result<()> {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}.tmp", std::process::id()));
+    let neu = path.with_file_name(name);
+    let geschrieben = (|| {
+        let mut datei = File::create(&neu)?;
+        datei.write_all(data)?;
         if let Some(zeit) = zeit {
             datei.set_modified(zeit)?;
         }
-        Ok(())
-    };
-    schreiben().with_context(|| format!("{} schreiben", path.display()))?;
-    Ok(data.len())
+        drop(datei);
+        std::fs::rename(&neu, path)
+    })();
+    if geschrieben.is_err() {
+        let _ = std::fs::remove_file(&neu);
+    }
+    geschrieben
 }
 
 fn lies(path: &Path) -> Result<RgbaImage> {

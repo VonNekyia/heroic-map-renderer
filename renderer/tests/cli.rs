@@ -7,6 +7,7 @@ mod common;
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, SystemTime};
@@ -1539,6 +1540,68 @@ fn gewachsene_welt_behaelt_die_nummerierung() {
         );
     }
     assert!(!kacheln(baum.path(), 0).is_empty(), "Zoom 0 fehlt");
+}
+
+/// Kacheln und `map.json` werden getauscht, nicht überschrieben: wer eine
+/// Datei gerade liest, liest sie zu Ende, wie sie war, und ein Abbruch
+/// mitten im Schreiben hinterlässt die alte. Der Test hält die Basis und
+/// `map.json` offen, während ein zweiter Lauf eine veränderte, grössere
+/// Welt schreibt. Daneben bleibt keine eigene Datei übrig.
+#[test]
+fn schreiben_tauscht_die_datei() {
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (2, 2)], gelaende);
+    let neu = tempdir();
+    common::write_world(
+        neu.path(),
+        &[(0, 0), (2, 2), (6, 0)],
+        |x, y, z| match gelaende(x, y, z) {
+            "minecraft:blauwuerfel" => "minecraft:einfarbig",
+            block => block,
+        },
+    );
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    let karte = baum.path().join("map.json");
+    let offen: Vec<(PathBuf, Vec<u8>, std::fs::File)> = kacheln(baum.path(), max_zoom(baum.path()))
+        .into_values()
+        .chain([karte.clone()])
+        .map(|pfad| {
+            let vorher = std::fs::read(&pfad).unwrap();
+            let datei = std::fs::File::open(&pfad).unwrap();
+            (pfad, vorher, datei)
+        })
+        .collect();
+
+    gelungen(&tiles(neu.path(), baum.path(), &["--scale", "16"]));
+    let mut geaendert = Vec::new();
+    for (pfad, vorher, mut datei) in offen {
+        let mut gelesen = Vec::new();
+        datei.read_to_end(&mut gelesen).unwrap();
+        assert!(gelesen == vorher, "{} überschrieben", pfad.display());
+        if std::fs::read(&pfad).unwrap() != vorher {
+            geaendert.push(pfad);
+        }
+    }
+    assert!(
+        geaendert.contains(&karte) && geaendert.len() > 1,
+        "map.json und eine Kachel hätten sich ändern müssen: {geaendert:?}"
+    );
+
+    let mut reste = Vec::new();
+    let mut stapel = vec![baum.path().to_path_buf()];
+    while let Some(ordner) = stapel.pop() {
+        for eintrag in std::fs::read_dir(ordner).unwrap().flatten() {
+            if eintrag.path().is_dir() {
+                stapel.push(eintrag.path());
+            } else if !eintrag.file_name().to_string_lossy().ends_with(".webp")
+                && eintrag.file_name() != "map.json"
+            {
+                reste.push(eintrag.path());
+            }
+        }
+    }
+    assert!(reste.is_empty(), "{reste:?}");
 }
 
 /// Bricht der erste Lauf beim Schreiben der Kacheln ab, steht trotzdem

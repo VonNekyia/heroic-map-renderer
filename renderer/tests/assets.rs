@@ -4,6 +4,8 @@
 //! hat: Variantenlisten, Multipart mit Bedingungen, parent-Ketten,
 //! `#ref`-Texturen, Modelle ohne Elemente, animierte Streifen.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use terranova_render::assets::{
@@ -591,23 +593,23 @@ fn links_wie_im_client() {
     };
     png(&inhalt.path().join("ns/textures/block/stein.png"));
     png(&inhalt.path().join("draussen/fern.png"));
-    link(
+    common::link(
         &inhalt.path().join("draussen"),
         &inhalt.path().join("ns/textures/block/ordner"),
     );
     // Auch den Anfang einer Liste liest Java ohne Links, hier
     // `textures/block` selbst.
     std::fs::create_dir_all(inhalt.path().join("anfang/textures")).unwrap();
-    link(
+    common::link(
         &inhalt.path().join("draussen"),
         &inhalt.path().join("anfang/textures/block"),
     );
     let wurzeln = tempfile::tempdir_in(tmp).unwrap();
     let als_link = wurzeln.path().join("pack");
-    link(inhalt.path(), &als_link);
+    common::link(inhalt.path(), &als_link);
     let mit_namensraum = wurzeln.path().join("zweites");
     std::fs::create_dir(&mit_namensraum).unwrap();
-    link(&inhalt.path().join("ns"), &mit_namensraum.join("mc"));
+    common::link(&inhalt.path().join("ns"), &mit_namensraum.join("mc"));
 
     let mut assets = Assets::open(vec![als_link]).unwrap();
     assert_ne!(assets.texture("ns:block/stein"), Textures::MISSING);
@@ -618,43 +620,35 @@ fn links_wie_im_client() {
     let mut assets = Assets::open(vec![mit_namensraum]).unwrap();
     assert_ne!(assets.texture("mc:block/stein"), Textures::MISSING);
 
-    // Einen Symlink auf eine Datei übergeht Java überall. Windows legt ihn
-    // nur mit Entwicklermodus oder als Admin an.
-    let datei = inhalt.path().join("ns/textures/block/datei.png");
+    // Einen Symlink übergeht Java überall, auf eine Datei wie auf einen
+    // Ordner; unter Windows unterscheidet ihn erst sein Tag von einer
+    // Junction. Windows legt ihn nur mit Entwicklermodus oder als Admin an,
+    // in der CI muss es gehen.
+    let draussen = std::path::absolute(inhalt.path().join("draussen")).unwrap();
+    let block = inhalt.path().join("ns/textures/block");
     #[cfg(unix)]
-    let angelegt = std::os::unix::fs::symlink(inhalt.path().join("draussen/fern.png"), &datei);
+    let links = [
+        std::os::unix::fs::symlink(draussen.join("fern.png"), block.join("datei.png")),
+        std::os::unix::fs::symlink(&draussen, block.join("verzeichnis")),
+    ];
     #[cfg(windows)]
-    let angelegt =
-        std::os::windows::fs::symlink_file(inhalt.path().join("draussen/fern.png"), &datei);
-    match angelegt {
-        Ok(()) => {
-            let mut assets = Assets::open(vec![inhalt.path().into()]).unwrap();
-            assert_eq!(assets.texture("ns:block/datei"), Textures::MISSING);
-        }
-        Err(error) => eprintln!("kein Symlink auf eine Datei möglich: {error}"),
-    }
-}
-
-/// Legt `pfad` als Link auf das Verzeichnis `ziel` an: unter Windows eine
-/// Junction, die jeder anlegen darf, sonst einen Symlink. `mklink` nähme
-/// einen Schrägstrich im Pfad als Schalter, `absolute` setzt Backslashes.
-fn link(ziel: &Path, pfad: &Path) {
-    #[cfg(windows)]
+    let links = [
+        std::os::windows::fs::symlink_file(draussen.join("fern.png"), block.join("datei.png")),
+        std::os::windows::fs::symlink_dir(&draussen, block.join("verzeichnis")),
+    ];
+    let mut assets = Assets::open(vec![inhalt.path().into()]).unwrap();
+    for (angelegt, textur) in links
+        .into_iter()
+        .zip(["ns:block/datei", "ns:block/verzeichnis/fern"])
     {
-        let ausgabe = std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(std::path::absolute(pfad).unwrap())
-            .arg(std::path::absolute(ziel).unwrap())
-            .output()
-            .unwrap();
-        assert!(
-            ausgabe.status.success(),
-            "{}",
-            String::from_utf8_lossy(&ausgabe.stderr)
-        );
+        match angelegt {
+            Ok(()) => assert_eq!(assets.texture(textur), Textures::MISSING, "{textur}"),
+            Err(error) if std::env::var_os("CI").is_none() => {
+                eprintln!("kein Symlink für {textur} möglich: {error}")
+            }
+            Err(error) => panic!("in der CI muss ein Symlink gehen: {error}"),
+        }
     }
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(ziel, pfad).unwrap();
 }
 
 /// Die Anfänge seiner Listen, `models` und `textures/block`, nennt der

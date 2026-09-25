@@ -214,32 +214,11 @@ fn dimension_hinter_einem_link() {
     }
     common::write_level_dat(welt.path(), 42);
     let the_nether = welt.path().join("dimensions/minecraft/the_nether");
-    link(&draussen.path().join("nether"), &the_nether);
-    link(&draussen.path().join("alt"), &welt.path().join("DIM-1"));
+    common::link(&draussen.path().join("nether"), &the_nether);
+    common::link(&draussen.path().join("alt"), &welt.path().join("DIM-1"));
     let nether = (Some(42), Some("minecraft:the_nether".to_string()));
     assert_eq!(herkunft(&the_nether), nether);
     assert_eq!(herkunft(&welt.path().join("DIM-1")), nether);
-}
-
-/// Legt `pfad` als Link auf das Verzeichnis `ziel` an. `mklink` nähme
-/// einen Schrägstrich im Pfad als Schalter, `absolute` setzt Backslashes.
-fn link(ziel: &Path, pfad: &Path) {
-    #[cfg(windows)]
-    {
-        let ausgabe = std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(std::path::absolute(pfad).unwrap())
-            .arg(std::path::absolute(ziel).unwrap())
-            .output()
-            .unwrap();
-        assert!(
-            ausgabe.status.success(),
-            "{}",
-            String::from_utf8_lossy(&ausgabe.stderr)
-        );
-    }
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(ziel, pfad).unwrap();
 }
 
 /// Die Wurzel steht in Meldungen, wie man sie schreibt, ohne das Präfix

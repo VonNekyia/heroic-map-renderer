@@ -254,4 +254,21 @@ mod tests {
         }
         assert_eq!(pack.resource("anders", "textures/a.png"), None);
     }
+
+    /// Windows bringt beides selbst mit: `All Users` ist ein Symlink auf
+    /// einen Ordner, `Default User` eine Junction. Java übergeht den einen
+    /// und folgt der anderen, `art` ebenso. Einen eigenen Symlink anlegen
+    /// darf nur, wer das Recht dazu hat.
+    #[cfg(windows)]
+    #[test]
+    fn symlink_und_junction_wie_java() {
+        let laufwerk = std::env::var("SystemDrive").unwrap();
+        for (name, soll) in [("All Users", Art::Sonst), ("Default User", Art::Ordner)] {
+            let pfad = PathBuf::from(format!(r"{laufwerk}\Users\{name}"));
+            match std::fs::symlink_metadata(&pfad) {
+                Ok(meta) => assert_eq!(art(&pfad, &meta).unwrap(), soll, "{name}"),
+                Err(error) => eprintln!("{} fehlt: {error}", pfad.display()),
+            }
+        }
+    }
 }

@@ -1,4 +1,4 @@
-//! Gemeinsame Hilfen für Tests, die Weltdaten erzeugen.
+//! Gemeinsame Hilfen für die Tests: Weltdaten erzeugen und Links anlegen.
 //!
 //! Eine echte Welt lässt sich nicht ins Repository legen, und aus einem
 //! Ausschnitt einer echten Welt lassen sich einzelne Blöcke nicht gezielt
@@ -14,6 +14,28 @@ use serde::Serialize;
 pub const SECTOR: usize = 4096;
 /// Blöcke je Section-Kante.
 pub const SECTION: i32 = 16;
+
+/// Legt `pfad` als Link auf das Verzeichnis `ziel` an: unter Windows eine
+/// Junction, die jeder anlegen darf, sonst einen Symlink. `mklink` nähme
+/// einen Schrägstrich im Pfad als Schalter, `absolute` setzt Backslashes.
+pub fn link(ziel: &Path, pfad: &Path) {
+    #[cfg(windows)]
+    {
+        let ausgabe = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(std::path::absolute(pfad).unwrap())
+            .arg(std::path::absolute(ziel).unwrap())
+            .output()
+            .unwrap();
+        assert!(
+            ausgabe.status.success(),
+            "{}",
+            String::from_utf8_lossy(&ausgabe.stderr)
+        );
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(ziel, pfad).unwrap();
+}
 
 // ---------------------------------------------------------------- NBT-Bau
 

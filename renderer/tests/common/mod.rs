@@ -126,21 +126,8 @@ pub fn chunk_nbt(cx: i32, cz: i32, sections: Vec<SectionNbt>) -> Vec<u8> {
     .expect("NBT serialisieren")
 }
 
-/// Wo der Seed liegt: bis 1.21 in `level.dat`, seit 26.1 in
-/// `world_gen_settings.dat`. Beide Dateien tragen mehr, der Renderer liest
+/// Wo der Seed liegt, seit 26.1. Die Datei trägt mehr, der Renderer liest
 /// nur den Seed.
-#[derive(Serialize)]
-struct LevelDat {
-    #[serde(rename = "Data")]
-    data: LevelData,
-}
-
-#[derive(Serialize)]
-struct LevelData {
-    #[serde(rename = "WorldGenSettings", skip_serializing_if = "Option::is_none")]
-    settings: Option<SeedNbt>,
-}
-
 #[derive(Serialize)]
 struct GenSettingsDat {
     #[serde(rename = "DataVersion")]
@@ -165,23 +152,16 @@ fn write_gzip_nbt(path: &Path, value: &impl Serialize) {
     gz.finish().expect("gzip abschliessen");
 }
 
-/// `level.dat` mit dem Seed, wie Minecraft bis 1.21 sie schreibt.
-pub fn write_level_dat(world: &Path, seed: i64) {
-    let level = LevelDat {
-        data: LevelData {
-            settings: Some(SeedNbt { seed }),
-        },
-    };
-    write_gzip_nbt(&world.join("level.dat"), &level);
+/// `level.dat`, die Marke der Weltwurzel. Der Renderer liest nichts
+/// daraus: den Seed legt Minecraft seit 26.1 in `world_gen_settings.dat` ab.
+pub fn write_level_dat(world: &Path) {
+    std::fs::write(world.join("level.dat"), b"").expect("level.dat anlegen");
 }
 
-/// `level.dat` ohne Seed, wie seit 26.1: der steht dann in
-/// `world_gen_settings.dat`.
-pub fn write_level_dat_ohne_seed(world: &Path) {
-    let level = LevelDat {
-        data: LevelData { settings: None },
-    };
-    write_gzip_nbt(&world.join("level.dat"), &level);
+/// Eine Weltwurzel mit ihrem Seed, wie Vanilla sie schreibt.
+pub fn write_wurzel(world: &Path, seed: i64) {
+    write_level_dat(world);
+    write_gen_settings(world, seed);
 }
 
 /// `world_gen_settings.dat` mit dem Seed in `<dir>/data/minecraft`. Vanilla

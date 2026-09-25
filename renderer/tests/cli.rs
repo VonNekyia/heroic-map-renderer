@@ -1740,10 +1740,10 @@ fn gescheiterter_lauf_legt_nichts_fest() {
 fn fremde_welt_wird_abgelehnt() {
     let erste = tempdir();
     common::write_world(erste.path(), &[(0, 0), (2, 2)], gelaende);
-    common::write_level_dat(erste.path(), 4_815_162_342);
+    common::write_wurzel(erste.path(), 4_815_162_342);
     let zweite = tempdir();
     common::write_world(zweite.path(), &[(0, 0)], gelaende);
-    common::write_level_dat(zweite.path(), 2_718_281_828);
+    common::write_wurzel(zweite.path(), 2_718_281_828);
 
     let out = tempdir();
     gelungen(&tiles(erste.path(), out.path(), &["--scale", "16"]));
@@ -1790,7 +1790,7 @@ fn alter_baum_ohne_kennung_wird_uebernommen() {
     let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
     assert!(karte.contains("\"world\": null"), "{karte}");
 
-    common::write_level_dat(welt.path(), 4_815_162_342);
+    common::write_wurzel(welt.path(), 4_815_162_342);
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
     assert!(
         !ausgabe.status.success(),
@@ -1829,7 +1829,7 @@ fn alter_baum_ohne_kennung_wird_uebernommen() {
 
     let fremd = tempdir();
     common::write_world(fremd.path(), &[(0, 0)], gelaende);
-    common::write_level_dat(fremd.path(), 2_718_281_828);
+    common::write_wurzel(fremd.path(), 2_718_281_828);
     assert!(
         !tiles(fremd.path(), out.path(), &["--scale", "16"])
             .status
@@ -1845,7 +1845,7 @@ fn alter_baum_ohne_kennung_wird_uebernommen() {
 fn alter_scale_nennt_den_ausweg() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
-    common::write_level_dat(welt.path(), 4_815_162_342);
+    common::write_wurzel(welt.path(), 4_815_162_342);
     let out = tempdir();
     std::fs::write(
         out.path().join("map.json"),
@@ -1876,7 +1876,7 @@ fn dimensionen_haben_eigene_kennungen() {
     let nether = welt.path().join("dimensions/minecraft/the_nether");
     common::write_world(&oberwelt, &[(0, 0)], gelaende);
     common::write_world(&nether, &[(0, 0)], gelaende);
-    common::write_level_dat(welt.path(), 4_815_162_342);
+    common::write_wurzel(welt.path(), 4_815_162_342);
 
     let baum = tempdir();
     gelungen(&tiles(&nether, baum.path(), &["--scale", "16"]));
@@ -1910,29 +1910,33 @@ fn dimensionen_haben_eigene_kennungen() {
         "{ohne_wurzel}"
     );
     assert!(!ohne_wurzel.contains("neues Verzeichnis"), "{ohne_wurzel}");
-    common::write_level_dat_ohne_seed(kopie.path());
+    common::write_level_dat(kopie.path());
     let ohne_seed = meldung();
     assert!(ohne_seed.contains("nennt keinen Seed"), "{ohne_seed}");
     assert!(!ohne_seed.contains("Wurzel richten"), "{ohne_seed}");
 }
 
 /// Ohne Seed nennt die Ausgabe jeden Ort, an dem er gesucht wurde, von der
-/// Datei der Dimension bis level.dat. Ein neuer Baum entsteht trotzdem,
-/// mit `"world": null`, und der Lauf sagt, warum.
+/// Datei der Dimension bis zu der der Paper-Oberwelt, und den Ausweg für
+/// eine Welt vor 26.1. Ein neuer Baum entsteht trotzdem, mit
+/// `"world": null`, und der Lauf sagt, warum.
 #[test]
 fn ohne_seed_nennt_jeden_ort() {
     let welt = tempdir();
     let nether = welt.path().join("dimensions/minecraft/the_nether");
     common::write_world(&nether, &[(0, 0)], gelaende);
-    common::write_level_dat_ohne_seed(welt.path());
+    common::write_level_dat(welt.path());
     let baum = tempdir();
     let ausgabe = tiles(&nether, baum.path(), &["--scale", "16"]);
     let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
     let orte = "weder in dimensions/minecraft/the_nether/data/minecraft/world_gen_settings.dat, \
-                data/minecraft/world_gen_settings.dat, \
-                dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat \
-                noch in level.dat";
+                data/minecraft/world_gen_settings.dat \
+                noch in dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat";
     assert!(text.contains(orte), "{text}");
+    assert!(
+        text.contains("mit Minecraft 26.2 und --forceUpgrade"),
+        "{text}"
+    );
     assert!(text.contains("\"world\": null"), "{text}");
     let karte = std::fs::read_to_string(baum.path().join("map.json")).unwrap();
     assert!(karte.contains("\"world\": null"), "{karte}");
@@ -1944,9 +1948,9 @@ fn ohne_seed_nennt_jeden_ort() {
 #[test]
 fn punkt_als_welt_hat_dieselbe_kennung() {
     let welt = tempdir();
-    let nether = welt.path().join("DIM-1");
+    let nether = welt.path().join("dimensions/minecraft/the_nether");
     common::write_world(&nether, &[(0, 0)], gelaende);
-    common::write_level_dat(welt.path(), 42);
+    common::write_wurzel(welt.path(), 42);
     let baum = tempdir();
     gelungen(&tiles(&nether, baum.path(), &["--scale", "16"]));
     let karte = || std::fs::read_to_string(baum.path().join("map.json")).unwrap();
@@ -1973,7 +1977,7 @@ fn punkt_als_welt_hat_dieselbe_kennung() {
 fn zwei_baeume_bekommen_verschiedene_salze() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
-    common::write_level_dat(welt.path(), 4_815_162_342);
+    common::write_wurzel(welt.path(), 4_815_162_342);
     let salz = |baum: &Path| {
         gelungen(&tiles(welt.path(), baum, &["--scale", "16"]));
         let karte = std::fs::read_to_string(baum.join("map.json")).unwrap();

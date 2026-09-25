@@ -1166,7 +1166,8 @@ fn ohne_kennung(world: &World) -> String {
     let letzter = orte.pop().unwrap_or_default();
     format!(
         "Die Welt nennt keinen Seed, weder in {} noch in {letzter}. Fehlt eine Datei nur in \
-         einer Kopie, sie dazulegen.",
+         einer Kopie, sie dazulegen. Welten vor 26.1 tragen ihn in level.dat, eine solche \
+         vorher mit Minecraft 26.2 und --forceUpgrade hochziehen.",
         orte.join(", ")
     )
 }

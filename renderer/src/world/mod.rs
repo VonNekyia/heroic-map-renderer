@@ -13,9 +13,10 @@ pub use chunk::{Chunk, Section};
 pub use palette::BlockState;
 pub use region::{REGION, Region};
 
-/// Beide Verzeichnislayouts, die in freier Wildbahn vorkommen: das klassische
-/// `world/region` und das seit Minecraft 26.1 genutzte
-/// `world/dimensions/minecraft/overworld/region`.
+/// Wo unter `--world` die Regionen liegen: direkt darunter in einer
+/// Dimension, `world/dimensions/<namensraum>/<name>/region`, und für die
+/// Oberwelt unter der Wurzel in `dimensions/minecraft/overworld/region`,
+/// wie seit Minecraft 26.1.
 const REGION_DIRS: [&[&str]; 2] = [
     &["region"],
     &["dimensions", "minecraft", "overworld", "region"],
@@ -44,17 +45,17 @@ fn under(root: &Path, parts: &[&str]) -> PathBuf {
 /// Weltwurzel und Dimension zu dem Verzeichnis, das `--world` nennt.
 ///
 /// Die Wurzel, das Verzeichnis mit `level.dat`, ist die Oberwelt, auch wenn
-/// ihre Regionen seit 26.1 unter `dimensions/minecraft/overworld` liegen.
-/// Die anderen Dimensionen liegen darunter: seit 1.16 und in 26.x unter
-/// `dimensions/<namensraum>/<name>`, Nether und End bis 1.21 als `DIM-1`
-/// und `DIM1`, bei Bukkit in eigenen Welten wie `world_nether/DIM-1` mit
-/// eigenem `level.dat`. Diese Layouts gehen vor, eine Kopie von `level.dat`
-/// in einer Dimension macht sie nicht zur Oberwelt. Ohne `level.dat` darüber
-/// lässt sich die Welt nicht erkennen, etwa bei einer Kopie ohne sie.
+/// ihre Regionen unter `dimensions/minecraft/overworld` liegen. Die anderen
+/// Dimensionen liegen darunter in `dimensions/<namensraum>/<name>`. Dieses
+/// Layout geht vor, eine Kopie von `level.dat` in einer Dimension macht sie
+/// nicht zur Oberwelt. Ohne `level.dat` darüber lässt sich die Welt nicht
+/// erkennen, etwa bei einer Kopie ohne sie. `DIM-1` und `DIM1` kennen nur
+/// Welten vor 26.1, die liest der Renderer nicht.
 ///
 /// Es zählt der Pfad, wie er auf der Platte steht: unter Windows öffnet
-/// `dim-1` dieselben Regionen wie `DIM-1`, und `..` ist kein Name. Ergibt
-/// der keine Welt, der angegebene, siehe [`locate_erst`].
+/// `DIMENSIONS/MINECRAFT/THE_NETHER` dieselben Regionen wie
+/// `dimensions/minecraft/the_nether`, und `..` ist kein Name. Ergibt der
+/// keine Welt, der angegebene, siehe [`locate_erst`].
 fn locate(dir: &Path) -> Option<(PathBuf, String)> {
     locate_erst(
         std::fs::canonicalize(dir).ok().map(gewohnt),
@@ -100,14 +101,6 @@ fn locate_in(dir: &Path) -> Option<(PathBuf, String)> {
     let dimension = || {
         let name = dir.file_name()?.to_str()?;
         let parent = dir.parent()?;
-        let legacy = match name {
-            "DIM-1" => Some("minecraft:the_nether"),
-            "DIM1" => Some("minecraft:the_end"),
-            _ => None,
-        };
-        if let Some(dimension) = legacy {
-            return is_root(parent).then(|| (parent.to_path_buf(), dimension.to_string()));
-        }
         let namespace = parent.file_name()?.to_str()?;
         let dimensions = parent.parent()?;
         let root = dimensions.parent()?;
@@ -176,7 +169,7 @@ impl World {
 
     /// Die Orte des Seeds relativ zur Weltwurzel, in der Reihenfolge, in der
     /// [`World::seed`] sucht: die Datei der Dimension selbst, die an der
-    /// Wurzel, die der Paper-Oberwelt, `level.dat`.
+    /// Wurzel, die der Paper-Oberwelt.
     pub fn seed_files(&self) -> Vec<PathBuf> {
         let dimension = self.dimension().unwrap_or("minecraft:overworld");
         let (namespace, name) = dimension
@@ -191,20 +184,20 @@ impl World {
         if oberwelt != out[0] {
             out.push(oberwelt);
         }
-        out.push(PathBuf::from("level.dat"));
         out
     }
 
     /// Der Seed der Welt, mit der Dimension Grundlage ihrer Kennung im
-    /// Kachelbaum. Seit 26.1 steht er in `world_gen_settings.dat` unter
-    /// `data.seed`, davor in `level.dat` unter `Data.WorldGenSettings.seed`.
+    /// Kachelbaum. Er steht in `world_gen_settings.dat` unter `data.seed`;
+    /// Welten vor 26.1 trugen ihn in `level.dat`, die liest der Renderer
+    /// nicht.
     ///
     /// Zuerst zählt die Datei der Dimension: Paper schreibt den Seed je
     /// Dimension, und eine Plugin-Welt hat oft einen eigenen. Sonst die an
     /// der Wurzel, wie Vanilla sie schreibt, oder die der Paper-Oberwelt,
     /// von beiden die jüngere, bei gleichem Alter die von Paper: unter
     /// Paper bleibt an der Wurzel eine ältere liegen, etwa aus der Zeit vor
-    /// einer neu erzeugten Welt. Zuletzt `level.dat`.
+    /// einer neu erzeugten Welt.
     pub fn seed(&self) -> Result<Option<i64>> {
         #[derive(Deserialize)]
         struct Seed {
@@ -214,23 +207,13 @@ impl World {
         struct GenSettings {
             data: Seed,
         }
-        #[derive(Deserialize)]
-        struct Level {
-            #[serde(rename = "Data")]
-            data: LevelData,
-        }
-        #[derive(Deserialize)]
-        struct LevelData {
-            #[serde(rename = "WorldGenSettings")]
-            settings: Option<Seed>,
-        }
 
         let Some((root, _)) = &self.home else {
             return Ok(None);
         };
         let orte: Vec<PathBuf> = self.seed_files().iter().map(|ort| root.join(ort)).collect();
-        let [eigene, andere @ .., level] = orte.as_slice() else {
-            unreachable!("mindestens die Dimension und level.dat");
+        let [eigene, andere @ ..] = orte.as_slice() else {
+            unreachable!("mindestens die Dimension");
         };
         let alter = |pfad: &Path| std::fs::metadata(pfad).and_then(|m| m.modified()).ok();
         let datei = match andere {
@@ -244,15 +227,13 @@ impl World {
             }
             _ => andere.iter().find(|pfad| pfad.is_file()),
         };
-        if let Some(datei) = datei {
-            return Ok(Some(read_nbt::<GenSettings>(datei)?.data.seed));
-        }
-        let level = read_nbt::<Level>(level)?;
-        Ok(level.data.settings.map(|s| s.seed))
+        datei
+            .map(|datei| Ok(read_nbt::<GenSettings>(datei)?.data.seed))
+            .transpose()
     }
 }
 
-/// Eine gzip-gepackte NBT-Datei, wie `level.dat`.
+/// Eine gzip-gepackte NBT-Datei, wie `world_gen_settings.dat`.
 fn read_nbt<T: DeserializeOwned>(path: &Path) -> Result<T> {
     let mut nbt = Vec::new();
     std::fs::File::open(path)
@@ -270,7 +251,7 @@ mod tests {
     #[test]
     fn ohne_kanonischen_pfad_der_angegebene() {
         let welt = tempfile::tempdir().unwrap();
-        let dim = welt.path().join("DIM-1");
+        let dim = welt.path().join("dimensions/minecraft/the_nether");
         std::fs::create_dir_all(&dim).unwrap();
         std::fs::write(welt.path().join("level.dat"), b"").unwrap();
         let nether = Some((

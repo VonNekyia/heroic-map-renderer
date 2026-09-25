@@ -250,11 +250,14 @@ mod tests {
             .collect();
         // 20 Einträge: 5 Bits, 12 je Long, 84 Einträge in 7 Longs.
         let packed = PackedIndices::new(data, 20, 4);
-        let mut seen = Vec::new();
-        packed.for_each(100, |i, index| seen.push((i, index)));
-        assert_eq!(seen.len(), 100);
-        for (i, index) in seen {
-            assert_eq!(index, packed.get(i), "Index {i}");
+        // 100 reichen über die Longs hinaus, 80 enden mitten im siebten.
+        for entries in [100, 80] {
+            let mut seen = Vec::new();
+            packed.for_each(entries, |i, index| seen.push((i, index)));
+            assert_eq!(seen.len(), entries);
+            for (i, index) in seen {
+                assert_eq!(index, packed.get(i), "Index {i}");
+            }
         }
     }
 
@@ -279,6 +282,13 @@ mod tests {
                 .first_index_beyond(84, 20)
                 .is_some()
         );
+        // Ein zu grosser Index hinter dem letzten Eintrag, im selben Long,
+        // zählt nicht: Eintrag 82 steht im siebten Long an Stelle 10.
+        let mut hinten = vec![0i64; 7];
+        hinten[6] = 31 << (5 * 10);
+        let packed = PackedIndices::new(hinten, 20, 4);
+        assert_eq!(packed.first_index_beyond(80, 20), None);
+        assert_eq!(packed.first_index_beyond(84, 20), Some(31));
     }
 
     #[test]

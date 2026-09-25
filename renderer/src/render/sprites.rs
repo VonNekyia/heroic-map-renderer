@@ -1352,6 +1352,33 @@ mod tests {
         }
     }
 
+    /// Im Umriss liegt ein Sprite, das ihn genau füllt, auch mit einem
+    /// durchsichtigen Pixel darin. Ein einziger sichtbarer daneben genügt,
+    /// und es liegt nicht mehr darin.
+    #[test]
+    fn ein_pixel_neben_dem_umriss_genuegt() {
+        use image::Rgba;
+        let masks = Masks::new(&Textures::new(), Projection::new(16));
+        let x0 = masks.outline.iter().map(|p| p.0).min().unwrap();
+        let y0 = masks.outline.iter().map(|p| p.1).min().unwrap();
+        let x1 = masks.outline.iter().map(|p| p.0).max().unwrap();
+        let y1 = masks.outline.iter().map(|p| p.1).max().unwrap();
+        let offset = (x0 - 1, y0 - 1);
+        let mut image = RgbaImage::new((x1 - x0 + 3) as u32, (y1 - y0 + 3) as u32);
+        let stelle = |(x, y): (i32, i32)| ((x - offset.0) as u32, (y - offset.1) as u32);
+        for &pos in &masks.outline {
+            let (x, y) = stelle(pos);
+            image.put_pixel(x, y, Rgba([9, 9, 9, 255]));
+        }
+        let mut sprite = Sprite { image, offset };
+        assert!(masks.contains(&sprite));
+        let (x, y) = stelle(masks.outline[0]);
+        sprite.image.put_pixel(x, y, Rgba([0; 4]));
+        assert!(masks.contains(&sprite));
+        sprite.image.put_pixel(0, 0, Rgba([9, 9, 9, 1]));
+        assert!(!masks.contains(&sprite));
+    }
+
     /// Die Zerlegung ist eine Aufteilung: kein Pixel darf verloren gehen
     /// und keines doppelt vergeben werden.
     #[test]

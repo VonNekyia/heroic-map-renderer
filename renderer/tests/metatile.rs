@@ -201,23 +201,19 @@ fn schneller_weg_gleicht_der_referenz() {
 }
 
 /// Ein Chunk, dessen Position nicht zu seinem Platz in der Region passt —
-/// etwa aus einer von Hand kopierten Regionsdatei —, zeichnet nichts, und
-/// er verdeckt auch nichts: die Randblöcke seiner Nachbarn bleiben
-/// sichtbar, wie die Referenz sie zeichnet.
+/// etwa aus einer von Hand kopierten Regionsdatei —, steht an seinem
+/// Platz, wie im Spiel: das Bild gleicht Byte für Byte dem einer Welt ohne
+/// den Fehler, im schnellen Weg wie in der Referenz.
 #[test]
-fn versetzter_chunk_verdeckt_nichts() {
-    let dir = tempdir();
-    let welt = |_: i32, y: i32, _: i32| {
-        if y < 8 {
-            "minecraft:einfarbig"
-        } else {
-            "minecraft:air"
-        }
-    };
-    common::write_world(dir.path(), &[(0, 0), (1, 0), (0, 1)], welt);
+fn versetzter_chunk_steht_an_seinem_platz() {
+    let chunks = [(0, 0), (1, 0), (0, 1)];
+    let richtig = tempdir();
+    common::write_world(richtig.path(), &chunks, gelaende);
+    let versetzt = tempdir();
+    common::write_world(versetzt.path(), &chunks, gelaende);
     // Der Chunk auf Platz (1, 0) nennt sich (5, 0): xPos steht unkomprimiert
     // als Int-Tag in der Regionsdatei.
-    let pfad = dir.path().join("region/r.0.0.mca");
+    let pfad = versetzt.path().join("region/r.0.0.mca");
     let mut bytes = std::fs::read(&pfad).unwrap();
     let muster = [3, 0, 4, b'x', b'P', b'o', b's', 0, 0, 0, 1];
     let stelle = bytes
@@ -227,16 +223,20 @@ fn versetzter_chunk_verdeckt_nichts() {
     bytes[stelle + 10] = 5;
     std::fs::write(&pfad, bytes).unwrap();
 
-    let world = World::open(dir.path()).unwrap();
     for scale in [4, 16, 32] {
         let projection = Projection::new(scale);
-        let sprites = tabelle(&mut assets(), &world, projection);
         let rect = ScreenRect::centered(40 * scale, 40 * scale);
-        let schnell = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
-        let referenz = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+        let bilder = |dir: &TempDir| {
+            let world = World::open(dir.path()).unwrap();
+            let sprites = tabelle(&mut assets(), &world, projection);
+            [
+                render_area(&world, &sprites, rect, Y_RANGE).unwrap(),
+                render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap(),
+            ]
+        };
         assert!(
-            schnell == referenz,
-            "scale {scale}: versetzter Chunk verdeckt"
+            bilder(&versetzt) == bilder(&richtig),
+            "scale {scale}: versetzter Chunk nicht an seinem Platz"
         );
     }
 }

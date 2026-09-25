@@ -833,6 +833,95 @@ fn prune_raeumt_auch_ueber_leerer_flaeche_auf() {
     assert_eq!(schnappschuss(baum.path()), schnappschuss(voll.path()));
 }
 
+/// Nach der Pyramide setzt ein Lauf mit --prune die Stufen über den
+/// Kacheln ohne Chunk ohne sie neu zusammen, erst dann entfernt er. Bricht
+/// er dazwischen ab, ist nichts entfernt, die Basis unverändert, und keine
+/// Kachel ist durchsichtig geworden. Ein Lauf über die ganze Welt ohne den
+/// Schalter ergibt danach denselben Baum wie ohne den Abbruch, einer mit
+/// ihm räumt zu Ende. Der Ausschnitt liegt über dem verschwundenen Chunk,
+/// sein Vorlauf findet nichts; die Kachel auf Stufe 0 über beiden Blöcken
+/// schreibt dann nur `ohne_veraltete`, an ihrer Stelle liegt ein
+/// Verzeichnis. Bei scale 16 mit nativen Stufen, bei 12 ohne; dort wird
+/// die Kachel über dem verschwundenen Block leer.
+#[test]
+fn abbruch_in_ohne_veraltete_entfernt_nichts() {
+    let block = |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (200, 4, 8) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    };
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], block);
+    let sichtbar = |inhalt: &[u8]| {
+        image::load_from_memory(inhalt)
+            .unwrap()
+            .into_rgba8()
+            .pixels()
+            .any(|p| p.0[3] > 0)
+    };
+
+    for scale in ["16", "12"] {
+        let voll = tempdir();
+        gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
+        let baum = tempdir();
+        gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
+        let vorher = schnappschuss(baum.path());
+        let ohne = kopie(baum.path());
+        gelungen(&tiles(neu.path(), ohne.path(), &["--scale", scale]));
+
+        let pfad = kacheln(baum.path(), 0)
+            .into_iter()
+            .find(|(tile, pfad)| {
+                kacheln(voll.path(), 0).get(tile).is_some_and(|soll| {
+                    std::fs::read(soll).unwrap() != std::fs::read(pfad).unwrap()
+                })
+            })
+            .map(|(_, pfad)| pfad)
+            .expect("eine Kachel auf Stufe 0 über beiden Blöcken");
+        std::fs::remove_file(&pfad).unwrap();
+        std::fs::create_dir(&pfad).unwrap();
+        let ausschnitt = [
+            "--scale", scale, "--center", "200", "8", "--size", "1", "--prune",
+        ];
+        let ausgabe = tiles(neu.path(), baum.path(), &ausschnitt);
+        assert!(!ausgabe.status.success(), "scale {scale}: kein Abbruch");
+
+        let nachher = schnappschuss(baum.path());
+        let basis = format!("{}/", max_zoom(baum.path()));
+        for (rel, inhalt) in &vorher {
+            if baum.path().join(rel) == pfad || !rel.ends_with(".webp") {
+                continue;
+            }
+            let jetzt = nachher
+                .get(rel)
+                .unwrap_or_else(|| panic!("scale {scale}: {rel} entfernt"));
+            if rel.starts_with(&basis) {
+                assert_eq!(jetzt, inhalt, "scale {scale}: {rel} an der Basis verändert");
+            }
+            if sichtbar(inhalt) {
+                assert!(sichtbar(jetzt), "scale {scale}: {rel} durchsichtig");
+            }
+        }
+
+        std::fs::remove_dir(&pfad).unwrap();
+        let ganz = kopie(baum.path());
+        gelungen(&tiles(neu.path(), ganz.path(), &["--scale", scale]));
+        assert_eq!(
+            schnappschuss(ganz.path()),
+            schnappschuss(ohne.path()),
+            "scale {scale}: die ganze Welt ohne --prune"
+        );
+        gelungen(&tiles(neu.path(), baum.path(), &ausschnitt));
+        assert_eq!(
+            schnappschuss(baum.path()),
+            schnappschuss(voll.path()),
+            "scale {scale}: --prune räumt zu Ende"
+        );
+    }
+}
+
 /// Ohne --tiles gibt es nichts aufzuräumen; still übergangen hiesse der
 /// Schalter etwas, das er nicht tut.
 #[test]

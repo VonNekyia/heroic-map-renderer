@@ -587,8 +587,8 @@ fn write_tiles(
     }
 
     // Angesagt wird vor der Basis: bis zum Ende des Laufs bleibt Zeit für
-    // Strg+C. Bis dahin läuft er wie einer ohne --prune, erst dann räumt er
-    // auf (`ohne_veraltete`).
+    // Strg+C. Bis zum Ende der Pyramide läuft er wie einer ohne --prune,
+    // dann räumt er auf (`ohne_veraltete`).
     if !veraltet.is_empty() {
         if prune {
             println!(
@@ -829,7 +829,10 @@ fn setze_zusammen(
 /// lief der Lauf wie einer ohne den Schalter; ein Abbruch vorher hat den
 /// Baum also nur so verändert, wie es auch ein Lauf ohne ihn getan hätte.
 /// Auch jetzt wird nichts durchsichtig, was leer wird, kommt nach `weg`
-/// und verschwindet am Ende.
+/// und verschwindet am Ende. Bricht der Lauf hier ab, zeigen die
+/// verkleinerten Stufen über den Kacheln ohne Chunk schon den Stand ohne
+/// sie, die Basis noch den alten; der nächste Lauf mit --prune räumt zu
+/// Ende.
 ///
 /// Native Stufen zeigen die Welt, nicht ihre Kinder; dort geht nur, was
 /// in diesem Lauf nichts gezeigt hat (`gezeigt`) und kein Kind mehr hat.

@@ -262,8 +262,13 @@ geworden ist, von der gröbsten Stufe bis zur Basis. Bis dahin zeigt eine
 leer gewordene Kachel schon nichts mehr, der Lauf überschreibt sie
 durchsichtig. Bricht er vorher ab, hat er nichts gelöscht, und auch ein
 späterer Ausschnitt holt nichts Abgerissenes in eine Elternkachel zurück.
-Über den Kacheln ohne Chunk hat ein Lauf mit `--prune` bis dahin nur
-verändert, was auch ein Lauf ohne ihn verändert hätte. Bricht er beim
+Über den Kacheln ohne Chunk hat ein Lauf mit `--prune` bis zum Ende der
+Pyramide nur verändert, was auch ein Lauf ohne ihn verändert hätte. Danach
+setzt er die Stufen über ihnen ohne sie neu zusammen und entfernt erst
+dann. Bricht er dazwischen ab, zeigen die gröberen Stufen dort schon den
+aufgeräumten Stand, die Basis noch den alten. Ein Lauf ohne `--prune` mit
+derselben Teilkopie stellt das nicht wieder her; einer über die ganze Welt
+oder einer mit `--prune` bringt den Baum in Ordnung. Bricht er beim
 Entfernen ab, fehlen feineren Kacheln die Eltern. Jeder Lauf sucht solche
 Kacheln, soweit sie seine Fläche berühren, und baut ihnen die Eltern neu,
 auch einer, dessen Vorlauf dort nichts mehr findet; einer mit `--prune`

@@ -680,6 +680,121 @@ fn kaputter_link_am_anfang_listet_nichts() {
         assets.variants(&state("stone")).unwrap()[0].model_id,
         MISSING_MODEL
     );
+    assert!(assets.unreadable().is_empty(), "{:?}", assets.unreadable());
+}
+
+/// Lässt sich der Anfang einer Liste aus einem anderen Grund nicht lesen,
+/// listet der Client dort ebenso nichts, schreibt den Fehler aber ins Log
+/// (`listPath`). Der Renderer nennt ihn, für Assets wie für Biome, und
+/// findet er gar kein Biom, auch in dieser Meldung. Unter Windows ist der
+/// Anfang eine Junction auf sich selbst, sonst ein Ordner ohne Rechte; den
+/// liest root trotzdem, in der CI muss es gehen.
+#[test]
+fn unlesbarer_anfang_wird_genannt() {
+    let tmp = env!("CARGO_TARGET_TMPDIR");
+    let pack = tempfile::tempdir_in(tmp).unwrap();
+    let blockstates = pack.path().join("minecraft/blockstates");
+    std::fs::create_dir_all(&blockstates).unwrap();
+    std::fs::write(
+        blockstates.join("stone.json"),
+        r#"{"variants": {"": {"model": "block/stone"}}}"#,
+    )
+    .unwrap();
+    let daten = tempfile::tempdir_in(tmp).unwrap();
+    let biome = daten.path().join("minecraft/worldgen/biome");
+    std::fs::create_dir_all(&biome).unwrap();
+    std::fs::write(
+        biome.join("ebene.json"),
+        r#"{"has_precipitation": true, "temperature": 0.8, "downfall": 0.4, "effects": {"water_color": 4159204}}"#,
+    )
+    .unwrap();
+    let ohne_biom = tempfile::tempdir_in(tmp).unwrap();
+    // So gebaut wie in `Pack`, damit die Pfade gleich geschrieben sind.
+    let models = pack.path().join("minecraft").join("models");
+    let anders = daten.path().join("anders").join("worldgen").join("biome");
+    let nur_unlesbar = ohne_biom
+        .path()
+        .join("minecraft")
+        .join("worldgen")
+        .join("biome");
+    let unlesbar = [&models, &anders, &nur_unlesbar];
+    let gesperrt = unlesbar.map(|pfad| sperre(pfad)) == [true; 3];
+
+    if gesperrt {
+        let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+        assert_eq!(
+            assets.variants(&state("stone")).unwrap()[0].model_id,
+            MISSING_MODEL
+        );
+        assert_eq!(assets.load_biomes(daten.path()).unwrap(), 1);
+        let meldung = format!("{:#}", assets.load_biomes(ohne_biom.path()).unwrap_err());
+        let mut soll = [&models, &anders].map(|pfad| pfad.display().to_string());
+        soll.sort();
+        assert_eq!(assets.unreadable().into_keys().collect::<Vec<_>>(), soll);
+        assert!(
+            meldung.contains(&format!("{} nicht lesbar: ", nur_unlesbar.display())),
+            "{meldung}"
+        );
+    }
+    for pfad in unlesbar {
+        entsperre(pfad);
+    }
+    if !gesperrt {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "in der CI muss ein Ordner unlesbar sein"
+        );
+        eprintln!("kein unlesbarer Ordner möglich");
+    }
+}
+
+/// Steht im Pfad vor dem Anfang einer Liste eine Datei, hier `textures`
+/// vor `textures/block`, meldet Linux das schon beim Lesen der Angaben
+/// (`ENOTDIR`). Das wirft in Java keine `NotDirectoryException`, und
+/// `listPath` schreibt es ins Log. Windows meldet einen fehlenden Pfad,
+/// den Java still übergeht.
+#[test]
+fn datei_vor_dem_anfang() {
+    let pack = tempfile::tempdir().unwrap();
+    let minecraft = pack.path().join("minecraft");
+    std::fs::create_dir(&minecraft).unwrap();
+    std::fs::write(minecraft.join("textures"), b"").unwrap();
+    let assets = Assets::open(vec![pack.path().into()]).unwrap();
+    let genannt: Vec<_> = assets.unreadable().into_keys().collect();
+    if cfg!(windows) {
+        assert!(genannt.is_empty(), "{genannt:?}");
+    } else {
+        let block = minecraft.join("textures").join("block");
+        assert_eq!(genannt, [block.display().to_string()]);
+    }
+}
+
+/// Macht `pfad` zu einem Ordner, der sich nicht auflisten lässt: unter
+/// Windows zu einer Junction auf sich selbst, sonst zu einem Ordner ohne
+/// Rechte. Sagt, ob das Auflisten dann scheitert.
+fn sperre(pfad: &Path) -> bool {
+    std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+    #[cfg(windows)]
+    common::link(pfad, pfad);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir(pfad).unwrap();
+        std::fs::set_permissions(pfad, std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    std::fs::read_dir(pfad).is_err()
+}
+
+/// Gibt einen Ordner aus `sperre` frei, damit das Aufräumen ihn löschen
+/// kann.
+fn entsperre(pfad: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(pfad, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    #[cfg(windows)]
+    let _ = pfad;
 }
 
 /// Die Anfänge seiner Listen, `models` und `textures/block`, nennt der

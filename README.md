@@ -684,6 +684,14 @@ Ganz aus lässt er ein Pack mit einem Link nur im Ordner `resourcepacks`
 (`DirectoryValidator`), die Wurzeln hier nennt der Nutzer. Eine Colormap
 öffnet der Client direkt, dort folgt er jedem Link.
 
+Lässt sich der Anfang einer Liste nicht lesen, listet der Client dort
+nichts. Fehlt er, fehlt sein Ziel oder ist es kein Ordner, etwa bei einer
+Junction ohne Ziel, geschieht das still. Jeden anderen Fehler, etwa bei
+einer Junction auf sich selbst oder unter Linux, wenn im Pfad davor eine
+Datei steht, schreibt er ins Log, und der Renderer nennt ihn in der
+Ausgabe. Ein Fehler tiefer im Baum lässt im Client das Laden der Packs
+scheitern und bricht hier den Lauf ab.
+
 Den Rest prüft der Client gegen die Definition des Blocks: welche
 Eigenschaften er hat und welche Werte. Die stehen in
 `renderer/src/assets/blocks.txt`, 1196 Blöcke aus dem Datengenerator von

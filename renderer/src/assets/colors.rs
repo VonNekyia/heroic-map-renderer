@@ -112,6 +112,7 @@ pub struct Colors {
     dry_foliage: Option<RgbaImage>,
     biomes: BTreeMap<String, Biome>,
     broken_biomes: BTreeMap<String, String>,
+    unreadable: BTreeMap<String, String>,
 }
 
 impl Colors {
@@ -173,17 +174,29 @@ impl Colors {
             }
         }
         if dateien == 0 {
+            let unlesbar: String = pack
+                .unreadable()
+                .iter()
+                .map(|(pfad, grund)| format!("; {pfad} nicht lesbar: {grund}"))
+                .collect();
             bail!(
-                "keine Biome unter {} — erwartet wird <dir>/minecraft/worldgen/biome/*.json",
+                "keine Biome unter {} — erwartet wird <dir>/minecraft/worldgen/biome/*.json{unlesbar}",
                 dir.display()
             );
         }
+        self.unreadable.extend(pack.unreadable().clone());
         Ok(count)
     }
 
     /// Biomdateien, die der Codec ablehnt, je Pfad mit dem Grund.
     pub fn broken_biomes(&self) -> &BTreeMap<String, String> {
         &self.broken_biomes
+    }
+
+    /// Anfänge von Listen in den Datenwurzeln, die sich nicht lesen
+    /// liessen ([`Pack::unreadable`]).
+    pub fn unreadable(&self) -> &BTreeMap<String, String> {
+        &self.unreadable
     }
 
     /// Wie viele Colormaps gefunden wurden, höchstens drei.

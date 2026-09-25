@@ -138,6 +138,19 @@ impl Assets {
         &self.unchecked
     }
 
+    /// Anfänge von Listen in den Asset- und Datenwurzeln, die sich nicht
+    /// lesen liessen, je Pfad mit dem Grund. Der Client listet dort nichts
+    /// und schreibt den Fehler ins Log ([`Pack::unreadable`]).
+    pub fn unreadable(&self) -> BTreeMap<&str, &str> {
+        self.packs
+            .iter()
+            .map(Pack::unreadable)
+            .chain([self.colors.unreadable()])
+            .flatten()
+            .map(|(pfad, grund)| (pfad.as_str(), grund.as_str()))
+            .collect()
+    }
+
     /// Colormaps und Biome für die Färbung von Gras, Laub und Wasser.
     pub fn colors(&self) -> &Colors {
         &self.colors

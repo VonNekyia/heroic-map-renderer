@@ -151,6 +151,18 @@ pub fn run() -> Result<()> {
                         .map(|(pfad, grund)| format!("{pfad}: {grund}")),
                 );
             }
+            let unlesbar = assets.unreadable();
+            if !unlesbar.is_empty() {
+                println!(
+                    "            {} Ordner nicht lesbar, wie im Client dort nichts gelistet:",
+                    unlesbar.len()
+                );
+                print_list(
+                    unlesbar
+                        .iter()
+                        .map(|(pfad, grund)| format!("{pfad}: {grund}")),
+                );
+            }
             Some(assets)
         }
     };

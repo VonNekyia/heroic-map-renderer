@@ -1,7 +1,7 @@
 //! Eine Asset- oder Datenwurzel, wie der Client von 26.2 sie liest
 //! (`PathPackResources`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -40,6 +40,7 @@ pub struct Pack {
     /// Was die Listen finden, unter dem Namen, den der Client bildet, etwa
     /// `minecraft/models/block/stone.json`, mit dem Pfad auf der Platte.
     files: HashMap<String, PathBuf>,
+    unreadable: BTreeMap<String, String>,
 }
 
 impl Pack {
@@ -49,6 +50,7 @@ impl Pack {
             root: root.to_path_buf(),
             namespaces: HashSet::new(),
             files: HashMap::new(),
+            unreadable: BTreeMap::new(),
         };
         for eintrag in
             std::fs::read_dir(root).with_context(|| format!("{} lesen", root.display()))?
@@ -92,6 +94,12 @@ impl Pack {
             .map(|(name, pfad)| (name.as_str(), pfad.as_path()))
     }
 
+    /// Anfänge von Listen, die sich nicht lesen liessen, je Pfad mit dem
+    /// Grund. Der Client listet dort nichts und schreibt den Fehler ins Log.
+    pub fn unreadable(&self) -> &BTreeMap<String, String> {
+        &self.unreadable
+    }
+
     /// Eine Datei, die der Client direkt öffnet statt sie aufzulisten, wie
     /// eine Colormap (`getResource`): in einem Namensraum des Packs, der
     /// Pfad ohne leere Teile, `.` und `..` (`FileUtil.decomposePath`), und
@@ -111,27 +119,32 @@ impl Pack {
 
     /// `listPath`: alles unter `start`, was Java ohne Links für eine Datei
     /// hält, unter `name` und den Namen auf der Platte, und nur, wenn der
-    /// Name als `Identifier` taugt. Ist `start` selbst ein Link oder fehlt
-    /// es, gibt es nichts, ebenso, wenn es sich nicht als Ordner öffnen
-    /// lässt, etwa eine Junction ohne Ziel: das fängt `listPath` ab. Tiefer
-    /// im Baum fängt es nichts, dort scheitert im Client das Laden der Packs
-    /// und hier der Lauf.
+    /// Name als `Identifier` taugt. Ist `start` selbst kein Ordner, etwa ein
+    /// Link oder eine Datei, gibt es nichts. Jeden Fehler an `start` fängt
+    /// `listPath` ab und listet nichts (`anfang_scheitert`). Tiefer im Baum
+    /// fängt es nichts, dort scheitert im Client das Laden der Packs und
+    /// hier der Lauf.
     fn liste(&mut self, namespace: &str, start: &Path, name: &str) -> Result<()> {
-        match std::fs::symlink_metadata(start) {
-            Ok(meta) if art(start, &meta)? == Art::Ordner => {}
-            _ => return Ok(()),
+        match std::fs::symlink_metadata(start).and_then(|meta| art(start, &meta)) {
+            Ok(Art::Ordner) => {}
+            Ok(Art::Datei | Art::Sonst) => return Ok(()),
+            Err(fehler) => {
+                self.anfang_scheitert(start, &fehler, &[ErrorKind::NotFound]);
+                return Ok(());
+            }
         }
         let mut offen = vec![(start.to_path_buf(), name.to_string())];
         while let Some((dir, name)) = offen.pop() {
             let eintraege = match std::fs::read_dir(&dir) {
                 Ok(eintraege) => eintraege,
-                Err(e)
-                    if dir == start
-                        && matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) =>
-                {
+                Err(fehler) if dir == start => {
+                    let still = [ErrorKind::NotFound, ErrorKind::NotADirectory];
+                    self.anfang_scheitert(start, &fehler, &still);
                     return Ok(());
                 }
-                Err(e) => return Err(e).with_context(|| format!("{} lesen", dir.display())),
+                Err(fehler) => {
+                    return Err(fehler).with_context(|| format!("{} lesen", dir.display()));
+                }
             };
             for eintrag in eintraege {
                 let eintrag = eintrag.with_context(|| format!("{} lesen", dir.display()))?;
@@ -143,7 +156,7 @@ impl Pack {
                 let meta = eintrag
                     .metadata()
                     .with_context(|| format!("{} lesen", pfad.display()))?;
-                match art(&pfad, &meta)? {
+                match art(&pfad, &meta).with_context(|| format!("{} lesen", pfad.display()))? {
                     Art::Ordner => offen.push((pfad, name)),
                     Art::Datei if is_identifier(namespace, &name) => {
                         self.files.insert(format!("{namespace}/{name}"), pfad);
@@ -153,6 +166,21 @@ impl Pack {
             }
         }
         Ok(())
+    }
+
+    /// Scheitert `listPath` am Anfang einer Liste, listet es nichts. Still
+    /// bleibt es bei `NoSuchFileException`, wenn er oder sein Ziel fehlt,
+    /// etwa bei einer Junction ohne Ziel, und bei `NotDirectoryException`,
+    /// die nur das Öffnen des Ordners wirft, wenn sein Ziel kein Ordner ist:
+    /// das sind die Fehler in `still`. Jeden anderen schreibt es ins Log,
+    /// etwa bei einer Junction auf sich selbst oder unter Linux, wenn im
+    /// Pfad davor eine Datei steht; der Renderer nennt ihn in
+    /// [`Pack::unreadable`].
+    fn anfang_scheitert(&mut self, start: &Path, fehler: &std::io::Error, still: &[ErrorKind]) {
+        if !still.contains(&fehler.kind()) {
+            self.unreadable
+                .insert(start.display().to_string(), fehler.to_string());
+        }
     }
 }
 
@@ -168,7 +196,7 @@ enum Art {
 
 /// `meta` sind die Angaben zu `pfad` ohne Links, wie `symlink_metadata`.
 #[cfg(not(windows))]
-fn art(_pfad: &Path, meta: &std::fs::Metadata) -> Result<Art> {
+fn art(_pfad: &Path, meta: &std::fs::Metadata) -> std::io::Result<Art> {
     let typ = meta.file_type();
     Ok(if typ.is_dir() {
         Art::Ordner
@@ -185,7 +213,7 @@ fn art(_pfad: &Path, meta: &std::fs::Metadata) -> Result<Art> {
 /// keine Datei (`isOther`). Rust hält beides für einen Link, nur der Tag
 /// unterscheidet sie.
 #[cfg(windows)]
-fn art(pfad: &Path, meta: &std::fs::Metadata) -> Result<Art> {
+fn art(pfad: &Path, meta: &std::fs::Metadata) -> std::io::Result<Art> {
     use std::os::windows::fs::MetadataExt;
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_ATTRIBUTE_DEVICE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
@@ -205,7 +233,7 @@ fn art(pfad: &Path, meta: &std::fs::Metadata) -> Result<Art> {
 /// Der Tag eines Analysepunkts, gelesen am Punkt selbst, nicht an seinem
 /// Ziel.
 #[cfg(windows)]
-fn ist_symlink(pfad: &Path) -> Result<bool> {
+fn ist_symlink(pfad: &Path) -> std::io::Result<bool> {
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
@@ -218,8 +246,7 @@ fn ist_symlink(pfad: &Path) -> Result<bool> {
     let datei = std::fs::OpenOptions::new()
         .access_mode(0)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(pfad)
-        .with_context(|| format!("{} öffnen", pfad.display()))?;
+        .open(pfad)?;
     let mut info = FILE_ATTRIBUTE_TAG_INFO {
         FileAttributes: 0,
         ReparseTag: 0,
@@ -235,8 +262,7 @@ fn ist_symlink(pfad: &Path) -> Result<bool> {
         )
     };
     if gelungen == 0 {
-        return Err(std::io::Error::last_os_error())
-            .with_context(|| format!("{} lesen", pfad.display()));
+        return Err(std::io::Error::last_os_error());
     }
     Ok(info.ReparseTag == IO_REPARSE_TAG_SYMLINK)
 }

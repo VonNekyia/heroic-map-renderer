@@ -865,8 +865,8 @@ impl<'a> ChunkCache<'a> {
         // Fremde Teile: vom Anker aus in jeden Würfel, den ein Modell der
         // Familie belegen kann. Gezeichnet wird dort, wenn der Würfel im
         // Band liegt, auch wenn er verdeckt ist: die Zerlegung lässt jedem
-        // Teil eine Pixelbreite Spielraum über seinen Würfel hinaus, und das
-        // deckt kein Nachbar.
+        // Teil eine Pixelbreite Spielraum über seinen Würfel hinaus, und den
+        // deckt kein Nachbar sicher, die nach +x und +z höchstens zum Teil.
         for anchor in anchors {
             for (i, cell) in foreign.iter().enumerate() {
                 let [x, y, z] = [

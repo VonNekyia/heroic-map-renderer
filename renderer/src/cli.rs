@@ -21,8 +21,9 @@ use terranova_render::render::{
 };
 use terranova_render::world::{BlockState, REGION, World};
 
-/// Höhenbereich, den Minecraft seit 1.18 verwendet. Sections ausserhalb
-/// liefert der Welt-Reader ohnehin nicht.
+/// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
+/// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
+/// einem Datapack schnitte der Renderer hier ab.
 const Y_RANGE: (i32, i32) = (-64, 319);
 
 #[derive(Parser)]
@@ -1484,10 +1485,10 @@ fn pruefe_bestand(
 /// unter der Basis ist aus Kanten Brei geworden. Ein nativer Render hält
 /// jede Blockkante scharf, die Textur wird dafür im Sprite über den Block
 /// gemittelt — auf der Karte zählt der Umriss, nicht das Texel. In Bytes
-/// kommt ein Drittel dazu, ein Viertel je Stufe; in Zeit fast noch einmal
-/// die Basis, denn jede Stufe zeichnet jeden Block ihrer Fläche erneut.
-/// Hochgerechnet auf die Testwelt bei scale 32: rund 7 Minuten für die drei
-/// Stufen, 8 für die Basis. Deshalb ist die Vorgabe 0.
+/// kommt ein Drittel dazu, ein Viertel je Stufe; in Zeit gut drei Viertel
+/// der Basis, denn jede Stufe zeichnet jeden Block ihrer Fläche erneut.
+/// Hochgerechnet auf die Testwelt bei scale 32: rund 5 Minuten für die drei
+/// Stufen, 6 für die Basis. Deshalb ist die Vorgabe 0.
 ///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
 /// [`build_pyramid`]. Dazu die Kacheln jeder nativen Stufe, die etwas

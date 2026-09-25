@@ -49,8 +49,8 @@ pub struct SpriteSet {
     /// ueber den Index des Bioms weiter.
     by_biome: HashMap<SpriteId, Vec<SpriteId>>,
     /// Index je Biomname, in der Reihenfolge von `Colors::biomes`. Eine
-    /// Karte je Sprite mit allen Biomnamen als Schluessel waren bei
-    /// Interconnect gut zwei Millionen Strings.
+    /// Karte je Sprite mit allen Biomnamen als Schluessel waren bei einer
+    /// grossen Serverwelt gut zwei Millionen Strings.
     biome_index: HashMap<String, usize>,
     /// Sprites nach dem Hash ihrer Pixel und ihrer Faerbung: pixelgleiche
     /// teilen sich den Eintrag, wenn sie sich in jedem Biom gleich faerben.

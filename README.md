@@ -484,21 +484,23 @@ kosten sie fast so viel Zeit wie die Basis, bei scale 32 12,1 s gegen
 13,6 s. In Bytes sind sie ein Fünftel bis ein Drittel. Die Sprite-Tabellen
 aller 3110 Blockstates brauchen über die vier Stufen zusammen rund 12 s.
 
-Der erste Vollrender einer grossen Welt hat die Rechnung geerdet:
-Interconnect, 2,5 Millionen Chunks (30 GB), scale 32.
+Der erste Vollrender einer grossen Serverwelt hat die Rechnung geerdet:
+2,5 Millionen Chunks, 30 GB, scale 32.
 
 | | |
 |---|---|
 | Vorlauf | 259 s |
 | Basiskacheln | 2 504 461, rund 120 kB je Kachel, also ~300 GB |
 | Rate | 44 Kacheln/s auf 24 Threads, davon nur 9 Kerne frei |
-| Basisstufe | rund 15 Stunden |
+| Basisstufe | 2 504 461 / 44 s, knapp 16 Stunden |
 
-Das ist keine Eigenschaft der Welt, sondern des Renderers: eine Kachel
-kostet etwa eine halbe CPU-Sekunde, weil sie ein schräger Schnitt durch
-die volle Bauhöhe von 384 Blöcken ist, dafür 50 bis 70 Chunks lädt und
-dekodiert, und weil der Chunk-Cache je Kachel neu entsteht. Der Vorlauf
-liest dieselben Chunks einmal in vier Minuten.
+Das ist keine Eigenschaft der Welt, sondern des Renderers. Eine Kachel
+kostet rund 0,2 CPU-Sekunden, 9 Kerne für 44 Kacheln je Sekunde; jeder
+der 24 Threads braucht für eine gut eine halbe Sekunde, weil er auf
+einen freien Kern wartet. Sie ist ein schräger Schnitt durch die volle
+Bauhöhe von 384 Blöcken, lädt und dekodiert dafür 50 bis 70 Chunks, und
+ihr Chunk-Cache entsteht je Kachel neu. Der Vorlauf liest dieselben
+Chunks einmal in vier Minuten.
 
 WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
 wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den
@@ -852,6 +854,16 @@ cd web && npm install && npm run dev
 Der Renderer schreibt die Kacheln direkt dorthin, wo Vite sie ausliefert;
 damit braucht das Frontend keine Konfiguration. `npm run build` legt alles
 unter `web/dist` ab, statisch ausliefern reicht.
+
+Wer einem langen Render zusehen will, legt die Kacheln woanders ab und
+setzt einen Link: unter Windows `mklink /J web\public\tiles D:\tiles`, sonst
+`ln -s /pfad/zu/tiles web/public/tiles`. Findet Vite unter `public/` einen
+Link, fragt es bei jeder Anfrage die Platte und liefert auch Kacheln aus,
+die nach seinem Start entstanden sind, etwa durch `--pyramid`. Aus einem
+echten Verzeichnis dort liefert es nur, was beim Start dalag, bis zum
+nächsten Neustart. Neue Dateien meldet ihm sonst sein Watcher, und den hat
+`vite.config.ts` von den Kacheln abgekoppelt: er beobachtete jede der
+Millionen Dateien und verbrennte Kerne, die der Render braucht.
 
 Ohne echte Kacheln zeigt `http://localhost:5173/?tiles=/tiles-demo` einen
 kleinen Kachelbaum, der mit im Repository liegt — 7 Dateien, 6,6 kB. Er ist

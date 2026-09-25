@@ -749,18 +749,26 @@ fn write_tiles(
 /// dieser Aufruf ein Kind neu gebaut oder entfernt hat, oder wenn sie
 /// fehlt. Eine Kachel ohne Kinder verschwindet. Bricht ein Aufruf ab, holt
 /// der nächste nach, was fehlt. Die Zeiten kommen aus der Liste jeder
-/// Stufe, eine Abfrage je Kachel braucht es dafür nicht.
+/// Stufe, siehe [`vorhandene_mit_zeit`].
 ///
-/// Jede Kachel, die der Aufruf schreibt, trägt als Zeit seinen Beginn,
-/// zwei Sekunden früher: ein Kind, das ein laufender Render danach
-/// schreibt, ist jünger als sie, auch wenn sie erst danach fertig wird.
-/// Zwei Sekunden, weil keine gängige Uhr eines Dateisystems gröber zählt;
-/// ein Kind aus diesen zwei Sekunden baut der nächste Aufruf nur noch
-/// einmal ein. Hat jemand anders eine Kachel seit der Liste geschrieben,
-/// etwa ein Render seine nativen Stufen, bleibt sie, wie sie ist.
+/// Jede Kachel, die der Aufruf schreibt, und `map.json` tragen als Zeit
+/// seinen Beginn, zwei Sekunden früher: ein Kind, das ein laufender Render
+/// danach schreibt, ist jünger als sie, auch wenn sie erst danach fertig
+/// wird. Zwei Sekunden, weil keine gängige Uhr eines Dateisystems gröber
+/// zählt; ein Kind aus diesen zwei Sekunden baut der nächste Aufruf nur
+/// noch einmal ein. Was jünger ist als der Beginn selbst, hat deshalb
+/// jemand anders geschrieben, etwa ein Render seine nativen Stufen oder am
+/// Ende `map.json` mit den Grenzen seiner letzten Kacheln. Das bleibt, wie
+/// es ist, ebenso eine Kachel, die sich seit der Liste geändert hat.
+///
+/// Ein Kind, das sich nicht lesen lässt, lässt der Aufruf aus. Die
+/// Elternkachel bekommt dann eine Zeit vor der des Kinds, damit der nächste
+/// Aufruf es wieder versucht. Ein Kind, das seit der Liste verschwunden
+/// ist, etwa am Ende eines Exports, gehört nicht mehr dazu.
 fn rebuild_pyramid(dir: &Path) -> Result<()> {
     let started = Instant::now();
-    let beginn = SystemTime::now() - Duration::from_secs(2);
+    let beginn = SystemTime::now();
+    let stempel = beginn - Duration::from_secs(2);
     let karte = dir.join("map.json");
     let alt = lies_bestand(dir)?.with_context(|| {
         format!(
@@ -795,6 +803,10 @@ fn rebuild_pyramid(dir: &Path) -> Result<()> {
         let mut naechste = BTreeSet::new();
         let mut weg = 0;
         for parent in kandidaten {
+            let zeit = eltern.get(&parent).copied();
+            if zeit.is_some_and(|zeit| zeit > beginn) {
+                continue;
+            }
             let teile: Vec<TileId> = parent
                 .children()
                 .into_iter()
@@ -809,9 +821,7 @@ fn rebuild_pyramid(dir: &Path) -> Result<()> {
                 .children()
                 .iter()
                 .any(|kind| geaendert.contains(kind))
-                || eltern
-                    .get(&parent)
-                    .is_none_or(|&zeit| teile.iter().any(|kind| kinder[kind] > zeit))
+                || zeit.is_none_or(|zeit| teile.iter().any(|kind| kinder[kind] > zeit))
             {
                 bauen.push((parent, teile));
             }
@@ -822,10 +832,15 @@ fn rebuild_pyramid(dir: &Path) -> Result<()> {
             .map(|(parent, teile)| -> Result<Neubau> {
                 let mut bilder = Vec::new();
                 let mut kaputt = Vec::new();
+                let mut zeit = stempel;
                 for kind in teile {
-                    match lies(&tile_path(dir, z + 1, *kind)) {
-                        Ok(bild) => bilder.push((*kind, bild)),
-                        Err(e) => kaputt.push(format!("{e:#}")),
+                    match lies_falls_da(&tile_path(dir, z + 1, *kind)) {
+                        Ok(Some(bild)) => bilder.push((*kind, bild)),
+                        Ok(None) => {}
+                        Err(e) => {
+                            kaputt.push(format!("{e:#}"));
+                            zeit = zeit.min(kinder[kind] - Duration::from_secs(2));
+                        }
                     }
                 }
                 let pfad = tile_path(dir, z, *parent);
@@ -834,8 +849,8 @@ fn rebuild_pyramid(dir: &Path) -> Result<()> {
                     return Ok((*parent, None, jetzt, kaputt));
                 }
                 let bild = pyramid::merge(*parent, &bilder);
-                let groesse = schreibe_am(dir, z, *parent, &bild, Some(beginn))?;
-                Ok((*parent, Some(groesse), Some(beginn), kaputt))
+                let groesse = schreibe_am(dir, z, *parent, &bild, Some(zeit))?;
+                Ok((*parent, Some(groesse), Some(zeit), kaputt))
             })
             .collect::<Result<Vec<_>>>()?;
         let mut neu = 0;
@@ -870,12 +885,19 @@ fn rebuild_pyramid(dir: &Path) -> Result<()> {
         print_list(unlesbar.iter());
     }
 
+    if aenderungszeit(&karte).is_some_and(|zeit| zeit > beginn) {
+        println!(
+            "Karte:      {} ist seit dem Beginn neu geschrieben, etwa vom Render, und bleibt",
+            karte.display()
+        );
+        return Ok(());
+    }
     let info = MapInfo {
         native_levels: alt.native_levels,
         world: alt.world,
         ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
-    let path = schreibe_info(dir, &info)?;
+    let path = schreibe_info(dir, &info, Some(stempel))?;
     melde_karte(&info, basis.len(), &path);
     Ok(())
 }
@@ -921,15 +943,15 @@ fn schreibe_map_json(
         world: Some(kennung.map(str::to_string)),
         ..MapInfo::new(scale, max_zoom, basis)
     };
-    let path = schreibe_info(dir, &info)?;
+    let path = schreibe_info(dir, &info, None)?;
     Ok((info, basis.len(), path))
 }
 
-fn schreibe_info(dir: &Path, info: &MapInfo) -> Result<PathBuf> {
+fn schreibe_info(dir: &Path, info: &MapInfo, zeit: Option<SystemTime>) -> Result<PathBuf> {
     std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
     let path = dir.join("map.json");
     let text = serde_json::to_vec_pretty(info)?;
-    tausche(&path, &text, None).with_context(|| format!("{} schreiben", path.display()))?;
+    tausche(&path, &text, zeit).with_context(|| format!("{} schreiben", path.display()))?;
     Ok(path)
 }
 
@@ -1539,6 +1561,14 @@ fn lies(path: &Path) -> Result<RgbaImage> {
         .into_rgba8())
 }
 
+/// Wie [`lies`], `None`, wenn es die Datei nicht gibt.
+fn lies_falls_da(path: &Path) -> Result<Option<RgbaImage>> {
+    match lies(path) {
+        Err(_) if matches!(std::fs::exists(path), Ok(false)) => Ok(None),
+        bild => bild.map(Some),
+    }
+}
+
 /// Entfernt eine Kachel, falls sie noch dasteht.
 fn entferne(path: &Path) -> Result<()> {
     match std::fs::remove_file(path) {
@@ -1800,6 +1830,16 @@ fn bounds(regions: &[(i32, i32)]) -> Option<(i32, i32, i32, i32)> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    /// Eine Kachel, die es nicht mehr gibt, ist keine kaputte.
+    #[test]
+    fn verschwundene_kachel_ist_nicht_kaputt() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("0.webp");
+        assert!(lies_falls_da(&pfad).unwrap().is_none());
+        std::fs::write(&pfad, b"RIFF").unwrap();
+        assert!(lies_falls_da(&pfad).is_err());
+    }
 
     /// Eine grobe Kachel, die ein Ausschnitt nur anschneidet, gehört zu
     /// seiner Fläche, auch wenn im Ausschnitt nichts unter ihr steht. Fehlt

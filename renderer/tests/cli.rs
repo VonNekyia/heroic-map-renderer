@@ -1087,15 +1087,28 @@ fn altern(dir: &Path) {
     let damals = SystemTime::now() - Duration::from_secs(3600);
     for z in 0..=max_zoom(dir) {
         for pfad in kacheln(dir, z).values() {
-            let datei = std::fs::File::options().write(true).open(pfad).unwrap();
-            datei.set_modified(damals).unwrap();
+            setze_zeit(pfad, damals);
         }
     }
 }
 
+/// Wann die Datei zuletzt geschrieben wurde.
+fn zeit_von(pfad: &Path) -> SystemTime {
+    std::fs::metadata(pfad).unwrap().modified().unwrap()
+}
+
+fn setze_zeit(pfad: &Path, zeit: SystemTime) {
+    let datei = std::fs::File::options().write(true).open(pfad).unwrap();
+    datei.set_modified(zeit).unwrap();
+}
+
+fn kachel_pfad(dir: &Path, z: u32, tile: TileId) -> PathBuf {
+    dir.join(format!("{z}/{}/{}.webp", tile.x, tile.y))
+}
+
 /// Schreibt eine Kachel mit diesem Bild, jetzt.
 fn setze(dir: &Path, z: u32, tile: TileId, bild: &RgbaImage) {
-    let pfad = dir.join(format!("{z}/{}/{}.webp", tile.x, tile.y));
+    let pfad = kachel_pfad(dir, z, tile);
     std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
     std::fs::write(pfad, encode_webp(bild).unwrap()).unwrap();
 }
@@ -1155,9 +1168,11 @@ fn pyramide_laesst_sich_aus_den_kacheln_nachbauen() {
 /// jeder Stufe: eine neu geschriebene Basiskachel; eine Stufe, die ein
 /// abgebrochener Aufruf schon neu geschrieben hat, ihre Eltern aber nicht
 /// mehr; Kinder, die alle verschwunden sind. Das Ergebnis ist jedes Mal
-/// dasselbe wie von Grund auf. Was der Aufruf schreibt, trägt eine Zeit
-/// vor seinem Beginn: ein Kind, das ein Render währenddessen fertigstellt,
-/// ist danach jünger als seine Elternkachel.
+/// dasselbe wie von Grund auf. Was der Aufruf schreibt, `map.json`
+/// eingeschlossen, trägt eine Zeit vor seinem Beginn: ein Kind, das ein
+/// Render währenddessen fertigstellt, ist danach jünger als seine
+/// Elternkachel. Über einer unlesbaren Kachel versucht es jeder Aufruf
+/// wieder.
 #[test]
 fn pyramide_holt_jede_aenderung_nach() {
     let welt = tempdir();
@@ -1197,13 +1212,16 @@ fn pyramide_holt_jede_aenderung_nach() {
         );
         for z in 0..basis {
             for (tile, pfad) in kacheln(out.path(), z) {
-                let zeit = std::fs::metadata(&pfad).unwrap().modified().unwrap();
                 assert!(
-                    zeit < vorher,
+                    zeit_von(&pfad) < vorher,
                     "{fall}: Zoom {z}, {tile:?} trägt die Uhrzeit"
                 );
             }
         }
+        assert!(
+            zeit_von(&out.path().join("map.json")) < vorher,
+            "{fall}: map.json trägt die Uhrzeit"
+        );
         meldung
     };
 
@@ -1244,13 +1262,95 @@ fn pyramide_holt_jede_aenderung_nach() {
     );
 
     // Eine Kachel ist abgeschnitten, etwa von einem Absturz beim Schreiben:
-    // der Aufruf lässt sie aus und sagt es, statt abzubrechen.
-    std::fs::write(&unten[&andere], b"RIFF").unwrap();
+    // der Aufruf lässt sie aus und sagt es, statt abzubrechen. Sie ist eine
+    // Minute jünger als ihre Elternkachel, lange vor dem Aufruf.
+    let kaputt = &unten[&andere];
+    let geschrieben =
+        zeit_von(&kachel_pfad(out.path(), basis - 1, andere.parent())) + Duration::from_secs(60);
+    std::fs::write(kaputt, b"RIFF").unwrap();
+    setze_zeit(kaputt, geschrieben);
     let meldung = pruefe("abgeschnittene Kachel");
     assert!(
         meldung.contains("1 Kacheln nicht lesbar, übergangen"),
         "{meldung}"
     );
+
+    // Die Elternkachel trägt eine Zeit vor der Kachel. Kommt sie heil
+    // zurück, mit derselben Zeit, holt der nächste Aufruf sie ein.
+    std::fs::write(kaputt, encode_webp(&vorlage).unwrap()).unwrap();
+    setze_zeit(kaputt, geschrieben);
+    let meldung = pruefe("heile Kachel mit alter Zeit");
+    assert!(!meldung.contains("nicht lesbar"), "{meldung}");
+}
+
+/// Was jünger ist als der Beginn eines Aufrufs, hat jemand anders
+/// geschrieben: etwa ein Render seine nativen Stufen, oder am Ende
+/// `map.json` mit den Grenzen seiner letzten Kacheln. `--pyramid` lässt es
+/// stehen, auch über einem Kind, das es selbst neu gebaut hat, und baut
+/// darüber mit ihm weiter. Liegt es wieder vor dem Beginn, zählt es wie
+/// jede andere Kachel.
+#[test]
+fn pyramide_laesst_fremdes_stehen() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = tempdir();
+    gelungen(&tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "8", "--native-levels", "0"],
+    ));
+    let basis = max_zoom(out.path());
+    assert!(basis > 2, "zu wenig Stufen");
+    altern(out.path());
+
+    // Eine Basiskachel ändert sich. Zwei Stufen darüber hat der Render
+    // schon geschrieben, und `map.json` mit anderen Grenzen.
+    let unten = kacheln(out.path(), basis);
+    let (&eine, _) = unten.iter().next().unwrap();
+    setze(
+        out.path(),
+        basis,
+        eine,
+        &bild(unten.values().nth(1).unwrap()),
+    );
+    let oben = eine.parent().parent();
+    let fremd = RgbaImage::from_pixel(256, 256, image::Rgba([200, 0, 0, 255]));
+    setze(out.path(), basis - 2, oben, &fremd);
+    let fremde_kachel = kachel_pfad(out.path(), basis - 2, oben);
+    let karte = out.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info["bounds"] = serde_json::json!([0, 0, 256, 256]);
+    std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    let spaeter = SystemTime::now() + Duration::from_secs(3600);
+    setze_zeit(&fremde_kachel, spaeter);
+    setze_zeit(&karte, spaeter);
+    let vorher = (
+        std::fs::read(&fremde_kachel).unwrap(),
+        std::fs::read(&karte).unwrap(),
+    );
+
+    // Neu sind die Kachel über der Basis und alle über der fremden.
+    let ausgabe = pyramide(out.path());
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(
+        meldung.contains(&format!("Pyramide:   {} Kacheln neu", basis - 1)),
+        "{meldung}"
+    );
+    let nachher = (
+        std::fs::read(&fremde_kachel).unwrap(),
+        std::fs::read(&karte).unwrap(),
+    );
+    assert!(nachher == vorher, "{meldung}");
+
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    setze_zeit(&fremde_kachel, damals);
+    setze_zeit(&karte, damals);
+    gelungen(&pyramide(out.path()));
+    assert_eq!(schnappschuss(out.path()), von_grund_auf(out.path()));
 }
 
 /// `--pyramid` braucht nur das Verzeichnis, aber eines mit Baum. Ohne

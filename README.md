@@ -387,18 +387,22 @@ braucht es nicht. Der Aufruf lässt sich deshalb wiederholen, während ein
 Vollrender noch Stunden läuft: die Karte im Browser zeigt, was fertig ist,
 und wächst mit jedem Aufruf.
 
-Jede Kachel, die `--pyramid` schreibt, trägt als Zeit den Beginn des
-Aufrufs, zwei Sekunden früher. Ein Kind, das der Render währenddessen
-fertigstellt, ist so jünger als seine Elternkachel, und der nächste
-Aufruf holt es. Zwei Sekunden, weil keine gängige Uhr eines Dateisystems
-gröber zählt; eine Kachel aus diesen zwei Sekunden baut der nächste
-Aufruf nur noch einmal ein. Eine Kachel, die jemand anders seit der Liste
-geschrieben hat, etwa der Render seine nativen Stufen, bleibt stehen. Eine
-unlesbare Kachel lässt der Aufruf aus und nennt sie. Nicht bemerkt wird ein
-einzelnes Kind, das von aussen verschwindet, solange Geschwister bleiben,
-und eine Kachel, die mit ihrer alten Zeit aus einer Sicherung
-zurückkommt. Dann die gröberen Stufen löschen, und `--pyramid` baut sie
-ganz neu.
+Jede Kachel, die `--pyramid` schreibt, und `map.json` tragen als Zeit den
+Beginn des Aufrufs, zwei Sekunden früher. Ein Kind, das der Render
+währenddessen fertigstellt, ist so jünger als seine Elternkachel, und der
+nächste Aufruf holt es. Zwei Sekunden, weil keine gängige Uhr eines
+Dateisystems gröber zählt; eine Kachel aus diesen zwei Sekunden baut der
+nächste Aufruf nur noch einmal ein. Was jünger ist als der Beginn selbst,
+hat jemand anders geschrieben: etwa der Render seine nativen Stufen, oder
+am Ende `map.json` mit den Grenzen seiner letzten Kacheln. Das bleibt
+stehen, ebenso eine Kachel, die sich seit der Liste geändert hat. Eine
+unlesbare Kachel lässt der Aufruf aus und nennt sie; ihre Elternkachel
+bekommt eine Zeit vor ihrer, und der nächste Aufruf versucht es wieder.
+Eine, die seit der Liste verschwunden ist, gehört nicht mehr dazu. Nicht
+bemerkt wird ein einzelnes Kind, das von aussen verschwindet, solange
+Geschwister bleiben, und eine Kachel, die mit ihrer alten Zeit aus einer
+Sicherung zurückkommt. Dann die gröberen Stufen löschen, und `--pyramid`
+baut sie ganz neu.
 
 ### `map.json`
 

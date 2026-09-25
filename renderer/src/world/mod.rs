@@ -49,8 +49,9 @@ fn under(root: &Path, parts: &[&str]) -> PathBuf {
 /// Dimensionen liegen darunter in `dimensions/<namensraum>/<name>`. Dieses
 /// Layout geht vor, eine Kopie von `level.dat` in einer Dimension macht sie
 /// nicht zur Oberwelt. Ohne `level.dat` darüber lässt sich die Welt nicht
-/// erkennen, etwa bei einer Kopie ohne sie. `DIM-1` und `DIM1` kennen nur
-/// Welten vor 26.1, die liest der Renderer nicht.
+/// erkennen, etwa bei einer Kopie ohne sie. `DIM-1` und `DIM1` gibt es nur
+/// in Welten vor 26.1: ihre Regionen öffnet der Renderer noch, eine
+/// Dimension erkennt er darin nicht, und sie bekommen keine Kennung.
 ///
 /// Es zählt der Pfad, wie er auf der Platte steht: unter Windows öffnet
 /// `DIMENSIONS/MINECRAFT/THE_NETHER` dieselben Regionen wie

@@ -1124,7 +1124,8 @@ const NATIVE_MIN_SCALE: u32 = 4;
 /// Dateien. Nennt die `map.json` eines Baums aus einem älteren Stand die
 /// Zahl nicht, braucht der Lauf den Schalter: der Stand davor renderte
 /// alle Stufen nativ, die der scale hergibt, und mit 0 lägen über dem
-/// Ausschnitt verkleinerte Kacheln neben nativen.
+/// Ausschnitt verkleinerte Kacheln neben nativen. Gibt der scale keine
+/// native Stufe her, gibt es nichts zu fragen.
 fn native_stufen(
     dir: &Path,
     bestand: Option<&MapInfo>,
@@ -1141,7 +1142,7 @@ fn native_stufen(
             dir.join("map.json").display()
         ),
         (Some(Some(dort)), _) => Ok(dort.min(moeglich)),
-        (Some(None), None) => bail!(
+        (Some(None), None) if moeglich > 0 => bail!(
             "{} nennt keine Zahl nativer Stufen, der Baum stammt aus einem älteren Stand. Mit \
              --native-levels so vielen weiterrendern, wie er hat, danach steht sie in \
              map.json: {moeglich}, wenn sein Stand alle rendert, die der scale hergibt, sonst 0.",
@@ -1198,9 +1199,10 @@ fn kennung(world: &World, bestand: Option<&MapInfo>) -> Result<Option<String>> {
 /// jeden Ort, an dem er gesucht wurde.
 fn ohne_kennung(world: &World) -> String {
     if world.dimension().is_none() {
-        return "Zu diesem --world fand sich keine Weltwurzel mit level.dat: --world auf die \
-                Wurzel richten oder auf eine Dimension darin."
-            .to_string();
+        return format!(
+            "Zu diesem --world fand sich keine Weltwurzel mit level.dat: --world auf die \
+             Wurzel richten oder auf eine Dimension darin. {VOR_26_1}"
+        );
     }
     let mut orte: Vec<String> = world
         .seed_files()
@@ -1215,11 +1217,15 @@ fn ohne_kennung(world: &World) -> String {
     let letzter = orte.pop().unwrap_or_default();
     format!(
         "Die Welt nennt keinen Seed, weder in {} noch in {letzter}. Fehlt eine Datei nur in \
-         einer Kopie, sie dazulegen. Welten vor 26.1 tragen ihn in level.dat, eine solche \
-         vorher mit Minecraft 26.2 und --forceUpgrade hochziehen.",
+         einer Kopie, sie dazulegen. Welten vor 26.1 tragen ihn in level.dat. {VOR_26_1}",
         orte.join(", ")
     )
 }
+
+/// Der Ausweg für eine Welt vor 26.1: `DIM-1` und `DIM1` und den Seed in
+/// `level.dat` liest der Renderer nicht, siehe README.
+const VOR_26_1: &str =
+    "Eine Welt vor 26.1 vorher mit Minecraft 26.2 und --forceUpgrade hochziehen.";
 
 /// Prüft, ob der bestehende Baum zu diesem Lauf passt, und sagt, ob er ihn
 /// übernimmt.

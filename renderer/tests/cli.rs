@@ -1470,6 +1470,17 @@ fn native_stufen_gehoeren_zum_baum() {
     assert_eq!(native_in(neu.path()), Some(1));
     gelungen(&export(welt.path(), neu.path(), &["--scale", "16"]));
     assert_eq!(native_in(neu.path()), Some(1));
+
+    // Bei scale 12 gibt es keine native Stufe, also nichts zu fragen.
+    let zwoelf = tempdir();
+    gelungen(&export(welt.path(), zwoelf.path(), &["--scale", "12"]));
+    let karte = zwoelf.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info.as_object_mut().unwrap().remove("nativeLevels");
+    std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    gelungen(&export(welt.path(), zwoelf.path(), &["--scale", "12"]));
+    assert_eq!(native_in(zwoelf.path()), Some(0));
 }
 
 /// Die Zahl der nativen Stufen, wie `map.json` sie nennt.
@@ -1992,8 +2003,9 @@ fn alter_scale_nennt_den_ausweg() {
 /// Dimension dazu: der Nether kommt nicht in den Baum der Oberwelt und die
 /// Oberwelt nicht in seinen. Die Oberwelt, einmal über die Wurzel und
 /// einmal über ihr Dimensionsverzeichnis, ist dieselbe Welt. Einer Kopie
-/// ohne level.dat rät die Meldung zur Wurzel statt zu einem neuen Baum,
-/// einer mit level.dat, aber ohne Seed, nicht noch einmal zur Wurzel.
+/// ohne level.dat rät die Meldung zur Wurzel statt zu einem neuen Baum, und
+/// zum Hochziehen, falls es `DIM-1` einer Welt vor 26.1 ist; einer mit
+/// level.dat, aber ohne Seed, nicht noch einmal zur Wurzel.
 #[test]
 fn dimensionen_haben_eigene_kennungen() {
     let welt = tempdir();
@@ -2034,6 +2046,7 @@ fn dimensionen_haben_eigene_kennungen() {
         ohne_wurzel.contains("keine Weltwurzel mit level.dat"),
         "{ohne_wurzel}"
     );
+    assert!(ohne_wurzel.contains("--forceUpgrade"), "{ohne_wurzel}");
     assert!(!ohne_wurzel.contains("neues Verzeichnis"), "{ohne_wurzel}");
     common::write_level_dat(kopie.path());
     let ohne_seed = meldung();

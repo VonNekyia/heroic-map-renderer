@@ -30,7 +30,9 @@ fn assets() -> Assets {
 fn gelaende(x: i32, y: i32, z: i32) -> &'static str {
     let hoehe = 3 + x.rem_euclid(16) / 4 + z.rem_euclid(16) / 4;
     if y < 3 {
-        "minecraft:einfarbig"
+        // Zwei Alternativen, aus der Position gewürfelt: die Wahl darf
+        // nicht davon abhängen, in welcher Kachel der Block gerendert wird.
+        "minecraft:zufall"
     } else if y < hoehe {
         "minecraft:mit_overlay"
     } else if y == hoehe && (x + z).rem_euclid(5) == 0 {
@@ -55,15 +57,8 @@ fn welt(block: impl Fn(i32, i32, i32) -> &'static str, projection: Projection) -
     let chunks = [(0, 0), (1, 0), (0, 1), (1, 1)];
     common::write_world(dir.path(), &chunks, block);
     let world = World::open(dir.path()).unwrap();
-
-    let mut states = Vec::new();
-    for &(cx, cz) in &chunks {
-        let chunk = world.chunk(cx, cz).unwrap().unwrap();
-        for section in chunk.sections() {
-            states.extend(section.blocks().palette().iter().cloned());
-        }
-    }
-    let sprites = SpriteSet::build(&mut assets(), &states, projection).unwrap();
+    let states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    let sprites = SpriteSet::build_in(&mut assets(), &states, projection).unwrap();
 
     Welt {
         _dir: dir,
@@ -127,7 +122,7 @@ fn vorlauf_findet_jede_kachel_mit_inhalt() {
     assert!(
         gefunden
             .states
-            .iter()
+            .keys()
             .any(|s| s.name() == "minecraft:seerose"),
         "die Blockstates der Welt müssen im Vorlauf auftauchen"
     );
@@ -197,7 +192,104 @@ fn vorlauf_beachtet_die_grenzen() {
 
     assert!(klein.tiles.len() < ganz.tiles.len());
     assert_eq!(klein.tiles, vec![TileId { x: 0, y: 0 }]);
-    assert_eq!(klein.chunks, ganz.chunks, "gelesen wird trotzdem alles");
+
+    // Eine Kachel mitten in der Region, weit weg von allen Chunks: keiner
+    // wird dekodiert.
+    let fern = TileId { x: 8, y: 8 }.rect();
+    let nichts = survey(&welt.world, projection, Y_RANGE, Some(fern)).unwrap();
+    assert_eq!((nichts.chunks, ganz.chunks), (0, 4));
+}
+
+/// Ein Vorlauf über eine einzelne Kachel findet sie, wenn der über die
+/// ganze Welt sie findet. Chunks, die den Ausschnitt nicht berühren
+/// können, schliesst er vor dem Dekodieren aus; der Kasten dafür darf
+/// nicht knapper sein als der genaue danach.
+#[test]
+fn vorlauf_einer_kachel_findet_sie() {
+    for scale in [32, 16] {
+        let projection = Projection::new(scale);
+        let welt = welt(gelaende, projection);
+        let ganz = survey(&welt.world, projection, Y_RANGE, None).unwrap();
+        for tile in &ganz.tiles {
+            let eine = survey(&welt.world, projection, Y_RANGE, Some(tile.rect())).unwrap();
+            assert_eq!(eine.tiles, vec![*tile], "scale {scale}");
+        }
+    }
+}
+
+/// Die Biome, die der Vorlauf einer Blockstate zuordnet.
+fn biome_von(gefunden: &terranova_render::render::Survey, name: &str) -> Vec<String> {
+    let (_, biome) = gefunden
+        .states
+        .iter()
+        .find(|(state, _)| state.name() == name)
+        .unwrap_or_else(|| panic!("{name} fehlt im Vorlauf"));
+    biome.iter().cloned().collect()
+}
+
+/// Der Vorlauf merkt sich je Blockstate die Biome ihrer Sections, nicht
+/// die der ganzen Region: gefärbte Fassungen entstehen nur, wo ein Block
+/// steht. Hat eine Region mehr Biome, als die Bitmaske fasst, bekommt
+/// jede Blockstate alle.
+#[test]
+fn vorlauf_kennt_die_biome_je_blockstate() {
+    let dir = tempdir();
+    common::write_world_in(
+        dir.path(),
+        &[(0, 0), (1, 0)],
+        |x, y, _| match (x < 16, y) {
+            (_, 0) => "minecraft:einfarbig",
+            (true, 1) => "minecraft:grass_block",
+            (false, 1) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        |cx, _| {
+            Some(if cx == 0 {
+                "minecraft:plains"
+            } else {
+                "minecraft:frozen"
+            })
+        },
+    );
+    let world = World::open(dir.path()).unwrap();
+    let gefunden = survey(&world, Projection::new(16), Y_RANGE, None).unwrap();
+    assert_eq!(
+        biome_von(&gefunden, "minecraft:einfarbig"),
+        ["minecraft:frozen", "minecraft:plains"]
+    );
+    assert_eq!(
+        biome_von(&gefunden, "minecraft:grass_block"),
+        ["minecraft:plains"]
+    );
+    assert_eq!(
+        biome_von(&gefunden, "minecraft:water"),
+        ["minecraft:frozen"]
+    );
+
+    // 130 Biome in einer Region, je Chunk eines; das Gras steht nur im
+    // ersten.
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..130).map(|i| (i % 32, i / 32)).collect();
+    let namen: Vec<&'static str> = (0..130)
+        .map(|i| &*Box::leak(format!("test:b{i}").into_boxed_str()))
+        .collect();
+    common::write_world_in(
+        dir.path(),
+        &chunks,
+        |x, y, z| match (x, y, z) {
+            (0, 0, 0) => "minecraft:grass_block",
+            (_, 0, _) => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        },
+        |cx, cz| Some(namen[(cx + 32 * cz) as usize]),
+    );
+    let world = World::open(dir.path()).unwrap();
+    let gefunden = survey(&world, Projection::new(16), Y_RANGE, None).unwrap();
+    assert_eq!(
+        biome_von(&gefunden, "minecraft:grass_block").len(),
+        130,
+        "mehr als 128 Biome: jede Blockstate bekommt alle"
+    );
 }
 
 /// WebP verlustfrei: die Pixel müssen die Runde überstehen.

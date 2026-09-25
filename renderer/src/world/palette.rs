@@ -180,6 +180,16 @@ impl<T> Paletted<T> {
         }
     }
 
+    /// Palettenindex an Position `i` — für Caches, die je Paletteneintrag
+    /// statt je Block nachschlagen. Kann bei kaputten Daten über die
+    /// Palette hinausgehen, wie bei `get`.
+    pub fn index(&self, i: usize) -> usize {
+        match &self.indices {
+            None => 0,
+            Some(idx) => idx.get(i),
+        }
+    }
+
     /// True, wenn der Container nur aus einem einzigen Wert besteht.
     pub fn is_uniform(&self) -> bool {
         self.indices.is_none() || self.palette.len() <= 1

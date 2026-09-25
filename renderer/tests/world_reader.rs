@@ -2,7 +2,11 @@
 //! (Paper 26.2, DataVersion 4903): 2×2 vollständig generierte Chunks,
 //! 40 KB. Die Sollwerte stammen aus einem unabhängigen Python-Decoder.
 
-use std::path::PathBuf;
+mod common;
+
+use std::fs::File;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, UNIX_EPOCH};
 
 use terranova_render::world::World;
 
@@ -42,6 +46,211 @@ fn dekodiert_blockstates() {
     assert_eq!(block(9240, 62, 6664).as_deref(), Some("minecraft:stone"));
     assert_eq!(block(9247, 40, 6671).as_deref(), Some("minecraft:andesite"));
     assert_eq!(block(9240, 200, 6664).as_deref(), Some("minecraft:air"));
+}
+
+/// Seed und Dimension einer Welt, wie `World` sie sieht.
+fn herkunft(dir: &Path) -> (Option<i64>, Option<String>) {
+    let world = World::open(dir).unwrap();
+    (world.seed().unwrap(), world.dimension().map(str::to_string))
+}
+
+/// Seed und Dimension sind die Grundlage der Kennung im Kachelbaum. Den
+/// Seed liest eine Dimension zuerst aus ihrer eigenen Datei, wie Paper sie
+/// schreibt, sonst an der Weltwurzel, dem Verzeichnis mit `level.dat`:
+/// seit 26.1 bei Vanilla aus `data/minecraft`, bis 1.21 aus `level.dat`.
+/// Eine Dimension darunter findet ihre Wurzel, eine Kopie ohne sie hat
+/// keine Kennung.
+#[test]
+fn findet_seed_und_dimension_in_jedem_layout() {
+    let oberwelt = || Some("minecraft:overworld".to_string());
+    let nether = || Some("minecraft:the_nether".to_string());
+
+    // Vanilla 26: Seed an der Wurzel, Regionen je Dimension.
+    let vanilla = tempfile::tempdir().unwrap();
+    let dims = vanilla.path().join("dimensions/minecraft");
+    std::fs::create_dir_all(dims.join("overworld/region")).unwrap();
+    std::fs::create_dir_all(dims.join("the_nether/region")).unwrap();
+    common::write_level_dat_ohne_seed(vanilla.path());
+    common::write_gen_settings(vanilla.path(), 7_331);
+    assert_eq!(herkunft(vanilla.path()), (Some(7_331), oberwelt()));
+    assert_eq!(herkunft(&dims.join("overworld")), (Some(7_331), oberwelt()));
+    assert_eq!(herkunft(&dims.join("the_nether")), (Some(7_331), nether()));
+
+    // Paper 26: Seed in jeder Dimension, jede liest ihren eigenen. Eine
+    // Plugin-Welt hat oft einen anderen als die Oberwelt.
+    let paper = tempfile::tempdir().unwrap();
+    let dims = paper.path().join("dimensions/minecraft");
+    let plugin = paper.path().join("dimensions/terralith/abgrund");
+    std::fs::create_dir_all(dims.join("overworld/region")).unwrap();
+    std::fs::create_dir_all(dims.join("the_nether/region")).unwrap();
+    std::fs::create_dir_all(plugin.join("region")).unwrap();
+    common::write_level_dat_ohne_seed(paper.path());
+    common::write_gen_settings(&dims.join("overworld"), -4_172_144_997_902_289_642);
+    common::write_gen_settings(&dims.join("the_nether"), 99);
+    common::write_gen_settings(&plugin, 1_234);
+    let seed = Some(-4_172_144_997_902_289_642);
+    assert_eq!(herkunft(paper.path()), (seed, oberwelt()));
+    assert_eq!(herkunft(&dims.join("the_nether")), (Some(99), nether()));
+    let abgrund = Some("terralith:abgrund".to_string());
+    assert_eq!(herkunft(&plugin), (Some(1_234), abgrund));
+
+    // Bis 1.21: Seed in level.dat, Nether und End als DIM-1 und DIM1, bei
+    // Bukkit in einer eigenen Welt.
+    let alt = tempfile::tempdir().unwrap();
+    for sub in ["region", "DIM-1/region", "DIM1/region"] {
+        std::fs::create_dir_all(alt.path().join(sub)).unwrap();
+    }
+    common::write_level_dat(alt.path(), 42);
+    assert_eq!(herkunft(alt.path()), (Some(42), oberwelt()));
+    assert_eq!(herkunft(&alt.path().join("DIM-1")), (Some(42), nether()));
+    let ende = Some("minecraft:the_end".to_string());
+    assert_eq!(herkunft(&alt.path().join("DIM1")), (Some(42), ende));
+    let bukkit = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(bukkit.path().join("DIM-1/region")).unwrap();
+    common::write_level_dat(bukkit.path(), 42);
+    assert_eq!(herkunft(&bukkit.path().join("DIM-1")), (Some(42), nether()));
+
+    // Die Reihenfolge der Orte: die Datei der Dimension, dann von der an
+    // der Wurzel und der der Paper-Oberwelt die jüngere, bei gleichem Alter
+    // die von Paper, zuletzt level.dat. Unter Paper bleibt an der Wurzel
+    // eine ältere liegen.
+    let alle = tempfile::tempdir().unwrap();
+    let the_nether = alle.path().join("dimensions/minecraft/the_nether");
+    let paper_ort = alle.path().join("dimensions/minecraft/overworld");
+    std::fs::create_dir_all(alle.path().join("region")).unwrap();
+    std::fs::create_dir_all(the_nether.join("region")).unwrap();
+    common::write_level_dat(alle.path(), 3);
+    assert_eq!(herkunft(&the_nether).0, Some(3));
+    common::write_gen_settings(alle.path(), 1);
+    assert_eq!(herkunft(&the_nether).0, Some(1));
+    common::write_gen_settings(&paper_ort, 2);
+    let alter = |dir: &Path, sekunden: u64| {
+        File::options()
+            .write(true)
+            .open(dir.join("data/minecraft/world_gen_settings.dat"))
+            .unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_secs(sekunden))
+            .unwrap();
+    };
+    alter(alle.path(), 2_000);
+    alter(&paper_ort, 1_000);
+    assert_eq!(
+        herkunft(&the_nether).0,
+        Some(1),
+        "die an der Wurzel ist jünger"
+    );
+    assert_eq!(
+        herkunft(alle.path()).0,
+        Some(2),
+        "die Oberwelt hat ihre eigene"
+    );
+    alter(&paper_ort, 2_000);
+    assert_eq!(herkunft(&the_nether).0, Some(2), "gleich alt");
+    alter(&paper_ort, 3_000);
+    assert_eq!(herkunft(&the_nether).0, Some(2), "die von Paper ist jünger");
+    common::write_gen_settings(&the_nether, 4);
+    alter(&the_nether, 0);
+    assert_eq!(herkunft(&the_nether).0, Some(4), "die eigene zuerst");
+
+    // Eine Kopie einer Dimension ohne ihre Wurzel.
+    let kopie = tempfile::tempdir().unwrap();
+    let the_nether = kopie.path().join("the_nether");
+    std::fs::create_dir_all(the_nether.join("region")).unwrap();
+    common::write_gen_settings(&the_nether, 7_331);
+    assert_eq!(herkunft(&the_nether), (None, None));
+
+    // Die Fixture hat nur Regionen.
+    assert_eq!(world().seed().unwrap(), None);
+}
+
+/// Die Dimension steht so da, wie sie auf der Platte heisst: `..` ist kein
+/// Name, ein relativer Pfad führt zur selben Welt, und unter Windows
+/// öffnet `dim-1` dieselben Regionen wie `DIM-1`. Eine Kopie von
+/// `level.dat` in einer Dimension macht sie nicht zur Oberwelt, und nicht
+/// nur `minecraft` hat Dimensionen.
+#[test]
+fn dimension_wie_auf_der_platte() {
+    let welt = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    for sub in [
+        "region",
+        "DIM-1/region",
+        "dimensions/minecraft/the_nether/region",
+        "dimensions/terralith/abgrund/region",
+    ] {
+        std::fs::create_dir_all(welt.path().join(sub)).unwrap();
+    }
+    common::write_level_dat(welt.path(), 42);
+    let nether = || (Some(42), Some("minecraft:the_nether".to_string()));
+    assert_eq!(herkunft(&welt.path().join("DIM-1/region/..")), nether());
+    assert_eq!(herkunft(&relativ(&welt.path().join("DIM-1"))), nether());
+    let abgrund = welt.path().join("dimensions/terralith/abgrund");
+    let terralith = (Some(42), Some("terralith:abgrund".to_string()));
+    assert_eq!(herkunft(&abgrund), terralith);
+    // Nur eine Platte, die Grossbuchstaben nicht unterscheidet, findet
+    // diese Pfade, also der Windows-Lauf.
+    for anders in ["dim-1", "DIMENSIONS/MINECRAFT/THE_NETHER"] {
+        let pfad = welt.path().join(anders);
+        if pfad.is_dir() {
+            assert_eq!(herkunft(&pfad), nether(), "{anders}");
+        }
+    }
+    let the_nether = welt.path().join("dimensions/minecraft/the_nether");
+    common::write_level_dat(&the_nether, 7);
+    assert_eq!(herkunft(&the_nether), nether());
+}
+
+/// Liegt eine Dimension hinter einem Link, etwa auf einer anderen Platte,
+/// führt ihr kanonischer Pfad aus der Welt hinaus. Dann zählt der Pfad, wie
+/// er angegeben ist. Unter Windows eine Junction, die jeder anlegen darf,
+/// sonst ein Symlink.
+#[test]
+fn dimension_hinter_einem_link() {
+    let welt = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let draussen = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    std::fs::create_dir_all(welt.path().join("region")).unwrap();
+    std::fs::create_dir_all(welt.path().join("dimensions/minecraft")).unwrap();
+    for sub in ["nether/region", "alt/region"] {
+        std::fs::create_dir_all(draussen.path().join(sub)).unwrap();
+    }
+    common::write_level_dat(welt.path(), 42);
+    let the_nether = welt.path().join("dimensions/minecraft/the_nether");
+    common::link(&draussen.path().join("nether"), &the_nether);
+    common::link(&draussen.path().join("alt"), &welt.path().join("DIM-1"));
+    let nether = (Some(42), Some("minecraft:the_nether".to_string()));
+    assert_eq!(herkunft(&the_nether), nether);
+    assert_eq!(herkunft(&welt.path().join("DIM-1")), nether);
+}
+
+/// Die Wurzel steht in Meldungen, wie man sie schreibt, ohne das Präfix
+/// `\\?\`, das `canonicalize` unter Windows voranstellt.
+#[test]
+fn meldung_nennt_die_wurzel_ohne_praefix() {
+    let welt = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    std::fs::create_dir_all(welt.path().join("region")).unwrap();
+    std::fs::write(welt.path().join("level.dat"), b"kein gzip").unwrap();
+    let fehler = World::open(welt.path()).unwrap().seed().unwrap_err();
+    let text = format!("{fehler:#}");
+    assert!(text.contains("level.dat"), "{text}");
+    assert!(!text.contains(r"\\?\"), "{text}");
+}
+
+/// Der Weg vom Arbeitsverzeichnis zu `ziel`, damit ein Test einen
+/// relativen Pfad übergibt. Beide liegen unter dem Target-Verzeichnis
+/// derselben Platte.
+fn relativ(ziel: &Path) -> PathBuf {
+    let hier = std::env::current_dir().unwrap();
+    let gleich = hier
+        .components()
+        .zip(ziel.components())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut weg = PathBuf::new();
+    for _ in gleich..hier.components().count() {
+        weg.push("..");
+    }
+    weg.extend(ziel.components().skip(gleich));
+    assert!(weg.is_relative(), "{}", weg.display());
+    weg
 }
 
 #[test]

@@ -63,8 +63,16 @@ pub struct Section {
 impl Section {
     /// Blockstate an lokaler Position (0..16 je Achse).
     pub fn block(&self, x: i32, y: i32, z: i32) -> Option<&BlockState> {
-        self.blocks
-            .get(((y & 15) * 256 + (z & 15) * 16 + (x & 15)) as usize)
+        self.blocks.get(Section::offset(x, y, z))
+    }
+
+    /// Palettenindex an lokaler Position.
+    pub fn slot(&self, x: i32, y: i32, z: i32) -> usize {
+        self.blocks.index(Section::offset(x, y, z))
+    }
+
+    fn offset(x: i32, y: i32, z: i32) -> usize {
+        ((y & 15) * 256 + (z & 15) * 16 + (x & 15)) as usize
     }
 
     /// Biom an lokaler Position (0..16 je Achse), aufgelöst auf 4×4×4-Zellen.
@@ -76,6 +84,10 @@ impl Section {
 
     pub fn blocks(&self) -> &Paletted<BlockState> {
         &self.blocks
+    }
+
+    pub fn biomes(&self) -> &Paletted<String> {
+        &self.biomes
     }
 
     /// True, wenn die Section komplett aus Luft besteht — der billigste
@@ -145,6 +157,20 @@ impl Chunk {
     /// nicht in diesem Chunk liegt oder ausserhalb der Welthöhe.
     pub fn block_at(&self, x: i32, y: i32, z: i32) -> Option<&BlockState> {
         self.section_for(x, y, z)?.block(x, y, z)
+    }
+
+    /// Position der Section in [`Chunk::sections`] und Palettenindex eines
+    /// Blocks. Damit schlägt ein Renderlauf je Paletteneintrag einmal nach
+    /// statt je Block.
+    pub fn slot(&self, x: i32, y: i32, z: i32) -> Option<(usize, usize)> {
+        if !self.contains_column(x, z) {
+            return None;
+        }
+        let position = self
+            .sections
+            .binary_search_by_key(&i8::try_from(y >> 4).ok()?, |s| s.y)
+            .ok()?;
+        Some((position, self.sections[position].slot(x, y, z)))
     }
 
     /// Biom an einer Weltkoordinate.

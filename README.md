@@ -396,11 +396,15 @@ Beginn des Aufrufs, zwei Sekunden früher. Ein Kind, das der Render
 währenddessen fertigstellt, ist so jünger als seine Elternkachel, und der
 nächste Aufruf holt es. Zwei Sekunden, weil keine gängige Uhr eines
 Dateisystems gröber zählt; eine Kachel aus diesen zwei Sekunden baut der
-nächste Aufruf nur noch einmal ein. Was jünger ist als der Beginn selbst,
-hat jemand anders geschrieben: etwa der Render seine nativen Stufen, oder
-am Ende `map.json` mit den Grenzen seiner letzten Kacheln. Das bleibt
-stehen, ebenso eine Kachel, die sich seit der Liste geändert hat. Eine
-unlesbare Kachel lässt der Aufruf aus und nennt sie; ihre Elternkachel
+nächste Aufruf nur noch einmal ein. Was nach dem Beginn selbst und vor der
+Liste seiner Stufe entstand, hat jemand anders geschrieben: auf einer
+nativen Stufe der Render, der sie aus der Welt zeichnet, am Ende
+`map.json` mit den Grenzen seiner letzten Kacheln. Das bleibt stehen,
+ebenso eine Kachel, die sich seit der Liste geändert hat. Eine verkleinerte
+Kachel hängt dagegen nur an ihren Kindern; die baut der Aufruf neu, sobald
+sich darunter etwas geändert hat, auch wenn ein Export sie eben erst
+geschrieben hat. Eine Zeit in der Zukunft kommt von einer Uhr, die vorging,
+und zählt nicht als fremd. Eine unlesbare Kachel lässt der Aufruf aus und nennt sie; ihre Elternkachel
 bekommt eine Zeit vor ihrer, und der nächste Aufruf versucht es wieder.
 Eine, die seit der Liste verschwunden ist, gehört nicht mehr dazu. Nicht
 bemerkt wird ein einzelnes Kind, das von aussen verschwindet, solange

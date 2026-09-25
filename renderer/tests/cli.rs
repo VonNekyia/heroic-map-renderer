@@ -1293,14 +1293,15 @@ fn pyramide_holt_jede_aenderung_nach() {
     assert!(!meldung.contains("nicht lesbar"), "{meldung}");
 }
 
-/// Was jünger ist als der Beginn eines Aufrufs, hat jemand anders
-/// geschrieben: etwa ein Render seine nativen Stufen, oder am Ende
-/// `map.json` mit den Grenzen seiner letzten Kacheln. `--pyramid` lässt es
-/// stehen, auch über einem Kind, das es selbst neu gebaut hat, und baut
-/// darüber mit ihm weiter. Liegt es wieder vor dem Beginn, zählt es wie
-/// jede andere Kachel.
+/// Eine Kachel oder `map.json` mit einer Zeit in der Zukunft stammt von
+/// einer Uhr, die vorging, nicht von einem Render daneben. `--pyramid`
+/// behandelt sie wie jede andere: Über einer geänderten Basiskachel baut es
+/// eine solche Kachel zwei Stufen höher neu, und `map.json` bekommt die
+/// richtigen Grenzen. Früher blieb beides stehen, bis die Uhr es einholte.
+/// Was wirklich fremd ist, prüft `cli::tests::fremd_nur_auf_nativen_stufen`
+/// im Binär, dort lässt sich der Beginn von aussen setzen.
 #[test]
-fn pyramide_laesst_fremdes_stehen() {
+fn zukunft_ist_nicht_fremd() {
     let welt = tempdir();
     let chunks: Vec<(i32, i32)> = (0..4)
         .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
@@ -1316,8 +1317,6 @@ fn pyramide_laesst_fremdes_stehen() {
     assert!(basis > 2, "zu wenig Stufen");
     altern(out.path());
 
-    // Eine Basiskachel ändert sich. Zwei Stufen darüber hat der Render
-    // schon geschrieben, und `map.json` mit anderen Grenzen.
     let unten = kacheln(out.path(), basis);
     let (&eine, _) = unten.iter().next().unwrap();
     setze(
@@ -1327,40 +1326,24 @@ fn pyramide_laesst_fremdes_stehen() {
         &bild(unten.values().nth(1).unwrap()),
     );
     let oben = eine.parent().parent();
-    let fremd = RgbaImage::from_pixel(256, 256, image::Rgba([200, 0, 0, 255]));
-    setze(out.path(), basis - 2, oben, &fremd);
-    let fremde_kachel = kachel_pfad(out.path(), basis - 2, oben);
+    let rot = RgbaImage::from_pixel(256, 256, image::Rgba([200, 0, 0, 255]));
+    setze(out.path(), basis - 2, oben, &rot);
     let karte = out.path().join("map.json");
     let mut info: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
     info["bounds"] = serde_json::json!([0, 0, 256, 256]);
     std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
     let spaeter = SystemTime::now() + Duration::from_secs(3600);
-    setze_zeit(&fremde_kachel, spaeter);
+    setze_zeit(&kachel_pfad(out.path(), basis - 2, oben), spaeter);
     setze_zeit(&karte, spaeter);
-    let vorher = (
-        std::fs::read(&fremde_kachel).unwrap(),
-        std::fs::read(&karte).unwrap(),
-    );
 
-    // Neu sind die Kachel über der Basis und alle über der fremden.
     let ausgabe = pyramide(out.path());
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
-    assert!(
-        meldung.contains(&format!("Pyramide:   {} Kacheln neu", basis - 1)),
+    assert_eq!(
+        schnappschuss(out.path()),
+        von_grund_auf(out.path()),
         "{meldung}"
     );
-    let nachher = (
-        std::fs::read(&fremde_kachel).unwrap(),
-        std::fs::read(&karte).unwrap(),
-    );
-    assert!(nachher == vorher, "{meldung}");
-
-    let damals = SystemTime::now() - Duration::from_secs(3600);
-    setze_zeit(&fremde_kachel, damals);
-    setze_zeit(&karte, damals);
-    gelungen(&pyramide(out.path()));
-    assert_eq!(schnappschuss(out.path()), von_grund_auf(out.path()));
 }
 
 /// `--pyramid` braucht nur das Verzeichnis, aber eines mit Baum. Ohne

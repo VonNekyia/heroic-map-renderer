@@ -1,7 +1,10 @@
-import { cpSync, readdirSync } from 'node:fs';
+import { cpSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
-const PUBLIC = new URL('./public/', import.meta.url);
+const PUBLIC = fileURLToPath(new URL('./public', import.meta.url));
+const TILES = join(PUBLIC, 'tiles');
 
 export default defineConfig({
   // Relative Pfade: die fertige Karte soll auch unter einem Unterpfad
@@ -9,17 +12,21 @@ export default defineConfig({
   base: './',
   // public/ kopiert der Build selbst, ohne public/tiles: dort liegt oft
   // ein Link auf einen Render mit Millionen Kacheln, und Vite folgte ihm
-  // beim Kopieren nach dist, auch unter `npm test`.
+  // beim Kopieren nach dist, auch unter `npm test`. Sonst wie Vite: vor
+  // dem Bundle, damit dessen Dateien gewinnen, und Links mit ihrem Inhalt.
+  // Der Filter greift, bevor cpSync einen Eintrag ansieht.
   build: { outDir: 'dist', emptyOutDir: true, copyPublicDir: false },
   plugins: [
     {
       name: 'public-ohne-kacheln',
       apply: 'build',
-      writeBundle({ dir }) {
-        for (const name of readdirSync(PUBLIC)) {
-          if (name !== 'tiles') {
-            cpSync(new URL(name, PUBLIC), `${dir}/${name}`, { recursive: true });
-          }
+      renderStart({ dir }) {
+        if (dir) {
+          cpSync(PUBLIC, dir, {
+            recursive: true,
+            dereference: true,
+            filter: (src) => src !== TILES,
+          });
         }
       },
     },

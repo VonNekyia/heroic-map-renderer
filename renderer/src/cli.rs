@@ -1535,16 +1535,19 @@ fn rendere<T: Send>(
             let mut chunks = ChunkCache::new(world, sprites);
             let mut out = Vec::with_capacity(stapel.len());
             for &tile in stapel {
+                let ergebnis = if vorhanden(tile) {
+                    None
+                } else {
+                    let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
+                    Some(ablegen(tile, image)?)
+                };
+                out.push((tile, ergebnis));
+                // Gezählt wird, was fertig ist: "N/N Kacheln" steht erst da,
+                // wenn keine mehr läuft.
                 let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
                 if melden && (erledigt.is_multiple_of(200) || erledigt == gesamt) {
                     println!("            {erledigt}/{gesamt} Kacheln");
                 }
-                if vorhanden(tile) {
-                    out.push((tile, None));
-                    continue;
-                }
-                let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
-                out.push((tile, Some(ablegen(tile, image)?)));
             }
             Ok(out)
         })

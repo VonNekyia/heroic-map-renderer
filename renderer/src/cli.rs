@@ -762,7 +762,8 @@ fn write_tiles(
 /// Stufe entstand, hat deshalb jemand anders geschrieben, siehe [`fremd`]:
 /// auf einer nativen Stufe ein Render, der sie aus der Welt zeichnet, am
 /// Ende `map.json` mit den Grenzen seiner letzten Kacheln. Das bleibt, wie
-/// es ist, ebenso eine Kachel, die sich seit der Liste geändert hat. Eine
+/// es ist, ebenso eine Kachel, die sich seit der Liste geändert hat; das
+/// prüft der Aufruf erst direkt vor dem Tausch und vor dem Entfernen. Eine
 /// verkleinerte Kachel hängt dagegen allein an ihren Kindern; sie baut der
 /// Aufruf auch dann neu, wenn ein Export sie eben erst aus einem alten
 /// Kind zusammengesetzt hat.
@@ -825,10 +826,11 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
                 .filter(|kind| kinder.contains_key(kind))
                 .collect();
             if teile.is_empty() {
-                entferne(&tile_path(dir, z, parent))?;
-                eltern.remove(&parent);
-                naechste.insert(parent);
-                weg += 1;
+                if entferne_wie_gelistet(&tile_path(dir, z, parent), zeit)? {
+                    eltern.remove(&parent);
+                    naechste.insert(parent);
+                    weg += 1;
+                }
             } else if parent
                 .children()
                 .iter()
@@ -855,14 +857,16 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
                         }
                     }
                 }
+                let data = encode_webp(&pyramid::merge(*parent, &bilder))?;
+                // Erst jetzt, direkt vor dem Tausch: offen bleibt nur das
+                // Schreiben der Nebendatei.
                 let pfad = tile_path(dir, z, *parent);
                 let jetzt = aenderungszeit(&pfad);
                 if jetzt != eltern.get(parent).copied() {
                     return Ok((*parent, None, jetzt, kaputt));
                 }
-                let bild = pyramid::merge(*parent, &bilder);
-                let groesse = schreibe_am(dir, z, *parent, &bild, Some(zeit))?;
-                Ok((*parent, Some(groesse), Some(zeit), kaputt))
+                lege_ab(&pfad, &data, Some(zeit))?;
+                Ok((*parent, Some(data.len()), Some(zeit), kaputt))
             })
             .collect::<Result<Vec<_>>>()?;
         let mut neu = 0;
@@ -1532,24 +1536,18 @@ fn je_kachel(
 
 /// Schreibt eine Kachel und liefert ihre Grösse in Bytes.
 fn schreibe(dir: &Path, z: u32, tile: TileId, image: &RgbaImage) -> Result<usize> {
-    schreibe_am(dir, z, tile, image, None)
+    let data = encode_webp(image)?;
+    lege_ab(&tile_path(dir, z, tile), &data, None)?;
+    Ok(data.len())
 }
 
-/// Wie [`schreibe`], mit dieser Zeit als letzter Änderung statt der Uhr.
-fn schreibe_am(
-    dir: &Path,
-    z: u32,
-    tile: TileId,
-    image: &RgbaImage,
-    zeit: Option<SystemTime>,
-) -> Result<usize> {
-    let data = encode_webp(image)?;
-    let path = tile_path(dir, z, tile);
+/// Legt kodierte Bytes als Kachel ab, mit dieser Zeit als letzter Änderung
+/// statt der Uhr.
+fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("{} anlegen", parent.display()))?;
     }
-    tausche(&path, &data, zeit).with_context(|| format!("{} schreiben", path.display()))?;
-    Ok(data.len())
+    tausche(path, data, zeit).with_context(|| format!("{} schreiben", path.display()))
 }
 
 /// Ersetzt eine Datei, ohne dass jemand eine halbe sieht: erst eine eigene
@@ -1588,6 +1586,17 @@ fn lies_falls_da(path: &Path) -> Result<Option<RgbaImage>> {
         Err(_) if matches!(std::fs::exists(path), Ok(false)) => Ok(None),
         bild => bild.map(Some),
     }
+}
+
+/// Entfernt die Kachel, wenn sie noch die Zeit aus der Liste trägt. Hat sie
+/// seitdem jemand neu geschrieben, etwa ein Export samt neuen Kindern,
+/// bleibt sie, und das Ergebnis ist `false`.
+fn entferne_wie_gelistet(path: &Path, zeit: Option<SystemTime>) -> Result<bool> {
+    if aenderungszeit(path) != zeit {
+        return Ok(false);
+    }
+    entferne(path)?;
+    Ok(true)
 }
 
 /// Entfernt eine Kachel, falls sie noch dasteht.
@@ -1931,6 +1940,21 @@ mod tests {
         let vorher = std::fs::read(&karte).unwrap();
         rebuild_pyramid(dir, beginn).unwrap();
         assert_eq!(std::fs::read(&karte).unwrap(), vorher, "fremde map.json");
+    }
+
+    /// Entfernt wird eine Kachel nur, wenn sie noch so dasteht, wie die
+    /// Liste sie sah.
+    #[test]
+    fn entfernt_nur_wie_gelistet() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("0.webp");
+        std::fs::write(&pfad, b"").unwrap();
+        let zeit = aenderungszeit(&pfad);
+        let frueher = zeit.map(|zeit| zeit - Duration::from_secs(1));
+        assert!(!entferne_wie_gelistet(&pfad, frueher).unwrap());
+        assert!(pfad.exists());
+        assert!(entferne_wie_gelistet(&pfad, zeit).unwrap());
+        assert!(!pfad.exists());
     }
 
     /// Eine Kachel, die es nicht mehr gibt, ist keine kaputte.

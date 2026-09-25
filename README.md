@@ -400,7 +400,8 @@ nächste Aufruf nur noch einmal ein. Was nach dem Beginn selbst und vor der
 Liste seiner Stufe entstand, hat jemand anders geschrieben: auf einer
 nativen Stufe der Render, der sie aus der Welt zeichnet, am Ende
 `map.json` mit den Grenzen seiner letzten Kacheln. Das bleibt stehen,
-ebenso eine Kachel, die sich seit der Liste geändert hat. Eine verkleinerte
+ebenso eine Kachel, die sich seit der Liste geändert hat; das prüft der
+Aufruf erst direkt vor dem Tausch und vor dem Entfernen. Eine verkleinerte
 Kachel hängt dagegen nur an ihren Kindern; die baut der Aufruf neu, sobald
 sich darunter etwas geändert hat, auch wenn ein Export sie eben erst
 geschrieben hat. Eine Zeit in der Zukunft kommt von einer Uhr, die vorging,

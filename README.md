@@ -203,17 +203,6 @@ Blockstates nur aus Chunks, die tatsächlich in eine ausgegebene Kachel fallen:
 ein kleiner Ausschnitt braucht deshalb keine Assets für Blöcke am anderen Ende
 der Welt.
 
-Alte Spielstände tragen alte Blocknamen: ein Chunk speichert die Namen der
-Version, die ihn zuletzt geladen hat, und ein Server voller nie wieder
-betretener Chunks hat davon ganze Jahrgänge. Minecraft biegt das beim Laden
-mit dem DataFixer gerade; der Renderer hat dafür eine Tabelle der
-Umbenennungen, bei denen nur der Name wechselte (`grass_path` → `dirt_path`,
-`grass` → `short_grass`, `chain` → `iron_chain`). Blöcke, die auch danach
-kein Asset haben — aus einem Mod, aus einer Umbenennung ohne Eintrag —,
-bleiben leer wie Luft. Der Lauf zählt sie nach dem Vorlauf auf, statt an
-ihnen zu scheitern; ein einzelner unbekannter Block darf keinen Render von
-Stunden abbrechen.
-
 Die Kacheln liegen als `tiles/<z>/<x>/<y>.webp`; x und y dürfen negativ sein,
 weil der Blockursprung mitten in der Welt liegt. Wird eine Kachel bei einem
 erneuten Lauf leer, löscht der Export die alte Datei — auf jeder Stufe, sonst

@@ -287,8 +287,8 @@ fn zweiter_lauf_raeumt_leer_gewordene_kacheln_weg() {
     );
 }
 
-/// Ein Ausschnitt sieht einen Block, der weit ausserhalb liegt, gar nicht
-/// erst — der Vollexport schon, und der sagt, dass er ihn nicht kennt.
+/// Ein Ausschnitt darf nicht an einem Block scheitern, der weit ausserhalb
+/// liegt und gar nicht gezeichnet wird.
 #[test]
 fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
     let welt = tempdir();
@@ -301,22 +301,22 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
     });
 
     let out = tempdir();
-    let ausgabe = tiles(
+    gelungen(&tiles(
         welt.path(),
         out.path(),
         &["--scale", "16", "--center", "8", "8", "--size", "4"],
-    );
-    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
-    assert!(!meldung.contains("gibt_es_nicht"), "Meldung: {meldung}");
+    ));
 
+    // Gegenprobe: der Vollexport braucht das fehlende Asset sehr wohl, und
+    // muss das auch sagen.
     let alles = tempdir();
     let ausgabe = tiles(welt.path(), alles.path(), &["--scale", "16"]);
-    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
     assert!(
-        meldung.contains("1 Blockarten kennen die Assets nicht")
-            && meldung.contains("minecraft:gibt_es_nicht: keine Blockstate-Datei"),
-        "Meldung: {meldung}"
+        !ausgabe.status.success(),
+        "der Vollexport hätte am fehlenden Asset scheitern müssen"
     );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("gibt_es_nicht"), "Meldung: {meldung}");
 }
 
 /// Jede gröbere Zoomstufe ist entweder nativ aus der Welt gerendert —

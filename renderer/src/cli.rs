@@ -485,15 +485,6 @@ fn write_tiles(
         sprites.variants()
     );
     warn_unknown_biomes(assets, &survey.biomes);
-    if !sprites.unresolved().is_empty() {
-        println!(
-            "            {} Blockarten kennen die Assets nicht, sie bleiben leer:",
-            sprites.unresolved().len()
-        );
-        for (name, error) in sprites.unresolved() {
-            println!("              {name}: {error}");
-        }
-    }
     if !sprites.foreign_cells().is_empty() {
         println!(
             "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",

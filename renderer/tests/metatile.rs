@@ -83,37 +83,6 @@ fn szene(dir: &TempDir, block: impl Fn(i32, i32, i32) -> &'static str) -> RgbaIm
     )
 }
 
-/// Ein Block, den die Assets nicht kennen — aus einem Mod oder nach einer
-/// Umbenennung ohne Tabelleneintrag —, bricht den Render nicht ab. Er
-/// bleibt leer wie Luft und steht in der Liste der ungelösten Blockarten.
-#[test]
-fn unbekannte_bloecke_bleiben_leer() {
-    let ersetzt = |durch: &'static str| {
-        move |x: i32, y: i32, z: i32| {
-            if (x, y, z) == (8, 6, 8) {
-                durch
-            } else {
-                gelaende(x, y, z)
-            }
-        }
-    };
-    let unbekannt = szene(&tempdir(), ersetzt("minecraft:gibts_nicht"));
-    assert_eq!(unbekannt, szene(&tempdir(), ersetzt("minecraft:air")));
-    assert_ne!(
-        unbekannt,
-        szene(&tempdir(), ersetzt("minecraft:blauwuerfel"))
-    );
-
-    let states =
-        ["minecraft:gibts_nicht", "minecraft:einfarbig"].map(|s| BlockState::parse(s).unwrap());
-    let sprites = SpriteSet::build(&mut assets(), &states, Projection::new(16)).unwrap();
-    assert_eq!(
-        sprites.unresolved().keys().collect::<Vec<_>>(),
-        ["minecraft:gibts_nicht"]
-    );
-    assert!(sprites.family_of(&states[1]).is_some());
-}
-
 fn tempdir() -> TempDir {
     tempfile::tempdir().expect("Temporärverzeichnis")
 }

@@ -29,17 +29,6 @@ fn state(text: &str) -> BlockState {
     BlockState::parse(text).unwrap()
 }
 
-/// Chunks aus älteren Spielständen tragen alte Blocknamen. Der Renderer
-/// kennt die Umbenennungen, die das Spiel beim Laden vornimmt.
-#[test]
-fn alte_blocknamen_finden_die_neue_datei() {
-    let mut assets = base();
-    let neu = assets.variants(&state("minecraft:short_grass")).unwrap();
-    let alt = assets.variants(&state("minecraft:grass")).unwrap();
-    assert_eq!(alt[0].model_id, neu[0].model_id);
-    assert!(assets.variants(&state("minecraft:gibt_es_nicht")).is_err());
-}
-
 #[test]
 fn leere_wurzelliste_ist_fehler() {
     assert!(Assets::open(Vec::new()).is_err());

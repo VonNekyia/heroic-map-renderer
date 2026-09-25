@@ -133,7 +133,10 @@ fn verdecken_aendert_kein_pixel() {
 /// hoher Block wie Ackerboden
 /// neben Lava und gestapelt, Platten, Kuchen, eine Seerose, ein gefluteter
 /// Zaun, eine Blasensäule, Säulen durch beide Section-Grenzen und Modelle,
-/// die in Nachbarwürfel ragen. Einmal ganz im Bild, einmal von einem
+/// die in Nachbarwürfel ragen, eines davon mit seinem oberen Teil in einem
+/// verdeckten Würfel, dazu ein Block, der knapp über seinen Umriss ragt und
+/// selbst verdeckt ist: beide zeichnen je Pixel neben ihrem Würfel, die kein
+/// Nachbar deckt. Einmal ganz im Bild, einmal von einem
 /// kleineren Rechteck angeschnitten, bei jedem scale, den `--scale` und
 /// die nativen Stufen annehmen, bis 32.
 #[test]
@@ -163,6 +166,10 @@ fn schneller_weg_gleicht_der_referenz() {
             (5, 3, 20..=22) | (26, 3..=6, 3..=5) => "minecraft:ackerboden",
             (28, 3..=40, 28) | (27, 15..=17, 27) | (27, 31..=33, 26) => "minecraft:einfarbig",
             (17, 3, 28) | (16, 31, 2) => "minecraft:turm",
+            (17, 32, 2) | (16, 32, 3) | (16, 33, 2) => "minecraft:einfarbig",
+            (1, 3, 16) => "minecraft:rand",
+            (2, 3, 16) | (1, 3, 17) => "minecraft:einfarbig",
+            (1, 4, 16) => "minecraft:boden",
             (29, 3, 10) => "minecraft:obere_platte",
             (29, 3, 12) => "minecraft:untere_platte",
             (30, 3, 14) => "minecraft:kuchen",

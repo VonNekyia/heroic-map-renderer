@@ -83,14 +83,30 @@ pub struct SpriteSet {
 struct Masks {
     outline: Vec<(i32, i32)>,
     top: Vec<(i32, i32)>,
+    /// Dieselben Pixel wie `outline`, zum Nachschlagen.
+    inside: HashSet<(i32, i32)>,
 }
 
 impl Masks {
     fn new(textures: &Textures, projection: Projection) -> Masks {
+        let outline = pixels_of(textures, projection, block(16.0, false));
         Masks {
-            outline: pixels_of(textures, projection, block(16.0, false)),
+            inside: outline.iter().copied().collect(),
+            outline,
             top: pixels_of(textures, projection, block(16.0, true)),
         }
+    }
+
+    /// Liegt jeder sichtbare Pixel des Sprites im Umriss?
+    fn contains(&self, sprite: &Sprite) -> bool {
+        sprite
+            .image
+            .enumerate_pixels()
+            .filter(|(_, _, pixel)| pixel.0[3] > 0)
+            .all(|(x, y, _)| {
+                let pos = (sprite.offset.0 + x as i32, sprite.offset.1 + y as i32);
+                self.inside.contains(&pos)
+            })
     }
 }
 
@@ -164,9 +180,10 @@ pub struct Family {
     /// Oberseite des Blocks darunter? Lava endet bei 8/9 und deckt den
     /// Umriss nicht mehr, den Block darunter aber schon.
     pub covers_floor: bool,
-    /// Bleibt jede Alternative im Umriss ihres eigenen Wuerfels? Nur dann
-    /// darf ein verdeckter Block uebersprungen werden, ohne dass etwas
-    /// von ihm haette herausragen koennen.
+    /// Bleibt jede Alternative Pixel fuer Pixel im Umriss ihres eigenen
+    /// Wuerfels, siehe `Entry::contained`? Nur dann darf ein verdeckter
+    /// Block uebersprungen werden, ohne dass etwas von ihm haette
+    /// herausragen koennen.
     pub contained: bool,
     /// Ragt eine Alternative in Nachbarwuerfel? Dann muss der Renderer
     /// von diesem Block aus auch dort zeichnen.
@@ -351,9 +368,12 @@ struct Entry {
     /// Deckt der eigene Teil den Boden des Wuerfels — die Oberseite des
     /// Blocks darunter?
     covers_floor: bool,
-    /// Bleibt jeder Teil im Umriss seines eigenen Wuerfels? Nach der
-    /// Zerlegung ist das der Normalfall; schlaegt sie fehl, verzichtet der
-    /// Renderer auf die Verdeckungsabkuerzung.
+    /// Bleibt der eigene Teil Pixel fuer Pixel im gerasterten Umriss seines
+    /// Wuerfels? Nur dann darf der Block verdeckt wegfallen: was daneben
+    /// liegt, deckt kein Nachbar sicher. Die Zerlegung laesst jedem Teil eine
+    /// Pixelbreite Spielraum, und so weit ragen auch Schilder, Weizen, Rote
+    /// Bete, Schienen, Feuer und das Lesepult je nach scale ueber den Umriss,
+    /// ohne zu zerfallen. Schlaegt die Zerlegung fehl, gilt das erst recht.
     contained: bool,
 }
 
@@ -710,9 +730,7 @@ impl SpriteSet {
         let floor = self.projection.scale() as i32 / 2;
         let opaque = own.is_some_and(|sprite| covers_all(sprite, &self.masks.outline, 0));
         let covers_floor = own.is_some_and(|sprite| covers_all(sprite, &self.masks.top, floor));
-        let contained = parts
-            .iter()
-            .all(|(cell, sprite)| fits_cell(sprite, *cell, self.projection));
+        let contained = own.is_none_or(|sprite| self.masks.contains(sprite));
 
         self.foreign.extend(
             parts
@@ -1284,9 +1302,17 @@ mod tests {
             set.foreign_cells().iter().copied().collect::<Vec<_>>(),
             vec![[-1, 0, 0]]
         );
+        let entry = &set.sprites[id.0 as usize];
         assert!(
-            set.sprites[id.0 as usize].contained,
-            "nach der Zerlegung bleibt jeder Teil drin"
+            entry
+                .parts
+                .iter()
+                .all(|(cell, sprite)| fits_cell(sprite, *cell, set.projection)),
+            "nach der Zerlegung bleibt jeder Teil in seinem Würfel"
+        );
+        assert!(
+            !entry.contained,
+            "der eigene Teil nutzt den Spielraum der Zerlegung"
         );
     }
 
@@ -1301,7 +1327,30 @@ mod tests {
 
         assert!(set.part(id, OWN_CELL).is_some());
         assert!(set.part(id, [0, 1, 0]).is_some());
-        assert!(set.sprites[id.0 as usize].contained);
+        assert!(
+            set.sprites[id.0 as usize]
+                .parts
+                .iter()
+                .all(|(cell, sprite)| fits_cell(sprite, *cell, set.projection))
+        );
+    }
+
+    /// Ein Modell, das knapp über seinen Würfel ragt, zerfällt nicht, liegt
+    /// aber auch nicht im Umriss: seine Randpixel deckt kein Nachbar, und
+    /// verdeckt fallen darf es deshalb nie. So liegen Schilder, Weizen oder
+    /// Schienen in Vanilla.
+    #[test]
+    fn knapper_ueberstand_liegt_nicht_im_umriss() {
+        let mut assets = assets();
+        let states = [state("rand"), state("einfarbig")];
+        for scale in [16, 32] {
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let rand = set.id(&state("rand")).unwrap();
+            let einfarbig = set.id(&state("einfarbig")).unwrap();
+            assert!(set.foreign_cells().is_empty(), "scale {scale}: zerfallen");
+            assert!(!set.sprites[rand.0 as usize].contained, "scale {scale}");
+            assert!(set.sprites[einfarbig.0 as usize].contained, "scale {scale}");
+        }
     }
 
     /// Die Zerlegung ist eine Aufteilung: kein Pixel darf verloren gehen

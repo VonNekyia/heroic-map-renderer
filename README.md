@@ -1147,7 +1147,13 @@ trotzdem den Block darunter. Ob ein Sprite deckt, entscheidet sein fertiges
 Bild und nicht sein Modell, Pixel für Pixel gegen einen gerasterten vollen
 Würfel, damit Glas von selbst herausfällt. Mit einer Pixelbreite Toleranz
 fiele der Block unter einer Druckplatte weg, und ihr Rand zeigte den
-Hintergrund.
+Hintergrund. Genauso streng ist die Frage, ob ein verdeckter Block
+überhaupt wegfallen darf: nur, wenn sein Sprite Pixel für Pixel in diesem
+Umriss bleibt. Schilder, Weizen, Rote Bete, Schienen, Feuer und das
+Lesepult legen je nach scale ein paar Pixel knapp daneben, die kein
+Nachbar sicher deckt; sie werden immer gezeichnet. Aus demselben Grund
+kommen Teile, die ein Modell in einen Nachbarwürfel legt, auch in einen
+verdeckten Würfel: die Zerlegung lässt ihnen eine Pixelbreite Spielraum.
 
 Die Suche nach hineinragenden Nachbarmodellen kostet nichts, solange kein
 Modell seinen Würfel verlässt. Sonst geht sie von den Blöcken aus, deren

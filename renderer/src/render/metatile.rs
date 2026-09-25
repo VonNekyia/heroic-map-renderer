@@ -426,9 +426,6 @@ fn rand(m: &Masks, col: usize) -> Rand {
 struct Exposed {
     /// Blöcke, von denen etwas zu sehen sein kann.
     own: [u16; 256],
-    /// Würfel, die ihre drei kamerazugewandten Nachbarn decken. Ein
-    /// fremdes Modellteil in so einem Würfel wäre unsichtbar.
-    hidden: [u16; 256],
     /// Je Richtung: der Nachbar ist `PLAIN` und selbst Kandidat, wird also
     /// gezeichnet und übermalt seinen Umriss. An Section- und Chunkrändern
     /// vorsichtshalber nie — dort müsste der Nachbar erst berechnet werden.
@@ -697,7 +694,6 @@ impl<'a> ChunkCache<'a> {
             .expect("nur Sections mit Familie");
         let mut ex = Box::new(Exposed {
             own: [0; 256],
-            hidden: [0; 256],
             skip_x: [0; 256],
             skip_y: [0; 256],
             skip_z: [0; 256],
@@ -717,7 +713,6 @@ impl<'a> ChunkCache<'a> {
                     & (sx | (fx[f] & ux[f]))
                     & (sz | (fz[f] & uz[f]));
             }
-            ex.hidden[col] = hidden;
             ex.own[col] = m.bits[PRESENT][col] & (m.bits[LOOSE][col] | !(hidden | fluid_hidden));
         }
         ex.any_own = ex.own.iter().any(|&o| o != 0);
@@ -731,31 +726,6 @@ impl<'a> ChunkCache<'a> {
         }
         loaded.exposed[s] = Some(ex);
         Ok(())
-    }
-
-    /// Ist der Würfel von seinen drei Nachbarn verdeckt — und darf man
-    /// ihn deshalb übergehen? Ein Block, der nicht in seinem Würfel
-    /// bleibt, darf das nie. In einer Section ohne Familie gilt kein
-    /// Würfel als verdeckt: das kostet höchstens ein unsichtbares Teil.
-    fn hidden_at(&mut self, x: i32, y: i32, z: i32) -> Result<bool> {
-        let slot = self.slot((x >> 4, z >> 4))?;
-        let Some(loaded) = &self.slots[slot].loaded else {
-            return Ok(false);
-        };
-        let Some(s) = i8::try_from(y >> 4)
-            .ok()
-            .and_then(|sy| loaded.chunk.section_index(sy))
-            .filter(|&s| loaded.masks[s].is_some())
-        else {
-            return Ok(false);
-        };
-        self.expose(slot, s)?;
-        let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
-        let col = ((z & 15) * 16 + (x & 15)) as usize;
-        let bit = 1u16 << (y & 15);
-        let ex = loaded.exposed[s].as_ref().expect("eben berechnet");
-        let loose = loaded.masks[s].as_ref().expect("geprüft").bits[LOOSE][col];
-        Ok(ex.hidden[col] & !loose & bit != 0)
     }
 
     /// Erster Durchgang: alle Blöcke im Band, von denen etwas zu sehen
@@ -891,7 +861,9 @@ impl<'a> ChunkCache<'a> {
 
         // Fremde Teile: vom Anker aus in jeden Würfel, den ein Modell der
         // Familie belegen kann. Gezeichnet wird dort, wenn der Würfel im
-        // Band liegt und nicht verdeckt ist — genau wie ein eigener Block.
+        // Band liegt, auch wenn er verdeckt ist: die Zerlegung lässt jedem
+        // Teil eine Pixelbreite Spielraum über seinen Würfel hinaus, und das
+        // deckt kein Nachbar.
         for anchor in anchors {
             for (i, cell) in foreign.iter().enumerate() {
                 let [x, y, z] = [
@@ -900,7 +872,7 @@ impl<'a> ChunkCache<'a> {
                     anchor[2] + cell[2],
                 ];
                 let (u, v) = (x - z, x + z);
-                if in_band(y, v, u) && !self.hidden_at(x, y, z)? {
+                if in_band(y, v, u) {
                     let kind = i as u16 + 1;
                     out.push(Candidate {
                         key: key_of(y, v, u, kind),

@@ -468,8 +468,9 @@ fn window(projection: Projection, center: (i32, i32), size: u32) -> ScreenRect {
     }
 }
 
-/// Modelle, die ihren Blockwürfel verlassen, kosten im Renderpfad eine
-/// Suche je leerem Würfel. Wenn es langsam wird, steht hier warum.
+/// Modelle, die ihren Blockwürfel verlassen, kosten im Renderpfad je Block
+/// mit so einem Modell ein Nachschlagen je Würfel, in den eines ragen
+/// kann. Wenn es langsam wird, steht hier warum.
 fn melde_ueberhang(sprites: &SpriteSet) {
     if !sprites.foreign_cells().is_empty() {
         println!(

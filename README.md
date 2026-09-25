@@ -1119,8 +1119,10 @@ fiele der Block unter einer Druckplatte weg, und ihr Rand zeigte den
 Hintergrund.
 
 Die Suche nach hineinragenden Nachbarmodellen kostet nichts, solange kein
-Modell seinen Würfel verlässt. In einem Ausschnitt mit Feuer kostet sie ein
-Nachschlagen je leerem Würfel, rund ein Viertel der Renderzeit.
+Modell seinen Würfel verlässt. Sonst geht sie von den Blöcken aus, deren
+Modell hinausragt, die Masken kennen sie: je solchem Block ein
+Nachschlagen je Würfel, in den ein Modell ragen kann, statt eines je
+leerem Würfel.
 
 Weltkoordinaten werden in `f64` projiziert. Minecraft erlaubt knapp 30
 Millionen Blöcke in jede Richtung; ab 2²⁴ kann `f32` benachbarte ganzzahlige

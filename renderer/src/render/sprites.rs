@@ -811,12 +811,6 @@ impl SpriteSet {
         self.sprites[id.0 as usize].opaque
     }
 
-    /// Bleibt jeder Teil in seinem Wuerfel? Nur dann duerfen drei deckende
-    /// Nachbarn das Sprite ueberspringen.
-    pub fn is_contained(&self, id: SpriteId) -> bool {
-        self.sprites[id.0 as usize].contained
-    }
-
     pub fn cover(&self) -> &Cover {
         &self.cover
     }
@@ -1267,7 +1261,7 @@ mod tests {
         for name in ["einfarbig", "seerose", "oak_fence"] {
             let id = set.id(&state(name)).unwrap();
             assert!(set.part(id, OWN_CELL).is_some(), "{name}");
-            assert!(set.is_contained(id), "{name}");
+            assert!(set.sprites[id.0 as usize].contained, "{name}");
         }
         assert!(set.foreign_cells().is_empty());
     }
@@ -1288,7 +1282,7 @@ mod tests {
             vec![[-1, 0, 0]]
         );
         assert!(
-            set.is_contained(id),
+            set.sprites[id.0 as usize].contained,
             "nach der Zerlegung bleibt jeder Teil drin"
         );
     }
@@ -1304,7 +1298,7 @@ mod tests {
 
         assert!(set.part(id, OWN_CELL).is_some());
         assert!(set.part(id, [0, 1, 0]).is_some());
-        assert!(set.is_contained(id));
+        assert!(set.sprites[id.0 as usize].contained);
     }
 
     /// Die Zerlegung ist eine Aufteilung: kein Pixel darf verloren gehen

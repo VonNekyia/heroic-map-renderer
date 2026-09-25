@@ -720,8 +720,9 @@ Eine `.mcmeta` liest der Renderer wie der Block-Atlas: `animation` und
 `texture` je mit ihrem Codec. Was einer davon ablehnt, etwa
 `"frametime": 0` oder `"blur": 1`, macht die Textur wie im Client zur
 Missing-Textur, und die Ausgabe nennt den Grund. `"width": 16.0` ist 16.
-Fehlt eine Bildgrösse, gilt die andere, fehlen beide, die kürzere Seite
-des Bildes; teilt sie das Bild nicht, ist die Textur ebenso kaputt. Der
+Fehlt eine Bildgrösse, gilt dafür die Seite des Bildes, fehlen beide, für
+beide seine kürzere; teilt sie das Bild nicht, ist die Textur ebenso
+kaputt. Der
 Renderer zeigt das Bild, mit dem der Client beginnt: das erste gültige
 aus `frames`. Bleibt nur eines, ist die Textur statisch, und ist das Bild
 dann grösser als eines, scheitert im Client der Atlas; der Renderer zeigt

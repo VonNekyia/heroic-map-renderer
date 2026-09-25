@@ -270,9 +270,10 @@ fn positive(json: &Value) -> Result<u32> {
 /// Das Bild einer Animation, das der Client zuerst zeigt, oder `Err`, wenn
 /// er die Textur verwirft.
 ///
-/// Die Bildgrösse steht in `width` und `height`, fehlt eine, gilt die
-/// andere, fehlen beide, die kürzere Seite (`calculateFrameSize`). Teilt
-/// sie das Bild nicht auf, verwirft `SpriteResourceLoader` die Textur.
+/// Die Bildgrösse steht in `width` und `height`. Fehlt eine, gilt dafür
+/// die Seite des Bildes, fehlen beide, für beide seine kürzere
+/// (`calculateFrameSize`). Teilt sie das Bild nicht, verwirft
+/// `SpriteResourceLoader` die Textur.
 /// `SpriteContents` streicht Bilder aus `frames`, die es nicht gibt; ohne
 /// `frames` zählen alle. Zeigt es danach mindestens zwei, beginnt es mit
 /// dem ersten. Sonst ist die Textur statisch, und ist das Bild dann
@@ -282,8 +283,8 @@ fn erstes_bild(image: &RgbaImage, animation: &Animation) -> Result<RgbaImage> {
     let (breite, hoehe) = image.dimensions();
     let (b, h) = match (animation.width, animation.height) {
         (Some(b), Some(h)) => (b, h),
-        (Some(b), None) => (b, b),
-        (None, Some(h)) => (h, h),
+        (Some(b), None) => (b, hoehe),
+        (None, Some(h)) => (breite, h),
         (None, None) => (breite.min(hoehe), breite.min(hoehe)),
     };
     ensure!(
@@ -404,15 +405,17 @@ mod tests {
         assert_eq!(frame.get_pixel(0, 0).0[0], 3);
     }
 
-    /// Wie `calculateFrameSize`: fehlt eine Seite, gilt die andere, fehlen
-    /// beide, die kürzere des Bildes. Ein waagerechter Streifen läuft so
-    /// von links nach rechts.
+    /// Wie `calculateFrameSize`, belegt per javap: fehlt eine Seite, gilt
+    /// dafür die des Bildes, fehlen beide, für beide die kürzere. Ein
+    /// waagerechter Streifen läuft so von links nach rechts.
     #[test]
     fn bildgroesse_wie_im_client() {
         let frame = erstes(&streifen(16, 32), r#"{"animation": {"height": 8}}"#).unwrap();
-        assert_eq!(frame.dimensions(), (8, 8));
+        assert_eq!(frame.dimensions(), (16, 8));
         let frame = erstes(&streifen(16, 32), r#"{"animation": {"width": 8}}"#).unwrap();
-        assert_eq!(frame.dimensions(), (8, 8));
+        assert_eq!(frame.dimensions(), (8, 32));
+        let frame = erstes(&streifen(16, 48), r#"{"animation": {"height": 12}}"#).unwrap();
+        assert_eq!(frame.dimensions(), (16, 12));
         let frame = erstes(&streifen(48, 16), r#"{"animation": {}}"#).unwrap();
         assert_eq!(frame.dimensions(), (16, 16));
         let frame = erstes(
@@ -423,11 +426,11 @@ mod tests {
         assert_eq!(frame.dimensions(), (16, 16));
     }
 
-    /// `"width": 16.0` ist für `Codec.INT` 16, wie `intValue`.
+    /// `"width": 8.0` ist für `Codec.INT` 8, wie `intValue`.
     #[test]
     fn kommazahl_als_bildgroesse() {
-        let frame = erstes(&streifen(16, 32), r#"{"animation": {"width": 16.0}}"#).unwrap();
-        assert_eq!(frame.dimensions(), (16, 16));
+        let frame = erstes(&streifen(16, 32), r#"{"animation": {"width": 8.0}}"#).unwrap();
+        assert_eq!(frame.dimensions(), (8, 32));
     }
 
     /// Bilder, die es nicht gibt, streicht der Client. Bleibt eines, ist die

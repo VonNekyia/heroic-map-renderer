@@ -5,8 +5,13 @@
 //! Lauf abgelesen — ein Goldbild käme erst in Schritt 4 dazu.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use terranova_render::assets::{Assets, Tints, model_of};
+use terranova_render::assets::baker::box_quads;
+use terranova_render::assets::{
+    Assets, BakedModel, Element, ElementFace, Face, Quad, ResolvedModel, ResolvedVariant, Rotation,
+    TextureId, Tints, bake, model_of,
+};
 use terranova_render::render::rasterizer::over;
 use terranova_render::render::{Projection, render};
 use terranova_render::world::BlockState;
@@ -269,8 +274,8 @@ fn uvlock_dreht_die_textur_zurueck() {
     );
 }
 
-/// Wasser hat kein Modell und bekommt trotzdem ein Sprite: ein voller
-/// Würfel für die Quelle, flacher für fliessende Stufen.
+/// Wasser hat kein Modell und bekommt trotzdem ein Sprite: ein Würfel bis
+/// 8/9 der Blockhöhe für die Quelle, flacher für fliessende Stufen.
 #[test]
 fn wasser_bekommt_geometrie_aus_der_blockstate() {
     let mut assets = assets();
@@ -278,7 +283,7 @@ fn wasser_bekommt_geometrie_aus_der_blockstate() {
     assert_eq!(
         quelle.image.dimensions(),
         (16, 16),
-        "Quelle füllt den Block"
+        "Quelle belegt den Blockumriss"
     );
     assert_eq!(
         pixel(&quelle, 0, -4)[3],
@@ -294,7 +299,9 @@ fn wasser_bekommt_geometrie_aus_der_blockstate() {
 }
 
 /// Ein gefluteter Zaun bleibt unter dem Wasser sichtbar: das Sprite mischt
-/// die Wasserfläche über den Pfosten, statt ihn zu überschreiben.
+/// die Wasserfläche über den Pfosten, statt ihn zu überschreiben. Und die
+/// Oberseite des Pfostens ragt trocken heraus, denn das Wasser endet bei
+/// 8/9 des Blocks — wie im Spiel.
 #[test]
 fn wasser_mischt_sich_ueber_den_zaun() {
     let mut assets = assets();
@@ -303,7 +310,14 @@ fn wasser_mischt_sich_ueber_den_zaun() {
     let nass = sprite(&mut assets, "oak_fence[north=true,waterlogged=true]", 16).expect("Sprite");
 
     // Mitte der Pfostenoberseite, aus der Projektion gerechnet.
-    let (sx, sy) = (0, -4);
+    assert_eq!(
+        pixel(&nass, 0, -4),
+        pixel(&trocken, 0, -4),
+        "die Pfostenoberseite liegt über dem Wasser"
+    );
+
+    // Südseite des Pfostens auf halber Höhe, hinter der Wasseroberfläche.
+    let (sx, sy) = (-1, 0);
     let erwartet = over(pixel(&wasser, sx, sy), pixel(&trocken, sx, sy));
     let ist = pixel(&nass, sx, sy);
     for c in 0..4 {
@@ -316,10 +330,95 @@ fn wasser_mischt_sich_ueber_den_zaun() {
     assert_ne!(ist, pixel(&trocken, sx, sy), "Wasser muss darüberliegen");
 }
 
+/// Zwei Dreiecke mit gemeinsamer Kante müssen jeden Pixel darauf genau
+/// einmal nehmen. Bei gedrehter Geometrie rundet f32 die Kante von
+/// verschiedenen Ecken aus verschieden; wird sie nicht von derselben Ecke
+/// aus gerechnet, fällt ein Pixel bei beiden durch — ein Loch im selben
+/// Pixel jedes Kreuzmodells, bei scale 32 in (10, 10).
+#[test]
+fn kreuzmodell_hat_keine_loecher() {
+    let mut assets = assets();
+    for scale in [8u32, 16, 32, 64] {
+        let sprite = sprite(&mut assets, "kreuz", scale).expect("Sprite");
+        let (w, h) = sprite.image.dimensions();
+        let alpha = |x: i32, y: i32| sprite.image.get_pixel(x as u32, y as u32).0[3];
+        let nachbarn = [
+            (-1, -1),
+            (0, -1),
+            (1, -1),
+            (-1, 0),
+            (1, 0),
+            (-1, 1),
+            (0, 1),
+            (1, 1),
+        ];
+        for y in 1..h as i32 - 1 {
+            for x in 1..w as i32 - 1 {
+                assert!(
+                    alpha(x, y) > 0 || nachbarn.iter().any(|&(dx, dy)| alpha(x + dx, y + dy) == 0),
+                    "scale {scale}: Loch bei ({x}, {y})"
+                );
+            }
+        }
+    }
+}
+
+/// Ein gefluteter voller Würfel sieht aus wie ein trockener: das Wasser
+/// liegt ganz in ihm.
+#[test]
+fn gefluteter_wuerfel_bleibt_trocken() {
+    let mut assets = assets();
+    for scale in [16u32, 32] {
+        let trocken = sprite(&mut assets, "einfarbig", scale).expect("Sprite");
+        let nass = sprite(&mut assets, "einfarbig[waterlogged=true]", scale).expect("Sprite");
+        assert_eq!(nass.offset, trocken.offset);
+        assert_eq!(
+            nass.image.as_raw(),
+            trocken.image.as_raw(),
+            "scale {scale}: Wasserfilm auf dem Würfel"
+        );
+    }
+}
+
+/// Die Seiten einer gefluteten Platte bleiben trocken. Der Wasserwürfel
+/// liegt mit seinen Seiten genau auf der Blockgrenze, wie die Seiten der
+/// Platte, und bei gleicher Tiefe gewann bisher das Wasser: ein Film auf
+/// jeder gefluteten Platte und Treppe. Vanilla rückt jede
+/// Flüssigkeitsfläche ein Tausendstel nach innen; hier rückt sie in der
+/// Tiefe nach hinten. Über der Oberseite der Platte liegt dagegen Wasser.
+#[test]
+fn geflutete_platte_bleibt_an_den_seiten_trocken() {
+    let mut assets = assets();
+    let oben = [150, 110, 60, 255];
+    for scale in [16u32, 32] {
+        let trocken = sprite(&mut assets, "untere_platte", scale).expect("Sprite");
+        let nass = sprite(&mut assets, "untere_platte[waterlogged=true]", scale).expect("Sprite");
+        let (mut seiten, mut unter_wasser) = (0, 0);
+        for (x, y, p) in trocken.image.enumerate_pixels() {
+            let sx = x as i32 + trocken.offset.0;
+            let sy = y as i32 + trocken.offset.1;
+            if p.0[3] < 255 {
+                continue;
+            }
+            let q = pixel(&nass, sx, sy);
+            if p.0 == oben {
+                unter_wasser += 1;
+                assert_ne!(q, p.0, "scale {scale}: kein Wasser über ({sx}, {sy})");
+            } else {
+                seiten += 1;
+                assert_eq!(q, p.0, "scale {scale}: Wasserfilm bei ({sx}, {sy})");
+            }
+        }
+        assert!(seiten > 0 && unter_wasser > 0, "{seiten} {unter_wasser}");
+    }
+}
+
 /// Bei kleinem scale liegen viele Texel unter einem Pixel. Die Abtastung
 /// muss alle erfassen: eine Textur aus abwechselnd schwarzen und weissen
 /// Spalten ist bei scale 4 grau — und nicht weiss, weil jeder zweite
-/// Abtastpunkt zufällig eine weisse Spalte trifft.
+/// Abtastpunkt zufällig eine weisse Spalte trifft. Gemittelt wird in
+/// linearem Licht wie in der Pyramide: halb Schwarz, halb Weiss ist 188,
+/// nicht die 128 aus dem Mittel der sRGB-Werte.
 #[test]
 fn kleine_scales_mitteln_alle_texel() {
     let mut assets = assets();
@@ -328,8 +427,234 @@ fn kleine_scales_mitteln_alle_texel() {
         // Der Pixel, der die Mitte der Oberseite (0, -scale/4) enthält.
         let p = pixel(&sprite, 0, -((scale as i32 + 3) / 4));
         assert!(
-            (p[0] as i32 - 128).abs() <= 24 && p[3] == 255,
-            "scale {scale}: {p:?} ist nicht grau"
+            (p[0] as i32 - 188).abs() <= 24 && p[3] == 255,
+            "scale {scale}: {p:?} ist nicht das Grau aus linearem Licht"
         );
     }
+}
+
+/// Die zwei Dreiecke einer Fläche teilen sich eine Diagonale. Liegt ein
+/// Pixelmittelpunkt genau darauf — bei scale 2, 6 und 10 auf jeder vollen
+/// Oberseite —, darf ihn nur eines der beiden bekommen. Sonst mischt ein
+/// durchsichtiges Texel dort doppelt: Alpha 233 statt 180.
+#[test]
+fn diagonale_mischt_nur_einmal() {
+    let mut assets = assets();
+    let glas = assets.texture("block/water_still");
+    let wuerfel = BakedModel {
+        quads: box_quads([0.0; 3], [16.0; 3], glas, None, None).collect(),
+    };
+    for scale in [2, 6, 10, 16] {
+        let sprite = render(
+            &wuerfel,
+            assets.textures(),
+            &Projection::new(scale),
+            Tints::default(),
+        )
+        .expect("Sprite");
+        for (x, y, p) in sprite.image.enumerate_pixels() {
+            assert!(
+                p.0[3] == 0 || p.0[3] == 180,
+                "scale {scale}, Pixel ({x}, {y}): Alpha {}",
+                p.0[3]
+            );
+        }
+    }
+}
+
+/// Jede Kante zwischen zwei Dreiecken nimmt jeden Pixel darauf genau
+/// einmal, in jeder Lage: Quader auf dem 1/16-Raster, als Element um 22,5
+/// und 45 Grad gedreht, mit und ohne `rescale`, und als Variante um
+/// Vielfache von 90 — Kreuzmodelle, Türen, Knöpfe, Falltüren —, bei jedem
+/// scale. Gedreht wird vom Baker selbst. Ein Quader projiziert sich
+/// konvex, und jeder Pixelmittelpunkt darin gehört genau einer
+/// Vorderfläche. Mit durchsichtiger Textur zeigt sich ein doppelter Pixel
+/// als zu hohes Alpha, ein Loch als leerer Pixel innen.
+#[test]
+fn kanten_nehmen_jeden_pixel_genau_einmal() {
+    let mut assets = assets();
+    let glas = assets.texture("block/water_still");
+    // xorshift: reproduzierbar ohne weitere Abhängigkeit.
+    let mut zustand = 0x2545_f491_4f6c_dd1d_u64;
+    let mut zufall = move |n: u64| {
+        zustand ^= zustand << 13;
+        zustand ^= zustand >> 7;
+        zustand ^= zustand << 17;
+        zustand % n
+    };
+    let flaeche = ElementFace {
+        texture: glas,
+        force_translucent: false,
+        uv: None,
+        cullface: None,
+        rotation: 0,
+        tint_index: None,
+    };
+    let seiten = [
+        Face::Down,
+        Face::Up,
+        Face::North,
+        Face::South,
+        Face::West,
+        Face::East,
+    ]
+    .map(|seite| (seite, flaeche.clone()));
+
+    let mut innen = 0;
+    for _ in 0..300 {
+        let mut from = [0.0f32; 3];
+        let mut to = [0.0f32; 3];
+        for i in 0..3 {
+            let (a, b) = (zufall(16), zufall(16));
+            // In Sechzehnteln, wie im Modell-JSON.
+            from[i] = a.min(b) as f32;
+            to[i] = (a.max(b) + 1) as f32;
+        }
+        // Ein Viertel der Elemente bleibt ungedreht.
+        let achse = zufall(4) as usize;
+        let rotation = (achse < 3).then(|| {
+            let mut angles = [0.0f32; 3];
+            angles[achse] = [22.5, -22.5, 45.0, -45.0][zufall(4) as usize];
+            Rotation {
+                origin: [zufall(17), zufall(17), zufall(17)].map(|a| a as f32),
+                angles,
+                rescale: zufall(2) == 1,
+            }
+        });
+        let (vx, vy) = (zufall(4) as i32 * 90, zufall(4) as i32 * 90);
+        let modell = bake(&[ResolvedVariant {
+            model_id: String::new(),
+            model: Arc::new(ResolvedModel {
+                elements: vec![Element {
+                    from,
+                    to,
+                    rotation,
+                    shade: true,
+                    faces: seiten.to_vec(),
+                }],
+            }),
+            x: vx,
+            y: vy,
+            z: 0,
+            uvlock: false,
+        }]);
+
+        for scale in [4u32, 8, 16, 32, 64] {
+            let projection = Projection::new(scale);
+            let umriss = huelle(
+                modell
+                    .quads
+                    .iter()
+                    .flat_map(|q| q.corners)
+                    .map(|p| {
+                        let (x, y) = projection.project(p);
+                        [x as f64, y as f64]
+                    })
+                    .collect(),
+            );
+            let sprite =
+                render(&modell, assets.textures(), &projection, Tints::default()).expect("Sprite");
+            for (x, y, p) in sprite.image.enumerate_pixels() {
+                let px = (x as i32 + sprite.offset.0) as f64 + 0.5;
+                let py = (y as i32 + sprite.offset.1) as f64 + 0.5;
+                let fall = format!(
+                    "scale {scale}, {from:?}..{to:?}, {rotation:?}, x {vx} y {vy}, ({px}, {py})"
+                );
+                assert!(
+                    p.0[3] == 0 || p.0[3] == 180,
+                    "doppelt: {fall}, Alpha {}",
+                    p.0[3]
+                );
+                if drinnen(&umriss, px, py, 0.01) {
+                    innen += 1;
+                    assert_eq!(p.0[3], 180, "Loch: {fall}");
+                }
+            }
+        }
+    }
+    assert!(innen > 100_000, "nur {innen} Pixel geprüft");
+}
+
+/// Konvexe Hülle, gegen den Uhrzeigersinn (monotone Kette).
+fn huelle(mut punkte: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
+    punkte.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mut h: Vec<[f64; 2]> = Vec::new();
+    for richtung in [punkte.clone(), punkte.into_iter().rev().collect()] {
+        let start = h.len();
+        for p in richtung {
+            while h.len() >= start + 2 && kreuz(h[h.len() - 2], h[h.len() - 1], p) <= 0.0 {
+                h.pop();
+            }
+            h.push(p);
+        }
+        h.pop();
+    }
+    h
+}
+
+fn kreuz(o: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+}
+
+/// Liegt der Punkt mindestens `abstand` Pixel innerhalb der Hülle?
+fn drinnen(huelle: &[[f64; 2]], x: f64, y: f64, abstand: f64) -> bool {
+    (0..huelle.len()).all(|i| {
+        let (a, b) = (huelle[i], huelle[(i + 1) % huelle.len()]);
+        let laenge = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
+        kreuz(a, b, [x, y]) > abstand * laenge
+    })
+}
+
+/// Eine Fläche nach +z zwischen `von` und `bis` in x und y.
+fn flaeche(z: f32, von: f32, bis: f32, texture: TextureId) -> Quad {
+    Quad {
+        corners: [[von, von, z], [bis, von, z], [bis, bis, z], [von, bis, z]],
+        uvs: [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+        texture,
+        tint_index: None,
+        shade: true,
+        force_translucent: false,
+        fluid: None,
+        layers: 1,
+    }
+}
+
+/// Eine Fläche, deren Textur am Pixel nur zum Teil deckt, verdeckt die
+/// Fläche dahinter nicht ganz. Gemittelt wird über den Pixel: bei scale 16
+/// liegen zwei Texelspalten darunter, von einem Gitter aus deckenden und
+/// leeren Spalten also eine halbe Deckung — wie an der Kante eines
+/// Weizenhalms. Die vordere Fläche kommt hier in der Sortierung zuerst;
+/// setzte sie die Tiefe, fiele die hintere dort weg, und das Pixel bliebe
+/// halb durchsichtig.
+#[test]
+fn teildeckung_verdeckt_nicht() {
+    let mut assets = assets();
+    let gitter = assets.texture("block/gitter");
+    let blau = assets.texture("block/blau");
+    let projection = Projection::new(16);
+
+    let allein = BakedModel {
+        quads: vec![flaeche(0.75, 0.0, 1.0, gitter)],
+    };
+    let allein = render(&allein, assets.textures(), &projection, Tints::default()).unwrap();
+    assert!(
+        allein.image.pixels().any(|p| p.0[3] > 0 && p.0[3] < 255),
+        "das Gitter deckt nirgends halb — der Test prüft nichts"
+    );
+
+    // Die grosse Fläche dahinter reicht mit ihrer vordersten Ecke weiter
+    // nach vorn und wird deshalb nach dem Gitter gezeichnet.
+    let beide = BakedModel {
+        quads: vec![
+            flaeche(0.75, 0.0, 1.0, gitter),
+            flaeche(0.25, -1.0, 2.0, blau),
+        ],
+    };
+    let sprite = render(&beide, assets.textures(), &projection, Tints::default()).unwrap();
+    let halb = sprite
+        .image
+        .pixels()
+        .filter(|p| p.0[3] > 0 && p.0[3] < 255)
+        .count();
+    assert_eq!(halb, 0, "{halb} Pixel sind halb durchsichtig");
 }

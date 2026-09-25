@@ -1,0 +1,4 @@
+{ "multipart": [
+  { "apply": { "model": "minecraft:block/fence_post" } },
+  { "when": { "north": "true" }, "apply": { "model": "minecraft:block/gibt_es_nicht", "y": 90 } }
+] }

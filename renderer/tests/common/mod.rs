@@ -1,4 +1,4 @@
-//! Gemeinsame Hilfen für Tests, die Weltdaten erzeugen.
+//! Gemeinsame Hilfen für die Tests: Weltdaten erzeugen und Links anlegen.
 //!
 //! Eine echte Welt lässt sich nicht ins Repository legen, und aus einem
 //! Ausschnitt einer echten Welt lassen sich einzelne Blöcke nicht gezielt
@@ -14,6 +14,28 @@ use serde::Serialize;
 pub const SECTOR: usize = 4096;
 /// Blöcke je Section-Kante.
 pub const SECTION: i32 = 16;
+
+/// Legt `pfad` als Link auf das Verzeichnis `ziel` an: unter Windows eine
+/// Junction, die jeder anlegen darf, sonst einen Symlink. `mklink` nähme
+/// einen Schrägstrich im Pfad als Schalter, `absolute` setzt Backslashes.
+pub fn link(ziel: &Path, pfad: &Path) {
+    #[cfg(windows)]
+    {
+        let ausgabe = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(std::path::absolute(pfad).unwrap())
+            .arg(std::path::absolute(ziel).unwrap())
+            .output()
+            .unwrap();
+        assert!(
+            ausgabe.status.success(),
+            "{}",
+            String::from_utf8_lossy(&ausgabe.stderr)
+        );
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(ziel, pfad).unwrap();
+}
 
 // ---------------------------------------------------------------- NBT-Bau
 
@@ -102,6 +124,77 @@ pub fn chunk_nbt(cx: i32, cz: i32, sections: Vec<SectionNbt>) -> Vec<u8> {
         sections,
     })
     .expect("NBT serialisieren")
+}
+
+/// Wo der Seed liegt: bis 1.21 in `level.dat`, seit 26.1 in
+/// `world_gen_settings.dat`. Beide Dateien tragen mehr, der Renderer liest
+/// nur den Seed.
+#[derive(Serialize)]
+struct LevelDat {
+    #[serde(rename = "Data")]
+    data: LevelData,
+}
+
+#[derive(Serialize)]
+struct LevelData {
+    #[serde(rename = "WorldGenSettings", skip_serializing_if = "Option::is_none")]
+    settings: Option<SeedNbt>,
+}
+
+#[derive(Serialize)]
+struct GenSettingsDat {
+    #[serde(rename = "DataVersion")]
+    data_version: i32,
+    data: SeedNbt,
+}
+
+#[derive(Serialize)]
+struct SeedNbt {
+    seed: i64,
+}
+
+fn write_gzip_nbt(path: &Path, value: &impl Serialize) {
+    use std::io::Write;
+    std::fs::create_dir_all(path.parent().unwrap()).expect("Verzeichnis anlegen");
+    let mut gz = flate2::write::GzEncoder::new(
+        std::fs::File::create(path).expect("NBT-Datei anlegen"),
+        flate2::Compression::default(),
+    );
+    gz.write_all(&fastnbt::to_bytes(value).expect("NBT serialisieren"))
+        .expect("NBT schreiben");
+    gz.finish().expect("gzip abschliessen");
+}
+
+/// `level.dat` mit dem Seed, wie Minecraft bis 1.21 sie schreibt.
+pub fn write_level_dat(world: &Path, seed: i64) {
+    let level = LevelDat {
+        data: LevelData {
+            settings: Some(SeedNbt { seed }),
+        },
+    };
+    write_gzip_nbt(&world.join("level.dat"), &level);
+}
+
+/// `level.dat` ohne Seed, wie seit 26.1: der steht dann in
+/// `world_gen_settings.dat`.
+pub fn write_level_dat_ohne_seed(world: &Path) {
+    let level = LevelDat {
+        data: LevelData { settings: None },
+    };
+    write_gzip_nbt(&world.join("level.dat"), &level);
+}
+
+/// `world_gen_settings.dat` mit dem Seed in `<dir>/data/minecraft`. Vanilla
+/// schreibt sie seit 26.1 in die Weltwurzel, Paper in jede Dimension.
+pub fn write_gen_settings(dir: &Path, seed: i64) {
+    let settings = GenSettingsDat {
+        data_version: 4903,
+        data: SeedNbt { seed },
+    };
+    write_gzip_nbt(
+        &dir.join("data/minecraft/world_gen_settings.dat"),
+        &settings,
+    );
 }
 
 // -------------------------------------------------------------- Weltenbau

@@ -2,11 +2,15 @@
 //! Assetbaum. Die Dateien sind synthetisch, spiegeln aber die Formen wider,
 //! die die Bestandsaufnahme über Vanilla 26.2 und das TerraNova-Pack ergeben
 //! hat: Variantenlisten, Multipart mit Bedingungen, parent-Ketten,
-//! `#ref`-Texturen, `builtin/entity`, animierte Streifen.
+//! `#ref`-Texturen, Modelle ohne Elemente, animierte Streifen.
 
-use std::path::PathBuf;
+mod common;
 
-use terranova_render::assets::{Assets, Face, Textures};
+use std::path::{Path, PathBuf};
+
+use terranova_render::assets::{
+    Assets, Face, MISSING_MODEL, ResolvedVariant, Textures, bake, model_of,
+};
 use terranova_render::world::BlockState;
 
 fn fixture(name: &str) -> PathBuf {
@@ -147,35 +151,115 @@ fn flaechendaten_werden_uebernommen() {
     );
 }
 
-/// Truhen, Banner und Schilder verweisen auf `builtin/entity`. Minecraft
-/// zeichnet sie über Entity-Modelle; hier bleiben sie leer, statt den Lauf
-/// abzubrechen.
+/// Truhen, Banner und Schilder haben in 26.2 ein Modell ohne Elemente, nur
+/// mit Partikeltextur. Minecraft zeichnet sie über Entity-Modelle; hier
+/// bleiben sie leer.
 #[test]
-fn builtin_entity_bleibt_leer() {
+fn modell_ohne_elemente_bleibt_leer() {
     let mut assets = base();
     let variants = assets.variants(&state("chest")).unwrap();
     assert_eq!(variants.len(), 1);
     assert!(variants[0].model.is_empty());
 }
 
+/// Ein fehlendes Modell bricht den Lauf nicht ab: der Client zeichnet dort
+/// den Missing-Würfel, der Renderer auch, und nennt den Grund.
 #[test]
-fn fehlendes_modell_ist_fehler() {
+fn fehlendes_modell_wird_missing_wuerfel() {
     let mut assets = base();
-    let error = assets.variants(&state("kaputt")).unwrap_err();
+    let variants = assets.variants(&state("kaputt")).unwrap();
+    assert_eq!(variants.len(), 1);
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
     assert!(
-        format!("{error:#}").contains("nicht gefunden"),
-        "unerwarteter Fehler: {error:#}"
+        variants[0].model.elements[0]
+            .faces
+            .iter()
+            .all(|(_, face)| face.texture == Textures::MISSING)
+    );
+    let grund = &assets.skipped()["minecraft:kaputt"];
+    assert!(grund.contains("nicht gefunden"), "{grund}");
+}
+
+/// Bei `multipart` wird nur der kaputte Teil zum Missing-Würfel, mit der
+/// Drehung seines Eintrags; der Pfosten bleibt. Gebacken liegen beide im
+/// Modell, der Würfel um 90 Grad gedreht: von oben gesehen im
+/// Uhrzeigersinn, (x, z) wird zu (1 - z, x). Ein voller Würfel sieht
+/// gedreht gleich aus, nur seine Flächen tauschen die Ecken.
+#[test]
+fn kaputter_teil_wird_missing_wuerfel() {
+    let mut assets = base();
+    let teile = assets.variants(&state("teil_kaputt[north=true]")).unwrap();
+    assert_eq!(teile.len(), 2);
+    assert_eq!(teile[0].model_id, "minecraft:block/fence_post");
+    assert_eq!(teile[1].model_id, MISSING_MODEL);
+    assert_eq!(teile[1].y, 90, "der Missing-Würfel dreht mit");
+
+    let gebacken = model_of(&mut assets, &state("teil_kaputt[north=true]")).unwrap();
+    let pfosten = bake(&teile[..1]);
+    let ungedreht = bake(&[ResolvedVariant {
+        y: 0,
+        ..teile[1].clone()
+    }]);
+    let (vorn, wuerfel) = gebacken.quads.split_at(pfosten.quads.len());
+    assert!(
+        vorn.iter()
+            .zip(&pfosten.quads)
+            .all(|(a, b)| a.corners == b.corners)
+    );
+    assert_eq!(wuerfel.len(), 6, "der Missing-Würfel fehlt im Modell");
+    for (quad, vorher) in wuerfel.iter().zip(&ungedreht.quads) {
+        assert_eq!(quad.texture, Textures::MISSING);
+        for (ist, p) in quad.corners.iter().zip(vorher.corners) {
+            let soll = [1.0 - p[2], p[1], p[0]];
+            assert!(
+                (0..3).all(|i| (ist[i] - soll[i]).abs() < 1e-5),
+                "Ecke {ist:?}, erwartet {soll:?}"
+            );
+        }
+    }
+    assert!(
+        assets
+            .skipped()
+            .contains_key("minecraft:teil_kaputt[north=true]"),
+        "{:?}",
+        assets.skipped()
+    );
+    let ohne = assets.variants(&state("teil_kaputt[north=false]")).unwrap();
+    assert_eq!(ohne.len(), 1, "ohne den kaputten Teil nur der Pfosten");
+}
+
+/// Ein fehlendes Modell in einer Variantenliste wird zum Missing-Würfel,
+/// wie im Client, und behält sein Gewicht: sonst würfelte `nextInt` an den
+/// meisten Positionen anders als das Spiel. Den Lauf bricht es nicht ab.
+#[test]
+fn kaputte_alternative_wird_missing_wuerfel() {
+    let mut assets = base();
+    let alternativen = assets.alternatives(&state("halb_kaputt")).unwrap();
+    let gewichte: Vec<u32> = alternativen.iter().map(|(w, _)| *w).collect();
+    assert_eq!(gewichte, [1, 3]);
+    assert_eq!(alternativen[0].1[0].model_id, "minecraft:block/einfarbig");
+    let missing = &alternativen[1].1[0];
+    assert_eq!(missing.model.elements.len(), 1);
+    assert!(
+        missing.model.elements[0]
+            .faces
+            .iter()
+            .all(|(_, face)| face.texture == Textures::MISSING)
+    );
+    assert!(
+        assets.skipped()["minecraft:halb_kaputt"].contains("gibt_es_nicht"),
+        "{:?}",
+        assets.skipped()
     );
 }
 
 #[test]
-fn parent_zyklus_ist_fehler() {
+fn parent_zyklus_wird_missing_wuerfel() {
     let mut assets = base();
-    let error = assets.variants(&state("zyklus")).unwrap_err();
-    assert!(
-        format!("{error:#}").contains("Zyklus"),
-        "unerwarteter Fehler: {error:#}"
-    );
+    let variants = assets.variants(&state("zyklus")).unwrap();
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:zyklus"];
+    assert!(grund.contains("Zyklus"), "{grund}");
 }
 
 #[test]
@@ -188,17 +272,801 @@ fn unbekannter_block_ist_fehler() {
     );
 }
 
+/// Passt keine Variante, füllt der Client die Blockstate mit dem
+/// Missing-Modell auf (`ModelManager`), der Renderer ebenso.
 #[test]
-fn blockstate_ohne_passende_variante_ist_fehler() {
+fn blockstate_ohne_passende_variante_wird_missing_wuerfel() {
     let mut assets = base();
     assert!(assets.variants(&state("nur_wenn[facing=north]")).is_ok());
-    let error = assets
-        .variants(&state("nur_wenn[facing=south]"))
-        .unwrap_err();
+    assert!(assets.skipped().is_empty());
+    let variants = assets.variants(&state("nur_wenn[facing=south]")).unwrap();
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:nur_wenn[facing=south]"];
+    assert!(grund.contains("keine Variante"), "{grund}");
+}
+
+/// Packs stapeln sich je Zustand, wie `loadBlockStateDefinitionStack` im
+/// Client: die oberste Datei, die einen Zustand kennt, gewinnt. Ein Pack,
+/// das nur Norden neu definiert, lässt Süden beim Pack darunter. Vorher
+/// galt die ganze oberste Datei, und Süden wurde zum Missing-Würfel.
+#[test]
+fn packs_stapeln_sich_je_zustand() {
+    let mut assets = layered();
+    let norden = assets.variants(&state("gestapelt[facing=north]")).unwrap();
+    assert_eq!(norden[0].model_id, "minecraft:block/blauwuerfel");
+    let sueden = assets.variants(&state("gestapelt[facing=south]")).unwrap();
+    assert_eq!(sueden[0].model_id, "minecraft:block/einfarbig");
+    assert_eq!(sueden[0].y, 180);
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+}
+
+/// Eine kaputte Blockstate-Datei verwirft der Client nur für ihr Pack, die
+/// darunter gilt weiter: ein Verweis ohne `model`, oder etwas hinter dem
+/// ersten Dokument. Blockstates liest 26.2 streng (`StrictJsonParser`),
+/// Modelle nicht. Vorher brach die erste den Lauf ab, und die zweite galt.
+#[test]
+fn kaputte_blockstate_datei_faellt_auf_das_pack_darunter() {
+    let mut assets = layered();
+    for block in ["pack_kaputt", "pack_anhang"] {
+        let variants = assets.variants(&state(block)).unwrap();
+        assert_eq!(variants[0].model_id, "minecraft:block/einfarbig", "{block}");
+    }
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+    let kaputt = assets.broken();
+    assert_eq!(kaputt.len(), 2, "{kaputt:?}");
     assert!(
-        format!("{error:#}").contains("keine Variante"),
-        "unerwarteter Fehler: {error:#}"
+        kaputt.values().any(|grund| grund.contains("ohne model")),
+        "{kaputt:?}"
     );
+}
+
+/// Ist die einzige Datei kaputt, zeichnet der Client den Missing-Würfel;
+/// der Lauf bricht nicht ab.
+#[test]
+fn einzige_kaputte_blockstate_datei_wird_missing_wuerfel() {
+    let mut assets = base();
+    let variants = assets.variants(&state("datei_kaputt")).unwrap();
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:datei_kaputt"];
+    assert!(grund.contains("kein gültiges JSON"), "{grund}");
+}
+
+/// Fehlt ein Parent, setzt der Client das Missing-Modell an seine Stelle:
+/// die eigenen Elemente des Kindes bleiben. Einen kaputten Parent liest er
+/// gar nicht erst, er fehlt also ebenso. Wie das "Missing block model" im
+/// Log des Clients nennt der Renderer den Parent; sonst sähe man einen
+/// Tippfehler nur an fehlenden Texturen.
+#[test]
+fn fehlender_parent_laesst_die_eigenen_elemente() {
+    let mut assets = base();
+    for (block, parent) in [
+        ("eigene_elemente", "minecraft:block/gibt_es_nicht"),
+        ("kaputter_parent", "minecraft:block/kaputt"),
+    ] {
+        let variants = assets.variants(&state(block)).unwrap();
+        assert_eq!(variants[0].model_id, format!("minecraft:block/{block}"));
+        let elemente = &variants[0].model.elements;
+        assert_eq!(elemente.len(), 1, "{block}");
+        assert_eq!(elemente[0].to, [16.0, 8.0, 16.0]);
+        let textur = elemente[0].faces[0].1.texture;
+        assert_eq!(assets.textures().name(textur), "minecraft:block/planks");
+        let grund = &assets.skipped()[&format!("minecraft:{block}")];
+        assert!(grund.contains(&format!("Parent {parent}")), "{grund}");
+    }
+}
+
+/// Hat das Kind keine eigenen Elemente, erbt es vom Missing-Modell den
+/// Würfel. Das gilt auch für `builtin/entity` aus älteren Packs: 26.2
+/// kennt nur `builtin/missing` und `builtin/generated`.
+#[test]
+fn fehlender_parent_ohne_elemente_wird_missing_wuerfel() {
+    let mut assets = base();
+    for block in ["ohne_parent", "altes_builtin"] {
+        let variants = assets.variants(&state(block)).unwrap();
+        let elemente = &variants[0].model.elements;
+        assert_eq!(elemente.len(), 1, "{block}");
+        assert_eq!((elemente[0].from, elemente[0].to), ([0.0; 3], [16.0; 3]));
+        assert_eq!(elemente[0].faces.len(), 6);
+        assert!(
+            elemente[0]
+                .faces
+                .iter()
+                .all(|(_, face)| face.texture == Textures::MISSING),
+            "{block}"
+        );
+        let grund = &assets.skipped()[&format!("minecraft:{block}")];
+        assert!(grund.contains("Parent"), "{grund}");
+    }
+}
+
+/// Ein leerer `parent` heisst keiner (`CuboidModel`); das Modell steht für
+/// sich und fehlt nichts.
+#[test]
+fn leerer_parent_heisst_keiner() {
+    let mut assets = base();
+    let variants = assets.variants(&state("leerer_parent")).unwrap();
+    assert_eq!(variants[0].model.elements.len(), 1);
+    assert_eq!(variants[0].model.elements[0].to, [16.0, 8.0, 16.0]);
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+}
+
+/// Ein `parent`, der kein `Identifier` ist, macht schon das Kind kaputt:
+/// `Identifier.parse` wirft beim Lesen. Der Verweis wird zum
+/// Missing-Würfel, die eigenen Elemente zählen nicht.
+#[test]
+fn ungueltiger_parent_macht_das_modell_kaputt() {
+    let mut assets = base();
+    let variants = assets.variants(&state("grosser_parent")).unwrap();
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:grosser_parent"];
+    assert!(grund.contains("kein gültiger Name"), "{grund}");
+}
+
+/// Der Client verfolgt eine parent-Kette beliebig weit, nur ein Zyklus
+/// bricht sie ab. Vanilla-Ketten haben höchstens vier Glieder, diese 21.
+#[test]
+fn lange_parent_kette() {
+    let dir = tempfile::tempdir().unwrap();
+    let wurzel = dir.path().join("minecraft");
+    let models = wurzel.join("models/block");
+    std::fs::create_dir_all(&models).unwrap();
+    std::fs::create_dir_all(wurzel.join("blockstates")).unwrap();
+    std::fs::write(
+        wurzel.join("blockstates/kette.json"),
+        r#"{"variants": {"": {"model": "block/k0"}}}"#,
+    )
+    .unwrap();
+    for i in 0..20 {
+        let json = format!(r#"{{"parent": "block/k{}"}}"#, i + 1);
+        std::fs::write(models.join(format!("k{i}.json")), json).unwrap();
+    }
+    std::fs::write(
+        models.join("k20.json"),
+        r##"{"elements": [{"from": [0, 0, 0], "to": [16, 8, 16], "faces": {"up": {"texture": "#a"}}}]}"##,
+    )
+    .unwrap();
+    let mut assets = Assets::open(vec![dir.path().to_path_buf()]).unwrap();
+    let variants = assets.variants(&state("kette")).unwrap();
+    assert_eq!(variants[0].model.elements[0].to, [16.0, 8.0, 16.0]);
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+}
+
+/// Ein Texturname mit Grossbuchstaben ist kein `Identifier`; wie im Client
+/// macht er schon das Modell kaputt (`Material.CODEC`).
+#[test]
+fn grossbuchstaben_im_texturnamen_machen_das_modell_kaputt() {
+    let mut assets = base();
+    let variants = assets.variants(&state("grosse_textur")).unwrap();
+    assert_eq!(variants[0].model_id, MISSING_MODEL);
+    let grund = &assets.skipped()["minecraft:grosse_textur"];
+    assert!(
+        grund.contains("block/Planks ist kein gültiger Name"),
+        "{grund}"
+    );
+}
+
+/// Der Client listet die Dateien eines Packs und übergeht jeden Namen, der
+/// kein `Identifier` ist. Oben liegen `Stone.json`, `Planks.png` und
+/// `Gross.json`, unten `stone.json` und `planks.png`: es gilt das untere
+/// Pack, und `Gross` gibt es nicht. Dass `stone` nicht `Stone.json` findet,
+/// kann nur eine Platte zeigen, die Grossbuchstaben nicht unterscheidet,
+/// also der Windows-Lauf.
+#[test]
+fn dateinamen_zaehlen_nur_in_ihrer_schreibweise() {
+    let unten = tempfile::tempdir().unwrap();
+    let oben = tempfile::tempdir().unwrap();
+    let schreibe = |wurzel: &std::path::Path, datei: &str, inhalt: &[u8]| {
+        let pfad = wurzel.join("minecraft").join(datei);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(pfad, inhalt).unwrap();
+    };
+    let png = |farbe: [u8; 4]| {
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_pixel(16, 16, image::Rgba(farbe))
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        bytes
+    };
+    let modell = br##"{"textures": {"all": "block/planks"}, "elements": [{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {"up": {"texture": "#all"}}}]}"##;
+    schreibe(
+        unten.path(),
+        "blockstates/stone.json",
+        br#"{"variants": {"": {"model": "block/unten"}}}"#,
+    );
+    schreibe(unten.path(), "models/block/unten.json", modell);
+    schreibe(
+        unten.path(),
+        "textures/block/planks.png",
+        &png([255, 0, 0, 255]),
+    );
+    schreibe(
+        oben.path(),
+        "blockstates/Stone.json",
+        br#"{"variants": {"": {"model": "block/oben"}}}"#,
+    );
+    schreibe(
+        oben.path(),
+        "blockstates/Gross.json",
+        br#"{"variants": {"": {"model": "block/unten"}}}"#,
+    );
+    schreibe(oben.path(), "models/block/oben.json", modell);
+    schreibe(
+        oben.path(),
+        "textures/block/Planks.png",
+        &png([0, 0, 255, 255]),
+    );
+
+    let mut assets = Assets::open(vec![unten.path().into(), oben.path().into()]).unwrap();
+    let variants = assets.variants(&state("stone")).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/unten");
+    let textur = variants[0].model.elements[0].faces[0].1.texture;
+    assert_eq!(
+        assets.textures().image(textur).get_pixel(0, 0).0,
+        [255, 0, 0, 255]
+    );
+    assert!(assets.variants(&state("Gross")).is_err());
+    assert_eq!(assets.block_names().unwrap(), ["minecraft:stone"]);
+}
+
+/// Ein Element `null`, eine Seite `null` oder eine ohne Texturnamen lassen
+/// sich lesen, aber auf einer Seite mit Fläche nicht backen: das Modell ist
+/// kaputt, und der Zustand zeigt den Missing-Würfel.
+#[test]
+fn null_und_leerer_name_machen_das_modell_kaputt() {
+    for elemente in [
+        "[null]",
+        r#"[{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {"up": null}}]"#,
+        r#"[{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {"up": {"texture": ""}}}]"#,
+    ] {
+        let pack = tempfile::tempdir().unwrap();
+        let schreibe = |datei: &str, inhalt: &str| {
+            let pfad = pack.path().join("minecraft").join(datei);
+            std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+            std::fs::write(pfad, inhalt).unwrap();
+        };
+        schreibe(
+            "blockstates/stone.json",
+            r#"{"variants": {"": {"model": "block/kaputt"}}}"#,
+        );
+        schreibe(
+            "models/block/kaputt.json",
+            &format!(r#"{{"textures": {{"a": "block/stone"}}, "elements": {elemente}}}"#),
+        );
+        let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+        let variants = assets.variants(&state("stone")).unwrap();
+        assert_eq!(variants[0].model_id, MISSING_MODEL, "{elemente}");
+        assert!(
+            assets.skipped().contains_key("minecraft:stone"),
+            "{elemente}"
+        );
+    }
+}
+
+/// Eine Seite ohne Fläche fällt wie in `UnbakedCuboidGeometry.bake` weg,
+/// bevor der Client sie anfasst. Hier eine flache Platte: ihre Nordseite
+/// ist `null`, ihre Westseite hat keinen Texturnamen. Auf einer Seite mit
+/// Fläche machte beides das Modell kaputt. So verlieren in Vanilla 22
+/// Zustände von `mangrove_propagule` und `pitcher_plant` Seiten.
+#[test]
+fn seite_ohne_flaeche_faellt_beim_backen_weg() {
+    let pack = tempfile::tempdir().unwrap();
+    let schreibe = |datei: &str, inhalt: &str| {
+        let pfad = pack.path().join("minecraft").join(datei);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(pfad, inhalt).unwrap();
+    };
+    schreibe(
+        "blockstates/stone.json",
+        r#"{"variants": {"": {"model": "block/platte"}}}"#,
+    );
+    schreibe(
+        "models/block/platte.json",
+        r##"{"textures": {"a": "block/stone"}, "elements": [{"from": [0, 0, 0], "to": [16, 0, 16], "faces": {"up": {"texture": "#a"}, "north": null, "west": {"texture": ""}}}]}"##,
+    );
+    let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+    let variants = assets.variants(&state("stone")).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/platte");
+    let seiten: Vec<Face> = variants[0].model.elements[0]
+        .faces
+        .iter()
+        .map(|(seite, _)| *seite)
+        .collect();
+    assert_eq!(seiten, [Face::Up]);
+}
+
+/// Wie der Client liest der Renderer eine Wurzel auch über einen Link, und
+/// jeden Namensraum darin. Darunter übergeht er, was Java für einen Link
+/// hält (`listPath`), statt den Lauf abzubrechen. Eine Junction ist für
+/// Java unter Windows ein Ordner, dem es folgt, einen Symlink übergeht
+/// es. So verlinkt man unter Windows ein Pack von einer anderen Platte;
+/// früher brach damit jeder Lauf ab.
+#[test]
+fn links_wie_im_client() {
+    let tmp = env!("CARGO_TARGET_TMPDIR");
+    let inhalt = tempfile::tempdir_in(tmp).unwrap();
+    let png = |pfad: &Path| {
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        image::RgbaImage::new(16, 16).save(pfad).unwrap();
+    };
+    png(&inhalt.path().join("ns/textures/block/stein.png"));
+    png(&inhalt.path().join("draussen/fern.png"));
+    common::link(
+        &inhalt.path().join("draussen"),
+        &inhalt.path().join("ns/textures/block/ordner"),
+    );
+    // Auch den Anfang einer Liste liest Java ohne Links, hier
+    // `textures/block` selbst.
+    std::fs::create_dir_all(inhalt.path().join("anfang/textures")).unwrap();
+    common::link(
+        &inhalt.path().join("draussen"),
+        &inhalt.path().join("anfang/textures/block"),
+    );
+    let wurzeln = tempfile::tempdir_in(tmp).unwrap();
+    let als_link = wurzeln.path().join("pack");
+    common::link(inhalt.path(), &als_link);
+    let mit_namensraum = wurzeln.path().join("zweites");
+    std::fs::create_dir(&mit_namensraum).unwrap();
+    common::link(&inhalt.path().join("ns"), &mit_namensraum.join("mc"));
+
+    let mut assets = Assets::open(vec![als_link]).unwrap();
+    assert_ne!(assets.texture("ns:block/stein"), Textures::MISSING);
+    let folgt = assets.texture("ns:block/ordner/fern") != Textures::MISSING;
+    assert_eq!(folgt, cfg!(windows), "Junction folgen, Symlink übergehen");
+    let folgt = assets.texture("anfang:block/fern") != Textures::MISSING;
+    assert_eq!(folgt, cfg!(windows), "am Anfang einer Liste ebenso");
+    let mut assets = Assets::open(vec![mit_namensraum]).unwrap();
+    assert_ne!(assets.texture("mc:block/stein"), Textures::MISSING);
+
+    // Einen Symlink übergeht Java überall, auf eine Datei wie auf einen
+    // Ordner; unter Windows unterscheidet ihn erst sein Tag von einer
+    // Junction. Windows legt ihn nur mit Entwicklermodus oder als Admin an,
+    // in der CI muss es gehen.
+    let draussen = std::path::absolute(inhalt.path().join("draussen")).unwrap();
+    let block = inhalt.path().join("ns/textures/block");
+    #[cfg(unix)]
+    let links = [
+        std::os::unix::fs::symlink(draussen.join("fern.png"), block.join("datei.png")),
+        std::os::unix::fs::symlink(&draussen, block.join("verzeichnis")),
+    ];
+    #[cfg(windows)]
+    let links = [
+        std::os::windows::fs::symlink_file(draussen.join("fern.png"), block.join("datei.png")),
+        std::os::windows::fs::symlink_dir(&draussen, block.join("verzeichnis")),
+    ];
+    let mut assets = Assets::open(vec![inhalt.path().into()]).unwrap();
+    for (angelegt, textur) in links
+        .into_iter()
+        .zip(["ns:block/datei", "ns:block/verzeichnis/fern"])
+    {
+        match angelegt {
+            Ok(()) => assert_eq!(assets.texture(textur), Textures::MISSING, "{textur}"),
+            Err(error) if std::env::var_os("CI").is_none() => {
+                eprintln!("kein Symlink für {textur} möglich: {error}")
+            }
+            Err(error) => panic!("in der CI muss ein Symlink gehen: {error}"),
+        }
+    }
+}
+
+/// Zeigt der Anfang einer Liste, hier `models` und die Ordner des
+/// Block-Atlas, auf ein Ziel, das es nicht mehr gibt, listet der Client
+/// dort nichts: `listPath` fängt `NoSuchFileException` ab. Der Rest des
+/// Packs gilt, Modell und Texturen fehlen. Früher brach unter Windows der
+/// ganze Lauf ab, an `textures/block` auch noch über die Liste `textures`.
+/// Dort ist es eine Junction, die Java für einen Ordner hält, sonst ein
+/// Symlink, den schon die Liste übergeht.
+#[test]
+fn kaputter_link_am_anfang_listet_nichts() {
+    let tmp = env!("CARGO_TARGET_TMPDIR");
+    let pack = tempfile::tempdir_in(tmp).unwrap();
+    let minecraft = pack.path().join("minecraft");
+    std::fs::create_dir_all(minecraft.join("blockstates")).unwrap();
+    std::fs::write(
+        minecraft.join("blockstates/stone.json"),
+        r#"{"variants": {"": {"model": "block/stone"}}}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(minecraft.join("textures/entity")).unwrap();
+    let ziel = tempfile::tempdir_in(tmp).unwrap();
+    for anfang in ["models", "textures/block", "textures/entity/conduit"] {
+        common::link(ziel.path(), &minecraft.join(anfang));
+    }
+    let weg = ziel.path().to_path_buf();
+    drop(ziel);
+    assert!(!weg.exists());
+
+    let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+    assert_eq!(assets.block_names().unwrap(), ["minecraft:stone"]);
+    assert_eq!(
+        assets.variants(&state("stone")).unwrap()[0].model_id,
+        MISSING_MODEL
+    );
+    for textur in ["block/stone", "entity/conduit/base"] {
+        assert_eq!(assets.texture(textur), Textures::MISSING, "{textur}");
+    }
+    assert!(assets.unreadable().is_empty(), "{:?}", assets.unreadable());
+}
+
+/// Lässt sich der Anfang einer Liste aus einem anderen Grund nicht lesen,
+/// listet der Client dort ebenso nichts, schreibt den Fehler aber ins Log
+/// (`listPath`). Der Renderer nennt ihn, für Assets wie für Biome, und
+/// findet er gar kein Biom, auch in dieser Meldung. `textures/font` listet
+/// der Client nie auf, der Renderer ebenso wenig; dort fällt nichts auf.
+/// Unter Windows ist ein solcher Ordner eine Junction auf sich selbst,
+/// sonst einer ohne Rechte; den liest root trotzdem, in der CI muss es
+/// gehen.
+#[test]
+fn unlesbarer_anfang_wird_genannt() {
+    let tmp = env!("CARGO_TARGET_TMPDIR");
+    let pack = tempfile::tempdir_in(tmp).unwrap();
+    let blockstates = pack.path().join("minecraft/blockstates");
+    std::fs::create_dir_all(&blockstates).unwrap();
+    std::fs::write(
+        blockstates.join("stone.json"),
+        r#"{"variants": {"": {"model": "block/stone"}}}"#,
+    )
+    .unwrap();
+    let daten = tempfile::tempdir_in(tmp).unwrap();
+    let biome = daten.path().join("minecraft/worldgen/biome");
+    std::fs::create_dir_all(&biome).unwrap();
+    std::fs::write(
+        biome.join("ebene.json"),
+        r#"{"has_precipitation": true, "temperature": 0.8, "downfall": 0.4, "effects": {"water_color": 4159204}}"#,
+    )
+    .unwrap();
+    let ohne_biom = tempfile::tempdir_in(tmp).unwrap();
+    // So gebaut wie in `Pack`, damit die Pfade gleich geschrieben sind.
+    let models = pack.path().join("minecraft").join("models");
+    let block = pack.path().join("minecraft").join("textures").join("block");
+    let font = pack.path().join("minecraft").join("textures").join("font");
+    let anders = daten.path().join("anders").join("worldgen").join("biome");
+    let nur_unlesbar = ohne_biom
+        .path()
+        .join("minecraft")
+        .join("worldgen")
+        .join("biome");
+    let unlesbar = [&models, &block, &font, &anders, &nur_unlesbar];
+    let gesperrt = unlesbar.map(|pfad| sperre(pfad)) == [true; 5];
+
+    if gesperrt {
+        let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+        assert_eq!(
+            assets.variants(&state("stone")).unwrap()[0].model_id,
+            MISSING_MODEL
+        );
+        assert_eq!(assets.texture("block/stone"), Textures::MISSING);
+        assert_eq!(assets.load_biomes(daten.path()).unwrap(), 1);
+        let meldung = format!("{:#}", assets.load_biomes(ohne_biom.path()).unwrap_err());
+        let mut soll = [&models, &block, &anders].map(|pfad| pfad.display().to_string());
+        soll.sort();
+        assert_eq!(assets.unreadable().into_keys().collect::<Vec<_>>(), soll);
+        assert!(
+            meldung.contains(&format!("{} nicht lesbar: ", nur_unlesbar.display())),
+            "{meldung}"
+        );
+    }
+    for pfad in unlesbar {
+        entsperre(pfad);
+    }
+    if !gesperrt {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "in der CI muss ein Ordner unlesbar sein"
+        );
+        eprintln!("kein unlesbarer Ordner möglich");
+    }
+}
+
+/// Steht im Pfad vor dem Anfang einer Liste eine Datei, hier `textures`
+/// vor den Ordnern des Block-Atlas, meldet Linux das schon beim Lesen der
+/// Angaben (`ENOTDIR`). Das wirft in Java keine `NotDirectoryException`,
+/// und `listPath` schreibt es ins Log. Windows meldet einen fehlenden Pfad,
+/// den Java still übergeht.
+#[test]
+fn datei_vor_dem_anfang() {
+    let pack = tempfile::tempdir().unwrap();
+    let minecraft = pack.path().join("minecraft");
+    std::fs::create_dir(&minecraft).unwrap();
+    std::fs::write(minecraft.join("textures"), b"").unwrap();
+    let assets = Assets::open(vec![pack.path().into()]).unwrap();
+    let genannt: Vec<_> = assets.unreadable().into_keys().collect();
+    if cfg!(windows) {
+        assert!(genannt.is_empty(), "{genannt:?}");
+    } else {
+        let textures = minecraft.join("textures");
+        let soll = [
+            textures.join("block"),
+            textures.join("entity").join("conduit"),
+        ];
+        assert_eq!(genannt, soll.map(|pfad| pfad.display().to_string()));
+    }
+}
+
+/// Aus den Ordnern des Block-Atlas nimmt der Client nur, was er dort
+/// auflistet: `entity/conduit/Base.png` ist unter Windows nicht
+/// `entity/conduit/base`. Seine beiden einzelnen Quellen, hier
+/// `entity/bell/bell_body`, öffnet er direkt, samt einer `.mcmeta` aus
+/// derselben oder einer höheren Schicht (`createStackMetadataFinder`). So
+/// öffnet der Renderer jede Textur ausserhalb der Ordner, auch `item/apfel`,
+/// die der Client ohne einen erweiterten Atlas nicht zeigte.
+#[test]
+fn texturen_ausserhalb_der_atlas_ordner_direkt() {
+    let unten = tempfile::tempdir().unwrap();
+    let oben = tempfile::tempdir().unwrap();
+    let png = |wurzel: &Path, name: &str, hoehe: u32| {
+        let pfad = wurzel
+            .join("minecraft/textures")
+            .join(format!("{name}.png"));
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        image::RgbaImage::new(16, hoehe).save(pfad).unwrap();
+    };
+    png(unten.path(), "entity/bell/bell_body", 32);
+    png(unten.path(), "item/apfel", 16);
+    png(unten.path(), "entity/conduit/wind", 16);
+    png(unten.path(), "entity/conduit/Base", 16);
+    let meta = oben
+        .path()
+        .join("minecraft/textures/entity/bell/bell_body.png.mcmeta");
+    std::fs::create_dir_all(meta.parent().unwrap()).unwrap();
+    std::fs::write(&meta, r#"{"animation": {}}"#).unwrap();
+
+    let mut assets = Assets::open(vec![unten.path().into(), oben.path().into()]).unwrap();
+    let glocke = assets.texture("entity/bell/bell_body");
+    assert_ne!(glocke, Textures::MISSING);
+    assert_eq!(assets.textures().image(glocke).dimensions(), (16, 16));
+    assert_ne!(assets.texture("item/apfel"), Textures::MISSING);
+    assert_ne!(assets.texture("entity/conduit/wind"), Textures::MISSING);
+    assert_eq!(assets.texture("entity/conduit/base"), Textures::MISSING);
+}
+
+/// Macht `pfad` zu einem Ordner, der sich nicht auflisten lässt: unter
+/// Windows zu einer Junction auf sich selbst, sonst zu einem Ordner ohne
+/// Rechte. Sagt, ob das Auflisten dann scheitert.
+fn sperre(pfad: &Path) -> bool {
+    std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+    #[cfg(windows)]
+    common::link(pfad, pfad);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir(pfad).unwrap();
+        std::fs::set_permissions(pfad, std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    std::fs::read_dir(pfad).is_err()
+}
+
+/// Gibt einen Ordner aus `sperre` frei, damit das Aufräumen ihn löschen
+/// kann.
+fn entsperre(pfad: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(pfad, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    #[cfg(windows)]
+    let _ = pfad;
+}
+
+/// Die Anfänge seiner Listen, `models` und `textures/block`, nennt der
+/// Client selbst; unter Windows findet er sie in jeder Schreibweise. Die
+/// Namen darunter nimmt er von der Platte, eine `.mcmeta` gehört also nur
+/// in genau dieser Schreibweise zur PNG. Früher verlangte der Renderer
+/// auch die Anfänge so, und unter Windows nahm er `.MCMETA`.
+#[test]
+fn anfaenge_in_jeder_schreibweise() {
+    let pack = tempfile::tempdir().unwrap();
+    let schreibe = |datei: &str, inhalt: &[u8]| {
+        let pfad = pack.path().join("minecraft").join(datei);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(pfad, inhalt).unwrap();
+    };
+    schreibe(
+        "blockstates/stone.json",
+        br#"{"variants": {"": {"model": "block/gross"}}}"#,
+    );
+    schreibe(
+        "Models/block/gross.json",
+        br##"{"textures": {"all": "block/streifen"}, "elements": [{"from": [0, 0, 0], "to": [16, 16, 16], "faces": {"up": {"texture": "#all"}}}]}"##,
+    );
+    let block = pack.path().join("minecraft/Textures/Block");
+    std::fs::create_dir_all(&block).unwrap();
+    image::RgbaImage::new(16, 32)
+        .save(block.join("streifen.png"))
+        .unwrap();
+    std::fs::write(block.join("streifen.png.MCMETA"), r#"{"animation": {}}"#).unwrap();
+
+    let gleich = pack.path().join("minecraft/models").is_dir();
+    let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+    let variants = assets.variants(&state("stone")).unwrap();
+    assert_eq!(variants[0].model_id != MISSING_MODEL, gleich);
+    if gleich {
+        let textur = variants[0].model.elements[0].faces[0].1.texture;
+        assert_eq!(assets.textures().image(textur).dimensions(), (16, 32));
+    }
+}
+
+/// Ohne Namensraum gilt `minecraft`, auch für Texturen: das Wasser, das der
+/// Renderer an einen Block hängt, ist dieselbe Textur wie die aus einem
+/// Modell. Früher lag sie für einen gefüllten Kessel zweimal in der
+/// Tabelle.
+#[test]
+fn textur_ohne_namensraum_ist_dieselbe() {
+    let mut assets = base();
+    let ohne = assets.texture("block/stone");
+    assert_eq!(assets.texture("minecraft:block/stone"), ohne);
+    assert_ne!(ohne, Textures::MISSING);
+    assert_eq!(assets.textures().name(ohne), "minecraft:block/stone");
+}
+
+/// `heavy_core` schreibt `"texture": "all"` ohne `#`. Auch das ist im Client
+/// der Name eines Slots, kein Pfad.
+#[test]
+fn flaechentextur_ohne_raute_ist_ein_slot() {
+    let mut assets = base();
+    let variants = assets.variants(&state("schwerer_kern")).unwrap();
+    for (seite, face) in &variants[0].model.elements[0].faces {
+        assert_eq!(
+            assets.textures().name(face.texture),
+            "minecraft:block/planks",
+            "{seite:?}"
+        );
+    }
+    assert!(
+        assets.textures().missing().is_empty(),
+        "{:?}",
+        assets.textures().missing()
+    );
+}
+
+/// `builtin/missing` kennt der Client als Modell. Als Parent ergibt es den
+/// Missing-Würfel, und es fehlt nichts.
+#[test]
+fn builtin_missing_ist_ein_bekannter_parent() {
+    let mut assets = base();
+    let variants = assets.variants(&state("missing_parent")).unwrap();
+    let elemente = &variants[0].model.elements;
+    assert_eq!(elemente.len(), 1);
+    assert!(elemente[0].faces.iter().all(|(seite, face)| {
+        face.texture == Textures::MISSING && face.cullface == Some(*seite)
+    }));
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+    assert!(
+        assets.textures().missing().is_empty(),
+        "{:?}",
+        assets.textures().missing()
+    );
+}
+
+/// Ein Byte-Order-Mark vorn überspringt der Client auch in `.mcmeta` und in
+/// Biomen. Ohne das wäre die Textur kaputt, eine Missing-Textur, die auch
+/// 16x16 misst, und das Biom fiele aus.
+#[test]
+fn byte_order_mark_auch_in_mcmeta_und_biomen() {
+    let pack = tempfile::tempdir().unwrap();
+    let block = pack.path().join("minecraft/textures/block");
+    std::fs::create_dir_all(&block).unwrap();
+    image::RgbaImage::new(16, 32)
+        .save(block.join("streifen.png"))
+        .unwrap();
+    std::fs::write(
+        block.join("streifen.png.mcmeta"),
+        b"\xef\xbb\xbf{\"animation\": {}}",
+    )
+    .unwrap();
+    let mut assets = Assets::open(vec![pack.path().into()]).unwrap();
+    let textur = assets.texture("minecraft:block/streifen");
+    assert_ne!(
+        textur,
+        Textures::MISSING,
+        "{:?}",
+        assets.textures().broken()
+    );
+    assert_eq!(assets.textures().image(textur).dimensions(), (16, 16));
+
+    let daten = tempfile::tempdir().unwrap();
+    let biome = daten.path().join("minecraft/worldgen/biome");
+    std::fs::create_dir_all(&biome).unwrap();
+    std::fs::write(
+        biome.join("ebene.json"),
+        "\u{feff}{\"has_precipitation\": true, \"temperature\": 0.8, \"downfall\": 0.4, \"effects\": {\"water_color\": 4159204}}",
+    )
+    .unwrap();
+    assert_eq!(assets.load_biomes(daten.path()).unwrap(), 1);
+    assert!(assets.colors().broken_biomes().is_empty());
+    assert_eq!(
+        assets.colors().biomes().collect::<Vec<_>>(),
+        ["minecraft:ebene"]
+    );
+}
+
+/// Ein Biom, das der Codec ablehnt, übergeht der Renderer und nennt es,
+/// statt den Lauf abzubrechen; der Client lüde sein Datenpaket nicht. Eine
+/// Farbe als Liste von Kommazahlen nimmt 26.2 an. Früher brach eine solche
+/// Farbe jeden Lauf ab.
+#[test]
+fn kaputtes_biom_wird_uebergangen() {
+    let daten = tempfile::tempdir().unwrap();
+    let biome = daten.path().join("minecraft/worldgen/biome");
+    std::fs::create_dir_all(&biome).unwrap();
+    let biom = |wasser: &str| {
+        format!(
+            r#"{{"has_precipitation": true, "temperature": 0.8, "downfall": 0.4, "effects": {{"water_color": {wasser}}}}}"#
+        )
+    };
+    std::fs::write(biome.join("liste.json"), biom("[0.2, 0.4, 0.8]")).unwrap();
+    std::fs::write(biome.join("kaputt.json"), biom(r#""blau""#)).unwrap();
+    let mut assets = base();
+    assert_eq!(assets.load_biomes(daten.path()).unwrap(), 1);
+    assert_eq!(
+        assets
+            .colors()
+            .tints("water", Some("minecraft:liste"))
+            .water,
+        Some([51, 102, 204])
+    );
+    let kaputt = assets.colors().broken_biomes();
+    assert_eq!(kaputt.len(), 1, "{kaputt:?}");
+    let (pfad, grund) = kaputt.iter().next().unwrap();
+    assert!(pfad.ends_with("kaputt.json"), "{pfad}");
+    assert!(grund.contains("water_color"), "{grund}");
+}
+
+/// Ein Byte-Order-Mark vorn überspringt Gson, in Blockstates wie in
+/// Modellen. serde_json allein hielte beide Dateien für kaputt.
+#[test]
+fn byte_order_mark_wird_uebersprungen() {
+    let mut assets = base();
+    let variants = assets.variants(&state("mit_bom")).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/mit_bom");
+    assert_eq!(variants[0].model.elements.len(), 1);
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+    assert!(assets.broken().is_empty(), "{:?}", assets.broken());
+}
+
+/// `..`, `.` und ein leerer Teil in einem Modellnamen finden im Client keine
+/// Datei (`FileUtil.decomposePath`), im Renderer auch nicht, obwohl
+/// `block/einfarbig` daneben liegt.
+#[test]
+fn punkte_im_pfad_finden_nichts() {
+    let mut assets = base();
+    for block in ["ausbruch", "punkt", "leerer_teil"] {
+        let variants = assets.variants(&state(block)).unwrap();
+        assert_eq!(variants[0].model_id, MISSING_MODEL, "{block}");
+        let grund = &assets.skipped()[&format!("minecraft:{block}")];
+        assert!(grund.contains("nicht gefunden"), "{grund}");
+    }
+}
+
+/// Eine Multipart-Bedingung mit unbekanntem Wert wirft im Client von 26.2
+/// beim Instanziieren, hier eine Mauer mit `"north": "true"`. Die kann aus
+/// einem Pack vor 1.16 stammen oder aus einer Version, die den Wert kennt.
+/// Der Renderer weiss nicht, woher; er vergleicht den Text und nennt die
+/// Datei. Die Mauer aus 26.2 trifft dann keinen Fall, die mit dem neuen
+/// Wert schon, und die heile Datei darunter gilt für keine der beiden.
+#[test]
+fn unbekannte_bedingung_gilt_als_text() {
+    let mauer = state(
+        "cobblestone_wall[east=none,north=low,south=none,up=true,waterlogged=false,west=none]",
+    );
+    let mut nur_basis = base();
+    let variants = nur_basis.variants(&mauer).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/einfarbig");
+    assert!(nur_basis.unchecked().is_empty());
+
+    let mut assets = layered();
+    assert!(assets.variants(&mauer).unwrap().is_empty());
+    let neu = state("cobblestone_wall[north=true]");
+    let variants = assets.variants(&neu).unwrap();
+    assert_eq!(variants[0].model_id, "minecraft:block/blauwuerfel");
+    assert!(assets.skipped().is_empty(), "{:?}", assets.skipped());
+    assert!(assets.broken().is_empty(), "{:?}", assets.broken());
+    let unchecked: Vec<_> = assets.unchecked().iter().collect();
+    assert_eq!(unchecked.len(), 1, "{unchecked:?}");
+    assert!(unchecked[0].0.contains("assets-overlay"), "{unchecked:?}");
+    assert_eq!(unchecked[0].1, "Wert true für north");
 }
 
 /// Fehlende Texturdateien und unauflösbare `#ref` dürfen den Lauf nicht
@@ -341,7 +1209,11 @@ fn leeres_multipart_ist_kein_fehler() {
             .len(),
         1
     );
-    assert!(assets.variants(&state("nur_wenn[facing=south]")).is_err());
+    assert_eq!(
+        assets.variants(&state("nur_wenn[facing=south]")).unwrap()[0].model_id,
+        MISSING_MODEL,
+        "keine passende Variante"
+    );
 }
 
 /// Minecraft sucht Texturmetadaten in derselben oder einer höher

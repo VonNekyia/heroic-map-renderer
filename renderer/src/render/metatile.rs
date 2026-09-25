@@ -1,9 +1,10 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use image::{Rgba, RgbaImage};
 
 use crate::assets::Face;
+use crate::assets::fluid;
 use crate::world::{Chunk, REGION, Region, World};
 
 use super::rasterizer::over;
@@ -73,6 +74,28 @@ pub fn render_area(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
+    draw(world, sprites, rect, y_range, true)
+}
+
+/// Wie [`render_area`], aber ohne die Abkürzung über verdeckte Würfel: die
+/// Referenz, gegen die Tests die Abkürzung prüfen. Sie darf kein Pixel
+/// ändern.
+pub fn render_area_without_culling(
+    world: &World,
+    sprites: &SpriteSet,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+) -> Result<RgbaImage> {
+    draw(world, sprites, rect, y_range, false)
+}
+
+fn draw(
+    world: &World,
+    sprites: &SpriteSet,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+    verdecken: bool,
+) -> Result<RgbaImage> {
     let projection = sprites.projection();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
     let mut chunks = ChunkCache::new(world);
@@ -85,22 +108,32 @@ pub fn render_area(
 
             // Erst suchen, dann auf Verdeckung prüfen: der Test kostet drei
             // Nachschläge und lohnt nur, wenn hier überhaupt etwas liegt.
-            if own.is_none() && !(ueberhaenge && anything_foreign(&mut chunks, sprites, x, y, z)?) {
+            if own.is_empty() && !(ueberhaenge && anything_foreign(&mut chunks, sprites, x, y, z)?)
+            {
                 continue;
             }
-            if is_hidden(&mut chunks, sprites, own, x, y, z)? {
+            if verdecken && is_hidden(&mut chunks, sprites, own.sprite, x, y, z)? {
                 continue;
             }
 
-            if let Some(id) = own
+            if let Some(id) = own.sprite
                 && let Some(part) = sprites.part(id, OWN_CELL)
             {
                 blit(&mut canvas, part, rect, projection, [x, y, z]);
             }
+            // Die Streifen nach dem Block: sie liegen auf seiner Grenze,
+            // also vor allem, was er selbst enthält.
+            for id in own.strips.into_iter().flatten() {
+                if let Some(part) = sprites.part(id, OWN_CELL) {
+                    blit(&mut canvas, part, rect, projection, [x, y, z]);
+                }
+            }
             if ueberhaenge {
                 for &cell in sprites.foreign_cells() {
                     let anchor = anchor_of([x, y, z], cell);
-                    let Some(id) = chunks.sprite_at(sprites, anchor[0], anchor[1], anchor[2])?
+                    let Some(id) = chunks
+                        .sprite_at(sprites, anchor[0], anchor[1], anchor[2])?
+                        .sprite
                     else {
                         continue;
                     };
@@ -136,7 +169,9 @@ fn anything_foreign(
 ) -> Result<bool> {
     for &cell in sprites.foreign_cells() {
         let anchor = anchor_of([x, y, z], cell);
-        if let Some(id) = chunks.sprite_at(sprites, anchor[0], anchor[1], anchor[2])?
+        if let Some(id) = chunks
+            .sprite_at(sprites, anchor[0], anchor[1], anchor[2])?
+            .sprite
             && sprites.part(id, cell).is_some()
         {
             return Ok(true);
@@ -145,23 +180,18 @@ fn anything_foreign(
     Ok(false)
 }
 
-/// Alle Chunks, deren Blöcke in das Rechteck fallen können.
-///
-/// Der Bereich ist ein schmales diagonales Band, kein Rechteck in x und z.
-/// Wer stattdessen die Hüllbox nimmt, lädt für einen 1024er Ausschnitt rund
-/// das Sechzehnfache an Chunks.
-pub fn chunks_for(
-    projection: Projection,
-    rect: ScreenRect,
-    y_range: (i32, i32),
-) -> BTreeSet<(i32, i32)> {
-    let mut out = BTreeSet::new();
-    for y in y_range.0..=y_range.1 {
-        for (x, z) in columns_at(projection, rect, y) {
-            out.insert((x >> 4, z >> 4));
-        }
+/// Was an einem Würfel zu zeichnen ist: das Sprite des Blocks, dazu die
+/// Streifen seiner Flüssigkeit über niedrigeren Nachbarn.
+#[derive(Default, Clone, Copy)]
+struct Drawn {
+    sprite: Option<SpriteId>,
+    strips: [Option<SpriteId>; 2],
+}
+
+impl Drawn {
+    fn is_empty(&self) -> bool {
+        self.sprite.is_none() && self.strips.iter().all(Option::is_none)
     }
-    out
 }
 
 /// Alle Blockspalten, deren Sprite auf dieser Höhe in das Rechteck fallen
@@ -206,8 +236,11 @@ fn columns_at(
 }
 
 /// Ein Würfel ist unsichtbar, wenn seine drei kamerazugewandten Nachbarn
-/// volle, deckende Blöcke sind: deren Umrisse setzen genau den eigenen
-/// zusammen.
+/// ihn ganz decken: deren Umrisse setzen genau den eigenen zusammen. Der
+/// Ost- und der Südnachbar müssen dafür ihren ganzen Umriss deckend
+/// füllen, dem Nachbarn darüber genügt sein Boden — Lava endet bei 8/9 und
+/// deckt trotzdem den Block darunter. Geprüft ist beides Pixel für Pixel
+/// gegen einen vollen Würfel, siehe `SpriteSet`.
 ///
 /// Das gilt für alles, was in diesem Würfel liegt — auch für Teile fremder
 /// Modelle, denn die Zerlegung in `SpriteSet` hält jeden Teil in seinem
@@ -225,8 +258,15 @@ fn is_hidden(
         return Ok(false);
     }
     for (dx, dy, dz) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)] {
+        let deckt = |family: &Family| {
+            if dy == 1 {
+                family.covers_floor
+            } else {
+                family.opaque
+            }
+        };
         match chunks.family_at(sprites, x + dx, y + dy, z + dz)? {
-            Some(family) if family.opaque => {}
+            Some(family) if deckt(family) => {}
             _ => return Ok(false),
         }
     }
@@ -258,10 +298,10 @@ fn blit(
     }
 }
 
-/// Chunks, die während eines Renderlaufs gebraucht werden.
+/// Chunks, die eine Kachel braucht.
 ///
-/// Jeder Worker bekommt später seinen eigenen Cache; geteilt würde er eine
-/// Sperre im Renderpfad bedeuten.
+/// Jede Kachel hält ihren eigenen Cache; geteilt bedeutete er eine Sperre
+/// im Renderpfad.
 struct ChunkCache<'a> {
     world: &'a World,
     /// Offene Regionsdateien. `World::chunk` würde die Datei für jeden
@@ -317,58 +357,87 @@ impl<'a> ChunkCache<'a> {
         Ok(())
     }
 
-    /// Sprite an einer Weltkoordinate, oder `None` für Luft, fehlende
-    /// Chunks und Blöcke ohne sichtbare Geometrie.
+    /// Was an einer Weltkoordinate zu zeichnen ist — nichts für Luft,
+    /// fehlende Chunks und Blöcke ohne sichtbare Geometrie.
     ///
     /// Drei Entscheidungen fallen hier: welche Alternative die Position
     /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken und
     /// welche Biomfassung gilt. Alles davon ist vorab gerastert.
-    fn sprite_at(
-        &mut self,
-        sprites: &SpriteSet,
-        x: i32,
-        y: i32,
-        z: i32,
-    ) -> Result<Option<SpriteId>> {
+    fn sprite_at(&mut self, sprites: &SpriteSet, x: i32, y: i32, z: i32) -> Result<Drawn> {
         let Some(family) = self.family_at(sprites, x, y, z)? else {
-            return Ok(None);
+            return Ok(Drawn::default());
         };
-        let Some(mut id) = family.pick([x, y, z]) else {
-            return Ok(None);
+        let Some(id) = family.pick([x, y, z]) else {
+            return Ok(Drawn::default());
         };
+        let mut sprite = Some(id);
+        let mut strips = [None; 2];
 
-        // Flächen zu einem Nachbarn mit derselben Flüssigkeit entfallen.
-        // Sonst mischt sich jede innere Fläche eines Beckens mit dazu, und
-        // ein Ozean wäre ein Raster aus doppelt gedecktem Wasser. Seitlich
-        // nur, wenn der Nachbar mindestens so hoch steht; darüber verdeckt
-        // jede Flüssigkeit die eigene Oberfläche.
-        if let Some((fluid, height)) = family.fluid {
-            let mut mask = 0u8;
-            for (bit, [dx, dy, dz]) in [[1, 0, 0], [0, 1, 0], [0, 0, 1]].into_iter().enumerate() {
-                if let Some(other) = self.family_at(sprites, x + dx, y + dy, z + dz)?
-                    && let Some((other_fluid, other_height)) = other.fluid
-                    && other_fluid == fluid
-                    && (dy == 1 || other_height >= height)
-                {
-                    mask |= 1 << bit;
+        if let Some((fluid, amount)) = family.fluid {
+            let same = |other: Option<&Family>| {
+                other.is_some_and(|other| other.fluid.is_some_and(|(kind, _)| kind == fluid))
+            };
+            // Steht dieselbe Flüssigkeit darüber, reicht die eigene bis zur
+            // Kante, und die Oberseite entfällt.
+            let above = same(self.family_at(sprites, x, y + 1, z)?);
+            let own = if above { fluid::FULL } else { amount };
+            let mut mask = if above { mask_bit(Face::Up) } else { 0 };
+
+            // Zur selben Flüssigkeit nebenan nie eine Seitenfläche, wie
+            // `shouldRenderFace` im Spiel. Sonst mischt sich jede innere
+            // Fläche eines Beckens mit dazu, und ein Ozean wäre ein Raster
+            // aus doppelt gedecktem Wasser. Steht der Nachbar tiefer,
+            // bleibt über ihm ein Streifen der eigenen Seite frei: am Fuss
+            // eines Wasserfalls, an jeder Stufe fliessenden Wassers.
+            for (slot, (face, [dx, dz])) in [(Face::East, [1, 0]), (Face::South, [0, 1])]
+                .into_iter()
+                .enumerate()
+            {
+                let Some(other) = self.family_at(sprites, x + dx, y, z + dz)? else {
+                    continue;
+                };
+                let Some((kind, other_amount)) = other.fluid else {
+                    continue;
+                };
+                if kind != fluid {
+                    continue;
+                }
+                mask |= mask_bit(face);
+                if other_amount < own {
+                    let below = if same(self.family_at(sprites, x + dx, y + 1, z + dz)?) {
+                        fluid::FULL
+                    } else {
+                        other_amount
+                    };
+                    if below < own {
+                        strips[slot] = sprites.strip(fluid, own, below, face);
+                    }
                 }
             }
-            // Die Oberfläche trägt die Deckkraft aller Schichten darunter:
+
+            // Die Oberfläche trägt die Deckkraft des Wassers dahinter:
             // durch einen Block Wasser sieht man den Grund, durch vier nicht
-            // mehr. Gezählt wird nur, wenn es eine Oberfläche gibt.
+            // mehr. Gezählt wird entlang des Blickstrahls, nicht senkrecht:
+            // hinter der Oberseite von (x, y, z) liegt auf denselben Pixeln
+            // die von (x-1, y-1, z-1). Was den Strahl aufhält, beendet die
+            // Zählung — der Grund, das Ufer, ein Stein. Ob ein Block das
+            // tut, hängt an der Höhe dieser Oberfläche, siehe
+            // `Family::covers`: unter einer Quelle lassen Seegras und ein
+            // Zaunpfosten den Strahl durch, vor flachem fliessendem Wasser
+            // hält Seegras ihn auf.
             let mut depth = 0;
-            while mask & mask_bit(Face::Up) == 0
-                && depth + 1 < DEPTHS
-                && self
-                    .family_at(sprites, x, y - 1 - depth as i32, z)?
-                    .and_then(|below| below.fluid)
-                    .is_some_and(|(other, _)| other == fluid)
-            {
+            while !above && depth + 1 < DEPTHS {
+                let d = 1 + depth as i32;
+                let behind = self.family_at(sprites, x - d, y - d, z - d)?;
+                if !same(behind) || behind.is_some_and(|b| b.covers(own)) {
+                    break;
+                }
                 depth += 1;
             }
             match sprites.masked(id, mask, depth) {
-                Some(masked) => id = masked,
-                None => return Ok(None),
+                Some(masked) => sprite = Some(masked),
+                None if strips.iter().all(Option::is_none) => return Ok(Drawn::default()),
+                None => sprite = None,
             }
         }
 
@@ -378,7 +447,11 @@ impl<'a> ChunkCache<'a> {
             .as_ref()
             .expect("eben geladen")
             .chunk;
-        Ok(Some(sprites.in_biome(id, || chunk.biome_at(x, y, z))))
+        let tint = |id: SpriteId| sprites.in_biome(id, || chunk.biome_at(x, y, z));
+        Ok(Drawn {
+            sprite: sprite.map(tint),
+            strips: strips.map(|strip| strip.map(tint)),
+        })
     }
 
     /// Die Familie des Blocks an einer Weltkoordinate — ein Nachschlag im
@@ -391,22 +464,32 @@ impl<'a> ChunkCache<'a> {
         z: i32,
     ) -> Result<Option<&'s Family>> {
         let key = (x >> 4, z >> 4);
-        if !self.chunks.contains_key(&key) {
-            self.load(sprites, key)?;
+        // Ein Hash je Nachschlag, nicht zwei: im Renderpfad fragt jeder
+        // Wasserblock bis zu acht Nachbarn, und der Schlüssel ist fast immer
+        // schon da.
+        if let Some(loaded) = self.chunks.get(&key) {
+            return Ok(Self::lookup(loaded.as_ref(), sprites, x, y, z));
         }
-        let Some(loaded) = self.chunks[&key].as_ref() else {
-            return Ok(None);
-        };
-        let Some((section, slot)) = loaded.chunk.slot(x, y, z) else {
-            return Ok(None);
-        };
-        Ok(loaded
+        self.load(sprites, key)?;
+        Ok(Self::lookup(self.chunks[&key].as_ref(), sprites, x, y, z))
+    }
+
+    fn lookup<'s>(
+        loaded: Option<&Loaded>,
+        sprites: &'s SpriteSet,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> Option<&'s Family> {
+        let loaded = loaded?;
+        let (section, slot) = loaded.chunk.slot(x, y, z)?;
+        loaded
             .families
             .get(section)
             .and_then(|families| families.get(slot))
             .copied()
             .flatten()
-            .map(|index| sprites.family(index)))
+            .map(|index| sprites.family(index))
     }
 }
 

@@ -204,6 +204,11 @@ pub struct MapInfo {
     /// Belegter Bereich auf der feinsten Stufe, in Pixeln:
     /// `[links, oben, rechts, unten]`.
     pub bounds: [i32; 4],
+    /// Wie viele Stufen über der Basis aus der Welt gerendert sind statt
+    /// verkleinert, siehe `--native-levels`. Fehlt das Feld, stammt der
+    /// Baum aus einem älteren Stand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_levels: Option<u32>,
     /// Zu welcher Welt der Baum gehört, siehe [`world_id`]; `null` bei einer
     /// Welt ohne Kennung. Fehlt das Feld, stammt der Baum aus einem älteren
     /// Stand.
@@ -237,6 +242,7 @@ impl MapInfo {
             max_zoom,
             tiles: "{z}/{x}/{y}.webp".to_string(),
             bounds: [links, oben, rechts, unten],
+            native_levels: None,
             world: None,
         }
     }

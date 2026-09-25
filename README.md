@@ -109,8 +109,13 @@ Höchster Block in Spalte:  y=71  minecraft:oak_leaves[distance=2,persistent=fal
 Biom:                      minecraft:forest
 ```
 
-Beide Weltlayouts werden erkannt: das klassische `world/region` und das seit
-Minecraft 26.1 genutzte `world/dimensions/minecraft/overworld/region`.
+Der Renderer liest Welten ab Minecraft 26.1, mit den Regionen unter
+`world/dimensions/<namensraum>/<name>/region`. Eine ältere Welt, etwa aus 1.21
+mit `world/region` und `DIM-1`, vorher mit dem Server von Minecraft 26.2 und
+`--forceUpgrade` hochziehen: er baut Verzeichnisse, Seed und Chunks um, bevor
+er startet. Sonst kennt der Renderer ihren Seed nicht und manche ihrer
+Blocknamen nicht, und ein Block ohne Asset bricht den Lauf vor der ersten
+Kachel ab.
 
 Eine Blockstate direkt auflösen:
 
@@ -192,19 +197,23 @@ welche Blockstates vorkommen, und welche Kacheln überhaupt etwas zeigen. Erst
 danach steht die Sprite-Tabelle — und erst dann kann parallel gerendert
 werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
 Chunks werden deshalb mehrmals gelesen: vom Vorlauf, von der Basis und von
-jeder nativen Stufe, bei scale 32 also fünfmal. Der Vorlauf kostet für die
-ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes Sprite, das nicht
-selbst Alternative einer Blockstate ist: eines je Maske verdeckter
-Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu die Streifen
-an Wasserstufen.
+jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. Der
+Vorlauf kostet für die ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes
+Sprite, das nicht selbst Alternative einer Blockstate ist: eines je Maske
+verdeckter Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu
+die Streifen an Wasserstufen.
 
-Gerendert wird mit Rayon über die Kacheln. Jede Kachel hält ihren eigenen
-Chunk- und Regionscache, geteilt wird nur die unveränderliche Sprite-Tabelle.
+Gerendert wird mit Rayon über die Kacheln, auf der Basis und auf jeder
+nativen Stufe in Blöcken von 16 mal 16. Geteilt wird nur die unveränderliche
+Sprite-Tabelle; jede Kachel legt sich ihren Chunk- und Regionscache neu an.
+Benachbarte Kacheln dekodieren dieselben Chunks also mehrfach, siehe unten.
+Wie viel davon die Zeit einer Kachel ausmacht, ist nicht gemessen; vor einer
+Optimierung dort gehört ein Profil.
 
 `--center` und `--size` schränken auf einen Ausschnitt ein:
 
 ```bash
-cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles ./tiles --center -64 416 --size 2048
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles ./tiles --center -64 416 --size 2048 --native-levels 3
 ```
 
 ```
@@ -225,16 +234,17 @@ Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/
 ```
 
 Der Ausschnitt wird dabei aufgerundet, bevor der Vorlauf irgendetwas
-ausschliesst, und zwar auf ganze Kacheln der gröbsten nativen Stufe — bei
-scale 32 auf 2048 Pixel, aus 2048 mal 2048 werden hier 4096 mal 4096. Die
-nativen Stufen zeigen ganze Elternkacheln, und alle Stufen sollen denselben
-Stand der Welt zeigen: sonst stünde ein Neubau neben dem Ausschnitt nur auf
-den gröberen. Umgekehrt sammelt der Vorlauf Blockstates nur aus Chunks, die
-tatsächlich in eine ausgegebene Kachel fallen, und was die gerundete Fläche
-gar nicht berühren kann, dekodiert er nicht einmal: hier 788 Chunks statt
-der 8192 aller Regionen, die sie schneiden. Ein kleiner Ausschnitt braucht
-deshalb keine Assets für Blöcke am anderen Ende der Welt; fehlt eines in
-seiner Fläche, bricht der Lauf ab, bevor er die erste Kachel schreibt.
+ausschliesst, und zwar auf ganze Kacheln der gröbsten nativen Stufe — mit
+drei Stufen bei scale 32 auf 2048 Pixel, aus 2048 mal 2048 werden hier 4096
+mal 4096. Die nativen Stufen zeigen ganze Elternkacheln, und alle Stufen
+sollen denselben Stand der Welt zeigen: sonst stünde ein Neubau neben dem
+Ausschnitt nur auf den gröberen. Umgekehrt sammelt der Vorlauf Blockstates
+nur aus Chunks, die tatsächlich in eine ausgegebene Kachel fallen, und was
+die gerundete Fläche gar nicht berühren kann, dekodiert er nicht einmal:
+hier 788 Chunks statt der 8192 aller Regionen, die sie schneiden. Ein
+kleiner Ausschnitt braucht deshalb keine Assets für Blöcke am anderen Ende
+der Welt; fehlt eines in seiner Fläche, bricht der Lauf ab, bevor er die
+erste Kachel schreibt.
 
 Die Kacheln liegen als `tiles/<z>/<x>/<y>.webp`; x und y dürfen negativ sein,
 weil der Blockursprung mitten in der Welt liegt. Wird eine Kachel bei einem
@@ -282,8 +292,8 @@ Chunk weg.
 
 Gröbere Stufen entstehen aus vier Kacheln der darunterliegenden, auf die
 halbe Kantenlänge gestaucht — die Welt wird dafür kein zweites Mal
-angefasst. Ausgenommen sind die nativen Stufen direkt unter der Basis,
-siehe unten.
+angefasst. Ausgenommen sind native Stufen direkt unter der Basis, wenn
+`--native-levels` sie verlangt, siehe unten.
 
 ![Zoomstufen](docs/zoomstufen.png)
 
@@ -321,27 +331,89 @@ Lauf sagt es. Eine Welt ohne Kennung übernimmt ihn nicht, sonst nähme er
 danach seine eigene nicht mehr auf. Einer mit scale 2, 6 oder 10 lässt
 sich nicht fortsetzen, `--scale` nimmt nur noch Vielfache von 4.
 
-Die gröberen Stufen werden nicht alle verkleinert. Solange jeder Block
-auf ganzen Pixeln liegt, der scale der Stufe also durch vier teilbar ist
-— bei scale 32 drei Stufen lang, 16, 8 und 4 —, rendert der Renderer die
-Stufe aus der Welt, mit Sprites in dieser Grösse. Verkleinern mittelt
-Nachbarblöcke ineinander, und schon zwei Stufen unter der Basis wäre aus
-jeder Kante Brei; ein nativer Render hält den Umriss jedes Blocks scharf
-und mittelt stattdessen die Textur über den Block, was auf einer Karte
-niemand vermisst. In Bytes kommt damit bei scale 32 ein Drittel dazu, in
-Zeit fast noch einmal die Basis, denn jede Stufe zeichnet jeden Block ihrer
-Fläche erneut; siehe unten. Bei scale 2 läge jede zweite Blockreihe auf
-einem halben Pixel, und benachbarte Reihen überdeckten sich; ab dort wird
-verkleinert. Aus demselben Grund nimmt `--scale` nur Vielfache von 4.
-
-Ein Ausschnitt mit `--size` braucht dafür mehr Welt als sich selbst: eine
-native Elternkachel zeigt auch, was neben dem Ausschnitt liegt. Der
-Export rundet ihn deshalb auf ganze Kacheln der gröbsten nativen Stufe
-auf, siehe oben.
-
-Gemittelt wird dabei in linearem Licht, nicht in sRGB-Werten: die sind
+Gemittelt wird in linearem Licht, nicht in sRGB-Werten: die sind
 gammakodiert, ihr Mittel ist zu dunkel, und jede Stufe verdunkelt weiter.
 Halb Schwarz, halb Weiss ergibt so 188 statt 128.
+
+Verkleinern mittelt trotzdem Nachbarblöcke ineinander; zwei Stufen unter
+der Basis ist ein Block noch acht Pixel breit, und Blockkanten werden zu
+Verläufen. Wer die Kanten länger scharf haben will, lässt mit
+`--native-levels N` die ersten N gröberen Stufen aus der Welt rendern, mit
+Sprites in dieser Grösse. Ein nativer Render hält den Umriss jedes Blocks
+scharf und mittelt stattdessen die Textur über den Block, was auf einer
+Karte niemand vermisst. Das geht, solange jeder Block auf ganzen Pixeln
+liegt, der scale der Stufe also durch vier teilbar ist: bei scale 32 drei
+Stufen lang, 16, 8 und 4. Bei scale 2 läge jede zweite Blockreihe auf
+einem halben Pixel, und benachbarte Reihen überdeckten sich; aus demselben
+Grund nimmt `--scale` nur Vielfache von 4. Der Preis ist hoch: Mit allen
+drei Stufen kommt bei scale 32 in Bytes ein Drittel dazu, in Zeit fast
+noch einmal die Basis, denn jede Stufe zeichnet jeden Block ihrer Fläche
+erneut; siehe unten. Deshalb ist die Vorgabe 0.
+
+Die Zahl gehört zum Baum wie der scale: `map.json` hält sie als
+`nativeLevels` fest. Ein Lauf ohne `--native-levels` nimmt sie von dort,
+einer mit einer anderen bricht ab, bevor er einen Chunk liest. Sonst lägen
+über einem nachgerenderten Ausschnitt verkleinerte Kacheln neben nativen,
+und an einer unveränderten Welt änderte ein Nachrendern Dateien. Mehr, als
+der scale hergibt, heisst alle. Nennt die `map.json` eines Baums aus einem
+älteren Stand die Zahl nicht, bricht ein Lauf ohne den Schalter ab und fragt
+nach ihr: der Stand davor renderte alle Stufen nativ, die der scale hergibt,
+und mit 0 lägen über dem Ausschnitt verkleinerte Kacheln neben nativen. Ein
+Lauf mit dem Schalter hält die Zahl fest.
+
+Ein Ausschnitt mit `--size` braucht mit nativen Stufen mehr Welt als sich
+selbst: eine native Elternkachel zeigt auch, was neben dem Ausschnitt
+liegt. Der Export rundet ihn deshalb auf ganze Kacheln der gröbsten
+nativen Stufe auf, siehe oben.
+
+#### Pyramide nachbauen, Karte während des Renders ansehen
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --pyramid ./tiles
+```
+
+`--pyramid` rendert nichts und braucht weder Welt noch Assets. Es baut die
+gröberen Stufen und `map.json` aus den Basiskacheln, die auf der Platte
+liegen. Basisstufe, scale und Welt nennt `map.json`, das jeder Export vor
+seiner ersten Kachel schreibt; ohne diese Datei, oder wenn auf ihrer
+Basisstufe keine Kachel liegt, ändert es nichts. Native Stufen rendert es
+nicht, es verkleinert auch dort. Ein laufender Render ersetzt sie am Ende
+durch native.
+
+Neu gebaut wird nur, was sich geändert hat: eine Kachel, unter der ein
+Kind jünger ist als sie oder in diesem Aufruf neu gebaut oder entfernt
+wurde, und eine, die fehlt. Eine Kachel ohne Kinder verschwindet.
+Verglichen wird auf jeder Stufe, ein abgebrochener Aufruf heilt also im
+nächsten. Die Zeiten kommen aus der Liste jeder Stufe: unter Windows
+stehen sie im Verzeichnis, unter Linux kostet jede Kachel einen `statx`,
+aber kein Öffnen. Der Aufruf lässt sich deshalb wiederholen, während ein
+Vollrender noch Stunden läuft: die Karte im Browser zeigt, was fertig ist,
+und wächst mit jedem Aufruf. Die Basis und die nativen Stufen rendern in
+Blöcken von 16 mal 16 Kacheln, damit Geschwister kurz nacheinander fertig
+werden und ein Aufruf ihre Elternkachel selten zweimal baut.
+
+Jede Kachel, die `--pyramid` schreibt, und `map.json` tragen als Zeit den
+Beginn des Aufrufs, zwei Sekunden früher. Ein Kind, das der Render
+währenddessen fertigstellt, ist so jünger als seine Elternkachel, und der
+nächste Aufruf holt es. Zwei Sekunden, weil keine gängige Uhr eines
+Dateisystems gröber zählt; eine Kachel aus diesen zwei Sekunden baut der
+nächste Aufruf nur noch einmal ein. Was nach dem Beginn selbst und vor der
+Liste seiner Stufe entstand, hat jemand anders geschrieben: auf einer
+nativen Stufe der Render, der sie aus der Welt zeichnet, am Ende
+`map.json` mit den Grenzen seiner letzten Kacheln. Das bleibt stehen,
+ebenso eine Kachel, die sich seit der Liste geändert hat; das prüft der
+Aufruf erst direkt vor dem Tausch und vor dem Entfernen. Eine verkleinerte
+Kachel hängt dagegen nur an ihren Kindern; die baut der Aufruf neu, sobald
+sich darunter etwas geändert hat, auch wenn ein Export sie eben erst
+geschrieben hat. Eine Zeit in der Zukunft kommt von einer Uhr, die vorging,
+und zählt nicht als fremd. Eine unlesbare Kachel lässt der Aufruf aus und nennt sie; ihre Elternkachel
+bekommt eine Zeit vor ihrer, und der nächste Aufruf versucht es wieder.
+Eine, die seit der Liste verschwunden ist, gehört nicht mehr dazu. Nicht
+bemerkt wird ein einzelnes Kind, das von aussen verschwindet, solange
+Geschwister bleiben, und eine Kachel, die mit ihrer alten Zeit aus einer
+Sicherung zurückkommt. Dann die gröberen Stufen löschen, und `--pyramid`
+baut sie ganz neu. Bei einem Baum mit nativen Stufen sind die danach
+verkleinert, bis ein Export sie wieder rendert.
 
 ### `map.json`
 
@@ -353,6 +425,7 @@ Halb Schwarz, halb Weiss ergibt so 188 statt 128.
   "maxZoom": 10,
   "tiles": "{z}/{x}/{y}.webp",
   "bounds": [-10240, 0, -6144, 4096],
+  "nativeLevels": 0,
   "world": "cb13a94d6c88dae1-6872d5d8ff54db07"
 }
 ```
@@ -368,28 +441,28 @@ Dimension, SipHash-2-4 mit diesem Salz, eine Million Mal verkettet. Die
 Dimension gehört dazu, weil die Dimensionen einer Welt meist denselben Seed
 tragen: sonst käme der Nether in den Baum der Oberwelt und die Oberwelt in
 seinen. `--world` zeigt auf die Weltwurzel, das Verzeichnis mit
-`level.dat`, oder auf eine Dimension darin, `dimensions/<namensraum>/<name>`
-oder bis 1.21 `DIM-1` und `DIM1`. Die Wurzel ist die Oberwelt, auch über
-`dimensions/minecraft/overworld`; eine Kopie von `level.dat` in einer
-Dimension macht diese nicht zur Oberwelt. Der Pfad zählt so, wie er auf der
-Platte steht: unter Windows gibt `dim-1` dieselbe Kennung wie `DIM-1`, und
-ein Weg über `..` dieselbe wie der direkte. Führt er auf der Platte über
-einen Link aus der Welt hinaus, etwa zu einer Dimension auf einer anderen
-Platte, oder lässt er sich dort nicht auflösen, zählt er so, wie er
-angegeben ist, auch in seiner Schreibweise: `dimensions\Minecraft\the_nether`
-gibt dann die Kennung von `Minecraft:the_nether`, `dim-1` gar keine.
+`level.dat`, oder auf eine Dimension darin, `dimensions/<namensraum>/<name>`.
+Die Wurzel ist die Oberwelt, auch über `dimensions/minecraft/overworld`; eine
+Kopie von `level.dat` in einer Dimension macht diese nicht zur Oberwelt. Der
+Pfad zählt so, wie er auf der Platte steht: unter Windows gibt
+`DIMENSIONS\MINECRAFT\THE_NETHER` dieselbe Kennung wie
+`dimensions\minecraft\the_nether`, und ein Weg über `..` dieselbe wie der
+direkte. Führt er auf der Platte über einen Link aus der Welt hinaus, etwa zu
+einer Dimension auf einer anderen Platte, oder lässt er sich dort nicht
+auflösen, zählt er so, wie er angegeben ist, auch in seiner Schreibweise:
+`dimensions\Minecraft\the_nether` gibt dann die Kennung von
+`Minecraft:the_nether`.
 
 Den Seed liest der Renderer zuerst aus der Dimension selbst, aus
 `data/minecraft/world_gen_settings.dat` darin: so schreibt Paper ihn je
 Dimension, und eine Plugin-Welt hat oft einen eigenen. Sonst aus derselben
 Datei an der Weltwurzel, wie Vanilla seit 26.1, oder aus der der
 Paper-Oberwelt, von beiden aus der jüngeren, bei gleichem Alter aus der von
-Paper: unter Paper bleibt an der Wurzel eine ältere liegen. Zuletzt aus
-`level.dat`, wie bis 1.21. Frühere Stände des Renderers lasen zuerst die
-Datei an der Wurzel. Hat eine Dimension eine eigene mit anderem Seed, passt
-ihr Baum aus einem solchen Stand nicht mehr zu ihr, und der Lauf lehnt ihn
-ab, er gehöre zu einer anderen Welt oder Dimension; einen solchen Baum neu
-rendern. Er selbst steht nicht in der Datei: `map.json`
+Paper: unter Paper bleibt an der Wurzel eine ältere liegen. Frühere Stände
+des Renderers lasen zuerst die Datei an der Wurzel. Hat eine Dimension eine
+eigene mit anderem Seed, passt ihr Baum aus einem solchen Stand nicht mehr zu
+ihr, und der Lauf lehnt ihn ab, er gehöre zu einer anderen Welt oder
+Dimension; einen solchen Baum neu rendern. Er selbst steht nicht in der Datei: `map.json`
 liegt öffentlich neben den Kacheln, und mit dem Seed fände jeder Strukturen
 und Erze ohne zu suchen. Ein
 Zufallsseed hat nur 2^48 Werte, Vanilla zieht ihn mit 48 Bit Zustand; mit
@@ -416,7 +489,7 @@ nebeneinander, die Grenzen rot eingezeichnet:
 ### Was das kostet
 
 Gemessen an einem Ausschnitt, hochgerechnet auf die ganze Welt: derselbe
-Weltausschnitt um (-64, 416) bei jedem scale, mit nativen Stufen und
+Weltausschnitt um (-64, 416) bei jedem scale, mit allen nativen Stufen und
 Pyramide, also `--size 8192` bei scale 32, `4096` bei 16 und `2048` bei 8.
 Das sind 1600, 400 und 100 Basiskacheln, gerendert auf 24 Threads. Die
 Kachelzahl der ganzen Welt nennt der Vorlauf.
@@ -434,6 +507,24 @@ native Stufe zeichnet jeden Block ihrer Fläche noch einmal, und zusammen
 kosten sie fast so viel Zeit wie die Basis, bei scale 32 12,1 s gegen
 13,6 s. In Bytes sind sie ein Fünftel bis ein Drittel. Die Sprite-Tabellen
 aller 3110 Blockstates brauchen über die vier Stufen zusammen rund 12 s.
+
+Der erste Vollrender einer grossen Serverwelt hat die Rechnung geerdet:
+2,5 Millionen Chunks, 30 GB, scale 32.
+
+| | |
+|---|---|
+| Vorlauf | 259 s |
+| Basiskacheln | 2 504 461, rund 120 kB je Kachel, also ~300 GB |
+| Rate | 44 Kacheln/s auf 24 Threads, davon nur 9 Kerne frei |
+| Basisstufe | 2 504 461 Kacheln bei 44 je Sekunde, knapp 16 Stunden |
+
+Das ist keine Eigenschaft der Welt, sondern des Renderers. Eine Kachel
+kostet rund 0,2 CPU-Sekunden, 9 Kerne für 44 Kacheln je Sekunde; jeder
+der 24 Threads braucht für eine gut eine halbe Sekunde, weil er auf
+einen freien Kern wartet. Sie ist ein schräger Schnitt durch die volle
+Bauhöhe von 384 Blöcken, lädt und dekodiert dafür 50 bis 70 Chunks, und
+ihr Chunk-Cache entsteht je Kachel neu. Der Vorlauf liest dieselben
+Chunks einmal in vier Minuten.
 
 WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
 wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den
@@ -784,9 +875,22 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 cd web && npm install && npm run dev
 ```
 
-Der Renderer schreibt die Kacheln direkt dorthin, wo Vite sie ausliefert;
-damit braucht das Frontend keine Konfiguration. `npm run build` legt alles
-unter `web/dist` ab, statisch ausliefern reicht.
+Der Renderer schreibt die Kacheln direkt dorthin, wo der Devserver sie
+ausliefert; damit braucht das Frontend keine Konfiguration. `npm run build`
+legt die Seite unter `web/dist` ab, ohne `public/tiles`: dort liegt oft ein
+Link auf Hunderte Gigabyte, und Vite folgte ihm beim Kopieren, auch unter
+`npm test`. Beim Ausliefern gehören die Kacheln als `tiles/` neben die
+Seite, oder `?tiles=` nennt ihren Pfad; statisch ausliefern reicht.
+
+Wer einem langen Render zusehen will, legt die Kacheln woanders ab und
+setzt einen Link: unter Windows `mklink /J web\public\tiles D:\tiles`, sonst
+`ln -s /pfad/zu/tiles web/public/tiles`. Findet Vite unter `public/` einen
+Link, fragt es bei jeder Anfrage die Platte und liefert auch Kacheln aus,
+die nach seinem Start entstanden sind, etwa durch `--pyramid`. Aus einem
+echten Verzeichnis dort liefert es nur, was beim Start dalag, bis zum
+nächsten Neustart. Neue Dateien meldet ihm sonst sein Watcher, und den hat
+`vite.config.ts` von den Kacheln abgekoppelt: er beobachtete jede der
+Millionen Dateien und verbrannte Kerne, die der Render braucht.
 
 Ohne echte Kacheln zeigt `http://localhost:5173/?tiles=/tiles-demo` einen
 kleinen Kachelbaum, der mit im Repository liegt — 7 Dateien, 6,6 kB. Er ist

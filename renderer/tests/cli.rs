@@ -7,13 +7,17 @@ mod common;
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::{Duration, SystemTime};
 
 use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
-use terranova_render::render::{Projection, SpriteSet, TileId, pyramid, render_area, survey};
+use terranova_render::render::{
+    Projection, SpriteSet, TileId, encode_webp, pyramid, render_area, survey,
+};
 use terranova_render::world::World;
 
 fn assets() -> PathBuf {
@@ -32,8 +36,8 @@ fn cli(args: &[&OsStr]) -> Output {
         .expect("terranova-render starten")
 }
 
-/// Kachelexport über die Binärdatei.
-fn tiles(welt: &Path, out: &Path, extra: &[&str]) -> Output {
+/// Kachelexport über die Binärdatei, genau mit diesen Schaltern.
+fn export(welt: &Path, out: &Path, extra: &[&str]) -> Output {
     let mut args: Vec<&OsStr> = vec![
         OsStr::new("--world"),
         welt.as_ref(),
@@ -44,6 +48,18 @@ fn tiles(welt: &Path, out: &Path, extra: &[&str]) -> Output {
     ];
     args.extend(extra.iter().map(OsStr::new));
     cli(&args)
+}
+
+/// Kachelexport über die Binärdatei. Ohne eigenes `--native-levels` mit
+/// allen nativen Stufen, die der scale hergibt: bei 16 zwei, bei 12 keine.
+/// So prüfen die Tests beide Wege, den nativen und das Verkleinern.
+fn tiles(welt: &Path, out: &Path, extra: &[&str]) -> Output {
+    if extra.contains(&"--native-levels") {
+        return export(welt, out, extra);
+    }
+    let mut mit = vec!["--native-levels", "9"];
+    mit.extend(extra);
+    export(welt, out, &mit)
 }
 
 /// `assets()` als geliehener Pfad — die Binärdatei bekommt ihn mehrfach.
@@ -494,7 +510,9 @@ fn waise_auf_nativer_stufe_bekommt_eltern() {
 /// Auch über einer Fläche ohne Chunk baut ein Lauf ohne --prune fehlende
 /// Eltern nach. So steht der Baum, wenn ein Lauf mit --prune dort beim
 /// Aufräumen abbrach; der Test entfernt die Stufe über dem Stein von Hand.
-/// Früher brach der Lauf vorher mit „keine Kachel enthält etwas“ ab.
+/// Früher brach der Lauf vorher mit „keine Kachel enthält etwas“ ab. Mit
+/// nativen Stufen rundet der Ausschnitt auf ihr Raster auf und heilt beide
+/// Waisen, ohne sie nur die in seiner eigenen Kachel.
 #[test]
 fn leerer_ausschnitt_heilt_waisen() {
     let block = |x, y, z| match (x, y, z) {
@@ -506,22 +524,29 @@ fn leerer_ausschnitt_heilt_waisen() {
     common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
     let neu = tempdir();
     common::write_world(neu.path(), &[(0, 0)], block);
-    let baum = tempdir();
-    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
-    let z = max_zoom(baum.path());
-    for x in [2, 3] {
-        std::fs::remove_file(baum.path().join(format!("{}/{x}/1.webp", z - 1))).unwrap();
-    }
-    assert_eq!(
-        waisen(baum.path()),
-        [format!("{z}/5/3"), format!("{z}/6/3")]
-    );
+    for native in ["9", "0"] {
+        let schalter = ["--scale", "16", "--native-levels", native];
+        let baum = tempdir();
+        gelungen(&tiles(alt.path(), baum.path(), &schalter));
+        let z = max_zoom(baum.path());
+        for x in [2, 3] {
+            std::fs::remove_file(baum.path().join(format!("{}/{x}/1.webp", z - 1))).unwrap();
+        }
+        assert_eq!(
+            waisen(baum.path()),
+            [format!("{z}/5/3"), format!("{z}/6/3")]
+        );
 
-    let ausschnitt = ["--scale", "16", "--center", "200", "8", "--size", "1"];
-    let ausgabe = tiles(neu.path(), baum.path(), &ausschnitt);
-    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
-    assert!(text.contains("sie bleiben stehen"), "{text}");
-    assert_eq!(waisen(baum.path()), Vec::<String>::new());
+        let ausschnitt = [&schalter[..], &["--center", "200", "8", "--size", "1"]].concat();
+        let ausgabe = tiles(neu.path(), baum.path(), &ausschnitt);
+        let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+        assert!(text.contains("sie bleiben stehen"), "{text}");
+        let bleiben = match native {
+            "0" => vec![format!("{z}/5/3")],
+            _ => Vec::new(),
+        };
+        assert_eq!(waisen(baum.path()), bleiben, "--native-levels {native}");
+    }
 }
 
 /// Ein Ausschnitt heilt nur Waisen, die er berührt; eine direkt daneben
@@ -561,7 +586,7 @@ fn ausschnitt_laesst_waisen_daneben_stehen() {
 /// Chunk (1, -1) fort, bei scale 16 in Basiskachel (1, -1), bei 32 in
 /// (2, -1). Seine Elternkachel teilt er mit Vorlaufkacheln des ersten
 /// Chunks, die leer rendern: bei 16 auf der ersten nativen Stufe, bei 32
-/// auf der zweiten.
+/// auf der zweiten. Ohne native Stufen verkleinert der Lauf auch den Stein.
 #[test]
 fn ohne_prune_bleibt_keine_kachel_ohne_eltern() {
     let block = |x, y, z| match (x, y, z) {
@@ -578,19 +603,17 @@ fn ohne_prune_bleibt_keine_kachel_ohne_eltern() {
         ("16", TileId { x: 1, y: -1 }),
         ("32", TileId { x: 2, y: -1 }),
     ] {
-        let baum = tempdir();
-        gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
-        let z = max_zoom(baum.path());
-        assert!(
-            kacheln(baum.path(), z).contains_key(&stein),
-            "scale {scale}"
-        );
-        gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));
-        assert!(
-            kacheln(baum.path(), z).contains_key(&stein),
-            "scale {scale}"
-        );
-        assert_eq!(waisen(baum.path()), Vec::<String>::new(), "scale {scale}");
+        for native in ["9", "0"] {
+            let schalter = ["--scale", scale, "--native-levels", native];
+            let fall = format!("scale {scale}, --native-levels {native}");
+            let baum = tempdir();
+            gelungen(&tiles(alt.path(), baum.path(), &schalter));
+            let z = max_zoom(baum.path());
+            assert!(kacheln(baum.path(), z).contains_key(&stein), "{fall}");
+            gelungen(&tiles(neu.path(), baum.path(), &schalter));
+            assert!(kacheln(baum.path(), z).contains_key(&stein), "{fall}");
+            assert_eq!(waisen(baum.path()), Vec::<String>::new(), "{fall}");
+        }
     }
 }
 
@@ -929,21 +952,24 @@ fn abbruch_in_ohne_veraltete_entfernt_nichts() {
     }
 }
 
-/// Ohne --tiles gibt es nichts aufzuräumen; still übergangen hiesse der
-/// Schalter etwas, das er nicht tut.
+/// Ohne --tiles gibt es nichts aufzuräumen und keine Stufe nativ zu
+/// rendern; still übergangen hiesse ein Schalter etwas, das er nicht tut.
 #[test]
 fn prune_braucht_tiles() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], zwei_bloecke);
-    let ausgabe = cli(&[
-        OsStr::new("--world"),
-        welt.path().as_os_str(),
-        OsStr::new("--scan"),
-        OsStr::new("--prune"),
-    ]);
-    assert!(!ausgabe.status.success());
-    let text = String::from_utf8_lossy(&ausgabe.stderr);
-    assert!(text.contains("--tiles"), "{text}");
+    for schalter in [&["--prune"][..], &["--native-levels", "1"]] {
+        let mut args = vec![
+            OsStr::new("--world"),
+            welt.path().as_os_str(),
+            OsStr::new("--scan"),
+        ];
+        args.extend(schalter.iter().map(OsStr::new));
+        let ausgabe = cli(&args);
+        assert!(!ausgabe.status.success(), "{schalter:?}");
+        let text = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(text.contains("--tiles"), "{schalter:?}: {text}");
+    }
 }
 
 /// Ein Ausschnitt darf nicht an einem Block scheitern, der weit ausserhalb
@@ -979,15 +1005,20 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
 }
 
 /// Jede gröbere Zoomstufe ist entweder nativ aus der Welt gerendert —
-/// solange ein Block auf ganzen Pixeln liegt, also bis scale 4 — oder
-/// genau die Verkleinerung ihrer vier Kinder. Und keine Kachel darf fehlen.
+/// so viele Stufen, wie `--native-levels` verlangt, und nur solange ein
+/// Block auf ganzen Pixeln liegt, also bis scale 4 — oder genau die
+/// Verkleinerung ihrer vier Kinder. Und keine Kachel darf fehlen.
 #[test]
 fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
     let out = tempdir();
-    // scale 8: eine native Stufe (4), dann Verkleinerungen — beide Wege.
-    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+    // scale 8 mit einer nativen Stufe (4), dann Verkleinerungen — beide Wege.
+    gelungen(&tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "8", "--native-levels", "1"],
+    ));
 
     let basis = max_zoom(out.path());
     assert!(basis > 1, "kein Stapel zu prüfen");
@@ -1052,6 +1083,411 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
         nativ > 0 && verkleinert > 0,
         "{nativ} nativ, {verkleinert} verkleinert"
     );
+}
+
+/// `--pyramid` über dem Baum in diesem Verzeichnis, ohne Welt und Assets.
+fn pyramide(dir: &Path) -> Output {
+    cli(&[OsStr::new("--pyramid"), dir.as_ref()])
+}
+
+/// Setzt jede Kachel des Baums auf dieselbe Zeit eine Stunde zurück, als
+/// wäre er lange vor dem nächsten `--pyramid` entstanden. Eine Kachel aus
+/// den zwei Sekunden vor einem Aufruf baut der nächste noch einmal ein.
+fn altern(dir: &Path) {
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for z in 0..=max_zoom(dir) {
+        for pfad in kacheln(dir, z).values() {
+            setze_zeit(pfad, damals);
+        }
+    }
+}
+
+/// Wann die Datei zuletzt geschrieben wurde.
+fn zeit_von(pfad: &Path) -> SystemTime {
+    std::fs::metadata(pfad).unwrap().modified().unwrap()
+}
+
+fn setze_zeit(pfad: &Path, zeit: SystemTime) {
+    let datei = std::fs::File::options().write(true).open(pfad).unwrap();
+    datei.set_modified(zeit).unwrap();
+}
+
+fn kachel_pfad(dir: &Path, z: u32, tile: TileId) -> PathBuf {
+    dir.join(format!("{z}/{}/{}.webp", tile.x, tile.y))
+}
+
+/// Schreibt eine Kachel mit diesem Bild, jetzt.
+fn setze(dir: &Path, z: u32, tile: TileId, bild: &RgbaImage) {
+    let pfad = kachel_pfad(dir, z, tile);
+    std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+    std::fs::write(pfad, encode_webp(bild).unwrap()).unwrap();
+}
+
+/// Was `--pyramid` aus der Basis dieses Baums und seiner `map.json` von
+/// Grund auf baut.
+fn von_grund_auf(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    let basis = format!("{}/", max_zoom(dir));
+    let frisch = tempdir();
+    for (rel, inhalt) in schnappschuss(dir) {
+        if rel == "map.json" || rel.starts_with(&basis) {
+            let pfad = frisch.path().join(rel);
+            std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+            std::fs::write(pfad, inhalt).unwrap();
+        }
+    }
+    gelungen(&pyramide(frisch.path()));
+    schnappschuss(frisch.path())
+}
+
+/// `--pyramid` baut aus den Basiskacheln auf der Platte dieselben
+/// Zoomstufen und dieselbe `map.json` wie ein Export ohne native Stufen,
+/// ohne Welt und ohne Assets. Beim zweiten Mal baut es nichts mehr.
+/// `map.json` bleibt liegen: Basisstufe, scale und das Salz der Kennung
+/// stehen nur dort.
+#[test]
+fn pyramide_laesst_sich_aus_den_kacheln_nachbauen() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let out = tempdir();
+    gelungen(&tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "8", "--native-levels", "0"],
+    ));
+    let soll = schnappschuss(out.path());
+    let basis = max_zoom(out.path());
+    assert!(basis > 0);
+
+    for z in 0..basis {
+        std::fs::remove_dir_all(out.path().join(z.to_string())).unwrap();
+    }
+    altern(out.path());
+    gelungen(&pyramide(out.path()));
+    assert_eq!(schnappschuss(out.path()), soll);
+
+    let ausgabe = pyramide(out.path());
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    assert!(
+        meldung.contains("Pyramide:   0 Kacheln neu, 0 entfernt"),
+        "Meldung: {meldung}"
+    );
+    assert_eq!(schnappschuss(out.path()), soll);
+}
+
+/// `--pyramid` holt nach, was sich unter einer Kachel geändert hat, auf
+/// jeder Stufe: eine neu geschriebene Basiskachel; eine Stufe, die ein
+/// abgebrochener Aufruf schon neu geschrieben hat, ihre Eltern aber nicht
+/// mehr; Kinder, die alle verschwunden sind. Das Ergebnis ist jedes Mal
+/// dasselbe wie von Grund auf. Was der Aufruf schreibt, `map.json`
+/// eingeschlossen, trägt eine Zeit vor seinem Beginn: ein Kind, das ein
+/// Render währenddessen fertigstellt, ist danach jünger als seine
+/// Elternkachel. Über einer unlesbaren Kachel versucht es jeder Aufruf
+/// wieder.
+#[test]
+fn pyramide_holt_jede_aenderung_nach() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = tempdir();
+    gelungen(&tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "8", "--native-levels", "0"],
+    ));
+    let basis = max_zoom(out.path());
+    assert!(basis > 2, "zu wenig Stufen");
+    altern(out.path());
+    // Die Kachel über der Basis, die gleich ihre Kinder verliert, hat ein
+    // Geschwister: dann bleibt ihre Elternkachel stehen und muss neu.
+    let mitte = kacheln(out.path(), basis - 1);
+    let oben = *mitte
+        .keys()
+        .find(|p| mitte.keys().filter(|q| q.parent() == p.parent()).count() > 1)
+        .expect("keine Geschwister über der Basis");
+    let unten = kacheln(out.path(), basis);
+    let (&eine, _) = unten.iter().find(|(k, _)| k.parent() == oben).unwrap();
+    let (&andere, _) = unten.iter().find(|(k, _)| k.parent() != oben).unwrap();
+    let vorlage = bild(&unten[&andere]);
+
+    let pruefe = |fall: &str| {
+        let vorher = SystemTime::now();
+        let ausgabe = pyramide(out.path());
+        let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+        assert_eq!(
+            schnappschuss(out.path()),
+            von_grund_auf(out.path()),
+            "{fall}: {meldung}"
+        );
+        for z in 0..basis {
+            for (tile, pfad) in kacheln(out.path(), z) {
+                assert!(
+                    zeit_von(&pfad) < vorher,
+                    "{fall}: Zoom {z}, {tile:?} trägt die Uhrzeit"
+                );
+            }
+        }
+        assert!(
+            zeit_von(&out.path().join("map.json")) < vorher,
+            "{fall}: map.json trägt die Uhrzeit"
+        );
+        meldung
+    };
+
+    // Eine Basiskachel bekommt den Inhalt einer anderen: neu sind genau
+    // ihre Vorfahren, einer je Stufe.
+    setze(out.path(), basis, eine, &vorlage);
+    let meldung = pruefe("neue Basiskachel");
+    assert!(
+        meldung.contains(&format!("Pyramide:   {basis} Kacheln neu, 0 entfernt")),
+        "{meldung}"
+    );
+
+    // Ein Aufruf brach nach der ersten Stufe ab: die zeigt schon die
+    // geänderte Basiskachel, die Stufen darüber noch die alte.
+    let mut blass = vorlage.clone();
+    for pixel in blass.pixels_mut() {
+        pixel.0[3] /= 2;
+    }
+    setze(out.path(), basis, eine, &blass);
+    let kinder: Vec<(TileId, RgbaImage)> = kacheln(out.path(), basis)
+        .into_iter()
+        .filter(|(kind, _)| kind.parent() == oben)
+        .map(|(kind, pfad)| (kind, bild(&pfad)))
+        .collect();
+    setze(out.path(), basis - 1, oben, &pyramid::merge(oben, &kinder));
+    pruefe("abgebrochener Aufruf");
+
+    // Alle Kinder einer Kachel verschwinden, und mit ihnen die Kachel.
+    for (kind, pfad) in kacheln(out.path(), basis) {
+        if kind.parent() == oben {
+            std::fs::remove_file(pfad).unwrap();
+        }
+    }
+    let meldung = pruefe("verschwundene Kinder");
+    assert!(
+        !kacheln(out.path(), basis - 1).contains_key(&oben),
+        "{meldung}"
+    );
+
+    // Eine Kachel ist abgeschnitten, etwa von einem Absturz beim Schreiben:
+    // der Aufruf lässt sie aus und sagt es, statt abzubrechen. Sie ist eine
+    // Minute jünger als ihre Elternkachel, lange vor dem Aufruf.
+    let kaputt = &unten[&andere];
+    let geschrieben =
+        zeit_von(&kachel_pfad(out.path(), basis - 1, andere.parent())) + Duration::from_secs(60);
+    std::fs::write(kaputt, b"RIFF").unwrap();
+    setze_zeit(kaputt, geschrieben);
+    let meldung = pruefe("abgeschnittene Kachel");
+    assert!(
+        meldung.contains("1 Kacheln nicht lesbar, übergangen"),
+        "{meldung}"
+    );
+
+    // Die Elternkachel trägt eine Zeit vor der Kachel. Kommt sie heil
+    // zurück, mit derselben Zeit, holt der nächste Aufruf sie ein.
+    std::fs::write(kaputt, encode_webp(&vorlage).unwrap()).unwrap();
+    setze_zeit(kaputt, geschrieben);
+    let meldung = pruefe("heile Kachel mit alter Zeit");
+    assert!(!meldung.contains("nicht lesbar"), "{meldung}");
+}
+
+/// Eine Kachel oder `map.json` mit einer Zeit in der Zukunft stammt von
+/// einer Uhr, die vorging, nicht von einem Render daneben. `--pyramid`
+/// behandelt sie wie jede andere: Über einer geänderten Basiskachel baut es
+/// eine solche Kachel zwei Stufen höher neu, und `map.json` bekommt die
+/// richtigen Grenzen. Früher blieb beides stehen, bis die Uhr es einholte.
+/// Was wirklich fremd ist, prüft `cli::tests::fremd_nur_auf_nativen_stufen`
+/// im Binär, dort lässt sich der Beginn von aussen setzen.
+#[test]
+fn zukunft_ist_nicht_fremd() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = tempdir();
+    gelungen(&tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "8", "--native-levels", "0"],
+    ));
+    let basis = max_zoom(out.path());
+    assert!(basis > 2, "zu wenig Stufen");
+    altern(out.path());
+
+    let unten = kacheln(out.path(), basis);
+    let (&eine, _) = unten.iter().next().unwrap();
+    setze(
+        out.path(),
+        basis,
+        eine,
+        &bild(unten.values().nth(1).unwrap()),
+    );
+    let oben = eine.parent().parent();
+    let rot = RgbaImage::from_pixel(256, 256, image::Rgba([200, 0, 0, 255]));
+    setze(out.path(), basis - 2, oben, &rot);
+    let karte = out.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info["bounds"] = serde_json::json!([0, 0, 256, 256]);
+    std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    let spaeter = SystemTime::now() + Duration::from_secs(3600);
+    setze_zeit(&kachel_pfad(out.path(), basis - 2, oben), spaeter);
+    setze_zeit(&karte, spaeter);
+
+    let ausgabe = pyramide(out.path());
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert_eq!(
+        schnappschuss(out.path()),
+        von_grund_auf(out.path()),
+        "{meldung}"
+    );
+}
+
+/// `--pyramid` braucht nur das Verzeichnis, aber eines mit Baum. Ohne
+/// `map.json`, oder wenn auf deren Basisstufe keine Kachel liegt, ändert
+/// es nichts; ein vergessenes `--scale` kann es so gar nicht geben.
+/// Jeden weiteren Schalter lehnt es ab, auch Welt und Assets, die es nur
+/// laden würde.
+#[test]
+fn pyramide_braucht_einen_baum() {
+    let leer = tempdir();
+    let ausgabe = pyramide(leer.path());
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("map.json fehlt"),
+        "{meldung}"
+    );
+    assert!(std::fs::read_dir(leer.path()).unwrap().next().is_none());
+
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+    let karte = out.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info["maxZoom"] = (max_zoom(out.path()) + 1).into();
+    std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    let vorher = schnappschuss(out.path());
+    let ausgabe = pyramide(out.path());
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("dort liegt aber keine Kachel"),
+        "{meldung}"
+    );
+    assert_eq!(schnappschuss(out.path()), vorher);
+
+    for schalter in [
+        &["--size", "2048"][..],
+        &["--center", "0", "0"],
+        &["--scale", "16"],
+        &["--native-levels", "1"],
+        &["--tiles", "anderswo"],
+        &["--prune"],
+        &["--world", "anderswo"],
+        &["--assets", "anderswo"],
+        &["--data", "anderswo"],
+    ] {
+        let mut args = vec![OsStr::new("--pyramid"), out.path().as_os_str()];
+        args.extend(schalter.iter().map(OsStr::new));
+        let ausgabe = cli(&args);
+        let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(
+            !ausgabe.status.success() && meldung.contains("cannot be used with"),
+            "{schalter:?}: {meldung}"
+        );
+    }
+}
+
+/// Die Zahl der nativen Stufen gehört zum Baum wie der scale, `map.json`
+/// hält sie fest. Ein Nachrendern ohne `--native-levels` nimmt sie von
+/// dort und ändert an einer unveränderten Welt keine Datei; eines mit
+/// einer anderen Zahl bricht ab, bevor es etwas schreibt. Mehr, als der
+/// scale hergibt, heisst alle. Ein neuer Baum rendert ohne den Schalter
+/// keine Stufe nativ. Einer aus einem älteren Stand ohne das Feld braucht
+/// den Schalter einmal, ohne ihn bricht der Lauf ab, bevor er etwas
+/// schreibt; danach steht die Zahl in `map.json`.
+#[test]
+fn native_stufen_gehoeren_zum_baum() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let baum = tempdir();
+    gelungen(&export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--native-levels", "2"],
+    ));
+    assert_eq!(native_in(baum.path()), Some(2));
+    let vorher = schnappschuss(baum.path());
+
+    let ausschnitt = ["--scale", "16", "--center", "8", "8", "--size", "4"];
+    gelungen(&export(welt.path(), baum.path(), &ausschnitt));
+    assert!(
+        schnappschuss(baum.path()) == vorher,
+        "ohne Schalter nicht mehr nativ"
+    );
+
+    let anders = [&ausschnitt[..], &["--native-levels", "1"]].concat();
+    let ausgabe = export(welt.path(), baum.path(), &anders);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("Mit --native-levels 2 weiterrendern"),
+        "{meldung}"
+    );
+    assert!(schnappschuss(baum.path()) == vorher);
+
+    let alle = [&ausschnitt[..], &["--native-levels", "9"]].concat();
+    gelungen(&export(welt.path(), baum.path(), &alle));
+    assert!(schnappschuss(baum.path()) == vorher);
+
+    let neu = tempdir();
+    let ausgabe = export(welt.path(), neu.path(), &["--scale", "16"]);
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    assert!(!meldung.contains("nativ bei scale"), "{meldung}");
+    assert_eq!(native_in(neu.path()), Some(0));
+
+    let karte = neu.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info.as_object_mut().unwrap().remove("nativeLevels");
+    std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    let vorher = schnappschuss(neu.path());
+    let ausgabe = export(welt.path(), neu.path(), &["--scale", "16"]);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("nennt keine Zahl nativer Stufen"),
+        "{meldung}"
+    );
+    assert!(schnappschuss(neu.path()) == vorher);
+    gelungen(&export(
+        welt.path(),
+        neu.path(),
+        &["--scale", "16", "--native-levels", "1"],
+    ));
+    assert_eq!(native_in(neu.path()), Some(1));
+    gelungen(&export(welt.path(), neu.path(), &["--scale", "16"]));
+    assert_eq!(native_in(neu.path()), Some(1));
+
+    // Bei scale 12 gibt es keine native Stufe, also nichts zu fragen.
+    let zwoelf = tempdir();
+    gelungen(&export(welt.path(), zwoelf.path(), &["--scale", "12"]));
+    let karte = zwoelf.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info.as_object_mut().unwrap().remove("nativeLevels");
+    std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    gelungen(&export(welt.path(), zwoelf.path(), &["--scale", "12"]));
+    assert_eq!(native_in(zwoelf.path()), Some(0));
+}
+
+/// Die Zahl der nativen Stufen, wie `map.json` sie nennt.
+fn native_in(dir: &Path) -> Option<u64> {
+    let text = std::fs::read_to_string(dir.join("map.json")).expect("map.json lesen");
+    let info: serde_json::Value = serde_json::from_str(&text).expect("map.json auswerten");
+    info["nativeLevels"].as_u64()
 }
 
 /// `map.json` muss beschreiben, was tatsächlich dasteht.
@@ -1133,6 +1569,8 @@ fn zoomstufen_haengen_am_massstab() {
 /// schreibt sie mit durchsichtigen Lücken zu, und `map.json` schrumpft auf
 /// den Ausschnitt. Und der Lauf darf seine Kacheln nicht für verwaist
 /// halten, nur weil der Vorlauf ihn nicht sieht, auch nicht mit --prune.
+/// Mit nativen Stufen und ohne, dann mit einem Ausschnitt, der nicht
+/// aufgerundet wird.
 #[test]
 fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
     let welt = tempdir();
@@ -1148,33 +1586,38 @@ fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
         },
     );
 
-    let out = tempdir();
-    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
-    let vorher = schnappschuss(out.path());
-    assert!(
-        vorher.len() > 3,
-        "zu wenig zum Vergleichen: {:?}",
-        vorher.keys().collect::<Vec<_>>()
-    );
+    for native in ["9", "0"] {
+        let schalter = ["--scale", "16", "--native-levels", native];
+        let out = tempdir();
+        gelungen(&tiles(welt.path(), out.path(), &schalter));
+        let vorher = schnappschuss(out.path());
+        assert!(
+            vorher.len() > 3,
+            "zu wenig zum Vergleichen: {:?}",
+            vorher.keys().collect::<Vec<_>>()
+        );
 
-    // Dieselbe Welt, nur ein Ausschnitt um den ersten Block, in dasselbe
-    // Verzeichnis.
-    gelungen(&tiles(
-        welt.path(),
-        out.path(),
-        &[
-            "--scale", "16", "--center", "44", "8", "--size", "4", "--prune",
-        ],
-    ));
+        // Dieselbe Welt, nur ein Ausschnitt um den ersten Block, in dasselbe
+        // Verzeichnis.
+        let ausschnitt = [
+            &schalter[..],
+            &["--center", "44", "8", "--size", "4", "--prune"],
+        ]
+        .concat();
+        gelungen(&tiles(welt.path(), out.path(), &ausschnitt));
 
-    let nachher = schnappschuss(out.path());
-    assert_eq!(
-        nachher.keys().collect::<Vec<_>>(),
-        vorher.keys().collect::<Vec<_>>(),
-        "der Baum hat andere Dateien als vorher"
-    );
-    for (rel, alt) in &vorher {
-        assert_eq!(&nachher[rel], alt, "{rel} hat sich verändert");
+        let nachher = schnappschuss(out.path());
+        assert_eq!(
+            nachher.keys().collect::<Vec<_>>(),
+            vorher.keys().collect::<Vec<_>>(),
+            "--native-levels {native}: der Baum hat andere Dateien als vorher"
+        );
+        for (rel, alt) in &vorher {
+            assert_eq!(
+                &nachher[rel], alt,
+                "--native-levels {native}: {rel} hat sich verändert"
+            );
+        }
     }
 }
 
@@ -1213,7 +1656,10 @@ fn unbekannter_block_in_der_elternflaeche_bricht_vor_dem_schreiben_ab() {
 /// Stufen zeigen ganze Elternkacheln; damit alle Stufen denselben Stand
 /// zeigen, reicht auch die Basis so weit. Danach gleicht der Baum einem
 /// Vollexport der neuen Welt — sonst stünde ein Neubau neben dem
-/// Ausschnitt nur auf den gröberen Stufen.
+/// Ausschnitt nur auf den gröberen Stufen. Der neue Block liegt dafür
+/// ausserhalb der Basiskachel des Ausschnitts, in seiner gerundeten
+/// Fläche. Ohne native Stufen wird nicht gerundet; dann liegt er in der
+/// Basiskachel, und auch jede gröbere Stufe muss ihn zeigen.
 #[test]
 fn nachrendern_zeigt_auf_allen_stufen_denselben_stand() {
     let alt = tempdir();
@@ -1221,31 +1667,37 @@ fn nachrendern_zeigt_auf_allen_stufen_denselben_stand() {
         (44, 4, 8) => "minecraft:einfarbig",
         _ => "minecraft:air",
     });
-    let neu = tempdir();
-    common::write_world(neu.path(), &[(2, 0), (4, 0)], |x, y, z| match (x, y, z) {
-        (44, 4, 8) => "minecraft:einfarbig",
-        (76, 4, 8) => "minecraft:blauwuerfel",
-        _ => "minecraft:air",
-    });
+    for (native, block) in [("9", (76, 4, 8)), ("0", (46, 4, 8))] {
+        let neu = tempdir();
+        common::write_world(neu.path(), &[(2, 0), (4, 0)], move |x, y, z| {
+            match (x, y, z) {
+                (44, 4, 8) => "minecraft:einfarbig",
+                ort if ort == block => "minecraft:blauwuerfel",
+                _ => "minecraft:air",
+            }
+        });
 
-    let baum = tempdir();
-    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
-    gelungen(&tiles(
-        neu.path(),
-        baum.path(),
-        &["--scale", "16", "--center", "44", "8", "--size", "4"],
-    ));
-    let voll = tempdir();
-    gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
+        let schalter = ["--scale", "16", "--native-levels", native];
+        let baum = tempdir();
+        gelungen(&tiles(alt.path(), baum.path(), &schalter));
+        let ausschnitt = [&schalter[..], &["--center", "44", "8", "--size", "4"]].concat();
+        gelungen(&tiles(neu.path(), baum.path(), &ausschnitt));
+        let voll = tempdir();
+        gelungen(&tiles(neu.path(), voll.path(), &schalter));
 
-    let nachher = schnappschuss(baum.path());
-    let soll = schnappschuss(voll.path());
-    assert_eq!(
-        nachher.keys().collect::<Vec<_>>(),
-        soll.keys().collect::<Vec<_>>()
-    );
-    for (rel, inhalt) in &soll {
-        assert_eq!(&nachher[rel], inhalt, "{rel} zeigt einen anderen Stand");
+        let nachher = schnappschuss(baum.path());
+        let soll = schnappschuss(voll.path());
+        assert_eq!(
+            nachher.keys().collect::<Vec<_>>(),
+            soll.keys().collect::<Vec<_>>(),
+            "--native-levels {native}"
+        );
+        for (rel, inhalt) in &soll {
+            assert_eq!(
+                &nachher[rel], inhalt,
+                "--native-levels {native}: {rel} zeigt einen anderen Stand"
+            );
+        }
     }
 }
 
@@ -1297,6 +1749,68 @@ fn gewachsene_welt_behaelt_die_nummerierung() {
         );
     }
     assert!(!kacheln(baum.path(), 0).is_empty(), "Zoom 0 fehlt");
+}
+
+/// Kacheln und `map.json` werden getauscht, nicht überschrieben: wer eine
+/// Datei gerade liest, liest sie zu Ende, wie sie war, und ein Abbruch
+/// mitten im Schreiben hinterlässt die alte. Der Test hält die Basis und
+/// `map.json` offen, während ein zweiter Lauf eine veränderte, grössere
+/// Welt schreibt. Daneben bleibt keine eigene Datei übrig.
+#[test]
+fn schreiben_tauscht_die_datei() {
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0), (2, 2)], gelaende);
+    let neu = tempdir();
+    common::write_world(
+        neu.path(),
+        &[(0, 0), (2, 2), (6, 0)],
+        |x, y, z| match gelaende(x, y, z) {
+            "minecraft:blauwuerfel" => "minecraft:einfarbig",
+            block => block,
+        },
+    );
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    let karte = baum.path().join("map.json");
+    let offen: Vec<(PathBuf, Vec<u8>, std::fs::File)> = kacheln(baum.path(), max_zoom(baum.path()))
+        .into_values()
+        .chain([karte.clone()])
+        .map(|pfad| {
+            let vorher = std::fs::read(&pfad).unwrap();
+            let datei = std::fs::File::open(&pfad).unwrap();
+            (pfad, vorher, datei)
+        })
+        .collect();
+
+    gelungen(&tiles(neu.path(), baum.path(), &["--scale", "16"]));
+    let mut geaendert = Vec::new();
+    for (pfad, vorher, mut datei) in offen {
+        let mut gelesen = Vec::new();
+        datei.read_to_end(&mut gelesen).unwrap();
+        assert!(gelesen == vorher, "{} überschrieben", pfad.display());
+        if std::fs::read(&pfad).unwrap() != vorher {
+            geaendert.push(pfad);
+        }
+    }
+    assert!(
+        geaendert.contains(&karte) && geaendert.len() > 1,
+        "map.json und eine Kachel hätten sich ändern müssen: {geaendert:?}"
+    );
+
+    let mut reste = Vec::new();
+    let mut stapel = vec![baum.path().to_path_buf()];
+    while let Some(ordner) = stapel.pop() {
+        for eintrag in std::fs::read_dir(ordner).unwrap().flatten() {
+            if eintrag.path().is_dir() {
+                stapel.push(eintrag.path());
+            } else if !eintrag.file_name().to_string_lossy().ends_with(".webp")
+                && eintrag.file_name() != "map.json"
+            {
+                reste.push(eintrag.path());
+            }
+        }
+    }
+    assert!(reste.is_empty(), "{reste:?}");
 }
 
 /// Bricht der erste Lauf beim Schreiben der Kacheln ab, steht trotzdem
@@ -1362,10 +1876,10 @@ fn gescheiterter_lauf_legt_nichts_fest() {
 fn fremde_welt_wird_abgelehnt() {
     let erste = tempdir();
     common::write_world(erste.path(), &[(0, 0), (2, 2)], gelaende);
-    common::write_level_dat(erste.path(), 4_815_162_342);
+    common::write_wurzel(erste.path(), 4_815_162_342);
     let zweite = tempdir();
     common::write_world(zweite.path(), &[(0, 0)], gelaende);
-    common::write_level_dat(zweite.path(), 2_718_281_828);
+    common::write_wurzel(zweite.path(), 2_718_281_828);
 
     let out = tempdir();
     gelungen(&tiles(erste.path(), out.path(), &["--scale", "16"]));
@@ -1412,7 +1926,7 @@ fn alter_baum_ohne_kennung_wird_uebernommen() {
     let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
     assert!(karte.contains("\"world\": null"), "{karte}");
 
-    common::write_level_dat(welt.path(), 4_815_162_342);
+    common::write_wurzel(welt.path(), 4_815_162_342);
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
     assert!(
         !ausgabe.status.success(),
@@ -1451,7 +1965,7 @@ fn alter_baum_ohne_kennung_wird_uebernommen() {
 
     let fremd = tempdir();
     common::write_world(fremd.path(), &[(0, 0)], gelaende);
-    common::write_level_dat(fremd.path(), 2_718_281_828);
+    common::write_wurzel(fremd.path(), 2_718_281_828);
     assert!(
         !tiles(fremd.path(), out.path(), &["--scale", "16"])
             .status
@@ -1467,7 +1981,7 @@ fn alter_baum_ohne_kennung_wird_uebernommen() {
 fn alter_scale_nennt_den_ausweg() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
-    common::write_level_dat(welt.path(), 4_815_162_342);
+    common::write_wurzel(welt.path(), 4_815_162_342);
     let out = tempdir();
     std::fs::write(
         out.path().join("map.json"),
@@ -1489,8 +2003,9 @@ fn alter_scale_nennt_den_ausweg() {
 /// Dimension dazu: der Nether kommt nicht in den Baum der Oberwelt und die
 /// Oberwelt nicht in seinen. Die Oberwelt, einmal über die Wurzel und
 /// einmal über ihr Dimensionsverzeichnis, ist dieselbe Welt. Einer Kopie
-/// ohne level.dat rät die Meldung zur Wurzel statt zu einem neuen Baum,
-/// einer mit level.dat, aber ohne Seed, nicht noch einmal zur Wurzel.
+/// ohne level.dat rät die Meldung zur Wurzel statt zu einem neuen Baum, und
+/// zum Hochziehen, falls es `DIM-1` einer Welt vor 26.1 ist; einer mit
+/// level.dat, aber ohne Seed, nicht noch einmal zur Wurzel.
 #[test]
 fn dimensionen_haben_eigene_kennungen() {
     let welt = tempdir();
@@ -1498,7 +2013,7 @@ fn dimensionen_haben_eigene_kennungen() {
     let nether = welt.path().join("dimensions/minecraft/the_nether");
     common::write_world(&oberwelt, &[(0, 0)], gelaende);
     common::write_world(&nether, &[(0, 0)], gelaende);
-    common::write_level_dat(welt.path(), 4_815_162_342);
+    common::write_wurzel(welt.path(), 4_815_162_342);
 
     let baum = tempdir();
     gelungen(&tiles(&nether, baum.path(), &["--scale", "16"]));
@@ -1531,30 +2046,35 @@ fn dimensionen_haben_eigene_kennungen() {
         ohne_wurzel.contains("keine Weltwurzel mit level.dat"),
         "{ohne_wurzel}"
     );
+    assert!(ohne_wurzel.contains("--forceUpgrade"), "{ohne_wurzel}");
     assert!(!ohne_wurzel.contains("neues Verzeichnis"), "{ohne_wurzel}");
-    common::write_level_dat_ohne_seed(kopie.path());
+    common::write_level_dat(kopie.path());
     let ohne_seed = meldung();
     assert!(ohne_seed.contains("nennt keinen Seed"), "{ohne_seed}");
     assert!(!ohne_seed.contains("Wurzel richten"), "{ohne_seed}");
 }
 
 /// Ohne Seed nennt die Ausgabe jeden Ort, an dem er gesucht wurde, von der
-/// Datei der Dimension bis level.dat. Ein neuer Baum entsteht trotzdem,
-/// mit `"world": null`, und der Lauf sagt, warum.
+/// Datei der Dimension bis zu der der Paper-Oberwelt, und den Ausweg für
+/// eine Welt vor 26.1. Ein neuer Baum entsteht trotzdem, mit
+/// `"world": null`, und der Lauf sagt, warum.
 #[test]
 fn ohne_seed_nennt_jeden_ort() {
     let welt = tempdir();
     let nether = welt.path().join("dimensions/minecraft/the_nether");
     common::write_world(&nether, &[(0, 0)], gelaende);
-    common::write_level_dat_ohne_seed(welt.path());
+    common::write_level_dat(welt.path());
     let baum = tempdir();
     let ausgabe = tiles(&nether, baum.path(), &["--scale", "16"]);
     let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
     let orte = "weder in dimensions/minecraft/the_nether/data/minecraft/world_gen_settings.dat, \
-                data/minecraft/world_gen_settings.dat, \
-                dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat \
-                noch in level.dat";
+                data/minecraft/world_gen_settings.dat \
+                noch in dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat";
     assert!(text.contains(orte), "{text}");
+    assert!(
+        text.contains("mit Minecraft 26.2 und --forceUpgrade"),
+        "{text}"
+    );
     assert!(text.contains("\"world\": null"), "{text}");
     let karte = std::fs::read_to_string(baum.path().join("map.json")).unwrap();
     assert!(karte.contains("\"world\": null"), "{karte}");
@@ -1566,9 +2086,9 @@ fn ohne_seed_nennt_jeden_ort() {
 #[test]
 fn punkt_als_welt_hat_dieselbe_kennung() {
     let welt = tempdir();
-    let nether = welt.path().join("DIM-1");
+    let nether = welt.path().join("dimensions/minecraft/the_nether");
     common::write_world(&nether, &[(0, 0)], gelaende);
-    common::write_level_dat(welt.path(), 42);
+    common::write_wurzel(welt.path(), 42);
     let baum = tempdir();
     gelungen(&tiles(&nether, baum.path(), &["--scale", "16"]));
     let karte = || std::fs::read_to_string(baum.path().join("map.json")).unwrap();
@@ -1595,7 +2115,7 @@ fn punkt_als_welt_hat_dieselbe_kennung() {
 fn zwei_baeume_bekommen_verschiedene_salze() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
-    common::write_level_dat(welt.path(), 4_815_162_342);
+    common::write_wurzel(welt.path(), 4_815_162_342);
     let salz = |baum: &Path| {
         gelungen(&tiles(welt.path(), baum, &["--scale", "16"]));
         let karte = std::fs::read_to_string(baum.join("map.json")).unwrap();

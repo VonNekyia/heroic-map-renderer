@@ -287,10 +287,15 @@ berühren, und baut ihnen die Eltern neu, auch einer, dessen Vorlauf dort
 nichts mehr findet; einer mit `--prune` räumt dann auch die Kacheln ohne
 Chunk weg.
 
-`--resume` setzt einen abgebrochenen Lauf fort: vorhandene Basiskacheln
-bleiben stehen, gerendert wird nur, was fehlt, und die Zoomstufen entstehen
-danach über allen Basiskacheln. Für eine veränderte Welt ist das der falsche
-Schalter — dann rendert erst ein Lauf ohne ihn die alten Kacheln neu.
+`--resume` setzt einen abgebrochenen Lauf fort, und nur den: vorhandene
+Basiskacheln bleiben stehen, gerendert wird nur, was fehlt. Die nativen
+Stufen rendert der Lauf ganz neu, denn dort kann `--pyramid` verkleinerte
+Kacheln abgelegt haben, womöglich bevor die Basis darunter fertig war. Die
+Zoomstufen darüber entstehen danach über allen Basiskacheln. Der Schalter
+passt nur, wenn alle vorhandenen Kacheln aus dem abgebrochenen Lauf
+stammen: nach einer Änderung der Welt, neuen Assets oder einem neuen Pack
+behielte er jede alte Kachel, die der Lauf noch nicht erreicht hat. Dann
+rendert erst ein Lauf ohne ihn neu.
 
 ### Zoomstufen
 

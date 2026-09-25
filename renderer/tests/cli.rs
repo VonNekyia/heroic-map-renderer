@@ -1494,49 +1494,70 @@ fn native_in(dir: &Path) -> Option<u64> {
     info["nativeLevels"].as_u64()
 }
 
-/// `--resume` rendert nur, was fehlt, auf der Basis wie auf den nativen
-/// Stufen: vorhandene Kacheln bleiben unangetastet, gelöschte kommen
-/// wieder, und am Ende steht Byte für Byte dasselbe da wie nach einem Lauf
-/// in einem Stück. Rate und Grösse zählen nur, was der Lauf gerendert hat.
+/// `--resume` rendert auf der Basis nur, was fehlt: vorhandene Kacheln
+/// bleiben unangetastet, gelöschte kommen wieder. Die nativen Stufen
+/// rendert es ganz neu, denn dort kann `--pyramid` eine Kachel verkleinert
+/// haben, bevor die Basis darunter fertig war: hier aus den Kindern ohne
+/// das gelöschte. Am Ende steht Byte für Byte dasselbe da wie nach einem
+/// Lauf in einem Stück. Rate und Grösse zählen nur, was der Lauf gerendert
+/// hat.
 #[test]
 fn resume_rendert_nur_was_fehlt() {
     let welt = tempdir();
-    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    // Östlich vom Ursprung, damit Kacheln sich eine Elternkachel teilen: am
+    // Ursprung trennt die Pyramide Spalte -1 von Spalte 0.
+    let chunks: Vec<(i32, i32)> = (4..8).map(|x| (x, 0)).collect();
+    common::write_world(welt.path(), &chunks, gelaende);
     let out = tempdir();
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
     let soll = schnappschuss(out.path());
     let z = max_zoom(out.path());
-    let mut basis = kacheln(out.path(), z).into_values();
-    let mut nativ = kacheln(out.path(), z - 1).into_values();
-    assert!(basis.len() > 2 && nativ.len() > 1);
-
-    let (weg, bleibt) = (basis.next().unwrap(), basis.next().unwrap());
-    let (weg_nativ, bleibt_nativ) = (nativ.next().unwrap(), nativ.next().unwrap());
+    let basis = kacheln(out.path(), z);
+    let nativ = kacheln(out.path(), z - 1);
+    // Eine Basiskachel mit Geschwistern: ohne sie zeigt die Elternkachel
+    // noch etwas.
+    let kind = *basis
+        .keys()
+        .find(|tile| {
+            let eltern = tile.parent();
+            basis.keys().filter(|t| t.parent() == eltern).count() > 1
+        })
+        .expect("Geschwister auf der Basis");
+    let (weg, weg_nativ) = (basis[&kind].clone(), nativ[&kind.parent()].clone());
+    let bleibt = basis.iter().find(|(t, _)| **t != kind).unwrap().1.clone();
     let groesse = std::fs::metadata(&weg).unwrap().len();
     for pfad in [&weg, &weg_nativ] {
         std::fs::remove_file(pfad).unwrap();
     }
-    let vorher = [zeit_von(&bleibt), zeit_von(&bleibt_nativ)];
+    gelungen(&pyramide(out.path()));
+    let verkleinert = std::fs::read(&weg_nativ).expect("--pyramid baut die native Kachel");
+    let eltern = kind.parent();
+    assert_ne!(
+        verkleinert,
+        soll[&format!("{}/{}/{}.webp", z - 1, eltern.x, eltern.y)]
+    );
+    let vorher = zeit_von(&bleibt);
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8", "--resume"]);
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
     for erwartet in [
         "Kacheln:    1 geschrieben".to_string(),
-        format!("{} vorhandene Kacheln übersprungen", basis.len() + 1),
+        format!("{} vorhandene Kacheln übersprungen", basis.len() - 1),
         format!("{:.0} kB je Kachel", groesse as f64 / 1024.0),
-        format!("{} davon übersprungen", nativ.len() + 1),
+        format!("{} Kacheln nativ bei scale 4,", nativ.len()),
     ] {
         assert!(
             meldung.contains(&erwartet),
             "{erwartet} fehlt in: {meldung}"
         );
     }
-    assert!(
-        weg.is_file() && weg_nativ.is_file(),
-        "gelöschte Kacheln fehlen weiterhin"
+    assert!(weg.is_file(), "die gelöschte Basiskachel fehlt weiterhin");
+    assert_eq!(
+        zeit_von(&bleibt),
+        vorher,
+        "vorhandene Basiskachel neu gerendert"
     );
-    assert_eq!([zeit_von(&bleibt), zeit_von(&bleibt_nativ)], vorher);
     assert_eq!(schnappschuss(out.path()), soll);
 }
 

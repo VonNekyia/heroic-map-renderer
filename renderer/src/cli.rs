@@ -96,10 +96,11 @@ pub struct Args {
     #[arg(long, value_name = "N", requires = "tiles")]
     native_levels: Option<u32>,
 
-    /// Mit --tiles vorhandene Kacheln der Basis und der nativen Stufen
-    /// stehen lassen statt sie neu zu rendern: setzt einen abgebrochenen
-    /// Lauf fort. Die Kacheln nimmt der Lauf, wie sie sind; hat sich die
-    /// Welt seitdem geändert, rendert sie erst ein Lauf ohne den Schalter neu
+    /// Mit --tiles vorhandene Basiskacheln stehen lassen statt sie neu zu
+    /// rendern: setzt einen abgebrochenen Lauf fort, und nur den. Die
+    /// Kacheln nimmt der Lauf, wie sie sind; stammen sie aus einem älteren
+    /// Stand der Welt oder der Assets, bleiben sie das. Die nativen Stufen
+    /// rendert er ganz neu, dort kann --pyramid verkleinert haben
     #[arg(long, requires = "tiles")]
     resume: bool,
 
@@ -716,7 +717,6 @@ fn write_tiles(
         stufen,
         &waisen,
         &mut weg,
-        resume,
     )?;
     build_pyramid(dir, z, kandidaten, &waisen, &mut weg)?;
     if prune && !veraltet.is_empty() {
@@ -1371,6 +1371,10 @@ fn pruefe_bestand(
 /// [`build_pyramid`]. Dazu die Kacheln jeder nativen Stufe, die etwas
 /// zeigen. Leer gewordene Kacheln kommen nach `weg` und verschwinden erst
 /// am Ende des Laufs.
+///
+/// Auch mit `--resume` rendert es jede Kachel neu. Was auf einer nativen
+/// Stufe liegt, kann `--pyramid` verkleinert haben, womöglich bevor die
+/// Basis darunter fertig war; ansehen lässt sich einer Kachel das nicht.
 #[allow(clippy::too_many_arguments)]
 fn render_coarser(
     world: &World,
@@ -1383,7 +1387,6 @@ fn render_coarser(
     stufen: u32,
     waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
-    resume: bool,
 ) -> Result<(u32, BTreeSet<TileId>, Kacheln)> {
     let mut z = max_zoom;
     let mut scale = projection.scale();
@@ -1407,7 +1410,7 @@ fn render_coarser(
             world,
             &sprites,
             &reihe,
-            |tile| resume && tile_path(dir, z, tile).is_file(),
+            |_| false,
             false,
             |tile, image| -> Result<(bool, bool, usize)> {
                 let zeigt = image.pixels().any(|p| p.0[3] > 0);
@@ -1422,14 +1425,11 @@ fn render_coarser(
                 Ok((zeigt, true, schreibe(dir, z, tile, &image)?))
             },
         )?;
-        let (mut bytes, mut bleiben, mut uebersprungen) = (0usize, 0usize, 0usize);
-        for (tile, ergebnis) in stufe {
-            // Eine vorhandene Kachel bleibt, wie sie ist. Ob sie etwas
-            // zeigt, liest der Lauf nicht nach: --prune lässt sie stehen.
-            let (zeigt, bleibt, n) = ergebnis.unwrap_or_else(|| {
-                uebersprungen += 1;
-                (true, true, 0)
-            });
+        let (mut bytes, mut bleiben) = (0usize, 0usize);
+        for (tile, (zeigt, bleibt, n)) in stufe
+            .into_iter()
+            .filter_map(|(tile, ergebnis)| Some((tile, ergebnis?)))
+        {
             bytes += n;
             bleiben += bleibt as usize;
             if zeigt {
@@ -1439,13 +1439,8 @@ fn render_coarser(
                 weg.insert((z, tile));
             }
         }
-        let vorhanden = if resume {
-            format!(", {uebersprungen} davon übersprungen")
-        } else {
-            String::new()
-        };
         println!(
-            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}{vorhanden}, {:.1} MB in {:.1} s",
+            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}, {:.1} MB in {:.1} s",
             bytes as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );

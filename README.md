@@ -192,11 +192,11 @@ welche Blockstates vorkommen, und welche Kacheln überhaupt etwas zeigen. Erst
 danach steht die Sprite-Tabelle — und erst dann kann parallel gerendert
 werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
 Chunks werden deshalb mehrmals gelesen: vom Vorlauf, von der Basis und von
-jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. Der Vorlauf kostet für die
-ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes Sprite, das nicht
-selbst Alternative einer Blockstate ist: eines je Maske verdeckter
-Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu die Streifen
-an Wasserstufen.
+jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. Der
+Vorlauf kostet für die ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes
+Sprite, das nicht selbst Alternative einer Blockstate ist: eines je Maske
+verdeckter Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu
+die Streifen an Wasserstufen.
 
 Gerendert wird mit Rayon über die Kacheln. Geteilt wird nur die
 unveränderliche Sprite-Tabelle; jede Kachel legt sich ihren Chunk- und
@@ -227,16 +227,17 @@ Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/
 ```
 
 Der Ausschnitt wird dabei aufgerundet, bevor der Vorlauf irgendetwas
-ausschliesst, und zwar auf ganze Kacheln der gröbsten nativen Stufe — hier
-mit drei Stufen bei scale 32 auf 2048 Pixel, aus 2048 mal 2048 werden hier 4096 mal 4096. Die
-nativen Stufen zeigen ganze Elternkacheln, und alle Stufen sollen denselben
-Stand der Welt zeigen: sonst stünde ein Neubau neben dem Ausschnitt nur auf
-den gröberen. Umgekehrt sammelt der Vorlauf Blockstates nur aus Chunks, die
-tatsächlich in eine ausgegebene Kachel fallen, und was die gerundete Fläche
-gar nicht berühren kann, dekodiert er nicht einmal: hier 788 Chunks statt
-der 8192 aller Regionen, die sie schneiden. Ein kleiner Ausschnitt braucht
-deshalb keine Assets für Blöcke am anderen Ende der Welt; fehlt eines in
-seiner Fläche, bricht der Lauf ab, bevor er die erste Kachel schreibt.
+ausschliesst, und zwar auf ganze Kacheln der gröbsten nativen Stufe — mit
+drei Stufen bei scale 32 auf 2048 Pixel, aus 2048 mal 2048 werden hier 4096
+mal 4096. Die nativen Stufen zeigen ganze Elternkacheln, und alle Stufen
+sollen denselben Stand der Welt zeigen: sonst stünde ein Neubau neben dem
+Ausschnitt nur auf den gröberen. Umgekehrt sammelt der Vorlauf Blockstates
+nur aus Chunks, die tatsächlich in eine ausgegebene Kachel fallen, und was
+die gerundete Fläche gar nicht berühren kann, dekodiert er nicht einmal:
+hier 788 Chunks statt der 8192 aller Regionen, die sie schneiden. Ein
+kleiner Ausschnitt braucht deshalb keine Assets für Blöcke am anderen Ende
+der Welt; fehlt eines in seiner Fläche, bricht der Lauf ab, bevor er die
+erste Kachel schreibt.
 
 Die Kacheln liegen als `tiles/<z>/<x>/<y>.webp`; x und y dürfen negativ sein,
 weil der Blockursprung mitten in der Welt liegt. Wird eine Kachel bei einem
@@ -384,8 +385,8 @@ fertigstellt, ist so jünger als seine Elternkachel, und der nächste
 Aufruf holt es. Zwei Sekunden, weil keine gängige Uhr eines Dateisystems
 gröber zählt; eine Kachel aus diesen zwei Sekunden baut der nächste
 Aufruf nur noch einmal ein. Eine Kachel, die jemand anders seit der Liste
-geschrieben hat, etwa der Render seine nativen Stufen, lässt er stehen.
-Eine unlesbare Kachel lässt er aus und nennt sie. Nicht bemerkt wird ein
+geschrieben hat, etwa der Render seine nativen Stufen, bleibt stehen. Eine
+unlesbare Kachel lässt der Aufruf aus und nennt sie. Nicht bemerkt wird ein
 einzelnes Kind, das von aussen verschwindet, solange Geschwister bleiben,
 und eine Kachel, die mit ihrer alten Zeit aus einer Sicherung
 zurückkommt. Dann die gröberen Stufen löschen, und `--pyramid` baut sie

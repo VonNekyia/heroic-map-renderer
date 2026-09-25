@@ -206,7 +206,8 @@ die Streifen an Wasserstufen.
 Gerendert wird mit Rayon über die Kacheln. Geteilt wird nur die
 unveränderliche Sprite-Tabelle; jede Kachel legt sich ihren Chunk- und
 Regionscache neu an. Benachbarte Kacheln dekodieren dieselben Chunks also
-mehrfach — das ist der grösste Kostenblock des Renders, siehe unten.
+mehrfach, siehe unten. Wie viel davon die Zeit einer Kachel ausmacht, ist
+nicht gemessen; vor einer Optimierung dort gehört ein Profil.
 
 `--center` und `--size` schränken auf einen Ausschnitt ein:
 
@@ -382,8 +383,9 @@ Neu gebaut wird nur, was sich geändert hat: eine Kachel, unter der ein
 Kind jünger ist als sie oder in diesem Aufruf neu gebaut oder entfernt
 wurde, und eine, die fehlt. Eine Kachel ohne Kinder verschwindet.
 Verglichen wird auf jeder Stufe, ein abgebrochener Aufruf heilt also im
-nächsten. Die Zeiten stehen im Verzeichnis, eine Abfrage je Kachel
-braucht es nicht. Der Aufruf lässt sich deshalb wiederholen, während ein
+nächsten. Die Zeiten kommen aus der Liste jeder Stufe: unter Windows
+stehen sie im Verzeichnis, unter Linux kostet jede Kachel einen `statx`,
+aber kein Öffnen. Der Aufruf lässt sich deshalb wiederholen, während ein
 Vollrender noch Stunden läuft: die Karte im Browser zeigt, was fertig ist,
 und wächst mit jedem Aufruf.
 
@@ -402,7 +404,8 @@ Eine, die seit der Liste verschwunden ist, gehört nicht mehr dazu. Nicht
 bemerkt wird ein einzelnes Kind, das von aussen verschwindet, solange
 Geschwister bleiben, und eine Kachel, die mit ihrer alten Zeit aus einer
 Sicherung zurückkommt. Dann die gröberen Stufen löschen, und `--pyramid`
-baut sie ganz neu.
+baut sie ganz neu. Bei einem Baum mit nativen Stufen sind die danach
+verkleinert, bis ein Export sie wieder rendert.
 
 ### `map.json`
 
@@ -505,7 +508,7 @@ Der erste Vollrender einer grossen Serverwelt hat die Rechnung geerdet:
 | Vorlauf | 259 s |
 | Basiskacheln | 2 504 461, rund 120 kB je Kachel, also ~300 GB |
 | Rate | 44 Kacheln/s auf 24 Threads, davon nur 9 Kerne frei |
-| Basisstufe | 2 504 461 / 44 s, knapp 16 Stunden |
+| Basisstufe | 2 504 461 Kacheln bei 44 je Sekunde, knapp 16 Stunden |
 
 Das ist keine Eigenschaft der Welt, sondern des Renderers. Eine Kachel
 kostet rund 0,2 CPU-Sekunden, 9 Kerne für 44 Kacheln je Sekunde; jeder
@@ -879,7 +882,7 @@ die nach seinem Start entstanden sind, etwa durch `--pyramid`. Aus einem
 echten Verzeichnis dort liefert es nur, was beim Start dalag, bis zum
 nächsten Neustart. Neue Dateien meldet ihm sonst sein Watcher, und den hat
 `vite.config.ts` von den Kacheln abgekoppelt: er beobachtete jede der
-Millionen Dateien und verbrennte Kerne, die der Render braucht.
+Millionen Dateien und verbrannte Kerne, die der Render braucht.
 
 Ohne echte Kacheln zeigt `http://localhost:5173/?tiles=/tiles-demo` einen
 kleinen Kachelbaum, der mit im Repository liegt — 7 Dateien, 6,6 kB. Er ist

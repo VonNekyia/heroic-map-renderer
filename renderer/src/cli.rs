@@ -93,17 +93,13 @@ pub struct Args {
     /// hergibt: bei 32 drei. Hält Blockkanten scharf, aber jede Stufe ist
     /// ein weiterer Durchlauf durch die Welt. Vorgabe 0; ein bestehender
     /// Baum behält die Zahl aus seiner map.json
-    #[arg(long, value_name = "N")]
+    #[arg(long, value_name = "N", requires = "tiles")]
     native_levels: Option<u32>,
 
     /// Die Zoomstufen und map.json dieses Kachelbaums aus seinen
     /// Basiskacheln nachbauen, ohne Welt und ohne Assets. Baut nur, was
     /// sich seit dem letzten Mal geändert hat, auch während ein Render läuft
-    #[arg(
-        long,
-        value_name = "VERZEICHNIS",
-        conflicts_with_all = ["tiles", "render", "size", "center", "scale", "native_levels"]
-    )]
+    #[arg(long, value_name = "VERZEICHNIS", exclusive = true)]
     pyramid: Option<PathBuf>,
 }
 
@@ -1270,7 +1266,8 @@ fn pruefe_bestand(
 }
 
 /// Rendert `stufen` gröbere Zoomstufen aus der Welt: so viele, wie
-/// `--native-levels` verlangt, höchstens [`native_levels`], denn ein Block
+/// `--native-levels` verlangt oder `map.json` des Baums nennt, siehe
+/// [`native_stufen`], höchstens [`native_levels`], denn ein Block
 /// muss noch mindestens [`NATIVE_MIN_SCALE`] Pixel breit sein und auf
 /// ganzen Pixeln liegen.
 ///

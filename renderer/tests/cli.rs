@@ -510,7 +510,9 @@ fn waise_auf_nativer_stufe_bekommt_eltern() {
 /// Auch über einer Fläche ohne Chunk baut ein Lauf ohne --prune fehlende
 /// Eltern nach. So steht der Baum, wenn ein Lauf mit --prune dort beim
 /// Aufräumen abbrach; der Test entfernt die Stufe über dem Stein von Hand.
-/// Früher brach der Lauf vorher mit „keine Kachel enthält etwas“ ab.
+/// Früher brach der Lauf vorher mit „keine Kachel enthält etwas“ ab. Mit
+/// nativen Stufen rundet der Ausschnitt auf ihr Raster auf und heilt beide
+/// Waisen, ohne sie nur die in seiner eigenen Kachel.
 #[test]
 fn leerer_ausschnitt_heilt_waisen() {
     let block = |x, y, z| match (x, y, z) {
@@ -522,22 +524,29 @@ fn leerer_ausschnitt_heilt_waisen() {
     common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
     let neu = tempdir();
     common::write_world(neu.path(), &[(0, 0)], block);
-    let baum = tempdir();
-    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
-    let z = max_zoom(baum.path());
-    for x in [2, 3] {
-        std::fs::remove_file(baum.path().join(format!("{}/{x}/1.webp", z - 1))).unwrap();
-    }
-    assert_eq!(
-        waisen(baum.path()),
-        [format!("{z}/5/3"), format!("{z}/6/3")]
-    );
+    for native in ["9", "0"] {
+        let schalter = ["--scale", "16", "--native-levels", native];
+        let baum = tempdir();
+        gelungen(&tiles(alt.path(), baum.path(), &schalter));
+        let z = max_zoom(baum.path());
+        for x in [2, 3] {
+            std::fs::remove_file(baum.path().join(format!("{}/{x}/1.webp", z - 1))).unwrap();
+        }
+        assert_eq!(
+            waisen(baum.path()),
+            [format!("{z}/5/3"), format!("{z}/6/3")]
+        );
 
-    let ausschnitt = ["--scale", "16", "--center", "200", "8", "--size", "1"];
-    let ausgabe = tiles(neu.path(), baum.path(), &ausschnitt);
-    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
-    assert!(text.contains("sie bleiben stehen"), "{text}");
-    assert_eq!(waisen(baum.path()), Vec::<String>::new());
+        let ausschnitt = [&schalter[..], &["--center", "200", "8", "--size", "1"]].concat();
+        let ausgabe = tiles(neu.path(), baum.path(), &ausschnitt);
+        let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+        assert!(text.contains("sie bleiben stehen"), "{text}");
+        let bleiben = match native {
+            "0" => vec![format!("{z}/5/3")],
+            _ => Vec::new(),
+        };
+        assert_eq!(waisen(baum.path()), bleiben, "--native-levels {native}");
+    }
 }
 
 /// Ein Ausschnitt heilt nur Waisen, die er berührt; eine direkt daneben
@@ -577,7 +586,7 @@ fn ausschnitt_laesst_waisen_daneben_stehen() {
 /// Chunk (1, -1) fort, bei scale 16 in Basiskachel (1, -1), bei 32 in
 /// (2, -1). Seine Elternkachel teilt er mit Vorlaufkacheln des ersten
 /// Chunks, die leer rendern: bei 16 auf der ersten nativen Stufe, bei 32
-/// auf der zweiten.
+/// auf der zweiten. Ohne native Stufen verkleinert der Lauf auch den Stein.
 #[test]
 fn ohne_prune_bleibt_keine_kachel_ohne_eltern() {
     let block = |x, y, z| match (x, y, z) {
@@ -594,19 +603,17 @@ fn ohne_prune_bleibt_keine_kachel_ohne_eltern() {
         ("16", TileId { x: 1, y: -1 }),
         ("32", TileId { x: 2, y: -1 }),
     ] {
-        let baum = tempdir();
-        gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
-        let z = max_zoom(baum.path());
-        assert!(
-            kacheln(baum.path(), z).contains_key(&stein),
-            "scale {scale}"
-        );
-        gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));
-        assert!(
-            kacheln(baum.path(), z).contains_key(&stein),
-            "scale {scale}"
-        );
-        assert_eq!(waisen(baum.path()), Vec::<String>::new(), "scale {scale}");
+        for native in ["9", "0"] {
+            let schalter = ["--scale", scale, "--native-levels", native];
+            let fall = format!("scale {scale}, --native-levels {native}");
+            let baum = tempdir();
+            gelungen(&tiles(alt.path(), baum.path(), &schalter));
+            let z = max_zoom(baum.path());
+            assert!(kacheln(baum.path(), z).contains_key(&stein), "{fall}");
+            gelungen(&tiles(neu.path(), baum.path(), &schalter));
+            assert!(kacheln(baum.path(), z).contains_key(&stein), "{fall}");
+            assert_eq!(waisen(baum.path()), Vec::<String>::new(), "{fall}");
+        }
     }
 }
 
@@ -945,21 +952,24 @@ fn abbruch_in_ohne_veraltete_entfernt_nichts() {
     }
 }
 
-/// Ohne --tiles gibt es nichts aufzuräumen; still übergangen hiesse der
-/// Schalter etwas, das er nicht tut.
+/// Ohne --tiles gibt es nichts aufzuräumen und keine Stufe nativ zu
+/// rendern; still übergangen hiesse ein Schalter etwas, das er nicht tut.
 #[test]
 fn prune_braucht_tiles() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], zwei_bloecke);
-    let ausgabe = cli(&[
-        OsStr::new("--world"),
-        welt.path().as_os_str(),
-        OsStr::new("--scan"),
-        OsStr::new("--prune"),
-    ]);
-    assert!(!ausgabe.status.success());
-    let text = String::from_utf8_lossy(&ausgabe.stderr);
-    assert!(text.contains("--tiles"), "{text}");
+    for schalter in [&["--prune"][..], &["--native-levels", "1"]] {
+        let mut args = vec![
+            OsStr::new("--world"),
+            welt.path().as_os_str(),
+            OsStr::new("--scan"),
+        ];
+        args.extend(schalter.iter().map(OsStr::new));
+        let ausgabe = cli(&args);
+        assert!(!ausgabe.status.success(), "{schalter:?}");
+        let text = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(text.contains("--tiles"), "{schalter:?}: {text}");
+    }
 }
 
 /// Ein Ausschnitt darf nicht an einem Block scheitern, der weit ausserhalb
@@ -1356,7 +1366,8 @@ fn pyramide_laesst_fremdes_stehen() {
 /// `--pyramid` braucht nur das Verzeichnis, aber eines mit Baum. Ohne
 /// `map.json`, oder wenn auf deren Basisstufe keine Kachel liegt, ändert
 /// es nichts; ein vergessenes `--scale` kann es so gar nicht geben.
-/// Schalter, die nur zum Export gehören, lehnt es ab.
+/// Jeden weiteren Schalter lehnt es ab, auch Welt und Assets, die es nur
+/// laden würde.
 #[test]
 fn pyramide_braucht_einen_baum() {
     let leer = tempdir();
@@ -1392,6 +1403,10 @@ fn pyramide_braucht_einen_baum() {
         &["--scale", "16"],
         &["--native-levels", "1"],
         &["--tiles", "anderswo"],
+        &["--prune"],
+        &["--world", "anderswo"],
+        &["--assets", "anderswo"],
+        &["--data", "anderswo"],
     ] {
         let mut args = vec![OsStr::new("--pyramid"), out.path().as_os_str()];
         args.extend(schalter.iter().map(OsStr::new));
@@ -1560,6 +1575,8 @@ fn zoomstufen_haengen_am_massstab() {
 /// schreibt sie mit durchsichtigen Lücken zu, und `map.json` schrumpft auf
 /// den Ausschnitt. Und der Lauf darf seine Kacheln nicht für verwaist
 /// halten, nur weil der Vorlauf ihn nicht sieht, auch nicht mit --prune.
+/// Mit nativen Stufen und ohne, dann mit einem Ausschnitt, der nicht
+/// aufgerundet wird.
 #[test]
 fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
     let welt = tempdir();
@@ -1575,33 +1592,38 @@ fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
         },
     );
 
-    let out = tempdir();
-    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
-    let vorher = schnappschuss(out.path());
-    assert!(
-        vorher.len() > 3,
-        "zu wenig zum Vergleichen: {:?}",
-        vorher.keys().collect::<Vec<_>>()
-    );
+    for native in ["9", "0"] {
+        let schalter = ["--scale", "16", "--native-levels", native];
+        let out = tempdir();
+        gelungen(&tiles(welt.path(), out.path(), &schalter));
+        let vorher = schnappschuss(out.path());
+        assert!(
+            vorher.len() > 3,
+            "zu wenig zum Vergleichen: {:?}",
+            vorher.keys().collect::<Vec<_>>()
+        );
 
-    // Dieselbe Welt, nur ein Ausschnitt um den ersten Block, in dasselbe
-    // Verzeichnis.
-    gelungen(&tiles(
-        welt.path(),
-        out.path(),
-        &[
-            "--scale", "16", "--center", "44", "8", "--size", "4", "--prune",
-        ],
-    ));
+        // Dieselbe Welt, nur ein Ausschnitt um den ersten Block, in dasselbe
+        // Verzeichnis.
+        let ausschnitt = [
+            &schalter[..],
+            &["--center", "44", "8", "--size", "4", "--prune"],
+        ]
+        .concat();
+        gelungen(&tiles(welt.path(), out.path(), &ausschnitt));
 
-    let nachher = schnappschuss(out.path());
-    assert_eq!(
-        nachher.keys().collect::<Vec<_>>(),
-        vorher.keys().collect::<Vec<_>>(),
-        "der Baum hat andere Dateien als vorher"
-    );
-    for (rel, alt) in &vorher {
-        assert_eq!(&nachher[rel], alt, "{rel} hat sich verändert");
+        let nachher = schnappschuss(out.path());
+        assert_eq!(
+            nachher.keys().collect::<Vec<_>>(),
+            vorher.keys().collect::<Vec<_>>(),
+            "--native-levels {native}: der Baum hat andere Dateien als vorher"
+        );
+        for (rel, alt) in &vorher {
+            assert_eq!(
+                &nachher[rel], alt,
+                "--native-levels {native}: {rel} hat sich verändert"
+            );
+        }
     }
 }
 
@@ -1640,7 +1662,10 @@ fn unbekannter_block_in_der_elternflaeche_bricht_vor_dem_schreiben_ab() {
 /// Stufen zeigen ganze Elternkacheln; damit alle Stufen denselben Stand
 /// zeigen, reicht auch die Basis so weit. Danach gleicht der Baum einem
 /// Vollexport der neuen Welt — sonst stünde ein Neubau neben dem
-/// Ausschnitt nur auf den gröberen Stufen.
+/// Ausschnitt nur auf den gröberen Stufen. Der neue Block liegt dafür
+/// ausserhalb der Basiskachel des Ausschnitts, in seiner gerundeten
+/// Fläche. Ohne native Stufen wird nicht gerundet; dann liegt er in der
+/// Basiskachel, und auch jede gröbere Stufe muss ihn zeigen.
 #[test]
 fn nachrendern_zeigt_auf_allen_stufen_denselben_stand() {
     let alt = tempdir();
@@ -1648,31 +1673,37 @@ fn nachrendern_zeigt_auf_allen_stufen_denselben_stand() {
         (44, 4, 8) => "minecraft:einfarbig",
         _ => "minecraft:air",
     });
-    let neu = tempdir();
-    common::write_world(neu.path(), &[(2, 0), (4, 0)], |x, y, z| match (x, y, z) {
-        (44, 4, 8) => "minecraft:einfarbig",
-        (76, 4, 8) => "minecraft:blauwuerfel",
-        _ => "minecraft:air",
-    });
+    for (native, block) in [("9", (76, 4, 8)), ("0", (46, 4, 8))] {
+        let neu = tempdir();
+        common::write_world(neu.path(), &[(2, 0), (4, 0)], move |x, y, z| {
+            match (x, y, z) {
+                (44, 4, 8) => "minecraft:einfarbig",
+                ort if ort == block => "minecraft:blauwuerfel",
+                _ => "minecraft:air",
+            }
+        });
 
-    let baum = tempdir();
-    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
-    gelungen(&tiles(
-        neu.path(),
-        baum.path(),
-        &["--scale", "16", "--center", "44", "8", "--size", "4"],
-    ));
-    let voll = tempdir();
-    gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
+        let schalter = ["--scale", "16", "--native-levels", native];
+        let baum = tempdir();
+        gelungen(&tiles(alt.path(), baum.path(), &schalter));
+        let ausschnitt = [&schalter[..], &["--center", "44", "8", "--size", "4"]].concat();
+        gelungen(&tiles(neu.path(), baum.path(), &ausschnitt));
+        let voll = tempdir();
+        gelungen(&tiles(neu.path(), voll.path(), &schalter));
 
-    let nachher = schnappschuss(baum.path());
-    let soll = schnappschuss(voll.path());
-    assert_eq!(
-        nachher.keys().collect::<Vec<_>>(),
-        soll.keys().collect::<Vec<_>>()
-    );
-    for (rel, inhalt) in &soll {
-        assert_eq!(&nachher[rel], inhalt, "{rel} zeigt einen anderen Stand");
+        let nachher = schnappschuss(baum.path());
+        let soll = schnappschuss(voll.path());
+        assert_eq!(
+            nachher.keys().collect::<Vec<_>>(),
+            soll.keys().collect::<Vec<_>>(),
+            "--native-levels {native}"
+        );
+        for (rel, inhalt) in &soll {
+            assert_eq!(
+                &nachher[rel], inhalt,
+                "--native-levels {native}: {rel} zeigt einen anderen Stand"
+            );
+        }
     }
 }
 

@@ -291,20 +291,23 @@ fn blit(
         return;
     }
 
+    // Zeilenanfänge in usize: bei einer Leinwand über 23 170 Pixel Kante
+    // liefe `y * Breite * 4` in i32 über.
+    let (w, cw) = (w as usize, cw as usize);
     let src = sprite.image.as_raw();
     let dst: &mut [u8] = canvas;
     for py in y0..y1 {
-        let row = &src[(py * w * 4) as usize..][..(w * 4) as usize];
-        let drow = &mut dst[((origin_y + py) * cw * 4) as usize..][..(cw * 4) as usize];
+        let row = &src[py as usize * w * 4..][..w * 4];
+        let drow = &mut dst[(origin_y + py) as usize * cw * 4..][..cw * 4];
         for px in x0..x1 {
-            let s = &row[(px * 4) as usize..][..4];
+            let s = &row[px as usize * 4..][..4];
             if s[3] == 0 {
                 continue;
             }
             if skip != 0 && cover.at(sprite.offset.0 + px, sprite.offset.1 + py) & skip != 0 {
                 continue;
             }
-            let d = &mut drow[((origin_x + px) * 4) as usize..][..4];
+            let d = &mut drow[(origin_x + px) as usize * 4..][..4];
             if s[3] == 255 {
                 d.copy_from_slice(s);
             } else {

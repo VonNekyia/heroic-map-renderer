@@ -292,8 +292,9 @@ Basiskacheln bleiben stehen, gerendert wird nur, was fehlt. Als fehlend
 zählt auch eine Kachel, die ein Stromausfall leer oder voller Nullen
 hinterlassen hat; der Kopf jeder WebP-Datei nennt ihre Länge. Die nativen
 Stufen rendert der Lauf ganz neu, denn dort kann `--pyramid` verkleinerte
-Kacheln abgelegt haben, womöglich bevor die Basis darunter fertig war. Die
-Zoomstufen darüber entstehen danach über allen Basiskacheln. Der Schalter
+Kacheln abgelegt haben, womöglich bevor die Basis darunter fertig war. Von
+den verkleinerten Stufen darüber baut er nur neu, was fehlt, nicht ganz ist
+oder älter als eines seiner Kinder, wie `--pyramid`. Der Schalter
 passt nur, wenn alle vorhandenen Kacheln aus dem abgebrochenen Lauf
 stammen: nach einer Änderung der Welt, neuen Assets oder einem neuen Pack
 behielte er jede alte Kachel, die der Lauf noch nicht erreicht hat. Dann

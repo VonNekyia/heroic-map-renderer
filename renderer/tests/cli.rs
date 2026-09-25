@@ -5,7 +5,7 @@
 
 mod common;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -1567,6 +1567,72 @@ fn resume_rendert_nur_was_fehlt() {
         vorher,
         "vorhandene Basiskachel neu gerendert"
     );
+    assert_eq!(schnappschuss(out.path()), soll);
+}
+
+/// Beim Fortsetzen baut die Pyramide nur neu, was veraltet ist: hier die
+/// Vorfahren einer fehlenden Basiskachel und eine Elternkachel, die ein
+/// Stromausfall voller Nullen hinterlassen hat, samt ihren Vorfahren. Alle
+/// anderen behalten ihre Zeit, und am Ende steht derselbe Baum da wie nach
+/// einem Lauf in einem Stück.
+#[test]
+fn resume_baut_nur_veraltete_eltern() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = tempdir();
+    let args = ["--scale", "8", "--native-levels", "0"];
+    gelungen(&tiles(welt.path(), out.path(), &args));
+    let soll = schnappschuss(out.path());
+    let basis = max_zoom(out.path());
+    assert!(basis > 1, "keine Pyramide zu prüfen");
+    altern(out.path());
+
+    let kind = *kacheln(out.path(), basis).keys().next().unwrap();
+    std::fs::remove_file(kachel_pfad(out.path(), basis, kind)).unwrap();
+    let genullt = *kacheln(out.path(), basis - 1)
+        .keys()
+        .find(|tile| **tile != kind.parent())
+        .expect("zweite Elternkachel");
+    let pfad = kachel_pfad(out.path(), basis - 1, genullt);
+    let damals = zeit_von(&pfad);
+    let laenge = std::fs::metadata(&pfad).unwrap().len() as usize;
+    std::fs::write(&pfad, vec![0u8; laenge]).unwrap();
+    setze_zeit(&pfad, damals);
+
+    let mut neu = BTreeSet::from([(basis - 1, genullt)]);
+    for (mut z, mut tile) in [(basis, kind), (basis - 1, genullt)] {
+        while z > 0 {
+            (z, tile) = (z - 1, tile.parent());
+            neu.insert((z, tile));
+        }
+    }
+    let vorher: BTreeMap<(u32, TileId), SystemTime> = (0..basis)
+        .flat_map(|z| {
+            kacheln(out.path(), z)
+                .into_iter()
+                .map(move |(tile, pfad)| ((z, tile), zeit_von(&pfad)))
+        })
+        .collect();
+
+    let ausgabe = tiles(
+        welt.path(),
+        out.path(),
+        &[&args[..], &["--resume"]].concat(),
+    );
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    let aktuell = format!("{} Kacheln waren aktuell", vorher.len() - neu.len());
+    assert!(meldung.contains(&aktuell), "{aktuell} fehlt in: {meldung}");
+    for ((z, tile), zeit) in &vorher {
+        let jetzt = zeit_von(&kachel_pfad(out.path(), *z, *tile));
+        assert_eq!(
+            jetzt != *zeit,
+            neu.contains(&(*z, *tile)),
+            "Zoom {z}, {tile:?}"
+        );
+    }
     assert_eq!(schnappschuss(out.path()), soll);
 }
 

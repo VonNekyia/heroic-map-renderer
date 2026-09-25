@@ -719,7 +719,7 @@ fn write_tiles(
         &waisen,
         &mut weg,
     )?;
-    build_pyramid(dir, z, kandidaten, &waisen, &mut weg)?;
+    build_pyramid(dir, z, kandidaten, &waisen, &mut weg, resume)?;
     if prune && !veraltet.is_empty() {
         ohne_veraltete(dir, max_zoom, stufen, &veraltet, &gezeigt, &mut weg)?;
     }
@@ -1050,28 +1050,55 @@ fn schreibe_info(dir: &Path, info: &MapInfo, zeit: Option<SystemTime>) -> Result
 /// ihre eigenen leer gewordenen dazu. Basiskacheln ohne Chunk nimmt erst
 /// danach [`ohne_veraltete`] heraus. `waisen` bekommen ihre Elternkachel
 /// neu.
+///
+/// Mit `--resume` stehen die meisten Eltern schon, aus dem abgebrochenen
+/// Lauf oder aus `--pyramid` daneben. Neu baut es dann nur, was
+/// [`veraltet`] ist; bei 90 % übersprungenen Basiskacheln wären es sonst
+/// trotzdem alle Eltern, bei einer grossen Welt Hunderttausende.
 fn build_pyramid(
     dir: &Path,
     max_zoom: u32,
     kandidaten: BTreeSet<TileId>,
     waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
+    resume: bool,
 ) -> Result<()> {
     let started = Instant::now();
     let mut kandidaten = kandidaten;
-    let mut bytes = 0usize;
-    let mut gesamt = 0usize;
+    let (mut bytes, mut gesamt, mut aktuell) = (0usize, 0usize, 0usize);
+    let mut kinder = if resume {
+        vorhandene_mit_zeit(dir, max_zoom)?
+    } else {
+        BTreeMap::new()
+    };
 
     for z in (0..max_zoom).rev() {
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
-        let (geschrieben, leer) = setze_zusammen(dir, z, &kandidaten, weg)?;
+        let veraltete: BTreeSet<TileId>;
+        let bauen = if resume {
+            let eltern = vorhandene_mit_zeit(dir, z)?;
+            let gelistet = SystemTime::now();
+            veraltete = kandidaten
+                .par_iter()
+                .filter(|parent| veraltet(dir, z, **parent, &eltern, &kinder, weg, gelistet))
+                .copied()
+                .collect();
+            aktuell += kandidaten.len() - veraltete.len();
+            &veraltete
+        } else {
+            &kandidaten
+        };
+        let (geschrieben, leer) = setze_zusammen(dir, z, bauen, weg)?;
         leer.par_iter()
             .try_for_each(|parent| verblasse(dir, z, *parent))?;
         weg.extend(leer.into_iter().map(|parent| (z, parent)));
         bytes += geschrieben.iter().sum::<usize>();
         gesamt += geschrieben.len();
         println!("Zoom {z:>2}:     {} Kacheln", geschrieben.len());
+        if resume {
+            kinder = vorhandene_mit_zeit(dir, z)?;
+        }
     }
 
     if max_zoom > 0 {
@@ -1080,8 +1107,38 @@ fn build_pyramid(
             bytes as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
+        if resume {
+            println!("            {aktuell} Kacheln waren aktuell und bleiben (--resume)");
+        }
     }
     Ok(())
+}
+
+/// Ob `--resume` diese Elternkachel neu bauen muss, nach der Regel von
+/// [`rebuild_pyramid`]: sie fehlt, ein Kind auf der Platte ist jünger als
+/// sie oder kommt weg, oder ihre Zeit liegt mehr als zwei Sekunden nach der
+/// Liste und stammt von einer Uhr, die vorging. Dazu, wenn sie nicht
+/// [`ganz`] ist. Ein Kind, das leer gerendert hat und nie dastand, ändert
+/// an ihr nichts. `eltern` und `kinder` sind die Listen der beiden Stufen
+/// mit Zeiten.
+fn veraltet(
+    dir: &Path,
+    z: u32,
+    parent: TileId,
+    eltern: &BTreeMap<TileId, SystemTime>,
+    kinder: &BTreeMap<TileId, SystemTime>,
+    weg: &BTreeSet<(u32, TileId)>,
+    gelistet: SystemTime,
+) -> bool {
+    let Some(&zeit) = eltern.get(&parent) else {
+        return true;
+    };
+    parent.children().iter().any(|kind| {
+        kinder
+            .get(kind)
+            .is_some_and(|&k| k > zeit || weg.contains(&(z + 1, *kind)))
+    }) || zeit > gelistet + Duration::from_secs(2)
+        || !ganz(&tile_path(dir, z, parent))
 }
 
 /// Setzt jede dieser Elternkacheln der Stufe z aus ihren Kindern auf der

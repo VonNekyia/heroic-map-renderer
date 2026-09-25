@@ -120,8 +120,10 @@ fn verdecken_aendert_kein_pixel() {
 
 /// Der schnelle Weg über Kandidaten und Bitmasken muss Byte für Byte das
 /// Bild der Referenz liefern, die jeden Block im Band abläuft. Die Szene
-/// reicht über vier Chunks und drei Sections, damit auch die Ränder zählen,
-/// an denen eine Maske aus dem Nachbarchunk oder der Section darüber kommt:
+/// reicht über vier Chunks in zwei Biomen und vier Sections, die unterste
+/// einheitlich aus Stein, damit auch die Ränder zählen, an denen eine Maske
+/// aus dem Nachbarchunk oder der Section darüber kommt, und die Fassungen
+/// je Biom, die `in_biome` wählt: Gras an einer Ecke,
 /// ein Becken über Chunk- und Section-Grenzen, mit einem Dach, unter dem
 /// die Oberfläche tiefer liegt als der Boden des Dachs, und zwei
 /// Wassertaschen unter Stein, die zu einer Seite an Stein grenzen und zur
@@ -143,7 +145,8 @@ fn verdecken_aendert_kein_pixel() {
 fn schneller_weg_gleicht_der_referenz() {
     let welt = |x: i32, y: i32, z: i32| -> &'static str {
         match (x, y, z) {
-            (_, 0..=2, _) => "minecraft:einfarbig",
+            (0..=5, 2, 26..=31) | (26..=31, 2, 0..=2) => "minecraft:grass_block",
+            (_, ..=2, _) => "minecraft:einfarbig",
             (27, 31, 21) | (27, 31..=32, 22) | (24, 31, 26) | (25, 31..=32, 26) => {
                 "minecraft:water"
             }
@@ -176,14 +179,26 @@ fn schneller_weg_gleicht_der_referenz() {
             _ => "minecraft:air",
         }
     };
+    let biom = |cx: i32, _: i32| {
+        Some(if cx == 0 {
+            "minecraft:plains"
+        } else {
+            "minecraft:frozen"
+        })
+    };
     let dir = tempdir();
-    common::write_world_sections(dir.path(), &[(0, 0), (1, 0), (0, 1), (1, 1)], 0..=2, welt);
+    let chunks = [(0, 0), (1, 0), (0, 1), (1, 1)];
+    common::write_world_sections(dir.path(), &chunks, -1..=2, welt, biom);
     let world = World::open(dir.path()).unwrap();
-    let y_range = (0, 47);
+    let y_range = (-16, 47);
+    let daten = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
     for scale in (4..=32).step_by(4) {
         let projection = Projection::new(scale);
         let survey = survey(&world, projection, y_range, None).unwrap();
-        let sprites = SpriteSet::build_in(&mut assets(), &survey.states, projection).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&daten).unwrap();
+        let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        assert!(sprites.variants() > 0, "keine Fassung je Biom");
         let s = scale as i32;
         let ganz = ScreenRect {
             x: -17 * s,

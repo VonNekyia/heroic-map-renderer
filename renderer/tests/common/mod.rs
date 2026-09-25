@@ -192,7 +192,9 @@ pub fn write_world(
 }
 
 /// Wie `write_world`, dazu ein Biom je Chunk — oder keines, dann fehlt der
-/// Eintrag wie in Welten vor 1.18.
+/// Eintrag. So eine Section liest Vanilla 26.2 als plains
+/// (`SerializableChunkData.parse` nimmt dann `createForBiomes()`), der
+/// Renderer genauso.
 pub fn write_world_in(
     dir: &Path,
     chunks: &[(i32, i32)],
@@ -202,15 +204,16 @@ pub fn write_world_in(
     write_region(dir, chunks, 0..=0, block, biome)
 }
 
-/// Wie `write_world`, aber mit diesen Sections je Chunk statt nur Y=0: für
-/// Szenen über Section-Grenzen hinweg.
+/// Wie `write_world_in`, aber mit diesen Sections je Chunk statt nur Y=0:
+/// für Szenen über Section-Grenzen hinweg.
 pub fn write_world_sections(
     dir: &Path,
     chunks: &[(i32, i32)],
     sections: std::ops::RangeInclusive<i8>,
     block: impl Fn(i32, i32, i32) -> &'static str,
+    biome: impl Fn(i32, i32) -> Option<&'static str>,
 ) -> PathBuf {
-    write_region(dir, chunks, sections, block, |_, _| None)
+    write_region(dir, chunks, sections, block, biome)
 }
 
 fn write_region(

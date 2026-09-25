@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -98,9 +98,11 @@ pub struct Args {
 
     /// Mit --tiles vorhandene Basiskacheln stehen lassen statt sie neu zu
     /// rendern: setzt einen abgebrochenen Lauf fort, und nur den. Die
-    /// Kacheln nimmt der Lauf, wie sie sind; stammen sie aus einem älteren
-    /// Stand der Welt oder der Assets, bleiben sie das. Die nativen Stufen
-    /// rendert er ganz neu, dort kann --pyramid verkleinert haben
+    /// Kacheln nimmt der Lauf ungelesen, wie sie sind; stammen sie aus einem
+    /// älteren Stand der Welt oder der Assets, bleiben sie das. Neu rendert
+    /// er nur die aus den letzten zwei Minuten vor der jüngsten, die kann ein
+    /// Stromausfall getroffen haben, und die nativen Stufen, dort kann
+    /// --pyramid verkleinert haben
     #[arg(long, requires = "tiles")]
     resume: bool,
 
@@ -575,10 +577,20 @@ fn write_tiles(
     // gerundet. Gesucht wird, bevor ein leerer Vorlauf abbricht: über
     // einer ganz zurückgesetzten Fläche findet er nichts, aufzuräumen gibt
     // es dort trotzdem. Die Basis liest der Lauf dafür einmal ganz, sie
-    // gibt auch die Grenzen in map.json.
+    // gibt auch die Grenzen in map.json; mit --resume samt Zeiten, aus
+    // ihnen folgt, was er neu rendert.
     let kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
     let flaeche_auf = |z: u32| flaeche(bounds, max_zoom, z);
-    let basis = vorhandene(dir, max_zoom, None)?;
+    let zeiten = if resume {
+        Some(vorhandene_mit_zeit(dir, max_zoom)?)
+    } else {
+        None
+    };
+    let gelistet = SystemTime::now();
+    let basis = match &zeiten {
+        Some(zeiten) => zeiten.keys().copied().collect(),
+        None => vorhandene(dir, max_zoom, None)?,
+    };
     let bestehend: BTreeSet<TileId> = basis
         .iter()
         .filter(|tile| in_flaeche(flaeche_auf(max_zoom).as_ref(), tile))
@@ -656,12 +668,24 @@ fn write_tiles(
     // schon nichts mehr (`verblasse`). Bricht der Lauf vorher ab, hat er
     // nichts entfernt. Eine leere Elternkachel über einem Kind, das bleibt,
     // bleibt durchsichtig stehen. Mit --resume bleibt, was in der Liste der
-    // Basis steht und ganz ist.
+    // Basis steht, ausser den frischen Kacheln (`frische`).
+    let bleiben: BTreeSet<TileId> = match &zeiten {
+        Some(zeiten) => basis
+            .difference(&frische(zeiten, gelistet))
+            .copied()
+            .collect(),
+        None => BTreeSet::new(),
+    };
+    let reihe: Vec<TileId> = survey
+        .tiles
+        .iter()
+        .filter(|tile| !bleiben.contains(tile))
+        .copied()
+        .collect();
     let stufe = rendere(
         world,
         &sprites,
-        &survey.tiles,
-        |tile| resume && basis.contains(&tile) && ganz(&tile_path(dir, max_zoom, tile)),
+        &reihe,
         true,
         |tile, image| -> Result<Option<usize>> {
             // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
@@ -674,15 +698,15 @@ fn write_tiles(
         },
     )?;
     let mut leer = Vec::new();
-    let (mut bytes, mut uebersprungen) = (0usize, 0usize);
+    let mut bytes = 0usize;
     for (tile, ergebnis) in stufe {
         match ergebnis {
-            None => uebersprungen += 1,
-            Some(None) => leer.push(tile),
-            Some(Some(n)) => bytes += n,
+            None => leer.push(tile),
+            Some(n) => bytes += n,
         }
     }
-    let gerendert = gesamt - uebersprungen;
+    let gerendert = reihe.len();
+    let uebersprungen = gesamt - gerendert;
     let geschrieben = gerendert - leer.len();
     let mut weg: BTreeSet<(u32, TileId)> = leer.iter().map(|tile| (max_zoom, *tile)).collect();
 
@@ -1078,10 +1102,10 @@ fn build_pyramid(
         let veraltete: BTreeSet<TileId>;
         let bauen = if resume {
             let eltern = vorhandene_mit_zeit(dir, z)?;
-            let gelistet = SystemTime::now();
+            let frisch = frische(&eltern, SystemTime::now());
             veraltete = kandidaten
-                .par_iter()
-                .filter(|parent| veraltet(dir, z, **parent, &eltern, &kinder, weg, gelistet))
+                .iter()
+                .filter(|parent| veraltet(z, **parent, &eltern, &frisch, &kinder, weg))
                 .copied()
                 .collect();
             aktuell += kandidaten.len() - veraltete.len();
@@ -1115,30 +1139,27 @@ fn build_pyramid(
 }
 
 /// Ob `--resume` diese Elternkachel neu bauen muss, nach der Regel von
-/// [`rebuild_pyramid`]: sie fehlt, ein Kind auf der Platte ist jünger als
-/// sie oder kommt weg, oder ihre Zeit liegt mehr als zwei Sekunden nach der
-/// Liste und stammt von einer Uhr, die vorging. Dazu, wenn sie nicht
-/// [`ganz`] ist. Ein Kind, das leer gerendert hat und nie dastand, ändert
-/// an ihr nichts. `eltern` und `kinder` sind die Listen der beiden Stufen
-/// mit Zeiten.
+/// [`rebuild_pyramid`]: sie fehlt, oder ein Kind auf der Platte ist jünger
+/// als sie oder kommt weg. Dazu, wenn [`frische`] sie trifft (`frisch`).
+/// Ein Kind, das leer gerendert hat und nie dastand, ändert an ihr nichts.
+/// `eltern` und `kinder` sind die Listen der beiden Stufen mit Zeiten.
 fn veraltet(
-    dir: &Path,
     z: u32,
     parent: TileId,
     eltern: &BTreeMap<TileId, SystemTime>,
+    frisch: &BTreeSet<TileId>,
     kinder: &BTreeMap<TileId, SystemTime>,
     weg: &BTreeSet<(u32, TileId)>,
-    gelistet: SystemTime,
 ) -> bool {
     let Some(&zeit) = eltern.get(&parent) else {
         return true;
     };
-    parent.children().iter().any(|kind| {
-        kinder
-            .get(kind)
-            .is_some_and(|&k| k > zeit || weg.contains(&(z + 1, *kind)))
-    }) || zeit > gelistet + Duration::from_secs(2)
-        || !ganz(&tile_path(dir, z, parent))
+    frisch.contains(&parent)
+        || parent.children().iter().any(|kind| {
+            kinder
+                .get(kind)
+                .is_some_and(|&k| k > zeit || weg.contains(&(z + 1, *kind)))
+        })
 }
 
 /// Setzt jede dieser Elternkacheln der Stufe z aus ihren Kindern auf der
@@ -1468,7 +1489,6 @@ fn render_coarser(
             world,
             &sprites,
             &reihe,
-            |_| false,
             false,
             |tile, image| -> Result<(bool, bool, usize)> {
                 let zeigt = image.pixels().any(|p| p.0[3] > 0);
@@ -1484,10 +1504,7 @@ fn render_coarser(
             },
         )?;
         let (mut bytes, mut bleiben) = (0usize, 0usize);
-        for (tile, (zeigt, bleibt, n)) in stufe
-            .into_iter()
-            .filter_map(|(tile, ergebnis)| Some((tile, ergebnis?)))
-        {
+        for (tile, (zeigt, bleibt, n)) in stufe {
             bytes += n;
             bleiben += bleibt as usize;
             if zeigt {
@@ -1517,31 +1534,24 @@ fn render_coarser(
 /// Cache: mit 24 Threads lud jede Kachel wieder ihre hundert Chunks. Feste
 /// Stapel halten die Nachbarn zusammen.
 ///
-/// Eine Kachel, für die `vorhanden` gilt, rendert es nicht; für sie steht
-/// `None` im Ergebnis. Mit `melden` gibt es alle 200 Kacheln den Stand aus.
+/// Mit `melden` gibt es alle 200 Kacheln den Stand aus.
 fn rendere<T: Send>(
     world: &World,
     sprites: &SpriteSet,
     tiles: &[TileId],
-    vorhanden: impl Fn(TileId) -> bool + Sync,
     melden: bool,
     ablegen: impl Fn(TileId, RgbaImage) -> Result<T> + Sync,
-) -> Result<Vec<(TileId, Option<T>)>> {
+) -> Result<Vec<(TileId, T)>> {
     let fertig = AtomicUsize::new(0);
     let gesamt = tiles.len();
     let stapel = tiles
         .par_chunks(batch_size(gesamt))
-        .map(|stapel| -> Result<Vec<(TileId, Option<T>)>> {
+        .map(|stapel| -> Result<Vec<(TileId, T)>> {
             let mut chunks = ChunkCache::new(world, sprites);
             let mut out = Vec::with_capacity(stapel.len());
             for &tile in stapel {
-                let ergebnis = if vorhanden(tile) {
-                    None
-                } else {
-                    let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
-                    Some(ablegen(tile, image)?)
-                };
-                out.push((tile, ergebnis));
+                let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
+                out.push((tile, ablegen(tile, image)?));
                 // Gezählt wird, was fertig ist: "N/N Kacheln" steht erst da,
                 // wenn keine mehr läuft.
                 let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
@@ -1769,21 +1779,35 @@ fn tausche(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> std::io::Resul
     geschrieben
 }
 
-/// Ob eine Kachel ganz auf der Platte steht. `tausche` wartet nicht, bis
-/// die Daten dort sind; nach einem Stromausfall kurz danach steht eine
-/// Kachel womöglich leer unter ihrem Namen, unter ext4 etwa, oder in voller
-/// Länge und nur aus Nullen, unter NTFS. Der Kopf einer WebP-Datei nennt
-/// ihre Länge; ein Blick auf seine zwölf Byte genügt.
-fn ganz(path: &Path) -> bool {
-    let Ok(mut datei) = File::open(path) else {
-        return false;
-    };
-    let laenge = datei.metadata().map_or(0, |m| m.len());
-    let mut kopf = [0u8; 12];
-    datei.read_exact(&mut kopf).is_ok()
-        && kopf.starts_with(b"RIFF")
-        && kopf.ends_with(b"WEBP")
-        && u64::from(u32::from_le_bytes([kopf[4], kopf[5], kopf[6], kopf[7]])) + 8 == laenge
+/// Wie lange vor der jüngsten Kachel einer Stufe ein Stromausfall eine
+/// Kachel noch getroffen haben kann, siehe [`frische`].
+const FRISCH: Duration = Duration::from_secs(120);
+
+/// Die Kacheln aus dieser Liste einer Stufe, die `--resume` nicht ungelesen
+/// übernimmt: die aus den letzten [`FRISCH`] vor der jüngsten und alle
+/// danach.
+///
+/// `tausche` wartet nicht, bis die Daten auf der Platte sind; das System
+/// schreibt sie nach Sekunden, unter Linux nach bis zu einer halben Minute.
+/// Fällt vorher der Strom aus, steht eine Kachel womöglich leer unter ihrem
+/// Namen, voller Nullen oder zerrissen: mit gutem Kopf, in voller Länge und
+/// mit Nullen dahinter. Ansehen lässt sich ihr das nicht sicher; auch der
+/// Dekoder liest zwei von drei zerrissenen ohne Fehler, als falsches Bild.
+/// Ältere Kacheln hat das System längst geschrieben. Als jüngste zählt keine
+/// mit einer Zeit nach der Liste (`gelistet`): die stammt von einer Uhr, die
+/// vorging, und neben ihr wäre keine andere frisch.
+fn frische(zeiten: &BTreeMap<TileId, SystemTime>, gelistet: SystemTime) -> BTreeSet<TileId> {
+    let grenze = gelistet + Duration::from_secs(2);
+    let juengste = zeiten
+        .values()
+        .copied()
+        .filter(|&zeit| zeit <= grenze)
+        .max();
+    zeiten
+        .iter()
+        .filter(|&(_, &zeit)| juengste.is_none_or(|j| zeit + FRISCH > j))
+        .map(|(&tile, _)| tile)
+        .collect()
 }
 
 fn lies(path: &Path) -> Result<RgbaImage> {
@@ -2218,28 +2242,27 @@ mod tests {
         assert!(!tile_path(dir, 0, kind.parent()).exists());
     }
 
-    /// Ganz ist eine Kachel, wie `schreibe` sie ablegt, nicht aber eine
-    /// leere, eine voller Nullen oder eine abgeschnittene, wie sie ein
-    /// Stromausfall hinterlässt.
+    /// Frisch sind die Kacheln aus den zwei Minuten vor der jüngsten und die
+    /// aus der Zukunft. Die zählen für die jüngste nicht mit, sonst wäre
+    /// neben ihnen keine frisch; gibt es nur solche, sind alle frisch.
     #[test]
-    fn nur_eine_ganze_kachel_ist_ganz() {
-        let dir = tempfile::tempdir().unwrap();
-        let tile = TileId { x: 0, y: 0 };
-        let mut bild = RgbaImage::new(TILE, TILE);
-        bild.put_pixel(7, 9, Rgba([200, 100, 50, 255]));
-        schreibe(dir.path(), 0, tile, &bild).unwrap();
-        let pfad = tile_path(dir.path(), 0, tile);
-        assert!(ganz(&pfad));
-        let bytes = std::fs::read(&pfad).unwrap();
-        for kaputt in [
-            Vec::new(),
-            vec![0; bytes.len()],
-            bytes[..bytes.len() - 1].to_vec(),
-        ] {
-            std::fs::write(&pfad, &kaputt).unwrap();
-            assert!(!ganz(&pfad), "{} Byte", kaputt.len());
-        }
-        assert!(!ganz(&dir.path().join("fehlt.webp")));
+    fn frisch_sind_die_letzten_zwei_minuten() {
+        let jetzt = SystemTime::now();
+        let tile = |x| TileId { x, y: 0 };
+        let vor = |sekunden| jetzt - Duration::from_secs(sekunden);
+        let zeiten = BTreeMap::from([
+            (tile(0), vor(3600)),
+            (tile(1), vor(600 + 121)),
+            (tile(2), vor(600 + 119)),
+            (tile(3), vor(600)),
+            (tile(4), jetzt + Duration::from_secs(3600)),
+        ]);
+        assert_eq!(
+            frische(&zeiten, jetzt),
+            BTreeSet::from([tile(2), tile(3), tile(4)])
+        );
+        let zukunft = BTreeMap::from([(tile(4), zeiten[&tile(4)])]);
+        assert_eq!(frische(&zukunft, jetzt), BTreeSet::from([tile(4)]));
     }
 
     /// Entfernt wird eine Kachel nur, wenn sie noch so dasteht, wie die

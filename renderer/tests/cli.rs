@@ -1102,6 +1102,25 @@ fn altern(dir: &Path) {
     }
 }
 
+/// Gibt jeder Kachel eine eigene Zeit, als wäre der Baum über Tage
+/// entstanden: je Stufe der Reihe nach drei Minuten auseinander, jede Stufe
+/// einen Tag nach der darunter, die aus `zuletzt` als jüngste ihrer Stufe.
+/// So trifft `--resume` als frisch je Stufe nur die jüngste, und jedes Kind
+/// ist deutlich älter als seine Eltern.
+fn staffeln(dir: &Path, zuletzt: &BTreeSet<(u32, TileId)>) {
+    let max = max_zoom(dir);
+    let tag = Duration::from_secs(86_400);
+    let beginn = SystemTime::now() - tag * (max + 2);
+    for z in 0..=max {
+        let mut reihe: Vec<(TileId, PathBuf)> = kacheln(dir, z).into_iter().collect();
+        reihe.sort_by_key(|(tile, _)| zuletzt.contains(&(z, *tile)));
+        for (i, (_, pfad)) in reihe.iter().enumerate() {
+            let zeit = beginn + tag * (max - z) + Duration::from_secs(180) * i as u32;
+            setze_zeit(pfad, zeit);
+        }
+    }
+}
+
 /// Wann die Datei zuletzt geschrieben wurde.
 fn zeit_von(pfad: &Path) -> SystemTime {
     std::fs::metadata(pfad).unwrap().modified().unwrap()
@@ -1495,12 +1514,13 @@ fn native_in(dir: &Path) -> Option<u64> {
 }
 
 /// `--resume` rendert auf der Basis nur, was fehlt: vorhandene Kacheln
-/// bleiben unangetastet, gelöschte kommen wieder, ebenso eine, die ein
-/// Stromausfall mit Nullen hinterlassen hat. Die nativen Stufen rendert es
-/// ganz neu, denn dort kann `--pyramid` eine Kachel verkleinert haben,
-/// bevor die Basis darunter fertig war: hier aus den Kindern ohne das
-/// gelöschte. Am Ende steht Byte für Byte dasselbe da wie nach einem Lauf
-/// in einem Stück. Rate und Grösse zählen nur, was der Lauf gerendert hat.
+/// bleiben unangetastet, gelöschte kommen wieder, ebenso die jüngste, die
+/// ein Stromausfall zerrissen hat: mit gutem Kopf, in voller Länge und mit
+/// Nullen in der zweiten Hälfte. Die nativen Stufen rendert es ganz neu,
+/// denn dort kann `--pyramid` eine Kachel verkleinert haben, bevor die
+/// Basis darunter fertig war: hier aus den Kindern ohne das gelöschte. Am
+/// Ende steht Byte für Byte dasselbe da wie nach einem Lauf in einem Stück.
+/// Rate und Grösse zählen nur, was der Lauf gerendert hat.
 #[test]
 fn resume_rendert_nur_was_fehlt() {
     let welt = tempdir();
@@ -1528,12 +1548,12 @@ fn resume_rendert_nur_was_fehlt() {
         .iter()
         .filter(|(t, _)| **t != kind)
         .map(|(_, p)| p.clone());
-    let (bleibt, genullt) = (
+    let (bleibt, zerrissen) = (
         andere.next().unwrap(),
         andere.next().expect("drei Basiskacheln"),
     );
     let groesse = |pfad: &Path| std::fs::metadata(pfad).unwrap().len();
-    let neu = groesse(&weg) + groesse(&genullt);
+    let neu = groesse(&weg) + groesse(&zerrissen);
     for pfad in [&weg, &weg_nativ] {
         std::fs::remove_file(pfad).unwrap();
     }
@@ -1544,9 +1564,18 @@ fn resume_rendert_nur_was_fehlt() {
         verkleinert,
         soll[&format!("{}/{}/{}.webp", z - 1, eltern.x, eltern.y)]
     );
-    std::fs::write(&genullt, vec![0u8; groesse(&genullt) as usize]).unwrap();
+    // Der Lauf brach vor einer Stunde ab. Zuletzt schrieb er diese Kachel,
+    // und der Strom fiel aus, bevor ihre zweite Hälfte auf der Platte stand.
+    let mut bytes = std::fs::read(&zerrissen).unwrap();
+    let haelfte = bytes.len() / 2;
+    bytes[haelfte..].fill(0);
+    std::fs::write(&zerrissen, bytes).unwrap();
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for pfad in basis.values().filter(|pfad| pfad.is_file()) {
+        setze_zeit(pfad, damals);
+    }
+    setze_zeit(&zerrissen, damals + Duration::from_secs(600));
     let vorher = zeit_von(&bleibt);
-    std::thread::sleep(std::time::Duration::from_millis(50));
 
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8", "--resume"]);
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
@@ -1572,9 +1601,11 @@ fn resume_rendert_nur_was_fehlt() {
 
 /// Beim Fortsetzen baut die Pyramide nur neu, was veraltet ist: hier die
 /// Vorfahren einer fehlenden Basiskachel und eine Elternkachel, die ein
-/// Stromausfall voller Nullen hinterlassen hat, samt ihren Vorfahren. Alle
-/// anderen behalten ihre Zeit, und am Ende steht derselbe Baum da wie nach
-/// einem Lauf in einem Stück.
+/// Stromausfall zerrissen hat, samt ihren Vorfahren. Die Zeiten sind über
+/// Tage gestaffelt wie in einem grossen Baum, frisch ist je Stufe nur die
+/// jüngste: darüber die zerrissene und ihre Vorfahren, auf der Basis ein
+/// Geschwister der fehlenden. Alle anderen behalten ihre Zeit, und am Ende
+/// steht derselbe Baum da wie nach einem Lauf in einem Stück.
 #[test]
 fn resume_baut_nur_veraltete_eltern() {
     let welt = tempdir();
@@ -1588,27 +1619,40 @@ fn resume_baut_nur_veraltete_eltern() {
     let soll = schnappschuss(out.path());
     let basis = max_zoom(out.path());
     assert!(basis > 1, "keine Pyramide zu prüfen");
-    altern(out.path());
 
-    let kind = *kacheln(out.path(), basis).keys().next().unwrap();
-    std::fs::remove_file(kachel_pfad(out.path(), basis, kind)).unwrap();
-    let genullt = *kacheln(out.path(), basis - 1)
+    let unten = kacheln(out.path(), basis);
+    let (kind, geschwister) = unten
+        .keys()
+        .find_map(|tile| {
+            let bruder = unten
+                .keys()
+                .find(|t| *t != tile && t.parent() == tile.parent())?;
+            Some((*tile, *bruder))
+        })
+        .expect("Geschwister auf der Basis");
+    std::fs::remove_file(&unten[&kind]).unwrap();
+    let zerrissen = *kacheln(out.path(), basis - 1)
         .keys()
         .find(|tile| **tile != kind.parent())
         .expect("zweite Elternkachel");
-    let pfad = kachel_pfad(out.path(), basis - 1, genullt);
-    let damals = zeit_von(&pfad);
-    let laenge = std::fs::metadata(&pfad).unwrap().len() as usize;
-    std::fs::write(&pfad, vec![0u8; laenge]).unwrap();
-    setze_zeit(&pfad, damals);
+    let pfad = kachel_pfad(out.path(), basis - 1, zerrissen);
+    let mut bytes = std::fs::read(&pfad).unwrap();
+    let haelfte = bytes.len() / 2;
+    bytes[haelfte..].fill(0);
+    std::fs::write(&pfad, bytes).unwrap();
+    let vorfahren = |z: u32, tile: TileId| {
+        std::iter::successors(Some((z, tile)), |&(z, tile)| {
+            (z > 0).then(|| (z - 1, tile.parent()))
+        })
+    };
+    let mut zuletzt: BTreeSet<(u32, TileId)> = vorfahren(basis - 1, zerrissen).collect();
+    zuletzt.insert((basis, geschwister));
+    staffeln(out.path(), &zuletzt);
 
-    let mut neu = BTreeSet::from([(basis - 1, genullt)]);
-    for (mut z, mut tile) in [(basis, kind), (basis - 1, genullt)] {
-        while z > 0 {
-            (z, tile) = (z - 1, tile.parent());
-            neu.insert((z, tile));
-        }
-    }
+    let neu: BTreeSet<(u32, TileId)> = vorfahren(basis, kind)
+        .skip(1)
+        .chain(vorfahren(basis - 1, zerrissen))
+        .collect();
     let vorher: BTreeMap<(u32, TileId), SystemTime> = (0..basis)
         .flat_map(|z| {
             kacheln(out.path(), z)

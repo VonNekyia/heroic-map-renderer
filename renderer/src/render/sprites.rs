@@ -83,30 +83,29 @@ pub struct SpriteSet {
 struct Masks {
     outline: Vec<(i32, i32)>,
     top: Vec<(i32, i32)>,
-    /// Dieselben Pixel wie `outline`, zum Nachschlagen.
-    inside: HashSet<(i32, i32)>,
 }
 
 impl Masks {
     fn new(textures: &Textures, projection: Projection) -> Masks {
-        let outline = pixels_of(textures, projection, block(16.0, false));
         Masks {
-            inside: outline.iter().copied().collect(),
-            outline,
+            outline: pixels_of(textures, projection, block(16.0, false)),
             top: pixels_of(textures, projection, block(16.0, true)),
         }
     }
 
-    /// Liegt jeder sichtbare Pixel des Sprites im Umriss?
+    /// Liegt jeder sichtbare Pixel des Sprites im Umriss? Gezählt statt
+    /// nachgeschlagen: Jede Stelle des Umrisses kommt einmal vor, also sind
+    /// die sichtbaren Pixel dort genau dann alle, wenn keiner daneben liegt.
     fn contains(&self, sprite: &Sprite) -> bool {
-        sprite
-            .image
-            .enumerate_pixels()
-            .filter(|(_, _, pixel)| pixel.0[3] > 0)
-            .all(|(x, y, _)| {
-                let pos = (sprite.offset.0 + x as i32, sprite.offset.1 + y as i32);
-                self.inside.contains(&pos)
-            })
+        let (w, h) = sprite.image.dimensions();
+        let sichtbar = |(x, y): &(i32, i32)| {
+            let (px, py) = (x - sprite.offset.0, y - sprite.offset.1);
+            (0..w as i32).contains(&px)
+                && (0..h as i32).contains(&py)
+                && sprite.image.get_pixel(px as u32, py as u32).0[3] > 0
+        };
+        let alle = sprite.image.pixels().filter(|p| p.0[3] > 0).count();
+        self.outline.iter().filter(|pos| sichtbar(pos)).count() == alle
     }
 }
 

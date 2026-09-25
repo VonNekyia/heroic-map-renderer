@@ -128,15 +128,22 @@ impl PackedIndices {
     /// Erster Index, der über die Palette hinauszeigt.
     ///
     /// Der Scan entfällt, wenn die Bitbreite gar keinen zu großen Index
-    /// darstellen kann — das ist bei jeder Palette mit Zweierpotenz-Größe der
-    /// Fall und damit der häufigste Ausgang.
+    /// darstellen kann: wenn die Palette sie ganz füllt. Blöcke haben
+    /// mindestens 4 Bit, das sind Paletten mit 16, 32, 64 … Einträgen. Eine
+    /// Section mit 2 bis 15 Blockstates geht alle Einträge durch, über
+    /// `for_each` ohne Division je Eintrag; früher aufhören ginge nur bei
+    /// kaputten Daten.
     pub fn first_index_beyond(&self, entries: usize, palette_len: usize) -> Option<usize> {
         if palette_len >= 1usize << self.bits {
             return None;
         }
-        (0..entries)
-            .map(|i| self.get(i))
-            .find(|&i| i >= palette_len)
+        let mut found = None;
+        self.for_each(entries, |_, index| {
+            if found.is_none() && index >= palette_len {
+                found = Some(index);
+            }
+        });
+        found
     }
 
     /// Index an Position `i`. Liefert 0 statt zu panicken, falls die Datei
@@ -249,6 +256,29 @@ mod tests {
         for (i, index) in seen {
             assert_eq!(index, packed.get(i), "Index {i}");
         }
+    }
+
+    /// `first_index_beyond` findet denselben Index wie ein Durchgang über
+    /// `get`, und keinen, wenn die Palette die Bitbreite füllt.
+    #[test]
+    fn erster_index_ueber_der_palette() {
+        let data: Vec<i64> = (1..=7u64)
+            .map(|k| 0x9E37_79B9_7F4A_7C15u64.wrapping_mul(k) as i64)
+            .collect();
+        for len in [17, 20, 31, 32] {
+            let packed = PackedIndices::new(data.clone(), len, 4);
+            let erwartet = (0..84).map(|i| packed.get(i)).find(|&i| i >= len);
+            assert_eq!(
+                packed.first_index_beyond(84, len),
+                erwartet,
+                "{len} Einträge"
+            );
+        }
+        assert!(
+            PackedIndices::new(data, 20, 4)
+                .first_index_beyond(84, 20)
+                .is_some()
+        );
     }
 
     #[test]

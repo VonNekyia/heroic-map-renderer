@@ -1874,13 +1874,18 @@ mod tests {
 
     /// Fremd ist nur, was nach dem Beginn und vor der Liste entstand, und
     /// stehen bleibt es nur auf nativen Stufen. Der Baum hat Basis 3 und
-    /// zwei native Stufen; der Beginn liegt eine Stunde zurück, so lässt
-    /// sich jede Zeit von Hand setzen:
+    /// scale 16, `map.json` nennt keine Zahl, wie in master: also zwei
+    /// native Stufen. Der Beginn liegt eine Stunde zurück, so lässt sich jede
+    /// Zeit von Hand setzen:
     /// - N auf Zoom 2 ist nativ, fremd und älter als sein Kind: bleibt.
-    /// - M daneben ist alt, sein Kind jünger: wird neu gebaut.
+    /// - M daneben stammt aus der Sekunde vor dem Beginn, sein Kind ist
+    ///   jünger: wird neu gebaut.
     /// - Q auf Zoom 1 ist nativ, liegt aber in der Zukunft: wird mit M neu.
     /// - R auf Zoom 0 ist fremd, aber verkleinert: wird mit Q neu.
-    /// - `map.json` in der Zukunft wird ersetzt, eine fremde bleibt.
+    /// - `map.json` in der Zukunft wird ersetzt.
+    ///
+    /// Danach nennt `map.json` 0 native Stufen und ist selbst fremd: sie
+    /// bleibt, und M, jetzt fremd, aber verkleinert, wird wieder neu.
     #[test]
     fn fremd_nur_auf_nativen_stufen() {
         let dir = tempfile::tempdir().unwrap();
@@ -1888,7 +1893,7 @@ mod tests {
         let jetzt = SystemTime::now();
         let stunde = Duration::from_secs(3600);
         let (beginn, spaeter) = (jetzt - stunde, jetzt + stunde);
-        let (alt, mitte) = (jetzt - 2 * stunde, jetzt - stunde / 2);
+        let mitte = jetzt - stunde / 2;
         let minute = Duration::from_secs(60);
         let kachel = |z: u32, x: i32, farbe: [u8; 4], zeit: SystemTime| {
             let tile = TileId { x, y: 0 };
@@ -1909,17 +1914,18 @@ mod tests {
             pfad
         };
         let grau = [90, 90, 90, 255];
+        let sekunde = Duration::from_secs(1);
         kachel(3, 0, grau, mitte + minute);
-        kachel(3, 2, grau, alt + minute);
+        let b = kachel(3, 2, grau, beginn - sekunde / 2);
         let n = kachel(2, 0, [200, 0, 0, 255], mitte);
-        let m = kachel(2, 1, grau, alt);
+        let m = kachel(2, 1, grau, beginn - sekunde);
         let q = kachel(1, 0, [0, 0, 200, 255], spaeter);
         let r = kachel(0, 0, [0, 200, 0, 255], mitte);
         let basis = BTreeSet::from([TileId { x: 0, y: 0 }, TileId { x: 2, y: 0 }]);
         let richtig = MapInfo::new(16, 3, &basis);
-        let falsch = |zeit| {
+        let falsch = |nativ, zeit| {
             let info = MapInfo {
-                native_levels: Some(2),
+                native_levels: nativ,
                 world: Some(None),
                 bounds: [0, 0, 1, 1],
                 ..MapInfo::new(16, 3, &basis)
@@ -1933,7 +1939,7 @@ mod tests {
                 .unwrap();
             karte
         };
-        falsch(spaeter);
+        falsch(None, spaeter);
         let vorher = std::fs::read(&n).unwrap();
 
         rebuild_pyramid(dir, beginn).unwrap();
@@ -1947,10 +1953,19 @@ mod tests {
         let bestand = lies_bestand(dir).unwrap().unwrap();
         assert_eq!(bestand.bounds, richtig.bounds, "map.json aus der Zukunft");
 
-        let karte = falsch(mitte);
+        let karte = falsch(Some(0), mitte);
         let vorher = std::fs::read(&karte).unwrap();
+        for (pfad, zeit) in [(&m, mitte), (&b, mitte + minute)] {
+            File::options()
+                .write(true)
+                .open(pfad)
+                .unwrap()
+                .set_modified(zeit)
+                .unwrap();
+        }
         rebuild_pyramid(dir, beginn).unwrap();
         assert_eq!(std::fs::read(&karte).unwrap(), vorher, "fremde map.json");
+        assert_eq!(zeit(&m), stempel, "M ist fremd, aber nicht mehr nativ");
     }
 
     /// Entfernt wird eine Kachel nur, wenn sie noch so dasteht, wie die

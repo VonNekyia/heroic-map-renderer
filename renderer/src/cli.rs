@@ -1422,8 +1422,8 @@ fn pruefe_bestand(
 /// gemittelt — auf der Karte zählt der Umriss, nicht das Texel. In Bytes
 /// kommt ein Drittel dazu, ein Viertel je Stufe; in Zeit fast noch einmal
 /// die Basis, denn jede Stufe zeichnet jeden Block ihrer Fläche erneut.
-/// Gemessen bei scale 32: 12,1 s für die drei Stufen, 13,6 s für die Basis.
-/// Deshalb ist die Vorgabe 0.
+/// Hochgerechnet auf die Testwelt bei scale 32: rund 7 Minuten für die drei
+/// Stufen, 8 für die Basis. Deshalb ist die Vorgabe 0.
 ///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
 /// [`build_pyramid`]. Dazu die Kacheln jeder nativen Stufe, die etwas

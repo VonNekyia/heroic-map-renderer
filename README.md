@@ -196,9 +196,12 @@ Der Vorlauf liest jeden Chunk einmal und beantwortet zwei Fragen auf einmal:
 welche Blockstates vorkommen, und welche Kacheln überhaupt etwas zeigen. Erst
 danach steht die Sprite-Tabelle — und erst dann kann parallel gerendert
 werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
-Chunks werden deshalb mehrmals gelesen: vom Vorlauf, von der Basis und von
-jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. Der
-Vorlauf kostet für die ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes
+Welt wird deshalb mehrmals durchlaufen: vom Vorlauf, von der Basis und von
+jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. In jedem
+Durchgang dekodiert jeder Stapel seine Chunks selbst; auf der Basis lädt
+eine Kachel im Mittel rund neun, siehe unten, und bei etwa einer Kachel je
+Chunk wird dort jeder Chunk acht- bis neunmal dekodiert. Der Vorlauf
+kostet für die ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes
 Sprite, das nicht selbst Alternative einer Blockstate ist: eines je Maske
 verdeckter Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu
 die Streifen an Wasserstufen.
@@ -509,21 +512,25 @@ Gemessen an einem Ausschnitt, hochgerechnet auf die ganze Welt: derselbe
 Weltausschnitt um (-64, 416) bei jedem scale, mit allen nativen Stufen und
 Pyramide, also `--size 8192` bei scale 32, `4096` bei 16 und `2048` bei 8.
 Das sind 1600, 400 und 100 Basiskacheln, gerendert auf 24 Threads. Die
-Kachelzahl der ganzen Welt nennt der Vorlauf.
+Kachelzahl der ganzen Welt nennt der Vorlauf. Die Dauer stammt vom Stand
+nach dem Umbau weiter unten, aus je zwei Ausschnitten um denselben Punkt,
+bei scale 32 mit 1600 und 5184 Basiskacheln: der Unterschied gibt die Zeit
+je Kachel ohne die Sprite-Tabellen, die jede Stufe einmal baut.
 
 | `--scale` | Kacheln der Welt | je Kachel | Basis | native Stufen | zusammen | Dauer |
 |-----------|------------------|-----------|-------|---------------|----------|-------|
-| 32 | 292 836 | 109 kB | ~30 GB | ~10 GB | ~40 GB | ~80 min |
-| 16 | 73 920 | 111 kB | ~7,8 GB | ~2,1 GB | ~10 GB | ~40 min |
-| 8 | 18 951 | 101 kB | ~1,8 GB | ~0,4 GB | ~2,2 GB | ~20 min |
+| 32 | 292 836 | 109 kB | ~30 GB | ~10 GB | ~40 GB | ~15 min |
+| 16 | 73 920 | 111 kB | ~7,8 GB | ~2,1 GB | ~10 GB | ~5 min |
+| 8 | 18 951 | 101 kB | ~1,8 GB | ~0,4 GB | ~2,2 GB | ~3 min |
 
 Auf demselben Ausschnitt wiegt eine Kachel bei jedem scale rund 100 bis
 110 kB: sie zeigt bei kleinerem scale mehr Welt, aber gleich viele Pixel.
 Der Platz hängt deshalb fast nur an der Kachelzahl. Die Dauer nicht: jede
 native Stufe zeichnet jeden Block ihrer Fläche noch einmal, und zusammen
-kosten sie fast so viel Zeit wie die Basis, bei scale 32 12,1 s gegen
-13,6 s. In Bytes sind sie ein Fünftel bis ein Drittel. Die Sprite-Tabellen
-aller 3110 Blockstates brauchen über die vier Stufen zusammen rund 12 s.
+kosten sie fast so viel Zeit wie die Basis, bei scale 32 hochgerechnet
+rund 7 gegen 8 Minuten. In Bytes sind sie ein Fünftel bis ein Drittel. Die
+Sprite-Tabellen aller 3110 Blockstates brauchen über die vier Stufen
+zusammen rund 12 s.
 
 Der erste Vollrender einer grossen Serverwelt hat die Rechnung geerdet:
 2,5 Millionen Chunks, 30 GB, scale 32, gemessen vor dem Umbau weiter unten.
@@ -584,17 +591,19 @@ statt je Block zweimal zu hashen.
 Band, fragte je Block die Familie ab und für jeden nicht-leeren Block drei
 Nachbarn — und wählte für neun von zehn erst das Sprite, bevor er merkte,
 dass der Block verdeckt ist. Jetzt hält jede Section je Spalte ein 16-Bit-Wort
-(Bit = y) für "vorhanden", "deckend", "deckt den Boden", "Wasser", "ragt
-heraus": verdeckt ist ein Block, wenn die Nachbarn nach +x und +z deckend
-sind und der nach +y seinen Boden deckt, wie oben beschrieben, und das ist
-je Spalte eine Handvoll Wortoperationen für sechzehn Blöcke auf einmal —
-nach +y ein Shift, an den Rändern kommt das Bit aus der Section darüber oder
-dem Nachbarchunk. Reines Wasser fällt ausserdem weg, wo über ihm Wasser
-steht und es seitlich an Wasser mit Wasser darüber oder an Deckendes
-grenzt: dann bleibt von ihm keine Fläche und kein Streifen, und das Innere
-eines Ozeans kommt gar nicht erst zur Sprite-Wahl. Ein Dach statt Wasser
-darüber genügt nicht, denn ohne Wasser darüber endet die Oberfläche bei 8/9
-und ragt in die Seiten hinein.
+(Bit = y) für "vorhanden", "deckend", "deckt den Boden", "Wasser", "Lava",
+"ragt heraus": verdeckt ist ein Block, wenn die Nachbarn nach +x und +z
+deckend sind und der nach +y seinen Boden deckt, wie oben beschrieben, und
+das ist je Spalte eine Handvoll Wortoperationen für sechzehn Blöcke auf
+einmal — nach +y ein Shift, an den Rändern kommt das Bit aus der Section
+darüber oder dem Nachbarchunk. Reine Flüssigkeit, Wasser wie Lava, fällt
+ausserdem weg, wo über ihr dieselbe steht und sie seitlich an dieselbe mit
+derselben darüber oder an Deckendes grenzt: dann bleibt von ihr keine
+Fläche und kein Streifen, und das Innere eines Ozeans oder Lavasees kommt
+gar nicht erst zur Sprite-Wahl. Im Nether spart das bei scale 32 gut ein
+Viertel der Zeit je Kachel. Ein Dach statt derselben Flüssigkeit darüber
+genügt nicht, denn ohne sie endet die Oberfläche bei 8/9 und ragt in die
+Seiten hinein.
 Aus den Masken fallen die Kandidaten heraus, ohne dass Luft je angefasst
 wird; sortiert nach `(y, v, u)` sind sie genau die Zeichenreihenfolge des
 Maleralgorithmus. Der zweite Durchgang zeichnet nur noch.

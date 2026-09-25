@@ -201,8 +201,9 @@ struct Candidate {
     /// 0: der Block selbst; sonst 1 + Index des fremden Würfels, in den
     /// ein Nachbarmodell hineinragt.
     kind: u16,
-    /// Nachbarn (`mask_bit`), die deckend sind und gezeichnet werden: was
-    /// in ihrem Umriss liegt, übermalen sie ohnehin.
+    /// Nachbarn (`mask_bit`), die `PLAIN` sind, deckend und ohne
+    /// Flüssigkeit, und gezeichnet werden: was in ihrem Umriss liegt,
+    /// übermalen sie ohnehin.
     skip: u8,
 }
 
@@ -267,8 +268,9 @@ fn columns_at(
 /// Ein sichtbarer Block zeichnet sonst alle drei Flächen, auch die, die der
 /// deckende Nachbar gleich darüberlegt: auf flachem Gelände zwei von drei.
 /// Übersprungen wird nur, was im Umriss eines Nachbarn liegt, der deckend
-/// ist *und* in dieser Kachel gezeichnet wird — dann ist der Pixel danach
-/// Alpha 255 vom Nachbarn, egal was vorher da stand. Das Bild ist dasselbe.
+/// ist, keine Flüssigkeit enthält (`PLAIN`) *und* in dieser Kachel
+/// gezeichnet wird — dann ist der Pixel danach Alpha 255 vom Nachbarn, egal
+/// was vorher da stand. Das Bild ist dasselbe.
 fn blit(
     canvas: &mut RgbaImage,
     sprite: &Sprite,
@@ -318,10 +320,11 @@ fn blit(
     }
 }
 
-/// Wie viele Chunks ein Cache höchstens hält, bevor er verwirft, was die
-/// vorige Kachel nicht gebraucht hat. Eine Kachel bei scale 32 berührt gut
-/// hundert Chunks; die nächste liegt direkt darunter und teilt sich fast
-/// alle davon.
+/// Ab wie vielen Chunks ein Cache verwirft, was die vorige Kachel nicht
+/// gebraucht hat. Eine Kachel bei scale 32 berührt gut hundert Chunks; die
+/// nächste liegt direkt darunter und teilt sich fast alle davon. Bei
+/// kleinerem scale berührt eine Kachel mehr, bei scale 4 einige hundert,
+/// und der Cache hält dann entsprechend mehr.
 // ponytail: Verfallsdatum je Kachel statt echtem LRU. Reicht, solange die
 // Kacheln in Leseordnung kommen; sonst lädt jede Kachel ihre hundert neu.
 const CACHE_CHUNKS: usize = 256;

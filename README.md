@@ -546,6 +546,28 @@ Blöcken liegen unter der Oberfläche. Gemessen an einem 4096er-Ausschnitt um
 Keiner der Umbauten ändert einen Pixel: der 8192er-Ausschnitt ist nach jedem
 Byte für Byte gleich, alle 1393 Dateien.
 
+Die Tabelle stammt von vor den Regeln, die jetzt oben unter Verdeckung und
+Wasser stehen: Deckung Pixel für Pixel, der Boden unter Lava, Streifen über
+niedrigerem Wasser, die Tiefe entlang des Blickstrahls. Die Kandidatensuche
+folgt ihnen. Am selben Tag nacheinander gemessen, dieselben Ausschnitte,
+jeweils das beste von drei Läufen:
+
+| | vorher, Block für Block | Umbau, alte Regeln | Umbau, jetzige Regeln |
+|---|---|---|---|
+| ein Kern, 4096er-Ausschnitt | 90,9 ms je Kachel | 8,7 ms | 8,6 ms |
+| 12 Threads, 8192er-Ausschnitt | 77 Kacheln/s | 502 | 424 |
+| 24 Threads, 8192er-Ausschnitt | 93 Kacheln/s | 551 | 510 |
+
+Mit 12 und 24 Threads schwanken die Läufe an diesem Tag um bis zu zehn
+Prozent, und jede geschriebene Kachel geht durch den Echtzeitschutz; die
+Zahlen der Tabelle oben erreichen sie nicht. Einfädig ist der Umbau
+10-mal so schnell wie vorher, auf 24 Threads 5,5-mal. Byte für Byte gleich
+mit dem Stand vorher sind neun Ausschnitte der Testwelt und der grossen
+Serverwelt, mit und ohne native Stufen, bei scale 32, 16 und 12, dazu zwei
+Bilder aus `--render`. Auf dem Land der grossen Welt schafft er je nach
+Gegend 443 bis 522 Kacheln/s statt 53 bis 86; die Basisstufe braucht
+damit rund anderthalb Stunden statt neun bis zehn.
+
 **Cache je Stapel.** Der Chunk-Cache lebt je Stapel aufeinanderfolgender
 Kacheln statt je Kachel, und der Nachschlag merkt sich den letzten Chunk,
 statt je Block zweimal zu hashen.
@@ -591,8 +613,9 @@ der Blit deckende Pixel direkt statt durch `over`.
 Section — 1,3 ms, mehr als das Auswerten der Masken selbst. Das Band
 erreicht in einem Chunk aber nur rund 36 Höhen, also drei Sections; die
 Umkehrung von `v_window` grenzt sie ein, und ein Flag je Section sagt, ob
-überhaupt ein Kandidat drinsteht. Sections ohne Wasser, lose oder
-herausragende Familien bauen nur die zwei Masken, die sie brauchen.
+überhaupt ein Kandidat drinsteht. Die Masken selbst entstehen je Klasse
+gleicher Bits, Luft, Stein, Wasser: je Block ein OR, danach setzt sich jede
+Eigenschaft aus den Klassen zusammen.
 
 Drei Dinge, die gemessen nichts gebracht haben und deshalb nicht im Code
 sind: Zeilenspannen im Blit samt `memcpy` deckender Zeilen (pixelgleich,

@@ -639,12 +639,7 @@ fn write_tiles(
     let fertig = AtomicUsize::new(0);
     let bytes = AtomicUsize::new(0);
     let gesamt = survey.tiles.len();
-    // In Blöcken von 16 mal 16 Kacheln statt Spalte für Spalte: Geschwister
-    // werden so kurz nacheinander fertig, und ein `--pyramid` neben dem
-    // Render baut ihre Elternkachel seltener mehrmals.
-    survey
-        .tiles
-        .sort_unstable_by_key(|tile| (tile.x >> 4, tile.y >> 4, tile.x, tile.y));
+    in_bloecken(&mut survey.tiles);
 
     // Kacheln, die leer geworden sind, verschwinden erst am Ende des Laufs,
     // auf jeder Stufe, zusammen mit denen ohne Chunk; bis dahin zeigen sie
@@ -1340,8 +1335,10 @@ fn render_coarser(
 
         let bytes = AtomicUsize::new(0);
         let bisher = &*weg;
+        let mut reihe: Vec<TileId> = kandidaten.iter().copied().collect();
+        in_bloecken(&mut reihe);
         // Je Kachel: zeigt sie etwas, und bleibt sie stehen?
-        let stufe: Vec<(TileId, bool, bool)> = kandidaten
+        let stufe: Vec<(TileId, bool, bool)> = reihe
             .par_iter()
             .map(|tile| -> Result<(TileId, bool, bool)> {
                 let image = render_area(world, &sprites, tile.rect(), Y_RANGE)?;
@@ -1378,6 +1375,14 @@ fn render_coarser(
 
 /// Kacheln mit ihrer Zoomstufe.
 type Kacheln = BTreeSet<(u32, TileId)>;
+
+/// Ordnet Kacheln zum Rendern in Blöcke von 16 mal 16 statt Spalte für
+/// Spalte, auf der Basis und auf jeder nativen Stufe. Geschwister werden so
+/// kurz nacheinander fertig, und ein `--pyramid` neben dem Render baut ihre
+/// Elternkachel seltener mehrmals.
+fn in_bloecken(tiles: &mut [TileId]) {
+    tiles.sort_unstable_by_key(|tile| (tile.x >> 4, tile.y >> 4, tile.x, tile.y));
+}
 
 /// Steht unter dieser Kachel ein Kind, das nach dem Lauf bleibt?
 fn kind_bleibt(dir: &Path, z: u32, tile: TileId, weg: &BTreeSet<(u32, TileId)>) -> bool {

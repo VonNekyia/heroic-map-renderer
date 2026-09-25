@@ -1494,9 +1494,10 @@ fn native_in(dir: &Path) -> Option<u64> {
     info["nativeLevels"].as_u64()
 }
 
-/// `--resume` rendert nur, was fehlt: vorhandene Basiskacheln bleiben
-/// unangetastet, gelöschte kommen wieder, und am Ende steht Byte für Byte
-/// dasselbe da wie nach einem Lauf in einem Stück.
+/// `--resume` rendert nur, was fehlt, auf der Basis wie auf den nativen
+/// Stufen: vorhandene Kacheln bleiben unangetastet, gelöschte kommen
+/// wieder, und am Ende steht Byte für Byte dasselbe da wie nach einem Lauf
+/// in einem Stück. Rate und Grösse zählen nur, was der Lauf gerendert hat.
 #[test]
 fn resume_rendert_nur_was_fehlt() {
     let welt = tempdir();
@@ -1504,26 +1505,38 @@ fn resume_rendert_nur_was_fehlt() {
     let out = tempdir();
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
     let soll = schnappschuss(out.path());
-    let basis = kacheln(out.path(), max_zoom(out.path()));
-    assert!(basis.len() > 2);
+    let z = max_zoom(out.path());
+    let mut basis = kacheln(out.path(), z).into_values();
+    let mut nativ = kacheln(out.path(), z - 1).into_values();
+    assert!(basis.len() > 2 && nativ.len() > 1);
 
-    let mut basis = basis.into_values();
     let (weg, bleibt) = (basis.next().unwrap(), basis.next().unwrap());
-    std::fs::remove_file(&weg).unwrap();
-    let vorher = zeit_von(&bleibt);
+    let (weg_nativ, bleibt_nativ) = (nativ.next().unwrap(), nativ.next().unwrap());
+    let groesse = std::fs::metadata(&weg).unwrap().len();
+    for pfad in [&weg, &weg_nativ] {
+        std::fs::remove_file(pfad).unwrap();
+    }
+    let vorher = [zeit_von(&bleibt), zeit_von(&bleibt_nativ)];
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8", "--resume"]);
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    for erwartet in [
+        "Kacheln:    1 geschrieben".to_string(),
+        format!("{} vorhandene Kacheln übersprungen", basis.len() + 1),
+        format!("{:.0} kB je Kachel", groesse as f64 / 1024.0),
+        format!("{} davon übersprungen", nativ.len() + 1),
+    ] {
+        assert!(
+            meldung.contains(&erwartet),
+            "{erwartet} fehlt in: {meldung}"
+        );
+    }
     assert!(
-        meldung.contains(&format!(
-            "{} vorhandene Kacheln übersprungen",
-            basis.len() + 1
-        )),
-        "Meldung: {meldung}"
+        weg.is_file() && weg_nativ.is_file(),
+        "gelöschte Kacheln fehlen weiterhin"
     );
-    assert!(weg.is_file(), "die gelöschte Kachel fehlt weiterhin");
-    assert_eq!(zeit_von(&bleibt), vorher);
+    assert_eq!([zeit_von(&bleibt), zeit_von(&bleibt_nativ)], vorher);
     assert_eq!(schnappschuss(out.path()), soll);
 }
 

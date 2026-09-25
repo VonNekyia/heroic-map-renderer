@@ -96,8 +96,10 @@ pub struct Args {
     #[arg(long, value_name = "N", requires = "tiles")]
     native_levels: Option<u32>,
 
-    /// Vorhandene Basiskacheln stehen lassen statt sie neu zu rendern:
-    /// setzt einen abgebrochenen Lauf fort
+    /// Mit --tiles vorhandene Kacheln der Basis und der nativen Stufen
+    /// stehen lassen statt sie neu zu rendern: setzt einen abgebrochenen
+    /// Lauf fort. Die Kacheln nimmt der Lauf, wie sie sind; hat sich die
+    /// Welt seitdem geändert, rendert sie erst ein Lauf ohne den Schalter neu
     #[arg(long, requires = "tiles")]
     resume: bool,
 
@@ -644,9 +646,6 @@ fn write_tiles(
     }
 
     let started = Instant::now();
-    let fertig = AtomicUsize::new(0);
-    let uebersprungen = AtomicUsize::new(0);
-    let bytes = AtomicUsize::new(0);
     let gesamt = survey.tiles.len();
     in_bloecken(&mut survey.tiles);
 
@@ -655,58 +654,50 @@ fn write_tiles(
     // schon nichts mehr (`verblasse`). Bricht der Lauf vorher ab, hat er
     // nichts entfernt. Eine leere Elternkachel über einem Kind, das bleibt,
     // bleibt durchsichtig stehen.
-    let leer: Vec<TileId> = survey
-        .tiles
-        .par_chunks(batch_size(gesamt))
-        .map(|stapel| -> Result<Vec<TileId>> {
-            let mut chunks = ChunkCache::new(world, &sprites);
-            let mut leer = Vec::new();
-            for tile in stapel {
-                let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
-                if erledigt.is_multiple_of(200) || erledigt == gesamt {
-                    println!("            {erledigt}/{gesamt} Kacheln");
-                }
-                if resume && tile_path(dir, max_zoom, *tile).is_file() {
-                    uebersprungen.fetch_add(1, Ordering::Relaxed);
-                    continue;
-                }
-                let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
-
-                // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob
-                // eine Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
-                if image.pixels().all(|p| p.0[3] == 0) {
-                    verblasse(dir, max_zoom, *tile)?;
-                    leer.push(*tile);
-                    continue;
-                }
-
-                bytes.fetch_add(schreibe(dir, max_zoom, *tile, &image)?, Ordering::Relaxed);
+    let stufe = rendere(
+        world,
+        &sprites,
+        &survey.tiles,
+        |tile| resume && tile_path(dir, max_zoom, tile).is_file(),
+        true,
+        |tile, image| -> Result<Option<usize>> {
+            // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
+            // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
+            if image.pixels().all(|p| p.0[3] == 0) {
+                verblasse(dir, max_zoom, tile)?;
+                return Ok(None);
             }
-            Ok(leer)
-        })
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .flatten()
-        .collect();
-    let geschrieben = gesamt - leer.len();
+            Ok(Some(schreibe(dir, max_zoom, tile, &image)?))
+        },
+    )?;
+    let mut leer = Vec::new();
+    let (mut bytes, mut uebersprungen) = (0usize, 0usize);
+    for (tile, ergebnis) in stufe {
+        match ergebnis {
+            None => uebersprungen += 1,
+            Some(None) => leer.push(tile),
+            Some(Some(n)) => bytes += n,
+        }
+    }
+    let gerendert = gesamt - uebersprungen;
+    let geschrieben = gerendert - leer.len();
     let mut weg: BTreeSet<(u32, TileId)> = leer.iter().map(|tile| (max_zoom, *tile)).collect();
 
     let seconds = started.elapsed().as_secs_f64();
-    let bytes = bytes.load(Ordering::Relaxed);
-    let uebersprungen = uebersprungen.load(Ordering::Relaxed);
     println!(
-        "Kacheln:    {} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads",
-        geschrieben - uebersprungen,
+        "Kacheln:    {geschrieben} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads",
         leer.len(),
         rayon::current_num_threads()
     );
     if resume {
         println!("            {uebersprungen} vorhandene Kacheln übersprungen (--resume)");
     }
+    // Rate und Grösse nur über die gerenderten: ein Fortsetzen bei 90 %
+    // meldete sonst die zehnfache Rate und ein Zehntel der Grösse.
     println!(
         "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s, {:.0} kB je Kachel)",
         bytes as f64 / 1_048_576.0,
-        gesamt as f64 / seconds,
+        gerendert as f64 / seconds,
         bytes as f64 / geschrieben.max(1) as f64 / 1024.0,
     );
 
@@ -724,6 +715,7 @@ fn write_tiles(
         stufen,
         &waisen,
         &mut weg,
+        resume,
     )?;
     build_pyramid(dir, z, kandidaten, &waisen, &mut weg)?;
     if prune && !veraltet.is_empty() {
@@ -1390,6 +1382,7 @@ fn render_coarser(
     stufen: u32,
     waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
+    resume: bool,
 ) -> Result<(u32, BTreeSet<TileId>, Kacheln)> {
     let mut z = max_zoom;
     let mut scale = projection.scale();
@@ -1404,44 +1397,40 @@ fn render_coarser(
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
 
-        let bytes = AtomicUsize::new(0);
         let bisher = &*weg;
         let mut reihe: Vec<TileId> = kandidaten.iter().copied().collect();
         in_bloecken(&mut reihe);
-        // Je Kachel: zeigt sie etwas, und bleibt sie stehen?
-        let stufe: Vec<(TileId, bool, bool)> = reihe
-            .par_chunks(batch_size(reihe.len()))
-            .map(|stapel| -> Result<Vec<(TileId, bool, bool)>> {
-                let mut chunks = ChunkCache::new(world, &sprites);
-                let mut out = Vec::with_capacity(stapel.len());
-                for tile in stapel {
-                    let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
-                    let zeigt = image.pixels().any(|p| p.0[3] > 0);
-                    // Leer, aber über einer Kachel, die bleibt: dann bleibt
-                    // sie auch, durchsichtig, sonst stünde die darunter ohne
-                    // Eltern. Das trifft Kacheln ohne Chunk: ohne --prune
-                    // bleiben sie, mit ihm bis zum Ende des Laufs.
-                    if !zeigt && !kind_bleibt(dir, z, *tile, bisher) {
-                        verblasse(dir, z, *tile)?;
-                        out.push((*tile, false, false));
-                        continue;
-                    }
-                    bytes.fetch_add(schreibe(dir, z, *tile, &image)?, Ordering::Relaxed);
-                    out.push((*tile, zeigt, true));
+        // Je Kachel: zeigt sie etwas, bleibt sie stehen, und wie gross ist
+        // sie?
+        let stufe = rendere(
+            world,
+            &sprites,
+            &reihe,
+            |tile| resume && tile_path(dir, z, tile).is_file(),
+            false,
+            |tile, image| -> Result<(bool, bool, usize)> {
+                let zeigt = image.pixels().any(|p| p.0[3] > 0);
+                // Leer, aber über einer Kachel, die bleibt: dann bleibt sie
+                // auch, durchsichtig, sonst stünde die darunter ohne Eltern.
+                // Das trifft Kacheln ohne Chunk: ohne --prune bleiben sie,
+                // mit ihm bis zum Ende des Laufs.
+                if !zeigt && !kind_bleibt(dir, z, tile, bisher) {
+                    verblasse(dir, z, tile)?;
+                    return Ok((false, false, 0));
                 }
-                Ok(out)
-            })
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .flatten()
-            .collect();
-        let bleiben = stufe.iter().filter(|(_, _, bleibt)| *bleibt).count();
-        println!(
-            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}, {:.1} MB in {:.1} s",
-            bytes.load(Ordering::Relaxed) as f64 / 1_048_576.0,
-            started.elapsed().as_secs_f64()
-        );
-        for (tile, zeigt, bleibt) in stufe {
+                Ok((zeigt, true, schreibe(dir, z, tile, &image)?))
+            },
+        )?;
+        let (mut bytes, mut bleiben, mut uebersprungen) = (0usize, 0usize, 0usize);
+        for (tile, ergebnis) in stufe {
+            // Eine vorhandene Kachel bleibt, wie sie ist. Ob sie etwas
+            // zeigt, liest der Lauf nicht nach: --prune lässt sie stehen.
+            let (zeigt, bleibt, n) = ergebnis.unwrap_or_else(|| {
+                uebersprungen += 1;
+                (true, true, 0)
+            });
+            bytes += n;
+            bleiben += bleibt as usize;
             if zeigt {
                 gezeigt.insert((z, tile));
             }
@@ -1449,19 +1438,70 @@ fn render_coarser(
                 weg.insert((z, tile));
             }
         }
+        let vorhanden = if resume {
+            format!(", {uebersprungen} davon übersprungen")
+        } else {
+            String::new()
+        };
+        println!(
+            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}{vorhanden}, {:.1} MB in {:.1} s",
+            bytes as f64 / 1_048_576.0,
+            started.elapsed().as_secs_f64()
+        );
     }
     Ok((z, kandidaten, gezeigt))
 }
 
-/// Wie viele aufeinanderfolgende Kacheln sich einen Chunk-Cache teilen.
+/// Rendert Kacheln in Stapeln aufeinanderfolgender Kacheln, jeden Stapel
+/// mit einem eigenen Chunk-Cache, und gibt jedes Bild an `ablegen` — für
+/// die Basis wie für jede native Stufe.
 ///
-/// Die Kacheln kommen sortiert, Nachbarn untereinander teilen sich fast
-/// alle Chunks. Rayons `map_init` wäre der naheliegende Weg zu einem Cache
-/// je Worker — aber es zerteilt die Arbeit beim Stehlen bis auf einzelne
-/// Kacheln, und jede bekäme einen kalten Cache: mit 24 Threads lud jede
-/// Kachel wieder ihre hundert Chunks. Feste Stapel halten die Nachbarn
-/// zusammen. Die erste Kachel eines Stapels lädt kalt, also nicht unter
-/// sechzehn; darüber so gross, dass ein kleiner Lauf noch alle Kerne füllt.
+/// Die Kacheln kommen in Blöcken sortiert (`in_bloecken`), Nachbarn
+/// untereinander teilen sich fast alle Chunks. Rayons `map_init` wäre der
+/// naheliegende Weg zu einem Cache je Worker — aber es zerteilt die Arbeit
+/// beim Stehlen bis auf einzelne Kacheln, und jede bekäme einen kalten
+/// Cache: mit 24 Threads lud jede Kachel wieder ihre hundert Chunks. Feste
+/// Stapel halten die Nachbarn zusammen.
+///
+/// Eine Kachel, für die `vorhanden` gilt, rendert es nicht; für sie steht
+/// `None` im Ergebnis. Mit `melden` gibt es alle 200 Kacheln den Stand aus.
+fn rendere<T: Send>(
+    world: &World,
+    sprites: &SpriteSet,
+    tiles: &[TileId],
+    vorhanden: impl Fn(TileId) -> bool + Sync,
+    melden: bool,
+    ablegen: impl Fn(TileId, RgbaImage) -> Result<T> + Sync,
+) -> Result<Vec<(TileId, Option<T>)>> {
+    let fertig = AtomicUsize::new(0);
+    let gesamt = tiles.len();
+    let stapel = tiles
+        .par_chunks(batch_size(gesamt))
+        .map(|stapel| -> Result<Vec<(TileId, Option<T>)>> {
+            let mut chunks = ChunkCache::new(world, sprites);
+            let mut out = Vec::with_capacity(stapel.len());
+            for &tile in stapel {
+                let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
+                if melden && (erledigt.is_multiple_of(200) || erledigt == gesamt) {
+                    println!("            {erledigt}/{gesamt} Kacheln");
+                }
+                if vorhanden(tile) {
+                    out.push((tile, None));
+                    continue;
+                }
+                let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
+                out.push((tile, Some(ablegen(tile, image)?)));
+            }
+            Ok(out)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(stapel.into_iter().flatten().collect())
+}
+
+/// Wie viele aufeinanderfolgende Kacheln sich einen Chunk-Cache teilen,
+/// siehe [`rendere`]. Die erste Kachel eines Stapels lädt kalt, also nicht
+/// unter sechzehn; darüber so gross, dass ein kleiner Lauf noch alle Kerne
+/// füllt.
 fn batch_size(tiles: usize) -> usize {
     (tiles / rayon::current_num_threads()).clamp(16, 64)
 }

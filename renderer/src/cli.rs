@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -655,12 +655,13 @@ fn write_tiles(
     // auf jeder Stufe, zusammen mit denen ohne Chunk; bis dahin zeigen sie
     // schon nichts mehr (`verblasse`). Bricht der Lauf vorher ab, hat er
     // nichts entfernt. Eine leere Elternkachel über einem Kind, das bleibt,
-    // bleibt durchsichtig stehen.
+    // bleibt durchsichtig stehen. Mit --resume bleibt, was in der Liste der
+    // Basis steht und ganz ist.
     let stufe = rendere(
         world,
         &sprites,
         &survey.tiles,
-        |tile| resume && tile_path(dir, max_zoom, tile).is_file(),
+        |tile| resume && basis.contains(&tile) && ganz(&tile_path(dir, max_zoom, tile)),
         true,
         |tile, image| -> Result<Option<usize>> {
             // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
@@ -1708,6 +1709,23 @@ fn tausche(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> std::io::Resul
     geschrieben
 }
 
+/// Ob eine Kachel ganz auf der Platte steht. `tausche` wartet nicht, bis
+/// die Daten dort sind; nach einem Stromausfall kurz danach steht eine
+/// Kachel womöglich leer unter ihrem Namen, unter ext4 etwa, oder in voller
+/// Länge und nur aus Nullen, unter NTFS. Der Kopf einer WebP-Datei nennt
+/// ihre Länge; ein Blick auf seine zwölf Byte genügt.
+fn ganz(path: &Path) -> bool {
+    let Ok(mut datei) = File::open(path) else {
+        return false;
+    };
+    let laenge = datei.metadata().map_or(0, |m| m.len());
+    let mut kopf = [0u8; 12];
+    datei.read_exact(&mut kopf).is_ok()
+        && kopf.starts_with(b"RIFF")
+        && kopf.ends_with(b"WEBP")
+        && u64::from(u32::from_le_bytes([kopf[4], kopf[5], kopf[6], kopf[7]])) + 8 == laenge
+}
+
 fn lies(path: &Path) -> Result<RgbaImage> {
     Ok(image::open(path)
         .with_context(|| format!("{} lesen", path.display()))?
@@ -2138,6 +2156,30 @@ mod tests {
         );
         assert!(neu.unwrap().is_none());
         assert!(!tile_path(dir, 0, kind.parent()).exists());
+    }
+
+    /// Ganz ist eine Kachel, wie `schreibe` sie ablegt, nicht aber eine
+    /// leere, eine voller Nullen oder eine abgeschnittene, wie sie ein
+    /// Stromausfall hinterlässt.
+    #[test]
+    fn nur_eine_ganze_kachel_ist_ganz() {
+        let dir = tempfile::tempdir().unwrap();
+        let tile = TileId { x: 0, y: 0 };
+        let mut bild = RgbaImage::new(TILE, TILE);
+        bild.put_pixel(7, 9, Rgba([200, 100, 50, 255]));
+        schreibe(dir.path(), 0, tile, &bild).unwrap();
+        let pfad = tile_path(dir.path(), 0, tile);
+        assert!(ganz(&pfad));
+        let bytes = std::fs::read(&pfad).unwrap();
+        for kaputt in [
+            Vec::new(),
+            vec![0; bytes.len()],
+            bytes[..bytes.len() - 1].to_vec(),
+        ] {
+            std::fs::write(&pfad, &kaputt).unwrap();
+            assert!(!ganz(&pfad), "{} Byte", kaputt.len());
+        }
+        assert!(!ganz(&dir.path().join("fehlt.webp")));
     }
 
     /// Entfernt wird eine Kachel nur, wenn sie noch so dasteht, wie die

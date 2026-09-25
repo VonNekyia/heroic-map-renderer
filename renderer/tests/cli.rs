@@ -1495,12 +1495,12 @@ fn native_in(dir: &Path) -> Option<u64> {
 }
 
 /// `--resume` rendert auf der Basis nur, was fehlt: vorhandene Kacheln
-/// bleiben unangetastet, gelöschte kommen wieder. Die nativen Stufen
-/// rendert es ganz neu, denn dort kann `--pyramid` eine Kachel verkleinert
-/// haben, bevor die Basis darunter fertig war: hier aus den Kindern ohne
-/// das gelöschte. Am Ende steht Byte für Byte dasselbe da wie nach einem
-/// Lauf in einem Stück. Rate und Grösse zählen nur, was der Lauf gerendert
-/// hat.
+/// bleiben unangetastet, gelöschte kommen wieder, ebenso eine, die ein
+/// Stromausfall mit Nullen hinterlassen hat. Die nativen Stufen rendert es
+/// ganz neu, denn dort kann `--pyramid` eine Kachel verkleinert haben,
+/// bevor die Basis darunter fertig war: hier aus den Kindern ohne das
+/// gelöschte. Am Ende steht Byte für Byte dasselbe da wie nach einem Lauf
+/// in einem Stück. Rate und Grösse zählen nur, was der Lauf gerendert hat.
 #[test]
 fn resume_rendert_nur_was_fehlt() {
     let welt = tempdir();
@@ -1524,8 +1524,16 @@ fn resume_rendert_nur_was_fehlt() {
         })
         .expect("Geschwister auf der Basis");
     let (weg, weg_nativ) = (basis[&kind].clone(), nativ[&kind.parent()].clone());
-    let bleibt = basis.iter().find(|(t, _)| **t != kind).unwrap().1.clone();
-    let groesse = std::fs::metadata(&weg).unwrap().len();
+    let mut andere = basis
+        .iter()
+        .filter(|(t, _)| **t != kind)
+        .map(|(_, p)| p.clone());
+    let (bleibt, genullt) = (
+        andere.next().unwrap(),
+        andere.next().expect("drei Basiskacheln"),
+    );
+    let groesse = |pfad: &Path| std::fs::metadata(pfad).unwrap().len();
+    let neu = groesse(&weg) + groesse(&genullt);
     for pfad in [&weg, &weg_nativ] {
         std::fs::remove_file(pfad).unwrap();
     }
@@ -1536,15 +1544,16 @@ fn resume_rendert_nur_was_fehlt() {
         verkleinert,
         soll[&format!("{}/{}/{}.webp", z - 1, eltern.x, eltern.y)]
     );
+    std::fs::write(&genullt, vec![0u8; groesse(&genullt) as usize]).unwrap();
     let vorher = zeit_von(&bleibt);
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8", "--resume"]);
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
     for erwartet in [
-        "Kacheln:    1 geschrieben".to_string(),
-        format!("{} vorhandene Kacheln übersprungen", basis.len() - 1),
-        format!("{:.0} kB je Kachel", groesse as f64 / 1024.0),
+        "Kacheln:    2 geschrieben".to_string(),
+        format!("{} vorhandene Kacheln übersprungen", basis.len() - 2),
+        format!("{:.0} kB je Kachel", neu as f64 / 2.0 / 1024.0),
         format!("{} Kacheln nativ bei scale 4,", nativ.len()),
     ] {
         assert!(

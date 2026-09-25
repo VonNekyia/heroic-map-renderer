@@ -288,7 +288,9 @@ nichts mehr findet; einer mit `--prune` räumt dann auch die Kacheln ohne
 Chunk weg.
 
 `--resume` setzt einen abgebrochenen Lauf fort, und nur den: vorhandene
-Basiskacheln bleiben stehen, gerendert wird nur, was fehlt. Die nativen
+Basiskacheln bleiben stehen, gerendert wird nur, was fehlt. Als fehlend
+zählt auch eine Kachel, die ein Stromausfall leer oder voller Nullen
+hinterlassen hat; der Kopf jeder WebP-Datei nennt ihre Länge. Die nativen
 Stufen rendert der Lauf ganz neu, denn dort kann `--pyramid` verkleinerte
 Kacheln abgelegt haben, womöglich bevor die Basis darunter fertig war. Die
 Zoomstufen darüber entstehen danach über allen Basiskacheln. Der Schalter

@@ -245,34 +245,38 @@ stehen, siehe unten.
 
 Eine Basiskachel, die gar kein Chunk mehr berührt, weil ein Editor ihn
 zurückgesetzt hat, entfernt der Export nur mit `--prune`, dann auf jeder
-Stufe. Bis zum Ende läuft ein Lauf mit dem Schalter wie einer ohne ihn; erst
-dann nimmt er diese Kacheln heraus und setzt die Stufen über ihnen ohne sie
-neu zusammen. Ohne den Schalter zählt er sie und lässt sie stehen; nur wo
-der Lauf eine native Elternkachel ohnehin neu rendert, fehlt dort schon, was
-sie zeigen. Die Elternkachel bleibt dann durchsichtig stehen, damit keine
-Kachel ohne Eltern dasteht. Einer Teilkopie der Welt fehlt vieles, und ein
-Lauf mit `--prune` leerte über ihr den Baum: der Schalter gehört nur an die
-vollständige Welt. Der Lauf nennt deshalb vor der ersten Kachel, wie viele
-Kacheln es trifft, von wie vielen. Ein Ausschnitt sucht nur in seiner
-gerundeten Fläche. Mit `--prune` läuft er auch dann, wenn der Vorlauf dort
-gar nichts mehr findet, und auch, wenn dort schon aufgeräumt ist.
+Stufe. Bis zum Ende der Pyramide läuft ein Lauf mit dem Schalter wie einer
+ohne ihn; erst dann nimmt er diese Kacheln heraus und setzt die Stufen über
+ihnen ohne sie neu zusammen. Ohne den Schalter zählt er sie und lässt sie
+stehen; nur wo der Lauf eine native Elternkachel ohnehin neu rendert, fehlt
+dort schon, was sie zeigen. Die Elternkachel bleibt dann durchsichtig
+stehen, damit keine Kachel ohne Eltern dasteht. Einer Teilkopie der Welt
+fehlt vieles, und ein Lauf mit `--prune` leerte über ihr den Baum: der
+Schalter gehört nur an die vollständige Welt. Der Lauf nennt deshalb vor der
+ersten Kachel, wie viele Kacheln es trifft, von wie vielen. Ein Ausschnitt
+sucht nur in seiner gerundeten Fläche. Mit `--prune` läuft er auch dann,
+wenn der Vorlauf dort gar nichts mehr findet, und auch, wenn dort schon
+aufgeräumt ist.
 
 Entfernt wird erst am Ende des Laufs, auf allen Stufen, auch was nur leer
 geworden ist, von der gröbsten Stufe bis zur Basis. Bis dahin zeigt eine
-leer gewordene Kachel schon nichts mehr, der Lauf überschreibt sie
-durchsichtig. Bricht er vorher ab, hat er nichts gelöscht, und auch ein
-späterer Ausschnitt holt nichts Abgerissenes in eine Elternkachel zurück.
-Über den Kacheln ohne Chunk hat ein Lauf mit `--prune` bis zum Ende der
-Pyramide nur verändert, was auch ein Lauf ohne ihn verändert hätte. Danach
-setzt er die Stufen über ihnen ohne sie neu zusammen und entfernt erst
-dann. Bricht er dazwischen ab, zeigen die gröberen Stufen dort schon den
-aufgeräumten Stand, die Basis noch den alten. Ein Lauf ohne `--prune` mit
-derselben Teilkopie stellt das nicht wieder her; einer über die ganze Welt
-oder einer mit `--prune` bringt den Baum in Ordnung. Bricht er beim
-Entfernen ab, fehlen feineren Kacheln die Eltern. Jeder Lauf sucht solche
-Kacheln, soweit sie seine Fläche berühren, und baut ihnen die Eltern neu,
-auch einer, dessen Vorlauf dort nichts mehr findet; einer mit `--prune`
-räumt dann auch die Kacheln ohne Chunk weg.
+Kachel, die beim Rendern oder in der Pyramide leer geworden ist, schon
+nichts mehr, der Lauf überschreibt sie durchsichtig. Bricht er vorher ab,
+hat er nichts gelöscht, und auch ein späterer Ausschnitt holt nichts
+Abgerissenes in eine Elternkachel zurück. Über den Kacheln ohne Chunk hat
+ein Lauf mit `--prune` bis zum Ende der Pyramide nur verändert, was auch ein
+Lauf ohne ihn verändert hätte. Danach setzt er die verkleinerten Stufen über
+ihnen ohne sie neu zusammen. Was dabei leer wird, entfernt er erst am Ende,
+mit diesen Kacheln und ihren nativen Vorfahren, unter denen nichts bleibt.
+Bricht er dazwischen ab, zeigen die neu zusammengesetzten Kacheln schon den
+aufgeräumten Stand. Die Basis, native Kacheln, die dieser Lauf nicht
+gerendert hat, und was leer geworden ist, zeigen noch den alten. Ein Lauf
+mit `--prune` über dieselbe Fläche bringt den Baum in Ordnung, einer ohne
+den Schalter nicht immer. Bricht er beim Entfernen ab, fehlen feineren
+Kacheln die Eltern. Jeder Lauf sucht solche Kacheln, soweit sie seine Fläche
+berühren, und baut ihnen die Eltern neu, auch einer, dessen Vorlauf dort
+nichts mehr findet; einer mit `--prune` räumt dann auch die Kacheln ohne
+Chunk weg.
 
 ### Zoomstufen
 

@@ -841,10 +841,11 @@ fn setze_zusammen(
 /// lief der Lauf wie einer ohne den Schalter; ein Abbruch vorher hat den
 /// Baum also nur so verändert, wie es auch ein Lauf ohne ihn getan hätte.
 /// Auch jetzt wird nichts durchsichtig, was leer wird, kommt nach `weg`
-/// und verschwindet am Ende. Bricht der Lauf hier ab, zeigen die
-/// verkleinerten Stufen über den Kacheln ohne Chunk schon den Stand ohne
-/// sie, die Basis noch den alten; der nächste Lauf mit --prune räumt zu
-/// Ende.
+/// und verschwindet am Ende. Bricht der Lauf hier ab, zeigen die schon
+/// neu zusammengesetzten Vorfahren den Stand ohne diese Kacheln. Die
+/// Basis, native Vorfahren, die dieser Lauf nicht gerendert hat, und was
+/// leer geworden ist, zeigen noch den alten; ein Lauf mit --prune über
+/// dieselbe Fläche räumt zu Ende.
 ///
 /// Native Stufen zeigen die Welt, nicht ihre Kinder; dort geht nur, was
 /// in diesem Lauf nichts gezeigt hat (`gezeigt`) und kein Kind mehr hat.

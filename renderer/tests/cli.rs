@@ -705,8 +705,8 @@ fn waisen(dir: &Path) -> Vec<String> {
     out
 }
 
-/// Ein Lauf mit --prune läuft bis zum Ende wie einer ohne den Schalter
-/// und räumt erst dann auf. Bricht er in der Pyramide ab, steht jede Datei
+/// Ein Lauf mit --prune läuft bis zum Ende der Pyramide wie einer ohne den
+/// Schalter und räumt erst dann auf. Bricht er in ihr ab, steht jede Datei
 /// noch da, der Baum ist derselbe wie nach dem Abbruch eines Laufs ohne
 /// den Schalter, und ein Lauf ohne ihn ergibt danach denselben Baum wie
 /// ohne den Abbruch davor, bis aufs Byte. Einer mit ihm heilt den Baum.
@@ -836,13 +836,16 @@ fn prune_raeumt_auch_ueber_leerer_flaeche_auf() {
 /// Nach der Pyramide setzt ein Lauf mit --prune die Stufen über den
 /// Kacheln ohne Chunk ohne sie neu zusammen, erst dann entfernt er. Bricht
 /// er dazwischen ab, ist nichts entfernt, die Basis unverändert, und keine
-/// Kachel ist durchsichtig geworden. Ein Lauf über die ganze Welt ohne den
-/// Schalter ergibt danach denselben Baum wie ohne den Abbruch, einer mit
-/// ihm räumt zu Ende. Der Ausschnitt liegt über dem verschwundenen Chunk,
-/// sein Vorlauf findet nichts; die Kachel auf Stufe 0 über beiden Blöcken
-/// schreibt dann nur `ohne_veraltete`, an ihrer Stelle liegt ein
-/// Verzeichnis. Bei scale 16 mit nativen Stufen, bei 12 ohne; dort wird
-/// die Kachel über dem verschwundenen Block leer.
+/// Kachel ist durchsichtig geworden. Hier ergibt ein Lauf über die ganze
+/// Welt ohne den Schalter danach denselben Baum wie ohne den Abbruch: unter
+/// der Kachel auf Stufe 0 liegt noch ein Chunk, und die Pyramide setzt sie
+/// neu zusammen. Einer mit dem Schalter räumt zu Ende. Der Ausschnitt liegt
+/// über dem verschwundenen Chunk, sein Vorlauf findet nichts; die Kachel auf
+/// Stufe 0 über beiden Blöcken schreibt dann nur `ohne_veraltete`, an ihrer
+/// Stelle liegt ein Verzeichnis. Dass der Lauf erst nach der Pyramide
+/// abbricht, zeigt ihre Zeile in der Ausgabe. Bei scale 16 mit nativen
+/// Stufen, bei 12 ohne; dort wird die Kachel über dem verschwundenen Block
+/// leer.
 #[test]
 fn abbruch_in_ohne_veraltete_entfernt_nichts() {
     let block = |x, y, z| match (x, y, z) {
@@ -887,6 +890,10 @@ fn abbruch_in_ohne_veraltete_entfernt_nichts() {
         ];
         let ausgabe = tiles(neu.path(), baum.path(), &ausschnitt);
         assert!(!ausgabe.status.success(), "scale {scale}: kein Abbruch");
+        assert!(
+            String::from_utf8_lossy(&ausgabe.stdout).contains("Pyramide:"),
+            "scale {scale}: Abbruch vor dem Ende der Pyramide"
+        );
 
         let nachher = schnappschuss(baum.path());
         let basis = format!("{}/", max_zoom(baum.path()));

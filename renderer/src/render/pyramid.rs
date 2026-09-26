@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use image::{Rgba, RgbaImage};
 use std::sync::LazyLock;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{TILE, TileId};
 
@@ -133,7 +133,7 @@ pub fn shrink(image: &RgbaImage) -> RgbaImage {
 
 /// sRGB-Wert nach linearem Licht, als Tabelle: die Pyramide läuft über
 /// jedes Pixel jeder Stufe.
-static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
+pub(crate) static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
     std::array::from_fn(|i| {
         let c = i as f32 / 255.0;
         if c <= 0.04045 {
@@ -145,7 +145,17 @@ static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
 });
 
 /// Lineares Licht zurück nach sRGB.
-fn to_srgb(linear: f32) -> u8 {
+///
+/// Statt der Kurve mit `powf` je Aufruf eine Tabelle der 255 Schwellen, ab
+/// denen der gerundete sRGB-Wert um eins steigt; `partition_point` zählt,
+/// wie viele davon unter dem Wert liegen. Der Rasterizer ruft das je Kanal
+/// und Pixel, bei scale 32 rund dreizehn Millionen Mal je Sprite-Tabelle.
+pub(crate) fn to_srgb(linear: f32) -> u8 {
+    SRGB_STEPS.partition_point(|&step| step <= linear) as u8
+}
+
+/// Die sRGB-Kurve mit Rundung, wie sie vor der Tabelle je Kanal lief.
+fn srgb_curve(linear: f32) -> u8 {
     let c = if linear <= 0.003_130_8 {
         linear * 12.92
     } else {
@@ -154,11 +164,31 @@ fn to_srgb(linear: f32) -> u8 {
     (c * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
+/// Schwelle `i`: der kleinste f32, den die Kurve auf mindestens `i + 1`
+/// rundet. Per Bisektion über die Bitmuster aus der Kurve selbst gesucht
+/// statt aus der Umkehrformel gerechnet: die Kurve ist in f32 nicht exakt,
+/// und die Tabelle soll bitgleich zu ihr sein.
+static SRGB_STEPS: LazyLock<[f32; 255]> = LazyLock::new(|| {
+    std::array::from_fn(|i| {
+        let ziel = i as u8 + 1;
+        let (mut unter, mut ab) = (0.0f32, 1.0f32);
+        while unter.next_up() < ab {
+            let mitte = f32::from_bits(unter.to_bits().midpoint(ab.to_bits()));
+            if srgb_curve(mitte) >= ziel {
+                ab = mitte;
+            } else {
+                unter = mitte;
+            }
+        }
+        ab
+    })
+});
+
 /// Was das Frontend über die Karte wissen muss.
 ///
 /// Die Projektion selbst steht nicht drin: sie hängt allein an `scale`,
 /// und die Formel gehört in den Renderer, nicht in eine Datei.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MapInfo {
     /// Kantenlänge einer Kachel in Pixeln.
@@ -174,6 +204,28 @@ pub struct MapInfo {
     /// Belegter Bereich auf der feinsten Stufe, in Pixeln:
     /// `[links, oben, rechts, unten]`.
     pub bounds: [i32; 4],
+    /// Wie viele Stufen über der Basis aus der Welt gerendert sind statt
+    /// verkleinert, siehe `--native-levels`. Fehlt das Feld, stammt der
+    /// Baum aus einem älteren Stand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_levels: Option<u32>,
+    /// Zu welcher Welt der Baum gehört, siehe [`world_id`]; `null` bei einer
+    /// Welt ohne Kennung. Fehlt das Feld, stammt der Baum aus einem älteren
+    /// Stand.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "vorhanden"
+    )]
+    pub world: Option<Option<String>>,
+}
+
+/// Liest ein Feld, das auch `null` sein darf: nur ein fehlendes bleibt
+/// `None`.
+fn vorhanden<'de, D: serde::Deserializer<'de>>(
+    feld: D,
+) -> std::result::Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(feld).map(Some)
 }
 
 impl MapInfo {
@@ -190,8 +242,96 @@ impl MapInfo {
             max_zoom,
             tiles: "{z}/{x}/{y}.webp".to_string(),
             bounds: [links, oben, rechts, unten],
+            native_levels: None,
+            world: None,
         }
     }
+}
+
+/// Wie oft [`world_id`] SipHash verkettet.
+const ROUNDS: u32 = 1 << 20;
+
+/// Die Kennung einer Welt im Kachelbaum: das Salz des Baums und ein Hash
+/// ihres Seeds und ihrer Dimension, als `"<salz>-<hash>"` in Hexziffern.
+/// Alle Dimensionen einer Welt tragen denselben Seed; ohne die Dimension
+/// käme der Nether in den Baum der Oberwelt und die Oberwelt in seinen.
+///
+/// `map.json` liegt öffentlich neben den Kacheln, und den Seed soll dort
+/// niemand ablesen. Ein Zufallsseed hat aber nur 2^48 Werte: Vanilla zieht
+/// ihn mit `LegacyRandomSource`, 48 Bit Zustand. Mit einem einzelnen
+/// SipHash liessen sich alle in Stunden bis Tagen durchprobieren. Deshalb
+/// läuft er eine Million Mal hintereinander, 2^68 Aufrufe für alle Zufallsseeds,
+/// und das Salz zwingt jeden Versuch, für jeden Baum von vorn anzufangen.
+/// Ein Seed aus einem Text hat nur 2^32 Werte, 2^52 Aufrufe: den schützt
+/// das für Stunden bis Tage, nicht für immer. Und nur, wenn man alle
+/// durchprobieren muss: ein eingetippter Seed wie 12345 oder einer aus
+/// einer öffentlichen Liste kostet einen Versuch von 16 ms und steht in
+/// jedem Wörterbuch.
+///
+/// Von Hand und nicht `DefaultHasher`: dessen Algorithmus darf sich mit
+/// jeder Rust-Version ändern, und jeder bestehende Baum gälte dann als
+/// fremd.
+pub fn world_id(seed: i64, dimension: &str, salt: u64) -> String {
+    let key = [salt, u64::from_le_bytes(*b"a-render")];
+    // Der Seed hat feste Länge, die Nachricht bleibt so eindeutig.
+    let message = [&seed.to_le_bytes()[..], dimension.as_bytes()].concat();
+    let mut hash = siphash24(key, &message);
+    for _ in 1..ROUNDS {
+        hash = siphash24(key, &hash.to_le_bytes());
+    }
+    format!("{salt:016x}-{hash:016x}")
+}
+
+/// Das Salz einer Kennung aus `map.json`. `None` bei einem anderen Format;
+/// eine solche Kennung passt zu keiner Welt.
+pub fn salt_of(id: &str) -> Option<u64> {
+    let (salt, hash) = id.split_once('-')?;
+    if salt.len() != 16 || hash.len() != 16 {
+        return None;
+    }
+    u64::from_str_radix(salt, 16).ok()
+}
+
+/// SipHash-2-4 nach Aumasson und Bernstein.
+fn siphash24(key: [u64; 2], message: &[u8]) -> u64 {
+    let mut v = [
+        key[0] ^ 0x736f_6d65_7073_6575,
+        key[1] ^ 0x646f_7261_6e64_6f6d,
+        key[0] ^ 0x6c79_6765_6e65_7261,
+        key[1] ^ 0x7465_6462_7974_6573,
+    ];
+    let round = |v: &mut [u64; 4]| {
+        v[0] = v[0].wrapping_add(v[1]);
+        v[1] = v[1].rotate_left(13) ^ v[0];
+        v[0] = v[0].rotate_left(32);
+        v[2] = v[2].wrapping_add(v[3]);
+        v[3] = v[3].rotate_left(16) ^ v[2];
+        v[0] = v[0].wrapping_add(v[3]);
+        v[3] = v[3].rotate_left(21) ^ v[0];
+        v[2] = v[2].wrapping_add(v[1]);
+        v[1] = v[1].rotate_left(17) ^ v[2];
+        v[2] = v[2].rotate_left(32);
+    };
+    let compress = |v: &mut [u64; 4], m: u64| {
+        v[3] ^= m;
+        round(v);
+        round(v);
+        v[0] ^= m;
+    };
+    let (blocks, rest) = message.as_chunks::<8>();
+    for block in blocks {
+        compress(&mut v, u64::from_le_bytes(*block));
+    }
+    let mut last = (message.len() as u64) << 56;
+    for (i, &byte) in rest.iter().enumerate() {
+        last |= (byte as u64) << (8 * i);
+    }
+    compress(&mut v, last);
+    v[2] ^= 0xff;
+    for _ in 0..4 {
+        round(&mut v);
+    }
+    v[0] ^ v[1] ^ v[2] ^ v[3]
 }
 
 #[cfg(test)]
@@ -291,6 +431,27 @@ mod tests {
         }
     }
 
+    /// Die Tabelle rundet wie die Kurve: über eine Million Werte zwischen
+    /// 0 und 1, dazu die Nachbarn jeder Schwelle.
+    #[test]
+    fn schwellentabelle_rundet_wie_die_kurve() {
+        for i in 0..=1_000_000u32 {
+            let x = i as f32 / 1_000_000.0;
+            assert_eq!(to_srgb(x), srgb_curve(x), "bei {x}");
+        }
+        for &step in SRGB_STEPS.iter() {
+            for x in [step.next_down(), step, step.next_up()] {
+                assert_eq!(to_srgb(x), srgb_curve(x), "an der Schwelle {step}");
+            }
+        }
+        assert_eq!(to_srgb(-1.0), 0);
+        assert_eq!(to_srgb(2.0), 255);
+        assert_eq!(to_srgb(f32::NAN), 0);
+        for c in 0..=255u8 {
+            assert_eq!(to_srgb(LINEAR[c as usize]), c);
+        }
+    }
+
     /// Halb Schwarz, halb Weiss: in linearem Licht gemittelt ist das
     /// deutlich heller als der sRGB-Mittelwert 128.
     #[test]
@@ -341,6 +502,39 @@ mod tests {
 
         assert_eq!(bild.get_pixel(TILE / 2 + 1, TILE / 2 + 1).0[3], 255);
         assert_eq!(bild.get_pixel(1, 1).0[3], 0, "leeres Viertel");
+    }
+
+    /// Die Testvektoren aus dem SipHash-Paper: Schlüssel 00..0f, Nachricht
+    /// leer und 00..0e. Und die Kennung selbst darf sich nie ändern, sonst
+    /// gälte jeder bestehende Baum als fremd.
+    #[test]
+    fn kennung_ist_siphash_des_seeds() {
+        let key = [0x0706_0504_0302_0100, 0x0f0e_0d0c_0b0a_0908];
+        assert_eq!(siphash24(key, &[]), 0x726f_db47_dd0e_0e31);
+        let message: Vec<u8> = (0..15).collect();
+        assert_eq!(siphash24(key, &message), 0xa129_ca61_49be_45e5);
+        // Gegengerechnet mit einer eigenen Python-Fassung. Die Werte dürfen
+        // sich nie ändern, sonst gälte jeder bestehende Baum als fremd.
+        let oberwelt = "minecraft:overworld";
+        assert_eq!(
+            world_id(0, oberwelt, 0),
+            "0000000000000000-21035ca95f557704"
+        );
+        let salt = 0x0123_4567_89ab_cdef;
+        assert_eq!(
+            world_id(4_815_162_342, oberwelt, salt),
+            "0123456789abcdef-0adf0e2365ce474f"
+        );
+        assert_eq!(
+            world_id(4_815_162_342, "minecraft:the_nether", salt),
+            "0123456789abcdef-85810263e60694e1"
+        );
+        assert_eq!(
+            world_id(-1, "minecraft:the_end", u64::MAX),
+            "ffffffffffffffff-66708158e556a415"
+        );
+        assert_eq!(salt_of(&world_id(7, oberwelt, 42)), Some(42));
+        assert_eq!(salt_of("56007c963ac3acc6"), None, "ohne Salz");
     }
 
     #[test]

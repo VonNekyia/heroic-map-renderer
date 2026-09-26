@@ -16,6 +16,10 @@ jobs:
   rust:
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Hier gibt es immer einen Software-Adapter (unten); fehlt er, ist das
+    # ein Fehler und kein übersprungener GPU-Test.
+    env:
+      TERRANOVA_GPU_PFLICHT: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -92,6 +96,14 @@ jobs:
       - name: Browser
         run: npx playwright install --with-deps chromium
 
+      # Unter public/tiles liegt oft ein Link auf einen grossen Render. Der
+      # Build darf ihn nicht nach dist kopieren.
+      - name: Kacheln bleiben aus dem Build
+        run: |
+          mkdir -p public/tiles/0/0 && touch public/tiles/0/0/0.webp
+          npm run build
+          test ! -e dist/tiles && test -f dist/tiles-demo/map.json
+
       - name: Smoke-Test
         run: npm test
 
@@ -113,6 +125,8 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    env:
+      TERRANOVA_GPU_PFLICHT: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -123,6 +137,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: renderer
+
+      - name: Software-Vulkan für die GPU-Tests
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
 
       - uses: taiki-e/install-action@cargo-llvm-cov
 

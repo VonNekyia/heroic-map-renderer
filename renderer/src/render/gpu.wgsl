@@ -4,8 +4,8 @@
 // CPU. Gleitkomma würde je Hersteller anders runden.
 
 struct Instance {
-    // Wortindex des Sprites im Atlas.
-    atlas: u32,
+    // Wortindex des Sprites im Sprite-Puffer.
+    sprite: u32,
     // Breite | Höhe << 16.
     size: u32,
     // Linke obere Ecke in Kachelpixeln, darf negativ sein.
@@ -20,7 +20,7 @@ struct Params {
     cells_per_tile: u32,
 }
 
-@group(0) @binding(0) var<storage, read> atlas: array<u32>;
+@group(0) @binding(0) var<storage, read> sprites: array<u32>;
 @group(0) @binding(1) var<storage, read> instances: array<Instance>;
 // Vorne je Zelle (Anfang, Anzahl), dahinter die Instanzindizes je Zelle in
 // Zeichenreihenfolge; `Anfang` zählt Wörter dieses Puffers.
@@ -69,7 +69,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wg
         if (sx < 0 || sy < 0 || u32(sx) >= w || u32(sy) >= h) {
             continue;
         }
-        let s = unpack(atlas[inst.atlas + u32(sy) * w + u32(sx)]);
+        let s = unpack(sprites[inst.sprite + u32(sy) * w + u32(sx)]);
         if (s.w == 0u) {
             continue;
         }

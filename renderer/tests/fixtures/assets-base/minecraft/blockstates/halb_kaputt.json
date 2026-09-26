@@ -1,0 +1,1 @@
+{ "variants": { "": [ { "model": "minecraft:block/einfarbig" }, { "model": "minecraft:block/gibt_es_nicht", "weight": 3 } ] } }

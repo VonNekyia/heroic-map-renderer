@@ -1,1 +1,1 @@
-{ "temperature": 0.0, "downfall": 0.5, "effects": { "water_color": "#3938c9", "grass_color": "#123456" } }
+{ "has_precipitation": true, "temperature": 0.0, "downfall": 0.5, "effects": { "water_color": "#3938c9", "grass_color": "#123456" } }

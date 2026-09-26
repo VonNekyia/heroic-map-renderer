@@ -86,6 +86,18 @@ test('zoomen wechselt die Kachelstufe, bis es keine feinere gibt', async ({ page
   await expect(hinein).toHaveClass(/leaflet-disabled/);
 });
 
+test('passt Zoom 0 nicht ins Fenster, geht es weiter heraus', async ({ page }) => {
+  // Zoom 0 des Demobaums ist 128 px gross. Einer gewachsenen Welt geht es
+  // in jedem Fenster so: ihr Baum behält seine Stufen.
+  await page.setViewportSize({ width: 100, height: 100 });
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+
+  expect(await tileZooms(page)).toEqual([0]);
+  await expect.poll(() => tileStretch(page)).toBe(0.5);
+  await expect(page.locator('.leaflet-control-zoom-out')).toHaveClass(/leaflet-disabled/);
+});
+
 test('ohne map.json sagt die Seite warum', async ({ page }) => {
   await page.goto('/?tiles=/gibt-es-nicht');
   await expect(page.locator('.error')).toContainText('map.json');

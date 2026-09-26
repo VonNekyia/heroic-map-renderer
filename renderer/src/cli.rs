@@ -1,36 +1,36 @@
-use std::collections::{BTreeSet, HashSet};
+use std::cell::Cell;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
-use std::io::BufWriter;
+use std::hash::{BuildHasher, RandomState};
+use std::io::Write;
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
-use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
-use std::time::Instant;
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
-use terranova_render::assets::{Assets, model_of};
-use terranova_render::render::gpu::Worker;
+use terranova_render::assets::{Assets, fluid, model_of};
 use terranova_render::render::pyramid;
+use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
-    ChunkCache, Gpu, MapInfo, PAKET_SPALTEN, Projection, ScreenRect, SpriteSet, TILE, TileId,
-    chunks_for, corner_tiles, draw_list, encode_webp, render, render_area, render_area_with,
-    survey, world_box,
+    ChunkCache, Gpu, MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, corner_tiles,
+    draw_list, encode_webp, render, render_area, render_area_with, survey, world_box,
 };
 use terranova_render::world::{BlockState, REGION, World};
 
-/// Höhenbereich, den Minecraft seit 1.18 verwendet. Sections ausserhalb
-/// liefert der Welt-Reader ohnehin nicht.
+/// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
+/// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
+/// einem Datapack schnitte der Renderer hier ab.
 const Y_RANGE: (i32, i32) = (-64, 319);
 
 #[derive(Parser)]
 #[command(name = "terranova-render", version, about)]
 pub struct Args {
-    /// Weltverzeichnis (das mit level.dat)
+    /// Weltverzeichnis: die Wurzel mit level.dat oder eine Dimension darin
     #[arg(long)]
     world: Option<PathBuf>,
 
@@ -57,8 +57,8 @@ pub struct Args {
     #[arg(long, value_name = "DATEI")]
     sprite: Option<PathBuf>,
 
-    /// Pixelbreite eines Blocks
-    #[arg(long, default_value_t = Projection::DEFAULT_SCALE)]
+    /// Pixelbreite eines Blocks, ein Vielfaches von 4
+    #[arg(long, default_value_t = Projection::DEFAULT_SCALE, value_parser = parse_scale)]
     scale: u32,
 
     /// Einen Weltausschnitt in diese PNG rendern
@@ -75,35 +75,74 @@ pub struct Args {
 
     /// Kantenlänge des Bildausschnitts in Pixeln. Für --render mit
     /// Vorgabe 1024; ohne Angabe deckt --tiles die ganze Welt ab.
-    #[arg(long)]
+    /// Mindestens 1: ein leerer Ausschnitt rundet nicht auf das Raster der
+    /// nativen Stufen auf, und ihnen fehlten Blöcke ihrer Elternkacheln.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
     size: Option<u32>,
 
     /// Jeden Chunk der Welt dekodieren; mit --assets auch jede Blockstate auflösen
     #[arg(long)]
     scan: bool,
 
+    /// Mit --tiles Kacheln entfernen, die kein Chunk der Welt mehr berührt,
+    /// etwa nach dem Zurücksetzen mit einem Editor. Nur mit der
+    /// vollständigen Welt: bei einer Teilkopie verschwände, was ihr fehlt.
+    #[arg(long, requires = "tiles")]
+    prune: bool,
+
     /// So viele gröbere Zoomstufen aus der Welt rendern statt aus der
-    /// feineren Stufe verkleinern. Hält Blockkanten scharf, kostet aber je
-    /// Stufe einen weiteren Durchlauf durch die Welt.
-    #[arg(long, default_value_t = 0, value_name = "N")]
-    native_levels: u32,
+    /// feineren Stufe verkleinern, höchstens so viele, wie der scale
+    /// hergibt: bei 32 drei. Hält Blockkanten scharf, aber jede Stufe ist
+    /// ein weiterer Durchlauf durch die Welt. Vorgabe 0; ein bestehender
+    /// Baum behält die Zahl aus seiner map.json
+    #[arg(long, value_name = "N", requires = "tiles")]
+    native_levels: Option<u32>,
 
-    /// Nur die Zoomstufen und map.json aus den Basiskacheln in --tiles
-    /// nachbauen, ohne zu rendern. Nimmt nur Kacheln, die neuer sind als
-    /// ihre Elternkachel — auch während ein Render läuft
-    #[arg(long)]
-    pyramid: bool,
-
-    /// Vorhandene Basiskacheln stehen lassen statt sie neu zu rendern:
-    /// setzt einen abgebrochenen Lauf fort
-    #[arg(long)]
+    /// Mit --tiles vorhandene Basiskacheln stehen lassen statt sie neu zu
+    /// rendern: setzt einen abgebrochenen Lauf fort, und nur den. Die
+    /// Kacheln nimmt der Lauf, wie sie sind; stammen sie aus einem älteren
+    /// Stand der Welt oder der Assets, bleiben sie das. Neu rendert er die
+    /// aus den letzten zwei Minuten vor der jüngsten, die kann ein
+    /// Stromausfall getroffen haben, dazu die nativen Stufen und die
+    /// Pyramide. Brauchte das System länger, bis es geschrieben hatte, oder
+    /// sprang die Uhr, rendert erst ein Lauf ohne --resume sicher alles neu
+    #[arg(long, requires = "tiles")]
     resume: bool,
 
     /// Grafikkarte zum Zeichnen der Kacheln: `auto` nimmt sie, wenn eine da
     /// ist, `on` verlangt eine (auch einen Software-Adapter) und bricht
     /// sonst ab.
-    #[arg(long, value_enum, default_value_t = GpuMode::Auto)]
+    #[arg(long, value_enum, default_value_t = GpuMode::Auto, requires = "tiles")]
     gpu: GpuMode,
+
+    /// Nur unter Windows: vor dem Export eine Ausnahme im Echtzeitschutz von
+    /// Microsoft Defender für das Verzeichnis von --tiles setzen, wenn es neu,
+    /// leer oder schon ein Kachelbaum ist, nie für die Wurzel eines
+    /// Laufwerks. Windows fragt nach Adminrechten; ohne Zustimmung läuft der
+    /// Export ohne sie. Entfernen muss man sie selbst, den Befehl nennt der
+    /// Lauf am Anfang und am Ende
+    #[arg(long, requires = "tiles")]
+    defender_exclusion: bool,
+
+    /// Die Zoomstufen und map.json dieses Kachelbaums aus seinen
+    /// Basiskacheln nachbauen, ohne Welt und ohne Assets. Baut nur, was
+    /// sich seit dem letzten Mal geändert hat, auch während ein Render läuft
+    #[arg(long, value_name = "VERZEICHNIS", exclusive = true)]
+    pyramid: Option<PathBuf>,
+}
+
+/// Die Projektion setzt Blöcke in Schritten von scale/4 Pixeln. Nur bei
+/// einem Vielfachen von 4 liegt jeder Block auf ganzen Pixeln; sonst
+/// rundet `blit` jede zweite Blockreihe, und benachbarte Reihen überdecken
+/// sich. Dann halbiert auch jede native Stufe exakt.
+fn parse_scale(text: &str) -> std::result::Result<u32, String> {
+    let scale: u32 = text.parse().map_err(|e| format!("{e}"))?;
+    if scale < 4 || !scale.is_multiple_of(4) {
+        return Err(format!(
+            "{scale} ist kein Vielfaches von 4: jede zweite Blockreihe läge auf einem halben Pixel"
+        ));
+    }
+    Ok(scale)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -117,7 +156,15 @@ enum GpuMode {
 /// Absenden, kostet aber je Thread Puffer — 16 Kacheln sind 8 MB.
 const GPU_TILES: u32 = 16;
 
+/// Die Karte eines Laufs. Versagt sie einmal, zeichnet für den Rest des
+/// Laufs die CPU ([`mit_rueckfall`]).
+struct Karte {
+    gpu: Gpu,
+    aus: AtomicBool,
+}
+
 pub fn run() -> Result<()> {
+    std::panic::set_hook(still_beim_fangen(std::panic::take_hook()));
     let args = Args::parse();
 
     if args.world.is_none() && (args.at.is_some() || args.scan) {
@@ -132,11 +179,29 @@ pub fn run() -> Result<()> {
     if args.render.is_some() && (args.world.is_none() || args.assets.is_empty()) {
         bail!("--render braucht --world und --assets");
     }
-    if args.pyramid && args.tiles.is_none() {
-        bail!("--pyramid braucht --tiles");
-    }
-    if args.tiles.is_some() && (args.world.is_none() || (args.assets.is_empty() && !args.pyramid)) {
+    if args.tiles.is_some() && (args.world.is_none() || args.assets.is_empty()) {
         bail!("--tiles braucht --world und --assets");
+    }
+    if args.defender_exclusion && !cfg!(windows) {
+        bail!("--defender-exclusion gibt es nur unter Windows");
+    }
+    // Vor allem anderen, dann sitzt noch jemand davor. Der Hinweis kommt nur
+    // beim ersten Export in ein Verzeichnis: ob die Ausnahme schon besteht,
+    // sieht der Lauf ohne Adminrechte nicht, und bei jedem Lauf wäre er
+    // lästig.
+    let mut ausnahme = false;
+    if let Some(dir) = &args.tiles
+        && cfg!(windows)
+    {
+        match warum_keine_ausnahme(dir) {
+            Some(grund) if args.defender_exclusion => println!(
+                "Defender:   keine Ausnahme für {}: {grund}",
+                ordner_fuer_powershell(dir)
+            ),
+            None if args.defender_exclusion => ausnahme = setze_ausnahme(dir),
+            None if !dir.join("map.json").exists() => melde_echtzeitschutz(dir),
+            _ => {}
+        }
     }
 
     let mut assets = match args.assets.as_slice() {
@@ -155,6 +220,30 @@ pub fn run() -> Result<()> {
             for dir in &args.data {
                 let biomes = assets.load_biomes(dir)?;
                 println!("            {biomes} Biome aus {}", dir.display());
+            }
+            let kaputt = assets.colors().broken_biomes();
+            if !kaputt.is_empty() {
+                println!(
+                    "            {} Biome kaputt, übergangen; der Client lüde ihr Datenpaket nicht:",
+                    kaputt.len()
+                );
+                print_list(
+                    kaputt
+                        .iter()
+                        .map(|(pfad, grund)| format!("{pfad}: {grund}")),
+                );
+            }
+            let unlesbar = assets.unreadable();
+            if !unlesbar.is_empty() {
+                println!(
+                    "            {} Ordner nicht lesbar, wie im Client dort nichts gelistet:",
+                    unlesbar.len()
+                );
+                print_list(
+                    unlesbar
+                        .iter()
+                        .map(|(pfad, grund)| format!("{pfad}: {grund}")),
+                );
             }
             Some(assets)
         }
@@ -215,22 +304,46 @@ pub fn run() -> Result<()> {
             )?;
         }
         if let Some(dir) = &args.tiles {
-            if args.pyramid {
-                rebuild_pyramid(world, projection, dir)?;
-            } else {
-                let gpu = oeffne_gpu(args.gpu)?;
-                write_tiles(
+            let export = oeffne_gpu(args.gpu).and_then(|karte| {
+                let export = write_tiles(
                     world,
                     assets.as_mut().expect("oben geprüft"),
                     projection,
                     args.size.map(|size| window(projection, center, size)),
                     dir,
                     args.native_levels,
+                    args.prune,
                     args.resume,
-                    gpu.as_ref(),
-                )?;
+                    karte.as_ref(),
+                );
+                // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
+                // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
+                // endete nie. Sie aufzuräumen bleibt dem System.
+                if karte
+                    .as_ref()
+                    .is_some_and(|karte| karte.aus.load(Ordering::Relaxed))
+                {
+                    std::mem::forget(karte);
+                }
+                export
+            });
+            // Auch nach einem Fehler: Der Befehl vom Anfang steht nach
+            // Stunden weit oben.
+            if ausnahme {
+                println!(
+                    "Defender:   Die Ausnahme besteht noch. In einer PowerShell als Administrator entfernen:"
+                );
+                println!(
+                    "            Remove-MpPreference -ExclusionPath {}",
+                    ordner_fuer_powershell(dir)
+                );
             }
+            export?;
         }
+    }
+
+    if let Some(dir) = &args.pyramid {
+        rebuild_pyramid(dir, SystemTime::now())?;
     }
 
     if let Some(assets) = &assets {
@@ -316,32 +429,127 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
         for texture in textures {
             println!("      {texture}");
         }
-        if variant.model.is_empty() {
+        // Wasser, Lava und Blasensäule haben kein Modell-JSON und trotzdem
+        // ein Bild. Eine geflutete Truhe dagegen zeichnet Minecraft als
+        // Entity, auf der Karte steht dort nur ihr Wasser.
+        if variant.model.is_empty() && !fluid::is_block(state) {
             println!("      (kein Modell — wird von Minecraft als Entity gezeichnet)");
         }
+    }
+    // Wasser und Lava haben kein Modell-JSON; der Renderer baut sie im
+    // Code, wie das Spiel.
+    if let Some(fluid) = fluid::of(state) {
+        println!("  Flüssigkeit: {fluid:?}, als Würfel aus dem Code");
     }
     Ok(())
 }
 
 /// Öffnet die Grafikkarte nach Wunsch. Bei `auto` ist ein Fehler beim
-/// Öffnen kein Grund abzubrechen — dann zeichnet die CPU.
-fn oeffne_gpu(mode: GpuMode) -> Result<Option<Gpu>> {
+/// Öffnen kein Grund abzubrechen — dann zeichnet die CPU. Auch eine Panik
+/// aus wgpu nicht, etwa wenn ein Treiber den Shader nicht übersetzt.
+fn oeffne_gpu(mode: GpuMode) -> Result<Option<Karte>> {
     let gpu = match mode {
-        GpuMode::Off => None,
-        GpuMode::Auto => match Gpu::new(false) {
+        GpuMode::Off => {
+            println!("GPU:        aus (--gpu off)");
+            return Ok(None);
+        }
+        GpuMode::Auto => match ohne_panik(|| Gpu::new(false)) {
             Ok(gpu) => gpu,
             Err(e) => {
-                println!("GPU:        {e:#} — die CPU zeichnet");
-                None
+                println!("GPU:        {e:#}; die CPU zeichnet");
+                return Ok(None);
             }
         },
-        GpuMode::On => Some(Gpu::new(true)?.context("keine Grafikkarte gefunden (--gpu on)")?),
+        GpuMode::On => {
+            Some(ohne_panik(|| Gpu::new(true))?.context("keine Grafikkarte gefunden (--gpu on)")?)
+        }
     };
     match &gpu {
         Some(gpu) => println!("GPU:        {}", gpu.name),
         None => println!("GPU:        keine, die CPU zeichnet"),
     }
-    Ok(gpu)
+    Ok(gpu.map(|gpu| Karte {
+        gpu,
+        aus: AtomicBool::new(false),
+    }))
+}
+
+thread_local! {
+    /// Fängt [`ohne_panik`] auf diesem Thread gerade? Dann schweigt der
+    /// Panic-Hook des Laufs.
+    static FAENGT: Cell<bool> = const { Cell::new(false) };
+}
+
+type Hook = Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>;
+
+/// Der Panic-Hook des Laufs: schweigt, solange [`ohne_panik`] auf diesem
+/// Thread fängt, und gibt jede andere Panik an `sonst`. wgpu meldet jeden
+/// Fehler, den kein Error-Scope fängt, mit einer Panik, und `Device::poll`
+/// jeden, der kein `PollError` ist, auch ein verlorenes Gerät, mit Scope
+/// wie ohne. Sonst stünde nach einem Treiber-Reset jede gefangene Panik im
+/// Log, einmal je Thread, samt Pfad und Hinweis auf `RUST_BACKTRACE`.
+fn still_beim_fangen(sonst: Hook) -> Hook {
+    Box::new(move |info| {
+        if !FAENGT.try_with(Cell::get).unwrap_or(false) {
+            sonst(info);
+        }
+    })
+}
+
+/// Führt `f` aus; eine Panik darin wird ein Fehler mit ihrem Text, auf
+/// einer Zeile. Den Hook dazu setzt [`run`] ([`still_beim_fangen`]).
+fn ohne_panik<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
+    let vorher = FAENGT.replace(true);
+    let ergebnis = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    FAENGT.set(vorher);
+    ergebnis.unwrap_or_else(|panik| {
+        let text = panik
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| panik.downcast_ref::<&str>().map(|text| (*text).to_owned()))
+            .unwrap_or_else(|| "Panik".to_owned());
+        // wgpu schreibt die Ursachen eingerückt darunter.
+        Err(anyhow::anyhow!(
+            text.split_whitespace().collect::<Vec<_>>().join(" ")
+        ))
+    })
+}
+
+/// Die Bilder einer Gruppe von der Karte. Versagt sie mit einem Fehler
+/// oder einer Panik aus wgpu, etwa nach einem Treiber-Reset, zeichnet die
+/// CPU die Gruppe; `aus` hält fest, dass der Rest des Laufs auf der CPU
+/// läuft, gesagt wird das einmal. Das Bild ist auf beiden Wegen dasselbe.
+fn mit_rueckfall(
+    aus: &AtomicBool,
+    karte: impl FnOnce() -> Result<Vec<RgbaImage>>,
+    cpu: impl FnOnce() -> Result<Vec<RgbaImage>>,
+) -> Result<Vec<RgbaImage>> {
+    let grund = match ohne_panik(karte) {
+        Ok(bilder) => return Ok(bilder),
+        Err(e) => e,
+    };
+    if !aus.swap(true, Ordering::Relaxed) {
+        println!("GPU:        {grund:#}; ab hier zeichnet die CPU");
+    }
+    cpu()
+}
+
+/// Was das Log über die Karte einer Stufe sagt: nichts, wenn sie keine
+/// Kachel gezeichnet hat, sonst wie viele.
+fn im_log(auf_der_karte: usize, gesamt: usize) -> String {
+    match auf_der_karte {
+        0 => String::new(),
+        n if n == gesamt => " + GPU".to_owned(),
+        n => format!(" + GPU für {n} von {gesamt}"),
+    }
+}
+
+/// Zeichnet Kacheln auf der CPU, eine nach der anderen.
+fn auf_der_cpu(chunks: &mut ChunkCache, tiles: &[TileId]) -> Result<Vec<RgbaImage>> {
+    tiles
+        .iter()
+        .map(|tile| render_area_with(chunks, tile.rect(), Y_RANGE))
+        .collect()
 }
 
 /// Rendert einen Ausschnitt der Welt in eine PNG.
@@ -357,37 +565,17 @@ fn render_world(
     path: &Path,
 ) -> Result<()> {
     let started = Instant::now();
-    let chunks = chunks_for(projection, rect, Y_RANGE);
-    let mut states = BTreeSet::new();
-    let mut biomes = BTreeSet::new();
-    let mut vorhanden = 0u32;
-    for &(cx, cz) in &chunks {
-        if let Some(chunk) = world.chunk(cx, cz)? {
-            vorhanden += 1;
-            for section in chunk.sections() {
-                states.extend(section.blocks().palette().iter().cloned());
-                biomes.extend(section.biomes().palette().iter().cloned());
-            }
-        }
-    }
-
-    let sprites = SpriteSet::build(assets, &states, projection)?;
-    warn_unknown_biomes(assets, &biomes);
+    // Derselbe Vorlauf wie beim Kachelexport, nur über den Ausschnitt.
+    let survey = survey(world, projection, Y_RANGE, Some(rect))?;
+    let sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
+    warn_unknown_biomes(assets, &survey.biomes);
     println!(
-        "\nRender:     {} Chunks im Ausschnitt, {vorhanden} generiert, {} Blockstates, {} Sprites",
-        chunks.len(),
-        states.len(),
+        "\nRender:     {} Chunks gelesen, {} Blockstates, {} Sprites",
+        survey.chunks,
+        survey.states.len(),
         sprites.len()
     );
-    // Modelle, die ihren Blockwürfel verlassen, kosten im Renderpfad eine
-    // Suche je leerem Würfel. Wenn es langsam wird, steht hier warum.
-    if !sprites.foreign_cells().is_empty() {
-        println!(
-            "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",
-            sprites.overhanging(),
-            sprites.foreign_cells()
-        );
-    }
+    melde_ueberhang(&sprites);
 
     let image = render_area(world, &sprites, rect, Y_RANGE)?;
     image
@@ -474,8 +662,19 @@ fn window(projection: Projection, center: (i32, i32), size: u32) -> ScreenRect {
     }
 }
 
-/// Schreibt die Welt als WebP-Kacheln.
-///
+/// Modelle, die ihren Blockwürfel verlassen, kosten im Renderpfad je Block
+/// mit so einem Modell ein Nachschlagen je Würfel, in den eines ragen
+/// kann. Wenn es langsam wird, steht hier warum.
+fn melde_ueberhang(sprites: &SpriteSet) {
+    if !sprites.foreign_cells().is_empty() {
+        println!(
+            "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",
+            sprites.overhanging(),
+            sprites.foreign_cells()
+        );
+    }
+}
+
 /// Biome der Welt, für die keine Definition geladen ist. Sie bekommen die
 /// Farben von `plains` — das soll niemand erst auf der Karte bemerken.
 fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
@@ -503,6 +702,8 @@ fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
     );
 }
 
+/// Schreibt die Welt als WebP-Kacheln.
+///
 /// Zwei Durchläufe: der Vorlauf liest jeden Chunk einmal und sagt, welche
 /// Blockstates vorkommen und welche Kacheln überhaupt etwas zeigen. Erst
 /// danach steht die Sprite-Tabelle, und erst danach kann parallel gerendert
@@ -514,12 +715,44 @@ fn write_tiles(
     projection: Projection,
     bounds: Option<ScreenRect>,
     dir: &Path,
-    native_levels: u32,
+    native: Option<u32>,
+    prune: bool,
     resume: bool,
-    gpu: Option<&Gpu>,
+    karte: Option<&Karte>,
 ) -> Result<()> {
+    // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
+    // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
+    // einer anderen Stufe, und zwei Läufe passten nicht zusammen.
+    let welt =
+        world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
+    let bestand = lies_bestand(dir)?;
+    let kennung = kennung(world, bestand.as_ref())?;
+    let warum = ohne_kennung(world);
+    let uebernommen = pruefe_bestand(
+        dir,
+        bestand.as_ref(),
+        projection.scale(),
+        kennung.as_deref().ok_or(warum.as_str()),
+    )?;
+    // Ein bestehender Baum behält seine Nummerierung, auch wenn die Welt
+    // inzwischen gewachsen ist: dann bekommt Zoom 0 mehr Kacheln, und das
+    // Frontend zoomt darunter. Sonst müsste jeder Baum nach der ersten
+    // neuen Region von vorn entstehen.
+    let max_zoom = match &bestand {
+        Some(alt) => alt.max_zoom,
+        None => pyramid::depth(&corner_tiles(welt)),
+    };
+
+    // Die nativen Stufen rendern ihre Elternkacheln ganz. Damit alle
+    // Stufen denselben Weltstand zeigen, reicht die Basis genauso weit:
+    // ein Ausschnitt wird auf ganze Kacheln der gröbsten nativen Stufe
+    // aufgerundet, und der Vorlauf sieht jeden Block, den irgendeine
+    // Stufe braucht.
+    let stufen = native_stufen(dir, bestand.as_ref(), native, projection.scale(), max_zoom)?;
+    let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
+
     let started = Instant::now();
-    let survey = survey(world, projection, Y_RANGE, bounds)?;
+    let mut survey = survey(world, projection, Y_RANGE, bounds)?;
     println!(
         "\nVorlauf:    {} Chunks in {:.1} s, {} Blockstates, {} Kacheln",
         survey.chunks,
@@ -527,11 +760,51 @@ fn write_tiles(
         survey.states.len(),
         survey.tiles.len()
     );
-    if survey.tiles.is_empty() {
-        bail!("keine Kachel enthält etwas — falscher Ausschnitt?");
+
+    // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt, etwa
+    // weil ein Editor ihn zurückgesetzt hat. Der Vorlauf sieht sie nicht.
+    // Weg kommen sie nur mit --prune: einer Teilkopie der Welt fehlt
+    // vieles, und ohne Schalter leerte ein solcher Lauf den Baum. Ein
+    // Ausschnitt sucht nur in seiner Fläche, die ist auf ganze Kacheln
+    // gerundet. Gesucht wird, bevor ein leerer Vorlauf abbricht: über
+    // einer ganz zurückgesetzten Fläche findet er nichts, aufzuräumen gibt
+    // es dort trotzdem. Die Basis liest der Lauf dafür einmal ganz, sie
+    // gibt auch die Grenzen in map.json; mit --resume samt Zeiten, aus
+    // ihnen folgt, was er neu rendert.
+    let kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
+    let flaeche_auf = |z: u32| flaeche(bounds, max_zoom, z);
+    let zeiten = if resume {
+        Some(vorhandene_mit_zeit(dir, max_zoom)?)
+    } else {
+        None
+    };
+    let gelistet = SystemTime::now();
+    let basis = match &zeiten {
+        Some(zeiten) => zeiten.keys().copied().collect(),
+        None => vorhandene(dir, max_zoom, None)?,
+    };
+    let bestehend: BTreeSet<TileId> = basis
+        .iter()
+        .filter(|tile| in_flaeche(flaeche_auf(max_zoom).as_ref(), tile))
+        .copied()
+        .collect();
+    let veraltet: BTreeSet<TileId> = bestehend.difference(&kandidaten).copied().collect();
+    let waisen = waisen(dir, max_zoom, &bestehend, flaeche_auf)?;
+    let anteil = format!("{} von {} Basiskacheln", veraltet.len(), bestehend.len());
+    // Mit --prune ist auch ein leerer Lauf keiner über dem falschen
+    // Ausschnitt: dort ist vielleicht schon aufgeräumt. Und fehlt Kacheln
+    // hier die Elternkachel, baut er sie nach.
+    if kandidaten.is_empty() && !prune && waisen.is_empty() {
+        if veraltet.is_empty() {
+            bail!("keine Kachel enthält etwas — falscher Ausschnitt?");
+        }
+        bail!(
+            "keine Kachel enthält etwas, und {anteil} berührt kein Chunk dieser Welt mehr. \
+             --prune entfernt sie, aber nur mit der vollständigen Welt."
+        );
     }
 
-    let sprites = SpriteSet::build(assets, &survey.states, projection)?;
+    let sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
     println!(
         "            {} Sprites bei scale {}, davon {} Fassungen",
         sprites.len(),
@@ -539,130 +812,131 @@ fn write_tiles(
         sprites.variants()
     );
     warn_unknown_biomes(assets, &survey.biomes);
-    if !sprites.unresolved().is_empty() {
+    melde_ueberhang(&sprites);
+
+    // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
+    // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
+    // er vorher, legt er für das Verzeichnis nichts fest.
+    let (_, _, pfad) = schreibe_map_json(
+        dir,
+        projection.scale(),
+        max_zoom,
+        stufen,
+        kennung.as_deref(),
+        &basis,
+    )?;
+    if uebernommen {
         println!(
-            "            {} Blockarten kennen die Assets nicht, sie bleiben leer:",
-            sprites.unresolved().len()
+            "Karte:      {} nannte keine Welt, ein älterer Stand: der Baum gehört ab jetzt zu dieser",
+            pfad.display()
         );
-        for (name, error) in sprites.unresolved() {
-            println!("              {name}: {error}");
+    }
+    if kennung.is_none() {
+        println!("Karte:      ohne Kennung, dort steht \"world\": null. {warum}");
+    }
+
+    // Angesagt wird vor der Basis: bis zum Ende des Laufs bleibt Zeit für
+    // Strg+C. Bis zum Ende der Pyramide läuft er wie einer ohne --prune,
+    // dann räumt er auf (`ohne_veraltete`).
+    if !veraltet.is_empty() {
+        if prune {
+            println!(
+                "Aufräumen:  {anteil} berührt kein Chunk dieser Welt mehr; sie verschwinden am Ende des Laufs"
+            );
+        } else {
+            println!(
+                "Aufräumen:  {anteil} berührt kein Chunk dieser Welt mehr; sie bleiben stehen. \
+                 --prune entfernt sie, aber nur mit der vollständigen Welt."
+            );
         }
     }
-    if !sprites.foreign_cells().is_empty() {
-        println!(
-            "            {} Modelle ragen über ihren Block hinaus, Würfel {:?}",
-            sprites.overhanging(),
-            sprites.foreign_cells()
-        );
-    }
-
-    // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
-    // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
-    // einer anderen Stufe, und zwei Läufe passten nicht zusammen.
-    let welt =
-        world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
-    let max_zoom = pyramid::depth(&corner_tiles(welt));
-    let kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
 
     let started = Instant::now();
-    let fertig = AtomicUsize::new(0);
-    let uebersprungen = AtomicUsize::new(0);
     let gesamt = survey.tiles.len();
-    let schreiber = Schreiber::new(SCHREIBER);
+    in_bloecken(&mut survey.tiles);
 
-    let geladen = AtomicUsize::new(0);
-    let basis = verteile(
-        &pakete(&survey.tiles),
-        || {
-            (
-                ChunkCache::new(world, &sprites),
-                gpu.map(|gpu| gpu.worker(GPU_TILES, TILE)),
-            )
-        },
-        |(chunks, worker): &mut (ChunkCache, Option<Worker>), paket| -> Result<Vec<TileId>> {
-            let vorher = chunks.loads();
-            let mut geschrieben = Vec::with_capacity(paket.len());
-            // Die Grafikkarte bekommt mehrere Kacheln je Durchgang; die
-            // CPU eine nach der anderen.
-            let je_durchgang = if worker.is_some() {
-                GPU_TILES as usize
-            } else {
-                1
-            };
-            for gruppe in paket.chunks(je_durchgang) {
-                let mut offen = Vec::with_capacity(gruppe.len());
-                for tile in gruppe {
-                    let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
-                    if erledigt.is_multiple_of(200) || erledigt == gesamt {
-                        println!("            {erledigt}/{gesamt} Kacheln");
-                    }
-                    if resume && tile_path(dir, max_zoom, *tile).is_file() {
-                        uebersprungen.fetch_add(1, Ordering::Relaxed);
-                        geschrieben.push(*tile);
-                    } else {
-                        offen.push(*tile);
-                    }
-                }
-                let bilder = match worker {
-                    Some(worker) => {
-                        let listen = offen
-                            .iter()
-                            .map(|tile| draw_list(chunks, tile.rect(), Y_RANGE, false))
-                            .collect::<Result<Vec<_>>>()?;
-                        worker.render(&listen)?
-                    }
-                    None => offen
-                        .iter()
-                        .map(|tile| render_area_with(chunks, tile.rect(), Y_RANGE))
-                        .collect::<Result<Vec<_>>>()?,
-                };
-                for (tile, image) in offen.iter().zip(bilder) {
-                    // Der Vorlauf kennt nur die Hüllkästen der
-                    // Blockspalten; ob eine Kachel wirklich etwas zeigt,
-                    // weiss erst der Renderlauf.
-                    if image.pixels().all(|p| p.0[3] == 0) {
-                        entferne(&tile_path(dir, max_zoom, *tile))?;
-                        continue;
-                    }
-                    schreiber.gib(tile_path(dir, max_zoom, *tile), encode_webp(&image)?)?;
-                    geschrieben.push(*tile);
-                }
+    // Kacheln, die leer geworden sind, verschwinden erst am Ende des Laufs,
+    // auf jeder Stufe, zusammen mit denen ohne Chunk; bis dahin zeigen sie
+    // schon nichts mehr (`verblasse`). Bricht der Lauf vorher ab, hat er
+    // nichts entfernt, mit --resume nur die frischen Basiskacheln (unten).
+    // Eine leere Elternkachel über einem Kind, das bleibt, bleibt
+    // durchsichtig stehen. Mit --resume bleibt, was in der Liste der Basis
+    // steht, ausser den frischen Kacheln (`frische`).
+    let bleiben: BTreeSet<TileId> = match &zeiten {
+        Some(zeiten) => basis
+            .difference(&frische(zeiten, gelistet))
+            .copied()
+            .collect(),
+        None => BTreeSet::new(),
+    };
+    let reihe: Vec<TileId> = survey
+        .tiles
+        .iter()
+        .filter(|tile| !bleiben.contains(tile))
+        .copied()
+        .collect();
+    // Die frischen entfernt der Lauf, bevor er sie neu rendert. Bricht er
+    // vorher ab, fehlen sie, und das nächste Fortsetzen rendert sie. Stünden
+    // sie noch da, wäre dessen jüngste Kachel eine aus diesem Lauf, und sie
+    // lägen ausserhalb der zwei Minuten.
+    if let Some(zeiten) = &zeiten {
+        reihe
+            .par_iter()
+            .filter(|tile| zeiten.contains_key(tile))
+            .try_for_each(|tile| entferne(&tile_path(dir, max_zoom, *tile)))?;
+    }
+    let (stufe, auf_der_karte) = rendere(
+        world,
+        &sprites,
+        &reihe,
+        true,
+        karte,
+        |tile, image| -> Result<Option<usize>> {
+            // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
+            // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
+            if image.pixels().all(|p| p.0[3] == 0) {
+                verblasse(dir, max_zoom, tile)?;
+                return Ok(None);
             }
-            geladen.fetch_add(chunks.loads() - vorher, Ordering::Relaxed);
-            Ok(geschrieben)
+            Ok(Some(schreibe(dir, max_zoom, tile, &image)?))
         },
-    );
-    // Erst die Schreiber einholen: ein Fehler beim Schreiben ist der
-    // Grund, wenn das Rendern deswegen abgebrochen hat.
-    let bytes = schreiber.fertig();
-    let basis: BTreeSet<TileId> = basis?.into_iter().flatten().collect();
-    let bytes = bytes?;
+    )?;
+    let mut leer = Vec::new();
+    let mut bytes = 0usize;
+    for (tile, ergebnis) in stufe {
+        match ergebnis {
+            None => leer.push(tile),
+            Some(n) => bytes += n,
+        }
+    }
+    let gerendert = reihe.len();
+    let uebersprungen = gesamt - gerendert;
+    let geschrieben = gerendert - leer.len();
+    let mut weg: BTreeSet<(u32, TileId)> = leer.iter().map(|tile| (max_zoom, *tile)).collect();
 
     let seconds = started.elapsed().as_secs_f64();
-    let uebersprungen = uebersprungen.load(Ordering::Relaxed);
     println!(
-        "Kacheln:    {} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads{}",
-        basis.len() - uebersprungen,
-        gesamt - basis.len(),
+        "Kacheln:    {geschrieben} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads{}",
+        leer.len(),
         rayon::current_num_threads(),
-        if gpu.is_some() { " + GPU" } else { "" }
+        im_log(auf_der_karte, gerendert)
     );
     if resume {
         println!("            {uebersprungen} vorhandene Kacheln übersprungen (--resume)");
     }
-    let geladen = geladen.load(Ordering::Relaxed);
-    println!(
-        "            {geladen} Chunks dekodiert, {:.1} je Kachel",
-        geladen as f64 / gesamt as f64
-    );
+    // Rate und Grösse nur über die gerenderten: ein Fortsetzen bei 90 %
+    // meldete sonst die zehnfache Rate und ein Zehntel der Grösse.
     println!(
         "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s, {:.0} kB je Kachel)",
         bytes as f64 / 1_048_576.0,
-        gesamt as f64 / seconds,
-        bytes as f64 / basis.len().max(1) as f64 / 1024.0,
+        gerendert as f64 / seconds,
+        bytes as f64 / geschrieben.max(1) as f64 / 1024.0,
     );
 
-    let (z, kandidaten) = render_coarser(
+    // Die nativen Stufen bauen ihre eigenen Tabellen; die der Basis wird
+    // nicht mehr gebraucht.
+    drop(sprites);
+    let (z, kandidaten, gezeigt) = render_coarser(
         world,
         assets,
         &survey.states,
@@ -670,77 +944,451 @@ fn write_tiles(
         dir,
         max_zoom,
         kandidaten,
-        native_levels,
+        stufen,
+        &waisen,
+        &mut weg,
+        karte,
     )?;
-    build_pyramid(dir, z, kandidaten)?;
-    write_map_json(dir, projection, max_zoom)
+    build_pyramid(dir, z, kandidaten, &waisen, &mut weg)?;
+    if prune && !veraltet.is_empty() {
+        ohne_veraltete(dir, max_zoom, stufen, &veraltet, &gezeigt, &mut weg)?;
+    }
+
+    // Erst jetzt verschwindet etwas, von der gröbsten Stufe bis zur Basis;
+    // mit --resume vorher nur die frischen Basiskacheln, neu gerendert.
+    // Bricht der Lauf hier ab, stehen die feineren Kacheln noch da, auch die
+    // ohne Chunk: der nächste Lauf mit --prune findet sie wieder, und jeder
+    // Lauf baut ihnen die fehlenden Eltern nach (`waisen`).
+    for (z, tile) in &weg {
+        entferne(&tile_path(dir, *z, *tile))?;
+    }
+    if prune && !veraltet.is_empty() {
+        println!("Aufräumen:  {} Kacheln ohne Chunk entfernt", veraltet.len());
+    }
+
+    // Die Basis nach dem Lauf: die von vorher, dazu die gerenderten, ohne
+    // die entfernten.
+    let mut basis = basis;
+    basis.extend(&survey.tiles);
+    basis.retain(|tile| !weg.contains(&(max_zoom, *tile)));
+    let (info, anzahl, path) = schreibe_map_json(
+        dir,
+        projection.scale(),
+        max_zoom,
+        stufen,
+        kennung.as_deref(),
+        &basis,
+    )?;
+    melde_karte(&info, anzahl, &path);
+    Ok(())
 }
 
-/// Baut die Zoomstufen über den Basiskacheln nach, die auf der Platte
-/// liegen, und schreibt `map.json` — ohne die Welt zu rendern.
+/// Baut die Zoomstufen über den Basiskacheln eines Kachelbaums nach und
+/// schreibt `map.json`, ohne Welt und ohne Assets. Basisstufe, scale und
+/// Welt nennt `map.json`, das jeder Export vor seiner ersten Kachel
+/// schreibt; ohne diese Datei oder ohne Kachel auf ihrer Basisstufe ändert
+/// der Aufruf nichts.
 ///
-/// Neu gebaut werden nur die Eltern von Basiskacheln, die jünger sind als
-/// ihre Elternkachel. Damit lässt sich der Aufruf wiederholen, während ein
-/// Render noch läuft: die Karte im Browser wächst mit, und der Aufwand
-/// bleibt bei dem, was seit dem letzten Mal dazugekommen ist.
-fn rebuild_pyramid(world: &World, projection: Projection, dir: &Path) -> Result<()> {
-    let welt =
-        world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
-    let max_zoom = pyramid::depth(&corner_tiles(welt));
-    let basis = vorhandene(dir, max_zoom)?;
-    let neu: BTreeSet<TileId> = basis
-        .iter()
-        .copied()
-        .filter(|tile| juenger_als_eltern(dir, max_zoom, *tile))
-        .collect();
+/// Verglichen wird auf jeder Stufe, jede Kachel mit ihren Kindern auf der
+/// Platte. Neu gebaut wird sie, wenn ein Kind jünger ist als sie, wenn
+/// dieser Aufruf ein Kind neu gebaut oder entfernt hat, oder wenn sie
+/// fehlt. Eine Kachel ohne Kinder verschwindet. Bricht Strg+C einen Aufruf
+/// ab, holt der nächste nach, was fehlt; eine Kachel, die ein Stromausfall
+/// zerrissen hat, ist dagegen nicht älter als ihre Kinder und bleibt, siehe
+/// README. Die Zeiten kommen aus der Liste jeder Stufe, siehe
+/// [`vorhandene_mit_zeit`].
+///
+/// Jede Kachel, die der Aufruf schreibt, und `map.json` tragen als Zeit
+/// seinen Beginn, zwei Sekunden früher: ein Kind, das ein laufender Render
+/// danach schreibt, ist jünger als sie, auch wenn sie erst danach fertig
+/// wird. Zwei Sekunden, weil keine gängige Uhr eines Dateisystems gröber
+/// zählt; ein Kind aus diesen zwei Sekunden baut der nächste Aufruf nur
+/// noch einmal ein. Was nach dem Beginn selbst und vor der Liste seiner
+/// Stufe entstand, hat deshalb jemand anders geschrieben, siehe [`fremd`]:
+/// auf einer nativen Stufe ein Render, der sie aus der Welt zeichnet, am
+/// Ende `map.json` mit den Grenzen seiner letzten Kacheln. Das bleibt, wie
+/// es ist, ebenso eine Kachel, die sich seit der Liste geändert hat; das
+/// prüft der Aufruf erst direkt vor dem Tausch und vor dem Entfernen. Eine
+/// verkleinerte Kachel hängt dagegen allein an ihren Kindern; sie baut der
+/// Aufruf auch dann neu, wenn ein Export sie eben erst aus einem alten
+/// Kind zusammengesetzt hat, und ebenso, wenn ihre Zeit mehr als zwei
+/// Sekunden nach der Liste liegt: die stammt von einer Uhr, die vorging.
+///
+/// Ein Kind, das sich nicht lesen lässt, lässt der Aufruf aus. Die
+/// Elternkachel bekommt dann eine Zeit vor der des Kinds, damit der nächste
+/// Aufruf es wieder versucht. Ein Kind, das seit der Liste verschwunden
+/// ist, etwa am Ende eines Exports, gehört nicht mehr dazu.
+fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
+    let started = Instant::now();
+    let stempel = beginn - Duration::from_secs(2);
+    let karte = dir.join("map.json");
+    let alt = lies_bestand(dir)?.with_context(|| {
+        format!(
+            "{} fehlt: --pyramid baut nur über einem Baum, den ein Export angelegt hat",
+            karte.display()
+        )
+    })?;
+    let max_zoom = alt.max_zoom;
+    // Ohne das Feld stammt der Baum aus einem älteren Stand. Nennt er eine
+    // Welt, rendert der alle nativen Stufen, die der scale hergibt; ohne
+    // Welt ist er älter als die nativen Stufen und hat keine.
+    let nativ = alt.native_levels.unwrap_or_else(|| {
+        if alt.world.is_some() {
+            native_levels(alt.scale, max_zoom)
+        } else {
+            0
+        }
+    });
+    let mut kinder = vorhandene_mit_zeit(dir, max_zoom)?;
+    if kinder.is_empty() {
+        bail!(
+            "{} nennt Zoom {max_zoom} als Basis, dort liegt aber keine Kachel",
+            karte.display()
+        );
+    }
+    let basis: BTreeSet<TileId> = kinder.keys().copied().collect();
     println!(
-        "\nPyramide:   {} Basiskacheln auf Zoom {max_zoom}, {} neuer als ihre Elternkachel",
-        basis.len(),
-        neu.len()
+        "\nPyramide:   {} Basiskacheln auf Zoom {max_zoom}",
+        basis.len()
     );
-    build_pyramid(dir, max_zoom, neu)?;
-    write_map_json(dir, projection, max_zoom)
-}
 
-/// Ist die Kachel jünger als ihre Elternkachel — oder die Elternkachel gar
-/// nicht da?
-fn juenger_als_eltern(dir: &Path, z: u32, tile: TileId) -> bool {
-    if z == 0 {
-        return false;
+    // Die Kacheln der Stufe darunter, die dieser Aufruf neu gebaut oder
+    // entfernt hat, oder die jemand anders seit der Liste geschrieben hat.
+    let mut geaendert: BTreeSet<TileId> = BTreeSet::new();
+    let (mut gebaut, mut entfernt, mut bytes) = (0usize, 0usize, 0usize);
+    let mut unlesbar = Vec::new();
+    for z in (0..max_zoom).rev() {
+        let mut eltern = vorhandene_mit_zeit(dir, z)?;
+        let gelistet = SystemTime::now();
+        let schuetzen = z + nativ >= max_zoom;
+        let mut kandidaten: BTreeSet<TileId> = eltern.keys().copied().collect();
+        kandidaten.extend(kinder.keys().map(TileId::parent));
+        let mut bauen = Vec::new();
+        let mut naechste = BTreeSet::new();
+        let mut weg = 0;
+        for parent in kandidaten {
+            let zeit = eltern.get(&parent).copied();
+            if schuetzen && fremd(zeit, beginn, gelistet) {
+                continue;
+            }
+            let teile: Vec<TileId> = parent
+                .children()
+                .into_iter()
+                .filter(|kind| kinder.contains_key(kind))
+                .collect();
+            if teile.is_empty() {
+                if entferne_wie_gelistet(&tile_path(dir, z, parent), zeit)? {
+                    eltern.remove(&parent);
+                    naechste.insert(parent);
+                    weg += 1;
+                }
+            } else if parent
+                .children()
+                .iter()
+                .any(|kind| geaendert.contains(kind))
+                || zeit.is_none_or(|zeit| {
+                    teile.iter().any(|kind| kinder[kind] > zeit)
+                        // Gegen eine Zeit nach der Liste wäre kein Kind je
+                        // jünger. Auf einer verkleinerten Stufe bekommt so
+                        // eine Kachel einmal den Stempel und zählt danach
+                        // wie jede andere.
+                        || (!schuetzen && zeit > gelistet + Duration::from_secs(2))
+                })
+            {
+                bauen.push((parent, teile));
+            }
+        }
+
+        let stufe = bauen
+            .par_iter()
+            .map(|(parent, teile)| {
+                let zeit = eltern.get(parent).copied();
+                baue_neu(dir, z, *parent, teile, &kinder, zeit, stempel)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut neu = 0;
+        for (parent, groesse, zeit, kaputt) in stufe.into_iter().flatten() {
+            if let Some(groesse) = groesse {
+                bytes += groesse;
+                neu += 1;
+            }
+            match zeit {
+                Some(zeit) => eltern.insert(parent, zeit),
+                None => eltern.remove(&parent),
+            };
+            naechste.insert(parent);
+            unlesbar.extend(kaputt);
+        }
+        println!("Zoom {z:>2}:     {neu} neu, {weg} entfernt");
+        gebaut += neu;
+        entfernt += weg;
+        kinder = eltern;
+        geaendert = naechste;
     }
-    let mtime = |path: PathBuf| std::fs::metadata(path).and_then(|m| m.modified()).ok();
-    match mtime(tile_path(dir, z - 1, tile.parent())) {
-        None => true,
-        Some(eltern) => mtime(tile_path(dir, z, tile)).is_some_and(|kind| kind > eltern),
-    }
-}
-
-fn write_map_json(dir: &Path, projection: Projection, max_zoom: u32) -> Result<()> {
-    // Die Grenzen beschreiben den ganzen Kachelbaum, nicht diesen Lauf.
-    // Nach einem nachgerenderten Ausschnitt lägen sonst die unberührten
-    // Kacheln ausserhalb, und das Frontend startete im falschen
-    // Ausschnitt.
-    let bestand = vorhandene(dir, max_zoom)?;
-    let info = MapInfo::new(projection.scale(), max_zoom, &bestand);
-
-    // Auch ohne eine einzige sichtbare Kachel muss map.json geschrieben
-    // werden können — bis hierher hat vielleicht nichts das Verzeichnis
-    // angelegt.
-    std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
-    let path = dir.join("map.json");
-    let datei = File::create(&path).with_context(|| format!("{} anlegen", path.display()))?;
-    serde_json::to_writer_pretty(BufWriter::new(datei), &info)
-        .with_context(|| format!("{} schreiben", path.display()))?;
     println!(
-        "Karte:      Zoom {}..{}, {} Basiskacheln, {} bis {} px -> {}",
+        "Pyramide:   {gebaut} Kacheln neu, {entfernt} entfernt, {:.1} MB in {:.1} s",
+        bytes as f64 / 1_048_576.0,
+        started.elapsed().as_secs_f64()
+    );
+    if !unlesbar.is_empty() {
+        println!(
+            "            {} Kacheln nicht lesbar, übergangen; ein Export über ihre Fläche schreibt sie neu:",
+            unlesbar.len()
+        );
+        print_list(unlesbar.iter());
+    }
+
+    if fremd(aenderungszeit(&karte), beginn, SystemTime::now()) {
+        println!(
+            "Karte:      {} ist seit dem Beginn neu geschrieben, etwa vom Render, und bleibt",
+            karte.display()
+        );
+        return Ok(());
+    }
+    let info = MapInfo {
+        native_levels: alt.native_levels,
+        world: alt.world,
+        ..MapInfo::new(alt.scale, max_zoom, &basis)
+    };
+    let path = schreibe_info(dir, &info, Some(stempel))?;
+    melde_karte(&info, basis.len(), &path);
+    Ok(())
+}
+
+/// Baut eine Elternkachel für `--pyramid` aus ihren Kindern auf der Platte
+/// neu, falls sie noch so dasteht wie gelistet (`gelistet`). Ein Kind, das
+/// sich nicht lesen lässt, fehlt im Bild, und die Kachel bekommt eine Zeit
+/// vor der des Kinds, damit der nächste Aufruf es wieder versucht.
+///
+/// `None`, wenn keines der Kinder mehr dasteht und keines kaputt ist, etwa
+/// weil ein Export sie am Ende eben entfernt hat: dann schreibt der Aufruf
+/// nichts und meldet nichts als geändert, und der nächste sieht die Stufe
+/// richtig. Eine leere Kachel an ihrer Stelle bliebe bis dahin stehen, und
+/// über ihr würde eine native Kachel verkleinert.
+fn baue_neu(
+    dir: &Path,
+    z: u32,
+    parent: TileId,
+    teile: &[TileId],
+    kinder: &BTreeMap<TileId, SystemTime>,
+    gelistet: Option<SystemTime>,
+    stempel: SystemTime,
+) -> Result<Option<Neubau>> {
+    let mut bilder = Vec::new();
+    let mut kaputt = Vec::new();
+    let mut zeit = stempel;
+    for kind in teile {
+        match lies_falls_da(&tile_path(dir, z + 1, *kind)) {
+            Ok(Some(bild)) => bilder.push((*kind, bild)),
+            Ok(None) => {}
+            Err(e) => {
+                kaputt.push(format!("{e:#}"));
+                zeit = zeit.min(kinder[kind] - Duration::from_secs(2));
+            }
+        }
+    }
+    if bilder.is_empty() && kaputt.is_empty() {
+        return Ok(None);
+    }
+    let data = encode_webp(&pyramid::merge(parent, &bilder))?;
+    // Erst jetzt, direkt vor dem Tausch: offen bleibt nur das Schreiben der
+    // Nebendatei.
+    let pfad = tile_path(dir, z, parent);
+    let jetzt = aenderungszeit(&pfad);
+    if jetzt != gelistet {
+        return Ok(Some((parent, None, jetzt, kaputt)));
+    }
+    lege_ab(&pfad, &data, Some(zeit))?;
+    Ok(Some((parent, Some(data.len()), Some(zeit), kaputt)))
+}
+
+/// Ob jemand anders die Datei geschrieben hat, nachdem `--pyramid` begann
+/// und bevor es nachsah, mit den zwei Sekunden Spielraum, die auch der
+/// Stempel hat: FAT legt Schreibzeiten in Schritten von zwei Sekunden ab,
+/// und die Uhr einer Freigabe geht womöglich so weit vor. Eine Zeit weiter
+/// in der Zukunft kommt von einer Uhr, die vorging, nicht von einem Render
+/// daneben; so eine Datei bliebe sonst stehen, bis die Uhr sie einholt.
+fn fremd(zeit: Option<SystemTime>, beginn: SystemTime, bis: SystemTime) -> bool {
+    zeit.is_some_and(|zeit| beginn < zeit && zeit <= bis + Duration::from_secs(2))
+}
+
+/// Eine Kachel aus `--pyramid`: die Bytes, wenn der Aufruf sie geschrieben
+/// hat, ihre Zeit danach, `None`, wenn es sie nicht mehr gibt, und die
+/// Kinder, die sich nicht lesen liessen.
+type Neubau = (TileId, Option<usize>, Option<SystemTime>, Vec<String>);
+
+/// Wann die Datei zuletzt geschrieben wurde, `None`, wenn es sie nicht gibt.
+fn aenderungszeit(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+fn melde_karte(info: &MapInfo, anzahl: usize, path: &Path) {
+    println!(
+        "Karte:      Zoom {}..{}, {anzahl} Basiskacheln, {} bis {} px -> {}",
         info.min_zoom,
         info.max_zoom,
-        bestand.len(),
         format_args!("{}/{}", info.bounds[0], info.bounds[1]),
         format_args!("{}/{}", info.bounds[2], info.bounds[3]),
         path.display()
     );
-    Ok(())
+}
+
+/// Unter Windows prüft der Echtzeitschutz von Microsoft Defender jede
+/// Kachel beim Schreiben, siehe README, „Echtzeitschutz unter Windows“.
+/// Setzen kann die Ausnahme nur jemand mit Adminrechten; der Hinweis nennt
+/// die Befehle für genau diesen Ordner.
+fn melde_echtzeitschutz(dir: &Path) {
+    let ordner = ordner_fuer_powershell(dir);
+    println!(
+        "Defender:   Sein Echtzeitschutz prüft jede Kachel beim Schreiben. Mit einer Ausnahme für den\n\
+         \x20           Kachelordner brauchte ein Export ein Drittel weniger Zeit, siehe README. Setzen mit\n\
+         \x20           --defender-exclusion, dann fragt Windows nach Adminrechten, oder selbst in einer\n\
+         \x20           PowerShell als Administrator, und nach dem Render wieder entfernen:\n\
+         \x20           Add-MpPreference -ExclusionPath {ordner}\n\
+         \x20           Remove-MpPreference -ExclusionPath {ordner}"
+    );
+}
+
+/// Warum Hinweis und `--defender-exclusion` diesen Ordner nicht vorschlagen,
+/// `None`, wenn sie es dürfen: Es gibt ihn noch nicht, er ist leer, oder er
+/// ist schon ein Kachelbaum mit `map.json`. Nie die Wurzel eines Laufwerks.
+/// Sonst nähme ein Versehen in `--tiles`, etwa ein relativer Pfad aus dem
+/// falschen Verzeichnis, das Benutzerverzeichnis oder ein ganzes Laufwerk
+/// vom Virenschutz aus.
+fn warum_keine_ausnahme(dir: &Path) -> Option<&'static str> {
+    let ordner = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if ordner.parent().is_none() {
+        return Some("das ist die Wurzel eines Laufwerks");
+    }
+    match std::fs::read_dir(&ordner) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => Some("der Ordner lässt sich nicht lesen"),
+        Ok(mut eintraege) => (eintraege.next().is_some() && !ordner.join("map.json").is_file())
+            .then_some("der Ordner ist nicht leer und kein Kachelbaum"),
+    }
+}
+
+/// `--defender-exclusion`: Windows fragt nach Adminrechten, und nur mit
+/// ihnen setzt eine zweite PowerShell die Ausnahme für den Kachelordner.
+/// Welchen, steht vorher da: In der Abfrage selbst sieht man nur Base64.
+/// Sagt der Nutzer nein oder verbietet es eine Richtlinie, läuft der Export
+/// ohne sie. Gibt zurück, ob sie gesetzt ist.
+fn setze_ausnahme(dir: &Path) -> bool {
+    let ordner = ordner_fuer_powershell(dir);
+    println!(
+        "Defender:   Windows fragt jetzt nach Adminrechten für Add-MpPreference -ExclusionPath {ordner}"
+    );
+    let gesetzt = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-EncodedCommand"])
+        .arg(powershell_kodiert(&ausnahme_erfragen(&ordner)))
+        .status()
+        .is_ok_and(|status| status.success());
+    if gesetzt {
+        println!(
+            "Defender:   Ausnahme gesetzt. Nach dem Render in einer PowerShell als Administrator entfernen:"
+        );
+        println!("            Remove-MpPreference -ExclusionPath {ordner}");
+    } else {
+        println!(
+            "Defender:   keine Ausnahme gesetzt, abgelehnt oder nicht erlaubt; der Export läuft ohne sie"
+        );
+    }
+    gesetzt
+}
+
+/// Was die PowerShell mit Adminrechten tut: die Ausnahme setzen, und bei
+/// einem Fehler mit einem Code ungleich 0 enden.
+fn ausnahme_setzen(ordner: &str) -> String {
+    format!("$ErrorActionPreference = 'Stop'; Add-MpPreference -ExclusionPath {ordner}")
+}
+
+/// Was die erste PowerShell tut: über `Start-Process -Verb RunAs` nach
+/// Adminrechten fragen, warten und mit dem Code der zweiten enden. Die
+/// zweite bekommt ihren Befehl kodiert, so quotet ihn niemand ein zweites
+/// Mal; `-ArgumentList` setzt die Teile nur mit Leerzeichen zusammen.
+fn ausnahme_erfragen(ordner: &str) -> String {
+    format!(
+        "$ErrorActionPreference = 'Stop'; \
+         $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden \
+         -ArgumentList '-NoProfile', '-NonInteractive', '-EncodedCommand', '{}'; \
+         exit $p.ExitCode",
+        powershell_kodiert(&ausnahme_setzen(ordner))
+    )
+}
+
+/// Der Kachelordner absolut, als Zeichenkette für PowerShell: der Befehl
+/// läuft womöglich in einem anderen Verzeichnis.
+fn ordner_fuer_powershell(dir: &Path) -> String {
+    let ordner = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    powershell_text(&ordner.display().to_string())
+}
+
+/// Ein Befehl für `powershell.exe -EncodedCommand`: UTF-16LE in Base64.
+fn powershell_kodiert(befehl: &str) -> String {
+    const ZEICHEN: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = befehl.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut out = String::new();
+    for block in bytes.chunks(3) {
+        let n = block
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | (u32::from(b) << (16 - 8 * i)));
+        for i in 0..4 {
+            out.push(if i <= block.len() {
+                ZEICHEN[((n >> (18 - 6 * i)) & 63) as usize] as char
+            } else {
+                '='
+            });
+        }
+    }
+    out
+}
+
+/// `text` als Zeichenkette für PowerShell: in einfachen Anführungszeichen
+/// gilt nur das Anführungszeichen selbst, und das steht doppelt. PowerShell
+/// nimmt auch die typografischen dafür.
+fn powershell_text(text: &str) -> String {
+    let mut out = String::from("'");
+    for c in text.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            out.push(c);
+        }
+        out.push(c);
+    }
+    out.push('\'');
+    out
+}
+
+/// Schreibt `map.json` für den Baum mit dieser Basis.
+///
+/// Die Grenzen beschreiben den ganzen Kachelbaum, nicht diesen Lauf. Nach
+/// einem nachgerenderten Ausschnitt lägen sonst die unberührten Kacheln
+/// ausserhalb, und das Frontend startete im falschen Ausschnitt. Auch
+/// ohne eine einzige sichtbare Kachel muss die Datei entstehen können —
+/// bis hierher hat vielleicht nichts das Verzeichnis angelegt.
+fn schreibe_map_json(
+    dir: &Path,
+    scale: u32,
+    max_zoom: u32,
+    stufen: u32,
+    kennung: Option<&str>,
+    basis: &BTreeSet<TileId>,
+) -> Result<(MapInfo, usize, PathBuf)> {
+    let info = MapInfo {
+        native_levels: Some(stufen),
+        world: Some(kennung.map(str::to_string)),
+        ..MapInfo::new(scale, max_zoom, basis)
+    };
+    let path = schreibe_info(dir, &info, None)?;
+    Ok((info, basis.len(), path))
+}
+
+fn schreibe_info(dir: &Path, info: &MapInfo, zeit: Option<SystemTime>) -> Result<PathBuf> {
+    std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
+    let path = dir.join("map.json");
+    let text = serde_json::to_vec_pretty(info)?;
+    tausche(&path, &text, zeit, true).with_context(|| format!("{} schreiben", path.display()))?;
+    Ok(path)
 }
 
 /// Stapelt über der gerenderten Basis die gröberen Zoomstufen.
@@ -755,41 +1403,40 @@ fn write_map_json(dir: &Path, projection: Projection, max_zoom: u32) -> Result<(
 /// Welche Kinder eine Elternkachel hat, entscheidet die Platte und nicht
 /// dieser Lauf. Ein Ausschnittexport in einen bestehenden Baum berührt nur
 /// einen Teil der Geschwister — die anderen liegen weiterhin da und
-/// gehören genauso in die Elternkachel. Die leer gewordenen sind zu diesem
-/// Zeitpunkt bereits gelöscht.
-fn build_pyramid(dir: &Path, max_zoom: u32, kandidaten: BTreeSet<TileId>) -> Result<()> {
+/// gehören genauso in die Elternkachel. `weg` sind Kacheln, die noch
+/// dastehen, aber nicht mehr dazugehören: leer gewordene jeder Stufe. Sie
+/// verschwinden erst am Ende des Laufs; die Pyramide lässt sie aus und legt
+/// ihre eigenen leer gewordenen dazu. Basiskacheln ohne Chunk nimmt erst
+/// danach [`ohne_veraltete`] heraus. `waisen` bekommen ihre Elternkachel
+/// neu.
+///
+/// Auch mit `--resume` baut es alle diese Eltern neu. Einer Elternkachel
+/// sieht man nicht an, ob sie zu ihren Kindern passt, und ihre Zeit kann von
+/// einer anderen Uhr stammen oder von `--pyramid` gestempelt sein; jede
+/// Regel dafür hatte eine Lücke. Das kostet die Pyramide eines ganzen Laufs,
+/// siehe README.
+fn build_pyramid(
+    dir: &Path,
+    max_zoom: u32,
+    kandidaten: BTreeSet<TileId>,
+    waisen: &BTreeMap<u32, BTreeSet<TileId>>,
+    weg: &mut BTreeSet<(u32, TileId)>,
+) -> Result<()> {
     let started = Instant::now();
     let mut kandidaten = kandidaten;
     let mut bytes = 0usize;
     let mut gesamt = 0usize;
 
     for z in (0..max_zoom).rev() {
+        kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
-        let stufe: Vec<usize> = kandidaten
-            .par_iter()
-            .map(|parent| -> Result<Option<usize>> {
-                let mut teile = Vec::new();
-                for kind in parent.children() {
-                    let pfad = tile_path(dir, z + 1, kind);
-                    if pfad.is_file() {
-                        teile.push((kind, lies(&pfad)?));
-                    }
-                }
-                if teile.is_empty() {
-                    entferne(&tile_path(dir, z, *parent))?;
-                    return Ok(None);
-                }
-                let bild = pyramid::merge(*parent, &teile);
-                Ok(Some(schreibe(dir, z, *parent, &bild)?))
-            })
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .flatten()
-            .collect();
-
-        bytes += stufe.iter().sum::<usize>();
-        gesamt += stufe.len();
-        println!("Zoom {z:>2}:     {} Kacheln", stufe.len());
+        let (geschrieben, leer) = setze_zusammen(dir, z, &kandidaten, weg)?;
+        leer.par_iter()
+            .try_for_each(|parent| verblasse(dir, z, *parent))?;
+        weg.extend(leer.into_iter().map(|parent| (z, parent)));
+        bytes += geschrieben.iter().sum::<usize>();
+        gesamt += geschrieben.len();
+        println!("Zoom {z:>2}:     {} Kacheln", geschrieben.len());
     }
 
     if max_zoom > 0 {
@@ -802,300 +1449,741 @@ fn build_pyramid(dir: &Path, max_zoom: u32, kandidaten: BTreeSet<TileId>) -> Res
     Ok(())
 }
 
-/// Bis zu welchem scale gröbere Zoomstufen noch aus der Welt gerendert
-/// werden können. Bei 2 ist ein Block noch ein Rhombus aus vier Pixeln;
-/// darunter bleibt nur Mitteln.
-const NATIVE_MIN_SCALE: u32 = 2;
+/// Setzt jede dieser Elternkacheln der Stufe z aus ihren Kindern auf der
+/// Platte zusammen, ohne die aus `weg`, und schreibt sie. Liefert die
+/// Bytes je geschriebener Kachel und die Eltern, die nichts mehr zeigen;
+/// die schreibt es nicht.
+fn setze_zusammen(
+    dir: &Path,
+    z: u32,
+    eltern: &BTreeSet<TileId>,
+    weg: &BTreeSet<(u32, TileId)>,
+) -> Result<(Vec<usize>, Vec<TileId>)> {
+    let stufe: Vec<(TileId, Option<usize>)> = eltern
+        .par_iter()
+        .map(|parent| -> Result<(TileId, Option<usize>)> {
+            let mut teile = Vec::new();
+            for kind in parent.children() {
+                if weg.contains(&(z + 1, kind)) {
+                    continue;
+                }
+                let pfad = tile_path(dir, z + 1, kind);
+                if pfad.is_file() {
+                    teile.push((kind, lies(&pfad)?));
+                }
+            }
+            if teile.is_empty() {
+                return Ok((*parent, None));
+            }
+            let bild = pyramid::merge(*parent, &teile);
+            Ok((*parent, Some(schreibe(dir, z, *parent, &bild)?)))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let geschrieben = stufe.iter().filter_map(|(_, b)| *b).collect();
+    let leer = stufe
+        .iter()
+        .filter(|(_, b)| b.is_none())
+        .map(|(parent, _)| *parent)
+        .collect();
+    Ok((geschrieben, leer))
+}
 
-/// Rendert bis zu `levels` gröbere Zoomstufen aus der Welt, solange ein
-/// Block noch [`NATIVE_MIN_SCALE`] Pixel breit ist.
+/// Mit --prune, nach der Pyramide: nimmt die Basiskacheln ohne Chunk aus
+/// dem Baum und setzt ihre Vorfahren ohne sie neu zusammen. Bis hierher
+/// lief der Lauf wie einer ohne den Schalter; ein Abbruch vorher hat den
+/// Baum also nur so verändert, wie es auch ein Lauf ohne ihn getan hätte.
+/// Auch jetzt wird nichts durchsichtig, was leer wird, kommt nach `weg`
+/// und verschwindet am Ende. Bricht der Lauf hier ab, zeigen die schon
+/// neu zusammengesetzten Vorfahren den Stand ohne diese Kacheln. Die
+/// Basis, native Vorfahren, die dieser Lauf nicht gerendert hat, und was
+/// leer geworden ist, zeigen noch den alten; ein Lauf mit --prune über
+/// dieselbe Fläche räumt zu Ende.
+///
+/// Native Stufen zeigen die Welt, nicht ihre Kinder; dort geht nur, was
+/// in diesem Lauf nichts gezeigt hat (`gezeigt`) und kein Kind mehr hat.
+/// Nicht gerendert hat er solche Kacheln, unter denen nur Kacheln ohne
+/// Chunk liegen.
+fn ohne_veraltete(
+    dir: &Path,
+    max_zoom: u32,
+    stufen: u32,
+    veraltet: &BTreeSet<TileId>,
+    gezeigt: &Kacheln,
+    weg: &mut BTreeSet<(u32, TileId)>,
+) -> Result<()> {
+    weg.extend(veraltet.iter().map(|tile| (max_zoom, *tile)));
+    let mut geaendert = veraltet.clone();
+    for z in (0..max_zoom).rev() {
+        let eltern = pyramid::parents(&geaendert);
+        if z >= max_zoom - stufen {
+            geaendert = eltern
+                .into_iter()
+                .filter(|tile| !gezeigt.contains(&(z, *tile)) && !kind_bleibt(dir, z, *tile, weg))
+                .collect();
+            weg.extend(geaendert.iter().map(|tile| (z, *tile)));
+        } else {
+            let (_, leer) = setze_zusammen(dir, z, &eltern, weg)?;
+            weg.extend(leer.into_iter().map(|tile| (z, tile)));
+            geaendert = eltern;
+        }
+    }
+    Ok(())
+}
+
+/// Bis zu welchem scale gröbere Zoomstufen noch aus der Welt gerendert
+/// werden statt aus der feineren Stufe verkleinert. Die Projektion setzt
+/// Blöcke in Schritten von scale/4 Pixeln, und nur bei einem Vielfachen von
+/// 4 liegt jeder Block auf ganzen Pixeln. Bei scale 2 läge jede zweite
+/// Blockreihe auf einem halben, das Runden in `blit` kippte an Bildzeile 0,
+/// und benachbarte Reihen überdeckten sich ganz — durchscheinendes Wasser
+/// mischte dort doppelt.
+const NATIVE_MIN_SCALE: u32 = 4;
+
+/// Wie viele Stufen dieser Lauf nativ rendert. Ein bestehender Baum behält
+/// seine Zahl: ohne `--native-levels` nimmt der Lauf sie aus `map.json`,
+/// mit einer anderen bricht er ab, bevor er einen Chunk liest. Sonst lägen
+/// über einem nachgerenderten Ausschnitt verkleinerte Kacheln neben
+/// nativen, und an einer unveränderten Welt änderte ein Nachrendern
+/// Dateien. Nennt die `map.json` eines Baums aus einem älteren Stand die
+/// Zahl nicht, braucht der Lauf den Schalter: der Stand davor renderte
+/// alle Stufen nativ, die der scale hergibt, und mit 0 lägen über dem
+/// Ausschnitt verkleinerte Kacheln neben nativen. Gibt der scale keine
+/// native Stufe her, gibt es nichts zu fragen.
+fn native_stufen(
+    dir: &Path,
+    bestand: Option<&MapInfo>,
+    verlangt: Option<u32>,
+    scale: u32,
+    max_zoom: u32,
+) -> Result<u32> {
+    let moeglich = native_levels(scale, max_zoom);
+    let hier = verlangt.map(|n| n.min(moeglich));
+    match (bestand.map(|alt| alt.native_levels), hier) {
+        (Some(Some(dort)), Some(hier)) if dort != hier => bail!(
+            "{} gehört zu einem Baum mit {dort} nativen Stufen, dieser Lauf hätte {hier}. Mit \
+             --native-levels {dort} weiterrendern oder ein neues Verzeichnis nehmen.",
+            dir.join("map.json").display()
+        ),
+        (Some(Some(dort)), _) => Ok(dort.min(moeglich)),
+        (Some(None), None) if moeglich > 0 => bail!(
+            "{} nennt keine Zahl nativer Stufen, der Baum stammt aus einem älteren Stand. Mit \
+             --native-levels so vielen weiterrendern, wie er hat, danach steht sie in \
+             map.json: {moeglich}, wenn sein Stand alle rendert, die der scale hergibt, sonst 0.",
+            dir.join("map.json").display()
+        ),
+        (_, hier) => Ok(hier.unwrap_or(0)),
+    }
+}
+
+/// Wie viele Stufen über der Basis nativ gerendert werden können: solange
+/// der halbe scale noch ein Vielfaches von 4 ist, bei scale 32 also drei
+/// (16, 8, 4), bei 16 zwei, bei 12 keine.
+fn native_levels(scale: u32, max_zoom: u32) -> u32 {
+    let (mut stufen, mut scale) = (0, scale);
+    while stufen < max_zoom && (scale / 2).is_multiple_of(4) && scale / 2 >= NATIVE_MIN_SCALE {
+        stufen += 1;
+        scale /= 2;
+    }
+    stufen
+}
+
+/// Das `map.json` eines bestehenden Kachelbaums, falls es eines gibt.
+fn lies_bestand(dir: &Path) -> Result<Option<MapInfo>> {
+    let pfad = dir.join("map.json");
+    let Ok(text) = std::fs::read_to_string(&pfad) else {
+        return Ok(None);
+    };
+    let alt = serde_json::from_str(&text).with_context(|| {
+        format!(
+            "{} ist kein gültiges map.json — löschen, wenn der Baum neu entstehen soll",
+            pfad.display()
+        )
+    })?;
+    Ok(Some(alt))
+}
+
+/// Die Kennung dieser Welt und Dimension für den Baum: mit dem Salz, das
+/// er schon trägt, sonst mit einem neuen. `RandomState` holt seine
+/// Schlüssel vom Betriebssystem; für ein Salz, das nur je Baum verschieden
+/// sein muss, reicht das.
+fn kennung(world: &World, bestand: Option<&MapInfo>) -> Result<Option<String>> {
+    let (Some(seed), Some(dimension)) = (world.seed()?, world.dimension()) else {
+        return Ok(None);
+    };
+    let salt = bestand
+        .and_then(|alt| alt.world.as_ref())
+        .and_then(|welt| welt.as_deref())
+        .and_then(pyramid::salt_of)
+        .unwrap_or_else(|| RandomState::new().hash_one(0u8));
+    Ok(Some(pyramid::world_id(seed, dimension, salt)))
+}
+
+/// Warum eine Welt keine Kennung hat, mit dem Ausweg. Ohne Seed nennt sie
+/// jeden Ort, an dem er gesucht wurde.
+fn ohne_kennung(world: &World) -> String {
+    if world.dimension().is_none() {
+        return format!(
+            "Zu diesem --world fand sich keine Weltwurzel mit level.dat: --world auf die \
+             Wurzel richten oder auf eine Dimension darin. {VOR_26_1}"
+        );
+    }
+    let mut orte: Vec<String> = world
+        .seed_files()
+        .iter()
+        .map(|ort| {
+            ort.components()
+                .map(|teil| teil.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        .collect();
+    let letzter = orte.pop().unwrap_or_default();
+    format!(
+        "Die Welt nennt keinen Seed, weder in {} noch in {letzter}. Fehlt eine Datei nur in \
+         einer Kopie, sie dazulegen. Welten vor 26.1 tragen ihn in level.dat. {VOR_26_1}",
+        orte.join(", ")
+    )
+}
+
+/// Der Ausweg für eine Welt vor 26.1: in `DIM-1` und `DIM1` öffnet der
+/// Renderer die Regionen, erkennt darin aber keine Dimension, und den Seed
+/// in `level.dat` liest er nicht, siehe README.
+const VOR_26_1: &str =
+    "Eine Welt vor 26.1 vorher mit Minecraft 26.2 und --forceUpgrade hochziehen.";
+
+/// Prüft, ob der bestehende Baum zu diesem Lauf passt, und sagt, ob er ihn
+/// übernimmt.
+///
+/// Ein Baum einer anderen Welt passt nicht: ihre Basis landete auf seiner
+/// Stufe, und wo sie keine Chunks hat, blieben seine Kacheln stehen. Ein
+/// Baum mit anderem scale auch nicht: die neuen Kacheln hätten einen
+/// anderen Massstab als die alten. Seit scale 32 der Standard ist, reicht
+/// dafür ein vergessenes `--scale`. `maxZoom` prüft sie nicht: der Baum
+/// behält seine Nummerierung, auch wenn die Welt gewachsen ist. `kennung`
+/// ist die Kennung dieser Welt oder der Grund, warum sie keine hat.
+fn pruefe_bestand(
+    dir: &Path,
+    bestand: Option<&MapInfo>,
+    scale: u32,
+    kennung: std::result::Result<&str, &str>,
+) -> Result<bool> {
+    let Some(alt) = bestand else {
+        return Ok(false);
+    };
+    let pfad = dir.join("map.json");
+    // Ein Baum ohne das Feld stammt aus einem älteren Stand. Er gehört ab
+    // jetzt zu dieser Welt; sonst müsste jeder bestehende Baum neu
+    // entstehen, bei einer grossen Welt über Stunden. Gesagt wird das erst
+    // vor der ersten Kachel, wenn es wirklich so kommt. Eine Welt ohne
+    // Kennung übernimmt ihn nicht, sonst trüge er danach `null` und nähme
+    // seine eigene Welt nicht mehr auf. Einer aus einer Welt ohne Kennung
+    // trägt `null` und nimmt keine mit Kennung auf.
+    let uebernehmen = alt.world.is_none();
+    let anzeige = pfad.display();
+    match (&alt.world, kennung) {
+        (None, Err(warum)) => bail!(
+            "{anzeige} stammt aus einem älteren Stand und nennt keine Welt, und diese hat keine \
+             Kennung. {warum} Ohne Kennung übernimmt der Renderer den Baum nicht, sonst nähme \
+             er seine eigene Welt danach nicht mehr auf."
+        ),
+        (Some(Some(dort)), Err(warum)) => {
+            bail!("{anzeige} gehört zur Welt mit Kennung {dort}, diese hat keine Kennung. {warum}")
+        }
+        (Some(None), Ok(hier)) => bail!(
+            "{anzeige} gehört zu einer Welt ohne Kennung, diese hat {hier}. Ein neues \
+             Verzeichnis nehmen, oder \"world\" aus map.json entfernen, wenn der Baum sicher \
+             zu dieser Welt gehört."
+        ),
+        (Some(Some(dort)), Ok(hier)) if dort != hier => bail!(
+            "{anzeige} gehört zu einer anderen Welt oder Dimension: Kennung dort {dort}, hier \
+             {hier}. Ein neues Verzeichnis nehmen."
+        ),
+        _ => {}
+    }
+    if alt.scale != scale {
+        // Ältere Stände nahmen auch scale, die kein Vielfaches von 4 sind.
+        let weiter = match parse_scale(&alt.scale.to_string()) {
+            Ok(_) => format!(
+                "Mit --scale {} weiterrendern oder ein neues Verzeichnis nehmen.",
+                alt.scale
+            ),
+            Err(_) => "Dieser scale geht nicht mehr, ein neues Verzeichnis nehmen.".to_string(),
+        };
+        bail!(
+            "{} gehört zu einem Baum mit scale {}, dieser Lauf hätte scale {scale}. {weiter}",
+            pfad.display(),
+            alt.scale
+        );
+    }
+    Ok(uebernehmen)
+}
+
+/// Rendert `stufen` gröbere Zoomstufen aus der Welt: so viele, wie
+/// `--native-levels` verlangt oder `map.json` des Baums nennt, siehe
+/// [`native_stufen`], höchstens [`native_levels`], denn ein Block
+/// muss noch mindestens [`NATIVE_MIN_SCALE`] Pixel breit sein und auf
+/// ganzen Pixeln liegen.
 ///
 /// Verkleinern mittelt Nachbarblöcke ineinander, und schon zwei Stufen
 /// unter der Basis ist aus Kanten Brei geworden. Ein nativer Render hält
 /// jede Blockkante scharf, die Textur wird dafür im Sprite über den Block
-/// gemittelt. Der Preis: jede Stufe ist ein weiterer Durchlauf durch die
-/// Welt und kostet etwa so viel wie die Basis, denn der Renderer zahlt je
-/// Block, nicht je Pixel. Deshalb ist die Vorgabe 0.
+/// gemittelt — auf der Karte zählt der Umriss, nicht das Texel. In Bytes
+/// kommt ein Drittel dazu, ein Viertel je Stufe; in Zeit gut drei Viertel
+/// der Basis, denn jede Stufe zeichnet jeden Block ihrer Fläche erneut.
+/// Hochgerechnet auf die Testwelt bei scale 32: rund 5 Minuten für die drei
+/// Stufen, 6 für die Basis. Deshalb ist die Vorgabe 0.
 ///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
-/// [`build_pyramid`].
+/// [`build_pyramid`]. Dazu die Kacheln jeder nativen Stufe, die etwas
+/// zeigen. Leer gewordene Kacheln kommen nach `weg` und verschwinden erst
+/// am Ende des Laufs.
+///
+/// Auch mit `--resume` rendert es jede Kachel neu. Was auf einer nativen
+/// Stufe liegt, kann `--pyramid` verkleinert haben, womöglich bevor die
+/// Basis darunter fertig war; ansehen lässt sich einer Kachel das nicht.
 #[allow(clippy::too_many_arguments)]
 fn render_coarser(
     world: &World,
     assets: &mut Assets,
-    states: &BTreeSet<BlockState>,
+    states: &BTreeMap<BlockState, BTreeSet<String>>,
     projection: Projection,
     dir: &Path,
     max_zoom: u32,
     kandidaten: BTreeSet<TileId>,
-    levels: u32,
-) -> Result<(u32, BTreeSet<TileId>)> {
+    stufen: u32,
+    waisen: &BTreeMap<u32, BTreeSet<TileId>>,
+    weg: &mut BTreeSet<(u32, TileId)>,
+    karte: Option<&Karte>,
+) -> Result<(u32, BTreeSet<TileId>, Kacheln)> {
     let mut z = max_zoom;
     let mut scale = projection.scale();
     let mut kandidaten = kandidaten;
+    let mut gezeigt = BTreeSet::new();
 
-    for _ in 0..levels {
-        if z == 0 || !scale.is_multiple_of(2) || scale / 2 < NATIVE_MIN_SCALE {
-            break;
-        }
+    for _ in 0..stufen {
         z -= 1;
         scale /= 2;
         let started = Instant::now();
-        let sprites = SpriteSet::build(assets, states, Projection::new(scale))?;
+        let sprites = SpriteSet::build_in(assets, states, Projection::new(scale))?;
+        kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
 
-        let bytes = AtomicUsize::new(0);
-        let liste: Vec<TileId> = kandidaten.iter().copied().collect();
-        let geschrieben: BTreeSet<TileId> = verteile(
-            &pakete(&liste),
-            || ChunkCache::new(world, &sprites),
-            |chunks, paket| -> Result<Vec<TileId>> {
-                let mut geschrieben = Vec::with_capacity(paket.len());
-                for tile in paket {
-                    let image = render_area_with(chunks, tile.rect(), Y_RANGE)?;
-                    if image.pixels().all(|p| p.0[3] == 0) {
-                        entferne(&tile_path(dir, z, *tile))?;
-                        continue;
-                    }
-                    bytes.fetch_add(schreibe(dir, z, *tile, &image)?, Ordering::Relaxed);
-                    geschrieben.push(*tile);
+        let bisher = &*weg;
+        let mut reihe: Vec<TileId> = kandidaten.iter().copied().collect();
+        in_bloecken(&mut reihe);
+        // Je Kachel: zeigt sie etwas, bleibt sie stehen, und wie gross ist
+        // sie?
+        let (stufe, auf_der_karte) = rendere(
+            world,
+            &sprites,
+            &reihe,
+            false,
+            karte,
+            |tile, image| -> Result<(bool, bool, usize)> {
+                let zeigt = image.pixels().any(|p| p.0[3] > 0);
+                // Leer, aber über einer Kachel, die bleibt: dann bleibt sie
+                // auch, durchsichtig, sonst stünde die darunter ohne Eltern.
+                // Das trifft Kacheln ohne Chunk: ohne --prune bleiben sie,
+                // mit ihm bis zum Ende des Laufs.
+                if !zeigt && !kind_bleibt(dir, z, tile, bisher) {
+                    verblasse(dir, z, tile)?;
+                    return Ok((false, false, 0));
                 }
-                Ok(geschrieben)
+                Ok((zeigt, true, schreibe(dir, z, tile, &image)?))
             },
-        )?
-        .into_iter()
-        .flatten()
-        .collect();
+        )?;
+        let (mut bytes, mut bleiben) = (0usize, 0usize);
+        for (tile, (zeigt, bleibt, n)) in stufe {
+            bytes += n;
+            bleiben += bleibt as usize;
+            if zeigt {
+                gezeigt.insert((z, tile));
+            }
+            if !bleibt {
+                weg.insert((z, tile));
+            }
+        }
         println!(
-            "Zoom {z:>2}:     {} Kacheln nativ bei scale {scale}, {:.1} MB in {:.1} s",
-            geschrieben.len(),
-            bytes.load(Ordering::Relaxed) as f64 / 1_048_576.0,
+            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}{}, {:.1} MB in {:.1} s",
+            im_log(auf_der_karte, reihe.len()),
+            bytes as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
     }
-    Ok((z, kandidaten))
+    Ok((z, kandidaten, gezeigt))
 }
 
-/// Kacheln in Paketen: `PAKET_SPALTEN` Spalten breit, Zeile für Zeile.
+/// Rendert Kacheln in Stapeln aufeinanderfolgender Kacheln, jeden Stapel
+/// mit einem eigenen Chunk-Cache, und gibt jedes Bild an `ablegen` — für
+/// die Basis wie für jede native Stufe.
 ///
-/// Ein Stapel war bisher ein Stück einer einzigen Kachelspalte. Jeder
-/// Chunk liegt aber im Band von rund sechs Spalten und wurde in jeder
-/// davon neu dekodiert — acht Ladungen je Kachel im Vollrender, wo eine
-/// reichte. Acht Spalten nebeneinander, Zeile für Zeile, und ein Cache,
-/// der die letzten acht Kacheln behält, bringen das auf unter zwei. Die
-/// Pakete sind so hoch, dass jeder Thread mehrere bekommt: sonst misst ein
-/// kleiner Lauf am Ende nur noch den Schwanz, in dem die meisten Threads
-/// schon fertig sind. Verteilt werden sie mit [`verteile`]: jeder Thread
-/// bleibt in seinem Streifen, solange dort Pakete frei sind.
-fn pakete(tiles: &[TileId]) -> Vec<Vec<TileId>> {
-    let spalten = PAKET_SPALTEN as i32;
-    let zeilen =
-        (tiles.len() / (PAKET_SPALTEN * 4 * rayon::current_num_threads())).clamp(4, 64) as i32;
-    let paket = |t: &TileId| (t.x.div_euclid(spalten), t.y.div_euclid(zeilen));
-    let mut sortiert = tiles.to_vec();
-    sortiert.sort_by_key(|t| (paket(t), t.y, t.x));
-    sortiert
-        .chunk_by(|a, b| paket(a) == paket(b))
-        .map(<[TileId]>::to_vec)
-        .collect()
+/// Die Kacheln kommen in Blöcken sortiert (`in_bloecken`), Nachbarn
+/// untereinander teilen sich fast alle Chunks. Rayons `map_init` wäre der
+/// naheliegende Weg zu einem Cache je Worker — aber es zerteilt die Arbeit
+/// beim Stehlen bis auf einzelne Kacheln, und jede bekäme einen kalten
+/// Cache: mit 24 Threads lud jede Kachel wieder ihre hundert Chunks. Feste
+/// Stapel halten die Nachbarn zusammen.
+///
+/// Mit `melden` gibt es alle 200 Kacheln den Stand aus. Mit einer Karte
+/// zeichnet sie, je Durchgang [`GPU_TILES`] Kacheln, bis sie einmal versagt;
+/// wie viele es waren, steht neben den Kacheln. Den Zeichner eines Stapels
+/// legt sein erster Durchgang an, im Rückfall wie das Zeichnen: auch das
+/// Anlegen scheitert an einer verlorenen Karte. Hat sie versagt, legt kein
+/// Stapel mehr einen an.
+fn rendere<T: Send>(
+    world: &World,
+    sprites: &SpriteSet,
+    tiles: &[TileId],
+    melden: bool,
+    karte: Option<&Karte>,
+    ablegen: impl Fn(TileId, RgbaImage) -> Result<T> + Sync,
+) -> Result<(Vec<(TileId, T)>, usize)> {
+    let fertig = AtomicUsize::new(0);
+    let gesamt = tiles.len();
+    let stapel = tiles
+        .par_chunks(batch_size(gesamt))
+        .map(|stapel| -> Result<(Vec<(TileId, T)>, usize)> {
+            let mut chunks = ChunkCache::new(world, sprites);
+            let mut worker = None;
+            // Die Grafikkarte bekommt mehrere Kacheln je Durchgang; die
+            // CPU eine nach der anderen.
+            let je_durchgang = if karte.is_some() {
+                GPU_TILES as usize
+            } else {
+                1
+            };
+            let mut out = Vec::with_capacity(stapel.len());
+            let mut auf_der_karte = 0;
+            for gruppe in stapel.chunks(je_durchgang) {
+                let bilder = match karte {
+                    Some(karte) if !karte.aus.load(Ordering::Relaxed) => {
+                        let listen = gruppe
+                            .iter()
+                            .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE))
+                            .collect::<Result<Vec<_>>>()?;
+                        mit_rueckfall(
+                            &karte.aus,
+                            || {
+                                let worker =
+                                    worker.get_or_insert_with(|| karte.gpu.worker(GPU_TILES, TILE));
+                                let bilder = worker.render(&listen)?;
+                                auf_der_karte += gruppe.len();
+                                Ok(bilder)
+                            },
+                            || auf_der_cpu(&mut chunks, gruppe),
+                        )?
+                    }
+                    _ => auf_der_cpu(&mut chunks, gruppe)?,
+                };
+                for (&tile, image) in gruppe.iter().zip(bilder) {
+                    out.push((tile, ablegen(tile, image)?));
+                    // Gezählt wird, was fertig ist: "N/N Kacheln" steht erst
+                    // da, wenn keine mehr läuft.
+                    let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
+                    if melden && (erledigt.is_multiple_of(200) || erledigt == gesamt) {
+                        println!("            {erledigt}/{gesamt} Kacheln");
+                    }
+                }
+            }
+            Ok((out, auf_der_karte))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let auf_der_karte = stapel.iter().map(|(_, n)| n).sum();
+    Ok((
+        stapel
+            .into_iter()
+            .flat_map(|(kacheln, _)| kacheln)
+            .collect(),
+        auf_der_karte,
+    ))
 }
 
-/// Verteilt die Pakete auf alle Threads, mit einem Zustand je Thread
-/// (Chunk-Cache, GPU-Zeichner), der über Pakete hinweg lebt.
-///
-/// Jeder Thread fängt einen Streifen an und nimmt danach das Paket
-/// darunter, solange es noch frei ist — warm im Cache, denn die Zeile
-/// darüber liegt noch drin. Erst wenn kein Streifen mehr anzufangen ist,
-/// greift er nach irgendeinem freien Paket. Rayons eigene Verteilung
-/// (`par_iter`, `map_init`) zerteilt die Liste beim Stehlen so, dass fast
-/// jedes Paket auf einem anderen Thread landet: dann startet jedes kalt
-/// (gemessen 9,8 Ladungen je Kachel statt 4), und ein Cache je Thread
-/// nützt nichts.
-fn verteile<S>(
-    pakete: &[Vec<TileId>],
-    start: impl Fn() -> S + Sync,
-    arbeit: impl Fn(&mut S, &[TileId]) -> Result<Vec<TileId>> + Sync,
-) -> Result<Vec<Vec<TileId>>> {
-    let streifen = |paket: &[TileId]| paket[0].x.div_euclid(PAKET_SPALTEN as i32);
-    let anfaenge: Vec<usize> = (0..pakete.len())
-        .filter(|&i| i == 0 || streifen(&pakete[i - 1]) != streifen(&pakete[i]))
-        .collect();
-    let vergeben: Vec<AtomicBool> = pakete.iter().map(|_| AtomicBool::new(false)).collect();
-    let nimm = |i: usize| {
-        vergeben[i]
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-    };
-    let (naechster_anfang, naechstes_paket) = (AtomicUsize::new(0), AtomicUsize::new(0));
-    let naechstes = |vorher: Option<usize>| -> Option<usize> {
-        if let Some(p) = vorher
-            && p + 1 < pakete.len()
-            && streifen(&pakete[p]) == streifen(&pakete[p + 1])
-            && nimm(p + 1)
-        {
-            return Some(p + 1);
-        }
-        loop {
-            let a = naechster_anfang.fetch_add(1, Ordering::Relaxed);
-            let Some(&i) = anfaenge.get(a) else { break };
-            if nimm(i) {
-                return Some(i);
-            }
-        }
-        loop {
-            let i = naechstes_paket.fetch_add(1, Ordering::Relaxed);
-            if i >= pakete.len() {
-                return None;
-            }
-            if nimm(i) {
-                return Some(i);
-            }
-        }
-    };
-    let mut alle = Vec::with_capacity(pakete.len());
-    for ergebnis in rayon::broadcast(|_| -> Result<Vec<Vec<TileId>>> {
-        let mut zustand = start();
-        let mut fertig = Vec::new();
-        let mut vorher = None;
-        while let Some(i) = naechstes(vorher) {
-            fertig.push(arbeit(&mut zustand, &pakete[i])?);
-            vorher = Some(i);
-        }
-        Ok(fertig)
-    }) {
-        alle.extend(ergebnis?);
+/// Wie viele aufeinanderfolgende Kacheln sich einen Chunk-Cache teilen,
+/// siehe [`rendere`]. Die erste Kachel eines Stapels lädt kalt, also nicht
+/// unter sechzehn; darüber so gross, dass ein kleiner Lauf noch alle Kerne
+/// füllt.
+fn batch_size(tiles: usize) -> usize {
+    (tiles / rayon::current_num_threads()).clamp(16, 64)
+}
+
+/// Kacheln mit ihrer Zoomstufe.
+type Kacheln = BTreeSet<(u32, TileId)>;
+
+/// Ordnet Kacheln zum Rendern in Blöcke von 16 mal 16 statt Spalte für
+/// Spalte, auf der Basis und auf jeder nativen Stufe. Geschwister werden so
+/// kurz nacheinander fertig, und ein `--pyramid` neben dem Render baut ihre
+/// Elternkachel seltener mehrmals.
+fn in_bloecken(tiles: &mut [TileId]) {
+    tiles.sort_unstable_by_key(|tile| (tile.x >> 4, tile.y >> 4, tile.x, tile.y));
+}
+
+/// Steht unter dieser Kachel ein Kind, das nach dem Lauf bleibt?
+fn kind_bleibt(dir: &Path, z: u32, tile: TileId, weg: &BTreeSet<(u32, TileId)>) -> bool {
+    tile.children()
+        .into_iter()
+        .any(|kind| !weg.contains(&(z + 1, kind)) && tile_path(dir, z + 1, kind).is_file())
+}
+
+/// Eine Kachel, die nichts mehr zeigt und am Ende des Laufs verschwindet,
+/// zeigt schon jetzt nichts mehr, falls es sie gibt: bricht der Lauf
+/// vorher ab, übernähme ein späterer sonst ihren alten Inhalt in ihre
+/// Elternkachel.
+fn verblasse(dir: &Path, z: u32, tile: TileId) -> Result<()> {
+    if tile_path(dir, z, tile).is_file() {
+        schreibe(dir, z, tile, &RgbaImage::new(TILE, TILE))?;
     }
-    Ok(alle)
+    Ok(())
 }
 
-/// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen.
-fn vorhandene(dir: &Path, z: u32) -> Result<BTreeSet<TileId>> {
-    let stufe = dir.join(z.to_string());
-    let Ok(spalten) = std::fs::read_dir(&stufe) else {
-        return Ok(BTreeSet::new());
-    };
-    let mut out = BTreeSet::new();
-    for spalte in spalten {
-        let spalte = spalte.with_context(|| format!("{} lesen", stufe.display()))?;
-        let Ok(x) = spalte.file_name().to_string_lossy().parse::<i32>() else {
-            continue;
-        };
-        for datei in std::fs::read_dir(spalte.path())
-            .with_context(|| format!("{} lesen", spalte.path().display()))?
-        {
-            let name = datei?.file_name().to_string_lossy().into_owned();
-            if let Some(y) = name.strip_suffix(".webp").and_then(|y| y.parse().ok()) {
-                out.insert(TileId { x, y });
-            }
+/// Kacheln, deren Elternkachel fehlt, je Stufe, etwa weil ein Lauf beim
+/// Entfernen abbrach: entfernt wird von der gröbsten Stufe an. Ihre Eltern
+/// entstehen in diesem Lauf neu, nativ oder aus ihren Kindern. Ein
+/// Ausschnitt nimmt nur, was seine Fläche berührt, und liest dafür nur
+/// deren Spalten. `basis` sind die Basiskacheln in der Fläche.
+fn waisen(
+    dir: &Path,
+    max_zoom: u32,
+    basis: &BTreeSet<TileId>,
+    flaeche: impl Fn(u32) -> Option<Flaeche>,
+) -> Result<BTreeMap<u32, BTreeSet<TileId>>> {
+    let mut out = BTreeMap::new();
+    let mut stufe = basis.clone();
+    for z in (1..=max_zoom).rev() {
+        let oben = vorhandene(dir, z - 1, flaeche(z - 1).as_ref())?;
+        let ohne: BTreeSet<TileId> = stufe
+            .iter()
+            .filter(|tile| !oben.contains(&tile.parent()))
+            .copied()
+            .collect();
+        if !ohne.is_empty() {
+            out.insert(z, ohne);
         }
+        stufe = oben;
     }
     Ok(out)
+}
+
+/// Spalten und Zeilen der Kacheln einer Stufe, die ein Ausschnitt berührt.
+type Flaeche = (RangeInclusive<i32>, RangeInclusive<i32>);
+
+/// Die Kacheln der Stufe z, die etwas aus einem Ausschnitt zeigen, `None`
+/// für die ganze Welt. Auf der Basis und den nativen Stufen liegen sie
+/// ganz darin, darüber schneiden sie ihn vielleicht nur an.
+fn flaeche(bounds: Option<ScreenRect>, max_zoom: u32, z: u32) -> Option<Flaeche> {
+    bounds.map(|b| {
+        let stufe = |px: i32| px.div_euclid(TILE as i32) >> (max_zoom - z);
+        (
+            stufe(b.x)..=stufe(b.right() - 1),
+            stufe(b.y)..=stufe(b.bottom() - 1),
+        )
+    })
+}
+
+fn in_flaeche(flaeche: Option<&Flaeche>, tile: &TileId) -> bool {
+    flaeche.is_none_or(|(spalten, zeilen)| spalten.contains(&tile.x) && zeilen.contains(&tile.y))
+}
+
+/// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen, unter den
+/// Namen, die [`tile_path`] schreibt. In einer Fläche nur die darin; dann
+/// liest es nur deren Spaltenordner.
+fn vorhandene(dir: &Path, z: u32, flaeche: Option<&Flaeche>) -> Result<BTreeSet<TileId>> {
+    let mut out = BTreeSet::new();
+    je_kachel(dir, z, flaeche, |tile, _| {
+        out.insert(tile);
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+/// Wie [`vorhandene`] für die ganze Stufe, mit der Zeit, zu der jede
+/// Kachel zuletzt geschrieben wurde. Die steht schon im Verzeichnis:
+/// unter Windows kostet sie nichts, unter Linux einen `statx` je Datei,
+/// aber kein Öffnen. Was zwischen Liste und Abfrage verschwindet, fehlt.
+fn vorhandene_mit_zeit(dir: &Path, z: u32) -> Result<BTreeMap<TileId, SystemTime>> {
+    let mut out = BTreeMap::new();
+    je_kachel(dir, z, None, |tile, eintrag| {
+        match eintrag.metadata().and_then(|m| m.modified()) {
+            Ok(zeit) => {
+                out.insert(tile, zeit);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(e).with_context(|| format!("{} lesen", eintrag.path().display()));
+            }
+        }
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+/// Ruft `je` für jede Kachel aus [`vorhandene`] mit ihrem Eintrag im
+/// Verzeichnis.
+fn je_kachel(
+    dir: &Path,
+    z: u32,
+    flaeche: Option<&Flaeche>,
+    mut je: impl FnMut(TileId, &std::fs::DirEntry) -> Result<()>,
+) -> Result<()> {
+    let stufe = dir.join(z.to_string());
+    let spalten: Vec<i32> = match flaeche {
+        Some((spalten, _)) => spalten.clone().collect(),
+        None => {
+            let Ok(eintraege) = std::fs::read_dir(&stufe) else {
+                return Ok(());
+            };
+            let mut out = Vec::new();
+            for spalte in eintraege {
+                let name = spalte
+                    .with_context(|| format!("{} lesen", stufe.display()))?
+                    .file_name();
+                let name = name.to_string_lossy();
+                if let Ok(x) = name.parse::<i32>()
+                    && x.to_string() == name
+                {
+                    out.push(x);
+                }
+            }
+            out
+        }
+    };
+    for x in spalten {
+        let spalte = stufe.join(x.to_string());
+        let eintraege = match std::fs::read_dir(&spalte) {
+            Ok(eintraege) => eintraege,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e).with_context(|| format!("{} lesen", spalte.display())),
+        };
+        for datei in eintraege {
+            let datei = datei.with_context(|| format!("{} lesen", spalte.display()))?;
+            let name = datei.file_name();
+            let name = name.to_string_lossy();
+            if let Some(y) = name
+                .strip_suffix(".webp")
+                .and_then(|y| y.parse::<i32>().ok())
+                && format!("{y}.webp") == name
+            {
+                let tile = TileId { x, y };
+                if in_flaeche(flaeche, &tile) {
+                    je(tile, &datei)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Schreibt eine Kachel und liefert ihre Grösse in Bytes.
 fn schreibe(dir: &Path, z: u32, tile: TileId, image: &RgbaImage) -> Result<usize> {
     let data = encode_webp(image)?;
-    schreibe_datei(&tile_path(dir, z, tile), &data)?;
+    lege_ab(&tile_path(dir, z, tile), &data, None)?;
     Ok(data.len())
 }
 
-/// Legt das Verzeichnis nur an, wenn es fehlt: `create_dir_all` je Datei
-/// waren zwei Dateisystemaufrufe umsonst, bei Millionen Dateien.
-fn schreibe_datei(path: &Path, data: &[u8]) -> Result<()> {
-    match std::fs::write(path, data) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("{} anlegen", parent.display()))?;
-            }
-            std::fs::write(path, data)
-        }
-        sonst => sonst,
+/// Legt kodierte Bytes als Kachel ab, mit dieser Zeit als letzter Änderung
+/// statt der Uhr.
+fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("{} anlegen", parent.display()))?;
     }
-    .with_context(|| format!("{} schreiben", path.display()))
+    tausche(path, data, zeit, false).with_context(|| format!("{} schreiben", path.display()))
 }
 
-/// Wie viele Threads Kacheln auf die Platte schreiben.
-// ponytail: feste Zahl. Wenn der Defender die Dateien beim Schliessen
-// prüft, wartet jeder Schreiber Millisekunden je Datei; mehr Schreiber
-// verstecken das, kosten aber nur blockierte Threads.
-const SCHREIBER: usize = 8;
-
-/// Schreibt Kacheln in eigenen Threads.
+/// Ersetzt eine Datei, ohne dass jemand eine halbe sieht: erst eine eigene
+/// daneben, dann umbenennen. Wer die alte gerade liest, liest sie zu Ende,
+/// und bricht der Lauf mittendrin ab, steht die alte noch da. Daneben
+/// bleibt dann höchstens die halbe eigene, `<name>.<pid>.tmp`, und die
+/// sucht kein Leser.
 ///
-/// Der Renderthread kodiert noch selbst — das ist Rechenarbeit, die sich
-/// verteilt — und gibt die fertigen Bytes ab. Das Anlegen und Schliessen
-/// der Datei wartet auf NTFS und auf den Echtzeitschutz, und wenn alle 24
-/// Renderthreads darauf warten, steht die Hälfte der Zeit still: ohne
-/// Schreiben 2300 Kacheln/s, mit 1010. Der Kanal ist begrenzt, damit die
-/// Renderthreads nicht Gigabytes vorlegen, wenn die Platte nicht nachkommt.
-struct Schreiber {
-    tx: Option<SyncSender<(PathBuf, Vec<u8>)>>,
-    threads: Vec<JoinHandle<Result<usize>>>,
-    fehler: Arc<AtomicBool>,
+/// Mit `sicher` bringt es die Datei vor dem Umbenennen auf die Platte: Nach
+/// einem Stromausfall steht dann die alte oder die neue da, beide ganz. Das
+/// braucht nur `map.json`, ohne sie bricht jeder Lauf ab. Eine zerrissene
+/// Kachel fängt `--resume`, und je Kachel kostete es ein Warten auf die
+/// Platte.
+fn tausche(
+    path: &Path,
+    data: &[u8],
+    zeit: Option<SystemTime>,
+    sicher: bool,
+) -> std::io::Result<()> {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}.tmp", std::process::id()));
+    let neu = path.with_file_name(name);
+    let geschrieben = (|| {
+        let mut datei = File::create(&neu)?;
+        datei.write_all(data)?;
+        if let Some(zeit) = zeit {
+            datei.set_modified(zeit)?;
+        }
+        if sicher {
+            datei.sync_all()?;
+        }
+        drop(datei);
+        std::fs::rename(&neu, path)
+    })();
+    if geschrieben.is_err() {
+        let _ = std::fs::remove_file(&neu);
+    }
+    geschrieben
 }
 
-impl Schreiber {
-    fn new(n: usize) -> Schreiber {
-        let (tx, rx) = sync_channel::<(PathBuf, Vec<u8>)>(256);
-        let rx: Arc<Mutex<Receiver<_>>> = Arc::new(Mutex::new(rx));
-        let fehler = Arc::new(AtomicBool::new(false));
-        let threads = (0..n)
-            .map(|_| {
-                let (rx, fehler) = (Arc::clone(&rx), Arc::clone(&fehler));
-                thread::spawn(move || -> Result<usize> {
-                    let mut bytes = 0;
-                    loop {
-                        let job = rx.lock().unwrap_or_else(|e| e.into_inner()).recv();
-                        let Ok((path, data)) = job else {
-                            return Ok(bytes);
-                        };
-                        if let Err(e) = schreibe_datei(&path, &data) {
-                            fehler.store(true, Ordering::Relaxed);
-                            return Err(e);
-                        }
-                        bytes += data.len();
-                    }
-                })
-            })
-            .collect();
-        Schreiber {
-            tx: Some(tx),
-            threads,
-            fehler,
-        }
-    }
+/// Wie lange vor der jüngsten Basiskachel ein Stromausfall eine Kachel noch
+/// getroffen haben kann, siehe [`frische`].
+const FRISCH: Duration = Duration::from_secs(120);
 
-    /// Gibt eine Datei zum Schreiben ab; wartet, wenn der Kanal voll ist.
-    fn gib(&self, path: PathBuf, data: Vec<u8>) -> Result<()> {
-        if self.fehler.load(Ordering::Relaxed) {
-            bail!("ein Schreiber ist gescheitert");
-        }
-        self.tx
-            .as_ref()
-            .expect("Kanal offen")
-            .send((path, data))
-            .map_err(|_| anyhow::anyhow!("kein Schreiber mehr da"))
-    }
-
-    /// Wartet, bis alles geschrieben ist, und liefert die Bytes — oder den
-    /// ersten Fehler.
-    fn fertig(mut self) -> Result<usize> {
-        drop(self.tx.take());
-        let mut bytes = 0;
-        for thread in self.threads.drain(..) {
-            bytes += thread
-                .join()
-                .map_err(|_| anyhow::anyhow!("ein Schreiber ist abgestürzt"))??;
-        }
-        Ok(bytes)
-    }
+/// Die Basiskacheln aus dieser Liste, die `--resume` neu rendert: die aus
+/// den letzten [`FRISCH`] vor der jüngsten und alle danach.
+///
+/// `tausche` wartet nicht, bis die Daten auf der Platte sind; das System
+/// schreibt sie nach Sekunden, unter Linux nach bis zu einer halben Minute.
+/// Fällt vorher der Strom aus, steht eine Kachel womöglich leer unter ihrem
+/// Namen, voller Nullen oder zerrissen: mit gutem Kopf, in voller Länge und
+/// mit Nullen dahinter. Ansehen lässt sich ihr das nicht sicher; auch der
+/// Dekoder liest zwei von drei zerrissenen ohne Fehler, als falsches Bild.
+/// Als jüngste zählt keine, die mehr als zwei Sekunden nach der Liste
+/// (`gelistet`) liegt: die stammt von einer Uhr, die vorging, und neben ihr
+/// wäre keine andere frisch.
+///
+/// Das setzt zweierlei voraus: dass das System jede Kachel binnen
+/// [`FRISCH`] auf die Platte bringt, und dass die Uhr in dieser Zeit nicht
+/// springt. Gilt eines davon nicht, rendert erst ein Lauf ohne `--resume`
+/// sicher alles neu.
+fn frische(zeiten: &BTreeMap<TileId, SystemTime>, gelistet: SystemTime) -> BTreeSet<TileId> {
+    let grenze = gelistet + Duration::from_secs(2);
+    let juengste = zeiten
+        .values()
+        .copied()
+        .filter(|&zeit| zeit <= grenze)
+        .max();
+    zeiten
+        .iter()
+        .filter(|&(_, &zeit)| juengste.is_none_or(|j| zeit + FRISCH > j))
+        .map(|(&tile, _)| tile)
+        .collect()
 }
 
 fn lies(path: &Path) -> Result<RgbaImage> {
     Ok(image::open(path)
         .with_context(|| format!("{} lesen", path.display()))?
         .into_rgba8())
+}
+
+/// Wie [`lies`], `None`, wenn es die Datei nicht gibt.
+fn lies_falls_da(path: &Path) -> Result<Option<RgbaImage>> {
+    match lies(path) {
+        Err(_) if matches!(std::fs::exists(path), Ok(false)) => Ok(None),
+        bild => bild.map(Some),
+    }
+}
+
+/// Entfernt die Kachel, wenn sie noch die Zeit aus der Liste trägt. Hat sie
+/// seitdem jemand neu geschrieben, etwa ein Export samt neuen Kindern,
+/// bleibt sie, und das Ergebnis ist `false`.
+fn entferne_wie_gelistet(path: &Path, zeit: Option<SystemTime>) -> Result<bool> {
+    if aenderungszeit(path) != zeit {
+        return Ok(false);
+    }
+    entferne(path)?;
+    Ok(true)
 }
 
 /// Entfernt eine Kachel, falls sie noch dasteht.
@@ -1246,7 +2334,7 @@ fn scan(
     for state in &states {
         match assets.variants(state) {
             Ok(variants) => {
-                if variants.iter().all(|v| v.model.is_empty()) {
+                if variants.iter().all(|v| v.model.is_empty()) && !fluid::is_block(state) {
                     leer.insert(state.name());
                 }
             }
@@ -1260,12 +2348,11 @@ fn scan(
         started.elapsed().as_secs_f64(),
         ungeloest.len()
     );
-    for (state, error) in ungeloest.iter().take(20) {
-        println!("            {state}: {error}");
-    }
-    if ungeloest.len() > 20 {
-        println!("            ... und {} weitere", ungeloest.len() - 20);
-    }
+    print_list(
+        ungeloest
+            .iter()
+            .map(|(state, error)| format!("{state}: {error}")),
+    );
 
     // Blöcke, die Minecraft über Entity-Modelle zeichnet. V1 kennt die nicht,
     // sie bleiben auf der Karte leer.
@@ -1278,6 +2365,17 @@ fn scan(
     Ok(())
 }
 
+/// Höchstens zwanzig Zeilen, dann die Zahl der übrigen.
+fn print_list<T: std::fmt::Display>(items: impl ExactSizeIterator<Item = T>) {
+    let gesamt = items.len();
+    for item in items.take(20) {
+        println!("            {item}");
+    }
+    if gesamt > 20 {
+        println!("            ... und {} weitere", gesamt - 20);
+    }
+}
+
 fn report_missing_textures(assets: &Assets) {
     let missing = assets.textures().missing();
     println!(
@@ -1285,11 +2383,51 @@ fn report_missing_textures(assets: &Assets) {
         assets.textures().len() - 1,
         missing.len()
     );
-    for name in missing.iter().take(20) {
-        println!("            {name}");
+    print_list(missing.iter());
+    let kaputt = assets.textures().broken();
+    if !kaputt.is_empty() {
+        println!(
+            "            davon {} mit Datei, die der Client verwirft:",
+            kaputt.len()
+        );
+        print_list(
+            kaputt
+                .iter()
+                .map(|(name, grund)| format!("{name}: {grund}")),
+        );
     }
-    if missing.len() > 20 {
-        println!("            ... und {} weitere", missing.len() - 20);
+
+    let skipped = assets.skipped();
+    if !skipped.is_empty() {
+        println!(
+            "Modelle:    {} Blockstates mit Missing-Würfel oder fehlendem Parent",
+            skipped.len()
+        );
+        print_list(skipped.iter().map(|(state, why)| format!("{state}: {why}")));
+    }
+
+    let broken = assets.broken();
+    if !broken.is_empty() {
+        println!(
+            "Blockstates: {} Dateien kaputt, wie im Client gilt dort das Pack darunter",
+            broken.len()
+        );
+        print_list(broken.values());
+    }
+
+    let unchecked = assets.unchecked();
+    if !unchecked.is_empty() {
+        println!(
+            "Blockstates: {} Dateien fragen in multipart, was blocks.txt aus 26.2 nicht kennt; dort \
+             gilt der Text. Der Client von 26.2 gäbe diesen Blöcken kein Modell, einer, der sie \
+             kennt, schon. Für neuere Assets blocks.txt neu erzeugen und neu bauen, siehe README.",
+            unchecked.len()
+        );
+        print_list(
+            unchecked
+                .iter()
+                .map(|(path, what)| format!("{path}: {what}")),
+        );
     }
 }
 
@@ -1309,6 +2447,310 @@ fn bounds(regions: &[(i32, i32)]) -> Option<(i32, i32, i32, i32)> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    /// Fremd ist nur, was nach dem Beginn und vor der Liste entstand, und
+    /// stehen bleibt es nur auf nativen Stufen. Der Baum hat Basis 3 und
+    /// scale 16, `map.json` nennt keine Zahl, aber eine Welt, wie ein Baum
+    /// aus #8: also zwei native Stufen, Zoom 2 und 1. Der Beginn liegt eine
+    /// Stunde zurück, so lässt sich jede Zeit von Hand setzen:
+    /// - N auf Zoom 2 ist nativ, fremd und älter als sein Kind: bleibt.
+    /// - M daneben stammt aus der Sekunde vor dem Beginn, sein Kind ist
+    ///   jünger: wird neu gebaut, ebenso K, zwei Kacheln weiter.
+    /// - P auf Zoom 1, der gröbsten nativen Stufe, ist fremd, und K darunter
+    ///   wird neu: P bleibt.
+    /// - Q auf Zoom 1 ist nativ, liegt aber in der Zukunft: wird mit M neu.
+    /// - R auf Zoom 0 ist fremd, aber verkleinert: wird mit Q neu.
+    /// - `map.json` in der Zukunft wird ersetzt.
+    ///
+    /// Danach nennt `map.json` 0 native Stufen und ist selbst fremd: sie
+    /// bleibt, und M, jetzt fremd, aber verkleinert, wird wieder neu. Nennt
+    /// sie zuletzt weder die Zahl noch eine Welt, stammt der Baum von vor den
+    /// nativen Stufen: N, fremd, ist verkleinert und wird neu.
+    #[test]
+    fn fremd_nur_auf_nativen_stufen() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
+        let jetzt = SystemTime::now();
+        let stunde = Duration::from_secs(3600);
+        let (beginn, spaeter) = (jetzt - stunde, jetzt + stunde);
+        let mitte = jetzt - stunde / 2;
+        let minute = Duration::from_secs(60);
+        let setze_zeit = |pfad: &Path, zeit: SystemTime| {
+            File::options()
+                .write(true)
+                .open(pfad)
+                .unwrap()
+                .set_modified(zeit)
+                .unwrap();
+        };
+        let kachel = |z: u32, x: i32, farbe: [u8; 4], zeit: SystemTime| {
+            let tile = TileId { x, y: 0 };
+            schreibe(
+                dir,
+                z,
+                tile,
+                &RgbaImage::from_pixel(TILE, TILE, Rgba(farbe)),
+            )
+            .unwrap();
+            let pfad = tile_path(dir, z, tile);
+            setze_zeit(&pfad, zeit);
+            pfad
+        };
+        let grau = [90, 90, 90, 255];
+        let sekunde = Duration::from_secs(1);
+        kachel(3, 0, grau, mitte + minute);
+        let b = kachel(3, 2, grau, beginn - sekunde / 2);
+        kachel(3, 4, grau, mitte + minute);
+        let n = kachel(2, 0, [200, 0, 0, 255], mitte);
+        let m = kachel(2, 1, grau, beginn - sekunde);
+        let k = kachel(2, 2, grau, beginn - sekunde);
+        let q = kachel(1, 0, [0, 0, 200, 255], spaeter);
+        let p = kachel(1, 1, [200, 200, 0, 255], mitte);
+        let r = kachel(0, 0, [0, 200, 0, 255], mitte);
+        let basis = BTreeSet::from([
+            TileId { x: 0, y: 0 },
+            TileId { x: 2, y: 0 },
+            TileId { x: 4, y: 0 },
+        ]);
+        let richtig = MapInfo::new(16, 3, &basis);
+        let falsch = |nativ, world, zeit| {
+            let info = MapInfo {
+                native_levels: nativ,
+                world,
+                bounds: [0, 0, 1, 1],
+                ..MapInfo::new(16, 3, &basis)
+            };
+            let karte = schreibe_info(dir, &info, None).unwrap();
+            setze_zeit(&karte, zeit);
+            karte
+        };
+        falsch(None, Some(None), spaeter);
+        let vorher = [std::fs::read(&n).unwrap(), std::fs::read(&p).unwrap()];
+
+        rebuild_pyramid(dir, beginn).unwrap();
+        let zeit = |pfad: &Path| std::fs::metadata(pfad).unwrap().modified().unwrap();
+        let stempel = beginn - Duration::from_secs(2);
+        let nachher = [std::fs::read(&n).unwrap(), std::fs::read(&p).unwrap()];
+        assert_eq!(nachher, vorher, "N und P sind nativ und fremd");
+        assert_eq!([zeit(&n), zeit(&p)], [mitte, mitte]);
+        for (name, pfad) in [("M", &m), ("K", &k), ("Q", &q), ("R", &r)] {
+            assert_eq!(zeit(pfad), stempel, "{name} ist nicht neu gebaut");
+        }
+        let bestand = lies_bestand(dir).unwrap().unwrap();
+        assert_eq!(bestand.bounds, richtig.bounds, "map.json aus der Zukunft");
+
+        let karte = falsch(Some(0), Some(None), mitte);
+        let vorher = std::fs::read(&karte).unwrap();
+        setze_zeit(&m, mitte);
+        setze_zeit(&b, mitte + minute);
+        rebuild_pyramid(dir, beginn).unwrap();
+        assert_eq!(std::fs::read(&karte).unwrap(), vorher, "fremde map.json");
+        assert_eq!(zeit(&m), stempel, "M ist fremd, aber nicht mehr nativ");
+
+        falsch(None, None, mitte);
+        setze_zeit(&n, mitte);
+        rebuild_pyramid(dir, beginn).unwrap();
+        assert_eq!(
+            zeit(&n),
+            stempel,
+            "ohne Welt hat der Baum keine native Stufe"
+        );
+    }
+
+    /// Fremd ist, was nach dem Beginn und bis zwei Sekunden nach der Liste
+    /// entstand; eine Zeit weiter in der Zukunft kommt von einer Uhr, die
+    /// vorging.
+    #[test]
+    fn fremd_mit_zwei_sekunden_spielraum() {
+        let beginn = SystemTime::now();
+        let bis = beginn + Duration::from_secs(10);
+        let sekunde = Duration::from_secs(1);
+        assert!(!fremd(Some(beginn), beginn, bis));
+        assert!(fremd(Some(beginn + sekunde), beginn, bis));
+        assert!(fremd(Some(bis + 2 * sekunde), beginn, bis));
+        assert!(!fremd(Some(bis + 3 * sekunde), beginn, bis));
+        assert!(!fremd(None, beginn, bis));
+    }
+
+    /// Ist beim Lesen keines der Kinder mehr da, schreibt `--pyramid` die
+    /// Elternkachel nicht und meldet sie nicht als geändert.
+    #[test]
+    fn ohne_kinder_entsteht_keine_kachel() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
+        let kind = TileId { x: 0, y: 0 };
+        let kinder = BTreeMap::from([(kind, SystemTime::now())]);
+        let neu = baue_neu(
+            dir,
+            0,
+            kind.parent(),
+            &[kind],
+            &kinder,
+            None,
+            SystemTime::now(),
+        );
+        assert!(neu.unwrap().is_none());
+        assert!(!tile_path(dir, 0, kind.parent()).exists());
+    }
+
+    /// Ein Ordner mit Anführungszeichen im Namen bleibt für PowerShell ein
+    /// Ordner: jedes steht doppelt, auch die typografischen.
+    #[test]
+    fn ordner_fuer_powershell() {
+        assert_eq!(powershell_text(r"D:\karte\tiles"), r"'D:\karte\tiles'");
+        assert_eq!(powershell_text(r"D:\Welt's\tiles"), r"'D:\Welt''s\tiles'");
+        assert_eq!(
+            powershell_text("a\u{2018}b\u{2019}c\u{201A}d\u{201B}e\"f"),
+            "'a\u{2018}\u{2018}b\u{2019}\u{2019}c\u{201A}\u{201A}d\u{201B}\u{201B}e\"f'"
+        );
+    }
+
+    /// Eine Ausnahme gibt es für einen Ordner, den es noch nicht gibt, einen
+    /// leeren und einen Kachelbaum, nicht für einen anderen vollen Ordner
+    /// und nie für die Wurzel eines Laufwerks.
+    #[test]
+    fn ausnahme_nur_fuer_neue_leere_und_kachelordner() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(warum_keine_ausnahme(&dir.path().join("neu")), None);
+        assert_eq!(warum_keine_ausnahme(dir.path()), None);
+        std::fs::write(dir.path().join("notizen.txt"), "x").unwrap();
+        assert!(warum_keine_ausnahme(dir.path()).is_some());
+        std::fs::write(dir.path().join("map.json"), "{}").unwrap();
+        assert_eq!(warum_keine_ausnahme(dir.path()), None);
+        let wurzel = Path::new(std::path::MAIN_SEPARATOR_STR);
+        assert_eq!(
+            warum_keine_ausnahme(wurzel),
+            Some("das ist die Wurzel eines Laufwerks")
+        );
+    }
+
+    /// Base64 über UTF-16LE, wie `-EncodedCommand` es liest; die Werte
+    /// stammen aus `[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(…))`.
+    #[test]
+    fn befehl_fuer_encoded_command() {
+        assert_eq!(powershell_kodiert("a"), "YQA=");
+        assert_eq!(powershell_kodiert("ab"), "YQBiAA==");
+        assert_eq!(powershell_kodiert("dir"), "ZABpAHIA");
+    }
+
+    /// Mit echter PowerShell: Ein Ordner mit allen Arten von
+    /// Anführungszeichen kommt unverändert an, und beide Befehle von
+    /// `--defender-exclusion` sind gültiges PowerShell, der zweite auch nach
+    /// dem Dekodieren. Ausgeführt wird keiner.
+    #[cfg(windows)]
+    #[test]
+    fn befehle_der_ausnahme_in_powershell() {
+        let ordner = "D:\\Welt's \u{2018}Karte\u{2019} \u{201A}neu\u{201B}\\tiles";
+        let text = powershell_text(ordner);
+        let pruefen = format!(
+            "[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false; \
+             $innen = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{}')); \
+             foreach ($befehl in {}, $innen) {{ \
+                 $fehler = $null; \
+                 [void][Management.Automation.Language.Parser]::ParseInput($befehl, [ref]$null, [ref]$fehler); \
+                 if ($fehler) {{ exit 1 }} \
+             }}; \
+             Write-Output {text}; Write-Output $innen",
+            powershell_kodiert(&ausnahme_setzen(&text)),
+            powershell_text(&ausnahme_erfragen(&text)),
+        );
+        let out = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-EncodedCommand"])
+            .arg(powershell_kodiert(&pruefen))
+            .output()
+            .expect("powershell.exe starten");
+        assert!(
+            out.status.success(),
+            "kein gültiges PowerShell: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let ausgabe = String::from_utf8(out.stdout).expect("UTF-8");
+        let zeilen: Vec<&str> = ausgabe.lines().collect();
+        assert_eq!(zeilen, [ordner, ausnahme_setzen(&text).as_str()]);
+    }
+
+    /// Frisch sind die Kacheln aus den zwei Minuten vor der jüngsten, genau
+    /// zwei Minuten davor nicht mehr, und die aus der Zukunft. Die zählen für
+    /// die jüngste nicht mit, sonst wäre neben ihnen keine frisch; gibt es
+    /// nur solche, sind alle frisch. Zukunft heisst mehr als zwei Sekunden
+    /// nach der Liste.
+    #[test]
+    fn frisch_sind_die_letzten_zwei_minuten() {
+        let jetzt = SystemTime::now();
+        let tile = |x| TileId { x, y: 0 };
+        let vor = |sekunden| jetzt - Duration::from_secs(sekunden);
+        let nach = |sekunden| jetzt + Duration::from_secs(sekunden);
+        let zeiten = BTreeMap::from([
+            (tile(0), vor(3600)),
+            (tile(1), vor(600 + 120)),
+            (tile(2), vor(600 + 119)),
+            (tile(3), vor(600)),
+            (tile(4), nach(3600)),
+        ]);
+        assert_eq!(
+            frische(&zeiten, jetzt),
+            BTreeSet::from([tile(2), tile(3), tile(4)])
+        );
+        let zukunft = BTreeMap::from([(tile(4), nach(3600))]);
+        assert_eq!(frische(&zukunft, jetzt), BTreeSet::from([tile(4)]));
+        let knapp = BTreeMap::from([(tile(0), vor(3600)), (tile(5), nach(2))]);
+        assert_eq!(frische(&knapp, jetzt), BTreeSet::from([tile(5)]));
+        let spaeter = BTreeMap::from([(tile(0), vor(3600)), (tile(5), nach(3))]);
+        assert_eq!(frische(&spaeter, jetzt), BTreeSet::from([tile(0), tile(5)]));
+    }
+
+    /// Entfernt wird eine Kachel nur, wenn sie noch so dasteht, wie die
+    /// Liste sie sah.
+    #[test]
+    fn entfernt_nur_wie_gelistet() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("0.webp");
+        std::fs::write(&pfad, b"").unwrap();
+        let zeit = aenderungszeit(&pfad);
+        let frueher = zeit.map(|zeit| zeit - Duration::from_secs(1));
+        assert!(!entferne_wie_gelistet(&pfad, frueher).unwrap());
+        assert!(pfad.exists());
+        assert!(entferne_wie_gelistet(&pfad, zeit).unwrap());
+        assert!(!pfad.exists());
+    }
+
+    /// Eine Kachel, die es nicht mehr gibt, ist keine kaputte.
+    #[test]
+    fn verschwundene_kachel_ist_nicht_kaputt() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("0.webp");
+        assert!(lies_falls_da(&pfad).unwrap().is_none());
+        std::fs::write(&pfad, b"RIFF").unwrap();
+        assert!(lies_falls_da(&pfad).is_err());
+    }
+
+    /// Eine grobe Kachel, die ein Ausschnitt nur anschneidet, gehört zu
+    /// seiner Fläche, auch wenn im Ausschnitt nichts unter ihr steht. Fehlt
+    /// ihr die Elternkachel, ist sie eine Waise des Ausschnitts. Hier steht
+    /// ihr einziges Kind links daneben.
+    #[test]
+    fn angeschnittene_waise_ohne_kind_im_ausschnitt() {
+        let dir = tempfile::tempdir().unwrap();
+        for (z, x) in [(2, 2), (1, 1)] {
+            let pfad = tile_path(dir.path(), z, TileId { x, y: 0 });
+            std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+            std::fs::write(pfad, b"").unwrap();
+        }
+        let ausschnitt = ScreenRect {
+            x: 3 * TILE as i32,
+            y: 0,
+            width: TILE,
+            height: TILE,
+        };
+        let gefunden = waisen(dir.path(), 2, &BTreeSet::new(), |z| {
+            flaeche(Some(ausschnitt), 2, z)
+        })
+        .unwrap();
+        assert_eq!(
+            gefunden,
+            BTreeMap::from([(1, BTreeSet::from([TileId { x: 1, y: 0 }]))])
+        );
+    }
 
     #[test]
     fn cli_ist_konsistent() {
@@ -1333,63 +2775,196 @@ mod tests {
         );
     }
 
+    /// `--scale` nimmt nur Vielfache von 4: bei 2, 6 oder 9 lägen Blöcke
+    /// auf halben Pixeln, und native Stufen hätten den falschen Massstab.
+    #[test]
+    fn scale_nur_als_vielfaches_von_vier() {
+        for gut in ["4", "8", "12", "32", "64"] {
+            assert!(Args::try_parse_from(["x", "--scale", gut]).is_ok(), "{gut}");
+        }
+        for schlecht in ["0", "2", "6", "9", "17", "33"] {
+            assert!(
+                Args::try_parse_from(["x", "--scale", schlecht]).is_err(),
+                "{schlecht}"
+            );
+        }
+    }
+
+    /// `--gpu` wirkt nur auf den Kachelexport; ohne `--tiles` lehnt die CLI
+    /// den Schalter ab, statt ihn stillschweigend zu nehmen. Die Vorgabe
+    /// `auto` zählt dabei nicht, auch nicht neben `--pyramid`, das keinen
+    /// anderen Schalter duldet.
+    #[test]
+    fn gpu_nur_mit_tiles() {
+        let geht = |args: &[&str]| Args::try_parse_from([&["x"], args].concat()).is_ok();
+        assert!(!geht(&["--world", "w", "--render", "a.png", "--gpu", "on"]));
+        assert!(geht(&["--world", "w", "--render", "a.png"]));
+        assert!(!geht(&["--pyramid", "d", "--gpu", "off"]));
+        assert!(geht(&["--pyramid", "d"]));
+        assert!(geht(&["--world", "w", "--tiles", "t", "--gpu", "on"]));
+    }
+
+    /// Versagt die Karte mit einem Fehler oder einer Panik, kommen die
+    /// Bilder von der CPU, und `aus` bleibt gesetzt. Solange sie zeichnet,
+    /// zeichnet die CPU nichts.
+    #[test]
+    fn rueckfall_auf_die_cpu() {
+        let bild = |wert: u8| vec![RgbaImage::from_pixel(1, 1, Rgba([wert; 4]))];
+        let farbe = |bilder: Vec<RgbaImage>| bilder[0].get_pixel(0, 0).0;
+
+        let aus = AtomicBool::new(false);
+        let gut = mit_rueckfall(
+            &aus,
+            || Ok(bild(1)),
+            || panic!("die CPU zeichnet ohne Grund"),
+        );
+        assert_eq!(farbe(gut.unwrap()), [1; 4]);
+        assert!(!aus.load(Ordering::Relaxed));
+
+        let fehler = mit_rueckfall(&aus, || bail!("Gerät verloren"), || Ok(bild(2)));
+        assert_eq!(farbe(fehler.unwrap()), [2; 4]);
+        assert!(aus.load(Ordering::Relaxed));
+
+        let aus = AtomicBool::new(false);
+        let panik = mit_rueckfall(
+            &aus,
+            || panic!("wgpu error: Validation Error"),
+            || Ok(bild(3)),
+        );
+        assert_eq!(farbe(panik.unwrap()), [3; 4]);
+        assert!(aus.load(Ordering::Relaxed));
+    }
+
+    /// Eine Panik, die [`ohne_panik`] fängt, geht nicht an den Hook darunter,
+    /// jede andere schon, und ihr Text kommt auf eine Zeile. Gezählt wird nur
+    /// auf diesem Thread: im Coverage-Job laufen die Tests nebeneinander in
+    /// einem Prozess, und der Hook gilt für alle.
+    #[test]
+    fn gefangene_panik_bleibt_still() {
+        let faden = std::thread::current().id();
+        let gesagt = std::sync::Arc::new(AtomicUsize::new(0));
+        let zaehler = std::sync::Arc::clone(&gesagt);
+        let sonst = std::panic::take_hook();
+        std::panic::set_hook(still_beim_fangen(Box::new(move |info| {
+            if std::thread::current().id() == faden {
+                zaehler.fetch_add(1, Ordering::SeqCst);
+            } else {
+                sonst(info);
+            }
+        })));
+
+        let fehler = ohne_panik::<()>(|| {
+            panic!("wgpu error: Validation Error\n\nCaused by:\n  In Device::create_buffer\n")
+        });
+        assert_eq!(
+            format!("{:#}", fehler.unwrap_err()),
+            "wgpu error: Validation Error Caused by: In Device::create_buffer"
+        );
+        assert_eq!(
+            gesagt.load(Ordering::SeqCst),
+            0,
+            "die gefangene Panik ging an den Hook"
+        );
+
+        let _ = std::panic::catch_unwind(|| panic!("nicht von ohne_panik gefangen"));
+        assert_eq!(
+            gesagt.load(Ordering::SeqCst),
+            1,
+            "eine andere Panik ging nicht an den Hook"
+        );
+    }
+
+    /// Versagt die Karte in [`rendere`], zeichnet die CPU den Rest, und kein
+    /// Stapel legt danach noch einen Zeichner an. Die Welt ist leer, es geht
+    /// nur darum, wer zeichnet: ein Thread, 80 Kacheln, also zwei Stapel zu
+    /// 64 und 16 und Durchgänge zu 16.
+    /// - Die Karte zeichnet alle, solange sie kann.
+    /// - Steht `aus` schon, zeichnet sie keine.
+    /// - Scheitert schon das Anlegen des Zeichners, hier an einer Grenze von
+    ///   1 kB, zeichnet die CPU alle.
+    /// - Verliert die Karte ihr Gerät nach der ersten Kachel, bleibt es bei
+    ///   den 16 des ersten Durchgangs. Der zweite Stapel legte früher einen
+    ///   Zeichner auf dem verlorenen Gerät an, und dessen Panik fing niemand.
+    #[test]
+    fn rendere_faellt_auf_die_cpu_zurueck() {
+        let Some(gpu) = Gpu::new(true).unwrap() else {
+            // Wie `common::ohne_gpu` in den Integrationstests.
+            assert!(
+                std::env::var_os("TERRANOVA_GPU_PFLICHT").is_none(),
+                "kein GPU-Adapter, aber TERRANOVA_GPU_PFLICHT ist gesetzt"
+            );
+            eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
+            return;
+        };
+        let welt = tempfile::tempdir().unwrap();
+        std::fs::create_dir(welt.path().join("region")).unwrap();
+        let world = World::open(welt.path()).unwrap();
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
+        let mut assets = Assets::open(vec![fixture]).unwrap();
+        let keine = BTreeMap::<BlockState, BTreeSet<String>>::new();
+        let sprites = SpriteSet::build_in(&mut assets, &keine, Projection::new(16)).unwrap();
+        let tiles: Vec<TileId> = (0..80).map(|x| TileId { x, y: 0 }).collect();
+        let ein_thread = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let karte = |gpu| Karte {
+            gpu,
+            aus: AtomicBool::new(false),
+        };
+        // Wie viele Kacheln die Karte gezeichnet hat; mit `verlieren` ist ihr
+        // Gerät nach der ersten fertigen Kachel weg.
+        let lauf = |karte: &Karte, verlieren: bool| {
+            let einmal = AtomicBool::new(verlieren);
+            let (kacheln, auf_der_karte) = ein_thread
+                .install(|| {
+                    rendere(&world, &sprites, &tiles, false, Some(karte), |_, _| {
+                        if einmal.swap(false, Ordering::Relaxed) {
+                            karte.gpu.verlieren();
+                        }
+                        Ok(())
+                    })
+                })
+                .unwrap();
+            assert_eq!(kacheln.len(), tiles.len());
+            auf_der_karte
+        };
+
+        let gut = karte(gpu);
+        assert_eq!(lauf(&gut, false), 80);
+        assert!(!gut.aus.load(Ordering::Relaxed));
+        gut.aus.store(true, Ordering::Relaxed);
+        assert_eq!(lauf(&gut, false), 0, "die Karte zeichnet trotz `aus`");
+
+        let klein = karte(Gpu::mit_grenze(true, 1024).unwrap().expect("wie oben"));
+        assert_eq!(lauf(&klein, false), 0);
+        assert!(klein.aus.load(Ordering::Relaxed));
+
+        let verliert = karte(Gpu::new(true).unwrap().expect("wie oben"));
+        let n = lauf(&verliert, true);
+        assert_eq!(im_log(n, tiles.len()), " + GPU für 16 von 80");
+        assert!(verliert.aus.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn native_stufen_nur_auf_ganzen_pixeln() {
+        assert_eq!(native_levels(32, 9), 3, "16, 8, 4");
+        assert_eq!(native_levels(16, 9), 2);
+        assert_eq!(native_levels(8, 9), 1);
+        assert_eq!(native_levels(4, 9), 0);
+        assert_eq!(native_levels(12, 9), 0, "6 läge auf halben Pixeln");
+        assert_eq!(native_levels(24, 9), 1, "12, dann 6 nicht mehr");
+        assert_eq!(
+            native_levels(32, 2),
+            2,
+            "nicht mehr Stufen als die Pyramide hat"
+        );
+    }
+
     #[test]
     fn bounds_ueber_regionen() {
         assert_eq!(bounds(&[]), None);
         assert_eq!(bounds(&[(3, -1)]), Some((3, 3, -1, -1)));
         assert_eq!(bounds(&[(3, -1), (-2, 5), (0, 0)]), Some((-2, 3, -1, 5)));
-    }
-
-    /// Jedes Paket genau einmal, auf allen Threads zusammen.
-    #[test]
-    fn verteile_gibt_jedes_paket_genau_einmal() {
-        let pakete: Vec<Vec<TileId>> = (0..50)
-            .map(|i| {
-                vec![TileId {
-                    x: i / 5 * 8,
-                    y: i % 5,
-                }]
-            })
-            .collect();
-        let mut alle: Vec<TileId> = verteile(&pakete, || (), |(), p| Ok(p.to_vec()))
-            .unwrap()
-            .into_iter()
-            .flatten()
-            .collect();
-        alle.sort();
-        let mut soll: Vec<TileId> = pakete.iter().flatten().copied().collect();
-        soll.sort();
-        assert_eq!(alle, soll);
-    }
-
-    /// Jede Kachel genau einmal, je Paket ein Spaltenstreifen in
-    /// Zeilenordnung, und genug Pakete für alle Threads.
-    #[test]
-    fn pakete_sind_spaltenstreifen_in_zeilenordnung() {
-        let tiles: Vec<TileId> = (0..300)
-            .flat_map(|y| (0..20).map(move |x| TileId { x: x - 3, y }))
-            .collect();
-        let pakete = pakete(&tiles);
-        let mut alle: Vec<TileId> = pakete.iter().flatten().copied().collect();
-        alle.sort();
-        let mut soll = tiles.clone();
-        soll.sort();
-        assert_eq!(alle, soll, "jede Kachel genau einmal");
-        let spalten = PAKET_SPALTEN as i32;
-        for paket in &pakete {
-            let streifen = paket[0].x.div_euclid(spalten);
-            assert!(paket.iter().all(|t| t.x.div_euclid(spalten) == streifen));
-            assert!(
-                paket
-                    .windows(2)
-                    .all(|w| (w[0].y, w[0].x) < (w[1].y, w[1].x)),
-                "Zeile für Zeile"
-            );
-        }
-        assert!(
-            pakete.len() >= 4 * rayon::current_num_threads().min(64),
-            "nur {} Pakete",
-            pakete.len()
-        );
     }
 }

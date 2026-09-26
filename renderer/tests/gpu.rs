@@ -1,19 +1,19 @@
 //! Die Grafikkarte muss Byte für Byte dasselbe zeichnen wie die CPU.
 //!
 //! Ohne Adapter — auch keinen Software-Adapter wie WARP oder lavapipe —
-//! werden die Tests übersprungen und sagen das.
+//! werden die Tests übersprungen und sagen das, ausser in der CI
+//! (`common::ohne_gpu`).
 
 mod common;
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::{
-    ChunkCache, DrawList, Gpu, Projection, ScreenRect, SpriteSet, TILE, TileId, covering, draw_all,
-    draw_list, render_area,
+    ChunkCache, Draw, Gpu, Projection, ScreenRect, SpriteSet, TILE, TileId, covering, draw_all,
+    draw_list, render_area, survey,
 };
 use terranova_render::world::World;
 
@@ -56,15 +56,8 @@ fn welt(projection: Projection) -> Welt {
     let chunks = [(0, 0), (1, 0), (0, 1), (1, 1)];
     common::write_world(dir.path(), &chunks, gelaende);
     let world = World::open(dir.path()).unwrap();
-
-    let mut states = Vec::new();
-    for &(cx, cz) in &chunks {
-        let chunk = world.chunk(cx, cz).unwrap().unwrap();
-        for section in chunk.sections() {
-            states.extend(section.blocks().palette().iter().cloned());
-        }
-    }
-    let sprites = SpriteSet::build(&mut assets(), &states, projection).unwrap();
+    let states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    let sprites = SpriteSet::build_in(&mut assets(), &states, projection).unwrap();
     Welt {
         _dir: dir,
         world,
@@ -85,7 +78,7 @@ fn kacheln() -> Vec<TileId> {
 fn adapter(gpu: anyhow::Result<Option<Gpu>>) -> Option<Gpu> {
     let gpu = gpu.expect("Grafikkarte öffnen");
     if gpu.is_none() {
-        eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
+        common::ohne_gpu();
     }
     gpu
 }
@@ -106,7 +99,7 @@ fn gpu_zeichnet_dasselbe_wie_die_cpu() {
         let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
         let listen: Vec<_> = tiles
             .iter()
-            .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE, false).unwrap())
+            .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap())
             .collect();
         let mut worker = gpu.worker(tiles.len() as u32, TILE);
         let bilder = worker.render(&listen).unwrap();
@@ -137,58 +130,101 @@ fn gpu_zeichnet_dasselbe_wie_die_cpu() {
     }
 }
 
-/// Ein Atlas, in den gerade eine Kachel passt, und zwei Sprite-Tabellen,
-/// die sich abwechseln: jede Kachel verdrängt die vorige, und trotzdem
-/// stimmt jedes Bild. Nebenbei: Sprites zweier Tabellen dürfen sich im
-/// Atlas nicht verwechseln, obwohl ihre `SpriteId`s gleich zählen.
+/// Die Szene aus `common::szene`: Lava in Stufen, Ackerboden neben Lava,
+/// Glas im Wasser, alles, woran das Verdecken der CPU scheitern kann. Die
+/// Karte bekommt `skip` nicht und malt, was die CPU auslässt; ein deckender
+/// Nachbar malt es wieder über. Bei jedem scale von 4 bis 32 gleicht jede
+/// Kachel Byte für Byte der CPU, und `skip` kommt oft genug vor, dass der
+/// Test etwas prüft.
 #[test]
-fn voller_atlas_wird_geleert_und_bleibt_richtig() {
-    let welten = [welt(Projection::new(16)), welt(Projection::new(32))];
-    let mut listen = Vec::new();
-    let mut bedarf = 0;
-    for (w, welt) in welten.iter().enumerate() {
-        let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
-        for tile in kacheln() {
-            let liste = draw_list(&mut chunks, tile.rect(), Y_RANGE, false).unwrap();
-            let mut gesehen = HashSet::new();
-            let bytes: usize = liste
-                .draws
-                .iter()
-                .filter(|d| gesehen.insert(d.key))
-                .map(|d| d.sprite.image.as_raw().len())
-                .sum();
-            bedarf = bedarf.max(bytes);
-            listen.push((w, tile, liste));
-        }
-    }
-    // Abwechselnd aus beiden Tabellen.
-    listen.sort_by_key(|(w, tile, _)| (tile.y, tile.x, *w));
-
-    let Some(gpu) = adapter(Gpu::with_atlas(true, bedarf as u64)) else {
+fn gpu_zeichnet_die_szene_wie_die_cpu() {
+    let Some(gpu) = adapter(Gpu::new(true)) else {
         return;
     };
-    let mut worker = gpu.worker(1, TILE);
-    for (w, tile, liste) in &listen {
-        let bild = worker
-            .render(std::slice::from_ref(liste))
-            .unwrap()
-            .remove(0);
-        let welt = &welten[*w];
-        let cpu = render_area(&welt.world, &welt.sprites, tile.rect(), Y_RANGE).unwrap();
-        assert_eq!(
-            cpu.as_raw(),
-            bild.as_raw(),
-            "Kachel {tile:?} bei scale {} weicht ab",
-            welt.sprites.projection().scale()
+    let dir = tempfile::tempdir().expect("Temporärverzeichnis");
+    let world = common::write_szene(dir.path());
+    let y_range = common::SZENE_Y;
+    for scale in (4..=32).step_by(4) {
+        let projection = Projection::new(scale);
+        let survey = survey(&world, projection, y_range, None).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&common::biomdaten()).unwrap();
+        let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        let s = scale as i32;
+        let tiles: Vec<TileId> = covering(ScreenRect {
+            x: -17 * s,
+            y: -25 * s,
+            width: 34 * scale,
+            height: 42 * scale,
+        })
+        .collect();
+
+        let mut chunks = ChunkCache::new(&world, &sprites);
+        let listen: Vec<_> = tiles
+            .iter()
+            .map(|tile| draw_list(&mut chunks, tile.rect(), y_range).unwrap())
+            .collect();
+        let ausgelassen = listen.iter().flatten().filter(|d| d.skip != 0).count();
+        assert!(
+            ausgelassen > 1000,
+            "scale {scale}: nur {ausgelassen} Teile mit skip"
+        );
+        let bilder = gpu
+            .worker(tiles.len() as u32, TILE)
+            .render(&listen)
+            .unwrap();
+        for (tile, bild) in tiles.iter().zip(&bilder) {
+            let cpu = render_area(&world, &sprites, tile.rect(), y_range).unwrap();
+            let abweichend = cpu
+                .as_raw()
+                .iter()
+                .zip(bild.as_raw())
+                .filter(|(a, b)| a != b)
+                .count();
+            assert_eq!(
+                abweichend, 0,
+                "scale {scale}, Kachel {tile:?}: {abweichend} Bytes weichen von der CPU ab"
+            );
+        }
+    }
+}
+
+/// Kacheln zweier Sprite-Tabellen im selben Durchgang, abwechselnd: ihre
+/// `SpriteId`s zählen gleich, ihre Sprites dürfen sich trotzdem nicht
+/// verwechseln.
+#[test]
+fn zwei_tabellen_in_einem_durchgang() {
+    let Some(gpu) = adapter(Gpu::new(true)) else {
+        return;
+    };
+    let welten = [welt(Projection::new(16)), welt(Projection::new(32))];
+    let mut caches: Vec<_> = welten
+        .iter()
+        .map(|welt| ChunkCache::new(&welt.world, &welt.sprites))
+        .collect();
+    let mut listen = Vec::new();
+    let mut erwartet = Vec::new();
+    for tile in kacheln() {
+        for (welt, chunks) in welten.iter().zip(&mut caches) {
+            listen.push(draw_list(chunks, tile.rect(), Y_RANGE).unwrap());
+            let cpu = render_area(&welt.world, &welt.sprites, tile.rect(), Y_RANGE).unwrap();
+            erwartet.push((tile, welt.sprites.projection().scale(), cpu));
+        }
+    }
+    let bilder = gpu
+        .worker(listen.len() as u32, TILE)
+        .render(&listen)
+        .unwrap();
+    for ((tile, scale, cpu), bild) in erwartet.iter().zip(&bilder) {
+        assert!(
+            cpu.as_raw() == bild.as_raw(),
+            "Kachel {tile:?} bei scale {scale} weicht ab"
         );
     }
-    assert!(gpu.atlas_leerungen() > 0, "der Atlas wurde nie geleert");
 }
 
 /// Eine Zeichenliste, die nicht in die Anfangspuffer passt: der Zeichner
-/// muss sie vergrössern — und darf sich dabei nicht am Atlas verklemmen,
-/// den er gerade hält. Genau das tat er, bis eine echte Kachel bei
-/// scale 32 mit ihren viertausend Sprites kam.
+/// muss sie vergrössern.
 #[test]
 fn lange_listen_vergroessern_die_puffer() {
     let Some(gpu) = adapter(Gpu::new(true)) else {
@@ -197,31 +233,28 @@ fn lange_listen_vergroessern_die_puffer() {
     let welt = welt(Projection::new(16));
     let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
     let tile = kacheln()[3];
-    let kurz = draw_list(&mut chunks, tile.rect(), Y_RANGE, true).unwrap();
-    assert!(!kurz.draws.is_empty());
+    let kurz = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
+    assert!(!kurz.is_empty());
 
-    // Dieselbe Liste in ganzen Runden hintereinander, gut 20 000 Einträge:
-    // 320 kB Instanzen, die Anfangspuffer fassen 64 kB. Ganze Runden, weil
-    // die Deckungsmaske eines Blocks voraussetzt, dass sein Nachbar nach
-    // ihm noch einmal kommt.
-    let runden = 20_000 / kurz.draws.len() + 1;
-    let lang = DrawList {
-        draws: kurz
-            .draws
-            .iter()
-            .cycle()
-            .take(runden * kurz.draws.len())
-            .copied()
-            .collect(),
-        vis: kurz.vis.clone(),
-    };
+    // Dieselbe Liste in ganzen Runden hintereinander, gut 100 000 Einträge:
+    // 1,6 MB Instanzen, die Anfangspuffer fassen 64 kB, und in den Listen
+    // mindestens ein Eintrag je Draw, 400 kB gegen anfangs 256 kB. Ganze
+    // Runden, weil die Deckungsmaske eines Blocks voraussetzt, dass sein
+    // Nachbar nach ihm noch einmal kommt.
+    let runden = 100_000 / kurz.len() + 1;
+    let lang: Vec<Draw> = kurz
+        .iter()
+        .cycle()
+        .take(runden * kurz.len())
+        .copied()
+        .collect();
     let mut worker = gpu.worker(1, TILE);
     let bild = worker
         .render(std::slice::from_ref(&lang))
         .unwrap()
         .remove(0);
     let mut cpu = RgbaImage::new(TILE, TILE);
-    draw_all(&mut cpu, &lang);
+    draw_all(&mut cpu, &lang, welt.sprites.cover());
     assert_eq!(cpu.as_raw(), bild.as_raw(), "lange Liste weicht ab");
 
     // Danach die kurze Liste mit den gewachsenen Puffern.
@@ -233,19 +266,58 @@ fn lange_listen_vergroessern_die_puffer() {
     assert_eq!(cpu.as_raw(), bild.as_raw(), "kurze Liste danach weicht ab");
 }
 
-/// Ein Durchgang ohne Kacheln und eine Kachel ohne Zeichenliste.
+/// Ein Durchgang über der Grenze der Karte: `render` sagt es, statt dass
+/// der Standard-Handler von wgpu mit einer Panik abbricht, und derselbe
+/// Zeichner zeichnet danach weiter.
+#[test]
+fn zu_grosser_durchgang_ist_ein_fehler() {
+    // Ein Bild braucht 256 kB, der grösste Anfangspuffer 1 MB; 2 MB lassen
+    // dem Zeichner seine Puffer, aber keine 200 000 Instanzen zu 16 Bytes.
+    let Some(gpu) = adapter(Gpu::mit_grenze(true, 2 << 20)) else {
+        return;
+    };
+    let welt = welt(Projection::new(16));
+    let tile = kacheln()[3];
+    let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
+    let kurz = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
+    let lang: Vec<Draw> = kurz.iter().cycle().take(200_000).copied().collect();
+
+    let mut worker = gpu.worker(1, TILE);
+    let fehler = worker.render(std::slice::from_ref(&lang)).unwrap_err();
+    assert!(
+        format!("{fehler:#}").contains("höchstens 2.0 MB"),
+        "{fehler:#}"
+    );
+    let bild = worker
+        .render(std::slice::from_ref(&kurz))
+        .unwrap()
+        .remove(0);
+    let cpu = render_area(&welt.world, &welt.sprites, tile.rect(), Y_RANGE).unwrap();
+    assert!(cpu.as_raw() == bild.as_raw(), "danach weicht die Kachel ab");
+}
+
+/// Ein Durchgang ohne Kacheln und Kacheln ohne Zeichenliste, auf einem
+/// Zeichner, der eben volle Kacheln gezeichnet hat: auch eine leere Zelle
+/// schreibt der Shader, sonst stünde dort das vorige Bild.
 #[test]
 fn leere_listen_ergeben_leere_kacheln() {
     let Some(gpu) = adapter(Gpu::new(true)) else {
         return;
     };
+    let welt = welt(Projection::new(16));
+    let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
+    let voll: Vec<_> = kacheln()[..2]
+        .iter()
+        .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap())
+        .collect();
     let mut worker = gpu.worker(2, TILE);
+    let bilder = worker.render(&voll).unwrap();
+    assert!(
+        bilder.iter().all(|b| b.pixels().any(|p| p.0[3] > 0)),
+        "die vollen Kacheln zeigen nichts"
+    );
     assert!(worker.render(&[]).unwrap().is_empty());
-    let leer = || DrawList {
-        draws: Vec::new(),
-        vis: Vec::new(),
-    };
-    let bilder = worker.render(&[leer(), leer()]).unwrap();
+    let bilder = worker.render(&[Vec::new(), Vec::new()]).unwrap();
     assert_eq!(bilder.len(), 2);
     assert!(
         bilder

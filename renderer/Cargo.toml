@@ -20,8 +20,11 @@ mimalloc = "0.1"                    # Windows-Heap serialisiert 24 Threads beim 
 pollster = "1"
 rayon = "1"                          # Parallelisierung ueber Kacheln
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-wgpu = "30"
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }  # Reihenfolge und Zahlen wie Gson
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "dx12", "metal"] }  # ohne GL: lief nirgends in der CI
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }  # Junction oder Symlink, wie Java sie unterscheidet
 
 [dev-dependencies]
 tempfile = "3"

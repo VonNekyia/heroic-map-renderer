@@ -1,0 +1,4 @@
+{ "variants": {
+  "half=lower": [ { "model": "minecraft:block/einfarbig" }, { "model": "minecraft:block/blauwuerfel" } ],
+  "half=upper": [ { "model": "minecraft:block/einfarbig" }, { "model": "minecraft:block/blauwuerfel" } ]
+} }

@@ -780,9 +780,12 @@ also eher kleiner. Im Log steht je Lauf, ob die Karte
 zeichnet (`Threads + GPU`); `--gpu off` ist der Vergleich.
 
 Backends: Vulkan zuerst, auf Windows wie auf Linux; DX12 und GL nur, wenn
-kein brauchbarer Vulkan-Adapter da ist. `WGPU_BACKEND` und
-`WGPU_ADAPTER_NAME` übersteuern das — `WGPU_ADAPTER_NAME="Basic Render"`
-nimmt WARP, den Software-Adapter von Windows. Ohne Karte läuft alles wie
+keine echte Karte Vulkan kann, und eine echte Karte immer vor einem
+Software-Adapter. `WGPU_BACKEND` wählt die Backends, `WGPU_ADAPTER_NAME`
+einen Adapter nach einem Teil seines Namens; passt keiner, zeichnet
+`--gpu auto` auf der CPU und sagt warum, `--gpu on` bricht ab. Einen
+Software-Adapter nimmt nur `--gpu on`, etwa WARP mit
+`WGPU_ADAPTER_NAME="Basic Render"`. Ohne Karte läuft alles wie
 vorher auf der CPU; die Tests, die eine Karte brauchen, überspringen sich
 dann und sagen es. In CI laufen sie auf Software-Adaptern, lavapipe
 (Vulkan) auf Ubuntu und WARP (DX12) auf Windows: derselbe Shader-Weg wie

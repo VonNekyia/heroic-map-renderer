@@ -2649,3 +2649,37 @@ fn gpu_liefert_dieselben_kacheln() {
     );
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 }
+
+/// Ein `WGPU_ADAPTER_NAME`, zu dem kein Adapter passt, ist keine Panik:
+/// `--gpu auto` zeichnet auf der CPU und sagt warum, `--gpu on` bricht mit
+/// derselben Meldung ab.
+#[test]
+fn unbekannter_adaptername_ist_keine_panik() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    for (modus, gelingt) in [("auto", true), ("on", false)] {
+        let out = tempdir();
+        let lauf = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+            .arg("--world")
+            .arg(welt.path())
+            .arg("--assets")
+            .arg(assets_ref())
+            .arg("--tiles")
+            .arg(out.path())
+            .args(["--gpu", modus])
+            .env("WGPU_ADAPTER_NAME", "Gibt es nicht 4711")
+            .output()
+            .expect("terranova-render starten");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&lauf.stdout),
+            String::from_utf8_lossy(&lauf.stderr)
+        );
+        assert!(!text.contains("panicked"), "--gpu {modus}:\n{text}");
+        assert!(
+            text.contains("WGPU_ADAPTER_NAME=gibt es nicht 4711"),
+            "--gpu {modus}:\n{text}"
+        );
+        assert_eq!(lauf.status.success(), gelingt, "--gpu {modus}:\n{text}");
+    }
+}

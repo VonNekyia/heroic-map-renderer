@@ -62,7 +62,7 @@ impl Gpu {
     /// den Test, der an die Grenze stösst.
     #[doc(hidden)]
     pub fn mit_grenze(software: bool, grenze: u64) -> Result<Option<Gpu>> {
-        let Some((adapter, info)) = adapter(software) else {
+        let Some((adapter, info)) = adapter(software)? else {
             return Ok(None);
         };
         let name = format!("{} ({:?})", info.name, info.backend);
@@ -190,51 +190,79 @@ impl Gpu {
 
 /// Sucht den Adapter: Vulkan zuerst, derselbe Treiberweg auf Windows und
 /// Linux, und mit Mesa auf dem Server ohnehin der einzige. DX12 und GL nur,
-/// wenn kein brauchbarer Vulkan-Adapter da ist: WARP in der Windows-CI,
-/// eine alte Onboard-Grafik ohne Vulkan-Treiber. Unter den Adaptern die
-/// stärkste Karte, auf einem Laptop also nicht die Onboard. `WGPU_BACKEND`
-/// und `WGPU_ADAPTER_NAME` übersteuern das wie bei wgpu üblich, etwa
-/// `WGPU_ADAPTER_NAME="Basic Render"` für WARP.
-fn adapter(software: bool) -> Option<(wgpu::Adapter, wgpu::AdapterInfo)> {
-    let vorgabe = std::env::var_os("WGPU_BACKEND").is_some()
-        || std::env::var_os("WGPU_ADAPTER_NAME").is_some();
+/// wenn keine echte Karte Vulkan kann: eine alte Onboard-Grafik ohne
+/// Vulkan-Treiber, WARP in der Windows-CI. Die Reihenfolge steht in
+/// [`rang`].
+///
+/// `WGPU_BACKEND` wählt die Backends, `WGPU_ADAPTER_NAME` einen Adapter
+/// nach einem Teil seines Namens, wie bei wgpu üblich. Passt dazu keiner,
+/// ist das ein Fehler: `--gpu auto` zeichnet dann auf der CPU und sagt
+/// warum, `--gpu on` bricht ab.
+fn adapter(software: bool) -> Result<Option<(wgpu::Adapter, wgpu::AdapterInfo)>> {
+    let name = std::env::var("WGPU_ADAPTER_NAME")
+        .ok()
+        .map(|name| name.to_lowercase());
+    // Erst Vulkan, nur echte Karten. Das spart die anderen Backends, wo
+    // eine Karte Vulkan kann; eine Karte nur mit GL-Treiber findet erst der
+    // zweite Versuch, dort aber vor lavapipe.
     let mut versuche = Vec::new();
-    if !vorgabe {
+    if std::env::var_os("WGPU_BACKEND").is_none() {
         let mut vulkan = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
         vulkan.backends = wgpu::Backends::VULKAN;
-        versuche.push(vulkan);
+        versuche.push((vulkan, false));
     }
-    versuche.push(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-    for desc in versuche {
+    versuche.push((
+        wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
+        software,
+    ));
+    for (desc, software) in versuche {
         let instance = wgpu::Instance::new(desc);
-        let adapter = pollster::block_on(async {
-            match wgpu::util::initialize_adapter_from_env(&instance, None).await {
-                Ok(adapter) => Ok(adapter),
-                Err(_) => {
-                    instance
-                        .request_adapter(&wgpu::RequestAdapterOptions {
-                            power_preference: wgpu::PowerPreference::HighPerformance,
-                            ..Default::default()
-                        })
-                        .await
-                }
-            }
-        });
-        let Ok(adapter) = adapter else {
-            continue;
-        };
-        let info = adapter.get_info();
-        let hardware = matches!(
-            info.device_type,
-            wgpu::DeviceType::DiscreteGpu
-                | wgpu::DeviceType::IntegratedGpu
-                | wgpu::DeviceType::VirtualGpu
-        );
-        if hardware || software {
-            return Some((adapter, info));
+        let bester = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
+            .into_iter()
+            .map(|adapter| (adapter.get_info(), adapter))
+            .filter(|(info, _)| {
+                name.as_ref()
+                    .is_none_or(|name| info.name.to_lowercase().contains(name))
+            })
+            .filter_map(|(info, adapter)| {
+                Some((
+                    rang(info.device_type, info.backend, software)?,
+                    info,
+                    adapter,
+                ))
+            })
+            .min_by_key(|(rang, _, _)| *rang);
+        if let Some((_, info, adapter)) = bester {
+            return Ok(Some((adapter, info)));
         }
     }
-    None
+    match name {
+        Some(name) if software => bail!("kein Adapter passt zu WGPU_ADAPTER_NAME={name}"),
+        Some(name) => bail!(
+            "keine Grafikkarte passt zu WGPU_ADAPTER_NAME={name}; einen Software-Adapter wie WARP nimmt nur --gpu on"
+        ),
+        None => Ok(None),
+    }
+}
+
+/// Reihenfolge der Adapter, kleiner ist besser: eine echte Karte vor jedem
+/// Software-Adapter, Vulkan vor den anderen Backends, eine eigenständige
+/// Karte vor der Onboard-Grafik. GL meldet eigenständige Karten als
+/// `Other`. Ohne `software` zählt kein Software-Adapter.
+fn rang(typ: wgpu::DeviceType, backend: wgpu::Backend, software: bool) -> Option<(bool, bool, u8)> {
+    let staerke = match typ {
+        wgpu::DeviceType::DiscreteGpu => 0,
+        wgpu::DeviceType::IntegratedGpu => 1,
+        wgpu::DeviceType::VirtualGpu => 2,
+        wgpu::DeviceType::Other => 3,
+        wgpu::DeviceType::Cpu if software => 4,
+        wgpu::DeviceType::Cpu => return None,
+    };
+    Some((
+        typ == wgpu::DeviceType::Cpu,
+        backend != wgpu::Backend::Vulkan,
+        staerke,
+    ))
 }
 
 fn bytes(words: &[u32]) -> Vec<u8> {
@@ -494,5 +522,33 @@ impl Worker<'_> {
         };
         self.readback.unmap();
         Ok(images)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rang;
+    use wgpu::{Backend, DeviceType};
+
+    /// Eine echte Karte vor jedem Software-Adapter, dann Vulkan vor den
+    /// anderen Backends, dann die stärkere Karte; eine Karte nur mit
+    /// GL-Treiber vor lavapipe.
+    #[test]
+    fn reihenfolge_der_adapter() {
+        let reihe = [
+            (DeviceType::DiscreteGpu, Backend::Vulkan),
+            (DeviceType::IntegratedGpu, Backend::Vulkan),
+            (DeviceType::DiscreteGpu, Backend::Dx12),
+            (DeviceType::Other, Backend::Gl),
+            (DeviceType::Cpu, Backend::Vulkan),
+            (DeviceType::Cpu, Backend::Dx12),
+        ];
+        let raenge: Vec<_> = reihe
+            .iter()
+            .map(|&(typ, backend)| rang(typ, backend, true).unwrap())
+            .collect();
+        assert!(raenge.is_sorted_by(|a, b| a < b), "{raenge:?}");
+        assert_eq!(rang(DeviceType::Cpu, Backend::Vulkan, false), None);
+        assert!(rang(DeviceType::Other, Backend::Gl, false).is_some());
     }
 }

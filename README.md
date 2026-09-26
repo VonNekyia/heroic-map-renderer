@@ -764,7 +764,7 @@ geschrieben.
 Ganzzahlig, weil Gleitkomma auf jeder Karte anders rundet: `over` rechnet
 auf 1/255² erweitert und rundet einmal am Schluss, im Shader genauso wie
 auf der CPU. Die Gleitkommafassung davor ergab in den Testbildern dieselben
-Pixel. Auf einem Ausschnitt der grossen Serverwelt mit 4096 Basiskacheln,
+Pixel. Auf einem Ausschnitt der grossen Serverwelt mit 4608 Basiskacheln,
 drei nativen Stufen und Pyramide sind alle 6164 Kacheln byte-gleich mit
 dem Stand davor, die der CPU wie die der Karte.
 
@@ -790,7 +790,7 @@ Kandidaten sammeln, Sprite-Wahl und WebP bleiben auf der CPU, und auf
 Dafür hält jeder Thread sechzehn Zeichenlisten. An der Spitze braucht der
 Lauf auf 24 Threads 1,5 statt 1,0 GB, mit drei nativen Stufen bis
 hinunter zu scale 4 sind es 1,8 statt 1,1 GB. Die Adaptersuche kostet
-einen Lauf hier 0,1 s, findet sie nichts Passendes, 0,5 s. Die Zahlen der
+einen Lauf hier 0,1 s, findet sie nichts Passendes, 0,4 s. Die Zahlen der
 Tabellen oben stammen von einem anderen Tag, und jede geschriebene Kachel
 geht durch den Echtzeitschutz. Eine Onboard-Grafik ist nicht gemessen; sie
 teilt sich den Speicher mit der CPU, der Gewinn dort ist also eher

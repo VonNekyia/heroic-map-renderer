@@ -894,11 +894,6 @@ impl SpriteSet {
         self.sprites[id.0 as usize].opaque
     }
 
-    /// Alle Wuerfel ausser dem eigenen, in denen irgendein Sprite Teile
-    /// hat.
-    ///
-    /// Leer, solange kein Modell seinen Blockwuerfel verlaesst — und dann
-    /// kostet die Suche danach im Renderpfad nichts.
     /// Wie weit der Umriss eines vollen Blocks um den Blockursprung reicht,
     /// in Pixeln: kleinstes und grösstes x, dann y. Jedes Sprite, das im
     /// Würfel bleibt (`contained`), liegt darin.
@@ -913,6 +908,11 @@ impl SpriteSet {
         )
     }
 
+    /// Alle Wuerfel ausser dem eigenen, in denen irgendein Sprite Teile
+    /// hat.
+    ///
+    /// Leer, solange kein Modell seinen Blockwuerfel verlaesst — und dann
+    /// kostet die Suche danach im Renderpfad nichts.
     pub fn foreign_cells(&self) -> &BTreeSet<Cell> {
         &self.foreign
     }

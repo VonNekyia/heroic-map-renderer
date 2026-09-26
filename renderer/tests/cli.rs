@@ -1578,7 +1578,8 @@ fn resume_rendert_nur_was_fehlt() {
         "Kacheln:    2 geschrieben".to_string(),
         format!("{} vorhandene Kacheln übersprungen", basis.len() - 2),
         format!("{:.0} kB je Kachel", neu as f64 / 2.0 / 1024.0),
-        format!("{} Kacheln nativ bei scale 4,", nativ.len()),
+        // Mit Karte steht dahinter noch " + GPU".
+        format!("{} Kacheln nativ bei scale 4", nativ.len()),
     ] {
         assert!(
             meldung.contains(&erwartet),

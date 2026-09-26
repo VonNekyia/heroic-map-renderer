@@ -16,7 +16,9 @@ use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 ///
 /// Sprites dürfen über den Blockumriss hinausragen — Feuer ist höher als
 /// ein Block, Zäune breiter. Ohne diese Reserve fehlen an den Rändern
-/// Blöcke, deren Ursprung knapp ausserhalb liegt.
+/// Blöcke, deren Ursprung knapp ausserhalb liegt. Sie gilt nur für solche
+/// Sprites und für Teile in fremden Würfeln; alles, was im Umriss seines
+/// Würfels bleibt, prüft die Kandidatensuche gegen den Umriss.
 pub const BLEED_BLOCKS: i32 = 3;
 
 /// Ein rechteckiger Ausschnitt der projizierten Ebene, in Pixeln.
@@ -840,8 +842,9 @@ impl<'a> ChunkCache<'a> {
     ) -> Result<Vec<Candidate>> {
         let projection = self.sprites.projection();
         let (u_min, u_max) = u_window(projection, rect);
-        let v_lo = v_window(projection, rect, y_range.0).0;
-        let v_hi = v_window(projection, rect, y_range.1).1;
+        // Das Fenster von `v` verschiebt sich je Höhe um genau 2.
+        let (v0_min, v0_max) = v_window(projection, rect, 0);
+        let (v_lo, v_hi) = (v0_min + 2 * y_range.0, v0_max + 2 * y_range.1);
         debug_assert!(y_range.1 - y_range.0 < 1 << 10);
         debug_assert!(v_hi - v_lo < 1 << 22 && u_max - u_min < 1 << 22);
         debug_assert!(foreign.len() < 1 << 10);
@@ -852,12 +855,26 @@ impl<'a> ChunkCache<'a> {
                 | ((u - u_min) as u64) << 10
                 | kind as u64
         };
+        let in_y = |y: i32| (y_range.0..=y_range.1).contains(&y);
         let in_band = |y: i32, v: i32, u: i32| {
-            if y < y_range.0 || y > y_range.1 || u < u_min || u > u_max {
-                return false;
-            }
-            let (v_min, v_max) = v_window(projection, rect, y);
-            v >= v_min && v <= v_max
+            in_y(y)
+                && (u_min..=u_max).contains(&u)
+                && (v0_min + 2 * y..=v0_max + 2 * y).contains(&v)
+        };
+        // Das Band hat Reserve für Modelle, die aus ihrem Würfel ragen. Alle
+        // anderen bleiben in dessen Umriss (`contained`) und zählen nur, wenn
+        // der die Kachel berührt: im Band lag sonst mehr als die Hälfte der
+        // Kandidaten neben der Kachel, und jeder bekam eine Sprite-Wahl.
+        let (x_min, x_max, y_min, y_max) = self.sprites.outline_box();
+        let (width, height) = (rect.width as i32, rect.height as i32);
+        let touches = |x: i32, y: i32, z: i32| {
+            let (sx, sy) = projection.project_block([x, y, z]);
+            let (bx, by) = (sx.round() as i32 - rect.x, sy.round() as i32 - rect.y);
+            in_y(y)
+                && bx + x_max >= 0
+                && bx + x_min < width
+                && by + y_max >= 0
+                && by + y_min < height
         };
         // Ein fremdes Teil kann von einem Block ausserhalb des Bands
         // hereinragen; so weit reicht die Suche über das Band hinaus.
@@ -872,9 +889,10 @@ impl<'a> ChunkCache<'a> {
         let bleed = BLEED_BLOCKS as f64 * scale;
         // Höhen, die das Band in einem Chunk erreichen kann: die Umkehrung
         // von `v_window` für die kleinste und grösste Tiefe `v` des Chunks,
-        // grosszügig gerundet. Entscheidend bleibt `in_band` je Block; das
-        // hier spart nur die Schleife über Sections, die das Band in
-        // diesem Chunk gar nicht berührt — von 24 sind es meist drei.
+        // grosszügig gerundet. Entscheidend bleibt die Prüfung je Block
+        // (`touches`, `in_band`); das hier spart nur die Schleife über
+        // Sections, die das Band in diesem Chunk gar nicht berührt — von 24
+        // sind es meist drei.
         let y_span = |va: i32, vb: i32| {
             let lo = ((va - 1) as f64 * scale / 4.0 - rect.bottom() as f64 - bleed) / (scale / 2.0);
             let hi = ((vb + 1) as f64 * scale / 4.0 - rect.y as f64 + bleed) / (scale / 2.0);
@@ -928,7 +946,12 @@ impl<'a> ChunkCache<'a> {
                         let b = bits.trailing_zeros();
                         let y = sy + b as i32;
                         bits &= bits - 1;
-                        if !in_band(y, v, u) {
+                        let drin = if m.bits[LOOSE][col] >> b & 1 != 0 {
+                            in_band(y, v, u)
+                        } else {
+                            touches(x, y, z)
+                        };
+                        if !drin {
                             continue;
                         }
                         // Der Nachbar übermalt nur, was diese Kachel auch

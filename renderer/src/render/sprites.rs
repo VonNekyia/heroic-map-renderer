@@ -837,6 +837,20 @@ impl SpriteSet {
     ///
     /// Leer, solange kein Modell seinen Blockwuerfel verlaesst — und dann
     /// kostet die Suche danach im Renderpfad nichts.
+    /// Wie weit der Umriss eines vollen Blocks um den Blockursprung reicht,
+    /// in Pixeln: kleinstes und grösstes x, dann y. Jedes Sprite, das im
+    /// Würfel bleibt (`contained`), liegt darin.
+    pub fn outline_box(&self) -> (i32, i32, i32, i32) {
+        let pixels = &self.masks.outline;
+        let (xs, ys) = (pixels.iter().map(|p| p.0), pixels.iter().map(|p| p.1));
+        (
+            xs.clone().min().unwrap_or(0),
+            xs.max().unwrap_or(0),
+            ys.clone().min().unwrap_or(0),
+            ys.max().unwrap_or(0),
+        )
+    }
+
     pub fn foreign_cells(&self) -> &BTreeSet<Cell> {
         &self.foreign
     }
@@ -1738,6 +1752,21 @@ mod tests {
             assert!(dicke <= 2, "Spalte {x}: {dicke} Pixel");
         }
         assert!(sprite.image.pixels().any(|p| p.0[3] > 0));
+    }
+
+    /// Was Wasser zeichnet, bleibt im Umriss seines Blocks, jede Fassung und
+    /// jeder Streifen: Die Kandidatensuche verwirft einen Block samt seinen
+    /// Streifen, wenn sein Umriss die Kachel nicht berührt.
+    #[test]
+    fn wasser_bleibt_im_umriss() {
+        let mut assets = assets();
+        for scale in [2, 4, 6, 16, 32] {
+            let set = build(&mut assets, [&state("water")], Projection::new(scale)).unwrap();
+            assert!(!set.strips.is_empty(), "scale {scale}: keine Streifen");
+            for (i, entry) in set.sprites.iter().enumerate() {
+                assert!(entry.contained, "scale {scale}: Sprite {i}");
+            }
+        }
     }
 
     /// Blöcke ohne sichtbare Geometrie tauchen gar nicht erst auf.

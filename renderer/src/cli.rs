@@ -2212,27 +2212,34 @@ mod tests {
         assert!(!tile_path(dir, 0, kind.parent()).exists());
     }
 
-    /// Frisch sind die Kacheln aus den zwei Minuten vor der jüngsten und die
-    /// aus der Zukunft. Die zählen für die jüngste nicht mit, sonst wäre
-    /// neben ihnen keine frisch; gibt es nur solche, sind alle frisch.
+    /// Frisch sind die Kacheln aus den zwei Minuten vor der jüngsten, genau
+    /// zwei Minuten davor nicht mehr, und die aus der Zukunft. Die zählen für
+    /// die jüngste nicht mit, sonst wäre neben ihnen keine frisch; gibt es
+    /// nur solche, sind alle frisch. Zukunft heisst mehr als zwei Sekunden
+    /// nach der Liste.
     #[test]
     fn frisch_sind_die_letzten_zwei_minuten() {
         let jetzt = SystemTime::now();
         let tile = |x| TileId { x, y: 0 };
         let vor = |sekunden| jetzt - Duration::from_secs(sekunden);
+        let nach = |sekunden| jetzt + Duration::from_secs(sekunden);
         let zeiten = BTreeMap::from([
             (tile(0), vor(3600)),
-            (tile(1), vor(600 + 121)),
+            (tile(1), vor(600 + 120)),
             (tile(2), vor(600 + 119)),
             (tile(3), vor(600)),
-            (tile(4), jetzt + Duration::from_secs(3600)),
+            (tile(4), nach(3600)),
         ]);
         assert_eq!(
             frische(&zeiten, jetzt),
             BTreeSet::from([tile(2), tile(3), tile(4)])
         );
-        let zukunft = BTreeMap::from([(tile(4), zeiten[&tile(4)])]);
+        let zukunft = BTreeMap::from([(tile(4), nach(3600))]);
         assert_eq!(frische(&zukunft, jetzt), BTreeSet::from([tile(4)]));
+        let knapp = BTreeMap::from([(tile(0), vor(3600)), (tile(5), nach(2))]);
+        assert_eq!(frische(&knapp, jetzt), BTreeSet::from([tile(5)]));
+        let spaeter = BTreeMap::from([(tile(0), vor(3600)), (tile(5), nach(3))]);
+        assert_eq!(frische(&spaeter, jetzt), BTreeSet::from([tile(0), tile(5)]));
     }
 
     /// Entfernt wird eine Kachel nur, wenn sie noch so dasteht, wie die

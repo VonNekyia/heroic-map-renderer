@@ -1191,7 +1191,7 @@ fn schreibe_info(dir: &Path, info: &MapInfo, zeit: Option<SystemTime>) -> Result
     std::fs::create_dir_all(dir).with_context(|| format!("{} anlegen", dir.display()))?;
     let path = dir.join("map.json");
     let text = serde_json::to_vec_pretty(info)?;
-    tausche(&path, &text, zeit).with_context(|| format!("{} schreiben", path.display()))?;
+    tausche(&path, &text, zeit, true).with_context(|| format!("{} schreiben", path.display()))?;
     Ok(path)
 }
 
@@ -1843,7 +1843,7 @@ fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("{} anlegen", parent.display()))?;
     }
-    tausche(path, data, zeit).with_context(|| format!("{} schreiben", path.display()))
+    tausche(path, data, zeit, false).with_context(|| format!("{} schreiben", path.display()))
 }
 
 /// Ersetzt eine Datei, ohne dass jemand eine halbe sieht: erst eine eigene
@@ -1851,7 +1851,18 @@ fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<()> {
 /// und bricht der Lauf mittendrin ab, steht die alte noch da. Daneben
 /// bleibt dann höchstens die halbe eigene, `<name>.<pid>.tmp`, und die
 /// sucht kein Leser.
-fn tausche(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> std::io::Result<()> {
+///
+/// Mit `sicher` bringt es die Datei vor dem Umbenennen auf die Platte: Nach
+/// einem Stromausfall steht dann die alte oder die neue da, beide ganz. Das
+/// braucht nur `map.json`, ohne sie bricht jeder Lauf ab. Eine zerrissene
+/// Kachel fängt `--resume`, und je Kachel kostete es ein Warten auf die
+/// Platte.
+fn tausche(
+    path: &Path,
+    data: &[u8],
+    zeit: Option<SystemTime>,
+    sicher: bool,
+) -> std::io::Result<()> {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(format!(".{}.tmp", std::process::id()));
     let neu = path.with_file_name(name);
@@ -1860,6 +1871,9 @@ fn tausche(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> std::io::Resul
         datei.write_all(data)?;
         if let Some(zeit) = zeit {
             datei.set_modified(zeit)?;
+        }
+        if sicher {
+            datei.sync_all()?;
         }
         drop(datei);
         std::fs::rename(&neu, path)

@@ -475,6 +475,11 @@ rendert.
 hängt allein an `scale`, und die Formel gehört in den Renderer, nicht in eine
 Datei.
 
+Jeder Export schreibt `map.json` vor seiner ersten Kachel und am Ende,
+`--pyramid` bei jedem Aufruf. Die Datei geht dabei jedes Mal ganz auf die
+Platte, bevor sie die alte ersetzt: Nach einem Stromausfall steht die alte
+oder die neue da, und kein Lauf scheitert an einer halben.
+
 `world` ist die Kennung der Welt: vorn ein Salz, das der Baum bei seinem
 ersten Lauf zufällig bekommt, dahinter ein Hash ihres Seeds und ihrer
 Dimension, SipHash-2-4 mit diesem Salz, eine Million Mal verkettet. Die

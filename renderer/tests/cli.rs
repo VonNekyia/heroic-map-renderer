@@ -2621,7 +2621,8 @@ fn leeres_ergebnis_legt_das_ziel_trotzdem_an() {
 }
 
 /// `--gpu on` liefert dieselben Dateien wie `--gpu off`, Byte für Byte —
-/// Kacheln, Pyramide, `map.json`. Ohne Adapter (auch keinen
+/// Kacheln, native Stufen, Pyramide, `map.json` —, und die Karte zeichnet
+/// die Basis wie die nativen Stufen. Ohne Adapter (auch keinen
 /// Software-Adapter) wird übersprungen und gesagt.
 #[test]
 fn gpu_liefert_dieselben_kacheln() {
@@ -2651,6 +2652,14 @@ fn gpu_liefert_dieselben_kacheln() {
     assert!(
         !ausgabe.contains("ab hier zeichnet die CPU"),
         "die Karte fiel aus, die CPU hat gezeichnet:\n{ausgabe}"
+    );
+    let nativ: Vec<&str> = ausgabe
+        .lines()
+        .filter(|zeile| zeile.contains("nativ bei scale"))
+        .collect();
+    assert!(
+        !nativ.is_empty() && nativ.iter().all(|zeile| zeile.contains("+ GPU,")),
+        "die nativen Stufen zeichnet nicht die Karte:\n{ausgabe}"
     );
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 }

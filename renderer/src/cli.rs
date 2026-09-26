@@ -111,7 +111,7 @@ pub struct Args {
     /// Grafikkarte zum Zeichnen der Kacheln: `auto` nimmt sie, wenn eine da
     /// ist, `on` verlangt eine (auch einen Software-Adapter) und bricht
     /// sonst ab.
-    #[arg(long, value_enum, default_value_t = GpuMode::Auto)]
+    #[arg(long, value_enum, default_value_t = GpuMode::Auto, requires = "tiles")]
     gpu: GpuMode,
 
     /// Nur unter Windows: vor dem Export eine Ausnahme im Echtzeitschutz von
@@ -480,6 +480,16 @@ fn mit_rueckfall(
     cpu()
 }
 
+/// Was das Log über die Karte einer Stufe sagt: nichts, wenn sie keine
+/// Kachel gezeichnet hat, sonst wie viele.
+fn im_log(auf_der_karte: usize, gesamt: usize) -> String {
+    match auf_der_karte {
+        0 => String::new(),
+        n if n == gesamt => " + GPU".to_owned(),
+        n => format!(" + GPU für {n} von {gesamt}"),
+    }
+}
+
 /// Zeichnet Kacheln auf der CPU, eine nach der anderen.
 fn auf_der_cpu(chunks: &mut ChunkCache, tiles: &[TileId]) -> Result<Vec<RgbaImage>> {
     tiles
@@ -821,7 +831,7 @@ fn write_tiles(
             .filter(|tile| zeiten.contains_key(tile))
             .try_for_each(|tile| entferne(&tile_path(dir, max_zoom, *tile)))?;
     }
-    let stufe = rendere(
+    let (stufe, auf_der_karte) = rendere(
         world,
         &sprites,
         &reihe,
@@ -855,11 +865,7 @@ fn write_tiles(
         "Kacheln:    {geschrieben} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads{}",
         leer.len(),
         rayon::current_num_threads(),
-        match karte {
-            Some(karte) if karte.aus.load(Ordering::Relaxed) => " + GPU, nach dem Ausfall CPU",
-            Some(_) => " + GPU",
-            None => "",
-        }
+        im_log(auf_der_karte, gerendert)
     );
     if resume {
         println!("            {uebersprungen} vorhandene Kacheln übersprungen (--resume)");
@@ -887,6 +893,7 @@ fn write_tiles(
         stufen,
         &waisen,
         &mut weg,
+        karte,
     )?;
     build_pyramid(dir, z, kandidaten, &waisen, &mut weg)?;
     if prune && !veraltet.is_empty() {
@@ -1692,6 +1699,7 @@ fn render_coarser(
     stufen: u32,
     waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
+    karte: Option<&Karte>,
 ) -> Result<(u32, BTreeSet<TileId>, Kacheln)> {
     let mut z = max_zoom;
     let mut scale = projection.scale();
@@ -1711,12 +1719,12 @@ fn render_coarser(
         in_bloecken(&mut reihe);
         // Je Kachel: zeigt sie etwas, bleibt sie stehen, und wie gross ist
         // sie?
-        let stufe = rendere(
+        let (stufe, auf_der_karte) = rendere(
             world,
             &sprites,
             &reihe,
             false,
-            None,
+            karte,
             |tile, image| -> Result<(bool, bool, usize)> {
                 let zeigt = image.pixels().any(|p| p.0[3] > 0);
                 // Leer, aber über einer Kachel, die bleibt: dann bleibt sie
@@ -1742,7 +1750,8 @@ fn render_coarser(
             }
         }
         println!(
-            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}, {:.1} MB in {:.1} s",
+            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}{}, {:.1} MB in {:.1} s",
+            im_log(auf_der_karte, reihe.len()),
             bytes as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
@@ -1762,7 +1771,8 @@ fn render_coarser(
 /// Stapel halten die Nachbarn zusammen.
 ///
 /// Mit `melden` gibt es alle 200 Kacheln den Stand aus. Mit einer Karte
-/// zeichnet sie, je Durchgang [`GPU_TILES`] Kacheln, bis sie einmal versagt.
+/// zeichnet sie, je Durchgang [`GPU_TILES`] Kacheln, bis sie einmal versagt;
+/// wie viele es waren, steht neben den Kacheln.
 fn rendere<T: Send>(
     world: &World,
     sprites: &SpriteSet,
@@ -1770,12 +1780,12 @@ fn rendere<T: Send>(
     melden: bool,
     karte: Option<&Karte>,
     ablegen: impl Fn(TileId, RgbaImage) -> Result<T> + Sync,
-) -> Result<Vec<(TileId, T)>> {
+) -> Result<(Vec<(TileId, T)>, usize)> {
     let fertig = AtomicUsize::new(0);
     let gesamt = tiles.len();
     let stapel = tiles
         .par_chunks(batch_size(gesamt))
-        .map(|stapel| -> Result<Vec<(TileId, T)>> {
+        .map(|stapel| -> Result<(Vec<(TileId, T)>, usize)> {
             let mut chunks = ChunkCache::new(world, sprites);
             let mut worker = karte.map(|karte| karte.gpu.worker(GPU_TILES, TILE));
             // Die Grafikkarte bekommt mehrere Kacheln je Durchgang; die
@@ -1786,6 +1796,7 @@ fn rendere<T: Send>(
                 1
             };
             let mut out = Vec::with_capacity(stapel.len());
+            let mut auf_der_karte = 0;
             for gruppe in stapel.chunks(je_durchgang) {
                 let bilder = match (karte, &mut worker) {
                     (Some(karte), Some(worker)) if !karte.aus.load(Ordering::Relaxed) => {
@@ -1795,7 +1806,11 @@ fn rendere<T: Send>(
                             .collect::<Result<Vec<_>>>()?;
                         mit_rueckfall(
                             &karte.aus,
-                            || worker.render(&listen),
+                            || {
+                                let bilder = worker.render(&listen)?;
+                                auf_der_karte += gruppe.len();
+                                Ok(bilder)
+                            },
                             || auf_der_cpu(&mut chunks, gruppe),
                         )?
                     }
@@ -1811,10 +1826,17 @@ fn rendere<T: Send>(
                     }
                 }
             }
-            Ok(out)
+            Ok((out, auf_der_karte))
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(stapel.into_iter().flatten().collect())
+    let auf_der_karte = stapel.iter().map(|(_, n)| n).sum();
+    Ok((
+        stapel
+            .into_iter()
+            .flat_map(|(kacheln, _)| kacheln)
+            .collect(),
+        auf_der_karte,
+    ))
 }
 
 /// Wie viele aufeinanderfolgende Kacheln sich einen Chunk-Cache teilen,
@@ -2707,6 +2729,20 @@ mod tests {
                 "{schlecht}"
             );
         }
+    }
+
+    /// `--gpu` wirkt nur auf den Kachelexport; ohne `--tiles` lehnt die CLI
+    /// den Schalter ab, statt ihn stillschweigend zu nehmen. Die Vorgabe
+    /// `auto` zählt dabei nicht, auch nicht neben `--pyramid`, das keinen
+    /// anderen Schalter duldet.
+    #[test]
+    fn gpu_nur_mit_tiles() {
+        let geht = |args: &[&str]| Args::try_parse_from([&["x"], args].concat()).is_ok();
+        assert!(!geht(&["--world", "w", "--render", "a.png", "--gpu", "on"]));
+        assert!(geht(&["--world", "w", "--render", "a.png"]));
+        assert!(!geht(&["--pyramid", "d", "--gpu", "off"]));
+        assert!(geht(&["--pyramid", "d"]));
+        assert!(geht(&["--world", "w", "--tiles", "t", "--gpu", "on"]));
     }
 
     /// Versagt die Karte mit einem Fehler oder einer Panik, kommen die

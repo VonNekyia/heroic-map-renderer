@@ -779,8 +779,9 @@ gemessen; sie teilt sich den Speicher mit der CPU, der Gewinn dort ist
 also eher kleiner. Im Log steht je Lauf, ob die Karte
 zeichnet (`Threads + GPU`); `--gpu off` ist der Vergleich. Versagt die
 Karte mitten im Lauf, etwa nach einem Treiber-Reset, zeichnet die CPU den
-Rest, mit `auto` wie mit `on`; das Log sagt es einmal mit dem Grund und am
-Ende `Threads + GPU, nach dem Ausfall CPU`.
+Rest, mit `auto` wie mit `on`; das Log sagt es einmal mit dem Grund. Je
+Stufe steht dort, wie viele Kacheln die Karte gezeichnet hat: `+ GPU`
+für alle, sonst etwa `+ GPU für 1200 von 1392`.
 
 Backends: Vulkan zuerst, auf Windows wie auf Linux; DX12 und GL nur, wenn
 keine echte Karte Vulkan kann, und eine echte Karte immer vor einem

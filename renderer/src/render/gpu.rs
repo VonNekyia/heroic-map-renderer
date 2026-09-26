@@ -63,9 +63,13 @@ impl Gpu {
     /// Öffnet die beste Grafikkarte; `None`, wenn keine da ist. Mit
     /// `software` gilt auch ein Software-Adapter (WARP, lavapipe) — für
     /// Tests auf Rechnern ohne Karte; zum Rendern ist er langsamer als
-    /// der CPU-Pfad.
+    /// der CPU-Pfad. `TERRANOVA_GPU_GRENZE` setzt für die CLI-Tests eine
+    /// kleinere Grenze ([`Gpu::mit_grenze`]).
     pub fn new(software: bool) -> Result<Option<Gpu>> {
-        Gpu::mit_grenze(software, PUFFER_MAX)
+        let grenze = std::env::var("TERRANOVA_GPU_GRENZE")
+            .ok()
+            .and_then(|grenze| grenze.parse().ok());
+        Gpu::mit_grenze(software, grenze.unwrap_or(PUFFER_MAX))
     }
 
     /// Wie [`Gpu::new`], aber kein Puffer grösser als `grenze` Bytes. Liegt

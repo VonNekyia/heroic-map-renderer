@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
@@ -163,6 +164,7 @@ struct Karte {
 }
 
 pub fn run() -> Result<()> {
+    std::panic::set_hook(still_beim_fangen(std::panic::take_hook()));
     let args = Args::parse();
 
     if args.world.is_none() && (args.at.is_some() || args.scan) {
@@ -472,17 +474,44 @@ fn oeffne_gpu(mode: GpuMode) -> Result<Option<Karte>> {
     }))
 }
 
-/// Führt `f` aus; eine Panik darin wird ein Fehler mit ihrem Text. wgpu
-/// meldet jeden Fehler, den kein Error-Scope fängt, mit einer Panik, etwa
-/// auf einem verlorenen Gerät.
+thread_local! {
+    /// Fängt [`ohne_panik`] auf diesem Thread gerade? Dann schweigt der
+    /// Panic-Hook des Laufs.
+    static FAENGT: Cell<bool> = const { Cell::new(false) };
+}
+
+type Hook = Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>;
+
+/// Der Panic-Hook des Laufs: schweigt, solange [`ohne_panik`] auf diesem
+/// Thread fängt, und gibt jede andere Panik an `sonst`. wgpu meldet jeden
+/// Fehler, den kein Error-Scope fängt, mit einer Panik, und `Device::poll`
+/// jeden, der kein `PollError` ist, auch ein verlorenes Gerät, mit Scope
+/// wie ohne. Sonst stünde nach einem Treiber-Reset jede gefangene Panik im
+/// Log, einmal je Thread, samt Pfad und Hinweis auf `RUST_BACKTRACE`.
+fn still_beim_fangen(sonst: Hook) -> Hook {
+    Box::new(move |info| {
+        if !FAENGT.try_with(Cell::get).unwrap_or(false) {
+            sonst(info);
+        }
+    })
+}
+
+/// Führt `f` aus; eine Panik darin wird ein Fehler mit ihrem Text, auf
+/// einer Zeile. Den Hook dazu setzt [`run`] ([`still_beim_fangen`]).
 fn ohne_panik<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|panik| {
+    let vorher = FAENGT.replace(true);
+    let ergebnis = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    FAENGT.set(vorher);
+    ergebnis.unwrap_or_else(|panik| {
         let text = panik
             .downcast_ref::<String>()
             .cloned()
             .or_else(|| panik.downcast_ref::<&str>().map(|text| (*text).to_owned()))
             .unwrap_or_else(|| "Panik".to_owned());
-        Err(anyhow::anyhow!(text))
+        // wgpu schreibt die Ursachen eingerückt darunter.
+        Err(anyhow::anyhow!(
+            text.split_whitespace().collect::<Vec<_>>().join(" ")
+        ))
     })
 }
 
@@ -2804,6 +2833,45 @@ mod tests {
         );
         assert_eq!(farbe(panik.unwrap()), [3; 4]);
         assert!(aus.load(Ordering::Relaxed));
+    }
+
+    /// Eine Panik, die [`ohne_panik`] fängt, geht nicht an den Hook darunter,
+    /// jede andere schon, und ihr Text kommt auf eine Zeile. Gezählt wird nur
+    /// auf diesem Thread: im Coverage-Job laufen die Tests nebeneinander in
+    /// einem Prozess, und der Hook gilt für alle.
+    #[test]
+    fn gefangene_panik_bleibt_still() {
+        let faden = std::thread::current().id();
+        let gesagt = std::sync::Arc::new(AtomicUsize::new(0));
+        let zaehler = std::sync::Arc::clone(&gesagt);
+        let sonst = std::panic::take_hook();
+        std::panic::set_hook(still_beim_fangen(Box::new(move |info| {
+            if std::thread::current().id() == faden {
+                zaehler.fetch_add(1, Ordering::SeqCst);
+            } else {
+                sonst(info);
+            }
+        })));
+
+        let fehler = ohne_panik::<()>(|| {
+            panic!("wgpu error: Validation Error\n\nCaused by:\n  In Device::create_buffer\n")
+        });
+        assert_eq!(
+            format!("{:#}", fehler.unwrap_err()),
+            "wgpu error: Validation Error Caused by: In Device::create_buffer"
+        );
+        assert_eq!(
+            gesagt.load(Ordering::SeqCst),
+            0,
+            "die gefangene Panik ging an den Hook"
+        );
+
+        let _ = std::panic::catch_unwind(|| panic!("nicht von ohne_panik gefangen"));
+        assert_eq!(
+            gesagt.load(Ordering::SeqCst),
+            1,
+            "eine andere Panik ging nicht an den Hook"
+        );
     }
 
     /// Versagt die Karte in [`rendere`], zeichnet die CPU den Rest, und kein

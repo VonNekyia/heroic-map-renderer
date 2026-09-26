@@ -2746,3 +2746,48 @@ fn unbekannter_adaptername_ist_keine_panik() {
         }
     }
 }
+
+/// Scheitert die Karte, hier schon beim Anlegen des Zeichners an einer
+/// Grenze von 1 kB (`TERRANOVA_GPU_GRENZE`), zeichnet die CPU alles, und
+/// das Log sagt es genau einmal. Auf stderr steht keine Panik, obwohl wgpu
+/// jeden solchen Fehler mit einer meldet. Die Kacheln sind dieselben wie
+/// mit `--gpu off`.
+#[test]
+fn versagende_karte_steht_einmal_im_log() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (1, 1)], gelaende);
+    let cpu = tempdir();
+    gelungen(&tiles(
+        welt.path(),
+        cpu.path(),
+        &["--scale", "16", "--gpu", "off"],
+    ));
+    let gpu = tempdir();
+    let lauf = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+        .arg("--world")
+        .arg(welt.path())
+        .arg("--assets")
+        .arg(assets_ref())
+        .arg("--tiles")
+        .arg(gpu.path())
+        .args(["--native-levels", "9", "--scale", "16", "--gpu", "on"])
+        .env("TERRANOVA_GPU_GRENZE", "1024")
+        .output()
+        .expect("terranova-render starten");
+    let fehler = String::from_utf8_lossy(&lauf.stderr);
+    if !lauf.status.success() && fehler.contains("keine Grafikkarte gefunden") {
+        common::ohne_gpu();
+        return;
+    }
+    let ausgabe = String::from_utf8_lossy(&gelungen(&lauf).stdout);
+    assert_eq!(
+        ausgabe.matches("ab hier zeichnet die CPU").count(),
+        1,
+        "{ausgabe}"
+    );
+    assert!(
+        !fehler.contains("panicked"),
+        "gefangene Panik im Log:\n{fehler}"
+    );
+    assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
+}

@@ -132,10 +132,9 @@ fn gpu_zeichnet_dasselbe_wie_die_cpu() {
 
 /// Die Szene aus `common::szene`: Lava in Stufen, Ackerboden neben Lava,
 /// Glas im Wasser, alles, woran das Verdecken der CPU scheitern kann. Die
-/// Karte bekommt `skip` nicht und malt, was die CPU auslässt; ein deckender
-/// Nachbar malt es wieder über. Bei jedem scale von 4 bis 32 gleicht jede
-/// Kachel Byte für Byte der CPU, und `skip` kommt oft genug vor, dass der
-/// Test etwas prüft.
+/// Karte bekommt die Liste ohne Deckungsmaske und malt auch, was die CPU
+/// auslässt; ein deckender Draw weiter vorn malt es wieder über. Bei jedem
+/// scale von 4 bis 32 gleicht jede Kachel Byte für Byte der CPU.
 #[test]
 fn gpu_zeichnet_die_szene_wie_die_cpu() {
     let Some(gpu) = adapter(Gpu::new(true)) else {
@@ -164,11 +163,6 @@ fn gpu_zeichnet_die_szene_wie_die_cpu() {
             .iter()
             .map(|tile| draw_list(&mut chunks, tile.rect(), y_range).unwrap())
             .collect();
-        let ausgelassen = listen.iter().flatten().filter(|d| d.skip != 0).count();
-        assert!(
-            ausgelassen > 1000,
-            "scale {scale}: nur {ausgelassen} Teile mit skip"
-        );
         let bilder = gpu
             .worker(tiles.len() as u32, TILE)
             .render(&listen)
@@ -236,11 +230,9 @@ fn lange_listen_vergroessern_die_puffer() {
     let kurz = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
     assert!(!kurz.is_empty());
 
-    // Dieselbe Liste in ganzen Runden hintereinander, gut 100 000 Einträge:
-    // 1,6 MB Instanzen, die Anfangspuffer fassen 64 kB, und in den Listen
-    // mindestens ein Eintrag je Draw, 400 kB gegen anfangs 256 kB. Ganze
-    // Runden, weil die Deckungsmaske eines Blocks voraussetzt, dass sein
-    // Nachbar nach ihm noch einmal kommt.
+    // Dieselbe Liste in Runden hintereinander, gut 100 000 Einträge: 1,6 MB
+    // Instanzen, die Anfangspuffer fassen 64 kB, und in den Listen
+    // mindestens ein Eintrag je Draw, 400 kB gegen anfangs 256 kB.
     let runden = 100_000 / kurz.len() + 1;
     let lang: Vec<Draw> = kurz
         .iter()
@@ -254,7 +246,7 @@ fn lange_listen_vergroessern_die_puffer() {
         .unwrap()
         .remove(0);
     let mut cpu = RgbaImage::new(TILE, TILE);
-    draw_all(&mut cpu, &lang, welt.sprites.cover());
+    draw_all(&mut cpu, &lang);
     assert_eq!(cpu.as_raw(), bild.as_raw(), "lange Liste weicht ab");
 
     // Danach die kurze Liste mit den gewachsenen Puffern.

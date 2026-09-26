@@ -122,7 +122,8 @@ fn verdecken_aendert_kein_pixel() {
 /// Bild der Referenz liefern, die jeden Block im Band abläuft: in der
 /// Szene aus `common::szene`, einmal ganz im Bild, einmal von einem
 /// kleineren Rechteck angeschnitten, bei jedem scale, den `--scale` und
-/// die nativen Stufen annehmen, bis 32.
+/// die nativen Stufen annehmen, bis 32. Die Rechtecke sind meist keine
+/// Vielfachen von 64 Pixeln breit, den Wörtern der Deckungsmaske.
 #[test]
 fn schneller_weg_gleicht_der_referenz() {
     let dir = tempdir();

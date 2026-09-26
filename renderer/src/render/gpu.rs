@@ -578,7 +578,6 @@ mod tests {
         let liste = vec![Draw {
             sprite: &sprite,
             origin: (3, 3),
-            skip: 0,
         }];
         let mut worker = gpu.worker(1, 64);
         let bild = worker.render(std::slice::from_ref(&liste)).unwrap();

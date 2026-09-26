@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::OnceLock;
 
 use anyhow::Result;
 use image::RgbaImage;
@@ -67,8 +68,6 @@ pub struct SpriteSet {
     /// Neunteln von 1 bis 8, fuer `Family::covers`.
     cover_tops: [Vec<(i32, i32)>; 8],
     foreign: BTreeSet<Cell>,
-    /// Welche Nachbarn welche Pixel eines Blocks uebermalen wuerden.
-    cover: Cover,
 }
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
@@ -354,6 +353,43 @@ fn full_height(model: &BakedModel) -> BakedModel {
     BakedModel { quads }
 }
 
+/// Zeilenmasken eines Sprites für die Deckungsmaske der CPU: je Zeile ein
+/// Bit je Pixel, ob er etwas zeichnet (Alpha über 0) und ob er deckt
+/// (Alpha 255). Bit `x % 64` von Wort `x / 64` steht für Spalte `x`.
+pub struct Rows {
+    words: usize,
+    any: Vec<u64>,
+    full: Vec<u64>,
+}
+
+impl Rows {
+    pub(super) fn of(sprite: &Sprite) -> Rows {
+        let (w, h) = sprite.image.dimensions();
+        let words = (w as usize).div_ceil(64);
+        let mut rows = Rows {
+            words,
+            any: vec![0; words * h as usize],
+            full: vec![0; words * h as usize],
+        };
+        for (x, y, pixel) in sprite.image.enumerate_pixels() {
+            let (i, bit) = (y as usize * words + x as usize / 64, 1 << (x % 64));
+            if pixel.0[3] > 0 {
+                rows.any[i] |= bit;
+            }
+            if pixel.0[3] == 255 {
+                rows.full[i] |= bit;
+            }
+        }
+        rows
+    }
+
+    /// Was Zeile `y` zeichnet und was davon deckt.
+    pub fn row(&self, y: usize) -> (&[u64], &[u64]) {
+        let r = y * self.words..(y + 1) * self.words;
+        (&self.any[r.clone()], &self.full[r])
+    }
+}
+
 struct Entry {
     /// Das Sprite, zerlegt nach den Wuerfeln, in denen seine Geometrie
     /// liegt. Fast immer genau ein Teil in `OWN_CELL`.
@@ -371,6 +407,8 @@ struct Entry {
     /// Bete, Schienen, Feuer und das Lesepult je nach scale ueber den Umriss,
     /// ohne zu zerfallen. Schlaegt die Zerlegung fehl, gilt das erst recht.
     contained: bool,
+    /// Je Teil seine Zeilenmasken, erst wenn die CPU sie braucht.
+    rows: OnceLock<Vec<Rows>>,
 }
 
 impl SpriteSet {
@@ -407,9 +445,7 @@ impl SpriteSet {
                 surface_top(assets.textures(), cover_projection(), i as u8 + 1)
             }),
             foreign: BTreeSet::new(),
-            cover: Cover::default(),
         };
-        set.cover = Cover::new(&set.masks.outline, projection);
 
         // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
         // Einfluss aufs Bild unterscheiden — Laub nach Entfernung, Kelp nach
@@ -739,6 +775,7 @@ impl SpriteSet {
             opaque,
             covers_floor,
             contained,
+            rows: OnceLock::new(),
         });
         let id = SpriteId(self.sprites.len() as u32 - 1);
         if let Some(key) = key {
@@ -824,12 +861,37 @@ impl SpriteSet {
             .map(|(_, sprite)| sprite)
     }
 
-    pub fn is_opaque(&self, id: SpriteId) -> bool {
-        self.sprites[id.0 as usize].opaque
+    /// Wie [`part`](Self::part), dazu die Zeilenmasken des Teils. Sie
+    /// entstehen beim ersten Aufruf, einmal je Sprite; die Grafikkarte
+    /// braucht sie nicht.
+    pub fn part_rows(&self, id: SpriteId, cell: Cell) -> Option<(&Sprite, &Rows)> {
+        let entry = &self.sprites[id.0 as usize];
+        let i = entry.parts.iter().position(|(c, _)| *c == cell)?;
+        let rows = entry.rows.get_or_init(|| {
+            entry
+                .parts
+                .iter()
+                .map(|(_, sprite)| Rows::of(sprite))
+                .collect()
+        });
+        Some((&entry.parts[i].1, &rows[i]))
     }
 
-    pub fn cover(&self) -> &Cover {
-        &self.cover
+    /// Der Umriss eines vollen Blocks Zeile für Zeile: je Pixelzeile
+    /// relativ zum Blockursprung die erste und die letzte Spalte. Das
+    /// Sechseck ist konvex; hätte eine Zeile Lücken, verlangte die
+    /// Deckungsmaske nur mehr, nie weniger.
+    pub fn outline_rows(&self) -> Vec<(i32, i32, i32)> {
+        let mut rows: BTreeMap<i32, (i32, i32)> = BTreeMap::new();
+        for &(x, y) in &self.masks.outline {
+            let row = rows.entry(y).or_insert((x, x));
+            *row = (row.0.min(x), row.1.max(x));
+        }
+        rows.into_iter().map(|(y, (x0, x1))| (y, x0, x1)).collect()
+    }
+
+    pub fn is_opaque(&self, id: SpriteId) -> bool {
+        self.sprites[id.0 as usize].opaque
     }
 
     /// Alle Wuerfel ausser dem eigenen, in denen irgendein Sprite Teile
@@ -870,61 +932,6 @@ impl SpriteSet {
 
     pub fn projection(&self) -> Projection {
         self.projection
-    }
-}
-
-/// Welche der drei kamerazugewandten Nachbarn einen Pixel des eigenen
-/// Sprites uebermalen wuerden — je Pixelposition relativ zum Blockursprung
-/// ein Bitfeld aus [`mask_bit`]: Osten, oben, Sueden.
-///
-/// Ein deckender Nachbar setzt jeden Pixel seines Umrisses auf Alpha 255,
-/// genau die Pixel aus `Masks::outline`, und kommt in der
-/// Zeichenreihenfolge nach diesem Block. Was er uebermalt, muss der Block
-/// gar nicht erst zeichnen. Weil der scale ein Vielfaches von 4 ist, liegt
-/// jeder Nachbar um ganze Pixel versetzt; bei einem anderen scale deckt
-/// niemand.
-///
-/// Die Tabelle haengt nur an der Projektion; eine je Sprite-Tabelle.
-#[derive(Default)]
-pub struct Cover {
-    origin: i32,
-    size: i32,
-    bits: Vec<u8>,
-}
-
-impl Cover {
-    fn new(outline: &[(i32, i32)], projection: Projection) -> Cover {
-        let scale = projection.scale() as i32;
-        if scale % 4 != 0 {
-            return Cover::default();
-        }
-        let (origin, size) = (-2 * scale, 4 * scale);
-        let mut bits = vec![0u8; (size * size) as usize];
-        for (face, cell) in [
-            (Face::East, [1, 0, 0]),
-            (Face::Up, [0, 1, 0]),
-            (Face::South, [0, 0, 1]),
-        ] {
-            let (dx, dy) = projection.project_block(cell);
-            for &(x, y) in outline {
-                let (px, py) = (x + dx as i32 - origin, y + dy as i32 - origin);
-                if (0..size).contains(&px) && (0..size).contains(&py) {
-                    bits[(py * size + px) as usize] |= mask_bit(face);
-                }
-            }
-        }
-        Cover { origin, size, bits }
-    }
-
-    /// Bitfeld des Pixels an dieser Position relativ zum Blockursprung.
-    /// Ausserhalb der Tabelle deckt niemand.
-    #[inline]
-    pub fn at(&self, x: i32, y: i32) -> u8 {
-        let (px, py) = (x - self.origin, y - self.origin);
-        if px < 0 || py < 0 || px >= self.size || py >= self.size {
-            return 0;
-        }
-        self.bits[(py * self.size + px) as usize]
     }
 }
 

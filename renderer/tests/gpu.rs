@@ -130,6 +130,65 @@ fn gpu_zeichnet_dasselbe_wie_die_cpu() {
     }
 }
 
+/// Die Szene aus `common::szene`: Lava in Stufen, Ackerboden neben Lava,
+/// Glas im Wasser, alles, woran das Verdecken der CPU scheitern kann. Die
+/// Karte bekommt `skip` nicht und malt, was die CPU auslässt; ein deckender
+/// Nachbar malt es wieder über. Bei jedem scale von 4 bis 32 gleicht jede
+/// Kachel Byte für Byte der CPU, und `skip` kommt oft genug vor, dass der
+/// Test etwas prüft.
+#[test]
+fn gpu_zeichnet_die_szene_wie_die_cpu() {
+    let Some(gpu) = adapter(Gpu::new(true)) else {
+        return;
+    };
+    let dir = tempfile::tempdir().expect("Temporärverzeichnis");
+    let world = common::write_szene(dir.path());
+    let y_range = common::SZENE_Y;
+    for scale in (4..=32).step_by(4) {
+        let projection = Projection::new(scale);
+        let survey = survey(&world, projection, y_range, None).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&common::biomdaten()).unwrap();
+        let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        let s = scale as i32;
+        let tiles: Vec<TileId> = covering(ScreenRect {
+            x: -17 * s,
+            y: -25 * s,
+            width: 34 * scale,
+            height: 42 * scale,
+        })
+        .collect();
+
+        let mut chunks = ChunkCache::new(&world, &sprites);
+        let listen: Vec<_> = tiles
+            .iter()
+            .map(|tile| draw_list(&mut chunks, tile.rect(), y_range).unwrap())
+            .collect();
+        let ausgelassen = listen.iter().flatten().filter(|d| d.skip != 0).count();
+        assert!(
+            ausgelassen > 1000,
+            "scale {scale}: nur {ausgelassen} Teile mit skip"
+        );
+        let bilder = gpu
+            .worker(tiles.len() as u32, TILE)
+            .render(&listen)
+            .unwrap();
+        for (tile, bild) in tiles.iter().zip(&bilder) {
+            let cpu = render_area(&world, &sprites, tile.rect(), y_range).unwrap();
+            let abweichend = cpu
+                .as_raw()
+                .iter()
+                .zip(bild.as_raw())
+                .filter(|(a, b)| a != b)
+                .count();
+            assert_eq!(
+                abweichend, 0,
+                "scale {scale}, Kachel {tile:?}: {abweichend} Bytes weichen von der CPU ab"
+            );
+        }
+    }
+}
+
 /// Ein Atlas, in den gerade eine Kachel passt, und zwei Sprite-Tabellen,
 /// die sich abwechseln: jede Kachel verdrängt die vorige, und trotzdem
 /// stimmt jedes Bild. Nebenbei: Sprites zweier Tabellen dürfen sich im

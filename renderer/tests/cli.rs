@@ -2633,11 +2633,14 @@ fn gpu_liefert_dieselben_kacheln() {
 
     let cpu = tempdir();
     let gpu = tempdir();
-    gelungen(&tiles(
-        welt.path(),
-        cpu.path(),
-        &["--scale", "16", "--gpu", "off"],
-    ));
+    let aus = tiles(welt.path(), cpu.path(), &["--scale", "16", "--gpu", "off"]);
+    let ausgabe = String::from_utf8_lossy(&gelungen(&aus).stdout);
+    assert!(
+        ausgabe
+            .lines()
+            .any(|zeile| zeile == "GPU:        aus (--gpu off)"),
+        "--gpu off sagt nicht, dass die Karte aus ist:\n{ausgabe}"
+    );
     let lauf = tiles(welt.path(), gpu.path(), &["--scale", "16", "--gpu", "on"]);
     if !lauf.status.success()
         && String::from_utf8_lossy(&lauf.stderr).contains("keine Grafikkarte gefunden")

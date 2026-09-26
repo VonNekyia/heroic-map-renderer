@@ -447,7 +447,10 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
 /// aus wgpu nicht, etwa wenn ein Treiber den Shader nicht übersetzt.
 fn oeffne_gpu(mode: GpuMode) -> Result<Option<Karte>> {
     let gpu = match mode {
-        GpuMode::Off => None,
+        GpuMode::Off => {
+            println!("GPU:        aus (--gpu off)");
+            return Ok(None);
+        }
         GpuMode::Auto => match ohne_panik(|| Gpu::new(false)) {
             Ok(gpu) => gpu,
             Err(e) => {

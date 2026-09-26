@@ -6,6 +6,7 @@ use std::io::Write;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
@@ -14,11 +15,13 @@ use clap::{Parser, ValueEnum};
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 use terranova_render::assets::{Assets, fluid, model_of};
+use terranova_render::render::gpu::Worker;
 use terranova_render::render::pyramid;
 use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
     ChunkCache, Gpu, MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, corner_tiles,
-    draw_list, encode_webp, render, render_area, render_area_with, survey, world_box,
+    draw_list, encode_webp, render, render_area, render_area_with, streifenbreite, survey,
+    world_box,
 };
 use terranova_render::world::{BlockState, REGION, World};
 
@@ -752,7 +755,7 @@ fn write_tiles(
     let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
 
     let started = Instant::now();
-    let mut survey = survey(world, projection, Y_RANGE, bounds)?;
+    let survey = survey(world, projection, Y_RANGE, bounds)?;
     println!(
         "\nVorlauf:    {} Chunks in {:.1} s, {} Blockstates, {} Kacheln",
         survey.chunks,
@@ -853,7 +856,6 @@ fn write_tiles(
 
     let started = Instant::now();
     let gesamt = survey.tiles.len();
-    in_bloecken(&mut survey.tiles);
 
     // Kacheln, die leer geworden sind, verschwinden erst am Ende des Laufs,
     // auf jeder Stufe, zusammen mit denen ohne Chunk; bis dahin zeigen sie
@@ -1769,8 +1771,7 @@ fn render_coarser(
         kandidaten = pyramid::parents(&kandidaten);
 
         let bisher = &*weg;
-        let mut reihe: Vec<TileId> = kandidaten.iter().copied().collect();
-        in_bloecken(&mut reihe);
+        let reihe: Vec<TileId> = kandidaten.iter().copied().collect();
         // Je Kachel: zeigt sie etwas, bleibt sie stehen, und wie gross ist
         // sie?
         let (stufe, auf_der_karte) = rendere(
@@ -1813,23 +1814,20 @@ fn render_coarser(
     Ok((z, kandidaten, gezeigt))
 }
 
-/// Rendert Kacheln in Stapeln aufeinanderfolgender Kacheln, jeden Stapel
-/// mit einem eigenen Chunk-Cache, und gibt jedes Bild an `ablegen` — für
-/// die Basis wie für jede native Stufe.
+/// Rendert Kacheln und gibt jedes Bild an `ablegen` — für die Basis wie für
+/// jede native Stufe.
 ///
-/// Die Kacheln kommen in Blöcken sortiert (`in_bloecken`), Nachbarn
-/// untereinander teilen sich fast alle Chunks. Rayons `map_init` wäre der
-/// naheliegende Weg zu einem Cache je Worker — aber es zerteilt die Arbeit
-/// beim Stehlen bis auf einzelne Kacheln, und jede bekäme einen kalten
-/// Cache: mit 24 Threads lud jede Kachel wieder ihre hundert Chunks. Feste
-/// Stapel halten die Nachbarn zusammen.
+/// Die Kacheln laufen in Streifen, jeder Zeile für Zeile
+/// ([`breite_der_streifen`]), verteilt von [`verteile`]. Jeder Thread
+/// behält seinen Chunk-Cache und seinen Zeichner über den ganzen Lauf;
+/// geteilt wird nur die unveränderliche Sprite-Tabelle.
 ///
 /// Mit `melden` gibt es alle 200 Kacheln den Stand aus. Mit einer Karte
 /// zeichnet sie, je Durchgang [`GPU_TILES`] Kacheln, bis sie einmal versagt;
-/// wie viele es waren, steht neben den Kacheln. Den Zeichner eines Stapels
+/// wie viele es waren, steht neben den Kacheln. Den Zeichner eines Threads
 /// legt sein erster Durchgang an, im Rückfall wie das Zeichnen: auch das
 /// Anlegen scheitert an einer verlorenen Karte. Hat sie versagt, legt kein
-/// Stapel mehr einen an.
+/// Thread mehr einen an.
 fn rendere<T: Send>(
     world: &World,
     sprites: &SpriteSet,
@@ -1839,83 +1837,166 @@ fn rendere<T: Send>(
     ablegen: impl Fn(TileId, RgbaImage) -> Result<T> + Sync,
 ) -> Result<(Vec<(TileId, T)>, usize)> {
     let fertig = AtomicUsize::new(0);
+    let auf_der_karte = AtomicUsize::new(0);
     let gesamt = tiles.len();
-    let stapel = tiles
-        .par_chunks(batch_size(gesamt))
-        .map(|stapel| -> Result<(Vec<(TileId, T)>, usize)> {
-            let mut chunks = ChunkCache::new(world, sprites);
-            let mut worker = None;
-            // Die Grafikkarte bekommt mehrere Kacheln je Durchgang; die
-            // CPU eine nach der anderen.
-            let je_durchgang = if karte.is_some() {
-                GPU_TILES as usize
-            } else {
-                1
+    // Die Grafikkarte bekommt mehrere Kacheln je Durchgang; die CPU eine
+    // nach der anderen.
+    let je_durchgang = if karte.is_some() {
+        GPU_TILES as usize
+    } else {
+        1
+    };
+    let breite = breite_der_streifen(
+        gesamt / rayon::current_num_threads(),
+        sprites.projection().scale(),
+    );
+    let mut reihe = tiles.to_vec();
+    reihe.sort_unstable_by_key(|tile| (tile.x.div_euclid(breite as i32), tile.y, tile.x));
+    let kacheln = verteile(
+        &reihe,
+        je_durchgang,
+        // Unter vier Streifenbreiten Rest lohnt das Stehlen nicht: bei 1024
+        // Kacheln auf 24 Threads 8,2 statt 13 Chunks je Kachel.
+        4 * streifenbreite(sprites.projection().scale()),
+        || (ChunkCache::with_row(world, sprites, breite), None::<Worker>),
+        |(chunks, worker), gruppe| -> Result<Vec<(TileId, T)>> {
+            let bilder = match karte {
+                Some(karte) if !karte.aus.load(Ordering::Relaxed) => {
+                    let listen = gruppe
+                        .iter()
+                        .map(|tile| draw_list(chunks, tile.rect(), Y_RANGE))
+                        .collect::<Result<Vec<_>>>()?;
+                    mit_rueckfall(
+                        &karte.aus,
+                        || {
+                            let worker =
+                                worker.get_or_insert_with(|| karte.gpu.worker(GPU_TILES, TILE));
+                            let bilder = worker.render(&listen)?;
+                            auf_der_karte.fetch_add(gruppe.len(), Ordering::Relaxed);
+                            Ok(bilder)
+                        },
+                        || auf_der_cpu(chunks, gruppe),
+                    )?
+                }
+                _ => {
+                    // Ein Zeichner, dessen Karte versagt hat, hält sonst
+                    // seine Puffer bis zum Ende der Stufe.
+                    *worker = None;
+                    auf_der_cpu(chunks, gruppe)?
+                }
             };
-            let mut out = Vec::with_capacity(stapel.len());
-            let mut auf_der_karte = 0;
-            for gruppe in stapel.chunks(je_durchgang) {
-                let bilder = match karte {
-                    Some(karte) if !karte.aus.load(Ordering::Relaxed) => {
-                        let listen = gruppe
-                            .iter()
-                            .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE))
-                            .collect::<Result<Vec<_>>>()?;
-                        mit_rueckfall(
-                            &karte.aus,
-                            || {
-                                let worker =
-                                    worker.get_or_insert_with(|| karte.gpu.worker(GPU_TILES, TILE));
-                                let bilder = worker.render(&listen)?;
-                                auf_der_karte += gruppe.len();
-                                Ok(bilder)
-                            },
-                            || auf_der_cpu(&mut chunks, gruppe),
-                        )?
-                    }
-                    _ => auf_der_cpu(&mut chunks, gruppe)?,
-                };
-                for (&tile, image) in gruppe.iter().zip(bilder) {
-                    out.push((tile, ablegen(tile, image)?));
-                    // Gezählt wird, was fertig ist: "N/N Kacheln" steht erst
-                    // da, wenn keine mehr läuft.
-                    let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
-                    if melden && (erledigt.is_multiple_of(200) || erledigt == gesamt) {
-                        println!("            {erledigt}/{gesamt} Kacheln");
-                    }
+            let mut out = Vec::with_capacity(gruppe.len());
+            for (&tile, image) in gruppe.iter().zip(bilder) {
+                out.push((tile, ablegen(tile, image)?));
+                // Gezählt wird, was fertig ist: "N/N Kacheln" steht erst da,
+                // wenn keine mehr läuft.
+                let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
+                if melden && (erledigt.is_multiple_of(200) || erledigt == gesamt) {
+                    println!("            {erledigt}/{gesamt} Kacheln");
                 }
             }
-            Ok((out, auf_der_karte))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let auf_der_karte = stapel.iter().map(|(_, n)| n).sum();
-    Ok((
-        stapel
-            .into_iter()
-            .flat_map(|(kacheln, _)| kacheln)
-            .collect(),
-        auf_der_karte,
-    ))
+            Ok(out)
+        },
+    )?;
+    Ok((kacheln, auf_der_karte.into_inner()))
 }
 
-/// Wie viele aufeinanderfolgende Kacheln sich einen Chunk-Cache teilen,
-/// siehe [`rendere`]. Die erste Kachel eines Stapels lädt kalt, also nicht
-/// unter sechzehn; darüber so gross, dass ein kleiner Lauf noch alle Kerne
-/// füllt.
-fn batch_size(tiles: usize) -> usize {
-    (tiles / rayon::current_num_threads()).clamp(16, 64)
+/// Verteilt `reihe` auf alle Threads, mit einem Zustand je Thread
+/// (Chunk-Cache, Zeichner), der über den ganzen Lauf lebt, und gibt
+/// `arbeit` je höchstens `schritt` aufeinanderfolgende Kacheln.
+///
+/// Jeder Thread bekommt ein zusammenhängendes Stück der Reihe und nimmt es
+/// von vorn. Ist sein Stück leer, nimmt er die hintere Hälfte des grössten,
+/// das noch übrig ist, aber nur, wenn davon noch mindestens `rest` Kacheln
+/// übrig sind: Wer stiehlt, fängt kalt an, bei scale 32 mit rund 160
+/// Chunks, so viel wie gut ein Dutzend warme Kacheln. Kalt fängt ein Thread
+/// sonst nur am Anfang an und an jeder Streifengrenze in seinem Stück.
+/// Rayon zerteilt die Reihe dagegen schon beim Verteilen in viele kleine
+/// Stücke: 1024 Kacheln auf 24 Threads luden je Kachel doppelt so viele
+/// Chunks wie in festen Stapeln. Nach einem Fehler nimmt kein Thread mehr
+/// etwas, und der Lauf endet mit dem Fehler.
+fn verteile<S, R: Send>(
+    reihe: &[TileId],
+    schritt: usize,
+    rest: usize,
+    start: impl Fn() -> S + Sync,
+    arbeit: impl Fn(&mut S, &[TileId]) -> Result<Vec<R>> + Sync,
+) -> Result<Vec<R>> {
+    let threads = rayon::current_num_threads();
+    let n = reihe.len();
+    // Je Thread sein Stück `von..bis`. Gegriffen wird die Sperre einmal je
+    // Gruppe, rund tausendmal je Sekunde; das kostet nichts Messbares.
+    let stuecke = Mutex::new(
+        (0..threads)
+            .map(|i| (i * n / threads, (i + 1) * n / threads))
+            .collect::<Vec<_>>(),
+    );
+    let naechste = |ich: usize| {
+        let mut stuecke = stuecke.lock().unwrap_or_else(PoisonError::into_inner);
+        if stuecke[ich].0 == stuecke[ich].1 {
+            let (opfer, (von, bis)) = stuecke
+                .iter()
+                .copied()
+                .enumerate()
+                .max_by_key(|&(_, (von, bis))| bis - von)?;
+            if bis - von < rest.max(1) {
+                return None;
+            }
+            let mitte = von + (bis - von) / 2;
+            stuecke[opfer].1 = mitte;
+            stuecke[ich] = (mitte, bis);
+        }
+        let (von, bis) = stuecke[ich];
+        let ende = (von + schritt).min(bis);
+        stuecke[ich].0 = ende;
+        Some(&reihe[von..ende])
+    };
+    let abbruch = AtomicBool::new(false);
+    let je_thread = rayon::broadcast(|ctx| -> Result<Vec<R>> {
+        let mut zustand = start();
+        let mut fertig = Vec::new();
+        while !abbruch.load(Ordering::Relaxed)
+            && let Some(gruppe) = naechste(ctx.index())
+        {
+            match arbeit(&mut zustand, gruppe) {
+                Ok(r) => fertig.extend(r),
+                Err(e) => {
+                    abbruch.store(true, Ordering::Relaxed);
+                    return Err(e);
+                }
+            }
+        }
+        Ok(fertig)
+    });
+    let mut alle = Vec::with_capacity(n);
+    for fertig in je_thread {
+        alle.extend(fertig?);
+    }
+    Ok(alle)
+}
+
+/// Wie viele Kachelspalten ein Streifen breit ist, wenn ein Thread rund
+/// `je_thread` Kacheln rendert.
+///
+/// Über mehrere Spalten nebeneinander lädt eine Kachel weniger nach als
+/// Spalte für Spalte, siehe [`streifenbreite`]. Dafür lädt die erste Zeile
+/// eines Stücks entsprechend mehr. Im Mittel am wenigsten lädt, wer den
+/// Streifen etwa so breit macht wie die Wurzel aus einem Zehntel seiner
+/// Kacheln: zwei Spalten bei den 1024 Kacheln eines 8192er-Ausschnitts auf
+/// 24 Threads, acht, also so viel wie der Cache hält, bei einer ganzen Welt.
+/// Immer eine Zweierpotenz: Ab zwei Spalten liegen dann Geschwister im
+/// selben Streifen, werden kurz nacheinander fertig, und ein `--pyramid`
+/// neben dem Render baut ihre Elternkachel selten zweimal. Bei einer
+/// Spalte, ab scale 4 oder unter rund 20 Kacheln je Thread, liegen sie eine
+/// Spalte auseinander; zwei Spalten hielten dort je Thread eine Kachel mehr
+/// im Cache, bei scale 4 rund 250 Chunks.
+fn breite_der_streifen(je_thread: usize, scale: u32) -> usize {
+    let breite = (je_thread as f64 / 10.0).sqrt().log2().round().max(0.0);
+    (1 << breite as u32).min(streifenbreite(scale))
 }
 
 /// Kacheln mit ihrer Zoomstufe.
 type Kacheln = BTreeSet<(u32, TileId)>;
-
-/// Ordnet Kacheln zum Rendern in Blöcke von 16 mal 16 statt Spalte für
-/// Spalte, auf der Basis und auf jeder nativen Stufe. Geschwister werden so
-/// kurz nacheinander fertig, und ein `--pyramid` neben dem Render baut ihre
-/// Elternkachel seltener mehrmals.
-fn in_bloecken(tiles: &mut [TileId]) {
-    tiles.sort_unstable_by_key(|tile| (tile.x >> 4, tile.y >> 4, tile.x, tile.y));
-}
 
 /// Steht unter dieser Kachel ein Kind, das nach dem Lauf bleibt?
 fn kind_bleibt(dir: &Path, z: u32, tile: TileId, weg: &BTreeSet<(u32, TileId)>) -> bool {
@@ -2836,9 +2917,11 @@ mod tests {
     }
 
     /// Eine Panik, die [`ohne_panik`] fängt, geht nicht an den Hook darunter,
-    /// jede andere schon, und ihr Text kommt auf eine Zeile. Gezählt wird nur
-    /// auf diesem Thread: im Coverage-Job laufen die Tests nebeneinander in
-    /// einem Prozess, und der Hook gilt für alle.
+    /// jede andere schon, und ihr Text kommt auf eine Zeile. Gezählt werden
+    /// nur die beiden Paniken des Tests, am Text, und nur auf diesem Thread:
+    /// Im Coverage-Job laufen die Tests nebeneinander in einem Prozess, und
+    /// der Hook gilt für alle. Alles andere geht weiter an den alten Hook,
+    /// auch ein Fehlschlag der Zusicherungen hier.
     #[test]
     fn gefangene_panik_bleibt_still() {
         let faden = std::thread::current().id();
@@ -2846,7 +2929,11 @@ mod tests {
         let zaehler = std::sync::Arc::clone(&gesagt);
         let sonst = std::panic::take_hook();
         std::panic::set_hook(still_beim_fangen(Box::new(move |info| {
-            if std::thread::current().id() == faden {
+            let eigene = info.payload_as_str().is_some_and(|text| {
+                text.starts_with("wgpu error: Validation Error")
+                    || text == "nicht von ohne_panik gefangen"
+            });
+            if eigene && std::thread::current().id() == faden {
                 zaehler.fetch_add(1, Ordering::SeqCst);
             } else {
                 sonst(info);
@@ -2875,15 +2962,15 @@ mod tests {
     }
 
     /// Versagt die Karte in [`rendere`], zeichnet die CPU den Rest, und kein
-    /// Stapel legt danach noch einen Zeichner an. Die Welt ist leer, es geht
-    /// nur darum, wer zeichnet: ein Thread, 80 Kacheln, also zwei Stapel zu
-    /// 64 und 16 und Durchgänge zu 16.
+    /// Thread legt danach noch einen Zeichner an. Die Welt ist leer, es geht
+    /// nur darum, wer zeichnet: ein Thread, 80 Kacheln, also Durchgänge zu
+    /// 16.
     /// - Die Karte zeichnet alle, solange sie kann.
     /// - Steht `aus` schon, zeichnet sie keine.
     /// - Scheitert schon das Anlegen des Zeichners, hier an einer Grenze von
     ///   1 kB, zeichnet die CPU alle.
     /// - Verliert die Karte ihr Gerät nach der ersten Kachel, bleibt es bei
-    ///   den 16 des ersten Durchgangs. Der zweite Stapel legte früher einen
+    ///   den 16 des ersten Durchgangs. Früher legte der nächste Stapel einen
     ///   Zeichner auf dem verlorenen Gerät an, und dessen Panik fing niemand.
     #[test]
     fn rendere_faellt_auf_die_cpu_zurueck() {
@@ -2944,6 +3031,98 @@ mod tests {
         let n = lauf(&verliert, true);
         assert_eq!(im_log(n, tiles.len()), " + GPU für 16 von 80");
         assert!(verliert.aus.load(Ordering::Relaxed));
+    }
+
+    /// Jede Kachel genau einmal, auf allen Threads zusammen, und jede Gruppe
+    /// ist ein zusammenhängendes Stück der Reihe. Das erste Stück dauert:
+    /// Mit `rest` 1 stehlen es die anderen leer, es läuft also auf mehreren
+    /// Threads; mit `rest` 26 bleibt es beim Besitzer, denn es hat nur 25
+    /// Kacheln.
+    #[test]
+    fn verteile_gibt_jede_kachel_genau_einmal() {
+        let reihe: Vec<TileId> = (0..101).map(|y| TileId { x: 0, y }).collect();
+        let vier = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        for (rest, threads_im_ersten) in [(1, 2..=4), (26, 1..=1)] {
+            let je_gruppe = vier
+                .install(|| {
+                    verteile(
+                        &reihe,
+                        3,
+                        rest,
+                        || (),
+                        |(), gruppe| {
+                            if gruppe[0].y < 25 {
+                                std::thread::sleep(Duration::from_millis(20));
+                            }
+                            Ok(vec![(rayon::current_thread_index(), gruppe.to_vec())])
+                        },
+                    )
+                })
+                .unwrap();
+            for (_, gruppe) in &je_gruppe {
+                assert!(!gruppe.is_empty() && gruppe.len() <= 3, "{gruppe:?}");
+                assert!(
+                    gruppe.windows(2).all(|w| w[0].y + 1 == w[1].y),
+                    "{gruppe:?}"
+                );
+            }
+            let im_ersten: BTreeSet<_> = je_gruppe
+                .iter()
+                .filter(|(_, gruppe)| gruppe[0].y < 25)
+                .map(|&(thread, _)| thread)
+                .collect();
+            assert!(
+                threads_im_ersten.contains(&im_ersten.len()),
+                "rest {rest}: das erste Stück lief auf {im_ersten:?}"
+            );
+            let mut alle: Vec<TileId> = je_gruppe.into_iter().flat_map(|(_, g)| g).collect();
+            alle.sort();
+            assert_eq!(alle, reihe, "rest {rest}");
+        }
+    }
+
+    /// Nach einem Fehler nimmt kein Thread mehr etwas. Der erste Aufruf
+    /// scheitert; jeder andere wartet, bis das geschehen ist, und lässt
+    /// `verteile` danach noch 100 ms Zeit, den Abbruch festzuhalten. Fertig
+    /// werden darf dann höchstens der eine, der schon lief.
+    #[test]
+    fn verteile_hoert_nach_einem_fehler_auf() {
+        let reihe: Vec<TileId> = (0..64).map(|y| TileId { x: 0, y }).collect();
+        let (erster, gescheitert, aufrufe) = (
+            AtomicBool::new(true),
+            AtomicBool::new(false),
+            AtomicUsize::new(0),
+        );
+        let zwei = rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .unwrap();
+        let ergebnis = zwei.install(|| {
+            verteile(
+                &reihe,
+                1,
+                1,
+                || (),
+                |(), _| -> Result<Vec<()>> {
+                    aufrufe.fetch_add(1, Ordering::SeqCst);
+                    if erster.swap(false, Ordering::SeqCst) {
+                        gescheitert.store(true, Ordering::SeqCst);
+                        bail!("gescheitert");
+                    }
+                    while !gescheitert.load(Ordering::SeqCst) {
+                        std::thread::yield_now();
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                    Ok(Vec::new())
+                },
+            )
+        });
+        assert_eq!(format!("{:#}", ergebnis.unwrap_err()), "gescheitert");
+        let n = aufrufe.load(Ordering::SeqCst);
+        assert!(n <= 2, "{n} von 64 Kacheln");
     }
 
     #[test]

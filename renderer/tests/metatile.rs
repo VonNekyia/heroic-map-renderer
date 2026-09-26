@@ -10,9 +10,11 @@ use std::path::PathBuf;
 use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
+use terranova_render::render::metatile::STUECK;
 use terranova_render::render::rasterizer::over;
 use terranova_render::render::{
-    Projection, ScreenRect, SpriteSet, render_area, render_area_without_culling, survey,
+    ChunkCache, Projection, ScreenRect, SpriteSet, render_area, render_area_with,
+    render_area_without_culling, survey,
 };
 use terranova_render::world::{BlockState, World};
 
@@ -122,14 +124,16 @@ fn verdecken_aendert_kein_pixel() {
 /// Bild der Referenz liefern, die jeden Block im Band abläuft: in der
 /// Szene aus `common::szene`, einmal ganz im Bild, einmal von einem
 /// kleineren Rechteck angeschnitten, bei jedem scale, den `--scale` und
-/// die nativen Stufen annehmen, bis 32.
+/// die nativen Stufen annehmen, bis 32, dazu bei 2 und 6, wo Blöcke auf
+/// halben Pixeln liegen. Die Rechtecke sind meist keine Vielfachen von 64
+/// Pixeln breit, den Wörtern der Deckungsmaske.
 #[test]
 fn schneller_weg_gleicht_der_referenz() {
     let dir = tempdir();
     let world = common::write_szene(dir.path());
     let y_range = common::SZENE_Y;
     let daten = common::biomdaten();
-    for scale in (4..=32).step_by(4) {
+    for scale in [2, 6].into_iter().chain((4..=32).step_by(4)) {
         let projection = Projection::new(scale);
         let survey = survey(&world, projection, y_range, None).unwrap();
         let mut assets = assets();
@@ -164,6 +168,67 @@ fn schneller_weg_gleicht_der_referenz() {
                 "scale {scale}: Szene nicht im Bild"
             );
         }
+    }
+}
+
+/// Ein Ausschnitt, grösser als ein Stück von `render_area`, gleicht Byte
+/// für Byte dem in einem Stück gerenderten: die Szene aus `common::szene`
+/// bei scale 32, 1088 mal 1344 Pixel, also vier Stücke mit Nähten mitten
+/// durch die Szene.
+#[test]
+fn grosser_ausschnitt_in_stuecken() {
+    let dir = tempdir();
+    let world = common::write_szene(dir.path());
+    let y_range = common::SZENE_Y;
+    let projection = Projection::new(32);
+    let survey = survey(&world, projection, y_range, None).unwrap();
+    let mut assets = assets();
+    assets.load_biomes(&common::biomdaten()).unwrap();
+    let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+    let rect = ScreenRect {
+        x: -17 * 32,
+        y: -25 * 32,
+        width: 34 * 32,
+        height: 42 * 32,
+    };
+    assert!(rect.width > STUECK && rect.height > STUECK);
+    let in_stuecken = render_area(&world, &sprites, rect, y_range).unwrap();
+    let in_einem = render_area_with(&mut ChunkCache::new(&world, &sprites), rect, y_range).unwrap();
+    assert!(in_stuecken == in_einem, "Nähte zwischen den Stücken");
+}
+
+/// Ein Block, der knapp über seinen Umriss ragt (`rand`), zeichnet auch in
+/// einen Ausschnitt, den der Kasten seines Umrisses nicht mehr berührt: je
+/// eine Spalte links und rechts daneben. Lose Familien zählen deshalb über
+/// das Band, nicht über den Kasten.
+#[test]
+fn knapper_ueberstand_zaehlt_ueber_das_band() {
+    let dir = tempdir();
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 3, 8) => "minecraft:rand",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], welt);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(32);
+    let sprites = tabelle(&mut assets(), &world, projection);
+    let (sx, sy) = projection.project_block([8, 3, 8]);
+    let (sx, sy) = (sx.round() as i32, sy.round() as i32);
+    let (x_min, x_max, y_min, y_max) = sprites.outline_box();
+    let spalte = |x: i32| ScreenRect {
+        x,
+        y: sy + y_min,
+        width: 1,
+        height: (y_max - y_min + 1) as u32,
+    };
+    for rect in [spalte(sx + x_min - 1), spalte(sx + x_max + 1)] {
+        let schnell = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+        let referenz = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+        assert!(
+            referenz.pixels().any(|p| p.0[3] > 0),
+            "{rect:?}: kein Überstand im Bild"
+        );
+        assert!(schnell == referenz, "{rect:?}: Überstand fehlt");
     }
 }
 

@@ -9,7 +9,7 @@ pub mod tiles;
 pub use gpu::Gpu;
 pub use metatile::{
     BLEED_BLOCKS, ChunkCache, Draw, ScreenRect, draw_all, draw_list, render_area, render_area_with,
-    render_area_without_culling,
+    render_area_without_culling, streifenbreite,
 };
 pub use projection::Projection;
 pub use pyramid::{MapInfo, depth, merge, parents, shrink};

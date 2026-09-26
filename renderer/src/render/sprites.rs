@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::OnceLock;
 
 use anyhow::Result;
 use image::RgbaImage;
@@ -67,8 +68,6 @@ pub struct SpriteSet {
     /// Neunteln von 1 bis 8, fuer `Family::covers`.
     cover_tops: [Vec<(i32, i32)>; 8],
     foreign: BTreeSet<Cell>,
-    /// Welche Nachbarn welche Pixel eines Blocks uebermalen wuerden.
-    cover: Cover,
 }
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
@@ -82,13 +81,22 @@ pub struct SpriteSet {
 /// geschrumpften Boden gar kein Pixel uebrig.
 struct Masks {
     outline: Vec<(i32, i32)>,
+    /// Derselbe Umriss Zeile für Zeile, siehe [`SpriteSet::outline_rows`].
+    rows: Vec<(i32, i32, i32)>,
     top: Vec<(i32, i32)>,
 }
 
 impl Masks {
     fn new(textures: &Textures, projection: Projection) -> Masks {
+        let outline = pixels_of(textures, projection, block(16.0, false));
+        let mut rows: BTreeMap<i32, (i32, i32)> = BTreeMap::new();
+        for &(x, y) in &outline {
+            let row = rows.entry(y).or_insert((x, x));
+            *row = (row.0.min(x), row.1.max(x));
+        }
         Masks {
-            outline: pixels_of(textures, projection, block(16.0, false)),
+            rows: rows.into_iter().map(|(y, (x0, x1))| (y, x0, x1)).collect(),
+            outline,
             top: pixels_of(textures, projection, block(16.0, true)),
         }
     }
@@ -354,6 +362,43 @@ fn full_height(model: &BakedModel) -> BakedModel {
     BakedModel { quads }
 }
 
+/// Zeilenmasken eines Sprites für die Deckungsmaske der CPU: je Zeile ein
+/// Bit je Pixel, ob er etwas zeichnet (Alpha über 0) und ob er deckt
+/// (Alpha 255). Bit `x % 64` von Wort `x / 64` steht für Spalte `x`.
+pub struct Rows {
+    words: usize,
+    any: Vec<u64>,
+    full: Vec<u64>,
+}
+
+impl Rows {
+    pub(super) fn of(sprite: &Sprite) -> Rows {
+        let (w, h) = sprite.image.dimensions();
+        let words = (w as usize).div_ceil(64);
+        let mut rows = Rows {
+            words,
+            any: vec![0; words * h as usize],
+            full: vec![0; words * h as usize],
+        };
+        for (x, y, pixel) in sprite.image.enumerate_pixels() {
+            let (i, bit) = (y as usize * words + x as usize / 64, 1 << (x % 64));
+            if pixel.0[3] > 0 {
+                rows.any[i] |= bit;
+            }
+            if pixel.0[3] == 255 {
+                rows.full[i] |= bit;
+            }
+        }
+        rows
+    }
+
+    /// Was Zeile `y` zeichnet und was davon deckt.
+    pub fn row(&self, y: usize) -> (&[u64], &[u64]) {
+        let r = y * self.words..(y + 1) * self.words;
+        (&self.any[r.clone()], &self.full[r])
+    }
+}
+
 struct Entry {
     /// Das Sprite, zerlegt nach den Wuerfeln, in denen seine Geometrie
     /// liegt. Fast immer genau ein Teil in `OWN_CELL`.
@@ -371,6 +416,8 @@ struct Entry {
     /// Bete, Schienen, Feuer und das Lesepult je nach scale ueber den Umriss,
     /// ohne zu zerfallen. Schlaegt die Zerlegung fehl, gilt das erst recht.
     contained: bool,
+    /// Je Teil seine Zeilenmasken, erst wenn die CPU sie braucht.
+    rows: OnceLock<Vec<Rows>>,
 }
 
 impl SpriteSet {
@@ -407,9 +454,7 @@ impl SpriteSet {
                 surface_top(assets.textures(), cover_projection(), i as u8 + 1)
             }),
             foreign: BTreeSet::new(),
-            cover: Cover::default(),
         };
-        set.cover = Cover::new(&set.masks.outline, projection);
 
         // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
         // Einfluss aufs Bild unterscheiden — Laub nach Entfernung, Kelp nach
@@ -739,6 +784,7 @@ impl SpriteSet {
             opaque,
             covers_floor,
             contained,
+            rows: OnceLock::new(),
         });
         let id = SpriteId(self.sprites.len() as u32 - 1);
         if let Some(key) = key {
@@ -824,12 +870,46 @@ impl SpriteSet {
             .map(|(_, sprite)| sprite)
     }
 
+    /// Wie [`part`](Self::part), dazu die Zeilenmasken des Teils. Sie
+    /// entstehen beim ersten Aufruf, einmal je Sprite; die Grafikkarte
+    /// braucht sie nicht.
+    pub fn part_rows(&self, id: SpriteId, cell: Cell) -> Option<(&Sprite, &Rows)> {
+        let entry = &self.sprites[id.0 as usize];
+        let i = entry.parts.iter().position(|(c, _)| *c == cell)?;
+        let rows = entry.rows.get_or_init(|| {
+            entry
+                .parts
+                .iter()
+                .map(|(_, sprite)| Rows::of(sprite))
+                .collect()
+        });
+        Some((&entry.parts[i].1, &rows[i]))
+    }
+
+    /// Der Umriss eines vollen Blocks Zeile für Zeile: je Pixelzeile
+    /// relativ zum Blockursprung die erste und die letzte Spalte. Das
+    /// Sechseck ist konvex; hätte eine Zeile Lücken, verlangte die
+    /// Deckungsmaske nur mehr, nie weniger.
+    pub fn outline_rows(&self) -> &[(i32, i32, i32)] {
+        &self.masks.rows
+    }
+
     pub fn is_opaque(&self, id: SpriteId) -> bool {
         self.sprites[id.0 as usize].opaque
     }
 
-    pub fn cover(&self) -> &Cover {
-        &self.cover
+    /// Wie weit der Umriss eines vollen Blocks um den Blockursprung reicht,
+    /// in Pixeln: kleinstes und grösstes x, dann y. Jedes Sprite, das im
+    /// Würfel bleibt (`contained`), liegt darin.
+    pub fn outline_box(&self) -> (i32, i32, i32, i32) {
+        let pixels = &self.masks.outline;
+        let (xs, ys) = (pixels.iter().map(|p| p.0), pixels.iter().map(|p| p.1));
+        (
+            xs.clone().min().unwrap_or(0),
+            xs.max().unwrap_or(0),
+            ys.clone().min().unwrap_or(0),
+            ys.max().unwrap_or(0),
+        )
     }
 
     /// Alle Wuerfel ausser dem eigenen, in denen irgendein Sprite Teile
@@ -856,61 +936,6 @@ impl SpriteSet {
 
     pub fn projection(&self) -> Projection {
         self.projection
-    }
-}
-
-/// Welche der drei kamerazugewandten Nachbarn einen Pixel des eigenen
-/// Sprites uebermalen wuerden — je Pixelposition relativ zum Blockursprung
-/// ein Bitfeld aus [`mask_bit`]: Osten, oben, Sueden.
-///
-/// Ein deckender Nachbar setzt jeden Pixel seines Umrisses auf Alpha 255,
-/// genau die Pixel aus `Masks::outline`, und kommt in der
-/// Zeichenreihenfolge nach diesem Block. Was er uebermalt, muss der Block
-/// gar nicht erst zeichnen. Weil der scale ein Vielfaches von 4 ist, liegt
-/// jeder Nachbar um ganze Pixel versetzt; bei einem anderen scale deckt
-/// niemand.
-///
-/// Die Tabelle haengt nur an der Projektion; eine je Sprite-Tabelle.
-#[derive(Default)]
-pub struct Cover {
-    origin: i32,
-    size: i32,
-    bits: Vec<u8>,
-}
-
-impl Cover {
-    fn new(outline: &[(i32, i32)], projection: Projection) -> Cover {
-        let scale = projection.scale() as i32;
-        if scale % 4 != 0 {
-            return Cover::default();
-        }
-        let (origin, size) = (-2 * scale, 4 * scale);
-        let mut bits = vec![0u8; (size * size) as usize];
-        for (face, cell) in [
-            (Face::East, [1, 0, 0]),
-            (Face::Up, [0, 1, 0]),
-            (Face::South, [0, 0, 1]),
-        ] {
-            let (dx, dy) = projection.project_block(cell);
-            for &(x, y) in outline {
-                let (px, py) = (x + dx as i32 - origin, y + dy as i32 - origin);
-                if (0..size).contains(&px) && (0..size).contains(&py) {
-                    bits[(py * size + px) as usize] |= mask_bit(face);
-                }
-            }
-        }
-        Cover { origin, size, bits }
-    }
-
-    /// Bitfeld des Pixels an dieser Position relativ zum Blockursprung.
-    /// Ausserhalb der Tabelle deckt niemand.
-    #[inline]
-    pub fn at(&self, x: i32, y: i32) -> u8 {
-        let (px, py) = (x - self.origin, y - self.origin);
-        if px < 0 || py < 0 || px >= self.size || py >= self.size {
-            return 0;
-        }
-        self.bits[(py * self.size + px) as usize]
     }
 }
 
@@ -1738,6 +1763,104 @@ mod tests {
             assert!(dicke <= 2, "Spalte {x}: {dicke} Pixel");
         }
         assert!(sprite.image.pixels().any(|p| p.0[3] > 0));
+    }
+
+    /// Bleibt eine Familie im Würfel, bleibt jede ihrer Fassungen im Umriss:
+    /// Masken, Tiefen, Biome und die Streifen ihrer Flüssigkeit. `contained`
+    /// prüft nur die Grundbilder, darauf bauen aber die Deckungsmaske
+    /// (`bedeckt`) und die Kandidatensuche (`touches`): Ein enthaltener
+    /// Block fällt weg, wenn sein Umriss bedeckt ist oder die Kachel nicht
+    /// berührt. Geprüft an den Blöcken der Testszenen, Wasser und Lava in
+    /// jeder Höhe, bei jedem scale von 4 bis 32.
+    #[test]
+    fn fassungen_enthaltener_familien_bleiben_im_umriss() {
+        let mut assets = assets();
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
+        assets.load_biomes(&data).unwrap();
+        let mut states: Vec<BlockState> = [
+            "grass_block",
+            "einfarbig",
+            "durchsichtig",
+            "oak_fence[waterlogged=true]",
+            "bubble_column",
+            "ueberhang",
+            "seerose",
+            "ackerboden",
+            "turm",
+            "rand",
+            "boden",
+            "obere_platte",
+            "untere_platte",
+            "kuchen",
+            "saeule",
+            "druckplatte",
+            "teppich",
+            "mit_overlay",
+        ]
+        .into_iter()
+        .map(state)
+        .collect();
+        for level in 0..8 {
+            states.push(state(&format!("water[level={level}]")));
+            states.push(state(&format!("lava[level={level}]")));
+        }
+        for scale in (4..=32).step_by(4) {
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let mut geprueft = 0;
+            for family in set.families.iter().filter(|f| f.contained) {
+                let mut ids: Vec<SpriteId> = family
+                    .alternatives
+                    .iter()
+                    .filter_map(|&(_, id)| id)
+                    .collect();
+                let masken: Vec<SpriteId> = ids
+                    .iter()
+                    .filter_map(|id| set.by_mask.get(id))
+                    .flat_map(|fassungen| fassungen.iter().flatten())
+                    .copied()
+                    .collect();
+                ids.extend(masken);
+                if let Some((fluid, _)) = family.fluid {
+                    ids.extend(
+                        set.strips
+                            .iter()
+                            .filter(|(schluessel, _)| schluessel.0 == fluid)
+                            .map(|(_, &id)| id),
+                    );
+                }
+                let biome: Vec<SpriteId> = ids
+                    .iter()
+                    .filter_map(|id| set.by_biome.get(id))
+                    .flatten()
+                    .copied()
+                    .collect();
+                ids.extend(biome);
+                for id in ids {
+                    assert!(
+                        set.sprites[id.0 as usize].contained,
+                        "scale {scale}: Sprite {} einer enthaltenen Familie ragt heraus",
+                        id.0
+                    );
+                    geprueft += 1;
+                }
+            }
+            assert!(geprueft > 1000, "scale {scale}: nur {geprueft} Fassungen");
+        }
+    }
+
+    /// Was Wasser zeichnet, bleibt im Umriss seines Blocks, jede Fassung und
+    /// jeder Streifen: Die Kandidatensuche verwirft einen Block samt seinen
+    /// Streifen, wenn sein Umriss die Kachel nicht berührt.
+    #[test]
+    fn wasser_bleibt_im_umriss() {
+        let mut assets = assets();
+        for scale in [2, 4, 6, 16, 32] {
+            let set = build(&mut assets, [&state("water")], Projection::new(scale)).unwrap();
+            assert!(!set.strips.is_empty(), "scale {scale}: keine Streifen");
+            for (i, entry) in set.sprites.iter().enumerate() {
+                assert!(entry.contained, "scale {scale}: Sprite {i}");
+            }
+        }
     }
 
     /// Blöcke ohne sichtbare Geometrie tauchen gar nicht erst auf.

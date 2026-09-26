@@ -11,8 +11,13 @@ allow = [
     "Apache-2.0",
     "Unicode-3.0",
     "Zlib",
-    "ISC",        # libloading: wgpu laedt Vulkan und DX12 zur Laufzeit
 ]
+
+# ISC nur für libloading: wgpu lädt damit Vulkan und DX12 zur Laufzeit.
+# Eine andere Crate unter ISC fällt so auf.
+[[licenses.exceptions]]
+crate = "libloading"
+allow = ["ISC"]
 
 [bans]
 multiple-versions = "warn"

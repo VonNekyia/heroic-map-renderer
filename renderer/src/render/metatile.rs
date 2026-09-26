@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use image::RgbaImage;
@@ -81,9 +81,10 @@ pub fn render_area(
 
 /// Wie [`render_area`], mit einem Cache, der über Kacheln hinweg lebt.
 ///
-/// Aufeinanderfolgende Kacheln liegen untereinander und teilen sich fast
-/// alle Chunks. Wer sie je Kachel neu lädt, gibt ein Drittel der Renderzeit
-/// fürs Dekodieren aus, das er gerade erst gemacht hat.
+/// Kacheln, die nacheinander kommen, liegen nebeneinander oder
+/// untereinander und teilen sich fast alle Chunks. Wer sie je Kachel neu
+/// lädt, gibt ein Drittel der Renderzeit fürs Dekodieren aus, das er gerade
+/// erst gemacht hat.
 ///
 /// Zwei Durchgänge. Der erste sammelt die Kandidaten — Blöcke, von denen
 /// etwas zu sehen sein kann — aus den Bitmasken der Sections, ohne einen
@@ -386,21 +387,37 @@ fn blit(
     }
 }
 
-/// Ab wie vielen Chunks ein Cache verwirft, was die vorige Kachel nicht
-/// gebraucht hat. Eine Kachel bei scale 32 berührt gut hundert Chunks; die
-/// nächste liegt direkt darunter und teilt sich fast alle davon. Bei
-/// kleinerem scale berührt eine Kachel mehr, bei scale 4 einige hundert,
-/// und der Cache hält dann entsprechend mehr.
+/// Wie viele Kachelspalten ein Streifen höchstens breit ist. Der Export
+/// rendert Streifen Zeile für Zeile, und [`ChunkCache`] behält, was die
+/// letzte Zeile gebraucht hat.
+///
+/// Eine Kachel ist ein schräger Schnitt durch die volle Bauhöhe: ein Chunk
+/// liegt im Band von drei bis vier Kachelspalten und gut zwanzig Zeilen.
+/// Spalte für Spalte lädt deshalb jede Kachel die Chunks am unteren Rand
+/// ihrer ganzen Breite neu, samt Rand für Modelle, die überstehen. Über
+/// mehrere Spalten nebeneinander teilen sich die Kacheln einer Zeile diesen
+/// Rand. Breiter als acht Chunks in der Welt wird ein Streifen nicht: bei
+/// scale 32 acht Spalten, ab scale 4 eine, immer eine Zweierpotenz. Eine
+/// Zeile braucht dann höchstens rund 300 Chunks, bei scale 2 die rund 800
+/// einer Kachel.
+pub fn streifenbreite(scale: u32) -> usize {
+    1 << (scale as usize / 4).max(1).ilog2()
+}
+
+/// Ab wie vielen Chunks ein Cache aufräumt. Er behält dann nur, was eine
+/// Zeile eines Streifens gebraucht hat, die letzten `keep` Kacheln; die
+/// nächste Zeile teilt sich fast alle davon. Mehr als diese Zeile und die
+/// Chunks der laufenden Kachel hält er nicht.
 // ponytail: Verfallsdatum je Kachel statt echtem LRU. Reicht, solange die
-// Kacheln in Leseordnung kommen; sonst lädt jede Kachel ihre hundert neu.
+// Kacheln in Streifen kommen; sonst lädt jede Kachel ihre hundert neu.
 const CACHE_CHUNKS: usize = 256;
 
 /// Chunks, die während eines Renderlaufs gebraucht werden.
 ///
 /// Ein Cache gehört zu einer Sprite-Tabelle: er hält je Paletteneintrag
-/// den Familienindex daraus. Über Kacheln hinweg lebt er je Stapel
-/// aufeinanderfolgender Kacheln, die ein Worker nacheinander rendert —
-/// geteilt zwischen Workern wäre er eine Sperre im Renderpfad.
+/// den Familienindex daraus. Über Kacheln hinweg lebt er je Thread, der
+/// Streifen Zeile für Zeile rendert — geteilt zwischen Threads wäre er eine
+/// Sperre im Renderpfad.
 pub struct ChunkCache<'a> {
     world: &'a World,
     sprites: &'a SpriteSet,
@@ -415,6 +432,9 @@ pub struct ChunkCache<'a> {
     last: usize,
     /// Laufende Kachelnummer — das Verfallsdatum der Slots.
     tile: u32,
+    /// Wie viele Kacheln ein Slot überlebt, der nicht mehr gebraucht wird:
+    /// eine Zeile eines Streifens.
+    keep: u32,
 }
 
 struct Slot {
@@ -639,7 +659,14 @@ impl Loaded {
 }
 
 impl<'a> ChunkCache<'a> {
+    /// Ein Cache für Kacheln, die untereinander kommen.
     pub fn new(world: &'a World, sprites: &'a SpriteSet) -> ChunkCache<'a> {
+        ChunkCache::with_row(world, sprites, 1)
+    }
+
+    /// Ein Cache für Streifen aus `tiles` Spalten, Zeile für Zeile: er
+    /// behält, was die letzte Zeile gebraucht hat.
+    pub fn with_row(world: &'a World, sprites: &'a SpriteSet, tiles: usize) -> ChunkCache<'a> {
         ChunkCache {
             world,
             sprites,
@@ -648,25 +675,31 @@ impl<'a> ChunkCache<'a> {
             index: HashMap::new(),
             last: usize::MAX,
             tile: 0,
+            keep: tiles as u32,
         }
     }
 
-    /// Beginnt eine neue Kachel. Ist der Cache voll, geht alles, was die
-    /// vorige Kachel nicht gebraucht hat.
+    /// Beginnt eine neue Kachel. Ist der Cache voll, geht alles, was keine
+    /// der letzten `keep` Kacheln gebraucht hat, und jede Regionsdatei, die
+    /// kein Slot mehr braucht: ein Thread wandert über die ganze Welt, und
+    /// unter Linux sind 1024 offene Dateien je Prozess üblich.
     fn next_tile(&mut self) {
         self.tile += 1;
         self.last = usize::MAX;
         if self.slots.len() <= CACHE_CHUNKS {
             return;
         }
-        let tile = self.tile;
-        self.slots.retain(|slot| slot.used + 1 >= tile);
+        let (tile, keep) = (self.tile, self.keep);
+        self.slots.retain(|slot| slot.used + keep >= tile);
         self.index = self
             .slots
             .iter()
             .enumerate()
             .map(|(i, slot)| (slot.key, i))
             .collect();
+        let regionen: HashSet<(i32, i32)> =
+            self.slots.iter().map(|slot| region_of(slot.key)).collect();
+        self.regions.retain(|key, _| regionen.contains(key));
     }
 
     /// Slot des Chunks, geladen falls nötig.
@@ -686,7 +719,7 @@ impl<'a> ChunkCache<'a> {
     }
 
     fn load(&mut self, key: (i32, i32)) -> Result<usize> {
-        let region_key = (key.0.div_euclid(REGION), key.1.div_euclid(REGION));
+        let region_key = region_of(key);
         if !self.regions.contains_key(&region_key) {
             let region = self.world.region(region_key.0, region_key.1)?;
             self.regions.insert(region_key, region);
@@ -1071,6 +1104,11 @@ impl<'a> ChunkCache<'a> {
             .flatten()
             .map(|index| self.sprites.family(index)))
     }
+}
+
+/// Die Region eines Chunks.
+fn region_of((cx, cz): (i32, i32)) -> (i32, i32) {
+    (cx.div_euclid(REGION), cz.div_euclid(REGION))
 }
 
 /// Alle Chunks, die das Band `u ∈ [u_min, u_max]`, `v ∈ [v_lo, v_hi]`

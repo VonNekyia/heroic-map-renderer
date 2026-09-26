@@ -81,13 +81,22 @@ pub struct SpriteSet {
 /// geschrumpften Boden gar kein Pixel uebrig.
 struct Masks {
     outline: Vec<(i32, i32)>,
+    /// Derselbe Umriss Zeile für Zeile, siehe [`SpriteSet::outline_rows`].
+    rows: Vec<(i32, i32, i32)>,
     top: Vec<(i32, i32)>,
 }
 
 impl Masks {
     fn new(textures: &Textures, projection: Projection) -> Masks {
+        let outline = pixels_of(textures, projection, block(16.0, false));
+        let mut rows: BTreeMap<i32, (i32, i32)> = BTreeMap::new();
+        for &(x, y) in &outline {
+            let row = rows.entry(y).or_insert((x, x));
+            *row = (row.0.min(x), row.1.max(x));
+        }
         Masks {
-            outline: pixels_of(textures, projection, block(16.0, false)),
+            rows: rows.into_iter().map(|(y, (x0, x1))| (y, x0, x1)).collect(),
+            outline,
             top: pixels_of(textures, projection, block(16.0, true)),
         }
     }
@@ -881,13 +890,8 @@ impl SpriteSet {
     /// relativ zum Blockursprung die erste und die letzte Spalte. Das
     /// Sechseck ist konvex; hätte eine Zeile Lücken, verlangte die
     /// Deckungsmaske nur mehr, nie weniger.
-    pub fn outline_rows(&self) -> Vec<(i32, i32, i32)> {
-        let mut rows: BTreeMap<i32, (i32, i32)> = BTreeMap::new();
-        for &(x, y) in &self.masks.outline {
-            let row = rows.entry(y).or_insert((x, x));
-            *row = (row.0.min(x), row.1.max(x));
-        }
-        rows.into_iter().map(|(y, (x0, x1))| (y, x0, x1)).collect()
+    pub fn outline_rows(&self) -> &[(i32, i32, i32)] {
+        &self.masks.rows
     }
 
     pub fn is_opaque(&self, id: SpriteId) -> bool {

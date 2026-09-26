@@ -136,8 +136,12 @@ pub fn render_area_with(
     let (candidates, foreign) = chunks.sorted_candidates(rect, y_range)?;
     let sprites = chunks.sprites;
     let projection = sprites.projection();
-    let mut deckung = Deckung::new(rect, sprites.outline_rows());
-    let mut sichtbar = Vec::new();
+    let mut deckung = Deckung::new(
+        rect,
+        sprites.outline_rows(),
+        std::mem::take(&mut chunks.vis),
+    );
+    let mut sichtbar = std::mem::take(&mut chunks.sichtbar);
     for c in candidates.iter().rev() {
         let (anchor, cell) = match c.kind {
             0 => ([c.x, c.y, c.z], OWN_CELL),
@@ -174,6 +178,9 @@ pub fn render_area_with(
     for (sprite, origin, sicht) in sichtbar.iter().rev() {
         blit_sichtbar(&mut canvas, sprite, *origin, sicht, &deckung.vis);
     }
+    sichtbar.clear();
+    chunks.sichtbar = sichtbar;
+    chunks.vis = deckung.vis;
     Ok(canvas)
 }
 
@@ -429,7 +436,7 @@ fn mische(d: &mut [u8], s: &[u8]) {
 /// Die Deckungsmaske von [`render_area_with`]: je Leinwandpixel ein Bit,
 /// "hier liegt schon ein deckender Pixel von weiter vorn", dazu die
 /// sichtbaren Pixel jedes Draws, der bleibt.
-struct Deckung {
+struct Deckung<'a> {
     width: i32,
     height: i32,
     /// Wörter je Leinwandzeile; Bit `x % 64` von Wort `x / 64` steht für
@@ -437,7 +444,7 @@ struct Deckung {
     words: usize,
     bits: Vec<u64>,
     /// Die Zeilen eines Blockumrisses, siehe [`SpriteSet::outline_rows`].
-    umriss: Vec<(i32, i32, i32)>,
+    umriss: &'a [(i32, i32, i32)],
     /// Die sichtbaren Pixel aller Draws, die bleiben, je Draw eine [`Sicht`].
     vis: Vec<u64>,
 }
@@ -452,8 +459,11 @@ struct Sicht {
     nk: usize,
 }
 
-impl Deckung {
-    fn new(rect: ScreenRect, umriss: Vec<(i32, i32, i32)>) -> Deckung {
+impl<'a> Deckung<'a> {
+    /// Eine leere Maske über `rect`; `vis` ist ein Puffer aus einer
+    /// früheren Kachel, er wächst sonst je Kachel von null an.
+    fn new(rect: ScreenRect, umriss: &'a [(i32, i32, i32)], mut vis: Vec<u64>) -> Deckung<'a> {
+        vis.clear();
         let words = (rect.width as usize).div_ceil(64);
         Deckung {
             width: rect.width as i32,
@@ -461,7 +471,7 @@ impl Deckung {
             words,
             bits: vec![0; words * rect.height as usize],
             umriss,
-            vis: Vec::new(),
+            vis,
         }
     }
 
@@ -591,10 +601,13 @@ pub fn streifenbreite(scale: u32) -> usize {
     1 << (scale as usize / 4).max(1).ilog2()
 }
 
-/// Ab wie vielen Chunks ein Cache aufräumt. Er behält dann nur, was eine
-/// Zeile eines Streifens gebraucht hat, die letzten `keep` Kacheln; die
-/// nächste Zeile teilt sich fast alle davon. Mehr als diese Zeile und die
-/// Chunks der laufenden Kachel hält er nicht.
+/// Ab wie vielen Chunks ein Cache frühestens aufräumt. Er behält dann nur,
+/// was eine Zeile eines Streifens gebraucht hat, die letzten `keep`
+/// Kacheln; die nächste Zeile teilt sich fast alle davon. Danach räumt er
+/// erst wieder, wenn ein Viertel dazugekommen ist: Eine Zeile braucht bei
+/// scale 32 mehr als diese Grenze, und sonst räumte er vor jeder Kachel.
+/// Mehr als diese Zeile, ein Viertel davon und die Chunks der laufenden
+/// Kachel hält er nicht.
 // ponytail: Verfallsdatum je Kachel statt echtem LRU. Reicht, solange die
 // Kacheln in Streifen kommen; sonst lädt jede Kachel ihre hundert neu.
 const CACHE_CHUNKS: usize = 256;
@@ -622,6 +635,13 @@ pub struct ChunkCache<'a> {
     /// Wie viele Kacheln ein Slot überlebt, der nicht mehr gebraucht wird:
     /// eine Zeile eines Streifens.
     keep: u32,
+    /// Ab wie vielen Slots `next_tile` wieder aufräumt, siehe
+    /// [`CACHE_CHUNKS`].
+    grenze: usize,
+    /// Puffer der Deckungsmaske über Kacheln hinweg: die sichtbaren Pixel
+    /// und die Draws, die bleiben.
+    vis: Vec<u64>,
+    sichtbar: Vec<(&'a Sprite, (i32, i32), Sicht)>,
 }
 
 struct Slot {
@@ -852,6 +872,9 @@ impl<'a> ChunkCache<'a> {
             last: usize::MAX,
             tile: 0,
             keep: tiles as u32,
+            grenze: CACHE_CHUNKS,
+            vis: Vec::new(),
+            sichtbar: Vec::new(),
         }
     }
 
@@ -862,7 +885,7 @@ impl<'a> ChunkCache<'a> {
     fn next_tile(&mut self) {
         self.tile += 1;
         self.last = usize::MAX;
-        if self.slots.len() <= CACHE_CHUNKS {
+        if self.slots.len() <= self.grenze {
             return;
         }
         let (tile, keep) = (self.tile, self.keep);
@@ -876,6 +899,7 @@ impl<'a> ChunkCache<'a> {
         let regionen: HashSet<(i32, i32)> =
             self.slots.iter().map(|slot| region_of(slot.key)).collect();
         self.regions.retain(|key, _| regionen.contains(key));
+        self.grenze = (self.slots.len() + self.slots.len() / 4).max(CACHE_CHUNKS);
     }
 
     /// Slot des Chunks, geladen falls nötig.
@@ -1445,7 +1469,8 @@ mod tests {
         };
         let (deckend, halb) = (sprite(255), sprite(128));
         let (voll, durch) = (Rows::of(&deckend), Rows::of(&halb));
-        let mut d = Deckung::new(rect, (0..4).map(|dy| (dy, 0, 7)).collect());
+        let umriss: Vec<_> = (0..4).map(|dy| (dy, 0, 7)).collect();
+        let mut d = Deckung::new(rect, &umriss, Vec::new());
         let ort = (60, 2);
         assert!(!d.bedeckt(ort));
         assert!(d.zeichne(&halb, &durch, ort).is_some());

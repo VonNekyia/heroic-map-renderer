@@ -308,7 +308,10 @@ Einer Elternkachel sieht man nicht an, ob sie zu ihren Kindern passt, und
 ihre Zeit kann von einer anderen Uhr stammen oder von `--pyramid`
 gestempelt sein. Das kostet ohne native Stufen bei der Testwelt rund 2 von
 8 Minuten, bei 2,5 Millionen Basiskacheln hochgerechnet gut eine
-Viertelstunde.
+Viertelstunde. Mehr als ein Lauf in einem Stück kostet das Fortsetzen
+nach einem Abbruch in der Basis trotzdem nur die zwei Minuten: Native
+Stufen und Pyramide hätte der Lauf ohnehin noch gebaut. Lag der Abbruch
+später, baut es beide noch einmal.
 
 Zweierlei setzen die zwei Minuten voraus: dass das System jede Kachel so
 schnell auf die Platte bringt, und dass die Uhr in dieser Zeit nicht

@@ -182,6 +182,8 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
+GPU:        <Name der Karte> (Vulkan)
+
 Vorlauf:    316223 Chunks in 5.5 s, 3110 Blockstates, 292836 Kacheln
             33762 Sprites bei scale 32, davon 31265 Fassungen
             18 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
@@ -219,19 +221,21 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Vorlauf:    788 Chunks in 0.1 s, 247 Blockstates, 256 Kacheln
+GPU:        <Name der Karte> (Vulkan)
+
+Vorlauf:    788 Chunks in 0.2 s, 247 Blockstates, 256 Kacheln
             1580 Sprites bei scale 32, davon 1336 Fassungen
             1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
             200/256 Kacheln
             256/256 Kacheln
-Kacheln:    256 geschrieben, 0 leer, 256x256 px, 24 Threads
-            31.2 MB in 2.2 s (119 Kacheln/s, 125 kB je Kachel)
-Zoom  9:     64 Kacheln nativ bei scale 16, 8.0 MB in 1.2 s
-Zoom  8:     16 Kacheln nativ bei scale 8, 1.9 MB in 0.7 s
-Zoom  7:     4 Kacheln nativ bei scale 4, 0.5 MB in 1.2 s
+Kacheln:    256 geschrieben, 0 leer, 256x256 px, 24 Threads + GPU
+            31.2 MB in 0.4 s (641 Kacheln/s, 125 kB je Kachel)
+Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 8.0 MB in 0.5 s
+Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.9 MB in 0.6 s
+Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.5 MB in 0.5 s
 Zoom  6:     2 Kacheln
 ...
-Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
+Pyramide:   9 Kacheln, 0.2 MB in 0.1 s
 Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/map.json
 ```
 
@@ -742,12 +746,14 @@ nicht.
 da ist; `--gpu off` lässt die CPU zeichnen, `--gpu on` verlangt eine Karte
 und nimmt auch einen Software-Adapter. Das Bild ist in allen Fällen
 dasselbe, Byte für Byte — dafür sorgt die ganzzahlige Mischformel unten,
-und ein Test prüft es auf jeder Karte, auf der er läuft.
+und Tests prüfen es auf jeder Karte, auf der sie laufen, auch in einer
+Szene mit Lava in Stufen und Ackerboden neben Lava.
 
-Die Karte übernimmt nur das Zeichnen. Der Renderlauf stellt je Kachel wie
-bisher die Zeichenliste auf — Chunks lesen, Kandidaten aus den Bitmasken,
-Sprites wählen, sortieren — und schickt sie als Liste von Sprite-Nummern
-und Positionen hinüber. Ein Compute-Shader (`gpu.wgsl`) setzt sie
+Die Karte übernimmt nur das Zeichnen, auf der Basis und auf den nativen
+Stufen; `--render` bleibt auf der CPU. Für die Karte stellt der Renderlauf
+je Kachel die Zeichenliste auf — Chunks lesen, Kandidaten aus den
+Bitmasken, Sprites wählen, sortieren — und schickt sie als Liste von
+Sprites und Positionen hinüber. Ein Compute-Shader (`gpu.wgsl`) setzt sie
 zusammen: die Kachel ist in Zellen von 16×16 Pixeln zerlegt, je Zelle
 steht die Liste der Sprites, die sie berühren, in Zeichenreihenfolge, und
 jeder Pixel-Thread geht seine Liste durch und mischt. Sechzehn Kacheln
@@ -758,30 +764,43 @@ geschrieben.
 Ganzzahlig, weil Gleitkomma auf jeder Karte anders rundet: `over` rechnet
 auf 1/255² erweitert und rundet einmal am Schluss, im Shader genauso wie
 auf der CPU. Die Gleitkommafassung davor ergab in den Testbildern dieselben
-Pixel, und auf dem 8192er-Ausschnitt der grossen Serverwelt sind alle 1392
-Kacheln byte-gleich mit dem Stand davor.
+Pixel. Auf einem Ausschnitt der grossen Serverwelt mit 4096 Basiskacheln,
+drei nativen Stufen und Pyramide sind alle 6164 Kacheln byte-gleich mit
+dem Stand davor, die der CPU wie die der Karte.
 
-Gemessen mit einer eigenständigen Grafikkarte über Vulkan, derselbe
-Ausschnitt wie oben:
+Gemessen mit einer eigenständigen Grafikkarte über Vulkan, CPU und Karte am
+selben Tag abwechselnd. Auf der Testwelt dieselben Ausschnitte wie oben,
+jeweils das beste von drei Läufen; auf der grossen Serverwelt ein
+Ausschnitt mit 65 536 Basiskacheln auf Land, alle drei Läufe:
 
 | | CPU | mit GPU |
 |---|---|---|
-| ein Kern, 4096er-Ausschnitt | 185 Kacheln/s | 278 |
-| 12 Threads, 8192er-Ausschnitt | 791 | 913 |
-| 24 Threads, 8192er-Ausschnitt | 853 | 884 |
+| ein Kern, 4096er-Ausschnitt | 7,0 ms je Kachel | 4,5 ms |
+| 12 Threads, 8192er-Ausschnitt | 650 Kacheln/s | 858 |
+| 24 Threads, 8192er-Ausschnitt | 674 | 917 |
+| 24 Threads, grosse Serverwelt | 712 bis 750 | 872 bis 946 |
 
-Auf einem Kern anderthalbmal so schnell, auf 24 Threads kaum: die Karte
-ersetzt nur den Blit, und auf 24 Threads teilen sich die Threads ohnehin
-Kerne und Speicherbandbreite — was einer beim Blit spart, holt er sich
-beim Dekodieren und Sammeln wieder. Chunks dekodieren, Kandidaten sammeln,
-Sprite-Wahl und WebP bleiben auf der CPU. Eine Onboard-Grafik ist nicht
-gemessen; sie teilt sich den Speicher mit der CPU, der Gewinn dort ist
-also eher kleiner. Im Log steht je Lauf, ob die Karte
-zeichnet (`Threads + GPU`); `--gpu off` ist der Vergleich. Versagt die
+Auf einem Kern gut anderthalbmal so schnell, auf 24 Threads ein Fünftel
+bis ein Drittel. Ein ganzer Lauf über den grossen Ausschnitt, mit Vorlauf
+und Pyramide, braucht mit der Karte 120 bis 125 s statt 135 bis 142. Mehr
+ist es nicht, weil die Karte nur den Blit ersetzt: Chunks dekodieren,
+Kandidaten sammeln, Sprite-Wahl und WebP bleiben auf der CPU, und auf
+24 Threads teilen sich die Threads Kerne und Speicherbandbreite.
+
+Dafür hält jeder Thread sechzehn Zeichenlisten. An der Spitze braucht der
+Lauf auf 24 Threads 1,5 statt 1,0 GB, mit drei nativen Stufen bis
+hinunter zu scale 4 sind es 1,8 statt 1,1 GB. Die Adaptersuche kostet
+einen Lauf hier 0,1 s, findet sie nichts Passendes, 0,5 s. Die Zahlen der
+Tabellen oben stammen von einem anderen Tag, und jede geschriebene Kachel
+geht durch den Echtzeitschutz. Eine Onboard-Grafik ist nicht gemessen; sie
+teilt sich den Speicher mit der CPU, der Gewinn dort ist also eher
+kleiner.
+
+Im Log steht je Stufe, wie viele Kacheln die Karte gezeichnet hat:
+`Threads + GPU` und `nativ bei scale 16 + GPU` für alle, sonst etwa
+`+ GPU für 1200 von 1392`; `--gpu off` ist der Vergleich. Versagt die
 Karte mitten im Lauf, etwa nach einem Treiber-Reset, zeichnet die CPU den
-Rest, mit `auto` wie mit `on`; das Log sagt es einmal mit dem Grund. Je
-Stufe steht dort, wie viele Kacheln die Karte gezeichnet hat: `+ GPU`
-für alle, sonst etwa `+ GPU für 1200 von 1392`.
+Rest, mit `auto` wie mit `on`, und das Log sagt einmal, warum.
 
 Backends: Vulkan zuerst, auf Windows wie auf Linux; DX12 und GL nur, wenn
 keine echte Karte Vulkan kann, und eine echte Karte immer vor einem
@@ -793,7 +812,8 @@ Software-Adapter nimmt nur `--gpu on`, etwa WARP mit
 vorher auf der CPU; die Tests, die eine Karte brauchen, überspringen sich
 dann und sagen es. In CI laufen sie auf Software-Adaptern, lavapipe
 (Vulkan) auf Ubuntu und WARP (DX12) auf Windows: derselbe Shader-Weg wie
-auf einer echten Karte, nur langsam.
+auf einer echten Karte, nur langsam. Dort ist ein fehlender Adapter ein
+Fehler (`TERRANOVA_GPU_PFLICHT`), kein übergangener Test.
 
 ### Wasser und Biomfarben
 

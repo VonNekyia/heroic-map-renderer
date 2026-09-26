@@ -2645,24 +2645,7 @@ fn gpu_liefert_dieselben_kacheln() {
         common::ohne_gpu();
         return;
     }
-    gelungen(&lauf);
-    let ausgabe = String::from_utf8_lossy(&lauf.stdout);
-    assert!(
-        ausgabe.contains("Threads + GPU\n") || ausgabe.contains("Threads + GPU\r\n"),
-        "die Ausgabe nennt die GPU nicht, oder sie fiel aus:\n{ausgabe}"
-    );
-    assert!(
-        !ausgabe.contains("ab hier zeichnet die CPU"),
-        "die Karte fiel aus, die CPU hat gezeichnet:\n{ausgabe}"
-    );
-    let nativ: Vec<&str> = ausgabe
-        .lines()
-        .filter(|zeile| zeile.contains("nativ bei scale"))
-        .collect();
-    assert!(
-        !nativ.is_empty() && nativ.iter().all(|zeile| zeile.contains("+ GPU,")),
-        "die nativen Stufen zeichnet nicht die Karte:\n{ausgabe}"
-    );
+    assert!(ganz_auf_der_karte(&lauf) > 0, "keine native Stufe");
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 
     // Fortsetzen nach einer verlorenen Basiskachel: die Karte zeichnet
@@ -2671,15 +2654,11 @@ fn gpu_liefert_dieselben_kacheln() {
     let z = max_zoom(gpu.path());
     let (_, verloren) = kacheln(gpu.path(), z).pop_first().unwrap();
     std::fs::remove_file(&verloren).unwrap();
-    let lauf = tiles(
+    ganz_auf_der_karte(&tiles(
         welt.path(),
         gpu.path(),
         &["--scale", "16", "--gpu", "on", "--resume"],
-    );
-    assert!(
-        String::from_utf8_lossy(&gelungen(&lauf).stdout).contains("Threads + GPU"),
-        "das Fortsetzen zeichnet nicht die Karte"
-    );
+    ));
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 
     // Ein Ausschnitt.
@@ -2690,13 +2669,42 @@ fn gpu_liefert_dieselben_kacheln() {
         cpu.path(),
         &[&ausschnitt[..], &["--gpu", "off"]].concat(),
     ));
-    gelungen(&tiles(
+    ganz_auf_der_karte(&tiles(
         welt.path(),
         gpu.path(),
         &[&ausschnitt[..], &["--gpu", "on"]].concat(),
     ));
     assert!(!dateien(gpu.path()).is_empty(), "der Ausschnitt ist leer");
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
+}
+
+/// Die Karte hat in diesem Lauf alles gezeichnet: die Zeile der Basis und
+/// die jeder nativen Stufe nennen sie ohne „für n von m“, und nichts fiel
+/// auf die CPU zurück. Sonst fiele ein Fehler der Karte nicht auf, die CPU
+/// zeichnet dieselben Bytes. Gibt die Zahl der nativen Stufen zurück.
+fn ganz_auf_der_karte(lauf: &Output) -> usize {
+    let ausgabe = String::from_utf8_lossy(&gelungen(lauf).stdout);
+    let zeilen: Vec<&str> = ausgabe
+        .lines()
+        .filter(|zeile| zeile.starts_with("Kacheln:") || zeile.contains("nativ bei scale"))
+        .collect();
+    assert!(
+        zeilen
+            .first()
+            .is_some_and(|zeile| zeile.starts_with("Kacheln:")),
+        "keine Zeile der Basis:\n{ausgabe}"
+    );
+    for zeile in &zeilen {
+        assert!(
+            zeile.contains("+ GPU") && !zeile.contains("+ GPU für"),
+            "nicht alles auf der Karte: {zeile}\n{ausgabe}"
+        );
+    }
+    assert!(
+        !ausgabe.contains("ab hier zeichnet die CPU"),
+        "die Karte fiel aus, die CPU hat gezeichnet:\n{ausgabe}"
+    );
+    zeilen.len() - 1
 }
 
 /// Ein `WGPU_ADAPTER_NAME`, zu dem kein Adapter passt, ist keine Panik:

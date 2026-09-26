@@ -5,7 +5,8 @@ use std::hash::{BuildHasher, RandomState};
 use std::io::Write;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
@@ -1854,6 +1855,9 @@ fn rendere<T: Send>(
     let kacheln = verteile(
         &reihe,
         je_durchgang,
+        // Unter vier Streifenbreiten Rest lohnt das Stehlen nicht: bei 1024
+        // Kacheln auf 24 Threads 8,2 statt 13 Chunks je Kachel.
+        4 * streifenbreite(sprites.projection().scale()),
         || (ChunkCache::with_row(world, sprites, breite), None::<Worker>),
         |(chunks, worker), gruppe| -> Result<Vec<(TileId, T)>> {
             let bilder = match karte {
@@ -1898,78 +1902,57 @@ fn rendere<T: Send>(
 ///
 /// Jeder Thread bekommt ein zusammenhängendes Stück der Reihe und nimmt es
 /// von vorn. Ist sein Stück leer, nimmt er die hintere Hälfte des grössten,
-/// das noch übrig ist. Kalt fängt ein Thread so nur am Anfang an und nach
-/// jedem Stehlen. Rayon zerteilt die Reihe dagegen schon beim Verteilen in
-/// viele kleine Stücke: 1024 Kacheln auf 24 Threads luden je Kachel doppelt
-/// so viele Chunks wie in festen Stapeln. Nach einem Fehler nimmt kein
-/// Thread mehr etwas, und der Lauf endet mit dem Fehler.
+/// das noch übrig ist, aber nur, wenn davon noch mindestens `rest` Kacheln
+/// übrig sind: Wer stiehlt, fängt kalt an, bei scale 32 mit rund 160
+/// Chunks, so viel wie gut ein Dutzend warme Kacheln. Kalt fängt ein Thread
+/// sonst nur am Anfang an und an jeder Streifengrenze in seinem Stück.
+/// Rayon zerteilt die Reihe dagegen schon beim Verteilen in viele kleine
+/// Stücke: 1024 Kacheln auf 24 Threads luden je Kachel doppelt so viele
+/// Chunks wie in festen Stapeln. Nach einem Fehler nimmt kein Thread mehr
+/// etwas, und der Lauf endet mit dem Fehler.
 fn verteile<S, R: Send>(
     reihe: &[TileId],
     schritt: usize,
+    rest: usize,
     start: impl Fn() -> S + Sync,
     arbeit: impl Fn(&mut S, &[TileId]) -> Result<Vec<R>> + Sync,
 ) -> Result<Vec<R>> {
     let threads = rayon::current_num_threads();
     let n = reihe.len();
-    // Je Thread sein Stück `von..bis`, beides in einem Wort, damit Besitzer
-    // und Dieb es nur zusammen ändern.
-    let packe = |von: usize, bis: usize| (von as u64) << 32 | bis as u64;
-    let stueck = |wort: u64| ((wort >> 32) as usize, (wort & u64::from(u32::MAX)) as usize);
-    let stuecke: Vec<AtomicU64> = (0..threads)
-        .map(|i| AtomicU64::new(packe(i * n / threads, (i + 1) * n / threads)))
-        .collect();
-    let abbruch = AtomicBool::new(false);
-    let vorn = |ich: usize| {
-        let mut alt = stuecke[ich].load(Ordering::Acquire);
-        loop {
-            let (von, bis) = stueck(alt);
-            if von >= bis {
+    // Je Thread sein Stück `von..bis`. Gegriffen wird die Sperre einmal je
+    // Gruppe, rund tausendmal je Sekunde; das kostet nichts Messbares.
+    let stuecke = Mutex::new(
+        (0..threads)
+            .map(|i| (i * n / threads, (i + 1) * n / threads))
+            .collect::<Vec<_>>(),
+    );
+    let naechste = |ich: usize| {
+        let mut stuecke = stuecke.lock().unwrap_or_else(PoisonError::into_inner);
+        if stuecke[ich].0 == stuecke[ich].1 {
+            let (opfer, (von, bis)) = stuecke
+                .iter()
+                .copied()
+                .enumerate()
+                .max_by_key(|&(_, (von, bis))| bis - von)?;
+            if bis - von < rest.max(1) {
                 return None;
             }
-            let neu = packe((von + schritt).min(bis), bis);
-            match stuecke[ich].compare_exchange(alt, neu, Ordering::AcqRel, Ordering::Acquire) {
-                Ok(_) => return Some(&reihe[von..(von + schritt).min(bis)]),
-                Err(jetzt) => alt = jetzt,
-            }
+            let mitte = von + (bis - von) / 2;
+            stuecke[opfer].1 = mitte;
+            stuecke[ich] = (mitte, bis);
         }
+        let (von, bis) = stuecke[ich];
+        let ende = (von + schritt).min(bis);
+        stuecke[ich].0 = ende;
+        Some(&reihe[von..ende])
     };
-    let stiehl = |ich: usize| loop {
-        let Some((opfer, alt)) = stuecke
-            .iter()
-            .map(|s| s.load(Ordering::Acquire))
-            .enumerate()
-            .max_by_key(|&(_, wort)| {
-                let (von, bis) = stueck(wort);
-                bis.saturating_sub(von)
-            })
-        else {
-            return false;
-        };
-        let (von, bis) = stueck(alt);
-        if von >= bis {
-            return false;
-        }
-        let mitte = von + (bis - von) / 2;
-        let kurz = packe(von, mitte);
-        if stuecke[opfer]
-            .compare_exchange(alt, kurz, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-        {
-            stuecke[ich].store(packe(mitte, bis), Ordering::Release);
-            return true;
-        }
-    };
+    let abbruch = AtomicBool::new(false);
     let je_thread = rayon::broadcast(|ctx| -> Result<Vec<R>> {
-        let ich = ctx.index();
         let mut zustand = start();
         let mut fertig = Vec::new();
-        while !abbruch.load(Ordering::Relaxed) {
-            let Some(gruppe) = vorn(ich) else {
-                if stiehl(ich) {
-                    continue;
-                }
-                break;
-            };
+        while !abbruch.load(Ordering::Relaxed)
+            && let Some(gruppe) = naechste(ctx.index())
+        {
             match arbeit(&mut zustand, gruppe) {
                 Ok(r) => fertig.extend(r),
                 Err(e) => {
@@ -3042,9 +3025,11 @@ mod tests {
         assert!(verliert.aus.load(Ordering::Relaxed));
     }
 
-    /// Jede Kachel genau einmal, auf allen Threads zusammen, auch wenn die
-    /// Arbeit ungleich verteilt ist und gestohlen wird; jede Gruppe ist ein
-    /// zusammenhängendes Stück der Reihe.
+    /// Jede Kachel genau einmal, auf allen Threads zusammen, und jede Gruppe
+    /// ist ein zusammenhängendes Stück der Reihe. Das erste Stück dauert:
+    /// Mit `rest` 1 stehlen es die anderen leer, es läuft also auf mehreren
+    /// Threads; mit `rest` 26 bleibt es beim Besitzer, denn es hat nur 25
+    /// Kacheln.
     #[test]
     fn verteile_gibt_jede_kachel_genau_einmal() {
         let reihe: Vec<TileId> = (0..101).map(|y| TileId { x: 0, y }).collect();
@@ -3052,32 +3037,43 @@ mod tests {
             .num_threads(4)
             .build()
             .unwrap();
-        let je_gruppe = vier
-            .install(|| {
-                verteile(
-                    &reihe,
-                    3,
-                    || (),
-                    |(), gruppe| {
-                        // Das erste Stück dauert, die anderen stehlen es leer.
-                        if gruppe[0].y < 25 {
-                            std::thread::sleep(Duration::from_millis(5));
-                        }
-                        Ok(vec![gruppe.to_vec()])
-                    },
-                )
-            })
-            .unwrap();
-        for gruppe in &je_gruppe {
-            assert!(!gruppe.is_empty() && gruppe.len() <= 3, "{gruppe:?}");
+        for (rest, threads_im_ersten) in [(1, 2..=4), (26, 1..=1)] {
+            let je_gruppe = vier
+                .install(|| {
+                    verteile(
+                        &reihe,
+                        3,
+                        rest,
+                        || (),
+                        |(), gruppe| {
+                            if gruppe[0].y < 25 {
+                                std::thread::sleep(Duration::from_millis(20));
+                            }
+                            Ok(vec![(rayon::current_thread_index(), gruppe.to_vec())])
+                        },
+                    )
+                })
+                .unwrap();
+            for (_, gruppe) in &je_gruppe {
+                assert!(!gruppe.is_empty() && gruppe.len() <= 3, "{gruppe:?}");
+                assert!(
+                    gruppe.windows(2).all(|w| w[0].y + 1 == w[1].y),
+                    "{gruppe:?}"
+                );
+            }
+            let im_ersten: BTreeSet<_> = je_gruppe
+                .iter()
+                .filter(|(_, gruppe)| gruppe[0].y < 25)
+                .map(|&(thread, _)| thread)
+                .collect();
             assert!(
-                gruppe.windows(2).all(|w| w[0].y + 1 == w[1].y),
-                "{gruppe:?}"
+                threads_im_ersten.contains(&im_ersten.len()),
+                "rest {rest}: das erste Stück lief auf {im_ersten:?}"
             );
+            let mut alle: Vec<TileId> = je_gruppe.into_iter().flat_map(|(_, g)| g).collect();
+            alle.sort();
+            assert_eq!(alle, reihe, "rest {rest}");
         }
-        let mut alle: Vec<TileId> = je_gruppe.into_iter().flatten().collect();
-        alle.sort();
-        assert_eq!(alle, reihe);
     }
 
     /// Nach einem Fehler nimmt kein Thread mehr etwas. Der erste Aufruf
@@ -3099,6 +3095,7 @@ mod tests {
         let ergebnis = zwei.install(|| {
             verteile(
                 &reihe,
+                1,
                 1,
                 || (),
                 |(), _| -> Result<Vec<()>> {

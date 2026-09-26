@@ -1878,7 +1878,12 @@ fn rendere<T: Send>(
                         || auf_der_cpu(chunks, gruppe),
                     )?
                 }
-                _ => auf_der_cpu(chunks, gruppe)?,
+                _ => {
+                    // Ein Zeichner, dessen Karte versagt hat, hält sonst
+                    // seine Puffer bis zum Ende der Stufe.
+                    *worker = None;
+                    auf_der_cpu(chunks, gruppe)?
+                }
             };
             let mut out = Vec::with_capacity(gruppe.len());
             for (&tile, image) in gruppe.iter().zip(bilder) {

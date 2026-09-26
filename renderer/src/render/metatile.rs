@@ -97,12 +97,14 @@ pub fn render_area_with(
 ) -> Result<RgbaImage> {
     let cover = chunks.sprites.cover();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
-    draw_all(&mut canvas, &draw_list(chunks, rect, y_range)?, cover);
+    for_each_draw(chunks, rect, y_range, |d| {
+        blit(&mut canvas, d.sprite, d.origin, cover, d.skip)
+    })?;
     Ok(canvas)
 }
 
-/// Zeichnet eine Liste auf die Leinwand — der CPU-Weg, an dem sich der
-/// GPU-Weg messen lassen muss.
+/// Zeichnet eine Liste auf die Leinwand wie [`render_area_with`]: die
+/// Vergleichsgrösse für die Karte bei Listen, die kein Ausschnitt liefert.
 pub fn draw_all(canvas: &mut RgbaImage, draws: &[Draw], cover: &Cover) {
     for d in draws {
         blit(canvas, d.sprite, d.origin, cover, d.skip);
@@ -111,9 +113,9 @@ pub fn draw_all(canvas: &mut RgbaImage, draws: &[Draw], cover: &Cover) {
 
 /// Ein Sprite-Teil an seinem Platz auf der Leinwand.
 ///
-/// Der Renderlauf stellt je Kachel diese Liste auf, fertig sortiert, und
-/// zeichnet sie dann selbst ([`render_area_with`]) oder gibt sie an die
-/// Grafikkarte ([`super::gpu::Worker`]). Beide malen dasselbe Bild.
+/// Die CPU zeichnet jeden gleich, wenn er an der Reihe ist
+/// ([`render_area_with`]); die Grafikkarte bekommt sie als Liste
+/// ([`draw_list`], [`super::gpu::Worker`]). Beide malen dasselbe Bild.
 #[derive(Clone, Copy)]
 pub struct Draw<'a> {
     pub sprite: &'a Sprite,
@@ -124,12 +126,27 @@ pub struct Draw<'a> {
     pub skip: u8,
 }
 
-/// Die Zeichenliste eines Ausschnitts, in Zeichenreihenfolge.
+/// Die Zeichenliste eines Ausschnitts, in Zeichenreihenfolge, für die
+/// Grafikkarte.
 pub fn draw_list<'a>(
     chunks: &mut ChunkCache<'a>,
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<Vec<Draw<'a>>> {
+    let mut draws = Vec::new();
+    for_each_draw(chunks, rect, y_range, |d| draws.push(d))?;
+    Ok(draws)
+}
+
+/// Gibt jeden Sprite-Teil eines Ausschnitts in Zeichenreihenfolge an
+/// `zeichne`. Die CPU zeichnet ihn gleich, statt erst eine Liste zu
+/// füllen, die je Thread neben den Kandidaten Platz bräuchte.
+fn for_each_draw<'a>(
+    chunks: &mut ChunkCache<'a>,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+    mut zeichne: impl FnMut(Draw<'a>),
+) -> Result<()> {
     chunks.next_tile();
     let sprites: &'a SpriteSet = chunks.sprites;
     let projection = sprites.projection();
@@ -138,10 +155,9 @@ pub fn draw_list<'a>(
     let mut candidates = chunks.candidates(rect, y_range, &foreign)?;
     candidates.sort_unstable_by_key(|c| c.key);
 
-    let mut draws = Vec::with_capacity(candidates.len());
-    let mut zeichne = |id: SpriteId, cell: Cell, anchor: [i32; 3], skip: u8| {
+    let mut teil = |id: SpriteId, cell: Cell, anchor: [i32; 3], skip: u8| {
         if let Some(part) = sprites.part(id, cell) {
-            draws.push(Draw {
+            zeichne(Draw {
                 sprite: part,
                 origin: origin_of(projection, rect, anchor, part),
                 skip,
@@ -152,7 +168,7 @@ pub fn draw_list<'a>(
         let pos = [c.x, c.y, c.z];
         if c.kind == 0 {
             for id in chunks.sprite_at(c.x, c.y, c.z)?.ids() {
-                zeichne(id, OWN_CELL, pos, c.skip);
+                teil(id, OWN_CELL, pos, c.skip);
             }
         } else {
             let cell = foreign[c.kind as usize - 1];
@@ -160,12 +176,11 @@ pub fn draw_list<'a>(
             if let Some(id) = chunks.sprite_at(anchor[0], anchor[1], anchor[2])?.sprite {
                 // Fremde Teile liegen in einem anderen Würfel als dem Anker;
                 // die Deckungstabelle gilt nur für den eigenen.
-                zeichne(id, cell, anchor, 0);
+                teil(id, cell, anchor, 0);
             }
         }
     }
-
-    Ok(draws)
+    Ok(())
 }
 
 /// Wie [`render_area`], aber Block für Block über das ganze Band, ohne

@@ -433,18 +433,21 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
 }
 
 /// Öffnet die Grafikkarte nach Wunsch. Bei `auto` ist ein Fehler beim
-/// Öffnen kein Grund abzubrechen — dann zeichnet die CPU.
+/// Öffnen kein Grund abzubrechen — dann zeichnet die CPU. Auch eine Panik
+/// aus wgpu nicht, etwa wenn ein Treiber den Shader nicht übersetzt.
 fn oeffne_gpu(mode: GpuMode) -> Result<Option<Karte>> {
     let gpu = match mode {
         GpuMode::Off => None,
-        GpuMode::Auto => match Gpu::new(false) {
+        GpuMode::Auto => match ohne_panik(|| Gpu::new(false)) {
             Ok(gpu) => gpu,
             Err(e) => {
                 println!("GPU:        {e:#}; die CPU zeichnet");
                 return Ok(None);
             }
         },
-        GpuMode::On => Some(Gpu::new(true)?.context("keine Grafikkarte gefunden (--gpu on)")?),
+        GpuMode::On => {
+            Some(ohne_panik(|| Gpu::new(true))?.context("keine Grafikkarte gefunden (--gpu on)")?)
+        }
     };
     match &gpu {
         Some(gpu) => println!("GPU:        {}", gpu.name),
@@ -456,6 +459,20 @@ fn oeffne_gpu(mode: GpuMode) -> Result<Option<Karte>> {
     }))
 }
 
+/// Führt `f` aus; eine Panik darin wird ein Fehler mit ihrem Text. wgpu
+/// meldet jeden Fehler, den kein Error-Scope fängt, mit einer Panik, etwa
+/// auf einem verlorenen Gerät.
+fn ohne_panik<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|panik| {
+        let text = panik
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| panik.downcast_ref::<&str>().map(|text| (*text).to_owned()))
+            .unwrap_or_else(|| "Panik".to_owned());
+        Err(anyhow::anyhow!(text))
+    })
+}
+
 /// Die Bilder einer Gruppe von der Karte. Versagt sie mit einem Fehler
 /// oder einer Panik aus wgpu, etwa nach einem Treiber-Reset, zeichnet die
 /// CPU die Gruppe; `aus` hält fest, dass der Rest des Laufs auf der CPU
@@ -465,17 +482,12 @@ fn mit_rueckfall(
     karte: impl FnOnce() -> Result<Vec<RgbaImage>>,
     cpu: impl FnOnce() -> Result<Vec<RgbaImage>>,
 ) -> Result<Vec<RgbaImage>> {
-    let grund = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(karte)) {
-        Ok(Ok(bilder)) => return Ok(bilder),
-        Ok(Err(e)) => format!("{e:#}"),
-        Err(panik) => panik
-            .downcast_ref::<String>()
-            .cloned()
-            .or_else(|| panik.downcast_ref::<&str>().map(|text| (*text).to_owned()))
-            .unwrap_or_else(|| "Panik".to_owned()),
+    let grund = match ohne_panik(karte) {
+        Ok(bilder) => return Ok(bilder),
+        Err(e) => e,
     };
     if !aus.swap(true, Ordering::Relaxed) {
-        println!("GPU:        {grund}; ab hier zeichnet die CPU");
+        println!("GPU:        {grund:#}; ab hier zeichnet die CPU");
     }
     cpu()
 }
@@ -1772,7 +1784,10 @@ fn render_coarser(
 ///
 /// Mit `melden` gibt es alle 200 Kacheln den Stand aus. Mit einer Karte
 /// zeichnet sie, je Durchgang [`GPU_TILES`] Kacheln, bis sie einmal versagt;
-/// wie viele es waren, steht neben den Kacheln.
+/// wie viele es waren, steht neben den Kacheln. Den Zeichner eines Stapels
+/// legt sein erster Durchgang an, im Rückfall wie das Zeichnen: auch das
+/// Anlegen scheitert an einer verlorenen Karte. Hat sie versagt, legt kein
+/// Stapel mehr einen an.
 fn rendere<T: Send>(
     world: &World,
     sprites: &SpriteSet,
@@ -1787,10 +1802,10 @@ fn rendere<T: Send>(
         .par_chunks(batch_size(gesamt))
         .map(|stapel| -> Result<(Vec<(TileId, T)>, usize)> {
             let mut chunks = ChunkCache::new(world, sprites);
-            let mut worker = karte.map(|karte| karte.gpu.worker(GPU_TILES, TILE));
+            let mut worker = None;
             // Die Grafikkarte bekommt mehrere Kacheln je Durchgang; die
             // CPU eine nach der anderen.
-            let je_durchgang = if worker.is_some() {
+            let je_durchgang = if karte.is_some() {
                 GPU_TILES as usize
             } else {
                 1
@@ -1798,8 +1813,8 @@ fn rendere<T: Send>(
             let mut out = Vec::with_capacity(stapel.len());
             let mut auf_der_karte = 0;
             for gruppe in stapel.chunks(je_durchgang) {
-                let bilder = match (karte, &mut worker) {
-                    (Some(karte), Some(worker)) if !karte.aus.load(Ordering::Relaxed) => {
+                let bilder = match karte {
+                    Some(karte) if !karte.aus.load(Ordering::Relaxed) => {
                         let listen = gruppe
                             .iter()
                             .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE))
@@ -1807,6 +1822,8 @@ fn rendere<T: Send>(
                         mit_rueckfall(
                             &karte.aus,
                             || {
+                                let worker =
+                                    worker.get_or_insert_with(|| karte.gpu.worker(GPU_TILES, TILE));
                                 let bilder = worker.render(&listen)?;
                                 auf_der_karte += gruppe.len();
                                 Ok(bilder)
@@ -2774,6 +2791,78 @@ mod tests {
         );
         assert_eq!(farbe(panik.unwrap()), [3; 4]);
         assert!(aus.load(Ordering::Relaxed));
+    }
+
+    /// Versagt die Karte in [`rendere`], zeichnet die CPU den Rest, und kein
+    /// Stapel legt danach noch einen Zeichner an. Die Welt ist leer, es geht
+    /// nur darum, wer zeichnet: ein Thread, 80 Kacheln, also zwei Stapel zu
+    /// 64 und 16 und Durchgänge zu 16.
+    /// - Die Karte zeichnet alle, solange sie kann.
+    /// - Steht `aus` schon, zeichnet sie keine.
+    /// - Scheitert schon das Anlegen des Zeichners, hier an einer Grenze von
+    ///   1 kB, zeichnet die CPU alle.
+    /// - Verliert die Karte ihr Gerät nach der ersten Kachel, bleibt es bei
+    ///   den 16 des ersten Durchgangs. Der zweite Stapel legte früher einen
+    ///   Zeichner auf dem verlorenen Gerät an, und dessen Panik fing niemand.
+    #[test]
+    fn rendere_faellt_auf_die_cpu_zurueck() {
+        let Some(gpu) = Gpu::new(true).unwrap() else {
+            // Wie `common::ohne_gpu` in den Integrationstests.
+            assert!(
+                std::env::var_os("TERRANOVA_GPU_PFLICHT").is_none(),
+                "kein GPU-Adapter, aber TERRANOVA_GPU_PFLICHT ist gesetzt"
+            );
+            eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
+            return;
+        };
+        let welt = tempfile::tempdir().unwrap();
+        std::fs::create_dir(welt.path().join("region")).unwrap();
+        let world = World::open(welt.path()).unwrap();
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
+        let mut assets = Assets::open(vec![fixture]).unwrap();
+        let keine = BTreeMap::<BlockState, BTreeSet<String>>::new();
+        let sprites = SpriteSet::build_in(&mut assets, &keine, Projection::new(16)).unwrap();
+        let tiles: Vec<TileId> = (0..80).map(|x| TileId { x, y: 0 }).collect();
+        let ein_thread = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let karte = |gpu| Karte {
+            gpu,
+            aus: AtomicBool::new(false),
+        };
+        // Wie viele Kacheln die Karte gezeichnet hat; mit `verlieren` ist ihr
+        // Gerät nach der ersten fertigen Kachel weg.
+        let lauf = |karte: &Karte, verlieren: bool| {
+            let einmal = AtomicBool::new(verlieren);
+            let (kacheln, auf_der_karte) = ein_thread
+                .install(|| {
+                    rendere(&world, &sprites, &tiles, false, Some(karte), |_, _| {
+                        if einmal.swap(false, Ordering::Relaxed) {
+                            karte.gpu.verlieren();
+                        }
+                        Ok(())
+                    })
+                })
+                .unwrap();
+            assert_eq!(kacheln.len(), tiles.len());
+            auf_der_karte
+        };
+
+        let gut = karte(gpu);
+        assert_eq!(lauf(&gut, false), 80);
+        assert!(!gut.aus.load(Ordering::Relaxed));
+        gut.aus.store(true, Ordering::Relaxed);
+        assert_eq!(lauf(&gut, false), 0, "die Karte zeichnet trotz `aus`");
+
+        let klein = karte(Gpu::mit_grenze(true, 1024).unwrap().expect("wie oben"));
+        assert_eq!(lauf(&klein, false), 0);
+        assert!(klein.aus.load(Ordering::Relaxed));
+
+        let verliert = karte(Gpu::new(true).unwrap().expect("wie oben"));
+        let n = lauf(&verliert, true);
+        assert_eq!(im_log(n, tiles.len()), " + GPU für 16 von 80");
+        assert!(verliert.aus.load(Ordering::Relaxed));
     }
 
     #[test]

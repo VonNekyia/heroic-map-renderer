@@ -137,6 +137,13 @@ impl Gpu {
         }))
     }
 
+    /// Zerstört das Gerät, wie es ein Treiber-Reset täte. Für die Tests des
+    /// Rückfalls.
+    #[doc(hidden)]
+    pub fn verlieren(&self) {
+        self.device.destroy();
+    }
+
     /// Ein Zeichner mit eigenen Puffern für bis zu `tiles` quadratische
     /// Kacheln mit `size` Pixeln Kante je Durchgang, für einen Thread. Der
     /// Renderlauf legt einen je Stapel an: das kostet rund 10 µs, der erste
@@ -535,7 +542,8 @@ mod tests {
     /// Verliert die Karte ihr Gerät, etwa bei einem Treiber-Reset, liefert
     /// `render` einen Fehler oder bricht mit einer Panik ab, gleich und
     /// ohne zu hängen. Beides fängt der Lauf und zeichnet auf der CPU
-    /// weiter; ein Bild darf danach nicht mehr kommen.
+    /// weiter; ein Bild darf danach nicht mehr kommen, auch nicht von einem
+    /// Zeichner, der erst danach entsteht.
     #[test]
     fn verlorenes_geraet_liefert_kein_bild() {
         let Some(gpu) = Gpu::new(true).unwrap() else {
@@ -560,7 +568,7 @@ mod tests {
         let bild = worker.render(std::slice::from_ref(&liste)).unwrap();
         assert_eq!(bild[0].get_pixel(4, 4).0, [200, 10, 10, 255]);
 
-        gpu.device.destroy();
+        gpu.verlieren();
         let start = std::time::Instant::now();
         let danach = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             worker.render(std::slice::from_ref(&liste))
@@ -568,6 +576,13 @@ mod tests {
         assert!(
             !matches!(danach, Ok(Ok(_))),
             "nach dem Verlust kam ein Bild"
+        );
+        let neu = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            gpu.worker(1, 64).render(std::slice::from_ref(&liste))
+        }));
+        assert!(
+            !matches!(neu, Ok(Ok(_))),
+            "ein neuer Zeichner zeichnete auf dem verlorenen Gerät"
         );
         assert!(
             start.elapsed() < std::time::Duration::from_secs(10),

@@ -825,7 +825,7 @@ Fehler (`TERRANOVA_GPU_PFLICHT`), kein übergangener Test.
 
 ### Die grossen Posten, zweite Runde
 
-Drei Umbauten, gemessen auf der grossen Serverwelt um (6000, -6000). Das
+Drei Umbauten, gemessen auf der grossen Serverwelt. Das
 Bild bleibt Byte für Byte dasselbe, geprüft an einem 16384er-Ausschnitt
 mit drei nativen Stufen, mit und ohne Karte: alle 6164 Kacheln, dazu
 `map.json` bis auf das Salz der Kennung.

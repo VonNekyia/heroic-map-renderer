@@ -108,6 +108,13 @@ pub struct Args {
     #[arg(long, requires = "tiles")]
     resume: bool,
 
+    /// Nur unter Windows: vor dem Export eine Ausnahme im Echtzeitschutz von
+    /// Microsoft Defender für das Verzeichnis von --tiles setzen. Windows
+    /// fragt nach Adminrechten; ohne Zustimmung läuft der Export ohne sie.
+    /// Entfernen muss man sie selbst, den Befehl nennt der Lauf
+    #[arg(long, requires = "tiles")]
+    defender_exclusion: bool,
+
     /// Die Zoomstufen und map.json dieses Kachelbaums aus seinen
     /// Basiskacheln nachbauen, ohne Welt und ohne Assets. Baut nur, was
     /// sich seit dem letzten Mal geändert hat, auch während ein Render läuft
@@ -146,6 +153,20 @@ pub fn run() -> Result<()> {
     }
     if args.tiles.is_some() && (args.world.is_none() || args.assets.is_empty()) {
         bail!("--tiles braucht --world und --assets");
+    }
+    if args.defender_exclusion && !cfg!(windows) {
+        bail!("--defender-exclusion gibt es nur unter Windows");
+    }
+    // Vor allem anderen, dann sitzt noch jemand davor. Der Hinweis kommt nur
+    // beim ersten Export in ein Verzeichnis: ob die Ausnahme schon besteht,
+    // sieht der Lauf ohne Adminrechte nicht, und bei jedem Lauf wäre er
+    // lästig.
+    if let Some(dir) = &args.tiles {
+        if args.defender_exclusion {
+            setze_ausnahme(dir);
+        } else if cfg!(windows) && !dir.join("map.json").exists() {
+            melde_echtzeitschutz(dir);
+        }
     }
 
     let mut assets = match args.assets.as_slice() {
@@ -1036,6 +1057,108 @@ fn melde_karte(info: &MapInfo, anzahl: usize, path: &Path) {
         format_args!("{}/{}", info.bounds[2], info.bounds[3]),
         path.display()
     );
+}
+
+/// Unter Windows prüft der Echtzeitschutz von Microsoft Defender jede
+/// Kachel beim Schreiben, siehe README, „Echtzeitschutz unter Windows“.
+/// Setzen kann die Ausnahme nur jemand mit Adminrechten; der Hinweis nennt
+/// die Befehle für genau diesen Ordner.
+fn melde_echtzeitschutz(dir: &Path) {
+    let ordner = ordner_fuer_powershell(dir);
+    println!(
+        "Defender:   Sein Echtzeitschutz prüft jede Kachel beim Schreiben. Mit einer Ausnahme für den\n\
+         \x20           Kachelordner brauchte ein Export ein Drittel weniger Zeit, siehe README. Setzen mit\n\
+         \x20           --defender-exclusion, dann fragt Windows nach Adminrechten, oder selbst in einer\n\
+         \x20           PowerShell als Administrator, und nach dem Render wieder entfernen:\n\
+         \x20           Add-MpPreference -ExclusionPath {ordner}\n\
+         \x20           Remove-MpPreference -ExclusionPath {ordner}"
+    );
+}
+
+/// `--defender-exclusion`: Windows fragt nach Adminrechten, und nur mit
+/// ihnen setzt eine zweite PowerShell die Ausnahme für den Kachelordner.
+/// Sagt der Nutzer nein oder verbietet es eine Richtlinie, läuft der Export
+/// ohne sie.
+fn setze_ausnahme(dir: &Path) {
+    let ordner = ordner_fuer_powershell(dir);
+    let gesetzt = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-EncodedCommand"])
+        .arg(powershell_kodiert(&ausnahme_erfragen(&ordner)))
+        .status()
+        .is_ok_and(|status| status.success());
+    if gesetzt {
+        println!(
+            "Defender:   Ausnahme für {ordner} gesetzt. Nach dem Render in einer PowerShell als Administrator entfernen:"
+        );
+        println!("            Remove-MpPreference -ExclusionPath {ordner}");
+    } else {
+        println!(
+            "Defender:   keine Ausnahme gesetzt, abgelehnt oder nicht erlaubt; der Export läuft ohne sie"
+        );
+    }
+}
+
+/// Was die PowerShell mit Adminrechten tut: die Ausnahme setzen, und bei
+/// einem Fehler mit einem Code ungleich 0 enden.
+fn ausnahme_setzen(ordner: &str) -> String {
+    format!("$ErrorActionPreference = 'Stop'; Add-MpPreference -ExclusionPath {ordner}")
+}
+
+/// Was die erste PowerShell tut: über `Start-Process -Verb RunAs` nach
+/// Adminrechten fragen, warten und mit dem Code der zweiten enden. Die
+/// zweite bekommt ihren Befehl kodiert, so quotet ihn niemand ein zweites
+/// Mal; `-ArgumentList` setzt die Teile nur mit Leerzeichen zusammen.
+fn ausnahme_erfragen(ordner: &str) -> String {
+    format!(
+        "$ErrorActionPreference = 'Stop'; \
+         $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden \
+         -ArgumentList '-NoProfile', '-NonInteractive', '-EncodedCommand', '{}'; \
+         exit $p.ExitCode",
+        powershell_kodiert(&ausnahme_setzen(ordner))
+    )
+}
+
+/// Der Kachelordner absolut, als Zeichenkette für PowerShell: der Befehl
+/// läuft womöglich in einem anderen Verzeichnis.
+fn ordner_fuer_powershell(dir: &Path) -> String {
+    let ordner = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    powershell_text(&ordner.display().to_string())
+}
+
+/// Ein Befehl für `powershell.exe -EncodedCommand`: UTF-16LE in Base64.
+fn powershell_kodiert(befehl: &str) -> String {
+    const ZEICHEN: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = befehl.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut out = String::new();
+    for block in bytes.chunks(3) {
+        let n = block
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | (u32::from(b) << (16 - 8 * i)));
+        for i in 0..4 {
+            out.push(if i <= block.len() {
+                ZEICHEN[((n >> (18 - 6 * i)) & 63) as usize] as char
+            } else {
+                '='
+            });
+        }
+    }
+    out
+}
+
+/// `text` als Zeichenkette für PowerShell: in einfachen Anführungszeichen
+/// gilt nur das Anführungszeichen selbst, und das steht doppelt. PowerShell
+/// nimmt auch die typografischen dafür.
+fn powershell_text(text: &str) -> String {
+    let mut out = String::from("'");
+    for c in text.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            out.push(c);
+        }
+        out.push(c);
+    }
+    out.push('\'');
+    out
 }
 
 /// Schreibt `map.json` für den Baum mit dieser Basis.
@@ -2210,6 +2333,63 @@ mod tests {
         );
         assert!(neu.unwrap().is_none());
         assert!(!tile_path(dir, 0, kind.parent()).exists());
+    }
+
+    /// Ein Ordner mit Anführungszeichen im Namen bleibt für PowerShell ein
+    /// Ordner: jedes steht doppelt, auch die typografischen.
+    #[test]
+    fn ordner_fuer_powershell() {
+        assert_eq!(powershell_text(r"D:\karte\tiles"), r"'D:\karte\tiles'");
+        assert_eq!(powershell_text(r"D:\Welt's\tiles"), r"'D:\Welt''s\tiles'");
+        assert_eq!(
+            powershell_text("a\u{2018}b\u{2019}c\u{201A}d\u{201B}e\"f"),
+            "'a\u{2018}\u{2018}b\u{2019}\u{2019}c\u{201A}\u{201A}d\u{201B}\u{201B}e\"f'"
+        );
+    }
+
+    /// Base64 über UTF-16LE, wie `-EncodedCommand` es liest; die Werte
+    /// stammen aus `[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(…))`.
+    #[test]
+    fn befehl_fuer_encoded_command() {
+        assert_eq!(powershell_kodiert("a"), "YQA=");
+        assert_eq!(powershell_kodiert("ab"), "YQBiAA==");
+        assert_eq!(powershell_kodiert("dir"), "ZABpAHIA");
+    }
+
+    /// Mit echter PowerShell: Ein Ordner mit allen Arten von
+    /// Anführungszeichen kommt unverändert an, und beide Befehle von
+    /// `--defender-exclusion` sind gültiges PowerShell, der zweite auch nach
+    /// dem Dekodieren. Ausgeführt wird keiner.
+    #[cfg(windows)]
+    #[test]
+    fn befehle_der_ausnahme_in_powershell() {
+        let ordner = "D:\\Welt's \u{2018}Karte\u{2019} \u{201A}neu\u{201B}\\tiles";
+        let text = powershell_text(ordner);
+        let pruefen = format!(
+            "[Console]::OutputEncoding = New-Object Text.UTF8Encoding $false; \
+             $innen = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{}')); \
+             foreach ($befehl in {}, $innen) {{ \
+                 $fehler = $null; \
+                 [void][Management.Automation.Language.Parser]::ParseInput($befehl, [ref]$null, [ref]$fehler); \
+                 if ($fehler) {{ exit 1 }} \
+             }}; \
+             Write-Output {text}; Write-Output $innen",
+            powershell_kodiert(&ausnahme_setzen(&text)),
+            powershell_text(&ausnahme_erfragen(&text)),
+        );
+        let out = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-EncodedCommand"])
+            .arg(powershell_kodiert(&pruefen))
+            .output()
+            .expect("powershell.exe starten");
+        assert!(
+            out.status.success(),
+            "kein gültiges PowerShell: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let ausgabe = String::from_utf8(out.stdout).expect("UTF-8");
+        let zeilen: Vec<&str> = ausgabe.lines().collect();
+        assert_eq!(zeilen, [ordner, ausnahme_setzen(&text).as_str()]);
     }
 
     /// Frisch sind die Kacheln aus den zwei Minuten vor der jüngsten, genau

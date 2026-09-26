@@ -1749,6 +1749,50 @@ fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
     assert_eq!(schnappschuss(out.path()), soll);
 }
 
+/// Unter Windows nennt der erste Export in ein Verzeichnis die Befehle für
+/// eine Ausnahme im Echtzeitschutz, für genau diesen Ordner und absolut,
+/// auch wenn `--tiles` ihn relativ angibt; der zweite schweigt, dort steht
+/// schon `map.json`. Anderswo gibt es den Hinweis nie.
+#[test]
+fn hinweis_auf_den_echtzeitschutz_nur_beim_ersten_export() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let eltern = tempdir();
+    let lauf = || {
+        let ausgabe = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+            .current_dir(eltern.path())
+            .arg("--world")
+            .arg(welt.path())
+            .arg("--assets")
+            .arg(assets())
+            .args(["--tiles", "karte", "--scale", "8", "--native-levels", "0"])
+            .output()
+            .expect("terranova-render starten");
+        String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned()
+    };
+    let (erster, zweiter) = (lauf(), lauf());
+    let ordner = eltern.path().join("karte");
+    for befehl in ["Add-MpPreference", "Remove-MpPreference"] {
+        let zeile = format!("{befehl} -ExclusionPath '{}'", ordner.display());
+        assert_eq!(erster.contains(&zeile), cfg!(windows), "{zeile}: {erster}");
+    }
+    assert!(!zweiter.contains("-ExclusionPath"), "{zweiter}");
+}
+
+/// Eine Ausnahme im Echtzeitschutz gibt es nur unter Windows; anderswo
+/// bricht der Schalter ab, bevor ein Chunk gelesen ist.
+#[cfg(not(windows))]
+#[test]
+fn defender_exclusion_nur_unter_windows() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let out = tempdir();
+    let ausgabe = tiles(welt.path(), out.path(), &["--defender-exclusion"]);
+    assert!(!ausgabe.status.success());
+    let fehler = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(fehler.contains("nur unter Windows"), "{fehler}");
+}
+
 /// `map.json` muss beschreiben, was tatsächlich dasteht.
 #[test]
 fn map_json_beschreibt_die_kacheln() {

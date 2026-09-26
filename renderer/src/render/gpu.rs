@@ -32,8 +32,11 @@ use super::metatile::Draw;
 /// `workgroup_size` im Shader passen.
 const CELL: u32 = 16;
 
-/// Was ein Zeichner an Puffern höchstens bindet — Sprites, Zeichenlisten
-/// und Kacheln eines Durchgangs. Weit über dem, was vorkommt.
+/// Der grösste Puffer, den ein Zeichner anlegt, weit über dem, was
+/// vorkommt. Dagegen prüft `ensure` die Puffer, die mit dem Durchgang
+/// wachsen: Sprites, Instanzen, Zeichenlisten. Die Kacheln eines Durchgangs
+/// (`out`, `readback`) legt [`Gpu::worker`] ungeprüft an; 16 Kacheln mit
+/// 256 Pixeln Kante sind 4 MB.
 const PUFFER_MAX: u64 = 256 << 20;
 
 /// So lange wartet ein Durchgang höchstens auf die Karte. Hängt sie, ohne
@@ -65,8 +68,9 @@ impl Gpu {
         Gpu::mit_grenze(software, PUFFER_MAX)
     }
 
-    /// Wie [`Gpu::new`], aber kein Puffer grösser als `grenze` Bytes. Für
-    /// den Test, der an die Grenze stösst.
+    /// Wie [`Gpu::new`], aber kein Puffer grösser als `grenze` Bytes. Liegt
+    /// sie unter den Anfangspuffern, scheitert schon [`Gpu::worker`] mit
+    /// einer Panik aus wgpu. Für die Tests, die an die Grenze stossen.
     #[doc(hidden)]
     pub fn mit_grenze(software: bool, grenze: u64) -> Result<Option<Gpu>> {
         let Some((adapter, info)) = adapter(software)? else {

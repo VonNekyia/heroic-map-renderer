@@ -1752,31 +1752,37 @@ fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
 /// Unter Windows nennt der erste Export in ein Verzeichnis die Befehle für
 /// eine Ausnahme im Echtzeitschutz, für genau diesen Ordner und absolut,
 /// auch wenn `--tiles` ihn relativ angibt; der zweite schweigt, dort steht
-/// schon `map.json`. Anderswo gibt es den Hinweis nie.
+/// schon `map.json`. Für einen Ordner, in dem schon anderes liegt, gibt es
+/// ihn nicht, und anderswo als unter Windows nie.
 #[test]
 fn hinweis_auf_den_echtzeitschutz_nur_beim_ersten_export() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
     let eltern = tempdir();
-    let lauf = || {
+    let lauf = |ordner: &str| {
         let ausgabe = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
             .current_dir(eltern.path())
             .arg("--world")
             .arg(welt.path())
             .arg("--assets")
             .arg(assets())
-            .args(["--tiles", "karte", "--scale", "8", "--native-levels", "0"])
+            .args(["--tiles", ordner, "--scale", "8", "--native-levels", "0"])
             .output()
             .expect("terranova-render starten");
         String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned()
     };
-    let (erster, zweiter) = (lauf(), lauf());
+    let (erster, zweiter) = (lauf("karte"), lauf("karte"));
     let ordner = eltern.path().join("karte");
     for befehl in ["Add-MpPreference", "Remove-MpPreference"] {
         let zeile = format!("{befehl} -ExclusionPath '{}'", ordner.display());
         assert_eq!(erster.contains(&zeile), cfg!(windows), "{zeile}: {erster}");
     }
     assert!(!zweiter.contains("-ExclusionPath"), "{zweiter}");
+
+    std::fs::create_dir(eltern.path().join("voll")).unwrap();
+    std::fs::write(eltern.path().join("voll").join("notizen.txt"), "x").unwrap();
+    let voll = lauf("voll");
+    assert!(!voll.contains("-ExclusionPath"), "{voll}");
 }
 
 /// Eine Ausnahme im Echtzeitschutz gibt es nur unter Windows; anderswo

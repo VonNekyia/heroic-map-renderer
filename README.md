@@ -704,10 +704,15 @@ Mit der Ausnahme braucht der Export ein Drittel weniger Zeit. Die drei
 Läufe ohne sie lagen zwischen 35,7 und 39,3 s, die mit ihr zwischen 23,8
 und 26,0 s.
 
-Die Ausnahme setzt `--defender-exclusion` beim Export: Windows fragt nach
-Adminrechten, und nur mit Zustimmung kommt das Verzeichnis von `--tiles`
-dazu. Von Hand geht es in einer PowerShell als Administrator, dort kommt
-sie nach dem Render auch wieder heraus:
+Die Ausnahme setzt `--defender-exclusion` beim Export. Welchen Ordner es
+ausnimmt, sagt der Lauf, bevor Windows nach Adminrechten fragt; in der
+Abfrage selbst steht der Befehl nur kodiert. Nur mit Zustimmung kommt das
+Verzeichnis von `--tiles` dazu, und nur, wenn es neu, leer oder schon ein
+Kachelbaum mit `map.json` ist, nie die Wurzel eines Laufwerks. Sonst nähme
+ein Versehen in `--tiles` das Benutzerverzeichnis oder ein ganzes Laufwerk
+vom Virenschutz aus. Den Befehl zum Entfernen nennt der Lauf am Anfang und
+am Ende. Von Hand geht es in einer PowerShell als Administrator, dort
+kommt sie nach dem Render auch wieder heraus:
 
 ```powershell
 Add-MpPreference -ExclusionPath '<kachelordner>'
@@ -716,10 +721,10 @@ Remove-MpPreference -ExclusionPath '<kachelordner>'
 
 Solange sie besteht, prüft Defender in diesem Ordner nichts, auch keine
 Datei, die jemand anderes dort ablegt; der Export selbst legt dort nur
-Kacheln und `map.json` ab. Beim ersten Export in ein neues Verzeichnis
-nennt der Lauf beide Befehle für genau diesen Ordner. Ob die Ausnahme
-schon besteht, sieht er ohne Adminrechte nicht, deshalb sagt er es nur
-dieses eine Mal.
+Kacheln und `map.json` ab. Beim ersten Export in ein neues oder leeres
+Verzeichnis nennt der Lauf beide Befehle für genau diesen Ordner. Ob die
+Ausnahme schon besteht, sieht er ohne Adminrechte nicht, deshalb sagt er
+es nur dieses eine Mal.
 
 Ohne Ausnahme geht es unter Windows 11 mit einem Dev Drive, einem eigenen
 ReFS-Laufwerk, auch als virtuelle Festplatte auf einem vorhandenen. Der

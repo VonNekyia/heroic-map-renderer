@@ -109,9 +109,11 @@ pub struct Args {
     resume: bool,
 
     /// Nur unter Windows: vor dem Export eine Ausnahme im Echtzeitschutz von
-    /// Microsoft Defender für das Verzeichnis von --tiles setzen. Windows
-    /// fragt nach Adminrechten; ohne Zustimmung läuft der Export ohne sie.
-    /// Entfernen muss man sie selbst, den Befehl nennt der Lauf
+    /// Microsoft Defender für das Verzeichnis von --tiles setzen, wenn es neu,
+    /// leer oder schon ein Kachelbaum ist, nie für die Wurzel eines
+    /// Laufwerks. Windows fragt nach Adminrechten; ohne Zustimmung läuft der
+    /// Export ohne sie. Entfernen muss man sie selbst, den Befehl nennt der
+    /// Lauf am Anfang und am Ende
     #[arg(long, requires = "tiles")]
     defender_exclusion: bool,
 
@@ -161,11 +163,18 @@ pub fn run() -> Result<()> {
     // beim ersten Export in ein Verzeichnis: ob die Ausnahme schon besteht,
     // sieht der Lauf ohne Adminrechte nicht, und bei jedem Lauf wäre er
     // lästig.
-    if let Some(dir) = &args.tiles {
-        if args.defender_exclusion {
-            setze_ausnahme(dir);
-        } else if cfg!(windows) && !dir.join("map.json").exists() {
-            melde_echtzeitschutz(dir);
+    let mut ausnahme = false;
+    if let Some(dir) = &args.tiles
+        && cfg!(windows)
+    {
+        match warum_keine_ausnahme(dir) {
+            Some(grund) if args.defender_exclusion => println!(
+                "Defender:   keine Ausnahme für {}: {grund}",
+                ordner_fuer_powershell(dir)
+            ),
+            None if args.defender_exclusion => ausnahme = setze_ausnahme(dir),
+            None if !dir.join("map.json").exists() => melde_echtzeitschutz(dir),
+            _ => {}
         }
     }
 
@@ -269,7 +278,7 @@ pub fn run() -> Result<()> {
             )?;
         }
         if let Some(dir) = &args.tiles {
-            write_tiles(
+            let export = write_tiles(
                 world,
                 assets.as_mut().expect("oben geprüft"),
                 projection,
@@ -278,7 +287,19 @@ pub fn run() -> Result<()> {
                 args.native_levels,
                 args.prune,
                 args.resume,
-            )?;
+            );
+            // Auch nach einem Fehler: Der Befehl vom Anfang steht nach
+            // Stunden weit oben.
+            if ausnahme {
+                println!(
+                    "Defender:   Die Ausnahme besteht noch. In einer PowerShell als Administrator entfernen:"
+                );
+                println!(
+                    "            Remove-MpPreference -ExclusionPath {}",
+                    ordner_fuer_powershell(dir)
+                );
+            }
+            export?;
         }
     }
 
@@ -1077,12 +1098,35 @@ fn melde_echtzeitschutz(dir: &Path) {
     );
 }
 
+/// Warum Hinweis und `--defender-exclusion` diesen Ordner nicht vorschlagen,
+/// `None`, wenn sie es dürfen: Es gibt ihn noch nicht, er ist leer, oder er
+/// ist schon ein Kachelbaum mit `map.json`. Nie die Wurzel eines Laufwerks.
+/// Sonst nähme ein Versehen in `--tiles`, etwa ein relativer Pfad aus dem
+/// falschen Verzeichnis, das Benutzerverzeichnis oder ein ganzes Laufwerk
+/// vom Virenschutz aus.
+fn warum_keine_ausnahme(dir: &Path) -> Option<&'static str> {
+    let ordner = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if ordner.parent().is_none() {
+        return Some("das ist die Wurzel eines Laufwerks");
+    }
+    match std::fs::read_dir(&ordner) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => Some("der Ordner lässt sich nicht lesen"),
+        Ok(mut eintraege) => (eintraege.next().is_some() && !ordner.join("map.json").is_file())
+            .then_some("der Ordner ist nicht leer und kein Kachelbaum"),
+    }
+}
+
 /// `--defender-exclusion`: Windows fragt nach Adminrechten, und nur mit
 /// ihnen setzt eine zweite PowerShell die Ausnahme für den Kachelordner.
+/// Welchen, steht vorher da: In der Abfrage selbst sieht man nur Base64.
 /// Sagt der Nutzer nein oder verbietet es eine Richtlinie, läuft der Export
-/// ohne sie.
-fn setze_ausnahme(dir: &Path) {
+/// ohne sie. Gibt zurück, ob sie gesetzt ist.
+fn setze_ausnahme(dir: &Path) -> bool {
     let ordner = ordner_fuer_powershell(dir);
+    println!(
+        "Defender:   Windows fragt jetzt nach Adminrechten für Add-MpPreference -ExclusionPath {ordner}"
+    );
     let gesetzt = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-EncodedCommand"])
         .arg(powershell_kodiert(&ausnahme_erfragen(&ordner)))
@@ -1090,7 +1134,7 @@ fn setze_ausnahme(dir: &Path) {
         .is_ok_and(|status| status.success());
     if gesetzt {
         println!(
-            "Defender:   Ausnahme für {ordner} gesetzt. Nach dem Render in einer PowerShell als Administrator entfernen:"
+            "Defender:   Ausnahme gesetzt. Nach dem Render in einer PowerShell als Administrator entfernen:"
         );
         println!("            Remove-MpPreference -ExclusionPath {ordner}");
     } else {
@@ -1098,6 +1142,7 @@ fn setze_ausnahme(dir: &Path) {
             "Defender:   keine Ausnahme gesetzt, abgelehnt oder nicht erlaubt; der Export läuft ohne sie"
         );
     }
+    gesetzt
 }
 
 /// Was die PowerShell mit Adminrechten tut: die Ausnahme setzen, und bei
@@ -2360,6 +2405,25 @@ mod tests {
         assert_eq!(
             powershell_text("a\u{2018}b\u{2019}c\u{201A}d\u{201B}e\"f"),
             "'a\u{2018}\u{2018}b\u{2019}\u{2019}c\u{201A}\u{201A}d\u{201B}\u{201B}e\"f'"
+        );
+    }
+
+    /// Eine Ausnahme gibt es für einen Ordner, den es noch nicht gibt, einen
+    /// leeren und einen Kachelbaum, nicht für einen anderen vollen Ordner
+    /// und nie für die Wurzel eines Laufwerks.
+    #[test]
+    fn ausnahme_nur_fuer_neue_leere_und_kachelordner() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(warum_keine_ausnahme(&dir.path().join("neu")), None);
+        assert_eq!(warum_keine_ausnahme(dir.path()), None);
+        std::fs::write(dir.path().join("notizen.txt"), "x").unwrap();
+        assert!(warum_keine_ausnahme(dir.path()).is_some());
+        std::fs::write(dir.path().join("map.json"), "{}").unwrap();
+        assert_eq!(warum_keine_ausnahme(dir.path()), None);
+        let wurzel = Path::new(std::path::MAIN_SEPARATOR_STR);
+        assert_eq!(
+            warum_keine_ausnahme(wurzel),
+            Some("das ist die Wurzel eines Laufwerks")
         );
     }
 

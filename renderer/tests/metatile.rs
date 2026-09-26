@@ -10,9 +10,11 @@ use std::path::PathBuf;
 use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
+use terranova_render::render::metatile::STUECK;
 use terranova_render::render::rasterizer::over;
 use terranova_render::render::{
-    Projection, ScreenRect, SpriteSet, render_area, render_area_without_culling, survey,
+    ChunkCache, Projection, ScreenRect, SpriteSet, render_area, render_area_with,
+    render_area_without_culling, survey,
 };
 use terranova_render::world::{BlockState, World};
 
@@ -167,6 +169,32 @@ fn schneller_weg_gleicht_der_referenz() {
             );
         }
     }
+}
+
+/// Ein Ausschnitt, grösser als ein Stück von `render_area`, gleicht Byte
+/// für Byte dem in einem Stück gerenderten: die Szene aus `common::szene`
+/// bei scale 32, 1088 mal 1344 Pixel, also vier Stücke mit Nähten mitten
+/// durch die Szene.
+#[test]
+fn grosser_ausschnitt_in_stuecken() {
+    let dir = tempdir();
+    let world = common::write_szene(dir.path());
+    let y_range = common::SZENE_Y;
+    let projection = Projection::new(32);
+    let survey = survey(&world, projection, y_range, None).unwrap();
+    let mut assets = assets();
+    assets.load_biomes(&common::biomdaten()).unwrap();
+    let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+    let rect = ScreenRect {
+        x: -17 * 32,
+        y: -25 * 32,
+        width: 34 * 32,
+        height: 42 * 32,
+    };
+    assert!(rect.width > STUECK && rect.height > STUECK);
+    let in_stuecken = render_area(&world, &sprites, rect, y_range).unwrap();
+    let in_einem = render_area_with(&mut ChunkCache::new(&world, &sprites), rect, y_range).unwrap();
+    assert!(in_stuecken == in_einem, "Nähte zwischen den Stücken");
 }
 
 /// Ein Block, der knapp über seinen Umriss ragt (`rand`), zeichnet auch in

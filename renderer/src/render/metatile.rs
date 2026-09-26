@@ -72,14 +72,42 @@ impl ScreenRect {
 /// Ein globaler Tiefenpuffer ist damit unnötig. Die Reihenfolge kommt aus
 /// dem Schlüssel `(y, v, u, Teil)`, nach dem die Kandidaten sortiert
 /// werden, siehe [`render_area_with`].
+///
+/// Grössere Ausschnitte als [`STUECK`] entstehen Stück für Stück, Zeile für
+/// Zeile, und werden zusammengesetzt. Ein Pixel hängt nur an der Welt und an
+/// seinem Platz, nicht am Rechteck; darauf beruhen auch die Kacheln.
 pub fn render_area(
     world: &World,
     sprites: &SpriteSet,
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
-    render_area_with(&mut ChunkCache::new(world, sprites), rect, y_range)
+    let spalten = rect.width.div_ceil(STUECK) as usize;
+    let mut chunks = ChunkCache::with_row(world, sprites, spalten);
+    if rect.width <= STUECK && rect.height <= STUECK {
+        return render_area_with(&mut chunks, rect, y_range);
+    }
+    let mut canvas = RgbaImage::new(rect.width, rect.height);
+    for y in (0..rect.height).step_by(STUECK as usize) {
+        for x in (0..rect.width).step_by(STUECK as usize) {
+            let stueck = ScreenRect {
+                x: rect.x + x as i32,
+                y: rect.y + y as i32,
+                width: STUECK.min(rect.width - x),
+                height: STUECK.min(rect.height - y),
+            };
+            let bild = render_area_with(&mut chunks, stueck, y_range)?;
+            image::imageops::replace(&mut canvas, &bild, i64::from(x), i64::from(y));
+        }
+    }
+    Ok(canvas)
 }
+
+/// Kantenlänge der Stücke von [`render_area`], in Pixeln. Kandidaten,
+/// Deckungsmaske und die sichtbaren Pixel der Draws wachsen mit der Fläche
+/// eines Stücks, nicht mit der des ganzen Bilds: bei `--render --size 16384`
+/// wären es sonst 1 bis 14 GB mehr, je nach scale.
+pub const STUECK: u32 = 1024;
 
 /// Wie [`render_area`], mit einem Cache, der über Kacheln hinweg lebt.
 ///

@@ -834,7 +834,10 @@ mit drei nativen Stufen, mit und ohne Karte: alle 6164 Kacheln, dazu
 Chunks am unteren Rand ihrer ganzen Breite neu, und jeder Stapel fing
 kalt an: 7,2 Chunks je Kachel auf einem Thread. Jetzt laufen die Kacheln
 in Streifen, Zeile für Zeile, siehe oben, und jeder Thread behält Cache
-und Zeichner über den ganzen Lauf.
+und Zeichner über den ganzen Lauf. Gestohlen wird erst, wenn vom grössten
+Stück noch vier Streifenbreiten übrig sind, bei scale 32 also 32 Kacheln:
+Wer stiehlt, fängt kalt an. Vier Kacheln laden bei scale 32 kalt 173
+Chunks, warm sind es drei je Kachel.
 Wie breit ein Streifen ist, hängt an den Kacheln je Thread: breite laden
 je Kachel weniger nach, ihre erste Zeile aber mehr. Zwei andere Verteiler
 waren schlechter: der aus der ersten Fassung dieses Schritts, ein Paket
@@ -868,29 +871,41 @@ Draws, die die Maske behält, und zeichnet jeden ganz; was davon verdeckt
 ist, übermalt ein späterer Draw mit Alpha 255. Schneller wird sie damit
 nicht messbar, auf einem Thread 276 gegen 279 Kacheln/s, auf 24 Threads
 813 gegen 800, aber ihre Liste ist dreimal kürzer, und CPU und Karte teilen
-sich einen Durchgang.
+sich einen Durchgang. Über dem Ozean spart die Maske ebenso: Von 1382
+Kandidaten je Kachel bleiben 760 Draws, und ein Thread schafft 284 statt
+209 Kacheln/s.
 
-Am selben Abend abwechselnd gemessen, jeder Lauf frisch; auf dem
-8192er-Ausschnitt das beste von drei, auf 65 536 Kacheln beide Läufe:
+**Grosse Ausschnitte.** `--render` rendert alles über 1024 Pixel
+Kantenlänge in Stücken und setzt sie zusammen, sonst hielte die Maske die
+sichtbaren Pixel des ganzen Bilds bis zum Schluss. Bei `--render --size
+16384` braucht der Lauf damit 2,1 statt 3,3 GB bei scale 32 und 2,1 statt
+5,3 GB bei scale 16; master brauchte 2,3 und 4,5 GB.
+
+In der Nacht auf den 27.09. abwechselnd gemessen, jeder Lauf frisch, der
+Kachelordner vom Echtzeitschutz ausgenommen; auf dem 8192er-Ausschnitt das
+beste von drei, auf 65 536 Kacheln beide Läufe:
 
 | | master | jetzt |
 |---|---|---|
-| ein Thread, 8192er-Ausschnitt, ohne Karte | 131 Kacheln/s (7,6 ms) | 261 (3,8 ms) |
-| 24 Threads, 8192er, ohne Karte | 764 | 980 |
-| 24 Threads, 65 536 Kacheln, ohne Karte | 727, 729 | 1085, 1076 |
-| 24 Threads, 65 536 Kacheln, mit Karte | 926, 939 | 1154, 1211 |
-| ganzer Lauf über die 65 536, ohne Karte | 132, 130 s | 101, 102 s |
-| ganzer Lauf über die 65 536, mit Karte | 113, 111 s | 99, 93 s |
+| ein Thread, 8192er-Ausschnitt, ohne Karte | 127 Kacheln/s (7,9 ms) | 249 (4,0 ms) |
+| 24 Threads, 8192er, ohne Karte | 1034 | 1659 |
+| 24 Threads, 65 536 Kacheln, ohne Karte | 1152, 1187 | 2543, 2603 |
+| 24 Threads, 65 536 Kacheln, mit Karte | 1750, 1900 | 2833, 2695 |
+| ganzer Lauf über die 65 536, ohne Karte | 86, 83 s | 56, 53 s |
+| ganzer Lauf über die 65 536, mit Karte | 68, 63 s | 52, 53 s |
+| 16384er mit drei nativen Stufen, ohne Karte | 13,8 s | 9,0 s |
 
-Chunks je Kachel: 3,1 statt 7,2 auf einem Thread, 2,1 statt 7,0 auf 24
-Threads über die 65 536 Kacheln. Bei 1024 Kacheln auf 24 Threads laden
-mehr Threads kalt an, 13 statt 9,5; schneller ist der Lauf trotzdem. Ohne
-Karte ist die CPU damit fast so schnell wie mit, die Karte ersetzt nur
-noch einen Blit von 0,6 ms. Dafür hält jeder Thread eine Zeile seines
-Streifens im Cache, bei scale 32 rund 300 Chunks: An der Spitze braucht
-der Lauf über die 65 536 Kacheln 1,3 bis 1,4 statt 1,0 GB, mit Karte 1,9
-bis 2,2 statt 1,5 GB. Die Dauer in der Tabelle unter "Was das kostet"
-stammt von davor.
+Chunks je Kachel: 3,0 statt 7,2 auf einem Thread, 8,2 statt 9,5 auf 24
+Threads bei 1024 Kacheln, 2,0 statt 7,0 über die 65 536. Ohne die Schwelle
+beim Stehlen waren es bei 1024 Kacheln 13. Ohne Karte ist die CPU damit
+fast so schnell wie mit. Dafür hält jeder Thread eine Zeile seines
+Streifens im Cache, gemessen höchstens 430 bis 520 Chunks bei scale 32: An
+der Spitze braucht der Lauf über die 65 536 Kacheln 1,4 bis 1,5 statt 1,1
+GB, mit Karte 2,1 statt 1,6 GB. Ohne die Ausnahme vom Echtzeitschutz war
+dieselbe Maschine in derselben Nacht deutlich langsamer, bei 1024 Kacheln
+auf 24 Threads 712 statt 1659 Kacheln/s, und der Abstand zu master kleiner,
+35 statt 60 %. Die Dauer in der Tabelle unter "Was das kostet" stammt von
+davor.
 
 Nicht im Code: eigene Threads zum Schreiben, aus der ersten Fassung
 dieses Schritts. Sie brachten dort 1,8 %, weniger als die Streuung; den

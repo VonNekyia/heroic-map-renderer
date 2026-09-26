@@ -590,9 +590,10 @@ fn blit_sichtbar(
 /// ihrer ganzen Breite neu, samt Rand für Modelle, die überstehen. Über
 /// mehrere Spalten nebeneinander teilen sich die Kacheln einer Zeile diesen
 /// Rand. Breiter als acht Chunks in der Welt wird ein Streifen nicht: bei
-/// scale 32 acht Spalten, ab scale 4 eine, immer eine Zweierpotenz. Eine
-/// Zeile braucht dann höchstens rund 300 Chunks, bei scale 2 die rund 800
-/// einer Kachel.
+/// scale 32 acht Spalten, ab scale 4 eine, immer eine Zweierpotenz. Auf der
+/// grossen Serverwelt hielt ein Thread damit höchstens 430 bis 520 Chunks
+/// bei scale 32 und 825 bei scale 4, samt dem Viertel Spielraum aus
+/// [`CACHE_CHUNKS`].
 pub fn streifenbreite(scale: u32) -> usize {
     1 << (scale as usize / 4).max(1).ilog2()
 }

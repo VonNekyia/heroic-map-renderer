@@ -274,8 +274,9 @@ Entfernt wird erst am Ende des Laufs, auf allen Stufen, auch was nur leer
 geworden ist, von der gröbsten Stufe bis zur Basis. Bis dahin zeigt eine
 Kachel, die beim Rendern oder in der Pyramide leer geworden ist, schon
 nichts mehr, der Lauf überschreibt sie durchsichtig. Bricht er vorher ab,
-hat er nichts gelöscht, und auch ein späterer Ausschnitt holt nichts
-Abgerissenes in eine Elternkachel zurück. Über den Kacheln ohne Chunk hat
+hat er nichts gelöscht, mit `--resume` nur die frischen Basiskacheln (siehe
+unten), und auch ein späterer Ausschnitt holt nichts Abgerissenes in eine
+Elternkachel zurück. Über den Kacheln ohne Chunk hat
 ein Lauf mit `--prune` bis zum Ende der Pyramide nur verändert, was auch ein
 Lauf ohne ihn verändert hätte. Danach setzt er die verkleinerten Stufen über
 ihnen ohne sie neu zusammen. Was dabei leer wird, entfernt er erst am Ende,

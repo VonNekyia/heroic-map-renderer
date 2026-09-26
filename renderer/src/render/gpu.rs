@@ -463,12 +463,6 @@ impl Worker<'_> {
                 }
             }
         }
-        // Ein leerer Puffer lässt sich nicht binden; ein paar Nullbytes schon.
-        for leer in [&mut self.sprite_bytes, &mut self.inst_bytes] {
-            if leer.is_empty() {
-                leer.resize(16, 0);
-            }
-        }
         let list_bytes = bytes(&self.list_data);
         self.ensure(
             self.sprite_bytes.len() as u64,

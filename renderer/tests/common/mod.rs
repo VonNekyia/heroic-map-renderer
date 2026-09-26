@@ -305,6 +305,20 @@ fn section(
     }
 }
 
+// ------------------------------------------------------------ Grafikkarte
+
+/// Ohne Grafikkarte, auch ohne Software-Adapter, übergehen sich die
+/// GPU-Tests und sagen es. In der CI steht `TERRANOVA_GPU_PFLICHT`: dort
+/// ist ein fehlender Adapter ein Fehler, sonst bestünde jeder GPU-Test
+/// still.
+pub fn ohne_gpu() {
+    assert!(
+        std::env::var_os("TERRANOVA_GPU_PFLICHT").is_none(),
+        "kein GPU-Adapter, aber TERRANOVA_GPU_PFLICHT ist gesetzt"
+    );
+    eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
+}
+
 // ------------------------------------------------------ Szene mit allem
 
 /// Höhenband der Szene aus [`szene`]: vier Sections, von y=-16 bis 47.

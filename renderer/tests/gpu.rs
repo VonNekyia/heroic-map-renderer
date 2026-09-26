@@ -1,7 +1,8 @@
 //! Die Grafikkarte muss Byte für Byte dasselbe zeichnen wie die CPU.
 //!
 //! Ohne Adapter — auch keinen Software-Adapter wie WARP oder lavapipe —
-//! werden die Tests übersprungen und sagen das.
+//! werden die Tests übersprungen und sagen das, ausser in der CI
+//! (`common::ohne_gpu`).
 
 mod common;
 
@@ -77,7 +78,7 @@ fn kacheln() -> Vec<TileId> {
 fn adapter(gpu: anyhow::Result<Option<Gpu>>) -> Option<Gpu> {
     let gpu = gpu.expect("Grafikkarte öffnen");
     if gpu.is_none() {
-        eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
+        common::ohne_gpu();
     }
     gpu
 }
@@ -235,11 +236,12 @@ fn lange_listen_vergroessern_die_puffer() {
     let kurz = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
     assert!(!kurz.is_empty());
 
-    // Dieselbe Liste in ganzen Runden hintereinander, gut 20 000 Einträge:
-    // 320 kB Instanzen, die Anfangspuffer fassen 64 kB. Ganze Runden, weil
-    // die Deckungsmaske eines Blocks voraussetzt, dass sein Nachbar nach
-    // ihm noch einmal kommt.
-    let runden = 20_000 / kurz.len() + 1;
+    // Dieselbe Liste in ganzen Runden hintereinander, gut 100 000 Einträge:
+    // 1,6 MB Instanzen, die Anfangspuffer fassen 64 kB, und in den Listen
+    // mindestens ein Eintrag je Draw, 400 kB gegen anfangs 256 kB. Ganze
+    // Runden, weil die Deckungsmaske eines Blocks voraussetzt, dass sein
+    // Nachbar nach ihm noch einmal kommt.
+    let runden = 100_000 / kurz.len() + 1;
     let lang: Vec<Draw> = kurz
         .iter()
         .cycle()
@@ -269,8 +271,8 @@ fn lange_listen_vergroessern_die_puffer() {
 /// Zeichner zeichnet danach weiter.
 #[test]
 fn zu_grosser_durchgang_ist_ein_fehler() {
-    // Ein Bild braucht 1 MB; 2 MB lassen dem Zeichner seine Puffer, aber
-    // keine 200 000 Instanzen zu 16 Bytes.
+    // Ein Bild braucht 256 kB, der grösste Anfangspuffer 1 MB; 2 MB lassen
+    // dem Zeichner seine Puffer, aber keine 200 000 Instanzen zu 16 Bytes.
     let Some(gpu) = adapter(Gpu::mit_grenze(true, 2 << 20)) else {
         return;
     };
@@ -294,13 +296,26 @@ fn zu_grosser_durchgang_ist_ein_fehler() {
     assert!(cpu.as_raw() == bild.as_raw(), "danach weicht die Kachel ab");
 }
 
-/// Ein Durchgang ohne Kacheln und eine Kachel ohne Zeichenliste.
+/// Ein Durchgang ohne Kacheln und Kacheln ohne Zeichenliste, auf einem
+/// Zeichner, der eben volle Kacheln gezeichnet hat: auch eine leere Zelle
+/// schreibt der Shader, sonst stünde dort das vorige Bild.
 #[test]
 fn leere_listen_ergeben_leere_kacheln() {
     let Some(gpu) = adapter(Gpu::new(true)) else {
         return;
     };
+    let welt = welt(Projection::new(16));
+    let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
+    let voll: Vec<_> = kacheln()[..2]
+        .iter()
+        .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap())
+        .collect();
     let mut worker = gpu.worker(2, TILE);
+    let bilder = worker.render(&voll).unwrap();
+    assert!(
+        bilder.iter().all(|b| b.pixels().any(|p| p.0[3] > 0)),
+        "die vollen Kacheln zeigen nichts"
+    );
     assert!(worker.render(&[]).unwrap().is_empty());
     let bilder = worker.render(&[Vec::new(), Vec::new()]).unwrap();
     assert_eq!(bilder.len(), 2);

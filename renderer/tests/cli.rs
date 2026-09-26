@@ -2623,8 +2623,9 @@ fn leeres_ergebnis_legt_das_ziel_trotzdem_an() {
 
 /// `--gpu on` liefert dieselben Dateien wie `--gpu off`, Byte für Byte —
 /// Kacheln, native Stufen, Pyramide, `map.json` —, und die Karte zeichnet
-/// die Basis wie die nativen Stufen. Ohne Adapter (auch keinen
-/// Software-Adapter) wird übersprungen und gesagt.
+/// die Basis wie die nativen Stufen. Ebenso ein Ausschnitt und ein
+/// Fortsetzen. Ohne Adapter (auch keinen Software-Adapter) wird
+/// übersprungen und gesagt, ausser in der CI (`common::ohne_gpu`).
 #[test]
 fn gpu_liefert_dieselben_kacheln() {
     let welt = tempdir();
@@ -2641,7 +2642,7 @@ fn gpu_liefert_dieselben_kacheln() {
     if !lauf.status.success()
         && String::from_utf8_lossy(&lauf.stderr).contains("keine Grafikkarte gefunden")
     {
-        eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
+        common::ohne_gpu();
         return;
     }
     gelungen(&lauf);
@@ -2662,6 +2663,39 @@ fn gpu_liefert_dieselben_kacheln() {
         !nativ.is_empty() && nativ.iter().all(|zeile| zeile.contains("+ GPU,")),
         "die nativen Stufen zeichnet nicht die Karte:\n{ausgabe}"
     );
+    assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
+
+    // Fortsetzen nach einer verlorenen Basiskachel: die Karte zeichnet
+    // sie und alles, was die zwei Minuten vor der jüngsten treffen.
+    altern(gpu.path());
+    let z = max_zoom(gpu.path());
+    let (_, verloren) = kacheln(gpu.path(), z).pop_first().unwrap();
+    std::fs::remove_file(&verloren).unwrap();
+    let lauf = tiles(
+        welt.path(),
+        gpu.path(),
+        &["--scale", "16", "--gpu", "on", "--resume"],
+    );
+    assert!(
+        String::from_utf8_lossy(&gelungen(&lauf).stdout).contains("Threads + GPU"),
+        "das Fortsetzen zeichnet nicht die Karte"
+    );
+    assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
+
+    // Ein Ausschnitt.
+    let (cpu, gpu) = (tempdir(), tempdir());
+    let ausschnitt = ["--scale", "16", "--size", "300", "--center", "8", "8"];
+    gelungen(&tiles(
+        welt.path(),
+        cpu.path(),
+        &[&ausschnitt[..], &["--gpu", "off"]].concat(),
+    ));
+    gelungen(&tiles(
+        welt.path(),
+        gpu.path(),
+        &[&ausschnitt[..], &["--gpu", "on"]].concat(),
+    ));
+    assert!(!dateien(gpu.path()).is_empty(), "der Ausschnitt ist leer");
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 }
 

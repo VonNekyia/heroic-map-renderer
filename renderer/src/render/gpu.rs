@@ -166,7 +166,7 @@ impl Gpu {
             tiles,
             size,
             cells_x,
-            sprites: make("sprites", 1 << 20, storage),
+            sprites: make("sprites", 64 << 10, storage),
             instances: make("instances", 64 << 10, storage),
             lists: make("lists", 256 << 10, storage),
             params,
@@ -539,6 +539,11 @@ mod tests {
     #[test]
     fn verlorenes_geraet_liefert_kein_bild() {
         let Some(gpu) = Gpu::new(true).unwrap() else {
+            // Wie `common::ohne_gpu` in den Integrationstests.
+            assert!(
+                std::env::var_os("TERRANOVA_GPU_PFLICHT").is_none(),
+                "kein GPU-Adapter, aber TERRANOVA_GPU_PFLICHT ist gesetzt"
+            );
             eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
             return;
         };

@@ -1,0 +1,13 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": { "all": "minecraft:block/planks" },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 0, 16],
+      "faces": {
+        "up":    { "texture": "#all" }
+      }
+    }
+  ]
+}

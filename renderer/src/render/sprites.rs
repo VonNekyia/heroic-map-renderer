@@ -1,13 +1,16 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 
 use anyhow::Result;
 use image::RgbaImage;
 
-use crate::assets::baker::BakedModel;
+use crate::assets::baker::{BakedModel, Quad, box_quads};
+use crate::assets::blockstate::ModelRef;
 use crate::assets::fluid::Fluid;
-use crate::assets::{Assets, Face, Tints, fluid, models_of};
+use crate::assets::{Assets, Face, Textures, Tints, fluid, models_of};
 use crate::world::BlockState;
 
+use super::rasterizer::faces_camera;
 use super::{Projection, Sprite, render};
 
 /// Verweis in die Sprite-Tabelle.
@@ -43,20 +46,121 @@ pub struct SpriteSet {
     by_mask: HashMap<SpriteId, Vec<Option<SpriteId>>>,
     /// Fassungen je Biom, nur fuer Sprites mit gefaerbten Flaechen. Das
     /// Sprite fuehrt zur Fassung des Standardklimas, von dort geht es
-    /// ueber den Biomnamen weiter.
-    by_biome: HashMap<SpriteId, HashMap<String, SpriteId>>,
+    /// ueber den Index des Bioms weiter.
+    by_biome: HashMap<SpriteId, Vec<SpriteId>>,
+    /// Index je Biomname, in der Reihenfolge von `Colors::biomes`. Eine
+    /// Karte je Sprite mit allen Biomnamen als Schluessel waren bei einer
+    /// grossen Serverwelt gut zwei Millionen Strings.
+    biome_index: HashMap<String, usize>,
+    /// Sprites nach dem Hash ihrer Pixel und ihrer Faerbung: pixelgleiche
+    /// teilen sich den Eintrag, wenn sie sich in jedem Biom gleich faerben.
+    by_content: HashMap<(u64, u64), Vec<SpriteId>>,
+    /// Streifen einer Seitenflaeche ueber einem niedrigeren Nachbarn
+    /// derselben Fluessigkeit: je Art, eigener Hoehe und Nachbarhoehe in
+    /// Neunteln und je Seite.
+    strips: HashMap<(Fluid, u8, u8, Face), SpriteId>,
     projection: Projection,
+    /// Die Pixel eines vollen Wuerfels bei diesem scale, gegen die Deckung
+    /// geprueft wird.
+    masks: Masks,
+    /// Die Oberseite einer Wasseroberflaeche bei scale 32, je Hoehe in
+    /// Neunteln von 1 bis 8, fuer `Family::covers`.
+    cover_tops: [Vec<(i32, i32)>; 8],
     foreign: BTreeSet<Cell>,
     /// Welche Nachbarn welche Pixel eines Blocks uebermalen wuerden.
     cover: Cover,
-    /// Blockarten, die die Assets nicht aufloesen konnten, mit dem Grund.
-    /// Sie bleiben auf der Karte leer wie Luft — ein Mod-Block oder eine
-    /// Umbenennung darf keinen stundenlangen Render abbrechen.
-    unresolved: BTreeMap<String, String>,
     /// Laufende Nummer der Tabelle. `SpriteId`s zaehlen je Tabelle von 0;
     /// wer Sprites ueber Tabellen hinweg merkt (der GPU-Atlas), braucht
     /// dazu die Tabelle.
     id: u64,
+}
+
+/// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
+/// jedes Sprite und mit derselben Fuellregel: der ganze Umriss und die
+/// Oberseite allein.
+///
+/// Gegen sie prueft der Aufbau Pixel fuer Pixel, was ein Sprite deckt. Mit
+/// einer Pixelbreite Toleranz am Rand galten flache Modelle mit schmalem
+/// Rand — Druckplatten, Kuchen — als bodendeckend, der Block darunter fiel
+/// weg, und sein sichtbarer Rand wurde zum Loch. Bei scale 4 blieb vom
+/// geschrumpften Boden gar kein Pixel uebrig.
+struct Masks {
+    outline: Vec<(i32, i32)>,
+    top: Vec<(i32, i32)>,
+}
+
+impl Masks {
+    fn new(textures: &Textures, projection: Projection) -> Masks {
+        Masks {
+            outline: pixels_of(textures, projection, block(16.0, false)),
+            top: pixels_of(textures, projection, block(16.0, true)),
+        }
+    }
+
+    /// Liegt jeder sichtbare Pixel des Sprites im Umriss? Gezählt statt
+    /// nachgeschlagen: Jede Stelle des Umrisses kommt einmal vor, also sind
+    /// die sichtbaren Pixel dort genau dann alle, wenn keiner daneben liegt.
+    fn contains(&self, sprite: &Sprite) -> bool {
+        let alle = sprite.image.pixels().filter(|p| p.0[3] > 0).count();
+        let innen = self
+            .outline
+            .iter()
+            .filter(|&&(x, y)| alpha_at(sprite, x, y) > 0);
+        innen.count() == alle
+    }
+}
+
+/// Die Oberseite einer Wasseroberflaeche auf dieser Hoehe in Neunteln:
+/// durch sie treten die Strahlen in die Tiefe ein, deren Ende `covers`
+/// misst. Eine Quelle endet bei 8/9, fliessendes Wasser tiefer.
+fn surface_top(textures: &Textures, projection: Projection, ninths: u8) -> Vec<(i32, i32)> {
+    pixels_of(
+        textures,
+        projection,
+        block(16.0 * f32::from(ninths) / 9.0, true),
+    )
+}
+
+/// Ein deckender Block bis zur Hoehe `top`, wahlweise nur seine Oberseite.
+fn block(top: f32, only_up: bool) -> BakedModel {
+    let quads = box_quads([0.0; 3], [16.0, top, 16.0], Textures::MISSING, None, None)
+        .filter(|quad| !only_up || quad.normal()[1] > 0.0)
+        .collect();
+    BakedModel { quads }
+}
+
+/// Die Pixel, die ein Modell belegt, relativ zum Blockursprung.
+fn pixels_of(textures: &Textures, projection: Projection, model: BakedModel) -> Vec<(i32, i32)> {
+    let sprite = render(&model, textures, &projection, Tints::default())
+        .expect("ein Block hat sichtbare Flaechen");
+    sprite
+        .image
+        .enumerate_pixels()
+        .filter(|(_, _, pixel)| pixel.0[3] > 0)
+        .map(|(x, y, _)| (sprite.offset.0 + x as i32, sprite.offset.1 + y as i32))
+        .collect()
+}
+
+/// Deckt `sprite` jeden dieser Pixel undurchsichtig, um `dy` nach unten
+/// verschoben? Eine leere Maske deckt nichts: sonst gaelte bei einem
+/// Raster ohne Pixel jeder Block als deckend.
+fn covers_all(sprite: &Sprite, pixels: &[(i32, i32)], dy: i32) -> bool {
+    !pixels.is_empty()
+        && pixels
+            .iter()
+            .all(|&(x, y)| alpha_at(sprite, x, y + dy) == 255)
+}
+
+/// Deckt `sprite` mehr als die Haelfte dieser Pixel undurchsichtig? Bei
+/// genau der Haelfte nicht: dann geht ebenso viel an ihm vorbei, wie an ihm
+/// endet, und ein heller Fleck ueber hohem Seegras faellt mehr auf als ein
+/// fast verschwundener Halm.
+fn covers_most(sprite: &Sprite, pixels: &[(i32, i32)]) -> bool {
+    let deckend = pixels
+        .iter()
+        .filter(|&&(x, y)| alpha_at(sprite, x, y) == 255)
+        .count();
+    2 * deckend > pixels.len()
 }
 
 static NAECHSTE_TABELLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -65,37 +169,68 @@ static NAECHSTE_TABELLE: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomi
 pub struct Family {
     alternatives: Vec<(u32, Option<SpriteId>)>,
     total: u32,
-    /// Fluessigkeit samt Hoehe ihrer Oberflaeche in Blockeinheiten, falls
-    /// die Blockstate eine enthaelt.
-    pub fluid: Option<(Fluid, f32)>,
+    /// Wo der Client die Saat nimmt, relativ zum Block: siehe
+    /// `seed_offset`.
+    seed_offset: [i32; 3],
+    /// Fluessigkeit samt Menge in Neunteln der Blockhoehe, falls die
+    /// Blockstate eine enthaelt.
+    pub fluid: Option<(Fluid, u8)>,
     /// Decken alle Alternativen den Blockumriss? Dann verdeckt der Block
     /// seine Nachbarn — egal, welche Drehung die Position wuerfelt.
     pub opaque: bool,
-    /// Bleibt jede Alternative im Umriss ihres eigenen Wuerfels? Nur dann
-    /// darf ein verdeckter Block uebersprungen werden, ohne dass etwas
-    /// von ihm haette herausragen koennen.
+    /// Decken alle Alternativen den Boden ihres Wuerfels, also die
+    /// Oberseite des Blocks darunter? Lava endet bei 8/9 und deckt den
+    /// Umriss nicht mehr, den Block darunter aber schon.
+    pub covers_floor: bool,
+    /// Bleibt jede Alternative Pixel fuer Pixel im Umriss ihres eigenen
+    /// Wuerfels, siehe `Entry::contained`? Nur dann darf ein verdeckter
+    /// Block uebersprungen werden, ohne dass etwas von ihm haette
+    /// herausragen koennen.
     pub contained: bool,
-    /// Volles Wasser und sonst nichts: verdeckt gleiches Wasser hinter
-    /// sich, und ist selbst unsichtbar, wo es nur an Wasser und deckende
-    /// Bloecke grenzt.
-    pub water: bool,
     /// Ragt eine Alternative in Nachbarwuerfel? Dann muss der Renderer
     /// von diesem Block aus auch dort zeichnen.
     pub foreign: bool,
+    /// Besteht jede Alternative nur aus der Fluessigkeit, ohne Modell
+    /// daneben: Wasser, Lava, Blasensaeule. Dann bleibt vom Block nichts,
+    /// wo ueber ihm dieselbe Fluessigkeit steht und zu beiden Seiten
+    /// dieselbe mit derselben darueber oder ein deckender Block; sonst
+    /// bleibt die Oberflaeche oder ein Streifen. Siehe `expose` im
+    /// Metatile-Renderer.
+    pub pure_fluid: bool,
+    /// Je Hoehe einer Wasseroberflaeche in Neunteln ein Bit, siehe
+    /// [`Family::covers`].
+    cover_bits: u8,
 }
 
 impl Family {
-    /// Die Alternative fuer einen Block — dieselbe, die `WeightedBakedModel`
-    /// aus `Mth.getSeed` der Position wuerfelt. Damit sieht die Karte aus
-    /// wie das Spiel, und die Wahl haengt weder von Kachelgrenzen noch von
-    /// der Renderreihenfolge ab.
+    /// Decken alle Alternativen mehr als die Haelfte dessen, was eine
+    /// Wasseroberflaeche dieser Hoehe an ihrer Stelle belegen wuerde? Dort
+    /// treffen die Strahlen hinter der Oberflaeche den Block auf der
+    /// Diagonalen, und die meisten enden an ihm. Sonst laufen sie hindurch:
+    /// unter einer Quelle zaehlen Seegras, Kelp, ein gefluteter
+    /// Zaunpfosten und eine untere Platte wie das Wasser um sie herum.
+    /// Hinter fliessendem Wasser der Menge a treten die Strahlen bei a/9
+    /// ein, tiefer als bei einer Quelle: dort deckt eine untere Platte
+    /// mehr, eine obere bei 1/9 weniger, und Seegras haelt bei 1/9 und 2/9
+    /// auf. Die Zahlen stehen im README. Gemessen wird immer bei scale 32,
+    /// damit die nativen Stufen dieselbe Tiefe zaehlen wie die Basis.
+    pub fn covers(&self, ninths: u8) -> bool {
+        (self.cover_bits >> (ninths.clamp(1, 8) - 1)) & 1 == 1
+    }
+
+    /// Die Alternative fuer einen Block — dieselbe, die der 26.2-Client
+    /// wuerfelt: `ModelBlockRenderer` saet seinen Zufallsgenerator mit
+    /// `Mth.getSeed` der Position, `WeightedList.getRandomOrThrow` zieht
+    /// daraus `nextInt(total)` und zaehlt die Gewichte in Listenreihenfolge
+    /// ab. Damit sieht die Karte aus wie das Spiel, und die Wahl haengt
+    /// weder von Kachelgrenzen noch von der Renderreihenfolge ab.
     pub fn pick(&self, pos: [i32; 3]) -> Option<SpriteId> {
         if self.alternatives.len() == 1 {
             return self.alternatives[0].1;
         }
-        let mut n = java_random_int(seed(pos))
-            .wrapping_abs()
-            .rem_euclid(self.total as i32);
+        let [dx, dy, dz] = self.seed_offset;
+        let pos = [pos[0] + dx, pos[1] + dy, pos[2] + dz];
+        let mut n = java_next_int(seed(pos), self.total as i32);
         for &(weight, id) in &self.alternatives {
             n -= weight as i32;
             if n < 0 {
@@ -104,6 +239,28 @@ impl Family {
         }
         None
     }
+}
+
+/// Wo der Client die Saat einer Blockstate nimmt. Obere Haelften von
+/// Tueren und Doppelpflanzen wuerfeln mit der Position der unteren, das
+/// Fussende eines Betts mit der des Kopfendes, beide Haelften passen so
+/// immer zusammen: `DoorBlock`, `DoublePlantBlock` und `BedBlock`
+/// ueberschreiben `getSeed`, per javap am 26.2-Client. Nur diese Bloecke
+/// tragen `half=upper` und `part=foot`.
+fn seed_offset(state: &BlockState) -> [i32; 3] {
+    if state.prop("half") == Some("upper") {
+        return [0, -1, 0];
+    }
+    if state.prop("part") == Some("foot") {
+        return match state.prop("facing") {
+            Some("north") => [0, 0, -1],
+            Some("south") => [0, 0, 1],
+            Some("west") => [-1, 0, 0],
+            Some("east") => [1, 0, 0],
+            _ => [0, 0, 0],
+        };
+    }
+    [0, 0, 0]
 }
 
 /// `Mth.getSeed`: Minecrafts Zufallssaat aus einer Blockposition. Die
@@ -117,24 +274,34 @@ fn seed([x, y, z]: [i32; 3]) -> i64 {
     l >> 16
 }
 
-/// `(int) new java.util.Random(seed).nextLong()`: der Wert, mit dem
-/// `WeightedBakedModel` seine Liste befragt. Von `nextLong` bleiben nach
-/// dem Kuerzen genau die unteren 32 Bit, also der zweite `next(32)`.
-fn java_random_int(seed: i64) -> i32 {
+/// `nextInt(bound)` eines frisch mit `seed` gesaeten Generators: der LCG
+/// aus `java.util.Random`, den auch `SingleThreadedRandomSource` rechnet.
+/// Bei einer Zweierpotenz die oberen Bits, sonst der Rest — mit der
+/// Verwerfungsschleife, die Java gegen die Schieflage am oberen Ende hat.
+/// Bis 1.21.4 nahm Minecraft stattdessen `abs((int) nextLong()) % total`.
+fn java_next_int(seed: i64, bound: i32) -> i32 {
     const MULT: i64 = 0x5DEECE66D;
     const MASK: i64 = (1 << 48) - 1;
     let mut state = (seed ^ MULT) & MASK;
-    let mut next = || {
-        state = (state.wrapping_mul(MULT).wrapping_add(0xB)) & MASK;
-        (state >> 16) as i32
+    let mut next31 = || {
+        state = state.wrapping_mul(MULT).wrapping_add(0xB) & MASK;
+        (state >> 17) as i32
     };
-    next();
-    next()
+    if bound & (bound - 1) == 0 {
+        return ((bound as i64 * next31() as i64) >> 31) as i32;
+    }
+    loop {
+        let bits = next31();
+        let value = bits % bound;
+        if bits.wrapping_sub(value).wrapping_add(bound - 1) >= 0 {
+            return value;
+        }
+    }
 }
 
-/// Wie viele Schichten Wasser unter einer Oberflaeche noch unterschieden
+/// Wie viele Schichten Wasser hinter einer Oberflaeche noch unterschieden
 /// werden. Bei Alpha 180 laesst eine Schicht 29 Prozent durch, vier noch
-/// 0,7 — darunter sieht man nichts mehr, also gilt ab da dieselbe Fassung.
+/// 0,7 — dahinter sieht man nichts mehr, also gilt ab da dieselbe Fassung.
 pub const DEPTHS: usize = 4;
 
 /// Bit in der Verdeckungsmaske fuer eine Fluessigkeitsflaeche: die drei
@@ -148,12 +315,49 @@ pub fn mask_bit(face: Face) -> u8 {
     }
 }
 
-/// Fluessigkeit eines Modells samt Oberflaechenhoehe.
-fn fluid_of(model: &BakedModel) -> Option<(Fluid, f32)> {
-    model.quads.iter().find_map(|q| match q.fluid {
-        Some((fluid, Face::Up)) => Some((fluid, q.corners[0][1])),
-        _ => None,
-    })
+/// Alles, was das Bild einer Blockstate bestimmt: der Name (er entscheidet
+/// die Faerbung), die Modellverweise samt Drehung und Gewicht, Art und
+/// Menge der Fluessigkeit, und wo die Wahl der Alternative ihre Saat
+/// nimmt. Die Verweise reichen, die Modelle selbst laedt erst die Familie.
+type FamilyKey = (
+    String,
+    Vec<(u32, Vec<ModelRef>)>,
+    Option<(Fluid, u8)>,
+    [i32; 3],
+);
+
+fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
+    let alternatives = assets.alternative_refs(state)?;
+    Ok((
+        state.name().to_string(),
+        alternatives,
+        fluid::key(state),
+        seed_offset(state),
+    ))
+}
+
+/// Die Biome, mit denen eine Familie vorkommt.
+type Biomes<'a> = BTreeSet<&'a str>;
+
+/// Das Modell mit seiner Fluessigkeit auf voller Blockhoehe.
+fn full_height(model: &BakedModel) -> BakedModel {
+    let mut quads: Vec<Quad> = model
+        .quads
+        .iter()
+        .filter(|q| q.fluid.is_none())
+        .cloned()
+        .collect();
+    if let Some(q) = model.quads.iter().find(|q| q.fluid.is_some()) {
+        let fluid = q.fluid.map(|(fluid, _)| fluid);
+        quads.extend(box_quads(
+            [0.0; 3],
+            [16.0; 3],
+            q.texture,
+            q.tint_index,
+            fluid,
+        ));
+    }
+    BakedModel { quads }
 }
 
 struct Entry {
@@ -163,20 +367,30 @@ struct Entry {
     /// Deckt der eigene Teil den Blockumriss lueckenlos ab? Nur dann darf
     /// der Block etwas dahinter verdecken.
     opaque: bool,
-    /// Bleibt jeder Teil im Umriss seines eigenen Wuerfels? Nach der
-    /// Zerlegung ist das der Normalfall; schlaegt sie fehl, verzichtet der
-    /// Renderer auf die Verdeckungsabkuerzung.
+    /// Deckt der eigene Teil den Boden des Wuerfels — die Oberseite des
+    /// Blocks darunter?
+    covers_floor: bool,
+    /// Bleibt der eigene Teil Pixel fuer Pixel im gerasterten Umriss seines
+    /// Wuerfels? Nur dann darf der Block verdeckt wegfallen: was daneben
+    /// liegt, deckt kein Nachbar sicher. Die Zerlegung laesst jedem Teil eine
+    /// Pixelbreite Spielraum, und so weit ragen auch Schilder, Weizen, Rote
+    /// Bete, Schienen, Feuer und das Lesepult je nach scale ueber den Umriss,
+    /// ohne zu zerfallen. Schlaegt die Zerlegung fehl, gilt das erst recht.
     contained: bool,
 }
 
 impl SpriteSet {
-    /// Backt und rastert jede Blockstate genau einmal.
+    /// Backt und rastert jede Blockstate genau einmal, gefaerbte Fassungen
+    /// nur fuer die Biome, mit denen sie im Vorlauf eine Section teilt. Auf
+    /// der ganzen Welt kommen alle Biome vor, aber nicht jeder Block in
+    /// jedem: Wasser hat in elf Wasserfarben keinen Sinn, wo es nur in
+    /// dreien steht.
     ///
     /// Blockstates ohne sichtbare Geometrie — Luft, Truhen, Deckenfeuer —
     /// landen nicht in der Tabelle und werden beim Rendern uebersprungen.
-    pub fn build<'a>(
+    pub fn build_in<'a>(
         assets: &mut Assets,
-        states: impl IntoIterator<Item = &'a BlockState>,
+        states: impl IntoIterator<Item = (&'a BlockState, &'a BTreeSet<String>)>,
         projection: Projection,
     ) -> Result<SpriteSet> {
         let mut set = SpriteSet {
@@ -186,69 +400,161 @@ impl SpriteSet {
             by_state: HashMap::new(),
             by_mask: HashMap::new(),
             by_biome: HashMap::new(),
+            biome_index: assets
+                .colors()
+                .biomes()
+                .enumerate()
+                .map(|(i, biome)| (biome.to_string(), i))
+                .collect(),
+            by_content: HashMap::new(),
+            strips: HashMap::new(),
             projection,
+            masks: Masks::new(assets.textures(), projection),
+            cover_tops: std::array::from_fn(|i| {
+                surface_top(assets.textures(), cover_projection(), i as u8 + 1)
+            }),
             foreign: BTreeSet::new(),
-            cover: Cover::new(projection),
-            unresolved: BTreeMap::new(),
+            cover: Cover::default(),
         };
+        set.cover = Cover::new(&set.masks.outline, projection);
 
-        for state in states {
-            if state.is_air() || set.by_state.contains_key(state) {
+        // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
+        // Einfluss aufs Bild unterscheiden — Laub nach Entfernung, Kelp nach
+        // Alter, Wasser nach Fallstufe —, teilen sich eine Familie, und die
+        // Familie bekommt die Biome aller ihrer Blockstates.
+        let mut groups: Vec<(Vec<&'a BlockState>, Biomes<'a>)> = Vec::new();
+        let mut index: HashMap<FamilyKey, usize> = HashMap::new();
+        let mut seen: HashSet<&BlockState> = HashSet::new();
+        for (state, biomes) in states {
+            if state.is_air() || !seen.insert(state) {
                 continue;
             }
-            let models = match models_of(assets, state) {
-                Ok(models) => models,
-                Err(error) => {
-                    set.unresolved
-                        .entry(state.name().to_string())
-                        .or_insert_with(|| format!("{error:#}"));
-                    continue;
+            let key = family_key(assets, state)?;
+            let biomes = biomes.iter().map(String::as_str);
+            match index.get(&key) {
+                Some(&i) => {
+                    groups[i].0.push(state);
+                    groups[i].1.extend(biomes);
                 }
-            };
-            let fluid = models.first().and_then(|(_, model)| fluid_of(model));
+                None => {
+                    index.insert(key, groups.len());
+                    groups.push((vec![state], biomes.collect()));
+                }
+            }
+        }
+
+        let mut fluids: BTreeMap<Fluid, Biomes<'a>> = BTreeMap::new();
+        for (members, biomes) in groups {
+            let state = members[0];
+            let models = models_of(assets, state)?;
+            for member in &members[1..] {
+                assets.skip_like(member, state);
+            }
+            let fluid = fluid::key(state);
             let alternatives: Vec<(u32, Option<SpriteId>)> = models
                 .iter()
                 .map(|(weight, model)| {
-                    let id = set.insert_fluid(assets, state, model, fluid.is_some());
+                    let id = set.insert_fluid(assets, state, model, fluid.is_some(), &biomes);
                     (*weight, id)
                 })
                 .collect();
             if alternatives.iter().all(|(_, id)| id.is_none()) {
                 continue;
             }
-            let total = alternatives.iter().map(|(weight, _)| *weight).sum();
-            let opaque = alternatives
+            let entries = || {
+                alternatives
+                    .iter()
+                    .map(|(_, id)| id.map(|id| &set.sprites[id.0 as usize]))
+            };
+            let all = |test: fn(&Entry) -> bool| entries().all(|e| e.is_some_and(test));
+            let cover_bits = models
                 .iter()
-                .all(|(_, id)| id.is_some_and(|id| set.sprites[id.0 as usize].opaque));
-            let contained = alternatives
-                .iter()
-                .all(|(_, id)| id.is_none_or(|id| set.sprites[id.0 as usize].contained));
-            let water = matches!(fluid, Some((Fluid::Water, height)) if height >= 1.0)
+                .zip(&alternatives)
+                .fold(u8::MAX, |bits, ((_, model), &(_, id))| {
+                    bits & set.covers_rays(assets, model, id)
+                });
+            // Eine Alternative ohne Bild zeichnet nichts, bleibt also im
+            // Wuerfel. Die Fassungen einer Fluessigkeit sind Teile ihres
+            // Modells oder dessen voller Wuerfel: sie bleiben, wo das Modell
+            // bleibt.
+            let contained = entries().all(|e| e.is_none_or(|e| e.contained));
+            let foreign = entries()
+                .any(|e| e.is_some_and(|e| e.parts.iter().any(|(cell, _)| *cell != OWN_CELL)));
+            let pure_fluid = fluid.is_some()
                 && models
                     .iter()
                     .all(|(_, model)| model.quads.iter().all(|q| q.fluid.is_some()));
-            let foreign = alternatives.iter().any(|(_, id)| {
-                id.is_some_and(|id| {
-                    set.sprites[id.0 as usize]
-                        .parts
-                        .iter()
-                        .any(|(cell, _)| *cell != OWN_CELL)
-                })
-            });
-            set.by_state
-                .insert(state.clone(), set.families.len() as u32);
-            set.families.push(Family {
-                alternatives,
-                total,
-                fluid,
-                opaque,
+            let family = Family {
+                total: alternatives.iter().map(|(weight, _)| *weight).sum(),
+                seed_offset: seed_offset(state),
+                opaque: all(|e| e.opaque),
+                covers_floor: all(|e| e.covers_floor),
                 contained,
-                water,
                 foreign,
-            });
+                pure_fluid,
+                cover_bits,
+                fluid,
+                alternatives,
+            };
+            let index = set.families.len() as u32;
+            for member in members {
+                set.by_state.insert(member.clone(), index);
+            }
+            set.families.push(family);
+            if let Some((fluid, _)) = fluid {
+                fluids.entry(fluid).or_default().extend(biomes);
+            }
         }
 
+        for (fluid, biomes) in fluids {
+            set.insert_strips(assets, fluid, &biomes);
+        }
         Ok(set)
+    }
+
+    /// Je Hoehe einer Wasseroberflaeche ein Bit: deckt ein Modell mehr als
+    /// die Haelfte dessen, was sie an seiner Stelle belegen wuerde,
+    /// gemessen bei scale 32? Bei scale 32 misst das fertige Sprite, sonst
+    /// eine eigene Rasterung dafuer.
+    fn covers_rays(&self, assets: &Assets, model: &BakedModel, id: Option<SpriteId>) -> u8 {
+        let reference = cover_projection();
+        let own = id
+            .filter(|_| self.projection.scale() == reference.scale())
+            .map(|id| &self.sprites[id.0 as usize].parts)
+            .filter(|parts| parts.len() == 1)
+            .map(|parts| &parts[0].1);
+        let gerastert;
+        let sprite = match own {
+            Some(sprite) => sprite,
+            None => {
+                gerastert = render(model, assets.textures(), &reference, Tints::default());
+                match &gerastert {
+                    Some(sprite) => sprite,
+                    None => return 0,
+                }
+            }
+        };
+        (0..8)
+            .filter(|&i| covers_most(sprite, &self.cover_tops[i]))
+            .fold(0, |bits, i| bits | 1 << i)
+    }
+
+    /// Streifen der Seitenflaechen ueber niedrigeren Nachbarn derselben
+    /// Fluessigkeit, je Paar aus eigener Hoehe und Nachbarhoehe in Neunteln
+    /// und je Seite — der Renderer haengt sie an, wo eine Oberflaeche an
+    /// eine hoehere Saeule oder eine Stufe fliessenden Wassers stoesst.
+    fn insert_strips(&mut self, assets: &mut Assets, fluid: Fluid, biomes: &BTreeSet<&str>) {
+        let state = fluid.source();
+        for own in 2..=fluid::FULL {
+            for below in 1..own {
+                for face in [Face::East, Face::South] {
+                    let model = fluid::strip(assets, fluid, face, below, own);
+                    if let Some(id) = self.insert_tinted(assets, &state, &model, biomes) {
+                        self.strips.insert((fluid, own, below, face), id);
+                    }
+                }
+            }
+        }
     }
 
     /// Ein Modell mit allen Fassungen: bei einer Fluessigkeit je Maske aus
@@ -260,9 +566,13 @@ impl SpriteSet {
         state: &BlockState,
         model: &BakedModel,
         has_fluid: bool,
+        biomes: &BTreeSet<&str>,
     ) -> Option<SpriteId> {
-        let base = self.insert_tinted(assets, state, model)?;
-        if !has_fluid {
+        let base = self.insert_tinted(assets, state, model, biomes)?;
+        // Teilen sich zwei Familien das Bild, teilen sie sich auch die
+        // Fassungen, und die erste hat sie schon eingetragen: Blasensaeule
+        // und geflutete Truhe sehen aus wie Wasser.
+        if !has_fluid || self.by_mask.contains_key(&base) {
             return Some(base);
         }
         // Deckt die Textur schon, gibt es keine Tiefe zu zeichnen: Lava.
@@ -274,16 +584,21 @@ impl SpriteSet {
                     .pixels()
                     .any(|p| p.0[3] > 0 && p.0[3] < 255)
         });
+        // Steht dieselbe Fluessigkeit darueber, reicht sie bis zur
+        // Blockkante (`FlowingFluid.getHeight`); an der Oberflaeche endet
+        // sie bei ihrer eigenen Hoehe.
+        let voll = full_height(model);
         let mut variants = vec![None; 8 * DEPTHS];
         variants[0] = Some(base);
         for mask in 0..8u8 {
             let surface = mask & mask_bit(Face::Up) == 0;
             let depths = if surface && translucent { DEPTHS } else { 1 };
+            let quelle = if surface { model } else { &voll };
             for depth in 0..depths {
                 if mask == 0 && depth == 0 {
                     continue;
                 }
-                let quads = model
+                let quads = quelle
                     .quads
                     .iter()
                     .filter(|q| q.fluid.is_none_or(|(_, face)| mask & mask_bit(face) == 0))
@@ -296,7 +611,7 @@ impl SpriteSet {
                     })
                     .collect();
                 variants[mask as usize + 8 * depth] =
-                    self.insert_tinted(assets, state, &BakedModel { quads });
+                    self.insert_tinted(assets, state, &BakedModel { quads }, biomes);
             }
         }
         self.by_mask.insert(base, variants);
@@ -310,18 +625,22 @@ impl SpriteSet {
         assets: &Assets,
         state: &BlockState,
         model: &BakedModel,
+        biomes: &BTreeSet<&str>,
     ) -> Option<SpriteId> {
         // Welche Faerbungen das Modell ueberhaupt traegt. Nur die
         // unterscheiden Fassungen — sonst bekaeme jeder Grasblock eine
-        // Fassung je Wasserfarbe.
-        let uses = model
-            .quads
-            .iter()
-            .fold((false, false), |(block, water), q| match q.tint_index {
+        // Fassung je Wasserfarbe. Gezaehlt wird nur, was der Rasterizer
+        // zeichnet: ein gefluteter Zaun mitten im Wasser behaelt vom
+        // Wasserwuerfel nur die abgewandten Seiten, und die gaeben sonst
+        // je Wasserfarbe eine pixelgleiche Fassung.
+        let uses = model.quads.iter().filter(|q| faces_camera(q)).fold(
+            (false, false),
+            |(block, water), q| match q.tint_index {
                 None => (block, water),
                 Some(fluid::TINT_INDEX) => (block, true),
                 Some(_) => (true, water),
-            });
+            },
+        );
         let tints = |biome: Option<&str>| {
             let t = assets.colors().tints(state.name(), biome);
             Tints {
@@ -332,42 +651,89 @@ impl SpriteSet {
 
         let default = tints(None);
         let sprite = render(model, assets.textures(), &self.projection, default)?;
-        let id = self.insert(sprite, model);
+        // Die Faerbung je Biom als Signatur. Zwei Familien mit gleichem Bild
+        // teilen sich das Sprite samt seinen Biomfassungen — das darf nur,
+        // wer sich in jedem Biom gleich faerbt, sonst bekaeme Wasser die
+        // Fassungen einer Blasensaeule aus weniger Biomen.
+        let allowed = |biome: &str| biomes.contains(biome);
+        let class = if default == Tints::default() {
+            0
+        } else {
+            let mut hasher = std::hash::DefaultHasher::new();
+            for biome in assets.colors().biomes() {
+                allowed(biome).then(|| tints(Some(biome))).hash(&mut hasher);
+            }
+            hasher.finish() | 1
+        };
+        let id = self.insert(sprite, model, class);
 
-        if default == Tints::default() {
+        // Ein geteilter Eintrag hat seine Biomfassungen schon: gleiche
+        // Klasse heisst gleiche Faerbung in jedem Biom.
+        if class == 0 || self.by_biome.contains_key(&id) {
             return Some(id);
         }
         // Eine Fassung je Biom; gleiche Farben teilen sich das Sprite.
         let mut by_tints = HashMap::from([(default, id)]);
-        let mut by_biome = HashMap::new();
+        let mut by_biome = Vec::with_capacity(self.biome_index.len());
         for biome in assets.colors().biomes() {
+            // Biome, mit denen die Blockstate nie zusammen vorkommt, zeigen
+            // auf das Standardklima und werden nie gefragt.
+            if !allowed(biome) {
+                by_biome.push(id);
+                continue;
+            }
             let tints = tints(Some(biome));
             let variant = match by_tints.get(&tints) {
                 Some(&variant) => variant,
                 None => {
                     let sprite = render(model, assets.textures(), &self.projection, tints)
                         .expect("dasselbe Modell, nur anders gefaerbt");
-                    let variant = self.insert(sprite, model);
+                    let variant = self.insert(sprite, model, 0);
                     by_tints.insert(tints, variant);
                     variant
                 }
             };
-            by_biome.insert(biome.to_string(), variant);
+            by_biome.push(variant);
         }
         self.by_biome.insert(id, by_biome);
         Some(id)
     }
 
     /// Zerlegt ein Sprite in seine Wuerfel und nimmt es in die Tabelle auf.
-    fn insert(&mut self, sprite: Sprite, model: &BakedModel) -> SpriteId {
+    ///
+    /// Pixelgleiche Sprites teilen sich den Eintrag: die Tiefenfassungen
+    /// einer gefluteten oberen Platte sind gleich, weil ihr Wasser in der
+    /// deckenden Haelfte liegt, und eine Blasensaeule sieht aus wie Wasser.
+    /// Nur fuer Sprites im eigenen Wuerfel — die Zerlegung eines
+    /// ueberhaengenden haengt am Modell, nicht nur am Bild.
+    ///
+    /// `class` ist die Faerbungs-Signatur aus `insert_tinted`: nur Sprites
+    /// derselben Klasse teilen sich den Eintrag. Fassungen je Biom haben
+    /// die Klasse 0 wie ungefaerbte Sprites; Biomfassungen haengen nur am
+    /// Sprite der Standardfarbe.
+    fn insert(&mut self, sprite: Sprite, model: &BakedModel, class: u64) -> SpriteId {
+        let key =
+            fits_cell(&sprite, OWN_CELL, self.projection).then(|| (content_hash(&sprite), class));
+        if let Some(key) = key
+            && let Some(ids) = self.by_content.get(&key)
+            && let Some(&id) = ids
+                .iter()
+                .find(|&&id| same_image(&self.sprites[id.0 as usize].parts[0].1, &sprite))
+        {
+            return id;
+        }
+
         let parts = split(sprite, model, self.projection);
-        let opaque = parts
+        let own = parts
             .iter()
             .find(|(cell, _)| *cell == OWN_CELL)
-            .is_some_and(|(_, sprite)| covers_cell(sprite, self.projection));
-        let contained = parts
-            .iter()
-            .all(|(cell, sprite)| fits_cell(sprite, *cell, self.projection));
+            .map(|(_, sprite)| sprite);
+        // Der Boden ist die Oberseite des Blocks darunter, eine halbe
+        // Blockhoehe tiefer im Bild.
+        let floor = self.projection.scale() as i32 / 2;
+        let opaque = own.is_some_and(|sprite| covers_all(sprite, &self.masks.outline, 0));
+        let covers_floor = own.is_some_and(|sprite| covers_all(sprite, &self.masks.top, floor));
+        let contained = own.is_none_or(|sprite| self.masks.contains(sprite));
 
         self.foreign.extend(
             parts
@@ -378,9 +744,20 @@ impl SpriteSet {
         self.sprites.push(Entry {
             parts,
             opaque,
+            covers_floor,
             contained,
         });
-        SpriteId(self.sprites.len() as u32 - 1)
+        let id = SpriteId(self.sprites.len() as u32 - 1);
+        if let Some(key) = key {
+            self.by_content.entry(key).or_default().push(id);
+        }
+        id
+    }
+
+    /// Der Streifen einer Seite zwischen der Hoehe eines niedrigeren
+    /// Nachbarn und der eigenen, beide in Neunteln.
+    pub fn strip(&self, fluid: Fluid, own: u8, below: u8, face: Face) -> Option<SpriteId> {
+        self.strips.get(&(fluid, own, below, face)).copied()
     }
 
     /// Das Sprite der ersten Alternative.
@@ -390,12 +767,6 @@ impl SpriteSet {
 
     pub fn family_of(&self, state: &BlockState) -> Option<&Family> {
         self.by_state.get(state).map(|&i| self.family(i))
-    }
-
-    /// Blockarten ohne Sprite, weil die Assets sie nicht kennen — je Name
-    /// der erste Fehler.
-    pub fn unresolved(&self) -> &BTreeMap<String, String> {
-        &self.unresolved
     }
 
     /// Index der Familie einer Blockstate, fuer Caches je Paletteneintrag.
@@ -433,17 +804,23 @@ impl SpriteSet {
     pub fn in_biome<'b>(&self, id: SpriteId, biome: impl FnOnce() -> Option<&'b str>) -> SpriteId {
         match self.by_biome.get(&id) {
             Some(variants) => biome()
-                .and_then(|name| variants.get(name))
-                .copied()
-                .unwrap_or(id),
+                .and_then(|name| self.biome_index.get(name))
+                .map_or(id, |&i| variants[i]),
             None => id,
         }
     }
 
-    /// Wie viele Sprites Fassungen sind: Alternativen, Biome, verdeckte
-    /// Fluessigkeitsflaechen.
+    /// Wie viele Sprites Fassungen sind: Masken, Tiefen, Biome und
+    /// Streifen — alles, was nicht das Grundbild einer Alternative ist.
+    /// Familien teilen sich pixelgleiche Grundbilder, es kann also mehr
+    /// Familien geben als Sprites.
     pub fn variants(&self) -> usize {
-        self.sprites.len() - self.families.len()
+        let grundbilder: HashSet<SpriteId> = self
+            .families
+            .iter()
+            .flat_map(|family| family.alternatives.iter().filter_map(|&(_, id)| id))
+            .collect();
+        self.sprites.len() - grundbilder.len()
     }
 
     /// Der Teil dieses Sprites, der in `cell` liegt.
@@ -463,10 +840,8 @@ impl SpriteSet {
         self.sprites[id.0 as usize].opaque
     }
 
-    /// Bleibt jeder Teil in seinem Wuerfel? Nur dann duerfen drei deckende
-    /// Nachbarn das Sprite ueberspringen.
-    pub fn is_contained(&self, id: SpriteId) -> bool {
-        self.sprites[id.0 as usize].contained
+    pub fn cover(&self) -> &Cover {
+        &self.cover
     }
 
     /// Alle Wuerfel ausser dem eigenen, in denen irgendein Sprite Teile
@@ -476,10 +851,6 @@ impl SpriteSet {
     /// kostet die Suche danach im Renderpfad nichts.
     pub fn foreign_cells(&self) -> &BTreeSet<Cell> {
         &self.foreign
-    }
-
-    pub fn cover(&self) -> &Cover {
-        &self.cover
     }
 
     /// Wie viele Sprites ihren eigenen Blockwürfel verlassen.
@@ -497,6 +868,61 @@ impl SpriteSet {
 
     pub fn projection(&self) -> Projection {
         self.projection
+    }
+}
+
+/// Welche der drei kamerazugewandten Nachbarn einen Pixel des eigenen
+/// Sprites uebermalen wuerden — je Pixelposition relativ zum Blockursprung
+/// ein Bitfeld aus [`mask_bit`]: Osten, oben, Sueden.
+///
+/// Ein deckender Nachbar setzt jeden Pixel seines Umrisses auf Alpha 255,
+/// genau die Pixel aus `Masks::outline`, und kommt in der
+/// Zeichenreihenfolge nach diesem Block. Was er uebermalt, muss der Block
+/// gar nicht erst zeichnen. Weil der scale ein Vielfaches von 4 ist, liegt
+/// jeder Nachbar um ganze Pixel versetzt; bei einem anderen scale deckt
+/// niemand.
+///
+/// Die Tabelle haengt nur an der Projektion; eine je Sprite-Tabelle.
+#[derive(Default)]
+pub struct Cover {
+    origin: i32,
+    size: i32,
+    bits: Vec<u8>,
+}
+
+impl Cover {
+    fn new(outline: &[(i32, i32)], projection: Projection) -> Cover {
+        let scale = projection.scale() as i32;
+        if scale % 4 != 0 {
+            return Cover::default();
+        }
+        let (origin, size) = (-2 * scale, 4 * scale);
+        let mut bits = vec![0u8; (size * size) as usize];
+        for (face, cell) in [
+            (Face::East, [1, 0, 0]),
+            (Face::Up, [0, 1, 0]),
+            (Face::South, [0, 0, 1]),
+        ] {
+            let (dx, dy) = projection.project_block(cell);
+            for &(x, y) in outline {
+                let (px, py) = (x + dx as i32 - origin, y + dy as i32 - origin);
+                if (0..size).contains(&px) && (0..size).contains(&py) {
+                    bits[(py * size + px) as usize] |= mask_bit(face);
+                }
+            }
+        }
+        Cover { origin, size, bits }
+    }
+
+    /// Bitfeld des Pixels an dieser Position relativ zum Blockursprung.
+    /// Ausserhalb der Tabelle deckt niemand.
+    #[inline]
+    pub fn at(&self, x: i32, y: i32) -> u8 {
+        let (px, py) = (x - self.origin, y - self.origin);
+        if px < 0 || py < 0 || px >= self.size || py >= self.size {
+            return 0;
+        }
+        self.bits[(py * self.size + px) as usize]
     }
 }
 
@@ -526,98 +952,39 @@ fn cell_center(cell: Cell, projection: Projection) -> (f32, f32) {
     (x as f32, y as f32)
 }
 
-/// Welche der drei kamerazugewandten Nachbarn einen Pixel des eigenen
-/// Sprites uebermalen wuerden — je Pixelposition relativ zum Blockursprung
-/// ein Bitfeld aus [`mask_bit`]: Osten, oben, Sueden.
-///
-/// Ein deckender Nachbar, der gezeichnet wird, setzt jeden Pixel in seinem
-/// Umriss auf Alpha 255 — und kommt in der Zeichenreihenfolge nach diesem
-/// Block. Was er uebermalt, muss der Block gar nicht erst zeichnen. Das ist
-/// derselbe Umriss, den `covers_cell` prueft, samt der Pixelbreite Rand,
-/// die dort ausgenommen ist: nur innerhalb ist Alpha 255 garantiert.
-///
-/// Die Tabelle haengt nur an der Projektion; eine je Sprite-Tabelle.
-pub struct Cover {
-    origin: i32,
-    size: i32,
-    bits: Vec<u8>,
+/// Der scale, bei dem `covers` misst: der Standard. So zaehlen alle
+/// Zoomstufen die Tiefe hinter einer Oberflaeche gleich.
+fn cover_projection() -> Projection {
+    Projection::new(Projection::DEFAULT_SCALE)
 }
 
-impl Cover {
-    fn new(projection: Projection) -> Cover {
-        let scale = projection.scale() as i32;
-        let half = (scale / 2) as f32;
-        let (origin, size) = (-2 * scale, 4 * scale);
-        let mut bits = vec![0u8; (size * size) as usize];
-        for py in 0..size {
-            for px in 0..size {
-                let (cx, cy) = ((origin + px) as f32 + 0.5, (origin + py) as f32 + 0.5);
-                let mut b = 0;
-                for (face, cell) in [
-                    (Face::East, [1, 0, 0]),
-                    (Face::Up, [0, 1, 0]),
-                    (Face::South, [0, 0, 1]),
-                ] {
-                    let (nx, ny) = cell_center(cell, projection);
-                    if in_outline(cx - nx, cy - ny, half, -1.0) {
-                        b |= mask_bit(face);
-                    }
-                }
-                bits[(py * size + px) as usize] = b;
-            }
-        }
-        Cover { origin, size, bits }
+/// Alpha eines Pixelmittelpunkts relativ zum Blockursprung; ausserhalb des
+/// Bilds ist nichts.
+fn alpha_at(sprite: &Sprite, x: i32, y: i32) -> u8 {
+    let (sx, sy) = (x - sprite.offset.0, y - sprite.offset.1);
+    if sx < 0 || sy < 0 || sx >= sprite.image.width() as i32 || sy >= sprite.image.height() as i32 {
+        return 0;
     }
-
-    /// Bitfeld des Pixels an dieser Position relativ zum Blockursprung.
-    /// Ausserhalb der Tabelle deckt niemand.
-    #[inline]
-    pub fn at(&self, x: i32, y: i32) -> u8 {
-        let (px, py) = (x - self.origin, y - self.origin);
-        if px < 0 || py < 0 || px >= self.size || py >= self.size {
-            return 0;
-        }
-        self.bits[(py * self.size + px) as usize]
-    }
+    sprite.image.get_pixel(sx as u32, sy as u32).0[3]
 }
 
-/// Prueft, ob ein Sprite den Umriss eines vollen Blocks lueckenlos und
-/// undurchsichtig ausfuellt.
-///
-/// Das ist die Bedingung dafuer, dass der Block etwas dahinter verdecken
-/// darf. Geprueft wird am fertigen Bild statt am Modell: ein Wuerfel mit
-/// durchsichtiger Textur wie Glas faellt so von selbst heraus.
-fn covers_cell(sprite: &Sprite, projection: Projection) -> bool {
-    let scale = projection.scale();
-    let half = scale as i32 / 2;
-    if sprite.image.dimensions() != (scale, scale) || sprite.offset != (-half, -half) {
-        return false;
-    }
-
-    // Eine Pixelbreite Rand bleibt aussen vor: die Texturmittelung kann
-    // genau dort Alpha unter 255 lassen, und eine Blockkante um ein Pixel
-    // durchscheinen zu lassen ist harmlos.
-    let mut geprueft = 0u32;
-    for (x, y, pixel) in sprite.image.enumerate_pixels() {
-        let (px, py) = pixel_center(sprite, x, y);
-        if !in_outline(px, py, half as f32, -1.0) {
-            continue;
-        }
-        if pixel.0[3] < 255 {
-            return false;
-        }
-        geprueft += 1;
-    }
-
-    // Unter scale 4 schrumpft das Sechseck auf nichts zusammen: kein
-    // Pixelmittelpunkt liegt mehr darin, und die Schleife oben wuerde
-    // wortlos "deckend" melden. Eine leere Pruefmenge beweist nichts.
-    geprueft > 0
+fn content_hash(sprite: &Sprite) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    sprite.offset.hash(&mut hasher);
+    sprite.image.dimensions().hash(&mut hasher);
+    sprite.image.as_raw().hash(&mut hasher);
+    hasher.finish()
 }
 
-/// Prueft, ob ein Sprite ganz im Umriss eines Wuerfels bleibt.
-///
-/// Die eine Pixelbreite Toleranz entspricht der von `covers_cell`.
+fn same_image(a: &Sprite, b: &Sprite) -> bool {
+    a.offset == b.offset
+        && a.image.dimensions() == b.image.dimensions()
+        && a.image.as_raw() == b.image.as_raw()
+}
+
+/// Prueft, ob ein Sprite ganz im Umriss eines Wuerfels bleibt, bis auf
+/// eine Pixelbreite Toleranz: mehr verschiebt die Rundung beim Rastern
+/// nicht.
 fn fits_cell(sprite: &Sprite, cell: Cell, projection: Projection) -> bool {
     let half = projection.scale() as f32 / 2.0;
     let (cx, cy) = cell_center(cell, projection);
@@ -763,48 +1130,30 @@ mod tests {
     use super::*;
     use crate::assets::model_of;
 
-    /// Referenzwerte aus einem echten `java.util.Random` mit `Mth.getSeed`
-    /// (OpenJDK 26): Position, Saat, `(int) nextLong()`.
-    const JAVA: [([i32; 3], i64, i32); 7] = [
-        ([0, 0, 0], 0, -723955400),
-        ([1, 0, 0], 133076631897947, -136055449),
-        ([-64, 64, 416], 435218090705, -889319201),
-        ([12345, -3, -98765], 131000016891455, 84444920),
-        ([2147483647, 319, -2147483648], 12517264342920, 599139326),
-        ([100, 7, 100], -134188025211418, 1476735360),
-        ([-1, -64, -1], 52541653973741, 262207512),
+    /// Referenzwerte aus den Klassen des 26.2-Clients selbst:
+    /// `Mth.getSeed` und `SingleThreadedRandomSource.nextInt`, abgezaehlt
+    /// wie `WeightedList`. Je Position die Saat und die Wahl bei den
+    /// Gewichten [1, 1, 1, 1], [1, 1, 1], [1, 3] und [2, 1, 1, 1] — zwei
+    /// Zweierpotenzen, zwei Reste.
+    const CLIENT: [([i32; 3], i64, [u32; 4]); 7] = [
+        ([0, 0, 0], 0, [2, 0, 1, 0]),
+        ([1, 0, 0], 133076631897947, [0, 1, 0, 2]),
+        ([-64, 64, 416], 435218090705, [1, 2, 1, 3]),
+        ([12345, -3, -98765], 131000016891455, [1, 1, 1, 0]),
+        ([2147483647, 319, -2147483648], 12517264342920, [0, 2, 0, 1]),
+        ([100, 7, 100], -134188025211418, [3, 1, 1, 3]),
+        ([-1, -64, -1], 52541653973741, [3, 0, 1, 0]),
     ];
 
     #[test]
-    fn positionssaat_wie_in_java() {
-        for (pos, saat, wert) in JAVA {
+    fn positionssaat_wie_im_client() {
+        for (pos, saat, _) in CLIENT {
             assert_eq!(seed(pos), saat, "Saat fuer {pos:?}");
-            assert_eq!(java_random_int(saat), wert, "Random fuer {pos:?}");
         }
     }
 
-    /// Die Mitte der Oberseite uebermalt nur der Nachbar darueber, die
-    /// Mitte der Ostseite nur der oestliche; weit weg deckt niemand, und
-    /// den Rand des Nachbarumrisses nimmt die Tabelle aus — dort ist
-    /// Alpha 255 nicht garantiert.
     #[test]
-    fn deckung_je_nachbar() {
-        let cover = Cover::new(Projection::new(16));
-        // Oberseite: Mitte bei (0, -4), Ostseite: (4, 2), Suedseite: (-4, 2).
-        assert_eq!(cover.at(0, -4), mask_bit(Face::Up));
-        assert_eq!(cover.at(4, 2), mask_bit(Face::East));
-        assert_eq!(cover.at(-5, 2), mask_bit(Face::South));
-        assert_eq!(cover.at(100, 100), 0);
-        // Der Umriss des oberen Nachbarn reicht bis y = -16; seine oberste
-        // Pixelreihe bleibt Rand.
-        assert_eq!(cover.at(0, -16), 0);
-        assert_eq!(cover.at(0, -15), mask_bit(Face::Up));
-    }
-
-    /// `Math.abs(int) % total` und das Abzaehlen der Gewichte, wie
-    /// `WeightedRandom.getWeightedItem`.
-    #[test]
-    fn gewichtete_wahl_wie_in_java() {
+    fn gewichtete_wahl_wie_im_client() {
         let family = |weights: &[u32]| Family {
             alternatives: weights
                 .iter()
@@ -814,25 +1163,28 @@ mod tests {
             total: weights.iter().sum(),
             fluid: None,
             opaque: false,
+            covers_floor: false,
             contained: true,
-            water: false,
             foreign: false,
+            pure_fluid: false,
+            cover_bits: 0,
+            seed_offset: [0, 0, 0],
         };
-        let vier = family(&[1, 1, 1, 1]);
-        let drei = family(&[1, 1, 1]);
-        // pick4 und pick3 aus demselben Java-Lauf
-        let erwartet = [(0, 2), (1, 1), (1, 2), (0, 2), (2, 2), (0, 0), (0, 0)];
-        for ((pos, _, _), (p4, p3)) in JAVA.into_iter().zip(erwartet) {
-            assert_eq!(vier.pick(pos), Some(SpriteId(p4)), "vier bei {pos:?}");
-            assert_eq!(drei.pick(pos), Some(SpriteId(p3)), "drei bei {pos:?}");
-        }
-        // Gewichte zaehlen: bei [1, 3] faellt n = 0 auf die erste und
-        // n = 1..3 auf die zweite Alternative — derselbe Rest wie bei vier
-        // gleich schweren.
-        let schwer = family(&[1, 3]);
-        for ((pos, _, _), (p4, _)) in JAVA.into_iter().zip(erwartet) {
-            let soll = if p4 == 0 { 0 } else { 1 };
-            assert_eq!(schwer.pick(pos), Some(SpriteId(soll)), "schwer bei {pos:?}");
+        let listen = [
+            family(&[1, 1, 1, 1]),
+            family(&[1, 1, 1]),
+            family(&[1, 3]),
+            family(&[2, 1, 1, 1]),
+        ];
+        for (pos, _, erwartet) in CLIENT {
+            for (liste, soll) in listen.iter().zip(erwartet) {
+                assert_eq!(
+                    liste.pick(pos),
+                    Some(SpriteId(soll)),
+                    "{pos:?} bei {} Alternativen",
+                    liste.alternatives.len()
+                );
+            }
         }
     }
     use std::path::PathBuf;
@@ -846,11 +1198,21 @@ mod tests {
         BlockState::parse(text).unwrap()
     }
 
+    /// Die Tabelle fuer Blockstates, die in jedem geladenen Biom vorkommen.
+    fn build<'a>(
+        assets: &mut Assets,
+        states: impl IntoIterator<Item = &'a BlockState>,
+        projection: Projection,
+    ) -> Result<SpriteSet> {
+        let alle: BTreeSet<String> = assets.colors().biomes().map(str::to_string).collect();
+        SpriteSet::build_in(assets, states.into_iter().map(|s| (s, &alle)), projection)
+    }
+
     #[test]
     fn luft_kommt_nicht_in_die_tabelle() {
         let mut assets = assets();
         let states = [state("minecraft:air"), state("einfarbig")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert_eq!(set.len(), 1);
         assert!(set.id(&state("minecraft:air")).is_none());
         assert!(set.id(&state("einfarbig")).is_some());
@@ -860,17 +1222,22 @@ mod tests {
     fn jede_blockstate_nur_einmal() {
         let mut assets = assets();
         let states = [state("einfarbig"), state("einfarbig"), state("stone")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert_eq!(set.by_state.len(), 2, "einfarbig nur einmal");
-        // stone liegt in der Fixture in zwei Alternativen vor
-        assert_eq!(set.len(), 3);
+        // stone liegt in der Fixture in zwei Alternativen vor, um 180 Grad
+        // gedreht. Die Textur ist dafuer symmetrisch, beide sehen gleich
+        // aus und teilen sich das Sprite.
+        let stone = set.family_of(&state("stone")).unwrap();
+        assert_eq!(stone.alternatives.len(), 2);
+        assert_eq!(stone.alternatives[0].1, stone.alternatives[1].1);
+        assert_eq!(set.len(), 2);
     }
 
     #[test]
     fn voller_wuerfel_gilt_als_deckend() {
         let mut assets = assets();
         let states = [state("einfarbig")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let id = set.id(&state("einfarbig")).unwrap();
         assert!(set.is_opaque(id), "ein voller Würfel deckt ab");
     }
@@ -881,35 +1248,33 @@ mod tests {
     fn flaches_modell_deckt_nicht_ab() {
         let mut assets = assets();
         let states = [state("seerose")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let id = set.id(&state("seerose")).unwrap();
         assert!(!set.is_opaque(id));
     }
 
     /// Ein Würfel mit vollständig durchsichtiger Textur darf nie als
-    /// deckend gelten — auch nicht bei der kleinsten erlaubten
-    /// Skalierung, wo das Blocksechseck keinen Pixelmittelpunkt mehr
-    /// enthält und die Prüfschleife leer durchläuft.
+    /// deckend gelten, auch nicht bei scale 2 und 3, wo sein Umriss nur
+    /// vier und sechs Pixel hat.
     #[test]
     fn durchsichtiger_wuerfel_deckt_nie_ab() {
         for scale in [2, 3, 4, 16, 64] {
             let mut assets = assets();
             let states = [state("durchsichtig")];
-            let set = SpriteSet::build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let id = set.id(&state("durchsichtig")).unwrap();
             assert!(!set.is_opaque(id), "bei scale {scale}");
         }
     }
 
-    /// Gegenprobe: ein voller Würfel deckt bei jeder brauchbaren
-    /// Skalierung ab. Unter scale 4 verzichtet die Prüfung bewusst
-    /// darauf, weil ihr die Auflösung fehlt.
+    /// Gegenprobe: ein voller Würfel deckt auf jeder Stufe ab, auch bei
+    /// scale 2 und 3.
     #[test]
-    fn voller_wuerfel_deckt_ab_sobald_die_aufloesung_reicht() {
-        for scale in [4, 16, 64] {
+    fn voller_wuerfel_deckt_auf_jeder_stufe_ab() {
+        for scale in [2, 3, 4, 16, 64] {
             let mut assets = assets();
             let states = [state("einfarbig")];
-            let set = SpriteSet::build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let id = set.id(&state("einfarbig")).unwrap();
             assert!(set.is_opaque(id), "bei scale {scale}");
         }
@@ -921,11 +1286,11 @@ mod tests {
     fn gewoehnliche_modelle_haben_nur_den_eigenen_wuerfel() {
         let mut assets = assets();
         let states = [state("einfarbig"), state("seerose"), state("oak_fence")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         for name in ["einfarbig", "seerose", "oak_fence"] {
             let id = set.id(&state(name)).unwrap();
             assert!(set.part(id, OWN_CELL).is_some(), "{name}");
-            assert!(set.is_contained(id), "{name}");
+            assert!(set.sprites[id.0 as usize].contained, "{name}");
         }
         assert!(set.foreign_cells().is_empty());
     }
@@ -936,7 +1301,7 @@ mod tests {
     fn ueberhaengendes_modell_zerfaellt_in_wuerfel() {
         let mut assets = assets();
         let states = [state("ueberhang")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let id = set.id(&state("ueberhang")).unwrap();
 
         assert!(set.part(id, OWN_CELL).is_some(), "eigener Würfel");
@@ -945,9 +1310,17 @@ mod tests {
             set.foreign_cells().iter().copied().collect::<Vec<_>>(),
             vec![[-1, 0, 0]]
         );
+        let entry = &set.sprites[id.0 as usize];
         assert!(
-            set.is_contained(id),
-            "nach der Zerlegung bleibt jeder Teil drin"
+            entry
+                .parts
+                .iter()
+                .all(|(cell, sprite)| fits_cell(sprite, *cell, set.projection)),
+            "nach der Zerlegung bleibt jeder Teil in seinem Würfel"
+        );
+        assert!(
+            !entry.contained,
+            "der eigene Teil nutzt den Spielraum der Zerlegung"
         );
     }
 
@@ -957,12 +1330,62 @@ mod tests {
     fn hohes_modell_zerfaellt_nach_oben() {
         let mut assets = assets();
         let states = [state("turm")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let id = set.id(&state("turm")).unwrap();
 
         assert!(set.part(id, OWN_CELL).is_some());
         assert!(set.part(id, [0, 1, 0]).is_some());
-        assert!(set.is_contained(id));
+        assert!(
+            set.sprites[id.0 as usize]
+                .parts
+                .iter()
+                .all(|(cell, sprite)| fits_cell(sprite, *cell, set.projection))
+        );
+    }
+
+    /// Ein Modell, das knapp über seinen Würfel ragt, zerfällt nicht, liegt
+    /// aber auch nicht im Umriss: seine Randpixel deckt kein Nachbar, und
+    /// verdeckt fallen darf es deshalb nie. So liegen Schilder, Weizen oder
+    /// Schienen in Vanilla.
+    #[test]
+    fn knapper_ueberstand_liegt_nicht_im_umriss() {
+        let mut assets = assets();
+        let states = [state("rand"), state("einfarbig")];
+        for scale in [16, 32] {
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let rand = set.id(&state("rand")).unwrap();
+            let einfarbig = set.id(&state("einfarbig")).unwrap();
+            assert!(set.foreign_cells().is_empty(), "scale {scale}: zerfallen");
+            assert!(!set.sprites[rand.0 as usize].contained, "scale {scale}");
+            assert!(set.sprites[einfarbig.0 as usize].contained, "scale {scale}");
+        }
+    }
+
+    /// Im Umriss liegt ein Sprite, das ihn genau füllt, auch mit einem
+    /// durchsichtigen Pixel darin. Ein einziger sichtbarer daneben genügt,
+    /// und es liegt nicht mehr darin.
+    #[test]
+    fn ein_pixel_neben_dem_umriss_genuegt() {
+        use image::Rgba;
+        let masks = Masks::new(&Textures::new(), Projection::new(16));
+        let x0 = masks.outline.iter().map(|p| p.0).min().unwrap();
+        let y0 = masks.outline.iter().map(|p| p.1).min().unwrap();
+        let x1 = masks.outline.iter().map(|p| p.0).max().unwrap();
+        let y1 = masks.outline.iter().map(|p| p.1).max().unwrap();
+        let offset = (x0 - 1, y0 - 1);
+        let mut image = RgbaImage::new((x1 - x0 + 3) as u32, (y1 - y0 + 3) as u32);
+        let stelle = |(x, y): (i32, i32)| ((x - offset.0) as u32, (y - offset.1) as u32);
+        for &pos in &masks.outline {
+            let (x, y) = stelle(pos);
+            image.put_pixel(x, y, Rgba([9, 9, 9, 255]));
+        }
+        let mut sprite = Sprite { image, offset };
+        assert!(masks.contains(&sprite));
+        let (x, y) = stelle(masks.outline[0]);
+        sprite.image.put_pixel(x, y, Rgba([0; 4]));
+        assert!(masks.contains(&sprite));
+        sprite.image.put_pixel(0, 0, Rgba([9, 9, 9, 1]));
+        assert!(!masks.contains(&sprite));
     }
 
     /// Die Zerlegung ist eine Aufteilung: kein Pixel darf verloren gehen
@@ -995,12 +1418,346 @@ mod tests {
         }
     }
 
+    /// Blockstates mit demselben Bild teilen sich die Familie: Eigenschaften,
+    /// die kein Modell auswaehlt, und Wasser gleicher Menge.
+    #[test]
+    fn gleiche_bilder_teilen_sich_die_familie() {
+        let mut assets = assets();
+        let states = [
+            state("einfarbig[alter=1]"),
+            state("einfarbig[alter=2]"),
+            state("water[level=0]"),
+            state("water[level=8]"),
+            state("water[level=3]"),
+        ];
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        let index = |text: &str| set.family_index(&state(text)).unwrap();
+        assert_eq!(index("einfarbig[alter=1]"), index("einfarbig[alter=2]"));
+        assert_eq!(
+            index("water[level=0]"),
+            index("water[level=8]"),
+            "Quelle und Fall haben dieselbe Menge"
+        );
+        assert_ne!(index("water[level=0]"), index("water[level=3]"));
+        assert_eq!(set.families.len(), 3);
+    }
+
+    /// Mitten im Wasser zeigt ein gefluteter Zaun kein Wasser mehr. Die
+    /// abgewandten Seiten des Wasserwuerfels zeichnet der Rasterizer nicht,
+    /// ihre Farbe darf keine Fassungen je Biom erzeugen.
+    #[test]
+    fn abgewandte_flaechen_faerben_nicht() {
+        let mut assets = assets();
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
+        assets.load_biomes(&data).unwrap();
+        let states = [state("oak_fence[waterlogged=true]")];
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        let base = set.families[0].alternatives[0].1.unwrap();
+        assert!(set.by_biome.contains_key(&base), "Wasser sichtbar");
+        let innen = set.by_mask[&base][7].unwrap();
+        assert!(
+            !set.by_biome.contains_key(&innen),
+            "Maske 7 zeigt kein Wasser"
+        );
+    }
+
+    /// Eine Alternative mit fehlendem Modell bleibt als Missing-Wuerfel in
+    /// der Liste und behaelt ihr Gewicht: die Wahl je Position bleibt die
+    /// des Clients. Fiele sie weg, zeigte der Block an jeder Position die
+    /// uebrige Alternative.
+    #[test]
+    fn kaputte_alternative_behaelt_ihr_gewicht() {
+        let mut assets = assets();
+        let set = build(&mut assets, [&state("halb_kaputt")], Projection::new(16)).unwrap();
+        let family = set.family_of(&state("halb_kaputt")).unwrap();
+        assert_eq!(family.total, 4);
+        assert_eq!(family.alternatives.len(), 2);
+        for (pos, _, erwartet) in CLIENT {
+            assert_eq!(
+                family.pick(pos),
+                family.alternatives[erwartet[2] as usize].1,
+                "{pos:?}"
+            );
+        }
+    }
+
+    /// Die Saat der oberen Haelfte liegt einen Block tiefer, die des
+    /// Fussendes eines Betts einen Schritt in Blickrichtung — beim
+    /// Kopfende. Alles andere wuerfelt an der eigenen Position.
+    #[test]
+    fn saat_wie_getseed_im_client() {
+        let faelle = [
+            ("tall_grass[half=upper]", [0, -1, 0]),
+            ("tall_grass[half=lower]", [0, 0, 0]),
+            (
+                "oak_door[facing=east,half=upper,hinge=left,open=false]",
+                [0, -1, 0],
+            ),
+            ("red_bed[facing=north,part=foot]", [0, 0, -1]),
+            ("red_bed[facing=south,part=foot]", [0, 0, 1]),
+            ("red_bed[facing=west,part=foot]", [-1, 0, 0]),
+            ("red_bed[facing=east,part=foot]", [1, 0, 0]),
+            ("red_bed[facing=east,part=head]", [0, 0, 0]),
+            ("oak_slab[type=top]", [0, 0, 0]),
+            ("oak_stairs[half=top]", [0, 0, 0]),
+        ];
+        for (text, erwartet) in faelle {
+            assert_eq!(seed_offset(&state(text)), erwartet, "{text}");
+        }
+    }
+
+    /// Zwei Blockstates mit demselben Modell, wie `copper_block` und
+    /// `waxed_copper_block`: zwei Familien, ein Sprite, keine Fassung. Die
+    /// Zahl der Fassungen war Sprites minus Familien und lief hier unter
+    /// null.
+    #[test]
+    fn geteilte_grundbilder_sind_keine_fassungen() {
+        let mut assets = assets();
+        let states = [state("einfarbig"), state("einfarbig_gewachst")];
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(set.families.len(), 2);
+        assert_eq!(set.len(), 1);
+        assert_eq!(set.variants(), 0);
+    }
+
+    /// Eine Familie loest ihre Modelle nur fuer ihr erstes Mitglied auf.
+    /// Den Missing-Wuerfel zeichnen aber alle, und alle stehen in der
+    /// Liste — Laub mit einer kaputten Alternative sieben Mal, nicht einmal.
+    #[test]
+    fn jede_blockstate_der_familie_steht_in_der_liste() {
+        let mut assets = assets();
+        let states = [
+            state("halb_kaputt[distance=1]"),
+            state("halb_kaputt[distance=2]"),
+            state("kaputt[distance=1]"),
+            state("kaputt[distance=2]"),
+        ];
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(set.families.len(), 2, "je Block eine Familie");
+        assert_eq!(assets.skipped().len(), 4, "{:?}", assets.skipped());
+        // Auch eine Blockstate ganz ohne heiles Modell bricht nichts ab.
+        assert!(set.family_of(&state("kaputt[distance=1]")).is_some());
+    }
+
+    /// Gefaerbte Fassungen nur fuer die Biome, mit denen die Blockstate
+    /// vorkommt; die anderen zeigen auf das Standardklima.
+    #[test]
+    fn faerbung_nur_fuer_biome_aus_dem_vorlauf() {
+        let mut assets = assets();
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
+        assets.load_biomes(&data).unwrap();
+        let wasser = state("water[level=0]");
+        let alle = build(&mut assets, [&wasser], Projection::new(16)).unwrap();
+        let nur_frozen: BTreeSet<String> = ["minecraft:frozen".to_string()].into();
+        let eines = SpriteSet::build_in(&mut assets, [(&wasser, &nur_frozen)], Projection::new(16))
+            .unwrap();
+        assert!(
+            eines.len() < alle.len(),
+            "{} gegen {}",
+            eines.len(),
+            alle.len()
+        );
+        let base = eines.id(&wasser).unwrap();
+        assert_ne!(eines.in_biome(base, || Some("minecraft:frozen")), base);
+        assert_eq!(eines.in_biome(base, || Some("terranova:heide")), base);
+        assert_ne!(
+            alle.in_biome(alle.id(&wasser).unwrap(), || Some("terranova:heide")),
+            alle.id(&wasser).unwrap()
+        );
+    }
+
+    /// Teilen sich zwei Familien ein Bild, aber nicht die Biome, bleiben
+    /// die Sprites getrennt: sonst bestimmte die zuerst gebaute Familie die
+    /// Fassungen der anderen. Die Blasensaeule steht alphabetisch vor dem
+    /// Wasser.
+    #[test]
+    fn verschiedene_biome_trennen_gleiche_bilder() {
+        let mut assets = assets();
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
+        assets.load_biomes(&data).unwrap();
+        let wasser = state("water[level=0]");
+        let saeule = state("bubble_column");
+        let frozen: BTreeSet<String> = ["minecraft:frozen".to_string()].into();
+        let beide: BTreeSet<String> = ["minecraft:frozen", "minecraft:swamp"]
+            .map(String::from)
+            .into();
+        let set = SpriteSet::build_in(
+            &mut assets,
+            [(&saeule, &frozen), (&wasser, &beide)],
+            Projection::new(16),
+        )
+        .unwrap();
+        let id = set.id(&wasser).unwrap();
+        assert_ne!(
+            set.in_biome(id, || Some("minecraft:swamp")),
+            id,
+            "Wasser im Sumpf hat seine eigene Farbe"
+        );
+    }
+
+    /// Pixelgleiche Sprites teilen sich den Eintrag, auch ueber Familien
+    /// hinweg: eine Blasensaeule sieht aus wie Wasser.
+    #[test]
+    fn pixelgleiche_sprites_teilen_sich_den_eintrag() {
+        let mut assets = assets();
+        let states = [state("water[level=0]"), state("bubble_column")];
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(set.families.len(), 2);
+        assert_eq!(set.id(&states[0]), set.id(&states[1]));
+        assert_eq!(
+            set.len(),
+            build(&mut assets, &states[..1], Projection::new(16))
+                .unwrap()
+                .len()
+        );
+    }
+
+    /// Lava endet bei 8/9: sie deckt den Umriss nicht, den Block darunter
+    /// aber schon. Frei bleiben bei scale 32 64 von 768 Pixeln des
+    /// Umrisses, bei 16 16 von 192 und bei 8 4 von 48. Erst bei scale 4 ist
+    /// der Streifen ueber ihr keinen Pixel hoch, und sie deckt ihren Umriss
+    /// tatsaechlich. Ein Zaunpfosten deckt fast nichts, ein voller Wuerfel
+    /// alles, eine Druckplatte ihren Boden nicht: ihr Rand ist zu sehen.
+    #[test]
+    fn deckung_nach_bereich() {
+        let mut assets = assets();
+        let states = [
+            state("lava"),
+            state("einfarbig"),
+            state("oak_fence[north=true]"),
+            state("water"),
+            state("druckplatte"),
+            state("teppich"),
+        ];
+        // Auf jeder Stufe gleich, auch bei scale 4: dort blieb vom
+        // geschrumpften Boden frueher kein Pixel, und nichts wurde verdeckt.
+        // Nur Lava deckt bei scale 4 auch ihren Umriss.
+        for scale in [32, 16, 8, 4] {
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let flags = |text: &str| {
+                let f = set.family_of(&state(text)).unwrap();
+                (f.opaque, f.covers_floor, f.covers(8))
+            };
+            assert_eq!(flags("einfarbig"), (true, true, true), "scale {scale}");
+            assert_eq!(flags("water"), (false, false, false), "scale {scale}");
+            assert_eq!(flags("lava"), (scale == 4, true, true), "scale {scale}");
+        }
+        let set = build(&mut assets, &states, Projection::new(32)).unwrap();
+        let flags = |text: &str| {
+            let f = set.family_of(&state(text)).unwrap();
+            (f.opaque, f.covers_floor, f.covers(8))
+        };
+        assert_eq!(flags("oak_fence[north=true]"), (false, false, false));
+        assert_eq!(
+            flags("water"),
+            (false, false, false),
+            "durchscheinend deckt nichts"
+        );
+        assert_eq!(flags("druckplatte"), (false, false, false), "Rand frei");
+        assert_eq!(flags("teppich"), (false, true, false), "Boden ganz");
+    }
+
+    /// Ob der Strahl hinter einer Wasseroberflaeche an einem Block endet,
+    /// entscheidet, was er von ihrer Oberseite deckt, und zwar auf jeder
+    /// Stufe gleich. Eine untere Platte deckt dort 100 von 256 Pixeln, eine
+    /// obere alles; am ganzen Umriss gemessen deckte die untere zwei Drittel
+    /// und beendete die Zaehlung. Ein schmales Brett an der Westkante deckt
+    /// bei scale 32 154 von 256, im eigenen Raster bei scale 4 aber nur
+    /// einen von vier Pixeln — gemessen wird deshalb immer bei scale 32.
+    #[test]
+    fn strahlen_enden_an_der_oberseite() {
+        let mut assets = assets();
+        let states = [
+            state("untere_platte[waterlogged=true]"),
+            state("obere_platte[waterlogged=true]"),
+            state("oak_fence[north=true,waterlogged=true]"),
+            state("einfarbig"),
+            state("schmal"),
+        ];
+        for scale in [32, 16, 8, 4] {
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let covers = |text: &str| set.family_of(&state(text)).unwrap().covers(8);
+            assert!(covers("schmal"), "scale {scale}");
+            assert!(!covers("untere_platte[waterlogged=true]"), "scale {scale}");
+            assert!(covers("obere_platte[waterlogged=true]"), "scale {scale}");
+            assert!(
+                !covers("oak_fence[north=true,waterlogged=true]"),
+                "scale {scale}"
+            );
+            assert!(covers("einfarbig"), "scale {scale}");
+        }
+    }
+
+    /// Hinter fliessendem Wasser der Menge a treten die Strahlen bei a/9
+    /// ein, tiefer als bei einer Quelle. Eine untere Platte deckt bei 8/9
+    /// 100 von 256 Pixeln und laesst die Strahlen durch, bei 7/9 mehr als
+    /// die Haelfte, und bei 1/9 steht die Oberflaeche ganz vor ihr.
+    #[test]
+    fn deckung_je_hoehe_der_oberflaeche() {
+        let mut assets = assets();
+        let platte = state("untere_platte[waterlogged=true]");
+        let set = build(&mut assets, [&platte], Projection::new(32)).unwrap();
+        let family = set.family_of(&platte).unwrap();
+        assert!(!family.covers(8));
+        assert!(family.covers(7));
+        assert!(family.covers(1));
+    }
+
+    /// Genau die Haelfte haelt den Strahl nicht auf, eins mehr schon. Hohes
+    /// Seegras deckt bei scale 32 genau 128 der 256 Pixel; mit
+    /// "mindestens die Haelfte" beendete es die Zaehlung, und ueber ihm
+    /// stuende ein heller Fleck.
+    #[test]
+    fn gleichstand_zaehlt_als_wasser() {
+        let pixels: Vec<(i32, i32)> = (0..4).map(|x| (x, 0)).collect();
+        let mut sprite = Sprite {
+            image: RgbaImage::new(4, 1),
+            offset: (0, 0),
+        };
+        for x in 0..2 {
+            sprite.image.put_pixel(x, 0, image::Rgba([0, 0, 0, 255]));
+        }
+        assert!(!covers_most(&sprite, &pixels), "zwei von vier");
+        sprite.image.put_pixel(2, 0, image::Rgba([0, 0, 0, 255]));
+        assert!(covers_most(&sprite, &pixels), "drei von vier");
+    }
+
+    /// Streifen gibt es je Paar aus eigener Hoehe und Nachbarhoehe, fuer
+    /// beide sichtbaren Seiten, und sie liegen ueber der Nachbarhoehe.
+    #[test]
+    fn streifen_fuer_jede_stufe() {
+        let mut assets = assets();
+        let set = build(&mut assets, [&state("water")], Projection::new(16)).unwrap();
+        assert!(set.strip(Fluid::Water, 9, 8, Face::East).is_some());
+        assert!(set.strip(Fluid::Water, 8, 1, Face::South).is_some());
+        assert!(
+            set.strip(Fluid::Water, 8, 8, Face::East).is_none(),
+            "kein Streifen ohne Hoehenunterschied"
+        );
+        assert!(
+            set.strip(Fluid::Lava, 9, 8, Face::East).is_none(),
+            "keine Lava in der Welt"
+        );
+        let id = set.strip(Fluid::Water, 9, 8, Face::East).unwrap();
+        let sprite = set.part(id, OWN_CELL).unwrap();
+        // Ein Neuntel Blockhoehe ist bei scale 16 knapp ein Pixel hoch: je
+        // Spalte hoechstens zwei Pixel, schraeg ueber die ganze Seite.
+        let (w, h) = sprite.image.dimensions();
+        for x in 0..w {
+            let dicke = (0..h)
+                .filter(|&y| sprite.image.get_pixel(x, y).0[3] > 0)
+                .count();
+            assert!(dicke <= 2, "Spalte {x}: {dicke} Pixel");
+        }
+        assert!(sprite.image.pixels().any(|p| p.0[3] > 0));
+    }
+
     /// Blöcke ohne sichtbare Geometrie tauchen gar nicht erst auf.
     #[test]
     fn modell_ohne_flaechen_faellt_heraus() {
         let mut assets = assets();
         let states = [state("chest")];
-        let set = SpriteSet::build(&mut assets, &states, Projection::new(16)).unwrap();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert!(set.is_empty());
     }
 }

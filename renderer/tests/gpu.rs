@@ -13,7 +13,7 @@ use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::{
     ChunkCache, Draw, Gpu, Projection, ScreenRect, SpriteSet, TILE, TileId, covering, draw_all,
-    draw_list, render_area,
+    draw_list, render_area, survey,
 };
 use terranova_render::world::World;
 
@@ -56,15 +56,8 @@ fn welt(projection: Projection) -> Welt {
     let chunks = [(0, 0), (1, 0), (0, 1), (1, 1)];
     common::write_world(dir.path(), &chunks, gelaende);
     let world = World::open(dir.path()).unwrap();
-
-    let mut states = Vec::new();
-    for &(cx, cz) in &chunks {
-        let chunk = world.chunk(cx, cz).unwrap().unwrap();
-        for section in chunk.sections() {
-            states.extend(section.blocks().palette().iter().cloned());
-        }
-    }
-    let sprites = SpriteSet::build(&mut assets(), &states, projection).unwrap();
+    let states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    let sprites = SpriteSet::build_in(&mut assets(), &states, projection).unwrap();
     Welt {
         _dir: dir,
         world,

@@ -1,10 +1,13 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use image::RgbaImage;
-use serde::Deserialize;
+use serde_json::Value;
 
-use super::{find_file, split_id};
+use super::blockstate::{boolean, field, float, int};
+use super::pack::ASSETS;
+use super::{Pack, find_file, parse_json, read_text, split_id};
 
 /// Verweis in die Texturtabelle. Id 0 ist immer der Platzhalter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -20,6 +23,7 @@ pub struct Textures {
     /// Parallel zu `images`, damit Fehlermeldungen den Namen nennen können.
     names: Vec<String>,
     missing: BTreeSet<String>,
+    broken: BTreeMap<String, String>,
 }
 
 impl Default for Textures {
@@ -35,6 +39,7 @@ impl Textures {
             images: vec![placeholder()],
             names: vec!["<fehlende Textur>".to_string()],
             missing: BTreeSet::new(),
+            broken: BTreeMap::new(),
         }
     }
 
@@ -45,28 +50,38 @@ impl Textures {
     ///
     /// Eine fehlende Datei ist kein Fehler: Minecraft zeigt dafür das
     /// magenta-schwarze Karo, und ein halb vollständiges Pack soll einen
-    /// Renderlauf nicht abbrechen. Die Namen sammelt [`Textures::missing`].
-    pub fn load(&mut self, roots: &[PathBuf], id: &str) -> TextureId {
-        if let Some(&existing) = self.ids.get(id) {
+    /// Renderlauf nicht abbrechen. Ebenso eine, die der Client verwirft
+    /// ([`read_texture`]). Die Namen sammelt [`Textures::missing`], die
+    /// verworfenen mit Grund [`Textures::broken`]. Ohne Namensraum gilt
+    /// `minecraft`, wie im Client: `block/stone` ist dieselbe Textur wie
+    /// `minecraft:block/stone`. Wo die Datei liegt, sagt [`datei`].
+    pub fn load(&mut self, packs: &[Pack], id: &str) -> TextureId {
+        let (namespace, name) = split_id(id);
+        let id = format!("{namespace}:{name}");
+        if let Some(&existing) = self.ids.get(&id) {
             return existing;
         }
 
-        let (namespace, name) = split_id(id);
-        let loaded = find_file(roots, namespace, "textures", name, "png")
-            .and_then(|(layer, path)| read_texture(roots, layer, namespace, name, &path));
+        let loaded = datei(packs, namespace, name, "png")
+            .map(|(layer, path)| read_texture(packs, layer, namespace, name, &path));
 
         let texture = match loaded {
-            Some(image) => {
+            Some(Ok(image)) => {
                 self.images.push(image);
-                self.names.push(id.to_string());
+                self.names.push(id.clone());
                 TextureId(self.images.len() as u32 - 1)
             }
+            Some(Err(grund)) => {
+                self.missing.insert(id.clone());
+                self.broken.insert(id.clone(), format!("{grund:#}"));
+                Textures::MISSING
+            }
             None => {
-                self.missing.insert(id.to_string());
+                self.missing.insert(id.clone());
                 Textures::MISSING
             }
         };
-        self.ids.insert(id.to_string(), texture);
+        self.ids.insert(id, texture);
         texture
     }
 
@@ -81,9 +96,15 @@ impl Textures {
         self.names.get(id.0 as usize).map_or("<unbekannt>", |s| s)
     }
 
-    /// Texturnamen, für die keine Datei gefunden wurde.
+    /// Texturnamen, die das magenta-schwarze Karo zeigen: ohne Datei oder
+    /// mit einer, die der Client verwirft.
     pub fn missing(&self) -> &BTreeSet<String> {
         &self.missing
+    }
+
+    /// Die verworfenen unter [`Textures::missing`], je Name mit dem Grund.
+    pub fn broken(&self) -> &BTreeMap<String, String> {
+        &self.broken
     }
 
     /// Anzahl geladener Texturen, den Platzhalter eingerechnet.
@@ -96,81 +117,228 @@ impl Textures {
     }
 }
 
-/// Lädt eine PNG-Datei und schneidet bei animierten Texturen das erste
-/// deklarierte Bild heraus.
+/// Lädt eine PNG-Datei und schneidet bei animierten Texturen das Bild
+/// heraus, das der Client zuerst zeigt. Wie `SpriteResourceLoader` wird
+/// eine Textur zur Missing-Textur, wenn ihre `.mcmeta` nicht zu lesen ist
+/// oder die Bildgrösse nicht zur Animation passt; dann `Err` mit dem Grund.
 fn read_texture(
-    roots: &[PathBuf],
+    packs: &[Pack],
     png_layer: usize,
     namespace: &str,
     name: &str,
     path: &Path,
-) -> Option<RgbaImage> {
-    let image = image::open(path).ok()?.into_rgba8();
-    match animation(roots, png_layer, namespace, name, path) {
-        Some(animation) => Some(first_frame(&image, &animation)),
-        None => Some(image),
+) -> Result<RgbaImage> {
+    let image = image::open(path)
+        .with_context(|| format!("{} lesen", path.display()))?
+        .into_rgba8();
+    match animation(packs, png_layer, namespace, name)? {
+        Some(animation) => erstes_bild(&image, &animation),
+        None => Ok(image),
     }
 }
 
-/// Sucht die `.mcmeta`-Datei im Packstapel und liest den `animation`-Teil.
+/// Sucht die `.mcmeta`-Datei im Packstapel und liest sie.
 ///
 /// Minecraft nimmt Metadaten aus derselben oder einer höher priorisierten
 /// Schicht als die PNG-Datei — ein Overlay darf also allein die `.mcmeta`
-/// mitbringen. Ohne `animation` ist die Textur statisch, auch wenn die Datei
-/// existiert: 48 der Vanilla-mcmeta enthalten nur `texture`-Flags.
+/// mitbringen. Gepaart wird wie die PNG gefunden wurde ([`datei`]): über
+/// den aufgelisteten Namen wie in `FallbackResourceManager.listResources`,
+/// sonst direkt wie in `createStackMetadataFinder`. Ohne `animation` ist
+/// die Textur statisch, auch wenn die Datei existiert: 48 der
+/// Vanilla-mcmeta enthalten nur `texture`-Flags.
 fn animation(
-    roots: &[PathBuf],
+    packs: &[Pack],
     png_layer: usize,
     namespace: &str,
     name: &str,
-    png_path: &Path,
-) -> Option<Animation> {
-    let meta = find_file(
-        &roots[png_layer..],
-        namespace,
-        "textures",
-        name,
-        "png.mcmeta",
-    )
-    .map(|(_, path)| path)
-    .or_else(|| {
-        // Fällt nur an, wenn die PNG nicht über den Stapel kam.
-        let beside = PathBuf::from(format!("{}.mcmeta", png_path.display()));
-        beside.is_file().then_some(beside)
-    })?;
-
-    let text = std::fs::read_to_string(&meta).ok()?;
-    serde_json::from_str::<McMeta>(&text).ok()?.animation
+) -> Result<Option<Animation>> {
+    let Some((_, meta)) = datei(&packs[png_layer..], namespace, name, "png.mcmeta") else {
+        return Ok(None);
+    };
+    mcmeta(&read_text(&meta)?).with_context(|| format!("{} lesen", meta.display()))
 }
 
-/// Schneidet das erste deklarierte Bild einer Animation heraus.
-fn first_frame(image: &RgbaImage, animation: &Animation) -> RgbaImage {
-    let (width, height) = image.dimensions();
-
-    // Ohne Angabe ist ein Bild so breit wie die Textur und ebenso hoch —
-    // der senkrechte Streifen, den Minecraft dokumentiert.
-    let frame_width = animation.width.unwrap_or(width).clamp(1, width);
-    let frame_height = animation.height.unwrap_or(frame_width).clamp(1, height);
-
-    let columns = width / frame_width;
-    let rows = height / frame_height;
-    if columns == 0 || rows == 0 {
-        return image.clone();
+/// Die Datei zur Textur `name` mit der `endung`, `png` oder `png.mcmeta`,
+/// und ihre Schicht im Packstapel, die oberste zuerst.
+///
+/// Aus einem Ordner des Block-Atlas nimmt der Client nur, was er dort
+/// auflistet ([`ASSETS`]). Seine beiden einzelnen Quellen,
+/// `entity/bell/bell_body` und `entity/enchantment/enchanting_table_book`,
+/// öffnet er direkt (`SingleFile`, `getResource`). So öffnet der Renderer
+/// jede Textur ausserhalb der Ordner. Für die übrigen zeigte der Client
+/// die Missing-Textur, es sei denn, ein Pack erweitert
+/// `atlases/blocks.json`; das liest der Renderer nicht.
+fn datei(packs: &[Pack], namespace: &str, name: &str, endung: &str) -> Option<(usize, PathBuf)> {
+    let im_ordner = ASSETS
+        .iter()
+        .filter_map(|liste| liste.strip_prefix(&["textures"][..]))
+        .any(|ordner| {
+            name.strip_prefix(&ordner.join("/"))
+                .is_some_and(|rest| rest.starts_with('/'))
+        });
+    if im_ordner {
+        return find_file(packs, namespace, "textures", name, endung)
+            .map(|(layer, pfad)| (layer, pfad.to_path_buf()));
     }
+    let pfad = format!("textures/{name}.{endung}");
+    packs
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(layer, pack)| pack.resource(namespace, &pfad).map(|datei| (layer, datei)))
+}
 
+/// Die Angaben aus `animation`, die das erste Bild bestimmen.
+#[derive(Debug)]
+struct Animation {
+    width: Option<u32>,
+    height: Option<u32>,
+    /// Die Nummern aus `frames`, falls es die Liste gibt.
+    frames: Option<Vec<u32>>,
+}
+
+/// Eine `.mcmeta` wie `ResourceMetadata.fromJsonStream`: ein Objekt, streng
+/// gelesen wie `GsonHelper.parse`. Die Abschnitte `animation` und
+/// `texture` liest je ein Codec (`getSection`). Ein Abschnitt `null` ist
+/// kein fehlender, er geht an den Codec und scheitert. Andere Abschnitte
+/// liest der Block-Atlas nicht.
+fn mcmeta(text: &str) -> Result<Option<Animation>> {
+    let json = parse_json(text, false)?;
+    ensure!(json.is_object(), "kein Objekt");
+    if let Some(textur) = json.get("texture") {
+        texture_section(textur).context("texture")?;
+    }
+    json.get("animation")
+        .map(|animation| animation_section(animation).context("animation"))
+        .transpose()
+}
+
+/// `TextureMetadataSection.CODEC`: alles darf fehlen, und was dasteht,
+/// muss passen.
+fn texture_section(json: &Value) -> Result<()> {
+    ensure!(json.is_object(), "kein Objekt");
+    for name in ["blur", "clamp"] {
+        if let Some(wert) = field(json, name) {
+            boolean(wert).with_context(|| name.to_string())?;
+        }
+    }
+    if let Some(wert) = field(json, "mipmap_strategy") {
+        ensure!(
+            matches!(
+                wert.as_str(),
+                Some("auto" | "mean" | "cutout" | "strict_cutout" | "dark_cutout")
+            ),
+            "mipmap_strategy {wert}"
+        );
+    }
+    if let Some(wert) = field(json, "alpha_cutoff_bias") {
+        float(wert).context("alpha_cutoff_bias")?;
+    }
+    Ok(())
+}
+
+/// `AnimationMetadataSection.CODEC`: `width`, `height` und `frametime`
+/// sind positiv (`POSITIVE_INT`), `interpolate` ein Wahrheitswert.
+fn animation_section(json: &Value) -> Result<Animation> {
+    ensure!(json.is_object(), "kein Objekt");
+    let positiv = |name: &str| -> Result<Option<u32>> {
+        field(json, name)
+            .map(|wert| positive(wert).with_context(|| name.to_string()))
+            .transpose()
+    };
+    let width = positiv("width")?;
+    let height = positiv("height")?;
+    positiv("frametime")?;
+    if let Some(wert) = field(json, "interpolate") {
+        boolean(wert).context("interpolate")?;
+    }
+    let frames = field(json, "frames")
+        .map(|liste| {
+            liste
+                .as_array()
+                .ok_or_else(|| anyhow!("frames ist keine Liste"))?
+                .iter()
+                .map(|bild| frame(bild).context("frames"))
+                .collect::<Result<Vec<u32>>>()
+        })
+        .transpose()?;
+    Ok(Animation {
+        width,
+        height,
+        frames,
+    })
+}
+
+/// Ein Eintrag in `frames` (`AnimationFrame.CODEC`): eine Nummer ab 0 oder
+/// ein Objekt mit `index` und eigener Anzeigedauer `time`.
+fn frame(json: &Value) -> Result<u32> {
+    let index = match json {
+        Value::Object(_) => {
+            if let Some(time) = field(json, "time") {
+                positive(time).context("time")?;
+            }
+            int(field(json, "index").ok_or_else(|| anyhow!("index fehlt"))?)?
+        }
+        _ => int(json)?,
+    };
+    u32::try_from(index).map_err(|_| anyhow!("Bild {index}"))
+}
+
+/// `ExtraCodecs.POSITIVE_INT`.
+fn positive(json: &Value) -> Result<u32> {
+    let wert = int(json)?;
+    match u32::try_from(wert) {
+        Ok(wert) if wert >= 1 => Ok(wert),
+        _ => bail!("{wert} ist nicht positiv"),
+    }
+}
+
+/// Das Bild einer Animation, das der Client zuerst zeigt, oder `Err`, wenn
+/// er die Textur verwirft.
+///
+/// Die Bildgrösse steht in `width` und `height`. Fehlt eine, gilt dafür
+/// die Seite des Bildes, fehlen beide, für beide seine kürzere
+/// (`calculateFrameSize`). Teilt sie das Bild nicht, verwirft
+/// `SpriteResourceLoader` die Textur.
+/// `SpriteContents` streicht Bilder aus `frames`, die es nicht gibt; ohne
+/// `frames` zählen alle. Zeigt es danach mindestens zwei, beginnt es mit
+/// dem ersten. Sonst ist die Textur statisch, und ist das Bild dann
+/// grösser als eines, scheitert im Client das Hochladen des Atlas
+/// (`CommandEncoder.writeToTexture`); der Renderer verwirft sie.
+fn erstes_bild(image: &RgbaImage, animation: &Animation) -> Result<RgbaImage> {
+    let (breite, hoehe) = image.dimensions();
+    let (b, h) = match (animation.width, animation.height) {
+        (Some(b), Some(h)) => (b, h),
+        (Some(b), None) => (b, hoehe),
+        (None, Some(h)) => (breite, h),
+        (None, None) => (breite.min(hoehe), breite.min(hoehe)),
+    };
+    ensure!(
+        b > 0 && breite.is_multiple_of(b) && hoehe.is_multiple_of(h),
+        "Bildgrösse {breite}x{hoehe} ist kein Vielfaches von {b}x{h}"
+    );
+    let spalten = breite / b;
+    let gesamt = spalten * (hoehe / h);
+    let gueltig: Vec<u32> = match &animation.frames {
+        None => (0..gesamt.min(2)).collect(),
+        Some(frames) => frames
+            .iter()
+            .copied()
+            .filter(|&i| i < gesamt)
+            .take(2)
+            .collect(),
+    };
     // `frames` gibt die Abspielreihenfolge an; das erste Bild darin ist nicht
     // zwingend Nummer 0. Vanilla nutzt das in fire_0 und soul_fire_0.
-    let index = animation.frames.first().map_or(0, Frame::index);
-    let index = if index < columns * rows { index } else { 0 };
-
-    image::imageops::crop_imm(
-        image,
-        (index % columns) * frame_width,
-        (index / columns) * frame_height,
-        frame_width,
-        frame_height,
+    let index = match gueltig.as_slice() {
+        [erstes, _] => *erstes,
+        _ if (breite, hoehe) == (b, h) => return Ok(image.clone()),
+        _ => bail!("nur ein Bild der Animation, aber das Bild ist {breite}x{hoehe}"),
+    };
+    Ok(
+        image::imageops::crop_imm(image, (index % spalten) * b, (index / spalten) * h, b, h)
+            .to_image(),
     )
-    .to_image()
 }
 
 /// Das magenta-schwarze Karo, das Minecraft für fehlende Texturen zeigt.
@@ -182,37 +350,6 @@ fn placeholder() -> RgbaImage {
             image::Rgba([248, 0, 248, 255])
         }
     })
-}
-
-#[derive(Deserialize)]
-struct McMeta {
-    animation: Option<Animation>,
-}
-
-#[derive(Deserialize)]
-struct Animation {
-    width: Option<u32>,
-    height: Option<u32>,
-    #[serde(default)]
-    frames: Vec<Frame>,
-}
-
-/// Ein Eintrag in `frames`: entweder eine Nummer oder ein Objekt mit eigener
-/// Anzeigedauer.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Frame {
-    Index(u32),
-    Detailed { index: u32 },
-}
-
-impl Frame {
-    fn index(&self) -> u32 {
-        match self {
-            Frame::Index(i) => *i,
-            Frame::Detailed { index } => *index,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -227,10 +364,11 @@ mod tests {
     }
 
     fn animation(json: &str) -> Animation {
-        serde_json::from_str::<McMeta>(json)
-            .unwrap()
-            .animation
-            .unwrap()
+        mcmeta(json).unwrap().unwrap()
+    }
+
+    fn erstes(image: &RgbaImage, json: &str) -> Result<RgbaImage> {
+        erstes_bild(image, &animation(json))
     }
 
     #[test]
@@ -245,16 +383,16 @@ mod tests {
 
     #[test]
     fn fehlende_textur_wird_gesammelt_statt_zu_scheitern() {
+        let leer = tempfile::tempdir().unwrap();
+        let packs = [Pack::open(leer.path(), &super::super::pack::ASSETS).unwrap()];
         let mut textures = Textures::new();
-        let id = textures.load(&[PathBuf::from("gibt/es/nicht")], "minecraft:block/nope");
+        let id = textures.load(&packs, "minecraft:block/nope");
         assert_eq!(id, Textures::MISSING);
         assert!(textures.missing().contains("minecraft:block/nope"));
-        // zweiter Aufruf trifft den Cache
-        assert_eq!(
-            textures.load(&[], "minecraft:block/nope"),
-            Textures::MISSING
-        );
+        // zweiter Aufruf trifft den Cache, auch ohne Namensraum
+        assert_eq!(textures.load(&[], "block/nope"), Textures::MISSING);
         assert_eq!(textures.missing().len(), 1);
+        assert!(textures.broken().is_empty());
     }
 
     #[test]
@@ -266,7 +404,7 @@ mod tests {
 
     #[test]
     fn senkrechter_streifen_ohne_angaben() {
-        let frame = first_frame(&streifen(16, 48), &animation(r#"{"animation": {}}"#));
+        let frame = erstes(&streifen(16, 48), r#"{"animation": {}}"#).unwrap();
         assert_eq!(frame.dimensions(), (16, 16));
         assert_eq!(frame.get_pixel(0, 0).0[0], 0);
     }
@@ -274,56 +412,121 @@ mod tests {
     /// Vanilla-fire_0 beginnt mit Bild 16, nicht mit 0.
     #[test]
     fn erstes_deklariertes_bild_gewinnt() {
-        let frame = first_frame(
+        let frame = erstes(
             &streifen(16, 512),
-            &animation(r#"{"animation": {"frames": [16, 17, 0]}}"#),
-        );
+            r#"{"animation": {"frames": [16, 17, 0]}}"#,
+        )
+        .unwrap();
         assert_eq!(frame.dimensions(), (16, 16));
         assert_eq!(frame.get_pixel(0, 0).0[0], 16);
     }
 
     #[test]
     fn frames_als_objekte() {
-        let frame = first_frame(
+        let frame = erstes(
             &streifen(16, 512),
-            &animation(r#"{"animation": {"frames": [{"index": 3, "time": 2}]}}"#),
-        );
+            r#"{"animation": {"frames": [{"index": 3, "time": 2}, 0]}}"#,
+        )
+        .unwrap();
         assert_eq!(frame.get_pixel(0, 0).0[0], 3);
     }
 
+    /// Wie `calculateFrameSize`, belegt per javap: fehlt eine Seite, gilt
+    /// dafür die des Bildes, fehlen beide, für beide die kürzere. Ein
+    /// waagerechter Streifen läuft so von links nach rechts.
     #[test]
-    fn eigene_bildgroesse() {
-        let frame = first_frame(
-            &streifen(16, 32),
-            &animation(r#"{"animation": {"height": 8}}"#),
-        );
+    fn bildgroesse_wie_im_client() {
+        let frame = erstes(&streifen(16, 32), r#"{"animation": {"height": 8}}"#).unwrap();
         assert_eq!(frame.dimensions(), (16, 8));
-    }
-
-    /// Waagerecht angeordnete Bilder: 32x16 mit 16x16-Bildern.
-    #[test]
-    fn waagerechte_anordnung() {
-        let frame = first_frame(
+        let frame = erstes(&streifen(16, 32), r#"{"animation": {"width": 8}}"#).unwrap();
+        assert_eq!(frame.dimensions(), (8, 32));
+        let frame = erstes(&streifen(16, 48), r#"{"animation": {"height": 12}}"#).unwrap();
+        assert_eq!(frame.dimensions(), (16, 12));
+        let frame = erstes(&streifen(48, 16), r#"{"animation": {}}"#).unwrap();
+        assert_eq!(frame.dimensions(), (16, 16));
+        let frame = erstes(
             &streifen(32, 16),
-            &animation(r#"{"animation": {"width": 16, "height": 16}}"#),
-        );
+            r#"{"animation": {"width": 16, "height": 16}}"#,
+        )
+        .unwrap();
         assert_eq!(frame.dimensions(), (16, 16));
     }
 
+    /// `"width": 8.0` ist für `Codec.INT` 8, wie `intValue`.
     #[test]
-    fn unsinnige_angaben_brechen_nicht() {
-        let frame = first_frame(
-            &streifen(16, 16),
-            &animation(r#"{"animation": {"width": 999, "frames": [42]}}"#),
-        );
-        assert_eq!(frame.dimensions(), (16, 16));
+    fn kommazahl_als_bildgroesse() {
+        let frame = erstes(&streifen(16, 32), r#"{"animation": {"width": 8.0}}"#).unwrap();
+        assert_eq!(frame.dimensions(), (8, 32));
+    }
+
+    /// Bilder, die es nicht gibt, streicht der Client. Bleibt eines, ist die
+    /// Textur statisch; ist das Bild grösser als eines, scheitert im Client
+    /// der Atlas, und der Renderer verwirft die Textur. Ein Bild, das die
+    /// Bildgrösse nicht teilt, verwirft schon `SpriteResourceLoader`.
+    #[test]
+    fn unpassende_bilder_verwerfen_die_textur() {
+        let frame = erstes(
+            &streifen(16, 48),
+            r#"{"animation": {"frames": [42, 2, 1]}}"#,
+        )
+        .unwrap();
+        assert_eq!(frame.get_pixel(0, 0).0[0], 2);
+        for json in [
+            r#"{"animation": {"width": 999}}"#,
+            r#"{"animation": {"width": 16, "height": 20}}"#,
+            r#"{"animation": {"frames": [3]}}"#,
+            r#"{"animation": {"frames": [42, 0]}}"#,
+            r#"{"animation": {"frames": []}}"#,
+        ] {
+            assert!(erstes(&streifen(16, 48), json).is_err(), "{json}");
+        }
+        let einzeln = erstes(&streifen(16, 16), r#"{"animation": {"frames": [0]}}"#).unwrap();
+        assert_eq!(einzeln.dimensions(), (16, 16));
     }
 
     /// 48 der Vanilla-mcmeta enthalten nur `texture`-Flags. Solche Texturen
     /// sind statisch und dürfen nicht zugeschnitten werden.
     #[test]
     fn mcmeta_ohne_animation_ist_keine_animation() {
-        let meta: McMeta = serde_json::from_str(r#"{"texture": {"blur": true}}"#).unwrap();
-        assert!(meta.animation.is_none());
+        assert!(mcmeta(r#"{"texture": {"blur": true}}"#).unwrap().is_none());
+    }
+
+    /// Was die Codecs ablehnen, macht die Textur im Client zur
+    /// Missing-Textur, belegt per javap an 26.2 samt DFU 10.0.21. Ein
+    /// doppelter Schlüssel nimmt wie in Gson den letzten Wert.
+    #[test]
+    fn mcmeta_wie_im_client() {
+        for json in [
+            r#"{"animation": {"frametime": 0}}"#,
+            r#"{"animation": {"width": -16}}"#,
+            r#"{"animation": {"width": "16"}}"#,
+            r#"{"animation": {"interpolate": 1}}"#,
+            r#"{"animation": {"frames": [-1]}}"#,
+            r#"{"animation": {"frames": [{"time": 2}]}}"#,
+            r#"{"animation": {"frames": [{"index": 0, "time": 0}]}}"#,
+            r#"{"animation": {"frames": [null]}}"#,
+            r#"{"animation": {"frames": 0}}"#,
+            r#"{"animation": null}"#,
+            r#"{"animation": []}"#,
+            r#"{"texture": {"blur": 1}}"#,
+            r#"{"texture": {"mipmap_strategy": "linear"}}"#,
+            r#"{"texture": {"alpha_cutoff_bias": "0.5"}}"#,
+            r#"{"texture": null}"#,
+            r#"[]"#,
+            r#"null"#,
+            r#""#,
+        ] {
+            assert!(mcmeta(json).is_err(), "{json}");
+        }
+        for json in [
+            r#"{"animation": {"width": null, "frames": [{"index": 1, "time": null}]}}"#,
+            r#"{"texture": {"blur": true, "clamp": false, "mipmap_strategy": "dark_cutout", "alpha_cutoff_bias": 0.5}}"#,
+            r#"{"villager": 5, "gui": null}"#,
+            r#"{"animation": {}} ["dahinter"]"#,
+        ] {
+            assert!(mcmeta(json).is_ok(), "{json}");
+        }
+        let doppelt = animation(r#"{"animation": {"height": 4, "height": 8}}"#);
+        assert_eq!(doppelt.height, Some(8));
     }
 }

@@ -92,6 +92,14 @@ jobs:
       - name: Browser
         run: npx playwright install --with-deps chromium
 
+      # Unter public/tiles liegt oft ein Link auf einen grossen Render. Der
+      # Build darf ihn nicht nach dist kopieren.
+      - name: Kacheln bleiben aus dem Build
+        run: |
+          mkdir -p public/tiles/0/0 && touch public/tiles/0/0/0.webp
+          npm run build
+          test ! -e dist/tiles && test -f dist/tiles-demo/map.json
+
       - name: Smoke-Test
         run: npm test
 

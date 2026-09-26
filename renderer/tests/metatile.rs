@@ -11,7 +11,9 @@ use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::rasterizer::over;
-use terranova_render::render::{Projection, ScreenRect, SpriteSet, render_area};
+use terranova_render::render::{
+    Projection, ScreenRect, SpriteSet, render_area, render_area_without_culling, survey,
+};
 use terranova_render::world::{BlockState, World};
 
 /// Die gebaute Welt reicht von y=0 bis y=15.
@@ -36,6 +38,13 @@ fn gelaende(x: i32, y: i32, z: i32) -> &'static str {
     }
 }
 
+/// Die Sprite-Tabelle einer Welt, gebaut wie im Export: aus dem Vorlauf,
+/// mit den Biomen, die jede Blockstate mit ihren Sections teilt.
+fn tabelle(assets: &mut Assets, world: &World, projection: Projection) -> SpriteSet {
+    let survey = survey(world, projection, Y_RANGE, None).unwrap();
+    SpriteSet::build_in(assets, &survey.states, projection).unwrap()
+}
+
 /// Baut die Welt, sammelt ihre Blockstates und rendert den Ausschnitt.
 fn render_chunks(
     dir: &TempDir,
@@ -46,17 +55,225 @@ fn render_chunks(
 ) -> RgbaImage {
     common::write_world(dir.path(), chunks, block);
     let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, projection);
+    render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+}
 
-    let mut states = Vec::new();
-    for &(cx, cz) in chunks {
-        let chunk = world.chunk(cx, cz).unwrap().unwrap();
-        for section in chunk.sections() {
-            states.extend(section.blocks().palette().iter().cloned());
+/// Verdecken ist nur eine Abkürzung: ein Würfel fällt weg, wenn seine
+/// Nachbarn jeden seiner Pixel deckend übermalen. Mit und ohne sie muss
+/// jedes Bild gleich sein — unter flachen Modellen mit schmalem Rand, unter
+/// Lava und Seerosen, hinter einer eingerückten Säule, und bei den kleinen
+/// scales der nativen Stufen. Mit einer Pixelbreite Toleranz beim Prüfen
+/// der Deckung fiel der Block unter einer Druckplatte weg, und ihr Rand
+/// zeigte den Hintergrund.
+///
+/// Eine obere Platte deckt ihre eigene Oberseite, aber weder den Boden
+/// noch ihren ganzen Umriss. Liegt sie auf dem Boden, bleibt dessen
+/// Oberseite darunter sichtbar; steht sie östlich eines sonst verdeckten
+/// Würfels, bleibt dessen Ostseite unter ihr sichtbar. Wer den Boden an der
+/// falschen Stelle prüft oder den Umriss nur oben, verdeckt beides.
+///
+/// Lava deckt ihren Boden immer, ihren Umriss erst bei scale 4. Sie steht
+/// östlich und südlich je eines sonst verdeckten Würfels und an einer
+/// Stufe über fliessender Lava: wer an den Seiten nur den Boden prüft,
+/// verdeckt die Würfel auch bei den grossen scales.
+#[test]
+fn verdecken_aendert_kein_pixel() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (5, 0, 8) => "minecraft:saeule",
+        (_, 0, _) => "minecraft:einfarbig",
+        (2, 1, 2) => "minecraft:druckplatte",
+        (5, 1, 2) => "minecraft:kuchen",
+        (8, 1, 2) => "minecraft:teppich",
+        (11, 1, 2) => "minecraft:lava",
+        (2, 1, 5) => "minecraft:seerose",
+        (4, 1, 8) => "minecraft:einfarbig",
+        (2..=4, 1, 11..=13) => "minecraft:lava",
+        (10..=12, 1..=3, 8..=10) => "minecraft:einfarbig",
+        (7, 1, 5) | (14, 1, 5) => "minecraft:obere_platte",
+        (13, 1..=2, 5) | (13, 1, 6) => "minecraft:einfarbig",
+        (8, 1, 12) | (14, 1, 10) | (13, 1, 13) => "minecraft:lava",
+        (7, 1..=2, 12) | (7, 1, 13) => "minecraft:einfarbig",
+        (14, 1..=2, 9) | (15, 1, 9) => "minecraft:einfarbig",
+        (14, 1, 13) | (13, 1, 14) => "minecraft:lava[level=2]",
+        (15, 1, 13) => "minecraft:lava[level=4]",
+        (12, 1..=2, 13) | (12, 1, 14) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], welt);
+    let world = World::open(dir.path()).unwrap();
+    for scale in [32, 16, 8, 4] {
+        let projection = Projection::new(scale);
+        let rect = ScreenRect::centered(20 * scale, 20 * scale);
+        let sprites = tabelle(&mut assets(), &world, projection);
+        let mit = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+        let ohne = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+        let falsch = mit
+            .pixels()
+            .zip(ohne.pixels())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(falsch, 0, "scale {scale}: Verdecken ändert {falsch} Pixel");
+    }
+}
+
+/// Der schnelle Weg über Kandidaten und Bitmasken muss Byte für Byte das
+/// Bild der Referenz liefern, die jeden Block im Band abläuft. Die Szene
+/// reicht über vier Chunks in zwei Biomen und vier Sections, die unterste
+/// einheitlich aus Stein, damit auch die Ränder zählen, an denen eine Maske
+/// aus dem Nachbarchunk oder der Section darüber kommt, und die Fassungen
+/// je Biom, die `in_biome` wählt: Gras an einer Ecke,
+/// ein Becken über Chunk- und Section-Grenzen, mit einem Dach, unter dem
+/// die Oberfläche tiefer liegt als der Boden des Dachs, und zwei
+/// Wassertaschen unter Stein, die zu einer Seite an Stein grenzen und zur
+/// anderen an Wasser mit Wasser darüber: ihre Oberfläche ragt in die Seite
+/// zum Wasser hinein und scheint durch. Dazu Glas im Wasser, Lava in
+/// Stufen und unter Lava, ein Lavasee mit Wänden nach +x und +z, eine
+/// Lavatasche wie die Wassertaschen, zwei Lavasäulen, die zur einen Seite
+/// über einer Stufe stehen und zur anderen an Stein grenzen, zwei weitere
+/// so an den Rändern eines Chunks nach +x und +z, Lava mit Luft darüber
+/// am oberen Rand einer Section, ein 15/16 hoher Block wie Ackerboden
+/// neben Lava und gestapelt, Platten, Kuchen, eine Seerose, ein gefluteter
+/// Zaun, eine Blasensäule, Säulen durch beide Section-Grenzen und Modelle,
+/// die in Nachbarwürfel ragen, eines davon mit seinem oberen Teil in einem
+/// verdeckten Würfel, dazu ein Block, der knapp über seinen Umriss ragt und
+/// selbst verdeckt ist: beide zeichnen je Pixel neben ihrem Würfel, die kein
+/// Nachbar deckt. Einmal ganz im Bild, einmal von einem
+/// kleineren Rechteck angeschnitten, bei jedem scale, den `--scale` und
+/// die nativen Stufen annehmen, bis 32.
+#[test]
+fn schneller_weg_gleicht_der_referenz() {
+    let welt = |x: i32, y: i32, z: i32| -> &'static str {
+        match (x, y, z) {
+            (0..=5, 2, 26..=31) | (26..=31, 2, 0..=2) => "minecraft:grass_block",
+            (_, ..=2, _) => "minecraft:einfarbig",
+            (27, 31, 21) | (27, 31..=32, 22) | (24, 31, 26) | (25, 31..=32, 26) => {
+                "minecraft:water"
+            }
+            (27, 30..=32, 21..=22) | (28, 31, 21) => "minecraft:einfarbig",
+            (24..=25, 30, 26) | (24, 32, 26) | (24, 31, 27) => "minecraft:einfarbig",
+            (10..=13, 21, 10..=13) => "minecraft:einfarbig",
+            (20, 3..=25, 8) => "minecraft:durchsichtig",
+            (14, 12, 14) => "minecraft:oak_fence[waterlogged=true]",
+            (18, 3..=20, 18) => "minecraft:bubble_column",
+            (16, 3, 4) | (15, 5, 16) => "minecraft:ueberhang",
+            (6..=25, 3..=21, 6..=25) => "minecraft:water",
+            (8, 22, 20) => "minecraft:seerose",
+            (2..=4, 3, 20..=23) | (3, 4, 21) => "minecraft:lava",
+            (2, 4, 24) | (4, 3, 24) => "minecraft:lava[level=2]",
+            (0..=3, 3..=5, 0..=3) | (29, 3, 1) | (29, 3..=4, 2) => "minecraft:lava",
+            (1, 3..=4, 8) | (2, 3, 8) | (1, 3..=4, 12) | (1, 3, 13) => "minecraft:lava",
+            (1, 3, 9) | (2, 3, 12) => "minecraft:einfarbig",
+            (15, 8..=9, 29) | (16, 8, 29) | (29, 8..=9, 15) | (29, 8, 16) => "minecraft:lava",
+            (15, 8, 30) | (30, 8, 15) => "minecraft:einfarbig",
+            (2, 15, 29) => "minecraft:lava",
+            (3, 15, 29) | (2, 15, 30) => "minecraft:einfarbig",
+            (4, 3..=6, 0..=4) | (0..=3, 3..=6, 4) => "minecraft:einfarbig",
+            (29, 4, 1) | (30, 3..=4, 1..=2) | (29, 5, 2) | (29, 3..=4, 3) => "minecraft:einfarbig",
+            (5, 3, 20..=22) | (26, 3..=6, 3..=5) => "minecraft:ackerboden",
+            (28, 3..=40, 28) | (27, 15..=17, 27) | (27, 31..=33, 26) => "minecraft:einfarbig",
+            (17, 3, 28) | (16, 31, 2) => "minecraft:turm",
+            (17, 32, 2) | (16, 32, 3) | (16, 33, 2) => "minecraft:einfarbig",
+            (1, 3, 16) => "minecraft:rand",
+            (2, 3, 16) | (1, 3, 17) => "minecraft:einfarbig",
+            (1, 4, 16) => "minecraft:boden",
+            (29, 3, 10) => "minecraft:obere_platte",
+            (29, 3, 12) => "minecraft:untere_platte",
+            (30, 3, 14) => "minecraft:kuchen",
+            _ => "minecraft:air",
+        }
+    };
+    let biom = |cx: i32, _: i32| {
+        Some(if cx == 0 {
+            "minecraft:plains"
+        } else {
+            "minecraft:frozen"
+        })
+    };
+    let dir = tempdir();
+    let chunks = [(0, 0), (1, 0), (0, 1), (1, 1)];
+    common::write_world_sections(dir.path(), &chunks, -1..=2, welt, biom);
+    let world = World::open(dir.path()).unwrap();
+    let y_range = (-16, 47);
+    let daten = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
+    for scale in (4..=32).step_by(4) {
+        let projection = Projection::new(scale);
+        let survey = survey(&world, projection, y_range, None).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&daten).unwrap();
+        let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        assert!(sprites.variants() > 0, "keine Fassung je Biom");
+        let s = scale as i32;
+        let ganz = ScreenRect {
+            x: -17 * s,
+            y: -25 * s,
+            width: 34 * scale,
+            height: 42 * scale,
+        };
+        let mitte = ScreenRect {
+            x: -5 * s,
+            y: -10 * s,
+            width: 10 * scale,
+            height: 15 * scale,
+        };
+        for rect in [ganz, mitte] {
+            let schnell = render_area(&world, &sprites, rect, y_range).unwrap();
+            let referenz = render_area_without_culling(&world, &sprites, rect, y_range).unwrap();
+            let falsch = schnell
+                .pixels()
+                .zip(referenz.pixels())
+                .filter(|(a, b)| a != b)
+                .count();
+            assert_eq!(falsch, 0, "scale {scale}, {rect:?}: {falsch} Pixel anders");
+            let sichtbar = referenz.pixels().filter(|p| p.0[3] > 0).count();
+            assert!(
+                sichtbar * 4 > referenz.pixels().len(),
+                "scale {scale}: Szene nicht im Bild"
+            );
         }
     }
+}
 
-    let sprites = SpriteSet::build(&mut assets(), &states, projection).unwrap();
-    render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+/// Ein Chunk, dessen Position nicht zu seinem Platz in der Region passt —
+/// etwa aus einer von Hand kopierten Regionsdatei —, steht an seinem
+/// Platz, wie im Spiel: das Bild gleicht Byte für Byte dem einer Welt ohne
+/// den Fehler, im schnellen Weg wie in der Referenz.
+#[test]
+fn versetzter_chunk_steht_an_seinem_platz() {
+    let chunks = [(0, 0), (1, 0), (0, 1)];
+    let richtig = tempdir();
+    common::write_world(richtig.path(), &chunks, gelaende);
+    let versetzt = tempdir();
+    common::write_world(versetzt.path(), &chunks, gelaende);
+    // Der Chunk auf Platz (1, 0) nennt sich (5, 0): xPos steht unkomprimiert
+    // als Int-Tag in der Regionsdatei.
+    let pfad = versetzt.path().join("region/r.0.0.mca");
+    let mut bytes = std::fs::read(&pfad).unwrap();
+    let muster = [3, 0, 4, b'x', b'P', b'o', b's', 0, 0, 0, 1];
+    let stelle = bytes
+        .windows(muster.len())
+        .position(|w| w == muster)
+        .expect("xPos 1");
+    bytes[stelle + 10] = 5;
+    std::fs::write(&pfad, bytes).unwrap();
+
+    for scale in [4, 16, 32] {
+        let projection = Projection::new(scale);
+        let rect = ScreenRect::centered(40 * scale, 40 * scale);
+        let bilder = |dir: &TempDir| {
+            let world = World::open(dir.path()).unwrap();
+            let sprites = tabelle(&mut assets(), &world, projection);
+            [
+                render_area(&world, &sprites, rect, Y_RANGE).unwrap(),
+                render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap(),
+            ]
+        };
+        assert!(
+            bilder(&versetzt) == bilder(&richtig),
+            "scale {scale}: versetzter Chunk nicht an seinem Platz"
+        );
+    }
 }
 
 /// Vier Chunks bei scale 16, Blockursprung in der Bildmitte. Damit fällt
@@ -81,37 +298,6 @@ fn szene(dir: &TempDir, block: impl Fn(i32, i32, i32) -> &'static str) -> RgbaIm
         Projection::new(16),
         ScreenRect::centered(128, 128),
     )
-}
-
-/// Ein Block, den die Assets nicht kennen — aus einem Mod oder nach einer
-/// Umbenennung ohne Tabelleneintrag —, bricht den Render nicht ab. Er
-/// bleibt leer wie Luft und steht in der Liste der ungelösten Blockarten.
-#[test]
-fn unbekannte_bloecke_bleiben_leer() {
-    let ersetzt = |durch: &'static str| {
-        move |x: i32, y: i32, z: i32| {
-            if (x, y, z) == (8, 6, 8) {
-                durch
-            } else {
-                gelaende(x, y, z)
-            }
-        }
-    };
-    let unbekannt = szene(&tempdir(), ersetzt("minecraft:gibts_nicht"));
-    assert_eq!(unbekannt, szene(&tempdir(), ersetzt("minecraft:air")));
-    assert_ne!(
-        unbekannt,
-        szene(&tempdir(), ersetzt("minecraft:blauwuerfel"))
-    );
-
-    let states =
-        ["minecraft:gibts_nicht", "minecraft:einfarbig"].map(|s| BlockState::parse(s).unwrap());
-    let sprites = SpriteSet::build(&mut assets(), &states, Projection::new(16)).unwrap();
-    assert_eq!(
-        sprites.unresolved().keys().collect::<Vec<_>>(),
-        ["minecraft:gibts_nicht"]
-    );
-    assert!(sprites.family_of(&states[1]).is_some());
 }
 
 fn tempdir() -> TempDir {
@@ -458,12 +644,13 @@ fn biome_faerben_denselben_block_verschieden() {
     assets
         .load_biomes(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base"))
         .unwrap();
-    let states = [BlockState::parse("minecraft:grass_block").unwrap()];
     let projection = Projection::new(16);
-    let sprites = SpriteSet::build(&mut assets, &states, projection).unwrap();
-    // plains ist das Standardklima und teilt sich das Sprite mit der
-    // Grundfassung; swamp, frozen, heide und hoehle/pilzwald bekommen eigene.
-    assert_eq!(sprites.variants(), 4);
+    // Gebaut wie im Export: der Vorlauf sammelt je Blockstate die Biome
+    // ihrer Sections. Gefärbt wird nur für plains und frozen, und plains
+    // ist das Standardklima und teilt sich das Sprite mit der Grundfassung.
+    // Für alle geladenen Biome gäbe es vier Fassungen.
+    let sprites = tabelle(&mut assets, &world, projection);
+    assert_eq!(sprites.variants(), 1);
 
     let rect = ScreenRect {
         x: -16,
@@ -509,6 +696,42 @@ fn oberseite(
     let sx = sx - rect.x as f64;
     let sy = sy + projection.scale() as f64 / 4.0 - rect.y as f64;
     bild.get_pixel(sx.round() as u32, sy.round() as u32).0
+}
+
+/// In tiefem Wasser hat keine innere Ost- oder Südseite einen Streifen:
+/// der Nachbar reicht bis zur Blockkante, weil über ihm auch Wasser steht.
+/// Zählte nur seine eigene Menge, läge an jeder inneren Seite knapp unter
+/// der Oberfläche ein Streifen, und durch die Oberfläche sähe man ein
+/// Raster. Die Streifen träfen die Oberseiten an ihrem Ost- und Südrand.
+#[test]
+fn tiefes_wasser_hat_innen_keine_streifen() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(512, 384);
+    let dir = tempdir();
+    let bild = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (2..=9, 1..=3, 2..=9) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    // Über dem Inneren sieht jeder Strahl drei Schichten und dann den Grund.
+    let oben = 3.0 + 8.0 / 9.0;
+    let soll = punkt(&bild, projection, rect, [7.5, oben, 7.5]);
+    for x in 5..=8 {
+        for z in 5..=8 {
+            for u in (0..10).map(|i| 0.05 + 0.1 * i as f64) {
+                for v in (0..10).map(|i| 0.05 + 0.1 * i as f64) {
+                    let p = [x as f64 + u, oben, z as f64 + v];
+                    assert_eq!(punkt(&bild, projection, rect, p), soll, "{p:?}");
+                }
+            }
+        }
+    }
 }
 
 /// Ein Becken aus einer Schicht Wasser. Flächen zwischen zwei
@@ -637,20 +860,72 @@ fn alternativen_werden_aus_der_position_gewuerfelt() {
     }
 }
 
-/// Die Wasseroberfläche trägt die Deckkraft aller Schichten darunter: durch
-/// einen Block Wasser sieht man den Grund, durch vier praktisch nicht mehr.
+/// Obere Hälften von Doppelpflanzen und Türen würfeln im Client mit der
+/// Position der unteren (`getSeed`), beide Hälften passen also immer
+/// zusammen. Mit der eigenen Position passten sie an jeder zweiten Stelle
+/// nicht.
 #[test]
-fn tiefes_wasser_deckt() {
+fn doppelbloecke_wuerfeln_beide_haelften_gleich() {
     let projection = Projection::new(16);
-    let rect = ScreenRect::centered(256, 320);
-    // Säulen der Tiefe 1 bis 5 bei x = 2, 4, ..., 10 auf z = 8, Oberfläche y = 10.
+    let rect = ScreenRect::centered(512, 384);
+    // Abstand 3: mit 2 verdeckt die Säule schräg davor die Südseite.
+    let spalte = |x: i32, z: i32| x % 3 == 0 && z % 3 == 0;
     let dir = tempdir();
     let bild = render_chunks(
         &dir,
         &[(0, 0)],
+        move |x, y, z| match y {
+            1 if spalte(x, z) => "minecraft:hohe_pflanze[half=lower]",
+            2 if spalte(x, z) => "minecraft:hohe_pflanze[half=upper]",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let blau = |p: [u8; 4]| p[2] > p[0];
+    let (mut gleich, mut blaue) = (0, 0);
+    for x in (0..16).step_by(3) {
+        for z in (0..16).step_by(3) {
+            // Oben die Oberseite der oberen Hälfte, unten die Südseite der
+            // unteren.
+            let oben = oberseite(&bild, projection, rect, [x, 2, z]);
+            let unten = punkt(
+                &bild,
+                projection,
+                rect,
+                [x as f64 + 0.5, 1.5, z as f64 + 1.0],
+            );
+            assert_eq!(
+                blau(oben),
+                blau(unten),
+                "({x}, {z}): {oben:?} über {unten:?}"
+            );
+            gleich += 1;
+            blaue += blau(oben) as i32;
+        }
+    }
+    assert!(blaue > 8 && blaue < gleich - 8, "{blaue} von {gleich} blau");
+}
+
+/// Die Wasseroberfläche trägt die Deckkraft des Wassers hinter ihr: durch
+/// einen Block Wasser sieht man den Grund, durch vier praktisch nicht mehr.
+///
+/// Gezählt wird entlang des Blickstrahls, also schräg nach hinten unten.
+/// Die Becken sind deshalb fünf Blöcke breit, und geprüft wird ihre
+/// vorderste Ecke: hinter ihr steht auf der ganzen Tiefe Wasser.
+#[test]
+fn tiefes_wasser_deckt() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(512, 512);
+    // Becken der Tiefe 1 bis 5 bei x = 0, 6, ..., 24, je 5 x 5 Blöcke,
+    // Oberfläche y = 10.
+    let dir = tempdir();
+    let bild = render_chunks(
+        &dir,
+        &[(0, 0), (1, 0)],
         |x, y, z| {
-            let tiefe = if z == 8 && x % 2 == 0 && (2..=10).contains(&x) {
-                x / 2
+            let tiefe = if x % 6 < 5 && (4..9).contains(&z) {
+                x / 6 + 1
             } else {
                 0
             };
@@ -666,7 +941,7 @@ fn tiefes_wasser_deckt() {
     // Alpha nach d Schichten von 180: 255 - 255 * (75 / 255)^d, ab vier gedeckelt.
     let erwartet = [180u8, 233, 249, 253, 253];
     for (i, alpha) in erwartet.into_iter().enumerate() {
-        let x = 2 * (i as i32 + 1);
+        let x = 6 * i as i32 + 4;
         let p = oberseite(&bild, projection, rect, [x, 10, 8]);
         assert!(
             (p[3] as i32 - alpha as i32).abs() <= 1,
@@ -675,6 +950,302 @@ fn tiefes_wasser_deckt() {
             p[3]
         );
     }
+}
+
+/// Eine Schicht der Wassertextur des Fixtures in der Standardfarbe.
+fn wasserschicht(assets: &Assets) -> [u8; 4] {
+    let wasser = assets
+        .colors()
+        .tints("minecraft:water", None)
+        .water
+        .unwrap();
+    [
+        (60.0 * wasser[0] as f32 / 255.0).round() as u8,
+        (100.0 * wasser[1] as f32 / 255.0).round() as u8,
+        (220.0 * wasser[2] as f32 / 255.0).round() as u8,
+        180,
+    ]
+}
+
+/// Was knapp unter einer tiefen Oberfläche liegt, sieht man durch das
+/// Wasser davor, nicht durch das daneben. Senkrecht gezählt trüge der
+/// Oberflächenblock vor dem Stein die Deckkraft seiner eigenen, vier
+/// Blöcke tiefen Spalte, und der Stein verschwände fast ganz — ebenso
+/// Riffe und Wracks.
+#[test]
+fn tiefe_zaehlt_entlang_des_blickstrahls() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let schicht = wasserschicht(&assets());
+
+    // Ein See vier Blöcke tief, ein Stein reicht bis einen Block unter die
+    // Oberfläche.
+    let dir = tempdir();
+    let see = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (_, 0, _) | (7, 3, 7) => "minecraft:einfarbig",
+            (_, 1..=4, _) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    // Derselbe Stein an Land.
+    let dir = tempdir();
+    let trocken = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (7, 3, 7) => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+
+    // Vor der Steinoberseite liegt genau eine Oberfläche, die von
+    // (8, 4, 8), und hinter der steht der Stein, kein Wasser.
+    let mitte = [7.5, 4.0, 7.5];
+    let erwartet = over(schicht, punkt(&trocken, projection, rect, mitte));
+    let ist = punkt(&see, projection, rect, mitte);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+            "Stein unter der Oberfläche: erwartet {erwartet:?}, bekommen {ist:?}"
+        );
+    }
+    // Die Oberfläche direkt über dem Stein, (7, 4, 7): senkrecht gezählt
+    // läge dort eine Schicht, der Strahl läuft aber schräg am Stein vorbei
+    // bis zum Grund. Vier Schichten, der Grund ist kaum noch zu sehen.
+    let ueber = [7.5, 4.0 + 8.0 / 9.0, 7.5];
+    let erwartet = over(
+        [schicht[0], schicht[1], schicht[2], 253],
+        [150, 110, 60, 255],
+    );
+    let ist = punkt(&see, projection, rect, ueber);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+            "über dem Stein: erwartet {erwartet:?}, bekommen {ist:?}"
+        );
+    }
+}
+
+/// Ein gefluteter Block, der die Oberseite seines Würfels deckt, beendet
+/// die Zählung wie ein Stein: hinter der Oberfläche liegt eine Schicht,
+/// dann die Platte. Eine untere Platte deckt dort 100 von 256 Pixeln, die
+/// meisten Strahlen laufen über sie hinweg, und die Oberfläche trägt die
+/// Tiefe des Sees.
+#[test]
+fn deckende_bloecke_beenden_die_zaehlung() {
+    zaehlung_endet_an_der_platte("minecraft:water", 8);
+    zaehlung_endet_an_der_platte("minecraft:water[level=1]", 7);
+}
+
+/// Die Prüfung aus `deckende_bloecke_beenden_die_zaehlung` für einen See,
+/// dessen oberste Schicht `oben` ist, mit Oberfläche bei `neuntel`/9.
+/// Hinter fliessendem Wasser der Menge 7 treten die Strahlen tiefer ein
+/// als bei einer Quelle, und dort hält auch die untere Platte sie auf:
+/// sie deckt mehr als die Hälfte. Gemessen wurde vorher immer bei 8/9.
+fn zaehlung_endet_an_der_platte(oben: &'static str, neuntel: u8) {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let schicht = wasserschicht(&assets());
+    let see = |platte: &'static str| {
+        move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (7, 3, 7) => platte,
+            (_, 1..=3, _) => "minecraft:water",
+            (_, 4, _) => oben,
+            _ => "minecraft:air",
+        }
+    };
+    let dir = tempdir();
+    let oben = render_chunks(
+        &dir,
+        &[(0, 0)],
+        see("minecraft:obere_platte[waterlogged=true]"),
+        projection,
+        rect,
+    );
+    let dir = tempdir();
+    let unten = render_chunks(
+        &dir,
+        &[(0, 0)],
+        see("minecraft:untere_platte[waterlogged=true]"),
+        projection,
+        rect,
+    );
+    // Die Mitte der Oberseite von (8, 4, 8): ihr Strahl trifft die Platte.
+    let mitte = [8.5, 4.0 + f64::from(neuntel) / 9.0, 8.5];
+    let holz = [150, 110, 60, 255];
+    let erwartet = over(schicht, holz);
+    let ist = punkt(&oben, projection, rect, mitte);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+            "obere Platte: erwartet {erwartet:?}, bekommen {ist:?}"
+        );
+    }
+    let hinter_der_platte = if neuntel == 8 { 253 } else { schicht[3] };
+    let erwartet = over(
+        [schicht[0], schicht[1], schicht[2], hinter_der_platte],
+        holz,
+    );
+    let ist = punkt(&unten, projection, rect, mitte);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+            "untere Platte bei {neuntel}/9: erwartet {erwartet:?}, bekommen {ist:?}"
+        );
+    }
+}
+
+/// Dünne Modelle im Wasser — Seegras, Kelp, ein gefluteter Pfosten —
+/// lassen den Blickstrahl durch. Die Oberfläche vor ihnen bleibt so tief
+/// wie ohne sie; sonst wäre jeder Fluss mit Seegras auf dem Grund
+/// gesprenkelt.
+#[test]
+fn duenne_modelle_machen_die_flaeche_nicht_flach() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 256);
+    let fluss = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) => "minecraft:einfarbig",
+        (_, 1..=2, _) => "minecraft:water",
+        _ => "minecraft:air",
+    };
+    let dir = tempdir();
+    let ohne = render_chunks(&dir, &[(0, 0)], fluss, projection, rect);
+    let dir = tempdir();
+    let mit = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| match (x, y, z) {
+            (7, 1, 7) => "minecraft:oak_fence[north=true,waterlogged=true]",
+            _ => fluss(x, y, z),
+        },
+        projection,
+        rect,
+    );
+    // Die Oberfläche von (8, 2, 8) hat den Pfosten auf ihrem Strahl. Von
+    // diesem Punkt aus läuft der Strahl durch den Block des Pfostens, aber
+    // an ihm vorbei bis zum Grund: dort sieht sie aus wie ohne ihn, zwei
+    // Schichten über dem Grund. Zählte der Pfosten als Ende, wäre es eine.
+    let p = [8.9, 2.0 + 8.0 / 9.0, 8.1];
+    assert_eq!(
+        punkt(&mit, projection, rect, p),
+        punkt(&ohne, projection, rect, p),
+        "der Pfosten macht die Fläche flach"
+    );
+}
+
+/// Wo eine Wassersäule neben einer niedrigeren Oberfläche derselben
+/// Flüssigkeit steht — der Fuss eines Wasserfalls, eine Stufe fliessenden
+/// Wassers —, bleibt über dem Nachbarn ein Streifen der eigenen Seite frei.
+/// Vanilla hebt dort die Ecken der Oberfläche an; hier schliesst ein
+/// Streifen die Lücke. Und unter der Nachbaroberfläche liegt keine
+/// Seitenfläche mehr, die sich mit ihr doppelt mischte.
+#[test]
+fn wasserstufen_schliessen_die_luecke_ohne_doppelung() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+
+    // Ein Wasserfall in einen See, ohne Grund: hinter dem Streifen ist
+    // nichts, also zählt sein Alpha allein.
+    let dir = tempdir();
+    let fall = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (8, 1..=4, 8) => "minecraft:water",
+            (4..=12, 1, 4..=12) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    // Ostseite der Säule zwischen der Seeoberfläche bei 8/9 und der Kante.
+    let streifen = punkt(&fall, projection, rect, [9.0, 1.95, 8.5]);
+    assert_eq!(
+        streifen[3], 180,
+        "Lücke am Fuss des Wasserfalls: {streifen:?}"
+    );
+
+    // Eine Quelle neben fliessendem Wasser der Stufe 1, das bei 7/9 endet.
+    let dir = tempdir();
+    let stufe = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (8, 1, 8) => "minecraft:water[level=0]",
+            (9, 1, 8) => "minecraft:water[level=1]",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let streifen = punkt(&stufe, projection, rect, [9.0, 1.0 + 7.5 / 9.0, 8.5]);
+    assert_eq!(streifen[3], 180, "Lücke an der Stufe: {streifen:?}");
+    // Unter der Oberfläche des Nachbarn deckt nur dessen Oberseite.
+    let darunter = punkt(&stufe, projection, rect, [9.0, 1.0 + 3.0 / 9.0, 8.5]);
+    assert_eq!(
+        darunter[3], 180,
+        "Seitenfläche unter der Nachbaroberfläche: {darunter:?}"
+    );
+}
+
+/// Lava bekommt ihre Streifen wie Wasser, nur deckend: an einer Stufe
+/// fliessender Lava bliebe sonst ein Loch bis zum Hintergrund.
+#[test]
+fn lavastufen_schliessen_die_luecke() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let dir = tempdir();
+    let stufe = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (8, 1, 8) => "minecraft:lava[level=0]",
+            // Endet bei 6/9.
+            (9, 1, 8) => "minecraft:lava[level=2]",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let streifen = punkt(&stufe, projection, rect, [9.0, 1.0 + 7.0 / 9.0, 8.5]);
+    assert_eq!(streifen[3], 255, "Loch an der Lavastufe: {streifen:?}");
+}
+
+/// Steht Wasser über Wasser, füllt das untere den Block bis zur Kante.
+/// Sonst bliebe zwischen seiner eigenen Höhe und dem Block darüber ein
+/// Spalt, durch den man in die Säule hineinsieht.
+#[test]
+fn wasser_unter_wasser_reicht_bis_zur_kante() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 256);
+    let dir = tempdir();
+    let bild = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (8, 1..=2, 8) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    // Ostseite des unteren Blocks, knapp unter seiner Oberkante — über
+    // der Höhe, bei der eine Oberfläche enden würde.
+    let p = punkt(&bild, projection, rect, [9.0, 1.95, 8.5]);
+    assert_eq!(p[3], 180, "Spalt in der Wassersäule: {p:?}");
+    // Der obere Block ist die Oberfläche und endet bei 8/9. An seiner
+    // hinteren Ecke bleibt darüber ein Streifen frei, den ein voller Würfel
+    // decken würde.
+    let p = punkt(&bild, projection, rect, [8.0, 3.0, 8.0]);
+    assert_eq!(p[3], 0, "Wasser über der Oberfläche: {p:?}");
 }
 
 /// Pixel, der einen Punkt in Blockkoordinaten enthält.
@@ -725,49 +1296,55 @@ fn flaechen_stossen_nahtlos_aneinander() {
     );
 
     // Mittelpunkte der inneren Kanten: zwischen (x, z) und (x + 1, z) sowie
-    // (x, z + 1), nur wo beide Seiten im Becken liegen.
+    // (x, z + 1), nur wo beide Seiten im Becken liegen. Die Wasserfläche
+    // endet bei 8/9 des Blocks, der Boden an der Blockkante.
     let mut kanten = Vec::new();
     for x in 4..7 {
         for z in 4..7 {
             if x + 1 < 7 {
-                kanten.push([x as f64 + 1.0, 2.0, z as f64 + 0.5]);
+                kanten.push([x as f64 + 1.0, z as f64 + 0.5]);
             }
             if z + 1 < 7 {
-                kanten.push([x as f64 + 0.5, 2.0, z as f64 + 1.0]);
+                kanten.push([x as f64 + 0.5, z as f64 + 1.0]);
             }
         }
     }
     assert_eq!(kanten.len(), 12);
-    for kante in kanten {
+    for [kx, kz] in kanten {
         // Der Pixel links und rechts der Kante — beide gehören genau einer
         // Fläche und tragen deren volle Deckung.
         for dx in [-0.05, 0.05] {
-            let p = [kante[0] + dx, kante[1], kante[2] - dx];
             assert_eq!(
-                punkt(&wasser, projection, rect, p)[3],
+                punkt(
+                    &wasser,
+                    projection,
+                    rect,
+                    [kx + dx, 1.0 + 8.0 / 9.0, kz - dx]
+                )[3],
                 180,
-                "Wasser an {kante:?}"
+                "Wasser an ({kx}, {kz})"
             );
             assert_eq!(
-                punkt(&boden, projection, rect, p),
+                punkt(&boden, projection, rect, [kx + dx, 2.0, kz - dx]),
                 [150, 110, 60, 255],
-                "Boden an {kante:?}"
+                "Boden an ({kx}, {kz})"
             );
         }
     }
 }
 
-/// Die Tiefe unter einem gefluteten Block darf dessen eigene Geometrie
-/// nicht ausblenden: der Pfosten eines Zauns an der Oberfläche sieht über
-/// tiefem Wasser genauso aus wie über flachem, denn zwischen Kamera und
-/// Pfosten liegt in beiden Fällen dasselbe Wasser.
+/// Die Tiefe hinter einem gefluteten Block darf dessen eigene Geometrie
+/// nicht ausblenden: die Seite eines Zaunpfostens knapp unter der
+/// Oberfläche sieht in einem tiefen See genauso aus wie in einem flachen,
+/// denn zwischen Kamera und Pfosten liegt in beiden Fällen dasselbe Wasser.
 #[test]
 fn tiefe_blendet_eigene_geometrie_nicht_aus() {
     let projection = Projection::new(16);
     let rect = ScreenRect::centered(256, 256);
     let zaun = "minecraft:oak_fence[north=true,waterlogged=true]";
 
-    // Flach: Zaun auf dem Boden. Tief: Zaun über drei Blöcken Wasser.
+    // Flach: ein See aus einer Schicht, der Zaun darin. Tief: vier
+    // Schichten, der Zaun in der obersten.
     let dir = tempdir();
     let flach = render_chunks(
         &dir,
@@ -775,6 +1352,7 @@ fn tiefe_blendet_eigene_geometrie_nicht_aus() {
         move |x, y, z| match (x, y, z) {
             (_, 0, _) => "minecraft:einfarbig",
             (8, 1, 8) => zaun,
+            (_, 1, _) => "minecraft:water",
             _ => "minecraft:air",
         },
         projection,
@@ -787,26 +1365,24 @@ fn tiefe_blendet_eigene_geometrie_nicht_aus() {
         move |x, y, z| match (x, y, z) {
             (_, 0, _) => "minecraft:einfarbig",
             (8, 4, 8) => zaun,
-            (8, 1..=3, 8) => "minecraft:water",
+            (_, 1..=4, _) => "minecraft:water",
             _ => "minecraft:air",
         },
         projection,
         rect,
     );
 
-    // Oberseite des Pfostens, in beiden Welten die Blockmitte.
-    let pfosten_flach = oberseite(&flach, projection, rect, [8, 1, 8]);
-    let pfosten_tief = oberseite(&tief, projection, rect, [8, 4, 8]);
-    assert_eq!(pfosten_flach, pfosten_tief, "Pfosten über tiefem Wasser");
-    assert_ne!(
-        pfosten_flach[..3],
-        [150, 110, 60],
-        "Wasser liegt über dem Pfosten"
-    );
+    // Südseite des Pfostens, knapp unter der Oberfläche: davor liegt nur
+    // die Wasserfläche des Zauns selbst, mit einer Schicht.
+    let seite = |y: f64| [8.5, y + 0.8, 8.625];
+    let pfosten_flach = punkt(&flach, projection, rect, seite(1.0));
+    let pfosten_tief = punkt(&tief, projection, rect, seite(4.0));
+    assert_eq!(pfosten_flach, pfosten_tief, "Pfosten im tiefen See");
 
-    // Neben dem Pfosten sieht man durch das Wasser: flach den Boden, tief
-    // fast nur noch Wasser.
-    let neben_flach = punkt(&flach, projection, rect, [8.2, 2.0, 8.2]);
-    let neben_tief = punkt(&tief, projection, rect, [8.2, 5.0, 8.2]);
-    assert_ne!(neben_flach, neben_tief, "Tiefe wirkt neben dem Pfosten");
+    // Wo das Sprite nichts hinter seiner Oberfläche hat, wirkt die Tiefe:
+    // flach scheint der Boden durch, tief fast nur noch Wasser.
+    let offen = |y: f64| [8.1, y + 8.0 / 9.0, 8.9];
+    let offen_flach = punkt(&flach, projection, rect, offen(1.0));
+    let offen_tief = punkt(&tief, projection, rect, offen(4.0));
+    assert_ne!(offen_flach, offen_tief, "Tiefe wirkt neben dem Pfosten");
 }

@@ -303,7 +303,7 @@ pub fn run() -> Result<()> {
         }
         if let Some(dir) = &args.tiles {
             let export = oeffne_gpu(args.gpu).and_then(|karte| {
-                write_tiles(
+                let export = write_tiles(
                     world,
                     assets.as_mut().expect("oben geprüft"),
                     projection,
@@ -313,7 +313,17 @@ pub fn run() -> Result<()> {
                     args.prune,
                     args.resume,
                     karte.as_ref(),
-                )
+                );
+                // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
+                // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
+                // endete nie. Sie aufzuräumen bleibt dem System.
+                if karte
+                    .as_ref()
+                    .is_some_and(|karte| karte.aus.load(Ordering::Relaxed))
+                {
+                    std::mem::forget(karte);
+                }
+                export
             });
             // Auch nach einem Fehler: Der Befehl vom Anfang steht nach
             // Stunden weit oben.

@@ -19,6 +19,7 @@
 
 use std::collections::HashMap;
 use std::sync::mpsc::{TryRecvError, channel};
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use image::RgbaImage;
@@ -34,6 +35,12 @@ const CELL: u32 = 16;
 /// Was ein Zeichner an Puffern höchstens bindet — Sprites, Zeichenlisten
 /// und Kacheln eines Durchgangs. Weit über dem, was vorkommt.
 const PUFFER_MAX: u64 = 256 << 20;
+
+/// So lange wartet ein Durchgang höchstens auf die Karte. Hängt sie, ohne
+/// dass ein Treiber sie zurücksetzt, wartete der Thread sonst ewig, und
+/// der Rückfall griffe nie. Sechzehn Kacheln brauchen auf einer Karte
+/// Millisekunden, auf einem Software-Adapter unter voller Last Sekunden.
+const ZEITLIMIT: Duration = Duration::from_secs(60);
 
 /// Eine geöffnete Grafikkarte mit dem Shader. Teilen sich alle Threads;
 /// jeder holt sich einen [`Worker`].
@@ -496,19 +503,25 @@ impl Worker<'_> {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        gpu.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: Some(index),
-                timeout: None,
-            })
-            .map_err(|e| anyhow!("auf die GPU warten: {e:?}"))?;
+        let warten = || {
+            gpu.device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: Some(index.clone()),
+                    timeout: Some(ZEITLIMIT),
+                })
+                .map_err(|e| match e {
+                    wgpu::PollError::Timeout => {
+                        anyhow!("die Karte antwortet seit {} s nicht", ZEITLIMIT.as_secs())
+                    }
+                    e => anyhow!("auf die GPU warten: {e:?}"),
+                })
+        };
+        warten()?;
         loop {
             match rx.try_recv() {
                 Ok(result) => break result.map_err(|e| anyhow!("Kacheln zurücklesen: {e:?}"))?,
                 Err(TryRecvError::Empty) => {
-                    gpu.device
-                        .poll(wgpu::PollType::wait_indefinitely())
-                        .map_err(|e| anyhow!("auf die GPU warten: {e:?}"))?;
+                    warten()?;
                 }
                 Err(TryRecvError::Disconnected) => bail!("die GPU hat die Kacheln nicht geliefert"),
             }

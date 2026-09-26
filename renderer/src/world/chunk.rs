@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::palette::{BlockState, PackedIndices, Paletted};
 
@@ -48,8 +48,9 @@ struct PalettedNbt<T> {
 struct PaletteEntry {
     #[serde(rename = "Name")]
     name: String,
-    #[serde(rename = "Properties")]
-    properties: Option<HashMap<String, String>>,
+    /// Sortiert, wie `BlockState` sie will.
+    #[serde(rename = "Properties", default)]
+    properties: BTreeMap<String, String>,
 }
 
 /// Eine 16×16×16-Section eines Chunks.
@@ -135,10 +136,12 @@ impl Chunk {
     }
 
     pub fn section(&self, section_y: i8) -> Option<&Section> {
-        self.sections
-            .binary_search_by_key(&section_y, |s| s.y)
-            .ok()
-            .map(|i| &self.sections[i])
+        self.section_index(section_y).map(|i| &self.sections[i])
+    }
+
+    /// Position der Section in [`Chunk::sections`].
+    pub fn section_index(&self, section_y: i8) -> Option<usize> {
+        self.sections.binary_search_by_key(&section_y, |s| s.y).ok()
     }
 
     /// Unterste Blockkoordinate, die dieser Chunk abdeckt.
@@ -225,12 +228,7 @@ fn decode_section(nbt: SectionNbt) -> Result<Option<Section>> {
     let palette = block_states
         .palette
         .into_iter()
-        .map(|entry| {
-            BlockState::new(
-                entry.name,
-                entry.properties.unwrap_or_default().into_iter().collect(),
-            )
-        })
+        .map(|entry| BlockState::new(entry.name, entry.properties.into_iter().collect()))
         .collect();
 
     let blocks = paletted(

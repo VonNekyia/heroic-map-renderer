@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::time::{Duration, SystemTime};
 
 use image::RgbaImage;
@@ -1102,6 +1102,15 @@ fn altern(dir: &Path) {
     }
 }
 
+/// Was ein Stromausfall aus einer Kachel machen kann: in voller Länge, mit
+/// gutem Kopf und Nullen in der zweiten Hälfte.
+fn zerreisse(pfad: &Path) {
+    let mut bytes = std::fs::read(pfad).unwrap();
+    let haelfte = bytes.len() / 2;
+    bytes[haelfte..].fill(0);
+    std::fs::write(pfad, bytes).unwrap();
+}
+
 /// Wann die Datei zuletzt geschrieben wurde.
 fn zeit_von(pfad: &Path) -> SystemTime {
     std::fs::metadata(pfad).unwrap().modified().unwrap()
@@ -1296,8 +1305,10 @@ fn pyramide_holt_jede_aenderung_nach() {
 /// Eine Kachel oder `map.json` mit einer Zeit in der Zukunft stammt von
 /// einer Uhr, die vorging, nicht von einem Render daneben. `--pyramid`
 /// behandelt sie wie jede andere: Über einer geänderten Basiskachel baut es
-/// eine solche Kachel zwei Stufen höher neu, und `map.json` bekommt die
-/// richtigen Grenzen. Früher blieb beides stehen, bis die Uhr es einholte.
+/// eine solche Kachel direkt darüber neu, obwohl die Basiskachel älter ist
+/// als ihre Zeit, und ebenso eine zwei Stufen höher; `map.json` bekommt die
+/// richtigen Grenzen. Früher blieb all das stehen, auch als die Uhr es
+/// eingeholt hatte.
 /// Was wirklich fremd ist, prüft `cli::tests::fremd_nur_auf_nativen_stufen`
 /// im Binär, dort lässt sich der Beginn von aussen setzen.
 #[test]
@@ -1327,6 +1338,7 @@ fn zukunft_ist_nicht_fremd() {
     );
     let oben = eine.parent().parent();
     let rot = RgbaImage::from_pixel(256, 256, image::Rgba([200, 0, 0, 255]));
+    setze(out.path(), basis - 1, eine.parent(), &rot);
     setze(out.path(), basis - 2, oben, &rot);
     let karte = out.path().join("map.json");
     let mut info: serde_json::Value =
@@ -1334,6 +1346,7 @@ fn zukunft_ist_nicht_fremd() {
     info["bounds"] = serde_json::json!([0, 0, 256, 256]);
     std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
     let spaeter = SystemTime::now() + Duration::from_secs(3600);
+    setze_zeit(&kachel_pfad(out.path(), basis - 1, eine.parent()), spaeter);
     setze_zeit(&kachel_pfad(out.path(), basis - 2, oben), spaeter);
     setze_zeit(&karte, spaeter);
 
@@ -1488,6 +1501,302 @@ fn native_in(dir: &Path) -> Option<u64> {
     let text = std::fs::read_to_string(dir.join("map.json")).expect("map.json lesen");
     let info: serde_json::Value = serde_json::from_str(&text).expect("map.json auswerten");
     info["nativeLevels"].as_u64()
+}
+
+/// `--resume` rendert auf der Basis nur, was fehlt: vorhandene Kacheln
+/// bleiben unangetastet, gelöschte kommen wieder, ebenso die jüngste, die
+/// ein Stromausfall zerrissen hat: mit gutem Kopf, in voller Länge und mit
+/// Nullen in der zweiten Hälfte. Die nativen Stufen rendert es ganz neu,
+/// denn dort kann `--pyramid` eine Kachel verkleinert haben, bevor die
+/// Basis darunter fertig war: hier aus den Kindern ohne das gelöschte. Am
+/// Ende steht Byte für Byte dasselbe da wie nach einem Lauf in einem Stück.
+/// Rate und Grösse zählen nur, was der Lauf gerendert hat.
+#[test]
+fn resume_rendert_nur_was_fehlt() {
+    let welt = tempdir();
+    // Östlich vom Ursprung, damit Kacheln sich eine Elternkachel teilen: am
+    // Ursprung trennt die Pyramide Spalte -1 von Spalte 0.
+    let chunks: Vec<(i32, i32)> = (4..8).map(|x| (x, 0)).collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+    let soll = schnappschuss(out.path());
+    let z = max_zoom(out.path());
+    let basis = kacheln(out.path(), z);
+    let nativ = kacheln(out.path(), z - 1);
+    // Eine Basiskachel mit Geschwistern: ohne sie zeigt die Elternkachel
+    // noch etwas.
+    let kind = *basis
+        .keys()
+        .find(|tile| {
+            let eltern = tile.parent();
+            basis.keys().filter(|t| t.parent() == eltern).count() > 1
+        })
+        .expect("Geschwister auf der Basis");
+    let (weg, weg_nativ) = (basis[&kind].clone(), nativ[&kind.parent()].clone());
+    let mut andere = basis
+        .iter()
+        .filter(|(t, _)| **t != kind)
+        .map(|(_, p)| p.clone());
+    let (bleibt, zerrissen) = (
+        andere.next().unwrap(),
+        andere.next().expect("drei Basiskacheln"),
+    );
+    let groesse = |pfad: &Path| std::fs::metadata(pfad).unwrap().len();
+    let neu = groesse(&weg) + groesse(&zerrissen);
+    for pfad in [&weg, &weg_nativ] {
+        std::fs::remove_file(pfad).unwrap();
+    }
+    gelungen(&pyramide(out.path()));
+    let verkleinert = std::fs::read(&weg_nativ).expect("--pyramid baut die native Kachel");
+    let eltern = kind.parent();
+    assert_ne!(
+        verkleinert,
+        soll[&format!("{}/{}/{}.webp", z - 1, eltern.x, eltern.y)]
+    );
+    // Der Lauf brach vor einer Stunde ab. Zuletzt schrieb er diese Kachel,
+    // und der Strom fiel aus, bevor ihre zweite Hälfte auf der Platte stand.
+    zerreisse(&zerrissen);
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for pfad in basis.values().filter(|pfad| pfad.is_file()) {
+        setze_zeit(pfad, damals);
+    }
+    setze_zeit(&zerrissen, damals + Duration::from_secs(600));
+    let vorher = zeit_von(&bleibt);
+    // Mit nativen Stufen baut der Lauf die ganze Pyramide darüber neu.
+    let oben: Vec<PathBuf> = (0..z - 1)
+        .flat_map(|stufe| kacheln(out.path(), stufe).into_values())
+        .collect();
+    assert!(!oben.is_empty(), "keine Pyramide über der nativen Stufe");
+    for pfad in &oben {
+        setze_zeit(pfad, damals);
+    }
+
+    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8", "--resume"]);
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    for erwartet in [
+        "Kacheln:    2 geschrieben".to_string(),
+        format!("{} vorhandene Kacheln übersprungen", basis.len() - 2),
+        format!("{:.0} kB je Kachel", neu as f64 / 2.0 / 1024.0),
+        format!("{} Kacheln nativ bei scale 4,", nativ.len()),
+    ] {
+        assert!(
+            meldung.contains(&erwartet),
+            "{erwartet} fehlt in: {meldung}"
+        );
+    }
+    assert!(weg.is_file(), "die gelöschte Basiskachel fehlt weiterhin");
+    assert_eq!(
+        zeit_von(&bleibt),
+        vorher,
+        "vorhandene Basiskachel neu gerendert"
+    );
+    for pfad in &oben {
+        assert_ne!(
+            zeit_von(pfad),
+            damals,
+            "{} nicht neu gebaut",
+            pfad.display()
+        );
+    }
+    assert_eq!(schnappschuss(out.path()), soll);
+}
+
+/// Ohne native Stufen baut `--resume` die ganze Pyramide neu, wie jeder
+/// Lauf: auch über Basiskacheln, die es nicht neu rendert, und auch eine
+/// Elternkachel, die ein Stromausfall zerrissen hat und dieselbe Zeit trägt
+/// wie alle anderen. Am Ende steht derselbe Baum da wie nach einem Lauf in
+/// einem Stück.
+#[test]
+fn resume_ohne_native_stufen_baut_die_pyramide_neu() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = tempdir();
+    let args = ["--scale", "8", "--native-levels", "0"];
+    gelungen(&tiles(welt.path(), out.path(), &args));
+    let soll = schnappschuss(out.path());
+    let basis = max_zoom(out.path());
+    assert!(basis > 1, "keine Pyramide zu prüfen");
+
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    let unten = kacheln(out.path(), basis);
+    for pfad in unten.values() {
+        setze_zeit(pfad, damals);
+    }
+    let mut reihe = unten.values();
+    let (weg, frisch, bleibt) = (
+        reihe.next().unwrap(),
+        reihe.next().unwrap(),
+        reihe.next().expect("drei Basiskacheln"),
+    );
+    std::fs::remove_file(weg).unwrap();
+    let zuletzt = damals + Duration::from_secs(600);
+    setze_zeit(frisch, zuletzt);
+    let oben: Vec<PathBuf> = (0..basis)
+        .flat_map(|z| kacheln(out.path(), z).into_values())
+        .collect();
+    for pfad in &oben {
+        setze_zeit(pfad, damals);
+    }
+    let zerrissen = &oben[oben.len() / 2];
+    zerreisse(zerrissen);
+    setze_zeit(zerrissen, damals);
+
+    let fortsetzen = [&args[..], &["--resume"]].concat();
+    gelungen(&tiles(welt.path(), out.path(), &fortsetzen));
+    assert_eq!(
+        zeit_von(bleibt),
+        damals,
+        "vorhandene Basiskachel neu gerendert"
+    );
+    assert_ne!(
+        zeit_von(frisch),
+        zuletzt,
+        "frische Basiskachel nicht neu gerendert"
+    );
+    for pfad in &oben {
+        assert_ne!(
+            zeit_von(pfad),
+            damals,
+            "{} nicht neu gebaut",
+            pfad.display()
+        );
+    }
+    assert_eq!(schnappschuss(out.path()), soll);
+}
+
+/// Ein Fortsetzen, das selbst abbricht, lässt keine zerrissene Kachel
+/// zurück. Es entfernt die frischen Kacheln, bevor es rendert, und das
+/// nächste findet sie als fehlend. Stünden sie noch da, wäre dessen jüngste
+/// Kachel eine des abgebrochenen, und die zerrissene läge weit vor ihren
+/// zwei Minuten. Das erste Fortsetzen läuft auf einem Thread, damit die
+/// zerrissene als letzte drankommt, und endet hart nach seiner ersten
+/// Kachel. Kommt der Test erst später zum Zug, hat es sie womöglich schon
+/// neu gerendert; zerrissen ist sie dann auch nicht mehr.
+#[test]
+fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4).map(|x| (x, 0)).collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = tempdir();
+    let args = ["--scale", "32", "--native-levels", "0"];
+    gelungen(&tiles(welt.path(), out.path(), &args));
+    let soll = schnappschuss(out.path());
+
+    // In der Reihenfolge, in der ein Lauf die Basis rendert.
+    let mut basis: Vec<(TileId, PathBuf)> = kacheln(out.path(), max_zoom(out.path()))
+        .into_iter()
+        .collect();
+    basis.sort_by_key(|(tile, _)| (tile.x >> 4, tile.y >> 4, tile.x, tile.y));
+    assert!(
+        basis.len() >= 12,
+        "{} Basiskacheln sind zu wenige",
+        basis.len()
+    );
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for (_, pfad) in &basis {
+        setze_zeit(pfad, damals);
+    }
+    let zerrissen = basis.last().unwrap().1.clone();
+    zerreisse(&zerrissen);
+    let kaputt = std::fs::read(&zerrissen).unwrap();
+    setze_zeit(&zerrissen, damals + Duration::from_secs(600));
+    let fehlen: Vec<PathBuf> = basis[..basis.len() / 2]
+        .iter()
+        .map(|(_, pfad)| pfad.clone())
+        .collect();
+    for pfad in &fehlen {
+        std::fs::remove_file(pfad).unwrap();
+    }
+
+    let fortsetzen = [&args[..], &["--resume"]].concat();
+    let mut erstes = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+        .arg("--world")
+        .arg(welt.path())
+        .arg("--assets")
+        .arg(assets_ref())
+        .arg("--tiles")
+        .arg(out.path())
+        .args(&fortsetzen)
+        .env("RAYON_NUM_THREADS", "1")
+        .stdout(Stdio::null())
+        .spawn()
+        .expect("terranova-render starten");
+    loop {
+        // Erst fragen, ob es geendet hat, dann nach Kacheln sehen: endete es
+        // dazwischen, hat der Test seine Kacheln trotzdem gesehen.
+        let geendet = erstes.try_wait().unwrap().is_some();
+        if fehlen.iter().any(|pfad| pfad.exists()) {
+            break;
+        }
+        assert!(
+            !geendet,
+            "das erste Fortsetzen endete, bevor es eine Kachel schrieb"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    erstes.kill().unwrap();
+    erstes.wait().unwrap();
+    assert!(
+        !std::fs::read(&zerrissen).is_ok_and(|jetzt| jetzt == kaputt),
+        "die zerrissene Kachel steht noch da"
+    );
+
+    gelungen(&tiles(welt.path(), out.path(), &fortsetzen));
+    assert_eq!(schnappschuss(out.path()), soll);
+}
+
+/// Unter Windows nennt der erste Export in ein Verzeichnis die Befehle für
+/// eine Ausnahme im Echtzeitschutz, für genau diesen Ordner und absolut,
+/// auch wenn `--tiles` ihn relativ angibt; der zweite schweigt, dort steht
+/// schon `map.json`. Für einen Ordner, in dem schon anderes liegt, gibt es
+/// ihn nicht, und anderswo als unter Windows nie.
+#[test]
+fn hinweis_auf_den_echtzeitschutz_nur_beim_ersten_export() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let eltern = tempdir();
+    let lauf = |ordner: &str| {
+        let ausgabe = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+            .current_dir(eltern.path())
+            .arg("--world")
+            .arg(welt.path())
+            .arg("--assets")
+            .arg(assets())
+            .args(["--tiles", ordner, "--scale", "8", "--native-levels", "0"])
+            .output()
+            .expect("terranova-render starten");
+        String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned()
+    };
+    let (erster, zweiter) = (lauf("karte"), lauf("karte"));
+    let ordner = eltern.path().join("karte");
+    for befehl in ["Add-MpPreference", "Remove-MpPreference"] {
+        let zeile = format!("{befehl} -ExclusionPath '{}'", ordner.display());
+        assert_eq!(erster.contains(&zeile), cfg!(windows), "{zeile}: {erster}");
+    }
+    assert!(!zweiter.contains("-ExclusionPath"), "{zweiter}");
+
+    std::fs::create_dir(eltern.path().join("voll")).unwrap();
+    std::fs::write(eltern.path().join("voll").join("notizen.txt"), "x").unwrap();
+    let voll = lauf("voll");
+    assert!(!voll.contains("-ExclusionPath"), "{voll}");
+}
+
+/// Eine Ausnahme im Echtzeitschutz gibt es nur unter Windows; anderswo
+/// bricht der Schalter ab, bevor ein Chunk gelesen ist.
+#[cfg(not(windows))]
+#[test]
+fn defender_exclusion_nur_unter_windows() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let out = tempdir();
+    let ausgabe = tiles(welt.path(), out.path(), &["--defender-exclusion"]);
+    assert!(!ausgabe.status.success());
+    let fehler = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(fehler.contains("nur unter Windows"), "{fehler}");
 }
 
 /// `map.json` muss beschreiben, was tatsächlich dasteht.

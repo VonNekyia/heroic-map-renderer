@@ -67,6 +67,8 @@ pub struct SpriteSet {
     /// Neunteln von 1 bis 8, fuer `Family::covers`.
     cover_tops: [Vec<(i32, i32)>; 8],
     foreign: BTreeSet<Cell>,
+    /// Welche Nachbarn welche Pixel eines Blocks uebermalen wuerden.
+    cover: Cover,
 }
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
@@ -89,6 +91,18 @@ impl Masks {
             outline: pixels_of(textures, projection, block(16.0, false)),
             top: pixels_of(textures, projection, block(16.0, true)),
         }
+    }
+
+    /// Liegt jeder sichtbare Pixel des Sprites im Umriss? Gezählt statt
+    /// nachgeschlagen: Jede Stelle des Umrisses kommt einmal vor, also sind
+    /// die sichtbaren Pixel dort genau dann alle, wenn keiner daneben liegt.
+    fn contains(&self, sprite: &Sprite) -> bool {
+        let alle = sprite.image.pixels().filter(|p| p.0[3] > 0).count();
+        let innen = self
+            .outline
+            .iter()
+            .filter(|&&(x, y)| alpha_at(sprite, x, y) > 0);
+        innen.count() == alle
     }
 }
 
@@ -162,6 +176,21 @@ pub struct Family {
     /// Oberseite des Blocks darunter? Lava endet bei 8/9 und deckt den
     /// Umriss nicht mehr, den Block darunter aber schon.
     pub covers_floor: bool,
+    /// Bleibt jede Alternative Pixel fuer Pixel im Umriss ihres eigenen
+    /// Wuerfels, siehe `Entry::contained`? Nur dann darf ein verdeckter
+    /// Block uebersprungen werden, ohne dass etwas von ihm haette
+    /// herausragen koennen.
+    pub contained: bool,
+    /// Ragt eine Alternative in Nachbarwuerfel? Dann muss der Renderer
+    /// von diesem Block aus auch dort zeichnen.
+    pub foreign: bool,
+    /// Besteht jede Alternative nur aus der Fluessigkeit, ohne Modell
+    /// daneben: Wasser, Lava, Blasensaeule. Dann bleibt vom Block nichts,
+    /// wo ueber ihm dieselbe Fluessigkeit steht und zu beiden Seiten
+    /// dieselbe mit derselben darueber oder ein deckender Block; sonst
+    /// bleibt die Oberflaeche oder ein Streifen. Siehe `expose` im
+    /// Metatile-Renderer.
+    pub pure_fluid: bool,
     /// Je Hoehe einer Wasseroberflaeche in Neunteln ein Bit, siehe
     /// [`Family::covers`].
     cover_bits: u8,
@@ -335,9 +364,12 @@ struct Entry {
     /// Deckt der eigene Teil den Boden des Wuerfels — die Oberseite des
     /// Blocks darunter?
     covers_floor: bool,
-    /// Bleibt jeder Teil im Umriss seines eigenen Wuerfels? Nach der
-    /// Zerlegung ist das der Normalfall; schlaegt sie fehl, verzichtet der
-    /// Renderer auf die Verdeckungsabkuerzung.
+    /// Bleibt der eigene Teil Pixel fuer Pixel im gerasterten Umriss seines
+    /// Wuerfels? Nur dann darf der Block verdeckt wegfallen: was daneben
+    /// liegt, deckt kein Nachbar sicher. Die Zerlegung laesst jedem Teil eine
+    /// Pixelbreite Spielraum, und so weit ragen auch Schilder, Weizen, Rote
+    /// Bete, Schienen, Feuer und das Lesepult je nach scale ueber den Umriss,
+    /// ohne zu zerfallen. Schlaegt die Zerlegung fehl, gilt das erst recht.
     contained: bool,
 }
 
@@ -375,7 +407,9 @@ impl SpriteSet {
                 surface_top(assets.textures(), cover_projection(), i as u8 + 1)
             }),
             foreign: BTreeSet::new(),
+            cover: Cover::default(),
         };
+        set.cover = Cover::new(&set.masks.outline, projection);
 
         // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
         // Einfluss aufs Bild unterscheiden — Laub nach Entfernung, Kelp nach
@@ -432,11 +466,25 @@ impl SpriteSet {
                 .fold(u8::MAX, |bits, ((_, model), &(_, id))| {
                     bits & set.covers_rays(assets, model, id)
                 });
+            // Eine Alternative ohne Bild zeichnet nichts, bleibt also im
+            // Wuerfel. Die Fassungen einer Fluessigkeit sind Teile ihres
+            // Modells oder dessen voller Wuerfel: sie bleiben, wo das Modell
+            // bleibt.
+            let contained = entries().all(|e| e.is_none_or(|e| e.contained));
+            let foreign = entries()
+                .any(|e| e.is_some_and(|e| e.parts.iter().any(|(cell, _)| *cell != OWN_CELL)));
+            let pure_fluid = fluid.is_some()
+                && models
+                    .iter()
+                    .all(|(_, model)| model.quads.iter().all(|q| q.fluid.is_some()));
             let family = Family {
                 total: alternatives.iter().map(|(weight, _)| *weight).sum(),
                 seed_offset: seed_offset(state),
                 opaque: all(|e| e.opaque),
                 covers_floor: all(|e| e.covers_floor),
+                contained,
+                foreign,
+                pure_fluid,
                 cover_bits,
                 fluid,
                 alternatives,
@@ -678,9 +726,7 @@ impl SpriteSet {
         let floor = self.projection.scale() as i32 / 2;
         let opaque = own.is_some_and(|sprite| covers_all(sprite, &self.masks.outline, 0));
         let covers_floor = own.is_some_and(|sprite| covers_all(sprite, &self.masks.top, floor));
-        let contained = parts
-            .iter()
-            .all(|(cell, sprite)| fits_cell(sprite, *cell, self.projection));
+        let contained = own.is_none_or(|sprite| self.masks.contains(sprite));
 
         self.foreign.extend(
             parts
@@ -782,10 +828,8 @@ impl SpriteSet {
         self.sprites[id.0 as usize].opaque
     }
 
-    /// Bleibt jeder Teil in seinem Wuerfel? Nur dann duerfen drei deckende
-    /// Nachbarn das Sprite ueberspringen.
-    pub fn is_contained(&self, id: SpriteId) -> bool {
-        self.sprites[id.0 as usize].contained
+    pub fn cover(&self) -> &Cover {
+        &self.cover
     }
 
     /// Alle Wuerfel ausser dem eigenen, in denen irgendein Sprite Teile
@@ -812,6 +856,61 @@ impl SpriteSet {
 
     pub fn projection(&self) -> Projection {
         self.projection
+    }
+}
+
+/// Welche der drei kamerazugewandten Nachbarn einen Pixel des eigenen
+/// Sprites uebermalen wuerden — je Pixelposition relativ zum Blockursprung
+/// ein Bitfeld aus [`mask_bit`]: Osten, oben, Sueden.
+///
+/// Ein deckender Nachbar setzt jeden Pixel seines Umrisses auf Alpha 255,
+/// genau die Pixel aus `Masks::outline`, und kommt in der
+/// Zeichenreihenfolge nach diesem Block. Was er uebermalt, muss der Block
+/// gar nicht erst zeichnen. Weil der scale ein Vielfaches von 4 ist, liegt
+/// jeder Nachbar um ganze Pixel versetzt; bei einem anderen scale deckt
+/// niemand.
+///
+/// Die Tabelle haengt nur an der Projektion; eine je Sprite-Tabelle.
+#[derive(Default)]
+pub struct Cover {
+    origin: i32,
+    size: i32,
+    bits: Vec<u8>,
+}
+
+impl Cover {
+    fn new(outline: &[(i32, i32)], projection: Projection) -> Cover {
+        let scale = projection.scale() as i32;
+        if scale % 4 != 0 {
+            return Cover::default();
+        }
+        let (origin, size) = (-2 * scale, 4 * scale);
+        let mut bits = vec![0u8; (size * size) as usize];
+        for (face, cell) in [
+            (Face::East, [1, 0, 0]),
+            (Face::Up, [0, 1, 0]),
+            (Face::South, [0, 0, 1]),
+        ] {
+            let (dx, dy) = projection.project_block(cell);
+            for &(x, y) in outline {
+                let (px, py) = (x + dx as i32 - origin, y + dy as i32 - origin);
+                if (0..size).contains(&px) && (0..size).contains(&py) {
+                    bits[(py * size + px) as usize] |= mask_bit(face);
+                }
+            }
+        }
+        Cover { origin, size, bits }
+    }
+
+    /// Bitfeld des Pixels an dieser Position relativ zum Blockursprung.
+    /// Ausserhalb der Tabelle deckt niemand.
+    #[inline]
+    pub fn at(&self, x: i32, y: i32) -> u8 {
+        let (px, py) = (x - self.origin, y - self.origin);
+        if px < 0 || py < 0 || px >= self.size || py >= self.size {
+            return 0;
+        }
+        self.bits[(py * self.size + px) as usize]
     }
 }
 
@@ -1053,6 +1152,9 @@ mod tests {
             fluid: None,
             opaque: false,
             covers_floor: false,
+            contained: true,
+            foreign: false,
+            pure_fluid: false,
             cover_bits: 0,
             seed_offset: [0, 0, 0],
         };
@@ -1176,7 +1278,7 @@ mod tests {
         for name in ["einfarbig", "seerose", "oak_fence"] {
             let id = set.id(&state(name)).unwrap();
             assert!(set.part(id, OWN_CELL).is_some(), "{name}");
-            assert!(set.is_contained(id), "{name}");
+            assert!(set.sprites[id.0 as usize].contained, "{name}");
         }
         assert!(set.foreign_cells().is_empty());
     }
@@ -1196,9 +1298,17 @@ mod tests {
             set.foreign_cells().iter().copied().collect::<Vec<_>>(),
             vec![[-1, 0, 0]]
         );
+        let entry = &set.sprites[id.0 as usize];
         assert!(
-            set.is_contained(id),
-            "nach der Zerlegung bleibt jeder Teil drin"
+            entry
+                .parts
+                .iter()
+                .all(|(cell, sprite)| fits_cell(sprite, *cell, set.projection)),
+            "nach der Zerlegung bleibt jeder Teil in seinem Würfel"
+        );
+        assert!(
+            !entry.contained,
+            "der eigene Teil nutzt den Spielraum der Zerlegung"
         );
     }
 
@@ -1213,7 +1323,57 @@ mod tests {
 
         assert!(set.part(id, OWN_CELL).is_some());
         assert!(set.part(id, [0, 1, 0]).is_some());
-        assert!(set.is_contained(id));
+        assert!(
+            set.sprites[id.0 as usize]
+                .parts
+                .iter()
+                .all(|(cell, sprite)| fits_cell(sprite, *cell, set.projection))
+        );
+    }
+
+    /// Ein Modell, das knapp über seinen Würfel ragt, zerfällt nicht, liegt
+    /// aber auch nicht im Umriss: seine Randpixel deckt kein Nachbar, und
+    /// verdeckt fallen darf es deshalb nie. So liegen Schilder, Weizen oder
+    /// Schienen in Vanilla.
+    #[test]
+    fn knapper_ueberstand_liegt_nicht_im_umriss() {
+        let mut assets = assets();
+        let states = [state("rand"), state("einfarbig")];
+        for scale in [16, 32] {
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let rand = set.id(&state("rand")).unwrap();
+            let einfarbig = set.id(&state("einfarbig")).unwrap();
+            assert!(set.foreign_cells().is_empty(), "scale {scale}: zerfallen");
+            assert!(!set.sprites[rand.0 as usize].contained, "scale {scale}");
+            assert!(set.sprites[einfarbig.0 as usize].contained, "scale {scale}");
+        }
+    }
+
+    /// Im Umriss liegt ein Sprite, das ihn genau füllt, auch mit einem
+    /// durchsichtigen Pixel darin. Ein einziger sichtbarer daneben genügt,
+    /// und es liegt nicht mehr darin.
+    #[test]
+    fn ein_pixel_neben_dem_umriss_genuegt() {
+        use image::Rgba;
+        let masks = Masks::new(&Textures::new(), Projection::new(16));
+        let x0 = masks.outline.iter().map(|p| p.0).min().unwrap();
+        let y0 = masks.outline.iter().map(|p| p.1).min().unwrap();
+        let x1 = masks.outline.iter().map(|p| p.0).max().unwrap();
+        let y1 = masks.outline.iter().map(|p| p.1).max().unwrap();
+        let offset = (x0 - 1, y0 - 1);
+        let mut image = RgbaImage::new((x1 - x0 + 3) as u32, (y1 - y0 + 3) as u32);
+        let stelle = |(x, y): (i32, i32)| ((x - offset.0) as u32, (y - offset.1) as u32);
+        for &pos in &masks.outline {
+            let (x, y) = stelle(pos);
+            image.put_pixel(x, y, Rgba([9, 9, 9, 255]));
+        }
+        let mut sprite = Sprite { image, offset };
+        assert!(masks.contains(&sprite));
+        let (x, y) = stelle(masks.outline[0]);
+        sprite.image.put_pixel(x, y, Rgba([0; 4]));
+        assert!(masks.contains(&sprite));
+        sprite.image.put_pixel(0, 0, Rgba([9, 9, 9, 1]));
+        assert!(!masks.contains(&sprite));
     }
 
     /// Die Zerlegung ist eine Aufteilung: kein Pixel darf verloren gehen

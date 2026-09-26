@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use image::{Rgba, RgbaImage};
+use image::RgbaImage;
 
 use crate::assets::Face;
 use crate::assets::fluid;
-use crate::world::{Chunk, REGION, Region, World};
+use crate::assets::fluid::Fluid;
+use crate::world::{Chunk, REGION, Region, Section, World};
 
 use super::rasterizer::over;
-use super::sprites::{DEPTHS, Family, mask_bit};
+use super::sprites::{Cover, DEPTHS, Family, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
@@ -66,80 +67,96 @@ impl ScreenRect {
 /// eigenen Würfel gehört. Sonst käme ein hohes Modell zu früh, und ein
 /// Block dahinter mit höherem Ursprung übermalte es.
 ///
-/// Ein globaler Tiefenpuffer ist damit unnötig. `columns_at` liefert die
-/// Spalten bereits in dieser Reihenfolge.
+/// Ein globaler Tiefenpuffer ist damit unnötig. Die Reihenfolge kommt aus
+/// dem Schlüssel `(y, v, u, Teil)`, nach dem die Kandidaten sortiert
+/// werden, siehe [`render_area_with`].
 pub fn render_area(
     world: &World,
     sprites: &SpriteSet,
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
-    draw(world, sprites, rect, y_range, true)
+    render_area_with(&mut ChunkCache::new(world, sprites), rect, y_range)
 }
 
-/// Wie [`render_area`], aber ohne die Abkürzung über verdeckte Würfel: die
-/// Referenz, gegen die Tests die Abkürzung prüfen. Sie darf kein Pixel
-/// ändern.
+/// Wie [`render_area`], mit einem Cache, der über Kacheln hinweg lebt.
+///
+/// Aufeinanderfolgende Kacheln liegen untereinander und teilen sich fast
+/// alle Chunks. Wer sie je Kachel neu lädt, gibt ein Drittel der Renderzeit
+/// fürs Dekodieren aus, das er gerade erst gemacht hat.
+///
+/// Zwei Durchgänge. Der erste sammelt die Kandidaten — Blöcke, von denen
+/// etwas zu sehen sein kann — aus den Bitmasken der Sections, ohne einen
+/// einzigen Luftblock anzufassen. Der zweite sortiert sie in die
+/// Zeichenreihenfolge und zeichnet. Das Bild ist dasselbe wie das von
+/// [`render_area_without_culling`], das jeden Block im Band abläuft.
+pub fn render_area_with(
+    chunks: &mut ChunkCache,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+) -> Result<RgbaImage> {
+    chunks.next_tile();
+    let sprites = chunks.sprites;
+    let projection = sprites.projection();
+    let cover = sprites.cover();
+    let mut canvas = RgbaImage::new(rect.width, rect.height);
+    let foreign: Vec<Cell> = sprites.foreign_cells().iter().copied().collect();
+
+    let mut candidates = chunks.candidates(rect, y_range, &foreign)?;
+    candidates.sort_unstable_by_key(|c| c.key);
+
+    for c in &candidates {
+        let pos = [c.x, c.y, c.z];
+        if c.kind == 0 {
+            for id in chunks.sprite_at(c.x, c.y, c.z)?.ids() {
+                if let Some(part) = sprites.part(id, OWN_CELL) {
+                    blit(&mut canvas, part, rect, projection, pos, cover, c.skip);
+                }
+            }
+        } else {
+            let cell = foreign[c.kind as usize - 1];
+            let anchor = anchor_of(pos, cell);
+            if let Some(id) = chunks.sprite_at(anchor[0], anchor[1], anchor[2])?.sprite
+                && let Some(part) = sprites.part(id, cell)
+            {
+                // Fremde Teile liegen in einem anderen Würfel als dem Anker;
+                // die Deckungstabelle gilt nur für den eigenen.
+                blit(&mut canvas, part, rect, projection, anchor, cover, 0);
+            }
+        }
+    }
+
+    Ok(canvas)
+}
+
+/// Wie [`render_area`], aber Block für Block über das ganze Band, ohne
+/// Kandidaten, ohne verdeckte Würfel auszulassen und ohne Pixel zu
+/// überspringen: die Referenz, gegen die Tests den schnellen Weg prüfen.
+/// Er darf kein Pixel ändern.
 pub fn render_area_without_culling(
     world: &World,
     sprites: &SpriteSet,
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
-    draw(world, sprites, rect, y_range, false)
-}
-
-fn draw(
-    world: &World,
-    sprites: &SpriteSet,
-    rect: ScreenRect,
-    y_range: (i32, i32),
-    verdecken: bool,
-) -> Result<RgbaImage> {
     let projection = sprites.projection();
+    let cover = sprites.cover();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
-    let mut chunks = ChunkCache::new(world);
-    // Fast immer leer. Dann fällt die Suche nach Überhängen ganz weg.
-    let ueberhaenge = !sprites.foreign_cells().is_empty();
+    let mut chunks = ChunkCache::new(world, sprites);
 
     for y in y_range.0..=y_range.1 {
         for (x, z) in columns_at(projection, rect, y) {
-            let own = chunks.sprite_at(sprites, x, y, z)?;
-
-            // Erst suchen, dann auf Verdeckung prüfen: der Test kostet drei
-            // Nachschläge und lohnt nur, wenn hier überhaupt etwas liegt.
-            if own.is_empty() && !(ueberhaenge && anything_foreign(&mut chunks, sprites, x, y, z)?)
-            {
-                continue;
-            }
-            if verdecken && is_hidden(&mut chunks, sprites, own.sprite, x, y, z)? {
-                continue;
-            }
-
-            if let Some(id) = own.sprite
-                && let Some(part) = sprites.part(id, OWN_CELL)
-            {
-                blit(&mut canvas, part, rect, projection, [x, y, z]);
-            }
-            // Die Streifen nach dem Block: sie liegen auf seiner Grenze,
-            // also vor allem, was er selbst enthält.
-            for id in own.strips.into_iter().flatten() {
+            for id in chunks.sprite_at(x, y, z)?.ids() {
                 if let Some(part) = sprites.part(id, OWN_CELL) {
-                    blit(&mut canvas, part, rect, projection, [x, y, z]);
+                    blit(&mut canvas, part, rect, projection, [x, y, z], cover, 0);
                 }
             }
-            if ueberhaenge {
-                for &cell in sprites.foreign_cells() {
-                    let anchor = anchor_of([x, y, z], cell);
-                    let Some(id) = chunks
-                        .sprite_at(sprites, anchor[0], anchor[1], anchor[2])?
-                        .sprite
-                    else {
-                        continue;
-                    };
-                    if let Some(part) = sprites.part(id, cell) {
-                        blit(&mut canvas, part, rect, projection, anchor);
-                    }
+            for &cell in sprites.foreign_cells() {
+                let anchor = anchor_of([x, y, z], cell);
+                if let Some(id) = chunks.sprite_at(anchor[0], anchor[1], anchor[2])?.sprite
+                    && let Some(part) = sprites.part(id, cell)
+                {
+                    blit(&mut canvas, part, rect, projection, anchor, cover, 0);
                 }
             }
         }
@@ -153,33 +170,6 @@ fn anchor_of([x, y, z]: [i32; 3], cell: Cell) -> [i32; 3] {
     [x - cell[0], y - cell[1], z - cell[2]]
 }
 
-/// Ragt irgendein Nachbarmodell in diesen Würfel?
-///
-/// `foreign_cells` ist leer, solange kein Modell seinen Blockwürfel
-/// verlässt — dann kostet das hier nichts. Sonst ist es ein Nachschlagen
-/// je Versatz und Würfel.
-// ponytail: unbedingte Suche je leerem Würfel. Erst nötig, wenn eine Welt
-// mit Feuer das Budget sprengt; dann eine Bitmaske je Section.
-fn anything_foreign(
-    chunks: &mut ChunkCache,
-    sprites: &SpriteSet,
-    x: i32,
-    y: i32,
-    z: i32,
-) -> Result<bool> {
-    for &cell in sprites.foreign_cells() {
-        let anchor = anchor_of([x, y, z], cell);
-        if let Some(id) = chunks
-            .sprite_at(sprites, anchor[0], anchor[1], anchor[2])?
-            .sprite
-            && sprites.part(id, cell).is_some()
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 /// Was an einem Würfel zu zeichnen ist: das Sprite des Blocks, dazu die
 /// Streifen seiner Flüssigkeit über niedrigeren Nachbarn.
 #[derive(Default, Clone, Copy)]
@@ -189,13 +179,61 @@ struct Drawn {
 }
 
 impl Drawn {
-    fn is_empty(&self) -> bool {
-        self.sprite.is_none() && self.strips.iter().all(Option::is_none)
+    /// In Zeichenreihenfolge: die Streifen nach dem Block, sie liegen auf
+    /// seiner Grenze, also vor allem, was er selbst enthält.
+    fn ids(self) -> impl Iterator<Item = SpriteId> {
+        self.sprite
+            .into_iter()
+            .chain(self.strips.into_iter().flatten())
     }
 }
 
+/// Ein Block, von dem etwas zu sehen sein kann, mit seinem Platz in der
+/// Zeichenreihenfolge.
+struct Candidate {
+    /// `(y, v, u, kind)` in einem Wort, damit das Sortieren billig ist:
+    /// 10, 22, 22 und 10 Bit, von `y_range.0` und vom Rand des Bands an
+    /// gezählt.
+    key: u64,
+    x: i32,
+    y: i32,
+    z: i32,
+    /// 0: der Block selbst; sonst 1 + Index des fremden Würfels, in den
+    /// ein Nachbarmodell hineinragt.
+    kind: u16,
+    /// Nachbarn (`mask_bit`), die `PLAIN` sind, deckend und ohne
+    /// Flüssigkeit, und gezeichnet werden: was in ihrem Umriss liegt,
+    /// übermalen sie ohnehin.
+    skip: u8,
+}
+
+/// Bereich von `u = x - z`, dessen Spalten in das Rechteck fallen können.
+///
+/// `screen_x = u * scale/2`. f64, weil rect und Weltkoordinaten bis knapp
+/// 30 Millionen gehen: siehe Projection::project_block.
+fn u_window(projection: Projection, rect: ScreenRect) -> (i32, i32) {
+    let scale = projection.scale() as f64;
+    let bleed = BLEED_BLOCKS as f64 * scale;
+    (
+        ((rect.x as f64 - bleed) / (scale / 2.0)).floor() as i32,
+        ((rect.right() as f64 + bleed) / (scale / 2.0)).ceil() as i32,
+    )
+}
+
+/// Bereich von `v = x + z` auf dieser Höhe: `screen_y = v * scale/4 - y *
+/// scale/2`.
+fn v_window(projection: Projection, rect: ScreenRect, y: i32) -> (i32, i32) {
+    let scale = projection.scale() as f64;
+    let bleed = BLEED_BLOCKS as f64 * scale;
+    let offset = y as f64 * scale / 2.0;
+    (
+        ((rect.y as f64 - bleed + offset) / (scale / 4.0)).floor() as i32,
+        ((rect.bottom() as f64 + bleed + offset) / (scale / 4.0)).ceil() as i32,
+    )
+}
+
 /// Alle Blockspalten, deren Sprite auf dieser Höhe in das Rechteck fallen
-/// kann — in Zeichenreihenfolge.
+/// kann — in Zeichenreihenfolge, so wie sie die Referenz abläuft.
 ///
 /// Statt über x und z zu laufen, läuft die Schleife über die beiden
 /// Bildschirmachsen: `u = x - z` steuert die waagerechte, `v = x + z` die
@@ -212,19 +250,8 @@ fn columns_at(
     rect: ScreenRect,
     y: i32,
 ) -> impl Iterator<Item = (i32, i32)> {
-    // f64, weil rect und Weltkoordinaten bis knapp 30 Millionen gehen:
-    // siehe Projection::project_block.
-    let scale = projection.scale() as f64;
-    let bleed = BLEED_BLOCKS as f64 * scale;
-
-    // screen_x = u * scale/2
-    let u_min = ((rect.x as f64 - bleed) / (scale / 2.0)).floor() as i32;
-    let u_max = ((rect.right() as f64 + bleed) / (scale / 2.0)).ceil() as i32;
-
-    // screen_y = v * scale/4 - y * scale/2
-    let offset = y as f64 * scale / 2.0;
-    let v_min = ((rect.y as f64 - bleed + offset) / (scale / 4.0)).floor() as i32;
-    let v_max = ((rect.bottom() as f64 + bleed + offset) / (scale / 4.0)).ceil() as i32;
+    let (u_min, u_max) = u_window(projection, rect);
+    let (v_min, v_max) = v_window(projection, rect, y);
 
     (v_min..=v_max).flat_map(move |v| {
         // x und z sind ganzzahlig, also haben u und v dieselbe Parität.
@@ -235,80 +262,99 @@ fn columns_at(
     })
 }
 
-/// Ein Würfel ist unsichtbar, wenn seine drei kamerazugewandten Nachbarn
-/// ihn ganz decken: deren Umrisse setzen genau den eigenen zusammen. Der
-/// Ost- und der Südnachbar müssen dafür ihren ganzen Umriss deckend
-/// füllen, dem Nachbarn darüber genügt sein Boden — Lava endet bei 8/9 und
-/// deckt trotzdem den Block darunter. Geprüft ist beides Pixel für Pixel
-/// gegen einen vollen Würfel, siehe `SpriteSet`.
+/// Zeichnet ein Sprite an seinen Block — ohne die Pixel, die ein Nachbar
+/// aus `skip` ohnehin übermalt.
 ///
-/// Das gilt für alles, was in diesem Würfel liegt — auch für Teile fremder
-/// Modelle, denn die Zerlegung in `SpriteSet` hält jeden Teil in seinem
-/// Würfel. Wo sie das nicht schafft, meldet `is_contained` es, und die
-/// Abkürzung entfällt.
-fn is_hidden(
-    chunks: &mut ChunkCache,
-    sprites: &SpriteSet,
-    own: Option<SpriteId>,
-    x: i32,
-    y: i32,
-    z: i32,
-) -> Result<bool> {
-    if own.is_some_and(|id| !sprites.is_contained(id)) {
-        return Ok(false);
-    }
-    for (dx, dy, dz) in [(1, 0, 0), (0, 1, 0), (0, 0, 1)] {
-        let deckt = |family: &Family| {
-            if dy == 1 {
-                family.covers_floor
-            } else {
-                family.opaque
-            }
-        };
-        match chunks.family_at(sprites, x + dx, y + dy, z + dz)? {
-            Some(family) if deckt(family) => {}
-            _ => return Ok(false),
-        }
-    }
-    Ok(true)
-}
-
+/// Ein sichtbarer Block zeichnet sonst alle drei Flächen, auch die, die der
+/// deckende Nachbar gleich darüberlegt: auf flachem Gelände zwei von drei.
+/// Übersprungen wird nur, was im Umriss eines Nachbarn liegt, der deckend
+/// ist, keine Flüssigkeit enthält (`PLAIN`) *und* in dieser Kachel
+/// gezeichnet wird — dann ist der Pixel danach Alpha 255 vom Nachbarn, egal
+/// was vorher da stand. Das Bild ist dasselbe.
 fn blit(
     canvas: &mut RgbaImage,
     sprite: &Sprite,
     rect: ScreenRect,
     projection: Projection,
     [x, y, z]: [i32; 3],
+    cover: &Cover,
+    skip: u8,
 ) {
     let (sx, sy) = projection.project_block([x, y, z]);
     let origin_x = sx.round() as i32 + sprite.offset.0 - rect.x;
     let origin_y = sy.round() as i32 + sprite.offset.1 - rect.y;
+    let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
+    let (cw, ch) = (canvas.width() as i32, canvas.height() as i32);
 
-    for (px, py, pixel) in sprite.image.enumerate_pixels() {
-        if pixel.0[3] == 0 {
-            continue;
+    // Der Teil des Sprites, der auf die Leinwand fällt.
+    let (x0, x1) = ((-origin_x).max(0), (cw - origin_x).min(w));
+    let (y0, y1) = ((-origin_y).max(0), (ch - origin_y).min(h));
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+
+    // Zeilenanfänge in usize: bei einer Leinwand über 23 170 Pixel Kante
+    // liefe `y * Breite * 4` in i32 über.
+    let (w, cw) = (w as usize, cw as usize);
+    let src = sprite.image.as_raw();
+    let dst: &mut [u8] = canvas;
+    for py in y0..y1 {
+        let row = &src[py as usize * w * 4..][..w * 4];
+        let drow = &mut dst[(origin_y + py) as usize * cw * 4..][..cw * 4];
+        for px in x0..x1 {
+            let s = &row[px as usize * 4..][..4];
+            if s[3] == 0 {
+                continue;
+            }
+            if skip != 0 && cover.at(sprite.offset.0 + px, sprite.offset.1 + py) & skip != 0 {
+                continue;
+            }
+            let d = &mut drow[(origin_x + px) as usize * 4..][..4];
+            if s[3] == 255 {
+                d.copy_from_slice(s);
+            } else {
+                let out = over([s[0], s[1], s[2], s[3]], [d[0], d[1], d[2], d[3]]);
+                d.copy_from_slice(&out);
+            }
         }
-        let tx = origin_x + px as i32;
-        let ty = origin_y + py as i32;
-        if tx < 0 || ty < 0 || tx >= canvas.width() as i32 || ty >= canvas.height() as i32 {
-            continue;
-        }
-        let under = canvas.get_pixel(tx as u32, ty as u32).0;
-        canvas.put_pixel(tx as u32, ty as u32, Rgba(over(pixel.0, under)));
     }
 }
 
-/// Chunks, die eine Kachel braucht.
+/// Ab wie vielen Chunks ein Cache verwirft, was die vorige Kachel nicht
+/// gebraucht hat. Eine Kachel bei scale 32 berührt gut hundert Chunks; die
+/// nächste liegt direkt darunter und teilt sich fast alle davon. Bei
+/// kleinerem scale berührt eine Kachel mehr, bei scale 4 einige hundert,
+/// und der Cache hält dann entsprechend mehr.
+// ponytail: Verfallsdatum je Kachel statt echtem LRU. Reicht, solange die
+// Kacheln in Leseordnung kommen; sonst lädt jede Kachel ihre hundert neu.
+const CACHE_CHUNKS: usize = 256;
+
+/// Chunks, die während eines Renderlaufs gebraucht werden.
 ///
-/// Jede Kachel hält ihren eigenen Cache; geteilt bedeutete er eine Sperre
-/// im Renderpfad.
-struct ChunkCache<'a> {
+/// Ein Cache gehört zu einer Sprite-Tabelle: er hält je Paletteneintrag
+/// den Familienindex daraus. Über Kacheln hinweg lebt er je Stapel
+/// aufeinanderfolgender Kacheln, die ein Worker nacheinander rendert —
+/// geteilt zwischen Workern wäre er eine Sperre im Renderpfad.
+pub struct ChunkCache<'a> {
     world: &'a World,
+    sprites: &'a SpriteSet,
     /// Offene Regionsdateien. `World::chunk` würde die Datei für jeden
-    /// Chunk neu öffnen — bei rund fünfzig Chunks je Kachel sind das
-    /// fünfzig Öffnungen statt einer Handvoll.
+    /// Chunk neu öffnen — bei rund hundert Chunks je Kachel sind das
+    /// hundert Öffnungen statt einer Handvoll.
     regions: HashMap<(i32, i32), Option<Region>>,
-    chunks: HashMap<(i32, i32), Option<Loaded>>,
+    slots: Vec<Slot>,
+    index: HashMap<(i32, i32), usize>,
+    /// Der zuletzt benutzte Slot. Benachbarte Blöcke liegen fast immer im
+    /// selben Chunk; der Merker spart das Hashen.
+    last: usize,
+    /// Laufende Kachelnummer — das Verfallsdatum der Slots.
+    tile: u32,
+}
+
+struct Slot {
+    key: (i32, i32),
+    loaded: Option<Loaded>,
+    used: u32,
 }
 
 /// Ein Chunk samt der Familie je Paletteneintrag. Die Blockstate wird
@@ -317,18 +363,263 @@ struct ChunkCache<'a> {
 struct Loaded {
     chunk: Chunk,
     families: Vec<Vec<Option<u32>>>,
+    /// Je Section ihre Bitmasken, `None` für eine Section ohne Familie.
+    masks: Vec<Option<Box<Masks>>>,
+    /// Je Section die Kandidaten, sobald einmal berechnet — dafür müssen
+    /// die Nachbarchunks da sein, deshalb nicht beim Laden.
+    exposed: Vec<Option<Box<Exposed>>>,
+}
+
+/// Die Eigenschaften einer Familie, die über Verdeckung entscheiden, je
+/// als Bit einer Maske in [`Masks`].
+const PRESENT: usize = 0;
+/// Deckt den ganzen Umriss: verdeckt, was hinter ihm liegt.
+const SOLID: usize = 1;
+/// Deckt den Umriss und zeichnet genau das Sprite ihrer Alternative, ohne
+/// Flüssigkeit: nur vor so einem Nachbarn dürfen Pixel entfallen. Eine
+/// Flüssigkeit zeichnet eine Fassung ohne die Flächen zu ihresgleichen.
+const PLAIN: usize = 2;
+/// Deckt den Boden des Würfels, die Oberseite des Blocks darunter.
+const FLOOR: usize = 3;
+/// Enthält Wasser, [`LAVA`] Lava: für dieselbe Flüssigkeit nebenan
+/// dieselbe.
+const WATER: usize = 4;
+const LAVA: usize = 5;
+/// Nur Wasser, [`PURE_LAVA`] nur Lava, ohne Modell daneben.
+const PURE_WATER: usize = 6;
+const PURE_LAVA: usize = 7;
+/// Bleibt nicht in ihrem Würfel: nie überspringen.
+const LOOSE: usize = 8;
+/// Hat Teile in Nachbarwürfeln.
+const FOREIGN: usize = 9;
+const FLAGS: usize = 10;
+/// Je Flüssigkeit, in der Reihenfolge von [`Masks::up`]: das Bit "enthält
+/// sie" und das Bit "nur sie".
+const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
+
+/// Bitmasken einer Section: je Eigenschaft und Spalte `z * 16 + x` ein
+/// Wort, Bit `y`.
+///
+/// Damit ist die Frage "ist dieser Block von seinen drei Nachbarn
+/// verdeckt?" für sechzehn Blöcke einer Spalte auf einmal ein paar
+/// Wortoperationen — statt drei Nachschläge je Block, für neun von zehn
+/// Blöcken, die dann doch unter der Oberfläche liegen.
+struct Masks {
+    bits: [[u16; 256]; FLAGS],
+    /// Je Flüssigkeit aus [`FLUIDS`]: liegt über dem Block dieselbe, auch
+    /// aus der Section darüber?
+    up: [[u16; 256]; 2],
+    /// Ragt irgendetwas in Nachbarwürfel?
+    any_foreign: bool,
+}
+
+/// Eine Randspalte für [`ChunkCache::expose`]: deckend, dazu je
+/// Flüssigkeit aus [`FLUIDS`] "enthält sie" und "dieselbe darüber".
+type Rand = (u16, [u16; 2], [u16; 2]);
+
+fn rand(m: &Masks, col: usize) -> Rand {
+    (
+        m.bits[SOLID][col],
+        [m.bits[WATER][col], m.bits[LAVA][col]],
+        [m.up[0][col], m.up[1][col]],
+    )
+}
+
+/// Was in einer Section gezeichnet werden muss.
+struct Exposed {
+    /// Blöcke, von denen etwas zu sehen sein kann.
+    own: [u16; 256],
+    /// Je Richtung: der Nachbar ist `PLAIN` und selbst Kandidat, wird also
+    /// gezeichnet und übermalt seinen Umriss. An Section- und Chunkrändern
+    /// vorsichtshalber nie — dort müsste der Nachbar erst berechnet werden.
+    skip_x: [u16; 256],
+    skip_y: [u16; 256],
+    skip_z: [u16; 256],
+    /// Gibt es in der Section überhaupt einen Kandidaten? Unter der
+    /// Oberfläche meist nicht — dann entfällt die Schleife über 256
+    /// Spalten.
+    any_own: bool,
+}
+
+/// Die Bits einer Familie für [`Masks`].
+fn flags(family: &Family) -> u16 {
+    let fluid = |kind: Fluid| family.fluid.is_some_and(|(k, _)| k == kind);
+    let bit = |set: bool, flag: usize| (set as u16) << flag;
+    bit(true, PRESENT)
+        | bit(family.opaque, SOLID)
+        | bit(family.opaque && family.fluid.is_none(), PLAIN)
+        | bit(family.covers_floor, FLOOR)
+        | bit(fluid(Fluid::Water), WATER)
+        | bit(fluid(Fluid::Lava), LAVA)
+        | bit(fluid(Fluid::Water) && family.pure_fluid, PURE_WATER)
+        | bit(fluid(Fluid::Lava) && family.pure_fluid, PURE_LAVA)
+        | bit(!family.contained, LOOSE)
+        | bit(family.foreign, FOREIGN)
+}
+
+impl Masks {
+    /// `None`, wenn in der Section keine Familie steht.
+    fn of(section: &Section, families: &[Option<u32>], sprites: &SpriteSet) -> Option<Box<Masks>> {
+        let flags: Vec<u16> = families
+            .iter()
+            .map(|family| family.map_or(0, |index| flags(sprites.family(index))))
+            .collect();
+        let union = flags.iter().fold(0, |acc, f| acc | f);
+        if union == 0 {
+            return None;
+        }
+        let mut m = Box::new(Masks {
+            bits: [[0; 256]; FLAGS],
+            up: [[0; 256]; 2],
+            any_foreign: false,
+        });
+        let blocks = section.blocks();
+        if blocks.is_uniform() {
+            let flag = flags.first().copied().unwrap_or(0);
+            for (b, mask) in m.bits.iter_mut().enumerate() {
+                if flag >> b & 1 != 0 {
+                    *mask = [u16::MAX; 256];
+                }
+            }
+        } else {
+            // Die Familien einer Section fallen in wenige Klassen gleicher
+            // Bits: Luft, deckender Stein, Wasser, eine Blume. Je Block
+            // genügt ein OR in die Maske seiner Klasse; die Masken je
+            // Eigenschaft setzen sich danach aus den Klassen zusammen.
+            let mut klassen: Vec<u16> = Vec::new();
+            let klasse: Vec<usize> = flags
+                .iter()
+                .map(|&flag| {
+                    if flag == 0 {
+                        return usize::MAX;
+                    }
+                    klassen.iter().position(|&k| k == flag).unwrap_or_else(|| {
+                        klassen.push(flag);
+                        klassen.len() - 1
+                    })
+                })
+                .collect();
+            let mut je_klasse = vec![[0u16; 256]; klassen.len()];
+            blocks.for_each_index(4096, |i, index| {
+                // Ein Index über die Palette hinaus wäre ein kaputter Chunk;
+                // der zählt wie Luft, genau wie beim Nachschlagen je Block.
+                if let Some(maske) = klasse.get(index).and_then(|&k| je_klasse.get_mut(k)) {
+                    maske[i & 255] |= 1 << (i >> 8);
+                }
+            });
+            for (&flag, maske) in klassen.iter().zip(&je_klasse) {
+                for (b, bits) in m.bits.iter_mut().enumerate() {
+                    if flag >> b & 1 != 0 {
+                        for (bits, spalte) in bits.iter_mut().zip(maske) {
+                            *bits |= spalte;
+                        }
+                    }
+                }
+            }
+        }
+        if !m.bits[PRESENT].iter().any(|&p| p != 0) {
+            return None;
+        }
+        m.any_foreign = m.bits[FOREIGN].iter().any(|&f| f != 0);
+        Some(m)
+    }
+}
+
+impl Loaded {
+    fn new(chunk: Chunk, sprites: &SpriteSet) -> Loaded {
+        let families: Vec<Vec<Option<u32>>> = chunk
+            .sections()
+            .iter()
+            .map(|section| {
+                section
+                    .blocks()
+                    .palette()
+                    .iter()
+                    .map(|state| sprites.family_index(state))
+                    .collect()
+            })
+            .collect();
+        let mut masks: Vec<Option<Box<Masks>>> = chunk
+            .sections()
+            .iter()
+            .zip(&families)
+            .map(|(section, families)| Masks::of(section, families, sprites))
+            .collect();
+        // Flüssigkeit über dem obersten Block einer Section steht in der
+        // Section darüber, im selben Chunk.
+        for s in 0..masks.len() {
+            let above = chunk.sections()[s]
+                .y
+                .checked_add(1)
+                .and_then(|y| chunk.section_index(y))
+                .and_then(|i| masks[i].as_ref().map(|a| [a.bits[WATER], a.bits[LAVA]]));
+            if let Some(m) = &mut masks[s] {
+                for (f, &(bit, _)) in FLUIDS.iter().enumerate() {
+                    for col in 0..256 {
+                        let top = above.map_or(0, |a| a[f][col] & 1);
+                        m.up[f][col] = (m.bits[bit][col] >> 1) | (top << 15);
+                    }
+                }
+            }
+        }
+        let exposed = chunk.sections().iter().map(|_| None).collect();
+        Loaded {
+            chunk,
+            families,
+            masks,
+            exposed,
+        }
+    }
 }
 
 impl<'a> ChunkCache<'a> {
-    fn new(world: &'a World) -> ChunkCache<'a> {
+    pub fn new(world: &'a World, sprites: &'a SpriteSet) -> ChunkCache<'a> {
         ChunkCache {
             world,
+            sprites,
             regions: HashMap::new(),
-            chunks: HashMap::new(),
+            slots: Vec::new(),
+            index: HashMap::new(),
+            last: usize::MAX,
+            tile: 0,
         }
     }
 
-    fn load(&mut self, sprites: &SpriteSet, key: (i32, i32)) -> Result<()> {
+    /// Beginnt eine neue Kachel. Ist der Cache voll, geht alles, was die
+    /// vorige Kachel nicht gebraucht hat.
+    fn next_tile(&mut self) {
+        self.tile += 1;
+        self.last = usize::MAX;
+        if self.slots.len() <= CACHE_CHUNKS {
+            return;
+        }
+        let tile = self.tile;
+        self.slots.retain(|slot| slot.used + 1 >= tile);
+        self.index = self
+            .slots
+            .iter()
+            .enumerate()
+            .map(|(i, slot)| (slot.key, i))
+            .collect();
+    }
+
+    /// Slot des Chunks, geladen falls nötig.
+    fn slot(&mut self, key: (i32, i32)) -> Result<usize> {
+        if let Some(slot) = self.slots.get(self.last)
+            && slot.key == key
+        {
+            return Ok(self.last);
+        }
+        let i = match self.index.get(&key) {
+            Some(&i) => i,
+            None => self.load(key)?,
+        };
+        self.slots[i].used = self.tile;
+        self.last = i;
+        Ok(i)
+    }
+
+    fn load(&mut self, key: (i32, i32)) -> Result<usize> {
         let region_key = (key.0.div_euclid(REGION), key.1.div_euclid(REGION));
         if !self.regions.contains_key(&region_key) {
             let region = self.world.region(region_key.0, region_key.1)?;
@@ -338,23 +629,266 @@ impl<'a> ChunkCache<'a> {
             Some(Some(region)) => region.chunk(key.0, key.1)?,
             _ => None,
         };
-        let loaded = chunk.map(|chunk| {
-            let families = chunk
-                .sections()
-                .iter()
-                .map(|section| {
-                    section
-                        .blocks()
-                        .palette()
-                        .iter()
-                        .map(|state| sprites.family_index(state))
-                        .collect()
-                })
-                .collect();
-            Loaded { chunk, families }
+        let loaded = chunk.map(|chunk| Loaded::new(chunk, self.sprites));
+        self.slots.push(Slot {
+            key,
+            loaded,
+            used: self.tile,
         });
-        self.chunks.insert(key, loaded);
+        let i = self.slots.len() - 1;
+        self.index.insert(key, i);
+        Ok(i)
+    }
+
+    /// Randspalten einer Nachbarsection ([`Rand`]) je Spalte am Rand `x = 0`
+    /// (Index z) oder `z = 0` (Index x). Ohne Chunk oder Section ist das
+    /// Luft.
+    fn edge(&mut self, key: (i32, i32), section_y: i8, x_edge: bool) -> Result<[Rand; 16]> {
+        let i = self.slot(key)?;
+        let mut out = [(0, [0; 2], [0; 2]); 16];
+        if let Some(loaded) = &self.slots[i].loaded
+            && let Some(s) = loaded.chunk.section_index(section_y)
+            && let Some(m) = &loaded.masks[s]
+        {
+            for (j, edge) in out.iter_mut().enumerate() {
+                *edge = rand(m, if x_edge { j * 16 } else { j });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Rechnet die Kandidaten einer Section aus, falls noch nicht geschehen.
+    ///
+    /// Ein Block ist verdeckt wie in [`render_area`] beschrieben: die
+    /// Nachbarn nach +x und +z decken ihren ganzen Umriss, dem nach +y
+    /// genügt sein Boden. Nach +y ist das Bit des Nachbarn in derselben
+    /// Spalte, eins höher — ein Shift; am oberen Rand kommt es aus der
+    /// Section darüber, an den Rändern +x und +z aus dem Nachbarchunk.
+    ///
+    /// Reine Flüssigkeit, Wasser wie Lava, zeichnet ausserdem nichts, wo
+    /// über ihr dieselbe steht und sie zu beiden Seiten an dieselbe grenzt,
+    /// die selbst dieselbe über sich hat: die Flächen dorthin entfallen, und
+    /// ein Streifen über einem niedrigeren Nachbarn kann nicht entstehen.
+    /// Seitlich darf statt der Flüssigkeit auch ein deckender Nachbar stehen;
+    /// mit derselben darüber reicht die Seitenfläche bis zur Kante, und der
+    /// Nachbar übermalt sie danach. Oben dagegen nicht: ohne dieselbe
+    /// darüber endet die Oberfläche bei ihrer Höhe, tiefer als der Boden des
+    /// Blocks darüber, und ragt in die Seiten hinein. So kommt das Innere
+    /// eines Ozeans oder eines Lavasees gar nicht erst zur Sprite-Wahl;
+    /// Lava deckt nur bei scale 4, sonst fiele dort kein Block weg.
+    fn expose(&mut self, slot: usize, s: usize) -> Result<()> {
+        let (key, section_y) = {
+            let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
+            if loaded.exposed[s].is_some() {
+                return Ok(());
+            }
+            (self.slots[slot].key, loaded.chunk.sections()[s].y)
+        };
+        let nx = self.edge((key.0 + 1, key.1), section_y, true)?;
+        let nz = self.edge((key.0, key.1 + 1), section_y, false)?;
+
+        let loaded = self.slots[slot].loaded.as_mut().expect("geladen");
+        let above = section_y
+            .checked_add(1)
+            .and_then(|y| loaded.chunk.section_index(y))
+            .and_then(|i| loaded.masks[i].as_deref());
+        let m = loaded.masks[s]
+            .as_deref()
+            .expect("nur Sections mit Familie");
+        let mut ex = Box::new(Exposed {
+            own: [0; 256],
+            skip_x: [0; 256],
+            skip_y: [0; 256],
+            skip_z: [0; 256],
+            any_own: false,
+        });
+        for col in 0..256 {
+            let (x, z) = (col & 15, col >> 4);
+            let (sx, fx, ux) = if x < 15 { rand(m, col + 1) } else { nx[z] };
+            let (sz, fz, uz) = if z < 15 { rand(m, col + 16) } else { nz[x] };
+            let top = above.map_or(0, |a| a.bits[FLOOR][col] & 1);
+            let floor_up = (m.bits[FLOOR][col] >> 1) | (top << 15);
+            let hidden = sx & floor_up & sz;
+            let mut fluid_hidden = 0;
+            for (f, &(_, pure)) in FLUIDS.iter().enumerate() {
+                fluid_hidden |= m.bits[pure][col]
+                    & m.up[f][col]
+                    & (sx | (fx[f] & ux[f]))
+                    & (sz | (fz[f] & uz[f]));
+            }
+            ex.own[col] = m.bits[PRESENT][col] & (m.bits[LOOSE][col] | !(hidden | fluid_hidden));
+        }
+        ex.any_own = ex.own.iter().any(|&o| o != 0);
+        // Deckende Kandidaten: die übermalen, was in ihrem Umriss liegt.
+        let drawn = |col: usize| ex.own[col] & m.bits[PLAIN][col];
+        for col in 0..256 {
+            let (x, z) = (col & 15, col >> 4);
+            ex.skip_x[col] = if x < 15 { drawn(col + 1) } else { 0 };
+            ex.skip_z[col] = if z < 15 { drawn(col + 16) } else { 0 };
+            ex.skip_y[col] = drawn(col) >> 1;
+        }
+        loaded.exposed[s] = Some(ex);
         Ok(())
+    }
+
+    /// Erster Durchgang: alle Blöcke im Band, von denen etwas zu sehen
+    /// sein kann, samt der Würfel, in die fremde Modellteile hineinragen.
+    fn candidates(
+        &mut self,
+        rect: ScreenRect,
+        y_range: (i32, i32),
+        foreign: &[Cell],
+    ) -> Result<Vec<Candidate>> {
+        let projection = self.sprites.projection();
+        let (u_min, u_max) = u_window(projection, rect);
+        let v_lo = v_window(projection, rect, y_range.0).0;
+        let v_hi = v_window(projection, rect, y_range.1).1;
+        debug_assert!(y_range.1 - y_range.0 < 1 << 10);
+        debug_assert!(v_hi - v_lo < 1 << 22 && u_max - u_min < 1 << 22);
+        debug_assert!(foreign.len() < 1 << 10);
+        // Jeder Kandidat liegt im Band, also nie vor dessen Rand.
+        let key_of = |y: i32, v: i32, u: i32, kind: u16| -> u64 {
+            ((y - y_range.0) as u64) << 54
+                | ((v - v_lo) as u64) << 32
+                | ((u - u_min) as u64) << 10
+                | kind as u64
+        };
+        let in_band = |y: i32, v: i32, u: i32| {
+            if y < y_range.0 || y > y_range.1 || u < u_min || u > u_max {
+                return false;
+            }
+            let (v_min, v_max) = v_window(projection, rect, y);
+            v >= v_min && v <= v_max
+        };
+        // Ein fremdes Teil kann von einem Block ausserhalb des Bands
+        // hereinragen; so weit reicht die Suche über das Band hinaus.
+        let pad = foreign
+            .iter()
+            .map(|c| c[0].abs() + c[2].abs())
+            .max()
+            .unwrap_or(0);
+
+        let pad_y = foreign.iter().map(|c| c[1].abs()).max().unwrap_or(0);
+        let scale = projection.scale() as f64;
+        let bleed = BLEED_BLOCKS as f64 * scale;
+        // Höhen, die das Band in einem Chunk erreichen kann: die Umkehrung
+        // von `v_window` für die kleinste und grösste Tiefe `v` des Chunks,
+        // grosszügig gerundet. Entscheidend bleibt `in_band` je Block; das
+        // hier spart nur die Schleife über Sections, die das Band in
+        // diesem Chunk gar nicht berührt — von 24 sind es meist drei.
+        let y_span = |va: i32, vb: i32| {
+            let lo = ((va - 1) as f64 * scale / 4.0 - rect.bottom() as f64 - bleed) / (scale / 2.0);
+            let hi = ((vb + 1) as f64 * scale / 4.0 - rect.y as f64 + bleed) / (scale / 2.0);
+            (lo.floor() as i32 - 1 - pad_y, hi.ceil() as i32 + 1 + pad_y)
+        };
+
+        let mut out = Vec::with_capacity(8192);
+        let mut anchors: Vec<[i32; 3]> = Vec::new();
+        for key in band_chunks(u_min - pad, u_max + pad, v_lo - pad, v_hi + pad) {
+            let slot = self.slot(key)?;
+            let sections = match &self.slots[slot].loaded {
+                Some(loaded) => loaded.chunk.sections().len(),
+                None => continue,
+            };
+            let v0 = key.0 * 16 + key.1 * 16;
+            let (y_lo, y_hi) = y_span(v0, v0 + 30);
+            let in_reach = |sy: i8| {
+                let base = sy as i32 * 16;
+                base + 15 >= y_lo && base <= y_hi
+            };
+            for s in 0..sections {
+                let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
+                if loaded.masks[s].is_some() && in_reach(loaded.chunk.sections()[s].y) {
+                    self.expose(slot, s)?;
+                }
+            }
+            let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
+            for (s, section) in loaded.chunk.sections().iter().enumerate() {
+                let Some(m) = &loaded.masks[s] else {
+                    continue;
+                };
+                if !in_reach(section.y) {
+                    continue;
+                }
+                let ex = loaded.exposed[s].as_ref().expect("eben berechnet");
+                if !ex.any_own && !m.any_foreign {
+                    continue;
+                }
+                let sy = section.y as i32 * 16;
+                for col in 0..256 {
+                    let own = ex.own[col];
+                    let fo = m.bits[FOREIGN][col];
+                    if own == 0 && fo == 0 {
+                        continue;
+                    }
+                    let x = key.0 * 16 + (col & 15) as i32;
+                    let z = key.1 * 16 + (col >> 4) as i32;
+                    let (u, v) = (x - z, x + z);
+                    let mut bits = own;
+                    while bits != 0 {
+                        let b = bits.trailing_zeros();
+                        let y = sy + b as i32;
+                        bits &= bits - 1;
+                        if !in_band(y, v, u) {
+                            continue;
+                        }
+                        // Der Nachbar übermalt nur, was diese Kachel auch
+                        // zeichnet: er muss selbst im Band liegen.
+                        let mut skip = 0;
+                        if ex.skip_x[col] >> b & 1 != 0 && in_band(y, v + 1, u + 1) {
+                            skip |= mask_bit(Face::East);
+                        }
+                        if ex.skip_y[col] >> b & 1 != 0 && in_band(y + 1, v, u) {
+                            skip |= mask_bit(Face::Up);
+                        }
+                        if ex.skip_z[col] >> b & 1 != 0 && in_band(y, v + 1, u - 1) {
+                            skip |= mask_bit(Face::South);
+                        }
+                        out.push(Candidate {
+                            key: key_of(y, v, u, 0),
+                            x,
+                            y,
+                            z,
+                            kind: 0,
+                            skip,
+                        });
+                    }
+                    let mut bits = fo;
+                    while bits != 0 {
+                        anchors.push([x, sy + bits.trailing_zeros() as i32, z]);
+                        bits &= bits - 1;
+                    }
+                }
+            }
+        }
+
+        // Fremde Teile: vom Anker aus in jeden Würfel, den ein Modell der
+        // Familie belegen kann. Gezeichnet wird dort, wenn der Würfel im
+        // Band liegt, auch wenn er verdeckt ist: die Zerlegung lässt jedem
+        // Teil eine Pixelbreite Spielraum über seinen Würfel hinaus, und den
+        // deckt kein Nachbar sicher, die nach +x und +z höchstens zum Teil.
+        for anchor in anchors {
+            for (i, cell) in foreign.iter().enumerate() {
+                let [x, y, z] = [
+                    anchor[0] + cell[0],
+                    anchor[1] + cell[1],
+                    anchor[2] + cell[2],
+                ];
+                let (u, v) = (x - z, x + z);
+                if in_band(y, v, u) {
+                    let kind = i as u16 + 1;
+                    out.push(Candidate {
+                        key: key_of(y, v, u, kind),
+                        x,
+                        y,
+                        z,
+                        kind,
+                        skip: 0,
+                    });
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Was an einer Weltkoordinate zu zeichnen ist — nichts für Luft,
@@ -363,8 +897,9 @@ impl<'a> ChunkCache<'a> {
     /// Drei Entscheidungen fallen hier: welche Alternative die Position
     /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken und
     /// welche Biomfassung gilt. Alles davon ist vorab gerastert.
-    fn sprite_at(&mut self, sprites: &SpriteSet, x: i32, y: i32, z: i32) -> Result<Drawn> {
-        let Some(family) = self.family_at(sprites, x, y, z)? else {
+    fn sprite_at(&mut self, x: i32, y: i32, z: i32) -> Result<Drawn> {
+        let sprites = self.sprites;
+        let Some(family) = self.family_at(x, y, z)? else {
             return Ok(Drawn::default());
         };
         let Some(id) = family.pick([x, y, z]) else {
@@ -379,7 +914,7 @@ impl<'a> ChunkCache<'a> {
             };
             // Steht dieselbe Flüssigkeit darüber, reicht die eigene bis zur
             // Kante, und die Oberseite entfällt.
-            let above = same(self.family_at(sprites, x, y + 1, z)?);
+            let above = same(self.family_at(x, y + 1, z)?);
             let own = if above { fluid::FULL } else { amount };
             let mut mask = if above { mask_bit(Face::Up) } else { 0 };
 
@@ -393,7 +928,7 @@ impl<'a> ChunkCache<'a> {
                 .into_iter()
                 .enumerate()
             {
-                let Some(other) = self.family_at(sprites, x + dx, y, z + dz)? else {
+                let Some(other) = self.family_at(x + dx, y, z + dz)? else {
                     continue;
                 };
                 let Some((kind, other_amount)) = other.fluid else {
@@ -404,7 +939,7 @@ impl<'a> ChunkCache<'a> {
                 }
                 mask |= mask_bit(face);
                 if other_amount < own {
-                    let below = if same(self.family_at(sprites, x + dx, y + 1, z + dz)?) {
+                    let below = if same(self.family_at(x + dx, y + 1, z + dz)?) {
                         fluid::FULL
                     } else {
                         other_amount
@@ -428,7 +963,7 @@ impl<'a> ChunkCache<'a> {
             let mut depth = 0;
             while !above && depth + 1 < DEPTHS {
                 let d = 1 + depth as i32;
-                let behind = self.family_at(sprites, x - d, y - d, z - d)?;
+                let behind = self.family_at(x - d, y - d, z - d)?;
                 if !same(behind) || behind.is_some_and(|b| b.covers(own)) {
                     break;
                 }
@@ -443,10 +978,8 @@ impl<'a> ChunkCache<'a> {
 
         // Das Biom kostet einen zweiten Nachschlag; `in_biome` fragt nur
         // fuer Sprites danach, die ueberhaupt Fassungen haben.
-        let chunk = &self.chunks[&(x >> 4, z >> 4)]
-            .as_ref()
-            .expect("eben geladen")
-            .chunk;
+        let i = self.slot((x >> 4, z >> 4))?;
+        let chunk = &self.slots[i].loaded.as_ref().expect("eben geladen").chunk;
         let tint = |id: SpriteId| sprites.in_biome(id, || chunk.biome_at(x, y, z));
         Ok(Drawn {
             sprite: sprite.map(tint),
@@ -456,41 +989,45 @@ impl<'a> ChunkCache<'a> {
 
     /// Die Familie des Blocks an einer Weltkoordinate — ein Nachschlag im
     /// Chunk-Cache und zwei Indizes, ohne die Blockstate zu hashen.
-    fn family_at<'s>(
-        &mut self,
-        sprites: &'s SpriteSet,
-        x: i32,
-        y: i32,
-        z: i32,
-    ) -> Result<Option<&'s Family>> {
-        let key = (x >> 4, z >> 4);
-        // Ein Hash je Nachschlag, nicht zwei: im Renderpfad fragt jeder
-        // Wasserblock bis zu acht Nachbarn, und der Schlüssel ist fast immer
-        // schon da.
-        if let Some(loaded) = self.chunks.get(&key) {
-            return Ok(Self::lookup(loaded.as_ref(), sprites, x, y, z));
-        }
-        self.load(sprites, key)?;
-        Ok(Self::lookup(self.chunks[&key].as_ref(), sprites, x, y, z))
-    }
-
-    fn lookup<'s>(
-        loaded: Option<&Loaded>,
-        sprites: &'s SpriteSet,
-        x: i32,
-        y: i32,
-        z: i32,
-    ) -> Option<&'s Family> {
-        let loaded = loaded?;
-        let (section, slot) = loaded.chunk.slot(x, y, z)?;
-        loaded
+    fn family_at(&mut self, x: i32, y: i32, z: i32) -> Result<Option<&'a Family>> {
+        let i = self.slot((x >> 4, z >> 4))?;
+        let Some(loaded) = self.slots[i].loaded.as_ref() else {
+            return Ok(None);
+        };
+        let Some((section, slot)) = loaded.chunk.slot(x, y, z) else {
+            return Ok(None);
+        };
+        Ok(loaded
             .families
             .get(section)
             .and_then(|families| families.get(slot))
             .copied()
             .flatten()
-            .map(|index| sprites.family(index))
+            .map(|index| self.sprites.family(index)))
     }
+}
+
+/// Alle Chunks, die das Band `u ∈ [u_min, u_max]`, `v ∈ [v_lo, v_hi]`
+/// berühren können — grob über die Hüllbox, dann je Chunk gegen das Band.
+/// Ein paar Chunks zu viel schaden nicht: jeder Kandidat wird ohnehin
+/// einzeln gegen das Band geprüft.
+fn band_chunks(u_min: i32, u_max: i32, v_lo: i32, v_hi: i32) -> Vec<(i32, i32)> {
+    // x = (u + v) / 2, z = (v - u) / 2
+    let x0 = (u_min + v_lo).div_euclid(2) - 1;
+    let x1 = (u_max + v_hi).div_euclid(2) + 1;
+    let z0 = (v_lo - u_max).div_euclid(2) - 1;
+    let z1 = (v_hi - u_min).div_euclid(2) + 1;
+    let mut out = Vec::new();
+    for cz in (z0 >> 4)..=(z1 >> 4) {
+        for cx in (x0 >> 4)..=(x1 >> 4) {
+            let (bx0, bx1, bz0, bz1) = (cx * 16, cx * 16 + 15, cz * 16, cz * 16 + 15);
+            if bx1 - bz0 < u_min || bx0 - bz1 > u_max || bx1 + bz1 < v_lo || bx0 + bz0 > v_hi {
+                continue;
+            }
+            out.push((cx, cz));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -544,9 +1081,9 @@ mod tests {
         }
     }
 
-    /// Die Reihenfolge ist Teil des Vertrags: der Maleralgorithmus
-    /// verlässt sich darauf, dass die Tiefe `v = x + z` innerhalb einer
-    /// Höhe nie fällt.
+    /// Die Referenz verlässt sich darauf, dass die Tiefe `v = x + z`
+    /// innerhalb einer Höhe nie fällt; der Schlüssel der Kandidaten sortiert
+    /// genauso.
     #[test]
     fn spalten_kommen_nach_tiefe_sortiert() {
         let mut vorher = i32::MIN;
@@ -568,6 +1105,24 @@ mod tests {
             summe / v.len() as i32
         };
         assert!(mitte(64) > mitte(0));
+    }
+
+    /// Jede Chunkspalte, die das Band berührt, ist dabei: sonst fehlten der
+    /// Kachel Kandidaten, und die Referenz zeichnete sie.
+    #[test]
+    fn band_chunks_decken_das_band_ab() {
+        let projection = Projection::new(16);
+        let rect = rect();
+        let (u_min, u_max) = u_window(projection, rect);
+        let v_lo = v_window(projection, rect, -64).0;
+        let v_hi = v_window(projection, rect, 319).1;
+        let chunks: std::collections::HashSet<(i32, i32)> =
+            band_chunks(u_min, u_max, v_lo, v_hi).into_iter().collect();
+        for y in [-64, 0, 100, 319] {
+            for (x, z) in columns_at(projection, rect, y) {
+                assert!(chunks.contains(&(x >> 4, z >> 4)), "({x}, {z}) auf {y}");
+            }
+        }
     }
 
     #[test]

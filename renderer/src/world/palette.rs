@@ -128,15 +128,22 @@ impl PackedIndices {
     /// Erster Index, der über die Palette hinauszeigt.
     ///
     /// Der Scan entfällt, wenn die Bitbreite gar keinen zu großen Index
-    /// darstellen kann — das ist bei jeder Palette mit Zweierpotenz-Größe der
-    /// Fall und damit der häufigste Ausgang.
+    /// darstellen kann: wenn die Palette sie ganz füllt. Blöcke haben
+    /// mindestens 4 Bit, das sind Paletten mit 16, 32, 64 … Einträgen. Eine
+    /// Section mit 2 bis 15 Blockstates geht alle Einträge durch, über
+    /// `for_each` ohne Division je Eintrag; früher aufhören ginge nur bei
+    /// kaputten Daten.
     pub fn first_index_beyond(&self, entries: usize, palette_len: usize) -> Option<usize> {
         if palette_len >= 1usize << self.bits {
             return None;
         }
-        (0..entries)
-            .map(|i| self.get(i))
-            .find(|&i| i >= palette_len)
+        let mut found = None;
+        self.for_each(entries, |_, index| {
+            if found.is_none() && index >= palette_len {
+                found = Some(index);
+            }
+        });
+        found
     }
 
     /// Index an Position `i`. Liefert 0 statt zu panicken, falls die Datei
@@ -148,6 +155,30 @@ impl PackedIndices {
         };
         let shift = (i % self.per_long) * self.bits as usize;
         ((long as u64 >> shift) & ((1u64 << self.bits) - 1)) as usize
+    }
+
+    /// Die ersten `entries` Indizes der Reihe nach, wie `get` sie liefern
+    /// würde — aber ohne Division je Eintrag. Für alles, was eine ganze
+    /// Section auf einmal durchgeht.
+    pub fn for_each(&self, entries: usize, mut f: impl FnMut(usize, usize)) {
+        let mask = (1u64 << self.bits) - 1;
+        let mut i = 0;
+        for &long in &self.data {
+            let mut word = long as u64;
+            for _ in 0..self.per_long {
+                if i == entries {
+                    return;
+                }
+                f(i, (word & mask) as usize);
+                word >>= self.bits;
+                i += 1;
+            }
+        }
+        // Fehlende Longs zählen als Index 0, wie bei `get`.
+        while i < entries {
+            f(i, 0);
+            i += 1;
+        }
     }
 }
 
@@ -194,11 +225,71 @@ impl<T> Paletted<T> {
     pub fn is_uniform(&self) -> bool {
         self.indices.is_none() || self.palette.len() <= 1
     }
+
+    /// Palettenindex je Position, der Reihe nach — siehe
+    /// [`PackedIndices::for_each`].
+    pub fn for_each_index(&self, entries: usize, mut f: impl FnMut(usize, usize)) {
+        match &self.indices {
+            None => (0..entries).for_each(|i| f(i, 0)),
+            Some(idx) => idx.for_each(entries, f),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `for_each` muss Eintrag für Eintrag dasselbe liefern wie `get` —
+    /// auch bei einer Bitbreite, die 64 nicht teilt, und bei fehlenden
+    /// Longs am Ende.
+    #[test]
+    fn for_each_liefert_dasselbe_wie_get() {
+        let data: Vec<i64> = (1..=7u64)
+            .map(|k| 0x9E37_79B9_7F4A_7C15u64.wrapping_mul(k) as i64)
+            .collect();
+        // 20 Einträge: 5 Bits, 12 je Long, 84 Einträge in 7 Longs.
+        let packed = PackedIndices::new(data, 20, 4);
+        // 100 reichen über die Longs hinaus, 80 enden mitten im siebten.
+        for entries in [100, 80] {
+            let mut seen = Vec::new();
+            packed.for_each(entries, |i, index| seen.push((i, index)));
+            assert_eq!(seen.len(), entries);
+            for (i, index) in seen {
+                assert_eq!(index, packed.get(i), "Index {i}");
+            }
+        }
+    }
+
+    /// `first_index_beyond` findet denselben Index wie ein Durchgang über
+    /// `get`, und keinen, wenn die Palette die Bitbreite füllt.
+    #[test]
+    fn erster_index_ueber_der_palette() {
+        let data: Vec<i64> = (1..=7u64)
+            .map(|k| 0x9E37_79B9_7F4A_7C15u64.wrapping_mul(k) as i64)
+            .collect();
+        for len in [17, 20, 31, 32] {
+            let packed = PackedIndices::new(data.clone(), len, 4);
+            let erwartet = (0..84).map(|i| packed.get(i)).find(|&i| i >= len);
+            assert_eq!(
+                packed.first_index_beyond(84, len),
+                erwartet,
+                "{len} Einträge"
+            );
+        }
+        assert!(
+            PackedIndices::new(data, 20, 4)
+                .first_index_beyond(84, 20)
+                .is_some()
+        );
+        // Ein zu grosser Index hinter dem letzten Eintrag, im selben Long,
+        // zählt nicht: Eintrag 82 steht im siebten Long an Stelle 10.
+        let mut hinten = vec![0i64; 7];
+        hinten[6] = 31 << (5 * 10);
+        let packed = PackedIndices::new(hinten, 20, 4);
+        assert_eq!(packed.first_index_beyond(80, 20), None);
+        assert_eq!(packed.first_index_beyond(84, 20), Some(31));
+    }
 
     #[test]
     fn bits_pro_eintrag() {

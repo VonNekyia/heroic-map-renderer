@@ -54,6 +54,11 @@ impl Region {
     ///
     /// Koordinaten aus einer anderen Region sind ein Fehler — ohne die Prüfung
     /// würde die Modulo-Umrechnung still den falschen Chunk liefern.
+    ///
+    /// Nennt der Chunk selbst eine andere Position, etwa aus einer von Hand
+    /// kopierten Regionsdatei, steht er trotzdem an seinem Platz: so zeigt
+    /// ihn das Spiel (`SerializableChunkData.read` in 26.2: "in the wrong
+    /// location; relocating"), und so sehen ihn Vorlauf und Render.
     pub fn chunk(&mut self, cx: i32, cz: i32) -> Result<Option<Chunk>> {
         if cx.div_euclid(REGION) != self.x || cz.div_euclid(REGION) != self.z {
             bail!(
@@ -66,7 +71,10 @@ impl Region {
             return Ok(None);
         };
         Chunk::decode(&nbt)
-            .map(Some)
+            .map(|mut chunk| {
+                (chunk.x, chunk.z) = (cx, cz);
+                Some(chunk)
+            })
             .with_context(|| format!("Chunk ({cx}, {cz}) aus r.{}.{}.mca", self.x, self.z))
     }
 

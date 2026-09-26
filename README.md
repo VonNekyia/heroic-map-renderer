@@ -196,19 +196,21 @@ Der Vorlauf liest jeden Chunk einmal und beantwortet zwei Fragen auf einmal:
 welche Blockstates vorkommen, und welche Kacheln überhaupt etwas zeigen. Erst
 danach steht die Sprite-Tabelle — und erst dann kann parallel gerendert
 werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
-Chunks werden deshalb mehrmals gelesen: vom Vorlauf, von der Basis und von
-jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. Der
-Vorlauf kostet für die ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes
+Welt wird deshalb mehrmals durchlaufen: vom Vorlauf, von der Basis und von
+jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. In jedem
+Durchgang dekodiert jeder Stapel seine Chunks selbst; auf der Basis lädt
+eine Kachel im Mittel rund neun, siehe unten, und bei etwa einer Kachel je
+Chunk wird dort jeder Chunk acht- bis neunmal dekodiert. Der Vorlauf
+kostet für die ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes
 Sprite, das nicht selbst Alternative einer Blockstate ist: eines je Maske
 verdeckter Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu
 die Streifen an Wasserstufen.
 
-Gerendert wird mit Rayon über die Kacheln, auf der Basis und auf jeder
-nativen Stufe in Blöcken von 16 mal 16. Geteilt wird nur die unveränderliche
-Sprite-Tabelle; jede Kachel legt sich ihren Chunk- und Regionscache neu an.
-Benachbarte Kacheln dekodieren dieselben Chunks also mehrfach, siehe unten.
-Wie viel davon die Zeit einer Kachel ausmacht, ist nicht gemessen; vor einer
-Optimierung dort gehört ein Profil.
+Gerendert wird mit Rayon über Stapel aufeinanderfolgender Kacheln, auf der
+Basis und auf jeder nativen Stufe in Blöcken von 16 mal 16. Jeder Stapel
+hält seinen Chunk- und Regionscache, geteilt wird nur die unveränderliche
+Sprite-Tabelle. Kacheln untereinander teilen sich fast alle Chunks; der
+Cache lädt je Kachel nur die paar neuen am unteren Rand.
 
 `--center` und `--size` schränken auf einen Ausschnitt ein:
 
@@ -272,8 +274,9 @@ Entfernt wird erst am Ende des Laufs, auf allen Stufen, auch was nur leer
 geworden ist, von der gröbsten Stufe bis zur Basis. Bis dahin zeigt eine
 Kachel, die beim Rendern oder in der Pyramide leer geworden ist, schon
 nichts mehr, der Lauf überschreibt sie durchsichtig. Bricht er vorher ab,
-hat er nichts gelöscht, und auch ein späterer Ausschnitt holt nichts
-Abgerissenes in eine Elternkachel zurück. Über den Kacheln ohne Chunk hat
+hat er nichts gelöscht, mit `--resume` nur die frischen Basiskacheln (siehe
+unten), und auch ein späterer Ausschnitt holt nichts Abgerissenes in eine
+Elternkachel zurück. Über den Kacheln ohne Chunk hat
 ein Lauf mit `--prune` bis zum Ende der Pyramide nur verändert, was auch ein
 Lauf ohne ihn verändert hätte. Danach setzt er die verkleinerten Stufen über
 ihnen ohne sie neu zusammen. Was dabei leer wird, entfernt er erst am Ende,
@@ -287,6 +290,37 @@ Kacheln die Eltern. Jeder Lauf sucht solche Kacheln, soweit sie seine Fläche
 berühren, und baut ihnen die Eltern neu, auch einer, dessen Vorlauf dort
 nichts mehr findet; einer mit `--prune` räumt dann auch die Kacheln ohne
 Chunk weg.
+
+`--resume` setzt einen abgebrochenen Lauf fort, und nur den: vorhandene
+Basiskacheln bleiben stehen, gerendert wird nur, was fehlt, und was in den
+letzten zwei Minuten vor der jüngsten Kachel entstand. Bis das System
+Geschriebenes auf die Platte bringt, vergehen Sekunden, unter Linux bis zu
+einer halben Minute; ein Stromausfall in dieser Zeit hinterlässt eine
+Kachel leer, voller Nullen oder zerrissen, mit gutem Kopf und Nullen
+dahinter. Ansehen lässt sich das einer Kachel nicht sicher, auch der
+Dekoder liest zwei von drei zerrissenen ohne Fehler. Diese frischen
+Kacheln entfernt der Lauf, bevor er sie neu rendert: Bricht auch er ab,
+fehlen sie, und das nächste Fortsetzen rendert sie. Die übrigen rendert er
+nicht neu. Die nativen Stufen rendert er ganz neu, denn dort kann
+`--pyramid` verkleinerte Kacheln abgelegt haben, womöglich bevor die Basis
+darunter fertig war. Die Pyramide darüber baut er ganz neu wie jeder Lauf:
+Einer Elternkachel sieht man nicht an, ob sie zu ihren Kindern passt, und
+ihre Zeit kann von einer anderen Uhr stammen oder von `--pyramid`
+gestempelt sein. Das kostet ohne native Stufen bei der Testwelt rund 2 von
+8 Minuten, bei 2,5 Millionen Basiskacheln hochgerechnet gut eine
+Viertelstunde. Mehr als ein Lauf in einem Stück kostet das Fortsetzen
+nach einem Abbruch in der Basis trotzdem nur die zwei Minuten: Native
+Stufen und Pyramide hätte der Lauf ohnehin noch gebaut. Lag der Abbruch
+später, baut es beide noch einmal.
+
+Zweierlei setzen die zwei Minuten voraus: dass das System jede Kachel so
+schnell auf die Platte bringt, und dass die Uhr in dieser Zeit nicht
+springt. Eine langsame Platte unter Dauerlast hält Geschriebenes womöglich
+länger im Speicher. Gilt eines davon nicht, oder stammen nicht alle
+vorhandenen Kacheln aus dem abgebrochenen Lauf, rendert erst ein Lauf ohne
+den Schalter sicher alles neu. Nach einer Änderung der Welt, neuen Assets
+oder einem neuen Pack behielte `--resume` jede alte Kachel, die der Lauf
+noch nicht erreicht hat.
 
 ### Zoomstufen
 
@@ -346,8 +380,8 @@ liegt, der scale der Stufe also durch vier teilbar ist: bei scale 32 drei
 Stufen lang, 16, 8 und 4. Bei scale 2 läge jede zweite Blockreihe auf
 einem halben Pixel, und benachbarte Reihen überdeckten sich; aus demselben
 Grund nimmt `--scale` nur Vielfache von 4. Der Preis ist hoch: Mit allen
-drei Stufen kommt bei scale 32 in Bytes ein Drittel dazu, in Zeit fast
-noch einmal die Basis, denn jede Stufe zeichnet jeden Block ihrer Fläche
+drei Stufen kommt bei scale 32 in Bytes ein Drittel dazu, in Zeit gut drei
+Viertel der Basis, denn jede Stufe zeichnet jeden Block ihrer Fläche
 erneut; siehe unten. Deshalb ist die Vorgabe 0.
 
 Die Zahl gehört zum Baum wie der scale: `map.json` hält sie als
@@ -383,8 +417,9 @@ durch native.
 Neu gebaut wird nur, was sich geändert hat: eine Kachel, unter der ein
 Kind jünger ist als sie oder in diesem Aufruf neu gebaut oder entfernt
 wurde, und eine, die fehlt. Eine Kachel ohne Kinder verschwindet.
-Verglichen wird auf jeder Stufe, ein abgebrochener Aufruf heilt also im
-nächsten. Die Zeiten kommen aus der Liste jeder Stufe: unter Windows
+Verglichen wird auf jeder Stufe, ein Aufruf, den Strg+C abbricht, heilt
+also im nächsten; nach einem Stromausfall nicht, siehe unten. Die Zeiten
+kommen aus der Liste jeder Stufe: unter Windows
 stehen sie im Verzeichnis, unter Linux kostet jede Kachel einen `statx`,
 aber kein Öffnen. Der Aufruf lässt sich deshalb wiederholen, während ein
 Vollrender noch Stunden läuft: die Karte im Browser zeigt, was fertig ist,
@@ -397,23 +432,31 @@ Beginn des Aufrufs, zwei Sekunden früher. Ein Kind, das der Render
 währenddessen fertigstellt, ist so jünger als seine Elternkachel, und der
 nächste Aufruf holt es. Zwei Sekunden, weil keine gängige Uhr eines
 Dateisystems gröber zählt; eine Kachel aus diesen zwei Sekunden baut der
-nächste Aufruf nur noch einmal ein. Was nach dem Beginn selbst und vor der
-Liste seiner Stufe entstand, hat jemand anders geschrieben: auf einer
-nativen Stufe der Render, der sie aus der Welt zeichnet, am Ende
+nächste Aufruf nur noch einmal ein. Was nach dem Beginn selbst entstand,
+vor der Liste seiner Stufe, bei `map.json` vor der Prüfung, und mit
+denselben zwei Sekunden Spielraum, hat jemand anders geschrieben: auf
+einer nativen Stufe der Render, der sie aus der Welt zeichnet, am Ende
 `map.json` mit den Grenzen seiner letzten Kacheln. Das bleibt stehen,
 ebenso eine Kachel, die sich seit der Liste geändert hat; das prüft der
 Aufruf erst direkt vor dem Tausch und vor dem Entfernen. Eine verkleinerte
-Kachel hängt dagegen nur an ihren Kindern; die baut der Aufruf neu, sobald
-sich darunter etwas geändert hat, auch wenn ein Export sie eben erst
-geschrieben hat. Eine Zeit in der Zukunft kommt von einer Uhr, die vorging,
-und zählt nicht als fremd. Eine unlesbare Kachel lässt der Aufruf aus und nennt sie; ihre Elternkachel
-bekommt eine Zeit vor ihrer, und der nächste Aufruf versucht es wieder.
-Eine, die seit der Liste verschwunden ist, gehört nicht mehr dazu. Nicht
+Kachel hängt dagegen nur an ihren Kindern; die baut der Aufruf neu,
+sobald sich darunter etwas geändert hat, auch wenn ein Export sie eben
+erst geschrieben hat. Eine Zeit weiter in der Zukunft kommt von einer
+Uhr, die vorging, und zählt nicht als fremd; eine verkleinerte Kachel mit
+so einer Zeit baut der Aufruf einmal neu, gegen sie wäre sonst kein Kind
+je jünger. Eine unlesbare Kachel lässt der Aufruf aus und nennt sie; ihre
+Elternkachel bekommt eine Zeit vor ihrer, und der nächste Aufruf versucht
+es wieder. Eine, die seit der Liste verschwunden ist, gehört nicht mehr
+dazu; ist keines der Kinder einer Kachel mehr da, schreibt der Aufruf sie
+nicht, und der nächste sieht die Stufe richtig. Nicht
 bemerkt wird ein einzelnes Kind, das von aussen verschwindet, solange
-Geschwister bleiben, und eine Kachel, die mit ihrer alten Zeit aus einer
-Sicherung zurückkommt. Dann die gröberen Stufen löschen, und `--pyramid`
-baut sie ganz neu. Bei einem Baum mit nativen Stufen sind die danach
-verkleinert, bis ein Export sie wieder rendert.
+Geschwister bleiben, eine Kachel, die mit ihrer alten Zeit aus einer
+Sicherung zurückkommt, und eine, die ein Stromausfall zerrissen hat: Sie
+ist nicht älter als ihre Kinder. Fiel der Strom während eines Exports aus,
+setzt `--resume` ihn fort und baut die Pyramide ganz neu. Sonst die
+gröberen Stufen löschen, und `--pyramid` baut sie ganz neu. Bei einem Baum
+mit nativen Stufen sind die danach verkleinert, bis ein Export sie wieder
+rendert.
 
 ### `map.json`
 
@@ -434,6 +477,11 @@ verkleinert, bis ein Export sie wieder rendert.
 `[links, oben, rechts, unten]`. Die Projektion selbst steht nicht drin: sie
 hängt allein an `scale`, und die Formel gehört in den Renderer, nicht in eine
 Datei.
+
+Jeder Export schreibt `map.json` vor seiner ersten Kachel und am Ende,
+`--pyramid` bei jedem Aufruf. Die Datei geht dabei jedes Mal ganz auf die
+Platte, bevor sie die alte ersetzt: Nach einem Stromausfall steht die alte
+oder die neue da, und kein Lauf scheitert an einer halben.
 
 `world` ist die Kennung der Welt: vorn ein Salz, das der Baum bei seinem
 ersten Lauf zufällig bekommt, dahinter ein Hash ihres Seeds und ihrer
@@ -492,24 +540,32 @@ Gemessen an einem Ausschnitt, hochgerechnet auf die ganze Welt: derselbe
 Weltausschnitt um (-64, 416) bei jedem scale, mit allen nativen Stufen und
 Pyramide, also `--size 8192` bei scale 32, `4096` bei 16 und `2048` bei 8.
 Das sind 1600, 400 und 100 Basiskacheln, gerendert auf 24 Threads. Die
-Kachelzahl der ganzen Welt nennt der Vorlauf.
+Kachelzahl der ganzen Welt nennt der Vorlauf. Die Dauer stammt vom Stand
+nach dem Umbau weiter unten, aus je zwei Ausschnitten um denselben Punkt,
+bei scale 32 mit 2304 und 6400 Basiskacheln: der Unterschied gibt die Zeit
+je Kachel für Basis, native Stufen und Pyramide, ohne den Vorlauf und die
+Sprite-Tabellen, die jede Stufe einmal baut; die kommen einmal dazu. Von
+Tag zu Tag schwankt sie um ein Viertel, jede geschriebene Kachel geht
+durch den Echtzeitschutz, siehe „Echtzeitschutz unter Windows“ unten.
 
 | `--scale` | Kacheln der Welt | je Kachel | Basis | native Stufen | zusammen | Dauer |
 |-----------|------------------|-----------|-------|---------------|----------|-------|
-| 32 | 292 836 | 109 kB | ~30 GB | ~10 GB | ~40 GB | ~80 min |
-| 16 | 73 920 | 111 kB | ~7,8 GB | ~2,1 GB | ~10 GB | ~40 min |
-| 8 | 18 951 | 101 kB | ~1,8 GB | ~0,4 GB | ~2,2 GB | ~20 min |
+| 32 | 292 836 | 109 kB | ~30 GB | ~10 GB | ~40 GB | ~11 min |
+| 16 | 73 920 | 111 kB | ~7,8 GB | ~2,1 GB | ~10 GB | ~4 min |
+| 8 | 18 951 | 101 kB | ~1,8 GB | ~0,4 GB | ~2,2 GB | ~2 min |
 
 Auf demselben Ausschnitt wiegt eine Kachel bei jedem scale rund 100 bis
 110 kB: sie zeigt bei kleinerem scale mehr Welt, aber gleich viele Pixel.
 Der Platz hängt deshalb fast nur an der Kachelzahl. Die Dauer nicht: jede
 native Stufe zeichnet jeden Block ihrer Fläche noch einmal, und zusammen
-kosten sie fast so viel Zeit wie die Basis, bei scale 32 12,1 s gegen
-13,6 s. In Bytes sind sie ein Fünftel bis ein Drittel. Die Sprite-Tabellen
-aller 3110 Blockstates brauchen über die vier Stufen zusammen rund 12 s.
+kosten sie gut drei Viertel der Zeit der Basis, bei scale 32 hochgerechnet
+rund 5 gegen 6 Minuten. So lange braucht auch ein Lauf bei scale 16 samt
+seinen Stufen über dieselbe Fläche. In Bytes sind sie ein Fünftel bis ein
+Drittel. Die Sprite-Tabellen aller 3110 Blockstates brauchen über die vier
+Stufen zusammen rund 11 s.
 
 Der erste Vollrender einer grossen Serverwelt hat die Rechnung geerdet:
-2,5 Millionen Chunks, 30 GB, scale 32.
+2,5 Millionen Chunks, 30 GB, scale 32, gemessen vor dem Umbau weiter unten.
 
 | | |
 |---|---|
@@ -519,18 +575,162 @@ Der erste Vollrender einer grossen Serverwelt hat die Rechnung geerdet:
 | Basisstufe | 2 504 461 Kacheln bei 44 je Sekunde, knapp 16 Stunden |
 
 Das ist keine Eigenschaft der Welt, sondern des Renderers. Eine Kachel
-kostet rund 0,2 CPU-Sekunden, 9 Kerne für 44 Kacheln je Sekunde; jeder
-der 24 Threads braucht für eine gut eine halbe Sekunde, weil er auf
-einen freien Kern wartet. Sie ist ein schräger Schnitt durch die volle
-Bauhöhe von 384 Blöcken, lädt und dekodiert dafür 50 bis 70 Chunks, und
-ihr Chunk-Cache entsteht je Kachel neu. Der Vorlauf liest dieselben
-Chunks einmal in vier Minuten.
+ist ein schräger Schnitt durch die volle Bauhöhe von 384 Blöcken: rund
+320 000 Blockpositionen, gut hundert Chunks, und neun von zehn nicht-leeren
+Blöcken liegen unter der Oberfläche. Gemessen an einem 4096er-Ausschnitt um
+(0, 0), einfädig, je Kachel:
+
+| Phase | ursprünglich | Cache je Stapel | Bitmasken | Flächen | Sammeln |
+|---|---|---|---|---|---|
+| Blöcke finden und Sprite wählen | 39 ms | 20 ms | 4,5 ms | 4,5 ms | 3,3 ms |
+| Chunks laden und dekodieren | 15 ms (106 Chunks) | 1 ms (6,5) | 1,5 ms (9) | 1,5 ms | 1,5 ms |
+| Sprites zeichnen | 9 ms | 9 ms | 8 ms | ~3 ms | ~3 ms |
+| WebP kodieren | 0,5 ms | 0,5 ms | 0,6 ms | 0,6 ms | 0,6 ms |
+| gesamt, ein Kern | 64 ms | 30 ms | 13 ms | 7,8 ms | 6,3 ms |
+| 12 Threads, 8192er-Ausschnitt | | | 411 Kacheln/s | 620 | 700 |
+| 24 Threads, 8192er-Ausschnitt | 159 Kacheln/s | 318 | 532 | 731 | 813 |
+
+Keiner der Umbauten ändert einen Pixel: der 8192er-Ausschnitt ist nach jedem
+Byte für Byte gleich, alle 1393 Dateien.
+
+Die Tabelle stammt von vor den Regeln, die jetzt oben unter Verdeckung und
+Wasser stehen: Deckung Pixel für Pixel, der Boden unter Lava, Streifen über
+niedrigerem Wasser, die Tiefe entlang des Blickstrahls. Die Kandidatensuche
+folgt ihnen. Am selben Tag nacheinander gemessen, dieselben Ausschnitte,
+jeweils das beste von drei Läufen:
+
+| | vorher, Block für Block | Umbau, alte Regeln | Umbau, jetzige Regeln |
+|---|---|---|---|
+| ein Kern, 4096er-Ausschnitt | 90,9 ms je Kachel | 8,7 ms | 8,6 ms |
+| 12 Threads, 8192er-Ausschnitt | 77 Kacheln/s | 502 | 424 |
+| 24 Threads, 8192er-Ausschnitt | 93 Kacheln/s | 551 | 510 |
+
+Mit 12 und 24 Threads schwanken die Läufe an diesem Tag um bis zu zehn
+Prozent, und jede geschriebene Kachel geht durch den Echtzeitschutz; die
+Zahlen der Tabelle oben erreichen sie nicht. Einfädig ist der Umbau
+10-mal so schnell wie vorher, auf 24 Threads 5,5-mal. Byte für Byte gleich
+mit dem Stand vorher sind neun Ausschnitte der Testwelt und der grossen
+Serverwelt, mit und ohne native Stufen, bei scale 32, 16 und 12, dazu zwei
+Bilder aus `--render`. Auf dem Land der grossen Welt schafft er je nach
+Gegend 443 bis 522 Kacheln/s statt 53 bis 86; die Basisstufe braucht
+damit rund anderthalb Stunden statt neun bis zehn.
+
+**Cache je Stapel.** Der Chunk-Cache lebt je Stapel aufeinanderfolgender
+Kacheln statt je Kachel, und der Nachschlag merkt sich den letzten Chunk,
+statt je Block zweimal zu hashen.
+
+**Bitmasken statt Blockbesuche.** Der Renderer lief über jede Position im
+Band, fragte je Block die Familie ab und für jeden nicht-leeren Block drei
+Nachbarn — und wählte für neun von zehn erst das Sprite, bevor er merkte,
+dass der Block verdeckt ist. Jetzt hält jede Section je Spalte zehn
+16-Bit-Wörter (Bit = y): "vorhanden", "deckend", "deckend ohne Flüssigkeit",
+"deckt den Boden", "Wasser", "Lava", "nur Wasser", "nur Lava", "lose" und
+"ragt heraus". Verdeckt ist ein Block, wenn die Nachbarn nach +x und +z
+deckend sind und der nach +y seinen Boden deckt, wie oben beschrieben, und
+das ist je Spalte eine Handvoll Wortoperationen für sechzehn Blöcke auf
+einmal — nach +y ein Shift, an den Rändern kommt das Bit aus der Section
+darüber oder dem Nachbarchunk. Reine Flüssigkeit, Wasser wie Lava, fällt
+ausserdem weg, wo über ihr dieselbe steht und sie seitlich an dieselbe mit
+derselben darüber oder an Deckendes grenzt: dann bleibt von ihr keine Fläche
+und kein Streifen, und das Innere eines Ozeans oder Lavasees kommt gar nicht
+erst zur Sprite-Wahl. Im Nether spart das bei scale 32 gut ein Viertel der
+Zeit je Kachel. Ein Dach statt derselben Flüssigkeit darüber genügt nicht,
+denn ohne sie endet die Oberfläche bei 8/9 und ragt in die Seiten hinein.
+Aus den Masken fallen die Kandidaten heraus, ohne dass Luft je angefasst
+wird; sortiert nach `(y, v, u)` sind sie genau die Zeichenreihenfolge des
+Maleralgorithmus. Der zweite Durchgang zeichnet nur noch.
+
+**mimalloc.** Parallel dauerte ein Chunk-Dekodieren sechsmal so lang wie
+allein: der Windows-Heap serialisiert die vielen kleinen Allokationen des
+NBT-Lesers über 24 Threads. Mit mimalloc hat jeder Thread seinen Heap; das
+war der Unterschied zwischen 245 und 532 Kacheln/s.
+
+**Flächen überspringen.** Ein sichtbarer Block zeichnete alle drei Flächen,
+auch die, die der deckende Nachbar gleich übermalt: 70-fach überzeichnet,
+auf flachem Gelände zwei von drei Flächen umsonst. Jetzt kennt der Renderer
+je Pixelposition eines Sprites, in welchem Nachbarumriss sie liegt — eine
+Tabelle je Projektion, nicht je Sprite —, und lässt die Pixel aus, deren
+Nachbar deckend ist und in derselben Kachel gezeichnet wird. Der setzt sie
+danach ohnehin auf Alpha 255; was vorher dort stand, ist egal. Genommen
+wird genau der Umriss, gegen den "deckend" Pixel für Pixel geprüft ist, und
+nur vor Nachbarn ohne Flüssigkeit: eine Flüssigkeit zeichnet eine Fassung
+ohne die Flächen zu ihresgleichen, und dort bliebe ein Loch. Dazu schreibt
+der Blit deckende Pixel direkt statt durch `over`.
+
+**Sammeln nur, wo das Band hinreicht.** Die Sammelschleife lief je Kachel
+über alle 24 Sections aller gut hundert Band-Chunks, 256 Spalten je
+Section — 1,3 ms, mehr als das Auswerten der Masken selbst. Das Band
+erreicht in einem Chunk aber nur rund 36 Höhen, also drei Sections; die
+Umkehrung von `v_window` grenzt sie ein, und ein Flag je Section sagt, ob
+überhaupt ein Kandidat drinsteht. Die Masken selbst entstehen je Klasse
+gleicher Bits, Luft, Stein, Wasser: je Block ein OR, danach setzt sich jede
+Eigenschaft aus den Klassen zusammen.
+
+Drei Dinge, die gemessen nichts gebracht haben und deshalb nicht im Code
+sind: Zeilenspannen im Blit samt `memcpy` deckender Zeilen (pixelgleich,
+aber nicht schneller — der Blit wartet auf Sprite-Pixel aus dem Speicher,
+nicht auf die Schleife), der Nachbar auf der Blickachse als vierte
+Deckungsrichtung (kommt zu selten vor, die Prüfung je Pixel kostet mehr),
+und `zlib-rs` statt `miniz` zum Entpacken der Chunks (kein Unterschied).
+
+Was bleibt, verteilt sich: Chunks dekodieren, die Kandidaten aus den
+Masken, die Sprite-Wahl, das Zeichnen. Auf 24 Threads sind es 5-mal so
+viele Kacheln je Sekunde wie am Anfang, auf einem Kern 10-mal; die
+Differenz ist Hyperthreading auf 12 Kernen plus das, was 24 Threads sich
+an Speicherbandbreite teilen.
 
 WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
 wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den
 Kachelrändern sähe man die Artefakte im Raster. Gegenüber PNG spart
 verlustfreies WebP auf diesem Inhalt 20 bis 40 Prozent — dieselbe Kachel wiegt
 als PNG 173 kB und als WebP 108 kB.
+
+#### Echtzeitschutz unter Windows
+
+Unter Windows prüft der Echtzeitschutz von Microsoft Defender jede Datei,
+die der Export schreibt, und ein Vollrender schreibt über drei Millionen.
+Gemessen an einem Ausschnitt der grossen Serverwelt, 16 384 Basiskacheln
+bei scale 32 ohne native Stufen, je drei Läufe auf 24 Threads, jeweils der
+schnellste:
+
+| | ohne Ausnahme | mit Ausnahme für den Kachelordner |
+|---|---|---|
+| ganzer Lauf | 35,7 s | 23,8 s |
+| Basis | 705 Kacheln/s | 1116 Kacheln/s |
+| Pyramide | 8,6 s | 5,8 s |
+| Rechenzeit des Echtzeitschutzes | 219 s, im Mittel sechs Kerne | 7 s |
+
+Mit der Ausnahme braucht der Export ein Drittel weniger Zeit. Die drei
+Läufe ohne sie lagen zwischen 35,7 und 39,3 s, die mit ihr zwischen 23,8
+und 26,0 s.
+
+Die Ausnahme setzt `--defender-exclusion` beim Export. Welchen Ordner es
+ausnimmt, sagt der Lauf, bevor Windows nach Adminrechten fragt; in der
+Abfrage selbst steht der Befehl nur kodiert. Nur mit Zustimmung kommt das
+Verzeichnis von `--tiles` dazu, und nur, wenn es neu, leer oder schon ein
+Kachelbaum mit `map.json` ist, nie die Wurzel eines Laufwerks. Sonst nähme
+ein Versehen in `--tiles` das Benutzerverzeichnis oder ein ganzes Laufwerk
+vom Virenschutz aus. Den Befehl zum Entfernen nennt der Lauf am Anfang und
+am Ende. Von Hand geht es in einer PowerShell als Administrator, dort
+kommt sie nach dem Render auch wieder heraus:
+
+```powershell
+Add-MpPreference -ExclusionPath '<kachelordner>'
+Remove-MpPreference -ExclusionPath '<kachelordner>'
+```
+
+Solange sie besteht, prüft Defender in diesem Ordner nichts, auch keine
+Datei, die jemand anderes dort ablegt; der Export selbst legt dort nur
+Kacheln und `map.json` ab. Beim ersten Export in ein neues oder leeres
+Verzeichnis nennt der Lauf beide Befehle für genau diesen Ordner. Ob die
+Ausnahme schon besteht, sieht er ohne Adminrechte nicht, deshalb sagt er
+es nur dieses eine Mal.
+
+Ohne Ausnahme geht es unter Windows 11 mit einem Dev Drive, einem eigenen
+ReFS-Laufwerk, auch als virtuelle Festplatte auf einem vorhandenen. Der
+Echtzeitschutz bleibt dort an, prüft aber im Leistungsmodus erst nach dem
+Schreiben; die Rechenzeit dafür fällt trotzdem an. Gemessen ist das hier
+nicht.
 
 ### Wasser und Biomfarben
 
@@ -1035,11 +1235,19 @@ trotzdem den Block darunter. Ob ein Sprite deckt, entscheidet sein fertiges
 Bild und nicht sein Modell, Pixel für Pixel gegen einen gerasterten vollen
 Würfel, damit Glas von selbst herausfällt. Mit einer Pixelbreite Toleranz
 fiele der Block unter einer Druckplatte weg, und ihr Rand zeigte den
-Hintergrund.
+Hintergrund. Genauso streng ist die Frage, ob ein verdeckter Block
+überhaupt wegfallen darf: nur, wenn sein Sprite Pixel für Pixel in diesem
+Umriss bleibt. Schilder, Weizen, Rote Bete, Schienen, Feuer und das
+Lesepult legen je nach scale ein paar Pixel knapp daneben, die kein
+Nachbar sicher deckt; sie werden immer gezeichnet. Aus demselben Grund
+kommen Teile, die ein Modell in einen Nachbarwürfel legt, auch in einen
+verdeckten Würfel: die Zerlegung lässt ihnen eine Pixelbreite Spielraum.
 
 Die Suche nach hineinragenden Nachbarmodellen kostet nichts, solange kein
-Modell seinen Würfel verlässt. In einem Ausschnitt mit Feuer kostet sie ein
-Nachschlagen je leerem Würfel, rund ein Viertel der Renderzeit.
+Modell seinen Würfel verlässt. Sonst geht sie von den Blöcken aus, deren
+Modell hinausragt, die Masken kennen sie: je solchem Block ein
+Nachschlagen je Würfel, in den ein Modell ragen kann, statt eines je
+leerem Würfel.
 
 Weltkoordinaten werden in `f64` projiziert. Minecraft erlaubt knapp 30
 Millionen Blöcke in jede Richtung; ab 2²⁴ kann `f32` benachbarte ganzzahlige

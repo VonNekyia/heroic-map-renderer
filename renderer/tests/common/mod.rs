@@ -192,10 +192,34 @@ pub fn write_world(
 }
 
 /// Wie `write_world`, dazu ein Biom je Chunk — oder keines, dann fehlt der
-/// Eintrag wie in Welten vor 1.18.
+/// Eintrag. So eine Section liest Vanilla 26.2 als plains
+/// (`SerializableChunkData.parse` nimmt dann `createForBiomes()`), der
+/// Renderer genauso.
 pub fn write_world_in(
     dir: &Path,
     chunks: &[(i32, i32)],
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    biome: impl Fn(i32, i32) -> Option<&'static str>,
+) -> PathBuf {
+    write_region(dir, chunks, 0..=0, block, biome)
+}
+
+/// Wie `write_world_in`, aber mit diesen Sections je Chunk statt nur Y=0:
+/// für Szenen über Section-Grenzen hinweg.
+pub fn write_world_sections(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    sections: std::ops::RangeInclusive<i8>,
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    biome: impl Fn(i32, i32) -> Option<&'static str>,
+) -> PathBuf {
+    write_region(dir, chunks, sections, block, biome)
+}
+
+fn write_region(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    sections: std::ops::RangeInclusive<i8>,
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i32) -> Option<&'static str>,
 ) -> PathBuf {
@@ -213,7 +237,14 @@ pub fn write_world_in(
             "Chunk ({cx}, {cz}) liegt nicht in Region ({rx}, {rz})"
         );
 
-        let payload = chunk_nbt(cx, cz, vec![section(cx, cz, &block, biome(cx, cz))]);
+        let payload = chunk_nbt(
+            cx,
+            cz,
+            sections
+                .clone()
+                .map(|sy| section(cx, cz, sy, &block, biome(cx, cz)))
+                .collect(),
+        );
         let mut record = Vec::new();
         record.extend_from_slice(&(payload.len() as u32 + 1).to_be_bytes());
         record.push(3); // unkomprimiert
@@ -234,10 +265,11 @@ pub fn write_world_in(
     dir.to_path_buf()
 }
 
-/// Baut die Section Y=0 eines Chunks aus der Blockfunktion.
+/// Baut die Section `sy` eines Chunks aus der Blockfunktion.
 fn section(
     cx: i32,
     cz: i32,
+    sy: i8,
     block: &impl Fn(i32, i32, i32) -> &'static str,
     biome: Option<&'static str>,
 ) -> SectionNbt {
@@ -248,7 +280,7 @@ fn section(
     for y in 0..SECTION {
         for z in 0..SECTION {
             for x in 0..SECTION {
-                let name = block(cx * SECTION + x, y, cz * SECTION + z);
+                let name = block(cx * SECTION + x, sy as i32 * SECTION + y, cz * SECTION + z);
                 let next = names.len();
                 let index = *index_of.entry(name).or_insert_with(|| {
                     names.push(name);
@@ -261,7 +293,7 @@ fn section(
 
     let bits = (64 - (names.len().max(2) as u64 - 1).leading_zeros()).max(4);
     SectionNbt {
-        y: 0,
+        y: sy,
         block_states: BlockStatesNbt {
             palette: palette(&names),
             data: (names.len() > 1).then(|| packed(&indices, bits)),

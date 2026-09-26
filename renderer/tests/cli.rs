@@ -1633,7 +1633,8 @@ fn resume_ohne_native_stufen_baut_die_pyramide_neu() {
         reihe.next().expect("drei Basiskacheln"),
     );
     std::fs::remove_file(weg).unwrap();
-    setze_zeit(frisch, damals + Duration::from_secs(600));
+    let zuletzt = damals + Duration::from_secs(600);
+    setze_zeit(frisch, zuletzt);
     let oben: Vec<PathBuf> = (0..basis)
         .flat_map(|z| kacheln(out.path(), z).into_values())
         .collect();
@@ -1653,7 +1654,7 @@ fn resume_ohne_native_stufen_baut_die_pyramide_neu() {
     );
     assert_ne!(
         zeit_von(frisch),
-        damals,
+        zuletzt,
         "frische Basiskachel nicht neu gerendert"
     );
     for pfad in &oben {
@@ -1673,7 +1674,8 @@ fn resume_ohne_native_stufen_baut_die_pyramide_neu() {
 /// Kachel eine des abgebrochenen, und die zerrissene läge weit vor ihren
 /// zwei Minuten. Das erste Fortsetzen läuft auf einem Thread, damit die
 /// zerrissene als letzte drankommt, und endet hart nach seiner ersten
-/// Kachel.
+/// Kachel. Kommt der Test erst später zum Zug, hat es sie womöglich schon
+/// neu gerendert; zerrissen ist sie dann auch nicht mehr.
 #[test]
 fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
     let welt = tempdir();
@@ -1700,6 +1702,7 @@ fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
     }
     let zerrissen = basis.last().unwrap().1.clone();
     zerreisse(&zerrissen);
+    let kaputt = std::fs::read(&zerrissen).unwrap();
     setze_zeit(&zerrissen, damals + Duration::from_secs(600));
     let fehlen: Vec<PathBuf> = basis[..basis.len() / 2]
         .iter()
@@ -1722,16 +1725,25 @@ fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
         .stdout(Stdio::null())
         .spawn()
         .expect("terranova-render starten");
-    while !fehlen.iter().any(|pfad| pfad.exists()) {
+    loop {
+        // Erst fragen, ob es geendet hat, dann nach Kacheln sehen: endete es
+        // dazwischen, hat der Test seine Kacheln trotzdem gesehen.
+        let geendet = erstes.try_wait().unwrap().is_some();
+        if fehlen.iter().any(|pfad| pfad.exists()) {
+            break;
+        }
         assert!(
-            erstes.try_wait().unwrap().is_none(),
+            !geendet,
             "das erste Fortsetzen endete, bevor es eine Kachel schrieb"
         );
         std::thread::sleep(Duration::from_millis(1));
     }
     erstes.kill().unwrap();
     erstes.wait().unwrap();
-    assert!(!zerrissen.exists(), "die zerrissene Kachel steht noch da");
+    assert!(
+        !std::fs::read(&zerrissen).is_ok_and(|jetzt| jetzt == kaputt),
+        "die zerrissene Kachel steht noch da"
+    );
 
     gelungen(&tiles(welt.path(), out.path(), &fortsetzen));
     assert_eq!(schnappschuss(out.path()), soll);

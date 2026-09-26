@@ -534,7 +534,7 @@ bei scale 32 mit 2304 und 6400 Basiskacheln: der Unterschied gibt die Zeit
 je Kachel für Basis, native Stufen und Pyramide, ohne den Vorlauf und die
 Sprite-Tabellen, die jede Stufe einmal baut; die kommen einmal dazu. Von
 Tag zu Tag schwankt sie um ein Viertel, jede geschriebene Kachel geht
-durch den Echtzeitschutz.
+durch den Echtzeitschutz, siehe „Echtzeitschutz unter Windows“ unten.
 
 | `--scale` | Kacheln der Welt | je Kachel | Basis | native Stufen | zusammen | Dauer |
 |-----------|------------------|-----------|-------|---------------|----------|-------|
@@ -672,6 +672,48 @@ wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den
 Kachelrändern sähe man die Artefakte im Raster. Gegenüber PNG spart
 verlustfreies WebP auf diesem Inhalt 20 bis 40 Prozent — dieselbe Kachel wiegt
 als PNG 173 kB und als WebP 108 kB.
+
+#### Echtzeitschutz unter Windows
+
+Unter Windows prüft der Echtzeitschutz von Microsoft Defender jede Datei,
+die der Export schreibt, und ein Vollrender schreibt über drei Millionen.
+Gemessen an einem Ausschnitt der grossen Serverwelt, 16 384 Basiskacheln
+bei scale 32 ohne native Stufen, je drei Läufe auf 24 Threads, jeweils der
+schnellste:
+
+| | ohne Ausnahme | mit Ausnahme für den Kachelordner |
+|---|---|---|
+| ganzer Lauf | 35,7 s | 23,8 s |
+| Basis | 705 Kacheln/s | 1116 Kacheln/s |
+| Pyramide | 8,6 s | 5,8 s |
+| Rechenzeit des Echtzeitschutzes | 219 s, im Mittel sechs Kerne | 7 s |
+
+Mit der Ausnahme braucht der Export ein Drittel weniger Zeit. Die drei
+Läufe ohne sie lagen zwischen 35,7 und 39,3 s, die mit ihr zwischen 23,8
+und 26,0 s.
+
+Die Ausnahme setzt `--defender-exclusion` beim Export: Windows fragt nach
+Adminrechten, und nur mit Zustimmung kommt das Verzeichnis von `--tiles`
+dazu. Von Hand geht es in einer PowerShell als Administrator, dort kommt
+sie nach dem Render auch wieder heraus:
+
+```powershell
+Add-MpPreference -ExclusionPath '<kachelordner>'
+Remove-MpPreference -ExclusionPath '<kachelordner>'
+```
+
+Solange sie besteht, prüft Defender in diesem Ordner nichts, auch keine
+Datei, die jemand anderes dort ablegt; der Export selbst legt dort nur
+Kacheln und `map.json` ab. Beim ersten Export in ein neues Verzeichnis
+nennt der Lauf beide Befehle für genau diesen Ordner. Ob die Ausnahme
+schon besteht, sieht er ohne Adminrechte nicht, deshalb sagt er es nur
+dieses eine Mal.
+
+Ohne Ausnahme geht es unter Windows 11 mit einem Dev Drive, einem eigenen
+ReFS-Laufwerk, auch als virtuelle Festplatte auf einem vorhandenen. Der
+Echtzeitschutz bleibt dort an, prüft aber im Leistungsmodus erst nach dem
+Schreiben; die Rechenzeit dafür fällt trotzdem an. Gemessen ist das hier
+nicht.
 
 ### Wasser und Biomfarben
 

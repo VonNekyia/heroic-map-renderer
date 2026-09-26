@@ -1578,7 +1578,8 @@ fn resume_rendert_nur_was_fehlt() {
         "Kacheln:    2 geschrieben".to_string(),
         format!("{} vorhandene Kacheln übersprungen", basis.len() - 2),
         format!("{:.0} kB je Kachel", neu as f64 / 2.0 / 1024.0),
-        format!("{} Kacheln nativ bei scale 4,", nativ.len()),
+        // Mit Karte steht dahinter noch " + GPU".
+        format!("{} Kacheln nativ bei scale 4", nativ.len()),
     ] {
         assert!(
             meldung.contains(&erwartet),
@@ -2618,4 +2619,175 @@ fn leeres_ergebnis_legt_das_ziel_trotzdem_an() {
 
     assert!(ziel.join("map.json").is_file(), "map.json fehlt");
     assert!(dateien(&ziel).is_empty(), "es dürfte keine Kachel geben");
+}
+
+/// `--gpu on` liefert dieselben Dateien wie `--gpu off`, Byte für Byte —
+/// Kacheln, native Stufen, Pyramide, `map.json` —, und die Karte zeichnet
+/// die Basis wie die nativen Stufen. Ebenso ein Ausschnitt und ein
+/// Fortsetzen. Ohne Adapter (auch keinen Software-Adapter) wird
+/// übersprungen und gesagt, ausser in der CI (`common::ohne_gpu`).
+#[test]
+fn gpu_liefert_dieselben_kacheln() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (1, 1)], gelaende);
+
+    let cpu = tempdir();
+    let gpu = tempdir();
+    let aus = tiles(welt.path(), cpu.path(), &["--scale", "16", "--gpu", "off"]);
+    let ausgabe = String::from_utf8_lossy(&gelungen(&aus).stdout);
+    assert!(
+        ausgabe
+            .lines()
+            .any(|zeile| zeile == "GPU:        aus (--gpu off)"),
+        "--gpu off sagt nicht, dass die Karte aus ist:\n{ausgabe}"
+    );
+    let lauf = tiles(welt.path(), gpu.path(), &["--scale", "16", "--gpu", "on"]);
+    if !lauf.status.success()
+        && String::from_utf8_lossy(&lauf.stderr).contains("keine Grafikkarte gefunden")
+    {
+        common::ohne_gpu();
+        return;
+    }
+    assert!(ganz_auf_der_karte(&lauf) > 0, "keine native Stufe");
+    assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
+
+    // Fortsetzen nach einer verlorenen Basiskachel: die Karte zeichnet
+    // sie und alles, was die zwei Minuten vor der jüngsten treffen.
+    altern(gpu.path());
+    let z = max_zoom(gpu.path());
+    let (_, verloren) = kacheln(gpu.path(), z).pop_first().unwrap();
+    std::fs::remove_file(&verloren).unwrap();
+    ganz_auf_der_karte(&tiles(
+        welt.path(),
+        gpu.path(),
+        &["--scale", "16", "--gpu", "on", "--resume"],
+    ));
+    assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
+
+    // Ein Ausschnitt.
+    let (cpu, gpu) = (tempdir(), tempdir());
+    let ausschnitt = ["--scale", "16", "--size", "300", "--center", "8", "8"];
+    gelungen(&tiles(
+        welt.path(),
+        cpu.path(),
+        &[&ausschnitt[..], &["--gpu", "off"]].concat(),
+    ));
+    ganz_auf_der_karte(&tiles(
+        welt.path(),
+        gpu.path(),
+        &[&ausschnitt[..], &["--gpu", "on"]].concat(),
+    ));
+    assert!(!dateien(gpu.path()).is_empty(), "der Ausschnitt ist leer");
+    assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
+}
+
+/// Die Karte hat in diesem Lauf alles gezeichnet: die Zeile der Basis und
+/// die jeder nativen Stufe nennen sie ohne „für n von m“, und nichts fiel
+/// auf die CPU zurück. Sonst fiele ein Fehler der Karte nicht auf, die CPU
+/// zeichnet dieselben Bytes. Gibt die Zahl der nativen Stufen zurück.
+fn ganz_auf_der_karte(lauf: &Output) -> usize {
+    let ausgabe = String::from_utf8_lossy(&gelungen(lauf).stdout);
+    let zeilen: Vec<&str> = ausgabe
+        .lines()
+        .filter(|zeile| zeile.starts_with("Kacheln:") || zeile.contains("nativ bei scale"))
+        .collect();
+    assert!(
+        zeilen
+            .first()
+            .is_some_and(|zeile| zeile.starts_with("Kacheln:")),
+        "keine Zeile der Basis:\n{ausgabe}"
+    );
+    for zeile in &zeilen {
+        assert!(
+            zeile.contains("+ GPU") && !zeile.contains("+ GPU für"),
+            "nicht alles auf der Karte: {zeile}\n{ausgabe}"
+        );
+    }
+    assert!(
+        !ausgabe.contains("ab hier zeichnet die CPU"),
+        "die Karte fiel aus, die CPU hat gezeichnet:\n{ausgabe}"
+    );
+    zeilen.len() - 1
+}
+
+/// Ein `WGPU_ADAPTER_NAME`, zu dem kein Adapter passt, ist keine Panik:
+/// `--gpu auto` zeichnet auf der CPU und sagt warum, `--gpu on` bricht mit
+/// derselben Meldung ab.
+#[test]
+fn unbekannter_adaptername_ist_keine_panik() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    for (modus, gelingt) in [("auto", true), ("on", false)] {
+        let out = tempdir();
+        let lauf = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+            .arg("--world")
+            .arg(welt.path())
+            .arg("--assets")
+            .arg(assets_ref())
+            .arg("--tiles")
+            .arg(out.path())
+            .args(["--gpu", modus])
+            .env("WGPU_ADAPTER_NAME", "Gibt es nicht 4711")
+            .output()
+            .expect("terranova-render starten");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&lauf.stdout),
+            String::from_utf8_lossy(&lauf.stderr)
+        );
+        assert!(!text.contains("panicked"), "--gpu {modus}:\n{text}");
+        assert!(
+            text.contains("WGPU_ADAPTER_NAME=gibt es nicht 4711"),
+            "--gpu {modus}:\n{text}"
+        );
+        assert_eq!(lauf.status.success(), gelingt, "--gpu {modus}:\n{text}");
+        if gelingt {
+            assert_eq!(text.matches("GPU:").count(), 1, "--gpu {modus}:\n{text}");
+        }
+    }
+}
+
+/// Scheitert die Karte, hier schon beim Anlegen des Zeichners an einer
+/// Grenze von 1 kB (`TERRANOVA_GPU_GRENZE`), zeichnet die CPU alles, und
+/// das Log sagt es genau einmal. Auf stderr steht keine Panik, obwohl wgpu
+/// jeden solchen Fehler mit einer meldet. Die Kacheln sind dieselben wie
+/// mit `--gpu off`.
+#[test]
+fn versagende_karte_steht_einmal_im_log() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (1, 1)], gelaende);
+    let cpu = tempdir();
+    gelungen(&tiles(
+        welt.path(),
+        cpu.path(),
+        &["--scale", "16", "--gpu", "off"],
+    ));
+    let gpu = tempdir();
+    let lauf = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+        .arg("--world")
+        .arg(welt.path())
+        .arg("--assets")
+        .arg(assets_ref())
+        .arg("--tiles")
+        .arg(gpu.path())
+        .args(["--native-levels", "9", "--scale", "16", "--gpu", "on"])
+        .env("TERRANOVA_GPU_GRENZE", "1024")
+        .output()
+        .expect("terranova-render starten");
+    let fehler = String::from_utf8_lossy(&lauf.stderr);
+    if !lauf.status.success() && fehler.contains("keine Grafikkarte gefunden") {
+        common::ohne_gpu();
+        return;
+    }
+    let ausgabe = String::from_utf8_lossy(&gelungen(&lauf).stdout);
+    assert_eq!(
+        ausgabe.matches("ab hier zeichnet die CPU").count(),
+        1,
+        "{ausgabe}"
+    );
+    assert!(
+        !fehler.contains("panicked"),
+        "gefangene Panik im Log:\n{fehler}"
+    );
+    assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 }

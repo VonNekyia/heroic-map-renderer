@@ -13,6 +13,12 @@ allow = [
     "Zlib",
 ]
 
+# ISC nur für libloading: wgpu lädt damit Vulkan und DX12 zur Laufzeit.
+# Eine andere Crate unter ISC fällt so auf.
+[[licenses.exceptions]]
+crate = "libloading"
+allow = ["ISC"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

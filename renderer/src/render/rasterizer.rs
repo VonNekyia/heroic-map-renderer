@@ -591,22 +591,24 @@ fn shaded(texel: [u8; 4], shade: f32, tint: Option<[f32; 3]>) -> [u8; 4] {
 }
 
 /// Quelle über Ziel, beide mit unvormultipliziertem Alpha.
+///
+/// Ganzzahlig, auf 1/255² erweitert und zum Schluss gerundet — dieselbe
+/// Rechnung steht im Shader (`gpu.wgsl`). Gleitkomma würde dort je
+/// Grafikkarte anders runden; so liefert jede Karte dasselbe Byte wie die
+/// CPU. Gegenüber der Gleitkommafassung weicht das Ergebnis höchstens um
+/// 1 ab, und nur dort, wo Gleitkomma selbst daneben lag.
 pub fn over(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     if src[3] == 255 || dst[3] == 0 {
         return src;
     }
-    let sa = src[3] as f32 / 255.0;
-    let da = dst[3] as f32 / 255.0;
-    let out_a = sa + da * (1.0 - sa);
-    if out_a <= 0.0 {
-        return [0, 0, 0, 0];
-    }
+    let sa = src[3] as u32;
+    let da = dst[3] as u32 * (255 - sa);
+    let a = sa * 255 + da;
     let mut out = [0u8; 4];
     for c in 0..3 {
-        let value = (src[c] as f32 * sa + dst[c] as f32 * da * (1.0 - sa)) / out_a;
-        out[c] = value.round().clamp(0.0, 255.0) as u8;
+        out[c] = ((src[c] as u32 * sa * 255 + dst[c] as u32 * da + a / 2) / a) as u8;
     }
-    out[3] = (out_a * 255.0).round() as u8;
+    out[3] = ((a + 127) / 255) as u8;
     out
 }
 

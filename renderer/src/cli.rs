@@ -1,14 +1,15 @@
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
 use std::io::Write;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
@@ -16,8 +17,8 @@ use terranova_render::assets::{Assets, fluid, model_of};
 use terranova_render::render::pyramid;
 use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
-    ChunkCache, MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, corner_tiles,
-    encode_webp, render, render_area, render_area_with, survey, world_box,
+    ChunkCache, Gpu, MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, corner_tiles,
+    draw_list, encode_webp, render, render_area, render_area_with, survey, world_box,
 };
 use terranova_render::world::{BlockState, REGION, World};
 
@@ -108,6 +109,12 @@ pub struct Args {
     #[arg(long, requires = "tiles")]
     resume: bool,
 
+    /// Grafikkarte zum Zeichnen der Kacheln: `auto` nimmt sie, wenn eine da
+    /// ist, `on` verlangt eine (auch einen Software-Adapter) und bricht
+    /// sonst ab.
+    #[arg(long, value_enum, default_value_t = GpuMode::Auto, requires = "tiles")]
+    gpu: GpuMode,
+
     /// Nur unter Windows: vor dem Export eine Ausnahme im Echtzeitschutz von
     /// Microsoft Defender für das Verzeichnis von --tiles setzen, wenn es neu,
     /// leer oder schon ein Kachelbaum ist, nie für die Wurzel eines
@@ -138,7 +145,26 @@ fn parse_scale(text: &str) -> std::result::Result<u32, String> {
     Ok(scale)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum GpuMode {
+    Auto,
+    Off,
+    On,
+}
+
+/// Kacheln je Durchgang auf der Grafikkarte. Mehr spart Wartezeiten je
+/// Absenden, kostet aber je Thread Puffer — 16 Kacheln sind 8 MB.
+const GPU_TILES: u32 = 16;
+
+/// Die Karte eines Laufs. Versagt sie einmal, zeichnet für den Rest des
+/// Laufs die CPU ([`mit_rueckfall`]).
+struct Karte {
+    gpu: Gpu,
+    aus: AtomicBool,
+}
+
 pub fn run() -> Result<()> {
+    std::panic::set_hook(still_beim_fangen(std::panic::take_hook()));
     let args = Args::parse();
 
     if args.world.is_none() && (args.at.is_some() || args.scan) {
@@ -278,16 +304,29 @@ pub fn run() -> Result<()> {
             )?;
         }
         if let Some(dir) = &args.tiles {
-            let export = write_tiles(
-                world,
-                assets.as_mut().expect("oben geprüft"),
-                projection,
-                args.size.map(|size| window(projection, center, size)),
-                dir,
-                args.native_levels,
-                args.prune,
-                args.resume,
-            );
+            let export = oeffne_gpu(args.gpu).and_then(|karte| {
+                let export = write_tiles(
+                    world,
+                    assets.as_mut().expect("oben geprüft"),
+                    projection,
+                    args.size.map(|size| window(projection, center, size)),
+                    dir,
+                    args.native_levels,
+                    args.prune,
+                    args.resume,
+                    karte.as_ref(),
+                );
+                // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
+                // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
+                // endete nie. Sie aufzuräumen bleibt dem System.
+                if karte
+                    .as_ref()
+                    .is_some_and(|karte| karte.aus.load(Ordering::Relaxed))
+                {
+                    std::mem::forget(karte);
+                }
+                export
+            });
             // Auch nach einem Fehler: Der Befehl vom Anfang steht nach
             // Stunden weit oben.
             if ausnahme {
@@ -403,6 +442,114 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
         println!("  Flüssigkeit: {fluid:?}, als Würfel aus dem Code");
     }
     Ok(())
+}
+
+/// Öffnet die Grafikkarte nach Wunsch. Bei `auto` ist ein Fehler beim
+/// Öffnen kein Grund abzubrechen — dann zeichnet die CPU. Auch eine Panik
+/// aus wgpu nicht, etwa wenn ein Treiber den Shader nicht übersetzt.
+fn oeffne_gpu(mode: GpuMode) -> Result<Option<Karte>> {
+    let gpu = match mode {
+        GpuMode::Off => {
+            println!("GPU:        aus (--gpu off)");
+            return Ok(None);
+        }
+        GpuMode::Auto => match ohne_panik(|| Gpu::new(false)) {
+            Ok(gpu) => gpu,
+            Err(e) => {
+                println!("GPU:        {e:#}; die CPU zeichnet");
+                return Ok(None);
+            }
+        },
+        GpuMode::On => {
+            Some(ohne_panik(|| Gpu::new(true))?.context("keine Grafikkarte gefunden (--gpu on)")?)
+        }
+    };
+    match &gpu {
+        Some(gpu) => println!("GPU:        {}", gpu.name),
+        None => println!("GPU:        keine, die CPU zeichnet"),
+    }
+    Ok(gpu.map(|gpu| Karte {
+        gpu,
+        aus: AtomicBool::new(false),
+    }))
+}
+
+thread_local! {
+    /// Fängt [`ohne_panik`] auf diesem Thread gerade? Dann schweigt der
+    /// Panic-Hook des Laufs.
+    static FAENGT: Cell<bool> = const { Cell::new(false) };
+}
+
+type Hook = Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>;
+
+/// Der Panic-Hook des Laufs: schweigt, solange [`ohne_panik`] auf diesem
+/// Thread fängt, und gibt jede andere Panik an `sonst`. wgpu meldet jeden
+/// Fehler, den kein Error-Scope fängt, mit einer Panik, und `Device::poll`
+/// jeden, der kein `PollError` ist, auch ein verlorenes Gerät, mit Scope
+/// wie ohne. Sonst stünde nach einem Treiber-Reset jede gefangene Panik im
+/// Log, einmal je Thread, samt Pfad und Hinweis auf `RUST_BACKTRACE`.
+fn still_beim_fangen(sonst: Hook) -> Hook {
+    Box::new(move |info| {
+        if !FAENGT.try_with(Cell::get).unwrap_or(false) {
+            sonst(info);
+        }
+    })
+}
+
+/// Führt `f` aus; eine Panik darin wird ein Fehler mit ihrem Text, auf
+/// einer Zeile. Den Hook dazu setzt [`run`] ([`still_beim_fangen`]).
+fn ohne_panik<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
+    let vorher = FAENGT.replace(true);
+    let ergebnis = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    FAENGT.set(vorher);
+    ergebnis.unwrap_or_else(|panik| {
+        let text = panik
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| panik.downcast_ref::<&str>().map(|text| (*text).to_owned()))
+            .unwrap_or_else(|| "Panik".to_owned());
+        // wgpu schreibt die Ursachen eingerückt darunter.
+        Err(anyhow::anyhow!(
+            text.split_whitespace().collect::<Vec<_>>().join(" ")
+        ))
+    })
+}
+
+/// Die Bilder einer Gruppe von der Karte. Versagt sie mit einem Fehler
+/// oder einer Panik aus wgpu, etwa nach einem Treiber-Reset, zeichnet die
+/// CPU die Gruppe; `aus` hält fest, dass der Rest des Laufs auf der CPU
+/// läuft, gesagt wird das einmal. Das Bild ist auf beiden Wegen dasselbe.
+fn mit_rueckfall(
+    aus: &AtomicBool,
+    karte: impl FnOnce() -> Result<Vec<RgbaImage>>,
+    cpu: impl FnOnce() -> Result<Vec<RgbaImage>>,
+) -> Result<Vec<RgbaImage>> {
+    let grund = match ohne_panik(karte) {
+        Ok(bilder) => return Ok(bilder),
+        Err(e) => e,
+    };
+    if !aus.swap(true, Ordering::Relaxed) {
+        println!("GPU:        {grund:#}; ab hier zeichnet die CPU");
+    }
+    cpu()
+}
+
+/// Was das Log über die Karte einer Stufe sagt: nichts, wenn sie keine
+/// Kachel gezeichnet hat, sonst wie viele.
+fn im_log(auf_der_karte: usize, gesamt: usize) -> String {
+    match auf_der_karte {
+        0 => String::new(),
+        n if n == gesamt => " + GPU".to_owned(),
+        n => format!(" + GPU für {n} von {gesamt}"),
+    }
+}
+
+/// Zeichnet Kacheln auf der CPU, eine nach der anderen.
+fn auf_der_cpu(chunks: &mut ChunkCache, tiles: &[TileId]) -> Result<Vec<RgbaImage>> {
+    tiles
+        .iter()
+        .map(|tile| render_area_with(chunks, tile.rect(), Y_RANGE))
+        .collect()
 }
 
 /// Rendert einen Ausschnitt der Welt in eine PNG.
@@ -571,6 +718,7 @@ fn write_tiles(
     native: Option<u32>,
     prune: bool,
     resume: bool,
+    karte: Option<&Karte>,
 ) -> Result<()> {
     // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
     // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
@@ -737,11 +885,12 @@ fn write_tiles(
             .filter(|tile| zeiten.contains_key(tile))
             .try_for_each(|tile| entferne(&tile_path(dir, max_zoom, *tile)))?;
     }
-    let stufe = rendere(
+    let (stufe, auf_der_karte) = rendere(
         world,
         &sprites,
         &reihe,
         true,
+        karte,
         |tile, image| -> Result<Option<usize>> {
             // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
             // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
@@ -767,9 +916,10 @@ fn write_tiles(
 
     let seconds = started.elapsed().as_secs_f64();
     println!(
-        "Kacheln:    {geschrieben} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads",
+        "Kacheln:    {geschrieben} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads{}",
         leer.len(),
-        rayon::current_num_threads()
+        rayon::current_num_threads(),
+        im_log(auf_der_karte, gerendert)
     );
     if resume {
         println!("            {uebersprungen} vorhandene Kacheln übersprungen (--resume)");
@@ -797,6 +947,7 @@ fn write_tiles(
         stufen,
         &waisen,
         &mut weg,
+        karte,
     )?;
     build_pyramid(dir, z, kandidaten, &waisen, &mut weg)?;
     if prune && !veraltet.is_empty() {
@@ -1602,6 +1753,7 @@ fn render_coarser(
     stufen: u32,
     waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
+    karte: Option<&Karte>,
 ) -> Result<(u32, BTreeSet<TileId>, Kacheln)> {
     let mut z = max_zoom;
     let mut scale = projection.scale();
@@ -1621,11 +1773,12 @@ fn render_coarser(
         in_bloecken(&mut reihe);
         // Je Kachel: zeigt sie etwas, bleibt sie stehen, und wie gross ist
         // sie?
-        let stufe = rendere(
+        let (stufe, auf_der_karte) = rendere(
             world,
             &sprites,
             &reihe,
             false,
+            karte,
             |tile, image| -> Result<(bool, bool, usize)> {
                 let zeigt = image.pixels().any(|p| p.0[3] > 0);
                 // Leer, aber über einer Kachel, die bleibt: dann bleibt sie
@@ -1651,7 +1804,8 @@ fn render_coarser(
             }
         }
         println!(
-            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}, {:.1} MB in {:.1} s",
+            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}{}, {:.1} MB in {:.1} s",
+            im_log(auf_der_karte, reihe.len()),
             bytes as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
@@ -1670,35 +1824,78 @@ fn render_coarser(
 /// Cache: mit 24 Threads lud jede Kachel wieder ihre hundert Chunks. Feste
 /// Stapel halten die Nachbarn zusammen.
 ///
-/// Mit `melden` gibt es alle 200 Kacheln den Stand aus.
+/// Mit `melden` gibt es alle 200 Kacheln den Stand aus. Mit einer Karte
+/// zeichnet sie, je Durchgang [`GPU_TILES`] Kacheln, bis sie einmal versagt;
+/// wie viele es waren, steht neben den Kacheln. Den Zeichner eines Stapels
+/// legt sein erster Durchgang an, im Rückfall wie das Zeichnen: auch das
+/// Anlegen scheitert an einer verlorenen Karte. Hat sie versagt, legt kein
+/// Stapel mehr einen an.
 fn rendere<T: Send>(
     world: &World,
     sprites: &SpriteSet,
     tiles: &[TileId],
     melden: bool,
+    karte: Option<&Karte>,
     ablegen: impl Fn(TileId, RgbaImage) -> Result<T> + Sync,
-) -> Result<Vec<(TileId, T)>> {
+) -> Result<(Vec<(TileId, T)>, usize)> {
     let fertig = AtomicUsize::new(0);
     let gesamt = tiles.len();
     let stapel = tiles
         .par_chunks(batch_size(gesamt))
-        .map(|stapel| -> Result<Vec<(TileId, T)>> {
+        .map(|stapel| -> Result<(Vec<(TileId, T)>, usize)> {
             let mut chunks = ChunkCache::new(world, sprites);
+            let mut worker = None;
+            // Die Grafikkarte bekommt mehrere Kacheln je Durchgang; die
+            // CPU eine nach der anderen.
+            let je_durchgang = if karte.is_some() {
+                GPU_TILES as usize
+            } else {
+                1
+            };
             let mut out = Vec::with_capacity(stapel.len());
-            for &tile in stapel {
-                let image = render_area_with(&mut chunks, tile.rect(), Y_RANGE)?;
-                out.push((tile, ablegen(tile, image)?));
-                // Gezählt wird, was fertig ist: "N/N Kacheln" steht erst da,
-                // wenn keine mehr läuft.
-                let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
-                if melden && (erledigt.is_multiple_of(200) || erledigt == gesamt) {
-                    println!("            {erledigt}/{gesamt} Kacheln");
+            let mut auf_der_karte = 0;
+            for gruppe in stapel.chunks(je_durchgang) {
+                let bilder = match karte {
+                    Some(karte) if !karte.aus.load(Ordering::Relaxed) => {
+                        let listen = gruppe
+                            .iter()
+                            .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE))
+                            .collect::<Result<Vec<_>>>()?;
+                        mit_rueckfall(
+                            &karte.aus,
+                            || {
+                                let worker =
+                                    worker.get_or_insert_with(|| karte.gpu.worker(GPU_TILES, TILE));
+                                let bilder = worker.render(&listen)?;
+                                auf_der_karte += gruppe.len();
+                                Ok(bilder)
+                            },
+                            || auf_der_cpu(&mut chunks, gruppe),
+                        )?
+                    }
+                    _ => auf_der_cpu(&mut chunks, gruppe)?,
+                };
+                for (&tile, image) in gruppe.iter().zip(bilder) {
+                    out.push((tile, ablegen(tile, image)?));
+                    // Gezählt wird, was fertig ist: "N/N Kacheln" steht erst
+                    // da, wenn keine mehr läuft.
+                    let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
+                    if melden && (erledigt.is_multiple_of(200) || erledigt == gesamt) {
+                        println!("            {erledigt}/{gesamt} Kacheln");
+                    }
                 }
             }
-            Ok(out)
+            Ok((out, auf_der_karte))
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(stapel.into_iter().flatten().collect())
+    let auf_der_karte = stapel.iter().map(|(_, n)| n).sum();
+    Ok((
+        stapel
+            .into_iter()
+            .flat_map(|(kacheln, _)| kacheln)
+            .collect(),
+        auf_der_karte,
+    ))
 }
 
 /// Wie viele aufeinanderfolgende Kacheln sich einen Chunk-Cache teilen,
@@ -2591,6 +2788,162 @@ mod tests {
                 "{schlecht}"
             );
         }
+    }
+
+    /// `--gpu` wirkt nur auf den Kachelexport; ohne `--tiles` lehnt die CLI
+    /// den Schalter ab, statt ihn stillschweigend zu nehmen. Die Vorgabe
+    /// `auto` zählt dabei nicht, auch nicht neben `--pyramid`, das keinen
+    /// anderen Schalter duldet.
+    #[test]
+    fn gpu_nur_mit_tiles() {
+        let geht = |args: &[&str]| Args::try_parse_from([&["x"], args].concat()).is_ok();
+        assert!(!geht(&["--world", "w", "--render", "a.png", "--gpu", "on"]));
+        assert!(geht(&["--world", "w", "--render", "a.png"]));
+        assert!(!geht(&["--pyramid", "d", "--gpu", "off"]));
+        assert!(geht(&["--pyramid", "d"]));
+        assert!(geht(&["--world", "w", "--tiles", "t", "--gpu", "on"]));
+    }
+
+    /// Versagt die Karte mit einem Fehler oder einer Panik, kommen die
+    /// Bilder von der CPU, und `aus` bleibt gesetzt. Solange sie zeichnet,
+    /// zeichnet die CPU nichts.
+    #[test]
+    fn rueckfall_auf_die_cpu() {
+        let bild = |wert: u8| vec![RgbaImage::from_pixel(1, 1, Rgba([wert; 4]))];
+        let farbe = |bilder: Vec<RgbaImage>| bilder[0].get_pixel(0, 0).0;
+
+        let aus = AtomicBool::new(false);
+        let gut = mit_rueckfall(
+            &aus,
+            || Ok(bild(1)),
+            || panic!("die CPU zeichnet ohne Grund"),
+        );
+        assert_eq!(farbe(gut.unwrap()), [1; 4]);
+        assert!(!aus.load(Ordering::Relaxed));
+
+        let fehler = mit_rueckfall(&aus, || bail!("Gerät verloren"), || Ok(bild(2)));
+        assert_eq!(farbe(fehler.unwrap()), [2; 4]);
+        assert!(aus.load(Ordering::Relaxed));
+
+        let aus = AtomicBool::new(false);
+        let panik = mit_rueckfall(
+            &aus,
+            || panic!("wgpu error: Validation Error"),
+            || Ok(bild(3)),
+        );
+        assert_eq!(farbe(panik.unwrap()), [3; 4]);
+        assert!(aus.load(Ordering::Relaxed));
+    }
+
+    /// Eine Panik, die [`ohne_panik`] fängt, geht nicht an den Hook darunter,
+    /// jede andere schon, und ihr Text kommt auf eine Zeile. Gezählt wird nur
+    /// auf diesem Thread: im Coverage-Job laufen die Tests nebeneinander in
+    /// einem Prozess, und der Hook gilt für alle.
+    #[test]
+    fn gefangene_panik_bleibt_still() {
+        let faden = std::thread::current().id();
+        let gesagt = std::sync::Arc::new(AtomicUsize::new(0));
+        let zaehler = std::sync::Arc::clone(&gesagt);
+        let sonst = std::panic::take_hook();
+        std::panic::set_hook(still_beim_fangen(Box::new(move |info| {
+            if std::thread::current().id() == faden {
+                zaehler.fetch_add(1, Ordering::SeqCst);
+            } else {
+                sonst(info);
+            }
+        })));
+
+        let fehler = ohne_panik::<()>(|| {
+            panic!("wgpu error: Validation Error\n\nCaused by:\n  In Device::create_buffer\n")
+        });
+        assert_eq!(
+            format!("{:#}", fehler.unwrap_err()),
+            "wgpu error: Validation Error Caused by: In Device::create_buffer"
+        );
+        assert_eq!(
+            gesagt.load(Ordering::SeqCst),
+            0,
+            "die gefangene Panik ging an den Hook"
+        );
+
+        let _ = std::panic::catch_unwind(|| panic!("nicht von ohne_panik gefangen"));
+        assert_eq!(
+            gesagt.load(Ordering::SeqCst),
+            1,
+            "eine andere Panik ging nicht an den Hook"
+        );
+    }
+
+    /// Versagt die Karte in [`rendere`], zeichnet die CPU den Rest, und kein
+    /// Stapel legt danach noch einen Zeichner an. Die Welt ist leer, es geht
+    /// nur darum, wer zeichnet: ein Thread, 80 Kacheln, also zwei Stapel zu
+    /// 64 und 16 und Durchgänge zu 16.
+    /// - Die Karte zeichnet alle, solange sie kann.
+    /// - Steht `aus` schon, zeichnet sie keine.
+    /// - Scheitert schon das Anlegen des Zeichners, hier an einer Grenze von
+    ///   1 kB, zeichnet die CPU alle.
+    /// - Verliert die Karte ihr Gerät nach der ersten Kachel, bleibt es bei
+    ///   den 16 des ersten Durchgangs. Der zweite Stapel legte früher einen
+    ///   Zeichner auf dem verlorenen Gerät an, und dessen Panik fing niemand.
+    #[test]
+    fn rendere_faellt_auf_die_cpu_zurueck() {
+        let Some(gpu) = Gpu::new(true).unwrap() else {
+            // Wie `common::ohne_gpu` in den Integrationstests.
+            assert!(
+                std::env::var_os("TERRANOVA_GPU_PFLICHT").is_none(),
+                "kein GPU-Adapter, aber TERRANOVA_GPU_PFLICHT ist gesetzt"
+            );
+            eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
+            return;
+        };
+        let welt = tempfile::tempdir().unwrap();
+        std::fs::create_dir(welt.path().join("region")).unwrap();
+        let world = World::open(welt.path()).unwrap();
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
+        let mut assets = Assets::open(vec![fixture]).unwrap();
+        let keine = BTreeMap::<BlockState, BTreeSet<String>>::new();
+        let sprites = SpriteSet::build_in(&mut assets, &keine, Projection::new(16)).unwrap();
+        let tiles: Vec<TileId> = (0..80).map(|x| TileId { x, y: 0 }).collect();
+        let ein_thread = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let karte = |gpu| Karte {
+            gpu,
+            aus: AtomicBool::new(false),
+        };
+        // Wie viele Kacheln die Karte gezeichnet hat; mit `verlieren` ist ihr
+        // Gerät nach der ersten fertigen Kachel weg.
+        let lauf = |karte: &Karte, verlieren: bool| {
+            let einmal = AtomicBool::new(verlieren);
+            let (kacheln, auf_der_karte) = ein_thread
+                .install(|| {
+                    rendere(&world, &sprites, &tiles, false, Some(karte), |_, _| {
+                        if einmal.swap(false, Ordering::Relaxed) {
+                            karte.gpu.verlieren();
+                        }
+                        Ok(())
+                    })
+                })
+                .unwrap();
+            assert_eq!(kacheln.len(), tiles.len());
+            auf_der_karte
+        };
+
+        let gut = karte(gpu);
+        assert_eq!(lauf(&gut, false), 80);
+        assert!(!gut.aus.load(Ordering::Relaxed));
+        gut.aus.store(true, Ordering::Relaxed);
+        assert_eq!(lauf(&gut, false), 0, "die Karte zeichnet trotz `aus`");
+
+        let klein = karte(Gpu::mit_grenze(true, 1024).unwrap().expect("wie oben"));
+        assert_eq!(lauf(&klein, false), 0);
+        assert!(klein.aus.load(Ordering::Relaxed));
+
+        let verliert = karte(Gpu::new(true).unwrap().expect("wie oben"));
+        let n = lauf(&verliert, true);
+        assert_eq!(im_log(n, tiles.len()), " + GPU für 16 von 80");
+        assert!(verliert.aus.load(Ordering::Relaxed));
     }
 
     #[test]

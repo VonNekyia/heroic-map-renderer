@@ -16,6 +16,10 @@ jobs:
   rust:
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Hier gibt es immer einen Software-Adapter (unten); fehlt er, ist das
+    # ein Fehler und kein übersprungener GPU-Test.
+    env:
+      TERRANOVA_GPU_PFLICHT: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -37,6 +41,13 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
+
+      # Die GPU-Tests brauchen einen Adapter. Auf Windows ist WARP dabei,
+      # auf Ubuntu liefert Mesa mit lavapipe eine Vulkan-Implementierung
+      # in Software — langsam, aber derselbe Shader-Weg wie auf einer Karte.
+      - name: Software-Vulkan für die GPU-Tests
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
 
       - uses: taiki-e/install-action@nextest
 
@@ -114,6 +125,8 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    env:
+      TERRANOVA_GPU_PFLICHT: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -124,6 +137,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: renderer
+
+      - name: Software-Vulkan für die GPU-Tests
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
 
       - uses: taiki-e/install-action@cargo-llvm-cov
 

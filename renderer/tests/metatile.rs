@@ -119,84 +119,16 @@ fn verdecken_aendert_kein_pixel() {
 }
 
 /// Der schnelle Weg über Kandidaten und Bitmasken muss Byte für Byte das
-/// Bild der Referenz liefern, die jeden Block im Band abläuft. Die Szene
-/// reicht über vier Chunks in zwei Biomen und vier Sections, die unterste
-/// einheitlich aus Stein, damit auch die Ränder zählen, an denen eine Maske
-/// aus dem Nachbarchunk oder der Section darüber kommt, und die Fassungen
-/// je Biom, die `in_biome` wählt: Gras an einer Ecke,
-/// ein Becken über Chunk- und Section-Grenzen, mit einem Dach, unter dem
-/// die Oberfläche tiefer liegt als der Boden des Dachs, und zwei
-/// Wassertaschen unter Stein, die zu einer Seite an Stein grenzen und zur
-/// anderen an Wasser mit Wasser darüber: ihre Oberfläche ragt in die Seite
-/// zum Wasser hinein und scheint durch. Dazu Glas im Wasser, Lava in
-/// Stufen und unter Lava, ein Lavasee mit Wänden nach +x und +z, eine
-/// Lavatasche wie die Wassertaschen, zwei Lavasäulen, die zur einen Seite
-/// über einer Stufe stehen und zur anderen an Stein grenzen, zwei weitere
-/// so an den Rändern eines Chunks nach +x und +z, Lava mit Luft darüber
-/// am oberen Rand einer Section, ein 15/16 hoher Block wie Ackerboden
-/// neben Lava und gestapelt, Platten, Kuchen, eine Seerose, ein gefluteter
-/// Zaun, eine Blasensäule, Säulen durch beide Section-Grenzen und Modelle,
-/// die in Nachbarwürfel ragen, eines davon mit seinem oberen Teil in einem
-/// verdeckten Würfel, dazu ein Block, der knapp über seinen Umriss ragt und
-/// selbst verdeckt ist: beide zeichnen je Pixel neben ihrem Würfel, die kein
-/// Nachbar deckt. Einmal ganz im Bild, einmal von einem
+/// Bild der Referenz liefern, die jeden Block im Band abläuft: in der
+/// Szene aus `common::szene`, einmal ganz im Bild, einmal von einem
 /// kleineren Rechteck angeschnitten, bei jedem scale, den `--scale` und
 /// die nativen Stufen annehmen, bis 32.
 #[test]
 fn schneller_weg_gleicht_der_referenz() {
-    let welt = |x: i32, y: i32, z: i32| -> &'static str {
-        match (x, y, z) {
-            (0..=5, 2, 26..=31) | (26..=31, 2, 0..=2) => "minecraft:grass_block",
-            (_, ..=2, _) => "minecraft:einfarbig",
-            (27, 31, 21) | (27, 31..=32, 22) | (24, 31, 26) | (25, 31..=32, 26) => {
-                "minecraft:water"
-            }
-            (27, 30..=32, 21..=22) | (28, 31, 21) => "minecraft:einfarbig",
-            (24..=25, 30, 26) | (24, 32, 26) | (24, 31, 27) => "minecraft:einfarbig",
-            (10..=13, 21, 10..=13) => "minecraft:einfarbig",
-            (20, 3..=25, 8) => "minecraft:durchsichtig",
-            (14, 12, 14) => "minecraft:oak_fence[waterlogged=true]",
-            (18, 3..=20, 18) => "minecraft:bubble_column",
-            (16, 3, 4) | (15, 5, 16) => "minecraft:ueberhang",
-            (6..=25, 3..=21, 6..=25) => "minecraft:water",
-            (8, 22, 20) => "minecraft:seerose",
-            (2..=4, 3, 20..=23) | (3, 4, 21) => "minecraft:lava",
-            (2, 4, 24) | (4, 3, 24) => "minecraft:lava[level=2]",
-            (0..=3, 3..=5, 0..=3) | (29, 3, 1) | (29, 3..=4, 2) => "minecraft:lava",
-            (1, 3..=4, 8) | (2, 3, 8) | (1, 3..=4, 12) | (1, 3, 13) => "minecraft:lava",
-            (1, 3, 9) | (2, 3, 12) => "minecraft:einfarbig",
-            (15, 8..=9, 29) | (16, 8, 29) | (29, 8..=9, 15) | (29, 8, 16) => "minecraft:lava",
-            (15, 8, 30) | (30, 8, 15) => "minecraft:einfarbig",
-            (2, 15, 29) => "minecraft:lava",
-            (3, 15, 29) | (2, 15, 30) => "minecraft:einfarbig",
-            (4, 3..=6, 0..=4) | (0..=3, 3..=6, 4) => "minecraft:einfarbig",
-            (29, 4, 1) | (30, 3..=4, 1..=2) | (29, 5, 2) | (29, 3..=4, 3) => "minecraft:einfarbig",
-            (5, 3, 20..=22) | (26, 3..=6, 3..=5) => "minecraft:ackerboden",
-            (28, 3..=40, 28) | (27, 15..=17, 27) | (27, 31..=33, 26) => "minecraft:einfarbig",
-            (17, 3, 28) | (16, 31, 2) => "minecraft:turm",
-            (17, 32, 2) | (16, 32, 3) | (16, 33, 2) => "minecraft:einfarbig",
-            (1, 3, 16) => "minecraft:rand",
-            (2, 3, 16) | (1, 3, 17) => "minecraft:einfarbig",
-            (1, 4, 16) => "minecraft:boden",
-            (29, 3, 10) => "minecraft:obere_platte",
-            (29, 3, 12) => "minecraft:untere_platte",
-            (30, 3, 14) => "minecraft:kuchen",
-            _ => "minecraft:air",
-        }
-    };
-    let biom = |cx: i32, _: i32| {
-        Some(if cx == 0 {
-            "minecraft:plains"
-        } else {
-            "minecraft:frozen"
-        })
-    };
     let dir = tempdir();
-    let chunks = [(0, 0), (1, 0), (0, 1), (1, 1)];
-    common::write_world_sections(dir.path(), &chunks, -1..=2, welt, biom);
-    let world = World::open(dir.path()).unwrap();
-    let y_range = (-16, 47);
-    let daten = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
+    let world = common::write_szene(dir.path());
+    let y_range = common::SZENE_Y;
+    let daten = common::biomdaten();
     for scale in (4..=32).step_by(4) {
         let projection = Projection::new(scale);
         let survey = survey(&world, projection, y_range, None).unwrap();

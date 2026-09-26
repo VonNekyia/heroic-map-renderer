@@ -1,3 +1,4 @@
+pub mod gpu;
 pub mod metatile;
 pub mod projection;
 pub mod pyramid;
@@ -5,8 +6,9 @@ pub mod rasterizer;
 pub mod sprites;
 pub mod tiles;
 
+pub use gpu::Gpu;
 pub use metatile::{
-    BLEED_BLOCKS, ChunkCache, ScreenRect, render_area, render_area_with,
+    BLEED_BLOCKS, ChunkCache, Draw, ScreenRect, draw_all, draw_list, render_area, render_area_with,
     render_area_without_culling,
 };
 pub use projection::Projection;

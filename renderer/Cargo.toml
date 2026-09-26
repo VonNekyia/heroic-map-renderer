@@ -17,9 +17,11 @@ flate2 = "1"                        # gzip/zlib der Chunkdaten
 image = { version = "0.25", default-features = false, features = ["png", "webp"] }
 lz4-java-wrc = "0.2"                # Kompressionsverfahren 4 (Paper)
 mimalloc = "0.1"                    # Windows-Heap serialisiert 24 Threads beim Chunk-Dekodieren
+pollster = "1"
 rayon = "1"                          # Parallelisierung ueber Kacheln
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }  # Reihenfolge und Zahlen wie Gson
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "dx12", "metal"] }  # ohne GL: lief nirgends in der CI
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }  # Junction oder Symlink, wie Java sie unterscheidet

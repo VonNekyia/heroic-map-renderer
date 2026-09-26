@@ -435,7 +435,8 @@ stehen sie im Verzeichnis, unter Linux kostet jede Kachel einen `statx`,
 aber kein Öffnen. Der Aufruf lässt sich deshalb wiederholen, während ein
 Vollrender noch Stunden läuft: die Karte im Browser zeigt, was fertig ist,
 und wächst mit jedem Aufruf. Die Basis und die nativen Stufen rendern in
-Streifen, deren Breite eine Zweierpotenz ist: Geschwister liegen im selben
+Streifen, deren Breite eine Zweierpotenz ist. Ab zwei Spalten, also ab
+scale 8 und ab rund 20 Kacheln je Thread, liegen Geschwister im selben
 Streifen, werden kurz nacheinander fertig, und ein Aufruf baut ihre
 Elternkachel selten zweimal.
 
@@ -826,7 +827,8 @@ Fehler (`TERRANOVA_GPU_PFLICHT`), kein übergangener Test.
 
 Drei Umbauten, gemessen auf der grossen Serverwelt um (6000, -6000). Das
 Bild bleibt Byte für Byte dasselbe, geprüft an einem 16384er-Ausschnitt
-mit drei nativen Stufen, mit und ohne Karte, alle 6165 Dateien.
+mit drei nativen Stufen, mit und ohne Karte: alle 6164 Kacheln, dazu
+`map.json` bis auf das Salz der Kennung.
 
 **Streifen, Cache je Thread.** Spalte für Spalte lud jede Kachel die
 Chunks am unteren Rand ihrer ganzen Breite neu, und jeder Stapel fing

@@ -1984,9 +1984,12 @@ fn verteile<S, R: Send>(
 /// Streifen etwa so breit macht wie die Wurzel aus einem Zehntel seiner
 /// Kacheln: zwei Spalten bei den 1024 Kacheln eines 8192er-Ausschnitts auf
 /// 24 Threads, acht, also so viel wie der Cache hält, bei einer ganzen Welt.
-/// Immer eine Zweierpotenz: dann liegen Geschwister im selben Streifen,
-/// werden kurz nacheinander fertig, und ein `--pyramid` neben dem Render
-/// baut ihre Elternkachel selten zweimal.
+/// Immer eine Zweierpotenz: Ab zwei Spalten liegen dann Geschwister im
+/// selben Streifen, werden kurz nacheinander fertig, und ein `--pyramid`
+/// neben dem Render baut ihre Elternkachel selten zweimal. Bei einer
+/// Spalte, ab scale 4 oder unter rund 20 Kacheln je Thread, liegen sie eine
+/// Spalte auseinander; zwei Spalten hielten dort je Thread eine Kachel mehr
+/// im Cache, bei scale 4 rund 250 Chunks.
 fn breite_der_streifen(je_thread: usize, scale: u32) -> usize {
     let breite = (je_thread as f64 / 10.0).sqrt().log2().round().max(0.0);
     (1 << breite as u32).min(streifenbreite(scale))

@@ -200,19 +200,22 @@ danach steht die Sprite-Tabelle — und erst dann kann parallel gerendert
 werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen. Die
 Welt wird deshalb mehrmals durchlaufen: vom Vorlauf, von der Basis und von
 jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. In jedem
-Durchgang dekodiert jeder Stapel seine Chunks selbst; auf der Basis lädt
-eine Kachel im Mittel rund neun, siehe unten, und bei etwa einer Kachel je
-Chunk wird dort jeder Chunk acht- bis neunmal dekodiert. Der Vorlauf
-kostet für die ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes
+Durchgang dekodiert jeder Thread seine Chunks selbst; über 65 536 Kacheln
+lädt eine Kachel der Basis im Mittel gut zwei neu, siehe unten, und bei
+etwa einer Kachel je Chunk wird dort jeder Chunk rund zweimal dekodiert.
+Der Vorlauf kostet für die ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes
 Sprite, das nicht selbst Alternative einer Blockstate ist: eines je Maske
 verdeckter Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu
 die Streifen an Wasserstufen.
 
-Gerendert wird mit Rayon über Stapel aufeinanderfolgender Kacheln, auf der
-Basis und auf jeder nativen Stufe in Blöcken von 16 mal 16. Jeder Stapel
-hält seinen Chunk- und Regionscache, geteilt wird nur die unveränderliche
-Sprite-Tabelle. Kacheln untereinander teilen sich fast alle Chunks; der
-Cache lädt je Kachel nur die paar neuen am unteren Rand.
+Gerendert wird in Streifen, Zeile für Zeile, bei scale 32 bis zu acht
+Kacheln breit, auf der Basis und auf jeder nativen Stufe. Jeder Thread
+bekommt ein zusammenhängendes Stück, nimmt es von vorn und holt sich, wenn
+er fertig ist, die hintere Hälfte des grössten, das noch übrig ist. Dabei
+behält er seinen Chunk- und Regionscache und seinen Zeichner für die Karte;
+geteilt wird nur die unveränderliche Sprite-Tabelle. Eine Zeile teilt sich
+fast alle Chunks mit der darüber; der Cache lädt je Zeile nur die paar
+neuen am unteren Rand.
 
 `--center` und `--size` schränken auf einen Ausschnitt ein:
 
@@ -432,8 +435,9 @@ stehen sie im Verzeichnis, unter Linux kostet jede Kachel einen `statx`,
 aber kein Öffnen. Der Aufruf lässt sich deshalb wiederholen, während ein
 Vollrender noch Stunden läuft: die Karte im Browser zeigt, was fertig ist,
 und wächst mit jedem Aufruf. Die Basis und die nativen Stufen rendern in
-Blöcken von 16 mal 16 Kacheln, damit Geschwister kurz nacheinander fertig
-werden und ein Aufruf ihre Elternkachel selten zweimal baut.
+Streifen, deren Breite eine Zweierpotenz ist: Geschwister liegen im selben
+Streifen, werden kurz nacheinander fertig, und ein Aufruf baut ihre
+Elternkachel selten zweimal.
 
 Jede Kachel, die `--pyramid` schreibt, und `map.json` tragen als Zeit den
 Beginn des Aufrufs, zwei Sekunden früher. Ein Kind, das der Render
@@ -630,10 +634,10 @@ statt je Block zweimal zu hashen.
 **Bitmasken statt Blockbesuche.** Der Renderer lief über jede Position im
 Band, fragte je Block die Familie ab und für jeden nicht-leeren Block drei
 Nachbarn — und wählte für neun von zehn erst das Sprite, bevor er merkte,
-dass der Block verdeckt ist. Jetzt hält jede Section je Spalte zehn
-16-Bit-Wörter (Bit = y): "vorhanden", "deckend", "deckend ohne Flüssigkeit",
-"deckt den Boden", "Wasser", "Lava", "nur Wasser", "nur Lava", "lose" und
-"ragt heraus". Verdeckt ist ein Block, wenn die Nachbarn nach +x und +z
+dass der Block verdeckt ist. Jetzt hält jede Section je Spalte neun
+16-Bit-Wörter (Bit = y): "vorhanden", "deckend", "deckt den Boden",
+"Wasser", "Lava", "nur Wasser", "nur Lava", "lose" und "ragt heraus".
+Verdeckt ist ein Block, wenn die Nachbarn nach +x und +z
 deckend sind und der nach +y seinen Boden deckt, wie oben beschrieben, und
 das ist je Spalte eine Handvoll Wortoperationen für sechzehn Blöcke auf
 einmal — nach +y ein Shift, an den Rändern kommt das Bit aus der Section
@@ -663,7 +667,8 @@ danach ohnehin auf Alpha 255; was vorher dort stand, ist egal. Genommen
 wird genau der Umriss, gegen den "deckend" Pixel für Pixel geprüft ist, und
 nur vor Nachbarn ohne Flüssigkeit: eine Flüssigkeit zeichnet eine Fassung
 ohne die Flächen zu ihresgleichen, und dort bliebe ein Loch. Dazu schreibt
-der Blit deckende Pixel direkt statt durch `over`.
+der Blit deckende Pixel direkt statt durch `over`. Die Deckungsmaske der
+zweiten Runde (unten) hat diese Tabelle wieder abgelöst.
 
 **Sammeln nur, wo das Band hinreicht.** Die Sammelschleife lief je Kachel
 über alle 24 Sections aller gut hundert Band-Chunks, 256 Spalten je
@@ -816,6 +821,76 @@ dann und sagen es. In CI laufen sie auf Software-Adaptern, lavapipe
 (Vulkan) auf Ubuntu und WARP (DX12) auf Windows: derselbe Shader-Weg wie
 auf einer echten Karte, nur langsam. Dort ist ein fehlender Adapter ein
 Fehler (`TERRANOVA_GPU_PFLICHT`), kein übergangener Test.
+
+### Die grossen Posten, zweite Runde
+
+Drei Umbauten, gemessen auf der grossen Serverwelt um (6000, -6000). Das
+Bild bleibt Byte für Byte dasselbe, geprüft an einem 16384er-Ausschnitt
+mit drei nativen Stufen, mit und ohne Karte, alle 6165 Dateien.
+
+**Streifen, Cache je Thread.** Spalte für Spalte lud jede Kachel die
+Chunks am unteren Rand ihrer ganzen Breite neu, und jeder Stapel fing
+kalt an: 7,2 Chunks je Kachel auf einem Thread. Jetzt laufen die Kacheln
+in Streifen, Zeile für Zeile, siehe oben, und jeder Thread behält Cache
+und Zeichner über den ganzen Lauf.
+Wie breit ein Streifen ist, hängt an den Kacheln je Thread: breite laden
+je Kachel weniger nach, ihre erste Zeile aber mehr. Zwei andere Verteiler
+waren schlechter: der aus der ersten Fassung dieses Schritts, ein Paket
+nach dem anderen im eigenen Streifen und Helfer dazwischen, und Rayon mit
+einem Cache je Thread, weil Rayon die Reihe schon beim Verteilen in viele
+kleine Stücke zerteilt. Bei 1024 Kacheln auf 24 Threads luden sie 17 und
+20 Chunks je Kachel.
+
+Danach, ein Thread, `--gpu off`, scale 32, je Kachel: 1,0 ms für 3,1
+Chunks, 0,45 ms Kandidaten sammeln, 0,85 ms Sprite-Wahl, 3,2 ms Blit,
+1,7 bis 2,0 ms WebP und Schreiben. Von 5247 Kandidaten einer Kachel lag
+mehr als die Hälfte neben ihr, und von den 1894 Draws, die übrig
+blieben, waren 1256 ganz verdeckt, Höhlenwände und Gelände hinter
+Hügeln: Von 722 000 geschriebenen Pixeln blieben 114 000 zu sehen.
+
+**Kandidaten neben der Kachel.** Das Band um die Kachel hat drei Blöcke
+Reserve für Modelle, die aus ihrem Würfel ragen. Für alles, was im Umriss
+seines Würfels bleibt, zählt jetzt der Kasten dieses Umrisses: 1884 statt
+5247 Kandidaten je Kachel, die Sprite-Wahl 0,33 statt 0,85 ms.
+
+**Deckungsmaske.** Die Kandidaten laufen auf der CPU von vorn nach hinten
+über eine Maske mit einem Bit je Leinwandpixel: "hier liegt schon ein
+deckender Pixel". Ein Block, dessen Umriss bedeckt ist, bekommt keine
+Sprite-Wahl; ein Sprite, von dem nichts mehr durchscheint, fällt weg; die
+übrigen merken sich ihre sichtbaren Pixel, und nur die zeichnet der Blit,
+in der alten Reihenfolge. Der Blit braucht 0,57 statt 2,97 ms, von 1894
+Draws bleiben 638. Das löst die Nachbartabelle von oben ab, die nur drei
+Nachbarn in derselben Kachel sah. Ohne Karte bringt die Maske bei scale 16
+gut ein Viertel, bei scale 4 noch ein Siebtel. Die Karte bekommt die Liste
+ohne Maske: sie zeichnet verdeckte Pixel nebenbei, und in der ersten
+Fassung dieses Schritts kostete die Maske dort nur Zeit auf der CPU, mit
+ihr 1286 statt 1440 Kacheln/s.
+
+Am selben Abend abwechselnd gemessen, jeder Lauf frisch; auf dem
+8192er-Ausschnitt das beste von drei, auf 65 536 Kacheln beide Läufe:
+
+| | master | jetzt |
+|---|---|---|
+| ein Thread, 8192er-Ausschnitt, ohne Karte | 131 Kacheln/s (7,6 ms) | 261 (3,8 ms) |
+| 24 Threads, 8192er, ohne Karte | 764 | 980 |
+| 24 Threads, 65 536 Kacheln, ohne Karte | 727, 729 | 1085, 1076 |
+| 24 Threads, 65 536 Kacheln, mit Karte | 926, 939 | 1154, 1211 |
+| ganzer Lauf über die 65 536, ohne Karte | 132, 130 s | 101, 102 s |
+| ganzer Lauf über die 65 536, mit Karte | 113, 111 s | 99, 93 s |
+
+Chunks je Kachel: 3,1 statt 7,2 auf einem Thread, 2,1 statt 7,0 auf 24
+Threads über die 65 536 Kacheln. Bei 1024 Kacheln auf 24 Threads laden
+mehr Threads kalt an, 13 statt 9,5; schneller ist der Lauf trotzdem. Ohne
+Karte ist die CPU damit fast so schnell wie mit, die Karte ersetzt nur
+noch einen Blit von 0,6 ms. Dafür hält jeder Thread eine Zeile seines
+Streifens im Cache, bei scale 32 rund 300 Chunks: An der Spitze braucht
+der Lauf über die 65 536 Kacheln 1,3 bis 1,4 statt 1,0 GB, mit Karte 1,9
+bis 2,2 statt 1,5 GB. Die Dauer in der Tabelle unter "Was das kostet"
+stammt von davor.
+
+Nicht im Code: eigene Threads zum Schreiben, aus der ersten Fassung
+dieses Schritts. Sie brachten dort 1,8 %, weniger als die Streuung; den
+Echtzeitschutz verstecken sie nicht, der Hebel ist die Ausnahme oben.
 
 ### Wasser und Biomfarben
 

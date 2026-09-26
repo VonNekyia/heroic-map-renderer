@@ -132,9 +132,10 @@ fn gpu_zeichnet_dasselbe_wie_die_cpu() {
 
 /// Die Szene aus `common::szene`: Lava in Stufen, Ackerboden neben Lava,
 /// Glas im Wasser, alles, woran das Verdecken der CPU scheitern kann. Die
-/// Karte bekommt die Liste ohne Deckungsmaske und malt auch, was die CPU
-/// auslässt; ein deckender Draw weiter vorn malt es wieder über. Bei jedem
-/// scale von 4 bis 32 gleicht jede Kachel Byte für Byte der CPU.
+/// Karte bekommt die Draws, die die Deckungsmaske behält, und malt jeden
+/// ganz, auch was die CPU davon auslässt; ein deckender Draw weiter vorn
+/// malt es wieder über. Bei jedem scale von 4 bis 32 gleicht jede Kachel
+/// Byte für Byte der CPU.
 #[test]
 fn gpu_zeichnet_die_szene_wie_die_cpu() {
     let Some(gpu) = adapter(Gpu::new(true)) else {

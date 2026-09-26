@@ -863,10 +863,12 @@ Sprite-Wahl; ein Sprite, von dem nichts mehr durchscheint, fällt weg; die
 in der alten Reihenfolge. Der Blit braucht 0,57 statt 2,97 ms, von 1894
 Draws bleiben 638. Das löst die Nachbartabelle von oben ab, die nur drei
 Nachbarn in derselben Kachel sah. Ohne Karte bringt die Maske bei scale 16
-gut ein Viertel, bei scale 4 noch ein Siebtel. Die Karte bekommt die Liste
-ohne Maske: sie zeichnet verdeckte Pixel nebenbei, und in der ersten
-Fassung dieses Schritts kostete die Maske dort nur Zeit auf der CPU, mit
-ihr 1286 statt 1440 Kacheln/s.
+gut ein Viertel, bei scale 4 noch ein Siebtel. Die Karte bekommt dieselben
+Draws, die die Maske behält, und zeichnet jeden ganz; was davon verdeckt
+ist, übermalt ein späterer Draw mit Alpha 255. Schneller wird sie damit
+nicht messbar, auf einem Thread 276 gegen 279 Kacheln/s, auf 24 Threads
+813 gegen 800, aber ihre Liste ist dreimal kürzer, und CPU und Karte teilen
+sich einen Durchgang.
 
 Am selben Abend abwechselnd gemessen, jeder Lauf frisch; auf dem
 8192er-Ausschnitt das beste von drei, auf 65 536 Kacheln beide Läufe:

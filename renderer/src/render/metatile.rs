@@ -133,8 +133,26 @@ pub fn render_area_with(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
+    let deckung = von_vorn(chunks, rect, y_range)?;
+    let mut canvas = RgbaImage::new(rect.width, rect.height);
+    for (sprite, origin, sicht) in chunks.sichtbar.iter().rev() {
+        blit_sichtbar(&mut canvas, sprite, *origin, sicht, &deckung.vis);
+    }
+    chunks.vis = deckung.vis;
+    Ok(canvas)
+}
+
+/// Der erste und der zweite Durchgang von [`render_area_with`]: die
+/// Kandidaten von vorn nach hinten über die Deckungsmaske. Wer bleibt,
+/// steht danach von vorn nach hinten in `chunks.sichtbar`, seine sichtbaren
+/// Pixel in der Maske.
+fn von_vorn<'a>(
+    chunks: &mut ChunkCache<'a>,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+) -> Result<Deckung<'a>> {
     let (candidates, foreign) = chunks.sorted_candidates(rect, y_range)?;
-    let sprites = chunks.sprites;
+    let sprites: &'a SpriteSet = chunks.sprites;
     let projection = sprites.projection();
     let mut deckung = Deckung::new(
         rect,
@@ -142,6 +160,7 @@ pub fn render_area_with(
         std::mem::take(&mut chunks.vis),
     );
     let mut sichtbar = std::mem::take(&mut chunks.sichtbar);
+    sichtbar.clear();
     for c in candidates.iter().rev() {
         let (anchor, cell) = match c.kind {
             0 => ([c.x, c.y, c.z], OWN_CELL),
@@ -174,14 +193,8 @@ pub fn render_area_with(
             }
         }
     }
-    let mut canvas = RgbaImage::new(rect.width, rect.height);
-    for (sprite, origin, sicht) in sichtbar.iter().rev() {
-        blit_sichtbar(&mut canvas, sprite, *origin, sicht, &deckung.vis);
-    }
-    sichtbar.clear();
     chunks.sichtbar = sichtbar;
-    chunks.vis = deckung.vis;
-    Ok(canvas)
+    Ok(deckung)
 }
 
 /// Zeichnet eine Liste auf die Leinwand, Draw für Draw ganz: die
@@ -204,39 +217,22 @@ pub struct Draw<'a> {
 }
 
 /// Die Zeichenliste eines Ausschnitts, in Zeichenreihenfolge, für die
-/// Grafikkarte. Ohne Deckungsmaske: die Karte zeichnet verdeckte Pixel
-/// nebenbei, und die Maske kostete nur Zeit auf der CPU.
+/// Grafikkarte: dieselben Draws, die [`render_area_with`] behält. Die Karte
+/// zeichnet jeden ganz; was davon verdeckt ist, übermalt ein späterer Draw
+/// mit Alpha 255, und das Bild bleibt dasselbe.
 pub fn draw_list<'a>(
     chunks: &mut ChunkCache<'a>,
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<Vec<Draw<'a>>> {
-    let (candidates, foreign) = chunks.sorted_candidates(rect, y_range)?;
-    let sprites: &'a SpriteSet = chunks.sprites;
-    let projection = sprites.projection();
-    let mut draws = Vec::new();
-    let mut teil = |id: SpriteId, cell: Cell, anchor: [i32; 3]| {
-        if let Some(part) = sprites.part(id, cell) {
-            draws.push(Draw {
-                sprite: part,
-                origin: origin_of(projection, rect, anchor, part),
-            });
-        }
-    };
-    for c in &candidates {
-        let pos = [c.x, c.y, c.z];
-        if c.kind == 0 {
-            for id in chunks.sprite_at(c.x, c.y, c.z)?.ids() {
-                teil(id, OWN_CELL, pos);
-            }
-        } else {
-            let cell = foreign[c.kind as usize - 1];
-            let anchor = anchor_of(pos, cell);
-            if let Some(id) = chunks.sprite_at(anchor[0], anchor[1], anchor[2])?.sprite {
-                teil(id, cell, anchor);
-            }
-        }
-    }
+    let deckung = von_vorn(chunks, rect, y_range)?;
+    let draws = chunks
+        .sichtbar
+        .iter()
+        .rev()
+        .map(|&(sprite, origin, _)| Draw { sprite, origin })
+        .collect();
+    chunks.vis = deckung.vis;
     Ok(draws)
 }
 

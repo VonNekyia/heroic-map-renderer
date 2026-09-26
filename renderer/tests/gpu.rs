@@ -5,7 +5,6 @@
 
 mod common;
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 use image::RgbaImage;
@@ -189,57 +188,42 @@ fn gpu_zeichnet_die_szene_wie_die_cpu() {
     }
 }
 
-/// Ein Atlas, in den gerade eine Kachel passt, und zwei Sprite-Tabellen,
-/// die sich abwechseln: jede Kachel verdrängt die vorige, und trotzdem
-/// stimmt jedes Bild. Nebenbei: Sprites zweier Tabellen dürfen sich im
-/// Atlas nicht verwechseln, obwohl ihre `SpriteId`s gleich zählen.
+/// Kacheln zweier Sprite-Tabellen im selben Durchgang, abwechselnd: ihre
+/// `SpriteId`s zählen gleich, ihre Sprites dürfen sich trotzdem nicht
+/// verwechseln.
 #[test]
-fn voller_atlas_wird_geleert_und_bleibt_richtig() {
-    let welten = [welt(Projection::new(16)), welt(Projection::new(32))];
-    let mut listen = Vec::new();
-    let mut bedarf = 0;
-    for (w, welt) in welten.iter().enumerate() {
-        let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
-        for tile in kacheln() {
-            let liste = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
-            let mut gesehen = HashSet::new();
-            let bytes: usize = liste
-                .iter()
-                .filter(|d| gesehen.insert(d.key))
-                .map(|d| d.sprite.image.as_raw().len())
-                .sum();
-            bedarf = bedarf.max(bytes);
-            listen.push((w, tile, liste));
-        }
-    }
-    // Abwechselnd aus beiden Tabellen.
-    listen.sort_by_key(|(w, tile, _)| (tile.y, tile.x, *w));
-
-    let Some(gpu) = adapter(Gpu::with_atlas(true, bedarf as u64)) else {
+fn zwei_tabellen_in_einem_durchgang() {
+    let Some(gpu) = adapter(Gpu::new(true)) else {
         return;
     };
-    let mut worker = gpu.worker(1, TILE);
-    for (w, tile, liste) in &listen {
-        let bild = worker
-            .render(std::slice::from_ref(liste))
-            .unwrap()
-            .remove(0);
-        let welt = &welten[*w];
-        let cpu = render_area(&welt.world, &welt.sprites, tile.rect(), Y_RANGE).unwrap();
-        assert_eq!(
-            cpu.as_raw(),
-            bild.as_raw(),
-            "Kachel {tile:?} bei scale {} weicht ab",
-            welt.sprites.projection().scale()
+    let welten = [welt(Projection::new(16)), welt(Projection::new(32))];
+    let mut caches: Vec<_> = welten
+        .iter()
+        .map(|welt| ChunkCache::new(&welt.world, &welt.sprites))
+        .collect();
+    let mut listen = Vec::new();
+    let mut erwartet = Vec::new();
+    for tile in kacheln() {
+        for (welt, chunks) in welten.iter().zip(&mut caches) {
+            listen.push(draw_list(chunks, tile.rect(), Y_RANGE).unwrap());
+            let cpu = render_area(&welt.world, &welt.sprites, tile.rect(), Y_RANGE).unwrap();
+            erwartet.push((tile, welt.sprites.projection().scale(), cpu));
+        }
+    }
+    let bilder = gpu
+        .worker(listen.len() as u32, TILE)
+        .render(&listen)
+        .unwrap();
+    for ((tile, scale, cpu), bild) in erwartet.iter().zip(&bilder) {
+        assert!(
+            cpu.as_raw() == bild.as_raw(),
+            "Kachel {tile:?} bei scale {scale} weicht ab"
         );
     }
-    assert!(gpu.atlas_leerungen() > 0, "der Atlas wurde nie geleert");
 }
 
 /// Eine Zeichenliste, die nicht in die Anfangspuffer passt: der Zeichner
-/// muss sie vergrössern — und darf sich dabei nicht am Atlas verklemmen,
-/// den er gerade hält. Genau das tat er, bis eine echte Kachel bei
-/// scale 32 mit ihren viertausend Sprites kam.
+/// muss sie vergrössern.
 #[test]
 fn lange_listen_vergroessern_die_puffer() {
     let Some(gpu) = adapter(Gpu::new(true)) else {

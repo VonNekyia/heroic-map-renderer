@@ -750,10 +750,9 @@ Sprites wählen, sortieren — und schickt sie als Liste von Sprite-Nummern
 und Positionen hinüber. Ein Compute-Shader (`gpu.wgsl`) setzt sie
 zusammen: die Kachel ist in Zellen von 16×16 Pixeln zerlegt, je Zelle
 steht die Liste der Sprites, die sie berühren, in Zeichenreihenfolge, und
-jeder Pixel-Thread geht seine Liste durch und mischt. Die Sprites liegen in
-einem Atlas auf der Karte (bis 256 MB) und kommen beim ersten Gebrauch
-hinauf; ist er voll, wird er geleert. Sechzehn Kacheln gehen je Durchgang
-hinüber, die fertigen Bilder kommen zurück und werden wie bisher als WebP
+jeder Pixel-Thread geht seine Liste durch und mischt. Sechzehn Kacheln
+gehen je Durchgang hinüber, mit ihnen die Sprites, die sie brauchen, jedes
+einmal; die fertigen Bilder kommen zurück und werden wie bisher als WebP
 geschrieben.
 
 Ganzzahlig, weil Gleitkomma auf jeder Karte anders rundet: `over` rechnet

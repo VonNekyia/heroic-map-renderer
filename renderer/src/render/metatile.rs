@@ -117,9 +117,6 @@ pub fn draw_all(canvas: &mut RgbaImage, draws: &[Draw], cover: &Cover) {
 #[derive(Clone, Copy)]
 pub struct Draw<'a> {
     pub sprite: &'a Sprite,
-    /// Schlüssel für den Sprite-Atlas der Grafikkarte: Tabelle, Sprite,
-    /// Würfel.
-    pub key: (u64, SpriteId, Cell),
     /// Linke obere Ecke des Sprites in Leinwandpixeln; darf über den Rand
     /// hinausragen.
     pub origin: (i32, i32),
@@ -146,7 +143,6 @@ pub fn draw_list<'a>(
         if let Some(part) = sprites.part(id, cell) {
             draws.push(Draw {
                 sprite: part,
-                key: (sprites.table_id(), id, cell),
                 origin: origin_of(projection, rect, anchor, part),
                 skip,
             });

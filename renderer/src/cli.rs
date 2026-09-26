@@ -2926,9 +2926,11 @@ mod tests {
     }
 
     /// Eine Panik, die [`ohne_panik`] fängt, geht nicht an den Hook darunter,
-    /// jede andere schon, und ihr Text kommt auf eine Zeile. Gezählt wird nur
-    /// auf diesem Thread: im Coverage-Job laufen die Tests nebeneinander in
-    /// einem Prozess, und der Hook gilt für alle.
+    /// jede andere schon, und ihr Text kommt auf eine Zeile. Gezählt werden
+    /// nur die beiden Paniken des Tests, am Text, und nur auf diesem Thread:
+    /// Im Coverage-Job laufen die Tests nebeneinander in einem Prozess, und
+    /// der Hook gilt für alle. Alles andere geht weiter an den alten Hook,
+    /// auch ein Fehlschlag der Zusicherungen hier.
     #[test]
     fn gefangene_panik_bleibt_still() {
         let faden = std::thread::current().id();
@@ -2936,7 +2938,11 @@ mod tests {
         let zaehler = std::sync::Arc::clone(&gesagt);
         let sonst = std::panic::take_hook();
         std::panic::set_hook(still_beim_fangen(Box::new(move |info| {
-            if std::thread::current().id() == faden {
+            let eigene = info.payload_as_str().is_some_and(|text| {
+                text.starts_with("wgpu error: Validation Error")
+                    || text == "nicht von ohne_panik gefangen"
+            });
+            if eigene && std::thread::current().id() == faden {
                 zaehler.fetch_add(1, Ordering::SeqCst);
             } else {
                 sonst(info);

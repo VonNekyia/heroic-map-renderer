@@ -820,9 +820,11 @@ fn write_tiles(
 /// Verglichen wird auf jeder Stufe, jede Kachel mit ihren Kindern auf der
 /// Platte. Neu gebaut wird sie, wenn ein Kind jünger ist als sie, wenn
 /// dieser Aufruf ein Kind neu gebaut oder entfernt hat, oder wenn sie
-/// fehlt. Eine Kachel ohne Kinder verschwindet. Bricht ein Aufruf ab, holt
-/// der nächste nach, was fehlt. Die Zeiten kommen aus der Liste jeder
-/// Stufe, siehe [`vorhandene_mit_zeit`].
+/// fehlt. Eine Kachel ohne Kinder verschwindet. Bricht Strg+C einen Aufruf
+/// ab, holt der nächste nach, was fehlt; eine Kachel, die ein Stromausfall
+/// zerrissen hat, ist dagegen nicht älter als ihre Kinder und bleibt, siehe
+/// README. Die Zeiten kommen aus der Liste jeder Stufe, siehe
+/// [`vorhandene_mit_zeit`].
 ///
 /// Jede Kachel, die der Aufruf schreibt, und `map.json` tragen als Zeit
 /// seinen Beginn, zwei Sekunden früher: ein Kind, das ein laufender Render

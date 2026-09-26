@@ -414,8 +414,9 @@ durch native.
 Neu gebaut wird nur, was sich geändert hat: eine Kachel, unter der ein
 Kind jünger ist als sie oder in diesem Aufruf neu gebaut oder entfernt
 wurde, und eine, die fehlt. Eine Kachel ohne Kinder verschwindet.
-Verglichen wird auf jeder Stufe, ein abgebrochener Aufruf heilt also im
-nächsten. Die Zeiten kommen aus der Liste jeder Stufe: unter Windows
+Verglichen wird auf jeder Stufe, ein Aufruf, den Strg+C abbricht, heilt
+also im nächsten; nach einem Stromausfall nicht, siehe unten. Die Zeiten
+kommen aus der Liste jeder Stufe: unter Windows
 stehen sie im Verzeichnis, unter Linux kostet jede Kachel einen `statx`,
 aber kein Öffnen. Der Aufruf lässt sich deshalb wiederholen, während ein
 Vollrender noch Stunden läuft: die Karte im Browser zeigt, was fertig ist,
@@ -446,10 +447,13 @@ es wieder. Eine, die seit der Liste verschwunden ist, gehört nicht mehr
 dazu; ist keines der Kinder einer Kachel mehr da, schreibt der Aufruf sie
 nicht, und der nächste sieht die Stufe richtig. Nicht
 bemerkt wird ein einzelnes Kind, das von aussen verschwindet, solange
-Geschwister bleiben, und eine Kachel, die mit ihrer alten Zeit aus einer
-Sicherung zurückkommt. Dann die gröberen Stufen löschen, und `--pyramid`
-baut sie ganz neu. Bei einem Baum mit nativen Stufen sind die danach
-verkleinert, bis ein Export sie wieder rendert.
+Geschwister bleiben, eine Kachel, die mit ihrer alten Zeit aus einer
+Sicherung zurückkommt, und eine, die ein Stromausfall zerrissen hat: Sie
+ist nicht älter als ihre Kinder. Fiel der Strom während eines Exports aus,
+setzt `--resume` ihn fort und baut die Pyramide ganz neu. Sonst die
+gröberen Stufen löschen, und `--pyramid` baut sie ganz neu. Bei einem Baum
+mit nativen Stufen sind die danach verkleinert, bis ein Export sie wieder
+rendert.
 
 ### `map.json`
 

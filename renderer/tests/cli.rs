@@ -5,11 +5,11 @@
 
 mod common;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::time::{Duration, SystemTime};
 
 use image::RgbaImage;
@@ -1102,23 +1102,13 @@ fn altern(dir: &Path) {
     }
 }
 
-/// Gibt jeder Kachel eine eigene Zeit, als wäre der Baum über Tage
-/// entstanden: je Stufe der Reihe nach drei Minuten auseinander, jede Stufe
-/// einen Tag nach der darunter, die aus `zuletzt` als jüngste ihrer Stufe.
-/// So trifft `--resume` als frisch je Stufe nur die jüngste, und jedes Kind
-/// ist deutlich älter als seine Eltern.
-fn staffeln(dir: &Path, zuletzt: &BTreeSet<(u32, TileId)>) {
-    let max = max_zoom(dir);
-    let tag = Duration::from_secs(86_400);
-    let beginn = SystemTime::now() - tag * (max + 2);
-    for z in 0..=max {
-        let mut reihe: Vec<(TileId, PathBuf)> = kacheln(dir, z).into_iter().collect();
-        reihe.sort_by_key(|(tile, _)| zuletzt.contains(&(z, *tile)));
-        for (i, (_, pfad)) in reihe.iter().enumerate() {
-            let zeit = beginn + tag * (max - z) + Duration::from_secs(180) * i as u32;
-            setze_zeit(pfad, zeit);
-        }
-    }
+/// Was ein Stromausfall aus einer Kachel machen kann: in voller Länge, mit
+/// gutem Kopf und Nullen in der zweiten Hälfte.
+fn zerreisse(pfad: &Path) {
+    let mut bytes = std::fs::read(pfad).unwrap();
+    let haelfte = bytes.len() / 2;
+    bytes[haelfte..].fill(0);
+    std::fs::write(pfad, bytes).unwrap();
 }
 
 /// Wann die Datei zuletzt geschrieben wurde.
@@ -1566,10 +1556,7 @@ fn resume_rendert_nur_was_fehlt() {
     );
     // Der Lauf brach vor einer Stunde ab. Zuletzt schrieb er diese Kachel,
     // und der Strom fiel aus, bevor ihre zweite Hälfte auf der Platte stand.
-    let mut bytes = std::fs::read(&zerrissen).unwrap();
-    let haelfte = bytes.len() / 2;
-    bytes[haelfte..].fill(0);
-    std::fs::write(&zerrissen, bytes).unwrap();
+    zerreisse(&zerrissen);
     let damals = SystemTime::now() - Duration::from_secs(3600);
     for pfad in basis.values().filter(|pfad| pfad.is_file()) {
         setze_zeit(pfad, damals);
@@ -1604,7 +1591,6 @@ fn resume_rendert_nur_was_fehlt() {
         vorher,
         "vorhandene Basiskachel neu gerendert"
     );
-    assert!(!meldung.contains("waren aktuell"), "{meldung}");
     for pfad in &oben {
         assert_ne!(
             zeit_von(pfad),
@@ -1616,21 +1602,13 @@ fn resume_rendert_nur_was_fehlt() {
     assert_eq!(schnappschuss(out.path()), soll);
 }
 
-/// Beim Fortsetzen ohne native Stufen baut die Pyramide nur neu, was
-/// veraltet ist, jeweils samt den Vorfahren:
-/// - über einer fehlenden Basiskachel, die der Lauf rendert;
-/// - über einer, die leer geworden ist: `--pyramid` hat sie eingebaut, und
-///   der Lauf rendert sie als jüngste neu, leer;
-/// - eine Elternkachel, die ein Stromausfall zerrissen hat, die jüngste
-///   ihrer Stufe;
-/// - eine, die keine Minute nach ihrem jüngsten Kind entstand;
-/// - eine mit einer Zeit in der Zukunft.
-///
-/// Die Zeiten sind über Tage gestaffelt wie in einem grossen Baum, frisch
-/// ist je Stufe nur die jüngste. Alle anderen behalten ihre Zeit, und am
-/// Ende steht derselbe Baum da wie nach einem Lauf in einem Stück.
+/// Ohne native Stufen baut `--resume` die ganze Pyramide neu, wie jeder
+/// Lauf: auch über Basiskacheln, die es nicht neu rendert, und auch eine
+/// Elternkachel, die ein Stromausfall zerrissen hat und dieselbe Zeit trägt
+/// wie alle anderen. Am Ende steht derselbe Baum da wie nach einem Lauf in
+/// einem Stück.
 #[test]
-fn resume_baut_nur_veraltete_eltern() {
+fn resume_ohne_native_stufen_baut_die_pyramide_neu() {
     let welt = tempdir();
     let chunks: Vec<(i32, i32)> = (0..4)
         .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
@@ -1643,97 +1621,119 @@ fn resume_baut_nur_veraltete_eltern() {
     let basis = max_zoom(out.path());
     assert!(basis > 1, "keine Pyramide zu prüfen");
 
-    // Der Vorlauf nennt sie, aber sie rendert leer und fehlt deshalb. Ihre
-    // Elternkachel zeigt noch ein anderes Kind.
+    let damals = SystemTime::now() - Duration::from_secs(3600);
     let unten = kacheln(out.path(), basis);
-    let world = World::open(welt.path()).unwrap();
-    let leer = survey(&world, Projection::new(8), (-64, 319), None)
-        .unwrap()
-        .tiles
-        .into_iter()
-        .find(|tile| !unten.contains_key(tile) && unten.keys().any(|t| t.parent() == tile.parent()))
-        .expect("leere Kachel neben einer sichtbaren");
-    let pfad = kachel_pfad(out.path(), basis, leer);
-    std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
-    std::fs::write(
-        &pfad,
-        std::fs::read(unten.values().next().unwrap()).unwrap(),
-    )
-    .unwrap();
-    gelungen(&pyramide(out.path()));
-
-    let kind = *unten
-        .keys()
-        .find(|tile| tile.parent() != leer.parent())
-        .expect("zweite Elternkachel");
-    std::fs::remove_file(&unten[&kind]).unwrap();
-    let mut eltern = kacheln(out.path(), basis - 1)
-        .into_keys()
-        .filter(|tile| *tile != kind.parent() && *tile != leer.parent());
-    let (zerrissen, knapp, zukunft) = (
-        eltern.next().unwrap(),
-        eltern.next().unwrap(),
-        eltern.next().expect("fünf Elternkacheln"),
+    for pfad in unten.values() {
+        setze_zeit(pfad, damals);
+    }
+    let mut reihe = unten.values();
+    let (weg, frisch, bleibt) = (
+        reihe.next().unwrap(),
+        reihe.next().unwrap(),
+        reihe.next().expect("drei Basiskacheln"),
     );
-    let pfad = kachel_pfad(out.path(), basis - 1, zerrissen);
-    let mut bytes = std::fs::read(&pfad).unwrap();
-    let haelfte = bytes.len() / 2;
-    bytes[haelfte..].fill(0);
-    std::fs::write(&pfad, bytes).unwrap();
-    let vorfahren = |z: u32, tile: TileId| {
-        std::iter::successors(Some((z, tile)), |&(z, tile)| {
-            (z > 0).then(|| (z - 1, tile.parent()))
-        })
-    };
-    let mut zuletzt: BTreeSet<(u32, TileId)> = vorfahren(basis - 1, zerrissen).collect();
-    zuletzt.insert((basis, leer));
-    staffeln(out.path(), &zuletzt);
-    let juengstes = knapp
-        .children()
-        .iter()
-        .filter_map(|tile| unten.get(tile))
-        .map(|pfad| zeit_von(pfad))
-        .max()
-        .unwrap();
-    let dreissig = Duration::from_secs(30);
-    setze_zeit(
-        &kachel_pfad(out.path(), basis - 1, knapp),
-        juengstes + dreissig,
-    );
-    let morgen = SystemTime::now() + Duration::from_secs(86_400);
-    setze_zeit(&kachel_pfad(out.path(), basis - 1, zukunft), morgen);
-
-    let neu: BTreeSet<(u32, TileId)> = vorfahren(basis, kind)
-        .skip(1)
-        .chain(vorfahren(basis, leer).skip(1))
-        .chain(vorfahren(basis - 1, zerrissen))
-        .chain(vorfahren(basis - 1, knapp))
-        .chain(vorfahren(basis - 1, zukunft))
+    std::fs::remove_file(weg).unwrap();
+    setze_zeit(frisch, damals + Duration::from_secs(600));
+    let oben: Vec<PathBuf> = (0..basis)
+        .flat_map(|z| kacheln(out.path(), z).into_values())
         .collect();
-    let vorher: BTreeMap<(u32, TileId), SystemTime> = (0..basis)
-        .flat_map(|z| {
-            kacheln(out.path(), z)
-                .into_iter()
-                .map(move |(tile, pfad)| ((z, tile), zeit_von(&pfad)))
-        })
-        .collect();
+    for pfad in &oben {
+        setze_zeit(pfad, damals);
+    }
+    let zerrissen = &oben[oben.len() / 2];
+    zerreisse(zerrissen);
+    setze_zeit(zerrissen, damals);
 
-    let ausgabe = tiles(
-        welt.path(),
-        out.path(),
-        &[&args[..], &["--resume"]].concat(),
+    let fortsetzen = [&args[..], &["--resume"]].concat();
+    gelungen(&tiles(welt.path(), out.path(), &fortsetzen));
+    assert_eq!(
+        zeit_von(bleibt),
+        damals,
+        "vorhandene Basiskachel neu gerendert"
     );
-    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
-    let aktuell = format!("{} Kacheln waren aktuell", vorher.len() - neu.len());
-    assert!(meldung.contains(&aktuell), "{aktuell} fehlt in: {meldung}");
-    for ((z, tile), zeit) in &vorher {
-        let jetzt = zeit_von(&kachel_pfad(out.path(), *z, *tile));
-        assert_eq!(
-            jetzt != *zeit,
-            neu.contains(&(*z, *tile)),
-            "Zoom {z}, {tile:?}"
+    assert_ne!(
+        zeit_von(frisch),
+        damals,
+        "frische Basiskachel nicht neu gerendert"
+    );
+    for pfad in &oben {
+        assert_ne!(
+            zeit_von(pfad),
+            damals,
+            "{} nicht neu gebaut",
+            pfad.display()
         );
     }
+    assert_eq!(schnappschuss(out.path()), soll);
+}
+
+/// Ein Fortsetzen, das selbst abbricht, lässt keine zerrissene Kachel
+/// zurück. Es entfernt die frischen Kacheln, bevor es rendert, und das
+/// nächste findet sie als fehlend. Stünden sie noch da, wäre dessen jüngste
+/// Kachel eine des abgebrochenen, und die zerrissene läge weit vor ihren
+/// zwei Minuten. Das erste Fortsetzen läuft auf einem Thread, damit die
+/// zerrissene als letzte drankommt, und endet hart nach seiner ersten
+/// Kachel.
+#[test]
+fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4).map(|x| (x, 0)).collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = tempdir();
+    let args = ["--scale", "32", "--native-levels", "0"];
+    gelungen(&tiles(welt.path(), out.path(), &args));
+    let soll = schnappschuss(out.path());
+
+    // In der Reihenfolge, in der ein Lauf die Basis rendert.
+    let mut basis: Vec<(TileId, PathBuf)> = kacheln(out.path(), max_zoom(out.path()))
+        .into_iter()
+        .collect();
+    basis.sort_by_key(|(tile, _)| (tile.x >> 4, tile.y >> 4, tile.x, tile.y));
+    assert!(
+        basis.len() >= 12,
+        "{} Basiskacheln sind zu wenige",
+        basis.len()
+    );
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for (_, pfad) in &basis {
+        setze_zeit(pfad, damals);
+    }
+    let zerrissen = basis.last().unwrap().1.clone();
+    zerreisse(&zerrissen);
+    setze_zeit(&zerrissen, damals + Duration::from_secs(600));
+    let fehlen: Vec<PathBuf> = basis[..basis.len() / 2]
+        .iter()
+        .map(|(_, pfad)| pfad.clone())
+        .collect();
+    for pfad in &fehlen {
+        std::fs::remove_file(pfad).unwrap();
+    }
+
+    let fortsetzen = [&args[..], &["--resume"]].concat();
+    let mut erstes = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+        .arg("--world")
+        .arg(welt.path())
+        .arg("--assets")
+        .arg(assets_ref())
+        .arg("--tiles")
+        .arg(out.path())
+        .args(&fortsetzen)
+        .env("RAYON_NUM_THREADS", "1")
+        .stdout(Stdio::null())
+        .spawn()
+        .expect("terranova-render starten");
+    while !fehlen.iter().any(|pfad| pfad.exists()) {
+        assert!(
+            erstes.try_wait().unwrap().is_none(),
+            "das erste Fortsetzen endete, bevor es eine Kachel schrieb"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    erstes.kill().unwrap();
+    erstes.wait().unwrap();
+    assert!(!zerrissen.exists(), "die zerrissene Kachel steht noch da");
+
+    gelungen(&tiles(welt.path(), out.path(), &fortsetzen));
     assert_eq!(schnappschuss(out.path()), soll);
 }
 

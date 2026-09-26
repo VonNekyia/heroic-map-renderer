@@ -297,21 +297,26 @@ Geschriebenes auf die Platte bringt, vergehen Sekunden, unter Linux bis zu
 einer halben Minute; ein Stromausfall in dieser Zeit hinterlässt eine
 Kachel leer, voller Nullen oder zerrissen, mit gutem Kopf und Nullen
 dahinter. Ansehen lässt sich das einer Kachel nicht sicher, auch der
-Dekoder liest zwei von drei zerrissenen ohne Fehler. Die übrigen nimmt der
-Lauf ungelesen. Die nativen Stufen rendert er ganz neu, denn dort kann
+Dekoder liest zwei von drei zerrissenen ohne Fehler. Diese frischen
+Kacheln entfernt der Lauf, bevor er sie neu rendert: Bricht auch er ab,
+fehlen sie, und das nächste Fortsetzen rendert sie. Die übrigen rendert er
+nicht neu. Die nativen Stufen rendert er ganz neu, denn dort kann
 `--pyramid` verkleinerte Kacheln abgelegt haben, womöglich bevor die Basis
-darunter fertig war, und damit baut er auch die Pyramide darüber ganz neu:
-sparen lässt sich mit nativen Stufen nur an der Basis. Ohne sie baut er von
-der Pyramide nur neu, was fehlt, was er darunter selbst geschrieben hat,
-was aus denselben zwei Minuten stammt, und wo ein Kind nicht mindestens
-eine Minute älter ist. Die Zeiten kommen womöglich von zwei Uhren, der des
-Rechners in `--pyramid` und der einer Freigabe, und was der Lauf selbst
-geschrieben hat, merkt er sich, statt es in der Liste zu suchen: die einer
-Freigabe zeigt es womöglich erst Sekunden später. Der Schalter
-passt nur, wenn alle vorhandenen Kacheln aus dem abgebrochenen Lauf
-stammen: nach einer Änderung der Welt, neuen Assets oder einem neuen Pack
-behielte er jede alte Kachel, die der Lauf noch nicht erreicht hat. Dann
-rendert erst ein Lauf ohne ihn neu.
+darunter fertig war. Die Pyramide darüber baut er ganz neu wie jeder Lauf:
+Einer Elternkachel sieht man nicht an, ob sie zu ihren Kindern passt, und
+ihre Zeit kann von einer anderen Uhr stammen oder von `--pyramid`
+gestempelt sein. Das kostet ohne native Stufen bei der Testwelt rund 2 von
+8 Minuten, bei 2,5 Millionen Basiskacheln hochgerechnet gut eine
+Viertelstunde.
+
+Zweierlei setzen die zwei Minuten voraus: dass das System jede Kachel so
+schnell auf die Platte bringt, und dass die Uhr in dieser Zeit nicht
+springt. Eine langsame Platte unter Dauerlast hält Geschriebenes womöglich
+länger im Speicher. Gilt eines davon nicht, oder stammen nicht alle
+vorhandenen Kacheln aus dem abgebrochenen Lauf, rendert erst ein Lauf ohne
+den Schalter sicher alles neu. Nach einer Änderung der Welt, neuen Assets
+oder einem neuen Pack behielte `--resume` jede alte Kachel, die der Lauf
+noch nicht erreicht hat.
 
 ### Zoomstufen
 

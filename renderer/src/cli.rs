@@ -99,12 +99,12 @@ pub struct Args {
 
     /// Mit --tiles vorhandene Basiskacheln stehen lassen statt sie neu zu
     /// rendern: setzt einen abgebrochenen Lauf fort, und nur den. Die
-    /// Kacheln nimmt der Lauf ungelesen, wie sie sind; stammen sie aus einem
-    /// älteren Stand der Welt oder der Assets, bleiben sie das. Neu rendert
-    /// er nur die aus den letzten zwei Minuten vor der jüngsten, die kann ein
-    /// Stromausfall getroffen haben, und die nativen Stufen, dort kann
-    /// --pyramid verkleinert haben; mit ihnen baut er auch die Pyramide
-    /// darüber ganz neu
+    /// Kacheln nimmt der Lauf, wie sie sind; stammen sie aus einem älteren
+    /// Stand der Welt oder der Assets, bleiben sie das. Neu rendert er die
+    /// aus den letzten zwei Minuten vor der jüngsten, die kann ein
+    /// Stromausfall getroffen haben, dazu die nativen Stufen und die
+    /// Pyramide. Brauchte das System länger, bis es geschrieben hatte, oder
+    /// sprang die Uhr, rendert erst ein Lauf ohne --resume sicher alles neu
     #[arg(long, requires = "tiles")]
     resume: bool,
 
@@ -668,9 +668,10 @@ fn write_tiles(
     // Kacheln, die leer geworden sind, verschwinden erst am Ende des Laufs,
     // auf jeder Stufe, zusammen mit denen ohne Chunk; bis dahin zeigen sie
     // schon nichts mehr (`verblasse`). Bricht der Lauf vorher ab, hat er
-    // nichts entfernt. Eine leere Elternkachel über einem Kind, das bleibt,
-    // bleibt durchsichtig stehen. Mit --resume bleibt, was in der Liste der
-    // Basis steht, ausser den frischen Kacheln (`frische`).
+    // nichts entfernt, mit --resume nur die frischen Basiskacheln (unten).
+    // Eine leere Elternkachel über einem Kind, das bleibt, bleibt
+    // durchsichtig stehen. Mit --resume bleibt, was in der Liste der Basis
+    // steht, ausser den frischen Kacheln (`frische`).
     let bleiben: BTreeSet<TileId> = match &zeiten {
         Some(zeiten) => basis
             .difference(&frische(zeiten, gelistet))
@@ -684,6 +685,16 @@ fn write_tiles(
         .filter(|tile| !bleiben.contains(tile))
         .copied()
         .collect();
+    // Die frischen entfernt der Lauf, bevor er sie neu rendert. Bricht er
+    // vorher ab, fehlen sie, und das nächste Fortsetzen rendert sie. Stünden
+    // sie noch da, wäre dessen jüngste Kachel eine aus diesem Lauf, und sie
+    // lägen ausserhalb der zwei Minuten.
+    if let Some(zeiten) = &zeiten {
+        reihe
+            .par_iter()
+            .filter(|tile| zeiten.contains_key(tile))
+            .try_for_each(|tile| entferne(&tile_path(dir, max_zoom, *tile)))?;
+    }
     let stufe = rendere(
         world,
         &sprites,
@@ -745,18 +756,13 @@ fn write_tiles(
         &waisen,
         &mut weg,
     )?;
-    // Mit nativen Stufen baut auch --resume die ganze Pyramide neu, siehe
-    // `build_pyramid`.
-    let stand = zeiten.filter(|_| stufen == 0).map(|kinder| Stand {
-        geaendert: geschriebene(&reihe, &leer, |tile| kinder.contains_key(tile)),
-        kinder,
-    });
-    build_pyramid(dir, z, kandidaten, &waisen, &mut weg, stand)?;
+    build_pyramid(dir, z, kandidaten, &waisen, &mut weg)?;
     if prune && !veraltet.is_empty() {
         ohne_veraltete(dir, max_zoom, stufen, &veraltet, &gezeigt, &mut weg)?;
     }
 
-    // Erst jetzt verschwindet etwas, von der gröbsten Stufe bis zur Basis.
+    // Erst jetzt verschwindet etwas, von der gröbsten Stufe bis zur Basis;
+    // mit --resume vorher nur die frischen Basiskacheln, neu gerendert.
     // Bricht der Lauf hier ab, stehen die feineren Kacheln noch da, auch die
     // ohne Chunk: der nächste Lauf mit --prune findet sie wieder, und jeder
     // Lauf baut ihnen die fehlenden Eltern nach (`waisen`).
@@ -1083,56 +1089,29 @@ fn schreibe_info(dir: &Path, info: &MapInfo, zeit: Option<SystemTime>) -> Result
 /// danach [`ohne_veraltete`] heraus. `waisen` bekommen ihre Elternkachel
 /// neu.
 ///
-/// Mit `--resume` ohne native Stufen (`stand`) stehen die meisten Eltern
-/// schon, aus dem abgebrochenen Lauf oder aus `--pyramid` daneben. Neu baut
-/// es dann nur, was [`veraltet`] ist; bei 90 % übersprungenen Basiskacheln
-/// wären es sonst trotzdem alle Eltern, bei einer grossen Welt
-/// Hunderttausende. Mit nativen Stufen spart das nichts: über der gröbsten
-/// hat jede Elternkachel ein eben gerendertes Kind. Dort baut auch
-/// `--resume` alles neu.
+/// Auch mit `--resume` baut es alle diese Eltern neu. Einer Elternkachel
+/// sieht man nicht an, ob sie zu ihren Kindern passt, und ihre Zeit kann von
+/// einer anderen Uhr stammen oder von `--pyramid` gestempelt sein; jede
+/// Regel dafür hatte eine Lücke. Das kostet die Pyramide eines ganzen Laufs,
+/// siehe README.
 fn build_pyramid(
     dir: &Path,
     max_zoom: u32,
     kandidaten: BTreeSet<TileId>,
     waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
-    stand: Option<Stand>,
 ) -> Result<()> {
     let started = Instant::now();
     let mut kandidaten = kandidaten;
-    let mut stand = stand;
-    let fortsetzen = stand.is_some();
-    let (mut bytes, mut gesamt, mut aktuell) = (0usize, 0usize, 0usize);
+    let mut bytes = 0usize;
+    let mut gesamt = 0usize;
 
     for z in (0..max_zoom).rev() {
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
-        let eltern = if fortsetzen {
-            vorhandene_mit_zeit(dir, z)?
-        } else {
-            BTreeMap::new()
-        };
-        let veraltete: BTreeSet<TileId>;
-        let bauen = match &stand {
-            Some(stand) => {
-                let frisch = frische(&eltern, SystemTime::now());
-                veraltete = kandidaten
-                    .iter()
-                    .filter(|parent| veraltet(**parent, &eltern, &frisch, stand))
-                    .copied()
-                    .collect();
-                aktuell += kandidaten.len() - veraltete.len();
-                &veraltete
-            }
-            None => &kandidaten,
-        };
-        let (geschrieben, leer) = setze_zusammen(dir, z, bauen, weg)?;
+        let (geschrieben, leer) = setze_zusammen(dir, z, &kandidaten, weg)?;
         leer.par_iter()
             .try_for_each(|parent| verblasse(dir, z, *parent))?;
-        if let Some(stand) = &mut stand {
-            stand.geaendert = geschriebene(bauen, &leer, |parent| eltern.contains_key(parent));
-            stand.kinder = eltern;
-        }
         weg.extend(leer.into_iter().map(|parent| (z, parent)));
         bytes += geschrieben.iter().sum::<usize>();
         gesamt += geschrieben.len();
@@ -1145,65 +1124,8 @@ fn build_pyramid(
             bytes as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
-        if fortsetzen {
-            println!("            {aktuell} Kacheln waren aktuell und bleiben (--resume)");
-        }
     }
     Ok(())
-}
-
-/// Was `--resume` ohne native Stufen von einer Stufe der Pyramide zur
-/// nächsten mitführt: die Liste der Stufe mit Zeiten von vor dem Lauf und
-/// die Kacheln, die der Lauf dort geschrieben hat ([`geschriebene`]).
-struct Stand {
-    kinder: BTreeMap<TileId, SystemTime>,
-    geaendert: BTreeSet<TileId>,
-}
-
-/// Was der Lauf auf einer Stufe geschrieben hat: jede dieser Kacheln, eine
-/// aus `leer` nur, wenn sie dastand (`stand_da`) und `verblasse` sie
-/// überschrieb.
-fn geschriebene<'a>(
-    kacheln: impl IntoIterator<Item = &'a TileId>,
-    leer: &[TileId],
-    stand_da: impl Fn(&TileId) -> bool,
-) -> BTreeSet<TileId> {
-    let leer: BTreeSet<&TileId> = leer.iter().collect();
-    kacheln
-        .into_iter()
-        .filter(|tile| !leer.contains(tile) || stand_da(tile))
-        .copied()
-        .collect()
-}
-
-/// Um wie viel älter als seine Elternkachel ein Kind aus einem früheren
-/// Lauf sein muss, damit `--resume` sie stehen lässt. Die Zeiten stammen
-/// womöglich von zwei Uhren, der des Rechners in den Stempeln von
-/// `--pyramid` und der einer Freigabe, und eine Uhr springt auch einmal
-/// zurück.
-const ABSTAND: Duration = Duration::from_secs(60);
-
-/// Ob `--resume` ohne native Stufen diese Elternkachel neu bauen muss: wenn
-/// sie fehlt oder [`frische`] sie trifft (`frisch`), wenn der Lauf ein Kind
-/// geschrieben hat, oder wenn ein Kind aus einem früheren Lauf nicht
-/// mindestens [`ABSTAND`] älter ist als sie. Was der Lauf geschrieben hat,
-/// kommt aus `stand`, nicht aus einer neuen Liste: die einer Freigabe zeigt
-/// eigene Schreibvorgänge womöglich erst nach Sekunden. `eltern` ist die
-/// Liste der Stufe mit Zeiten.
-fn veraltet(
-    parent: TileId,
-    eltern: &BTreeMap<TileId, SystemTime>,
-    frisch: &BTreeSet<TileId>,
-    stand: &Stand,
-) -> bool {
-    let Some(&zeit) = eltern.get(&parent) else {
-        return true;
-    };
-    frisch.contains(&parent)
-        || parent.children().iter().any(|kind| {
-            stand.geaendert.contains(kind)
-                || stand.kinder.get(kind).is_some_and(|&k| k + ABSTAND > zeit)
-        })
 }
 
 /// Setzt jede dieser Elternkacheln der Stufe z aus ihren Kindern auf der
@@ -1823,13 +1745,12 @@ fn tausche(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> std::io::Resul
     geschrieben
 }
 
-/// Wie lange vor der jüngsten Kachel einer Stufe ein Stromausfall eine
-/// Kachel noch getroffen haben kann, siehe [`frische`].
+/// Wie lange vor der jüngsten Basiskachel ein Stromausfall eine Kachel noch
+/// getroffen haben kann, siehe [`frische`].
 const FRISCH: Duration = Duration::from_secs(120);
 
-/// Die Kacheln aus dieser Liste einer Stufe, die `--resume` nicht ungelesen
-/// übernimmt: die aus den letzten [`FRISCH`] vor der jüngsten und alle
-/// danach.
+/// Die Basiskacheln aus dieser Liste, die `--resume` neu rendert: die aus
+/// den letzten [`FRISCH`] vor der jüngsten und alle danach.
 ///
 /// `tausche` wartet nicht, bis die Daten auf der Platte sind; das System
 /// schreibt sie nach Sekunden, unter Linux nach bis zu einer halben Minute.
@@ -1837,9 +1758,14 @@ const FRISCH: Duration = Duration::from_secs(120);
 /// Namen, voller Nullen oder zerrissen: mit gutem Kopf, in voller Länge und
 /// mit Nullen dahinter. Ansehen lässt sich ihr das nicht sicher; auch der
 /// Dekoder liest zwei von drei zerrissenen ohne Fehler, als falsches Bild.
-/// Ältere Kacheln hat das System längst geschrieben. Als jüngste zählt keine
-/// mit einer Zeit nach der Liste (`gelistet`): die stammt von einer Uhr, die
-/// vorging, und neben ihr wäre keine andere frisch.
+/// Als jüngste zählt keine, die mehr als zwei Sekunden nach der Liste
+/// (`gelistet`) liegt: die stammt von einer Uhr, die vorging, und neben ihr
+/// wäre keine andere frisch.
+///
+/// Das setzt zweierlei voraus: dass das System jede Kachel binnen
+/// [`FRISCH`] auf die Platte bringt, und dass die Uhr in dieser Zeit nicht
+/// springt. Gilt eines davon nicht, rendert erst ein Lauf ohne `--resume`
+/// sicher alles neu.
 fn frische(zeiten: &BTreeMap<TileId, SystemTime>, gelistet: SystemTime) -> BTreeSet<TileId> {
     let grenze = gelistet + Duration::from_secs(2);
     let juengste = zeiten

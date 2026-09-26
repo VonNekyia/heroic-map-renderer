@@ -205,10 +205,11 @@ impl Gpu {
 }
 
 /// Sucht den Adapter: Vulkan zuerst, derselbe Treiberweg auf Windows und
-/// Linux, und mit Mesa auf dem Server ohnehin der einzige. DX12 und GL nur,
-/// wenn keine echte Karte Vulkan kann: eine alte Onboard-Grafik ohne
-/// Vulkan-Treiber, WARP in der Windows-CI. Die Reihenfolge steht in
-/// [`rang`].
+/// Linux, und mit Mesa auf dem Server ohnehin der einzige. DX12 nur, wenn
+/// keine echte Karte Vulkan kann: eine alte Onboard-Grafik ohne
+/// Vulkan-Treiber, WARP in der Windows-CI. GL baut der Renderer nicht mit,
+/// der Weg lief nirgends in der CI; eine Karte nur mit GL-Treiber zeichnet
+/// auf der CPU dasselbe Bild. Die Reihenfolge steht in [`rang`].
 ///
 /// `WGPU_BACKEND` wählt die Backends, `WGPU_ADAPTER_NAME` einen Adapter
 /// nach einem Teil seines Namens, wie bei wgpu üblich. Passt dazu keiner,
@@ -219,8 +220,8 @@ fn adapter(software: bool) -> Result<Option<(wgpu::Adapter, wgpu::AdapterInfo)>>
         .ok()
         .map(|name| name.to_lowercase());
     // Erst Vulkan, nur echte Karten. Das spart die anderen Backends, wo
-    // eine Karte Vulkan kann; eine Karte nur mit GL-Treiber findet erst der
-    // zweite Versuch, dort aber vor lavapipe.
+    // eine Karte Vulkan kann; eine Karte ohne Vulkan-Treiber findet erst der
+    // zweite Versuch über DX12, dort aber vor lavapipe.
     let mut versuche = Vec::new();
     if std::env::var_os("WGPU_BACKEND").is_none() {
         let mut vulkan = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
@@ -263,8 +264,8 @@ fn adapter(software: bool) -> Result<Option<(wgpu::Adapter, wgpu::AdapterInfo)>>
 
 /// Reihenfolge der Adapter, kleiner ist besser: eine echte Karte vor jedem
 /// Software-Adapter, Vulkan vor den anderen Backends, eine eigenständige
-/// Karte vor der Onboard-Grafik. GL meldet eigenständige Karten als
-/// `Other`. Ohne `software` zählt kein Software-Adapter.
+/// Karte vor der Onboard-Grafik. Ohne `software` zählt kein
+/// Software-Adapter.
 fn rang(typ: wgpu::DeviceType, backend: wgpu::Backend, software: bool) -> Option<(bool, bool, u8)> {
     let staerke = match typ {
         wgpu::DeviceType::DiscreteGpu => 0,
@@ -605,15 +606,15 @@ mod tests {
     }
 
     /// Eine echte Karte vor jedem Software-Adapter, dann Vulkan vor den
-    /// anderen Backends, dann die stärkere Karte; eine Karte nur mit
-    /// GL-Treiber vor lavapipe.
+    /// anderen Backends, dann die stärkere Karte; ein Gerät, dessen Art der
+    /// Treiber nicht nennt, zählt als Karte.
     #[test]
     fn reihenfolge_der_adapter() {
         let reihe = [
             (DeviceType::DiscreteGpu, Backend::Vulkan),
             (DeviceType::IntegratedGpu, Backend::Vulkan),
+            (DeviceType::Other, Backend::Vulkan),
             (DeviceType::DiscreteGpu, Backend::Dx12),
-            (DeviceType::Other, Backend::Gl),
             (DeviceType::Cpu, Backend::Vulkan),
             (DeviceType::Cpu, Backend::Dx12),
         ];
@@ -623,6 +624,6 @@ mod tests {
             .collect();
         assert!(raenge.is_sorted_by(|a, b| a < b), "{raenge:?}");
         assert_eq!(rang(DeviceType::Cpu, Backend::Vulkan, false), None);
-        assert!(rang(DeviceType::Other, Backend::Gl, false).is_some());
+        assert!(rang(DeviceType::Other, Backend::Vulkan, false).is_some());
     }
 }

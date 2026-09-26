@@ -802,9 +802,10 @@ Im Log steht je Stufe, wie viele Kacheln die Karte gezeichnet hat:
 Karte mitten im Lauf, etwa nach einem Treiber-Reset, zeichnet die CPU den
 Rest, mit `auto` wie mit `on`, und das Log sagt einmal, warum.
 
-Backends: Vulkan zuerst, auf Windows wie auf Linux; DX12 und GL nur, wenn
-keine echte Karte Vulkan kann, und eine echte Karte immer vor einem
-Software-Adapter. `WGPU_BACKEND` wählt die Backends, `WGPU_ADAPTER_NAME`
+Backends: Vulkan zuerst, auf Windows wie auf Linux; DX12 nur, wenn keine
+echte Karte Vulkan kann, und eine echte Karte immer vor einem
+Software-Adapter. GL ist nicht dabei, der Weg lief nirgends in der CI;
+eine Karte nur mit GL-Treiber zeichnet auf der CPU, dasselbe Bild. `WGPU_BACKEND` wählt die Backends, `WGPU_ADAPTER_NAME`
 einen Adapter nach einem Teil seines Namens; passt keiner, zeichnet
 `--gpu auto` auf der CPU und sagt warum, `--gpu on` bricht ab. Einen
 Software-Adapter nimmt nur `--gpu on`, etwa WARP mit

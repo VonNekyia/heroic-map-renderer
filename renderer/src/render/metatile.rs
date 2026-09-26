@@ -923,6 +923,12 @@ impl<'a> ChunkCache<'a> {
     /// Blocks darüber, und ragt in die Seiten hinein. So kommt das Innere
     /// eines Ozeans oder eines Lavasees gar nicht erst zur Sprite-Wahl;
     /// Lava deckt nur bei scale 4, sonst fiele dort kein Block weg.
+    ///
+    /// Beides setzt voraus, dass die Umrisse benachbarter Blöcke lückenlos
+    /// aneinanderstossen, und das tun sie nur, wenn jeder Block auf ganzen
+    /// Pixeln liegt: bei einem Vielfachen von 4 als scale. Bei anderen, die
+    /// nur die Bibliothek annimmt, verdeckt kein Nachbar; bei scale 6 blieben
+    /// sonst Spalten von einem Pixel.
     fn expose(&mut self, slot: usize, s: usize) -> Result<()> {
         let (key, section_y) = {
             let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
@@ -933,6 +939,7 @@ impl<'a> ChunkCache<'a> {
         };
         let nx = self.edge((key.0 + 1, key.1), section_y, true)?;
         let nz = self.edge((key.0, key.1 + 1), section_y, false)?;
+        let verdecken = self.sprites.projection().scale().is_multiple_of(4);
 
         let loaded = self.slots[slot].loaded.as_mut().expect("geladen");
         let above = section_y
@@ -960,7 +967,8 @@ impl<'a> ChunkCache<'a> {
                     & (sx | (fx[f] & ux[f]))
                     & (sz | (fz[f] & uz[f]));
             }
-            ex.own[col] = m.bits[PRESENT][col] & (m.bits[LOOSE][col] | !(hidden | fluid_hidden));
+            let verdeckt = if verdecken { hidden | fluid_hidden } else { 0 };
+            ex.own[col] = m.bits[PRESENT][col] & (m.bits[LOOSE][col] | !verdeckt);
         }
         ex.any_own = ex.own.iter().any(|&o| o != 0);
         loaded.exposed[s] = Some(ex);

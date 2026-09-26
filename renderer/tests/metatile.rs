@@ -122,15 +122,16 @@ fn verdecken_aendert_kein_pixel() {
 /// Bild der Referenz liefern, die jeden Block im Band abläuft: in der
 /// Szene aus `common::szene`, einmal ganz im Bild, einmal von einem
 /// kleineren Rechteck angeschnitten, bei jedem scale, den `--scale` und
-/// die nativen Stufen annehmen, bis 32. Die Rechtecke sind meist keine
-/// Vielfachen von 64 Pixeln breit, den Wörtern der Deckungsmaske.
+/// die nativen Stufen annehmen, bis 32, dazu bei 2 und 6, wo Blöcke auf
+/// halben Pixeln liegen. Die Rechtecke sind meist keine Vielfachen von 64
+/// Pixeln breit, den Wörtern der Deckungsmaske.
 #[test]
 fn schneller_weg_gleicht_der_referenz() {
     let dir = tempdir();
     let world = common::write_szene(dir.path());
     let y_range = common::SZENE_Y;
     let daten = common::biomdaten();
-    for scale in (4..=32).step_by(4) {
+    for scale in [2, 6].into_iter().chain((4..=32).step_by(4)) {
         let projection = Projection::new(scale);
         let survey = survey(&world, projection, y_range, None).unwrap();
         let mut assets = assets();

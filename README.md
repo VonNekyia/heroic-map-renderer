@@ -799,8 +799,9 @@ kleiner.
 Im Log steht je Stufe, wie viele Kacheln die Karte gezeichnet hat:
 `Threads + GPU` und `nativ bei scale 16 + GPU` für alle, sonst etwa
 `+ GPU für 1200 von 1392`; `--gpu off` ist der Vergleich. Versagt die
-Karte mitten im Lauf, etwa nach einem Treiber-Reset, zeichnet die CPU den
-Rest, mit `auto` wie mit `on`, und das Log sagt einmal, warum.
+Karte mitten im Lauf, etwa nach einem Treiber-Reset, oder antwortet sie
+eine Minute lang nicht, zeichnet die CPU den Rest, mit `auto` wie mit
+`on`, und das Log sagt einmal, warum.
 
 Backends: Vulkan zuerst, auf Windows wie auf Linux; DX12 nur, wenn keine
 echte Karte Vulkan kann, und eine echte Karte immer vor einem

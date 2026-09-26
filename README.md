@@ -759,10 +759,11 @@ geschrieben.
 Ganzzahlig, weil Gleitkomma auf jeder Karte anders rundet: `over` rechnet
 auf 1/255² erweitert und rundet einmal am Schluss, im Shader genauso wie
 auf der CPU. Die Gleitkommafassung davor ergab in den Testbildern dieselben
-Pixel, und auf dem 8192er-Ausschnitt der Interconnect-Welt sind alle 1392
+Pixel, und auf dem 8192er-Ausschnitt der grossen Serverwelt sind alle 1392
 Kacheln byte-gleich mit dem Stand davor.
 
-Gemessen mit einer RX 6900 XT (Vulkan), derselbe Ausschnitt wie oben:
+Gemessen mit einer eigenständigen Grafikkarte über Vulkan, derselbe
+Ausschnitt wie oben:
 
 | | CPU | mit GPU |
 |---|---|---|
@@ -774,9 +775,9 @@ Auf einem Kern anderthalbmal so schnell, auf 24 Threads kaum: die Karte
 ersetzt nur den Blit, und auf 24 Threads teilen sich die Threads ohnehin
 Kerne und Speicherbandbreite — was einer beim Blit spart, holt er sich
 beim Dekodieren und Sammeln wieder. Chunks dekodieren, Kandidaten sammeln,
-Sprite-Wahl und WebP bleiben auf der CPU. Eine Onboard-Grafik wie die
-Radeon 780M ist nicht gemessen; sie teilt sich den Speicher mit der CPU,
-der Gewinn dort ist also eher kleiner. Im Log steht je Lauf, ob die Karte
+Sprite-Wahl und WebP bleiben auf der CPU. Eine Onboard-Grafik ist nicht
+gemessen; sie teilt sich den Speicher mit der CPU, der Gewinn dort ist
+also eher kleiner. Im Log steht je Lauf, ob die Karte
 zeichnet (`Threads + GPU`); `--gpu off` ist der Vergleich.
 
 Backends: Vulkan zuerst, auf Windows wie auf Linux; DX12 und GL nur, wenn

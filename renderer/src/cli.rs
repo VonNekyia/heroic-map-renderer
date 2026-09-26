@@ -440,8 +440,8 @@ fn oeffne_gpu(mode: GpuMode) -> Result<Option<Karte>> {
         GpuMode::Auto => match Gpu::new(false) {
             Ok(gpu) => gpu,
             Err(e) => {
-                println!("GPU:        {e:#} — die CPU zeichnet");
-                None
+                println!("GPU:        {e:#}; die CPU zeichnet");
+                return Ok(None);
             }
         },
         GpuMode::On => Some(Gpu::new(true)?.context("keine Grafikkarte gefunden (--gpu on)")?),

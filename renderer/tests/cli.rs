@@ -2686,5 +2686,8 @@ fn unbekannter_adaptername_ist_keine_panik() {
             "--gpu {modus}:\n{text}"
         );
         assert_eq!(lauf.status.success(), gelingt, "--gpu {modus}:\n{text}");
+        if gelingt {
+            assert_eq!(text.matches("GPU:").count(), 1, "--gpu {modus}:\n{text}");
+        }
     }
 }

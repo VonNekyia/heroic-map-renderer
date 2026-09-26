@@ -138,7 +138,9 @@ impl Gpu {
     }
 
     /// Ein Zeichner mit eigenen Puffern für bis zu `tiles` quadratische
-    /// Kacheln mit `size` Pixeln Kante je Durchgang. Je Thread einer.
+    /// Kacheln mit `size` Pixeln Kante je Durchgang, für einen Thread. Der
+    /// Renderlauf legt einen je Stapel an: das kostet rund 10 µs, der erste
+    /// Durchgang knapp 1 ms mehr, bis die Puffer stehen.
     pub fn worker(&self, tiles: u32, size: u32) -> Worker<'_> {
         let cells_x = size.div_ceil(CELL);
         let cells_per_tile = cells_x * cells_x;

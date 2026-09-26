@@ -4,7 +4,7 @@ use std::hash::{BuildHasher, RandomState};
 use std::io::Write;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
@@ -155,6 +155,13 @@ enum GpuMode {
 /// Absenden, kostet aber je Thread Puffer — 16 Kacheln sind 8 MB.
 const GPU_TILES: u32 = 16;
 
+/// Die Karte eines Laufs. Versagt sie einmal, zeichnet für den Rest des
+/// Laufs die CPU ([`mit_rueckfall`]).
+struct Karte {
+    gpu: Gpu,
+    aus: AtomicBool,
+}
+
 pub fn run() -> Result<()> {
     let args = Args::parse();
 
@@ -295,7 +302,7 @@ pub fn run() -> Result<()> {
             )?;
         }
         if let Some(dir) = &args.tiles {
-            let export = oeffne_gpu(args.gpu).and_then(|gpu| {
+            let export = oeffne_gpu(args.gpu).and_then(|karte| {
                 write_tiles(
                     world,
                     assets.as_mut().expect("oben geprüft"),
@@ -305,7 +312,7 @@ pub fn run() -> Result<()> {
                     args.native_levels,
                     args.prune,
                     args.resume,
-                    gpu.as_ref(),
+                    karte.as_ref(),
                 )
             });
             // Auch nach einem Fehler: Der Befehl vom Anfang steht nach
@@ -427,7 +434,7 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
 
 /// Öffnet die Grafikkarte nach Wunsch. Bei `auto` ist ein Fehler beim
 /// Öffnen kein Grund abzubrechen — dann zeichnet die CPU.
-fn oeffne_gpu(mode: GpuMode) -> Result<Option<Gpu>> {
+fn oeffne_gpu(mode: GpuMode) -> Result<Option<Karte>> {
     let gpu = match mode {
         GpuMode::Off => None,
         GpuMode::Auto => match Gpu::new(false) {
@@ -443,7 +450,42 @@ fn oeffne_gpu(mode: GpuMode) -> Result<Option<Gpu>> {
         Some(gpu) => println!("GPU:        {}", gpu.name),
         None => println!("GPU:        keine, die CPU zeichnet"),
     }
-    Ok(gpu)
+    Ok(gpu.map(|gpu| Karte {
+        gpu,
+        aus: AtomicBool::new(false),
+    }))
+}
+
+/// Die Bilder einer Gruppe von der Karte. Versagt sie mit einem Fehler
+/// oder einer Panik aus wgpu, etwa nach einem Treiber-Reset, zeichnet die
+/// CPU die Gruppe; `aus` hält fest, dass der Rest des Laufs auf der CPU
+/// läuft, gesagt wird das einmal. Das Bild ist auf beiden Wegen dasselbe.
+fn mit_rueckfall(
+    aus: &AtomicBool,
+    karte: impl FnOnce() -> Result<Vec<RgbaImage>>,
+    cpu: impl FnOnce() -> Result<Vec<RgbaImage>>,
+) -> Result<Vec<RgbaImage>> {
+    let grund = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(karte)) {
+        Ok(Ok(bilder)) => return Ok(bilder),
+        Ok(Err(e)) => format!("{e:#}"),
+        Err(panik) => panik
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| panik.downcast_ref::<&str>().map(|text| (*text).to_owned()))
+            .unwrap_or_else(|| "Panik".to_owned()),
+    };
+    if !aus.swap(true, Ordering::Relaxed) {
+        println!("GPU:        {grund}; ab hier zeichnet die CPU");
+    }
+    cpu()
+}
+
+/// Zeichnet Kacheln auf der CPU, eine nach der anderen.
+fn auf_der_cpu(chunks: &mut ChunkCache, tiles: &[TileId]) -> Result<Vec<RgbaImage>> {
+    tiles
+        .iter()
+        .map(|tile| render_area_with(chunks, tile.rect(), Y_RANGE))
+        .collect()
 }
 
 /// Rendert einen Ausschnitt der Welt in eine PNG.
@@ -612,7 +654,7 @@ fn write_tiles(
     native: Option<u32>,
     prune: bool,
     resume: bool,
-    gpu: Option<&Gpu>,
+    karte: Option<&Karte>,
 ) -> Result<()> {
     // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
     // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
@@ -784,7 +826,7 @@ fn write_tiles(
         &sprites,
         &reihe,
         true,
-        gpu,
+        karte,
         |tile, image| -> Result<Option<usize>> {
             // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
             // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
@@ -813,7 +855,11 @@ fn write_tiles(
         "Kacheln:    {geschrieben} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads{}",
         leer.len(),
         rayon::current_num_threads(),
-        if gpu.is_some() { " + GPU" } else { "" }
+        match karte {
+            Some(karte) if karte.aus.load(Ordering::Relaxed) => " + GPU, nach dem Ausfall CPU",
+            Some(_) => " + GPU",
+            None => "",
+        }
     );
     if resume {
         println!("            {uebersprungen} vorhandene Kacheln übersprungen (--resume)");
@@ -1715,14 +1761,14 @@ fn render_coarser(
 /// Cache: mit 24 Threads lud jede Kachel wieder ihre hundert Chunks. Feste
 /// Stapel halten die Nachbarn zusammen.
 ///
-/// Mit `melden` gibt es alle 200 Kacheln den Stand aus. Mit `gpu` zeichnet
-/// die Karte, je Durchgang [`GPU_TILES`] Kacheln.
+/// Mit `melden` gibt es alle 200 Kacheln den Stand aus. Mit einer Karte
+/// zeichnet sie, je Durchgang [`GPU_TILES`] Kacheln, bis sie einmal versagt.
 fn rendere<T: Send>(
     world: &World,
     sprites: &SpriteSet,
     tiles: &[TileId],
     melden: bool,
-    gpu: Option<&Gpu>,
+    karte: Option<&Karte>,
     ablegen: impl Fn(TileId, RgbaImage) -> Result<T> + Sync,
 ) -> Result<Vec<(TileId, T)>> {
     let fertig = AtomicUsize::new(0);
@@ -1731,7 +1777,7 @@ fn rendere<T: Send>(
         .par_chunks(batch_size(gesamt))
         .map(|stapel| -> Result<Vec<(TileId, T)>> {
             let mut chunks = ChunkCache::new(world, sprites);
-            let mut worker = gpu.map(|gpu| gpu.worker(GPU_TILES, TILE));
+            let mut worker = karte.map(|karte| karte.gpu.worker(GPU_TILES, TILE));
             // Die Grafikkarte bekommt mehrere Kacheln je Durchgang; die
             // CPU eine nach der anderen.
             let je_durchgang = if worker.is_some() {
@@ -1741,18 +1787,19 @@ fn rendere<T: Send>(
             };
             let mut out = Vec::with_capacity(stapel.len());
             for gruppe in stapel.chunks(je_durchgang) {
-                let bilder = match &mut worker {
-                    Some(worker) => {
+                let bilder = match (karte, &mut worker) {
+                    (Some(karte), Some(worker)) if !karte.aus.load(Ordering::Relaxed) => {
                         let listen = gruppe
                             .iter()
                             .map(|tile| draw_list(&mut chunks, tile.rect(), Y_RANGE))
                             .collect::<Result<Vec<_>>>()?;
-                        worker.render(&listen)?
+                        mit_rueckfall(
+                            &karte.aus,
+                            || worker.render(&listen),
+                            || auf_der_cpu(&mut chunks, gruppe),
+                        )?
                     }
-                    None => gruppe
-                        .iter()
-                        .map(|tile| render_area_with(&mut chunks, tile.rect(), Y_RANGE))
-                        .collect::<Result<Vec<_>>>()?,
+                    _ => auf_der_cpu(&mut chunks, gruppe)?,
                 };
                 for (&tile, image) in gruppe.iter().zip(bilder) {
                     out.push((tile, ablegen(tile, image)?));
@@ -2660,6 +2707,37 @@ mod tests {
                 "{schlecht}"
             );
         }
+    }
+
+    /// Versagt die Karte mit einem Fehler oder einer Panik, kommen die
+    /// Bilder von der CPU, und `aus` bleibt gesetzt. Solange sie zeichnet,
+    /// zeichnet die CPU nichts.
+    #[test]
+    fn rueckfall_auf_die_cpu() {
+        let bild = |wert: u8| vec![RgbaImage::from_pixel(1, 1, Rgba([wert; 4]))];
+        let farbe = |bilder: Vec<RgbaImage>| bilder[0].get_pixel(0, 0).0;
+
+        let aus = AtomicBool::new(false);
+        let gut = mit_rueckfall(
+            &aus,
+            || Ok(bild(1)),
+            || panic!("die CPU zeichnet ohne Grund"),
+        );
+        assert_eq!(farbe(gut.unwrap()), [1; 4]);
+        assert!(!aus.load(Ordering::Relaxed));
+
+        let fehler = mit_rueckfall(&aus, || bail!("Gerät verloren"), || Ok(bild(2)));
+        assert_eq!(farbe(fehler.unwrap()), [2; 4]);
+        assert!(aus.load(Ordering::Relaxed));
+
+        let aus = AtomicBool::new(false);
+        let panik = mit_rueckfall(
+            &aus,
+            || panic!("wgpu error: Validation Error"),
+            || Ok(bild(3)),
+        );
+        assert_eq!(farbe(panik.unwrap()), [3; 4]);
+        assert!(aus.load(Ordering::Relaxed));
     }
 
     #[test]

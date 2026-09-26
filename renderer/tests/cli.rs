@@ -2643,9 +2643,14 @@ fn gpu_liefert_dieselben_kacheln() {
         return;
     }
     gelungen(&lauf);
+    let ausgabe = String::from_utf8_lossy(&lauf.stdout);
     assert!(
-        String::from_utf8_lossy(&lauf.stdout).contains("Threads + GPU"),
-        "die Ausgabe nennt die GPU nicht"
+        ausgabe.contains("Threads + GPU\n") || ausgabe.contains("Threads + GPU\r\n"),
+        "die Ausgabe nennt die GPU nicht, oder sie fiel aus:\n{ausgabe}"
+    );
+    assert!(
+        !ausgabe.contains("ab hier zeichnet die CPU"),
+        "die Karte fiel aus, die CPU hat gezeichnet:\n{ausgabe}"
     );
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 }

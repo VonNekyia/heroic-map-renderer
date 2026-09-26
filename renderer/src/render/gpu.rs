@@ -527,8 +527,47 @@ impl Worker<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::rang;
+    use super::*;
     use wgpu::{Backend, DeviceType};
+
+    /// Verliert die Karte ihr Gerät, etwa bei einem Treiber-Reset, liefert
+    /// `render` einen Fehler oder bricht mit einer Panik ab, gleich und
+    /// ohne zu hängen. Beides fängt der Lauf und zeichnet auf der CPU
+    /// weiter; ein Bild darf danach nicht mehr kommen.
+    #[test]
+    fn verlorenes_geraet_liefert_kein_bild() {
+        let Some(gpu) = Gpu::new(true).unwrap() else {
+            eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
+            return;
+        };
+        let sprite = Sprite {
+            image: RgbaImage::from_pixel(4, 4, image::Rgba([200, 10, 10, 255])),
+            offset: (0, 0),
+        };
+        let liste = vec![Draw {
+            sprite: &sprite,
+            origin: (3, 3),
+            skip: 0,
+        }];
+        let mut worker = gpu.worker(1, 64);
+        let bild = worker.render(std::slice::from_ref(&liste)).unwrap();
+        assert_eq!(bild[0].get_pixel(4, 4).0, [200, 10, 10, 255]);
+
+        gpu.device.destroy();
+        let start = std::time::Instant::now();
+        let danach = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            worker.render(std::slice::from_ref(&liste))
+        }));
+        assert!(
+            !matches!(danach, Ok(Ok(_))),
+            "nach dem Verlust kam ein Bild"
+        );
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "{:?} gewartet",
+            start.elapsed()
+        );
+    }
 
     /// Eine echte Karte vor jedem Software-Adapter, dann Vulkan vor den
     /// anderen Backends, dann die stärkere Karte; eine Karte nur mit

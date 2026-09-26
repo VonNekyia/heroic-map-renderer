@@ -777,7 +777,10 @@ beim Dekodieren und Sammeln wieder. Chunks dekodieren, Kandidaten sammeln,
 Sprite-Wahl und WebP bleiben auf der CPU. Eine Onboard-Grafik ist nicht
 gemessen; sie teilt sich den Speicher mit der CPU, der Gewinn dort ist
 also eher kleiner. Im Log steht je Lauf, ob die Karte
-zeichnet (`Threads + GPU`); `--gpu off` ist der Vergleich.
+zeichnet (`Threads + GPU`); `--gpu off` ist der Vergleich. Versagt die
+Karte mitten im Lauf, etwa nach einem Treiber-Reset, zeichnet die CPU den
+Rest, mit `auto` wie mit `on`; das Log sagt es einmal mit dem Grund und am
+Ende `Threads + GPU, nach dem Ausfall CPU`.
 
 Backends: Vulkan zuerst, auf Windows wie auf Linux; DX12 und GL nur, wenn
 keine echte Karte Vulkan kann, und eine echte Karte immer vor einem

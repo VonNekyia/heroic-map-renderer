@@ -264,6 +264,36 @@ fn lange_listen_vergroessern_die_puffer() {
     assert_eq!(cpu.as_raw(), bild.as_raw(), "kurze Liste danach weicht ab");
 }
 
+/// Ein Durchgang über der Grenze der Karte: `render` sagt es, statt dass
+/// der Standard-Handler von wgpu mit einer Panik abbricht, und derselbe
+/// Zeichner zeichnet danach weiter.
+#[test]
+fn zu_grosser_durchgang_ist_ein_fehler() {
+    // Ein Bild braucht 1 MB; 2 MB lassen dem Zeichner seine Puffer, aber
+    // keine 200 000 Instanzen zu 16 Bytes.
+    let Some(gpu) = adapter(Gpu::mit_grenze(true, 2 << 20)) else {
+        return;
+    };
+    let welt = welt(Projection::new(16));
+    let tile = kacheln()[3];
+    let mut chunks = ChunkCache::new(&welt.world, &welt.sprites);
+    let kurz = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
+    let lang: Vec<Draw> = kurz.iter().cycle().take(200_000).copied().collect();
+
+    let mut worker = gpu.worker(1, TILE);
+    let fehler = worker.render(std::slice::from_ref(&lang)).unwrap_err();
+    assert!(
+        format!("{fehler:#}").contains("höchstens 2.0 MB"),
+        "{fehler:#}"
+    );
+    let bild = worker
+        .render(std::slice::from_ref(&kurz))
+        .unwrap()
+        .remove(0);
+    let cpu = render_area(&welt.world, &welt.sprites, tile.rect(), Y_RANGE).unwrap();
+    assert!(cpu.as_raw() == bild.as_raw(), "danach weicht die Kachel ab");
+}
+
 /// Ein Durchgang ohne Kacheln und eine Kachel ohne Zeichenliste.
 #[test]
 fn leere_listen_ergeben_leere_kacheln() {

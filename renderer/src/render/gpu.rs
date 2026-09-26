@@ -42,6 +42,9 @@ pub struct Gpu {
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
     layout: wgpu::BindGroupLayout,
+    /// Grösster Puffer, den ein Zeichner anlegen darf. Darüber lehnt die
+    /// Karte ab, und der Standard-Handler von wgpu bräche mit einer Panik ab.
+    grenze: u64,
     /// Name und Backend, für die Ausgabe beim Start.
     pub name: String,
 }
@@ -52,13 +55,20 @@ impl Gpu {
     /// Tests auf Rechnern ohne Karte; zum Rendern ist er langsamer als
     /// der CPU-Pfad.
     pub fn new(software: bool) -> Result<Option<Gpu>> {
+        Gpu::mit_grenze(software, PUFFER_MAX)
+    }
+
+    /// Wie [`Gpu::new`], aber kein Puffer grösser als `grenze` Bytes. Für
+    /// den Test, der an die Grenze stösst.
+    #[doc(hidden)]
+    pub fn mit_grenze(software: bool, grenze: u64) -> Result<Option<Gpu>> {
         let Some((adapter, info)) = adapter(software) else {
             return Ok(None);
         };
         let name = format!("{} ({:?})", info.name, info.backend);
 
         let limits = adapter.limits();
-        let binding = PUFFER_MAX
+        let binding = grenze
             .min(limits.max_storage_buffer_binding_size)
             .min(limits.max_buffer_size);
         let required_limits = wgpu::Limits {
@@ -122,6 +132,7 @@ impl Gpu {
             queue,
             pipeline,
             layout,
+            grenze: binding,
             name,
         }))
     }
@@ -274,8 +285,25 @@ impl Worker<'_> {
             })
     }
 
-    /// Vergrössert die Puffer, wenn ein Durchgang mehr braucht.
-    fn ensure(&mut self, sprite_bytes: u64, inst_bytes: u64, list_bytes: u64) {
+    /// Vergrössert die Puffer, wenn ein Durchgang mehr braucht, bis zur
+    /// Grenze der Karte.
+    fn ensure(&mut self, sprite_bytes: u64, inst_bytes: u64, list_bytes: u64) -> Result<()> {
+        // Erst prüfen, dann vergrössern: sonst bände der Zeichner nach dem
+        // Fehler einen Puffer, den es nicht mehr gibt.
+        let grenze = self.gpu.grenze;
+        for (need, label) in [
+            (sprite_bytes, "Sprites"),
+            (inst_bytes, "Instanzen"),
+            (list_bytes, "Listen"),
+        ] {
+            if need > grenze {
+                bail!(
+                    "ein Durchgang braucht {:.1} MB für {label}, die Karte bindet höchstens {:.1} MB",
+                    need as f64 / 1_048_576.0,
+                    grenze as f64 / 1_048_576.0
+                );
+            }
+        }
         let mut neu = false;
         for (buffer, need, label) in [
             (&mut self.sprites, sprite_bytes, "sprites"),
@@ -285,7 +313,7 @@ impl Worker<'_> {
             if buffer.size() < need {
                 *buffer = self.gpu.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some(label),
-                    size: need.next_power_of_two(),
+                    size: need.next_power_of_two().min(grenze),
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
@@ -295,6 +323,7 @@ impl Worker<'_> {
         if neu {
             self.bind = Some(self.bind_group());
         }
+        Ok(())
     }
 
     /// Zeichnet je Liste eine Kachel. Höchstens so viele, wie der Zeichner
@@ -400,7 +429,7 @@ impl Worker<'_> {
             self.sprite_bytes.len() as u64,
             self.inst_bytes.len() as u64,
             list_bytes.len() as u64,
-        );
+        )?;
         let gpu = self.gpu;
         gpu.queue.write_buffer(&self.sprites, 0, &self.sprite_bytes);
         gpu.queue.write_buffer(&self.instances, 0, &self.inst_bytes);

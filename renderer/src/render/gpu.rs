@@ -161,7 +161,7 @@ impl Gpu {
 
     /// Ein Zeichner mit eigenen Puffern für bis zu `tiles` quadratische
     /// Kacheln mit `size` Pixeln Kante je Durchgang, für einen Thread. Der
-    /// Renderlauf legt einen je Stapel an: das kostet rund 10 µs, der erste
+    /// Renderlauf legt einen je Thread an: das kostet rund 10 µs, der erste
     /// Durchgang knapp 1 ms mehr, bis die Puffer stehen.
     pub fn worker(&self, tiles: u32, size: u32) -> Worker<'_> {
         let cells_x = size.div_ceil(CELL);
@@ -578,7 +578,6 @@ mod tests {
         let liste = vec![Draw {
             sprite: &sprite,
             origin: (3, 3),
-            skip: 0,
         }];
         let mut worker = gpu.worker(1, 64);
         let bild = worker.render(std::slice::from_ref(&liste)).unwrap();

@@ -122,7 +122,8 @@ fn verdecken_aendert_kein_pixel() {
 /// Bild der Referenz liefern, die jeden Block im Band abläuft: in der
 /// Szene aus `common::szene`, einmal ganz im Bild, einmal von einem
 /// kleineren Rechteck angeschnitten, bei jedem scale, den `--scale` und
-/// die nativen Stufen annehmen, bis 32.
+/// die nativen Stufen annehmen, bis 32. Die Rechtecke sind meist keine
+/// Vielfachen von 64 Pixeln breit, den Wörtern der Deckungsmaske.
 #[test]
 fn schneller_weg_gleicht_der_referenz() {
     let dir = tempdir();
@@ -164,6 +165,41 @@ fn schneller_weg_gleicht_der_referenz() {
                 "scale {scale}: Szene nicht im Bild"
             );
         }
+    }
+}
+
+/// Ein Block, der knapp über seinen Umriss ragt (`rand`), zeichnet auch in
+/// einen Ausschnitt, den der Kasten seines Umrisses nicht mehr berührt: je
+/// eine Spalte links und rechts daneben. Lose Familien zählen deshalb über
+/// das Band, nicht über den Kasten.
+#[test]
+fn knapper_ueberstand_zaehlt_ueber_das_band() {
+    let dir = tempdir();
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 3, 8) => "minecraft:rand",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], welt);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(32);
+    let sprites = tabelle(&mut assets(), &world, projection);
+    let (sx, sy) = projection.project_block([8, 3, 8]);
+    let (sx, sy) = (sx.round() as i32, sy.round() as i32);
+    let (x_min, x_max, y_min, y_max) = sprites.outline_box();
+    let spalte = |x: i32| ScreenRect {
+        x,
+        y: sy + y_min,
+        width: 1,
+        height: (y_max - y_min + 1) as u32,
+    };
+    for rect in [spalte(sx + x_min - 1), spalte(sx + x_max + 1)] {
+        let schnell = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+        let referenz = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+        assert!(
+            referenz.pixels().any(|p| p.0[3] > 0),
+            "{rect:?}: kein Überstand im Bild"
+        );
+        assert!(schnell == referenz, "{rect:?}: Überstand fehlt");
     }
 }
 

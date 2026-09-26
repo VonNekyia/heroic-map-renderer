@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use image::RgbaImage;
@@ -9,14 +9,16 @@ use crate::assets::fluid::Fluid;
 use crate::world::{Chunk, REGION, Region, Section, World};
 
 use super::rasterizer::over;
-use super::sprites::{Cover, DEPTHS, Family, mask_bit};
+use super::sprites::{DEPTHS, Family, Rows, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
 ///
 /// Sprites dürfen über den Blockumriss hinausragen — Feuer ist höher als
 /// ein Block, Zäune breiter. Ohne diese Reserve fehlen an den Rändern
-/// Blöcke, deren Ursprung knapp ausserhalb liegt.
+/// Blöcke, deren Ursprung knapp ausserhalb liegt. Sie gilt nur für solche
+/// Sprites und für Teile in fremden Würfeln; alles, was im Umriss seines
+/// Würfels bleibt, prüft die Kandidatensuche gegen den Umriss.
 pub const BLEED_BLOCKS: i32 = 3;
 
 /// Ein rechteckiger Ausschnitt der projizierten Ebene, in Pixeln.
@@ -81,86 +83,108 @@ pub fn render_area(
 
 /// Wie [`render_area`], mit einem Cache, der über Kacheln hinweg lebt.
 ///
-/// Aufeinanderfolgende Kacheln liegen untereinander und teilen sich fast
-/// alle Chunks. Wer sie je Kachel neu lädt, gibt ein Drittel der Renderzeit
-/// fürs Dekodieren aus, das er gerade erst gemacht hat.
+/// Kacheln, die nacheinander kommen, liegen nebeneinander oder
+/// untereinander und teilen sich fast alle Chunks. Wer sie je Kachel neu
+/// lädt, gibt ein Drittel der Renderzeit fürs Dekodieren aus, das er gerade
+/// erst gemacht hat.
 ///
-/// Zwei Durchgänge. Der erste sammelt die Kandidaten — Blöcke, von denen
+/// Drei Durchgänge. Der erste sammelt die Kandidaten — Blöcke, von denen
 /// etwas zu sehen sein kann — aus den Bitmasken der Sections, ohne einen
-/// einzigen Luftblock anzufassen. Der zweite sortiert sie in die
-/// Zeichenreihenfolge und zeichnet. Das Bild ist dasselbe wie das von
-/// [`render_area_without_culling`], das jeden Block im Band abläuft.
+/// einzigen Luftblock anzufassen, und sortiert sie in die
+/// Zeichenreihenfolge. Der zweite läuft rückwärts, von vorn nach hinten,
+/// über eine Maske je Leinwandpixel: "hier liegt schon ein deckender
+/// Pixel" ([`Deckung`]). Ein Block, dessen ganzer Umriss bedeckt ist,
+/// bekommt keine Sprite-Wahl; ein Sprite, von dem nichts mehr durchscheint,
+/// fällt weg; von den anderen merkt er sich die sichtbaren Pixel. Der
+/// dritte zeichnet nur die, in der alten Reihenfolge. Übersprungen wird
+/// also nur, was ein späterer Draw ohnehin mit Alpha 255 übermalt, und das
+/// Bild ist dasselbe wie das von [`render_area_without_culling`], das jeden
+/// Block im Band abläuft.
 pub fn render_area_with(
     chunks: &mut ChunkCache,
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
-    let cover = chunks.sprites.cover();
+    let (candidates, foreign) = chunks.sorted_candidates(rect, y_range)?;
+    let sprites = chunks.sprites;
+    let projection = sprites.projection();
+    let mut deckung = Deckung::new(rect, sprites.outline_rows());
+    let mut sichtbar = Vec::new();
+    for c in candidates.iter().rev() {
+        let (anchor, cell) = match c.kind {
+            0 => ([c.x, c.y, c.z], OWN_CELL),
+            kind => {
+                let cell = foreign[kind as usize - 1];
+                (anchor_of([c.x, c.y, c.z], cell), cell)
+            }
+        };
+        // Nur Teile, die in ihrem Würfel bleiben, liegen ganz im Umriss.
+        if c.kind == 0 && !c.loose && deckung.bedeckt(block_origin(projection, rect, anchor)) {
+            continue;
+        }
+        let drawn = chunks.sprite_at(anchor[0], anchor[1], anchor[2])?;
+        // Fremde Teile ohne die Streifen, die gehören zum eigenen Würfel.
+        // Von vorn nach hinten kommen die Streifen vor dem Block.
+        let ids = if c.kind == 0 {
+            drawn
+        } else {
+            Drawn {
+                sprite: drawn.sprite,
+                ..Drawn::default()
+            }
+        };
+        for id in ids.ids().rev() {
+            if let Some((sprite, rows)) = sprites.part_rows(id, cell) {
+                let origin = origin_of(projection, rect, anchor, sprite);
+                if let Some(sicht) = deckung.zeichne(sprite, rows, origin) {
+                    sichtbar.push((sprite, origin, sicht));
+                }
+            }
+        }
+    }
     let mut canvas = RgbaImage::new(rect.width, rect.height);
-    for_each_draw(chunks, rect, y_range, |d| {
-        blit(&mut canvas, d.sprite, d.origin, cover, d.skip)
-    })?;
+    for (sprite, origin, sicht) in sichtbar.iter().rev() {
+        blit_sichtbar(&mut canvas, sprite, *origin, sicht, &deckung.vis);
+    }
     Ok(canvas)
 }
 
-/// Zeichnet eine Liste auf die Leinwand wie [`render_area_with`]: die
+/// Zeichnet eine Liste auf die Leinwand, Draw für Draw ganz: die
 /// Vergleichsgrösse für die Karte bei Listen, die kein Ausschnitt liefert.
-pub fn draw_all(canvas: &mut RgbaImage, draws: &[Draw], cover: &Cover) {
+pub fn draw_all(canvas: &mut RgbaImage, draws: &[Draw]) {
     for d in draws {
-        blit(canvas, d.sprite, d.origin, cover, d.skip);
+        blit(canvas, d.sprite, d.origin);
     }
 }
 
-/// Ein Sprite-Teil an seinem Platz auf der Leinwand.
-///
-/// Die CPU zeichnet jeden gleich, wenn er an der Reihe ist
-/// ([`render_area_with`]); die Grafikkarte bekommt sie als Liste
-/// ([`draw_list`], [`super::gpu::Worker`]). Beide malen dasselbe Bild.
+/// Ein Sprite-Teil an seinem Platz auf der Leinwand, für die Grafikkarte
+/// ([`draw_list`], [`super::gpu::Worker`]). Sie zeichnet dasselbe Bild wie
+/// die CPU.
 #[derive(Clone, Copy)]
 pub struct Draw<'a> {
     pub sprite: &'a Sprite,
     /// Linke obere Ecke des Sprites in Leinwandpixeln; darf über den Rand
     /// hinausragen.
     pub origin: (i32, i32),
-    /// Nachbarn (`mask_bit`), deren Umriss der Blit auslassen darf.
-    pub skip: u8,
 }
 
 /// Die Zeichenliste eines Ausschnitts, in Zeichenreihenfolge, für die
-/// Grafikkarte.
+/// Grafikkarte. Ohne Deckungsmaske: die Karte zeichnet verdeckte Pixel
+/// nebenbei, und die Maske kostete nur Zeit auf der CPU.
 pub fn draw_list<'a>(
     chunks: &mut ChunkCache<'a>,
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<Vec<Draw<'a>>> {
-    let mut draws = Vec::new();
-    for_each_draw(chunks, rect, y_range, |d| draws.push(d))?;
-    Ok(draws)
-}
-
-/// Gibt jeden Sprite-Teil eines Ausschnitts in Zeichenreihenfolge an
-/// `zeichne`. Die CPU zeichnet ihn gleich, statt erst eine Liste zu
-/// füllen, die je Thread neben den Kandidaten Platz bräuchte.
-fn for_each_draw<'a>(
-    chunks: &mut ChunkCache<'a>,
-    rect: ScreenRect,
-    y_range: (i32, i32),
-    mut zeichne: impl FnMut(Draw<'a>),
-) -> Result<()> {
-    chunks.next_tile();
+    let (candidates, foreign) = chunks.sorted_candidates(rect, y_range)?;
     let sprites: &'a SpriteSet = chunks.sprites;
     let projection = sprites.projection();
-    let foreign: Vec<Cell> = sprites.foreign_cells().iter().copied().collect();
-
-    let mut candidates = chunks.candidates(rect, y_range, &foreign)?;
-    candidates.sort_unstable_by_key(|c| c.key);
-
-    let mut teil = |id: SpriteId, cell: Cell, anchor: [i32; 3], skip: u8| {
+    let mut draws = Vec::new();
+    let mut teil = |id: SpriteId, cell: Cell, anchor: [i32; 3]| {
         if let Some(part) = sprites.part(id, cell) {
-            zeichne(Draw {
+            draws.push(Draw {
                 sprite: part,
                 origin: origin_of(projection, rect, anchor, part),
-                skip,
             });
         }
     };
@@ -168,19 +192,17 @@ fn for_each_draw<'a>(
         let pos = [c.x, c.y, c.z];
         if c.kind == 0 {
             for id in chunks.sprite_at(c.x, c.y, c.z)?.ids() {
-                teil(id, OWN_CELL, pos, c.skip);
+                teil(id, OWN_CELL, pos);
             }
         } else {
             let cell = foreign[c.kind as usize - 1];
             let anchor = anchor_of(pos, cell);
             if let Some(id) = chunks.sprite_at(anchor[0], anchor[1], anchor[2])?.sprite {
-                // Fremde Teile liegen in einem anderen Würfel als dem Anker;
-                // die Deckungstabelle gilt nur für den eigenen.
-                teil(id, cell, anchor, 0);
+                teil(id, cell, anchor);
             }
         }
     }
-    Ok(())
+    Ok(draws)
 }
 
 /// Wie [`render_area`], aber Block für Block über das ganze Band, ohne
@@ -194,7 +216,6 @@ pub fn render_area_without_culling(
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
     let projection = sprites.projection();
-    let cover = sprites.cover();
     let mut canvas = RgbaImage::new(rect.width, rect.height);
     let mut chunks = ChunkCache::new(world, sprites);
 
@@ -203,7 +224,7 @@ pub fn render_area_without_culling(
             for id in chunks.sprite_at(x, y, z)?.ids() {
                 if let Some(part) = sprites.part(id, OWN_CELL) {
                     let origin = origin_of(projection, rect, [x, y, z], part);
-                    blit(&mut canvas, part, origin, cover, 0);
+                    blit(&mut canvas, part, origin);
                 }
             }
             for &cell in sprites.foreign_cells() {
@@ -212,13 +233,20 @@ pub fn render_area_without_culling(
                     && let Some(part) = sprites.part(id, cell)
                 {
                     let origin = origin_of(projection, rect, anchor, part);
-                    blit(&mut canvas, part, origin, cover, 0);
+                    blit(&mut canvas, part, origin);
                 }
             }
         }
     }
 
     Ok(canvas)
+}
+
+/// Wo der Ursprung eines Blocks auf der Leinwand liegt; dort sitzt die
+/// Mitte seines Umrisses.
+fn block_origin(projection: Projection, rect: ScreenRect, anchor: [i32; 3]) -> (i32, i32) {
+    let (sx, sy) = projection.project_block(anchor);
+    (sx.round() as i32 - rect.x, sy.round() as i32 - rect.y)
 }
 
 /// Linke obere Ecke eines Sprites auf der Leinwand, wenn sein Block bei
@@ -229,11 +257,8 @@ fn origin_of(
     anchor: [i32; 3],
     sprite: &Sprite,
 ) -> (i32, i32) {
-    let (sx, sy) = projection.project_block(anchor);
-    (
-        sx.round() as i32 + sprite.offset.0 - rect.x,
-        sy.round() as i32 + sprite.offset.1 - rect.y,
-    )
+    let (bx, by) = block_origin(projection, rect, anchor);
+    (bx + sprite.offset.0, by + sprite.offset.1)
 }
 
 /// Der Block, dessen Modell in `cell` hineinragen würde.
@@ -252,7 +277,7 @@ struct Drawn {
 impl Drawn {
     /// In Zeichenreihenfolge: die Streifen nach dem Block, sie liegen auf
     /// seiner Grenze, also vor allem, was er selbst enthält.
-    fn ids(self) -> impl Iterator<Item = SpriteId> {
+    fn ids(self) -> impl DoubleEndedIterator<Item = SpriteId> {
         self.sprite
             .into_iter()
             .chain(self.strips.into_iter().flatten())
@@ -272,10 +297,9 @@ struct Candidate {
     /// 0: der Block selbst; sonst 1 + Index des fremden Würfels, in den
     /// ein Nachbarmodell hineinragt.
     kind: u16,
-    /// Nachbarn (`mask_bit`), die `PLAIN` sind, deckend und ohne
-    /// Flüssigkeit, und gezeichnet werden: was in ihrem Umriss liegt,
-    /// übermalen sie ohnehin.
-    skip: u8,
+    /// Die Familie bleibt nicht in ihrem Würfel (`LOOSE`): kein Test des
+    /// Umrisses gegen die Deckungsmaske.
+    loose: bool,
 }
 
 /// Bereich von `u = x - z`, dessen Spalten in das Rechteck fallen können.
@@ -333,22 +357,8 @@ fn columns_at(
     })
 }
 
-/// Zeichnet ein Sprite an seinen Block — ohne die Pixel, die ein Nachbar
-/// aus `skip` ohnehin übermalt.
-///
-/// Ein sichtbarer Block zeichnet sonst alle drei Flächen, auch die, die der
-/// deckende Nachbar gleich darüberlegt: auf flachem Gelände zwei von drei.
-/// Übersprungen wird nur, was im Umriss eines Nachbarn liegt, der deckend
-/// ist, keine Flüssigkeit enthält (`PLAIN`) *und* in dieser Kachel
-/// gezeichnet wird — dann ist der Pixel danach Alpha 255 vom Nachbarn, egal
-/// was vorher da stand. Das Bild ist dasselbe.
-fn blit(
-    canvas: &mut RgbaImage,
-    sprite: &Sprite,
-    (origin_x, origin_y): (i32, i32),
-    cover: &Cover,
-    skip: u8,
-) {
+/// Zeichnet ein Sprite an seinen Block, ganz.
+fn blit(canvas: &mut RgbaImage, sprite: &Sprite, (origin_x, origin_y): (i32, i32)) {
     let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
     let (cw, ch) = (canvas.width() as i32, canvas.height() as i32);
 
@@ -369,38 +379,204 @@ fn blit(
         let drow = &mut dst[(origin_y + py) as usize * cw * 4..][..cw * 4];
         for px in x0..x1 {
             let s = &row[px as usize * 4..][..4];
-            if s[3] == 0 {
-                continue;
-            }
-            if skip != 0 && cover.at(sprite.offset.0 + px, sprite.offset.1 + py) & skip != 0 {
-                continue;
-            }
-            let d = &mut drow[(origin_x + px) as usize * 4..][..4];
-            if s[3] == 255 {
-                d.copy_from_slice(s);
-            } else {
-                let out = over([s[0], s[1], s[2], s[3]], [d[0], d[1], d[2], d[3]]);
-                d.copy_from_slice(&out);
+            if s[3] != 0 {
+                mische(&mut drow[(origin_x + px) as usize * 4..][..4], s);
             }
         }
     }
 }
 
-/// Ab wie vielen Chunks ein Cache verwirft, was die vorige Kachel nicht
-/// gebraucht hat. Eine Kachel bei scale 32 berührt gut hundert Chunks; die
-/// nächste liegt direkt darunter und teilt sich fast alle davon. Bei
-/// kleinerem scale berührt eine Kachel mehr, bei scale 4 einige hundert,
-/// und der Cache hält dann entsprechend mehr.
+/// Legt einen Pixel über den darunter; deckende direkt statt durch
+/// [`over`].
+#[inline]
+fn mische(d: &mut [u8], s: &[u8]) {
+    if s[3] == 255 {
+        d.copy_from_slice(s);
+    } else {
+        let out = over([s[0], s[1], s[2], s[3]], [d[0], d[1], d[2], d[3]]);
+        d.copy_from_slice(&out);
+    }
+}
+
+/// Die Deckungsmaske von [`render_area_with`]: je Leinwandpixel ein Bit,
+/// "hier liegt schon ein deckender Pixel von weiter vorn", dazu die
+/// sichtbaren Pixel jedes Draws, der bleibt.
+struct Deckung {
+    width: i32,
+    height: i32,
+    /// Wörter je Leinwandzeile; Bit `x % 64` von Wort `x / 64` steht für
+    /// Spalte `x`.
+    words: usize,
+    bits: Vec<u64>,
+    /// Die Zeilen eines Blockumrisses, siehe [`SpriteSet::outline_rows`].
+    umriss: Vec<(i32, i32, i32)>,
+    /// Die sichtbaren Pixel aller Draws, die bleiben, je Draw eine [`Sicht`].
+    vis: Vec<u64>,
+}
+
+/// Wo die sichtbaren Pixel eines Draws in [`Deckung::vis`] stehen: für
+/// jede Leinwandzeile `y0..y1` die Wörter `k0..k0 + nk`.
+struct Sicht {
+    start: usize,
+    y0: i32,
+    y1: i32,
+    k0: usize,
+    nk: usize,
+}
+
+impl Deckung {
+    fn new(rect: ScreenRect, umriss: Vec<(i32, i32, i32)>) -> Deckung {
+        let words = (rect.width as usize).div_ceil(64);
+        Deckung {
+            width: rect.width as i32,
+            height: rect.height as i32,
+            words,
+            bits: vec![0; words * rect.height as usize],
+            umriss,
+            vis: Vec::new(),
+        }
+    }
+
+    /// Liegt jeder Pixel des Umrisses um diesen Blockursprung schon unter
+    /// einem deckenden, oder neben der Leinwand?
+    fn bedeckt(&self, (bx, by): (i32, i32)) -> bool {
+        self.umriss.iter().all(|&(dy, dx0, dx1)| {
+            let y = by + dy;
+            let (x0, x1) = ((bx + dx0).max(0), (bx + dx1).min(self.width - 1));
+            if y < 0 || y >= self.height || x0 > x1 {
+                return true;
+            }
+            let row = &self.bits[y as usize * self.words..][..self.words];
+            (x0 >> 6..=x1 >> 6).all(|k| {
+                let lo = (x0 - 64 * k).max(0) as u32;
+                let hi = (x1 - 64 * k).min(63) as u32;
+                let maske = (u64::MAX >> (63 - hi)) & (u64::MAX << lo);
+                row[k as usize] & maske == maske
+            })
+        })
+    }
+
+    /// Nimmt ein Sprite von vorn nach hinten auf: merkt sich, was davon
+    /// noch zu sehen ist, und deckt mit seinen deckenden Pixeln, was
+    /// dahinter kommt. `None`, wenn nichts mehr zu sehen ist.
+    fn zeichne(&mut self, sprite: &Sprite, rows: &Rows, (ox, oy): (i32, i32)) -> Option<Sicht> {
+        let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
+        let (x0, x1) = (ox.max(0), (ox + w).min(self.width));
+        let (y0, y1) = (oy.max(0), (oy + h).min(self.height));
+        if x0 >= x1 || y0 >= y1 {
+            return None;
+        }
+        let (k0, k1) = ((x0 >> 6) as usize, ((x1 - 1) >> 6) as usize);
+        // Das letzte Wort einer Zeile reicht über die Leinwand hinaus.
+        let rand = |k: usize| match self.width % 64 {
+            r if r != 0 && k == self.words - 1 => (1 << r) - 1,
+            _ => u64::MAX,
+        };
+        let start = self.vis.len();
+        let mut zu_sehen = false;
+        for y in y0..y1 {
+            let (any, full) = rows.row((y - oy) as usize);
+            let row = &mut self.bits[y as usize * self.words..][..self.words];
+            for (k, deckt) in row.iter_mut().enumerate().take(k1 + 1).skip(k0) {
+                let v = wort(any, ox, k) & rand(k) & !*deckt;
+                zu_sehen |= v != 0;
+                self.vis.push(v);
+                *deckt |= wort(full, ox, k) & rand(k);
+            }
+        }
+        if !zu_sehen {
+            self.vis.truncate(start);
+            return None;
+        }
+        Some(Sicht {
+            start,
+            y0,
+            y1,
+            k0,
+            nk: k1 - k0 + 1,
+        })
+    }
+}
+
+/// Die Bits einer Sprite-Zeile, die in Leinwandwort `k` fallen, wenn das
+/// Sprite bei Leinwandspalte `ox` beginnt.
+fn wort(row: &[u64], ox: i32, k: usize) -> u64 {
+    let start = 64 * k as i32 - ox;
+    let (j, s) = (start.div_euclid(64), start.rem_euclid(64) as u32);
+    let at = |j: i32| {
+        usize::try_from(j)
+            .ok()
+            .and_then(|j| row.get(j))
+            .copied()
+            .unwrap_or(0)
+    };
+    match s {
+        0 => at(j),
+        s => at(j) >> s | at(j + 1) << (64 - s),
+    }
+}
+
+/// Zeichnet die sichtbaren Pixel eines Draws, die [`Deckung::zeichne`]
+/// gemerkt hat.
+fn blit_sichtbar(
+    canvas: &mut RgbaImage,
+    sprite: &Sprite,
+    (ox, oy): (i32, i32),
+    sicht: &Sicht,
+    vis: &[u64],
+) {
+    let (w, cw) = (sprite.image.width() as usize, canvas.width() as usize);
+    let src = sprite.image.as_raw();
+    let dst: &mut [u8] = canvas;
+    let zeilen = vis[sicht.start..].chunks(sicht.nk);
+    for (y, woerter) in (sicht.y0..sicht.y1).zip(zeilen) {
+        let row = &src[(y - oy) as usize * w * 4..][..w * 4];
+        let drow = &mut dst[y as usize * cw * 4..][..cw * 4];
+        for (j, &bits) in woerter.iter().enumerate() {
+            let mut bits = bits;
+            while bits != 0 {
+                let x = (sicht.k0 + j) * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                mische(
+                    &mut drow[x * 4..][..4],
+                    &row[(x as i32 - ox) as usize * 4..][..4],
+                );
+            }
+        }
+    }
+}
+
+/// Wie viele Kachelspalten ein Streifen höchstens breit ist. Der Export
+/// rendert Streifen Zeile für Zeile, und [`ChunkCache`] behält, was die
+/// letzte Zeile gebraucht hat.
+///
+/// Eine Kachel ist ein schräger Schnitt durch die volle Bauhöhe: ein Chunk
+/// liegt im Band von drei bis vier Kachelspalten und gut zwanzig Zeilen.
+/// Spalte für Spalte lädt deshalb jede Kachel die Chunks am unteren Rand
+/// ihrer ganzen Breite neu, samt Rand für Modelle, die überstehen. Über
+/// mehrere Spalten nebeneinander teilen sich die Kacheln einer Zeile diesen
+/// Rand. Breiter als acht Chunks in der Welt wird ein Streifen nicht: bei
+/// scale 32 acht Spalten, ab scale 4 eine, immer eine Zweierpotenz. Eine
+/// Zeile braucht dann höchstens rund 300 Chunks, bei scale 2 die rund 800
+/// einer Kachel.
+pub fn streifenbreite(scale: u32) -> usize {
+    1 << (scale as usize / 4).max(1).ilog2()
+}
+
+/// Ab wie vielen Chunks ein Cache aufräumt. Er behält dann nur, was eine
+/// Zeile eines Streifens gebraucht hat, die letzten `keep` Kacheln; die
+/// nächste Zeile teilt sich fast alle davon. Mehr als diese Zeile und die
+/// Chunks der laufenden Kachel hält er nicht.
 // ponytail: Verfallsdatum je Kachel statt echtem LRU. Reicht, solange die
-// Kacheln in Leseordnung kommen; sonst lädt jede Kachel ihre hundert neu.
+// Kacheln in Streifen kommen; sonst lädt jede Kachel ihre hundert neu.
 const CACHE_CHUNKS: usize = 256;
 
 /// Chunks, die während eines Renderlaufs gebraucht werden.
 ///
 /// Ein Cache gehört zu einer Sprite-Tabelle: er hält je Paletteneintrag
-/// den Familienindex daraus. Über Kacheln hinweg lebt er je Stapel
-/// aufeinanderfolgender Kacheln, die ein Worker nacheinander rendert —
-/// geteilt zwischen Workern wäre er eine Sperre im Renderpfad.
+/// den Familienindex daraus. Über Kacheln hinweg lebt er je Thread, der
+/// Streifen Zeile für Zeile rendert — geteilt zwischen Threads wäre er eine
+/// Sperre im Renderpfad.
 pub struct ChunkCache<'a> {
     world: &'a World,
     sprites: &'a SpriteSet,
@@ -415,6 +591,9 @@ pub struct ChunkCache<'a> {
     last: usize,
     /// Laufende Kachelnummer — das Verfallsdatum der Slots.
     tile: u32,
+    /// Wie viele Kacheln ein Slot überlebt, der nicht mehr gebraucht wird:
+    /// eine Zeile eines Streifens.
+    keep: u32,
 }
 
 struct Slot {
@@ -441,24 +620,20 @@ struct Loaded {
 const PRESENT: usize = 0;
 /// Deckt den ganzen Umriss: verdeckt, was hinter ihm liegt.
 const SOLID: usize = 1;
-/// Deckt den Umriss und zeichnet genau das Sprite ihrer Alternative, ohne
-/// Flüssigkeit: nur vor so einem Nachbarn dürfen Pixel entfallen. Eine
-/// Flüssigkeit zeichnet eine Fassung ohne die Flächen zu ihresgleichen.
-const PLAIN: usize = 2;
 /// Deckt den Boden des Würfels, die Oberseite des Blocks darunter.
-const FLOOR: usize = 3;
+const FLOOR: usize = 2;
 /// Enthält Wasser, [`LAVA`] Lava: für dieselbe Flüssigkeit nebenan
 /// dieselbe.
-const WATER: usize = 4;
-const LAVA: usize = 5;
+const WATER: usize = 3;
+const LAVA: usize = 4;
 /// Nur Wasser, [`PURE_LAVA`] nur Lava, ohne Modell daneben.
-const PURE_WATER: usize = 6;
-const PURE_LAVA: usize = 7;
+const PURE_WATER: usize = 5;
+const PURE_LAVA: usize = 6;
 /// Bleibt nicht in ihrem Würfel: nie überspringen.
-const LOOSE: usize = 8;
+const LOOSE: usize = 7;
 /// Hat Teile in Nachbarwürfeln.
-const FOREIGN: usize = 9;
-const FLAGS: usize = 10;
+const FOREIGN: usize = 8;
+const FLAGS: usize = 9;
 /// Je Flüssigkeit, in der Reihenfolge von [`Masks::up`]: das Bit "enthält
 /// sie" und das Bit "nur sie".
 const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
@@ -495,12 +670,6 @@ fn rand(m: &Masks, col: usize) -> Rand {
 struct Exposed {
     /// Blöcke, von denen etwas zu sehen sein kann.
     own: [u16; 256],
-    /// Je Richtung: der Nachbar ist `PLAIN` und selbst Kandidat, wird also
-    /// gezeichnet und übermalt seinen Umriss. An Section- und Chunkrändern
-    /// vorsichtshalber nie — dort müsste der Nachbar erst berechnet werden.
-    skip_x: [u16; 256],
-    skip_y: [u16; 256],
-    skip_z: [u16; 256],
     /// Gibt es in der Section überhaupt einen Kandidaten? Unter der
     /// Oberfläche meist nicht — dann entfällt die Schleife über 256
     /// Spalten.
@@ -513,7 +682,6 @@ fn flags(family: &Family) -> u16 {
     let bit = |set: bool, flag: usize| (set as u16) << flag;
     bit(true, PRESENT)
         | bit(family.opaque, SOLID)
-        | bit(family.opaque && family.fluid.is_none(), PLAIN)
         | bit(family.covers_floor, FLOOR)
         | bit(fluid(Fluid::Water), WATER)
         | bit(fluid(Fluid::Lava), LAVA)
@@ -639,7 +807,14 @@ impl Loaded {
 }
 
 impl<'a> ChunkCache<'a> {
+    /// Ein Cache für Kacheln, die untereinander kommen.
     pub fn new(world: &'a World, sprites: &'a SpriteSet) -> ChunkCache<'a> {
+        ChunkCache::with_row(world, sprites, 1)
+    }
+
+    /// Ein Cache für Streifen aus `tiles` Spalten, Zeile für Zeile: er
+    /// behält, was die letzte Zeile gebraucht hat.
+    pub fn with_row(world: &'a World, sprites: &'a SpriteSet, tiles: usize) -> ChunkCache<'a> {
         ChunkCache {
             world,
             sprites,
@@ -648,25 +823,31 @@ impl<'a> ChunkCache<'a> {
             index: HashMap::new(),
             last: usize::MAX,
             tile: 0,
+            keep: tiles as u32,
         }
     }
 
-    /// Beginnt eine neue Kachel. Ist der Cache voll, geht alles, was die
-    /// vorige Kachel nicht gebraucht hat.
+    /// Beginnt eine neue Kachel. Ist der Cache voll, geht alles, was keine
+    /// der letzten `keep` Kacheln gebraucht hat, und jede Regionsdatei, die
+    /// kein Slot mehr braucht: ein Thread wandert über die ganze Welt, und
+    /// unter Linux sind 1024 offene Dateien je Prozess üblich.
     fn next_tile(&mut self) {
         self.tile += 1;
         self.last = usize::MAX;
         if self.slots.len() <= CACHE_CHUNKS {
             return;
         }
-        let tile = self.tile;
-        self.slots.retain(|slot| slot.used + 1 >= tile);
+        let (tile, keep) = (self.tile, self.keep);
+        self.slots.retain(|slot| slot.used + keep >= tile);
         self.index = self
             .slots
             .iter()
             .enumerate()
             .map(|(i, slot)| (slot.key, i))
             .collect();
+        let regionen: HashSet<(i32, i32)> =
+            self.slots.iter().map(|slot| region_of(slot.key)).collect();
+        self.regions.retain(|key, _| regionen.contains(key));
     }
 
     /// Slot des Chunks, geladen falls nötig.
@@ -686,7 +867,7 @@ impl<'a> ChunkCache<'a> {
     }
 
     fn load(&mut self, key: (i32, i32)) -> Result<usize> {
-        let region_key = (key.0.div_euclid(REGION), key.1.div_euclid(REGION));
+        let region_key = region_of(key);
         if !self.regions.contains_key(&region_key) {
             let region = self.world.region(region_key.0, region_key.1)?;
             self.regions.insert(region_key, region);
@@ -763,9 +944,6 @@ impl<'a> ChunkCache<'a> {
             .expect("nur Sections mit Familie");
         let mut ex = Box::new(Exposed {
             own: [0; 256],
-            skip_x: [0; 256],
-            skip_y: [0; 256],
-            skip_z: [0; 256],
             any_own: false,
         });
         for col in 0..256 {
@@ -785,16 +963,22 @@ impl<'a> ChunkCache<'a> {
             ex.own[col] = m.bits[PRESENT][col] & (m.bits[LOOSE][col] | !(hidden | fluid_hidden));
         }
         ex.any_own = ex.own.iter().any(|&o| o != 0);
-        // Deckende Kandidaten: die übermalen, was in ihrem Umriss liegt.
-        let drawn = |col: usize| ex.own[col] & m.bits[PLAIN][col];
-        for col in 0..256 {
-            let (x, z) = (col & 15, col >> 4);
-            ex.skip_x[col] = if x < 15 { drawn(col + 1) } else { 0 };
-            ex.skip_z[col] = if z < 15 { drawn(col + 16) } else { 0 };
-            ex.skip_y[col] = drawn(col) >> 1;
-        }
         loaded.exposed[s] = Some(ex);
         Ok(())
+    }
+
+    /// Beginnt eine Kachel: ihre Kandidaten in Zeichenreihenfolge, dazu die
+    /// fremden Würfel, auf die `Candidate::kind` zeigt.
+    fn sorted_candidates(
+        &mut self,
+        rect: ScreenRect,
+        y_range: (i32, i32),
+    ) -> Result<(Vec<Candidate>, Vec<Cell>)> {
+        self.next_tile();
+        let foreign: Vec<Cell> = self.sprites.foreign_cells().iter().copied().collect();
+        let mut candidates = self.candidates(rect, y_range, &foreign)?;
+        candidates.sort_unstable_by_key(|c| c.key);
+        Ok((candidates, foreign))
     }
 
     /// Erster Durchgang: alle Blöcke im Band, von denen etwas zu sehen
@@ -807,8 +991,9 @@ impl<'a> ChunkCache<'a> {
     ) -> Result<Vec<Candidate>> {
         let projection = self.sprites.projection();
         let (u_min, u_max) = u_window(projection, rect);
-        let v_lo = v_window(projection, rect, y_range.0).0;
-        let v_hi = v_window(projection, rect, y_range.1).1;
+        // Das Fenster von `v` verschiebt sich je Höhe um genau 2.
+        let (v0_min, v0_max) = v_window(projection, rect, 0);
+        let (v_lo, v_hi) = (v0_min + 2 * y_range.0, v0_max + 2 * y_range.1);
         debug_assert!(y_range.1 - y_range.0 < 1 << 10);
         debug_assert!(v_hi - v_lo < 1 << 22 && u_max - u_min < 1 << 22);
         debug_assert!(foreign.len() < 1 << 10);
@@ -819,12 +1004,25 @@ impl<'a> ChunkCache<'a> {
                 | ((u - u_min) as u64) << 10
                 | kind as u64
         };
+        let in_y = |y: i32| (y_range.0..=y_range.1).contains(&y);
         let in_band = |y: i32, v: i32, u: i32| {
-            if y < y_range.0 || y > y_range.1 || u < u_min || u > u_max {
-                return false;
-            }
-            let (v_min, v_max) = v_window(projection, rect, y);
-            v >= v_min && v <= v_max
+            in_y(y)
+                && (u_min..=u_max).contains(&u)
+                && (v0_min + 2 * y..=v0_max + 2 * y).contains(&v)
+        };
+        // Das Band hat Reserve für Modelle, die aus ihrem Würfel ragen. Alle
+        // anderen bleiben in dessen Umriss (`contained`) und zählen nur, wenn
+        // der die Kachel berührt: im Band lag sonst mehr als die Hälfte der
+        // Kandidaten neben der Kachel, und jeder bekam eine Sprite-Wahl.
+        let (x_min, x_max, y_min, y_max) = self.sprites.outline_box();
+        let (width, height) = (rect.width as i32, rect.height as i32);
+        let touches = |x: i32, y: i32, z: i32| {
+            let (bx, by) = block_origin(projection, rect, [x, y, z]);
+            in_y(y)
+                && bx + x_max >= 0
+                && bx + x_min < width
+                && by + y_max >= 0
+                && by + y_min < height
         };
         // Ein fremdes Teil kann von einem Block ausserhalb des Bands
         // hereinragen; so weit reicht die Suche über das Band hinaus.
@@ -839,9 +1037,10 @@ impl<'a> ChunkCache<'a> {
         let bleed = BLEED_BLOCKS as f64 * scale;
         // Höhen, die das Band in einem Chunk erreichen kann: die Umkehrung
         // von `v_window` für die kleinste und grösste Tiefe `v` des Chunks,
-        // grosszügig gerundet. Entscheidend bleibt `in_band` je Block; das
-        // hier spart nur die Schleife über Sections, die das Band in
-        // diesem Chunk gar nicht berührt — von 24 sind es meist drei.
+        // grosszügig gerundet. Entscheidend bleibt die Prüfung je Block
+        // (`touches`, `in_band`); das hier spart nur die Schleife über
+        // Sections, die das Band in diesem Chunk gar nicht berührt — von 24
+        // sind es meist drei.
         let y_span = |va: i32, vb: i32| {
             let lo = ((va - 1) as f64 * scale / 4.0 - rect.bottom() as f64 - bleed) / (scale / 2.0);
             let hi = ((vb + 1) as f64 * scale / 4.0 - rect.y as f64 + bleed) / (scale / 2.0);
@@ -895,20 +1094,14 @@ impl<'a> ChunkCache<'a> {
                         let b = bits.trailing_zeros();
                         let y = sy + b as i32;
                         bits &= bits - 1;
-                        if !in_band(y, v, u) {
+                        let loose = m.bits[LOOSE][col] >> b & 1 != 0;
+                        let drin = if loose {
+                            in_band(y, v, u)
+                        } else {
+                            touches(x, y, z)
+                        };
+                        if !drin {
                             continue;
-                        }
-                        // Der Nachbar übermalt nur, was diese Kachel auch
-                        // zeichnet: er muss selbst im Band liegen.
-                        let mut skip = 0;
-                        if ex.skip_x[col] >> b & 1 != 0 && in_band(y, v + 1, u + 1) {
-                            skip |= mask_bit(Face::East);
-                        }
-                        if ex.skip_y[col] >> b & 1 != 0 && in_band(y + 1, v, u) {
-                            skip |= mask_bit(Face::Up);
-                        }
-                        if ex.skip_z[col] >> b & 1 != 0 && in_band(y, v + 1, u - 1) {
-                            skip |= mask_bit(Face::South);
                         }
                         out.push(Candidate {
                             key: key_of(y, v, u, 0),
@@ -916,7 +1109,7 @@ impl<'a> ChunkCache<'a> {
                             y,
                             z,
                             kind: 0,
-                            skip,
+                            loose,
                         });
                     }
                     let mut bits = fo;
@@ -949,7 +1142,7 @@ impl<'a> ChunkCache<'a> {
                         y,
                         z,
                         kind,
-                        skip: 0,
+                        loose: false,
                     });
                 }
             }
@@ -1073,6 +1266,11 @@ impl<'a> ChunkCache<'a> {
     }
 }
 
+/// Die Region eines Chunks.
+fn region_of((cx, cz): (i32, i32)) -> (i32, i32) {
+    (cx.div_euclid(REGION), cz.div_euclid(REGION))
+}
+
 /// Alle Chunks, die das Band `u ∈ [u_min, u_max]`, `v ∈ [v_lo, v_hi]`
 /// berühren können — grob über die Hüllbox, dann je Chunk gegen das Band.
 /// Ein paar Chunks zu viel schaden nicht: jeder Kandidat wird ohnehin
@@ -1189,6 +1387,41 @@ mod tests {
                 assert!(chunks.contains(&(x >> 4, z >> 4)), "({x}, {z}) auf {y}");
             }
         }
+    }
+
+    /// Die Deckungsmaske von vorn nach hinten, auf einer Leinwand von
+    /// 100 px, zwei Wörter je Zeile. Ein halb durchsichtiges Sprite vorn
+    /// deckt nichts; ein deckendes deckt seinen Umriss, und vom gleichen
+    /// dahinter ist nichts mehr zu sehen. Eine Spalte daneben scheint durch,
+    /// auch jenseits der Wortgrenze; was neben der Leinwand liegt, gilt als
+    /// bedeckt.
+    #[test]
+    fn deckung_von_vorn_nach_hinten() {
+        let rect = ScreenRect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 10,
+        };
+        let sprite = |alpha| Sprite {
+            image: RgbaImage::from_pixel(8, 4, image::Rgba([1, 2, 3, alpha])),
+            offset: (0, 0),
+        };
+        let (deckend, halb) = (sprite(255), sprite(128));
+        let (voll, durch) = (Rows::of(&deckend), Rows::of(&halb));
+        let mut d = Deckung::new(rect, (0..4).map(|dy| (dy, 0, 7)).collect());
+        let ort = (60, 2);
+        assert!(!d.bedeckt(ort));
+        assert!(d.zeichne(&halb, &durch, ort).is_some());
+        assert!(!d.bedeckt(ort), "halb durchsichtig deckt nichts");
+        assert!(d.zeichne(&deckend, &voll, ort).is_some());
+        assert!(d.bedeckt(ort));
+        assert!(d.zeichne(&deckend, &voll, ort).is_none(), "ganz verdeckt");
+        let sicht = d.zeichne(&deckend, &voll, (61, 2)).expect("Spalte 68");
+        assert_eq!((sicht.y0, sicht.y1, sicht.k0, sicht.nk), (2, 6, 0, 2));
+        assert_eq!(&d.vis[sicht.start..], [0, 1 << 4].repeat(4));
+        assert!(d.bedeckt((200, 2)));
+        assert!(d.bedeckt((50, -20)));
     }
 
     #[test]

@@ -1761,6 +1761,89 @@ mod tests {
         assert!(sprite.image.pixels().any(|p| p.0[3] > 0));
     }
 
+    /// Bleibt eine Familie im Würfel, bleibt jede ihrer Fassungen im Umriss:
+    /// Masken, Tiefen, Biome und die Streifen ihrer Flüssigkeit. `contained`
+    /// prüft nur die Grundbilder, darauf bauen aber die Deckungsmaske
+    /// (`bedeckt`) und die Kandidatensuche (`touches`): Ein enthaltener
+    /// Block fällt weg, wenn sein Umriss bedeckt ist oder die Kachel nicht
+    /// berührt. Geprüft an den Blöcken der Testszenen, Wasser und Lava in
+    /// jeder Höhe, bei jedem scale von 4 bis 32.
+    #[test]
+    fn fassungen_enthaltener_familien_bleiben_im_umriss() {
+        let mut assets = assets();
+        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
+        assets.load_biomes(&data).unwrap();
+        let mut states: Vec<BlockState> = [
+            "grass_block",
+            "einfarbig",
+            "durchsichtig",
+            "oak_fence[waterlogged=true]",
+            "bubble_column",
+            "ueberhang",
+            "seerose",
+            "ackerboden",
+            "turm",
+            "rand",
+            "boden",
+            "obere_platte",
+            "untere_platte",
+            "kuchen",
+            "saeule",
+            "druckplatte",
+            "teppich",
+            "mit_overlay",
+        ]
+        .into_iter()
+        .map(state)
+        .collect();
+        for level in 0..8 {
+            states.push(state(&format!("water[level={level}]")));
+            states.push(state(&format!("lava[level={level}]")));
+        }
+        for scale in (4..=32).step_by(4) {
+            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
+            let mut geprueft = 0;
+            for family in set.families.iter().filter(|f| f.contained) {
+                let mut ids: Vec<SpriteId> = family
+                    .alternatives
+                    .iter()
+                    .filter_map(|&(_, id)| id)
+                    .collect();
+                let masken: Vec<SpriteId> = ids
+                    .iter()
+                    .filter_map(|id| set.by_mask.get(id))
+                    .flat_map(|fassungen| fassungen.iter().flatten())
+                    .copied()
+                    .collect();
+                ids.extend(masken);
+                if let Some((fluid, _)) = family.fluid {
+                    ids.extend(
+                        set.strips
+                            .iter()
+                            .filter(|(schluessel, _)| schluessel.0 == fluid)
+                            .map(|(_, &id)| id),
+                    );
+                }
+                let biome: Vec<SpriteId> = ids
+                    .iter()
+                    .filter_map(|id| set.by_biome.get(id))
+                    .flatten()
+                    .copied()
+                    .collect();
+                ids.extend(biome);
+                for id in ids {
+                    assert!(
+                        set.sprites[id.0 as usize].contained,
+                        "scale {scale}: Sprite {} einer enthaltenen Familie ragt heraus",
+                        id.0
+                    );
+                    geprueft += 1;
+                }
+            }
+            assert!(geprueft > 1000, "scale {scale}: nur {geprueft} Fassungen");
+        }
+    }
+
     /// Was Wasser zeichnet, bleibt im Umriss seines Blocks, jede Fassung und
     /// jeder Streifen: Die Kandidatensuche verwirft einen Block samt seinen
     /// Streifen, wenn sein Umriss die Kachel nicht berührt.

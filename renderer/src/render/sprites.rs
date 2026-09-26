@@ -97,15 +97,12 @@ impl Masks {
     /// nachgeschlagen: Jede Stelle des Umrisses kommt einmal vor, also sind
     /// die sichtbaren Pixel dort genau dann alle, wenn keiner daneben liegt.
     fn contains(&self, sprite: &Sprite) -> bool {
-        let (w, h) = sprite.image.dimensions();
-        let sichtbar = |(x, y): &(i32, i32)| {
-            let (px, py) = (x - sprite.offset.0, y - sprite.offset.1);
-            (0..w as i32).contains(&px)
-                && (0..h as i32).contains(&py)
-                && sprite.image.get_pixel(px as u32, py as u32).0[3] > 0
-        };
         let alle = sprite.image.pixels().filter(|p| p.0[3] > 0).count();
-        self.outline.iter().filter(|pos| sichtbar(pos)).count() == alle
+        let innen = self
+            .outline
+            .iter()
+            .filter(|&&(x, y)| alpha_at(sprite, x, y) > 0);
+        innen.count() == alle
     }
 }
 

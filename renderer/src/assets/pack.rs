@@ -25,16 +25,11 @@ pub const ASSETS: [&[&str]; 4] = [
 /// Die Biome einer Datenwurzel, `RegistryDataLoader` listet sie so auf.
 pub const BIOME: [&[&str]; 1] = [&["worldgen", "biome"]];
 
-/// Eine Wurzel mit Namensräumen darunter, wie der Client sie sieht.
-///
-/// Der Wurzel folgt er, auch über einen Link, und jedem Namensraum, den
-/// `getNamespaces` findet: einem Ordner mit gültigem Namen, auch hinter
-/// einem Link. Darunter listet er ohne Links auf, `listPath` über
-/// `Files.find`: den Anfang einer Liste nennt der Code, unter Windows gilt
-/// er also in jeder Schreibweise, die Namen darunter kommen von der Platte,
-/// und was ein Link ist, fällt weg. Ganz aus lässt er ein Pack mit einem
-/// Link darin nur im Ordner `resourcepacks` (`DirectoryValidator`); die
-/// Wurzeln hier nennt der Nutzer.
+/// Eine Wurzel mit Namensräumen darunter, wie der Client sie sieht: Der
+/// Wurzel und jedem Namensraum mit gültigem Namen folgt er auch über einen
+/// Link (`getNamespaces`), darunter listet er ohne Links auf (`listPath`).
+/// Siehe docs/renderer/packs.md, „Was aufgelistet wird“.
+/// Siehe docs/renderer/packs.md, „Links“.
 pub struct Pack {
     root: PathBuf,
     namespaces: HashSet<String>,
@@ -121,10 +116,9 @@ impl Pack {
     /// `listPath`: alles unter `start`, was Java ohne Links für eine Datei
     /// hält, unter `name` und den Namen auf der Platte, und nur, wenn der
     /// Name als `Identifier` taugt. Ist `start` selbst kein Ordner, etwa ein
-    /// Link oder eine Datei, gibt es nichts. Jeden Fehler an `start` fängt
-    /// `listPath` ab und listet nichts (`anfang_scheitert`). Tiefer im Baum
-    /// fängt es nichts, dort scheitert im Client das Laden der Packs und
-    /// hier der Lauf.
+    /// Link oder eine Datei, gibt es nichts. Ein Fehler an `start` listet
+    /// nichts (`anfang_scheitert`), einer tiefer im Baum bricht den Lauf ab.
+    /// Siehe docs/renderer/packs.md, „Lesefehler“.
     fn liste(&mut self, namespace: &str, start: &Path, name: &str) -> Result<()> {
         match std::fs::symlink_metadata(start).and_then(|meta| art(start, &meta)) {
             Ok(Art::Ordner) => {}
@@ -169,14 +163,9 @@ impl Pack {
         Ok(())
     }
 
-    /// Scheitert `listPath` am Anfang einer Liste, listet es nichts. Still
-    /// bleibt es bei `NoSuchFileException`, wenn er oder sein Ziel fehlt,
-    /// etwa bei einer Junction ohne Ziel, und bei `NotDirectoryException`,
-    /// die nur das Öffnen des Ordners wirft, wenn sein Ziel kein Ordner ist:
-    /// das sind die Fehler in `still`. Jeden anderen schreibt es ins Log,
-    /// etwa bei einer Junction auf sich selbst oder unter Linux, wenn im
-    /// Pfad davor eine Datei steht; der Renderer nennt ihn in
-    /// [`Pack::unreadable`].
+    /// Scheitert `listPath` am Anfang einer Liste, listet es nichts: still bei
+    /// den Fehlern in `still`, sonst mit dem Fehler in [`Pack::unreadable`].
+    /// Siehe docs/renderer/packs.md, „Lesefehler“.
     fn anfang_scheitert(&mut self, start: &Path, fehler: &std::io::Error, still: &[ErrorKind]) {
         if !still.contains(&fehler.kind()) {
             self.unreadable
@@ -208,12 +197,11 @@ fn art(_pfad: &Path, meta: &std::fs::Metadata) -> std::io::Result<Art> {
     })
 }
 
-/// Java hält unter Windows nur einen Analysepunkt mit dem Tag
-/// `IO_REPARSE_TAG_SYMLINK` für einen Link (`WindowsFileAttributes`). Eine
-/// Junction ist ein Ordner, dem es folgt, eine Datei mit anderem Tag
-/// keine Datei (`isOther`). So in Java 25, auf dem 26.2 läuft; ab Java 26
-/// ist kein Analysepunkt mehr ein Ordner. Rust hält beides für einen Link,
-/// nur der Tag unterscheidet sie.
+/// Was ein Eintrag unter Windows für Java 25 ist: ein Link nur mit dem Tag
+/// `IO_REPARSE_TAG_SYMLINK`, eine Junction ein Ordner, eine Datei mit
+/// anderem Tag keine Datei. Rust hält beides für einen Link, nur der Tag
+/// unterscheidet sie.
+/// Siehe docs/renderer/packs.md, „Links“.
 #[cfg(windows)]
 fn art(pfad: &Path, meta: &std::fs::Metadata) -> std::io::Result<Art> {
     use std::os::windows::fs::MetadataExt;

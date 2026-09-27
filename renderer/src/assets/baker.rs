@@ -228,13 +228,11 @@ fn rotate_face(face: Face, x: i32, y: i32, z: i32) -> Face {
 }
 
 /// `uvlock`: die Textur bleibt an der Welt ausgerichtet, statt sich mit dem
-/// Modell mitzudrehen. 143 Vanilla-Blockstates setzen das Flag, fast alle
-/// Treppen, Zäune und Falltüren darunter.
-///
-/// Die Texturkoordinate wandert dafür auf ihre Seite des Einheitswürfels,
-/// dreht sich mit und wird auf der Zielseite wieder zur Texturkoordinate.
-/// Dass sie dabei an derselben Geometrieecke bleibt, erledigt der
-/// gemeinsame Eckenumlauf in `bake`.
+/// Modell mitzudrehen. Die Texturkoordinate wandert dafür auf ihre Seite
+/// des Einheitswürfels, dreht sich mit und wird auf der Zielseite wieder zur
+/// Texturkoordinate. An derselben Geometrieecke hält sie der gemeinsame
+/// Eckenumlauf in `bake`.
+/// Siehe docs/renderer/modelle-und-texturen.md, „Felder eines Modells“.
 fn lock_uv(face: Face, [u, v]: [f32; 2], x: i32, y: i32, z: i32) -> [f32; 2] {
     let plane = plane_of(face, [0.0; 3], [BLOCK; 3]);
     let punkt = rotate_variant(corner(face, u, v, plane), x, y, z);

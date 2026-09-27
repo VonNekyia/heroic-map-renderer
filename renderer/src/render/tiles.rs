@@ -151,11 +151,8 @@ pub struct Survey {
 /// vorkommen und welche Kacheln überhaupt etwas zeigen.
 ///
 /// `bounds` schränkt auf einen Bildausschnitt ein; ohne Angabe ist es die
-/// ganze Welt.
-///
-/// Der Renderlauf liest die Chunks danach ein zweites Mal. Die Alternative
-/// wäre eine Sprite-Tabelle hinter einer Sperre, und die stünde im
-/// Renderpfad jedes Workers.
+/// ganze Welt. Der Renderlauf liest die Chunks danach ein zweites Mal.
+/// Siehe docs/entscheidungen/0003-vorlauf-vor-dem-rendern.md.
 // ponytail: liest die Welt zweimal. Eine Blockstate-Liste neben der Welt
 // spart den ersten Lauf, sobald er weh tut.
 pub fn survey(
@@ -351,18 +348,10 @@ fn clip(rect: ScreenRect, bounds: ScreenRect) -> ScreenRect {
 }
 
 /// Kodiert ein Bild als verlustfreies WebP, mit libwebp auf Stufe 0.
-///
-/// Verlustfrei und nicht verlustbehaftet: Minecraft-Texturen sind
-/// Pixelkunst mit wenigen flachen Farben, die verlustfrei gut komprimiert.
-/// Verlustbehaftet würde aus 16-Pixel-Texturen Matsch, und die
-/// Kachelränder bekämen Artefakte, die man im Raster sieht.
-///
-/// libwebp statt des Encoders aus `image`: Der packt ohne Palette,
-/// Farbcache und Rückverweise, die Kacheln werden dreimal so gross. Stufe 0
-/// ist die schnellste; höhere Stufen sparen wenig und kosten ein
-/// Vielfaches. `exact` behält die Farbe voll durchsichtiger Pixel, sonst
-/// setzt libwebp sie auf 0. Eigene Threads braucht libwebp nicht, die
-/// Kacheln verteilt schon `rendere`.
+/// `exact` behält die Farbe voll durchsichtiger Pixel, sonst setzt libwebp
+/// sie auf 0. Eigene Threads braucht libwebp nicht, die Kacheln verteilt
+/// schon `rendere`.
+/// Siehe docs/renderer/renderpfad.md, „Kodieren“.
 pub fn encode_webp(image: &RgbaImage) -> Result<Vec<u8>> {
     let passt_nicht = |()| anyhow!("libwebp passt nicht zu seinen Headern");
     let mut config = webp::WebPConfig::new().map_err(passt_nicht)?;

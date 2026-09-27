@@ -48,7 +48,7 @@ impl Face {
 /// Minecraft kennt zwei Schreibweisen: die klassische mit `axis` und `angle`
 /// und seit 1.21.11 eine mit `x`, `y` und `z` gleichzeitig. Beide landen hier
 /// in `angles`; die klassische setzt genau einen Eintrag. Angewendet werden
-/// die Winkel erst vom Baker in Schritt 3.
+/// die Winkel erst beim Backen, in `baker.rs`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rotation {
     pub origin: [f32; 3],
@@ -87,9 +87,10 @@ pub struct Element {
 
 /// Ein Modell mit aufgelöster `parent`-Kette und aufgelösten Texturen.
 ///
-/// Ohne Elemente ist das Modell leer: Truhen, Banner und Schilder haben in
-/// 26.2 nur eine Partikeltextur und werden von Minecraft über
-/// Entity-Modelle gezeichnet, die es in V1 nicht gibt.
+/// Ohne Elemente ist das Modell leer: Truhen, Banner, Schädel und Töpfe
+/// haben in 26.2 nur eine Partikeltextur, und ihre Entity-Modelle zeichnet
+/// der Renderer nicht.
+/// Siehe docs/renderer/modelle-und-texturen.md, „Was kein Blockmodell hat“.
 #[derive(Debug)]
 pub struct ResolvedModel {
     pub elements: Vec<Element>,

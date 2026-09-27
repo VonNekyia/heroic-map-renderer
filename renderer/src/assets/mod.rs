@@ -67,10 +67,8 @@ pub struct ResolvedVariant {
 ///
 /// Spätere Wurzeln überschreiben frühere, so wie Minecraft Resourcepacks
 /// stapelt: Modelle und Texturen Datei für Datei, Blockstates Zustand für
-/// Zustand. Ein Overlay-Pack, das nur 39 Blockstates mitbringt,
-/// funktioniert damit über einer vollständigen Vanilla-Basis, und eines,
-/// das in einer Datei nur einen Teil der Zustände nennt, auch. Jede Wurzel
-/// liest der Renderer wie der Client, siehe [`Pack`].
+/// Zustand. Jede Wurzel liest der Renderer wie der Client, siehe [`Pack`].
+/// Siehe docs/renderer/blockstates.md, „Packs stapeln sich je Zustand“.
 pub struct Assets {
     packs: Vec<Pack>,
     textures: Textures,
@@ -248,13 +246,11 @@ impl Assets {
     }
 
     /// Die Modellverweise einer Blockstate mit Gewicht, wie die
-    /// Blockstate-Dateien sie nennen.
-    ///
-    /// Die Packs stapeln sich je Zustand wie in
-    /// `loadBlockStateDefinitionStack`: die oberste Datei, die den Zustand
-    /// kennt, gewinnt, und eine kaputte fällt aus. Kennt ihn keine, gilt wie
-    /// im Client der Missing-Würfel: `ModelManager` füllt jede Blockstate
-    /// ohne Modell damit auf. Was fehlt, steht in [`Assets::skipped`].
+    /// Blockstate-Dateien sie nennen: aus der obersten Datei, die den Zustand
+    /// kennt, wie `loadBlockStateDefinitionStack`; eine kaputte fällt aus.
+    /// Kennt ihn keine, gilt der Missing-Würfel, und der Zustand steht in
+    /// [`Assets::skipped`].
+    /// Siehe docs/renderer/blockstates.md, „Packs stapeln sich je Zustand“.
     pub fn alternative_refs(&mut self, state: &BlockState) -> Result<Vec<(u32, Vec<ModelRef>)>> {
         let stack = self.blockstate_stack(state.name())?;
         let index = stack.definition.and_then(|d| d.index(state));
@@ -281,12 +277,10 @@ impl Assets {
     /// aufgelöst.
     ///
     /// Ein Modell, das fehlt oder kaputt ist, wird zum Missing-Würfel, mit
-    /// der Drehung seines Eintrags — wie im Client, der jeden Verweis für
-    /// sich auflöst. Bei `multipart` trifft das nur den kaputten Teil, und
-    /// eine Alternative behält ihr Gewicht: fiele sie weg, würfelte
-    /// `nextInt` an den meisten Positionen anders als das Spiel. Ein Pack
-    /// mit einem Tippfehler bricht so keinen Lauf ab. Fehlt einem Modell
-    /// nur der Parent, steht die Blockstate ebenso in [`Assets::skipped`].
+    /// der Drehung seines Eintrags; bei `multipart` nur der kaputte Teil. Die
+    /// Alternative behält ihr Gewicht. Fehlt einem Modell nur der Parent,
+    /// steht die Blockstate ebenso in [`Assets::skipped`].
+    /// Siehe docs/renderer/varianten.md, „Kaputte Alternativen“.
     pub fn alternatives(&mut self, state: &BlockState) -> Result<Vec<(u32, Vec<ResolvedVariant>)>> {
         let mut out = Vec::new();
         for (weight, refs) in self.alternative_refs(state)? {
@@ -336,11 +330,10 @@ impl Assets {
     ///
     /// Fehlt das Modell, ist es kaputt oder hängt es in einem Zyklus, ist
     /// das ein Fehler, und der Verweis wird zum Missing-Würfel. Fehlt ein
-    /// Parent oder ist er kaputt, setzt der Client das Missing-Modell an
-    /// seine Stelle ("Missing block model"): die eigenen Elemente des
-    /// Kindes bleiben, auch leere, sonst erbt es den Missing-Würfel. Den
-    /// Grund merkt sich der Renderer für [`Assets::skipped`]. Den Parent
-    /// `builtin/missing` kennt der Client, er ist kein Fehler.
+    /// Parent oder ist er kaputt, tritt das Missing-Modell an seine Stelle,
+    /// und der Grund landet in [`Assets::skipped`]. `builtin/missing` ist kein
+    /// Fehler.
+    /// Siehe docs/renderer/modelle-und-texturen.md, „Parents“.
     pub fn model(&mut self, id: &str) -> Result<Arc<ResolvedModel>> {
         if let Some(model) = self.models.get(id) {
             return Ok(Arc::clone(model));
@@ -466,10 +459,9 @@ fn read_json(path: &Path) -> Result<serde_json::Value> {
 /// Blockstates, Modelle, `.mcmeta` und Biome setzt. Mit `ganz` darf hinter
 /// dem ersten Dokument nichts mehr stehen, wie bei `StrictJsonParser`;
 /// sonst liest es nur das erste, wie `GsonHelper`. Eine Zahl ab 1024
-/// Zeichen lehnt schon der Tokenizer ab: so lang ist sein Puffer
-/// (`JsonReader.peekNumber`), und nur im Modus `LENIENT` ginge es weiter.
-/// Gezählt wird im Text, also auch bei einem Schlüssel, den ein späterer
-/// gleichen Namens überschreibt.
+/// Zeichen lehnt es ab, gezählt im Text, also auch unter einem Schlüssel,
+/// den ein späterer gleichen Namens überschreibt.
+/// Siehe docs/renderer/blockstates.md, „JSON wie Gson“.
 fn parse_json(text: &str, ganz: bool) -> Result<serde_json::Value> {
     let (json, ende) = if ganz {
         let json = serde_json::from_str(text).context("kein gültiges JSON")?;

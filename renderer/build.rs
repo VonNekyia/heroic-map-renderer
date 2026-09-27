@@ -1,10 +1,10 @@
 //! Unter Windows bekommt das Binär ein Manifest mit dem Segment-Heap.
 //!
 //! Der Rust-Teil allokiert über mimalloc, libwebp aber über `malloc` der
-//! C-Laufzeit, ohne Haken für einen eigenen Allokator. Je Kachel sind das
-//! rund 2 MB, die der gewöhnliche Windows-Heap beim Freigeben ans System
-//! zurückgibt und bei der nächsten Kachel neu holt: gut 500 Seitenfehler je
-//! Kachel, die sich auf vielen Threads stauen. Der Segment-Heap behält sie.
+//! C-Laufzeit, ohne Haken für einen eigenen Allokator. Der gewöhnliche
+//! Windows-Heap gibt diesen Speicher nach jeder Kachel ans System zurück,
+//! der Segment-Heap behält ihn.
+//! Siehe docs/entscheidungen/0029-segment-heap-fuer-libwebp.md.
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");

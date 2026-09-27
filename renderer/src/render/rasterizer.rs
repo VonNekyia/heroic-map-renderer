@@ -9,21 +9,13 @@ use crate::assets::{Face, Textures, Tints, fluid};
 use super::Projection;
 use super::pyramid::{LINEAR, to_srgb};
 
-/// Abtastpunkte je Pixelkante für die Textur.
-///
-/// Die Geometrie wird nur im Pixelmittelpunkt geprüft: jeder Pixel gehört
-/// genau einer Fläche, und benachbarte Flächen stossen nahtlos aneinander.
-/// Geglättete Kanten trügen Teildeckung im Alpha, und beim Zusammensetzen
-/// der Sprites könnte niemand mehr unterscheiden, ob zwei Nachbarflächen
-/// dasselbe Pixel teilen oder ob eine durch die andere scheint — ein
-/// geschlossenes Wasserbecken bekäme an jeder Blockgrenze eine hellere
-/// Naht, ein Boden aus deckenden Blöcken dunkle Linien. Die Textur dagegen
-/// wird über den Pixel gemittelt, und zwar so dicht, dass jeder Texel
-/// erfasst wird: eine Seitenfläche ist `scale / 2` Pixel breit für
-/// sechzehn Texel, also liegen `32 / scale` Texel unter jedem Pixel.
-/// Mindestens zwei Abtastpunkte, damit auch bei scale 32 die Mitte
-/// zwischen zwei Texeln stimmt; höchstens sechzehn, mehr Texel hat eine
-/// Textur nicht.
+/// Abtastpunkte je Pixelkante für die Textur. Die Geometrie wird nur im
+/// Pixelmittelpunkt geprüft, die Textur über den Pixel gemittelt, so
+/// dicht, dass jeder Texel zählt: eine Seitenfläche ist `scale / 2` Pixel
+/// breit für sechzehn Texel, also liegen `32 / scale` Texel unter jedem
+/// Pixel. Mindestens zwei, damit auch bei scale 32 die Mitte zwischen zwei
+/// Texeln stimmt; höchstens sechzehn, mehr Texel hat eine Textur nicht.
+/// Siehe docs/renderer/naehte.md, „Geometrie im Pixelmittelpunkt“.
 fn texture_samples(scale: u32) -> u32 {
     (32 / scale.max(1)).clamp(2, 16)
 }
@@ -39,13 +31,10 @@ const MAX_SPRITE_BLOCKS: u32 = 8;
 const FLUID_BEHIND: f32 = 1e-3;
 
 /// Bis zu diesem Anteil ihrer Normalen steht eine Fläche parallel zur
-/// Blickrichtung und hat im Bild keine Fläche. Der Baker dreht in f32, und
-/// eine solche Fläche behält eine Normale, deren Summe um 1e-7 ihrer Länge
-/// neben null liegt, mal davor, mal dahinter. Davor legte sie einen
-/// Streifen von 2e-7 Pixeln Breite auf die Kante ihres Nachbarn, und ein
-/// Pixelmittelpunkt genau darauf bekam beide. Echte Drehungen liegen weit
-/// darüber: um eine Achse in Schritten von 22,5 Grad, dazu Vielfache von
-/// 90, ist die kleinste Summe ungleich null 0,54 der Länge.
+/// Blickrichtung und hat im Bild keine Fläche. Der Baker dreht in f32 und
+/// lässt einer solchen Fläche eine Normale knapp neben null; echte
+/// Drehungen liegen weit darüber.
+/// Siehe docs/renderer/naehte.md, „Flächen parallel zur Blickrichtung“.
 const EDGE_ON: f32 = 1e-4;
 
 /// Helligkeit je Flächenrichtung, wie Minecraft sie verwendet. Ohne diese
@@ -65,12 +54,9 @@ pub const FULL_LIGHT: u8 = 15;
 pub const LIGHT_UNDER_SURFACE: u8 = 14;
 
 /// Helligkeit einer Fläche im Himmelslicht `light` (0 bis 15), am Tag in
-/// der Oberwelt, so wie `shaders/core/lightmap.fsh` in 26.2 sie rechnet:
-/// `get_brightness(l / 15) = l / (4 - 3 l)` mal `SkyFactor` 1 und die
-/// weisse `SkyLightColor`, dazu die `ambient_light_color` `#0a0a0a` der
-/// Oberwelt, auf 1 begrenzt. Danach steht sie halb zwischen diesem Wert und
-/// `notGamma`, denn `options.gamma` ist im Spiel 0,5. Licht 15 gibt 1, also
-/// so hell, wie der Renderer jede Fläche zeichnet.
+/// der Oberwelt, so wie `shaders/core/lightmap.fsh` in 26.2 sie rechnet.
+/// Licht 15 gibt 1, also so hell, wie der Renderer jede Fläche zeichnet.
+/// Siehe docs/renderer/wasser-und-licht.md, „Helligkeit wie im Spiel“.
 pub fn brightness(light: u8) -> f32 {
     let level = light.min(FULL_LIGHT) as f32 / 15.0;
     let sky = level / (4.0 - 3.0 * level);
@@ -95,10 +81,10 @@ const BLOCK_LIGHT_TINT: [f32; 3] = [1.0, 216.0 / 255.0, 140.0 / 255.0];
 
 /// Helligkeit je Farbkanal im Himmelslicht `sky` und im Blocklicht
 /// `block`, wie `lightmap.fsh` sie rechnet: zum Himmelslicht aus
-/// [`brightness`] kommt `get_brightness(block / 15)` mal [`BLOCK_FACTOR`]
-/// in der Farbe [`BLOCK_LIGHT_TINT`], die zur vollen Stufe hin fast weiss
-/// wird (`mix` mit `0,9 · (2 l − 1)²`). `notGamma` hebt alle Kanäle mit dem
-/// hellsten. Ohne Blocklicht ist das [`brightness`] in jedem Kanal.
+/// [`brightness`] kommt das Blocklicht mit [`BLOCK_FACTOR`] in der Farbe
+/// [`BLOCK_LIGHT_TINT`]. Ohne Blocklicht ist das [`brightness`] in jedem
+/// Kanal.
+/// Siehe docs/renderer/wasser-und-licht.md, „Blocklicht“.
 pub fn brightness_rgb(sky: u8, block: u8) -> [f32; 3] {
     if block == 0 {
         return [brightness(sky); 3];
@@ -171,9 +157,9 @@ pub const AO_FACES: [Face; 3] = [Face::Up, Face::South, Face::East];
 
 /// Die Ecken einer Seite aus [`AO_FACES`] in der Reihenfolge von `FaceInfo`
 /// in 26.2, in den beiden Koordinaten der Seite: oben `(x, z)`, Süden
-/// `(x, y)`, Osten `(z, y)`. `FaceBakery.recalculateWinding` bringt jedes
-/// gebackene Viereck in diese Reihenfolge, und das Spiel zeichnet es als
-/// die Dreiecke 0-1-2 und 2-3-0 (`RenderSystem.sharedSequentialQuad`).
+/// `(x, y)`, Osten `(z, y)`. Das Spiel zeichnet das Viereck als die
+/// Dreiecke 0-1-2 und 2-3-0.
+/// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
 const FACE_INFO: [[[f32; 2]; 4]; 3] = [
     [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
     [[0.0, 1.0], [0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
@@ -181,11 +167,10 @@ const FACE_INFO: [[[f32; 2]; 4]; 3] = [
 ];
 
 /// Die Seite aus [`AO_FACES`], als die das Spiel ein Viereck mit den vier
-/// Werten je Ecke weich beleuchtet: eben auf dem Rand des Würfels
-/// (`faceCubic` in `BlockModelLighter.prepareQuadShape`) und über die ganze
-/// Seite (nicht `facePartial`, bis auf 1e-4). Flüssigkeiten zeichnet das
-/// Spiel ohne weiche Beleuchtung. Eben heisst hier bis auf 1e-4: Der Baker
-/// dreht über sin und cos und trifft die Ebene nur fast.
+/// Werten je Ecke weich beleuchtet: eben auf dem Rand des Würfels und über
+/// die ganze Seite, beides bis auf 1e-4, denn der Baker dreht über sin und
+/// cos. Flüssigkeiten bekommen keine.
+/// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
 fn ao_face(quad: &Quad) -> Option<usize> {
     if quad.fluid.is_some() {
         return None;
@@ -317,18 +302,11 @@ pub fn render(
 
     // Jede Fläche legt je Pixel ein Fragment ab, gemischt wird erst am
     // Schluss: je Pixel von hinten nach vorne, nach der Tiefe an genau
-    // diesem Pixel. Ein durchsichtiges Texel liegt so immer über dem, was
-    // dahinter liegt — Wasser über einem Zaunpfosten, Glas über dem Block
-    // dahinter —, egal in welcher Reihenfolge die Flächen kommen. Und eine
-    // Fläche, deren Textur am Pixel nur zum Teil deckt, weil sie über den
-    // Pixel gemittelt ist (die Kante eines Weizenhalms), verdeckt die
-    // Fläche dahinter nicht mehr ganz.
-    //
-    // Die Reihenfolge der Flächen zählt nur noch bei gleicher Tiefe: dann
-    // gewinnt die spätere. Sortiert wird deshalb stabil nach der
-    // vordersten Ecke — deckungsgleiche Flächen behalten ihre
-    // Modellreihenfolge, und der Grasblock legt sein Overlay so auf den
-    // Grundwürfel.
+    // diesem Pixel, egal in welcher Reihenfolge die Flächen kommen. Bei
+    // gleicher Tiefe gewinnt die spätere; sortiert wird deshalb stabil nach
+    // der vordersten Ecke, und deckungsgleiche Flächen behalten ihre
+    // Modellreihenfolge.
+    // Siehe docs/renderer/naehte.md, „Fragmente je Pixel“.
     projected.sort_by(|a, b| a.depth.total_cmp(&b.depth));
 
     let (min_x, min_y, max_x, max_y) = bounds(&projected)?;
@@ -450,11 +428,9 @@ impl<'a> ProjectedQuad<'a> {
         }
 
         // Vanilla rückt jede Flüssigkeitsfläche ein Tausendstel ins
-        // Blockinnere (`FluidRenderer`); hier rückt sie stattdessen
-        // in der Tiefe nach hinten. Die Seiten eines gefluteten Blocks
-        // liegen genau auf der Blockgrenze, wo auch der Wasserwürfel
-        // endet, und bei gleicher Tiefe gewann das Wasser: ein Film auf
-        // jeder gefluteten Platte, Treppe und Falltür.
+        // Blockinnere; hier rückt sie stattdessen in der Tiefe nach
+        // hinten, hinter die Seiten eines gefluteten Blocks.
+        // Siehe docs/renderer/wasser-und-licht.md, „Flüssigkeiten als Würfel“.
         let behind = if self.quad.fluid.is_some() {
             FLUID_BEHIND
         } else {
@@ -637,10 +613,9 @@ impl Canvas {
     ///
     /// Ein Pixel gehört dazu, wenn sein Mittelpunkt im Dreieck liegt. Liegt
     /// er genau auf einer Kante, entscheidet die Füllregel: er gehört nur
-    /// dem Dreieck, für das die Kante oben oder links liegt. Zwei Dreiecke
-    /// mit gemeinsamer Kante — die Hälften einer Fläche, zwei Flächen eines
-    /// Würfels — bekommen ihn so genau einmal. Ohne die Regel mischte ein
-    /// durchsichtiges Texel auf einer solchen Kante doppelt.
+    /// dem Dreieck, für das die Kante oben oder links liegt, und zwei Dreiecke
+    /// mit gemeinsamer Kante bekommen ihn genau einmal.
+    /// Siehe docs/renderer/naehte.md, „Füllregel“.
     fn triangle(
         &mut self,
         v: [Vertex; 3],
@@ -789,15 +764,13 @@ fn weights(v: &[Vertex; 3], area: f32, px: f32, py: f32) -> [f32; 3] {
 
 // ponytail: uv je Abtastpunkt über `weights`, bei scale 4 sind das 192
 // Kantenauswertungen je Pixel. Gradienten je Dreieck sparten sie, änderten
-// aber die Rundung der uv. Gemessen kostet der ganze Sprite-Bau der
-// Testwelt über alle vier Stufen rund 11 s, der Vollrender rund 11 min.
-/// Mittelwert der Texel unter einem Pixel, mit vormultipliziertem Alpha —
-/// sonst zögen durchsichtige Texel ihre Farbe in die Nachbarn — und in
-/// linearem Licht wie die Pyramide: das Mittel von sRGB-Werten ist zu
-/// dunkel, halb Schwarz und halb Weiss gäbe 128 statt 188. Gezählt werden
-/// nur Abtastpunkte innerhalb der Fläche; liegt keiner darin, weil die
-/// Fläche schmaler ist als ein Pixel, gilt der Mittelpunkt. `None`, wenn
-/// kein Texel deckt.
+// aber die Rundung der uv. Der Sprite-Bau ist ein kleiner Teil eines Laufs,
+// siehe docs/benutzung/kosten.md, „Dauer“.
+/// Mittelwert der Texel unter einem Pixel, mit vormultipliziertem Alpha und
+/// in linearem Licht wie die Pyramide. Gezählt werden nur Abtastpunkte
+/// innerhalb der Fläche; liegt keiner darin, weil die Fläche schmaler ist
+/// als ein Pixel, gilt der Mittelpunkt. `None`, wenn kein Texel deckt.
+/// Siehe docs/benutzung/zoomstufen.md, „Verkleinern“.
 fn filtered(
     v: &[Vertex; 3],
     area: f32,
@@ -808,10 +781,9 @@ fn filtered(
     n: u32,
 ) -> Option<[u8; 4]> {
     // Summe der vormultiplizierten Farben in linearem Licht, Summe der
-    // Alphas, Anzahl — und ob alle Abtastpunkte dasselbe Texel trafen.
-    // Bei scale 32 ist das je nach Textur bei einem Zehntel bis gut einem
-    // Drittel der Pixel so, und dann ist das Texel selbst das Mittel, ohne
-    // Umweg über lineares Licht.
+    // Alphas, Anzahl — und ob alle Abtastpunkte dasselbe Texel trafen; dann
+    // ist das Texel selbst das Mittel, ohne Umweg über lineares Licht.
+    // Siehe docs/renderer/naehte.md, „Textur über den Pixel gemittelt“.
     let mut acc = ([0.0f32; 3], 0.0f32, 0u32);
     let mut einzig: Option<Option<[u8; 4]>> = None;
     let mut add = |acc: &mut ([f32; 3], f32, u32), texel: [u8; 4]| {
@@ -878,10 +850,9 @@ fn shaded(texel: [u8; 4], shade: f32, tint: Option<[f32; 3]>) -> [u8; 4] {
 /// Quelle über Ziel, beide mit unvormultipliziertem Alpha.
 ///
 /// Ganzzahlig, auf 1/255² erweitert und zum Schluss gerundet — dieselbe
-/// Rechnung steht im Shader (`gpu.wgsl`). Gleitkomma würde dort je
-/// Grafikkarte anders runden; so liefert jede Karte dasselbe Byte wie die
-/// CPU. Gegenüber der Gleitkommafassung weicht das Ergebnis höchstens um
-/// 1 ab, und nur dort, wo Gleitkomma selbst daneben lag.
+/// Rechnung steht im Shader (`gpu.wgsl`), und jede Karte liefert dasselbe
+/// Byte wie die CPU.
+/// Siehe docs/benutzung/grafikkarte.md, „Byte für Byte wie die CPU“.
 pub fn over(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
     if src[3] == 255 || dst[3] == 0 {
         return src;

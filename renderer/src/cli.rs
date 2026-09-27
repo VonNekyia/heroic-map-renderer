@@ -706,12 +706,10 @@ fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
     );
 }
 
-/// Schreibt die Welt als WebP-Kacheln.
-///
-/// Zwei Durchläufe: der Vorlauf liest jeden Chunk einmal und sagt, welche
-/// Blockstates vorkommen und welche Kacheln überhaupt etwas zeigen. Erst
-/// danach steht die Sprite-Tabelle, und erst danach kann parallel gerendert
-/// werden — ohne sie müsste jeder Worker sie unter einer Sperre füllen.
+/// Schreibt die Welt als WebP-Kacheln: erst der Vorlauf, der sagt, welche
+/// Blockstates vorkommen und welche Kacheln etwas zeigen, dann die
+/// Sprite-Tabelle, dann parallel die Kacheln.
+/// Siehe docs/renderer/renderpfad.md, „Vorlauf“.
 #[allow(clippy::too_many_arguments)]
 fn write_tiles(
     world: &World,
@@ -765,16 +763,13 @@ fn write_tiles(
         survey.tiles.len()
     );
 
-    // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt, etwa
-    // weil ein Editor ihn zurückgesetzt hat. Der Vorlauf sieht sie nicht.
-    // Weg kommen sie nur mit --prune: einer Teilkopie der Welt fehlt
-    // vieles, und ohne Schalter leerte ein solcher Lauf den Baum. Ein
-    // Ausschnitt sucht nur in seiner Fläche, die ist auf ganze Kacheln
-    // gerundet. Gesucht wird, bevor ein leerer Vorlauf abbricht: über
-    // einer ganz zurückgesetzten Fläche findet er nichts, aufzuräumen gibt
-    // es dort trotzdem. Die Basis liest der Lauf dafür einmal ganz, sie
-    // gibt auch die Grenzen in map.json; mit --resume samt Zeiten, aus
-    // ihnen folgt, was er neu rendert.
+    // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt; der
+    // Vorlauf sieht sie nicht, weg kommen sie nur mit --prune. Gesucht wird,
+    // bevor ein leerer Vorlauf abbricht: über einer ganz zurückgesetzten
+    // Fläche gibt es trotzdem aufzuräumen. Die Basis liest der Lauf dafür
+    // einmal ganz, sie gibt auch die Grenzen in map.json; mit --resume samt
+    // Zeiten, aus ihnen folgt, was er neu rendert.
+    // Siehe docs/benutzung/kacheln.md, „Kacheln ohne Chunk: `--prune`“.
     let kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
     let flaeche_auf = |z: u32| flaeche(bounds, max_zoom, z);
     let zeiten = if resume {
@@ -860,11 +855,10 @@ fn write_tiles(
 
     // Kacheln, die leer geworden sind, verschwinden erst am Ende des Laufs,
     // auf jeder Stufe, zusammen mit denen ohne Chunk; bis dahin zeigen sie
-    // schon nichts mehr (`verblasse`). Bricht der Lauf vorher ab, hat er
-    // nichts entfernt, mit --resume nur die frischen Basiskacheln (unten).
-    // Eine leere Elternkachel über einem Kind, das bleibt, bleibt
-    // durchsichtig stehen. Mit --resume bleibt, was in der Liste der Basis
-    // steht, ausser den frischen Kacheln (`frische`).
+    // schon nichts mehr (`verblasse`). Eine leere Elternkachel über einem
+    // Kind, das bleibt, bleibt durchsichtig stehen. Mit --resume bleibt, was
+    // in der Liste der Basis steht, ausser den frischen Kacheln (`frische`).
+    // Siehe docs/benutzung/kacheln.md, „Wann entfernt wird“.
     let bleiben: BTreeSet<TileId> = match &zeiten {
         Some(zeiten) => basis
             .difference(&frische(zeiten, gelistet))
@@ -992,35 +986,17 @@ fn write_tiles(
 /// schreibt; ohne diese Datei oder ohne Kachel auf ihrer Basisstufe ändert
 /// der Aufruf nichts.
 ///
-/// Verglichen wird auf jeder Stufe, jede Kachel mit ihren Kindern auf der
-/// Platte. Neu gebaut wird sie, wenn ein Kind jünger ist als sie, wenn
+/// Neu gebaut wird eine Kachel, wenn ein Kind jünger ist als sie, wenn
 /// dieser Aufruf ein Kind neu gebaut oder entfernt hat, oder wenn sie
-/// fehlt. Eine Kachel ohne Kinder verschwindet. Bricht Strg+C einen Aufruf
-/// ab, holt der nächste nach, was fehlt; eine Kachel, die ein Stromausfall
-/// zerrissen hat, ist dagegen nicht älter als ihre Kinder und bleibt, siehe
-/// README. Die Zeiten kommen aus der Liste jeder Stufe, siehe
-/// [`vorhandene_mit_zeit`].
-///
-/// Jede Kachel, die der Aufruf schreibt, und `map.json` tragen als Zeit
-/// seinen Beginn, zwei Sekunden früher: ein Kind, das ein laufender Render
-/// danach schreibt, ist jünger als sie, auch wenn sie erst danach fertig
-/// wird. Zwei Sekunden, weil keine gängige Uhr eines Dateisystems gröber
-/// zählt; ein Kind aus diesen zwei Sekunden baut der nächste Aufruf nur
-/// noch einmal ein. Was nach dem Beginn selbst und vor der Liste seiner
-/// Stufe entstand, hat deshalb jemand anders geschrieben, siehe [`fremd`]:
-/// auf einer nativen Stufe ein Render, der sie aus der Welt zeichnet, am
-/// Ende `map.json` mit den Grenzen seiner letzten Kacheln. Das bleibt, wie
-/// es ist, ebenso eine Kachel, die sich seit der Liste geändert hat; das
-/// prüft der Aufruf erst direkt vor dem Tausch und vor dem Entfernen. Eine
-/// verkleinerte Kachel hängt dagegen allein an ihren Kindern; sie baut der
-/// Aufruf auch dann neu, wenn ein Export sie eben erst aus einem alten
-/// Kind zusammengesetzt hat, und ebenso, wenn ihre Zeit mehr als zwei
-/// Sekunden nach der Liste liegt: die stammt von einer Uhr, die vorging.
-///
-/// Ein Kind, das sich nicht lesen lässt, lässt der Aufruf aus. Die
-/// Elternkachel bekommt dann eine Zeit vor der des Kinds, damit der nächste
-/// Aufruf es wieder versucht. Ein Kind, das seit der Liste verschwunden
-/// ist, etwa am Ende eines Exports, gehört nicht mehr dazu.
+/// fehlt; eine ohne Kinder verschwindet. Die Zeiten kommen aus der Liste
+/// jeder Stufe ([`vorhandene_mit_zeit`]). Was der Aufruf schreibt, trägt
+/// als Zeit seinen Beginn, zwei Sekunden früher. Was danach und vor der
+/// Liste entstand, hat jemand anders geschrieben ([`fremd`]) und bleibt,
+/// ausser einer verkleinerten Kachel; geprüft wird direkt vor dem Tausch
+/// und vor dem Entfernen. Ein Kind, das sich nicht lesen lässt, fehlt,
+/// und die Elternkachel bekommt eine Zeit vor seiner.
+/// Siehe docs/benutzung/pyramide-und-resume.md, „Was neu gebaut wird“.
+/// Siehe docs/benutzung/pyramide-und-resume.md, „Zeiten und fremde Kacheln“.
 fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
     let started = Instant::now();
     let stempel = beginn - Duration::from_secs(2);
@@ -1207,10 +1183,9 @@ fn baue_neu(
 
 /// Ob jemand anders die Datei geschrieben hat, nachdem `--pyramid` begann
 /// und bevor es nachsah, mit den zwei Sekunden Spielraum, die auch der
-/// Stempel hat: FAT legt Schreibzeiten in Schritten von zwei Sekunden ab,
-/// und die Uhr einer Freigabe geht womöglich so weit vor. Eine Zeit weiter
-/// in der Zukunft kommt von einer Uhr, die vorging, nicht von einem Render
-/// daneben; so eine Datei bliebe sonst stehen, bis die Uhr sie einholt.
+/// Stempel hat. Eine Zeit weiter in der Zukunft kommt von einer Uhr, die
+/// vorging, nicht von einem Render daneben.
+/// Siehe docs/benutzung/pyramide-und-resume.md, „Zeiten und fremde Kacheln“.
 fn fremd(zeit: Option<SystemTime>, beginn: SystemTime, bis: SystemTime) -> bool {
     zeit.is_some_and(|zeit| beginn < zeit && zeit <= bis + Duration::from_secs(2))
 }
@@ -1237,16 +1212,17 @@ fn melde_karte(info: &MapInfo, anzahl: usize, path: &Path) {
 }
 
 /// Unter Windows prüft der Echtzeitschutz von Microsoft Defender jede
-/// Kachel beim Schreiben, siehe README, „Echtzeitschutz unter Windows“.
-/// Setzen kann die Ausnahme nur jemand mit Adminrechten; der Hinweis nennt
-/// die Befehle für genau diesen Ordner.
+/// Kachel beim Schreiben. Setzen kann die Ausnahme nur jemand mit
+/// Adminrechten; der Hinweis nennt die Befehle für genau diesen Ordner.
+/// Siehe docs/benutzung/echtzeitschutz.md, „Der Hinweis beim ersten Export“.
 fn melde_echtzeitschutz(dir: &Path) {
     let ordner = ordner_fuer_powershell(dir);
     println!(
         "Defender:   Sein Echtzeitschutz prüft jede Kachel beim Schreiben. Mit einer Ausnahme für den\n\
-         \x20           Kachelordner brauchte ein Export ein Drittel weniger Zeit, siehe README. Setzen mit\n\
-         \x20           --defender-exclusion, dann fragt Windows nach Adminrechten, oder selbst in einer\n\
-         \x20           PowerShell als Administrator, und nach dem Render wieder entfernen:\n\
+         \x20           Kachelordner brauchte ein Export ein Drittel weniger Zeit,\n\
+         \x20           siehe docs/benutzung/echtzeitschutz.md. Setzen mit --defender-exclusion, dann\n\
+         \x20           fragt Windows nach Adminrechten, oder selbst in einer PowerShell als\n\
+         \x20           Administrator, und nach dem Render wieder entfernen:\n\
          \x20           Add-MpPreference -ExclusionPath {ordner}\n\
          \x20           Remove-MpPreference -ExclusionPath {ordner}"
     );
@@ -1413,11 +1389,9 @@ fn schreibe_info(dir: &Path, info: &MapInfo, zeit: Option<SystemTime>) -> Result
 /// danach [`ohne_veraltete`] heraus. `waisen` bekommen ihre Elternkachel
 /// neu.
 ///
-/// Auch mit `--resume` baut es alle diese Eltern neu. Einer Elternkachel
-/// sieht man nicht an, ob sie zu ihren Kindern passt, und ihre Zeit kann von
-/// einer anderen Uhr stammen oder von `--pyramid` gestempelt sein; jede
-/// Regel dafür hatte eine Lücke. Das kostet die Pyramide eines ganzen Laufs,
-/// siehe README.
+/// Auch mit `--resume` baut es alle diese Eltern neu: Einer Elternkachel
+/// sieht man nicht an, ob sie zu ihren Kindern passt.
+/// Siehe docs/entscheidungen/0019-resume-behaelt-die-basiskacheln.md.
 fn build_pyramid(
     dir: &Path,
     max_zoom: u32,
@@ -1493,19 +1467,14 @@ fn setze_zusammen(
 
 /// Mit --prune, nach der Pyramide: nimmt die Basiskacheln ohne Chunk aus
 /// dem Baum und setzt ihre Vorfahren ohne sie neu zusammen. Bis hierher
-/// lief der Lauf wie einer ohne den Schalter; ein Abbruch vorher hat den
-/// Baum also nur so verändert, wie es auch ein Lauf ohne ihn getan hätte.
-/// Auch jetzt wird nichts durchsichtig, was leer wird, kommt nach `weg`
-/// und verschwindet am Ende. Bricht der Lauf hier ab, zeigen die schon
-/// neu zusammengesetzten Vorfahren den Stand ohne diese Kacheln. Die
-/// Basis, native Vorfahren, die dieser Lauf nicht gerendert hat, und was
-/// leer geworden ist, zeigen noch den alten; ein Lauf mit --prune über
-/// dieselbe Fläche räumt zu Ende.
+/// lief der Lauf wie einer ohne den Schalter. Auch jetzt wird nichts
+/// durchsichtig, was leer wird, kommt nach `weg` und verschwindet am Ende.
 ///
 /// Native Stufen zeigen die Welt, nicht ihre Kinder; dort geht nur, was
 /// in diesem Lauf nichts gezeigt hat (`gezeigt`) und kein Kind mehr hat.
 /// Nicht gerendert hat er solche Kacheln, unter denen nur Kacheln ohne
 /// Chunk liegen.
+/// Siehe docs/benutzung/kacheln.md, „Wann entfernt wird“.
 fn ohne_veraltete(
     dir: &Path,
     max_zoom: u32,
@@ -1534,24 +1503,19 @@ fn ohne_veraltete(
 }
 
 /// Bis zu welchem scale gröbere Zoomstufen noch aus der Welt gerendert
-/// werden statt aus der feineren Stufe verkleinert. Die Projektion setzt
+/// werden statt aus der feineren Stufe verkleinert: Die Projektion setzt
 /// Blöcke in Schritten von scale/4 Pixeln, und nur bei einem Vielfachen von
-/// 4 liegt jeder Block auf ganzen Pixeln. Bei scale 2 läge jede zweite
-/// Blockreihe auf einem halben, das Runden in `blit` kippte an Bildzeile 0,
-/// und benachbarte Reihen überdeckten sich ganz — durchscheinendes Wasser
-/// mischte dort doppelt.
+/// 4 liegt jeder Block auf ganzen Pixeln.
+/// Siehe docs/entscheidungen/0016-native-stufen-nur-auf-wunsch.md.
 const NATIVE_MIN_SCALE: u32 = 4;
 
 /// Wie viele Stufen dieser Lauf nativ rendert. Ein bestehender Baum behält
 /// seine Zahl: ohne `--native-levels` nimmt der Lauf sie aus `map.json`,
-/// mit einer anderen bricht er ab, bevor er einen Chunk liest. Sonst lägen
-/// über einem nachgerenderten Ausschnitt verkleinerte Kacheln neben
-/// nativen, und an einer unveränderten Welt änderte ein Nachrendern
-/// Dateien. Nennt die `map.json` eines Baums aus einem älteren Stand die
-/// Zahl nicht, braucht der Lauf den Schalter: der Stand davor renderte
-/// alle Stufen nativ, die der scale hergibt, und mit 0 lägen über dem
-/// Ausschnitt verkleinerte Kacheln neben nativen. Gibt der scale keine
-/// native Stufe her, gibt es nichts zu fragen.
+/// mit einer anderen bricht er ab, bevor er einen Chunk liest. Nennt die
+/// `map.json` eines Baums aus einem älteren Stand die Zahl nicht, braucht
+/// der Lauf den Schalter. Gibt der scale keine native Stufe her, gibt es
+/// nichts zu fragen.
+/// Siehe docs/benutzung/zoomstufen.md, „Native Stufen“.
 fn native_stufen(
     dir: &Path,
     bestand: Option<&MapInfo>,
@@ -1650,20 +1614,17 @@ fn ohne_kennung(world: &World) -> String {
 
 /// Der Ausweg für eine Welt vor 26.1: in `DIM-1` und `DIM1` öffnet der
 /// Renderer die Regionen, erkennt darin aber keine Dimension, und den Seed
-/// in `level.dat` liest er nicht, siehe README.
+/// in `level.dat` liest er nicht.
+/// Siehe docs/benutzung/welten.md, „Welche Welten“.
 const VOR_26_1: &str =
     "Eine Welt vor 26.1 vorher mit Minecraft 26.2 und --forceUpgrade hochziehen.";
 
 /// Prüft, ob der bestehende Baum zu diesem Lauf passt, und sagt, ob er ihn
-/// übernimmt.
-///
-/// Ein Baum einer anderen Welt passt nicht: ihre Basis landete auf seiner
-/// Stufe, und wo sie keine Chunks hat, blieben seine Kacheln stehen. Ein
-/// Baum mit anderem scale auch nicht: die neuen Kacheln hätten einen
-/// anderen Massstab als die alten. Seit scale 32 der Standard ist, reicht
-/// dafür ein vergessenes `--scale`. `maxZoom` prüft sie nicht: der Baum
-/// behält seine Nummerierung, auch wenn die Welt gewachsen ist. `kennung`
-/// ist die Kennung dieser Welt oder der Grund, warum sie keine hat.
+/// übernimmt: nur einen Baum derselben Welt und desselben scale. `maxZoom`
+/// prüft sie nicht: der Baum behält seine Nummerierung, auch wenn die Welt
+/// gewachsen ist. `kennung` ist die Kennung dieser Welt oder der Grund,
+/// warum sie keine hat.
+/// Siehe docs/benutzung/zoomstufen.md, „Ein Baum, eine Welt“.
 fn pruefe_bestand(
     dir: &Path,
     bestand: Option<&MapInfo>,
@@ -1674,13 +1635,11 @@ fn pruefe_bestand(
         return Ok(false);
     };
     let pfad = dir.join("map.json");
-    // Ein Baum ohne das Feld stammt aus einem älteren Stand. Er gehört ab
-    // jetzt zu dieser Welt; sonst müsste jeder bestehende Baum neu
-    // entstehen, bei einer grossen Welt über Stunden. Gesagt wird das erst
-    // vor der ersten Kachel, wenn es wirklich so kommt. Eine Welt ohne
-    // Kennung übernimmt ihn nicht, sonst trüge er danach `null` und nähme
-    // seine eigene Welt nicht mehr auf. Einer aus einer Welt ohne Kennung
-    // trägt `null` und nimmt keine mit Kennung auf.
+    // Ein Baum ohne das Feld stammt aus einem älteren Stand und gehört ab
+    // jetzt zu dieser Welt; gesagt wird das erst vor der ersten Kachel, wenn
+    // es wirklich so kommt. Eine Welt ohne Kennung übernimmt ihn nicht, und
+    // einer mit `null` nimmt keine mit Kennung auf.
+    // Siehe docs/benutzung/zoomstufen.md, „Ein Baum, eine Welt“.
     let uebernehmen = alt.world.is_none();
     let anzeige = pfad.display();
     match (&alt.world, kennung) {
@@ -1727,14 +1686,10 @@ fn pruefe_bestand(
 /// muss noch mindestens [`NATIVE_MIN_SCALE`] Pixel breit sein und auf
 /// ganzen Pixeln liegen.
 ///
-/// Verkleinern mittelt Nachbarblöcke ineinander, und schon zwei Stufen
-/// unter der Basis ist aus Kanten Brei geworden. Ein nativer Render hält
-/// jede Blockkante scharf, die Textur wird dafür im Sprite über den Block
-/// gemittelt — auf der Karte zählt der Umriss, nicht das Texel. In Bytes
-/// kommt ein Drittel dazu, ein Viertel je Stufe; in Zeit gut drei Viertel
-/// der Basis, denn jede Stufe zeichnet jeden Block ihrer Fläche erneut.
-/// Hochgerechnet auf die Testwelt bei scale 32: rund 5 Minuten für die drei
-/// Stufen, 6 für die Basis. Deshalb ist die Vorgabe 0.
+/// Ein nativer Render hält jede Blockkante scharf und mittelt die Textur im
+/// Sprite über den Block; jede Stufe zeichnet dafür jeden Block ihrer
+/// Fläche erneut.
+/// Siehe docs/benutzung/zoomstufen.md, „Native Stufen“.
 ///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
 /// [`build_pyramid`]. Dazu die Kacheln jeder nativen Stufe, die etwas
@@ -1909,13 +1864,9 @@ fn rendere<T: Send>(
 /// Jeder Thread bekommt ein zusammenhängendes Stück der Reihe und nimmt es
 /// von vorn. Ist sein Stück leer, nimmt er die hintere Hälfte des grössten,
 /// das noch übrig ist, aber nur, wenn davon noch mindestens `rest` Kacheln
-/// übrig sind: Wer stiehlt, fängt kalt an, bei scale 32 mit rund 160
-/// Chunks, so viel wie gut ein Dutzend warme Kacheln. Kalt fängt ein Thread
-/// sonst nur am Anfang an und an jeder Streifengrenze in seinem Stück.
-/// Rayon zerteilt die Reihe dagegen schon beim Verteilen in viele kleine
-/// Stücke: 1024 Kacheln auf 24 Threads luden je Kachel doppelt so viele
-/// Chunks wie in festen Stapeln. Nach einem Fehler nimmt kein Thread mehr
-/// etwas, und der Lauf endet mit dem Fehler.
+/// übrig sind, denn wer stiehlt, fängt kalt an. Nach einem Fehler nimmt
+/// kein Thread mehr etwas, und der Lauf endet mit dem Fehler.
+/// Siehe docs/renderer/renderpfad.md, „Streifen und Cache je Thread“.
 fn verteile<S, R: Send>(
     reihe: &[TileId],
     schritt: usize,
@@ -1977,20 +1928,9 @@ fn verteile<S, R: Send>(
 }
 
 /// Wie viele Kachelspalten ein Streifen breit ist, wenn ein Thread rund
-/// `je_thread` Kacheln rendert.
-///
-/// Über mehrere Spalten nebeneinander lädt eine Kachel weniger nach als
-/// Spalte für Spalte, siehe [`streifenbreite`]. Dafür lädt die erste Zeile
-/// eines Stücks entsprechend mehr. Im Mittel am wenigsten lädt, wer den
-/// Streifen etwa so breit macht wie die Wurzel aus einem Zehntel seiner
-/// Kacheln: zwei Spalten bei den 1024 Kacheln eines 8192er-Ausschnitts auf
-/// 24 Threads, acht, also so viel wie der Cache hält, bei einer ganzen Welt.
-/// Immer eine Zweierpotenz: Ab zwei Spalten liegen dann Geschwister im
-/// selben Streifen, werden kurz nacheinander fertig, und ein `--pyramid`
-/// neben dem Render baut ihre Elternkachel selten zweimal. Bei einer
-/// Spalte, ab scale 4 oder unter rund 20 Kacheln je Thread, liegen sie eine
-/// Spalte auseinander; zwei Spalten hielten dort je Thread eine Kachel mehr
-/// im Cache, bei scale 4 rund 250 Chunks.
+/// `je_thread` Kacheln rendert: etwa die Wurzel aus einem Zehntel seiner
+/// Kacheln, als Zweierpotenz, höchstens [`streifenbreite`].
+/// Siehe docs/renderer/renderpfad.md, „Streifen und Cache je Thread“.
 fn breite_der_streifen(je_thread: usize, scale: u32) -> usize {
     let breite = (je_thread as f64 / 10.0).sqrt().log2().round().max(0.0);
     (1 << breite as u32).min(streifenbreite(scale))
@@ -2171,16 +2111,9 @@ fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<()> {
 }
 
 /// Ersetzt eine Datei, ohne dass jemand eine halbe sieht: erst eine eigene
-/// daneben, dann umbenennen. Wer die alte gerade liest, liest sie zu Ende,
-/// und bricht der Lauf mittendrin ab, steht die alte noch da. Daneben
-/// bleibt dann höchstens die halbe eigene, `<name>.<pid>.tmp`, und die
-/// sucht kein Leser.
-///
-/// Mit `sicher` bringt es die Datei vor dem Umbenennen auf die Platte: Nach
-/// einem Stromausfall steht dann die alte oder die neue da, beide ganz. Das
-/// braucht nur `map.json`, ohne sie bricht jeder Lauf ab. Eine zerrissene
-/// Kachel fängt `--resume`, und je Kachel kostete es ein Warten auf die
-/// Platte.
+/// daneben, `<name>.<pid>.tmp`, dann umbenennen. Mit `sicher` bringt es die
+/// Datei vor dem Umbenennen auf die Platte; das braucht nur `map.json`.
+/// Siehe docs/entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md.
 fn tausche(
     path: &Path,
     data: &[u8],
@@ -2213,22 +2146,10 @@ fn tausche(
 const FRISCH: Duration = Duration::from_secs(120);
 
 /// Die Basiskacheln aus dieser Liste, die `--resume` neu rendert: die aus
-/// den letzten [`FRISCH`] vor der jüngsten und alle danach.
-///
-/// `tausche` wartet nicht, bis die Daten auf der Platte sind; das System
-/// schreibt sie nach Sekunden, unter Linux nach bis zu einer halben Minute.
-/// Fällt vorher der Strom aus, steht eine Kachel womöglich leer unter ihrem
-/// Namen, voller Nullen oder zerrissen: mit gutem Kopf, in voller Länge und
-/// mit Nullen dahinter. Ansehen lässt sich ihr das nicht sicher; auch der
-/// Dekoder liest zwei von drei zerrissenen ohne Fehler, als falsches Bild.
-/// Als jüngste zählt keine, die mehr als zwei Sekunden nach der Liste
-/// (`gelistet`) liegt: die stammt von einer Uhr, die vorging, und neben ihr
-/// wäre keine andere frisch.
-///
-/// Das setzt zweierlei voraus: dass das System jede Kachel binnen
-/// [`FRISCH`] auf die Platte bringt, und dass die Uhr in dieser Zeit nicht
-/// springt. Gilt eines davon nicht, rendert erst ein Lauf ohne `--resume`
-/// sicher alles neu.
+/// den letzten [`FRISCH`] vor der jüngsten und alle danach. Als jüngste
+/// zählt keine, die mehr als zwei Sekunden nach der Liste (`gelistet`)
+/// liegt.
+/// Siehe docs/benutzung/pyramide-und-resume.md, „Fortsetzen: `--resume`“.
 fn frische(zeiten: &BTreeMap<TileId, SystemTime>, gelistet: SystemTime) -> BTreeSet<TileId> {
     let grenze = gelistet + Duration::from_secs(2);
     let juengste = zeiten
@@ -2503,7 +2424,8 @@ fn report_missing_textures(assets: &Assets) {
         println!(
             "Blockstates: {} Dateien fragen in multipart, was blocks.txt aus 26.2 nicht kennt; dort \
              gilt der Text. Der Client von 26.2 gäbe diesen Blöcken kein Modell, einer, der sie \
-             kennt, schon. Für neuere Assets blocks.txt neu erzeugen und neu bauen, siehe README.",
+             kennt, schon. Für neuere Assets blocks.txt neu erzeugen und neu bauen, \
+             siehe docs/entwicklung/tabellen.md.",
             unchecked.len()
         );
         print_list(

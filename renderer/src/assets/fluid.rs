@@ -1,9 +1,9 @@
 //! Wasser und Lava, die es als Modell nicht gibt.
 //!
 //! `water.json` und `lava.json` nennen nur eine Partikeltextur; die
-//! Geometrie baut Minecraft im Code (`FluidRenderer`). Ohne diesen
-//! Nachbau bleiben Ozeane nackter Meeresboden — im Frontend war das der
-//! auffälligste Fehlbestand.
+//! Geometrie baut Minecraft im Code (`FluidRenderer`), und der Renderer
+//! baut sie hier nach.
+//! Siehe docs/renderer/wasser-und-licht.md, „Flüssigkeiten als Würfel“.
 
 use super::baker::{BakedModel, box_quads};
 
@@ -108,8 +108,8 @@ pub fn key(state: &BlockState) -> Option<(Fluid, u8)> {
 /// Ein Streifen der Seite `face` zwischen zwei Höhen in Neunteln: das
 /// Stück der eigenen Seite, das über einem niedrigeren Nachbarn derselben
 /// Flüssigkeit frei bleibt — am Fuss eines Wasserfalls, an einer Stufe
-/// fliessenden Wassers. Vanilla hebt dort die Ecken der Oberfläche an;
-/// hier bleibt sie eben, und der Streifen schliesst die Lücke.
+/// fliessenden Wassers. Die Oberfläche bleibt dabei eben.
+/// Siehe docs/renderer/wasser-und-licht.md, „Streifen an Stufen“.
 pub fn strip(assets: &mut Assets, fluid: Fluid, face: Face, from: u8, to: u8) -> BakedModel {
     let (textur, tint) = texture_of(fluid);
     let texture = assets.texture(textur);

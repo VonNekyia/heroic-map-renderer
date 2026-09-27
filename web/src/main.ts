@@ -37,6 +37,7 @@ function point(x: number, y: number): L.LatLng {
  * Eine Karteneinheit ist ein Pixel der feinsten Stufe. Leaflets
  * `CRS.Simple` rechnet mit `2^zoom`, hier muss stattdessen die feinste
  * Stufe den Faktor 1 bekommen.
+ * Siehe docs/frontend.md, „Das Koordinatensystem“.
  */
 /**
  * Leaflets Typen führen `transformation` nicht auf, obwohl jede

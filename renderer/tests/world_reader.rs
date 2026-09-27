@@ -79,7 +79,7 @@ fn findet_seed_und_dimension_in_jedem_layout() {
     // Plugin-Welt hat oft einen anderen als die Oberwelt.
     let paper = tempfile::tempdir().unwrap();
     let dims = paper.path().join("dimensions/minecraft");
-    let plugin = paper.path().join("dimensions/terralith/abgrund");
+    let plugin = paper.path().join("dimensions/beispiel/abgrund");
     std::fs::create_dir_all(dims.join("overworld/region")).unwrap();
     std::fs::create_dir_all(dims.join("the_nether/region")).unwrap();
     std::fs::create_dir_all(plugin.join("region")).unwrap();
@@ -90,7 +90,7 @@ fn findet_seed_und_dimension_in_jedem_layout() {
     let seed = Some(-4_172_144_997_902_289_642);
     assert_eq!(herkunft(paper.path()), (seed, oberwelt()));
     assert_eq!(herkunft(&dims.join("the_nether")), (Some(99), nether()));
-    let abgrund = Some("terralith:abgrund".to_string());
+    let abgrund = Some("beispiel:abgrund".to_string());
     assert_eq!(herkunft(&plugin), (Some(1_234), abgrund));
 
     // Die Reihenfolge der Orte: die Datei der Dimension, dann von der an
@@ -155,7 +155,7 @@ fn findet_seed_und_dimension_in_jedem_layout() {
 fn dimension_wie_auf_der_platte() {
     let welt = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let the_nether = welt.path().join("dimensions/minecraft/the_nether");
-    let abgrund = welt.path().join("dimensions/terralith/abgrund");
+    let abgrund = welt.path().join("dimensions/beispiel/abgrund");
     for dimension in [&the_nether, &abgrund] {
         std::fs::create_dir_all(dimension.join("region")).unwrap();
     }
@@ -163,8 +163,8 @@ fn dimension_wie_auf_der_platte() {
     let nether = || (Some(42), Some("minecraft:the_nether".to_string()));
     assert_eq!(herkunft(&the_nether.join("region/..")), nether());
     assert_eq!(herkunft(&relativ(&the_nether)), nether());
-    let terralith = (Some(42), Some("terralith:abgrund".to_string()));
-    assert_eq!(herkunft(&abgrund), terralith);
+    let beispiel = (Some(42), Some("beispiel:abgrund".to_string()));
+    assert_eq!(herkunft(&abgrund), beispiel);
     // Nur eine Platte, die Grossbuchstaben nicht unterscheidet, findet
     // diesen Pfad, also der Windows-Lauf.
     let anders = welt.path().join("DIMENSIONS/MINECRAFT/THE_NETHER");

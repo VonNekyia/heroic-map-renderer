@@ -47,15 +47,28 @@ Farben eines Bioms `BiomeColors`.
 ## Welche Blöcke
 
 Welche Blöcke gefärbt werden, steht nicht in den Assets. Minecraft
-verdrahtet das im Code, und der Renderer tut es in `source_of` in
-`colors.rs`: Gras, Farne, Busch und Zuckerrohr nach der Gras-Colormap, Laub
-und Ranken (`vine`) nach der Laub-Colormap, Laubstreu nach `dry_foliage`,
+verdrahtet das in `BlockColors.createDefault`, und der Renderer tut es in
+`source_of` in `colors.rs`: Gras, Farne, Busch und Zuckerrohr nach der
+Gras-Colormap, dazu die Stiele von Blütenteppich und Wildblumen, Laub und
+Ranken (`vine`) nach der Laub-Colormap, Laubstreu nach `dry_foliage`,
 Fichten- und Birkenlaub und Seerosen fest, der Wasserkessel nach dem
 Wasser des Bioms. Alles andere mit `tintindex` bleibt ungefärbt: Kirsch-
 und Blasseichenlaub tragen ihre Farbe in der Textur, Redstone und die
 Stiele von Kürbis und Melone färben im Spiel nach ihren Eigenschaften und
 machen auf einer Karte keine Fläche. Feste Farben rastert der Renderer
 gleich ins Sprite.
+
+Zwei Ausnahmen aus `BlockTintSources`:
+
+- **Blütenteppich und Wildblumen** färben mit `[BLANK_LAYER, grass()]`:
+  `tintindex` 0 bliebe ungefärbt, 1 bekommt die Grasfarbe. In ihren Modellen
+  `flowerbed_1` bis `flowerbed_4` tragen nur die Stiele einen `tintindex`,
+  und zwar 1; der Renderer färbt jede Fläche mit `tintindex` in der Farbe
+  des Blocks, das trifft hier genau die Stiele.
+- **Hohes Gras und grosser Farn** färben mit `doubleTallGrass()`: Die obere
+  Hälfte (`half=upper`) nimmt die Farbe am Block darunter. Im Renderer ist
+  das `tinted_below` in `colors.rs`, gemischt wird dann auf der Höhe der
+  unteren Hälfte.
 
 ## Biom je Block
 
@@ -76,8 +89,10 @@ Biom seiner Zelle:
   diesen Wert schickt der Server dem Client.
 - Das Biom der gewinnenden Viertelposition liest `ChunkAccess.getNoiseBiome`
   aus ihrem Chunk, die Höhe auf die des Chunks geklemmt. Ein fehlender Chunk
-  ist plains (`ClientLevel.getUncachedNoiseBiome`), ebenso eine Section ohne
-  Biome und ein Biom ohne Definition.
+  ist plains wie im Client (`ClientLevel.getUncachedNoiseBiome`). Eine
+  Section ohne Biome und ein Biom ohne Definition macht der Renderer
+  ebenfalls zu plains; das ist sein Ersatz, der Client kennt beide Fälle
+  nicht.
 
 So verlaufen die Grenzen zwischen Biomen blockgenau und ausgefranst statt
 auf dem Raster. Der Nachbau steht in
@@ -88,7 +103,8 @@ Nennt die Welt keinen Seed, trägt jeder Block das Biom seiner Zelle, und der
 Lauf sagt das. `ChunkCache::biome_of` in
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)
 rechnet das Biom eines Blocks einmal und behält es je Chunk und Höhe; die
-Mischung fragt jeden Block bis zu 25 Mal.
+Mischung fragt jeden Block bis zu (2r + 1)² Mal, bei Radius 2 also 25, bei
+7 225 Mal.
 
 ## Übergänge zwischen Biomen
 
@@ -106,7 +122,9 @@ Quadrat mit dem Radius r um ihn, auf seiner Höhe:
 Gemischt wird nur für Blöcke, deren Sprite eine Tönungskarte trägt, und nur
 die Farben, die sie braucht: die des Blocks nach seinem Resolver, die des
 Wassers für Wasser und geflutete Blöcke. Der Nachbau ist `BiomeTable::blend`
-in [`renderer/src/render/tint.rs`](../../renderer/src/render/tint.rs).
+in [`renderer/src/render/tint.rs`](../../renderer/src/render/tint.rs). Ein
+Kachelbaum behält seinen Radius, siehe [map.json](../benutzung/map-json.md),
+„Radius der Mischung“.
 
 ![Grenze zwischen savanna und plains](../bilder/biomgrenze-savanne.webp)
 
@@ -151,10 +169,29 @@ linear in der Farbe; der Anteil einer Farbe ist deshalb je Kanal der
 Unterschied zum Raster in Schwarz, und das Raster in Schwarz ist der Rest.
 So stimmt auch ein Pixel, in dem sich Farben treffen: die halb
 durchsichtige Wasseroberfläche über Seegras oder einem gefluteten Zaun, der
-Rand der Auflage an der Seite eines Grasblocks. Gegenüber einem Raster, das
-die Farbe gleich trägt, liegt ein Kanal höchstens um 1 daneben, denn das
-Raster rundet je Fläche und die Karte einmal je Pixel
-(`toenungskarte_gibt_jede_farbe_wieder` in `sprites.rs`).
+Rand der Auflage an der Seite eines Grasblocks. Alle drei Raster tragen das
+Licht des Blocks; ein gefluteter Block, der selbst leuchtet, liegt unter
+seiner Oberfläche in seinem eigenen Blocklicht. Deshalb gehört das Leuchten
+zum Schlüssel der Familie. Sonst teilt sich ein Sculk-Sensor in `cooldown`
+die Familie mit einem in `active`, und eine Leuchtflechte ohne Fläche, die
+das Spiel mit allen sechs Flächen zeichnet, aber nicht leuchten lässt, die
+mit einer, die alle sechs hat.
+
+Gegenüber einem Raster, das die Farben gleich trägt, liegt ein Kanal
+höchstens um 2 daneben, meist höchstens um 1. Das Raster rundet an jeder
+Schicht, die Karte einmal je Pixel; wo eine Wasseroberfläche über mehreren
+Schichten liegt, summiert sich das. Gemessen mit
+`toenungskarte_an_allen_vanilla_bloecken` in `sprites.rs`: alle Blöcke aus
+`blocks.txt`, die gefärbt oder geflutet sein können, je Block die ersten und
+die letzten zwölf Zustände, geflutete mit Wasser, bei scale 4, 8, 16 und 32,
+mit drei Paaren aus Block- und Wasserfarbe. Von 65 952 Rastern mit Karte
+liegen 37 um 2 daneben, alle geflutet, etwa Korallenfächer, Amethyst,
+Tropfblatt, Mangrovenwurzeln und Falltüren, der Rest höchstens um 1. 186
+Raster fehlen im Vergleich, weil ihr Modell über den Würfel ragt. Ohne das
+Leuchten im Schlüssel lägen Leuchtflechte um 4, Sculk-Sensor um 5 und
+kalibrierter Sculk-Sensor um 7 daneben. Mit den Fixtures prüft das
+`toenungskarte_gibt_jede_farbe_wieder`, darunter ein gefluteter, gefärbter
+Block mit zwei verschiedenen Farben.
 
 Welche Farbe des Bioms der Anteil des Blocks trägt, hängt an der Familie,
 nicht am Sprite: pixelgleiche Sprites teilen sich den Eintrag, auch wenn
@@ -181,7 +218,10 @@ Belegt am Client-JAR von 26.2 mit javap: `BiomeManager.getBiome`,
 `ClientLevel.calculateBlockTint`, `Options.biomeBlendRadius`,
 `BiomeColors`, `Biome.getGrassColor` und die anderen Getter,
 `GrassColorModifier.SWAMP`, `PerlinSimplexNoise`, `SimplexNoise`,
-`WorldgenRandom`, `LegacyRandomSource` und `BitRandomSource`.
+`WorldgenRandom`, `LegacyRandomSource` und `BitRandomSource`; welche Blöcke
+wie färben, `BlockColors.createDefault` und `BlockTintSources`, darin
+`doubleTallGrass` (`BlockTintSources$2`) mit `pos.below()` für die obere
+Hälfte und `BLANK_LAYER` als `constant(-1)`.
 
 Die Sollwerte der Tests für Seed, Zoom und Rauschen gibt
 [`renderer/src/world/Biomwerte.java`](../../renderer/src/world/Biomwerte.java)
@@ -198,5 +238,10 @@ steht fest, welche gewinnt. Die Mischung rechnen die Tests von Hand nach
 - **`temperature_modifier: frozen`** liest der Renderer, wertet es aber
   nicht aus: es beeinflusst die positionsabhängige Temperatur für Schnee und
   Eis, nicht die Colormap.
-- **Die Tönungskarte** liegt je Kanal höchstens um 1 neben einem Raster in
+- **Die Tönungskarte** liegt je Kanal höchstens um 2 neben einem Raster in
   der Farbe, siehe „Tönung beim Zeichnen“.
+- **`tintindex` je Lage** unterscheidet der Renderer nicht: jede Fläche mit
+  einem `tintindex` trägt die Farbe des Blocks. Das Spiel liesse bei
+  Blütenteppich und Wildblumen Lage 0 ungefärbt; ein Resourcepack, das dort
+  Flächen mit Lage 0 einführt, sähe sie gefärbt. Die Vanilla-Modelle tragen
+  nur Lage 1.

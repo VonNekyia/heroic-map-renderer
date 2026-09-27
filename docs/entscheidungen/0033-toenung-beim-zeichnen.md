@@ -38,6 +38,11 @@ vor Licht und weicher Beleuchtung. Feste Farben wie Fichte, Birke und Seerose
 bleiben im Sprite. Siehe [Biomfarben](../renderer/biomfarben.md), „Tönung
 beim Zeichnen“.
 
+Welche Blöcke gefärbt werden und woher ihre Farbe kommt, steht weiter im
+Code wie in `BlockColors` (`source_of` in `colors.rs`), nicht in den
+Assets: Minecraft verdrahtet es dort, in den Assets steht es nicht. Das
+übernimmt diese Entscheidung aus 0011.
+
 ## Verworfene Alternativen
 
 - **Fassungen je Farbe weiterführen:** Die Mischfarben stehen erst beim
@@ -63,7 +68,14 @@ beim Zeichnen“.
 - Die Sprite-Tabelle braucht keine Fassung je Biom mehr, und der Vorlauf
   keine Biome je Blockstate. Ein gefärbtes Sprite trägt dafür 8 Bytes je
   Pixel mehr. Auf der grossen Welt hat die Tabelle bei scale 32 7489 statt
-  26 341 Sprites und braucht halb so viel Speicher.
+  26 341 Sprites; die Spitze des Speichers bis zur fertigen Tabelle
+  halbiert sich. Die Spitze des ganzen Laufs steigt dagegen um 0,05 bis
+  0,1 GiB, vermutlich durch die Biome je Block im Cache jedes Threads.
 - Eine Instanz auf der Karte hat 40 statt 32 Bytes: die beiden Farben.
-- Gegenüber einem Raster in der Farbe liegt ein Kanal höchstens um 1
-  daneben, weil das Raster je Fläche rundet und die Karte einmal je Pixel.
+- Die drei Raster tragen das Licht des Blocks. Das Leuchten gehört deshalb
+  zum Schlüssel einer Familie, sonst trüge ein gefluteter Block unter seiner
+  Oberfläche das Licht eines anderen Zustands mit demselben Modell.
+- Gegenüber einem Raster in der Farbe liegt ein Kanal höchstens um 2
+  daneben, meist höchstens um 1: Das Raster rundet an jeder Schicht, die
+  Karte einmal je Pixel. Gemessen an allen Vanilla-Blöcken, siehe
+  [Biomfarben](../renderer/biomfarben.md), „Tönung beim Zeichnen“.

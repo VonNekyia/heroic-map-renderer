@@ -78,7 +78,9 @@ Mischen, auf der CPU wie im Shader der Karte. Er multipliziert sich mit dem
 Licht aus `light_at`, siehe [Wasser und Licht](wasser-und-licht.md); die
 Schattierung nach Richtung, oben 1, Nord und Süd 0,8, Ost und West 0,6,
 steckt wie bisher im Sprite. Eine Instanz auf der Karte trägt dafür die
-drei Wörter der Ecken und ist 32 statt 20 Bytes gross.
+drei Wörter der Ecken; mit ihnen wuchs sie von 20 auf 32 Bytes, mit den
+beiden Farben der Tönung auf 40, siehe
+[Grafikkarte](../benutzung/grafikkarte.md).
 
 ## Was es kostet
 

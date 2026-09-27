@@ -61,9 +61,9 @@ Biom des Blocks:           minecraft:forest
 ```
 
 `Biom der Zelle` ist das gespeicherte Biom der Zelle aus 4×4×4 Blöcken,
-`Biom des Blocks` das, dessen Farbe der Block trägt, nach dem Zoom des
-Spiels; ohne Seed in der Welt fehlt die zweite Zeile. Siehe
-[Biomfarben](../renderer/biomfarben.md), „Biom je Block“.
+`Biom des Blocks` das Biom des Blocks nach dem Zoom des Spiels; gemischt
+wird darüber erst beim Zeichnen. Ohne Seed in der Welt fehlt die zweite
+Zeile. Siehe [Biomfarben](../renderer/biomfarben.md), „Biom je Block“.
 
 Welche Welten der Renderer liest, steht in [Welten und Kennung](welten.md).
 

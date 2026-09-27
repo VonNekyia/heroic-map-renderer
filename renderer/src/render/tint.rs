@@ -20,8 +20,8 @@ pub const BLEND_MAX: u8 = 7;
 pub struct BiomeTable {
     colors: Vec<BiomeColors>,
     index: HashMap<String, u16>,
-    /// Das Biom für fehlende Chunks und Sections ohne Biome, und für
-    /// Biome ohne Definition: plains, wie im Client.
+    /// Das Biom für fehlende Chunks, wie im Client, und als Ersatz für
+    /// Sections ohne Biome und Biome ohne Definition: plains.
     plains: u16,
     radius: u8,
     /// Der Seed aus [`obfuscate_seed`]; ohne ihn bleibt es beim Raster von

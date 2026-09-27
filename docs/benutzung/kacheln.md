@@ -76,7 +76,7 @@ Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/
 MB und kB zählt die Ausgabe binär, 2^20 und 2^10 Byte, siehe
 [Was ein Lauf kostet](kosten.md). Die Rate eines so kurzen Laufs sagt wenig;
 die Basis braucht hier eine Drittelsekunde. Wie stark sie streut, steht in
-[2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md),
+[2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md),
 „Die Beispielausgabe“.
 
 Der Ausschnitt wird aufgerundet, bevor der Vorlauf irgendetwas

@@ -164,7 +164,9 @@ mod tests {
     }
 
     /// `BiomeManager.obfuscateSeed` aus dem Server-JAR 26.2, ausgegeben von
-    /// `Biomwerte.java` neben dieser Datei.
+    /// `Biomwerte.java` neben dieser Datei. Alle Seeds hier und in
+    /// `zoom_wie_im_spiel` sind Testwerte, auch der lange; keiner gehört zu
+    /// einer Welt.
     #[test]
     fn seed_wie_im_spiel() {
         for (seed, soll) in [

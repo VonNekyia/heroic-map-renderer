@@ -1,6 +1,6 @@
 ---
 title: "0011: Färbung als Sprite-Fassung"
-description: Warum Biomfarben vorab je Biom als Fassung gerastert werden statt beim Zeichnen zu multiplizieren, und warum die Farbtabelle im Code steht.
+description: Warum Biomfarben vorab je Biom als Fassung gerastert wurden statt beim Zeichnen zu multiplizieren, und warum die Farbtabelle im Code steht; abgelöst durch die Tönung beim Zeichnen.
 status: abgelöst durch 0033
 date: 2026-09-25
 issues: [8]

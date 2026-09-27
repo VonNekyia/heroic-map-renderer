@@ -9,15 +9,10 @@ code:
 # Was ein Lauf kostet
 
 Die ganze Testwelt braucht bei scale 32 mit allen nativen Stufen und
-Pyramide hochgerechnet rund 26 GB und 7 Minuten, bei scale 16 rund 7 GB und
-knapp 4 Minuten. Der Platz hängt fast nur an der Kachelzahl, die Dauer auch
-an den nativen Stufen. Die Zahlen sind an einem Ausschnitt gemessen und
-hochgerechnet, zuletzt in
-[2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md),
-dort steht auch, wie; die Übergänge zwischen Biomen legen 7 % Zeit und
-1,5 % Grösse je Basiskachel darauf, siehe
-[2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md). Von
-Tag zu Tag schwankt die Dauer um ein Viertel.
+Pyramide hochgerechnet rund 26 GB und 7 Minuten. Der Platz hängt fast nur
+an der Kachelzahl, die Dauer auch an den nativen Stufen. Die Zahlen sind an
+einem Ausschnitt gemessen und hochgerechnet, siehe „Je scale“. Von Tag zu
+Tag schwankt die Dauer um ein Viertel.
 
 Grössen in der Doku sind dezimal: GB heisst 10^9 Byte, kB 10^3 Byte. Die
 Ausgabe des Renderers zählt binär, dort heisst MB 2^20 Byte und kB 2^10
@@ -28,7 +23,10 @@ KiB. Speicher an der Spitze steht in GiB, 2^30 Byte.
 
 Derselbe Weltausschnitt um (-64, 416) bei jedem scale, mit allen nativen
 Stufen und Pyramide, 24 Threads ohne Karte, hochgerechnet auf die ganze
-Welt. Die Kachelzahl der ganzen Welt nennt der Vorlauf.
+Welt. Die Kachelzahl der ganzen Welt nennt der Vorlauf. Die Tabelle ist der
+Stand von #18, gemessen und hochgerechnet in
+[2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md);
+dort steht auch, wie.
 
 | `--scale` | Kacheln der Welt | je Kachel | Basis | native Stufen | zusammen | Dauer |
 |-----------|------------------|-----------|-------|---------------|----------|-------|
@@ -36,9 +34,10 @@ Welt. Die Kachelzahl der ganzen Welt nennt der Vorlauf.
 | 16 | 73 920 | 69 kB | ~5,1 GB | ~1,7 GB | ~6,8 GB | ~3,5 min |
 | 8 | 18 951 | 73 kB | ~1,4 GB | ~0,4 GB | ~1,8 GB | ~2 min |
 
-Gemessen mit #18. Mit #21 kommen je Basiskachel 7 % Zeit und 1,5 % Grösse
-dazu, bei scale 32 hochgerechnet rund 26 GB in rund 7 min; neu gemessen ist
-die Tabelle nicht.
+Die Übergänge zwischen Biomen (#21) legen bei scale 32 je Basiskachel 7 %
+Zeit und 1,5 % Grösse darauf; daher die 7 Minuten oben, gerechnet in
+[2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md),
+„Hochgerechnet“. Für scale 16 und 8 sind die Faktoren nicht gemessen.
 
 ## Platz
 
@@ -91,7 +90,7 @@ späteren Zahlen sind aus Ausschnitten hochgerechnet:
 | #16, libwebp | rund 117 GB, höchstens rund 165 | 60 bis 65 min | hochgerechnet | [2026-09-27, libwebp](../messungen/2026-09-27-libwebp.md) |
 | #17, Wasser im Licht | rund 150 GB, 140 bis 180 | 60 bis 70 min | hochgerechnet | [2026-09-27, Wasser im Licht](../messungen/2026-09-27-wasser-im-licht.md) |
 | #18, weiche Beleuchtung | rund 185 GB, 170 bis 230 | 65 bis 75 min | hochgerechnet | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md) |
-| #21, Übergänge zwischen Biomen | rund 185 GB, 1 % mehr | 65 bis 75 min | hochgerechnet | [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md) |
+| #21, Übergänge zwischen Biomen | rund 185 GB, 1 % mehr | 66 bis 76 min | hochgerechnet | [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md) |
 
 Die Grösse wächst nach libwebp wieder, weil man mit #17 ins Wasser sieht
 und sich die Verläufe der weichen Beleuchtung schlechter packen als ebene

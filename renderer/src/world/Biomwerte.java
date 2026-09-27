@@ -28,6 +28,7 @@ public class Biomwerte {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
 
+        // Testwerte, auch der lange; keiner gehört zu einer Welt.
         long[] seeds = {0L, 1L, -1L, 12345L, Long.MIN_VALUE, Long.MAX_VALUE, -4172144997902289642L};
         for (long seed : seeds) {
             out.println("obfuscate " + seed + " " + BiomeManager.obfuscateSeed(seed));

@@ -1604,8 +1604,9 @@ impl<'a> ChunkCache<'a> {
 
     /// Das gespeicherte Biom einer Viertelposition, wie
     /// `ChunkAccess.getNoiseBiome`: die Höhe auf die des Chunks geklemmt. Ein
-    /// fehlender Chunk und eine Section ohne Biome sind plains, wie im
-    /// Client (`ClientLevel.getUncachedNoiseBiome`).
+    /// fehlender Chunk ist plains wie im Client
+    /// (`ClientLevel.getUncachedNoiseBiome`); eine Section ohne Biome macht
+    /// der Renderer ebenso zu plains, als Ersatz.
     /// Siehe docs/renderer/biomfarben.md, „Biom je Block“.
     fn noise_biome(&mut self, [qx, qy, qz]: [i32; 3]) -> Result<u16> {
         let plains = self.sprites.biomes().plains();

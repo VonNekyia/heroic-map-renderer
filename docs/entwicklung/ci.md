@@ -1,6 +1,6 @@
 ---
 title: CI
-description: Welche Jobs die CI bei jedem Push und jeder PR laufen lässt, mit welchen Adaptern die GPU-Tests laufen und wie die Doku-Prüfung Verweise, Links und code:-Pfade prüft.
+description: Welche Jobs die CI bei jedem Push und jeder PR laufen lässt, mit welchen Adaptern die GPU-Tests laufen und wie die Doku-Prüfung Verweise, Links und Frontmatter prüft.
 code:
   - .github/workflows/ci.yml
   - .github/pruefe-doku.sh
@@ -49,19 +49,23 @@ Zeilen Bash:
 - Relative Links in `docs/`, `skills/`, `README.md` und `AGENTS.md` zeigen
   auf bestehende Dateien; folgt einem Link auf eine Seite eine Überschrift
   in „…“, gibt es sie dort. Links in Codeblöcken zählen nicht.
-- Jeder Pfad unter `code:` in der Frontmatter einer Seite existiert.
+- Jede Seite in `docs/` beginnt mit Frontmatter zwischen zwei `---`, mit
+  `title`, `description` und `code:`, dieses mit mindestens einem Pfad;
+  nur `docs/index.md` hat keinen. Jeder Pfad unter `code:` existiert.
 - Jede Seite in `docs/` steht in `docs/index.md`.
+
+Anker hinter `#` prüft sie nicht; auf eine Überschrift zeigt ein Link mit
+„…“ dahinter, wie oben.
 
 Jeder Fehler steht als Zeile `::error file=…::…` da, die GitHub an die
 Datei heftet. Danach verbiegt die CI in einer Probe je einen Verweis, eine
-Überschrift, einen Link und einen Pfad unter `code:` und verlangt genau
-vier Meldungen; so fällt auf, wenn die Prüfung nichts mehr findet. Lokal aus der Wurzel des Repositorys:
+Überschrift, einen Link und einen Pfad unter `code:`, nimmt einer Seite den
+`title` und verlangt genau fünf Meldungen; so fällt auf, wenn die Prüfung
+nichts mehr findet. Lokal aus der Wurzel des Repositorys:
 
 ```bash
 bash .github/pruefe-doku.sh
 ```
 
 Die Prüfung sieht nur, was Git verfolgt: eine neue Seite erst nach
-`git add`. Der zweite Schritt des Jobs baut ein kleines Repository mit einem
-kaputten Verweis, einem kaputten Link und einem kaputten Pfad unter `code:`
-und verlangt, dass die Prüfung alle drei meldet.
+`git add`.

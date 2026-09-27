@@ -29,8 +29,9 @@ description: Hält docs/ und die Code-Kommentare mit einer Änderung im Einklang
 9. **README** nur ändern, wenn sich Schnellstart, Stand oder das Bild des
    Projekts ändern.
 10. **Verweise prüfen:** Jeder Link, jeder Verweis „Siehe docs/…“ und jeder
-    Pfad unter `code:` zeigt auf etwas, das es gibt. Nach #19 prüft das die
-    CI.
+    Pfad unter `code:` zeigt auf etwas, das es gibt. Das prüft
+    `bash .github/pruefe-doku.sh`, lokal wie in der CI; eine neue Seite erst
+    nach `git add`.
 11. **Prüfliste** unten abhaken.
 
 ## Vorlage für eine Seite

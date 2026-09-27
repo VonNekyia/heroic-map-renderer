@@ -4,18 +4,11 @@
 //! ([`draw_list`](super::metatile::draw_list)): Sprite, Position, fertig
 //! sortiert. Hier setzt ein Compute-Shader (`gpu.wgsl`) dieselbe Liste
 //! zusammen — je Pixel ein Thread, der seine Sprites in Zeichenreihenfolge
-//! durchgeht und ganzzahlig mischt wie [`over`](super::rasterizer::over).
-//! Ganzzahlig, weil Gleitkomma auf jeder Karte anders rundet; so liefert
-//! jede Karte dasselbe Byte wie die CPU, und ein Test kann das nachprüfen.
-//!
-//! Die Sprites eines Durchgangs gehen mit ihm hinauf, jedes einmal: die
-//! Kacheln einer Gegend brauchen ein paar hundert, die Tabelle hat
-//! zehntausende. Ein Atlas auf der Karte, den sich alle Threads teilen,
-//! müsste seltener hochladen, bräuchte aber eine Sperre.
-//!
-//! Was die Karte nicht macht: Chunks lesen, Kandidaten suchen, Sprites
-//! wählen, WebP schreiben. Das bleibt auf der CPU — die Karte ersetzt nur
-//! den Blit, also rund die Hälfte der Zeit je Kachel.
+//! durchgeht und ganzzahlig mischt wie [`over`](super::rasterizer::over),
+//! damit jede Karte dasselbe Byte liefert wie die CPU. Die Sprites eines
+//! Durchgangs gehen mit ihm hinauf, jedes einmal. Chunks lesen, Kandidaten
+//! suchen, Sprites wählen und WebP schreiben bleibt auf der CPU.
+//! Siehe docs/benutzung/grafikkarte.md, „Was die Karte zeichnet“.
 
 use std::collections::HashMap;
 use std::sync::mpsc::{TryRecvError, channel};
@@ -213,17 +206,14 @@ impl Gpu {
     }
 }
 
-/// Sucht den Adapter: Vulkan zuerst, derselbe Treiberweg auf Windows und
-/// Linux, und mit Mesa auf dem Server ohnehin der einzige. DX12 nur, wenn
-/// keine echte Karte Vulkan kann: eine alte Onboard-Grafik ohne
-/// Vulkan-Treiber, WARP in der Windows-CI. GL baut der Renderer nicht mit,
-/// der Weg lief nirgends in der CI; eine Karte nur mit GL-Treiber zeichnet
-/// auf der CPU dasselbe Bild. Die Reihenfolge steht in [`rang`].
+/// Sucht den Adapter in der Reihenfolge aus [`rang`]: Vulkan zuerst, DX12
+/// nur, wenn keine echte Karte Vulkan kann, GL gar nicht.
 ///
 /// `WGPU_BACKEND` wählt die Backends, `WGPU_ADAPTER_NAME` einen Adapter
 /// nach einem Teil seines Namens, wie bei wgpu üblich. Passt dazu keiner,
 /// ist das ein Fehler: `--gpu auto` zeichnet dann auf der CPU und sagt
 /// warum, `--gpu on` bricht ab.
+/// Siehe docs/entscheidungen/0024-vulkan-zuerst-ohne-gl.md.
 fn adapter(software: bool) -> Result<Option<(wgpu::Adapter, wgpu::AdapterInfo)>> {
     let name = std::env::var("WGPU_ADAPTER_NAME")
         .ok()

@@ -88,17 +88,9 @@ pub fn merge(parent: TileId, children: &[(TileId, RgbaImage)]) -> RgbaImage {
     out
 }
 
-/// Halbiert die Kantenlänge eines Bildes.
-///
-/// Gemittelt wird mit vormultipliziertem Alpha. Geradeaus gemittelt zögen
-/// durchsichtige Pixel ihre Farbe in die Nachbarn, und jede Kante gegen
-/// Luft bekäme einen dunklen Saum — auf einer Karte voller Blattwerk und
-/// Zäune wäre das überall zu sehen.
-///
-/// Gemittelt wird ausserdem in linearem Licht, nicht in sRGB-Werten: die
-/// sind gammakodiert, und ihr Mittel ist zu dunkel. Halb Schwarz, halb
-/// Weiss ergibt so 188 statt 128 — kontrastreiche Texturen fallen beim
-/// Herauszoomen sonst zusammen, und jede Stufe verdunkelt weiter.
+/// Halbiert die Kantenlänge eines Bildes, gemittelt mit vormultipliziertem
+/// Alpha und in linearem Licht.
+/// Siehe docs/benutzung/zoomstufen.md, „Verkleinern“.
 pub fn shrink(image: &RgbaImage) -> RgbaImage {
     let mut out = RgbaImage::new(image.width() / 2, image.height() / 2);
     for (x, y, ziel) in out.enumerate_pixels_mut() {
@@ -144,12 +136,10 @@ pub(crate) static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
     })
 });
 
-/// Lineares Licht zurück nach sRGB.
-///
-/// Statt der Kurve mit `powf` je Aufruf eine Tabelle der 255 Schwellen, ab
-/// denen der gerundete sRGB-Wert um eins steigt; `partition_point` zählt,
-/// wie viele davon unter dem Wert liegen. Der Rasterizer ruft das je Kanal
-/// und Pixel, bei scale 32 rund dreizehn Millionen Mal je Sprite-Tabelle.
+/// Lineares Licht zurück nach sRGB: statt `powf` je Aufruf eine Tabelle der
+/// 255 Schwellen, ab denen der gerundete sRGB-Wert um eins steigt;
+/// `partition_point` zählt, wie viele davon unter dem Wert liegen.
+/// Siehe docs/benutzung/zoomstufen.md, „Verkleinern“.
 pub(crate) fn to_srgb(linear: f32) -> u8 {
     SRGB_STEPS.partition_point(|&step| step <= linear) as u8
 }
@@ -252,25 +242,11 @@ impl MapInfo {
 const ROUNDS: u32 = 1 << 20;
 
 /// Die Kennung einer Welt im Kachelbaum: das Salz des Baums und ein Hash
-/// ihres Seeds und ihrer Dimension, als `"<salz>-<hash>"` in Hexziffern.
-/// Alle Dimensionen einer Welt tragen denselben Seed; ohne die Dimension
-/// käme der Nether in den Baum der Oberwelt und die Oberwelt in seinen.
-///
-/// `map.json` liegt öffentlich neben den Kacheln, und den Seed soll dort
-/// niemand ablesen. Ein Zufallsseed hat aber nur 2^48 Werte: Vanilla zieht
-/// ihn mit `LegacyRandomSource`, 48 Bit Zustand. Mit einem einzelnen
-/// SipHash liessen sich alle in Stunden bis Tagen durchprobieren. Deshalb
-/// läuft er eine Million Mal hintereinander, 2^68 Aufrufe für alle Zufallsseeds,
-/// und das Salz zwingt jeden Versuch, für jeden Baum von vorn anzufangen.
-/// Ein Seed aus einem Text hat nur 2^32 Werte, 2^52 Aufrufe: den schützt
-/// das für Stunden bis Tage, nicht für immer. Und nur, wenn man alle
-/// durchprobieren muss: ein eingetippter Seed wie 12345 oder einer aus
-/// einer öffentlichen Liste kostet einen Versuch von 16 ms und steht in
-/// jedem Wörterbuch.
-///
-/// Von Hand und nicht `DefaultHasher`: dessen Algorithmus darf sich mit
-/// jeder Rust-Version ändern, und jeder bestehende Baum gälte dann als
-/// fremd.
+/// ihres Seeds und ihrer Dimension, als `"<salz>-<hash>"` in Hexziffern:
+/// SipHash-2-4 mit dem Salz, 2^20-mal verkettet. Von Hand und nicht
+/// `DefaultHasher`, dessen Algorithmus sich mit jeder Rust-Version ändern
+/// darf.
+/// Siehe docs/entscheidungen/0014-kennung-der-welt-ohne-seed.md.
 pub fn world_id(seed: i64, dimension: &str, salt: u64) -> String {
     let key = [salt, u64::from_le_bytes(*b"a-render")];
     // Der Seed hat feste Länge, die Nachricht bleibt so eindeutig.

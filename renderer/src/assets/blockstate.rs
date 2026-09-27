@@ -95,8 +95,9 @@ pub struct Definition {
 }
 
 /// Alle Blöcke von 26.2 aus dem Datengenerator (`reports/blocks.json`), je
-/// Zeile ein Block mit seinen Eigenschaften. Neu erzeugen: README,
-/// „Blockstates wie im Client“.
+/// Zeile ein Block mit seinen Eigenschaften. Neu erzeugen mit dem Skill
+/// `tabellen-neu-erzeugen`.
+/// Siehe docs/entwicklung/tabellen.md, „Die Tabellen“.
 static BLOCKS: LazyLock<HashMap<&'static str, Definition>> = LazyLock::new(|| {
     include_str!("blocks.txt")
         .lines()
@@ -183,7 +184,8 @@ impl Definition {
 /// (`Leuchten.java`): je Block ein Zeichen je Zustand, in der Reihenfolge
 /// von `getPossibleStates`, oder eines für alle. `0` bis `f` ist
 /// `getLightEmission`, `x` heisst `emissiveRendering`. Blöcke, die nie
-/// leuchten, fehlen. Neu erzeugen: README, „Wasser und Biomfarben“.
+/// leuchten, fehlen. Neu erzeugen mit dem Skill `tabellen-neu-erzeugen`.
+/// Siehe docs/entwicklung/tabellen.md, „Die Tabellen“.
 static LEUCHTEN: LazyLock<HashMap<&'static str, &'static [u8]>> = LazyLock::new(|| {
     include_str!("leuchten.txt")
         .lines()
@@ -235,7 +237,9 @@ pub const SICHT: u8 = 2;
 /// [`DUNKELT`] und [`SICHT`] je Zustand, in der Reihenfolge von
 /// `getPossibleStates`, oder eine für alle. Blöcke ohne ein Bit fehlen.
 /// Ob ein Block leuchtet und deshalb ohne weiche Beleuchtung gezeichnet
-/// wird, sagt [`leuchten`]. Neu erzeugen: README, „Weiche Beleuchtung“.
+/// wird, sagt [`leuchten`]. Neu erzeugen mit dem Skill
+/// `tabellen-neu-erzeugen`.
+/// Siehe docs/entwicklung/tabellen.md, „Die Tabellen“.
 static SCHATTEN: LazyLock<HashMap<&'static str, &'static [u8]>> = LazyLock::new(|| {
     include_str!("schatten.txt")
         .lines()
@@ -305,17 +309,14 @@ impl BlockStateDef {
         })
     }
 
-    /// `BlockStateModelDispatcher.instantiate` gegen die Definition aus
-    /// 26.2. Einen Variantenschlüssel mit unbekannter Eigenschaft oder
-    /// unbekanntem Wert verwirft der Client, nur diesen Eintrag. Überlappen
-    /// sich zwei, bekommt der erste gemeinsame Zustand den späteren, und
-    /// der Rest des späteren fällt weg (`Overlapping definition`). Eine
-    /// solche Multipart-Bedingung dagegen wirft im Client von 26.2, dann
-    /// hat der Block über alle Packs kein Modell. Ob die Assets zu 26.2
-    /// gehören, weiss der Renderer aber nicht; in einer späteren Version
-    /// gibt es die Eigenschaft oder den Wert vielleicht. Er vergleicht dort
-    /// den Text, wie bei einem Block, den 26.2 nicht kennt, und gibt zurück,
-    /// was die Definition nicht kennt.
+    /// Löst Variantenschlüssel und Multipart-Bedingungen gegen die Definition
+    /// aus 26.2 auf, wie `BlockStateModelDispatcher.instantiate`: ein
+    /// Schlüssel mit unbekannter Eigenschaft oder unbekanntem Wert fällt weg,
+    /// bei zwei überlappenden bekommt der erste gemeinsame Zustand den
+    /// späteren. Eine Bedingung, die die Definition nicht kennt, vergleicht er
+    /// als Text und gibt sie zurück.
+    /// Siehe docs/renderer/blockstates.md, „Schlüssel gegen die Blockdefinition“.
+    /// Siehe docs/renderer/blockstates.md, „Multipart-Bedingungen“.
     pub fn instantiate(&mut self, definition: &Definition) -> BTreeSet<String> {
         let mut owners = vec![None; definition.states()];
         for (entry, variant) in self.variants.iter().enumerate() {
@@ -343,13 +344,10 @@ impl BlockStateDef {
     /// Zustand nicht kennt: keine Variante trägt ihn, und Multipart gibt es
     /// nicht. Dann gilt die Datei eines tieferen Packs. `index` ist der
     /// Platz des Zustands in 26.2; ohne ihn, bei Blöcken und Zuständen, die
-    /// 26.2 nicht kennt, gilt der erste passende Schlüssel.
-    ///
-    /// Eine Variantenliste ist Vanillas Zufall: Sand, Stein und Erde
-    /// liegen in vier Drehungen vor, und welche ein Block bekommt, würfelt
-    /// seine Position. Bei `multipart` gilt je Fall der erste Eintrag —
-    /// Listen haben dort nur Bambus, Chorus und Feuer. Multipart darf leer
-    /// ausgehen: trifft keine Bedingung zu, hat der Zustand keine Geometrie.
+    /// 26.2 nicht kennt, gilt der erste passende Schlüssel. Bei `multipart`
+    /// gilt je Fall der erste Eintrag, und trifft keine Bedingung zu, hat der
+    /// Zustand keine Geometrie.
+    /// Siehe docs/renderer/varianten.md, „Wie gewürfelt wird“.
     // ponytail: multipart ohne Zufall. Erst nötig, wenn jemand die
     // Bambus-Varianten vermisst.
     pub fn alternatives(

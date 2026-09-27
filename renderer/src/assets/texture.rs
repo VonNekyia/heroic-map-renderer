@@ -48,13 +48,13 @@ impl Textures {
 
     /// Lädt eine Textur oder liefert die bereits geladene.
     ///
-    /// Eine fehlende Datei ist kein Fehler: Minecraft zeigt dafür das
-    /// magenta-schwarze Karo, und ein halb vollständiges Pack soll einen
-    /// Renderlauf nicht abbrechen. Ebenso eine, die der Client verwirft
-    /// ([`read_texture`]). Die Namen sammelt [`Textures::missing`], die
-    /// verworfenen mit Grund [`Textures::broken`]. Ohne Namensraum gilt
-    /// `minecraft`, wie im Client: `block/stone` ist dieselbe Textur wie
-    /// `minecraft:block/stone`. Wo die Datei liegt, sagt [`datei`].
+    /// Eine fehlende Datei ist kein Fehler, sie wird zur Missing-Textur, ebenso
+    /// eine, die der Client verwirft ([`read_texture`]). Die Namen sammelt
+    /// [`Textures::missing`], die verworfenen mit Grund [`Textures::broken`].
+    /// Ohne Namensraum gilt `minecraft`, wie im Client: `block/stone` ist
+    /// dieselbe Textur wie `minecraft:block/stone`. Wo die Datei liegt, sagt
+    /// [`datei`].
+    /// Siehe docs/renderer/modelle-und-texturen.md, „`.mcmeta`“.
     pub fn load(&mut self, packs: &[Pack], id: &str) -> TextureId {
         let (namespace, name) = split_id(id);
         let id = format!("{namespace}:{name}");
@@ -137,15 +137,11 @@ fn read_texture(
     }
 }
 
-/// Sucht die `.mcmeta`-Datei im Packstapel und liest sie.
-///
-/// Minecraft nimmt Metadaten aus derselben oder einer höher priorisierten
-/// Schicht als die PNG-Datei — ein Overlay darf also allein die `.mcmeta`
-/// mitbringen. Gepaart wird wie die PNG gefunden wurde ([`datei`]): über
-/// den aufgelisteten Namen wie in `FallbackResourceManager.listResources`,
-/// sonst direkt wie in `createStackMetadataFinder`. Ohne `animation` ist
-/// die Textur statisch, auch wenn die Datei existiert: 48 der
-/// Vanilla-mcmeta enthalten nur `texture`-Flags.
+/// Sucht die `.mcmeta`-Datei im Packstapel und liest sie: aus derselben
+/// oder einer höheren Schicht als die PNG, gepaart, wie die PNG gefunden
+/// wurde ([`datei`]). Ohne `animation` ist die Textur statisch, auch wenn
+/// die Datei existiert.
+/// Siehe docs/renderer/modelle-und-texturen.md, „`.mcmeta`“.
 fn animation(
     packs: &[Pack],
     png_layer: usize,
@@ -159,15 +155,10 @@ fn animation(
 }
 
 /// Die Datei zur Textur `name` mit der `endung`, `png` oder `png.mcmeta`,
-/// und ihre Schicht im Packstapel, die oberste zuerst.
-///
-/// Aus einem Ordner des Block-Atlas nimmt der Client nur, was er dort
-/// auflistet ([`ASSETS`]). Seine beiden einzelnen Quellen,
-/// `entity/bell/bell_body` und `entity/enchantment/enchanting_table_book`,
-/// öffnet er direkt (`SingleFile`, `getResource`). So öffnet der Renderer
-/// jede Textur ausserhalb der Ordner. Für die übrigen zeigte der Client
-/// die Missing-Textur, es sei denn, ein Pack erweitert
-/// `atlases/blocks.json`; das liest der Renderer nicht.
+/// und ihre Schicht im Packstapel, die oberste zuerst. Aus einem Ordner
+/// des Block-Atlas nur, was der Client dort auflistet ([`ASSETS`]); jede
+/// Textur ausserhalb dieser Ordner öffnet der Renderer direkt.
+/// Siehe docs/renderer/packs.md, „Direkt geöffnete Dateien“.
 fn datei(packs: &[Pack], namespace: &str, name: &str, endung: &str) -> Option<(usize, PathBuf)> {
     let im_ordner = ASSETS
         .iter()
@@ -294,17 +285,11 @@ fn positive(json: &Value) -> Result<u32> {
 }
 
 /// Das Bild einer Animation, das der Client zuerst zeigt, oder `Err`, wenn
-/// er die Textur verwirft.
-///
-/// Die Bildgrösse steht in `width` und `height`. Fehlt eine, gilt dafür
-/// die Seite des Bildes, fehlen beide, für beide seine kürzere
-/// (`calculateFrameSize`). Teilt sie das Bild nicht, verwirft
-/// `SpriteResourceLoader` die Textur.
-/// `SpriteContents` streicht Bilder aus `frames`, die es nicht gibt; ohne
-/// `frames` zählen alle. Zeigt es danach mindestens zwei, beginnt es mit
-/// dem ersten. Sonst ist die Textur statisch, und ist das Bild dann
-/// grösser als eines, scheitert im Client das Hochladen des Atlas
-/// (`CommandEncoder.writeToTexture`); der Renderer verwirft sie.
+/// er die Textur verwirft: Die Bildgrösse kommt aus `width` und `height`
+/// oder aus dem Bild und muss es teilen. Von den Bildern aus `frames`, die
+/// es gibt, zeigt er bei mindestens zweien das erste; sonst ist die Textur
+/// statisch und darf nicht grösser sein als ein Bild.
+/// Siehe docs/renderer/modelle-und-texturen.md, „`.mcmeta`“.
 fn erstes_bild(image: &RgbaImage, animation: &Animation) -> Result<RgbaImage> {
     let (breite, hoehe) = image.dimensions();
     let (b, h) = match (animation.width, animation.height) {

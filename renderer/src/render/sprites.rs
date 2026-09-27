@@ -48,9 +48,9 @@ pub struct SpriteSet {
     /// Sprite fuehrt zur Fassung des Standardklimas, von dort geht es
     /// ueber den Index des Bioms weiter.
     by_biome: HashMap<SpriteId, Vec<SpriteId>>,
-    /// Index je Biomname, in der Reihenfolge von `Colors::biomes`. Eine
-    /// Karte je Sprite mit allen Biomnamen als Schluessel waren bei einer
-    /// grossen Serverwelt gut zwei Millionen Strings.
+    /// Index je Biomname, in der Reihenfolge von `Colors::biomes`, statt einer
+    /// Karte je Sprite mit allen Biomnamen als Schluessel.
+    /// Siehe docs/renderer/biomfarben.md, „Färbung als Fassung“.
     biome_index: HashMap<String, usize>,
     /// Sprites nach dem Hash ihrer Pixel und ihrer Faerbung: pixelgleiche
     /// teilen sich den Eintrag, wenn sie sich in jedem Biom gleich faerben.
@@ -68,13 +68,9 @@ pub struct SpriteSet {
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
 /// jedes Sprite und mit derselben Fuellregel: der ganze Umriss und die
-/// Oberseite allein.
-///
-/// Gegen sie prueft der Aufbau Pixel fuer Pixel, was ein Sprite deckt. Mit
-/// einer Pixelbreite Toleranz am Rand galten flache Modelle mit schmalem
-/// Rand — Druckplatten, Kuchen — als bodendeckend, der Block darunter fiel
-/// weg, und sein sichtbarer Rand wurde zum Loch. Bei scale 4 blieb vom
-/// geschrumpften Boden gar kein Pixel uebrig.
+/// Oberseite allein. Gegen sie prueft der Aufbau Pixel fuer Pixel, ohne
+/// Toleranz am Rand, was ein Sprite deckt.
+/// Siehe docs/renderer/sprites-und-deckung.md, „Wann ein Sprite deckt“.
 struct Masks {
     outline: Vec<(i32, i32)>,
     /// Derselbe Umriss Zeile für Zeile, siehe [`SpriteSet::outline_rows`].
@@ -184,12 +180,10 @@ pub struct Family {
 }
 
 impl Family {
-    /// Die Alternative fuer einen Block — dieselbe, die der 26.2-Client
-    /// wuerfelt: `ModelBlockRenderer` saet seinen Zufallsgenerator mit
-    /// `Mth.getSeed` der Position, `WeightedList.getRandomOrThrow` zieht
-    /// daraus `nextInt(total)` und zaehlt die Gewichte in Listenreihenfolge
-    /// ab. Damit sieht die Karte aus wie das Spiel, und die Wahl haengt
-    /// weder von Kachelgrenzen noch von der Renderreihenfolge ab.
+    /// Die Alternative fuer einen Block, dieselbe, die der 26.2-Client
+    /// wuerfelt: `nextInt(total)` aus `Mth.getSeed` der Position, die Gewichte
+    /// in Listenreihenfolge abgezaehlt.
+    /// Siehe docs/renderer/varianten.md, „Wie gewürfelt wird“.
     pub fn pick(&self, pos: [i32; 3]) -> Option<SpriteId> {
         if self.alternatives.len() == 1 {
             return self.alternatives[0].1;
@@ -207,12 +201,10 @@ impl Family {
     }
 }
 
-/// Wo der Client die Saat einer Blockstate nimmt. Obere Haelften von
-/// Tueren und Doppelpflanzen wuerfeln mit der Position der unteren, das
-/// Fussende eines Betts mit der des Kopfendes, beide Haelften passen so
-/// immer zusammen: `DoorBlock`, `DoublePlantBlock` und `BedBlock`
-/// ueberschreiben `getSeed`, per javap am 26.2-Client. Nur diese Bloecke
-/// tragen `half=upper` und `part=foot`.
+/// Wo der Client die Saat einer Blockstate nimmt: obere Haelften von
+/// Tueren und Doppelpflanzen bei der unteren, das Fussende eines Betts beim
+/// Kopfende. Nur diese Bloecke tragen `half=upper` und `part=foot`.
+/// Siehe docs/renderer/varianten.md, „Doppelblöcke“.
 fn seed_offset(state: &BlockState) -> [i32; 3] {
     if state.prop("half") == Some("upper") {
         return [0, -1, 0];
@@ -244,7 +236,7 @@ fn seed([x, y, z]: [i32; 3]) -> i64 {
 /// aus `java.util.Random`, den auch `SingleThreadedRandomSource` rechnet.
 /// Bei einer Zweierpotenz die oberen Bits, sonst der Rest — mit der
 /// Verwerfungsschleife, die Java gegen die Schieflage am oberen Ende hat.
-/// Bis 1.21.4 nahm Minecraft stattdessen `abs((int) nextLong()) % total`.
+/// Siehe docs/renderer/varianten.md, „Wie gewürfelt wird“.
 fn java_next_int(seed: i64, bound: i32) -> i32 {
     const MULT: i64 = 0x5DEECE66D;
     const MASK: i64 = (1 << 48) - 1;
@@ -373,10 +365,9 @@ struct Entry {
     covers_floor: bool,
     /// Bleibt der eigene Teil Pixel fuer Pixel im gerasterten Umriss seines
     /// Wuerfels? Nur dann darf der Block verdeckt wegfallen: was daneben
-    /// liegt, deckt kein Nachbar sicher. Die Zerlegung laesst jedem Teil eine
-    /// Pixelbreite Spielraum, und so weit ragen auch Schilder, Weizen, Rote
-    /// Bete, Schienen, Feuer und das Lesepult je nach scale ueber den Umriss,
-    /// ohne zu zerfallen. Schlaegt die Zerlegung fehl, gilt das erst recht.
+    /// liegt, deckt kein Nachbar sicher. Schlaegt die Zerlegung fehl, gilt das
+    /// erst recht.
+    /// Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
     contained: bool,
     /// Je Teil seine Zeilenmasken, erst wenn die CPU sie braucht.
     rows: OnceLock<Vec<Rows>>,
@@ -384,13 +375,10 @@ struct Entry {
 
 impl SpriteSet {
     /// Backt und rastert jede Blockstate genau einmal, gefaerbte Fassungen
-    /// nur fuer die Biome, mit denen sie im Vorlauf eine Section teilt. Auf
-    /// der ganzen Welt kommen alle Biome vor, aber nicht jeder Block in
-    /// jedem: Wasser hat in elf Wasserfarben keinen Sinn, wo es nur in
-    /// dreien steht.
-    ///
+    /// nur fuer die Biome, mit denen sie im Vorlauf eine Section teilt.
     /// Blockstates ohne sichtbare Geometrie — Luft, Truhen, Deckenfeuer —
     /// landen nicht in der Tabelle und werden beim Rendern uebersprungen.
+    /// Siehe docs/renderer/biomfarben.md, „Färbung als Fassung“.
     pub fn build_in<'a>(
         assets: &mut Assets,
         states: impl IntoIterator<Item = (&'a BlockState, &'a BTreeSet<String>)>,
@@ -935,20 +923,12 @@ fn fits_cell(sprite: &Sprite, cell: Cell, projection: Projection) -> bool {
         })
 }
 
-/// Zerlegt ein Sprite in die Blockwuerfel, in denen seine Geometrie liegt.
-///
-/// Der Maleralgorithmus sortiert nach Wuerfeln. Ein Modell, das ueber
-/// seinen eigenen Wuerfel hinausragt, muss deshalb zerfallen — sonst wird
-/// der herausragende Teil zur falschen Zeit gezeichnet: ein Block, der vor
-/// ihm liegt, aber einen hoeheren Ursprung hat, kaeme spaeter und
-/// uebermalte ihn.
-///
-/// Zugeordnet wird ueber den Bildschirm. Die Umrisse benachbarter Wuerfel
-/// kacheln die Ebene lueckenlos, ein Pixel liegt also in genau einem — bis
-/// auf die Blickachse: Wuerfel, die sich um ein Vielfaches von (1, 1, 1)
-/// unterscheiden, fallen aufeinander. Dort gewinnt der vordere, und genau
-/// dessen Geometrie hat auch der Tiefenpuffer des Rasterizers stehen
-/// lassen.
+/// Zerlegt ein Sprite in die Blockwuerfel, in denen seine Geometrie liegt,
+/// damit jeder Teil zu dem Zeitpunkt gezeichnet wird, der zu seinem Wuerfel
+/// gehoert. Zugeordnet wird ueber den Bildschirm; auf der Blickachse, wo
+/// Wuerfel im Abstand eines Vielfachen von (1, 1, 1) aufeinanderfallen,
+/// gewinnt der vordere.
+/// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
 fn split(sprite: Sprite, model: &BakedModel, projection: Projection) -> Vec<(Cell, Sprite)> {
     if fits_cell(&sprite, OWN_CELL, projection) {
         return vec![(OWN_CELL, sprite)];

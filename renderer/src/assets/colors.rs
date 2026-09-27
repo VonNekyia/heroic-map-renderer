@@ -6,6 +6,7 @@
 //! Blöcke das betrifft und woher ihre Farbe kommt, steht nicht in den
 //! Assets, sondern im Code (`BlockColors`). Die Tabelle hier ist der
 //! Nachbau davon, beschränkt auf das, was auf einer Karte Fläche macht.
+//! Siehe docs/renderer/biomfarben.md, „Welche Blöcke“.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -62,12 +63,9 @@ enum Source {
     Fixed(Tint),
 }
 
-/// Welche Blöcke gefärbt werden.
-///
-/// Alles andere mit `tintindex` bleibt ungefärbt: Kirsch- und
-/// Blasseichenlaub tragen ihre Farbe in der Textur, Redstone und Ranken
-/// färben nach Eigenschaften, und beides macht auf einer Karte keine
-/// Fläche.
+/// Welche Blöcke gefärbt werden. Alles andere mit `tintindex` bleibt
+/// ungefärbt.
+/// Siehe docs/renderer/biomfarben.md, „Welche Blöcke“.
 fn source_of(block: &str) -> Option<Source> {
     Some(match split_id(block).1 {
         "grass_block" | "short_grass" | "tall_grass" | "fern" | "large_fern" | "potted_fern"
@@ -140,12 +138,12 @@ impl Colors {
 
     /// Liest `<dir>/<namespace>/worldgen/biome/**/*.json` — das `data/` aus
     /// dem Client-JAR oder einem Datenpaket —, aufgelistet wie im Client
-    /// ([`Pack`]). Der Pfad gehört zur ID: `terralith:cave/underground_jungle`
-    /// liegt unter `biome/cave/underground_jungle.json`. Spätere Aufrufe
-    /// überschreiben Biome gleichen Namens, wie gestapelte Datenpakete. Ein
-    /// Biom, das der Codec ablehnt ([`biome`]), übergeht der Renderer und
-    /// nennt es in [`Colors::broken_biomes`]; der Client lüde das
-    /// Datenpaket gar nicht. Liefert, wie viele Biome es gelesen hat.
+    /// ([`Pack`]). Der Pfad gehört zur ID: `beispiel:hoehle/tropfstein` liegt
+    /// unter `biome/hoehle/tropfstein.json`. Spätere Aufrufe überschreiben
+    /// Biome gleichen Namens, wie gestapelte Datenpakete. Ein Biom, das der
+    /// Codec ablehnt ([`biome`]), übergeht der Renderer und nennt es in
+    /// [`Colors::broken_biomes`]. Liefert, wie viele Biome es gelesen hat.
+    /// Siehe docs/renderer/biomfarben.md, „Biome lesen“.
     pub fn load_biomes(&mut self, dir: &Path) -> Result<usize> {
         let pack = Pack::open(dir, &pack::BIOME)?;
         let mut dateien = 0;
@@ -254,12 +252,10 @@ impl Colors {
 
 /// Pixel der Colormap für ein Klima, wie `GrassColor.get`: Temperatur läuft
 /// von rechts nach links, Niederschlag — mit der Temperatur gewichtet — von
-/// unten nach oben.
-///
-/// Geklemmt wird in `float`, gerechnet in `double`, wie in
-/// `Biome.getGrassColorFromTexture` und `ColorMapColorUtil.get`. In `f32`
-/// landen acht Vanilla-Biome eine Zeile oder Spalte daneben, die Wiese
-/// etwa in Zeile 153 statt 152.
+/// unten nach oben. Geklemmt wird in `float`, gerechnet in `double`, wie in
+/// `Biome.getGrassColorFromTexture` und `ColorMapColorUtil.get`; in `f32`
+/// landen manche Biome eine Zeile daneben.
+/// Siehe docs/renderer/biomfarben.md, „Gras, Laub und Wasser“.
 fn lookup(map: &RgbaImage, temperature: f32, downfall: f32) -> Tint {
     let temperature = temperature.clamp(0.0, 1.0) as f64;
     let downfall = downfall.clamp(0.0, 1.0) as f64 * temperature;

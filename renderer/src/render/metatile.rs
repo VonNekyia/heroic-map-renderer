@@ -54,25 +54,14 @@ impl ScreenRect {
 /// Rendert einen Ausschnitt der Welt.
 ///
 /// Gezeichnet wird nach dem Maleralgorithmus, und zwar je Blockwürfel:
-/// erst nach Höhe `y`, innerhalb einer Höhe nach Tiefe `v = x + z`. Beides
-/// zusammen ist eine gültige Reihenfolge:
-///
-/// - Verdeckt Würfel B den Würfel A, dann liegt B nie tiefer
-///   (`y_B >= y_A`). Sonst wäre der senkrechte Abstand auf dem Bild
-///   mindestens eine Blockhöhe, und die Umrisse berührten sich höchstens.
-/// - Auf gleicher Höhe heisst "verdeckt" genau `v_B > v_A`, denn
-///   `depth = x + y + z = v + y`. Der Südnachbar `(x, y, z+1)` verdeckt die
-///   Südfläche von `(x, y, z)`, der Ostnachbar `(x+1, y, z)` die Ostfläche.
-///
-/// Entscheidend ist "je Würfel" und nicht "je Block": ein Modell, das über
-/// seinen Blockwürfel hinausragt, ist in `SpriteSet` bereits in Teile
-/// zerlegt, und jeder Teil wird zu dem Zeitpunkt gezeichnet, der zu seinem
-/// eigenen Würfel gehört. Sonst käme ein hohes Modell zu früh, und ein
-/// Block dahinter mit höherem Ursprung übermalte es.
-///
-/// Ein globaler Tiefenpuffer ist damit unnötig. Die Reihenfolge kommt aus
-/// dem Schlüssel `(y, v, u, Teil)`, nach dem die Kandidaten sortiert
-/// werden, siehe [`render_area_with`].
+/// erst nach Höhe `y`, innerhalb einer Höhe nach Tiefe `v = x + z`. Ein
+/// Würfel, der einen anderen verdeckt, liegt nie tiefer, und auf gleicher
+/// Höhe verdeckt er ihn genau bei grösserem `v`. Ein Modell, das über
+/// seinen Würfel hinausragt, ist in `SpriteSet` bereits in Teile je Würfel
+/// zerlegt. Die Reihenfolge kommt aus dem Schlüssel `(y, v, u, Teil)`,
+/// nach dem die Kandidaten sortiert werden, siehe [`render_area_with`].
+/// Siehe docs/renderer/kamera.md, „Zeichenreihenfolge“.
+/// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
 ///
 /// Grössere Ausschnitte als [`STUECK`] entstehen Stück für Stück, Zeile für
 /// Zeile, und werden zusammengesetzt. Ein Pixel hängt nur an der Welt und an
@@ -106,16 +95,12 @@ pub fn render_area(
 
 /// Kantenlänge der Stücke von [`render_area`], in Pixeln. Kandidaten,
 /// Deckungsmaske und die sichtbaren Pixel der Draws wachsen mit der Fläche
-/// eines Stücks, nicht mit der des ganzen Bilds: bei `--render --size 16384`
-/// wären es sonst 1 bis 14 GB mehr, je nach scale.
+/// eines Stücks, nicht mit der des ganzen Bilds.
+/// Siehe docs/renderer/renderpfad.md, „Grosse Ausschnitte“.
 pub const STUECK: u32 = 1024;
 
-/// Wie [`render_area`], mit einem Cache, der über Kacheln hinweg lebt.
-///
-/// Kacheln, die nacheinander kommen, liegen nebeneinander oder
-/// untereinander und teilen sich fast alle Chunks. Wer sie je Kachel neu
-/// lädt, gibt ein Drittel der Renderzeit fürs Dekodieren aus, das er gerade
-/// erst gemacht hat.
+/// Wie [`render_area`], mit einem Cache, der über Kacheln hinweg lebt:
+/// Kacheln, die nacheinander kommen, teilen sich fast alle Chunks.
 ///
 /// Drei Durchgänge. Der erste sammelt die Kandidaten — Blöcke, von denen
 /// etwas zu sehen sein kann — aus den Bitmasken der Sections, ohne einen
@@ -129,6 +114,7 @@ pub const STUECK: u32 = 1024;
 /// also nur, was ein späterer Draw ohnehin mit Alpha 255 übermalt, und das
 /// Bild ist dasselbe wie das von [`render_area_without_culling`], das jeden
 /// Block im Band abläuft.
+/// Siehe docs/renderer/sprites-und-deckung.md, „Deckungsmaske“.
 pub fn render_area_with(
     chunks: &mut ChunkCache,
     rect: ScreenRect,
@@ -450,11 +436,10 @@ fn v_window(projection: Projection, rect: ScreenRect, y: i32) -> (i32, i32) {
 /// senkrechte Position. Damit ist der Bereich je Höhe ein schmales Band
 /// statt der gesamten Grundfläche.
 ///
-/// `v` läuft aussen, und das ist kein Geschmack: `v` ist auf einer Höhe
-/// genau die Tiefe entlang der Blickachse (`depth = x + y + z`). Zwei
-/// Blöcke derselben Höhe überdecken einander sehr wohl — der Südnachbar
-/// `(x, y, z+1)` verdeckt die Südfläche von `(x, y, z)`. Liefe `u` aussen,
-/// käme er zu früh und würde übermalt.
+/// `v` läuft aussen: Auf einer Höhe ist `v` die Tiefe entlang der
+/// Blickachse, und liefe `u` aussen, käme der Südnachbar zu früh und würde
+/// übermalt.
+/// Siehe docs/renderer/kamera.md, „Zeichenreihenfolge“.
 fn columns_at(
     projection: Projection,
     rect: ScreenRect,
@@ -720,10 +705,8 @@ fn blit_sichtbar(
 /// ihrer ganzen Breite neu, samt Rand für Modelle, die überstehen. Über
 /// mehrere Spalten nebeneinander teilen sich die Kacheln einer Zeile diesen
 /// Rand. Breiter als acht Chunks in der Welt wird ein Streifen nicht: bei
-/// scale 32 acht Spalten, ab scale 4 eine, immer eine Zweierpotenz. Auf der
-/// grossen Serverwelt hielt ein Thread damit höchstens 430 bis 520 Chunks
-/// bei scale 32 und 825 bei scale 4, samt dem Viertel Spielraum aus
-/// [`CACHE_CHUNKS`].
+/// scale 32 acht Spalten, ab scale 4 eine, immer eine Zweierpotenz.
+/// Siehe docs/renderer/renderpfad.md, „Speicher“.
 pub fn streifenbreite(scale: u32) -> usize {
     1 << (scale as usize / 4).max(1).ilog2()
 }
@@ -743,8 +726,8 @@ const CACHE_CHUNKS: usize = 256;
 ///
 /// Ein Cache gehört zu einer Sprite-Tabelle: er hält je Paletteneintrag
 /// den Familienindex daraus. Über Kacheln hinweg lebt er je Thread, der
-/// Streifen Zeile für Zeile rendert — geteilt zwischen Threads wäre er eine
-/// Sperre im Renderpfad.
+/// Streifen Zeile für Zeile rendert.
+/// Siehe docs/entscheidungen/0025-streifen-und-cache-je-thread.md.
 pub struct ChunkCache<'a> {
     world: &'a World,
     sprites: &'a SpriteSet,
@@ -827,12 +810,10 @@ const FLAGS: usize = 11;
 const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
 
 /// Bitmasken einer Section: je Eigenschaft und Spalte `z * 16 + x` ein
-/// Wort, Bit `y`.
-///
-/// Damit ist die Frage "ist dieser Block von seinen drei Nachbarn
-/// verdeckt?" für sechzehn Blöcke einer Spalte auf einmal ein paar
-/// Wortoperationen — statt drei Nachschläge je Block, für neun von zehn
-/// Blöcken, die dann doch unter der Oberfläche liegen.
+/// Wort, Bit `y`. Ob ein Block von seinen drei Nachbarn verdeckt ist, sind
+/// damit für sechzehn Blöcke einer Spalte auf einmal ein paar
+/// Wortoperationen.
+/// Siehe docs/renderer/renderpfad.md, „Bitmasken“.
 struct Masks {
     bits: [[u16; 256]; FLAGS],
     /// Je Flüssigkeit aus [`FLUIDS`]: liegt über dem Block dieselbe, auch
@@ -1146,29 +1127,23 @@ impl<'a> ChunkCache<'a> {
 
     /// Rechnet die Kandidaten einer Section aus, falls noch nicht geschehen.
     ///
-    /// Ein Block ist verdeckt wie in [`render_area`] beschrieben: die
-    /// Nachbarn nach +x und +z decken ihren ganzen Umriss, dem nach +y
-    /// genügt sein Boden. Nach +y ist das Bit des Nachbarn in derselben
-    /// Spalte, eins höher — ein Shift; am oberen Rand kommt es aus der
-    /// Section darüber, an den Rändern +x und +z aus dem Nachbarchunk.
+    /// Ein Block ist verdeckt, wenn die Nachbarn nach +x und +z ihren ganzen
+    /// Umriss decken und der nach +y seinen Boden. Nach +y ist das ein Shift
+    /// in derselben Spalte; am oberen Rand kommt das Bit aus der Section
+    /// darüber, an den Rändern +x und +z aus dem Nachbarchunk.
     ///
-    /// Reine Flüssigkeit, Wasser wie Lava, zeichnet ausserdem nichts, wo
-    /// über ihr dieselbe steht und sie zu beiden Seiten an dieselbe grenzt,
-    /// die selbst dieselbe über sich hat: die Flächen dorthin entfallen, und
-    /// ein Streifen über einem niedrigeren Nachbarn kann nicht entstehen.
-    /// Seitlich darf statt der Flüssigkeit auch ein deckender Nachbar stehen;
-    /// mit derselben darüber reicht die Seitenfläche bis zur Kante, und der
-    /// Nachbar übermalt sie danach. Oben dagegen nicht: ohne dieselbe
-    /// darüber endet die Oberfläche bei ihrer Höhe, tiefer als der Boden des
-    /// Blocks darüber, und ragt in die Seiten hinein. So kommt das Innere
-    /// eines Ozeans oder eines Lavasees gar nicht erst zur Sprite-Wahl;
-    /// Lava deckt nur bei scale 4, sonst fiele dort kein Block weg.
+    /// Reine Flüssigkeit, Wasser wie Lava, zeichnet ausserdem nichts, wo über
+    /// ihr dieselbe steht und sie zu beiden Seiten an dieselbe mit derselben
+    /// darüber grenzt oder an einen deckenden Nachbarn. Oben genügt ein
+    /// deckender Block nicht: ohne dieselbe darüber ragt die Oberfläche in die
+    /// Seiten hinein. Lava deckt nur bei scale 4, sonst fiele dort kein Block
+    /// weg.
     ///
-    /// Beides setzt voraus, dass die Umrisse benachbarter Blöcke lückenlos
-    /// aneinanderstossen, und das tun sie nur, wenn jeder Block auf ganzen
-    /// Pixeln liegt: bei einem Vielfachen von 4 als scale. Bei anderen, die
-    /// nur die Bibliothek annimmt, verdeckt kein Nachbar; bei scale 6 blieben
-    /// sonst Spalten von einem Pixel.
+    /// Beides gilt nur bei einem Vielfachen von 4 als scale, wenn jeder Block
+    /// auf ganzen Pixeln liegt; bei anderen, die nur die Bibliothek annimmt,
+    /// verdeckt kein Nachbar.
+    /// Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
+    /// Siehe docs/renderer/renderpfad.md, „Bitmasken“.
     fn expose(&mut self, slot: usize, s: usize) -> Result<()> {
         let (key, section_y) = {
             let loaded = self.slots[slot].loaded.as_ref().expect("geladen");
@@ -1258,8 +1233,8 @@ impl<'a> ChunkCache<'a> {
         };
         // Das Band hat Reserve für Modelle, die aus ihrem Würfel ragen. Alle
         // anderen bleiben in dessen Umriss (`contained`) und zählen nur, wenn
-        // der die Kachel berührt: im Band lag sonst mehr als die Hälfte der
-        // Kandidaten neben der Kachel, und jeder bekam eine Sprite-Wahl.
+        // der die Kachel berührt.
+        // Siehe docs/renderer/renderpfad.md, „Kandidaten“.
         let (x_min, x_max, y_min, y_max) = self.sprites.outline_box();
         let (width, height) = (rect.width as i32, rect.height as i32);
         let touches = |x: i32, y: i32, z: i32| {
@@ -1285,8 +1260,8 @@ impl<'a> ChunkCache<'a> {
         // von `v_window` für die kleinste und grösste Tiefe `v` des Chunks,
         // grosszügig gerundet. Entscheidend bleibt die Prüfung je Block
         // (`touches`, `in_band`); das hier spart nur die Schleife über
-        // Sections, die das Band in diesem Chunk gar nicht berührt — von 24
-        // sind es meist drei.
+        // Sections, die das Band in diesem Chunk gar nicht berührt.
+        // Siehe docs/renderer/renderpfad.md, „Kandidaten“.
         let y_span = |va: i32, vb: i32| {
             let lo = ((va - 1) as f64 * scale / 4.0 - rect.bottom() as f64 - bleed) / (scale / 2.0);
             let hi = ((vb + 1) as f64 * scale / 4.0 - rect.y as f64 + bleed) / (scale / 2.0);
@@ -1424,11 +1399,9 @@ impl<'a> ChunkCache<'a> {
             let mut mask = if above { mask_bit(Face::Up) } else { 0 };
 
             // Zur selben Flüssigkeit nebenan nie eine Seitenfläche, wie
-            // `shouldRenderFace` im Spiel. Sonst mischt sich jede innere
-            // Fläche eines Beckens mit dazu, und ein Ozean wäre ein Raster
-            // aus doppelt gedecktem Wasser. Steht der Nachbar tiefer,
-            // bleibt über ihm ein Streifen der eigenen Seite frei: am Fuss
-            // eines Wasserfalls, an jeder Stufe fliessenden Wassers.
+            // `shouldRenderFace` im Spiel; steht der Nachbar tiefer, bleibt
+            // über ihm ein Streifen der eigenen Seite.
+            // Siehe docs/renderer/wasser-und-licht.md, „Flächen zu gleichem Wasser“.
             for (slot, (face, [dx, dz])) in [(Face::East, [1, 0]), (Face::South, [0, 1])]
                 .into_iter()
                 .enumerate()
@@ -1497,24 +1470,13 @@ impl<'a> ChunkCache<'a> {
 
     /// Die weiche Beleuchtung an den Ecken der drei sichtbaren Seiten eines
     /// Blocks, wie `BlockModelLighter.prepareQuadAmbientOcclusion` in 26.2
-    /// sie für eine volle Seite rechnet (`faceCubic`, nicht `facePartial`):
-    ///
-    /// - Gezählt wird in der Schicht vor der Seite: der Block direkt davor
-    ///   und je Ecke ihre zwei Nachbarn in dieser Schicht und der Block in
-    ///   der Ecke dazwischen. Jede Ecke ist das Mittel ihrer vier Werte, 1
-    ///   oder 0,2 für einen Block, der [`DUNKELT`].
-    /// - Der Block in der Ecke zählt nur, wenn hinter einem der beiden
-    ///   Nachbarn, noch eine Schicht weiter von der Seite weg, kein Block
-    ///   mit [`SICHT`] steht. Sonst gilt an seiner Stelle der Wert des
-    ///   ersten Nachbarn aus `AdjacencyInfo.corners`, für alle vier Ecken
-    ///   derselbe, wie im Spiel.
-    /// - `AmbientVertexRemap` legt die vier Werte auf die Ecken aus
-    ///   `FaceInfo`; `ARGB.gray` macht aus dem Mittel 255, 204, 153, 102
-    ///   oder 51.
-    ///
-    /// Das Licht der Nachbarn mischt das Spiel an denselben Ecken; bei
-    /// vollem Tageslicht bleibt es 15. Eine Seite, die ihr Nachbar ganz
-    /// deckt ([`SOLID`]), ist nicht zu sehen und bleibt ohne Werte.
+    /// sie für eine volle Seite rechnet: je Ecke das Mittel aus dem Block vor
+    /// der Seite, ihren zwei Nachbarn in dieser Schicht und dem Block in der
+    /// Ecke, 1 oder 0,2 für einen, der [`DUNKELT`]. Der Block in der Ecke zählt
+    /// nur, wenn hinter keinem der beiden Nachbarn ein Block mit [`SICHT`]
+    /// steht. Eine Seite, die ihr Nachbar ganz deckt ([`SOLID`]), bleibt ohne
+    /// Werte.
+    /// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
     fn ao_at(&mut self, block: [i32; 3]) -> Result<[u32; 3]> {
         let [fest, dunkelt, sicht] = self.umgebung(block)?;
         // Alles relativ zum Block, siehe `umgebung`.
@@ -1608,29 +1570,18 @@ impl<'a> ChunkCache<'a> {
 
     /// Das Himmelslicht, in dem das Spiel den Block an `(x, y, z)` zeichnet:
     /// das der Zelle vor seinen Flächen, gezählt wie in
-    /// [`ChunkCache::column_above`]. Unter freiem Himmel ist es 15.
+    /// [`ChunkCache::column_above`], eine Zahl je Block. Unter freiem Himmel
+    /// ist es 15.
     ///
-    /// - Führt der Block selbst Wasser, Seegras etwa oder ein gefluteter
-    ///   Zaun, liegt er im Licht dieses Wassers. An der Oberfläche zeichnet
-    ///   er sein Wasser selbst, und was darunter liegt, im Licht 14, siehe
-    ///   `rasterizer::Canvas::into_image`. Reines Wasser zeichnet
-    ///   `FluidRenderer` im helleren Licht aus seiner Zelle und der darüber,
-    ///   unter einer Brücke also im Licht der Luft darunter. Hat ein Block
-    ///   Wasser Luft neben sich, die selbst im Licht liegt, über der also
-    ///   kein Wasser steht, liegt er im Licht 14, denn das Licht der Zelle
-    ///   kommt im Spiel auch von der Seite. Ein Wasserfall liegt so unter
-    ///   freiem Himmel unter seinem obersten Block im Licht 14.
-    /// - Sonst gilt die Zelle über ihm, aber nur, wenn über ihm Wasser
-    ///   steht: der Grund eines Sees, auch in einer Luftblase darunter. An
-    ///   Land bleibt alles im Licht 15, auch unter einem Überhang.
-    /// - Verdeckt der Block darüber die Oberseite, sieht man nur die Seiten
-    ///   nach Osten und Süden, und die liegen im Licht des Wassers davor:
-    ///   ein Schiffsrumpf, eine Klippe unter Wasser.
+    /// - Führt der Block selbst Wasser, liegt er im Licht dieses Wassers, mit
+    ///   Luft im Licht daneben im Licht 14.
+    /// - Sonst gilt die Zelle über ihm, wenn über ihm Wasser steht; an Land
+    ///   bleibt alles im Licht 15.
+    /// - Verdeckt der Block darüber die Oberseite, gilt das hellere Wasser vor
+    ///   der Ost- und der Südseite.
     ///
-    /// Eine Zahl je Block: Die Seiten eines Blocks unter Wasser liegen im
-    /// Spiel eine Stufe dunkler als seine Oberseite, und am Ufer liegt die
-    /// Seite unter der Oberfläche im Licht 14, die Oberseite trocken im
-    /// Licht 15.
+    /// Siehe docs/renderer/wasser-und-licht.md, „Welches Licht ein Block bekommt“.
+    /// Siehe docs/renderer/wasser-und-licht.md, „Licht von der Seite“.
     fn light_at(&mut self, [x, y, z]: [i32; 3], family: &Family) -> Result<u8> {
         if is_water(Some(family)) {
             let stufen = self.column_above([x, y + 1, z])?.1;
@@ -1678,26 +1629,12 @@ impl<'a> ChunkCache<'a> {
     /// Wie viele Blöcke Wasser über `(x, y, z)` stehen, die Zelle selbst
     /// mitgezählt, und wie viele Stufen Himmelslicht sie samt den deckenden
     /// Blöcken nehmen, nach oben gezählt, bis das Licht von der Seite kommt:
-    ///
-    /// - Jeder Block Wasser nimmt eine Stufe, denn
-    ///   `LiquidBlock.propagatesSkylightDown` ist falsch: Der oberste liegt
-    ///   im Licht 14, ab 15 Stufen ist es 0. Ein deckender Block nimmt
-    ///   ebenso eine. Alles andere lässt das Licht durch, Glas, trockenes
-    ///   Laub, Luft. So bleiben eine geflutete Höhle unter dem Meeresboden
-    ///   und der Grund unter einem Stein im See dunkel.
-    /// - Hat ein Block Wasser Luft neben sich, über der kein Wasser steht,
-    ///   liegt er im Licht 14 wie ein Wasserfall, und mit seiner Stufe endet
-    ///   die Zählung: Unter einem Fall liegt der Grund eines Beckens eine
-    ///   Stufe tiefer als daneben. Luft unter Wasser, eine Luftblase oder
-    ///   ein Kasten aus Glas am Grund, liegt selbst im Dunkeln, und neben
-    ///   ihr zählt das Wasser weiter.
-    /// - Liegt unter einem deckenden Block eine Lücke, kommt das Licht dort
-    ///   von der Seite, und mit seiner Stufe endet die Zählung: Was über
-    ///   einer Brücke oder einem Überhang liegt, ändert darunter nichts.
-    ///
-    /// Luft und Lücke heisst weder Wasser noch deckend. Gezählt wird in den
-    /// Bitmasken der Sections; das Licht aus der Welt liest der Renderer
-    /// nicht.
+    /// neben Luft ohne Wasser darüber und in einer Lücke unter einem deckenden
+    /// Block. Jeder Block Wasser und jeder deckende nimmt eine Stufe, alles
+    /// andere lässt das Licht durch. Luft und Lücke heisst weder Wasser noch
+    /// deckend. Gezählt wird in den Bitmasken der Sections; das Licht aus der
+    /// Welt liest der Renderer nicht.
+    /// Siehe docs/renderer/wasser-und-licht.md, „Wie gezählt wird“.
     fn column_above(&mut self, [x, y, z]: [i32; 3]) -> Result<(u32, u32)> {
         let i = self.slot((x >> 4, z >> 4))?;
         let Some(loaded) = self.slots[i].loaded.as_ref() else {

@@ -57,6 +57,7 @@ fn under(root: &Path, parts: &[&str]) -> PathBuf {
 /// `DIMENSIONS/MINECRAFT/THE_NETHER` dieselben Regionen wie
 /// `dimensions/minecraft/the_nether`, und `..` ist kein Name. Ergibt der
 /// keine Welt, der angegebene, siehe [`locate_erst`].
+/// Siehe docs/benutzung/welten.md, „Weltwurzel und Dimension“.
 fn locate(dir: &Path) -> Option<(PathBuf, String)> {
     locate_erst(
         std::fs::canonicalize(dir).ok().map(gewohnt),
@@ -193,12 +194,10 @@ impl World {
     /// Welten vor 26.1 trugen ihn in `level.dat`, die liest der Renderer
     /// nicht.
     ///
-    /// Zuerst zählt die Datei der Dimension: Paper schreibt den Seed je
-    /// Dimension, und eine Plugin-Welt hat oft einen eigenen. Sonst die an
-    /// der Wurzel, wie Vanilla sie schreibt, oder die der Paper-Oberwelt,
-    /// von beiden die jüngere, bei gleichem Alter die von Paper: unter
-    /// Paper bleibt an der Wurzel eine ältere liegen, etwa aus der Zeit vor
-    /// einer neu erzeugten Welt.
+    /// Zuerst zählt die Datei der Dimension, sonst die an der Wurzel oder die
+    /// der Paper-Oberwelt, von beiden die jüngere, bei gleichem Alter die von
+    /// Paper.
+    /// Siehe docs/benutzung/welten.md, „Wo der Seed steht“.
     pub fn seed(&self) -> Result<Option<i64>> {
         #[derive(Deserialize)]
         struct Seed {

@@ -12,6 +12,7 @@
 ///
 /// Es gibt keine freie Kamera und keine Perspektive. Alle Faktoren stehen
 /// hier und nirgendwo sonst.
+/// Siehe docs/renderer/kamera.md, „Projektion“.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Projection {
     /// Pixelbreite eines Blocks.
@@ -42,13 +43,10 @@ impl Projection {
         ((x - z) * half, (x + z) * quarter - y * half)
     }
 
-    /// Blockkoordinaten auf Bildschirmpixel abbilden.
-    ///
-    /// Rechnet in f64, anders als `project`. Minecraft erlaubt Koordinaten
-    /// bis knapp 30 Millionen; ab 2^24 kann f32 benachbarte ganzzahlige
-    /// Blöcke nicht mehr auseinanderhalten, und zwei Nachbarn landen auf
-    /// demselben Pixel. Für Modellecken innerhalb eines Blocks reicht f32,
-    /// für Weltkoordinaten nicht.
+    /// Blockkoordinaten auf Bildschirmpixel abbilden, in f64 anders als
+    /// `project`: Für Modellecken innerhalb eines Blocks reicht f32, für
+    /// Weltkoordinaten nicht.
+    /// Siehe docs/renderer/kamera.md, „Weltkoordinaten in f64“.
     pub fn project_block(&self, [x, y, z]: [i32; 3]) -> (f64, f64) {
         let half = self.scale as f64 / 2.0;
         let quarter = self.scale as f64 / 4.0;

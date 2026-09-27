@@ -23,6 +23,9 @@ Bilder, Schnellstart, Stand. Ausführlich steht alles in `docs/`.
 | [`entscheidung-festhalten`](skills/entscheidung-festhalten/SKILL.md) | eine Richtung wird festgelegt, eine Alternative verworfen oder eine Entscheidung abgelöst |
 | [`messung-protokollieren`](skills/messung-protokollieren/SKILL.md) | Laufzeit, Grösse oder Speicher werden gemessen oder verglichen |
 | [`spielverhalten-belegen`](skills/spielverhalten-belegen/SKILL.md) | Code oder Doku sagt, wie das Spiel etwas macht |
+| [`tabellen-neu-erzeugen`](skills/tabellen-neu-erzeugen/SKILL.md) | eine neue Spielversion, oder `blocks.txt`, `leuchten.txt` oder `schatten.txt` passt nicht mehr zum Spiel |
+| [`goldbild-erneuern`](skills/goldbild-erneuern/SKILL.md) | das Goldbild fällt nach einer gewollten Änderung am Bild |
+| [`doku-bilder-rendern`](skills/doku-bilder-rendern/SKILL.md) | ein Bild in `docs/bilder/` oder im README ist veraltet |
 
 Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 
@@ -63,7 +66,9 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 14. Jede Seite steht mit einer Zeile in `docs/index.md`. Jeder Skill steht
     in der Tabelle oben.
 15. Überschriften bleiben stabil. Wer eine umbenennt oder eine Seite
-    verschiebt, zieht alle Verweise nach: `git grep "docs/<pfad>"`.
+    verschiebt, zieht alle Verweise nach: `git grep "docs/<pfad>"`. Die CI
+    prüft Verweise, Links und Pfade unter `code:` mit
+    `bash .github/pruefe-doku.sh`.
 16. Links sind relativ, zwischen Seiten wie auf Skills und Code, etwa
     `../../renderer/src/render/metatile.rs` aus `docs/renderer/`. So gehen
     sie auf GitHub und im Checkout.
@@ -91,29 +96,21 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 21. Deutsch, kurze Sätze. Frontmatter-Schlüssel englisch, wie in Agent
     Skills.
 
+### Entwurf
+
+22. Bei jeder neuen Abhängigkeit und jedem neuen Feature gilt die Frage:
+    Braucht ein Offline-Renderer für isometrische Minecraft-Rastertiles das
+    wirklich? Wenn nein, kommt es nicht dazu.
+
 ## Gliederung von `docs/`
 
 | Pfad | Inhalt |
 |---|---|
 | `docs/index.md` | Wegweiser: jede Seite mit einer Zeile |
-| `docs/benutzung/` | Schalter, Kacheln und Zoomstufen, Pyramide und `--resume`, `map.json`, Grafikkarte, Echtzeitschutz |
-| `docs/renderer/` | wie der Renderer das Spiel nachbaut: Kamera, Blockstates und Modelle, Sprites und Deckung, Wasser und Licht, weiche Beleuchtung, Biomfarben, Nähte |
+| `docs/benutzung/` | Schalter, Assets, Welten, Kacheln und Zoomstufen, Pyramide und `--resume`, `map.json`, Kosten, Grafikkarte, Echtzeitschutz |
+| `docs/renderer/` | wie der Renderer das Spiel nachbaut: Kamera, der Weg einer Kachel, Sprites und Deckung, Nähte, Wasser und Licht, weiche Beleuchtung, Biomfarben, Varianten, Blockstates, Packs, Modelle |
 | `docs/frontend.md` | das Frontend |
 | `docs/entwicklung/` | Aufbau des Codes, Tests, CI, Eingabedaten, erzeugte Tabellen |
 | `docs/entscheidungen/` | `NNNN-titel.md`, eine Datei je Entscheidung |
 | `docs/messungen/` | `JJJJ-MM-TT-titel.md`, eine Datei je Messreihe |
 | `docs/bilder/` | Bilder, nur aus der Testwelt |
-
-## Übergang
-
-Bis #19 umgesetzt ist, steht das Wissen noch im README und in Kommentaren.
-Wer #19 umsetzt:
-
-- legt `docs/` nach dieser Gliederung an, jede Seite mit Frontmatter;
-- zieht das Wissen aus dem README nach `docs/` und die Anleitungen, etwa
-  zum Neuerzeugen der Tabellen, als Skills nach `skills/`;
-- stellt Entscheidungen in Kommentaren auf Verweise um;
-- lässt die CI prüfen, dass jeder Verweis und jeder Pfad unter `code:`
-  existiert.
-
-Danach gelten diese Regeln ohne Ausnahme.

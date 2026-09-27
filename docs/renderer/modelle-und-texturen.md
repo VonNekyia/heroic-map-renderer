@@ -1,0 +1,96 @@
+---
+title: Modelle und Texturen
+description: Wie der Renderer Modelle wie CuboidModel und .mcmeta wie den Block-Atlas in 26.2 liest, wann der Missing-Würfel kommt und was kein Blockmodell hat.
+code:
+  - renderer/src/assets/model.rs
+  - renderer/src/assets/texture.rs
+  - renderer/src/assets/baker.rs
+  - renderer/src/assets/mod.rs
+---
+
+# Modelle und Texturen
+
+Modelle liest der Renderer wie `CuboidModel` im 26.2-Client, `.mcmeta` wie
+der Block-Atlas; was der Client verwirft, wird wie dort zum Missing-Würfel
+oder zur Missing-Textur und steht in der Ausgabe. Der Leser steht in
+[`renderer/src/assets/model.rs`](../../renderer/src/assets/model.rs), die
+Texturen in `renderer/src/assets/texture.rs`, das Backen der Flächen in
+`renderer/src/assets/baker.rs`.
+
+## Parents
+
+Fehlt einem Modell sein Parent, oder ist dessen Datei kaputt, setzt der
+Client das Missing-Modell an seine Stelle: die eigenen Elemente des Kindes
+bleiben, auch leere, sonst erbt es den Missing-Würfel. Die Blockstate steht
+dann mit dem Parent unter „Modelle“ in der Ausgabe, wie
+„Missing block model“ im Log des Clients; sonst sähe man einen Tippfehler im
+`parent` nur an fehlenden Texturen. 26.2 kennt dabei nur `builtin/missing`
+und `builtin/generated`; ein `builtin/entity` aus älteren Packs fehlt.
+
+## Felder eines Modells
+
+Die Textur einer Fläche ist immer der Name eines Slots, mit oder ohne `#`
+davor; `heavy_core` schreibt `"texture": "all"`. Verweise zwischen Slots
+löst der Renderer bis zum Ende auf, nur ein Zyklus bleibt offen. Ein Slot
+darf wie in 26.x ein Objekt sein, `{"sprite": ..., "force_translucent":
+true}`.
+
+Hier liest Gson die Felder, nicht DFU: wo das Modell einen Wert braucht,
+ist `null` ein Fehler. Eine Ansicht in `display`, `force_translucent` und
+eine Seite ohne Fläche nehmen `null` hin. Kaputt ist ein Modell auch, wenn
+`from` oder `to` nicht zwischen -16 und 32 liegt, ein Element keine Seite
+hat, eine Seite einen unbekannten Namen trägt, einer Drehung `origin` oder
+der Winkel fehlt oder eine Textur kein `Identifier` ist. Das gilt auch für
+`display`, `gui_light` und `ambientocclusion`, die der Renderer sonst nicht
+braucht. Dafür nimmt der Client Zahlen, wie `intValue` und
+`Float.parseFloat` sie lesen: eine Flächendrehung -90 ist 270, und
+`"tintindex": 0.0` ist 0. Die Achse `"Y"` gilt als `y` und eine unbekannte
+`cullface` als keine. Eine Fläche ohne Ausdehnung fällt weg, bevor der
+Client ihre Textur sucht.
+
+`uvlock` hält die Textur an der Welt fest: Die Texturkoordinate wandert auf
+ihre Seite des Einheitswürfels, dreht sich mit der Variante mit und wird
+auf der Zielseite wieder zur Texturkoordinate. 143 Vanilla-Blockstates
+setzen `uvlock`, fast alle Treppen, Zäune und Falltüren darunter.
+
+## `.mcmeta`
+
+Eine `.mcmeta` liest der Renderer wie der Block-Atlas: `animation` und
+`texture` je mit ihrem Codec. Was einer davon ablehnt, etwa
+`"frametime": 0` oder `"blur": 1`, macht die Textur wie im Client zur
+Missing-Textur, und die Ausgabe nennt den Grund. `"width": 16.0` ist 16.
+Fehlt eine Bildgrösse, gilt dafür die Seite des Bildes, fehlen beide, für
+beide seine kürzere (`calculateFrameSize`); teilt sie das Bild nicht, ist
+die Textur ebenso kaputt (`SpriteResourceLoader`). Der Renderer zeigt das
+Bild, mit dem der Client beginnt: das erste gültige aus `frames`
+(`SpriteContents`). Bleibt nur eines, ist die Textur statisch, und ist
+das Bild dann grösser als eines, scheitert im Client der Atlas
+(`CommandEncoder.writeToTexture`); der Renderer zeigt die Missing-Textur.
+
+Die `.mcmeta` kommt aus derselben oder einer höheren Schicht als die PNG,
+ein Overlay darf also allein die `.mcmeta` mitbringen. Gepaart wird wie die
+PNG gefunden wurde: über den aufgelisteten Namen wie in
+`FallbackResourceManager.listResources`, sonst direkt wie in
+`createStackMetadataFinder`. Ohne `animation` ist die Textur statisch, auch
+wenn die Datei existiert: 48 der Vanilla-mcmeta enthalten nur
+`texture`-Flags.
+
+Fehlende Texturen sind kein Fehler: sie werden zum magenta-schwarzen Karo
+wie im Client und am Ende gesammelt gemeldet, denn ein halb vollständiges
+Pack soll einen Renderlauf nicht abbrechen.
+
+## Was kein Blockmodell hat
+
+Truhen, Banner, Schädel und Töpfe zeichnet Minecraft über Entity-Modelle,
+die kennt der Renderer noch nicht. Wasser, Lava und Blasensäule fehlen in
+der Liste von `--scan`, weil der Renderer sie wie das Spiel im Code baut,
+siehe [Wasser und Licht](wasser-und-licht.md); eine geflutete Truhe steht
+trotzdem darin, auf der Karte ist dort nur ihr Wasser.
+
+## Was bleibt eine Näherung
+
+- **Entity-Modelle fehlen.** Truhen, Banner, Schädel und Töpfe zeichnet der
+  Renderer nicht.
+- **Ein kaputtes Element oder eine Seite `null`** trifft hier nur diesen
+  Verweis; dem Client fehlt dann der ganze Zustand, bei Multipart jeder
+  Zustand des Blocks. So schreibt kein Pack.

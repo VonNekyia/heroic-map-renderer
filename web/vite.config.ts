@@ -11,10 +11,10 @@ export default defineConfig({
   // liegen koennen, ohne neu gebaut zu werden.
   base: './',
   // public/ kopiert der Build selbst, ohne public/tiles: dort liegt oft
-  // ein Link auf einen Render mit Millionen Kacheln, und Vite folgte ihm
-  // beim Kopieren nach dist, auch unter `npm test`. Sonst wie Vite: vor
+  // ein Link auf einen Render mit Millionen Kacheln. Sonst wie Vite: vor
   // dem Bundle, damit dessen Dateien gewinnen, und Links mit ihrem Inhalt.
   // Der Filter greift, bevor cpSync einen Eintrag ansieht.
+  // Siehe docs/entscheidungen/0006-kacheln-unter-web-public.md.
   build: { outDir: 'dist', emptyOutDir: true, copyPublicDir: false },
   plugins: [
     {
@@ -31,10 +31,9 @@ export default defineConfig({
       },
     },
   ],
-  // Die Kacheln sind Millionen Dateien, die ein laufender Render ständig
-  // anlegt. Der Watcher des Devservers würde sie alle beobachten und
-  // dabei Kerne verbrennen, die der Render braucht. Neue Kacheln liefert
+  // Der Watcher des Devservers lässt die Kacheln aus. Neue Kacheln liefert
   // Vite dann nur, wenn public/tiles ein Link ist: dann fragt es je
   // Anfrage die Platte, statt in seiner Liste vom Start nachzusehen.
+  // Siehe docs/frontend.md, „Einem Render zusehen“.
   server: { watch: { ignored: ['**/public/tiles/**'] } },
 });

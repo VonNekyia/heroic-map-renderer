@@ -132,7 +132,7 @@ Kachelbaum behält seinen Radius, siehe [map.json](../benutzung/map-json.md),
 
 Die Testwelt an einer Grenze zwischen savanna und plains um (624, 716) und
 an einer zwischen lukewarm_ocean und ocean um (816, 720), scale 8, links
-`--biome-blend 0`, rechts die Vorgabe 2. Stand `08594cf`. Befehle: Skill
+`--biome-blend 0`, rechts die Vorgabe 2. Stand `fccdef5`. Befehle: Skill
 [`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md).
 
 ## Sumpfgras

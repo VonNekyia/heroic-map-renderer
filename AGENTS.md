@@ -15,6 +15,19 @@ geschrieben, für Menschen auf GitHub lesbar.
 `README.md` ist das Aushängeschild für Menschen: was das Projekt ist,
 Bilder, Schnellstart, Stand. Ausführlich steht alles in `docs/`.
 
+## Rollen
+
+| Rolle | Aufgabe |
+|---|---|
+| Maintainer | entscheidet, was umgesetzt wird, und merged |
+| Backend-Programmierer | der Renderer in Rust, `renderer/` |
+| Frontend-Programmierer | die Karte im Browser, `web/` |
+| Reviewer | prüft jede PR |
+| Researcher | sucht bessere Verfahren und Alternativen |
+
+Backend und Frontend verbindet [`map.json`](docs/benutzung/map-json.md).
+Wer daran etwas ändert, spricht es vorher mit der anderen Seite ab.
+
 ## Skills
 
 | Skill | Wann |

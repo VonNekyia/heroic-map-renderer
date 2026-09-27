@@ -28,7 +28,12 @@ nur hochgerechnet, siehe [Was ein Lauf kostet](../benutzung/kosten.md),
 
 ## Ablauf
 
-Ein Lauf über die ganze Welt, in einem Stück, gemessen von aussen.
+Ein Export über die ganze Welt, in einem Stück, am 26.09. von 15:03 bis
+16:11. Die Zahlen stammen aus seiner Ausgabe und aus der Ausgabe der
+Aufrufe von `--pyramid` daneben, die mit Uhrzeit mitgeschrieben war. Die
+Ausgabe zählt MB binär: 253 580,6 MiB Basis sind 266 GB, 84 317,4 MiB
+Pyramide 88 GB. Die Raten ohne Nebenlauf sind Stichproben, der Fortschritt
+über je eine Minute um 15:06 und um 15:17.
 
 ## Ergebnis
 
@@ -36,14 +41,21 @@ Ein Lauf über die ganze Welt, in einem Stück, gemessen von aussen.
 |---|---|
 | ganzer Lauf | 68 min |
 | Vorlauf | 64 s |
-| Basis | 2 496 892 Kacheln, davon 7 569 leer, in 44 min |
-| Pyramide | 835 252 Kacheln in 23 min, Zoom 0 bis 11 |
+| Basis | 2 504 461 Kacheln, 2 496 892 geschrieben und 7 569 leer, in 44 min |
+| Pyramide | 835 252 Kacheln auf Zoom 0 bis 10 in 23 min |
 | Grösse | 354 GB: Basis 266 GB, Pyramide 88 GB |
 
-- Solange ein Aufruf von `--pyramid` nebenher lief, halbierte sich das
-  Tempo etwa, und die Aufrufe wurden mit der Basis länger: 7, 10 und 13 min.
 - Ohne Nebenlauf stieg die Rate mit der Ausnahme vom Echtzeitschutz von 891
   auf 1593 Kacheln/s.
+- Solange ein Aufruf von `--pyramid` nebenher lief, sank das Tempo, und die
+  Aufrufe wurden mit der Basis länger: 426, 581 und 782 s, also 7, 10 und
+  13 min. Gemessen ist der Einbruch nur während des ersten Aufrufs: etwa
+  610 statt 891 Kacheln/s, aus zwei Ständen des Fortschritts um 15:11 und
+  15:15. In diese Minuten fiel auch die Ausnahme; wann genau, ist nicht
+  festgehalten.
+- Dass sich das Tempo danach mit Nebenlauf etwa halbierte, ist gerechnet,
+  nicht gemessen: Bei 1593 Kacheln/s ohne Nebenlauf bleiben für die Zeit
+  mit Nebenlauf rund 770 Kacheln/s.
 - Ohne Live-Ansicht und mit der Ausnahme von Anfang an wären es geschätzt
   etwa 50 Minuten gewesen; gemessen ist das nicht.
 

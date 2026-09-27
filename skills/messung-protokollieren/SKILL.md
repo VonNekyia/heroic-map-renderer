@@ -22,7 +22,9 @@ description: Misst Laufzeit, Grösse oder Speicher vergleichbar und hält das Er
    Renderers zählt MB und kB binär; Werte aus ihr umrechnen oder als MiB
    und KiB schreiben. Speicher an der Spitze in GiB.
 6. **Datei** `docs/messungen/JJJJ-MM-TT-titel.md` nach der Vorlage unten.
-   Alte Messungen nie überschreiben.
+   Unter „Ablauf“ steht, woher jede Zahl stammt: Ausgabe des Laufs,
+   Messskript oder Dateigrössen, mit Datum. Alte Messungen nie
+   überschreiben.
 7. **Nachziehen:** Die Seite des Themas nennt die neue Zahl und verweist auf
    die Messung. Zahlen im PR-Text stammen aus der Datei.
 8. **Eintragen:** eine Zeile in `docs/index.md`.

@@ -31,9 +31,15 @@ Basiskacheln wären das knapp 16 Stunden gewesen.
 
 ## Ablauf
 
-Ein Lauf über die ganze Welt; er endete nach rund 321 000 Basiskacheln,
-lange vor dem Ende der Basis. Gemessen sind Vorlauf, Kachelzahl, Grösse je
-Kachel und Rate, hochgerechnet Grösse und Dauer der ganzen Basis.
+Ein Lauf über die ganze Welt. Nach gut zwei Stunden und 321 400
+Basiskacheln wurde er abgebrochen, lange vor dem Ende der Basis, um zuerst
+den Renderer schneller zu machen. Gemessen sind Vorlauf, Kachelzahl, Grösse
+je Kachel und Rate, hochgerechnet Grösse und Dauer der ganzen Basis.
+
+Woher die Zahlen stammen: Vorlauf, Kachelzahl und die 321 400 aus der
+Ausgabe des Laufs, die Rate aus seinem Fortschritt, 180 000 Kacheln nach 68
+Minuten, die Grösse je Kachel aus dem Kachelordner nach einer halben
+Stunde, 5,7 GiB in 49 528 Dateien.
 
 ## Ergebnis
 

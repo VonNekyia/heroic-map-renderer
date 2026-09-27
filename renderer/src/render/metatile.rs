@@ -1490,7 +1490,7 @@ impl<'a> ChunkCache<'a> {
             };
             let mut ende = fest & (luecke << 1 | luecke_darunter) & ab;
             if nass & ab != 0 {
-                ende |= nass & self.luecke_daneben(x, z, sy)? & ab;
+                ende |= nass & self.luecke_daneben((i, s, sy), x, z)? & ab;
             }
             let zaehlt = (nass | fest) & ab;
             if ende != 0 {
@@ -1508,23 +1508,29 @@ impl<'a> ChunkCache<'a> {
         Ok((wasser, stufen))
     }
 
-    /// Die Lücken in den vier Spalten neben `(x, z)` in Section `sy`, je
-    /// `y` ein Bit: weder Wasser noch deckend. Eine Section ohne Familie ist
-    /// Luft; ein Chunk, der fehlt, hat keine Lücke.
-    fn luecke_daneben(&mut self, x: i32, z: i32, sy: i8) -> Result<u16> {
+    /// Die Lücken in den vier Spalten neben `(x, z)` auf der Höhe der
+    /// Section `s` mit dem y `sy` des Chunks in Slot `i`, je `y` ein Bit:
+    /// weder Wasser noch deckend. Eine Section ohne Familie ist Luft; ein
+    /// Chunk, der fehlt, hat keine Lücke.
+    fn luecke_daneben(&mut self, (i, s, sy): (usize, usize, i8), x: i32, z: i32) -> Result<u16> {
         let mut luecke = 0;
         for [dx, dz] in SEITEN {
             let (nx, nz) = (x + dx, z + dz);
-            let i = self.slot((nx >> 4, nz >> 4))?;
-            let Some(loaded) = self.slots[i].loaded.as_ref() else {
-                continue;
-            };
             let col = ((nz & 15) * 16 + (nx & 15)) as usize;
-            luecke |= match loaded
-                .chunk
-                .section_index(sy)
-                .map(|s| loaded.masks[s].as_deref())
-            {
+            let masken = if (nx >> 4, nz >> 4) == (x >> 4, z >> 4) {
+                // Im selben Chunk dieselbe Section, ohne Nachschlag.
+                self.slots[i].loaded.as_ref().map(|l| l.masks[s].as_deref())
+            } else {
+                let j = self.slot((nx >> 4, nz >> 4))?;
+                let Some(loaded) = self.slots[j].loaded.as_ref() else {
+                    continue;
+                };
+                loaded
+                    .chunk
+                    .section_index(sy)
+                    .map(|s| loaded.masks[s].as_deref())
+            };
+            luecke |= match masken {
                 Some(Some(m)) => !(m.bits[WATER][col] | m.bits[SOLID][col]),
                 _ => u16::MAX,
             };

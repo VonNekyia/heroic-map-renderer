@@ -25,8 +25,7 @@ description: Hält eine Entscheidung als eigene Datei in docs/entscheidungen/ fe
 6. **Verweisen:** Die Seiten in `docs/`, die das Thema beschreiben, und die
    Kommentare am Code verweisen auf die Entscheidung. Der Kommentar erzählt
    sie nicht nach.
-7. **Eintragen:** eine Zeile in `docs/index.md`, ein Eintrag in `nav` in
-   `mkdocs.yml`.
+7. **Eintragen:** eine Zeile in `docs/index.md`.
 
 ## Vorlage
 

@@ -2,7 +2,7 @@
 
 Regeln für alle, die in diesem Repository arbeiten, Agenten wie Menschen.
 Das Wissen des Projekts ist AI first aufgebaut: zuerst für Agenten
-geschrieben, für Menschen mit MkDocs gebaut.
+geschrieben, für Menschen auf GitHub lesbar.
 
 ## Wo das Wissen liegt
 
@@ -60,13 +60,13 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 12. Fakten vor Prosa: Listen, Tabellen, Zahlen mit Einheit und Stand.
     Bezeichner, Pfade und Befehle in Backticks.
 13. Code wird mit Pfad und Symbol genannt, nicht mit Zeilennummer.
-14. Jede Seite steht mit einer Zeile in `docs/index.md` und in `nav` in
-    `mkdocs.yml`. Jeder Skill steht in der Tabelle oben.
+14. Jede Seite steht mit einer Zeile in `docs/index.md`. Jeder Skill steht
+    in der Tabelle oben.
 15. Überschriften bleiben stabil. Wer eine umbenennt oder eine Seite
     verschiebt, zieht alle Verweise nach: `git grep "docs/<pfad>"`.
-16. Aus `docs/` zeigen Verweise auf `skills/` und auf Code als Pfad in
-    Backticks, nicht als Link. MkDocs baut nur `docs/`, und `--strict` bricht
-    bei Links nach draussen ab.
+16. Links sind relativ, zwischen Seiten wie auf Skills und Code, etwa
+    `../../renderer/src/render/metatile.rs` aus `docs/renderer/`. So gehen
+    sie auf GitHub und im Checkout.
 
 ### Code-Kommentare
 
@@ -88,8 +88,8 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
     Pfade vom eigenen Rechner, Seeds, Hardware oder Koordinaten der grossen
     Welt. Messungen nennen die Welt allgemein („die grosse Welt“, „die
     Testwelt“). Bilder zeigen nur die Testwelt.
-21. Deutsch, kurze Sätze. Frontmatter-Schlüssel englisch, wie MkDocs und
-    Agent Skills sie erwarten.
+21. Deutsch, kurze Sätze. Frontmatter-Schlüssel englisch, wie in Agent
+    Skills.
 
 ## Gliederung von `docs/`
 
@@ -113,7 +113,7 @@ Wer #19 umsetzt:
 - zieht das Wissen aus dem README nach `docs/` und die Anleitungen, etwa
   zum Neuerzeugen der Tabellen, als Skills nach `skills/`;
 - stellt Entscheidungen in Kommentaren auf Verweise um;
-- setzt den Tag des MkDocs-Images in `skills/doku-pflegen/SKILL.md` und im
-  README ein.
+- lässt die CI prüfen, dass jeder Verweis und jeder Pfad unter `code:`
+  existiert.
 
 Danach gelten diese Regeln ohne Ausnahme.

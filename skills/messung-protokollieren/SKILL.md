@@ -22,8 +22,7 @@ description: Misst Laufzeit, Grösse oder Speicher vergleichbar und hält das Er
    Alte Messungen nie überschreiben.
 6. **Nachziehen:** Die Seite des Themas nennt die neue Zahl und verweist auf
    die Messung. Zahlen im PR-Text stammen aus der Datei.
-7. **Eintragen:** eine Zeile in `docs/index.md`, ein Eintrag in `nav` in
-   `mkdocs.yml`.
+7. **Eintragen:** eine Zeile in `docs/index.md`.
 
 ## Vorlage
 

@@ -340,6 +340,25 @@ fn webp_behaelt_die_farbe_durchsichtiger_pixel() {
     assert_eq!(zurueck.as_raw(), bild.as_raw());
 }
 
+/// Mit mehr als 256 Farben packt libwebp ohne Palette, über Prädiktor,
+/// Farbcache und Rückverweise, und auch so kommt jedes Byte zurück. Die
+/// Hälfte der Basiskacheln geht diesen Weg. Eine Ecke ist voll durchsichtig
+/// und trägt Farbe, damit auch `exact` ihn geht.
+#[test]
+fn webp_ohne_palette_ist_verlustfrei() {
+    let bild = RgbaImage::from_fn(256, 256, |x, y| {
+        let (x, y) = (x as u8, y as u8);
+        let alpha = if x < 64 && y < 64 { 0 } else { 255 };
+        image::Rgba([x, y, x ^ y, alpha])
+    });
+    let farben: std::collections::HashSet<_> = bild.pixels().collect();
+    assert!(farben.len() > 256, "{} Farben", farben.len());
+    let zurueck = image::load_from_memory(&encode_webp(&bild).unwrap())
+        .unwrap()
+        .into_rgba8();
+    assert_eq!(zurueck.as_raw(), bild.as_raw());
+}
+
 /// Eine gerenderte Kachel wird höchstens halb so gross wie mit dem
 /// einfachen Encoder aus `image`. So fällt auf, wenn eine Einstellung die
 /// Kompression abschaltet.

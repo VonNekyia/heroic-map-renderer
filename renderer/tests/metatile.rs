@@ -2098,8 +2098,17 @@ fn hohe_welt_zaehlt_durch_alle_sections() {
 /// Osten: oben Süd, unten Süd, unten Nord, oben Nord. Die Welt steht in
 /// Chunk (0, 0), scale 32.
 fn ecken(welt: impl Fn(i32, i32, i32) -> &'static str, block: [i32; 3]) -> [[u8; 4]; 3] {
+    ecken_in(0..=0, welt, block)
+}
+
+/// Wie `ecken`, mit diesen Sections statt nur der bei y = 0.
+fn ecken_in(
+    sections: std::ops::RangeInclusive<i8>,
+    welt: impl Fn(i32, i32, i32) -> &'static str,
+    block: [i32; 3],
+) -> [[u8; 4]; 3] {
     let dir = tempdir();
-    common::write_world(dir.path(), &[(0, 0)], welt);
+    common::write_world_sections(dir.path(), &[(0, 0)], sections, welt, |_, _| None);
     let world = World::open(dir.path()).unwrap();
     let projection = Projection::new(32);
     let sprites = tabelle(&mut assets(), &world, projection);
@@ -2137,8 +2146,9 @@ const HELL: [u8; 4] = [255; 4];
 /// dazwischen auf 0,4, die beiden daneben auf 0,6. An einer Stufe bleibt
 /// die Oberseite hell, ihre Ostseite dunkelt zum Boden hin ab und der
 /// Boden vor ihr zur Stufe hin, an einer Stufe nach Süden ebenso ihre
-/// Südseite. Laub nimmt die Sicht nicht, dunkelt aber ab: direkt über dem
-/// Boden jede Ecke auf 0,8, auf den Mauern der Innenecke gar nicht.
+/// Südseite. Eine Seite, die ihr Nachbar deckt, bleibt ohne Werte. Laub
+/// nimmt die Sicht nicht, dunkelt aber ab: direkt über dem Boden jede Ecke
+/// auf 0,8, auf den Mauern der Innenecke gar nicht.
 #[test]
 fn weiche_beleuchtung_wie_im_spiel() {
     let frei = ecken(mit_mauer(|_, _, _| false), [8, 0, 8]);
@@ -2151,6 +2161,7 @@ fn weiche_beleuchtung_wie_im_spiel() {
     let oben = ecken(&stufe, [8, 1, 8]);
     assert_eq!(oben[0], HELL, "Oberseite der Stufe");
     assert_eq!(oben[2], [255, 153, 153, 255], "Ostseite der Stufe");
+    assert_eq!(oben[1], HELL, "Südseite, die der Nachbar deckt");
     assert_eq!(
         ecken(&stufe, [9, 0, 8])[0],
         [153, 153, 255, 255],
@@ -2193,6 +2204,54 @@ fn ecke_hinter_hohen_mauern_zaehlt_wie_im_spiel() {
         y <= 2 && ((x == 7 && z >= 8) || (z == 7 && x >= 8)) || (x, y, z) == (7, 1, 7)
     });
     assert_eq!(ecken(welt, [8, 0, 8])[0], [153, 153, 255, 153]);
+}
+
+/// Dieselbe Regel an der Ost- und der Südseite eines Steins auf dem Boden:
+/// Gefragt wird dort zwei Blöcke östlich und südlich von ihm. Im Osten
+/// nehmen der Boden und ein Stein hinter dem Nachbarn im Norden die Sicht.
+/// Statt des Lochs im Boden in der Ecke unten im Norden gilt der erste
+/// Nachbar, der Boden vor der Seite: 0,6 statt 0,8. Im Süden nehmen der
+/// Boden und ein Stein hinter dem Nachbarn im Westen die Sicht. Statt des
+/// Bodens in der Ecke unten im Westen gilt der erste Nachbar, Luft im
+/// Westen: 0,8 statt 0,6.
+#[test]
+fn ecke_hinter_mauern_auch_im_osten_und_sueden() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (9, 0, 7) => "minecraft:air",
+        (_, 0, _) | (8, 1, 8) | (10, 1, 7) | (7, 1, 10) => "minecraft:stone",
+        _ => "minecraft:air",
+    };
+    let [_, sued, ost] = ecken(welt, [8, 1, 8]);
+    assert_eq!(ost, [255, 153, 153, 255], "Osten");
+    assert_eq!(sued, [255, 204, 153, 255], "Süden");
+}
+
+/// Was der Renderer nicht zeichnet, dunkelt ab wie im Spiel, eine
+/// Shulkerkiste etwa, die das Spiel mit ihrem Blockentity zeichnet: als
+/// Mauer neben dem Boden wie Stein, und auch allein in der Section über
+/// einem Block an deren Grenze.
+#[test]
+fn abdunkeln_auch_ohne_sprite() {
+    let mauer = |x: i32, y: i32, _: i32| match (x, y) {
+        (_, 0) => "minecraft:stone",
+        (7, 1) => "minecraft:shulker_box",
+        _ => "minecraft:air",
+    };
+    assert_eq!(
+        ecken(mauer, [8, 0, 8])[0],
+        [153, 153, 255, 255],
+        "als Mauer"
+    );
+    let darueber = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 15, 8) => "minecraft:stone",
+        (8, 16, 8) => "minecraft:shulker_box",
+        _ => "minecraft:air",
+    };
+    assert_eq!(
+        ecken_in(0..=1, darueber, [8, 15, 8])[0],
+        [204; 4],
+        "allein in der Section darüber"
+    );
 }
 
 /// Ein Block, der leuchtet, bekommt keine weiche Beleuchtung, auch neben

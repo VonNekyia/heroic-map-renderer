@@ -781,10 +781,8 @@ struct Loaded {
     /// Je Section und Paletteneintrag, wie hell der Block selbst leuchtet:
     /// [`blockstate::leuchten`].
     leuchten: Vec<Vec<Leuchten>>,
-    /// Je Section und Paletteneintrag die Bits aus
-    /// [`blockstate::schatten`], auch für Blöcke ohne Sprite.
-    schatten: Vec<Vec<u8>>,
-    /// Je Section ihre Bitmasken, `None` für eine Section ohne Familie.
+    /// Je Section ihre Bitmasken, `None` für eine Section ohne Familie und
+    /// ohne Block, der abdunkelt oder die Sicht nimmt.
     masks: Vec<Option<Box<Masks>>>,
     /// Je Spalte `z * 16 + x` das y des obersten Blocks mit Wasser,
     /// `i32::MIN` ohne: Eine Lücke darunter liegt nicht im Licht, siehe
@@ -813,7 +811,12 @@ const PURE_LAVA: usize = 6;
 const LOOSE: usize = 7;
 /// Hat Teile in Nachbarwürfeln.
 const FOREIGN: usize = 8;
-const FLAGS: usize = 9;
+/// Dunkelt ab ([`DUNKELT`]), [`VIEW`] nimmt die Sicht ([`SICHT`]): die Bits
+/// aus [`blockstate::schatten`] für [`ChunkCache::ao_at`], auch für Blöcke
+/// ohne Familie.
+const DARK: usize = 9;
+const VIEW: usize = 10;
+const FLAGS: usize = 11;
 /// Je Flüssigkeit, in der Reihenfolge von [`Masks::up`]: das Bit "enthält
 /// sie" und das Bit "nur sie".
 const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
@@ -872,11 +875,24 @@ fn flags(family: &Family) -> u16 {
 }
 
 impl Masks {
-    /// `None`, wenn in der Section keine Familie steht.
-    fn of(section: &Section, families: &[Option<u32>], sprites: &SpriteSet) -> Option<Box<Masks>> {
+    /// `None`, wenn in der Section weder eine Familie steht noch ein Block,
+    /// der abdunkelt oder die Sicht nimmt. `schatten` hat je Paletteneintrag
+    /// die Bits aus [`blockstate::schatten`].
+    fn of(
+        section: &Section,
+        families: &[Option<u32>],
+        schatten: &[u8],
+        sprites: &SpriteSet,
+    ) -> Option<Box<Masks>> {
+        let bit = |set: bool, flag: usize| (set as u16) << flag;
         let flags: Vec<u16> = families
             .iter()
-            .map(|family| family.map_or(0, |index| flags(sprites.family(index))))
+            .zip(schatten)
+            .map(|(family, &s)| {
+                family.map_or(0, |index| flags(sprites.family(index)))
+                    | bit(s & DUNKELT != 0, DARK)
+                    | bit(s & SICHT != 0, VIEW)
+            })
             .collect();
         let union = flags.iter().fold(0, |acc, f| acc | f);
         if union == 0 {
@@ -931,7 +947,10 @@ impl Masks {
                 }
             }
         }
-        if !m.bits[PRESENT].iter().any(|&p| p != 0) {
+        if [PRESENT, DARK, VIEW]
+            .iter()
+            .all(|&e| m.bits[e].iter().all(|&w| w == 0))
+        {
             return None;
         }
         m.any_foreign = m.bits[FOREIGN].iter().any(|&f| f != 0);
@@ -965,23 +984,19 @@ impl Loaded {
                     .collect()
             })
             .collect();
-        let schatten = chunk
-            .sections()
-            .iter()
-            .map(|section| {
-                section
-                    .blocks()
-                    .palette()
-                    .iter()
-                    .map(blockstate::schatten)
-                    .collect()
-            })
-            .collect();
         let mut masks: Vec<Option<Box<Masks>>> = chunk
             .sections()
             .iter()
             .zip(&families)
-            .map(|(section, families)| Masks::of(section, families, sprites))
+            .map(|(section, families)| {
+                let schatten: Vec<u8> = section
+                    .blocks()
+                    .palette()
+                    .iter()
+                    .map(blockstate::schatten)
+                    .collect();
+                Masks::of(section, families, &schatten, sprites)
+            })
             .collect();
         // Flüssigkeit über dem obersten Block einer Section steht in der
         // Section darüber, im selben Chunk.
@@ -1015,7 +1030,6 @@ impl Loaded {
             chunk,
             families,
             leuchten,
-            schatten,
             masks,
             oberstes_wasser,
             exposed,
@@ -1167,9 +1181,7 @@ impl<'a> ChunkCache<'a> {
             .checked_add(1)
             .and_then(|y| loaded.chunk.section_index(y))
             .and_then(|i| loaded.masks[i].as_deref());
-        let m = loaded.masks[s]
-            .as_deref()
-            .expect("nur Sections mit Familie");
+        let m = loaded.masks[s].as_deref().expect("nur Sections mit Masken");
         let mut ex = Box::new(Exposed {
             own: [0; 256],
             any_own: false,
@@ -1497,34 +1509,36 @@ impl<'a> ChunkCache<'a> {
     ///
     /// Das Licht der Nachbarn mischt das Spiel an denselben Ecken; bei
     /// vollem Tageslicht bleibt es 15. Eine Seite, die ihr Nachbar ganz
-    /// deckt, ist nicht zu sehen und bleibt ohne Werte.
-    fn ao_at(&mut self, [x, y, z]: [i32; 3]) -> Result<[u32; 3]> {
+    /// deckt ([`SOLID`]), ist nicht zu sehen und bleibt ohne Werte.
+    fn ao_at(&mut self, block: [i32; 3]) -> Result<[u32; 3]> {
+        let [fest, dunkelt, sicht] = self.umgebung(block)?;
+        // Alles relativ zum Block, siehe `umgebung`.
+        let bit = |ebene: u64, [dx, dy, dz]: [i32; 3]| {
+            ebene >> (dy + 1 + 4 * (dx + 1) + 16 * (dz + 1)) & 1 != 0
+        };
         let bei = |p: [i32; 3], o: [i32; 3]| [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
         let mut out = NO_AO;
         for (seite, s) in AO_SEITEN.iter().enumerate() {
             let (d, nachbarn) = (s.richtung, s.nachbarn);
-            let vor = bei([x, y, z], d);
-            if self
-                .family_at(vor[0], vor[1], vor[2])?
-                .is_some_and(|f| f.opaque)
-            {
+            let vor = d;
+            if bit(fest, vor) {
                 continue;
             }
             let mut dunkel = [false; 4];
             let mut frei = [false; 4];
             for (k, &n) in nachbarn.iter().enumerate() {
-                dunkel[k] = self.schatten_at(bei(vor, n))? & DUNKELT != 0;
-                frei[k] = self.schatten_at(bei(bei(vor, n), d))? & SICHT == 0;
+                dunkel[k] = bit(dunkelt, bei(vor, n));
+                frei[k] = !bit(sicht, bei(bei(vor, n), d));
             }
-            let mut ecke = |a: usize, b: usize| -> Result<bool> {
-                Ok(if frei[a] || frei[b] {
-                    self.schatten_at(bei(bei(vor, nachbarn[a]), nachbarn[b]))? & DUNKELT != 0
+            let ecke = |a: usize, b: usize| {
+                if frei[a] || frei[b] {
+                    bit(dunkelt, bei(bei(vor, nachbarn[a]), nachbarn[b]))
                 } else {
                     dunkel[0]
-                })
+                }
             };
-            let (e03, e02, e12, e13) = (ecke(0, 3)?, ecke(0, 2)?, ecke(1, 2)?, ecke(1, 3)?);
-            let davor = self.schatten_at(vor)? & DUNKELT != 0;
+            let (e03, e02, e12, e13) = (ecke(0, 3), ecke(0, 2), ecke(1, 2), ecke(1, 3));
+            let davor = bit(dunkelt, vor);
             let werte = [
                 [dunkel[3], dunkel[0], e03, davor],
                 [dunkel[2], dunkel[0], e02, davor],
@@ -1540,23 +1554,51 @@ impl<'a> ChunkCache<'a> {
         Ok(out)
     }
 
-    /// Die Bits aus [`blockstate::schatten`] für den Block an einer
-    /// Weltkoordinate. Ausserhalb der Welt und in fehlenden Chunks keine,
-    /// wie für Luft.
-    fn schatten_at(&mut self, [x, y, z]: [i32; 3]) -> Result<u8> {
-        let i = self.slot((x >> 4, z >> 4))?;
-        let Some(loaded) = self.slots[i].loaded.as_ref() else {
-            return Ok(0);
-        };
-        let Some((section, slot)) = loaded.chunk.slot(x, y, z) else {
-            return Ok(0);
-        };
-        Ok(loaded
-            .schatten
-            .get(section)
-            .and_then(|bits| bits.get(slot))
-            .copied()
-            .unwrap_or(0))
+    /// Die Ebenen [`SOLID`], [`DARK`] und [`VIEW`] um einen Block, so weit
+    /// [`ChunkCache::ao_at`] fragt: je Ebene ein Bit für jede Zelle
+    /// `(x + dx, y + dy, z + dz)` mit `dx`, `dy` und `dz` von -1 bis 2, an
+    /// Stelle `dy + 1 + 4 · (dx + 1) + 16 · (dz + 1)`. Die vier Zellen einer
+    /// Spalte kommen aus einem Wort je Ebene, an einer Sectionsgrenze aus
+    /// zweien. Ausserhalb der Welt und in fehlenden Chunks steht nichts, wie
+    /// für Luft.
+    fn umgebung(&mut self, [x, y, z]: [i32; 3]) -> Result<[u64; 3]> {
+        let mut out = [0; 3];
+        for dz in -1..=2 {
+            for dx in -1..=2 {
+                // Diese Spalte fragt keine der drei Seiten.
+                if (dx, dz) == (2, 2) {
+                    continue;
+                }
+                let (px, pz) = (x + dx, z + dz);
+                let i = self.slot((px >> 4, pz >> 4))?;
+                let Some(loaded) = self.slots[i].loaded.as_ref() else {
+                    continue;
+                };
+                let col = ((pz & 15) * 16 + (px & 15)) as usize;
+                let woerter = |sy: i32| {
+                    i8::try_from(sy)
+                        .ok()
+                        .and_then(|sy| loaded.chunk.section_index(sy))
+                        .and_then(|s| loaded.masks[s].as_deref())
+                        .map_or([0; 3], |m| {
+                            [SOLID, DARK, VIEW].map(|e| u32::from(m.bits[e][col]))
+                        })
+                };
+                let unten = y - 1;
+                let sy = unten >> 4;
+                let lo = woerter(sy);
+                let hi = if (y + 2) >> 4 != sy {
+                    woerter(sy + 1)
+                } else {
+                    [0; 3]
+                };
+                let stelle = 4 * (dx + 1) + 16 * (dz + 1);
+                for ((o, l), h) in out.iter_mut().zip(lo).zip(hi) {
+                    *o |= u64::from((l | h << 16) >> (unten & 15) & 15) << stelle;
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Das Himmelslicht, in dem das Spiel den Block an `(x, y, z)` zeichnet:

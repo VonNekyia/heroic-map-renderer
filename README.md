@@ -1022,33 +1022,71 @@ des Spiels am Tag in der Oberwelt: die Umgebungsfarbe `#0a0a0a`
 zeichnet der Renderer jede Fläche. Nebel gibt es nicht; den zeichnet das
 Spiel nur, wenn die Kamera selbst unter Wasser ist.
 
+Mit Blocklicht rechnet `brightness_rgb` weiter wie der Shader. Die Stufe
+geht mit `BlockFactor` 1,4 in `get_brightness`; das Flackern, das das
+Spiel um 0 laufen lässt, fehlt. Ihre Farbe `BlockLightColor` liegt zwischen
+`BlockLightTint` und Weiss, gemischt mit 0,9 · (2l − 1)², und
+`BlockLightTint` ist `#FFD88C`, der Standard aus `EnvironmentAttributes`,
+den die Oberwelt nicht ändert. Die Summe mit dem Himmelslicht wird auf 1
+begrenzt, und `notGamma` hebt alle Kanäle mit dem hellsten. Schwaches
+Blocklicht färbt so warm, bei Stufe 15 ist alles hell.
+
 Welches Licht ein Block bekommt, bestimmt `light_at` in
-`renderer/src/render/metatile.rs` beim Zeichnen, aus den Blöcken senkrecht
-über ihm:
+`renderer/src/render/metatile.rs` beim Zeichnen, aus den Blöcken über und
+neben ihm:
 
 - Die Oberseite des Grunds liegt im Licht des Wassers über ihr.
 - Ein Block mit eigenem Wasser, Seegras, Kelp, ein gefluteter Zaun, liegt
   im Licht dieses Wassers. So sieht man Kelp knapp unter der Oberfläche
   auch über tiefem Grund, wie im Spiel.
+- Hat ein Block Wasser Luft neben sich, liegt er mindestens im Licht dieser
+  Luft weniger eins. `FluidRenderer` zeichnet eine Flüssigkeit im Licht
+  ihrer Zelle und der darüber, und das kommt im Spiel auch von der Seite:
+  Ein Wasserfall liegt unter freiem Himmel von der Kante bis zum Fuss im
+  Licht 14. Mit so einem Block endet die Zählung, unter einem Fall liegt
+  der Grund eines Beckens eine Stufe tiefer als daneben.
 - Verdeckt der Block darüber die Oberseite, gilt das Wasser vor der Ost-
   und der Südseite: ein Schiffsrumpf, eine Klippe unter Wasser.
-- Ein deckender Block nimmt ebenso eine Stufe wie ein Block Wasser. Im
-  Spiel kommt das Licht unter einem Dach von der Seite, so bleiben eine
-  geflutete Höhle unter dem Meeresboden und eine Luftblase im Meer dunkel.
+- Ein deckender Block nimmt ebenso eine Stufe wie ein Block Wasser. So
+  bleiben eine geflutete Höhle unter dem Meeresboden und eine Luftblase im
+  Meer dunkel. Liegt unter ihm eine Lücke, weder Wasser noch deckend, kommt
+  das Licht dort von der Seite, und mit ihm endet die Zählung: Wasser auf
+  einer Brücke ändert am Boden darunter nichts, und ein Fluss unter einem
+  Felsbogen liegt im Licht 13, gleich wie dick der Fels ist.
 - An Land bleibt alles im Licht 15, auch unter einem Überhang.
+- Was selbst leuchtet, bringt sein Blocklicht mit, wie in
+  `LightCoordsUtil.getLightCoords`: Seelaterne, Glowstone und Konduit 15,
+  eine geflutete Meeresgurke 6 bis 15, je nach Anzahl. Mit
+  `emissiveRendering`, beim Magmablock etwa, ist der Block voll hell.
 
-Gezählt wird aus den Bitmasken der Sections, ein paar Wörter je Block. Der
-Blit multipliziert jeden Pixel mit b, ganzzahlig wie das Mischen, auf der
-CPU wie im Shader der Karte; die Oberfläche selbst bleibt, wie sie ist. Ein
-gefluteter Block an der Oberfläche zeichnet sein Wasser im eigenen Sprite,
-und was er darunter trägt, liegt dort im Licht 14.
+Gezählt wird aus den Bitmasken der Sections, ein paar Wörter je Block; nur
+wo Wasser steht, kommen die vier Spalten daneben dazu. Ein Chunk, der
+fehlt, gilt dabei nicht als Luft, am Rand der Welt kommt kein Licht von der
+Seite. Der Blit multipliziert jeden Pixel je Kanal mit b, ganzzahlig wie das
+Mischen, auf der CPU wie im Shader der Karte; die Oberfläche selbst bleibt,
+wie sie ist. Ein gefluteter Block an der Oberfläche zeichnet sein Wasser im
+eigenen Sprite, und was er darunter trägt, liegt dort im Licht 14.
 
 Eine Zahl je Block ist eine Näherung. Im Spiel liegen die Seiten eines
 Blocks unter Wasser eine Stufe dunkler als seine Oberseite, am Ufer die
 Seite unter der Oberfläche im Licht 14, während die Oberseite trocken im
-Licht 15 liegt. Und gezählt wird nur senkrecht: Das Licht, das im Spiel von
-der Seite unter ein Dach fällt, kennt der Renderer nicht, denn das
-gespeicherte Licht der Welt liest er nicht.
+Licht 15 liegt. Licht von der Seite kennt der Renderer nur an den zwei
+Stellen oben, neben Wasser und unter einem Deckel. Wie weit es im Spiel
+unter ein Dach oder in eine Höhle fällt, zählt er nicht, denn das
+gespeicherte Licht der Welt liest er nicht. Blocklicht hat nur, was selbst
+leuchtet: Den Schein auf die Nachbarn, im Spiel eine Stufe weniger je
+Block, rechnet der Renderer nicht.
+
+Wie hell ein Block leuchtet, steht in `renderer/src/assets/leuchten.txt`,
+109 Blöcke aus 26.2: je Zustand eine Ziffer für `getLightEmission` oder ein
+`x` für `emissiveRendering`. Für eine andere Version erzeugt sie
+`Leuchten.java` daneben neu, im Verzeichnis, in dem der Datengenerator
+oben lief; dort liegen danach das Spiel und seine Bibliotheken. Unter
+Windows trennt `;` statt `:` die Einträge im Klassenpfad:
+
+```bash
+java -cp "$(ls versions/*/server-*.jar):$(find libraries -name '*.jar' | paste -sd:)" Leuchten.java > leuchten.txt
+```
 
 Gras und Laub funktionieren wie das Wasser: die Textur ist grau, das Biom
 liefert Temperatur und Niederschlag, und die Colormaps `grass.png` und

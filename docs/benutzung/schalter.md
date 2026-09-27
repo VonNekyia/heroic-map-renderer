@@ -56,8 +56,14 @@ Chunk:      (-4, 26)  status=minecraft:full
 
 Block bei (-64, 72, 416):  minecraft:air
 Höchster Block in Spalte:  y=71  minecraft:oak_leaves[distance=2,persistent=false,waterlogged=false]
-Biom:                      minecraft:forest
+Biom der Zelle:            minecraft:forest
+Biom des Blocks:           minecraft:forest
 ```
+
+`Biom der Zelle` ist das gespeicherte Biom der Zelle aus 4×4×4 Blöcken,
+`Biom des Blocks` das, dessen Farbe der Block trägt, nach dem Zoom des
+Spiels; ohne Seed in der Welt fehlt die zweite Zeile. Siehe
+[Biomfarben](../renderer/biomfarben.md), „Biom je Block“.
 
 Welche Welten der Renderer liest, steht in [Welten und Kennung](welten.md).
 
@@ -105,7 +111,7 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Render:     390 Chunks gelesen, 215 Blockstates, 739 Sprites
+Render:     390 Chunks gelesen, 215 Blockstates, 532 Sprites
             1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
             900x900 px bei (-4290, 958) und scale 16 in 0.3 s -> docs/bilder/map.png
 ```

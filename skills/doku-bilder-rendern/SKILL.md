@@ -24,6 +24,7 @@ Testwelt liegt unter `./world`, die Assets wie in
    | `map.png`, `map-wide.png` | ungeschnitten, Tabelle `DOKU` in [`bilder-rendern.py`](bilder-rendern.py) |
    | `welt.webp`, `dorf.webp`, `ufer.webp`, `eis.webp`, `savanne.webp` | zugeschnitten, verlustfrei, Tabelle `README` |
    | `banner.webp` | der Ausschnitt `BANNER` der Übersicht unter `quellen/banner-ebenen.png` |
+   | `biomgrenze-savanne.webp`, `biomgrenze-ozean.webp` | je zweimal gerendert, links `--biome-blend 0`, rechts `2`, zugeschnitten und nebeneinander, Tabelle `GRENZEN` |
    | `sprites.png` | der Befehl in [`docs/benutzung/schalter.md`](../../docs/benutzung/schalter.md), „Sprites rastern: `--sprite`“ |
 
    Liegen `world/` und die Assets nicht in der Wurzel, nennt ein zweites

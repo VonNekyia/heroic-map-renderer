@@ -108,6 +108,15 @@ die Farben, die sie braucht: die des Blocks nach seinem Resolver, die des
 Wassers für Wasser und geflutete Blöcke. Der Nachbau ist `BiomeTable::blend`
 in [`renderer/src/render/tint.rs`](../../renderer/src/render/tint.rs).
 
+![Grenze zwischen savanna und plains](../bilder/biomgrenze-savanne.webp)
+
+![Grenze zwischen lukewarm_ocean und ocean](../bilder/biomgrenze-ozean.webp)
+
+Die Testwelt an einer Grenze zwischen savanna und plains um (624, 716) und
+an einer zwischen lukewarm_ocean und ocean um (816, 720), scale 8, links
+`--biome-blend 0`, rechts die Vorgabe 2. Stand `08594cf`. Befehle: Skill
+[`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md).
+
 ## Sumpfgras
 
 Im Sumpf ist Gras je Spalte eines von zwei Grün, unabhängig von der Farbe

@@ -3,9 +3,11 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use anyhow::Result;
-use image::codecs::webp::WebPEncoder;
-use image::{ExtendedColorType, ImageEncoder, RgbaImage};
+use std::ffi::c_int;
+
+use anyhow::{Result, anyhow, ensure};
+use image::RgbaImage;
+use libwebp_sys as webp;
 use rayon::prelude::*;
 
 use crate::world::{BlockState, REGION, World};
@@ -348,21 +350,63 @@ fn clip(rect: ScreenRect, bounds: ScreenRect) -> ScreenRect {
     }
 }
 
-/// Kodiert ein Bild als verlustfreies WebP.
+/// Kodiert ein Bild als verlustfreies WebP, mit libwebp auf Stufe 0.
 ///
 /// Verlustfrei und nicht verlustbehaftet: Minecraft-Texturen sind
 /// Pixelkunst mit wenigen flachen Farben, die verlustfrei gut komprimiert.
 /// Verlustbehaftet würde aus 16-Pixel-Texturen Matsch, und die
 /// Kachelränder bekämen Artefakte, die man im Raster sieht.
+///
+/// libwebp statt des Encoders aus `image`: Der packt ohne Palette,
+/// Farbcache und Rückverweise, die Kacheln werden dreimal so gross. Stufe 0
+/// ist die schnellste; höhere Stufen sparen wenig und kosten ein
+/// Vielfaches. `exact` behält die Farbe voll durchsichtiger Pixel, sonst
+/// setzt libwebp sie auf 0. Eigene Threads braucht libwebp nicht, die
+/// Kacheln verteilt schon `rendere`.
 pub fn encode_webp(image: &RgbaImage) -> Result<Vec<u8>> {
+    let passt_nicht = |()| anyhow!("libwebp passt nicht zu seinen Headern");
+    let mut config = webp::WebPConfig::new().map_err(passt_nicht)?;
+    let mut bild = webp::WebPPicture::new().map_err(passt_nicht)?;
+    config.exact = 1;
+    config.thread_level = 0;
+    bild.use_argb = 1;
+    bild.width = image.width() as c_int;
+    bild.height = image.height() as c_int;
     let mut out = Vec::new();
-    WebPEncoder::new_lossless(&mut out).write_image(
-        image.as_raw(),
-        image.width(),
-        image.height(),
-        ExtendedColorType::Rgba8,
-    )?;
+    bild.writer = Some(anhaengen);
+    bild.custom_ptr = (&raw mut out).cast();
+    // SAFETY: `config` und `bild` hat libwebp angelegt, `image` hat
+    // `4 * width` Bytes je Zeile, und `custom_ptr` zeigt auf `out`, das
+    // bis nach `WebPPictureFree` an seinem Platz bleibt.
+    let gelungen = unsafe {
+        webp::WebPConfigLosslessPreset(&mut config, 0) != 0
+            && webp::WebPPictureImportRGBA(&mut bild, image.as_raw().as_ptr(), 4 * bild.width) != 0
+            && webp::WebPEncode(&config, &mut bild) != 0
+    };
+    let fehler = bild.error_code;
+    // SAFETY: gibt frei, was der Import angelegt hat; danach wird `bild`
+    // nicht mehr benutzt.
+    unsafe { webp::WebPPictureFree(&mut bild) };
+    ensure!(gelungen, "libwebp kodiert die Kachel nicht: {fehler:?}");
     Ok(out)
+}
+
+/// Hängt an, was libwebp beim Kodieren schreibt; `custom_ptr` zeigt auf den
+/// Puffer aus [`encode_webp`].
+unsafe extern "C" fn anhaengen(
+    daten: *const u8,
+    laenge: usize,
+    bild: *const webp::WebPPicture,
+) -> c_int {
+    if laenge > 0 {
+        // SAFETY: libwebp übergibt `laenge` lesbare Bytes, und `custom_ptr`
+        // setzt `encode_webp` auf seinen `Vec<u8>`.
+        unsafe {
+            let out = &mut *(*bild).custom_ptr.cast::<Vec<u8>>();
+            out.extend_from_slice(std::slice::from_raw_parts(daten, laenge));
+        }
+    }
+    1
 }
 
 #[cfg(test)]

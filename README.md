@@ -232,13 +232,13 @@ Vorlauf:    788 Chunks in 0.2 s, 247 Blockstates, 256 Kacheln
             200/256 Kacheln
             256/256 Kacheln
 Kacheln:    256 geschrieben, 0 leer, 256x256 px, 24 Threads + GPU
-            31.2 MB in 0.4 s (641 Kacheln/s, 125 kB je Kachel)
-Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 8.0 MB in 0.5 s
-Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.9 MB in 0.6 s
-Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.5 MB in 0.5 s
+            16.1 MB in 0.3 s (997 Kacheln/s, 65 kB je Kachel)
+Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 4.1 MB in 0.2 s
+Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.1 MB in 0.2 s
+Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.3 MB in 0.2 s
 Zoom  6:     2 Kacheln
 ...
-Pyramide:   9 Kacheln, 0.2 MB in 0.1 s
+Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
 Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/map.json
 ```
 
@@ -552,30 +552,32 @@ nebeneinander, die Grenzen rot eingezeichnet:
 Gemessen an einem Ausschnitt, hochgerechnet auf die ganze Welt: derselbe
 Weltausschnitt um (-64, 416) bei jedem scale, mit allen nativen Stufen und
 Pyramide, also `--size 8192` bei scale 32, `4096` bei 16 und `2048` bei 8.
-Das sind 1600, 400 und 100 Basiskacheln, gerendert auf 24 Threads. Die
-Kachelzahl der ganzen Welt nennt der Vorlauf. Die Dauer stammt vom Stand
-nach dem Umbau weiter unten, aus je zwei Ausschnitten um denselben Punkt,
-bei scale 32 mit 2304 und 6400 Basiskacheln: der Unterschied gibt die Zeit
-je Kachel für Basis, native Stufen und Pyramide, ohne den Vorlauf und die
-Sprite-Tabellen, die jede Stufe einmal baut; die kommen einmal dazu. Von
-Tag zu Tag schwankt sie um ein Viertel, jede geschriebene Kachel geht
-durch den Echtzeitschutz, siehe „Echtzeitschutz unter Windows“ unten.
+Das sind 1600, 400 und 100 Basiskacheln, gerendert auf 24 Threads ohne
+Karte. Die Kachelzahl der ganzen Welt nennt der Vorlauf. Die Dauer stammt
+aus je zwei Ausschnitten um denselben Punkt, bei scale 32 mit 2304 und
+12 544 Basiskacheln, von je drei Läufen der mittlere: der Unterschied gibt
+die Zeit je Kachel für Basis, native Stufen und Pyramide, ohne den Vorlauf
+und die Sprite-Tabellen, die jede Stufe einmal baut; die kommen einmal
+dazu. Gemessen ist in einem Ordner, den der Echtzeitschutz auslässt, siehe
+„Echtzeitschutz unter Windows“ unten. Von Tag zu Tag schwankt die Dauer um
+ein Viertel.
 
 | `--scale` | Kacheln der Welt | je Kachel | Basis | native Stufen | zusammen | Dauer |
 |-----------|------------------|-----------|-------|---------------|----------|-------|
-| 32 | 292 836 | 109 kB | ~30 GB | ~10 GB | ~40 GB | ~11 min |
-| 16 | 73 920 | 111 kB | ~7,8 GB | ~2,1 GB | ~10 GB | ~4 min |
-| 8 | 18 951 | 101 kB | ~1,8 GB | ~0,4 GB | ~2,2 GB | ~2 min |
+| 32 | 292 836 | 33 kB | ~9,7 GB | ~3,3 GB | ~13 GB | ~6 min |
+| 16 | 73 920 | 34 kB | ~2,5 GB | ~0,9 GB | ~3,4 GB | ~3 min |
+| 8 | 18 951 | 37 kB | ~0,7 GB | ~0,2 GB | ~0,9 GB | ~2 min |
 
-Auf demselben Ausschnitt wiegt eine Kachel bei jedem scale rund 100 bis
-110 kB: sie zeigt bei kleinerem scale mehr Welt, aber gleich viele Pixel.
-Der Platz hängt deshalb fast nur an der Kachelzahl. Die Dauer nicht: jede
-native Stufe zeichnet jeden Block ihrer Fläche noch einmal, und zusammen
-kosten sie gut drei Viertel der Zeit der Basis, bei scale 32 hochgerechnet
-rund 5 gegen 6 Minuten. So lange braucht auch ein Lauf bei scale 16 samt
-seinen Stufen über dieselbe Fläche. In Bytes sind sie ein Fünftel bis ein
-Drittel. Die Sprite-Tabellen aller 3110 Blockstates brauchen über die vier
-Stufen zusammen rund 11 s.
+Mit dem Encoder aus `image`, vor libwebp, wog eine Kachel dort 104 bis
+114 kB, bei scale 32 zusammen ~43 GB in ~5 min, siehe unten. Auf demselben
+Ausschnitt wiegt eine Kachel bei jedem scale etwa gleich viel: sie zeigt
+bei kleinerem scale mehr Welt, aber gleich viele Pixel. Der Platz hängt
+deshalb fast nur an der Kachelzahl. Die Dauer nicht: jede native Stufe
+zeichnet jeden Block ihrer Fläche noch einmal, und zusammen brauchen sie
+etwas länger als die Basis, bei scale 32 das 1,2-Fache. Das ist etwa so
+lange wie ein Lauf bei scale 16 samt seinen Stufen über dieselbe Fläche.
+In Bytes sind sie ein Drittel der Basis. Die Sprite-Tabellen aller 3110
+Blockstates brauchen über die vier Stufen zusammen rund 11 s.
 
 Der erste Vollrender einer grossen Serverwelt hat die Rechnung geerdet:
 2,5 Millionen Chunks, 30 GB, scale 32, gemessen vor dem Umbau weiter unten.
@@ -693,11 +695,51 @@ viele Kacheln je Sekunde wie am Anfang, auf einem Kern 10-mal; die
 Differenz ist Hyperthreading auf 12 Kernen plus das, was 24 Threads sich
 an Speicherbandbreite teilen.
 
-WebP wird **verlustfrei** geschrieben. Minecraft-Texturen sind Pixelkunst mit
-wenigen flachen Farben; verlustbehaftet würde daraus Matsch, und an den
-Kachelrändern sähe man die Artefakte im Raster. Gegenüber PNG spart
-verlustfreies WebP auf diesem Inhalt 20 bis 40 Prozent — dieselbe Kachel wiegt
-als PNG 173 kB und als WebP 108 kB.
+WebP wird **verlustfrei** geschrieben, mit libwebp auf Stufe 0.
+Minecraft-Texturen sind Pixelkunst mit wenigen flachen Farben;
+verlustbehaftet würde daraus Matsch, und an den Kachelrändern sähe man die
+Artefakte im Raster. Schon der einfache Encoder aus `image` sparte
+gegenüber PNG 20 bis 40 Prozent, dieselbe Kachel wog als PNG 173 kB und als
+WebP 108 kB. Er packt aber ohne Palette, Farbcache und Rückverweise.
+libwebp nutzt alle drei, und die Kacheln werden ein Drittel so gross, auf
+dichtem Land halb so gross, über Ozean ein Viertel bis ein Achtel, Pixel
+für Pixel gleich.
+Auf der grossen Serverwelt, 24 Threads, je zwei Läufe:
+
+| | Encoder aus `image` | libwebp |
+|---|---|---|
+| Land, 65 536 Basiskacheln: Basis | 6,60 GB | 2,12 GB |
+| dito, Pyramide | 2,26 GB | 0,80 GB |
+| dito, ganzer Lauf ohne Karte | 48, 47 s | 59, 59 s |
+| dito, ganzer Lauf mit Karte | 46, 44 s | 55, 53 s |
+| Ozean, 15 682 Basiskacheln: Basis und Pyramide | 2,15 GB | 0,50 GB |
+
+Das Kodieren kostet: auf einem Thread 2,2 statt 0,6 ms je Kachel. Dazu
+holt libwebp sich je Kachel rund 2 MB über `malloc` der C-Laufzeit, nicht
+über mimalloc wie der Rust-Teil, und der gewöhnliche Heap von Windows gibt
+sie beim Freigeben ans System zurück: gut 500 Seitenfehler je Kachel, die
+sich auf vielen Threads stauen. Unter Windows bekommt das Binär deshalb ein
+Manifest mit dem Segment-Heap, siehe `renderer/build.rs`, und der behält
+den Speicher. Das Kodieren allein, 1024 Kacheln auf 24 Threads, schafft
+damit auf Land 4992 statt 3834 Kacheln/s und über Ozean 6016 statt 4399;
+auf einem Thread ist es knapp 10 Prozent langsamer. Im ganzen Lauf über Land
+geht das in der Streuung unter. Über Ozean mit Karte dauert er 13,0 statt
+13,8 bis 14,0 s.
+
+Höhere Stufen lohnen nicht. Auf 128 Kacheln dieser Welt gemessen, bezogen
+auf den Encoder aus `image`:
+
+| Stufe | Grösse | je Kachel, ein Thread |
+|---|---|---|
+| 0 | 0,39 | 2,3 ms |
+| 1 | 0,36 | 5,5 ms |
+| 6 | 0,29 | 49 ms |
+
+`exact` behält die Farbe voll durchsichtiger Pixel, sonst setzt libwebp sie
+auf 0 und die Kachel käme nur fast zurück. `libwebp-sys` baut libwebp aus
+dem mitgelieferten C-Quelltext. Dafür braucht es einen C-Compiler, unter
+Windows den von Visual Studio, den Rust dort ohnehin verlangt, unter Linux
+gcc oder clang. libwebp selbst steht unter BSD-3-Clause.
 
 #### Echtzeitschutz unter Windows
 

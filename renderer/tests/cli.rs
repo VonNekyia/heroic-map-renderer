@@ -2791,3 +2791,19 @@ fn versagende_karte_steht_einmal_im_log() {
     );
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 }
+
+/// Unter Windows trägt das Binär ein Manifest mit dem Segment-Heap, siehe
+/// build.rs. Ohne ihn holt sich libwebp den Speicher jeder Kachel frisch
+/// vom Windows-Heap, und das Kodieren staut sich auf vielen Threads.
+#[cfg(all(windows, target_env = "msvc"))]
+#[test]
+fn binaer_bekommt_den_segment_heap() {
+    let binaer = std::fs::read(env!("CARGO_BIN_EXE_terranova-render")).expect("Binär lesen");
+    let eintrag = br#"<heapType xmlns="http://schemas.microsoft.com/SMI/2020/WindowsSettings">SegmentHeap</heapType>"#;
+    assert!(
+        binaer
+            .windows(eintrag.len())
+            .any(|stelle| stelle == eintrag),
+        "kein Segment-Heap im Manifest des Binärs"
+    );
+}

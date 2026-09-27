@@ -9,9 +9,9 @@ code:
 # Was ein Lauf kostet
 
 Die ganze Testwelt braucht bei scale 32 mit allen nativen Stufen und
-Pyramide rund 26 GB und 6,5 Minuten, bei scale 16 rund 6,8 GB und
-3,5 Minuten. Der Platz hängt fast nur an der Kachelzahl, die Dauer auch an
-den nativen Stufen. Die Zahlen sind an einem Ausschnitt gemessen und
+Pyramide hochgerechnet rund 26 GB und 6,5 Minuten, bei scale 16 rund 6,8 GB
+und 3,5 Minuten. Der Platz hängt fast nur an der Kachelzahl, die Dauer auch
+an den nativen Stufen. Die Zahlen sind an einem Ausschnitt gemessen und
 hochgerechnet, zuletzt in
 [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md);
 dort steht auch, wie. Von Tag zu Tag schwankt die Dauer um ein Viertel.

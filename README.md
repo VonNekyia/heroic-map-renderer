@@ -61,8 +61,8 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 - Kacheln verlustfrei als WebP, Zoomstufen darüber, native Stufen auf
   Wunsch, Fortsetzen nach einem Abbruch, Zusehen während eines Renders.
 - Zeichnen auf der Grafikkarte, Byte für Byte wie auf der CPU.
-- Die ganze Testwelt braucht bei scale 32 rund 6,5 Minuten und 26 GB, siehe
-  [Was ein Lauf kostet](docs/benutzung/kosten.md).
+- Die ganze Testwelt braucht bei scale 32 hochgerechnet rund 6,5 Minuten
+  und 26 GB, siehe [Was ein Lauf kostet](docs/benutzung/kosten.md).
 - Noch nicht: Truhen, Banner, Schädel und Töpfe (Entity-Modelle),
   Übergänge zwischen Biomen, weiche Beleuchtung für Teilflächen.
 

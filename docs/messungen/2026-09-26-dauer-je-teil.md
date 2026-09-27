@@ -14,9 +14,9 @@ code:
 Licht unter Wasser und der weichen Beleuchtung. Den aktuellen Stand nennt
 [Was ein Lauf kostet](../benutzung/kosten.md), „Dauer“.
 
-Bei scale 32 brauchten die drei nativen Stufen der ganzen Testwelt
-hochgerechnet 4,8 Minuten, gut drei Viertel der Basis mit 6,1 Minuten; die
-Pyramide brauchte unter 0,1 Minuten.
+Hochgerechnet auf die ganze Testwelt bei scale 32 hätten die drei nativen
+Stufen 4,8 Minuten gebraucht, gut drei Viertel der Basis mit 6,1 Minuten,
+die Pyramide unter 0,1 Minuten.
 
 ## Aufbau
 
@@ -54,8 +54,9 @@ Die Spalte Dauer im README, mit Vorlauf und Sprite-Tabellen:
 | 16 | ~4 min |
 | 8 | ~2 min |
 
-- Ein Lauf bei scale 16 samt seinen Stufen über dieselbe Fläche brauchte
-  4,2 Minuten, etwa so lange wie die nativen Stufen bei scale 32.
+- Ein Lauf bei scale 16 samt seinen Stufen über dieselbe Fläche hätte
+  hochgerechnet 4,2 Minuten gebraucht, etwa so lange wie die nativen Stufen
+  bei scale 32.
 - Gegen die Messung der Runde davor war die Spalte ein Viertel kürzer; das
   README nannte es Schwankung von Tag zu Tag.
 - Die Spalten zum Platz im selben README stammen aus einer früheren

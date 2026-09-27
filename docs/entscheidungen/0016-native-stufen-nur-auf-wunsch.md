@@ -16,9 +16,10 @@ code:
 
 Das Verkleinern mittelt Nachbarblöcke ineinander; die Karte verschwamm beim
 Herauszoomen früh. #8 renderte deshalb bei scale 32 die Stufen 16, 8 und 4
-immer aus der Welt. Der erste Vollrender der grossen Welt zeigte den Preis:
-Die drei kosten zusammen fast noch einmal die Basis, bei knapp 16 Stunden
-Basisstufe rund 14 Stunden mehr.
+immer aus der Welt. Die drei kosten zusammen fast noch einmal die Basis,
+in #8 gemessen 12,1 gegen 13,6 s. Beim ersten Vollrender der grossen Welt,
+dessen Basis hochgerechnet knapp 16 Stunden gebraucht hätte, wären das
+rund 14 Stunden mehr gewesen.
 
 ## Entscheidung
 

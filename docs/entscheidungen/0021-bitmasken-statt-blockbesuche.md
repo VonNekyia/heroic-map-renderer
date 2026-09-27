@@ -16,8 +16,9 @@ code:
 Der Renderer lief über jede der rund 317 000 Positionen im Band einer
 Kachel, 268 000 davon Luft, fragte je Block die Familie ab und für jeden
 nicht-leeren Block drei Nachbarn. Für neun von zehn wählte er erst das
-Sprite, bevor er merkte, dass der Block verdeckt ist. Der erste Vollrender
-der grossen Welt brauchte so für die Basis knapp 16 Stunden.
+Sprite, bevor er merkte, dass der Block verdeckt ist. Beim ersten
+Vollrender der grossen Welt hätte die Basis so hochgerechnet knapp 16
+Stunden gebraucht; der Lauf endete lange vorher.
 
 ## Entscheidung
 

@@ -26,6 +26,6 @@ und Biomdaten kommen: [Assets und Biomdaten](../benutzung/assets.md).
 
 ## Bilder
 
-Bilder in `docs/bilder/` zeigen nur die Testwelt, siehe
-[`AGENTS.md`](../../AGENTS.md), Regel 20. Wie sie entstehen: Skill
+Bilder in `docs/bilder/` zeigen nur die Testwelt oder Szenen, die ein
+Test baut, siehe [`AGENTS.md`](../../AGENTS.md), Regel 20. Wie sie entstehen: Skill
 [`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md).

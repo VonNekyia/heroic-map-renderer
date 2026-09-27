@@ -92,7 +92,8 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 20. Das Repository ist öffentlich. Nirgends stehen Welt- oder Servernamen,
     Pfade vom eigenen Rechner, Seeds, Hardware oder Koordinaten der grossen
     Welt. Messungen nennen die Welt allgemein („die grosse Welt“, „die
-    Testwelt“). Bilder zeigen nur die Testwelt.
+    Testwelt“). Bilder zeigen nur die Testwelt oder Szenen, die ein
+    Test baut.
 21. Deutsch, kurze Sätze. Frontmatter-Schlüssel englisch, wie in Agent
     Skills.
 
@@ -113,4 +114,4 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 | `docs/entwicklung/` | Aufbau des Codes, Tests, CI, Eingabedaten, erzeugte Tabellen |
 | `docs/entscheidungen/` | `NNNN-titel.md`, eine Datei je Entscheidung |
 | `docs/messungen/` | `JJJJ-MM-TT-titel.md`, eine Datei je Messreihe |
-| `docs/bilder/` | Bilder, nur aus der Testwelt |
+| `docs/bilder/` | Bilder, nur aus der Testwelt oder aus Szenen der Tests; Quellen in `docs/bilder/quellen/` |

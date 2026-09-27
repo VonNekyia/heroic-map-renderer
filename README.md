@@ -1,23 +1,77 @@
-# TerraNova Map Renderer
+<p align="center">
+  <img src="docs/bilder/banner.webp" alt="Heroic Map Renderer: isometrische Minecraft-Karten, pixelgenau wie im Spiel, in Rust, mit GPU">
+</p>
 
-Isometrischer Offline-Renderer für Minecraft-Java-Welten. Liest Weltdaten und
-ein Resourcepack, rendert die Welt mit fester isometrischer Kamera und gibt
-WebP-Rastertiles aus, die ein schlankes Leaflet-Frontend anzeigt.
+<p align="center">
+  <a href="https://github.com/VonNekyia/heroic-map-renderer/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/VonNekyia/heroic-map-renderer/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Minecraft Java 26.x" src="https://img.shields.io/badge/Minecraft_Java-26.x-5d8a3a">
+  <img alt="Renderer in Rust" src="https://img.shields.io/badge/Renderer-Rust-b7410e">
+  <img alt="Grafikkarte über Vulkan oder DX12" src="https://img.shields.io/badge/GPU-Vulkan_%C2%B7_DX12-4a6fa5">
+  <img alt="Frontend mit Leaflet" src="https://img.shields.io/badge/Frontend-Leaflet-199900">
+</p>
+
+**Heroic Map Renderer** zeichnet Minecraft-Java-Welten als isometrische
+Karte. Jeder Block kommt mit seinem Modell, seiner Textur, seiner Biomfarbe
+und seinem Licht aufs Bild, so wie der Client ihn zeichnet. Heraus kommen
+WebP-Kacheln, die ein schlankes Leaflet-Frontend zeigt. Der Browser rendert
+keine Geometrie, nur fertige Bilder.
 
 ```
-Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
+Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet
 ```
 
-Der Browser rendert keine Minecraft-Geometrie, sondern nur fertige
-Rasterkacheln.
+<p align="center">
+  <img src="docs/bilder/dorf.webp" alt="Ein Dorf am Wasser mit Feldern, Stegen und Marktständen, scale 32">
+</p>
 
-![Karte](docs/bilder/map.png)
+## Auf einen Blick
 
-![Übersicht](docs/bilder/map-wide.png)
+| | |
+|---|---|
+| **1 500 bis 2 000 Kacheln/s** | Basis der grossen Welt auf 24 Threads mit Grafikkarte, gemessen, siehe [Weiche Beleuchtung](docs/messungen/2026-09-27-weiche-beleuchtung.md) |
+| **68 Minuten** | für eine Welt mit 2,5 Millionen Basiskacheln, ganz gemessen mit #11; heute hochgerechnet 65 bis 75 min, siehe [Was ein Lauf kostet](docs/benutzung/kosten.md) |
+| **Byte für Byte** | dasselbe Bild auf der CPU und auf der Grafikkarte, von der CI geprüft, siehe [Grafikkarte](docs/benutzung/grafikkarte.md) |
+| **verlustfrei** | WebP über libwebp, Pixel für Pixel; die grosse Welt hochgerechnet rund 185 GB |
+| **6,5 Minuten** | für die ganze Testwelt bei scale 32 mit allen Stufen, hochgerechnet, rund 26 GB |
 
-Die Testwelt um (-64, 416), 900 mal 900 Pixel bei scale 16, und um den
-Ursprung bei scale 4. Beide Bilder zeigen den Stand von Schritt 8, noch ohne
-das Licht unter Wasser und ohne weiche Beleuchtung.
+## Was drin ist
+
+- **Wie im Spiel:** Blockstates, Modelle mit Drehung, Gewicht und `uvlock`,
+  Varianten aus der Position, Biomfarben, Wasser und Lava mit ihren
+  Fallstufen, jeder Block im Licht des Spiels, volle Würfel weich
+  beleuchtet. Das Verhalten ist am Code des Spiels belegt, siehe den
+  [Wegweiser](docs/index.md).
+- **Schnell:** Bitmasken statt Blockbesuche, ein Cache je Thread, Zeichnen
+  auf der Grafikkarte über Vulkan oder DX12. Ohne Karte zeichnet die CPU
+  dasselbe Bild.
+- **Für grosse Welten:** Zoomstufen darüber, native Stufen auf Wunsch,
+  `--resume` nach einem Abbruch, Zusehen während eines Renders.
+- **Schlankes Frontend:** Leaflet mit Vite und TypeScript. Es lädt nur
+  Kacheln und `map.json`.
+
+## Galerie
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/bilder/ufer.webp" alt="Strand mit Schiffswrack, scale 32"></td>
+    <td width="50%"><img src="docs/bilder/eis.webp" alt="Eisberge im gefrorenen Meer, scale 8"></td>
+  </tr>
+  <tr>
+    <td>Strand mit Schiffswrack, scale 32</td>
+    <td>Eisberge im gefrorenen Meer, scale 8</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/bilder/savanne.webp" alt="Savanne mit Dorf und Fluss, scale 8"></td>
+    <td width="50%"><img src="docs/bilder/welt.webp" alt="Die Insel um den Spawn, scale 4"></td>
+  </tr>
+  <tr>
+    <td>Savanne mit Dorf und Fluss, scale 8</td>
+    <td>Die Insel um den Spawn, scale 4</td>
+  </tr>
+</table>
+
+Alle Bilder zeigen die Testwelt, Stand `1e13363`. Ausschnitte und Befehle:
+Skill [`doku-bilder-rendern`](skills/doku-bilder-rendern/SKILL.md).
 
 ## Schnellstart
 
@@ -54,21 +108,13 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 
 ## Stand
 
-- Liest Welten ab 26.1 und Resourcepacks wie der Client von 26.2:
-  Blockstates, Modelle, Texturen, Biomfarben, Varianten aus der Position.
-- Wasser und Lava wie im Spiel, darunter jeder Block in seinem Licht; volle
-  Würfel weich beleuchtet wie in der Voreinstellung des Spiels.
-- Kacheln verlustfrei als WebP, Zoomstufen darüber, native Stufen auf
-  Wunsch, Fortsetzen nach einem Abbruch, Zusehen während eines Renders.
-- Zeichnen auf der Grafikkarte, Byte für Byte wie auf der CPU.
-- Die ganze Testwelt braucht bei scale 32 hochgerechnet rund 6,5 Minuten
-  und 26 GB, siehe [Was ein Lauf kostet](docs/benutzung/kosten.md).
+- Liest Welten ab 26.1 und Resourcepacks wie der Client von 26.2.
 - Noch nicht: Truhen, Banner, Schädel und Töpfe (Entity-Modelle),
   Übergänge zwischen Biomen, weiche Beleuchtung für Teilflächen.
 
 ## Doku
 
-Die Doku liegt in [`docs/`](docs/index.md), mit jeder Seite im
+Die Doku liegt in [`docs/`](docs/index.md), jede Seite im
 [Wegweiser](docs/index.md): Benutzung, wie der Renderer das Spiel nachbaut,
 Entscheidungen und Messungen. Regeln für alle, die hier arbeiten, stehen in
 [`AGENTS.md`](AGENTS.md), die Workflows in [`skills/`](skills/). Tests und

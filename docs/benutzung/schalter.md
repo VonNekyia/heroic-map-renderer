@@ -104,9 +104,9 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Render:     390 Chunks gelesen, 215 Blockstates, 1207 Sprites
+Render:     390 Chunks gelesen, 215 Blockstates, 739 Sprites
             1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
-            900x900 px bei (-4290, 958) und scale 16 in 1.4 s -> docs/bilder/map.png
+            900x900 px bei (-4290, 958) und scale 16 in 0.3 s -> docs/bilder/map.png
 ```
 
 `--center` nennt die Blockspalte, die in der Bildmitte landet, `--scale` die

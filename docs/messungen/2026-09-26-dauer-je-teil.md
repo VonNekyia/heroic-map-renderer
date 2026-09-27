@@ -10,9 +10,11 @@ code:
 
 # Dauer je Teil, Testwelt
 
-**Überholt.** Diese Zahlen gelten für den Stand von #10, vor libwebp, dem
-Licht unter Wasser und der weichen Beleuchtung. Den aktuellen Stand nennt
-[Was ein Lauf kostet](../benutzung/kosten.md), „Dauer“.
+**Überholt.** Diese Zahlen gelten für den Stand von #10, vor der Grafikkarte
+(#11) und den grossen Posten (#12), die die Dauer am stärksten geändert
+haben, und vor libwebp, dem Licht unter Wasser und der weichen Beleuchtung.
+Den aktuellen Stand nennt [Was ein Lauf kostet](../benutzung/kosten.md),
+„Dauer“.
 
 Hochgerechnet auf die ganze Testwelt bei scale 32 hätten die drei nativen
 Stufen 4,8 Minuten gebraucht, gut drei Viertel der Basis mit 6,1 Minuten,

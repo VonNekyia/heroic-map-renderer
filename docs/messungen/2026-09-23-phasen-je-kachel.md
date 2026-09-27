@@ -2,7 +2,7 @@
 title: Phasen je Kachel, erste Runde der Umbauten
 description: Wohin die Zeit einer Kachel ging, vor und nach Cache je Stapel, Bitmasken samt mimalloc, Flächen überspringen und Sammeln nur im Band.
 date: 2026-09-23
-commits: [4fbb51c, aabf997, 1b5b283, fa615dd, bd0e73f]
+commits: [4fbb51c, aabf997, 1b5b283, fa615dd, bd0e73f, 93faf81]
 code:
   - renderer/src/render/metatile.rs
   - renderer/src/main.rs
@@ -13,26 +13,27 @@ code:
 
 Einfädig brauchte eine Kachel am Ende 6,3 statt 64 ms, auf 24 Threads
 schaffte der Renderer 813 statt 159 Kacheln/s, Byte für Byte dasselbe Bild.
-Gemessen in der ersten Fassung von #10, vor den Regeln von #9; wie viel
-davon nach dem Hochziehen blieb, steht in
-[2026-09-25, Bitmasken](2026-09-25-bitmasken.md).
+Gemessen in der ersten Fassung von #10, vor den Regeln von #9, auf der
+grossen Welt; wie viel davon nach dem Hochziehen blieb, steht in
+[2026-09-25, Bitmasken](2026-09-25-bitmasken.md), dort auf der Testwelt.
 
 ## Aufbau
 
-- Welt: die Testwelt, Ausschnitte um (0, 0), scale 32.
+- Welt: die grosse Welt, scale 32, wie `aabf997` schreibt; jeder Messlauf
+  dieser Nacht las sie. [2026-09-25, Bitmasken](2026-09-25-bitmasken.md) mass
+  Ausschnitte derselben Grösse auf der Testwelt; Zahl für Zahl vergleichen
+  lassen sich die beiden Tabellen deshalb nicht.
 - Einfädig ein 4096er-Ausschnitt, je Kachel; mit 12 und 24 Threads ein
   8192er-Ausschnitt.
 - Stände nacheinander: ursprünglich `4fbb51c`, Cache je Stapel `aabf997`,
   Bitmasken und mimalloc `1b5b283`, Flächen überspringen `fa615dd`, Sammeln
   nur im Band `bd0e73f`, alle vom 23.09. nachts.
+- Die Spalte „Sammeln“ kam mit `93faf81` (Paletten ohne HashMap) ins
+  README. `bd0e73f` selbst nennt 6,6 ms und dieselben 813 Kacheln/s,
+  `93faf81` rund drei Prozent weniger; ob die 6,3 ms schon `93faf81`
+  enthalten, ist nicht festgehalten.
 - Wie oft je Stand gemessen wurde und ob die Stände abwechselnd liefen, ist
-  nicht festgehalten, ebenso, ob die letzte Spalte schon `93faf81` enthält
-  (Paletten ohne HashMap).
-- Die Welt ist nicht sicher: Das README ordnet die Ausschnitte der Testwelt
-  zu, wie #10 die Tabelle in
-  [2026-09-25, Bitmasken](2026-09-25-bitmasken.md) mit denselben
-  Ausschnitten. `aabf997` nennt die 64 ms dagegen
-  „am ersten Vollrender einer grossen Welt“ gemessen.
+  nicht festgehalten.
 
 ## Ablauf
 

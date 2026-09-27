@@ -93,8 +93,9 @@ wie mit, siehe
 [2026-09-27, Die grossen Posten, zweite Runde](../messungen/2026-09-27-grosse-posten-zweite-runde.md).
 Die erste Messung mit Karte steht in
 [2026-09-26, Grafikkarte](../messungen/2026-09-26-grafikkarte.md): auf einem
-Kern gut anderthalbmal so schnell, auf 24 Threads ein Fünftel bis ein
-Drittel. Dafür hält jeder Thread sechzehn Zeichenlisten und braucht mehr
-Speicher. Eine Onboard-Grafik ist nicht gemessen; sie teilt sich den
-Speicher mit der CPU, der Gewinn dort ist also eher kleiner. Dort zeigt
-`--gpu off` gegen `--gpu auto`, ob der Standard passt.
+Kern gut anderthalbmal so schnell, auf 24 Threads auf der grossen Welt 20
+bis 29 % und auf einem Ausschnitt der Testwelt ein gutes Drittel. Dafür hält
+jeder Thread sechzehn Zeichenlisten und braucht mehr Speicher. Eine
+Onboard-Grafik ist nicht gemessen; sie teilt sich den Speicher mit der CPU,
+der Gewinn dort ist also eher kleiner. Dort zeigt `--gpu off` gegen
+`--gpu auto`, ob der Standard passt.

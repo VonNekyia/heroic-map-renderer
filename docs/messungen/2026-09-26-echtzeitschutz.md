@@ -26,9 +26,15 @@ weniger Zeit: 23,8 statt 35,7 s für 16 384 Basiskacheln, die Basis schafft
 
 ## Ablauf
 
-Erst drei Läufe ohne Ausnahme, dann drei mit; jeder Lauf frisch in einen
-leeren Ordner. Nicht abwechselnd, denn die Ausnahme setzt nur ein
-Administrator.
+Erst ein Aufwärmlauf und drei Läufe mit der Ausnahme, dann, nachdem der
+User sie wieder entfernt hatte, ein Aufwärmlauf und drei ohne; jeder Lauf
+frisch in einen leeren Ordner. Nicht abwechselnd, denn die Ausnahme setzt
+nur ein Administrator. Eine erste Reihe ohne Ausnahme lief vor einer
+Änderung an den Einstellungen des Rechners und zählt nicht.
+
+Quelle: das Messskript und seine Ausgabe vom 26.09., 11:36 bis 11:43. Es
+startete jeden Lauf, stoppte die Zeit, las Raten und Dauer aus der Ausgabe
+und die Rechenzeit von Defender einmal je Sekunde aus dem Leistungszähler.
 
 ## Ergebnis
 

@@ -87,8 +87,8 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Messungen
 
-- [2026-09-22, WebP gegen PNG](messungen/2026-09-22-webp-gegen-png.md): der erste Export, eine Kachel als PNG und als WebP.
-- [2026-09-23, Erster Vollrender](messungen/2026-09-23-erster-vollrender.md): früher Stand, hochgerechnet knapp 16 Stunden; überholt.
+- [2026-09-22, WebP gegen PNG](messungen/2026-09-22-webp-gegen-png.md): der erste Export, ein Bild als PNG gegen die Kacheln daneben als WebP.
+- [2026-09-22, Erster Vollrender](messungen/2026-09-22-erster-vollrender.md): früher Stand, hochgerechnet knapp 16 Stunden; überholt.
 - [2026-09-23, Phasen je Kachel](messungen/2026-09-23-phasen-je-kachel.md): Cache, Bitmasken, mimalloc, Flächen, Sammeln.
 - [2026-09-25, Bitmasken](messungen/2026-09-25-bitmasken.md): der Umbau gegen #9, einfädig 10-mal so schnell.
 - [2026-09-26, Dauer je Teil](messungen/2026-09-26-dauer-je-teil.md): Basis, native Stufen und Pyramide der Testwelt am Stand von #10; überholt.

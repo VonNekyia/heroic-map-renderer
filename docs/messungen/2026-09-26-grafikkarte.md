@@ -10,10 +10,11 @@ code:
 
 # CPU gegen Grafikkarte
 
-Mit der Karte ist ein Kern gut anderthalbmal so schnell, 24 Threads ein
-Fünftel bis ein Drittel: auf der grossen Welt 872 bis 946 statt 712 bis
-750 Kacheln/s. Seit der Deckungsmaske ist die CPU ohne Karte fast so schnell
-wie mit, siehe
+Mit der Karte ist ein Kern gut anderthalbmal so schnell. Auf 24 Threads sind
+es auf der grossen Welt je Runde 20 bis 29 % mehr, 872 bis 946 statt 712 bis
+750 Kacheln/s, auf dem 8192er-Ausschnitt der Testwelt ein gutes Drittel, 917
+statt 674. Seit der Deckungsmaske ist die CPU ohne Karte fast so schnell wie
+mit, siehe
 [2026-09-27, Die grossen Posten, zweite Runde](2026-09-27-grosse-posten-zweite-runde.md).
 
 ## Aufbau

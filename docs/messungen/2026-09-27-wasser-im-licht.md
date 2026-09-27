@@ -22,8 +22,9 @@ sieht: über Land mit viel Wasser ×1,25, über Ozean ×1,56.
   Ozean mit 15 682, ein 8192er-Ausschnitt fast nur Land. Dazu die Testwelt
   wie in [Was ein Lauf kostet](../benutzung/kosten.md).
 - Stände: master mit #16 (`9479471`), die erste Runde von #17 (`2654309`),
-  der Stand danach (`9752261`), die zweite Runde (`da26cec`) und der Kopf
-  (`088cc53`).
+  ein Stand der ersten Fixrunde (`9752261`), ihr Kopf (`da26cec`; der
+  Commit selbst ändert nur das README) und der Kopf nach der zweiten Runde
+  (`088cc53`, mit den Fixes `0aa6a0c` und `b8aa5fb`).
 - 24 Threads, wo nichts anderes steht; der Kachelordner war vom
   Echtzeitschutz ausgenommen.
 

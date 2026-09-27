@@ -37,13 +37,19 @@ Abwechselnd, jeder Lauf frisch.
 
 - **Kosten eines Laufs:** Die Grösse kommt aus dem Ausschnitt mit allen
   nativen Stufen und Pyramide, `--size 8192` bei scale 32, `4096` bei 16 und
-  `2048` bei 8, das sind 1600, 400 und 100 Basiskacheln, je ein Lauf. Die
-  Dauer kommt aus zwei grösseren Ausschnitten um denselben Punkt, bei scale
-  32 mit 2304 und 12 544 Basiskacheln, bei 16 mit 576 und 3136, bei 8 mit 144
-  und 784, je neun Läufe in drei Runden, davon der Median. Der Unterschied
+  `2048` bei 8, das sind 1600, 400 und 100 Basiskacheln, je zwei Läufe mit
+  derselben Grösse. Ihre Raten stehen in der Tabelle, bei scale 32 dazu die
+  eines Ausschnitts mit 6400 Basiskacheln, `--size 18432`. Die Dauer kommt
+  aus zwei grösseren Ausschnitten um denselben Punkt: `--size 10240` und
+  `26624` bei scale 32 mit 2304 und 12 544 Basiskacheln, `5120` und `13312`
+  bei 16 mit 576 und 3136, `2560` und `6656` bei 8 mit 144 und 784, je neun
+  Läufe aus drei Serien zu drei Runden, davon der Median. Der Unterschied
   der beiden gibt die Zeit je Basiskachel samt nativen Stufen und Pyramide;
   hochgerechnet auf die Kacheln der ganzen Welt, dazu einmal Vorlauf und
   Sprite-Tabellen, 5,5 s und 6,2 s.
+- **Quelle:** die Ausgabe der Läufe vom 27.09.; die Kachelzahl nennt jeder
+  Lauf selbst, die Grössen sind die Dateien auf der Platte, dezimal
+  gezählt.
 - **Zweite Runde:** ein Thread, 676 Basiskacheln der Testwelt bei scale 32
   ohne native Stufen und ohne Karte, Median aus fünf Läufen samt Spanne,
   mit Schaltern im Code, die die Teile einzeln abschalten.

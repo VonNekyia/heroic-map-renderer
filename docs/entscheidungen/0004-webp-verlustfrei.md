@@ -25,8 +25,9 @@ Die Kacheln sind verlustfreies WebP (`encode_webp`).
   flachen Farben; verlustbehaftet würde daraus Matsch, und an den
   Kachelrändern sähe man die Artefakte im Raster, genau dort, wo das Auge
   beim Scrollen hinsieht.
-- **PNG.** Dieselbe Kachel wog als PNG 173 kB, als verlustfreies WebP
-  108 kB, siehe
+- **PNG.** Ein Bild von 256 × 256 Pixeln wog als PNG 173 kB, die Kacheln um
+  denselben Punkt als verlustfreies WebP im Mittel 137 kB, gut ein Fünftel
+  weniger, siehe
   [2026-09-22, WebP gegen PNG](../messungen/2026-09-22-webp-gegen-png.md).
 
 ## Folgen

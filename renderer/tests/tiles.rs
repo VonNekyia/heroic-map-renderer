@@ -326,6 +326,54 @@ fn webp_behaelt_den_alphakanal() {
     assert_eq!(zurueck.as_raw(), bild.as_raw());
 }
 
+/// Auch voll durchsichtige Pixel kommen Byte für Byte zurück, samt ihrer
+/// Farbe. Ohne `exact` setzt libwebp sie auf 0.
+#[test]
+fn webp_behaelt_die_farbe_durchsichtiger_pixel() {
+    let bild = RgbaImage::from_fn(16, 16, |x, y| {
+        let alpha = if (x + y) % 3 == 0 { 255 } else { 0 };
+        image::Rgba([16 * x as u8, 16 * y as u8, 77, alpha])
+    });
+    let zurueck = image::load_from_memory(&encode_webp(&bild).unwrap())
+        .unwrap()
+        .into_rgba8();
+    assert_eq!(zurueck.as_raw(), bild.as_raw());
+}
+
+/// Eine gerenderte Kachel wird höchstens halb so gross wie mit dem
+/// einfachen Encoder aus `image`. So fällt auf, wenn eine Einstellung die
+/// Kompression abschaltet.
+#[test]
+fn webp_packt_dichter_als_der_einfache_encoder() {
+    use image::ImageEncoder;
+
+    let projection = Projection::new(16);
+    let welt = welt(gelaende, projection);
+    let bild = render_area(
+        &welt.world,
+        &welt.sprites,
+        TileId { x: 0, y: 0 }.rect(),
+        Y_RANGE,
+    )
+    .unwrap();
+
+    let mut einfach = Vec::new();
+    image::codecs::webp::WebPEncoder::new_lossless(&mut einfach)
+        .write_image(
+            bild.as_raw(),
+            bild.width(),
+            bild.height(),
+            image::ExtendedColorType::Rgba8,
+        )
+        .unwrap();
+    let libwebp = encode_webp(&bild).unwrap().len();
+    assert!(
+        2 * libwebp <= einfach.len(),
+        "libwebp {libwebp} Bytes, der einfache Encoder {}",
+        einfach.len()
+    );
+}
+
 /// Zweimal dasselbe rendern muss zweimal dasselbe ergeben — sonst wären
 /// die Kacheln eines parallelen Laufs nicht reproduzierbar.
 #[test]

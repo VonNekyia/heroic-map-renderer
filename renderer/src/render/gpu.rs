@@ -310,7 +310,7 @@ pub struct Worker<'g> {
     bind: Option<wgpu::BindGroup>,
     /// Die Pixel der Sprites eines Durchgangs, eines nach dem anderen.
     sprite_bytes: Vec<u8>,
-    /// Instanzen, 16 Bytes je Stück, fertig für den Puffer.
+    /// Instanzen, 20 Bytes je Stück, fertig für den Puffer.
     inst_bytes: Vec<u8>,
     list_data: Vec<u32>,
 }

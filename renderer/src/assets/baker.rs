@@ -40,6 +40,10 @@ impl Quad {
 #[derive(Debug, Default)]
 pub struct BakedModel {
     pub quads: Vec<Quad>,
+    /// Zeichnet das Spiel den Block weich beleuchtet? Es fragt das erste
+    /// Modell (`BlockStateModelPart.useAmbientOcclusion` von
+    /// `parts.getFirst()` in `ModelBlockRenderer.tesselateBlock`).
+    pub ambient_occlusion: bool,
 }
 
 impl BakedModel {
@@ -109,7 +113,10 @@ pub fn bake(variants: &[ResolvedVariant]) -> BakedModel {
         }
     }
 
-    BakedModel { quads }
+    BakedModel {
+        quads,
+        ambient_occlusion: variants.first().is_some_and(|v| v.model.ambient_occlusion),
+    }
 }
 
 /// Die sechs Seiten eines achsenparallelen Kastens.

@@ -2091,3 +2091,182 @@ fn hohe_welt_zaehlt_durch_alle_sections() {
     let hoch = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
     assert!(flach == hoch, "die hohe Welt sieht anders aus");
 }
+
+/// Die Werte der weichen Beleuchtung, die `draw_list` einem Block gibt: je
+/// Seite oben, Süden und Osten die vier Ecken in der Reihenfolge von
+/// `FaceInfo`, 255 heisst hell. Oben: Nordwest, Südwest, Südost, Nordost;
+/// Osten: oben Süd, unten Süd, unten Nord, oben Nord. Die Welt steht in
+/// Chunk (0, 0), scale 32.
+fn ecken(welt: impl Fn(i32, i32, i32) -> &'static str, block: [i32; 3]) -> [[u8; 4]; 3] {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], welt);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(32);
+    let sprites = tabelle(&mut assets(), &world, projection);
+    let rect = ScreenRect::centered(1024, 1024);
+    let draws = draw_list(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap();
+    let (bx, by) = projection.project_block(block);
+    let (bx, by) = (bx.round() as i32 - rect.x, by.round() as i32 - rect.y);
+    let d = draws
+        .iter()
+        .find(|d| {
+            d.sprite.ao.is_some() && d.origin == (bx + d.sprite.offset.0, by + d.sprite.offset.1)
+        })
+        .unwrap_or_else(|| panic!("kein weich beleuchteter Draw bei {block:?}"));
+    d.ao.map(u32::to_le_bytes)
+}
+
+/// Ein Boden aus Stein bei y = 0, darauf Stein, wo `mauer` es sagt.
+fn mit_mauer(mauer: fn(i32, i32, i32) -> bool) -> impl Fn(i32, i32, i32) -> &'static str {
+    move |x, y, z| {
+        if y == 0 || mauer(x, y, z) {
+            "minecraft:stone"
+        } else {
+            "minecraft:air"
+        }
+    }
+}
+
+const HELL: [u8; 4] = [255; 4];
+
+/// Weiche Beleuchtung wie `BlockModelLighter` in 26.2 an Stein, der
+/// abdunkelt (`getShadeBrightness` 0,2): Jede Ecke ist das Mittel aus dem
+/// Block vor der Seite, ihren zwei Nachbarn in dieser Schicht und dem Block
+/// in der Ecke. Auf freier Fläche bleibt alles hell. Eine Mauer im Westen
+/// dunkelt die Westkante auf 0,6 ab, Mauern im Westen und Norden die Ecke
+/// dazwischen auf 0,4, die beiden daneben auf 0,6. An einer Stufe bleibt
+/// die Oberseite hell, ihre Ostseite dunkelt zum Boden hin ab und der
+/// Boden vor ihr zur Stufe hin, an einer Stufe nach Süden ebenso ihre
+/// Südseite. Laub nimmt die Sicht nicht, dunkelt aber ab: direkt über dem
+/// Boden jede Ecke auf 0,8, auf den Mauern der Innenecke gar nicht.
+#[test]
+fn weiche_beleuchtung_wie_im_spiel() {
+    let frei = ecken(mit_mauer(|_, _, _| false), [8, 0, 8]);
+    assert_eq!(frei[0], HELL, "freie Fläche");
+    let kante = ecken(mit_mauer(|x, y, _| x == 7 && y == 1), [8, 0, 8]);
+    assert_eq!(kante[0], [153, 153, 255, 255], "Kante");
+    let innen = ecken(mit_mauer(|x, y, z| y == 1 && (x == 7 || z == 7)), [8, 0, 8]);
+    assert_eq!(innen[0], [102, 153, 255, 153], "Innenecke");
+    let stufe = mit_mauer(|x, y, _| x <= 8 && y == 1);
+    let oben = ecken(&stufe, [8, 1, 8]);
+    assert_eq!(oben[0], HELL, "Oberseite der Stufe");
+    assert_eq!(oben[2], [255, 153, 153, 255], "Ostseite der Stufe");
+    assert_eq!(
+        ecken(&stufe, [9, 0, 8])[0],
+        [153, 153, 255, 255],
+        "Boden vor der Stufe"
+    );
+    let stufe_sued = mit_mauer(|_, y, z| z <= 8 && y == 1);
+    assert_eq!(
+        ecken(&stufe_sued, [8, 1, 8])[1],
+        [255, 153, 153, 255],
+        "Südseite der Stufe"
+    );
+
+    let laub = |mauern: bool| {
+        move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (_, 0, _) => "minecraft:stone",
+            (8, 1, 8) if !mauern => "minecraft:oak_leaves",
+            (7, 1, _) | (_, 1, 7) if mauern => "minecraft:stone",
+            (7, 2, _) | (_, 2, 7) if mauern => "minecraft:oak_leaves",
+            _ => "minecraft:air",
+        }
+    };
+    assert_eq!(ecken(laub(false), [8, 0, 8])[0], [204; 4], "Laub darüber");
+    assert_eq!(
+        ecken(laub(true), [8, 0, 8])[0],
+        [102, 153, 255, 153],
+        "Laub auf den Mauern"
+    );
+}
+
+/// Die Ecke zwischen zwei Nachbarn zählt im Spiel nur, wenn hinter einem
+/// von beiden, noch eine Schicht weiter weg von der Seite, kein Block die
+/// Sicht nimmt. Sind beide Mauern zwei hoch, gilt statt der Ecke der erste
+/// Nachbar aus `AdjacencyInfo.corners`, für die Oberseite der im Osten:
+/// auch für die Ecke im Nordwesten, die er nicht berührt. Der Stein in
+/// dieser Ecke dunkelt deshalb nicht ab, sie bleibt bei 0,6 statt 0,4
+/// wie in der Innenecke mit niedrigen Mauern.
+#[test]
+fn ecke_hinter_hohen_mauern_zaehlt_wie_im_spiel() {
+    let welt = mit_mauer(|x, y, z| {
+        y <= 2 && ((x == 7 && z >= 8) || (z == 7 && x >= 8)) || (x, y, z) == (7, 1, 7)
+    });
+    assert_eq!(ecken(welt, [8, 0, 8])[0], [153, 153, 255, 153]);
+}
+
+/// Ein Block, der leuchtet, bekommt keine weiche Beleuchtung, auch neben
+/// einer Mauer (`ModelBlockRenderer.tesselateBlock`).
+#[test]
+fn leuchtende_bloecke_bleiben_hell() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 0, 8) => "minecraft:glowstone",
+        (_, 0, _) | (7, 1, _) => "minecraft:stone",
+        _ => "minecraft:air",
+    };
+    assert_eq!(ecken(welt, [8, 0, 8]), [HELL; 3]);
+}
+
+/// Zwischen den Ecken verläuft die weiche Beleuchtung über die zwei
+/// Dreiecke, als die das Spiel eine Seite zeichnet, 0-1-2 und 2-3-0 aus
+/// `FaceInfo`: in der Innenecke von 0,4 im Nordwesten über 0,6 zu 1 im
+/// Südosten. Jeder Pixel der Oberseite ist der ohne Mauern mal diesem
+/// Verlauf an seiner Mitte, ±2: Die Anteile der Ecken stehen in 255steln,
+/// und gerundet wird zweimal.
+#[test]
+fn weiche_beleuchtung_verlaeuft_ueber_die_flaeche() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(1024, 1024);
+    let innen = render_chunks(
+        &tempdir(),
+        &[(0, 0)],
+        mit_mauer(|x, y, z| y == 1 && (x == 7 || z == 7)),
+        projection,
+        rect,
+    );
+    let frei = render_chunks(
+        &tempdir(),
+        &[(0, 0)],
+        mit_mauer(|_, _, _| false),
+        projection,
+        rect,
+    );
+    // Die Ecken der Oberseite in (x, z), wie in `ecken`.
+    let [nw, sw, se, ne] = [102.0, 153.0, 255.0, 153.0];
+    let verlauf = |s: f64, t: f64| {
+        if t >= s {
+            nw * (1.0 - t) + sw * (t - s) + se * s
+        } else {
+            se * t + ne * (s - t) + nw * (1.0 - s)
+        }
+    };
+    let mut geprueft = 0;
+    for (px, py, ist) in innen.enumerate_pixels() {
+        // Die Mitte des Pixels auf der Ebene y = 1, in Blockkoordinaten.
+        let (sx, sy) = (
+            px as f64 + 0.5 + rect.x as f64,
+            py as f64 + 0.5 + rect.y as f64,
+        );
+        let (x_minus_z, x_plus_z) = (sx / 16.0, (sy + 16.0) / 8.0);
+        let (s, t) = (
+            (x_plus_z + x_minus_z) / 2.0 - 8.0,
+            (x_plus_z - x_minus_z) / 2.0 - 8.0,
+        );
+        if !(0.05..0.95).contains(&s) || !(0.05..0.95).contains(&t) {
+            continue;
+        }
+        let ohne = frei.get_pixel(px, py).0;
+        let ao = verlauf(s, t) / 255.0;
+        for (c, (&a, &b)) in ist.0.iter().zip(&ohne).take(3).enumerate() {
+            let erwartet = b as f64 * ao;
+            assert!(
+                (a as f64 - erwartet).abs() <= 2.0,
+                "({s:.2}, {t:.2}) Kanal {c}: erwartet {erwartet:.1}, bekommen {a}"
+            );
+        }
+        assert_eq!(ist.0[3], ohne[3]);
+        geprueft += 1;
+    }
+    // Die Raute der Oberseite hat bei scale 32 256 Pixel, ohne den Rand gut 200.
+    assert!(geprueft > 180, "nur {geprueft} Pixel auf der Oberseite");
+}

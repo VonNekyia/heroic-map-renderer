@@ -165,12 +165,133 @@ pub fn darken(pixel: [u8; 4], factors: [u32; 3]) -> [u8; 4] {
     ]
 }
 
+/// Die Seiten, die die Kamera sieht, in der Reihenfolge der Nummern in
+/// [`Sprite::ao`]: Seite `i` hat dort die Nummer `i + 1`.
+pub const AO_FACES: [Face; 3] = [Face::Up, Face::South, Face::East];
+
+/// Die Ecken einer Seite aus [`AO_FACES`] in der Reihenfolge von `FaceInfo`
+/// in 26.2, in den beiden Koordinaten der Seite: oben `(x, z)`, Süden
+/// `(x, y)`, Osten `(z, y)`. `FaceBakery.recalculateWinding` bringt jedes
+/// gebackene Viereck in diese Reihenfolge, und das Spiel zeichnet es als
+/// die Dreiecke 0-1-2 und 2-3-0 (`RenderSystem.sharedSequentialQuad`).
+const FACE_INFO: [[[f32; 2]; 4]; 3] = [
+    [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
+    [[0.0, 1.0], [0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
+    [[1.0, 1.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
+];
+
+/// Die Seite aus [`AO_FACES`], als die das Spiel ein Viereck mit den vier
+/// Werten je Ecke weich beleuchtet: eben auf dem Rand des Würfels
+/// (`faceCubic` in `BlockModelLighter.prepareQuadShape`) und über die ganze
+/// Seite (nicht `facePartial`, bis auf 1e-4). Flüssigkeiten zeichnet das
+/// Spiel ohne weiche Beleuchtung. Eben heisst hier bis auf 1e-4: Der Baker
+/// dreht über sin und cos und trifft die Ebene nur fast.
+fn ao_face(quad: &Quad) -> Option<usize> {
+    if quad.fluid.is_some() {
+        return None;
+    }
+    let min = |axis: usize| {
+        quad.corners
+            .iter()
+            .map(|c| c[axis])
+            .fold(f32::MAX, f32::min)
+    };
+    let max = |axis: usize| {
+        quad.corners
+            .iter()
+            .map(|c| c[axis])
+            .fold(f32::MIN, f32::max)
+    };
+    let voll = |axis: usize| min(axis) < 1e-4 && max(axis) > 0.9999;
+    let rand = |axis: usize| max(axis) - min(axis) < 1e-4 && min(axis) > 0.9999;
+    let n = quad.normal();
+    // Je Seite die Achse ihrer Normalen und die beiden in der Seite.
+    let (face, _, [s, t]) = [(0, 1, [0, 2]), (1, 2, [0, 1]), (2, 0, [2, 1])]
+        .into_iter()
+        .find(|&(_, axis, _)| n[axis] > 0.0 && rand(axis))?;
+    (voll(s) && voll(t)).then_some(face)
+}
+
+/// Die Koordinaten eines Punkts auf einer Seite aus [`AO_FACES`], wie in
+/// [`FACE_INFO`].
+fn face_coords(face: usize, [x, y, z]: [f32; 3]) -> [f32; 2] {
+    match face {
+        0 => [x, z],
+        1 => [x, y],
+        _ => [z, y],
+    }
+}
+
+/// Die Anteile der vier Ecken aus [`FACE_INFO`] an einem Punkt der Seite,
+/// in 255steln und zusammen genau 255: baryzentrisch in dem der beiden
+/// Dreiecke des Spiels, in dem der Punkt liegt. So verläuft die
+/// Helligkeit der Ecken im Spiel über die Fläche.
+fn corner_weights(face: usize, p: [f32; 2]) -> [u32; 4] {
+    let e = FACE_INFO[face];
+    let bary = |[a, b, c]: [usize; 3]| {
+        let (pa, pb, pc) = (e[a], e[b], e[c]);
+        let flaeche = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]);
+        let wb = ((p[0] - pa[0]) * (pc[1] - pa[1]) - (p[1] - pa[1]) * (pc[0] - pa[0])) / flaeche;
+        let wc = ((pb[0] - pa[0]) * (p[1] - pa[1]) - (pb[1] - pa[1]) * (p[0] - pa[0])) / flaeche;
+        [1.0 - wb - wc, wb, wc]
+    };
+    let mut w = [0.0f32; 4];
+    let erstes = bary([0, 1, 2]);
+    if erstes.iter().all(|&x| x >= -1e-4) {
+        [w[0], w[1], w[2]] = erstes;
+    } else {
+        [w[2], w[3], w[0]] = bary([2, 3, 0]);
+    }
+    let mut q = w.map(|x| (x.clamp(0.0, 1.0) * 255.0).round() as i32);
+    let rest = 255 - q.iter().sum::<i32>();
+    let groesste = (0..4).max_by_key(|&i| q[i]).unwrap_or(0);
+    q[groesste] += rest;
+    q.map(|x| x as u32)
+}
+
+/// Ein Eintrag der AO-Karte: die Anteile der Ecken 0 bis 2, der vierten
+/// fehlt auf 255, und die Nummer der Seite aus [`AO_FACES`].
+fn ao_word(face: usize, w: [u32; 4]) -> u32 {
+    w[0] | w[1] << 8 | w[2] << 16 | (face as u32 + 1) << 24
+}
+
+/// Die Helligkeit der weichen Beleuchtung an einem Pixel in 255steln:
+/// der Eintrag der AO-Karte gegen die Werte der Ecken seiner Seite, wie
+/// [`ChunkCache::ao_at`](super::metatile) sie je Block liefert, vier Bytes
+/// je Seite in der Reihenfolge von [`FACE_INFO`]. 255 ohne Seite. Dieselbe
+/// Rechnung steht im Shader.
+pub fn ao_factor(word: u32, corners: [u32; 3]) -> u32 {
+    let face = word >> 24;
+    if face == 0 {
+        return 255;
+    }
+    let c = corners[face as usize - 1];
+    let [w0, w1, w2] = [word & 255, word >> 8 & 255, word >> 16 & 255];
+    let w3 = 255 - w0 - w1 - w2;
+    (w0 * (c & 255) + w1 * (c >> 8 & 255) + w2 * (c >> 16 & 255) + w3 * (c >> 24) + 127) / 255
+}
+
+/// Die Werte der Ecken für einen Block ohne weiche Beleuchtung: überall
+/// 255, jeder Pixel bleibt, wie er ist.
+pub const NO_AO: [u32; 3] = [u32::MAX; 3];
+
+/// Licht aus [`light_factor`] und weiche Beleuchtung aus [`ao_factor`]
+/// zusammen als Faktor für [`darken`]. Bei vollem Licht bleibt der Wert der
+/// weichen Beleuchtung, wie er ist.
+pub fn with_ao(factor: u32, ao: u32) -> u32 {
+    (factor * ao + 127) / 255
+}
+
 /// Das fertig gerasterte Bild einer Blockstate.
 pub struct Sprite {
     pub image: RgbaImage,
     /// Pixelposition der linken oberen Ecke, relativ zum projizierten
     /// Blockursprung.
     pub offset: (i32, i32),
+    /// Je Pixel, wie die weiche Beleuchtung des Spiels ihn abdunkelt, siehe
+    /// [`ao_factor`]; nur für Modelle, die das Spiel weich beleuchtet und
+    /// die nur aus vollen Seiten bestehen.
+    pub ao: Option<Vec<u32>>,
 }
 
 /// Rastert ein gebackenes Modell in ein Sprite.
@@ -223,6 +344,16 @@ pub fn render(
         return None;
     }
 
+    // Weich beleuchtet wird hier nur, was ganz aus vollen Seiten besteht:
+    // Dann gehört jeder Pixel genau einer Seite, und die Werte ihrer Ecken
+    // reichen. Treppen, Platten und alles mit Teilflächen fehlen noch.
+    let ao = model.ambient_occlusion && projected.iter().all(|q| q.ao_face.is_some());
+    if !ao {
+        for quad in &mut projected {
+            quad.ao_face = None;
+        }
+    }
+
     let mut canvas = Canvas::new(width, height);
     let samples = texture_samples(projection.scale());
     // Von vorn nach hinten gerastert: was hinter einer deckenden Fläche
@@ -248,9 +379,11 @@ pub fn render(
             block,
         },
     };
+    let (image, ao) = canvas.into_image(unter, ao);
     Some(Sprite {
-        image: canvas.into_image(unter),
+        image,
         offset: (min_x, min_y),
+        ao,
     })
 }
 
@@ -282,6 +415,8 @@ struct ProjectedQuad<'a> {
     /// Tiefe der vordersten Ecke, nur zum Sortieren.
     depth: f32,
     shade: f32,
+    /// Als welche Seite das Viereck weich beleuchtet wird, siehe [`ao_face`].
+    ao_face: Option<usize>,
 }
 
 impl<'a> ProjectedQuad<'a> {
@@ -295,6 +430,7 @@ impl<'a> ProjectedQuad<'a> {
             screen,
             depth: screen.iter().map(|&(_, _, d)| d).fold(f32::MIN, f32::max),
             shade: shade_factor(quad),
+            ao_face: ao_face(quad),
         }
     }
 
@@ -324,14 +460,18 @@ impl<'a> ProjectedQuad<'a> {
         } else {
             0.0
         };
+        let ao_face = self.ao_face;
         let vertices: [Vertex; 4] = std::array::from_fn(|i| {
             let (x, y, depth) = self.screen[i];
+            let [s, t] = ao_face.map_or([0.0; 2], |f| face_coords(f, self.quad.corners[i]));
             Vertex {
                 x: x - min_x as f32,
                 y: y - min_y as f32,
                 depth: depth - behind,
                 u: self.quad.uvs[i][0],
                 v: self.quad.uvs[i][1],
+                s,
+                t,
             }
         });
         // Die Texturmittelung tastet knapp neben dem Pixelmittelpunkt ab,
@@ -381,6 +521,7 @@ impl<'a> ProjectedQuad<'a> {
                     tint,
                     surface: self.quad.fluid.is_some_and(|(_, face)| face == Face::Up),
                     order,
+                    ao_face,
                 },
                 samples,
             );
@@ -433,17 +574,22 @@ struct Vertex {
     depth: f32,
     u: f32,
     v: f32,
+    /// Lage auf der Seite für die weiche Beleuchtung, siehe [`face_coords`].
+    s: f32,
+    t: f32,
 }
 
 /// Wie ein Texel zur Farbe wird: Helligkeit der Fläche, Färbung, ob sie
-/// die Oberseite einer Flüssigkeit ist — und der Rang der Fläche, der bei
-/// gleicher Tiefe entscheidet.
+/// die Oberseite einer Flüssigkeit ist, als welche Seite sie weich
+/// beleuchtet wird — und der Rang der Fläche, der bei gleicher Tiefe
+/// entscheidet.
 #[derive(Clone, Copy)]
 struct Shading {
     shade: f32,
     tint: Option<[f32; 3]>,
     surface: bool,
     order: u32,
+    ao_face: Option<usize>,
 }
 
 /// Was eine Fläche zu einem Pixel beiträgt.
@@ -459,6 +605,8 @@ struct Fragment {
     /// Von der Oberseite einer Flüssigkeit: Was im Sprite dahinter liegt,
     /// liegt unter Wasser.
     surface: bool,
+    /// Eintrag der AO-Karte, 0 ohne weiche Beleuchtung.
+    ao: u32,
 }
 
 /// Die Fragmente eines Sprites, gemischt erst in `into_image`.
@@ -506,6 +654,7 @@ impl Canvas {
             tint,
             surface,
             order,
+            ao_face,
         } = shading;
         let area = edge(v[0], v[1], v[2].x, v[2].y);
         if area.abs() < 1e-6 {
@@ -567,20 +716,27 @@ impl Canvas {
                 if texel[3] == 255 {
                     self.front[index] = self.front[index].max(depth);
                 }
+                let ao = ao_face.map_or(0, |face| {
+                    let s = w[0] * v[0].s + w[1] * v[1].s + w[2] * v[2].s;
+                    let t = w[0] * v[0].t + w[1] * v[1].t + w[2] * v[2].t;
+                    ao_word(face, corner_weights(face, [s, t]))
+                });
                 self.fragments.push(Fragment {
                     pixel: index as u32,
                     depth,
                     order,
                     color: shaded(texel, shade, tint),
                     surface,
+                    ao,
                 });
             }
         }
     }
 
     /// Mischt je Pixel die Fragmente von hinten nach vorne. Was unter der
-    /// eigenen Oberfläche liegt, im Licht `unter`.
-    fn into_image(mut self, unter: Light) -> RgbaImage {
+    /// eigenen Oberfläche liegt, im Licht `unter`. Mit `ao` dazu die
+    /// AO-Karte aus dem vordersten Fragment je Pixel.
+    fn into_image(mut self, unter: Light, ao: bool) -> (RgbaImage, Option<Vec<u32>>) {
         let unter = unter.factors();
         self.fragments.sort_unstable_by(|a, b| {
             a.pixel
@@ -589,6 +745,7 @@ impl Canvas {
                 .then(a.order.cmp(&b.order))
         });
         let mut image = RgbaImage::new(self.width, self.height);
+        let mut map = ao.then(|| vec![0u32; (self.width * self.height) as usize]);
         for pixel in self.fragments.chunk_by(|a, b| a.pixel == b.pixel) {
             let mut color = [0u8; 4];
             for fragment in pixel {
@@ -605,8 +762,11 @@ impl Canvas {
             }
             let index = pixel[0].pixel;
             image.put_pixel(index % self.width, index / self.width, Rgba(color));
+            if let Some(map) = &mut map {
+                map[index as usize] = pixel[pixel.len() - 1].ao;
+            }
         }
-        image
+        (image, map)
     }
 }
 
@@ -787,6 +947,83 @@ mod tests {
         assert_eq!(Light { sky: 0, block: 15 }.factors(), [255; 3]);
     }
 
+    /// Ein voller Würfel, den das Spiel weich beleuchtet, bekommt eine
+    /// AO-Karte: Jeder Pixel mit Farbe liegt auf einer der drei Seiten, und
+    /// alle drei kommen vor. Ohne `ambientocclusion`, mit einer Oberseite in
+    /// halber Höhe und als obere Platte, deren Oberseite voll ist, ihre
+    /// Seiten aber nicht, gibt es keine.
+    #[test]
+    fn ao_karte_nur_fuer_volle_wuerfel() {
+        let kasten = |from: [f32; 3], to: [f32; 3], ambient_occlusion| BakedModel {
+            quads: crate::assets::baker::box_quads(from, to, Textures::MISSING, None, None)
+                .collect(),
+            ambient_occlusion,
+        };
+        let wuerfel = |to: [f32; 3], ambient_occlusion| kasten([0.0; 3], to, ambient_occlusion);
+        let textures = Textures::new();
+        let projection = Projection::new(32);
+        let bild = |model: &BakedModel| {
+            render(
+                model,
+                &textures,
+                &projection,
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+        };
+        let sprite = bild(&wuerfel([16.0; 3], true)).unwrap();
+        let karte = sprite.ao.as_ref().expect("AO-Karte");
+        for (i, p) in sprite.image.pixels().enumerate() {
+            assert_eq!(p.0[3] != 0, karte[i] >> 24 != 0, "Pixel {i}");
+        }
+        let seiten: std::collections::BTreeSet<u32> = karte.iter().map(|w| w >> 24).collect();
+        assert_eq!(seiten, [0, 1, 2, 3].into());
+        assert!(bild(&wuerfel([16.0; 3], false)).unwrap().ao.is_none());
+        assert!(
+            bild(&wuerfel([16.0, 8.0, 16.0], true))
+                .unwrap()
+                .ao
+                .is_none()
+        );
+        assert!(
+            bild(&kasten([0.0, 8.0, 0.0], [16.0; 3], true))
+                .unwrap()
+                .ao
+                .is_none(),
+            "obere Platte"
+        );
+    }
+
+    /// Die Anteile der Ecken an einem Punkt der Oberseite: an einer Ecke nur
+    /// sie, sonst baryzentrisch im Dreieck 0-1-2 oder 2-3-0, zusammen immer
+    /// 255. Mit den Ecken einer Innenecke liegt die Mitte zwischen der
+    /// dunklen und der hellen Ecke.
+    #[test]
+    fn anteile_der_ecken() {
+        assert_eq!(corner_weights(0, [0.0, 0.0]), [255, 0, 0, 0]);
+        assert_eq!(corner_weights(0, [0.0, 1.0]), [0, 255, 0, 0]);
+        assert_eq!(corner_weights(0, [1.0, 1.0]), [0, 0, 255, 0]);
+        assert_eq!(corner_weights(0, [1.0, 0.0]), [0, 0, 0, 255]);
+        assert_eq!(corner_weights(0, [0.25, 0.75]), [64, 127, 64, 0]);
+        assert_eq!(corner_weights(0, [0.75, 0.25]), [64, 0, 64, 127]);
+        for face in 0..3 {
+            for i in 0..=10 {
+                for j in 0..=10 {
+                    let w = corner_weights(face, [i as f32 / 10.0, j as f32 / 10.0]);
+                    assert_eq!(w.iter().sum::<u32>(), 255, "Seite {face}, {i}, {j}");
+                }
+            }
+        }
+        let innenecke = [u32::from_le_bytes([102, 153, 255, 153]), NO_AO[1], NO_AO[2]];
+        let an = |p| ao_factor(ao_word(0, corner_weights(0, p)), innenecke);
+        assert_eq!(an([0.0, 0.0]), 102);
+        assert_eq!(an([0.5, 0.5]), 178);
+        assert_eq!(an([1.0, 1.0]), 255);
+        assert_eq!(ao_factor(0, innenecke), 255, "Pixel ohne Seite");
+        assert_eq!(with_ao(255, 178), 178);
+        assert_eq!(with_ao(light_factor(0), 255), light_factor(0));
+    }
+
     /// Über dem Grund D im Licht l ergibt die Oberfläche `α · W + (1 − α) ·
     /// b(l) · D`, so wie das Spiel sie über den dunkleren Grund legt.
     #[test]
@@ -841,6 +1078,7 @@ mod tests {
         schmal.uvs = [[0.5, 0.0], [0.5, 0.0], [0.5, 1.0], [0.5, 1.0]];
         let model = BakedModel {
             quads: vec![schmal],
+            ambient_occlusion: false,
         };
         assert!(
             render(
@@ -982,7 +1220,10 @@ mod tests {
         ];
 
         let sprite = render(
-            &BakedModel { quads },
+            &BakedModel {
+                quads,
+                ambient_occlusion: false,
+            },
             &Textures::new(),
             &Projection::new(16),
             Tints::default(),

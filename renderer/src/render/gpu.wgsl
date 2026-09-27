@@ -13,7 +13,14 @@ struct Instance {
     y: i32,
     // Helligkeit im Licht des Blocks je Farbkanal in 255steln, Rot im
     // untersten Byte, 255 bei vollem Licht: `rasterizer::Light::factors`.
+    // Bit 24: Hinter den Pixeln des Sprites steht seine AO-Karte, und `ao`
+    // dunkelt etwas ab.
     light: u32,
+    // Weiche Beleuchtung an den Ecken der Seiten oben, Süden und Osten, je
+    // ein Byte je Ecke: `ChunkCache::ao_at`.
+    ao_up: u32,
+    ao_south: u32,
+    ao_east: u32,
 }
 
 struct Params {
@@ -41,9 +48,29 @@ fn pack(c: vec4<u32>) -> u32 {
 
 // Jeder Farbkanal mal seine Helligkeit, das Alpha bleibt — wie
 // `rasterizer::darken`.
-fn darken(s: vec4<u32>, light: u32) -> vec4<u32> {
-    let f = vec3<u32>(light & 255u, (light >> 8u) & 255u, (light >> 16u) & 255u);
+fn darken(s: vec4<u32>, f: vec3<u32>) -> vec4<u32> {
     return vec4<u32>((s.xyz * f + 127u) / 255u, s.w);
+}
+
+// Die weiche Beleuchtung an einem Pixel aus seinem Eintrag der AO-Karte —
+// wie `rasterizer::ao_factor`.
+fn ao_factor(word: u32, inst: Instance) -> u32 {
+    let face = word >> 24u;
+    if (face == 0u) {
+        return 255u;
+    }
+    var c = inst.ao_up;
+    if (face == 2u) {
+        c = inst.ao_south;
+    } else if (face == 3u) {
+        c = inst.ao_east;
+    }
+    let w0 = word & 255u;
+    let w1 = (word >> 8u) & 255u;
+    let w2 = (word >> 16u) & 255u;
+    let w3 = 255u - w0 - w1 - w2;
+    return (w0 * (c & 255u) + w1 * ((c >> 8u) & 255u) + w2 * ((c >> 16u) & 255u)
+        + w3 * (c >> 24u) + 127u) / 255u;
 }
 
 // Quelle über Ziel, unvormultipliziert — dieselbe Rechnung wie auf der CPU.
@@ -79,12 +106,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wg
         if (sx < 0 || sy < 0 || u32(sx) >= w || u32(sy) >= h) {
             continue;
         }
-        var s = unpack(sprites[inst.sprite + u32(sy) * w + u32(sx)]);
+        let i = u32(sy) * w + u32(sx);
+        var s = unpack(sprites[inst.sprite + i]);
         if (s.w == 0u) {
             continue;
         }
-        if (inst.light != 0xffffffu) {
-            s = darken(s, inst.light);
+        // Licht je Kanal und weiche Beleuchtung wie `rasterizer::with_ao`.
+        var f = vec3<u32>(inst.light & 255u, (inst.light >> 8u) & 255u, (inst.light >> 16u) & 255u);
+        if ((inst.light >> 24u) != 0u) {
+            f = (f * ao_factor(sprites[inst.sprite + w * h + i], inst) + 127u) / 255u;
+        }
+        if (any(f != vec3<u32>(255u))) {
+            s = darken(s, f);
         }
         d = over(s, d);
     }

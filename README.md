@@ -226,13 +226,13 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 GPU:        <Name der Karte> (Vulkan)
 
-Vorlauf:    788 Chunks in 0.2 s, 247 Blockstates, 256 Kacheln
+Vorlauf:    788 Chunks in 0.1 s, 247 Blockstates, 256 Kacheln
             932 Sprites bei scale 32, davon 688 Fassungen
             1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
             200/256 Kacheln
             256/256 Kacheln
 Kacheln:    256 geschrieben, 0 leer, 256x256 px, 24 Threads + GPU
-            23.1 MB in 0.4 s (698 Kacheln/s, 92 kB je Kachel)
+            23.1 MB in 0.3 s (992 Kacheln/s, 92 kB je Kachel)
 Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 6.0 MB in 0.2 s
 Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.5 MB in 0.2 s
 Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.4 MB in 0.2 s
@@ -241,6 +241,12 @@ Zoom  6:     2 Kacheln
 Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
 Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/map.json
 ```
+
+Die Rate eines so kurzen Laufs sagt wenig. Die Basis braucht hier eine
+Drittelsekunde; drei Läufe hintereinander gaben 992 bis 1013 Kacheln/s,
+und der Stand vor der weichen Beleuchtung am selben Tag einmal 764 und
+später 1010 bis 1052. Was ein Lauf kostet, steht unter „Was das kostet“,
+gemessen an grösseren Ausschnitten.
 
 Der Ausschnitt wird dabei aufgerundet, bevor der Vorlauf irgendetwas
 ausschliesst, und zwar auf ganze Kacheln der gröbsten nativen Stufe — mit
@@ -1177,22 +1183,37 @@ zeigt, oben, Süden und Osten, bei vollem Tageslicht: `ao_at` in
 Das Sprite eines Blocks ist an jeder Stelle dasselbe, die weiche
 Beleuchtung hängt aber an den Nachbarn. Der Rasterizer legt deshalb je
 Pixel die Anteile der vier Ecken seiner Seite in 255steln ab, die
-AO-Karte. Beim Zeichnen rechnet `ao_at` die Ecken aus den Nachbarn, und
-je Pixel ergibt die Karte mit ihnen einen Faktor, ganzzahlig wie das
-Mischen, auf der CPU wie im Shader der Karte. Er multipliziert sich mit
-dem Licht aus `light_at`; die Schattierung nach Richtung, oben 1, Nord und
-Süd 0,8, Ost und West 0,6, steckt wie bisher im Sprite. Eine Instanz auf
-der Karte trägt dafür die drei Wörter der Ecken und ist 32 statt 20 Bytes
-gross. Eine Kachel wiegt damit ein Fünftel bis ein Viertel mehr und
-braucht ein Zehntel bis ein Sechstel länger, siehe „Was das kostet“.
+AO-Karte. Beim Zeichnen rechnet `ao_at` die Ecken aus den Nachbarn. Ob
+ein Block abdunkelt und ob er die Sicht nimmt, liegt dafür wie „deckend“
+als eigene Ebene in den Bitmasken der Sections, auch für Blöcke ohne
+Sprite: Die 31 Blöcke, nach denen die drei Seiten fragen, kommen aus 15
+Spalten, je Spalte aus einem Wort. Je Pixel ergibt die Karte mit den Ecken
+einen Faktor, ganzzahlig wie das Mischen, auf der CPU wie im Shader der
+Karte. Er multipliziert sich mit dem Licht aus `light_at`; die
+Schattierung nach Richtung, oben 1, Nord und Süd 0,8, Ost und West 0,6,
+steckt wie bisher im Sprite. Eine Instanz auf der Karte trägt dafür die
+drei Wörter der Ecken und ist 32 statt 20 Bytes gross.
+
+Eine Kachel wiegt damit ein Fünftel bis ein Viertel mehr. Auf einem
+Thread braucht sie bei scale 32 ein Siebtel länger, 6,1 statt 5,4 ms.
+Gut 0,3 ms davon sind das Abdunkeln und Kodieren der reicheren Kachel,
+rund 0,2 ms die Rechnung je Pixel, knapp 0,1 ms die Ecken aus `ao_at`,
+und etwa 0,1 ms braucht der Stand auch ohne Ecken. Auf 24 Threads streut
+die Rate von Lauf zu Lauf fast so stark wie dieser Unterschied; die Dauer
+für die ganze Welt steht unter „Was das kostet“.
 
 Was noch fehlt:
 
-- **Teilflächen.** Treppen, Platten, Zäune und alles, was nicht ganz aus
-  vollen Seiten besteht, rechnet das Spiel mit `facePartial` und den
-  Gewichten aus `SizeInfo`. Der Renderer zeichnet sie wie bisher ohne
-  weiche Beleuchtung; eine AO-Karte bekommt nur ein Modell aus vollen
-  Seiten.
+- **Teilflächen.** Alles, was nicht ganz aus vollen Seiten besteht,
+  rechnet das Spiel mit `facePartial` und den Gewichten aus `SizeInfo`.
+  Der Renderer zeichnet es wie bisher ohne weiche Beleuchtung; eine
+  AO-Karte bekommt nur ein Modell aus vollen Seiten. Die grössten Flächen
+  darunter:
+  - Schneedecken: Eine Lage `snow` ist 2/16 hoch, erst acht Lagen sind
+    ein voller Würfel. Verschneite Hänge und Ebenen bleiben oben deshalb
+    ohne weiche Beleuchtung.
+  - Ackerboden und Trampelpfade (`farmland`, `dirt_path`), 15/16 hoch.
+  - Treppen, Platten und Zäune.
 - **Licht je Ecke.** Das Spiel mischt an jeder Ecke auch das Licht der
   vier Blöcke (`LightCoordsUtil.smoothBlend`). Der Renderer gibt jedem
   Block ein Licht, siehe „Wasser und Biomfarben“; unter Wasser und an der

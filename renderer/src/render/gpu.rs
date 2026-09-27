@@ -301,7 +301,7 @@ pub struct Worker<'g> {
     bind: Option<wgpu::BindGroup>,
     /// Die Pixel der Sprites eines Durchgangs, eines nach dem anderen.
     sprite_bytes: Vec<u8>,
-    /// Instanzen, 32 Bytes je Stück, fertig für den Puffer.
+    /// Instanzen, 40 Bytes je Stück, fertig für den Puffer.
     inst_bytes: Vec<u8>,
     list_data: Vec<u32>,
 }
@@ -411,18 +411,23 @@ impl Worker<'_> {
                     continue;
                 }
                 let sprite_bytes = &mut self.sprite_bytes;
-                // Hinter den Pixeln die AO-Karte, falls das Sprite eine hat.
+                // Hinter den Pixeln die AO-Karte und die Tönungskarte, falls
+                // das Sprite sie hat.
                 let wort = *adresse
                     .entry(std::ptr::from_ref(d.sprite))
                     .or_insert_with(|| {
                         let wort = (sprite_bytes.len() / 4) as u32;
                         sprite_bytes.extend_from_slice(d.sprite.image.as_raw());
-                        for &eintrag in d.sprite.ao.iter().flatten() {
+                        let karten = d.sprite.ao.iter().chain(&d.sprite.tint).flatten();
+                        for &eintrag in karten {
                             sprite_bytes.extend_from_slice(&eintrag.to_le_bytes());
                         }
                         wort
                     });
                 let ao = d.sprite.ao.is_some() && d.ao != NO_AO;
+                let flags = ao as u32
+                    | (d.sprite.tint.is_some() as u32) << 1
+                    | (d.sprite.ao.is_some() as u32) << 2;
                 for word in [
                     wort,
                     w as u32 | (h as u32) << 16,
@@ -430,11 +435,13 @@ impl Worker<'_> {
                     d.origin.1 as u32,
                     {
                         let [r, g, b] = d.light.factors();
-                        r | g << 8 | b << 16 | (ao as u32) << 24
+                        r | g << 8 | b << 16 | flags << 24
                     },
                     d.ao[0],
                     d.ao[1],
                     d.ao[2],
+                    d.tint[0],
+                    d.tint[1],
                 ] {
                     self.inst_bytes.extend_from_slice(&word.to_le_bytes());
                 }
@@ -578,12 +585,14 @@ mod tests {
             image: RgbaImage::from_pixel(4, 4, image::Rgba([200, 10, 10, 255])),
             offset: (0, 0),
             ao: None,
+            tint: None,
         };
         let liste = vec![Draw {
             sprite: &sprite,
             origin: (3, 3),
             light: crate::render::rasterizer::Light::FULL,
             ao: NO_AO,
+            tint: [0; 2],
         }];
         let mut worker = gpu.worker(1, 64);
         let bild = worker.render(std::slice::from_ref(&liste)).unwrap();

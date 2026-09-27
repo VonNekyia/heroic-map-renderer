@@ -13,8 +13,8 @@ use terranova_render::assets::Assets;
 use terranova_render::render::metatile::STUECK;
 use terranova_render::render::rasterizer::{Light, darken};
 use terranova_render::render::{
-    ChunkCache, Projection, ScreenRect, SpriteSet, draw_list, render_area, render_area_with,
-    render_area_without_culling, survey,
+    BiomeTable, ChunkCache, Projection, ScreenRect, SpriteSet, draw_list, render_area,
+    render_area_with, render_area_without_culling, survey,
 };
 use terranova_render::world::{BlockState, World};
 
@@ -40,8 +40,7 @@ fn gelaende(x: i32, y: i32, z: i32) -> &'static str {
     }
 }
 
-/// Die Sprite-Tabelle einer Welt, gebaut wie im Export: aus dem Vorlauf,
-/// mit den Biomen, die jede Blockstate mit ihren Sections teilt.
+/// Die Sprite-Tabelle einer Welt, gebaut wie im Export: aus dem Vorlauf.
 fn tabelle(assets: &mut Assets, world: &World, projection: Projection) -> SpriteSet {
     let survey = survey(world, projection, Y_RANGE, None).unwrap();
     SpriteSet::build_in(assets, &survey.states, projection).unwrap()
@@ -139,7 +138,11 @@ fn schneller_weg_gleicht_der_referenz() {
         let mut assets = assets();
         assets.load_biomes(&daten).unwrap();
         let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
-        assert!(sprites.variants() > 0, "keine Fassung je Biom");
+        let gras = BlockState::parse("minecraft:grass_block").unwrap();
+        assert!(
+            sprites.tints(sprites.id(&gras).unwrap()) != 0,
+            "Gras ohne Tönungskarte"
+        );
         let s = scale as i32;
         let ganz = ScreenRect {
             x: -17 * s,
@@ -611,15 +614,41 @@ fn hohe_modelle_werden_nicht_uebermalt() {
     assert_ne!(a.as_raw(), b.as_raw());
 }
 
-/// Derselbe Grasblock in zwei Biomen: die Farbe kommt aus dem Biom, nicht
-/// aus der Blockstate.
+/// Die Oberseite des Grasblocks der Fixture in der Farbe `tint`: ihre
+/// Textur (150, 110, 60) mal der Farbe je Kanal, ganzzahlig wie
+/// `rasterizer::tinted`; die Oberseite liegt im vollen Licht.
+fn gras(tint: [u32; 3]) -> [u8; 4] {
+    let textur = [150u32, 110, 60];
+    let kanal = |c: usize| ((textur[c] * tint[c] + 127) / 255) as u8;
+    [kanal(0), kanal(1), kanal(2), 255]
+}
+
+/// Die Farbe des Grases in den Biomen der Fixture: plains aus der
+/// Colormap bei (50, 173), frozen mit `grass_color` #123456.
+const PLAINS: [u32; 3] = [50, 173, 0];
+const FROZEN: [u32; 3] = [0x12, 0x34, 0x56];
+
+/// Die Sprite-Tabelle einer Welt mit den Biomdaten der Fixture, gemischt
+/// mit `radius`, mit dem Seed der Welt.
+fn tabelle_mit_biomen(world: &World, projection: Projection, radius: u8) -> SpriteSet {
+    let mut assets = assets();
+    assets.load_biomes(&common::biomdaten()).unwrap();
+    let mut sprites = tabelle(&mut assets, world, projection);
+    sprites.set_biomes(BiomeTable::new(assets.colors()).with(radius, world.seed().unwrap()));
+    sprites
+}
+
+/// Grasblöcke über eine Biomgrenze, ohne Seed, also auf dem Raster: plains
+/// bei x < 16, frozen ab 16. Mit Radius 2 mischt `calculateBlockTint` jede
+/// Spalte über das Quadrat aus fünf mal fünf Blöcken um sie, je Kanal die
+/// Summe ganzzahlig durch 25 geteilt; hier von Hand gerechnet. Weit weg von
+/// der Grenze bleibt die Farbe des eigenen Bioms, mit Radius 0 überall.
 #[test]
-fn biome_faerben_denselben_block_verschieden() {
+fn biome_mischen_an_der_grenze() {
     let dir = tempdir();
-    let chunks = [(0, 0), (1, 0)];
     common::write_world_in(
         dir.path(),
-        &chunks,
+        &[(0, 0), (1, 0)],
         |_, y, _| {
             if y == 0 {
                 "minecraft:grass_block"
@@ -636,50 +665,145 @@ fn biome_faerben_denselben_block_verschieden() {
         },
     );
     let world = World::open(dir.path()).unwrap();
-
-    let mut assets = assets();
-    assets
-        .load_biomes(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base"))
-        .unwrap();
+    assert_eq!(world.seed().unwrap(), None);
     let projection = Projection::new(16);
-    // Gebaut wie im Export: der Vorlauf sammelt je Blockstate die Biome
-    // ihrer Sections. Gefärbt wird nur für plains und frozen, und plains
-    // ist das Standardklima und teilt sich das Sprite mit der Grundfassung.
-    // Für alle geladenen Biome gäbe es vier Fassungen.
-    let sprites = tabelle(&mut assets, &world, projection);
-    assert_eq!(sprites.variants(), 1);
-
     let rect = ScreenRect {
         x: -16,
         y: 40,
         width: 192,
         height: 112,
     };
+    let bild = |radius| {
+        let sprites = tabelle_mit_biomen(&world, projection, radius);
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+    };
+
+    let gemischt = bild(2);
+    // Je Spalte x: wie viele der fünf Spalten im Quadrat frozen sind, und
+    // die Summe durch 25. Bei x = 14 etwa Rot (20 · 50 + 5 · 18) / 25 = 43,
+    // gerundet wären es 44.
+    for (x, farbe) in [
+        (8, PLAINS),
+        (13, PLAINS),
+        (14, [43, 148, 17]),
+        (15, [37, 124, 34]),
+        (16, [30, 100, 51]),
+        (17, [24, 76, 68]),
+        (18, FROZEN),
+        (24, FROZEN),
+    ] {
+        assert_eq!(
+            oberseite(&gemischt, projection, rect, [x, 0, 8]),
+            gras(farbe),
+            "Spalte {x}"
+        );
+    }
+    let ungemischt = bild(0);
+    for (x, farbe) in [(14, PLAINS), (15, PLAINS), (16, FROZEN), (17, FROZEN)] {
+        assert_eq!(
+            oberseite(&ungemischt, projection, rect, [x, 0, 8]),
+            gras(farbe),
+            "Radius 0, Spalte {x}"
+        );
+    }
+}
+
+/// Mit dem Seed der Welt bekommt jeder Block das Biom, das
+/// `BiomeManager.getBiome` im Spiel wählt: plains bei x < 0, frozen ab 0,
+/// Radius 0, Seed 12345, Gras auf y = 1. Die Ziffern je Block sind die aus
+/// `zoom_wie_im_spiel` in `renderer/src/world/biomzoom.rs` für y = 1: die
+/// Ecke, deren Viertelposition gewinnt, x läuft innen, dann z. Ohne den
+/// gehashten Seed oder ohne die Verschiebung um zwei verliefe die Grenze
+/// anders.
+#[test]
+fn biom_je_block_wie_im_spiel() {
+    let dir = tempdir();
+    for chunk in [(-1, -1), (0, -1), (-1, 0), (0, 0)] {
+        common::write_world_in(
+            dir.path(),
+            &[chunk],
+            |_, y, _| {
+                if y == 1 {
+                    "minecraft:grass_block"
+                } else {
+                    "minecraft:air"
+                }
+            },
+            |cx, _| {
+                Some(if cx < 0 {
+                    "minecraft:plains"
+                } else {
+                    "minecraft:frozen"
+                })
+            },
+        );
+    }
+    common::write_wurzel(dir.path(), 12345);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 256);
+    let sprites = tabelle_mit_biomen(&world, projection, 0);
     let bild = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
 
-    // Mitte der Oberseite eines Blocks auf y=0, unbeschattet.
-    let oben = |x: i32, z: i32| {
-        let (sx, sy) = projection.project_block([x, 1, z]);
-        let sx = sx + projection.scale() as f64 * 0.0 - rect.x as f64;
-        let sy = sy + projection.scale() as f64 / 4.0 - rect.y as f64;
-        bild.get_pixel(sx.round() as u32, sy.round() as u32).0
-    };
-    // Die Textur ist (150, 110, 60); die Färbung multipliziert je Kanal.
-    let erwartet = |tint: [u32; 3]| {
-        let mut p = [0u8; 4];
-        for c in 0..3 {
-            p[c] = ((([150u32, 110, 60][c] * tint[c]) as f32 / 255.0).round()) as u8;
+    const ZIFFERN: &str = "000622262226200622262227200622272777200622273777006622262666006622262666166622273266166633373377206622262266226622262366225511163366335511173335";
+    let mut ziffern = ZIFFERN.bytes().map(|b| (b - b'0') as i32);
+    let mut abseits = 0;
+    for z in -6..=5 {
+        for x in -6..=5 {
+            let p = ziffern.next().unwrap();
+            let qx = ((x - 2) >> 2) + (p >> 2 & 1);
+            let soll = if qx < 0 { PLAINS } else { FROZEN };
+            abseits += ((qx < 0) != (x < 0)) as u32;
+            assert_eq!(
+                oberseite(&bild, projection, rect, [x, 1, z]),
+                gras(soll),
+                "Block ({x}, 1, {z})"
+            );
         }
-        p[3] = 255;
-        p
-    };
-    // plains: Colormap-Pixel (50, 173, 0); frozen: grass_color #123456
-    assert_eq!(oben(8, 8), erwartet([50, 173, 0]), "Chunk 0 ist plains");
-    assert_eq!(
-        oben(24, 8),
-        erwartet([0x12, 0x34, 0x56]),
-        "Chunk 1 ist frozen"
+    }
+    // Die Grenze verläuft nicht auf dem Raster bei x = 0.
+    assert!(abseits > 10, "nur {abseits} Blöcke abseits des Rasters");
+}
+
+/// Gemischt wird auf der Höhe des Blocks: plains in der Section bis
+/// y = 15, frozen ab 16, ohne Seed, Radius 2. Gras auf y = 15 bleibt ganz
+/// plains, Gras auf y = 16 ganz frozen.
+#[test]
+fn mischung_auf_hoehe_des_blocks() {
+    let dir = tempdir();
+    common::write_world_biomes(
+        dir.path(),
+        &[(0, 0)],
+        0..=1,
+        |_, y, z| match (y, z < 8) {
+            (15, true) | (16, false) => "minecraft:grass_block",
+            _ => "minecraft:air",
+        },
+        |_, sy, _| {
+            Some(if sy == 0 {
+                "minecraft:plains"
+            } else {
+                "minecraft:frozen"
+            })
+        },
     );
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 256);
+    let sprites = tabelle_mit_biomen(&world, projection, 2);
+    let bild = render_area(&world, &sprites, rect, (0, 31)).unwrap();
+    for x in 4..12 {
+        assert_eq!(
+            oberseite(&bild, projection, rect, [x, 15, 2]),
+            gras(PLAINS),
+            "({x}, 15, 2)"
+        );
+        assert_eq!(
+            oberseite(&bild, projection, rect, [x, 16, 12]),
+            gras(FROZEN),
+            "({x}, 16, 12)"
+        );
+    }
 }
 
 /// Mitte der Oberseite eines Blocks im Bild.

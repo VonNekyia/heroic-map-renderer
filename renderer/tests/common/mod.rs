@@ -202,7 +202,7 @@ pub fn write_world_in(
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i32) -> Option<&'static str>,
 ) -> PathBuf {
-    write_region(dir, chunks, 0..=0, block, biome)
+    write_region(dir, chunks, 0..=0, block, |cx, _, cz| biome(cx, cz))
 }
 
 /// Wie `write_world_in`, aber mit diesen Sections je Chunk statt nur Y=0:
@@ -214,6 +214,18 @@ pub fn write_world_sections(
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i32) -> Option<&'static str>,
 ) -> PathBuf {
+    write_region(dir, chunks, sections, block, |cx, _, cz| biome(cx, cz))
+}
+
+/// Wie `write_world_sections`, aber das Biom je Chunk und Section:
+/// `biome(cx, sy, cz)`.
+pub fn write_world_biomes(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    sections: impl IntoIterator<Item = i8> + Clone,
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    biome: impl Fn(i32, i8, i32) -> Option<&'static str>,
+) -> PathBuf {
     write_region(dir, chunks, sections, block, biome)
 }
 
@@ -222,7 +234,7 @@ fn write_region(
     chunks: &[(i32, i32)],
     sections: impl IntoIterator<Item = i8> + Clone,
     block: impl Fn(i32, i32, i32) -> &'static str,
-    biome: impl Fn(i32, i32) -> Option<&'static str>,
+    biome: impl Fn(i32, i8, i32) -> Option<&'static str>,
 ) -> PathBuf {
     let region_dir = dir.join("region");
     std::fs::create_dir_all(&region_dir).expect("region-Verzeichnis");
@@ -244,7 +256,7 @@ fn write_region(
             sections
                 .clone()
                 .into_iter()
-                .map(|sy| section(cx, cz, sy, &block, biome(cx, cz)))
+                .map(|sy| section(cx, cz, sy, &block, biome(cx, sy, cz)))
                 .collect(),
         );
         let mut record = Vec::new();
@@ -328,8 +340,8 @@ pub const SZENE_Y: (i32, i32) = (-16, 47);
 /// Eine Szene mit allem, woran das Verdecken scheitern kann. Sie reicht
 /// über vier Chunks in zwei Biomen und vier Sections, die unterste
 /// einheitlich aus Stein, damit auch die Ränder zählen, an denen eine Maske
-/// aus dem Nachbarchunk oder der Section darüber kommt, und die Fassungen
-/// je Biom, die `in_biome` wählt: Gras an einer Ecke,
+/// aus dem Nachbarchunk oder der Section darüber kommt, und die Farben
+/// beider Biome: Gras an einer Ecke und über die Biomgrenze bei x = 16,
 /// ein Becken über Chunk- und Section-Grenzen, mit einem Dach, unter dem
 /// die Oberfläche tiefer liegt als der Boden des Dachs, und zwei
 /// Wassertaschen unter Stein, die zu einer Seite an Stein grenzen und zur
@@ -354,6 +366,7 @@ pub fn szene(x: i32, y: i32, z: i32) -> &'static str {
         (20, 3, 10) => "minecraft:redstone_ore[lit=true]",
         (21, 3, 10) => "minecraft:sea_lantern",
         (0..=5, 2, 26..=31) | (26..=31, 2, 0..=2) => "minecraft:grass_block",
+        (10..=21, 2, 30..=31) => "minecraft:grass_block",
         (6..=9, 3, 26..=29) | (7..=8, 4, 27..=28) | (7, 5, 27) => "minecraft:stone",
         (11, 3..=4, 27) | (12..=13, 3..=4, 28) => "minecraft:stone",
         (_, ..=2, _) => "minecraft:einfarbig",

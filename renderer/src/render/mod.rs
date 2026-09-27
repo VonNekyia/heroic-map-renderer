@@ -5,6 +5,7 @@ pub mod pyramid;
 pub mod rasterizer;
 pub mod sprites;
 pub mod tiles;
+pub mod tint;
 
 pub use gpu::Gpu;
 pub use metatile::{
@@ -19,3 +20,4 @@ pub use tiles::{
     Survey, TILE, TileId, corner_tiles, covering, encode_webp, snap_to_grid, snap_to_tiles, survey,
     world_box,
 };
+pub use tint::{BLEND_DEFAULT, BLEND_MAX, BiomeTable};

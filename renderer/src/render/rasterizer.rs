@@ -277,6 +277,31 @@ pub struct Sprite {
     /// [`ao_factor`]; nur für Modelle, die das Spiel weich beleuchtet und
     /// die nur aus vollen Seiten bestehen.
     pub ao: Option<Vec<u32>>,
+    /// Je Pixel zwei Wörter, die Tönungskarte: der Anteil, der die Farbe des
+    /// Blocks aus dem Biom trägt, und der, der die des Wassers trägt, je
+    /// Kanal ein Byte, Rot im untersten. `image` hält den Rest; zusammen
+    /// setzt [`tinted`] sie beim Zeichnen. Nur für Sprites mit Flächen,
+    /// deren Farbe vom Biom kommt.
+    /// Siehe docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
+    pub tint: Option<Vec<u32>>,
+}
+
+/// Ein Pixel in den Farben seines Blocks: je Kanal der Rest aus dem Bild
+/// und die beiden Anteile der Tönungskarte `[block, water]` mal der Farbe
+/// des Bioms, `farben` wie die Karte gepackt. Ganzzahlig wie [`over`],
+/// dieselbe Rechnung steht im Shader. Rest und Anteile ergeben zusammen
+/// höchstens 255, darüber läuft kein Kanal.
+pub fn tinted(pixel: [u8; 4], [block, water]: [u32; 2], [b, w]: [u32; 2]) -> [u8; 4] {
+    let kanal = |c: usize| {
+        let byte = |word: u32| word >> (8 * c) & 255;
+        (pixel[c] as u32 + (byte(block) * byte(b) + byte(water) * byte(w) + 127) / 255) as u8
+    };
+    [kanal(0), kanal(1), kanal(2), pixel[3]]
+}
+
+/// Eine Farbe gepackt wie die Tönungskarte, Rot im untersten Byte.
+pub fn pack(tint: [u8; 3]) -> u32 {
+    tint[0] as u32 | (tint[1] as u32) << 8 | (tint[2] as u32) << 16
 }
 
 /// Rastert ein gebackenes Modell in ein Sprite.
@@ -362,6 +387,7 @@ pub fn render(
         image,
         offset: (min_x, min_y),
         ao,
+        tint: None,
     })
 }
 

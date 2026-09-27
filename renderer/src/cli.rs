@@ -19,10 +19,11 @@ use terranova_render::render::gpu::Worker;
 use terranova_render::render::pyramid;
 use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
-    ChunkCache, Gpu, MapInfo, Projection, ScreenRect, SpriteSet, TILE, TileId, corner_tiles,
-    draw_list, encode_webp, render, render_area, render_area_with, streifenbreite, survey,
-    world_box,
+    BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Gpu, MapInfo, Projection, ScreenRect,
+    SpriteSet, TILE, TileId, corner_tiles, draw_list, encode_webp, render, render_area,
+    render_area_with, streifenbreite, survey, world_box,
 };
+use terranova_render::world::biomzoom::{obfuscate_seed, zoom};
 use terranova_render::world::{BlockState, REGION, World};
 
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
@@ -63,6 +64,12 @@ pub struct Args {
     /// Pixelbreite eines Blocks, ein Vielfaches von 4
     #[arg(long, default_value_t = Projection::DEFAULT_SCALE, value_parser = parse_scale)]
     scale: u32,
+
+    /// Wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, in
+    /// Blöcken, wie der Biomübergang im Spiel: 0 bis 7, Vorgabe 2
+    #[arg(long, value_name = "N", default_value_t = BLEND_DEFAULT,
+          value_parser = clap::value_parser!(u8).range(0..=i64::from(BLEND_MAX)))]
+    biome_blend: u8,
 
     /// Einen Weltausschnitt in diese PNG rendern
     #[arg(long, value_name = "DATEI")]
@@ -304,6 +311,7 @@ pub fn run() -> Result<()> {
                 projection,
                 window(projection, center, size),
                 path,
+                args.biome_blend,
             )?;
         }
         if let Some(dir) = &args.tiles {
@@ -318,6 +326,7 @@ pub fn run() -> Result<()> {
                     args.prune,
                     args.resume,
                     karte.as_ref(),
+                    args.biome_blend,
                 );
                 // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
                 // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
@@ -386,7 +395,21 @@ fn at_coordinate(world: &World, assets: Option<&mut Assets>, x: i32, y: i32, z: 
         None => println!("Höchster Block in Spalte:  Spalte ist leer"),
     }
     if let Some(biome) = chunk.biome_at(x, y, z) {
-        println!("Biom:                      {biome}");
+        println!("Biom der Zelle:            {biome}");
+    }
+    // Das Biom, das das Spiel dem Block gibt, liegt womöglich im Nachbarchunk.
+    if let Some(seed) = world.seed()? {
+        let [qx, qy, qz] = zoom(obfuscate_seed(seed), [x, y, z]);
+        let biome = world.chunk(qx >> 2, qz >> 2)?.and_then(|c| {
+            let qy = qy.clamp(c.y_min() >> 2, c.y_max() >> 2);
+            c.biome_at(qx * 4, qy * 4, qz * 4).map(str::to_string)
+        });
+        println!(
+            "Biom des Blocks:           {}",
+            biome
+                .as_deref()
+                .unwrap_or("minecraft:plains, der Chunk fehlt")
+        );
     }
 
     if let (Some(assets), Some(block)) = (assets, chunk.block_at(x, y, z)) {
@@ -566,11 +589,13 @@ fn render_world(
     projection: Projection,
     rect: ScreenRect,
     path: &Path,
+    blend: u8,
 ) -> Result<()> {
     let started = Instant::now();
     // Derselbe Vorlauf wie beim Kachelexport, nur über den Ausschnitt.
     let survey = survey(world, projection, Y_RANGE, Some(rect))?;
-    let sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
+    let mut sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
+    sprites.set_biomes(biomfarben(world, assets, blend)?);
     warn_unknown_biomes(assets, &survey.biomes);
     println!(
         "\nRender:     {} Chunks gelesen, {} Blockstates, {} Sprites",
@@ -679,6 +704,21 @@ fn melde_ueberhang(sprites: &SpriteSet) {
     }
 }
 
+/// Die Farben der Biome für diesen Lauf: gemischt mit dem Radius aus
+/// `--biome-blend`, das Biom je Block mit dem Seed der Welt. Ohne Seed
+/// bleibt es beim Raster aus 4×4×4 Blöcken, und das sagt der Lauf.
+/// Siehe docs/renderer/biomfarben.md, „Biom je Block“.
+fn biomfarben(world: &World, assets: &Assets, blend: u8) -> Result<BiomeTable> {
+    let seed = world.seed()?;
+    if seed.is_none() {
+        println!(
+            "Biome:      die Welt nennt keinen Seed; je Block gilt das Biom seiner Zelle aus 4×4×4 \
+             Blöcken, die Grenzen verlaufen auf diesem Raster statt wie im Spiel"
+        );
+    }
+    Ok(BiomeTable::new(assets.colors()).with(blend, seed))
+}
+
 /// Biome der Welt, für die keine Definition geladen ist. Sie bekommen die
 /// Farben von `plains` — das soll niemand erst auf der Karte bemerken.
 fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
@@ -721,6 +761,7 @@ fn write_tiles(
     prune: bool,
     resume: bool,
     karte: Option<&Karte>,
+    blend: u8,
 ) -> Result<()> {
     // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
     // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
@@ -803,7 +844,9 @@ fn write_tiles(
         );
     }
 
-    let sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
+    let biomes = biomfarben(world, assets, blend)?;
+    let mut sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
+    sprites.set_biomes(biomes.clone());
     println!(
         "            {} Sprites bei scale {}, davon {} Fassungen",
         sprites.len(),
@@ -937,6 +980,7 @@ fn write_tiles(
         world,
         assets,
         &survey.states,
+        &biomes,
         projection,
         dir,
         max_zoom,
@@ -1703,7 +1747,8 @@ fn pruefe_bestand(
 fn render_coarser(
     world: &World,
     assets: &mut Assets,
-    states: &BTreeMap<BlockState, BTreeSet<String>>,
+    states: &BTreeSet<BlockState>,
+    biomes: &BiomeTable,
     projection: Projection,
     dir: &Path,
     max_zoom: u32,
@@ -1722,7 +1767,8 @@ fn render_coarser(
         z -= 1;
         scale /= 2;
         let started = Instant::now();
-        let sprites = SpriteSet::build_in(assets, states, Projection::new(scale))?;
+        let mut sprites = SpriteSet::build_in(assets, states, Projection::new(scale))?;
+        sprites.set_biomes(biomes.clone());
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
 
@@ -2912,7 +2958,7 @@ mod tests {
         let world = World::open(welt.path()).unwrap();
         let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
         let mut assets = Assets::open(vec![fixture]).unwrap();
-        let keine = BTreeMap::<BlockState, BTreeSet<String>>::new();
+        let keine = BTreeSet::<BlockState>::new();
         let sprites = SpriteSet::build_in(&mut assets, &keine, Projection::new(16)).unwrap();
         let tiles: Vec<TileId> = (0..80).map(|x| TileId { x, y: 0 }).collect();
         let ein_thread = rayon::ThreadPoolBuilder::new()

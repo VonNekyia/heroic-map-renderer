@@ -5,12 +5,13 @@ use image::RgbaImage;
 
 use crate::assets::Face;
 use crate::assets::blockstate::{self, DUNKELT, Leuchten, SICHT};
+use crate::assets::colors::Resolver;
 use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
 use crate::world::{Chunk, REGION, Region, Section, World};
 
-use super::rasterizer::{FULL_LIGHT, Light, NO_AO, ao_factor, darken, over, with_ao};
-use super::sprites::{Family, Rows, mask_bit};
+use super::rasterizer::{FULL_LIGHT, Light, NO_AO, ao_factor, darken, over, pack, tinted, with_ao};
+use super::sprites::{Family, Rows, TINT_BLOCK, TINT_WATER, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
@@ -175,7 +176,7 @@ fn von_vorn<'a>(
             if let Some((sprite, rows)) = sprites.part_rows(id, cell) {
                 let origin = origin_of(projection, rect, anchor, sprite);
                 if let Some(sicht) = deckung.zeichne(sprite, rows, origin) {
-                    sichtbar.push((sprite, origin, sicht, (ids.light, ids.ao)));
+                    sichtbar.push((sprite, origin, sicht, (ids.light, ids.ao, ids.tint)));
                 }
             }
         }
@@ -188,7 +189,7 @@ fn von_vorn<'a>(
 /// Vergleichsgrösse für die Karte bei Listen, die kein Ausschnitt liefert.
 pub fn draw_all(canvas: &mut RgbaImage, draws: &[Draw]) {
     for d in draws {
-        blit(canvas, d.sprite, d.origin, (d.light, d.ao));
+        blit(canvas, d.sprite, d.origin, (d.light, d.ao, d.tint));
     }
 }
 
@@ -206,6 +207,9 @@ pub struct Draw<'a> {
     /// Die weiche Beleuchtung an den Ecken seiner Seiten, siehe
     /// [`ChunkCache::ao_at`].
     pub ao: [u32; 3],
+    /// Die Farben seines Blocks für die Tönungskarte, Block und Wasser,
+    /// siehe [`ChunkCache::tints_at`].
+    pub tint: [u32; 2],
 }
 
 /// Die Zeichenliste eines Ausschnitts, in Zeichenreihenfolge, für die
@@ -222,11 +226,12 @@ pub fn draw_list<'a>(
         .sichtbar
         .iter()
         .rev()
-        .map(|&(sprite, origin, _, (light, ao))| Draw {
+        .map(|&(sprite, origin, _, (light, ao, tint))| Draw {
             sprite,
             origin,
             light,
             ao,
+            tint,
         })
         .collect();
     chunks.vis = deckung.vis;
@@ -253,7 +258,12 @@ pub fn render_area_without_culling(
             for id in drawn.ids() {
                 if let Some(part) = sprites.part(id, OWN_CELL) {
                     let origin = origin_of(projection, rect, [x, y, z], part);
-                    blit(&mut canvas, part, origin, (drawn.light, drawn.ao));
+                    blit(
+                        &mut canvas,
+                        part,
+                        origin,
+                        (drawn.light, drawn.ao, drawn.tint),
+                    );
                 }
             }
             for &cell in sprites.foreign_cells() {
@@ -263,7 +273,12 @@ pub fn render_area_without_culling(
                     && let Some(part) = sprites.part(id, cell)
                 {
                     let origin = origin_of(projection, rect, anchor, part);
-                    blit(&mut canvas, part, origin, (drawn.light, drawn.ao));
+                    blit(
+                        &mut canvas,
+                        part,
+                        origin,
+                        (drawn.light, drawn.ao, drawn.tint),
+                    );
                 }
             }
         }
@@ -354,14 +369,16 @@ fn is_water(family: Option<&Family>) -> bool {
 
 /// Was an einem Würfel zu zeichnen ist: das Sprite des Blocks, dazu die
 /// Streifen seiner Flüssigkeit über niedrigeren Nachbarn, alles im
-/// Licht des Blocks, siehe [`ChunkCache::light_at`], und die weiche
-/// Beleuchtung an seinen Ecken, siehe [`ChunkCache::ao_at`].
+/// Licht des Blocks, siehe [`ChunkCache::light_at`], mit der weichen
+/// Beleuchtung an seinen Ecken, siehe [`ChunkCache::ao_at`], und in den
+/// Farben seines Bioms, siehe [`ChunkCache::tints_at`].
 #[derive(Clone, Copy)]
 struct Drawn {
     sprite: Option<SpriteId>,
     strips: [Option<SpriteId>; 2],
     light: Light,
     ao: [u32; 3],
+    tint: [u32; 2],
 }
 
 impl Default for Drawn {
@@ -371,6 +388,7 @@ impl Default for Drawn {
             strips: [None; 2],
             light: Light::FULL,
             ao: NO_AO,
+            tint: [0; 2],
         }
     }
 }
@@ -457,9 +475,9 @@ fn columns_at(
     })
 }
 
-/// Das Licht eines Blocks und die weiche Beleuchtung an den Ecken seiner
-/// Seiten, wie [`Drawn`] sie trägt.
-type Licht = (Light, [u32; 3]);
+/// Das Licht eines Blocks, die weiche Beleuchtung an den Ecken seiner
+/// Seiten und die Farben für seine Tönungskarte, wie [`Drawn`] sie trägt.
+type Licht = (Light, [u32; 3], [u32; 2]);
 
 /// Die Faktoren für [`darken`] an Pixel `i` eines Sprites: das Licht je
 /// Kanal, mit der AO-Karte des Sprites dazu die weiche Beleuchtung an den
@@ -485,13 +503,21 @@ fn karte(sprite: &Sprite, ao: [u32; 3]) -> Option<&[u32]> {
     sprite.ao.as_deref().filter(|_| ao != NO_AO)
 }
 
-/// Zeichnet ein Sprite an seinen Block, ganz, im Licht und mit der weichen
-/// Beleuchtung seines Blocks.
+/// Die Tönungskarte an Pixel `i` eines Sprites samt den Farben des Blocks,
+/// für [`tinted`].
+#[inline]
+fn anteile(sprite: &Sprite, i: usize, farben: [u32; 2]) -> Option<([u32; 2], [u32; 2])> {
+    let karte = sprite.tint.as_deref()?;
+    Some(([karte[2 * i], karte[2 * i + 1]], farben))
+}
+
+/// Zeichnet ein Sprite an seinen Block, ganz, im Licht, mit der weichen
+/// Beleuchtung und in den Farben seines Blocks.
 fn blit(
     canvas: &mut RgbaImage,
     sprite: &Sprite,
     (origin_x, origin_y): (i32, i32),
-    (light, ao): Licht,
+    (light, ao, farben): Licht,
 ) {
     let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
     let (cw, ch) = (canvas.width() as i32, canvas.height() as i32);
@@ -516,18 +542,24 @@ fn blit(
         for px in x0..x1 {
             let s = &row[px as usize * 4..][..4];
             if s[3] != 0 {
-                let f = faktor(karte, py as usize * w + px as usize, factor, ao);
-                mische(&mut drow[(origin_x + px) as usize * 4..][..4], s, f);
+                let i = py as usize * w + px as usize;
+                let f = faktor(karte, i, factor, ao);
+                let t = anteile(sprite, i, farben);
+                mische(&mut drow[(origin_x + px) as usize * 4..][..4], s, f, t);
             }
         }
     }
 }
 
-/// Legt einen Pixel im Licht `factor` aus [`Light::factors`] über den
-/// darunter; deckende direkt statt durch [`over`].
+/// Legt einen Pixel in den Farben seines Blocks und im Licht `factor` aus
+/// [`Light::factors`] über den darunter; deckende direkt statt durch
+/// [`over`]. Erst die Farbe, dann das Licht, wie im Spiel.
 #[inline]
-fn mische(d: &mut [u8], s: &[u8], factor: [u32; 3]) {
+fn mische(d: &mut [u8], s: &[u8], factor: [u32; 3], tint: Option<([u32; 2], [u32; 2])>) {
     let mut s = [s[0], s[1], s[2], s[3]];
+    if let Some((anteile, farben)) = tint {
+        s = tinted(s, anteile, farben);
+    }
     if factor != [255; 3] {
         s = darken(s, factor);
     }
@@ -666,7 +698,7 @@ fn blit_sichtbar(
     canvas: &mut RgbaImage,
     sprite: &Sprite,
     (ox, oy): (i32, i32),
-    (light, ao): Licht,
+    (light, ao, farben): Licht,
     sicht: &Sicht,
     vis: &[u64],
 ) {
@@ -685,10 +717,12 @@ fn blit_sichtbar(
                 let x = (sicht.k0 + j) * 64 + bits.trailing_zeros() as usize;
                 bits &= bits - 1;
                 let sx = (x as i32 - ox) as usize;
+                let i = (y - oy) as usize * w + sx;
                 mische(
                     &mut drow[x * 4..][..4],
                     &row[sx * 4..][..4],
-                    faktor(karte, (y - oy) as usize * w + sx, factor, ao),
+                    faktor(karte, i, factor, ao),
+                    anteile(sprite, i, farben),
                 );
             }
         }
@@ -752,7 +786,18 @@ pub struct ChunkCache<'a> {
     /// und die Draws, die bleiben.
     vis: Vec<u64>,
     sichtbar: Vec<(&'a Sprite, (i32, i32), Sicht, Licht)>,
+    /// Je Chunk und Höhe das Biom jedes Blocks nach [`BiomeTable::quart`],
+    /// `u16::MAX`, solange es nicht gerechnet ist; siehe
+    /// [`ChunkCache::biome_of`].
+    ///
+    /// [`BiomeTable::quart`]: super::BiomeTable::quart
+    biome_layers: Vec<BiomeLayer>,
+    biome_index: HashMap<(i32, i32, i32), usize>,
+    biome_last: usize,
 }
+
+/// Chunk und Höhe, dazu das Biom je Block der Schicht.
+type BiomeLayer = ((i32, i32, i32), Box<[u16; 256]>);
 
 struct Slot {
     key: (i32, i32),
@@ -779,6 +824,9 @@ struct Loaded {
     /// Je Section die Kandidaten, sobald einmal berechnet — dafür müssen
     /// die Nachbarchunks da sein, deshalb nicht beim Laden.
     exposed: Vec<Option<Box<Exposed>>>,
+    /// Je Section und Paletteneintrag der Biome die Nummer des Bioms in der
+    /// [`BiomeTable`](super::BiomeTable).
+    biomes: Vec<Vec<u16>>,
 }
 
 /// Die Eigenschaften einer Familie, die über Verdeckung entscheiden, je
@@ -1012,6 +1060,18 @@ impl Loaded {
             }
         }
         let exposed = chunk.sections().iter().map(|_| None).collect();
+        let biomes = chunk
+            .sections()
+            .iter()
+            .map(|section| {
+                section
+                    .biomes()
+                    .palette()
+                    .iter()
+                    .map(|name| sprites.biomes().id(name))
+                    .collect()
+            })
+            .collect();
         Loaded {
             chunk,
             families,
@@ -1019,6 +1079,7 @@ impl Loaded {
             masks,
             oberstes_wasser,
             exposed,
+            biomes,
         }
     }
 }
@@ -1044,6 +1105,9 @@ impl<'a> ChunkCache<'a> {
             grenze: CACHE_CHUNKS,
             vis: Vec::new(),
             sichtbar: Vec::new(),
+            biome_layers: Vec::new(),
+            biome_index: HashMap::new(),
+            biome_last: usize::MAX,
         }
     }
 
@@ -1068,6 +1132,16 @@ impl<'a> ChunkCache<'a> {
         let regionen: HashSet<(i32, i32)> =
             self.slots.iter().map(|slot| region_of(slot.key)).collect();
         self.regions.retain(|key, _| regionen.contains(key));
+        // Biome nach dem Zoom nur für Chunks, die bleiben.
+        self.biome_layers
+            .retain(|((cx, _, cz), _)| self.index.contains_key(&(*cx, *cz)));
+        self.biome_index = self
+            .biome_layers
+            .iter()
+            .enumerate()
+            .map(|(i, (key, _))| (*key, i))
+            .collect();
+        self.biome_last = usize::MAX;
         self.grenze = (self.slots.len() + self.slots.len() / 4).max(CACHE_CHUNKS);
     }
 
@@ -1375,8 +1449,9 @@ impl<'a> ChunkCache<'a> {
     /// fehlende Chunks und Blöcke ohne sichtbare Geometrie.
     ///
     /// Drei Entscheidungen fallen hier: welche Alternative die Position
-    /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken und
-    /// welche Biomfassung gilt. Alles davon ist vorab gerastert.
+    /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken und in
+    /// welchen Farben sein Biom den Block tönt. Die Bilder sind vorab
+    /// gerastert, die Farben kommen beim Zeichnen dazu.
     fn sprite_at(&mut self, x: i32, y: i32, z: i32) -> Result<Drawn> {
         let sprites = self.sprites;
         let Some((family, leuchten)) = self.block_at(x, y, z)? else {
@@ -1455,17 +1530,103 @@ impl<'a> ChunkCache<'a> {
             }
             _ => NO_AO,
         };
-        // Das Biom kostet einen zweiten Nachschlag; `in_biome` fragt nur
-        // fuer Sprites danach, die ueberhaupt Fassungen haben.
-        let i = self.slot((x >> 4, z >> 4))?;
-        let chunk = &self.slots[i].loaded.as_ref().expect("eben geladen").chunk;
-        let tint = |id: SpriteId| sprites.in_biome(id, || chunk.biome_at(x, y, z));
+        // Gemischt wird nur für Sprites mit Tönungskarte, und nur die
+        // Farben, die sie trägt.
+        let kinds = sprite
+            .into_iter()
+            .chain(strips.into_iter().flatten())
+            .fold(0, |kinds, id| kinds | sprites.tints(id));
+        let tint = self.tints_at([x, y, z], family.resolver, kinds)?;
         Ok(Drawn {
-            sprite: sprite.map(tint),
-            strips: strips.map(|strip| strip.map(tint)),
+            sprite,
+            strips,
             light,
             ao,
+            tint,
         })
+    }
+
+    /// Die Farben eines Blocks für seine Tönungskarte, gepackt wie sie: die
+    /// seines Blocks aus `resolver`, wenn `kinds` [`TINT_BLOCK`] trägt, die
+    /// des Wassers mit [`TINT_WATER`], beide gemischt wie im Client
+    /// ([`BiomeTable::blend`](super::BiomeTable::blend)). 0, wo keine Karte
+    /// sie braucht.
+    fn tints_at(
+        &mut self,
+        block: [i32; 3],
+        resolver: Option<Resolver>,
+        kinds: u8,
+    ) -> Result<[u32; 2]> {
+        let table = self.sprites.biomes();
+        let mut farbe = |resolver| {
+            Ok::<_, anyhow::Error>(pack(table.blend(resolver, block, |p| self.biome_of(p))?))
+        };
+        Ok([
+            match resolver {
+                Some(resolver) if kinds & TINT_BLOCK != 0 => farbe(resolver)?,
+                _ => 0,
+            },
+            if kinds & TINT_WATER != 0 {
+                farbe(Resolver::Water)?
+            } else {
+                0
+            },
+        ])
+    }
+
+    /// Das Biom eines Blocks als Nummer der [`BiomeTable`](super::BiomeTable):
+    /// das der Viertelposition aus
+    /// [`BiomeTable::quart`](super::BiomeTable::quart), einmal je Block
+    /// gerechnet und dann behalten, denn die Mischung fragt jeden Block bis
+    /// zu (2 · Radius + 1)² Mal.
+    fn biome_of(&mut self, [x, y, z]: [i32; 3]) -> Result<u16> {
+        let key = (x >> 4, y, z >> 4);
+        let l = match self.biome_layers.get(self.biome_last) {
+            Some((k, _)) if *k == key => self.biome_last,
+            _ => match self.biome_index.get(&key) {
+                Some(&l) => l,
+                None => {
+                    self.biome_layers.push((key, Box::new([u16::MAX; 256])));
+                    let l = self.biome_layers.len() - 1;
+                    self.biome_index.insert(key, l);
+                    l
+                }
+            },
+        };
+        self.biome_last = l;
+        let i = ((z & 15) * 16 + (x & 15)) as usize;
+        let biome = self.biome_layers[l].1[i];
+        if biome != u16::MAX {
+            return Ok(biome);
+        }
+        let biome = self.noise_biome(self.sprites.biomes().quart([x, y, z]))?;
+        self.biome_layers[l].1[i] = biome;
+        Ok(biome)
+    }
+
+    /// Das gespeicherte Biom einer Viertelposition, wie
+    /// `ChunkAccess.getNoiseBiome`: die Höhe auf die des Chunks geklemmt. Ein
+    /// fehlender Chunk und eine Section ohne Biome sind plains, wie im
+    /// Client (`ClientLevel.getUncachedNoiseBiome`).
+    /// Siehe docs/renderer/biomfarben.md, „Biom je Block“.
+    fn noise_biome(&mut self, [qx, qy, qz]: [i32; 3]) -> Result<u16> {
+        let plains = self.sprites.biomes().plains();
+        let slot = self.slot((qx >> 2, qz >> 2))?;
+        let Some(loaded) = &self.slots[slot].loaded else {
+            return Ok(plains);
+        };
+        let chunk = &loaded.chunk;
+        let qy = qy.clamp(chunk.y_min() >> 2, chunk.y_max() >> 2);
+        let Some(s) = i8::try_from(qy >> 2)
+            .ok()
+            .and_then(|sy| chunk.section_index(sy))
+        else {
+            return Ok(plains);
+        };
+        let index = chunk.sections()[s]
+            .biomes()
+            .index(((qy & 3) * 16 + (qz & 3) * 4 + (qx & 3)) as usize);
+        Ok(loaded.biomes[s].get(index).copied().unwrap_or(plains))
     }
 
     /// Die weiche Beleuchtung an den Ecken der drei sichtbaren Seiten eines
@@ -1965,6 +2126,7 @@ mod tests {
             image: RgbaImage::from_pixel(8, 4, image::Rgba([1, 2, 3, alpha])),
             offset: (0, 0),
             ao: None,
+            tint: None,
         };
         let (deckend, halb) = (sprite(255), sprite(128));
         let (voll, durch) = (Rows::of(&deckend), Rows::of(&halb));

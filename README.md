@@ -1039,20 +1039,24 @@ neben ihm:
 - Ein Block mit eigenem Wasser, Seegras, Kelp, ein gefluteter Zaun, liegt
   im Licht dieses Wassers. So sieht man Kelp knapp unter der Oberfläche
   auch über tiefem Grund, wie im Spiel.
-- Hat ein Block Wasser Luft neben sich, liegt er mindestens im Licht dieser
-  Luft weniger eins. `FluidRenderer` zeichnet eine Flüssigkeit im Licht
-  ihrer Zelle und der darüber, und das kommt im Spiel auch von der Seite:
-  Ein Wasserfall liegt unter freiem Himmel von der Kante bis zum Fuss im
-  Licht 14. Mit so einem Block endet die Zählung, unter einem Fall liegt
-  der Grund eines Beckens eine Stufe tiefer als daneben.
+- Hat ein Block Wasser Luft neben sich, die selbst im Licht liegt, über der
+  also kein Wasser steht, liegt er im Licht 14. `FluidRenderer` zeichnet
+  eine Flüssigkeit im Licht ihrer Zelle und der darüber, und das kommt im
+  Spiel auch von der Seite: Der oberste Block eines Wasserfalls liegt unter
+  freiem Himmel im Licht 15, jeder darunter bis zum Fuss im Licht 14. Mit
+  so einem Block endet die Zählung, unter einem Fall liegt der Grund eines
+  Beckens eine Stufe tiefer als daneben. Luft unter Wasser, eine Luftblase
+  oder ein Kasten aus Glas am Grund, liegt selbst im Dunkeln; neben ihr
+  zählt das Wasser weiter bis zur Oberfläche.
 - Verdeckt der Block darüber die Oberseite, gilt das Wasser vor der Ost-
   und der Südseite: ein Schiffsrumpf, eine Klippe unter Wasser.
 - Ein deckender Block nimmt ebenso eine Stufe wie ein Block Wasser. So
   bleiben eine geflutete Höhle unter dem Meeresboden und eine Luftblase im
   Meer dunkel. Liegt unter ihm eine Lücke, weder Wasser noch deckend, kommt
   das Licht dort von der Seite, und mit ihm endet die Zählung: Wasser auf
-  einer Brücke ändert am Boden darunter nichts, und ein Fluss unter einem
-  Felsbogen liegt im Licht 13, gleich wie dick der Fels ist.
+  einer Brücke ändert am Boden darunter nichts, und unter einem Felsbogen
+  liegt die Oberfläche eines Flusses im Licht 14, ihre Zelle und der Grund
+  einen Block tiefer im Licht 13, gleich wie dick der Fels ist.
 - An Land bleibt alles im Licht 15, auch unter einem Überhang.
 - Was selbst leuchtet, bringt sein Blocklicht mit, wie in
   `LightCoordsUtil.getLightCoords`: Seelaterne, Glowstone und Konduit 15,
@@ -1060,12 +1064,16 @@ neben ihm:
   `emissiveRendering`, beim Magmablock etwa, ist der Block voll hell.
 
 Gezählt wird aus den Bitmasken der Sections, ein paar Wörter je Block; nur
-wo Wasser steht, kommen die vier Spalten daneben dazu. Ein Chunk, der
-fehlt, gilt dabei nicht als Luft, am Rand der Welt kommt kein Licht von der
-Seite. Der Blit multipliziert jeden Pixel je Kanal mit b, ganzzahlig wie das
-Mischen, auf der CPU wie im Shader der Karte; die Oberfläche selbst bleibt,
-wie sie ist. Ein gefluteter Block an der Oberfläche zeichnet sein Wasser im
-eigenen Sprite, und was er darunter trägt, liegt dort im Licht 14.
+wo Wasser steht, kommen die vier Spalten daneben dazu. Ob über einer Lücke
+Wasser steht, sagt je Chunk und Spalte die Höhe des obersten Wassers,
+einmal beim Laden aus den Masken bestimmt. Ein Chunk, der fehlt, gilt
+dabei nicht als Luft, am Rand der Welt kommt kein Licht von der Seite. Der
+Blit multipliziert jeden Pixel je Kanal mit b, ganzzahlig wie das Mischen,
+auf der CPU wie im Shader der Karte; die Oberfläche selbst bleibt, wie sie
+ist. Ein gefluteter Block an der Oberfläche zeichnet sein Wasser im
+eigenen Sprite, und was er darunter trägt, liegt dort im Licht 14 und in
+seinem eigenen Blocklicht: Eine geflutete Laterne bleibt auch unter ihrer
+Oberfläche hell.
 
 Eine Zahl je Block ist eine Näherung. Im Spiel liegen die Seiten eines
 Blocks unter Wasser eine Stufe dunkler als seine Oberseite, am Ufer die
@@ -1076,6 +1084,15 @@ unter ein Dach oder in eine Höhle fällt, zählt er nicht, denn das
 gespeicherte Licht der Welt liest er nicht. Blocklicht hat nur, was selbst
 leuchtet: Den Schein auf die Nachbarn, im Spiel eine Stufe weniger je
 Block, rechnet der Renderer nicht.
+
+Unter Wasser nimmt im Spiel jeder Block eine Stufe, auch Luft und Glas:
+Ohne Verlust fällt nur volles Himmelslicht, sonst kostet jeder Schritt
+mindestens eine (`LightEngine.getOpacity`). Hier lassen Luft, Glas und
+trockenes Laub das Licht durch. Der Grund in einer Luftblase liegt so eine
+Stufe heller als im Spiel, der Boden einer Kuppel aus Glas am Grund um
+ihre Höhe heller. Ob Luft im Licht liegt, entscheidet allein, ob in ihrer
+Spalte darüber Wasser steht, wie weit oben auch immer: Luft unter einem
+Überhang, auf dem ein Teich liegt, gilt als dunkel.
 
 Wie hell ein Block leuchtet, steht in `renderer/src/assets/leuchten.txt`,
 109 Blöcke aus 26.2: je Zustand eine Ziffer für `getLightEmission` oder ein

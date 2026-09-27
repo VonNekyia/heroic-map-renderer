@@ -484,7 +484,12 @@ fn faktor(karte: Option<&[u32]>, i: usize, light: [u32; 3], ao: [u32; 3]) -> [u3
     match karte {
         Some(karte) => {
             let a = ao_factor(karte[i], ao);
-            light.map(|f| with_ao(f, a))
+            // Bei vollem Licht ist `with_ao(255, a)` genau `a`.
+            if light == [255; 3] {
+                [a; 3]
+            } else {
+                light.map(|f| with_ao(f, a))
+            }
         }
         None => light,
     }

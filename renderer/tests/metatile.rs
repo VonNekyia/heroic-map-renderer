@@ -1999,6 +1999,78 @@ fn glaskasten_unter_wasser_liegt_im_dunkeln() {
     assert_eq!(lichter(&chunks, see(true), [4, 3, 7]), [3, 6, 15]);
 }
 
+/// Was ein gefluteter Block unter seiner eigenen Oberfläche trägt, liegt im
+/// Licht direkt unter ihr und in seinem eigenen Blocklicht
+/// (`LightCoordsUtil.getLightCoords`). Ein Pfosten an der Oberfläche eines
+/// Teichs: ein Zaun, eine Meeresgurke mit 6, vier mit 15 und ein
+/// Sculk-Sensor, der gerade auslöst und mit `emissiveRendering` voll hell
+/// ist. Die Südseite des Pfostens unter der Oberfläche, die er selbst
+/// trägt, liegt im Licht 14, fast hell, hell und hell.
+#[test]
+fn geflutete_leuchte_an_der_oberflaeche() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(1024, 1024);
+    let schicht = wasserschicht(&assets());
+    let seite = [8.5, 1.7, 8.625];
+    for (nass, trocken, unter) in [
+        (
+            "minecraft:oak_fence[waterlogged=true]",
+            "minecraft:oak_fence",
+            Light::sky(14),
+        ),
+        (
+            "minecraft:sea_pickle[pickles=1,waterlogged=true]",
+            "minecraft:sea_pickle[pickles=1,waterlogged=false]",
+            Light { sky: 14, block: 6 },
+        ),
+        (
+            "minecraft:sea_pickle[pickles=4,waterlogged=true]",
+            "minecraft:sea_pickle[pickles=4,waterlogged=false]",
+            Light { sky: 14, block: 15 },
+        ),
+        (
+            "minecraft:sculk_sensor[power=0,sculk_sensor_phase=active,waterlogged=true]",
+            "minecraft:sculk_sensor[power=0,sculk_sensor_phase=active,waterlogged=false]",
+            Light { sky: 15, block: 15 },
+        ),
+    ] {
+        let teich = render_chunks(
+            &tempdir(),
+            &[(0, 0)],
+            move |x, y, z| match (x, y, z) {
+                (_, 0, _) => "minecraft:einfarbig",
+                (8, 1, 8) => nass,
+                (_, 1, _) => "minecraft:water",
+                _ => "minecraft:air",
+            },
+            projection,
+            rect,
+        );
+        let luft = render_chunks(
+            &tempdir(),
+            &[(0, 0)],
+            move |x, y, z| match (x, y, z) {
+                (8, 1, 8) => trocken,
+                _ => "minecraft:air",
+            },
+            projection,
+            rect,
+        );
+        let pfosten = darken(punkt(&luft, projection, rect, seite), unter.factors());
+        let a = schicht[3] as f64 / 255.0;
+        let ist = punkt(&teich, projection, rect, seite);
+        for c in 0..3 {
+            let soll = (a * schicht[c] as f64 + (1.0 - a) * pfosten[c] as f64).round();
+            assert!(
+                (ist[c] as f64 - soll).abs() <= 1.0,
+                "{nass} Kanal {c}: {ist:?}, erwartet {soll}"
+            );
+        }
+    }
+    assert_eq!(Light { sky: 14, block: 15 }.factors(), [255; 3]);
+    assert!(Light { sky: 14, block: 6 }.factors() > Light::sky(14).factors());
+}
+
 /// Ein Datapack erlaubt Welten bis 4064 Blöcke hoch, 254 Sections je
 /// Chunk. Die Zählung über dem Grund läuft durch alle, und mit 105 Sections
 /// voll Luft über dem See bleibt das Bild wie mit einer.

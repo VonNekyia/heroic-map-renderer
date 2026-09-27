@@ -6,7 +6,7 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
-use crate::assets::blockstate::ModelRef;
+use crate::assets::blockstate::{self, Leuchten, ModelRef};
 use crate::assets::fluid::Fluid;
 use crate::assets::{Assets, Face, Textures, Tints, fluid, models_of};
 use crate::world::BlockState;
@@ -120,8 +120,14 @@ fn block(top: f32, only_up: bool) -> BakedModel {
 
 /// Die Pixel, die ein Modell belegt, relativ zum Blockursprung.
 fn pixels_of(textures: &Textures, projection: Projection, model: BakedModel) -> Vec<(i32, i32)> {
-    let sprite = render(&model, textures, &projection, Tints::default())
-        .expect("ein Block hat sichtbare Flaechen");
+    let sprite = render(
+        &model,
+        textures,
+        &projection,
+        Tints::default(),
+        Leuchten::Stufe(0),
+    )
+    .expect("ein Block hat sichtbare Flaechen");
     sprite
         .image
         .enumerate_pixels()
@@ -582,7 +588,14 @@ impl SpriteSet {
         };
 
         let default = tints(None);
-        let sprite = render(model, assets.textures(), &self.projection, default)?;
+        let leuchten = blockstate::leuchten(state);
+        let sprite = render(
+            model,
+            assets.textures(),
+            &self.projection,
+            default,
+            leuchten,
+        )?;
         // Die Faerbung je Biom als Signatur. Zwei Familien mit gleichem Bild
         // teilen sich das Sprite samt seinen Biomfassungen — das darf nur,
         // wer sich in jedem Biom gleich faerbt, sonst bekaeme Wasser die
@@ -618,8 +631,9 @@ impl SpriteSet {
             let variant = match by_tints.get(&tints) {
                 Some(&variant) => variant,
                 None => {
-                    let sprite = render(model, assets.textures(), &self.projection, tints)
-                        .expect("dasselbe Modell, nur anders gefaerbt");
+                    let sprite =
+                        render(model, assets.textures(), &self.projection, tints, leuchten)
+                            .expect("dasselbe Modell, nur anders gefaerbt");
                     let variant = self.insert(sprite, model, 0);
                     by_tints.insert(tints, variant);
                     variant
@@ -1293,7 +1307,14 @@ mod tests {
         for name in ["turm", "ueberhang", "einfarbig", "seerose", "oak_fence"] {
             let mut assets = assets();
             let model = model_of(&mut assets, &state(name)).unwrap();
-            let ganz = render(&model, assets.textures(), &projection, Tints::default()).unwrap();
+            let ganz = render(
+                &model,
+                assets.textures(),
+                &projection,
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+            .unwrap();
 
             let sichtbar = |sprite: &Sprite| {
                 let offset = sprite.offset;

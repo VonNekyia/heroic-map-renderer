@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 use image::{Rgba, RgbaImage};
 
 use crate::assets::baker::{BakedModel, Quad};
+use crate::assets::blockstate::Leuchten;
 use crate::assets::{Face, Textures, Tints, fluid};
 
 use super::Projection;
@@ -176,11 +177,15 @@ pub struct Sprite {
 ///
 /// Da die Kamera fest steht, sieht jede Blockstate immer gleich aus. Das
 /// Sprite entsteht deshalb einmal und wird im Renderpfad nur noch kopiert.
+/// `leuchten` sagt, wie hell der Block selbst leuchtet: Was er unter
+/// seiner eigenen Wasseroberfläche trägt, liegt im Licht direkt unter ihr
+/// und in seinem eigenen Blocklicht, siehe `Canvas::into_image`.
 pub fn render(
     model: &BakedModel,
     textures: &Textures,
     projection: &Projection,
     tints: Tints,
+    leuchten: Leuchten,
 ) -> Option<Sprite> {
     let mut projected: Vec<ProjectedQuad> = model
         .quads
@@ -233,8 +238,18 @@ pub fn render(
         );
     }
 
+    let unter = match leuchten {
+        Leuchten::Voll => Light {
+            sky: FULL_LIGHT,
+            block: FULL_LIGHT,
+        },
+        Leuchten::Stufe(block) => Light {
+            sky: LIGHT_UNDER_SURFACE,
+            block,
+        },
+    };
     Some(Sprite {
-        image: canvas.into_image(),
+        image: canvas.into_image(unter),
         offset: (min_x, min_y),
     })
 }
@@ -563,8 +578,10 @@ impl Canvas {
         }
     }
 
-    /// Mischt je Pixel die Fragmente von hinten nach vorne.
-    fn into_image(mut self) -> RgbaImage {
+    /// Mischt je Pixel die Fragmente von hinten nach vorne. Was unter der
+    /// eigenen Oberfläche liegt, im Licht `unter`.
+    fn into_image(mut self, unter: Light) -> RgbaImage {
+        let unter = unter.factors();
         self.fragments.sort_unstable_by(|a, b| {
             a.pixel
                 .cmp(&b.pixel)
@@ -577,11 +594,12 @@ impl Canvas {
             for fragment in pixel {
                 // Was ein gefluteter Block unter seiner eigenen Oberfläche
                 // trägt, ein Zaunpfosten etwa, liegt im Licht direkt unter
-                // ihr. Wo das Sprite nichts dahinter hat, bleibt die
+                // ihr, eine Laterne oder Meeresgurke dazu in ihrem eigenen
+                // Blocklicht. Wo das Sprite nichts dahinter hat, bleibt die
                 // Oberfläche, wie sie ist: Was dort durchscheint, zeichnet
                 // der Renderlauf in seinem eigenen Licht.
                 if fragment.surface && color[3] != 0 {
-                    color = darken(color, Light::sky(LIGHT_UNDER_SURFACE).factors());
+                    color = darken(color, unter);
                 }
                 color = over(fragment.color, color);
             }
@@ -829,7 +847,8 @@ mod tests {
                 &model,
                 &Textures::new(),
                 &Projection::new(16),
-                Tints::default()
+                Tints::default(),
+                Leuchten::Stufe(0),
             )
             .is_some()
         );
@@ -919,7 +938,8 @@ mod tests {
                 &leer,
                 &Textures::new(),
                 &Projection::default(),
-                Tints::default()
+                Tints::default(),
+                Leuchten::Stufe(0),
             )
             .is_none()
         );
@@ -966,6 +986,7 @@ mod tests {
             &Textures::new(),
             &Projection::new(16),
             Tints::default(),
+            Leuchten::Stufe(0),
         )
         .expect("Sprite");
         assert_eq!(sprite.image.dimensions(), (16, 16));

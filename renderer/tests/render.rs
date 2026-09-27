@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use terranova_render::assets::baker::box_quads;
+use terranova_render::assets::blockstate::{self, Leuchten};
 use terranova_render::assets::{
     Assets, BakedModel, Element, ElementFace, Face, Quad, ResolvedModel, ResolvedVariant, Rotation,
     TextureId, Tints, bake, model_of,
@@ -29,7 +30,13 @@ fn sprite(assets: &mut Assets, text: &str, scale: u32) -> Option<terranova_rende
     let state = state(text);
     let model = model_of(assets, &state).unwrap();
     let tints = assets.colors().tints(state.name(), None);
-    render(&model, assets.textures(), &Projection::new(scale), tints)
+    render(
+        &model,
+        assets.textures(),
+        &Projection::new(scale),
+        tints,
+        blockstate::leuchten(&state),
+    )
 }
 
 /// Pixel an einer Bildschirmkoordinate relativ zum Blockursprung.
@@ -246,7 +253,8 @@ fn unsinnig_grosse_modelle_werden_uebersprungen() {
             &riesig,
             &Textures::new(),
             &Projection::new(16),
-            Tints::default()
+            Tints::default(),
+            Leuchten::Stufe(0),
         )
         .is_none()
     );
@@ -452,6 +460,7 @@ fn diagonale_mischt_nur_einmal() {
             assets.textures(),
             &Projection::new(scale),
             Tints::default(),
+            Leuchten::Stufe(0),
         )
         .expect("Sprite");
         for (x, y, p) in sprite.image.enumerate_pixels() {
@@ -554,8 +563,14 @@ fn kanten_nehmen_jeden_pixel_genau_einmal() {
                     })
                     .collect(),
             );
-            let sprite =
-                render(&modell, assets.textures(), &projection, Tints::default()).expect("Sprite");
+            let sprite = render(
+                &modell,
+                assets.textures(),
+                &projection,
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+            .expect("Sprite");
             for (x, y, p) in sprite.image.enumerate_pixels() {
                 let px = (x as i32 + sprite.offset.0) as f64 + 0.5;
                 let py = (y as i32 + sprite.offset.1) as f64 + 0.5;
@@ -637,7 +652,14 @@ fn teildeckung_verdeckt_nicht() {
     let allein = BakedModel {
         quads: vec![flaeche(0.75, 0.0, 1.0, gitter)],
     };
-    let allein = render(&allein, assets.textures(), &projection, Tints::default()).unwrap();
+    let allein = render(
+        &allein,
+        assets.textures(),
+        &projection,
+        Tints::default(),
+        Leuchten::Stufe(0),
+    )
+    .unwrap();
     assert!(
         allein.image.pixels().any(|p| p.0[3] > 0 && p.0[3] < 255),
         "das Gitter deckt nirgends halb — der Test prüft nichts"
@@ -651,7 +673,14 @@ fn teildeckung_verdeckt_nicht() {
             flaeche(0.25, -1.0, 2.0, blau),
         ],
     };
-    let sprite = render(&beide, assets.textures(), &projection, Tints::default()).unwrap();
+    let sprite = render(
+        &beide,
+        assets.textures(),
+        &projection,
+        Tints::default(),
+        Leuchten::Stufe(0),
+    )
+    .unwrap();
     let halb = sprite
         .image
         .pixels()

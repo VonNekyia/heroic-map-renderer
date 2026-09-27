@@ -1552,8 +1552,9 @@ mod tests {
     }
 
     /// Die Tönungskarte an allen Vanilla-Blöcken, die gefärbt oder geflutet
-    /// sein können: je Block aus `blocks.txt` bis zu 24 Zustände, geflutete
-    /// immer mit Wasser, bei scale 4, 8, 16 und 32, mit drei Paaren aus
+    /// sein können: je Block aus `blocks.txt` bis zu 24 Zustände, die ersten
+    /// und die letzten zwölf, geflutete immer mit Wasser, bei scale 4, 8, 16
+    /// und 32, mit drei Paaren aus
     /// Block- und Wasserfarbe, gegen das Raster, das die Farben gleich trägt,
     /// im Licht des Blocks. Braucht die Asset-Wurzeln wie `--assets`, als
     /// Pfadliste in `ASSETS`, deshalb `#[ignore]`; unter Windows trennt `;`:
@@ -1583,7 +1584,7 @@ mod tests {
             // Die Zustände der Reihe nach wie ein Zählwerk, das letzte
             // Merkmal läuft innen; geflutet ist immer `true`.
             let mut index = vec![0usize; props.len()];
-            let mut neu = 0;
+            let mut alle: Vec<BlockState> = Vec::new();
             'zustand: loop {
                 let merkmale: Vec<String> = props
                     .iter()
@@ -1598,13 +1599,9 @@ mod tests {
                     format!("{name}[{}]", merkmale.join(","))
                 };
                 if let Ok(st) = BlockState::parse(&text)
-                    && !states.contains(&st)
+                    && !alle.contains(&st)
                 {
-                    states.push(st);
-                    neu += 1;
-                }
-                if neu == 24 {
-                    break;
+                    alle.push(st);
                 }
                 for s in (0..props.len()).rev() {
                     index[s] += 1;
@@ -1615,6 +1612,16 @@ mod tests {
                 }
                 break;
             }
+            // Die ersten und die letzten zwölf: Hinten stehen die Zustände
+            // mit `false`, etwa Leuchtflechte ohne Fläche, die mit allen
+            // sechs Flächen gezeichnet wird, aber nicht leuchtet.
+            let n = alle.len();
+            states.extend(
+                alle.into_iter()
+                    .enumerate()
+                    .filter(|(i, _)| *i < 12 || i + 12 >= n)
+                    .map(|(_, st)| st),
+            );
         }
         let paare = [
             ([0x91, 0xBD, 0x59], [0x3F, 0x76, 0xE4]),

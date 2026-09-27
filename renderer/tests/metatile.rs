@@ -806,6 +806,51 @@ fn mischung_auf_hoehe_des_blocks() {
     }
 }
 
+/// Die obere Hälfte von hohem Gras nimmt ihre Farbe am Block darunter, wie
+/// `BlockTintSources.doubleTallGrass`: plains in der Section bis y = 15,
+/// frozen ab 16, ohne Seed, Radius 2. Die untere Hälfte steht auf y = 15,
+/// die obere auf 16 und trägt trotzdem ganz plains; ein Grasblock auf
+/// y = 16 daneben ganz frozen.
+#[test]
+fn obere_haelfte_nimmt_die_farbe_von_unten() {
+    let dir = tempdir();
+    common::write_world_biomes(
+        dir.path(),
+        &[(0, 0)],
+        0..=1,
+        |_, y, z| match (y, z < 8) {
+            (15, true) => "minecraft:tall_grass[half=lower]",
+            (16, true) => "minecraft:tall_grass[half=upper]",
+            (16, false) => "minecraft:grass_block",
+            _ => "minecraft:air",
+        },
+        |_, sy, _| {
+            Some(if sy == 0 {
+                "minecraft:plains"
+            } else {
+                "minecraft:frozen"
+            })
+        },
+    );
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 256);
+    let sprites = tabelle_mit_biomen(&world, projection, 2);
+    let bild = render_area(&world, &sprites, rect, (0, 31)).unwrap();
+    for x in 4..12 {
+        assert_eq!(
+            oberseite(&bild, projection, rect, [x, 16, 2]),
+            gras(PLAINS),
+            "obere Hälfte ({x}, 16, 2)"
+        );
+        assert_eq!(
+            oberseite(&bild, projection, rect, [x, 16, 12]),
+            gras(FROZEN),
+            "Grasblock ({x}, 16, 12)"
+        );
+    }
+}
+
 /// Mitte der Oberseite eines Blocks im Bild.
 fn oberseite(
     bild: &RgbaImage,

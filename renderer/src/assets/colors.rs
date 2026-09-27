@@ -25,9 +25,12 @@ pub type Tint = [u8; 3];
 
 /// Die Farben für die färbbaren Flächen eines Sprites.
 ///
-/// Ein Modell trägt höchstens eine eigene Färbung (`tintindex` ist in
-/// Vanilla immer 0); Wasser in einem gefluteten Block kommt als zweite
-/// dazu und hat immer die Wasserfarbe des Bioms.
+/// Jede Fläche mit `tintindex` trägt die Farbe des Blocks, gleich mit
+/// welchem Index. In Vanilla tragen nur Blütenteppich und Wildblumen einen
+/// anderen als 0: ihre Stiele Lage 1, die das Spiel mit Gras färbt; Lage 0
+/// liesse es ungefärbt, ihre Modelle haben aber keine. Wasser in einem
+/// gefluteten Block kommt als zweite Farbe dazu und hat immer die
+/// Wasserfarbe des Bioms.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Tints {
     pub block: Option<Tint>,
@@ -79,7 +82,7 @@ pub fn source_of(block: &str) -> Option<Source> {
     use Resolver::*;
     Some(match split_id(block).1 {
         "grass_block" | "short_grass" | "tall_grass" | "fern" | "large_fern" | "potted_fern"
-        | "bush" | "sugar_cane" => Source::Biome(Grass),
+        | "bush" | "sugar_cane" | "pink_petals" | "wildflowers" => Source::Biome(Grass),
         "oak_leaves" | "jungle_leaves" | "acacia_leaves" | "dark_oak_leaves"
         | "mangrove_leaves" | "vine" => Source::Biome(Foliage),
         "leaf_litter" => Source::Biome(DryFoliage),
@@ -89,6 +92,13 @@ pub fn source_of(block: &str) -> Option<Source> {
         "lily_pad" => Source::Fixed(LILY_PAD),
         _ => return None,
     })
+}
+
+/// Ob ein Block seine Farbe am Block darunter nimmt: die obere Hälfte von
+/// hohem Gras und grossem Farn, wie `BlockTintSources.doubleTallGrass`.
+/// Siehe docs/renderer/biomfarben.md, „Welche Blöcke“.
+pub fn tinted_below(block: &str, half: Option<&str>) -> bool {
+    half == Some("upper") && matches!(split_id(block).1, "tall_grass" | "large_fern")
 }
 
 /// Die Farben eines Bioms, wie die vier [`Resolver`] sie liefern, ohne
@@ -555,5 +565,35 @@ mod tests {
             colors.tints("minecraft:bush", None).block,
             Some(DEFAULT_GRASS)
         );
+    }
+
+    /// Die Färbung aus `BlockColors.createDefault` in 26.2, soweit sie
+    /// Fläche macht: Blütenteppich und Wildblumen färben ihre Stiele mit
+    /// Gras, die obere Hälfte von hohem Gras und grossem Farn nimmt die Farbe
+    /// am Block darunter, die von anderen Doppelpflanzen nicht.
+    #[test]
+    fn farbquellen_wie_blockcolors() {
+        use Resolver::*;
+        for (block, soll) in [
+            ("grass_block", Some(Source::Biome(Grass))),
+            ("short_grass", Some(Source::Biome(Grass))),
+            ("tall_grass", Some(Source::Biome(Grass))),
+            ("large_fern", Some(Source::Biome(Grass))),
+            ("pink_petals", Some(Source::Biome(Grass))),
+            ("wildflowers", Some(Source::Biome(Grass))),
+            ("sugar_cane", Some(Source::Biome(Grass))),
+            ("vine", Some(Source::Biome(Foliage))),
+            ("leaf_litter", Some(Source::Biome(DryFoliage))),
+            ("water_cauldron", Some(Source::Biome(Water))),
+            ("birch_leaves", Some(Source::Fixed(BIRCH))),
+            ("cherry_leaves", None),
+            ("sunflower", None),
+        ] {
+            assert_eq!(source_of(&format!("minecraft:{block}")), soll, "{block}");
+        }
+        assert!(tinted_below("minecraft:tall_grass", Some("upper")));
+        assert!(tinted_below("minecraft:large_fern", Some("upper")));
+        assert!(!tinted_below("minecraft:tall_grass", Some("lower")));
+        assert!(!tinted_below("minecraft:sunflower", Some("upper")));
     }
 }

@@ -1,0 +1,4 @@
+{ "variants": {
+  "half=lower": { "model": "minecraft:block/einfarbig_getoent" },
+  "half=upper": { "model": "minecraft:block/einfarbig_getoent" }
+} }

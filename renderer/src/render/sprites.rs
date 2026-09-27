@@ -7,7 +7,7 @@ use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
 use crate::assets::blockstate::{self, Leuchten, ModelRef};
-use crate::assets::colors::{Resolver, Source, Tint, source_of};
+use crate::assets::colors::{Resolver, Source, Tint, source_of, tinted_below};
 use crate::assets::fluid::Fluid;
 use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, Face, Textures, Tints, fluid, models_of};
@@ -178,6 +178,9 @@ pub struct Family {
     /// Welche Farbe des Bioms die gefärbten Flächen des Blocks tragen, wenn
     /// sie vom Biom kommt; den Anteil je Pixel trägt die Tönungskarte.
     pub resolver: Option<Resolver>,
+    /// Nimmt der Block diese Farbe am Block darunter, siehe
+    /// [`tinted_below`]?
+    pub tint_below: bool,
 }
 
 impl Family {
@@ -455,6 +458,7 @@ impl SpriteSet {
                     Some(Source::Biome(resolver)) => Some(resolver),
                     _ => None,
                 },
+                tint_below: tinted_below(state.name(), state.prop("half")),
                 alternatives,
             };
             let index = set.families.len() as u32;
@@ -1080,6 +1084,7 @@ mod tests {
             pure_fluid: false,
             seed_offset: [0, 0, 0],
             resolver: None,
+            tint_below: false,
         };
         let listen = [
             family(&[1, 1, 1, 1]),

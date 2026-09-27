@@ -1536,7 +1536,7 @@ impl<'a> ChunkCache<'a> {
             .into_iter()
             .chain(strips.into_iter().flatten())
             .fold(0, |kinds, id| kinds | sprites.tints(id));
-        let tint = self.tints_at([x, y, z], family.resolver, kinds)?;
+        let tint = self.tints_at([x, y, z], family, kinds)?;
         Ok(Drawn {
             sprite,
             strips,
@@ -1547,27 +1547,25 @@ impl<'a> ChunkCache<'a> {
     }
 
     /// Die Farben eines Blocks für seine Tönungskarte, gepackt wie sie: die
-    /// seines Blocks aus `resolver`, wenn `kinds` [`TINT_BLOCK`] trägt, die
-    /// des Wassers mit [`TINT_WATER`], beide gemischt wie im Client
+    /// seines Blocks aus dem Resolver der Familie, wenn `kinds` [`TINT_BLOCK`]
+    /// trägt, bei `tint_below` am Block darunter; die des Wassers mit
+    /// [`TINT_WATER`], am Block selbst. Beide gemischt wie im Client
     /// ([`BiomeTable::blend`](super::BiomeTable::blend)). 0, wo keine Karte
     /// sie braucht.
-    fn tints_at(
-        &mut self,
-        block: [i32; 3],
-        resolver: Option<Resolver>,
-        kinds: u8,
-    ) -> Result<[u32; 2]> {
+    fn tints_at(&mut self, [x, y, z]: [i32; 3], family: &Family, kinds: u8) -> Result<[u32; 2]> {
         let table = self.sprites.biomes();
-        let mut farbe = |resolver| {
+        let mut farbe = |resolver, block| {
             Ok::<_, anyhow::Error>(pack(table.blend(resolver, block, |p| self.biome_of(p))?))
         };
         Ok([
-            match resolver {
-                Some(resolver) if kinds & TINT_BLOCK != 0 => farbe(resolver)?,
+            match family.resolver {
+                Some(resolver) if kinds & TINT_BLOCK != 0 => {
+                    farbe(resolver, [x, y - family.tint_below as i32, z])?
+                }
                 _ => 0,
             },
             if kinds & TINT_WATER != 0 {
-                farbe(Resolver::Water)?
+                farbe(Resolver::Water, [x, y, z])?
             } else {
                 0
             },

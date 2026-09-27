@@ -1274,7 +1274,7 @@ impl<'a> ChunkCache<'a> {
     /// welche Biomfassung gilt. Alles davon ist vorab gerastert.
     fn sprite_at(&mut self, x: i32, y: i32, z: i32) -> Result<Drawn> {
         let sprites = self.sprites;
-        let Some(family) = self.family_at(x, y, z)? else {
+        let Some((family, leuchten)) = self.block_at(x, y, z)? else {
             return Ok(Drawn::default());
         };
         let Some(id) = family.pick([x, y, z]) else {
@@ -1335,13 +1335,15 @@ impl<'a> ChunkCache<'a> {
         // Was selbst leuchtet, bringt sein Blocklicht mit
         // (`LightCoordsUtil.getLightCoords`); den Schein auf die Nachbarn
         // rechnet der Renderer nicht.
-        let sky = self.light_at([x, y, z], family)?;
-        let light = match self.leuchten_at([x, y, z])? {
+        let light = match leuchten {
             Leuchten::Voll => Light {
                 sky: FULL_LIGHT,
                 block: FULL_LIGHT,
             },
-            Leuchten::Stufe(block) => Light { sky, block },
+            Leuchten::Stufe(block) => Light {
+                sky: self.light_at([x, y, z], family)?,
+                block,
+            },
         };
         // Das Biom kostet einen zweiten Nachschlag; `in_biome` fragt nur
         // fuer Sprites danach, die ueberhaupt Fassungen haben.
@@ -1380,8 +1382,8 @@ impl<'a> ChunkCache<'a> {
     /// Seite unter der Oberfläche im Licht 14, die Oberseite trocken im
     /// Licht 15.
     fn light_at(&mut self, [x, y, z]: [i32; 3], family: &Family) -> Result<u8> {
-        let (wasser, stufen) = self.column_above([x, y + 1, z])?;
         if is_water(Some(family)) {
+            let stufen = self.column_above([x, y + 1, z])?.1;
             if stufen == 0 {
                 return Ok(FULL_LIGHT);
             }
@@ -1409,11 +1411,13 @@ impl<'a> ChunkCache<'a> {
             .family_at(x, y + 1, z)?
             .is_some_and(|above| above.covers_floor)
         {
+            let (wasser, stufen) = self.column_above([x, y + 1, z])?;
             return Ok(match wasser {
                 0 => FULL_LIGHT,
                 _ => dimmed(stufen),
             });
         }
+        // Die Oberseite ist verdeckt, die Zählung über ihm braucht es nicht.
         let mut light = None;
         for [dx, dz] in [[1, 0], [0, 1]] {
             if is_water(self.family_at(x + dx, y, z + dz)?) {
@@ -1450,19 +1454,28 @@ impl<'a> ChunkCache<'a> {
             return Ok((0, 0));
         };
         let col = ((z & 15) * 16 + (x & 15)) as usize;
+        let spalte = |loaded: &Loaded, s: usize| {
+            loaded.masks[s]
+                .as_ref()
+                .map_or((0, 0), |m| (m.bits[WATER][col], m.bits[SOLID][col]))
+        };
+        // Gezählt wird ab der Section, die bis y reicht. Von der darunter
+        // zählt nur, ob unter Bit 0 eine Lücke liegt; unter der untersten
+        // nicht, dort endet die Welt.
+        let sections = loaded.chunk.sections();
+        let start = sections.partition_point(|s| i32::from(s.y) * 16 + 15 < y);
+        let mut vorige = start.checked_sub(1).map(|s| sections[s].y);
+        let mut luecke_darunter = start.checked_sub(1).map_or(0, |s| {
+            let (nass, fest) = spalte(loaded, s);
+            !(nass | fest) >> 15
+        });
         let (mut wasser, mut stufen) = (0, 0);
-        // Liegt unter Bit 0 der nächsten Section eine Lücke? Unter der
-        // untersten nicht, dort endet die Welt.
-        let mut luecke_darunter = 0u16;
-        let mut vorige: Option<i8> = None;
-        for s in 0..loaded.chunk.sections().len() {
+        for s in start..sections.len() {
             // Die Nachbarn laden weitere Chunks, deshalb je Section neu
             // geliehen; der Index bleibt bis zur nächsten Kachel gültig.
             let loaded = self.slots[i].loaded.as_ref().expect("eben geladen");
             let sy = loaded.chunk.sections()[s].y;
-            let (nass, fest) = loaded.masks[s]
-                .as_ref()
-                .map_or((0, 0), |m| (m.bits[WATER][col], m.bits[SOLID][col]));
+            let (nass, fest) = spalte(loaded, s);
             // Fehlt eine Section dazwischen, steht dort Luft.
             if vorige.is_some_and(|v| i32::from(v) + 1 != i32::from(sy)) {
                 luecke_darunter = 1;
@@ -1470,10 +1483,6 @@ impl<'a> ChunkCache<'a> {
             vorige = Some(sy);
             let luecke = !(nass | fest);
             let unten = i32::from(sy) * 16;
-            if unten + 15 < y {
-                luecke_darunter = luecke >> 15;
-                continue;
-            }
             let ab = if unten < y {
                 u16::MAX << (y - unten)
             } else {
@@ -1545,21 +1554,32 @@ impl<'a> ChunkCache<'a> {
         )
     }
 
-    /// Wie hell der Block an einer Weltkoordinate selbst leuchtet.
-    fn leuchten_at(&mut self, [x, y, z]: [i32; 3]) -> Result<Leuchten> {
+    /// Wie [`ChunkCache::family_at`], dazu wie hell der Block selbst
+    /// leuchtet, aus demselben Nachschlag.
+    fn block_at(&mut self, x: i32, y: i32, z: i32) -> Result<Option<(&'a Family, Leuchten)>> {
         let i = self.slot((x >> 4, z >> 4))?;
         let Some(loaded) = self.slots[i].loaded.as_ref() else {
-            return Ok(Leuchten::Stufe(0));
+            return Ok(None);
         };
         let Some((section, slot)) = loaded.chunk.slot(x, y, z) else {
-            return Ok(Leuchten::Stufe(0));
+            return Ok(None);
         };
-        Ok(loaded
+        let Some(index) = loaded
+            .families
+            .get(section)
+            .and_then(|families| families.get(slot))
+            .copied()
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        let leuchten = loaded
             .leuchten
             .get(section)
             .and_then(|l| l.get(slot))
             .copied()
-            .unwrap_or(Leuchten::Stufe(0)))
+            .unwrap_or(Leuchten::Stufe(0));
+        Ok(Some((self.sprites.family(index), leuchten)))
     }
 
     /// Die Familie des Blocks an einer Weltkoordinate — ein Nachschlag im

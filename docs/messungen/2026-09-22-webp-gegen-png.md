@@ -31,8 +31,8 @@ Den Testausschnitt als Kacheln geschrieben und das Bild als PNG; die
 Grössen der beiden stammen aus den Dateien, dezimal gezählt. Ein
 Vollrender der Testwelt bei scale 16 lief bis 6746 Kacheln und 801 MiB,
 dann wurde er abgebrochen und hochgerechnet. Der Vorlauf lief über die
-ganze Welt bei scale 16 und 8. Die Werte je Kachel stammen aus der Ausgabe,
-die MiB des Vollrenders aus `du`, beide binär.
+ganze Welt bei scale 16 und 8. Die Werte je Kachel der Ausschnitte stammen
+aus der Ausgabe, die des Vollrenders aus `du`, beide binär.
 
 ## Ergebnis
 

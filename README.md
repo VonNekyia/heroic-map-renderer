@@ -28,10 +28,10 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet
 
 | | |
 |---|---|
-| **1 700 bis 1 800 Kacheln/s** | Basis der grossen Welt auf 24 Threads mit Grafikkarte, gemessen, siehe [Biomübergänge](docs/messungen/2026-09-27-biomuebergaenge.md) |
+| **1 700 bis 1 800 Kacheln/s** | Basis der grossen Welt auf 24 Threads mit Grafikkarte, gemessen an einem Ausschnitt von 65 536 Kacheln, siehe [Biomübergänge](docs/messungen/2026-09-27-biomuebergaenge.md) |
 | **66 Minuten** | für eine Welt mit 2,5 Millionen Basiskacheln, ganz gemessen mit #21, mit Live-Ansicht nebenher, siehe [Vollrender mit #21](docs/messungen/2026-09-27-vollrender-mit-21.md) |
 | **Byte für Byte** | dasselbe Bild auf der CPU und auf der Grafikkarte, von der CI geprüft, siehe [Grafikkarte](docs/benutzung/grafikkarte.md) |
-| **verlustfrei** | WebP über libwebp, Pixel für Pixel; die grosse Welt gemessen 184 GB |
+| **verlustfrei** | WebP über libwebp, Pixel für Pixel; die grosse Welt gemessen 184 GB an Dateien, auf der Platte rund 194 GB |
 | **7 Minuten** | für die ganze Testwelt bei scale 32 mit allen Stufen, hochgerechnet, rund 26 GB |
 
 ## Was drin ist

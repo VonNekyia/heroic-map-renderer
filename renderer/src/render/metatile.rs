@@ -315,6 +315,12 @@ fn dimmed(stufen: u32) -> u8 {
     FULL_LIGHT - stufen.min(u32::from(FULL_LIGHT)) as u8
 }
 
+/// Die Bits der Section mit dem y `sy`, die über `oben` liegen.
+fn ueber(oben: i32, sy: i8) -> u16 {
+    let n = oben.saturating_sub(i32::from(sy) * 16 - 1).clamp(0, 16) as u32;
+    u16::MAX.checked_shl(n).unwrap_or(0)
+}
+
 /// Führt die Familie Wasser, als Quelle, fliessend oder geflutet?
 fn is_water(family: Option<&Family>) -> bool {
     family.is_some_and(|f| f.fluid.is_some_and(|(kind, _)| kind == Fluid::Water))
@@ -701,6 +707,10 @@ struct Loaded {
     leuchten: Vec<Vec<Leuchten>>,
     /// Je Section ihre Bitmasken, `None` für eine Section ohne Familie.
     masks: Vec<Option<Box<Masks>>>,
+    /// Je Spalte `z * 16 + x` das y des obersten Blocks mit Wasser,
+    /// `i32::MIN` ohne: Eine Lücke darunter liegt nicht im Licht, siehe
+    /// [`ChunkCache::luecke_daneben`].
+    oberstes_wasser: [i32; 256],
     /// Je Section die Kandidaten, sobald einmal berechnet — dafür müssen
     /// die Nachbarchunks da sein, deshalb nicht beim Laden.
     exposed: Vec<Option<Box<Exposed>>>,
@@ -899,12 +909,23 @@ impl Loaded {
                 }
             }
         }
+        // Die Sections liegen aufsteigend, die oberste mit Wasser gewinnt.
+        let mut oberstes_wasser = [i32::MIN; 256];
+        for (section, m) in chunk.sections().iter().zip(&masks) {
+            let Some(m) = m else { continue };
+            for (oben, &nass) in oberstes_wasser.iter_mut().zip(&m.bits[WATER]) {
+                if nass != 0 {
+                    *oben = i32::from(section.y) * 16 + 15 - nass.leading_zeros() as i32;
+                }
+            }
+        }
         let exposed = chunk.sections().iter().map(|_| None).collect();
         Loaded {
             chunk,
             families,
             leuchten,
             masks,
+            oberstes_wasser,
             exposed,
         }
     }
@@ -1367,9 +1388,10 @@ impl<'a> ChunkCache<'a> {
     ///   `rasterizer::Canvas::into_image`. Reines Wasser zeichnet
     ///   `FluidRenderer` im helleren Licht aus seiner Zelle und der darüber,
     ///   unter einer Brücke also im Licht der Luft darunter. Hat ein Block
-    ///   Wasser Luft neben sich, liegt er mindestens im Licht dieser Luft
-    ///   weniger eins, denn das Licht der Zelle kommt im Spiel auch von der
-    ///   Seite. Ein Wasserfall liegt so unter freiem Himmel im Licht 14.
+    ///   Wasser Luft neben sich, die selbst im Licht liegt, über der also
+    ///   kein Wasser steht, liegt er im Licht 14, denn das Licht der Zelle
+    ///   kommt im Spiel auch von der Seite. Ein Wasserfall liegt so unter
+    ///   freiem Himmel unter seinem obersten Block im Licht 14.
     /// - Sonst gilt die Zelle über ihm, aber nur, wenn über ihm Wasser
     ///   steht: der Grund eines Sees, auch in einer Luftblase darunter. An
     ///   Land bleibt alles im Licht 15, auch unter einem Überhang.
@@ -1396,16 +1418,13 @@ impl<'a> ChunkCache<'a> {
                 && !self
                     .family_at(x, y + 1, z)?
                     .is_some_and(|above| above.opaque);
-            let mut light = dimmed(if frei { stufen } else { stufen + 1 });
+            // Luft daneben, die selbst im Licht liegt, hebt es auf 14.
             for [dx, dz] in SEITEN {
-                let luft = [x + dx, y, z + dz];
-                if self.luecke_at(luft)? {
-                    let (w, s) = self.column_above(luft)?;
-                    let hell = if w == 0 { FULL_LIGHT } else { dimmed(s) };
-                    light = light.max(hell.saturating_sub(1));
+                if self.luecke_at([x + dx, y, z + dz])? {
+                    return Ok(FULL_LIGHT - 1);
                 }
             }
-            return Ok(light);
+            return Ok(dimmed(if frei { stufen } else { stufen + 1 }));
         }
         if !self
             .family_at(x, y + 1, z)?
@@ -1435,12 +1454,15 @@ impl<'a> ChunkCache<'a> {
     /// - Jeder Block Wasser nimmt eine Stufe, denn
     ///   `LiquidBlock.propagatesSkylightDown` ist falsch: Der oberste liegt
     ///   im Licht 14, ab 15 Stufen ist es 0. Ein deckender Block nimmt
-    ///   ebenso eine. Alles andere lässt das Licht durch, Seegras, Glas,
+    ///   ebenso eine. Alles andere lässt das Licht durch, Glas, trockenes
     ///   Laub, Luft. So bleiben eine geflutete Höhle unter dem Meeresboden
     ///   und der Grund unter einem Stein im See dunkel.
-    /// - Hat ein Block Wasser Luft neben sich, liegt er im Licht 14 wie ein
-    ///   Wasserfall, und mit seiner Stufe endet die Zählung: Unter einem Fall
-    ///   liegt der Grund eines Beckens eine Stufe tiefer als daneben.
+    /// - Hat ein Block Wasser Luft neben sich, über der kein Wasser steht,
+    ///   liegt er im Licht 14 wie ein Wasserfall, und mit seiner Stufe endet
+    ///   die Zählung: Unter einem Fall liegt der Grund eines Beckens eine
+    ///   Stufe tiefer als daneben. Luft unter Wasser, eine Luftblase oder
+    ///   ein Kasten aus Glas am Grund, liegt selbst im Dunkeln, und neben
+    ///   ihr zählt das Wasser weiter.
     /// - Liegt unter einem deckenden Block eine Lücke, kommt das Licht dort
     ///   von der Seite, und mit seiner Stufe endet die Zählung: Was über
     ///   einer Brücke oder einem Überhang liegt, ändert darunter nichts.
@@ -1508,37 +1530,45 @@ impl<'a> ChunkCache<'a> {
         Ok((wasser, stufen))
     }
 
-    /// Die Lücken in den vier Spalten neben `(x, z)` auf der Höhe der
-    /// Section `s` mit dem y `sy` des Chunks in Slot `i`, je `y` ein Bit:
-    /// weder Wasser noch deckend. Eine Section ohne Familie ist Luft; ein
-    /// Chunk, der fehlt, hat keine Lücke.
+    /// Die Lücken im Licht in den vier Spalten neben `(x, z)` auf der Höhe
+    /// der Section `s` mit dem y `sy` des Chunks in Slot `i`, je `y` ein
+    /// Bit: weder Wasser noch deckend, und darüber steht in der Spalte kein
+    /// Wasser. Eine Section ohne Familie ist Luft; ein Chunk, der fehlt,
+    /// hat keine Lücke.
     fn luecke_daneben(&mut self, (i, s, sy): (usize, usize, i8), x: i32, z: i32) -> Result<u16> {
         let mut luecke = 0;
         for [dx, dz] in SEITEN {
             let (nx, nz) = (x + dx, z + dz);
             let col = ((nz & 15) * 16 + (nx & 15)) as usize;
-            let masken = if (nx >> 4, nz >> 4) == (x >> 4, z >> 4) {
+            let (masken, oben) = if (nx >> 4, nz >> 4) == (x >> 4, z >> 4) {
                 // Im selben Chunk dieselbe Section, ohne Nachschlag.
-                self.slots[i].loaded.as_ref().map(|l| l.masks[s].as_deref())
+                let loaded = self.slots[i].loaded.as_ref().expect("eben geladen");
+                (
+                    Some(loaded.masks[s].as_deref()),
+                    loaded.oberstes_wasser[col],
+                )
             } else {
                 let j = self.slot((nx >> 4, nz >> 4))?;
                 let Some(loaded) = self.slots[j].loaded.as_ref() else {
                     continue;
                 };
-                loaded
+                let masken = loaded
                     .chunk
                     .section_index(sy)
-                    .map(|s| loaded.masks[s].as_deref())
+                    .map(|s| loaded.masks[s].as_deref());
+                (masken, loaded.oberstes_wasser[col])
             };
-            luecke |= match masken {
+            let frei = match masken {
                 Some(Some(m)) => !(m.bits[WATER][col] | m.bits[SOLID][col]),
                 _ => u16::MAX,
             };
+            luecke |= frei & ueber(oben, sy);
         }
         Ok(luecke)
     }
 
-    /// Ist an einer Weltkoordinate eine Lücke wie in [`luecke_daneben`]?
+    /// Ist an einer Weltkoordinate eine Lücke im Licht wie in
+    /// [`luecke_daneben`]?
     fn luecke_at(&mut self, [x, y, z]: [i32; 3]) -> Result<bool> {
         let i = self.slot((x >> 4, z >> 4))?;
         let Some(loaded) = self.slots[i].loaded.as_ref() else {
@@ -1548,6 +1578,9 @@ impl<'a> ChunkCache<'a> {
             return Ok(false);
         };
         let col = ((z & 15) * 16 + (x & 15)) as usize;
+        if y <= loaded.oberstes_wasser[col] {
+            return Ok(false);
+        }
         Ok(
             match loaded
                 .chunk

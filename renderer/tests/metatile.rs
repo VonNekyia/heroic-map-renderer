@@ -13,7 +13,7 @@ use terranova_render::assets::Assets;
 use terranova_render::render::metatile::STUECK;
 use terranova_render::render::rasterizer::{Light, darken};
 use terranova_render::render::{
-    ChunkCache, Projection, ScreenRect, SpriteSet, render_area, render_area_with,
+    ChunkCache, Projection, ScreenRect, SpriteSet, draw_list, render_area, render_area_with,
     render_area_without_culling, survey,
 };
 use terranova_render::world::{BlockState, World};
@@ -1147,30 +1147,70 @@ fn licht_zaehlt_unter_einem_block_weiter() {
 /// Eine Luftblase unter Wasser bekommt kein Himmelslicht: Über ihr steht
 /// das Wasser des Sees, und der Grund in ihr liegt im Licht dieses Wassers,
 /// sieben Blöcke, also 8. Nähme die Luft über ihm freien Himmel an, läge er
-/// im Licht 15 und leuchtete durch den See.
+/// im Licht 15 und leuchtete durch den See. Auch für das Wasser neben ihr
+/// liegt die Blase im Dunkeln: Der Grund östlich und südlich von ihr liegt
+/// im Licht 7 wie der übrige Seegrund, das Wasser westlich im Licht seiner
+/// Tiefe, 8, nicht im Licht 14 wie neben Luft unter freiem Himmel. Das gilt
+/// auch, wenn das Wasser über der Blase in der Section darüber steht.
 #[test]
 fn luftblase_unter_wasser_bleibt_dunkel() {
     let projection = Projection::new(32);
     let rect = ScreenRect::centered(512, 512);
-    let dir = tempdir();
-    let see = render_chunks(
-        &dir,
-        &[(0, 0)],
-        |x, y, z| match (x, y, z) {
-            (_, 0, _) => "minecraft:einfarbig",
-            (3, 1, 3) => "minecraft:air",
-            (_, 1..=8, _) => "minecraft:water",
-            _ => "minecraft:air",
-        },
-        projection,
-        rect,
-    );
-    let erwartet = unter_wasser(wasserschicht(&assets()), [150, 110, 60, 255], 8);
-    let ist = oberseite(&see, projection, rect, [3, 0, 3]);
-    for c in 0..4 {
-        assert!(
-            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
-            "Grund in der Luftblase: erwartet {erwartet:?}, bekommen {ist:?}"
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) => "minecraft:einfarbig",
+        (3, 1, 3) => "minecraft:air",
+        (_, 1..=8, _) => "minecraft:water",
+        _ => "minecraft:air",
+    };
+    let see = render_chunks(&tempdir(), &[(0, 0)], welt, projection, rect);
+    let schicht = wasserschicht(&assets());
+    for (block, licht) in [
+        ([3, 0, 3], 8),
+        ([4, 0, 3], 7),
+        ([3, 0, 4], 7),
+        ([6, 0, 6], 7),
+    ] {
+        let erwartet = unter_wasser(schicht, [150, 110, 60, 255], licht);
+        let ist = oberseite(&see, projection, rect, block);
+        for c in 0..4 {
+            assert!(
+                (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+                "Grund bei {block:?}: erwartet {erwartet:?}, bekommen {ist:?}"
+            );
+        }
+    }
+    // Das Wasser bei (2, 1, 3) zeigt der Blase seine Ostseite. Auf seiner
+    // Linie zur Kamera zeichnen noch der Grund dahinter, Licht 7, und die
+    // Oberfläche davor, Licht 15.
+    assert_eq!(lichter(&[(0, 0)], welt, [2, 1, 3]), [7, 8, 15]);
+
+    // Ein See von y = 10 bis 20 über zwei Sections, die Blase bei y = 17:
+    // Der Grund daneben liegt wie ohne sie. Die Oberfläche liegt über
+    // Y_RANGE, man sieht den Grund direkt.
+    let hoch = |blase: bool| {
+        let dir = tempdir();
+        common::write_world_sections(
+            dir.path(),
+            &[(0, 0)],
+            [0, 1],
+            move |x, y, z| match (x, y, z) {
+                (_, 9, _) => "minecraft:einfarbig",
+                (3, 17, 3) if blase => "minecraft:air",
+                (_, 10..=20, _) => "minecraft:water",
+                _ => "minecraft:air",
+            },
+            |_, _| None,
+        );
+        let world = World::open(dir.path()).unwrap();
+        let sprites = tabelle(&mut assets(), &world, projection);
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+    };
+    let (mit, ohne) = (hoch(true), hoch(false));
+    for block in [[4, 9, 3], [3, 9, 4]] {
+        assert_eq!(
+            oberseite(&mit, projection, rect, block),
+            oberseite(&ohne, projection, rect, block),
+            "Grund bei {block:?} unter dem See über zwei Sections"
         );
     }
 }
@@ -1893,6 +1933,70 @@ fn am_rand_der_welt_kein_licht_von_der_seite() {
             "Ostseite am Rand: {ist:?}, erwartet {soll:?}"
         );
     }
+}
+
+/// Das Himmelslicht der Draws, die `draw_list` am Ursprung des Blocks
+/// `block` zeichnet, aufsteigend: sein eigenes und das der Blöcke, die auf
+/// derselben Linie zur Kamera davor oder dahinter liegen. Scale 16.
+fn lichter(
+    chunks: &[(i32, i32)],
+    welt: impl Fn(i32, i32, i32) -> &'static str,
+    block: [i32; 3],
+) -> Vec<u8> {
+    let dir = tempdir();
+    common::write_world(dir.path(), chunks, welt);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let sprites = tabelle(&mut assets(), &world, projection);
+    let rect = ScreenRect::centered(512, 512);
+    let draws = draw_list(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap();
+    let (bx, by) = projection.project_block(block);
+    let (bx, by) = (bx.round() as i32 - rect.x, by.round() as i32 - rect.y);
+    let mut lichter: Vec<u8> = draws
+        .iter()
+        .filter(|d| d.origin == (bx + d.sprite.offset.0, by + d.sprite.offset.1))
+        .map(|d| d.light.sky)
+        .collect();
+    lichter.sort_unstable();
+    lichter
+}
+
+/// Glas unter Wasser liegt ebenso im Dunkeln: Vor einem hohlen Kasten aus
+/// einem ganz durchsichtigen Block am Grund eines Sees, zwölf Blöcke tief,
+/// liegt der Grund im Licht 3 wie ohne den Kasten. Das Wasser an seiner
+/// Westwand, drei Blöcke über dem Grund, liegt im Licht 6, nicht im Licht
+/// 14.
+#[test]
+fn glaskasten_unter_wasser_liegt_im_dunkeln() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(512, 512);
+    let chunks = [(0, 0), (1, 0), (0, 1), (1, 1)];
+    let see = |kasten: bool| {
+        move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (6..=8, 1..=4, 6..=8) if kasten => "minecraft:air",
+            (5..=9, 1..=5, 5..=9) if kasten => "minecraft:durchsichtig",
+            (_, 1..=12, _) => "minecraft:water",
+            _ => "minecraft:air",
+        }
+    };
+    let mit = render_chunks(&tempdir(), &chunks, see(true), projection, rect);
+    let ohne = render_chunks(&tempdir(), &chunks, see(false), projection, rect);
+    // Durch die Oberfläche von (22, 12, 19) sieht man den Grund östlich des
+    // Kastens bei (10, 0, 7), durch die von (19, 12, 22) den südlich bei
+    // (7, 0, 10).
+    for block in [[22, 12, 19], [19, 12, 22]] {
+        assert_eq!(
+            oberseite(&mit, projection, rect, block),
+            oberseite(&ohne, projection, rect, block),
+            "Grund hinter {block:?}"
+        );
+    }
+    // Das Wasser bei (4, 3, 7) zeigt dem Kasten seine Ostseite, neun Blöcke
+    // Wasser über sich. Auf seiner Linie zur Kamera zeichnen noch der Grund
+    // dahinter, Licht 3, und die Oberfläche davor, Licht 15; der Kasten
+    // selbst hat keine Pixel.
+    assert_eq!(lichter(&chunks, see(true), [4, 3, 7]), [3, 6, 15]);
 }
 
 /// Ein Datapack erlaubt Welten bis 4064 Blöcke hoch, 254 Sections je

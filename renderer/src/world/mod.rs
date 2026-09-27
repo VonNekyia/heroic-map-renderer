@@ -1,3 +1,4 @@
+pub mod biomzoom;
 pub mod chunk;
 pub mod palette;
 pub mod region;

@@ -702,20 +702,32 @@ Artefakte im Raster. Schon der einfache Encoder aus `image` sparte
 gegenüber PNG 20 bis 40 Prozent, dieselbe Kachel wog als PNG 173 kB und als
 WebP 108 kB. Er packt aber ohne Palette, Farbcache und Rückverweise.
 libwebp nutzt alle drei, und die Kacheln werden ein Drittel so gross, auf
-dichtem Land halb so gross, Pixel für Pixel gleich. Auf der grossen
-Serverwelt, 65 536 Basiskacheln auf 24 Threads:
+dichtem Land halb so gross, über Ozean ein Viertel bis ein Achtel, Pixel
+für Pixel gleich.
+Auf der grossen Serverwelt, 24 Threads, je zwei Läufe:
 
 | | Encoder aus `image` | libwebp |
 |---|---|---|
-| Basis | 6,60 GB | 2,12 GB |
-| Pyramide | 2,26 GB | 0,80 GB |
-| ganzer Lauf ohne Karte | 46 bis 50 s | 57 bis 62 s |
-| ganzer Lauf mit Karte | 44 bis 45 s | 57 bis 60 s |
+| Land, 65 536 Basiskacheln: Basis | 6,60 GB | 2,12 GB |
+| dito, Pyramide | 2,26 GB | 0,80 GB |
+| dito, ganzer Lauf ohne Karte | 48, 47 s | 59, 59 s |
+| dito, ganzer Lauf mit Karte | 46, 44 s | 55, 53 s |
+| Ozean, 15 682 Basiskacheln: Basis und Pyramide | 2,15 GB | 0,50 GB |
 
-Das Kodieren kostet: auf einem Thread 2,3 statt 0,6 ms je Kachel, und
-libwebp teilt sich die Kerne schlechter, auf 24 Threads sind es 6,7 statt
-1,2 ms je Kachel und Thread. Höhere Stufen lohnen nicht. Auf 128 Kacheln
-dieser Welt gemessen, bezogen auf den Encoder aus `image`:
+Das Kodieren kostet: auf einem Thread 2,2 statt 0,6 ms je Kachel. Dazu
+holt libwebp sich je Kachel rund 2 MB über `malloc` der C-Laufzeit, nicht
+über mimalloc wie der Rust-Teil, und der gewöhnliche Heap von Windows gibt
+sie beim Freigeben ans System zurück: gut 500 Seitenfehler je Kachel, die
+sich auf vielen Threads stauen. Unter Windows bekommt das Binär deshalb ein
+Manifest mit dem Segment-Heap, siehe `renderer/build.rs`, und der behält
+den Speicher. Das Kodieren allein, 1024 Kacheln auf 24 Threads, schafft
+damit auf Land 4992 statt 3834 Kacheln/s und über Ozean 6016 statt 4399;
+auf einem Thread ist es knapp 10 Prozent langsamer. Im ganzen Lauf über Land
+geht das in der Streuung unter. Über Ozean mit Karte dauert er 13,0 statt
+13,8 bis 14,0 s.
+
+Höhere Stufen lohnen nicht. Auf 128 Kacheln dieser Welt gemessen, bezogen
+auf den Encoder aus `image`:
 
 | Stufe | Grösse | je Kachel, ein Thread |
 |---|---|---|
@@ -724,7 +736,7 @@ dieser Welt gemessen, bezogen auf den Encoder aus `image`:
 | 6 | 0,29 | 49 ms |
 
 `exact` behält die Farbe voll durchsichtiger Pixel, sonst setzt libwebp sie
-auf 0 und die Kachel käme nur fast zurück. libwebp baut `libwebp-sys` aus
+auf 0 und die Kachel käme nur fast zurück. `libwebp-sys` baut libwebp aus
 dem mitgelieferten C-Quelltext. Dafür braucht es einen C-Compiler, unter
 Windows den von Visual Studio, den Rust dort ohnehin verlangt, unter Linux
 gcc oder clang. libwebp selbst steht unter BSD-3-Clause.

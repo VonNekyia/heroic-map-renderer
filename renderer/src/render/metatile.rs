@@ -306,6 +306,9 @@ fn anchor_of([x, y, z]: [i32; 3], cell: Cell) -> [i32; 3] {
     [x - cell[0], y - cell[1], z - cell[2]]
 }
 
+/// Die vier Nachbarn in der Waagrechten.
+const SEITEN: [[i32; 2]; 4] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
 /// Das Himmelslicht unter so vielen Stufen, siehe
 /// [`ChunkCache::column_above`].
 fn dimmed(stufen: u32) -> u8 {
@@ -1359,7 +1362,12 @@ impl<'a> ChunkCache<'a> {
     /// - Führt der Block selbst Wasser, Seegras etwa oder ein gefluteter
     ///   Zaun, liegt er im Licht dieses Wassers. An der Oberfläche zeichnet
     ///   er sein Wasser selbst, und was darunter liegt, im Licht 14, siehe
-    ///   `rasterizer::Canvas::into_image`.
+    ///   `rasterizer::Canvas::into_image`. Reines Wasser zeichnet
+    ///   `FluidRenderer` im helleren Licht aus seiner Zelle und der darüber,
+    ///   unter einer Brücke also im Licht der Luft darunter. Hat ein Block
+    ///   Wasser Luft neben sich, liegt er mindestens im Licht dieser Luft
+    ///   weniger eins, denn das Licht der Zelle kommt im Spiel auch von der
+    ///   Seite. Ein Wasserfall liegt so unter freiem Himmel im Licht 14.
     /// - Sonst gilt die Zelle über ihm, aber nur, wenn über ihm Wasser
     ///   steht: der Grund eines Sees, auch in einer Luftblase darunter. An
     ///   Land bleibt alles im Licht 15, auch unter einem Überhang.
@@ -1374,10 +1382,28 @@ impl<'a> ChunkCache<'a> {
     fn light_at(&mut self, [x, y, z]: [i32; 3], family: &Family) -> Result<u8> {
         let (wasser, stufen) = self.column_above([x, y + 1, z])?;
         if is_water(Some(family)) {
-            return Ok(match stufen {
-                0 => FULL_LIGHT,
-                n => dimmed(n + 1),
-            });
+            if stufen == 0 {
+                return Ok(FULL_LIGHT);
+            }
+            // Reines Wasser zeichnet `FluidRenderer` im helleren Licht aus
+            // seiner Zelle und der darüber, und die hat eine Stufe mehr; ein
+            // deckender Block darüber hat selbst kein Licht. Ein Modell im
+            // Wasser, Seegras oder ein gefluteter Zaun, liegt im Licht der
+            // Zelle.
+            let frei = family.pure_fluid
+                && !self
+                    .family_at(x, y + 1, z)?
+                    .is_some_and(|above| above.opaque);
+            let mut light = dimmed(if frei { stufen } else { stufen + 1 });
+            for [dx, dz] in SEITEN {
+                let luft = [x + dx, y, z + dz];
+                if self.luecke_at(luft)? {
+                    let (w, s) = self.column_above(luft)?;
+                    let hell = if w == 0 { FULL_LIGHT } else { dimmed(s) };
+                    light = light.max(hell.saturating_sub(1));
+                }
+            }
+            return Ok(light);
         }
         if !self
             .family_at(x, y + 1, z)?
@@ -1398,39 +1424,125 @@ impl<'a> ChunkCache<'a> {
         Ok(light.unwrap_or(FULL_LIGHT))
     }
 
-    /// Wie viele Blöcke Wasser in der Spalte von `(x, y, z)` bis zum oberen
-    /// Rand der Welt stehen, die Zelle selbst mitgezählt, und wie viele
-    /// Stufen Himmelslicht diese Blöcke nehmen. Jeder Block Wasser nimmt
-    /// eine, denn `LiquidBlock.propagatesSkylightDown` ist falsch: Der
-    /// oberste liegt im Licht 14, ab 15 Stufen ist es 0. Ein deckender Block
-    /// nimmt ebenso eine. Unter einem Dach kommt das Licht im Spiel von der
-    /// Seite, so bleibt eine geflutete Höhle unter dem Meeresboden dunkel.
-    /// Alles andere lässt das Licht durch, Seegras, Glas, Laub, Luft.
+    /// Wie viele Blöcke Wasser über `(x, y, z)` stehen, die Zelle selbst
+    /// mitgezählt, und wie viele Stufen Himmelslicht sie samt den deckenden
+    /// Blöcken nehmen, nach oben gezählt, bis das Licht von der Seite kommt:
     ///
-    /// Gezählt wird nur senkrecht, aus den Bitmasken der Sections. Das Licht
-    /// aus der Welt liest der Renderer nicht.
+    /// - Jeder Block Wasser nimmt eine Stufe, denn
+    ///   `LiquidBlock.propagatesSkylightDown` ist falsch: Der oberste liegt
+    ///   im Licht 14, ab 15 Stufen ist es 0. Ein deckender Block nimmt
+    ///   ebenso eine. Alles andere lässt das Licht durch, Seegras, Glas,
+    ///   Laub, Luft. So bleiben eine geflutete Höhle unter dem Meeresboden
+    ///   und der Grund unter einem Stein im See dunkel.
+    /// - Hat ein Block Wasser Luft neben sich, liegt er im Licht 14 wie ein
+    ///   Wasserfall, und mit seiner Stufe endet die Zählung: Unter einem Fall
+    ///   liegt der Grund eines Beckens eine Stufe tiefer als daneben.
+    /// - Liegt unter einem deckenden Block eine Lücke, kommt das Licht dort
+    ///   von der Seite, und mit seiner Stufe endet die Zählung: Was über
+    ///   einer Brücke oder einem Überhang liegt, ändert darunter nichts.
+    ///
+    /// Luft und Lücke heisst weder Wasser noch deckend. Gezählt wird in den
+    /// Bitmasken der Sections; das Licht aus der Welt liest der Renderer
+    /// nicht.
     fn column_above(&mut self, [x, y, z]: [i32; 3]) -> Result<(u32, u32)> {
         let i = self.slot((x >> 4, z >> 4))?;
         let Some(loaded) = self.slots[i].loaded.as_ref() else {
             return Ok((0, 0));
         };
-        let spalte = ((z & 15) * 16 + (x & 15)) as usize;
+        let col = ((z & 15) * 16 + (x & 15)) as usize;
         let (mut wasser, mut stufen) = (0, 0);
-        for (section, masks) in loaded.chunk.sections().iter().zip(&loaded.masks) {
-            let unten = i32::from(section.y) * 16;
-            let Some(m) = masks.as_ref().filter(|_| unten + 15 >= y) else {
+        // Liegt unter Bit 0 der nächsten Section eine Lücke? Unter der
+        // untersten nicht, dort endet die Welt.
+        let mut luecke_darunter = 0u16;
+        let mut vorige: Option<i8> = None;
+        for s in 0..loaded.chunk.sections().len() {
+            // Die Nachbarn laden weitere Chunks, deshalb je Section neu
+            // geliehen; der Index bleibt bis zur nächsten Kachel gültig.
+            let loaded = self.slots[i].loaded.as_ref().expect("eben geladen");
+            let sy = loaded.chunk.sections()[s].y;
+            let (nass, fest) = loaded.masks[s]
+                .as_ref()
+                .map_or((0, 0), |m| (m.bits[WATER][col], m.bits[SOLID][col]));
+            // Fehlt eine Section dazwischen, steht dort Luft.
+            if vorige.is_some_and(|v| i32::from(v) + 1 != i32::from(sy)) {
+                luecke_darunter = 1;
+            }
+            vorige = Some(sy);
+            let luecke = !(nass | fest);
+            let unten = i32::from(sy) * 16;
+            if unten + 15 < y {
+                luecke_darunter = luecke >> 15;
                 continue;
-            };
+            }
             let ab = if unten < y {
                 u16::MAX << (y - unten)
             } else {
                 u16::MAX
             };
-            let nass = m.bits[WATER][spalte] & ab;
-            wasser += nass.count_ones();
-            stufen += (nass | m.bits[SOLID][spalte] & ab).count_ones();
+            let mut ende = fest & (luecke << 1 | luecke_darunter) & ab;
+            if nass & ab != 0 {
+                ende |= nass & self.luecke_daneben(x, z, sy)? & ab;
+            }
+            let zaehlt = (nass | fest) & ab;
+            if ende != 0 {
+                // Bis einschliesslich des untersten Blocks, an dem sie endet.
+                let bis = ende ^ (ende - 1);
+                return Ok((
+                    wasser + (nass & ab & bis).count_ones(),
+                    stufen + (zaehlt & bis).count_ones(),
+                ));
+            }
+            wasser += (nass & ab).count_ones();
+            stufen += zaehlt.count_ones();
+            luecke_darunter = luecke >> 15;
         }
         Ok((wasser, stufen))
+    }
+
+    /// Die Lücken in den vier Spalten neben `(x, z)` in Section `sy`, je
+    /// `y` ein Bit: weder Wasser noch deckend. Eine Section ohne Familie ist
+    /// Luft; ein Chunk, der fehlt, hat keine Lücke.
+    fn luecke_daneben(&mut self, x: i32, z: i32, sy: i8) -> Result<u16> {
+        let mut luecke = 0;
+        for [dx, dz] in SEITEN {
+            let (nx, nz) = (x + dx, z + dz);
+            let i = self.slot((nx >> 4, nz >> 4))?;
+            let Some(loaded) = self.slots[i].loaded.as_ref() else {
+                continue;
+            };
+            let col = ((nz & 15) * 16 + (nx & 15)) as usize;
+            luecke |= match loaded
+                .chunk
+                .section_index(sy)
+                .map(|s| loaded.masks[s].as_deref())
+            {
+                Some(Some(m)) => !(m.bits[WATER][col] | m.bits[SOLID][col]),
+                _ => u16::MAX,
+            };
+        }
+        Ok(luecke)
+    }
+
+    /// Ist an einer Weltkoordinate eine Lücke wie in [`luecke_daneben`]?
+    fn luecke_at(&mut self, [x, y, z]: [i32; 3]) -> Result<bool> {
+        let i = self.slot((x >> 4, z >> 4))?;
+        let Some(loaded) = self.slots[i].loaded.as_ref() else {
+            return Ok(false);
+        };
+        let Ok(sy) = i8::try_from(y >> 4) else {
+            return Ok(false);
+        };
+        let col = ((z & 15) * 16 + (x & 15)) as usize;
+        Ok(
+            match loaded
+                .chunk
+                .section_index(sy)
+                .map(|s| loaded.masks[s].as_deref())
+            {
+                Some(Some(m)) => (m.bits[WATER][col] | m.bits[SOLID][col]) >> (y & 15) & 1 == 0,
+                _ => true,
+            },
+        )
     }
 
     /// Wie hell der Block an einer Weltkoordinate selbst leuchtet.

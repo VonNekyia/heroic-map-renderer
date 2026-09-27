@@ -206,11 +206,11 @@ pub fn write_world_in(
 }
 
 /// Wie `write_world_in`, aber mit diesen Sections je Chunk statt nur Y=0:
-/// für Szenen über Section-Grenzen hinweg.
+/// für Szenen über Section-Grenzen hinweg, auch mit einer, die fehlt.
 pub fn write_world_sections(
     dir: &Path,
     chunks: &[(i32, i32)],
-    sections: std::ops::RangeInclusive<i8>,
+    sections: impl IntoIterator<Item = i8> + Clone,
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i32) -> Option<&'static str>,
 ) -> PathBuf {
@@ -220,7 +220,7 @@ pub fn write_world_sections(
 fn write_region(
     dir: &Path,
     chunks: &[(i32, i32)],
-    sections: std::ops::RangeInclusive<i8>,
+    sections: impl IntoIterator<Item = i8> + Clone,
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i32) -> Option<&'static str>,
 ) -> PathBuf {
@@ -243,6 +243,7 @@ fn write_region(
             cz,
             sections
                 .clone()
+                .into_iter()
                 .map(|sy| section(cx, cz, sy, &block, biome(cx, cz)))
                 .collect(),
         );

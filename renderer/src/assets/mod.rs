@@ -3,6 +3,7 @@ pub mod blockstate;
 pub mod colors;
 pub mod fluid;
 pub mod model;
+pub mod noise;
 pub mod pack;
 pub mod texture;
 

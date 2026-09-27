@@ -1,7 +1,7 @@
 //! Die Bildebene in Kacheln zerlegen und herausfinden, welche davon etwas
 //! zeigen.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashSet};
 
 use std::ffi::c_int;
 
@@ -137,10 +137,8 @@ fn union(a: ScreenRect, b: ScreenRect) -> ScreenRect {
 pub struct Survey {
     /// Kacheln, in denen etwas liegen kann.
     pub tiles: Vec<TileId>,
-    /// Blockstates, die vorkommen, je mit den Biomen, mit denen sie eine
-    /// Section teilen. Daraus entsteht die Sprite-Tabelle: gefärbte
-    /// Fassungen nur für diese Biome.
-    pub states: BTreeMap<BlockState, BTreeSet<String>>,
+    /// Blockstates, die vorkommen. Daraus entsteht die Sprite-Tabelle.
+    pub states: BTreeSet<BlockState>,
     /// Biome, die vorkommen — um zu melden, welche keine Definition haben.
     pub biomes: BTreeSet<String>,
     /// Chunks, die gelesen wurden.
@@ -183,9 +181,7 @@ pub fn survey(
     let mut survey = Survey::default();
     for teil in teile {
         tiles.extend(teil.tiles);
-        for (state, biomes) in teil.states {
-            survey.states.entry(state).or_default().extend(biomes);
-        }
+        survey.states.extend(teil.states);
         survey.biomes.extend(teil.biomes);
         survey.chunks += teil.chunks;
     }
@@ -206,13 +202,8 @@ fn survey_region(
         return Ok(survey);
     };
 
-    // Je Blockstate die Biome, mit denen sie eine Section teilt, als
-    // Bitmaske über die Biome dieser Region: je Paletteneintrag ein Oder.
-    // Mehr als 128 Biome in einer Region — dann bekommt jede Blockstate
-    // alle.
-    let mut biome_bits: HashMap<String, u32> = HashMap::new();
-    let mut states: HashMap<BlockState, u128> = HashMap::new();
-    let mut zu_viele = false;
+    let mut states: HashSet<BlockState> = HashSet::new();
+    let mut biomes: HashSet<String> = HashSet::new();
 
     let mut tiles = BTreeSet::new();
     for local_z in 0..REGION {
@@ -254,51 +245,22 @@ fn survey_region(
             }
 
             for section in chunk.sections() {
-                let mut bits = 0u128;
                 for biome in section.biomes().palette() {
-                    let bit = match biome_bits.get(biome) {
-                        Some(&bit) => bit,
-                        None => {
-                            let bit = biome_bits.len() as u32;
-                            biome_bits.insert(biome.clone(), bit);
-                            bit
-                        }
-                    };
-                    if bit < 128 {
-                        bits |= 1 << bit;
-                    } else {
-                        zu_viele = true;
+                    if !biomes.contains(biome) {
+                        biomes.insert(biome.clone());
                     }
                 }
                 for state in section.blocks().palette() {
-                    match states.get_mut(state) {
-                        Some(known) => *known |= bits,
-                        None => {
-                            states.insert(state.clone(), bits);
-                        }
+                    if !states.contains(state) {
+                        states.insert(state.clone());
                     }
                 }
             }
         }
     }
 
-    let mut names = vec![String::new(); biome_bits.len()];
-    for (name, bit) in biome_bits {
-        names[bit as usize] = name;
-    }
-    survey.biomes = names.iter().cloned().collect();
-    survey.states = states
-        .into_iter()
-        .map(|(state, bits)| {
-            let biomes = names
-                .iter()
-                .enumerate()
-                .filter(|&(i, _)| zu_viele || (i < 128 && (bits >> i) & 1 == 1))
-                .map(|(_, name)| name.clone())
-                .collect();
-            (state, biomes)
-        })
-        .collect();
+    survey.biomes = biomes.into_iter().collect();
+    survey.states = states.into_iter().collect();
     survey.tiles = tiles.into_iter().collect();
     Ok(survey)
 }

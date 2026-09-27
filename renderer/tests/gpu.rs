@@ -187,6 +187,18 @@ fn gpu_zeichnet_die_szene_wie_die_cpu() {
                 .any(|d| d.sprite.ao.is_some() && d.ao != NO_AO),
             "scale {scale}: kein weich beleuchteter Draw"
         );
+        // Und Gras und Wasser über die Biomgrenze: Draws mit Tönungskarte
+        // in beiden Farben, das Gras in mehr als den Farben der zwei Biome.
+        let farben = |k: usize| -> std::collections::BTreeSet<u32> {
+            listen
+                .iter()
+                .flatten()
+                .filter(|d| d.sprite.tint.is_some() && d.tint[k] != 0)
+                .map(|d| d.tint[k])
+                .collect()
+        };
+        assert!(farben(0).len() > 2, "scale {scale}: Gras {:?}", farben(0));
+        assert!(farben(1).len() > 2, "scale {scale}: Wasser {:?}", farben(1));
         let bilder = gpu
             .worker(tiles.len() as u32, TILE)
             .render(&listen)

@@ -137,9 +137,11 @@ Danach siebt die Deckungsmaske, siehe
 
 Der Blit zeichnet die sichtbaren Pixel jedes Draws und mischt mit `over`,
 ganzzahlig, auf der CPU wie im Shader der Karte; deckende Pixel schreibt er
-direkt statt durch `over` (`mische`). Er multipliziert dabei
-jeden Pixel mit dem Licht des Blocks und dem Faktor der weichen
-Beleuchtung, siehe [Wasser und Licht](wasser-und-licht.md) und
+direkt statt durch `over` (`mische`). Vorher tönt er jeden Pixel eines
+Sprites mit Tönungskarte in den Farben seines Blocks (`tinted`), siehe
+[Biomfarben](biomfarben.md), „Tönung beim Zeichnen“, und multipliziert ihn
+dann mit dem Licht des Blocks und dem Faktor der weichen Beleuchtung, siehe
+[Wasser und Licht](wasser-und-licht.md) und
 [Weiche Beleuchtung](weiche-beleuchtung.md). Auf der Karte: siehe
 [Grafikkarte](../benutzung/grafikkarte.md).
 

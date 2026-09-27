@@ -32,7 +32,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
 - [Wasser und Licht](renderer/wasser-und-licht.md): Flüssigkeiten, Flächen, Streifen, Himmels- und Blocklicht.
 - [Weiche Beleuchtung](renderer/weiche-beleuchtung.md): die Regeln von `BlockModelLighter` für volle Würfel.
-- [Biomfarben](renderer/biomfarben.md): Colormaps, gefärbte Blöcke, Biome lesen.
+- [Biomfarben](renderer/biomfarben.md): Colormaps, gefärbte Blöcke, Biom je Block, Übergänge zwischen Biomen, Sumpfgras, Tönung beim Zeichnen, Biome lesen.
 - [Varianten aus der Position](renderer/varianten.md): die Alternative würfeln wie der Client.
 - [Blockstates](renderer/blockstates.md): lesen und stapeln wie der Client, `blocks.txt`.
 - [Packs und Wurzeln](renderer/packs.md): Auflisten wie `PathPackResources`, Links und Junctions.
@@ -62,7 +62,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0008](entscheidungen/0008-sprite-kanten-nicht-glaetten.md): Sprite-Kanten werden nicht geglättet.
 - [0009](entscheidungen/0009-wasserflaechen-je-block.md): Wasserflächen je Block nach den Nachbarn.
 - [0010](entscheidungen/0010-tiefe-entlang-des-blickstrahls.md): Tiefe entlang des Blickstrahls, abgelöst durch 0030.
-- [0011](entscheidungen/0011-faerbung-als-sprite-fassung.md): Färbung als Sprite-Fassung.
+- [0011](entscheidungen/0011-faerbung-als-sprite-fassung.md): Färbung als Sprite-Fassung, abgelöst durch 0033.
 - [0012](entscheidungen/0012-varianten-aus-der-position.md): Varianten aus der Position wie im Client.
 - [0013](entscheidungen/0013-scale-32-als-standard.md): scale 32 als Standard.
 - [0014](entscheidungen/0014-kennung-der-welt-ohne-seed.md): Die Kennung der Welt verrät den Seed nicht.
@@ -84,6 +84,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0030](entscheidungen/0030-licht-je-block.md): Licht je Block beim Zeichnen.
 - [0031](entscheidungen/0031-eigene-tabellen-statt-der-masken.md): Eigene Tabellen statt der Masken für die weiche Beleuchtung.
 - [0032](entscheidungen/0032-weiche-beleuchtung-zuerst-fuer-volle-wuerfel.md): Weiche Beleuchtung zuerst nur für volle Würfel.
+- [0033](entscheidungen/0033-toenung-beim-zeichnen.md): Tönung beim Zeichnen statt Fassungen je Biom.
 
 ## Messungen
 
@@ -99,3 +100,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-09-27, libwebp](messungen/2026-09-27-libwebp.md): ein Drittel der Grösse, Segment-Heap.
 - [2026-09-27, Wasser im Licht](messungen/2026-09-27-wasser-im-licht.md): Licht je Block unter Wasser.
 - [2026-09-27, Weiche Beleuchtung](messungen/2026-09-27-weiche-beleuchtung.md): Kosten je Kachel und für die ganze Testwelt.
+- [2026-09-27, Biomübergänge](messungen/2026-09-27-biomuebergaenge.md): Kosten der Mischung, Sprite-Tabellen ohne Fassungen je Biom.

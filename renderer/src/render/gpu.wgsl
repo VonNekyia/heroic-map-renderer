@@ -13,14 +13,20 @@ struct Instance {
     y: i32,
     // Helligkeit im Licht des Blocks je Farbkanal in 255steln, Rot im
     // untersten Byte, 255 bei vollem Licht: `rasterizer::Light::factors`.
-    // Bit 24: Hinter den Pixeln des Sprites steht seine AO-Karte, und `ao`
-    // dunkelt etwas ab.
+    // Bit 24: Das Sprite hat eine AO-Karte, und `ao` dunkelt etwas ab.
+    // Bit 25: Das Sprite hat eine Tönungskarte. Bit 26: Das Sprite hat eine
+    // AO-Karte. Hinter den Pixeln steht erst die AO-Karte, dann die
+    // Tönungskarte, zwei Wörter je Pixel.
     light: u32,
     // Weiche Beleuchtung an den Ecken der Seiten oben, Süden und Osten, je
     // ein Byte je Ecke: `ChunkCache::ao_at`.
     ao_up: u32,
     ao_south: u32,
     ao_east: u32,
+    // Die Farben des Blocks für die Tönungskarte, Block und Wasser, gepackt
+    // wie sie: `ChunkCache::tints_at`.
+    tint_block: u32,
+    tint_water: u32,
 }
 
 struct Params {
@@ -50,6 +56,14 @@ fn pack(c: vec4<u32>) -> u32 {
 // `rasterizer::darken`.
 fn darken(s: vec4<u32>, f: vec3<u32>) -> vec4<u32> {
     return vec4<u32>((s.xyz * f + 127u) / 255u, s.w);
+}
+
+// Ein Pixel in den Farben seines Blocks aus seinen beiden Wörtern der
+// Tönungskarte — wie `rasterizer::tinted`.
+fn tinted(s: vec4<u32>, block: u32, water: u32, inst: Instance) -> vec4<u32> {
+    let anteil = unpack(block).xyz * unpack(inst.tint_block).xyz
+        + unpack(water).xyz * unpack(inst.tint_water).xyz;
+    return vec4<u32>(s.xyz + (anteil + 127u) / 255u, s.w);
 }
 
 // Die weiche Beleuchtung an einem Pixel aus seinem Eintrag der AO-Karte —
@@ -111,9 +125,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wg
         if (s.w == 0u) {
             continue;
         }
+        // Erst die Farbe, dann das Licht, wie `metatile::mische`.
+        let flags = inst.light >> 24u;
+        if ((flags & 2u) != 0u) {
+            var karte = inst.sprite + w * h;
+            if ((flags & 4u) != 0u) {
+                karte += w * h;
+            }
+            s = tinted(s, sprites[karte + 2u * i], sprites[karte + 2u * i + 1u], inst);
+        }
         // Licht je Kanal und weiche Beleuchtung wie `rasterizer::with_ao`.
         var f = vec3<u32>(inst.light & 255u, (inst.light >> 8u) & 255u, (inst.light >> 16u) & 255u);
-        if ((inst.light >> 24u) != 0u) {
+        if ((flags & 1u) != 0u) {
             f = (f * ao_factor(sprites[inst.sprite + w * h + i], inst) + 127u) / 255u;
         }
         if (any(f != vec3<u32>(255u))) {

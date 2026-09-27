@@ -33,6 +33,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `region.rs` | Regionsdateien: Chunk-Tabelle, Sektoren, ausgelagerte `.mcc`-Chunks |
 | `chunk.rs` | ein Chunk aus NBT: Sections, Blöcke, Biome |
 | `palette.rs` | `BlockState` und die gepackten Paletten-Indizes einer Section |
+| `biomzoom.rs`, `Biomwerte.java` | das Biom je Block wie `BiomeManager.getBiome` und die Sollwerte dafür aus dem Spiel, siehe [Biomfarben](../renderer/biomfarben.md) |
 
 ## `renderer/src/assets/`: das Resourcepack
 
@@ -46,6 +47,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `baker.rs` | Elemente zu Vierecken backen: Drehungen, `uvlock`, Flüssigkeitsflächen |
 | `fluid.rs` | Wasser und Lava als Würfel, siehe [Wasser und Licht](../renderer/wasser-und-licht.md) |
 | `colors.rs` | Biomfarben, siehe [Biomfarben](../renderer/biomfarben.md) |
+| `noise.rs` | das Rauschen des Sumpfgrases, siehe [Biomfarben](../renderer/biomfarben.md), „Sumpfgras“ |
 | `blocks.txt`, `leuchten.txt`, `schatten.txt`, `Leuchten.java`, `Schatten.java` | aus dem Spiel erzeugte Tabellen, siehe [Erzeugte Tabellen](tabellen.md) |
 
 ## `renderer/src/render/`: Bilder machen
@@ -55,7 +57,8 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `projection.rs` | die feste Kamera, siehe [Die Kamera](../renderer/kamera.md) |
 | `rasterizer.rs` | ein gebackenes Modell zu einem Sprite rastern, Helligkeit, AO-Karte, siehe [Rastern ohne Nähte](../renderer/naehte.md) |
 | `sprites.rs` | die Sprite-Tabelle: Familien, Fassungen, Varianten, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md) |
-| `metatile.rs` | eine Kachel rendern: Chunk-Cache, Bitmasken, Kandidaten, Deckungsmaske, Licht, weiche Beleuchtung, Blit, siehe [Der Weg einer Kachel](../renderer/renderpfad.md) |
+| `metatile.rs` | eine Kachel rendern: Chunk-Cache, Bitmasken, Kandidaten, Deckungsmaske, Licht, weiche Beleuchtung, Biom je Block, Blit, siehe [Der Weg einer Kachel](../renderer/renderpfad.md) |
+| `tint.rs` | die Farben der Biome und ihre Mischung über Biomgrenzen, siehe [Biomfarben](../renderer/biomfarben.md) |
 | `tiles.rs` | Kachelraster, Vorlauf (`survey`), WebP (`encode_webp`) |
 | `pyramid.rs` | Zoomstufen verkleinern, `map.json`, Kennung der Welt |
 | `gpu.rs`, `gpu.wgsl` | Zeichnen auf der Grafikkarte, siehe [Grafikkarte](../benutzung/grafikkarte.md) |

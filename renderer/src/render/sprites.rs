@@ -7,11 +7,14 @@ use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
 use crate::assets::blockstate::{self, Leuchten, ModelRef};
+use crate::assets::colors::{Resolver, Source, Tint, source_of, tinted_below};
 use crate::assets::fluid::Fluid;
+use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, Face, Textures, Tints, fluid, models_of};
 use crate::world::BlockState;
 
 use super::rasterizer::faces_camera;
+use super::tint::BiomeTable;
 use super::{Projection, Sprite, render};
 
 /// Verweis in die Sprite-Tabelle.
@@ -44,17 +47,9 @@ pub struct SpriteSet {
     /// Fassungen einer Fluessigkeit: je Maske aus verdeckten Flaechen
     /// (`mask_bit`) eine, Index `mask`. Eintrag 0 ist das Sprite selbst.
     by_mask: HashMap<SpriteId, Vec<Option<SpriteId>>>,
-    /// Fassungen je Biom, nur fuer Sprites mit gefaerbten Flaechen. Das
-    /// Sprite fuehrt zur Fassung des Standardklimas, von dort geht es
-    /// ueber den Index des Bioms weiter.
-    by_biome: HashMap<SpriteId, Vec<SpriteId>>,
-    /// Index je Biomname, in der Reihenfolge von `Colors::biomes`, statt einer
-    /// Karte je Sprite mit allen Biomnamen als Schluessel.
-    /// Siehe docs/renderer/biomfarben.md, „Färbung als Fassung“.
-    biome_index: HashMap<String, usize>,
-    /// Sprites nach dem Hash ihrer Pixel und ihrer Faerbung: pixelgleiche
-    /// teilen sich den Eintrag, wenn sie sich in jedem Biom gleich faerben.
-    by_content: HashMap<(u64, u64), Vec<SpriteId>>,
+    /// Sprites nach dem Hash ihrer Pixel samt Tönungskarte: pixelgleiche
+    /// teilen sich den Eintrag.
+    by_content: HashMap<u64, Vec<SpriteId>>,
     /// Streifen einer Seitenflaeche ueber einem niedrigeren Nachbarn
     /// derselben Fluessigkeit: je Art, eigener Hoehe und Nachbarhoehe in
     /// Neunteln und je Seite.
@@ -64,6 +59,9 @@ pub struct SpriteSet {
     /// geprueft wird.
     masks: Masks,
     foreign: BTreeSet<Cell>,
+    /// Die Farben der Biome, mit denen die Sprites beim Zeichnen getönt
+    /// werden.
+    biomes: BiomeTable,
 }
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
@@ -177,6 +175,12 @@ pub struct Family {
     /// bleibt die Oberflaeche oder ein Streifen. Siehe `expose` im
     /// Metatile-Renderer.
     pub pure_fluid: bool,
+    /// Welche Farbe des Bioms die gefärbten Flächen des Blocks tragen, wenn
+    /// sie vom Biom kommt; den Anteil je Pixel trägt die Tönungskarte.
+    pub resolver: Option<Resolver>,
+    /// Nimmt der Block diese Farbe am Block darunter, siehe
+    /// [`tinted_below`]?
+    pub tint_below: bool,
 }
 
 impl Family {
@@ -233,28 +237,11 @@ fn seed([x, y, z]: [i32; 3]) -> i64 {
 }
 
 /// `nextInt(bound)` eines frisch mit `seed` gesaeten Generators: der LCG
-/// aus `java.util.Random`, den auch `SingleThreadedRandomSource` rechnet.
-/// Bei einer Zweierpotenz die oberen Bits, sonst der Rest — mit der
-/// Verwerfungsschleife, die Java gegen die Schieflage am oberen Ende hat.
+/// aus `java.util.Random`, den auch `SingleThreadedRandomSource` rechnet,
+/// siehe [`JavaRandom::next_int`].
 /// Siehe docs/renderer/varianten.md, „Wie gewürfelt wird“.
 fn java_next_int(seed: i64, bound: i32) -> i32 {
-    const MULT: i64 = 0x5DEECE66D;
-    const MASK: i64 = (1 << 48) - 1;
-    let mut state = (seed ^ MULT) & MASK;
-    let mut next31 = || {
-        state = state.wrapping_mul(MULT).wrapping_add(0xB) & MASK;
-        (state >> 17) as i32
-    };
-    if bound & (bound - 1) == 0 {
-        return ((bound as i64 * next31() as i64) >> 31) as i32;
-    }
-    loop {
-        let bits = next31();
-        let value = bits % bound;
-        if bits.wrapping_sub(value).wrapping_add(bound - 1) >= 0 {
-            return value;
-        }
-    }
+    JavaRandom::new(seed).next_int(bound)
 }
 
 /// Bit in der Verdeckungsmaske fuer eine Fluessigkeitsflaeche: die drei
@@ -277,8 +264,13 @@ type FamilyKey = (
     Vec<(u32, Vec<ModelRef>)>,
     Option<(Fluid, u8)>,
     [i32; 3],
+    Leuchten,
 );
 
+/// Was die Sprites einer Blockstate bestimmt. Das Leuchten gehört dazu: Ein
+/// gefluteter Block trägt unter seiner Oberfläche sein eigenes Blocklicht,
+/// ein Sculk-Sensor in `cooldown` also ein anderes als einer in `active`,
+/// auch mit demselben Modell.
 fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
     let alternatives = assets.alternative_refs(state)?;
     Ok((
@@ -286,11 +278,9 @@ fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
         alternatives,
         fluid::key(state),
         seed_offset(state),
+        blockstate::leuchten(state),
     ))
 }
-
-/// Die Biome, mit denen eine Familie vorkommt.
-type Biomes<'a> = BTreeSet<&'a str>;
 
 /// Das Modell mit seiner Fluessigkeit auf voller Blockhoehe.
 fn full_height(model: &BakedModel) -> BakedModel {
@@ -371,17 +361,26 @@ struct Entry {
     contained: bool,
     /// Je Teil seine Zeilenmasken, erst wenn die CPU sie braucht.
     rows: OnceLock<Vec<Rows>>,
+    /// Welche Farben die Tönungskarte trägt: [`TINT_BLOCK`], [`TINT_WATER`].
+    tints: u8,
 }
 
+/// Die Tönungskarte trägt einen Anteil der Farbe des Blocks.
+pub const TINT_BLOCK: u8 = 1;
+/// Die Tönungskarte trägt einen Anteil der Farbe des Wassers.
+pub const TINT_WATER: u8 = 2;
+
 impl SpriteSet {
-    /// Backt und rastert jede Blockstate genau einmal, gefaerbte Fassungen
-    /// nur fuer die Biome, mit denen sie im Vorlauf eine Section teilt.
-    /// Blockstates ohne sichtbare Geometrie — Luft, Truhen, Deckenfeuer —
-    /// landen nicht in der Tabelle und werden beim Rendern uebersprungen.
-    /// Siehe docs/renderer/biomfarben.md, „Färbung als Fassung“.
+    /// Backt und rastert jede Blockstate genau einmal, gefärbte Flächen als
+    /// Tönungskarte, siehe [`Sprite::tint`]. Blockstates ohne sichtbare
+    /// Geometrie — Luft, Truhen, Deckenfeuer — landen nicht in der Tabelle
+    /// und werden beim Rendern uebersprungen. Die Farben der Biome kommen
+    /// aus `assets`, gemischt mit Radius 2 und ohne Seed, siehe
+    /// [`SpriteSet::set_biomes`].
+    /// Siehe docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
     pub fn build_in<'a>(
         assets: &mut Assets,
-        states: impl IntoIterator<Item = (&'a BlockState, &'a BTreeSet<String>)>,
+        states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
     ) -> Result<SpriteSet> {
         let mut set = SpriteSet {
@@ -389,47 +388,36 @@ impl SpriteSet {
             families: Vec::new(),
             by_state: HashMap::new(),
             by_mask: HashMap::new(),
-            by_biome: HashMap::new(),
-            biome_index: assets
-                .colors()
-                .biomes()
-                .enumerate()
-                .map(|(i, biome)| (biome.to_string(), i))
-                .collect(),
             by_content: HashMap::new(),
             strips: HashMap::new(),
             projection,
             masks: Masks::new(assets.textures(), projection),
             foreign: BTreeSet::new(),
+            biomes: BiomeTable::new(assets.colors()),
         };
 
         // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
         // Einfluss aufs Bild unterscheiden — Laub nach Entfernung, Kelp nach
-        // Alter, Wasser nach Fallstufe —, teilen sich eine Familie, und die
-        // Familie bekommt die Biome aller ihrer Blockstates.
-        let mut groups: Vec<(Vec<&'a BlockState>, Biomes<'a>)> = Vec::new();
+        // Alter, Wasser nach Fallstufe —, teilen sich eine Familie.
+        let mut groups: Vec<Vec<&'a BlockState>> = Vec::new();
         let mut index: HashMap<FamilyKey, usize> = HashMap::new();
         let mut seen: HashSet<&BlockState> = HashSet::new();
-        for (state, biomes) in states {
+        for state in states {
             if state.is_air() || !seen.insert(state) {
                 continue;
             }
             let key = family_key(assets, state)?;
-            let biomes = biomes.iter().map(String::as_str);
             match index.get(&key) {
-                Some(&i) => {
-                    groups[i].0.push(state);
-                    groups[i].1.extend(biomes);
-                }
+                Some(&i) => groups[i].push(state),
                 None => {
                     index.insert(key, groups.len());
-                    groups.push((vec![state], biomes.collect()));
+                    groups.push(vec![state]);
                 }
             }
         }
 
-        let mut fluids: BTreeMap<Fluid, Biomes<'a>> = BTreeMap::new();
-        for (members, biomes) in groups {
+        let mut fluids: BTreeSet<Fluid> = BTreeSet::new();
+        for members in groups {
             let state = members[0];
             let models = models_of(assets, state)?;
             for member in &members[1..] {
@@ -439,7 +427,7 @@ impl SpriteSet {
             let alternatives: Vec<(u32, Option<SpriteId>)> = models
                 .iter()
                 .map(|(weight, model)| {
-                    let id = set.insert_fluid(assets, state, model, fluid.is_some(), &biomes);
+                    let id = set.insert_fluid(assets, state, model, fluid.is_some());
                     (*weight, id)
                 })
                 .collect();
@@ -472,6 +460,11 @@ impl SpriteSet {
                 foreign,
                 pure_fluid,
                 fluid,
+                resolver: match source_of(state.name()) {
+                    Some(Source::Biome(resolver)) => Some(resolver),
+                    _ => None,
+                },
+                tint_below: tinted_below(state.name(), state.prop("half")),
                 alternatives,
             };
             let index = set.families.len() as u32;
@@ -480,27 +473,37 @@ impl SpriteSet {
             }
             set.families.push(family);
             if let Some((fluid, _)) = fluid {
-                fluids.entry(fluid).or_default().extend(biomes);
+                fluids.insert(fluid);
             }
         }
 
-        for (fluid, biomes) in fluids {
-            set.insert_strips(assets, fluid, &biomes);
+        for fluid in fluids {
+            set.insert_strips(assets, fluid);
         }
         Ok(set)
+    }
+
+    /// Die Farben der Biome für das Zeichnen, mit dem Radius der Mischung
+    /// und dem Seed der Welt, siehe [`BiomeTable`].
+    pub fn set_biomes(&mut self, biomes: BiomeTable) {
+        self.biomes = biomes;
+    }
+
+    pub fn biomes(&self) -> &BiomeTable {
+        &self.biomes
     }
 
     /// Streifen der Seitenflaechen ueber niedrigeren Nachbarn derselben
     /// Fluessigkeit, je Paar aus eigener Hoehe und Nachbarhoehe in Neunteln
     /// und je Seite — der Renderer haengt sie an, wo eine Oberflaeche an
     /// eine hoehere Saeule oder eine Stufe fliessenden Wassers stoesst.
-    fn insert_strips(&mut self, assets: &mut Assets, fluid: Fluid, biomes: &BTreeSet<&str>) {
+    fn insert_strips(&mut self, assets: &mut Assets, fluid: Fluid) {
         let state = fluid.source();
         for own in 2..=fluid::FULL {
             for below in 1..own {
                 for face in [Face::East, Face::South] {
                     let model = fluid::strip(assets, fluid, face, below, own);
-                    if let Some(id) = self.insert_tinted(assets, &state, &model, biomes) {
+                    if let Some(id) = self.insert_tinted(assets, &state, &model) {
                         self.strips.insert((fluid, own, below, face), id);
                     }
                 }
@@ -509,16 +512,15 @@ impl SpriteSet {
     }
 
     /// Ein Modell mit allen Fassungen: bei einer Fluessigkeit je Maske aus
-    /// verdeckten Flaechen eine, und davon je Biom eine.
+    /// verdeckten Flaechen eine.
     fn insert_fluid(
         &mut self,
         assets: &Assets,
         state: &BlockState,
         model: &BakedModel,
         has_fluid: bool,
-        biomes: &BTreeSet<&str>,
     ) -> Option<SpriteId> {
-        let base = self.insert_tinted(assets, state, model, biomes)?;
+        let base = self.insert_tinted(assets, state, model)?;
         // Teilen sich zwei Familien das Bild, teilen sie sich auch die
         // Fassungen, und die erste hat sie schon eingetragen: Blasensaeule
         // und geflutete Truhe sehen aus wie Wasser.
@@ -550,29 +552,25 @@ impl SpriteSet {
                     quads,
                     ambient_occlusion: model.ambient_occlusion,
                 },
-                biomes,
             );
         }
         self.by_mask.insert(base, variants);
         Some(base)
     }
 
-    /// Rastert ein Modell in der Farbe des Standardklimas und, wenn es
-    /// gefaerbte Flaechen hat, je Biom noch einmal.
+    /// Rastert ein Modell, gefärbte Flächen als Tönungskarte: Die Farbe des
+    /// Bioms kommt erst beim Zeichnen dazu, eine feste gleich hier.
     fn insert_tinted(
         &mut self,
         assets: &Assets,
         state: &BlockState,
         model: &BakedModel,
-        biomes: &BTreeSet<&str>,
     ) -> Option<SpriteId> {
-        // Welche Faerbungen das Modell ueberhaupt traegt. Nur die
-        // unterscheiden Fassungen — sonst bekaeme jeder Grasblock eine
-        // Fassung je Wasserfarbe. Gezaehlt wird nur, was der Rasterizer
-        // zeichnet: ein gefluteter Zaun mitten im Wasser behaelt vom
-        // Wasserwuerfel nur die abgewandten Seiten, und die gaeben sonst
-        // je Wasserfarbe eine pixelgleiche Fassung.
-        let uses = model.quads.iter().filter(|q| faces_camera(q)).fold(
+        // Welche Faerbungen das Modell ueberhaupt traegt. Gezaehlt wird nur,
+        // was der Rasterizer zeichnet: ein gefluteter Zaun mitten im Wasser
+        // behaelt vom Wasserwuerfel nur die abgewandten Seiten, und die
+        // braeuchten sonst eine Karte, die nichts traegt.
+        let (block, water) = model.quads.iter().filter(|q| faces_camera(q)).fold(
             (false, false),
             |(block, water), q| match q.tint_index {
                 None => (block, water),
@@ -580,70 +578,33 @@ impl SpriteSet {
                 Some(_) => (true, water),
             },
         );
-        let tints = |biome: Option<&str>| {
-            let t = assets.colors().tints(state.name(), biome);
-            Tints {
-                block: t.block.filter(|_| uses.0),
-                water: t.water.filter(|_| uses.1),
-            }
+        let source = source_of(state.name()).filter(|_| block);
+        let biome = matches!(source, Some(Source::Biome(_)));
+        let fixed = match source {
+            Some(Source::Fixed(tint)) => Some(tint),
+            _ => None,
         };
-
-        let default = tints(None);
+        let tints = |block: Tint, wasser: Tint| Tints {
+            block: fixed.or(biome.then_some(block)),
+            water: water.then_some(wasser),
+        };
+        const SCHWARZ: Tint = [0; 3];
+        const WEISS: Tint = [255; 3];
         let leuchten = blockstate::leuchten(state);
-        let sprite = render(
-            model,
-            assets.textures(),
-            &self.projection,
-            default,
-            leuchten,
-        )?;
-        // Die Faerbung je Biom als Signatur. Zwei Familien mit gleichem Bild
-        // teilen sich das Sprite samt seinen Biomfassungen — das darf nur,
-        // wer sich in jedem Biom gleich faerbt, sonst bekaeme Wasser die
-        // Fassungen einer Blasensaeule aus weniger Biomen.
-        let allowed = |biome: &str| biomes.contains(biome);
-        let class = if default == Tints::default() {
-            0
-        } else {
-            let mut hasher = std::hash::DefaultHasher::new();
-            for biome in assets.colors().biomes() {
-                allowed(biome).then(|| tints(Some(biome))).hash(&mut hasher);
-            }
-            hasher.finish() | 1
-        };
-        let id = self.insert(sprite, model, class);
-
-        // Ein geteilter Eintrag hat seine Biomfassungen schon: gleiche
-        // Klasse heisst gleiche Faerbung in jedem Biom.
-        if class == 0 || self.by_biome.contains_key(&id) {
-            return Some(id);
-        }
-        // Eine Fassung je Biom; gleiche Farben teilen sich das Sprite.
-        let mut by_tints = HashMap::from([(default, id)]);
-        let mut by_biome = Vec::with_capacity(self.biome_index.len());
-        for biome in assets.colors().biomes() {
-            // Biome, mit denen die Blockstate nie zusammen vorkommt, zeigen
-            // auf das Standardklima und werden nie gefragt.
-            if !allowed(biome) {
-                by_biome.push(id);
-                continue;
-            }
-            let tints = tints(Some(biome));
-            let variant = match by_tints.get(&tints) {
-                Some(&variant) => variant,
-                None => {
-                    let sprite =
-                        render(model, assets.textures(), &self.projection, tints, leuchten)
-                            .expect("dasselbe Modell, nur anders gefaerbt");
-                    let variant = self.insert(sprite, model, 0);
-                    by_tints.insert(tints, variant);
-                    variant
-                }
+        let raster = |tints| render(model, assets.textures(), &self.projection, tints, leuchten);
+        let mut sprite = raster(tints(SCHWARZ, SCHWARZ))?;
+        if biome || water {
+            let weiss = |ja: bool, tints| {
+                ja.then(|| raster(tints).expect("dasselbe Modell, nur anders gefaerbt"))
             };
-            by_biome.push(variant);
+            let block = weiss(biome, tints(WEISS, SCHWARZ));
+            let wasser = weiss(water, tints(SCHWARZ, WEISS));
+            let karte = tint_map(&sprite, block.as_ref(), wasser.as_ref());
+            if karte.iter().any(|&w| w != 0) {
+                sprite.tint = Some(karte);
+            }
         }
-        self.by_biome.insert(id, by_biome);
-        Some(id)
+        Some(self.insert(sprite, model))
     }
 
     /// Zerlegt ein Sprite in seine Wuerfel und nimmt es in die Tabelle auf.
@@ -652,15 +613,10 @@ impl SpriteSet {
     /// einer gefluteten oberen Platte sind gleich, wo ihr Wasser in der
     /// deckenden Haelfte liegt, und eine Blasensaeule sieht aus wie Wasser.
     /// Nur fuer Sprites im eigenen Wuerfel — die Zerlegung eines
-    /// ueberhaengenden haengt am Modell, nicht nur am Bild.
-    ///
-    /// `class` ist die Faerbungs-Signatur aus `insert_tinted`: nur Sprites
-    /// derselben Klasse teilen sich den Eintrag. Fassungen je Biom haben
-    /// die Klasse 0 wie ungefaerbte Sprites; Biomfassungen haengen nur am
-    /// Sprite der Standardfarbe.
-    fn insert(&mut self, sprite: Sprite, model: &BakedModel, class: u64) -> SpriteId {
-        let key =
-            fits_cell(&sprite, OWN_CELL, self.projection).then(|| (content_hash(&sprite), class));
+    /// ueberhaengenden haengt am Modell, nicht nur am Bild. Welche Farbe des
+    /// Bioms eine Tönungskarte trägt, hängt an der Familie, nicht am Sprite.
+    fn insert(&mut self, sprite: Sprite, model: &BakedModel) -> SpriteId {
+        let key = fits_cell(&sprite, OWN_CELL, self.projection).then(|| content_hash(&sprite));
         if let Some(key) = key
             && let Some(ids) = self.by_content.get(&key)
             && let Some(&id) = ids
@@ -670,6 +626,7 @@ impl SpriteSet {
             return id;
         }
 
+        let tints = tint_kinds(&sprite);
         let parts = split(sprite, model, self.projection);
         let own = parts
             .iter()
@@ -694,6 +651,7 @@ impl SpriteSet {
             covers_floor,
             contained,
             rows: OnceLock::new(),
+            tints,
         });
         let id = SpriteId(self.sprites.len() as u32 - 1);
         if let Some(key) = key {
@@ -744,22 +702,14 @@ impl SpriteSet {
         }
     }
 
-    /// Die Fassung eines Sprites fuer ein Biom.
-    ///
-    /// `biome` wird nur befragt, wenn das Sprite Fassungen hat — fuer die
-    /// allermeisten Bloecke kostet der Aufruf damit nur einen Nachschlag.
-    /// Ein unbekanntes Biom bekommt die Fassung des Standardklimas.
-    pub fn in_biome<'b>(&self, id: SpriteId, biome: impl FnOnce() -> Option<&'b str>) -> SpriteId {
-        match self.by_biome.get(&id) {
-            Some(variants) => biome()
-                .and_then(|name| self.biome_index.get(name))
-                .map_or(id, |&i| variants[i]),
-            None => id,
-        }
+    /// Welche Farben seine Tönungskarte trägt, [`TINT_BLOCK`] und
+    /// [`TINT_WATER`]; 0 ohne Karte.
+    pub fn tints(&self, id: SpriteId) -> u8 {
+        self.sprites[id.0 as usize].tints
     }
 
-    /// Wie viele Sprites Fassungen sind: Masken, Biome und
-    /// Streifen — alles, was nicht das Grundbild einer Alternative ist.
+    /// Wie viele Sprites Fassungen sind: Masken und Streifen — alles, was
+    /// nicht das Grundbild einer Alternative ist.
     /// Familien teilen sich pixelgleiche Grundbilder, es kann also mehr
     /// Familien geben als Sprites.
     pub fn variants(&self) -> usize {
@@ -889,14 +839,16 @@ fn alpha_at(sprite: &Sprite, x: i32, y: i32) -> u8 {
     sprite.image.get_pixel(sx as u32, sy as u32).0[3]
 }
 
-/// Bild samt AO-Karte: Ein Würfel, den das Spiel nicht weich beleuchtet,
-/// sieht im Sprite aus wie einer, den es weich beleuchtet.
+/// Bild samt AO-Karte und Tönungskarte: Ein Würfel, den das Spiel nicht
+/// weich beleuchtet, sieht im Sprite aus wie einer, den es weich beleuchtet,
+/// und ein gefärbter Pixel ohne seinen Anteil schwarz wie ein schwarzer.
 fn content_hash(sprite: &Sprite) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
     sprite.offset.hash(&mut hasher);
     sprite.image.dimensions().hash(&mut hasher);
     sprite.image.as_raw().hash(&mut hasher);
     sprite.ao.hash(&mut hasher);
+    sprite.tint.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -905,6 +857,43 @@ fn same_image(a: &Sprite, b: &Sprite) -> bool {
         && a.image.dimensions() == b.image.dimensions()
         && a.image.as_raw() == b.image.as_raw()
         && a.ao == b.ao
+        && a.tint == b.tint
+}
+
+/// Die Tönungskarte aus drei Rastern desselben Modells: `schwarz` mit
+/// Schwarz für jede Farbe aus dem Biom, `block` und `wasser` mit Weiss für
+/// die eine und Schwarz für die andere. Mischen und Licht im Sprite sind
+/// linear in der Farbe, der Anteil einer Farbe ist also je Kanal der
+/// Unterschied zum Raster in Schwarz, und das Raster in Schwarz selbst der
+/// Rest. Gekappt, sodass Rest und Anteile zusammen nie über 255 kommen.
+/// Siehe docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
+fn tint_map(schwarz: &Sprite, block: Option<&Sprite>, wasser: Option<&Sprite>) -> Vec<u32> {
+    let rest = schwarz.image.as_raw();
+    let mut karte = vec![0u32; rest.len() / 2];
+    for (i, pixel) in rest.as_chunks::<4>().0.iter().enumerate() {
+        let mut frei = [0, 1, 2].map(|c| 255 - pixel[c] as u32);
+        for (slot, weiss) in [block, wasser].into_iter().enumerate() {
+            let Some(weiss) = weiss else { continue };
+            let hell = &weiss.image.as_raw()[4 * i..][..4];
+            for c in 0..3 {
+                let anteil = (hell[c] as u32)
+                    .saturating_sub(pixel[c] as u32)
+                    .min(frei[c]);
+                frei[c] -= anteil;
+                karte[2 * i + slot] |= anteil << (8 * c);
+            }
+        }
+    }
+    karte
+}
+
+/// Welche Farben die Tönungskarte eines Sprites trägt.
+fn tint_kinds(sprite: &Sprite) -> u8 {
+    let Some(karte) = &sprite.tint else {
+        return 0;
+    };
+    let traegt = |slot: usize| karte.iter().skip(slot).step_by(2).any(|&w| w != 0);
+    (traegt(0) as u8 * TINT_BLOCK) | (traegt(1) as u8 * TINT_WATER)
 }
 
 /// Prueft, ob ein Sprite ganz im Umriss eines Wuerfels bleibt, bis auf
@@ -979,17 +968,22 @@ fn extract(sprite: &Sprite, owner: &[usize], index: usize) -> Option<Sprite> {
     let (x0, y0, x1, y1) = umriss?;
 
     let mut image = RgbaImage::new(x1 - x0 + 1, y1 - y0 + 1);
-    let mut ao = sprite
-        .ao
-        .as_ref()
-        .map(|_| vec![0u32; (image.width() * image.height()) as usize]);
+    let pixels = (image.width() * image.height()) as usize;
+    let mut ao = sprite.ao.as_ref().map(|_| vec![0u32; pixels]);
+    let mut tint = sprite.tint.as_ref().map(|_| vec![0u32; 2 * pixels]);
     for y in y0..=y1 {
         for x in x0..=x1 {
             if gehoert(x, y) {
                 image.put_pixel(x - x0, y - y0, *sprite.image.get_pixel(x, y));
-                if let (Some(teil), Some(ganz)) = (&mut ao, &sprite.ao) {
-                    teil[((y - y0) * (x1 - x0 + 1) + x - x0) as usize] =
-                        ganz[(y * breite + x) as usize];
+                let (teil, ganz) = (
+                    ((y - y0) * (x1 - x0 + 1) + x - x0) as usize,
+                    (y * breite + x) as usize,
+                );
+                if let (Some(neu), Some(alt)) = (&mut ao, &sprite.ao) {
+                    neu[teil] = alt[ganz];
+                }
+                if let (Some(neu), Some(alt)) = (&mut tint, &sprite.tint) {
+                    neu[2 * teil..][..2].copy_from_slice(&alt[2 * ganz..][..2]);
                 }
             }
         }
@@ -998,6 +992,7 @@ fn extract(sprite: &Sprite, owner: &[usize], index: usize) -> Option<Sprite> {
         image,
         offset: (sprite.offset.0 + x0 as i32, sprite.offset.1 + y0 as i32),
         ao,
+        tint,
     })
 }
 
@@ -1094,6 +1089,8 @@ mod tests {
             foreign: false,
             pure_fluid: false,
             seed_offset: [0, 0, 0],
+            resolver: None,
+            tint_below: false,
         };
         let listen = [
             family(&[1, 1, 1, 1]),
@@ -1123,14 +1120,12 @@ mod tests {
         BlockState::parse(text).unwrap()
     }
 
-    /// Die Tabelle fuer Blockstates, die in jedem geladenen Biom vorkommen.
     fn build<'a>(
         assets: &mut Assets,
         states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
     ) -> Result<SpriteSet> {
-        let alle: BTreeSet<String> = assets.colors().biomes().map(str::to_string).collect();
-        SpriteSet::build_in(assets, states.into_iter().map(|s| (s, &alle)), projection)
+        SpriteSet::build_in(assets, states, projection)
     }
 
     #[test]
@@ -1308,6 +1303,7 @@ mod tests {
             image,
             offset,
             ao: None,
+            tint: None,
         };
         assert!(masks.contains(&sprite));
         let (x, y) = stelle(masks.outline[0]);
@@ -1380,21 +1376,17 @@ mod tests {
 
     /// Mitten im Wasser zeigt ein gefluteter Zaun kein Wasser mehr. Die
     /// abgewandten Seiten des Wasserwuerfels zeichnet der Rasterizer nicht,
-    /// ihre Farbe darf keine Fassungen je Biom erzeugen.
+    /// sie brauchen keine Tönungskarte.
     #[test]
     fn abgewandte_flaechen_faerben_nicht() {
         let mut assets = assets();
-        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
-        assets.load_biomes(&data).unwrap();
         let states = [state("oak_fence[waterlogged=true]")];
         let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         let base = set.families[0].alternatives[0].1.unwrap();
-        assert!(set.by_biome.contains_key(&base), "Wasser sichtbar");
+        assert_eq!(set.tints(base), TINT_WATER, "Wasser sichtbar");
         let innen = set.by_mask[&base][7].unwrap();
-        assert!(
-            !set.by_biome.contains_key(&innen),
-            "Maske 7 zeigt kein Wasser"
-        );
+        assert_eq!(set.tints(innen), 0, "Maske 7 zeigt kein Wasser");
+        assert!(set.part(innen, OWN_CELL).unwrap().tint.is_none());
     }
 
     /// Eine Alternative mit fehlendem Modell bleibt als Missing-Wuerfel in
@@ -1475,60 +1467,233 @@ mod tests {
         assert!(set.family_of(&state("kaputt[distance=1]")).is_some());
     }
 
-    /// Gefaerbte Fassungen nur fuer die Biome, mit denen die Blockstate
-    /// vorkommt; die anderen zeigen auf das Standardklima.
+    /// Die Tönungskarte gibt das Bild in jeder Farbe wieder: [`tinted`]
+    /// mit einer Farbe des Blocks und einer des Wassers gleicht bis auf die
+    /// Rundung dem Raster, das die Farben gleich trägt, im Licht des Blocks:
+    /// beim Wasser mit seiner halb durchsichtigen Oberfläche, beim Grasblock
+    /// der Fixture mit gefärbter Oberseite und ungefärbten Seiten, bei einem
+    /// gefluteten Zaun, bei einem gefluteten gefärbten Kreuz, in dessen
+    /// Pixeln sich beide Farben treffen, und bei zwei gefluteten
+    /// Sculk-Sensoren mit demselben Modell, aber anderem Licht unter der
+    /// Oberfläche. Das Raster rundet an jeder Schicht, die Karte einmal je
+    /// Pixel; auseinander liegen sie höchstens um 2, siehe
+    /// docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
+    ///
+    /// [`tinted`]: super::super::rasterizer::tinted
     #[test]
-    fn faerbung_nur_fuer_biome_aus_dem_vorlauf() {
+    fn toenungskarte_gibt_jede_farbe_wieder() {
+        use super::super::rasterizer::{pack, tinted};
         let mut assets = assets();
-        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
-        assets.load_biomes(&data).unwrap();
-        let wasser = state("water[level=0]");
-        let alle = build(&mut assets, [&wasser], Projection::new(16)).unwrap();
-        let nur_frozen: BTreeSet<String> = ["minecraft:frozen".to_string()].into();
-        let eines = SpriteSet::build_in(&mut assets, [(&wasser, &nur_frozen)], Projection::new(16))
-            .unwrap();
-        assert!(
-            eines.len() < alle.len(),
-            "{} gegen {}",
-            eines.len(),
-            alle.len()
-        );
-        let base = eines.id(&wasser).unwrap();
-        assert_ne!(eines.in_biome(base, || Some("minecraft:frozen")), base);
-        assert_eq!(eines.in_biome(base, || Some("terranova:heide")), base);
+        let texte = [
+            "water[level=0]",
+            "grass_block",
+            "oak_fence[waterlogged=true]",
+            "jungle_leaves[distance=1,persistent=false,waterlogged=true]",
+            "sculk_sensor[power=0,sculk_sensor_phase=active,waterlogged=true]",
+            "sculk_sensor[power=0,sculk_sensor_phase=cooldown,waterlogged=true]",
+        ];
+        let states: Vec<BlockState> = texte.iter().map(|t| state(t)).collect();
         assert_ne!(
-            alle.in_biome(alle.id(&wasser).unwrap(), || Some("terranova:heide")),
-            alle.id(&wasser).unwrap()
+            blockstate::leuchten(&states[4]),
+            blockstate::leuchten(&states[5]),
+            "die beiden Sensoren leuchten verschieden"
         );
+        for scale in [4, 16, 32] {
+            let projection = Projection::new(scale);
+            let set = build(&mut assets, &states, projection).unwrap();
+            for st in &states {
+                let id = set.id(st).unwrap();
+                let sprite = set.part(id, OWN_CELL).unwrap();
+                let karte = sprite.tint.as_ref().expect("Tönungskarte");
+                let model = model_of(&mut assets, st).unwrap();
+                let gefaerbt = source_of(st.name()).is_some();
+                for (block, wasser) in [
+                    ([255, 255, 255], [255, 255, 255]),
+                    ([0x91, 0xBD, 0x59], [0x3F, 0x76, 0xE4]),
+                    ([7, 0, 250], [250, 7, 0]),
+                    ([0, 0, 0], [0, 255, 0]),
+                ] {
+                    let direkt = render(
+                        &model,
+                        assets.textures(),
+                        &projection,
+                        Tints {
+                            block: gefaerbt.then_some(block),
+                            water: Some(wasser),
+                        },
+                        blockstate::leuchten(st),
+                    )
+                    .unwrap();
+                    assert_eq!(direkt.image.dimensions(), sprite.image.dimensions());
+                    let farben = [pack(block), pack(wasser)];
+                    let mut beide = false;
+                    for (i, (ist, soll)) in
+                        sprite.image.pixels().zip(direkt.image.pixels()).enumerate()
+                    {
+                        beide |= karte[2 * i] != 0 && karte[2 * i + 1] != 0;
+                        let ist = tinted(ist.0, [karte[2 * i], karte[2 * i + 1]], farben);
+                        assert_eq!(ist[3], soll.0[3], "{st:?}, scale {scale}: Alpha");
+                        for c in 0..3 {
+                            let d = (ist[c] as i32 - soll.0[c] as i32).abs();
+                            assert!(
+                                d <= 2,
+                                "{st:?}, scale {scale}, Farben {block:?} und {wasser:?}, \
+                                 Pixel {i}: {ist:?} gegen {:?}",
+                                soll.0
+                            );
+                        }
+                    }
+                    if st.name() == "minecraft:jungle_leaves" {
+                        assert!(beide, "scale {scale}: kein Pixel mit beiden Farben");
+                    }
+                }
+            }
+        }
     }
 
-    /// Teilen sich zwei Familien ein Bild, aber nicht die Biome, bleiben
-    /// die Sprites getrennt: sonst bestimmte die zuerst gebaute Familie die
-    /// Fassungen der anderen. Die Blasensaeule steht alphabetisch vor dem
-    /// Wasser.
+    /// Die Tönungskarte an allen Vanilla-Blöcken, die gefärbt oder geflutet
+    /// sein können: je Block aus `blocks.txt` bis zu 24 Zustände, die ersten
+    /// und die letzten zwölf, geflutete immer mit Wasser, bei scale 4, 8, 16
+    /// und 32, mit drei Paaren aus
+    /// Block- und Wasserfarbe, gegen das Raster, das die Farben gleich trägt,
+    /// im Licht des Blocks. Braucht die Asset-Wurzeln wie `--assets`, als
+    /// Pfadliste in `ASSETS`, deshalb `#[ignore]`; unter Windows trennt `;`:
+    ///
+    /// ```bash
+    /// ASSETS="$PWD/vanilla-assets:$PWD/assets" cargo test --release --manifest-path renderer/Cargo.toml --lib toenungskarte_an_allen_vanilla_bloecken -- --ignored --nocapture
+    /// ```
+    ///
+    /// Siehe docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
     #[test]
-    fn verschiedene_biome_trennen_gleiche_bilder() {
-        let mut assets = assets();
-        let data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base");
-        assets.load_biomes(&data).unwrap();
-        let wasser = state("water[level=0]");
-        let saeule = state("bubble_column");
-        let frozen: BTreeSet<String> = ["minecraft:frozen".to_string()].into();
-        let beide: BTreeSet<String> = ["minecraft:frozen", "minecraft:swamp"]
-            .map(String::from)
-            .into();
-        let set = SpriteSet::build_in(
-            &mut assets,
-            [(&saeule, &frozen), (&wasser, &beide)],
-            Projection::new(16),
-        )
-        .unwrap();
-        let id = set.id(&wasser).unwrap();
-        assert_ne!(
-            set.in_biome(id, || Some("minecraft:swamp")),
-            id,
-            "Wasser im Sumpf hat seine eigene Farbe"
+    #[ignore]
+    fn toenungskarte_an_allen_vanilla_bloecken() {
+        use super::super::rasterizer::{pack, tinted};
+        let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
+        let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
+        let mut states: Vec<BlockState> = Vec::new();
+        for zeile in include_str!("../assets/blocks.txt").lines() {
+            let mut teile = zeile.split_whitespace();
+            let Some(name) = teile.next() else { continue };
+            let props: Vec<(&str, Vec<&str>)> = teile
+                .filter_map(|t| t.split_once('='))
+                .map(|(k, v)| (k, v.split(',').collect()))
+                .collect();
+            if !props.iter().any(|(k, _)| *k == "waterlogged") && source_of(name).is_none() {
+                continue;
+            }
+            // Die Zustände der Reihe nach wie ein Zählwerk, das letzte
+            // Merkmal läuft innen; geflutet ist immer `true`.
+            let mut index = vec![0usize; props.len()];
+            let mut alle: Vec<BlockState> = Vec::new();
+            'zustand: loop {
+                let merkmale: Vec<String> = props
+                    .iter()
+                    .zip(&index)
+                    .map(|((k, v), &i)| {
+                        format!("{k}={}", if *k == "waterlogged" { "true" } else { v[i] })
+                    })
+                    .collect();
+                let text = if merkmale.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name}[{}]", merkmale.join(","))
+                };
+                if let Ok(st) = BlockState::parse(&text)
+                    && !alle.contains(&st)
+                {
+                    alle.push(st);
+                }
+                for s in (0..props.len()).rev() {
+                    index[s] += 1;
+                    if index[s] < props[s].1.len() {
+                        continue 'zustand;
+                    }
+                    index[s] = 0;
+                }
+                break;
+            }
+            // Die ersten und die letzten zwölf: Hinten stehen die Zustände
+            // mit `false`, etwa Leuchtflechte ohne Fläche, die mit allen
+            // sechs Flächen gezeichnet wird, aber nicht leuchtet.
+            let n = alle.len();
+            states.extend(
+                alle.into_iter()
+                    .enumerate()
+                    .filter(|(i, _)| *i < 12 || i + 12 >= n)
+                    .map(|(_, st)| st),
+            );
+        }
+        let paare = [
+            ([0x91, 0xBD, 0x59], [0x3F, 0x76, 0xE4]),
+            ([7, 0, 250], [250, 7, 0]),
+            ([255, 255, 255], [0, 128, 0]),
+        ];
+        let (mut raster, mut ueber_eins, mut groesste, mut ragen) = (0, 0, 0, 0);
+        let mut je_block: BTreeMap<&str, i32> = BTreeMap::new();
+        for scale in [4, 8, 16, 32] {
+            let projection = Projection::new(scale);
+            let set = build(&mut assets, &states, projection).unwrap();
+            for st in &states {
+                let Some(sprite) = set.id(st).and_then(|id| set.part(id, OWN_CELL)) else {
+                    continue;
+                };
+                let Some(karte) = sprite.tint.as_ref() else {
+                    continue;
+                };
+                let model = model_of(&mut assets, st).unwrap();
+                for (b, w) in paare {
+                    let block = match source_of(st.name()) {
+                        Some(Source::Biome(_)) => Some(b),
+                        Some(Source::Fixed(fest)) => Some(fest),
+                        None => None,
+                    };
+                    let tints = Tints {
+                        block,
+                        water: Some(w),
+                    };
+                    let direkt = render(
+                        &model,
+                        assets.textures(),
+                        &projection,
+                        tints,
+                        blockstate::leuchten(st),
+                    )
+                    .unwrap();
+                    // Ragt das Modell über seinen Würfel, ist das Sprite
+                    // nur das Stück darin; solche zählt der Test nur.
+                    if (sprite.offset, sprite.image.dimensions())
+                        != (direkt.offset, direkt.image.dimensions())
+                    {
+                        ragen += 1;
+                        continue;
+                    }
+                    raster += 1;
+                    let mut max = 0;
+                    for (i, (ist, soll)) in
+                        sprite.image.pixels().zip(direkt.image.pixels()).enumerate()
+                    {
+                        let ist =
+                            tinted(ist.0, [karte[2 * i], karte[2 * i + 1]], [pack(b), pack(w)]);
+                        for (a, s) in ist.iter().zip(soll.0).take(3) {
+                            max = max.max((*a as i32 - s as i32).abs());
+                        }
+                    }
+                    ueber_eins += (max > 1) as u32;
+                    groesste = groesste.max(max);
+                    let eintrag = je_block.entry(st.name()).or_default();
+                    *eintrag = (*eintrag).max(max);
+                }
+            }
+        }
+        println!(
+            "{} Blockstates, {raster} Raster mit Karte, {ueber_eins} über 1, höchstens \
+             {groesste}; {ragen} ragen über ihren Würfel und fehlen",
+            states.len()
         );
+        for (name, max) in je_block.iter().filter(|(_, max)| **max > 1) {
+            println!("  {name}: {max}");
+        }
+        assert!(groesste <= 2, "höchstens {groesste}");
     }
 
     /// Pixelgleiche Sprites teilen sich den Eintrag, auch ueber Familien
@@ -1686,13 +1851,6 @@ mod tests {
                             .map(|(_, &id)| id),
                     );
                 }
-                let biome: Vec<SpriteId> = ids
-                    .iter()
-                    .filter_map(|id| set.by_biome.get(id))
-                    .flatten()
-                    .copied()
-                    .collect();
-                ids.extend(biome);
                 for id in ids {
                     assert!(
                         set.sprites[id.0 as usize].contained,

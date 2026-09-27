@@ -199,6 +199,11 @@ pub struct MapInfo {
     /// Baum aus einem älteren Stand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_levels: Option<u32>,
+    /// Mit welchem Radius die Kacheln Biomfarben mischen, siehe
+    /// `--biome-blend`. Fehlt das Feld, stammt der Baum aus einem älteren
+    /// Stand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub biome_blend: Option<u8>,
     /// Zu welcher Welt der Baum gehört, siehe [`world_id`]; `null` bei einer
     /// Welt ohne Kennung. Fehlt das Feld, stammt der Baum aus einem älteren
     /// Stand.
@@ -233,6 +238,7 @@ impl MapInfo {
             tiles: "{z}/{x}/{y}.webp".to_string(),
             bounds: [links, oben, rechts, unten],
             native_levels: None,
+            biome_blend: None,
             world: None,
         }
     }

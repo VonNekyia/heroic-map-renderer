@@ -29,17 +29,25 @@ DOKU = {
     "map": ((-64, 416), 16, 900),
     "map-wide": ((0, 0), 4, 900),
 }
+# Biomgrenzen für docs/renderer/biomfarben.md, je zweimal gerendert und
+# zugeschnitten: links --biome-blend 0, rechts 2, die Vorgabe.
+GRENZEN = {
+    "biomgrenze-savanne": ((624, 716), 8, 800, (0, 100, 800, 580)),
+    "biomgrenze-ozean": ((816, 720), 8, 800, (60, 60, 800, 540)),
+}
+LUECKE = 8
 # Der Banner: dieser Ausschnitt von "welt" vor dem Zuschnitt, darüber die
 # Ebenen aus docs/bilder/quellen/banner.aseprite.
 BANNER = (520, 690, 1800, 1090)
 BILDER = Path("docs/bilder")
 
 
-def rendern(renderer, daten, ziel, center, scale, size):
+def rendern(renderer, daten, ziel, center, scale, size, extra=()):
     subprocess.run(
         [renderer, "--world", daten / "world", "--assets", daten / "vanilla-assets",
          "--assets", daten / "assets", "--data", daten / "vanilla-data", "--render", ziel,
-         "--center", str(center[0]), str(center[1]), "--size", str(size), "--scale", str(scale)],
+         "--center", str(center[0]), str(center[1]), "--size", str(size), "--scale", str(scale),
+         *extra],
         check=True,
     )
 
@@ -61,6 +69,17 @@ def main():
             webp(bild.crop(box), name)
             if name == "welt":
                 banner = bild.crop(BANNER)
+        for name, (center, scale, size, box) in GRENZEN.items():
+            felder = []
+            for blend in ("0", "2"):
+                png = Path(tmp) / f"{name}-{blend}.png"
+                rendern(renderer, daten, png, center, scale, size, ["--biome-blend", blend])
+                felder.append(Image.open(png).convert("RGBA").crop(box))
+            breite, hoehe = felder[0].size
+            paar = Image.new("RGBA", (2 * breite + LUECKE, hoehe), (255, 255, 255, 255))
+            for i, feld in enumerate(felder):
+                paar.paste(feld, (i * (breite + LUECKE), 0))
+            webp(paar, name)
     banner.alpha_composite(Image.open(BILDER / "quellen" / "banner-ebenen.png").convert("RGBA"))
     webp(banner, "banner")
 

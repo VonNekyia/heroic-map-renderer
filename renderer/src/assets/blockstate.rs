@@ -198,7 +198,7 @@ static LEUCHTEN: LazyLock<HashMap<&'static str, &'static [u8]>> = LazyLock::new(
 /// ihm selbst kommt (`LightCoordsUtil.getLightCoords`): `emissiveRendering`
 /// zeichnet ihn voll hell, sonst hebt `getLightEmission` das Blocklicht
 /// mindestens auf seine Stufe.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Leuchten {
     Stufe(u8),
     Voll,

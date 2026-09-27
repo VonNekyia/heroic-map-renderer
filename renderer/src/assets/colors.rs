@@ -16,6 +16,7 @@ use image::RgbaImage;
 use serde_json::Value;
 
 use super::blockstate::{boolean, field, float, int_value};
+use super::noise;
 use super::pack::{self, Pack};
 use super::{parse_json, read_text, split_id};
 
@@ -24,9 +25,12 @@ pub type Tint = [u8; 3];
 
 /// Die Farben für die färbbaren Flächen eines Sprites.
 ///
-/// Ein Modell trägt höchstens eine eigene Färbung (`tintindex` ist in
-/// Vanilla immer 0); Wasser in einem gefluteten Block kommt als zweite
-/// dazu und hat immer die Wasserfarbe des Bioms.
+/// Jede Fläche mit `tintindex` trägt die Farbe des Blocks, gleich mit
+/// welchem Index. In Vanilla tragen nur Blütenteppich und Wildblumen einen
+/// anderen als 0: ihre Stiele Lage 1, die das Spiel mit Gras färbt; Lage 0
+/// liesse es ungefärbt, ihre Modelle haben aber keine. Wasser in einem
+/// gefluteten Block kommt als zweite Farbe dazu und hat immer die
+/// Wasserfarbe des Bioms.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Tints {
     pub block: Option<Tint>,
@@ -47,38 +51,86 @@ const DEFAULT_WATER: Tint = [0x3F, 0x76, 0xE4];
 const SPRUCE: Tint = [0x61, 0x99, 0x61];
 const BIRCH: Tint = [0x80, 0xA7, 0x55];
 const LILY_PAD: Tint = [0x20, 0x80, 0x30];
-/// Sumpfgras. Minecraft wählt je nach Rauschen zwischen zwei Grüntönen;
-/// das hier ist der häufigere.
-// ponytail: fester Ton statt Perlin-Rauschen je Position. Erst nötig, wenn
-// jemand die Flecken im Sumpf vermisst.
-const SWAMP_GRASS: Tint = [0x6A, 0x70, 0x39];
+/// Die beiden Grün des Sumpfs aus `GrassColorModifier.SWAMP`: das dunkle,
+/// wo das Rauschen unter -0,1 liegt, sonst das helle.
+/// Siehe docs/renderer/biomfarben.md, „Sumpfgras“.
+const SWAMP_DARK: Tint = [0x4C, 0x76, 0x3C];
+const SWAMP_LIGHT: Tint = [0x6A, 0x70, 0x39];
 
-/// Woher die Farbe eines Blocks kommt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Source {
+/// Die vier `ColorResolver` aus `BiomeColors`: welche Farbe des Bioms eine
+/// gefärbte Fläche trägt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Resolver {
     Grass,
     Foliage,
     DryFoliage,
     Water,
+}
+
+/// Woher die Farbe eines Blocks kommt: aus dem Biom, gemischt beim
+/// Zeichnen, oder fest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    Biome(Resolver),
     Fixed(Tint),
 }
 
 /// Welche Blöcke gefärbt werden. Alles andere mit `tintindex` bleibt
 /// ungefärbt.
 /// Siehe docs/renderer/biomfarben.md, „Welche Blöcke“.
-fn source_of(block: &str) -> Option<Source> {
+pub fn source_of(block: &str) -> Option<Source> {
+    use Resolver::*;
     Some(match split_id(block).1 {
         "grass_block" | "short_grass" | "tall_grass" | "fern" | "large_fern" | "potted_fern"
-        | "bush" | "sugar_cane" => Source::Grass,
+        | "bush" | "sugar_cane" | "pink_petals" | "wildflowers" => Source::Biome(Grass),
         "oak_leaves" | "jungle_leaves" | "acacia_leaves" | "dark_oak_leaves"
-        | "mangrove_leaves" | "vine" => Source::Foliage,
-        "leaf_litter" => Source::DryFoliage,
-        "water_cauldron" => Source::Water,
+        | "mangrove_leaves" | "vine" => Source::Biome(Foliage),
+        "leaf_litter" => Source::Biome(DryFoliage),
+        "water_cauldron" => Source::Biome(Water),
         "spruce_leaves" => Source::Fixed(SPRUCE),
         "birch_leaves" => Source::Fixed(BIRCH),
         "lily_pad" => Source::Fixed(LILY_PAD),
         _ => return None,
     })
+}
+
+/// Ob ein Block seine Farbe am Block darunter nimmt: die obere Hälfte von
+/// hohem Gras und grossem Farn, wie `BlockTintSources.doubleTallGrass`.
+/// Siehe docs/renderer/biomfarben.md, „Welche Blöcke“.
+pub fn tinted_below(block: &str, half: Option<&str>) -> bool {
+    half == Some("upper") && matches!(split_id(block).1, "tall_grass" | "large_fern")
+}
+
+/// Die Farben eines Bioms, wie die vier [`Resolver`] sie liefern, ohne
+/// Mischung.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BiomeColors {
+    grass: Tint,
+    foliage: Tint,
+    dry_foliage: Tint,
+    water: Tint,
+    /// `grass_color_modifier: swamp`: das Gras nach dem Rauschen an der
+    /// Stelle.
+    swamp: bool,
+}
+
+impl BiomeColors {
+    /// Die Farbe an der Blockspalte `(x, z)`; nur Sumpfgras hängt an ihr.
+    pub fn get(&self, resolver: Resolver, x: i32, z: i32) -> Tint {
+        match resolver {
+            Resolver::Grass if self.swamp => {
+                if noise::biome_info(x, z) < -0.1 {
+                    SWAMP_DARK
+                } else {
+                    SWAMP_LIGHT
+                }
+            }
+            Resolver::Grass => self.grass,
+            Resolver::Foliage => self.foliage,
+            Resolver::DryFoliage => self.dry_foliage,
+            Resolver::Water => self.water,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,42 +262,47 @@ impl Colors {
         self.biomes.keys().map(String::as_str)
     }
 
-    /// Die Farben eines Blocks in einem Biom. `None` als Biom — oder ein
-    /// unbekanntes — ergibt das Standardklima.
+    /// Die Farben eines Blocks in einem Biom, ungemischt, Sumpfgras an der
+    /// Spalte x = z = 0. `None` als Biom — oder ein unbekanntes — ergibt
+    /// das Standardklima.
     pub fn tints(&self, block: &str, biome: Option<&str>) -> Tints {
-        let biome = biome.and_then(|name| self.biomes.get(name));
+        let colors = self.biome_colors(biome);
         Tints {
-            block: source_of(block).map(|source| self.color(source, biome)),
-            water: Some(self.color(Source::Water, biome)),
+            block: source_of(block).map(|source| match source {
+                Source::Fixed(tint) => tint,
+                Source::Biome(resolver) => colors.get(resolver, 0, 0),
+            }),
+            water: Some(colors.water),
         }
     }
 
-    fn color(&self, source: Source, biome: Option<&Biome>) -> Tint {
+    /// Die Farben eines Bioms; `None` — oder ein unbekanntes — ergibt das
+    /// Standardklima.
+    pub fn biome_colors(&self, biome: Option<&str>) -> BiomeColors {
+        let biome = biome.and_then(|name| self.biomes.get(name));
         let (temperature, downfall) =
             biome.map_or(DEFAULT_CLIMATE, |b| (b.temperature, b.downfall));
         let from_map = |map: &Option<RgbaImage>, fallback| {
             map.as_ref()
                 .map_or(fallback, |map| lookup(map, temperature, downfall))
         };
-        match source {
-            Source::Fixed(tint) => tint,
-            Source::Water => biome.and_then(|b| b.water).unwrap_or(DEFAULT_WATER),
-            Source::Foliage => biome
+        let grass = biome
+            .and_then(|b| b.grass)
+            .unwrap_or_else(|| from_map(&self.grass, DEFAULT_GRASS));
+        let modifier = biome.map_or(Modifier::None, |b| b.modifier);
+        BiomeColors {
+            grass: match modifier {
+                Modifier::DarkForest => dark_forest(grass),
+                _ => grass,
+            },
+            foliage: biome
                 .and_then(|b| b.foliage)
                 .unwrap_or_else(|| from_map(&self.foliage, DEFAULT_FOLIAGE)),
-            Source::DryFoliage => biome
+            dry_foliage: biome
                 .and_then(|b| b.dry_foliage)
                 .unwrap_or_else(|| from_map(&self.dry_foliage, DEFAULT_DRY_FOLIAGE)),
-            Source::Grass => {
-                let grass = biome
-                    .and_then(|b| b.grass)
-                    .unwrap_or_else(|| from_map(&self.grass, DEFAULT_GRASS));
-                match biome.map_or(Modifier::None, |b| b.modifier) {
-                    Modifier::None => grass,
-                    Modifier::Swamp => SWAMP_GRASS,
-                    Modifier::DarkForest => dark_forest(grass),
-                }
-            }
+            water: biome.and_then(|b| b.water).unwrap_or(DEFAULT_WATER),
+            swamp: modifier == Modifier::Swamp,
         }
     }
 }
@@ -458,6 +515,31 @@ mod tests {
         assert_eq!(dark_forest([0xFF, 0xFF, 0xFF]), [147, 153, 132]);
     }
 
+    /// Im Sumpf wählt das Rauschen je Spalte eines der zwei Grün, wie
+    /// `GrassColorModifier.SWAMP`: an den beiden Stellen, die im Spiel der
+    /// Grenze -0,1 am nächsten liegen, einmal knapp darunter, einmal knapp
+    /// darüber, siehe `noise::tests`. Laub und Wasser hängen nicht an der
+    /// Stelle, und ohne Modifikator auch das Gras nicht.
+    #[test]
+    fn sumpfgras_nach_dem_rauschen() {
+        let sumpf = BiomeColors {
+            grass: DEFAULT_GRASS,
+            foliage: DEFAULT_FOLIAGE,
+            dry_foliage: DEFAULT_DRY_FOLIAGE,
+            water: DEFAULT_WATER,
+            swamp: true,
+        };
+        assert_eq!(sumpf.get(Resolver::Grass, 416, -988), SWAMP_DARK);
+        assert_eq!(sumpf.get(Resolver::Grass, 404, 737), SWAMP_LIGHT);
+        assert_eq!(sumpf.get(Resolver::Foliage, 416, -988), DEFAULT_FOLIAGE);
+        assert_eq!(sumpf.get(Resolver::Water, 416, -988), DEFAULT_WATER);
+        let ebene = BiomeColors {
+            swamp: false,
+            ..sumpf
+        };
+        assert_eq!(ebene.get(Resolver::Grass, 416, -988), DEFAULT_GRASS);
+    }
+
     #[test]
     fn ohne_daten_gelten_die_plains_farben() {
         let colors = Colors::default();
@@ -483,5 +565,35 @@ mod tests {
             colors.tints("minecraft:bush", None).block,
             Some(DEFAULT_GRASS)
         );
+    }
+
+    /// Die Färbung aus `BlockColors.createDefault` in 26.2, soweit sie
+    /// Fläche macht: Blütenteppich und Wildblumen färben ihre Stiele mit
+    /// Gras, die obere Hälfte von hohem Gras und grossem Farn nimmt die Farbe
+    /// am Block darunter, die von anderen Doppelpflanzen nicht.
+    #[test]
+    fn farbquellen_wie_blockcolors() {
+        use Resolver::*;
+        for (block, soll) in [
+            ("grass_block", Some(Source::Biome(Grass))),
+            ("short_grass", Some(Source::Biome(Grass))),
+            ("tall_grass", Some(Source::Biome(Grass))),
+            ("large_fern", Some(Source::Biome(Grass))),
+            ("pink_petals", Some(Source::Biome(Grass))),
+            ("wildflowers", Some(Source::Biome(Grass))),
+            ("sugar_cane", Some(Source::Biome(Grass))),
+            ("vine", Some(Source::Biome(Foliage))),
+            ("leaf_litter", Some(Source::Biome(DryFoliage))),
+            ("water_cauldron", Some(Source::Biome(Water))),
+            ("birch_leaves", Some(Source::Fixed(BIRCH))),
+            ("cherry_leaves", None),
+            ("sunflower", None),
+        ] {
+            assert_eq!(source_of(&format!("minecraft:{block}")), soll, "{block}");
+        }
+        assert!(tinted_below("minecraft:tall_grass", Some("upper")));
+        assert!(tinted_below("minecraft:large_fern", Some("upper")));
+        assert!(!tinted_below("minecraft:tall_grass", Some("lower")));
+        assert!(!tinted_below("minecraft:sunflower", Some("upper")));
     }
 }

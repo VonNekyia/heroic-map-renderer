@@ -122,7 +122,7 @@ fn vorlauf_findet_jede_kachel_mit_inhalt() {
     assert!(
         gefunden
             .states
-            .keys()
+            .iter()
             .any(|s| s.name() == "minecraft:seerose"),
         "die Blockstates der Welt müssen im Vorlauf auftauchen"
     );
@@ -217,22 +217,12 @@ fn vorlauf_einer_kachel_findet_sie() {
     }
 }
 
-/// Die Biome, die der Vorlauf einer Blockstate zuordnet.
-fn biome_von(gefunden: &terranova_render::render::Survey, name: &str) -> Vec<String> {
-    let (_, biome) = gefunden
-        .states
-        .iter()
-        .find(|(state, _)| state.name() == name)
-        .unwrap_or_else(|| panic!("{name} fehlt im Vorlauf"));
-    biome.iter().cloned().collect()
-}
-
-/// Der Vorlauf merkt sich je Blockstate die Biome ihrer Sections, nicht
-/// die der ganzen Region: gefärbte Fassungen entstehen nur, wo ein Block
-/// steht. Hat eine Region mehr Biome, als die Bitmaske fasst, bekommt
-/// jede Blockstate alle.
+/// Der Vorlauf sammelt die Blockstates und die Biome der Welt, jedes
+/// einmal: gefärbt wird erst beim Zeichnen, die Biome braucht er nur für
+/// die Meldung, welche keine Definition haben. Auch 130 Biome in einer
+/// Region kommen alle an.
 #[test]
-fn vorlauf_kennt_die_biome_je_blockstate() {
+fn vorlauf_kennt_die_biome_der_welt() {
     let dir = tempdir();
     common::write_world_in(
         dir.path(),
@@ -254,20 +244,19 @@ fn vorlauf_kennt_die_biome_je_blockstate() {
     let world = World::open(dir.path()).unwrap();
     let gefunden = survey(&world, Projection::new(16), Y_RANGE, None).unwrap();
     assert_eq!(
-        biome_von(&gefunden, "minecraft:einfarbig"),
+        gefunden.biomes.iter().collect::<Vec<_>>(),
         ["minecraft:frozen", "minecraft:plains"]
     );
-    assert_eq!(
-        biome_von(&gefunden, "minecraft:grass_block"),
-        ["minecraft:plains"]
-    );
-    assert_eq!(
-        biome_von(&gefunden, "minecraft:water"),
-        ["minecraft:frozen"]
-    );
+    let namen: Vec<&str> = gefunden.states.iter().map(|s| s.name()).collect();
+    for name in [
+        "minecraft:air",
+        "minecraft:einfarbig",
+        "minecraft:grass_block",
+        "minecraft:water",
+    ] {
+        assert!(namen.contains(&name), "{name} fehlt in {namen:?}");
+    }
 
-    // 130 Biome in einer Region, je Chunk eines; das Gras steht nur im
-    // ersten.
     let dir = tempdir();
     let chunks: Vec<(i32, i32)> = (0..130).map(|i| (i % 32, i / 32)).collect();
     let namen: Vec<&'static str> = (0..130)
@@ -276,20 +265,15 @@ fn vorlauf_kennt_die_biome_je_blockstate() {
     common::write_world_in(
         dir.path(),
         &chunks,
-        |x, y, z| match (x, y, z) {
-            (0, 0, 0) => "minecraft:grass_block",
-            (_, 0, _) => "minecraft:einfarbig",
+        |_, y, _| match y {
+            0 => "minecraft:einfarbig",
             _ => "minecraft:air",
         },
         |cx, cz| Some(namen[(cx + 32 * cz) as usize]),
     );
     let world = World::open(dir.path()).unwrap();
     let gefunden = survey(&world, Projection::new(16), Y_RANGE, None).unwrap();
-    assert_eq!(
-        biome_von(&gefunden, "minecraft:grass_block").len(),
-        130,
-        "mehr als 128 Biome: jede Blockstate bekommt alle"
-    );
+    assert_eq!(gefunden.biomes.len(), 130);
 }
 
 /// WebP verlustfrei: die Pixel müssen die Runde überstehen.

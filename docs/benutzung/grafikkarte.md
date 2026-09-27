@@ -32,8 +32,12 @@ gehen je Durchgang hinüber, mit ihnen die Sprites, die sie brauchen, jedes
 einmal; die fertigen Bilder kommen zurück und werden wie bisher als WebP
 geschrieben.
 
-Eine Instanz trägt Sprite, Position, die Faktoren des Lichts und die drei
-Wörter der weichen Beleuchtung, 32 Bytes. Die Karte bekommt dieselben
+Eine Instanz trägt Sprite, Position, die Faktoren des Lichts, die drei
+Wörter der weichen Beleuchtung und die Farben des Blocks für die
+Tönungskarte, 40 Bytes. Hinter den Pixeln eines Sprites stehen im Puffer
+seine AO-Karte und seine Tönungskarte, falls es sie hat, siehe
+[Biomfarben](../renderer/biomfarben.md), „Tönung beim Zeichnen“. Die Karte
+bekommt dieselben
 Draws, die die Deckungsmaske der CPU behält, und zeichnet jeden ganz; was
 davon verdeckt ist, übermalt ein späterer Draw mit Alpha 255, siehe
 [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Deckungsmaske“.
@@ -44,10 +48,11 @@ Das Mischen rechnet ganzzahlig, weil Gleitkomma auf jeder Karte anders
 rundet: `over` rechnet auf 1/255² erweitert und rundet einmal am Schluss, im
 Shader genauso wie auf der CPU. Gegenüber der Gleitkommafassung davor weicht
 das Ergebnis höchstens um 1 ab, und nur dort, wo Gleitkomma selbst daneben
-lag; in den Testbildern ergab sie dieselben Pixel. Licht und weiche
+lag; in den Testbildern ergab sie dieselben Pixel. Tönung, Licht und weiche
 Beleuchtung rechnen ebenso ganzzahlig. Tests prüfen das auf jeder Karte, auf
 der sie laufen, auch in einer Szene mit Lava in Stufen, Ackerboden neben
-Lava, Draws unter Wasser und weich beleuchteten Draws. Warum so:
+Lava, Draws unter Wasser, weich beleuchteten Draws und Gras und Wasser über
+eine Biomgrenze. Warum so:
 [0023](../entscheidungen/0023-zeichnen-auf-der-grafikkarte.md).
 
 ## Adapter und Backends

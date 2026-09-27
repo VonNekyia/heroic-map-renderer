@@ -114,3 +114,18 @@ Adapter ein Fehler, siehe [Grafikkarte](../benutzung/grafikkarte.md),
 Ein Test, der Verhalten des Spiels festschreibt, nennt die Herkunft des
 Werts in einem Satz. Wie man den Beleg holt: Skill
 [`spielverhalten-belegen`](../../skills/spielverhalten-belegen/SKILL.md).
+Wo eine Rechnung zu viele Fälle hat, um sie von Hand nachzurechnen, gibt
+ein kleines Java-Programm die Werte aus den Klassen des Spiels selbst aus:
+für Biomzoom, Seed und Sumpfrauschen
+[`renderer/src/world/Biomwerte.java`](../../renderer/src/world/Biomwerte.java),
+siehe [Biomfarben](../renderer/biomfarben.md), „Belege“.
+
+## Tests mit den Vanilla-Assets
+
+Die CI hat keine Vanilla-Assets. Ein Test, der sie braucht, trägt
+`#[ignore]` und liest ihre Wurzeln aus der Umgebung:
+`toenungskarte_an_allen_vanilla_bloecken` in `sprites.rs` prüft die
+Tönungskarte an allen Blöcken, die gefärbt oder geflutet sein können, mit
+den Wurzeln wie `--assets` als Pfadliste in `ASSETS`. Der Aufruf steht am
+Test, das Ergebnis in [Biomfarben](../renderer/biomfarben.md), „Tönung beim
+Zeichnen“.

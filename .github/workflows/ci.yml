@@ -113,6 +113,36 @@ jobs:
           name: playwright-report
           path: web/playwright-report
 
+  doku:
+    name: Doku
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verweise, Links und code:-Pfade
+        run: bash .github/pruefe-doku.sh
+
+      # Die Probe verbiegt je einen Verweis, eine Überschrift, einen Link und
+      # einen Pfad unter code:. Die Prüfung muss alle vier melden. Ihre
+      # Meldungen stehen mit Präfix im Log, sonst heftete GitHub sie als
+      # Fehler an die PR.
+      - name: Probe, dass die Prüfung anschlägt
+        run: |
+          sed -i '0,/Siehe docs\/renderer\/renderpfad\.md/s//Siehe docs\/renderer\/gibt-es-nicht.md/' renderer/src/render/metatile.rs
+          sed -i '0,/„Vorlauf“/s//„Gibt es nicht“/' renderer/src/cli.rs
+          sed -i '0,/](docs\/index\.md)/s//](docs\/gibt-es-nicht.md)/' README.md
+          sed -i '0,/^  - renderer\/src\/render\/gpu\.rs$/s//  - renderer\/src\/render\/gibt-es-nicht.rs/' docs/benutzung/grafikkarte.md
+          test "$(git diff --name-only | wc -l)" -eq 4
+          if bash .github/pruefe-doku.sh > probe.txt; then
+            echo "Die Prüfung hat nichts gemeldet."
+            exit 1
+          fi
+          sed 's/^::error /Probe: /' probe.txt
+          test "$(grep -c '^::error ' probe.txt)" -eq 4
+
   deny:
     name: Dependencies
     runs-on: ubuntu-latest

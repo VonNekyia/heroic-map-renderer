@@ -1,3 +1,5 @@
 # Regionsdateien niemals durch Zeilenende-Konvertierung laufen lassen
 *.mca binary
 *.png binary
+# Shell-Skripte laufen in der CI unter Linux
+*.sh text eol=lf

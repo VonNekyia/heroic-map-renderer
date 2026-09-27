@@ -350,6 +350,7 @@ impl Assets {
         // erstbeste Definition gewinnt bei elements.
         let mut textures: HashMap<String, model::Slot> = HashMap::new();
         let mut elements = None;
+        let mut ambient_occlusion = None;
         let mut current = Some(id.to_string());
         let mut seen = Vec::new();
 
@@ -390,6 +391,7 @@ impl Assets {
             if elements.is_none() {
                 elements = raw.elements;
             }
+            ambient_occlusion = ambient_occlusion.or(raw.ambient_occlusion);
             current = raw.parent;
         }
 
@@ -399,6 +401,7 @@ impl Assets {
             &mut self.textures,
             &self.packs,
             id,
+            ambient_occlusion.unwrap_or(true),
         )?);
         self.models.insert(id.to_string(), Arc::clone(&model));
         Ok(model)
@@ -570,6 +573,41 @@ mod tests {
         assert!(read_json(&datei).is_err());
         std::fs::write(&datei, format!(r#"{{}} {{"x": {zahl}}}"#)).unwrap();
         assert!(read_json(&datei).is_ok());
+    }
+
+    /// `ambientocclusion` erbt wie im Client
+    /// (`ResolvedModel.findTopAmbientOcclusion`): Das Modell selbst oder der
+    /// nächste Parent, der es setzt, gewinnt; setzt es keiner, ist es wahr.
+    #[test]
+    fn weiche_beleuchtung_erbt_vom_naechsten_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let block = dir.path().join("minecraft/models/block");
+        std::fs::create_dir_all(&block).unwrap();
+        for (name, json) in [
+            ("oben", r#"{"ambientocclusion": true}"#),
+            (
+                "mitte",
+                r#"{"parent": "block/oben", "ambientocclusion": false}"#,
+            ),
+            ("unten", r#"{"parent": "block/mitte"}"#),
+            (
+                "eigen",
+                r#"{"parent": "block/mitte", "ambientocclusion": true}"#,
+            ),
+            ("ohne", "{}"),
+        ] {
+            std::fs::write(block.join(format!("{name}.json")), json).unwrap();
+        }
+        let mut assets = Assets::open(vec![dir.path().to_path_buf()]).unwrap();
+        let mut ao = |name: &str| {
+            assets
+                .model(&format!("minecraft:block/{name}"))
+                .unwrap()
+                .ambient_occlusion
+        };
+        assert!(!ao("unten"), "vom Parent");
+        assert!(ao("eigen"), "eigener Wert");
+        assert!(ao("ohne"), "keiner setzt es");
     }
 
     #[test]

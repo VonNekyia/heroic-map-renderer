@@ -115,7 +115,10 @@ fn block(top: f32, only_up: bool) -> BakedModel {
     let quads = box_quads([0.0; 3], [16.0, top, 16.0], Textures::MISSING, None, None)
         .filter(|quad| !only_up || quad.normal()[1] > 0.0)
         .collect();
-    BakedModel { quads }
+    BakedModel {
+        quads,
+        ambient_occlusion: false,
+    }
 }
 
 /// Die Pixel, die ein Modell belegt, relativ zum Blockursprung.
@@ -315,7 +318,10 @@ fn full_height(model: &BakedModel) -> BakedModel {
             fluid,
         ));
     }
-    BakedModel { quads }
+    BakedModel {
+        quads,
+        ambient_occlusion: model.ambient_occlusion,
+    }
 }
 
 /// Zeilenmasken eines Sprites für die Deckungsmaske der CPU: je Zeile ein
@@ -549,8 +555,15 @@ impl SpriteSet {
                 .filter(|q| q.fluid.is_none_or(|(_, face)| mask & mask_bit(face) == 0))
                 .cloned()
                 .collect();
-            variants[mask as usize] =
-                self.insert_tinted(assets, state, &BakedModel { quads }, biomes);
+            variants[mask as usize] = self.insert_tinted(
+                assets,
+                state,
+                &BakedModel {
+                    quads,
+                    ambient_occlusion: model.ambient_occlusion,
+                },
+                biomes,
+            );
         }
         self.by_mask.insert(base, variants);
         Some(base)
@@ -705,6 +718,14 @@ impl SpriteSet {
     /// Nachbarn und der eigenen, beide in Neunteln.
     pub fn strip(&self, fluid: Fluid, own: u8, below: u8, face: Face) -> Option<SpriteId> {
         self.strips.get(&(fluid, own, below, face)).copied()
+    }
+
+    /// Hat das Sprite eine AO-Karte, wird es also weich beleuchtet?
+    pub fn has_ao(&self, id: SpriteId) -> bool {
+        self.sprites[id.0 as usize]
+            .parts
+            .iter()
+            .any(|(_, sprite)| sprite.ao.is_some())
     }
 
     /// Das Sprite der ersten Alternative.
@@ -880,11 +901,14 @@ fn alpha_at(sprite: &Sprite, x: i32, y: i32) -> u8 {
     sprite.image.get_pixel(sx as u32, sy as u32).0[3]
 }
 
+/// Bild samt AO-Karte: Ein Würfel, den das Spiel nicht weich beleuchtet,
+/// sieht im Sprite aus wie einer, den es weich beleuchtet.
 fn content_hash(sprite: &Sprite) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
     sprite.offset.hash(&mut hasher);
     sprite.image.dimensions().hash(&mut hasher);
     sprite.image.as_raw().hash(&mut hasher);
+    sprite.ao.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -892,6 +916,7 @@ fn same_image(a: &Sprite, b: &Sprite) -> bool {
     a.offset == b.offset
         && a.image.dimensions() == b.image.dimensions()
         && a.image.as_raw() == b.image.as_raw()
+        && a.ao == b.ao
 }
 
 /// Prueft, ob ein Sprite ganz im Umriss eines Wuerfels bleibt, bis auf
@@ -974,16 +999,25 @@ fn extract(sprite: &Sprite, owner: &[usize], index: usize) -> Option<Sprite> {
     let (x0, y0, x1, y1) = umriss?;
 
     let mut image = RgbaImage::new(x1 - x0 + 1, y1 - y0 + 1);
+    let mut ao = sprite
+        .ao
+        .as_ref()
+        .map(|_| vec![0u32; (image.width() * image.height()) as usize]);
     for y in y0..=y1 {
         for x in x0..=x1 {
             if gehoert(x, y) {
                 image.put_pixel(x - x0, y - y0, *sprite.image.get_pixel(x, y));
+                if let (Some(teil), Some(ganz)) = (&mut ao, &sprite.ao) {
+                    teil[((y - y0) * (x1 - x0 + 1) + x - x0) as usize] =
+                        ganz[(y * breite + x) as usize];
+                }
             }
         }
     }
     Some(Sprite {
         image,
         offset: (sprite.offset.0 + x0 as i32, sprite.offset.1 + y0 as i32),
+        ao,
     })
 }
 
@@ -1290,7 +1324,11 @@ mod tests {
             let (x, y) = stelle(pos);
             image.put_pixel(x, y, Rgba([9, 9, 9, 255]));
         }
-        let mut sprite = Sprite { image, offset };
+        let mut sprite = Sprite {
+            image,
+            offset,
+            ao: None,
+        };
         assert!(masks.contains(&sprite));
         let (x, y) = stelle(masks.outline[0]);
         sprite.image.put_pixel(x, y, Rgba([0; 4]));

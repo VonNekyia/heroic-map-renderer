@@ -4,12 +4,12 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::Face;
-use crate::assets::blockstate::{self, Leuchten};
+use crate::assets::blockstate::{self, DUNKELT, Leuchten, SICHT};
 use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
 use crate::world::{Chunk, REGION, Region, Section, World};
 
-use super::rasterizer::{FULL_LIGHT, Light, darken, over};
+use super::rasterizer::{FULL_LIGHT, Light, NO_AO, ao_factor, darken, over, with_ao};
 use super::sprites::{Family, Rows, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
@@ -136,8 +136,8 @@ pub fn render_area_with(
 ) -> Result<RgbaImage> {
     let deckung = von_vorn(chunks, rect, y_range)?;
     let mut canvas = RgbaImage::new(rect.width, rect.height);
-    for &(sprite, origin, ref sicht, light) in chunks.sichtbar.iter().rev() {
-        blit_sichtbar(&mut canvas, sprite, origin, light, sicht, &deckung.vis);
+    for &(sprite, origin, ref sicht, licht) in chunks.sichtbar.iter().rev() {
+        blit_sichtbar(&mut canvas, sprite, origin, licht, sicht, &deckung.vis);
     }
     chunks.vis = deckung.vis;
     Ok(canvas)
@@ -189,7 +189,7 @@ fn von_vorn<'a>(
             if let Some((sprite, rows)) = sprites.part_rows(id, cell) {
                 let origin = origin_of(projection, rect, anchor, sprite);
                 if let Some(sicht) = deckung.zeichne(sprite, rows, origin) {
-                    sichtbar.push((sprite, origin, sicht, ids.light));
+                    sichtbar.push((sprite, origin, sicht, (ids.light, ids.ao)));
                 }
             }
         }
@@ -202,7 +202,7 @@ fn von_vorn<'a>(
 /// Vergleichsgrösse für die Karte bei Listen, die kein Ausschnitt liefert.
 pub fn draw_all(canvas: &mut RgbaImage, draws: &[Draw]) {
     for d in draws {
-        blit(canvas, d.sprite, d.origin, d.light);
+        blit(canvas, d.sprite, d.origin, (d.light, d.ao));
     }
 }
 
@@ -217,6 +217,9 @@ pub struct Draw<'a> {
     pub origin: (i32, i32),
     /// Das Licht seines Blocks, siehe [`ChunkCache::light_at`].
     pub light: Light,
+    /// Die weiche Beleuchtung an den Ecken seiner Seiten, siehe
+    /// [`ChunkCache::ao_at`].
+    pub ao: [u32; 3],
 }
 
 /// Die Zeichenliste eines Ausschnitts, in Zeichenreihenfolge, für die
@@ -233,10 +236,11 @@ pub fn draw_list<'a>(
         .sichtbar
         .iter()
         .rev()
-        .map(|&(sprite, origin, _, light)| Draw {
+        .map(|&(sprite, origin, _, (light, ao))| Draw {
             sprite,
             origin,
             light,
+            ao,
         })
         .collect();
     chunks.vis = deckung.vis;
@@ -263,7 +267,7 @@ pub fn render_area_without_culling(
             for id in drawn.ids() {
                 if let Some(part) = sprites.part(id, OWN_CELL) {
                     let origin = origin_of(projection, rect, [x, y, z], part);
-                    blit(&mut canvas, part, origin, drawn.light);
+                    blit(&mut canvas, part, origin, (drawn.light, drawn.ao));
                 }
             }
             for &cell in sprites.foreign_cells() {
@@ -273,7 +277,7 @@ pub fn render_area_without_culling(
                     && let Some(part) = sprites.part(id, cell)
                 {
                     let origin = origin_of(projection, rect, anchor, part);
-                    blit(&mut canvas, part, origin, drawn.light);
+                    blit(&mut canvas, part, origin, (drawn.light, drawn.ao));
                 }
             }
         }
@@ -309,6 +313,42 @@ fn anchor_of([x, y, z]: [i32; 3], cell: Cell) -> [i32; 3] {
 /// Die vier Nachbarn in der Waagrechten.
 const SEITEN: [[i32; 2]; 4] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
+/// Eine Seite aus [`AO_FACES`](super::rasterizer::AO_FACES), wie
+/// `BlockModelLighter` sie sieht, per javap am 26.2-Client.
+struct AoSeite {
+    /// Wohin sie zeigt.
+    richtung: [i32; 3],
+    /// Die vier Nachbarn in ihrer Ebene, wie `AdjacencyInfo.corners`.
+    nachbarn: [[i32; 3]; 4],
+    /// An welche Ecke aus `FaceInfo` der Wert `i` geht:
+    /// `AmbientVertexRemap`.
+    remap: [usize; 4],
+}
+
+const AO_SEITEN: [AoSeite; 3] = [
+    // Oben: Osten, Westen, Norden, Süden.
+    AoSeite {
+        richtung: [0, 1, 0],
+        nachbarn: [[1, 0, 0], [-1, 0, 0], [0, 0, -1], [0, 0, 1]],
+        remap: [2, 3, 0, 1],
+    },
+    // Süden: Westen, Osten, unten, oben.
+    AoSeite {
+        richtung: [0, 0, 1],
+        nachbarn: [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0]],
+        remap: [0, 1, 2, 3],
+    },
+    // Osten: unten, oben, Norden, Süden.
+    AoSeite {
+        richtung: [1, 0, 0],
+        nachbarn: [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]],
+        remap: [1, 2, 3, 0],
+    },
+];
+/// Der Wert einer Ecke, wenn so viele ihrer vier Blöcke abdunkeln:
+/// `ARGB.gray` des Mittels aus 1 und 0,2, in f32 wie im Spiel.
+const AO_WERTE: [u32; 5] = [255, 204, 153, 102, 51];
+
 /// Das Himmelslicht unter so vielen Stufen, siehe
 /// [`ChunkCache::column_above`].
 fn dimmed(stufen: u32) -> u8 {
@@ -328,12 +368,14 @@ fn is_water(family: Option<&Family>) -> bool {
 
 /// Was an einem Würfel zu zeichnen ist: das Sprite des Blocks, dazu die
 /// Streifen seiner Flüssigkeit über niedrigeren Nachbarn, alles im
-/// Licht des Blocks, siehe [`ChunkCache::light_at`].
+/// Licht des Blocks, siehe [`ChunkCache::light_at`], und die weiche
+/// Beleuchtung an seinen Ecken, siehe [`ChunkCache::ao_at`].
 #[derive(Clone, Copy)]
 struct Drawn {
     sprite: Option<SpriteId>,
     strips: [Option<SpriteId>; 2],
     light: Light,
+    ao: [u32; 3],
 }
 
 impl Default for Drawn {
@@ -342,6 +384,7 @@ impl Default for Drawn {
             sprite: None,
             strips: [None; 2],
             light: Light::FULL,
+            ao: NO_AO,
         }
     }
 }
@@ -429,8 +472,42 @@ fn columns_at(
     })
 }
 
-/// Zeichnet ein Sprite an seinen Block, ganz, im Licht `light`.
-fn blit(canvas: &mut RgbaImage, sprite: &Sprite, (origin_x, origin_y): (i32, i32), light: Light) {
+/// Das Licht eines Blocks und die weiche Beleuchtung an den Ecken seiner
+/// Seiten, wie [`Drawn`] sie trägt.
+type Licht = (Light, [u32; 3]);
+
+/// Die Faktoren für [`darken`] an Pixel `i` eines Sprites: das Licht je
+/// Kanal, mit der AO-Karte des Sprites dazu die weiche Beleuchtung an den
+/// Ecken `ao`.
+#[inline]
+fn faktor(karte: Option<&[u32]>, i: usize, light: [u32; 3], ao: [u32; 3]) -> [u32; 3] {
+    match karte {
+        Some(karte) => {
+            let a = ao_factor(karte[i], ao);
+            // Bei vollem Licht ist `with_ao(255, a)` genau `a`.
+            if light == [255; 3] {
+                [a; 3]
+            } else {
+                light.map(|f| with_ao(f, a))
+            }
+        }
+        None => light,
+    }
+}
+
+/// Die AO-Karte eines Sprites, wenn sie etwas abdunkelt.
+fn karte(sprite: &Sprite, ao: [u32; 3]) -> Option<&[u32]> {
+    sprite.ao.as_deref().filter(|_| ao != NO_AO)
+}
+
+/// Zeichnet ein Sprite an seinen Block, ganz, im Licht und mit der weichen
+/// Beleuchtung seines Blocks.
+fn blit(
+    canvas: &mut RgbaImage,
+    sprite: &Sprite,
+    (origin_x, origin_y): (i32, i32),
+    (light, ao): Licht,
+) {
     let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
     let (cw, ch) = (canvas.width() as i32, canvas.height() as i32);
 
@@ -447,13 +524,15 @@ fn blit(canvas: &mut RgbaImage, sprite: &Sprite, (origin_x, origin_y): (i32, i32
     let src = sprite.image.as_raw();
     let dst: &mut [u8] = canvas;
     let factor = light.factors();
+    let karte = karte(sprite, ao);
     for py in y0..y1 {
         let row = &src[py as usize * w * 4..][..w * 4];
         let drow = &mut dst[(origin_y + py) as usize * cw * 4..][..cw * 4];
         for px in x0..x1 {
             let s = &row[px as usize * 4..][..4];
             if s[3] != 0 {
-                mische(&mut drow[(origin_x + px) as usize * 4..][..4], s, factor);
+                let f = faktor(karte, py as usize * w + px as usize, factor, ao);
+                mische(&mut drow[(origin_x + px) as usize * 4..][..4], s, f);
             }
         }
     }
@@ -597,12 +676,12 @@ fn wort(row: &[u64], ox: i32, k: usize) -> u64 {
 }
 
 /// Zeichnet die sichtbaren Pixel eines Draws, die [`Deckung::zeichne`]
-/// gemerkt hat, im Licht `light`.
+/// gemerkt hat, im Licht seines Blocks wie [`blit`].
 fn blit_sichtbar(
     canvas: &mut RgbaImage,
     sprite: &Sprite,
     (ox, oy): (i32, i32),
-    light: Light,
+    (light, ao): Licht,
     sicht: &Sicht,
     vis: &[u64],
 ) {
@@ -610,6 +689,7 @@ fn blit_sichtbar(
     let src = sprite.image.as_raw();
     let dst: &mut [u8] = canvas;
     let factor = light.factors();
+    let karte = karte(sprite, ao);
     let zeilen = vis[sicht.start..].chunks(sicht.nk);
     for (y, woerter) in (sicht.y0..sicht.y1).zip(zeilen) {
         let row = &src[(y - oy) as usize * w * 4..][..w * 4];
@@ -619,10 +699,11 @@ fn blit_sichtbar(
             while bits != 0 {
                 let x = (sicht.k0 + j) * 64 + bits.trailing_zeros() as usize;
                 bits &= bits - 1;
+                let sx = (x as i32 - ox) as usize;
                 mische(
                     &mut drow[x * 4..][..4],
-                    &row[(x as i32 - ox) as usize * 4..][..4],
-                    factor,
+                    &row[sx * 4..][..4],
+                    faktor(karte, (y - oy) as usize * w + sx, factor, ao),
                 );
             }
         }
@@ -687,7 +768,7 @@ pub struct ChunkCache<'a> {
     /// Puffer der Deckungsmaske über Kacheln hinweg: die sichtbaren Pixel
     /// und die Draws, die bleiben.
     vis: Vec<u64>,
-    sichtbar: Vec<(&'a Sprite, (i32, i32), Sicht, Light)>,
+    sichtbar: Vec<(&'a Sprite, (i32, i32), Sicht, Licht)>,
 }
 
 struct Slot {
@@ -705,7 +786,8 @@ struct Loaded {
     /// Je Section und Paletteneintrag, wie hell der Block selbst leuchtet:
     /// [`blockstate::leuchten`].
     leuchten: Vec<Vec<Leuchten>>,
-    /// Je Section ihre Bitmasken, `None` für eine Section ohne Familie.
+    /// Je Section ihre Bitmasken, `None` für eine Section ohne Familie und
+    /// ohne Block, der abdunkelt oder die Sicht nimmt.
     masks: Vec<Option<Box<Masks>>>,
     /// Je Spalte `z * 16 + x` das y des obersten Blocks mit Wasser,
     /// `i32::MIN` ohne: Eine Lücke darunter liegt nicht im Licht, siehe
@@ -734,7 +816,12 @@ const PURE_LAVA: usize = 6;
 const LOOSE: usize = 7;
 /// Hat Teile in Nachbarwürfeln.
 const FOREIGN: usize = 8;
-const FLAGS: usize = 9;
+/// Dunkelt ab ([`DUNKELT`]), [`VIEW`] nimmt die Sicht ([`SICHT`]): die Bits
+/// aus [`blockstate::schatten`] für [`ChunkCache::ao_at`], auch für Blöcke
+/// ohne Familie.
+const DARK: usize = 9;
+const VIEW: usize = 10;
+const FLAGS: usize = 11;
 /// Je Flüssigkeit, in der Reihenfolge von [`Masks::up`]: das Bit "enthält
 /// sie" und das Bit "nur sie".
 const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
@@ -793,11 +880,24 @@ fn flags(family: &Family) -> u16 {
 }
 
 impl Masks {
-    /// `None`, wenn in der Section keine Familie steht.
-    fn of(section: &Section, families: &[Option<u32>], sprites: &SpriteSet) -> Option<Box<Masks>> {
+    /// `None`, wenn in der Section weder eine Familie steht noch ein Block,
+    /// der abdunkelt oder die Sicht nimmt. `schatten` hat je Paletteneintrag
+    /// die Bits aus [`blockstate::schatten`].
+    fn of(
+        section: &Section,
+        families: &[Option<u32>],
+        schatten: &[u8],
+        sprites: &SpriteSet,
+    ) -> Option<Box<Masks>> {
+        let bit = |set: bool, flag: usize| (set as u16) << flag;
         let flags: Vec<u16> = families
             .iter()
-            .map(|family| family.map_or(0, |index| flags(sprites.family(index))))
+            .zip(schatten)
+            .map(|(family, &s)| {
+                family.map_or(0, |index| flags(sprites.family(index)))
+                    | bit(s & DUNKELT != 0, DARK)
+                    | bit(s & SICHT != 0, VIEW)
+            })
             .collect();
         let union = flags.iter().fold(0, |acc, f| acc | f);
         if union == 0 {
@@ -852,7 +952,10 @@ impl Masks {
                 }
             }
         }
-        if !m.bits[PRESENT].iter().any(|&p| p != 0) {
+        if [PRESENT, DARK, VIEW]
+            .iter()
+            .all(|&e| m.bits[e].iter().all(|&w| w == 0))
+        {
             return None;
         }
         m.any_foreign = m.bits[FOREIGN].iter().any(|&f| f != 0);
@@ -890,7 +993,15 @@ impl Loaded {
             .sections()
             .iter()
             .zip(&families)
-            .map(|(section, families)| Masks::of(section, families, sprites))
+            .map(|(section, families)| {
+                let schatten: Vec<u8> = section
+                    .blocks()
+                    .palette()
+                    .iter()
+                    .map(blockstate::schatten)
+                    .collect();
+                Masks::of(section, families, &schatten, sprites)
+            })
             .collect();
         // Flüssigkeit über dem obersten Block einer Section steht in der
         // Section darüber, im selben Chunk.
@@ -1075,9 +1186,7 @@ impl<'a> ChunkCache<'a> {
             .checked_add(1)
             .and_then(|y| loaded.chunk.section_index(y))
             .and_then(|i| loaded.masks[i].as_deref());
-        let m = loaded.masks[s]
-            .as_deref()
-            .expect("nur Sections mit Familie");
+        let m = loaded.masks[s].as_deref().expect("nur Sections mit Masken");
         let mut ex = Box::new(Exposed {
             own: [0; 256],
             any_own: false,
@@ -1354,8 +1463,9 @@ impl<'a> ChunkCache<'a> {
         }
 
         // Was selbst leuchtet, bringt sein Blocklicht mit
-        // (`LightCoordsUtil.getLightCoords`); den Schein auf die Nachbarn
-        // rechnet der Renderer nicht.
+        // (`LightCoordsUtil.getLightCoords`) und bekommt im Spiel keine
+        // weiche Beleuchtung (`ModelBlockRenderer.tesselateBlock`); den
+        // Schein auf die Nachbarn rechnet der Renderer nicht.
         let light = match leuchten {
             Leuchten::Voll => Light {
                 sky: FULL_LIGHT,
@@ -1366,6 +1476,12 @@ impl<'a> ChunkCache<'a> {
                 block,
             },
         };
+        let ao = match sprite {
+            Some(id) if sprites.has_ao(id) && leuchten == Leuchten::Stufe(0) => {
+                self.ao_at([x, y, z])?
+            }
+            _ => NO_AO,
+        };
         // Das Biom kostet einen zweiten Nachschlag; `in_biome` fragt nur
         // fuer Sprites danach, die ueberhaupt Fassungen haben.
         let i = self.slot((x >> 4, z >> 4))?;
@@ -1375,7 +1491,119 @@ impl<'a> ChunkCache<'a> {
             sprite: sprite.map(tint),
             strips: strips.map(|strip| strip.map(tint)),
             light,
+            ao,
         })
+    }
+
+    /// Die weiche Beleuchtung an den Ecken der drei sichtbaren Seiten eines
+    /// Blocks, wie `BlockModelLighter.prepareQuadAmbientOcclusion` in 26.2
+    /// sie für eine volle Seite rechnet (`faceCubic`, nicht `facePartial`):
+    ///
+    /// - Gezählt wird in der Schicht vor der Seite: der Block direkt davor
+    ///   und je Ecke ihre zwei Nachbarn in dieser Schicht und der Block in
+    ///   der Ecke dazwischen. Jede Ecke ist das Mittel ihrer vier Werte, 1
+    ///   oder 0,2 für einen Block, der [`DUNKELT`].
+    /// - Der Block in der Ecke zählt nur, wenn hinter einem der beiden
+    ///   Nachbarn, noch eine Schicht weiter von der Seite weg, kein Block
+    ///   mit [`SICHT`] steht. Sonst gilt an seiner Stelle der Wert des
+    ///   ersten Nachbarn aus `AdjacencyInfo.corners`, für alle vier Ecken
+    ///   derselbe, wie im Spiel.
+    /// - `AmbientVertexRemap` legt die vier Werte auf die Ecken aus
+    ///   `FaceInfo`; `ARGB.gray` macht aus dem Mittel 255, 204, 153, 102
+    ///   oder 51.
+    ///
+    /// Das Licht der Nachbarn mischt das Spiel an denselben Ecken; bei
+    /// vollem Tageslicht bleibt es 15. Eine Seite, die ihr Nachbar ganz
+    /// deckt ([`SOLID`]), ist nicht zu sehen und bleibt ohne Werte.
+    fn ao_at(&mut self, block: [i32; 3]) -> Result<[u32; 3]> {
+        let [fest, dunkelt, sicht] = self.umgebung(block)?;
+        // Alles relativ zum Block, siehe `umgebung`.
+        let bit = |ebene: u64, [dx, dy, dz]: [i32; 3]| {
+            ebene >> (dy + 1 + 4 * (dx + 1) + 16 * (dz + 1)) & 1 != 0
+        };
+        let bei = |p: [i32; 3], o: [i32; 3]| [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
+        let mut out = NO_AO;
+        for (seite, s) in AO_SEITEN.iter().enumerate() {
+            let (d, nachbarn) = (s.richtung, s.nachbarn);
+            let vor = d;
+            if bit(fest, vor) {
+                continue;
+            }
+            let mut dunkel = [false; 4];
+            let mut frei = [false; 4];
+            for (k, &n) in nachbarn.iter().enumerate() {
+                dunkel[k] = bit(dunkelt, bei(vor, n));
+                frei[k] = !bit(sicht, bei(bei(vor, n), d));
+            }
+            let ecke = |a: usize, b: usize| {
+                if frei[a] || frei[b] {
+                    bit(dunkelt, bei(bei(vor, nachbarn[a]), nachbarn[b]))
+                } else {
+                    dunkel[0]
+                }
+            };
+            let (e03, e02, e12, e13) = (ecke(0, 3), ecke(0, 2), ecke(1, 2), ecke(1, 3));
+            let davor = bit(dunkelt, vor);
+            let werte = [
+                [dunkel[3], dunkel[0], e03, davor],
+                [dunkel[2], dunkel[0], e02, davor],
+                [dunkel[2], dunkel[1], e12, davor],
+                [dunkel[3], dunkel[1], e13, davor],
+            ];
+            let mut ecken = [0u32; 4];
+            for (wert, &ziel) in werte.iter().zip(&s.remap) {
+                ecken[ziel] = AO_WERTE[wert.iter().filter(|&&d| d).count()];
+            }
+            out[seite] = ecken[0] | ecken[1] << 8 | ecken[2] << 16 | ecken[3] << 24;
+        }
+        Ok(out)
+    }
+
+    /// Die Ebenen [`SOLID`], [`DARK`] und [`VIEW`] um einen Block, so weit
+    /// [`ChunkCache::ao_at`] fragt: je Ebene ein Bit für jede Zelle
+    /// `(x + dx, y + dy, z + dz)` mit `dx`, `dy` und `dz` von -1 bis 2, an
+    /// Stelle `dy + 1 + 4 · (dx + 1) + 16 · (dz + 1)`. Die vier Zellen einer
+    /// Spalte kommen aus einem Wort je Ebene, an einer Sectionsgrenze aus
+    /// zweien. Ausserhalb der Welt und in fehlenden Chunks steht nichts, wie
+    /// für Luft.
+    fn umgebung(&mut self, [x, y, z]: [i32; 3]) -> Result<[u64; 3]> {
+        let mut out = [0; 3];
+        for dz in -1..=2 {
+            for dx in -1..=2 {
+                // Diese Spalte fragt keine der drei Seiten.
+                if (dx, dz) == (2, 2) {
+                    continue;
+                }
+                let (px, pz) = (x + dx, z + dz);
+                let i = self.slot((px >> 4, pz >> 4))?;
+                let Some(loaded) = self.slots[i].loaded.as_ref() else {
+                    continue;
+                };
+                let col = ((pz & 15) * 16 + (px & 15)) as usize;
+                let woerter = |sy: i32| {
+                    i8::try_from(sy)
+                        .ok()
+                        .and_then(|sy| loaded.chunk.section_index(sy))
+                        .and_then(|s| loaded.masks[s].as_deref())
+                        .map_or([0; 3], |m| {
+                            [SOLID, DARK, VIEW].map(|e| u32::from(m.bits[e][col]))
+                        })
+                };
+                let unten = y - 1;
+                let sy = unten >> 4;
+                let lo = woerter(sy);
+                let hi = if (y + 2) >> 4 != sy {
+                    woerter(sy + 1)
+                } else {
+                    [0; 3]
+                };
+                let stelle = 4 * (dx + 1) + 16 * (dz + 1);
+                for ((o, l), h) in out.iter_mut().zip(lo).zip(hi) {
+                    *o |= u64::from((l | h << 16) >> (unten & 15) & 15) << stelle;
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Das Himmelslicht, in dem das Spiel den Block an `(x, y, z)` zeichnet:
@@ -1677,6 +1905,24 @@ mod tests {
         ScreenRect::centered(64, 64)
     }
 
+    /// [`AO_WERTE`] wie im Spiel: das Mittel aus vier Werten 1 oder 0,2 in
+    /// f32, in jeder Reihenfolge addiert, mal 0,25, dann `ARGB.gray`, das
+    /// über `Mth.floor(f * 255)` abrundet.
+    #[test]
+    fn ao_werte_wie_im_spiel() {
+        for maske in 0..16u32 {
+            let v = |i: u32| if maske >> i & 1 == 1 { 0.2f32 } else { 1.0 };
+            for [a, b, c, d] in [[0, 1, 2, 3], [3, 2, 1, 0], [1, 3, 0, 2], [2, 0, 3, 1]] {
+                let mittel = (v(a) + v(b) + v(c) + v(d)) * 0.25;
+                assert_eq!(
+                    (mittel * 255.0).floor() as u32,
+                    AO_WERTE[maske.count_ones() as usize],
+                    "{maske:04b}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn rechteck_liegt_um_den_ursprung() {
         let r = ScreenRect::centered(64, 32);
@@ -1781,6 +2027,7 @@ mod tests {
         let sprite = |alpha| Sprite {
             image: RgbaImage::from_pixel(8, 4, image::Rgba([1, 2, 3, alpha])),
             offset: (0, 0),
+            ao: None,
         };
         let (deckend, halb) = (sprite(255), sprite(128));
         let (voll, durch) = (Rows::of(&deckend), Rows::of(&halb));

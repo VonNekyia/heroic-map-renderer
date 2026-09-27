@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
+use terranova_render::render::rasterizer::NO_AO;
 use terranova_render::render::{
     ChunkCache, Draw, Gpu, Projection, ScreenRect, SpriteSet, TILE, TileId, covering, draw_all,
     draw_list, render_area, survey,
@@ -177,6 +178,14 @@ fn gpu_zeichnet_die_szene_wie_die_cpu() {
                 d.light.block > 0 && (r != g || g != b)
             }),
             "scale {scale}: kein Draw im Blocklicht"
+        );
+        // Und eine Treppe aus Stein: weich beleuchtete Draws.
+        assert!(
+            listen
+                .iter()
+                .flatten()
+                .any(|d| d.sprite.ao.is_some() && d.ao != NO_AO),
+            "scale {scale}: kein weich beleuchteter Draw"
         );
         let bilder = gpu
             .worker(tiles.len() as u32, TILE)

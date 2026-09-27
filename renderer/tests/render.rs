@@ -247,6 +247,7 @@ fn unsinnig_grosse_modelle_werden_uebersprungen() {
             force_translucent: false,
             fluid: None,
         }],
+        ambient_occlusion: false,
     };
     assert!(
         render(
@@ -453,6 +454,7 @@ fn diagonale_mischt_nur_einmal() {
     let glas = assets.texture("block/water_still");
     let wuerfel = BakedModel {
         quads: box_quads([0.0; 3], [16.0; 3], glas, None, None).collect(),
+        ambient_occlusion: false,
     };
     for scale in [2, 6, 10, 16] {
         let sprite = render(
@@ -543,6 +545,7 @@ fn kanten_nehmen_jeden_pixel_genau_einmal() {
                     shade: true,
                     faces: seiten.to_vec(),
                 }],
+                ambient_occlusion: true,
             }),
             x: vx,
             y: vy,
@@ -651,6 +654,7 @@ fn teildeckung_verdeckt_nicht() {
 
     let allein = BakedModel {
         quads: vec![flaeche(0.75, 0.0, 1.0, gitter)],
+        ambient_occlusion: false,
     };
     let allein = render(
         &allein,
@@ -672,6 +676,7 @@ fn teildeckung_verdeckt_nicht() {
             flaeche(0.75, 0.0, 1.0, gitter),
             flaeche(0.25, -1.0, 2.0, blau),
         ],
+        ambient_occlusion: false,
     };
     let sprite = render(
         &beide,

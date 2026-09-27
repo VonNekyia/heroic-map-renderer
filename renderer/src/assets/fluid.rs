@@ -122,7 +122,10 @@ pub fn strip(assets: &mut Assets, fluid: Fluid, face: Face, from: u8, to: u8) ->
     )
     .filter(|q| q.fluid == Some((fluid, face)))
     .collect();
-    BakedModel { quads }
+    BakedModel {
+        quads,
+        ambient_occlusion: false,
+    }
 }
 
 /// Textur und Färbung einer Flüssigkeit. Lava bleibt ungefärbt.

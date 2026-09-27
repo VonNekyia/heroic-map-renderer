@@ -93,6 +93,9 @@ pub struct Element {
 #[derive(Debug)]
 pub struct ResolvedModel {
     pub elements: Vec<Element>,
+    /// `ambientocclusion` des Modells oder des nächsten Parents, der es
+    /// setzt, sonst wahr: `ResolvedModel.findTopAmbientOcclusion`.
+    pub ambient_occlusion: bool,
 }
 
 impl ResolvedModel {
@@ -114,6 +117,7 @@ impl ResolvedModel {
         registry: &mut Textures,
         packs: &[Pack],
         model_id: &str,
+        ambient_occlusion: bool,
     ) -> Result<ResolvedModel> {
         let mut out = Vec::with_capacity(elements.len());
         for element in elements {
@@ -169,7 +173,10 @@ impl ResolvedModel {
                 faces,
             });
         }
-        Ok(ResolvedModel { elements: out })
+        Ok(ResolvedModel {
+            elements: out,
+            ambient_occlusion,
+        })
     }
 }
 
@@ -220,6 +227,8 @@ pub(super) struct ModelFile {
     /// `None`, wenn der Schlüssel fehlt: dann gelten die des Parents.
     /// Ein Element `null` lässt Gson durch.
     pub elements: Option<Vec<Option<ElementJson>>>,
+    /// `None`, wenn der Schlüssel fehlt: dann gilt der des Parents.
+    pub ambient_occlusion: Option<bool>,
 }
 
 pub(super) struct ElementJson {
@@ -284,12 +293,13 @@ impl ModelFile {
                 shade: true,
                 faces: faces.into(),
             })]),
+            ambient_occlusion: None,
         }
     }
 
     /// `CuboidModel$Deserializer`. Was er ablehnt, macht die Datei kaputt,
-    /// auch in `ambientocclusion`, `display` und `gui_light`, die der
-    /// Renderer sonst nicht braucht. Unbekannte Schlüssel übergeht er.
+    /// auch in `display` und `gui_light`, die der Renderer sonst nicht
+    /// braucht. Unbekannte Schlüssel übergeht er.
     pub(super) fn read(json: &Value) -> Result<ModelFile> {
         let model = object(json, "das Modell")?;
         let elements = match model.get("elements") {
@@ -315,9 +325,10 @@ impl ModelFile {
                 })
                 .collect::<Result<_>>()?,
         };
-        if let Some(value) = model.get("ambientocclusion") {
-            boolean(value, "ambientocclusion")?;
-        }
+        let ambient_occlusion = model
+            .get("ambientocclusion")
+            .map(|value| boolean(value, "ambientocclusion"))
+            .transpose()?;
         if let Some(value) = model.get("display") {
             parse_display(value)?;
         }
@@ -335,6 +346,7 @@ impl ModelFile {
             parent,
             textures,
             elements,
+            ambient_occlusion,
         })
     }
 }

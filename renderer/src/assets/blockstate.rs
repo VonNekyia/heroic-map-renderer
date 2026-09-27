@@ -179,6 +179,49 @@ impl Definition {
     }
 }
 
+/// Wie hell die Blöcke von 26.2 selbst leuchten, aus dem Spiel gelesen
+/// (`Leuchten.java`): je Block ein Zeichen je Zustand, in der Reihenfolge
+/// von `getPossibleStates`, oder eines für alle. `0` bis `f` ist
+/// `getLightEmission`, `x` heisst `emissiveRendering`. Blöcke, die nie
+/// leuchten, fehlen. Neu erzeugen: README, „Wasser und Biomfarben“.
+static LEUCHTEN: LazyLock<HashMap<&'static str, &'static [u8]>> = LazyLock::new(|| {
+    include_str!("leuchten.txt")
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .map(|(name, zeichen)| (name, zeichen.as_bytes()))
+        .collect()
+});
+
+/// Das Blocklicht, in dem das Spiel einen Block zeichnet, soweit es von
+/// ihm selbst kommt (`LightCoordsUtil.getLightCoords`): `emissiveRendering`
+/// zeichnet ihn voll hell, sonst hebt `getLightEmission` das Blocklicht
+/// mindestens auf seine Stufe.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Leuchten {
+    Stufe(u8),
+    Voll,
+}
+
+/// [`Leuchten`] für einen Zustand. Ein Block, den 26.2 nicht kennt,
+/// leuchtet nicht.
+pub fn leuchten(state: &BlockState) -> Leuchten {
+    let zeichen = state
+        .name()
+        .strip_prefix("minecraft:")
+        .and_then(|name| LEUCHTEN.get(name))
+        .and_then(|zeichen| match zeichen {
+            [eines] => Some(*eines),
+            _ => Definition::of(state.name())
+                .and_then(|d| d.index(state))
+                .and_then(|i| zeichen.get(i).copied()),
+        });
+    match zeichen {
+        Some(b'x') => Leuchten::Voll,
+        Some(z) => Leuchten::Stufe((z as char).to_digit(16).unwrap_or(0) as u8),
+        None => Leuchten::Stufe(0),
+    }
+}
+
 impl BlockStateDef {
     /// Liest eine Datei so streng wie der Client: nach dem ersten Dokument
     /// darf nichts mehr kommen (`StrictJsonParser`), und was der Codec
@@ -621,6 +664,49 @@ mod tests {
         assert!(d.instantiate(definition).is_empty());
         let index = definition.index(&s).expect("Zustand gibt es in 26.2");
         Some(d.alternatives(&s, Some(index))?[0].1[0].model.clone())
+    }
+
+    /// Jede Zeile aus `leuchten.txt` passt zu `blocks.txt`: ein Zeichen
+    /// oder eines je Zustand. Dazu Werte, die `Leuchten.java` aus 26.2 las:
+    /// Seelaterne und Konduit 15, eine geflutete Meeresgurke 3 + 3 je Gurke,
+    /// eine trockene keine, der Magmablock voll hell.
+    #[test]
+    fn leuchten_wie_im_spiel() {
+        for (name, zeichen) in LEUCHTEN.iter() {
+            let definition = Definition::of(&format!("minecraft:{name}"))
+                .unwrap_or_else(|| panic!("{name} fehlt in blocks.txt"));
+            assert!(
+                zeichen.len() == 1 || zeichen.len() == definition.states(),
+                "{name}: {} Zeichen für {} Zustände",
+                zeichen.len(),
+                definition.states()
+            );
+            assert!(
+                zeichen.iter().all(|z| z.is_ascii_hexdigit() || *z == b'x'),
+                "{name}"
+            );
+        }
+        let l = |text: &str| leuchten(&state(text));
+        assert_eq!(l("minecraft:sea_lantern"), Leuchten::Stufe(15));
+        assert_eq!(
+            l("minecraft:conduit[waterlogged=true]"),
+            Leuchten::Stufe(15)
+        );
+        assert_eq!(
+            l("minecraft:sea_pickle[pickles=1,waterlogged=true]"),
+            Leuchten::Stufe(6)
+        );
+        assert_eq!(
+            l("minecraft:sea_pickle[pickles=4,waterlogged=true]"),
+            Leuchten::Stufe(15)
+        );
+        assert_eq!(
+            l("minecraft:sea_pickle[pickles=4,waterlogged=false]"),
+            Leuchten::Stufe(0)
+        );
+        assert_eq!(l("minecraft:magma_block"), Leuchten::Voll);
+        assert_eq!(l("minecraft:stone"), Leuchten::Stufe(0));
+        assert_eq!(l("mod:laterne"), Leuchten::Stufe(0));
     }
 
     #[test]

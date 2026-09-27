@@ -206,11 +206,11 @@ pub fn write_world_in(
 }
 
 /// Wie `write_world_in`, aber mit diesen Sections je Chunk statt nur Y=0:
-/// für Szenen über Section-Grenzen hinweg.
+/// für Szenen über Section-Grenzen hinweg, auch mit einer, die fehlt.
 pub fn write_world_sections(
     dir: &Path,
     chunks: &[(i32, i32)],
-    sections: std::ops::RangeInclusive<i8>,
+    sections: impl IntoIterator<Item = i8> + Clone,
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i32) -> Option<&'static str>,
 ) -> PathBuf {
@@ -220,7 +220,7 @@ pub fn write_world_sections(
 fn write_region(
     dir: &Path,
     chunks: &[(i32, i32)],
-    sections: std::ops::RangeInclusive<i8>,
+    sections: impl IntoIterator<Item = i8> + Clone,
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i32) -> Option<&'static str>,
 ) -> PathBuf {
@@ -243,6 +243,7 @@ fn write_region(
             cz,
             sections
                 .clone()
+                .into_iter()
                 .map(|sy| section(cx, cz, sy, &block, biome(cx, cz)))
                 .collect(),
         );
@@ -344,9 +345,12 @@ pub const SZENE_Y: (i32, i32) = (-16, 47);
 /// die in Nachbarwürfel ragen, eines davon mit seinem oberen Teil in einem
 /// verdeckten Würfel, dazu ein Block, der knapp über seinen Umriss ragt und
 /// selbst verdeckt ist: beide zeichnen je Pixel neben ihrem Würfel, die kein
-/// Nachbar deckt.
+/// Nachbar deckt. Am Grund des Beckens leuchten ein Redstone-Erz, dessen
+/// Blocklicht je Kanal anders färbt, und eine Seelaterne.
 pub fn szene(x: i32, y: i32, z: i32) -> &'static str {
     match (x, y, z) {
+        (20, 3, 10) => "minecraft:redstone_ore[lit=true]",
+        (21, 3, 10) => "minecraft:sea_lantern",
         (0..=5, 2, 26..=31) | (26..=31, 2, 0..=2) => "minecraft:grass_block",
         (_, ..=2, _) => "minecraft:einfarbig",
         (27, 31, 21) | (27, 31..=32, 22) | (24, 31, 26) | (25, 31..=32, 26) => "minecraft:water",

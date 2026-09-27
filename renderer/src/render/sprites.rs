@@ -6,7 +6,7 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
-use crate::assets::blockstate::ModelRef;
+use crate::assets::blockstate::{self, Leuchten, ModelRef};
 use crate::assets::fluid::Fluid;
 use crate::assets::{Assets, Face, Textures, Tints, fluid, models_of};
 use crate::world::BlockState;
@@ -42,8 +42,7 @@ pub struct SpriteSet {
     families: Vec<Family>,
     by_state: HashMap<BlockState, u32>,
     /// Fassungen einer Fluessigkeit: je Maske aus verdeckten Flaechen
-    /// (`mask_bit`) eine, und fuer Masken mit Oberflaeche je Tiefe darunter
-    /// eine — Index `mask + 8 * tiefe`. Eintrag 0 ist das Sprite selbst.
+    /// (`mask_bit`) eine, Index `mask`. Eintrag 0 ist das Sprite selbst.
     by_mask: HashMap<SpriteId, Vec<Option<SpriteId>>>,
     /// Fassungen je Biom, nur fuer Sprites mit gefaerbten Flaechen. Das
     /// Sprite fuehrt zur Fassung des Standardklimas, von dort geht es
@@ -64,9 +63,6 @@ pub struct SpriteSet {
     /// Die Pixel eines vollen Wuerfels bei diesem scale, gegen die Deckung
     /// geprueft wird.
     masks: Masks,
-    /// Die Oberseite einer Wasseroberflaeche bei scale 32, je Hoehe in
-    /// Neunteln von 1 bis 8, fuer `Family::covers`.
-    cover_tops: [Vec<(i32, i32)>; 8],
     foreign: BTreeSet<Cell>,
 }
 
@@ -114,17 +110,6 @@ impl Masks {
     }
 }
 
-/// Die Oberseite einer Wasseroberflaeche auf dieser Hoehe in Neunteln:
-/// durch sie treten die Strahlen in die Tiefe ein, deren Ende `covers`
-/// misst. Eine Quelle endet bei 8/9, fliessendes Wasser tiefer.
-fn surface_top(textures: &Textures, projection: Projection, ninths: u8) -> Vec<(i32, i32)> {
-    pixels_of(
-        textures,
-        projection,
-        block(16.0 * f32::from(ninths) / 9.0, true),
-    )
-}
-
 /// Ein deckender Block bis zur Hoehe `top`, wahlweise nur seine Oberseite.
 fn block(top: f32, only_up: bool) -> BakedModel {
     let quads = box_quads([0.0; 3], [16.0, top, 16.0], Textures::MISSING, None, None)
@@ -135,8 +120,14 @@ fn block(top: f32, only_up: bool) -> BakedModel {
 
 /// Die Pixel, die ein Modell belegt, relativ zum Blockursprung.
 fn pixels_of(textures: &Textures, projection: Projection, model: BakedModel) -> Vec<(i32, i32)> {
-    let sprite = render(&model, textures, &projection, Tints::default())
-        .expect("ein Block hat sichtbare Flaechen");
+    let sprite = render(
+        &model,
+        textures,
+        &projection,
+        Tints::default(),
+        Leuchten::Stufe(0),
+    )
+    .expect("ein Block hat sichtbare Flaechen");
     sprite
         .image
         .enumerate_pixels()
@@ -153,18 +144,6 @@ fn covers_all(sprite: &Sprite, pixels: &[(i32, i32)], dy: i32) -> bool {
         && pixels
             .iter()
             .all(|&(x, y)| alpha_at(sprite, x, y + dy) == 255)
-}
-
-/// Deckt `sprite` mehr als die Haelfte dieser Pixel undurchsichtig? Bei
-/// genau der Haelfte nicht: dann geht ebenso viel an ihm vorbei, wie an ihm
-/// endet, und ein heller Fleck ueber hohem Seegras faellt mehr auf als ein
-/// fast verschwundener Halm.
-fn covers_most(sprite: &Sprite, pixels: &[(i32, i32)]) -> bool {
-    let deckend = pixels
-        .iter()
-        .filter(|&&(x, y)| alpha_at(sprite, x, y) == 255)
-        .count();
-    2 * deckend > pixels.len()
 }
 
 /// Die Alternativen einer Blockstate mit ihren Gewichten.
@@ -199,27 +178,9 @@ pub struct Family {
     /// bleibt die Oberflaeche oder ein Streifen. Siehe `expose` im
     /// Metatile-Renderer.
     pub pure_fluid: bool,
-    /// Je Hoehe einer Wasseroberflaeche in Neunteln ein Bit, siehe
-    /// [`Family::covers`].
-    cover_bits: u8,
 }
 
 impl Family {
-    /// Decken alle Alternativen mehr als die Haelfte dessen, was eine
-    /// Wasseroberflaeche dieser Hoehe an ihrer Stelle belegen wuerde? Dort
-    /// treffen die Strahlen hinter der Oberflaeche den Block auf der
-    /// Diagonalen, und die meisten enden an ihm. Sonst laufen sie hindurch:
-    /// unter einer Quelle zaehlen Seegras, Kelp, ein gefluteter
-    /// Zaunpfosten und eine untere Platte wie das Wasser um sie herum.
-    /// Hinter fliessendem Wasser der Menge a treten die Strahlen bei a/9
-    /// ein, tiefer als bei einer Quelle: dort deckt eine untere Platte
-    /// mehr, eine obere bei 1/9 weniger, und Seegras haelt bei 1/9 und 2/9
-    /// auf. Die Zahlen stehen im README. Gemessen wird immer bei scale 32,
-    /// damit die nativen Stufen dieselbe Tiefe zaehlen wie die Basis.
-    pub fn covers(&self, ninths: u8) -> bool {
-        (self.cover_bits >> (ninths.clamp(1, 8) - 1)) & 1 == 1
-    }
-
     /// Die Alternative fuer einen Block — dieselbe, die der 26.2-Client
     /// wuerfelt: `ModelBlockRenderer` saet seinen Zufallsgenerator mit
     /// `Mth.getSeed` der Position, `WeightedList.getRandomOrThrow` zieht
@@ -300,11 +261,6 @@ fn java_next_int(seed: i64, bound: i32) -> i32 {
         }
     }
 }
-
-/// Wie viele Schichten Wasser hinter einer Oberflaeche noch unterschieden
-/// werden. Bei Alpha 180 laesst eine Schicht 29 Prozent durch, vier noch
-/// 0,7 — dahinter sieht man nichts mehr, also gilt ab da dieselbe Fassung.
-pub const DEPTHS: usize = 4;
 
 /// Bit in der Verdeckungsmaske fuer eine Fluessigkeitsflaeche: die drei
 /// Seiten, die die Kamera sieht, in der Reihenfolge der Nachbarn +x, +y, +z.
@@ -450,9 +406,6 @@ impl SpriteSet {
             strips: HashMap::new(),
             projection,
             masks: Masks::new(assets.textures(), projection),
-            cover_tops: std::array::from_fn(|i| {
-                surface_top(assets.textures(), cover_projection(), i as u8 + 1)
-            }),
             foreign: BTreeSet::new(),
         };
 
@@ -505,12 +458,6 @@ impl SpriteSet {
                     .map(|(_, id)| id.map(|id| &set.sprites[id.0 as usize]))
             };
             let all = |test: fn(&Entry) -> bool| entries().all(|e| e.is_some_and(test));
-            let cover_bits = models
-                .iter()
-                .zip(&alternatives)
-                .fold(u8::MAX, |bits, ((_, model), &(_, id))| {
-                    bits & set.covers_rays(assets, model, id)
-                });
             // Eine Alternative ohne Bild zeichnet nichts, bleibt also im
             // Wuerfel. Die Fassungen einer Fluessigkeit sind Teile ihres
             // Modells oder dessen voller Wuerfel: sie bleiben, wo das Modell
@@ -530,7 +477,6 @@ impl SpriteSet {
                 contained,
                 foreign,
                 pure_fluid,
-                cover_bits,
                 fluid,
                 alternatives,
             };
@@ -548,33 +494,6 @@ impl SpriteSet {
             set.insert_strips(assets, fluid, &biomes);
         }
         Ok(set)
-    }
-
-    /// Je Hoehe einer Wasseroberflaeche ein Bit: deckt ein Modell mehr als
-    /// die Haelfte dessen, was sie an seiner Stelle belegen wuerde,
-    /// gemessen bei scale 32? Bei scale 32 misst das fertige Sprite, sonst
-    /// eine eigene Rasterung dafuer.
-    fn covers_rays(&self, assets: &Assets, model: &BakedModel, id: Option<SpriteId>) -> u8 {
-        let reference = cover_projection();
-        let own = id
-            .filter(|_| self.projection.scale() == reference.scale())
-            .map(|id| &self.sprites[id.0 as usize].parts)
-            .filter(|parts| parts.len() == 1)
-            .map(|parts| &parts[0].1);
-        let gerastert;
-        let sprite = match own {
-            Some(sprite) => sprite,
-            None => {
-                gerastert = render(model, assets.textures(), &reference, Tints::default());
-                match &gerastert {
-                    Some(sprite) => sprite,
-                    None => return 0,
-                }
-            }
-        };
-        (0..8)
-            .filter(|&i| covers_most(sprite, &self.cover_tops[i]))
-            .fold(0, |bits, i| bits | 1 << i)
     }
 
     /// Streifen der Seitenflaechen ueber niedrigeren Nachbarn derselben
@@ -596,8 +515,7 @@ impl SpriteSet {
     }
 
     /// Ein Modell mit allen Fassungen: bei einer Fluessigkeit je Maske aus
-    /// verdeckten Flaechen eine, fuer die Oberflaeche je Tiefe darunter
-    /// eine, und davon je Biom eine.
+    /// verdeckten Flaechen eine, und davon je Biom eine.
     fn insert_fluid(
         &mut self,
         assets: &Assets,
@@ -613,44 +531,26 @@ impl SpriteSet {
         if !has_fluid || self.by_mask.contains_key(&base) {
             return Some(base);
         }
-        // Deckt die Textur schon, gibt es keine Tiefe zu zeichnen: Lava.
-        let translucent = model.quads.iter().any(|q| {
-            q.fluid.is_some()
-                && assets
-                    .textures()
-                    .image(q.texture)
-                    .pixels()
-                    .any(|p| p.0[3] > 0 && p.0[3] < 255)
-        });
         // Steht dieselbe Fluessigkeit darueber, reicht sie bis zur
         // Blockkante (`FlowingFluid.getHeight`); an der Oberflaeche endet
         // sie bei ihrer eigenen Hoehe.
         let voll = full_height(model);
-        let mut variants = vec![None; 8 * DEPTHS];
+        let mut variants = vec![None; 8];
         variants[0] = Some(base);
-        for mask in 0..8u8 {
-            let surface = mask & mask_bit(Face::Up) == 0;
-            let depths = if surface && translucent { DEPTHS } else { 1 };
-            let quelle = if surface { model } else { &voll };
-            for depth in 0..depths {
-                if mask == 0 && depth == 0 {
-                    continue;
-                }
-                let quads = quelle
-                    .quads
-                    .iter()
-                    .filter(|q| q.fluid.is_none_or(|(_, face)| mask & mask_bit(face) == 0))
-                    .cloned()
-                    .map(|mut q| {
-                        if q.fluid.is_some_and(|(_, face)| face == Face::Up) {
-                            q.layers = depth as u8 + 1;
-                        }
-                        q
-                    })
-                    .collect();
-                variants[mask as usize + 8 * depth] =
-                    self.insert_tinted(assets, state, &BakedModel { quads }, biomes);
-            }
+        for mask in 1..8u8 {
+            let quelle = if mask & mask_bit(Face::Up) == 0 {
+                model
+            } else {
+                &voll
+            };
+            let quads = quelle
+                .quads
+                .iter()
+                .filter(|q| q.fluid.is_none_or(|(_, face)| mask & mask_bit(face) == 0))
+                .cloned()
+                .collect();
+            variants[mask as usize] =
+                self.insert_tinted(assets, state, &BakedModel { quads }, biomes);
         }
         self.by_mask.insert(base, variants);
         Some(base)
@@ -688,7 +588,14 @@ impl SpriteSet {
         };
 
         let default = tints(None);
-        let sprite = render(model, assets.textures(), &self.projection, default)?;
+        let leuchten = blockstate::leuchten(state);
+        let sprite = render(
+            model,
+            assets.textures(),
+            &self.projection,
+            default,
+            leuchten,
+        )?;
         // Die Faerbung je Biom als Signatur. Zwei Familien mit gleichem Bild
         // teilen sich das Sprite samt seinen Biomfassungen — das darf nur,
         // wer sich in jedem Biom gleich faerbt, sonst bekaeme Wasser die
@@ -724,8 +631,9 @@ impl SpriteSet {
             let variant = match by_tints.get(&tints) {
                 Some(&variant) => variant,
                 None => {
-                    let sprite = render(model, assets.textures(), &self.projection, tints)
-                        .expect("dasselbe Modell, nur anders gefaerbt");
+                    let sprite =
+                        render(model, assets.textures(), &self.projection, tints, leuchten)
+                            .expect("dasselbe Modell, nur anders gefaerbt");
                     let variant = self.insert(sprite, model, 0);
                     by_tints.insert(tints, variant);
                     variant
@@ -739,8 +647,8 @@ impl SpriteSet {
 
     /// Zerlegt ein Sprite in seine Wuerfel und nimmt es in die Tabelle auf.
     ///
-    /// Pixelgleiche Sprites teilen sich den Eintrag: die Tiefenfassungen
-    /// einer gefluteten oberen Platte sind gleich, weil ihr Wasser in der
+    /// Pixelgleiche Sprites teilen sich den Eintrag: die Maskenfassungen
+    /// einer gefluteten oberen Platte sind gleich, wo ihr Wasser in der
     /// deckenden Haelfte liegt, und eine Blasensaeule sieht aus wie Wasser.
     /// Nur fuer Sprites im eigenen Wuerfel — die Zerlegung eines
     /// ueberhaengenden haengt am Modell, nicht nur am Bild.
@@ -818,14 +726,11 @@ impl SpriteSet {
     }
 
     /// Die Fassung einer Fluessigkeit ohne die Flaechen zu Nachbarn mit
-    /// derselben Fluessigkeit; `mask` traegt je Nachbar +x, +y, +z ein Bit,
-    /// `depth` zaehlt die Schichten unter der Oberflaeche (0 = keine).
+    /// derselben Fluessigkeit; `mask` traegt je Nachbar +x, +y, +z ein Bit.
     /// `None`, wenn nichts uebrig bleibt — ein Wasserblock mitten im Meer.
-    pub fn masked(&self, id: SpriteId, mask: u8, depth: usize) -> Option<SpriteId> {
+    pub fn masked(&self, id: SpriteId, mask: u8) -> Option<SpriteId> {
         match self.by_mask.get(&id) {
-            Some(variants) => {
-                variants[mask as usize + 8 * depth.min(DEPTHS - 1)].or(variants[mask as usize])
-            }
+            Some(variants) => variants[mask as usize],
             None => Some(id),
         }
     }
@@ -844,7 +749,7 @@ impl SpriteSet {
         }
     }
 
-    /// Wie viele Sprites Fassungen sind: Masken, Tiefen, Biome und
+    /// Wie viele Sprites Fassungen sind: Masken, Biome und
     /// Streifen — alles, was nicht das Grundbild einer Alternative ist.
     /// Familien teilen sich pixelgleiche Grundbilder, es kann also mehr
     /// Familien geben als Sprites.
@@ -963,12 +868,6 @@ fn pixel_center(sprite: &Sprite, x: u32, y: u32) -> (f32, f32) {
 fn cell_center(cell: Cell, projection: Projection) -> (f32, f32) {
     let (x, y) = projection.project_block(cell);
     (x as f32, y as f32)
-}
-
-/// Der scale, bei dem `covers` misst: der Standard. So zaehlen alle
-/// Zoomstufen die Tiefe hinter einer Oberflaeche gleich.
-fn cover_projection() -> Projection {
-    Projection::new(Projection::DEFAULT_SCALE)
 }
 
 /// Alpha eines Pixelmittelpunkts relativ zum Blockursprung; ausserhalb des
@@ -1180,7 +1079,6 @@ mod tests {
             contained: true,
             foreign: false,
             pure_fluid: false,
-            cover_bits: 0,
             seed_offset: [0, 0, 0],
         };
         let listen = [
@@ -1409,7 +1307,14 @@ mod tests {
         for name in ["turm", "ueberhang", "einfarbig", "seerose", "oak_fence"] {
             let mut assets = assets();
             let model = model_of(&mut assets, &state(name)).unwrap();
-            let ganz = render(&model, assets.textures(), &projection, Tints::default()).unwrap();
+            let ganz = render(
+                &model,
+                assets.textures(),
+                &projection,
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+            .unwrap();
 
             let sichtbar = |sprite: &Sprite| {
                 let offset = sprite.offset;
@@ -1649,90 +1554,25 @@ mod tests {
             let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let flags = |text: &str| {
                 let f = set.family_of(&state(text)).unwrap();
-                (f.opaque, f.covers_floor, f.covers(8))
+                (f.opaque, f.covers_floor)
             };
-            assert_eq!(flags("einfarbig"), (true, true, true), "scale {scale}");
-            assert_eq!(flags("water"), (false, false, false), "scale {scale}");
-            assert_eq!(flags("lava"), (scale == 4, true, true), "scale {scale}");
+            assert_eq!(flags("einfarbig"), (true, true), "scale {scale}");
+            assert_eq!(flags("water"), (false, false), "scale {scale}");
+            assert_eq!(flags("lava"), (scale == 4, true), "scale {scale}");
         }
         let set = build(&mut assets, &states, Projection::new(32)).unwrap();
         let flags = |text: &str| {
             let f = set.family_of(&state(text)).unwrap();
-            (f.opaque, f.covers_floor, f.covers(8))
+            (f.opaque, f.covers_floor)
         };
-        assert_eq!(flags("oak_fence[north=true]"), (false, false, false));
+        assert_eq!(flags("oak_fence[north=true]"), (false, false));
         assert_eq!(
             flags("water"),
-            (false, false, false),
+            (false, false),
             "durchscheinend deckt nichts"
         );
-        assert_eq!(flags("druckplatte"), (false, false, false), "Rand frei");
-        assert_eq!(flags("teppich"), (false, true, false), "Boden ganz");
-    }
-
-    /// Ob der Strahl hinter einer Wasseroberflaeche an einem Block endet,
-    /// entscheidet, was er von ihrer Oberseite deckt, und zwar auf jeder
-    /// Stufe gleich. Eine untere Platte deckt dort 100 von 256 Pixeln, eine
-    /// obere alles; am ganzen Umriss gemessen deckte die untere zwei Drittel
-    /// und beendete die Zaehlung. Ein schmales Brett an der Westkante deckt
-    /// bei scale 32 154 von 256, im eigenen Raster bei scale 4 aber nur
-    /// einen von vier Pixeln — gemessen wird deshalb immer bei scale 32.
-    #[test]
-    fn strahlen_enden_an_der_oberseite() {
-        let mut assets = assets();
-        let states = [
-            state("untere_platte[waterlogged=true]"),
-            state("obere_platte[waterlogged=true]"),
-            state("oak_fence[north=true,waterlogged=true]"),
-            state("einfarbig"),
-            state("schmal"),
-        ];
-        for scale in [32, 16, 8, 4] {
-            let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
-            let covers = |text: &str| set.family_of(&state(text)).unwrap().covers(8);
-            assert!(covers("schmal"), "scale {scale}");
-            assert!(!covers("untere_platte[waterlogged=true]"), "scale {scale}");
-            assert!(covers("obere_platte[waterlogged=true]"), "scale {scale}");
-            assert!(
-                !covers("oak_fence[north=true,waterlogged=true]"),
-                "scale {scale}"
-            );
-            assert!(covers("einfarbig"), "scale {scale}");
-        }
-    }
-
-    /// Hinter fliessendem Wasser der Menge a treten die Strahlen bei a/9
-    /// ein, tiefer als bei einer Quelle. Eine untere Platte deckt bei 8/9
-    /// 100 von 256 Pixeln und laesst die Strahlen durch, bei 7/9 mehr als
-    /// die Haelfte, und bei 1/9 steht die Oberflaeche ganz vor ihr.
-    #[test]
-    fn deckung_je_hoehe_der_oberflaeche() {
-        let mut assets = assets();
-        let platte = state("untere_platte[waterlogged=true]");
-        let set = build(&mut assets, [&platte], Projection::new(32)).unwrap();
-        let family = set.family_of(&platte).unwrap();
-        assert!(!family.covers(8));
-        assert!(family.covers(7));
-        assert!(family.covers(1));
-    }
-
-    /// Genau die Haelfte haelt den Strahl nicht auf, eins mehr schon. Hohes
-    /// Seegras deckt bei scale 32 genau 128 der 256 Pixel; mit
-    /// "mindestens die Haelfte" beendete es die Zaehlung, und ueber ihm
-    /// stuende ein heller Fleck.
-    #[test]
-    fn gleichstand_zaehlt_als_wasser() {
-        let pixels: Vec<(i32, i32)> = (0..4).map(|x| (x, 0)).collect();
-        let mut sprite = Sprite {
-            image: RgbaImage::new(4, 1),
-            offset: (0, 0),
-        };
-        for x in 0..2 {
-            sprite.image.put_pixel(x, 0, image::Rgba([0, 0, 0, 255]));
-        }
-        assert!(!covers_most(&sprite, &pixels), "zwei von vier");
-        sprite.image.put_pixel(2, 0, image::Rgba([0, 0, 0, 255]));
-        assert!(covers_most(&sprite, &pixels), "drei von vier");
+        assert_eq!(flags("druckplatte"), (false, false), "Rand frei");
+        assert_eq!(flags("teppich"), (false, true), "Boden ganz");
     }
 
     /// Streifen gibt es je Paar aus eigener Hoehe und Nachbarhoehe, fuer
@@ -1766,7 +1606,7 @@ mod tests {
     }
 
     /// Bleibt eine Familie im Würfel, bleibt jede ihrer Fassungen im Umriss:
-    /// Masken, Tiefen, Biome und die Streifen ihrer Flüssigkeit. `contained`
+    /// Masken, Biome und die Streifen ihrer Flüssigkeit. `contained`
     /// prüft nur die Grundbilder, darauf bauen aber die Deckungsmaske
     /// (`bedeckt`) und die Kandidatensuche (`touches`): Ein enthaltener
     /// Block fällt weg, wenn sein Umriss bedeckt ist oder die Kachel nicht

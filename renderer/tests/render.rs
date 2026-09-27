@@ -8,11 +8,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use terranova_render::assets::baker::box_quads;
+use terranova_render::assets::blockstate::{self, Leuchten};
 use terranova_render::assets::{
     Assets, BakedModel, Element, ElementFace, Face, Quad, ResolvedModel, ResolvedVariant, Rotation,
     TextureId, Tints, bake, model_of,
 };
-use terranova_render::render::rasterizer::over;
 use terranova_render::render::{Projection, render};
 use terranova_render::world::BlockState;
 
@@ -30,7 +30,13 @@ fn sprite(assets: &mut Assets, text: &str, scale: u32) -> Option<terranova_rende
     let state = state(text);
     let model = model_of(assets, &state).unwrap();
     let tints = assets.colors().tints(state.name(), None);
-    render(&model, assets.textures(), &Projection::new(scale), tints)
+    render(
+        &model,
+        assets.textures(),
+        &Projection::new(scale),
+        tints,
+        blockstate::leuchten(&state),
+    )
 }
 
 /// Pixel an einer Bildschirmkoordinate relativ zum Blockursprung.
@@ -240,7 +246,6 @@ fn unsinnig_grosse_modelle_werden_uebersprungen() {
             shade: true,
             force_translucent: false,
             fluid: None,
-            layers: 1,
         }],
     };
     assert!(
@@ -248,7 +253,8 @@ fn unsinnig_grosse_modelle_werden_uebersprungen() {
             &riesig,
             &Textures::new(),
             &Projection::new(16),
-            Tints::default()
+            Tints::default(),
+            Leuchten::Stufe(0),
         )
         .is_none()
     );
@@ -299,9 +305,9 @@ fn wasser_bekommt_geometrie_aus_der_blockstate() {
 }
 
 /// Ein gefluteter Zaun bleibt unter dem Wasser sichtbar: das Sprite mischt
-/// die Wasserfläche über den Pfosten, statt ihn zu überschreiben. Und die
-/// Oberseite des Pfostens ragt trocken heraus, denn das Wasser endet bei
-/// 8/9 des Blocks — wie im Spiel.
+/// die Wasserfläche über den Pfosten, statt ihn zu überschreiben, und
+/// darunter liegt der Pfosten im Licht 14. Die Oberseite des Pfostens ragt
+/// trocken heraus, denn das Wasser endet bei 8/9 des Blocks — wie im Spiel.
 #[test]
 fn wasser_mischt_sich_ueber_den_zaun() {
     let mut assets = assets();
@@ -316,9 +322,13 @@ fn wasser_mischt_sich_ueber_den_zaun() {
         "die Pfostenoberseite liegt über dem Wasser"
     );
 
-    // Südseite des Pfostens auf halber Höhe, hinter der Wasseroberfläche.
+    // Südseite des Pfostens auf halber Höhe, hinter der Wasseroberfläche:
+    // `α · W + (1 − α) · b · D`, die Helligkeit b(14) nach `lightmap.fsh`.
     let (sx, sy) = (-1, 0);
-    let erwartet = over(pixel(&wasser, sx, sy), pixel(&trocken, sx, sy));
+    let (w, d) = (pixel(&wasser, sx, sy), pixel(&trocken, sx, sy));
+    let a = w[3] as f64 / 255.0;
+    let farbe = |c: usize| (a * w[c] as f64 + (1.0 - a) * 0.90794 * d[c] as f64).round() as u8;
+    let erwartet = [farbe(0), farbe(1), farbe(2), 255];
     let ist = pixel(&nass, sx, sy);
     for c in 0..4 {
         assert!(
@@ -450,6 +460,7 @@ fn diagonale_mischt_nur_einmal() {
             assets.textures(),
             &Projection::new(scale),
             Tints::default(),
+            Leuchten::Stufe(0),
         )
         .expect("Sprite");
         for (x, y, p) in sprite.image.enumerate_pixels() {
@@ -552,8 +563,14 @@ fn kanten_nehmen_jeden_pixel_genau_einmal() {
                     })
                     .collect(),
             );
-            let sprite =
-                render(&modell, assets.textures(), &projection, Tints::default()).expect("Sprite");
+            let sprite = render(
+                &modell,
+                assets.textures(),
+                &projection,
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+            .expect("Sprite");
             for (x, y, p) in sprite.image.enumerate_pixels() {
                 let px = (x as i32 + sprite.offset.0) as f64 + 0.5;
                 let py = (y as i32 + sprite.offset.1) as f64 + 0.5;
@@ -615,7 +632,6 @@ fn flaeche(z: f32, von: f32, bis: f32, texture: TextureId) -> Quad {
         shade: true,
         force_translucent: false,
         fluid: None,
-        layers: 1,
     }
 }
 
@@ -636,7 +652,14 @@ fn teildeckung_verdeckt_nicht() {
     let allein = BakedModel {
         quads: vec![flaeche(0.75, 0.0, 1.0, gitter)],
     };
-    let allein = render(&allein, assets.textures(), &projection, Tints::default()).unwrap();
+    let allein = render(
+        &allein,
+        assets.textures(),
+        &projection,
+        Tints::default(),
+        Leuchten::Stufe(0),
+    )
+    .unwrap();
     assert!(
         allein.image.pixels().any(|p| p.0[3] > 0 && p.0[3] < 255),
         "das Gitter deckt nirgends halb — der Test prüft nichts"
@@ -650,7 +673,14 @@ fn teildeckung_verdeckt_nicht() {
             flaeche(0.25, -1.0, 2.0, blau),
         ],
     };
-    let sprite = render(&beide, assets.textures(), &projection, Tints::default()).unwrap();
+    let sprite = render(
+        &beide,
+        assets.textures(),
+        &projection,
+        Tints::default(),
+        Leuchten::Stufe(0),
+    )
+    .unwrap();
     let halb = sprite
         .image
         .pixels()

@@ -310,7 +310,7 @@ pub struct Worker<'g> {
     bind: Option<wgpu::BindGroup>,
     /// Die Pixel der Sprites eines Durchgangs, eines nach dem anderen.
     sprite_bytes: Vec<u8>,
-    /// Instanzen, 16 Bytes je Stück, fertig für den Puffer.
+    /// Instanzen, 20 Bytes je Stück, fertig für den Puffer.
     inst_bytes: Vec<u8>,
     list_data: Vec<u32>,
 }
@@ -432,6 +432,10 @@ impl Worker<'_> {
                     w as u32 | (h as u32) << 16,
                     d.origin.0 as u32,
                     d.origin.1 as u32,
+                    {
+                        let [r, g, b] = d.light.factors();
+                        r | g << 8 | b << 16
+                    },
                 ] {
                     self.inst_bytes.extend_from_slice(&word.to_le_bytes());
                 }
@@ -578,6 +582,7 @@ mod tests {
         let liste = vec![Draw {
             sprite: &sprite,
             origin: (3, 3),
+            light: crate::render::rasterizer::Light::FULL,
         }];
         let mut worker = gpu.worker(1, 64);
         let bild = worker.render(std::slice::from_ref(&liste)).unwrap();

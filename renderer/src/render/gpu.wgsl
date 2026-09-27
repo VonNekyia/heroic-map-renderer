@@ -11,6 +11,9 @@ struct Instance {
     // Linke obere Ecke in Kachelpixeln, darf negativ sein.
     x: i32,
     y: i32,
+    // Helligkeit im Licht des Blocks je Farbkanal in 255steln, Rot im
+    // untersten Byte, 255 bei vollem Licht: `rasterizer::Light::factors`.
+    light: u32,
 }
 
 struct Params {
@@ -34,6 +37,13 @@ fn unpack(p: u32) -> vec4<u32> {
 
 fn pack(c: vec4<u32>) -> u32 {
     return c.x | (c.y << 8u) | (c.z << 16u) | (c.w << 24u);
+}
+
+// Jeder Farbkanal mal seine Helligkeit, das Alpha bleibt — wie
+// `rasterizer::darken`.
+fn darken(s: vec4<u32>, light: u32) -> vec4<u32> {
+    let f = vec3<u32>(light & 255u, (light >> 8u) & 255u, (light >> 16u) & 255u);
+    return vec4<u32>((s.xyz * f + 127u) / 255u, s.w);
 }
 
 // Quelle über Ziel, unvormultipliziert — dieselbe Rechnung wie auf der CPU.
@@ -69,9 +79,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wg
         if (sx < 0 || sy < 0 || u32(sx) >= w || u32(sy) >= h) {
             continue;
         }
-        let s = unpack(sprites[inst.sprite + u32(sy) * w + u32(sx)]);
+        var s = unpack(sprites[inst.sprite + u32(sy) * w + u32(sx)]);
         if (s.w == 0u) {
             continue;
+        }
+        if (inst.light != 0xffffffu) {
+            s = darken(s, inst.light);
         }
         d = over(s, d);
     }

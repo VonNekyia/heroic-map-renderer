@@ -164,6 +164,20 @@ fn gpu_zeichnet_die_szene_wie_die_cpu() {
             .iter()
             .map(|tile| draw_list(&mut chunks, tile.rect(), y_range).unwrap())
             .collect();
+        // Die Szene hat tiefes Wasser: Die Karte zeichnet auch im Licht
+        // darunter.
+        assert!(
+            listen.iter().flatten().any(|d| d.light.sky < 15),
+            "scale {scale}: kein Draw unter Wasser"
+        );
+        // Und leuchtende Blöcke, deren Blocklicht je Kanal anders färbt.
+        assert!(
+            listen.iter().flatten().any(|d| {
+                let [r, g, b] = d.light.factors();
+                d.light.block > 0 && (r != g || g != b)
+            }),
+            "scale {scale}: kein Draw im Blocklicht"
+        );
         let bilder = gpu
             .worker(tiles.len() as u32, TILE)
             .render(&listen)

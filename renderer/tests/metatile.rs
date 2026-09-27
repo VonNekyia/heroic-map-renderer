@@ -2095,20 +2095,22 @@ fn hohe_welt_zaehlt_durch_alle_sections() {
 /// Die Werte der weichen Beleuchtung, die `draw_list` einem Block gibt: je
 /// Seite oben, Süden und Osten die vier Ecken in der Reihenfolge von
 /// `FaceInfo`, 255 heisst hell. Oben: Nordwest, Südwest, Südost, Nordost;
-/// Osten: oben Süd, unten Süd, unten Nord, oben Nord. Die Welt steht in
-/// Chunk (0, 0), scale 32.
+/// Süden: oben West, unten West, unten Ost, oben Ost; Osten: oben Süd,
+/// unten Süd, unten Nord, oben Nord. Die Welt steht in Chunk (0, 0), in
+/// der Section bei y = 0, scale 32.
 fn ecken(welt: impl Fn(i32, i32, i32) -> &'static str, block: [i32; 3]) -> [[u8; 4]; 3] {
-    ecken_in(0..=0, welt, block)
+    ecken_in(&[(0, 0)], 0..=0, welt, block)
 }
 
-/// Wie `ecken`, mit diesen Sections statt nur der bei y = 0.
+/// Wie `ecken`, in diesen Chunks und Sections.
 fn ecken_in(
+    chunks: &[(i32, i32)],
     sections: std::ops::RangeInclusive<i8>,
     welt: impl Fn(i32, i32, i32) -> &'static str,
     block: [i32; 3],
 ) -> [[u8; 4]; 3] {
     let dir = tempdir();
-    common::write_world_sections(dir.path(), &[(0, 0)], sections, welt, |_, _| None);
+    common::write_world_sections(dir.path(), chunks, sections, welt, |_, _| None);
     let world = World::open(dir.path()).unwrap();
     let projection = Projection::new(32);
     let sprites = tabelle(&mut assets(), &world, projection);
@@ -2226,6 +2228,49 @@ fn ecke_hinter_mauern_auch_im_osten_und_sueden() {
     assert_eq!(sued, [255, 204, 153, 255], "Süden");
 }
 
+/// Über Chunkgrenzen hinweg: Die Ostseite eines Steins bei x = 15 fragt
+/// nach den Blöcken bei x = 16 und 17 im Chunk daneben, die Südseite eines
+/// Steins bei z = 15 nach denen bei z = 16 und 17, die Oberseite des Bodens
+/// bei x = 16 nach dem Block im Westen, bei x = 15. Dort steht jeweils ein
+/// Stein, der abdunkelt, und im Osten und Süden nehmen Steine zwei Blöcke
+/// weiter einer Ecke die Sicht wie in
+/// `ecke_hinter_mauern_auch_im_osten_und_sueden`. Am Rand des eigenen
+/// Chunks, bei x oder z = 0 und 1, steht nichts davon.
+#[test]
+fn weiche_beleuchtung_ueber_chunkgrenzen() {
+    // Osten: Der Stein im Norden dunkelt ab. Die Steine hinter den Nachbarn
+    // oben und im Süden nehmen der Ecke oben im Süden die Sicht, dort gilt
+    // der Boden.
+    let osten = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) | (15, 1, 8) | (16, 1, 7) | (17, 2, 8) | (17, 1, 9) => "minecraft:stone",
+        _ => "minecraft:air",
+    };
+    assert_eq!(
+        ecken_in(&[(0, 0), (1, 0)], 0..=0, osten, [15, 1, 8])[2],
+        [204, 153, 102, 204],
+        "Osten"
+    );
+    // Süden: Der Stein im Osten dunkelt ab. Der Stein hinter dem Nachbarn
+    // im Westen nimmt mit dem Boden der Ecke unten im Westen die Sicht, dort
+    // gilt die Luft im Westen.
+    let sueden = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) | (8, 1, 15) | (9, 1, 16) | (7, 1, 17) => "minecraft:stone",
+        _ => "minecraft:air",
+    };
+    assert_eq!(
+        ecken_in(&[(0, 0), (0, 1)], 0..=0, sueden, [8, 1, 15])[1],
+        [255, 204, 102, 204],
+        "Süden"
+    );
+    // Oben: eine Mauer im Westen, im Chunk daneben.
+    let westen = mit_mauer(|x, y, _| x == 15 && y == 1);
+    assert_eq!(
+        ecken_in(&[(0, 0), (1, 0)], 0..=0, westen, [16, 0, 8])[0],
+        [153, 153, 255, 255],
+        "Westen"
+    );
+}
+
 /// Was der Renderer nicht zeichnet, dunkelt ab wie im Spiel, eine
 /// Shulkerkiste etwa, die das Spiel mit ihrem Blockentity zeichnet: als
 /// Mauer neben dem Boden wie Stein, und auch allein in der Section über
@@ -2248,7 +2293,7 @@ fn abdunkeln_auch_ohne_sprite() {
         _ => "minecraft:air",
     };
     assert_eq!(
-        ecken_in(0..=1, darueber, [8, 15, 8])[0],
+        ecken_in(&[(0, 0)], 0..=1, darueber, [8, 15, 8])[0],
         [204; 4],
         "allein in der Section darüber"
     );

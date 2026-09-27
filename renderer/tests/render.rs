@@ -12,7 +12,6 @@ use terranova_render::assets::{
     Assets, BakedModel, Element, ElementFace, Face, Quad, ResolvedModel, ResolvedVariant, Rotation,
     TextureId, Tints, bake, model_of,
 };
-use terranova_render::render::rasterizer::over;
 use terranova_render::render::{Projection, render};
 use terranova_render::world::BlockState;
 
@@ -240,7 +239,6 @@ fn unsinnig_grosse_modelle_werden_uebersprungen() {
             shade: true,
             force_translucent: false,
             fluid: None,
-            layers: 1,
         }],
     };
     assert!(
@@ -299,9 +297,9 @@ fn wasser_bekommt_geometrie_aus_der_blockstate() {
 }
 
 /// Ein gefluteter Zaun bleibt unter dem Wasser sichtbar: das Sprite mischt
-/// die Wasserfläche über den Pfosten, statt ihn zu überschreiben. Und die
-/// Oberseite des Pfostens ragt trocken heraus, denn das Wasser endet bei
-/// 8/9 des Blocks — wie im Spiel.
+/// die Wasserfläche über den Pfosten, statt ihn zu überschreiben, und
+/// darunter liegt der Pfosten im Licht 14. Die Oberseite des Pfostens ragt
+/// trocken heraus, denn das Wasser endet bei 8/9 des Blocks — wie im Spiel.
 #[test]
 fn wasser_mischt_sich_ueber_den_zaun() {
     let mut assets = assets();
@@ -316,9 +314,13 @@ fn wasser_mischt_sich_ueber_den_zaun() {
         "die Pfostenoberseite liegt über dem Wasser"
     );
 
-    // Südseite des Pfostens auf halber Höhe, hinter der Wasseroberfläche.
+    // Südseite des Pfostens auf halber Höhe, hinter der Wasseroberfläche:
+    // `α · W + (1 − α) · b · D`, die Helligkeit b(14) nach `lightmap.fsh`.
     let (sx, sy) = (-1, 0);
-    let erwartet = over(pixel(&wasser, sx, sy), pixel(&trocken, sx, sy));
+    let (w, d) = (pixel(&wasser, sx, sy), pixel(&trocken, sx, sy));
+    let a = w[3] as f64 / 255.0;
+    let farbe = |c: usize| (a * w[c] as f64 + (1.0 - a) * 0.90794 * d[c] as f64).round() as u8;
+    let erwartet = [farbe(0), farbe(1), farbe(2), 255];
     let ist = pixel(&nass, sx, sy);
     for c in 0..4 {
         assert!(
@@ -615,7 +617,6 @@ fn flaeche(z: f32, von: f32, bis: f32, texture: TextureId) -> Quad {
         shade: true,
         force_translucent: false,
         fluid: None,
-        layers: 1,
     }
 }
 

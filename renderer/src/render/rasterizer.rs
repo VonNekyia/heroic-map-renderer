@@ -1,7 +1,7 @@
 use image::{Rgba, RgbaImage};
 
 use crate::assets::baker::{BakedModel, Quad};
-use crate::assets::{Textures, Tints, fluid};
+use crate::assets::{Face, Textures, Tints, fluid};
 
 use super::Projection;
 use super::pyramid::{LINEAR, to_srgb};
@@ -51,6 +51,49 @@ const SHADE_TOP: f32 = 1.0;
 const SHADE_BOTTOM: f32 = 0.5;
 const SHADE_NORTH_SOUTH: f32 = 0.8;
 const SHADE_EAST_WEST: f32 = 0.6;
+
+/// Volles Himmelslicht, am Tag unter freiem Himmel. So hell zeichnet der
+/// Renderer jede Fläche, siehe [`brightness`].
+pub const FULL_LIGHT: u8 = 15;
+
+/// Himmelslicht direkt unter einer Wasseroberfläche: Der Block der
+/// Oberfläche selbst nimmt eine Stufe, `LiquidBlock.propagatesSkylightDown`
+/// ist falsch.
+pub const LIGHT_UNDER_SURFACE: u8 = 14;
+
+/// Helligkeit einer Fläche im Himmelslicht `light` (0 bis 15), am Tag in
+/// der Oberwelt, so wie `shaders/core/lightmap.fsh` in 26.2 sie rechnet:
+/// `get_brightness(l / 15) = l / (4 - 3 l)` mal `SkyFactor` 1 und die
+/// weisse `SkyLightColor`, dazu die `ambient_light_color` `#0a0a0a` der
+/// Oberwelt, auf 1 begrenzt. Danach steht sie halb zwischen diesem Wert und
+/// `notGamma`, denn `options.gamma` ist im Spiel 0,5. Licht 15 gibt 1, also
+/// so hell, wie der Renderer jede Fläche zeichnet.
+pub fn brightness(light: u8) -> f32 {
+    let level = light.min(FULL_LIGHT) as f32 / 15.0;
+    let sky = level / (4.0 - 3.0 * level);
+    let color = (10.0 / 255.0 + sky).min(1.0);
+    let rest = 1.0 - color;
+    let not_gamma = 1.0 - rest * rest * rest * rest;
+    color + (not_gamma - color) * 0.5
+}
+
+/// [`brightness`] in 255steln, für [`darken`]: 255 bei vollem Licht.
+pub fn light_factor(light: u8) -> u32 {
+    (brightness(light) * 255.0).round() as u32
+}
+
+/// Ein Pixel im Licht mit dem Faktor aus [`light_factor`]: die Farbe mal
+/// die Helligkeit, das Alpha bleibt. Ganzzahlig wie [`over`], dieselbe
+/// Rechnung steht im Shader (`gpu.wgsl`).
+pub fn darken(pixel: [u8; 4], factor: u32) -> [u8; 4] {
+    let dunkel = |c: u8| ((c as u32 * factor + 127) / 255) as u8;
+    [
+        dunkel(pixel[0]),
+        dunkel(pixel[1]),
+        dunkel(pixel[2]),
+        pixel[3],
+    ]
+}
 
 /// Das fertig gerasterte Bild einer Blockstate.
 pub struct Sprite {
@@ -252,7 +295,7 @@ impl<'a> ProjectedQuad<'a> {
                 Shading {
                     shade: self.shade,
                     tint,
-                    layers: self.quad.layers,
+                    surface: self.quad.fluid.is_some_and(|(_, face)| face == Face::Up),
                     order,
                 },
                 samples,
@@ -291,16 +334,6 @@ fn shade_factor(quad: &Quad) -> f32 {
     }
 }
 
-/// Alpha von `layers` Schichten desselben Texels hintereinander: was eine
-/// Schicht durchlässt, lässt die nächste wieder nur zum Teil durch.
-fn stacked(mut texel: [u8; 4], layers: u8) -> [u8; 4] {
-    if layers > 1 && texel[3] > 0 && texel[3] < 255 {
-        let through = (1.0 - texel[3] as f32 / 255.0).powi(layers as i32);
-        texel[3] = 255 - (through * 255.0).round() as u8;
-    }
-    texel
-}
-
 /// Texel an normierten Koordinaten. Außerhalb von 0..1 wird wiederholt —
 /// einzelne Modelle geben UV jenseits der Texturgrenzen an.
 fn sample(texture: &RgbaImage, tw: u32, th: u32, u: f32, v: f32) -> [u8; 4] {
@@ -318,14 +351,14 @@ struct Vertex {
     v: f32,
 }
 
-/// Wie ein Texel zur Farbe wird: Helligkeit der Fläche, Färbung, die
-/// Zahl der Schichten für die Deckkraft — und der Rang der Fläche, der
-/// bei gleicher Tiefe entscheidet.
+/// Wie ein Texel zur Farbe wird: Helligkeit der Fläche, Färbung, ob sie
+/// die Oberseite einer Flüssigkeit ist — und der Rang der Fläche, der bei
+/// gleicher Tiefe entscheidet.
 #[derive(Clone, Copy)]
 struct Shading {
     shade: f32,
     tint: Option<[f32; 3]>,
-    layers: u8,
+    surface: bool,
     order: u32,
 }
 
@@ -339,7 +372,9 @@ struct Fragment {
     order: u32,
     /// Farbe mit Helligkeit und Färbung, Alpha der Textur.
     color: [u8; 4],
-    layers: u8,
+    /// Von der Oberseite einer Flüssigkeit: Was im Sprite dahinter liegt,
+    /// liegt unter Wasser.
+    surface: bool,
 }
 
 /// Die Fragmente eines Sprites, gemischt erst in `into_image`.
@@ -385,7 +420,7 @@ impl Canvas {
         let Shading {
             shade,
             tint,
-            layers,
+            surface,
             order,
         } = shading;
         let area = edge(v[0], v[1], v[2].x, v[2].y);
@@ -453,7 +488,7 @@ impl Canvas {
                     depth,
                     order,
                     color: shaded(texel, shade, tint),
-                    layers,
+                    surface,
                 });
             }
         }
@@ -471,12 +506,15 @@ impl Canvas {
         for pixel in self.fragments.chunk_by(|a, b| a.pixel == b.pixel) {
             let mut color = [0u8; 4];
             for fragment in pixel {
-                // Die hochgerechnete Deckkraft steht für das Wasser hinter
-                // der Fläche. Sie gilt nur, wo das Sprite selbst nichts
-                // dahinter hat: ein Zaunpfosten unter der Oberfläche bleibt
-                // sichtbar, egal wie tief das Wasser dahinter steht.
-                let layers = if color[3] == 0 { fragment.layers } else { 1 };
-                color = over(stacked(fragment.color, layers), color);
+                // Was ein gefluteter Block unter seiner eigenen Oberfläche
+                // trägt, ein Zaunpfosten etwa, liegt im Licht direkt unter
+                // ihr. Wo das Sprite nichts dahinter hat, bleibt die
+                // Oberfläche, wie sie ist: Was dort durchscheint, zeichnet
+                // der Renderlauf in seinem eigenen Licht.
+                if fragment.surface && color[3] != 0 {
+                    color = darken(color, light_factor(LIGHT_UNDER_SURFACE));
+                }
+                color = over(fragment.color, color);
             }
             let index = pixel[0].pixel;
             image.put_pixel(index % self.width, index / self.width, Rgba(color));
@@ -630,6 +668,44 @@ mod tests {
     use super::*;
     use crate::assets::baker::Quad;
 
+    /// Die Helligkeit je Himmelslicht, nach `lightmap.fsh` von Hand
+    /// ausgerechnet: Umgebungsfarbe #0a0a0a, `SkyFactor` 1, Helligkeit 0,5.
+    #[test]
+    fn helligkeit_wie_im_spiel() {
+        let erwartet = [
+            0.09355, 0.13259, 0.17406, 0.21810, 0.26489, 0.31456, 0.36725, 0.42304, 0.48195,
+            0.54391, 0.60878, 0.67642, 0.74707, 0.82231, 0.90794, 1.0,
+        ];
+        for (licht, b) in erwartet.into_iter().enumerate() {
+            let ist = brightness(licht as u8);
+            assert!((ist - b).abs() < 1e-5, "Licht {licht}: {ist}, erwartet {b}");
+        }
+    }
+
+    /// Über dem Grund D im Licht l ergibt die Oberfläche `α · W + (1 − α) ·
+    /// b(l) · D`, so wie das Spiel sie über den dunkleren Grund legt.
+    #[test]
+    fn wasser_zeigt_den_grund_im_licht() {
+        let wasser = [60, 100, 220, 180];
+        let grund = [150, 110, 60, 255];
+        for licht in 0..=15 {
+            let ist = over(wasser, darken(grund, light_factor(licht)));
+            let a = 180.0 / 255.0;
+            for c in 0..3 {
+                let soll = a * wasser[c] as f32 + (1.0 - a) * brightness(licht) * grund[c] as f32;
+                assert!(
+                    (ist[c] as f32 - soll).abs() <= 1.0,
+                    "Licht {licht}: {ist:?}, Kanal {c} {soll}"
+                );
+            }
+            assert_eq!(ist[3], 255);
+        }
+        // Volles Licht lässt jeden Pixel, wie er ist; das Alpha bleibt immer.
+        assert_eq!(light_factor(FULL_LIGHT), 255);
+        assert_eq!(darken([1, 2, 3, 4], 255), [1, 2, 3, 4]);
+        assert_eq!(darken([200, 100, 50, 77], light_factor(0)), [19, 9, 5, 77]);
+    }
+
     #[test]
     fn abtastung_folgt_dem_scale() {
         assert_eq!(texture_samples(64), 2);
@@ -678,7 +754,6 @@ mod tests {
             shade,
             force_translucent: false,
             fluid: None,
-            layers: 1,
         }
     }
 

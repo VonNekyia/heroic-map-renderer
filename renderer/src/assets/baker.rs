@@ -20,10 +20,6 @@ pub struct Quad {
     /// Gesetzt für die Flächen einer Flüssigkeit, mit ihrer Richtung: die
     /// Fläche entfällt, wenn der Nachbar dort dieselbe Flüssigkeit führt.
     pub fluid: Option<(Fluid, Face)>,
-    /// Wie viele Schichten dieser Textur hintereinander liegen. Eine
-    /// Wasseroberfläche über drei Blöcken Wasser deckt wie drei Schichten,
-    /// nicht wie eine — der Rasterizer rechnet das Alpha entsprechend hoch.
-    pub layers: u8,
 }
 
 impl Quad {
@@ -108,7 +104,6 @@ pub fn bake(variants: &[ResolvedVariant]) -> BakedModel {
                     shade: element.shade,
                     force_translucent: data.force_translucent,
                     fluid: None,
-                    layers: 1,
                 });
             }
         }
@@ -150,7 +145,6 @@ pub fn box_quads(
             shade: true,
             force_translucent: false,
             fluid: fluid.map(|fluid| (fluid, face)),
-            layers: 1,
         }
     })
 }

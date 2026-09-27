@@ -11,7 +11,6 @@ use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::metatile::STUECK;
-use terranova_render::render::rasterizer::over;
 use terranova_render::render::{
     ChunkCache, Projection, ScreenRect, SpriteSet, render_area, render_area_with,
     render_area_without_culling, survey,
@@ -716,7 +715,7 @@ fn tiefes_wasser_hat_innen_keine_streifen() {
         projection,
         rect,
     );
-    // Über dem Inneren sieht jeder Strahl drei Schichten und dann den Grund.
+    // Über dem Inneren liegt eine Oberfläche, darunter der Grund im Licht 12.
     let oben = 3.0 + 8.0 / 9.0;
     let soll = punkt(&bild, projection, rect, [7.5, oben, 7.5]);
     for x in 5..=8 {
@@ -747,7 +746,7 @@ fn innere_wasserflaechen_werden_nicht_gezeichnet() {
         .unwrap();
     let becken = |x: i32, z: i32| (4..7).contains(&x) && (4..7).contains(&z);
 
-    // Ohne Grund: jede Stelle des Beckens trägt genau eine Schicht.
+    // Ohne Grund: jede Stelle des Beckens trägt genau eine Oberfläche.
     let dir = tempdir();
     let ohne = render_chunks(
         &dir,
@@ -762,7 +761,7 @@ fn innere_wasserflaechen_werden_nicht_gezeichnet() {
         projection,
         rect,
     );
-    // Mit deckendem Grund: genau `over(Wasser, Grund)`.
+    // Mit deckendem Grund: die Oberfläche über dem Grund in seinem Licht.
     let dir = tempdir();
     let mit = render_chunks(
         &dir,
@@ -787,11 +786,15 @@ fn innere_wasserflaechen_werden_nicht_gezeichnet() {
         (220.0 * wasser[2] as f32 / 255.0).round() as u8,
         180,
     ];
-    let ueber_grund = over(schicht, [150, 110, 60, 255]);
     for x in 4..7 {
         for z in 4..7 {
             let a = oberseite(&ohne, projection, rect, [x, 1, z]);
             let b = oberseite(&mit, projection, rect, [x, 1, z]);
+            // Die Mitte der Oberseite sieht schräg nach hinten auf den Grund
+            // von (x − 1, z − 1): unter dem Becken liegt er im Licht 14, am
+            // West- und Nordrand trocken daneben im Licht 15.
+            let licht = if becken(x - 1, z - 1) { 14 } else { 15 };
+            let ueber_grund = unter_wasser(schicht, [150, 110, 60, 255], licht);
             for c in 0..4 {
                 assert!(
                     (a[c] as i32 - schicht[c] as i32).abs() <= 1,
@@ -904,49 +907,73 @@ fn doppelbloecke_wuerfeln_beide_haelften_gleich() {
     assert!(blaue > 8 && blaue < gleich - 8, "{blaue} von {gleich} blau");
 }
 
-/// Die Wasseroberfläche trägt die Deckkraft des Wassers hinter ihr: durch
-/// einen Block Wasser sieht man den Grund, durch vier praktisch nicht mehr.
+/// Durch die Oberfläche einer Wassersäule der Tiefe n sieht man den Grund
+/// so hell, wie ihn das Himmelslicht dort unten macht: Jeder Block Wasser
+/// nimmt eine Stufe, der Grund liegt im Licht 15 − n, ab 15 Blöcken im
+/// Licht 0. Über ihm ergibt die Oberfläche `α · W + (1 − α) · b · D`; ohne
+/// ihn bleibt sie, wie sie ist.
 ///
-/// Gezählt wird entlang des Blickstrahls, also schräg nach hinten unten.
-/// Die Becken sind deshalb fünf Blöcke breit, und geprüft wird ihre
-/// vorderste Ecke: hinter ihr steht auf der ganzen Tiefe Wasser.
+/// Die Säule füllt den ganzen Chunk, und geprüft wird ihre vorderste Ecke:
+/// Der Blick fällt schräg nach hinten unten, auch dort liegt der Grund
+/// unter der ganzen Säule.
 #[test]
-fn tiefes_wasser_deckt() {
+fn wassersaeule_zeigt_den_grund_im_licht() {
     let projection = Projection::new(16);
     let rect = ScreenRect::centered(512, 512);
-    // Becken der Tiefe 1 bis 5 bei x = 0, 6, ..., 24, je 5 x 5 Blöcke,
-    // Oberfläche y = 10.
-    let dir = tempdir();
-    let bild = render_chunks(
-        &dir,
-        &[(0, 0), (1, 0)],
-        |x, y, z| {
-            let tiefe = if x % 6 < 5 && (4..9).contains(&z) {
-                x / 6 + 1
-            } else {
-                0
-            };
-            if y <= 10 && y > 10 - tiefe {
-                "minecraft:water"
-            } else {
-                "minecraft:air"
-            }
-        },
-        projection,
-        rect,
-    );
-    // Alpha nach d Schichten von 180: 255 - 255 * (75 / 255)^d, ab vier gedeckelt.
-    let erwartet = [180u8, 233, 249, 253, 253];
-    for (i, alpha) in erwartet.into_iter().enumerate() {
-        let x = 6 * i as i32 + 4;
-        let p = oberseite(&bild, projection, rect, [x, 10, 8]);
-        assert!(
-            (p[3] as i32 - alpha as i32).abs() <= 1,
-            "Tiefe {}: Alpha {}, erwartet {alpha}",
-            i + 1,
-            p[3]
-        );
+    let schicht = wasserschicht(&assets());
+    let grund = [150, 110, 60, 255];
+    for n in [1, 2, 3, 5, 10, 15] {
+        let saeule = |mit_grund: bool| {
+            let dir = tempdir();
+            render_chunks(
+                &dir,
+                &[(0, 0)],
+                move |_, y, _| {
+                    if y == 0 && mit_grund {
+                        "minecraft:einfarbig"
+                    } else if (1..=n).contains(&y) {
+                        "minecraft:water"
+                    } else {
+                        "minecraft:air"
+                    }
+                },
+                projection,
+                rect,
+            )
+        };
+        let ecke = [15, n, 15];
+        let ohne = oberseite(&saeule(false), projection, rect, ecke);
+        let soll = unter_wasser(schicht, grund, 15 - n as usize);
+        let mit = oberseite(&saeule(true), projection, rect, ecke);
+        for c in 0..4 {
+            assert!(
+                (ohne[c] as i32 - schicht[c] as i32).abs() <= 1,
+                "Tiefe {n} ohne Grund: {ohne:?}, erwartet {schicht:?}"
+            );
+            assert!(
+                (mit[c] as i32 - soll[c] as i32).abs() <= 1,
+                "Tiefe {n} über dem Grund: {mit:?}, erwartet {soll:?}"
+            );
+        }
     }
+}
+
+/// Die Helligkeit des Spiels je Himmelslicht, am Tag in der Oberwelt, nach
+/// `lightmap.fsh` von Hand gerechnet: Umgebungsfarbe #0a0a0a, `SkyFactor`
+/// 1, die Helligkeit auf ihrem Standard 0,5.
+const HELLIGKEIT: [f64; 16] = [
+    0.09355, 0.13259, 0.17406, 0.21810, 0.26489, 0.31456, 0.36725, 0.42304, 0.48195, 0.54391,
+    0.60878, 0.67642, 0.74707, 0.82231, 0.90794, 1.0,
+];
+
+/// Eine Schicht Wasser über dem deckenden Grund D, der im Himmelslicht
+/// `licht` liegt: `α · W + (1 − α) · b · D`, wie das Spiel sie mischt.
+fn unter_wasser(schicht: [u8; 4], grund: [u8; 4], licht: usize) -> [u8; 4] {
+    let a = schicht[3] as f64 / 255.0;
+    let farbe = |c: usize| {
+        (a * schicht[c] as f64 + (1.0 - a) * HELLIGKEIT[licht] * grund[c] as f64).round() as u8
+    };
+    [farbe(0), farbe(1), farbe(2), 255]
 }
 
 /// Eine Schicht der Wassertextur des Fixtures in der Standardfarbe.
@@ -964,13 +991,14 @@ fn wasserschicht(assets: &Assets) -> [u8; 4] {
     ]
 }
 
-/// Was knapp unter einer tiefen Oberfläche liegt, sieht man durch das
-/// Wasser davor, nicht durch das daneben. Senkrecht gezählt trüge der
-/// Oberflächenblock vor dem Stein die Deckkraft seiner eigenen, vier
-/// Blöcke tiefen Spalte, und der Stein verschwände fast ganz — ebenso
-/// Riffe und Wracks.
+/// Jeder Block liegt in seinem eigenen Licht, egal durch welche Oberfläche
+/// man ihn sieht: Die Oberseite eines Steins einen Block unter der
+/// Oberfläche im Licht 14, der Grund daneben vier Blöcke tief im Licht 11.
+/// Der Unterschied folgt der Kurve des Spiels. Trüge die Oberfläche das
+/// Licht, läge der Stein im Licht des Grundes, den ihre Nachbarn zeigen,
+/// oder der Grund in dem des Steins — ebenso bei Riffen und Wracks.
 #[test]
-fn tiefe_zaehlt_entlang_des_blickstrahls() {
+fn stein_unter_der_oberflaeche_liegt_in_seinem_licht() {
     let projection = Projection::new(32);
     let rect = ScreenRect::centered(512, 512);
     let schicht = wasserschicht(&assets());
@@ -1003,9 +1031,9 @@ fn tiefe_zaehlt_entlang_des_blickstrahls() {
     );
 
     // Vor der Steinoberseite liegt genau eine Oberfläche, die von
-    // (8, 4, 8), und hinter der steht der Stein, kein Wasser.
+    // (8, 4, 8), und über dem Stein ein Block Wasser.
     let mitte = [7.5, 4.0, 7.5];
-    let erwartet = over(schicht, punkt(&trocken, projection, rect, mitte));
+    let erwartet = unter_wasser(schicht, punkt(&trocken, projection, rect, mitte), 14);
     let ist = punkt(&see, projection, rect, mitte);
     for c in 0..4 {
         assert!(
@@ -1013,14 +1041,10 @@ fn tiefe_zaehlt_entlang_des_blickstrahls() {
             "Stein unter der Oberfläche: erwartet {erwartet:?}, bekommen {ist:?}"
         );
     }
-    // Die Oberfläche direkt über dem Stein, (7, 4, 7): senkrecht gezählt
-    // läge dort eine Schicht, der Strahl läuft aber schräg am Stein vorbei
-    // bis zum Grund. Vier Schichten, der Grund ist kaum noch zu sehen.
+    // Die Oberfläche direkt über dem Stein, (7, 4, 7): Der Blick fällt
+    // schräg an ihm vorbei auf den Grund, vier Blöcke Wasser tief.
     let ueber = [7.5, 4.0 + 8.0 / 9.0, 7.5];
-    let erwartet = over(
-        [schicht[0], schicht[1], schicht[2], 253],
-        [150, 110, 60, 255],
-    );
+    let erwartet = unter_wasser(schicht, [150, 110, 60, 255], 11);
     let ist = punkt(&see, projection, rect, ueber);
     for c in 0..4 {
         assert!(
@@ -1030,23 +1054,196 @@ fn tiefe_zaehlt_entlang_des_blickstrahls() {
     }
 }
 
-/// Ein gefluteter Block, der die Oberseite seines Würfels deckt, beendet
-/// die Zählung wie ein Stein: hinter der Oberfläche liegt eine Schicht,
-/// dann die Platte. Eine untere Platte deckt dort 100 von 256 Pixeln, die
-/// meisten Strahlen laufen über sie hinweg, und die Oberfläche trägt die
-/// Tiefe des Sees.
+/// Eine Wand unter Wasser liegt im Licht des Wassers vor ihr. Ein Pfeiler
+/// steht in einem See und ragt knapp heraus: Die Oberseite seiner Blöcke
+/// verdeckt der jeweils darüber, zu sehen ist die Ostseite, und die liegt
+/// zwei Blöcke unter der Oberfläche im Licht 12. Zählte nur das Wasser
+/// über dem Block, gäbe es keins, und die Wand leuchtete durch das Wasser
+/// wie an der Luft.
 #[test]
-fn deckende_bloecke_beenden_die_zaehlung() {
-    zaehlung_endet_an_der_platte("minecraft:water", 8);
-    zaehlung_endet_an_der_platte("minecraft:water[level=1]", 7);
+fn wand_unter_wasser_liegt_im_licht_davor() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let schicht = wasserschicht(&assets());
+    let pfeiler = |x: i32, y: i32, z: i32| x == 7 && z == 8 && (1..=4).contains(&y);
+    let dir = tempdir();
+    let see = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| match (x, y, z) {
+            _ if pfeiler(x, y, z) => "minecraft:einfarbig",
+            (_, 0, _) => "minecraft:einfarbig",
+            (_, 1..=4, _) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let dir = tempdir();
+    let trocken = render_chunks(
+        &dir,
+        &[(0, 0)],
+        move |x, y, z| {
+            if pfeiler(x, y, z) {
+                "minecraft:einfarbig"
+            } else {
+                "minecraft:air"
+            }
+        },
+        projection,
+        rect,
+    );
+
+    // Mitte der Ostseite von (7, 2, 8); davor Wasser von y = 2 bis 4.
+    let ost = [8.0, 2.5, 8.5];
+    let erwartet = unter_wasser(schicht, punkt(&trocken, projection, rect, ost), 12);
+    let ist = punkt(&see, projection, rect, ost);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+            "Ostseite unter Wasser: erwartet {erwartet:?}, bekommen {ist:?}"
+        );
+    }
 }
 
-/// Die Prüfung aus `deckende_bloecke_beenden_die_zaehlung` für einen See,
-/// dessen oberste Schicht `oben` ist, mit Oberfläche bei `neuntel`/9.
-/// Hinter fliessendem Wasser der Menge 7 treten die Strahlen tiefer ein
-/// als bei einer Quelle, und dort hält auch die untere Platte sie auf:
-/// sie deckt mehr als die Hälfte. Gemessen wurde vorher immer bei 8/9.
-fn zaehlung_endet_an_der_platte(oben: &'static str, neuntel: u8) {
+/// Unter einem Block mitten im Wasser zählt das Licht weiter nach oben bis
+/// zur Luft, und der Block nimmt eine Stufe wie ein Block Wasser. Unter
+/// einem Stein in einem See, acht Blöcke tief, liegt der Grund deshalb im
+/// Licht 7 wie überall im See. Hielte die Zählung am Stein an, als stünde
+/// über ihm freier Himmel, läge er im Licht 11, und eine geflutete Höhle
+/// unter dem Meeresboden leuchtete durch ihre Öffnungen herauf.
+#[test]
+fn licht_zaehlt_unter_einem_block_weiter() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let dir = tempdir();
+    let see = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (_, 0, _) | (3, 5, 3) => "minecraft:einfarbig",
+            (_, 1..=8, _) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let erwartet = unter_wasser(wasserschicht(&assets()), [150, 110, 60, 255], 7);
+    // Der Grund unter dem Stein; der Blick auf ihn tritt mitten im Chunk
+    // durch die Oberfläche.
+    let ist = oberseite(&see, projection, rect, [3, 0, 3]);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+            "Grund unter dem Stein: erwartet {erwartet:?}, bekommen {ist:?}"
+        );
+    }
+}
+
+/// Eine Luftblase unter Wasser bekommt kein Himmelslicht: Über ihr steht
+/// das Wasser des Sees, und der Grund in ihr liegt im Licht dieses Wassers,
+/// sieben Blöcke, also 8. Nähme die Luft über ihm freien Himmel an, läge er
+/// im Licht 15 und leuchtete durch den See.
+#[test]
+fn luftblase_unter_wasser_bleibt_dunkel() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let dir = tempdir();
+    let see = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (3, 1, 3) => "minecraft:air",
+            (_, 1..=8, _) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let erwartet = unter_wasser(wasserschicht(&assets()), [150, 110, 60, 255], 8);
+    let ist = oberseite(&see, projection, rect, [3, 0, 3]);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+            "Grund in der Luftblase: erwartet {erwartet:?}, bekommen {ist:?}"
+        );
+    }
+}
+
+/// An Land bleibt alles im Licht 15, auch unter einem Überhang: Nur wo
+/// über einem Block Wasser steht, zählt der Renderer das Licht. Der Boden
+/// unter einem Stein drei Blöcke höher sieht aus wie ohne ihn.
+#[test]
+fn an_land_bleibt_das_licht_voll() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let boden = |dach: bool| {
+        move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (3, 4, 3) if dach => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        }
+    };
+    let dir = tempdir();
+    let mit = render_chunks(&dir, &[(0, 0)], boden(true), projection, rect);
+    let dir = tempdir();
+    let ohne = render_chunks(&dir, &[(0, 0)], boden(false), projection, rect);
+    assert_eq!(
+        oberseite(&mit, projection, rect, [3, 0, 3]),
+        oberseite(&ohne, projection, rect, [3, 0, 3]),
+        "Boden unter dem Überhang"
+    );
+}
+
+/// Über ebenem Grund trägt jeder Punkt einer Oberseite dieselbe Farbe, auch
+/// auf der Diagonalen, an der der Rasterizer sie in zwei Dreiecke teilt,
+/// und über den Blockgrenzen des Grundes darunter.
+#[test]
+fn see_ohne_naht_ueber_ebenem_grund() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let dir = tempdir();
+    let see = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |_, y, _| match y {
+            0 => "minecraft:einfarbig",
+            1..=3 => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let erwartet = unter_wasser(wasserschicht(&assets()), [150, 110, 60, 255], 12);
+    let oben = 3.0 + 8.0 / 9.0;
+    for i in 1..20 {
+        for k in 1..20 {
+            let p = [8.0 + i as f64 / 20.0, oben, 8.0 + k as f64 / 20.0];
+            let ist = punkt(&see, projection, rect, p);
+            for c in 0..4 {
+                assert!(
+                    (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+                    "{p:?}: erwartet {erwartet:?}, bekommen {ist:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Eine geflutete Platte unter der Oberfläche liegt im Licht ihres eigenen
+/// Wassers, zwei Blöcke unter freiem Himmel, im Licht 13: die obere wie
+/// die untere, unter einer Quelle wie unter fliessendem Wasser.
+#[test]
+fn geflutete_platte_liegt_im_licht_ihres_wassers() {
+    platte_im_see("minecraft:water", 8);
+    platte_im_see("minecraft:water[level=1]", 7);
+}
+
+/// Die Prüfung aus `geflutete_platte_liegt_im_licht_ihres_wassers` für
+/// einen See, dessen oberste Schicht `oben` ist, mit Oberfläche bei
+/// `neuntel`/9.
+fn platte_im_see(oben: &'static str, neuntel: u8) {
     let projection = Projection::new(32);
     let rect = ScreenRect::centered(512, 512);
     let schicht = wasserschicht(&assets());
@@ -1059,53 +1256,33 @@ fn zaehlung_endet_an_der_platte(oben: &'static str, neuntel: u8) {
             _ => "minecraft:air",
         }
     };
-    let dir = tempdir();
-    let oben = render_chunks(
-        &dir,
-        &[(0, 0)],
-        see("minecraft:obere_platte[waterlogged=true]"),
-        projection,
-        rect,
-    );
-    let dir = tempdir();
-    let unten = render_chunks(
-        &dir,
-        &[(0, 0)],
-        see("minecraft:untere_platte[waterlogged=true]"),
-        projection,
-        rect,
-    );
-    // Die Mitte der Oberseite von (8, 4, 8): ihr Strahl trifft die Platte.
-    let mitte = [8.5, 4.0 + f64::from(neuntel) / 9.0, 8.5];
     let holz = [150, 110, 60, 255];
-    let erwartet = over(schicht, holz);
-    let ist = punkt(&oben, projection, rect, mitte);
-    for c in 0..4 {
-        assert!(
-            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
-            "obere Platte: erwartet {erwartet:?}, bekommen {ist:?}"
-        );
-    }
-    let hinter_der_platte = if neuntel == 8 { 253 } else { schicht[3] };
-    let erwartet = over(
-        [schicht[0], schicht[1], schicht[2], hinter_der_platte],
-        holz,
-    );
-    let ist = punkt(&unten, projection, rect, mitte);
-    for c in 0..4 {
-        assert!(
-            (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
-            "untere Platte bei {neuntel}/9: erwartet {erwartet:?}, bekommen {ist:?}"
-        );
+    let erwartet = unter_wasser(schicht, holz, 13);
+    // Die Mitte der Oberseite von (8, 4, 8): Der Blick trifft die obere
+    // Platte bei 4, die untere bei 3,5.
+    let mitte = [8.5, 4.0 + f64::from(neuntel) / 9.0, 8.5];
+    for platte in [
+        "minecraft:obere_platte[waterlogged=true]",
+        "minecraft:untere_platte[waterlogged=true]",
+    ] {
+        let dir = tempdir();
+        let bild = render_chunks(&dir, &[(0, 0)], see(platte), projection, rect);
+        let ist = punkt(&bild, projection, rect, mitte);
+        for c in 0..4 {
+            assert!(
+                (ist[c] as i32 - erwartet[c] as i32).abs() <= 1,
+                "{platte} bei {neuntel}/9: erwartet {erwartet:?}, bekommen {ist:?}"
+            );
+        }
     }
 }
 
 /// Dünne Modelle im Wasser — Seegras, Kelp, ein gefluteter Pfosten —
-/// lassen den Blickstrahl durch. Die Oberfläche vor ihnen bleibt so tief
-/// wie ohne sie; sonst wäre jeder Fluss mit Seegras auf dem Grund
-/// gesprenkelt.
+/// ändern nichts an dem, was neben ihnen zu sehen ist: Der Grund daneben
+/// liegt im selben Licht wie ohne sie. Sonst wäre jeder Fluss mit Seegras
+/// auf dem Grund gesprenkelt.
 #[test]
-fn duenne_modelle_machen_die_flaeche_nicht_flach() {
+fn duenne_modelle_aendern_den_grund_daneben_nicht() {
     let projection = Projection::new(16);
     let rect = ScreenRect::centered(256, 256);
     let fluss = |x: i32, y: i32, z: i32| match (x, y, z) {
@@ -1126,10 +1303,8 @@ fn duenne_modelle_machen_die_flaeche_nicht_flach() {
         projection,
         rect,
     );
-    // Die Oberfläche von (8, 2, 8) hat den Pfosten auf ihrem Strahl. Von
-    // diesem Punkt aus läuft der Strahl durch den Block des Pfostens, aber
-    // an ihm vorbei bis zum Grund: dort sieht sie aus wie ohne ihn, zwei
-    // Schichten über dem Grund. Zählte der Pfosten als Ende, wäre es eine.
+    // Die Oberfläche von (8, 2, 8) an einem Punkt, von dem aus der Blick
+    // durch den Block des Pfostens fällt, aber an ihm vorbei auf den Grund.
     let p = [8.9, 2.0 + 8.0 / 9.0, 8.1];
     assert_eq!(
         punkt(&mit, projection, rect, p),
@@ -1330,10 +1505,68 @@ fn flaechen_stossen_nahtlos_aneinander() {
     }
 }
 
-/// Die Tiefe hinter einem gefluteten Block darf dessen eigene Geometrie
-/// nicht ausblenden: die Seite eines Zaunpfostens knapp unter der
+/// Ein gefluteter Pfosten einen Block unter der Oberfläche liegt im Licht
+/// seines Wassers, 13, der Grund daneben vier Blöcke tief im Licht 11, und
+/// der Unterschied folgt der Kurve des Spiels. So zeigt die Karte Seegras
+/// und Kelp knapp unter der Oberfläche auch über tiefem Grund: Trüge die
+/// Oberfläche das Licht dessen, was hinter ihr liegt, lägen sie im Licht
+/// des Grundes.
+#[test]
+fn pfosten_unter_der_oberflaeche_liegt_heller_als_der_grund() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(512, 512);
+    let schicht = wasserschicht(&assets());
+    let dir = tempdir();
+    let see = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (8, 3, 8) => "minecraft:oak_fence[north=true,waterlogged=true]",
+            (_, 1..=4, _) => "minecraft:water",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let dir = tempdir();
+    let trocken = render_chunks(
+        &dir,
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (8, 3, 8) => "minecraft:oak_fence[north=true]",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+
+    // Mitte der Südseite des Pfostens.
+    let seite = [8.5, 3.5, 8.625];
+    let pfosten = unter_wasser(schicht, punkt(&trocken, projection, rect, seite), 13);
+    let ist = punkt(&see, projection, rect, seite);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - pfosten[c] as i32).abs() <= 1,
+            "Pfosten: erwartet {pfosten:?}, bekommen {ist:?}"
+        );
+    }
+    // Die Oberfläche daneben zeigt den Grund.
+    let grund = unter_wasser(schicht, [150, 110, 60, 255], 11);
+    let ist = oberseite(&see, projection, rect, [12, 4, 12]);
+    for c in 0..4 {
+        assert!(
+            (ist[c] as i32 - grund[c] as i32).abs() <= 1,
+            "Grund: erwartet {grund:?}, bekommen {ist:?}"
+        );
+    }
+}
+
+/// Wie tief das Wasser neben einem gefluteten Block an der Oberfläche ist,
+/// ändert nichts an ihm: Die Seite eines Zaunpfostens knapp unter der
 /// Oberfläche sieht in einem tiefen See genauso aus wie in einem flachen,
-/// denn zwischen Kamera und Pfosten liegt in beiden Fällen dasselbe Wasser.
+/// denn zwischen Kamera und Pfosten liegt in beiden Fällen dasselbe Wasser,
+/// und der Pfosten steht im Licht direkt darunter.
 #[test]
 fn tiefe_blendet_eigene_geometrie_nicht_aus() {
     let projection = Projection::new(16);
@@ -1370,14 +1603,15 @@ fn tiefe_blendet_eigene_geometrie_nicht_aus() {
     );
 
     // Südseite des Pfostens, knapp unter der Oberfläche: davor liegt nur
-    // die Wasserfläche des Zauns selbst, mit einer Schicht.
+    // die Wasserfläche des Zauns selbst, und der Pfosten steht im Licht
+    // direkt unter ihr.
     let seite = |y: f64| [8.5, y + 0.8, 8.625];
     let pfosten_flach = punkt(&flach, projection, rect, seite(1.0));
     let pfosten_tief = punkt(&tief, projection, rect, seite(4.0));
     assert_eq!(pfosten_flach, pfosten_tief, "Pfosten im tiefen See");
 
-    // Wo das Sprite nichts hinter seiner Oberfläche hat, wirkt die Tiefe:
-    // flach scheint der Boden durch, tief fast nur noch Wasser.
+    // Daneben liegt der Grund in seinem Licht: flach im Licht 14, tief im
+    // Licht 11.
     let offen = |y: f64| [8.1, y + 8.0 / 9.0, 8.9];
     let offen_flach = punkt(&flach, projection, rect, offen(1.0));
     let offen_tief = punkt(&tief, projection, rect, offen(4.0));

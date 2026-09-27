@@ -24,8 +24,8 @@ Die Zahlen sind überholt: Seit libwebp packt, siehe
 ## Ablauf
 
 Eine Kachel als PNG und als WebP geschrieben. Ein Vollrender der Testwelt
-bei scale 16 lief bis 6746 Kacheln und 801 MB, dann wurde er abgebrochen und
-hochgerechnet. Der Vorlauf lief über die ganze Welt bei scale 16 und 8.
+bei scale 16 lief bis 6746 Kacheln und 801 MiB, dann wurde er abgebrochen
+und hochgerechnet. Der Vorlauf lief über die ganze Welt bei scale 16 und 8.
 
 ## Ergebnis
 
@@ -37,8 +37,8 @@ hochgerechnet. Der Vorlauf lief über die ganze Welt bei scale 16 und 8.
 
 | `--scale` | Vorlauf, gemessen | Kacheln, gemessen | je Kachel | ganze Welt, hochgerechnet |
 |---|---|---|---|---|
-| 16 | 10,7 s | 73 920 | 134 kB | ~9 GB |
-| 8 | 6,4 s | 18 951 | 137 kB | ~2,5 GB |
+| 16 | 10,7 s | 73 920 | 134 KiB | ~9 GiB |
+| 8 | 6,4 s | 18 951 | 137 KiB | ~2,5 GiB |
 
 Das README nannte später dazu 20 bis 40 Prozent Ersparnis gegenüber PNG;
 woher die Spanne stammt, ist nicht festgehalten.

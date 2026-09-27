@@ -93,7 +93,7 @@ neun Läufen.
 | Ozean, 15 682 Basiskacheln: Basis und Pyramide | 0,78 GB | 0,93 GB |
 | 8192er, fast nur Land, ein Thread, bestes von drei, je Kachel | 5,52 ms | 6,49 ms |
 | dito, Basis und Pyramide | 84 MB | 109 MB |
-| Sprite-Tabelle der ganzen Welt, scale 32 | 26 341 Sprites in 5,8 s, Spitze 0,62 GB | 26 341 in 5,5 s, 0,61 GB |
+| Sprite-Tabelle der ganzen Welt, scale 32 | 26 341 Sprites in 5,8 s, Spitze 0,62 GiB | 26 341 in 5,5 s, 0,61 GiB |
 
 Über Ozean streuen die Raten zweigipflig wie in
 [2026-09-27, Wasser im Licht](2026-09-27-wasser-im-licht.md); dort stehen

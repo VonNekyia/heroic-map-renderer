@@ -45,8 +45,8 @@ beste von drei Läufen, auf der grossen Welt alle drei.
   brauchte mit der Karte 120 bis 125 s statt 135 bis 142.
 - Auf der Testwelt dauert die Basis nur 1 bis 2 s; dort schwankten die
   Läufe um bis zu 20 %.
-- Speicher an der Spitze, 24 Threads: 1,5 statt 1,0 GB bei scale 32, mit
-  drei nativen Stufen bis hinunter zu scale 4 1,8 statt 1,1 GB.
+- Speicher an der Spitze, 24 Threads: 1,5 statt 1,0 GiB bei scale 32, mit
+  drei nativen Stufen bis hinunter zu scale 4 1,8 statt 1,1 GiB.
 - Die Adaptersuche kostet unter `auto` 0,1 s je Lauf, findet sie nichts
   Passendes, 0,4 s.
 - Jede geschriebene Kachel ging durch den Echtzeitschutz.

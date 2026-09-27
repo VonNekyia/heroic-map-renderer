@@ -15,7 +15,11 @@ an den nativen Stufen. Die Zahlen sind an einem Ausschnitt gemessen und
 hochgerechnet, zuletzt in
 [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md);
 dort steht auch, wie. Von Tag zu Tag schwankt die Dauer um ein Viertel.
-Grössen sind dezimal: GB heisst 10^9 Byte, kB 10^3 Byte.
+
+Grössen in der Doku sind dezimal: GB heisst 10^9 Byte, kB 10^3 Byte. Die
+Ausgabe des Renderers zählt binär, dort heisst MB 2^20 Byte und kB 2^10
+Byte; Werte aus ihr stehen in den Protokollen umgerechnet oder als MiB und
+KiB. Speicher an der Spitze steht in GiB, 2^30 Byte.
 
 ## Je scale
 

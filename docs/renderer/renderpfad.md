@@ -148,9 +148,9 @@ Beleuchtung, siehe [Wasser und Licht](wasser-und-licht.md) und
 `--render` rendert alles über 1024 Pixel Kantenlänge in Stücken und setzt
 sie zusammen (`STUECK`), sonst hielte die Deckungsmaske die sichtbaren Pixel
 des ganzen Bilds bis zum Schluss. Bei `--render --size 16384` braucht der
-Lauf damit gut 2 GB statt 3,3 bis 5,3, gemessen bei scale 32 und 16, siehe
+Lauf damit gut 2 GiB statt 3,3 bis 5,3, gemessen bei scale 32 und 16, siehe
 [2026-09-27, Die grossen Posten, zweite Runde](../messungen/2026-09-27-grosse-posten-zweite-runde.md).
-Bei scale 8 kämen ohne Stücke gerechnet rund 5 GB dazu. Am Code stand dafür
+Bei scale 8 kämen ohne Stücke gerechnet rund 5 GiB dazu. Am Code stand dafür
 „1 bis 14 GB mehr, je nach scale“; woher die 14 kommen, ist nicht
 festgehalten.
 

@@ -18,11 +18,14 @@ description: Misst Laufzeit, Grösse oder Speicher vergleichbar und hält das Er
    dauert einige Sekunden; unter einer Sekunde sagt die Rate wenig.
 4. **Auswerten:** Mittel oder bestes je Stand, dazu die Streuung. Ein
    Unterschied innerhalb der Streuung ist keiner.
-5. **Datei** `docs/messungen/JJJJ-MM-TT-titel.md` nach der Vorlage unten.
+5. **Einheiten:** Grössen dezimal, GB heisst 10^9 Byte. Die Ausgabe des
+   Renderers zählt MB und kB binär; Werte aus ihr umrechnen oder als MiB
+   und KiB schreiben. Speicher an der Spitze in GiB.
+6. **Datei** `docs/messungen/JJJJ-MM-TT-titel.md` nach der Vorlage unten.
    Alte Messungen nie überschreiben.
-6. **Nachziehen:** Die Seite des Themas nennt die neue Zahl und verweist auf
+7. **Nachziehen:** Die Seite des Themas nennt die neue Zahl und verweist auf
    die Messung. Zahlen im PR-Text stammen aus der Datei.
-7. **Eintragen:** eine Zeile in `docs/index.md`.
+8. **Eintragen:** eine Zeile in `docs/index.md`.
 
 ## Vorlage
 

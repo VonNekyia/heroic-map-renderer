@@ -15,14 +15,14 @@ von #10 bis #18. Den aktuellen Stand nennt
 [Was ein Lauf kostet](../benutzung/kosten.md), „Die grosse Welt“; der erste
 ganz gemessene Vollrender steht in
 [2026-09-26, Vollrender mit #11](2026-09-26-vollrender-mit-11.md). Die „120“
-unten sind kB je Kachel, nicht GB.
+unten sind KiB je Kachel, nicht GB.
 
 Auf 24 Threads schaffte der Renderer 44 Kacheln/s; für 2,5 Millionen
 Basiskacheln wären das knapp 16 Stunden gewesen.
 
 ## Aufbau
 
-- Welt: die grosse Welt, 2,5 Millionen Chunks, 30 GB, scale 32.
+- Welt: die grosse Welt, 2,5 Millionen Chunks, 30 GiB, scale 32.
 - Stand: #8 vor seinem Merge; die Zahlen stehen seit `4fbb51c` (23.09.,
   00:46) im README. Welcher Commit genau lief und wann, ist nicht
   festgehalten.
@@ -41,7 +41,7 @@ Kachel und Rate, hochgerechnet Grösse und Dauer der ganzen Basis.
 |---|---|---|
 | Vorlauf | 259 s | gemessen |
 | Basiskacheln | 2 504 461 | gemessen, vom Vorlauf |
-| je Kachel | rund 120 kB | gemessen |
+| je Kachel | rund 120 KiB | gemessen |
 | Basis zusammen | ~300 GB | hochgerechnet |
 | Rate | 44 Kacheln/s auf 24 Threads, nur 9 Kerne frei | gemessen |
 | Basisstufe | knapp 16 Stunden | hochgerechnet |

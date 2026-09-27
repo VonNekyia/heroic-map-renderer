@@ -69,10 +69,10 @@ dem Ozean bleiben von 1382 Kandidaten je Kachel 760 Draws, und ein Thread
 schafft 284 statt 209 Kacheln/s.
 
 **Speicher an der Spitze**, 24 Threads, 65 536 Kacheln: 1,4 bis 1,5 statt
-1,1 GB, mit Karte 2,1 statt 1,6 GB. Jeder Thread hält eine Zeile seines
+1,1 GiB, mit Karte 2,1 statt 1,6 GiB. Jeder Thread hält eine Zeile seines
 Streifens im Cache, gemessen höchstens 430 bis 520 Chunks bei scale 32.
-`--render --size 16384` braucht in Stücken 2,1 statt 3,3 GB bei scale 32 und
-2,1 statt 5,3 GB bei scale 16; master brauchte 2,3 und 4,5 GB.
+`--render --size 16384` braucht in Stücken 2,1 statt 3,3 GiB bei scale 32
+und 2,1 statt 5,3 GiB bei scale 16; master brauchte 2,3 und 4,5 GiB.
 
 **Ohne die Ausnahme vom Echtzeitschutz** war dieselbe Maschine in derselben
 Nacht deutlich langsamer: bei 1024 Kacheln auf 24 Threads 712 statt 1659

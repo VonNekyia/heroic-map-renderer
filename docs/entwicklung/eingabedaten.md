@@ -10,7 +10,7 @@ code:
 # Eingabedaten
 
 `world/`, `assets/`, `vanilla-assets/` und `vanilla-data/` stehen in
-[`.gitignore`](../../.gitignore), die Testwelt allein ist 2,4 GB. Sie werden
+[`.gitignore`](../../.gitignore), die Testwelt allein ist 2,7 GB. Sie werden
 dem Renderer über `--world`, `--assets` und `--data` übergeben. Woher Assets
 und Biomdaten kommen: [Assets und Biomdaten](../benutzung/assets.md).
 

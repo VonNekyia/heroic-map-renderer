@@ -149,6 +149,7 @@ Sprites:    3076 gerastert bei scale 32 in 0.4 s (7351/s)
 Texturen:   715 geladen, 0 fehlen
 ```
 
-Warum Truhen, Banner, Schädel und Töpfe fehlen und Wasser nicht in der Liste
-steht, steht in [Modelle und Texturen](../renderer/modelle-und-texturen.md),
+MB zählt die Ausgabe binär, 2^20 Byte. Warum Truhen, Banner, Schädel und
+Töpfe fehlen und Wasser nicht in der Liste steht, steht in
+[Modelle und Texturen](../renderer/modelle-und-texturen.md),
 „Was kein Blockmodell hat“.

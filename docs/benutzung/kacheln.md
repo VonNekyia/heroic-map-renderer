@@ -73,8 +73,9 @@ Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
 Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/map.json
 ```
 
-Die Rate eines so kurzen Laufs sagt wenig; die Basis braucht hier eine
-Drittelsekunde. Wie stark sie streut, steht in
+MB und kB zählt die Ausgabe binär, 2^20 und 2^10 Byte, siehe
+[Was ein Lauf kostet](kosten.md). Die Rate eines so kurzen Laufs sagt wenig;
+die Basis braucht hier eine Drittelsekunde. Wie stark sie streut, steht in
 [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md),
 „Die Beispielausgabe“.
 

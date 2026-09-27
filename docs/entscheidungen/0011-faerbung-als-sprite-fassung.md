@@ -34,9 +34,9 @@ auf das, was auf einer Karte Fläche macht. Siehe
 ## Folgen
 
 - Die Tabelle wächst mit den Biomen. Die grosse Welt kam mit den
-  Wasserfassungen von damals auf 428 498 Sprites, rund 1,5 GB, bevor
-  geteilte Familien, ein Biomindex, der Biomfilter und geteilte Einträge sie
-  verkleinerten.
+  Wasserfassungen von damals auf 428 498 Sprites mit geschätzt rund 1,5 GB
+  an Pixeln, bevor geteilte Familien, ein Biomindex, der Biomfilter und
+  geteilte Einträge sie verkleinerten.
 - Seit [0030](0030-licht-je-block.md) multipliziert der Blit doch, mit dem
   Licht und der weichen Beleuchtung; die Farbe bleibt eine Fassung.
 - Übergänge zwischen Biomen mischt der Renderer nicht; die Farbe gilt je

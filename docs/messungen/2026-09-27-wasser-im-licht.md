@@ -71,7 +71,7 @@ Aus der ersten Messung, gegen master:
 | | master | #17 |
 |---|---|---|
 | Sprite-Tabelle der ganzen Welt, scale 32 | 56 761 Sprites in 11,8 / 11,7 s | 26 341 in 5,4 / 5,3 s |
-| dito, Spitze bis dahin | 0,61 GB | 0,61 GB |
+| dito, Spitze bis dahin | 0,61 GiB | 0,61 GiB |
 | 65 536 Basiskacheln noch einmal kodiert, ein Thread | 2,35 / 2,27 ms je Kachel | 2,19 / 2,16 ms |
 
 - Die Tabelle halbiert sich: Die Fassungen je Tiefe fallen weg, und die

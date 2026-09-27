@@ -21,8 +21,12 @@ Deckendes übermalt.
 
 Die Tabelle entsteht nach dem Vorlauf, der alle vorkommenden Blockstates
 einsammelt, siehe [Der Weg einer Kachel](renderpfad.md), „Vorlauf“.
-Blockstates mit gleichem Bild teilen sich eine Familie. Eine Familie hat
-ihre Alternativen, siehe [Varianten aus der Position](varianten.md), und
+Blockstates mit gleichem Bild teilen sich eine Familie: gleicher Name,
+gleiche Modelle, gleiche Flüssigkeit, gleicher Ort der Saat und gleiches
+Leuchten (`family_key` in `sprites.rs`). Das Leuchten zählt, weil ein
+gefluteter Block unter seiner Oberfläche sein eigenes Blocklicht trägt.
+Eine Familie hat ihre Alternativen, siehe
+[Varianten aus der Position](varianten.md), und
 Fassungen: eine je Maske verdeckter Flüssigkeitsflächen, dazu die Streifen
 an Wasserstufen, siehe [Wasser und Licht](wasser-und-licht.md). Gefärbte
 Flächen tragen statt der Farbe eine Tönungskarte, siehe

@@ -264,8 +264,13 @@ type FamilyKey = (
     Vec<(u32, Vec<ModelRef>)>,
     Option<(Fluid, u8)>,
     [i32; 3],
+    Leuchten,
 );
 
+/// Was die Sprites einer Blockstate bestimmt. Das Leuchten gehört dazu: Ein
+/// gefluteter Block trägt unter seiner Oberfläche sein eigenes Blocklicht,
+/// ein Sculk-Sensor in `cooldown` also ein anderes als einer in `active`,
+/// auch mit demselben Modell.
 fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
     let alternatives = assets.alternative_refs(state)?;
     Ok((
@@ -273,6 +278,7 @@ fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
         alternatives,
         fluid::key(state),
         seed_offset(state),
+        blockstate::leuchten(state),
     ))
 }
 
@@ -1462,73 +1468,225 @@ mod tests {
     }
 
     /// Die Tönungskarte gibt das Bild in jeder Farbe wieder: [`tinted`]
-    /// mit einer Farbe gleicht bis auf die Rundung dem Raster, das die
-    /// Farbe gleich trägt, beim Wasser mit seiner halb durchsichtigen
-    /// Oberfläche, beim Grasblock der Fixture mit gefärbter Oberseite und
-    /// ungefärbten Seiten, bei Laub mit fester Farbe im Wasser und bei
-    /// einem gefluteten Zaun. Das Raster rundet je Fläche, die Karte einmal
-    /// je Pixel; auseinander liegen sie höchstens um 1. Weiss gibt das
-    /// ungefärbte Bild, Schwarz den Rest.
+    /// mit einer Farbe des Blocks und einer des Wassers gleicht bis auf die
+    /// Rundung dem Raster, das die Farben gleich trägt, im Licht des Blocks:
+    /// beim Wasser mit seiner halb durchsichtigen Oberfläche, beim Grasblock
+    /// der Fixture mit gefärbter Oberseite und ungefärbten Seiten, bei einem
+    /// gefluteten Zaun, bei einem gefluteten gefärbten Kreuz, in dessen
+    /// Pixeln sich beide Farben treffen, und bei zwei gefluteten
+    /// Sculk-Sensoren mit demselben Modell, aber anderem Licht unter der
+    /// Oberfläche. Das Raster rundet an jeder Schicht, die Karte einmal je
+    /// Pixel; auseinander liegen sie höchstens um 2, siehe
+    /// docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
     ///
     /// [`tinted`]: super::super::rasterizer::tinted
     #[test]
     fn toenungskarte_gibt_jede_farbe_wieder() {
         use super::super::rasterizer::{pack, tinted};
         let mut assets = assets();
-        let states = [
-            state("water[level=0]"),
-            state("grass_block"),
-            state("oak_fence[waterlogged=true]"),
+        let texte = [
+            "water[level=0]",
+            "grass_block",
+            "oak_fence[waterlogged=true]",
+            "jungle_leaves[distance=1,persistent=false,waterlogged=true]",
+            "sculk_sensor[power=0,sculk_sensor_phase=active,waterlogged=true]",
+            "sculk_sensor[power=0,sculk_sensor_phase=cooldown,waterlogged=true]",
         ];
+        let states: Vec<BlockState> = texte.iter().map(|t| state(t)).collect();
+        assert_ne!(
+            blockstate::leuchten(&states[4]),
+            blockstate::leuchten(&states[5]),
+            "die beiden Sensoren leuchten verschieden"
+        );
         for scale in [4, 16, 32] {
             let projection = Projection::new(scale);
             let set = build(&mut assets, &states, projection).unwrap();
-            for text in [
-                "water[level=0]",
-                "grass_block",
-                "oak_fence[waterlogged=true]",
-            ] {
-                let st = state(text);
-                let id = set.id(&st).unwrap();
+            for st in &states {
+                let id = set.id(st).unwrap();
                 let sprite = set.part(id, OWN_CELL).unwrap();
                 let karte = sprite.tint.as_ref().expect("Tönungskarte");
-                let model = model_of(&mut assets, &st).unwrap();
-                for farbe in [
-                    [255, 255, 255],
-                    [0x3F, 0x76, 0xE4],
-                    [0x91, 0xBD, 0x59],
-                    [7, 0, 250],
+                let model = model_of(&mut assets, st).unwrap();
+                let gefaerbt = source_of(st.name()).is_some();
+                for (block, wasser) in [
+                    ([255, 255, 255], [255, 255, 255]),
+                    ([0x91, 0xBD, 0x59], [0x3F, 0x76, 0xE4]),
+                    ([7, 0, 250], [250, 7, 0]),
+                    ([0, 0, 0], [0, 255, 0]),
                 ] {
                     let direkt = render(
                         &model,
                         assets.textures(),
                         &projection,
                         Tints {
-                            block: (text == "grass_block").then_some(farbe),
-                            water: Some(farbe),
+                            block: gefaerbt.then_some(block),
+                            water: Some(wasser),
                         },
-                        Leuchten::Stufe(0),
+                        blockstate::leuchten(st),
                     )
                     .unwrap();
                     assert_eq!(direkt.image.dimensions(), sprite.image.dimensions());
-                    let packt = pack(farbe);
+                    let farben = [pack(block), pack(wasser)];
+                    let mut beide = false;
                     for (i, (ist, soll)) in
                         sprite.image.pixels().zip(direkt.image.pixels()).enumerate()
                     {
-                        let ist = tinted(ist.0, [karte[2 * i], karte[2 * i + 1]], [packt; 2]);
-                        assert_eq!(ist[3], soll.0[3], "{text}, scale {scale}: Alpha");
+                        beide |= karte[2 * i] != 0 && karte[2 * i + 1] != 0;
+                        let ist = tinted(ist.0, [karte[2 * i], karte[2 * i + 1]], farben);
+                        assert_eq!(ist[3], soll.0[3], "{st:?}, scale {scale}: Alpha");
                         for c in 0..3 {
                             let d = (ist[c] as i32 - soll.0[c] as i32).abs();
                             assert!(
-                                d <= 1,
-                                "{text}, scale {scale}, Farbe {farbe:?}, Pixel {i}: {ist:?} gegen {:?}",
+                                d <= 2,
+                                "{st:?}, scale {scale}, Farben {block:?} und {wasser:?}, \
+                                 Pixel {i}: {ist:?} gegen {:?}",
                                 soll.0
                             );
                         }
                     }
+                    if st.name() == "minecraft:jungle_leaves" {
+                        assert!(beide, "scale {scale}: kein Pixel mit beiden Farben");
+                    }
                 }
             }
         }
+    }
+
+    /// Die Tönungskarte an allen Vanilla-Blöcken, die gefärbt oder geflutet
+    /// sein können: je Block aus `blocks.txt` bis zu 24 Zustände, geflutete
+    /// immer mit Wasser, bei scale 4, 8, 16 und 32, mit drei Paaren aus
+    /// Block- und Wasserfarbe, gegen das Raster, das die Farben gleich trägt,
+    /// im Licht des Blocks. Braucht die Asset-Wurzeln wie `--assets`, als
+    /// Pfadliste in `ASSETS`, deshalb `#[ignore]`; unter Windows trennt `;`:
+    ///
+    /// ```bash
+    /// ASSETS="$PWD/vanilla-assets:$PWD/assets" cargo test --release --manifest-path renderer/Cargo.toml --lib toenungskarte_an_allen_vanilla_bloecken -- --ignored --nocapture
+    /// ```
+    ///
+    /// Siehe docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
+    #[test]
+    #[ignore]
+    fn toenungskarte_an_allen_vanilla_bloecken() {
+        use super::super::rasterizer::{pack, tinted};
+        let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
+        let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
+        let mut states: Vec<BlockState> = Vec::new();
+        for zeile in include_str!("../assets/blocks.txt").lines() {
+            let mut teile = zeile.split_whitespace();
+            let Some(name) = teile.next() else { continue };
+            let props: Vec<(&str, Vec<&str>)> = teile
+                .filter_map(|t| t.split_once('='))
+                .map(|(k, v)| (k, v.split(',').collect()))
+                .collect();
+            if !props.iter().any(|(k, _)| *k == "waterlogged") && source_of(name).is_none() {
+                continue;
+            }
+            // Die Zustände der Reihe nach wie ein Zählwerk, das letzte
+            // Merkmal läuft innen; geflutet ist immer `true`.
+            let mut index = vec![0usize; props.len()];
+            let mut neu = 0;
+            'zustand: loop {
+                let merkmale: Vec<String> = props
+                    .iter()
+                    .zip(&index)
+                    .map(|((k, v), &i)| {
+                        format!("{k}={}", if *k == "waterlogged" { "true" } else { v[i] })
+                    })
+                    .collect();
+                let text = if merkmale.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name}[{}]", merkmale.join(","))
+                };
+                if let Ok(st) = BlockState::parse(&text)
+                    && !states.contains(&st)
+                {
+                    states.push(st);
+                    neu += 1;
+                }
+                if neu == 24 {
+                    break;
+                }
+                for s in (0..props.len()).rev() {
+                    index[s] += 1;
+                    if index[s] < props[s].1.len() {
+                        continue 'zustand;
+                    }
+                    index[s] = 0;
+                }
+                break;
+            }
+        }
+        let paare = [
+            ([0x91, 0xBD, 0x59], [0x3F, 0x76, 0xE4]),
+            ([7, 0, 250], [250, 7, 0]),
+            ([255, 255, 255], [0, 128, 0]),
+        ];
+        let (mut raster, mut ueber_eins, mut groesste, mut ragen) = (0, 0, 0, 0);
+        let mut je_block: BTreeMap<&str, i32> = BTreeMap::new();
+        for scale in [4, 8, 16, 32] {
+            let projection = Projection::new(scale);
+            let set = build(&mut assets, &states, projection).unwrap();
+            for st in &states {
+                let Some(sprite) = set.id(st).and_then(|id| set.part(id, OWN_CELL)) else {
+                    continue;
+                };
+                let Some(karte) = sprite.tint.as_ref() else {
+                    continue;
+                };
+                let model = model_of(&mut assets, st).unwrap();
+                for (b, w) in paare {
+                    let block = match source_of(st.name()) {
+                        Some(Source::Biome(_)) => Some(b),
+                        Some(Source::Fixed(fest)) => Some(fest),
+                        None => None,
+                    };
+                    let tints = Tints {
+                        block,
+                        water: Some(w),
+                    };
+                    let direkt = render(
+                        &model,
+                        assets.textures(),
+                        &projection,
+                        tints,
+                        blockstate::leuchten(st),
+                    )
+                    .unwrap();
+                    // Ragt das Modell über seinen Würfel, ist das Sprite
+                    // nur das Stück darin; solche zählt der Test nur.
+                    if (sprite.offset, sprite.image.dimensions())
+                        != (direkt.offset, direkt.image.dimensions())
+                    {
+                        ragen += 1;
+                        continue;
+                    }
+                    raster += 1;
+                    let mut max = 0;
+                    for (i, (ist, soll)) in
+                        sprite.image.pixels().zip(direkt.image.pixels()).enumerate()
+                    {
+                        let ist =
+                            tinted(ist.0, [karte[2 * i], karte[2 * i + 1]], [pack(b), pack(w)]);
+                        for (a, s) in ist.iter().zip(soll.0).take(3) {
+                            max = max.max((*a as i32 - s as i32).abs());
+                        }
+                    }
+                    ueber_eins += (max > 1) as u32;
+                    groesste = groesste.max(max);
+                    let eintrag = je_block.entry(st.name()).or_default();
+                    *eintrag = (*eintrag).max(max);
+                }
+            }
+        }
+        println!(
+            "{} Blockstates, {raster} Raster mit Karte, {ueber_eins} über 1, höchstens \
+             {groesste}; {ragen} ragen über ihren Würfel und fehlen",
+            states.len()
+        );
+        for (name, max) in je_block.iter().filter(|(_, max)| **max > 1) {
+            println!("  {name}: {max}");
+        }
+        assert!(groesste <= 2, "höchstens {groesste}");
     }
 
     /// Pixelgleiche Sprites teilen sich den Eintrag, auch ueber Familien

@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "lit=false": { "model": "minecraft:block/einfarbig" },
+    "lit=true": { "model": "minecraft:block/einfarbig" }
+  }
+}

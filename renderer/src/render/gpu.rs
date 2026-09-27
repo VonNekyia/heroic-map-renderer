@@ -26,7 +26,6 @@ use image::RgbaImage;
 
 use super::Sprite;
 use super::metatile::Draw;
-use super::rasterizer::light_factor;
 
 /// Kantenlänge der Zellen, in die eine Kachel zerlegt wird: eine
 /// Arbeitsgruppe je Zelle, ein Thread je Pixel. Muss zur
@@ -433,7 +432,10 @@ impl Worker<'_> {
                     w as u32 | (h as u32) << 16,
                     d.origin.0 as u32,
                     d.origin.1 as u32,
-                    light_factor(d.light),
+                    {
+                        let [r, g, b] = d.light.factors();
+                        r | g << 8 | b << 16
+                    },
                 ] {
                     self.inst_bytes.extend_from_slice(&word.to_le_bytes());
                 }
@@ -580,7 +582,7 @@ mod tests {
         let liste = vec![Draw {
             sprite: &sprite,
             origin: (3, 3),
-            light: crate::render::rasterizer::FULL_LIGHT,
+            light: crate::render::rasterizer::Light::FULL,
         }];
         let mut worker = gpu.worker(1, 64);
         let bild = worker.render(std::slice::from_ref(&liste)).unwrap();

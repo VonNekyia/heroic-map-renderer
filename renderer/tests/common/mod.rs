@@ -344,9 +344,12 @@ pub const SZENE_Y: (i32, i32) = (-16, 47);
 /// die in Nachbarwürfel ragen, eines davon mit seinem oberen Teil in einem
 /// verdeckten Würfel, dazu ein Block, der knapp über seinen Umriss ragt und
 /// selbst verdeckt ist: beide zeichnen je Pixel neben ihrem Würfel, die kein
-/// Nachbar deckt.
+/// Nachbar deckt. Am Grund des Beckens leuchten ein Redstone-Erz, dessen
+/// Blocklicht je Kanal anders färbt, und eine Seelaterne.
 pub fn szene(x: i32, y: i32, z: i32) -> &'static str {
     match (x, y, z) {
+        (20, 3, 10) => "minecraft:redstone_ore[lit=true]",
+        (21, 3, 10) => "minecraft:sea_lantern",
         (0..=5, 2, 26..=31) | (26..=31, 2, 0..=2) => "minecraft:grass_block",
         (_, ..=2, _) => "minecraft:einfarbig",
         (27, 31, 21) | (27, 31..=32, 22) | (24, 31, 26) | (25, 31..=32, 26) => "minecraft:water",

@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use image::{Rgba, RgbaImage};
 
 use crate::assets::baker::{BakedModel, Quad};
@@ -82,15 +84,82 @@ pub fn light_factor(light: u8) -> u32 {
     (brightness(light) * 255.0).round() as u32
 }
 
-/// Ein Pixel im Licht mit dem Faktor aus [`light_factor`]: die Farbe mal
-/// die Helligkeit, das Alpha bleibt. Ganzzahlig wie [`over`], dieselbe
-/// Rechnung steht im Shader (`gpu.wgsl`).
-pub fn darken(pixel: [u8; 4], factor: u32) -> [u8; 4] {
-    let dunkel = |c: u8| ((c as u32 * factor + 127) / 255) as u8;
+/// `BlockFactor` aus `LightmapRenderStateExtractor.extract`: 1,4 und ein
+/// Flackern, das `tick` zufällig um 0 laufen lässt. Hier ohne Flackern.
+const BLOCK_FACTOR: f32 = 1.4;
+
+/// `visual/block_light_tint` der Oberwelt: der Standard `#FFD88C` aus
+/// `EnvironmentAttributes`, denn `overworld.json` setzt keinen.
+const BLOCK_LIGHT_TINT: [f32; 3] = [1.0, 216.0 / 255.0, 140.0 / 255.0];
+
+/// Helligkeit je Farbkanal im Himmelslicht `sky` und im Blocklicht
+/// `block`, wie `lightmap.fsh` sie rechnet: zum Himmelslicht aus
+/// [`brightness`] kommt `get_brightness(block / 15)` mal [`BLOCK_FACTOR`]
+/// in der Farbe [`BLOCK_LIGHT_TINT`], die zur vollen Stufe hin fast weiss
+/// wird (`mix` mit `0,9 · (2 l − 1)²`). `notGamma` hebt alle Kanäle mit dem
+/// hellsten. Ohne Blocklicht ist das [`brightness`] in jedem Kanal.
+pub fn brightness_rgb(sky: u8, block: u8) -> [f32; 3] {
+    if block == 0 {
+        return [brightness(sky); 3];
+    }
+    let level = |l: u8| l.min(FULL_LIGHT) as f32 / 15.0;
+    let get_brightness = |l: f32| l / (4.0 - 3.0 * l);
+    let b = level(block);
+    let (sky_brightness, block_brightness) =
+        (get_brightness(level(sky)), get_brightness(b) * BLOCK_FACTOR);
+    let mix = 0.9 * (2.0 * b - 1.0) * (2.0 * b - 1.0);
+    let color = BLOCK_LIGHT_TINT.map(|tint| {
+        let block_color = tint + (1.0 - tint) * mix;
+        (10.0 / 255.0 + sky_brightness + block_color * block_brightness).min(1.0)
+    });
+    let max = color.iter().fold(0.0f32, |a, &c| a.max(c));
+    let rest = 1.0 - max;
+    let scaled = 1.0 - rest * rest * rest * rest;
+    color.map(|c| c + (c * (scaled / max) - c) * 0.5)
+}
+
+/// In welchem Licht das Spiel einen Block zeichnet: Himmels- und
+/// Blocklicht, je 0 bis 15.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Light {
+    pub sky: u8,
+    pub block: u8,
+}
+
+impl Light {
+    /// Voller Tag unter freiem Himmel: so hell zeichnet der Renderer jedes
+    /// Sprite.
+    pub const FULL: Light = Light {
+        sky: FULL_LIGHT,
+        block: 0,
+    };
+
+    pub fn sky(sky: u8) -> Light {
+        Light { sky, block: 0 }
+    }
+
+    /// [`brightness_rgb`] in 255steln, für [`darken`].
+    pub fn factors(self) -> [u32; 3] {
+        static FAKTOREN: LazyLock<[[[u32; 3]; 16]; 16]> = LazyLock::new(|| {
+            std::array::from_fn(|sky| {
+                std::array::from_fn(|block| {
+                    brightness_rgb(sky as u8, block as u8).map(|c| (c * 255.0).round() as u32)
+                })
+            })
+        });
+        FAKTOREN[self.sky.min(FULL_LIGHT) as usize][self.block.min(FULL_LIGHT) as usize]
+    }
+}
+
+/// Ein Pixel im Licht mit den Faktoren aus [`Light::factors`]: jeder
+/// Farbkanal mal seine Helligkeit, das Alpha bleibt. Ganzzahlig wie
+/// [`over`], dieselbe Rechnung steht im Shader (`gpu.wgsl`).
+pub fn darken(pixel: [u8; 4], factors: [u32; 3]) -> [u8; 4] {
+    let dunkel = |c: u8, f: u32| ((c as u32 * f + 127) / 255) as u8;
     [
-        dunkel(pixel[0]),
-        dunkel(pixel[1]),
-        dunkel(pixel[2]),
+        dunkel(pixel[0], factors[0]),
+        dunkel(pixel[1], factors[1]),
+        dunkel(pixel[2], factors[2]),
         pixel[3],
     ]
 }
@@ -512,7 +581,7 @@ impl Canvas {
                 // Oberfläche, wie sie ist: Was dort durchscheint, zeichnet
                 // der Renderlauf in seinem eigenen Licht.
                 if fragment.surface && color[3] != 0 {
-                    color = darken(color, light_factor(LIGHT_UNDER_SURFACE));
+                    color = darken(color, Light::sky(LIGHT_UNDER_SURFACE).factors());
                 }
                 color = over(fragment.color, color);
             }
@@ -682,6 +751,24 @@ mod tests {
         }
     }
 
+    /// Blocklicht wie `lightmap.fsh`: Bei voller Stufe ist alles hell, und
+    /// eine Meeresgurke mit 6 im Himmelslicht 5 färbt warm, von Hand nach
+    /// dem Shader gerechnet mit `BlockFactor` 1,4 und dem Standard
+    /// `#FFD88C` für `BlockLightTint`. Ohne Blocklicht bleibt es
+    /// [`brightness`].
+    #[test]
+    fn blocklicht_wie_im_spiel() {
+        assert_eq!(brightness_rgb(0, 15), [1.0; 3]);
+        assert_eq!(brightness_rgb(15, 15), [1.0; 3]);
+        let warm = brightness_rgb(5, 6);
+        for (ist, soll) in warm.iter().zip([0.58609, 0.53676, 0.44063]) {
+            assert!((ist - soll).abs() < 1e-4, "{warm:?}");
+        }
+        assert_eq!(brightness_rgb(7, 0), [brightness(7); 3]);
+        assert_eq!(Light::sky(14).factors(), [light_factor(14); 3]);
+        assert_eq!(Light { sky: 0, block: 15 }.factors(), [255; 3]);
+    }
+
     /// Über dem Grund D im Licht l ergibt die Oberfläche `α · W + (1 − α) ·
     /// b(l) · D`, so wie das Spiel sie über den dunkleren Grund legt.
     #[test]
@@ -689,7 +776,7 @@ mod tests {
         let wasser = [60, 100, 220, 180];
         let grund = [150, 110, 60, 255];
         for licht in 0..=15 {
-            let ist = over(wasser, darken(grund, light_factor(licht)));
+            let ist = over(wasser, darken(grund, Light::sky(licht).factors()));
             let a = 180.0 / 255.0;
             for c in 0..3 {
                 let soll = a * wasser[c] as f32 + (1.0 - a) * brightness(licht) * grund[c] as f32;
@@ -702,8 +789,11 @@ mod tests {
         }
         // Volles Licht lässt jeden Pixel, wie er ist; das Alpha bleibt immer.
         assert_eq!(light_factor(FULL_LIGHT), 255);
-        assert_eq!(darken([1, 2, 3, 4], 255), [1, 2, 3, 4]);
-        assert_eq!(darken([200, 100, 50, 77], light_factor(0)), [19, 9, 5, 77]);
+        assert_eq!(darken([1, 2, 3, 4], [255; 3]), [1, 2, 3, 4]);
+        assert_eq!(
+            darken([200, 100, 50, 77], [light_factor(0); 3]),
+            [19, 9, 5, 77]
+        );
     }
 
     #[test]

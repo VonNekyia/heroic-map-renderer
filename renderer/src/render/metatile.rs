@@ -4,11 +4,12 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::Face;
+use crate::assets::blockstate::{self, Leuchten};
 use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
 use crate::world::{Chunk, REGION, Region, Section, World};
 
-use super::rasterizer::{FULL_LIGHT, darken, light_factor, over};
+use super::rasterizer::{FULL_LIGHT, Light, darken, over};
 use super::sprites::{Family, Rows, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
@@ -214,8 +215,8 @@ pub struct Draw<'a> {
     /// Linke obere Ecke des Sprites in Leinwandpixeln; darf über den Rand
     /// hinausragen.
     pub origin: (i32, i32),
-    /// Das Himmelslicht seines Blocks, siehe [`ChunkCache::light_at`].
-    pub light: u8,
+    /// Das Licht seines Blocks, siehe [`ChunkCache::light_at`].
+    pub light: Light,
 }
 
 /// Die Zeichenliste eines Ausschnitts, in Zeichenreihenfolge, für die
@@ -318,12 +319,12 @@ fn is_water(family: Option<&Family>) -> bool {
 
 /// Was an einem Würfel zu zeichnen ist: das Sprite des Blocks, dazu die
 /// Streifen seiner Flüssigkeit über niedrigeren Nachbarn, alles im
-/// Himmelslicht des Blocks, siehe [`ChunkCache::light_at`].
+/// Licht des Blocks, siehe [`ChunkCache::light_at`].
 #[derive(Clone, Copy)]
 struct Drawn {
     sprite: Option<SpriteId>,
     strips: [Option<SpriteId>; 2],
-    light: u8,
+    light: Light,
 }
 
 impl Default for Drawn {
@@ -331,7 +332,7 @@ impl Default for Drawn {
         Drawn {
             sprite: None,
             strips: [None; 2],
-            light: FULL_LIGHT,
+            light: Light::FULL,
         }
     }
 }
@@ -419,8 +420,8 @@ fn columns_at(
     })
 }
 
-/// Zeichnet ein Sprite an seinen Block, ganz, im Himmelslicht `light`.
-fn blit(canvas: &mut RgbaImage, sprite: &Sprite, (origin_x, origin_y): (i32, i32), light: u8) {
+/// Zeichnet ein Sprite an seinen Block, ganz, im Licht `light`.
+fn blit(canvas: &mut RgbaImage, sprite: &Sprite, (origin_x, origin_y): (i32, i32), light: Light) {
     let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
     let (cw, ch) = (canvas.width() as i32, canvas.height() as i32);
 
@@ -436,7 +437,7 @@ fn blit(canvas: &mut RgbaImage, sprite: &Sprite, (origin_x, origin_y): (i32, i32
     let (w, cw) = (w as usize, cw as usize);
     let src = sprite.image.as_raw();
     let dst: &mut [u8] = canvas;
-    let factor = light_factor(light);
+    let factor = light.factors();
     for py in y0..y1 {
         let row = &src[py as usize * w * 4..][..w * 4];
         let drow = &mut dst[(origin_y + py) as usize * cw * 4..][..cw * 4];
@@ -449,12 +450,12 @@ fn blit(canvas: &mut RgbaImage, sprite: &Sprite, (origin_x, origin_y): (i32, i32
     }
 }
 
-/// Legt einen Pixel im Licht `factor` aus [`light_factor`] über den
+/// Legt einen Pixel im Licht `factor` aus [`Light::factors`] über den
 /// darunter; deckende direkt statt durch [`over`].
 #[inline]
-fn mische(d: &mut [u8], s: &[u8], factor: u32) {
+fn mische(d: &mut [u8], s: &[u8], factor: [u32; 3]) {
     let mut s = [s[0], s[1], s[2], s[3]];
-    if factor != 255 {
+    if factor != [255; 3] {
         s = darken(s, factor);
     }
     if s[3] == 255 {
@@ -587,19 +588,19 @@ fn wort(row: &[u64], ox: i32, k: usize) -> u64 {
 }
 
 /// Zeichnet die sichtbaren Pixel eines Draws, die [`Deckung::zeichne`]
-/// gemerkt hat, im Himmelslicht `light`.
+/// gemerkt hat, im Licht `light`.
 fn blit_sichtbar(
     canvas: &mut RgbaImage,
     sprite: &Sprite,
     (ox, oy): (i32, i32),
-    light: u8,
+    light: Light,
     sicht: &Sicht,
     vis: &[u64],
 ) {
     let (w, cw) = (sprite.image.width() as usize, canvas.width() as usize);
     let src = sprite.image.as_raw();
     let dst: &mut [u8] = canvas;
-    let factor = light_factor(light);
+    let factor = light.factors();
     let zeilen = vis[sicht.start..].chunks(sicht.nk);
     for (y, woerter) in (sicht.y0..sicht.y1).zip(zeilen) {
         let row = &src[(y - oy) as usize * w * 4..][..w * 4];
@@ -677,7 +678,7 @@ pub struct ChunkCache<'a> {
     /// Puffer der Deckungsmaske über Kacheln hinweg: die sichtbaren Pixel
     /// und die Draws, die bleiben.
     vis: Vec<u64>,
-    sichtbar: Vec<(&'a Sprite, (i32, i32), Sicht, u8)>,
+    sichtbar: Vec<(&'a Sprite, (i32, i32), Sicht, Light)>,
 }
 
 struct Slot {
@@ -692,6 +693,9 @@ struct Slot {
 struct Loaded {
     chunk: Chunk,
     families: Vec<Vec<Option<u32>>>,
+    /// Je Section und Paletteneintrag, wie hell der Block selbst leuchtet:
+    /// [`blockstate::leuchten`].
+    leuchten: Vec<Vec<Leuchten>>,
     /// Je Section ihre Bitmasken, `None` für eine Section ohne Familie.
     masks: Vec<Option<Box<Masks>>>,
     /// Je Section die Kandidaten, sobald einmal berechnet — dafür müssen
@@ -857,6 +861,18 @@ impl Loaded {
                     .collect()
             })
             .collect();
+        let leuchten = chunk
+            .sections()
+            .iter()
+            .map(|section| {
+                section
+                    .blocks()
+                    .palette()
+                    .iter()
+                    .map(blockstate::leuchten)
+                    .collect()
+            })
+            .collect();
         let mut masks: Vec<Option<Box<Masks>>> = chunk
             .sections()
             .iter()
@@ -884,6 +900,7 @@ impl Loaded {
         Loaded {
             chunk,
             families,
+            leuchten,
             masks,
             exposed,
         }
@@ -1312,7 +1329,17 @@ impl<'a> ChunkCache<'a> {
             }
         }
 
-        let light = self.light_at([x, y, z], family)?;
+        // Was selbst leuchtet, bringt sein Blocklicht mit
+        // (`LightCoordsUtil.getLightCoords`); den Schein auf die Nachbarn
+        // rechnet der Renderer nicht.
+        let sky = self.light_at([x, y, z], family)?;
+        let light = match self.leuchten_at([x, y, z])? {
+            Leuchten::Voll => Light {
+                sky: FULL_LIGHT,
+                block: FULL_LIGHT,
+            },
+            Leuchten::Stufe(block) => Light { sky, block },
+        };
         // Das Biom kostet einen zweiten Nachschlag; `in_biome` fragt nur
         // fuer Sprites danach, die ueberhaupt Fassungen haben.
         let i = self.slot((x >> 4, z >> 4))?;
@@ -1404,6 +1431,23 @@ impl<'a> ChunkCache<'a> {
             stufen += (nass | m.bits[SOLID][spalte] & ab).count_ones();
         }
         Ok((wasser, stufen))
+    }
+
+    /// Wie hell der Block an einer Weltkoordinate selbst leuchtet.
+    fn leuchten_at(&mut self, [x, y, z]: [i32; 3]) -> Result<Leuchten> {
+        let i = self.slot((x >> 4, z >> 4))?;
+        let Some(loaded) = self.slots[i].loaded.as_ref() else {
+            return Ok(Leuchten::Stufe(0));
+        };
+        let Some((section, slot)) = loaded.chunk.slot(x, y, z) else {
+            return Ok(Leuchten::Stufe(0));
+        };
+        Ok(loaded
+            .leuchten
+            .get(section)
+            .and_then(|l| l.get(slot))
+            .copied()
+            .unwrap_or(Leuchten::Stufe(0)))
     }
 
     /// Die Familie des Blocks an einer Weltkoordinate — ein Nachschlag im

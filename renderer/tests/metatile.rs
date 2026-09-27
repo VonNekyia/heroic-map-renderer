@@ -1617,3 +1617,44 @@ fn tiefe_blendet_eigene_geometrie_nicht_aus() {
     let offen_tief = punkt(&tief, projection, rect, offen(4.0));
     assert_ne!(offen_flach, offen_tief, "Tiefe wirkt neben dem Pfosten");
 }
+
+/// Was selbst leuchtet, bringt sein Blocklicht mit
+/// (`LightCoordsUtil.getLightCoords`): Eine Seelaterne leuchtet mit 15, und
+/// zehn Blöcke tief liegt ihre Oberseite so hell wie an Land, b = 1. Den
+/// Magmablock zeichnet das Spiel mit `emissiveRendering` ebenso hell. Der
+/// Grund daneben liegt im Himmelslicht 5.
+#[test]
+fn seelaterne_leuchtet_unter_wasser() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(512, 512);
+    let schicht = wasserschicht(&assets());
+    let grund = [150, 110, 60, 255];
+    let see = |boden: &'static str| {
+        render_chunks(
+            &tempdir(),
+            &[(0, 0)],
+            move |_, y, _| match y {
+                0 => boden,
+                1..=10 => "minecraft:water",
+                _ => "minecraft:air",
+            },
+            projection,
+            rect,
+        )
+    };
+    let ecke = [15, 10, 15];
+    for (boden, licht) in [
+        ("minecraft:sea_lantern", 15),
+        ("minecraft:magma_block", 15),
+        ("minecraft:einfarbig", 5),
+    ] {
+        let ist = oberseite(&see(boden), projection, rect, ecke);
+        let soll = unter_wasser(schicht, grund, licht);
+        for c in 0..4 {
+            assert!(
+                (ist[c] as i32 - soll[c] as i32).abs() <= 1,
+                "{boden}: {ist:?}, erwartet {soll:?}"
+            );
+        }
+    }
+}

@@ -42,6 +42,7 @@ in einem Licht aus `light_at`. Siehe
 - Schneedecken, Ackerboden, Trampelpfade, Treppen, Platten und Zäune bleiben
   ohne weiche Beleuchtung; als Nachbarn zählen sie mit ihrem Wert.
 - Unter Wasser und an der Kante eines Überhangs verläuft das Licht nicht.
-- Eine Kachel wiegt ein Fünftel bis ein Viertel mehr, und auf einem Thread
-  braucht sie ein Siebtel länger, siehe
+- Eine Kachel wiegt je nach Inhalt 18 bis 30 % mehr, auf der grossen Welt
+  rund ein Viertel, und auf einem Thread braucht sie ein Siebtel länger,
+  siehe
   [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md).

@@ -82,12 +82,13 @@ drei Wörter der Ecken und ist 32 statt 20 Bytes gross.
 
 ## Was es kostet
 
-Eine Kachel wiegt damit ein Fünftel bis ein Viertel mehr. Auf einem Thread
-braucht sie bei scale 32 ein Siebtel länger, 6,13 statt 5,38 ms. 0,35 ms
-davon sind das Abdunkeln und Kodieren der reicheren Kachel, 0,19 ms die
-Rechnung je Pixel, 0,06 ms die Ecken aus `ao_at`, und 0,15 ms braucht der
-Stand auch ohne Ecken. Auf 24 Threads ist die Basis der grossen Welt ohne
-Karte 11 bis 14 % langsamer als master, mit Karte 6 bis 7 %. Gemessen in
+Eine Kachel wiegt damit je nach Inhalt 18 bis 30 % mehr, auf der grossen
+Welt rund ein Viertel. Auf einem Thread braucht sie bei scale 32 ein Siebtel
+länger, 6,13 statt 5,38 ms. 0,35 ms davon sind das Abdunkeln und Kodieren
+der reicheren Kachel, 0,19 ms die Rechnung je Pixel, 0,06 ms die Ecken aus
+`ao_at`, und 0,15 ms braucht der Stand auch ohne Ecken. Auf 24 Threads ist
+die Basis der grossen Welt ohne Karte 11 bis 14 % langsamer als master, mit
+Karte 6 bis 7 %. Gemessen in
 [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md);
 die Dauer für die ganze Welt steht in
 [Was ein Lauf kostet](../benutzung/kosten.md).

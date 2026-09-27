@@ -100,3 +100,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-09-27, libwebp](messungen/2026-09-27-libwebp.md): ein Drittel der Grösse, Segment-Heap.
 - [2026-09-27, Wasser im Licht](messungen/2026-09-27-wasser-im-licht.md): Licht je Block unter Wasser.
 - [2026-09-27, Weiche Beleuchtung](messungen/2026-09-27-weiche-beleuchtung.md): Kosten je Kachel und für die ganze Testwelt.
+- [2026-09-27, Biomübergänge](messungen/2026-09-27-biomuebergaenge.md): Kosten der Mischung, Sprite-Tabellen ohne Fassungen je Biom.

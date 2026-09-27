@@ -9,12 +9,15 @@ code:
 # Was ein Lauf kostet
 
 Die ganze Testwelt braucht bei scale 32 mit allen nativen Stufen und
-Pyramide hochgerechnet rund 26 GB und 6,5 Minuten, bei scale 16 rund 6,8 GB
-und 3,5 Minuten. Der Platz hängt fast nur an der Kachelzahl, die Dauer auch
+Pyramide hochgerechnet rund 26 GB und 7 Minuten, bei scale 16 rund 7 GB und
+knapp 4 Minuten. Der Platz hängt fast nur an der Kachelzahl, die Dauer auch
 an den nativen Stufen. Die Zahlen sind an einem Ausschnitt gemessen und
 hochgerechnet, zuletzt in
-[2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md);
-dort steht auch, wie. Von Tag zu Tag schwankt die Dauer um ein Viertel.
+[2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md),
+dort steht auch, wie; die Übergänge zwischen Biomen legen 7 % Zeit und
+1,5 % Grösse je Basiskachel darauf, siehe
+[2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md). Von
+Tag zu Tag schwankt die Dauer um ein Viertel.
 
 Grössen in der Doku sind dezimal: GB heisst 10^9 Byte, kB 10^3 Byte. Die
 Ausgabe des Renderers zählt binär, dort heisst MB 2^20 Byte und kB 2^10
@@ -33,6 +36,10 @@ Welt. Die Kachelzahl der ganzen Welt nennt der Vorlauf.
 | 16 | 73 920 | 69 kB | ~5,1 GB | ~1,7 GB | ~6,8 GB | ~3,5 min |
 | 8 | 18 951 | 73 kB | ~1,4 GB | ~0,4 GB | ~1,8 GB | ~2 min |
 
+Gemessen mit #18. Mit #21 kommen je Basiskachel 7 % Zeit und 1,5 % Grösse
+dazu, bei scale 32 hochgerechnet rund 26 GB in rund 7 min; neu gemessen ist
+die Tabelle nicht.
+
 ## Platz
 
 Auf demselben Ausschnitt wiegt eine Kachel bei jedem scale etwa gleich
@@ -50,6 +57,7 @@ wuchs, bei scale 32 für die ganze Testwelt:
 | libwebp, Wasser deckt ab zwei Blöcken fast | 33 kB | ~13 GB | [2026-09-27, libwebp](../messungen/2026-09-27-libwebp.md) |
 | Wasser im Licht des Spiels | 51 kB | ~21 GB | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md), Spalte master |
 | weiche Beleuchtung | 65 kB | ~26 GB | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md) |
+| Übergänge zwischen Biomen, hochgerechnet | 66 kB | ~26 GB | [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md) |
 
 Die weiche Beleuchtung legt je nach Inhalt 18 bis 30 % darauf, auf diesem
 Ausschnitt 27 %, denn ihr Verlauf packt sich schlechter als eine ebene
@@ -62,8 +70,9 @@ Die Dauer hängt nicht nur an der Kachelzahl: jede native Stufe zeichnet
 jeden Block ihrer Fläche noch einmal, und zusammen brauchen sie bei scale 32
 etwa so lange wie die Basis. Das ist etwa so lange wie ein Lauf bei
 scale 16 samt seinen Stufen über dieselbe Fläche. Die Sprite-Tabellen aller
-3110 Blockstates brauchen über die vier Stufen zusammen rund 6 s, der
-Vorlauf für die ganze Welt 5 bis 11 s.
+3110 Blockstates brauchen über die vier Stufen zusammen rund 6 s, mit #21
+weniger, bei scale 32 rund 2 statt 3 s; der Vorlauf für die ganze Welt 5 bis
+11 s.
 
 Unter Windows hängt die Dauer stark am Echtzeitschutz, siehe
 [Echtzeitschutz](echtzeitschutz.md); gemessen ist in einem Ordner, den er
@@ -82,6 +91,7 @@ späteren Zahlen sind aus Ausschnitten hochgerechnet:
 | #16, libwebp | rund 117 GB, höchstens rund 165 | 60 bis 65 min | hochgerechnet | [2026-09-27, libwebp](../messungen/2026-09-27-libwebp.md) |
 | #17, Wasser im Licht | rund 150 GB, 140 bis 180 | 60 bis 70 min | hochgerechnet | [2026-09-27, Wasser im Licht](../messungen/2026-09-27-wasser-im-licht.md) |
 | #18, weiche Beleuchtung | rund 185 GB, 170 bis 230 | 65 bis 75 min | hochgerechnet | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md) |
+| #21, Übergänge zwischen Biomen | rund 185 GB, 1 % mehr | 65 bis 75 min | hochgerechnet | [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md) |
 
 Die Grösse wächst nach libwebp wieder, weil man mit #17 ins Wasser sieht
 und sich die Verläufe der weichen Beleuchtung schlechter packen als ebene

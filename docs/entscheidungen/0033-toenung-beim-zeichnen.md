@@ -57,9 +57,13 @@ beim Zeichnen“.
 
 - Je gefärbtem Block mischt die CPU bis zu zwei Farben über 25 Blöcke; das
   Biom eines Blocks rechnet sie einmal und behält es je Chunk und Höhe.
+  Zusammen mit der Tönung kostet das auf einem Thread 7 % je Kachel, auf 24
+  Threads 6 bis 7 % der Rate, siehe
+  [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md).
 - Die Sprite-Tabelle braucht keine Fassung je Biom mehr, und der Vorlauf
   keine Biome je Blockstate. Ein gefärbtes Sprite trägt dafür 8 Bytes je
-  Pixel mehr.
+  Pixel mehr. Auf der grossen Welt hat die Tabelle bei scale 32 7489 statt
+  26 341 Sprites und braucht halb so viel Speicher.
 - Eine Instanz auf der Karte hat 40 statt 32 Bytes: die beiden Farben.
 - Gegenüber einem Raster in der Farbe liegt ein Kanal höchstens um 1
   daneben, weil das Raster je Fläche rundet und die Karte einmal je Pixel.

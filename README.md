@@ -232,9 +232,9 @@ Vorlauf:    788 Chunks in 0.2 s, 247 Blockstates, 256 Kacheln
             200/256 Kacheln
             256/256 Kacheln
 Kacheln:    256 geschrieben, 0 leer, 256x256 px, 24 Threads + GPU
-            18.3 MB in 0.3 s (992 Kacheln/s, 73 kB je Kachel)
-Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 4.8 MB in 0.2 s
-Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.3 MB in 0.2 s
+            23.1 MB in 0.4 s (698 Kacheln/s, 92 kB je Kachel)
+Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 6.0 MB in 0.2 s
+Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.5 MB in 0.2 s
 Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.4 MB in 0.2 s
 Zoom  6:     2 Kacheln
 ...
@@ -564,15 +564,19 @@ ein Viertel.
 
 | `--scale` | Kacheln der Welt | je Kachel | Basis | native Stufen | zusammen | Dauer |
 |-----------|------------------|-----------|-------|---------------|----------|-------|
-| 32 | 292 836 | 51 kB | ~15,1 GB | ~5,5 GB | ~21 GB | ~6 min |
-| 16 | 73 920 | 56 kB | ~4,1 GB | ~1,5 GB | ~5,6 GB | ~3 min |
-| 8 | 18 951 | 62 kB | ~1,2 GB | ~0,3 GB | ~1,5 GB | ~2 min |
+| 32 | 292 836 | 65 kB | ~19,1 GB | ~6,8 GB | ~26 GB | ~6,5 min |
+| 16 | 73 920 | 69 kB | ~5,1 GB | ~1,7 GB | ~6,8 GB | ~3,5 min |
+| 8 | 18 951 | 73 kB | ~1,4 GB | ~0,4 GB | ~1,8 GB | ~2 min |
 
 Der Ausschnitt hat viel Wasser, und Wasser, durch das man den Grund sieht,
 packt sich schlechter: Solange es ab zwei Blöcken Tiefe fast deckte, siehe
 „Wasser und Biomfarben“ unten, wog eine Kachel dort 33 bis 37 kB, bei
 scale 32 zusammen ~13 GB. Mit dem Encoder aus `image`, vor libwebp, waren
-es 104 bis 114 kB, ~43 GB in ~5 min, siehe unten. Auf demselben
+es 104 bis 114 kB, ~43 GB in ~5 min, siehe unten. Die weiche
+Beleuchtung, siehe unten, legt noch einmal ein Fünftel bis ein Viertel
+darauf, denn ihr Verlauf packt sich schlechter als eine ebene Fläche:
+Ohne sie wog eine Kachel bei scale 32 51 kB, zusammen ~21 GB, und der
+Lauf brauchte ~6 min. Auf demselben
 Ausschnitt wiegt eine Kachel bei jedem scale etwa gleich viel: sie zeigt
 bei kleinerem scale mehr Welt, aber gleich viele Pixel. Der Platz hängt
 deshalb fast nur an der Kachelzahl. Die Dauer nicht: jede native Stufe
@@ -1132,6 +1136,78 @@ liegt so immer über dem, was dahinter liegt, und eine Halmkante, die den
 Pixel nur zum Teil deckt, verdeckt die Fläche dahinter nicht. Vorher
 gewann ein Tiefenpuffer, und ein gefluteter Zaun war ein Wasserwürfel
 ohne Zaun.
+
+### Weiche Beleuchtung
+
+Das Spiel zeichnet Blöcke in der Voreinstellung weich beleuchtet
+(`options.ao` ist wahr): Wo eine Fläche an einen Nachbarn stösst, wird sie
+zur Kante hin dunkler, in einer Innenecke am meisten.
+`BlockModelLighter.prepareQuadAmbientOcclusion` rechnet dafür in 26.2 je
+Ecke einer Fläche einen Wert, und die Grafikkarte lässt ihn zwischen den
+Ecken verlaufen. Der Renderer tut dasselbe für die drei Seiten, die er
+zeigt, oben, Süden und Osten, bei vollem Tageslicht: `ao_at` in
+`renderer/src/render/metatile.rs`, die AO-Karte in `rasterizer.rs`.
+
+- Gezählt wird in der Schicht vor der Seite, für eine Seite, die ganz auf
+  dem Rand des Würfels liegt (`faceCubic`): der Block direkt davor, je
+  Ecke ihre zwei Nachbarn in dieser Schicht (`AdjacencyInfo.corners`) und
+  der Block in der Ecke dazwischen. Jeder gibt seine `getShadeBrightness`:
+  0,2 für Blöcke mit voller Kollisionsform (`BlockBehaviour`), Stein
+  etwa, Erde, Eis und Laub, sonst 1, für Wasser, Treppen und einfache
+  Platten. Einzelne Blöcke weichen ab: Glas bleibt bei 1
+  (`TransparentBlock`), Seelensand und Schlamm dunkeln trotz kleinerer
+  Form ab (`SoulSandBlock`, `MudBlock`). Jede Ecke ist das Mittel ihrer
+  vier Werte, und `ARGB.gray` macht daraus 255, 204, 153, 102 oder 51.
+- Der Block in der Ecke zählt nur, wenn hinter einem der beiden Nachbarn,
+  noch eine Schicht weiter von der Seite weg, kein Block steht, der die
+  Sicht nimmt (`isViewBlocking` und `getLightDampening` > 0). Sonst nimmt
+  das Spiel an seiner Stelle den Wert des ersten Nachbarn aus
+  `AdjacencyInfo.corners`, für alle vier Ecken denselben, auch für eine
+  Ecke, die dieser Nachbar gar nicht berührt. Der Renderer auch.
+- `AmbientVertexRemap` legt die vier Werte auf die Ecken aus `FaceInfo`.
+  In diese Reihenfolge bringt `FaceBakery.recalculateWinding` jedes
+  gebackene Viereck, und das Spiel zeichnet es als die Dreiecke 0-1-2 und
+  2-3-0. Dazwischen verläuft der Wert baryzentrisch.
+- Weich beleuchtet wird nur, was das Modell mit `ambientocclusion` erlaubt.
+  Das erbt wie im Client vom nächsten Parent, der es setzt
+  (`ResolvedModel.findTopAmbientOcclusion`). Was leuchtet, zeichnet das
+  Spiel ohne (`ModelBlockRenderer.tesselateBlock`), Flüssigkeiten ebenso
+  (`FluidRenderer`).
+
+Das Sprite eines Blocks ist an jeder Stelle dasselbe, die weiche
+Beleuchtung hängt aber an den Nachbarn. Der Rasterizer legt deshalb je
+Pixel die Anteile der vier Ecken seiner Seite in 255steln ab, die
+AO-Karte. Beim Zeichnen rechnet `ao_at` die Ecken aus den Nachbarn, und
+je Pixel ergibt die Karte mit ihnen einen Faktor, ganzzahlig wie das
+Mischen, auf der CPU wie im Shader der Karte. Er multipliziert sich mit
+dem Licht aus `light_at`; die Schattierung nach Richtung, oben 1, Nord und
+Süd 0,8, Ost und West 0,6, steckt wie bisher im Sprite. Eine Instanz auf
+der Karte trägt dafür die drei Wörter der Ecken und ist 32 statt 20 Bytes
+gross. Eine Kachel wiegt damit ein Fünftel bis ein Viertel mehr und
+braucht ein Zehntel bis ein Sechstel länger, siehe „Was das kostet“.
+
+Was noch fehlt:
+
+- **Teilflächen.** Treppen, Platten, Zäune und alles, was nicht ganz aus
+  vollen Seiten besteht, rechnet das Spiel mit `facePartial` und den
+  Gewichten aus `SizeInfo`. Der Renderer zeichnet sie wie bisher ohne
+  weiche Beleuchtung; eine AO-Karte bekommt nur ein Modell aus vollen
+  Seiten.
+- **Licht je Ecke.** Das Spiel mischt an jeder Ecke auch das Licht der
+  vier Blöcke (`LightCoordsUtil.smoothBlend`). Der Renderer gibt jedem
+  Block ein Licht, siehe „Wasser und Biomfarben“; unter Wasser und an der
+  Kante eines Überhangs verläuft es deshalb nicht.
+
+Welche Blöcke abdunkeln und welche die Sicht nehmen, steht in
+`renderer/src/assets/schatten.txt`, 491 Blöcke aus 26.2: je Zustand eine
+Ziffer, Bit 1 für `getShadeBrightness` 0,2, Bit 2 für `isViewBlocking` mit
+`getLightDampening` > 0. Andere Werte als 0,2 und 1 gibt 26.2 nicht zurück.
+Für eine andere Version erzeugt sie `Schatten.java` daneben neu, wie
+`leuchten.txt` oben:
+
+```bash
+java -cp "$(ls versions/*/server-*.jar):$(find libraries -name '*.jar' | paste -sd:)" Schatten.java > schatten.txt
+```
 
 ### Keine Nähte
 

@@ -24,10 +24,10 @@ Basiskacheln wären das knapp 16 Stunden gewesen.
 
 - Welt: die grosse Welt, 2,5 Millionen Chunks, 30 GiB, scale 32.
 - Stand: der Code von `32b274e` aus #9, damals auf #8 vor dessen Merge.
-  Gebaut und gestartet am 22.09. um 22:53; `32b274e` hielt den Stand neun
-  Minuten später fest, danach kamen nur Tests und README dazu. Abgebrochen
-  am 23.09. gegen 1 Uhr. Die Zahlen stehen seit `4fbb51c` (23.09., 00:46)
-  im README.
+  Gebaut und gestartet am 22.09. um 22:53. Neun Minuten später hielt
+  `32b274e` diesen Code fest; gegenüber dem gestarteten Stand bringt der
+  Commit nur Tests und README dazu. Abgebrochen am 23.09. gegen 1 Uhr. Die
+  Zahlen stehen seit `4fbb51c` (23.09., 00:46) im README.
 - 24 Threads, ohne Grafikkarte; die Maschine war nicht frei, nur 9 Kerne
   standen dem Lauf zur Verfügung.
 

@@ -1,6 +1,6 @@
 ---
 name: alternativen-recherchieren
-description: Die Arbeitsweise des Researchers. Sucht für ein Problem des Renderers bessere Verfahren, Optimierungen und Alternativen in Papern, belegten Algorithmen und verwandten Projekten, misst sie nach und schlägt sie als Issue vor. Nutzen vor einem grösseren Umbau, wenn ein Issue oder Review nach dem besten Verfahren fragt, und aus eigenem Antrieb bei den grössten Posten an Zeit, Platz und Qualität.
+description: Die Arbeitsweise des Researchers. Sucht für ein Problem des Renderers oder des Frontends bessere Verfahren, Optimierungen und Alternativen in Papern, belegten Algorithmen und verwandten Projekten, misst sie nach und schlägt sie als Issue vor. Nutzen vor einem grösseren Umbau, wenn ein Issue oder Review nach dem besten Verfahren fragt, und aus eigenem Antrieb bei den grössten Posten an Zeit, Platz und Qualität.
 ---
 
 # Alternativen recherchieren
@@ -8,7 +8,8 @@ description: Die Arbeitsweise des Researchers. Sucht für ein Problem des Render
 Der Researcher treibt Neues voran. Er sucht, wie andere dasselbe Problem
 schneller, kleiner oder schöner lösen, und belegt jeden Vorschlag mit
 Zahlen. Er setzt nicht selbst um. Sein Ergebnis ist ein Issue; nimmt der
-Maintainer es an, setzt der Programmierer es um und der Reviewer prüft es.
+Maintainer es an, setzt der zuständige Programmierer es um und der Reviewer
+prüft es.
 
 ## Quellen
 
@@ -44,9 +45,9 @@ des Abrufs, dazu die Zahl, auf die es ankommt, samt ihren Bedingungen.
    fertiger Kacheln.
 4. **Bewerten,** je Kandidat:
    - Was behauptet die Quelle, mit welcher Zahl, unter welchen Bedingungen?
-   - Passt es hierher: offline, isometrische Rasterkacheln, Minecraft 26.x,
-     CPU und Vulkan? Braucht der Renderer es wirklich
-     ([`AGENTS.md`](../../AGENTS.md), Regel 22)?
+   - Passt es hierher: offline gerenderte isometrische Rasterkacheln,
+     Minecraft 26.x, CPU und Vulkan, im Browser Leaflet? Braucht das
+     Projekt es wirklich ([`AGENTS.md`](../../AGENTS.md), Regel 22)?
    - Gewinn an Renderzeit, Speicherplatz oder Qualität der Karte. Kostet es
      sichtbar Qualität, steht das im Vorschlag.
    - Aufwand, Risiken, neue Abhängigkeiten.

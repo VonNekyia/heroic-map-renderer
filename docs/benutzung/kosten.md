@@ -81,8 +81,9 @@ auslässt. Mit Grafikkarte zeichnet die Karte, siehe
 ## Die grosse Welt
 
 Die grosse Welt hat 2,5 Millionen Chunks und bei scale 32 rund 2,5
-Millionen Basiskacheln. Ganz gemessen ist nur der Vollrender mit #11; alle
-späteren Zahlen sind aus Ausschnitten hochgerechnet:
+Millionen Basiskacheln. Ganz gemessen sind die Vollrender mit #11 und mit
+#21, beide mit Live-Ansicht nebenher; die Zahlen dazwischen sind aus
+Ausschnitten hochgerechnet:
 
 | Stand | Grösse | Dauer | | Messung |
 |---|---|---|---|---|
@@ -91,6 +92,11 @@ späteren Zahlen sind aus Ausschnitten hochgerechnet:
 | #17, Wasser im Licht | rund 150 GB, 140 bis 180 | 60 bis 70 min | hochgerechnet | [2026-09-27, Wasser im Licht](../messungen/2026-09-27-wasser-im-licht.md) |
 | #18, weiche Beleuchtung | rund 185 GB, 170 bis 230 | 65 bis 75 min | hochgerechnet | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md) |
 | #21, Übergänge zwischen Biomen | rund 185 GB, 1 % mehr | 66 bis 76 min | hochgerechnet | [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md) |
+| #21 | 184 GB: Basis 136,6, Pyramide 47,4 | 66 min | gemessen | [2026-09-27, Vollrender mit #21](../messungen/2026-09-27-vollrender-mit-21.md) |
+
+Die Live-Ansicht kostet: Solange `--pyramid` nebenher läuft, schafft die
+Basis gerechnet nur die Hälfte. Ohne sie wäre der Lauf mit #21 geschätzt
+etwa 50 min lang, siehe dort.
 
 Die Grösse wächst nach libwebp wieder, weil man mit #17 ins Wasser sieht
 und sich die Verläufe der weichen Beleuchtung schlechter packen als ebene

@@ -185,7 +185,7 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 GPU:        <Name der Karte> (Vulkan)
 
 Vorlauf:    316223 Chunks in 5.5 s, 3110 Blockstates, 292836 Kacheln
-            33762 Sprites bei scale 32, davon 31265 Fassungen
+            15096 Sprites bei scale 32, davon 12599 Fassungen
             18 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
             200/292836 Kacheln
             400/292836 Kacheln
@@ -205,8 +205,8 @@ lädt eine Kachel der Basis im Mittel gut zwei neu, siehe unten, und bei
 etwa einer Kachel je Chunk wird dort jeder Chunk rund zweimal dekodiert.
 Der Vorlauf kostet für die ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes
 Sprite, das nicht selbst Alternative einer Blockstate ist: eines je Maske
-verdeckter Flüssigkeitsflächen, je Tiefe dahinter und je Biomfarbe, dazu
-die Streifen an Wasserstufen.
+verdeckter Flüssigkeitsflächen und je Biomfarbe, dazu die Streifen an
+Wasserstufen.
 
 Gerendert wird in Streifen, Zeile für Zeile, bei scale 32 bis zu acht
 Kacheln breit, auf der Basis und auf jeder nativen Stufe. Jeder Thread
@@ -227,15 +227,15 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 GPU:        <Name der Karte> (Vulkan)
 
 Vorlauf:    788 Chunks in 0.2 s, 247 Blockstates, 256 Kacheln
-            1580 Sprites bei scale 32, davon 1336 Fassungen
+            932 Sprites bei scale 32, davon 688 Fassungen
             1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
             200/256 Kacheln
             256/256 Kacheln
 Kacheln:    256 geschrieben, 0 leer, 256x256 px, 24 Threads + GPU
-            16.1 MB in 0.3 s (997 Kacheln/s, 65 kB je Kachel)
-Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 4.1 MB in 0.2 s
-Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.1 MB in 0.2 s
-Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.3 MB in 0.2 s
+            18.3 MB in 0.3 s (992 Kacheln/s, 73 kB je Kachel)
+Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 4.8 MB in 0.2 s
+Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.3 MB in 0.2 s
+Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.4 MB in 0.2 s
 Zoom  6:     2 Kacheln
 ...
 Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
@@ -564,20 +564,23 @@ ein Viertel.
 
 | `--scale` | Kacheln der Welt | je Kachel | Basis | native Stufen | zusammen | Dauer |
 |-----------|------------------|-----------|-------|---------------|----------|-------|
-| 32 | 292 836 | 33 kB | ~9,7 GB | ~3,3 GB | ~13 GB | ~6 min |
-| 16 | 73 920 | 34 kB | ~2,5 GB | ~0,9 GB | ~3,4 GB | ~3 min |
-| 8 | 18 951 | 37 kB | ~0,7 GB | ~0,2 GB | ~0,9 GB | ~2 min |
+| 32 | 292 836 | 51 kB | ~15,1 GB | ~5,5 GB | ~21 GB | ~6 min |
+| 16 | 73 920 | 56 kB | ~4,1 GB | ~1,5 GB | ~5,6 GB | ~3 min |
+| 8 | 18 951 | 62 kB | ~1,2 GB | ~0,3 GB | ~1,5 GB | ~2 min |
 
-Mit dem Encoder aus `image`, vor libwebp, wog eine Kachel dort 104 bis
-114 kB, bei scale 32 zusammen ~43 GB in ~5 min, siehe unten. Auf demselben
+Der Ausschnitt hat viel Wasser, und Wasser, durch das man den Grund sieht,
+packt sich schlechter: Solange es ab zwei Blöcken Tiefe fast deckte, siehe
+„Wasser und Biomfarben“ unten, wog eine Kachel dort 33 bis 37 kB, bei
+scale 32 zusammen ~13 GB. Mit dem Encoder aus `image`, vor libwebp, waren
+es 104 bis 114 kB, ~43 GB in ~5 min, siehe unten. Auf demselben
 Ausschnitt wiegt eine Kachel bei jedem scale etwa gleich viel: sie zeigt
 bei kleinerem scale mehr Welt, aber gleich viele Pixel. Der Platz hängt
 deshalb fast nur an der Kachelzahl. Die Dauer nicht: jede native Stufe
 zeichnet jeden Block ihrer Fläche noch einmal, und zusammen brauchen sie
-etwas länger als die Basis, bei scale 32 das 1,2-Fache. Das ist etwa so
+bei scale 32 etwa so lange wie die Basis. Das ist etwa so
 lange wie ein Lauf bei scale 16 samt seinen Stufen über dieselbe Fläche.
 In Bytes sind sie ein Drittel der Basis. Die Sprite-Tabellen aller 3110
-Blockstates brauchen über die vier Stufen zusammen rund 11 s.
+Blockstates brauchen über die vier Stufen zusammen rund 6 s.
 
 Der erste Vollrender einer grossen Serverwelt hat die Rechnung geerdet:
 2,5 Millionen Chunks, 30 GB, scale 32, gemessen vor dem Umbau weiter unten.
@@ -610,8 +613,7 @@ Byte für Byte gleich, alle 1393 Dateien.
 
 Die Tabelle stammt von vor den Regeln, die jetzt oben unter Verdeckung und
 Wasser stehen: Deckung Pixel für Pixel, der Boden unter Lava, Streifen über
-niedrigerem Wasser, die Tiefe entlang des Blickstrahls. Die Kandidatensuche
-folgt ihnen. Am selben Tag nacheinander gemessen, dieselben Ausschnitte,
+niedrigerem Wasser. Die Kandidatensuche folgt ihnen. Am selben Tag nacheinander gemessen, dieselben Ausschnitte,
 jeweils das beste von drei Läufen:
 
 | | vorher, Block für Block | Umbau, alte Regeln | Umbau, jetzige Regeln |
@@ -987,48 +989,66 @@ Ecken der Oberfläche an; der Renderer zeichnet stattdessen genau diesen
 Streifen, als eigenes Sprite je Paar aus eigener Höhe und Nachbarhöhe in
 Neunteln.
 
-Die Oberfläche trägt dafür die Deckkraft aller Schichten dahinter. Eine
-Schicht der Wassertextur lässt 29 Prozent durch, zwei noch 9, vier noch
-unter 1: durch einen Block Wasser sieht man den Grund, durch vier nicht
-mehr. Der Renderer zählt je Oberflächenblock die Wasserblöcke entlang
-des Blickstrahls, also schräg nach hinten unten auf der Diagonale
-(x-1, y-1, z-1), und nimmt die Fassung mit dem entsprechend
-hochgerechneten Alpha — ohne das sähe ein Ozean aus wie ein Meeresboden
-hinter Milchglas, mit sichtbarem Kies in jeder Tiefe. Im Spiel erledigt
-das der Unterwassernebel. Senkrecht gezählt verschwände, was knapp unter
-einer tiefen Oberfläche liegt, ein Wrack oder ein Riff. Die Zählung endet
-an dem, was den Strahl aufhält: dem Grund, dem Ufer, einem Stein. Dünne
-Modelle zählen unter einer Quelle als Wasser, denn neben Seegras, Kelp oder
-einem gefluteten Zaun geht der Strahl weiter bis zum Grund; endete die
-Zählung an ihnen, stünde über jedem Seegras ein heller Fleck. Ob ein Block den Strahl
-aufhält, misst der Renderer an den Pixeln, die die Oberfläche an seiner
-Stelle belegen würde, auf ihrer Höhe und immer bei scale 32: hinter
-fliessendem Wasser treten die Strahlen tiefer ein als hinter einer Quelle,
-und jede Stufe soll gleich zählen. Deckt er mehr als die Hälfte davon,
-endet die Zählung. Hinter einer Quelle halten eine obere Platte und ein
-Mauerpfosten den Strahl auf, eine untere Platte nicht, denn über sie gehen
-156 von 256 Strahlen hinweg. Hohes Seegras deckt dort höchstens die Hälfte
-und zählt wie Wasser; sonst stünde über ihm ein heller Fleck. Hinter
-fliessendem Wasser verschiebt sich das. Gemessen an Vanilla 26.2 bei
-scale 32, je `level` des Wassers davor, deckt ein Block so viele der 256
-Pixel; fett heisst, die Zählung endet an ihm:
+Tiefe wirkt wie im Spiel nur über das Licht. Man sieht durch genau eine
+Oberfläche, die Wassertextur hat überall Alpha 180, und darunter zeichnet
+der Renderer jeden Block in seinem Himmelslicht. Jeder Block Wasser nimmt
+eine Stufe, denn `LiquidBlock.propagatesSkylightDown` ist falsch und
+`getLightDampening` gibt damit 1: Der oberste Block Wasser liegt im Licht
+14, der Grund n Blöcke tief im Licht 15 − n, ab 15 Blöcken im Licht 0.
+Über dem Grund D ergibt die Oberfläche W damit α · W + (1 − α) · b · D, b
+die Helligkeit im Licht dort unten:
 
-| Block | Quelle | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
-|---|---|---|---|---|---|---|---|---|
-| untere Platte | 100 | **132** | **182** | **226** | **256** | **256** | **256** | **256** |
-| obere Platte | **256** | **256** | **256** | **256** | **226** | **182** | **132** | 100 |
-| Seegras | 37 | 51 | 70 | 82 | 103 | 119 | **141** | **131** |
-| hohes Seegras, unten | 128 | **151** | **163** | **167** | **180** | **188** | **194** | **179** |
-| hohes Seegras, oben | 75 | 90 | 113 | 122 | **129** | **131** | **130** | 116 |
-| Kelp | 80 | 102 | 119 | 128 | 128 | 125 | 106 | 94 |
-| Zaunpfosten | 80 | 92 | 108 | 112 | 112 | 108 | 92 | 80 |
-| Mauerpfosten | **160** | **184** | **192** | **192** | **192** | **192** | **184** | **160** |
+| Tiefe des Grunds | 1 | 2 | 3 | 5 | 10 | ab 15 |
+|---|---|---|---|---|---|---|
+| Licht | 14 | 13 | 12 | 10 | 5 | 0 |
+| vom Grund sichtbar | 27 % | 24 % | 22 % | 18 % | 9 % | 3 % |
+| vorher, eine Schicht je Block | 29 % | 8,6 % | 2,5 % | 0,7 % | 0,7 % | 0,7 % |
 
-Der Preis: unter einer Quelle verschwindet ein dünnes Modell einen Block
-unter der Oberfläche fast, wenn dahinter tiefes Wasser steht, Seegras,
-Kelp, Zaunpfosten, Korallenfächer. Die Oberfläche darüber trägt die
-Deckkraft aller Schichten dahinter, und statt 29 Prozent bleibt von ihm
-unter 1 Prozent sichtbar.
+Vorher trug die Oberfläche die Deckkraft aller Schichten dahinter, so als
+läge je Block Wasser eine weitere Oberfläche darüber. Was einen Block tief
+lag, stand hell und blass neben fast deckendem Wasser, Pfosten und Wracks
+in eckigen Flecken.
+
+Die Helligkeit b rechnet `brightness` in `renderer/src/render/rasterizer.rs`
+wie `shaders/core/lightmap.fsh` in 26.2: `get_brightness(l) = l / (4 − 3·l)`
+für die Stufe l / 15, mal `SkyFactor` und `SkyLightColor`, dazu die
+Umgebungsfarbe, auf 1 begrenzt; das Ergebnis liegt zwischen diesem Wert und
+`notGamma(c) = 1 − (1 − c)⁴`, gewichtet mit `BrightnessFactor`. Die Werte
+des Spiels am Tag in der Oberwelt: die Umgebungsfarbe `#0a0a0a`
+(`visual/ambient_light_color` in `dimension_type/overworld.json`),
+`SkyLightColor` weiss und `SkyFactor` 1 (`timeline/day.json`), und
+`BrightnessFactor` 0,5, denn das ist `options.gamma` in der Voreinstellung
+(`LightmapRenderStateExtractor`, `Options`). Licht 15 gibt 1, so hell
+zeichnet der Renderer jede Fläche. Nebel gibt es nicht; den zeichnet das
+Spiel nur, wenn die Kamera selbst unter Wasser ist.
+
+Welches Licht ein Block bekommt, bestimmt `light_at` in
+`renderer/src/render/metatile.rs` beim Zeichnen, aus den Blöcken senkrecht
+über ihm:
+
+- Die Oberseite des Grunds liegt im Licht des Wassers über ihr.
+- Ein Block mit eigenem Wasser, Seegras, Kelp, ein gefluteter Zaun, liegt
+  im Licht dieses Wassers. So sieht man Kelp knapp unter der Oberfläche
+  auch über tiefem Grund, wie im Spiel.
+- Verdeckt der Block darüber die Oberseite, gilt das Wasser vor der Ost-
+  und der Südseite: ein Schiffsrumpf, eine Klippe unter Wasser.
+- Ein deckender Block nimmt ebenso eine Stufe wie ein Block Wasser. Im
+  Spiel kommt das Licht unter einem Dach von der Seite, so bleiben eine
+  geflutete Höhle unter dem Meeresboden und eine Luftblase im Meer dunkel.
+- An Land bleibt alles im Licht 15, auch unter einem Überhang.
+
+Gezählt wird aus den Bitmasken der Sections, ein paar Wörter je Block. Der
+Blit multipliziert jeden Pixel mit b, ganzzahlig wie das Mischen, auf der
+CPU wie im Shader der Karte; die Oberfläche selbst bleibt, wie sie ist. Ein
+gefluteter Block an der Oberfläche zeichnet sein Wasser im eigenen Sprite,
+und was er darunter trägt, liegt dort im Licht 14.
+
+Eine Zahl je Block ist eine Näherung. Im Spiel liegen die Seiten eines
+Blocks unter Wasser eine Stufe dunkler als seine Oberseite, am Ufer die
+Seite unter der Oberfläche im Licht 14, während die Oberseite trocken im
+Licht 15 liegt. Und gezählt wird nur senkrecht: Das Licht, das im Spiel von
+der Seite unter ein Dach fällt, kennt der Renderer nicht, denn das
+gespeicherte Licht der Welt liest er nicht.
 
 Gras und Laub funktionieren wie das Wasser: die Textur ist grau, das Biom
 liefert Temperatur und Niederschlag, und die Colormaps `grass.png` und
@@ -1045,9 +1065,10 @@ verdrahtet das im Code, und der Renderer tut es in
 Gefärbte Fassungen entstehen nur für die Biome, mit denen ein Block im
 Vorlauf eine Section teilt: auf der ganzen Welt kommt jedes Biom vor, aber
 nicht jeder Block in jedem. Pixelgleiche Sprites teilen sich einen Eintrag,
-wenn sie sich in jedem Biom gleich färben. Zusammen schrumpft die Tabelle
+wenn sie sich in jedem Biom gleich färben. Zusammen schrumpfte die Tabelle
 der Testwelt bei scale 32 damit auf ein Drittel, von 100 688 auf 33 762
-Sprites.
+Sprites, damals noch mit Fassungen je Tiefe unter einer Wasseroberfläche;
+ohne sie sind es 15 096.
 
 Durchsichtige Flächen mischen sich seit diesem Schritt auch innerhalb
 eines Sprites: jede Fläche legt je Pixel ein Fragment ab, und am Schluss

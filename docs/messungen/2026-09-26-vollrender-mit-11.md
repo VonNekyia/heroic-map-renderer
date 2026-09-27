@@ -50,12 +50,22 @@ Pyramide 88 GB. Die Raten ohne Nebenlauf sind Stichproben, der Fortschritt
 - Solange ein Aufruf von `--pyramid` nebenher lief, sank das Tempo, und die
   Aufrufe wurden mit der Basis länger: 426, 581 und 782 s, also 7, 10 und
   13 min. Gemessen ist der Einbruch nur während des ersten Aufrufs: etwa
-  610 statt 891 Kacheln/s, aus zwei Ständen des Fortschritts um 15:11 und
-  15:15. In diese Minuten fiel auch die Ausnahme; wann genau, ist nicht
-  festgehalten.
+  610 statt 891 Kacheln/s, aus zwei Ständen des Fortschritts, 281 600
+  Kacheln um 15:11:27 und 430 000 um 15:15:31. In diese Minuten fiel auch
+  die Ausnahme; wann genau, ist nicht festgehalten.
 - Dass sich das Tempo danach mit Nebenlauf etwa halbierte, ist gerechnet,
-  nicht gemessen: Bei 1593 Kacheln/s ohne Nebenlauf bleiben für die Zeit
-  mit Nebenlauf rund 770 Kacheln/s.
+  nicht gemessen:
+  - Um 15:17:37, am Ende der zweiten Stichprobe, standen 632 400 Kacheln.
+  - Die Basis endete gegen 15:49: 1353,6 s Pyramide vor dem Ende des
+    Exports, das zwischen 16:11:32 und 16:11:37 lag, denn die Uhrzeit im
+    Log kam bis zu 5 s danach.
+  - Dazwischen liegen 1 872 061 Kacheln in 1881 bis 1886 s. 1363 s davon
+    lief ein Aufruf von `--pyramid` nebenher, der zweite mit 581 und der
+    dritte mit 782 s; der dritte endete um 15:48:05, vor der Basis. Die
+    übrigen 518 bis 523 s liefen ohne.
+  - Mit 1593 Kacheln/s ohne Nebenlauf bleiben für die 1363 s mit
+    Nebenlauf gut 1,04 Millionen Kacheln, 762 bis 768 Kacheln/s, knapp die
+    Hälfte.
 - Ohne Live-Ansicht und mit der Ausnahme von Anfang an wären es geschätzt
   etwa 50 Minuten gewesen; gemessen ist das nicht.
 

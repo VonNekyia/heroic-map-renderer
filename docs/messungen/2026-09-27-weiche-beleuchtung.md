@@ -14,7 +14,9 @@ code:
 Auf einem Thread braucht eine Kachel bei scale 32 mit weicher Beleuchtung
 6,13 statt 5,38 ms, 14 % mehr, und sie wiegt ein Fünftel bis ein Viertel
 mehr. Hochgerechnet braucht die ganze Testwelt bei scale 32 damit rund
-26 GB in 6,5 Minuten. Auf 24 Threads bleibt jeder Unterschied in der
+26 GB in 6,5 Minuten. Auf 24 Threads ist die Basis der grossen Welt ohne
+Karte 11 bis 14 % langsamer als master, mit Karte 6 bis 7 %; die Fassungen
+der zweiten Runde unterscheiden sich dort untereinander nur in der
 Streuung.
 
 ## Aufbau
@@ -152,11 +154,11 @@ Lauf braucht am Ausschnitt mit Karte 6 % länger als auf master, ohne Karte
 
 ## Schluss
 
-Die weiche Beleuchtung kostet auf einem Thread 14 %, davon ein gutes
-Drittel das Abdunkeln und Kodieren der reicheren Kacheln; die Kacheln
-wachsen, weil sich der Verlauf schlechter packt als eine ebene Fläche.
-Geglättet oder gerundet wird nichts. Byte für Byte gleich mit `b15d0ab`
-nach der zweiten Runde: auf der Testwelt 16 755 Dateien mit drei nativen
-Stufen, auf der grossen Welt 87 517. Entscheidungen:
+Die weiche Beleuchtung kostet auf einem Thread 14 %, davon knapp die Hälfte,
+0,35 von 0,76 ms, das Abdunkeln und Kodieren der reicheren Kacheln; die
+Kacheln wachsen, weil sich der Verlauf schlechter packt als eine ebene
+Fläche. Geglättet oder gerundet wird nichts. Byte für Byte gleich mit
+`b15d0ab` nach der zweiten Runde: auf der Testwelt 16 755 Dateien mit drei
+nativen Stufen, auf der grossen Welt 87 517. Entscheidungen:
 [0031](../entscheidungen/0031-eigene-tabellen-statt-der-masken.md),
 [0032](../entscheidungen/0032-weiche-beleuchtung-zuerst-fuer-volle-wuerfel.md).

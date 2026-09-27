@@ -1496,6 +1496,73 @@ fn native_stufen_gehoeren_zum_baum() {
     assert_eq!(native_in(zwoelf.path()), Some(0));
 }
 
+/// Der Radius der Mischung gehört zum Baum wie die nativen Stufen: Ein
+/// Nachrendern ohne `--biome-blend` nimmt ihn aus `map.json` und ändert an
+/// einer unveränderten Welt keine Datei, eines mit einem anderen bricht ab,
+/// bevor es etwas schreibt, und `--pyramid` behält ihn. Ein neuer Baum
+/// bekommt die Vorgabe 2. Einer aus einem älteren Stand ohne das Feld nimmt
+/// den Schalter oder die Vorgabe, sagt es und trägt den Radius ein.
+#[test]
+fn mischung_gehoert_zum_baum() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let baum = tempdir();
+    gelungen(&export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--biome-blend", "3"],
+    ));
+    assert_eq!(mischung_in(baum.path()), Some(3));
+    let vorher = schnappschuss(baum.path());
+
+    let ausschnitt = ["--scale", "16", "--center", "8", "8", "--size", "4"];
+    gelungen(&export(welt.path(), baum.path(), &ausschnitt));
+    assert!(
+        schnappschuss(baum.path()) == vorher,
+        "ohne Schalter anders gemischt"
+    );
+
+    let anders = [&ausschnitt[..], &["--biome-blend", "1"]].concat();
+    let ausgabe = export(welt.path(), baum.path(), &anders);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("Mit --biome-blend 3 weiterrendern"),
+        "{meldung}"
+    );
+    assert!(schnappschuss(baum.path()) == vorher);
+
+    gelungen(&cli(&[OsStr::new("--pyramid"), baum.path().as_os_str()]));
+    assert_eq!(mischung_in(baum.path()), Some(3), "--pyramid");
+
+    let neu = tempdir();
+    gelungen(&export(welt.path(), neu.path(), &["--scale", "16"]));
+    assert_eq!(mischung_in(neu.path()), Some(2));
+
+    let karte = neu.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info.as_object_mut().unwrap().remove("biomeBlend");
+    std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    let ausgabe = export(
+        welt.path(),
+        neu.path(),
+        &["--scale", "16", "--biome-blend", "0"],
+    );
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
+    assert!(
+        meldung.contains("nennt keinen Radius der Mischung"),
+        "{meldung}"
+    );
+    assert_eq!(mischung_in(neu.path()), Some(0));
+}
+
+/// Der Radius der Mischung, wie `map.json` ihn nennt.
+fn mischung_in(dir: &Path) -> Option<u64> {
+    let text = std::fs::read_to_string(dir.join("map.json")).expect("map.json lesen");
+    let info: serde_json::Value = serde_json::from_str(&text).expect("map.json auswerten");
+    info["biomeBlend"].as_u64()
+}
+
 /// Die Zahl der nativen Stufen, wie `map.json` sie nennt.
 fn native_in(dir: &Path) -> Option<u64> {
     let text = std::fs::read_to_string(dir.join("map.json")).expect("map.json lesen");

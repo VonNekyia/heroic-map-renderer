@@ -66,10 +66,11 @@ pub struct Args {
     scale: u32,
 
     /// Wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, in
-    /// Blöcken, wie der Biomübergang im Spiel: 0 bis 7, Vorgabe 2
-    #[arg(long, value_name = "N", default_value_t = BLEND_DEFAULT,
+    /// Blöcken, wie der Biomübergang im Spiel: 0 bis 7, Vorgabe 2; ein
+    /// bestehender Kachelbaum behält seinen Wert aus map.json
+    #[arg(long, value_name = "N",
           value_parser = clap::value_parser!(u8).range(0..=i64::from(BLEND_MAX)))]
-    biome_blend: u8,
+    biome_blend: Option<u8>,
 
     /// Einen Weltausschnitt in diese PNG rendern
     #[arg(long, value_name = "DATEI")]
@@ -311,7 +312,7 @@ pub fn run() -> Result<()> {
                 projection,
                 window(projection, center, size),
                 path,
-                args.biome_blend,
+                args.biome_blend.unwrap_or(BLEND_DEFAULT),
             )?;
         }
         if let Some(dir) = &args.tiles {
@@ -761,7 +762,7 @@ fn write_tiles(
     prune: bool,
     resume: bool,
     karte: Option<&Karte>,
-    blend: u8,
+    blend: Option<u8>,
 ) -> Result<()> {
     // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
     // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
@@ -792,6 +793,7 @@ fn write_tiles(
     // aufgerundet, und der Vorlauf sieht jeden Block, den irgendeine
     // Stufe braucht.
     let stufen = native_stufen(dir, bestand.as_ref(), native, projection.scale(), max_zoom)?;
+    let blend = mischung(dir, bestand.as_ref(), blend)?;
     let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
 
     let started = Instant::now();
@@ -864,6 +866,7 @@ fn write_tiles(
         projection.scale(),
         max_zoom,
         stufen,
+        blend,
         kennung.as_deref(),
         &basis,
     )?;
@@ -1017,6 +1020,7 @@ fn write_tiles(
         projection.scale(),
         max_zoom,
         stufen,
+        blend,
         kennung.as_deref(),
         &basis,
     )?;
@@ -1170,6 +1174,7 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
     }
     let info = MapInfo {
         native_levels: alt.native_levels,
+        biome_blend: alt.biome_blend,
         world: alt.world,
         ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
@@ -1394,11 +1399,13 @@ fn schreibe_map_json(
     scale: u32,
     max_zoom: u32,
     stufen: u32,
+    blend: u8,
     kennung: Option<&str>,
     basis: &BTreeSet<TileId>,
 ) -> Result<(MapInfo, usize, PathBuf)> {
     let info = MapInfo {
         native_levels: Some(stufen),
+        biome_blend: Some(blend),
         world: Some(kennung.map(str::to_string)),
         ..MapInfo::new(scale, max_zoom, basis)
     };
@@ -1583,6 +1590,35 @@ fn native_stufen(
             dir.join("map.json").display()
         ),
         (_, hier) => Ok(hier.unwrap_or(0)),
+    }
+}
+
+/// Mit welchem Radius dieser Lauf Biomfarben mischt. Ein bestehender Baum
+/// behält seinen: ohne `--biome-blend` nimmt der Lauf ihn aus `map.json`,
+/// mit einem anderen bricht er ab, bevor er einen Chunk liest. Ein Baum aus
+/// einem älteren Stand nennt keinen, seine Kacheln färben je Zelle aus
+/// 4×4×4 Blöcken; dann gilt der Schalter oder die Vorgabe, der Lauf sagt es
+/// und trägt den Radius ein.
+/// Siehe docs/benutzung/map-json.md, „Radius der Mischung“.
+fn mischung(dir: &Path, bestand: Option<&MapInfo>, verlangt: Option<u8>) -> Result<u8> {
+    match (bestand.map(|alt| alt.biome_blend), verlangt) {
+        (Some(Some(dort)), Some(hier)) if dort != hier => bail!(
+            "{} gehört zu einem Baum mit --biome-blend {dort}, dieser Lauf hätte {hier}. Mit \
+             --biome-blend {dort} weiterrendern oder ein neues Verzeichnis nehmen.",
+            dir.join("map.json").display()
+        ),
+        (Some(Some(dort)), _) => Ok(dort),
+        (Some(None), hier) => {
+            let hier = hier.unwrap_or(BLEND_DEFAULT);
+            println!(
+                "Biome:      {} nennt keinen Radius der Mischung, ein älterer Stand: seine Kacheln \
+                 färben je Zelle aus 4×4×4 Blöcken. Dieser Lauf mischt mit --biome-blend {hier} \
+                 und trägt ihn ein.",
+                dir.join("map.json").display()
+            );
+            Ok(hier)
+        }
+        (None, hier) => Ok(hier.unwrap_or(BLEND_DEFAULT)),
     }
 }
 

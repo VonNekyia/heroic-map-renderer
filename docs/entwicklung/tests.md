@@ -114,3 +114,8 @@ Adapter ein Fehler, siehe [Grafikkarte](../benutzung/grafikkarte.md),
 Ein Test, der Verhalten des Spiels festschreibt, nennt die Herkunft des
 Werts in einem Satz. Wie man den Beleg holt: Skill
 [`spielverhalten-belegen`](../../skills/spielverhalten-belegen/SKILL.md).
+Wo eine Rechnung zu viele Fälle hat, um sie von Hand nachzurechnen, gibt
+ein kleines Java-Programm die Werte aus den Klassen des Spiels selbst aus:
+für Biomzoom, Seed und Sumpfrauschen
+[`renderer/src/world/Biomwerte.java`](../../renderer/src/world/Biomwerte.java),
+siehe [Biomfarben](../renderer/biomfarben.md), „Belege“.

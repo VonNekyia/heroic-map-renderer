@@ -41,7 +41,7 @@ Der Vorlauf beantwortet zwei Fragen auf einmal: welche Blockstates
 vorkommen, und welche Kacheln überhaupt etwas zeigen. Er kostet für die
 ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes Sprite, das nicht
 selbst Alternative einer Blockstate ist: eines je Maske verdeckter
-Flüssigkeitsflächen und je Biomfarbe, dazu die Streifen an Wasserstufen. Wie
+Flüssigkeitsflächen, dazu die Streifen an Wasserstufen. Wie
 Vorlauf und Renderlauf zusammenspielen und warum die Welt dafür mehrmals
 durchlaufen wird, steht in
 [Der Weg einer Kachel](../renderer/renderpfad.md).

@@ -26,6 +26,7 @@ Texte.
 | `--block BLOCKSTATE` | eine Blockstate auflösen, mehrfach | unten |
 | `--sprite DATEI` | die Blockstates aus `--block` als Sprites in eine PNG rastern | unten |
 | `--scale N` | Pixelbreite eines Blocks, ein Vielfaches von 4, Vorgabe 32 | [Kamera](../renderer/kamera.md) |
+| `--biome-blend N` | wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, 0 bis 7 Blöcke wie der Biomübergang im Spiel, Vorgabe 2 | [Biomfarben](../renderer/biomfarben.md) |
 | `--render DATEI` | einen Weltausschnitt in eine PNG rendern | unten |
 | `--center X Z` | die Blockspalte in der Bildmitte, Vorgabe `0 0` | unten |
 | `--size N` | Kantenlänge des Ausschnitts in Pixeln, ab 1; für `--render` Vorgabe 1024, ohne Angabe deckt `--tiles` die ganze Welt | [Kacheln exportieren](kacheln.md) |

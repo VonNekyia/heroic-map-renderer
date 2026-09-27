@@ -23,14 +23,15 @@ Die Tabelle entsteht nach dem Vorlauf, der alle vorkommenden Blockstates
 einsammelt, siehe [Der Weg einer Kachel](renderpfad.md), „Vorlauf“.
 Blockstates mit gleichem Bild teilen sich eine Familie. Eine Familie hat
 ihre Alternativen, siehe [Varianten aus der Position](varianten.md), und
-Fassungen: eine je Maske verdeckter Flüssigkeitsflächen und je Biomfarbe,
-dazu die Streifen an Wasserstufen, siehe [Wasser und Licht](wasser-und-licht.md)
-und [Biomfarben](biomfarben.md). Pixelgleiche Sprites teilen sich einen
-Eintrag.
+Fassungen: eine je Maske verdeckter Flüssigkeitsflächen, dazu die Streifen
+an Wasserstufen, siehe [Wasser und Licht](wasser-und-licht.md). Gefärbte
+Flächen tragen statt der Farbe eine Tönungskarte, siehe
+[Biomfarben](biomfarben.md), „Tönung beim Zeichnen“. Pixelgleiche Sprites
+teilen sich einen Eintrag.
 
 Alle Alternativen und Fassungen sind vorab gerastert; der Renderpfad
-kopiert Pixel und rechnet je Block nur die Saat der Alternative, das Licht
-und die weiche Beleuchtung.
+kopiert Pixel und rechnet je Block nur die Saat der Alternative, die Farben
+seines Bioms, das Licht und die weiche Beleuchtung.
 
 ## Teile je Würfel
 

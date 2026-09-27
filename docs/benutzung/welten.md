@@ -56,6 +56,11 @@ eigene mit anderem Seed, passt ihr Baum aus einem solchen Stand nicht mehr
 zu ihr, und der Lauf lehnt ihn ab, er gehöre zu einer anderen Welt oder
 Dimension; einen solchen Baum neu rendern.
 
+Mit dem Seed würfelt der Renderer auch, welches Biom jeder Block trägt, wie
+das Spiel; ohne ihn gilt je Block das Biom seiner Zelle aus 4×4×4 Blöcken,
+siehe [Biomfarben](../renderer/biomfarben.md), „Biom je Block“. Aus dem
+Speicher des Laufs kommt er dabei nicht heraus.
+
 ## Die Kennung
 
 `world` in `map.json` ist die Kennung der Welt: vorn ein Salz, das der Baum

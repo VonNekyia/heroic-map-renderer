@@ -1,0 +1,72 @@
+Heroic Map Renderer Lizenz 1.0
+
+Copyright (c) 2026 VonNekyia
+
+Diese Lizenz gilt für alles in diesem Repository, was nicht Dritten gehört:
+Quellcode, Doku, Skripte und Bilder. Was Dritten gehört, steht unter
+„Fremde Inhalte“.
+
+
+1. Erlaubt
+
+Du darfst die Software kostenlos
+- ausführen und damit Karten von Minecraft-Welten rendern;
+- die gerenderten Karten zeigen und veröffentlichen;
+- für deinen eigenen Einsatz ändern;
+- unverändert weitergeben, zusammen mit dieser Lizenz;
+- auf GitHub forken, um Änderungen per Pull Request vorzuschlagen.
+
+
+2. Minecraft-Server, auch mit Einnahmen
+
+Du darfst die Software für einen Minecraft-Server einsetzen, auch wenn der
+Server Geld einnimmt, etwa über Ränge, einen Shop, Spenden oder Werbung.
+Dazu gehört, die Welten des Servers zu rendern und die Karten seinen
+Spielern und Besuchern zu zeigen.
+
+
+3. Verboten
+
+Ohne schriftliche Erlaubnis des Urhebers darfst du nicht
+- die Software oder Teile davon verkaufen, vermieten oder gegen Geld
+  weitergeben, auch nicht geändert oder als Teil eines anderen Produkts;
+- das Rendern mit der Software als Dienst für andere gegen Geld anbieten,
+  etwa als Teil eines Hosting-Angebots;
+- gerenderte Karten verkaufen; für einen Minecraft-Server gilt Punkt 2;
+- Code, Doku oder Bilder in andere Software oder andere Projekte
+  übernehmen;
+- geänderte Fassungen veröffentlichen oder die Software unter anderem
+  Namen ausgeben;
+- diese Lizenz oder den Copyright-Hinweis entfernen.
+
+
+4. Beiträge
+
+Wer zu diesem Repository beiträgt, etwa mit einem Pull Request, stellt den
+Beitrag unter diese Lizenz. Der Urheber darf ihn auch unter anderen
+Bedingungen nutzen und weitergeben.
+
+
+5. Ende der Erlaubnis
+
+Wer gegen diese Lizenz verstösst, verliert alle Rechte aus ihr.
+
+
+6. Fremde Inhalte
+
+- Minecraft, seine Texturen, Modelle und Daten gehören Mojang und
+  Microsoft. Diese Lizenz erlaubt daran nichts. Dies ist kein offizielles
+  Minecraft-Produkt. Es ist nicht von Mojang oder Microsoft genehmigt und
+  nicht mit ihnen verbunden.
+- Die Abhängigkeiten stehen unter ihren eigenen Lizenzen, siehe
+  renderer/Cargo.lock und web/package-lock.json.
+
+
+7. Keine Gewähr
+
+Die Software wird ohne jede Gewähr bereitgestellt, so wie sie ist. Soweit
+das Gesetz es zulässt, haftet der Urheber für keine Schäden aus ihrer
+Nutzung.
+
+
+Wer mehr will, als diese Lizenz erlaubt, fragt den Urheber.

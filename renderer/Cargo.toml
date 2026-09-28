@@ -3,7 +3,8 @@ name = "terranova-render"
 version = "0.1.0"
 edition = "2024"
 description = "Isometrischer Offline-Renderer für Minecraft-Java-Welten"
-license = "MIT"
+license-file = "../LICENSE"
+publish = false
 
 [[bin]]
 name = "terranova-render"

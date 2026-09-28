@@ -11,15 +11,22 @@ use super::blockstate::is_identifier;
 
 /// Die Verzeichnisse einer Asset-Wurzel, die der Client auflistet und der
 /// Renderer braucht, je Namensraum: Blockstates und Modelle, wie
-/// `FileToIdConverter` sie sucht, und die Ordner des Block-Atlas, in 26.2
-/// `block` und `entity/conduit` (`atlases/blocks.json`). Andere Ordner
-/// unter `textures` listet der Renderer nicht auf; eine Textur ausserhalb
-/// dieser Ordner öffnet er direkt, siehe `Textures::load`.
-pub const ASSETS: [&[&str]; 4] = [
+/// `FileToIdConverter` sie sucht, und die Ordner der Atlanten mit Texturen
+/// für Blöcke und Blockentities, in 26.2 `block` und `entity/conduit`
+/// (`atlases/blocks.json`), `entity/chest`, `entity/banner`,
+/// `entity/shulker` und `entity/decorated_pot` (`chests.json`,
+/// `banner_patterns.json`, `shulker_boxes.json`, `decorated_pot.json`).
+/// Andere Ordner unter `textures` listet der Renderer nicht auf; eine
+/// Textur ausserhalb dieser Ordner öffnet er direkt, siehe `Textures::load`.
+pub const ASSETS: [&[&str]; 8] = [
     &["blockstates"],
     &["models"],
     &["textures", "block"],
     &["textures", "entity", "conduit"],
+    &["textures", "entity", "chest"],
+    &["textures", "entity", "banner"],
+    &["textures", "entity", "shulker"],
+    &["textures", "entity", "decorated_pot"],
 ];
 
 /// Die Biome einer Datenwurzel, `RegistryDataLoader` listet sie so auf.

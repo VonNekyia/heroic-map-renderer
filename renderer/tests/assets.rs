@@ -761,7 +761,7 @@ fn unlesbarer_anfang_wird_genannt() {
 }
 
 /// Steht im Pfad vor dem Anfang einer Liste eine Datei, hier `textures`
-/// vor den Ordnern des Block-Atlas, meldet Linux das schon beim Lesen der
+/// vor den Ordnern der Atlanten, meldet Linux das schon beim Lesen der
 /// Angaben (`ENOTDIR`). Das wirft in Java keine `NotDirectoryException`,
 /// und `listPath` schreibt es ins Log. Windows meldet einen fehlenden Pfad,
 /// den Java still übergeht.
@@ -777,19 +777,27 @@ fn datei_vor_dem_anfang() {
         assert!(genannt.is_empty(), "{genannt:?}");
     } else {
         let textures = minecraft.join("textures");
-        let soll = [
-            textures.join("block"),
-            textures.join("entity").join("conduit"),
-        ];
-        assert_eq!(genannt, soll.map(|pfad| pfad.display().to_string()));
+        let mut soll = [
+            "block",
+            "entity/conduit",
+            "entity/chest",
+            "entity/banner",
+            "entity/shulker",
+            "entity/decorated_pot",
+        ]
+        .map(|ordner| textures.join(ordner).display().to_string());
+        soll.sort();
+        assert_eq!(genannt, soll);
     }
 }
 
-/// Aus den Ordnern des Block-Atlas nimmt der Client nur, was er dort
+/// Aus den Ordnern der Atlanten nimmt der Client nur, was er dort
 /// auflistet: `entity/conduit/Base.png` ist unter Windows nicht
-/// `entity/conduit/base`. Seine beiden einzelnen Quellen, hier
+/// `entity/conduit/base`, `entity/chest/Normal.png` nicht
+/// `entity/chest/normal`. Die beiden einzelnen Quellen des Block-Atlas, hier
 /// `entity/bell/bell_body`, öffnet er direkt, samt einer `.mcmeta` aus
-/// derselben oder einer höheren Schicht (`createStackMetadataFinder`). So
+/// derselben oder einer höheren Schicht (`createStackMetadataFinder`),
+/// ebenso eine Textur in keinem Atlas wie `entity/skeleton/skeleton`. So
 /// öffnet der Renderer jede Textur ausserhalb der Ordner, auch `item/apfel`,
 /// die der Client ohne einen erweiterten Atlas nicht zeigte.
 #[test]
@@ -807,6 +815,8 @@ fn texturen_ausserhalb_der_atlas_ordner_direkt() {
     png(unten.path(), "item/apfel", 16);
     png(unten.path(), "entity/conduit/wind", 16);
     png(unten.path(), "entity/conduit/Base", 16);
+    png(unten.path(), "entity/chest/Normal", 16);
+    png(unten.path(), "entity/skeleton/skeleton", 16);
     let meta = oben
         .path()
         .join("minecraft/textures/entity/bell/bell_body.png.mcmeta");
@@ -820,6 +830,11 @@ fn texturen_ausserhalb_der_atlas_ordner_direkt() {
     assert_ne!(assets.texture("item/apfel"), Textures::MISSING);
     assert_ne!(assets.texture("entity/conduit/wind"), Textures::MISSING);
     assert_eq!(assets.texture("entity/conduit/base"), Textures::MISSING);
+    assert_eq!(assets.texture("entity/chest/normal"), Textures::MISSING);
+    assert_ne!(
+        assets.texture("entity/skeleton/skeleton"),
+        Textures::MISSING
+    );
 }
 
 /// Macht `pfad` zu einem Ordner, der sich nicht auflisten lässt: unter

@@ -111,6 +111,11 @@ ersten Kachel. Welcher Lauf welche Höhen schreibt:
   den Schalter bleiben sie stehen.
 - **Unfertige Chunks** liest der Durchgang wie das Rendern.
 
+Die Höhen einer Region sind gepackt 70 bis 100 kB. Auf der grossen Welt
+sind das zusammen 249 MB neben 184 GB Kacheln, und der Durchgang braucht
+knapp eine Minute, gemessen in
+[2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md).
+
 Was eine Näherung bleibt:
 
 - **Überhänge:** Unter Baumkronen oder Dachtraufen trifft der Strahl 1 bis

@@ -103,3 +103,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-09-27, Weiche Beleuchtung](messungen/2026-09-27-weiche-beleuchtung.md): Kosten je Kachel und für die ganze Testwelt.
 - [2026-09-27, Biomübergänge](messungen/2026-09-27-biomuebergaenge.md): Kosten der Mischung, Sprite-Tabellen ohne Fassungen je Biom.
 - [2026-09-27, Vollrender mit #21](messungen/2026-09-27-vollrender-mit-21.md): 66 min, 184 GB, ganz gemessen, mit Live-Ansicht.
+- [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md): die Höhen für die Koordinatenanzeige, 249 MB und knapp eine Minute auf der grossen Welt.

@@ -1078,8 +1078,8 @@ impl Loaded {
         let mut varianten: Vec<([i32; 3], u32)> = chunk
             .blockentities()
             .filter_map(|([x, y, z], daten)| {
-                let s = chunk.section_index(i8::try_from(y >> 4).ok()?)?;
-                let family = families[s][chunk.sections()[s].slot(x, y, z)]?;
+                let (s, slot) = chunk.slot(x, y, z)?;
+                let family = families[s][slot]?;
                 Some(([x, y, z], sprites.variante(family, daten)?))
             })
             .collect();

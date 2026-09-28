@@ -77,11 +77,12 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 
 | Datei | Inhalt |
 |---|---|
-| `src/main.ts` | Leaflet, Koordinatensystem aus `map.json`, siehe [Frontend](../frontend.md) |
+| `src/main.ts` | Leaflet, Koordinatensystem aus `map.json`, Höhenkarten, Anzeige der Koordinaten, siehe [Frontend](../frontend.md) |
+| `src/pick.ts` | welcher Block an einem Bildpunkt zu sehen ist, und sein Umriss, siehe [Frontend](../frontend.md), „Koordinaten“ |
 | `src/style.css`, `index.html` | die Seite |
 | `vite.config.ts` | Devserver und Build ohne `public/tiles` |
 | `public/tiles-demo/` | ein kleiner Kachelbaum, Fixture des Smoke-Tests |
-| `tests/smoke.spec.ts`, `playwright.config.ts` | der Smoke-Test |
+| `tests/smoke.spec.ts`, `tests/pick.spec.ts`, `playwright.config.ts` | der Smoke-Test und der Strahl |
 
 ## Wie der Code entstand
 

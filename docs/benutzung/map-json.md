@@ -65,8 +65,8 @@ Modell daran.
 ## Höhen
 
 Das Frontend zeigt unter Maus und Finger die Koordinaten des Blocks, siehe
-[Frontend](../frontend.md). Dafür braucht es je Zelle eine Höhe. Die
-liefert der Renderer:
+[Frontend](../frontend.md), „Koordinaten“. Dafür braucht es je Zelle eine
+Höhe. Die liefert der Renderer:
 
 - **Datei:** je Region `heights/{x}.{z}.bin` neben den Kacheln, x und z
   wie in `r.x.z.mca`. Darin steht ein zlib-Strom nach RFC 1950, im Browser
@@ -115,8 +115,11 @@ Welcher Lauf welche Höhen schreibt:
 Was die Höhen an Platz und Zeit kosten, steht in
 [Was ein Lauf kostet](kosten.md), „Dauer“.
 
-Wie das Frontend den Strahl abgeht, was dabei eine Näherung bleibt und
-warum kein Puffer je Pixel, steht bei ihm, siehe [Frontend](../frontend.md).
+Wie das Frontend den Strahl abgeht, steht bei ihm, siehe
+[Frontend](../frontend.md), „Koordinaten“; was dabei eine Näherung bleibt,
+siehe [Frontend](../frontend.md), „Was bleibt eine Näherung“; warum kein
+Puffer je Pixel, siehe
+[0035](../entscheidungen/0035-koordinaten-aus-hoehenkarten.md).
 
 ## Radius der Mischung
 

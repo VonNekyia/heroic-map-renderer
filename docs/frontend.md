@@ -1,8 +1,9 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt und warum es nicht mehr tut.
 code:
   - web/src/main.ts
+  - web/src/pick.ts
   - web/src/style.css
   - web/index.html
   - web/vite.config.ts
@@ -16,7 +17,8 @@ Das Frontend ist eine Seite mit Vite, TypeScript und Leaflet
 ([`web/src/main.ts`](../web/src/main.ts)). Es liest `map.json`, baut daraus
 ein Koordinatensystem, in dem eine Karteneinheit ein Pixel der feinsten
 Stufe ist, und zeigt die fertigen Kacheln: keine Marker, keine Spieler, kein
-Zustand. Der Browser bekommt fertige Bilder und ein Koordinatensystem.
+Zustand. Der Browser bekommt fertige Bilder und ein Koordinatensystem, dazu
+die Höhen, aus denen er die Koordinaten unter Maus und Finger rechnet.
 
 ![Frontend](bilder/frontend.png)
 
@@ -85,6 +87,37 @@ Kacheln anzufragen, die es nicht gibt. Innerhalb der Grenzen sind einzelne
 404 möglich: der Vorlauf kennt nur die Hüllkästen der Blockspalten. Leaflet
 lässt solche Kacheln leer.
 
+## Koordinaten
+
+Unten links steht, welcher Block unter Maus oder Finger zu sehen ist,
+`X 35  Y 5  Z -15`, auf wenige Blöcke genau. Dazu zeichnet die Karte seinen
+Umriss wie den Auswahlrahmen im Spiel. Die Maus zeigt ihn beim
+Darüberfahren, auf dem Touchscreen zeigt ihn ein Tippen. Über Wasser nennt
+die Anzeige die Oberfläche, die man sieht; das Spiel zielt dort auf den
+Grund. Ohne `heights` in `map.json` gibt es keine Anzeige, ebenso ohne
+brauchbare `heightsCell`, `minY` und `maxY`; die Karte lädt dann trotzdem,
+und die Konsole sagt, was fehlt.
+
+Ein Bildpunkt allein verrät den Block nicht: Die Projektion wirft die
+Blickachse (1, 1, 1) auf einen Punkt, siehe [Die Kamera](renderer/kamera.md).
+[`web/src/pick.ts`](../web/src/pick.ts) geht deshalb den Strahl durch die
+Mitte des Pixels ab, wo auch der Renderer abtastet:
+
+1. `strahl` zählt die Würfel von vorn nach hinten auf, von `maxY` bis
+   `minY`, je Schicht drei.
+2. `pick` nimmt den ersten, dessen Zelle bis zu ihm hinauf gefüllt ist:
+   `y` ≤ Höhe der Zelle.
+3. Die Höhe steht je Zelle aus `heightsCell` × `heightsCell` Spalten, heute
+   4 × 4, in den Höhenkarten des Renderers, eine Datei je Region, siehe
+   [map.json](benutzung/map-json.md), „Höhen“. Das Frontend lädt nur die
+   Regionen, durch die ein Strahl geht, und hält höchstens 64 davon, bei
+   4 × 4 zusammen 2 MiB.
+
+Warum der Strahl gegen Höhen läuft, siehe
+[0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md); woher die Höhen
+kommen, warum je 4 × 4 Spalten und warum über Wasser die Oberfläche, siehe
+[0036](entscheidungen/0036-hoehen-aus-der-heightmap.md).
+
 ## Prüfen
 
 ```bash
@@ -98,6 +131,19 @@ Die Tests: [Tests](entwicklung/tests.md).
 
 ## Was bleibt eine Näherung
 
-- **Keine Koordinatenanzeige.** Vom Bildpunkt zurück auf eine
-  Blockkoordinate zu rechnen ist nicht eindeutig: die Projektion wirft
-  `(x, y, z)` auf zwei Bildachsen, man müsste eine Höhe annehmen.
+- **Zellen aus 4 × 4 Spalten.** Die Höhenkarte kennt je Zelle nur den
+  oberen Median ihrer 16 Spalten. An Hängen, Kanten und einzelnen Bäumen
+  hält der Strahl deshalb zu früh oder zu spät, meist um wenige Blöcke. Wie
+  oft: [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md), „Auflösung“.
+- **Überhänge.** Je Zelle gibt es nur eine Höhe. Läuft der Strahl unter
+  einem Überhang hindurch, etwa unter dem Rand einer Baumkrone, hält er
+  schon dort, obwohl das Bild den Boden dahinter zeigt. Drei Würfel sind
+  etwa ein Block in jeder Achse; X und Z liegen dann zu gross. Wie oft, bei
+  einer Höhe je Spalte:
+  [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md), „Überhänge“.
+- **Nicht volle Blöcke** zählen wie ein voller Würfel. Wer knapp neben eine
+  Blume zeigt, bekommt die Blume.
+- **Was die Karte nicht zeigt, zählt mit.** Die Höhenkarte des Spiels
+  zählt jeden Block ausser Luft: auch Barriere, Licht und Strukturleere,
+  die unsichtbar sind, und Truhen, Banner und Schädel, die der Renderer
+  nicht zeichnet. Das ist selten.

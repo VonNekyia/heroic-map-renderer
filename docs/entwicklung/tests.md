@@ -13,6 +13,7 @@ code:
   - renderer/tests/world_reader.rs
   - renderer/tests/fixtures
   - web/tests/smoke.spec.ts
+  - web/tests/pick.spec.ts
 ---
 
 # Tests
@@ -55,7 +56,8 @@ npm test          # Playwright, baut vorher und prüft den Build
 | `renderer/tests/cli.rs` | die ganze Exportkette über das echte Binär |
 | `renderer/tests/gpu.rs` | die Karte gegen die CPU, Byte für Byte |
 | `renderer/tests/common/mod.rs` | gemeinsame Szenen und Helfer |
-| `web/tests/smoke.spec.ts` | das Frontend am Demo-Kachelbaum |
+| `web/tests/smoke.spec.ts` | das Frontend am Demo-Kachelbaum, die Koordinaten mit Maus und Touch über Höhen, die der Test liefert |
+| `web/tests/pick.spec.ts` | den Strahl: jeder Bildpunkt eines kleinen Geländes gegen den Würfel, den das Zeichnen dort hinterlässt, gerechnet mit der Projektion aus [Die Kamera](../renderer/kamera.md), die der Test an `renderer/tests/fixtures/projektion.json` des Renderers prüft |
 
 Dazu stehen Unit-Tests in den Quelldateien selbst, unter `mod tests`.
 

@@ -125,9 +125,14 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
     einer anderen Sprache, ist Übernehmen.
 24. Woher eine Idee stammt, steht nirgends: nicht in der Doku, nicht im
     Code und nicht in Issues, PRs oder Kommentaren. Kein anderes Projekt,
-    kein Repository und keine Person steht dort als Vorbild oder Quelle.
-    Öffentlich belegt wird mit eigenen Messungen und mit dem Spiel.
-    Quellen gehen mit dem Entwurf direkt an den Reviewer.
+    kein Repository und keine Person steht dort als Vorbild oder als
+    Quelle einer Idee. Quellen für Ideen gehen mit dem Entwurf direkt an
+    den Reviewer.
+    - Öffentlich belegt wird mit eigenen Messungen und mit dem Spiel.
+    - Tatsachen über die Umgebung, in der Renderer und Frontend laufen,
+      etwa wie ein Browser oder das Betriebssystem sich verhält, dürfen
+      mit ihrer Quelle stehen. Zahlen anderer Werkzeuge gehören nicht
+      dazu.
 25. Eine Lizenz schliesst keinen Vorschlag aus. Kann das Übernehmen
     fremden Codes ein Lizenzproblem sein, auch weil eine Lizenz einen
     Hinweis auf die Herkunft verlangt, wird der User direkt gefragt.

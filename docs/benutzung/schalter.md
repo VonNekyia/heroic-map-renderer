@@ -21,7 +21,7 @@ Texte.
 |---|---|---|
 | `--world DIR` | Weltwurzel mit `level.dat` oder eine Dimension darin | [Welten und Kennung](welten.md) |
 | `--assets DIR` | Asset-Wurzel, mehrfach, spätere überschreiben frühere | [Assets und Biomdaten](assets.md) |
-| `--data DIR` | Datenwurzel mit Biomdefinitionen, mehrfach | [Assets und Biomdaten](assets.md) |
+| `--data DIR` | Datenwurzel mit Biomdefinitionen und Bannermustern, mehrfach | [Assets und Biomdaten](assets.md) |
 | `--at X Y Z` | die Blockstate an dieser Weltkoordinate ausgeben | unten |
 | `--block BLOCKSTATE` | eine Blockstate auflösen, mehrfach | unten |
 | `--sprite DATEI` | die Blockstates aus `--block` als Sprites in eine PNG rastern | unten |
@@ -89,6 +89,18 @@ minecraft:oak_fence[east=true,north=true]
       block/oak_fence_planks
 ```
 
+Ein Block mit Blockentity-Renderer nennt dazu die Flächen, die das Spiel
+aus dessen Modell zeichnet, und ihre Texturen. Die Truhe hat ein
+Blockmodell ohne Elemente, siehe [Blockentities](../renderer/blockentities.md):
+
+```
+minecraft:chest[facing=north,type=single,waterlogged=false]
+  minecraft:block/chest
+      0 Elemente, 0 Flächen
+  Blockentity: 18 Flächen
+      minecraft:entity/chest/normal
+```
+
 ## Sprites rastern: `--sprite`
 
 Einzelne Blockstates als Sprites rastern, hier die zwanzig aus dem Bild:
@@ -142,26 +154,29 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Scan:       316223 Chunks in 46.4 s (6822 Chunks/s), 0 Fehler
+Scan:       316223 Chunks in 56.1 s (5632 Chunks/s), 0 Fehler
             davon 67120 nicht fertig erzeugt, der Renderer zeichnet sie nicht
             3107 verschiedene Blockstates
+            96 Banner mit Mustern, 2073 Krüge mit Scherben, 20 verschiedene samt Block
 Assets:     3107 Blockstates aufgelöst in 0.3 s, 0 ungelöst
-            7 Blöcke ohne Modell:
+            2 Blöcke ohne Modell:
             minecraft:air
-            minecraft:brown_wall_banner
             minecraft:cave_air
-            minecraft:chest
-            minecraft:decorated_pot
-            minecraft:skeleton_skull
-            minecraft:white_wall_banner
-Sprites:    3073 gerastert bei scale 32 in 0.4 s (7305/s)
-            9.0 MB Sprite-Pixel, größtes: minecraft:brain_coral_fan[waterlogged=true] (46x31)
+Sprites:    3093 gerastert bei scale 32 in 0.5 s (6720/s)
+            9.1 MB Sprite-Pixel, größtes: minecraft:brain_coral_fan[waterlogged=true] (46x31)
             1 Blöcke sind aus dieser Blickrichtung unsichtbar: minecraft:fire
 
-Texturen:   715 geladen, 0 fehlen
+Texturen:   722 geladen, 0 fehlen
 ```
 
-MB zählt die Ausgabe binär, 2^20 Byte. Warum Truhen, Banner, Schädel und
-Töpfe fehlen und Wasser nicht in der Liste steht, steht in
-[Modelle und Texturen](../renderer/modelle-und-texturen.md),
-„Was kein Blockmodell hat“.
+MB zählt die Ausgabe binär, 2^20 Byte.
+
+- **Banner und Krüge:** Die Zeile zählt Blockentities, deren Daten ihr Bild
+  ändern. „Verschieden samt Block“ sind die Familien, die ein Export der
+  ganzen Welt dafür dazubaut, siehe [Blockentities](../renderer/blockentities.md),
+  „Daten aus dem Chunk“.
+- **Blöcke ohne Modell:** Truhen, Banner und die übrigen Blockentities
+  stehen nicht in der Liste, sie bekommen ihr Bild aus dem Blockentity.
+  Wasser fehlt, weil der Renderer es im Code baut. Beides steht in
+  [Modelle und Texturen](../renderer/modelle-und-texturen.md),
+  „Was kein Blockmodell hat“.

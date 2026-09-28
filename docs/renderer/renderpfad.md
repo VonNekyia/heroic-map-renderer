@@ -30,8 +30,8 @@ stehen unten. Die Stationen stehen in `cli.rs` (`write_tiles`, `rendere`,
 ## Vorlauf
 
 Der Vorlauf liest jeden Chunk einmal und beantwortet zwei Fragen auf einmal:
-welche Blockstates vorkommen, und welche Kacheln überhaupt etwas zeigen
-(`survey` in
+welche Blockstates vorkommen, samt den Daten der Blockentities, die ein Bild
+ändern, und welche Kacheln überhaupt etwas zeigen (`survey` in
 [`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs)). Erst
 danach steht die Sprite-Tabelle, und erst dann kann parallel gerendert
 werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen, siehe
@@ -45,7 +45,9 @@ Die Welt wird deshalb mehrmals durchlaufen: vom Vorlauf, von der Basis und
 von jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. In
 jedem Durchgang dekodiert jeder Thread seine Chunks selbst. Die Höhen für
 die Koordinatenanzeige liest der Vorlauf mit, aus der Heightmap jedes
-Chunks, siehe [map.json](../benutzung/map-json.md), „Höhen“.
+Chunks, siehe [map.json](../benutzung/map-json.md), „Höhen“. Wie Muster und
+Scherben in die Sprite-Tabelle kommen, steht in
+[Blockentities](blockentities.md), „Daten aus dem Chunk“.
 
 ## Streifen und Cache je Thread
 

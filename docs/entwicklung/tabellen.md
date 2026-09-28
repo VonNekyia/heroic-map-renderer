@@ -1,21 +1,25 @@
 ---
 title: Erzeugte Tabellen
-description: Die drei Tabellen aus dem Spiel, blocks.txt, leuchten.txt und schatten.txt - was darin steht, gegen welche Version, welche Tests sie festhalten und wie man sie neu erzeugt.
+description: Die Tabellen aus dem Spiel, blocks.txt, leuchten.txt, schatten.txt und blockentities.txt - was darin steht, gegen welche Version, welche Tests sie festhalten und wie man sie neu erzeugt.
 code:
   - renderer/src/assets/blocks.txt
   - renderer/src/assets/leuchten.txt
   - renderer/src/assets/schatten.txt
+  - renderer/src/assets/blockentities.txt
   - renderer/src/assets/Leuchten.java
   - renderer/src/assets/Schatten.java
+  - renderer/src/assets/Blockentities.java
   - renderer/src/assets/blockstate.rs
+  - renderer/src/assets/blockentity.rs
 ---
 
 # Erzeugte Tabellen
 
-Was Minecraft im Code verdrahtet und der Renderer braucht, steht in drei
-Tabellen unter `renderer/src/assets/`, erzeugt aus dem Server-JAR von 26.2
-und ins Binär einkompiliert (`blockstate.rs`). Von Hand werden sie nie
-geändert; für eine andere Version erzeugt sie der Skill
+Was Minecraft im Code verdrahtet und der Renderer braucht, steht in vier
+Tabellen unter `renderer/src/assets/`, drei aus dem Server-JAR von 26.2,
+eine aus dem Client-JAR, und ins Binär einkompiliert (`blockstate.rs`,
+`blockentity.rs`). Von Hand werden sie nie geändert; für eine andere
+Version erzeugt sie der Skill
 [`tabellen-neu-erzeugen`](../../skills/tabellen-neu-erzeugen/SKILL.md) neu,
 danach muss der Renderer neu gebaut werden.
 
@@ -28,6 +32,7 @@ Haben alle Zustände eines Blocks dasselbe Zeichen, steht es einmal.
 | [`blocks.txt`](../../renderer/src/assets/blocks.txt) | jeder Block mit seinen Eigenschaften und Werten | `generated/reports/blocks.json` des Datengenerators | 1196 Blöcke aus 26.2 |
 | [`leuchten.txt`](../../renderer/src/assets/leuchten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer 0 bis f für `getLightEmission` oder ein `x` für `emissiveRendering`; Blöcke, die nie leuchten, fehlen | `Leuchten.java` | 109 Blöcke aus 26.2 |
 | [`schatten.txt`](../../renderer/src/assets/schatten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer, Bit 1 für `getShadeBrightness` 0,2, Bit 2 für `isViewBlocking` mit `getLightDampening` > 0; Blöcke ohne Bit fehlen | `Schatten.java` | 491 Blöcke aus 26.2 |
+| [`blockentities.txt`](../../renderer/src/assets/blockentities.txt) | je Zustand eines Blocks mit Blockentity-Renderer, was das Spiel aus Modellen zeichnet: Flächen, Lage, Textur, Schicht, Farbe; dazu die Farbstoffe, die Scherben und die Regel der Bannermuster. Das Format steht im Kopf von `Blockentities.java` | `Blockentities.java` mit dem Client-JAR | 87 Blöcke aus 26.2 |
 
 `blocks.txt` prüft Variantenschlüssel und Multipart-Bedingungen, siehe
 [Blockstates](../renderer/blockstates.md). `leuchten.txt` gibt das
@@ -35,6 +40,8 @@ Blocklicht, siehe [Wasser und Licht](../renderer/wasser-und-licht.md),
 „Blocklicht“. `schatten.txt` sagt, welche Blöcke weich abdunkeln und welche
 die Sicht nehmen, siehe [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md).
 Andere Werte als 0,2 und 1 gibt `getShadeBrightness` in 26.2 nicht zurück.
+`blockentities.txt` gibt Truhen, Bannern und den übrigen Blockentities ihr
+Bild, siehe [Blockentities](../renderer/blockentities.md).
 
 ## Tests, die sie festhalten
 
@@ -42,6 +49,11 @@ Andere Werte als 0,2 und 1 gibt `getShadeBrightness` in 26.2 nicht zurück.
   mit einer neuen Version deren Zahlen.
 - `leuchten_wie_im_spiel` und `schatten_wie_im_spiel` prüfen Stufen und Bits
   einzelner Blöcke aus den Tabellen.
+- `tabelle_wie_im_spiel` prüft, dass jeder Verweis in `blockentities.txt`
+  auf etwas zeigt, das es gibt, und jeder Block so viele Bilder hat wie
+  Zustände oder eines; dazu die Zahl der Blöcke und Farbstoffe und die Regel
+  der Muster. `bild_je_zustand` und `zuordnung_je_zustand` prüfen einzelne
+  Zustände.
 
 ## Eine neue Version
 

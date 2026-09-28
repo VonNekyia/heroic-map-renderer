@@ -109,7 +109,9 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 ## Stand
 
 - Liest Welten ab 26.1 und Resourcepacks wie der Client von 26.2.
-- Noch nicht: Truhen, Banner, Schädel und Töpfe (Entity-Modelle), weiche
+- Truhen, Banner, Köpfe, Krüge und die übrigen Blockentities aus den
+  Modellen des Spiels, mit Bannermustern und Scherben.
+- Noch nicht: Text auf Schildern und Gegenstände in Blöcken, weiche
   Beleuchtung für Teilflächen.
 
 ## Doku

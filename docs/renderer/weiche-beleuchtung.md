@@ -57,7 +57,8 @@ aus vollen Seiten, siehe
   Das erbt wie im Client vom nächsten Parent, der es setzt
   (`ResolvedModel.findTopAmbientOcclusion`). Was leuchtet, zeichnet das
   Spiel ohne (`ModelBlockRenderer.tesselateBlock`), Flüssigkeiten ebenso
-  (`FluidRenderer`).
+  (`FluidRenderer`) und die Flächen aus Blockentity-Modellen, siehe
+  [Blockentities](blockentities.md), „Licht“.
 
 ## Beim Zeichnen
 

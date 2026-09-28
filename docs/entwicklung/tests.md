@@ -76,8 +76,11 @@ Tabelleneinträge, Paletten ohne Indexdaten, Indizes jenseits der Palette.
 Für den Asset-Layer liegt unter `renderer/tests/fixtures/assets-base` und
 `assets-overlay` ein kleiner, von Hand geschriebener Assetbaum. Er ist
 synthetisch, bildet aber die Formen ab, die eine Bestandsaufnahme über
-Vanilla 26.2 und das TerraNova-Pack ergeben hat. Biome für die Tests liegen
-unter `renderer/tests/fixtures/data-base`.
+Vanilla 26.2 und das TerraNova-Pack ergeben hat. Für die Blockentities
+bringt er Truhe, Banner und Krug mit einem Modell nur aus der
+Partikeltextur wie im Spiel und kleine, selbst gemalte Texturen unter
+`textures/entity`. Biome und Bannermuster für die Tests liegen unter
+`renderer/tests/fixtures/data-base`.
 
 ## Welten im Speicher
 

@@ -108,13 +108,19 @@ ohne `FaceBakery`; sie mischen weiter.
 
 In CUTOUT verwirft `terrain.fsh` jedes Fragment mit Alpha unter 0,5
 (`ALPHA_CUTOUT` in `pipeline/cutout_terrain`), gemischt wird nicht: Ein
-Laubpixel ist Laub oder Loch, nie halb. Der Renderer mittelt die
-Abtastpunkte erst wie oben und prüft dann ebenso:
+Laubpixel ist Laub oder Loch, nie halb. Der Renderer testet jeden
+Abtastpunkt wie der Shader ein Fragment, mittelt dann wie oben und prüft:
 
 - Deckt weniger als die Hälfte, bleibt der Pixel leer.
 - Deckt mehr als die Hälfte, deckt er ganz, in der Farbe der deckenden.
 - Deckt genau die Hälfte, entscheidet das Texel in der Pixelmitte; dort
   tastet auch das Spiel ab.
+
+In TRANSLUCENT verwirft `translucent_terrain` Fragmente unter Alpha 0,1;
+der Renderer verwirft solche Abtastpunkte ebenso und mischt den Rest. Unter
+den Blocktexturen von Vanilla haben nur die Abbaustufen solche Werte, und
+die trägt kein Modell. Die Schichten der Blockentities bringen ihren
+eigenen Test mit, siehe [Blockentities](blockentities.md), „Schichten“.
 
 Laub und Mangrovenwurzeln tragen `"mipmap_strategy": "dark_cutout"`.
 Das Spiel schreibt dann in jedes Loch drei Viertel des dunkelsten
@@ -148,7 +154,3 @@ sieht man deshalb den Boden, mehr als mit der Kamera des Spiels, siehe
 - **Farbe der Löcher sonst.** Bei den anderen Strategien färbt das Spiel
   die Löcher mit den Nachbarn (`TextureUtil.solidify`), bei `mean` gar
   nicht; der Renderer nimmt immer die Farbe der deckenden Abtastpunkte.
-- **Schwelle 0,1 in TRANSLUCENT.** `translucent_terrain` verwirft
-  Fragmente unter Alpha 0,1; der Renderer mischt auch sie. Unter den
-  Blocktexturen von Vanilla haben nur die Abbaustufen solche Werte, und
-  die trägt kein Modell.

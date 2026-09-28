@@ -111,8 +111,10 @@ Mitte des Pixels ab, wo auch der Renderer abtastet:
    Regionen, durch die ein Strahl geht, und hält höchstens 64 davon, bei
    4 × 4 zusammen 2 MiB.
 
-Warum Zellen aus 4 × 4 Spalten und keine feste Höhe, siehe
-[0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md).
+Warum der Strahl gegen Höhen läuft, siehe
+[0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md); woher die Höhen
+kommen, warum je 4 × 4 Spalten und warum über Wasser die Oberfläche, siehe
+[0036](entscheidungen/0036-hoehen-aus-der-heightmap.md).
 
 ## Prüfen
 
@@ -128,13 +130,15 @@ Die Tests: [Tests](entwicklung/tests.md).
 ## Was bleibt eine Näherung
 
 - **Zellen aus 4 × 4 Spalten.** Die Höhenkarte kennt je Zelle nur den
-  Median ihrer 16 Spalten. An Hängen, Kanten und einzelnen Bäumen hält der
-  Strahl deshalb zu früh oder zu spät, meist um wenige Blöcke. Wie oft:
-  [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md).
+  oberen Median ihrer 16 Spalten. An Hängen, Kanten und einzelnen Bäumen
+  hält der Strahl deshalb zu früh oder zu spät, meist um wenige Blöcke. Wie
+  oft: [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md), „Auflösung“.
 - **Überhänge.** Je Zelle gibt es nur eine Höhe. Läuft der Strahl unter
   einem Überhang hindurch, etwa unter dem Rand einer Baumkrone, hält er
   schon dort, obwohl das Bild den Boden dahinter zeigt. Drei Würfel sind
-  etwa ein Block in jeder Achse; X und Z liegen dann zu gross.
+  etwa ein Block in jeder Achse; X und Z liegen dann zu gross. Wie oft, bei
+  einer Höhe je Spalte:
+  [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md), „Überhänge“.
 - **Nicht volle Blöcke** zählen wie ein voller Würfel. Wer knapp neben eine
   Blume zeigt, bekommt die Blume.
 - **Was die Karte nicht zeigt, zählt mit.** Die Höhenkarte des Spiels

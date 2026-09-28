@@ -57,8 +57,11 @@ Treffer. Siehe [Frontend](../frontend.md), „Koordinaten“, und
 
 ## Folgen
 
-- Unter Überhängen liegt der Treffer 1 bis 4 Blöcke zu weit vorn, siehe
-  [Frontend](../frontend.md), „Was bleibt eine Näherung“.
+- Unter Überhängen hält der Strahl zu früh, unter Laub meist um wenige
+  Würfel, unter Eis um bis zu Hunderte. Auf der Testwelt trifft er bei
+  90,2 % der Pixel den richtigen Würfel, gemessen in
+  [2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md), „Überhänge“,
+  siehe auch [Frontend](../frontend.md), „Was bleibt eine Näherung“.
 - Das Frontend rechnet die Projektion rückwärts, sie steht damit an zwei
   Stellen. Sein Test prüft deshalb seine Formel an
   `renderer/tests/fixtures/projektion.json`, die ein Test des Renderers

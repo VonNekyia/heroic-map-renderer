@@ -128,9 +128,15 @@ Die Tests: [Tests](entwicklung/tests.md).
 ## Was bleibt eine Näherung
 
 - **Überhänge.** Die Höhenkarte kennt je Spalte nur den obersten Block.
-  Unter Baumkronen und Dachtraufen liegt der Treffer deshalb 1 bis 4
-  Blöcke zu weit vorn.
+  Läuft der Strahl unter einem Überhang hindurch, hält er beim ersten
+  Würfel unter dessen Oberkante, obwohl dort Luft oder Wasser ist. Er hält
+  dann um so viele Würfel zu früh, wie ihm noch bis zu dem Block fehlen,
+  den das Bild zeigt; drei Würfel sind etwa ein Block in jeder Achse, auch
+  in X und Z. Unter Laub sind es meist wenige, unter Eis und überhängendem
+  Gelände bis zu Hunderten. Wie oft das vorkommt:
+  [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md), „Überhänge“.
 - **Nicht volle Blöcke** zählen wie ein voller Würfel. Das Spiel zielt auf
   ihren Umriss; wer knapp neben eine Blume zeigt, bekommt hier die Blume.
-- **Blöcke ohne Sprite,** etwa Truhen, Banner und Schädel, fehlen in der
-  Höhenkarte. Der Strahl trifft dann den Block darunter oder dahinter.
+- **Blöcke ohne Sprite** fehlen in der Höhenkarte: Truhen, Banner und
+  Schädel, und Blöcke, von denen die Kamera keine Fläche sieht, etwa Feuer.
+  Der Strahl trifft dann den Block darunter oder dahinter.

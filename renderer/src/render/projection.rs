@@ -7,8 +7,7 @@
 ///
 /// Damit belegt ein voller Würfel genau `scale` mal `scale` Pixel: die
 /// Oberseite wird zur Raute von `scale` Breite und `scale/2` Höhe, die
-/// Seitenflächen sind `scale/2` breit. Das ist die klassische 2:1-Isometrie
-/// von Minecraft Overviewer und Dynmap.
+/// Seitenflächen sind `scale/2` breit: die klassische 2:1-Isometrie.
 ///
 /// Es gibt keine freie Kamera und keine Perspektive. Alle Faktoren stehen
 /// hier und nirgendwo sonst.

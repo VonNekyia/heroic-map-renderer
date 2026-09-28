@@ -23,7 +23,7 @@ Bilder, Schnellstart, Stand. Ausführlich steht alles in `docs/`.
 | Backend-Programmierer | der Renderer in Rust, `renderer/` |
 | Frontend-Programmierer | die Karte im Browser, `web/` |
 | Reviewer | prüft jede PR |
-| Researcher | sucht bessere Verfahren und Alternativen |
+| Researcher | sucht bessere Verfahren und Alternativen, Skill [`alternativen-recherchieren`](skills/alternativen-recherchieren/SKILL.md) |
 
 Backend und Frontend verbindet [`map.json`](docs/benutzung/map-json.md).
 Wer daran etwas ändert, spricht es vorher mit der anderen Seite ab.

@@ -63,6 +63,9 @@ zusammen, am Ende eines Exports in `setze_zusammen`, mit `--pyramid` in
   summiert, links oben zuerst. In f32 ändert eine andere Reihenfolge
   einzelne Bytes; das hält `verkleinern_summiert_in_fester_reihenfolge`
   fest.
+- **Schreiben** über `lege_ab`, wie jede Kachel, auch die der Basis: erst
+  die Datei; nur wenn ihr Ordner fehlt, legt es ihn an und schreibt noch
+  einmal.
 
 ## Nummerierung
 

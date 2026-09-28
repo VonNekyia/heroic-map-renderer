@@ -2430,12 +2430,17 @@ fn schreibe(dir: &Path, z: u32, tile: TileId, image: &RgbaImage) -> Result<usize
 }
 
 /// Legt kodierte Bytes als Kachel ab, mit dieser Zeit als letzter Änderung
-/// statt der Uhr.
+/// statt der Uhr. Den Ordner legt es erst an, wenn es ihn nicht gibt.
 fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<()> {
-    if let Some(parent) = path.parent() {
+    let mut geschrieben = tausche(path, data, zeit, false);
+    if let Err(e) = &geschrieben
+        && e.kind() == std::io::ErrorKind::NotFound
+        && let Some(parent) = path.parent()
+    {
         std::fs::create_dir_all(parent).with_context(|| format!("{} anlegen", parent.display()))?;
+        geschrieben = tausche(path, data, zeit, false);
     }
-    tausche(path, data, zeit, false).with_context(|| format!("{} schreiben", path.display()))
+    geschrieben.with_context(|| format!("{} schreiben", path.display()))
 }
 
 /// Ersetzt eine Datei, ohne dass jemand eine halbe sieht: erst eine eigene

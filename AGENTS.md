@@ -117,6 +117,21 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
     Braucht ein Offline-Renderer für isometrische Minecraft-Rastertiles das
     wirklich? Wenn nein, kommt es nicht dazu.
 
+### Fremde Arbeit
+
+23. Sich von fremder Arbeit inspirieren lassen ist etwas anderes, als sie
+    zu übernehmen. Wer eine Idee oder ein Verfahren selbst umsetzt,
+    übernimmt keinen Code. Code Zeile für Zeile nachzuschreiben, auch in
+    einer anderen Sprache, ist Übernehmen.
+24. Woher eine Idee stammt, steht nirgends: nicht in der Doku, nicht im
+    Code und nicht in Issues, PRs oder Kommentaren. Kein anderes Projekt,
+    kein Repository und keine Person steht dort als Vorbild oder Quelle.
+    Öffentlich belegt wird mit eigenen Messungen und mit dem Spiel.
+    Quellen gehen mit dem Entwurf direkt an den Reviewer.
+25. Eine Lizenz schliesst keinen Vorschlag aus. Kann das Übernehmen
+    fremden Codes ein Lizenzproblem sein, auch weil eine Lizenz einen
+    Hinweis auf die Herkunft verlangt, wird der User direkt gefragt.
+
 ## Gliederung von `docs/`
 
 | Pfad | Inhalt |

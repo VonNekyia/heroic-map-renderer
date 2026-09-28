@@ -29,6 +29,10 @@ Behauptungen ohne Zahl. Wie das Spiel selbst etwas rechnet, belegt der Skill
 Eine Quelle steht mit Autor, Titel, Jahr und Link, bei Websites mit dem Tag
 des Abrufs, dazu die Zahl, auf die es ankommt, samt ihren Bedingungen.
 
+Die Quellen gehen mit dem Entwurf an den Reviewer, nicht ins Issue und
+nicht in die Doku: Woher eine Idee stammt, steht dort nicht
+([`AGENTS.md`](../../AGENTS.md), Regel 24).
+
 ## Ablauf
 
 1. **Thema wählen,** das mit dem grössten Hebel zuerst. Zeit und Platz
@@ -51,23 +55,27 @@ des Abrufs, dazu die Zahl, auf die es ankommt, samt ihren Bedingungen.
    - Gewinn an Renderzeit, Speicherplatz oder Qualität der Karte. Kostet es
      sichtbar Qualität, steht das im Vorschlag.
    - Aufwand, Risiken, neue Abhängigkeiten.
-   - Lizenz, wenn fremder Code übernommen werden soll. Ist jemand vielfach
-     schneller und passt die Lizenz, wird seine Arbeit übernommen und
-     angepasst. Welche Lizenzen passen, steht in
-     [0034](../../docs/entscheidungen/0034-eigene-lizenz.md), „Folgen“.
+   - Lizenz, nur wenn fremder Code übernommen werden soll. Eine Idee selbst
+     umzusetzen ist kein Übernehmen ([`AGENTS.md`](../../AGENTS.md),
+     Regel 23). Ist jemand vielfach schneller, wird seine Arbeit
+     übernommen und angepasst. Kann die Lizenz ein Problem sein, fragt der
+     Researcher den User direkt, statt den Kandidaten zu verwerfen
+     (Regel 25).
 5. **Nachmessen.** Eine fremde Zahl gilt erst, wenn sie hier gemessen ist:
    ein Prototyp in einem eigenen Worktree, gemessen nach dem Skill
    [`messung-protokollieren`](../messung-protokollieren/SKILL.md). Der
    Prototyp wird keine PR. Lässt sich nichts messen, sagt der Vorschlag,
-   dass die Zahl nur aus der Quelle stammt.
+   dass die Zahl nicht hier gemessen ist.
 6. **Vorschlagen** als Issue: Problem und Stand mit Zahl, die Kandidaten mit
-   Quelle und Zahl, die eigene Messung, Empfehlung, Aufwand und Risiken.
+   ihrer Zahl, ohne ihre Herkunft (Regel 24), die eigene Messung,
+   Empfehlung, Aufwand und Risiken.
    Der Entwurf geht zuerst an den Reviewer; veröffentlicht wird das Issue
    erst, wenn der Reviewer ihn durchgesehen hat, ebenso ein Kommentar mit
    Ergebnissen an ein bestehendes Issue. Beides ist öffentlich, also ohne
    Interna ([`AGENTS.md`](../../AGENTS.md), Regel 20).
-7. **Übergeben.** Die Quellen wandern mit der Umsetzung in die Doku: die
-   gewählte Lösung auf die Seite des Themas, die verworfenen Kandidaten
-   unter „Verworfene Alternativen“ der Entscheidung, Skill
-   [`entscheidung-festhalten`](../entscheidung-festhalten/SKILL.md). Das
-   Review prüft die Quellen mit.
+7. **Übergeben.** Mit der Umsetzung kommt die gewählte Lösung auf die
+   Seite des Themas, die verworfenen Kandidaten kommen unter „Verworfene
+   Alternativen“ der Entscheidung, Skill
+   [`entscheidung-festhalten`](../entscheidung-festhalten/SKILL.md): nach
+   Verfahren und eigener Messung, ohne ihre Herkunft. Das Review prüft die
+   Quellen mit, die der Researcher ihm schickt.

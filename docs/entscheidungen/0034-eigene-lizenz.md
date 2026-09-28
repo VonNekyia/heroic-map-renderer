@@ -1,6 +1,6 @@
 ---
 title: "0034: Eigene Lizenz: nutzen ja, verkaufen und übernehmen nein"
-description: Warum der Renderer unter einer eigenen Lizenz steht statt unter MIT oder einer fertigen Lizenz, und welcher fremde Code dazu passt.
+description: Warum der Renderer unter einer eigenen Lizenz steht statt unter MIT oder einer fertigen Lizenz, und was sie für fremden Code heisst.
 status: gilt
 date: 2026-09-28
 issues: []
@@ -64,9 +64,11 @@ Abhängigkeiten (`[licenses.private]` in `renderer/deny.toml`).
 - **Nicht Open Source:** Der Renderer ist nicht Open Source nach der
   [Open Source Definition](https://opensource.org/osd). Der Quelltext ist
   offen, die Rechte sind eingeschränkt.
-- **Fremder Code:** passt nur unter freizügigen Lizenzen, samt ihren
-  Hinweisen: MIT, Apache-2.0, BSD, ISC, Zlib, Unicode-3.0. Copyleft wie GPL
-  passt nicht, weil es verlangt, das Ganze unter dieselbe Lizenz zu
-  stellen.
+- **Fremder Code:** Freizügige Lizenzen wie MIT, Apache-2.0, BSD, ISC,
+  Zlib und Unicode-3.0 erlauben das Übernehmen, verlangen aber ihre
+  Hinweise. Copyleft wie GPL verlangt, das Ganze unter dieselbe Lizenz zu
+  stellen. Ob übernommen wird, entscheidet in jedem Fall der User; eine
+  Idee selbst umzusetzen ist kein Übernehmen, siehe
+  [`AGENTS.md`](../../AGENTS.md), Regeln 23 bis 25.
 - **Beiträge Dritter** stehen unter dieser Lizenz. Der Urheber darf sie
   auch anders lizenzieren.

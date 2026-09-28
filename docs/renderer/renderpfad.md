@@ -4,6 +4,7 @@ description: Vom Vorlauf bis zur WebP-Datei - Streifen und Cache je Thread, Bitm
 code:
   - renderer/src/cli.rs
   - renderer/src/render/tiles.rs
+  - renderer/src/render/heights.rs
   - renderer/src/render/metatile.rs
   - renderer/src/render/sprites.rs
   - renderer/src/world/chunk.rs
@@ -37,9 +38,12 @@ werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen, siehe
 [0003](../entscheidungen/0003-vorlauf-vor-dem-rendern.md). Die Kachelmenge
 kommt aus den belegten Sections, nicht aus der Welthöhe.
 
-Die Welt wird deshalb mehrmals durchlaufen: vom Vorlauf, von der Basis und
-von jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. In
-jedem Durchgang dekodiert jeder Thread seine Chunks selbst.
+Die Welt wird deshalb mehrmals durchlaufen: vom Vorlauf, für die Höhen,
+von der Basis und von jeder nativen Stufe, bei scale 32 mit allen dreien
+also sechsmal. Die Höhen brauchen einen eigenen Durchgang nach der
+Sprite-Tabelle, denn erst sie sagt, welcher Block ein Sprite bekommt, siehe
+[map.json](../benutzung/map-json.md), „Höhen“. In jedem Durchgang dekodiert
+jeder Thread seine Chunks selbst.
 
 ## Streifen und Cache je Thread
 

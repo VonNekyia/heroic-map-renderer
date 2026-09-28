@@ -176,8 +176,9 @@ static SRGB_STEPS: LazyLock<[f32; 255]> = LazyLock::new(|| {
 
 /// Was das Frontend über die Karte wissen muss.
 ///
-/// Die Projektion selbst steht nicht drin: sie hängt allein an `scale`,
-/// und die Formel gehört in den Renderer, nicht in eine Datei.
+/// Die Projektion selbst steht nicht drin: sie hängt allein an `scale`.
+/// Das Frontend rechnet sie für die Koordinaten nach; dass beide gleich
+/// rechnen, prüfen beide an `renderer/tests/fixtures/projektion.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MapInfo {
@@ -213,6 +214,16 @@ pub struct MapInfo {
         deserialize_with = "vorhanden"
     )]
     pub world: Option<Option<String>>,
+    /// Pfadmuster der Höhen je Region, relativ zu dieser Datei, siehe
+    /// [`super::heights`]. Fehlt das Feld, hat der Baum keine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heights: Option<String>,
+    /// Unterster Block, den der Renderer zeichnet; steht mit `heights`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_y: Option<i32>,
+    /// Oberster Block, den der Renderer zeichnet; steht mit `heights`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_y: Option<i32>,
 }
 
 /// Liest ein Feld, das auch `null` sein darf: nur ein fehlendes bleibt
@@ -240,6 +251,9 @@ impl MapInfo {
             native_levels: None,
             biome_blend: None,
             world: None,
+            heights: None,
+            min_y: None,
+            max_y: None,
         }
     }
 }

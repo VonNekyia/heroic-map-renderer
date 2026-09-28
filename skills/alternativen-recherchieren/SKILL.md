@@ -69,10 +69,15 @@ nicht in die Doku: Woher eine Idee stammt, steht dort nicht
 6. **Vorschlagen** als Issue: Problem und Stand mit Zahl, die Kandidaten mit
    ihrer Zahl, ohne ihre Herkunft (Regel 24), die eigene Messung,
    Empfehlung, Aufwand und Risiken.
-   Der Entwurf geht zuerst an den Reviewer; veröffentlicht wird das Issue
-   erst, wenn der Reviewer ihn durchgesehen hat, ebenso ein Kommentar mit
-   Ergebnissen an ein bestehendes Issue. Beides ist öffentlich, also ohne
-   Interna ([`AGENTS.md`](../../AGENTS.md), Regel 20).
+   - Ein Issue und ein Kommentar mit Ergebnissen an ein Issue gehen als
+     Entwurf zuerst an den Reviewer. Veröffentlicht wird erst, wenn er sie
+     durchgesehen hat.
+   - Einen Kommentar an eine PR postet der Researcher selbst, der Reviewer
+     schaut danach drüber. So will es der Maintainer seit dem 28.09.:
+     „Bitte wenn du ein kommentar hast für eine pr poste es selbstständig
+     und lass den reviewer drüber schauen“.
+   - Alles davon ist öffentlich, also ohne Interna
+     ([`AGENTS.md`](../../AGENTS.md), Regel 20).
 7. **Übergeben.** Mit der Umsetzung kommt die gewählte Lösung auf die
    Seite des Themas, die verworfenen Kandidaten kommen unter „Verworfene
    Alternativen“ der Entscheidung, Skill

@@ -46,6 +46,24 @@ Einträgen interpoliert wird, genügt nicht: Eine verbreitete mit 104
 Einträgen weicht bei 547 620 der 1 065 353 217 Werte von 0 bis 1 um eine
 Stufe ab, gemessen für #38, und die Kacheln wären nicht mehr byte-gleich.
 
+## Von der Platte
+
+Die Pyramide setzt jede Elternkachel aus den Dateien ihrer Kinder
+zusammen, am Ende eines Exports in `setze_zusammen`, mit `--pyramid` in
+`baue_neu`, beide in [`renderer/src/cli.rs`](../../renderer/src/cli.rs):
+
+- **Lesen:** `lies_falls_da` liest ein Kind, ohne vorher zu fragen, ob es
+  die Datei gibt, und nimmt `NotFound` als fehlendes Kind. Eine Datei, die
+  sich nicht dekodieren lässt oder nicht 256 × 256 Pixel hat, ist unlesbar.
+- **Dekodieren** mit libwebp, das die Kacheln auch schreibt: `decode_webp`
+  in [`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs).
+  Den Decoder aus `image` nehmen nur noch die Tests, als Probe, die nicht
+  an libwebp hängt.
+- **Verkleinern** direkt über die Bytes, die vier Pixel Zeile für Zeile
+  summiert, links oben zuerst. In f32 ändert eine andere Reihenfolge
+  einzelne Bytes; das hält `verkleinern_summiert_in_fester_reihenfolge`
+  fest.
+
 ## Nummerierung
 
 Die Nummerierung hängt an der **Welt**, nicht am Ausschnitt: `maxZoom` kommt

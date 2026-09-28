@@ -397,16 +397,54 @@ fn clip(rect: ScreenRect, bounds: ScreenRect) -> ScreenRect {
 /// `exact` behält die Farbe voll durchsichtiger Pixel, sonst setzt libwebp
 /// sie auf 0. Eigene Threads braucht libwebp nicht, die Kacheln verteilt
 /// schon `rendere`.
-///
-/// Das erste Kodieren im Prozess läuft allein, die übrigen Threads warten
-/// darauf: libwebp 1.6.0 richtet dabei seine Tabellen ein, unter Windows
-/// ohne Sperre, und zwei Threads zugleich können sie verderben.
-/// Siehe docs/renderer/renderpfad.md, „Kodieren“.
 pub fn encode_webp(image: &RgbaImage) -> Result<Vec<u8>> {
+    richte_libwebp_ein();
+    kodiere(image)
+}
+
+/// Dekodiert ein WebP mit libwebp nach RGBA.
+pub fn decode_webp(daten: &[u8]) -> Result<RgbaImage> {
+    richte_libwebp_ein();
+    dekodiere(daten)
+}
+
+/// Das erste Kodieren und Dekodieren im Prozess läuft allein, die übrigen
+/// Threads warten darauf: libwebp 1.6.0 richtet dabei seine Tabellen ein,
+/// unter Windows ohne Sperre, und zwei Threads zugleich können sie
+/// verderben.
+/// Siehe docs/renderer/renderpfad.md, „Kodieren“.
+fn richte_libwebp_ein() {
     static EINGERICHTET: Once = Once::new();
     // Scheitert es, scheitert das Bild danach mit demselben Fehler.
-    EINGERICHTET.call_once(|| drop(kodiere(&RgbaImage::new(16, 16))));
-    kodiere(image)
+    EINGERICHTET.call_once(|| {
+        if let Ok(daten) = kodiere(&RgbaImage::new(16, 16)) {
+            drop(dekodiere(&daten));
+        }
+    });
+}
+
+/// [`decode_webp`] ohne das Warten beim ersten Mal.
+fn dekodiere(daten: &[u8]) -> Result<RgbaImage> {
+    let (mut breite, mut hoehe) = (0, 0);
+    // SAFETY: libwebp liest `daten.len()` Bytes und schreibt zwei Zahlen.
+    let erkannt =
+        unsafe { webp::WebPGetInfo(daten.as_ptr(), daten.len(), &mut breite, &mut hoehe) };
+    ensure!(erkannt != 0, "kein WebP");
+    let mut bild = RgbaImage::new(breite as u32, hoehe as u32);
+    let laenge = bild.len();
+    // SAFETY: `bild` hat `laenge` Bytes, `4 * breite` je Zeile und `hoehe`
+    // Zeilen; libwebp schreibt nur dort hinein.
+    let raus = unsafe {
+        webp::WebPDecodeRGBAInto(
+            daten.as_ptr(),
+            daten.len(),
+            bild.as_mut_ptr(),
+            laenge,
+            4 * breite,
+        )
+    };
+    ensure!(!raus.is_null(), "libwebp dekodiert es nicht");
+    Ok(bild)
 }
 
 /// [`encode_webp`] ohne das Warten beim ersten Mal.

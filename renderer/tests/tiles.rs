@@ -13,7 +13,8 @@ use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::{
-    Projection, ScreenRect, SpriteSet, TILE, TileId, covering, encode_webp, render_area, survey,
+    Projection, ScreenRect, SpriteSet, TILE, TileId, covering, decode_webp, encode_webp,
+    render_area, survey,
 };
 use terranova_render::world::World;
 
@@ -372,6 +373,37 @@ fn webp_ohne_palette_ist_verlustfrei() {
         .unwrap()
         .into_rgba8();
     assert_eq!(zurueck.as_raw(), bild.as_raw());
+}
+
+/// libwebp dekodiert, was es kodiert hat, Byte für Byte wie der Decoder
+/// aus `image`: eine gerenderte Kachel mit Palette und ein Bild ohne, mit
+/// Farbe unter voll durchsichtigen Pixeln. So liest die Pyramide ihre
+/// Kinder.
+#[test]
+fn libwebp_dekodiert_wie_image() {
+    let projection = Projection::new(16);
+    let welt = welt(gelaende, projection);
+    let kachel = render_area(
+        &welt.world,
+        &welt.sprites,
+        TileId { x: 0, y: 0 }.rect(),
+        Y_RANGE,
+    )
+    .unwrap();
+    let ohne_palette = RgbaImage::from_fn(256, 256, |x, y| {
+        let (x, y) = (x as u8, y as u8);
+        let alpha = if x < 64 && y < 64 { 0 } else { 255 };
+        image::Rgba([x, y, x ^ y, alpha])
+    });
+    for bild in [kachel, ohne_palette] {
+        let kodiert = encode_webp(&bild).unwrap();
+        let libwebp = decode_webp(&kodiert).unwrap();
+        let image = image::load_from_memory(&kodiert).unwrap().into_rgba8();
+        assert_eq!(libwebp.dimensions(), bild.dimensions());
+        assert_eq!(libwebp.as_raw(), image.as_raw(), "anders als image");
+        assert_eq!(libwebp.as_raw(), bild.as_raw(), "nicht verlustfrei");
+    }
+    assert!(decode_webp(b"RIFF").is_err());
 }
 
 /// Eine gerenderte Kachel wird höchstens halb so gross wie mit dem

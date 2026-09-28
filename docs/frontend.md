@@ -89,13 +89,12 @@ lässt solche Kacheln leer.
 
 ## Koordinaten
 
-Unten links steht, auf welchen Block das Spiel an der Stelle unter Maus
-oder Finger zielen würde, `X 35  Y 5  Z -15`. Dazu zeichnet die Karte
-seinen Umriss wie den Auswahlrahmen im Spiel. Die Maus zeigt ihn beim
-Darüberfahren, auf dem Touchscreen zeigt ihn ein Tippen. Wie im Spiel zielt
-die Anzeige durch Wasser hindurch auf den Block darunter. Ohne `heights`
-in `map.json` gibt es keine Anzeige, denn falsche Koordinaten wären
-schlechter als keine.
+Unten links steht, welcher Block unter Maus oder Finger zu sehen ist,
+`X 35  Y 5  Z -15`, auf wenige Blöcke genau. Dazu zeichnet die Karte seinen
+Umriss wie den Auswahlrahmen im Spiel. Die Maus zeigt ihn beim
+Darüberfahren, auf dem Touchscreen zeigt ihn ein Tippen. Über Wasser nennt
+die Anzeige die Oberfläche, die man sieht; das Spiel zielt dort auf den
+Grund. Ohne `heights` in `map.json` gibt es keine Anzeige.
 
 Ein Bildpunkt allein verrät den Block nicht: Die Projektion wirft die
 Blickachse (1, 1, 1) auf einen Punkt, siehe [Die Kamera](renderer/kamera.md).
@@ -104,14 +103,15 @@ Mitte des Pixels ab, wo auch der Renderer abtastet:
 
 1. `strahl` zählt die Würfel von vorn nach hinten auf, von `maxY` bis
    `minY`, je Schicht drei.
-2. `pick` nimmt den ersten, dessen Spalte bis zu ihm hinauf gefüllt ist:
-   `y` ≤ Höhe der Spalte.
-3. Die Höhe steht je Spalte in den Höhenkarten des Renderers, eine Datei je
-   Region, siehe [map.json](benutzung/map-json.md), „Höhen“. Das Frontend
-   lädt nur die Regionen, durch die ein Strahl geht, und hält höchstens 64
-   davon, 32 MiB.
+2. `pick` nimmt den ersten, dessen Zelle bis zu ihm hinauf gefüllt ist:
+   `y` ≤ Höhe der Zelle.
+3. Die Höhe steht je Zelle aus `heightsCell` × `heightsCell` Spalten, heute
+   4 × 4, in den Höhenkarten des Renderers, eine Datei je Region, siehe
+   [map.json](benutzung/map-json.md), „Höhen“. Das Frontend lädt nur die
+   Regionen, durch die ein Strahl geht, und hält höchstens 64 davon, bei
+   4 × 4 zusammen 2 MiB.
 
-Warum Höhenkarten und keine feste Höhe, siehe
+Warum Zellen aus 4 × 4 Spalten und keine feste Höhe, siehe
 [0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md).
 
 ## Prüfen
@@ -127,17 +127,17 @@ Die Tests: [Tests](entwicklung/tests.md).
 
 ## Was bleibt eine Näherung
 
-- **Überhänge.** Die Höhenkarte kennt je Spalte nur den obersten Block.
-  Läuft der Strahl unter einem Überhang hindurch, hält er beim ersten
-  Würfel unter dessen Oberkante, obwohl dort Luft oder Wasser ist. Er hält
-  dann um so viele Würfel zu früh, wie ihm noch bis zu dem Block fehlen,
-  den das Bild zeigt; drei Würfel sind etwa ein Block in jeder Achse, auch
-  in X und Z. Daneben liegen X und Z dann immer zu gross, nie zu klein.
-  Unter Laub sind es meist wenige, unter Eis und überhängendem Gelände bis
-  zu Hunderten. Wie oft das vorkommt, auch nur für X und Z:
-  [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md), „Überhänge“.
-- **Nicht volle Blöcke** zählen wie ein voller Würfel. Das Spiel zielt auf
-  ihren Umriss; wer knapp neben eine Blume zeigt, bekommt hier die Blume.
-- **Blöcke ohne Sprite** fehlen in der Höhenkarte: Truhen, Banner und
-  Schädel, und Blöcke, von denen die Kamera keine Fläche sieht, etwa Feuer.
-  Der Strahl trifft dann den Block darunter oder dahinter.
+- **Zellen aus 4 × 4 Spalten.** Die Höhenkarte kennt je Zelle nur den
+  Median ihrer 16 Spalten. An Hängen, Kanten und einzelnen Bäumen hält der
+  Strahl deshalb zu früh oder zu spät, meist um wenige Blöcke. Wie oft:
+  [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md).
+- **Überhänge.** Je Zelle gibt es nur eine Höhe. Läuft der Strahl unter
+  einem Überhang hindurch, etwa unter dem Rand einer Baumkrone, hält er
+  schon dort, obwohl das Bild den Boden dahinter zeigt. Drei Würfel sind
+  etwa ein Block in jeder Achse; X und Z liegen dann zu gross.
+- **Nicht volle Blöcke** zählen wie ein voller Würfel. Wer knapp neben eine
+  Blume zeigt, bekommt die Blume.
+- **Was die Karte nicht zeigt, zählt mit.** Die Höhenkarte des Spiels
+  zählt jeden Block ausser Luft: auch Barriere, Licht und Strukturleere,
+  die unsichtbar sind, und Truhen, Banner und Schädel, die der Renderer
+  nicht zeichnet. Das ist selten.

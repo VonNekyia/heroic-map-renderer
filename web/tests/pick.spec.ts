@@ -107,9 +107,17 @@ test('der Umriss ist das Sechseck des Würfels und die vordere Ecke', () => {
   ]);
 });
 
-test('Spalten finden ihre Region, auch negative', () => {
-  expect(region(0, 0)).toEqual({ rx: 0, rz: 0, i: 0 });
-  expect(region(511, 1)).toEqual({ rx: 0, rz: 0, i: 512 + 511 });
-  expect(region(512, -1)).toEqual({ rx: 1, rz: -1, i: 511 * 512 });
-  expect(region(-513, -512)).toEqual({ rx: -2, rz: -1, i: 511 });
+test('Spalten finden Region und Zelle, auch negative', () => {
+  // Je Spalte eine Zelle.
+  expect(region(0, 0, 1)).toEqual({ rx: 0, rz: 0, i: 0 });
+  expect(region(511, 1, 1)).toEqual({ rx: 0, rz: 0, i: 512 + 511 });
+  expect(region(512, -1, 1)).toEqual({ rx: 1, rz: -1, i: 511 * 512 });
+  expect(region(-513, -512, 1)).toEqual({ rx: -2, rz: -1, i: 511 });
+  // 4 × 4 Spalten je Zelle, 128 × 128 Zellen je Region.
+  expect(region(3, 3, 4)).toEqual({ rx: 0, rz: 0, i: 0 });
+  expect(region(4, 511, 4)).toEqual({ rx: 0, rz: 0, i: 127 * 128 + 1 });
+  expect(region(512, -1, 4)).toEqual({ rx: 1, rz: -1, i: 127 * 128 });
+  expect(region(-513, -512, 4)).toEqual({ rx: -2, rz: -1, i: 127 });
+  expect(region(-1, -4, 4)).toEqual({ rx: -1, rz: -1, i: 127 * 128 + 127 });
+  expect(region(-1, -5, 4)).toEqual({ rx: -1, rz: -1, i: 126 * 128 + 127 });
 });

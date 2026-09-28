@@ -5,9 +5,9 @@ import { deflateSync } from 'node:zlib';
 const DEMO = '/?tiles=/tiles-demo';
 
 /**
- * Höhen für den Demobaum: eben auf Y 0, dazu eine Säule bis Y 5 in der
- * Spalte (35, -15) einer negativen Region. Ein falscher Platz in der
- * Höhenkarte fiele so auf.
+ * Höhen für den Demobaum, je 4 × 4 Spalten: eben auf Y 0, dazu eine Säule
+ * bis Y 5 in der Zelle der Spalten 32 bis 35 und -16 bis -13, in einer
+ * negativen Region. Ein falscher Platz in der Höhenkarte fiele so auf.
  */
 async function welt(page: Page): Promise<void> {
   await page.route('**/tiles-demo/map.json', async (route) => {
@@ -15,12 +15,12 @@ async function welt(page: Page): Promise<void> {
     const info = (await response.json()) as object;
     await route.fulfill({
       response,
-      json: { ...info, heights: 'heights/{x}.{z}.bin', minY: -64, maxY: 319 },
+      json: { ...info, heights: 'heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319 },
     });
   });
   await page.route('**/tiles-demo/heights/*.bin', async (route) => {
-    const karte = new Int16Array(512 * 512);
-    if (route.request().url().endsWith('/0.-1.bin')) karte[(-15 + 512) * 512 + 35] = 5;
+    const karte = new Int16Array(128 * 128);
+    if (route.request().url().endsWith('/0.-1.bin')) karte[(-4 + 128) * 128 + 8] = 5;
     await route.fulfill({ body: deflateSync(Buffer.from(karte.buffer)) });
   });
 }

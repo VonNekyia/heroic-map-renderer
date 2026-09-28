@@ -13,12 +13,14 @@ interface MapInfo {
   bounds: [number, number, number, number];
   /** Pfadmuster der Höhenkarten je Region; ohne sie keine Koordinaten. */
   heights?: string;
+  /** Spalten je Kante einer Zelle der Höhenkarten. */
+  heightsCell?: number;
   /** Der Bereich in Y, in dem jeder gezeichnete Block liegt. */
   minY?: number;
   maxY?: number;
 }
 
-/** In einer Höhenkarte: kein Block, auf den das Spiel zielt, oder kein Chunk. */
+/** In einer Höhenkarte: keine Zelle mit Block, oder kein fertiger Chunk. */
 const LEER = -32768;
 
 /**
@@ -102,12 +104,16 @@ function isMapInfo(value: unknown): value is MapInfo {
     (info.heights === undefined ||
       (typeof info.heights === 'string' &&
         typeof info.minY === 'number' &&
-        typeof info.maxY === 'number'))
+        typeof info.maxY === 'number' &&
+        typeof info.heightsCell === 'number' &&
+        Number.isInteger(info.heightsCell) &&
+        info.heightsCell > 0 &&
+        REGION % info.heightsCell === 0))
   );
 }
 
-/** Eine Höhenkarte: zlib, darin 512 × 512 i16 little-endian. */
-async function ladeKarte(path: string): Promise<Int16Array | null> {
+/** Eine Höhenkarte: zlib, darin n × n Zellen, je i16 little-endian. */
+async function ladeKarte(path: string, n: number): Promise<Int16Array | null> {
   const response = await fetch(path);
   // Keine Datei heisst kein Chunk. Ein Server, der auf unbekannte Pfade die
   // index.html ausliefert, meint dasselbe.
@@ -120,8 +126,8 @@ async function ladeKarte(path: string): Promise<Int16Array | null> {
   const daten = await new Response(
     response.body.pipeThrough(new DecompressionStream('deflate')),
   ).arrayBuffer();
-  if (daten.byteLength !== REGION * REGION * 2) {
-    throw new Error(`${path}: ${daten.byteLength} Byte statt ${REGION * REGION * 2}`);
+  if (daten.byteLength !== n * n * 2) {
+    throw new Error(`${path}: ${daten.byteLength} Byte statt ${n * n * 2}`);
   }
   // ponytail: liest in der Byte-Reihenfolge der Maschine, also nur auf
   // little-endian richtig; auf big-endian bräuchte es eine DataView.
@@ -129,10 +135,10 @@ async function ladeKarte(path: string): Promise<Int16Array | null> {
 }
 
 /**
- * Die Höhenkarten der Regionen, je Spalte das Y des obersten Blocks, auf
- * den das Spiel zielt. Siehe docs/benutzung/map-json.md.
+ * Die Höhenkarten der Regionen, je Zelle aus `zelle` × `zelle` Spalten die
+ * Höhe dessen, was man sieht. Siehe docs/benutzung/map-json.md.
  */
-function hoehen(base: string, muster: string) {
+function hoehen(base: string, muster: string, zelle: number) {
   const karten = new Map<string, Int16Array | null>();
   const unterwegs = new Map<string, Promise<void>>();
 
@@ -142,7 +148,7 @@ function hoehen(base: string, muster: string) {
     let laden = unterwegs.get(name);
     if (laden === undefined) {
       const path = `${base}/${muster.replace('{x}', String(rx)).replace('{z}', String(rz))}`;
-      laden = ladeKarte(path)
+      laden = ladeKarte(path, REGION / zelle)
         .catch((error: unknown) => {
           console.error(error);
           return null;
@@ -164,14 +170,14 @@ function hoehen(base: string, muster: string) {
     lade: async (bloecke: readonly Block[]): Promise<void> => {
       const regionen = new Map<string, [number, number]>();
       for (const [x, , z] of bloecke) {
-        const { rx, rz } = region(x, z);
+        const { rx, rz } = region(x, z, zelle);
         regionen.set(`${rx}.${rz}`, [rx, rz]);
       }
       await Promise.all([...regionen.values()].map(([rx, rz]) => ladeRegion(rx, rz)));
     },
-    /** Das Y des obersten Blocks der Spalte, `undefined` für leer oder nicht geladen. */
+    /** Die Höhe der Zelle einer Spalte, `undefined` für leer oder nicht geladen. */
     hoehe: (x: number, z: number): number | undefined => {
-      const { rx, rz, i } = region(x, z);
+      const { rx, rz, i } = region(x, z, zelle);
       const wert = karten.get(`${rx}.${rz}`)?.[i];
       return wert === undefined || wert === LEER ? undefined : wert;
     },
@@ -179,15 +185,21 @@ function hoehen(base: string, muster: string) {
 }
 
 /**
- * Koordinaten und Umriss des Blocks unter Maus oder Finger, so wie das
- * Spiel zielt. Siehe docs/frontend.md, „Koordinaten“.
+ * Koordinaten und Umriss des Blocks, der unter Maus oder Finger zu sehen
+ * ist, auf wenige Blöcke genau. Siehe docs/frontend.md, „Koordinaten“.
  */
 function koordinaten(
   map: L.Map,
   base: string,
-  { scale, heights, minY, maxY }: Required<Pick<MapInfo, 'scale' | 'heights' | 'minY' | 'maxY'>>,
+  {
+    scale,
+    heights,
+    heightsCell,
+    minY,
+    maxY,
+  }: Required<Pick<MapInfo, 'scale' | 'heights' | 'heightsCell' | 'minY' | 'maxY'>>,
 ): void {
-  const karten = hoehen(base, heights);
+  const karten = hoehen(base, heights, heightsCell);
   const anzeige = L.DomUtil.create('div', 'koordinaten');
   const control = new L.Control({ position: 'bottomleft' });
   control.onAdd = () => anzeige;
@@ -268,9 +280,14 @@ async function start(): Promise<void> {
     noWrap: true,
   }).addTo(map);
 
-  const { heights, minY, maxY } = info;
-  if (heights !== undefined && minY !== undefined && maxY !== undefined) {
-    koordinaten(map, base, { scale: info.scale, heights, minY, maxY });
+  const { heights, heightsCell, minY, maxY } = info;
+  if (
+    heights !== undefined &&
+    heightsCell !== undefined &&
+    minY !== undefined &&
+    maxY !== undefined
+  ) {
+    koordinaten(map, base, { scale: info.scale, heights, heightsCell, minY, maxY });
   }
 
   map.fitBounds(bounds);

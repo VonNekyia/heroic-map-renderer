@@ -77,9 +77,19 @@ export function umriss([x, y, z]: Block, scale: number): [number, number][][] {
   ];
 }
 
-/** Die Region einer Spalte und deren Platz in der Höhenkarte der Region. */
-export function region(x: number, z: number): { rx: number; rz: number; i: number } {
-  const rx = Math.floor(x / REGION);
-  const rz = Math.floor(z / REGION);
-  return { rx, rz, i: (z - rz * REGION) * REGION + (x - rx * REGION) };
+/**
+ * Die Region einer Spalte und der Platz ihrer Zelle in der Höhenkarte der
+ * Region. Eine Zelle fasst `zelle` × `zelle` Spalten zusammen.
+ */
+export function region(
+  x: number,
+  z: number,
+  zelle: number,
+): { rx: number; rz: number; i: number } {
+  const n = REGION / zelle;
+  const cx = Math.floor(x / zelle);
+  const cz = Math.floor(z / zelle);
+  const rx = Math.floor(cx / n);
+  const rz = Math.floor(cz / n);
+  return { rx, rz, i: (cz - rz * n) * n + (cx - rx * n) };
 }

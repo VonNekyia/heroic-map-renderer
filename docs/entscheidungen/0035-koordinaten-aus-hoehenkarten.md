@@ -39,7 +39,8 @@ Treffer. Siehe [Frontend](../frontend.md), „Koordinaten“, und
   liegt.
 - **Eine zweite Lage je Spalte,** die erste Lücke unter dem obersten
   Block, etwa Luft unter Laub oder Wasser unter Eis. Auf der Testwelt
-  träfe der Strahl damit 97,7 % statt 90,2 % der Pixel, gemessen in
+  träfe der Strahl damit 97,7 % statt 90,2 % der Pixel, die richtige
+  Spalte, also X und Z, 97,9 % statt 91,2 %, gemessen in
   [2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md), „Überhänge“. Sie
   kostete zwei Werte mehr je Spalte. Der Maintainer wollte den
   effizienten Weg: Die Anzeige ist schon genauer als eine feste Höhe.

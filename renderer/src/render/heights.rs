@@ -40,9 +40,10 @@ pub fn region_of(name: &str) -> Option<(i32, i32)> {
 }
 
 /// Ob ein Block in die Höhe zählt: er hat ein Sprite und ist nicht nur
-/// Flüssigkeit. Luft, Licht und Blöcke ohne Geometrie wie Truhen haben
-/// keines; eine geflutete Truhe ist nur ihr Wasser, ein gefluteter Zaun
-/// zählt mit seinem Pfosten.
+/// Flüssigkeit. Luft, Licht, Blöcke ohne Geometrie wie Truhen und solche,
+/// deren Flächen alle von der Kamera weg zeigen, wie Feuer, haben keines;
+/// eine geflutete Truhe ist nur ihr Wasser, ein gefluteter Zaun zählt mit
+/// seinem Pfosten.
 pub fn counts(sprites: &SpriteSet, state: &BlockState) -> bool {
     sprites.family_of(state).is_some_and(|f| !f.pure_fluid)
 }
@@ -163,9 +164,18 @@ impl Heights {
 ///
 /// Welcher Block zählt, weiss erst die Sprite-Tabelle, und die entsteht
 /// aus dem Vorlauf. Deshalb liest dieser Durchgang die Chunks noch einmal.
-// ponytail: ein Durchgang mehr durch die Welt, etwa so lang wie der
-// Vorlauf. Kandidaten je Spalte schon im Vorlauf zu sammeln spart ihn,
-// sobald er weh tut.
+// ponytail: ein Durchgang mehr durch die Welt, so lang wie der Vorlauf,
+// gut 1 % eines Exports. Sparen liesse er sich auf zwei Wegen:
+// - Der Vorlauf sammelt je Spalte Kandidaten, bevor die Sprite-Tabelle
+//   steht. Dann stünde neben `counts` eine zweite Regel dafür, welche
+//   Blöcke sicher nicht zählen, und Spalten, deren Kandidat doch nicht
+//   zählt, bräuchten wieder einen Durchgang.
+// - Die Basis nimmt die Höhen aus den Chunks in ihrem Cache. Dann kämen
+//   sie erst mit den Kacheln statt vor der ersten, jede Region bräuchte
+//   eine Buchführung über die Threads, und `--resume` und `--heights`
+//   bräuchten diesen Durchgang trotzdem: sie rendern Chunks nicht, deren
+//   Höhen sie schreiben.
+// Siehe docs/messungen/2026-09-28-hoehen.md, „Schluss“.
 pub fn read_heights(
     world: &World,
     reach: Reach,

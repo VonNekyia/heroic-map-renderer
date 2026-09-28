@@ -60,7 +60,8 @@ fn lies(world: &World, bounds: Option<ScreenRect>) -> Vec<Region> {
 }
 
 /// Je Spalte in Chunk (0, 0) ein Fall, in Reihe z = 0; dazu die letzte
-/// Spalte der Region in Chunk (31, 31).
+/// Spalte der Region in Chunk (31, 31) und zwei Blöcke in Chunk (-1, -1),
+/// der letzten Ecke von Region (-1, -1).
 fn szene(x: i32, y: i32, z: i32) -> &'static str {
     match (x, z) {
         // Das Spiel zielt durch Flüssigkeiten hindurch.
@@ -88,9 +89,16 @@ fn szene(x: i32, y: i32, z: i32) -> &'static str {
         (10, 0) if y == 3 => "minecraft:stone",
         (11, 0) if y == 4 || y == 3 => "minecraft:stone",
         (12, 0) if y == 39 || y == 45 => "minecraft:stone",
+        // Ein Modell, dessen Flächen alle von der Kamera weg zeigen, wie
+        // Feuer: kein Sprite, zählt nicht.
+        (14, 0) if y == 12 => "minecraft:rueckseite",
+        (14, 0) if y == 6 => "minecraft:stone",
         // Ausserhalb der Diagonalen: vertauschte Achsen fielen auf.
         (20, 3) if y == 12 => "minecraft:stone",
         (511, 511) if y == 10 => "minecraft:stone",
+        // Negative Koordinaten: die Ecke der Region und daneben.
+        (-1, -1) if y == 14 => "minecraft:stone",
+        (-3, -5) if y == 20 => "minecraft:stone",
         _ => "minecraft:air",
     }
 }
@@ -103,24 +111,28 @@ fn zaehlt_den_obersten_gezeichneten_block() {
     let dir = tempfile::tempdir().unwrap();
     let chunks = [(0, 0), (1, 0), (31, 31)];
     common::write_world_sections(dir.path(), &chunks, 0..=2, szene, |_, _| None);
+    common::write_world_sections(dir.path(), &[(-1, -1)], 0..=2, szene, |_, _| None);
     let world = World::open(dir.path()).unwrap();
 
-    let regionen = lies(&world, None);
-    assert_eq!(regionen.len(), 1);
-    let region = &regionen[0];
-    assert_eq!((region.x, region.z), (0, 0));
-    assert!(region.gelesen.iter().all(|&g| g));
+    let mut regionen = lies(&world, None);
+    regionen.sort_by_key(|r| (r.x, r.z));
+    assert_eq!(regionen.len(), 2);
+    let (links, region) = (&regionen[0], &regionen[1]);
+    assert_eq!((links.x, links.z, region.x, region.z), (-1, -1, 0, 0));
+    assert!(regionen.iter().all(|r| r.gelesen.iter().all(|&g| g)));
 
     let hoehe = |x| region.hoehen.get(x, 0);
-    let soll = [5, 8, 15, 6, 8, 9, 20, 16, 30, 20, EMPTY, 4, 39];
+    let soll = [5, 8, 15, 6, 8, 9, 20, 16, 30, 20, EMPTY, 4, 39, EMPTY, 6];
     let ist: Vec<i16> = (0..soll.len()).map(hoehe).collect();
     assert_eq!(ist, soll);
-    assert_eq!(region.hoehen.get(13, 0), EMPTY, "nur Luft");
     assert_eq!(region.hoehen.get(20, 3), 12);
     assert_eq!(region.hoehen.get(19, 4), EMPTY, "vertauscht");
     assert_eq!(region.hoehen.get(40, 0), EMPTY, "Chunk (2, 0) fehlt");
     assert_eq!(region.hoehen.get(511, 511), 10);
     assert_eq!(region.hoehen.get(511, 510), EMPTY);
+    assert_eq!(links.hoehen.get(511, 511), 14);
+    assert_eq!(links.hoehen.get(509, 507), 20);
+    assert_eq!(links.hoehen.get(507, 509), EMPTY, "vertauscht");
 }
 
 /// Ein Ausschnitt liest die Chunks im schrägen Band seiner Kacheln. Den

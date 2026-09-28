@@ -77,7 +77,8 @@ seiner Spalte ist, ist der Treffer. Die Höhen dafür liefert der Renderer:
   Sprite bekommt und nicht nur Flüssigkeit ist; −32768, wenn es keinen
   gibt oder der Chunk fehlt.
   - Luft, Licht, Barrieren und Blöcke ohne Geometrie wie Truhen zählen
-    nicht.
+    nicht, ebenso Blöcke, von denen die Kamera keine Fläche sieht, etwa
+    Feuer.
   - Wasser, Lava und Blasensäulen zählen nicht, eine geflutete Truhe auch
     nicht: von ihr zeichnet der Renderer nur das Wasser.
   - Laub, Blumen und geflutete Blöcke mit Modell zählen, ein gefluteter
@@ -111,19 +112,24 @@ ersten Kachel. Welcher Lauf welche Höhen schreibt:
   den Schalter bleiben sie stehen.
 - **Unfertige Chunks** liest der Durchgang wie das Rendern.
 
-Die Höhen einer Region sind gepackt 70 bis 100 kB. Auf der grossen Welt
-sind das zusammen 249 MB neben 184 GB Kacheln, und der Durchgang braucht
-knapp eine Minute, gemessen in
-[2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md).
+Was die Höhen an Platz und Zeit kosten, steht in
+[Was ein Lauf kostet](kosten.md), „Dauer“.
 
 Was eine Näherung bleibt:
 
-- **Überhänge:** Unter Baumkronen oder Dachtraufen trifft der Strahl 1 bis
-  4 Blöcke zu weit vorn. Die Datei kennt je Spalte nur den obersten Block.
+- **Überhänge:** Die Datei kennt je Spalte nur den obersten Block. Läuft der
+  Strahl unter einem Überhang hindurch, hält er beim ersten Würfel unter
+  dessen Oberkante, obwohl dort Luft oder Wasser ist. Er hält dann um so
+  viele Würfel zu früh, wie ihm noch bis zu dem Block fehlen, den das Bild
+  zeigt; drei Würfel sind etwa ein Block in jeder Achse. Unter Laub sind es
+  meist wenige, unter Eis und überhängendem Gelände bis zu Hunderten. Wie
+  oft das vorkommt: [2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md),
+  „Überhänge“.
 - **Nicht volle Blöcke** zählen wie ein voller Würfel. Das Spiel zielt auf
   ihren Umriss.
-- **Blöcke ohne Sprite**, etwa Truhen, Banner und Schädel, fehlen. Der
-  Strahl trifft dann, was darunter liegt.
+- **Blöcke ohne Sprite** fehlen: Truhen, Banner und Schädel, und Blöcke, von
+  denen die Kamera keine Fläche sieht, etwa Feuer. Der Strahl trifft dann,
+  was darunter liegt.
 
 Verworfen ist ein Puffer je Basiskachel, der je Pixel den Block nennt. Er
 wäre exakt, kostete aber eine Datei mehr je Basiskachel, auf einer Welt

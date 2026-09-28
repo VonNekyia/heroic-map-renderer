@@ -604,8 +604,7 @@ const ENTITY_LICHT: [[f32; 3]; 2] = [[0.2, 1.0, -0.7], [-0.2, 1.0, 0.7]];
 
 /// Wie hell eine Fläche aus einem Blockentity-Modell ist:
 /// `minecraft_mix_light` in `shaders/include/light.glsl`, 0,6 je Richtung
-/// und 0,4 Umgebung. Oben 1, nach Norden und Süden 0,74, nach Osten und
-/// Westen 0,50, unten 0,4.
+/// und 0,4 Umgebung.
 /// Siehe docs/renderer/blockentities.md, „Licht“.
 fn entity_light(n: [f32; 3]) -> f32 {
     let laenge = |v: [f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
@@ -1361,11 +1360,49 @@ mod tests {
         assert!(dunkler > 0);
     }
 
+    /// Eine durchscheinende Blockfläche testet wie `translucent` im Spiel
+    /// gegen 0,1: Texel mit Alpha 25 fallen weg, mit 26 bleiben sie.
+    #[test]
+    fn durchscheinende_blockflaeche_testet_gegen_ein_zehntel() {
+        let mut textures = Textures::new();
+        let mut flach = |name, alpha| {
+            let bild = RgbaImage::from_pixel(16, 16, Rgba([100, 150, 100, alpha]));
+            textures.einfuegen(name, bild, false)
+        };
+        let (unter, ueber) = (flach("unter", 25), flach("ueber", 26));
+        let sprite = |textur| {
+            let mut oben = quad(
+                [
+                    [0.0, 1.0, 0.0],
+                    [0.0, 1.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                    [1.0, 1.0, 0.0],
+                ],
+                true,
+            );
+            oben.texture = textur;
+            oben.force_translucent = true;
+            let model = BakedModel {
+                quads: vec![oben],
+                ambient_occlusion: false,
+            };
+            render(
+                &model,
+                &textures,
+                &Projection::new(32),
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+        };
+        assert!(sprite(unter).is_none_or(|s| s.image.pixels().all(|p| p[3] == 0)));
+        assert!(sprite(ueber).unwrap().image.pixels().any(|p| p[3] == 26));
+    }
+
     /// Der Alpha-Test von `cutout_terrain`: unter der Hälfte der
     /// Abtastpunkte verworfen, darüber ganz deckend in der Farbe der
     /// deckenden. Bei genau der Hälfte entscheidet das Texel in der
     /// Pixelmitte. Mit der Füllung aus `dark_cutout` zählen die Löcher in
-    /// ihrer Farbe mit.
+    /// ihrer Farbe mit. Getestet wird je Texel, vor dem Mitteln.
     #[test]
     fn alpha_test_wie_cutout_terrain() {
         // Über dem Pixel (0, 0) ist u = x und v = y; abgetastet wird bei
@@ -1399,6 +1436,10 @@ mod tests {
         let rechts = wo(|u, _| u > 0.6);
         let gemischt = Deckung::Gemischt { schwelle: 26 };
         assert_eq!(pixel(&rechts, gemischt), Some([200, 100, 50, 128]));
+        // Alpha 20 und 200 je zur Hälfte: 20 fällt vor dem Mitteln weg, das
+        // gibt 100; nach dem Mitteln bestünde 110 den Test.
+        let links_blass = |u: f32, _: f32| [200, 100, 50, if u < 0.5 { 20 } else { 200 }];
+        assert_eq!(pixel(&links_blass, gemischt), Some([200, 100, 50, 100]));
         assert_eq!(pixel(&rechts, aus), None);
         assert_eq!(pixel(&wo(|u, _| u < 0.6), aus), Some(farbe));
         let drei = wo(|u, v| u > 0.5 || v > 0.5);

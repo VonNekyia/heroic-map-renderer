@@ -87,9 +87,9 @@ pub struct Element {
 
 /// Ein Modell mit aufgelöster `parent`-Kette und aufgelösten Texturen.
 ///
-/// Ohne Elemente ist das Modell leer: Truhen, Banner, Schädel und Töpfe
-/// haben in 26.2 nur eine Partikeltextur, und ihre Entity-Modelle zeichnet
-/// der Renderer nicht.
+/// Ohne Elemente ist das Modell leer: Truhen, Banner, Schädel und Krüge
+/// haben in 26.2 nur eine Partikeltextur; ihr Bild kommt aus dem
+/// Blockentity, siehe [`crate::assets::blockentity`].
 /// Siehe docs/renderer/modelle-und-texturen.md, „Was kein Blockmodell hat“.
 #[derive(Debug)]
 pub struct ResolvedModel {

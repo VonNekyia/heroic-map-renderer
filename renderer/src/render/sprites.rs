@@ -381,7 +381,7 @@ pub const TINT_WATER: u8 = 2;
 impl SpriteSet {
     /// Backt und rastert jede Blockstate genau einmal, gefärbte Flächen als
     /// Tönungskarte, siehe [`Sprite::tint`]. Blockstates ohne sichtbare
-    /// Geometrie — Luft, Truhen, Deckenfeuer — landen nicht in der Tabelle
+    /// Geometrie — Luft, Barriere, End-Portal — landen nicht in der Tabelle
     /// und werden beim Rendern uebersprungen. Die Farben der Biome kommen
     /// aus `assets`, gemischt mit Radius 2 und ohne Seed, siehe
     /// [`SpriteSet::set_biomes`].
@@ -603,7 +603,7 @@ impl SpriteSet {
         let base = self.insert_tinted(assets, state, model)?;
         // Teilen sich zwei Familien das Bild, teilen sie sich auch die
         // Fassungen, und die erste hat sie schon eingetragen: Blasensaeule
-        // und geflutete Truhe sehen aus wie Wasser.
+        // und Wasser sehen gleich aus.
         if !has_fluid || self.by_mask.contains_key(&base) {
             return Some(base);
         }

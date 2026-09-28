@@ -75,7 +75,8 @@ Renderer:
   Sprite bekommt und nicht nur Flüssigkeit ist; −32768, wenn es keinen
   gibt oder der Chunk fehlt.
   - Luft, Licht, Barrieren und Blöcke ohne Geometrie wie Truhen zählen
-    nicht.
+    nicht, ebenso Blöcke, von denen die Kamera keine Fläche sieht, etwa
+    Feuer.
   - Wasser, Lava und Blasensäulen zählen nicht, eine geflutete Truhe auch
     nicht: von ihr zeichnet der Renderer nur das Wasser.
   - Laub, Blumen und geflutete Blöcke mit Modell zählen, ein gefluteter
@@ -109,10 +110,8 @@ ersten Kachel. Welcher Lauf welche Höhen schreibt:
   den Schalter bleiben sie stehen.
 - **Unfertige Chunks** liest der Durchgang wie das Rendern.
 
-Die Höhen einer Region sind gepackt 70 bis 100 kB. Auf der grossen Welt
-sind das zusammen 249 MB neben 184 GB Kacheln, und der Durchgang braucht
-knapp eine Minute, gemessen in
-[2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md).
+Was die Höhen an Platz und Zeit kosten, steht in
+[Was ein Lauf kostet](kosten.md), „Dauer“.
 
 Was die Anzeige damit nähert, steht bei
 [Frontend](../frontend.md), „Was bleibt eine Näherung“. Warum Höhen und

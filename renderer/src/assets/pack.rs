@@ -25,6 +25,9 @@ pub const ASSETS: [&[&str]; 4] = [
 /// Die Biome einer Datenwurzel, `RegistryDataLoader` listet sie so auf.
 pub const BIOME: [&[&str]; 1] = [&["worldgen", "biome"]];
 
+/// Die Bannermuster einer Datenwurzel, ebenso.
+pub const BANNER_PATTERN: [&[&str]; 1] = [&["banner_pattern"]];
+
 /// Eine Wurzel mit Namensräumen darunter, wie der Client sie sieht: Der
 /// Wurzel und jedem Namensraum mit gültigem Namen folgt er auch über einen
 /// Link (`getNamespaces`), darunter listet er ohne Links auf (`listPath`).

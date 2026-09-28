@@ -827,6 +827,9 @@ struct Loaded {
     /// Je Section und Paletteneintrag der Biome die Nummer des Bioms in der
     /// [`BiomeTable`](super::BiomeTable).
     biomes: Vec<Vec<u16>>,
+    /// Je Block, dessen Blockentity mit seinen Daten ein anderes Bild gibt,
+    /// die Familie dafür ([`SpriteSet::variante`]), nach Lage sortiert.
+    varianten: Vec<([i32; 3], u32)>,
 }
 
 /// Die Eigenschaften einer Familie, die über Verdeckung entscheiden, je
@@ -1072,6 +1075,15 @@ impl Loaded {
                     .collect()
             })
             .collect();
+        let mut varianten: Vec<([i32; 3], u32)> = chunk
+            .blockentities()
+            .iter()
+            .filter_map(|([x, y, z], daten)| {
+                let family = sprites.family_index(chunk.block_at(*x, *y, *z)?)?;
+                Some(([*x, *y, *z], sprites.variante(family, daten)?))
+            })
+            .collect();
+        varianten.sort_unstable_by_key(|&(pos, _)| pos);
         Loaded {
             chunk,
             families,
@@ -1080,6 +1092,7 @@ impl Loaded {
             oberstes_wasser,
             exposed,
             biomes,
+            varianten,
         }
     }
 }
@@ -1919,7 +1932,9 @@ impl<'a> ChunkCache<'a> {
     }
 
     /// Wie [`ChunkCache::family_at`], dazu wie hell der Block selbst
-    /// leuchtet, aus demselben Nachschlag.
+    /// leuchtet, aus demselben Nachschlag. Ändern die Daten seines
+    /// Blockentity das Bild, die Familie mit diesen Daten; für seine
+    /// Nachbarn zählt er wie ohne, sie verdecken dasselbe.
     fn block_at(&mut self, x: i32, y: i32, z: i32) -> Result<Option<(&'a Family, Leuchten)>> {
         let i = self.slot((x >> 4, z >> 4))?;
         let Some(loaded) = self.slots[i].loaded.as_ref() else {
@@ -1936,6 +1951,13 @@ impl<'a> ChunkCache<'a> {
             .flatten()
         else {
             return Ok(None);
+        };
+        let index = match loaded
+            .varianten
+            .binary_search_by_key(&[x, y, z], |&(pos, _)| pos)
+        {
+            Ok(i) => loaded.varianten[i].1,
+            Err(_) => index,
         };
         let leuchten = loaded
             .leuchten

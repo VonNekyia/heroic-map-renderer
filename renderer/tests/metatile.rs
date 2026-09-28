@@ -2338,11 +2338,25 @@ fn ecken_in(
     welt: impl Fn(i32, i32, i32) -> &'static str,
     block: [i32; 3],
 ) -> [[u8; 4]; 3] {
+    ecken_ohne(chunks, sections, welt, block, "")
+}
+
+/// Wie `ecken_in`, die Sprite-Tabelle aber ohne die Blöcke namens `ohne`,
+/// wie für einen Nachbarchunk, den der Vorlauf nicht gelesen hat.
+fn ecken_ohne(
+    chunks: &[(i32, i32)],
+    sections: std::ops::RangeInclusive<i8>,
+    welt: impl Fn(i32, i32, i32) -> &'static str,
+    block: [i32; 3],
+    ohne: &str,
+) -> [[u8; 4]; 3] {
     let dir = tempdir();
     common::write_world_sections(dir.path(), chunks, sections, welt, |_, _| None);
     let world = World::open(dir.path()).unwrap();
     let projection = Projection::new(32);
-    let sprites = tabelle(&mut assets(), &world, projection);
+    let mut states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    states.retain(|state| state.name() != ohne);
+    let sprites = SpriteSet::build_in(&mut assets(), &states, projection).unwrap();
     let rect = ScreenRect::centered(1024, 1024);
     let draws = draw_list(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap();
     let (bx, by) = projection.project_block(block);
@@ -2500,29 +2514,117 @@ fn weiche_beleuchtung_ueber_chunkgrenzen() {
     );
 }
 
-/// Was der Renderer nicht zeichnet, dunkelt ab wie im Spiel, eine
-/// Shulkerkiste etwa, die das Spiel mit ihrem Blockentity zeichnet: als
-/// Mauer neben dem Boden wie Stein, und auch allein in der Section über
-/// einem Block an deren Grenze.
+/// Die Bilder, die an einem Block ansetzen, in Zeichenreihenfolge: die
+/// Teile seines Sprites, auch die in Nachbarwürfeln.
+fn bilder_am_block(dir: &TempDir, block: [i32; 3]) -> Vec<RgbaImage> {
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(32);
+    let mut assets = assets();
+    let survey = survey(&world, projection, Y_RANGE, None).unwrap();
+    let mut sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+    sprites.add_entities(&mut assets, &survey.entities).unwrap();
+    let rect = ScreenRect::centered(1024, 1024);
+    let (bx, by) = projection.project_block(block);
+    let (bx, by) = (bx.round() as i32 - rect.x, by.round() as i32 - rect.y);
+    draw_list(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE)
+        .unwrap()
+        .iter()
+        .filter(|d| d.origin == (bx + d.sprite.offset.0, by + d.sprite.offset.1))
+        .map(|d| d.sprite.image.clone())
+        .collect()
+}
+
+/// Je zwei Banner, Krüge und geflutete Krüge im selben Zustand, einer davon
+/// mit Daten in `block_entities`: Vom Vorlauf bis zur Zeichenliste bekommt
+/// jeder das Bild mit den Daten seines Blockentity, der ohne Daten bleibt,
+/// wie er in einer Welt ganz ohne Daten wäre.
+#[test]
+fn blockentities_zeigen_ihre_daten() {
+    use fastnbt::Value;
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) => "minecraft:stone",
+        (4 | 10, 1, 4) => "minecraft:white_banner[rotation=0]",
+        (4 | 10, 1, 10) => "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=false]",
+        (4 | 10, 1, 13) => "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=true]",
+        _ => "minecraft:air",
+    };
+    let lage = Value::Compound(std::collections::HashMap::from([
+        (
+            "pattern".to_string(),
+            Value::String("minecraft:stripe_top".to_string()),
+        ),
+        ("color".to_string(), Value::String("red".to_string())),
+    ]));
+    // Vorne, nach Süden: Die Rückseite sieht die Kamera nicht.
+    let scherben = ["brick", "brick", "brick", "angler_pottery_sherd"]
+        .map(|item| Value::String(format!("minecraft:{item}")));
+    let mit = tempdir();
+    common::write_world_entities(mit.path(), &[(0, 0)], welt, |_, _| {
+        vec![
+            common::blockentity(
+                "minecraft:banner",
+                [4, 1, 4],
+                "patterns",
+                Value::List(vec![lage.clone()]),
+            ),
+            common::blockentity(
+                "minecraft:decorated_pot",
+                [4, 1, 10],
+                "sherds",
+                Value::List(scherben.to_vec()),
+            ),
+            common::blockentity(
+                "minecraft:decorated_pot",
+                [4, 1, 13],
+                "sherds",
+                Value::List(scherben.to_vec()),
+            ),
+        ]
+    });
+    let ohne = tempdir();
+    common::write_world(ohne.path(), &[(0, 0)], welt);
+
+    for block in [
+        [4, 1, 4],
+        [10, 1, 4],
+        [4, 1, 10],
+        [10, 1, 10],
+        [4, 1, 13],
+        [10, 1, 13],
+    ] {
+        let (a, b) = (bilder_am_block(&mit, block), bilder_am_block(&ohne, block));
+        assert!(!a.is_empty(), "{block:?}: nichts gezeichnet");
+        assert_eq!(a.len(), b.len(), "{block:?}");
+        let gleich = a.iter().zip(&b).all(|(a, b)| a.as_raw() == b.as_raw());
+        assert_eq!(gleich, block[0] == 10, "{block:?}");
+    }
+}
+
+/// Ein Block ohne Familie in der Sprite-Tabelle dunkelt trotzdem ab wie im
+/// Spiel: Am Rand eines Ausschnitts liegen Nachbarchunks, deren Blöcke der
+/// Vorlauf nicht gesammelt hat. Hier fehlt die Shulkerkiste in der Tabelle;
+/// sie dunkelt als Mauer neben dem Boden wie Stein, und auch allein in der
+/// Section über einem Block an deren Grenze.
 #[test]
 fn abdunkeln_auch_ohne_sprite() {
+    const KISTE: &str = "minecraft:shulker_box";
     let mauer = |x: i32, y: i32, _: i32| match (x, y) {
         (_, 0) => "minecraft:stone",
-        (7, 1) => "minecraft:shulker_box",
+        (7, 1) => "minecraft:shulker_box[facing=up]",
         _ => "minecraft:air",
     };
     assert_eq!(
-        ecken(mauer, [8, 0, 8])[0],
+        ecken_ohne(&[(0, 0)], 0..=0, mauer, [8, 0, 8], KISTE)[0],
         [153, 153, 255, 255],
         "als Mauer"
     );
     let darueber = |x: i32, y: i32, z: i32| match (x, y, z) {
         (8, 15, 8) => "minecraft:stone",
-        (8, 16, 8) => "minecraft:shulker_box",
+        (8, 16, 8) => "minecraft:shulker_box[facing=up]",
         _ => "minecraft:air",
     };
     assert_eq!(
-        ecken_in(&[(0, 0)], 0..=1, darueber, [8, 15, 8])[0],
+        ecken_ohne(&[(0, 0)], 0..=1, darueber, [8, 15, 8], KISTE)[0],
         [204; 4],
         "allein in der Section darüber"
     );

@@ -2817,31 +2817,40 @@ fn size_null_wird_abgelehnt() {
     assert!(schnappschuss(out.path()).is_empty(), "etwas geschrieben");
 }
 
-/// Eine geflutete Truhe bleibt eine Truhe, die Minecraft als Entity
-/// zeichnet; auf der Karte steht dort nur ihr Wasser. `--block` muss das
-/// sagen, auch wenn der Block Wasser enthält.
+/// Eine geflutete Truhe hat ein Blockmodell ohne Elemente, ihr Bild aus
+/// dem Blockentity und ihr Wasser. `--block` nennt beides und meldet sie
+/// nicht als Block ohne Modell; einen Block, der gar nichts zeichnet, schon.
 #[test]
-fn geflutete_truhe_bleibt_ein_entity() {
-    let ausgabe = cli(&[
-        OsStr::new("--assets"),
-        assets_ref(),
-        OsStr::new("--block"),
-        OsStr::new("chest[waterlogged=true]"),
-    ]);
-    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
-    assert!(text.contains("kein Modell"), "{text}");
+fn geflutete_truhe_zeigt_blockentity_und_wasser() {
+    let block = |block: &str| {
+        let ausgabe = cli(&[
+            OsStr::new("--assets"),
+            assets_ref(),
+            OsStr::new("--block"),
+            OsStr::new(block),
+        ]);
+        String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned()
+    };
+    let text = block("chest[facing=north,type=single,waterlogged=true]");
+    assert!(text.contains("Blockentity: "), "{text}");
+    assert!(text.contains("minecraft:entity/chest/normal"), "{text}");
     assert!(text.contains("Flüssigkeit: Water"), "{text}");
+    assert!(!text.contains("kein Modell"), "{text}");
+    let text = block("nur_partikel");
+    assert!(text.contains("kein Modell"), "{text}");
+    assert!(!text.contains("Blockentity: "), "{text}");
 }
 
-/// `--scan` nennt dieselben Blöcke ohne Modell wie `--block`: die
-/// geflutete Truhe ja, Wasser nicht.
+/// `--scan` nennt dieselben Blöcke ohne Modell wie `--block`: den, der
+/// nichts zeichnet, ja, die geflutete Truhe und Wasser nicht.
 #[test]
-fn scan_nennt_die_geflutete_truhe_aber_nicht_das_wasser() {
+fn scan_nennt_nur_bloecke_ohne_bild() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
-        (8, 4, 8) => "minecraft:chest[waterlogged=true]",
+        (8, 4, 8) => "minecraft:chest[facing=north,type=single,waterlogged=true]",
         (9, 4, 8) => "minecraft:water",
         (10, 4, 8) => "minecraft:einfarbig",
+        (11, 4, 8) => "minecraft:nur_partikel",
         _ => "minecraft:air",
     });
     let ausgabe = cli(&[
@@ -2859,7 +2868,59 @@ fn scan_nennt_die_geflutete_truhe_aber_nicht_das_wasser() {
         .map(str::trim)
         .take_while(|zeile| zeile.starts_with("minecraft:"))
         .collect();
-    assert_eq!(namen, ["minecraft:chest"], "{text}");
+    assert_eq!(namen, ["minecraft:nur_partikel"], "{text}");
+}
+
+/// `--scan` zählt Banner mit Mustern und Krüge mit Scherben, und wie viele
+/// davon samt Block verschieden sind: zwei gleiche Banner sind eine
+/// Familie, derselbe Krug trocken und geflutet sind zwei.
+#[test]
+fn scan_zaehlt_blockentities_mit_daten() {
+    use fastnbt::Value;
+    let lage = Value::Compound(std::collections::HashMap::from([
+        (
+            "pattern".to_string(),
+            Value::String("minecraft:stripe_top".to_string()),
+        ),
+        ("color".to_string(), Value::String("red".to_string())),
+    ]));
+    let scherben = Value::List(vec![Value::String(
+        "minecraft:angler_pottery_sherd".to_string(),
+    )]);
+    let welt = tempdir();
+    common::write_world_entities(
+        welt.path(),
+        &[(0, 0)],
+        |x, y, z| match (x, y, z) {
+            (4 | 6, 1, 4) => "minecraft:white_banner[rotation=0]",
+            (4, 1, 10) => "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=false]",
+            (4, 1, 13) => "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=true]",
+            _ => "minecraft:air",
+        },
+        |_, _| {
+            let banner = |x| {
+                common::blockentity(
+                    "minecraft:banner",
+                    [x, 1, 4],
+                    "patterns",
+                    Value::List(vec![lage.clone()]),
+                )
+            };
+            let krug =
+                |z| common::blockentity("decorated_pot", [4, 1, z], "sherds", scherben.clone());
+            vec![banner(4), banner(6), krug(10), krug(13)]
+        },
+    );
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--scan"),
+    ]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(
+        text.contains("2 Banner mit Mustern, 2 Krüge mit Scherben, 3 verschiedene samt Block"),
+        "{text}"
+    );
 }
 
 /// Wasser hat kein Modell-JSON, der Renderer baut es im Code. `--block`

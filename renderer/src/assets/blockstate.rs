@@ -120,7 +120,7 @@ impl Definition {
         BLOCKS.get(block.strip_prefix("minecraft:")?)
     }
 
-    fn states(&self) -> usize {
+    pub(crate) fn states(&self) -> usize {
         self.props.iter().map(|(_, values)| values.len()).product()
     }
 

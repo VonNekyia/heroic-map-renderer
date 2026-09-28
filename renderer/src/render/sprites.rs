@@ -6,12 +6,13 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
+use crate::assets::blockentity;
 use crate::assets::blockstate::{self, Leuchten, ModelRef};
 use crate::assets::colors::{Resolver, Source, Tint, source_of, tinted_below};
 use crate::assets::fluid::Fluid;
 use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, Face, Textures, Tints, fluid, models_of};
-use crate::world::BlockState;
+use crate::world::{BlockState, Blockdaten};
 
 use super::rasterizer::faces_camera;
 use super::tint::BiomeTable;
@@ -44,6 +45,9 @@ pub struct SpriteSet {
     /// je Paletteneintrag und spart sich das Hashen der Blockstate je Block.
     families: Vec<Family>,
     by_state: HashMap<BlockState, u32>,
+    /// Je Familie und Daten eines Blockentity, die ihr Bild ändern, die
+    /// Familie mit diesen Daten, siehe [`SpriteSet::add_entities`].
+    by_entity: HashMap<u32, HashMap<Blockdaten, u32>>,
     /// Fassungen einer Fluessigkeit: je Maske aus verdeckten Flaechen
     /// (`mask_bit`) eine, Index `mask`. Eintrag 0 ist das Sprite selbst.
     by_mask: HashMap<SpriteId, Vec<Option<SpriteId>>>,
@@ -257,14 +261,17 @@ pub fn mask_bit(face: Face) -> u8 {
 
 /// Alles, was das Bild einer Blockstate bestimmt: der Name (er entscheidet
 /// die Faerbung), die Modellverweise samt Drehung und Gewicht, Art und
-/// Menge der Fluessigkeit, und wo die Wahl der Alternative ihre Saat
-/// nimmt. Die Verweise reichen, die Modelle selbst laedt erst die Familie.
+/// Menge der Fluessigkeit, wo die Wahl der Alternative ihre Saat nimmt und
+/// was sein Blockentity zeichnet. Die Verweise reichen, die Modelle selbst
+/// laedt erst die Familie. Eine Truhe hat in jeder Lage dasselbe
+/// Blockmodell, aber nicht dasselbe Bild aus [`blockentity::bild`].
 type FamilyKey = (
     String,
     Vec<(u32, Vec<ModelRef>)>,
     Option<(Fluid, u8)>,
     [i32; 3],
     Leuchten,
+    Option<usize>,
 );
 
 /// Was die Sprites einer Blockstate bestimmt. Das Leuchten gehört dazu: Ein
@@ -279,6 +286,7 @@ fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
         fluid::key(state),
         seed_offset(state),
         blockstate::leuchten(state),
+        blockentity::bild(state),
     ))
 }
 
@@ -387,6 +395,7 @@ impl SpriteSet {
             sprites: Vec::new(),
             families: Vec::new(),
             by_state: HashMap::new(),
+            by_entity: HashMap::new(),
             by_mask: HashMap::new(),
             by_content: HashMap::new(),
             strips: HashMap::new(),
@@ -419,68 +428,139 @@ impl SpriteSet {
         let mut fluids: BTreeSet<Fluid> = BTreeSet::new();
         for members in groups {
             let state = members[0];
-            let models = models_of(assets, state)?;
+            let models = models_of(assets, state, None)?;
             for member in &members[1..] {
                 assets.skip_like(member, state);
             }
-            let fluid = fluid::key(state);
-            let alternatives: Vec<(u32, Option<SpriteId>)> = models
-                .iter()
-                .map(|(weight, model)| {
-                    let id = set.insert_fluid(assets, state, model, fluid.is_some());
-                    (*weight, id)
-                })
-                .collect();
-            if alternatives.iter().all(|(_, id)| id.is_none()) {
+            let Some(family) = set.rastere_familie(assets, state, &models) else {
                 continue;
+            };
+            if let Some((fluid, _)) = family.fluid {
+                fluids.insert(fluid);
             }
-            let entries = || {
-                alternatives
-                    .iter()
-                    .map(|(_, id)| id.map(|id| &set.sprites[id.0 as usize]))
-            };
-            let all = |test: fn(&Entry) -> bool| entries().all(|e| e.is_some_and(test));
-            // Eine Alternative ohne Bild zeichnet nichts, bleibt also im
-            // Wuerfel. Die Fassungen einer Fluessigkeit sind Teile ihres
-            // Modells oder dessen voller Wuerfel: sie bleiben, wo das Modell
-            // bleibt.
-            let contained = entries().all(|e| e.is_none_or(|e| e.contained));
-            let foreign = entries()
-                .any(|e| e.is_some_and(|e| e.parts.iter().any(|(cell, _)| *cell != OWN_CELL)));
-            let pure_fluid = fluid.is_some()
-                && models
-                    .iter()
-                    .all(|(_, model)| model.quads.iter().all(|q| q.fluid.is_some()));
-            let family = Family {
-                total: alternatives.iter().map(|(weight, _)| *weight).sum(),
-                seed_offset: seed_offset(state),
-                opaque: all(|e| e.opaque),
-                covers_floor: all(|e| e.covers_floor),
-                contained,
-                foreign,
-                pure_fluid,
-                fluid,
-                resolver: match source_of(state.name()) {
-                    Some(Source::Biome(resolver)) => Some(resolver),
-                    _ => None,
-                },
-                tint_below: tinted_below(state.name(), state.prop("half")),
-                alternatives,
-            };
             let index = set.families.len() as u32;
             for member in members {
                 set.by_state.insert(member.clone(), index);
             }
             set.families.push(family);
-            if let Some((fluid, _)) = fluid {
-                fluids.insert(fluid);
-            }
         }
 
         for fluid in fluids {
             set.insert_strips(assets, fluid);
         }
         Ok(set)
+    }
+
+    /// Nimmt die Blöcke auf, deren Blockentity mit seinen Daten ein anderes
+    /// Bild gibt: je Familie und Daten eine eigene Familie, die der
+    /// Renderpfad an der Stelle des Blocks nimmt, siehe
+    /// [`SpriteSet::variante`]. Nach [`SpriteSet::build_in`] mit denselben
+    /// Blockstates. Liefert, was an den Daten unbekannt war und deshalb
+    /// fehlt, siehe [`blockentity::unbekannt`].
+    /// Siehe docs/renderer/blockentities.md, „Daten aus dem Chunk“.
+    pub fn add_entities<'a>(
+        &mut self,
+        assets: &mut Assets,
+        entities: impl IntoIterator<Item = &'a (BlockState, Blockdaten)>,
+    ) -> Result<BTreeSet<String>> {
+        let mut unbekannt = BTreeSet::new();
+        for (state, daten) in entities {
+            let Some(basis) = self.family_index(state) else {
+                continue;
+            };
+            let bekannt = self
+                .by_entity
+                .get(&basis)
+                .is_some_and(|varianten| varianten.contains_key(daten));
+            if bekannt || !blockentity::aendert(state, daten) {
+                continue;
+            }
+            unbekannt.extend(blockentity::unbekannt(daten, assets));
+            let models = models_of(assets, state, Some(daten))?;
+            let Some(family) = self.rastere_familie(assets, state, &models) else {
+                continue;
+            };
+            // Muster und Scherben liegen auf den Flächen des Modells ohne
+            // Daten: Was der Block verdeckt, bleibt gleich, und die Masken
+            // der Sections dürfen weiter nach der Palette gehen.
+            let ohne = self.family(basis);
+            debug_assert!(
+                (
+                    family.opaque,
+                    family.covers_floor,
+                    family.contained,
+                    family.foreign
+                ) == (ohne.opaque, ohne.covers_floor, ohne.contained, ohne.foreign),
+                "{state}: Daten ändern die Deckung"
+            );
+            let index = self.families.len() as u32;
+            self.families.push(family);
+            self.by_entity
+                .entry(basis)
+                .or_default()
+                .insert(daten.clone(), index);
+        }
+        Ok(unbekannt)
+    }
+
+    /// Die Familie eines Blocks, dessen Blockentity diese Daten trägt, falls
+    /// sie sein Bild ändern, siehe [`SpriteSet::add_entities`].
+    pub fn variante(&self, family: u32, daten: &Blockdaten) -> Option<u32> {
+        self.by_entity.get(&family)?.get(daten).copied()
+    }
+
+    /// Rastert die Alternativen einer Blockstate zu einer Familie, `None`,
+    /// wenn keine etwas zeichnet.
+    fn rastere_familie(
+        &mut self,
+        assets: &Assets,
+        state: &BlockState,
+        models: &[(u32, BakedModel)],
+    ) -> Option<Family> {
+        let fluid = fluid::key(state);
+        let alternatives: Vec<(u32, Option<SpriteId>)> = models
+            .iter()
+            .map(|(weight, model)| {
+                let id = self.insert_fluid(assets, state, model, fluid.is_some());
+                (*weight, id)
+            })
+            .collect();
+        if alternatives.iter().all(|(_, id)| id.is_none()) {
+            return None;
+        }
+        let entries = || {
+            alternatives
+                .iter()
+                .map(|(_, id)| id.map(|id| &self.sprites[id.0 as usize]))
+        };
+        let all = |test: fn(&Entry) -> bool| entries().all(|e| e.is_some_and(test));
+        // Eine Alternative ohne Bild zeichnet nichts, bleibt also im
+        // Wuerfel. Die Fassungen einer Fluessigkeit sind Teile ihres
+        // Modells oder dessen voller Wuerfel: sie bleiben, wo das Modell
+        // bleibt.
+        let contained = entries().all(|e| e.is_none_or(|e| e.contained));
+        let foreign =
+            entries().any(|e| e.is_some_and(|e| e.parts.iter().any(|(cell, _)| *cell != OWN_CELL)));
+        let pure_fluid = fluid.is_some()
+            && models
+                .iter()
+                .all(|(_, model)| model.quads.iter().all(|q| q.fluid.is_some()));
+        Some(Family {
+            total: alternatives.iter().map(|(weight, _)| *weight).sum(),
+            seed_offset: seed_offset(state),
+            opaque: all(|e| e.opaque),
+            covers_floor: all(|e| e.covers_floor),
+            contained,
+            foreign,
+            pure_fluid,
+            fluid,
+            resolver: match source_of(state.name()) {
+                Some(Source::Biome(resolver)) => Some(resolver),
+                _ => None,
+            },
+            tint_below: tinted_below(state.name(), state.prop("half")),
+            alternatives,
+        })
     }
 
     /// Die Farben der Biome für das Zeichnen, mit dem Radius der Mischung
@@ -1050,6 +1130,7 @@ fn cells_of(model: &BakedModel, projection: Projection) -> Vec<(Cell, f32, f32)>
 mod tests {
     use super::*;
     use crate::assets::model_of;
+    use crate::world::Muster;
 
     /// Referenzwerte aus den Klassen des 26.2-Clients selbst:
     /// `Mth.getSeed` und `SingleThreadedRandomSource.nextInt`, abgezaehlt
@@ -1883,8 +1964,117 @@ mod tests {
     #[test]
     fn modell_ohne_flaechen_faellt_heraus() {
         let mut assets = assets();
-        let states = [state("chest")];
+        let states = [state("nur_partikel")];
         let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert!(set.is_empty());
+    }
+
+    /// Jede Gruppe der Blockentities bekommt ihr Bild aus der Tabelle, auch
+    /// mit einem Blockmodell ohne Elemente: einfache und doppelte Truhen,
+    /// Kupfer- und Endertruhe, Shulkerkiste, Banner stehend und an der Wand,
+    /// Köpfe ebenso, Krug, Glocke, Aquisator, Statue, die Bücher. Jedes Bild
+    /// ist ein anderes.
+    #[test]
+    fn jede_gruppe_hat_ein_bild() {
+        let mut assets = assets();
+        let states: Vec<BlockState> = [
+            "minecraft:chest[facing=north,type=single,waterlogged=false]",
+            "minecraft:chest[facing=north,type=left,waterlogged=false]",
+            "minecraft:chest[facing=north,type=right,waterlogged=false]",
+            "minecraft:copper_chest[facing=east,type=single,waterlogged=false]",
+            "minecraft:ender_chest[facing=south,waterlogged=false]",
+            "minecraft:red_shulker_box[facing=up]",
+            "minecraft:white_banner[rotation=3]",
+            "minecraft:white_wall_banner[facing=north]",
+            "minecraft:player_head[powered=false,rotation=5]",
+            "minecraft:skeleton_wall_skull[facing=east,powered=false]",
+            "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=false]",
+            "minecraft:bell[attachment=floor,facing=north,powered=false]",
+            "minecraft:conduit[waterlogged=false]",
+            "minecraft:copper_golem_statue[copper_golem_pose=star,facing=north,waterlogged=false]",
+            "minecraft:lectern[facing=north,has_book=true,powered=false]",
+            "minecraft:enchanting_table",
+        ]
+        .map(state)
+        .into();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        let bilder: Vec<_> = states
+            .iter()
+            .map(|s| pixel(&set, set.id(s).unwrap_or_else(|| panic!("{s}: kein Bild"))))
+            .collect();
+        let verschieden: HashSet<_> = bilder.iter().collect();
+        assert_eq!(verschieden.len(), bilder.len());
+    }
+
+    /// Die Pixel eines Sprites über alle Würfel, in die es fällt. Ein Sprite,
+    /// das über seinen Würfel ragt wie ein Banner, teilt sich keinen Eintrag,
+    /// auch mit gleichem Bild nicht (`insert`); verschiedene IDs sagen dann
+    /// nichts über das Bild.
+    fn pixel(set: &SpriteSet, id: SpriteId) -> Vec<(Cell, (u32, u32), Vec<u8>)> {
+        set.sprites[id.0 as usize]
+            .parts
+            .iter()
+            .map(|(zelle, teil)| (*zelle, teil.image.dimensions(), teil.image.as_raw().clone()))
+            .collect()
+    }
+
+    /// Eine Truhe hat in jeder Lage dasselbe Blockmodell ohne Flächen, aber
+    /// ein anderes Bild aus ihrem Blockentity: je Lage eine Familie. Geflutet
+    /// trägt sie ihr Wasser und ihr Bild.
+    #[test]
+    fn truhen_je_lage_eigene_familie() {
+        let mut assets = assets();
+        let truhe = |lage: &str, nass: bool| {
+            state(&format!(
+                "minecraft:chest[facing={lage},type=single,waterlogged={nass}]"
+            ))
+        };
+        let states = [
+            truhe("north", false),
+            truhe("east", false),
+            truhe("north", true),
+        ];
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        let familien: HashSet<u32> = states
+            .iter()
+            .map(|s| set.family_index(s).unwrap())
+            .collect();
+        assert_eq!(familien.len(), 3);
+        assert_ne!(set.id(&states[0]), set.id(&states[1]));
+        let nass = model_of(&mut assets, &states[2]).unwrap();
+        assert!(nass.quads.iter().any(|q| q.fluid.is_some()));
+        assert!(nass.quads.iter().any(|q| q.entity.is_some()));
+    }
+
+    /// Ein Banner mit Mustern bekommt eine eigene Familie mit anderem Bild,
+    /// dieselben Daten nur eine; Daten, die nicht zum Block passen, keine.
+    /// Was an den Daten unbekannt ist, meldet der Aufbau.
+    #[test]
+    fn daten_geben_eigene_familie() {
+        let mut assets = assets();
+        let banner = state("minecraft:white_banner[rotation=0]");
+        let truhe = state("minecraft:chest[facing=north,type=single,waterlogged=false]");
+        let mut set = build(&mut assets, [&banner, &truhe], Projection::new(16)).unwrap();
+        let muster = Blockdaten::Banner(vec![
+            (Muster::Id("stripe_top".to_string()), "red".to_string()),
+            (Muster::Id("stripe_top".to_string()), "lila".to_string()),
+        ]);
+        let eintraege = [
+            (banner.clone(), muster.clone()),
+            (banner.clone(), muster.clone()),
+            (truhe.clone(), muster.clone()),
+        ];
+        let vorher = set.families.len();
+        let unbekannt = set.add_entities(&mut assets, &eintraege).unwrap();
+        assert_eq!(unbekannt, BTreeSet::from(["Farbstoff lila".to_string()]));
+        assert_eq!(set.families.len(), vorher + 1, "eine für den Banner");
+        let basis = set.family_index(&banner).unwrap();
+        let variante = set.variante(basis, &muster).expect("Familie mit Mustern");
+        let bild = |familie: u32| pixel(&set, set.family(familie).alternatives[0].1.unwrap());
+        assert_ne!(bild(variante), bild(basis), "das Muster fehlt im Bild");
+        assert_eq!(
+            set.variante(set.family_index(&truhe).unwrap(), &muster),
+            None
+        );
     }
 }

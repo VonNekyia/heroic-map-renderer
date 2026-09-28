@@ -12,8 +12,8 @@ const BLOCKS_PER_SECTION: usize = 4096;
 const BIOMES_PER_SECTION: usize = 64;
 
 /// Das rohe NBT-Layout eines Chunks — nur die Felder, die zum Rendern nötig
-/// sind. Alles andere (die übrigen Heightmaps, block_entities, Licht,
-/// structures) wird von serde verworfen.
+/// sind. Alles andere (die übrigen Heightmaps, Licht, structures) wird von
+/// serde verworfen, von `block_entities` alles ausser [`Blockdaten`].
 #[derive(Deserialize)]
 struct ChunkNbt {
     #[serde(rename = "DataVersion")]
@@ -31,6 +31,118 @@ struct ChunkNbt {
     heightmaps: HeightmapsNbt,
     #[serde(default)]
     sections: Vec<SectionNbt>,
+    #[serde(default)]
+    block_entities: Vec<BlockEntityNbt>,
+}
+
+/// Ein Eintrag in `block_entities`, nur mit den Feldern, aus denen
+/// [`Blockdaten`] werden. Die Lage liest das Spiel mit `getIntOr` und 0 als
+/// Vorgabe (`BlockEntity.getPosFromTag`).
+#[derive(Deserialize)]
+struct BlockEntityNbt {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    x: i32,
+    #[serde(default)]
+    y: i32,
+    #[serde(default)]
+    z: i32,
+    patterns: Option<fastnbt::Value>,
+    sherds: Option<fastnbt::Value>,
+}
+
+/// Was ein Blockentity im Chunk über sein Bild sagt, soweit der Renderer es
+/// zeichnet: die Muster eines Banners, die Scherben eines Krugs.
+/// Siehe docs/renderer/blockentities.md, „Daten aus dem Chunk“.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Blockdaten {
+    /// `patterns`: je Lage das Muster und der Name des Farbstoffs.
+    Banner(Vec<(Muster, String)>),
+    /// `sherds`: die Items hinten, links, rechts und vorne, höchstens vier.
+    Krug(Vec<String>),
+}
+
+/// Das Muster einer Lage, wie `BannerPattern.CODEC` es liest: die ID eines
+/// Musters der Registry oder ein Muster mit eigenem `asset_id`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Muster {
+    Id(String),
+    Asset(String),
+}
+
+impl BlockEntityNbt {
+    /// Liest die Daten wie `BannerBlockEntity` und `DecoratedPotBlockEntity`
+    /// in 26.2: Ein Eintrag, den der Codec ablehnt, fällt heraus, die
+    /// übrigen rücken auf (`ListCodec`, `TagValueInput.read`). `None` ohne
+    /// Daten, die das Bild ändern.
+    fn daten(self) -> Option<Blockdaten> {
+        // Eine Liste aus Werten verschiedener Art speichert das Spiel als
+        // Liste von Compounds, jeden Wert unter dem leeren Namen, und packt
+        // sie beim Lesen wieder aus (`ListTag.addAndUnwrap`).
+        let liste = |wert| match wert {
+            Some(fastnbt::Value::List(liste)) => liste
+                .into_iter()
+                .map(|wert| match wert {
+                    fastnbt::Value::Compound(mut c) if c.len() == 1 && c.contains_key("") => {
+                        c.remove("").expect("eben gefunden")
+                    }
+                    wert => wert,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        // `Identifier.tryParse`: ohne Namensraum oder mit leerem `minecraft`.
+        let id = match self.id.split_once(':') {
+            None => self.id.as_str(),
+            Some(("" | "minecraft", pfad)) => pfad,
+            Some(_) => return None,
+        };
+        let daten = match id {
+            "banner" => {
+                Blockdaten::Banner(liste(self.patterns).into_iter().filter_map(lage).collect())
+            }
+            "decorated_pot" => Blockdaten::Krug(
+                liste(self.sherds)
+                    .into_iter()
+                    .filter_map(|item| match item {
+                        fastnbt::Value::String(item) => Some(item),
+                        _ => None,
+                    })
+                    .take(4)
+                    .collect(),
+            ),
+            _ => return None,
+        };
+        match &daten {
+            Blockdaten::Banner(v) if v.is_empty() => None,
+            Blockdaten::Krug(v) if v.is_empty() => None,
+            _ => Some(daten),
+        }
+    }
+}
+
+/// Eine Lage aus `patterns`: `pattern` als ID oder als Muster mit
+/// `asset_id` und `translation_key`, dazu `color`.
+fn lage(wert: fastnbt::Value) -> Option<(Muster, String)> {
+    use fastnbt::Value;
+    let Value::Compound(mut lage) = wert else {
+        return None;
+    };
+    let muster = match lage.remove("pattern")? {
+        Value::String(id) => Muster::Id(id),
+        Value::Compound(mut muster) => {
+            match (muster.remove("asset_id")?, muster.get("translation_key")?) {
+                (Value::String(asset), Value::String(_)) => Muster::Asset(asset),
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    let Value::String(farbe) = lage.remove("color")? else {
+        return None;
+    };
+    Some((muster, farbe))
 }
 
 #[derive(Deserialize, Default)]
@@ -121,6 +233,8 @@ pub struct Chunk {
     y_pos: Option<i32>,
     /// `WORLD_SURFACE`, wie sie im Chunk steht, siehe [`Chunk::surface`].
     world_surface: Option<Vec<i64>>,
+    /// Je Blockentity mit [`Blockdaten`] seine Weltkoordinate.
+    blockentities: Vec<([i32; 3], Blockdaten)>,
 }
 
 impl Chunk {
@@ -136,6 +250,15 @@ impl Chunk {
         }
         sections.sort_by_key(|s| s.y);
 
+        // Liegt ein Blockentity ausserhalb, rückt das Spiel es mit seiner
+        // Lage im Chunk in diesen (`BlockEntity.getPosFromTag`).
+        let (x0, z0) = (raw.x_pos * SECTION, raw.z_pos * SECTION);
+        let blockentities = raw
+            .block_entities
+            .into_iter()
+            .filter_map(|be| Some(([x0 + (be.x & 15), be.y, z0 + (be.z & 15)], be.daten()?)))
+            .collect();
+
         Ok(Chunk {
             x: raw.x_pos,
             z: raw.z_pos,
@@ -147,7 +270,13 @@ impl Chunk {
                 .heightmaps
                 .world_surface
                 .map(fastnbt::LongArray::into_inner),
+            blockentities,
         })
+    }
+
+    /// Die Blockentities, deren Daten das Bild ändern, mit Weltkoordinate.
+    pub fn blockentities(&self) -> &[([i32; 3], Blockdaten)] {
+        &self.blockentities
     }
 
     /// Je Spalte, zeilenweise nach z, das y des obersten Blocks, der nicht
@@ -412,6 +541,7 @@ mod tests {
             sections: vec![luft()],
             y_pos: Some(-4),
             world_surface: Some(longs),
+            blockentities: Vec::new(),
         };
         let oben = chunk(longs.clone()).surface();
         assert_eq!(oben[0], Some(20));
@@ -421,6 +551,125 @@ mod tests {
         assert!(
             chunk(longs).surface().iter().all(Option::is_none),
             "aus den Blöcken"
+        );
+    }
+
+    /// `block_entities` wie im Spiel gelesen: Muster als ID oder mit
+    /// `asset_id`; eine Lage ohne `translation_key`, ohne `color` oder mit
+    /// einem Farbstoff, der kein Text ist, fällt heraus, die übrigen rücken
+    /// auf. Beim Krug zählen die ersten vier Items, aus einer Liste
+    /// verschiedener Werte ausgepackt. Ein Banner ohne Lagen,
+    /// eine Truhe und ein Blockentity eines anderen Namensraums tragen
+    /// nichts bei, eines ausserhalb des Chunks rückt mit seiner Lage im Chunk
+    /// hinein.
+    #[test]
+    fn blockdaten_wie_im_spiel() {
+        use fastnbt::Value;
+        let text = |text: &str| Value::String(text.to_string());
+        let compound = |felder: Vec<(&str, Value)>| {
+            Value::Compound(
+                felder
+                    .into_iter()
+                    .map(|(name, wert)| (name.to_string(), wert))
+                    .collect(),
+            )
+        };
+        let lage = |muster, farbe| compound(vec![("pattern", muster), ("color", farbe)]);
+        let be = |id: &str, [x, y, z]: [i32; 3], feld: &str, wert| {
+            compound(vec![
+                ("id", text(id)),
+                ("x", Value::Int(x)),
+                ("y", Value::Int(y)),
+                ("z", Value::Int(z)),
+                (feld, wert),
+            ])
+        };
+        let eine = || Value::List(vec![lage(text("cross"), text("red"))]);
+        let lagen = Value::List(vec![
+            lage(text("minecraft:stripe_top"), text("red")),
+            lage(
+                compound(vec![
+                    ("asset_id", text("beispiel:welle")),
+                    ("translation_key", text("beispiel.welle")),
+                ]),
+                text("blue"),
+            ),
+            lage(
+                compound(vec![("asset_id", text("beispiel:ohne"))]),
+                text("blue"),
+            ),
+            compound(vec![("pattern", text("cross"))]),
+            lage(text("cross"), Value::Int(3)),
+            lage(text("cross"), text("lime")),
+        ]);
+        // Werte verschiedener Art in einer Liste, wie das Spiel sie schreibt.
+        let gehuellt = |wert| compound(vec![("", wert)]);
+        let scherben = Value::List(vec![
+            gehuellt(text("minecraft:brick")),
+            gehuellt(Value::Int(1)),
+            gehuellt(text("angler_pottery_sherd")),
+            gehuellt(text("beispiel:scherbe")),
+            gehuellt(text("minecraft:heart_pottery_sherd")),
+            gehuellt(text("minecraft:skull_pottery_sherd")),
+        ]);
+        let nbt = compound(vec![
+            ("DataVersion", Value::Int(4903)),
+            ("xPos", Value::Int(2)),
+            ("zPos", Value::Int(2)),
+            ("Status", text("minecraft:full")),
+            (
+                "block_entities",
+                Value::List(vec![
+                    be("minecraft:banner", [33, 64, 34], "patterns", lagen),
+                    be("decorated_pot", [40, 64, 47], "sherds", scherben),
+                    be(
+                        "minecraft:banner",
+                        [34, 64, 34],
+                        "patterns",
+                        Value::List(vec![]),
+                    ),
+                    be(
+                        "minecraft:chest",
+                        [35, 64, 34],
+                        "Items",
+                        Value::List(vec![]),
+                    ),
+                    be("beispiel:banner", [36, 64, 34], "patterns", eine()),
+                    be("minecraft:banner", [5, 70, -3], "patterns", eine()),
+                ]),
+            ),
+        ]);
+        let chunk = Chunk::decode(&fastnbt::to_bytes(&nbt).unwrap()).unwrap();
+        let muster = |id: &str| Muster::Id(id.to_string());
+        let items = |items: &[&str]| items.iter().map(|item| item.to_string()).collect();
+        assert_eq!(
+            chunk.blockentities(),
+            [
+                (
+                    [33, 64, 34],
+                    Blockdaten::Banner(vec![
+                        (muster("minecraft:stripe_top"), "red".to_string()),
+                        (
+                            Muster::Asset("beispiel:welle".to_string()),
+                            "blue".to_string()
+                        ),
+                        (muster("cross"), "lime".to_string()),
+                    ])
+                ),
+                (
+                    [40, 64, 47],
+                    Blockdaten::Krug(items(&[
+                        "minecraft:brick",
+                        "angler_pottery_sherd",
+                        "beispiel:scherbe",
+                        "minecraft:heart_pottery_sherd",
+                    ]))
+                ),
+                (
+                    [37, 70, 45],
+                    Blockdaten::Banner(vec![(muster("cross"), "red".to_string())])
+                ),
+            ]
         );
     }
 }

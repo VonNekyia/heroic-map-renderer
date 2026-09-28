@@ -51,6 +51,8 @@ pub struct ChunkNbt {
     #[serde(rename = "Status")]
     pub status: String,
     pub sections: Vec<SectionNbt>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub block_entities: Vec<fastnbt::Value>,
 }
 
 #[derive(Serialize)]
@@ -117,14 +119,43 @@ pub fn packed(entries: &[usize], bits: u32) -> fastnbt::LongArray {
 }
 
 pub fn chunk_nbt(cx: i32, cz: i32, status: &str, sections: Vec<SectionNbt>) -> Vec<u8> {
+    chunk_nbt_mit(cx, cz, status, sections, Vec::new())
+}
+
+/// Wie `chunk_nbt`, dazu diese Einträge in `block_entities`.
+pub fn chunk_nbt_mit(
+    cx: i32,
+    cz: i32,
+    status: &str,
+    sections: Vec<SectionNbt>,
+    block_entities: Vec<fastnbt::Value>,
+) -> Vec<u8> {
     fastnbt::to_bytes(&ChunkNbt {
         data_version: 4903,
         x_pos: cx,
         z_pos: cz,
         status: status.to_string(),
         sections,
+        block_entities,
     })
     .expect("NBT serialisieren")
+}
+
+/// Ein Eintrag in `block_entities` mit Kennung, Lage und einem Feld.
+pub fn blockentity(
+    id: &str,
+    [x, y, z]: [i32; 3],
+    feld: &str,
+    wert: fastnbt::Value,
+) -> fastnbt::Value {
+    use fastnbt::Value;
+    Value::Compound(HashMap::from([
+        ("id".to_string(), Value::String(id.to_string())),
+        ("x".to_string(), Value::Int(x)),
+        ("y".to_string(), Value::Int(y)),
+        ("z".to_string(), Value::Int(z)),
+        (feld.to_string(), wert),
+    ]))
 }
 
 /// Wo der Seed liegt, seit 26.1. Die Datei trägt mehr, der Renderer liest
@@ -209,6 +240,26 @@ pub fn write_world_in(
         block,
         |cx, _, cz| biome(cx, cz),
         |_, _| FULL,
+        |_, _| Vec::new(),
+    )
+}
+
+/// Wie `write_world`, dazu je Chunk seine Einträge in `block_entities`:
+/// `entities(cx, cz)`.
+pub fn write_world_entities(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    entities: impl Fn(i32, i32) -> Vec<fastnbt::Value>,
+) -> PathBuf {
+    write_region(
+        dir,
+        chunks,
+        0..=0,
+        block,
+        |_, _, _| None,
+        |_, _| FULL,
+        entities,
     )
 }
 
@@ -228,6 +279,7 @@ pub fn write_world_sections(
         block,
         |cx, _, cz| biome(cx, cz),
         |_, _| FULL,
+        |_, _| Vec::new(),
     )
 }
 
@@ -240,7 +292,15 @@ pub fn write_world_biomes(
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i8, i32) -> Option<&'static str>,
 ) -> PathBuf {
-    write_region(dir, chunks, sections, block, biome, |_, _| FULL)
+    write_region(
+        dir,
+        chunks,
+        sections,
+        block,
+        biome,
+        |_, _| FULL,
+        |_, _| Vec::new(),
+    )
 }
 
 /// Status eines fertig erzeugten Chunks. Den schreiben alle Bauhilfen ausser
@@ -256,7 +316,15 @@ pub fn write_world_status(
     block: impl Fn(i32, i32, i32) -> &'static str,
     status: impl Fn(i32, i32) -> &'static str,
 ) -> PathBuf {
-    write_region(dir, chunks, sections, block, |_, _, _| None, status)
+    write_region(
+        dir,
+        chunks,
+        sections,
+        block,
+        |_, _, _| None,
+        status,
+        |_, _| Vec::new(),
+    )
 }
 
 fn write_region(
@@ -266,6 +334,7 @@ fn write_region(
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i8, i32) -> Option<&'static str>,
     status: impl Fn(i32, i32) -> &'static str,
+    entities: impl Fn(i32, i32) -> Vec<fastnbt::Value>,
 ) -> PathBuf {
     let region_dir = dir.join("region");
     std::fs::create_dir_all(&region_dir).expect("region-Verzeichnis");
@@ -281,7 +350,7 @@ fn write_region(
             "Chunk ({cx}, {cz}) liegt nicht in Region ({rx}, {rz})"
         );
 
-        let payload = chunk_nbt(
+        let payload = chunk_nbt_mit(
             cx,
             cz,
             status(cx, cz),
@@ -290,6 +359,7 @@ fn write_region(
                 .into_iter()
                 .map(|sy| section(cx, cz, sy, &block, biome(cx, sy, cz)))
                 .collect(),
+            entities(cx, cz),
         );
         let mut record = Vec::new();
         record.extend_from_slice(&(payload.len() as u32 + 1).to_be_bytes());

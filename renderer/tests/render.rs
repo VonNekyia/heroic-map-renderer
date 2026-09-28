@@ -151,10 +151,15 @@ fn mehrachsige_rotation_wird_gerastert() {
     assert!(gedeckt > 0, "das gedrehte Element muss sichtbar sein");
 }
 
+/// Ein Modell ohne Elemente ergibt kein Sprite. Eine Truhe hat eines,
+/// obwohl ihr Blockmodell keine Elemente hat: Ihr Bild kommt aus ihrem
+/// Blockentity.
 #[test]
 fn modell_ohne_elemente_ergibt_kein_sprite() {
     let mut assets = assets();
-    assert!(sprite(&mut assets, "chest", 16).is_none());
+    assert!(sprite(&mut assets, "nur_partikel", 16).is_none());
+    let truhe = "minecraft:chest[facing=north,type=single,waterlogged=false]";
+    assert!(sprite(&mut assets, truhe, 16).is_some());
 }
 
 /// Zwei Läufe müssen dasselbe Bild erzeugen, sonst ist eine Zoom-Pyramide
@@ -246,6 +251,7 @@ fn unsinnig_grosse_modelle_werden_uebersprungen() {
             shade: true,
             force_translucent: false,
             fluid: None,
+            entity: None,
         }],
         ambient_occlusion: false,
     };
@@ -635,6 +641,7 @@ fn flaeche(z: f32, von: f32, bis: f32, texture: TextureId) -> Quad {
         shade: true,
         force_translucent: false,
         fluid: None,
+        entity: None,
     }
 }
 

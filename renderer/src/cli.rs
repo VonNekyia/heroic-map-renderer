@@ -14,7 +14,7 @@ use clap::{Parser, ValueEnum};
 
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
-use terranova_render::assets::{Assets, blockstate, fluid, model_of};
+use terranova_render::assets::{Assets, blockentity, blockstate, fluid, model_of};
 use terranova_render::render::gpu::Worker;
 use terranova_render::render::heights::{self, Heights, RegionHeights};
 use terranova_render::render::pyramid;
@@ -25,7 +25,7 @@ use terranova_render::render::{
     render_area_with, streifenbreite, survey, world_box,
 };
 use terranova_render::world::biomzoom::{obfuscate_seed, zoom};
-use terranova_render::world::{BlockState, REGION, World};
+use terranova_render::world::{BlockState, Blockdaten, REGION, World};
 
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
 /// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
@@ -44,8 +44,9 @@ pub struct Args {
     assets: Vec<PathBuf>,
 
     /// Datenwurzel mit Biomdefinitionen unter <namespace>/worldgen/biome,
-    /// für die Färbung von Gras, Laub und Wasser; mehrfach angebbar,
-    /// spätere überschreiben frühere
+    /// für die Färbung von Gras, Laub und Wasser, und Bannermustern unter
+    /// <namespace>/banner_pattern; mehrfach angebbar, spätere überschreiben
+    /// frühere
     #[arg(long = "data", value_name = "DIR")]
     data: Vec<PathBuf>,
 
@@ -241,7 +242,11 @@ pub fn run() -> Result<()> {
             );
             for dir in &args.data {
                 let biomes = assets.load_biomes(dir)?;
-                println!("            {biomes} Biome aus {}", dir.display());
+                let muster = assets.load_banner_patterns(dir)?;
+                println!(
+                    "            {biomes} Biome, {muster} Bannermuster aus {}",
+                    dir.display()
+                );
             }
             let kaputt = assets.colors().broken_biomes();
             if !kaputt.is_empty() {
@@ -488,10 +493,16 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
             println!("      {texture}");
         }
         // Wasser, Lava und Blasensäule haben kein Modell-JSON und trotzdem
-        // ein Bild. Eine geflutete Truhe dagegen zeichnet Minecraft als
-        // Entity, auf der Karte steht dort nur ihr Wasser.
-        if variant.model.is_empty() && !fluid::is_block(state) {
-            println!("      (kein Modell — wird von Minecraft als Entity gezeichnet)");
+        // ein Bild, Truhen und Banner eines aus ihrem Blockentity.
+        if variant.model.is_empty() && !fluid::is_block(state) && blockentity::bild(state).is_none()
+        {
+            println!("      (kein Modell — auf der Karte leer)");
+        }
+    }
+    if let Some((flaechen, texturen)) = blockentity::beschreibung(state) {
+        println!("  Blockentity: {flaechen} Flächen");
+        for textur in texturen {
+            println!("      {textur}");
         }
     }
     // Wasser und Lava haben kein Modell-JSON; der Renderer baut sie im
@@ -627,8 +638,10 @@ fn render_world(
     // Derselbe Vorlauf wie beim Kachelexport, nur über den Ausschnitt.
     let survey = survey(world, projection, Y_RANGE, Some(rect))?;
     let mut sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
+    let unbekannt = sprites.add_entities(assets, &survey.entities)?;
     sprites.set_biomes(biomfarben(world, assets, blend)?);
     warn_unknown_biomes(assets, &survey.biomes);
+    melde_unbekannte_daten(&unbekannt);
     println!(
         "\nRender:     {} Chunks gelesen, {} Blockstates, {} Sprites",
         survey.chunks,
@@ -754,6 +767,18 @@ fn biomfarben(world: &World, assets: &Assets, blend: u8) -> Result<BiomeTable> {
 
 /// Biome der Welt, für die keine Definition geladen ist. Sie bekommen die
 /// Farben von `plains` — das soll niemand erst auf der Karte bemerken.
+/// Was an den Daten der Blockentities unbekannt ist: Lagen eines Banners,
+/// die das Spiel beim Laden verwirft, siehe [`SpriteSet::add_entities`].
+fn melde_unbekannte_daten(unbekannt: &BTreeSet<String>) {
+    if !unbekannt.is_empty() {
+        println!(
+            "            {} Unbekanntes in Bannern, die Lagen fehlen wie im Spiel:",
+            unbekannt.len()
+        );
+        print_list(unbekannt.iter());
+    }
+}
+
 fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
     let known: HashSet<&str> = assets.colors().biomes().collect();
     let unknown: Vec<&str> = biomes
@@ -881,6 +906,7 @@ fn write_tiles(
 
     let biomes = biomfarben(world, assets, blend)?;
     let mut sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
+    let unbekannt = sprites.add_entities(assets, &survey.entities)?;
     sprites.set_biomes(biomes.clone());
     println!(
         "            {} Sprites bei scale {}, davon {} Fassungen",
@@ -889,6 +915,7 @@ fn write_tiles(
         sprites.variants()
     );
     warn_unknown_biomes(assets, &survey.biomes);
+    melde_unbekannte_daten(&unbekannt);
     melde_ueberhang(&sprites);
 
     // Vor map.json, die sie nennt: wer den Baum schon während des Laufs
@@ -1031,6 +1058,7 @@ fn write_tiles(
         world,
         assets,
         &survey.states,
+        &survey.entities,
         &biomes,
         projection,
         dir,
@@ -1980,6 +2008,7 @@ fn render_coarser(
     world: &World,
     assets: &mut Assets,
     states: &BTreeSet<BlockState>,
+    entities: &BTreeSet<(BlockState, Blockdaten)>,
     biomes: &BiomeTable,
     projection: Projection,
     dir: &Path,
@@ -2000,6 +2029,8 @@ fn render_coarser(
         scale /= 2;
         let started = Instant::now();
         let mut sprites = SpriteSet::build_in(assets, states, Projection::new(scale))?;
+        // Was unbekannt ist, hat die Basis schon gemeldet.
+        sprites.add_entities(assets, entities)?;
         sprites.set_biomes(biomes.clone());
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
@@ -2573,6 +2604,8 @@ fn scan(
 ) -> Result<()> {
     let started = Instant::now();
     let (mut chunks, mut unfertig, mut errors) = (0u64, 0u64, 0u64);
+    let (mut banner, mut kruege) = (0u64, 0u64);
+    let mut verschiedene: BTreeSet<(BlockState, Blockdaten)> = BTreeSet::new();
     let mut states: BTreeSet<BlockState> = BTreeSet::new();
 
     for &(rx, rz) in regions {
@@ -2590,6 +2623,15 @@ fn scan(
                         }
                         for section in chunk.sections() {
                             states.extend(section.blocks().palette().iter().cloned());
+                        }
+                        for ([x, y, z], daten) in chunk.blockentities() {
+                            match daten {
+                                Blockdaten::Banner(_) => banner += 1,
+                                Blockdaten::Krug(_) => kruege += 1,
+                            }
+                            if let Some(state) = chunk.block_at(*x, *y, *z) {
+                                verschiedene.insert((state.clone(), daten.clone()));
+                            }
                         }
                     }
                     Ok(None) => {}
@@ -2615,6 +2657,10 @@ fn scan(
         );
     }
     println!("            {} verschiedene Blockstates", states.len());
+    println!(
+        "            {banner} Banner mit Mustern, {kruege} Krüge mit Scherben, {} verschiedene samt Block",
+        verschiedene.len()
+    );
 
     let Some(assets) = assets else {
         return Ok(());
@@ -2626,7 +2672,10 @@ fn scan(
     for state in &states {
         match assets.variants(state) {
             Ok(variants) => {
-                if variants.iter().all(|v| v.model.is_empty()) && !fluid::is_block(state) {
+                if variants.iter().all(|v| v.model.is_empty())
+                    && !fluid::is_block(state)
+                    && blockentity::bild(state).is_none()
+                {
                     leer.insert(state.name());
                 }
             }
@@ -2646,8 +2695,9 @@ fn scan(
             .map(|(state, error)| format!("{state}: {error}")),
     );
 
-    // Blöcke, die Minecraft über Entity-Modelle zeichnet. V1 kennt die nicht,
-    // sie bleiben auf der Karte leer.
+    // Was weder ein Modell noch ein Bild aus seinem Blockentity hat, bleibt
+    // auf der Karte leer.
+    // Siehe docs/renderer/blockentities.md, „Was fehlt“.
     println!("            {} Blöcke ohne Modell:", leer.len());
     for name in &leer {
         println!("            {name}");

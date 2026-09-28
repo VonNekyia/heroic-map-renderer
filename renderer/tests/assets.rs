@@ -151,9 +151,9 @@ fn flaechendaten_werden_uebernommen() {
     );
 }
 
-/// Truhen, Banner und Schilder haben in 26.2 ein Modell ohne Elemente, nur
-/// mit Partikeltextur. Minecraft zeichnet sie über Entity-Modelle; hier
-/// bleiben sie leer.
+/// Truhen und Banner haben in 26.2 ein Blockmodell ohne Elemente, nur mit
+/// Partikeltextur; ihr Bild kommt aus dem Blockentity, siehe
+/// `assets::blockentity`. Das Modell selbst bleibt leer.
 #[test]
 fn modell_ohne_elemente_bleibt_leer() {
     let mut assets = base();

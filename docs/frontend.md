@@ -132,8 +132,9 @@ Die Tests: [Tests](entwicklung/tests.md).
   Würfel unter dessen Oberkante, obwohl dort Luft oder Wasser ist. Er hält
   dann um so viele Würfel zu früh, wie ihm noch bis zu dem Block fehlen,
   den das Bild zeigt; drei Würfel sind etwa ein Block in jeder Achse, auch
-  in X und Z. Unter Laub sind es meist wenige, unter Eis und überhängendem
-  Gelände bis zu Hunderten. Wie oft das vorkommt:
+  in X und Z. Daneben liegen X und Z dann immer zu gross, nie zu klein.
+  Unter Laub sind es meist wenige, unter Eis und überhängendem Gelände bis
+  zu Hunderten. Wie oft das vorkommt, auch nur für X und Z:
   [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md), „Überhänge“.
 - **Nicht volle Blöcke** zählen wie ein voller Würfel. Das Spiel zielt auf
   ihren Umriss; wer knapp neben eine Blume zeigt, bekommt hier die Blume.

@@ -12,6 +12,7 @@ use rayon::prelude::*;
 
 use crate::world::{BlockState, Chunk, REGION, World};
 
+use super::heights::{Heights, RegionHeights};
 use super::{BLEED_BLOCKS, Projection, ScreenRect};
 
 /// Kantenlänge einer Kachel in Pixeln. 256 ist, was Leaflet ohne
@@ -143,11 +144,16 @@ pub struct Survey {
     pub biomes: BTreeSet<String>,
     /// Chunks, die gelesen wurden.
     pub chunks: usize,
+    /// Die Höhen jeder Region, von der der Lauf Chunks liest, siehe
+    /// [`super::heights`].
+    // ponytail: hält die Höhen aller Regionen bis zum Schreiben, 32 KiB je
+    // Region, bei 2500 Regionen 80 MiB. Wird das zu viel, gepackt halten
+    // (ein Sechstel) oder jede Region schon im Vorlauf schreiben.
+    pub heights: Vec<RegionHeights>,
 }
 
 /// Welche Chunks der Vorlauf liest: die, deren Spalte über die ganze
-/// Welthöhe den Ausschnitt berührt; ohne Ausschnitt alle. Die Höhen lesen
-/// dieselben, siehe [`super::heights`].
+/// Welthöhe den Ausschnitt berührt; ohne Ausschnitt alle.
 #[derive(Clone, Copy)]
 pub struct Reach {
     projection: Projection,
@@ -188,7 +194,7 @@ impl Reach {
     /// Wo die Blöcke eines gelesenen Chunks landen. Nur von Chunks im
     /// Ausschnitt sammelt der Vorlauf die Blockstates; nur deren kennt die
     /// Sprite-Tabelle alle.
-    pub fn content(&self, chunk: &Chunk) -> Content {
+    fn content(&self, chunk: &Chunk) -> Content {
         // Nur Sections, in denen etwas steht. Die leeren ober- und
         // unterhalb des Geländes machen sonst jede Spalte so hoch wie die
         // ganze Welt.
@@ -212,7 +218,7 @@ impl Reach {
 }
 
 /// Was ein Chunk im Ausschnitt eines Laufs zeigt, siehe [`Reach::content`].
-pub enum Content {
+enum Content {
     /// Keine Section, in der etwas steht.
     Empty,
     /// Seine Blöcke landen ausserhalb des Ausschnitts.
@@ -222,8 +228,8 @@ pub enum Content {
     Inside(ScreenRect),
 }
 
-/// Liest jeden Chunk einmal und sammelt beides ein: welche Blockstates
-/// vorkommen und welche Kacheln überhaupt etwas zeigen.
+/// Liest jeden Chunk einmal und sammelt ein, welche Blockstates vorkommen,
+/// welche Kacheln überhaupt etwas zeigen und die Höhen je Region.
 ///
 /// `bounds` schränkt auf einen Bildausschnitt ein; ohne Angabe ist es die
 /// ganze Welt. Der Renderlauf liest die Chunks danach ein zweites Mal.
@@ -251,6 +257,7 @@ pub fn survey(
         survey.states.extend(teil.states);
         survey.biomes.extend(teil.biomes);
         survey.chunks += teil.chunks;
+        survey.heights.extend(teil.heights);
     }
     survey.tiles = tiles.into_iter().collect();
     Ok(survey)
@@ -266,6 +273,8 @@ fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey
     let mut biomes: HashSet<String> = HashSet::new();
 
     let mut tiles = BTreeSet::new();
+    let mut hoehen = Heights::default();
+    let mut gelesen = vec![false; (REGION * REGION) as usize];
     for local_z in 0..REGION {
         for local_x in 0..REGION {
             let (cx, cz) = (rx * REGION + local_x, rz * REGION + local_z);
@@ -274,10 +283,14 @@ fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey
             if !reach.chunk(cx, cz) {
                 continue;
             }
+            gelesen[(local_z * REGION + local_x) as usize] = true;
             let Some(chunk) = region.chunk(cx, cz)? else {
                 continue;
             };
             survey.chunks += 1;
+            // Die Höhen hängen nicht an der Sprite-Tabelle: auch ein Chunk,
+            // dessen Blöcke ausserhalb landen, bekommt seine.
+            hoehen.record(&chunk);
 
             // Erst ausschliessen, dann Paletten sammeln. Sonst verlangt ein
             // kleiner Ausschnitt die Assets für jeden Block der Region, und
@@ -306,6 +319,14 @@ fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey
     survey.biomes = biomes.into_iter().collect();
     survey.states = states.into_iter().collect();
     survey.tiles = tiles.into_iter().collect();
+    if gelesen.contains(&true) {
+        survey.heights.push(RegionHeights {
+            x: rx,
+            z: rz,
+            heights: hoehen,
+            read: gelesen,
+        });
+    }
     Ok(survey)
 }
 

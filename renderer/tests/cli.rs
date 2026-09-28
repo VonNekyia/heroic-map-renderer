@@ -1933,16 +1933,18 @@ fn map_json_beschreibt_die_kacheln() {
 }
 
 /// Ein Export schreibt je Region die Höhen und nennt sie in `map.json`,
-/// samt dem Höhenbereich, den der Renderer zeichnet. Es zählt der oberste
-/// Block mit Sprite, Wasser nicht und eine Truhe nicht; eine Spalte ohne
-/// solchen Block und ein Chunk, den es nicht gibt, sind leer.
+/// samt Zellgrösse und dem Höhenbereich, den der Renderer zeichnet. Je 4×4
+/// Spalten zählt der obere Median der obersten Blöcke, die nicht Luft sind,
+/// Wasser und Truhen also mit; eine Zelle ohne Block und ein Chunk, den es
+/// nicht gibt, sind leer.
 #[test]
 fn export_schreibt_hoehen() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
         (8, 0..=4, 8) => "minecraft:einfarbig",
         (8, 5..=9, 8) => "minecraft:water",
-        (9, 7, 8) => "minecraft:chest",
+        (9, 7, 8) | (13, 7, 8) => "minecraft:chest",
+        (0, 3..=6, 0) => "minecraft:water",
         _ => "minecraft:air",
     });
     let out = tempdir();
@@ -1951,27 +1953,30 @@ fn export_schreibt_hoehen() {
     let text = std::fs::read_to_string(out.path().join("map.json")).unwrap();
     let info: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(info["heights"], "heights/{x}.{z}.bin");
+    assert_eq!(info["heightsCell"], 4);
     assert_eq!(info["minY"], -64);
     assert_eq!(info["maxY"], 319);
     assert_eq!(hoehen(out.path()), ["heights/0.0.bin"]);
     let hoehe = hoehen_von(out.path(), 0, 0);
-    assert_eq!(hoehe.get(8, 8), 4);
-    assert_eq!(hoehe.get(9, 8), EMPTY, "nur eine Truhe");
-    assert_eq!(hoehe.get(40, 40), EMPTY, "Chunk (2, 2) fehlt");
+    assert_eq!(hoehe.get(2, 2), 9, "Wasser 9 und Truhe 7, der obere Median");
+    assert_eq!(hoehe.get(3, 2), 7, "nur eine Truhe");
+    assert_eq!(hoehe.get(0, 0), 6, "nur Wasser");
+    assert_eq!(hoehe.get(1, 1), EMPTY, "ohne Block");
+    assert_eq!(hoehe.get(10, 10), EMPTY, "Chunk (2, 2) fehlt");
 }
 
-/// Ein Ausschnitt schreibt die Höhen der Chunks neu, deren Blöcke in ihm
-/// landen können. Die übrigen behalten ihre, wie ihre Kacheln: Chunk (4, 4)
-/// liegt im schrägen Band des Ausschnitts, sein Block landet aber weit
-/// darunter, und seinen Blockstate kennt die Sprite-Tabelle des Ausschnitts
-/// nicht. Zwischen den Läufen sind beide Blöcke höher gestiegen.
+/// Ein Ausschnitt schreibt die Höhen der Chunks neu, die er liest: die im
+/// schrägen Band seiner Kacheln, auch Chunk (4, 4), dessen Block weit unter
+/// dem Ausschnitt landet. Chunk (20, 0) liegt ausserhalb des Bands und
+/// behält seine. Zwischen den Läufen sind alle Blöcke höher gestiegen.
 #[test]
 fn ausschnitt_behaelt_die_hoehen_daneben() {
     let welt = |oben: i32| {
         let dir = tempdir();
-        common::write_world(dir.path(), &[(0, 0), (4, 4)], move |x, y, z| match (x, z) {
+        let chunks = [(0, 0), (4, 4), (20, 0)];
+        common::write_world(dir.path(), &chunks, move |x, y, z| match (x, z) {
             (8, 8) if y == oben => "minecraft:einfarbig",
-            (72, 72) if y == oben => "minecraft:blauwuerfel",
+            (72, 72) | (328, 8) if y == oben => "minecraft:blauwuerfel",
             _ => "minecraft:air",
         });
         dir
@@ -1980,19 +1985,20 @@ fn ausschnitt_behaelt_die_hoehen_daneben() {
     let schalter = ["--scale", "16", "--native-levels", "0"];
     let baum = tempdir();
     gelungen(&tiles(alt.path(), baum.path(), &schalter));
-    assert_eq!(hoehen_von(baum.path(), 0, 0).get(72, 72), 4);
+    assert_eq!(hoehen_von(baum.path(), 0, 0).get(82, 2), 4);
 
     let ausschnitt = [&schalter[..], &["--center", "8", "8", "--size", "4"]].concat();
     gelungen(&tiles(neu.path(), baum.path(), &ausschnitt));
     let hoehe = hoehen_von(baum.path(), 0, 0);
-    assert_eq!(hoehe.get(8, 8), 9, "im Ausschnitt neu");
-    assert_eq!(hoehe.get(72, 72), 4, "daneben wie vorher");
+    assert_eq!(hoehe.get(2, 2), 9, "im Ausschnitt neu");
+    assert_eq!(hoehe.get(18, 18), 9, "im Band neu");
+    assert_eq!(hoehe.get(82, 2), 4, "ausserhalb wie vorher");
 }
 
 /// `--heights` schreibt in einen Baum ohne Höhen, etwa aus einem älteren
 /// Stand, dieselben Höhen und Felder wie ein Export, ohne eine Kachel
-/// anzufassen. Wie ein Export nur in einen Baum dieser Welt, und nur in
-/// einen Baum.
+/// anzufassen und ohne Assets. Wie ein Export nur in einen Baum dieser
+/// Welt, und nur in einen Baum.
 #[test]
 fn heights_traegt_hoehen_nach() {
     let welt = tempdir();
@@ -2006,7 +2012,7 @@ fn heights_traegt_hoehen_nach() {
     let karte = out.path().join("map.json");
     let mut info: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
-    for feld in ["heights", "minY", "maxY"] {
+    for feld in ["heights", "heightsCell", "minY", "maxY"] {
         info.as_object_mut().unwrap().remove(feld).expect(feld);
     }
     std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
@@ -2015,8 +2021,6 @@ fn heights_traegt_hoehen_nach() {
         cli(&[
             OsStr::new("--world"),
             welt.as_os_str(),
-            OsStr::new("--assets"),
-            assets_ref(),
             OsStr::new("--heights"),
             dir.as_os_str(),
         ])
@@ -2041,18 +2045,15 @@ fn heights_traegt_hoehen_nach() {
     assert!(schnappschuss(leer.path()).is_empty(), "etwas geschrieben");
 }
 
-/// `--heights` braucht Welt und Assets und schreibt nicht neben einem
-/// Export in dasselbe Verzeichnis.
+/// `--heights` braucht die Welt und schreibt nicht neben einem Export in
+/// dasselbe Verzeichnis.
 #[test]
-fn heights_braucht_welt_und_assets() {
+fn heights_braucht_die_welt() {
     let out = tempdir();
     let ausgabe = cli(&[OsStr::new("--heights"), out.path().as_os_str()]);
     assert!(!ausgabe.status.success());
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
-    assert!(
-        meldung.contains("--heights braucht --world und --assets"),
-        "{meldung}"
-    );
+    assert!(meldung.contains("--heights braucht --world"), "{meldung}");
 
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
@@ -2088,7 +2089,7 @@ fn prune_entfernt_die_hoehen_ohne_regionsdatei() {
     let beide = ["heights/-1.0.bin", "heights/0.0.bin"];
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
     assert_eq!(hoehen(baum.path()), beide);
-    assert_eq!(hoehen_von(baum.path(), -1, 0).get(504, 8), 4);
+    assert_eq!(hoehen_von(baum.path(), -1, 0).get(126, 2), 4);
     gelungen(&tiles(neu.path(), baum.path(), &["--scale", "16"]));
     assert_eq!(hoehen(baum.path()), beide, "ohne --prune entfernt");
     // Ein Ausschnitt weit rechts läse nichts aus der Region links und lässt

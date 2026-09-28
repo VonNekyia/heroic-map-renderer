@@ -4,6 +4,7 @@ description: Die Felder von map.json, wann der Export die Datei schreibt, die H�
 code:
   - renderer/src/render/pyramid.rs
   - renderer/src/render/heights.rs
+  - renderer/src/world/chunk.rs
   - renderer/src/cli.rs
   - renderer/tests/fixtures/projektion.json
   - web/src/main.ts
@@ -33,6 +34,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
   "biomeBlend": 2,
   "world": "cb13a94d6c88dae1-6872d5d8ff54db07",
   "heights": "heights/{x}.{z}.bin",
+  "heightsCell": 4,
   "minY": -64,
   "maxY": 319
 }
@@ -49,6 +51,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `biomeBlend` | Radius der Mischung der Biomfarben, `--biome-blend` | „Radius der Mischung“ unten |
 | `world` | Kennung der Welt und Dimension, oder `null` | [Welten und Kennung](welten.md) |
 | `heights` | Pfadmuster der Höhen je Region; fehlt es, hat der Baum keine | „Höhen“ unten |
+| `heightsCell` | Kantenlänge einer Zelle der Höhen in Blöcken, heute 4; steht mit `heights` | „Höhen“ unten |
 | `minY`, `maxY` | unterster und oberster Block, den der Renderer zeichnet; stehen mit `heights` | „Höhen“ unten |
 
 Die Projektion selbst steht nicht drin: sie hängt allein an `scale`, die
@@ -61,82 +64,59 @@ Modell daran.
 
 ## Höhen
 
-Das Frontend soll unter Maus und Finger die Koordinaten des Blocks zeigen,
-wie das Spiel. Ein Pixel der Karte zeigt aber jeden Würfel auf seinem
-Strahl entlang der Blickachse (1, 1, 1), und welcher es ist, verrät das
-Bild nicht. Das Frontend geht den Strahl deshalb von vorn nach hinten ab,
-mit fallendem x + y + z. Der erste Würfel, dessen y höchstens die Höhe
-seiner Spalte ist, ist der Treffer. Die Höhen dafür liefert der Renderer:
+Das Frontend zeigt unter Maus und Finger die Koordinaten des Blocks, siehe
+[Frontend](../frontend.md). Dafür braucht es je Zelle eine Höhe. Die
+liefert der Renderer:
 
 - **Datei:** je Region `heights/{x}.{z}.bin` neben den Kacheln, x und z
   wie in `r.x.z.mca`. Darin steht ein zlib-Strom nach RFC 1950, im Browser
   zu entpacken mit `DecompressionStream('deflate')`.
-- **Inhalt:** 512 × 512 Werte, je i16 little-endian, zeilenweise nach z.
-  Die Spalte (x, z) steht an (z − 512·rz)·512 + (x − 512·rx).
-- **Wert:** das y des obersten Blocks zwischen `minY` und `maxY`, der ein
-  Sprite bekommt und nicht nur Flüssigkeit ist; −32768, wenn es keinen
-  gibt oder der Chunk fehlt.
-  - Luft, Licht, Barrieren und Blöcke ohne Geometrie wie Truhen zählen
-    nicht, ebenso Blöcke, von denen die Kamera keine Fläche sieht, etwa
-    Feuer.
-  - Wasser, Lava und Blasensäulen zählen nicht, eine geflutete Truhe auch
-    nicht: von ihr zeichnet der Renderer nur das Wasser.
-  - Laub, Blumen und geflutete Blöcke mit Modell zählen, ein gefluteter
-    Zaun also mit seinem Pfosten.
+- **Inhalt:** 128 × 128 Werte, je i16 little-endian, zeilenweise nach z. Ein
+  Wert gilt für eine Zelle aus `heightsCell` × `heightsCell` Blockspalten,
+  heute 4 × 4. Die Spalte (x, z) liegt in der Zelle an
+  ⌊(z − 512·rz)/4⌋·128 + ⌊(x − 512·rx)/4⌋.
+- **Wert:** je Zelle der obere Median der obersten Blöcke ihrer Spalten, die
+  nicht Luft sind. Die Höhen der Spalten mit Block werden aufsteigend
+  sortiert, und es gilt der Wert an der Stelle Anzahl/2, von 0 an gezählt:
+  bei 16 Spalten der neunte, bei 3 der zweite. Spalten ohne Block zählen
+  nicht mit; hat keine einen Block oder fehlt der Chunk, steht −32768 da.
+  - Jeder Block ausser Luft zählt: Wasser und Lava, Laub und Truhen, auch
+    Blöcke, die der Renderer nicht zeichnet, wie Barrieren und Licht.
+  - Über Wasser nennt die Anzeige deshalb die Oberfläche, nicht den Grund.
+- **Quelle:** die Heightmap `WORLD_SURFACE`, die das Spiel ab dem Status
+  `carvers` in jedem Chunk speichert, je Spalte das y über dem obersten
+  Block, der nicht Luft ist (Client 26.2, per javap). Der Vorlauf liest sie
+  mit, `Chunk::surface` in
+  [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs). Fehlt
+  sie einem Chunk, rechnet er sie aus den Blöcken, die er ohnehin
+  dekodiert. Warum aus ihr, warum je 4×4 und warum über Wasser die
+  Oberfläche: [0036](../entscheidungen/0036-hoehen-aus-der-heightmap.md).
 
-Das Spiel zielt genauso durch Flüssigkeiten hindurch. Am Client 26.2 per
-javap: `LocalPlayer.pick(Entity, double, double, float)` ruft
-`Entity.pick(d, f, false)` auf, und das baut
-`ClipContext(…, Block.OUTLINE, Fluid.NONE, …)`.
-
-Die Höhen entstehen in einem eigenen Durchgang durch die Welt, nach der
-Sprite-Tabelle: erst sie weiss, welcher Block ein Sprite bekommt, und sie
-entsteht aus dem Vorlauf. Geschrieben werden sie vor der ersten `map.json`
-eines Laufs, ein Frontend, das dem Render zusieht, findet sie also mit der
-ersten Kachel. Welcher Lauf welche Höhen schreibt:
+Geschrieben werden die Höhen vor der ersten `map.json` eines Laufs; ein
+Frontend, das dem Render zusieht, findet sie also mit der ersten Kachel.
+Welcher Lauf welche Höhen schreibt:
 
 - **Ein Export über die ganze Welt** schreibt jede Region neu.
 - **Ein Ausschnitt** schreibt die Chunks im schrägen Band seiner Kacheln
-  neu, deren Blöcke im Ausschnitt landen können. Ein Chunk, den es dort
-  nicht gibt, wird leer. Die übrigen Chunks einer Region behalten ihre
-  Höhen, wie ihre Kacheln: von einem Chunk, dessen Blöcke ausserhalb
-  landen, kennt die Sprite-Tabelle des Ausschnitts nicht jeden Block.
+  neu, die er liest, auch die, deren Blöcke daneben landen. Ein Chunk, den
+  es dort nicht gibt, wird leer. Die übrigen Chunks einer Region behalten
+  ihre Höhen, wie ihre Kacheln.
 - **`--heights DIR`** schreibt Höhen und Felder in einen bestehenden Baum,
   ohne zu rendern, etwa in einen aus einem Stand ohne Höhen. Der Aufruf
-  liest die ganze Welt, braucht `--world` und `--assets`, nimmt den scale
-  aus `map.json` und prüft wie ein Export, ob die Welt zum Baum gehört.
+  liest die ganze Welt, braucht nur `--world`, nimmt den scale aus
+  `map.json` und prüft wie ein Export, ob die Welt zum Baum gehört.
 - **`--resume`** schreibt die Höhen neu wie ein Export.
 - **`--pyramid`** lässt Höhen und Felder stehen.
 - **`--prune`** entfernt am Ende des Laufs die Höhen von Regionen ohne
   Regionsdatei, soweit der Lauf sie läse, wie die Kacheln ohne Chunk. Ohne
   den Schalter bleiben sie stehen.
-- **Unfertige Chunks** liest der Durchgang wie das Rendern.
+- **Unfertige Chunks** liest der Vorlauf wie das Rendern.
 
 Was die Höhen an Platz und Zeit kosten, steht in
 [Was ein Lauf kostet](kosten.md), „Dauer“.
 
-Was eine Näherung bleibt:
-
-- **Überhänge:** Die Datei kennt je Spalte nur den obersten Block. Läuft der
-  Strahl unter einem Überhang hindurch, hält er beim ersten Würfel unter
-  dessen Oberkante, obwohl dort Luft oder Wasser ist. Er hält dann um so
-  viele Würfel zu früh, wie ihm noch bis zu dem Block fehlen, den das Bild
-  zeigt; drei Würfel sind etwa ein Block in jeder Achse. Unter Laub sind es
-  meist wenige, unter Eis und überhängendem Gelände bis zu Hunderten. Wie
-  oft das vorkommt: [2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md),
-  „Überhänge“.
-- **Nicht volle Blöcke** zählen wie ein voller Würfel. Das Spiel zielt auf
-  ihren Umriss.
-- **Blöcke ohne Sprite** fehlen: Truhen, Banner und Schädel, und Blöcke, von
-  denen die Kamera keine Fläche sieht, etwa Feuer. Der Strahl trifft dann,
-  was darunter liegt.
-
-Verworfen ist ein Puffer je Basiskachel, der je Pixel den Block nennt. Er
-wäre exakt, kostete aber eine Datei mehr je Basiskachel, auf einer Welt
-mit 2,5 Millionen Kacheln also 2,5 Millionen Dateien und geschätzt 5 bis
-15 GB. Aus der Deckungsmaske fällt er auch nicht ab: sie speichert je Pixel
-nur ein Bit, und das setzen nur deckende Pixel. Wie das Frontend den
-Strahl abgeht, steht bei ihm, siehe [Frontend](../frontend.md).
+Wie das Frontend den Strahl abgeht, was dabei eine Näherung bleibt und
+warum kein Puffer je Pixel, steht bei ihm, siehe [Frontend](../frontend.md).
 
 ## Radius der Mischung
 

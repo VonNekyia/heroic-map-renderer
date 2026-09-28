@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 
-use image::{Rgba, RgbaImage};
+use image::RgbaImage;
 use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
@@ -79,11 +79,9 @@ pub fn merge(parent: TileId, children: &[(TileId, RgbaImage)]) -> RgbaImage {
             parent,
             "{child:?} gehört nicht zu {parent:?}"
         );
+        assert_eq!(image.dimensions(), (TILE, TILE), "{child:?}");
         let (qx, qy) = child.quadrant();
-        let klein = shrink(image);
-        for (x, y, pixel) in klein.enumerate_pixels() {
-            out.put_pixel(qx * half + x, qy * half + y, *pixel);
-        }
+        halbiere(image, &mut out, qx * half, qy * half);
     }
     out
 }
@@ -93,34 +91,50 @@ pub fn merge(parent: TileId, children: &[(TileId, RgbaImage)]) -> RgbaImage {
 /// Siehe docs/benutzung/zoomstufen.md, „Verkleinern“.
 pub fn shrink(image: &RgbaImage) -> RgbaImage {
     let mut out = RgbaImage::new(image.width() / 2, image.height() / 2);
-    for (x, y, ziel) in out.enumerate_pixels_mut() {
-        let mut farbe = [0.0f32; 3];
-        let mut alpha = 0u32;
-        for dy in 0..2 {
-            for dx in 0..2 {
-                let pixel = image.get_pixel(2 * x + dx, 2 * y + dy).0;
+    halbiere(image, &mut out, 0, 0);
+    out
+}
+
+/// Schreibt `image` auf die halbe Kantenlänge verkleinert nach `ziel`, die
+/// linke obere Ecke auf (`x0`, `y0`), direkt über die Bytes.
+fn halbiere(image: &RgbaImage, ziel: &mut RgbaImage, x0: u32, y0: u32) {
+    let (breite, hoehe) = (image.width() as usize / 2, image.height() as usize / 2);
+    let (zeile, ziel_zeile) = (4 * image.width() as usize, 4 * ziel.width() as usize);
+    let quelle = image.as_raw();
+    let ziel: &mut [u8] = ziel;
+    let linear = &*LINEAR;
+    for y in 0..hoehe {
+        let (oben, _) = quelle[2 * y * zeile..][..8 * breite].as_chunks::<4>();
+        let (unten, _) = quelle[(2 * y + 1) * zeile..][..8 * breite].as_chunks::<4>();
+        let anfang = (y0 as usize + y) * ziel_zeile + 4 * x0 as usize;
+        let (raus, _) = ziel[anfang..][..4 * breite].as_chunks_mut::<4>();
+        for (x, raus) in raus.iter_mut().enumerate() {
+            let mut farbe = [0.0f32; 3];
+            let mut alpha = 0u32;
+            // Links oben, rechts oben, links unten, rechts unten: Die
+            // Reihenfolge legt die Rundung der Summen fest, bis aufs Bit.
+            for pixel in [oben[2 * x], oben[2 * x + 1], unten[2 * x], unten[2 * x + 1]] {
                 let a = pixel[3] as u32;
                 alpha += a;
                 for (summe, &wert) in farbe.iter_mut().zip(&pixel[..3]) {
-                    *summe += LINEAR[wert as usize] * a as f32;
+                    *summe += linear[wert as usize] * a as f32;
                 }
             }
+            // Ohne Deckung gibt es keine Farbe zu mitteln, und das Pixel ist
+            // ohnehin durchsichtig.
+            if alpha == 0 {
+                *raus = [0; 4];
+                continue;
+            }
+            let mittel = |summe: f32| to_srgb(summe / alpha as f32);
+            *raus = [
+                mittel(farbe[0]),
+                mittel(farbe[1]),
+                mittel(farbe[2]),
+                alpha.div_ceil(4) as u8,
+            ];
         }
-        // Ohne Deckung gibt es keine Farbe zu mitteln, und das Pixel ist
-        // ohnehin durchsichtig.
-        if alpha == 0 {
-            *ziel = Rgba([0, 0, 0, 0]);
-            continue;
-        }
-        let mittel = |summe: f32| to_srgb(summe / alpha as f32);
-        *ziel = Rgba([
-            mittel(farbe[0]),
-            mittel(farbe[1]),
-            mittel(farbe[2]),
-            alpha.div_ceil(4) as u8,
-        ]);
     }
-    out
 }
 
 /// sRGB-Wert nach linearem Licht, als Tabelle: die Pyramide läuft über
@@ -137,12 +151,34 @@ pub(crate) static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
 });
 
 /// Lineares Licht zurück nach sRGB: statt `powf` je Aufruf eine Tabelle der
-/// 255 Schwellen, ab denen der gerundete sRGB-Wert um eins steigt;
-/// `partition_point` zählt, wie viele davon unter dem Wert liegen.
+/// 255 Schwellen, ab denen der gerundete sRGB-Wert um eins steigt. Gezählt
+/// wird, wie viele davon höchstens beim Wert liegen: [`EIMER`] gibt den
+/// Anfang, ein oder zwei Vergleiche den Rest.
 /// Siehe docs/benutzung/zoomstufen.md, „Verkleinern“.
 pub(crate) fn to_srgb(linear: f32) -> u8 {
-    SRGB_STEPS.partition_point(|&step| step <= linear) as u8
+    // Unter jeder Schwelle: NaN, 0 und alles darunter.
+    if linear.is_nan() || linear <= 0.0 {
+        return 0;
+    }
+    // Die höchste Schwelle liegt unter 1.
+    if linear >= 1.0 {
+        return 255;
+    }
+    let mut n = EIMER[(linear.to_bits() >> 16) as usize] as usize;
+    while n < SRGB_STEPS.len() && SRGB_STEPS[n] <= linear {
+        n += 1;
+    }
+    n as u8
 }
+
+/// Je Eimer der oberen 16 Bits eines f32 aus (0, 1): wie viele Schwellen
+/// höchstens beim kleinsten Wert des Eimers liegen.
+static EIMER: LazyLock<[u8; (1.0f32.to_bits() >> 16) as usize]> = LazyLock::new(|| {
+    std::array::from_fn(|eimer| {
+        let kleinster = f32::from_bits((eimer as u32) << 16);
+        SRGB_STEPS.partition_point(|&step| step <= kleinster) as u8
+    })
+});
 
 /// Die sRGB-Kurve mit Rundung, wie sie vor der Tabelle je Kanal lief.
 fn srgb_curve(linear: f32) -> u8 {
@@ -337,6 +373,8 @@ fn siphash24(key: [u64; 2], message: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::Rgba;
+    use rayon::prelude::*;
 
     fn menge(tiles: &[(i32, i32)]) -> BTreeSet<TileId> {
         tiles.iter().map(|&(x, y)| TileId { x, y }).collect()
@@ -452,6 +490,105 @@ mod tests {
         }
     }
 
+    /// Die Binärsuche über die Schwellen, wie `to_srgb` vor den Eimern
+    /// zählte.
+    fn binaersuche(linear: f32) -> u8 {
+        SRGB_STEPS.partition_point(|&step| step <= linear) as u8
+    }
+
+    /// Die Eimer zählen wie die Binärsuche, an jedem f32 von 0 bis 1 und an
+    /// den Rändern: Verkleinert wird aus Mitteln von Werten in [0, 1].
+    #[test]
+    #[cfg_attr(
+        debug_assertions,
+        ignore = "eine Milliarde Werte, im Debug-Build zu langsam; läuft in Release"
+    )]
+    fn eimer_zaehlen_wie_die_binaersuche() {
+        (0..=1.0f32.to_bits()).into_par_iter().for_each(|bits| {
+            let x = f32::from_bits(bits);
+            assert_eq!(to_srgb(x), binaersuche(x), "bei {x} ({bits:#x})");
+        });
+        let raender = [-0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
+        for x in raender.into_iter().chain([1.0f32.next_up(), 2.0, f32::MAX]) {
+            assert_eq!(to_srgb(x), binaersuche(x), "bei {x}");
+        }
+    }
+
+    /// Über die Bytes wie früher über `get_pixel`: dieselben Summen in
+    /// derselben Reihenfolge, Bit für Bit, an Kindern aus Zufallspixeln mit
+    /// Alpha 0, 255 und dazwischen.
+    #[test]
+    fn zusammensetzen_wie_ueber_die_pixel() {
+        let wie_frueher = |bild: &RgbaImage| {
+            RgbaImage::from_fn(bild.width() / 2, bild.height() / 2, |x, y| {
+                let mut farbe = [0.0f32; 3];
+                let mut alpha = 0u32;
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        let pixel = bild.get_pixel(2 * x + dx, 2 * y + dy).0;
+                        let a = pixel[3] as u32;
+                        alpha += a;
+                        for (summe, &wert) in farbe.iter_mut().zip(&pixel[..3]) {
+                            *summe += LINEAR[wert as usize] * a as f32;
+                        }
+                    }
+                }
+                if alpha == 0 {
+                    return Rgba([0; 4]);
+                }
+                let m = |summe: f32| binaersuche(summe / alpha as f32);
+                Rgba([
+                    m(farbe[0]),
+                    m(farbe[1]),
+                    m(farbe[2]),
+                    alpha.div_ceil(4) as u8,
+                ])
+            })
+        };
+        // xorshift: reproduzierbar ohne weitere Abhängigkeit.
+        let mut zustand = 0x2545_f491_4f6c_dd1d_u64;
+        let mut zufall = move || {
+            zustand ^= zustand << 13;
+            zustand ^= zustand >> 7;
+            zustand ^= zustand << 17;
+            zustand as u8
+        };
+        let eltern = TileId { x: 3, y: -2 };
+        let kinder: Vec<(TileId, RgbaImage)> = eltern
+            .children()
+            .into_iter()
+            .map(|kind| {
+                let bild = RgbaImage::from_fn(TILE, TILE, |_, _| {
+                    let alpha = match zufall() % 4 {
+                        0 => 0,
+                        1 => 255,
+                        _ => zufall(),
+                    };
+                    Rgba([zufall(), zufall(), zufall(), alpha])
+                });
+                (kind, bild)
+            })
+            .collect();
+
+        let bild = merge(eltern, &kinder);
+        let half = TILE / 2;
+        for (kind, kinderbild) in &kinder {
+            let (qx, qy) = kind.quadrant();
+            let klein = wie_frueher(kinderbild);
+            assert_eq!(shrink(kinderbild), klein, "{kind:?}");
+            for (x, y, pixel) in klein.enumerate_pixels() {
+                assert_eq!(
+                    bild.get_pixel(qx * half + x, qy * half + y),
+                    pixel,
+                    "{kind:?} bei ({x}, {y})"
+                );
+            }
+        }
+        let ungerade =
+            RgbaImage::from_fn(7, 5, |_, _| Rgba([zufall(), zufall(), zufall(), zufall()]));
+        assert_eq!(shrink(&ungerade), wie_frueher(&ungerade), "ungerade Kanten");
+    }
+
     /// Halb Schwarz, halb Weiss: in linearem Licht gemittelt ist das
     /// deutlich heller als der sRGB-Mittelwert 128.
     #[test]
@@ -461,6 +598,21 @@ mod tests {
         bild.put_pixel(1, 1, Rgba([255, 255, 255, 255]));
         let p = shrink(&bild).get_pixel(0, 0).0;
         assert_eq!(p, [188, 188, 188, 255]);
+    }
+
+    /// Vier Pixel, bei denen jede andere Reihenfolge der Summen in f32 ein
+    /// anderes Byte ergibt: links oben, rechts oben, links unten, rechts
+    /// unten, wie früher `get_pixel` Zeile für Zeile. Gefunden unter
+    /// Zufallspixeln; eine Reihenfolge mit demselben ersten Paar rechnet
+    /// gleich.
+    #[test]
+    fn verkleinern_summiert_in_fester_reihenfolge() {
+        let mut bild = RgbaImage::new(2, 2);
+        bild.put_pixel(0, 0, Rgba([118, 93, 107, 255]));
+        bild.put_pixel(1, 0, Rgba([76, 22, 14, 255]));
+        bild.put_pixel(0, 1, Rgba([96, 25, 202, 255]));
+        bild.put_pixel(1, 1, Rgba([82, 213, 225, 255]));
+        assert_eq!(shrink(&bild).get_pixel(0, 0).0, [95, 123, 165, 255]);
     }
 
     #[test]

@@ -36,6 +36,16 @@ die 255 Schwellen, ab denen der gerundete sRGB-Wert um eins steigt. Den
 Rückweg ruft auch der Rasterizer, je Kanal und Pixel, bei scale 32 rund
 dreizehn Millionen Mal je Sprite-Tabelle.
 
+Wie viele Schwellen höchstens bei einem Wert liegen, zählt `to_srgb` ohne
+Binärsuche. Eine zweite Tabelle über die oberen 16 Bits des f32, 16 256
+Byte, nennt je Eimer die Zahl bei seinem kleinsten Wert; ein oder zwei
+Vergleiche mit denselben Schwellen geben den Rest. Das zählt an jedem f32
+von 0 bis 1 wie die Binärsuche, das prüft der Test
+`eimer_zaehlen_wie_die_binaersuche`. Eine kleinere Tabelle, zwischen deren
+Einträgen interpoliert wird, genügt nicht: Eine verbreitete mit 104
+Einträgen weicht bei 547 620 der 1 065 353 217 Werte von 0 bis 1 um eine
+Stufe ab, gemessen für #38, und die Kacheln wären nicht mehr byte-gleich.
+
 ## Nummerierung
 
 Die Nummerierung hängt an der **Welt**, nicht am Ausschnitt: `maxZoom` kommt

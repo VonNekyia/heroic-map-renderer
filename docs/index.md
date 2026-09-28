@@ -40,7 +40,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Frontend
 
-- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom.
+- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger.
 
 ## Entwicklung
 
@@ -86,6 +86,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0032](entscheidungen/0032-weiche-beleuchtung-zuerst-fuer-volle-wuerfel.md): Weiche Beleuchtung zuerst nur für volle Würfel.
 - [0033](entscheidungen/0033-toenung-beim-zeichnen.md): Tönung beim Zeichnen statt Fassungen je Biom.
 - [0034](entscheidungen/0034-eigene-lizenz.md): Eigene Lizenz: nutzen ja, verkaufen und übernehmen nein.
+- [0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md): Koordinaten aus Höhenkarten.
 
 ## Messungen
 

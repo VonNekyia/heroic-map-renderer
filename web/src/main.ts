@@ -1,5 +1,6 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { pick, REGION, region, strahl, umriss, type Block } from './pick';
 import './style.css';
 
 /** Was `map.json` aus dem Renderer mitbringt. */
@@ -10,7 +11,15 @@ interface MapInfo {
   maxZoom: number;
   tiles: string;
   bounds: [number, number, number, number];
+  /** Pfadmuster der Höhenkarten je Region; ohne sie keine Koordinaten. */
+  heights?: string;
+  /** Der Bereich in Y, in dem jeder gezeichnete Block liegt. */
+  minY?: number;
+  maxY?: number;
 }
+
+/** In einer Höhenkarte: kein Block, auf den das Spiel zielt, oder kein Chunk. */
+const LEER = -32768;
 
 /**
  * Wie viele Stufen über die feinste gerenderte hinaus gezoomt werden darf.
@@ -83,13 +92,134 @@ function isMapInfo(value: unknown): value is MapInfo {
   const info = value as Record<string, unknown>;
   return (
     typeof info.tileSize === 'number' &&
+    typeof info.scale === 'number' &&
     typeof info.minZoom === 'number' &&
     typeof info.maxZoom === 'number' &&
     typeof info.tiles === 'string' &&
     Array.isArray(info.bounds) &&
     info.bounds.length === 4 &&
-    info.bounds.every((n) => typeof n === 'number')
+    info.bounds.every((n) => typeof n === 'number') &&
+    (info.heights === undefined ||
+      (typeof info.heights === 'string' &&
+        typeof info.minY === 'number' &&
+        typeof info.maxY === 'number'))
   );
+}
+
+/** Eine Höhenkarte: zlib, darin 512 × 512 i16 little-endian. */
+async function ladeKarte(path: string): Promise<Int16Array | null> {
+  const response = await fetch(path);
+  // Keine Datei heisst kein Chunk. Ein Server, der auf unbekannte Pfade die
+  // index.html ausliefert, meint dasselbe.
+  if (response.status === 404 || response.headers.get('content-type')?.startsWith('text/html')) {
+    return null;
+  }
+  if (!response.ok || response.body === null) {
+    throw new Error(`${path}: ${response.status} ${response.statusText}`);
+  }
+  const daten = await new Response(
+    response.body.pipeThrough(new DecompressionStream('deflate')),
+  ).arrayBuffer();
+  if (daten.byteLength !== REGION * REGION * 2) {
+    throw new Error(`${path}: ${daten.byteLength} Byte statt ${REGION * REGION * 2}`);
+  }
+  // ponytail: liest in der Byte-Reihenfolge der Maschine, also nur auf
+  // little-endian richtig; auf big-endian bräuchte es eine DataView.
+  return new Int16Array(daten);
+}
+
+/**
+ * Die Höhenkarten der Regionen, je Spalte das Y des obersten Blocks, auf
+ * den das Spiel zielt. Siehe docs/benutzung/map-json.md.
+ */
+function hoehen(base: string, muster: string) {
+  const karten = new Map<string, Int16Array | null>();
+  const unterwegs = new Map<string, Promise<void>>();
+
+  const ladeRegion = (rx: number, rz: number): Promise<void> => {
+    const name = `${rx}.${rz}`;
+    if (karten.has(name)) return Promise.resolve();
+    let laden = unterwegs.get(name);
+    if (laden === undefined) {
+      const path = `${base}/${muster.replace('{x}', String(rx)).replace('{z}', String(rz))}`;
+      laden = ladeKarte(path)
+        .catch((error: unknown) => {
+          console.error(error);
+          return null;
+        })
+        .then((karte) => {
+          unterwegs.delete(name);
+          karten.set(name, karte);
+          // ponytail: verdrängt die älteste statt der am längsten
+          // ungenutzten; eine verdrängte kommt aus dem HTTP-Cache wieder.
+          if (karten.size > 64) karten.delete(karten.keys().next().value!);
+        });
+      unterwegs.set(name, laden);
+    }
+    return laden;
+  };
+
+  return {
+    /** Lädt die Karten aller Regionen, durch deren Spalten die Würfel gehen. */
+    lade: async (bloecke: readonly Block[]): Promise<void> => {
+      const regionen = new Map<string, [number, number]>();
+      for (const [x, , z] of bloecke) {
+        const { rx, rz } = region(x, z);
+        regionen.set(`${rx}.${rz}`, [rx, rz]);
+      }
+      await Promise.all([...regionen.values()].map(([rx, rz]) => ladeRegion(rx, rz)));
+    },
+    /** Das Y des obersten Blocks der Spalte, `undefined` für leer oder nicht geladen. */
+    hoehe: (x: number, z: number): number | undefined => {
+      const { rx, rz, i } = region(x, z);
+      const wert = karten.get(`${rx}.${rz}`)?.[i];
+      return wert === undefined || wert === LEER ? undefined : wert;
+    },
+  };
+}
+
+/**
+ * Koordinaten und Umriss des Blocks unter Maus oder Finger, so wie das
+ * Spiel zielt. Siehe docs/frontend.md, „Koordinaten“.
+ */
+function koordinaten(
+  map: L.Map,
+  base: string,
+  { scale, heights, minY, maxY }: Required<Pick<MapInfo, 'scale' | 'heights' | 'minY' | 'maxY'>>,
+): void {
+  const karten = hoehen(base, heights);
+  const anzeige = L.DomUtil.create('div', 'koordinaten');
+  const control = new L.Control({ position: 'bottomleft' });
+  control.onAdd = () => anzeige;
+  control.addTo(map);
+  // Wie der Auswahlrahmen im Spiel.
+  const rahmen = L.polyline([], { color: '#000', weight: 2, opacity: 0.8, interactive: false });
+  rahmen.addTo(map);
+
+  const zeige = (block: Block | undefined): void => {
+    anzeige.textContent = block ? `X ${block[0]}  Y ${block[1]}  Z ${block[2]}` : 'X –  Y –  Z –';
+    rahmen.setLatLngs(
+      block ? umriss(block, scale).map((linie) => linie.map(([x, y]) => point(x, y))) : [],
+    );
+  };
+  // Lädt eine Bewegung noch Höhen, kann eine spätere vor ihr fertig sein.
+  // Es gilt die letzte.
+  let zuletzt = 0;
+  const ziele = async (event: L.LeafletMouseEvent): Promise<void> => {
+    const nummer = ++zuletzt;
+    const bloecke = strahl(event.latlng.lng, event.latlng.lat, scale, minY, maxY);
+    await karten.lade(bloecke);
+    if (nummer === zuletzt) zeige(pick(bloecke, karten.hoehe));
+  };
+
+  zeige(undefined);
+  map.on('mousemove', (event) => void ziele(event));
+  // Auf dem Touchscreen kommt ein Tippen als click.
+  map.on('click', (event) => void ziele(event));
+  map.on('mouseout', () => {
+    zuletzt++;
+    zeige(undefined);
+  });
 }
 
 /**
@@ -137,6 +267,11 @@ async function start(): Promise<void> {
     bounds,
     noWrap: true,
   }).addTo(map);
+
+  const { heights, minY, maxY } = info;
+  if (heights !== undefined && minY !== undefined && maxY !== undefined) {
+    koordinaten(map, base, { scale: info.scale, heights, minY, maxY });
+  }
 
   map.fitBounds(bounds);
 }

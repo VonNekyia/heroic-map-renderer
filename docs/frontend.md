@@ -1,8 +1,9 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt und warum es nicht mehr tut.
 code:
   - web/src/main.ts
+  - web/src/pick.ts
   - web/src/style.css
   - web/index.html
   - web/vite.config.ts
@@ -16,7 +17,8 @@ Das Frontend ist eine Seite mit Vite, TypeScript und Leaflet
 ([`web/src/main.ts`](../web/src/main.ts)). Es liest `map.json`, baut daraus
 ein Koordinatensystem, in dem eine Karteneinheit ein Pixel der feinsten
 Stufe ist, und zeigt die fertigen Kacheln: keine Marker, keine Spieler, kein
-Zustand. Der Browser bekommt fertige Bilder und ein Koordinatensystem.
+Zustand. Der Browser bekommt fertige Bilder und ein Koordinatensystem, dazu
+die Höhen, aus denen er die Koordinaten unter Maus und Finger rechnet.
 
 ![Frontend](bilder/frontend.png)
 
@@ -85,6 +87,33 @@ Kacheln anzufragen, die es nicht gibt. Innerhalb der Grenzen sind einzelne
 404 möglich: der Vorlauf kennt nur die Hüllkästen der Blockspalten. Leaflet
 lässt solche Kacheln leer.
 
+## Koordinaten
+
+Unten links steht, auf welchen Block das Spiel an der Stelle unter Maus
+oder Finger zielen würde, `X 35  Y 5  Z -15`. Dazu zeichnet die Karte
+seinen Umriss wie den Auswahlrahmen im Spiel. Die Maus zeigt ihn beim
+Darüberfahren, auf dem Touchscreen zeigt ihn ein Tippen. Wie im Spiel zielt
+die Anzeige durch Wasser hindurch auf den Block darunter. Ohne `heights`
+in `map.json` gibt es keine Anzeige, denn falsche Koordinaten wären
+schlechter als keine.
+
+Ein Bildpunkt allein verrät den Block nicht: Die Projektion wirft die
+Blickachse (1, 1, 1) auf einen Punkt, siehe [Die Kamera](renderer/kamera.md).
+[`web/src/pick.ts`](../web/src/pick.ts) geht deshalb den Strahl durch die
+Mitte des Pixels ab, wo auch der Renderer abtastet:
+
+1. `strahl` zählt die Würfel von vorn nach hinten auf, von `maxY` bis
+   `minY`, je Schicht drei.
+2. `pick` nimmt den ersten, dessen Spalte bis zu ihm hinauf gefüllt ist:
+   `y` ≤ Höhe der Spalte.
+3. Die Höhe steht je Spalte in den Höhenkarten des Renderers, eine Datei je
+   Region, siehe [map.json](benutzung/map-json.md). Das Frontend lädt nur
+   die Regionen, durch die ein Strahl geht, und hält höchstens 64 davon,
+   32 MiB.
+
+Warum Höhenkarten und keine feste Höhe, siehe
+[0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md).
+
 ## Prüfen
 
 ```bash
@@ -98,6 +127,10 @@ Die Tests: [Tests](entwicklung/tests.md).
 
 ## Was bleibt eine Näherung
 
-- **Keine Koordinatenanzeige.** Vom Bildpunkt zurück auf eine
-  Blockkoordinate zu rechnen ist nicht eindeutig: die Projektion wirft
-  `(x, y, z)` auf zwei Bildachsen, man müsste eine Höhe annehmen.
+- **Überhänge.** Die Höhenkarte kennt je Spalte nur den obersten Block.
+  Unter Baumkronen und Dachtraufen liegt der Treffer deshalb 1 bis 4
+  Blöcke zu weit vorn.
+- **Nicht volle Blöcke** zählen wie ein voller Würfel. Das Spiel zielt auf
+  ihren Umriss; wer knapp neben eine Blume zeigt, bekommt hier die Blume.
+- **Blöcke ohne Sprite,** etwa Truhen, Banner und Schädel, fehlen in der
+  Höhenkarte. Der Strahl trifft dann den Block darunter oder dahinter.

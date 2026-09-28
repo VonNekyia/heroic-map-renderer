@@ -60,6 +60,8 @@ Treffer. Siehe [Frontend](../frontend.md), „Koordinaten“, und
 - Unter Überhängen liegt der Treffer 1 bis 4 Blöcke zu weit vorn, siehe
   [Frontend](../frontend.md), „Was bleibt eine Näherung“.
 - Das Frontend rechnet die Projektion rückwärts, sie steht damit an zwei
-  Stellen. Sein Test prüft deshalb jeden Bildpunkt eines kleinen Geländes
-  gegen das, was das Zeichnen dort hinterlässt.
+  Stellen. Sein Test prüft deshalb seine Formel an
+  `renderer/tests/fixtures/projektion.json`, die ein Test des Renderers
+  aktuell hält, und damit jeden Bildpunkt eines kleinen Geländes gegen
+  das, was das Zeichnen dort hinterlässt.
 - Ein Baum ohne Höhen zeigt keine Koordinaten, bis ein Export sie schreibt.

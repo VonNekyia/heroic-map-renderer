@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { pick, region, strahl, umriss, type Block } from '../src/pick';
 
 type Punkt = [number, number];
@@ -7,6 +8,18 @@ type Punkt = [number, number];
 function projiziere(x: number, y: number, z: number, scale: number): Punkt {
   return [((x - z) * scale) / 2, ((x + z) * scale) / 4 - (y * scale) / 2];
 }
+
+test('die Projektion rechnet wie der Renderer', () => {
+  // Paare aus Projection::project_block, aktuell gehalten von einem Test
+  // des Renderers.
+  const paare = JSON.parse(
+    readFileSync(new URL('../../renderer/tests/fixtures/projektion.json', import.meta.url), 'utf8'),
+  ) as { scale: number; block: Block; pixel: Punkt }[];
+  expect(paare.length).toBeGreaterThan(0);
+  for (const { scale, block, pixel } of paare) {
+    expect(projiziere(...block, scale), `scale ${scale}, Block ${String(block)}`).toEqual(pixel);
+  }
+});
 
 /** Der Umriss eines Würfels, im Uhrzeigersinn auf dem Bildschirm. */
 function sechseck([x, y, z]: Block, scale: number): Punkt[] {
@@ -40,7 +53,7 @@ function gelaende(): Map<string, number> {
   return hoehen;
 }
 
-for (const scale of [12, 16, 32]) {
+for (const scale of [4, 12, 16, 32]) {
   test(`jeder Bildpunkt zeigt den Block, den das Zeichnen dort hinterlässt, scale ${scale}`, () => {
     const hoehen = gelaende();
     const hoehe = (x: number, z: number) => hoehen.get(`${x},${z}`);

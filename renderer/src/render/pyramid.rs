@@ -218,6 +218,9 @@ pub struct MapInfo {
     /// [`super::heights`]. Fehlt das Feld, hat der Baum keine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heights: Option<String>,
+    /// Kantenlänge einer Zelle der Höhen in Blöcken; steht mit `heights`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heights_cell: Option<u32>,
     /// Unterster Block, den der Renderer zeichnet; steht mit `heights`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_y: Option<i32>,
@@ -252,6 +255,7 @@ impl MapInfo {
             biome_blend: None,
             world: None,
             heights: None,
+            heights_cell: None,
             min_y: None,
             max_y: None,
         }

@@ -118,8 +118,8 @@ gut eine Viertelstunde. Mehr als ein Lauf in einem Stück kostet das
 Fortsetzen nach einem Abbruch in der Basis trotzdem nur die zwei Minuten:
 Native Stufen und Pyramide hätte der Lauf ohnehin noch gebaut. Lag der
 Abbruch später, baut es beide noch einmal. Die Höhen schreibt er vor der
-ersten Kachel neu wie jeder Export; das kostet einen Durchgang durch die
-Welt, siehe [map.json](map-json.md), „Höhen“.
+ersten Kachel neu wie jeder Export, aus seinem Vorlauf, siehe
+[map.json](map-json.md), „Höhen“.
 
 ## Wann `--resume` nicht reicht
 

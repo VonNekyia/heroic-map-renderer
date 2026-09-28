@@ -73,10 +73,10 @@ scale 16 samt seinen Stufen über dieselbe Fläche. Die Sprite-Tabellen aller
 weniger, bei scale 32 rund 2 statt 3 s; der Vorlauf für die ganze Welt 5 bis
 11 s.
 
-Die Höhen für die Koordinatenanzeige kosten einen weiteren Durchgang durch
-die Welt, etwa so lang wie der Vorlauf: auf der Testwelt 5 s und 27 MB, auf
-der grossen Welt knapp eine Minute und 249 MB, jeweils gut 1 % der Dauer
-eines Exports. Gemessen in
+Die Höhen für die Koordinatenanzeige liest der Vorlauf mit; einen eigenen
+Durchgang brauchen sie nicht, und messbar länger wird er dadurch nicht.
+Geschrieben sind sie auf der Testwelt in 0,2 s, 1,8 MB, auf der grossen
+Welt in gut einer Sekunde, 13,8 MB. Gemessen in
 [2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md).
 
 Unter Windows hängt die Dauer stark am Echtzeitschutz, siehe

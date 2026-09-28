@@ -34,4 +34,5 @@ unten. Siehe [Frontend](../frontend.md), „Das Koordinatensystem“.
 - Über der feinsten Stufe sind zwei weitere Zoomstufen erlaubt; dort
   vergrössert Leaflet die vorhandenen Kacheln (`maxNativeZoom`).
 - Eine Koordinatenanzeige gibt es nicht: vom Bildpunkt zurück auf eine
-  Blockkoordinate zu rechnen verlangte eine angenommene Höhe.
+  Blockkoordinate zu rechnen verlangte eine angenommene Höhe. Seit
+  [0035](0035-koordinaten-aus-hoehenkarten.md) liefert der Renderer die Höhe.

@@ -32,9 +32,9 @@ davon unterscheiden, landen auf demselben Pixel.
 
 `Projection::project_block` bildet die Ecke (x, y, z) eines Blocks ab, die
 mit den kleinsten Koordinaten. Für die Koordinatenanzeige rechnet das
-Frontend dieselbe Formel nach, siehe [map.json](../benutzung/map-json.md),
-„Höhen“. Damit beide gleich rechnen, stehen je scale einige Blöcke samt
-Bildpunkt in
+Frontend dieselbe Formel rückwärts, siehe
+[Frontend](../frontend.md), „Koordinaten“. Damit beide gleich rechnen,
+stehen je scale einige Blöcke samt Bildpunkt in
 [`renderer/tests/fixtures/projektion.json`](../../renderer/tests/fixtures/projektion.json),
 auch negative und welche bei 2²⁴. Ein Test des Renderers schlägt an, wenn
 die Datei veraltet ist, und schreibt sie mit

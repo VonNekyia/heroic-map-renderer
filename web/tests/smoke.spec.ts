@@ -1,7 +1,40 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { deflateSync } from 'node:zlib';
 
 /** Ein kleiner Kachelbaum, der mit im Repository liegt. */
 const DEMO = '/?tiles=/tiles-demo';
+
+/**
+ * Höhen für den Demobaum, je 4 × 4 Spalten: eben auf Y 0, dazu eine Säule
+ * bis Y 5 in der Zelle der Spalten 32 bis 35 und -16 bis -13, in einer
+ * negativen Region. Ein falscher Platz in der Höhenkarte fiele so auf.
+ */
+async function welt(page: Page): Promise<void> {
+  await page.route('**/tiles-demo/map.json', async (route) => {
+    const response = await route.fetch();
+    const info = (await response.json()) as object;
+    await route.fulfill({
+      response,
+      json: { ...info, heights: 'heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319 },
+    });
+  });
+  await page.route('**/tiles-demo/heights/*.bin', async (route) => {
+    const karte = new Int16Array(128 * 128);
+    if (route.request().url().endsWith('/0.-1.bin')) karte[(-4 + 128) * 128 + 8] = 5;
+    await route.fulfill({ body: deflateSync(Buffer.from(karte.buffer)) });
+  });
+}
+
+/**
+ * Die Mitte eines Pixels der feinsten Stufe auf dem Bildschirm. Der
+ * Demobaum passt auf Stufe 2 ins Fenster, ein Pixel der Kachel ist dann
+ * einer des Bildschirms.
+ */
+async function bildschirm(page: Page, u: number, v: number): Promise<[number, number]> {
+  const kachel = await page.locator('img[src$="/2/0/0.webp"]').boundingBox();
+  if (!kachel) throw new Error('Kachel 2/0/0 nicht zu sehen');
+  return [kachel.x + u + 0.5, kachel.y + v + 0.5];
+}
 
 /** Die Zoomstufen, aus denen die sichtbaren Kacheln stammen. */
 async function tileZooms(page: Page): Promise<number[]> {
@@ -55,6 +88,52 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
   expect(await tileZooms(page)).not.toEqual([]);
   expect(fehler).toEqual([]);
+  // Ohne Höhen in map.json keine Koordinaten.
+  await expect(page.locator('.koordinaten')).toHaveCount(0);
+});
+
+test('unvollständige Höhen lassen die Karte stehen', async ({ page }) => {
+  await page.route('**/tiles-demo/map.json', async (route) => {
+    const response = await route.fetch();
+    const info = (await response.json()) as object;
+    // heights ohne heightsCell, etwa aus einem halben Stand.
+    await route.fulfill({ response, json: { ...info, heights: 'heights/{x}.{z}.bin' } });
+  });
+  await page.goto(DEMO);
+
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.koordinaten')).toHaveCount(0);
+});
+
+test('die Maus zeigt Koordinaten und Umriss des Blocks darunter', async ({ page }) => {
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const anzeige = page.locator('.koordinaten');
+  await expect(anzeige).toHaveText('X –  Y –  Z –');
+
+  // Die Mitte der Oberseite von (35, 5, -15) und von (40, 0, 20).
+  await page.mouse.move(...(await bildschirm(page, 400, 36)));
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+  await page.mouse.move(...(await bildschirm(page, 160, 236)));
+  await expect(anzeige).toHaveText('X 40  Y 0  Z 20');
+  // Umriss und die drei Kanten der vorderen Ecke.
+  await expect(page.locator('.leaflet-overlay-pane path')).toHaveAttribute(
+    'd',
+    /^M[^M]+M[^M]+M[^M]+$/,
+  );
+});
+
+test.describe('auf dem Touchscreen', () => {
+  test.use({ hasTouch: true });
+
+  test('ein Tippen zeigt den Block darunter', async ({ page }) => {
+    await welt(page);
+    await page.goto(DEMO);
+    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await page.touchscreen.tap(...(await bildschirm(page, 400, 36)));
+    await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
+  });
 });
 
 test('zoomen wechselt die Kachelstufe, bis es keine feinere gibt', async ({ page }) => {

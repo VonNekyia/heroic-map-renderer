@@ -94,7 +94,9 @@ Unten links steht, welcher Block unter Maus oder Finger zu sehen ist,
 Umriss wie den Auswahlrahmen im Spiel. Die Maus zeigt ihn beim
 Darüberfahren, auf dem Touchscreen zeigt ihn ein Tippen. Über Wasser nennt
 die Anzeige die Oberfläche, die man sieht; das Spiel zielt dort auf den
-Grund. Ohne `heights` in `map.json` gibt es keine Anzeige.
+Grund. Ohne `heights` in `map.json` gibt es keine Anzeige, ebenso ohne
+brauchbare `heightsCell`, `minY` und `maxY`; die Karte lädt dann trotzdem,
+und die Konsole sagt, was fehlt.
 
 Ein Bildpunkt allein verrät den Block nicht: Die Projektion wirft die
 Blickachse (1, 1, 1) auf einen Punkt, siehe [Die Kamera](renderer/kamera.md).

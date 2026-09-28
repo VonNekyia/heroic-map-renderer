@@ -92,6 +92,19 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
   await expect(page.locator('.koordinaten')).toHaveCount(0);
 });
 
+test('unvollständige Höhen lassen die Karte stehen', async ({ page }) => {
+  await page.route('**/tiles-demo/map.json', async (route) => {
+    const response = await route.fetch();
+    const info = (await response.json()) as object;
+    // heights ohne heightsCell, etwa aus einem halben Stand.
+    await route.fulfill({ response, json: { ...info, heights: 'heights/{x}.{z}.bin' } });
+  });
+  await page.goto(DEMO);
+
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.koordinaten')).toHaveCount(0);
+});
+
 test('die Maus zeigt Koordinaten und Umriss des Blocks darunter', async ({ page }) => {
   await welt(page);
   await page.goto(DEMO);

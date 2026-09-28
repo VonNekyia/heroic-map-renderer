@@ -45,8 +45,9 @@ Oberfläche zählt, entscheidet
   Block, etwa Luft unter Laub oder Wasser unter Eis. Mit ihr träfe der
   Strahl den gezeigten Würfel öfter, siehe
   [2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md), „Überhänge“. Sie
-  kostet aber mehr Daten und einen eigenen Durchgang durch die Welt, und
-  der Maintainer wollte den effizienten Weg.
+  kostet aber mehr Daten und mehr Arbeit im Vorlauf, der die Lücke aus den
+  Blöcken suchen müsste, die er ohnehin dekodiert; einen eigenen Durchgang
+  bräuchte sie nicht. Der Maintainer wollte den effizienten Weg.
 - **Die Höhen als Bild,** PNG oder WebP, das der Browser selbst dekodiert.
   Die Werte kämen dann über `getImageData` aus einem Canvas, und dort
   verrauschen Browser die Pixel gegen Fingerprinting: Brave in der

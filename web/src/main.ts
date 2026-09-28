@@ -100,15 +100,27 @@ function isMapInfo(value: unknown): value is MapInfo {
     typeof info.tiles === 'string' &&
     Array.isArray(info.bounds) &&
     info.bounds.length === 4 &&
-    info.bounds.every((n) => typeof n === 'number') &&
-    (info.heights === undefined ||
-      (typeof info.heights === 'string' &&
-        typeof info.minY === 'number' &&
-        typeof info.maxY === 'number' &&
-        typeof info.heightsCell === 'number' &&
-        Number.isInteger(info.heightsCell) &&
-        info.heightsCell > 0 &&
-        REGION % info.heightsCell === 0))
+    info.bounds.every((n) => typeof n === 'number')
+  );
+}
+
+/** Die Felder, die die Koordinaten brauchen. */
+type Hoehen = Required<Pick<MapInfo, 'heights' | 'heightsCell' | 'minY' | 'maxY'>>;
+
+/**
+ * Stehen die Felder für die Koordinaten vollständig und brauchbar da?
+ * Geprüft getrennt von `isMapInfo`: Fehlen sie, lädt die Karte trotzdem.
+ */
+function hatHoehen(info: MapInfo): info is MapInfo & Hoehen {
+  const { heights, heightsCell, minY, maxY } = info;
+  return (
+    typeof heights === 'string' &&
+    typeof minY === 'number' &&
+    typeof maxY === 'number' &&
+    typeof heightsCell === 'number' &&
+    Number.isInteger(heightsCell) &&
+    heightsCell > 0 &&
+    REGION % heightsCell === 0
   );
 }
 
@@ -280,14 +292,10 @@ async function start(): Promise<void> {
     noWrap: true,
   }).addTo(map);
 
-  const { heights, heightsCell, minY, maxY } = info;
-  if (
-    heights !== undefined &&
-    heightsCell !== undefined &&
-    minY !== undefined &&
-    maxY !== undefined
-  ) {
-    koordinaten(map, base, { scale: info.scale, heights, heightsCell, minY, maxY });
+  if (hatHoehen(info)) {
+    koordinaten(map, base, info);
+  } else if (info.heights !== undefined) {
+    console.warn(`${base}/map.json: heights ohne brauchbare heightsCell, minY und maxY`);
   }
 
   map.fitBounds(bounds);

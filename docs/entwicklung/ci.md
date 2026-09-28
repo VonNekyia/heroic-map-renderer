@@ -21,7 +21,7 @@ Dieselben Befehle lokal: [Tests](tests.md), „Laufen lassen“.
 |---|---|---|
 | Rust | Ubuntu und Windows | `cargo fmt --all --check` (nur Ubuntu), `cargo clippy --all-targets -- -D warnings`, `cargo nextest run --all-targets`, unter Ubuntu auch in Release |
 | Frontend | Ubuntu | `npm run check`, `npm run lint`, der Build mit einer Attrappe unter `public/tiles`, der Smoke-Test mit Playwright |
-| Dependencies | Ubuntu | `cargo deny check` mit [`renderer/deny.toml`](../../renderer/deny.toml) |
+| Dependencies | Ubuntu | `cargo deny check` mit [`renderer/deny.toml`](../../renderer/deny.toml); die Lizenzen der Abhängigkeiten, nicht die der eigenen Crate, siehe [0034](../entscheidungen/0034-eigene-lizenz.md) |
 | Coverage | Ubuntu | `cargo llvm-cov --all-targets` |
 | Doku | Ubuntu | `bash .github/pruefe-doku.sh`, dazu eine Probe, dass sie anschlägt |
 

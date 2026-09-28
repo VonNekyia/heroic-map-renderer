@@ -62,9 +62,9 @@ des Abrufs, dazu die Zahl, auf die es ankommt, samt ihren Bedingungen.
 6. **Vorschlagen** als Issue: Problem und Stand mit Zahl, die Kandidaten mit
    Quelle und Zahl, die eigene Messung, Empfehlung, Aufwand und Risiken.
    Der Entwurf geht zuerst an den Reviewer; veröffentlicht wird das Issue
-   erst, wenn der Reviewer ihn durchgesehen hat. Es ist öffentlich, also
-   ohne Interna
-   ([`AGENTS.md`](../../AGENTS.md), Regel 20).
+   erst, wenn der Reviewer ihn durchgesehen hat, ebenso ein Kommentar mit
+   Ergebnissen an ein bestehendes Issue. Beides ist öffentlich, also ohne
+   Interna ([`AGENTS.md`](../../AGENTS.md), Regel 20).
 7. **Übergeben.** Die Quellen wandern mit der Umsetzung in die Doku: die
    gewählte Lösung auf die Seite des Themas, die verworfenen Kandidaten
    unter „Verworfene Alternativen“ der Entscheidung, Skill

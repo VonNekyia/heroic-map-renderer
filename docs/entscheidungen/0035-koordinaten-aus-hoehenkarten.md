@@ -34,6 +34,15 @@ Treffer. Siehe [Frontend](../frontend.md), „Koordinaten“, und
 - **Eine feste Höhe annehmen, etwa Y 64.** Das braucht keine Daten vom
   Renderer. Ein Block auf Höhe Y erscheint dann aber um Y − 64 Blöcke
   versetzt, in X und in Z; auf einem Hügel bei Y 100 sind das 36 Blöcke.
+  Ein Punkt auf einem Berg nennt dann die Stelle auf Y 64 hinter ihm, die
+  das Bild verdeckt; das ist nur richtig, wo das Gelände dort auf Y 64
+  liegt.
+- **Eine zweite Lage je Spalte,** die erste Lücke unter dem obersten
+  Block, etwa Luft unter Laub oder Wasser unter Eis. Auf der Testwelt
+  träfe der Strahl damit 97,7 % statt 90,2 % der Pixel, gemessen in
+  [2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md), „Überhänge“. Sie
+  kostete zwei Werte mehr je Spalte. Der Maintainer wollte den
+  effizienten Weg: Die Anzeige ist schon genauer als eine feste Höhe.
 - **Ein Pick-Puffer je Basiskachel,** je Pixel der Würfel, den das Zeichnen
   dort hinterlässt. Er wäre auch unter Überhängen exakt, kostet aber je
   Basiskachel eine Datei mehr: auf der grossen Welt 2,5 Millionen Dateien

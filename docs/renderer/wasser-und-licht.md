@@ -194,6 +194,13 @@ Oberfläche hell.
   Wasser eine Stufe dunkler als seine Oberseite, am Ufer die Seite unter
   der Oberfläche im Licht 14, während die Oberseite trocken im Licht 15
   liegt.
+- **Ein gefluteter Block an der Oberfläche** liegt hier im Licht 15; nur
+  was im Bild hinter seiner eigenen Wasseroberfläche liegt, liegt im
+  Licht 14, siehe „Wie gezählt wird“. Im Spiel liegt ein Bild aus dem
+  Blockentity ganz im Licht seiner Zelle, 14
+  (`BlockEntityRenderState.extractBase`): Bei einer gefluteten Truhe liegt
+  der untere Teil der Seiten hier heller als der Deckel. Ein geflutetes
+  Blockmodell nimmt das Spiel je Fläche, wie im Punkt davor.
 - **Licht von der Seite nur an den zwei Stellen oben.** Wie weit es im
   Spiel unter ein Dach oder in eine Höhle fällt, eine Stufe weniger je
   Block, zählt der Renderer nicht, denn das gespeicherte Licht der Welt

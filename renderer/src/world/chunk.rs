@@ -12,8 +12,8 @@ const BLOCKS_PER_SECTION: usize = 4096;
 const BIOMES_PER_SECTION: usize = 64;
 
 /// Das rohe NBT-Layout eines Chunks — nur die Felder, die zum Rendern nötig
-/// sind. Alles andere (die übrigen Heightmaps, block_entities, Licht,
-/// structures) wird von serde verworfen.
+/// sind. Alles andere (die übrigen Heightmaps, Licht, structures) wird von
+/// serde verworfen, von `block_entities` alles ausser [`Blockdaten`].
 #[derive(Deserialize)]
 struct ChunkNbt {
     #[serde(rename = "DataVersion")]
@@ -31,6 +31,227 @@ struct ChunkNbt {
     heightmaps: HeightmapsNbt,
     #[serde(default)]
     sections: Vec<SectionNbt>,
+    #[serde(default, deserialize_with = "eintraege")]
+    block_entities: Vec<BlockEntityNbt>,
+}
+
+/// Ein Eintrag in `block_entities`, nur mit den Feldern, aus denen
+/// [`Blockdaten`] werden. Jedes darf fehlen oder von anderer Art sein: Das
+/// Spiel liest sie mit `getStringOr` und `getIntOr`.
+#[derive(Deserialize)]
+struct BlockEntityNbt {
+    id: Option<fastnbt::Value>,
+    x: Option<fastnbt::Value>,
+    y: Option<fastnbt::Value>,
+    z: Option<fastnbt::Value>,
+    patterns: Option<fastnbt::Value>,
+    sherds: Option<fastnbt::Value>,
+}
+
+/// Liest `block_entities` wie das Spiel (`getList`, `ListTag.compoundStream`
+/// in `SerializableChunkData.parse`): Ist es keine Liste, gibt es keine
+/// Einträge, und was in der Liste kein Compound ist, fällt weg.
+fn eintraege<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<BlockEntityNbt>, D::Error> {
+    use serde::de::{Error, IgnoredAny, MapAccess, SeqAccess, Visitor};
+    use std::fmt;
+
+    struct Liste;
+    impl<'de> Visitor<'de> for Liste {
+        type Value = Vec<BlockEntityNbt>;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("block_entities")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut liste: A) -> Result<Self::Value, A::Error> {
+            let mut eintraege = Vec::new();
+            while let Some(Eintrag(eintrag)) = liste.next_element()? {
+                eintraege.extend(eintrag);
+            }
+            Ok(eintraege)
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+            Ok(Vec::new())
+        }
+        fn visit_i64<E: Error>(self, _: i64) -> Result<Self::Value, E> {
+            Ok(Vec::new())
+        }
+        fn visit_f64<E: Error>(self, _: f64) -> Result<Self::Value, E> {
+            Ok(Vec::new())
+        }
+        fn visit_str<E: Error>(self, _: &str) -> Result<Self::Value, E> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Ein Element der Liste: ein Compound, sonst nichts.
+    struct Eintrag(Option<BlockEntityNbt>);
+    impl<'de> Deserialize<'de> for Eintrag {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Eintrag, D::Error> {
+            d.deserialize_any(Element)
+        }
+    }
+    struct Element;
+    impl<'de> Visitor<'de> for Element {
+        type Value = Eintrag;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("ein Blockentity")
+        }
+        fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Eintrag, A::Error> {
+            let map = serde::de::value::MapAccessDeserializer::new(map);
+            BlockEntityNbt::deserialize(map).map(|be| Eintrag(Some(be)))
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut liste: A) -> Result<Eintrag, A::Error> {
+            while liste.next_element::<IgnoredAny>()?.is_some() {}
+            Ok(Eintrag(None))
+        }
+        fn visit_i64<E: Error>(self, _: i64) -> Result<Eintrag, E> {
+            Ok(Eintrag(None))
+        }
+        fn visit_f64<E: Error>(self, _: f64) -> Result<Eintrag, E> {
+            Ok(Eintrag(None))
+        }
+        fn visit_str<E: Error>(self, _: &str) -> Result<Eintrag, E> {
+            Ok(Eintrag(None))
+        }
+    }
+
+    d.deserialize_any(Liste)
+}
+
+/// Eine Zahl wie `CompoundTag.getIntOr` mit 0 als Vorgabe: jede Zahl über
+/// `intValue`, Long mit seinen unteren 32 Bit, Float und Double abgerundet
+/// (`Mth.floor`), sonst 0.
+fn zahl(wert: &Option<fastnbt::Value>) -> i32 {
+    use fastnbt::Value;
+    match *wert {
+        Some(Value::Byte(v)) => v.into(),
+        Some(Value::Short(v)) => v.into(),
+        Some(Value::Int(v)) => v,
+        Some(Value::Long(v)) => v as i32,
+        Some(Value::Float(v)) => f64::from(v).floor() as i32,
+        Some(Value::Double(v)) => v.floor() as i32,
+        _ => 0,
+    }
+}
+
+/// Was ein Blockentity im Chunk über sein Bild sagt, soweit der Renderer es
+/// zeichnet: die Muster eines Banners, die Scherben eines Krugs.
+/// Siehe docs/renderer/blockentities.md, „Daten aus dem Chunk“.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Blockdaten {
+    /// `patterns`: je Lage das Muster und der Name des Farbstoffs.
+    Banner(Vec<(Muster, String)>),
+    /// `sherds`: die Items hinten, links, rechts und vorne, höchstens vier.
+    Krug(Vec<String>),
+}
+
+/// Das Muster einer Lage, wie `BannerPattern.CODEC` es liest: die ID eines
+/// Musters der Registry oder ein Muster mit eigenem `asset_id`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Muster {
+    Id(String),
+    Asset(String),
+}
+
+impl BlockEntityNbt {
+    /// Die Lage im Chunk wie `BlockEntity.getPosFromTag`: `getIntOr` mit 0,
+    /// x und z auf den Chunk bezogen. Liegt ein Blockentity ausserhalb,
+    /// rückt es so mit seiner Lage im Chunk in diesen.
+    fn stelle(&self) -> [i32; 3] {
+        [zahl(&self.x) & 15, zahl(&self.y), zahl(&self.z) & 15]
+    }
+
+    /// Welches der beiden Blockentities mit Daten es ist, nach seiner
+    /// Kennung wie `Identifier.bySeparator`: ohne Namensraum oder mit
+    /// leerem gilt `minecraft`. Eine Kennung, die kein Text ist, liest
+    /// `getStringOr` als leer; das Spiel überspringt den Eintrag.
+    fn art(&self) -> Option<Art> {
+        let Some(fastnbt::Value::String(id)) = &self.id else {
+            return None;
+        };
+        let pfad = match id.split_once(':') {
+            None => id.as_str(),
+            Some(("" | "minecraft", pfad)) => pfad,
+            Some(_) => return None,
+        };
+        match pfad {
+            "banner" => Some(Art::Banner),
+            "decorated_pot" => Some(Art::Krug),
+            _ => None,
+        }
+    }
+
+    /// Liest die Daten wie `BannerBlockEntity` und `DecoratedPotBlockEntity`
+    /// in 26.2: Ein Eintrag, den der Codec ablehnt, fällt heraus, die
+    /// übrigen rücken auf (`ListCodec`, `TagValueInput.read`). `None` ohne
+    /// Daten, die das Bild ändern.
+    fn daten(self, art: Art) -> Option<Blockdaten> {
+        // Eine Liste aus Werten verschiedener Art speichert das Spiel als
+        // Liste von Compounds, jeden Wert unter dem leeren Namen, und packt
+        // sie beim Lesen wieder aus (`ListTag.addAndUnwrap`).
+        let liste = |wert| match wert {
+            Some(fastnbt::Value::List(liste)) => liste
+                .into_iter()
+                .map(|wert| match wert {
+                    fastnbt::Value::Compound(mut c) if c.len() == 1 && c.contains_key("") => {
+                        c.remove("").expect("eben gefunden")
+                    }
+                    wert => wert,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let daten = match art {
+            Art::Banner => {
+                Blockdaten::Banner(liste(self.patterns).into_iter().filter_map(lage).collect())
+            }
+            Art::Krug => Blockdaten::Krug(
+                liste(self.sherds)
+                    .into_iter()
+                    .filter_map(|item| match item {
+                        fastnbt::Value::String(item) => Some(item),
+                        _ => None,
+                    })
+                    .take(4)
+                    .collect(),
+            ),
+        };
+        match &daten {
+            Blockdaten::Banner(v) if v.is_empty() => None,
+            Blockdaten::Krug(v) if v.is_empty() => None,
+            _ => Some(daten),
+        }
+    }
+}
+
+/// Die beiden Blockentities, deren Daten der Renderer liest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Art {
+    Banner,
+    Krug,
+}
+
+/// Eine Lage aus `patterns`: `pattern` als ID oder als Muster mit
+/// `asset_id` und `translation_key`, dazu `color`.
+fn lage(wert: fastnbt::Value) -> Option<(Muster, String)> {
+    use fastnbt::Value;
+    let Value::Compound(mut lage) = wert else {
+        return None;
+    };
+    let muster = match lage.remove("pattern")? {
+        Value::String(id) => Muster::Id(id),
+        Value::Compound(mut muster) => {
+            match (muster.remove("asset_id")?, muster.get("translation_key")?) {
+                (Value::String(asset), Value::String(_)) => Muster::Asset(asset),
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    let Value::String(farbe) = lage.remove("color")? else {
+        return None;
+    };
+    Some((muster, farbe))
 }
 
 #[derive(Deserialize, Default)]
@@ -121,6 +342,9 @@ pub struct Chunk {
     y_pos: Option<i32>,
     /// `WORLD_SURFACE`, wie sie im Chunk steht, siehe [`Chunk::surface`].
     world_surface: Option<Vec<i64>>,
+    /// Je Blockentity mit [`Blockdaten`] seine Lage im Chunk, siehe
+    /// [`Chunk::blockentities`].
+    blockentities: Vec<([i32; 3], Blockdaten)>,
 }
 
 impl Chunk {
@@ -136,6 +360,23 @@ impl Chunk {
         }
         sections.sort_by_key(|s| s.y);
 
+        // Nennt `block_entities` eine Stelle mehrmals, gilt wie in einem
+        // fertigen Chunk der letzte Eintrag, der zum Block passt:
+        // `postLoadChunk` legt jedes Blockentity mit `setBlockEntity` ab, und
+        // eines, das nicht zum Block passt, gibt `loadStatic` gar nicht erst
+        // zurück. Welche Art zum Block passt, entscheidet später das Bild des
+        // Blocks (`blockentity::aendert`); hier gilt der letzte je Art.
+        let mut je_stelle = BTreeMap::new();
+        for be in raw.block_entities {
+            if let Some(art) = be.art() {
+                je_stelle.insert((be.stelle(), art), be.daten(art));
+            }
+        }
+        let blockentities = je_stelle
+            .into_iter()
+            .filter_map(|((stelle, _), daten)| Some((stelle, daten?)))
+            .collect();
+
         Ok(Chunk {
             x: raw.x_pos,
             z: raw.z_pos,
@@ -147,7 +388,24 @@ impl Chunk {
                 .heightmaps
                 .world_surface
                 .map(fastnbt::LongArray::into_inner),
+            blockentities,
         })
+    }
+
+    /// Die Blockentities, deren Daten das Bild ändern, mit Weltkoordinate.
+    /// Die bildet erst die Lage des Chunks, die er am Ende hat: Einen Chunk,
+    /// der an der falschen Stelle der Regionsdatei steht, legt
+    /// [`super::Region::stored_chunk`] an seinen Platz, und seine
+    /// Blockentities kommen mit. Eine Lage ausserhalb der Zahlen, die ein
+    /// Block haben kann, gibt keine.
+    pub fn blockentities(&self) -> impl Iterator<Item = ([i32; 3], &Blockdaten)> {
+        let ursprung = self.x.checked_mul(SECTION).zip(self.z.checked_mul(SECTION));
+        self.blockentities
+            .iter()
+            .filter_map(move |&([x, y, z], ref daten)| {
+                let (x0, z0) = ursprung?;
+                Some(([x0 + x, y, z0 + z], daten))
+            })
     }
 
     /// Je Spalte, zeilenweise nach z, das y des obersten Blocks, der nicht
@@ -412,6 +670,7 @@ mod tests {
             sections: vec![luft()],
             y_pos: Some(-4),
             world_surface: Some(longs),
+            blockentities: Vec::new(),
         };
         let oben = chunk(longs.clone()).surface();
         assert_eq!(oben[0], Some(20));
@@ -421,6 +680,354 @@ mod tests {
         assert!(
             chunk(longs).surface().iter().all(Option::is_none),
             "aus den Blöcken"
+        );
+    }
+
+    /// `block_entities` wie im Spiel gelesen: Muster als ID oder mit
+    /// `asset_id`; eine Lage ohne `translation_key`, ohne `color` oder mit
+    /// einem Farbstoff, der kein Text ist, fällt heraus, die übrigen rücken
+    /// auf. Beim Krug zählen die ersten vier Items, aus einer Liste
+    /// verschiedener Werte ausgepackt. Ein Banner ohne Lagen,
+    /// eine Truhe und ein Blockentity eines anderen Namensraums tragen
+    /// nichts bei, eines ausserhalb des Chunks rückt mit seiner Lage im Chunk
+    /// hinein.
+    #[test]
+    fn blockdaten_wie_im_spiel() {
+        use fastnbt::Value;
+        let text = |text: &str| Value::String(text.to_string());
+        let compound = |felder: Vec<(&str, Value)>| {
+            Value::Compound(
+                felder
+                    .into_iter()
+                    .map(|(name, wert)| (name.to_string(), wert))
+                    .collect(),
+            )
+        };
+        let lage = |muster, farbe| compound(vec![("pattern", muster), ("color", farbe)]);
+        let be = |id: &str, [x, y, z]: [i32; 3], feld: &str, wert| {
+            compound(vec![
+                ("id", text(id)),
+                ("x", Value::Int(x)),
+                ("y", Value::Int(y)),
+                ("z", Value::Int(z)),
+                (feld, wert),
+            ])
+        };
+        let eine = || Value::List(vec![lage(text("cross"), text("red"))]);
+        let lagen = Value::List(vec![
+            lage(text("minecraft:stripe_top"), text("red")),
+            lage(
+                compound(vec![
+                    ("asset_id", text("beispiel:welle")),
+                    ("translation_key", text("beispiel.welle")),
+                ]),
+                text("blue"),
+            ),
+            lage(
+                compound(vec![("asset_id", text("beispiel:ohne"))]),
+                text("blue"),
+            ),
+            compound(vec![("pattern", text("cross"))]),
+            lage(text("cross"), Value::Int(3)),
+            lage(text("cross"), text("lime")),
+        ]);
+        // Werte verschiedener Art in einer Liste, wie das Spiel sie schreibt.
+        let gehuellt = |wert| compound(vec![("", wert)]);
+        let scherben = Value::List(vec![
+            gehuellt(text("minecraft:brick")),
+            gehuellt(Value::Int(1)),
+            gehuellt(text("angler_pottery_sherd")),
+            gehuellt(text("beispiel:scherbe")),
+            gehuellt(text("minecraft:heart_pottery_sherd")),
+            gehuellt(text("minecraft:skull_pottery_sherd")),
+        ]);
+        let nbt = compound(vec![
+            ("DataVersion", Value::Int(4903)),
+            ("xPos", Value::Int(2)),
+            ("zPos", Value::Int(2)),
+            ("Status", text("minecraft:full")),
+            (
+                "block_entities",
+                Value::List(vec![
+                    be("minecraft:banner", [33, 64, 34], "patterns", lagen),
+                    be("decorated_pot", [40, 64, 47], "sherds", scherben),
+                    be(
+                        "minecraft:banner",
+                        [34, 64, 34],
+                        "patterns",
+                        Value::List(vec![]),
+                    ),
+                    be(
+                        "minecraft:chest",
+                        [35, 64, 34],
+                        "Items",
+                        Value::List(vec![]),
+                    ),
+                    be("beispiel:banner", [36, 64, 34], "patterns", eine()),
+                    be("minecraft:banner", [5, 70, -3], "patterns", eine()),
+                ]),
+            ),
+        ]);
+        let chunk = Chunk::decode(&fastnbt::to_bytes(&nbt).unwrap()).unwrap();
+        let muster = |id: &str| Muster::Id(id.to_string());
+        let items = |items: &[&str]| items.iter().map(|item| item.to_string()).collect();
+        assert_eq!(
+            gelesen(&chunk),
+            [
+                (
+                    [33, 64, 34],
+                    Blockdaten::Banner(vec![
+                        (muster("minecraft:stripe_top"), "red".to_string()),
+                        (
+                            Muster::Asset("beispiel:welle".to_string()),
+                            "blue".to_string()
+                        ),
+                        (muster("cross"), "lime".to_string()),
+                    ])
+                ),
+                (
+                    [37, 70, 45],
+                    Blockdaten::Banner(vec![(muster("cross"), "red".to_string())])
+                ),
+                (
+                    [40, 64, 47],
+                    Blockdaten::Krug(items(&[
+                        "minecraft:brick",
+                        "angler_pottery_sherd",
+                        "beispiel:scherbe",
+                        "minecraft:heart_pottery_sherd",
+                    ]))
+                ),
+            ]
+        );
+    }
+
+    /// Die Blockentities eines Chunks mit Weltkoordinate, nach Stelle.
+    fn gelesen(chunk: &Chunk) -> Vec<([i32; 3], Blockdaten)> {
+        chunk
+            .blockentities()
+            .map(|(stelle, daten)| (stelle, daten.clone()))
+            .collect()
+    }
+
+    fn nbt_mit(block_entities: fastnbt::Value) -> Vec<u8> {
+        use fastnbt::Value;
+        fastnbt::to_bytes(&Value::Compound(
+            [
+                ("DataVersion", Value::Int(4903)),
+                ("xPos", Value::Int(0)),
+                ("zPos", Value::Int(0)),
+                ("Status", Value::String("minecraft:full".to_string())),
+                ("block_entities", block_entities),
+            ]
+            .into_iter()
+            .map(|(name, wert)| (name.to_string(), wert))
+            .collect(),
+        ))
+        .unwrap()
+    }
+
+    /// Ein Banner mit einer Lage `cross` in Rot, mit Kennung und Lage, wie
+    /// sie im Eintrag stehen.
+    fn banner(id: fastnbt::Value, lage: [(&str, Option<fastnbt::Value>); 3]) -> fastnbt::Value {
+        use fastnbt::Value;
+        let text = |text: &str| Value::String(text.to_string());
+        let lagen = Value::List(vec![Value::Compound(
+            [("pattern", text("cross")), ("color", text("red"))]
+                .into_iter()
+                .map(|(name, wert)| (name.to_string(), wert))
+                .collect(),
+        )]);
+        let mut felder: std::collections::HashMap<String, Value> =
+            [("id".to_string(), id), ("patterns".to_string(), lagen)].into();
+        for (name, wert) in lage {
+            if let Some(wert) = wert {
+                felder.insert(name.to_string(), wert);
+            }
+        }
+        Value::Compound(felder)
+    }
+
+    /// Kennung und Lage wie `getStringOr` und `getIntOr` mit 0: ein leerer
+    /// Namensraum gilt als `minecraft`, eine fehlende Lage als 0, jede Zahl
+    /// über `intValue` (Long mit den unteren 32 Bit, Float und Double
+    /// abgerundet), ein Text als 0. Eine Kennung, die kein Text ist, lässt das
+    /// Spiel aus.
+    #[test]
+    fn kennung_und_lage_wie_im_spiel() {
+        use fastnbt::Value;
+        let text = |text: &str| Value::String(text.to_string());
+        let rot = || Blockdaten::Banner(vec![(Muster::Id("cross".to_string()), "red".to_string())]);
+        let nbt = nbt_mit(Value::List(vec![
+            banner(
+                text(":banner"),
+                [
+                    ("x", Some(Value::Int(1))),
+                    ("y", Some(Value::Int(64))),
+                    ("z", Some(Value::Int(1))),
+                ],
+            ),
+            banner(
+                text("minecraft:banner"),
+                [
+                    ("x", None),
+                    ("y", Some(Value::Int(65))),
+                    ("z", Some(Value::Int(2))),
+                ],
+            ),
+            banner(
+                text("banner"),
+                [
+                    ("x", Some(Value::Float(-0.5))),
+                    ("y", Some(Value::Long((1 << 32) + 66))),
+                    ("z", Some(text("3"))),
+                ],
+            ),
+            banner(
+                text("banner"),
+                [
+                    ("x", Some(Value::Double(6.9))),
+                    ("y", Some(Value::Byte(67))),
+                    ("z", Some(Value::Short(4))),
+                ],
+            ),
+            banner(
+                Value::Int(3),
+                [
+                    ("x", Some(Value::Int(8))),
+                    ("y", Some(Value::Int(64))),
+                    ("z", Some(Value::Int(8))),
+                ],
+            ),
+        ]));
+        let chunk = Chunk::decode(&nbt).unwrap();
+        assert_eq!(
+            gelesen(&chunk),
+            [
+                ([0, 65, 2], rot()),
+                ([1, 64, 1], rot()),
+                ([6, 67, 4], rot()),
+                ([15, 66, 0], rot()),
+            ]
+        );
+    }
+
+    /// `block_entities` wie `ListTag.compoundStream`: Ist es keine Liste,
+    /// gibt es keine Einträge, und was in der Liste kein Compound ist,
+    /// fällt weg. Der Chunk selbst liest sich in jedem Fall.
+    #[test]
+    fn keine_liste_wie_im_spiel() {
+        use fastnbt::Value;
+        for (was, wert) in [
+            ("ein Compound", Value::Compound(Default::default())),
+            ("eine Zahl", Value::Int(7)),
+            ("ein Text", Value::String("banner".to_string())),
+            (
+                "eine Liste aus Zahlen",
+                Value::List(vec![Value::Int(1), Value::Int(2)]),
+            ),
+            (
+                "eine Liste aus Listen",
+                Value::List(vec![Value::List(vec![Value::Int(1)])]),
+            ),
+            (
+                "eine Liste aus Texten",
+                Value::List(vec![Value::String("x".to_string())]),
+            ),
+            (
+                "eine Liste aus Arrays",
+                Value::List(vec![Value::IntArray(fastnbt::IntArray::new(vec![1]))]),
+            ),
+        ] {
+            let chunk = Chunk::decode(&nbt_mit(wert)).unwrap_or_else(|e| panic!("{was}: {e:#}"));
+            assert!(gelesen(&chunk).is_empty(), "{was}");
+        }
+    }
+
+    /// Nennt `block_entities` eine Stelle mehrmals, gilt wie in einem
+    /// fertigen Chunk (`postLoadChunk`, `setBlockEntity`) je Art der letzte
+    /// Eintrag, auch einer ohne Daten. Eine Truhe an der Stelle eines Banners
+    /// verdrängt ihn nicht: Sie passt nicht zum Block, und `loadStatic` gibt
+    /// sie gar nicht erst zurück. Banner und Krug an derselben Stelle
+    /// bleiben beide; welcher zum Block passt, entscheidet dessen Bild.
+    #[test]
+    fn letzter_eintrag_je_stelle() {
+        use fastnbt::Value;
+        let text = |text: &str| Value::String(text.to_string());
+        let lage = |[x, y, z]: [i32; 3]| {
+            [
+                ("x", Some(Value::Int(x))),
+                ("y", Some(Value::Int(y))),
+                ("z", Some(Value::Int(z))),
+            ]
+        };
+        let mit_farbe = |farbe: &str| {
+            let Value::Compound(mut be) = banner(text("minecraft:banner"), lage([1, 64, 1])) else {
+                unreachable!()
+            };
+            be.insert(
+                "patterns".to_string(),
+                Value::List(vec![Value::Compound(
+                    [("pattern", text("cross")), ("color", text(farbe))]
+                        .into_iter()
+                        .map(|(name, wert)| (name.to_string(), wert))
+                        .collect(),
+                )]),
+            );
+            Value::Compound(be)
+        };
+        let ohne_daten = |stelle| {
+            let Value::Compound(mut be) = banner(text("minecraft:banner"), lage(stelle)) else {
+                unreachable!()
+            };
+            be.insert("patterns".to_string(), Value::List(vec![]));
+            Value::Compound(be)
+        };
+        let truhe = Value::Compound(
+            [
+                ("id".to_string(), text("minecraft:chest")),
+                ("x".to_string(), Value::Int(1)),
+                ("y".to_string(), Value::Int(64)),
+                ("z".to_string(), Value::Int(1)),
+            ]
+            .into(),
+        );
+        let krug = Value::Compound(
+            [
+                ("id".to_string(), text("minecraft:decorated_pot")),
+                ("x".to_string(), Value::Int(3)),
+                ("y".to_string(), Value::Int(64)),
+                ("z".to_string(), Value::Int(3)),
+                (
+                    "sherds".to_string(),
+                    Value::List(vec![text("minecraft:angler_pottery_sherd")]),
+                ),
+            ]
+            .into(),
+        );
+        let nbt = nbt_mit(Value::List(vec![
+            mit_farbe("red"),
+            truhe,
+            mit_farbe("blue"),
+            banner(text("minecraft:banner"), lage([2, 64, 2])),
+            ohne_daten([2, 64, 2]),
+            krug,
+            banner(text("minecraft:banner"), lage([3, 64, 3])),
+        ]));
+        let chunk = Chunk::decode(&nbt).unwrap();
+        let farbe = |farbe: &str| {
+            Blockdaten::Banner(vec![(Muster::Id("cross".to_string()), farbe.to_string())])
+        };
+        assert_eq!(
+            gelesen(&chunk),
+            [
+                ([1, 64, 1], farbe("blue")),
+                ([3, 64, 3], farbe("red")),
+                (
+                    [3, 64, 3],
+                    Blockdaten::Krug(vec!["minecraft:angler_pottery_sherd".to_string()])
+                ),
+            ]
         );
     }
 }

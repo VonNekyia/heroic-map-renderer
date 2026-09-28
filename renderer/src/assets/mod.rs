@@ -1,4 +1,5 @@
 pub mod baker;
+pub mod blockentity;
 pub mod blockstate;
 pub mod colors;
 pub mod fluid;
@@ -13,7 +14,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 
-use crate::world::BlockState;
+use crate::world::{BlockState, Blockdaten};
 pub use baker::{BakedModel, Quad, bake};
 pub use blockstate::{BlockStateDef, Definition, ModelRef};
 pub use colors::{Colors, Tint, Tints};
@@ -25,20 +26,26 @@ pub use texture::{TextureId, Textures};
 /// Das fertige Modell einer Blockstate: gebacken und um die Flüssigkeit
 /// ergänzt, die kein Modell-JSON beschreibt. Bei Alternativen die erste.
 pub fn model_of(assets: &mut Assets, state: &BlockState) -> Result<BakedModel> {
-    Ok(models_of(assets, state)?.swap_remove(0).1)
+    Ok(models_of(assets, state, None)?.swap_remove(0).1)
 }
 
-/// Alle Alternativen einer Blockstate mit Gewicht, fertig gebacken.
+/// Alle Alternativen einer Blockstate mit Gewicht, fertig gebacken, mit
+/// den Daten ihres Blockentity, falls sie das Bild ändern.
 ///
 /// Jeder Pfad, der ein Sprite baut, geht hier durch — sonst hätte der eine
 /// Wasser und der andere nicht.
-pub fn models_of(assets: &mut Assets, state: &BlockState) -> Result<Vec<(u32, BakedModel)>> {
+pub fn models_of(
+    assets: &mut Assets,
+    state: &BlockState,
+    daten: Option<&Blockdaten>,
+) -> Result<Vec<(u32, BakedModel)>> {
     assets
         .alternatives(state)?
         .into_iter()
         .map(|(weight, variants)| {
             let mut model = bake(&variants);
             fluid::add(&mut model, state, assets);
+            blockentity::add(&mut model, state, daten, assets);
             Ok((weight, model))
         })
         .collect()
@@ -78,6 +85,9 @@ pub struct Assets {
     /// Modelle, deren Parent fehlt oder kaputt ist, mit dem Grund.
     parent_problems: HashMap<String, String>,
     colors: Colors,
+    /// Die Bannermuster aus den Datenwurzeln: je ID ihr `asset_id`, siehe
+    /// [`Assets::load_banner_patterns`].
+    muster: BTreeMap<String, String>,
     skipped: BTreeMap<String, String>,
     broken: BTreeMap<String, String>,
     unchecked: BTreeMap<String, String>,
@@ -110,6 +120,7 @@ impl Assets {
             blockstates: HashMap::new(),
             models: HashMap::new(),
             parent_problems: HashMap::new(),
+            muster: BTreeMap::new(),
             skipped: BTreeMap::new(),
             broken: BTreeMap::new(),
             unchecked: BTreeMap::new(),
@@ -159,6 +170,12 @@ impl Assets {
     /// Client-JAR oder ein Datenpaket.
     pub fn load_biomes(&mut self, dir: &Path) -> Result<usize> {
         self.colors.load_biomes(dir)
+    }
+
+    /// Liest die Bannermuster einer Datenwurzel, siehe
+    /// [`blockentity::muster_lesen`]. Liefert, wie viele es waren.
+    pub fn load_banner_patterns(&mut self, dir: &Path) -> Result<usize> {
+        blockentity::muster_lesen(dir, &mut self.muster)
     }
 
     /// Lädt eine Textur nach Namen. Flüssigkeiten brauchen ihre Textur,

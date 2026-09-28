@@ -1,18 +1,19 @@
 ---
 title: Assets und Biomdaten
-description: Welche Asset- und Datenwurzeln der Renderer braucht, wie man sie aus dem Client-JAR holt und in welcher Reihenfolge er sie stapelt.
+description: Welche Asset- und Datenwurzeln der Renderer braucht, wie man sie aus dem Client-JAR holt und in welcher Reihenfolge er sie stapelt, samt Biomen und Bannermustern.
 code:
   - renderer/src/cli.rs
   - renderer/src/assets/pack.rs
   - renderer/src/assets/colors.rs
+  - renderer/src/assets/blockentity.rs
 ---
 
 # Assets und Biomdaten
 
 Der Renderer braucht einen vollständigen Asset-Baum aus dem Client-JAR der
-unterstützten Version, heute 26.2, und für die Biomfarben die
-Biomdefinitionen aus demselben JAR. Beides kommt über `--assets` und
-`--data`, jeweils mehrfach; spätere Wurzeln gewinnen. Wie der Renderer eine
+unterstützten Version, heute 26.2, und für die Biomfarben die Daten aus
+demselben JAR. Beides kommt über `--assets` und `--data`,
+jeweils mehrfach; spätere Wurzeln gewinnen. Wie der Renderer eine
 Wurzel liest, steht in [Packs und Wurzeln](../renderer/packs.md).
 
 ## Assets aus dem Client-JAR
@@ -26,6 +27,21 @@ $v = "26.2"; $m = Get-Content "$env:APPDATA\.minecraft\versions\$v\$v.json" | Co
 ```
 
 Die SHA1-Prüfsumme steht im selben Manifest unter `downloads.client.sha1`.
+Der ganze Baum gehört dazu: Truhen, Banner und die übrigen Blockentities
+brauchen die Texturen unter `textures/entity`, siehe
+[Blockentities](../renderer/blockentities.md). Fehlen Texturen, sagt es der
+Lauf gleich nach der Sprite-Tabelle („… Texturen fehlen, dort steht die
+Missing-Textur“), und die Liste am Ende nennt jede, etwa
+`minecraft:entity/chest/normal`; auf der Karte stehen dort Schachbretter.
+
+Gibt es `vanilla-assets` schon, legt der letzte Befehl oben den neuen Baum
+darin als `vanilla-assets\assets` ab, und den liest der Renderer nicht.
+Fehlen einem bestehenden Baum nur die Texturen der Blockentities, holt sie
+nach dem Auspacken statt des letzten Befehls dieser:
+
+```powershell
+Move-Item "$env:TEMP\mc\assets\minecraft\textures\entity" vanilla-assets\minecraft\textures\entity
+```
 
 Danach wird der Baum gestapelt übergeben, spätere Wurzeln gewinnen:
 
@@ -65,6 +81,16 @@ und färbt es wie `plains`.
 
 Welche Felder eines Bioms Pflicht sind und wie der Renderer sie liest,
 steht in [Biomfarben](../renderer/biomfarben.md), „Biome lesen“.
+
+## Bannermuster
+
+Die Muster des Spiels kennt der Renderer aus seiner Tabelle. Eine
+Datenwurzel braucht es nur für Muster aus Datenpaketen: Erwartet wird
+`<DIR>/<namespace>/banner_pattern/**/*.json` in denselben Wurzeln wie die
+Biome, spätere überschreiben frühere und die des Spiels. Die Ausgabe nennt,
+wie viele Muster jede Wurzel bringt, und am Ende jedes Muster und jeden
+Farbstoff aus der Welt, den weder das Spiel noch eine Wurzel kennt, siehe
+[Blockentities](../renderer/blockentities.md), „Banner“.
 
 ## Im Repository
 

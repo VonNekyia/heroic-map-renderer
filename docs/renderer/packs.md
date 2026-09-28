@@ -20,9 +20,14 @@ Windows, wo die Platte keine Schreibweise unterscheidet.
 
 Der Wurzel folgt der Renderer, auch über einen Link, und ebenso jedem
 Namensraum darin. Die Anfänge der Listen nennt der Client selbst:
-`blockstates`, `models` und die Ordner des Block-Atlas, in 26.2
-`textures/block` und `textures/entity/conduit`; unter Windows gelten sie
-also in jeder Schreibweise. Darunter zählt eine Datei nur, wenn ihr Name
+`blockstates`, `models` und die Ordner der Atlanten, die der Renderer
+braucht. In 26.2 sind das `textures/block` und `textures/entity/conduit`
+aus `atlases/blocks.json`, dazu für die Blockentities `entity/chest`,
+`entity/banner`, `entity/shulker` und `entity/decorated_pot` aus
+`chests.json`, `banner_patterns.json`, `shulker_boxes.json` und
+`decorated_pot.json`; jeder Atlas listet sie mit demselben
+`DirectoryLister`. Unter Windows gelten die Anfänge also in jeder
+Schreibweise. Darunter zählt eine Datei nur, wenn ihr Name
 auf der Platte ein `Identifier` ist: unter Windows fände `block/stone` sonst
 auch `Stone.json`, das der Client übergeht, und eine `.mcmeta` gehört nur
 in genau dieser Schreibweise zur PNG.
@@ -43,11 +48,12 @@ Kein Pfad führt aus seinem Pack heraus.
 Eine Colormap öffnet der Client direkt, ohne Liste, und folgt dabei jedem
 Link; ebenso die beiden einzelnen Texturen des Block-Atlas,
 `entity/bell/bell_body` und `entity/enchantment/enchanting_table_book`
-(`SingleFile`, `getResource`). So öffnet der Renderer auch jede andere
-Textur ausserhalb der Ordner des Atlas. Der Client zeigte für sie die
-Missing-Textur, es sei denn, ein Pack erweitert `atlases/blocks.json`; diese
-Dateien liest der Renderer nicht. Andere Ordner unter `textures` listet er
-wie der Client nicht auf.
+(`SingleFile`, `getResource`), und die Texturen von Blockentities, die in
+keinem Atlas stehen, etwa die der Köpfe. So öffnet der Renderer jede
+Textur ausserhalb der Ordner oben. Nennt ein Blockmodell eine solche, zeigte
+der Client die Missing-Textur, es sei denn, ein Pack erweitert
+`atlases/blocks.json`; diese Dateien liest der Renderer nicht. Andere
+Ordner unter `textures` listet er wie der Client nicht auf.
 
 ## Lesefehler
 
@@ -62,6 +68,8 @@ scheitern und bricht hier den Lauf ab.
 
 ## Was bleibt eine Näherung
 
-- **`atlases/blocks.json` liest der Renderer nicht.** Eine Textur
-  ausserhalb der Ordner des Atlas zeigt er, wo der Client ohne erweiterten
-  Atlas die Missing-Textur zeigte.
+- **Die Atlanten liest der Renderer nicht,** ihre Ordner stehen für 26.2
+  im Code (`ASSETS` in
+  [`renderer/src/assets/pack.rs`](../../renderer/src/assets/pack.rs)).
+  Eine Textur eines Blockmodells ausserhalb der Ordner des Block-Atlas zeigt
+  er, wo der Client ohne erweiterten Atlas die Missing-Textur zeigte.

@@ -40,7 +40,8 @@ fn szene(x: i32, y: i32, z: i32) -> &'static str {
         // Zelle (2, 0): Wasser zählt mit.
         (8..=11, 0..=3) if y <= 2 => "minecraft:stone",
         (8..=11, 0..=3) if y <= 10 => "minecraft:water",
-        // Zelle (3, 0): eine Truhe zählt, obwohl sie kein Sprite hat.
+        // Zelle (3, 0): eine Truhe zählt wie jeder Block, der nicht Luft
+        // ist, auch ohne ganzen Würfel.
         (12..=15, 0..=3) if y <= 6 => "minecraft:stone",
         (12..=15, 0..=3) if y == 7 => "minecraft:chest",
         // Zelle (1, 1): Spalten ohne Block zählen nicht. Vier bis y 3, vier

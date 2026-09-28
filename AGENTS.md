@@ -40,7 +40,7 @@ spricht es vorher mit der anderen Seite ab.
 | [`messung-protokollieren`](skills/messung-protokollieren/SKILL.md) | Laufzeit, Grösse oder Speicher werden gemessen oder verglichen |
 | [`spielverhalten-belegen`](skills/spielverhalten-belegen/SKILL.md) | Code oder Doku sagt, wie das Spiel etwas macht |
 | [`alternativen-recherchieren`](skills/alternativen-recherchieren/SKILL.md) | ein besseres Verfahren, eine Optimierung oder eine Alternative wird gesucht; vor jedem grösseren Umbau |
-| [`tabellen-neu-erzeugen`](skills/tabellen-neu-erzeugen/SKILL.md) | eine neue Spielversion, oder `blocks.txt`, `leuchten.txt` oder `schatten.txt` passt nicht mehr zum Spiel |
+| [`tabellen-neu-erzeugen`](skills/tabellen-neu-erzeugen/SKILL.md) | eine neue Spielversion, oder `blocks.txt`, `leuchten.txt`, `schatten.txt` oder `blockentities.txt` passt nicht mehr zum Spiel |
 | [`goldbild-erneuern`](skills/goldbild-erneuern/SKILL.md) | das Goldbild fällt nach einer gewollten Änderung am Bild |
 | [`doku-bilder-rendern`](skills/doku-bilder-rendern/SKILL.md) | ein Bild in `docs/bilder/` oder im README ist veraltet |
 
@@ -146,7 +146,7 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 |---|---|
 | `docs/index.md` | Wegweiser: jede Seite mit einer Zeile |
 | `docs/benutzung/` | Schalter, Assets, Welten, Kacheln und Zoomstufen, Pyramide und `--resume`, `map.json`, Kosten, Grafikkarte, Echtzeitschutz |
-| `docs/renderer/` | wie der Renderer das Spiel nachbaut: Kamera, der Weg einer Kachel, Sprites und Deckung, Nähte, Wasser und Licht, weiche Beleuchtung, Biomfarben, Varianten, Blockstates, Packs, Modelle |
+| `docs/renderer/` | wie der Renderer das Spiel nachbaut: Kamera, der Weg einer Kachel, Sprites und Deckung, Nähte, Wasser und Licht, weiche Beleuchtung, Biomfarben, Varianten, Blockstates, Packs, Modelle, Blockentities |
 | `docs/frontend.md` | das Frontend |
 | `docs/entwicklung/` | Aufbau des Codes, Tests, CI, Eingabedaten, erzeugte Tabellen |
 | `docs/entscheidungen/` | `NNNN-titel.md`, eine Datei je Entscheidung |

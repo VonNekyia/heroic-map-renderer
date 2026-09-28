@@ -31,7 +31,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 |---|---|
 | `mod.rs` | `World`: Weltwurzel, Dimension, Regionen, Seed, siehe [Welten und Kennung](../benutzung/welten.md) |
 | `region.rs` | Regionsdateien: Chunk-Tabelle, Sektoren, ausgelagerte `.mcc`-Chunks |
-| `chunk.rs` | ein Chunk aus NBT: Sections, Blöcke, Biome |
+| `chunk.rs` | ein Chunk aus NBT: Sections, Blöcke, Biome, Blockentities mit Daten |
 | `palette.rs` | `BlockState` und die gepackten Paletten-Indizes einer Section |
 | `biomzoom.rs`, `Biomwerte.java` | das Biom je Block wie `BiomeManager.getBiome` und die Sollwerte dafür aus dem Spiel, siehe [Biomfarben](../renderer/biomfarben.md) |
 
@@ -46,9 +46,10 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `texture.rs` | Texturen und `.mcmeta` |
 | `baker.rs` | Elemente zu Vierecken backen: Drehungen, `uvlock`, Flüssigkeitsflächen |
 | `fluid.rs` | Wasser und Lava als Würfel, siehe [Wasser und Licht](../renderer/wasser-und-licht.md) |
+| `blockentity.rs` | was das Spiel für Truhen, Banner und die übrigen Blockentities aus Modellen zeichnet, aus `blockentities.txt`, mit Mustern und Scherben; die Bannermuster des Spiels und der Datenwurzeln, siehe [Blockentities](../renderer/blockentities.md) |
 | `colors.rs` | Biomfarben, siehe [Biomfarben](../renderer/biomfarben.md) |
 | `noise.rs` | das Rauschen des Sumpfgrases, siehe [Biomfarben](../renderer/biomfarben.md), „Sumpfgras“ |
-| `blocks.txt`, `leuchten.txt`, `schatten.txt`, `Leuchten.java`, `Schatten.java` | aus dem Spiel erzeugte Tabellen, siehe [Erzeugte Tabellen](tabellen.md) |
+| `blocks.txt`, `leuchten.txt`, `schatten.txt`, `blockentities.txt`, `Leuchten.java`, `Schatten.java`, `Blockentities.java` | aus dem Spiel erzeugte Tabellen, siehe [Erzeugte Tabellen](tabellen.md) |
 
 ## `renderer/src/render/`: Bilder machen
 

@@ -11,7 +11,7 @@ use image::RgbaImage;
 use libwebp_sys as webp;
 use rayon::prelude::*;
 
-use crate::world::{BlockState, Chunk, REGION, World};
+use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
 use super::heights::{Heights, RegionHeights};
 use super::{BLEED_BLOCKS, Projection, ScreenRect};
@@ -141,6 +141,9 @@ pub struct Survey {
     pub tiles: Vec<TileId>,
     /// Blockstates, die vorkommen. Daraus entsteht die Sprite-Tabelle.
     pub states: BTreeSet<BlockState>,
+    /// Blockstates mit den Daten ihres Blockentity, wo diese das Bild
+    /// ändern können: Banner mit Mustern, Krüge mit Scherben.
+    pub entities: BTreeSet<(BlockState, Blockdaten)>,
     /// Biome, die vorkommen — um zu melden, welche keine Definition haben.
     pub biomes: BTreeSet<String>,
     /// Chunks, die gelesen wurden.
@@ -260,6 +263,7 @@ pub fn survey(
     for teil in teile {
         tiles.extend(teil.tiles);
         survey.states.extend(teil.states);
+        survey.entities.extend(teil.entities);
         survey.biomes.extend(teil.biomes);
         survey.chunks += teil.chunks;
         survey.heights.extend(teil.heights);
@@ -321,6 +325,11 @@ fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey
                     if !states.contains(state) {
                         states.insert(state.clone());
                     }
+                }
+            }
+            for ([x, y, z], daten) in chunk.blockentities() {
+                if let Some(state) = chunk.block_at(x, y, z) {
+                    survey.entities.insert((state.clone(), daten.clone()));
                 }
             }
         }

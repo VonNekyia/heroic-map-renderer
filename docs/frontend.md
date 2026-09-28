@@ -145,5 +145,6 @@ Die Tests: [Tests](entwicklung/tests.md).
   Blume zeigt, bekommt die Blume.
 - **Was die Karte nicht zeigt, zählt mit.** Die Höhenkarte des Spiels
   zählt jeden Block ausser Luft: auch Barriere, Licht und Strukturleere,
-  die unsichtbar sind, und Truhen, Banner und Schädel, die der Renderer
-  nicht zeichnet. Das ist selten.
+  die unsichtbar sind, und Blöcke, die der Renderer leer lässt, etwa das
+  End-Portal, siehe [Blockentities](renderer/blockentities.md), „Was
+  fehlt“. Das ist selten.

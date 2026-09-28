@@ -278,7 +278,7 @@ fn meta(packs: &[Pack], png_layer: usize, namespace: &str, name: &str) -> Result
 
 /// Die Datei zur Textur `name` mit der `endung`, `png` oder `png.mcmeta`,
 /// und ihre Schicht im Packstapel, die oberste zuerst. Aus einem Ordner
-/// des Block-Atlas nur, was der Client dort auflistet ([`ASSETS`]); jede
+/// eines Atlas nur, was der Client dort auflistet ([`ASSETS`]); jede
 /// Textur ausserhalb dieser Ordner öffnet der Renderer direkt.
 /// Siehe docs/renderer/packs.md, „Direkt geöffnete Dateien“.
 fn datei(packs: &[Pack], namespace: &str, name: &str, endung: &str) -> Option<(usize, PathBuf)> {

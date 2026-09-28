@@ -37,6 +37,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Blockstates](renderer/blockstates.md): lesen und stapeln wie der Client, `blocks.txt`.
 - [Packs und Wurzeln](renderer/packs.md): Auflisten wie `PathPackResources`, Links und Junctions.
 - [Modelle und Texturen](renderer/modelle-und-texturen.md): Modelle, Parents, `.mcmeta`, was kein Blockmodell hat.
+- [Blockentities](renderer/blockentities.md): Truhen, Banner, Köpfe, Krüge aus den Renderern des Spiels, Schichten, Licht, Muster und Scherben aus dem Chunk.
 
 ## Frontend
 
@@ -48,7 +49,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Tests](entwicklung/tests.md): laufen lassen, Fixtures, Goldbild, GPU-Tests.
 - [CI](entwicklung/ci.md): die Jobs und die Doku-Prüfung.
 - [Eingabedaten](entwicklung/eingabedaten.md): was nicht im Repository liegt und was für Tests mitkommt.
-- [Erzeugte Tabellen](entwicklung/tabellen.md): `blocks.txt`, `leuchten.txt`, `schatten.txt`.
+- [Erzeugte Tabellen](entwicklung/tabellen.md): `blocks.txt`, `leuchten.txt`, `schatten.txt`, `blockentities.txt`.
 
 ## Entscheidungen
 
@@ -90,6 +91,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0036](entscheidungen/0036-hoehen-aus-der-heightmap.md): Höhen aus der Heightmap, je 4×4.
 - [0037](entscheidungen/0037-chunks-ab-dem-status-light.md): Chunks ab dem Status light.
 - [0038](entscheidungen/0038-cutout-wie-im-spiel.md): Flächen mit Löchern werden ausgeschnitten.
+- [0039](entscheidungen/0039-blockentities-aus-dem-spiel.md): Blockentities aus den Renderern des Spiels.
 
 ## Messungen
 
@@ -109,3 +111,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-09-27, Vollrender mit #21](messungen/2026-09-27-vollrender-mit-21.md): 66 min, 184 GB, ganz gemessen, mit Live-Ansicht.
 - [2026-09-28, Cutout](messungen/2026-09-28-cutout.md): was das Ausschneiden von Flächen mit Löchern an Grösse und Dauer kostet, im Wechsel gegen master, und wie dicht Laub danach bei jedem scale deckt.
 - [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md): die Höhen für die Koordinatenanzeige, erst je Spalte in eigenem Durchgang, dann aus der Heightmap je 4×4 im Vorlauf; dazu die Auflösungen im Vergleich.
+- [2026-09-28, Blockentities](messungen/2026-09-28-blockentities.md): was das Lesen von Mustern und Scherben aus `block_entities` im Scan, im Vorlauf und in einem Export kostet, im Wechsel gegen master; dazu der Vorlauf der grossen Welt gegen den Stand der Höhen und der Scan nach der ersten Runde des Reviews.

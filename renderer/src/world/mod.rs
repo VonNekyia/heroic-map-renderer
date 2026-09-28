@@ -10,7 +10,7 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-pub use chunk::{Chunk, Section};
+pub use chunk::{Blockdaten, Chunk, Muster, Section};
 pub use palette::BlockState;
 pub use region::{REGION, Region};
 

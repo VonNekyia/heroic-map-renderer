@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 use image::{Rgba, RgbaImage};
 
 use crate::assets::baker::{BakedModel, Quad};
+use crate::assets::blockentity::Entity;
 use crate::assets::blockstate::Leuchten;
 use crate::assets::{Face, Textures, Tints, fluid};
 
@@ -169,10 +170,12 @@ const FACE_INFO: [[[f32; 2]; 4]; 3] = [
 /// Die Seite aus [`AO_FACES`], als die das Spiel ein Viereck mit den vier
 /// Werten je Ecke weich beleuchtet: eben auf dem Rand des Würfels und über
 /// die ganze Seite, beides bis auf 1e-4, denn der Baker dreht über sin und
-/// cos. Flüssigkeiten bekommen keine.
+/// cos. Flüssigkeiten bekommen keine, Flächen aus Blockentity-Modellen auch
+/// nicht: Das Spiel zeichnet sie im Licht der Entities, siehe
+/// [`entity_light`].
 /// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
 fn ao_face(quad: &Quad) -> Option<usize> {
-    if quad.fluid.is_some() {
+    if quad.fluid.is_some() || quad.entity.is_some() {
         return None;
     }
     let min = |axis: usize| {
@@ -321,8 +324,7 @@ pub fn render(
     let mut projected: Vec<ProjectedQuad> = model
         .quads
         .iter()
-        .filter(|quad| faces_camera(quad))
-        .map(|quad| ProjectedQuad::new(quad, projection))
+        .filter_map(|quad| Some(ProjectedQuad::new(quad, projection, seite(quad)?)))
         .collect();
 
     // Jede Fläche legt je Pixel ein Fragment ab, gemischt wird erst am
@@ -424,7 +426,8 @@ struct ProjectedQuad<'a> {
 }
 
 impl<'a> ProjectedQuad<'a> {
-    fn new(quad: &'a Quad, projection: &Projection) -> ProjectedQuad<'a> {
+    /// `rueckseite`: Die Kamera sieht die Fläche von hinten, siehe [`seite`].
+    fn new(quad: &'a Quad, projection: &Projection, rueckseite: bool) -> ProjectedQuad<'a> {
         let screen = quad.corners.map(|corner| {
             let (x, y) = projection.project(corner);
             (x, y, Projection::depth(corner))
@@ -433,7 +436,7 @@ impl<'a> ProjectedQuad<'a> {
             quad,
             screen,
             depth: screen.iter().map(|&(_, _, d)| d).fold(f32::MIN, f32::max),
-            shade: shade_factor(quad),
+            shade: shade_factor(quad, rueckseite),
             ao_face: ao_face(quad),
         }
     }
@@ -485,25 +488,41 @@ impl<'a> ProjectedQuad<'a> {
             bounds[0] = [bounds[0][0].min(u), bounds[0][1].min(v)];
             bounds[1] = [bounds[1][0].max(u), bounds[1][1].max(v)];
         }
-        // Die Schicht wie im Spiel (`FaceBakery.computeMaterialTransparency`
+        // Die Schicht wie im Spiel. Eine Fläche aus einem Blockentity-Modell
+        // bringt ihre mit. Sonst (`FaceBakery.computeMaterialTransparency`
         // und `ChunkSectionLayer.byTransparency` in 26.2): mit
         // `force_translucent` durchscheinend, sonst nach dem Ausschnitt der
         // Textur. Flüssigkeiten gehen dort nicht durch den FaceBakery. Eine
         // deckende Fläche deckt ausgeschnitten wie gemischt ganz.
-        let durchscheinend = textures.durchscheinend(self.quad.texture, bounds[0], bounds[1]);
-        let deckung = if self.quad.force_translucent || self.quad.fluid.is_some() || durchscheinend
-        {
-            Deckung::Gemischt
-        } else {
-            Deckung::Ausgeschnitten {
+        let deckung = match self.quad.entity {
+            Some(Entity { schicht, .. }) if schicht.gemischt => Deckung::Gemischt {
+                schwelle: schwelle(schicht.alpha),
+            },
+            Some(Entity { schicht, .. }) => Deckung::Ausgeschnitten {
+                fuellung: None,
+                schwelle: schwelle(schicht.alpha),
+            },
+            None if self.quad.force_translucent
+                || self.quad.fluid.is_some()
+                || textures.durchscheinend(self.quad.texture, bounds[0], bounds[1]) =>
+            {
+                Deckung::Gemischt {
+                    schwelle: schwelle(Some(ALPHA_CUTOUT_TRANSLUCENT)),
+                }
+            }
+            None => Deckung::Ausgeschnitten {
                 fuellung: textures
                     .fuellung(self.quad.texture)
                     .map(|farbe| farbe.map(|c| LINEAR[c as usize])),
-            }
+                schwelle: schwelle(Some(ALPHA_CUTOUT_CUTOUT)),
+            },
         };
 
+        // Die Farbe einer Fläche aus einem Blockentity-Modell multipliziert
+        // die Textur wie die Farbe des Bioms, bei Bannern die des Farbstoffs.
+        let farbe = self.quad.entity.map(|e| e.farbe).filter(|&f| f != [255; 3]);
         let tint = match self.quad.tint_index {
-            None => None,
+            None => farbe,
             Some(fluid::TINT_INDEX) => tints.water,
             Some(_) => tints.block,
         }
@@ -557,13 +576,54 @@ impl<'a> ProjectedQuad<'a> {
 /// derselben Ebene. Eine Fläche parallel zur Blickrichtung zählt nicht,
 /// siehe `EDGE_ON`.
 pub(crate) fn faces_camera(quad: &Quad) -> bool {
-    let n = quad.normal();
+    zur_kamera(quad.normal())
+}
+
+/// Zeigt die Normale zur Kamera, siehe [`faces_camera`]?
+fn zur_kamera(n: [f32; 3]) -> bool {
     let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
     n[0] + n[1] + n[2] > EDGE_ON * length
 }
 
-/// Helligkeit nach der Richtung, in die die Fläche am stärksten zeigt.
-fn shade_factor(quad: &Quad) -> f32 {
+/// Welche Seite einer Fläche die Kamera sieht: `Some(false)` die Vorderseite,
+/// `Some(true)` die Rückseite, die nur eine Schicht ohne Culling zeichnet
+/// (`RenderPipeline.isCull`), `None` keine.
+fn seite(quad: &Quad) -> Option<bool> {
+    let n = quad.normal();
+    if zur_kamera(n) {
+        return Some(false);
+    }
+    let beidseitig = quad.entity.is_some_and(|e| e.schicht.beidseitig);
+    (beidseitig && zur_kamera(n.map(|a| -a))).then_some(true)
+}
+
+/// Die Richtungen des Lichts für Entity-Modelle in der Oberwelt, wie
+/// `Lighting.updateLevel` in 26.2 sie setzt: `DIFFUSE_LIGHT_0` und
+/// `DIFFUSE_LIGHT_1` vor dem Normieren.
+const ENTITY_LICHT: [[f32; 3]; 2] = [[0.2, 1.0, -0.7], [-0.2, 1.0, 0.7]];
+
+/// Wie hell eine Fläche aus einem Blockentity-Modell ist:
+/// `minecraft_mix_light` in `shaders/include/light.glsl`, 0,6 je Richtung
+/// und 0,4 Umgebung.
+/// Siehe docs/renderer/blockentities.md, „Licht“.
+fn entity_light(n: [f32; 3]) -> f32 {
+    let laenge = |v: [f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    let summe: f32 = ENTITY_LICHT
+        .iter()
+        .map(|l| ((l[0] * n[0] + l[1] * n[1] + l[2] * n[2]) / (laenge(*l) * laenge(n))).max(0.0))
+        .sum();
+    (summe * 0.6 + 0.4).min(1.0)
+}
+
+/// Helligkeit nach der Richtung, in die die Fläche am stärksten zeigt. Eine
+/// Fläche aus einem Blockentity-Modell liegt im Licht der Entities, von
+/// hinten mit `PER_FACE_LIGHTING` im Licht der umgekehrten Normalen.
+fn shade_factor(quad: &Quad, rueckseite: bool) -> f32 {
+    if let Some(entity) = quad.entity {
+        let n = quad.normal();
+        let umgekehrt = rueckseite && entity.schicht.je_seite;
+        return entity_light(if umgekehrt { n.map(|a| -a) } else { n });
+    }
     if !quad.shade {
         return SHADE_TOP;
     }
@@ -616,15 +676,31 @@ struct Shading {
 /// Siehe docs/renderer/naehte.md, „Ausgeschnitten statt gemischt“.
 #[derive(Clone, Copy)]
 enum Deckung {
-    /// TRANSLUCENT: Das Mittel der Abtastpunkte deckt so weit, wie sie
-    /// decken.
-    Gemischt,
-    /// CUTOUT, und SOLID, das so oder so ganz deckt: Wie `cutout_terrain`
-    /// in 26.2 verwirft der Alpha-Test bei
-    /// 0,5, was darunter liegt, und was bleibt, deckt ganz. Bei
-    /// `dark_cutout` zählen die Löcher mit dieser Farbe mit, in linearem
-    /// Licht.
-    Ausgeschnitten { fuellung: Option<[f32; 3]> },
+    /// TRANSLUCENT und die gemischten Schichten der Blockentities: Das
+    /// Mittel der Abtastpunkte deckt so weit, wie sie decken. Ein Texel
+    /// unter der `schwelle` verwirft der Alpha-Test vorher.
+    Gemischt { schwelle: u8 },
+    /// CUTOUT, und SOLID, das so oder so ganz deckt: Der Alpha-Test
+    /// verwirft jedes Texel unter der `schwelle`, und was bleibt, deckt
+    /// ganz. Bei `dark_cutout` zählen die Löcher mit dieser Farbe mit, in
+    /// linearem Licht. Die Schichten der Blockentities ohne Alpha-Test
+    /// (`entity_solid`) haben die Schwelle 0: Jedes Texel deckt.
+    Ausgeschnitten {
+        fuellung: Option<[f32; 3]>,
+        schwelle: u8,
+    },
+}
+
+/// `ALPHA_CUTOUT` in `pipeline/cutout_terrain` in 26.2 (`RenderPipelines`).
+const ALPHA_CUTOUT_CUTOUT: f32 = 0.5;
+/// `ALPHA_CUTOUT` in `pipeline/translucent_terrain`.
+const ALPHA_CUTOUT_TRANSLUCENT: f32 = 0.1;
+
+/// Das kleinste Alpha eines Texels in 255steln, das der Test
+/// `color.a < ALPHA_CUTOUT` in `terrain.fsh` und `entity.fsh` stehen lässt,
+/// 0 ohne Test: 128 bei 0,5 und 26 bei 0,1.
+fn schwelle(alpha: Option<f32>) -> u8 {
+    alpha.map_or(0, |a| (a * 255.0).ceil() as u8)
 }
 
 /// Was eine Fläche zu einem Pixel beiträgt.
@@ -869,19 +945,31 @@ fn filtered(
             w[0] * v[0].v + w[1] * v[1].v + w[2] * v[2].v,
         )
     };
+    // Der Alpha-Test je Texel, vor dem Mitteln: Was er verwirft, deckt
+    // nicht, und ausgeschnitten deckt, was bleibt, ganz.
+    let getestet = |u: f32, vv: f32| {
+        let [r, g, b, a] = sample(u, vv);
+        match deckung {
+            Deckung::Gemischt { schwelle } if a < schwelle => [r, g, b, 0],
+            Deckung::Gemischt { .. } => [r, g, b, a],
+            Deckung::Ausgeschnitten { schwelle, .. } => {
+                [r, g, b, if a >= schwelle { 255 } else { 0 }]
+            }
+        }
+    };
     for sy in 0..n {
         for sx in 0..n {
             let dx = (sx as f32 + 0.5) / n as f32 - 0.5;
             let dy = (sy as f32 + 0.5) / n as f32 - 0.5;
             let (u, vv) = uv(px + dx, py + dy);
             if inside(u, vv) {
-                add(&mut acc, sample(u, vv));
+                add(&mut acc, getestet(u, vv));
             }
         }
     }
     if acc.2 == 0 {
         let (u, vv) = uv(px, py);
-        add(&mut acc, sample(u, vv));
+        add(&mut acc, getestet(u, vv));
     }
     let (sum, alpha, count) = acc;
     if alpha <= 0.0 {
@@ -890,7 +978,7 @@ fn filtered(
     if let Some(Some(texel)) = einzig {
         return Some(texel);
     }
-    let Deckung::Ausgeschnitten { fuellung } = deckung else {
+    let Deckung::Ausgeschnitten { fuellung, .. } = deckung else {
         return Some([
             to_srgb(sum[0] / alpha),
             to_srgb(sum[1] / alpha),
@@ -904,7 +992,7 @@ fn filtered(
     let haelfte = count as f32 / 2.0;
     let mitte_deckt = || {
         let (u, vv) = uv(px, py);
-        sample(u, vv)[3] != 0
+        getestet(u, vv)[3] != 0
     };
     if alpha < haelfte || (alpha == haelfte && !mitte_deckt()) {
         return None;
@@ -966,6 +1054,7 @@ fn edge(a: Vertex, b: Vertex, px: f32, py: f32) -> f32 {
 mod tests {
     use super::*;
     use crate::assets::baker::Quad;
+    use crate::assets::blockentity::Schicht;
 
     /// Die Helligkeit je Himmelslicht, nach `lightmap.fsh` von Hand
     /// ausgerechnet: Umgebungsfarbe #0a0a0a, `SkyFactor` 1, Helligkeit 0,5.
@@ -1271,11 +1360,49 @@ mod tests {
         assert!(dunkler > 0);
     }
 
+    /// Eine durchscheinende Blockfläche testet wie `translucent` im Spiel
+    /// gegen 0,1: Texel mit Alpha 25 fallen weg, mit 26 bleiben sie.
+    #[test]
+    fn durchscheinende_blockflaeche_testet_gegen_ein_zehntel() {
+        let mut textures = Textures::new();
+        let mut flach = |name, alpha| {
+            let bild = RgbaImage::from_pixel(16, 16, Rgba([100, 150, 100, alpha]));
+            textures.einfuegen(name, bild, false)
+        };
+        let (unter, ueber) = (flach("unter", 25), flach("ueber", 26));
+        let sprite = |textur| {
+            let mut oben = quad(
+                [
+                    [0.0, 1.0, 0.0],
+                    [0.0, 1.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                    [1.0, 1.0, 0.0],
+                ],
+                true,
+            );
+            oben.texture = textur;
+            oben.force_translucent = true;
+            let model = BakedModel {
+                quads: vec![oben],
+                ambient_occlusion: false,
+            };
+            render(
+                &model,
+                &textures,
+                &Projection::new(32),
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+        };
+        assert!(sprite(unter).is_none_or(|s| s.image.pixels().all(|p| p[3] == 0)));
+        assert!(sprite(ueber).unwrap().image.pixels().any(|p| p[3] == 26));
+    }
+
     /// Der Alpha-Test von `cutout_terrain`: unter der Hälfte der
     /// Abtastpunkte verworfen, darüber ganz deckend in der Farbe der
     /// deckenden. Bei genau der Hälfte entscheidet das Texel in der
     /// Pixelmitte. Mit der Füllung aus `dark_cutout` zählen die Löcher in
-    /// ihrer Farbe mit.
+    /// ihrer Farbe mit. Getestet wird je Texel, vor dem Mitteln.
     #[test]
     fn alpha_test_wie_cutout_terrain() {
         // Über dem Pixel (0, 0) ist u = x und v = y; abgetastet wird bei
@@ -1301,10 +1428,18 @@ mod tests {
         let pixel = |sample: &dyn Fn(f32, f32) -> [u8; 4], deckung| {
             filtered(&v, area, (0.5, 0.5), &sample, &innen, 2, deckung)
         };
-        let aus = Deckung::Ausgeschnitten { fuellung: None };
+        let aus = Deckung::Ausgeschnitten {
+            fuellung: None,
+            schwelle: 128,
+        };
 
         let rechts = wo(|u, _| u > 0.6);
-        assert_eq!(pixel(&rechts, Deckung::Gemischt), Some([200, 100, 50, 128]));
+        let gemischt = Deckung::Gemischt { schwelle: 26 };
+        assert_eq!(pixel(&rechts, gemischt), Some([200, 100, 50, 128]));
+        // Alpha 20 und 200 je zur Hälfte: 20 fällt vor dem Mitteln weg, das
+        // gibt 100; nach dem Mitteln bestünde 110 den Test.
+        let links_blass = |u: f32, _: f32| [200, 100, 50, if u < 0.5 { 20 } else { 200 }];
+        assert_eq!(pixel(&links_blass, gemischt), Some([200, 100, 50, 100]));
         assert_eq!(pixel(&rechts, aus), None);
         assert_eq!(pixel(&wo(|u, _| u < 0.6), aus), Some(farbe));
         let drei = wo(|u, v| u > 0.5 || v > 0.5);
@@ -1313,11 +1448,210 @@ mod tests {
 
         let dunkel = Deckung::Ausgeschnitten {
             fuellung: Some([LINEAR[40]; 3]),
+            schwelle: 128,
         };
         let gemittelt = |c: usize| to_srgb((3.0 * LINEAR[farbe[c] as usize] + LINEAR[40]) / 4.0);
         assert_eq!(
             pixel(&drei, dunkel),
             Some([gemittelt(0), gemittelt(1), gemittelt(2), 255])
+        );
+    }
+
+    /// Das Licht der Blockentities, von Hand nach `minecraft_mix_light` in
+    /// `shaders/include/light.glsl` gerechnet: die Richtungen (0,2, 1, −0,7)
+    /// und (−0,2, 1, 0,7) normiert, je 0,6, dazu 0,4 Umgebung, höchstens 1.
+    #[test]
+    fn licht_der_blockentities_wie_im_spiel() {
+        for (normale, soll) in [
+            ([0.0, 1.0, 0.0], 1.0),
+            ([0.0, 0.0, -1.0], 0.73955),
+            ([0.0, 0.0, 1.0], 0.73955),
+            ([1.0, 0.0, 0.0], 0.49701),
+            ([-1.0, 0.0, 0.0], 0.49701),
+            ([0.0, -1.0, 0.0], 0.4),
+        ] {
+            let ist = entity_light(normale);
+            assert!((ist - soll).abs() < 1e-5, "{normale:?}: {ist}");
+        }
+    }
+
+    fn schicht(beidseitig: bool, je_seite: bool) -> Schicht {
+        Schicht {
+            alpha: None,
+            beidseitig,
+            je_seite,
+            gemischt: false,
+        }
+    }
+
+    fn aus_entity(mut quad: Quad, schicht: Schicht) -> Quad {
+        quad.entity = Some(Entity {
+            schicht,
+            farbe: [255; 3],
+        });
+        quad
+    }
+
+    /// Eine Unterseite, die die Kamera nur von hinten sieht.
+    fn unterseite() -> Quad {
+        quad(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0],
+            ],
+            true,
+        )
+    }
+
+    /// Flächen aus Blockentity-Modellen bekommen keine weiche Beleuchtung,
+    /// auch als voller Würfel mit `ambientocclusion`: Das Spiel zeichnet
+    /// sie nicht mit `ModelBlockRenderer`.
+    #[test]
+    fn blockentities_ohne_ao() {
+        let wuerfel = |entity: bool| BakedModel {
+            quads: crate::assets::baker::box_quads(
+                [0.0; 3],
+                [16.0; 3],
+                Textures::MISSING,
+                None,
+                None,
+            )
+            .map(|q| {
+                if entity {
+                    aus_entity(q, schicht(false, false))
+                } else {
+                    q
+                }
+            })
+            .collect(),
+            ambient_occlusion: true,
+        };
+        let ao = |model: &BakedModel| {
+            render(
+                model,
+                &Textures::new(),
+                &Projection::new(32),
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+            .unwrap()
+            .ao
+            .is_some()
+        };
+        assert!(ao(&wuerfel(false)), "Blockmodell");
+        assert!(!ao(&wuerfel(true)), "aus dem Blockentity");
+    }
+
+    /// Eine Fläche aus einer Schicht ohne Culling zeigt sich auch von
+    /// hinten, mit `PER_FACE_LIGHTING` im Licht der umgekehrten Normalen,
+    /// sonst im Licht ihrer Vorderseite. Mit Culling fehlt die Rückseite,
+    /// bei Blockmodellen immer.
+    #[test]
+    fn rueckseiten_wie_im_spiel() {
+        let modell = |quad| BakedModel {
+            quads: vec![quad],
+            ambient_occlusion: false,
+        };
+        let bild = |quad| {
+            render(
+                &modell(quad),
+                &Textures::new(),
+                &Projection::new(16),
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+        };
+        assert_eq!(seite(&unterseite()), None, "Blockmodell");
+        assert!(bild(unterseite()).is_none());
+        let mit_culling = aus_entity(unterseite(), schicht(false, true));
+        assert_eq!(seite(&mit_culling), None);
+        assert!(bild(mit_culling).is_none());
+
+        let je_seite = aus_entity(unterseite(), schicht(true, true));
+        assert_eq!(seite(&je_seite), Some(true));
+        assert_eq!(shade_factor(&je_seite, true), 1.0, "Licht der Oberseite");
+        let einseitig_beleuchtet = aus_entity(unterseite(), schicht(true, false));
+        assert_eq!(shade_factor(&einseitig_beleuchtet, true), 0.4);
+        assert!(bild(je_seite).is_some());
+
+        let oben = quad(
+            [
+                [0.0, 1.0, 0.0],
+                [0.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [1.0, 1.0, 0.0],
+            ],
+            true,
+        );
+        assert_eq!(seite(&aus_entity(oben, schicht(true, true))), Some(false));
+    }
+
+    /// Die Schwellen der Alpha-Tests (`color.a < ALPHA_CUTOUT` verwirft):
+    /// 0,5 in `cutout_terrain`, 0,1 in `translucent_terrain` und in den
+    /// ausgeschnittenen Schichten der Blockentities, keine in `entity_solid`,
+    /// wo auch ein Texel ohne Alpha ganz deckt. Eine gemischte Schicht mit
+    /// Schwelle behält, was sie stehen lässt, mit seinem Alpha.
+    #[test]
+    fn schwellen_wie_im_spiel() {
+        assert_eq!(schwelle(Some(ALPHA_CUTOUT_CUTOUT)), 128);
+        assert_eq!(schwelle(Some(ALPHA_CUTOUT_TRANSLUCENT)), 26);
+        assert_eq!(schwelle(None), 0);
+
+        let mut textures = Textures::new();
+        let alphas = |textures: &mut Textures, alpha: u8, schicht: Schicht| {
+            let textur = textures.einfuegen(
+                &format!("alpha_{alpha}"),
+                RgbaImage::from_pixel(16, 16, Rgba([200, 100, 50, alpha])),
+                false,
+            );
+            let mut oben = aus_entity(
+                quad(
+                    [
+                        [0.0, 1.0, 0.0],
+                        [0.0, 1.0, 1.0],
+                        [1.0, 1.0, 1.0],
+                        [1.0, 1.0, 0.0],
+                    ],
+                    true,
+                ),
+                schicht,
+            );
+            oben.texture = textur;
+            let model = BakedModel {
+                quads: vec![oben],
+                ambient_occlusion: false,
+            };
+            let sprite = render(
+                &model,
+                textures,
+                &Projection::new(32),
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+            .unwrap();
+            sprite
+                .image
+                .pixels()
+                .map(|p| p[3])
+                .collect::<std::collections::BTreeSet<u8>>()
+        };
+        let cutout = Schicht {
+            alpha: Some(0.1),
+            ..schicht(false, false)
+        };
+        let gemischt = Schicht {
+            gemischt: true,
+            ..cutout
+        };
+        assert_eq!(alphas(&mut textures, 25, cutout), [0].into());
+        assert_eq!(alphas(&mut textures, 26, cutout), [0, 255].into());
+        assert_eq!(alphas(&mut textures, 25, gemischt), [0].into());
+        assert_eq!(alphas(&mut textures, 26, gemischt), [0, 26].into());
+        assert_eq!(
+            alphas(&mut textures, 0, schicht(false, false)),
+            [0, 255].into()
         );
     }
 
@@ -1330,6 +1664,7 @@ mod tests {
             shade,
             force_translucent: false,
             fluid: None,
+            entity: None,
         }
     }
 
@@ -1344,7 +1679,7 @@ mod tests {
             ],
             true,
         );
-        assert_eq!(shade_factor(&oben), SHADE_TOP);
+        assert_eq!(shade_factor(&oben, false), SHADE_TOP);
 
         let unten = quad(
             [
@@ -1355,7 +1690,7 @@ mod tests {
             ],
             true,
         );
-        assert_eq!(shade_factor(&unten), SHADE_BOTTOM);
+        assert_eq!(shade_factor(&unten, false), SHADE_BOTTOM);
     }
 
     #[test]
@@ -1369,7 +1704,7 @@ mod tests {
             ],
             true,
         );
-        assert_eq!(shade_factor(&nord), SHADE_NORTH_SOUTH);
+        assert_eq!(shade_factor(&nord, false), SHADE_NORTH_SOUTH);
 
         let ost = quad(
             [
@@ -1380,7 +1715,7 @@ mod tests {
             ],
             true,
         );
-        assert_eq!(shade_factor(&ost), SHADE_EAST_WEST);
+        assert_eq!(shade_factor(&ost, false), SHADE_EAST_WEST);
     }
 
     #[test]
@@ -1394,7 +1729,7 @@ mod tests {
             ],
             false,
         );
-        assert_eq!(shade_factor(&nord), SHADE_TOP);
+        assert_eq!(shade_factor(&nord, false), SHADE_TOP);
     }
 
     #[test]

@@ -84,16 +84,23 @@ Pack soll einen Renderlauf nicht abbrechen.
 
 ## Was kein Blockmodell hat
 
-Truhen, Banner, Schädel und Töpfe zeichnet Minecraft über Entity-Modelle,
-die kennt der Renderer noch nicht. Wasser, Lava und Blasensäule fehlen in
-der Liste von `--scan`, weil der Renderer sie wie das Spiel im Code baut,
-siehe [Wasser und Licht](wasser-und-licht.md); eine geflutete Truhe steht
-trotzdem darin, auf der Karte ist dort nur ihr Wasser.
+96 Blöcke haben in 26.2 kein Modell mit Elementen. Truhen, Banner, Köpfe,
+Krüge und die übrigen Blöcke mit Blockentity-Renderer bekommen ihr Bild aus
+dem Blockentity, siehe [Blockentities](blockentities.md); Wasser, Lava und
+Blasensäule baut der Renderer wie das Spiel im Code, siehe
+[Wasser und Licht](wasser-und-licht.md). Was dann bleibt, zeichnet auch das
+Spiel nicht aus einem Modell:
+
+- **unsichtbar:** Luft in ihren drei Arten, Barriere, Licht,
+  Strukturleere;
+- **ohne Modell gezeichnet:** End-Portal, End-Transitportal und ein Kolben
+  in Bewegung, siehe [Blockentities](blockentities.md), „Was fehlt“.
+
+Nur diese nennt `--scan` unter „Blöcke ohne Modell“, soweit sie in der
+Welt vorkommen.
 
 ## Was bleibt eine Näherung
 
-- **Entity-Modelle fehlen.** Truhen, Banner, Schädel und Töpfe zeichnet der
-  Renderer nicht.
 - **Ein kaputtes Element oder eine Seite `null`** trifft hier nur diesen
   Verweis; dem Client fehlt dann der ganze Zustand, bei Multipart jeder
   Zustand des Blocks. So schreibt kein Pack.

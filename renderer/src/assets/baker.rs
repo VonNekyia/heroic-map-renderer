@@ -1,3 +1,4 @@
+use super::blockentity::Entity;
 use super::fluid::Fluid;
 use super::model::{Face, Rotation};
 use super::{ResolvedVariant, TextureId};
@@ -20,6 +21,9 @@ pub struct Quad {
     /// Gesetzt für die Flächen einer Flüssigkeit, mit ihrer Richtung: die
     /// Fläche entfällt, wenn der Nachbar dort dieselbe Flüssigkeit führt.
     pub fluid: Option<(Fluid, Face)>,
+    /// Gesetzt für die Flächen aus einem Blockentity-Modell: Licht, Deckung
+    /// und Farbe kommen dann aus seiner Schicht wie im Spiel.
+    pub entity: Option<Entity>,
 }
 
 impl Quad {
@@ -108,6 +112,7 @@ pub fn bake(variants: &[ResolvedVariant]) -> BakedModel {
                     shade: element.shade,
                     force_translucent: data.force_translucent,
                     fluid: None,
+                    entity: None,
                 });
             }
         }
@@ -152,6 +157,7 @@ pub fn box_quads(
             shade: true,
             force_translucent: false,
             fluid: fluid.map(|fluid| (fluid, face)),
+            entity: None,
         }
     })
 }

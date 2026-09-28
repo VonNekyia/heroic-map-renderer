@@ -84,8 +84,9 @@ pub fn of(state: &BlockState) -> Option<Fluid> {
 }
 
 /// Ist der Block selbst die Flüssigkeit — Wasser, Lava, Blasensäule —
-/// statt nur geflutet? Nur die haben ohne Modell trotzdem ein Bild; eine
-/// geflutete Truhe bleibt eine Truhe, die Minecraft als Entity zeichnet.
+/// statt nur geflutet? Dann baut der Renderer sein Bild ohne Modell im
+/// Code. Eine geflutete Truhe ist keiner; ihr Bild kommt aus dem
+/// Blockentity, das Wasser dazu.
 pub fn is_block(state: &BlockState) -> bool {
     block_fluid(state).is_some()
 }

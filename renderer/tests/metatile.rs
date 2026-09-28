@@ -235,6 +235,20 @@ fn knapper_ueberstand_zaehlt_ueber_das_band() {
     }
 }
 
+/// Der Chunk auf Platz (1, 0) nennt sich (5, 0), wie in einer von Hand
+/// kopierten Regionsdatei: xPos steht unkomprimiert als Int-Tag darin.
+fn versetze_chunk_1(dir: &TempDir) {
+    let pfad = dir.path().join("region/r.0.0.mca");
+    let mut bytes = std::fs::read(&pfad).unwrap();
+    let muster = [3, 0, 4, b'x', b'P', b'o', b's', 0, 0, 0, 1];
+    let stelle = bytes
+        .windows(muster.len())
+        .position(|w| w == muster)
+        .expect("xPos 1");
+    bytes[stelle + 10] = 5;
+    std::fs::write(&pfad, bytes).unwrap();
+}
+
 /// Ein Chunk, dessen Position nicht zu seinem Platz in der Region passt —
 /// etwa aus einer von Hand kopierten Regionsdatei —, steht an seinem
 /// Platz, wie im Spiel: das Bild gleicht Byte für Byte dem einer Welt ohne
@@ -246,17 +260,7 @@ fn versetzter_chunk_steht_an_seinem_platz() {
     common::write_world(richtig.path(), &chunks, gelaende);
     let versetzt = tempdir();
     common::write_world(versetzt.path(), &chunks, gelaende);
-    // Der Chunk auf Platz (1, 0) nennt sich (5, 0): xPos steht unkomprimiert
-    // als Int-Tag in der Regionsdatei.
-    let pfad = versetzt.path().join("region/r.0.0.mca");
-    let mut bytes = std::fs::read(&pfad).unwrap();
-    let muster = [3, 0, 4, b'x', b'P', b'o', b's', 0, 0, 0, 1];
-    let stelle = bytes
-        .windows(muster.len())
-        .position(|w| w == muster)
-        .expect("xPos 1");
-    bytes[stelle + 10] = 5;
-    std::fs::write(&pfad, bytes).unwrap();
+    versetze_chunk_1(&versetzt);
 
     for scale in [4, 16, 32] {
         let projection = Projection::new(scale);
@@ -2338,11 +2342,25 @@ fn ecken_in(
     welt: impl Fn(i32, i32, i32) -> &'static str,
     block: [i32; 3],
 ) -> [[u8; 4]; 3] {
+    ecken_ohne(chunks, sections, welt, block, "")
+}
+
+/// Wie `ecken_in`, die Sprite-Tabelle aber ohne die Blöcke namens `ohne`,
+/// wie für einen Nachbarchunk, den der Vorlauf nicht gelesen hat.
+fn ecken_ohne(
+    chunks: &[(i32, i32)],
+    sections: std::ops::RangeInclusive<i8>,
+    welt: impl Fn(i32, i32, i32) -> &'static str,
+    block: [i32; 3],
+    ohne: &str,
+) -> [[u8; 4]; 3] {
     let dir = tempdir();
     common::write_world_sections(dir.path(), chunks, sections, welt, |_, _| None);
     let world = World::open(dir.path()).unwrap();
     let projection = Projection::new(32);
-    let sprites = tabelle(&mut assets(), &world, projection);
+    let mut states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    states.retain(|state| state.name() != ohne);
+    let sprites = SpriteSet::build_in(&mut assets(), &states, projection).unwrap();
     let rect = ScreenRect::centered(1024, 1024);
     let draws = draw_list(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap();
     let (bx, by) = projection.project_block(block);
@@ -2500,29 +2518,239 @@ fn weiche_beleuchtung_ueber_chunkgrenzen() {
     );
 }
 
-/// Was der Renderer nicht zeichnet, dunkelt ab wie im Spiel, eine
-/// Shulkerkiste etwa, die das Spiel mit ihrem Blockentity zeichnet: als
-/// Mauer neben dem Boden wie Stein, und auch allein in der Section über
-/// einem Block an deren Grenze.
+/// Die Bilder, die an einem Block ansetzen, in Zeichenreihenfolge: die
+/// Teile seines Sprites, auch die in Nachbarwürfeln.
+fn bilder_am_block(dir: &TempDir, block: [i32; 3]) -> Vec<RgbaImage> {
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(32);
+    let mut assets = assets();
+    let survey = survey(&world, projection, Y_RANGE, None).unwrap();
+    let mut sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+    sprites.add_entities(&mut assets, &survey.entities).unwrap();
+    let rect = ScreenRect::centered(1024, 1024);
+    let (bx, by) = projection.project_block(block);
+    let (bx, by) = (bx.round() as i32 - rect.x, by.round() as i32 - rect.y);
+    draw_list(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE)
+        .unwrap()
+        .iter()
+        .filter(|d| d.origin == (bx + d.sprite.offset.0, by + d.sprite.offset.1))
+        .map(|d| d.sprite.image.clone())
+        .collect()
+}
+
+/// Je zwei Banner, Krüge und geflutete Krüge im selben Zustand, einer davon
+/// mit Daten in `block_entities`: Vom Vorlauf bis zur Zeichenliste bekommt
+/// jeder das Bild mit den Daten seines Blockentity, der ohne Daten bleibt,
+/// wie er in einer Welt ganz ohne Daten wäre.
+#[test]
+fn blockentities_zeigen_ihre_daten() {
+    use fastnbt::Value;
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) => "minecraft:stone",
+        (4 | 10, 1, 4) => "minecraft:white_banner[rotation=0]",
+        (4 | 10, 1, 10) => "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=false]",
+        (4 | 10, 1, 13) => "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=true]",
+        _ => "minecraft:air",
+    };
+    let lage = Value::Compound(std::collections::HashMap::from([
+        (
+            "pattern".to_string(),
+            Value::String("minecraft:stripe_top".to_string()),
+        ),
+        ("color".to_string(), Value::String("red".to_string())),
+    ]));
+    // Vorne, nach Süden: Die Rückseite sieht die Kamera nicht.
+    let scherben = ["brick", "brick", "brick", "angler_pottery_sherd"]
+        .map(|item| Value::String(format!("minecraft:{item}")));
+    let mit = tempdir();
+    common::write_world_entities(mit.path(), &[(0, 0)], welt, |_, _| {
+        vec![
+            common::blockentity(
+                "minecraft:banner",
+                [4, 1, 4],
+                "patterns",
+                Value::List(vec![lage.clone()]),
+            ),
+            common::blockentity(
+                "minecraft:decorated_pot",
+                [4, 1, 10],
+                "sherds",
+                Value::List(scherben.to_vec()),
+            ),
+            common::blockentity(
+                "minecraft:decorated_pot",
+                [4, 1, 13],
+                "sherds",
+                Value::List(scherben.to_vec()),
+            ),
+        ]
+    });
+    let ohne = tempdir();
+    common::write_world(ohne.path(), &[(0, 0)], welt);
+
+    for block in [
+        [4, 1, 4],
+        [10, 1, 4],
+        [4, 1, 10],
+        [10, 1, 10],
+        [4, 1, 13],
+        [10, 1, 13],
+    ] {
+        let (a, b) = (bilder_am_block(&mit, block), bilder_am_block(&ohne, block));
+        assert!(!a.is_empty(), "{block:?}: nichts gezeichnet");
+        assert_eq!(a.len(), b.len(), "{block:?}");
+        let gleich = a.iter().zip(&b).all(|(a, b)| a.as_raw() == b.as_raw());
+        assert_eq!(gleich, block[0] == 10, "{block:?}");
+    }
+}
+
+/// Zwei Hälften einer Truhe nebeneinander sind eine geschlossene Truhe. Eine
+/// Hälfte hat keine Fläche auf der Seite zur anderen
+/// (`ChestModel.createDoubleBodyLeftLayer`, `createDoubleBodyRightLayer`),
+/// jede verdeckt die offene Seite der anderen, und die Hälften des Riegels
+/// treffen sich auf der Naht. Die Fixture-Texturen färben den Boden des
+/// Innenraums blau und den Riegel rot. LEFT hat die andere Hälfte im
+/// Uhrzeigersinn neben sich (`ChestBlock.getConnectedDirection`): Nach Osten
+/// liegt das Paar entlang z, nach Süden entlang x, und beide Male zeigen die
+/// Vorderseite und eine offene Seite zur Kamera.
+#[test]
+fn doppeltruhe_ist_geschlossen() {
+    let projection = Projection::new(64);
+    let rect = ScreenRect::centered(768, 768);
+    let bild = |block: fn(i32, i32, i32) -> &'static str| {
+        render_chunks(&tempdir(), &[(0, 0)], block, projection, rect)
+    };
+    let finde = |bild: &RgbaImage, farbe: fn(&image::Rgba<u8>) -> bool| -> Vec<(u32, u32)> {
+        bild.enumerate_pixels()
+            .filter(|(_, _, p)| farbe(p))
+            .map(|(x, y, _)| (x, y))
+            .collect()
+    };
+    let blau = |p: &image::Rgba<u8>| p[3] > 0 && p[0] < 10 && p[1] < 10 && p[2] > 60;
+    let rot = |p: &image::Rgba<u8>| p[3] > 0 && p[0] > 60 && p[1] < 10 && p[2] < 10;
+
+    let allein = bild(|x, y, z| match (x, y, z) {
+        (4, 1, 8) => "minecraft:chest[facing=east,type=left,waterlogged=false]",
+        _ => "minecraft:air",
+    });
+    assert!(
+        !finde(&allein, blau).is_empty(),
+        "eine Hälfte allein zeigt ihr Inneres"
+    );
+
+    let osten = bild(|x, y, z| match (x, y, z) {
+        (4, 1, 8) => "minecraft:chest[facing=east,type=left,waterlogged=false]",
+        (4, 1, 9) => "minecraft:chest[facing=east,type=right,waterlogged=false]",
+        _ => "minecraft:air",
+    });
+    let sueden = bild(|x, y, z| match (x, y, z) {
+        (9, 1, 4) => "minecraft:chest[facing=south,type=left,waterlogged=false]",
+        (8, 1, 4) => "minecraft:chest[facing=south,type=right,waterlogged=false]",
+        _ => "minecraft:air",
+    });
+    // Die Mitte des Riegels: vor der Vorderseite, auf der Naht.
+    for (name, paar, riegel) in [
+        ("Osten", &osten, [4.96875, 1.5625, 9.0]),
+        ("Süden", &sueden, [9.0, 1.5625, 4.96875]),
+    ] {
+        assert!(
+            finde(paar, blau).is_empty(),
+            "{name}: das Innere scheint durch"
+        );
+        let pixel = finde(paar, rot);
+        assert!(!pixel.is_empty(), "{name}: kein Riegel");
+        let mitte = |achse: fn(&(u32, u32)) -> u32| {
+            let min = pixel.iter().map(achse).min().unwrap();
+            let max = pixel.iter().map(achse).max().unwrap();
+            (min + max + 1) as f32 / 2.0
+        };
+        let (x, y) = projection.project(riegel);
+        let soll = (x - rect.x as f32, y - rect.y as f32);
+        let ist = (mitte(|p| p.0), mitte(|p| p.1));
+        assert!(
+            (ist.0 - soll.0).abs() <= 2.0 && (ist.1 - soll.1).abs() <= 2.0,
+            "{name}: Riegel bei {ist:?} statt {soll:?}"
+        );
+    }
+}
+
+/// Ein Chunk an der falschen Stelle der Regionsdatei nimmt seine
+/// Blockentities mit an seinen Platz: Das Spiel legt jedes mit
+/// `getPosFromTag` in den Chunk, wo er am Ende steht. Ein Banner mit Mustern
+/// sieht aus wie in der Welt ohne den Fehler, und anders als einer ohne.
+#[test]
+fn versetzter_chunk_behaelt_seine_blockdaten() {
+    use fastnbt::Value;
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (20, 1, 4) => "minecraft:white_banner[rotation=0]",
+        _ => "minecraft:air",
+    };
+    let lage = Value::Compound(std::collections::HashMap::from([
+        (
+            "pattern".to_string(),
+            Value::String("minecraft:stripe_top".to_string()),
+        ),
+        ("color".to_string(), Value::String("red".to_string())),
+    ]));
+    let mit_mustern = |dir: &TempDir| {
+        common::write_world_entities(dir.path(), &[(0, 0), (1, 0)], welt, |cx, _| {
+            if cx == 1 {
+                vec![common::blockentity(
+                    "minecraft:banner",
+                    [20, 1, 4],
+                    "patterns",
+                    Value::List(vec![lage.clone()]),
+                )]
+            } else {
+                Vec::new()
+            }
+        });
+    };
+    let richtig = tempdir();
+    mit_mustern(&richtig);
+    let versetzt = tempdir();
+    mit_mustern(&versetzt);
+    versetze_chunk_1(&versetzt);
+    let ohne = tempdir();
+    common::write_world(ohne.path(), &[(0, 0), (1, 0)], welt);
+
+    let roh = |dir: &TempDir| -> Vec<Vec<u8>> {
+        bilder_am_block(dir, [20, 1, 4])
+            .into_iter()
+            .map(RgbaImage::into_raw)
+            .collect()
+    };
+    let bild = roh(&versetzt);
+    assert!(!bild.is_empty(), "der Banner fehlt");
+    assert_eq!(bild, roh(&richtig), "die Muster fehlen");
+    assert_ne!(bild, roh(&ohne), "ohne Daten gleich");
+}
+
+/// Ein Block ohne Familie in der Sprite-Tabelle dunkelt trotzdem ab wie im
+/// Spiel: Am Rand eines Ausschnitts liegen Nachbarchunks, deren Blöcke der
+/// Vorlauf nicht gesammelt hat. Hier fehlt die Shulkerkiste in der Tabelle;
+/// sie dunkelt als Mauer neben dem Boden wie Stein, und auch allein in der
+/// Section über einem Block an deren Grenze.
 #[test]
 fn abdunkeln_auch_ohne_sprite() {
+    const KISTE: &str = "minecraft:shulker_box";
     let mauer = |x: i32, y: i32, _: i32| match (x, y) {
         (_, 0) => "minecraft:stone",
-        (7, 1) => "minecraft:shulker_box",
+        (7, 1) => "minecraft:shulker_box[facing=up]",
         _ => "minecraft:air",
     };
     assert_eq!(
-        ecken(mauer, [8, 0, 8])[0],
+        ecken_ohne(&[(0, 0)], 0..=0, mauer, [8, 0, 8], KISTE)[0],
         [153, 153, 255, 255],
         "als Mauer"
     );
     let darueber = |x: i32, y: i32, z: i32| match (x, y, z) {
         (8, 15, 8) => "minecraft:stone",
-        (8, 16, 8) => "minecraft:shulker_box",
+        (8, 16, 8) => "minecraft:shulker_box[facing=up]",
         _ => "minecraft:air",
     };
     assert_eq!(
-        ecken_in(&[(0, 0)], 0..=1, darueber, [8, 15, 8])[0],
+        ecken_ohne(&[(0, 0)], 0..=1, darueber, [8, 15, 8], KISTE)[0],
         [204; 4],
         "allein in der Section darüber"
     );

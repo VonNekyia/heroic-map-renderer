@@ -2624,14 +2624,20 @@ fn scan(
                         for section in chunk.sections() {
                             states.extend(section.blocks().palette().iter().cloned());
                         }
+                        // Gezählt wird nur, was das Bild seines Blocks ändert,
+                        // wie in `SpriteSet::add_entities`.
                         for ([x, y, z], daten) in chunk.blockentities() {
+                            let Some(state) = chunk.block_at(x, y, z) else {
+                                continue;
+                            };
+                            if !blockentity::aendert(state, daten) {
+                                continue;
+                            }
                             match daten {
                                 Blockdaten::Banner(_) => banner += 1,
                                 Blockdaten::Krug(_) => kruege += 1,
                             }
-                            if let Some(state) = chunk.block_at(*x, *y, *z) {
-                                verschiedene.insert((state.clone(), daten.clone()));
-                            }
+                            verschiedene.insert((state.clone(), daten.clone()));
                         }
                     }
                     Ok(None) => {}

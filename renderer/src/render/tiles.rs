@@ -328,7 +328,7 @@ fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey
                 }
             }
             for ([x, y, z], daten) in chunk.blockentities() {
-                if let Some(state) = chunk.block_at(*x, *y, *z) {
+                if let Some(state) = chunk.block_at(x, y, z) {
                     survey.entities.insert((state.clone(), daten.clone()));
                 }
             }

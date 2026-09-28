@@ -235,6 +235,20 @@ fn knapper_ueberstand_zaehlt_ueber_das_band() {
     }
 }
 
+/// Der Chunk auf Platz (1, 0) nennt sich (5, 0), wie in einer von Hand
+/// kopierten Regionsdatei: xPos steht unkomprimiert als Int-Tag darin.
+fn versetze_chunk_1(dir: &TempDir) {
+    let pfad = dir.path().join("region/r.0.0.mca");
+    let mut bytes = std::fs::read(&pfad).unwrap();
+    let muster = [3, 0, 4, b'x', b'P', b'o', b's', 0, 0, 0, 1];
+    let stelle = bytes
+        .windows(muster.len())
+        .position(|w| w == muster)
+        .expect("xPos 1");
+    bytes[stelle + 10] = 5;
+    std::fs::write(&pfad, bytes).unwrap();
+}
+
 /// Ein Chunk, dessen Position nicht zu seinem Platz in der Region passt —
 /// etwa aus einer von Hand kopierten Regionsdatei —, steht an seinem
 /// Platz, wie im Spiel: das Bild gleicht Byte für Byte dem einer Welt ohne
@@ -246,17 +260,7 @@ fn versetzter_chunk_steht_an_seinem_platz() {
     common::write_world(richtig.path(), &chunks, gelaende);
     let versetzt = tempdir();
     common::write_world(versetzt.path(), &chunks, gelaende);
-    // Der Chunk auf Platz (1, 0) nennt sich (5, 0): xPos steht unkomprimiert
-    // als Int-Tag in der Regionsdatei.
-    let pfad = versetzt.path().join("region/r.0.0.mca");
-    let mut bytes = std::fs::read(&pfad).unwrap();
-    let muster = [3, 0, 4, b'x', b'P', b'o', b's', 0, 0, 0, 1];
-    let stelle = bytes
-        .windows(muster.len())
-        .position(|w| w == muster)
-        .expect("xPos 1");
-    bytes[stelle + 10] = 5;
-    std::fs::write(&pfad, bytes).unwrap();
+    versetze_chunk_1(&versetzt);
 
     for scale in [4, 16, 32] {
         let projection = Projection::new(scale);
@@ -2668,6 +2672,58 @@ fn doppeltruhe_ist_geschlossen() {
             "{name}: Riegel bei {ist:?} statt {soll:?}"
         );
     }
+}
+
+/// Ein Chunk an der falschen Stelle der Regionsdatei nimmt seine
+/// Blockentities mit an seinen Platz: Das Spiel legt jedes mit
+/// `getPosFromTag` in den Chunk, wo er am Ende steht. Ein Banner mit Mustern
+/// sieht aus wie in der Welt ohne den Fehler, und anders als einer ohne.
+#[test]
+fn versetzter_chunk_behaelt_seine_blockdaten() {
+    use fastnbt::Value;
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (20, 1, 4) => "minecraft:white_banner[rotation=0]",
+        _ => "minecraft:air",
+    };
+    let lage = Value::Compound(std::collections::HashMap::from([
+        (
+            "pattern".to_string(),
+            Value::String("minecraft:stripe_top".to_string()),
+        ),
+        ("color".to_string(), Value::String("red".to_string())),
+    ]));
+    let mit_mustern = |dir: &TempDir| {
+        common::write_world_entities(dir.path(), &[(0, 0), (1, 0)], welt, |cx, _| {
+            if cx == 1 {
+                vec![common::blockentity(
+                    "minecraft:banner",
+                    [20, 1, 4],
+                    "patterns",
+                    Value::List(vec![lage.clone()]),
+                )]
+            } else {
+                Vec::new()
+            }
+        });
+    };
+    let richtig = tempdir();
+    mit_mustern(&richtig);
+    let versetzt = tempdir();
+    mit_mustern(&versetzt);
+    versetze_chunk_1(&versetzt);
+    let ohne = tempdir();
+    common::write_world(ohne.path(), &[(0, 0), (1, 0)], welt);
+
+    let roh = |dir: &TempDir| -> Vec<Vec<u8>> {
+        bilder_am_block(dir, [20, 1, 4])
+            .into_iter()
+            .map(RgbaImage::into_raw)
+            .collect()
+    };
+    let bild = roh(&versetzt);
+    assert!(!bild.is_empty(), "der Banner fehlt");
+    assert_eq!(bild, roh(&richtig), "die Muster fehlen");
+    assert_ne!(bild, roh(&ohne), "ohne Daten gleich");
 }
 
 /// Ein Block ohne Familie in der Sprite-Tabelle dunkelt trotzdem ab wie im

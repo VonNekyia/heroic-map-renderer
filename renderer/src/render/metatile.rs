@@ -1077,10 +1077,10 @@ impl Loaded {
             .collect();
         let mut varianten: Vec<([i32; 3], u32)> = chunk
             .blockentities()
-            .iter()
             .filter_map(|([x, y, z], daten)| {
-                let family = sprites.family_index(chunk.block_at(*x, *y, *z)?)?;
-                Some(([*x, *y, *z], sprites.variante(family, daten)?))
+                let s = chunk.section_index(i8::try_from(y >> 4).ok()?)?;
+                let family = families[s][chunk.sections()[s].slot(x, y, z)]?;
+                Some(([x, y, z], sprites.variante(family, daten)?))
             })
             .collect();
         varianten.sort_unstable_by_key(|&(pos, _)| pos);

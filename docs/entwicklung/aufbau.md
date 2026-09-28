@@ -41,7 +41,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 |---|---|
 | `mod.rs` | `Assets`: Wurzeln stapeln, Blockstates zu gebackenen Modellen auflösen, Missing-Würfel |
 | `pack.rs` | eine Wurzel auflisten wie der Client, siehe [Packs und Wurzeln](../renderer/packs.md) |
-| `blockstate.rs` | Blockstate-Dateien lesen, dazu die Tabellen `blocks.txt`, `leuchten.txt`, `schatten.txt`, siehe [Blockstates](../renderer/blockstates.md) |
+| `blockstate.rs` | Blockstate-Dateien lesen, dazu die Tabellen `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, siehe [Blockstates](../renderer/blockstates.md) |
 | `model.rs` | Modelle lesen wie `CuboidModel`, siehe [Modelle und Texturen](../renderer/modelle-und-texturen.md) |
 | `texture.rs` | Texturen und `.mcmeta` |
 | `baker.rs` | Elemente zu Vierecken backen: Drehungen, `uvlock`, Flüssigkeitsflächen |
@@ -49,7 +49,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `blockentity.rs` | was das Spiel für Truhen, Banner und die übrigen Blockentities aus Modellen zeichnet, aus `blockentities.txt`, mit Mustern und Scherben; die Bannermuster des Spiels und der Datenwurzeln, siehe [Blockentities](../renderer/blockentities.md) |
 | `colors.rs` | Biomfarben, siehe [Biomfarben](../renderer/biomfarben.md) |
 | `noise.rs` | das Rauschen des Sumpfgrases, siehe [Biomfarben](../renderer/biomfarben.md), „Sumpfgras“ |
-| `blocks.txt`, `leuchten.txt`, `schatten.txt`, `blockentities.txt`, `Leuchten.java`, `Schatten.java`, `Blockentities.java` | aus dem Spiel erzeugte Tabellen, siehe [Erzeugte Tabellen](tabellen.md) |
+| `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `blockentities.txt`, `Leuchten.java`, `Licht.java`, `Schatten.java`, `Blockentities.java` | aus dem Spiel erzeugte Tabellen, siehe [Erzeugte Tabellen](tabellen.md) |
 
 ## `renderer/src/render/`: Bilder machen
 

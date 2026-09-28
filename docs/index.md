@@ -49,7 +49,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Tests](entwicklung/tests.md): laufen lassen, Fixtures, Goldbild, GPU-Tests.
 - [CI](entwicklung/ci.md): die Jobs und die Doku-Prüfung.
 - [Eingabedaten](entwicklung/eingabedaten.md): was nicht im Repository liegt und was für Tests mitkommt.
-- [Erzeugte Tabellen](entwicklung/tabellen.md): `blocks.txt`, `leuchten.txt`, `schatten.txt`, `blockentities.txt`.
+- [Erzeugte Tabellen](entwicklung/tabellen.md): `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `blockentities.txt`.
 
 ## Entscheidungen
 

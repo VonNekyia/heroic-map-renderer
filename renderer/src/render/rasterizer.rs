@@ -375,7 +375,7 @@ pub fn render(
     }
 
     let unter = match leuchten {
-        Leuchten::Voll => Light {
+        Leuchten::Voll(_) => Light {
             sky: FULL_LIGHT,
             block: FULL_LIGHT,
         },

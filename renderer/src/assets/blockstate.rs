@@ -183,8 +183,9 @@ impl Definition {
 /// Wie hell die Blöcke von 26.2 selbst leuchten, aus dem Spiel gelesen
 /// (`Leuchten.java`): je Block ein Zeichen je Zustand, in der Reihenfolge
 /// von `getPossibleStates`, oder eines für alle. `0` bis `f` ist
-/// `getLightEmission`, `x` heisst `emissiveRendering`. Blöcke, die nie
-/// leuchten, fehlen. Neu erzeugen mit dem Skill `tabellen-neu-erzeugen`.
+/// `getLightEmission`; mit `emissiveRendering` steht dieselbe Stufe als
+/// Buchstabe `g` bis `v`. Blöcke, die nie leuchten, fehlen. Neu erzeugen
+/// mit dem Skill `tabellen-neu-erzeugen`.
 /// Siehe docs/entwicklung/tabellen.md, „Die Tabellen“.
 static LEUCHTEN: LazyLock<HashMap<&'static str, &'static [u8]>> = LazyLock::new(|| {
     include_str!("leuchten.txt")
@@ -194,14 +195,26 @@ static LEUCHTEN: LazyLock<HashMap<&'static str, &'static [u8]>> = LazyLock::new(
         .collect()
 });
 
-/// Das Blocklicht, in dem das Spiel einen Block zeichnet, soweit es von
-/// ihm selbst kommt (`LightCoordsUtil.getLightCoords`): `emissiveRendering`
-/// zeichnet ihn voll hell, sonst hebt `getLightEmission` das Blocklicht
-/// mindestens auf seine Stufe.
+/// Wie hell ein Block selbst leuchtet: Mit `getLightEmission` beginnt er
+/// als Quelle der Ausbreitung (`BlockLightEngine`), und die Stufe hebt das
+/// Blocklicht, in dem das Spiel ihn zeichnet, mindestens auf sich
+/// (`LightCoordsUtil.getLightCoords`). Mit `emissiveRendering`, [`Voll`],
+/// zeichnet das Spiel ihn voll hell.
+///
+/// [`Voll`]: Leuchten::Voll
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Leuchten {
     Stufe(u8),
-    Voll,
+    Voll(u8),
+}
+
+impl Leuchten {
+    /// `getLightEmission`.
+    pub fn stufe(self) -> u8 {
+        match self {
+            Leuchten::Stufe(stufe) | Leuchten::Voll(stufe) => stufe,
+        }
+    }
 }
 
 /// [`Leuchten`] für einen Zustand. Ein Block, den 26.2 nicht kennt,
@@ -218,9 +231,117 @@ pub fn leuchten(state: &BlockState) -> Leuchten {
                 .and_then(|i| zeichen.get(i).copied()),
         });
     match zeichen {
-        Some(b'x') => Leuchten::Voll,
+        Some(z @ b'g'..=b'v') => Leuchten::Voll(z - b'g'),
         Some(z) => Leuchten::Stufe((z as char).to_digit(16).unwrap_or(0) as u8),
         None => Leuchten::Stufe(0),
+    }
+}
+
+/// Wie ein Zustand das Licht beim Ausbreiten aufhält
+/// (`LightEngine.propagateIncrease`, `ChunkSkyLightSources`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Lichtweg {
+    /// `getLightDampening`: 0, 1 oder 15. Ein Schritt in die Zelle kostet
+    /// eine Stufe, mindestens aber so viel; bei 15 kommt kein Licht hinein.
+    pub daempfung: u8,
+    /// Die Fläche, mit der er das Licht an jeder Seite aufhält, in der
+    /// Reihenfolge von `Direction.values()`: unten, oben, Norden, Süden,
+    /// Westen, Osten. 0 keine, 1 die ganze Seite, ab 2 eine Teilfläche,
+    /// siehe [`deckt`].
+    pub formen: [u8; 6],
+}
+
+/// Die Tabelle aus `licht.txt`: je Block die Zeichen aller Zustände, dazu
+/// je Achse, welche zwei Teilflächen zusammen eine Seite decken.
+struct LichtTabelle {
+    bloecke: HashMap<&'static str, &'static [u8]>,
+    /// Je Achse y, z, x: Decken Teilfläche `a` der positiven Richtung und
+    /// `b` der negativen zusammen die ganze Seite? Index `a * 36 + b`.
+    paare: [Vec<bool>; 3],
+}
+
+/// Wie die Blöcke von 26.2 das Licht aufhalten, aus dem Spiel gelesen
+/// (`Licht.java`): je Block sieben Zeichen je Zustand, in der Reihenfolge
+/// von `getPossibleStates`, oder sieben für alle; das erste ist
+/// `getLightDampening`, die sechs danach die Flächen aus [`Lichtweg`], zur
+/// Basis 36. Blöcke, die das Licht nirgends aufhalten, fehlen. Am Ende je
+/// Paar aus Teilflächen, die zusammen eine Seite decken, eine Zeile
+/// `paar <achse> <a> <b>`. Neu erzeugen mit dem Skill
+/// `tabellen-neu-erzeugen`.
+/// Siehe docs/entwicklung/tabellen.md, „Die Tabellen“.
+static LICHT: LazyLock<LichtTabelle> = LazyLock::new(|| {
+    let mut tabelle = LichtTabelle {
+        bloecke: HashMap::new(),
+        paare: std::array::from_fn(|_| vec![false; 36 * 36]),
+    };
+    let ziffer = |text: &str| u8::from_str_radix(text, 36).ok();
+    for line in include_str!("licht.txt").lines() {
+        let teile: Vec<&str> = line.split(' ').collect();
+        match teile[..] {
+            ["paar", achse, a, b] => {
+                let achse = match achse {
+                    "y" => 0,
+                    "z" => 1,
+                    _ => 2,
+                };
+                if let (Some(a), Some(b)) = (ziffer(a), ziffer(b)) {
+                    tabelle.paare[achse][a as usize * 36 + b as usize] = true;
+                }
+            }
+            [name, zeichen] => {
+                tabelle.bloecke.insert(name, zeichen.as_bytes());
+            }
+            _ => {}
+        }
+    }
+    tabelle
+});
+
+/// [`Lichtweg`] für einen Zustand. Ein Block, den 26.2 nicht kennt, hält
+/// das Licht nicht auf.
+pub fn lichtweg(state: &BlockState) -> Lichtweg {
+    let Some(zeichen) = state
+        .name()
+        .strip_prefix("minecraft:")
+        .and_then(|name| LICHT.bloecke.get(name))
+    else {
+        return Lichtweg::default();
+    };
+    let index = match zeichen.len() {
+        7 => Some(0),
+        _ => Definition::of(state.name()).and_then(|d| d.index(state)),
+    };
+    let Some(z) = index.and_then(|i| zeichen.get(7 * i..7 * i + 7)) else {
+        return Lichtweg::default();
+    };
+    let wert = |z: u8| (z as char).to_digit(36).unwrap_or(0) as u8;
+    Lichtweg {
+        daempfung: wert(z[0]),
+        formen: std::array::from_fn(|d| wert(z[1 + d])),
+    }
+}
+
+/// `Shapes.faceShapeOccludes`, wie `LightEngine.shapeOccludes` es fragt:
+/// Halten die Fläche `von` der Zelle, aus der das Licht kommt, in Richtung
+/// `richtung` und die Fläche `nach` der Zelle dahinter in Gegenrichtung
+/// zusammen die ganze Seite zu? Richtungen und Flächen wie in [`Lichtweg`].
+pub fn deckt(richtung: usize, von: u8, nach: u8) -> bool {
+    match (von, nach) {
+        (1, _) | (_, 1) => true,
+        (0, _) | (_, 0) => false,
+        _ => {
+            // Die Paare stehen mit der Fläche der positiven Richtung zuerst:
+            // oben, Süden, Osten.
+            let (a, b) = if richtung % 2 == 1 {
+                (von, nach)
+            } else {
+                (nach, von)
+            };
+            LICHT.paare[richtung / 2]
+                .get(a as usize * 36 + b as usize)
+                .copied()
+                .unwrap_or(false)
+        }
     }
 }
 
@@ -707,7 +828,8 @@ mod tests {
     /// Jede Zeile aus `leuchten.txt` passt zu `blocks.txt`: ein Zeichen
     /// oder eines je Zustand. Dazu Werte, die `Leuchten.java` aus 26.2 las:
     /// Seelaterne und Konduit 15, eine geflutete Meeresgurke 3 + 3 je Gurke,
-    /// eine trockene keine, der Magmablock voll hell.
+    /// eine trockene keine, der Magmablock voll hell mit Stufe 3, der
+    /// auslösende Sculk-Sensor voll hell mit Stufe 1.
     #[test]
     fn leuchten_wie_im_spiel() {
         for (name, zeichen) in LEUCHTEN.iter() {
@@ -720,7 +842,9 @@ mod tests {
                 definition.states()
             );
             assert!(
-                zeichen.iter().all(|z| z.is_ascii_hexdigit() || *z == b'x'),
+                zeichen
+                    .iter()
+                    .all(|z| z.is_ascii_digit() || (b'a'..=b'v').contains(z)),
                 "{name}"
             );
         }
@@ -742,9 +866,93 @@ mod tests {
             l("minecraft:sea_pickle[pickles=4,waterlogged=false]"),
             Leuchten::Stufe(0)
         );
-        assert_eq!(l("minecraft:magma_block"), Leuchten::Voll);
+        assert_eq!(l("minecraft:magma_block"), Leuchten::Voll(3));
+        assert_eq!(
+            l("minecraft:sculk_sensor[power=0,sculk_sensor_phase=active,waterlogged=false]"),
+            Leuchten::Voll(1)
+        );
+        assert_eq!(
+            l("minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]"),
+            Leuchten::Stufe(1)
+        );
         assert_eq!(l("minecraft:stone"), Leuchten::Stufe(0));
         assert_eq!(l("mod:laterne"), Leuchten::Stufe(0));
+    }
+
+    /// Jede Zeile aus `licht.txt` passt zu `blocks.txt`: sieben Zeichen oder
+    /// sieben je Zustand. Dazu Werte, die `Licht.java` aus 26.2 las: Stein
+    /// dämpft ganz, Wasser und Laub um eine Stufe, Glas gar nicht. Eine
+    /// untere Platte schliesst unten ganz und oben nicht, eine obere
+    /// umgekehrt, an den Seiten je zur Hälfte; beide Hälften zusammen
+    /// schliessen eine Seite, zwei untere nicht. Eine Lage Schnee schliesst
+    /// unten, acht überall.
+    #[test]
+    fn licht_wie_im_spiel() {
+        for (name, zeichen) in LICHT.bloecke.iter() {
+            let definition = Definition::of(&format!("minecraft:{name}"))
+                .unwrap_or_else(|| panic!("{name} fehlt in blocks.txt"));
+            assert!(
+                zeichen.len() == 7 || zeichen.len() == 7 * definition.states(),
+                "{name}: {} Zeichen für {} Zustände",
+                zeichen.len(),
+                definition.states()
+            );
+            for z in zeichen.chunks(7) {
+                assert!(matches!(z[0], b'0' | b'1' | b'f'), "{name}");
+                assert!(z[1..].iter().all(|z| z.is_ascii_alphanumeric()), "{name}");
+            }
+        }
+        assert_eq!(LICHT.paare.iter().flatten().filter(|&&p| p).count(), 288);
+        let l = |text: &str| lichtweg(&state(text));
+        assert_eq!(
+            l("minecraft:stone"),
+            Lichtweg {
+                daempfung: 15,
+                formen: [0; 6]
+            }
+        );
+        assert_eq!(l("minecraft:water[level=0]").daempfung, 1);
+        assert_eq!(
+            l("minecraft:oak_leaves[distance=7,persistent=false,waterlogged=false]").daempfung,
+            1
+        );
+        assert_eq!(l("minecraft:glass"), Lichtweg::default());
+        assert_eq!(l("mod:stein"), Lichtweg::default());
+        let unten = l("minecraft:oak_slab[type=bottom,waterlogged=false]");
+        let oben = l("minecraft:oak_slab[type=top,waterlogged=false]");
+        assert_eq!(
+            (unten.daempfung, unten.formen[0], unten.formen[1]),
+            (0, 1, 0)
+        );
+        assert_eq!((oben.daempfung, oben.formen[0], oben.formen[1]), (0, 0, 1));
+        assert_eq!(
+            l("minecraft:oak_slab[type=bottom,waterlogged=true]").daempfung,
+            1
+        );
+        // Norden, Süden, Westen, Osten: Die Seiten jeder Hälfte sind
+        // Teilflächen. Nach Osten stösst die Ostseite der einen an die
+        // Westseite der anderen.
+        const OSTEN: usize = 5;
+        let (u, o) = (unten.formen, oben.formen);
+        assert!(u[2..].iter().chain(&o[2..]).all(|&f| f >= 2));
+        assert!(deckt(OSTEN, u[OSTEN], o[OSTEN - 1]));
+        assert!(deckt(OSTEN, o[OSTEN], u[OSTEN - 1]));
+        assert!(deckt(OSTEN - 1, u[OSTEN - 1], o[OSTEN]));
+        assert!(!deckt(OSTEN, u[OSTEN], u[OSTEN - 1]));
+        assert!(!deckt(OSTEN, u[OSTEN], 0));
+        assert!(deckt(OSTEN, 1, 0));
+        let schnee = l("minecraft:snow[layers=1]");
+        assert_eq!(
+            (schnee.daempfung, schnee.formen[0], schnee.formen[1]),
+            (0, 1, 0)
+        );
+        assert_eq!(
+            l("minecraft:snow[layers=8]"),
+            Lichtweg {
+                daempfung: 15,
+                formen: [1; 6]
+            }
+        );
     }
 
     /// Jede Zeile aus `schatten.txt` passt zu `blocks.txt`: eine Ziffer

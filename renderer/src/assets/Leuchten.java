@@ -9,11 +9,12 @@ import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * Schreibt je Block von 26.2, wie hell er selbst leuchtet, so wie
- * LightCoordsUtil.getLightCoords es beim Zeichnen nimmt: je Zustand eine
- * Ziffer 0 bis f für getLightEmission, in der Reihenfolge von
- * getPossibleStates, oder ein x für emissiveRendering, dann zeichnet ihn das
- * Spiel voll hell. Blöcke, die in keinem Zustand leuchten, fehlen; haben
- * alle Zustände dasselbe Zeichen, steht es einmal.
+ * LightCoordsUtil.getLightCoords es beim Zeichnen und die Lichtausbreitung
+ * es als Quelle nimmt: je Zustand eine Ziffer 0 bis f für getLightEmission,
+ * in der Reihenfolge von getPossibleStates. Mit emissiveRendering, dann
+ * zeichnet ihn das Spiel voll hell, steht dieselbe Stufe als Buchstabe g
+ * bis v: g für 0, j für 3. Blöcke, die in keinem Zustand leuchten, fehlen;
+ * haben alle Zustände dasselbe Zeichen, steht es einmal.
  */
 public class Leuchten {
     public static void main(String[] args) {
@@ -26,11 +27,12 @@ public class Leuchten {
         for (Block block : BuiltInRegistries.BLOCK) {
             var zeichen = new StringBuilder();
             for (BlockState state : block.getStateDefinition().getPossibleStates()) {
+                int stufe = state.getLightEmission();
                 if (state.emissiveRendering()) {
-                    zeichen.append('x');
+                    zeichen.append((char) ('g' + stufe));
                     voll++;
                 } else {
-                    zeichen.append(Character.forDigit(state.getLightEmission(), 16));
+                    zeichen.append(Character.forDigit(stufe, 16));
                 }
             }
             String z = zeichen.toString();

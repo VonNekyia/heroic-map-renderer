@@ -1528,7 +1528,7 @@ impl<'a> ChunkCache<'a> {
         // weiche Beleuchtung (`ModelBlockRenderer.tesselateBlock`); den
         // Schein auf die Nachbarn rechnet der Renderer nicht.
         let light = match leuchten {
-            Leuchten::Voll => Light {
+            Leuchten::Voll(_) => Light {
                 sky: FULL_LIGHT,
                 block: FULL_LIGHT,
             },

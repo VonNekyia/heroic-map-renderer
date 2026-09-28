@@ -1,6 +1,6 @@
 ---
 name: tabellen-neu-erzeugen
-description: Erzeugt blocks.txt, leuchten.txt, schatten.txt und blockentities.txt unter renderer/src/assets/ aus dem Server- und dem Client-JAR einer Minecraft-Version neu. Nutzen für eine neue Spielversion oder wenn eine der Tabellen nicht mehr zum Spiel passt; die Tabellen nie von Hand ändern.
+description: Erzeugt blocks.txt, leuchten.txt, licht.txt, schatten.txt und blockentities.txt unter renderer/src/assets/ aus dem Server- und dem Client-JAR einer Minecraft-Version neu. Nutzen für eine neue Spielversion oder wenn eine der Tabellen nicht mehr zum Spiel passt; die Tabellen nie von Hand ändern.
 ---
 
 # Tabellen neu erzeugen
@@ -25,17 +25,22 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
 
    Danach liegen im Verzeichnis auch das entpackte Spiel unter `versions/`
    und seine Bibliotheken unter `libraries/`.
-3. **`leuchten.txt` und `schatten.txt`:** `Leuchten.java` und
-   `Schatten.java` aus `renderer/src/assets/` in dasselbe Verzeichnis
-   kopieren und mit dem Spiel im Klassenpfad starten. Unter Windows trennt
+3. **`leuchten.txt`, `licht.txt` und `schatten.txt`:** `Leuchten.java`,
+   `Licht.java` und `Schatten.java` aus `renderer/src/assets/` in dasselbe
+   Verzeichnis kopieren und mit dem Spiel im Klassenpfad starten. Unter Windows trennt
    `;` statt `:` die Einträge im Klassenpfad:
 
    ```bash
    java -cp "$(ls versions/*/server-*.jar):$(find libraries -name '*.jar' | paste -sd:)" Leuchten.java > leuchten.txt
+   java -cp "$(ls versions/*/server-*.jar):$(find libraries -name '*.jar' | paste -sd:)" Licht.java > licht.txt
    java -cp "$(ls versions/*/server-*.jar):$(find libraries -name '*.jar' | paste -sd:)" Schatten.java > schatten.txt
    ```
 
    Java in der Version, auf der das Spiel läuft, für 26.2 Java 25.
+   `Licht.java` nennt auf stderr, wie viele Zustände und Paare es sind und
+   wie viele Teilflächen je Richtung. Gibt eine Version eine andere
+   Dämpfung als 0, 1 oder 15 oder mehr Teilflächen, als die Basis 36 fasst,
+   bricht er ab.
 4. **`blockentities.txt`:** Die Renderer der Blockentities gibt es nur im
    Client. Das Client-JAR der Version liegt im Manifest unter
    `downloads.client.url`, die Prüfsumme unter `downloads.client.sha1`; als
@@ -57,14 +62,15 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    [`spielverhalten-belegen`](../spielverhalten-belegen/SKILL.md), und die
    Mengen in `Blockentities.java` anpassen. Der Bootstrap des Spiels legt im
    Verzeichnis `logs/` an.
-5. **Einsetzen:** die vier Dateien nach `renderer/src/assets/` kopieren.
-   Für 26.2 ergeben die Befehle für `blocks.txt`, `schatten.txt` und
-   `blockentities.txt` genau die Dateien im Repository.
+5. **Einsetzen:** die fünf Dateien nach `renderer/src/assets/` kopieren.
+   Für 26.2 ergeben die Befehle für `blocks.txt`, `leuchten.txt`,
+   `licht.txt`, `schatten.txt` und `blockentities.txt` genau die Dateien im
+   Repository.
 6. **Neu bauen und testen:** Die Tabellen sind einkompiliert, der Renderer
    muss danach neu gebaut werden. `blocktabelle_aus_26_2` bekommt die Zahlen
    der neuen Version, `tabelle_wie_im_spiel` die Zahl der Blöcke mit
    Blockentity und der Bannermuster; `leuchten_wie_im_spiel`,
-   `schatten_wie_im_spiel`, `bild_je_zustand` und `zuordnung_je_zustand`
+   `licht_wie_im_spiel`, `schatten_wie_im_spiel`, `bild_je_zustand` und `zuordnung_je_zustand`
    prüfen einzelne Blöcke. Ändert sich ein Wert, den ein Test festhält, den
    Wert im Spiel belegen, Skill
    [`spielverhalten-belegen`](../spielverhalten-belegen/SKILL.md).

@@ -99,6 +99,20 @@ Blickachse ausfüllt, wäre so nicht auflösbar; in Vanilla gibt es keines.
 Die Kandidaten kommen sortiert nach `(y, v, u)` aus den Bitmasken, siehe
 [Der Weg einer Kachel](renderpfad.md), „Bitmasken“.
 
+## Stufen, die von der Kamera wegzeigen
+
+Eine Geländestufe, die nach Norden oder Westen zeigt, ist in der Projektion
+unsichtbar: Die Oberseite eine Stufe höher liegt auf der Blickachse genau
+auf dem Boden dahinter. Was hinter der Stufe steht, verdeckt sie bis auf
+die Ränder, die über ihre hintere Ecke ragen. Über einer scheinbar ebenen
+Wiese stehen deshalb einzelne Pixel, von einem roten Pilz etwa zwei. Das
+ist kein Fehler. Nachzustellen in der Testwelt am Pilz bei
+(−155, 72, −4359):
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --render stufe.png --center -227 -4431 --size 128 --scale 32
+```
+
 ## Weltkoordinaten in f64
 
 Weltkoordinaten werden in `f64` projiziert. Minecraft erlaubt knapp 30

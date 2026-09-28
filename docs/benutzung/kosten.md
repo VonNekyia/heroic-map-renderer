@@ -62,6 +62,7 @@ wuchs, bei scale 32 für die ganze Testwelt:
 | Wasser im Licht des Spiels | 51 kB | ~21 GB | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md), Spalte master |
 | weiche Beleuchtung | 65 kB | ~26 GB | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md) |
 | Übergänge zwischen Biomen, hochgerechnet | 66 kB | ~26 GB | [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md) |
+| Flächen mit Löchern ausgeschnitten, hochgerechnet | 63 kB | ~25 GB | [2026-09-28, Cutout](../messungen/2026-09-28-cutout.md) |
 
 Die weiche Beleuchtung legt je nach Inhalt 18 bis 30 % darauf, auf diesem
 Ausschnitt 27 %, denn ihr Verlauf packt sich schlechter als eine ebene

@@ -638,11 +638,13 @@ fn flaeche(z: f32, von: f32, bis: f32, texture: TextureId) -> Quad {
     }
 }
 
-/// Eine Fläche, deren Textur am Pixel nur zum Teil deckt, verdeckt die
-/// Fläche dahinter nicht ganz. Gemittelt wird über den Pixel: bei scale 16
-/// liegen zwei Texelspalten darunter, von einem Gitter aus deckenden und
-/// leeren Spalten also eine halbe Deckung — wie an der Kante eines
-/// Weizenhalms. Die vordere Fläche kommt hier in der Sortierung zuerst;
+/// Eine durchscheinende Fläche, deren Textur am Pixel nur zum Teil deckt,
+/// verdeckt die Fläche dahinter nicht ganz. Gemittelt wird über den Pixel:
+/// bei scale 16 liegen zwei Texelspalten darunter, von einem Gitter aus
+/// deckenden und leeren Spalten also eine halbe Deckung. Ohne
+/// `force_translucent` deckte das Gitter ganz oder gar nicht wie jede
+/// Fläche mit Löchern, siehe `ausgeschnitten_deckt_ganz_oder_gar_nicht` im
+/// Rasterizer. Die vordere Fläche kommt hier in der Sortierung zuerst;
 /// setzte sie die Tiefe, fiele die hintere dort weg, und das Pixel bliebe
 /// halb durchsichtig.
 #[test]
@@ -651,9 +653,13 @@ fn teildeckung_verdeckt_nicht() {
     let gitter = assets.texture("block/gitter");
     let blau = assets.texture("block/blau");
     let projection = Projection::new(16);
+    let vorne = Quad {
+        force_translucent: true,
+        ..flaeche(0.75, 0.0, 1.0, gitter)
+    };
 
     let allein = BakedModel {
-        quads: vec![flaeche(0.75, 0.0, 1.0, gitter)],
+        quads: vec![vorne.clone()],
         ambient_occlusion: false,
     };
     let allein = render(
@@ -672,10 +678,7 @@ fn teildeckung_verdeckt_nicht() {
     // Die grosse Fläche dahinter reicht mit ihrer vordersten Ecke weiter
     // nach vorn und wird deshalb nach dem Gitter gezeichnet.
     let beide = BakedModel {
-        quads: vec![
-            flaeche(0.75, 0.0, 1.0, gitter),
-            flaeche(0.25, -1.0, 2.0, blau),
-        ],
+        quads: vec![vorne, flaeche(0.25, -1.0, 2.0, blau)],
         ambient_occlusion: false,
     };
     let sprite = render(

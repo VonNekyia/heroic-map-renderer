@@ -89,6 +89,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md): Koordinaten aus Höhenkarten.
 - [0036](entscheidungen/0036-hoehen-aus-der-heightmap.md): Höhen aus der Heightmap, je 4×4.
 - [0037](entscheidungen/0037-chunks-ab-dem-status-light.md): Chunks ab dem Status light.
+- [0038](entscheidungen/0038-cutout-wie-im-spiel.md): Flächen mit Löchern werden ausgeschnitten.
 
 ## Messungen
 
@@ -106,4 +107,5 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-09-27, Weiche Beleuchtung](messungen/2026-09-27-weiche-beleuchtung.md): Kosten je Kachel und für die ganze Testwelt.
 - [2026-09-27, Biomübergänge](messungen/2026-09-27-biomuebergaenge.md): Kosten der Mischung, Sprite-Tabellen ohne Fassungen je Biom.
 - [2026-09-27, Vollrender mit #21](messungen/2026-09-27-vollrender-mit-21.md): 66 min, 184 GB, ganz gemessen, mit Live-Ansicht.
+- [2026-09-28, Cutout](messungen/2026-09-28-cutout.md): was das Ausschneiden von Flächen mit Löchern an Grösse und Dauer kostet, im Wechsel gegen master, und wie dicht Laub danach bei jedem scale deckt.
 - [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md): die Höhen für die Koordinatenanzeige, erst je Spalte in eigenem Durchgang, dann aus der Heightmap je 4×4 im Vorlauf; dazu die Auflösungen im Vergleich.

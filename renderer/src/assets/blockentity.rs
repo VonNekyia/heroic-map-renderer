@@ -86,6 +86,9 @@ struct Tabelle {
     muster: &'static str,
     /// Wie viele Lagen eines Banners das Spiel höchstens zeichnet.
     hoechstens: usize,
+    /// Die Muster des Spiels nach ID mit ihrem `asset_id`, wie
+    /// `BannerPatterns.bootstrap` sie anlegt.
+    spielmuster: HashMap<&'static str, &'static str>,
 }
 
 static TABELLE: LazyLock<Tabelle> = LazyLock::new(|| lesen(include_str!("blockentities.txt")));
@@ -164,6 +167,9 @@ fn lesen(text: &'static str) -> Tabelle {
                 t.muster = teile[1];
                 t.hoechstens = teile[2].parse().expect("Lagen");
             }
+            "bannermuster" => {
+                t.spielmuster.insert(teile[1], teile[2]);
+            }
             _ => panic!("blockentities.txt: {zeile}"),
         }
     }
@@ -208,6 +214,13 @@ pub fn bild(state: &BlockState) -> Option<usize> {
         [eines] => *eines,
         _ => *bilder.get(Definition::of(state.name())?.index(state)?)?,
     }
+}
+
+/// Ob der Block in irgendeinem Zustand ein Bild aus seinem Blockentity hat;
+/// [`bild`] braucht dafür alle Eigenschaften.
+pub fn hat_bild(name: &str) -> bool {
+    name.strip_prefix("minecraft:")
+        .is_some_and(|name| TABELLE.bloecke.contains_key(name))
 }
 
 /// Wie viele Flächen das Bild eines Zustands hat und welche Texturen es
@@ -294,21 +307,27 @@ fn id(text: &str) -> String {
 
 /// Textur und Farbe einer Lage (`Sheets.getBannerSprite`,
 /// `DyeColor.getTextureDiffuseColor`) oder was an ihr unbekannt ist: Ein
-/// Muster, das keine Datenwurzel nennt, oder einen Farbstoff, den es nicht
-/// gibt, lehnt der Codec des Spiels ab, und die Lage fällt heraus.
+/// Muster, das nicht in der Registry steht, oder einen Farbstoff, den es
+/// nicht gibt, lehnt der Codec des Spiels ab, und die Lage fällt heraus.
 fn lage(muster: &Muster, farbstoff: &str, assets: &Assets) -> Result<(String, [u8; 3]), String> {
     let t = &*TABELLE;
     let asset = match muster {
         Muster::Asset(asset) => asset.clone(),
-        // Nennt keine Datenwurzel ein Muster, gilt jede ID als ihr eigenes
-        // `asset_id`, wie bei allen Mustern des Spiels
-        // (`BannerPatterns.register`). Sonst gelten nur die genannten.
-        Muster::Id(muster) if assets.muster.is_empty() => muster.clone(),
-        Muster::Id(muster) => assets
-            .muster
-            .get(&id(muster))
-            .cloned()
-            .ok_or_else(|| format!("Muster {muster}"))?,
+        // Die Registry: die Muster des Spiels aus der Tabelle, darüber die der
+        // Datenwurzeln, wie Datenpakete über dem des Spiels liegen.
+        Muster::Id(muster) => {
+            let id = id(muster);
+            assets
+                .muster
+                .get(&id)
+                .cloned()
+                .or_else(|| {
+                    t.spielmuster
+                        .get(id.as_str())
+                        .map(|asset| asset.to_string())
+                })
+                .ok_or_else(|| format!("Muster {muster}"))?
+        }
     };
     let farbe = *t
         .farbstoffe
@@ -442,6 +461,11 @@ mod tests {
         assert_eq!(t.bloecke.len(), 87);
         assert_eq!(t.farbstoffe.len(), 16);
         assert_eq!((t.muster, t.hoechstens), ("entity/banner", 16));
+        // `BannerPatterns.register` legt jedes Muster mit seiner ID als
+        // `asset_id` an.
+        assert_eq!(t.spielmuster.len(), 43);
+        assert!(t.spielmuster.iter().all(|(id, asset)| id == asset));
+        assert!(t.spielmuster.contains_key("minecraft:stripe_top"));
     }
 
     /// Das Bild hängt am Zustand wie im Spiel: bei der Truhe an Art und
@@ -581,9 +605,9 @@ mod tests {
     /// Textur und Farbe einer Lage: das Muster mit seinem `asset_id` unter
     /// `entity/banner` im Namensraum des `asset_id`
     /// (`Sheets.getBannerSprite`), die Farbe des Farbstoffs. Was das Spiel
-    /// nicht kennt, fehlt: ein Farbstoff, den es nicht gibt, und mit einer
-    /// Datenwurzel ein Muster, das sie nicht nennt. Ohne Datenwurzel ist jede
-    /// ID ihr eigenes `asset_id`.
+    /// nicht kennt, fehlt: ein Farbstoff, den es nicht gibt, und ein Muster,
+    /// das nicht in der Registry steht. Die Registry sind die Muster des
+    /// Spiels und darüber die der Datenwurzeln.
     #[test]
     fn lage_wie_im_spiel() {
         let id = |id: &str| Muster::Id(id.to_string());
@@ -597,8 +621,16 @@ mod tests {
             ok("minecraft:entity/banner/stripe_top", "red")
         );
         assert_eq!(
+            lage(&assets, &id("minecraft:cross"), "lime"),
+            ok("minecraft:entity/banner/cross", "lime")
+        );
+        assert_eq!(
             lage(&assets, &id("minecraft:gibt_es_nicht"), "lime"),
-            ok("minecraft:entity/banner/gibt_es_nicht", "lime")
+            Err("Muster minecraft:gibt_es_nicht".to_string())
+        );
+        assert_eq!(
+            lage(&assets, &id("terranova:welle"), "lime"),
+            Err("Muster terranova:welle".to_string())
         );
         assert_eq!(
             lage(&assets, &id("stripe_top"), "lila"),
@@ -632,8 +664,21 @@ mod tests {
             ok("terranova:entity/banner/wellen", "black")
         );
         assert_eq!(
+            lage(&assets, &id("minecraft:cross"), "lime"),
+            ok("minecraft:entity/banner/cross", "lime"),
+            "nicht in der Wurzel, aber im Spiel"
+        );
+        assert_eq!(
             lage(&assets, &welle, "blue"),
             ok("beispiel:entity/banner/welle", "blue")
+        );
+        assets
+            .muster
+            .insert("minecraft:cross".to_string(), "minecraft:kreuz".to_string());
+        assert_eq!(
+            lage(&assets, &id("cross"), "lime"),
+            ok("minecraft:entity/banner/kreuz", "lime"),
+            "die Wurzel überschreibt das Spiel"
         );
     }
 

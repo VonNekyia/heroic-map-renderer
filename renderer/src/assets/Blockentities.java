@@ -10,7 +10,9 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -31,12 +33,14 @@ import net.minecraft.client.renderer.blockentity.state.ChestRenderState;
 import net.minecraft.client.renderer.blockentity.state.DecoratedPotRenderState;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.resources.model.sprite.SpriteGetter;
 import net.minecraft.client.resources.model.sprite.SpriteId;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.data.worldgen.BootstrapContext;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.Bootstrap;
@@ -47,6 +51,7 @@ import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BannerPattern;
 import net.minecraft.world.level.block.entity.BannerPatternLayers;
+import net.minecraft.world.level.block.entity.BannerPatterns;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.entity.PotDecorations;
@@ -81,14 +86,39 @@ import org.joml.Vector3f;
  * scherbe item textur: DecoratedPotRenderer.DECORATED_POT_SPRITES.
  * muster präfix n: Sheets.BANNER_MAPPER, davor steht der Namensraum der
  *     asset_id, dahinter ihr Pfad; höchstens n Lagen zeichnet der Renderer.
+ * bannermuster id asset_id: die Muster, die BannerPatterns.bootstrap anlegt.
  *
  * Zahlen stehen, wie Float.toString sie schreibt, und kommen beim Lesen
  * genau so zurück. Auf stderr steht, welcher Renderer nichts aus einem
- * Modell zeichnet oder ohne Spiel nicht läuft.
+ * Modell zeichnet, ohne Spiel nicht läuft oder ohne Daten nichts zeichnet.
+ * Weicht das von 26.2 ab oder schlägt eine eigene Prüfung fehl, endet der
+ * Generator mit Exit-Code 1 und schreibt keine Tabelle.
  */
 public class Blockentities {
     /** Ein submitModel: im Raum des Modells, mit der Matrix des Aufrufs. */
     record Zeichnung(RenderType schicht, String textur, int farbe, List<float[]> ecken, Matrix4f lage, Object teil) {}
+
+    /** Was in 26.2 nicht aus einem Modell kommt: je Renderer, was er stattdessen abgibt. */
+    static final Map<String, String> KEIN_MODELL = Map.of("TheEndPortalRenderer", "submitCustomGeometry");
+    /**
+     * Was in 26.2 ohne Spiel nicht läuft, weil es Client, Welt oder
+     * Item-Modelle braucht: der Renderer, oder der Block, wenn schon sein
+     * Blockentity scheitert.
+     */
+    static final Set<String> OHNE_SPIEL = Set.of("BeaconRenderer", "BlockEntityWithBoundingBoxRenderer",
+            "BrushableBlockRenderer", "CampfireRenderer", "HangingSignRenderer", "StandingSignRenderer",
+            "TestInstanceRenderer", "TheEndGatewayRenderer",
+            // Das Blockentity des Tresors braucht Item-Komponenten, die erst
+            // eine Welt bindet: "Components not bound yet".
+            "vault");
+    /**
+     * Was in 26.2 läuft, aber für keinen Zustand etwas aus einem Modell
+     * zeichnet: den Block, den ein Kolben schiebt, Gegenstände im Regal und
+     * im Tresor, das Wesen im Spawner. Den Tresor zeichnet es hier gar nicht
+     * erst, siehe oben.
+     */
+    static final Set<String> OHNE_BILD = Set.of("PistonHeadRenderer", "ShelfRenderer", "SpawnerRenderer",
+            "TrialSpawnerRenderer", "VaultRenderer");
 
     public static void main(String[] args) throws Exception {
         // Bootstrap leitet System.err in sein Log und damit nach System.out.
@@ -133,6 +163,9 @@ public class Blockentities {
                 var model = (Model<Object>) a[0];
                 var pose = ((PoseStack) a[2]).last().copy();
                 int light = (int) a[4], overlay = (int) a[5], farbe = (int) a[6];
+                if (overlay != OverlayTexture.NO_OVERLAY) {
+                    throw new AssertionError("Zeichnung mit Overlay " + overlay);
+                }
                 var sprite = (TextureAtlasSprite) a[7];
                 String textur = sprite != null ? spriteIds.get(sprite).texture().toString() : sampler0(schicht);
                 model.setupAnim(a[1]);
@@ -160,6 +193,7 @@ public class Blockentities {
 
         var tabelle = new Tabelle();
         var fehler = new TreeMap<String, String>();
+        var benutzt = new TreeSet<String>();
         var bloecke = new ArrayList<String>();
         int lagen = 0;
         for (Block block : BuiltInRegistries.BLOCK) {
@@ -200,17 +234,26 @@ public class Blockentities {
                         if (rs instanceof BannerRenderState banner) {
                             int n = musterRegel(r, banner, eigene, rollen, muster, collector, kamera, zeichnungen);
                             if (lagen != 0 && n != lagen) {
-                                throw new IllegalStateException("Höchstzahl der Muster schwankt");
+                                throw new AssertionError("Höchstzahl der Muster schwankt");
                             }
                             lagen = n;
                         }
                         if (!eigene.isEmpty()) {
                             bild = String.valueOf(tabelle.bild(eigene, rollen));
+                            benutzt.add(r.getClass().getSimpleName());
                         }
                     }
+                } catch (AssertionError e) {
+                    // Eine eigene Prüfung: Die Tabelle wäre falsch.
+                    err.println(name + " " + state + ": " + e.getMessage());
+                    System.exit(1);
                 } catch (Throwable e) {
+                    var grund = new StringBuilder(name + ": " + e);
+                    for (var c = e.getCause(); c != null; c = c.getCause()) {
+                        grund.append(" <- ").append(c);
+                    }
                     fehler.putIfAbsent(renderer[0] == null ? name : renderer[0].getClass().getSimpleName(),
-                            name + ": " + e);
+                            grund.toString());
                 }
                 bilder.add(bild);
             }
@@ -219,6 +262,43 @@ public class Blockentities {
             }
             bloecke.add("block " + name + " " + (bilder.stream().distinct().count() == 1 ? bilder.get(0) : String.join(" ", bilder)));
         }
+
+        // Jeder Renderer hat ein Bild gegeben oder steht in einer der Mengen
+        // für 26.2; sonst wäre ein Block ohne Meldung aus der Tabelle gefallen.
+        var ohneBild = new TreeSet<String>();
+        for (var r : renderers.values()) {
+            String n = r.getClass().getSimpleName();
+            if (!benutzt.contains(n) && !anderes.containsKey(n) && !fehler.containsKey(n)) {
+                ohneBild.add(n);
+            }
+        }
+        err.println("Blöcke: " + bloecke.size() + ", Bilder: " + tabelle.bilder.size() + ", Formen: " + tabelle.formen.size()
+                + " mit " + tabelle.flaechen + " Flächen, Lagen: " + tabelle.lagen.size() + ", Texturen: " + tabelle.texturen.size());
+        err.println("Kein Modell, sondern: " + anderes);
+        err.println("Ohne Spiel nicht gelaufen: " + fehler);
+        err.println("Ohne Bild: " + ohneBild);
+        if (!anderes.equals(KEIN_MODELL) || !fehler.keySet().equals(OHNE_SPIEL) || !ohneBild.equals(OHNE_BILD)) {
+            err.println("Anders als in 26.2: erwartet " + KEIN_MODELL + ", " + new TreeSet<>(OHNE_SPIEL) + " und "
+                    + new TreeSet<>(OHNE_BILD) + ". Steht fest, dass es so richtig ist, die Mengen oben anpassen.");
+            System.exit(1);
+        }
+
+        // Die Muster des Spiels, wie BannerPatterns.bootstrap sie anlegt.
+        var spielmuster = new TreeMap<String, String>();
+        @SuppressWarnings("unchecked")
+        var anlegen = (BootstrapContext<BannerPattern>) Proxy.newProxyInstance(
+                BootstrapContext.class.getClassLoader(), new Class<?>[] {BootstrapContext.class}, (p, m, a) -> {
+                    if (m.isDefault()) {
+                        return InvocationHandler.invokeDefault(p, m, a);
+                    }
+                    if (m.getName().equals("register") && a.length == 3) {
+                        spielmuster.put(((ResourceKey<?>) a[0]).identifier().toString(),
+                                ((BannerPattern) a[1]).assetId().toString());
+                        return null;
+                    }
+                    throw new AssertionError("BannerPatterns.bootstrap ruft " + m);
+                });
+        BannerPatterns.bootstrap(anlegen);
 
         // Zeilen enden mit \n wie in den anderen Tabellen, auch unter Windows.
         java.util.function.Consumer<String> zeile = text -> out.print(text + "\n");
@@ -230,28 +310,39 @@ public class Blockentities {
         scherben.entrySet().stream().sorted(Comparator.comparing(e -> e.getKey().identifier().toString()))
                 .forEach(e -> zeile.accept("scherbe " + e.getKey().identifier() + " " + e.getValue().texture()));
         zeile.accept("muster " + muster.prefix() + " " + lagen);
-
-        err.println("Blöcke: " + bloecke.size() + ", Bilder: " + tabelle.bilder.size() + ", Formen: " + tabelle.formen.size()
-                + " mit " + tabelle.flaechen + " Flächen, Lagen: " + tabelle.lagen.size() + ", Texturen: " + tabelle.texturen.size());
-        err.println("Kein Modell, sondern: " + anderes);
-        err.println("Ohne Spiel nicht gelaufen: " + fehler);
+        spielmuster.forEach((id, asset) -> zeile.accept("bannermuster " + id + " " + asset));
     }
 
-    /** Zeichnet wie ModelFeatureRenderer.prepareModel, ohne Sprite: je Ecke x y z u v. */
+    /**
+     * Zeichnet wie ModelFeatureRenderer.prepareModel, ohne Sprite: je Ecke x y
+     * z u v. Die Normale des Spiels fällt weg, der Renderer leitet sie aus der
+     * Windung ab, (b - a) × (c - a); geprüft wird, dass beide dieselbe Seite
+     * meinen.
+     */
     static List<float[]> aufnehmen(Model<Object> model, PoseStack stack, int light, int overlay, int farbe) {
         var ecken = new ArrayList<float[]>();
+        var normalen = new ArrayList<float[]>();
         var aufnahme = (VertexConsumer) Proxy.newProxyInstance(
                 VertexConsumer.class.getClassLoader(), new Class<?>[] {VertexConsumer.class},
                 (p, m, v) -> {
                     if (m.getName().equals("addVertex") && v.length == 11) {
                         ecken.add(new float[] {(float) v[0], (float) v[1], (float) v[2], (float) v[4], (float) v[5]});
+                        normalen.add(new float[] {(float) v[8], (float) v[9], (float) v[10]});
                         return null;
                     }
-                    throw new UnsupportedOperationException(m.toString());
+                    throw new AssertionError("Das Modell zeichnet anders als mit addVertex: " + m);
                 });
         model.renderToBuffer(stack, aufnahme, light, overlay, farbe);
         if (ecken.size() % 4 != 0) {
-            throw new IllegalStateException("keine Vierecke");
+            throw new AssertionError("keine Vierecke");
+        }
+        for (int i = 0; i < ecken.size(); i += 4) {
+            float[] a = ecken.get(i), b = ecken.get(i + 1), c = ecken.get(i + 2), n = normalen.get(i);
+            var windung = new Vector3f(b[0] - a[0], b[1] - a[1], b[2] - a[2])
+                    .cross(c[0] - a[0], c[1] - a[1], c[2] - a[2]);
+            if (windung.lengthSquared() > 1e-12 && windung.dot(n[0], n[1], n[2]) <= 0) {
+                throw new AssertionError("Normale gegen die Windung");
+            }
         }
         return ecken;
     }
@@ -259,14 +350,14 @@ public class Blockentities {
     /** Die Lage mal dem Raum des Modells muss geben, was das Spiel zeichnet, und kein Spiegel sein. */
     static void pruefen(List<float[]> modell, List<float[]> gezeichnet, Matrix4f lage) {
         if (lage.determinant() <= 0) {
-            throw new IllegalStateException("Lage spiegelt");
+            throw new AssertionError("Lage spiegelt");
         }
         for (int i = 0; i < modell.size(); i++) {
             float[] m = modell.get(i), g = gezeichnet.get(i);
             var p = lage.transformPosition(new Vector3f(m[0], m[1], m[2]));
             if (Math.abs(p.x - g[0]) > 1e-4 || Math.abs(p.y - g[1]) > 1e-4 || Math.abs(p.z - g[2]) > 1e-4
                     || m[3] != g[3] || m[4] != g[4]) {
-                throw new IllegalStateException("Lage passt nicht");
+                throw new AssertionError("Lage passt nicht");
             }
         }
     }
@@ -284,18 +375,24 @@ public class Blockentities {
         zeichnungen.clear();
         r.submit(krug, new PoseStack(), collector, kamera);
         krug.decorations = PotDecorations.EMPTY;
-        int gefunden = 0;
+        if (zeichnungen.size() != eigene.size()) {
+            throw new AssertionError("Mit Scherben zeichnet der Krug anders");
+        }
+        // Jeder der vier Plätze genau einmal, auf je einer Zeichnung.
+        var plaetze = new TreeSet<Integer>();
         for (int i = 0; i < eigene.size(); i++) {
             for (int platz = 0; platz < 4; platz++) {
                 var sprite = scherben.get(items.get(platz));
                 if (zeichnungen.get(i).textur().equals(sprite.texture().toString())) {
+                    if (!rollen[i].equals("-") || !plaetze.add(platz)) {
+                        throw new AssertionError("Scherben doppelt zugeordnet");
+                    }
                     rollen[i] = "scherbe" + platz;
-                    gefunden++;
                 }
             }
         }
-        if (zeichnungen.size() != eigene.size() || gefunden != 4) {
-            throw new IllegalStateException("Scherben nicht zugeordnet");
+        if (!plaetze.equals(Set.of(0, 1, 2, 3))) {
+            throw new AssertionError("Scherben nicht zugeordnet: " + plaetze);
         }
     }
 
@@ -330,7 +427,7 @@ public class Blockentities {
                     && java.util.Arrays.deepEquals(z.ecken().toArray(), letzte.ecken().toArray());
         }
         if (!regel) {
-            throw new IllegalStateException("Muster folgen nicht der letzten Zeichnung");
+            throw new AssertionError("Muster folgen nicht der letzten Zeichnung");
         }
         rollen[eigene.size() - 1] = "muster";
         return hoechstens;
@@ -362,11 +459,23 @@ public class Blockentities {
         return Float.toString(f).replaceFirst("\\.0$", "");
     }
 
-    /** Name und Pipeline einer RenderType, wie sie in der Zeile schicht stehen. */
+    /**
+     * Name und Pipeline einer RenderType, wie sie in der Zeile schicht stehen.
+     * entity.vsh und entity.fsh kennen weitere Defines, etwa
+     * NO_CARDINAL_LIGHTING und EMISSIVE; der Renderer rechnet ohne sie. Käme
+     * eines in eine der Schichten, bricht der Generator ab, statt es zu
+     * übergehen. NO_OVERLAY nimmt nur die Overlay-Textur heraus; mit
+     * OverlayTexture.NO_OVERLAY, das jede Zeichnung hier trägt, ändert sie
+     * die Farbe ohnehin nicht.
+     */
     static String schicht(RenderType schicht) throws ReflectiveOperationException {
         var pipeline = schicht.pipeline();
         var zeile = new StringBuilder((String) feld(RenderType.class, "name").get(schicht));
         var werte = pipeline.getShaderDefines().values();
+        if (!Set.of("ALPHA_CUTOUT").containsAll(werte.keySet())
+                || !Set.of("PER_FACE_LIGHTING", "NO_OVERLAY").containsAll(pipeline.getShaderDefines().flags())) {
+            throw new AssertionError(zeile + ": " + pipeline.getShaderDefines());
+        }
         if (werte.containsKey("ALPHA_CUTOUT")) {
             zeile.append(" alpha=").append(werte.get("ALPHA_CUTOUT"));
         }
@@ -396,7 +505,7 @@ public class Blockentities {
             for (int i = 0; i < zeichnungen.size(); i++) {
                 var z = zeichnungen.get(i);
                 if (z.farbe() >>> 24 != 0xff) {
-                    throw new IllegalStateException("Farbe mit Alpha");
+                    throw new AssertionError("Farbe mit Alpha");
                 }
                 var form = new StringBuilder();
                 for (int e = 0; e < z.ecken().size(); e++) {

@@ -2820,6 +2820,8 @@ fn size_null_wird_abgelehnt() {
 /// Eine geflutete Truhe hat ein Blockmodell ohne Elemente, ihr Bild aus
 /// dem Blockentity und ihr Wasser. `--block` nennt beides und meldet sie
 /// nicht als Block ohne Modell; einen Block, der gar nichts zeichnet, schon.
+/// Ohne Eigenschaften steht das Bild der Truhe nicht fest, leer ist sie
+/// trotzdem nicht.
 #[test]
 fn geflutete_truhe_zeigt_blockentity_und_wasser() {
     let block = |block: &str| {
@@ -2836,9 +2838,13 @@ fn geflutete_truhe_zeigt_blockentity_und_wasser() {
     assert!(text.contains("minecraft:entity/chest/normal"), "{text}");
     assert!(text.contains("Flüssigkeit: Water"), "{text}");
     assert!(!text.contains("kein Modell"), "{text}");
+    assert!(!text.contains("je nach Zustand"), "{text}");
     let text = block("nur_partikel");
     assert!(text.contains("kein Modell"), "{text}");
     assert!(!text.contains("Blockentity: "), "{text}");
+    let text = block("chest");
+    assert!(text.contains("je nach Zustand"), "{text}");
+    assert!(!text.contains("kein Modell"), "{text}");
 }
 
 /// `--scan` nennt dieselben Blöcke ohne Modell wie `--block`: den, der

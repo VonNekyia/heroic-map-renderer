@@ -496,7 +496,13 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
         // ein Bild, Truhen und Banner eines aus ihrem Blockentity.
         if variant.model.is_empty() && !fluid::is_block(state) && blockentity::bild(state).is_none()
         {
-            println!("      (kein Modell — auf der Karte leer)");
+            if blockentity::hat_bild(state.name()) {
+                println!(
+                    "      (Bild aus dem Blockentity je nach Zustand: alle Eigenschaften angeben)"
+                );
+            } else {
+                println!("      (kein Modell — auf der Karte leer)");
+            }
         }
     }
     if let Some((flaechen, texturen)) = blockentity::beschreibung(state) {

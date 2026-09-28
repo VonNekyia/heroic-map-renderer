@@ -150,6 +150,10 @@ pub struct Survey {
     // Region, bei 2500 Regionen 80 MiB. Wird das zu viel, gepackt halten
     // (ein Sechstel) oder jede Region schon im Vorlauf schreiben.
     pub heights: Vec<RegionHeights>,
+    /// Chunks, die der Lauf läse, die aber nicht fertig erzeugt sind:
+    /// gezeichnet wird nur, was [`crate::world::Region::chunk`] liefert.
+    /// Ihre Höhen bleiben leer.
+    pub unfinished: usize,
 }
 
 /// Welche Chunks der Vorlauf liest: die, deren Spalte über die ganze
@@ -258,6 +262,7 @@ pub fn survey(
         survey.biomes.extend(teil.biomes);
         survey.chunks += teil.chunks;
         survey.heights.extend(teil.heights);
+        survey.unfinished += teil.unfinished;
     }
     survey.tiles = tiles.into_iter().collect();
     Ok(survey)
@@ -284,9 +289,13 @@ fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey
                 continue;
             }
             gelesen[(local_z * REGION + local_x) as usize] = true;
-            let Some(chunk) = region.chunk(cx, cz)? else {
+            let Some(chunk) = region.stored_chunk(cx, cz)? else {
                 continue;
             };
+            if !chunk.is_generated() {
+                survey.unfinished += 1;
+                continue;
+            }
             survey.chunks += 1;
             // Die Höhen hängen nicht an der Sprite-Tabelle: auch ein Chunk,
             // dessen Blöcke ausserhalb landen, bekommt seine.

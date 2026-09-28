@@ -187,6 +187,20 @@ impl Chunk {
         }))
     }
 
+    /// Ob seine Blöcke feststehen: ab dem Status `minecraft:light`, also
+    /// bei `light`, `spawn` und `full`. Erst dann haben auch die Nachbarn
+    /// alles gesetzt, was von ihnen in ihn hineinreicht. Davor fehlen ihm
+    /// Bäume, Seen und Schnee, oder er ist noch ganz Luft. Den Namen liest
+    /// das Spiel als Identifier, `full` ist dort `minecraft:full`.
+    /// Siehe docs/benutzung/welten.md, „Nicht fertig erzeugte Chunks“.
+    pub fn is_generated(&self) -> bool {
+        let status = self
+            .status
+            .strip_prefix("minecraft:")
+            .unwrap_or(&self.status);
+        matches!(status, "light" | "spawn" | "full")
+    }
+
     pub fn sections(&self) -> &[Section] {
         &self.sections
     }

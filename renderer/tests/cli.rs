@@ -1965,6 +1965,73 @@ fn export_schreibt_hoehen() {
     assert_eq!(hoehe.get(10, 10), EMPTY, "Chunk (2, 2) fehlt");
 }
 
+/// Der Export sagt, wie viele Chunks er übergeht, weil sie nicht fertig
+/// erzeugt sind, und `--heights` ebenso. `--at` nennt ihren Status und dass
+/// der Renderer sie nicht zeichnet, statt sie wie fehlende „nicht generiert“
+/// zu nennen. `--scan` dekodiert beide, zählt den unfertigen und sammelt nur
+/// die Blockstates des fertigen: Luft und `einfarbig`, nicht `mit_overlay`.
+#[test]
+fn unfertige_chunks_nennt_der_lauf() {
+    let welt = tempdir();
+    common::write_world_status(
+        welt.path(),
+        &[(0, 0), (1, 0)],
+        0..=0,
+        |x, y, _| match (x, y) {
+            (_, 1..) => "minecraft:air",
+            (..16, _) => "minecraft:einfarbig",
+            _ => "minecraft:mit_overlay",
+        },
+        |cx, _| {
+            if cx == 1 {
+                "minecraft:carvers"
+            } else {
+                common::FULL
+            }
+        },
+    );
+    let out = tempdir();
+    let export = tiles(welt.path(), out.path(), &["--scale", "16"]);
+    let text = String::from_utf8_lossy(&gelungen(&export).stdout);
+    assert!(
+        text.contains("1 Chunks nicht fertig erzeugt, nicht gezeichnet"),
+        "{text}"
+    );
+    let hoehen = cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--heights"),
+        out.path().as_os_str(),
+    ]);
+    let hoehen = String::from_utf8_lossy(&gelungen(&hoehen).stdout).into_owned();
+    assert!(
+        hoehen.contains("1 Chunks nicht fertig erzeugt, nicht gezeichnet"),
+        "{hoehen}"
+    );
+
+    let at = |x: &str| {
+        let mut args = vec![OsStr::new("--world"), welt.path().as_os_str()];
+        args.extend(["--at", x, "0", "8"].map(OsStr::new));
+        String::from_utf8_lossy(&gelungen(&cli(&args)).stdout).into_owned()
+    };
+    let unfertig = at("24");
+    assert!(unfertig.contains("status=minecraft:carvers"), "{unfertig}");
+    assert!(unfertig.contains("nicht fertig erzeugt"), "{unfertig}");
+    let fertig = at("8");
+    assert!(fertig.contains("status=minecraft:full"), "{fertig}");
+    assert!(!fertig.contains("nicht fertig erzeugt"), "{fertig}");
+
+    let scan = cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--scan"),
+    ]);
+    let scan = String::from_utf8_lossy(&gelungen(&scan).stdout).into_owned();
+    assert!(scan.contains("Scan:       2 Chunks"), "{scan}");
+    assert!(scan.contains("davon 1 nicht fertig erzeugt"), "{scan}");
+    assert!(scan.contains("2 verschiedene Blockstates"), "{scan}");
+}
+
 /// Ein Ausschnitt schreibt die Höhen der Chunks neu, die er liest: die im
 /// schrägen Band seiner Kacheln, auch Chunk (4, 4), dessen Block weit unter
 /// dem Ausschnitt landet. Chunk (20, 0) liegt ausserhalb des Bands und

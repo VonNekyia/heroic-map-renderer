@@ -2104,6 +2104,66 @@ fn am_rand_der_welt_kein_licht_von_der_seite() {
     }
 }
 
+/// Ein Chunk, der nicht fertig erzeugt ist, zählt wie einer, der fehlt. Er
+/// wird nicht gezeichnet, und von ihm fällt kein Licht von der Seite. Neben
+/// dem See von oben liegt ein Chunk ganz aus Luft mit Status
+/// `minecraft:biomes`, wie am Rand erzeugter Gebiete, oder einer mit Grund
+/// und Status `minecraft:carvers`: Das Bild gleicht dem ohne Nachbarn. Luft
+/// in einem fertigen Chunk gäbe der Ostseite Licht 14, und einer mit
+/// `minecraft:spawn` wird gezeichnet wie einer mit `minecraft:full`.
+#[test]
+fn unfertige_nachbarn_zaehlen_wie_fehlende() {
+    let projection = Projection::new(32);
+    let rect = ScreenRect::centered(1024, 1024);
+    let bild = |nachbar: Option<(&'static str, &'static str)>| {
+        let dir = tempdir();
+        let chunks: &[(i32, i32)] = match nachbar {
+            Some(_) => &[(0, 0), (1, 0)],
+            None => &[(0, 0)],
+        };
+        common::write_world_status(
+            dir.path(),
+            chunks,
+            0..=0,
+            move |x, y, _| match (x, y, nachbar) {
+                (..16, 1..=10, _) => "minecraft:water",
+                (16.., ..=4, Some((_, grund))) => grund,
+                _ => "minecraft:air",
+            },
+            move |cx, _| match (cx, nachbar) {
+                (1, Some((status, _))) => status,
+                _ => common::FULL,
+            },
+        );
+        let world = World::open(dir.path()).unwrap();
+        let sprites = tabelle(&mut assets(), &world, projection);
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+    };
+    let allein = bild(None);
+    assert_ne!(
+        bild(Some((common::FULL, "minecraft:air"))),
+        allein,
+        "Luft gibt Licht"
+    );
+    assert_eq!(
+        bild(Some(("minecraft:biomes", "minecraft:air"))),
+        allein,
+        "biomes"
+    );
+    assert_eq!(
+        bild(Some(("minecraft:carvers", "minecraft:einfarbig"))),
+        allein,
+        "carvers"
+    );
+    let spawn = bild(Some(("minecraft:spawn", "minecraft:einfarbig")));
+    assert_ne!(spawn, allein, "spawn wird gezeichnet");
+    assert_eq!(
+        spawn,
+        bild(Some((common::FULL, "minecraft:einfarbig"))),
+        "spawn wie full"
+    );
+}
+
 /// Das Himmelslicht der Draws, die `draw_list` am Ursprung des Blocks
 /// `block` zeichnet, aufsteigend: sein eigenes und das der Blöcke, die auf
 /// derselben Linie zur Kamera davor oder dahinter liegen. Scale 16.

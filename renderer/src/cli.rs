@@ -21,7 +21,7 @@ use terranova_render::render::pyramid;
 use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Gpu, MapInfo, Projection, Reach, ScreenRect,
-    SpriteSet, TILE, TileId, corner_tiles, draw_list, encode_webp, render, render_area,
+    SpriteSet, Survey, TILE, TileId, corner_tiles, draw_list, encode_webp, render, render_area,
     render_area_with, streifenbreite, survey, world_box,
 };
 use terranova_render::world::biomzoom::{obfuscate_seed, zoom};
@@ -380,9 +380,21 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
+/// Wie viele Chunks der Vorlauf übergangen hat, weil sie nicht fertig
+/// erzeugt sind. Siehe docs/benutzung/welten.md, „Nicht fertig erzeugte
+/// Chunks“.
+fn melde_unfertige(survey: &Survey) {
+    if survey.unfinished > 0 {
+        println!(
+            "            {} Chunks nicht fertig erzeugt, nicht gezeichnet",
+            survey.unfinished
+        );
+    }
+}
+
 fn at_coordinate(world: &World, assets: Option<&mut Assets>, x: i32, y: i32, z: i32) -> Result<()> {
     let chunk = world
-        .chunk(x >> 4, z >> 4)
+        .stored_chunk(x >> 4, z >> 4)
         .with_context(|| format!("Chunk für ({x}, {y}, {z}) laden"))?;
     let Some(chunk) = chunk else {
         println!("\nChunk ({}, {}) ist nicht generiert.", x >> 4, z >> 4);
@@ -393,6 +405,9 @@ fn at_coordinate(world: &World, assets: Option<&mut Assets>, x: i32, y: i32, z: 
         "\nChunk:      ({}, {})  status={}",
         chunk.x, chunk.z, chunk.status
     );
+    if !chunk.is_generated() {
+        println!("            nicht fertig erzeugt, der Renderer zeichnet ihn nicht");
+    }
     println!("            DataVersion {}", chunk.data_version);
     println!(
         "            {} Sections, y {}..{}",
@@ -413,6 +428,8 @@ fn at_coordinate(world: &World, assets: Option<&mut Assets>, x: i32, y: i32, z: 
         println!("Biom der Zelle:            {biome}");
     }
     // Das Biom, das das Spiel dem Block gibt, liegt womöglich im Nachbarchunk.
+    // Ist der nicht fertig erzeugt, mischt der Renderer dort plains wie für
+    // einen fehlenden.
     if let Some(seed) = world.seed()? {
         let [qx, qy, qz] = zoom(obfuscate_seed(seed), [x, y, z]);
         let biome = world.chunk(qx >> 2, qz >> 2)?.and_then(|c| {
@@ -423,7 +440,7 @@ fn at_coordinate(world: &World, assets: Option<&mut Assets>, x: i32, y: i32, z: 
             "Biom des Blocks:           {}",
             biome
                 .as_deref()
-                .unwrap_or("minecraft:plains, der Chunk fehlt")
+                .unwrap_or("minecraft:plains, der Chunk fehlt oder ist nicht fertig erzeugt")
         );
     }
 
@@ -618,6 +635,7 @@ fn render_world(
         survey.states.len(),
         sprites.len()
     );
+    melde_unfertige(&survey);
     melde_ueberhang(&sprites);
 
     let image = render_area(world, &sprites, rect, Y_RANGE)?;
@@ -819,6 +837,7 @@ fn write_tiles(
         survey.states.len(),
         survey.tiles.len()
     );
+    melde_unfertige(&survey);
 
     // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt; der
     // Vorlauf sieht sie nicht, weg kommen sie nur mit --prune. Gesucht wird,
@@ -1572,6 +1591,7 @@ fn fill_heights(world: &World, dir: &Path) -> Result<()> {
         survey.chunks,
         started.elapsed().as_secs_f64()
     );
+    melde_unfertige(&survey);
     schreibe_hoehen(survey.heights, dir)?;
 
     let info = MapInfo {
@@ -2541,9 +2561,10 @@ fn ueber(oben: [u8; 4], unten: [u8; 4]) -> [u8; 4] {
     out
 }
 
-/// Dekodiert jeden Chunk der Welt. Einziger Weg, die Annahmen des Decoders
-/// gegen echte Daten statt gegen Testfixtures zu prüfen. Mit Assets wird
-/// zusätzlich jede vorkommende Blockstate aufgelöst.
+/// Dekodiert jeden Chunk der Welt, auch die nicht fertig erzeugten. Einziger
+/// Weg, die Annahmen des Decoders gegen echte Daten statt gegen Testfixtures
+/// zu prüfen. Mit Assets wird zusätzlich jede Blockstate der Chunks
+/// aufgelöst, die der Renderer zeichnet.
 fn scan(
     world: &World,
     regions: &[(i32, i32)],
@@ -2551,7 +2572,7 @@ fn scan(
     projection: Projection,
 ) -> Result<()> {
     let started = Instant::now();
-    let (mut chunks, mut errors) = (0u64, 0u64);
+    let (mut chunks, mut unfertig, mut errors) = (0u64, 0u64, 0u64);
     let mut states: BTreeSet<BlockState> = BTreeSet::new();
 
     for &(rx, rz) in regions {
@@ -2560,9 +2581,13 @@ fn scan(
         };
         for lz in 0..REGION {
             for lx in 0..REGION {
-                match region.chunk(rx * REGION + lx, rz * REGION + lz) {
+                match region.stored_chunk(rx * REGION + lx, rz * REGION + lz) {
                     Ok(Some(chunk)) => {
                         chunks += 1;
+                        if !chunk.is_generated() {
+                            unfertig += 1;
+                            continue;
+                        }
                         for section in chunk.sections() {
                             states.extend(section.blocks().palette().iter().cloned());
                         }
@@ -2584,6 +2609,11 @@ fn scan(
         "\nScan:       {chunks} Chunks in {seconds:.1} s ({:.0} Chunks/s), {errors} Fehler",
         chunks as f64 / seconds
     );
+    if unfertig > 0 {
+        println!(
+            "            davon {unfertig} nicht fertig erzeugt, der Renderer zeichnet sie nicht"
+        );
+    }
     println!("            {} verschiedene Blockstates", states.len());
 
     let Some(assets) = assets else {

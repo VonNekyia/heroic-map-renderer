@@ -116,12 +116,12 @@ pub fn packed(entries: &[usize], bits: u32) -> fastnbt::LongArray {
     fastnbt::LongArray::new(longs)
 }
 
-pub fn chunk_nbt(cx: i32, cz: i32, sections: Vec<SectionNbt>) -> Vec<u8> {
+pub fn chunk_nbt(cx: i32, cz: i32, status: &str, sections: Vec<SectionNbt>) -> Vec<u8> {
     fastnbt::to_bytes(&ChunkNbt {
         data_version: 4903,
         x_pos: cx,
         z_pos: cz,
-        status: "minecraft:full".to_string(),
+        status: status.to_string(),
         sections,
     })
     .expect("NBT serialisieren")
@@ -202,7 +202,14 @@ pub fn write_world_in(
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i32) -> Option<&'static str>,
 ) -> PathBuf {
-    write_region(dir, chunks, 0..=0, block, |cx, _, cz| biome(cx, cz))
+    write_region(
+        dir,
+        chunks,
+        0..=0,
+        block,
+        |cx, _, cz| biome(cx, cz),
+        |_, _| FULL,
+    )
 }
 
 /// Wie `write_world_in`, aber mit diesen Sections je Chunk statt nur Y=0:
@@ -214,7 +221,14 @@ pub fn write_world_sections(
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i32) -> Option<&'static str>,
 ) -> PathBuf {
-    write_region(dir, chunks, sections, block, |cx, _, cz| biome(cx, cz))
+    write_region(
+        dir,
+        chunks,
+        sections,
+        block,
+        |cx, _, cz| biome(cx, cz),
+        |_, _| FULL,
+    )
 }
 
 /// Wie `write_world_sections`, aber das Biom je Chunk und Section:
@@ -226,7 +240,23 @@ pub fn write_world_biomes(
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i8, i32) -> Option<&'static str>,
 ) -> PathBuf {
-    write_region(dir, chunks, sections, block, biome)
+    write_region(dir, chunks, sections, block, biome, |_, _| FULL)
+}
+
+/// Status eines fertig erzeugten Chunks. Den schreiben alle Bauhilfen ausser
+/// `write_world_status`.
+pub const FULL: &str = "minecraft:full";
+
+/// Wie `write_world_sections`, ohne Biome, dafür mit dem Status je Chunk:
+/// `status(cx, cz)`.
+pub fn write_world_status(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    sections: impl IntoIterator<Item = i8> + Clone,
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    status: impl Fn(i32, i32) -> &'static str,
+) -> PathBuf {
+    write_region(dir, chunks, sections, block, |_, _, _| None, status)
 }
 
 fn write_region(
@@ -235,6 +265,7 @@ fn write_region(
     sections: impl IntoIterator<Item = i8> + Clone,
     block: impl Fn(i32, i32, i32) -> &'static str,
     biome: impl Fn(i32, i8, i32) -> Option<&'static str>,
+    status: impl Fn(i32, i32) -> &'static str,
 ) -> PathBuf {
     let region_dir = dir.join("region");
     std::fs::create_dir_all(&region_dir).expect("region-Verzeichnis");
@@ -253,6 +284,7 @@ fn write_region(
         let payload = chunk_nbt(
             cx,
             cz,
+            status(cx, cz),
             sections
                 .clone()
                 .into_iter()

@@ -267,6 +267,52 @@ fn nicht_generierte_chunks_sind_none() {
     assert!(world().chunk(0, 0).unwrap().is_none());
 }
 
+/// Gelesen werden nur Chunks, deren Blöcke feststehen: ab `minecraft:light`.
+/// `stored_chunk` liefert jeden, mit dem Status, wie er in der Datei steht.
+/// Den Namen liest das Spiel als Identifier (`ChunkStatus.CODEC` in
+/// `SerializableChunkData.parse`, 26.2), `full` ist also `minecraft:full`,
+/// und ein unbekannter Name gilt als `minecraft:empty`.
+#[test]
+fn nur_fertig_erzeugte_chunks_werden_gelesen() {
+    const STATUS: [(&str, bool); 14] = [
+        ("minecraft:empty", false),
+        ("minecraft:structure_starts", false),
+        ("minecraft:structure_references", false),
+        ("minecraft:biomes", false),
+        ("minecraft:noise", false),
+        ("minecraft:surface", false),
+        ("minecraft:carvers", false),
+        ("minecraft:features", false),
+        ("minecraft:initialize_light", false),
+        ("minecraft:light", true),
+        ("minecraft:spawn", true),
+        ("minecraft:full", true),
+        ("full", true),
+        ("minecraft:unbekannt", false),
+    ];
+    let dir = tempfile::tempdir().unwrap();
+    let chunks: Vec<(i32, i32)> = (0..STATUS.len() as i32).map(|cx| (cx, 0)).collect();
+    common::write_world_status(
+        dir.path(),
+        &chunks,
+        0..=0,
+        |_, y, _| {
+            if y == 0 {
+                "minecraft:stone"
+            } else {
+                "minecraft:air"
+            }
+        },
+        |cx, _| STATUS[cx as usize].0,
+    );
+    let world = World::open(dir.path()).unwrap();
+    for (cx, &(status, fertig)) in (0..).zip(&STATUS) {
+        let gespeichert = world.stored_chunk(cx, 0).unwrap().expect("gespeichert");
+        assert_eq!(gespeichert.status, status);
+        assert_eq!(world.chunk(cx, 0).unwrap().is_some(), fertig, "{status}");
+    }
+}
+
 #[test]
 fn fremde_koordinaten_liefern_none() {
     let chunk = world().chunk(CX, CZ).unwrap().unwrap();

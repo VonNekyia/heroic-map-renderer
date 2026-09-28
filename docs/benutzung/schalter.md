@@ -30,7 +30,7 @@ Texte.
 | `--render DATEI` | einen Weltausschnitt in eine PNG rendern | unten |
 | `--center X Z` | die Blockspalte in der Bildmitte, Vorgabe `0 0` | unten |
 | `--size N` | Kantenlänge des Ausschnitts in Pixeln, ab 1; für `--render` Vorgabe 1024, ohne Angabe deckt `--tiles` die ganze Welt | [Kacheln exportieren](kacheln.md) |
-| `--scan` | jeden Chunk dekodieren, mit `--assets` jede vorkommende Blockstate auflösen und rastern | unten |
+| `--scan` | jeden Chunk dekodieren, auch die nicht fertig erzeugten, mit `--assets` die Blockstates der übrigen auflösen und rastern | unten |
 | `--tiles DIR` | die Welt als WebP-Kacheln exportieren | [Kacheln exportieren](kacheln.md) |
 | `--prune` | mit `--tiles`: Kacheln entfernen, die kein Chunk mehr berührt, und Höhen von Regionen ohne Regionsdatei | [Kacheln exportieren](kacheln.md) |
 | `--native-levels N` | mit `--tiles`: so viele gröbere Stufen aus der Welt rendern, Vorgabe 0 | [Zoomstufen](zoomstufen.md) |
@@ -66,7 +66,9 @@ Biom des Blocks:           minecraft:forest
 wird darüber erst beim Zeichnen. Ohne Seed in der Welt fehlt die zweite
 Zeile. Siehe [Biomfarben](../renderer/biomfarben.md), „Biom je Block“.
 
-Welche Welten der Renderer liest, steht in [Welten und Kennung](welten.md).
+Ist der Chunk nicht fertig erzeugt, sagt eine Zeile unter seinem Status,
+dass der Renderer ihn nicht zeichnet. Welche Welten und welche Chunks der
+Renderer liest, steht in [Welten und Kennung](welten.md).
 
 ## Eine Blockstate auflösen: `--block`
 
@@ -131,17 +133,19 @@ Alles über 1024 Pixel Kantenlänge rendert `--render` in Stücken, siehe
 
 ## Die ganze Welt prüfen: `--scan`
 
-Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, jede
-vorkommende Blockstate auflöst und sie rastert:
+Ein Durchlauf über die gesamte Testwelt, der jeden Chunk dekodiert, auch
+die nicht fertig erzeugten, und die Blockstates der übrigen auflöst und
+rastert:
 
 ```bash
 cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --scan
 ```
 
 ```
-Scan:       316223 Chunks in 71.3 s (4436 Chunks/s), 0 Fehler
-            3110 verschiedene Blockstates
-Assets:     3110 Blockstates aufgelöst in 0.6 s, 0 ungelöst
+Scan:       316223 Chunks in 46.4 s (6822 Chunks/s), 0 Fehler
+            davon 67120 nicht fertig erzeugt, der Renderer zeichnet sie nicht
+            3107 verschiedene Blockstates
+Assets:     3107 Blockstates aufgelöst in 0.3 s, 0 ungelöst
             7 Blöcke ohne Modell:
             minecraft:air
             minecraft:brown_wall_banner
@@ -150,7 +154,7 @@ Assets:     3110 Blockstates aufgelöst in 0.6 s, 0 ungelöst
             minecraft:decorated_pot
             minecraft:skeleton_skull
             minecraft:white_wall_banner
-Sprites:    3076 gerastert bei scale 32 in 0.4 s (7351/s)
+Sprites:    3073 gerastert bei scale 32 in 0.4 s (7305/s)
             9.0 MB Sprite-Pixel, größtes: minecraft:brain_coral_fan[waterlogged=true] (46x31)
             1 Blöcke sind aus dieser Blickrichtung unsichtbar: minecraft:fire
 

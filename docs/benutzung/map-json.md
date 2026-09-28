@@ -110,7 +110,9 @@ Welcher Lauf welche Höhen schreibt:
 - **`--prune`** entfernt am Ende des Laufs die Höhen von Regionen ohne
   Regionsdatei, soweit der Lauf sie läse, wie die Kacheln ohne Chunk. Ohne
   den Schalter bleiben sie stehen.
-- **Unfertige Chunks** liest der Vorlauf wie das Rendern.
+- **Nicht fertig erzeugte Chunks** übergeht der Vorlauf wie das Rendern,
+  ihre Zellen bleiben leer, siehe [Welten und Kennung](welten.md), „Nicht
+  fertig erzeugte Chunks“.
 
 Was die Höhen an Platz und Zeit kosten, steht in
 [Was ein Lauf kostet](kosten.md), „Dauer“.

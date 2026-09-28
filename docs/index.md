@@ -15,7 +15,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 - [Schalter und Beispiele](benutzung/schalter.md): jeder Schalter mit einer Zeile, `--at`, `--block`, `--sprite`, `--render`, `--scan`.
 - [Assets und Biomdaten](benutzung/assets.md): Asset- und Datenwurzeln aus dem Client-JAR, gestapelt.
-- [Welten und Kennung](benutzung/welten.md): Welten ab 26.1, Weltwurzel, Dimension, Seed und die Kennung im Baum.
+- [Welten und Kennung](benutzung/welten.md): Welten ab 26.1, nicht fertig erzeugte Chunks, Weltwurzel, Dimension, Seed und die Kennung im Baum.
 - [Kacheln exportieren](benutzung/kacheln.md): `--tiles`, Ausschnitte, Ablage, leere Kacheln und `--prune`.
 - [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt.
 - [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md): `--pyramid` während eines Renders und `--resume` nach einem Abbruch.
@@ -87,6 +87,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0033](entscheidungen/0033-toenung-beim-zeichnen.md): Tönung beim Zeichnen statt Fassungen je Biom.
 - [0034](entscheidungen/0034-eigene-lizenz.md): Eigene Lizenz: nutzen ja, verkaufen und übernehmen nein.
 - [0036](entscheidungen/0036-hoehen-aus-der-heightmap.md): Höhen aus der Heightmap, je 4×4.
+- [0037](entscheidungen/0037-chunks-ab-dem-status-light.md): Chunks ab dem Status light.
 
 ## Messungen
 

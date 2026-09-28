@@ -2600,6 +2600,76 @@ fn blockentities_zeigen_ihre_daten() {
     }
 }
 
+/// Zwei Hälften einer Truhe nebeneinander sind eine geschlossene Truhe. Eine
+/// Hälfte hat keine Fläche auf der Seite zur anderen
+/// (`ChestModel.createDoubleBodyLeftLayer`, `createDoubleBodyRightLayer`),
+/// jede verdeckt die offene Seite der anderen, und die Hälften des Riegels
+/// treffen sich auf der Naht. Die Fixture-Texturen färben den Boden des
+/// Innenraums blau und den Riegel rot. LEFT hat die andere Hälfte im
+/// Uhrzeigersinn neben sich (`ChestBlock.getConnectedDirection`): Nach Osten
+/// liegt das Paar entlang z, nach Süden entlang x, und beide Male zeigen die
+/// Vorderseite und eine offene Seite zur Kamera.
+#[test]
+fn doppeltruhe_ist_geschlossen() {
+    let projection = Projection::new(64);
+    let rect = ScreenRect::centered(768, 768);
+    let bild = |block: fn(i32, i32, i32) -> &'static str| {
+        render_chunks(&tempdir(), &[(0, 0)], block, projection, rect)
+    };
+    let finde = |bild: &RgbaImage, farbe: fn(&image::Rgba<u8>) -> bool| -> Vec<(u32, u32)> {
+        bild.enumerate_pixels()
+            .filter(|(_, _, p)| farbe(p))
+            .map(|(x, y, _)| (x, y))
+            .collect()
+    };
+    let blau = |p: &image::Rgba<u8>| p[3] > 0 && p[0] < 10 && p[1] < 10 && p[2] > 60;
+    let rot = |p: &image::Rgba<u8>| p[3] > 0 && p[0] > 60 && p[1] < 10 && p[2] < 10;
+
+    let allein = bild(|x, y, z| match (x, y, z) {
+        (4, 1, 8) => "minecraft:chest[facing=east,type=left,waterlogged=false]",
+        _ => "minecraft:air",
+    });
+    assert!(
+        !finde(&allein, blau).is_empty(),
+        "eine Hälfte allein zeigt ihr Inneres"
+    );
+
+    let osten = bild(|x, y, z| match (x, y, z) {
+        (4, 1, 8) => "minecraft:chest[facing=east,type=left,waterlogged=false]",
+        (4, 1, 9) => "minecraft:chest[facing=east,type=right,waterlogged=false]",
+        _ => "minecraft:air",
+    });
+    let sueden = bild(|x, y, z| match (x, y, z) {
+        (9, 1, 4) => "minecraft:chest[facing=south,type=left,waterlogged=false]",
+        (8, 1, 4) => "minecraft:chest[facing=south,type=right,waterlogged=false]",
+        _ => "minecraft:air",
+    });
+    // Die Mitte des Riegels: vor der Vorderseite, auf der Naht.
+    for (name, paar, riegel) in [
+        ("Osten", &osten, [4.96875, 1.5625, 9.0]),
+        ("Süden", &sueden, [9.0, 1.5625, 4.96875]),
+    ] {
+        assert!(
+            finde(paar, blau).is_empty(),
+            "{name}: das Innere scheint durch"
+        );
+        let pixel = finde(paar, rot);
+        assert!(!pixel.is_empty(), "{name}: kein Riegel");
+        let mitte = |achse: fn(&(u32, u32)) -> u32| {
+            let min = pixel.iter().map(achse).min().unwrap();
+            let max = pixel.iter().map(achse).max().unwrap();
+            (min + max + 1) as f32 / 2.0
+        };
+        let (x, y) = projection.project(riegel);
+        let soll = (x - rect.x as f32, y - rect.y as f32);
+        let ist = (mitte(|p| p.0), mitte(|p| p.1));
+        assert!(
+            (ist.0 - soll.0).abs() <= 2.0 && (ist.1 - soll.1).abs() <= 2.0,
+            "{name}: Riegel bei {ist:?} statt {soll:?}"
+        );
+    }
+}
+
 /// Ein Block ohne Familie in der Sprite-Tabelle dunkelt trotzdem ab wie im
 /// Spiel: Am Rand eines Ausschnitts liegen Nachbarchunks, deren Blöcke der
 /// Vorlauf nicht gesammelt hat. Hier fehlt die Shulkerkiste in der Tabelle;

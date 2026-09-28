@@ -53,7 +53,8 @@ des Abrufs, dazu die Zahl, auf die es ankommt, samt ihren Bedingungen.
    - Aufwand, Risiken, neue Abhängigkeiten.
    - Lizenz, wenn fremder Code übernommen werden soll. Ist jemand vielfach
      schneller und passt die Lizenz, wird seine Arbeit übernommen und
-     angepasst.
+     angepasst. Welche Lizenzen passen, steht in
+     [0034](../../docs/entscheidungen/0034-eigene-lizenz.md), „Folgen“.
 5. **Nachmessen.** Eine fremde Zahl gilt erst, wenn sie hier gemessen ist:
    ein Prototyp in einem eigenen Worktree, gemessen nach dem Skill
    [`messung-protokollieren`](../messung-protokollieren/SKILL.md). Der

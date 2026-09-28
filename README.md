@@ -119,3 +119,12 @@ Die Doku liegt in [`docs/`](docs/index.md), jede Seite im
 Entscheidungen und Messungen. Regeln für alle, die hier arbeiten, stehen in
 [`AGENTS.md`](AGENTS.md), die Workflows in [`skills/`](skills/). Tests und
 CI: [Tests](docs/entwicklung/tests.md), [CI](docs/entwicklung/ci.md).
+
+## Lizenz
+
+Nutzen ja, auch für einen Minecraft-Server mit Einnahmen; verkaufen und
+übernehmen nein. Die Bedingungen stehen in [`LICENSE`](LICENSE), der
+Grund in [0034](docs/entscheidungen/0034-eigene-lizenz.md).
+
+Kein offizielles Minecraft-Produkt. Nicht von Mojang oder Microsoft
+genehmigt und nicht mit ihnen verbunden.

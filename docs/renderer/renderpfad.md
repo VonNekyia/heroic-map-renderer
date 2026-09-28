@@ -181,6 +181,30 @@ dem mitgelieferten C-Quelltext. Dafür braucht es einen C-Compiler, unter
 Windows den von Visual Studio, den Rust dort ohnehin verlangt, unter Linux
 gcc oder clang. libwebp selbst steht unter BSD-3-Clause.
 
+Das erste Kodieren im Prozess läuft allein: `encode_webp` kodiert dafür in
+einem `std::sync::Once` einmal ein Bild mit 16 × 16 Pixeln, und alle anderen
+Threads warten darauf. Beim ersten Kodieren richtet libwebp seine Tabellen
+für SSE2 und AVX2 ein. In libwebp 1.6.0, das `libwebp-sys` 0.14.4
+mitbringt, geschieht das unter Windows ohne Sperre (`WEBP_DSP_INIT` in
+`src/dsp/cpu.h`), und MSVC baut den AVX2-Code immer ein (`WEBP_MSC_AVX2`).
+`VP8LEncDspInitSSE2` kopiert am Ende die Tabelle `VP8LPredictorsSub` in
+`VP8LPredictorsSub_SSE`. Über diese Kopie rechnen die AVX2-Prädiktoren den
+Rest einer Zeile, der kürzer als 8 Pixel ist. Richten zwei Threads zugleich
+ein, kann die Kopie schon die AVX2-Einträge des anderen enthalten. Dann ruft
+sich ein AVX2-Prädiktor für den Rest selbst auf, und das bleibt so, bis der
+Prozess endet: Im Debug-Build, also in den Tests, bricht er mit einem Stack
+Overflow ab, im Release-Build hängt der Thread ohne Meldung. Offen ist das
+Fenster, solange mehrere Threads ihr erstes Bild kodieren, also zu Beginn
+jedes Laufs. Unter Linux sperrt libwebp mit einem Mutex, und `libwebp-sys`
+baut es dort ohne AVX2.
+
+libwebp hat beides nach 1.6.0 behoben, in den Commits `54f23b0`, eine Sperre
+für `WEBP_DSP_INIT` unter Windows, und `de6aee4`, die Zuweisungen an die
+`_SSE`-Tabellen umgestellt. In einem Release sind sie noch nicht. Bringt ein
+`libwebp-sys` ein neueres libwebp mit, ist zu prüfen, ob `encode_webp` das
+Warten noch braucht. Es kostet ein kleines Bild je Prozess und danach ein
+atomares Lesen je Kachel.
+
 ## Speicher
 
 Der Rust-Teil allokiert über mimalloc: Parallel dauerte ein

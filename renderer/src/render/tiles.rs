@@ -4,6 +4,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use std::ffi::c_int;
+use std::sync::Once;
 
 use anyhow::{Result, anyhow, ensure};
 use image::RgbaImage;
@@ -387,8 +388,20 @@ fn clip(rect: ScreenRect, bounds: ScreenRect) -> ScreenRect {
 /// `exact` behält die Farbe voll durchsichtiger Pixel, sonst setzt libwebp
 /// sie auf 0. Eigene Threads braucht libwebp nicht, die Kacheln verteilt
 /// schon `rendere`.
+///
+/// Das erste Kodieren im Prozess läuft allein, die übrigen Threads warten
+/// darauf: libwebp 1.6.0 richtet dabei seine Tabellen ein, unter Windows
+/// ohne Sperre, und zwei Threads zugleich können sie verderben.
 /// Siehe docs/renderer/renderpfad.md, „Kodieren“.
 pub fn encode_webp(image: &RgbaImage) -> Result<Vec<u8>> {
+    static EINGERICHTET: Once = Once::new();
+    // Scheitert es, scheitert das Bild danach mit demselben Fehler.
+    EINGERICHTET.call_once(|| drop(kodiere(&RgbaImage::new(16, 16))));
+    kodiere(image)
+}
+
+/// [`encode_webp`] ohne das Warten beim ersten Mal.
+fn kodiere(image: &RgbaImage) -> Result<Vec<u8>> {
     let passt_nicht = |()| anyhow!("libwebp passt nicht zu seinen Headern");
     let mut config = webp::WebPConfig::new().map_err(passt_nicht)?;
     let mut bild = webp::WebPPicture::new().map_err(passt_nicht)?;

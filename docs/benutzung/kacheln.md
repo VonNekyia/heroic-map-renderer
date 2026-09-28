@@ -28,10 +28,10 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 GPU:        <Name der Karte> (Vulkan)
 
-Vorlauf:    249103 Chunks in 6.9 s, 3107 Blockstates, 280630 Kacheln
+Vorlauf:    249103 Chunks in 5.5 s, 3107 Blockstates, 280630 Kacheln
             67120 Chunks nicht fertig erzeugt, nicht gezeichnet
-            4893 Sprites bei scale 32, davon 2413 Fassungen
-            18 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
+            4953 Sprites bei scale 32, davon 2437 Fassungen
+            30 Modelle ragen über ihren Block hinaus, Würfel {[0, -1, 0], [0, 1, 0]}
 Höhen:      383 Regionen, 1.7 MB in 0.2 s
             200/280630 Kacheln
             400/280630 Kacheln
@@ -64,18 +64,19 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 GPU:        <Name der Karte> (Vulkan)
 
 Vorlauf:    788 Chunks in 0.1 s, 247 Blockstates, 256 Kacheln
-            566 Sprites bei scale 32, davon 323 Fassungen
+            570 Sprites bei scale 32, davon 323 Fassungen
             1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
+Höhen:      4 Regionen, 0.0 MB in 0.0 s
             200/256 Kacheln
             256/256 Kacheln
 Kacheln:    256 geschrieben, 0 leer, 256x256 px, 24 Threads + GPU
-            23.4 MB in 0.3 s (752 Kacheln/s, 93 kB je Kachel)
-Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 6.1 MB in 0.2 s
-Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.5 MB in 0.2 s
-Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.4 MB in 0.3 s
+            22.9 MB in 0.5 s (491 Kacheln/s, 91 kB je Kachel)
+Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 5.7 MB in 0.3 s
+Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.3 MB in 0.2 s
+Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.4 MB in 0.2 s
 Zoom  6:     2 Kacheln
 ...
-Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
+Pyramide:   9 Kacheln, 0.2 MB in 0.1 s
 Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/map.json
 ```
 

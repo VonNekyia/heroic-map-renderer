@@ -9,14 +9,16 @@ code:
   - renderer/src/render/sprites.rs
   - renderer/src/render/rasterizer.rs
   - renderer/src/render/metatile.rs
+  - renderer/src/render/tiles.rs
+  - renderer/src/cli.rs
 ---
 
 # Blockentities
 
-87 Blöcke zeichnet das Spiel ganz oder teilweise mit einem
-Blockentity-Renderer aus Modellen: Truhen, Shulkerkisten, Banner, Köpfe,
-Verzierte Krüge, Glocken, den Aquisator, Kupfergolemstatuen und die Bücher
-auf Lesepult und Zaubertisch. Ihr Blockmodell hat meist keine Elemente. Der
+Truhen, Shulkerkisten, Banner, Köpfe, Verzierte Krüge, Glocken, den
+Aquisator, Kupfergolemstatuen und die Bücher auf Lesepult und Zaubertisch
+zeichnet das Spiel ganz oder teilweise mit einem Blockentity-Renderer aus
+Modellen. Ihr Blockmodell hat meist keine Elemente. Der
 Renderer zeichnet sie aus der Tabelle
 [`blockentities.txt`](../../renderer/src/assets/blockentities.txt), die
 [`Blockentities.java`](../../renderer/src/assets/Blockentities.java) aus
@@ -42,9 +44,13 @@ Zustand nach dem anderen zeichnen:
   nach Süden, im Material nach dem Datum. Art und Lage setzt der Generator
   wie im Zweig mit Welt aus dem Zustand, das Material mit
   `getChestMaterial` ohne Weihnachten.
+- Seine eigenen Prüfungen und die Renderer, die für 26.2 ohne Spiel nicht
+  laufen oder nichts zeichnen, führt er als Mengen. Weicht eine ab, endet
+  er mit Exit-Code 1 und schreibt keine Tabelle.
 
 Das Format der Zeilen steht im Kopf von `Blockentities.java`. Stand 26.2:
-87 Blöcke, 713 Bilder, 27 Formen mit 544 Flächen, 62 Lagen, 54 Texturen.
+87 Blöcke, 713 Bilder, 27 Formen mit 544 Flächen, 62 Lagen, 54 Texturen,
+43 Bannermuster.
 Neu erzeugt wird die Tabelle mit dem Skill
 [`tabellen-neu-erzeugen`](../../skills/tabellen-neu-erzeugen/SKILL.md),
 siehe [Erzeugte Tabellen](../entwicklung/tabellen.md). Warum eine Tabelle
@@ -68,7 +74,7 @@ deren Pipeline festlegt (`RenderPipelines` in 26.2):
 | `entity_solid` | – | nein | – | nein | Banner, Glocke, Aquisator, Krug, Bücher |
 | `entity_cutout_z_offset` | 0,1 | ja | umgekehrte Normale | nein | Köpfe |
 | `entity_cutout` | 0,1 | ja | umgekehrte Normale | nein | Shulkerkisten, Statuen |
-| `banner_pattern` | – | nein | – | ja | Bannermuster |
+| `banner_pattern` | – | nein | – | ja | Grundfarbe und Muster der Banner |
 
 Der Rasterizer
 ([`renderer/src/render/rasterizer.rs`](../../renderer/src/render/rasterizer.rs))
@@ -82,8 +88,9 @@ nimmt sie so:
 - **Rückseite:** Eine Schicht ohne Culling (`RenderPipeline.isCull`)
   zeigt auch die Seite einer Fläche, die von der Kamera wegzeigt, mit
   `PER_FACE_LIGHTING` im Licht der umgekehrten Normalen.
-- **Mischen:** Die Muster mischen mit ihrem Alpha über die Grundlage. Sie
-  liegen in derselben Ebene wie diese; bei gleicher Tiefe liegt die spätere
+- **Mischen:** Grundfarbe und Muster (`entity/banner/base` und die
+  Texturen der Muster) mischen mit ihrem Alpha über das Tuch. Sie liegen in
+  derselben Ebene wie dieses; bei gleicher Tiefe liegt die spätere
   Zeichnung oben, wie `order` im Spiel sie reiht.
 - **Farbe:** Die Farbe einer Zeichnung multipliziert die Textur, bei
   Bannern die ihres Farbstoffs (`DyeColor.getTextureDiffuseColor`).
@@ -103,7 +110,8 @@ dem der Entities, belegt per javap am Client 26.2:
   0,50, unten 0,4 (`entity_light`).
 - **Licht des Blocks:** `BlockEntityRenderState.extractBase` nimmt das
   Licht an der Position des Blockentity, wie der Renderer für jeden Block,
-  siehe [Wasser und Licht](wasser-und-licht.md).
+  siehe [Wasser und Licht](wasser-und-licht.md); für einen gefluteten Block
+  an der Oberfläche dort „Was bleibt eine Näherung“.
 - **Keine weiche Beleuchtung:** Die Renderer der Blockentities gehen nicht
   durch `ModelBlockRenderer`; ihre Flächen bekommen keine AO-Werte, siehe
   [Weiche Beleuchtung](weiche-beleuchtung.md).
@@ -124,11 +132,24 @@ das Spiel sie liest:
 - **Listen aus verschiedenen Werten** speichert das Spiel als Liste von
   Compounds, jeden Wert unter dem leeren Namen, und packt sie beim Lesen
   aus (`ListTag.addAndUnwrap`); der Renderer ebenso.
-- **Lage:** `getPosFromTag` liest `x`, `y`, `z` mit 0 als Vorgabe; liegt
-  ein Blockentity ausserhalb seines Chunks, rückt es mit seiner Lage im
-  Chunk hinein.
+- **Nicht lesbare Einträge:** `getList` gibt für ein `block_entities`, das
+  keine Liste ist, nichts, und `compoundStream` übergeht Elemente, die kein
+  Compound sind (`SerializableChunkData.parse`). Der Rest des Chunks gilt.
+- **Lage:** `getPosFromTag` liest `x`, `y`, `z` mit `getIntOr` und 0 als
+  Vorgabe: jede Zahl, eine Kommazahl abgerundet (`Mth.floor`), von einem
+  Long die unteren 32 Bit. Die Weltlage ergibt sich aus der Lage im Chunk
+  und dem Platz des Chunks: Steht er in der Regionsdatei an einer anderen
+  Stelle, als `xPos` und `zPos` sagen, legt das Spiel ihn samt
+  Blockentities an diese Stelle, der Renderer ebenso
+  (`Chunk::blockentities`). Ein Blockentity ausserhalb seines Chunks rückt
+  so mit seiner Lage im Chunk hinein.
+- **Mehrere an einer Stelle:** Es gilt der letzte Eintrag, der sich laden
+  lässt (`LevelChunk.setBlockEntity` endet in `put`). Einer, der nicht zum
+  Block passt, ersetzt keinen, siehe unten; der Renderer behält deshalb je
+  Stelle und Art den letzten.
 - **Kennung:** `minecraft:banner` und `minecraft:decorated_pot`, auch ohne
-  Namensraum oder mit leerem (`Identifier.bySeparator`).
+  Namensraum oder mit leerem (`Identifier.bySeparator`), nur als Text
+  (`getStringOr`).
 - **Falscher Block:** Ein Blockentity, das nicht zu seinem Block passt,
   verwirft das Spiel beim Laden: Der Konstruktor prüft den Block
   (`validateBlockState`), und `BlockEntity.loadStatic` gibt dann keines
@@ -147,17 +168,17 @@ ein Muster mit `asset_id` und `translation_key` (`BannerPattern.CODEC`),
   (`Sheets.getBannerSprite`) und der Farbe ihres Farbstoffs, höchstens 16
   (`BannerRenderer.submitPatterns`). Die Regel prüft der Generator am
   Spiel mit 64 Lagen und schreibt die Höchstzahl in die Tabelle.
-- **Muster** stehen in den Datenwurzeln unter
-  `<namensraum>/banner_pattern/**/*.json`, mit `asset_id` und
-  `translation_key` wie `BannerPattern.DIRECT_CODEC`; spätere Wurzeln
-  überschreiben gleichnamige, siehe [Assets und Biomdaten](../benutzung/assets.md).
-  Nennt keine Datenwurzel ein Muster, gilt jede ID als ihr eigenes
-  `asset_id`: So sind alle 43 Muster des Spiels angelegt
-  (`BannerPatterns.register`). Nennt eine Wurzel Muster, gelten nur die
-  genannten, wie im Spiel die seiner Registry.
-- **Unbekanntes:** Ein Muster, das keine Datenwurzel nennt, und ein
-  Farbstoff, den es nicht gibt, lehnt der Codec ab: Die Lage fehlt, im
-  Spiel wie hier. Die Ausgabe nennt sie unter „Unbekanntes in Bannern“.
+- **Muster:** Die Muster des Spiels schreibt der Generator mit ihrem
+  `asset_id` in die Tabelle (`BannerPatterns.bootstrap`). Darüber liegen die
+  der Datenwurzeln unter `<namensraum>/banner_pattern/**/*.json`, mit
+  `asset_id` und `translation_key` wie `BannerPattern.DIRECT_CODEC`: Eine
+  spätere Wurzel überschreibt gleichnamige Muster früherer und des Spiels,
+  so wie Datenpakete über dem des Spiels liegen, siehe
+  [Assets und Biomdaten](../benutzung/assets.md).
+- **Unbekanntes:** Ein Muster, das weder das Spiel noch eine Datenwurzel
+  kennt, und ein Farbstoff, den es nicht gibt, lehnt der Codec ab: Die Lage
+  fehlt, im Spiel wie hier. Die Ausgabe nennt sie unter „Unbekanntes in
+  Bannern“.
 
 ### Krug
 
@@ -203,9 +224,6 @@ auf der Karte:
   (`BlockEntityWithBoundingBoxRenderer.extract`).
 - **Ein Kolben in Bewegung** zeichnet den Block, den er schiebt; im
   gespeicherten Chunk ist das ein Zwischenstand.
-- **Der aktive Aquisator:** Käfig und Auge drehen sich, und ob er aktiv
-  ist, rechnet das Spiel laufend aus den Blöcken um ihn. Der Renderer
-  zeichnet ihn wie das Spiel einen inaktiven, als Schale.
 
 `--scan` und `--block` nennen, was weder ein Modell noch ein Bild aus
 seinem Blockentity hat, siehe [Schalter](../benutzung/schalter.md).
@@ -215,8 +233,19 @@ seinem Blockentity hat, siehe [Schalter](../benutzung/schalter.md).
 - **Alles steht still, zur Zeit 0:** Deckel geschlossen, die Glocke ruht,
   das Buch auf dem Zaubertisch in seiner Ruhelage, jeder Banner im selben
   Schwung. Im Spiel wehen Banner nach Zeit und Position verschieden.
-- **Spielerköpfe in der Standardhaut:** Die Haut eines Spielers lädt der
-  Client aus dem Netz; ohne sie zeigt auch das Spiel die Standardhaut.
+- **Jeder Aquisator als inaktive Schale, Drehung 0:** Käfig, Wind und Auge
+  des aktiven kommen im Spiel auch aus Modellen (`ConduitRenderer.submit`),
+  drehen sich aber mit der Zeit, und ob er aktiv ist, rechnet das Spiel
+  laufend aus den Blöcken um ihn.
+- **Truhen ohne Weihnachten:** Vom 24. bis 26. Dezember zeichnet das Spiel
+  sie als Geschenke (`SpecialDates.isExtendedChristmas`), der Renderer nie.
+- **Spielerköpfe wie ohne `profile`:** Ohne `profile` zeichnet das Spiel
+  `entity/player/slim/steve` in `entity_cutout_z_offset`, wie die Tabelle.
+  Mit `profile` nimmt es die Haut des Spielers, die der Client aus dem Netz
+  lädt, und bis dahin eine von 18 Standardhäuten nach der UUID
+  (`DefaultPlayerSkin.get`), beide in `entity_translucent`
+  (`SkullBlockRenderer.resolveSkullRenderType`). Der Renderer liest
+  `profile` nicht.
 - **Licht der Oberwelt überall:** Im Nether kommt für Entity-Modelle das
   zweite Licht von unten (`NETHER_DIFFUSE_LIGHT_1`); der Renderer nimmt in
   jeder Dimension das der Oberwelt. Offen in
@@ -224,3 +253,8 @@ seinem Blockentity hat, siehe [Schalter](../benutzung/schalter.md).
 - **Ein Item, das es nicht gibt, in `sherds`** lässt das Spiel weg, und die
   übrigen rücken auf. Der Renderer kennt nur die Scherben und lässt es an
   seinem Platz, als Seite ohne Scherbe. So schreibt nur ein Editor.
+- **Mehrere Einträge mit `keepPacked` an einer Stelle:** Solche legt das
+  Spiel ungeprüft beiseite (`ChunkAccess.setBlockEntityNbt`), an einer
+  Stelle ohne geladenes Blockentity den letzten, gleich welcher Art. Der
+  Renderer behält auch hier je Stelle und Art den letzten. So schreibt nur
+  ein Editor.

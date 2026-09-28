@@ -146,7 +146,7 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 |---|---|
 | `docs/index.md` | Wegweiser: jede Seite mit einer Zeile |
 | `docs/benutzung/` | Schalter, Assets, Welten, Kacheln und Zoomstufen, Pyramide und `--resume`, `map.json`, Kosten, Grafikkarte, Echtzeitschutz |
-| `docs/renderer/` | wie der Renderer das Spiel nachbaut: Kamera, der Weg einer Kachel, Sprites und Deckung, Nähte, Wasser und Licht, weiche Beleuchtung, Biomfarben, Varianten, Blockstates, Packs, Modelle |
+| `docs/renderer/` | wie der Renderer das Spiel nachbaut: Kamera, der Weg einer Kachel, Sprites und Deckung, Nähte, Wasser und Licht, weiche Beleuchtung, Biomfarben, Varianten, Blockstates, Packs, Modelle, Blockentities |
 | `docs/frontend.md` | das Frontend |
 | `docs/entwicklung/` | Aufbau des Codes, Tests, CI, Eingabedaten, erzeugte Tabellen |
 | `docs/entscheidungen/` | `NNNN-titel.md`, eine Datei je Entscheidung |

@@ -11,8 +11,8 @@ code:
 # Assets und Biomdaten
 
 Der Renderer braucht einen vollständigen Asset-Baum aus dem Client-JAR der
-unterstützten Version, heute 26.2, und für die Biomfarben und Bannermuster
-die Daten aus demselben JAR. Beides kommt über `--assets` und `--data`,
+unterstützten Version, heute 26.2, und für die Biomfarben die Daten aus
+demselben JAR. Beides kommt über `--assets` und `--data`,
 jeweils mehrfach; spätere Wurzeln gewinnen. Wie der Renderer eine
 Wurzel liest, steht in [Packs und Wurzeln](../renderer/packs.md).
 
@@ -29,7 +29,19 @@ $v = "26.2"; $m = Get-Content "$env:APPDATA\.minecraft\versions\$v\$v.json" | Co
 Die SHA1-Prüfsumme steht im selben Manifest unter `downloads.client.sha1`.
 Der ganze Baum gehört dazu: Truhen, Banner und die übrigen Blockentities
 brauchen die Texturen unter `textures/entity`, siehe
-[Blockentities](../renderer/blockentities.md).
+[Blockentities](../renderer/blockentities.md). Fehlen Texturen, sagt es der
+Lauf gleich nach der Sprite-Tabelle („… Texturen fehlen, dort steht die
+Missing-Textur“), und die Liste am Ende nennt jede, etwa
+`minecraft:entity/chest/normal`; auf der Karte stehen dort Schachbretter.
+
+Gibt es `vanilla-assets` schon, legt der letzte Befehl oben den neuen Baum
+darin als `vanilla-assets\assets` ab, und den liest der Renderer nicht.
+Fehlen einem bestehenden Baum nur die Texturen der Blockentities, holt sie
+nach dem Auspacken statt des letzten Befehls dieser:
+
+```powershell
+Move-Item "$env:TEMP\mc\assets\minecraft\textures\entity" vanilla-assets\minecraft\textures\entity
+```
 
 Danach wird der Baum gestapelt übergeben, spätere Wurzeln gewinnen:
 
@@ -72,20 +84,12 @@ steht in [Biomfarben](../renderer/biomfarben.md), „Biome lesen“.
 
 ## Bannermuster
 
-Die Muster der Banner stehen im selben `data/` unter `banner_pattern`:
-
-```powershell
-Move-Item "$env:TEMP\mc\data\minecraft\banner_pattern" vanilla-data\minecraft\banner_pattern
-```
-
-43 Dateien. Erwartet wird `<DIR>/<namespace>/banner_pattern/**/*.json` in
-denselben Wurzeln wie die Biome, spätere überschreiben frühere. Nennt keine
-Wurzel ein Muster, gilt jede ID als ihr eigenes `asset_id`, so wie alle
-Muster des Spiels angelegt sind. Nennt eine Wurzel Muster, gelten nur die
-genannten: Für ein Datenpaket mit eigenen Mustern gehören die des Spiels
-mit hinein.
-Die Ausgabe nennt, wie viele Muster jede Wurzel bringt, und am Ende jedes
-Muster und jeden Farbstoff aus der Welt, den keine kennt, siehe
+Die Muster des Spiels kennt der Renderer aus seiner Tabelle. Eine
+Datenwurzel braucht es nur für Muster aus Datenpaketen: Erwartet wird
+`<DIR>/<namespace>/banner_pattern/**/*.json` in denselben Wurzeln wie die
+Biome, spätere überschreiben frühere und die des Spiels. Die Ausgabe nennt,
+wie viele Muster jede Wurzel bringt, und am Ende jedes Muster und jeden
+Farbstoff aus der Welt, den weder das Spiel noch eine Wurzel kennt, siehe
 [Blockentities](../renderer/blockentities.md), „Banner“.
 
 ## Im Repository

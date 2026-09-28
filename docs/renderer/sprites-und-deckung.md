@@ -22,9 +22,14 @@ Deckendes übermalt.
 Die Tabelle entsteht nach dem Vorlauf, der alle vorkommenden Blockstates
 einsammelt, siehe [Der Weg einer Kachel](renderpfad.md), „Vorlauf“.
 Blockstates mit gleichem Bild teilen sich eine Familie: gleicher Name,
-gleiche Modelle, gleiche Flüssigkeit, gleicher Ort der Saat und gleiches
-Leuchten (`family_key` in `sprites.rs`). Das Leuchten zählt, weil ein
-gefluteter Block unter seiner Oberfläche sein eigenes Blocklicht trägt.
+gleiche Modelle, gleiche Flüssigkeit, gleicher Ort der Saat, gleiches
+Leuchten und gleiches Bild aus dem Blockentity (`family_key` in
+`sprites.rs`). Das Leuchten zählt, weil ein gefluteter Block unter seiner
+Oberfläche sein eigenes Blocklicht trägt, das Bild, weil eine Truhe in
+jeder Lage dasselbe Blockmodell hat. Banner mit Mustern und Krüge mit
+Scherben bekommen je Familie und Daten eine eigene Familie
+(`SpriteSet::add_entities`), siehe [Blockentities](blockentities.md), „Im
+Renderpfad“.
 Eine Familie hat ihre Alternativen, siehe
 [Varianten aus der Position](varianten.md), und
 Fassungen: eine je Maske verdeckter Flüssigkeitsflächen, dazu die Streifen

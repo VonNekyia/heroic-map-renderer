@@ -126,8 +126,7 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Render:     390 Chunks gelesen, 215 Blockstates, 532 Sprites
-            1 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
+Render:     390 Chunks gelesen, 215 Blockstates, 536 Sprites
             900x900 px bei (-4290, 958) und scale 16 in 0.3 s -> docs/bilder/map.png
 ```
 
@@ -154,15 +153,15 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 ```
-Scan:       316223 Chunks in 56.1 s (5632 Chunks/s), 0 Fehler
+Scan:       316223 Chunks in 56.4 s (5611 Chunks/s), 0 Fehler
             davon 67120 nicht fertig erzeugt, der Renderer zeichnet sie nicht
             3107 verschiedene Blockstates
             96 Banner mit Mustern, 2073 Krüge mit Scherben, 20 verschiedene samt Block
-Assets:     3107 Blockstates aufgelöst in 0.3 s, 0 ungelöst
+Assets:     3107 Blockstates aufgelöst in 0.4 s, 0 ungelöst
             2 Blöcke ohne Modell:
             minecraft:air
             minecraft:cave_air
-Sprites:    3093 gerastert bei scale 32 in 0.5 s (6720/s)
+Sprites:    3093 gerastert bei scale 32 in 0.5 s (5913/s)
             9.1 MB Sprite-Pixel, größtes: minecraft:brain_coral_fan[waterlogged=true] (46x31)
             1 Blöcke sind aus dieser Blickrichtung unsichtbar: minecraft:fire
 
@@ -172,9 +171,10 @@ Texturen:   722 geladen, 0 fehlen
 MB zählt die Ausgabe binär, 2^20 Byte.
 
 - **Banner und Krüge:** Die Zeile zählt Blockentities, deren Daten ihr Bild
-  ändern. „Verschieden samt Block“ sind die Familien, die ein Export der
-  ganzen Welt dafür dazubaut, siehe [Blockentities](../renderer/blockentities.md),
-  „Daten aus dem Chunk“.
+  ändern. „Verschieden samt Block“ zählt Paare aus Blockstate und Daten: So
+  viele Familien baut eine Sprite-Tabelle höchstens dazu, jede native Stufe
+  ihre eigene, siehe [Blockentities](../renderer/blockentities.md), „Im
+  Renderpfad“.
 - **Blöcke ohne Modell:** Truhen, Banner und die übrigen Blockentities
   stehen nicht in der Liste, sie bekommen ihr Bild aus dem Blockentity.
   Wasser fehlt, weil der Renderer es im Code baut. Beides steht in

@@ -9,9 +9,16 @@ code:
   - renderer/src/assets/blockentities.txt
   - renderer/src/assets/blockentity.rs
   - renderer/src/render/sprites.rs
+  - renderer/src/render/rasterizer.rs
+  - renderer/src/world/chunk.rs
 ---
 
 # 0039: Blockentities aus den Renderern des Spiels
+
+Ergänzt [0038: Flächen mit Löchern werden ausgeschnitten](0038-cutout-wie-im-spiel.md):
+Der Alpha-Test läuft je Abtastpunkt, vor dem Mitteln; für Blockflächen aus
+Vanilla ohne Wirkung, siehe [Rastern ohne Nähte](../renderer/naehte.md),
+„Ausgeschnitten statt gemischt“.
 
 ## Anlass
 
@@ -34,9 +41,10 @@ eigener Schicht: Alpha-Test, Rückseiten und Licht wie für Entity-Modelle.
 Bannermuster und Scherben kommen beim Rendern aus `block_entities`, nach
 Regeln, die der Generator am Spiel prüft und in die Tabelle schreibt: Welche
 Zeichnung die Grundlage der Muster ist und wie viele Lagen das Spiel
-zeichnet, welche Zeichnung welchen Platz in `sherds` trägt. Je Familie und
-Daten entsteht beim Aufbau der Sprite-Tabelle eine eigene Familie. Einzelheiten
-in [Blockentities](../renderer/blockentities.md).
+zeichnet, welche Zeichnung welchen Platz in `sherds` trägt, und die Muster
+des Spiels. Je Familie und Daten entsteht beim Aufbau der Sprite-Tabelle
+eine eigene Familie. Einzelheiten in
+[Blockentities](../renderer/blockentities.md).
 
 ## Verworfene Alternativen
 
@@ -44,8 +52,7 @@ in [Blockentities](../renderer/blockentities.md).
   dem Spiel; jede Lage, jede Pose und jede Textur wäre eine eigene Stelle,
   an der es falsch werden kann.
 - **Modelle aus anderen Werkzeugen übernehmen:** Sie stammen nicht aus dem
-  Spiel, und fremden Code übernimmt das Projekt nicht (`AGENTS.md`,
-  Regel 23). Vom User verworfen.
+  Spiel; vom User am 28.09. verworfen.
 - **Nur die Modellteile mit ihren Lagen backen**, `LayerDefinition` und
   `modelTransformation` je Renderer. Welche Teile ein Renderer zeichnet, mit
   welcher Textur, Farbe und Pose, entscheidet sein `submit`: das Buch nur
@@ -57,19 +64,19 @@ in [Blockentities](../renderer/blockentities.md).
   Schicht ginge verloren. Blockmodelle kennen nur die Schichten der Blöcke,
   mit dem Alpha-Test 0,5 statt 0,1, immer mit Culling und im Licht der
   Blockseiten.
-- **Muster und Scherben schon in der Tabelle:** 16 Farbstoffe, 43 Muster
-  und bis zu 16 Lagen, dazu die Scherben auf vier Plätzen; das sind mehr
-  Bilder, als je in einer Welt vorkommen. Beim Rendern entstehen nur die,
-  die es gibt.
+- **Bilder mit Mustern und Scherben schon in der Tabelle:** jeder
+  Farbstoff mit jedem Muster in bis zu 16 Lagen, dazu die Scherben auf vier
+  Plätzen; das sind mehr Bilder, als je in einer Welt vorkommen. Beim
+  Rendern entstehen nur die, die es gibt.
 - **Licht wie für Blockseiten** (`CardinalLighting`): Das Spiel zeichnet
   Entity-Modelle anders, die Seiten nach Osten und Westen etwa mit 0,50
   statt 0,6.
 
 ## Folgen
 
-- Die Tabelle hat 141 427 Byte und ist einkompiliert; für eine neue
-  Version schreibt der Generator sie neu, mit dem Client-JAR und Java 25,
-  Skill [`tabellen-neu-erzeugen`](../../skills/tabellen-neu-erzeugen/SKILL.md).
+- Die Tabelle ist einkompiliert; für eine neue Version schreibt der
+  Generator sie neu, mit dem Client-JAR und Java 25, Skill
+  [`tabellen-neu-erzeugen`](../../skills/tabellen-neu-erzeugen/SKILL.md).
 - Alles steht still, zur Zeit 0; was nicht aus einem Modell kommt, fehlt,
   siehe [Blockentities](../renderer/blockentities.md), „Was fehlt“.
 - Jede Kombination aus Familie und Daten in einer Welt ist eine Familie mit

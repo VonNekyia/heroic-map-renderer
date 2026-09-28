@@ -86,8 +86,10 @@ Welt in gut einer Sekunde, 13,8 MB. Gemessen in
 [2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md).
 
 Bannermuster und Scherben liest der Vorlauf ebenso mit, und auch dadurch
-wird er nicht messbar länger. Für ihre Bilder baut ein Export der ganzen
-Testwelt 20 Familien dazu. Gemessen in
+wird er nicht messbar länger. Für ihre Bilder baut eine Sprite-Tabelle auf
+der ganzen Testwelt höchstens 20 Familien dazu, auf der grossen Welt mit
+659 Bannern mit Mustern und 35 Krügen mit Scherben höchstens 159; eine
+Obergrenze braucht es damit nicht. Gemessen in
 [2026-09-28, Blockentities](../messungen/2026-09-28-blockentities.md).
 
 Unter Windows hängt die Dauer stark am Echtzeitschutz, siehe

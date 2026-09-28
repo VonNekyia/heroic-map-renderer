@@ -29,20 +29,15 @@ Biome. Nur wer sie zählt oder nennt, liest sie mit `stored_chunk`: der
 Vorlauf, `--at` und `--scan`.
 Vom User am 28.09. entschieden.
 
-Ab `light` setzt die Erzeugung keinen Block mehr, belegt per javap am
-Client 26.2 (`ChunkPyramid.GENERATION_PYRAMID`):
-
-- Der Schritt `light` verlangt die Nachbarn im Radius 1 mindestens in
-  `initialize_light`, also hinter `features`.
-- Nur `features` schreibt über den eigenen Chunk hinaus, einen Chunk weit
-  (`blockStateWriteRadius(1)`). Die Schritte danach setzen keinen Radius,
-  der Standard −1 erlaubt gar keinen Block.
+Dass ab `light` kein Block mehr gesetzt wird und der Client nur fertige
+Chunks bekommt, ist am Spiel belegt in
+[Welten und Kennung](../benutzung/welten.md), „Nicht fertig erzeugte
+Chunks“.
 
 ## Verworfene Alternativen
 
-- **Nur `minecraft:full`, genau wie der Client.** `ChunkHolder.getChunkToSend`
-  gibt ihm nur fertige Chunks heraus. Chunks mit `spawn`, deren Blöcke
-  längst feststehen, fehlten dann als Löcher. An den Rändern beider Welten,
+- **Nur `minecraft:full`, genau wie der Client.** Chunks mit `spawn`, deren
+  Blöcke längst feststehen, fehlten dann als Löcher. An den Rändern beider Welten,
   an denen die Fehler auffielen, ergibt `light` dieselbe Kachelmenge wie
   `full`.
 - **Jeden Chunk lesen, wie bisher:** die Fehler oben.
@@ -54,8 +49,8 @@ Client 26.2 (`ChunkPyramid.GENERATION_PYRAMID`):
 ## Folgen
 
 - Die Karte endet am letzten Chunk ab `light`. Der Vorlauf nennt die Zahl
-  der übergangenen Chunks. Auf der Testwelt fallen 4,2 % der Basiskacheln
-  weg.
+  der übergangenen Chunks. Wie viele Basiskacheln wegfallen, steht in
+  [Was ein Lauf kostet](../benutzung/kosten.md), „Je scale“.
 - Der Schnitt am Ost- und Südrand bleibt, 16 bis 32 Blöcke weiter innen.
   Ihn abzudunkeln gehört zur Ausbreitung des Lichts (#34). Vom User am
   28.09. entschieden.

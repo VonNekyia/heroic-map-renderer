@@ -41,18 +41,24 @@ Der Renderer liest deshalb nur Chunks ab dem Status `minecraft:light`, also
 `light`, `spawn` und `full`, und behandelt die übrigen wie fehlende
 (`Chunk::is_generated` in
 [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs)). Ab
-`light` setzt die Erzeugung keinen Block mehr: Der Schritt verlangt die
-Nachbarn mindestens in `initialize_light`, also hinter `features`, und nur
-`features` schreibt über den eigenen Chunk hinaus, einen Chunk weit. Warum
-nicht erst ab `full` wie der Client:
+`light` setzt die Erzeugung keinen Block mehr, belegt per javap am Client
+26.2 (`ChunkPyramid.GENERATION_PYRAMID`):
+
+- Der Schritt `light` verlangt die Nachbarn im Radius 1 mindestens in
+  `initialize_light`, also hinter `features`.
+- Nur `features` schreibt über den eigenen Chunk hinaus, einen Chunk weit
+  (`blockStateWriteRadius(1)`). Die Schritte danach setzen keinen Radius,
+  und der Standard −1 erlaubt keinen Block.
+
+Warum nicht erst ab `full` wie der Client:
 [0037](../entscheidungen/0037-chunks-ab-dem-status-light.md).
 
 So sehen Vorlauf, Render und Höhen dieselbe Welt:
 
 - **Kacheln:** Ein solcher Chunk bringt keine Kachel und keinen Blockstate.
-  Der Vorlauf zählt ihn und sagt es, auf der Testwelt so:
-  `67120 Chunks nicht fertig erzeugt, nicht gezeichnet`. Dort fallen damit
-  4,2 % der Basiskacheln weg.
+  Der Vorlauf zählt ihn und nennt die Zahl, siehe die Ausgabe in
+  [Kacheln exportieren](kacheln.md). Wie viele Kacheln so wegfallen,
+  steht in [Was ein Lauf kostet](kosten.md), „Je scale“.
 - **Licht:** Neben ihm fällt kein Licht von der Seite, wie am Rand der
   Welt, siehe [Wasser und Licht](../renderer/wasser-und-licht.md), „Wie
   gezählt wird“. Sonst läge die äusserste Blockreihe davor im Licht 14,

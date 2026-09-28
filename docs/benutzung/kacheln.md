@@ -32,6 +32,7 @@ Vorlauf:    249103 Chunks in 6.9 s, 3107 Blockstates, 280630 Kacheln
             67120 Chunks nicht fertig erzeugt, nicht gezeichnet
             4893 Sprites bei scale 32, davon 2413 Fassungen
             18 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
+Höhen:      383 Regionen, 1.7 MB in 0.2 s
             200/280630 Kacheln
             400/280630 Kacheln
 ```

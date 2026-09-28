@@ -20,6 +20,9 @@ pub struct TextureId(pub u32);
 pub struct Textures {
     ids: HashMap<String, TextureId>,
     images: Vec<RgbaImage>,
+    /// Parallel zu `images`: was das Spiel ausser dem ersten Bild braucht,
+    /// um eine Fläche in ihre Schicht zu legen.
+    eigenschaften: Vec<Eigenschaften>,
     /// Parallel zu `images`, damit Fehlermeldungen den Namen nennen können.
     names: Vec<String>,
     missing: BTreeSet<String>,
@@ -37,6 +40,7 @@ impl Textures {
         Textures {
             ids: HashMap::new(),
             images: vec![placeholder()],
+            eigenschaften: vec![Eigenschaften::default()],
             names: vec!["<fehlende Textur>".to_string()],
             missing: BTreeSet::new(),
             broken: BTreeMap::new(),
@@ -66,8 +70,9 @@ impl Textures {
             .map(|(layer, path)| read_texture(packs, layer, namespace, name, &path));
 
         let texture = match loaded {
-            Some(Ok(image)) => {
+            Some(Ok((image, eigenschaften))) => {
                 self.images.push(image);
+                self.eigenschaften.push(eigenschaften);
                 self.names.push(id.clone());
                 TextureId(self.images.len() as u32 - 1)
             }
@@ -89,6 +94,56 @@ impl Textures {
         self.images
             .get(id.0 as usize)
             .unwrap_or(&self.images[Textures::MISSING.0 as usize])
+    }
+
+    /// Ob der Ausschnitt von `von` bis `bis`, in UV von 0 bis 1, halb
+    /// durchsichtige Texel hat, wie `SpriteContents.computeTransparency` in
+    /// 26.2 es für die Schicht TRANSLUCENT prüft: in jedem Bild, das die
+    /// Animation zeigt, über die Texel von `floor(von)` bis `ceil(bis)`. Für
+    /// den vollen Ausschnitt gilt die ganze Datei.
+    /// Siehe docs/renderer/naehte.md, „Ausgeschnitten statt gemischt“.
+    pub fn durchscheinend(&self, id: TextureId, von: [f32; 2], bis: [f32; 2]) -> bool {
+        let Some(eigenschaften) = self.eigenschaften.get(id.0 as usize) else {
+            return false;
+        };
+        if !eigenschaften.ganz || (von == [0.0, 0.0] && bis == [1.0, 1.0]) {
+            return eigenschaften.ganz;
+        }
+        let (breite, hoehe) = self.image(id).dimensions();
+        // Das Spiel wirft bei einem Ausschnitt über den Rand hinaus; hier
+        // bleibt er in der Textur.
+        let texel = |uv: f32, rand: u32, runden: fn(f32) -> f32| {
+            (runden(uv * rand as f32).max(0.0) as u32).min(rand)
+        };
+        let (x0, y0) = (
+            texel(von[0], breite, f32::floor),
+            texel(von[1], hoehe, f32::floor),
+        );
+        let (x1, y1) = (
+            texel(bis[0], breite, f32::ceil),
+            texel(bis[1], hoehe, f32::ceil),
+        );
+        (y0..y1)
+            .flat_map(|y| (x0..x1).map(move |x| (y * breite + x) as usize))
+            .any(|i| eigenschaften.texel[i])
+    }
+
+    /// Die Farbe, die das Spiel bei `"mipmap_strategy": "dark_cutout"` in
+    /// jedes Loch schreibt, sonst `None`.
+    /// Siehe docs/renderer/naehte.md, „Ausgeschnitten statt gemischt“.
+    pub fn fuellung(&self, id: TextureId) -> Option<[u8; 3]> {
+        self.eigenschaften.get(id.0 as usize)?.fuellung
+    }
+
+    /// Nimmt ein Bild als Textur auf, statisch und ohne Datei.
+    #[cfg(test)]
+    pub(crate) fn einfuegen(&mut self, name: &str, image: RgbaImage, dunkel: bool) -> TextureId {
+        let bild = (image.width(), image.height());
+        self.eigenschaften
+            .push(eigenschaften(&image, bild, &[(0, 0)], dunkel));
+        self.images.push(image);
+        self.names.push(name.to_string());
+        TextureId(self.images.len() as u32 - 1)
     }
 
     /// Name einer geladenen Textur.
@@ -117,6 +172,74 @@ impl Textures {
     }
 }
 
+/// Halb durchsichtig: weder Loch noch deckend, wie `NativeImage
+/// .computeTransparency` in 26.2 zählt.
+fn halb(alpha: u8) -> bool {
+    alpha != 0 && alpha != 255
+}
+
+/// Was das Spiel ausser dem ersten Bild von einer Textur braucht.
+#[derive(Default)]
+struct Eigenschaften {
+    /// Ob die ganze Datei halb durchsichtige Texel hat, über alle Bilder
+    /// einer Animation (`SpriteContents.transparency`).
+    ganz: bool,
+    /// Je Texel eines Bildes, zeilenweise: ob es in einem der Bilder, die
+    /// die Animation zeigt, halb durchsichtig ist. Leer ohne solche Texel.
+    texel: Vec<bool>,
+    /// Die Farbe der Löcher bei `dark_cutout`.
+    fuellung: Option<[u8; 3]>,
+}
+
+/// Die Eigenschaften einer Datei `original`, deren Bilder `bild` gross
+/// sind und an `ursprung` beginnen.
+fn eigenschaften(
+    original: &RgbaImage,
+    (breite, hoehe): (u32, u32),
+    ursprung: &[(u32, u32)],
+    dunkel: bool,
+) -> Eigenschaften {
+    let ganz = original.pixels().any(|p| halb(p[3]));
+    let texel = if ganz {
+        (0..hoehe)
+            .flat_map(|y| (0..breite).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                ursprung
+                    .iter()
+                    .any(|&(ux, uy)| halb(original.get_pixel(ux + x, uy + y)[3]))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Eigenschaften {
+        ganz,
+        texel,
+        fuellung: dunkel.then(|| fuellung(original)),
+    }
+}
+
+/// Wie `TextureUtil.fillEmptyAreasWithDarkColor` in 26.2: drei Viertel des
+/// deckenden Texels mit der kleinsten Summe aus Rot, Grün und Blau, bei
+/// Gleichstand des ersten, Spalte für Spalte. Ohne deckendes Texel bleibt
+/// wie im Spiel Weiss als Ausgang.
+fn fuellung(original: &RgbaImage) -> [u8; 3] {
+    let (breite, hoehe) = original.dimensions();
+    let mut dunkelstes = [255u8; 3];
+    let mut kleinste = u32::MAX;
+    for x in 0..breite {
+        for y in 0..hoehe {
+            let [r, g, b, a] = original.get_pixel(x, y).0;
+            let summe = r as u32 + g as u32 + b as u32;
+            if a != 0 && summe < kleinste {
+                kleinste = summe;
+                dunkelstes = [r, g, b];
+            }
+        }
+    }
+    dunkelstes.map(|c| (3 * c as u32 / 4) as u8)
+}
+
 /// Lädt eine PNG-Datei und schneidet bei animierten Texturen das Bild
 /// heraus, das der Client zuerst zeigt. Wie `SpriteResourceLoader` wird
 /// eine Textur zur Missing-Textur, wenn ihre `.mcmeta` nicht zu lesen ist
@@ -127,14 +250,18 @@ fn read_texture(
     namespace: &str,
     name: &str,
     path: &Path,
-) -> Result<RgbaImage> {
+) -> Result<(RgbaImage, Eigenschaften)> {
     let image = image::open(path)
         .with_context(|| format!("{} lesen", path.display()))?
         .into_rgba8();
-    match animation(packs, png_layer, namespace, name)? {
-        Some(animation) => erstes_bild(&image, &animation),
-        None => Ok(image),
-    }
+    let Meta { animation, dunkel } = meta(packs, png_layer, namespace, name)?;
+    let Bilder { erstes, ursprung } = match animation {
+        Some(animation) => erstes_bild(&image, &animation)?,
+        None => Bilder::statisch(),
+    };
+    let bild = erstes.as_ref().unwrap_or(&image).dimensions();
+    let eigenschaften = eigenschaften(&image, bild, &ursprung, dunkel);
+    Ok((erstes.unwrap_or(image), eigenschaften))
 }
 
 /// Sucht die `.mcmeta`-Datei im Packstapel und liest sie: aus derselben
@@ -142,14 +269,9 @@ fn read_texture(
 /// wurde ([`datei`]). Ohne `animation` ist die Textur statisch, auch wenn
 /// die Datei existiert.
 /// Siehe docs/renderer/modelle-und-texturen.md, „`.mcmeta`“.
-fn animation(
-    packs: &[Pack],
-    png_layer: usize,
-    namespace: &str,
-    name: &str,
-) -> Result<Option<Animation>> {
+fn meta(packs: &[Pack], png_layer: usize, namespace: &str, name: &str) -> Result<Meta> {
     let Some((_, meta)) = datei(&packs[png_layer..], namespace, name, "png.mcmeta") else {
-        return Ok(None);
+        return Ok(Meta::default());
     };
     mcmeta(&read_text(&meta)?).with_context(|| format!("{} lesen", meta.display()))
 }
@@ -179,6 +301,14 @@ fn datei(packs: &[Pack], namespace: &str, name: &str, endung: &str) -> Option<(u
         .find_map(|(layer, pack)| pack.resource(namespace, &pfad).map(|datei| (layer, datei)))
 }
 
+/// Was der Renderer aus einer `.mcmeta` braucht.
+#[derive(Debug, Default)]
+struct Meta {
+    animation: Option<Animation>,
+    /// `"mipmap_strategy": "dark_cutout"`.
+    dunkel: bool,
+}
+
 /// Die Angaben aus `animation`, die das erste Bild bestimmen.
 #[derive(Debug)]
 struct Animation {
@@ -193,30 +323,34 @@ struct Animation {
 /// `texture` liest je ein Codec (`getSection`). Ein Abschnitt `null` ist
 /// kein fehlender, er geht an den Codec und scheitert. Andere Abschnitte
 /// liest der Block-Atlas nicht.
-fn mcmeta(text: &str) -> Result<Option<Animation>> {
+fn mcmeta(text: &str) -> Result<Meta> {
     let json = parse_json(text, false)?;
     ensure!(json.is_object(), "kein Objekt");
-    if let Some(textur) = json.get("texture") {
-        texture_section(textur).context("texture")?;
-    }
-    json.get("animation")
+    let dunkel = match json.get("texture") {
+        Some(textur) => texture_section(textur).context("texture")?,
+        None => false,
+    };
+    let animation = json
+        .get("animation")
         .map(|animation| animation_section(animation).context("animation"))
-        .transpose()
+        .transpose()?;
+    Ok(Meta { animation, dunkel })
 }
 
 /// `TextureMetadataSection.CODEC`: alles darf fehlen, und was dasteht,
-/// muss passen.
-fn texture_section(json: &Value) -> Result<()> {
+/// muss passen. Wahr bei `"mipmap_strategy": "dark_cutout"`.
+fn texture_section(json: &Value) -> Result<bool> {
     ensure!(json.is_object(), "kein Objekt");
     for name in ["blur", "clamp"] {
         if let Some(wert) = field(json, name) {
             boolean(wert).with_context(|| name.to_string())?;
         }
     }
-    if let Some(wert) = field(json, "mipmap_strategy") {
+    let strategie = field(json, "mipmap_strategy").map(|wert| (wert, wert.as_str()));
+    if let Some((wert, name)) = strategie {
         ensure!(
             matches!(
-                wert.as_str(),
+                name,
                 Some("auto" | "mean" | "cutout" | "strict_cutout" | "dark_cutout")
             ),
             "mipmap_strategy {wert}"
@@ -225,7 +359,7 @@ fn texture_section(json: &Value) -> Result<()> {
     if let Some(wert) = field(json, "alpha_cutoff_bias") {
         float(wert).context("alpha_cutoff_bias")?;
     }
-    Ok(())
+    Ok(strategie.is_some_and(|(_, name)| name == Some("dark_cutout")))
 }
 
 /// `AnimationMetadataSection.CODEC`: `width`, `height` und `frametime`
@@ -284,13 +418,31 @@ fn positive(json: &Value) -> Result<u32> {
     }
 }
 
-/// Das Bild einer Animation, das der Client zuerst zeigt, oder `Err`, wenn
-/// er die Textur verwirft: Die Bildgrösse kommt aus `width` und `height`
-/// oder aus dem Bild und muss es teilen. Von den Bildern aus `frames`, die
-/// es gibt, zeigt er bei mindestens zweien das erste; sonst ist die Textur
+/// Was eine Animation zeigt.
+struct Bilder {
+    /// Das Bild, das der Client zuerst zeigt; `None`, wenn die Textur
+    /// statisch ist.
+    erstes: Option<RgbaImage>,
+    /// Wo jedes Bild beginnt, das er zeigt.
+    ursprung: Vec<(u32, u32)>,
+}
+
+impl Bilder {
+    fn statisch() -> Bilder {
+        Bilder {
+            erstes: None,
+            ursprung: vec![(0, 0)],
+        }
+    }
+}
+
+/// Die Bilder einer Animation, die der Client zeigt, oder `Err`, wenn er
+/// die Textur verwirft: Die Bildgrösse kommt aus `width` und `height` oder
+/// aus dem Bild und muss es teilen. Von den Bildern aus `frames`, die es
+/// gibt, zeigt er bei mindestens zweien das erste; sonst ist die Textur
 /// statisch und darf nicht grösser sein als ein Bild.
 /// Siehe docs/renderer/modelle-und-texturen.md, „`.mcmeta`“.
-fn erstes_bild(image: &RgbaImage, animation: &Animation) -> Result<RgbaImage> {
+fn erstes_bild(image: &RgbaImage, animation: &Animation) -> Result<Bilder> {
     let (breite, hoehe) = image.dimensions();
     let (b, h) = match (animation.width, animation.height) {
         (Some(b), Some(h)) => (b, h),
@@ -305,25 +457,22 @@ fn erstes_bild(image: &RgbaImage, animation: &Animation) -> Result<RgbaImage> {
     let spalten = breite / b;
     let gesamt = spalten * (hoehe / h);
     let gueltig: Vec<u32> = match &animation.frames {
-        None => (0..gesamt.min(2)).collect(),
-        Some(frames) => frames
-            .iter()
-            .copied()
-            .filter(|&i| i < gesamt)
-            .take(2)
-            .collect(),
+        None => (0..gesamt).collect(),
+        Some(frames) => frames.iter().copied().filter(|&i| i < gesamt).collect(),
     };
     // `frames` gibt die Abspielreihenfolge an; das erste Bild darin ist nicht
     // zwingend Nummer 0. Vanilla nutzt das in fire_0 und soul_fire_0.
     let index = match gueltig.as_slice() {
-        [erstes, _] => *erstes,
-        _ if (breite, hoehe) == (b, h) => return Ok(image.clone()),
+        [erstes, _, ..] => *erstes,
+        _ if (breite, hoehe) == (b, h) => return Ok(Bilder::statisch()),
         _ => bail!("nur ein Bild der Animation, aber das Bild ist {breite}x{hoehe}"),
     };
-    Ok(
-        image::imageops::crop_imm(image, (index % spalten) * b, (index / spalten) * h, b, h)
-            .to_image(),
-    )
+    let ursprung = |i: u32| ((i % spalten) * b, (i / spalten) * h);
+    let (x, y) = ursprung(index);
+    Ok(Bilder {
+        erstes: Some(image::imageops::crop_imm(image, x, y, b, h).to_image()),
+        ursprung: gueltig.into_iter().map(ursprung).collect(),
+    })
 }
 
 /// Das magenta-schwarze Karo, das Minecraft für fehlende Texturen zeigt.
@@ -349,11 +498,12 @@ mod tests {
     }
 
     fn animation(json: &str) -> Animation {
-        mcmeta(json).unwrap().unwrap()
+        mcmeta(json).unwrap().animation.unwrap()
     }
 
     fn erstes(image: &RgbaImage, json: &str) -> Result<RgbaImage> {
-        erstes_bild(image, &animation(json))
+        let Bilder { erstes, .. } = erstes_bild(image, &animation(json))?;
+        Ok(erstes.unwrap_or_else(|| image.clone()))
     }
 
     #[test]
@@ -469,11 +619,110 @@ mod tests {
         assert_eq!(einzeln.dimensions(), (16, 16));
     }
 
+    /// Wie `SpriteContents.computeTransparency`: der Ausschnitt von floor
+    /// bis ceil der UV, der volle nach der ganzen Datei. Löcher machen
+    /// nichts durchscheinend.
+    #[test]
+    fn durchscheinend_im_ausschnitt() {
+        let mut textures = Textures::new();
+        let bild = RgbaImage::from_fn(16, 16, |x, y| {
+            let alpha = match (x, y) {
+                (0..8, 0) => 0,
+                (0..8, 1) => 128,
+                _ => 255,
+            };
+            image::Rgba([90, 90, 90, alpha])
+        });
+        let id = textures.einfuegen("probe", bild, false);
+        assert!(textures.durchscheinend(id, [0.0, 0.0], [1.0, 1.0]));
+        assert!(!textures.durchscheinend(id, [0.5, 0.0], [1.0, 1.0]));
+        assert!(!textures.durchscheinend(id, [0.0, 0.0], [0.5, 0.05]));
+        // floor(0,49 · 16) = 7: die Spalte 7 gehört dazu.
+        assert!(textures.durchscheinend(id, [0.49, 0.07], [1.0, 0.1]));
+        // ceil(0,07 · 16) = 2: die Zeile 1 gehört dazu.
+        assert!(textures.durchscheinend(id, [0.0, 0.0], [0.5, 0.07]));
+        assert!(!textures.durchscheinend(Textures::MISSING, [0.2, 0.2], [0.3, 0.3]));
+    }
+
+    /// Bei einer Animation zählt jedes Bild, das sie zeigt, auch wenn es
+    /// nicht das erste ist; eines, das sie nicht zeigt, zählt nicht. Nur
+    /// der volle Ausschnitt nimmt die ganze Datei, auch dieses Bild.
+    #[test]
+    fn transparenz_ueber_die_bilder_der_animation() {
+        let dir = tempfile::tempdir().unwrap();
+        let block = dir.path().join("minecraft/textures/block");
+        std::fs::create_dir_all(&block).unwrap();
+        // Drei Bilder übereinander, gezeigt werden die ersten beiden.
+        let streifen = |name: &str, halb: &[(u32, u32)]| {
+            let bild = RgbaImage::from_fn(16, 48, |x, y| {
+                let alpha = if halb.contains(&(x, y)) { 128 } else { 255 };
+                image::Rgba([50, 60, 70, alpha])
+            });
+            bild.save(block.join(format!("{name}.png"))).unwrap();
+            std::fs::write(
+                block.join(format!("{name}.png.mcmeta")),
+                r#"{"animation": {"frames": [0, 1]}}"#,
+            )
+            .unwrap();
+        };
+        streifen("zweites", &[(0, 16)]);
+        streifen("verborgen", &[(15, 32)]);
+        let packs = [Pack::open(dir.path(), &super::super::pack::ASSETS).unwrap()];
+        let mut textures = Textures::new();
+
+        let zweites = textures.load(&packs, "block/zweites");
+        assert_eq!(textures.image(zweites).dimensions(), (16, 16));
+        assert!(textures.durchscheinend(zweites, [0.0, 0.0], [0.5, 0.5]));
+        assert!(!textures.durchscheinend(zweites, [0.5, 0.0], [1.0, 0.5]));
+
+        let verborgen = textures.load(&packs, "block/verborgen");
+        assert!(!textures.durchscheinend(verborgen, [0.0, 0.0], [0.99, 1.0]));
+        assert!(textures.durchscheinend(verborgen, [0.0, 0.0], [1.0, 1.0]));
+    }
+
+    /// Wie `fillEmptyAreasWithDarkColor`: drei Viertel des deckenden
+    /// Texels mit der kleinsten Summe, bei Gleichstand das erste, Spalte
+    /// für Spalte; nur bei `dark_cutout`.
+    #[test]
+    fn fuellung_wie_im_spiel() {
+        let bild = RgbaImage::from_fn(4, 4, |x, y| {
+            image::Rgba(match (x, y) {
+                (0, 3) => [30, 20, 10, 255],
+                (3, 0) => [10, 20, 30, 255],
+                (1, 1) => [0, 0, 0, 0],
+                _ => [200, 200, 200, 255],
+            })
+        });
+        let mut textures = Textures::new();
+        let dunkel = textures.einfuegen("dunkel", bild.clone(), true);
+        assert_eq!(textures.fuellung(dunkel), Some([22, 15, 7]));
+        let hell = textures.einfuegen("hell", bild, false);
+        assert_eq!(textures.fuellung(hell), None);
+        assert_eq!(fuellung(&RgbaImage::new(2, 2)), [191; 3]);
+        assert!(
+            mcmeta(r#"{"texture": {"mipmap_strategy": "dark_cutout"}}"#)
+                .unwrap()
+                .dunkel
+        );
+        for json in [
+            r#"{"texture": {"mipmap_strategy": "strict_cutout"}}"#,
+            r#"{"texture": {}}"#,
+            r#"{}"#,
+        ] {
+            assert!(!mcmeta(json).unwrap().dunkel, "{json}");
+        }
+    }
+
     /// 48 der Vanilla-mcmeta enthalten nur `texture`-Flags. Solche Texturen
     /// sind statisch und dürfen nicht zugeschnitten werden.
     #[test]
     fn mcmeta_ohne_animation_ist_keine_animation() {
-        assert!(mcmeta(r#"{"texture": {"blur": true}}"#).unwrap().is_none());
+        assert!(
+            mcmeta(r#"{"texture": {"blur": true}}"#)
+                .unwrap()
+                .animation
+                .is_none()
+        );
     }
 
     /// Was die Codecs ablehnen, macht die Textur im Client zur

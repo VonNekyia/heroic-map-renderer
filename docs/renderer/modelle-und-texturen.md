@@ -73,7 +73,10 @@ PNG gefunden wurde: über den aufgelisteten Namen wie in
 `FallbackResourceManager.listResources`, sonst direkt wie in
 `createStackMetadataFinder`. Ohne `animation` ist die Textur statisch, auch
 wenn die Datei existiert: 48 der Vanilla-mcmeta enthalten nur
-`texture`-Flags.
+`texture`-Flags. Von ihnen braucht der Renderer nur
+`"mipmap_strategy": "dark_cutout"`, siehe
+[Rastern ohne Nähte](naehte.md), „Ausgeschnitten statt gemischt“; dort
+steht auch, was `force_translucent` bewirkt.
 
 Fehlende Texturen sind kein Fehler: sie werden zum magenta-schwarzen Karo
 wie im Client und am Ende gesammelt gemeldet, denn ein halb vollständiges

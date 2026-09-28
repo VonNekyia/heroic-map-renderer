@@ -485,6 +485,22 @@ impl<'a> ProjectedQuad<'a> {
             bounds[0] = [bounds[0][0].min(u), bounds[0][1].min(v)];
             bounds[1] = [bounds[1][0].max(u), bounds[1][1].max(v)];
         }
+        // Die Schicht wie im Spiel (`FaceBakery.computeMaterialTransparency`
+        // und `ChunkSectionLayer.byTransparency` in 26.2): mit
+        // `force_translucent` durchscheinend, sonst nach dem Ausschnitt der
+        // Textur. Flüssigkeiten gehen dort nicht durch den FaceBakery. Eine
+        // deckende Fläche deckt ausgeschnitten wie gemischt ganz.
+        let durchscheinend = textures.durchscheinend(self.quad.texture, bounds[0], bounds[1]);
+        let deckung = if self.quad.force_translucent || self.quad.fluid.is_some() || durchscheinend
+        {
+            Deckung::Gemischt
+        } else {
+            Deckung::Ausgeschnitten {
+                fuellung: textures
+                    .fuellung(self.quad.texture)
+                    .map(|farbe| farbe.map(|c| LINEAR[c as usize])),
+            }
+        };
 
         let tint = match self.quad.tint_index {
             None => None,
@@ -524,6 +540,7 @@ impl<'a> ProjectedQuad<'a> {
                     surface: self.quad.fluid.is_some_and(|(_, face)| face == Face::Up),
                     order,
                     ao_face,
+                    deckung,
                 },
                 samples,
             );
@@ -583,8 +600,8 @@ struct Vertex {
 
 /// Wie ein Texel zur Farbe wird: Helligkeit der Fläche, Färbung, ob sie
 /// die Oberseite einer Flüssigkeit ist, als welche Seite sie weich
-/// beleuchtet wird — und der Rang der Fläche, der bei gleicher Tiefe
-/// entscheidet.
+/// beleuchtet wird, wie sie mit Löchern deckt — und der Rang der Fläche,
+/// der bei gleicher Tiefe entscheidet.
 #[derive(Clone, Copy)]
 struct Shading {
     shade: f32,
@@ -592,6 +609,22 @@ struct Shading {
     surface: bool,
     order: u32,
     ao_face: Option<usize>,
+    deckung: Deckung,
+}
+
+/// Wie eine Fläche deckt, nach der Schicht, in die das Spiel sie legt.
+/// Siehe docs/renderer/naehte.md, „Ausgeschnitten statt gemischt“.
+#[derive(Clone, Copy)]
+enum Deckung {
+    /// TRANSLUCENT: Das Mittel der Abtastpunkte deckt so weit, wie sie
+    /// decken.
+    Gemischt,
+    /// CUTOUT, und SOLID, das so oder so ganz deckt: Wie `cutout_terrain`
+    /// in 26.2 verwirft der Alpha-Test bei
+    /// 0,5, was darunter liegt, und was bleibt, deckt ganz. Bei
+    /// `dark_cutout` zählen die Löcher mit dieser Farbe mit, in linearem
+    /// Licht.
+    Ausgeschnitten { fuellung: Option<[f32; 3]> },
 }
 
 /// Was eine Fläche zu einem Pixel beiträgt.
@@ -656,6 +689,7 @@ impl Canvas {
             surface,
             order,
             ao_face,
+            deckung,
         } = shading;
         let area = edge(v[0], v[1], v[2].x, v[2].y);
         if area.abs() < 1e-6 {
@@ -711,7 +745,8 @@ impl Canvas {
                 // Alpha 0 lässt keine Spur: die vier Overlay-Flächen des
                 // Grasblocks liegen deckungsgleich auf dem Grundwürfel, und
                 // wo ihre Textur leer ist, bleibt der Grund.
-                let Some(texel) = filtered(&v, area, px, py, sample, inside, samples) else {
+                let Some(texel) = filtered(&v, area, (px, py), sample, inside, samples, deckung)
+                else {
                     continue;
                 };
                 if texel[3] == 255 {
@@ -795,16 +830,18 @@ fn weights(v: &[Vertex; 3], area: f32, px: f32, py: f32) -> [f32; 3] {
 /// Mittelwert der Texel unter einem Pixel, mit vormultipliziertem Alpha und
 /// in linearem Licht wie die Pyramide. Gezählt werden nur Abtastpunkte
 /// innerhalb der Fläche; liegt keiner darin, weil die Fläche schmaler ist
-/// als ein Pixel, gilt der Mittelpunkt. `None`, wenn kein Texel deckt.
+/// als ein Pixel, gilt der Mittelpunkt. `None`, wenn kein Texel deckt oder
+/// der Alpha-Test einer ausgeschnittenen Fläche ihn verwirft, siehe
+/// [`Deckung`].
 /// Siehe docs/benutzung/zoomstufen.md, „Verkleinern“.
 fn filtered(
     v: &[Vertex; 3],
     area: f32,
-    px: f32,
-    py: f32,
+    (px, py): (f32, f32),
     sample: &impl Fn(f32, f32) -> [u8; 4],
     inside: &impl Fn(f32, f32) -> bool,
     n: u32,
+    deckung: Deckung,
 ) -> Option<[u8; 4]> {
     // Summe der vormultiplizierten Farben in linearem Licht, Summe der
     // Alphas, Anzahl — und ob alle Abtastpunkte dasselbe Texel trafen; dann
@@ -853,12 +890,30 @@ fn filtered(
     if let Some(Some(texel)) = einzig {
         return Some(texel);
     }
-    Some([
-        to_srgb(sum[0] / alpha),
-        to_srgb(sum[1] / alpha),
-        to_srgb(sum[2] / alpha),
-        (alpha / count as f32 * 255.0).round() as u8,
-    ])
+    let Deckung::Ausgeschnitten { fuellung } = deckung else {
+        return Some([
+            to_srgb(sum[0] / alpha),
+            to_srgb(sum[1] / alpha),
+            to_srgb(sum[2] / alpha),
+            (alpha / count as f32 * 255.0).round() as u8,
+        ]);
+    };
+    // Jeder Abtastpunkt deckt ganz oder gar nicht, `alpha` zählt also die
+    // deckenden. Deckt genau die Hälfte, entscheidet wie im Spiel das Texel
+    // in der Pixelmitte.
+    let haelfte = count as f32 / 2.0;
+    let mitte_deckt = || {
+        let (u, vv) = uv(px, py);
+        sample(u, vv)[3] != 0
+    };
+    if alpha < haelfte || (alpha == haelfte && !mitte_deckt()) {
+        return None;
+    }
+    let farbe = |c: usize| match fuellung {
+        Some(loch) => to_srgb((sum[c] + (count as f32 - alpha) * loch[c]) / count as f32),
+        None => to_srgb(sum[c] / alpha),
+    };
+    Some([farbe(0), farbe(1), farbe(2), 255])
 }
 
 fn shaded(texel: [u8; 4], shade: f32, tint: Option<[f32; 3]>) -> [u8; 4] {
@@ -1086,6 +1141,183 @@ mod tests {
                 Leuchten::Stufe(0),
             )
             .is_some()
+        );
+    }
+
+    /// Nadeln und Löcher wie im Fichtenlaub, zu 37,5 % Loch; die Nadeln
+    /// mit diesem Alpha.
+    fn nadeln(alpha: u8) -> RgbaImage {
+        RgbaImage::from_fn(16, 16, |x, y| {
+            let loch = (x * 5 + y * 3) % 8 < 3;
+            Rgba([100, 150, 100, if loch { 0 } else { alpha }])
+        })
+    }
+
+    /// Die Alphas eines Sprites aus einer Oberseite bei scale 32. Sie
+    /// liegt um 45° gedreht, jeder Pixel trifft zwei bis vier Texel.
+    fn alphas(textures: &Textures, anpassen: impl Fn(&mut Quad)) -> std::collections::BTreeSet<u8> {
+        let mut oben = quad(
+            [
+                [0.0, 1.0, 0.0],
+                [0.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [1.0, 1.0, 0.0],
+            ],
+            true,
+        );
+        anpassen(&mut oben);
+        let model = BakedModel {
+            quads: vec![oben],
+            ambient_occlusion: false,
+        };
+        let sprite = render(
+            &model,
+            textures,
+            &Projection::new(32),
+            Tints::default(),
+            Leuchten::Stufe(0),
+        )
+        .unwrap();
+        sprite.image.pixels().map(|p| p[3]).collect()
+    }
+
+    /// Wie in der Schicht CUTOUT des Spiels deckt ein Pixel einer Textur
+    /// mit Löchern ganz oder gar nicht. Gemischt wird weiter mit
+    /// `force_translucent`, mit halb durchsichtigen Texeln und als
+    /// Flüssigkeit.
+    #[test]
+    fn ausgeschnitten_deckt_ganz_oder_gar_nicht() {
+        let mut textures = Textures::new();
+        let loecher = textures.einfuegen("loecher", nadeln(255), false);
+        let halb = textures.einfuegen("halb", nadeln(128), false);
+        let gemischt =
+            |alphas: &std::collections::BTreeSet<u8>| alphas.iter().any(|&a| a != 0 && a != 255);
+
+        let ausgeschnitten = alphas(&textures, |q| q.texture = loecher);
+        assert_eq!(ausgeschnitten, [0, 255].into());
+        // Es zählt nur der Ausschnitt der Fläche: links Löcher, rechts halb.
+        let links_loecher = textures.einfuegen(
+            "links_loecher",
+            RgbaImage::from_fn(16, 16, |x, y| {
+                let alpha = match (x < 8, (x * 5 + y * 3) % 8 < 3) {
+                    (true, true) => 0,
+                    (true, false) => 255,
+                    (false, _) => 128,
+                };
+                Rgba([100, 150, 100, alpha])
+            }),
+            false,
+        );
+        let links = alphas(&textures, |q| {
+            q.texture = links_loecher;
+            q.uvs = [[0.0, 0.0], [0.5, 0.0], [0.5, 1.0], [0.0, 1.0]];
+        });
+        assert_eq!(links, [0, 255].into());
+        assert!(gemischt(&alphas(&textures, |q| q.texture = links_loecher)));
+        assert!(gemischt(&alphas(&textures, |q| {
+            q.texture = loecher;
+            q.force_translucent = true;
+        })));
+        // Gemischt, nicht nur das Alpha der Texel: 128 käme auch aus Pixeln,
+        // deren Abtastpunkte alle dasselbe Texel treffen.
+        let durchscheinend = alphas(&textures, |q| q.texture = halb);
+        assert!(durchscheinend.iter().any(|a| ![0, 128, 255].contains(a)));
+        assert!(gemischt(&alphas(&textures, |q| {
+            q.texture = loecher;
+            q.fluid = Some((crate::assets::fluid::Fluid::Water, Face::Up));
+        })));
+    }
+
+    /// Mit `dark_cutout` zählen die Löcher in der Farbe aus
+    /// `fillEmptyAreasWithDarkColor` mit: dieselben Pixel decken, aber am
+    /// Rand der Nadeln dunkler.
+    #[test]
+    fn dark_cutout_dunkelt_die_raender() {
+        let mut textures = Textures::new();
+        let hell = textures.einfuegen("hell", nadeln(255), false);
+        let dunkel = textures.einfuegen("dunkel", nadeln(255), true);
+        let sprite = |textur| {
+            let mut oben = quad(
+                [
+                    [0.0, 1.0, 0.0],
+                    [0.0, 1.0, 1.0],
+                    [1.0, 1.0, 1.0],
+                    [1.0, 1.0, 0.0],
+                ],
+                true,
+            );
+            oben.texture = textur;
+            let model = BakedModel {
+                quads: vec![oben],
+                ambient_occlusion: false,
+            };
+            render(
+                &model,
+                &textures,
+                &Projection::new(32),
+                Tints::default(),
+                Leuchten::Stufe(0),
+            )
+            .unwrap()
+            .image
+        };
+        let (hell, dunkel) = (sprite(hell), sprite(dunkel));
+        let mut dunkler = 0;
+        for (h, d) in hell.pixels().zip(dunkel.pixels()) {
+            assert_eq!(h[3], d[3]);
+            assert!(d[1] <= h[1]);
+            dunkler += usize::from(d[1] < h[1]);
+        }
+        assert!(dunkler > 0);
+    }
+
+    /// Der Alpha-Test von `cutout_terrain`: unter der Hälfte der
+    /// Abtastpunkte verworfen, darüber ganz deckend in der Farbe der
+    /// deckenden. Bei genau der Hälfte entscheidet das Texel in der
+    /// Pixelmitte. Mit der Füllung aus `dark_cutout` zählen die Löcher in
+    /// ihrer Farbe mit.
+    #[test]
+    fn alpha_test_wie_cutout_terrain() {
+        // Über dem Pixel (0, 0) ist u = x und v = y; abgetastet wird bei
+        // 0,25 und 0,75, die Mitte liegt bei 0,5.
+        let ecke = |x: f32, y: f32| Vertex {
+            x,
+            y,
+            depth: 0.0,
+            u: x,
+            v: y,
+            s: 0.0,
+            t: 0.0,
+        };
+        let v = [ecke(-1.0, -1.0), ecke(3.0, -1.0), ecke(-1.0, 3.0)];
+        let area = edge(v[0], v[1], v[2].x, v[2].y);
+        let innen = |_: f32, _: f32| true;
+        let farbe = [200, 100, 50, 255];
+        let wo = |deckt: fn(f32, f32) -> bool| {
+            move |u: f32, vv: f32| {
+                if deckt(u, vv) { farbe } else { [0; 4] }
+            }
+        };
+        let pixel = |sample: &dyn Fn(f32, f32) -> [u8; 4], deckung| {
+            filtered(&v, area, (0.5, 0.5), &sample, &innen, 2, deckung)
+        };
+        let aus = Deckung::Ausgeschnitten { fuellung: None };
+
+        let rechts = wo(|u, _| u > 0.6);
+        assert_eq!(pixel(&rechts, Deckung::Gemischt), Some([200, 100, 50, 128]));
+        assert_eq!(pixel(&rechts, aus), None);
+        assert_eq!(pixel(&wo(|u, _| u < 0.6), aus), Some(farbe));
+        let drei = wo(|u, v| u > 0.5 || v > 0.5);
+        assert_eq!(pixel(&drei, aus), Some(farbe));
+        assert_eq!(pixel(&wo(|u, v| u > 0.5 && v > 0.5), aus), None);
+
+        let dunkel = Deckung::Ausgeschnitten {
+            fuellung: Some([LINEAR[40]; 3]),
+        };
+        let gemittelt = |c: usize| to_srgb((3.0 * LINEAR[farbe[c] as usize] + LINEAR[40]) / 4.0);
+        assert_eq!(
+            pixel(&drei, dunkel),
+            Some([gemittelt(0), gemittelt(1), gemittelt(2), 255])
         );
     }
 

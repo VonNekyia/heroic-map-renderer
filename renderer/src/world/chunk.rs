@@ -12,8 +12,8 @@ const BLOCKS_PER_SECTION: usize = 4096;
 const BIOMES_PER_SECTION: usize = 64;
 
 /// Das rohe NBT-Layout eines Chunks — nur die Felder, die zum Rendern nötig
-/// sind. Alles andere (Heightmaps, block_entities, Licht, structures) wird
-/// von serde verworfen.
+/// sind. Alles andere (die übrigen Heightmaps, block_entities, Licht,
+/// structures) wird von serde verworfen.
 #[derive(Deserialize)]
 struct ChunkNbt {
     #[serde(rename = "DataVersion")]
@@ -22,10 +22,21 @@ struct ChunkNbt {
     x_pos: i32,
     #[serde(rename = "zPos")]
     z_pos: i32,
+    /// Die unterste Section der Welt, nicht des Chunks.
+    #[serde(rename = "yPos")]
+    y_pos: Option<i32>,
     #[serde(rename = "Status")]
     status: Option<String>,
+    #[serde(rename = "Heightmaps", default)]
+    heightmaps: HeightmapsNbt,
     #[serde(default)]
     sections: Vec<SectionNbt>,
+}
+
+#[derive(Deserialize, Default)]
+struct HeightmapsNbt {
+    #[serde(rename = "WORLD_SURFACE")]
+    world_surface: Option<fastnbt::LongArray>,
 }
 
 #[derive(Deserialize)]
@@ -107,6 +118,9 @@ pub struct Chunk {
     pub status: String,
     /// Aufsteigend nach `y` sortiert.
     sections: Vec<Section>,
+    y_pos: Option<i32>,
+    /// `WORLD_SURFACE`, wie sie im Chunk steht, siehe [`Chunk::surface`].
+    world_surface: Option<Vec<i64>>,
 }
 
 impl Chunk {
@@ -128,7 +142,49 @@ impl Chunk {
             data_version: raw.data_version,
             status: raw.status.unwrap_or_default(),
             sections,
+            y_pos: raw.y_pos,
+            world_surface: raw
+                .heightmaps
+                .world_surface
+                .map(fastnbt::LongArray::into_inner),
         })
+    }
+
+    /// Je Spalte, zeilenweise nach z, das y des obersten Blocks, der nicht
+    /// Luft ist, oder `None` ohne Block. Aus der Heightmap `WORLD_SURFACE`,
+    /// die das Spiel ab dem Status `carvers` speichert; fehlt sie oder passt
+    /// sie nicht zum Chunk, aus den Blöcken wie [`Chunk::highest_block`].
+    /// Siehe docs/benutzung/map-json.md, „Höhen“.
+    pub fn surface(&self) -> [Option<i32>; 256] {
+        self.stored_surface().unwrap_or_else(|| {
+            std::array::from_fn(|i| {
+                let (x, z) = ((i % 16) as i32, (i / 16) as i32);
+                self.highest_block(self.x * SECTION + x, self.z * SECTION + z)
+                    .map(|(y, _)| y)
+            })
+        })
+    }
+
+    /// `WORLD_SURFACE` wie im Spiel (`Heightmap`, `SimpleBitStorage` in
+    /// 26.2): je Long so viele Werte, wie ganz hineinpassen, mit so vielen
+    /// Bits, wie die Höhe der Welt plus eins braucht. Der Wert ist
+    /// y + 1 − minY, 0 heisst kein Block.
+    fn stored_surface(&self) -> Option<[Option<i32>; 256]> {
+        let longs = self.world_surface.as_deref()?;
+        let min_y = self.y_pos? * SECTION;
+        let hoehe = u32::try_from(self.sections.last()?.y as i32 * SECTION + SECTION - min_y)
+            .ok()
+            .filter(|&h| h > 0)?;
+        let bits = u32::BITS - hoehe.leading_zeros();
+        let je_long = (u64::BITS / bits) as usize;
+        if 256usize.div_ceil(je_long) != longs.len() {
+            return None;
+        }
+        let maske = (1u64 << bits) - 1;
+        Some(std::array::from_fn(|i| {
+            let wert = (longs[i / je_long] as u64 >> ((i % je_long) as u32 * bits)) & maske;
+            (wert > 0).then(|| wert as i32 - 1 + min_y)
+        }))
     }
 
     pub fn sections(&self) -> &[Section] {
@@ -297,4 +353,60 @@ fn paletted<T>(
         );
     }
     Ok(Paletted::new(palette, Some(indices)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::World;
+
+    /// Die Heightmap der echten Region aus 26.2 steht in jedem ihrer vier
+    /// Chunks und nennt je Spalte den obersten Block, der nicht Luft ist, wie
+    /// die Blöcke selbst.
+    #[test]
+    fn heightmap_wie_die_bloecke() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/world");
+        let world = World::open(&dir).unwrap();
+        for (cx, cz) in [(577, 416), (578, 416), (577, 417), (578, 417)] {
+            let chunk = world.chunk(cx, cz).unwrap().expect("Chunk");
+            let gespeichert = chunk.stored_surface().expect("Heightmap");
+            for (i, y) in gespeichert.into_iter().enumerate() {
+                let (x, z) = (cx * 16 + (i % 16) as i32, cz * 16 + (i / 16) as i32);
+                assert_eq!(y, chunk.highest_block(x, z).map(|(y, _)| y), "({x}, {z})");
+            }
+        }
+    }
+
+    /// Steht die Heightmap im Chunk, gilt sie, auch wo die Blöcke etwas
+    /// anderes sagen: 9 Bit je Spalte bei 384 Blöcken Höhe, 7 Werte je Long,
+    /// y + 1 − minY. Passt ihre Länge nicht, gelten die Blöcke.
+    #[test]
+    fn heightmap_geht_vor() {
+        let luft = || Section {
+            y: 19,
+            blocks: Paletted::new(vec![BlockState::new("minecraft:air", Vec::new())], None),
+            biomes: Paletted::new(Vec::new(), None),
+        };
+        let mut longs = vec![0i64; 37];
+        longs[0] = 20 + 1 + 64;
+        longs[1] = 1 << 9;
+        let chunk = |longs: Vec<i64>| Chunk {
+            x: 0,
+            z: 0,
+            data_version: 4903,
+            status: "minecraft:full".to_string(),
+            sections: vec![luft()],
+            y_pos: Some(-4),
+            world_surface: Some(longs),
+        };
+        let oben = chunk(longs.clone()).surface();
+        assert_eq!(oben[0], Some(20));
+        assert_eq!(oben[8], Some(-64), "zweites Long, zweiter Wert");
+        assert_eq!(oben.iter().flatten().count(), 2);
+        longs.pop();
+        assert!(
+            chunk(longs).surface().iter().all(Option::is_none),
+            "aus den Blöcken"
+        );
+    }
 }

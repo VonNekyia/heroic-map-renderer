@@ -15,6 +15,7 @@ use std::time::{Duration, SystemTime};
 use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
+use terranova_render::render::heights::{self, EMPTY, Heights};
 use terranova_render::render::{
     Projection, SpriteSet, TileId, encode_webp, pyramid, render_area, survey,
 };
@@ -109,17 +110,37 @@ fn max_zoom(dir: &Path) -> u32 {
     info["maxZoom"].as_u64().expect("maxZoom") as u32
 }
 
-/// Alle Ausgabedateien mit Inhalt, `map.json` eingeschlossen.
+/// Alle Ausgabedateien mit Inhalt, `map.json` und die Höhen eingeschlossen.
 fn schnappschuss(dir: &Path) -> BTreeMap<String, Vec<u8>> {
     dateien(dir)
         .into_iter()
         .chain(std::iter::once("map.json".to_string()))
+        .chain(hoehen(dir))
         .filter(|rel| dir.join(rel).is_file())
         .map(|rel| {
             let inhalt = std::fs::read(dir.join(&rel)).expect("Ausgabedatei lesen");
             (rel, inhalt)
         })
         .collect()
+}
+
+/// Die Dateien der Höhen als `heights/<x>.<z>.bin`, sortiert.
+fn hoehen(dir: &Path) -> Vec<String> {
+    let mut namen: Vec<String> = std::fs::read_dir(dir.join("heights"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|eintrag| format!("heights/{}", eintrag.file_name().to_string_lossy()))
+        .collect();
+    namen.sort();
+    namen
+}
+
+/// Die Höhen der Region (rx, rz) im Baum.
+fn hoehen_von(dir: &Path, rx: i32, rz: i32) -> Heights {
+    let pfad = dir.join(heights::path_of(rx, rz));
+    let daten = std::fs::read(&pfad).unwrap_or_else(|e| panic!("{} lesen: {e}", pfad.display()));
+    Heights::decode(&daten).unwrap()
 }
 
 /// Eine Kopie des Baums in einem neuen Verzeichnis.
@@ -1132,13 +1153,13 @@ fn setze(dir: &Path, z: u32, tile: TileId, bild: &RgbaImage) {
     std::fs::write(pfad, encode_webp(bild).unwrap()).unwrap();
 }
 
-/// Was `--pyramid` aus der Basis dieses Baums und seiner `map.json` von
-/// Grund auf baut.
+/// Was `--pyramid` aus der Basis dieses Baums, seiner `map.json` und
+/// seinen Höhen von Grund auf baut.
 fn von_grund_auf(dir: &Path) -> BTreeMap<String, Vec<u8>> {
     let basis = format!("{}/", max_zoom(dir));
     let frisch = tempdir();
     for (rel, inhalt) in schnappschuss(dir) {
-        if rel == "map.json" || rel.starts_with(&basis) {
+        if rel == "map.json" || rel.starts_with("heights/") || rel.starts_with(&basis) {
             let pfad = frisch.path().join(rel);
             std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
             std::fs::write(pfad, inhalt).unwrap();
@@ -1911,6 +1932,190 @@ fn map_json_beschreibt_die_kacheln() {
     }
 }
 
+/// Ein Export schreibt je Region die Höhen und nennt sie in `map.json`,
+/// samt Zellgrösse und dem Höhenbereich, den der Renderer zeichnet. Je 4×4
+/// Spalten zählt der obere Median der obersten Blöcke, die nicht Luft sind,
+/// Wasser und Truhen also mit; eine Zelle ohne Block und ein Chunk, den es
+/// nicht gibt, sind leer.
+#[test]
+fn export_schreibt_hoehen() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
+        (8, 0..=4, 8) => "minecraft:einfarbig",
+        (8, 5..=9, 8) => "minecraft:water",
+        (9, 7, 8) | (13, 7, 8) => "minecraft:chest",
+        (0, 3..=6, 0) => "minecraft:water",
+        _ => "minecraft:air",
+    });
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+
+    let text = std::fs::read_to_string(out.path().join("map.json")).unwrap();
+    let info: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(info["heights"], "heights/{x}.{z}.bin");
+    assert_eq!(info["heightsCell"], 4);
+    assert_eq!(info["minY"], -64);
+    assert_eq!(info["maxY"], 319);
+    assert_eq!(hoehen(out.path()), ["heights/0.0.bin"]);
+    let hoehe = hoehen_von(out.path(), 0, 0);
+    assert_eq!(hoehe.get(2, 2), 9, "Wasser 9 und Truhe 7, der obere Median");
+    assert_eq!(hoehe.get(3, 2), 7, "nur eine Truhe");
+    assert_eq!(hoehe.get(0, 0), 6, "nur Wasser");
+    assert_eq!(hoehe.get(1, 1), EMPTY, "ohne Block");
+    assert_eq!(hoehe.get(10, 10), EMPTY, "Chunk (2, 2) fehlt");
+}
+
+/// Ein Ausschnitt schreibt die Höhen der Chunks neu, die er liest: die im
+/// schrägen Band seiner Kacheln, auch Chunk (4, 4), dessen Block weit unter
+/// dem Ausschnitt landet. Chunk (20, 0) liegt ausserhalb des Bands und
+/// behält seine. Zwischen den Läufen sind alle Blöcke höher gestiegen.
+#[test]
+fn ausschnitt_behaelt_die_hoehen_daneben() {
+    let welt = |oben: i32| {
+        let dir = tempdir();
+        let chunks = [(0, 0), (4, 4), (20, 0)];
+        common::write_world(dir.path(), &chunks, move |x, y, z| match (x, z) {
+            (8, 8) if y == oben => "minecraft:einfarbig",
+            (72, 72) | (328, 8) if y == oben => "minecraft:blauwuerfel",
+            _ => "minecraft:air",
+        });
+        dir
+    };
+    let (alt, neu) = (welt(4), welt(9));
+    let schalter = ["--scale", "16", "--native-levels", "0"];
+    let baum = tempdir();
+    gelungen(&tiles(alt.path(), baum.path(), &schalter));
+    assert_eq!(hoehen_von(baum.path(), 0, 0).get(82, 2), 4);
+
+    let ausschnitt = [&schalter[..], &["--center", "8", "8", "--size", "4"]].concat();
+    gelungen(&tiles(neu.path(), baum.path(), &ausschnitt));
+    let hoehe = hoehen_von(baum.path(), 0, 0);
+    assert_eq!(hoehe.get(2, 2), 9, "im Ausschnitt neu");
+    assert_eq!(hoehe.get(18, 18), 9, "im Band neu");
+    assert_eq!(hoehe.get(82, 2), 4, "ausserhalb wie vorher");
+}
+
+/// `--heights` schreibt in einen Baum ohne Höhen, etwa aus einem älteren
+/// Stand, dieselben Höhen und Felder wie ein Export, ohne eine Kachel
+/// anzufassen und ohne Assets. Wie ein Export nur in einen Baum dieser
+/// Welt, und nur in einen Baum.
+#[test]
+fn heights_traegt_hoehen_nach() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    common::write_wurzel(welt.path(), 4_815_162_342);
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+    let soll = schnappschuss(out.path());
+
+    std::fs::remove_dir_all(out.path().join("heights")).unwrap();
+    let karte = out.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    for feld in ["heights", "heightsCell", "minY", "maxY"] {
+        info.as_object_mut().unwrap().remove(feld).expect(feld);
+    }
+    std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
+
+    let nachtragen = |welt: &Path, dir: &Path| {
+        cli(&[
+            OsStr::new("--world"),
+            welt.as_os_str(),
+            OsStr::new("--heights"),
+            dir.as_os_str(),
+        ])
+    };
+    gelungen(&nachtragen(welt.path(), out.path()));
+    assert_eq!(schnappschuss(out.path()), soll);
+
+    let fremd = tempdir();
+    common::write_world(fremd.path(), &[(0, 0)], gelaende);
+    common::write_wurzel(fremd.path(), 2_718_281_828);
+    let ausgabe = nachtragen(fremd.path(), out.path());
+    assert!(!ausgabe.status.success(), "die fremde Welt lief durch");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("anderen Welt"), "Meldung: {meldung}");
+    assert_eq!(schnappschuss(out.path()), soll);
+
+    let leer = tempdir();
+    let ausgabe = nachtragen(welt.path(), leer.path());
+    assert!(!ausgabe.status.success(), "ohne Baum lief es durch");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("nur einen Baum"), "Meldung: {meldung}");
+    assert!(schnappschuss(leer.path()).is_empty(), "etwas geschrieben");
+}
+
+/// `--heights` braucht die Welt und schreibt nicht neben einem Export in
+/// dasselbe Verzeichnis.
+#[test]
+fn heights_braucht_die_welt() {
+    let out = tempdir();
+    let ausgabe = cli(&[OsStr::new("--heights"), out.path().as_os_str()]);
+    assert!(!ausgabe.status.success());
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("--heights braucht --world"), "{meldung}");
+
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let pfad = out.path().to_string_lossy().into_owned();
+    let ausgabe = export(welt.path(), out.path(), &["--heights", &pfad]);
+    assert!(
+        !ausgabe.status.success(),
+        "--heights neben --tiles lief durch"
+    );
+    assert!(schnappschuss(out.path()).is_empty(), "etwas geschrieben");
+}
+
+/// Die Höhen einer Region, deren Datei fehlt, entfernt nur --prune, wie die
+/// Kacheln ohne Chunk, angesagt vor der ersten Kachel und entfernt am Ende
+/// des Laufs, und nur, wenn der Lauf die Region läse. Die übrigen Höhen
+/// gleichen danach denen eines frischen Exports.
+#[test]
+fn prune_entfernt_die_hoehen_ohne_regionsdatei() {
+    let block = |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:einfarbig",
+        (-8, 4, 8) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    };
+    let alt = tempdir();
+    common::write_world(alt.path(), &[(0, 0)], block);
+    common::write_world(alt.path(), &[(-1, 0)], block);
+    let neu = tempdir();
+    common::write_world(neu.path(), &[(0, 0)], block);
+    let voll = tempdir();
+    gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
+
+    let baum = tempdir();
+    let beide = ["heights/-1.0.bin", "heights/0.0.bin"];
+    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    assert_eq!(hoehen(baum.path()), beide);
+    assert_eq!(hoehen_von(baum.path(), -1, 0).get(126, 2), 4);
+    gelungen(&tiles(neu.path(), baum.path(), &["--scale", "16"]));
+    assert_eq!(hoehen(baum.path()), beide, "ohne --prune entfernt");
+    // Ein Ausschnitt weit rechts läse nichts aus der Region links und lässt
+    // ihre Höhen stehen, auch mit --prune.
+    let rechts = [
+        "--scale", "16", "--center", "300", "8", "--size", "4", "--prune",
+    ];
+    let ausgabe = tiles(neu.path(), baum.path(), &rechts);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(!text.contains("Höhen ohne Regionsdatei"), "{text}");
+    assert_eq!(hoehen(baum.path()), beide, "vom Ausschnitt entfernt");
+
+    let ausgabe = tiles(neu.path(), baum.path(), &["--scale", "16", "--prune"]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    let ansage = text
+        .find("Aufräumen:  Höhen ohne Regionsdatei: 1; sie verschwinden am Ende des Laufs")
+        .unwrap_or_else(|| panic!("keine Ansage: {text}"));
+    assert!(ansage < text.find("Kacheln:").unwrap(), "{text}");
+    assert!(
+        text.contains("Aufräumen:  Höhen ohne Regionsdatei entfernt: 1"),
+        "{text}"
+    );
+    assert_eq!(hoehen(baum.path()), ["heights/0.0.bin"]);
+    assert_eq!(hoehen_von(baum.path(), 0, 0), hoehen_von(voll.path(), 0, 0));
+}
+
 /// Die Zoomnummer hängt an der Welt, nicht am Massstab des Laufs — aber
 /// die Zahl der Stufen sehr wohl.
 #[test]
@@ -2128,11 +2333,11 @@ fn gewachsene_welt_behaelt_die_nummerierung() {
     assert!(!kacheln(baum.path(), 0).is_empty(), "Zoom 0 fehlt");
 }
 
-/// Kacheln und `map.json` werden getauscht, nicht überschrieben: wer eine
-/// Datei gerade liest, liest sie zu Ende, wie sie war, und ein Abbruch
-/// mitten im Schreiben hinterlässt die alte. Der Test hält die Basis und
-/// `map.json` offen, während ein zweiter Lauf eine veränderte, grössere
-/// Welt schreibt. Daneben bleibt keine eigene Datei übrig.
+/// Kacheln, Höhen und `map.json` werden getauscht, nicht überschrieben: wer
+/// eine Datei gerade liest, liest sie zu Ende, wie sie war, und ein Abbruch
+/// mitten im Schreiben hinterlässt die alte. Der Test hält die Basis, die
+/// Höhen und `map.json` offen, während ein zweiter Lauf eine veränderte,
+/// grössere Welt schreibt. Daneben bleibt keine eigene Datei übrig.
 #[test]
 fn schreiben_tauscht_die_datei() {
     let alt = tempdir();
@@ -2149,9 +2354,10 @@ fn schreiben_tauscht_die_datei() {
     let baum = tempdir();
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
     let karte = baum.path().join("map.json");
+    let region = baum.path().join(heights::path_of(0, 0));
     let offen: Vec<(PathBuf, Vec<u8>, std::fs::File)> = kacheln(baum.path(), max_zoom(baum.path()))
         .into_values()
-        .chain([karte.clone()])
+        .chain([karte.clone(), region.clone()])
         .map(|pfad| {
             let vorher = std::fs::read(&pfad).unwrap();
             let datei = std::fs::File::open(&pfad).unwrap();
@@ -2170,19 +2376,19 @@ fn schreiben_tauscht_die_datei() {
         }
     }
     assert!(
-        geaendert.contains(&karte) && geaendert.len() > 1,
-        "map.json und eine Kachel hätten sich ändern müssen: {geaendert:?}"
+        geaendert.contains(&karte) && geaendert.contains(&region) && geaendert.len() > 2,
+        "map.json, die Höhen und eine Kachel hätten sich ändern müssen: {geaendert:?}"
     );
 
     let mut reste = Vec::new();
     let mut stapel = vec![baum.path().to_path_buf()];
     while let Some(ordner) = stapel.pop() {
-        for eintrag in std::fs::read_dir(ordner).unwrap().flatten() {
+        for eintrag in std::fs::read_dir(&ordner).unwrap().flatten() {
+            let name = eintrag.file_name().to_string_lossy().into_owned();
+            let hoehen = ordner.ends_with("heights") && name.ends_with(".bin");
             if eintrag.path().is_dir() {
                 stapel.push(eintrag.path());
-            } else if !eintrag.file_name().to_string_lossy().ends_with(".webp")
-                && eintrag.file_name() != "map.json"
-            {
+            } else if !name.ends_with(".webp") && name != "map.json" && !hoehen {
                 reste.push(eintrag.path());
             }
         }

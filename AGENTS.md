@@ -25,8 +25,11 @@ Bilder, Schnellstart, Stand. Ausführlich steht alles in `docs/`.
 | Reviewer | prüft jede PR |
 | Researcher | sucht bessere Verfahren und Alternativen, Skill [`alternativen-recherchieren`](skills/alternativen-recherchieren/SKILL.md) |
 
-Backend und Frontend verbindet [`map.json`](docs/benutzung/map-json.md).
-Wer daran etwas ändert, spricht es vorher mit der anderen Seite ab.
+Die Schnittstelle zwischen Backend und Frontend sind
+[`map.json`](docs/benutzung/map-json.md) samt den Höhen, die es nennt, und
+die Projektion, die beide rechnen und an
+`renderer/tests/fixtures/projektion.json` prüfen. Wer daran etwas ändert,
+spricht es vorher mit der anderen Seite ab.
 
 ## Skills
 

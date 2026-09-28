@@ -1,10 +1,11 @@
 ---
 title: Kacheln exportieren
-description: Was ein Lauf mit --tiles tut, wie ein Ausschnitt gerundet wird, wo die Kacheln liegen und wann der Export Kacheln entfernt, auch mit --prune.
+description: Was ein Lauf mit --tiles tut, wie ein Ausschnitt gerundet wird, wo Kacheln und Höhen liegen und wann der Export Kacheln entfernt, auch mit --prune.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/tiles.rs
   - renderer/src/render/pyramid.rs
+  - renderer/src/render/heights.rs
 ---
 
 # Kacheln exportieren
@@ -95,10 +96,12 @@ erste Kachel schreibt.
 ## Wo die Kacheln liegen
 
 Die Kacheln liegen als `tiles/<z>/<x>/<y>.webp`; x und y dürfen negativ
-sein, weil der Blockursprung mitten in der Welt liegt. Jede Kachel und
-`map.json` entstehen erst als eigene Datei daneben und werden dann
-getauscht: Ein Leser sieht nie eine halbe Datei, siehe
-[0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md).
+sein, weil der Blockursprung mitten in der Welt liegt. Daneben liegen je
+Region die Höhen für die Koordinatenanzeige als
+`tiles/heights/<x>.<z>.bin`, siehe [map.json](map-json.md), „Höhen“. Jede
+Kachel, jede Datei der Höhen und `map.json` entstehen erst als eigene Datei
+daneben und werden dann getauscht: Ein Leser sieht nie eine halbe Datei,
+siehe [0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md).
 
 Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines
 grossen Renderings gleichen, sonst stünden im Browser Kanten dazwischen.
@@ -129,6 +132,12 @@ der ersten Kachel, wie viele Kacheln es trifft, von wie vielen. Ein
 Ausschnitt sucht nur in seiner gerundeten Fläche. Mit `--prune` läuft er
 auch dann, wenn der Vorlauf dort gar nichts mehr findet, und auch, wenn
 dort schon aufgeräumt ist.
+
+Die Höhen einer Region, deren Regionsdatei fehlt, entfernt ebenfalls nur
+`--prune`, am Ende des Laufs mit den Kacheln, soweit der Lauf die Region
+läse. Die Höhen eines verschwundenen Chunks in einer Region, die es noch
+gibt, schreibt dagegen jeder Lauf leer, der ihn liest, siehe
+[map.json](map-json.md), „Höhen“.
 
 ## Wann entfernt wird
 

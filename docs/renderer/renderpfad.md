@@ -4,6 +4,7 @@ description: Vom Vorlauf bis zur WebP-Datei - Streifen und Cache je Thread, Bitm
 code:
   - renderer/src/cli.rs
   - renderer/src/render/tiles.rs
+  - renderer/src/render/heights.rs
   - renderer/src/render/metatile.rs
   - renderer/src/render/sprites.rs
   - renderer/src/world/chunk.rs
@@ -39,7 +40,9 @@ kommt aus den belegten Sections, nicht aus der Welthöhe.
 
 Die Welt wird deshalb mehrmals durchlaufen: vom Vorlauf, von der Basis und
 von jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. In
-jedem Durchgang dekodiert jeder Thread seine Chunks selbst.
+jedem Durchgang dekodiert jeder Thread seine Chunks selbst. Die Höhen für
+die Koordinatenanzeige liest der Vorlauf mit, aus der Heightmap jedes
+Chunks, siehe [map.json](../benutzung/map-json.md), „Höhen“.
 
 ## Streifen und Cache je Thread
 

@@ -5,6 +5,8 @@ code:
   - renderer/src/render/projection.rs
   - renderer/src/render/metatile.rs
   - renderer/src/render/sprites.rs
+  - renderer/tests/heights.rs
+  - renderer/tests/fixtures/projektion.json
 ---
 
 # Die Kamera
@@ -27,6 +29,17 @@ Damit belegt ein voller Würfel genau `scale` mal `scale` Pixel. Sichtbar
 sind immer dieselben drei Seiten: oben, Süden (links im Bild) und Osten
 (rechts). Die Blickachse ist (1, 1, 1): Punkte, die sich um ein Vielfaches
 davon unterscheiden, landen auf demselben Pixel.
+
+`Projection::project_block` bildet die Ecke (x, y, z) eines Blocks ab, die
+mit den kleinsten Koordinaten. Für die Koordinatenanzeige rechnet das
+Frontend dieselbe Formel nach, siehe [map.json](../benutzung/map-json.md),
+„Höhen“. Damit beide gleich rechnen, stehen je scale einige Blöcke samt
+Bildpunkt in
+[`renderer/tests/fixtures/projektion.json`](../../renderer/tests/fixtures/projektion.json),
+auch negative und welche bei 2²⁴. Ein Test des Renderers schlägt an, wenn
+die Datei veraltet ist, und schreibt sie mit
+`UPDATE_GOLDEN=1 cargo test --test heights` neu. Das Frontend prüft sein
+Modell an ihr.
 
 ## scale
 

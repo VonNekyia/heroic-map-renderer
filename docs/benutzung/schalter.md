@@ -10,8 +10,8 @@ code:
 
 `terranova-render` ist ein einziges Binär; welche Arbeit es tut, entscheiden
 die Schalter. `--tiles` exportiert Kacheln, `--pyramid` baut nur Zoomstufen
-nach, `--render`, `--sprite`, `--block`, `--at` und `--scan` helfen beim
-Ansehen und Prüfen. Die Schalter stehen in `Args` in
+nach, `--heights` trägt nur die Höhen nach, `--render`, `--sprite`,
+`--block`, `--at` und `--scan` helfen beim Ansehen und Prüfen. Die Schalter stehen in `Args` in
 [`renderer/src/cli.rs`](../../renderer/src/cli.rs); `--help` nennt dieselben
 Texte.
 
@@ -32,12 +32,13 @@ Texte.
 | `--size N` | Kantenlänge des Ausschnitts in Pixeln, ab 1; für `--render` Vorgabe 1024, ohne Angabe deckt `--tiles` die ganze Welt | [Kacheln exportieren](kacheln.md) |
 | `--scan` | jeden Chunk dekodieren, mit `--assets` jede vorkommende Blockstate auflösen und rastern | unten |
 | `--tiles DIR` | die Welt als WebP-Kacheln exportieren | [Kacheln exportieren](kacheln.md) |
-| `--prune` | mit `--tiles`: Kacheln entfernen, die kein Chunk mehr berührt | [Kacheln exportieren](kacheln.md) |
+| `--prune` | mit `--tiles`: Kacheln entfernen, die kein Chunk mehr berührt, und Höhen von Regionen ohne Regionsdatei | [Kacheln exportieren](kacheln.md) |
 | `--native-levels N` | mit `--tiles`: so viele gröbere Stufen aus der Welt rendern, Vorgabe 0 | [Zoomstufen](zoomstufen.md) |
 | `--resume` | mit `--tiles`: einen abgebrochenen Lauf fortsetzen | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--gpu auto\|on\|off` | mit `--tiles`: die Grafikkarte zeichnet, Vorgabe `auto` | [Grafikkarte](grafikkarte.md) |
 | `--defender-exclusion` | mit `--tiles`, nur unter Windows: eine Ausnahme im Echtzeitschutz setzen | [Echtzeitschutz](echtzeitschutz.md) |
 | `--pyramid DIR` | Zoomstufen und `map.json` aus den Basiskacheln nachbauen, ohne Welt und Assets | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
+| `--heights DIR` | die Höhen für die Koordinatenanzeige in einen bestehenden Baum schreiben, ohne zu rendern; braucht nur `--world` | [map.json](map-json.md), „Höhen“ |
 
 ## Einen Block ansehen: `--at`
 

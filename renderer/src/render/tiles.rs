@@ -10,8 +10,9 @@ use image::RgbaImage;
 use libwebp_sys as webp;
 use rayon::prelude::*;
 
-use crate::world::{BlockState, REGION, World};
+use crate::world::{BlockState, Chunk, REGION, World};
 
+use super::heights::{Heights, RegionHeights};
 use super::{BLEED_BLOCKS, Projection, ScreenRect};
 
 /// Kantenlänge einer Kachel in Pixeln. 256 ist, was Leaflet ohne
@@ -143,10 +144,92 @@ pub struct Survey {
     pub biomes: BTreeSet<String>,
     /// Chunks, die gelesen wurden.
     pub chunks: usize,
+    /// Die Höhen jeder Region, von der der Lauf Chunks liest, siehe
+    /// [`super::heights`].
+    // ponytail: hält die Höhen aller Regionen bis zum Schreiben, 32 KiB je
+    // Region, bei 2500 Regionen 80 MiB. Wird das zu viel, gepackt halten
+    // (ein Sechstel) oder jede Region schon im Vorlauf schreiben.
+    pub heights: Vec<RegionHeights>,
 }
 
-/// Liest jeden Chunk einmal und sammelt beides ein: welche Blockstates
-/// vorkommen und welche Kacheln überhaupt etwas zeigen.
+/// Welche Chunks der Vorlauf liest: die, deren Spalte über die ganze
+/// Welthöhe den Ausschnitt berührt; ohne Ausschnitt alle.
+#[derive(Clone, Copy)]
+pub struct Reach {
+    projection: Projection,
+    hoehe: (i32, i32),
+    bounds: Option<ScreenRect>,
+}
+
+impl Reach {
+    pub fn new(projection: Projection, y_range: (i32, i32), bounds: Option<ScreenRect>) -> Reach {
+        Reach {
+            projection,
+            // Bis zur Oberkante des obersten Blocks, wie der genaue Kasten
+            // je Chunk im Vorlauf.
+            hoehe: (y_range.0, y_range.1 + 1),
+            // Auf ganze Kacheln runden, bevor irgendetwas ausgeschlossen
+            // wird: gerendert wird die ganze Kachel, also muss auch der
+            // Vorlauf sie ganz abdecken.
+            bounds: bounds.map(snap_to_tiles),
+        }
+    }
+
+    /// Ob der Lauf Chunks der Region (rx, rz) liest.
+    pub fn region(&self, rx: i32, rz: i32) -> bool {
+        let kante = REGION * CHUNK;
+        self.column(rx * kante, rz * kante, kante)
+    }
+
+    /// Ob der Lauf den Chunk (cx, cz) liest.
+    pub fn chunk(&self, cx: i32, cz: i32) -> bool {
+        self.column(cx * CHUNK, cz * CHUNK, CHUNK)
+    }
+
+    fn column(&self, x: i32, z: i32, kante: i32) -> bool {
+        self.bounds
+            .is_none_or(|b| overlaps(b, column_box(self.projection, x, z, self.hoehe, kante)))
+    }
+
+    /// Wo die Blöcke eines gelesenen Chunks landen. Nur von Chunks im
+    /// Ausschnitt sammelt der Vorlauf die Blockstates; nur deren kennt die
+    /// Sprite-Tabelle alle.
+    fn content(&self, chunk: &Chunk) -> Content {
+        // Nur Sections, in denen etwas steht. Die leeren ober- und
+        // unterhalb des Geländes machen sonst jede Spalte so hoch wie die
+        // ganze Welt.
+        let mut belegt = chunk
+            .sections()
+            .iter()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.y as i32 * CHUNK);
+        let Some(unten) = belegt.next() else {
+            return Content::Empty;
+        };
+        let oben = belegt.next_back().unwrap_or(unten) + CHUNK;
+        let (x, z) = (chunk.x * CHUNK, chunk.z * CHUNK);
+        let rect = column_box(self.projection, x, z, (unten, oben), CHUNK);
+        match self.bounds {
+            Some(bounds) if !overlaps(bounds, rect) => Content::Outside,
+            Some(bounds) => Content::Inside(clip(rect, bounds)),
+            None => Content::Inside(rect),
+        }
+    }
+}
+
+/// Was ein Chunk im Ausschnitt eines Laufs zeigt, siehe [`Reach::content`].
+enum Content {
+    /// Keine Section, in der etwas steht.
+    Empty,
+    /// Seine Blöcke landen ausserhalb des Ausschnitts.
+    Outside,
+    /// Seine Blöcke können in diesem Rechteck landen, auf den Ausschnitt
+    /// beschnitten, samt der Reserve für überstehende Sprites.
+    Inside(ScreenRect),
+}
+
+/// Liest jeden Chunk einmal und sammelt ein, welche Blockstates vorkommen,
+/// welche Kacheln überhaupt etwas zeigen und die Höhen je Region.
 ///
 /// `bounds` schränkt auf einen Bildausschnitt ein; ohne Angabe ist es die
 /// ganze Welt. Der Renderlauf liest die Chunks danach ein zweites Mal.
@@ -159,22 +242,12 @@ pub fn survey(
     y_range: (i32, i32),
     bounds: Option<ScreenRect>,
 ) -> Result<Survey> {
-    // Auf ganze Kacheln runden, bevor irgendetwas ausgeschlossen wird:
-    // gerendert wird die ganze Kachel, also muss auch der Vorlauf sie
-    // ganz abdecken.
-    let bounds = bounds.map(snap_to_tiles);
-    // Bis zur Oberkante des obersten Blocks, wie der genaue Kasten je
-    // Chunk unten.
-    let hoehe = (y_range.0, y_range.1 + 1);
-    let kante = REGION * CHUNK;
+    let reach = Reach::new(projection, y_range, bounds);
     let regions = world.regions()?;
     let teile: Vec<Survey> = regions
         .par_iter()
-        .filter(|&&(rx, rz)| {
-            let ganz = column_box(projection, rx * kante, rz * kante, hoehe, kante);
-            bounds.is_none_or(|b| overlaps(b, ganz))
-        })
-        .map(|&(rx, rz)| survey_region(world, projection, bounds, hoehe, rx, rz))
+        .filter(|&&(rx, rz)| reach.region(rx, rz))
+        .map(|&(rx, rz)| survey_region(world, reach, rx, rz))
         .collect::<Result<_>>()?;
 
     let mut tiles: BTreeSet<TileId> = BTreeSet::new();
@@ -184,19 +257,13 @@ pub fn survey(
         survey.states.extend(teil.states);
         survey.biomes.extend(teil.biomes);
         survey.chunks += teil.chunks;
+        survey.heights.extend(teil.heights);
     }
     survey.tiles = tiles.into_iter().collect();
     Ok(survey)
 }
 
-fn survey_region(
-    world: &World,
-    projection: Projection,
-    bounds: Option<ScreenRect>,
-    hoehe: (i32, i32),
-    rx: i32,
-    rz: i32,
-) -> Result<Survey> {
+fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey> {
     let mut survey = Survey::default();
     let Some(mut region) = world.region(rx, rz)? else {
         return Ok(survey);
@@ -206,43 +273,33 @@ fn survey_region(
     let mut biomes: HashSet<String> = HashSet::new();
 
     let mut tiles = BTreeSet::new();
+    let mut hoehen = Heights::default();
+    let mut gelesen = vec![false; (REGION * REGION) as usize];
     for local_z in 0..REGION {
         for local_x in 0..REGION {
             let (cx, cz) = (rx * REGION + local_x, rz * REGION + local_z);
             // Was den Ausschnitt über die ganze Welthöhe nicht berührt,
             // wird gar nicht erst dekodiert.
-            let ganz = column_box(projection, cx * CHUNK, cz * CHUNK, hoehe, CHUNK);
-            if bounds.is_some_and(|b| !overlaps(b, ganz)) {
+            if !reach.chunk(cx, cz) {
                 continue;
             }
+            gelesen[(local_z * REGION + local_x) as usize] = true;
             let Some(chunk) = region.chunk(cx, cz)? else {
                 continue;
             };
             survey.chunks += 1;
+            // Die Höhen hängen nicht an der Sprite-Tabelle: auch ein Chunk,
+            // dessen Blöcke ausserhalb landen, bekommt seine.
+            hoehen.record(&chunk);
 
-            // Nur Sections, in denen etwas steht. Die leeren ober- und
-            // unterhalb des Geländes machen sonst jede Spalte so hoch wie
-            // die ganze Welt.
-            let mut belegt = chunk
-                .sections()
-                .iter()
-                .filter(|s| !s.is_empty())
-                .map(|s| s.y as i32 * CHUNK);
-            let Some(unten) = belegt.next() else {
+            // Erst ausschliessen, dann Paletten sammeln. Sonst verlangt ein
+            // kleiner Ausschnitt die Assets für jeden Block der Region, und
+            // ein einziger unbekannter Block weit draussen bricht den ganzen
+            // Export ab.
+            let Content::Inside(rect) = reach.content(&chunk) else {
                 continue;
             };
-            let oben = belegt.next_back().unwrap_or(unten) + CHUNK;
-
-            let rect = column_box(projection, cx * CHUNK, cz * CHUNK, (unten, oben), CHUNK);
-            match bounds {
-                // Erst ausschliessen, dann Paletten sammeln. Sonst
-                // verlangt ein kleiner Ausschnitt die Assets für jeden
-                // Block der Region, und ein einziger unbekannter Block
-                // weit draussen bricht den ganzen Export ab.
-                Some(bounds) if !overlaps(bounds, rect) => continue,
-                Some(bounds) => tiles.extend(covering(clip(rect, bounds))),
-                None => tiles.extend(covering(rect)),
-            }
+            tiles.extend(covering(rect));
 
             for section in chunk.sections() {
                 for biome in section.biomes().palette() {
@@ -262,6 +319,14 @@ fn survey_region(
     survey.biomes = biomes.into_iter().collect();
     survey.states = states.into_iter().collect();
     survey.tiles = tiles.into_iter().collect();
+    if gelesen.contains(&true) {
+        survey.heights.push(RegionHeights {
+            x: rx,
+            z: rz,
+            heights: hoehen,
+            read: gelesen,
+        });
+    }
     Ok(survey)
 }
 

@@ -16,10 +16,11 @@ use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 use terranova_render::assets::{Assets, blockstate, fluid, model_of};
 use terranova_render::render::gpu::Worker;
+use terranova_render::render::heights::{self, Heights, RegionHeights};
 use terranova_render::render::pyramid;
 use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
-    BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Gpu, MapInfo, Projection, ScreenRect,
+    BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Gpu, MapInfo, Projection, Reach, ScreenRect,
     SpriteSet, TILE, TileId, corner_tiles, draw_list, encode_webp, render, render_area,
     render_area_with, streifenbreite, survey, world_box,
 };
@@ -135,6 +136,13 @@ pub struct Args {
     #[arg(long, requires = "tiles")]
     defender_exclusion: bool,
 
+    /// Die Höhen für die Koordinatenanzeige in diesen Kachelbaum schreiben,
+    /// ohne zu rendern, etwa in einen Baum aus einem Stand ohne sie. Liest
+    /// die ganze Welt, braucht --world und nimmt den scale aus map.json.
+    /// Jeder Export schreibt sie ohnehin
+    #[arg(long, value_name = "VERZEICHNIS", conflicts_with = "tiles")]
+    heights: Option<PathBuf>,
+
     /// Die Zoomstufen und map.json dieses Kachelbaums aus seinen
     /// Basiskacheln nachbauen, ohne Welt und ohne Assets. Baut nur, was
     /// sich seit dem letzten Mal geändert hat, auch während ein Render läuft
@@ -192,6 +200,9 @@ pub fn run() -> Result<()> {
     }
     if args.tiles.is_some() && (args.world.is_none() || args.assets.is_empty()) {
         bail!("--tiles braucht --world und --assets");
+    }
+    if args.heights.is_some() && args.world.is_none() {
+        bail!("--heights braucht --world");
     }
     if args.defender_exclusion && !cfg!(windows) {
         bail!("--defender-exclusion gibt es nur unter Windows");
@@ -352,6 +363,9 @@ pub fn run() -> Result<()> {
                 );
             }
             export?;
+        }
+        if let Some(dir) = &args.heights {
+            fill_heights(world, dir)?;
         }
     }
 
@@ -797,7 +811,7 @@ fn write_tiles(
     let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
 
     let started = Instant::now();
-    let survey = survey(world, projection, Y_RANGE, bounds)?;
+    let mut survey = survey(world, projection, Y_RANGE, bounds)?;
     println!(
         "\nVorlauf:    {} Chunks in {:.1} s, {} Blockstates, {} Kacheln",
         survey.chunks,
@@ -858,6 +872,15 @@ fn write_tiles(
     warn_unknown_biomes(assets, &survey.biomes);
     melde_ueberhang(&sprites);
 
+    // Vor map.json, die sie nennt: wer den Baum schon während des Laufs
+    // ansieht, findet sie mit der ersten Kachel.
+    schreibe_hoehen(std::mem::take(&mut survey.heights), dir)?;
+    let hoehen_weg = if prune {
+        hoehen_ohne_region(world, Reach::new(projection, Y_RANGE, bounds), dir)?
+    } else {
+        Vec::new()
+    };
+
     // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
     // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
     // er vorher, legt er für das Verzeichnis nichts fest.
@@ -894,6 +917,12 @@ fn write_tiles(
                  --prune entfernt sie, aber nur mit der vollständigen Welt."
             );
         }
+    }
+    if !hoehen_weg.is_empty() {
+        println!(
+            "Aufräumen:  Höhen ohne Regionsdatei: {}; sie verschwinden am Ende des Laufs",
+            hoehen_weg.len()
+        );
     }
 
     let started = Instant::now();
@@ -1006,8 +1035,17 @@ fn write_tiles(
     for (z, tile) in &weg {
         entferne(&tile_path(dir, *z, *tile))?;
     }
+    for pfad in &hoehen_weg {
+        entferne(pfad)?;
+    }
     if prune && !veraltet.is_empty() {
         println!("Aufräumen:  {} Kacheln ohne Chunk entfernt", veraltet.len());
+    }
+    if !hoehen_weg.is_empty() {
+        println!(
+            "Aufräumen:  Höhen ohne Regionsdatei entfernt: {}",
+            hoehen_weg.len()
+        );
     }
 
     // Die Basis nach dem Lauf: die von vorher, dazu die gerenderten, ohne
@@ -1176,6 +1214,10 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
         native_levels: alt.native_levels,
         biome_blend: alt.biome_blend,
         world: alt.world,
+        heights: alt.heights,
+        heights_cell: alt.heights_cell,
+        min_y: alt.min_y,
+        max_y: alt.max_y,
         ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
     let path = schreibe_info(dir, &info, Some(stempel))?;
@@ -1407,10 +1449,144 @@ fn schreibe_map_json(
         native_levels: Some(stufen),
         biome_blend: Some(blend),
         world: Some(kennung.map(str::to_string)),
-        ..MapInfo::new(scale, max_zoom, basis)
+        ..mit_hoehen(MapInfo::new(scale, max_zoom, basis))
     };
     let path = schreibe_info(dir, &info, None)?;
     Ok((info, basis.len(), path))
+}
+
+/// `info` mit den Feldern, die die Höhen beschreiben, siehe
+/// [`schreibe_hoehen`].
+fn mit_hoehen(info: MapInfo) -> MapInfo {
+    MapInfo {
+        heights: Some(heights::PATTERN.to_string()),
+        heights_cell: Some(heights::CELL as u32),
+        min_y: Some(Y_RANGE.0),
+        max_y: Some(Y_RANGE.1),
+        ..info
+    }
+}
+
+/// Schreibt die Höhen, die der Vorlauf gelesen hat, nach `heights/` im
+/// Baum. Chunkplätze, die der Lauf nicht liest, behalten, was die Datei
+/// schon hatte.
+/// Siehe docs/benutzung/map-json.md, „Höhen“.
+fn schreibe_hoehen(regionen: Vec<RegionHeights>, dir: &Path) -> Result<()> {
+    let started = Instant::now();
+    let bytes = regionen
+        .into_par_iter()
+        .map(|region| -> Result<usize> {
+            let RegionHeights {
+                x,
+                z,
+                mut heights,
+                read,
+            } = region;
+            let pfad = dir.join(heights::path_of(x, z));
+            if read.contains(&false) {
+                match lies_hoehen(&pfad) {
+                    Ok(Some(alt)) => heights.keep_unread(&alt, &read),
+                    Ok(None) => {}
+                    // Ein Export bricht dafür nicht ab: verloren sind nur die
+                    // Höhen der Chunks ausserhalb des Ausschnitts.
+                    Err(e) => println!(
+                        "Höhen:      {e:#}; ausserhalb des Ausschnitts ist die Region jetzt leer"
+                    ),
+                }
+            }
+            let daten = heights.encode()?;
+            lege_ab(&pfad, &daten, None)?;
+            Ok(daten.len())
+        })
+        .collect::<Result<Vec<usize>>>()?;
+    println!(
+        "Höhen:      {} Regionen, {:.1} MB in {:.1} s",
+        bytes.len(),
+        bytes.iter().sum::<usize>() as f64 / 1_048_576.0,
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+/// Die Höhen aus einer Datei, `None`, wenn es sie nicht gibt.
+fn lies_hoehen(pfad: &Path) -> Result<Option<Heights>> {
+    let daten = match std::fs::read(pfad) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        daten => daten.with_context(|| format!("{} lesen", pfad.display()))?,
+    };
+    Heights::decode(&daten)
+        .with_context(|| format!("{} lesen", pfad.display()))
+        .map(Some)
+}
+
+/// Die Höhen von Regionen ohne Regionsdatei, von denen `reach` Chunks
+/// läse: `--prune` entfernt sie am Ende des Laufs, wie die Kacheln ohne
+/// Chunk.
+fn hoehen_ohne_region(world: &World, reach: Reach, dir: &Path) -> Result<Vec<PathBuf>> {
+    let ordner = dir.join("heights");
+    let eintraege = match std::fs::read_dir(&ordner) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        eintraege => eintraege.with_context(|| format!("{} lesen", ordner.display()))?,
+    };
+    let regionen: HashSet<(i32, i32)> = world.regions()?.into_iter().collect();
+    let mut weg = Vec::new();
+    for eintrag in eintraege {
+        let eintrag = eintrag.with_context(|| format!("{} lesen", ordner.display()))?;
+        let region = eintrag.file_name().to_str().and_then(heights::region_of);
+        if let Some((rx, rz)) = region
+            && !regionen.contains(&(rx, rz))
+            && reach.region(rx, rz)
+        {
+            weg.push(eintrag.path());
+        }
+    }
+    Ok(weg)
+}
+
+/// Schreibt Höhen und ihre Felder in `map.json` eines bestehenden Baums,
+/// ohne zu rendern. Die Welt muss zum Baum gehören wie bei einem Export,
+/// der scale kommt aus seiner `map.json`.
+/// Siehe docs/benutzung/map-json.md, „Höhen“.
+fn fill_heights(world: &World, dir: &Path) -> Result<()> {
+    let karte = dir.join("map.json");
+    let bestand = lies_bestand(dir)?.with_context(|| {
+        format!(
+            "{} fehlt: --heights füllt nur einen Baum, den ein Export angelegt hat",
+            karte.display()
+        )
+    })?;
+    let kennung = kennung(world, Some(&bestand))?;
+    let warum = ohne_kennung(world);
+    let uebernommen = pruefe_bestand(
+        dir,
+        Some(&bestand),
+        bestand.scale,
+        kennung.as_deref().ok_or(warum.as_str()),
+    )?;
+    let projection = Projection::new(bestand.scale);
+
+    let started = Instant::now();
+    let survey = survey(world, projection, Y_RANGE, None)?;
+    println!(
+        "\nVorlauf:    {} Chunks in {:.1} s",
+        survey.chunks,
+        started.elapsed().as_secs_f64()
+    );
+    schreibe_hoehen(survey.heights, dir)?;
+
+    let info = MapInfo {
+        world: bestand.world.clone().or(Some(kennung)),
+        ..mit_hoehen(bestand)
+    };
+    schreibe_info(dir, &info, None)?;
+    if uebernommen {
+        println!(
+            "Karte:      {} nannte keine Welt, ein älterer Stand: der Baum gehört ab jetzt zu dieser",
+            karte.display()
+        );
+    }
+    println!("Karte:      Höhen eingetragen -> {}", karte.display());
+    Ok(())
 }
 
 fn schreibe_info(dir: &Path, info: &MapInfo, zeit: Option<SystemTime>) -> Result<PathBuf> {

@@ -28,7 +28,8 @@ liegen. Basisstufe, scale und Welt nennt `map.json`, das jeder Export vor
 seiner ersten Kachel schreibt; ohne diese Datei, oder wenn auf ihrer
 Basisstufe keine Kachel liegt, ändert es nichts. Native Stufen rendert es
 nicht, es verkleinert auch dort. Ein laufender Render ersetzt sie am Ende
-durch native.
+durch native. Die Höhen fasst es nicht an und behält ihre Felder in
+`map.json`, siehe [map.json](map-json.md), „Höhen“.
 
 ## Was neu gebaut wird
 
@@ -116,7 +117,9 @@ Minuten, gemessen für #10, bei 2,5 Millionen Basiskacheln hochgerechnet
 gut eine Viertelstunde. Mehr als ein Lauf in einem Stück kostet das
 Fortsetzen nach einem Abbruch in der Basis trotzdem nur die zwei Minuten:
 Native Stufen und Pyramide hätte der Lauf ohnehin noch gebaut. Lag der
-Abbruch später, baut es beide noch einmal.
+Abbruch später, baut es beide noch einmal. Die Höhen schreibt er vor der
+ersten Kachel neu wie jeder Export, aus seinem Vorlauf, siehe
+[map.json](map-json.md), „Höhen“.
 
 ## Wann `--resume` nicht reicht
 

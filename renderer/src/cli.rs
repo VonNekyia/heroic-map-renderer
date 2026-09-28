@@ -648,6 +648,7 @@ fn render_world(
     sprites.set_biomes(biomfarben(world, assets, blend)?);
     warn_unknown_biomes(assets, &survey.biomes);
     melde_unbekannte_daten(&unbekannt);
+    melde_fehlende_texturen(assets);
     println!(
         "\nRender:     {} Chunks gelesen, {} Blockstates, {} Sprites",
         survey.chunks,
@@ -771,8 +772,6 @@ fn biomfarben(world: &World, assets: &Assets, blend: u8) -> Result<BiomeTable> {
     Ok(BiomeTable::new(assets.colors()).with(blend, seed))
 }
 
-/// Biome der Welt, für die keine Definition geladen ist. Sie bekommen die
-/// Farben von `plains` — das soll niemand erst auf der Karte bemerken.
 /// Was an den Daten der Blockentities unbekannt ist: Lagen eines Banners,
 /// die das Spiel beim Laden verwirft, siehe [`SpriteSet::add_entities`].
 fn melde_unbekannte_daten(unbekannt: &BTreeSet<String>) {
@@ -785,6 +784,20 @@ fn melde_unbekannte_daten(unbekannt: &BTreeSet<String>) {
     }
 }
 
+/// Wie viele Texturen fehlen, gleich nach der Sprite-Tabelle: Dort steht
+/// die Missing-Textur, und ein langer Lauf soll das nicht erst am Ende sagen.
+/// Die Liste steht am Ende, in [`report_missing_textures`].
+fn melde_fehlende_texturen(assets: &Assets) {
+    let fehlen = assets.textures().missing().len();
+    if fehlen > 0 {
+        println!(
+            "            {fehlen} Texturen fehlen, dort steht die Missing-Textur; die Liste am Ende, siehe docs/benutzung/assets.md"
+        );
+    }
+}
+
+/// Biome der Welt, für die keine Definition geladen ist. Sie bekommen die
+/// Farben von `plains` — das soll niemand erst auf der Karte bemerken.
 fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
     let known: HashSet<&str> = assets.colors().biomes().collect();
     let unknown: Vec<&str> = biomes
@@ -922,6 +935,7 @@ fn write_tiles(
     );
     warn_unknown_biomes(assets, &survey.biomes);
     melde_unbekannte_daten(&unbekannt);
+    melde_fehlende_texturen(assets);
     melde_ueberhang(&sprites);
 
     // Vor map.json, die sie nennt: wer den Baum schon während des Laufs

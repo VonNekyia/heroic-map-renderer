@@ -2847,6 +2847,43 @@ fn geflutete_truhe_zeigt_blockentity_und_wasser() {
     assert!(!text.contains("kein Modell"), "{text}");
 }
 
+/// Fehlt eine Textur, sagt es der Lauf gleich nach der Sprite-Tabelle, vor
+/// der ersten Kachel, und nennt sie am Ende. Der einfachen Truhe fehlt ihre
+/// Textur in den Fixtures.
+#[test]
+fn fehlende_texturen_gleich_nach_der_sprite_tabelle() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:chest[facing=north,type=single,waterlogged=false]",
+        (_, 3, _) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    });
+    let out = tempdir();
+    let text = String::from_utf8_lossy(&gelungen(&export(welt.path(), out.path(), &[])).stdout)
+        .into_owned();
+    let warnung = text.find("Texturen fehlen").expect(&text);
+    assert!(warnung < text.find("Kacheln:").expect(&text), "{text}");
+    assert!(
+        text[warnung..].contains("minecraft:entity/chest/normal"),
+        "{text}"
+    );
+
+    let bild = out.path().join("ausschnitt.png");
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--render"),
+        bild.as_os_str(),
+        OsStr::new("--size"),
+        OsStr::new("64"),
+    ]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    let warnung = text.find("Texturen fehlen").expect(&text);
+    assert!(warnung < text.find("Render:").expect(&text), "{text}");
+}
+
 /// `--scan` nennt dieselben Blöcke ohne Modell wie `--block`: den, der
 /// nichts zeichnet, ja, die geflutete Truhe und Wasser nicht.
 #[test]
@@ -2878,8 +2915,9 @@ fn scan_nennt_nur_bloecke_ohne_bild() {
 }
 
 /// `--scan` zählt Banner mit Mustern und Krüge mit Scherben, und wie viele
-/// davon samt Block verschieden sind: zwei gleiche Banner sind eine
-/// Familie, derselbe Krug trocken und geflutet sind zwei.
+/// davon samt Block verschieden sind, so viele Familien baut eine
+/// Sprite-Tabelle höchstens dazu: zwei gleiche Banner zählen einmal,
+/// derselbe Krug trocken und geflutet zweimal.
 #[test]
 fn scan_zaehlt_blockentities_mit_daten() {
     use fastnbt::Value;

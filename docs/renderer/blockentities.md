@@ -151,8 +151,10 @@ ein Muster mit `asset_id` und `translation_key` (`BannerPattern.CODEC`),
   `<namensraum>/banner_pattern/**/*.json`, mit `asset_id` und
   `translation_key` wie `BannerPattern.DIRECT_CODEC`; spätere Wurzeln
   überschreiben gleichnamige, siehe [Assets und Biomdaten](../benutzung/assets.md).
-  Ohne `--data` gilt jede ID als ihr eigenes `asset_id`: So sind alle 43
-  Muster des Spiels angelegt (`BannerPatterns.register`).
+  Nennt keine Datenwurzel ein Muster, gilt jede ID als ihr eigenes
+  `asset_id`: So sind alle 43 Muster des Spiels angelegt
+  (`BannerPatterns.register`). Nennt eine Wurzel Muster, gelten nur die
+  genannten, wie im Spiel die seiner Registry.
 - **Unbekanntes:** Ein Muster, das keine Datenwurzel nennt, und ein
   Farbstoff, den es nicht gibt, lehnt der Codec ab: Die Lage fehlt, im
   Spiel wie hier. Die Ausgabe nennt sie unter „Unbekanntes in Bannern“.

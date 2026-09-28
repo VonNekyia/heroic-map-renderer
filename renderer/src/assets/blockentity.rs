@@ -300,8 +300,9 @@ fn lage(muster: &Muster, farbstoff: &str, assets: &Assets) -> Result<(String, [u
     let t = &*TABELLE;
     let asset = match muster {
         Muster::Asset(asset) => asset.clone(),
-        // Ohne Datenwurzel gilt jede ID als ihr eigenes `asset_id`, wie bei
-        // allen Mustern des Spiels (`BannerPatterns.register`).
+        // Nennt keine Datenwurzel ein Muster, gilt jede ID als ihr eigenes
+        // `asset_id`, wie bei allen Mustern des Spiels
+        // (`BannerPatterns.register`). Sonst gelten nur die genannten.
         Muster::Id(muster) if assets.muster.is_empty() => muster.clone(),
         Muster::Id(muster) => assets
             .muster

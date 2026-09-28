@@ -79,9 +79,11 @@ Move-Item "$env:TEMP\mc\data\minecraft\banner_pattern" vanilla-data\minecraft\ba
 ```
 
 43 Dateien. Erwartet wird `<DIR>/<namespace>/banner_pattern/**/*.json` in
-denselben Wurzeln wie die Biome, spätere überschreiben frühere. Ohne sie
-gilt jede ID eines Musters als ihr eigenes `asset_id`, so wie alle Muster
-des Spiels angelegt sind; ein Datenpaket mit eigenen Mustern braucht sie.
+denselben Wurzeln wie die Biome, spätere überschreiben frühere. Nennt keine
+Wurzel ein Muster, gilt jede ID als ihr eigenes `asset_id`, so wie alle
+Muster des Spiels angelegt sind. Nennt eine Wurzel Muster, gelten nur die
+genannten: Für ein Datenpaket mit eigenen Mustern gehören die des Spiels
+mit hinein.
 Die Ausgabe nennt, wie viele Muster jede Wurzel bringt, und am Ende jedes
 Muster und jeden Farbstoff aus der Welt, den keine kennt, siehe
 [Blockentities](../renderer/blockentities.md), „Banner“.

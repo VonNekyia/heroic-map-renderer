@@ -200,6 +200,37 @@ fn vorlauf_beachtet_die_grenzen() {
     assert_eq!((nichts.chunks, ganz.chunks), (0, 4));
 }
 
+/// Ein Chunk, der nicht fertig erzeugt ist, bringt keine Kachel und keinen
+/// Blockstate. Der Vorlauf zählt ihn, damit der Lauf es sagen kann.
+#[test]
+fn vorlauf_uebergeht_unfertige_chunks() {
+    let projection = Projection::new(16);
+    let vorlauf = |chunks: &[(i32, i32)], status: &'static str| {
+        let dir = tempdir();
+        common::write_world_status(
+            dir.path(),
+            chunks,
+            0..=0,
+            |x, y, _| match (x, y) {
+                (_, 1..) => "minecraft:air",
+                (..16, _) => "minecraft:einfarbig",
+                _ => "minecraft:mit_overlay",
+            },
+            move |cx, _| if cx == 1 { status } else { common::FULL },
+        );
+        survey(&World::open(dir.path()).unwrap(), projection, Y_RANGE, None).unwrap()
+    };
+    let allein = vorlauf(&[(0, 0)], common::FULL);
+    let fertig = vorlauf(&[(0, 0), (1, 0)], common::FULL);
+    let unfertig = vorlauf(&[(0, 0), (1, 0)], "minecraft:carvers");
+
+    assert_ne!(fertig.tiles, allein.tiles, "der Nachbar bringt Kacheln");
+    assert_eq!(unfertig.tiles, allein.tiles);
+    assert_eq!(unfertig.states, allein.states);
+    assert_eq!((unfertig.chunks, unfertig.unfinished), (1, 1));
+    assert_eq!((fertig.chunks, fertig.unfinished), (2, 0));
+}
+
 /// Ein Vorlauf über eine einzelne Kachel findet sie, wenn der über die
 /// ganze Welt sie findet. Chunks, die den Ausschnitt nicht berühren
 /// können, schliesst er vor dem Dekodieren aus; der Kasten dafür darf

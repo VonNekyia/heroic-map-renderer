@@ -89,7 +89,8 @@ Biom seiner Zelle:
   diesen Wert schickt der Server dem Client.
 - Das Biom der gewinnenden Viertelposition liest `ChunkAccess.getNoiseBiome`
   aus ihrem Chunk, die Höhe auf die des Chunks geklemmt. Ein fehlender Chunk
-  ist plains wie im Client (`ClientLevel.getUncachedNoiseBiome`). Eine
+  ist plains wie im Client (`ClientLevel.getUncachedNoiseBiome`), ebenso
+  einer, der nicht fertig erzeugt ist; den kennt der Client nicht. Eine
   Section ohne Biome und ein Biom ohne Definition macht der Renderer
   ebenfalls zu plains; das ist sein Ersatz, der Client kennt beide Fälle
   nicht.

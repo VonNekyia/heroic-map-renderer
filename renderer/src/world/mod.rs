@@ -155,13 +155,23 @@ impl World {
         Region::open(&path).map(Some)
     }
 
-    /// Einzelnen Chunk laden. Öffnet die Regionsdatei jedes Mal neu — für
-    /// CLI und Tests gedacht, nicht für den Renderpfad.
+    /// Einzelnen Chunk laden, wenn er fertig erzeugt ist, wie
+    /// [`Region::chunk`]. Öffnet die Regionsdatei jedes Mal neu — für CLI
+    /// und Tests gedacht, nicht für den Renderpfad.
     pub fn chunk(&self, cx: i32, cz: i32) -> Result<Option<Chunk>> {
         let Some(mut region) = self.region(cx.div_euclid(REGION), cz.div_euclid(REGION))? else {
             return Ok(None);
         };
         region.chunk(cx, cz)
+    }
+
+    /// Wie [`World::chunk`], aber in jedem Status, wie
+    /// [`Region::stored_chunk`].
+    pub fn stored_chunk(&self, cx: i32, cz: i32) -> Result<Option<Chunk>> {
+        let Some(mut region) = self.region(cx.div_euclid(REGION), cz.div_euclid(REGION))? else {
+            return Ok(None);
+        };
+        region.stored_chunk(cx, cz)
     }
 
     /// Die Dimension, etwa `minecraft:the_nether`, falls das Verzeichnis zu

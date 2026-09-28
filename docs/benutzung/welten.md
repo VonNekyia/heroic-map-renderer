@@ -1,9 +1,10 @@
 ---
 title: Welten und Kennung
-description: Welche Welten der Renderer liest, wie er Weltwurzel, Dimension und Seed findet und wie daraus die Kennung der Welt im Kachelbaum wird.
+description: Welche Welten der Renderer liest und welche Chunks darin, wie er Weltwurzel, Dimension und Seed findet und wie daraus die Kennung der Welt im Kachelbaum wird.
 code:
   - renderer/src/world/mod.rs
   - renderer/src/world/region.rs
+  - renderer/src/world/chunk.rs
   - renderer/src/render/pyramid.rs
   - renderer/src/cli.rs
 ---
@@ -26,6 +27,60 @@ Verzeichnisse, Seed und Chunks um, bevor er startet. Sonst kennt der
 Renderer ihren Seed nicht und manche ihrer Blocknamen nicht, und ein Block
 ohne Asset bricht den Lauf vor der ersten Kachel ab. Warum die Grenze bei
 26.1 liegt: [0015](../entscheidungen/0015-nur-welten-ab-26-1.md).
+
+## Nicht fertig erzeugte Chunks
+
+Am Rand jedes erzeugten Gebiets liegen Chunks, die das Spiel angefangen,
+aber nicht fertig erzeugt hat, von innen nach aussen etwa mit dem Status
+`minecraft:initialize_light`, `carvers`, `biomes` und `structure_starts`.
+Ihnen fehlen Bäume, Seen und Schnee ganz oder zum Teil, die äusseren sind
+noch ganz Luft. Das Spiel zeigt sie nie: `ChunkHolder.getChunkToSend` gibt
+dem Client nur fertige Chunks heraus (Client 26.2, per javap).
+
+Der Renderer liest deshalb nur Chunks ab dem Status `minecraft:light`, also
+`light`, `spawn` und `full`, und behandelt die übrigen wie fehlende
+(`Chunk::is_generated` in
+[`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs)). Ab
+`light` setzt die Erzeugung keinen Block mehr, belegt per javap am Client
+26.2 (`ChunkPyramid.GENERATION_PYRAMID`):
+
+- Der Schritt `light` verlangt die Nachbarn im Radius 1 mindestens in
+  `initialize_light`, also hinter `features`.
+- Nur `features` schreibt über den eigenen Chunk hinaus, einen Chunk weit
+  (`blockStateWriteRadius(1)`). Die Schritte danach setzen keinen Radius,
+  und der Standard −1 erlaubt keinen Block.
+
+Warum nicht erst ab `full` wie der Client:
+[0037](../entscheidungen/0037-chunks-ab-dem-status-light.md).
+
+So sehen Vorlauf, Render und Höhen dieselbe Welt:
+
+- **Kacheln:** Ein solcher Chunk bringt keine Kachel und keinen Blockstate.
+  Der Vorlauf zählt ihn und nennt die Zahl, siehe die Ausgabe in
+  [Kacheln exportieren](kacheln.md). Wie viele Kacheln so wegfallen,
+  steht in [Was ein Lauf kostet](kosten.md), „Je scale“.
+- **Licht:** Neben ihm fällt kein Licht von der Seite, wie am Rand der
+  Welt, siehe [Wasser und Licht](../renderer/wasser-und-licht.md), „Wie
+  gezählt wird“. Sonst läge die äusserste Blockreihe davor im Licht 14,
+  auch tief unter Wasser.
+- **Deckung:** Er deckt nichts. Am Ost- und Südrand bleibt deshalb ein
+  Schnitt durch den Untergrund stehen, wie an jedem Rand der Welt; ihn
+  abzudunkeln gehört zur Ausbreitung des Lichts (#34).
+- **Biome:** Am neuen Rand mischt die Farbe mit plains wie neben jedem
+  fehlenden Chunk, siehe [Biomfarben](../renderer/biomfarben.md),
+  „Übergänge zwischen Biomen“.
+- **Höhen:** Seine Zellen sind leer, siehe [map.json](map-json.md),
+  „Höhen“.
+- **`--at` und `--scan`:** `--at` nennt seinen Status und dass der Renderer
+  ihn nicht zeichnet. `--scan` dekodiert und zählt ihn, löst seine
+  Blockstates aber nicht auf, siehe [Schalter und Beispiele](schalter.md),
+  „Die ganze Welt prüfen: `--scan`“.
+
+Ein Baum aus einem früheren Stand zeigt die Fehler am Rand noch, denn
+`--resume` behält seine Basiskacheln. Neu wird der Rand erst mit einem
+Export ohne `--resume`; mit `--prune` entfernt er dabei auch die Kacheln,
+die jetzt kein Chunk mehr berührt, siehe [Kacheln exportieren](kacheln.md),
+„Kacheln ohne Chunk: `--prune`“.
 
 ## Weltwurzel und Dimension
 

@@ -50,7 +50,18 @@ impl Region {
         })
     }
 
-    /// Chunk an **Welt**-Chunkkoordinaten. `None`, wenn er nicht generiert ist.
+    /// Chunk an **Welt**-Chunkkoordinaten, wenn er fertig erzeugt ist, siehe
+    /// [`Chunk::is_generated`]. `None`, wenn er fehlt oder nicht fertig
+    /// erzeugt ist. Darüber liest der Render; der Vorlauf, `--at` und
+    /// `--scan` lesen mit [`Region::stored_chunk`] und fragen
+    /// [`Chunk::is_generated`] selbst, weil sie die übrigen zählen oder
+    /// nennen.
+    pub fn chunk(&mut self, cx: i32, cz: i32) -> Result<Option<Chunk>> {
+        Ok(self.stored_chunk(cx, cz)?.filter(Chunk::is_generated))
+    }
+
+    /// Chunk an **Welt**-Chunkkoordinaten in jedem Status, wie er in der
+    /// Datei steht. `None` nur für einen leeren Tabelleneintrag.
     ///
     /// Koordinaten aus einer anderen Region sind ein Fehler — ohne die Prüfung
     /// würde die Modulo-Umrechnung still den falschen Chunk liefern.
@@ -59,7 +70,7 @@ impl Region {
     /// kopierten Regionsdatei, steht er trotzdem an seinem Platz: so zeigt
     /// ihn das Spiel (`SerializableChunkData.read` in 26.2: "in the wrong
     /// location; relocating"), und so sehen ihn Vorlauf und Render.
-    pub fn chunk(&mut self, cx: i32, cz: i32) -> Result<Option<Chunk>> {
+    pub fn stored_chunk(&mut self, cx: i32, cz: i32) -> Result<Option<Chunk>> {
         if cx.div_euclid(REGION) != self.x || cz.div_euclid(REGION) != self.z {
             bail!(
                 "Chunk ({cx}, {cz}) liegt nicht in r.{}.{}.mca",

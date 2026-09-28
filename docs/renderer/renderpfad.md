@@ -36,7 +36,10 @@ welche Blockstates vorkommen, und welche Kacheln überhaupt etwas zeigen
 danach steht die Sprite-Tabelle, und erst dann kann parallel gerendert
 werden, denn sonst müsste jeder Worker sie unter einer Sperre füllen, siehe
 [0003](../entscheidungen/0003-vorlauf-vor-dem-rendern.md). Die Kachelmenge
-kommt aus den belegten Sections, nicht aus der Welthöhe.
+kommt aus den belegten Sections, nicht aus der Welthöhe. Chunks, die nicht
+fertig erzeugt sind, zählt er und übergeht sie, siehe
+[Welten und Kennung](../benutzung/welten.md), „Nicht fertig erzeugte
+Chunks“.
 
 Die Welt wird deshalb mehrmals durchlaufen: vom Vorlauf, von der Basis und
 von jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. In

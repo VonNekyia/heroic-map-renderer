@@ -28,11 +28,13 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 GPU:        <Name der Karte> (Vulkan)
 
-Vorlauf:    316223 Chunks in 6.9 s, 3110 Blockstates, 292836 Kacheln
+Vorlauf:    249103 Chunks in 6.9 s, 3107 Blockstates, 280630 Kacheln
+            67120 Chunks nicht fertig erzeugt, nicht gezeichnet
             4893 Sprites bei scale 32, davon 2413 Fassungen
             18 Modelle ragen über ihren Block hinaus, Würfel {[0, 1, 0]}
-            200/292836 Kacheln
-            400/292836 Kacheln
+Höhen:      383 Regionen, 1.7 MB in 0.2 s
+            200/280630 Kacheln
+            400/280630 Kacheln
 ```
 
 Danach stapelt der Lauf die gröberen Zoomstufen darüber und schreibt
@@ -40,7 +42,10 @@ Danach stapelt der Lauf die gröberen Zoomstufen darüber und schreibt
 
 Der Vorlauf beantwortet zwei Fragen auf einmal: welche Blockstates
 vorkommen, und welche Kacheln überhaupt etwas zeigen. Er kostet für die
-ganze Welt 5 bis 11 Sekunden. Eine Fassung ist jedes Sprite, das nicht
+ganze Welt 5 bis 11 Sekunden. Chunks, die das Spiel nicht fertig erzeugt
+hat, übergeht er und nennt ihre Zahl, siehe
+[Welten und Kennung](welten.md), „Nicht fertig erzeugte Chunks“. Eine
+Fassung ist jedes Sprite, das nicht
 selbst Alternative einer Blockstate ist: eines je Maske verdeckter
 Flüssigkeitsflächen, dazu die Streifen an Wasserstufen. Wie
 Vorlauf und Renderlauf zusammenspielen und warum die Welt dafür mehrmals

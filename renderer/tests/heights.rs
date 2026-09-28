@@ -128,6 +128,38 @@ fn ausschnitt_liest_die_chunks_im_band() {
     assert_eq!(region.heights.get(82, 2), EMPTY);
 }
 
+/// Die Höhen sehen dieselbe Welt wie die Kacheln: Ein Chunk, der nicht
+/// fertig erzeugt ist, bleibt leer wie einer, der fehlt. Gelesen ist er
+/// trotzdem, ein Ausschnitt übernimmt für ihn also keine alten Höhen.
+#[test]
+fn unfertige_chunks_bleiben_leer() {
+    let dir = tempfile::tempdir().unwrap();
+    common::write_world_status(
+        dir.path(),
+        &[(0, 0), (1, 0)],
+        0..=0,
+        |_, y, _| {
+            if y <= 10 {
+                "minecraft:stone"
+            } else {
+                "minecraft:air"
+            }
+        },
+        |cx, _| {
+            if cx == 1 {
+                "minecraft:carvers"
+            } else {
+                common::FULL
+            }
+        },
+    );
+    let regionen = lies(&World::open(dir.path()).unwrap(), None);
+    let region = &regionen[0];
+    assert_eq!(region.heights.get(2, 2), 10);
+    assert!(gelesen(region, 1, 0));
+    assert_eq!(region.heights.get(6, 2), EMPTY);
+}
+
 /// Die Projektion als Datei für das Frontend: je scale ein paar Blöcke und
 /// der Bildpunkt ihrer Ecke mit den kleinsten Koordinaten, wie
 /// `Projection::project_block` ihn rechnet, auch negativ und weit draussen.

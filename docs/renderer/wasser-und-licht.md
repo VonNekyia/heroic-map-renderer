@@ -176,8 +176,10 @@ Gezählt wird aus den Bitmasken der Sections, ein paar Wörter je Block
 (`column_above`); nur wo Wasser steht, kommen die vier Spalten daneben dazu.
 Ob über einer Lücke Wasser steht, sagt je Chunk und Spalte die Höhe des
 obersten Wassers, einmal beim Laden aus den Masken bestimmt. Ein Chunk, der
-fehlt, gilt dabei nicht als Luft, am Rand der Welt kommt kein Licht von der
-Seite.
+fehlt oder nicht fertig erzeugt ist, gilt dabei nicht als Luft, am Rand der
+Welt kommt kein Licht von der Seite, siehe
+[Welten und Kennung](../benutzung/welten.md), „Nicht fertig erzeugte
+Chunks“.
 
 Der Blit multipliziert jeden Pixel je Kanal mit b, ganzzahlig wie das
 Mischen, auf der CPU wie im Shader der Karte; die Oberfläche selbst bleibt,

@@ -39,6 +39,11 @@ Zeit und 1,5 % Grösse darauf; daher die 7 Minuten oben, gerechnet in
 [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md),
 „Hochgerechnet“. Für scale 16 und 8 sind die Faktoren nicht gemessen.
 
+Seit #32 zeichnet der Renderer nur fertig erzeugte Chunks, siehe
+[Welten und Kennung](welten.md), „Nicht fertig erzeugte Chunks“. Die
+Testwelt hat damit 280 630, 70 859 und 18 164 Kacheln, 4,1 bis 4,2 %
+weniger als oben; Platz und Dauer sind dafür nicht neu gemessen.
+
 ## Platz
 
 Auf demselben Ausschnitt wiegt eine Kachel bei jedem scale etwa gleich

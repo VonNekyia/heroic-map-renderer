@@ -61,12 +61,10 @@ Modell daran.
 
 ## Höhen
 
-Das Frontend soll unter Maus und Finger die Koordinaten des Blocks zeigen,
-wie das Spiel. Ein Pixel der Karte zeigt aber jeden Würfel auf seinem
-Strahl entlang der Blickachse (1, 1, 1), und welcher es ist, verrät das
-Bild nicht. Das Frontend geht den Strahl deshalb von vorn nach hinten ab,
-mit fallendem x + y + z. Der erste Würfel, dessen y höchstens die Höhe
-seiner Spalte ist, ist der Treffer. Die Höhen dafür liefert der Renderer:
+Das Frontend zeigt unter Maus und Finger die Koordinaten des Blocks, auf
+den das Spiel zielen würde, siehe [Frontend](../frontend.md), „Koordinaten“.
+Dafür braucht es je Spalte die Höhe des obersten Blocks. Die liefert der
+Renderer:
 
 - **Datei:** je Region `heights/{x}.{z}.bin` neben den Kacheln, x und z
   wie in `r.x.z.mca`. Darin steht ein zlib-Strom nach RFC 1950, im Browser
@@ -116,21 +114,10 @@ sind das zusammen 249 MB neben 184 GB Kacheln, und der Durchgang braucht
 knapp eine Minute, gemessen in
 [2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md).
 
-Was eine Näherung bleibt:
-
-- **Überhänge:** Unter Baumkronen oder Dachtraufen trifft der Strahl 1 bis
-  4 Blöcke zu weit vorn. Die Datei kennt je Spalte nur den obersten Block.
-- **Nicht volle Blöcke** zählen wie ein voller Würfel. Das Spiel zielt auf
-  ihren Umriss.
-- **Blöcke ohne Sprite**, etwa Truhen, Banner und Schädel, fehlen. Der
-  Strahl trifft dann, was darunter liegt.
-
-Verworfen ist ein Puffer je Basiskachel, der je Pixel den Block nennt. Er
-wäre exakt, kostete aber eine Datei mehr je Basiskachel, auf einer Welt
-mit 2,5 Millionen Kacheln also 2,5 Millionen Dateien und geschätzt 5 bis
-15 GB. Aus der Deckungsmaske fällt er auch nicht ab: sie speichert je Pixel
-nur ein Bit, und das setzen nur deckende Pixel. Wie das Frontend den
-Strahl abgeht, steht bei ihm, siehe [Frontend](../frontend.md).
+Was die Anzeige damit nähert, steht bei
+[Frontend](../frontend.md), „Was bleibt eine Näherung“. Warum Höhen und
+kein Puffer je Basiskachel:
+[0035](../entscheidungen/0035-koordinaten-aus-hoehenkarten.md).
 
 ## Radius der Mischung
 

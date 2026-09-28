@@ -107,9 +107,9 @@ Mitte des Pixels ab, wo auch der Renderer abtastet:
 2. `pick` nimmt den ersten, dessen Spalte bis zu ihm hinauf gefüllt ist:
    `y` ≤ Höhe der Spalte.
 3. Die Höhe steht je Spalte in den Höhenkarten des Renderers, eine Datei je
-   Region, siehe [map.json](benutzung/map-json.md). Das Frontend lädt nur
-   die Regionen, durch die ein Strahl geht, und hält höchstens 64 davon,
-   32 MiB.
+   Region, siehe [map.json](benutzung/map-json.md), „Höhen“. Das Frontend
+   lädt nur die Regionen, durch die ein Strahl geht, und hält höchstens 64
+   davon, 32 MiB.
 
 Warum Höhenkarten und keine feste Höhe, siehe
 [0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md).

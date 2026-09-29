@@ -18,7 +18,7 @@ use terranova_render::assets::{Assets, DimensionType};
 use terranova_render::render::heights::{self, EMPTY, Heights};
 use terranova_render::render::rasterizer::{Light, Lightmap};
 use terranova_render::render::{
-    Projection, SpriteSet, TileId, encode_webp, pyramid, render_area, survey,
+    Projection, SpriteSet, TileId, encode_webp, pyramid, render_area, streifenbreite, survey,
 };
 use terranova_render::world::World;
 
@@ -1157,17 +1157,210 @@ fn setze(dir: &Path, z: u32, tile: TileId, bild: &RgbaImage) {
 /// Was `--pyramid` aus der Basis dieses Baums, seiner `map.json` und
 /// seinen Höhen von Grund auf baut.
 fn von_grund_auf(dir: &Path) -> BTreeMap<String, Vec<u8>> {
-    let basis = format!("{}/", max_zoom(dir));
+    von_der_platte(dir, max_zoom(dir))
+}
+
+/// Was `--pyramid` über den Stufen ab `ab` dieses Baums baut, samt seiner
+/// `map.json` und seinen Höhen. Jede Stufe ist eine Minute jünger als die
+/// darunter, so nimmt es native Stufen, wie sie sind.
+fn von_der_platte(dir: &Path, ab: u32) -> BTreeMap<String, Vec<u8>> {
+    let basis = max_zoom(dir);
     let frisch = tempdir();
+    let damals = SystemTime::now() - Duration::from_secs(3600);
     for (rel, inhalt) in schnappschuss(dir) {
-        if rel == "map.json" || rel.starts_with("heights/") || rel.starts_with(&basis) {
-            let pfad = frisch.path().join(rel);
-            std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
-            std::fs::write(pfad, inhalt).unwrap();
+        let stufe = rel.split_once('/').and_then(|(z, _)| z.parse::<u32>().ok());
+        if stufe.is_some_and(|z| z < ab) {
+            continue;
+        }
+        let pfad = frisch.path().join(&rel);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(&pfad, inhalt).unwrap();
+        if let Some(z) = stufe {
+            setze_zeit(
+                &pfad,
+                damals + Duration::from_secs(60 * u64::from(basis - z)),
+            );
         }
     }
     gelungen(&pyramide(frisch.path()));
     schnappschuss(frisch.path())
+}
+
+/// Wie [`export`], auf so vielen Threads.
+fn export_auf(threads: usize, welt: &Path, out: &Path, extra: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+        .arg("--world")
+        .arg(welt)
+        .arg("--assets")
+        .arg(assets_ref())
+        .arg("--tiles")
+        .arg(out)
+        .args(extra)
+        .env("RAYON_NUM_THREADS", threads.to_string())
+        .output()
+        .expect("terranova-render starten")
+}
+
+/// Eine Welt mit so vielen Basiskacheln bei scale 32, dass ein Thread sie
+/// in Streifen von vier Spalten rendert und die feinen Stufen der
+/// Pyramide im Speicher entstehen.
+fn weite_welt() -> TempDir {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..6).flat_map(|x| (0..6).map(move |z| (x, z))).collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    welt
+}
+
+/// So meldet ein Export, dass Eltern im Speicher entstanden sind.
+const IM_SPEICHER: &str = "davon schon während des Renderns";
+
+/// Die Basis dieser Welt bei scale 32 in der Reihenfolge, in der `rendere`
+/// sie auf so vielen Threads verteilt: in Streifen so breit, wie
+/// `breite_der_streifen` in `cli.rs` sie schneidet, jeder Zeile für Zeile.
+fn reihe_wie_gerendert(welt: &Path, threads: usize) -> Vec<TileId> {
+    let world = World::open(welt).unwrap();
+    let mut reihe = survey(&world, Projection::new(32), (-64, 319), None)
+        .unwrap()
+        .tiles;
+    let je_thread = (reihe.len() / threads) as f64;
+    let stufen = (je_thread / 10.0).sqrt().log2().round().max(0.0) as u32;
+    let breite = (1 << stufen).min(streifenbreite(32)) as i32;
+    reihe.sort_by_key(|tile| (tile.x.div_euclid(breite), tile.y, tile.x));
+    reihe
+}
+
+/// Die feinen Stufen entstehen im Speicher, während die Basis rendert, und
+/// sind Byte für Byte, was `--pyramid` von der Platte baut: auf einem
+/// Thread; auf dreien, deren Stücke Eltern zerschneiden; über der
+/// gröbsten nativen Stufe; und für einen Ausschnitt in einem bestehenden
+/// Baum, an dessen Rand die Eltern von der Platte kommen. Mit zwei
+/// nativen Stufen ist die gröbste zu klein für Streifen, und nichts
+/// entsteht im Speicher, auch nicht über der feineren.
+#[test]
+fn feine_stufen_im_speicher_wie_von_der_platte() {
+    let welt = weite_welt();
+    // Drei Threads teilen die Reihe in Drittel (`verteile`), und am ersten
+    // Schnitt liegen Geschwister auf beiden Seiten. Das hängt nicht am
+    // Stehlen. Bei zweien fiele er auf den Rand eines Streifens.
+    let reihe = reihe_wie_gerendert(welt.path(), 3);
+    let schnitt = reihe.len() / 3;
+    assert_eq!(
+        reihe[schnitt - 1].parent(),
+        reihe[schnitt].parent(),
+        "der erste Schnitt zwischen drei Threads trennt keine Geschwister"
+    );
+    let ganz = ["--scale", "32", "--native-levels", "0"];
+    let nativ = ["--scale", "32", "--native-levels", "1"];
+    let zwei = ["--scale", "32", "--native-levels", "2"];
+    for (threads, args, stufen) in [(1, &ganz, 0), (3, &ganz, 0), (1, &nativ, 1), (1, &zwei, 2)] {
+        let fall = format!("{threads} Threads, {args:?}");
+        let out = tempdir();
+        let ausgabe = export_auf(threads, welt.path(), out.path(), args);
+        let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+        assert_eq!(
+            meldung.contains(IM_SPEICHER),
+            stufen < 2,
+            "{fall}: {meldung}"
+        );
+        let ab = max_zoom(out.path()) - stufen;
+        assert!(ab > 1, "{fall}: keine Pyramide zu prüfen");
+        // Je Stufe zählt jede Kachel einmal, ob aus dem Speicher oder von
+        // der Platte.
+        for z in 0..ab {
+            let zeile = format!(
+                "Zoom {z:>2}:     {} Kacheln\n",
+                kacheln(out.path(), z).len()
+            );
+            assert!(meldung.contains(&zeile), "{fall}: {zeile}{meldung}");
+        }
+        assert_eq!(
+            schnappschuss(out.path()),
+            von_der_platte(out.path(), ab),
+            "{fall}"
+        );
+    }
+
+    let out = tempdir();
+    gelungen(&export_auf(1, welt.path(), out.path(), &ganz));
+    let soll = schnappschuss(out.path());
+    let ausschnitt = [&ganz[..], &["--center", "48", "48", "--size", "1536"]].concat();
+    let ausgabe = export_auf(1, welt.path(), out.path(), &ausschnitt);
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(meldung.contains(IM_SPEICHER), "Ausschnitt: {meldung}");
+    assert_eq!(schnappschuss(out.path()), soll, "Ausschnitt");
+}
+
+/// Bricht ein Export mitten in der Basis ab, steht über ihr keine
+/// Elternkachel, der ein Kind fehlt: Was im Speicher entstand, ist schon
+/// die Kachel des ganzen Laufs. Ein `--resume` danach baut denselben Baum
+/// wie ein Lauf in einem Stück, die Eltern über neu gerenderten Kindern im
+/// Speicher, die über stehen gebliebenen von der Platte. Den Abbruch
+/// erzwingt ein Verzeichnis an der Stelle einer Basiskachel.
+#[test]
+fn abgebrochener_export_setzt_sich_fort_wie_in_einem_stueck() {
+    let welt = weite_welt();
+    let args = ["--scale", "32", "--native-levels", "0"];
+    let ganz = tempdir();
+    gelungen(&export_auf(1, welt.path(), ganz.path(), &args));
+    let soll = schnappschuss(ganz.path());
+    let basis = max_zoom(ganz.path());
+
+    // In der Reihenfolge, in der ein Thread die Basis in Streifen von vier
+    // Spalten rendert.
+    let mut reihe: Vec<TileId> = kacheln(ganz.path(), basis).into_keys().collect();
+    reihe.sort_by_key(|tile| (tile.x.div_euclid(4), tile.y, tile.x));
+    let out = tempdir();
+    let sperre = kachel_pfad(out.path(), basis, reihe[reihe.len() / 2]);
+    std::fs::create_dir_all(&sperre).unwrap();
+    let ausgabe = export_auf(1, welt.path(), out.path(), &args);
+    assert!(!ausgabe.status.success(), "kein Abbruch");
+    std::fs::remove_dir(&sperre).unwrap();
+
+    let mut eltern = 0;
+    for z in 0..basis {
+        for (tile, pfad) in kacheln(out.path(), z) {
+            let rel = format!("{z}/{}/{}.webp", tile.x, tile.y);
+            assert_eq!(
+                std::fs::read(&pfad).ok(),
+                soll.get(&rel).cloned(),
+                "{rel} ist nicht die Kachel des ganzen Laufs"
+            );
+            for kind in tile.children() {
+                let rel = format!("{}/{}/{}.webp", z + 1, kind.x, kind.y);
+                assert!(
+                    !soll.contains_key(&rel) || out.path().join(&rel).is_file(),
+                    "{rel} fehlt unter einer Elternkachel"
+                );
+            }
+            eltern += 1;
+        }
+    }
+    assert!(eltern > 0, "vor dem Abbruch entstand keine Elternkachel");
+
+    // Alles ist alt, bis auf die letzte Basiskachel vor dem Abbruch: Nur
+    // sie und die fehlenden rendert das Fortsetzen neu.
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for z in 0..=basis {
+        for pfad in kacheln(out.path(), z).values() {
+            setze_zeit(pfad, damals);
+        }
+    }
+    let zuletzt = reihe[..reihe.len() / 2]
+        .iter()
+        .rev()
+        .map(|tile| kachel_pfad(out.path(), basis, *tile))
+        .find(|pfad| pfad.is_file())
+        .expect("eine Basiskachel vor dem Abbruch");
+    setze_zeit(&zuletzt, damals + Duration::from_secs(600));
+    let fortsetzen = [&args[..], &["--resume"]].concat();
+    let ausgabe = export_auf(1, welt.path(), out.path(), &fortsetzen);
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(meldung.contains(IM_SPEICHER), "{meldung}");
+    assert!(
+        meldung.contains("vorhandene Kacheln übersprungen"),
+        "{meldung}"
+    );
+    assert_eq!(schnappschuss(out.path()), soll);
 }
 
 /// `--pyramid` baut aus den Basiskacheln auf der Platte dieselben

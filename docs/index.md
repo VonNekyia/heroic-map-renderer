@@ -95,6 +95,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0039](entscheidungen/0039-blockentities-aus-dem-spiel.md): Blockentities aus den Renderern des Spiels.
 - [0040](entscheidungen/0040-licht-selbst-ausbreiten.md): Licht selbst ausbreiten, je Chunk mit Rand.
 - [0041](entscheidungen/0041-dimensionstypen-aus-dem-spiel.md): Dimensionstypen aus einer Tabelle des Spiels, Datenwurzeln darüber.
+- [0042](entscheidungen/0042-feine-stufen-im-speicher.md): Die feinen Stufen der Pyramide entstehen im Export aus dem Speicher.
 
 ## Messungen
 

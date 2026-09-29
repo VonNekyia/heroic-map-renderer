@@ -43,6 +43,11 @@ npm run lint      # ESLint
 npm test          # Playwright, baut vorher und prüft den Build
 ```
 
+Ein Test läuft nur in Release: `eimer_zaehlen_wie_die_binaersuche` in
+`pyramid.rs` prüft jeden f32 von 0 bis 1, gut eine Milliarde Werte, in
+rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
+`#[cfg_attr(debug_assertions, ignore = …)]`.
+
 ## Welche Datei was prüft
 
 | Datei | Prüft |

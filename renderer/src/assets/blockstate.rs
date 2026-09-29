@@ -941,6 +941,15 @@ mod tests {
         assert!(!deckt(OSTEN, u[OSTEN], u[OSTEN - 1]));
         assert!(!deckt(OSTEN, u[OSTEN], 0));
         assert!(deckt(OSTEN, 1, 0));
+        // Nicht jedes Paar gilt auch umgekehrt: Die Fläche aus der positiven
+        // Richtung steht zuerst. Ein kurzer Kolbenkopf nach Süden schliesst
+        // mit einem ausgefahrenen Klebekolben nach Süden östlich daneben die
+        // Seite, in beide Richtungen.
+        let kopf = l("minecraft:piston_head[facing=south,short=true,type=normal]").formen;
+        let kolben = l("minecraft:sticky_piston[extended=true,facing=south]").formen;
+        assert!(deckt(OSTEN, kopf[OSTEN], kolben[OSTEN - 1]));
+        assert!(deckt(OSTEN - 1, kolben[OSTEN - 1], kopf[OSTEN]));
+        assert!(!LICHT.paare[2][kolben[OSTEN - 1] as usize * 36 + kopf[OSTEN] as usize]);
         let schnee = l("minecraft:snow[layers=1]");
         assert_eq!(
             (schnee.daempfung, schnee.formen[0], schnee.formen[1]),

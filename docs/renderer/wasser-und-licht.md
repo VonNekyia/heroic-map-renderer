@@ -6,6 +6,9 @@ code:
   - renderer/src/assets/blockstate.rs
   - renderer/src/assets/leuchten.txt
   - renderer/src/assets/Leuchten.java
+  - renderer/src/assets/licht.txt
+  - renderer/src/assets/Licht.java
+  - renderer/src/render/licht.rs
   - renderer/src/render/metatile.rs
   - renderer/src/render/rasterizer.rs
   - renderer/src/render/sprites.rs
@@ -128,6 +131,45 @@ geflutete Meeresgurke 6 bis 15, je nach Anzahl. Mit `emissiveRendering`,
 beim Magmablock etwa, ist der Block voll hell. Wie hell ein Block leuchtet,
 steht in `renderer/src/assets/leuchten.txt`, siehe
 [Erzeugte Tabellen](../entwicklung/tabellen.md).
+
+## Licht ausbreiten
+
+Wie hell jede Zelle ist, rechnet der Renderer selbst aus, wie
+`SkyLightEngine` und `BlockLightEngine` in 26.2, in
+`renderer/src/render/licht.rs`. Das gespeicherte Licht der Welt liest er
+nicht, es fehlt in vielen Chunks, siehe
+[0040](../entscheidungen/0040-licht-selbst-ausbreiten.md). Die Regeln,
+belegt per javap:
+
+- **Schritte.** Jeder Schritt zur Nachbarzelle kostet eine Stufe
+  (`LightEngine.propagateIncrease`: `max(1, getLightDampening)`). In einen
+  Block, der um 15 dämpft, Stein etwa, kommt kein Licht; Luft, Glas,
+  Wasser und Laub kosten gleich viel.
+- **Kanten.** Eine Kante schliesst, wenn die Flächen der beiden Blöcke an
+  ihr zusammen die ganze Seite decken (`LightEngine.shapeOccludes`): die
+  Unterseite einer unteren Platte allein, eine obere neben einer unteren
+  Platte zusammen, zwei untere nebeneinander nicht.
+- **Himmel.** In jeder Spalte ist jede Zelle 15, die über dem obersten
+  Block liegt, der dämpft oder dessen Kante nach oben schliesst
+  (`ChunkSkyLightSources`); von dort breitet es sich aus. Unter Wasser
+  und unter Laub verliert es so eine Stufe je Block, unter einem Überhang
+  eine je Block Abstand zur offenen Spalte. Eine geschlossene Höhle bleibt
+  bei 0.
+- **Block.** Was leuchtet, beginnt mit seiner Stufe aus `leuchten.txt`,
+  auch ein dichter Block wie die Seelaterne oder der Magmablock.
+- **Rand.** Gerechnet wird je Chunk in einem Fenster, das 14 Blöcke in
+  die Nachbarn reicht, so weit wie Licht kommt. Ein Chunk, der fehlt oder
+  nicht fertig ist, lässt kein Licht herein. In der Höhe reicht es wie im
+  Spiel eine Section unter und über die Sections mit Blöcken
+  (`LevelLightEngine.getMinLightSection`).
+
+Welche Blöcke wie stark dämpfen und mit welchen Flächen sie Kanten
+schliessen, steht in `renderer/src/assets/licht.txt`, siehe
+[Erzeugte Tabellen](../entwicklung/tabellen.md). Gerechnet wird skalar,
+mit einem Eimer je Stufe von 15 abwärts, wenn ein Chunk zum ersten Mal
+Licht braucht; es bleibt im Cache des Threads, solange der Chunk dort
+liegt. Gegen einen Lauf von Vanilla 26.2 stimmt jede Zelle, siehe
+[Tests](../entwicklung/tests.md), „Fixtures“.
 
 ## Welches Licht ein Block bekommt
 

@@ -4,12 +4,13 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::Face;
-use crate::assets::blockstate::{self, DUNKELT, Leuchten, SICHT};
+use crate::assets::blockstate::{self, DUNKELT, Leuchten, Lichtweg, SICHT};
 use crate::assets::colors::Resolver;
 use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
 use crate::world::{Chunk, REGION, Region, Section, World};
 
+use super::licht::{Ausbreitung, ChunkLicht, Eingabe};
 use super::rasterizer::{FULL_LIGHT, Light, NO_AO, ao_factor, darken, over, pack, tinted, with_ao};
 use super::sprites::{Family, Rows, TINT_BLOCK, TINT_WATER, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
@@ -794,6 +795,10 @@ pub struct ChunkCache<'a> {
     biome_layers: Vec<BiomeLayer>,
     biome_index: HashMap<(i32, i32, i32), usize>,
     biome_last: usize,
+    /// Der Arbeitsplatz der Ausbreitung, siehe [`ChunkCache::licht_slot`].
+    ausbreitung: Ausbreitung,
+    /// Die Dimension hat Himmelslicht (`has_skylight`).
+    himmel: bool,
 }
 
 /// Chunk und Höhe, dazu das Biom je Block der Schicht.
@@ -824,6 +829,9 @@ struct Loaded {
     /// Je Section die Kandidaten, sobald einmal berechnet — dafür müssen
     /// die Nachbarchunks da sein, deshalb nicht beim Laden.
     exposed: Vec<Option<Box<Exposed>>>,
+    /// Das ausgebreitete Licht, sobald einmal berechnet, siehe
+    /// [`ChunkCache::licht_slot`]: Dafür müssen die Nachbarn da sein.
+    licht: Option<Box<ChunkLicht>>,
     /// Je Section und Paletteneintrag der Biome die Nummer des Bioms in der
     /// [`BiomeTable`](super::BiomeTable).
     biomes: Vec<Vec<u16>>,
@@ -855,7 +863,15 @@ const FOREIGN: usize = 8;
 /// ohne Familie.
 const DARK: usize = 9;
 const VIEW: usize = 10;
-const FLAGS: usize = 11;
+/// Dämpft das Licht ([`Lichtweg::daempfung`] nicht 0), [`DICHT`] lässt
+/// keines hinein (15), auch für Blöcke ohne Familie: für die Ausbreitung,
+/// siehe [`super::licht`].
+const DAEMPFT: usize = 11;
+const DICHT: usize = 12;
+/// Zeichnet das Spiel voll hell ([`Leuchten::Voll`]), auch als Nachbar in
+/// der weichen Beleuchtung.
+const VOLL: usize = 13;
+const FLAGS: usize = 14;
 /// Je Flüssigkeit, in der Reihenfolge von [`Masks::up`]: das Bit "enthält
 /// sie" und das Bit "nur sie".
 const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
@@ -872,6 +888,11 @@ struct Masks {
     up: [[u16; 256]; 2],
     /// Ragt irgendetwas in Nachbarwürfel?
     any_foreign: bool,
+    /// Für die Ausbreitung: die Blöcke mit einer Fläche aus
+    /// [`Lichtweg::formen`] und die, die leuchten, mit ihrer Stufe. Index
+    /// `y << 8 | z << 4 | x`.
+    formen: Vec<(u16, [u8; 6])>,
+    quellen: Vec<(u16, u8)>,
 }
 
 /// Eine Randspalte für [`ChunkCache::expose`]: deckend, dazu je
@@ -913,35 +934,56 @@ fn flags(family: &Family) -> u16 {
 
 impl Masks {
     /// `None`, wenn in der Section weder eine Familie steht noch ein Block,
-    /// der abdunkelt oder die Sicht nimmt. `schatten` hat je Paletteneintrag
-    /// die Bits aus [`blockstate::schatten`].
+    /// der abdunkelt, die Sicht nimmt, das Licht aufhält oder leuchtet.
+    /// Je Paletteneintrag hat `schatten` die Bits aus
+    /// [`blockstate::schatten`], `wege` den [`Lichtweg`] und `leuchten` das
+    /// [`Leuchten`].
     fn of(
         section: &Section,
         families: &[Option<u32>],
-        schatten: &[u8],
+        (schatten, wege, leuchten): (&[u8], &[Lichtweg], &[Leuchten]),
         sprites: &SpriteSet,
     ) -> Option<Box<Masks>> {
         let bit = |set: bool, flag: usize| (set as u16) << flag;
-        let flags: Vec<u16> = families
-            .iter()
-            .zip(schatten)
-            .map(|(family, &s)| {
-                family.map_or(0, |index| flags(sprites.family(index)))
-                    | bit(s & DUNKELT != 0, DARK)
-                    | bit(s & SICHT != 0, VIEW)
+        let flags: Vec<u16> = (0..families.len())
+            .map(|p| {
+                families[p].map_or(0, |index| flags(sprites.family(index)))
+                    | bit(schatten[p] & DUNKELT != 0, DARK)
+                    | bit(schatten[p] & SICHT != 0, VIEW)
+                    | bit(wege[p].daempfung != 0, DAEMPFT)
+                    | bit(wege[p].daempfung == 15, DICHT)
+                    | bit(matches!(leuchten[p], Leuchten::Voll(_)), VOLL)
             })
             .collect();
+        // Was die Ausbreitung Block für Block braucht: eine Fläche, eine
+        // Quelle.
+        let einzeln: Vec<bool> = (0..families.len())
+            .map(|p| wege[p].formen != [0; 6] || leuchten[p].stufe() > 0)
+            .collect();
         let union = flags.iter().fold(0, |acc, f| acc | f);
-        if union == 0 {
+        if union == 0 && !einzeln.contains(&true) {
             return None;
         }
         let mut m = Box::new(Masks {
             bits: [[0; 256]; FLAGS],
             up: [[0; 256]; 2],
             any_foreign: false,
+            formen: Vec::new(),
+            quellen: Vec::new(),
         });
+        let mut nimm = |i: usize, p: usize| {
+            if wege[p].formen != [0; 6] {
+                m.formen.push((i as u16, wege[p].formen));
+            }
+            if leuchten[p].stufe() > 0 {
+                m.quellen.push((i as u16, leuchten[p].stufe()));
+            }
+        };
         let blocks = section.blocks();
         if blocks.is_uniform() {
+            if einzeln.first() == Some(&true) {
+                (0..4096).for_each(|i| nimm(i, 0));
+            }
             let flag = flags.first().copied().unwrap_or(0);
             for (b, mask) in m.bits.iter_mut().enumerate() {
                 if flag >> b & 1 != 0 {
@@ -973,6 +1015,9 @@ impl Masks {
                 if let Some(maske) = klasse.get(index).and_then(|&k| je_klasse.get_mut(k)) {
                     maske[i & 255] |= 1 << (i >> 8);
                 }
+                if einzeln.get(index) == Some(&true) {
+                    nimm(i, index);
+                }
             });
             for (&flag, maske) in klassen.iter().zip(&je_klasse) {
                 for (b, bits) in m.bits.iter_mut().enumerate() {
@@ -984,9 +1029,11 @@ impl Masks {
                 }
             }
         }
-        if [PRESENT, DARK, VIEW]
+        if [PRESENT, DARK, VIEW, DAEMPFT, DICHT, VOLL]
             .iter()
             .all(|&e| m.bits[e].iter().all(|&w| w == 0))
+            && m.formen.is_empty()
+            && m.quellen.is_empty()
         {
             return None;
         }
@@ -1009,7 +1056,7 @@ impl Loaded {
                     .collect()
             })
             .collect();
-        let leuchten = chunk
+        let leuchten: Vec<Vec<Leuchten>> = chunk
             .sections()
             .iter()
             .map(|section| {
@@ -1025,14 +1072,12 @@ impl Loaded {
             .sections()
             .iter()
             .zip(&families)
-            .map(|(section, families)| {
-                let schatten: Vec<u8> = section
-                    .blocks()
-                    .palette()
-                    .iter()
-                    .map(blockstate::schatten)
-                    .collect();
-                Masks::of(section, families, &schatten, sprites)
+            .zip(&leuchten)
+            .map(|((section, families), leuchten)| {
+                let palette = section.blocks().palette();
+                let schatten: Vec<u8> = palette.iter().map(blockstate::schatten).collect();
+                let wege: Vec<Lichtweg> = palette.iter().map(blockstate::lichtweg).collect();
+                Masks::of(section, families, (&schatten, &wege, leuchten), sprites)
             })
             .collect();
         // Flüssigkeit über dem obersten Block einer Section steht in der
@@ -1091,9 +1136,32 @@ impl Loaded {
             masks,
             oberstes_wasser,
             exposed,
+            licht: None,
             biomes,
             varianten,
         }
+    }
+}
+
+impl Loaded {
+    /// Was die Ausbreitung aus diesem Chunk liest: die Sections mit
+    /// Bitmasken, von unten nach oben.
+    fn eingabe(&self) -> Vec<Eingabe<'_>> {
+        self.chunk
+            .sections()
+            .iter()
+            .zip(&self.masks)
+            .filter_map(|(section, m)| {
+                let m = m.as_deref()?;
+                Some(Eingabe {
+                    y: section.y,
+                    dicht: &m.bits[DICHT],
+                    daempft: &m.bits[DAEMPFT],
+                    formen: &m.formen,
+                    quellen: &m.quellen,
+                })
+            })
+            .collect()
     }
 }
 
@@ -1121,6 +1189,8 @@ impl<'a> ChunkCache<'a> {
             biome_layers: Vec::new(),
             biome_index: HashMap::new(),
             biome_last: usize::MAX,
+            ausbreitung: Ausbreitung::default(),
+            himmel: true,
         }
     }
 
@@ -1193,6 +1263,49 @@ impl<'a> ChunkCache<'a> {
         let i = self.slots.len() - 1;
         self.index.insert(key, i);
         Ok(i)
+    }
+
+    /// Der Slot des Chunks, mit seinem ausgebreiteten Licht, beim ersten Mal
+    /// gerechnet; dafür lädt er die acht Nachbarn. `None`, wenn der Chunk
+    /// fehlt oder nicht fertig ist.
+    /// Siehe docs/renderer/wasser-und-licht.md, „Licht ausbreiten“.
+    fn licht_slot(&mut self, key: (i32, i32)) -> Result<Option<usize>> {
+        let i = self.slot(key)?;
+        match &self.slots[i].loaded {
+            None => return Ok(None),
+            Some(loaded) if loaded.licht.is_some() => return Ok(Some(i)),
+            Some(_) => {}
+        }
+        let mut nachbarn = [0; 9];
+        for (k, n) in nachbarn.iter_mut().enumerate() {
+            let (dx, dz) = (k as i32 % 3 - 1, k as i32 / 3 - 1);
+            *n = self.slot((key.0 + dx, key.1 + dz))?;
+        }
+        let eingaben: Vec<Option<Vec<Eingabe>>> = nachbarn
+            .iter()
+            .map(|&n| self.slots[n].loaded.as_ref().map(Loaded::eingabe))
+            .collect();
+        let chunks = std::array::from_fn(|k| eingaben[k].as_deref());
+        let licht = self.ausbreitung.chunk(&chunks, self.himmel);
+        if let Some(loaded) = self.slots[i].loaded.as_mut() {
+            loaded.licht = Some(Box::new(licht));
+        }
+        self.last = i;
+        Ok(Some(i))
+    }
+
+    /// Himmels- und Blocklicht der Zelle an `(x, y, z)`, so wie das Spiel
+    /// es ausbreitet und speichert. In einem Chunk, der fehlt, keines.
+    pub fn licht_at(&mut self, [x, y, z]: [i32; 3]) -> Result<(u8, u8)> {
+        let Some(i) = self.licht_slot((x >> 4, z >> 4))? else {
+            return Ok((0, 0));
+        };
+        let licht = self.slots[i]
+            .loaded
+            .as_ref()
+            .and_then(|l| l.licht.as_deref());
+        let wert = licht.map_or(0, |l| l.at((x & 15) as usize, y, (z & 15) as usize));
+        Ok((wert >> 4, wert & 15))
     }
 
     /// Randspalten einer Nachbarsection ([`Rand`]) je Spalte am Rand `x = 0`

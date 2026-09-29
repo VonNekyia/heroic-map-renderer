@@ -17,8 +17,9 @@ und Biomdaten kommen: [Assets und Biomdaten](../benutzung/assets.md).
 ## Was im Repository liegt
 
 - Kleine Fixtures für die Tests unter `renderer/tests/fixtures/`: eine
-  Region mit 2×2 Chunks, ein synthetischer Assetbaum, Biome und das
-  Goldbild, siehe [Tests](tests.md), „Fixtures“.
+  Region mit 2×2 Chunks, 4×4 Chunks mit dem Licht aus einem Lauf von
+  Vanilla, ein synthetischer Assetbaum, Biome und das Goldbild, siehe
+  [Tests](tests.md), „Fixtures“.
 - Ein kleiner Kachelbaum unter `web/public/tiles-demo/`, Fixture des
   Smoke-Tests, siehe [Frontend](../frontend.md).
 - Die aus dem Spiel erzeugten Tabellen unter `renderer/src/assets/`, siehe

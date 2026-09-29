@@ -59,6 +59,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `rasterizer.rs` | ein gebackenes Modell zu einem Sprite rastern, Helligkeit, AO-Karte, siehe [Rastern ohne Nähte](../renderer/naehte.md) |
 | `sprites.rs` | die Sprite-Tabelle: Familien, Fassungen, Varianten, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md) |
 | `metatile.rs` | eine Kachel rendern: Chunk-Cache, Bitmasken, Kandidaten, Deckungsmaske, Licht, weiche Beleuchtung, Biom je Block, Blit, siehe [Der Weg einer Kachel](../renderer/renderpfad.md) |
+| `licht.rs` | Himmels- und Blocklicht ausbreiten wie das Spiel, siehe [Wasser und Licht](../renderer/wasser-und-licht.md), „Licht ausbreiten“ |
 | `tint.rs` | die Farben der Biome und ihre Mischung über Biomgrenzen, siehe [Biomfarben](../renderer/biomfarben.md) |
 | `tiles.rs` | Kachelraster, Vorlauf (`survey`), WebP (`encode_webp`) |
 | `pyramid.rs` | Zoomstufen verkleinern, `map.json`, Kennung der Welt |

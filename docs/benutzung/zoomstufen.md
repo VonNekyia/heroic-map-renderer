@@ -96,6 +96,13 @@ Das prüfen `zusammensetzen_wie_ueber_die_pixel` in `pyramid.rs` und
 Export ab und setzt ihn fort. Warum so:
 [0042](../entscheidungen/0042-feine-stufen-im-speicher.md).
 
+Am Stand der Testwelt bleiben so nach der Basis 0,2 statt 1,4 s Pyramide,
+die Basis braucht dafür 0,6 bis 0,7 s länger, denn sie kodiert und schreibt
+die Eltern. Ein Export ohne native Stufen ist damit 4 bis 9 % kürzer; mit
+drei nativen Stufen bleibt über ihnen kaum Pyramide, und es ändert sich
+nichts Messbares. Gemessen in
+[2026-09-29, Pyramide von der Platte und im Speicher](../messungen/2026-09-29-pyramide-platte-und-speicher.md).
+
 ## Von der Platte
 
 Was nicht im Speicher entsteht, setzt die Pyramide aus den Dateien der
@@ -119,6 +126,10 @@ Kinder zusammen, am Ende eines Exports in `setze_zusammen`, mit
 - **Schreiben** über `lege_ab`, wie jede Kachel, auch die der Basis: erst
   die Datei; nur wenn ihr Ordner fehlt, legt es ihn an und schreibt noch
   einmal.
+
+So baut `--pyramid` von Grund auf die 1857 Elternkacheln am Stand der
+Testwelt in 1,31 statt 1,72 s, Byte für Byte gleich, gemessen in
+[2026-09-29, Pyramide von der Platte und im Speicher](../messungen/2026-09-29-pyramide-platte-und-speicher.md).
 
 ## Nummerierung
 

@@ -118,8 +118,20 @@ Lichts "dämpft" und "dicht" und für beides "voll hell" (`Masks` in
 `metatile.rs`, die Ebenen `PRESENT` bis `VOLL`). Diese fünf gelten auch für
 Blöcke ohne Familie. Die Ausbreitung nimmt ausserdem je Section zwei Listen
 mit: die Blöcke mit einer Fläche, die Licht an einer Seite aufhält
-(`formen`), und die, die leuchten, mit ihrer Stufe (`quellen`). Verdeckt ist ein Block, wenn die Nachbarn
-nach +x und +z deckend sind und der nach +y seinen Boden deckt, siehe
+(`formen`), und die, die leuchten, mit ihrer Stufe (`quellen`).
+
+Die Masken entstehen in `Masks::of` über Klassen: Die Einträge der Palette
+fallen in wenige Klassen gleicher Bits, und die Schleife über die 4096
+Blöcke setzt je Block nur ein Bit in der Maske seiner Klasse. Einträge mit
+einer Fläche oder einer Quelle tragen dafür im Schlüssel ihrer Klasse ein
+Bit mehr, `EINZELN`. Nach der Schleife liest `Masks::of` nur die gesetzten
+Bits dieser Klassen und dort den Eintrag der Palette, für `formen` und
+`quellen`. So kommt auch ein Block ohne Familie und ohne jedes andere Bit
+zu seiner Klasse, etwa der unsichtbare Lichtblock. Sammelte die Schleife
+die Listen selbst, kostete `Masks::of` gut das Doppelte, siehe #53.
+
+Verdeckt ist ein Block, wenn die Nachbarn nach +x und +z deckend sind und
+der nach +y seinen Boden deckt, siehe
 [Sprites und Deckung](sprites-und-deckung.md), „Verdeckte Würfel“, und das
 ist je Spalte eine Handvoll Wortoperationen für sechzehn Blöcke auf einmal:
 nach +y ein Shift, an den Rändern kommt das Bit aus der Section darüber oder

@@ -884,6 +884,11 @@ const DICHT: usize = 12;
 /// der weichen Beleuchtung.
 const VOLL: usize = 13;
 const FLAGS: usize = 14;
+/// Bit im Schlüssel einer Klasse in [`Masks::of`], über den Ebenen: ein
+/// Eintrag mit einer Fläche aus [`Lichtweg::formen`] oder einer Quelle.
+/// Seine Blöcke liest die Ausbreitung aus der Maske seiner Klasse.
+const EINZELN: usize = FLAGS;
+const _: () = assert!(EINZELN < u16::BITS as usize);
 /// Je Flüssigkeit, in der Reihenfolge von [`Masks::up`]: das Bit "enthält
 /// sie" und das Bit "nur sie".
 const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
@@ -983,15 +988,13 @@ impl Masks {
                     | bit(wege[p].daempfung != 0, DAEMPFT)
                     | bit(wege[p].daempfung == 15, DICHT)
                     | bit(matches!(leuchten[p], Leuchten::Voll(_)), VOLL)
+                    // Was die Ausbreitung Block für Block braucht: eine
+                    // Fläche, eine Quelle.
+                    | bit(wege[p].formen != [0; 6] || leuchten[p].stufe() > 0, EINZELN)
             })
             .collect();
-        // Was die Ausbreitung Block für Block braucht: eine Fläche, eine
-        // Quelle.
-        let einzeln: Vec<bool> = (0..families.len())
-            .map(|p| wege[p].formen != [0; 6] || leuchten[p].stufe() > 0)
-            .collect();
         let union = flags.iter().fold(0, |acc, f| acc | f);
-        if union == 0 && !einzeln.contains(&true) {
+        if union == 0 {
             return None;
         }
         let mut m = Box::new(Masks {
@@ -1001,20 +1004,21 @@ impl Masks {
             formen: Vec::new(),
             quellen: Vec::new(),
         });
+        let (mut formen, mut quellen) = (Vec::new(), Vec::new());
         let mut nimm = |i: usize, p: usize| {
             if wege[p].formen != [0; 6] {
-                m.formen.push((i as u16, wege[p].formen));
+                formen.push((i as u16, wege[p].formen));
             }
             if leuchten[p].stufe() > 0 {
-                m.quellen.push((i as u16, leuchten[p].stufe()));
+                quellen.push((i as u16, leuchten[p].stufe()));
             }
         };
         let blocks = section.blocks();
         if blocks.is_uniform() {
-            if einzeln.first() == Some(&true) {
+            let flag = flags.first().copied().unwrap_or(0);
+            if flag >> EINZELN & 1 != 0 {
                 (0..4096).for_each(|i| nimm(i, 0));
             }
-            let flag = flags.first().copied().unwrap_or(0);
             for (b, mask) in m.bits.iter_mut().enumerate() {
                 if flag >> b & 1 != 0 {
                     *mask = [u16::MAX; 256];
@@ -1024,7 +1028,9 @@ impl Masks {
             // Die Familien einer Section fallen in wenige Klassen gleicher
             // Bits: Luft, deckender Stein, Wasser, eine Blume. Je Block
             // genügt ein OR in die Maske seiner Klasse; die Masken je
-            // Eigenschaft setzen sich danach aus den Klassen zusammen.
+            // Eigenschaft setzen sich danach aus den Klassen zusammen. Die
+            // Blöcke der Klassen mit EINZELN liest die Ausbreitung danach
+            // Bit für Bit aus deren Masken, mit ihrem Paletteneintrag.
             let mut klassen: Vec<u16> = Vec::new();
             let klasse: Vec<usize> = flags
                 .iter()
@@ -1045,9 +1051,6 @@ impl Masks {
                 if let Some(maske) = klasse.get(index).and_then(|&k| je_klasse.get_mut(k)) {
                     maske[i & 255] |= 1 << (i >> 8);
                 }
-                if einzeln.get(index) == Some(&true) {
-                    nimm(i, index);
-                }
             });
             for (&flag, maske) in klassen.iter().zip(&je_klasse) {
                 for (b, bits) in m.bits.iter_mut().enumerate() {
@@ -1057,8 +1060,19 @@ impl Masks {
                         }
                     }
                 }
+                if flag >> EINZELN & 1 != 0 {
+                    for (col, &spalte) in maske.iter().enumerate() {
+                        let mut rest = spalte;
+                        while rest != 0 {
+                            let i = (rest.trailing_zeros() as usize) << 8 | col;
+                            nimm(i, blocks.index(i));
+                            rest &= rest - 1;
+                        }
+                    }
+                }
             }
         }
+        (m.formen, m.quellen) = (formen, quellen);
         if [PRESENT, DARK, VIEW, DAEMPFT, DICHT, VOLL]
             .iter()
             .all(|&e| m.bits[e].iter().all(|&w| w == 0))

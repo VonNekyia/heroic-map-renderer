@@ -13,11 +13,12 @@ code:
 Mit dem Licht aus der Ausbreitung (#34) schafft die Basis auf 24 Threads
 23 bis 40 % weniger Kacheln je Sekunde. Ein ganzer Lauf mit drei nativen
 Stufen und Pyramide braucht 51 bis 64 % länger. Gerechnet waren für die
-Basis 27 % mehr Zeit, gemessen sind es 30 bis 65 %. Den grössten Teil
+Basis 27 % mehr Zeit, gemessen sind es 30 bis 66 %. Den grössten Teil
 tragen die nativen Stufen: Jede breitet das Licht derselben Chunks noch
 einmal aus und braucht damit 1,6- bis 2-mal so lange. Auf einem Thread
-kostet eine Kachel 22 % mehr. Die Speicherspitze steigt um 0,5 bis
-0,65 GiB, die Kacheln wachsen um 3 bis 8 %.
+kostet eine Kachel 22 % mehr. Auf 24 Threads steigt die Speicherspitze um
+0,4 bis 0,8 GiB, im Median um 0,5 bis 0,65 GiB; die Kacheln wachsen um
+3 bis 8 %.
 
 ## Aufbau
 
@@ -166,5 +167,7 @@ nicht:
   37 % weniger Kacheln je Sekunde, braucht die Basis 51 bis 62 min und der
   Lauf rund 78 bis 89 min, 12 bis 23 min mehr.
 - **Mit drei nativen Stufen:** Dort gelten die 51 bis 64 % des ganzen
-  Laufs. Entscheidung:
+  Laufs.
+
+Entscheidung:
 [0040](../entscheidungen/0040-licht-selbst-ausbreiten.md).

@@ -258,8 +258,8 @@ scale 4, samt dem Viertel Spielraum aus `CACHE_CHUNKS`; mit Karte dazu
 sechzehn Zeichenlisten. Gemessen vor dem Licht: Dazu kommen jetzt der
 zweite Ring am Rand des Streifens, siehe „Streifen und Cache je Thread“,
 und je Chunk mit Licht bis 4 KB je Section, in der nicht jede Zelle
-dasselbe Licht hat. Auf der Testwelt liegt die Spitze damit 0,5 bis
-0,65 GiB höher, siehe [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md).
+dasselbe Licht hat. Auf der Testwelt liegt die Spitze damit auf 24 Threads
+0,4 bis 0,8 GiB höher, im Median 0,5 bis 0,65 GiB, siehe [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md).
 
 Die Sprite-Tabelle teilen sich alle Threads. Fast jedes Sprite hat eine
 AO-Karte, 4 Bytes je Pixel wie das Bild, siehe

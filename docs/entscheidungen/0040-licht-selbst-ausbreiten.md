@@ -68,8 +68,8 @@ Näherung“.
   Streifen. Nur nach einer Messung, so festgelegt.
 - **Ein Fenster, das dem Streifen folgt:** gerechnet rund 11 % statt
   27 % mehr für die Basis (gemessen kostet der gewählte Weg die Basis 30
-  bis 65 % mehr Zeit, siehe „Folgen“), hängt aber an der Zeilenfolge des Streifens, am
-  Stehlen mitten im Streifen, an `--render` in Stücken und an schmalen
+  bis 66 % mehr Zeit, siehe „Folgen“), hängt aber an der Zeilenfolge des
+  Streifens, am Stehlen mitten im Streifen, an `--render` in Stücken und an schmalen
   Streifen kleiner Ausschnitte. Es ersetzt nur den Bau des Fensters und
   kann später folgen, wenn die Minuten zählen.
 - **Bitparallel über Spaltenmasken:** gemessen langsamer als skalar,
@@ -96,12 +96,15 @@ Die Zahlen hat der Researcher im Prototyp gemessen und gerechnet, siehe
 - Es kostet mehr als gerechnet, gemessen in
   [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md):
   - Auf 24 Threads schafft die Basis der Testwelt 23 bis 40 % weniger
-    Kacheln je Sekunde, gerechnet waren 27 % mehr Zeit.
+    Kacheln je Sekunde, braucht also 30 bis 66 % mehr Zeit; gerechnet
+    waren 27 %.
   - Ein ganzer Lauf mit drei nativen Stufen braucht 51 bis 64 % länger,
     denn jede native Stufe breitet das Licht derselben Chunks noch einmal
     aus.
   - Auf einem Thread kostet eine Kachel 22 % mehr, die Speicherspitze
-    liegt 0,5 bis 0,65 GiB höher.
+    steigt von 86 auf 104 bis 109 MB.
+  - Auf 24 Threads liegt die Speicherspitze 0,4 bis 0,8 GiB höher, im
+    Median 0,5 bis 0,65 GiB.
   - Ein Vorsieben der Quellen, die den Chunk nicht erreichen, bringt nichts
     Messbares.
 - Das Licht eines Chunks braucht seine acht Nachbarn: Der Cache lädt am

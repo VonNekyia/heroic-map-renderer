@@ -21,8 +21,8 @@ use terranova_render::render::pyramid;
 use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Gpu, MapInfo, Projection, Reach, ScreenRect,
-    SpriteSet, Survey, TILE, TileId, corner_tiles, draw_list, encode_webp, render, render_area,
-    render_area_with, streifenbreite, survey, world_box,
+    SpriteSet, Survey, TILE, TileId, corner_tiles, decode_webp, draw_list, encode_webp, render,
+    render_area, render_area_with, streifenbreite, survey, world_box,
 };
 use terranova_render::world::biomzoom::{obfuscate_seed, zoom};
 use terranova_render::world::{BlockState, Blockdaten, REGION, World};
@@ -1739,9 +1739,8 @@ fn setze_zusammen(
                 if weg.contains(&(z + 1, kind)) {
                     continue;
                 }
-                let pfad = tile_path(dir, z + 1, kind);
-                if pfad.is_file() {
-                    teile.push((kind, lies(&pfad)?));
+                if let Some(bild) = lies_falls_da(&tile_path(dir, z + 1, kind))? {
+                    teile.push((kind, bild));
                 }
             }
             if teile.is_empty() {
@@ -2431,12 +2430,17 @@ fn schreibe(dir: &Path, z: u32, tile: TileId, image: &RgbaImage) -> Result<usize
 }
 
 /// Legt kodierte Bytes als Kachel ab, mit dieser Zeit als letzter Änderung
-/// statt der Uhr.
+/// statt der Uhr. Den Ordner legt es erst an, wenn es ihn nicht gibt.
 fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<()> {
-    if let Some(parent) = path.parent() {
+    let mut geschrieben = tausche(path, data, zeit, false);
+    if let Err(e) = &geschrieben
+        && e.kind() == std::io::ErrorKind::NotFound
+        && let Some(parent) = path.parent()
+    {
         std::fs::create_dir_all(parent).with_context(|| format!("{} anlegen", parent.display()))?;
+        geschrieben = tausche(path, data, zeit, false);
     }
-    tausche(path, data, zeit, false).with_context(|| format!("{} schreiben", path.display()))
+    geschrieben.with_context(|| format!("{} schreiben", path.display()))
 }
 
 /// Ersetzt eine Datei, ohne dass jemand eine halbe sieht: erst eine eigene
@@ -2493,18 +2497,17 @@ fn frische(zeiten: &BTreeMap<TileId, SystemTime>, gelistet: SystemTime) -> BTree
         .collect()
 }
 
-fn lies(path: &Path) -> Result<RgbaImage> {
-    Ok(image::open(path)
-        .with_context(|| format!("{} lesen", path.display()))?
-        .into_rgba8())
-}
-
-/// Wie [`lies`], `None`, wenn es die Datei nicht gibt.
+/// Liest eine Kachel, `None`, wenn es die Datei nicht gibt.
 fn lies_falls_da(path: &Path) -> Result<Option<RgbaImage>> {
-    match lies(path) {
-        Err(_) if matches!(std::fs::exists(path), Ok(false)) => Ok(None),
-        bild => bild.map(Some),
-    }
+    let gelesen = match std::fs::read(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        gelesen => gelesen,
+    };
+    let bild = gelesen
+        .map_err(anyhow::Error::from)
+        .and_then(|daten| decode_webp(&daten, (TILE, TILE)))
+        .with_context(|| format!("{} lesen", path.display()))?;
+    Ok(Some(bild))
 }
 
 /// Entfernt die Kachel, wenn sie noch die Zeit aus der Liste trägt. Hat sie
@@ -3091,6 +3094,25 @@ mod tests {
         assert!(lies_falls_da(&pfad).unwrap().is_none());
         std::fs::write(&pfad, b"RIFF").unwrap();
         assert!(lies_falls_da(&pfad).is_err());
+    }
+
+    /// Eine Datei, die sich lesen lässt, aber keine Kachel ist, ist kaputt:
+    /// Die Pyramide setzt nur Kinder mit der Kantenlänge einer Kachel
+    /// zusammen.
+    #[test]
+    fn bild_anderer_groesse_ist_kaputt() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("0.webp");
+        let bild = RgbaImage::from_pixel(TILE, TILE / 2, Rgba([1, 2, 3, 255]));
+        std::fs::write(&pfad, encode_webp(&bild).unwrap()).unwrap();
+        let fehler = lies_falls_da(&pfad).unwrap_err();
+        assert!(
+            format!("{fehler:#}").contains("256 × 128 Pixel"),
+            "{fehler:#}"
+        );
+        let bild = RgbaImage::from_pixel(TILE, TILE, Rgba([1, 2, 3, 255]));
+        std::fs::write(&pfad, encode_webp(&bild).unwrap()).unwrap();
+        assert_eq!(lies_falls_da(&pfad).unwrap(), Some(bild));
     }
 
     /// Eine grobe Kachel, die ein Ausschnitt nur anschneidet, gehört zu

@@ -176,18 +176,15 @@ sein eigenes Licht, siehe [Wasser und Licht](wasser-und-licht.md),
 „Welches Licht ein Block bekommt“.
 
 Gegenüber einem Raster, das die Farben gleich trägt, liegt ein Kanal
-höchstens um 2 daneben, meist höchstens um 1. Das Raster rundet an jeder
-Schicht, die Karte einmal je Pixel; wo eine Wasseroberfläche über mehreren
-Schichten liegt, summiert sich das. Gemessen mit
-`toenungskarte_an_allen_vanilla_bloecken` in `sprites.rs`: alle Blöcke aus
-`blocks.txt`, die gefärbt oder geflutet sein können, je Block die ersten und
-die letzten zwölf Zustände, geflutete mit Wasser, bei scale 4, 8, 16 und 32,
-mit drei Paaren aus Block- und Wasserfarbe. Von 65 952 Rastern mit Karte
-liegen 37 um 2 daneben, alle geflutet, etwa Korallenfächer, Amethyst,
-Tropfblatt, Mangrovenwurzeln und Falltüren, der Rest höchstens um 1. 186
-Raster fehlen im Vergleich, weil ihr Modell über den Würfel ragt. Ohne das
-Leuchten im Schlüssel lägen Leuchtflechte um 4, Sculk-Sensor um 5 und
-kalibrierter Sculk-Sensor um 7 daneben. Mit den Fixtures prüft das
+höchstens um 1 daneben: Das Raster rundet an jeder Schicht, die Karte
+einmal je Pixel. Gemessen mit `toenungskarte_an_allen_vanilla_bloecken` in
+`sprites.rs`, beide ohne Licht: alle Blöcke aus `blocks.txt`, die gefärbt
+oder geflutet sein können, je Block die ersten und die letzten zwölf
+Zustände, geflutete mit Wasser, zusammen 5718, bei scale 4, 8, 16 und 32,
+mit drei Paaren aus Block- und Wasserfarbe. Von 65 229 Rastern mit Karte
+liegt keines um mehr als 1 daneben; 480 fehlen im Vergleich, weil ihr
+Modell über den Würfel ragt. Solange das Licht im Raster steckte, lagen 37
+von 65 952 um 2 daneben. Mit den Fixtures prüft das
 `toenungskarte_gibt_jede_farbe_wieder`, darunter ein gefluteter, gefärbter
 Block mit zwei verschiedenen Farben.
 

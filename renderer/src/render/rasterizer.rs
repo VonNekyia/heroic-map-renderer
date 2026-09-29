@@ -37,8 +37,8 @@ const FLUID_BEHIND: f32 = 1e-3;
 /// Siehe docs/renderer/naehte.md, „Flächen parallel zur Blickrichtung“.
 const EDGE_ON: f32 = 1e-4;
 
-/// Volles Himmelslicht, am Tag unter freiem Himmel. So hell zeichnet der
-/// Renderer in der Oberwelt jede Fläche, siehe [`brightness_rgb`].
+/// Die höchste Stufe des Himmels- und des Blocklichts, am Tag unter freiem
+/// Himmel, siehe [`brightness_rgb`].
 pub const FULL_LIGHT: u8 = 15;
 
 /// `BlockFactor` aus `LightmapRenderStateExtractor.extract`: 1,4 und ein
@@ -142,13 +142,6 @@ pub struct Light {
 }
 
 impl Light {
-    /// Voller Tag unter freiem Himmel: so hell zeichnet der Renderer jedes
-    /// Sprite.
-    pub const FULL: Light = Light {
-        sky: FULL_LIGHT,
-        block: 0,
-    };
-
     pub fn sky(sky: u8) -> Light {
         Light { sky, block: 0 }
     }

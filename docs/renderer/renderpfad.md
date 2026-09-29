@@ -6,6 +6,7 @@ code:
   - renderer/src/render/tiles.rs
   - renderer/src/render/heights.rs
   - renderer/src/render/metatile.rs
+  - renderer/src/render/licht.rs
   - renderer/src/render/sprites.rs
   - renderer/src/world/chunk.rs
   - renderer/src/world/palette.rs
@@ -91,13 +92,31 @@ Der Cache hält je Section und Paletteneintrag den Familienindex, die
 Blockstate wird einmal je Section gehasht statt einmal je Block, und der
 Nachschlag merkt sich den letzten Chunk, statt je Block zu hashen.
 
+Dazu hält er je Chunk sein ausgebreitetes Licht (`ChunkLicht` in
+[`renderer/src/render/licht.rs`](../../renderer/src/render/licht.rs)), je
+Section ein Byte je Zelle oder eines für alle, gerechnet, wenn der Chunk
+zum ersten Mal Licht braucht (`licht_slot`), siehe
+[Wasser und Licht](wasser-und-licht.md), „Licht ausbreiten“. Dafür lädt er
+die acht Nachbarn mit. Am Rand eines Streifens fragen die Ecken der
+weichen Beleuchtung auch nach dem Licht von Chunks, die der Streifen nie
+zeichnet, und deren Nachbarn sind ein zweiter Ring. Den fasst danach keine
+Kachel mehr an: `next_tile` verwirft ihn, sobald er eine Zeile lang nicht
+gebraucht wurde, und kommt die nächste Zeile wieder an diesen Rand, lädt sie
+ihn neu. Die Zahlen oben, Chunks je Kachel und je Thread, sind von vor dem
+Licht; wie viele es jetzt sind, zählt die Messung zu #34, die noch
+aussteht.
+
 ## Bitmasken
 
 Jede Section hält je Spalte ein 16-Bit-Wort je Eigenschaft (Bit = y):
 "vorhanden", "deckend", "deckt den Boden", "Wasser", "Lava", "nur Wasser",
 "nur Lava", "lose" und "hat Teile in Nachbarwürfeln", dazu für die weiche
-Beleuchtung "dunkelt ab" und "nimmt die Sicht" (`Masks` in `metatile.rs`,
-die Ebenen `PRESENT` bis `VIEW`). Verdeckt ist ein Block, wenn die Nachbarn
+Beleuchtung "dunkelt ab" und "nimmt die Sicht", für die Ausbreitung des
+Lichts "dämpft" und "dicht" und für beides "voll hell" (`Masks` in
+`metatile.rs`, die Ebenen `PRESENT` bis `VOLL`). Diese fünf gelten auch für
+Blöcke ohne Familie. Die Ausbreitung nimmt ausserdem je Section zwei Listen
+mit: die Blöcke mit einer Fläche, die Licht an einer Seite aufhält
+(`formen`), und die, die leuchten, mit ihrer Stufe (`quellen`). Verdeckt ist ein Block, wenn die Nachbarn
 nach +x und +z deckend sind und der nach +y seinen Boden deckt, siehe
 [Sprites und Deckung](sprites-und-deckung.md), „Verdeckte Würfel“, und das
 ist je Spalte eine Handvoll Wortoperationen für sechzehn Blöcke auf einmal:
@@ -234,7 +253,14 @@ den Speicher.
 Jeder Thread hält eine Zeile seines Streifens im Cache, auf der grossen
 Welt gemessen höchstens 430 bis 520 Chunks bei scale 32 und 825 bei
 scale 4, samt dem Viertel Spielraum aus `CACHE_CHUNKS`; mit Karte dazu
-sechzehn Zeichenlisten.
+sechzehn Zeichenlisten. Gemessen vor dem Licht: Dazu kommen jetzt der
+zweite Ring am Rand des Streifens, siehe „Streifen und Cache je Thread“,
+und je Chunk mit Licht bis 4 KB je Section, in der nicht jede Zelle
+dasselbe Licht hat.
+
+Die Sprite-Tabelle teilen sich alle Threads. Fast jedes Sprite hat eine
+AO-Karte, 4 Bytes je Pixel wie das Bild, siehe
+[Weiche Beleuchtung](weiche-beleuchtung.md), „Was es kostet“.
 
 ## Was die Zeit bringt, gemessen
 

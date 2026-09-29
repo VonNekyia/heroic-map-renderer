@@ -52,8 +52,10 @@ das Ergebnis höchstens um 1 ab, und nur dort, wo Gleitkomma selbst daneben
 lag; in den Testbildern ergab sie dieselben Pixel. Tönung, Licht und weiche
 Beleuchtung rechnen ebenso ganzzahlig. Tests prüfen das auf jeder Karte, auf
 der sie laufen, auch in einer Szene mit Lava in Stufen, Ackerboden neben
-Lava, Draws unter Wasser, weich beleuchteten Draws und Gras und Wasser über
-eine Biomgrenze. Warum so:
+Lava, Draws unter Wasser, weich beleuchteten Draws, Ecken, deren Licht je
+Farbkanal anders ist, dem Wasser eines gefluteten Zauns in seinem eigenen
+Licht, leuchtenden Blöcken im Blocklicht und Gras und Wasser über eine
+Biomgrenze. Warum so:
 [0023](../entscheidungen/0023-zeichnen-auf-der-grafikkarte.md).
 
 ## Adapter und Backends

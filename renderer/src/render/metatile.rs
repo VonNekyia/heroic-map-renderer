@@ -212,7 +212,9 @@ pub struct Draw<'a> {
     /// hinausragen.
     pub origin: (i32, i32),
     /// Das Licht seines Blocks für Pixel ohne Seite, je Kanal in 255steln,
-    /// Rot zuerst ([`Light::factors`]), siehe [`ChunkCache::licht_fuer`].
+    /// Rot zuerst
+    /// ([`Lightmap::factors`](super::rasterizer::Lightmap::factors)),
+    /// siehe [`ChunkCache::licht_fuer`].
     pub licht: [u32; 3],
     /// Das Licht an den Ecken seiner Seiten, siehe [`ChunkCache::ecken_at`];
     /// `None`, wo es überall `licht` gleicht.
@@ -551,9 +553,10 @@ fn blit(
 }
 
 /// Legt einen Pixel in den Farben seines Blocks und im Licht `factor` aus
-/// [`Light::factors`] über den darunter, den Anteil des Wassers in seiner
-/// Tönungskarte im Licht `wasser`, wenn es eines hat; deckende direkt statt
-/// durch [`over`]. Erst die Farbe, dann das Licht, wie im Spiel.
+/// [`Lightmap::factors`](super::rasterizer::Lightmap::factors)
+/// über den darunter, den Anteil des Wassers in seiner Tönungskarte im
+/// Licht `wasser`, wenn es eines hat; deckende direkt statt durch
+/// [`over`]. Erst die Farbe, dann das Licht, wie im Spiel.
 #[inline]
 fn mische(
     d: &mut [u8],
@@ -832,7 +835,8 @@ struct Loaded {
     /// [`blockstate::leuchten`].
     leuchten: Vec<Vec<Leuchten>>,
     /// Je Section ihre Bitmasken, `None` für eine Section ohne Familie und
-    /// ohne Block, der abdunkelt oder die Sicht nimmt.
+    /// ohne Block, der abdunkelt, die Sicht nimmt, das Licht aufhält oder
+    /// leuchtet, siehe [`Masks::of`].
     masks: Vec<Option<Box<Masks>>>,
     /// Je Section die Kandidaten, sobald einmal berechnet — dafür müssen
     /// die Nachbarchunks da sein, deshalb nicht beim Laden.
@@ -867,7 +871,7 @@ const LOOSE: usize = 7;
 /// Hat Teile in Nachbarwürfeln.
 const FOREIGN: usize = 8;
 /// Dunkelt ab ([`DUNKELT`]), [`VIEW`] nimmt die Sicht ([`SICHT`]): die Bits
-/// aus [`blockstate::schatten`] für [`ChunkCache::ao_at`], auch für Blöcke
+/// aus [`blockstate::schatten`] für [`ChunkCache::ecken_at`], auch für Blöcke
 /// ohne Familie.
 const DARK: usize = 9;
 const VIEW: usize = 10;
@@ -1749,8 +1753,9 @@ impl<'a> ChunkCache<'a> {
     }
 
     /// In welchem Licht das Spiel den Block an `p` zeichnet: das Licht für
-    /// Pixel ohne Seite je Kanal ([`Lightmap::factors`]), mit einer AO-Karte
-    /// des Sprites das an den Ecken seiner Seiten, siehe
+    /// Pixel ohne Seite je Kanal
+    /// ([`Lightmap::factors`](super::rasterizer::Lightmap::factors)),
+    /// mit einer AO-Karte des Sprites das an den Ecken seiner Seiten, siehe
     /// [`ChunkCache::ecken_at`], und das seines Wassers, wo es ein anderes
     /// ist. Voll hell (`emissiveRendering`) ist alles 15. Ein Pixel ohne
     /// Seite liegt im Licht seiner Zelle, das eigene Blocklicht steckt
@@ -1972,7 +1977,7 @@ impl<'a> ChunkCache<'a> {
     }
 
     /// Die Ebenen [`SOLID`], [`DARK`] und [`VIEW`] um einen Block, so weit
-    /// [`ChunkCache::ao_at`] fragt: je Ebene ein Bit für jede Zelle
+    /// [`ChunkCache::ecken_at`] fragt: je Ebene ein Bit für jede Zelle
     /// `(x + dx, y + dy, z + dz)` mit `dx`, `dy` und `dz` von -1 bis 2, an
     /// Stelle `dy + 1 + 4 · (dx + 1) + 16 · (dz + 1)`. Die vier Zellen einer
     /// Spalte kommen aus einem Wort je Ebene, an einer Sectionsgrenze aus

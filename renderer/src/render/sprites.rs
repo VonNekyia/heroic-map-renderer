@@ -1634,13 +1634,13 @@ mod tests {
 
     /// Die Tönungskarte gibt das Bild in jeder Farbe wieder: [`tinted`]
     /// mit einer Farbe des Blocks und einer des Wassers gleicht bis auf die
-    /// Rundung dem Raster, das die Farben gleich trägt, im Licht des Blocks:
+    /// Rundung dem Raster, das die Farben gleich trägt, beide ohne Licht:
     /// beim Wasser mit seiner halb durchsichtigen Oberfläche, beim Grasblock
     /// der Fixture mit gefärbter Oberseite und ungefärbten Seiten, bei einem
     /// gefluteten Zaun, bei einem gefluteten gefärbten Kreuz, in dessen
     /// Pixeln sich beide Farben treffen, und bei einem gefluteten
     /// Sculk-Sensor. Das Raster rundet an jeder Schicht, die Karte einmal je
-    /// Pixel; auseinander liegen sie höchstens um 2, siehe
+    /// Pixel; auseinander liegen sie höchstens um 1, siehe
     /// docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
     ///
     /// [`tinted`]: super::super::rasterizer::tinted
@@ -1693,7 +1693,7 @@ mod tests {
                         for c in 0..3 {
                             let d = (ist[c] as i32 - soll.0[c] as i32).abs();
                             assert!(
-                                d <= 2,
+                                d <= 1,
                                 "{st:?}, scale {scale}, Farben {block:?} und {wasser:?}, \
                                  Pixel {i}: {ist:?} gegen {:?}",
                                 soll.0
@@ -1713,7 +1713,7 @@ mod tests {
     /// und die letzten zwölf, geflutete immer mit Wasser, bei scale 4, 8, 16
     /// und 32, mit drei Paaren aus
     /// Block- und Wasserfarbe, gegen das Raster, das die Farben gleich trägt,
-    /// im Licht des Blocks. Braucht die Asset-Wurzeln wie `--assets`, als
+    /// beide ohne Licht. Braucht die Asset-Wurzeln wie `--assets`, als
     /// Pfadliste in `ASSETS`, deshalb `#[ignore]`; unter Windows trennt `;`:
     ///
     /// ```bash
@@ -1843,7 +1843,7 @@ mod tests {
         for (name, max) in je_block.iter().filter(|(_, max)| **max > 1) {
             println!("  {name}: {max}");
         }
-        assert!(groesste <= 2, "höchstens {groesste}");
+        assert!(groesste <= 1, "höchstens {groesste}");
     }
 
     /// Ein Pack darf Zustände mit verschiedener Kollisionsform auf dasselbe

@@ -3097,6 +3097,28 @@ fn doppelkiste_mit_randflaechen_im_helleren_licht() {
     }
 }
 
+/// Auch ohne Himmelslicht breitet sich Blocklicht aus: Im Nether gibt ein
+/// Glowstone der Luft zwei Blöcke weiter Blocklicht 13 und darüber 14,
+/// Himmelslicht keines.
+#[test]
+fn blocklicht_im_nether() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
+        (_, 0, _) => "minecraft:stone",
+        (8, 1, 8) => "minecraft:glowstone",
+        _ => "minecraft:air",
+    });
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    let mut assets = assets();
+    assets.set_dimension(Some("minecraft:the_nether"));
+    let sprites = SpriteSet::build_in(&mut assets, &states, projection).unwrap();
+    let mut cache = ChunkCache::new(&world, &sprites);
+    assert_eq!(cache.licht_at([10, 1, 8]).unwrap(), (0, 13));
+    assert_eq!(cache.licht_at([8, 2, 8]).unwrap(), (0, 14));
+}
+
 /// Im Nether gibt es kein Himmelslicht (`has_skylight` falsch), und die
 /// Lightmap nimmt seine Farben: Über einem Boden unter freiem Himmel liegt
 /// die Luft dort im Licht 0, die Oberseite in der Umgebungsfarbe

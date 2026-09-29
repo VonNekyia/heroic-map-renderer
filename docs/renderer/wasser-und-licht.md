@@ -115,12 +115,21 @@ Umgebungsfarbe, `SkyFactor`, `SkyLightColor` und `BlockLightTint` kommen
 aus dem Typ der Dimension, siehe [Dimensionstypen](dimensionstypen.md),
 „Was der Renderer liest“. In der Oberwelt setzt `timeline/day.json` am Tag
 `SkyFactor` 1 und `SkyLightColor` weiss wie der Typ; Licht 15 gibt dort 1,
-so hell zeichnet der Renderer jede Fläche. Im Nether und im Ende ist
-`SkyFactor` 0: Himmelslicht ändert dort nichts, ohne Blocklicht liegt
-alles in der Umgebungsfarbe. Hat eine Dimension kein Himmelslicht
-(`has_skylight`), wie der Nether, breitet der Renderer auch keines aus.
-Nebel gibt es nicht; den zeichnet das Spiel nur, wenn die Kamera selbst
-unter Wasser ist.
+so hell liegt eine Fläche unter freiem Himmel. Das gilt bei klarem Wetter,
+und das zeichnet der Renderer: Bei Regen mischt `WeatherAttributes`
+`SkyFactor` mit 0,3125 zu 0,24, auf 0,7625, und `SkyLightColor` ebenso zur
+Farbe der Nacht, bei Gewitter mit 0,527 auf 0,599; im Ende hebt
+`EndFlashState` ihn zeitweise (`LightmapRenderStateExtractor`). Im Nether
+und im Ende ist `SkyFactor` 0: Himmelslicht ändert dort nichts, ohne
+Blocklicht liegt alles in der Umgebungsfarbe. Hat eine Dimension kein
+Himmelslicht (`has_skylight`), wie der Nether, breitet der Renderer auch
+keines aus.
+
+Nebel zeichnet der Renderer keinen. Das Spiel mischt ihn in jede Fläche
+(`apply_fog` in `terrain.fsh`), nach ihrer Entfernung zur Kamera zwischen
+`visual/fog_start_distance` und `fog_end_distance`
+(`AtmosphericFogEnvironment`), im Nether von 10 bis 96 Blöcken. Eine
+Karte hat keine Kamera, von der aus sich eine Entfernung messen liesse.
 
 ## Blocklicht
 

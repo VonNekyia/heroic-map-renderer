@@ -954,6 +954,33 @@ mod tests {
         assert!(deckt(OSTEN, kopf[OSTEN], kolben[OSTEN - 1]));
         assert!(deckt(OSTEN - 1, kolben[OSTEN - 1], kopf[OSTEN]));
         assert!(!LICHT.paare[2][kolben[OSTEN - 1] as usize * 36 + kopf[OSTEN] as usize]);
+        // An der y-Achse schliesst die Oberseite einer unteren Treppe nach
+        // Norden mit der Unterseite einer oberen nach Süden darüber die Seite,
+        // mit der einer oberen nach Norden nicht. An der z-Achse schliesst die
+        // Südseite einer oberen Treppe nach Norden mit der Nordseite einer
+        // unteren nach Süden, mit der einer oberen nach Süden nicht.
+        const OBEN: usize = 1;
+        const SUEDEN: usize = 3;
+        let treppe = |facing: &str, half: &str| {
+            l(&format!(
+                "minecraft:oak_stairs[facing={facing},half={half},shape=straight,waterlogged=false]"
+            ))
+            .formen
+        };
+        let (unten_n, unten_s) = (treppe("north", "bottom"), treppe("south", "bottom"));
+        let (oben_n, oben_s) = (treppe("north", "top"), treppe("south", "top"));
+        let teile = [unten_n[OBEN], oben_s[OBEN - 1], oben_n[OBEN - 1]];
+        let teile =
+            teile
+                .into_iter()
+                .chain([oben_n[SUEDEN], unten_s[SUEDEN - 1], oben_s[SUEDEN - 1]]);
+        assert!(teile.into_iter().all(|f| f >= 2), "Teilflächen");
+        assert!(deckt(OBEN, unten_n[OBEN], oben_s[OBEN - 1]));
+        assert!(deckt(OBEN - 1, oben_s[OBEN - 1], unten_n[OBEN]));
+        assert!(!deckt(OBEN, unten_n[OBEN], oben_n[OBEN - 1]));
+        assert!(deckt(SUEDEN, oben_n[SUEDEN], unten_s[SUEDEN - 1]));
+        assert!(deckt(SUEDEN - 1, unten_s[SUEDEN - 1], oben_n[SUEDEN]));
+        assert!(!deckt(SUEDEN, oben_n[SUEDEN], oben_s[SUEDEN - 1]));
         let schnee = l("minecraft:snow[layers=1]");
         assert_eq!(
             (schnee.daempfung, schnee.formen[0], schnee.formen[1]),

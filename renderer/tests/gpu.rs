@@ -176,6 +176,7 @@ fn gpu_zeichnet_die_szene_wie_die_cpu() {
             listen
                 .iter()
                 .flatten()
+                .filter(|d| d.sprite.tint.is_some())
                 .filter_map(|d| d.wasser)
                 .any(|[r, g, b]| r != g || g != b),
             "scale {scale}: kein Draw mit Wasser im eigenen Licht"
@@ -284,9 +285,9 @@ fn lange_listen_vergroessern_die_puffer() {
     let kurz = draw_list(&mut chunks, tile.rect(), Y_RANGE).unwrap();
     assert!(!kurz.is_empty());
 
-    // Dieselbe Liste in Runden hintereinander, gut 100 000 Einträge: 1,6 MB
-    // Instanzen, die Anfangspuffer fassen 64 kB, und in den Listen
-    // mindestens ein Eintrag je Draw, 400 kB gegen anfangs 256 kB.
+    // Dieselbe Liste in Runden hintereinander, gut 100 000 Einträge: 6,8 MB
+    // Instanzen zu 68 Bytes, die Anfangspuffer fassen 64 kB, und in den
+    // Listen mindestens ein Eintrag je Draw, 400 kB gegen anfangs 256 kB.
     let runden = 100_000 / kurz.len() + 1;
     let lang: Vec<Draw> = kurz
         .iter()
@@ -318,7 +319,7 @@ fn lange_listen_vergroessern_die_puffer() {
 #[test]
 fn zu_grosser_durchgang_ist_ein_fehler() {
     // Ein Bild braucht 256 kB, der grösste Anfangspuffer 1 MB; 2 MB lassen
-    // dem Zeichner seine Puffer, aber keine 200 000 Instanzen zu 16 Bytes.
+    // dem Zeichner seine Puffer, aber keine 200 000 Instanzen zu 68 Bytes.
     let Some(gpu) = adapter(Gpu::mit_grenze(true, 2 << 20)) else {
         return;
     };

@@ -2,6 +2,7 @@ pub mod baker;
 pub mod blockentity;
 pub mod blockstate;
 pub mod colors;
+pub mod dimension;
 pub mod fluid;
 pub mod model;
 pub mod noise;
@@ -18,6 +19,7 @@ use crate::world::{BlockState, Blockdaten};
 pub use baker::{BakedModel, Quad, bake};
 pub use blockstate::{BlockStateDef, Definition, ModelRef};
 pub use colors::{Colors, Tint, Tints};
+pub use dimension::{CardinalLight, DimensionType};
 use model::ModelFile;
 pub use model::{Element, ElementFace, Face, ResolvedModel, Rotation};
 pub use pack::Pack;
@@ -88,6 +90,9 @@ pub struct Assets {
     /// Die Bannermuster aus den Datenwurzeln: je ID ihr `asset_id`, siehe
     /// [`Assets::load_banner_patterns`].
     muster: BTreeMap<String, String>,
+    /// Die Dimensionstypen und Dimensionen aus den Datenwurzeln, und welche
+    /// der Lauf zeichnet, siehe [`Assets::set_dimension`].
+    dimensionen: dimension::Dimensionen,
     skipped: BTreeMap<String, String>,
     broken: BTreeMap<String, String>,
     unchecked: BTreeMap<String, String>,
@@ -121,6 +126,7 @@ impl Assets {
             models: HashMap::new(),
             parent_problems: HashMap::new(),
             muster: BTreeMap::new(),
+            dimensionen: dimension::Dimensionen::default(),
             skipped: BTreeMap::new(),
             broken: BTreeMap::new(),
             unchecked: BTreeMap::new(),
@@ -166,6 +172,34 @@ impl Assets {
         &self.colors
     }
 
+    /// Liest eine Datenwurzel ganz: Biome, Bannermuster, Dimensionen und
+    /// Dimensionstypen. Ein Fehler ist sie nur, wenn sie nichts davon
+    /// trägt, auch nichts, was der Codec ablehnt; die Meldung nennt dann
+    /// die erwarteten Orte und was sich nicht lesen liess. Liefert, wie
+    /// viele Biome, Bannermuster und Dimensionen samt Typen sie brachte.
+    /// Siehe docs/benutzung/assets.md.
+    pub fn load_data(&mut self, dir: &Path) -> Result<[usize; 3]> {
+        let [typen, dimensionen] = pack::DIMENSION;
+        let orte = [pack::BIOME[0], pack::BANNER_PATTERN[0], dimensionen, typen];
+        let liste = Pack::open(dir, &orte)?;
+        if !liste.files().any(|(name, _)| name.ends_with(".json")) {
+            let unlesbar: String = liste
+                .unreadable()
+                .iter()
+                .map(|(pfad, grund)| format!("; {pfad} nicht lesbar: {grund}"))
+                .collect();
+            bail!(
+                "nichts zu lesen unter {} — erwartet wird <dir>/<namespace>/ mit worldgen/biome/, banner_pattern/, dimension_type/ oder dimension/ und darin *.json{unlesbar}",
+                dir.display()
+            );
+        }
+        Ok([
+            self.load_biomes(dir)?,
+            self.load_banner_patterns(dir)?,
+            self.load_dimensions(dir)?,
+        ])
+    }
+
     /// Liest Biomdefinitionen aus einer Datenwurzel — das `data/` aus dem
     /// Client-JAR oder ein Datenpaket.
     pub fn load_biomes(&mut self, dir: &Path) -> Result<usize> {
@@ -176,6 +210,42 @@ impl Assets {
     /// [`blockentity::muster_lesen`]. Liefert, wie viele es waren.
     pub fn load_banner_patterns(&mut self, dir: &Path) -> Result<usize> {
         blockentity::muster_lesen(dir, &mut self.muster)
+    }
+
+    /// Liest die Dimensionstypen und Dimensionen einer Datenwurzel,
+    /// `<dir>/<namespace>/dimension_type/**/*.json` und
+    /// `<dir>/<namespace>/dimension/**/*.json`. Spätere Wurzeln
+    /// überschreiben frühere und die Typen des Spiels. Liefert, wie viele
+    /// Dateien es gelesen hat.
+    /// Siehe docs/renderer/dimensionstypen.md, „Welcher Typ“.
+    pub fn load_dimensions(&mut self, dir: &Path) -> Result<usize> {
+        self.dimensionen.laden(dir)
+    }
+
+    /// Legt fest, welche Dimension der Lauf zeichnet, etwa aus
+    /// `World::dimension`; `None` heisst ohne Weltwurzel. Liefert, warum
+    /// dafür der Typ der Oberwelt gilt, falls er gilt.
+    /// Siehe docs/renderer/dimensionstypen.md, „Welcher Typ“.
+    pub fn set_dimension(&mut self, dimension: Option<&str>) -> Option<String> {
+        self.dimensionen.festlegen(dimension)
+    }
+
+    /// Der Typ der Dimension aus [`Assets::set_dimension`], vorher der der
+    /// Oberwelt.
+    pub fn dimension_type(&self) -> DimensionType {
+        self.dimensionen.gewaehlt()
+    }
+
+    /// Dimensionstypen und Dimensionen aus den Datenwurzeln, die der Codec
+    /// ablehnt, je Pfad mit dem Grund.
+    pub fn broken_dimensions(&self) -> &BTreeMap<String, String> {
+        &self.dimensionen.kaputt
+    }
+
+    /// Attribute der Lightmap, die ein Dimensionstyp mit einem Modifikator
+    /// setzt statt mit einem Wert, je Pfad; für sie gilt die Vorgabe.
+    pub fn dimension_modifiers(&self) -> &BTreeMap<String, String> {
+        &self.dimensionen.modifikatoren
     }
 
     /// Lädt eine Textur nach Namen. Flüssigkeiten brauchen ihre Textur,

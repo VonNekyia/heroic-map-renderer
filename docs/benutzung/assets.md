@@ -92,6 +92,16 @@ wie viele Muster jede Wurzel bringt, und am Ende jedes Muster und jeden
 Farbstoff aus der Welt, den weder das Spiel noch eine Wurzel kennt, siehe
 [Blockentities](../renderer/blockentities.md), „Banner“.
 
+## Dimensionen
+
+Die Dimensionstypen des Spiels kennt der Renderer ebenso aus einer Tabelle.
+Eine Datenwurzel braucht es nur für eigene Dimensionen und Typen aus
+Datenpaketen: `<DIR>/<namespace>/dimension/**/*.json` und
+`<DIR>/<namespace>/dimension_type/**/*.json`, in denselben Wurzeln wie die
+Biome. Eine Datenwurzel ohne Biome lehnt der Lauf heute ab, auch wenn sie
+Dimensionen trägt. Welcher Typ zu welcher Dimension gehört:
+[Dimensionstypen](../renderer/dimensionstypen.md).
+
 ## Im Repository
 
 `vanilla-assets/`, `vanilla-data/` und `assets/` stehen in `.gitignore`,

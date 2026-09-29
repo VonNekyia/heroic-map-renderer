@@ -1,0 +1,8 @@
+vorgabe minecraft:visual/ambient_light_color #000000
+vorgabe minecraft:visual/sky_light_factor 1.0
+vorgabe minecraft:visual/sky_light_color #ffffff
+vorgabe minecraft:visual/block_light_tint #ffd88c
+typ minecraft:overworld has_skylight=true cardinal_light=default minecraft:visual/ambient_light_color=#0a0a0a
+typ minecraft:overworld_caves has_skylight=true cardinal_light=default minecraft:visual/ambient_light_color=#0a0a0a
+typ minecraft:the_end has_skylight=true cardinal_light=default minecraft:visual/ambient_light_color=#3f473f minecraft:visual/sky_light_factor=0.0 minecraft:visual/sky_light_color=#ac60cd
+typ minecraft:the_nether has_skylight=false cardinal_light=nether minecraft:visual/ambient_light_color=#302821 minecraft:visual/sky_light_factor=0.0 minecraft:visual/sky_light_color=#7a7aff

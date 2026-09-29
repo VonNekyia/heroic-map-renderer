@@ -11,10 +11,10 @@ use crate::assets::blockstate::{self, Leuchten, ModelRef};
 use crate::assets::colors::{Resolver, Source, Tint, source_of, tinted_below};
 use crate::assets::fluid::Fluid;
 use crate::assets::noise::JavaRandom;
-use crate::assets::{Assets, Face, Textures, Tints, fluid, models_of};
+use crate::assets::{Assets, CardinalLight, Face, Textures, Tints, fluid, models_of};
 use crate::world::{BlockState, Blockdaten};
 
-use super::rasterizer::faces_camera;
+use super::rasterizer::{faces_camera, render_mit_licht};
 use super::tint::BiomeTable;
 use super::{Projection, Sprite, render};
 
@@ -59,6 +59,9 @@ pub struct SpriteSet {
     /// Neunteln und je Seite.
     strips: HashMap<(Fluid, u8, u8, Face), SpriteId>,
     projection: Projection,
+    /// Wie die Seiten schattiert werden, nach dem Typ der Dimension aus
+    /// [`Assets::dimension_type`].
+    licht: CardinalLight,
     /// Die Pixel eines vollen Wuerfels bei diesem scale, gegen die Deckung
     /// geprueft wird.
     masks: Masks,
@@ -400,6 +403,7 @@ impl SpriteSet {
             by_content: HashMap::new(),
             strips: HashMap::new(),
             projection,
+            licht: assets.dimension_type().cardinal_light,
             masks: Masks::new(assets.textures(), projection),
             foreign: BTreeSet::new(),
             biomes: BiomeTable::new(assets.colors()),
@@ -671,7 +675,10 @@ impl SpriteSet {
         const SCHWARZ: Tint = [0; 3];
         const WEISS: Tint = [255; 3];
         let leuchten = blockstate::leuchten(state);
-        let raster = |tints| render(model, assets.textures(), &self.projection, tints, leuchten);
+        let raster = |tints| {
+            let (textures, projection) = (assets.textures(), &self.projection);
+            render_mit_licht(model, textures, projection, tints, leuchten, self.licht)
+        };
         let mut sprite = raster(tints(SCHWARZ, SCHWARZ))?;
         if biome || water {
             let weiss = |ja: bool, tints| {

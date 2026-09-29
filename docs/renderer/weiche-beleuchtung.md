@@ -106,12 +106,13 @@ welche die Sicht nehmen, steht in `renderer/src/assets/schatten.txt`, siehe
 
 Je Pixel ergibt die Karte mit den Ecken je Farbkanal einen Faktor,
 ganzzahlig wie das Mischen, auf der CPU wie im Shader der Karte; die
-Schattierung nach Richtung, oben 1, Nord und Süd 0,8, Ost und West 0,6,
-steckt wie bisher im Sprite. Eine Instanz auf der Karte trägt dafür je
-Kanal und Seite ein Wort, neun Wörter, siehe
-[Grafikkarte](../benutzung/grafikkarte.md). Haben alle Ecken der Seiten,
-die zu sehen sind, dasselbe Licht, trägt der Draw es allein, ohne Ecken;
-eine Seite, die ihr Nachbar deckt, zählt dabei nicht.
+Schattierung nach Richtung steckt wie bisher im Sprite, siehe
+[Dimensionstypen](dimensionstypen.md), „Schattierung nach Richtung“.
+Eine Instanz auf der Karte trägt dafür je Kanal und Seite ein Wort,
+neun Wörter, siehe [Grafikkarte](../benutzung/grafikkarte.md). Haben
+alle Ecken der Seiten, die zu sehen sind, dasselbe Licht, trägt der Draw
+es allein, ohne Ecken; eine Seite, die ihr Nachbar deckt, zählt dabei
+nicht.
 
 ## Was es kostet
 

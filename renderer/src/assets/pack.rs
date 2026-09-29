@@ -35,6 +35,9 @@ pub const BIOME: [&[&str]; 1] = [&["worldgen", "biome"]];
 /// Die Bannermuster einer Datenwurzel, ebenso.
 pub const BANNER_PATTERN: [&[&str]; 1] = [&["banner_pattern"]];
 
+/// Die Dimensionstypen und Dimensionen einer Datenwurzel, ebenso.
+pub const DIMENSION: [&[&str]; 2] = [&["dimension_type"], &["dimension"]];
+
 /// Eine Wurzel mit Namensräumen darunter, wie der Client sie sieht: Der
 /// Wurzel und jedem Namensraum mit gültigem Namen folgt er auch über einen
 /// Link (`getNamespaces`), darunter listet er ohne Links auf (`listPath`).

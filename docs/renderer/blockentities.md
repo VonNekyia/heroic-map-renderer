@@ -100,14 +100,17 @@ nimmt sie so:
 Entity-Modelle liegen im Spiel nicht im Licht der Blockseiten, sondern in
 dem der Entities, belegt per javap am Client 26.2:
 
-- **Richtungen:** `Lighting.updateLevel` setzt für die Oberwelt
-  (`CardinalLighting.Type.DEFAULT`) die Richtungen (0,2, 1, −0,7) und
-  (−0,2, 1, 0,7), normiert.
+- **Richtungen:** `Lighting.updateLevel` setzt sie nach `cardinal_light`
+  im Typ der Dimension, siehe [Dimensionstypen](dimensionstypen.md), für
+  `CardinalLighting.Type.DEFAULT` (0,2, 1, −0,7) und (−0,2, 1, 0,7), für
+  `NETHER` (0,2, 1, −0,7) und (−0,2, −1, 0,7), je normiert
+  (`CardinalLight::entity_light`).
 - **Stärke:** `minecraft_mix_light` in `shaders/include/light.glsl`: je
   Richtung 0,6 mal dem Kosinus zur Normalen, nicht unter 0, dazu 0,4
   Umgebung, höchstens 1.
 - **Ergebnis:** oben 1, nach Norden und Süden 0,74, nach Osten und Westen
-  0,50, unten 0,4 (`entity_light`).
+  0,50, unten 0,4 (`entity_light`). Im Nether kommt das zweite Licht von
+  unten: oben und unten je 0,885, die Seiten wie sonst.
 - **Licht des Blocks:** `BlockEntityRenderState.extractBase` nimmt das
   Licht an der Position des Blockentity, wie der Renderer für jeden Block,
   siehe [Wasser und Licht](wasser-und-licht.md); für einen gefluteten Block

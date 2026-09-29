@@ -2704,6 +2704,112 @@ fn dimensionen_haben_eigene_kennungen() {
     assert!(!ohne_seed.contains("Wurzel richten"), "{ohne_seed}");
 }
 
+/// Im Nether schattiert das Spiel die Oberseite mit 0,9 statt 1, die
+/// Seiten wie in der Oberwelt: `cardinal_light` ist dort `nether`. Dieselbe
+/// Szene im Nether ist oben dunkler und an den Seiten gleich, und die
+/// Ausgabe nennt die Dimension. Eine eigene Dimension findet ihren Typ in
+/// einer Datenwurzel. Ohne Weltwurzel gilt die Oberwelt, mit einer Meldung.
+#[test]
+fn nether_schattiert_wie_im_spiel() {
+    let welt = tempdir();
+    let oberwelt = welt.path().join("dimensions/minecraft/overworld");
+    let nether = welt.path().join("dimensions/minecraft/the_nether");
+    let eigene = welt.path().join("dimensions/beispiel/tief");
+    let ohne_wurzel = tempdir();
+    let szene = |x, y, z| match (x, y, z) {
+        (8, 0, 8) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    for dir in [
+        &oberwelt,
+        &nether,
+        &eigene,
+        &ohne_wurzel.path().to_path_buf(),
+    ] {
+        common::write_world(dir, &[(0, 0)], szene);
+    }
+    common::write_wurzel(welt.path(), 1);
+    let daten = tempdir();
+    let biom = daten.path().join("minecraft/worldgen/biome");
+    std::fs::create_dir_all(&biom).unwrap();
+    std::fs::copy(
+        common::biomdaten().join("minecraft/worldgen/biome/plains.json"),
+        biom.join("plains.json"),
+    )
+    .unwrap();
+    std::fs::create_dir_all(daten.path().join("beispiel/dimension")).unwrap();
+    std::fs::write(
+        daten.path().join("beispiel/dimension/tief.json"),
+        r#"{"type": "minecraft:the_nether"}"#,
+    )
+    .unwrap();
+    let bild = |dir: &Path| {
+        let png = tempdir();
+        let pfad = png.path().join("bild.png");
+        let ausgabe = gelungen(&cli(&[
+            OsStr::new("--world"),
+            dir.as_os_str(),
+            OsStr::new("--assets"),
+            assets_ref(),
+            OsStr::new("--data"),
+            daten.path().as_os_str(),
+            OsStr::new("--render"),
+            pfad.as_os_str(),
+            OsStr::new("--center"),
+            OsStr::new("8"),
+            OsStr::new("8"),
+            OsStr::new("--size"),
+            OsStr::new("128"),
+        ]))
+        .stdout
+        .clone();
+        let bild = image::open(&pfad).unwrap().into_rgba8();
+        (bild, String::from_utf8(ausgabe).unwrap())
+    };
+    let (hell, ausgabe) = bild(&oberwelt);
+    assert!(
+        ausgabe.contains("Dimension:  minecraft:overworld\n"),
+        "{ausgabe}"
+    );
+    assert!(
+        ausgabe.contains("1 Biome, 0 Bannermuster, 1 Dimensionen und Typen aus"),
+        "{ausgabe}"
+    );
+    let (dunkel, ausgabe) = bild(&nether);
+    assert!(
+        ausgabe.contains("Dimension:  minecraft:the_nether\n"),
+        "{ausgabe}"
+    );
+    let (mut dunkler, mut gleich) = (0, 0);
+    for (h, d) in hell.pixels().zip(dunkel.pixels()) {
+        assert_eq!(h[3], d[3], "dieselben Umrisse");
+        assert!(
+            (0..3).all(|c| d[c] <= h[c]),
+            "{h:?} im Nether heller: {d:?}"
+        );
+        if h[3] > 0 && d != h {
+            dunkler += 1;
+        } else if h[3] > 0 {
+            gleich += 1;
+        }
+    }
+    assert!(
+        dunkler > 0 && gleich > 0,
+        "{dunkler} dunkler, {gleich} gleich"
+    );
+    let (tief, ausgabe) = bild(&eigene);
+    assert!(ausgabe.contains("Dimension:  beispiel:tief\n"), "{ausgabe}");
+    assert_eq!(tief.as_raw(), dunkel.as_raw(), "Typ aus der Datenwurzel");
+
+    let (ohne, ausgabe) = bild(ohne_wurzel.path());
+    assert!(ausgabe.contains("keine Weltwurzel"), "{ausgabe}");
+    assert_eq!(
+        ohne.as_raw(),
+        hell.as_raw(),
+        "ohne Weltwurzel wie die Oberwelt"
+    );
+}
+
 /// Ohne Seed nennt die Ausgabe jeden Ort, an dem er gesucht wurde, von der
 /// Datei der Dimension bis zu der der Paper-Oberwelt, und den Ausweg für
 /// eine Welt vor 26.1. Ein neuer Baum entsteht trotzdem, mit

@@ -1,6 +1,6 @@
 ---
 name: tabellen-neu-erzeugen
-description: Erzeugt blocks.txt, leuchten.txt, licht.txt, schatten.txt und blockentities.txt unter renderer/src/assets/ aus dem Server- und dem Client-JAR einer Minecraft-Version neu. Nutzen für eine neue Spielversion oder wenn eine der Tabellen nicht mehr zum Spiel passt; die Tabellen nie von Hand ändern.
+description: Erzeugt blocks.txt, leuchten.txt, licht.txt, schatten.txt, blockentities.txt und dimensionstypen.txt unter renderer/src/assets/ aus dem Server- und dem Client-JAR einer Minecraft-Version neu. Nutzen für eine neue Spielversion oder wenn eine der Tabellen nicht mehr zum Spiel passt; die Tabellen nie von Hand ändern.
 ---
 
 # Tabellen neu erzeugen
@@ -62,19 +62,28 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    [`spielverhalten-belegen`](../spielverhalten-belegen/SKILL.md), und die
    Mengen in `Blockentities.java` anpassen. Der Bootstrap des Spiels legt im
    Verzeichnis `logs/` an.
-5. **Einsetzen:** die fünf Dateien nach `renderer/src/assets/` kopieren.
+5. **`dimensionstypen.txt`:** mit demselben Klassenpfad wie in Schritt 4,
+   dazu `Dimensionstypen.java` aus `renderer/src/assets/`:
+
+   ```bash
+   java -cp "client.jar:$(find libraries -name '*.jar' | paste -sd:)" Dimensionstypen.java > dimensionstypen.txt
+   ```
+
+   Auf stderr steht, wie viele Dimensionstypen es sind, für 26.2 vier.
+6. **Einsetzen:** die sechs Dateien nach `renderer/src/assets/` kopieren.
    Für 26.2 ergeben die Befehle für `blocks.txt`, `leuchten.txt`,
-   `licht.txt`, `schatten.txt` und `blockentities.txt` genau die Dateien im
-   Repository.
-6. **Neu bauen und testen:** Die Tabellen sind einkompiliert, der Renderer
+   `licht.txt`, `schatten.txt`, `blockentities.txt` und
+   `dimensionstypen.txt` genau die Dateien im Repository.
+7. **Neu bauen und testen:** Die Tabellen sind einkompiliert, der Renderer
    muss danach neu gebaut werden. `blocktabelle_aus_26_2` bekommt die Zahlen
-   der neuen Version, `tabelle_wie_im_spiel` die Zahl der Blöcke mit
-   Blockentity und der Bannermuster; `leuchten_wie_im_spiel`,
-   `licht_wie_im_spiel`, `schatten_wie_im_spiel`, `bild_je_zustand` und `zuordnung_je_zustand`
-   prüfen einzelne Blöcke. Ändert sich ein Wert, den ein Test festhält, den
-   Wert im Spiel belegen, Skill
+   der neuen Version, `tabelle_wie_im_spiel` in `blockentity.rs` die Zahl
+   der Blöcke mit Blockentity und der Bannermuster, `tabelle_wie_im_spiel`
+   in `dimension.rs` die Dimensionstypen; `leuchten_wie_im_spiel`,
+   `licht_wie_im_spiel`, `schatten_wie_im_spiel`, `bild_je_zustand` und
+   `zuordnung_je_zustand` prüfen einzelne Blöcke. Ändert sich ein Wert, den
+   ein Test festhält, den Wert im Spiel belegen, Skill
    [`spielverhalten-belegen`](../spielverhalten-belegen/SKILL.md).
-7. **Doku nachziehen:** die Spalte „Stand“ in
+8. **Doku nachziehen:** die Spalte „Stand“ in
    [`docs/entwicklung/tabellen.md`](../../docs/entwicklung/tabellen.md), die
    Zahlen unter „Die Tabelle“ in
    [`docs/renderer/blockentities.md`](../../docs/renderer/blockentities.md)

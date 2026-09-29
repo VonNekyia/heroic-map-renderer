@@ -5,7 +5,7 @@ use image::{Rgba, RgbaImage};
 use crate::assets::baker::{BakedModel, Quad};
 use crate::assets::blockentity::Entity;
 use crate::assets::blockstate::Leuchten;
-use crate::assets::{Face, Textures, Tints, fluid};
+use crate::assets::{CardinalLight, Face, Textures, Tints, fluid};
 
 use super::Projection;
 use super::pyramid::{LINEAR, to_srgb};
@@ -37,13 +37,6 @@ const FLUID_BEHIND: f32 = 1e-3;
 /// Drehungen liegen weit darüber.
 /// Siehe docs/renderer/naehte.md, „Flächen parallel zur Blickrichtung“.
 const EDGE_ON: f32 = 1e-4;
-
-/// Helligkeit je Flächenrichtung, wie Minecraft sie verwendet. Ohne diese
-/// Abstufung sieht ein isometrischer Würfel flach aus.
-const SHADE_TOP: f32 = 1.0;
-const SHADE_BOTTOM: f32 = 0.5;
-const SHADE_NORTH_SOUTH: f32 = 0.8;
-const SHADE_EAST_WEST: f32 = 0.6;
 
 /// Volles Himmelslicht, am Tag unter freiem Himmel. So hell zeichnet der
 /// Renderer jede Fläche, siehe [`brightness`].
@@ -378,13 +371,7 @@ pub fn pack(tint: [u8; 3]) -> u32 {
     tint[0] as u32 | (tint[1] as u32) << 8 | (tint[2] as u32) << 16
 }
 
-/// Rastert ein gebackenes Modell in ein Sprite.
-///
-/// Da die Kamera fest steht, sieht jede Blockstate immer gleich aus. Das
-/// Sprite entsteht deshalb einmal und wird im Renderpfad nur noch kopiert.
-/// `leuchten` sagt, wie hell der Block selbst leuchtet: Was er unter
-/// seiner eigenen Wasseroberfläche trägt, liegt im Licht direkt unter ihr
-/// und in seinem eigenen Blocklicht, siehe `Canvas::into_image`.
+/// [`render_mit_licht`] im Licht der Oberwelt.
 pub fn render(
     model: &BakedModel,
     textures: &Textures,
@@ -392,10 +379,30 @@ pub fn render(
     tints: Tints,
     leuchten: Leuchten,
 ) -> Option<Sprite> {
+    let licht = CardinalLight::Default;
+    render_mit_licht(model, textures, projection, tints, leuchten, licht)
+}
+
+/// Rastert ein gebackenes Modell in ein Sprite.
+///
+/// Da die Kamera fest steht, sieht jede Blockstate immer gleich aus. Das
+/// Sprite entsteht deshalb einmal und wird im Renderpfad nur noch kopiert.
+/// `leuchten` sagt, wie hell der Block selbst leuchtet: Was er unter
+/// seiner eigenen Wasseroberfläche trägt, liegt im Licht direkt unter ihr
+/// und in seinem eigenen Blocklicht, siehe `Canvas::into_image`. `licht`
+/// schattiert die Seiten wie der Typ der Dimension, siehe [`shade_factor`].
+pub fn render_mit_licht(
+    model: &BakedModel,
+    textures: &Textures,
+    projection: &Projection,
+    tints: Tints,
+    leuchten: Leuchten,
+    licht: CardinalLight,
+) -> Option<Sprite> {
     let mut projected: Vec<ProjectedQuad> = model
         .quads
         .iter()
-        .filter_map(|quad| Some(ProjectedQuad::new(quad, projection, seite(quad)?)))
+        .filter_map(|quad| Some(ProjectedQuad::new(quad, projection, seite(quad)?, licht)))
         .collect();
 
     // Jede Fläche legt je Pixel ein Fragment ab, gemischt wird erst am
@@ -500,7 +507,12 @@ struct ProjectedQuad<'a> {
 
 impl<'a> ProjectedQuad<'a> {
     /// `rueckseite`: Die Kamera sieht die Fläche von hinten, siehe [`seite`].
-    fn new(quad: &'a Quad, projection: &Projection, rueckseite: bool) -> ProjectedQuad<'a> {
+    fn new(
+        quad: &'a Quad,
+        projection: &Projection,
+        rueckseite: bool,
+        licht: CardinalLight,
+    ) -> ProjectedQuad<'a> {
         let screen = quad.corners.map(|corner| {
             let (x, y) = projection.project(corner);
             (x, y, Projection::depth(corner))
@@ -509,7 +521,7 @@ impl<'a> ProjectedQuad<'a> {
             quad,
             screen,
             depth: screen.iter().map(|&(_, _, d)| d).fold(f32::MIN, f32::max),
-            shade: shade_factor(quad, rueckseite),
+            shade: shade_factor(quad, rueckseite, licht),
             ao_face: ao_face(quad),
         }
     }
@@ -670,45 +682,52 @@ fn seite(quad: &Quad) -> Option<bool> {
     (beidseitig && zur_kamera(n.map(|a| -a))).then_some(true)
 }
 
-/// Die Richtungen des Lichts für Entity-Modelle in der Oberwelt, wie
-/// `Lighting.updateLevel` in 26.2 sie setzt: `DIFFUSE_LIGHT_0` und
-/// `DIFFUSE_LIGHT_1` vor dem Normieren.
-const ENTITY_LICHT: [[f32; 3]; 2] = [[0.2, 1.0, -0.7], [-0.2, 1.0, 0.7]];
-
 /// Wie hell eine Fläche aus einem Blockentity-Modell ist:
 /// `minecraft_mix_light` in `shaders/include/light.glsl`, 0,6 je Richtung
-/// und 0,4 Umgebung.
+/// und 0,4 Umgebung, mit den Richtungen der Dimension.
 /// Siehe docs/renderer/blockentities.md, „Licht“.
-fn entity_light(n: [f32; 3]) -> f32 {
+fn entity_light(n: [f32; 3], licht: CardinalLight) -> f32 {
     let laenge = |v: [f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    let summe: f32 = ENTITY_LICHT
+    let summe: f32 = licht
+        .entity_light()
         .iter()
         .map(|l| ((l[0] * n[0] + l[1] * n[1] + l[2] * n[2]) / (laenge(*l) * laenge(n))).max(0.0))
         .sum();
     (summe * 0.6 + 0.4).min(1.0)
 }
 
-/// Helligkeit nach der Richtung, in die die Fläche am stärksten zeigt. Eine
-/// Fläche aus einem Blockentity-Modell liegt im Licht der Entities, von
-/// hinten mit `PER_FACE_LIGHTING` im Licht der umgekehrten Normalen.
-fn shade_factor(quad: &Quad, rueckseite: bool) -> f32 {
+/// Helligkeit nach der Richtung, in die die Fläche am stärksten zeigt, in
+/// der Schattierung der Dimension (`licht`); ohne `shade` wie die
+/// Oberseite. Eine Fläche aus einem Blockentity-Modell liegt im Licht der
+/// Entities, von hinten mit `PER_FACE_LIGHTING` im Licht der umgekehrten
+/// Normalen. Die Seiten einer Flüssigkeit nehmen die Oberseite mal Norden
+/// oder Westen.
+/// Siehe docs/renderer/dimensionstypen.md, „Schattierung nach Richtung“.
+fn shade_factor(quad: &Quad, rueckseite: bool, licht: CardinalLight) -> f32 {
     if let Some(entity) = quad.entity {
         let n = quad.normal();
         let umgekehrt = rueckseite && entity.schicht.je_seite;
-        return entity_light(if umgekehrt { n.map(|a| -a) } else { n });
+        return entity_light(if umgekehrt { n.map(|a| -a) } else { n }, licht);
+    }
+    if let Some((_, seite)) = quad.fluid {
+        return match seite {
+            Face::Up | Face::Down => licht.face(seite),
+            Face::North | Face::South => licht.face(Face::Up) * licht.face(Face::North),
+            Face::West | Face::East => licht.face(Face::Up) * licht.face(Face::West),
+        };
     }
     if !quad.shade {
-        return SHADE_TOP;
+        return licht.face(Face::Up);
     }
     let n = quad.normal();
     let [ax, ay, az] = [n[0].abs(), n[1].abs(), n[2].abs()];
-    if ay >= ax && ay >= az {
-        if n[1] >= 0.0 { SHADE_TOP } else { SHADE_BOTTOM }
+    licht.face(if ay >= ax && ay >= az {
+        if n[1] >= 0.0 { Face::Up } else { Face::Down }
     } else if az >= ax {
-        SHADE_NORTH_SOUTH
+        Face::North
     } else {
-        SHADE_EAST_WEST
-    }
+        Face::East
+    })
 }
 
 /// Texel an normierten Koordinaten. Außerhalb von 0..1 wird wiederholt —
@@ -1604,7 +1623,25 @@ mod tests {
             ([-1.0, 0.0, 0.0], 0.49701),
             ([0.0, -1.0, 0.0], 0.4),
         ] {
-            let ist = entity_light(normale);
+            let ist = entity_light(normale, CardinalLight::Default);
+            assert!((ist - soll).abs() < 1e-5, "{normale:?}: {ist}");
+        }
+    }
+
+    /// Im Nether kommt das zweite Licht von unten, (−0,2, −1, 0,7), wie
+    /// `Lighting.updateLevel` es für `CardinalLighting.Type.NETHER` setzt:
+    /// oben und unten je 0,885, die Seiten wie in der Oberwelt.
+    #[test]
+    fn licht_der_blockentities_im_nether() {
+        for (normale, soll) in [
+            ([0.0, 1.0, 0.0], 0.88507),
+            ([0.0, -1.0, 0.0], 0.88507),
+            ([0.0, 0.0, -1.0], 0.73955),
+            ([0.0, 0.0, 1.0], 0.73955),
+            ([1.0, 0.0, 0.0], 0.49701),
+            ([-1.0, 0.0, 0.0], 0.49701),
+        ] {
+            let ist = entity_light(normale, CardinalLight::Nether);
             assert!((ist - soll).abs() < 1e-5, "{normale:?}: {ist}");
         }
     }
@@ -1705,9 +1742,14 @@ mod tests {
 
         let je_seite = aus_entity(unterseite(), schicht(true, true));
         assert_eq!(seite(&je_seite), Some(true));
-        assert_eq!(shade_factor(&je_seite, true), 1.0, "Licht der Oberseite");
+        let licht = CardinalLight::Default;
+        assert_eq!(
+            shade_factor(&je_seite, true, licht),
+            1.0,
+            "Licht der Oberseite"
+        );
         let einseitig_beleuchtet = aus_entity(unterseite(), schicht(true, false));
-        assert_eq!(shade_factor(&einseitig_beleuchtet, true), 0.4);
+        assert_eq!(shade_factor(&einseitig_beleuchtet, true, licht), 0.4);
         assert!(bild(je_seite).is_some());
 
         let oben = quad(
@@ -1813,7 +1855,9 @@ mod tests {
             ],
             true,
         );
-        assert_eq!(shade_factor(&oben, false), SHADE_TOP);
+        let (oberwelt, nether) = (CardinalLight::Default, CardinalLight::Nether);
+        assert_eq!(shade_factor(&oben, false, oberwelt), 1.0);
+        assert_eq!(shade_factor(&oben, false, nether), 0.9);
 
         let unten = quad(
             [
@@ -1824,7 +1868,8 @@ mod tests {
             ],
             true,
         );
-        assert_eq!(shade_factor(&unten, false), SHADE_BOTTOM);
+        assert_eq!(shade_factor(&unten, false, oberwelt), 0.5);
+        assert_eq!(shade_factor(&unten, false, nether), 0.9);
     }
 
     #[test]
@@ -1838,7 +1883,9 @@ mod tests {
             ],
             true,
         );
-        assert_eq!(shade_factor(&nord, false), SHADE_NORTH_SOUTH);
+        for licht in [CardinalLight::Default, CardinalLight::Nether] {
+            assert_eq!(shade_factor(&nord, false, licht), 0.8);
+        }
 
         let ost = quad(
             [
@@ -1849,7 +1896,9 @@ mod tests {
             ],
             true,
         );
-        assert_eq!(shade_factor(&ost, false), SHADE_EAST_WEST);
+        for licht in [CardinalLight::Default, CardinalLight::Nether] {
+            assert_eq!(shade_factor(&ost, false, licht), 0.6);
+        }
     }
 
     #[test]
@@ -1863,7 +1912,48 @@ mod tests {
             ],
             false,
         );
-        assert_eq!(shade_factor(&nord, false), SHADE_TOP);
+        assert_eq!(shade_factor(&nord, false, CardinalLight::Default), 1.0);
+        // `BlockModelLighter.prepareQuadFlat` nimmt dann `up()`.
+        assert_eq!(shade_factor(&nord, false, CardinalLight::Nether), 0.9);
+    }
+
+    /// `FluidRenderer` schattiert die Oberseite mit `up()`, die Unterseite
+    /// mit `down()` und die Seiten mit `up()` mal `north()` oder `west()`:
+    /// im Nether 0,9 mal 0,8 und 0,9 mal 0,6, in der Oberwelt wie Blöcke.
+    #[test]
+    fn fluessigkeit_wie_fluid_renderer() {
+        let wasser = |seite: Face| Quad {
+            fluid: Some((fluid::Fluid::Water, seite)),
+            ..quad(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                ],
+                true,
+            )
+        };
+        let (oberwelt, nether) = (CardinalLight::Default, CardinalLight::Nether);
+        for (seite, soll_oberwelt, soll_nether) in [
+            (Face::Up, 1.0, 0.9),
+            (Face::Down, 0.5, 0.9),
+            (Face::North, 0.8, 0.9f32 * 0.8),
+            (Face::South, 0.8, 0.9f32 * 0.8),
+            (Face::West, 0.6, 0.9f32 * 0.6),
+            (Face::East, 0.6, 0.9f32 * 0.6),
+        ] {
+            assert_eq!(
+                shade_factor(&wasser(seite), false, oberwelt),
+                soll_oberwelt,
+                "{seite:?}"
+            );
+            assert_eq!(
+                shade_factor(&wasser(seite), false, nether),
+                soll_nether,
+                "{seite:?}"
+            );
+        }
     }
 
     #[test]

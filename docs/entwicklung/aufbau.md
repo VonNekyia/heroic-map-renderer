@@ -48,8 +48,9 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `fluid.rs` | Wasser und Lava als Würfel, siehe [Wasser und Licht](../renderer/wasser-und-licht.md) |
 | `blockentity.rs` | was das Spiel für Truhen, Banner und die übrigen Blockentities aus Modellen zeichnet, aus `blockentities.txt`, mit Mustern und Scherben; die Bannermuster des Spiels und der Datenwurzeln, siehe [Blockentities](../renderer/blockentities.md) |
 | `colors.rs` | Biomfarben, siehe [Biomfarben](../renderer/biomfarben.md) |
+| `dimension.rs` | der Typ der gezeichneten Dimension, aus `dimensionstypen.txt` und den Datenwurzeln, siehe [Dimensionstypen](../renderer/dimensionstypen.md) |
 | `noise.rs` | das Rauschen des Sumpfgrases, siehe [Biomfarben](../renderer/biomfarben.md), „Sumpfgras“ |
-| `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `blockentities.txt`, `Leuchten.java`, `Licht.java`, `Schatten.java`, `Blockentities.java` | aus dem Spiel erzeugte Tabellen, siehe [Erzeugte Tabellen](tabellen.md) |
+| `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `blockentities.txt`, `dimensionstypen.txt`, `Leuchten.java`, `Licht.java`, `Schatten.java`, `Blockentities.java`, `Dimensionstypen.java` | aus dem Spiel erzeugte Tabellen, siehe [Erzeugte Tabellen](tabellen.md) |
 
 ## `renderer/src/render/`: Bilder machen
 

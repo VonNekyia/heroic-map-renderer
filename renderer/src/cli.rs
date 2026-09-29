@@ -243,9 +243,34 @@ pub fn run() -> Result<()> {
             for dir in &args.data {
                 let biomes = assets.load_biomes(dir)?;
                 let muster = assets.load_banner_patterns(dir)?;
+                let dimensionen = assets.load_dimensions(dir)?;
                 println!(
-                    "            {biomes} Biome, {muster} Bannermuster aus {}",
+                    "            {biomes} Biome, {muster} Bannermuster, {dimensionen} Dimensionen und Typen aus {}",
                     dir.display()
+                );
+            }
+            let kaputt = assets.broken_dimensions();
+            if !kaputt.is_empty() {
+                println!(
+                    "            {} Dimensionen und Typen kaputt, übergangen; der Client lüde ihr Datenpaket nicht:",
+                    kaputt.len()
+                );
+                print_list(
+                    kaputt
+                        .iter()
+                        .map(|(pfad, grund)| format!("{pfad}: {grund}")),
+                );
+            }
+            let modifikatoren = assets.dimension_modifiers();
+            if !modifikatoren.is_empty() {
+                println!(
+                    "            {} Dimensionstypen setzen ein Licht mit Modifikator; der Renderer nimmt die Vorgabe:",
+                    modifikatoren.len()
+                );
+                print_list(
+                    modifikatoren
+                        .iter()
+                        .map(|(pfad, attribut)| format!("{pfad}: {attribut}")),
                 );
             }
             let kaputt = assets.colors().broken_biomes();
@@ -312,6 +337,16 @@ pub fn run() -> Result<()> {
     }
 
     if let Some((world, regions)) = &world {
+        if let Some(assets) = assets.as_mut() {
+            let rueckfall = assets.set_dimension(world.dimension());
+            println!(
+                "Dimension:  {}",
+                world.dimension().unwrap_or("minecraft:overworld")
+            );
+            if let Some(rueckfall) = rueckfall {
+                println!("            {rueckfall}");
+            }
+        }
         if args.scan {
             scan(world, regions, assets.as_mut(), Projection::new(args.scale))?;
         }

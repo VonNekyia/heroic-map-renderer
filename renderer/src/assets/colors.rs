@@ -397,7 +397,7 @@ fn name_aus<'a>(json: &'a Value, namen: &[&str]) -> Result<&'a str> {
 /// drei Kommazahlen (`VECTOR3F`), je Kanal `Mth.floor(x * 255)`, in `float`
 /// gerechnet und auf acht Bit gekappt wie `ARGB.color`. Es zählen die
 /// unteren 24 Bit.
-fn color(json: &Value) -> Result<Tint> {
+pub(super) fn color(json: &Value) -> Result<Tint> {
     let rgb = match json {
         Value::String(text) => {
             let hex = text

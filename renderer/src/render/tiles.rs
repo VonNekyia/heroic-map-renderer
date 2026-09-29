@@ -402,10 +402,12 @@ pub fn encode_webp(image: &RgbaImage) -> Result<Vec<u8>> {
     kodiere(image)
 }
 
-/// Dekodiert ein WebP mit libwebp nach RGBA.
-pub fn decode_webp(daten: &[u8]) -> Result<RgbaImage> {
+/// Dekodiert ein WebP mit libwebp nach RGBA. Nennt sein Kopf eine andere
+/// Grösse als `groesse`, ist es ein Fehler, bevor Speicher für das Bild
+/// angelegt ist: Ein WebP darf bis 16 383 × 16 383 Pixel gross sein.
+pub fn decode_webp(daten: &[u8], groesse: (u32, u32)) -> Result<RgbaImage> {
     richte_libwebp_ein();
-    dekodiere(daten)
+    dekodiere(daten, groesse)
 }
 
 /// Das erste Kodieren und Dekodieren im Prozess läuft allein, die übrigen
@@ -418,18 +420,24 @@ fn richte_libwebp_ein() {
     // Scheitert es, scheitert das Bild danach mit demselben Fehler.
     EINGERICHTET.call_once(|| {
         if let Ok(daten) = kodiere(&RgbaImage::new(16, 16)) {
-            drop(dekodiere(&daten));
+            drop(dekodiere(&daten, (16, 16)));
         }
     });
 }
 
 /// [`decode_webp`] ohne das Warten beim ersten Mal.
-fn dekodiere(daten: &[u8]) -> Result<RgbaImage> {
+fn dekodiere(daten: &[u8], groesse: (u32, u32)) -> Result<RgbaImage> {
     let (mut breite, mut hoehe) = (0, 0);
     // SAFETY: libwebp liest `daten.len()` Bytes und schreibt zwei Zahlen.
     let erkannt =
         unsafe { webp::WebPGetInfo(daten.as_ptr(), daten.len(), &mut breite, &mut hoehe) };
     ensure!(erkannt != 0, "kein WebP");
+    ensure!(
+        (breite as u32, hoehe as u32) == groesse,
+        "{breite} × {hoehe} Pixel statt {} × {}",
+        groesse.0,
+        groesse.1
+    );
     let mut bild = RgbaImage::new(breite as u32, hoehe as u32);
     let laenge = bild.len();
     // SAFETY: `bild` hat `laenge` Bytes, `4 * breite` je Zeile und `hoehe`

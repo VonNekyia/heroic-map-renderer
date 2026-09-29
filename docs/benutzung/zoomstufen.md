@@ -57,6 +57,8 @@ zusammen, am Ende eines Exports in `setze_zusammen`, mit `--pyramid` in
   sich nicht dekodieren lässt oder nicht 256 × 256 Pixel hat, ist unlesbar.
 - **Dekodieren** mit libwebp, das die Kacheln auch schreibt: `decode_webp`
   in [`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs).
+  Die Grösse prüft es schon am Kopf der Datei, bevor es Speicher für das
+  Bild anlegt; ein WebP darf bis 16 383 × 16 383 Pixel nennen, rund 1 GiB.
   Den Decoder aus `image` nehmen nur noch die Tests, als Probe, die nicht
   an libwebp hängt.
 - **Verkleinern** direkt über die Bytes, die vier Pixel Zeile für Zeile

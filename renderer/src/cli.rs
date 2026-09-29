@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 
 use image::{Rgba, RgbaImage};
@@ -2505,15 +2505,8 @@ fn lies_falls_da(path: &Path) -> Result<Option<RgbaImage>> {
     };
     let bild = gelesen
         .map_err(anyhow::Error::from)
-        .and_then(|daten| decode_webp(&daten))
+        .and_then(|daten| decode_webp(&daten, (TILE, TILE)))
         .with_context(|| format!("{} lesen", path.display()))?;
-    ensure!(
-        bild.dimensions() == (TILE, TILE),
-        "{} lesen: {} × {} Pixel, eine Kachel hat {TILE} × {TILE}",
-        path.display(),
-        bild.width(),
-        bild.height()
-    );
     Ok(Some(bild))
 }
 

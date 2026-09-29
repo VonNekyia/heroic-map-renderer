@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use terranova_render::assets::baker::box_quads;
-use terranova_render::assets::blockstate::{self, Leuchten};
 use terranova_render::assets::{
     Assets, BakedModel, Element, ElementFace, Face, Quad, ResolvedModel, ResolvedVariant, Rotation,
     TextureId, Tints, bake, model_of,
@@ -30,13 +29,7 @@ fn sprite(assets: &mut Assets, text: &str, scale: u32) -> Option<terranova_rende
     let state = state(text);
     let model = model_of(assets, &state).unwrap();
     let tints = assets.colors().tints(state.name(), None);
-    render(
-        &model,
-        assets.textures(),
-        &Projection::new(scale),
-        tints,
-        blockstate::leuchten(&state),
-    )
+    render(&model, assets.textures(), &Projection::new(scale), tints)
 }
 
 /// Pixel an einer Bildschirmkoordinate relativ zum Blockursprung.
@@ -261,7 +254,6 @@ fn unsinnig_grosse_modelle_werden_uebersprungen() {
             &Textures::new(),
             &Projection::new(16),
             Tints::default(),
-            Leuchten::Stufe(0),
         )
         .is_none()
     );
@@ -312,9 +304,10 @@ fn wasser_bekommt_geometrie_aus_der_blockstate() {
 }
 
 /// Ein gefluteter Zaun bleibt unter dem Wasser sichtbar: das Sprite mischt
-/// die Wasserfläche über den Pfosten, statt ihn zu überschreiben, und
-/// darunter liegt der Pfosten im Licht 14. Die Oberseite des Pfostens ragt
-/// trocken heraus, denn das Wasser endet bei 8/9 des Blocks — wie im Spiel.
+/// die Wasserfläche über den Pfosten, statt ihn zu überschreiben. Licht
+/// trägt das Sprite keines, das bekommen Pfosten und Wasser erst beim
+/// Zeichnen. Die Oberseite des Pfostens ragt trocken heraus, denn das
+/// Wasser endet bei 8/9 des Blocks — wie im Spiel.
 #[test]
 fn wasser_mischt_sich_ueber_den_zaun() {
     let mut assets = assets();
@@ -330,11 +323,11 @@ fn wasser_mischt_sich_ueber_den_zaun() {
     );
 
     // Südseite des Pfostens auf halber Höhe, hinter der Wasseroberfläche:
-    // `α · W + (1 − α) · b · D`, die Helligkeit b(14) nach `lightmap.fsh`.
+    // `α · W + (1 − α) · D`.
     let (sx, sy) = (-1, 0);
     let (w, d) = (pixel(&wasser, sx, sy), pixel(&trocken, sx, sy));
     let a = w[3] as f64 / 255.0;
-    let farbe = |c: usize| (a * w[c] as f64 + (1.0 - a) * 0.90794 * d[c] as f64).round() as u8;
+    let farbe = |c: usize| (a * w[c] as f64 + (1.0 - a) * d[c] as f64).round() as u8;
     let erwartet = [farbe(0), farbe(1), farbe(2), 255];
     let ist = pixel(&nass, sx, sy);
     for c in 0..4 {
@@ -468,7 +461,6 @@ fn diagonale_mischt_nur_einmal() {
             assets.textures(),
             &Projection::new(scale),
             Tints::default(),
-            Leuchten::Stufe(0),
         )
         .expect("Sprite");
         for (x, y, p) in sprite.image.enumerate_pixels() {
@@ -572,14 +564,8 @@ fn kanten_nehmen_jeden_pixel_genau_einmal() {
                     })
                     .collect(),
             );
-            let sprite = render(
-                &modell,
-                assets.textures(),
-                &projection,
-                Tints::default(),
-                Leuchten::Stufe(0),
-            )
-            .expect("Sprite");
+            let sprite =
+                render(&modell, assets.textures(), &projection, Tints::default()).expect("Sprite");
             for (x, y, p) in sprite.image.enumerate_pixels() {
                 let px = (x as i32 + sprite.offset.0) as f64 + 0.5;
                 let py = (y as i32 + sprite.offset.1) as f64 + 0.5;
@@ -669,14 +655,7 @@ fn teildeckung_verdeckt_nicht() {
         quads: vec![vorne.clone()],
         ambient_occlusion: false,
     };
-    let allein = render(
-        &allein,
-        assets.textures(),
-        &projection,
-        Tints::default(),
-        Leuchten::Stufe(0),
-    )
-    .unwrap();
+    let allein = render(&allein, assets.textures(), &projection, Tints::default()).unwrap();
     assert!(
         allein.image.pixels().any(|p| p.0[3] > 0 && p.0[3] < 255),
         "das Gitter deckt nirgends halb — der Test prüft nichts"
@@ -688,14 +667,7 @@ fn teildeckung_verdeckt_nicht() {
         quads: vec![vorne, flaeche(0.25, -1.0, 2.0, blau)],
         ambient_occlusion: false,
     };
-    let sprite = render(
-        &beide,
-        assets.textures(),
-        &projection,
-        Tints::default(),
-        Leuchten::Stufe(0),
-    )
-    .unwrap();
+    let sprite = render(&beide, assets.textures(), &projection, Tints::default()).unwrap();
     let halb = sprite
         .image
         .pixels()

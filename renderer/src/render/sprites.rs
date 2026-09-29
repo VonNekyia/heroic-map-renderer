@@ -7,7 +7,7 @@ use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
 use crate::assets::blockentity;
-use crate::assets::blockstate::{self, Leuchten, ModelRef};
+use crate::assets::blockstate::ModelRef;
 use crate::assets::colors::{Resolver, Source, Tint, source_of, tinted_below};
 use crate::assets::fluid::Fluid;
 use crate::assets::noise::JavaRandom;
@@ -124,14 +124,8 @@ fn block(top: f32, only_up: bool) -> BakedModel {
 
 /// Die Pixel, die ein Modell belegt, relativ zum Blockursprung.
 fn pixels_of(textures: &Textures, projection: Projection, model: BakedModel) -> Vec<(i32, i32)> {
-    let sprite = render(
-        &model,
-        textures,
-        &projection,
-        Tints::default(),
-        Leuchten::Stufe(0),
-    )
-    .expect("ein Block hat sichtbare Flaechen");
+    let sprite = render(&model, textures, &projection, Tints::default())
+        .expect("ein Block hat sichtbare Flaechen");
     sprite
         .image
         .enumerate_pixels()
@@ -273,14 +267,11 @@ type FamilyKey = (
     Vec<(u32, Vec<ModelRef>)>,
     Option<(Fluid, u8)>,
     [i32; 3],
-    Leuchten,
     Option<usize>,
 );
 
-/// Was die Sprites einer Blockstate bestimmt. Das Leuchten gehört dazu: Ein
-/// gefluteter Block trägt unter seiner Oberfläche sein eigenes Blocklicht,
-/// ein Sculk-Sensor in `cooldown` also ein anderes als einer in `active`,
-/// auch mit demselben Modell.
+/// Was die Sprites einer Blockstate bestimmt. Das Licht gehört nicht dazu,
+/// es kommt beim Zeichnen.
 fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
     let alternatives = assets.alternative_refs(state)?;
     Ok((
@@ -288,7 +279,6 @@ fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
         alternatives,
         fluid::key(state),
         seed_offset(state),
-        blockstate::leuchten(state),
         blockentity::bild(state),
     ))
 }
@@ -674,10 +664,9 @@ impl SpriteSet {
         };
         const SCHWARZ: Tint = [0; 3];
         const WEISS: Tint = [255; 3];
-        let leuchten = blockstate::leuchten(state);
         let raster = |tints| {
             let (textures, projection) = (assets.textures(), &self.projection);
-            render_mit_licht(model, textures, projection, tints, leuchten, self.licht)
+            render_mit_licht(model, textures, projection, tints, self.licht)
         };
         let mut sprite = raster(tints(SCHWARZ, SCHWARZ))?;
         if biome || water {
@@ -1421,14 +1410,7 @@ mod tests {
         for name in ["turm", "ueberhang", "einfarbig", "seerose", "oak_fence"] {
             let mut assets = assets();
             let model = model_of(&mut assets, &state(name)).unwrap();
-            let ganz = render(
-                &model,
-                assets.textures(),
-                &projection,
-                Tints::default(),
-                Leuchten::Stufe(0),
-            )
-            .unwrap();
+            let ganz = render(&model, assets.textures(), &projection, Tints::default()).unwrap();
 
             let sichtbar = |sprite: &Sprite| {
                 let offset = sprite.offset;
@@ -1573,9 +1555,8 @@ mod tests {
     /// beim Wasser mit seiner halb durchsichtigen Oberfläche, beim Grasblock
     /// der Fixture mit gefärbter Oberseite und ungefärbten Seiten, bei einem
     /// gefluteten Zaun, bei einem gefluteten gefärbten Kreuz, in dessen
-    /// Pixeln sich beide Farben treffen, und bei zwei gefluteten
-    /// Sculk-Sensoren mit demselben Modell, aber anderem Licht unter der
-    /// Oberfläche. Das Raster rundet an jeder Schicht, die Karte einmal je
+    /// Pixeln sich beide Farben treffen, und bei einem gefluteten
+    /// Sculk-Sensor. Das Raster rundet an jeder Schicht, die Karte einmal je
     /// Pixel; auseinander liegen sie höchstens um 2, siehe
     /// docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
     ///
@@ -1590,14 +1571,8 @@ mod tests {
             "oak_fence[waterlogged=true]",
             "jungle_leaves[distance=1,persistent=false,waterlogged=true]",
             "sculk_sensor[power=0,sculk_sensor_phase=active,waterlogged=true]",
-            "sculk_sensor[power=0,sculk_sensor_phase=cooldown,waterlogged=true]",
         ];
         let states: Vec<BlockState> = texte.iter().map(|t| state(t)).collect();
-        assert_ne!(
-            blockstate::leuchten(&states[4]),
-            blockstate::leuchten(&states[5]),
-            "die beiden Sensoren leuchten verschieden"
-        );
         for scale in [4, 16, 32] {
             let projection = Projection::new(scale);
             let set = build(&mut assets, &states, projection).unwrap();
@@ -1621,7 +1596,6 @@ mod tests {
                             block: gefaerbt.then_some(block),
                             water: Some(wasser),
                         },
-                        blockstate::leuchten(st),
                     )
                     .unwrap();
                     assert_eq!(direkt.image.dimensions(), sprite.image.dimensions());
@@ -1751,14 +1725,7 @@ mod tests {
                         block,
                         water: Some(w),
                     };
-                    let direkt = render(
-                        &model,
-                        assets.textures(),
-                        &projection,
-                        tints,
-                        blockstate::leuchten(st),
-                    )
-                    .unwrap();
+                    let direkt = render(&model, assets.textures(), &projection, tints).unwrap();
                     // Ragt das Modell über seinen Würfel, ist das Sprite
                     // nur das Stück darin; solche zählt der Test nur.
                     if (sprite.offset, sprite.image.dimensions())

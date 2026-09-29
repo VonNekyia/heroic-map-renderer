@@ -4,7 +4,6 @@ use image::{Rgba, RgbaImage};
 
 use crate::assets::baker::{BakedModel, Quad};
 use crate::assets::blockentity::Entity;
-use crate::assets::blockstate::Leuchten;
 use crate::assets::{CardinalLight, Face, Textures, Tints, fluid};
 
 use super::Projection;
@@ -41,11 +40,6 @@ const EDGE_ON: f32 = 1e-4;
 /// Volles Himmelslicht, am Tag unter freiem Himmel. So hell zeichnet der
 /// Renderer jede Fläche, siehe [`brightness`].
 pub const FULL_LIGHT: u8 = 15;
-
-/// Himmelslicht direkt unter einer Wasseroberfläche: Der Block der
-/// Oberfläche selbst nimmt eine Stufe, `LiquidBlock.propagatesSkylightDown`
-/// ist falsch.
-pub const LIGHT_UNDER_SURFACE: u8 = 14;
 
 /// Helligkeit einer Fläche im Himmelslicht `light` (0 bis 15), am Tag in
 /// der Oberwelt, so wie `shaders/core/lightmap.fsh` in 26.2 sie rechnet.
@@ -366,6 +360,27 @@ pub fn tinted(pixel: [u8; 4], [block, water]: [u32; 2], [b, w]: [u32; 2]) -> [u8
     [kanal(0), kanal(1), kanal(2), pixel[3]]
 }
 
+/// Wie [`darken`] über [`tinted`], nur liegt der Anteil des Wassers im
+/// Licht `wasser`, der Rest im Licht `licht`, beide aus [`Light::factors`]:
+/// Ein gefluteter Block an der Oberfläche zeichnet sein Modell im Licht
+/// seiner Zelle, sein Wasser im helleren darüber. Einmal gerundet, dieselbe
+/// Rechnung steht im Shader.
+pub fn tinted_im_licht(
+    pixel: [u8; 4],
+    [block, water]: [u32; 2],
+    [b, w]: [u32; 2],
+    licht: [u32; 3],
+    wasser: [u32; 3],
+) -> [u8; 4] {
+    let kanal = |c: usize| {
+        let byte = |word: u32| word >> (8 * c) & 255;
+        let rest = (pixel[c] as u32 * 255 + byte(block) * byte(b)) * licht[c];
+        let nass = byte(water) * byte(w) * wasser[c];
+        ((rest + nass + 32512) / 65025).min(255) as u8
+    };
+    [kanal(0), kanal(1), kanal(2), pixel[3]]
+}
+
 /// Eine Farbe gepackt wie die Tönungskarte, Rot im untersten Byte.
 pub fn pack(tint: [u8; 3]) -> u32 {
     tint[0] as u32 | (tint[1] as u32) << 8 | (tint[2] as u32) << 16
@@ -377,26 +392,21 @@ pub fn render(
     textures: &Textures,
     projection: &Projection,
     tints: Tints,
-    leuchten: Leuchten,
 ) -> Option<Sprite> {
-    let licht = CardinalLight::Default;
-    render_mit_licht(model, textures, projection, tints, leuchten, licht)
+    render_mit_licht(model, textures, projection, tints, CardinalLight::Default)
 }
 
 /// Rastert ein gebackenes Modell in ein Sprite.
 ///
 /// Da die Kamera fest steht, sieht jede Blockstate immer gleich aus. Das
 /// Sprite entsteht deshalb einmal und wird im Renderpfad nur noch kopiert.
-/// `leuchten` sagt, wie hell der Block selbst leuchtet: Was er unter
-/// seiner eigenen Wasseroberfläche trägt, liegt im Licht direkt unter ihr
-/// und in seinem eigenen Blocklicht, siehe `Canvas::into_image`. `licht`
-/// schattiert die Seiten wie der Typ der Dimension, siehe [`shade_factor`].
+/// Das Licht des Blocks kommt erst beim Zeichnen dazu. `licht` schattiert
+/// die Seiten wie der Typ der Dimension, siehe [`shade_factor`].
 pub fn render_mit_licht(
     model: &BakedModel,
     textures: &Textures,
     projection: &Projection,
     tints: Tints,
-    leuchten: Leuchten,
     licht: CardinalLight,
 ) -> Option<Sprite> {
     let mut projected: Vec<ProjectedQuad> = model
@@ -453,17 +463,7 @@ pub fn render_mit_licht(
         );
     }
 
-    let unter = match leuchten {
-        Leuchten::Voll(_) => Light {
-            sky: FULL_LIGHT,
-            block: FULL_LIGHT,
-        },
-        Leuchten::Stufe(block) => Light {
-            sky: LIGHT_UNDER_SURFACE,
-            block,
-        },
-    };
-    let (image, ao) = canvas.into_image(unter, ao);
+    let (image, ao) = canvas.into_image(ao);
     Some(Sprite {
         image,
         offset: (min_x, min_y),
@@ -641,7 +641,6 @@ impl<'a> ProjectedQuad<'a> {
                 Shading {
                     shade: self.shade,
                     tint,
-                    surface: self.quad.fluid.is_some_and(|(_, face)| face == Face::Up),
                     order,
                     ao_face,
                     deckung,
@@ -758,7 +757,6 @@ struct Vertex {
 struct Shading {
     shade: f32,
     tint: Option<[f32; 3]>,
-    surface: bool,
     order: u32,
     ao_face: Option<usize>,
     deckung: Deckung,
@@ -805,9 +803,6 @@ struct Fragment {
     order: u32,
     /// Farbe mit Helligkeit und Färbung, Alpha der Textur.
     color: [u8; 4],
-    /// Von der Oberseite einer Flüssigkeit: Was im Sprite dahinter liegt,
-    /// liegt unter Wasser.
-    surface: bool,
     /// Eintrag der AO-Karte, 0 ohne weiche Beleuchtung.
     ao: u32,
 }
@@ -854,7 +849,6 @@ impl Canvas {
         let Shading {
             shade,
             tint,
-            surface,
             order,
             ao_face,
             deckung,
@@ -930,18 +924,15 @@ impl Canvas {
                     depth,
                     order,
                     color: shaded(texel, shade, tint),
-                    surface,
                     ao,
                 });
             }
         }
     }
 
-    /// Mischt je Pixel die Fragmente von hinten nach vorne. Was unter der
-    /// eigenen Oberfläche liegt, im Licht `unter`. Mit `ao` dazu die
-    /// AO-Karte aus dem vordersten Fragment je Pixel.
-    fn into_image(mut self, unter: Light, ao: bool) -> (RgbaImage, Option<Vec<u32>>) {
-        let unter = unter.factors();
+    /// Mischt je Pixel die Fragmente von hinten nach vorne. Mit `ao` dazu
+    /// die AO-Karte aus dem vordersten Fragment je Pixel.
+    fn into_image(mut self, ao: bool) -> (RgbaImage, Option<Vec<u32>>) {
         self.fragments.sort_unstable_by(|a, b| {
             a.pixel
                 .cmp(&b.pixel)
@@ -953,15 +944,6 @@ impl Canvas {
         for pixel in self.fragments.chunk_by(|a, b| a.pixel == b.pixel) {
             let mut color = [0u8; 4];
             for fragment in pixel {
-                // Was ein gefluteter Block unter seiner eigenen Oberfläche
-                // trägt, ein Zaunpfosten etwa, liegt im Licht direkt unter
-                // ihr, eine Laterne oder Meeresgurke dazu in ihrem eigenen
-                // Blocklicht. Wo das Sprite nichts dahinter hat, bleibt die
-                // Oberfläche, wie sie ist: Was dort durchscheint, zeichnet
-                // der Renderlauf in seinem eigenen Licht.
-                if fragment.surface && color[3] != 0 {
-                    color = darken(color, unter);
-                }
                 color = over(fragment.color, color);
             }
             let index = pixel[0].pixel;
@@ -1196,15 +1178,7 @@ mod tests {
         let wuerfel = |to: [f32; 3], ambient_occlusion| kasten([0.0; 3], to, ambient_occlusion);
         let textures = Textures::new();
         let projection = Projection::new(32);
-        let bild = |model: &BakedModel| {
-            render(
-                model,
-                &textures,
-                &projection,
-                Tints::default(),
-                Leuchten::Stufe(0),
-            )
-        };
+        let bild = |model: &BakedModel| render(model, &textures, &projection, Tints::default());
         let sprite = bild(&wuerfel([16.0; 3], true)).unwrap();
         let karte = sprite.ao.as_ref().expect("AO-Karte");
         for (i, p) in sprite.image.pixels().enumerate() {
@@ -1229,6 +1203,49 @@ mod tests {
                 .is_none(),
             "obere Platte"
         );
+    }
+
+    /// Mit gleichem Licht für beide Anteile gleicht [`tinted_im_licht`] dem
+    /// Weg über [`tinted`] und [`darken`] bis auf die Rundung; sonst liegt
+    /// der Anteil des Wassers in seinem Licht, der Rest in dem des Blocks.
+    #[test]
+    fn wasser_im_eigenen_licht() {
+        let farben = [pack([0x91, 0xBD, 0x59]), pack([0x3F, 0x76, 0xE4])];
+        let anteile = [pack([40, 50, 60]), pack([90, 80, 70])];
+        let pixel = [30, 20, 10, 200];
+        let [f, g] = [Light::sky(13).factors(), Light::sky(14).factors()];
+        let zweimal = darken(tinted(pixel, anteile, farben), f);
+        let einmal = tinted_im_licht(pixel, anteile, farben, f, f);
+        for c in 0..4 {
+            assert!(
+                (zweimal[c] as i32 - einmal[c] as i32).abs() <= 1,
+                "{zweimal:?} {einmal:?}"
+            );
+        }
+        let nur_wasser = tinted_im_licht([0, 0, 0, 200], [0, anteile[1]], farben, f, g);
+        let nur_rest = tinted_im_licht(pixel, [anteile[0], 0], farben, f, g);
+        let beide = tinted_im_licht(pixel, anteile, farben, f, g);
+        let getrennt = [
+            (
+                nur_wasser,
+                darken(tinted([0, 0, 0, 200], [0, anteile[1]], farben), g),
+            ),
+            (nur_rest, darken(tinted(pixel, [anteile[0], 0], farben), f)),
+        ];
+        for (ist, soll) in getrennt {
+            for c in 0..4 {
+                assert!(
+                    (ist[c] as i32 - soll[c] as i32).abs() <= 1,
+                    "{ist:?} {soll:?}"
+                );
+            }
+        }
+        for c in 0..3 {
+            let summe = nur_wasser[c] as i32 + nur_rest[c] as i32;
+            assert!((beide[c] as i32 - summe).abs() <= 1, "Kanal {c}");
+        }
+        assert!(beide[2] > einmal[2], "das Wasser liegt heller");
+        assert_eq!(beide[3], 200);
     }
 
     /// Gepackt wie `LightCoordsUtil.pack`: Blocklicht ab Bit 4, Himmelslicht
@@ -1380,7 +1397,6 @@ mod tests {
                 &Textures::new(),
                 &Projection::new(16),
                 Tints::default(),
-                Leuchten::Stufe(0),
             )
             .is_some()
         );
@@ -1412,14 +1428,7 @@ mod tests {
             quads: vec![oben],
             ambient_occlusion: false,
         };
-        let sprite = render(
-            &model,
-            textures,
-            &Projection::new(32),
-            Tints::default(),
-            Leuchten::Stufe(0),
-        )
-        .unwrap();
+        let sprite = render(&model, textures, &Projection::new(32), Tints::default()).unwrap();
         sprite.image.pixels().map(|p| p[3]).collect()
     }
 
@@ -1493,15 +1502,9 @@ mod tests {
                 quads: vec![oben],
                 ambient_occlusion: false,
             };
-            render(
-                &model,
-                &textures,
-                &Projection::new(32),
-                Tints::default(),
-                Leuchten::Stufe(0),
-            )
-            .unwrap()
-            .image
+            render(&model, &textures, &Projection::new(32), Tints::default())
+                .unwrap()
+                .image
         };
         let (hell, dunkel) = (sprite(hell), sprite(dunkel));
         let mut dunkler = 0;
@@ -1539,13 +1542,7 @@ mod tests {
                 quads: vec![oben],
                 ambient_occlusion: false,
             };
-            render(
-                &model,
-                &textures,
-                &Projection::new(32),
-                Tints::default(),
-                Leuchten::Stufe(0),
-            )
+            render(&model, &textures, &Projection::new(32), Tints::default())
         };
         assert!(sprite(unter).is_none_or(|s| s.image.pixels().all(|p| p[3] == 0)));
         assert!(sprite(ueber).unwrap().image.pixels().any(|p| p[3] == 26));
@@ -1705,7 +1702,6 @@ mod tests {
                 &Textures::new(),
                 &Projection::new(32),
                 Tints::default(),
-                Leuchten::Stufe(0),
             )
             .unwrap()
             .ao
@@ -1731,7 +1727,6 @@ mod tests {
                 &Textures::new(),
                 &Projection::new(16),
                 Tints::default(),
-                Leuchten::Stufe(0),
             )
         };
         assert_eq!(seite(&unterseite()), None, "Blockmodell");
@@ -1799,14 +1794,7 @@ mod tests {
                 quads: vec![oben],
                 ambient_occlusion: false,
             };
-            let sprite = render(
-                &model,
-                textures,
-                &Projection::new(32),
-                Tints::default(),
-                Leuchten::Stufe(0),
-            )
-            .unwrap();
+            let sprite = render(&model, textures, &Projection::new(32), Tints::default()).unwrap();
             sprite
                 .image
                 .pixels()
@@ -1965,7 +1953,6 @@ mod tests {
                 &Textures::new(),
                 &Projection::default(),
                 Tints::default(),
-                Leuchten::Stufe(0),
             )
             .is_none()
         );
@@ -2015,7 +2002,6 @@ mod tests {
             &Textures::new(),
             &Projection::new(16),
             Tints::default(),
-            Leuchten::Stufe(0),
         )
         .expect("Sprite");
         assert_eq!(sprite.image.dimensions(), (16, 16));

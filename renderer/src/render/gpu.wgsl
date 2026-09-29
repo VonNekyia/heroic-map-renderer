@@ -15,8 +15,9 @@ struct Instance {
     // untersten Byte, 255 bei vollem Licht: `metatile::Draw::licht`, für
     // Pixel ohne Seite. Bit 24: Das Sprite hat eine AO-Karte, und die Ecken
     // gelten. Bit 25: Das Sprite hat eine Tönungskarte. Bit 26: Das Sprite
-    // hat eine AO-Karte. Hinter den Pixeln steht erst die AO-Karte, dann die
-    // Tönungskarte, zwei Wörter je Pixel.
+    // hat eine AO-Karte. Bit 27: Der Anteil des Wassers in der Tönungskarte
+    // liegt im Licht `water_light`. Hinter den Pixeln steht erst die
+    // AO-Karte, dann die Tönungskarte, zwei Wörter je Pixel.
     light: u32,
     // Das Licht an den Ecken der Seiten oben, Süden und Osten, je Kanal ein
     // Wort je Seite, ein Byte je Ecke: `rasterizer::Ecken`.
@@ -33,6 +34,9 @@ struct Instance {
     // wie sie: `ChunkCache::tints_at`.
     tint_block: u32,
     tint_water: u32,
+    // Das Licht des Wassers je Farbkanal wie `light`, ohne Bits darüber:
+    // `metatile::Draw::wasser`.
+    water_light: u32,
 }
 
 struct Params {
@@ -70,6 +74,14 @@ fn tinted(s: vec4<u32>, block: u32, water: u32, inst: Instance) -> vec4<u32> {
     let anteil = unpack(block).xyz * unpack(inst.tint_block).xyz
         + unpack(water).xyz * unpack(inst.tint_water).xyz;
     return vec4<u32>(s.xyz + (anteil + 127u) / 255u, s.w);
+}
+
+// Wie `darken` über `tinted`, der Anteil des Wassers aber im Licht `fw`,
+// einmal gerundet — wie `rasterizer::tinted_im_licht`.
+fn tinted_im_licht(s: vec4<u32>, block: u32, water: u32, inst: Instance, f: vec3<u32>, fw: vec3<u32>) -> vec4<u32> {
+    let rest = (s.xyz * 255u + unpack(block).xyz * unpack(inst.tint_block).xyz) * f;
+    let nass = unpack(water).xyz * unpack(inst.tint_water).xyz * fw;
+    return vec4<u32>(min((rest + nass + 32512u) / 65025u, vec3<u32>(255u)), s.w);
 }
 
 // Die Ecken der Seite `face` in einem Kanal.
@@ -134,13 +146,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wg
         }
         // Erst die Farbe, dann das Licht, wie `metatile::mische`.
         let flags = inst.light >> 24u;
-        if ((flags & 2u) != 0u) {
-            var karte = inst.sprite + w * h;
-            if ((flags & 4u) != 0u) {
-                karte += w * h;
-            }
-            s = tinted(s, sprites[karte + 2u * i], sprites[karte + 2u * i + 1u], inst);
-        }
         // Das Licht je Kanal, auf einer Seite das ihrer Ecken, wie
         // `metatile::faktor`.
         var f = vec3<u32>(inst.light & 255u, (inst.light >> 8u) & 255u, (inst.light >> 16u) & 255u);
@@ -153,6 +158,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wg
                     ecken_faktor(word, seite(face, inst.g_up, inst.g_south, inst.g_east)),
                     ecken_faktor(word, seite(face, inst.b_up, inst.b_south, inst.b_east)),
                 );
+            }
+        }
+        if ((flags & 2u) != 0u) {
+            var karte = inst.sprite + w * h;
+            if ((flags & 4u) != 0u) {
+                karte += w * h;
+            }
+            let block = sprites[karte + 2u * i];
+            let water = sprites[karte + 2u * i + 1u];
+            if ((flags & 8u) != 0u) {
+                let wl = inst.water_light;
+                let fw = vec3<u32>(wl & 255u, (wl >> 8u) & 255u, (wl >> 16u) & 255u);
+                s = tinted_im_licht(s, block, water, inst, f, fw);
+                f = vec3<u32>(255u);
+            } else {
+                s = tinted(s, block, water, inst);
             }
         }
         if (any(f != vec3<u32>(255u))) {

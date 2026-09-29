@@ -165,18 +165,15 @@ Tönungskarte (`Sprite::tint`), siehe
 
 Die Karte entsteht aus drei Rastern desselben Modells: jede Farbe des Bioms
 schwarz, dann die des Blocks weiss, dann die des Wassers weiss. Das Mischen
-der Flächen eines Sprites und das Licht unter seiner eigenen Oberfläche sind
-linear in der Farbe; der Anteil einer Farbe ist deshalb je Kanal der
-Unterschied zum Raster in Schwarz, und das Raster in Schwarz ist der Rest.
-So stimmt auch ein Pixel, in dem sich Farben treffen: die halb
-durchsichtige Wasseroberfläche über Seegras oder einem gefluteten Zaun, der
-Rand der Auflage an der Seite eines Grasblocks. Alle drei Raster tragen das
-Licht des Blocks; ein gefluteter Block, der selbst leuchtet, liegt unter
-seiner Oberfläche in seinem eigenen Blocklicht. Deshalb gehört das Leuchten
-zum Schlüssel der Familie. Sonst teilt sich ein Sculk-Sensor in `cooldown`
-die Familie mit einem in `active`, und eine Leuchtflechte ohne Fläche, die
-das Spiel mit allen sechs Flächen zeichnet, aber nicht leuchten lässt, die
-mit einer, die alle sechs hat.
+der Flächen eines Sprites ist linear in der Farbe; der Anteil einer Farbe
+ist deshalb je Kanal der Unterschied zum Raster in Schwarz, und das Raster
+in Schwarz ist der Rest. So stimmt auch ein Pixel, in dem sich Farben
+treffen: die halb durchsichtige Wasseroberfläche über Seegras oder einem
+gefluteten Zaun, der Rand der Auflage an der Seite eines Grasblocks. Licht
+trägt keines der Raster, es kommt beim Zeichnen. Weil der Anteil des
+Wassers für sich steht, bekommt das Wasser eines gefluteten Blocks dort
+sein eigenes Licht, siehe [Wasser und Licht](wasser-und-licht.md),
+„Welches Licht ein Block bekommt“.
 
 Gegenüber einem Raster, das die Farben gleich trägt, liegt ein Kanal
 höchstens um 2 daneben, meist höchstens um 1. Das Raster rundet an jeder

@@ -455,7 +455,8 @@ pub const SZENE_Y: (i32, i32) = (-16, 47);
 /// so an den Rändern eines Chunks nach +x und +z, Lava mit Luft darüber
 /// am oberen Rand einer Section, ein 15/16 hoher Block wie Ackerboden
 /// neben Lava und gestapelt, Platten, Kuchen, eine Seerose, ein gefluteter
-/// Zaun, eine Blasensäule, Säulen durch beide Section-Grenzen und Modelle,
+/// Zaun unter Wasser und einer an der Oberfläche unter einem Dach neben
+/// einem leuchtenden Redstone-Erz, eine Blasensäule, Säulen durch beide Section-Grenzen und Modelle,
 /// die in Nachbarwürfel ragen, eines davon mit seinem oberen Teil in einem
 /// verdeckten Würfel, dazu ein Block, der knapp über seinen Umriss ragt und
 /// selbst verdeckt ist: beide zeichnen je Pixel neben ihrem Würfel, die kein
@@ -478,6 +479,11 @@ pub fn szene(x: i32, y: i32, z: i32) -> &'static str {
         (10..=13, 21, 10..=13) => "minecraft:einfarbig",
         (20, 3..=25, 8) => "minecraft:durchsichtig",
         (14, 12, 14) => "minecraft:oak_fence[waterlogged=true]",
+        (20, 21, 14) => {
+            "minecraft:oak_fence[east=false,north=false,south=false,waterlogged=true,west=false]"
+        }
+        (20, 23, 14) => "minecraft:stone",
+        (20, 22, 15) => "minecraft:redstone_ore[lit=true]",
         (18, 3..=20, 18) => "minecraft:bubble_column",
         (16, 3, 4) | (15, 5, 16) => "minecraft:ueberhang",
         (6..=25, 3..=21, 6..=25) => "minecraft:water",

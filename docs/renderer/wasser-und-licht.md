@@ -183,21 +183,26 @@ Spiel in 26.2 (`LightCoordsUtil.getLightCoords`), belegt per javap:
 - **Flüssigkeiten** liegen im helleren Licht ihrer Zelle und der darüber,
   je Licht für sich (`FluidRenderer`, `LightCoordsUtil.max`): Der oberste
   Block Wasser zeigt das Licht der Luft über ihm, unter freiem Himmel 15,
-  jeder darunter das seiner Zelle, am Fuss eines Wasserfalls neben Luft
-  das Licht, das von der Seite hereinkommt. Ein Block mit eigenem Wasser,
-  ein gefluteter Zaun etwa, liegt ebenso im helleren Licht, solange er die
-  Oberseite seines Wassers zeigt; steht Wasser über ihm, im Licht seiner
-  Zelle.
+  jeder darunter meist das des Wassers über ihm, am Fuss eines Wasserfalls
+  neben Luft das Licht, das von der Seite hereinkommt.
+- **Ein Block mit eigenem Wasser**, ein gefluteter Zaun etwa, liegt im
+  Licht seiner Zelle wie jedes Modell (`ModelBlockRenderer`), sein Wasser
+  im helleren Licht wie jede Flüssigkeit. Das gilt auch unter Wasser:
+  `FluidRenderer.tesselate` fragt für Oberseite und Seiten dasselbe Licht,
+  gleich was über der Zelle steht. Ein Bild aus dem Blockentity liegt im
+  Licht der Zelle (`BlockEntityRenderState.extractBase`).
 - **Alles andere** liegt im Licht seiner Zelle. Das eigene Blocklicht
   steckt darin, denn als Quelle beginnt die Zelle mit ihm.
 - **Voll hell** ist, was das Spiel mit `emissiveRendering` zeichnet.
 
 Der Blit multipliziert jeden Pixel je Kanal mit b, ganzzahlig wie das
-Mischen, auf der CPU wie im Shader der Karte; die Oberfläche selbst bleibt,
-wie sie ist. Ein gefluteter Block an der Oberfläche zeichnet sein Wasser im
-eigenen Sprite, und was er darunter trägt, liegt dort im Licht 14 und in
-seinem eigenen Blocklicht, gegen das Licht über dem Wasser gerechnet: Eine
-geflutete Laterne bleibt auch unter ihrer Oberfläche hell.
+Mischen, auf der CPU wie im Shader der Karte. Ein gefluteter Block trägt
+Modell und Wasser in einem Sprite; das Wasser steht in seiner
+Tönungskarte als eigener Anteil, siehe [Biomfarben](biomfarben.md),
+„Tönung beim Zeichnen“. Hat es ein anderes Licht als das Modell, rechnet
+der Blit beide in einem Schritt, jeden Anteil mit seinem b
+(`tinted_im_licht`). Eine geflutete Laterne bleibt so auch unter ihrer
+Oberfläche hell, in ihrem eigenen Blocklicht.
 
 ## Was bleibt eine Näherung
 
@@ -206,12 +211,14 @@ geflutete Laterne bleibt auch unter ihrer Oberfläche hell.
   seiner Zelle. Das Spiel beleuchtet auch diese Flächen weich und nimmt für
   eine Fläche auf dem Rand des Blocks das Licht davor, siehe
   [Weiche Beleuchtung](weiche-beleuchtung.md), „Was noch fehlt“.
-- **Ein gefluteter Block an der Oberfläche** liegt hier im helleren Licht
-  seines Wassers, unter freiem Himmel 15; nur was im Bild hinter seiner
-  eigenen Wasseroberfläche liegt, liegt eine Stufe tiefer. Im Spiel liegt
-  sein Modell im Licht seiner Zelle, 14, ein Bild aus dem Blockentity auch
-  (`BlockEntityRenderState.extractBase`): Bei einer gefluteten Truhe liegt
-  der untere Teil der Seiten hier heller als der Deckel.
+- **Zustände ohne alle Eigenschaften.** Fehlen einem Blockzustand
+  Eigenschaften, findet er in `licht.txt` und `leuchten.txt` keinen Platz
+  und bekommt ihre Vorgaben: keine Dämpfung, keine Flächen, kein Leuchten.
+  Das Spiel füllt die fehlenden aus dem Standardzustand des Blocks
+  (`StateDefinition.appendPropertyCodec`, ebenso
+  `NbtUtils.readBlockState`). Es speichert aber jeden Zustand mit allen
+  Eigenschaften; unvollständige kommen nur in Welten vor, die von Hand
+  gebaut sind.
 - **Kein Flackern.** Das Spiel lässt `BlockFactor` zufällig um 1,4
   flackern; der Renderer nimmt 1,4.
 - **Die Oberfläche bleibt eben.** Minecraft gleicht die Eckhöhen an die

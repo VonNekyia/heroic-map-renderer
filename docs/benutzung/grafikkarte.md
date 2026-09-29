@@ -33,8 +33,8 @@ einmal; die fertigen Bilder kommen zurück und werden wie bisher als WebP
 geschrieben.
 
 Eine Instanz trägt Sprite, Position, die Faktoren des Lichts, je Farbkanal
-die drei Wörter des Lichts an den Ecken und die Farben des Blocks für die
-Tönungskarte, 64 Bytes, siehe
+die drei Wörter des Lichts an den Ecken, die Farben des Blocks für die
+Tönungskarte und das Licht seines Wassers, 68 Bytes, siehe
 [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md), „Beim Zeichnen“. Hinter den Pixeln eines Sprites stehen im Puffer
 seine AO-Karte und seine Tönungskarte, falls es sie hat, siehe
 [Biomfarben](../renderer/biomfarben.md), „Tönung beim Zeichnen“. Die Karte

@@ -2232,19 +2232,20 @@ fn lichter_in(
 ) -> Vec<u8> {
     let mut stufen: Vec<u8> = licht_ohne_ecken(chunks, sections, welt, block)
         .into_iter()
-        .map(stufe)
+        .map(|(licht, _)| stufe(licht))
         .collect();
     stufen.sort_unstable();
     stufen
 }
 
-/// Das Licht der Draws, die `lichter_in` zählt, je Kanal.
+/// Das Licht der Draws, die `lichter_in` zählt, je Kanal, dazu das ihres
+/// Wassers, wo es ein anderes ist.
 fn licht_ohne_ecken(
     chunks: &[(i32, i32)],
     sections: std::ops::RangeInclusive<i8>,
     welt: impl Fn(i32, i32, i32) -> &'static str,
     block: [i32; 3],
-) -> Vec<[u32; 3]> {
+) -> Vec<([u32; 3], Option<[u32; 3]>)> {
     let dir = tempdir();
     common::write_world_sections(dir.path(), chunks, sections, welt, |_, _| None);
     let world = World::open(dir.path()).unwrap();
@@ -2258,7 +2259,7 @@ fn licht_ohne_ecken(
         .iter()
         .filter(|d| d.origin == (bx + d.sprite.offset.0, by + d.sprite.offset.1))
         .filter(|d| d.ecken.is_none())
-        .map(|d| d.licht)
+        .map(|d| (d.licht, d.wasser))
         .collect()
 }
 
@@ -2300,13 +2301,13 @@ fn glaskasten_unter_wasser_liegt_im_dunkeln() {
     assert_eq!(lichter(&chunks, see(true), [4, 3, 7]), [3, 6, 15]);
 }
 
-/// Was ein gefluteter Block unter seiner eigenen Oberfläche trägt, liegt im
-/// Licht direkt unter ihr und in seinem eigenen Blocklicht
-/// (`LightCoordsUtil.getLightCoords`). Ein Pfosten an der Oberfläche eines
-/// Teichs: ein Zaun, eine Meeresgurke mit 6, vier mit 15 und ein
-/// Sculk-Sensor, der gerade auslöst und mit `emissiveRendering` voll hell
-/// ist. Die Südseite des Pfostens unter der Oberfläche, die er selbst
-/// trägt, liegt im Licht 14, fast hell, hell und hell.
+/// Ein gefluteter Block an der Oberfläche liegt im Licht seiner Zelle und
+/// in seinem eigenen Blocklicht (`LightCoordsUtil.getLightCoords`), sein
+/// Wasser im helleren Licht darüber (`FluidRenderer`). Ein Pfosten an der
+/// Oberfläche eines Teichs: ein Zaun, eine Meeresgurke mit 6, vier mit 15
+/// und ein Sculk-Sensor, der gerade auslöst und mit `emissiveRendering`
+/// voll hell ist. Die Südseite des Pfostens unter der Oberfläche liegt im
+/// Licht 14, fast hell, hell und hell, das Wasser davor im Licht 15.
 #[test]
 fn geflutete_leuchte_an_der_oberflaeche() {
     let projection = Projection::new(32);
@@ -2315,8 +2316,8 @@ fn geflutete_leuchte_an_der_oberflaeche() {
     let seite = [8.5, 1.7, 8.625];
     for (nass, trocken, unter) in [
         (
-            "minecraft:oak_fence[waterlogged=true]",
-            "minecraft:oak_fence",
+            "minecraft:oak_fence[east=false,north=false,south=false,waterlogged=true,west=false]",
+            "minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]",
             Light::sky(14),
         ),
         (
@@ -2929,10 +2930,48 @@ fn wasser_im_helleren_licht_je_licht() {
         assert_ne!(soll, ohne);
         let lichter = licht_ohne_ecken(&[(0, 0)], 0..=0, see(darueber), [8, 1, 8]);
         assert!(
-            lichter.contains(&soll),
+            lichter.contains(&(soll, None)),
             "unter {darueber}: {lichter:?}, erwartet {soll:?}"
         );
     }
+}
+
+/// Unter einem Überhang liegt ein gefluteter Zaun an der Oberfläche eines
+/// Teichs im Licht seiner Zelle, 13, sein Wasser im Licht der Luft über
+/// ihm, 14: Über dem Zaun liegt Stein bis x = 8, daneben freier Himmel.
+#[test]
+fn gefluteter_zaun_unter_dem_ueberhang() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) => "minecraft:stone",
+        (8, 1, 8) => {
+            "minecraft:oak_fence[east=false,north=false,south=false,waterlogged=true,west=false]"
+        }
+        (_, 1, _) => "minecraft:water",
+        (..=8, 3, _) => "minecraft:stone",
+        _ => "minecraft:air",
+    };
+    let lichter = licht_ohne_ecken(&[(0, 0)], 0..=0, welt, [8, 1, 8]);
+    let soll = (Light::sky(13).factors(), Some(Light::sky(14).factors()));
+    assert!(lichter.contains(&soll), "{lichter:?}, erwartet {soll:?}");
+}
+
+/// Auch unter Wasser liegt das Wasser eines gefluteten Blocks im helleren
+/// Licht seiner Zelle und der darüber: `FluidRenderer` fragt für Oberseite
+/// und Seiten dasselbe Licht, gleich was darüber steht. Ein gefluteter Zaun
+/// einen Block unter der Oberfläche liegt im Licht 13, sein Wasser in 14.
+#[test]
+fn gefluteter_zaun_unter_wasser() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) => "minecraft:stone",
+        (8, 1, 8) => {
+            "minecraft:oak_fence[east=false,north=false,south=false,waterlogged=true,west=false]"
+        }
+        (_, 1..=2, _) => "minecraft:water",
+        _ => "minecraft:air",
+    };
+    let lichter = licht_ohne_ecken(&[(0, 0)], 0..=0, welt, [8, 1, 8]);
+    let soll = (Light::sky(13).factors(), Some(Light::sky(14).factors()));
+    assert!(lichter.contains(&soll), "{lichter:?}, erwartet {soll:?}");
 }
 
 /// Ein Block, den das Spiel voll hell zeichnet, gibt einer Ecke daneben

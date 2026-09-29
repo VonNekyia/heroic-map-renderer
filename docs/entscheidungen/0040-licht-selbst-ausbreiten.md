@@ -38,8 +38,9 @@ Licht herein. Siehe [Wasser und Licht](../renderer/wasser-und-licht.md),
 
 Gezeichnet wird mit diesem Licht wie im Spiel: Volle Würfel bekommen es an
 den Ecken jeder Seite, gemischt wie `smoothBlend`, die Lightmap linear
-gefiltert; Flüssigkeiten das hellere ihrer Zelle und der darüber; alles
-andere das seiner Zelle. Siehe
+gefiltert; Flüssigkeiten das hellere ihrer Zelle und der darüber, das
+Wasser eines gefluteten Blocks ebenso; alles andere das seiner Zelle. Das
+Sprite trägt dafür kein Licht mehr. Siehe
 [Wasser und Licht](../renderer/wasser-und-licht.md), „Welches Licht ein
 Block bekommt“, und [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md),
 „Licht an den Ecken“. Das löst
@@ -78,5 +79,5 @@ Die Zahlen hat der Researcher im Prototyp gemessen und gerechnet, siehe
   Rand eines Streifens mehr Chunks.
 - Eine Tabelle mehr aus dem Spiel, `licht.txt`, und die Stufe voll heller
   Blöcke in `leuchten.txt`.
-- Eine Instanz auf der Karte trägt je Farbkanal das Licht an den Ecken,
-  64 statt 40 Bytes.
+- Eine Instanz auf der Karte trägt je Farbkanal das Licht an den Ecken
+  und das Licht des Wassers, 68 statt 40 Bytes.

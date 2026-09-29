@@ -170,6 +170,16 @@ fn gpu_zeichnet_die_szene_wie_die_cpu() {
             listen.iter().flatten().any(|d| d.licht != [255; 3]),
             "scale {scale}: kein Draw unter Wasser"
         );
+        // Und ein gefluteter Zaun an der Oberfläche, sein Wasser in einem
+        // anderen Licht als er, im Blocklicht je Kanal anders.
+        assert!(
+            listen
+                .iter()
+                .flatten()
+                .filter_map(|d| d.wasser)
+                .any(|[r, g, b]| r != g || g != b),
+            "scale {scale}: kein Draw mit Wasser im eigenen Licht"
+        );
         // Und leuchtende Blöcke, deren Blocklicht je Kanal anders färbt.
         assert!(
             listen.iter().flatten().any(|d| {

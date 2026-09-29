@@ -300,7 +300,7 @@ pub struct Worker<'g> {
     bind: Option<wgpu::BindGroup>,
     /// Die Pixel der Sprites eines Durchgangs, eines nach dem anderen.
     sprite_bytes: Vec<u8>,
-    /// Instanzen, 64 Bytes je Stück, fertig für den Puffer.
+    /// Instanzen, 68 Bytes je Stück, fertig für den Puffer.
     inst_bytes: Vec<u8>,
     list_data: Vec<u32>,
 }
@@ -424,9 +424,11 @@ impl Worker<'_> {
                         wort
                     });
                 let ecken = d.ecken.filter(|_| d.sprite.ao.is_some());
+                let wasser = d.wasser.filter(|_| d.sprite.tint.is_some());
                 let flags = ecken.is_some() as u32
                     | (d.sprite.tint.is_some() as u32) << 1
-                    | (d.sprite.ao.is_some() as u32) << 2;
+                    | (d.sprite.ao.is_some() as u32) << 2
+                    | (wasser.is_some() as u32) << 3;
                 let [r, g, b] = d.licht;
                 let kopf = [
                     wort,
@@ -436,10 +438,12 @@ impl Worker<'_> {
                     r | g << 8 | b << 16 | flags << 24,
                 ];
                 let ecken = ecken.unwrap_or([[u32::MAX; 3]; 3]);
+                let [wr, wg, wb] = wasser.unwrap_or([255; 3]);
+                let fuss = [d.tint[0], d.tint[1], wr | wg << 8 | wb << 16];
                 for word in kopf
                     .into_iter()
                     .chain(ecken.into_iter().flatten())
-                    .chain(d.tint)
+                    .chain(fuss)
                 {
                     self.inst_bytes.extend_from_slice(&word.to_le_bytes());
                 }
@@ -591,6 +595,7 @@ mod tests {
             origin: (3, 3),
             licht: [255; 3],
             ecken: None,
+            wasser: None,
             tint: [0; 2],
         }];
         let mut worker = gpu.worker(1, 64);

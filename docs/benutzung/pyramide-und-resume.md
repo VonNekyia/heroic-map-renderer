@@ -47,7 +47,12 @@ Inhalte: [0017](../entscheidungen/0017-pyramide-vergleicht-zeiten.md).
 Die Basis und die nativen Stufen rendern in Streifen, deren Breite eine
 Zweierpotenz ist. Ab zwei Spalten, also ab scale 8 und ab rund 20 Kacheln
 je Thread, liegen Geschwister im selben Streifen, werden kurz nacheinander
-fertig, und ein Aufruf baut ihre Elternkachel selten zweimal.
+fertig, und ein Aufruf baut ihre Elternkachel selten zweimal. Die feinen
+Stufen schreibt der Export dann ohnehin selbst, sobald alle Kinder einer
+Kachel fertig sind, siehe [Zoomstufen](zoomstufen.md), „Feine Stufen im
+Speicher“. Ein Aufruf nebenher findet sie jünger als ihre Kinder und baut
+dort nichts neu. Fehlt eine noch, baut er sie aus den Kindern, die schon da
+sind, und der Export überschreibt sie, sobald alle fertig sind.
 
 ## Zeiten und fremde Kacheln
 
@@ -114,12 +119,16 @@ verkleinerte Kacheln abgelegt haben, womöglich bevor die Basis darunter
 fertig war. Die Pyramide darüber baut er ganz neu wie jeder Lauf: Einer
 Elternkachel sieht man nicht an, ob sie zu ihren Kindern passt, und ihre
 Zeit kann von einer anderen Uhr stammen oder von `--pyramid` gestempelt
-sein. Das kostete ohne native Stufen bei der Testwelt rund 2 von 8
+sein. Die feinen Stufen über neu gerenderten Kindern entstehen dabei im
+Speicher, die über stehen gebliebenen von der Platte, siehe
+[Zoomstufen](zoomstufen.md), „Feine Stufen im Speicher“. Das kostete ohne native Stufen bei der Testwelt rund 2 von 8
 Minuten, gemessen für #10, bei 2,5 Millionen Basiskacheln hochgerechnet
 gut eine Viertelstunde. Mehr als ein Lauf in einem Stück kostet das
 Fortsetzen nach einem Abbruch in der Basis trotzdem nur die zwei Minuten:
-Native Stufen und Pyramide hätte der Lauf ohnehin noch gebaut. Lag der
-Abbruch später, baut es beide noch einmal. Die Höhen schreibt er vor der
+Native Stufen und Pyramide hätte der Lauf ohnehin noch gebaut, bis auf die
+feinen Stufen, die er vor dem Abbruch schon im Speicher gebaut hatte; die
+baut es noch einmal, von der Platte. Lag der Abbruch später, baut es
+beide noch einmal. Die Höhen schreibt er vor der
 ersten Kachel neu wie jeder Export, aus seinem Vorlauf, siehe
 [map.json](map-json.md), „Höhen“.
 

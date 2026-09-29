@@ -6,6 +6,7 @@ code:
   - renderer/tests/cli.rs
   - renderer/tests/common/mod.rs
   - renderer/tests/gpu.rs
+  - renderer/tests/licht.rs
   - renderer/tests/metatile.rs
   - renderer/tests/region_format.rs
   - renderer/tests/render.rs
@@ -60,6 +61,7 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `renderer/tests/tiles.rs` | die Naht: jede Kachel gegen den Ausschnitt eines grossen Renderings |
 | `renderer/tests/cli.rs` | die ganze Exportkette über das echte Binär |
 | `renderer/tests/gpu.rs` | die Karte gegen die CPU, Byte für Byte |
+| `renderer/tests/licht.rs` | die Ausbreitung des Lichts gegen einen Lauf von Vanilla 26.2 und an gebauten Welten |
 | `renderer/tests/common/mod.rs` | gemeinsame Szenen und Helfer |
 | `web/tests/smoke.spec.ts` | das Frontend am Demo-Kachelbaum, die Koordinaten mit Maus und Touch über Höhen, die der Test liefert |
 | `web/tests/pick.spec.ts` | den Strahl: jeder Bildpunkt eines kleinen Geländes gegen den Würfel, den das Zeichnen dort hinterlässt, gerechnet mit der Projektion aus [Die Kamera](../renderer/kamera.md), die der Test an `renderer/tests/fixtures/projektion.json` des Renderers prüft |
@@ -72,6 +74,20 @@ Das Fixture unter `renderer/tests/fixtures/` ist eine 40 KB grosse Region
 mit 2×2 echten Terrain-Chunks aus der Testwelt (DataVersion 4903, 26.2).
 Die Sollwerte der Tests stammen aus einem unabhängig geschriebenen
 Python-Decoder, damit die Tests nicht dieselbe Annahme prüfen wie der Code.
+
+Für das Licht liegen unter `renderer/tests/fixtures/licht/` 4×4 Chunks
+der Testwelt, x und z von -18 bis -15. Ein Vanilla-Server 26.2 hat ihr
+gespeichertes Licht gelöscht (`--forceUpgrade --eraseCache`), sie neu
+beleuchtet und gespeichert, darüber gebaute Szenen: Tunnel mit Glowstone
+hinter Platten und getöntem Glas, Löcher im Dach mit Platten und Treppe,
+ein Becken mit Seelaterne und Magma, eine Fackel neben Schnee und
+Ackerboden, eine Säule aus Laub. `licht_wie_im_spiel` vergleicht jede
+Zelle der 2×2 Chunks in der Mitte, deren Rand von 14 Blöcken im Fixture
+liegt: in jeder Section mit gespeichertem Array die Stufe darin; in einer
+Section ohne Array, neben der Blöcke stehen, 0, denn dort hält das Spiel
+das Licht im Speicher und lässt nur das leere Array weg
+(`SerializableChunkData.copyOf`). Sections ganz ohne Speicher zählen
+nicht, dort liegt keine Zelle vor einer Fläche.
 
 Beschädigte Regionsdateien lassen sich nicht aus einer echten Welt
 extrahieren. `renderer/tests/region_format.rs` baut sie deshalb zur

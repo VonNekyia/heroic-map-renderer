@@ -59,13 +59,13 @@ So sehen Vorlauf, Render und Höhen dieselbe Welt:
   Der Vorlauf zählt ihn und nennt die Zahl, siehe die Ausgabe in
   [Kacheln exportieren](kacheln.md). Wie viele Kacheln so wegfallen,
   steht in [Was ein Lauf kostet](kosten.md), „Je scale“.
-- **Licht:** Neben ihm fällt kein Licht von der Seite, wie am Rand der
-  Welt, siehe [Wasser und Licht](../renderer/wasser-und-licht.md), „Wie
-  gezählt wird“. Sonst läge die äusserste Blockreihe davor im Licht 14,
+- **Licht:** Er lässt kein Licht herein, wie ein Chunk, der fehlt, siehe
+  [Wasser und Licht](../renderer/wasser-und-licht.md), „Licht
+  ausbreiten“. Sonst läge die äusserste Blockreihe davor im Licht 14,
   auch tief unter Wasser.
 - **Deckung:** Er deckt nichts. Am Ost- und Südrand bleibt deshalb ein
-  Schnitt durch den Untergrund stehen, wie an jedem Rand der Welt; ihn
-  abzudunkeln gehört zur Ausbreitung des Lichts (#34).
+  Schnitt durch den Untergrund stehen, wie an jedem Rand der Welt; er
+  liegt ohne Licht im Dunkeln.
 - **Biome:** Am neuen Rand mischt die Farbe mit plains wie neben jedem
   fehlenden Chunk, siehe [Biomfarben](../renderer/biomfarben.md),
   „Übergänge zwischen Biomen“.

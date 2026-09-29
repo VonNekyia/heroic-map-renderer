@@ -1,0 +1,6 @@
+{
+  "multipart": [
+    { "apply": { "model": "minecraft:block/chiseled_bookshelf", "y": 180 }, "when": { "facing": "south" } },
+    { "apply": { "model": "minecraft:block/buecherfach", "y": 180 }, "when": { "facing": "south" } }
+  ]
+}

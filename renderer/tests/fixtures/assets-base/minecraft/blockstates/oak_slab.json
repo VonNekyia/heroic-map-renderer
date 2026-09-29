@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "type=top": { "model": "minecraft:block/obere_platte" },
+    "type=bottom": { "model": "minecraft:block/untere_platte" },
+    "type=double": { "model": "minecraft:block/untere_platte" }
+  }
+}

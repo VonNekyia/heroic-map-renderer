@@ -1,0 +1,15 @@
+{
+  "textures": { "fach": "minecraft:block/stone" },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [8, 16, 0],
+      "faces": { "north": { "texture": "#fach", "cullface": "north" } }
+    },
+    {
+      "from": [8, 0, 0],
+      "to": [16, 16, 0],
+      "faces": { "north": { "texture": "#fach", "cullface": "north" } }
+    }
+  ]
+}

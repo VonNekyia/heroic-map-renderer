@@ -40,7 +40,7 @@ spricht es vorher mit der anderen Seite ab.
 | [`messung-protokollieren`](skills/messung-protokollieren/SKILL.md) | Laufzeit, Grösse oder Speicher werden gemessen oder verglichen |
 | [`spielverhalten-belegen`](skills/spielverhalten-belegen/SKILL.md) | Code oder Doku sagt, wie das Spiel etwas macht |
 | [`alternativen-recherchieren`](skills/alternativen-recherchieren/SKILL.md) | ein besseres Verfahren, eine Optimierung oder eine Alternative wird gesucht; vor jedem grösseren Umbau |
-| [`tabellen-neu-erzeugen`](skills/tabellen-neu-erzeugen/SKILL.md) | eine neue Spielversion, oder `blocks.txt`, `leuchten.txt`, `schatten.txt`, `blockentities.txt` oder `dimensionstypen.txt` passt nicht mehr zum Spiel |
+| [`tabellen-neu-erzeugen`](skills/tabellen-neu-erzeugen/SKILL.md) | eine neue Spielversion, oder `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `blockentities.txt` oder `dimensionstypen.txt` passt nicht mehr zum Spiel |
 | [`goldbild-erneuern`](skills/goldbild-erneuern/SKILL.md) | das Goldbild fällt nach einer gewollten Änderung am Bild |
 | [`doku-bilder-rendern`](skills/doku-bilder-rendern/SKILL.md) | ein Bild in `docs/bilder/` oder im README ist veraltet |
 
@@ -97,8 +97,8 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
     Belege aus dem Spiel stehen in `docs/`. Der Kommentar verweist darauf:
 
     ```rust
-    /// Das Himmelslicht, in dem das Spiel den Block zeichnet.
-    /// Siehe docs/renderer/wasser-und-licht.md, „Licht von der Seite“.
+    /// In welchem Licht das Spiel den Block zeichnet.
+    /// Siehe docs/renderer/wasser-und-licht.md, „Welches Licht ein Block bekommt“.
     ```
 
 19. Ein Satz Begründung bleibt, wo der Code ohne ihn falsch aussähe, etwa

@@ -1,7 +1,7 @@
 ---
 title: "0030: Licht je Block beim Zeichnen"
-description: Warum unter Wasser jeder Block beim Zeichnen in seinem Licht liegt, statt dass eine Oberfläche die Deckkraft aller Schichten dahinter trägt.
-status: gilt
+description: Warum unter Wasser jeder Block beim Zeichnen in seinem Licht liegt, statt dass eine Oberfläche die Deckkraft aller Schichten dahinter trägt; abgelöst durch das Licht aus der Ausbreitung.
+status: abgelöst durch 0040
 date: 2026-09-27
 issues: [14, 17]
 code:
@@ -14,6 +14,12 @@ code:
 ---
 
 # 0030: Licht je Block beim Zeichnen
+
+Abgelöst durch
+[0040: Licht selbst ausbreiten, je Chunk mit Rand](0040-licht-selbst-ausbreiten.md):
+Das Licht zählt nicht mehr `light_at` aus den Blöcken darüber, es kommt aus
+der Ausbreitung, und volle Würfel bekommen es an jeder Ecke. Die eine
+Oberfläche und die Multiplikation beim Blit bleiben.
 
 Löst
 [0010: Tiefe entlang des Blickstrahls](0010-tiefe-entlang-des-blickstrahls.md)

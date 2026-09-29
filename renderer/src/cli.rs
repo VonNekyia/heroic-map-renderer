@@ -14,7 +14,7 @@ use clap::{Parser, ValueEnum};
 
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
-use terranova_render::assets::{Assets, blockentity, blockstate, fluid, model_of};
+use terranova_render::assets::{Assets, blockentity, fluid, model_of};
 use terranova_render::render::gpu::Worker;
 use terranova_render::render::heights::{self, Heights, RegionHeights};
 use terranova_render::render::pyramid;
@@ -726,7 +726,6 @@ fn bake_all(assets: &mut Assets, states: &BTreeSet<BlockState>, projection: Proj
             assets.textures(),
             &projection,
             assets.colors().tints(state.name(), None),
-            blockstate::leuchten(state),
         ) else {
             // Alle Flächen zeigen von der Kamera weg — aus dieser Richtung
             // ist der Block schlicht nicht zu sehen.
@@ -2866,7 +2865,6 @@ fn write_sprites(
             assets.textures(),
             &projection,
             assets.colors().tints(state.name(), None),
-            blockstate::leuchten(state),
         ) else {
             continue;
         };

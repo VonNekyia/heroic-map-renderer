@@ -4,13 +4,17 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::Face;
-use crate::assets::blockstate::{self, DUNKELT, Leuchten, SICHT};
+use crate::assets::blockstate::{self, DUNKELT, Leuchten, Lichtweg, SICHT};
 use crate::assets::colors::Resolver;
 use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
-use crate::world::{Chunk, REGION, Region, Section, World};
+use crate::world::{BlockState, Chunk, REGION, Region, Section, World};
 
-use super::rasterizer::{FULL_LIGHT, Light, NO_AO, ao_factor, darken, over, pack, tinted, with_ao};
+use super::licht::{Ausbreitung, ChunkLicht, Eingabe};
+use super::rasterizer::{
+    Ecken, Light, VOLL_HELL, darken, ecken_faktor, over, pack, smooth_blend, tinted,
+    tinted_im_licht,
+};
 use super::sprites::{Family, Rows, TINT_BLOCK, TINT_WATER, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
 
@@ -176,7 +180,7 @@ fn von_vorn<'a>(
             if let Some((sprite, rows)) = sprites.part_rows(id, cell) {
                 let origin = origin_of(projection, rect, anchor, sprite);
                 if let Some(sicht) = deckung.zeichne(sprite, rows, origin) {
-                    sichtbar.push((sprite, origin, sicht, (ids.light, ids.ao, ids.tint)));
+                    sichtbar.push((sprite, origin, sicht, ids.licht()));
                 }
             }
         }
@@ -189,7 +193,12 @@ fn von_vorn<'a>(
 /// Vergleichsgrösse für die Karte bei Listen, die kein Ausschnitt liefert.
 pub fn draw_all(canvas: &mut RgbaImage, draws: &[Draw]) {
     for d in draws {
-        blit(canvas, d.sprite, d.origin, (d.light, d.ao, d.tint));
+        blit(
+            canvas,
+            d.sprite,
+            d.origin,
+            (d.licht, d.ecken, d.wasser, d.tint),
+        );
     }
 }
 
@@ -202,11 +211,17 @@ pub struct Draw<'a> {
     /// Linke obere Ecke des Sprites in Leinwandpixeln; darf über den Rand
     /// hinausragen.
     pub origin: (i32, i32),
-    /// Das Licht seines Blocks, siehe [`ChunkCache::light_at`].
-    pub light: Light,
-    /// Die weiche Beleuchtung an den Ecken seiner Seiten, siehe
-    /// [`ChunkCache::ao_at`].
-    pub ao: [u32; 3],
+    /// Das Licht seines Blocks für Pixel ohne Seite, je Kanal in 255steln,
+    /// Rot zuerst
+    /// ([`Lightmap::factors`](super::rasterizer::Lightmap::factors)),
+    /// siehe [`ChunkCache::licht_fuer`].
+    pub licht: [u32; 3],
+    /// Das Licht an den Ecken seiner Seiten, siehe [`ChunkCache::ecken_at`];
+    /// `None`, wo es überall `licht` gleicht.
+    pub ecken: Option<Ecken>,
+    /// Das Licht für den Anteil des Wassers in der Tönungskarte, wenn es
+    /// nicht `licht` ist: bei einem gefluteten Block an der Oberfläche.
+    pub wasser: Option<[u32; 3]>,
     /// Die Farben seines Blocks für die Tönungskarte, Block und Wasser,
     /// siehe [`ChunkCache::tints_at`].
     pub tint: [u32; 2],
@@ -226,11 +241,12 @@ pub fn draw_list<'a>(
         .sichtbar
         .iter()
         .rev()
-        .map(|&(sprite, origin, _, (light, ao, tint))| Draw {
+        .map(|&(sprite, origin, _, (licht, ecken, wasser, tint))| Draw {
             sprite,
             origin,
-            light,
-            ao,
+            licht,
+            ecken,
+            wasser,
             tint,
         })
         .collect();
@@ -258,12 +274,7 @@ pub fn render_area_without_culling(
             for id in drawn.ids() {
                 if let Some(part) = sprites.part(id, OWN_CELL) {
                     let origin = origin_of(projection, rect, [x, y, z], part);
-                    blit(
-                        &mut canvas,
-                        part,
-                        origin,
-                        (drawn.light, drawn.ao, drawn.tint),
-                    );
+                    blit(&mut canvas, part, origin, drawn.licht());
                 }
             }
             for &cell in sprites.foreign_cells() {
@@ -273,12 +284,7 @@ pub fn render_area_without_culling(
                     && let Some(part) = sprites.part(id, cell)
                 {
                     let origin = origin_of(projection, rect, anchor, part);
-                    blit(
-                        &mut canvas,
-                        part,
-                        origin,
-                        (drawn.light, drawn.ao, drawn.tint),
-                    );
+                    blit(&mut canvas, part, origin, drawn.licht());
                 }
             }
         }
@@ -310,9 +316,6 @@ fn origin_of(
 fn anchor_of([x, y, z]: [i32; 3], cell: Cell) -> [i32; 3] {
     [x - cell[0], y - cell[1], z - cell[2]]
 }
-
-/// Die vier Nachbarn in der Waagrechten.
-const SEITEN: [[i32; 2]; 4] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 /// Eine Seite aus [`AO_FACES`](super::rasterizer::AO_FACES), wie
 /// `BlockModelLighter` sie sieht, per javap am 26.2-Client.
@@ -350,34 +353,18 @@ const AO_SEITEN: [AoSeite; 3] = [
 /// `ARGB.gray` des Mittels aus 1 und 0,2, in f32 wie im Spiel.
 const AO_WERTE: [u32; 5] = [255, 204, 153, 102, 51];
 
-/// Das Himmelslicht unter so vielen Stufen, siehe
-/// [`ChunkCache::column_above`].
-fn dimmed(stufen: u32) -> u8 {
-    FULL_LIGHT - stufen.min(u32::from(FULL_LIGHT)) as u8
-}
-
-/// Die Bits der Section mit dem y `sy`, die über `oben` liegen.
-fn ueber(oben: i32, sy: i8) -> u16 {
-    let n = oben.saturating_sub(i32::from(sy) * 16 - 1).clamp(0, 16) as u32;
-    u16::MAX.checked_shl(n).unwrap_or(0)
-}
-
-/// Führt die Familie Wasser, als Quelle, fliessend oder geflutet?
-fn is_water(family: Option<&Family>) -> bool {
-    family.is_some_and(|f| f.fluid.is_some_and(|(kind, _)| kind == Fluid::Water))
-}
-
 /// Was an einem Würfel zu zeichnen ist: das Sprite des Blocks, dazu die
-/// Streifen seiner Flüssigkeit über niedrigeren Nachbarn, alles im
-/// Licht des Blocks, siehe [`ChunkCache::light_at`], mit der weichen
-/// Beleuchtung an seinen Ecken, siehe [`ChunkCache::ao_at`], und in den
-/// Farben seines Bioms, siehe [`ChunkCache::tints_at`].
+/// Streifen seiner Flüssigkeit über niedrigeren Nachbarn, alles im Licht
+/// des Blocks, siehe [`ChunkCache::licht_fuer`], an den Ecken seiner Seiten
+/// weich beleuchtet, siehe [`ChunkCache::ecken_at`], und in den Farben
+/// seines Bioms, siehe [`ChunkCache::tints_at`].
 #[derive(Clone, Copy)]
 struct Drawn {
     sprite: Option<SpriteId>,
     strips: [Option<SpriteId>; 2],
-    light: Light,
-    ao: [u32; 3],
+    licht: [u32; 3],
+    ecken: Option<Ecken>,
+    wasser: Option<[u32; 3]>,
     tint: [u32; 2],
 }
 
@@ -386,14 +373,20 @@ impl Default for Drawn {
         Drawn {
             sprite: None,
             strips: [None; 2],
-            light: Light::FULL,
-            ao: NO_AO,
+            licht: [255; 3],
+            ecken: None,
+            wasser: None,
             tint: [0; 2],
         }
     }
 }
 
 impl Drawn {
+    /// Sein Licht für [`blit`].
+    fn licht(self) -> Licht {
+        (self.licht, self.ecken, self.wasser, self.tint)
+    }
+
     /// In Zeichenreihenfolge: die Streifen nach dem Block, sie liegen auf
     /// seiner Grenze, also vor allem, was er selbst enthält.
     fn ids(self) -> impl DoubleEndedIterator<Item = SpriteId> {
@@ -475,32 +468,35 @@ fn columns_at(
     })
 }
 
-/// Das Licht eines Blocks, die weiche Beleuchtung an den Ecken seiner
-/// Seiten und die Farben für seine Tönungskarte, wie [`Drawn`] sie trägt.
-type Licht = (Light, [u32; 3], [u32; 2]);
+/// Das Licht eines Blocks, das an den Ecken seiner Seiten, das seines
+/// Wassers und die Farben für seine Tönungskarte, wie [`Drawn`] sie trägt.
+type Licht = ([u32; 3], Option<Ecken>, Option<[u32; 3]>, [u32; 2]);
 
-/// Die Faktoren für [`darken`] an Pixel `i` eines Sprites: das Licht je
-/// Kanal, mit der AO-Karte des Sprites dazu die weiche Beleuchtung an den
-/// Ecken `ao`.
+/// [`Licht`] ohne die Farben, wie [`ChunkCache::licht_fuer`] es gibt.
+type Lichter = ([u32; 3], Option<Ecken>, Option<[u32; 3]>);
+
+/// Je Licht das hellere zweier Zellen, gepackt wie [`Light::packed`]:
+/// `LightCoordsUtil.max`.
+fn hellstes(a: u32, b: u32) -> u32 {
+    (a & 0xf0).max(b & 0xf0) | (a & 0xf0_0000).max(b & 0xf0_0000)
+}
+
+/// Die Faktoren für [`darken`] an Pixel `i` eines Sprites: auf einer Seite
+/// der AO-Karte das Licht ihrer Ecken, sonst `licht`.
 #[inline]
-fn faktor(karte: Option<&[u32]>, i: usize, light: [u32; 3], ao: [u32; 3]) -> [u32; 3] {
+fn faktor(karte: Option<(&[u32], &Ecken)>, i: usize, licht: [u32; 3]) -> [u32; 3] {
     match karte {
-        Some(karte) => {
-            let a = ao_factor(karte[i], ao);
-            // Bei vollem Licht ist `with_ao(255, a)` genau `a`.
-            if light == [255; 3] {
-                [a; 3]
-            } else {
-                light.map(|f| with_ao(f, a))
-            }
+        Some((karte, ecken)) if karte[i] >> 24 != 0 => {
+            ecken.map(|kanal| ecken_faktor(karte[i], kanal))
         }
-        None => light,
+        _ => licht,
     }
 }
 
-/// Die AO-Karte eines Sprites, wenn sie etwas abdunkelt.
-fn karte(sprite: &Sprite, ao: [u32; 3]) -> Option<&[u32]> {
-    sprite.ao.as_deref().filter(|_| ao != NO_AO)
+/// Die AO-Karte eines Sprites mit dem Licht an den Ecken, wenn das nicht
+/// überall gleich ist.
+fn karte<'s>(sprite: &'s Sprite, ecken: &'s Option<Ecken>) -> Option<(&'s [u32], &'s Ecken)> {
+    sprite.ao.as_deref().zip(ecken.as_ref())
 }
 
 /// Die Tönungskarte an Pixel `i` eines Sprites samt den Farben des Blocks,
@@ -517,7 +513,7 @@ fn blit(
     canvas: &mut RgbaImage,
     sprite: &Sprite,
     (origin_x, origin_y): (i32, i32),
-    (light, ao, farben): Licht,
+    (licht, ecken, wasser, farben): Licht,
 ) {
     let (w, h) = (sprite.image.width() as i32, sprite.image.height() as i32);
     let (cw, ch) = (canvas.width() as i32, canvas.height() as i32);
@@ -534,8 +530,7 @@ fn blit(
     let (w, cw) = (w as usize, cw as usize);
     let src = sprite.image.as_raw();
     let dst: &mut [u8] = canvas;
-    let factor = light.factors();
-    let karte = karte(sprite, ao);
+    let karte = karte(sprite, &ecken);
     for py in y0..y1 {
         let row = &src[py as usize * w * 4..][..w * 4];
         let drow = &mut dst[(origin_y + py) as usize * cw * 4..][..cw * 4];
@@ -543,25 +538,46 @@ fn blit(
             let s = &row[px as usize * 4..][..4];
             if s[3] != 0 {
                 let i = py as usize * w + px as usize;
-                let f = faktor(karte, i, factor, ao);
+                let f = faktor(karte, i, licht);
                 let t = anteile(sprite, i, farben);
-                mische(&mut drow[(origin_x + px) as usize * 4..][..4], s, f, t);
+                mische(
+                    &mut drow[(origin_x + px) as usize * 4..][..4],
+                    s,
+                    f,
+                    wasser,
+                    t,
+                );
             }
         }
     }
 }
 
 /// Legt einen Pixel in den Farben seines Blocks und im Licht `factor` aus
-/// [`Light::factors`] über den darunter; deckende direkt statt durch
+/// [`Lightmap::factors`](super::rasterizer::Lightmap::factors)
+/// über den darunter, den Anteil des Wassers in seiner Tönungskarte im
+/// Licht `wasser`, wenn es eines hat; deckende direkt statt durch
 /// [`over`]. Erst die Farbe, dann das Licht, wie im Spiel.
 #[inline]
-fn mische(d: &mut [u8], s: &[u8], factor: [u32; 3], tint: Option<([u32; 2], [u32; 2])>) {
+fn mische(
+    d: &mut [u8],
+    s: &[u8],
+    factor: [u32; 3],
+    wasser: Option<[u32; 3]>,
+    tint: Option<([u32; 2], [u32; 2])>,
+) {
     let mut s = [s[0], s[1], s[2], s[3]];
-    if let Some((anteile, farben)) = tint {
-        s = tinted(s, anteile, farben);
-    }
-    if factor != [255; 3] {
-        s = darken(s, factor);
+    match (tint, wasser) {
+        (Some((anteile, farben)), Some(wasser)) => {
+            s = tinted_im_licht(s, anteile, farben, factor, wasser);
+        }
+        _ => {
+            if let Some((anteile, farben)) = tint {
+                s = tinted(s, anteile, farben);
+            }
+            if factor != [255; 3] {
+                s = darken(s, factor);
+            }
+        }
     }
     if s[3] == 255 {
         d.copy_from_slice(&s);
@@ -698,15 +714,14 @@ fn blit_sichtbar(
     canvas: &mut RgbaImage,
     sprite: &Sprite,
     (ox, oy): (i32, i32),
-    (light, ao, farben): Licht,
+    (licht, ecken, wasser, farben): Licht,
     sicht: &Sicht,
     vis: &[u64],
 ) {
     let (w, cw) = (sprite.image.width() as usize, canvas.width() as usize);
     let src = sprite.image.as_raw();
     let dst: &mut [u8] = canvas;
-    let factor = light.factors();
-    let karte = karte(sprite, ao);
+    let karte = karte(sprite, &ecken);
     let zeilen = vis[sicht.start..].chunks(sicht.nk);
     for (y, woerter) in (sicht.y0..sicht.y1).zip(zeilen) {
         let row = &src[(y - oy) as usize * w * 4..][..w * 4];
@@ -721,7 +736,8 @@ fn blit_sichtbar(
                 mische(
                     &mut drow[x * 4..][..4],
                     &row[sx * 4..][..4],
-                    faktor(karte, i, factor, ao),
+                    faktor(karte, i, licht),
+                    wasser,
                     anteile(sprite, i, farben),
                 );
             }
@@ -794,6 +810,10 @@ pub struct ChunkCache<'a> {
     biome_layers: Vec<BiomeLayer>,
     biome_index: HashMap<(i32, i32, i32), usize>,
     biome_last: usize,
+    /// Der Arbeitsplatz der Ausbreitung, siehe [`ChunkCache::licht_slot`].
+    ausbreitung: Ausbreitung,
+    /// Die Dimension hat Himmelslicht (`has_skylight`).
+    himmel: bool,
 }
 
 /// Chunk und Höhe, dazu das Biom je Block der Schicht.
@@ -815,15 +835,15 @@ struct Loaded {
     /// [`blockstate::leuchten`].
     leuchten: Vec<Vec<Leuchten>>,
     /// Je Section ihre Bitmasken, `None` für eine Section ohne Familie und
-    /// ohne Block, der abdunkelt oder die Sicht nimmt.
+    /// ohne Block, der abdunkelt, die Sicht nimmt, das Licht aufhält oder
+    /// leuchtet, siehe [`Masks::of`].
     masks: Vec<Option<Box<Masks>>>,
-    /// Je Spalte `z * 16 + x` das y des obersten Blocks mit Wasser,
-    /// `i32::MIN` ohne: Eine Lücke darunter liegt nicht im Licht, siehe
-    /// [`ChunkCache::luecke_daneben`].
-    oberstes_wasser: [i32; 256],
     /// Je Section die Kandidaten, sobald einmal berechnet — dafür müssen
     /// die Nachbarchunks da sein, deshalb nicht beim Laden.
     exposed: Vec<Option<Box<Exposed>>>,
+    /// Das ausgebreitete Licht, sobald einmal berechnet, siehe
+    /// [`ChunkCache::licht_slot`]: Dafür müssen die Nachbarn da sein.
+    licht: Option<Box<ChunkLicht>>,
     /// Je Section und Paletteneintrag der Biome die Nummer des Bioms in der
     /// [`BiomeTable`](super::BiomeTable).
     biomes: Vec<Vec<u16>>,
@@ -851,11 +871,19 @@ const LOOSE: usize = 7;
 /// Hat Teile in Nachbarwürfeln.
 const FOREIGN: usize = 8;
 /// Dunkelt ab ([`DUNKELT`]), [`VIEW`] nimmt die Sicht ([`SICHT`]): die Bits
-/// aus [`blockstate::schatten`] für [`ChunkCache::ao_at`], auch für Blöcke
+/// aus [`blockstate::schatten`] für [`ChunkCache::ecken_at`], auch für Blöcke
 /// ohne Familie.
 const DARK: usize = 9;
 const VIEW: usize = 10;
-const FLAGS: usize = 11;
+/// Dämpft das Licht ([`Lichtweg::daempfung`] nicht 0), [`DICHT`] lässt
+/// keines hinein (15), auch für Blöcke ohne Familie: für die Ausbreitung,
+/// siehe [`super::licht`].
+const DAEMPFT: usize = 11;
+const DICHT: usize = 12;
+/// Zeichnet das Spiel voll hell ([`Leuchten::Voll`]), auch als Nachbar in
+/// der weichen Beleuchtung.
+const VOLL: usize = 13;
+const FLAGS: usize = 14;
 /// Je Flüssigkeit, in der Reihenfolge von [`Masks::up`]: das Bit "enthält
 /// sie" und das Bit "nur sie".
 const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
@@ -872,6 +900,11 @@ struct Masks {
     up: [[u16; 256]; 2],
     /// Ragt irgendetwas in Nachbarwürfel?
     any_foreign: bool,
+    /// Für die Ausbreitung: die Blöcke mit einer Fläche aus
+    /// [`Lichtweg::formen`] und die, die leuchten, mit ihrer Stufe. Index
+    /// `y << 8 | z << 4 | x`.
+    formen: Vec<(u16, [u8; 6])>,
+    quellen: Vec<(u16, u8)>,
 }
 
 /// Eine Randspalte für [`ChunkCache::expose`]: deckend, dazu je
@@ -911,37 +944,76 @@ fn flags(family: &Family) -> u16 {
         | bit(family.foreign, FOREIGN)
 }
 
+/// Wie ein Zustand das Licht aufhält: aus der Tabelle des Spiels,
+/// [`blockstate::lichtweg`]. Einen Block, den 26.2 nicht kennt, kennt sie
+/// nicht; deckt sein Modell den ganzen Umriss, lässt er wie ein Block mit
+/// voller Form kein Licht hinein, sonst lässt er es durch.
+fn lichtweg(state: &BlockState, family: Option<&Family>) -> Lichtweg {
+    if blockstate::Definition::of(state.name()).is_some() {
+        return blockstate::lichtweg(state);
+    }
+    Lichtweg {
+        daempfung: if family.is_some_and(|f| f.opaque) {
+            15
+        } else {
+            0
+        },
+        formen: [0; 6],
+    }
+}
+
 impl Masks {
     /// `None`, wenn in der Section weder eine Familie steht noch ein Block,
-    /// der abdunkelt oder die Sicht nimmt. `schatten` hat je Paletteneintrag
-    /// die Bits aus [`blockstate::schatten`].
+    /// der abdunkelt, die Sicht nimmt, das Licht aufhält oder leuchtet.
+    /// Je Paletteneintrag hat `schatten` die Bits aus
+    /// [`blockstate::schatten`], `wege` den [`Lichtweg`] und `leuchten` das
+    /// [`Leuchten`].
     fn of(
         section: &Section,
         families: &[Option<u32>],
-        schatten: &[u8],
+        (schatten, wege, leuchten): (&[u8], &[Lichtweg], &[Leuchten]),
         sprites: &SpriteSet,
     ) -> Option<Box<Masks>> {
         let bit = |set: bool, flag: usize| (set as u16) << flag;
-        let flags: Vec<u16> = families
-            .iter()
-            .zip(schatten)
-            .map(|(family, &s)| {
-                family.map_or(0, |index| flags(sprites.family(index)))
-                    | bit(s & DUNKELT != 0, DARK)
-                    | bit(s & SICHT != 0, VIEW)
+        let flags: Vec<u16> = (0..families.len())
+            .map(|p| {
+                families[p].map_or(0, |index| flags(sprites.family(index)))
+                    | bit(schatten[p] & DUNKELT != 0, DARK)
+                    | bit(schatten[p] & SICHT != 0, VIEW)
+                    | bit(wege[p].daempfung != 0, DAEMPFT)
+                    | bit(wege[p].daempfung == 15, DICHT)
+                    | bit(matches!(leuchten[p], Leuchten::Voll(_)), VOLL)
             })
             .collect();
+        // Was die Ausbreitung Block für Block braucht: eine Fläche, eine
+        // Quelle.
+        let einzeln: Vec<bool> = (0..families.len())
+            .map(|p| wege[p].formen != [0; 6] || leuchten[p].stufe() > 0)
+            .collect();
         let union = flags.iter().fold(0, |acc, f| acc | f);
-        if union == 0 {
+        if union == 0 && !einzeln.contains(&true) {
             return None;
         }
         let mut m = Box::new(Masks {
             bits: [[0; 256]; FLAGS],
             up: [[0; 256]; 2],
             any_foreign: false,
+            formen: Vec::new(),
+            quellen: Vec::new(),
         });
+        let mut nimm = |i: usize, p: usize| {
+            if wege[p].formen != [0; 6] {
+                m.formen.push((i as u16, wege[p].formen));
+            }
+            if leuchten[p].stufe() > 0 {
+                m.quellen.push((i as u16, leuchten[p].stufe()));
+            }
+        };
         let blocks = section.blocks();
         if blocks.is_uniform() {
+            if einzeln.first() == Some(&true) {
+                (0..4096).for_each(|i| nimm(i, 0));
+            }
             let flag = flags.first().copied().unwrap_or(0);
             for (b, mask) in m.bits.iter_mut().enumerate() {
                 if flag >> b & 1 != 0 {
@@ -973,6 +1045,9 @@ impl Masks {
                 if let Some(maske) = klasse.get(index).and_then(|&k| je_klasse.get_mut(k)) {
                     maske[i & 255] |= 1 << (i >> 8);
                 }
+                if einzeln.get(index) == Some(&true) {
+                    nimm(i, index);
+                }
             });
             for (&flag, maske) in klassen.iter().zip(&je_klasse) {
                 for (b, bits) in m.bits.iter_mut().enumerate() {
@@ -984,9 +1059,11 @@ impl Masks {
                 }
             }
         }
-        if [PRESENT, DARK, VIEW]
+        if [PRESENT, DARK, VIEW, DAEMPFT, DICHT, VOLL]
             .iter()
             .all(|&e| m.bits[e].iter().all(|&w| w == 0))
+            && m.formen.is_empty()
+            && m.quellen.is_empty()
         {
             return None;
         }
@@ -1009,7 +1086,7 @@ impl Loaded {
                     .collect()
             })
             .collect();
-        let leuchten = chunk
+        let leuchten: Vec<Vec<Leuchten>> = chunk
             .sections()
             .iter()
             .map(|section| {
@@ -1025,14 +1102,16 @@ impl Loaded {
             .sections()
             .iter()
             .zip(&families)
-            .map(|(section, families)| {
-                let schatten: Vec<u8> = section
-                    .blocks()
-                    .palette()
+            .zip(&leuchten)
+            .map(|((section, families), leuchten)| {
+                let palette = section.blocks().palette();
+                let schatten: Vec<u8> = palette.iter().map(blockstate::schatten).collect();
+                let wege: Vec<Lichtweg> = palette
                     .iter()
-                    .map(blockstate::schatten)
+                    .zip(families)
+                    .map(|(state, family)| lichtweg(state, family.map(|i| sprites.family(i))))
                     .collect();
-                Masks::of(section, families, &schatten, sprites)
+                Masks::of(section, families, (&schatten, &wege, leuchten), sprites)
             })
             .collect();
         // Flüssigkeit über dem obersten Block einer Section steht in der
@@ -1049,16 +1128,6 @@ impl Loaded {
                         let top = above.map_or(0, |a| a[f][col] & 1);
                         m.up[f][col] = (m.bits[bit][col] >> 1) | (top << 15);
                     }
-                }
-            }
-        }
-        // Die Sections liegen aufsteigend, die oberste mit Wasser gewinnt.
-        let mut oberstes_wasser = [i32::MIN; 256];
-        for (section, m) in chunk.sections().iter().zip(&masks) {
-            let Some(m) = m else { continue };
-            for (oben, &nass) in oberstes_wasser.iter_mut().zip(&m.bits[WATER]) {
-                if nass != 0 {
-                    *oben = i32::from(section.y) * 16 + 15 - nass.leading_zeros() as i32;
                 }
             }
         }
@@ -1089,11 +1158,33 @@ impl Loaded {
             families,
             leuchten,
             masks,
-            oberstes_wasser,
             exposed,
+            licht: None,
             biomes,
             varianten,
         }
+    }
+}
+
+impl Loaded {
+    /// Was die Ausbreitung aus diesem Chunk liest: die Sections mit
+    /// Bitmasken, von unten nach oben.
+    fn eingabe(&self) -> Vec<Eingabe<'_>> {
+        self.chunk
+            .sections()
+            .iter()
+            .zip(&self.masks)
+            .filter_map(|(section, m)| {
+                let m = m.as_deref()?;
+                Some(Eingabe {
+                    y: section.y,
+                    dicht: &m.bits[DICHT],
+                    daempft: &m.bits[DAEMPFT],
+                    formen: &m.formen,
+                    quellen: &m.quellen,
+                })
+            })
+            .collect()
     }
 }
 
@@ -1121,6 +1212,8 @@ impl<'a> ChunkCache<'a> {
             biome_layers: Vec::new(),
             biome_index: HashMap::new(),
             biome_last: usize::MAX,
+            ausbreitung: Ausbreitung::default(),
+            himmel: sprites.himmel(),
         }
     }
 
@@ -1193,6 +1286,42 @@ impl<'a> ChunkCache<'a> {
         let i = self.slots.len() - 1;
         self.index.insert(key, i);
         Ok(i)
+    }
+
+    /// Der Slot des Chunks, mit seinem ausgebreiteten Licht, beim ersten Mal
+    /// gerechnet; dafür lädt er die acht Nachbarn. `None`, wenn der Chunk
+    /// fehlt oder nicht fertig ist.
+    /// Siehe docs/renderer/wasser-und-licht.md, „Licht ausbreiten“.
+    fn licht_slot(&mut self, key: (i32, i32)) -> Result<Option<usize>> {
+        let i = self.slot(key)?;
+        match &self.slots[i].loaded {
+            None => return Ok(None),
+            Some(loaded) if loaded.licht.is_some() => return Ok(Some(i)),
+            Some(_) => {}
+        }
+        let mut nachbarn = [0; 9];
+        for (k, n) in nachbarn.iter_mut().enumerate() {
+            let (dx, dz) = (k as i32 % 3 - 1, k as i32 / 3 - 1);
+            *n = self.slot((key.0 + dx, key.1 + dz))?;
+        }
+        let eingaben: Vec<Option<Vec<Eingabe>>> = nachbarn
+            .iter()
+            .map(|&n| self.slots[n].loaded.as_ref().map(Loaded::eingabe))
+            .collect();
+        let chunks = std::array::from_fn(|k| eingaben[k].as_deref());
+        let licht = self.ausbreitung.chunk(&chunks, self.himmel);
+        if let Some(loaded) = self.slots[i].loaded.as_mut() {
+            loaded.licht = Some(Box::new(licht));
+        }
+        self.last = i;
+        Ok(Some(i))
+    }
+
+    /// Himmels- und Blocklicht der Zelle an `(x, y, z)`, so wie das Spiel
+    /// es ausbreitet und speichert. In einem Chunk, der fehlt, keines.
+    pub fn licht_at(&mut self, p: [i32; 3]) -> Result<(u8, u8)> {
+        let Light { sky, block } = Light::from_packed(self.zelle(p)?.0);
+        Ok((sky, block))
     }
 
     /// Randspalten einer Nachbarsection ([`Rand`]) je Spalte am Rand `x = 0`
@@ -1523,26 +1652,7 @@ impl<'a> ChunkCache<'a> {
             }
         }
 
-        // Was selbst leuchtet, bringt sein Blocklicht mit
-        // (`LightCoordsUtil.getLightCoords`) und bekommt im Spiel keine
-        // weiche Beleuchtung (`ModelBlockRenderer.tesselateBlock`); den
-        // Schein auf die Nachbarn rechnet der Renderer nicht.
-        let light = match leuchten {
-            Leuchten::Voll => Light {
-                sky: FULL_LIGHT,
-                block: FULL_LIGHT,
-            },
-            Leuchten::Stufe(block) => Light {
-                sky: self.light_at([x, y, z], family)?,
-                block,
-            },
-        };
-        let ao = match sprite {
-            Some(id) if sprites.has_ao(id) && leuchten == Leuchten::Stufe(0) => {
-                self.ao_at([x, y, z])?
-            }
-            _ => NO_AO,
-        };
+        let (licht, ecken, wasser) = self.licht_fuer([x, y, z], family, leuchten, sprite)?;
         // Gemischt wird nur für Sprites mit Tönungskarte, und nur die
         // Farben, die sie trägt.
         let kinds = sprite
@@ -1553,8 +1663,9 @@ impl<'a> ChunkCache<'a> {
         Ok(Drawn {
             sprite,
             strips,
-            light,
-            ao,
+            licht,
+            ecken,
+            wasser,
             tint,
         })
     }
@@ -1641,61 +1752,232 @@ impl<'a> ChunkCache<'a> {
         Ok(loaded.biomes[s].get(index).copied().unwrap_or(plains))
     }
 
-    /// Die weiche Beleuchtung an den Ecken der drei sichtbaren Seiten eines
-    /// Blocks, wie `BlockModelLighter.prepareQuadAmbientOcclusion` in 26.2
-    /// sie für eine volle Seite rechnet: je Ecke das Mittel aus dem Block vor
-    /// der Seite, ihren zwei Nachbarn in dieser Schicht und dem Block in der
-    /// Ecke, 1 oder 0,2 für einen, der [`DUNKELT`]. Der Block in der Ecke zählt
-    /// nur, wenn hinter keinem der beiden Nachbarn ein Block mit [`SICHT`]
-    /// steht. Eine Seite, die ihr Nachbar ganz deckt ([`SOLID`]), bleibt ohne
-    /// Werte.
+    /// In welchem Licht das Spiel den Block an `p` zeichnet: das Licht für
+    /// Pixel ohne Seite je Kanal
+    /// ([`Lightmap::factors`](super::rasterizer::Lightmap::factors)),
+    /// mit einer AO-Karte des Sprites das an den Ecken seiner Seiten, siehe
+    /// [`ChunkCache::ecken_at`], und das seines Wassers, wo es ein anderes
+    /// ist. Voll hell (`emissiveRendering`) ist alles 15. Ein Pixel ohne
+    /// Seite liegt im Licht seiner Zelle, das eigene Blocklicht steckt
+    /// darin. Eine Flüssigkeit liegt im helleren Licht ihrer Zelle und der
+    /// darüber (`FluidRenderer.getLightCoords`), auch unter gleicher
+    /// Flüssigkeit; ein Modell mit eigener Flüssigkeit liegt im Licht seiner
+    /// Zelle, seine Flüssigkeit ebenso im helleren.
+    /// Siehe docs/renderer/wasser-und-licht.md, „Welches Licht ein Block bekommt“.
+    fn licht_fuer(
+        &mut self,
+        [x, y, z]: [i32; 3],
+        family: &Family,
+        leuchten: Leuchten,
+        sprite: Option<SpriteId>,
+    ) -> Result<Lichter> {
+        let lightmap = self.sprites.lightmap();
+        if let Leuchten::Voll(_) = leuchten {
+            return Ok((lightmap.factors(Light::from_packed(VOLL_HELL)), None, None));
+        }
+        let (licht, ecken) = match sprite.filter(|&id| self.sprites.has_ao(id)) {
+            Some(id) => {
+                // Was leuchtet, zeichnet das Spiel ohne weiche Beleuchtung
+                // (`ModelBlockRenderer.tesselateBlock`).
+                let weich = self.sprites.weich(id) && leuchten.stufe() == 0;
+                let innen = self.sprites.innen(id).then_some(family.doppelkiste);
+                self.ecken_at([x, y, z], weich, leuchten.stufe(), innen)?
+            }
+            None => {
+                let mut eigen = self.lichtwert([x, y, z])?;
+                if let Some([dx, dy, dz]) = family.doppelkiste {
+                    eigen = hellstes(eigen, self.lichtwert([x + dx, y + dy, z + dz])?);
+                }
+                (lightmap.factors(Light::from_packed(eigen)), None)
+            }
+        };
+        if family.fluid.is_none() {
+            return Ok((licht, ecken, None));
+        }
+        let eigen = self.lichtwert([x, y, z])?;
+        let oben = self.lichtwert([x, y + 1, z])?;
+        let hell = lightmap.factors(Light::from_packed(hellstes(eigen, oben)));
+        if family.pure_fluid {
+            return Ok((hell, None, None));
+        }
+        Ok((licht, ecken, (hell != licht).then_some(hell)))
+    }
+
+    /// Das Licht an den Ecken der drei Seiten eines Blocks je Kanal
+    /// ([`Ecken`]), wie das Spiel es in 26.2 setzt, und das Licht für Pixel
+    /// ohne Seite: mit `innen` das der eigenen Zelle, bei einer Doppelkiste
+    /// das hellere ihrer und der Zelle der anderen Hälfte, relativ zum
+    /// Block; ohne `innen` gibt es keine, und es ist das der ersten Seite. `weich`: je Ecke das Licht
+    /// der Zelle vor der Seite, ihrer zwei Nachbarn in dieser Schicht und
+    /// des Blocks in der Ecke, gemischt nach [`smooth_blend`], dazu die
+    /// weiche Beleuchtung aus denselben Blöcken
+    /// (`BlockModelLighter.prepareQuadAmbientOcclusion`); die Lightmap liest
+    /// das Spiel dort linear gefiltert, `Lightmap::linear`. Der Block in der
+    /// Ecke zählt nur, wenn hinter einem der beiden Nachbarn nichts die
+    /// Sicht nimmt, sonst gilt der erste Nachbar aus `AdjacencyInfo.corners`.
+    /// Sonst, wie `prepareQuadFlat` für eine Seite mit `cullface`, das Licht
+    /// der Zelle vor der Seite mit dem eigenen Blocklicht `stufe`. Eine
+    /// Seite, die ihr Nachbar deckt, ist nicht zu sehen und nimmt die Werte
+    /// einer anderen. Haben alle Ecken dasselbe Licht wie die Pixel ohne
+    /// Seite, gilt es für das ganze Sprite, ohne Ecken.
     /// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
-    fn ao_at(&mut self, block: [i32; 3]) -> Result<[u32; 3]> {
+    fn ecken_at(
+        &mut self,
+        block: [i32; 3],
+        weich: bool,
+        stufe: u8,
+        innen: Option<Option<[i32; 3]>>,
+    ) -> Result<([u32; 3], Option<Ecken>)> {
+        let lightmap = self.sprites.lightmap();
         let [fest, dunkelt, sicht] = self.umgebung(block)?;
-        // Alles relativ zum Block, siehe `umgebung`.
+        let (roh, voll) = self.lichter_um(block)?;
+        // Alles relativ zum Block, siehe `umgebung` und `lichter_um`.
         let bit = |ebene: u64, [dx, dy, dz]: [i32; 3]| {
             ebene >> (dy + 1 + 4 * (dx + 1) + 16 * (dz + 1)) & 1 != 0
         };
+        let stelle = |[dx, dy, dz]: [i32; 3]| (dx + 1 + 3 * (dy + 1) + 9 * (dz + 1)) as usize;
+        // Das Licht einer Zelle, wie ihr eigener Block es angibt
+        // (`LightCoordsUtil.getLightCoords`).
+        let licht = |p: [i32; 3]| match voll >> stelle(p) & 1 {
+            0 => roh[stelle(p)],
+            _ => VOLL_HELL,
+        };
         let bei = |p: [i32; 3], o: [i32; 3]| [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
-        let mut out = NO_AO;
+        let mut seiten: [Option<[[u32; 3]; 4]>; 3] = [None; 3];
         for (seite, s) in AO_SEITEN.iter().enumerate() {
             let (d, nachbarn) = (s.richtung, s.nachbarn);
             let vor = d;
             if bit(fest, vor) {
                 continue;
             }
-            let mut dunkel = [false; 4];
-            let mut frei = [false; 4];
-            for (k, &n) in nachbarn.iter().enumerate() {
-                dunkel[k] = bit(dunkelt, bei(vor, n));
-                frei[k] = !bit(sicht, bei(bei(vor, n), d));
-            }
-            let ecke = |a: usize, b: usize| {
-                if frei[a] || frei[b] {
-                    bit(dunkelt, bei(bei(vor, nachbarn[a]), nachbarn[b]))
-                } else {
-                    dunkel[0]
+            seiten[seite] = Some(if weich {
+                let mut dunkel = [false; 4];
+                let mut frei = [false; 4];
+                let mut nah = [0; 4];
+                for (k, &n) in nachbarn.iter().enumerate() {
+                    dunkel[k] = bit(dunkelt, bei(vor, n));
+                    frei[k] = !bit(sicht, bei(bei(vor, n), d));
+                    nah[k] = licht(bei(vor, n));
                 }
-            };
-            let (e03, e02, e12, e13) = (ecke(0, 3), ecke(0, 2), ecke(1, 2), ecke(1, 3));
-            let davor = bit(dunkelt, vor);
-            let werte = [
-                [dunkel[3], dunkel[0], e03, davor],
-                [dunkel[2], dunkel[0], e02, davor],
-                [dunkel[2], dunkel[1], e12, davor],
-                [dunkel[3], dunkel[1], e13, davor],
-            ];
-            let mut ecken = [0u32; 4];
-            for (wert, &ziel) in werte.iter().zip(&s.remap) {
-                ecken[ziel] = AO_WERTE[wert.iter().filter(|&&d| d).count()];
-            }
-            out[seite] = ecken[0] | ecken[1] << 8 | ecken[2] << 16 | ecken[3] << 24;
+                let ecke = |a: usize, b: usize| {
+                    if frei[a] || frei[b] {
+                        let q = bei(bei(vor, nachbarn[a]), nachbarn[b]);
+                        (bit(dunkelt, q), licht(q))
+                    } else {
+                        (dunkel[0], nah[0])
+                    }
+                };
+                let (e03, e02, e12, e13) = (ecke(0, 3), ecke(0, 2), ecke(1, 2), ecke(1, 3));
+                let (davor, mitte) = (bit(dunkelt, vor), licht(vor));
+                let je_ecke = [
+                    (
+                        [dunkel[3], dunkel[0], e03.0, davor],
+                        [nah[3], nah[0], e03.1],
+                    ),
+                    (
+                        [dunkel[2], dunkel[0], e02.0, davor],
+                        [nah[2], nah[0], e02.1],
+                    ),
+                    (
+                        [dunkel[2], dunkel[1], e12.0, davor],
+                        [nah[2], nah[1], e12.1],
+                    ),
+                    (
+                        [dunkel[3], dunkel[1], e13.0, davor],
+                        [nah[3], nah[1], e13.1],
+                    ),
+                ];
+                let mut werte = [[0; 3]; 4];
+                for ((schatten, [a0, a1, a2]), &ziel) in je_ecke.iter().zip(&s.remap) {
+                    let ao = AO_WERTE[schatten.iter().filter(|&&d| d).count()];
+                    let l = lightmap.linear(smooth_blend(*a0, *a1, *a2, mitte));
+                    werte[ziel] = l.map(|l| (l * ao + 127) / 255);
+                }
+                werte
+            } else {
+                let Light { sky, block } = Light::from_packed(roh[stelle(vor)]);
+                let eigen = Light {
+                    sky,
+                    block: block.max(stufe),
+                };
+                [lightmap.factors(eigen); 4]
+            });
         }
-        Ok(out)
+        let eigen = innen.map(|kiste| {
+            let eigen = kiste.map_or(licht([0; 3]), |q| hellstes(licht([0; 3]), licht(q)));
+            lightmap.factors(Light::from_packed(eigen))
+        });
+        let Some(erste) = seiten.iter().flatten().flatten().next().copied() else {
+            return Ok((eigen.unwrap_or([255; 3]), None));
+        };
+        let rest = eigen.unwrap_or(erste);
+        if seiten.iter().flatten().flatten().all(|&w| w == rest) {
+            return Ok((rest, None));
+        }
+        let mut ecken = [[0; 3]; 3];
+        for (seite, werte) in seiten.iter().enumerate() {
+            let werte = werte.unwrap_or([erste; 4]);
+            for (c, kanal) in ecken.iter_mut().enumerate() {
+                kanal[seite] =
+                    werte[0][c] | werte[1][c] << 8 | werte[2][c] << 16 | werte[3][c] << 24;
+            }
+        }
+        Ok((rest, Some(ecken)))
+    }
+
+    /// Das Licht der 27 Zellen um einen Block, `(dx, dy, dz)` je von -1 bis
+    /// 1, an Stelle `dx + 1 + 3 · (dy + 1) + 9 · (dz + 1)`, gepackt wie
+    /// [`Light::packed`], dazu je Stelle ein Bit für einen Block, den das
+    /// Spiel voll hell zeichnet.
+    fn lichter_um(&mut self, [x, y, z]: [i32; 3]) -> Result<([u32; 27], u32)> {
+        let mut roh = [0; 27];
+        let mut voll = 0;
+        for dz in -1..=1 {
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let k = (dx + 1 + 3 * (dy + 1) + 9 * (dz + 1)) as usize;
+                    let (licht, hell) = self.zelle([x + dx, y + dy, z + dz])?;
+                    roh[k] = licht;
+                    voll |= u32::from(hell) << k;
+                }
+            }
+        }
+        Ok((roh, voll))
+    }
+
+    /// Das Licht der Zelle an `(x, y, z)`, gepackt wie [`Light::packed`],
+    /// und ob das Spiel den Block dort voll hell zeichnet ([`VOLL`]). In
+    /// einem Chunk, der fehlt, keines.
+    fn zelle(&mut self, [x, y, z]: [i32; 3]) -> Result<(u32, bool)> {
+        let Some(i) = self.licht_slot((x >> 4, z >> 4))? else {
+            return Ok((0, false));
+        };
+        let loaded = self.slots[i].loaded.as_ref().expect("eben geladen");
+        let (lx, lz) = ((x & 15) as usize, (z & 15) as usize);
+        let wert = loaded.licht.as_deref().map_or(0, |l| l.at(lx, y, lz));
+        let voll = i8::try_from(y >> 4)
+            .ok()
+            .and_then(|sy| loaded.chunk.section_index(sy))
+            .and_then(|s| loaded.masks[s].as_deref())
+            .is_some_and(|m| m.bits[VOLL][lz * 16 + lx] >> (y & 15) & 1 != 0);
+        let licht = Light {
+            sky: wert >> 4,
+            block: wert & 15,
+        };
+        Ok((licht.packed(), voll))
+    }
+
+    /// Das Licht einer Zelle, wie ihr eigener Block es angibt
+    /// (`LightCoordsUtil.getLightCoords`): voll hell mit
+    /// `emissiveRendering`, sonst ihres. Das eigene Blocklicht steckt darin,
+    /// denn als Quelle beginnt die Zelle mit ihm.
+    fn lichtwert(&mut self, p: [i32; 3]) -> Result<u32> {
+        let (licht, voll) = self.zelle(p)?;
+        Ok(if voll { VOLL_HELL } else { licht })
     }
 
     /// Die Ebenen [`SOLID`], [`DARK`] und [`VIEW`] um einen Block, so weit
-    /// [`ChunkCache::ao_at`] fragt: je Ebene ein Bit für jede Zelle
+    /// [`ChunkCache::ecken_at`] fragt: je Ebene ein Bit für jede Zelle
     /// `(x + dx, y + dy, z + dz)` mit `dx`, `dy` und `dz` von -1 bis 2, an
     /// Stelle `dy + 1 + 4 · (dx + 1) + 16 · (dz + 1)`. Die vier Zellen einer
     /// Spalte kommen aus einem Wort je Ebene, an einer Sectionsgrenze aus
@@ -1739,196 +2021,6 @@ impl<'a> ChunkCache<'a> {
             }
         }
         Ok(out)
-    }
-
-    /// Das Himmelslicht, in dem das Spiel den Block an `(x, y, z)` zeichnet:
-    /// das der Zelle vor seinen Flächen, gezählt wie in
-    /// [`ChunkCache::column_above`], eine Zahl je Block. Unter freiem Himmel
-    /// ist es 15.
-    ///
-    /// - Führt der Block selbst Wasser, liegt er im Licht dieses Wassers, mit
-    ///   Luft im Licht daneben im Licht 14.
-    /// - Sonst gilt die Zelle über ihm, wenn über ihm Wasser steht; an Land
-    ///   bleibt alles im Licht 15.
-    /// - Verdeckt der Block darüber die Oberseite, gilt das hellere Wasser vor
-    ///   der Ost- und der Südseite.
-    ///
-    /// Siehe docs/renderer/wasser-und-licht.md, „Welches Licht ein Block bekommt“.
-    /// Siehe docs/renderer/wasser-und-licht.md, „Licht von der Seite“.
-    fn light_at(&mut self, [x, y, z]: [i32; 3], family: &Family) -> Result<u8> {
-        if is_water(Some(family)) {
-            let stufen = self.column_above([x, y + 1, z])?.1;
-            if stufen == 0 {
-                return Ok(FULL_LIGHT);
-            }
-            // Reines Wasser zeichnet `FluidRenderer` im helleren Licht aus
-            // seiner Zelle und der darüber, und die hat eine Stufe mehr; ein
-            // deckender Block darüber hat selbst kein Licht. Ein Modell im
-            // Wasser, Seegras oder ein gefluteter Zaun, liegt im Licht der
-            // Zelle.
-            let frei = family.pure_fluid
-                && !self
-                    .family_at(x, y + 1, z)?
-                    .is_some_and(|above| above.opaque);
-            // Luft daneben, die selbst im Licht liegt, hebt es auf 14.
-            for [dx, dz] in SEITEN {
-                if self.luecke_at([x + dx, y, z + dz])? {
-                    return Ok(FULL_LIGHT - 1);
-                }
-            }
-            return Ok(dimmed(if frei { stufen } else { stufen + 1 }));
-        }
-        if !self
-            .family_at(x, y + 1, z)?
-            .is_some_and(|above| above.covers_floor)
-        {
-            let (wasser, stufen) = self.column_above([x, y + 1, z])?;
-            return Ok(match wasser {
-                0 => FULL_LIGHT,
-                _ => dimmed(stufen),
-            });
-        }
-        // Die Oberseite ist verdeckt, die Zählung über ihm braucht es nicht.
-        let mut light = None;
-        for [dx, dz] in [[1, 0], [0, 1]] {
-            if is_water(self.family_at(x + dx, y, z + dz)?) {
-                let seite = dimmed(self.column_above([x + dx, y, z + dz])?.1);
-                light = Some(light.map_or(seite, |l: u8| l.max(seite)));
-            }
-        }
-        Ok(light.unwrap_or(FULL_LIGHT))
-    }
-
-    /// Wie viele Blöcke Wasser über `(x, y, z)` stehen, die Zelle selbst
-    /// mitgezählt, und wie viele Stufen Himmelslicht sie samt den deckenden
-    /// Blöcken nehmen, nach oben gezählt, bis das Licht von der Seite kommt:
-    /// neben Luft ohne Wasser darüber und in einer Lücke unter einem deckenden
-    /// Block. Jeder Block Wasser und jeder deckende nimmt eine Stufe, alles
-    /// andere lässt das Licht durch. Luft und Lücke heisst weder Wasser noch
-    /// deckend. Gezählt wird in den Bitmasken der Sections; das Licht aus der
-    /// Welt liest der Renderer nicht.
-    /// Siehe docs/renderer/wasser-und-licht.md, „Wie gezählt wird“.
-    fn column_above(&mut self, [x, y, z]: [i32; 3]) -> Result<(u32, u32)> {
-        let i = self.slot((x >> 4, z >> 4))?;
-        let Some(loaded) = self.slots[i].loaded.as_ref() else {
-            return Ok((0, 0));
-        };
-        let col = ((z & 15) * 16 + (x & 15)) as usize;
-        let spalte = |loaded: &Loaded, s: usize| {
-            loaded.masks[s]
-                .as_ref()
-                .map_or((0, 0), |m| (m.bits[WATER][col], m.bits[SOLID][col]))
-        };
-        // Gezählt wird ab der Section, die bis y reicht. Von der darunter
-        // zählt nur, ob unter Bit 0 eine Lücke liegt; unter der untersten
-        // nicht, dort endet die Welt.
-        let sections = loaded.chunk.sections();
-        let start = sections.partition_point(|s| i32::from(s.y) * 16 + 15 < y);
-        let mut vorige = start.checked_sub(1).map(|s| sections[s].y);
-        let mut luecke_darunter = start.checked_sub(1).map_or(0, |s| {
-            let (nass, fest) = spalte(loaded, s);
-            !(nass | fest) >> 15
-        });
-        let (mut wasser, mut stufen) = (0, 0);
-        for s in start..sections.len() {
-            // Die Nachbarn laden weitere Chunks, deshalb je Section neu
-            // geliehen; der Index bleibt bis zur nächsten Kachel gültig.
-            let loaded = self.slots[i].loaded.as_ref().expect("eben geladen");
-            let sy = loaded.chunk.sections()[s].y;
-            let (nass, fest) = spalte(loaded, s);
-            // Fehlt eine Section dazwischen, steht dort Luft.
-            if vorige.is_some_and(|v| i32::from(v) + 1 != i32::from(sy)) {
-                luecke_darunter = 1;
-            }
-            vorige = Some(sy);
-            let luecke = !(nass | fest);
-            let unten = i32::from(sy) * 16;
-            let ab = if unten < y {
-                u16::MAX << (y - unten)
-            } else {
-                u16::MAX
-            };
-            let mut ende = fest & (luecke << 1 | luecke_darunter) & ab;
-            if nass & ab != 0 {
-                ende |= nass & self.luecke_daneben((i, s, sy), x, z)? & ab;
-            }
-            let zaehlt = (nass | fest) & ab;
-            if ende != 0 {
-                // Bis einschliesslich des untersten Blocks, an dem sie endet.
-                let bis = ende ^ (ende - 1);
-                return Ok((
-                    wasser + (nass & ab & bis).count_ones(),
-                    stufen + (zaehlt & bis).count_ones(),
-                ));
-            }
-            wasser += (nass & ab).count_ones();
-            stufen += zaehlt.count_ones();
-            luecke_darunter = luecke >> 15;
-        }
-        Ok((wasser, stufen))
-    }
-
-    /// Die Lücken im Licht in den vier Spalten neben `(x, z)` auf der Höhe
-    /// der Section `s` mit dem y `sy` des Chunks in Slot `i`, je `y` ein
-    /// Bit: weder Wasser noch deckend, und darüber steht in der Spalte kein
-    /// Wasser. Eine Section ohne Familie ist Luft; ein Chunk, der fehlt,
-    /// hat keine Lücke.
-    fn luecke_daneben(&mut self, (i, s, sy): (usize, usize, i8), x: i32, z: i32) -> Result<u16> {
-        let mut luecke = 0;
-        for [dx, dz] in SEITEN {
-            let (nx, nz) = (x + dx, z + dz);
-            let col = ((nz & 15) * 16 + (nx & 15)) as usize;
-            let (masken, oben) = if (nx >> 4, nz >> 4) == (x >> 4, z >> 4) {
-                // Im selben Chunk dieselbe Section, ohne Nachschlag.
-                let loaded = self.slots[i].loaded.as_ref().expect("eben geladen");
-                (
-                    Some(loaded.masks[s].as_deref()),
-                    loaded.oberstes_wasser[col],
-                )
-            } else {
-                let j = self.slot((nx >> 4, nz >> 4))?;
-                let Some(loaded) = self.slots[j].loaded.as_ref() else {
-                    continue;
-                };
-                let masken = loaded
-                    .chunk
-                    .section_index(sy)
-                    .map(|s| loaded.masks[s].as_deref());
-                (masken, loaded.oberstes_wasser[col])
-            };
-            let frei = match masken {
-                Some(Some(m)) => !(m.bits[WATER][col] | m.bits[SOLID][col]),
-                _ => u16::MAX,
-            };
-            luecke |= frei & ueber(oben, sy);
-        }
-        Ok(luecke)
-    }
-
-    /// Ist an einer Weltkoordinate eine Lücke im Licht wie in
-    /// [`luecke_daneben`]?
-    fn luecke_at(&mut self, [x, y, z]: [i32; 3]) -> Result<bool> {
-        let i = self.slot((x >> 4, z >> 4))?;
-        let Some(loaded) = self.slots[i].loaded.as_ref() else {
-            return Ok(false);
-        };
-        let Ok(sy) = i8::try_from(y >> 4) else {
-            return Ok(false);
-        };
-        let col = ((z & 15) * 16 + (x & 15)) as usize;
-        if y <= loaded.oberstes_wasser[col] {
-            return Ok(false);
-        }
-        Ok(
-            match loaded
-                .chunk
-                .section_index(sy)
-                .map(|s| loaded.masks[s].as_deref())
-            {
-                Some(Some(m)) => (m.bits[WATER][col] | m.bits[SOLID][col]) >> (y & 15) & 1 == 0,
-                _ => true,
-            },
-        )
     }
 
     /// Wie [`ChunkCache::family_at`], dazu wie hell der Block selbst
@@ -2147,6 +2239,7 @@ mod tests {
             image: RgbaImage::from_pixel(8, 4, image::Rgba([1, 2, 3, alpha])),
             offset: (0, 0),
             ao: None,
+            weich: false,
             tint: None,
         };
         let (deckend, halb) = (sprite(255), sprite(128));

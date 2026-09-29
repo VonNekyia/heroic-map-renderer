@@ -1,0 +1,17 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": { "all": "minecraft:block/planks" },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 15, 16],
+      "faces": {
+        "east":  { "texture": "#all", "cullface": "east" },
+        "south": { "texture": "#all", "cullface": "south" },
+        "west":  { "texture": "#all", "cullface": "west" },
+        "up":    { "texture": "#all", "cullface": "up" },
+        "down":  { "texture": "#all", "cullface": "down" }
+      }
+    }
+  ]
+}

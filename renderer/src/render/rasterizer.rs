@@ -4,8 +4,7 @@ use image::{Rgba, RgbaImage};
 
 use crate::assets::baker::{BakedModel, Quad};
 use crate::assets::blockentity::Entity;
-use crate::assets::blockstate::Leuchten;
-use crate::assets::{CardinalLight, Face, Textures, Tints, fluid};
+use crate::assets::{CardinalLight, DimensionType, Face, Textures, Tint, Tints, fluid};
 
 use super::Projection;
 use super::pyramid::{LINEAR, to_srgb};
@@ -38,65 +37,100 @@ const FLUID_BEHIND: f32 = 1e-3;
 /// Siehe docs/renderer/naehte.md, „Flächen parallel zur Blickrichtung“.
 const EDGE_ON: f32 = 1e-4;
 
-/// Volles Himmelslicht, am Tag unter freiem Himmel. So hell zeichnet der
-/// Renderer jede Fläche, siehe [`brightness`].
+/// Die höchste Stufe des Himmels- und des Blocklichts, am Tag unter freiem
+/// Himmel, siehe [`brightness_rgb`].
 pub const FULL_LIGHT: u8 = 15;
-
-/// Himmelslicht direkt unter einer Wasseroberfläche: Der Block der
-/// Oberfläche selbst nimmt eine Stufe, `LiquidBlock.propagatesSkylightDown`
-/// ist falsch.
-pub const LIGHT_UNDER_SURFACE: u8 = 14;
-
-/// Helligkeit einer Fläche im Himmelslicht `light` (0 bis 15), am Tag in
-/// der Oberwelt, so wie `shaders/core/lightmap.fsh` in 26.2 sie rechnet.
-/// Licht 15 gibt 1, also so hell, wie der Renderer jede Fläche zeichnet.
-/// Siehe docs/renderer/wasser-und-licht.md, „Helligkeit wie im Spiel“.
-pub fn brightness(light: u8) -> f32 {
-    let level = light.min(FULL_LIGHT) as f32 / 15.0;
-    let sky = level / (4.0 - 3.0 * level);
-    let color = (10.0 / 255.0 + sky).min(1.0);
-    let rest = 1.0 - color;
-    let not_gamma = 1.0 - rest * rest * rest * rest;
-    color + (not_gamma - color) * 0.5
-}
-
-/// [`brightness`] in 255steln, für [`darken`]: 255 bei vollem Licht.
-pub fn light_factor(light: u8) -> u32 {
-    (brightness(light) * 255.0).round() as u32
-}
 
 /// `BlockFactor` aus `LightmapRenderStateExtractor.extract`: 1,4 und ein
 /// Flackern, das `tick` zufällig um 0 laufen lässt. Hier ohne Flackern.
 const BLOCK_FACTOR: f32 = 1.4;
 
-/// `visual/block_light_tint` der Oberwelt: der Standard `#FFD88C` aus
-/// `EnvironmentAttributes`, denn `overworld.json` setzt keinen.
-const BLOCK_LIGHT_TINT: [f32; 3] = [1.0, 216.0 / 255.0, 140.0 / 255.0];
+/// `BrightnessFactor`: `options.gamma` in der Voreinstellung.
+const BRIGHTNESS_FACTOR: f32 = 0.5;
 
 /// Helligkeit je Farbkanal im Himmelslicht `sky` und im Blocklicht
-/// `block`, wie `lightmap.fsh` sie rechnet: zum Himmelslicht aus
-/// [`brightness`] kommt das Blocklicht mit [`BLOCK_FACTOR`] in der Farbe
-/// [`BLOCK_LIGHT_TINT`]. Ohne Blocklicht ist das [`brightness`] in jedem
-/// Kanal.
-/// Siehe docs/renderer/wasser-und-licht.md, „Blocklicht“.
-pub fn brightness_rgb(sky: u8, block: u8) -> [f32; 3] {
-    if block == 0 {
-        return [brightness(sky); 3];
-    }
+/// `block` in einer Dimension vom Typ `typ`, wie `lightmap.fsh` in 26.2 sie
+/// rechnet: die Umgebungsfarbe, dazu das Himmelslicht in seiner Farbe mal
+/// `SkyFactor` und das Blocklicht mit [`BLOCK_FACTOR`] in einer Farbe
+/// zwischen `BlockLightTint` und Weiss, auf 0 bis 1 begrenzt und mit
+/// [`BRIGHTNESS_FACTOR`] zu `notGamma` hin gemischt. In der Oberwelt gibt
+/// Himmelslicht 15 in jedem Kanal 1.
+/// Siehe docs/renderer/wasser-und-licht.md, „Helligkeit wie im Spiel“.
+pub fn brightness_rgb(typ: &DimensionType, sky: u8, block: u8) -> [f32; 3] {
     let level = |l: u8| l.min(FULL_LIGHT) as f32 / 15.0;
     let get_brightness = |l: f32| l / (4.0 - 3.0 * l);
+    let farbe = |c: Tint| c.map(|c| c as f32 / 255.0);
+    let umgebung = farbe(typ.ambient_light_color);
+    let himmel = farbe(typ.sky_light_color);
+    let tint = farbe(typ.block_light_tint);
     let b = level(block);
-    let (sky_brightness, block_brightness) =
-        (get_brightness(level(sky)), get_brightness(b) * BLOCK_FACTOR);
+    let sky_brightness = get_brightness(level(sky)) * typ.sky_light_factor;
+    let block_brightness = get_brightness(b) * BLOCK_FACTOR;
     let mix = 0.9 * (2.0 * b - 1.0) * (2.0 * b - 1.0);
-    let color = BLOCK_LIGHT_TINT.map(|tint| {
-        let block_color = tint + (1.0 - tint) * mix;
-        (10.0 / 255.0 + sky_brightness + block_color * block_brightness).min(1.0)
+    let color: [f32; 3] = std::array::from_fn(|c| {
+        let block_color = tint[c] + (1.0 - tint[c]) * mix;
+        (umgebung[c] + himmel[c] * sky_brightness + block_color * block_brightness).clamp(0.0, 1.0)
     });
     let max = color.iter().fold(0.0f32, |a, &c| a.max(c));
+    if max == 0.0 {
+        return color;
+    }
     let rest = 1.0 - max;
     let scaled = 1.0 - rest * rest * rest * rest;
-    color.map(|c| c + (c * (scaled / max) - c) * 0.5)
+    color.map(|c| c + (c * (scaled / max) - c) * BRIGHTNESS_FACTOR)
+}
+
+/// Die Lightmap einer Dimension: [`brightness_rgb`] je Himmels- und
+/// Blocklicht in 255steln, für [`darken`].
+pub struct Lightmap([[[u32; 3]; 16]; 16]);
+
+impl Lightmap {
+    pub fn new(typ: &DimensionType) -> Lightmap {
+        Lightmap(std::array::from_fn(|sky| {
+            std::array::from_fn(|block| {
+                brightness_rgb(typ, sky as u8, block as u8).map(|c| (c * 255.0).round() as u32)
+            })
+        }))
+    }
+
+    /// Die Lightmap der Oberwelt am Tag.
+    pub fn oberwelt() -> &'static Lightmap {
+        static OBERWELT: LazyLock<Lightmap> =
+            LazyLock::new(|| Lightmap::new(&DimensionType::oberwelt()));
+        &OBERWELT
+    }
+
+    /// Die Helligkeit im Licht `licht` je Farbkanal, Rot zuerst.
+    pub fn factors(&self, licht: Light) -> [u32; 3] {
+        self.0[licht.sky.min(FULL_LIGHT) as usize][licht.block.min(FULL_LIGHT) as usize]
+    }
+
+    /// Die Helligkeit an einer Ecke je Kanal, aus ihrem Licht nach
+    /// [`smooth_blend`]: Das Spiel liest die Lightmap je Ecke
+    /// (`terrain.vsh`, `sample_lightmap`), linear gefiltert
+    /// (`ChunkSectionsToRender`, `FilterMode.LINEAR`), also zwischen den
+    /// benachbarten Stufen gemischt, in beiden Lichtern.
+    /// Siehe docs/renderer/weiche-beleuchtung.md, „Licht an den Ecken“.
+    pub fn linear(&self, licht: u32) -> [u32; 3] {
+        let (sky, block) = (licht >> 16 & 255, licht & 255);
+        let (s, b) = ((sky >> 4).min(15) as u8, (block >> 4).min(15) as u8);
+        let (fs, fb) = (sky & 15, block & 15);
+        let stufe = |sky: u8, block: u8| self.factors(Light { sky, block });
+        let (t00, t01, t10, t11) = (
+            stufe(s, b),
+            stufe(s, b + 1),
+            stufe(s + 1, b),
+            stufe(s + 1, b + 1),
+        );
+        std::array::from_fn(|c| {
+            ((16 - fs) * (16 - fb) * t00[c]
+                + (16 - fs) * fb * t01[c]
+                + fs * (16 - fb) * t10[c]
+                + fs * fb * t11[c]
+                + 128)
+                / 256
+        })
+    }
 }
 
 /// In welchem Licht das Spiel einen Block zeichnet: Himmels- und
@@ -108,31 +142,57 @@ pub struct Light {
 }
 
 impl Light {
-    /// Voller Tag unter freiem Himmel: so hell zeichnet der Renderer jedes
-    /// Sprite.
-    pub const FULL: Light = Light {
-        sky: FULL_LIGHT,
-        block: 0,
-    };
-
     pub fn sky(sky: u8) -> Light {
         Light { sky, block: 0 }
     }
 
-    /// [`brightness_rgb`] in 255steln, für [`darken`].
+    /// [`Lightmap::factors`] in der Oberwelt.
     pub fn factors(self) -> [u32; 3] {
-        static FAKTOREN: LazyLock<[[[u32; 3]; 16]; 16]> = LazyLock::new(|| {
-            std::array::from_fn(|sky| {
-                std::array::from_fn(|block| {
-                    brightness_rgb(sky as u8, block as u8).map(|c| (c * 255.0).round() as u32)
-                })
-            })
-        });
-        FAKTOREN[self.sky.min(FULL_LIGHT) as usize][self.block.min(FULL_LIGHT) as usize]
+        Lightmap::oberwelt().factors(self)
+    }
+
+    /// Himmels- und Blocklicht, gepackt wie `LightCoordsUtil.pack` in 26.2:
+    /// das Blocklicht ab Bit 4, das Himmelslicht ab Bit 20.
+    pub fn packed(self) -> u32 {
+        u32::from(self.block.min(FULL_LIGHT)) << 4 | u32::from(self.sky.min(FULL_LIGHT)) << 20
+    }
+
+    /// Aus der Packung von [`Light::packed`].
+    pub fn from_packed(licht: u32) -> Light {
+        Light {
+            sky: (licht >> 20 & 15) as u8,
+            block: (licht >> 4 & 15) as u8,
+        }
     }
 }
 
-/// Ein Pixel im Licht mit den Faktoren aus [`Light::factors`]: jeder
+/// So packt das Spiel ein Block, der voll hell gezeichnet wird
+/// (`LightCoordsUtil.FULL_BRIGHT`): Himmels- und Blocklicht 15.
+pub const VOLL_HELL: u32 = 0xf0_00f0;
+
+/// `LightCoordsUtil.smoothBlend` in 26.2: das Licht an einer Ecke einer
+/// weich beleuchteten Seite aus drei Nachbarn und der Zelle vor der Seite,
+/// gepackt wie [`Light::packed`]. Ist die Zelle davor hell genug, Himmels-
+/// oder Blocklicht über 2, nimmt ein Nachbar ohne Licht ihres, einer ohne
+/// Himmelslicht ihr Himmelslicht. Das Mittel der vier liegt danach in
+/// Sechzehnteln einer Stufe vor: das Blocklicht in den Bits 0 bis 7, das
+/// Himmelslicht in 16 bis 23.
+/// Siehe docs/renderer/weiche-beleuchtung.md, „Licht an den Ecken“.
+pub fn smooth_blend(mut a0: u32, mut a1: u32, mut a2: u32, mitte: u32) -> u32 {
+    let (sky, block) = (|l: u32| l >> 20 & 15, |l: u32| l >> 4 & 15);
+    if sky(mitte) > 2 || block(mitte) > 2 {
+        for a in [&mut a0, &mut a1, &mut a2] {
+            if *a == 0 {
+                *a = mitte;
+            } else if sky(*a) == 0 {
+                *a |= mitte & 0xff_0000;
+            }
+        }
+    }
+    (a0 + a1 + a2 + mitte) >> 2 & 0xff_00ff
+}
+
+/// Ein Pixel im Licht mit den Faktoren aus [`Lightmap::factors`]: jeder
 /// Farbkanal mal seine Helligkeit, das Alpha bleibt. Ganzzahlig wie
 /// [`over`], dieselbe Rechnung steht im Shader (`gpu.wgsl`).
 pub fn darken(pixel: [u8; 4], factors: [u32; 3]) -> [u8; 4] {
@@ -160,14 +220,16 @@ const FACE_INFO: [[[f32; 2]; 4]; 3] = [
     [[1.0, 1.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
 ];
 
-/// Die Seite aus [`AO_FACES`], als die das Spiel ein Viereck mit den vier
-/// Werten je Ecke weich beleuchtet: eben auf dem Rand des Würfels und über
-/// die ganze Seite, beides bis auf 1e-4, denn der Baker dreht über sin und
-/// cos. Flüssigkeiten bekommen keine, Flächen aus Blockentity-Modellen auch
-/// nicht: Das Spiel zeichnet sie im Licht der Entities, siehe
+/// Die Seite aus [`AO_FACES`], als die das Spiel ein Viereck im Licht der
+/// Zelle davor zeichnet, weich mit den vier Werten je Ecke oder flach
+/// (`faceCubic` in `BlockModelLighter.prepareQuadShape`): eben, bis auf
+/// 1e-4, denn der Baker dreht über sin und cos, und auf dem Rand des
+/// Würfels, mit voller Kollisionsform des Blocks (`kollision`) auch im
+/// Innern. Flüssigkeiten bekommen keine, Flächen aus Blockentity-Modellen
+/// auch nicht: Das Spiel zeichnet sie im Licht der Entities, siehe
 /// [`entity_light`].
 /// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
-fn ao_face(quad: &Quad) -> Option<usize> {
+fn ao_face(quad: &Quad, kollision: bool) -> Option<usize> {
     if quad.fluid.is_some() || quad.entity.is_some() {
         return None;
     }
@@ -183,14 +245,14 @@ fn ao_face(quad: &Quad) -> Option<usize> {
             .map(|c| c[axis])
             .fold(f32::MIN, f32::max)
     };
-    let voll = |axis: usize| min(axis) < 1e-4 && max(axis) > 0.9999;
-    let rand = |axis: usize| max(axis) - min(axis) < 1e-4 && min(axis) > 0.9999;
     let n = quad.normal();
-    // Je Seite die Achse ihrer Normalen und die beiden in der Seite.
-    let (face, _, [s, t]) = [(0, 1, [0, 2]), (1, 2, [0, 1]), (2, 0, [2, 1])]
+    // Je Seite die Achse ihrer Normalen.
+    [(0, 1), (1, 2), (2, 0)]
         .into_iter()
-        .find(|&(_, axis, _)| n[axis] > 0.0 && rand(axis))?;
-    (voll(s) && voll(t)).then_some(face)
+        .find(|&(_, axis)| {
+            n[axis] > 0.0 && max(axis) - min(axis) < 1e-4 && (kollision || min(axis) > 0.9999)
+        })
+        .map(|(face, _)| face)
 }
 
 /// Die Koordinaten eines Punkts auf einer Seite aus [`AO_FACES`], wie in
@@ -236,12 +298,17 @@ fn ao_word(face: usize, w: [u32; 4]) -> u32 {
     w[0] | w[1] << 8 | w[2] << 16 | (face as u32 + 1) << 24
 }
 
-/// Die Helligkeit der weichen Beleuchtung an einem Pixel in 255steln:
-/// der Eintrag der AO-Karte gegen die Werte der Ecken seiner Seite, wie
-/// [`ChunkCache::ao_at`](super::metatile) sie je Block liefert, vier Bytes
-/// je Seite in der Reihenfolge von [`FACE_INFO`]. 255 ohne Seite. Dieselbe
-/// Rechnung steht im Shader.
-pub fn ao_factor(word: u32, corners: [u32; 3]) -> u32 {
+/// Das Licht an den Ecken der drei Seiten aus [`AO_FACES`], die weiche
+/// Beleuchtung eingerechnet: je Farbkanal und Seite ein Wort, ein Byte je
+/// Ecke in der Reihenfolge von [`FACE_INFO`], in 255steln. So liefert es
+/// [`ChunkCache::ecken_at`](super::metatile) je Block.
+pub type Ecken = [[u32; 3]; 3];
+
+/// Die Helligkeit eines Kanals an einem Pixel in 255steln: der Eintrag der
+/// AO-Karte gegen die Werte der Ecken seiner Seite in diesem Kanal aus
+/// [`Ecken`], wie die Grafikkarte die Farbe der Ecken über das Dreieck
+/// verlaufen lässt. 255 ohne Seite. Dieselbe Rechnung steht im Shader.
+pub fn ecken_faktor(word: u32, corners: [u32; 3]) -> u32 {
     let face = word >> 24;
     if face == 0 {
         return 255;
@@ -252,27 +319,21 @@ pub fn ao_factor(word: u32, corners: [u32; 3]) -> u32 {
     (w0 * (c & 255) + w1 * (c >> 8 & 255) + w2 * (c >> 16 & 255) + w3 * (c >> 24) + 127) / 255
 }
 
-/// Die Werte der Ecken für einen Block ohne weiche Beleuchtung: überall
-/// 255, jeder Pixel bleibt, wie er ist.
-pub const NO_AO: [u32; 3] = [u32::MAX; 3];
-
-/// Licht aus [`light_factor`] und weiche Beleuchtung aus [`ao_factor`]
-/// zusammen als Faktor für [`darken`]. Bei vollem Licht bleibt der Wert der
-/// weichen Beleuchtung, wie er ist.
-pub fn with_ao(factor: u32, ao: u32) -> u32 {
-    (factor * ao + 127) / 255
-}
-
 /// Das fertig gerasterte Bild einer Blockstate.
 pub struct Sprite {
     pub image: RgbaImage,
     /// Pixelposition der linken oberen Ecke, relativ zum projizierten
     /// Blockursprung.
     pub offset: (i32, i32),
-    /// Je Pixel, wie die weiche Beleuchtung des Spiels ihn abdunkelt, siehe
-    /// [`ao_factor`]; nur für Modelle, die das Spiel weich beleuchtet und
-    /// die nur aus vollen Seiten bestehen.
+    /// Die AO-Karte: je Pixel seine Seite und die Anteile ihrer Ecken, siehe
+    /// [`ecken_faktor`], wo eine Fläche im Licht der Zelle davor liegt, siehe
+    /// [`ao_face`]; nur, wenn das an einem Pixel so ist. Mit ihr bekommt
+    /// jede Seite das Licht an ihren Ecken, weich beleuchtet oder nicht,
+    /// siehe [`Sprite::weich`]. Ein Pixel ohne Seite liegt im Licht der
+    /// eigenen Zelle.
     pub ao: Option<Vec<u32>>,
+    /// Das Modell erlaubt weiche Beleuchtung (`ambientocclusion`).
+    pub weich: bool,
     /// Je Pixel zwei Wörter, die Tönungskarte: der Anteil, der die Farbe des
     /// Blocks aus dem Biom trägt, und der, der die des Wassers trägt, je
     /// Kanal ein Byte, Rot im untersten. `image` hält den Rest; zusammen
@@ -295,43 +356,73 @@ pub fn tinted(pixel: [u8; 4], [block, water]: [u32; 2], [b, w]: [u32; 2]) -> [u8
     [kanal(0), kanal(1), kanal(2), pixel[3]]
 }
 
+/// Wie [`darken`] über [`tinted`], nur liegt der Anteil des Wassers im
+/// Licht `wasser`, der Rest im Licht `licht`, beide aus [`Lightmap::factors`]:
+/// Ein gefluteter Block an der Oberfläche zeichnet sein Modell im Licht
+/// seiner Zelle, sein Wasser im helleren darüber. Einmal gerundet, dieselbe
+/// Rechnung steht im Shader.
+pub fn tinted_im_licht(
+    pixel: [u8; 4],
+    [block, water]: [u32; 2],
+    [b, w]: [u32; 2],
+    licht: [u32; 3],
+    wasser: [u32; 3],
+) -> [u8; 4] {
+    let kanal = |c: usize| {
+        let byte = |word: u32| word >> (8 * c) & 255;
+        let rest = (pixel[c] as u32 * 255 + byte(block) * byte(b)) * licht[c];
+        let nass = byte(water) * byte(w) * wasser[c];
+        ((rest + nass + 32512) / 65025).min(255) as u8
+    };
+    [kanal(0), kanal(1), kanal(2), pixel[3]]
+}
+
 /// Eine Farbe gepackt wie die Tönungskarte, Rot im untersten Byte.
 pub fn pack(tint: [u8; 3]) -> u32 {
     tint[0] as u32 | (tint[1] as u32) << 8 | (tint[2] as u32) << 16
 }
 
-/// [`render_mit_licht`] im Licht der Oberwelt.
+/// [`render_mit_licht`] im Licht der Oberwelt, ohne volle Kollisionsform.
 pub fn render(
     model: &BakedModel,
     textures: &Textures,
     projection: &Projection,
     tints: Tints,
-    leuchten: Leuchten,
 ) -> Option<Sprite> {
-    let licht = CardinalLight::Default;
-    render_mit_licht(model, textures, projection, tints, leuchten, licht)
+    render_mit_licht(
+        model,
+        textures,
+        projection,
+        tints,
+        CardinalLight::Default,
+        false,
+    )
 }
 
 /// Rastert ein gebackenes Modell in ein Sprite.
 ///
 /// Da die Kamera fest steht, sieht jede Blockstate immer gleich aus. Das
 /// Sprite entsteht deshalb einmal und wird im Renderpfad nur noch kopiert.
-/// `leuchten` sagt, wie hell der Block selbst leuchtet: Was er unter
-/// seiner eigenen Wasseroberfläche trägt, liegt im Licht direkt unter ihr
-/// und in seinem eigenen Blocklicht, siehe `Canvas::into_image`. `licht`
-/// schattiert die Seiten wie der Typ der Dimension, siehe [`shade_factor`].
+/// Das Licht des Blocks kommt erst beim Zeichnen dazu. `licht` schattiert
+/// die Seiten wie der Typ der Dimension, siehe [`shade_factor`];
+/// `kollision`: Der Block hat volle Kollisionsform, siehe [`ao_face`].
 pub fn render_mit_licht(
     model: &BakedModel,
     textures: &Textures,
     projection: &Projection,
     tints: Tints,
-    leuchten: Leuchten,
     licht: CardinalLight,
+    kollision: bool,
 ) -> Option<Sprite> {
     let mut projected: Vec<ProjectedQuad> = model
         .quads
         .iter()
-        .filter_map(|quad| Some(ProjectedQuad::new(quad, projection, seite(quad)?, licht)))
+        .filter_map(|quad| {
+            let rueckseite = seite(quad)?;
+            Some(ProjectedQuad::new(
+                quad, projection, rueckseite, licht, kollision,
+            ))
+        })
         .collect();
 
     // Jede Fläche legt je Pixel ein Fragment ab, gemischt wird erst am
@@ -356,16 +447,7 @@ pub fn render_mit_licht(
         return None;
     }
 
-    // Weich beleuchtet wird hier nur, was ganz aus vollen Seiten besteht:
-    // Dann gehört jeder Pixel genau einer Seite, und die Werte ihrer Ecken
-    // reichen. Treppen, Platten und alles mit Teilflächen fehlen noch.
-    let ao = model.ambient_occlusion && projected.iter().all(|q| q.ao_face.is_some());
-    if !ao {
-        for quad in &mut projected {
-            quad.ao_face = None;
-        }
-    }
-
+    let ao = projected.iter().any(|q| q.ao_face.is_some());
     let mut canvas = Canvas::new(width, height);
     let samples = texture_samples(projection.scale());
     // Von vorn nach hinten gerastert: was hinter einer deckenden Fläche
@@ -381,21 +463,12 @@ pub fn render_mit_licht(
         );
     }
 
-    let unter = match leuchten {
-        Leuchten::Voll => Light {
-            sky: FULL_LIGHT,
-            block: FULL_LIGHT,
-        },
-        Leuchten::Stufe(block) => Light {
-            sky: LIGHT_UNDER_SURFACE,
-            block,
-        },
-    };
-    let (image, ao) = canvas.into_image(unter, ao);
+    let (image, ao) = canvas.into_image(ao);
     Some(Sprite {
         image,
         offset: (min_x, min_y),
         ao,
+        weich: model.ambient_occlusion,
         tint: None,
     })
 }
@@ -439,6 +512,7 @@ impl<'a> ProjectedQuad<'a> {
         projection: &Projection,
         rueckseite: bool,
         licht: CardinalLight,
+        kollision: bool,
     ) -> ProjectedQuad<'a> {
         let screen = quad.corners.map(|corner| {
             let (x, y) = projection.project(corner);
@@ -449,7 +523,7 @@ impl<'a> ProjectedQuad<'a> {
             screen,
             depth: screen.iter().map(|&(_, _, d)| d).fold(f32::MIN, f32::max),
             shade: shade_factor(quad, rueckseite, licht),
-            ao_face: ao_face(quad),
+            ao_face: ao_face(quad, kollision),
         }
     }
 
@@ -568,7 +642,6 @@ impl<'a> ProjectedQuad<'a> {
                 Shading {
                     shade: self.shade,
                     tint,
-                    surface: self.quad.fluid.is_some_and(|(_, face)| face == Face::Up),
                     order,
                     ao_face,
                     deckung,
@@ -685,7 +758,6 @@ struct Vertex {
 struct Shading {
     shade: f32,
     tint: Option<[f32; 3]>,
-    surface: bool,
     order: u32,
     ao_face: Option<usize>,
     deckung: Deckung,
@@ -732,9 +804,6 @@ struct Fragment {
     order: u32,
     /// Farbe mit Helligkeit und Färbung, Alpha der Textur.
     color: [u8; 4],
-    /// Von der Oberseite einer Flüssigkeit: Was im Sprite dahinter liegt,
-    /// liegt unter Wasser.
-    surface: bool,
     /// Eintrag der AO-Karte, 0 ohne weiche Beleuchtung.
     ao: u32,
 }
@@ -781,7 +850,6 @@ impl Canvas {
         let Shading {
             shade,
             tint,
-            surface,
             order,
             ao_face,
             deckung,
@@ -857,18 +925,16 @@ impl Canvas {
                     depth,
                     order,
                     color: shaded(texel, shade, tint),
-                    surface,
                     ao,
                 });
             }
         }
     }
 
-    /// Mischt je Pixel die Fragmente von hinten nach vorne. Was unter der
-    /// eigenen Oberfläche liegt, im Licht `unter`. Mit `ao` dazu die
-    /// AO-Karte aus dem vordersten Fragment je Pixel.
-    fn into_image(mut self, unter: Light, ao: bool) -> (RgbaImage, Option<Vec<u32>>) {
-        let unter = unter.factors();
+    /// Mischt je Pixel die Fragmente von hinten nach vorne. Mit `ao` dazu
+    /// die AO-Karte aus dem vordersten Fragment je Pixel, wenn einer eine
+    /// Seite hat.
+    fn into_image(mut self, ao: bool) -> (RgbaImage, Option<Vec<u32>>) {
         self.fragments.sort_unstable_by(|a, b| {
             a.pixel
                 .cmp(&b.pixel)
@@ -880,15 +946,6 @@ impl Canvas {
         for pixel in self.fragments.chunk_by(|a, b| a.pixel == b.pixel) {
             let mut color = [0u8; 4];
             for fragment in pixel {
-                // Was ein gefluteter Block unter seiner eigenen Oberfläche
-                // trägt, ein Zaunpfosten etwa, liegt im Licht direkt unter
-                // ihr, eine Laterne oder Meeresgurke dazu in ihrem eigenen
-                // Blocklicht. Wo das Sprite nichts dahinter hat, bleibt die
-                // Oberfläche, wie sie ist: Was dort durchscheint, zeichnet
-                // der Renderlauf in seinem eigenen Licht.
-                if fragment.surface && color[3] != 0 {
-                    color = darken(color, unter);
-                }
                 color = over(fragment.color, color);
             }
             let index = pixel[0].pixel;
@@ -897,7 +954,7 @@ impl Canvas {
                 map[index as usize] = pixel[pixel.len() - 1].ao;
             }
         }
-        (image, map)
+        (image, map.filter(|map| map.iter().any(|&w| w >> 24 != 0)))
     }
 }
 
@@ -1075,6 +1132,17 @@ mod tests {
     use crate::assets::baker::Quad;
     use crate::assets::blockentity::Schicht;
 
+    /// Die Helligkeit im Himmelslicht `licht` ohne Blocklicht in der
+    /// Oberwelt, in jedem Kanal gleich.
+    fn brightness(licht: u8) -> f32 {
+        brightness_rgb(&DimensionType::oberwelt(), licht, 0)[0]
+    }
+
+    /// [`brightness`] in 255steln.
+    fn light_factor(licht: u8) -> u32 {
+        Light::sky(licht).factors()[0]
+    }
+
     /// Die Helligkeit je Himmelslicht, nach `lightmap.fsh` von Hand
     /// ausgerechnet: Umgebungsfarbe #0a0a0a, `SkyFactor` 1, Helligkeit 0,5.
     #[test]
@@ -1096,24 +1164,77 @@ mod tests {
     /// [`brightness`].
     #[test]
     fn blocklicht_wie_im_spiel() {
-        assert_eq!(brightness_rgb(0, 15), [1.0; 3]);
-        assert_eq!(brightness_rgb(15, 15), [1.0; 3]);
-        let warm = brightness_rgb(5, 6);
+        let oberwelt = DimensionType::oberwelt();
+        assert_eq!(brightness_rgb(&oberwelt, 0, 15), [1.0; 3]);
+        assert_eq!(brightness_rgb(&oberwelt, 15, 15), [1.0; 3]);
+        let warm = brightness_rgb(&oberwelt, 5, 6);
         for (ist, soll) in warm.iter().zip([0.58609, 0.53676, 0.44063]) {
             assert!((ist - soll).abs() < 1e-4, "{warm:?}");
         }
-        assert_eq!(brightness_rgb(7, 0), [brightness(7); 3]);
+        assert_eq!(brightness_rgb(&oberwelt, 7, 0), [brightness(7); 3]);
         assert_eq!(Light::sky(14).factors(), [light_factor(14); 3]);
         assert_eq!(Light { sky: 0, block: 15 }.factors(), [255; 3]);
     }
 
-    /// Ein voller Würfel, den das Spiel weich beleuchtet, bekommt eine
-    /// AO-Karte: Jeder Pixel mit Farbe liegt auf einer der drei Seiten, und
-    /// alle drei kommen vor. Ohne `ambientocclusion`, mit einer Oberseite in
-    /// halber Höhe und als obere Platte, deren Oberseite voll ist, ihre
-    /// Seiten aber nicht, gibt es keine.
+    /// Die Lightmap nimmt die Werte aus dem Typ der Dimension, von Hand nach
+    /// `lightmap.fsh` gerechnet. Im Nether und im Ende ist `SkyFactor` 0:
+    /// Himmelslicht ändert nichts, und ohne Blocklicht bleibt die
+    /// Umgebungsfarbe, `#302821` und `#3f473f`, zur Hälfte zu `notGamma`
+    /// gemischt. Blocklicht 9 färbt im Nether wärmer als in der Oberwelt,
+    /// und Blocklicht 15 macht überall alles hell. Ein eigener Typ färbt
+    /// Himmels- und Blocklicht in seinen Farben.
     #[test]
-    fn ao_karte_nur_fuer_volle_wuerfel() {
+    fn lightmap_je_dimension() {
+        let typ = |id: &str| DimensionType::des_spiels(id).unwrap();
+        let (oberwelt, nether, ende) = (
+            Lightmap::oberwelt(),
+            Lightmap::new(&typ("minecraft:the_nether")),
+            Lightmap::new(&typ("minecraft:the_end")),
+        );
+        let l = |sky, block| Light { sky, block };
+        assert_eq!(oberwelt.factors(l(0, 0)), [24; 3]);
+        assert_eq!(oberwelt.factors(l(0, 9)), [167, 145, 101]);
+        for sky in [0, 14, 15] {
+            assert_eq!(
+                nether.factors(l(sky, 0)),
+                [96, 80, 66],
+                "Nether, Himmel {sky}"
+            );
+            assert_eq!(
+                ende.factors(l(sky, 0)),
+                [114, 128, 114],
+                "Ende, Himmel {sky}"
+            );
+            assert_eq!(nether.factors(l(sky, 9)), [196, 166, 119]);
+            assert_eq!(ende.factors(l(sky, 9)), [205, 197, 151]);
+        }
+        for map in [oberwelt, &nether, &ende] {
+            assert_eq!(map.factors(l(15, 15)), [255; 3]);
+        }
+        // Ein eigener Typ: rotes Himmelslicht mit `SkyFactor` 0,5, blaues
+        // Blocklicht, ohne Umgebungsfarbe.
+        let eigen = Lightmap::new(&DimensionType {
+            ambient_light_color: [0, 0, 0],
+            sky_light_factor: 0.5,
+            sky_light_color: [255, 0, 0],
+            block_light_tint: [0, 0, 255],
+            ..DimensionType::oberwelt()
+        });
+        assert_eq!(eigen.factors(l(15, 0)), [183, 0, 0]);
+        assert_eq!(eigen.factors(l(0, 6)), [4, 4, 101]);
+        assert_eq!(eigen.factors(l(0, 0)), [0; 3]);
+    }
+
+    /// Die AO-Karte trägt je Pixel die Seite, deren Fläche im Licht der
+    /// Zelle davor liegt. Beim vollen Würfel liegt jeder Pixel mit Farbe auf
+    /// einer der drei Seiten, und alle drei kommen vor; ohne
+    /// `ambientocclusion` auch, für das Licht je Seite, nur weich beleuchtet
+    /// wird er dann nicht. Bei der oberen Platte ebenso, ihre Oberseite liegt
+    /// auf dem Rand. Die der unteren liegt im Innern, im Licht der eigenen
+    /// Zelle, ausser der Block hat volle Kollisionsform. Ein Kasten ganz im
+    /// Innern hat keine Karte.
+    #[test]
+    fn ao_karte_fuer_flaechen_im_licht_davor() {
         let kasten = |from: [f32; 3], to: [f32; 3], ambient_occlusion| BakedModel {
             quads: crate::assets::baker::box_quads(from, to, Textures::MISSING, None, None)
                 .collect(),
@@ -1122,36 +1243,196 @@ mod tests {
         let wuerfel = |to: [f32; 3], ambient_occlusion| kasten([0.0; 3], to, ambient_occlusion);
         let textures = Textures::new();
         let projection = Projection::new(32);
-        let bild = |model: &BakedModel| {
-            render(
+        let bild = |model: &BakedModel, kollision| {
+            let licht = CardinalLight::Default;
+            render_mit_licht(
                 model,
                 &textures,
                 &projection,
                 Tints::default(),
-                Leuchten::Stufe(0),
+                licht,
+                kollision,
             )
+            .unwrap()
         };
-        let sprite = bild(&wuerfel([16.0; 3], true)).unwrap();
+        let seiten = |sprite: &Sprite| -> std::collections::BTreeSet<u32> {
+            let karte = sprite.ao.as_ref().expect("AO-Karte");
+            (sprite.image.pixels().zip(karte))
+                .filter(|(p, _)| p.0[3] != 0)
+                .map(|(_, w)| w >> 24)
+                .collect()
+        };
+        let sprite = bild(&wuerfel([16.0; 3], true), false);
         let karte = sprite.ao.as_ref().expect("AO-Karte");
         for (i, p) in sprite.image.pixels().enumerate() {
             assert_eq!(p.0[3] != 0, karte[i] >> 24 != 0, "Pixel {i}");
         }
-        let seiten: std::collections::BTreeSet<u32> = karte.iter().map(|w| w >> 24).collect();
-        assert_eq!(seiten, [0, 1, 2, 3].into());
-        assert!(bild(&wuerfel([16.0; 3], false)).unwrap().ao.is_none());
-        assert!(
-            bild(&wuerfel([16.0, 8.0, 16.0], true))
-                .unwrap()
-                .ao
-                .is_none()
-        );
-        assert!(
-            bild(&kasten([0.0, 8.0, 0.0], [16.0; 3], true))
-                .unwrap()
-                .ao
-                .is_none(),
+        assert_eq!(seiten(&sprite), [1, 2, 3].into());
+        assert!(sprite.weich);
+        let flach = bild(&wuerfel([16.0; 3], false), false);
+        assert_eq!(flach.ao, sprite.ao);
+        assert!(!flach.weich);
+        let oben = kasten([0.0, 8.0, 0.0], [16.0; 3], true);
+        assert_eq!(
+            seiten(&bild(&oben, false)),
+            [1, 2, 3].into(),
             "obere Platte"
         );
+        let unten = wuerfel([16.0, 8.0, 16.0], true);
+        assert_eq!(
+            seiten(&bild(&unten, false)),
+            [0, 2, 3].into(),
+            "untere Platte"
+        );
+        assert_eq!(
+            seiten(&bild(&unten, true)),
+            [1, 2, 3].into(),
+            "mit Kollision"
+        );
+        let innen = kasten([4.0, 0.0, 4.0], [12.0, 12.0, 12.0], true);
+        assert!(bild(&innen, false).ao.is_none());
+        // Zeigt keine Fläche mit Seite einen Pixel, gibt es keine Karte: hier
+        // ist die Oberseite über dem Kasten ganz durchsichtig.
+        let mut leer = Textures::new();
+        let durchsichtig = leer.einfuegen("leer", RgbaImage::new(16, 16), false);
+        let mut deckel = quad(
+            [
+                [0.0, 1.0, 0.0],
+                [0.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [1.0, 1.0, 0.0],
+            ],
+            true,
+        );
+        deckel.texture = durchsichtig;
+        let mit_deckel = BakedModel {
+            quads: innen.quads.iter().cloned().chain([deckel]).collect(),
+            ambient_occlusion: true,
+        };
+        let licht = CardinalLight::Default;
+        let sprite = render_mit_licht(
+            &mit_deckel,
+            &leer,
+            &projection,
+            Tints::default(),
+            licht,
+            false,
+        );
+        assert!(sprite.unwrap().ao.is_none(), "durchsichtiger Deckel");
+        // Schräg liegt eine Fläche auf keiner Seite, auch mit Kollision.
+        let schraeg = [
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ];
+        assert_eq!(ao_face(&quad(schraeg, true), true), None);
+    }
+
+    /// Mit gleichem Licht für beide Anteile gleicht [`tinted_im_licht`] dem
+    /// Weg über [`tinted`] und [`darken`] bis auf die Rundung; sonst liegt
+    /// der Anteil des Wassers in seinem Licht, der Rest in dem des Blocks.
+    #[test]
+    fn wasser_im_eigenen_licht() {
+        let farben = [pack([0x91, 0xBD, 0x59]), pack([0x3F, 0x76, 0xE4])];
+        let anteile = [pack([40, 50, 60]), pack([90, 80, 70])];
+        let pixel = [30, 20, 10, 200];
+        let [f, g] = [Light::sky(13).factors(), Light::sky(14).factors()];
+        let zweimal = darken(tinted(pixel, anteile, farben), f);
+        let einmal = tinted_im_licht(pixel, anteile, farben, f, f);
+        for c in 0..4 {
+            assert!(
+                (zweimal[c] as i32 - einmal[c] as i32).abs() <= 1,
+                "{zweimal:?} {einmal:?}"
+            );
+        }
+        let nur_wasser = tinted_im_licht([0, 0, 0, 200], [0, anteile[1]], farben, f, g);
+        let nur_rest = tinted_im_licht(pixel, [anteile[0], 0], farben, f, g);
+        let beide = tinted_im_licht(pixel, anteile, farben, f, g);
+        let getrennt = [
+            (
+                nur_wasser,
+                darken(tinted([0, 0, 0, 200], [0, anteile[1]], farben), g),
+            ),
+            (nur_rest, darken(tinted(pixel, [anteile[0], 0], farben), f)),
+        ];
+        for (ist, soll) in getrennt {
+            for c in 0..4 {
+                assert!(
+                    (ist[c] as i32 - soll[c] as i32).abs() <= 1,
+                    "{ist:?} {soll:?}"
+                );
+            }
+        }
+        for c in 0..3 {
+            let summe = nur_wasser[c] as i32 + nur_rest[c] as i32;
+            assert!((beide[c] as i32 - summe).abs() <= 1, "Kanal {c}");
+        }
+        assert!(beide[2] > einmal[2], "das Wasser liegt heller");
+        assert_eq!(beide[3], 200);
+    }
+
+    /// Gepackt wie `LightCoordsUtil.pack`: Blocklicht ab Bit 4, Himmelslicht
+    /// ab Bit 20, und zurück.
+    #[test]
+    fn licht_gepackt_wie_im_spiel() {
+        assert_eq!(Light { sky: 15, block: 15 }.packed(), VOLL_HELL);
+        assert_eq!(Light { sky: 7, block: 3 }.packed(), 0x70_0030);
+        for sky in 0..=15 {
+            for block in 0..=15 {
+                let licht = Light { sky, block };
+                assert_eq!(Light::from_packed(licht.packed()), licht);
+            }
+        }
+    }
+
+    /// `smoothBlend` mittelt die vier Werte in Sechzehnteln einer Stufe. Ist
+    /// die Zelle vor der Seite heller als 2, im Himmels- oder im Blocklicht,
+    /// nimmt ein Nachbar ohne Licht ihres und einer ohne Himmelslicht ihr
+    /// Himmelslicht; sonst zählen beide, wie sie sind.
+    #[test]
+    fn licht_an_den_ecken_wie_im_spiel() {
+        let p = |sky, block| Light { sky, block }.packed();
+        // Himmelslicht 57/4 = 14,25, in Sechzehnteln 228.
+        assert_eq!(
+            smooth_blend(p(15, 0), p(15, 0), p(14, 0), p(13, 0)),
+            0xe4_0000
+        );
+        // Blocklicht (2 + 5 + 0 + 2)/4 = 2,25, in Sechzehnteln 36.
+        assert_eq!(smooth_blend(0, p(0, 5), p(15, 0), p(15, 2)), 0xf0_0024);
+        // Die Mitte in 2 und 2: Himmelslicht 1, Blocklicht 7/4.
+        assert_eq!(smooth_blend(0, p(0, 5), p(2, 0), p(2, 2)), 0x10_001c);
+        // Blocklicht 3 allein reicht: Alle drei nehmen es.
+        assert_eq!(smooth_blend(0, 0, 0, p(0, 3)), 0x30);
+        assert_eq!(smooth_blend(0, 0, 0, p(2, 2)), 0x08_0008);
+    }
+
+    /// Auf einer Stufe liefert die linear gefilterte Lightmap genau deren
+    /// Wert; zwischen zwei Stufen mischt sie, in der Mitte halb und halb.
+    #[test]
+    fn lightmap_linear_gefiltert() {
+        for sky in 0..=15 {
+            for block in 0..=15 {
+                let licht = Light { sky, block };
+                assert_eq!(
+                    Lightmap::oberwelt().linear(licht.packed()),
+                    licht.factors(),
+                    "{licht:?}"
+                );
+            }
+        }
+        let [a, b] = [Light::sky(14).factors(), Light::sky(15).factors()];
+        assert_eq!(
+            Lightmap::oberwelt().linear(0xe8_0000),
+            std::array::from_fn(|c| (a[c] + b[c]).div_ceil(2))
+        );
+        let [a, b] = [Light { sky: 3, block: 6 }, Light { sky: 3, block: 7 }].map(Light::factors);
+        let viertel = Lightmap::oberwelt().linear(0x30_0064);
+        assert_eq!(
+            viertel,
+            std::array::from_fn(|c| (12 * a[c] + 4 * b[c] + 8) / 16)
+        );
+        assert_ne!(a, b);
     }
 
     /// Die Anteile der Ecken an einem Punkt der Oberseite: an einer Ecke nur
@@ -1174,14 +1455,12 @@ mod tests {
                 }
             }
         }
-        let innenecke = [u32::from_le_bytes([102, 153, 255, 153]), NO_AO[1], NO_AO[2]];
-        let an = |p| ao_factor(ao_word(0, corner_weights(0, p)), innenecke);
+        let innenecke = [u32::from_le_bytes([102, 153, 255, 153]), u32::MAX, u32::MAX];
+        let an = |p| ecken_faktor(ao_word(0, corner_weights(0, p)), innenecke);
         assert_eq!(an([0.0, 0.0]), 102);
         assert_eq!(an([0.5, 0.5]), 178);
         assert_eq!(an([1.0, 1.0]), 255);
-        assert_eq!(ao_factor(0, innenecke), 255, "Pixel ohne Seite");
-        assert_eq!(with_ao(255, 178), 178);
-        assert_eq!(with_ao(light_factor(0), 255), light_factor(0));
+        assert_eq!(ecken_faktor(0, innenecke), 255, "Pixel ohne Seite");
     }
 
     /// Über dem Grund D im Licht l ergibt die Oberfläche `α · W + (1 − α) ·
@@ -1246,7 +1525,6 @@ mod tests {
                 &Textures::new(),
                 &Projection::new(16),
                 Tints::default(),
-                Leuchten::Stufe(0),
             )
             .is_some()
         );
@@ -1278,14 +1556,7 @@ mod tests {
             quads: vec![oben],
             ambient_occlusion: false,
         };
-        let sprite = render(
-            &model,
-            textures,
-            &Projection::new(32),
-            Tints::default(),
-            Leuchten::Stufe(0),
-        )
-        .unwrap();
+        let sprite = render(&model, textures, &Projection::new(32), Tints::default()).unwrap();
         sprite.image.pixels().map(|p| p[3]).collect()
     }
 
@@ -1359,15 +1630,9 @@ mod tests {
                 quads: vec![oben],
                 ambient_occlusion: false,
             };
-            render(
-                &model,
-                &textures,
-                &Projection::new(32),
-                Tints::default(),
-                Leuchten::Stufe(0),
-            )
-            .unwrap()
-            .image
+            render(&model, &textures, &Projection::new(32), Tints::default())
+                .unwrap()
+                .image
         };
         let (hell, dunkel) = (sprite(hell), sprite(dunkel));
         let mut dunkler = 0;
@@ -1405,13 +1670,7 @@ mod tests {
                 quads: vec![oben],
                 ambient_occlusion: false,
             };
-            render(
-                &model,
-                &textures,
-                &Projection::new(32),
-                Tints::default(),
-                Leuchten::Stufe(0),
-            )
+            render(&model, &textures, &Projection::new(32), Tints::default())
         };
         assert!(sprite(unter).is_none_or(|s| s.image.pixels().all(|p| p[3] == 0)));
         assert!(sprite(ueber).unwrap().image.pixels().any(|p| p[3] == 26));
@@ -1571,7 +1830,6 @@ mod tests {
                 &Textures::new(),
                 &Projection::new(32),
                 Tints::default(),
-                Leuchten::Stufe(0),
             )
             .unwrap()
             .ao
@@ -1597,7 +1855,6 @@ mod tests {
                 &Textures::new(),
                 &Projection::new(16),
                 Tints::default(),
-                Leuchten::Stufe(0),
             )
         };
         assert_eq!(seite(&unterseite()), None, "Blockmodell");
@@ -1665,14 +1922,7 @@ mod tests {
                 quads: vec![oben],
                 ambient_occlusion: false,
             };
-            let sprite = render(
-                &model,
-                textures,
-                &Projection::new(32),
-                Tints::default(),
-                Leuchten::Stufe(0),
-            )
-            .unwrap();
+            let sprite = render(&model, textures, &Projection::new(32), Tints::default()).unwrap();
             sprite
                 .image
                 .pixels()
@@ -1831,7 +2081,6 @@ mod tests {
                 &Textures::new(),
                 &Projection::default(),
                 Tints::default(),
-                Leuchten::Stufe(0),
             )
             .is_none()
         );
@@ -1881,7 +2130,6 @@ mod tests {
             &Textures::new(),
             &Projection::new(16),
             Tints::default(),
-            Leuchten::Stufe(0),
         )
         .expect("Sprite");
         assert_eq!(sprite.image.dimensions(), (16, 16));

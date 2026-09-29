@@ -9,7 +9,8 @@ code:
 # Was ein Lauf kostet
 
 Die ganze Testwelt braucht bei scale 32 mit allen nativen Stufen und
-Pyramide hochgerechnet rund 26 GB und 7 Minuten. Der Platz hängt fast nur
+Pyramide hochgerechnet rund 26 GB und 7 Minuten, mit dem Licht aus der
+Ausbreitung gut die Hälfte länger, siehe „Je scale“. Der Platz hängt fast nur
 an der Kachelzahl, die Dauer auch an den nativen Stufen. Die Zahlen sind an
 einem Ausschnitt gemessen und hochgerechnet, siehe „Je scale“. Von Tag zu
 Tag schwankt die Dauer um ein Viertel.
@@ -39,6 +40,12 @@ Zeit und 1,5 % Grösse darauf; daher die 7 Minuten oben, gerechnet in
 [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md),
 „Hochgerechnet“. Für scale 16 und 8 sind die Faktoren nicht gemessen.
 
+Das Licht aus der Ausbreitung (#34) legt auf einen Lauf mit allen nativen
+Stufen bei scale 32 51 bis 64 % Zeit und 3 bis 8 % Grösse darauf, gemessen
+an zwei Ausschnitten in
+[2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md). Die Tabelle ist dafür
+nicht neu hochgerechnet.
+
 Seit #32 zeichnet der Renderer nur fertig erzeugte Chunks, siehe
 [Welten und Kennung](welten.md), „Nicht fertig erzeugte Chunks“. Die
 Testwelt hat damit 280 630, 70 859 und 18 164 Kacheln, 4,1 bis 4,2 %
@@ -63,6 +70,7 @@ wuchs, bei scale 32 für die ganze Testwelt:
 | weiche Beleuchtung | 65 kB | ~26 GB | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md) |
 | Übergänge zwischen Biomen, hochgerechnet | 66 kB | ~26 GB | [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md) |
 | Flächen mit Löchern ausgeschnitten, hochgerechnet | 63 kB | ~25 GB | [2026-09-28, Cutout](../messungen/2026-09-28-cutout.md) |
+| Licht aus der Ausbreitung, 2,7 % mehr als master davor mit 65 kB | 67 kB | ~27 GB | [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md) |
 
 Die weiche Beleuchtung legt je nach Inhalt 18 bis 30 % darauf, auf diesem
 Ausschnitt 27 %, denn ihr Verlauf packt sich schlechter als eine ebene
@@ -101,7 +109,7 @@ auslässt. Mit Grafikkarte zeichnet die Karte, siehe
 
 Die grosse Welt hat 2,5 Millionen Chunks und bei scale 32 rund 2,5
 Millionen Basiskacheln. Ganz gemessen sind die Vollrender mit #11 und mit
-#21, beide mit Live-Ansicht nebenher; die Zahlen dazwischen sind aus
+#21, beide mit Live-Ansicht nebenher; die übrigen Zahlen sind aus
 Ausschnitten hochgerechnet:
 
 | Stand | Grösse | Dauer | | Messung |
@@ -112,6 +120,7 @@ Ausschnitten hochgerechnet:
 | #18, weiche Beleuchtung | rund 185 GB, 170 bis 230 | 65 bis 75 min | hochgerechnet | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md) |
 | #21, Übergänge zwischen Biomen | rund 185 GB, 1 % mehr | 66 bis 76 min | hochgerechnet | [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md) |
 | #21 | 184 GB: Basis 136,6, Pyramide 47,4 | 66 min | gemessen | [2026-09-27, Vollrender mit #21](../messungen/2026-09-27-vollrender-mit-21.md) |
+| #34, Licht aus der Ausbreitung | rund 190 bis 200 GB, 3 bis 8 % mehr | 78 bis 89 min | hochgerechnet | [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md) |
 
 Die Grössen sind Summen der Dateigrössen. Belegt ist auf NTFS mit Clustern
 zu 4 KiB mehr: beim Lauf mit #21 rund 194 GB, davon 6,8 GB Verschnitt und

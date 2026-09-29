@@ -32,9 +32,10 @@ gehen je Durchgang hinüber, mit ihnen die Sprites, die sie brauchen, jedes
 einmal; die fertigen Bilder kommen zurück und werden wie bisher als WebP
 geschrieben.
 
-Eine Instanz trägt Sprite, Position, die Faktoren des Lichts, die drei
-Wörter der weichen Beleuchtung und die Farben des Blocks für die
-Tönungskarte, 40 Bytes. Hinter den Pixeln eines Sprites stehen im Puffer
+Eine Instanz trägt Sprite, Position, die Faktoren des Lichts, je Farbkanal
+die drei Wörter des Lichts an den Ecken, die Farben des Blocks für die
+Tönungskarte und das Licht seines Wassers, 68 Bytes, siehe
+[Weiche Beleuchtung](../renderer/weiche-beleuchtung.md), „Beim Zeichnen“. Hinter den Pixeln eines Sprites stehen im Puffer
 seine AO-Karte und seine Tönungskarte, falls es sie hat, siehe
 [Biomfarben](../renderer/biomfarben.md), „Tönung beim Zeichnen“. Die Karte
 bekommt dieselben
@@ -51,8 +52,10 @@ das Ergebnis höchstens um 1 ab, und nur dort, wo Gleitkomma selbst daneben
 lag; in den Testbildern ergab sie dieselben Pixel. Tönung, Licht und weiche
 Beleuchtung rechnen ebenso ganzzahlig. Tests prüfen das auf jeder Karte, auf
 der sie laufen, auch in einer Szene mit Lava in Stufen, Ackerboden neben
-Lava, Draws unter Wasser, weich beleuchteten Draws und Gras und Wasser über
-eine Biomgrenze. Warum so:
+Lava, Draws unter Wasser, weich beleuchteten Draws, Ecken, deren Licht je
+Farbkanal anders ist, dem Wasser eines gefluteten Zauns in seinem eigenen
+Licht, leuchtenden Blöcken im Blocklicht und Gras und Wasser über eine
+Biomgrenze. Warum so:
 [0023](../entscheidungen/0023-zeichnen-auf-der-grafikkarte.md).
 
 ## Adapter und Backends

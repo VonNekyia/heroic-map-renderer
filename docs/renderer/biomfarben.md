@@ -165,32 +165,28 @@ Tönungskarte (`Sprite::tint`), siehe
 
 Die Karte entsteht aus drei Rastern desselben Modells: jede Farbe des Bioms
 schwarz, dann die des Blocks weiss, dann die des Wassers weiss. Das Mischen
-der Flächen eines Sprites und das Licht unter seiner eigenen Oberfläche sind
-linear in der Farbe; der Anteil einer Farbe ist deshalb je Kanal der
-Unterschied zum Raster in Schwarz, und das Raster in Schwarz ist der Rest.
-So stimmt auch ein Pixel, in dem sich Farben treffen: die halb
-durchsichtige Wasseroberfläche über Seegras oder einem gefluteten Zaun, der
-Rand der Auflage an der Seite eines Grasblocks. Alle drei Raster tragen das
-Licht des Blocks; ein gefluteter Block, der selbst leuchtet, liegt unter
-seiner Oberfläche in seinem eigenen Blocklicht. Deshalb gehört das Leuchten
-zum Schlüssel der Familie. Sonst teilt sich ein Sculk-Sensor in `cooldown`
-die Familie mit einem in `active`, und eine Leuchtflechte ohne Fläche, die
-das Spiel mit allen sechs Flächen zeichnet, aber nicht leuchten lässt, die
-mit einer, die alle sechs hat.
+der Flächen eines Sprites ist linear in der Farbe; der Anteil einer Farbe
+ist deshalb je Kanal der Unterschied zum Raster in Schwarz, und das Raster
+in Schwarz ist der Rest. So stimmt auch ein Pixel, in dem sich Farben
+treffen: die halb durchsichtige Wasseroberfläche über Seegras oder einem
+gefluteten Zaun, der Rand der Auflage an der Seite eines Grasblocks. Licht
+trägt keines der Raster, es kommt beim Zeichnen. Weil der Anteil des
+Wassers für sich steht, bekommt das Wasser eines gefluteten Blocks dort
+sein eigenes Licht, siehe [Wasser und Licht](wasser-und-licht.md),
+„Welches Licht ein Block bekommt“.
 
 Gegenüber einem Raster, das die Farben gleich trägt, liegt ein Kanal
-höchstens um 2 daneben, meist höchstens um 1. Das Raster rundet an jeder
-Schicht, die Karte einmal je Pixel; wo eine Wasseroberfläche über mehreren
-Schichten liegt, summiert sich das. Gemessen mit
-`toenungskarte_an_allen_vanilla_bloecken` in `sprites.rs`: alle Blöcke aus
-`blocks.txt`, die gefärbt oder geflutet sein können, je Block die ersten und
-die letzten zwölf Zustände, geflutete mit Wasser, bei scale 4, 8, 16 und 32,
-mit drei Paaren aus Block- und Wasserfarbe. Von 65 952 Rastern mit Karte
-liegen 37 um 2 daneben, alle geflutet, etwa Korallenfächer, Amethyst,
-Tropfblatt, Mangrovenwurzeln und Falltüren, der Rest höchstens um 1. 186
-Raster fehlen im Vergleich, weil ihr Modell über den Würfel ragt. Ohne das
-Leuchten im Schlüssel lägen Leuchtflechte um 4, Sculk-Sensor um 5 und
-kalibrierter Sculk-Sensor um 7 daneben. Mit den Fixtures prüft das
+höchstens um 1 daneben: Das Raster rundet an jeder Schicht, die Karte
+einmal je Pixel. Gemessen mit `toenungskarte_an_allen_vanilla_bloecken` in
+`sprites.rs`, beide ohne Licht: alle Blöcke aus `blocks.txt`, die gefärbt
+oder geflutet sein können, je Block die ersten und die letzten zwölf
+Zustände, geflutete mit Wasser, zusammen 5718, bei scale 4, 8, 16 und 32,
+mit drei Paaren aus Block- und Wasserfarbe. Von 65 193 Rastern mit Karte
+liegt keines um mehr als 1 daneben; 522 fehlen im Vergleich, weil ihr
+Modell über den Würfel ragt. Die Zahl der Raster hängt an den
+Asset-Wurzeln, hier die aus dem Aufruf am Test, `vanilla-assets` samt der
+Texturen der Blockentities und `assets`. Solange das Licht im Raster steckte, lagen 37
+von 65 952 um 2 daneben. Mit den Fixtures prüft das
 `toenungskarte_gibt_jede_farbe_wieder`, darunter ein gefluteter, gefärbter
 Block mit zwei verschiedenen Farben.
 

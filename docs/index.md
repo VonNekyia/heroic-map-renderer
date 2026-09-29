@@ -50,7 +50,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Tests](entwicklung/tests.md): laufen lassen, Fixtures, Goldbild, GPU-Tests.
 - [CI](entwicklung/ci.md): die Jobs und die Doku-Prüfung.
 - [Eingabedaten](entwicklung/eingabedaten.md): was nicht im Repository liegt und was für Tests mitkommt.
-- [Erzeugte Tabellen](entwicklung/tabellen.md): `blocks.txt`, `leuchten.txt`, `schatten.txt`, `blockentities.txt`.
+- [Erzeugte Tabellen](entwicklung/tabellen.md): `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `blockentities.txt`, `dimensionstypen.txt`.
 
 ## Entscheidungen
 
@@ -83,9 +83,9 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0027](entscheidungen/0027-keine-schreibthreads.md): Keine eigenen Threads zum Schreiben.
 - [0028](entscheidungen/0028-libwebp-statt-image.md): libwebp statt des Encoders aus `image`.
 - [0029](entscheidungen/0029-segment-heap-fuer-libwebp.md): Der Segment-Heap für libwebp unter Windows.
-- [0030](entscheidungen/0030-licht-je-block.md): Licht je Block beim Zeichnen.
+- [0030](entscheidungen/0030-licht-je-block.md): Licht je Block beim Zeichnen, abgelöst durch 0040.
 - [0031](entscheidungen/0031-eigene-tabellen-statt-der-masken.md): Eigene Tabellen statt der Masken für die weiche Beleuchtung.
-- [0032](entscheidungen/0032-weiche-beleuchtung-zuerst-fuer-volle-wuerfel.md): Weiche Beleuchtung zuerst nur für volle Würfel.
+- [0032](entscheidungen/0032-weiche-beleuchtung-zuerst-fuer-volle-wuerfel.md): Weiche Beleuchtung zuerst nur für volle Würfel, abgelöst durch 0040.
 - [0033](entscheidungen/0033-toenung-beim-zeichnen.md): Tönung beim Zeichnen statt Fassungen je Biom.
 - [0034](entscheidungen/0034-eigene-lizenz.md): Eigene Lizenz: nutzen ja, verkaufen und übernehmen nein.
 - [0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md): Koordinaten aus Höhenkarten.
@@ -93,6 +93,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0037](entscheidungen/0037-chunks-ab-dem-status-light.md): Chunks ab dem Status light.
 - [0038](entscheidungen/0038-cutout-wie-im-spiel.md): Flächen mit Löchern werden ausgeschnitten.
 - [0039](entscheidungen/0039-blockentities-aus-dem-spiel.md): Blockentities aus den Renderern des Spiels.
+- [0040](entscheidungen/0040-licht-selbst-ausbreiten.md): Licht selbst ausbreiten, je Chunk mit Rand.
 - [0041](entscheidungen/0041-dimensionstypen-aus-dem-spiel.md): Dimensionstypen aus einer Tabelle des Spiels, Datenwurzeln darüber.
 - [0042](entscheidungen/0042-feine-stufen-im-speicher.md): Die feinen Stufen der Pyramide entstehen im Export aus dem Speicher.
 
@@ -114,4 +115,5 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-09-27, Vollrender mit #21](messungen/2026-09-27-vollrender-mit-21.md): 66 min, 184 GB, ganz gemessen, mit Live-Ansicht.
 - [2026-09-28, Cutout](messungen/2026-09-28-cutout.md): was das Ausschneiden von Flächen mit Löchern an Grösse und Dauer kostet, im Wechsel gegen master, und wie dicht Laub danach bei jedem scale deckt.
 - [2026-09-28, Höhen](messungen/2026-09-28-hoehen.md): die Höhen für die Koordinatenanzeige, erst je Spalte in eigenem Durchgang, dann aus der Heightmap je 4×4 im Vorlauf; dazu die Auflösungen im Vergleich.
+- [2026-09-29, Licht ausbreiten](messungen/2026-09-29-licht-ausbreiten.md): was das Licht aus der Ausbreitung samt Licht an den Ecken kostet, im Wechsel gegen master, mit 24 Threads und einem, dazu Dekodierungen, Speicher und das Vorsieben der Quellen.
 - [2026-09-28, Blockentities](messungen/2026-09-28-blockentities.md): was das Lesen von Mustern und Scherben aus `block_entities` im Scan, im Vorlauf und in einem Export kostet, im Wechsel gegen master; dazu der Vorlauf der grossen Welt gegen den Stand der Höhen und der Scan nach der ersten Runde des Reviews.

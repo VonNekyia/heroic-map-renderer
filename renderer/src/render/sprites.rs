@@ -7,14 +7,14 @@ use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
 use crate::assets::blockentity;
-use crate::assets::blockstate::{self, Leuchten, ModelRef};
+use crate::assets::blockstate::{self, KOLLISION, ModelRef};
 use crate::assets::colors::{Resolver, Source, Tint, source_of, tinted_below};
 use crate::assets::fluid::Fluid;
 use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, CardinalLight, Face, Textures, Tints, fluid, models_of};
 use crate::world::{BlockState, Blockdaten};
 
-use super::rasterizer::{faces_camera, render_mit_licht};
+use super::rasterizer::{Lightmap, faces_camera, render_mit_licht};
 use super::tint::BiomeTable;
 use super::{Projection, Sprite, render};
 
@@ -62,6 +62,10 @@ pub struct SpriteSet {
     /// Wie die Seiten schattiert werden, nach dem Typ der Dimension aus
     /// [`Assets::dimension_type`].
     licht: CardinalLight,
+    /// Die Lightmap nach demselben Typ.
+    lightmap: Lightmap,
+    /// Ob die Dimension Himmelslicht hat (`has_skylight`).
+    himmel: bool,
     /// Die Pixel eines vollen Wuerfels bei diesem scale, gegen die Deckung
     /// geprueft wird.
     masks: Masks,
@@ -124,14 +128,8 @@ fn block(top: f32, only_up: bool) -> BakedModel {
 
 /// Die Pixel, die ein Modell belegt, relativ zum Blockursprung.
 fn pixels_of(textures: &Textures, projection: Projection, model: BakedModel) -> Vec<(i32, i32)> {
-    let sprite = render(
-        &model,
-        textures,
-        &projection,
-        Tints::default(),
-        Leuchten::Stufe(0),
-    )
-    .expect("ein Block hat sichtbare Flaechen");
+    let sprite = render(&model, textures, &projection, Tints::default())
+        .expect("ein Block hat sichtbare Flaechen");
     sprite
         .image
         .enumerate_pixels()
@@ -188,6 +186,9 @@ pub struct Family {
     /// Nimmt der Block diese Farbe am Block darunter, siehe
     /// [`tinted_below`]?
     pub tint_below: bool,
+    /// Wo die andere Hälfte einer Doppelkiste steht, relativ zum Block,
+    /// siehe [`doppelkiste`].
+    pub doppelkiste: Option<[i32; 3]>,
 }
 
 impl Family {
@@ -265,22 +266,22 @@ pub fn mask_bit(face: Face) -> u8 {
 /// Alles, was das Bild einer Blockstate bestimmt: der Name (er entscheidet
 /// die Faerbung), die Modellverweise samt Drehung und Gewicht, Art und
 /// Menge der Fluessigkeit, wo die Wahl der Alternative ihre Saat nimmt und
-/// was sein Blockentity zeichnet. Die Verweise reichen, die Modelle selbst
-/// laedt erst die Familie. Eine Truhe hat in jeder Lage dasselbe
-/// Blockmodell, aber nicht dasselbe Bild aus [`blockentity::bild`].
+/// was sein Blockentity zeichnet, dazu die volle Kollisionsform, siehe
+/// [`kollision`]. Die Verweise reichen, die Modelle selbst laedt erst die
+/// Familie. Eine Truhe hat in jeder Lage dasselbe Blockmodell, aber nicht
+/// dasselbe Bild aus [`blockentity::bild`]; das trennt auch, wo die andere
+/// Hälfte einer Doppelkiste steht.
 type FamilyKey = (
     String,
     Vec<(u32, Vec<ModelRef>)>,
     Option<(Fluid, u8)>,
     [i32; 3],
-    Leuchten,
     Option<usize>,
+    bool,
 );
 
-/// Was die Sprites einer Blockstate bestimmt. Das Leuchten gehört dazu: Ein
-/// gefluteter Block trägt unter seiner Oberfläche sein eigenes Blocklicht,
-/// ein Sculk-Sensor in `cooldown` also ein anderes als einer in `active`,
-/// auch mit demselben Modell.
+/// Was die Sprites einer Blockstate bestimmt. Das Licht gehört nicht dazu,
+/// es kommt beim Zeichnen.
 fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
     let alternatives = assets.alternative_refs(state)?;
     Ok((
@@ -288,9 +289,39 @@ fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
         alternatives,
         fluid::key(state),
         seed_offset(state),
-        blockstate::leuchten(state),
         blockentity::bild(state),
+        kollision(state),
     ))
+}
+
+/// Wo die andere Hälfte einer Doppelkiste steht, relativ zum Block, wie
+/// `ChestBlock.getConnectedDirection` in 26.2: bei `type=left` im
+/// Uhrzeigersinn neben `facing`, bei `right` dagegen. `type` mit `left` und
+/// `right` hat in 26.2 jeder `ChestBlock` und sonst kein Block. Ihr Bild
+/// zeichnet das Spiel im helleren Licht beider Hälften.
+/// Siehe docs/renderer/wasser-und-licht.md, „Welches Licht ein Block bekommt“.
+fn doppelkiste(state: &BlockState) -> Option<[i32; 3]> {
+    // Norden, Osten, Süden, Westen: im Uhrzeigersinn.
+    const RUNDUM: [(&str, [i32; 3]); 4] = [
+        ("north", [0, 0, -1]),
+        ("east", [1, 0, 0]),
+        ("south", [0, 0, 1]),
+        ("west", [-1, 0, 0]),
+    ];
+    let weiter = match state.prop("type")? {
+        "left" => 1,
+        "right" => 3,
+        _ => return None,
+    };
+    let facing = state.prop("facing")?;
+    let i = RUNDUM.iter().position(|&(name, _)| name == facing)?;
+    Some(RUNDUM[(i + weiter) % 4].1)
+}
+
+/// Hat der Block volle Kollisionsform? Dann liegt jede ebene Fläche seines
+/// Modells im Licht der Zelle davor, siehe [`KOLLISION`].
+fn kollision(state: &BlockState) -> bool {
+    blockstate::schatten(state) & KOLLISION != 0
 }
 
 /// Das Modell mit seiner Fluessigkeit auf voller Blockhoehe.
@@ -374,6 +405,9 @@ struct Entry {
     rows: OnceLock<Vec<Rows>>,
     /// Welche Farben die Tönungskarte trägt: [`TINT_BLOCK`], [`TINT_WATER`].
     tints: u8,
+    /// Hat ein Teil eine AO-Karte mit Pixeln ohne Seite? Die liegen im Licht
+    /// der eigenen Zelle, siehe [`Sprite::ao`].
+    innen: bool,
 }
 
 /// Die Tönungskarte trägt einen Anteil der Farbe des Blocks.
@@ -394,6 +428,7 @@ impl SpriteSet {
         states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
     ) -> Result<SpriteSet> {
+        let typ = assets.dimension_type();
         let mut set = SpriteSet {
             sprites: Vec::new(),
             families: Vec::new(),
@@ -403,7 +438,9 @@ impl SpriteSet {
             by_content: HashMap::new(),
             strips: HashMap::new(),
             projection,
-            licht: assets.dimension_type().cardinal_light,
+            licht: typ.cardinal_light,
+            lightmap: Lightmap::new(&typ),
+            himmel: typ.has_skylight,
             masks: Masks::new(assets.textures(), projection),
             foreign: BTreeSet::new(),
             biomes: BiomeTable::new(assets.colors()),
@@ -563,6 +600,7 @@ impl SpriteSet {
                 _ => None,
             },
             tint_below: tinted_below(state.name(), state.prop("half")),
+            doppelkiste: doppelkiste(state),
             alternatives,
         })
     }
@@ -674,10 +712,16 @@ impl SpriteSet {
         };
         const SCHWARZ: Tint = [0; 3];
         const WEISS: Tint = [255; 3];
-        let leuchten = blockstate::leuchten(state);
         let raster = |tints| {
             let (textures, projection) = (assets.textures(), &self.projection);
-            render_mit_licht(model, textures, projection, tints, leuchten, self.licht)
+            render_mit_licht(
+                model,
+                textures,
+                projection,
+                tints,
+                self.licht,
+                kollision(state),
+            )
         };
         let mut sprite = raster(tints(SCHWARZ, SCHWARZ))?;
         if biome || water {
@@ -732,6 +776,7 @@ impl SpriteSet {
                 .map(|(cell, _)| *cell)
                 .filter(|cell| *cell != OWN_CELL),
         );
+        let innen = parts.iter().any(|(_, sprite)| ohne_seite(sprite));
         self.sprites.push(Entry {
             parts,
             opaque,
@@ -739,6 +784,7 @@ impl SpriteSet {
             contained,
             rows: OnceLock::new(),
             tints,
+            innen,
         });
         let id = SpriteId(self.sprites.len() as u32 - 1);
         if let Some(key) = key {
@@ -759,6 +805,19 @@ impl SpriteSet {
             .parts
             .iter()
             .any(|(_, sprite)| sprite.ao.is_some())
+    }
+
+    /// Hat die AO-Karte des Sprites Pixel ohne Seite, siehe [`Entry::innen`]?
+    pub fn innen(&self, id: SpriteId) -> bool {
+        self.sprites[id.0 as usize].innen
+    }
+
+    /// Erlaubt das Modell weiche Beleuchtung, siehe [`Sprite::weich`]?
+    pub fn weich(&self, id: SpriteId) -> bool {
+        self.sprites[id.0 as usize]
+            .parts
+            .iter()
+            .any(|(_, sprite)| sprite.weich)
     }
 
     /// Das Sprite der ersten Alternative.
@@ -888,6 +947,16 @@ impl SpriteSet {
     pub fn projection(&self) -> Projection {
         self.projection
     }
+
+    /// Die Lightmap der Dimension, für die die Sprites gebaut sind.
+    pub fn lightmap(&self) -> &Lightmap {
+        &self.lightmap
+    }
+
+    /// Ob diese Dimension Himmelslicht hat (`has_skylight`).
+    pub fn himmel(&self) -> bool {
+        self.himmel
+    }
 }
 
 /// Der Umriss eines vollen Blocks ist ein Sechseck mit den Ecken
@@ -935,6 +1004,7 @@ fn content_hash(sprite: &Sprite) -> u64 {
     sprite.image.dimensions().hash(&mut hasher);
     sprite.image.as_raw().hash(&mut hasher);
     sprite.ao.hash(&mut hasher);
+    sprite.weich.hash(&mut hasher);
     sprite.tint.hash(&mut hasher);
     hasher.finish()
 }
@@ -944,6 +1014,7 @@ fn same_image(a: &Sprite, b: &Sprite) -> bool {
         && a.image.dimensions() == b.image.dimensions()
         && a.image.as_raw() == b.image.as_raw()
         && a.ao == b.ao
+        && a.weich == b.weich
         && a.tint == b.tint
 }
 
@@ -972,6 +1043,16 @@ fn tint_map(schwarz: &Sprite, block: Option<&Sprite>, wasser: Option<&Sprite>) -
         }
     }
     karte
+}
+
+/// Hat die AO-Karte eines Sprites einen sichtbaren Pixel ohne Seite?
+fn ohne_seite(sprite: &Sprite) -> bool {
+    sprite.ao.as_ref().is_some_and(|karte| {
+        karte
+            .iter()
+            .zip(sprite.image.pixels())
+            .any(|(&w, pixel)| w >> 24 == 0 && pixel.0[3] != 0)
+    })
 }
 
 /// Welche Farben die Tönungskarte eines Sprites trägt.
@@ -1079,6 +1160,7 @@ fn extract(sprite: &Sprite, owner: &[usize], index: usize) -> Option<Sprite> {
         image,
         offset: (sprite.offset.0 + x0 as i32, sprite.offset.1 + y0 as i32),
         ao,
+        weich: sprite.weich,
         tint,
     })
 }
@@ -1179,6 +1261,7 @@ mod tests {
             seed_offset: [0, 0, 0],
             resolver: None,
             tint_below: false,
+            doppelkiste: None,
         };
         let listen = [
             family(&[1, 1, 1, 1]),
@@ -1391,6 +1474,7 @@ mod tests {
             image,
             offset,
             ao: None,
+            weich: false,
             tint: None,
         };
         assert!(masks.contains(&sprite));
@@ -1409,14 +1493,7 @@ mod tests {
         for name in ["turm", "ueberhang", "einfarbig", "seerose", "oak_fence"] {
             let mut assets = assets();
             let model = model_of(&mut assets, &state(name)).unwrap();
-            let ganz = render(
-                &model,
-                assets.textures(),
-                &projection,
-                Tints::default(),
-                Leuchten::Stufe(0),
-            )
-            .unwrap();
+            let ganz = render(&model, assets.textures(), &projection, Tints::default()).unwrap();
 
             let sichtbar = |sprite: &Sprite| {
                 let offset = sprite.offset;
@@ -1557,14 +1634,13 @@ mod tests {
 
     /// Die Tönungskarte gibt das Bild in jeder Farbe wieder: [`tinted`]
     /// mit einer Farbe des Blocks und einer des Wassers gleicht bis auf die
-    /// Rundung dem Raster, das die Farben gleich trägt, im Licht des Blocks:
+    /// Rundung dem Raster, das die Farben gleich trägt, beide ohne Licht:
     /// beim Wasser mit seiner halb durchsichtigen Oberfläche, beim Grasblock
     /// der Fixture mit gefärbter Oberseite und ungefärbten Seiten, bei einem
     /// gefluteten Zaun, bei einem gefluteten gefärbten Kreuz, in dessen
-    /// Pixeln sich beide Farben treffen, und bei zwei gefluteten
-    /// Sculk-Sensoren mit demselben Modell, aber anderem Licht unter der
-    /// Oberfläche. Das Raster rundet an jeder Schicht, die Karte einmal je
-    /// Pixel; auseinander liegen sie höchstens um 2, siehe
+    /// Pixeln sich beide Farben treffen, und bei einem gefluteten
+    /// Sculk-Sensor. Das Raster rundet an jeder Schicht, die Karte einmal je
+    /// Pixel; auseinander liegen sie höchstens um 1, siehe
     /// docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
     ///
     /// [`tinted`]: super::super::rasterizer::tinted
@@ -1578,14 +1654,8 @@ mod tests {
             "oak_fence[waterlogged=true]",
             "jungle_leaves[distance=1,persistent=false,waterlogged=true]",
             "sculk_sensor[power=0,sculk_sensor_phase=active,waterlogged=true]",
-            "sculk_sensor[power=0,sculk_sensor_phase=cooldown,waterlogged=true]",
         ];
         let states: Vec<BlockState> = texte.iter().map(|t| state(t)).collect();
-        assert_ne!(
-            blockstate::leuchten(&states[4]),
-            blockstate::leuchten(&states[5]),
-            "die beiden Sensoren leuchten verschieden"
-        );
         for scale in [4, 16, 32] {
             let projection = Projection::new(scale);
             let set = build(&mut assets, &states, projection).unwrap();
@@ -1609,7 +1679,6 @@ mod tests {
                             block: gefaerbt.then_some(block),
                             water: Some(wasser),
                         },
-                        blockstate::leuchten(st),
                     )
                     .unwrap();
                     assert_eq!(direkt.image.dimensions(), sprite.image.dimensions());
@@ -1624,7 +1693,7 @@ mod tests {
                         for c in 0..3 {
                             let d = (ist[c] as i32 - soll.0[c] as i32).abs();
                             assert!(
-                                d <= 2,
+                                d <= 1,
                                 "{st:?}, scale {scale}, Farben {block:?} und {wasser:?}, \
                                  Pixel {i}: {ist:?} gegen {:?}",
                                 soll.0
@@ -1644,7 +1713,7 @@ mod tests {
     /// und die letzten zwölf, geflutete immer mit Wasser, bei scale 4, 8, 16
     /// und 32, mit drei Paaren aus
     /// Block- und Wasserfarbe, gegen das Raster, das die Farben gleich trägt,
-    /// im Licht des Blocks. Braucht die Asset-Wurzeln wie `--assets`, als
+    /// beide ohne Licht. Braucht die Asset-Wurzeln wie `--assets`, als
     /// Pfadliste in `ASSETS`, deshalb `#[ignore]`; unter Windows trennt `;`:
     ///
     /// ```bash
@@ -1739,14 +1808,7 @@ mod tests {
                         block,
                         water: Some(w),
                     };
-                    let direkt = render(
-                        &model,
-                        assets.textures(),
-                        &projection,
-                        tints,
-                        blockstate::leuchten(st),
-                    )
-                    .unwrap();
+                    let direkt = render(&model, assets.textures(), &projection, tints).unwrap();
                     // Ragt das Modell über seinen Würfel, ist das Sprite
                     // nur das Stück darin; solche zählt der Test nur.
                     if (sprite.offset, sprite.image.dimensions())
@@ -1781,7 +1843,85 @@ mod tests {
         for (name, max) in je_block.iter().filter(|(_, max)| **max > 1) {
             println!("  {name}: {max}");
         }
-        assert!(groesste <= 2, "höchstens {groesste}");
+        assert!(groesste <= 1, "höchstens {groesste}");
+    }
+
+    /// Ein Pack darf Zustände mit verschiedener Kollisionsform auf dasselbe
+    /// Modell legen; die Fixtures zeichnen die doppelte Platte wie die
+    /// untere. Deren Oberseite liegt im Innern, im Licht der eigenen Zelle,
+    /// bei der doppelten mit voller Kollisionsform im Licht der Zelle
+    /// darüber: zwei Familien mit verschiedenen Sprites.
+    #[test]
+    fn volle_kollisionsform_trennt_die_familie() {
+        let mut assets = assets();
+        let states = [
+            state("minecraft:oak_slab[type=bottom,waterlogged=false]"),
+            state("minecraft:oak_slab[type=double,waterlogged=false]"),
+        ];
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(set.families.len(), 2);
+        let [unten, doppelt] = states.map(|st| set.id(&st).unwrap());
+        assert!(set.innen(unten));
+        assert!(!set.innen(doppelt));
+    }
+
+    /// Die andere Hälfte einer Doppelkiste liegt wie in
+    /// `ChestBlock.getConnectedDirection`: bei `left` im Uhrzeigersinn neben
+    /// `facing`, bei `right` dagegen. Eine einzelne Kiste und eine Platte
+    /// haben keine.
+    #[test]
+    fn doppelkiste_wie_im_spiel() {
+        let kiste = |text: &str| doppelkiste(&state(text));
+        for (facing, links, rechts) in [
+            ("north", [1, 0, 0], [-1, 0, 0]),
+            ("east", [0, 0, 1], [0, 0, -1]),
+            ("south", [-1, 0, 0], [1, 0, 0]),
+            ("west", [0, 0, -1], [0, 0, 1]),
+        ] {
+            let text = |typ: &str| {
+                format!("minecraft:chest[facing={facing},type={typ},waterlogged=false]")
+            };
+            assert_eq!(kiste(&text("left")), Some(links), "{facing}");
+            assert_eq!(kiste(&text("right")), Some(rechts), "{facing}");
+            assert_eq!(kiste(&text("single")), None, "{facing}");
+        }
+        assert_eq!(
+            kiste("minecraft:trapped_chest[facing=north,type=left,waterlogged=false]"),
+            Some([1, 0, 0])
+        );
+        assert_eq!(
+            kiste("minecraft:oak_slab[type=top,waterlogged=false]"),
+            None
+        );
+    }
+
+    /// Wo die andere Hälfte einer Doppelkiste steht, braucht keinen Platz im
+    /// Schlüssel der Familie: Zwei Zustände eines `ChestBlock` mit demselben
+    /// Bild aus dem Blockentity haben sie an derselben Stelle.
+    #[test]
+    fn das_bild_trennt_die_haelften_einer_doppelkiste() {
+        let mut je_bild = HashMap::new();
+        for zeile in include_str!("../assets/blocks.txt").lines() {
+            let Some((name, _)) = zeile
+                .split_once(' ')
+                .filter(|_| zeile.contains(" type=single,left,right "))
+            else {
+                continue;
+            };
+            for facing in ["north", "south", "west", "east"] {
+                for typ in ["single", "left", "right"] {
+                    for nass in ["true", "false"] {
+                        let st = state(&format!(
+                            "minecraft:{name}[facing={facing},type={typ},waterlogged={nass}]"
+                        ));
+                        let bild = blockentity::bild(&st).expect("Bild");
+                        let alt = je_bild.insert(bild, doppelkiste(&st));
+                        assert!(alt.is_none_or(|alt| alt == doppelkiste(&st)), "{st}");
+                    }
+                }
+            }
+        }
+        assert!(je_bild.len() >= 12, "{} Bilder", je_bild.len());
     }
 
     /// Pixelgleiche Sprites teilen sich den Eintrag, auch ueber Familien

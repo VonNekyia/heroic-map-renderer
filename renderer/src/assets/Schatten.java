@@ -15,9 +15,12 @@ import net.minecraft.world.level.block.state.BlockState;
  * (BlockModelLighter.prepareQuadAmbientOcclusion) über ihn wissen muss: je
  * Zustand eine Ziffer, in der Reihenfolge von getPossibleStates.
  * Bit 1: getShadeBrightness ist 0,2 statt 1. Bit 2: isViewBlocking und
- * getLightDampening > 0. Ob ein Block leuchtet und deshalb ohne weiche
- * Beleuchtung gezeichnet wird, steht in leuchten.txt. Blöcke ohne ein Bit
- * fehlen; haben alle Zustände dieselbe Ziffer, steht sie einmal.
+ * getLightDampening > 0. Bit 4: isCollisionShapeFullBlock, dann liegt jede
+ * ebene Fläche des Modells im Licht der Zelle davor
+ * (BlockModelLighter.prepareQuadShape, faceCubic). Ob ein Block leuchtet und
+ * deshalb ohne weiche Beleuchtung gezeichnet wird, steht in leuchten.txt.
+ * Blöcke ohne ein Bit fehlen; haben alle Zustände dieselbe Ziffer, steht
+ * sie einmal.
  */
 public class Schatten {
     public static void main(String[] args) {
@@ -36,7 +39,8 @@ public class Schatten {
                 float shade = state.getShadeBrightness(level, pos);
                 helligkeiten.add(shade);
                 int f = (shade < 1.0f ? 1 : 0)
-                        | (state.isViewBlocking(level, pos) && state.getLightDampening() > 0 ? 2 : 0);
+                        | (state.isViewBlocking(level, pos) && state.getLightDampening() > 0 ? 2 : 0)
+                        | (state.isCollisionShapeFullBlock(level, pos) ? 4 : 0);
                 ziffern.append((char) ('0' + f));
             }
             String z = ziffern.toString();

@@ -41,7 +41,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 |---|---|
 | `mod.rs` | `Assets`: Wurzeln stapeln, Blockstates zu gebackenen Modellen auflösen, Missing-Würfel |
 | `pack.rs` | eine Wurzel auflisten wie der Client, siehe [Packs und Wurzeln](../renderer/packs.md) |
-| `blockstate.rs` | Blockstate-Dateien lesen, dazu die Tabellen `blocks.txt`, `leuchten.txt`, `schatten.txt`, siehe [Blockstates](../renderer/blockstates.md) |
+| `blockstate.rs` | Blockstate-Dateien lesen, dazu die Tabellen `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, siehe [Blockstates](../renderer/blockstates.md) |
 | `model.rs` | Modelle lesen wie `CuboidModel`, siehe [Modelle und Texturen](../renderer/modelle-und-texturen.md) |
 | `texture.rs` | Texturen und `.mcmeta` |
 | `baker.rs` | Elemente zu Vierecken backen: Drehungen, `uvlock`, Flüssigkeitsflächen |
@@ -50,7 +50,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `colors.rs` | Biomfarben, siehe [Biomfarben](../renderer/biomfarben.md) |
 | `dimension.rs` | der Typ der gezeichneten Dimension, aus `dimensionstypen.txt` und den Datenwurzeln, siehe [Dimensionstypen](../renderer/dimensionstypen.md) |
 | `noise.rs` | das Rauschen des Sumpfgrases, siehe [Biomfarben](../renderer/biomfarben.md), „Sumpfgras“ |
-| `blocks.txt`, `leuchten.txt`, `schatten.txt`, `blockentities.txt`, `dimensionstypen.txt`, `Leuchten.java`, `Schatten.java`, `Blockentities.java`, `Dimensionstypen.java` | aus dem Spiel erzeugte Tabellen, siehe [Erzeugte Tabellen](tabellen.md) |
+| `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `blockentities.txt`, `dimensionstypen.txt`, `Leuchten.java`, `Licht.java`, `Schatten.java`, `Blockentities.java`, `Dimensionstypen.java` | aus dem Spiel erzeugte Tabellen, siehe [Erzeugte Tabellen](tabellen.md) |
 
 ## `renderer/src/render/`: Bilder machen
 
@@ -60,6 +60,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `rasterizer.rs` | ein gebackenes Modell zu einem Sprite rastern, Helligkeit, AO-Karte, siehe [Rastern ohne Nähte](../renderer/naehte.md) |
 | `sprites.rs` | die Sprite-Tabelle: Familien, Fassungen, Varianten, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md) |
 | `metatile.rs` | eine Kachel rendern: Chunk-Cache, Bitmasken, Kandidaten, Deckungsmaske, Licht, weiche Beleuchtung, Biom je Block, Blit, siehe [Der Weg einer Kachel](../renderer/renderpfad.md) |
+| `licht.rs` | Himmels- und Blocklicht ausbreiten wie das Spiel, siehe [Wasser und Licht](../renderer/wasser-und-licht.md), „Licht ausbreiten“ |
 | `tint.rs` | die Farben der Biome und ihre Mischung über Biomgrenzen, siehe [Biomfarben](../renderer/biomfarben.md) |
 | `tiles.rs` | Kachelraster, Vorlauf (`survey`), WebP (`encode_webp`) |
 | `pyramid.rs` | Zoomstufen verkleinern, `map.json`, Kennung der Welt |

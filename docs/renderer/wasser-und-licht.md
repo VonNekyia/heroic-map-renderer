@@ -6,6 +6,9 @@ code:
   - renderer/src/assets/blockstate.rs
   - renderer/src/assets/leuchten.txt
   - renderer/src/assets/Leuchten.java
+  - renderer/src/assets/licht.txt
+  - renderer/src/assets/Licht.java
+  - renderer/src/render/licht.rs
   - renderer/src/render/metatile.rs
   - renderer/src/render/rasterizer.rs
   - renderer/src/render/sprites.rs
@@ -19,11 +22,10 @@ Code (`renderer/src/assets/fluid.rs`), lässt Flächen zu gleichem Wasser weg
 und zeichnet an Stufen einen Streifen. Tiefe wirkt wie im Spiel nur über das
 Licht: Man sieht durch genau eine Oberfläche, und darunter liegt jeder Block
 in seinem Himmelslicht, das je Block Wasser eine Stufe verliert, und in
-seinem Blocklicht, wenn er selbst leuchtet. Welches Licht ein Block bekommt,
-bestimmt `light_at` in
+seinem Blocklicht. Welches Licht ein Block bekommt, bestimmt `licht_fuer` in
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs),
-die Helligkeit `brightness` in `renderer/src/render/rasterizer.rs`. Belegt
-gegen 26.2.
+die Helligkeit `brightness_rgb` in `renderer/src/render/rasterizer.rs`.
+Belegt gegen 26.2.
 
 ## Flüssigkeiten als Würfel
 
@@ -98,18 +100,36 @@ und die Messung
 
 ## Helligkeit wie im Spiel
 
-Die Helligkeit b rechnet `brightness` in `renderer/src/render/rasterizer.rs`
-wie `shaders/core/lightmap.fsh` in 26.2: `get_brightness(l) = l / (4 − 3·l)`
+Die Helligkeit b rechnet `brightness_rgb` in
+`renderer/src/render/rasterizer.rs` je Farbkanal wie
+`shaders/core/lightmap.fsh` in 26.2: `get_brightness(l) = l / (4 − 3·l)`
 für die Stufe l / 15, mal `SkyFactor` und `SkyLightColor`, dazu die
-Umgebungsfarbe, auf 1 begrenzt; das Ergebnis liegt zwischen diesem Wert und
-`notGamma(c) = 1 − (1 − c)⁴`, gewichtet mit `BrightnessFactor`. Die Werte
-des Spiels am Tag in der Oberwelt: die Umgebungsfarbe `#0a0a0a`
-(`visual/ambient_light_color` in `dimension_type/overworld.json`),
-`SkyLightColor` weiss und `SkyFactor` 1 (`timeline/day.json`), und
+Umgebungsfarbe und das Blocklicht, siehe „Blocklicht“, auf 0 bis 1
+begrenzt; das Ergebnis liegt zwischen diesem Wert und `notGamma`, das alle
+Kanäle mit dem hellsten hebt, `1 − (1 − max)⁴`, gewichtet mit
 `BrightnessFactor` 0,5, denn das ist `options.gamma` in der Voreinstellung
-(`LightmapRenderStateExtractor`, `Options`). Licht 15 gibt 1, so hell
-zeichnet der Renderer jede Fläche. Nebel gibt es nicht; den zeichnet das
-Spiel nur, wenn die Kamera selbst unter Wasser ist.
+(`LightmapRenderStateExtractor`, `Options`). Einmal je Lauf entsteht
+daraus die Tabelle je Stufe, `Lightmap`.
+
+Umgebungsfarbe, `SkyFactor`, `SkyLightColor` und `BlockLightTint` kommen
+aus dem Typ der Dimension, siehe [Dimensionstypen](dimensionstypen.md),
+„Was der Renderer liest“. In der Oberwelt setzt `timeline/day.json` am Tag
+`SkyFactor` 1 und `SkyLightColor` weiss wie der Typ; Licht 15 gibt dort 1,
+so hell liegt eine Fläche unter freiem Himmel. Das gilt bei klarem Wetter,
+und das zeichnet der Renderer: Bei Regen mischt `WeatherAttributes`
+`SkyFactor` mit 0,3125 zu 0,24, auf 0,7625, und `SkyLightColor` ebenso zur
+Farbe der Nacht, bei Gewitter mit 0,527 auf 0,599; im Ende hebt
+`EndFlashState` ihn zeitweise (`LightmapRenderStateExtractor`). Im Nether
+und im Ende ist `SkyFactor` 0: Himmelslicht ändert dort nichts, ohne
+Blocklicht liegt alles in der Umgebungsfarbe. Hat eine Dimension kein
+Himmelslicht (`has_skylight`), wie der Nether, breitet der Renderer auch
+keines aus.
+
+Nebel zeichnet der Renderer keinen. Das Spiel mischt ihn in jede Fläche
+(`apply_fog` in `terrain.fsh`), nach ihrer Entfernung zur Kamera zwischen
+`visual/fog_start_distance` und `fog_end_distance`
+(`AtmosphericFogEnvironment`), im Nether von 10 bis 96 Blöcken. Eine
+Karte hat keine Kamera, von der aus sich eine Entfernung messen liesse.
 
 ## Blocklicht
 
@@ -118,8 +138,8 @@ geht mit `BlockFactor` 1,4 in `get_brightness`; das Flackern, das das Spiel
 um 0 laufen lässt, fehlt. Ihre Farbe `BlockLightColor`
 liegt zwischen `BlockLightTint` und Weiss, gemischt mit 0,9 · (2l − 1)², und
 `BlockLightTint` ist `#FFD88C`, der Standard aus `EnvironmentAttributes`,
-den die Oberwelt nicht ändert. Die Summe mit dem Himmelslicht wird auf 1
-begrenzt, und `notGamma` hebt alle Kanäle mit dem hellsten. Schwaches
+den keine Dimension des Spiels ändert. Die Summe mit dem Himmelslicht wird
+auf 1 begrenzt, und `notGamma` hebt alle Kanäle mit dem hellsten. Schwaches
 Blocklicht färbt so warm, bei Stufe 15 ist alles hell.
 
 Was selbst leuchtet, bringt sein Blocklicht mit, wie in
@@ -129,95 +149,132 @@ beim Magmablock etwa, ist der Block voll hell. Wie hell ein Block leuchtet,
 steht in `renderer/src/assets/leuchten.txt`, siehe
 [Erzeugte Tabellen](../entwicklung/tabellen.md).
 
+## Licht ausbreiten
+
+Wie hell jede Zelle ist, rechnet der Renderer selbst aus, wie
+`SkyLightEngine` und `BlockLightEngine` in 26.2, in
+`renderer/src/render/licht.rs`. Das gespeicherte Licht der Welt liest er
+nicht, es fehlt in vielen Chunks, siehe
+[0040](../entscheidungen/0040-licht-selbst-ausbreiten.md). Die Regeln,
+belegt per javap:
+
+- **Schritte.** Jeder Schritt zur Nachbarzelle kostet eine Stufe
+  (`LightEngine.propagateIncrease`: `max(1, getLightDampening)`). In einen
+  Block, der um 15 dämpft, Stein etwa, kommt kein Licht; Luft, Glas,
+  Wasser und Laub kosten gleich viel.
+- **Kanten.** Eine Kante schliesst, wenn die Flächen der beiden Blöcke an
+  ihr zusammen die ganze Seite decken (`LightEngine.shapeOccludes`): die
+  Unterseite einer unteren Platte allein, eine obere neben einer unteren
+  Platte zusammen, zwei untere nebeneinander nicht.
+- **Himmel.** In jeder Spalte ist jede Zelle 15, die über dem obersten
+  Block liegt, der dämpft oder dessen Kante nach oben schliesst
+  (`ChunkSkyLightSources`); von dort breitet es sich aus. Unter Wasser
+  und unter Laub verliert es so eine Stufe je Block, unter einem Überhang
+  eine je Block Abstand zur offenen Spalte. Eine geschlossene Höhle bleibt
+  bei 0.
+- **Block.** Was leuchtet, beginnt mit seiner Stufe aus `leuchten.txt`,
+  auch ein dichter Block wie die Seelaterne oder der Magmablock.
+- **Rand.** Gerechnet wird je Chunk in einem Fenster, das 14 Blöcke in
+  die Nachbarn reicht, so weit wie Licht kommt. Ein Chunk, der fehlt oder
+  nicht fertig ist, lässt kein Licht herein. In der Höhe reicht es wie im
+  Spiel eine Section unter und über die Sections mit Blöcken
+  (`LevelLightEngine.getMinLightSection`).
+
+Welche Blöcke wie stark dämpfen und mit welchen Flächen sie Kanten
+schliessen, steht in `renderer/src/assets/licht.txt`, siehe
+[Erzeugte Tabellen](../entwicklung/tabellen.md). Gerechnet wird skalar,
+mit einem Eimer je Stufe von 15 abwärts, wenn ein Chunk zum ersten Mal
+Licht braucht; es bleibt im Cache des Threads, solange der Chunk dort
+liegt. Gegen einen Lauf von Vanilla 26.2 stimmt jede Zelle, siehe
+[Tests](../entwicklung/tests.md), „Fixtures“.
+
 ## Welches Licht ein Block bekommt
 
-Welches Licht ein Block bekommt, bestimmt `light_at` beim Zeichnen, aus den
-Blöcken über und neben ihm:
+Beim Zeichnen nimmt `licht_fuer` das Licht aus der Ausbreitung, wie das
+Spiel in 26.2 (`LightCoordsUtil.getLightCoords`), belegt per javap:
 
-- Die Oberseite des Grunds liegt im Licht des Wassers über ihr, auch in
-  einer Luftblase darunter.
-- Ein Block mit eigenem Wasser, Seegras, Kelp, ein gefluteter Zaun, liegt im
-  Licht dieses Wassers. Reines Wasser liegt eine Stufe heller:
-  `FluidRenderer` zeichnet es im helleren Licht aus seiner Zelle und der
-  darüber, unter einer Brücke also im Licht der Luft darunter; ein deckender
-  Block darüber hat selbst kein Licht. So sieht man Kelp knapp unter der
-  Oberfläche auch über tiefem Grund, wie im Spiel.
-- Verdeckt der Block darüber die Oberseite, gilt das Wasser vor der Ost-
-  und der Südseite: ein Schiffsrumpf, eine Klippe unter Wasser.
-- Ein deckender Block nimmt ebenso eine Stufe wie ein Block Wasser. So
-  bleiben eine geflutete Höhle unter dem Meeresboden, der Grund unter einem
-  Stein im See und eine Luftblase im Meer dunkel.
-- An Land bleibt alles im Licht 15, auch unter einem Überhang.
-- Was selbst leuchtet, bringt sein Blocklicht mit, siehe oben.
-
-## Licht von der Seite
-
-An zwei Stellen kommt das Licht von der Seite, und mit ihm endet die
-Zählung:
-
-- **Neben Luft.** Hat ein Block Wasser Luft neben sich, die selbst im Licht
-  liegt, über der also kein Wasser steht, liegt er im Licht 14.
-  `FluidRenderer` zeichnet eine Flüssigkeit im Licht ihrer Zelle und der
-  darüber, und das kommt im Spiel auch von der Seite: Der oberste Block
-  eines Wasserfalls liegt unter freiem Himmel im Licht 15, jeder darunter
-  bis zum Fuss im Licht 14. Unter einem Fall liegt der Grund eines Beckens
-  eine Stufe tiefer als daneben. Luft unter Wasser, eine Luftblase oder ein
-  Kasten aus Glas am Grund, liegt selbst im Dunkeln; neben ihr zählt das
-  Wasser weiter bis zur Oberfläche.
-- **Unter einem Deckel.** Liegt unter einem deckenden Block eine Lücke,
-  weder Wasser noch deckend, kommt das Licht dort von der Seite: Wasser auf
-  einer Brücke ändert am Boden darunter nichts, und unter einem Felsbogen
-  liegt die Oberfläche eines Flusses im Licht 14, ihre Zelle und der Grund
-  einen Block tiefer im Licht 13, gleich wie dick der Fels ist.
-
-## Wie gezählt wird
-
-Gezählt wird aus den Bitmasken der Sections, ein paar Wörter je Block
-(`column_above`); nur wo Wasser steht, kommen die vier Spalten daneben dazu.
-Ob über einer Lücke Wasser steht, sagt je Chunk und Spalte die Höhe des
-obersten Wassers, einmal beim Laden aus den Masken bestimmt. Ein Chunk, der
-fehlt oder nicht fertig erzeugt ist, gilt dabei nicht als Luft, am Rand der
-Welt kommt kein Licht von der Seite, siehe
-[Welten und Kennung](../benutzung/welten.md), „Nicht fertig erzeugte
-Chunks“.
+- **Flächen auf dem Rand des Blocks** bekommen das Licht an den Ecken
+  ihrer Seite, aus der Schicht vor ihr, siehe
+  [Weiche Beleuchtung](weiche-beleuchtung.md), „Licht an den Ecken“: die
+  Seiten eines Steins wie die Oberseite einer oberen Platte, die Enden der
+  Arme eines Zauns oder die Fächer einer Chiseled Bookshelf. Hat der Block
+  volle Kollisionsform, gilt das für jede ebene Fläche seines Modells
+  (`faceCubic` in `BlockModelLighter.prepareQuadShape`). Die Oberseite des
+  Grunds liegt so im Licht des Wassers über ihr, die Ostseite einer Klippe
+  unter Wasser im Licht des Wassers davor, ein Dach aus oberen Platten unter
+  freiem Himmel voll hell, obwohl in seine Zellen Licht nur von der Seite
+  kommt.
+- **Flüssigkeiten** liegen im helleren Licht ihrer Zelle und der darüber,
+  je Licht für sich (`FluidRenderer`, `LightCoordsUtil.max`): Der oberste
+  Block Wasser zeigt das Licht der Luft über ihm, unter freiem Himmel 15,
+  jeder darunter meist das des Wassers über ihm, am Fuss eines Wasserfalls
+  neben Luft das Licht, das von der Seite hereinkommt.
+- **Ein Block mit eigenem Wasser**, ein gefluteter Zaun etwa, liegt wie
+  jedes Modell (`ModelBlockRenderer`), sein Wasser im helleren Licht wie
+  jede Flüssigkeit. Das gilt auch unter Wasser:
+  `FluidRenderer.tesselate` fragt für Oberseite und Seiten dasselbe Licht,
+  gleich was über der Zelle steht. Ein Bild aus dem Blockentity liegt im
+  Licht der Zelle (`BlockEntityRenderState.extractBase`).
+- **Alles andere** liegt im Licht seiner Zelle: Flächen, die auf keiner
+  Seite liegen, wie die gekreuzten einer Blume, und Flächen im Innern des
+  Blocks, etwa die Oberseite einer unteren Platte. So zeichnet das Spiel
+  sie flach (`prepareQuadFlat`); weich rechnet es die im Innern anders,
+  das ist eine Näherung, siehe unten. Das eigene Blocklicht steckt darin,
+  denn als Quelle beginnt die Zelle mit ihm.
+- **Eine Doppelkiste** liegt mit ihrem Bild aus dem Blockentity in beiden
+  Hälften im helleren Licht ihrer zwei Zellen (`ChestRenderer` mit
+  `BrightnessCombiner`, `LightCoordsUtil.max`), jeder `ChestBlock`, also
+  auch Falle und Kupfer. Die andere Hälfte liegt in der Richtung aus
+  `ChestBlock.getConnectedDirection`: bei `type=left` im Uhrzeigersinn
+  neben `facing`, bei `right` dagegen.
+- **Voll hell** ist, was das Spiel mit `emissiveRendering` zeichnet.
 
 Der Blit multipliziert jeden Pixel je Kanal mit b, ganzzahlig wie das
-Mischen, auf der CPU wie im Shader der Karte; die Oberfläche selbst bleibt,
-wie sie ist. Ein gefluteter Block an der Oberfläche zeichnet sein Wasser im
-eigenen Sprite, und was er darunter trägt, liegt dort im Licht 14 und in
-seinem eigenen Blocklicht: Eine geflutete Laterne bleibt auch unter ihrer
-Oberfläche hell.
+Mischen, auf der CPU wie im Shader der Karte. Ein gefluteter Block trägt
+Modell und Wasser in einem Sprite; das Wasser steht in seiner
+Tönungskarte als eigener Anteil, siehe [Biomfarben](biomfarben.md),
+„Tönung beim Zeichnen“. Hat es ein anderes Licht als das Modell, rechnet
+der Blit beide in einem Schritt, jeden Anteil mit seinem b
+(`tinted_im_licht`). Eine geflutete Laterne bleibt so auch unter ihrer
+Oberfläche hell, in ihrem eigenen Blocklicht.
 
 ## Was bleibt eine Näherung
 
-- **Eine Zahl je Block.** Im Spiel liegen die Seiten eines Blocks unter
-  Wasser eine Stufe dunkler als seine Oberseite, am Ufer die Seite unter
-  der Oberfläche im Licht 14, während die Oberseite trocken im Licht 15
-  liegt.
-- **Ein gefluteter Block an der Oberfläche** liegt hier im Licht 15; nur
-  was im Bild hinter seiner eigenen Wasseroberfläche liegt, liegt im
-  Licht 14, siehe „Wie gezählt wird“. Im Spiel liegt ein Bild aus dem
-  Blockentity ganz im Licht seiner Zelle, 14
-  (`BlockEntityRenderState.extractBase`): Bei einer gefluteten Truhe liegt
-  der untere Teil der Seiten hier heller als der Deckel. Ein geflutetes
-  Blockmodell nimmt das Spiel je Fläche, wie im Punkt davor.
-- **Licht von der Seite nur an den zwei Stellen oben.** Wie weit es im
-  Spiel unter ein Dach oder in eine Höhle fällt, eine Stufe weniger je
-  Block, zählt der Renderer nicht, denn das gespeicherte Licht der Welt
-  liest er nicht; unter einem breiten Überhang liegt Wasser deshalb heller
-  als im Spiel.
-- **Luft und Glas unter Wasser ohne Verlust.** Unter Wasser nimmt im Spiel
-  jeder Block eine Stufe, auch Luft und Glas: Ohne Verlust fällt nur volles
-  Himmelslicht, sonst kostet jeder Schritt mindestens eine
-  (`LightEngine.getOpacity`). Hier lassen Luft, Glas und trockenes Laub das
-  Licht durch. Der Grund in einer Luftblase liegt so eine Stufe heller als
-  im Spiel, der Boden einer Kuppel aus Glas am Grund um ihre Höhe heller.
-  Ob Luft im Licht liegt, entscheidet allein, ob in ihrer Spalte darüber
-  Wasser steht, wie weit oben auch immer: Luft unter einem Überhang, auf
-  dem ein Teich liegt, gilt als dunkel.
-- **Blocklicht nur am Block selbst.** Den Schein auf die Nachbarn, im Spiel
-  eine Stufe weniger je Block, rechnet der Renderer nicht. Der Grund neben
-  einer Seelaterne liegt im Himmelslicht.
+- **Flächen im Innern** liegen flach im Licht der eigenen Zelle. Das
+  Spiel beleuchtet auch sie weich: die Ecken aus der Schicht des Blocks
+  selbst, die Mitte aus der Zelle davor, wenn die nicht deckt, siehe
+  [Weiche Beleuchtung](weiche-beleuchtung.md), „Was noch fehlt“. Wie
+  Teilflächen auf dem Rand verlaufen, steht dort unter „Was bleibt eine
+  Näherung“.
+- **Zustände ohne alle Eigenschaften.** Fehlen einem Blockzustand
+  Eigenschaften, findet er in `licht.txt` und `leuchten.txt` keinen Platz
+  und bekommt ihre Vorgaben: keine Dämpfung, keine Flächen, kein Leuchten.
+  Das Spiel füllt die fehlenden aus dem Standardzustand des Blocks
+  (`StateDefinition.appendPropertyCodec`, ebenso
+  `NbtUtils.readBlockState`). Es speichert aber jeden Zustand mit allen
+  Eigenschaften; unvollständige kommen nur in Welten vor, die von Hand
+  gebaut sind.
+- **Leuchtende Flächen im Modell.** Ein Element mit `light_emission` hebt
+  im Spiel Himmels- und Blocklicht seiner Flächen auf mindestens diesen
+  Wert (`UnbakedCuboidGeometry`, `MaterialInfo.lightEmission`,
+  `LightCoordsUtil.lightCoordsWithEmission`). Der Renderer liest den Wert
+  und verwirft ihn. In 26.2 setzen ihn nur `cross_emissive` und
+  `flower_pot_cross_emissive`, für `firefly_bush`, `open_eyeblossom` und
+  `potted_open_eyeblossom`, und zu sehen ist es nur im Schatten. Nachbauen
+  hiesse eine eigene Kennung je Pixel in der AO-Karte und einen Weg mehr
+  im Shader, für drei Blöcke.
+- **Die andere Hälfte einer Doppelkiste** prüft der Renderer nicht. Das
+  Spiel nimmt ihr Licht nur, wenn dort die passende Hälfte steht
+  (`ChestBlock.combine`). Es hält beide Hälften über `updateShape`
+  stimmig; eine Hälfte ohne die andere gibt es nur in einer Welt, die von
+  Hand gebaut ist.
+- **Blöcke, die 26.2 nicht kennt,** fehlen in `licht.txt`. Deckt ihr Modell
+  den ganzen Umriss, lassen sie wie ein Block mit voller Form kein Licht
+  hinein, sonst lassen sie es durch, ohne Flächen und ohne Leuchten
+  (`lichtweg` in `metatile.rs`). Ihr Modell kennt der Renderer aber nur für
+  Zustände, die der Vorlauf gesehen hat, also im Ausschnitt: Ausserhalb
+  eines `--size`, im Rand der Ausbreitung, lässt ein solcher Block das
+  Licht immer durch.
 - **Kein Flackern.** Das Spiel lässt `BlockFactor` zufällig um 1,4
   flackern; der Renderer nimmt 1,4.
 - **Die Oberfläche bleibt eben.** Minecraft gleicht die Eckhöhen an die

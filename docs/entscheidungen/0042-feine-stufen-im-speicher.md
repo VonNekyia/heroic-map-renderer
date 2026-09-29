@@ -67,7 +67,7 @@ Wie das im Einzelnen geht: [Zoomstufen](../benutzung/zoomstufen.md),
   [2026-09-29, Pyramide von der Platte und im Speicher](../messungen/2026-09-29-pyramide-platte-und-speicher.md):
   - Nach der Basis bleiben 0,2 statt 1,4 s Pyramide, 1638 der 1857
     Elternkacheln entstehen während der Basis.
-  - Die Basis braucht dafür 0,6 bis 0,7 s länger.
+  - Die Basis braucht dafür länger, ohne Karte 0,7 s und mit Karte 0,6 s.
   - Der Export ist 4 bis 9 % kürzer, die Kacheln bleiben Byte für Byte
     gleich.
   - Die Speicherspitze steigt um 0,05 GiB.

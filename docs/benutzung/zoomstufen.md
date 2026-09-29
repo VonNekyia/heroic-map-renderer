@@ -96,9 +96,9 @@ Das prüfen `zusammensetzen_wie_ueber_die_pixel` in `pyramid.rs` und
 Export ab und setzt ihn fort. Warum so:
 [0042](../entscheidungen/0042-feine-stufen-im-speicher.md).
 
-Am Stand der Testwelt bleiben so nach der Basis 0,2 statt 1,4 s Pyramide,
-die Basis braucht dafür 0,6 bis 0,7 s länger, denn sie kodiert und schreibt
-die Eltern. Ein Export ohne native Stufen ist damit 4 bis 9 % kürzer; mit
+Am Stand der Testwelt bleiben so nach der Basis 0,2 statt 1,4 s Pyramide.
+Die Basis braucht dafür länger, ohne Karte 0,7 s und mit Karte 0,6 s, denn
+sie kodiert und schreibt die Eltern. Ein Export ohne native Stufen ist damit 4 bis 9 % kürzer; mit
 drei nativen Stufen bleibt über ihnen kaum Pyramide, und es ändert sich
 nichts Messbares. Gemessen in
 [2026-09-29, Pyramide von der Platte und im Speicher](../messungen/2026-09-29-pyramide-platte-und-speicher.md).

@@ -16,8 +16,9 @@ Mit #38 baut `--pyramid` von Grund auf die 1857 Elternkacheln am Stand in
 gleich. #39 ändert an `--pyramid` nichts.
 
 Im Export ohne native Stufen verschiebt #39 die feinen Stufen in die Basis:
-Nach der Basis bleiben von der Pyramide 0,2 statt 1,4 s, die Basis braucht
-dafür 0,6 bis 0,7 s länger. Ohne Karte ist der Export damit 9 % kürzer,
+Nach der Basis bleiben von der Pyramide 0,2 statt 1,4 s. Die Basis braucht
+dafür länger, ohne Karte 0,7 s und mit Karte im schnellen Zustand 0,6 s.
+Ohne Karte ist der Export damit 9 % kürzer,
 5,42 statt 5,97 s; #38 samt #45 machte ihn davor 8 % kürzer, 6,52 → 5,97 s. Mit
 Karte braucht die Basis entweder rund 3 bis 4 s oder 1 bis 2 s mehr, bei
 allen drei Ständen, siehe „Zwei Zustände der Basis“. Im selben Zustand
@@ -176,8 +177,9 @@ selten etwas dazwischen. Läufe mit mindestens 4,5 s Basis:
   Export bleiben nach der Basis 0,4 bis 0,5 s weniger.
 - **#39:** Im Export ohne native Stufen entstehen die meisten Eltern
   während der Basis, am Stand 1638 von 1857. Nach der Basis bleiben 0,2 s
-  Pyramide. Die Basis wird dafür 0,6 bis 0,7 s länger, denn sie kodiert und
-  schreibt jetzt die Eltern. Im selben Zustand verglichen ist der Export 4
+  Pyramide. Die Basis wird dafür länger, denn sie kodiert und schreibt
+  jetzt die Eltern: ohne Karte 0,7 s, 3,4 → 4,1 s; mit Karte im schnellen
+  Zustand 0,6 s, 2,9 → 3,5 s, samt der Nachprobe. Im selben Zustand verglichen ist der Export 4
   bis 9 % kürzer. Die Spitze steigt um 0,05 GiB.
 - **Mit drei nativen Stufen** bringen beide auf diesen Ausschnitten nichts
   Messbares, denn über ihnen bleibt kaum Pyramide.

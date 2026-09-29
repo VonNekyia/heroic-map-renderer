@@ -98,9 +98,11 @@ letzten zwei Minuten vor der jüngsten Kachel entstand. Bis das System
 Geschriebenes auf die Platte bringt, vergehen Sekunden, unter Linux bis zu
 einer halben Minute; ein Stromausfall in dieser Zeit hinterlässt eine Kachel
 leer, voller Nullen oder zerrissen, mit gutem Kopf, in voller Länge und mit
-Nullen dahinter. Ansehen lässt sich das einer Kachel nicht sicher, auch der
-Dekoder liest zwei von drei zerrissenen ohne Fehler, als falsches Bild.
-Diese frischen Kacheln entfernt der Lauf, bevor er sie neu rendert: Bricht
+Nullen dahinter. Ansehen lässt sich das einer Kachel nicht sicher: libwebp
+liest rund jede dritte zerrissene Basiskachel ohne Fehler, als falsches
+Bild. Das zeigte eine Probe an 2000 Basiskacheln der grossen Welt, mit
+Nullen ab 1 bis 99 % ihrer Länge; abgelehnt hat libwebp je nach Stelle 64
+bis 67 %. Diese frischen Kacheln entfernt der Lauf, bevor er sie neu rendert: Bricht
 auch er ab, fehlen sie, und das nächste Fortsetzen rendert sie. Die übrigen
 rendert er nicht neu. Als jüngste zählt keine Kachel, die mehr als zwei
 Sekunden nach der Liste liegt: die stammt von einer Uhr, die vorging, und

@@ -126,6 +126,12 @@ Die Grössen sind Summen der Dateigrössen. Belegt ist auf NTFS mit Clustern
 zu 4 KiB mehr: beim Lauf mit #21 rund 194 GB, davon 6,8 GB Verschnitt und
 gerechnet 3,4 GB Einträge in der MFT, siehe dort.
 
+Die Pyramide brauchte im Vollrender mit #21 26 von 66 min. Seitdem baut
+#38 sie schneller von der Platte und #39 die feinen Stufen schon während
+der Basis, gemessen an Ausschnitten der Testwelt in
+[2026-09-29, Pyramide von der Platte und im Speicher](../messungen/2026-09-29-pyramide-platte-und-speicher.md).
+Was das am Vollrender bringt, ist nicht hochgerechnet.
+
 Die Live-Ansicht kostet: Solange `--pyramid` nebenher läuft, schafft die
 Basis gerechnet nur die Hälfte. Ohne sie wäre der Lauf mit #21 geschätzt
 etwa 50 min lang, siehe dort.

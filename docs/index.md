@@ -92,6 +92,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0037](entscheidungen/0037-chunks-ab-dem-status-light.md): Chunks ab dem Status light.
 - [0038](entscheidungen/0038-cutout-wie-im-spiel.md): Flächen mit Löchern werden ausgeschnitten.
 - [0039](entscheidungen/0039-blockentities-aus-dem-spiel.md): Blockentities aus den Renderern des Spiels.
+- [0042](entscheidungen/0042-feine-stufen-im-speicher.md): Die feinen Stufen der Pyramide entstehen im Export aus dem Speicher.
 
 ## Messungen
 

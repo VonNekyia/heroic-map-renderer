@@ -17,6 +17,8 @@ Ausgenommen sind native Stufen direkt unter der Basis, wenn
 Ausschnitt, und ein Baum gehört zu genau einer Welt, einem scale und einer
 Zahl nativer Stufen. Das Verkleinern steht in `merge` in
 [`renderer/src/render/pyramid.rs`](../../renderer/src/render/pyramid.rs).
+Die feinen Stufen baut ein Export im Speicher, während die Basis entsteht,
+die übrigen am Ende aus den Dateien.
 
 ![Zoomstufen](../bilder/zoomstufen.png)
 
@@ -46,11 +48,60 @@ Einträgen interpoliert wird, genügt nicht: Eine verbreitete mit 104
 Einträgen weicht bei 547 620 der 1 065 353 217 Werte von 0 bis 1 um eine
 Stufe ab, gemessen für #38, und die Kacheln wären nicht mehr byte-gleich.
 
+## Feine Stufen im Speicher
+
+Ein Export baut die Stufen direkt über der Basis, während sie rendert, aus
+den Bildern im Speicher: `ImSpeicher` in
+[`renderer/src/cli.rs`](../../renderer/src/cli.rs). Mit nativen Stufen
+beginnt das über der gröbsten, und diese gibt die Viertel ab, nicht die
+Basis.
+
+- **Viertel abgeben:** Jede gerenderte Kachel gibt ihr Bild auf die halbe
+  Kante verkleinert ab, 64 KiB, oder die Nachricht, dass sie nichts zeigt.
+  Wer das letzte Viertel einer Elternkachel abgibt, setzt sie zusammen
+  (`aus_vierteln` in `pyramid.rs`), schreibt sie und gibt ihr Viertel eine
+  Stufe höher ab. Zeigt keines ihrer Kinder etwas, bleibt sie leer wie auf
+  dem Weg von der Platte.
+- **Bis zur Breite eines Streifens:** So weit reicht es, bis eine Kachel so
+  breit ist wie ein Streifen der Basis, siehe
+  [Renderpfad](../renderer/renderpfad.md), „Streifen und Cache je Thread“.
+  Bei Streifen von 8 Spalten sind das drei Stufen, zusammen rund 98 % der
+  Pyramide; bei einer Spalte keine.
+- **Was hier entsteht, steht vor dem Rendern fest:** eine Elternkachel,
+  deren vier Kinder alle aus diesem Lauf kommen oder sicher fehlen. Sicher
+  fehlt ein Kind, das dieser Lauf nicht baut und das nicht auf der Platte
+  lag, als der Lauf die Stufe listete. Alle anderen baut der Lauf am Ende
+  von der Platte, wie unten, und jede Kachel über ihnen auch: die groben
+  Stufen, Eltern über Kacheln, die dieser Lauf nicht rendert (ein
+  Ausschnitt in einem bestehenden Baum, `--resume`), über Kacheln ohne
+  Chunk, die stehen bleiben, und die Eltern von Waisen.
+- **Keine vorläufigen Kacheln:** Eine Elternkachel entsteht erst, wenn
+  alle ihre Kinder aus diesem Lauf fertig sind. Bricht der Lauf ab, ist
+  jede, die er schon geschrieben hat, die endgültige.
+- **Über die Threads hinweg:** Welcher Thread das letzte Kind rendert,
+  spielt keine Rolle. Offen ist je Thread höchstens eine Zeile je feiner
+  Stufe, bei 8 Spalten 4, 2 und 1 Eltern mit bis zu drei Vierteln, rund
+  1,3 MiB. Schneiden die Stücke zweier Threads (`verteile`) oder ein
+  gestohlenes Stück einen Streifen mitten in einer Elternkachel, wartet
+  deren Zeile, bis der andere Thread sie erreicht, im ungünstigsten Fall
+  bis zum Ende seines Stücks, je Schnitt ebenso höchstens rund 1,3 MiB.
+
+Die Kacheln bleiben Byte für Byte gleich: libwebp kodiert verlustfrei mit
+`exact`, jedes Kind sähe nach dem Dekodieren so aus wie im Speicher, und
+`aus_vierteln` setzt die Viertel so zusammen wie `merge` die ganzen Kinder.
+Das prüfen `zusammensetzen_wie_ueber_die_pixel` in `pyramid.rs` und
+`feine_stufen_im_speicher_wie_von_der_platte` in `tests/cli.rs` gegen
+`--pyramid`, das alles von der Platte baut;
+`abgebrochener_export_setzt_sich_fort_wie_in_einem_stueck` bricht einen
+Export ab und setzt ihn fort. Warum so:
+[0042](../entscheidungen/0042-feine-stufen-im-speicher.md).
+
 ## Von der Platte
 
-Die Pyramide setzt jede Elternkachel aus den Dateien ihrer Kinder
-zusammen, am Ende eines Exports in `setze_zusammen`, mit `--pyramid` in
-`baue_neu`, beide in [`renderer/src/cli.rs`](../../renderer/src/cli.rs):
+Was nicht im Speicher entsteht, setzt die Pyramide aus den Dateien der
+Kinder zusammen, am Ende eines Exports in `setze_zusammen`, mit
+`--pyramid` in `baue_neu`, beide in
+[`renderer/src/cli.rs`](../../renderer/src/cli.rs):
 
 - **Lesen:** `lies_falls_da` liest ein Kind, ohne vorher zu fragen, ob es
   die Datei gibt, und nimmt `NotFound` als fehlendes Kind. Eine Datei, die

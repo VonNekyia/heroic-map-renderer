@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 
-use image::RgbaImage;
+use image::{GenericImage, RgbaImage};
 use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
@@ -92,6 +92,25 @@ pub fn merge(parent: TileId, children: &[(TileId, RgbaImage)]) -> RgbaImage {
 pub fn shrink(image: &RgbaImage) -> RgbaImage {
     let mut out = RgbaImage::new(image.width() / 2, image.height() / 2);
     halbiere(image, &mut out, 0, 0);
+    out
+}
+
+/// Setzt die Viertel aus [`shrink`] zu ihrer Elternkachel zusammen, Byte
+/// für Byte wie [`merge`] aus den ganzen Kindern. Fehlende Kinder bleiben
+/// durchsichtig.
+pub fn aus_vierteln(parent: TileId, viertel: &[(TileId, RgbaImage)]) -> RgbaImage {
+    let mut out = RgbaImage::new(TILE, TILE);
+    let half = TILE / 2;
+    for (child, bild) in viertel {
+        debug_assert_eq!(
+            child.parent(),
+            parent,
+            "{child:?} gehört nicht zu {parent:?}"
+        );
+        let (qx, qy) = child.quadrant();
+        out.copy_from(bild, qx * half, qy * half)
+            .unwrap_or_else(|e| panic!("{child:?}: {e}"));
+    }
     out
 }
 
@@ -587,6 +606,19 @@ mod tests {
         let ungerade =
             RgbaImage::from_fn(7, 5, |_, _| Rgba([zufall(), zufall(), zufall(), zufall()]));
         assert_eq!(shrink(&ungerade), wie_frueher(&ungerade), "ungerade Kanten");
+
+        // Aus den Vierteln wie aus den ganzen Kindern, auch mit Lücken.
+        let viertel: Vec<(TileId, RgbaImage)> = kinder
+            .iter()
+            .map(|(kind, bild)| (*kind, shrink(bild)))
+            .collect();
+        assert_eq!(aus_vierteln(eltern, &viertel), bild, "alle vier");
+        let (kinder, viertel) = ([&kinder[1], &kinder[2]], [&viertel[1], &viertel[2]]);
+        assert_eq!(
+            aus_vierteln(eltern, &viertel.map(Clone::clone)),
+            merge(eltern, &kinder.map(Clone::clone)),
+            "zwei von vier"
+        );
     }
 
     /// Halb Schwarz, halb Weiss: in linearem Licht gemittelt ist das

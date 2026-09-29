@@ -1,5 +1,5 @@
 use std::cell::Cell;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
 use std::io::Write;
@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, ValueEnum};
 
 use image::{Rgba, RgbaImage};
@@ -908,7 +908,13 @@ fn write_tiles(
         .copied()
         .collect();
     let veraltet: BTreeSet<TileId> = bestehend.difference(&kandidaten).copied().collect();
-    let waisen = waisen(dir, max_zoom, &bestehend, flaeche_auf)?;
+    // Die Listen der feinen Stufen braucht `ImSpeicher`: so weit über der
+    // Stufe, die ihre Viertel abgibt, wie ein Streifen höchstens breit ist.
+    let z0 = max_zoom - stufen;
+    let ab = z0.saturating_sub(streifenbreite(projection.scale() >> stufen).ilog2());
+    let (waisen, listen) = waisen(dir, max_zoom, &bestehend, flaeche_auf, ab)?;
+    let vielleicht_da =
+        |z: u32, tile: &TileId| lag_da(z, tile, max_zoom, &basis, &listen, flaeche_auf(z).as_ref());
     let anteil = format!("{} von {} Basiskacheln", veraltet.len(), bestehend.len());
     // Mit --prune ist auch ein leerer Lauf keiner über dem falschen
     // Ausschnitt: dort ist vielleicht schon aufgeräumt. Und fehlt Kacheln
@@ -1023,6 +1029,19 @@ fn write_tiles(
             .filter(|tile| zeiten.contains_key(tile))
             .try_for_each(|tile| entferne(&tile_path(dir, max_zoom, *tile)))?;
     }
+    // Ohne native Stufen gibt die Basis die Viertel für die feinen Stufen
+    // ab.
+    let speicher = (stufen == 0).then(|| {
+        ImSpeicher::new(
+            dir,
+            max_zoom,
+            streifen(reihe.len(), projection.scale()),
+            |tile| kandidaten.contains(tile) && !bleiben.contains(tile),
+            &kandidaten,
+            &waisen,
+            vielleicht_da,
+        )
+    });
     let (stufe, auf_der_karte) = rendere(
         world,
         &sprites,
@@ -1034,11 +1053,22 @@ fn write_tiles(
             // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
             if image.pixels().all(|p| p.0[3] == 0) {
                 verblasse(dir, max_zoom, tile)?;
+                if let Some(speicher) = &speicher {
+                    speicher.abgeben(max_zoom, tile, None)?;
+                }
                 return Ok(None);
             }
-            Ok(Some(schreibe(dir, max_zoom, tile, &image)?))
+            let bytes = schreibe(dir, max_zoom, tile, &image)?;
+            if let Some(speicher) = &speicher {
+                speicher.abgeben(max_zoom, tile, Some(image))?;
+            }
+            Ok(Some(bytes))
         },
     )?;
+    let mut im_speicher = match speicher {
+        Some(speicher) => speicher.ende()?,
+        None => Speicherstand::new(),
+    };
     let mut leer = Vec::new();
     let mut bytes = 0usize;
     for (tile, ergebnis) in stufe {
@@ -1074,7 +1104,7 @@ fn write_tiles(
     // Die nativen Stufen bauen ihre eigenen Tabellen; die der Basis wird
     // nicht mehr gebraucht.
     drop(sprites);
-    let (z, kandidaten, gezeigt) = render_coarser(
+    let (z, kandidaten, gezeigt, nativ_im_speicher) = render_coarser(
         world,
         assets,
         &survey.states,
@@ -1086,10 +1116,12 @@ fn write_tiles(
         kandidaten,
         stufen,
         &waisen,
+        vielleicht_da,
         &mut weg,
         karte,
     )?;
-    build_pyramid(dir, z, kandidaten, &waisen, &mut weg)?;
+    im_speicher.extend(nativ_im_speicher);
+    build_pyramid(dir, z, kandidaten, &waisen, &mut weg, &im_speicher)?;
     if prune && !veraltet.is_empty() {
         ohne_veraltete(dir, max_zoom, stufen, &veraltet, &gezeigt, &mut weg)?;
     }
@@ -1693,32 +1725,206 @@ fn build_pyramid(
     kandidaten: BTreeSet<TileId>,
     waisen: &BTreeMap<u32, BTreeSet<TileId>>,
     weg: &mut BTreeSet<(u32, TileId)>,
+    im_speicher: &Speicherstand,
 ) -> Result<()> {
     let started = Instant::now();
     let mut kandidaten = kandidaten;
     let mut bytes = 0usize;
     let mut gesamt = 0usize;
+    // Was im Speicher leer blieb, verschwindet am Ende wie hier.
+    weg.extend(
+        im_speicher
+            .iter()
+            .filter(|(_, bytes)| bytes.is_none())
+            .map(|(kachel, _)| *kachel),
+    );
+    let schon = im_speicher.values().flatten().count();
 
     for z in (0..max_zoom).rev() {
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
-        let (geschrieben, leer) = setze_zusammen(dir, z, &kandidaten, weg)?;
+        let rest: BTreeSet<TileId> = kandidaten
+            .iter()
+            .filter(|tile| !im_speicher.contains_key(&(z, **tile)))
+            .copied()
+            .collect();
+        let (mut geschrieben, leer) = setze_zusammen(dir, z, &rest, weg)?;
         leer.par_iter()
             .try_for_each(|parent| verblasse(dir, z, *parent))?;
         weg.extend(leer.into_iter().map(|parent| (z, parent)));
+        let ecke = |x, y| (z, TileId { x, y });
+        geschrieben.extend(
+            im_speicher
+                .range(ecke(i32::MIN, i32::MIN)..=ecke(i32::MAX, i32::MAX))
+                .filter_map(|(_, bytes)| *bytes),
+        );
         bytes += geschrieben.iter().sum::<usize>();
         gesamt += geschrieben.len();
         println!("Zoom {z:>2}:     {} Kacheln", geschrieben.len());
     }
 
     if max_zoom > 0 {
+        let davon = if schon > 0 {
+            format!(", {schon} davon schon während des Renderns")
+        } else {
+            String::new()
+        };
         println!(
-            "Pyramide:   {gesamt} Kacheln, {:.1} MB in {:.1} s",
+            "Pyramide:   {gesamt} Kacheln, {:.1} MB in {:.1} s{davon}",
             bytes as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
     }
     Ok(())
+}
+
+/// Was [`ImSpeicher`] gebaut hat: je Kachel ihre Bytes, `None` für eine,
+/// die nichts zeigt und am Ende verschwindet.
+type Speicherstand = BTreeMap<(u32, TileId), Option<usize>>;
+
+/// Die Viertel, die eine Elternkachel schon hat, je Kind.
+type Viertel = Vec<(TileId, Option<RgbaImage>)>;
+
+/// Kacheln je Stufe.
+type JeStufe = BTreeMap<u32, BTreeSet<TileId>>;
+
+/// Die feinen Stufen der Pyramide, im Speicher gebaut, während die Stufe
+/// darunter entsteht. Jede Kachel dieser Stufe gibt ihr Viertel ab
+/// ([`ImSpeicher::abgeben`]). Wer das letzte Viertel einer Elternkachel
+/// abgibt, setzt sie zusammen, schreibt sie und gibt ihr Viertel eine Stufe
+/// höher. Welche Eltern so entstehen, steht vor dem Rendern fest; alle
+/// anderen baut [`build_pyramid`] am Ende von der Platte.
+/// Siehe docs/benutzung/zoomstufen.md, „Feine Stufen im Speicher“.
+struct ImSpeicher<'a> {
+    dir: &'a Path,
+    /// Je Elternkachel, die hier entsteht, wie viele Kinder sie bekommt.
+    erwartet: HashMap<(u32, TileId), usize>,
+    /// Die Viertel der Eltern, denen noch Kinder fehlen, `None` für ein
+    /// Kind, das nichts zeigt.
+    offen: Mutex<HashMap<(u32, TileId), Viertel>>,
+    fertig: Mutex<Speicherstand>,
+}
+
+impl<'a> ImSpeicher<'a> {
+    /// Legt fest, welche Eltern über der Stufe `z0` im Speicher entstehen,
+    /// bis zu der, deren Kachel so breit ist wie ein Streifen von `breite`
+    /// Spalten. Eine entsteht hier, wenn jedes ihrer vier Kinder hier
+    /// entsteht (auf `z0`: `gerendert`) oder sicher fehlt: Es ist kein
+    /// Kandidat, wie [`build_pyramid`] sie aus `kandidaten` und `waisen`
+    /// findet, und lag nicht auf der Platte (`vielleicht_da`). Sonst baut
+    /// [`build_pyramid`] sie von der Platte, und jede Kachel über ihr auch.
+    fn new(
+        dir: &'a Path,
+        z0: u32,
+        breite: usize,
+        gerendert: impl Fn(&TileId) -> bool,
+        kandidaten: &BTreeSet<TileId>,
+        waisen: &BTreeMap<u32, BTreeSet<TileId>>,
+        vielleicht_da: impl Fn(u32, &TileId) -> bool,
+    ) -> ImSpeicher<'a> {
+        let oben = z0.saturating_sub(breite.ilog2());
+        let mut erwartet = HashMap::new();
+        // Die Kandidaten der Stufe darunter und was dort im Speicher
+        // entsteht; auf `z0` `kandidaten` und `gerendert`.
+        let mut darunter: Option<(BTreeSet<TileId>, BTreeSet<TileId>)> = None;
+        for z in (oben..z0).rev() {
+            let unten = darunter.as_ref().map_or(kandidaten, |(k, _)| k);
+            let entsteht = |kind: &TileId| match &darunter {
+                None => gerendert(kind),
+                Some((_, hier)) => hier.contains(kind),
+            };
+            let mut eltern = pyramid::parents(unten);
+            eltern.extend(
+                waisen
+                    .get(&(z + 1))
+                    .into_iter()
+                    .flatten()
+                    .map(TileId::parent),
+            );
+            let mut hier = BTreeSet::new();
+            for parent in &eltern {
+                let mut kommen = 0;
+                let geht = parent.children().iter().all(|kind| {
+                    if entsteht(kind) {
+                        kommen += 1;
+                        true
+                    } else {
+                        !unten.contains(kind) && !vielleicht_da(z + 1, kind)
+                    }
+                });
+                if geht {
+                    erwartet.insert((z, *parent), kommen);
+                    hier.insert(*parent);
+                }
+            }
+            darunter = Some((eltern, hier));
+        }
+        ImSpeicher {
+            dir,
+            erwartet,
+            offen: Mutex::default(),
+            fertig: Mutex::default(),
+        }
+    }
+
+    /// Gibt eine fertige Kachel der Stufe z ab, `None`, wenn sie nichts
+    /// zeigt. Ist sie das letzte Kind ihrer Elternkachel, entsteht diese
+    /// und gibt sich selbst ab.
+    fn abgeben(&self, z: u32, tile: TileId, bild: Option<RgbaImage>) -> Result<()> {
+        let (mut z, mut tile, mut bild) = (z, tile, bild);
+        while z > 0 {
+            let eltern = (z - 1, tile.parent());
+            let Some(&soll) = self.erwartet.get(&eltern) else {
+                return Ok(());
+            };
+            let viertel = bild.as_ref().map(pyramid::shrink);
+            let teile = {
+                let mut offen = self.offen.lock().unwrap_or_else(PoisonError::into_inner);
+                let teile = offen.entry(eltern).or_default();
+                teile.push((tile, viertel));
+                if teile.len() < soll {
+                    return Ok(());
+                }
+                offen.remove(&eltern).unwrap_or_default()
+            };
+            (z, tile) = eltern;
+            let da: Vec<(TileId, RgbaImage)> = teile
+                .into_iter()
+                .filter_map(|(kind, viertel)| Some((kind, viertel?)))
+                .collect();
+            let bytes = if da.is_empty() {
+                verblasse(self.dir, z, tile)?;
+                bild = None;
+                None
+            } else {
+                let neu = pyramid::aus_vierteln(tile, &da);
+                let bytes = schreibe(self.dir, z, tile, &neu)?;
+                bild = Some(neu);
+                Some(bytes)
+            };
+            self.fertig
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert((z, tile), bytes);
+        }
+        Ok(())
+    }
+
+    /// Was entstanden ist. Jede Elternkachel aus [`ImSpeicher::new`] ist es,
+    /// wenn jede Kachel darunter abgegeben wurde.
+    fn ende(self) -> Result<Speicherstand> {
+        let fertig = self
+            .fertig
+            .into_inner()
+            .unwrap_or_else(PoisonError::into_inner);
+        ensure!(
+            fertig.len() == self.erwartet.len(),
+            "{} von {} Elternkacheln im Speicher nicht fertig",
+            self.erwartet.len() - fertig.len(),
+            self.erwartet.len()
+        );
+        Ok(fertig)
+    }
 }
 
 /// Setzt jede dieser Elternkacheln der Stufe z aus ihren Kindern auf der
@@ -2035,15 +2241,17 @@ fn render_coarser(
     kandidaten: BTreeSet<TileId>,
     stufen: u32,
     waisen: &BTreeMap<u32, BTreeSet<TileId>>,
+    vielleicht_da: impl Fn(u32, &TileId) -> bool,
     weg: &mut BTreeSet<(u32, TileId)>,
     karte: Option<&Karte>,
-) -> Result<(u32, BTreeSet<TileId>, Kacheln)> {
+) -> Result<(u32, BTreeSet<TileId>, Kacheln, Speicherstand)> {
     let mut z = max_zoom;
     let mut scale = projection.scale();
     let mut kandidaten = kandidaten;
     let mut gezeigt = BTreeSet::new();
+    let mut im_speicher = Speicherstand::new();
 
-    for _ in 0..stufen {
+    for i in 0..stufen {
         z -= 1;
         scale /= 2;
         let started = Instant::now();
@@ -2056,6 +2264,19 @@ fn render_coarser(
 
         let bisher = &*weg;
         let reihe: Vec<TileId> = kandidaten.iter().copied().collect();
+        // Die gröbste native Stufe gibt die Viertel für die feinen Stufen
+        // ab.
+        let speicher = (i + 1 == stufen).then(|| {
+            ImSpeicher::new(
+                dir,
+                z,
+                streifen(reihe.len(), scale),
+                |tile| kandidaten.contains(tile),
+                &kandidaten,
+                waisen,
+                &vielleicht_da,
+            )
+        });
         // Je Kachel: zeigt sie etwas, bleibt sie stehen, und wie gross ist
         // sie?
         let (stufe, auf_der_karte) = rendere(
@@ -2072,11 +2293,21 @@ fn render_coarser(
                 // mit ihm bis zum Ende des Laufs.
                 if !zeigt && !kind_bleibt(dir, z, tile, bisher) {
                     verblasse(dir, z, tile)?;
+                    if let Some(speicher) = &speicher {
+                        speicher.abgeben(z, tile, None)?;
+                    }
                     return Ok((false, false, 0));
                 }
-                Ok((zeigt, true, schreibe(dir, z, tile, &image)?))
+                let bytes = schreibe(dir, z, tile, &image)?;
+                if let Some(speicher) = &speicher {
+                    speicher.abgeben(z, tile, Some(image))?;
+                }
+                Ok((zeigt, true, bytes))
             },
         )?;
+        if let Some(speicher) = speicher {
+            im_speicher = speicher.ende()?;
+        }
         let (mut bytes, mut bleiben) = (0usize, 0usize);
         for (tile, (zeigt, bleibt, n)) in stufe {
             bytes += n;
@@ -2095,7 +2326,7 @@ fn render_coarser(
             started.elapsed().as_secs_f64()
         );
     }
-    Ok((z, kandidaten, gezeigt))
+    Ok((z, kandidaten, gezeigt, im_speicher))
 }
 
 /// Rendert Kacheln und gibt jedes Bild an `ablegen` — für die Basis wie für
@@ -2130,10 +2361,7 @@ fn rendere<T: Send>(
     } else {
         1
     };
-    let breite = breite_der_streifen(
-        gesamt / rayon::current_num_threads(),
-        sprites.projection().scale(),
-    );
+    let breite = streifen(gesamt, sprites.projection().scale());
     let mut reihe = tiles.to_vec();
     reihe.sort_unstable_by_key(|tile| (tile.x.div_euclid(breite as i32), tile.y, tile.x));
     let kacheln = verteile(
@@ -2255,6 +2483,12 @@ fn verteile<S, R: Send>(
     Ok(alle)
 }
 
+/// Wie breit [`rendere`] die Streifen für `anzahl` Kacheln bei diesem
+/// scale schneidet, siehe [`breite_der_streifen`].
+fn streifen(anzahl: usize, scale: u32) -> usize {
+    breite_der_streifen(anzahl / rayon::current_num_threads(), scale)
+}
+
 /// Wie viele Kachelspalten ein Streifen breit ist, wenn ein Thread rund
 /// `je_thread` Kacheln rendert: etwa die Wurzel aus einem Zehntel seiner
 /// Kacheln, als Zweierpotenz, höchstens [`streifenbreite`].
@@ -2289,14 +2523,17 @@ fn verblasse(dir: &Path, z: u32, tile: TileId) -> Result<()> {
 /// Entfernen abbrach: entfernt wird von der gröbsten Stufe an. Ihre Eltern
 /// entstehen in diesem Lauf neu, nativ oder aus ihren Kindern. Ein
 /// Ausschnitt nimmt nur, was seine Fläche berührt, und liest dafür nur
-/// deren Spalten. `basis` sind die Basiskacheln in der Fläche.
+/// deren Spalten. `basis` sind die Basiskacheln in der Fläche. Dazu die
+/// Liste jeder Stufe ab `ab` unter der Basis, wie sie dastand.
 fn waisen(
     dir: &Path,
     max_zoom: u32,
     basis: &BTreeSet<TileId>,
     flaeche: impl Fn(u32) -> Option<Flaeche>,
-) -> Result<BTreeMap<u32, BTreeSet<TileId>>> {
+    ab: u32,
+) -> Result<(JeStufe, JeStufe)> {
     let mut out = BTreeMap::new();
+    let mut listen = BTreeMap::new();
     let mut stufe = basis.clone();
     for z in (1..=max_zoom).rev() {
         let oben = vorhandene(dir, z - 1, flaeche(z - 1).as_ref())?;
@@ -2308,9 +2545,33 @@ fn waisen(
         if !ohne.is_empty() {
             out.insert(z, ohne);
         }
-        stufe = oben;
+        let liste = std::mem::replace(&mut stufe, oben);
+        if z < max_zoom && z >= ab {
+            listen.insert(z, liste);
+        }
     }
-    Ok(out)
+    if max_zoom > 0 && ab == 0 {
+        listen.insert(0, stufe);
+    }
+    Ok((out, listen))
+}
+
+/// Ob eine Kachel der Stufe z auf der Platte lag, als der Lauf ihre Stufe
+/// listete: auf der Basis nach `basis`, darüber nach `listen` in der
+/// `flaeche` dieser Stufe. Ausserhalb von ihr und auf einer Stufe ohne
+/// Liste womöglich.
+fn lag_da(
+    z: u32,
+    tile: &TileId,
+    max_zoom: u32,
+    basis: &BTreeSet<TileId>,
+    listen: &JeStufe,
+    flaeche: Option<&Flaeche>,
+) -> bool {
+    if z == max_zoom {
+        return basis.contains(tile);
+    }
+    listen.get(&z).is_none_or(|liste| liste.contains(tile)) || !in_flaeche(flaeche, tile)
 }
 
 /// Spalten und Zeilen der Kacheln einer Stufe, die ein Ausschnitt berührt.
@@ -3133,13 +3394,179 @@ mod tests {
             width: TILE,
             height: TILE,
         };
-        let gefunden = waisen(dir.path(), 2, &BTreeSet::new(), |z| {
-            flaeche(Some(ausschnitt), 2, z)
-        })
-        .unwrap();
+        let lauf = |ab| {
+            waisen(
+                dir.path(),
+                2,
+                &BTreeSet::new(),
+                |z| flaeche(Some(ausschnitt), 2, z),
+                ab,
+            )
+            .unwrap()
+        };
+        let (gefunden, listen) = lauf(0);
+        let stufe_1 = BTreeSet::from([TileId { x: 1, y: 0 }]);
+        assert_eq!(gefunden, BTreeMap::from([(1, stufe_1.clone())]));
+        // Die Listen unter der Basis, in der Fläche des Ausschnitts.
         assert_eq!(
-            gefunden,
-            BTreeMap::from([(1, BTreeSet::from([TileId { x: 1, y: 0 }]))])
+            listen,
+            BTreeMap::from([(1, stufe_1.clone()), (0, BTreeSet::new())])
+        );
+        assert_eq!(lauf(1).1, BTreeMap::from([(1, stufe_1)]), "ab Zoom 1");
+    }
+
+    /// Auf der Basis zählt die Liste der ganzen Stufe, darüber die in der
+    /// Fläche eines Ausschnitts; daneben und auf einer Stufe ohne Liste
+    /// könnte eine Kachel liegen.
+    #[test]
+    fn was_auf_der_platte_lag() {
+        let t = |x, y| TileId { x, y };
+        let basis = BTreeSet::from([t(0, 0)]);
+        let listen = BTreeMap::from([(1, BTreeSet::from([t(1, 1)]))]);
+        let flaeche: Flaeche = (0..=1, 0..=1);
+        let da = |z, tile| lag_da(z, &tile, 2, &basis, &listen, Some(&flaeche));
+        assert!(da(2, t(0, 0)));
+        assert!(!da(2, t(5, 5)), "Basis ohne Kachel, auch ausserhalb");
+        assert!(da(1, t(1, 1)));
+        assert!(!da(1, t(0, 0)), "in der Fläche, ohne Kachel");
+        assert!(da(1, t(5, 5)), "ausserhalb der Fläche");
+        assert!(da(0, t(0, 0)), "Stufe ohne Liste");
+        assert!(!lag_da(1, &t(5, 5), 2, &basis, &listen, None), "ganze Welt");
+    }
+
+    /// Welche Eltern im Speicher entstehen: die, deren Kinder alle aus
+    /// diesem Lauf kommen oder sicher fehlen, bis zur Breite eines
+    /// Streifens. Eine, deren Kind stehen bleibt (`--resume`) oder auf der
+    /// Platte liegt, ohne dass dieser Lauf es baut, entsteht von der
+    /// Platte, und jede darüber auch. Ebenso die Elternkachel einer Waise.
+    #[test]
+    fn im_speicher_nur_was_sicher_ganz_wird() {
+        let t = |x, y| TileId { x, y };
+        let menge = |tiles: &[(i32, i32)]| -> BTreeSet<TileId> {
+            tiles.iter().map(|&(x, y)| t(x, y)).collect()
+        };
+        // Die Basis auf Zoom 2, je Zeile die Elternkachel auf Zoom 1.
+        let gerendert = menge(&[
+            // (0, 0): alle vier Kinder
+            (0, 0),
+            (1, 0),
+            (0, 1),
+            (1, 1),
+            // (1, 0): zwei, die anderen fehlen
+            (2, 0),
+            (3, 0),
+            // (0, 1): (1, 2) bleibt stehen
+            (0, 2),
+            // (1, 1): (3, 3) liegt da, ohne Chunk
+            (2, 2),
+            // (2, 0): zwei, darüber (1, 0) auf Zoom 0
+            (4, 0),
+            (5, 1),
+            // (2, 2): eines; neben ihr liegt (3, 2) auf Zoom 1 da
+            (4, 4),
+        ]);
+        let bleiben = menge(&[(1, 2)]);
+        let kandidaten: BTreeSet<TileId> = gerendert.union(&bleiben).copied().collect();
+        let da_auf_2 = menge(&[(1, 2), (3, 3)]);
+        // (6, 0) auf Zoom 1 ist eine Waise, ihre Elternkachel fehlt.
+        let da_auf_1 = menge(&[(3, 2), (6, 0)]);
+        let waisen = BTreeMap::from([(1, menge(&[(6, 0)]))]);
+        let vielleicht_da = |z: u32, tile: &TileId| match z {
+            2 => da_auf_2.contains(tile),
+            1 => da_auf_1.contains(tile),
+            _ => true,
+        };
+        let erwartet = |breite: usize| -> BTreeMap<(u32, TileId), usize> {
+            ImSpeicher::new(
+                Path::new("nicht gebraucht"),
+                2,
+                breite,
+                |tile| gerendert.contains(tile),
+                &kandidaten,
+                &waisen,
+                vielleicht_da,
+            )
+            .erwartet
+            .into_iter()
+            .collect()
+        };
+        let zoom_1 = [
+            ((1, t(0, 0)), 4),
+            ((1, t(1, 0)), 2),
+            ((1, t(2, 0)), 2),
+            ((1, t(2, 2)), 1),
+        ];
+        let mut beide = BTreeMap::from(zoom_1);
+        beide.insert((0, t(1, 0)), 1);
+        assert_eq!(erwartet(4), beide);
+        assert_eq!(erwartet(2), BTreeMap::from(zoom_1), "nur eine Stufe");
+        assert!(erwartet(1).is_empty(), "keine Stufe");
+    }
+
+    /// Wer das letzte Viertel abgibt, setzt die Elternkachel zusammen wie
+    /// `merge`, schreibt sie und gibt sie eine Stufe höher ab. Zeigt kein
+    /// Kind etwas, bleibt sie leer: Eine alte Kachel an ihrer Stelle zeigt
+    /// dann nichts mehr, und der Stand nennt sie ohne Bytes.
+    #[test]
+    fn im_speicher_aus_den_vierteln() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = |x, y| TileId { x, y };
+        let bild = |farbe: u8| {
+            RgbaImage::from_fn(TILE, TILE, |x, y| {
+                let alpha = if (x + y) % 3 == 0 { 0 } else { 200 };
+                Rgba([farbe, x as u8, y as u8, alpha])
+            })
+        };
+        let lies = |z, tile| {
+            let daten = std::fs::read(tile_path(dir.path(), z, tile)).unwrap();
+            decode_webp(&daten, (TILE, TILE)).unwrap()
+        };
+        // Auf Zoom 2; (2, 0) zeigt nichts, und über ihr liegt eine alte
+        // Kachel.
+        let gerendert = BTreeSet::from([t(0, 0), t(1, 0), t(0, 1), t(2, 0)]);
+        schreibe(dir.path(), 1, t(1, 0), &bild(9)).unwrap();
+        let speicher = ImSpeicher::new(
+            dir.path(),
+            2,
+            4,
+            |tile| gerendert.contains(tile),
+            &gerendert,
+            &BTreeMap::new(),
+            |_, _| false,
+        );
+
+        speicher.abgeben(2, t(0, 0), Some(bild(1))).unwrap();
+        speicher.abgeben(2, t(2, 0), None).unwrap();
+        assert!(
+            lies(1, t(1, 0)).pixels().all(|p| p.0 == [0; 4]),
+            "die alte Kachel zeigt noch etwas"
+        );
+        speicher.abgeben(2, t(1, 0), Some(bild(2))).unwrap();
+        assert!(
+            !tile_path(dir.path(), 1, t(0, 0)).exists(),
+            "geschrieben, bevor alle Kinder da sind"
+        );
+        speicher.abgeben(2, t(0, 1), None).unwrap();
+        let stand = speicher.ende().unwrap();
+
+        let eltern = pyramid::merge(t(0, 0), &[(t(0, 0), bild(1)), (t(1, 0), bild(2))]);
+        assert_eq!(lies(1, t(0, 0)), eltern);
+        assert_eq!(
+            lies(0, t(0, 0)),
+            pyramid::merge(t(0, 0), &[(t(0, 0), eltern)])
+        );
+        let bytes = |z, tile| {
+            std::fs::metadata(tile_path(dir.path(), z, tile))
+                .unwrap()
+                .len() as usize
+        };
+        assert_eq!(
+            stand,
+            BTreeMap::from([
+                ((0, t(0, 0)), Some(bytes(0, t(0, 0)))),
+                ((1, t(0, 0)), Some(bytes(1, t(0, 0)))),
+                ((1, t(1, 0)), None),
+            ])
         );
     }
 

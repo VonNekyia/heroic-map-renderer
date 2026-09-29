@@ -215,10 +215,12 @@ Spiel in 26.2 (`LightCoordsUtil.getLightCoords`), belegt per javap:
   `FluidRenderer.tesselate` fragt für Oberseite und Seiten dasselbe Licht,
   gleich was über der Zelle steht. Ein Bild aus dem Blockentity liegt im
   Licht der Zelle (`BlockEntityRenderState.extractBase`).
-- **Alles andere** liegt im Licht seiner Zelle: Flächen im Innern des
-  Blocks, etwa die Oberseite einer unteren Platte, und Flächen, die auf
-  keiner Seite liegen, wie die gekreuzten einer Blume. Das eigene
-  Blocklicht steckt darin, denn als Quelle beginnt die Zelle mit ihm.
+- **Alles andere** liegt im Licht seiner Zelle: Flächen, die auf keiner
+  Seite liegen, wie die gekreuzten einer Blume, und Flächen im Innern des
+  Blocks, etwa die Oberseite einer unteren Platte. So zeichnet das Spiel
+  sie flach (`prepareQuadFlat`); weich rechnet es die im Innern anders,
+  das ist eine Näherung, siehe unten. Das eigene Blocklicht steckt darin,
+  denn als Quelle beginnt die Zelle mit ihm.
 - **Eine Doppelkiste** liegt mit ihrem Bild aus dem Blockentity in beiden
   Hälften im helleren Licht ihrer zwei Zellen (`ChestRenderer` mit
   `BrightnessCombiner`, `LightCoordsUtil.max`), jeder `ChestBlock`, also
@@ -239,7 +241,8 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
 ## Was bleibt eine Näherung
 
 - **Flächen im Innern** liegen flach im Licht der eigenen Zelle. Das
-  Spiel beleuchtet auch sie weich, aus der Schicht des Blocks selbst, siehe
+  Spiel beleuchtet auch sie weich: die Ecken aus der Schicht des Blocks
+  selbst, die Mitte aus der Zelle davor, wenn die nicht deckt, siehe
   [Weiche Beleuchtung](weiche-beleuchtung.md), „Was noch fehlt“. Wie
   Teilflächen auf dem Rand verlaufen, steht dort unter „Was bleibt eine
   Näherung“.

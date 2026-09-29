@@ -67,7 +67,8 @@ Näherung“.
   Nachbar kommt; gerechnet mindestens so teuer wie das Fenster im
   Streifen. Nur nach einer Messung, so festgelegt.
 - **Ein Fenster, das dem Streifen folgt:** gerechnet rund 11 % statt
-  27 % mehr für die Basis, hängt aber an der Zeilenfolge des Streifens, am
+  27 % mehr für die Basis (gemessen kostet der gewählte Weg die Basis 30
+  bis 65 % mehr Zeit, siehe „Folgen“), hängt aber an der Zeilenfolge des Streifens, am
   Stehlen mitten im Streifen, an `--render` in Stücken und an schmalen
   Streifen kleiner Ausschnitte. Es ersetzt nur den Bau des Fensters und
   kann später folgen, wenn die Minuten zählen.
@@ -92,6 +93,17 @@ Die Zahlen hat der Researcher im Prototyp gemessen und gerechnet, siehe
 
 - Jede Zelle hat das Licht, das Vanilla 26.2 speichert; gegen einen Lauf
   des Spiels weicht keine ab.
+- Es kostet mehr als gerechnet, gemessen in
+  [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md):
+  - Auf 24 Threads schafft die Basis der Testwelt 23 bis 40 % weniger
+    Kacheln je Sekunde, gerechnet waren 27 % mehr Zeit.
+  - Ein ganzer Lauf mit drei nativen Stufen braucht 51 bis 64 % länger,
+    denn jede native Stufe breitet das Licht derselben Chunks noch einmal
+    aus.
+  - Auf einem Thread kostet eine Kachel 22 % mehr, die Speicherspitze
+    liegt 0,5 bis 0,65 GiB höher.
+  - Ein Vorsieben der Quellen, die den Chunk nicht erreichen, bringt nichts
+    Messbares.
 - Das Licht eines Chunks braucht seine acht Nachbarn: Der Cache lädt am
   Rand eines Streifens mehr Chunks.
 - Die Stufe voll heller Blöcke in `leuchten.txt`.

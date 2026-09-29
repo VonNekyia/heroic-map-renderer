@@ -103,8 +103,10 @@ zeichnet, und deren Nachbarn sind ein zweiter Ring. Den fasst danach keine
 Kachel mehr an: `next_tile` verwirft ihn, sobald er eine Zeile lang nicht
 gebraucht wurde, und kommt die nächste Zeile wieder an diesen Rand, lädt sie
 ihn neu. Die Zahlen oben, Chunks je Kachel und je Thread, sind von vor dem
-Licht; wie viele es jetzt sind, zählt die Messung zu #34, die noch
-aussteht.
+Licht. Seitdem dekodiert ein Lauf der Testwelt über alle Stufen 6 bis 9 %
+öfter, um (-64, 416) 10,6 statt 9,8 Mal je Chunk; das Rechnen des Lichts
+kostet mehr als das Lesen, siehe
+[2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md).
 
 ## Bitmasken
 
@@ -256,7 +258,8 @@ scale 4, samt dem Viertel Spielraum aus `CACHE_CHUNKS`; mit Karte dazu
 sechzehn Zeichenlisten. Gemessen vor dem Licht: Dazu kommen jetzt der
 zweite Ring am Rand des Streifens, siehe „Streifen und Cache je Thread“,
 und je Chunk mit Licht bis 4 KB je Section, in der nicht jede Zelle
-dasselbe Licht hat.
+dasselbe Licht hat. Auf der Testwelt liegt die Spitze damit 0,5 bis
+0,65 GiB höher, siehe [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md).
 
 Die Sprite-Tabelle teilen sich alle Threads. Fast jedes Sprite hat eine
 AO-Karte, 4 Bytes je Pixel wie das Bild, siehe

@@ -139,8 +139,12 @@ Karte 6 bis 7 %. Gemessen in
 [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md);
 die Dauer für die ganze Welt steht in
 [Was ein Lauf kostet](../benutzung/kosten.md). Das war vor dem Licht aus
-der Ausbreitung: Was sie und das Licht je Ecke kosten, ist noch nicht
-gemessen; gerechnet kostet die Ausbreitung die Basis rund 27 % mehr, siehe
+der Ausbreitung. Mit ihr und dem Licht je Ecke schafft die Basis auf 24
+Threads 23 bis 40 % weniger Kacheln je Sekunde, auf einem Thread kostet
+eine Kachel 22 % mehr, und ein ganzer Lauf mit drei nativen Stufen braucht
+51 bis 64 % länger, gemessen in
+[2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md); gerechnet waren für
+die Basis 27 %, siehe
 [0040](../entscheidungen/0040-licht-selbst-ausbreiten.md).
 
 Seit auch die Flächen auf dem Rand von Teilmodellen ihre Seite tragen, hat
@@ -149,13 +153,16 @@ fast jedes Sprite eine AO-Karte, 4 Bytes je Pixel wie das Bild. Über alle
 mit 53 MB Karte neben 61 MB Bild, vorher 744 Sprites mit 3 MB. Eine Welt
 braucht nur die Zustände, die in ihr vorkommen. Ein Teilmodell rechnet
 dazu seine Ecken aus den Nachbarn wie ein Stein, wo vorher ein Licht je
-Block reichte; auch das ist noch nicht gemessen.
+Block reichte. Für sich gemessen ist das nicht, nur mit dem ganzen Licht
+zusammen, siehe oben.
 
 ## Was noch fehlt
 
 - **Flächen im Innern weich.** Liegt eine Fläche nicht auf dem Rand, rechnet
-  das Spiel ihre Ecken aus der Schicht des Blocks selbst. Der Renderer
-  zeichnet sie flach im Licht der eigenen Zelle. Die grössten Flächen
+  das Spiel ihre Ecken aus der Schicht des Blocks selbst, das Licht der
+  Mitte aber aus der Zelle davor, wenn die nicht deckt (`isSolidRender`,
+  `prepareQuadAmbientOcclusion`). Der Renderer zeichnet sie flach im Licht
+  der eigenen Zelle, wie das Spiel ohne weiche Beleuchtung. Die grössten Flächen
   darunter:
   - Schneedecken: Eine Lage `snow` ist 2/16 hoch, erst acht Lagen sind ein
     voller Würfel. Verschneite Hänge und Ebenen bleiben oben deshalb ohne

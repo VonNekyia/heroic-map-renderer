@@ -9,7 +9,8 @@ code:
 # Was ein Lauf kostet
 
 Die ganze Testwelt braucht bei scale 32 mit allen nativen Stufen und
-Pyramide hochgerechnet rund 26 GB und 7 Minuten. Der Platz hängt fast nur
+Pyramide hochgerechnet rund 26 GB und 7 Minuten, mit dem Licht aus der
+Ausbreitung gut die Hälfte länger, siehe „Je scale“. Der Platz hängt fast nur
 an der Kachelzahl, die Dauer auch an den nativen Stufen. Die Zahlen sind an
 einem Ausschnitt gemessen und hochgerechnet, siehe „Je scale“. Von Tag zu
 Tag schwankt die Dauer um ein Viertel.
@@ -38,6 +39,12 @@ Die Übergänge zwischen Biomen (#21) legen bei scale 32 je Basiskachel 7 %
 Zeit und 1,5 % Grösse darauf; daher die 7 Minuten oben, gerechnet in
 [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md),
 „Hochgerechnet“. Für scale 16 und 8 sind die Faktoren nicht gemessen.
+
+Das Licht aus der Ausbreitung (#34) legt auf einen Lauf mit allen nativen
+Stufen bei scale 32 51 bis 64 % Zeit und 3 bis 8 % Grösse darauf, gemessen
+an zwei Ausschnitten in
+[2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md). Die Tabelle ist dafür
+nicht neu hochgerechnet.
 
 Seit #32 zeichnet der Renderer nur fertig erzeugte Chunks, siehe
 [Welten und Kennung](welten.md), „Nicht fertig erzeugte Chunks“. Die

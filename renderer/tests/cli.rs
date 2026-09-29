@@ -14,8 +14,9 @@ use std::time::{Duration, SystemTime};
 
 use image::RgbaImage;
 use tempfile::TempDir;
-use terranova_render::assets::Assets;
+use terranova_render::assets::{Assets, DimensionType};
 use terranova_render::render::heights::{self, EMPTY, Heights};
+use terranova_render::render::rasterizer::{Light, Lightmap};
 use terranova_render::render::{
     Projection, SpriteSet, TileId, encode_webp, pyramid, render_area, survey,
 };
@@ -2705,8 +2706,10 @@ fn dimensionen_haben_eigene_kennungen() {
 }
 
 /// Im Nether schattiert das Spiel die Oberseite mit 0,9 statt 1, die
-/// Seiten wie in der Oberwelt: `cardinal_light` ist dort `nether`. Dieselbe
-/// Szene im Nether ist oben dunkler und an den Seiten gleich, und die
+/// Seiten wie in der Oberwelt: `cardinal_light` ist dort `nether`. Dazu
+/// gibt es kein Himmelslicht, und die Lightmap liegt in seiner
+/// Umgebungsfarbe. Dieselbe Szene im Nether ist deshalb überall dunkler:
+/// an den Seiten im Verhältnis der Lightmap, oben bei 0,9 davon. Die
 /// Ausgabe nennt die Dimension. Eine eigene Dimension findet ihren Typ in
 /// einer Datenwurzel. Ohne Weltwurzel gilt die Oberwelt, mit einer Meldung.
 #[test]
@@ -2780,22 +2783,27 @@ fn nether_schattiert_wie_im_spiel() {
         ausgabe.contains("Dimension:  minecraft:the_nether\n"),
         "{ausgabe}"
     );
-    let (mut dunkler, mut gleich) = (0, 0);
+    let typ = DimensionType::des_spiels("minecraft:the_nether").unwrap();
+    let seite = Lightmap::new(&typ).factors(Light::sky(0))[0] as f64 / 255.0;
+    let (mut an_der_seite, mut oben) = (0, 0);
     for (h, d) in hell.pixels().zip(dunkel.pixels()) {
         assert_eq!(h[3], d[3], "dieselben Umrisse");
         assert!(
-            (0..3).all(|c| d[c] <= h[c]),
-            "{h:?} im Nether heller: {d:?}"
+            (0..3).all(|c| d[c] < h[c] || h[c] == 0),
+            "{h:?} im Nether nicht dunkler: {d:?}"
         );
-        if h[3] > 0 && d != h {
-            dunkler += 1;
-        } else if h[3] > 0 {
-            gleich += 1;
+        if h[3] == 255 && h[0] >= 60 {
+            let verhaeltnis = d[0] as f64 / h[0] as f64;
+            if (verhaeltnis - seite).abs() < 0.02 {
+                an_der_seite += 1;
+            } else if (verhaeltnis - 0.9 * seite).abs() < 0.02 {
+                oben += 1;
+            }
         }
     }
     assert!(
-        dunkler > 0 && gleich > 0,
-        "{dunkler} dunkler, {gleich} gleich"
+        an_der_seite > 0 && oben > 0,
+        "{an_der_seite} an der Seite, {oben} oben"
     );
     let (tief, ausgabe) = bild(&eigene);
     assert!(ausgabe.contains("Dimension:  beispiel:tief\n"), "{ausgabe}");

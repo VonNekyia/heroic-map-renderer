@@ -79,7 +79,7 @@ Schatten es zählt (`LightCoordsUtil.smoothBlend`), wie `smooth_blend` in
 - Die Ecke ist das Mittel der vier Werte, in Sechzehnteln einer Stufe. Die
   Lightmap liest das Spiel je Ecke linear gefiltert (`terrain.vsh`,
   `ChunkSectionsToRender`, `FilterMode.LINEAR`), also zwischen den Stufen
-  daneben gemischt, in beiden Lichtern: `licht_linear`.
+  daneben gemischt, in beiden Lichtern: `Lightmap::linear`.
 - Mal dem Schatten der Ecke gibt das je Farbkanal ihre Helligkeit, und
   sie verläuft zwischen den Ecken wie der Schatten.
 
@@ -125,7 +125,10 @@ die Basis der grossen Welt ohne Karte 11 bis 14 % langsamer als master, mit
 Karte 6 bis 7 %. Gemessen in
 [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md);
 die Dauer für die ganze Welt steht in
-[Was ein Lauf kostet](../benutzung/kosten.md).
+[Was ein Lauf kostet](../benutzung/kosten.md). Das war vor dem Licht aus
+der Ausbreitung: Was sie und das Licht je Ecke kosten, ist noch nicht
+gemessen; gerechnet kostet die Ausbreitung die Basis rund 27 % mehr, siehe
+[0040](../entscheidungen/0040-licht-selbst-ausbreiten.md).
 
 ## Was noch fehlt
 

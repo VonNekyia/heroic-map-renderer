@@ -4,7 +4,7 @@ use image::{Rgba, RgbaImage};
 
 use crate::assets::baker::{BakedModel, Quad};
 use crate::assets::blockentity::Entity;
-use crate::assets::{CardinalLight, Face, Textures, Tints, fluid};
+use crate::assets::{CardinalLight, DimensionType, Face, Textures, Tint, Tints, fluid};
 
 use super::Projection;
 use super::pyramid::{LINEAR, to_srgb};
@@ -38,59 +38,99 @@ const FLUID_BEHIND: f32 = 1e-3;
 const EDGE_ON: f32 = 1e-4;
 
 /// Volles Himmelslicht, am Tag unter freiem Himmel. So hell zeichnet der
-/// Renderer jede Fläche, siehe [`brightness`].
+/// Renderer in der Oberwelt jede Fläche, siehe [`brightness_rgb`].
 pub const FULL_LIGHT: u8 = 15;
-
-/// Helligkeit einer Fläche im Himmelslicht `light` (0 bis 15), am Tag in
-/// der Oberwelt, so wie `shaders/core/lightmap.fsh` in 26.2 sie rechnet.
-/// Licht 15 gibt 1, also so hell, wie der Renderer jede Fläche zeichnet.
-/// Siehe docs/renderer/wasser-und-licht.md, „Helligkeit wie im Spiel“.
-pub fn brightness(light: u8) -> f32 {
-    let level = light.min(FULL_LIGHT) as f32 / 15.0;
-    let sky = level / (4.0 - 3.0 * level);
-    let color = (10.0 / 255.0 + sky).min(1.0);
-    let rest = 1.0 - color;
-    let not_gamma = 1.0 - rest * rest * rest * rest;
-    color + (not_gamma - color) * 0.5
-}
-
-/// [`brightness`] in 255steln, für [`darken`]: 255 bei vollem Licht.
-pub fn light_factor(light: u8) -> u32 {
-    (brightness(light) * 255.0).round() as u32
-}
 
 /// `BlockFactor` aus `LightmapRenderStateExtractor.extract`: 1,4 und ein
 /// Flackern, das `tick` zufällig um 0 laufen lässt. Hier ohne Flackern.
 const BLOCK_FACTOR: f32 = 1.4;
 
-/// `visual/block_light_tint` der Oberwelt: der Standard `#FFD88C` aus
-/// `EnvironmentAttributes`, denn `overworld.json` setzt keinen.
-const BLOCK_LIGHT_TINT: [f32; 3] = [1.0, 216.0 / 255.0, 140.0 / 255.0];
+/// `BrightnessFactor`: `options.gamma` in der Voreinstellung.
+const BRIGHTNESS_FACTOR: f32 = 0.5;
 
 /// Helligkeit je Farbkanal im Himmelslicht `sky` und im Blocklicht
-/// `block`, wie `lightmap.fsh` sie rechnet: zum Himmelslicht aus
-/// [`brightness`] kommt das Blocklicht mit [`BLOCK_FACTOR`] in der Farbe
-/// [`BLOCK_LIGHT_TINT`]. Ohne Blocklicht ist das [`brightness`] in jedem
-/// Kanal.
-/// Siehe docs/renderer/wasser-und-licht.md, „Blocklicht“.
-pub fn brightness_rgb(sky: u8, block: u8) -> [f32; 3] {
-    if block == 0 {
-        return [brightness(sky); 3];
-    }
+/// `block` in einer Dimension vom Typ `typ`, wie `lightmap.fsh` in 26.2 sie
+/// rechnet: die Umgebungsfarbe, dazu das Himmelslicht in seiner Farbe mal
+/// `SkyFactor` und das Blocklicht mit [`BLOCK_FACTOR`] in einer Farbe
+/// zwischen `BlockLightTint` und Weiss, auf 0 bis 1 begrenzt und mit
+/// [`BRIGHTNESS_FACTOR`] zu `notGamma` hin gemischt. In der Oberwelt gibt
+/// Himmelslicht 15 in jedem Kanal 1.
+/// Siehe docs/renderer/wasser-und-licht.md, „Helligkeit wie im Spiel“.
+pub fn brightness_rgb(typ: &DimensionType, sky: u8, block: u8) -> [f32; 3] {
     let level = |l: u8| l.min(FULL_LIGHT) as f32 / 15.0;
     let get_brightness = |l: f32| l / (4.0 - 3.0 * l);
+    let farbe = |c: Tint| c.map(|c| c as f32 / 255.0);
+    let umgebung = farbe(typ.ambient_light_color);
+    let himmel = farbe(typ.sky_light_color);
+    let tint = farbe(typ.block_light_tint);
     let b = level(block);
-    let (sky_brightness, block_brightness) =
-        (get_brightness(level(sky)), get_brightness(b) * BLOCK_FACTOR);
+    let sky_brightness = get_brightness(level(sky)) * typ.sky_light_factor;
+    let block_brightness = get_brightness(b) * BLOCK_FACTOR;
     let mix = 0.9 * (2.0 * b - 1.0) * (2.0 * b - 1.0);
-    let color = BLOCK_LIGHT_TINT.map(|tint| {
-        let block_color = tint + (1.0 - tint) * mix;
-        (10.0 / 255.0 + sky_brightness + block_color * block_brightness).min(1.0)
+    let color: [f32; 3] = std::array::from_fn(|c| {
+        let block_color = tint[c] + (1.0 - tint[c]) * mix;
+        (umgebung[c] + himmel[c] * sky_brightness + block_color * block_brightness).clamp(0.0, 1.0)
     });
     let max = color.iter().fold(0.0f32, |a, &c| a.max(c));
+    if max == 0.0 {
+        return color;
+    }
     let rest = 1.0 - max;
     let scaled = 1.0 - rest * rest * rest * rest;
-    color.map(|c| c + (c * (scaled / max) - c) * 0.5)
+    color.map(|c| c + (c * (scaled / max) - c) * BRIGHTNESS_FACTOR)
+}
+
+/// Die Lightmap einer Dimension: [`brightness_rgb`] je Himmels- und
+/// Blocklicht in 255steln, für [`darken`].
+pub struct Lightmap([[[u32; 3]; 16]; 16]);
+
+impl Lightmap {
+    pub fn new(typ: &DimensionType) -> Lightmap {
+        Lightmap(std::array::from_fn(|sky| {
+            std::array::from_fn(|block| {
+                brightness_rgb(typ, sky as u8, block as u8).map(|c| (c * 255.0).round() as u32)
+            })
+        }))
+    }
+
+    /// Die Lightmap der Oberwelt am Tag.
+    pub fn oberwelt() -> &'static Lightmap {
+        static OBERWELT: LazyLock<Lightmap> =
+            LazyLock::new(|| Lightmap::new(&DimensionType::oberwelt()));
+        &OBERWELT
+    }
+
+    /// Die Helligkeit im Licht `licht` je Farbkanal, Rot zuerst.
+    pub fn factors(&self, licht: Light) -> [u32; 3] {
+        self.0[licht.sky.min(FULL_LIGHT) as usize][licht.block.min(FULL_LIGHT) as usize]
+    }
+
+    /// Die Helligkeit an einer Ecke je Kanal, aus ihrem Licht nach
+    /// [`smooth_blend`]: Das Spiel liest die Lightmap je Ecke
+    /// (`terrain.vsh`, `sample_lightmap`), linear gefiltert
+    /// (`ChunkSectionsToRender`, `FilterMode.LINEAR`), also zwischen den
+    /// benachbarten Stufen gemischt, in beiden Lichtern.
+    /// Siehe docs/renderer/weiche-beleuchtung.md, „Licht an den Ecken“.
+    pub fn linear(&self, licht: u32) -> [u32; 3] {
+        let (sky, block) = (licht >> 16 & 255, licht & 255);
+        let (s, b) = ((sky >> 4).min(15) as u8, (block >> 4).min(15) as u8);
+        let (fs, fb) = (sky & 15, block & 15);
+        let stufe = |sky: u8, block: u8| self.factors(Light { sky, block });
+        let (t00, t01, t10, t11) = (
+            stufe(s, b),
+            stufe(s, b + 1),
+            stufe(s + 1, b),
+            stufe(s + 1, b + 1),
+        );
+        std::array::from_fn(|c| {
+            ((16 - fs) * (16 - fb) * t00[c]
+                + (16 - fs) * fb * t01[c]
+                + fs * (16 - fb) * t10[c]
+                + fs * fb * t11[c]
+                + 128)
+                / 256
+        })
+    }
 }
 
 /// In welchem Licht das Spiel einen Block zeichnet: Himmels- und
@@ -113,16 +153,9 @@ impl Light {
         Light { sky, block: 0 }
     }
 
-    /// [`brightness_rgb`] in 255steln, für [`darken`].
+    /// [`Lightmap::factors`] in der Oberwelt.
     pub fn factors(self) -> [u32; 3] {
-        static FAKTOREN: LazyLock<[[[u32; 3]; 16]; 16]> = LazyLock::new(|| {
-            std::array::from_fn(|sky| {
-                std::array::from_fn(|block| {
-                    brightness_rgb(sky as u8, block as u8).map(|c| (c * 255.0).round() as u32)
-                })
-            })
-        });
-        FAKTOREN[self.sky.min(FULL_LIGHT) as usize][self.block.min(FULL_LIGHT) as usize]
+        Lightmap::oberwelt().factors(self)
     }
 
     /// Himmels- und Blocklicht, gepackt wie `LightCoordsUtil.pack` in 26.2:
@@ -166,41 +199,7 @@ pub fn smooth_blend(mut a0: u32, mut a1: u32, mut a2: u32, mitte: u32) -> u32 {
     (a0 + a1 + a2 + mitte) >> 2 & 0xff_00ff
 }
 
-/// Die Helligkeit an einer Ecke je Kanal in 255steln, aus ihrem Licht nach
-/// [`smooth_blend`]: Das Spiel liest die Lightmap je Ecke
-/// (`terrain.vsh`, `sample_lightmap`), linear gefiltert
-/// (`ChunkSectionsToRender`, `FilterMode.LINEAR`), also zwischen den
-/// benachbarten Stufen gemischt, in beiden Lichtern. Die Stufen selbst sind
-/// [`Light::factors`].
-/// Siehe docs/renderer/weiche-beleuchtung.md, „Licht an den Ecken“.
-pub fn licht_linear(licht: u32) -> [u32; 3] {
-    let (sky, block) = (licht >> 16 & 255, licht & 255);
-    let (s, b) = ((sky >> 4).min(15) as u8, (block >> 4).min(15) as u8);
-    let (fs, fb) = (sky & 15, block & 15);
-    let stufe = |s: u8, b: u8| {
-        Light {
-            sky: s.min(FULL_LIGHT),
-            block: b.min(FULL_LIGHT),
-        }
-        .factors()
-    };
-    let (t00, t01, t10, t11) = (
-        stufe(s, b),
-        stufe(s, b + 1),
-        stufe(s + 1, b),
-        stufe(s + 1, b + 1),
-    );
-    std::array::from_fn(|c| {
-        ((16 - fs) * (16 - fb) * t00[c]
-            + (16 - fs) * fb * t01[c]
-            + fs * (16 - fb) * t10[c]
-            + fs * fb * t11[c]
-            + 128)
-            / 256
-    })
-}
-
-/// Ein Pixel im Licht mit den Faktoren aus [`Light::factors`]: jeder
+/// Ein Pixel im Licht mit den Faktoren aus [`Lightmap::factors`]: jeder
 /// Farbkanal mal seine Helligkeit, das Alpha bleibt. Ganzzahlig wie
 /// [`over`], dieselbe Rechnung steht im Shader (`gpu.wgsl`).
 pub fn darken(pixel: [u8; 4], factors: [u32; 3]) -> [u8; 4] {
@@ -361,7 +360,7 @@ pub fn tinted(pixel: [u8; 4], [block, water]: [u32; 2], [b, w]: [u32; 2]) -> [u8
 }
 
 /// Wie [`darken`] über [`tinted`], nur liegt der Anteil des Wassers im
-/// Licht `wasser`, der Rest im Licht `licht`, beide aus [`Light::factors`]:
+/// Licht `wasser`, der Rest im Licht `licht`, beide aus [`Lightmap::factors`]:
 /// Ein gefluteter Block an der Oberfläche zeichnet sein Modell im Licht
 /// seiner Zelle, sein Wasser im helleren darüber. Einmal gerundet, dieselbe
 /// Rechnung steht im Shader.
@@ -1130,6 +1129,17 @@ mod tests {
     use crate::assets::baker::Quad;
     use crate::assets::blockentity::Schicht;
 
+    /// Die Helligkeit im Himmelslicht `licht` ohne Blocklicht in der
+    /// Oberwelt, in jedem Kanal gleich.
+    fn brightness(licht: u8) -> f32 {
+        brightness_rgb(&DimensionType::oberwelt(), licht, 0)[0]
+    }
+
+    /// [`brightness`] in 255steln.
+    fn light_factor(licht: u8) -> u32 {
+        Light::sky(licht).factors()[0]
+    }
+
     /// Die Helligkeit je Himmelslicht, nach `lightmap.fsh` von Hand
     /// ausgerechnet: Umgebungsfarbe #0a0a0a, `SkyFactor` 1, Helligkeit 0,5.
     #[test]
@@ -1151,15 +1161,65 @@ mod tests {
     /// [`brightness`].
     #[test]
     fn blocklicht_wie_im_spiel() {
-        assert_eq!(brightness_rgb(0, 15), [1.0; 3]);
-        assert_eq!(brightness_rgb(15, 15), [1.0; 3]);
-        let warm = brightness_rgb(5, 6);
+        let oberwelt = DimensionType::oberwelt();
+        assert_eq!(brightness_rgb(&oberwelt, 0, 15), [1.0; 3]);
+        assert_eq!(brightness_rgb(&oberwelt, 15, 15), [1.0; 3]);
+        let warm = brightness_rgb(&oberwelt, 5, 6);
         for (ist, soll) in warm.iter().zip([0.58609, 0.53676, 0.44063]) {
             assert!((ist - soll).abs() < 1e-4, "{warm:?}");
         }
-        assert_eq!(brightness_rgb(7, 0), [brightness(7); 3]);
+        assert_eq!(brightness_rgb(&oberwelt, 7, 0), [brightness(7); 3]);
         assert_eq!(Light::sky(14).factors(), [light_factor(14); 3]);
         assert_eq!(Light { sky: 0, block: 15 }.factors(), [255; 3]);
+    }
+
+    /// Die Lightmap nimmt die Werte aus dem Typ der Dimension, von Hand nach
+    /// `lightmap.fsh` gerechnet. Im Nether und im Ende ist `SkyFactor` 0:
+    /// Himmelslicht ändert nichts, und ohne Blocklicht bleibt die
+    /// Umgebungsfarbe, `#302821` und `#3f473f`, zur Hälfte zu `notGamma`
+    /// gemischt. Blocklicht 9 färbt im Nether wärmer als in der Oberwelt,
+    /// und Blocklicht 15 macht überall alles hell. Ein eigener Typ färbt
+    /// Himmels- und Blocklicht in seinen Farben.
+    #[test]
+    fn lightmap_je_dimension() {
+        let typ = |id: &str| DimensionType::des_spiels(id).unwrap();
+        let (oberwelt, nether, ende) = (
+            Lightmap::oberwelt(),
+            Lightmap::new(&typ("minecraft:the_nether")),
+            Lightmap::new(&typ("minecraft:the_end")),
+        );
+        let l = |sky, block| Light { sky, block };
+        assert_eq!(oberwelt.factors(l(0, 0)), [24; 3]);
+        assert_eq!(oberwelt.factors(l(0, 9)), [167, 145, 101]);
+        for sky in [0, 14, 15] {
+            assert_eq!(
+                nether.factors(l(sky, 0)),
+                [96, 80, 66],
+                "Nether, Himmel {sky}"
+            );
+            assert_eq!(
+                ende.factors(l(sky, 0)),
+                [114, 128, 114],
+                "Ende, Himmel {sky}"
+            );
+            assert_eq!(nether.factors(l(sky, 9)), [196, 166, 119]);
+            assert_eq!(ende.factors(l(sky, 9)), [205, 197, 151]);
+        }
+        for map in [oberwelt, &nether, &ende] {
+            assert_eq!(map.factors(l(15, 15)), [255; 3]);
+        }
+        // Ein eigener Typ: rotes Himmelslicht mit `SkyFactor` 0,5, blaues
+        // Blocklicht, ohne Umgebungsfarbe.
+        let eigen = Lightmap::new(&DimensionType {
+            ambient_light_color: [0, 0, 0],
+            sky_light_factor: 0.5,
+            sky_light_color: [255, 0, 0],
+            block_light_tint: [0, 0, 255],
+            ..DimensionType::oberwelt()
+        });
+        assert_eq!(eigen.factors(l(15, 0)), [183, 0, 0]);
+        assert_eq!(eigen.factors(l(0, 6)), [4, 4, 101]);
+        assert_eq!(eigen.factors(l(0, 0)), [0; 3]);
     }
 
     /// Ein voller Würfel bekommt eine AO-Karte: Jeder Pixel mit Farbe liegt
@@ -1290,16 +1350,20 @@ mod tests {
         for sky in 0..=15 {
             for block in 0..=15 {
                 let licht = Light { sky, block };
-                assert_eq!(licht_linear(licht.packed()), licht.factors(), "{licht:?}");
+                assert_eq!(
+                    Lightmap::oberwelt().linear(licht.packed()),
+                    licht.factors(),
+                    "{licht:?}"
+                );
             }
         }
         let [a, b] = [Light::sky(14).factors(), Light::sky(15).factors()];
         assert_eq!(
-            licht_linear(0xe8_0000),
+            Lightmap::oberwelt().linear(0xe8_0000),
             std::array::from_fn(|c| (a[c] + b[c]).div_ceil(2))
         );
         let [a, b] = [Light { sky: 3, block: 6 }, Light { sky: 3, block: 7 }].map(Light::factors);
-        let viertel = licht_linear(0x30_0064);
+        let viertel = Lightmap::oberwelt().linear(0x30_0064);
         assert_eq!(
             viertel,
             std::array::from_fn(|c| (12 * a[c] + 4 * b[c] + 8) / 16)

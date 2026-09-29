@@ -14,7 +14,7 @@ use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, CardinalLight, Face, Textures, Tints, fluid, models_of};
 use crate::world::{BlockState, Blockdaten};
 
-use super::rasterizer::{faces_camera, render_mit_licht};
+use super::rasterizer::{Lightmap, faces_camera, render_mit_licht};
 use super::tint::BiomeTable;
 use super::{Projection, Sprite, render};
 
@@ -62,6 +62,10 @@ pub struct SpriteSet {
     /// Wie die Seiten schattiert werden, nach dem Typ der Dimension aus
     /// [`Assets::dimension_type`].
     licht: CardinalLight,
+    /// Die Lightmap nach demselben Typ.
+    lightmap: Lightmap,
+    /// Ob die Dimension Himmelslicht hat (`has_skylight`).
+    himmel: bool,
     /// Die Pixel eines vollen Wuerfels bei diesem scale, gegen die Deckung
     /// geprueft wird.
     masks: Masks,
@@ -384,6 +388,7 @@ impl SpriteSet {
         states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
     ) -> Result<SpriteSet> {
+        let typ = assets.dimension_type();
         let mut set = SpriteSet {
             sprites: Vec::new(),
             families: Vec::new(),
@@ -393,7 +398,9 @@ impl SpriteSet {
             by_content: HashMap::new(),
             strips: HashMap::new(),
             projection,
-            licht: assets.dimension_type().cardinal_light,
+            licht: typ.cardinal_light,
+            lightmap: Lightmap::new(&typ),
+            himmel: typ.has_skylight,
             masks: Masks::new(assets.textures(), projection),
             foreign: BTreeSet::new(),
             biomes: BiomeTable::new(assets.colors()),
@@ -884,6 +891,16 @@ impl SpriteSet {
 
     pub fn projection(&self) -> Projection {
         self.projection
+    }
+
+    /// Die Lightmap der Dimension, für die die Sprites gebaut sind.
+    pub fn lightmap(&self) -> &Lightmap {
+        &self.lightmap
+    }
+
+    /// Ob diese Dimension Himmelslicht hat (`has_skylight`).
+    pub fn himmel(&self) -> bool {
+        self.himmel
     }
 }
 

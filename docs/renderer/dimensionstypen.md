@@ -22,8 +22,8 @@ Typ (`Assets::set_dimension`, `Assets::dimension_type` in
 [`renderer/src/assets/dimension.rs`](../../renderer/src/assets/dimension.rs)).
 Die Typen des Spiels stehen in `dimensionstypen.txt`, Datenwurzeln liegen
 darüber, siehe [0041](../entscheidungen/0041-dimensionstypen-aus-dem-spiel.md).
-Heute nutzt er davon `cardinal_light`: Im Nether sind die Oberseiten so
-0,9 statt 1 hell.
+Er nutzt alles davon: `cardinal_light` für die Schattierung nach Richtung,
+`has_skylight` und die Farben für das Licht.
 
 ## Welcher Typ
 
@@ -73,8 +73,9 @@ Wie `DimensionType.DIRECT_CODEC` in 26.2, so weit er es braucht:
 - `overworld_caves` steht auch in der Tabelle; das Spiel nimmt ihn für
   keine seiner drei Dimensionen.
 
-Die Lightmap nutzt `has_skylight` und die vier Attribute noch nicht, siehe
-[Wasser und Licht](wasser-und-licht.md).
+Die Lightmap aus den vier Attributen und ob der Lauf Himmelslicht
+ausbreitet, legt `SpriteSet::build_in` aus dem Typ fest, siehe
+[Wasser und Licht](wasser-und-licht.md), „Helligkeit wie im Spiel“.
 
 ## Schattierung nach Richtung
 

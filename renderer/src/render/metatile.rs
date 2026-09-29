@@ -12,7 +12,7 @@ use crate::world::{BlockState, Chunk, REGION, Region, Section, World};
 
 use super::licht::{Ausbreitung, ChunkLicht, Eingabe};
 use super::rasterizer::{
-    Ecken, Light, VOLL_HELL, darken, ecken_faktor, licht_linear, over, pack, smooth_blend, tinted,
+    Ecken, Light, VOLL_HELL, darken, ecken_faktor, over, pack, smooth_blend, tinted,
     tinted_im_licht,
 };
 use super::sprites::{Family, Rows, TINT_BLOCK, TINT_WATER, mask_bit};
@@ -1203,7 +1203,7 @@ impl<'a> ChunkCache<'a> {
             biome_index: HashMap::new(),
             biome_last: usize::MAX,
             ausbreitung: Ausbreitung::default(),
-            himmel: true,
+            himmel: sprites.himmel(),
         }
     }
 
@@ -1760,8 +1760,9 @@ impl<'a> ChunkCache<'a> {
         leuchten: Leuchten,
         sprite: Option<SpriteId>,
     ) -> Result<Lichter> {
+        let lightmap = self.sprites.lightmap();
         if let Leuchten::Voll(_) = leuchten {
-            return Ok((Light::from_packed(VOLL_HELL).factors(), None, None));
+            return Ok((lightmap.factors(Light::from_packed(VOLL_HELL)), None, None));
         }
         if let Some(id) = sprite.filter(|&id| self.sprites.has_ao(id)) {
             // Was leuchtet, zeichnet das Spiel ohne weiche Beleuchtung
@@ -1772,16 +1773,16 @@ impl<'a> ChunkCache<'a> {
         }
         let eigen = self.lichtwert([x, y, z])?;
         if family.fluid.is_none() {
-            return Ok((Light::from_packed(eigen).factors(), None, None));
+            return Ok((lightmap.factors(Light::from_packed(eigen)), None, None));
         }
         let oben = self.lichtwert([x, y + 1, z])?;
         // `LightCoordsUtil.max`: je Licht das hellere.
         let hell = (eigen & 0xf0).max(oben & 0xf0) | (eigen & 0xf0_0000).max(oben & 0xf0_0000);
-        let hell = Light::from_packed(hell).factors();
+        let hell = lightmap.factors(Light::from_packed(hell));
         if family.pure_fluid {
             return Ok((hell, None, None));
         }
-        let licht = Light::from_packed(eigen).factors();
+        let licht = lightmap.factors(Light::from_packed(eigen));
         Ok((licht, None, (hell != licht).then_some(hell)))
     }
 
@@ -1792,7 +1793,7 @@ impl<'a> ChunkCache<'a> {
     /// des Blocks in der Ecke, gemischt nach [`smooth_blend`], dazu die
     /// weiche Beleuchtung aus denselben Blöcken
     /// (`BlockModelLighter.prepareQuadAmbientOcclusion`); die Lightmap liest
-    /// das Spiel dort linear gefiltert, [`licht_linear`]. Der Block in der
+    /// das Spiel dort linear gefiltert, `Lightmap::linear`. Der Block in der
     /// Ecke zählt nur, wenn hinter einem der beiden Nachbarn nichts die
     /// Sicht nimmt, sonst gilt der erste Nachbar aus `AdjacencyInfo.corners`.
     /// Sonst, wie `prepareQuadFlat` für eine Seite mit `cullface`, das Licht
@@ -1807,6 +1808,7 @@ impl<'a> ChunkCache<'a> {
         weich: bool,
         stufe: u8,
     ) -> Result<([u32; 3], Option<Ecken>)> {
+        let lightmap = self.sprites.lightmap();
         let [fest, dunkelt, sicht] = self.umgebung(block)?;
         let (roh, voll) = self.lichter_um(block)?;
         // Alles relativ zum Block, siehe `umgebung` und `lichter_um`.
@@ -1868,7 +1870,7 @@ impl<'a> ChunkCache<'a> {
                 let mut werte = [[0; 3]; 4];
                 for ((schatten, [a0, a1, a2]), &ziel) in je_ecke.iter().zip(&s.remap) {
                     let ao = AO_WERTE[schatten.iter().filter(|&&d| d).count()];
-                    let l = licht_linear(smooth_blend(*a0, *a1, *a2, mitte));
+                    let l = lightmap.linear(smooth_blend(*a0, *a1, *a2, mitte));
                     werte[ziel] = l.map(|l| (l * ao + 127) / 255);
                 }
                 werte
@@ -1878,7 +1880,7 @@ impl<'a> ChunkCache<'a> {
                     sky,
                     block: block.max(stufe),
                 };
-                [eigen.factors(); 4]
+                [lightmap.factors(eigen); 4]
             });
         }
         let Some(erste) = seiten.iter().flatten().flatten().next().copied() else {

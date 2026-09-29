@@ -12,7 +12,7 @@ use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::metatile::STUECK;
 use terranova_render::render::rasterizer::{
-    Ecken, Light, VOLL_HELL, darken, licht_linear, smooth_blend,
+    Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
 };
 use terranova_render::render::{
     BiomeTable, ChunkCache, Projection, ScreenRect, SpriteSet, draw_list, render_area,
@@ -2974,6 +2974,41 @@ fn gefluteter_zaun_unter_wasser() {
     assert!(lichter.contains(&soll), "{lichter:?}, erwartet {soll:?}");
 }
 
+/// Im Nether gibt es kein Himmelslicht (`has_skylight` falsch), und die
+/// Lightmap nimmt seine Farben: Über einem Boden unter freiem Himmel liegt
+/// die Luft dort im Licht 0, die Oberseite in der Umgebungsfarbe
+/// `#302821`, zur Hälfte zu `notGamma` gemischt; in der Oberwelt im Licht
+/// 15, voll hell.
+#[test]
+fn nether_ohne_himmelslicht() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], mit_mauer(|_, _, _| false));
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    let im = |dimension: &str| {
+        let mut assets = assets();
+        assets.set_dimension(Some(dimension));
+        let sprites = SpriteSet::build_in(&mut assets, &states, projection).unwrap();
+        let rect = ScreenRect::centered(512, 512);
+        let mut cache = ChunkCache::new(&world, &sprites);
+        let luft = cache.licht_at([8, 1, 8]).unwrap();
+        let draws = draw_list(&mut cache, rect, Y_RANGE).unwrap();
+        let (bx, by) = projection.project_block([8, 0, 8]);
+        let (bx, by) = (bx.round() as i32 - rect.x, by.round() as i32 - rect.y);
+        let d = draws
+            .iter()
+            .find(|d| {
+                d.sprite.ao.is_some()
+                    && d.origin == (bx + d.sprite.offset.0, by + d.sprite.offset.1)
+            })
+            .expect("Boden");
+        (luft, d.licht, d.ecken)
+    };
+    assert_eq!(im("minecraft:overworld"), ((15, 0), [255; 3], None));
+    assert_eq!(im("minecraft:the_nether"), ((0, 0), [96, 80, 66], None));
+}
+
 /// Ein Block, den das Spiel voll hell zeichnet, gibt einer Ecke daneben
 /// Himmels- und Blocklicht 15 (`LightCoordsUtil.getLightCoords`), nicht
 /// das Licht in seiner Zelle. Ein Magmablock in der Ecke im Nordwesten der
@@ -2992,7 +3027,7 @@ fn voll_heller_nachbar_zaehlt_mit_vollem_licht() {
     };
     let (_, ecken) = licht_am(&[(0, 0)], 0..=0, welt, [8, 0, 8], "");
     let p = |sky, block| Light { sky, block }.packed();
-    let licht = licht_linear(smooth_blend(p(10, 2), p(10, 2), VOLL_HELL, p(11, 1)));
+    let licht = Lightmap::oberwelt().linear(smooth_blend(p(10, 2), p(10, 2), VOLL_HELL, p(11, 1)));
     let nordwest = licht.map(|l| (l * 204 + 127) / 255);
     let ecken = ecken.expect("Ecken");
     assert_eq!(ecken.map(|kanal| kanal[0] & 255), nordwest);

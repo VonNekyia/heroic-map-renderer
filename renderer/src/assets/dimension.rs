@@ -67,6 +67,18 @@ pub struct DimensionType {
     pub block_light_tint: Tint,
 }
 
+impl DimensionType {
+    /// Der Typ `id` aus der Tabelle des Spiels, ohne die Datenwurzeln.
+    pub fn des_spiels(id: &str) -> Option<DimensionType> {
+        TABELLE.typen.get(id).copied()
+    }
+
+    /// Der Typ der Oberwelt aus der Tabelle des Spiels.
+    pub fn oberwelt() -> DimensionType {
+        DimensionType::des_spiels("minecraft:overworld").expect("in der Tabelle")
+    }
+}
+
 /// Die Typen und Dimensionen aus den Datenwurzeln, und welche Dimension
 /// der Lauf zeichnet.
 #[derive(Default)]

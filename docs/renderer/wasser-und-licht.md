@@ -24,8 +24,8 @@ Licht: Man sieht durch genau eine Oberfläche, und darunter liegt jeder Block
 in seinem Himmelslicht, das je Block Wasser eine Stufe verliert, und in
 seinem Blocklicht. Welches Licht ein Block bekommt, bestimmt `licht_fuer` in
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs),
-die Helligkeit `brightness` in `renderer/src/render/rasterizer.rs`. Belegt
-gegen 26.2.
+die Helligkeit `brightness_rgb` in `renderer/src/render/rasterizer.rs`.
+Belegt gegen 26.2.
 
 ## Flüssigkeiten als Würfel
 
@@ -100,18 +100,27 @@ und die Messung
 
 ## Helligkeit wie im Spiel
 
-Die Helligkeit b rechnet `brightness` in `renderer/src/render/rasterizer.rs`
-wie `shaders/core/lightmap.fsh` in 26.2: `get_brightness(l) = l / (4 − 3·l)`
+Die Helligkeit b rechnet `brightness_rgb` in
+`renderer/src/render/rasterizer.rs` je Farbkanal wie
+`shaders/core/lightmap.fsh` in 26.2: `get_brightness(l) = l / (4 − 3·l)`
 für die Stufe l / 15, mal `SkyFactor` und `SkyLightColor`, dazu die
-Umgebungsfarbe, auf 1 begrenzt; das Ergebnis liegt zwischen diesem Wert und
-`notGamma(c) = 1 − (1 − c)⁴`, gewichtet mit `BrightnessFactor`. Die Werte
-des Spiels am Tag in der Oberwelt: die Umgebungsfarbe `#0a0a0a`
-(`visual/ambient_light_color` in `dimension_type/overworld.json`),
-`SkyLightColor` weiss und `SkyFactor` 1 (`timeline/day.json`), und
+Umgebungsfarbe und das Blocklicht, siehe „Blocklicht“, auf 0 bis 1
+begrenzt; das Ergebnis liegt zwischen diesem Wert und `notGamma`, das alle
+Kanäle mit dem hellsten hebt, `1 − (1 − max)⁴`, gewichtet mit
 `BrightnessFactor` 0,5, denn das ist `options.gamma` in der Voreinstellung
-(`LightmapRenderStateExtractor`, `Options`). Licht 15 gibt 1, so hell
-zeichnet der Renderer jede Fläche. Nebel gibt es nicht; den zeichnet das
-Spiel nur, wenn die Kamera selbst unter Wasser ist.
+(`LightmapRenderStateExtractor`, `Options`). Einmal je Lauf entsteht
+daraus die Tabelle je Stufe, `Lightmap`.
+
+Umgebungsfarbe, `SkyFactor`, `SkyLightColor` und `BlockLightTint` kommen
+aus dem Typ der Dimension, siehe [Dimensionstypen](dimensionstypen.md),
+„Was der Renderer liest“. In der Oberwelt setzt `timeline/day.json` am Tag
+`SkyFactor` 1 und `SkyLightColor` weiss wie der Typ; Licht 15 gibt dort 1,
+so hell zeichnet der Renderer jede Fläche. Im Nether und im Ende ist
+`SkyFactor` 0: Himmelslicht ändert dort nichts, ohne Blocklicht liegt
+alles in der Umgebungsfarbe. Hat eine Dimension kein Himmelslicht
+(`has_skylight`), wie der Nether, breitet der Renderer auch keines aus.
+Nebel gibt es nicht; den zeichnet das Spiel nur, wenn die Kamera selbst
+unter Wasser ist.
 
 ## Blocklicht
 
@@ -120,8 +129,8 @@ geht mit `BlockFactor` 1,4 in `get_brightness`; das Flackern, das das Spiel
 um 0 laufen lässt, fehlt. Ihre Farbe `BlockLightColor`
 liegt zwischen `BlockLightTint` und Weiss, gemischt mit 0,9 · (2l − 1)², und
 `BlockLightTint` ist `#FFD88C`, der Standard aus `EnvironmentAttributes`,
-den die Oberwelt nicht ändert. Die Summe mit dem Himmelslicht wird auf 1
-begrenzt, und `notGamma` hebt alle Kanäle mit dem hellsten. Schwaches
+den keine Dimension des Spiels ändert. Die Summe mit dem Himmelslicht wird
+auf 1 begrenzt, und `notGamma` hebt alle Kanäle mit dem hellsten. Schwaches
 Blocklicht färbt so warm, bei Stufe 15 ist alles hell.
 
 Was selbst leuchtet, bringt sein Blocklicht mit, wie in

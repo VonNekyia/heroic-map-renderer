@@ -739,7 +739,7 @@ fn unlesbarer_anfang_wird_genannt() {
         );
         assert_eq!(assets.texture("block/stone"), Textures::MISSING);
         assert_eq!(assets.load_biomes(daten.path()).unwrap(), 1);
-        let meldung = format!("{:#}", assets.load_biomes(ohne_biom.path()).unwrap_err());
+        let meldung = format!("{:#}", assets.load_data(ohne_biom.path()).unwrap_err());
         let mut soll = [&models, &block, &anders].map(|pfad| pfad.display().to_string());
         soll.sort();
         assert_eq!(assets.unreadable().into_keys().collect::<Vec<_>>(), soll);
@@ -1380,11 +1380,42 @@ fn biome_aus_den_daten() {
     );
 }
 
+/// Eine Datenwurzel, die nichts trägt, was der Renderer liest, ist ein
+/// Fehler, eine fehlende auch. Eine nur mit einer Dimension oder nur mit
+/// einem kaputten Bannermuster ist keiner, eine nur mit einer Notiz schon.
 #[test]
-fn fehlende_biomdaten_sind_ein_fehler() {
+fn leere_datenwurzel_ist_ein_fehler() {
     let mut assets = base();
-    assert!(assets.load_biomes(&fixture("gibt-es-nicht")).is_err());
-    // existiert, enthält aber keine worldgen/biome-Verzeichnisse
-    assert!(assets.load_biomes(&fixture("assets-base")).is_err());
+    assert!(assets.load_data(&fixture("gibt-es-nicht")).is_err());
+    // existiert, trägt aber nichts davon
+    let meldung = format!(
+        "{:#}",
+        assets.load_data(&fixture("assets-base")).unwrap_err()
+    );
+    for ort in [
+        "worldgen/biome/",
+        "banner_pattern/",
+        "dimension_type/",
+        "dimension/",
+    ] {
+        assert!(meldung.contains(ort), "{meldung}");
+    }
     assert_eq!(assets.colors().biomes().count(), 0);
+
+    let nur = |pfad: &str, text: &str| {
+        let wurzel = tempfile::tempdir().unwrap();
+        let datei = wurzel.path().join(pfad);
+        std::fs::create_dir_all(datei.parent().unwrap()).unwrap();
+        std::fs::write(datei, text).unwrap();
+        wurzel
+    };
+    let dimension = nur(
+        "beispiel/dimension/tief.json",
+        r#"{"type": "minecraft:the_nether"}"#,
+    );
+    assert_eq!(assets.load_data(dimension.path()).unwrap(), [0, 0, 1]);
+    let kaputt = nur("beispiel/banner_pattern/kaputt.json", "{");
+    assert_eq!(assets.load_data(kaputt.path()).unwrap(), [0, 0, 0]);
+    let notiz = nur("beispiel/dimension/notiz.txt", "keine Dimension");
+    assert!(assets.load_data(notiz.path()).is_err(), "nur eine Notiz");
 }

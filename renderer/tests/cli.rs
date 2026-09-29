@@ -17,7 +17,7 @@ use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::heights::{self, EMPTY, Heights};
 use terranova_render::render::{
-    Projection, SpriteSet, TileId, encode_webp, pyramid, render_area, survey,
+    Projection, SpriteSet, TileId, encode_webp, pyramid, render_area, streifenbreite, survey,
 };
 use terranova_render::world::World;
 
@@ -1213,9 +1213,24 @@ fn weite_welt() -> TempDir {
 /// So meldet ein Export, dass Eltern im Speicher entstanden sind.
 const IM_SPEICHER: &str = "davon schon während des Renderns";
 
+/// Die Basis dieser Welt bei scale 32 in der Reihenfolge, in der `rendere`
+/// sie auf so vielen Threads verteilt: in Streifen so breit, wie
+/// `breite_der_streifen` in `cli.rs` sie schneidet, jeder Zeile für Zeile.
+fn reihe_wie_gerendert(welt: &Path, threads: usize) -> Vec<TileId> {
+    let world = World::open(welt).unwrap();
+    let mut reihe = survey(&world, Projection::new(32), (-64, 319), None)
+        .unwrap()
+        .tiles;
+    let je_thread = (reihe.len() / threads) as f64;
+    let stufen = (je_thread / 10.0).sqrt().log2().round().max(0.0) as u32;
+    let breite = (1 << stufen).min(streifenbreite(32)) as i32;
+    reihe.sort_by_key(|tile| (tile.x.div_euclid(breite), tile.y, tile.x));
+    reihe
+}
+
 /// Die feinen Stufen entstehen im Speicher, während die Basis rendert, und
 /// sind Byte für Byte, was `--pyramid` von der Platte baut: auf einem
-/// Thread; auf zweien, deren Stücke Eltern zerschneiden; über der
+/// Thread; auf dreien, deren Stücke Eltern zerschneiden; über der
 /// gröbsten nativen Stufe; und für einen Ausschnitt in einem bestehenden
 /// Baum, an dessen Rand die Eltern von der Platte kommen. Mit zwei
 /// nativen Stufen ist die gröbste zu klein für Streifen, und nichts
@@ -1223,10 +1238,20 @@ const IM_SPEICHER: &str = "davon schon während des Renderns";
 #[test]
 fn feine_stufen_im_speicher_wie_von_der_platte() {
     let welt = weite_welt();
+    // Drei Threads teilen die Reihe in Drittel (`verteile`), und am ersten
+    // Schnitt liegen Geschwister auf beiden Seiten. Das hängt nicht am
+    // Stehlen. Bei zweien fiele er auf den Rand eines Streifens.
+    let reihe = reihe_wie_gerendert(welt.path(), 3);
+    let schnitt = reihe.len() / 3;
+    assert_eq!(
+        reihe[schnitt - 1].parent(),
+        reihe[schnitt].parent(),
+        "der erste Schnitt zwischen drei Threads trennt keine Geschwister"
+    );
     let ganz = ["--scale", "32", "--native-levels", "0"];
     let nativ = ["--scale", "32", "--native-levels", "1"];
     let zwei = ["--scale", "32", "--native-levels", "2"];
-    for (threads, args, stufen) in [(1, &ganz, 0), (2, &ganz, 0), (1, &nativ, 1), (1, &zwei, 2)] {
+    for (threads, args, stufen) in [(1, &ganz, 0), (3, &ganz, 0), (1, &nativ, 1), (1, &zwei, 2)] {
         let fall = format!("{threads} Threads, {args:?}");
         let out = tempdir();
         let ausgabe = export_auf(threads, welt.path(), out.path(), args);

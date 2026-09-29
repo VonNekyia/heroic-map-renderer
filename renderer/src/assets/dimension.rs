@@ -90,7 +90,8 @@ enum Verweis {
     Direkt(DimensionType),
 }
 
-/// Die drei Dimensionen des Spiels haben ihren Typ gleichen Namens.
+/// Die drei Dimensionen des Spiels haben ohne eigene Definition den Typ
+/// gleichen Namens, wie in jeder Voreinstellung des Spiels.
 const DES_SPIELS: [&str; 3] = [
     "minecraft:overworld",
     "minecraft:the_nether",
@@ -165,20 +166,18 @@ impl Dimensionen {
                 Some("keine Weltwurzel, also keine Dimension: der Typ der Oberwelt".into()),
             );
         };
-        let typ_id = if DES_SPIELS.contains(&dimension) {
-            dimension.to_string()
-        } else {
-            match self.dimensionen.get(dimension) {
-                Some(Verweis::Direkt(typ)) => return (*typ, None),
-                Some(Verweis::Id(id)) => id.clone(),
-                None => {
-                    return (
-                        oberwelt,
-                        Some(format!(
-                            "{dimension} steht in keiner Datenwurzel: der Typ der Oberwelt"
-                        )),
-                    );
-                }
+        // Wie `WorldDimensions.bake`: erst die Datenpakete.
+        let typ_id = match self.dimensionen.get(dimension) {
+            Some(Verweis::Direkt(typ)) => return (*typ, None),
+            Some(Verweis::Id(id)) => id.clone(),
+            None if DES_SPIELS.contains(&dimension) => dimension.to_string(),
+            None => {
+                return (
+                    oberwelt,
+                    Some(format!(
+                        "{dimension} steht in keiner Datenwurzel: der Typ der Oberwelt"
+                    )),
+                );
             }
         };
         match self.typ_zu(&typ_id) {
@@ -222,11 +221,12 @@ fn typ(json: &Value, modifikator: &mut Option<String>) -> Result<DimensionType> 
             .as_object()
             .ok_or_else(|| anyhow!("attributes ist kein Objekt"))?;
         for (id, wert) in attribute {
+            let id = mit_namensraum(id);
             if wert.get("modifier").is_some() && ATTRIBUTE.contains(&id.as_str()) {
-                *modifikator = Some(id.clone());
+                *modifikator = Some(id);
                 continue;
             }
-            setze(&mut typ, id, wert).with_context(|| id.clone())?;
+            setze(&mut typ, &id, wert).with_context(|| id.clone())?;
         }
     }
     Ok(typ)
@@ -276,12 +276,18 @@ fn cardinal_light(json: &Value) -> Result<CardinalLight> {
 fn dimension(json: &Value, modifikator: &mut Option<String>) -> Result<Verweis> {
     ensure!(json.is_object(), "kein Objekt");
     match field(json, "type").ok_or_else(|| anyhow!("type fehlt"))? {
-        Value::String(id) => Ok(Verweis::Id(if id.contains(':') {
-            id.clone()
-        } else {
-            format!("minecraft:{id}")
-        })),
+        Value::String(id) => Ok(Verweis::Id(mit_namensraum(id))),
         direkt => Ok(Verweis::Direkt(typ(direkt, modifikator).context("type")?)),
+    }
+}
+
+/// Eine ID wie `Identifier.parse`: ohne Namensraum, oder mit leerem vor dem
+/// Doppelpunkt, liegt sie unter `minecraft`.
+fn mit_namensraum(id: &str) -> String {
+    match id.split_once(':') {
+        Some((namensraum, _)) if !namensraum.is_empty() => id.to_string(),
+        Some((_, pfad)) => format!("minecraft:{pfad}"),
+        None => format!("minecraft:{id}"),
     }
 }
 
@@ -469,6 +475,21 @@ mod tests {
             assert!(lies(kaputt).is_err(), "{kaputt}");
         }
 
+        // Schlüssel ohne Namensraum liest das Spiel als `minecraft:…`
+        // (`EnvironmentAttributes.CODEC` ist `byNameCodec`).
+        let kurz = lies(
+            r##"{"has_skylight": true, "attributes": {
+                "visual/ambient_light_color": "#102030",
+                ":visual/sky_light_factor": 0.5
+            }}"##,
+        )
+        .unwrap();
+        assert_eq!(
+            (kurz.ambient_light_color, kurz.sky_light_factor),
+            ([0x10, 0x20, 0x30], 0.5)
+        );
+        assert_eq!(mit_namensraum("beispiel:tief"), "beispiel:tief");
+
         let mut modifikator = None;
         let text = r##"{"has_skylight": true, "attributes": {
             "minecraft:visual/sky_light_color": {"modifier": "multiply", "argument": "#808080"}
@@ -487,9 +508,10 @@ mod tests {
         std::fs::write(pfad, text).unwrap();
     }
 
-    /// Welcher Typ zu einer Dimension gehört: die drei des Spiels fest,
-    /// eigene aus ihrer Definition in den Datenwurzeln, als ID oder direkt,
-    /// sonst der der Oberwelt mit einer Meldung, ebenso ohne Weltwurzel.
+    /// Welcher Typ zu einer Dimension gehört: der aus ihrer Definition in
+    /// den Datenwurzeln, als ID oder direkt, auch für die drei des Spiels;
+    /// die haben sonst den Typ gleichen Namens. Jede andere bekommt den der
+    /// Oberwelt mit einer Meldung, ebenso ohne Weltwurzel.
     /// Typen aus den Datenwurzeln gehen denen des Spiels vor. Eine ID ohne
     /// Namensraum liegt wie im Spiel unter `minecraft`.
     #[test]
@@ -562,11 +584,16 @@ mod tests {
         assert_eq!(typ(Some("beispiel:unbekannt")), (oberwelt, true));
         assert_eq!(typ(None), (oberwelt, true), "ohne Weltwurzel");
         assert_eq!(
-            typ(Some("minecraft:the_nether")),
-            (TABELLE.typen["minecraft:the_nether"], false),
-            "die Dimensionen des Spiels haben ihren Typ fest"
+            typ(Some("minecraft:overworld")),
+            (oberwelt, false),
+            "ohne Definition der Typ gleichen Namens"
         );
         let ende = typ(Some("minecraft:the_end"));
+        assert_eq!(
+            typ(Some("minecraft:the_nether")),
+            ende,
+            "die Definition aus der Datenwurzel"
+        );
         assert_eq!(
             (ende.0.has_skylight, ende.1),
             (false, false),

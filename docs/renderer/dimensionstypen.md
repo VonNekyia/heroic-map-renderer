@@ -31,14 +31,17 @@ Welche Dimension ein Lauf zeichnet, sagt `World::dimension`, aus dem Pfad
 unter `--world`, siehe [Welten und Kennung](../benutzung/welten.md),
 „Weltwurzel und Dimension“. Dazu der Typ:
 
-- **Die drei des Spiels** haben ihren Typ fest: `minecraft:overworld`,
-  `minecraft:the_nether` und `minecraft:the_end` den gleichen Namens.
-- **Eigene Dimensionen** aus ihrer Definition in einer Datenwurzel,
+- **Aus ihrer Definition** in einer Datenwurzel,
   `<namespace>/dimension/**/*.json`, wie `LevelStem.CODEC`: `type` ist die
-  ID eines Typs oder der Typ selbst.
+  ID eines Typs oder der Typ selbst. Das gilt auch für die drei des
+  Spiels: `WorldDimensions.bake` sucht jede Dimension zuerst in den
+  Datenpaketen.
+- **Die drei des Spiels** ohne eigene Definition: `minecraft:overworld`,
+  `minecraft:the_nether` und `minecraft:the_end` den Typ gleichen Namens.
 - **Der Typ** kommt aus den Datenwurzeln, `<namespace>/dimension_type/**/*.json`,
   sonst aus der Tabelle des Spiels. Spätere Wurzeln überschreiben frühere
-  und die Typen des Spiels, wie gestapelte Datenpakete.
+  und die Typen des Spiels, wie gestapelte Datenpakete. Eine ID ohne
+  Namensraum liegt wie bei `Identifier.parse` unter `minecraft`.
 - **Sonst der der Oberwelt,** mit einer Meldung in der Ausgabe: ohne
   Weltwurzel, also nur mit einem Ordner `region`; für eine eigene Dimension,
   die keine Datenwurzel definiert; für einen Typ, den niemand kennt.
@@ -61,7 +64,9 @@ Wie `DimensionType.DIRECT_CODEC` in 26.2, so weit er es braucht:
 | `visual/block_light_tint` | `#ffd88c` | `#ffd88c` | `#ffd88c` | `#ffd88c` |
 
 - Die vier Attribute stehen unter `attributes`, als
-  `minecraft:visual/…`. Ihre Vorgaben sind die aus `EnvironmentAttributes`;
+  `minecraft:visual/…` oder ohne Namensraum als `visual/…`, denn
+  `EnvironmentAttributes.CODEC` liest die Schlüssel als ID
+  (`byNameCodec`). Ihre Vorgaben sind die aus `EnvironmentAttributes`;
   ein Typ, der ein Attribut setzt, gilt darüber wie der Constant-Layer in
   `EnvironmentAttributeSystem.addDimensionLayer`.
 - Eine Farbe liest der Renderer wie `ExtraCodecs.STRING_RGB_COLOR`, siehe
@@ -110,6 +115,12 @@ Belegt per javap am Client 26.2 und an den Daten im JAR:
 - `DimensionType` und sein Codec (`createDirectCodec`): Felder, Pflicht und
   Vorgaben; `CardinalLighting`, `CardinalLighting.Type` mit `default` und
   `nether`.
+- `WorldDimensions.bake`: je Dimension zuerst die Registry der
+  Datenpakete, die `LevelStorageSource.getLevelDataAndDimensions`
+  hineingibt, dann die Dimensionen, die die Welt gespeichert hat. Alle
+  sieben Voreinstellungen unter `data/minecraft/worldgen/world_preset/`
+  geben den drei den Typ gleichen Namens. `Identifier.bySeparator`: ohne
+  Namensraum `minecraft`.
 - `DimensionTypes.bootstrap` und die JSON-Dateien unter
   `data/minecraft/dimension_type/`: Nur `the_nether` setzt
   `cardinal_light` `nether` und `has_skylight` falsch.
@@ -138,10 +149,13 @@ Die Tabelle schreibt `Dimensionstypen.java` aus dem Spiel selbst, über
 - **Nur die gelesenen Felder** prüft der Renderer. Was der Codec sonst
   verlangt, etwa `height` oder `infiniburn`, fehlt einem Typ aus einer
   Datenwurzel womöglich, ohne dass er es merkt.
-- **Die drei Dimensionen des Spiels** haben ihren Typ fest. Ein
-  Datenpaket, das etwa `minecraft:the_nether` in `dimension/` neu
-  definiert, ändert den Typ nicht; ein neuer Typ gleichen Namens unter
-  `dimension_type/` dagegen schon.
+- **Die Dimensionen der Welt selbst:** Die Welt speichert ihre
+  Dimensionen samt Typ in `data/minecraft/world_gen_settings.dat` unter
+  `dimensions`, und das Spiel nimmt sie, wo kein Datenpaket die Dimension
+  definiert. Der Renderer liest sie nicht und gibt den drei des Spiels
+  dann den Typ gleichen Namens, wie jede Voreinstellung des Spiels. Eine
+  eigene Dimension ohne Definition in einer Datenwurzel bekommt den der
+  Oberwelt, mit Meldung.
 - **Biome und Zeitleisten** können die Attribute im Spiel weiter ändern.
   In Vanilla setzt kein Biom eines der vier Attribute, und die Zeitleiste
   `day` der Oberwelt lässt sie am Tag, wie sie sind.

@@ -27,8 +27,9 @@ Die Typen des Spiels stehen im Client-JAR unter
   Attribute aus `EnvironmentAttributes`. Sie ist ins Binär einkompiliert.
 - Datenwurzeln unter `--data` bringen `dimension_type/` und `dimension/` dazu
   und überschreiben die Typen des Spiels, wie gestapelte Datenpakete.
-- Die drei Dimensionen des Spiels haben ihren Typ fest; eigene finden ihn in
-  ihrer Definition; sonst gilt der der Oberwelt, mit einer Meldung.
+- Jede Dimension findet ihren Typ zuerst in ihrer Definition aus einer
+  Datenwurzel, wie im Spiel; die drei des Spiels sonst den gleichen
+  Namens; jede andere den der Oberwelt, mit einer Meldung.
 - Einen Leser für alles, was Schattierung und Lightmap brauchen, gibt es
   genau einmal: `DimensionType` in `dimension.rs`. Die Vorgaben stehen nur
   in der Tabelle.
@@ -57,8 +58,12 @@ Wie der Typ gefunden und gelesen wird: [Dimensionstypen](../renderer/dimensionst
 
 - Eine fünfte Tabelle, die mit jeder Spielversion neu erzeugt wird, siehe
   [Erzeugte Tabellen](../entwicklung/tabellen.md).
-- Datenwurzeln tragen jetzt auch Dimensionen und ihre Typen. Wie jede
-  Datenwurzel braucht eine solche heute auch Biome, sonst bricht der Lauf
-  ab, siehe [Assets und Biomdaten](../benutzung/assets.md).
+- Datenwurzeln tragen jetzt auch Dimensionen und ihre Typen. Eine Wurzel
+  bricht den Lauf nur noch ab, wenn sie nichts trägt, was der Renderer
+  liest, keine Biome, Bannermuster, Dimensionen oder Typen; eine nur mit
+  einer Dimension genügt, siehe [Assets und Biomdaten](../benutzung/assets.md).
+- Die Dimensionen, die die Welt selbst speichert, liest der Renderer
+  nicht, siehe [Dimensionstypen](../renderer/dimensionstypen.md), „Was
+  bleibt eine Näherung“.
 - Ohne Weltwurzel, also mit nur einem Ordner `region`, gilt immer die
   Oberwelt.

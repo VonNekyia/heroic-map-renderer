@@ -2732,14 +2732,8 @@ fn nether_schattiert_wie_im_spiel() {
         common::write_world(dir, &[(0, 0)], szene);
     }
     common::write_wurzel(welt.path(), 1);
+    // Eine Datenwurzel nur mit einer Dimension, ohne Biome.
     let daten = tempdir();
-    let biom = daten.path().join("minecraft/worldgen/biome");
-    std::fs::create_dir_all(&biom).unwrap();
-    std::fs::copy(
-        common::biomdaten().join("minecraft/worldgen/biome/plains.json"),
-        biom.join("plains.json"),
-    )
-    .unwrap();
     std::fs::create_dir_all(daten.path().join("beispiel/dimension")).unwrap();
     std::fs::write(
         daten.path().join("beispiel/dimension/tief.json"),
@@ -2775,7 +2769,7 @@ fn nether_schattiert_wie_im_spiel() {
         "{ausgabe}"
     );
     assert!(
-        ausgabe.contains("1 Biome, 0 Bannermuster, 1 Dimensionen und Typen aus"),
+        ausgabe.contains("0 Biome, 0 Bannermuster, 1 Dimensionen und Typen aus"),
         "{ausgabe}"
     );
     let (dunkel, ausgabe) = bild(&nether);

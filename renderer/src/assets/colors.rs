@@ -198,7 +198,6 @@ impl Colors {
     /// Siehe docs/renderer/biomfarben.md, „Biome lesen“.
     pub fn load_biomes(&mut self, dir: &Path) -> Result<usize> {
         let pack = Pack::open(dir, &pack::BIOME)?;
-        let mut dateien = 0;
         let mut count = 0;
         for (name, pfad) in pack.files() {
             let Some((namespace, rest)) = name.split_once('/') else {
@@ -210,7 +209,6 @@ impl Colors {
             else {
                 continue;
             };
-            dateien += 1;
             let biom = read_text(pfad).and_then(|text| biome(&parse_json(&text, true)?));
             match biom {
                 Ok(biom) => {
@@ -222,17 +220,6 @@ impl Colors {
                         .insert(pfad.display().to_string(), format!("{grund:#}"));
                 }
             }
-        }
-        if dateien == 0 {
-            let unlesbar: String = pack
-                .unreadable()
-                .iter()
-                .map(|(pfad, grund)| format!("; {pfad} nicht lesbar: {grund}"))
-                .collect();
-            bail!(
-                "keine Biome unter {} — erwartet wird <dir>/minecraft/worldgen/biome/*.json{unlesbar}",
-                dir.display()
-            );
         }
         self.unreadable.extend(pack.unreadable().clone());
         Ok(count)

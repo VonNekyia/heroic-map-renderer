@@ -6,6 +6,7 @@ code:
   - renderer/src/assets/pack.rs
   - renderer/src/assets/colors.rs
   - renderer/src/assets/blockentity.rs
+  - renderer/src/assets/mod.rs
 ---
 
 # Assets und Biomdaten
@@ -98,9 +99,16 @@ Die Dimensionstypen des Spiels kennt der Renderer ebenso aus einer Tabelle.
 Eine Datenwurzel braucht es nur für eigene Dimensionen und Typen aus
 Datenpaketen: `<DIR>/<namespace>/dimension/**/*.json` und
 `<DIR>/<namespace>/dimension_type/**/*.json`, in denselben Wurzeln wie die
-Biome. Eine Datenwurzel ohne Biome lehnt der Lauf heute ab, auch wenn sie
-Dimensionen trägt. Welcher Typ zu welcher Dimension gehört:
+Biome. Welcher Typ zu welcher Dimension gehört:
 [Dimensionstypen](../renderer/dimensionstypen.md).
+
+## Was eine Datenwurzel tragen muss
+
+Eine Datenwurzel darf nur Biome, nur Bannermuster oder nur Dimensionen
+tragen. Ab bricht der Lauf nur bei einer, die nichts davon trägt, auch
+keine Datei, die der Codec ablehnt: Dann stimmt vermutlich der Pfad nicht.
+Die Meldung nennt die erwarteten Orte und jeden Ordner, der sich nicht
+lesen liess (`Assets::load_data`).
 
 ## Im Repository
 

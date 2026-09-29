@@ -241,9 +241,7 @@ pub fn run() -> Result<()> {
                 assets.colors().maps()
             );
             for dir in &args.data {
-                let biomes = assets.load_biomes(dir)?;
-                let muster = assets.load_banner_patterns(dir)?;
-                let dimensionen = assets.load_dimensions(dir)?;
+                let [biomes, muster, dimensionen] = assets.load_data(dir)?;
                 println!(
                     "            {biomes} Biome, {muster} Bannermuster, {dimensionen} Dimensionen und Typen aus {}",
                     dir.display()

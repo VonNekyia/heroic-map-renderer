@@ -172,6 +172,34 @@ impl Assets {
         &self.colors
     }
 
+    /// Liest eine Datenwurzel ganz: Biome, Bannermuster, Dimensionen und
+    /// Dimensionstypen. Ein Fehler ist sie nur, wenn sie nichts davon
+    /// trägt, auch nichts, was der Codec ablehnt; die Meldung nennt dann
+    /// die erwarteten Orte und was sich nicht lesen liess. Liefert, wie
+    /// viele Biome, Bannermuster und Dimensionen samt Typen sie brachte.
+    /// Siehe docs/benutzung/assets.md.
+    pub fn load_data(&mut self, dir: &Path) -> Result<[usize; 3]> {
+        let [typen, dimensionen] = pack::DIMENSION;
+        let orte = [pack::BIOME[0], pack::BANNER_PATTERN[0], dimensionen, typen];
+        let liste = Pack::open(dir, &orte)?;
+        if !liste.files().any(|(name, _)| name.ends_with(".json")) {
+            let unlesbar: String = liste
+                .unreadable()
+                .iter()
+                .map(|(pfad, grund)| format!("; {pfad} nicht lesbar: {grund}"))
+                .collect();
+            bail!(
+                "nichts zu lesen unter {} — erwartet wird <dir>/<namespace>/ mit worldgen/biome/, banner_pattern/, dimension_type/ oder dimension/ und darin *.json{unlesbar}",
+                dir.display()
+            );
+        }
+        Ok([
+            self.load_biomes(dir)?,
+            self.load_banner_patterns(dir)?,
+            self.load_dimensions(dir)?,
+        ])
+    }
+
     /// Liest Biomdefinitionen aus einer Datenwurzel — das `data/` aus dem
     /// Client-JAR oder ein Datenpaket.
     pub fn load_biomes(&mut self, dir: &Path) -> Result<usize> {

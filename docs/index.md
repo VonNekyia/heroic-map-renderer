@@ -85,7 +85,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0029](entscheidungen/0029-segment-heap-fuer-libwebp.md): Der Segment-Heap für libwebp unter Windows.
 - [0030](entscheidungen/0030-licht-je-block.md): Licht je Block beim Zeichnen, abgelöst durch 0040.
 - [0031](entscheidungen/0031-eigene-tabellen-statt-der-masken.md): Eigene Tabellen statt der Masken für die weiche Beleuchtung.
-- [0032](entscheidungen/0032-weiche-beleuchtung-zuerst-fuer-volle-wuerfel.md): Weiche Beleuchtung zuerst nur für volle Würfel.
+- [0032](entscheidungen/0032-weiche-beleuchtung-zuerst-fuer-volle-wuerfel.md): Weiche Beleuchtung zuerst nur für volle Würfel, abgelöst durch 0040.
 - [0033](entscheidungen/0033-toenung-beim-zeichnen.md): Tönung beim Zeichnen statt Fassungen je Biom.
 - [0034](entscheidungen/0034-eigene-lizenz.md): Eigene Lizenz: nutzen ja, verkaufen und übernehmen nein.
 - [0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md): Koordinaten aus Höhenkarten.

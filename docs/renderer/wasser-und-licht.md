@@ -184,24 +184,38 @@ liegt. Gegen einen Lauf von Vanilla 26.2 stimmt jede Zelle, siehe
 Beim Zeichnen nimmt `licht_fuer` das Licht aus der Ausbreitung, wie das
 Spiel in 26.2 (`LightCoordsUtil.getLightCoords`), belegt per javap:
 
-- **Volle Würfel** bekommen das Licht an den Ecken jeder Seite, aus der
-  Schicht vor ihr, siehe [Weiche Beleuchtung](weiche-beleuchtung.md),
-  „Licht an den Ecken“. Die Oberseite des Grunds liegt so im Licht des
-  Wassers über ihr, die Ostseite einer Klippe unter Wasser im Licht des
-  Wassers davor.
+- **Flächen auf dem Rand des Blocks** bekommen das Licht an den Ecken
+  ihrer Seite, aus der Schicht vor ihr, siehe
+  [Weiche Beleuchtung](weiche-beleuchtung.md), „Licht an den Ecken“: die
+  Seiten eines Steins wie die Oberseite einer oberen Platte, die Enden der
+  Arme eines Zauns oder die Fächer einer Chiseled Bookshelf. Hat der Block
+  volle Kollisionsform, gilt das für jede ebene Fläche seines Modells
+  (`faceCubic` in `BlockModelLighter.prepareQuadShape`). Die Oberseite des
+  Grunds liegt so im Licht des Wassers über ihr, die Ostseite einer Klippe
+  unter Wasser im Licht des Wassers davor, ein Dach aus oberen Platten unter
+  freiem Himmel voll hell, obwohl in seine Zellen Licht nur von der Seite
+  kommt.
 - **Flüssigkeiten** liegen im helleren Licht ihrer Zelle und der darüber,
   je Licht für sich (`FluidRenderer`, `LightCoordsUtil.max`): Der oberste
   Block Wasser zeigt das Licht der Luft über ihm, unter freiem Himmel 15,
   jeder darunter meist das des Wassers über ihm, am Fuss eines Wasserfalls
   neben Luft das Licht, das von der Seite hereinkommt.
-- **Ein Block mit eigenem Wasser**, ein gefluteter Zaun etwa, liegt im
-  Licht seiner Zelle wie jedes Modell (`ModelBlockRenderer`), sein Wasser
-  im helleren Licht wie jede Flüssigkeit. Das gilt auch unter Wasser:
+- **Ein Block mit eigenem Wasser**, ein gefluteter Zaun etwa, liegt wie
+  jedes Modell (`ModelBlockRenderer`), sein Wasser im helleren Licht wie
+  jede Flüssigkeit. Das gilt auch unter Wasser:
   `FluidRenderer.tesselate` fragt für Oberseite und Seiten dasselbe Licht,
   gleich was über der Zelle steht. Ein Bild aus dem Blockentity liegt im
   Licht der Zelle (`BlockEntityRenderState.extractBase`).
-- **Alles andere** liegt im Licht seiner Zelle. Das eigene Blocklicht
-  steckt darin, denn als Quelle beginnt die Zelle mit ihm.
+- **Alles andere** liegt im Licht seiner Zelle: Flächen im Innern des
+  Blocks, etwa die Oberseite einer unteren Platte, und Flächen, die auf
+  keiner Seite liegen, wie die gekreuzten einer Blume. Das eigene
+  Blocklicht steckt darin, denn als Quelle beginnt die Zelle mit ihm.
+- **Eine Doppelkiste** liegt mit ihrem Bild aus dem Blockentity in beiden
+  Hälften im helleren Licht ihrer zwei Zellen (`ChestRenderer` mit
+  `BrightnessCombiner`, `LightCoordsUtil.max`), jeder `ChestBlock`, also
+  auch Falle und Kupfer. Die andere Hälfte liegt in der Richtung aus
+  `ChestBlock.getConnectedDirection`: bei `type=left` im Uhrzeigersinn
+  neben `facing`, bei `right` dagegen.
 - **Voll hell** ist, was das Spiel mit `emissiveRendering` zeichnet.
 
 Der Blit multipliziert jeden Pixel je Kanal mit b, ganzzahlig wie das
@@ -215,11 +229,11 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
 
 ## Was bleibt eine Näherung
 
-- **Ein Licht je Sprite, wo Teilflächen sind.** Was nicht ganz aus vollen
-  Seiten besteht, Treppen, Platten, Zäune, Pflanzen, liegt ganz im Licht
-  seiner Zelle. Das Spiel beleuchtet auch diese Flächen weich und nimmt für
-  eine Fläche auf dem Rand des Blocks das Licht davor, siehe
-  [Weiche Beleuchtung](weiche-beleuchtung.md), „Was noch fehlt“.
+- **Flächen im Innern** liegen flach im Licht der eigenen Zelle. Das
+  Spiel beleuchtet auch sie weich, aus der Schicht des Blocks selbst, siehe
+  [Weiche Beleuchtung](weiche-beleuchtung.md), „Was noch fehlt“. Wie
+  Teilflächen auf dem Rand verlaufen, steht dort unter „Was bleibt eine
+  Näherung“.
 - **Zustände ohne alle Eigenschaften.** Fehlen einem Blockzustand
   Eigenschaften, findet er in `licht.txt` und `leuchten.txt` keinen Platz
   und bekommt ihre Vorgaben: keine Dämpfung, keine Flächen, kein Leuchten.
@@ -228,6 +242,27 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
   `NbtUtils.readBlockState`). Es speichert aber jeden Zustand mit allen
   Eigenschaften; unvollständige kommen nur in Welten vor, die von Hand
   gebaut sind.
+- **Leuchtende Flächen im Modell.** Ein Element mit `light_emission` hebt
+  im Spiel Himmels- und Blocklicht seiner Flächen auf mindestens diesen
+  Wert (`UnbakedCuboidGeometry`, `MaterialInfo.lightEmission`,
+  `LightCoordsUtil.lightCoordsWithEmission`). Der Renderer liest den Wert
+  und verwirft ihn. In 26.2 setzen ihn nur `cross_emissive` und
+  `flower_pot_cross_emissive`, für `firefly_bush`, `open_eyeblossom` und
+  `potted_open_eyeblossom`, und zu sehen ist es nur im Schatten. Nachbauen
+  hiesse eine eigene Kennung je Pixel in der AO-Karte und einen Weg mehr
+  im Shader, für drei Blöcke.
+- **Die andere Hälfte einer Doppelkiste** prüft der Renderer nicht. Das
+  Spiel nimmt ihr Licht nur, wenn dort die passende Hälfte steht
+  (`ChestBlock.combine`). Es hält beide Hälften über `updateShape`
+  stimmig; eine Hälfte ohne die andere gibt es nur in einer Welt, die von
+  Hand gebaut ist.
+- **Blöcke, die 26.2 nicht kennt,** fehlen in `licht.txt`. Deckt ihr Modell
+  den ganzen Umriss, lassen sie wie ein Block mit voller Form kein Licht
+  hinein, sonst lassen sie es durch, ohne Flächen und ohne Leuchten
+  (`lichtweg` in `metatile.rs`). Ihr Modell kennt der Renderer aber nur für
+  Zustände, die der Vorlauf gesehen hat, also im Ausschnitt: Ausserhalb
+  eines `--size`, im Rand der Ausbreitung, lässt ein solcher Block das
+  Licht immer durch.
 - **Kein Flackern.** Das Spiel lässt `BlockFactor` zufällig um 1,4
   flackern; der Renderer nimmt 1,4.
 - **Die Oberfläche bleibt eben.** Minecraft gleicht die Eckhöhen an die

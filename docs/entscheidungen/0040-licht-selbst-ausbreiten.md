@@ -13,6 +13,8 @@ code:
   - renderer/src/assets/blockstate.rs
   - renderer/src/assets/licht.txt
   - renderer/src/assets/Licht.java
+  - renderer/src/assets/schatten.txt
+  - renderer/src/assets/Schatten.java
 ---
 
 # 0040: Licht selbst ausbreiten, je Chunk mit Rand
@@ -36,15 +38,23 @@ Cache des Threads. Ein Chunk, der fehlt oder nicht fertig ist, lässt kein
 Licht herein. Siehe [Wasser und Licht](../renderer/wasser-und-licht.md),
 „Licht ausbreiten“.
 
-Gezeichnet wird mit diesem Licht wie im Spiel: Volle Würfel bekommen es an
-den Ecken jeder Seite, gemischt wie `smoothBlend`, die Lightmap linear
-gefiltert; Flüssigkeiten das hellere ihrer Zelle und der darüber, das
-Wasser eines gefluteten Blocks ebenso; alles andere das seiner Zelle. Das
-Sprite trägt dafür kein Licht mehr. Siehe
+Gezeichnet wird mit diesem Licht wie im Spiel: Jede Fläche auf dem Rand
+des Blocks bekommt es an den Ecken ihrer Seite, aus der Schicht vor ihr,
+gemischt wie `smoothBlend`, die Lightmap linear gefiltert; bei voller
+Kollisionsform gilt das für jede ebene Fläche (`faceCubic`). Das sind auch
+die Oberseite einer oberen Platte, die Enden der Arme eines Zauns und die
+Fächer einer Chiseled Bookshelf. Flüssigkeiten bekommen das hellere Licht
+ihrer Zelle und der darüber, das Wasser eines gefluteten Blocks ebenso;
+Flächen im Innern und alles andere das Licht der eigenen Zelle. Das Sprite
+trägt dafür kein Licht mehr. Siehe
 [Wasser und Licht](../renderer/wasser-und-licht.md), „Welches Licht ein
 Block bekommt“, und [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md),
-„Licht an den Ecken“. Das löst
-[0030](0030-licht-je-block.md) ab.
+„Licht an den Ecken“. Das löst [0030](0030-licht-je-block.md) und
+[0032](0032-weiche-beleuchtung-zuerst-fuer-volle-wuerfel.md) ab. Von 0032
+bleibt: Flächen im Innern beleuchtet der Renderer noch nicht weich, und
+eine Teilfläche auf dem Rand nimmt den Verlauf ihrer ganzen Seite, siehe
+[Weiche Beleuchtung](../renderer/weiche-beleuchtung.md), „Was bleibt eine
+Näherung“.
 
 ## Verworfene Alternativen
 
@@ -67,6 +77,13 @@ Block bekommt“, und [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md),
   weil ein Block fast immer in zwei Streifen liegt.
 - **Nur Schatten unter Überhängen:** nicht wie im Spiel, und kaum
   billiger.
+- **Teilmodelle ganz im Licht ihrer Zelle:** Dann läge ein Dach aus
+  oberen Platten im Licht, das von der Seite in seine Zellen kommt, in der
+  Mitte eines Dachs von 13 Blöcken 7 Stufen dunkler als im Spiel, und eine
+  Chiseled Bookshelf im Licht 0 ihrer dichten Zelle.
+- **Randflächen von Teilmodellen flach je Seite:** braucht dieselbe
+  AO-Karte und je Block vier Zellen statt 27, aber das Spiel beleuchtet sie
+  weich. Nicht gemessen.
 
 Die Zahlen hat der Researcher im Prototyp gemessen und gerechnet, siehe
 #34.
@@ -77,7 +94,11 @@ Die Zahlen hat der Researcher im Prototyp gemessen und gerechnet, siehe
   des Spiels weicht keine ab.
 - Das Licht eines Chunks braucht seine acht Nachbarn: Der Cache lädt am
   Rand eines Streifens mehr Chunks.
-- Eine Tabelle mehr aus dem Spiel, `licht.txt`, und die Stufe voll heller
-  Blöcke in `leuchten.txt`.
+- Die Stufe voll heller Blöcke in `leuchten.txt`.
 - Eine Instanz auf der Karte trägt je Farbkanal das Licht an den Ecken
   und das Licht des Wassers, 68 statt 40 Bytes.
+- Fast jedes Sprite hat eine AO-Karte, 4 Bytes je Pixel: über alle
+  Zustände von 26.2 bei scale 32 53 MB statt 3 MB, neben 61 MB Bild. Ein
+  Teilmodell rechnet seine Ecken aus den Nachbarn wie ein Stein.
+- Eine Tabelle mehr aus dem Spiel, `licht.txt`, dazu Bit 4 in
+  `schatten.txt` für die volle Kollisionsform.

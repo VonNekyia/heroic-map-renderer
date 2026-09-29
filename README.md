@@ -112,7 +112,7 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 - Truhen, Banner, Köpfe, Krüge und die übrigen Blockentities aus den
   Modellen des Spiels, mit Bannermustern und Scherben.
 - Noch nicht: Text auf Schildern und Gegenstände in Blöcken, weiche
-  Beleuchtung für Teilflächen.
+  Beleuchtung für Flächen im Innern eines Blocks, etwa auf Schneedecken.
 
 ## Doku
 

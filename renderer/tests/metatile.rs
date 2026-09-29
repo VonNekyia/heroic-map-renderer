@@ -1478,9 +1478,11 @@ fn see_ohne_naht_ueber_ebenem_grund() {
     }
 }
 
-/// Eine geflutete Platte unter der Oberfläche liegt im Licht ihres eigenen
-/// Wassers, zwei Blöcke unter freiem Himmel, im Licht 13: die obere wie
-/// die untere, unter einer Quelle wie unter fliessendem Wasser.
+/// Eine geflutete Platte zwei Blöcke unter freiem Himmel, unter einer
+/// Quelle wie unter fliessendem Wasser: Die Oberseite der unteren liegt im
+/// Innern des Blocks, im Licht seiner Zelle, 13. Die der oberen liegt auf
+/// dem Rand, im Licht der Zelle darüber, 14 (`faceCubic` in
+/// `BlockModelLighter.prepareQuadShape`).
 #[test]
 fn geflutete_platte_liegt_im_licht_ihres_wassers() {
     platte_im_see("minecraft:water", 8);
@@ -1504,14 +1506,14 @@ fn platte_im_see(oben: &'static str, neuntel: u8) {
         }
     };
     let holz = [150, 110, 60, 255];
-    let erwartet = unter_wasser(schicht, holz, 13);
     // Die Mitte der Oberseite von (8, 4, 8): Der Blick trifft die obere
     // Platte bei 4, die untere bei 3,5.
     let mitte = [8.5, 4.0 + f64::from(neuntel) / 9.0, 8.5];
-    for platte in [
-        "minecraft:obere_platte[waterlogged=true]",
-        "minecraft:untere_platte[waterlogged=true]",
+    for (platte, licht) in [
+        ("minecraft:obere_platte[waterlogged=true]", 14),
+        ("minecraft:untere_platte[waterlogged=true]", 13),
     ] {
+        let erwartet = unter_wasser(schicht, holz, licht);
         let dir = tempdir();
         let bild = render_chunks(&dir, &[(0, 0)], see(platte), projection, rect);
         let ist = punkt(&bild, projection, rect, mitte);
@@ -2246,6 +2248,24 @@ fn licht_ohne_ecken(
     welt: impl Fn(i32, i32, i32) -> &'static str,
     block: [i32; 3],
 ) -> Vec<([u32; 3], Option<[u32; 3]>)> {
+    licht_mit_ecken(chunks, sections, welt, block)
+        .into_iter()
+        .filter(|(_, ecken, _)| ecken.is_none())
+        .map(|(licht, _, wasser)| (licht, wasser))
+        .collect()
+}
+
+/// Licht, Ecken und Wasser eines Draws.
+type Lichter = ([u32; 3], Option<Ecken>, Option<[u32; 3]>);
+
+/// Licht, Ecken und Wasser der Draws, die `draw_list` am Ursprung des
+/// Blocks `block` zeichnet, wie `lichter`. Scale 16.
+fn licht_mit_ecken(
+    chunks: &[(i32, i32)],
+    sections: std::ops::RangeInclusive<i8>,
+    welt: impl Fn(i32, i32, i32) -> &'static str,
+    block: [i32; 3],
+) -> Vec<Lichter> {
     let dir = tempdir();
     common::write_world_sections(dir.path(), chunks, sections, welt, |_, _| None);
     let world = World::open(dir.path()).unwrap();
@@ -2258,8 +2278,7 @@ fn licht_ohne_ecken(
     draws
         .iter()
         .filter(|d| d.origin == (bx + d.sprite.offset.0, by + d.sprite.offset.1))
-        .filter(|d| d.ecken.is_none())
-        .map(|d| (d.licht, d.wasser))
+        .map(|d| (d.licht, d.ecken, d.wasser))
         .collect()
 }
 
@@ -2938,7 +2957,8 @@ fn wasser_im_helleren_licht_je_licht() {
 
 /// Unter einem Überhang liegt ein gefluteter Zaun an der Oberfläche eines
 /// Teichs im Licht seiner Zelle, 13, sein Wasser im Licht der Luft über
-/// ihm, 14: Über dem Zaun liegt Stein bis x = 8, daneben freier Himmel.
+/// ihm, 14: Über dem Zaun liegt Stein bis x = 8, daneben freier Himmel. Die
+/// Oberseite des Pfostens liegt auf dem Rand und hat Ecken.
 #[test]
 fn gefluteter_zaun_unter_dem_ueberhang() {
     let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
@@ -2950,15 +2970,20 @@ fn gefluteter_zaun_unter_dem_ueberhang() {
         (..=8, 3, _) => "minecraft:stone",
         _ => "minecraft:air",
     };
-    let lichter = licht_ohne_ecken(&[(0, 0)], 0..=0, welt, [8, 1, 8]);
+    let lichter = licht_mit_ecken(&[(0, 0)], 0..=0, welt, [8, 1, 8]);
     let soll = (Light::sky(13).factors(), Some(Light::sky(14).factors()));
-    assert!(lichter.contains(&soll), "{lichter:?}, erwartet {soll:?}");
+    assert!(
+        (lichter.iter()).any(|&(l, e, w)| (l, w) == soll && e.is_some()),
+        "{lichter:?}, erwartet {soll:?}"
+    );
 }
 
 /// Auch unter Wasser liegt das Wasser eines gefluteten Blocks im helleren
 /// Licht seiner Zelle und der darüber: `FluidRenderer` fragt für Oberseite
 /// und Seiten dasselbe Licht, gleich was darüber steht. Ein gefluteter Zaun
-/// einen Block unter der Oberfläche liegt im Licht 13, sein Wasser in 14.
+/// einen Block unter der Oberfläche liegt im Licht 13, sein Wasser in 14,
+/// die Oberseite seines Pfostens im Licht des Wassers darüber, 14, an
+/// jeder Ecke.
 #[test]
 fn gefluteter_zaun_unter_wasser() {
     let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
@@ -2969,9 +2994,107 @@ fn gefluteter_zaun_unter_wasser() {
         (_, 1..=2, _) => "minecraft:water",
         _ => "minecraft:air",
     };
-    let lichter = licht_ohne_ecken(&[(0, 0)], 0..=0, welt, [8, 1, 8]);
-    let soll = (Light::sky(13).factors(), Some(Light::sky(14).factors()));
+    let lichter = licht_mit_ecken(&[(0, 0)], 0..=0, welt, [8, 1, 8]);
+    let (licht, wasser) = (Light::sky(13).factors(), Light::sky(14).factors());
+    let oben = wasser.map(|f| u32::from_le_bytes([f as u8; 4]));
+    assert!(
+        (lichter.iter()).any(|&(l, e, w)| {
+            (l, w) == (licht, Some(wasser)) && e.is_some_and(|e| e.map(|k| k[0]) == oben)
+        }),
+        "{lichter:?}, erwartet {licht:?} und {wasser:?}"
+    );
+}
+
+/// Pixel ohne Seite liegen im Licht der eigenen Zelle, auch wenn alle Ecken
+/// dasselbe Licht haben: Eine geflutete untere Platte in der Luft dämpft das
+/// Himmelslicht ihrer Zelle um eine Stufe, auf 14, ringsum liegt 15. Ihre
+/// Oberseite im Innern liegt in 14, ihre Seiten auf dem Rand an jeder Ecke
+/// in 15, ihr Wasser im helleren Licht, 15.
+#[test]
+fn geflutete_platte_in_der_luft() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) => "minecraft:stone",
+        (8, 2, 8) => "minecraft:oak_slab[type=bottom,waterlogged=true]",
+        _ => "minecraft:air",
+    };
+    let lichter = licht_mit_ecken(&[(0, 0)], 0..=0, welt, [8, 2, 8]);
+    let soll = (
+        Light::sky(14).factors(),
+        Some([[u32::MAX; 3]; 3]),
+        Some(Light::sky(15).factors()),
+    );
     assert!(lichter.contains(&soll), "{lichter:?}, erwartet {soll:?}");
+}
+
+/// Decken Nachbarn alle drei Seiten eines Blocks zu, bleibt von ihm nur, was
+/// aus seinem Würfel ragt, und das liegt im Licht seiner Zelle: Eine flache
+/// Platte ragt nach Westen, Stein deckt sie nach Osten, Süden und oben. Ihre
+/// Oberseite im Innern liegt im Licht der Zelle, 14, von Westen und Norden
+/// her.
+#[test]
+fn zugedeckter_block_zeigt_seinen_ueberhang_im_licht_seiner_zelle() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 1, 8) => "minecraft:ueberhang_flach",
+        (_, 0, _) | (9, 1, 8) | (8, 2, 8) | (8, 1, 9) => "minecraft:stone",
+        _ => "minecraft:air",
+    };
+    let lichter = licht_mit_ecken(&[(0, 0)], 0..=0, welt, [8, 1, 8]);
+    let soll = (Light::sky(14).factors(), None, None);
+    assert!(lichter.contains(&soll), "{lichter:?}, erwartet {soll:?}");
+}
+
+/// Eine Doppelkiste liegt in beiden Hälften im helleren Licht ihrer zwei
+/// Zellen (`BrightnessCombiner`): Über der linken Hälfte liegt Stein, in
+/// ihre Zelle kommt Licht nur von der Seite, 14; die rechte liegt unter
+/// freiem Himmel, 15. Nach Norden liegt die rechte östlich der linken.
+#[test]
+fn doppelkiste_im_helleren_licht_beider_haelften() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) | (8, 2, 8) => "minecraft:stone",
+        (8, 1, 8) => "minecraft:chest[facing=north,type=left,waterlogged=false]",
+        (9, 1, 8) => "minecraft:chest[facing=north,type=right,waterlogged=false]",
+        _ => "minecraft:air",
+    };
+    let soll = (Light::sky(15).factors(), None, None);
+    for block in [[8, 1, 8], [9, 1, 8]] {
+        let lichter = licht_mit_ecken(&[(0, 0)], 0..=0, welt, block);
+        assert!(
+            lichter.contains(&soll),
+            "{block:?}: {lichter:?}, erwartet {soll:?}"
+        );
+    }
+    // Die Zelle der linken Hälfte selbst liegt dunkler.
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], welt);
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, Projection::new(16));
+    let mut cache = ChunkCache::new(&world, &sprites);
+    assert_eq!(cache.licht_at([8, 1, 8]).unwrap(), (14, 0));
+}
+
+/// Hat das Modell einer Doppelkiste auch Flächen auf dem Rand, liegen die
+/// Pixel ohne Seite, das Bild aus dem Blockentity, ebenso im helleren
+/// Licht beider Hälften, in der dunkleren wie in der helleren: Die Falle
+/// der Fixtures trägt eine Deckelplatte auf ihrer Oberseite. Auf der Linie
+/// zur Kamera fehlt der Boden hinter beiden Hälften, sonst fände
+/// `licht_mit_ecken` auch ihn.
+#[test]
+fn doppelkiste_mit_randflaechen_im_helleren_licht() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (7..=8, 0, 7) => "minecraft:air",
+        (_, 0, _) | (8, 2, 8) => "minecraft:stone",
+        (8, 1, 8) => "minecraft:trapped_chest[facing=north,type=left,waterlogged=false]",
+        (9, 1, 8) => "minecraft:trapped_chest[facing=north,type=right,waterlogged=false]",
+        _ => "minecraft:air",
+    };
+    let hell = Light::sky(15).factors();
+    for block in [[8, 1, 8], [9, 1, 8]] {
+        let lichter = licht_mit_ecken(&[(0, 0)], 0..=0, welt, block);
+        assert!(
+            (lichter.iter()).any(|&(l, e, _)| l == hell && e.is_some()),
+            "{block:?}: {lichter:?}, erwartet {hell:?} mit Ecken"
+        );
+    }
 }
 
 /// Im Nether gibt es kein Himmelslicht (`has_skylight` falsch), und die
@@ -3042,6 +3165,61 @@ fn gleiches_licht_braucht_keine_ecken() {
         licht_am(&[(0, 0)], 0..=0, mit_mauer(|_, _, _| false), [8, 0, 8], ""),
         ([255; 3], None)
     );
+}
+
+/// Ein Dach aus oberen Platten unter freiem Himmel liegt oben voll hell,
+/// vom Rand bis in die Mitte: Die Oberseite einer oberen Platte liegt auf
+/// dem Rand des Blocks, im Licht der Zelle darüber (`faceCubic` in
+/// `BlockModelLighter.prepareQuadShape`). In die Zellen der Platten kommt
+/// Licht nur von der Seite, in der Mitte 7 Stufen weniger.
+#[test]
+fn dach_aus_oberen_platten_liegt_oben_voll_hell() {
+    let dach = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, 0, _) => "minecraft:stone",
+        (2..=14, 3, 2..=14) => "minecraft:oak_slab[type=top,waterlogged=false]",
+        _ => "minecraft:air",
+    };
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], dach);
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, Projection::new(16));
+    let mut cache = ChunkCache::new(&world, &sprites);
+    assert_eq!(cache.licht_at([8, 3, 8]).unwrap(), (8, 0));
+    for x in [2, 5, 8] {
+        let (licht, ecken) = licht_am(&[(0, 0)], 0..=0, dach, [x, 3, 8], "");
+        assert_eq!(licht, [255; 3], "x = {x}");
+        if let Some(ecken) = ecken {
+            assert_eq!(ecken.map(|kanal| kanal[0]), [u32::MAX; 3], "x = {x}");
+        }
+    }
+}
+
+/// Eine Chiseled Bookshelf liegt im Licht der Zellen vor ihren Seiten wie
+/// ein Stein an ihrer Stelle, nicht im Dunkeln ihrer eigenen dichten
+/// Zelle: Ihre Front nach Süden besteht aus Fächern, Flächen auf dem Rand,
+/// die nur einen Teil der Seite decken. Das Regal der Fixtures ist oben um
+/// ein Sechzehntel eingelassen; mit voller Kollisionsform liegt auch diese
+/// Fläche im Innern im Licht der Zelle darüber. Über der Zelle vor der
+/// Front liegt Stein, so haben die Ecken der Front verschiedenes Licht. Auf
+/// der Linie zur Kamera fehlt der Boden hinter dem Regal: Durch die Lücke
+/// oben wäre er zu sehen, und `licht_am` fände ihn zuerst.
+#[test]
+fn chiseled_bookshelf_im_licht_vor_ihren_seiten() {
+    let welt = |block: &'static str| {
+        move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (8, 1, 8) => block,
+            (7, 0, 7) => "minecraft:air",
+            (_, 0, _) | (8, 2, 9) => "minecraft:stone",
+            _ => "minecraft:air",
+        }
+    };
+    let regal = "minecraft:chiseled_bookshelf[facing=south,slot_0_occupied=false,\
+                 slot_1_occupied=false,slot_2_occupied=false,slot_3_occupied=false,\
+                 slot_4_occupied=false,slot_5_occupied=false]";
+    let am = |block| licht_am(&[(0, 0)], 0..=0, welt(block), [8, 1, 8], "");
+    let (licht, ecken) = am(regal);
+    assert!(ecken.is_some(), "verschiedenes Licht an den Ecken");
+    assert_eq!((licht, ecken), am("minecraft:stone"));
 }
 
 /// Zwischen den Ecken verläuft die weiche Beleuchtung über die zwei

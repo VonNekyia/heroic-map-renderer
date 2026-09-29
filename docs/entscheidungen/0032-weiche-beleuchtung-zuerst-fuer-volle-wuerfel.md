@@ -1,7 +1,7 @@
 ---
 title: "0032: Weiche Beleuchtung zuerst nur für volle Würfel"
-description: Warum die weiche Beleuchtung zuerst nur Modelle aus vollen Seiten abdunkelt und Teilflächen und Licht je Ecke später kommen.
-status: gilt
+description: Warum die weiche Beleuchtung zuerst nur Modelle aus vollen Seiten abdunkelte und Teilflächen und Licht je Ecke später kommen sollten; abgelöst durch das Licht aus der Ausbreitung.
+status: abgelöst durch 0040
 date: 2026-09-27
 issues: [15, 18]
 code:
@@ -12,6 +12,13 @@ code:
 ---
 
 # 0032: Weiche Beleuchtung zuerst nur für volle Würfel
+
+Abgelöst durch
+[0040: Licht selbst ausbreiten, je Chunk mit Rand](0040-licht-selbst-ausbreiten.md):
+Eine AO-Karte bekommt jede Fläche auf dem Rand, auch ohne
+`ambientocclusion`, das Licht kommt je Ecke aus der Ausbreitung statt aus
+`light_at`, und `smoothBlend` rechnet `ecken_at`. Flächen im Innern bleiben
+im Licht der eigenen Zelle.
 
 ## Anlass
 

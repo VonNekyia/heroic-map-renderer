@@ -350,12 +350,16 @@ pub fn deckt(richtung: usize, von: u8, nach: u8) -> bool {
 /// sagt 1 und Seelensand 0,2.
 pub const DUNKELT: u8 = 1;
 /// `isViewBlocking` und `getLightDampening` > 0: Hinter ihm zählt die Ecke
-/// einer Fläche nicht mehr, siehe `ChunkCache::ao_at`.
+/// einer Fläche nicht mehr, siehe `ChunkCache::ecken_at`.
 pub const SICHT: u8 = 2;
+/// `isCollisionShapeFullBlock`: Jede ebene Fläche des Modells liegt im
+/// Licht der Zelle davor, nicht nur die auf dem Rand des Blocks
+/// (`faceCubic` in `BlockModelLighter.prepareQuadShape`).
+pub const KOLLISION: u8 = 4;
 
 /// Was die weiche Beleuchtung über die Blöcke von 26.2 wissen muss, aus
 /// dem Spiel selbst gelesen (`Schatten.java`): je Block eine Ziffer aus
-/// [`DUNKELT`] und [`SICHT`] je Zustand, in der Reihenfolge von
+/// [`DUNKELT`], [`SICHT`] und [`KOLLISION`] je Zustand, in der Reihenfolge von
 /// `getPossibleStates`, oder eine für alle. Blöcke ohne ein Bit fehlen.
 /// Ob ein Block leuchtet und deshalb ohne weiche Beleuchtung gezeichnet
 /// wird, sagt [`leuchten`]. Neu erzeugen mit dem Skill
@@ -966,8 +970,9 @@ mod tests {
 
     /// Jede Zeile aus `schatten.txt` passt zu `blocks.txt`: eine Ziffer
     /// oder eine je Zustand. Dazu Werte, die `Schatten.java` aus 26.2 las:
-    /// Glas und Wasser haben kein Bit, Seelensand dunkelt ab wie Stein, der
-    /// Ofen an wie aus, der Kolben nur eingefahren.
+    /// Wasser hat kein Bit, Glas nur die volle Kollisionsform, Seelensand
+    /// dunkelt ab wie Stein, aber ohne sie, der Ofen an wie aus, der Kolben
+    /// nur eingefahren, die Platte nur doppelt.
     #[test]
     fn schatten_wie_im_spiel() {
         for (name, ziffern) in SCHATTEN.iter() {
@@ -979,35 +984,29 @@ mod tests {
                 ziffern.len(),
                 definition.states()
             );
-            assert!(ziffern.iter().all(|z| (b'0'..=b'3').contains(z)), "{name}");
+            assert!(ziffern.iter().all(|z| (b'0'..=b'7').contains(z)), "{name}");
         }
         let bits = |text: &str| schatten(&state(text));
-        assert_eq!(bits("minecraft:stone"), DUNKELT | SICHT);
+        let alle = DUNKELT | SICHT | KOLLISION;
+        assert_eq!(bits("minecraft:stone"), alle);
         assert_eq!(bits("minecraft:soul_sand"), DUNKELT | SICHT);
         assert_eq!(
             bits("minecraft:oak_leaves[distance=7,persistent=false,waterlogged=false]"),
-            DUNKELT
+            DUNKELT | KOLLISION
         );
-        assert_eq!(bits("minecraft:glass"), 0);
+        assert_eq!(bits("minecraft:glass"), KOLLISION);
         assert_eq!(bits("minecraft:water[level=0]"), 0);
-        assert_eq!(bits("minecraft:glowstone"), DUNKELT | SICHT);
-        assert_eq!(
-            bits("minecraft:furnace[facing=north,lit=true]"),
-            DUNKELT | SICHT
-        );
-        assert_eq!(
-            bits("minecraft:furnace[facing=north,lit=false]"),
-            DUNKELT | SICHT
-        );
+        assert_eq!(bits("minecraft:glowstone"), alle);
+        assert_eq!(bits("minecraft:furnace[facing=north,lit=true]"), alle);
+        assert_eq!(bits("minecraft:furnace[facing=north,lit=false]"), alle);
+        assert_eq!(bits("minecraft:chiseled_bookshelf"), alle);
         assert_eq!(bits("minecraft:piston[extended=true,facing=up]"), 0);
-        assert_eq!(
-            bits("minecraft:piston[extended=false,facing=up]"),
-            DUNKELT | SICHT
-        );
+        assert_eq!(bits("minecraft:piston[extended=false,facing=up]"), alle);
         assert_eq!(
             bits("minecraft:oak_slab[type=double,waterlogged=false]"),
-            DUNKELT | SICHT
+            alle
         );
+        assert_eq!(bits("minecraft:oak_slab[type=top,waterlogged=false]"), 0);
         assert_eq!(bits("minecraft:oak_slab[type=bottom,waterlogged=false]"), 0);
         assert_eq!(bits("mod:stein"), 0);
     }

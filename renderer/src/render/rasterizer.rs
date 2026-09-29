@@ -227,14 +227,16 @@ const FACE_INFO: [[[f32; 2]; 4]; 3] = [
     [[1.0, 1.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
 ];
 
-/// Die Seite aus [`AO_FACES`], als die das Spiel ein Viereck mit den vier
-/// Werten je Ecke weich beleuchtet: eben auf dem Rand des Würfels und über
-/// die ganze Seite, beides bis auf 1e-4, denn der Baker dreht über sin und
-/// cos. Flüssigkeiten bekommen keine, Flächen aus Blockentity-Modellen auch
-/// nicht: Das Spiel zeichnet sie im Licht der Entities, siehe
+/// Die Seite aus [`AO_FACES`], als die das Spiel ein Viereck im Licht der
+/// Zelle davor zeichnet, weich mit den vier Werten je Ecke oder flach
+/// (`faceCubic` in `BlockModelLighter.prepareQuadShape`): eben, bis auf
+/// 1e-4, denn der Baker dreht über sin und cos, und auf dem Rand des
+/// Würfels, mit voller Kollisionsform des Blocks (`kollision`) auch im
+/// Innern. Flüssigkeiten bekommen keine, Flächen aus Blockentity-Modellen
+/// auch nicht: Das Spiel zeichnet sie im Licht der Entities, siehe
 /// [`entity_light`].
 /// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
-fn ao_face(quad: &Quad) -> Option<usize> {
+fn ao_face(quad: &Quad, kollision: bool) -> Option<usize> {
     if quad.fluid.is_some() || quad.entity.is_some() {
         return None;
     }
@@ -250,14 +252,14 @@ fn ao_face(quad: &Quad) -> Option<usize> {
             .map(|c| c[axis])
             .fold(f32::MIN, f32::max)
     };
-    let voll = |axis: usize| min(axis) < 1e-4 && max(axis) > 0.9999;
-    let rand = |axis: usize| max(axis) - min(axis) < 1e-4 && min(axis) > 0.9999;
     let n = quad.normal();
-    // Je Seite die Achse ihrer Normalen und die beiden in der Seite.
-    let (face, _, [s, t]) = [(0, 1, [0, 2]), (1, 2, [0, 1]), (2, 0, [2, 1])]
+    // Je Seite die Achse ihrer Normalen.
+    [(0, 1), (1, 2), (2, 0)]
         .into_iter()
-        .find(|&(_, axis, _)| n[axis] > 0.0 && rand(axis))?;
-    (voll(s) && voll(t)).then_some(face)
+        .find(|&(_, axis)| {
+            n[axis] > 0.0 && max(axis) - min(axis) < 1e-4 && (kollision || min(axis) > 0.9999)
+        })
+        .map(|(face, _)| face)
 }
 
 /// Die Koordinaten eines Punkts auf einer Seite aus [`AO_FACES`], wie in
@@ -331,9 +333,11 @@ pub struct Sprite {
     /// Blockursprung.
     pub offset: (i32, i32),
     /// Die AO-Karte: je Pixel seine Seite und die Anteile ihrer Ecken, siehe
-    /// [`ecken_faktor`]; nur für Modelle, die ganz aus vollen Seiten
-    /// bestehen. Mit ihr bekommt jede Seite das Licht an ihren Ecken, weich
-    /// beleuchtet oder nicht, siehe [`Sprite::weich`].
+    /// [`ecken_faktor`], wo eine Fläche im Licht der Zelle davor liegt, siehe
+    /// [`ao_face`]; nur, wenn das an einem Pixel so ist. Mit ihr bekommt
+    /// jede Seite das Licht an ihren Ecken, weich beleuchtet oder nicht,
+    /// siehe [`Sprite::weich`]. Ein Pixel ohne Seite liegt im Licht der
+    /// eigenen Zelle.
     pub ao: Option<Vec<u32>>,
     /// Das Modell erlaubt weiche Beleuchtung (`ambientocclusion`).
     pub weich: bool,
@@ -385,14 +389,21 @@ pub fn pack(tint: [u8; 3]) -> u32 {
     tint[0] as u32 | (tint[1] as u32) << 8 | (tint[2] as u32) << 16
 }
 
-/// [`render_mit_licht`] im Licht der Oberwelt.
+/// [`render_mit_licht`] im Licht der Oberwelt, ohne volle Kollisionsform.
 pub fn render(
     model: &BakedModel,
     textures: &Textures,
     projection: &Projection,
     tints: Tints,
 ) -> Option<Sprite> {
-    render_mit_licht(model, textures, projection, tints, CardinalLight::Default)
+    render_mit_licht(
+        model,
+        textures,
+        projection,
+        tints,
+        CardinalLight::Default,
+        false,
+    )
 }
 
 /// Rastert ein gebackenes Modell in ein Sprite.
@@ -400,18 +411,25 @@ pub fn render(
 /// Da die Kamera fest steht, sieht jede Blockstate immer gleich aus. Das
 /// Sprite entsteht deshalb einmal und wird im Renderpfad nur noch kopiert.
 /// Das Licht des Blocks kommt erst beim Zeichnen dazu. `licht` schattiert
-/// die Seiten wie der Typ der Dimension, siehe [`shade_factor`].
+/// die Seiten wie der Typ der Dimension, siehe [`shade_factor`];
+/// `kollision`: Der Block hat volle Kollisionsform, siehe [`ao_face`].
 pub fn render_mit_licht(
     model: &BakedModel,
     textures: &Textures,
     projection: &Projection,
     tints: Tints,
     licht: CardinalLight,
+    kollision: bool,
 ) -> Option<Sprite> {
     let mut projected: Vec<ProjectedQuad> = model
         .quads
         .iter()
-        .filter_map(|quad| Some(ProjectedQuad::new(quad, projection, seite(quad)?, licht)))
+        .filter_map(|quad| {
+            let rueckseite = seite(quad)?;
+            Some(ProjectedQuad::new(
+                quad, projection, rueckseite, licht, kollision,
+            ))
+        })
         .collect();
 
     // Jede Fläche legt je Pixel ein Fragment ab, gemischt wird erst am
@@ -436,17 +454,7 @@ pub fn render_mit_licht(
         return None;
     }
 
-    // Eine AO-Karte bekommt nur, was ganz aus vollen Seiten besteht: Dann
-    // gehört jeder Pixel genau einer Seite, und das Licht an ihren Ecken
-    // reicht, weich beleuchtet oder nicht. Treppen, Platten und alles mit
-    // Teilflächen fehlen noch.
-    let ao = projected.iter().all(|q| q.ao_face.is_some());
-    if !ao {
-        for quad in &mut projected {
-            quad.ao_face = None;
-        }
-    }
-
+    let ao = projected.iter().any(|q| q.ao_face.is_some());
     let mut canvas = Canvas::new(width, height);
     let samples = texture_samples(projection.scale());
     // Von vorn nach hinten gerastert: was hinter einer deckenden Fläche
@@ -511,6 +519,7 @@ impl<'a> ProjectedQuad<'a> {
         projection: &Projection,
         rueckseite: bool,
         licht: CardinalLight,
+        kollision: bool,
     ) -> ProjectedQuad<'a> {
         let screen = quad.corners.map(|corner| {
             let (x, y) = projection.project(corner);
@@ -521,7 +530,7 @@ impl<'a> ProjectedQuad<'a> {
             screen,
             depth: screen.iter().map(|&(_, _, d)| d).fold(f32::MIN, f32::max),
             shade: shade_factor(quad, rueckseite, licht),
-            ao_face: ao_face(quad),
+            ao_face: ao_face(quad, kollision),
         }
     }
 
@@ -930,7 +939,8 @@ impl Canvas {
     }
 
     /// Mischt je Pixel die Fragmente von hinten nach vorne. Mit `ao` dazu
-    /// die AO-Karte aus dem vordersten Fragment je Pixel.
+    /// die AO-Karte aus dem vordersten Fragment je Pixel, wenn einer eine
+    /// Seite hat.
     fn into_image(mut self, ao: bool) -> (RgbaImage, Option<Vec<u32>>) {
         self.fragments.sort_unstable_by(|a, b| {
             a.pixel
@@ -951,7 +961,7 @@ impl Canvas {
                 map[index as usize] = pixel[pixel.len() - 1].ao;
             }
         }
-        (image, map)
+        (image, map.filter(|map| map.iter().any(|&w| w >> 24 != 0)))
     }
 }
 
@@ -1222,14 +1232,16 @@ mod tests {
         assert_eq!(eigen.factors(l(0, 0)), [0; 3]);
     }
 
-    /// Ein voller Würfel bekommt eine AO-Karte: Jeder Pixel mit Farbe liegt
-    /// auf einer der drei Seiten, und alle drei kommen vor. Ohne
+    /// Die AO-Karte trägt je Pixel die Seite, deren Fläche im Licht der
+    /// Zelle davor liegt. Beim vollen Würfel liegt jeder Pixel mit Farbe auf
+    /// einer der drei Seiten, und alle drei kommen vor; ohne
     /// `ambientocclusion` auch, für das Licht je Seite, nur weich beleuchtet
-    /// wird er dann nicht. Mit einer Oberseite in halber Höhe und als obere
-    /// Platte, deren Oberseite voll ist, ihre Seiten aber nicht, gibt es
-    /// keine.
+    /// wird er dann nicht. Bei der oberen Platte ebenso, ihre Oberseite liegt
+    /// auf dem Rand. Die der unteren liegt im Innern, im Licht der eigenen
+    /// Zelle, ausser der Block hat volle Kollisionsform. Ein Kasten ganz im
+    /// Innern hat keine Karte.
     #[test]
-    fn ao_karte_nur_fuer_volle_wuerfel() {
+    fn ao_karte_fuer_flaechen_im_licht_davor() {
         let kasten = |from: [f32; 3], to: [f32; 3], ambient_occlusion| BakedModel {
             quads: crate::assets::baker::box_quads(from, to, Textures::MISSING, None, None)
                 .collect(),
@@ -1238,31 +1250,90 @@ mod tests {
         let wuerfel = |to: [f32; 3], ambient_occlusion| kasten([0.0; 3], to, ambient_occlusion);
         let textures = Textures::new();
         let projection = Projection::new(32);
-        let bild = |model: &BakedModel| render(model, &textures, &projection, Tints::default());
-        let sprite = bild(&wuerfel([16.0; 3], true)).unwrap();
+        let bild = |model: &BakedModel, kollision| {
+            let licht = CardinalLight::Default;
+            render_mit_licht(
+                model,
+                &textures,
+                &projection,
+                Tints::default(),
+                licht,
+                kollision,
+            )
+            .unwrap()
+        };
+        let seiten = |sprite: &Sprite| -> std::collections::BTreeSet<u32> {
+            let karte = sprite.ao.as_ref().expect("AO-Karte");
+            (sprite.image.pixels().zip(karte))
+                .filter(|(p, _)| p.0[3] != 0)
+                .map(|(_, w)| w >> 24)
+                .collect()
+        };
+        let sprite = bild(&wuerfel([16.0; 3], true), false);
         let karte = sprite.ao.as_ref().expect("AO-Karte");
         for (i, p) in sprite.image.pixels().enumerate() {
             assert_eq!(p.0[3] != 0, karte[i] >> 24 != 0, "Pixel {i}");
         }
-        let seiten: std::collections::BTreeSet<u32> = karte.iter().map(|w| w >> 24).collect();
-        assert_eq!(seiten, [0, 1, 2, 3].into());
+        assert_eq!(seiten(&sprite), [1, 2, 3].into());
         assert!(sprite.weich);
-        let flach = bild(&wuerfel([16.0; 3], false)).unwrap();
+        let flach = bild(&wuerfel([16.0; 3], false), false);
         assert_eq!(flach.ao, sprite.ao);
         assert!(!flach.weich);
-        assert!(
-            bild(&wuerfel([16.0, 8.0, 16.0], true))
-                .unwrap()
-                .ao
-                .is_none()
-        );
-        assert!(
-            bild(&kasten([0.0, 8.0, 0.0], [16.0; 3], true))
-                .unwrap()
-                .ao
-                .is_none(),
+        let oben = kasten([0.0, 8.0, 0.0], [16.0; 3], true);
+        assert_eq!(
+            seiten(&bild(&oben, false)),
+            [1, 2, 3].into(),
             "obere Platte"
         );
+        let unten = wuerfel([16.0, 8.0, 16.0], true);
+        assert_eq!(
+            seiten(&bild(&unten, false)),
+            [0, 2, 3].into(),
+            "untere Platte"
+        );
+        assert_eq!(
+            seiten(&bild(&unten, true)),
+            [1, 2, 3].into(),
+            "mit Kollision"
+        );
+        let innen = kasten([4.0, 0.0, 4.0], [12.0, 12.0, 12.0], true);
+        assert!(bild(&innen, false).ao.is_none());
+        // Zeigt keine Fläche mit Seite einen Pixel, gibt es keine Karte: hier
+        // ist die Oberseite über dem Kasten ganz durchsichtig.
+        let mut leer = Textures::new();
+        let durchsichtig = leer.einfuegen("leer", RgbaImage::new(16, 16), false);
+        let mut deckel = quad(
+            [
+                [0.0, 1.0, 0.0],
+                [0.0, 1.0, 1.0],
+                [1.0, 1.0, 1.0],
+                [1.0, 1.0, 0.0],
+            ],
+            true,
+        );
+        deckel.texture = durchsichtig;
+        let mit_deckel = BakedModel {
+            quads: innen.quads.iter().cloned().chain([deckel]).collect(),
+            ambient_occlusion: true,
+        };
+        let licht = CardinalLight::Default;
+        let sprite = render_mit_licht(
+            &mit_deckel,
+            &leer,
+            &projection,
+            Tints::default(),
+            licht,
+            false,
+        );
+        assert!(sprite.unwrap().ao.is_none(), "durchsichtiger Deckel");
+        // Schräg liegt eine Fläche auf keiner Seite, auch mit Kollision.
+        let schraeg = [
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ];
+        assert_eq!(ao_face(&quad(schraeg, true), true), None);
     }
 
     /// Mit gleichem Licht für beide Anteile gleicht [`tinted_im_licht`] dem

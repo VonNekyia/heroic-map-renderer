@@ -37,7 +37,7 @@ Haben alle Zustände eines Blocks dasselbe Zeichen, steht es einmal.
 | [`blocks.txt`](../../renderer/src/assets/blocks.txt) | jeder Block mit seinen Eigenschaften und Werten | `generated/reports/blocks.json` des Datengenerators | 1196 Blöcke aus 26.2 |
 | [`leuchten.txt`](../../renderer/src/assets/leuchten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer 0 bis f für `getLightEmission`, mit `emissiveRendering` dieselbe Stufe als Buchstabe g bis v; Blöcke, die nie leuchten, fehlen | `Leuchten.java` | 109 Blöcke aus 26.2 |
 | [`licht.txt`](../../renderer/src/assets/licht.txt) | je Zustand in der Reihenfolge von `getPossibleStates` sieben Zeichen: `getLightDampening` (0, 1 oder f), dann je Richtung von `Direction.values()` die Fläche, mit der er das Licht an dieser Seite aufhält, zur Basis 36: 0 keine, 1 die ganze Seite, ab 2 eine Teilfläche. Am Ende je Achse die Paare aus Teilflächen, die zusammen eine Seite decken, als `paar <achse> <a> <b>`; Blöcke, die das Licht nirgends aufhalten, fehlen | `Licht.java` | 852 Blöcke mit 18 323 Zuständen und 288 Paare aus 26.2 |
-| [`schatten.txt`](../../renderer/src/assets/schatten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer, Bit 1 für `getShadeBrightness` 0,2, Bit 2 für `isViewBlocking` mit `getLightDampening` > 0; Blöcke ohne Bit fehlen | `Schatten.java` | 491 Blöcke aus 26.2 |
+| [`schatten.txt`](../../renderer/src/assets/schatten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer, Bit 1 für `getShadeBrightness` 0,2, Bit 2 für `isViewBlocking` mit `getLightDampening` > 0, Bit 4 für `isCollisionShapeFullBlock`; Blöcke ohne Bit fehlen | `Schatten.java` | 517 Blöcke aus 26.2 |
 | [`dimensionstypen.txt`](../../renderer/src/assets/dimensionstypen.txt) | die Vorgaben der vier Attribute der Lightmap aus `EnvironmentAttributes`; je Dimensionstyp des Spiels `has_skylight`, `cardinal_light` und die Attribute, die er setzt. Das Format steht im Kopf von `Dimensionstypen.java` | `Dimensionstypen.java` mit dem Client-JAR, über `VanillaRegistries.createLookup` | 4 Typen aus 26.2 |
 | [`blockentities.txt`](../../renderer/src/assets/blockentities.txt) | je Zustand eines Blocks mit Blockentity-Renderer, was das Spiel aus Modellen zeichnet: Flächen, Lage, Textur, Schicht, Farbe; dazu die Farbstoffe, die Scherben, die Regel und die Muster des Spiels für Banner. Das Format steht im Kopf von `Blockentities.java` | `Blockentities.java` mit dem Client-JAR | 26.2, Zahlen in [Blockentities](../renderer/blockentities.md), „Die Tabelle“ |
 
@@ -46,8 +46,9 @@ Haben alle Zustände eines Blocks dasselbe Zeichen, steht es einmal.
 Blocklicht, siehe [Wasser und Licht](../renderer/wasser-und-licht.md),
 „Blocklicht“. `licht.txt` sagt, wie die Blöcke das Licht beim Ausbreiten
 aufhalten, siehe [Wasser und Licht](../renderer/wasser-und-licht.md).
-`schatten.txt` sagt, welche Blöcke weich abdunkeln und welche
-die Sicht nehmen, siehe [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md).
+`schatten.txt` sagt, welche Blöcke weich abdunkeln, welche
+die Sicht nehmen und bei welchen jede ebene Fläche im Licht der Zelle davor
+liegt, siehe [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md).
 Andere Werte als 0,2 und 1 gibt `getShadeBrightness` in 26.2 nicht zurück.
 `blockentities.txt` gibt Truhen, Bannern und den übrigen Blockentities ihr
 Bild, siehe [Blockentities](../renderer/blockentities.md).

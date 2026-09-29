@@ -473,6 +473,12 @@ type Licht = ([u32; 3], Option<Ecken>, Option<[u32; 3]>, [u32; 2]);
 /// [`Licht`] ohne die Farben, wie [`ChunkCache::licht_fuer`] es gibt.
 type Lichter = ([u32; 3], Option<Ecken>, Option<[u32; 3]>);
 
+/// Je Licht das hellere zweier Zellen, gepackt wie [`Light::packed`]:
+/// `LightCoordsUtil.max`.
+fn hellstes(a: u32, b: u32) -> u32 {
+    (a & 0xf0).max(b & 0xf0) | (a & 0xf0_0000).max(b & 0xf0_0000)
+}
+
 /// Die Faktoren für [`darken`] an Pixel `i` eines Sprites: auf einer Seite
 /// der AO-Karte das Licht ihrer Ecken, sonst `licht`.
 #[inline]
@@ -1743,15 +1749,15 @@ impl<'a> ChunkCache<'a> {
     }
 
     /// In welchem Licht das Spiel den Block an `p` zeichnet: das Licht für
-    /// Pixel ohne Seite je Kanal ([`Light::factors`]), mit einer AO-Karte
+    /// Pixel ohne Seite je Kanal ([`Lightmap::factors`]), mit einer AO-Karte
     /// des Sprites das an den Ecken seiner Seiten, siehe
     /// [`ChunkCache::ecken_at`], und das seines Wassers, wo es ein anderes
-    /// ist. Voll hell (`emissiveRendering`) ist alles 15. Eine Flüssigkeit
-    /// liegt im helleren Licht ihrer Zelle und der darüber
-    /// (`FluidRenderer.getLightCoords`), auch unter gleicher Flüssigkeit; ein
-    /// Modell mit eigener Flüssigkeit liegt im Licht seiner Zelle, seine
-    /// Flüssigkeit ebenso im helleren. Alles andere liegt im Licht seiner
-    /// Zelle, das eigene Blocklicht steckt darin.
+    /// ist. Voll hell (`emissiveRendering`) ist alles 15. Ein Pixel ohne
+    /// Seite liegt im Licht seiner Zelle, das eigene Blocklicht steckt
+    /// darin. Eine Flüssigkeit liegt im helleren Licht ihrer Zelle und der
+    /// darüber (`FluidRenderer.getLightCoords`), auch unter gleicher
+    /// Flüssigkeit; ein Modell mit eigener Flüssigkeit liegt im Licht seiner
+    /// Zelle, seine Flüssigkeit ebenso im helleren.
     /// Siehe docs/renderer/wasser-und-licht.md, „Welches Licht ein Block bekommt“.
     fn licht_fuer(
         &mut self,
@@ -1764,31 +1770,39 @@ impl<'a> ChunkCache<'a> {
         if let Leuchten::Voll(_) = leuchten {
             return Ok((lightmap.factors(Light::from_packed(VOLL_HELL)), None, None));
         }
-        if let Some(id) = sprite.filter(|&id| self.sprites.has_ao(id)) {
-            // Was leuchtet, zeichnet das Spiel ohne weiche Beleuchtung
-            // (`ModelBlockRenderer.tesselateBlock`).
-            let weich = self.sprites.weich(id) && leuchten.stufe() == 0;
-            let (licht, ecken) = self.ecken_at([x, y, z], weich, leuchten.stufe())?;
+        let (licht, ecken) = match sprite.filter(|&id| self.sprites.has_ao(id)) {
+            Some(id) => {
+                // Was leuchtet, zeichnet das Spiel ohne weiche Beleuchtung
+                // (`ModelBlockRenderer.tesselateBlock`).
+                let weich = self.sprites.weich(id) && leuchten.stufe() == 0;
+                let innen = self.sprites.innen(id).then_some(family.doppelkiste);
+                self.ecken_at([x, y, z], weich, leuchten.stufe(), innen)?
+            }
+            None => {
+                let mut eigen = self.lichtwert([x, y, z])?;
+                if let Some([dx, dy, dz]) = family.doppelkiste {
+                    eigen = hellstes(eigen, self.lichtwert([x + dx, y + dy, z + dz])?);
+                }
+                (lightmap.factors(Light::from_packed(eigen)), None)
+            }
+        };
+        if family.fluid.is_none() {
             return Ok((licht, ecken, None));
         }
         let eigen = self.lichtwert([x, y, z])?;
-        if family.fluid.is_none() {
-            return Ok((lightmap.factors(Light::from_packed(eigen)), None, None));
-        }
         let oben = self.lichtwert([x, y + 1, z])?;
-        // `LightCoordsUtil.max`: je Licht das hellere.
-        let hell = (eigen & 0xf0).max(oben & 0xf0) | (eigen & 0xf0_0000).max(oben & 0xf0_0000);
-        let hell = lightmap.factors(Light::from_packed(hell));
+        let hell = lightmap.factors(Light::from_packed(hellstes(eigen, oben)));
         if family.pure_fluid {
             return Ok((hell, None, None));
         }
-        let licht = lightmap.factors(Light::from_packed(eigen));
-        Ok((licht, None, (hell != licht).then_some(hell)))
+        Ok((licht, ecken, (hell != licht).then_some(hell)))
     }
 
-    /// Das Licht an den Ecken der drei Seiten eines Blocks, der ganz aus
-    /// vollen Seiten besteht, je Kanal ([`Ecken`]), wie das Spiel es in 26.2
-    /// setzt, und das Licht für Pixel ohne Seite. `weich`: je Ecke das Licht
+    /// Das Licht an den Ecken der drei Seiten eines Blocks je Kanal
+    /// ([`Ecken`]), wie das Spiel es in 26.2 setzt, und das Licht für Pixel
+    /// ohne Seite: mit `innen` das der eigenen Zelle, bei einer Doppelkiste
+    /// das hellere ihrer und der Zelle der anderen Hälfte, relativ zum
+    /// Block; ohne `innen` gibt es keine, und es ist das der ersten Seite. `weich`: je Ecke das Licht
     /// der Zelle vor der Seite, ihrer zwei Nachbarn in dieser Schicht und
     /// des Blocks in der Ecke, gemischt nach [`smooth_blend`], dazu die
     /// weiche Beleuchtung aus denselben Blöcken
@@ -1799,14 +1813,15 @@ impl<'a> ChunkCache<'a> {
     /// Sonst, wie `prepareQuadFlat` für eine Seite mit `cullface`, das Licht
     /// der Zelle vor der Seite mit dem eigenen Blocklicht `stufe`. Eine
     /// Seite, die ihr Nachbar deckt, ist nicht zu sehen und nimmt die Werte
-    /// einer anderen. Haben alle Ecken dasselbe Licht, gilt es für das ganze
-    /// Sprite, ohne Ecken.
+    /// einer anderen. Haben alle Ecken dasselbe Licht wie die Pixel ohne
+    /// Seite, gilt es für das ganze Sprite, ohne Ecken.
     /// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
     fn ecken_at(
         &mut self,
         block: [i32; 3],
         weich: bool,
         stufe: u8,
+        innen: Option<Option<[i32; 3]>>,
     ) -> Result<([u32; 3], Option<Ecken>)> {
         let lightmap = self.sprites.lightmap();
         let [fest, dunkelt, sicht] = self.umgebung(block)?;
@@ -1883,11 +1898,16 @@ impl<'a> ChunkCache<'a> {
                 [lightmap.factors(eigen); 4]
             });
         }
+        let eigen = innen.map(|kiste| {
+            let eigen = kiste.map_or(licht([0; 3]), |q| hellstes(licht([0; 3]), licht(q)));
+            lightmap.factors(Light::from_packed(eigen))
+        });
         let Some(erste) = seiten.iter().flatten().flatten().next().copied() else {
-            return Ok(([255; 3], None));
+            return Ok((eigen.unwrap_or([255; 3]), None));
         };
-        if seiten.iter().flatten().flatten().all(|&w| w == erste) {
-            return Ok((erste, None));
+        let rest = eigen.unwrap_or(erste);
+        if seiten.iter().flatten().flatten().all(|&w| w == rest) {
+            return Ok((rest, None));
         }
         let mut ecken = [[0; 3]; 3];
         for (seite, werte) in seiten.iter().enumerate() {
@@ -1897,7 +1917,7 @@ impl<'a> ChunkCache<'a> {
                     werte[0][c] | werte[1][c] << 8 | werte[2][c] << 16 | werte[3][c] << 24;
             }
         }
-        Ok((erste, Some(ecken)))
+        Ok((rest, Some(ecken)))
     }
 
     /// Das Licht der 27 Zellen um einen Block, `(dx, dy, dz)` je von -1 bis

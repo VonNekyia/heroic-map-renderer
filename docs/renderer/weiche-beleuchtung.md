@@ -1,6 +1,6 @@
 ---
 title: Weiche Beleuchtung
-description: Wie der Renderer volle Würfel weich beleuchtet wie das Spiel in der Voreinstellung, nach den Regeln von BlockModelLighter in 26.2, mit dem Licht an jeder Ecke, und was noch fehlt.
+description: Wie der Renderer Blöcke weich beleuchtet wie das Spiel in der Voreinstellung, nach den Regeln von BlockModelLighter in 26.2, mit dem Licht an jeder Ecke der Flächen auf dem Rand, und was noch fehlt.
 code:
   - renderer/src/render/metatile.rs
   - renderer/src/render/rasterizer.rs
@@ -23,16 +23,21 @@ Ecke einer Fläche einen Wert, und die Grafikkarte lässt ihn zwischen den
 Ecken verlaufen, mit ihm das Licht an jeder Ecke. Der Renderer tut dasselbe
 für die drei Seiten, die er zeigt, oben, Süden und Osten: `ecken_at` in
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs),
-die AO-Karte in `renderer/src/render/rasterizer.rs`. Bisher nur für Modelle
-aus vollen Seiten, siehe
-[0032](../entscheidungen/0032-weiche-beleuchtung-zuerst-fuer-volle-wuerfel.md).
+die AO-Karte in `renderer/src/render/rasterizer.rs`. Das gilt für jede
+Fläche auf dem Rand des Blocks, auch die einer Treppe, einer Platte oder
+eines Zauns; eine Fläche im Innern liegt im Licht der eigenen Zelle, siehe
+„Was bleibt eine Näherung“ und
+[0040](../entscheidungen/0040-licht-selbst-ausbreiten.md).
 
 ## Die Regeln des Spiels
 
-- Gezählt wird in der Schicht vor der Seite, für eine Seite, die ganz auf
-  dem Rand des Würfels liegt (`faceCubic` in
-  `BlockModelLighter.prepareQuadShape`, nicht `facePartial`), bis auf 1e-4,
-  denn der Baker dreht über sin und cos und trifft die Ebene nur fast: der
+- Gezählt wird in der Schicht vor der Seite, für eine Fläche, die eben auf
+  dem Rand des Würfels liegt, bei voller Kollisionsform des Blocks auch im
+  Innern (`faceCubic` in `BlockModelLighter.prepareQuadShape`), bis auf
+  1e-4, denn der Baker dreht über sin und cos und trifft die Ebene nur
+  fast. Ob die Fläche die ganze Seite deckt, spielt dafür keine Rolle: Die
+  Fächer einer Chiseled Bookshelf und die Oberseite einer oberen Platte
+  zählen wie die Seite eines Steins. Gezählt werden der
   Block direkt davor, je Ecke ihre zwei Nachbarn in dieser Schicht
   (`AdjacencyInfo.corners`) und der Block in der Ecke dazwischen. Jeder gibt
   seine `getShadeBrightness`: 0,2 für Blöcke mit voller Kollisionsform
@@ -51,7 +56,9 @@ aus vollen Seiten, siehe
   diese Reihenfolge bringt `FaceBakery.recalculateWinding` jedes gebackene
   Viereck, und das Spiel zeichnet es als die Dreiecke 0-1-2 und 2-3-0
   (`RenderSystem.sharedSequentialQuad`). Dazwischen verläuft der Wert
-  baryzentrisch.
+  baryzentrisch. Deckt eine Fläche die Seite nur zum Teil (`facePartial`),
+  mischt das Spiel die vier Werte an jeder ihrer Ecken nach deren Lage in
+  der Seite (`AdjacencyInfo.vert0Weights` bis `vert3Weights`).
 - Das Licht mischt das Spiel an denselben Ecken aus denselben Blöcken,
   siehe „Licht an den Ecken“.
 - Weich beleuchtet wird nur, was das Modell mit `ambientocclusion` erlaubt.
@@ -84,17 +91,22 @@ Schatten es zählt (`LightCoordsUtil.smoothBlend`), wie `smooth_blend` in
   sie verläuft zwischen den Ecken wie der Schatten.
 
 Ohne weiche Beleuchtung, bei einem Block, der leuchtet, oder einem Modell
-ohne `ambientocclusion`, liegt jede Seite ganz im Licht der Zelle vor ihr,
-mit dem eigenen Blocklicht, wenn das heller ist
-(`BlockModelLighter.prepareQuadFlat`).
+ohne `ambientocclusion`, liegt jede Fläche auf dem Rand ganz im Licht der
+Zelle vor ihr, mit dem eigenen Blocklicht, wenn das heller ist
+(`BlockModelLighter.prepareQuadFlat`). Eine Fläche im Innern liegt in
+beiden Fällen im Licht der eigenen Zelle.
 
 ## Beim Zeichnen
 
 Das Sprite eines Blocks ist an jeder Stelle dasselbe, Schatten und Licht
 hängen aber an den Nachbarn. Der Rasterizer legt deshalb je Pixel die
-Anteile der vier Ecken seiner Seite in 255steln ab, die AO-Karte, für jedes
-Modell aus vollen Seiten, auch ohne `ambientocclusion`: Dann trägt jede
-Seite ihr eigenes Licht. Beim Zeichnen rechnet `ecken_at` die Ecken aus den
+Anteile der vier Ecken seiner Seite in 255steln ab, die AO-Karte, für jeden
+Pixel einer Fläche auf dem Rand, auch ohne `ambientocclusion`: Dann trägt
+jede Seite ihr eigenes Licht. Ein Pixel ohne Seite liegt im Licht der
+eigenen Zelle; ob ein Sprite solche Pixel hat, merkt sich die Tabelle
+(`SpriteSet::innen`). Ob der Block volle Kollisionsform hat, steht in
+`schatten.txt` und gehört zum Schlüssel der Familie. Beim Zeichnen rechnet
+`ecken_at` die Ecken aus den
 Nachbarn, ihr Licht aus den 27 Zellen um den Block (`lichter_um`). Ob ein Block
 abdunkelt und ob er die Sicht nimmt, liegt dafür wie „deckend“ als eigene
 Ebene in den Bitmasken der Sections (`DARK`, `VIEW`), auch für Blöcke ohne
@@ -110,17 +122,18 @@ Schattierung nach Richtung steckt wie bisher im Sprite, siehe
 [Dimensionstypen](dimensionstypen.md), „Schattierung nach Richtung“.
 Eine Instanz auf der Karte trägt dafür je Kanal und Seite ein Wort,
 neun Wörter, siehe [Grafikkarte](../benutzung/grafikkarte.md). Haben
-alle Ecken der Seiten, die zu sehen sind, dasselbe Licht, trägt der Draw
-es allein, ohne Ecken; eine Seite, die ihr Nachbar deckt, zählt dabei
-nicht.
+alle Ecken der Seiten, die zu sehen sind, dasselbe Licht, und die Pixel
+ohne Seite, wenn es welche gibt, auch, trägt der Draw es allein, ohne
+Ecken; eine Seite, die ihr Nachbar deckt, zählt dabei nicht.
 
 ## Was es kostet
 
 Eine Kachel wiegt damit je nach Inhalt 18 bis 30 % mehr, auf der grossen
 Welt rund ein Viertel. Auf einem Thread braucht sie bei scale 32 ein Siebtel
 länger, 6,13 statt 5,38 ms. 0,35 ms davon sind das Abdunkeln und Kodieren
-der reicheren Kachel, 0,19 ms die Rechnung je Pixel, 0,06 ms die Ecken aus
-`ao_at`, und 0,15 ms braucht der Stand auch ohne Ecken. Auf 24 Threads ist
+der reicheren Kachel, 0,19 ms die Rechnung je Pixel, 0,06 ms die Ecken
+(damals aus `ao_at`, heute `ecken_at`), und 0,15 ms braucht der Stand auch
+ohne Ecken. Auf 24 Threads ist
 die Basis der grossen Welt ohne Karte 11 bis 14 % langsamer als master, mit
 Karte 6 bis 7 %. Gemessen in
 [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md);
@@ -130,17 +143,25 @@ der Ausbreitung: Was sie und das Licht je Ecke kosten, ist noch nicht
 gemessen; gerechnet kostet die Ausbreitung die Basis rund 27 % mehr, siehe
 [0040](../entscheidungen/0040-licht-selbst-ausbreiten.md).
 
+Seit auch die Flächen auf dem Rand von Teilmodellen ihre Seite tragen, hat
+fast jedes Sprite eine AO-Karte, 4 Bytes je Pixel wie das Bild. Über alle
+32 366 Zustände von 26.2 bei scale 32 sind das 17 449 von 21 185 Sprites
+mit 53 MB Karte neben 61 MB Bild, vorher 744 Sprites mit 3 MB. Eine Welt
+braucht nur die Zustände, die in ihr vorkommen. Ein Teilmodell rechnet
+dazu seine Ecken aus den Nachbarn wie ein Stein, wo vorher ein Licht je
+Block reichte; auch das ist noch nicht gemessen.
+
 ## Was noch fehlt
 
-- **Teilflächen.** Alles, was nicht ganz aus vollen Seiten besteht, rechnet
-  das Spiel mit `facePartial` und den Gewichten aus `SizeInfo`. Der
-  Renderer zeichnet es wie bisher ohne weiche Beleuchtung; eine AO-Karte
-  bekommt nur ein Modell aus vollen Seiten. Die grössten Flächen darunter:
+- **Flächen im Innern weich.** Liegt eine Fläche nicht auf dem Rand, rechnet
+  das Spiel ihre Ecken aus der Schicht des Blocks selbst. Der Renderer
+  zeichnet sie flach im Licht der eigenen Zelle. Die grössten Flächen
+  darunter:
   - Schneedecken: Eine Lage `snow` ist 2/16 hoch, erst acht Lagen sind ein
     voller Würfel. Verschneite Hänge und Ebenen bleiben oben deshalb ohne
     weiche Beleuchtung.
   - Ackerboden und Trampelpfade (`farmland`, `dirt_path`), 15/16 hoch.
-  - Treppen, Platten und Zäune.
+  - Die Oberseite einer unteren Platte und die untere Stufe einer Treppe.
 
   Als Nachbarn zählen sie schon mit ihrem Wert aus der Tabelle:
   Schneedecken, Ackerboden, Trampelpfade, Treppen und einfache Platten
@@ -148,6 +169,13 @@ gemessen; gerechnet kostet die Ausbreitung die Basis rund 27 % mehr, siehe
 
 ## Was bleibt eine Näherung
 
-- **Nur volle Seiten**, siehe „Was noch fehlt“. Alles andere liegt ganz
-  im Licht seiner Zelle, siehe [Wasser und Licht](wasser-und-licht.md),
-  „Welches Licht ein Block bekommt“.
+- **Flächen im Innern** liegen im Licht der eigenen Zelle, ohne weiche
+  Beleuchtung, siehe „Was noch fehlt“ und
+  [Wasser und Licht](wasser-und-licht.md), „Welches Licht ein Block
+  bekommt“.
+- **Teilflächen auf dem Rand** nehmen an jedem Pixel den Verlauf der ganzen
+  Seite über ihre zwei Dreiecke. Das Spiel mischt die vier Werte an den
+  Ecken der Fläche bilinear nach ihrer Lage und lässt sie von dort über die
+  Fläche verlaufen. Auf den Kanten der Seite ist beides gleich; im Innern
+  weicht es so weit ab, wie eine bilineare Mischung von der über zwei
+  Dreiecke.

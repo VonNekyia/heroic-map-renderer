@@ -137,6 +137,80 @@ impl Light {
         });
         FAKTOREN[self.sky.min(FULL_LIGHT) as usize][self.block.min(FULL_LIGHT) as usize]
     }
+
+    /// Himmels- und Blocklicht, gepackt wie `LightCoordsUtil.pack` in 26.2:
+    /// das Blocklicht ab Bit 4, das Himmelslicht ab Bit 20.
+    pub fn packed(self) -> u32 {
+        u32::from(self.block.min(FULL_LIGHT)) << 4 | u32::from(self.sky.min(FULL_LIGHT)) << 20
+    }
+
+    /// Aus der Packung von [`Light::packed`].
+    pub fn from_packed(licht: u32) -> Light {
+        Light {
+            sky: (licht >> 20 & 15) as u8,
+            block: (licht >> 4 & 15) as u8,
+        }
+    }
+}
+
+/// So packt das Spiel ein Block, der voll hell gezeichnet wird
+/// (`LightCoordsUtil.FULL_BRIGHT`): Himmels- und Blocklicht 15.
+pub const VOLL_HELL: u32 = 0xf0_00f0;
+
+/// `LightCoordsUtil.smoothBlend` in 26.2: das Licht an einer Ecke einer
+/// weich beleuchteten Seite aus drei Nachbarn und der Zelle vor der Seite,
+/// gepackt wie [`Light::packed`]. Ist die Zelle davor hell genug, Himmels-
+/// oder Blocklicht über 2, nimmt ein Nachbar ohne Licht ihres, einer ohne
+/// Himmelslicht ihr Himmelslicht. Das Mittel der vier liegt danach in
+/// Sechzehnteln einer Stufe vor: das Blocklicht in den Bits 0 bis 7, das
+/// Himmelslicht in 16 bis 23.
+/// Siehe docs/renderer/weiche-beleuchtung.md, „Licht an den Ecken“.
+pub fn smooth_blend(mut a0: u32, mut a1: u32, mut a2: u32, mitte: u32) -> u32 {
+    let (sky, block) = (|l: u32| l >> 20 & 15, |l: u32| l >> 4 & 15);
+    if sky(mitte) > 2 || block(mitte) > 2 {
+        for a in [&mut a0, &mut a1, &mut a2] {
+            if *a == 0 {
+                *a = mitte;
+            } else if sky(*a) == 0 {
+                *a |= mitte & 0xff_0000;
+            }
+        }
+    }
+    (a0 + a1 + a2 + mitte) >> 2 & 0xff_00ff
+}
+
+/// Die Helligkeit an einer Ecke je Kanal in 255steln, aus ihrem Licht nach
+/// [`smooth_blend`]: Das Spiel liest die Lightmap je Ecke
+/// (`terrain.vsh`, `sample_lightmap`), linear gefiltert
+/// (`ChunkSectionsToRender`, `FilterMode.LINEAR`), also zwischen den
+/// benachbarten Stufen gemischt, in beiden Lichtern. Die Stufen selbst sind
+/// [`Light::factors`].
+/// Siehe docs/renderer/weiche-beleuchtung.md, „Licht an den Ecken“.
+pub fn licht_linear(licht: u32) -> [u32; 3] {
+    let (sky, block) = (licht >> 16 & 255, licht & 255);
+    let (s, b) = ((sky >> 4).min(15) as u8, (block >> 4).min(15) as u8);
+    let (fs, fb) = (sky & 15, block & 15);
+    let stufe = |s: u8, b: u8| {
+        Light {
+            sky: s.min(FULL_LIGHT),
+            block: b.min(FULL_LIGHT),
+        }
+        .factors()
+    };
+    let (t00, t01, t10, t11) = (
+        stufe(s, b),
+        stufe(s, b + 1),
+        stufe(s + 1, b),
+        stufe(s + 1, b + 1),
+    );
+    std::array::from_fn(|c| {
+        ((16 - fs) * (16 - fb) * t00[c]
+            + (16 - fs) * fb * t01[c]
+            + fs * (16 - fb) * t10[c]
+            + fs * fb * t11[c]
+            + 128)
+            / 256
+    })
 }
 
 /// Ein Pixel im Licht mit den Faktoren aus [`Light::factors`]: jeder
@@ -243,12 +317,17 @@ fn ao_word(face: usize, w: [u32; 4]) -> u32 {
     w[0] | w[1] << 8 | w[2] << 16 | (face as u32 + 1) << 24
 }
 
-/// Die Helligkeit der weichen Beleuchtung an einem Pixel in 255steln:
-/// der Eintrag der AO-Karte gegen die Werte der Ecken seiner Seite, wie
-/// [`ChunkCache::ao_at`](super::metatile) sie je Block liefert, vier Bytes
-/// je Seite in der Reihenfolge von [`FACE_INFO`]. 255 ohne Seite. Dieselbe
-/// Rechnung steht im Shader.
-pub fn ao_factor(word: u32, corners: [u32; 3]) -> u32 {
+/// Das Licht an den Ecken der drei Seiten aus [`AO_FACES`], die weiche
+/// Beleuchtung eingerechnet: je Farbkanal und Seite ein Wort, ein Byte je
+/// Ecke in der Reihenfolge von [`FACE_INFO`], in 255steln. So liefert es
+/// [`ChunkCache::ecken_at`](super::metatile) je Block.
+pub type Ecken = [[u32; 3]; 3];
+
+/// Die Helligkeit eines Kanals an einem Pixel in 255steln: der Eintrag der
+/// AO-Karte gegen die Werte der Ecken seiner Seite in diesem Kanal aus
+/// [`Ecken`], wie die Grafikkarte die Farbe der Ecken über das Dreieck
+/// verlaufen lässt. 255 ohne Seite. Dieselbe Rechnung steht im Shader.
+pub fn ecken_faktor(word: u32, corners: [u32; 3]) -> u32 {
     let face = word >> 24;
     if face == 0 {
         return 255;
@@ -259,27 +338,19 @@ pub fn ao_factor(word: u32, corners: [u32; 3]) -> u32 {
     (w0 * (c & 255) + w1 * (c >> 8 & 255) + w2 * (c >> 16 & 255) + w3 * (c >> 24) + 127) / 255
 }
 
-/// Die Werte der Ecken für einen Block ohne weiche Beleuchtung: überall
-/// 255, jeder Pixel bleibt, wie er ist.
-pub const NO_AO: [u32; 3] = [u32::MAX; 3];
-
-/// Licht aus [`light_factor`] und weiche Beleuchtung aus [`ao_factor`]
-/// zusammen als Faktor für [`darken`]. Bei vollem Licht bleibt der Wert der
-/// weichen Beleuchtung, wie er ist.
-pub fn with_ao(factor: u32, ao: u32) -> u32 {
-    (factor * ao + 127) / 255
-}
-
 /// Das fertig gerasterte Bild einer Blockstate.
 pub struct Sprite {
     pub image: RgbaImage,
     /// Pixelposition der linken oberen Ecke, relativ zum projizierten
     /// Blockursprung.
     pub offset: (i32, i32),
-    /// Je Pixel, wie die weiche Beleuchtung des Spiels ihn abdunkelt, siehe
-    /// [`ao_factor`]; nur für Modelle, die das Spiel weich beleuchtet und
-    /// die nur aus vollen Seiten bestehen.
+    /// Die AO-Karte: je Pixel seine Seite und die Anteile ihrer Ecken, siehe
+    /// [`ecken_faktor`]; nur für Modelle, die ganz aus vollen Seiten
+    /// bestehen. Mit ihr bekommt jede Seite das Licht an ihren Ecken, weich
+    /// beleuchtet oder nicht, siehe [`Sprite::weich`].
     pub ao: Option<Vec<u32>>,
+    /// Das Modell erlaubt weiche Beleuchtung (`ambientocclusion`).
+    pub weich: bool,
     /// Je Pixel zwei Wörter, die Tönungskarte: der Anteil, der die Farbe des
     /// Blocks aus dem Biom trägt, und der, der die des Wassers trägt, je
     /// Kanal ein Byte, Rot im untersten. `image` hält den Rest; zusammen
@@ -349,10 +420,11 @@ pub fn render(
         return None;
     }
 
-    // Weich beleuchtet wird hier nur, was ganz aus vollen Seiten besteht:
-    // Dann gehört jeder Pixel genau einer Seite, und die Werte ihrer Ecken
-    // reichen. Treppen, Platten und alles mit Teilflächen fehlen noch.
-    let ao = model.ambient_occlusion && projected.iter().all(|q| q.ao_face.is_some());
+    // Eine AO-Karte bekommt nur, was ganz aus vollen Seiten besteht: Dann
+    // gehört jeder Pixel genau einer Seite, und das Licht an ihren Ecken
+    // reicht, weich beleuchtet oder nicht. Treppen, Platten und alles mit
+    // Teilflächen fehlen noch.
+    let ao = projected.iter().all(|q| q.ao_face.is_some());
     if !ao {
         for quad in &mut projected {
             quad.ao_face = None;
@@ -389,6 +461,7 @@ pub fn render(
         image,
         offset: (min_x, min_y),
         ao,
+        weich: model.ambient_occlusion,
         tint: None,
     })
 }
@@ -1088,11 +1161,12 @@ mod tests {
         assert_eq!(Light { sky: 0, block: 15 }.factors(), [255; 3]);
     }
 
-    /// Ein voller Würfel, den das Spiel weich beleuchtet, bekommt eine
-    /// AO-Karte: Jeder Pixel mit Farbe liegt auf einer der drei Seiten, und
-    /// alle drei kommen vor. Ohne `ambientocclusion`, mit einer Oberseite in
-    /// halber Höhe und als obere Platte, deren Oberseite voll ist, ihre
-    /// Seiten aber nicht, gibt es keine.
+    /// Ein voller Würfel bekommt eine AO-Karte: Jeder Pixel mit Farbe liegt
+    /// auf einer der drei Seiten, und alle drei kommen vor. Ohne
+    /// `ambientocclusion` auch, für das Licht je Seite, nur weich beleuchtet
+    /// wird er dann nicht. Mit einer Oberseite in halber Höhe und als obere
+    /// Platte, deren Oberseite voll ist, ihre Seiten aber nicht, gibt es
+    /// keine.
     #[test]
     fn ao_karte_nur_fuer_volle_wuerfel() {
         let kasten = |from: [f32; 3], to: [f32; 3], ambient_occlusion| BakedModel {
@@ -1119,7 +1193,10 @@ mod tests {
         }
         let seiten: std::collections::BTreeSet<u32> = karte.iter().map(|w| w >> 24).collect();
         assert_eq!(seiten, [0, 1, 2, 3].into());
-        assert!(bild(&wuerfel([16.0; 3], false)).unwrap().ao.is_none());
+        assert!(sprite.weich);
+        let flach = bild(&wuerfel([16.0; 3], false)).unwrap();
+        assert_eq!(flach.ao, sprite.ao);
+        assert!(!flach.weich);
         assert!(
             bild(&wuerfel([16.0, 8.0, 16.0], true))
                 .unwrap()
@@ -1133,6 +1210,65 @@ mod tests {
                 .is_none(),
             "obere Platte"
         );
+    }
+
+    /// Gepackt wie `LightCoordsUtil.pack`: Blocklicht ab Bit 4, Himmelslicht
+    /// ab Bit 20, und zurück.
+    #[test]
+    fn licht_gepackt_wie_im_spiel() {
+        assert_eq!(Light { sky: 15, block: 15 }.packed(), VOLL_HELL);
+        assert_eq!(Light { sky: 7, block: 3 }.packed(), 0x70_0030);
+        for sky in 0..=15 {
+            for block in 0..=15 {
+                let licht = Light { sky, block };
+                assert_eq!(Light::from_packed(licht.packed()), licht);
+            }
+        }
+    }
+
+    /// `smoothBlend` mittelt die vier Werte in Sechzehnteln einer Stufe. Ist
+    /// die Zelle vor der Seite heller als 2, im Himmels- oder im Blocklicht,
+    /// nimmt ein Nachbar ohne Licht ihres und einer ohne Himmelslicht ihr
+    /// Himmelslicht; sonst zählen beide, wie sie sind.
+    #[test]
+    fn licht_an_den_ecken_wie_im_spiel() {
+        let p = |sky, block| Light { sky, block }.packed();
+        // Himmelslicht 57/4 = 14,25, in Sechzehnteln 228.
+        assert_eq!(
+            smooth_blend(p(15, 0), p(15, 0), p(14, 0), p(13, 0)),
+            0xe4_0000
+        );
+        // Blocklicht (2 + 5 + 0 + 2)/4 = 2,25, in Sechzehnteln 36.
+        assert_eq!(smooth_blend(0, p(0, 5), p(15, 0), p(15, 2)), 0xf0_0024);
+        // Die Mitte in 2 und 2: Himmelslicht 1, Blocklicht 7/4.
+        assert_eq!(smooth_blend(0, p(0, 5), p(2, 0), p(2, 2)), 0x10_001c);
+        // Blocklicht 3 allein reicht: Alle drei nehmen es.
+        assert_eq!(smooth_blend(0, 0, 0, p(0, 3)), 0x30);
+        assert_eq!(smooth_blend(0, 0, 0, p(2, 2)), 0x08_0008);
+    }
+
+    /// Auf einer Stufe liefert die linear gefilterte Lightmap genau deren
+    /// Wert; zwischen zwei Stufen mischt sie, in der Mitte halb und halb.
+    #[test]
+    fn lightmap_linear_gefiltert() {
+        for sky in 0..=15 {
+            for block in 0..=15 {
+                let licht = Light { sky, block };
+                assert_eq!(licht_linear(licht.packed()), licht.factors(), "{licht:?}");
+            }
+        }
+        let [a, b] = [Light::sky(14).factors(), Light::sky(15).factors()];
+        assert_eq!(
+            licht_linear(0xe8_0000),
+            std::array::from_fn(|c| (a[c] + b[c]).div_ceil(2))
+        );
+        let [a, b] = [Light { sky: 3, block: 6 }, Light { sky: 3, block: 7 }].map(Light::factors);
+        let viertel = licht_linear(0x30_0064);
+        assert_eq!(
+            viertel,
+            std::array::from_fn(|c| (12 * a[c] + 4 * b[c] + 8) / 16)
+        );
+        assert_ne!(a, b);
     }
 
     /// Die Anteile der Ecken an einem Punkt der Oberseite: an einer Ecke nur
@@ -1155,14 +1291,12 @@ mod tests {
                 }
             }
         }
-        let innenecke = [u32::from_le_bytes([102, 153, 255, 153]), NO_AO[1], NO_AO[2]];
-        let an = |p| ao_factor(ao_word(0, corner_weights(0, p)), innenecke);
+        let innenecke = [u32::from_le_bytes([102, 153, 255, 153]), u32::MAX, u32::MAX];
+        let an = |p| ecken_faktor(ao_word(0, corner_weights(0, p)), innenecke);
         assert_eq!(an([0.0, 0.0]), 102);
         assert_eq!(an([0.5, 0.5]), 178);
         assert_eq!(an([1.0, 1.0]), 255);
-        assert_eq!(ao_factor(0, innenecke), 255, "Pixel ohne Seite");
-        assert_eq!(with_ao(255, 178), 178);
-        assert_eq!(with_ao(light_factor(0), 255), light_factor(0));
+        assert_eq!(ecken_faktor(0, innenecke), 255, "Pixel ohne Seite");
     }
 
     /// Über dem Grund D im Licht l ergibt die Oberfläche `α · W + (1 − α) ·

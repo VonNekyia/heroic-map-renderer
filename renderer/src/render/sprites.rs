@@ -754,6 +754,14 @@ impl SpriteSet {
             .any(|(_, sprite)| sprite.ao.is_some())
     }
 
+    /// Erlaubt das Modell weiche Beleuchtung, siehe [`Sprite::weich`]?
+    pub fn weich(&self, id: SpriteId) -> bool {
+        self.sprites[id.0 as usize]
+            .parts
+            .iter()
+            .any(|(_, sprite)| sprite.weich)
+    }
+
     /// Das Sprite der ersten Alternative.
     pub fn id(&self, state: &BlockState) -> Option<SpriteId> {
         self.family_of(state).and_then(|f| f.alternatives[0].1)
@@ -928,6 +936,7 @@ fn content_hash(sprite: &Sprite) -> u64 {
     sprite.image.dimensions().hash(&mut hasher);
     sprite.image.as_raw().hash(&mut hasher);
     sprite.ao.hash(&mut hasher);
+    sprite.weich.hash(&mut hasher);
     sprite.tint.hash(&mut hasher);
     hasher.finish()
 }
@@ -937,6 +946,7 @@ fn same_image(a: &Sprite, b: &Sprite) -> bool {
         && a.image.dimensions() == b.image.dimensions()
         && a.image.as_raw() == b.image.as_raw()
         && a.ao == b.ao
+        && a.weich == b.weich
         && a.tint == b.tint
 }
 
@@ -1072,6 +1082,7 @@ fn extract(sprite: &Sprite, owner: &[usize], index: usize) -> Option<Sprite> {
         image,
         offset: (sprite.offset.0 + x0 as i32, sprite.offset.1 + y0 as i32),
         ao,
+        weich: sprite.weich,
         tint,
     })
 }
@@ -1384,6 +1395,7 @@ mod tests {
             image,
             offset,
             ao: None,
+            weich: false,
             tint: None,
         };
         assert!(masks.contains(&sprite));

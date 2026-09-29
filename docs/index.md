@@ -82,7 +82,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0027](entscheidungen/0027-keine-schreibthreads.md): Keine eigenen Threads zum Schreiben.
 - [0028](entscheidungen/0028-libwebp-statt-image.md): libwebp statt des Encoders aus `image`.
 - [0029](entscheidungen/0029-segment-heap-fuer-libwebp.md): Der Segment-Heap für libwebp unter Windows.
-- [0030](entscheidungen/0030-licht-je-block.md): Licht je Block beim Zeichnen.
+- [0030](entscheidungen/0030-licht-je-block.md): Licht je Block beim Zeichnen, abgelöst durch 0040.
 - [0031](entscheidungen/0031-eigene-tabellen-statt-der-masken.md): Eigene Tabellen statt der Masken für die weiche Beleuchtung.
 - [0032](entscheidungen/0032-weiche-beleuchtung-zuerst-fuer-volle-wuerfel.md): Weiche Beleuchtung zuerst nur für volle Würfel.
 - [0033](entscheidungen/0033-toenung-beim-zeichnen.md): Tönung beim Zeichnen statt Fassungen je Biom.

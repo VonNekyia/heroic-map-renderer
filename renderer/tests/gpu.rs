@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use image::RgbaImage;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
-use terranova_render::render::rasterizer::NO_AO;
 use terranova_render::render::{
     ChunkCache, Draw, Gpu, Projection, ScreenRect, SpriteSet, TILE, TileId, covering, draw_all,
     draw_list, render_area, survey,
@@ -168,24 +167,33 @@ fn gpu_zeichnet_die_szene_wie_die_cpu() {
         // Die Szene hat tiefes Wasser: Die Karte zeichnet auch im Licht
         // darunter.
         assert!(
-            listen.iter().flatten().any(|d| d.light.sky < 15),
+            listen.iter().flatten().any(|d| d.licht != [255; 3]),
             "scale {scale}: kein Draw unter Wasser"
         );
         // Und leuchtende Blöcke, deren Blocklicht je Kanal anders färbt.
         assert!(
             listen.iter().flatten().any(|d| {
-                let [r, g, b] = d.light.factors();
-                d.light.block > 0 && (r != g || g != b)
+                let [r, g, b] = d.licht;
+                r != g || g != b
             }),
             "scale {scale}: kein Draw im Blocklicht"
         );
-        // Und eine Treppe aus Stein: weich beleuchtete Draws.
-        assert!(
+        // Und eine Treppe aus Stein: weich beleuchtete Draws, auch mit
+        // Ecken im Blocklicht, je Kanal verschieden.
+        let mit_ecken = || {
             listen
                 .iter()
                 .flatten()
-                .any(|d| d.sprite.ao.is_some() && d.ao != NO_AO),
+                .filter(|d| d.sprite.ao.is_some())
+                .filter_map(|d| d.ecken)
+        };
+        assert!(
+            mit_ecken().next().is_some(),
             "scale {scale}: kein weich beleuchteter Draw"
+        );
+        assert!(
+            mit_ecken().any(|e| e[0] != e[1] || e[1] != e[2]),
+            "scale {scale}: keine Ecken im Blocklicht"
         );
         // Und Gras und Wasser über die Biomgrenze: Draws mit Tönungskarte
         // in beiden Farben, das Gras in mehr als den Farben der zwei Biome.

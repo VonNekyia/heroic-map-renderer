@@ -1,12 +1,15 @@
 ---
 title: "0040: Licht selbst ausbreiten, je Chunk mit Rand"
-description: Warum der Renderer Himmels- und Blocklicht wie das Spiel selbst ausbreitet, je Chunk in einem Fenster mit 14 Blöcken Rand, statt das gespeicherte Licht zu lesen.
+description: Warum der Renderer Himmels- und Blocklicht wie das Spiel selbst ausbreitet, je Chunk in einem Fenster mit 14 Blöcken Rand, statt das gespeicherte Licht zu lesen, und damit zeichnet wie das Spiel.
 status: gilt
 date: 2026-09-29
 issues: [34]
 code:
   - renderer/src/render/licht.rs
   - renderer/src/render/metatile.rs
+  - renderer/src/render/rasterizer.rs
+  - renderer/src/render/gpu.wgsl
+  - renderer/src/render/gpu.rs
   - renderer/src/assets/blockstate.rs
   - renderer/src/assets/licht.txt
   - renderer/src/assets/Licht.java
@@ -32,6 +35,15 @@ ein Chunk zum ersten Mal Licht braucht, und behält es mit dem Chunk im
 Cache des Threads. Ein Chunk, der fehlt oder nicht fertig ist, lässt kein
 Licht herein. Siehe [Wasser und Licht](../renderer/wasser-und-licht.md),
 „Licht ausbreiten“.
+
+Gezeichnet wird mit diesem Licht wie im Spiel: Volle Würfel bekommen es an
+den Ecken jeder Seite, gemischt wie `smoothBlend`, die Lightmap linear
+gefiltert; Flüssigkeiten das hellere ihrer Zelle und der darüber; alles
+andere das seiner Zelle. Siehe
+[Wasser und Licht](../renderer/wasser-und-licht.md), „Welches Licht ein
+Block bekommt“, und [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md),
+„Licht an den Ecken“. Das löst
+[0030](0030-licht-je-block.md) ab.
 
 ## Verworfene Alternativen
 
@@ -66,3 +78,5 @@ Die Zahlen hat der Researcher im Prototyp gemessen und gerechnet, siehe
   Rand eines Streifens mehr Chunks.
 - Eine Tabelle mehr aus dem Spiel, `licht.txt`, und die Stufe voll heller
   Blöcke in `leuchten.txt`.
+- Eine Instanz auf der Karte trägt je Farbkanal das Licht an den Ecken,
+  64 statt 40 Bytes.

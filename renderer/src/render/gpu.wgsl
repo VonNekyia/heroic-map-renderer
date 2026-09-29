@@ -12,17 +12,23 @@ struct Instance {
     x: i32,
     y: i32,
     // Helligkeit im Licht des Blocks je Farbkanal in 255steln, Rot im
-    // untersten Byte, 255 bei vollem Licht: `rasterizer::Light::factors`.
-    // Bit 24: Das Sprite hat eine AO-Karte, und `ao` dunkelt etwas ab.
-    // Bit 25: Das Sprite hat eine Tönungskarte. Bit 26: Das Sprite hat eine
-    // AO-Karte. Hinter den Pixeln steht erst die AO-Karte, dann die
+    // untersten Byte, 255 bei vollem Licht: `metatile::Draw::licht`, für
+    // Pixel ohne Seite. Bit 24: Das Sprite hat eine AO-Karte, und die Ecken
+    // gelten. Bit 25: Das Sprite hat eine Tönungskarte. Bit 26: Das Sprite
+    // hat eine AO-Karte. Hinter den Pixeln steht erst die AO-Karte, dann die
     // Tönungskarte, zwei Wörter je Pixel.
     light: u32,
-    // Weiche Beleuchtung an den Ecken der Seiten oben, Süden und Osten, je
-    // ein Byte je Ecke: `ChunkCache::ao_at`.
-    ao_up: u32,
-    ao_south: u32,
-    ao_east: u32,
+    // Das Licht an den Ecken der Seiten oben, Süden und Osten, je Kanal ein
+    // Wort je Seite, ein Byte je Ecke: `rasterizer::Ecken`.
+    r_up: u32,
+    r_south: u32,
+    r_east: u32,
+    g_up: u32,
+    g_south: u32,
+    g_east: u32,
+    b_up: u32,
+    b_south: u32,
+    b_east: u32,
     // Die Farben des Blocks für die Tönungskarte, Block und Wasser, gepackt
     // wie sie: `ChunkCache::tints_at`.
     tint_block: u32,
@@ -66,19 +72,20 @@ fn tinted(s: vec4<u32>, block: u32, water: u32, inst: Instance) -> vec4<u32> {
     return vec4<u32>(s.xyz + (anteil + 127u) / 255u, s.w);
 }
 
-// Die weiche Beleuchtung an einem Pixel aus seinem Eintrag der AO-Karte —
-// wie `rasterizer::ao_factor`.
-fn ao_factor(word: u32, inst: Instance) -> u32 {
-    let face = word >> 24u;
-    if (face == 0u) {
-        return 255u;
-    }
-    var c = inst.ao_up;
+// Die Ecken der Seite `face` in einem Kanal.
+fn seite(face: u32, up: u32, south: u32, east: u32) -> u32 {
     if (face == 2u) {
-        c = inst.ao_south;
-    } else if (face == 3u) {
-        c = inst.ao_east;
+        return south;
     }
+    if (face == 3u) {
+        return east;
+    }
+    return up;
+}
+
+// Die Helligkeit eines Kanals an einem Pixel aus seinem Eintrag der
+// AO-Karte und den Ecken `c` seiner Seite — wie `rasterizer::ecken_faktor`.
+fn ecken_faktor(word: u32, c: u32) -> u32 {
     let w0 = word & 255u;
     let w1 = (word >> 8u) & 255u;
     let w2 = (word >> 16u) & 255u;
@@ -134,10 +141,19 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wg
             }
             s = tinted(s, sprites[karte + 2u * i], sprites[karte + 2u * i + 1u], inst);
         }
-        // Licht je Kanal und weiche Beleuchtung wie `rasterizer::with_ao`.
+        // Das Licht je Kanal, auf einer Seite das ihrer Ecken, wie
+        // `metatile::faktor`.
         var f = vec3<u32>(inst.light & 255u, (inst.light >> 8u) & 255u, (inst.light >> 16u) & 255u);
         if ((flags & 1u) != 0u) {
-            f = (f * ao_factor(sprites[inst.sprite + w * h + i], inst) + 127u) / 255u;
+            let word = sprites[inst.sprite + w * h + i];
+            let face = word >> 24u;
+            if (face != 0u) {
+                f = vec3<u32>(
+                    ecken_faktor(word, seite(face, inst.r_up, inst.r_south, inst.r_east)),
+                    ecken_faktor(word, seite(face, inst.g_up, inst.g_south, inst.g_east)),
+                    ecken_faktor(word, seite(face, inst.b_up, inst.b_south, inst.b_east)),
+                );
+            }
         }
         if (any(f != vec3<u32>(255u))) {
             s = darken(s, f);

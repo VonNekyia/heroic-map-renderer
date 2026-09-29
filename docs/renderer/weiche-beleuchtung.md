@@ -1,11 +1,12 @@
 ---
 title: Weiche Beleuchtung
-description: Wie der Renderer volle Würfel weich beleuchtet wie das Spiel in der Voreinstellung, nach den Regeln von BlockModelLighter in 26.2, und was noch fehlt.
+description: Wie der Renderer volle Würfel weich beleuchtet wie das Spiel in der Voreinstellung, nach den Regeln von BlockModelLighter in 26.2, mit dem Licht an jeder Ecke, und was noch fehlt.
 code:
   - renderer/src/render/metatile.rs
   - renderer/src/render/rasterizer.rs
   - renderer/src/render/sprites.rs
   - renderer/src/render/gpu.wgsl
+  - renderer/src/render/gpu.rs
   - renderer/src/assets/blockstate.rs
   - renderer/src/assets/model.rs
   - renderer/src/assets/schatten.txt
@@ -19,8 +20,8 @@ Das Spiel zeichnet Blöcke in der Voreinstellung weich beleuchtet
 zur Kante hin dunkler, in einer Innenecke am meisten.
 `BlockModelLighter.prepareQuadAmbientOcclusion` rechnet dafür in 26.2 je
 Ecke einer Fläche einen Wert, und die Grafikkarte lässt ihn zwischen den
-Ecken verlaufen. Der Renderer tut dasselbe für die drei Seiten, die er
-zeigt, oben, Süden und Osten, bei vollem Tageslicht: `ao_at` in
+Ecken verlaufen, mit ihm das Licht an jeder Ecke. Der Renderer tut dasselbe
+für die drei Seiten, die er zeigt, oben, Süden und Osten: `ecken_at` in
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs),
 die AO-Karte in `renderer/src/render/rasterizer.rs`. Bisher nur für Modelle
 aus vollen Seiten, siehe
@@ -51,8 +52,8 @@ aus vollen Seiten, siehe
   Viereck, und das Spiel zeichnet es als die Dreiecke 0-1-2 und 2-3-0
   (`RenderSystem.sharedSequentialQuad`). Dazwischen verläuft der Wert
   baryzentrisch.
-- Das Licht der Nachbarn mischt das Spiel an denselben Ecken; bei vollem
-  Tageslicht bleibt es 15.
+- Das Licht mischt das Spiel an denselben Ecken aus denselben Blöcken,
+  siehe „Licht an den Ecken“.
 - Weich beleuchtet wird nur, was das Modell mit `ambientocclusion` erlaubt.
   Das erbt wie im Client vom nächsten Parent, der es setzt
   (`ResolvedModel.findTopAmbientOcclusion`). Was leuchtet, zeichnet das
@@ -60,12 +61,41 @@ aus vollen Seiten, siehe
   (`FluidRenderer`) und die Flächen aus Blockentity-Modellen, siehe
   [Blockentities](blockentities.md), „Licht“.
 
+## Licht an den Ecken
+
+An jeder Ecke mischt das Spiel auch das Licht der vier Zellen, deren
+Schatten es zählt (`LightCoordsUtil.smoothBlend`), wie `smooth_blend` in
+`renderer/src/render/rasterizer.rs`. Belegt per javap:
+
+- Jede Zelle gibt ihr Licht wie `LightCoordsUtil.getLightCoords`: Himmels-
+  und Blocklicht aus der Ausbreitung, siehe
+  [Wasser und Licht](wasser-und-licht.md), „Licht ausbreiten“; ein Block,
+  den das Spiel mit `emissiveRendering` zeichnet, der Magmablock etwa,
+  gibt beide 15.
+- Ist die Zelle vor der Seite heller als 2, im Himmels- oder im
+  Blocklicht, nimmt ein Nachbar ganz ohne Licht ihres und einer ohne
+  Himmelslicht ihr Himmelslicht. Ein Stein neben der Seite zieht die Ecke
+  so nicht ins Dunkle; dunkler wird sie über seinen Schatten.
+- Die Ecke ist das Mittel der vier Werte, in Sechzehnteln einer Stufe. Die
+  Lightmap liest das Spiel je Ecke linear gefiltert (`terrain.vsh`,
+  `ChunkSectionsToRender`, `FilterMode.LINEAR`), also zwischen den Stufen
+  daneben gemischt, in beiden Lichtern: `licht_linear`.
+- Mal dem Schatten der Ecke gibt das je Farbkanal ihre Helligkeit, und
+  sie verläuft zwischen den Ecken wie der Schatten.
+
+Ohne weiche Beleuchtung, bei einem Block, der leuchtet, oder einem Modell
+ohne `ambientocclusion`, liegt jede Seite ganz im Licht der Zelle vor ihr,
+mit dem eigenen Blocklicht, wenn das heller ist
+(`BlockModelLighter.prepareQuadFlat`).
+
 ## Beim Zeichnen
 
-Das Sprite eines Blocks ist an jeder Stelle dasselbe, die weiche Beleuchtung
-hängt aber an den Nachbarn. Der Rasterizer legt deshalb je Pixel die
-Anteile der vier Ecken seiner Seite in 255steln ab, die AO-Karte. Beim
-Zeichnen rechnet `ao_at` die Ecken aus den Nachbarn. Ob ein Block
+Das Sprite eines Blocks ist an jeder Stelle dasselbe, Schatten und Licht
+hängen aber an den Nachbarn. Der Rasterizer legt deshalb je Pixel die
+Anteile der vier Ecken seiner Seite in 255steln ab, die AO-Karte, für jedes
+Modell aus vollen Seiten, auch ohne `ambientocclusion`: Dann trägt jede
+Seite ihr eigenes Licht. Beim Zeichnen rechnet `ecken_at` die Ecken aus den
+Nachbarn, ihr Licht aus den 27 Zellen um den Block (`lichter_um`). Ob ein Block
 abdunkelt und ob er die Sicht nimmt, liegt dafür wie „deckend“ als eigene
 Ebene in den Bitmasken der Sections (`DARK`, `VIEW`), auch für Blöcke ohne
 Sprite: Die 31 Blöcke, nach denen die drei Seiten fragen, kommen aus 15
@@ -74,14 +104,14 @@ welche die Sicht nehmen, steht in `renderer/src/assets/schatten.txt`, siehe
 [Erzeugte Tabellen](../entwicklung/tabellen.md) und
 [0031](../entscheidungen/0031-eigene-tabellen-statt-der-masken.md).
 
-Je Pixel ergibt die Karte mit den Ecken einen Faktor, ganzzahlig wie das
-Mischen, auf der CPU wie im Shader der Karte. Er multipliziert sich mit dem
-Licht aus `light_at`, siehe [Wasser und Licht](wasser-und-licht.md); die
+Je Pixel ergibt die Karte mit den Ecken je Farbkanal einen Faktor,
+ganzzahlig wie das Mischen, auf der CPU wie im Shader der Karte; die
 Schattierung nach Richtung, oben 1, Nord und Süd 0,8, Ost und West 0,6,
-steckt wie bisher im Sprite. Eine Instanz auf der Karte trägt dafür die
-drei Wörter der Ecken; mit ihnen wuchs sie von 20 auf 32 Bytes, mit den
-beiden Farben der Tönung auf 40, siehe
-[Grafikkarte](../benutzung/grafikkarte.md).
+steckt wie bisher im Sprite. Eine Instanz auf der Karte trägt dafür je
+Kanal und Seite ein Wort, neun Wörter, siehe
+[Grafikkarte](../benutzung/grafikkarte.md). Haben alle Ecken der Seiten,
+die zu sehen sind, dasselbe Licht, trägt der Draw es allein, ohne Ecken;
+eine Seite, die ihr Nachbar deckt, zählt dabei nicht.
 
 ## Was es kostet
 
@@ -111,12 +141,9 @@ die Dauer für die ganze Welt steht in
   Als Nachbarn zählen sie schon mit ihrem Wert aus der Tabelle:
   Schneedecken, Ackerboden, Trampelpfade, Treppen und einfache Platten
   dunkeln nicht ab, acht Lagen Schnee und eine doppelte Platte schon.
-- **Licht je Ecke.** Das Spiel mischt an jeder Ecke auch das Licht der vier
-  Blöcke (`LightCoordsUtil.smoothBlend`). Der Renderer gibt jedem Block ein
-  Licht, siehe [Wasser und Licht](wasser-und-licht.md); unter Wasser und an
-  der Kante eines Überhangs verläuft es deshalb nicht.
 
 ## Was bleibt eine Näherung
 
-- **Nur volle Seiten**, siehe „Was noch fehlt“.
-- **Ein Licht je Block** statt je Ecke, siehe „Was noch fehlt“.
+- **Nur volle Seiten**, siehe „Was noch fehlt“. Alles andere liegt ganz
+  im Licht seiner Zelle, siehe [Wasser und Licht](wasser-und-licht.md),
+  „Welches Licht ein Block bekommt“.

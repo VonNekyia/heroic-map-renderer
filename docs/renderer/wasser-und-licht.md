@@ -22,8 +22,7 @@ Code (`renderer/src/assets/fluid.rs`), lässt Flächen zu gleichem Wasser weg
 und zeichnet an Stufen einen Streifen. Tiefe wirkt wie im Spiel nur über das
 Licht: Man sieht durch genau eine Oberfläche, und darunter liegt jeder Block
 in seinem Himmelslicht, das je Block Wasser eine Stufe verliert, und in
-seinem Blocklicht, wenn er selbst leuchtet. Welches Licht ein Block bekommt,
-bestimmt `light_at` in
+seinem Blocklicht. Welches Licht ein Block bekommt, bestimmt `licht_fuer` in
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs),
 die Helligkeit `brightness` in `renderer/src/render/rasterizer.rs`. Belegt
 gegen 26.2.
@@ -173,93 +172,46 @@ liegt. Gegen einen Lauf von Vanilla 26.2 stimmt jede Zelle, siehe
 
 ## Welches Licht ein Block bekommt
 
-Welches Licht ein Block bekommt, bestimmt `light_at` beim Zeichnen, aus den
-Blöcken über und neben ihm:
+Beim Zeichnen nimmt `licht_fuer` das Licht aus der Ausbreitung, wie das
+Spiel in 26.2 (`LightCoordsUtil.getLightCoords`), belegt per javap:
 
-- Die Oberseite des Grunds liegt im Licht des Wassers über ihr, auch in
-  einer Luftblase darunter.
-- Ein Block mit eigenem Wasser, Seegras, Kelp, ein gefluteter Zaun, liegt im
-  Licht dieses Wassers. Reines Wasser liegt eine Stufe heller:
-  `FluidRenderer` zeichnet es im helleren Licht aus seiner Zelle und der
-  darüber, unter einer Brücke also im Licht der Luft darunter; ein deckender
-  Block darüber hat selbst kein Licht. So sieht man Kelp knapp unter der
-  Oberfläche auch über tiefem Grund, wie im Spiel.
-- Verdeckt der Block darüber die Oberseite, gilt das Wasser vor der Ost-
-  und der Südseite: ein Schiffsrumpf, eine Klippe unter Wasser.
-- Ein deckender Block nimmt ebenso eine Stufe wie ein Block Wasser. So
-  bleiben eine geflutete Höhle unter dem Meeresboden, der Grund unter einem
-  Stein im See und eine Luftblase im Meer dunkel.
-- An Land bleibt alles im Licht 15, auch unter einem Überhang.
-- Was selbst leuchtet, bringt sein Blocklicht mit, siehe oben.
-
-## Licht von der Seite
-
-An zwei Stellen kommt das Licht von der Seite, und mit ihm endet die
-Zählung:
-
-- **Neben Luft.** Hat ein Block Wasser Luft neben sich, die selbst im Licht
-  liegt, über der also kein Wasser steht, liegt er im Licht 14.
-  `FluidRenderer` zeichnet eine Flüssigkeit im Licht ihrer Zelle und der
-  darüber, und das kommt im Spiel auch von der Seite: Der oberste Block
-  eines Wasserfalls liegt unter freiem Himmel im Licht 15, jeder darunter
-  bis zum Fuss im Licht 14. Unter einem Fall liegt der Grund eines Beckens
-  eine Stufe tiefer als daneben. Luft unter Wasser, eine Luftblase oder ein
-  Kasten aus Glas am Grund, liegt selbst im Dunkeln; neben ihr zählt das
-  Wasser weiter bis zur Oberfläche.
-- **Unter einem Deckel.** Liegt unter einem deckenden Block eine Lücke,
-  weder Wasser noch deckend, kommt das Licht dort von der Seite: Wasser auf
-  einer Brücke ändert am Boden darunter nichts, und unter einem Felsbogen
-  liegt die Oberfläche eines Flusses im Licht 14, ihre Zelle und der Grund
-  einen Block tiefer im Licht 13, gleich wie dick der Fels ist.
-
-## Wie gezählt wird
-
-Gezählt wird aus den Bitmasken der Sections, ein paar Wörter je Block
-(`column_above`); nur wo Wasser steht, kommen die vier Spalten daneben dazu.
-Ob über einer Lücke Wasser steht, sagt je Chunk und Spalte die Höhe des
-obersten Wassers, einmal beim Laden aus den Masken bestimmt. Ein Chunk, der
-fehlt oder nicht fertig erzeugt ist, gilt dabei nicht als Luft, am Rand der
-Welt kommt kein Licht von der Seite, siehe
-[Welten und Kennung](../benutzung/welten.md), „Nicht fertig erzeugte
-Chunks“.
+- **Volle Würfel** bekommen das Licht an den Ecken jeder Seite, aus der
+  Schicht vor ihr, siehe [Weiche Beleuchtung](weiche-beleuchtung.md),
+  „Licht an den Ecken“. Die Oberseite des Grunds liegt so im Licht des
+  Wassers über ihr, die Ostseite einer Klippe unter Wasser im Licht des
+  Wassers davor.
+- **Flüssigkeiten** liegen im helleren Licht ihrer Zelle und der darüber,
+  je Licht für sich (`FluidRenderer`, `LightCoordsUtil.max`): Der oberste
+  Block Wasser zeigt das Licht der Luft über ihm, unter freiem Himmel 15,
+  jeder darunter das seiner Zelle, am Fuss eines Wasserfalls neben Luft
+  das Licht, das von der Seite hereinkommt. Ein Block mit eigenem Wasser,
+  ein gefluteter Zaun etwa, liegt ebenso im helleren Licht, solange er die
+  Oberseite seines Wassers zeigt; steht Wasser über ihm, im Licht seiner
+  Zelle.
+- **Alles andere** liegt im Licht seiner Zelle. Das eigene Blocklicht
+  steckt darin, denn als Quelle beginnt die Zelle mit ihm.
+- **Voll hell** ist, was das Spiel mit `emissiveRendering` zeichnet.
 
 Der Blit multipliziert jeden Pixel je Kanal mit b, ganzzahlig wie das
 Mischen, auf der CPU wie im Shader der Karte; die Oberfläche selbst bleibt,
 wie sie ist. Ein gefluteter Block an der Oberfläche zeichnet sein Wasser im
 eigenen Sprite, und was er darunter trägt, liegt dort im Licht 14 und in
-seinem eigenen Blocklicht: Eine geflutete Laterne bleibt auch unter ihrer
-Oberfläche hell.
+seinem eigenen Blocklicht, gegen das Licht über dem Wasser gerechnet: Eine
+geflutete Laterne bleibt auch unter ihrer Oberfläche hell.
 
 ## Was bleibt eine Näherung
 
-- **Eine Zahl je Block.** Im Spiel liegen die Seiten eines Blocks unter
-  Wasser eine Stufe dunkler als seine Oberseite, am Ufer die Seite unter
-  der Oberfläche im Licht 14, während die Oberseite trocken im Licht 15
-  liegt.
-- **Ein gefluteter Block an der Oberfläche** liegt hier im Licht 15; nur
-  was im Bild hinter seiner eigenen Wasseroberfläche liegt, liegt im
-  Licht 14, siehe „Wie gezählt wird“. Im Spiel liegt ein Bild aus dem
-  Blockentity ganz im Licht seiner Zelle, 14
+- **Ein Licht je Sprite, wo Teilflächen sind.** Was nicht ganz aus vollen
+  Seiten besteht, Treppen, Platten, Zäune, Pflanzen, liegt ganz im Licht
+  seiner Zelle. Das Spiel beleuchtet auch diese Flächen weich und nimmt für
+  eine Fläche auf dem Rand des Blocks das Licht davor, siehe
+  [Weiche Beleuchtung](weiche-beleuchtung.md), „Was noch fehlt“.
+- **Ein gefluteter Block an der Oberfläche** liegt hier im helleren Licht
+  seines Wassers, unter freiem Himmel 15; nur was im Bild hinter seiner
+  eigenen Wasseroberfläche liegt, liegt eine Stufe tiefer. Im Spiel liegt
+  sein Modell im Licht seiner Zelle, 14, ein Bild aus dem Blockentity auch
   (`BlockEntityRenderState.extractBase`): Bei einer gefluteten Truhe liegt
-  der untere Teil der Seiten hier heller als der Deckel. Ein geflutetes
-  Blockmodell nimmt das Spiel je Fläche, wie im Punkt davor.
-- **Licht von der Seite nur an den zwei Stellen oben.** Wie weit es im
-  Spiel unter ein Dach oder in eine Höhle fällt, eine Stufe weniger je
-  Block, zählt der Renderer nicht, denn das gespeicherte Licht der Welt
-  liest er nicht; unter einem breiten Überhang liegt Wasser deshalb heller
-  als im Spiel.
-- **Luft und Glas unter Wasser ohne Verlust.** Unter Wasser nimmt im Spiel
-  jeder Block eine Stufe, auch Luft und Glas: Ohne Verlust fällt nur volles
-  Himmelslicht, sonst kostet jeder Schritt mindestens eine
-  (`LightEngine.getOpacity`). Hier lassen Luft, Glas und trockenes Laub das
-  Licht durch. Der Grund in einer Luftblase liegt so eine Stufe heller als
-  im Spiel, der Boden einer Kuppel aus Glas am Grund um ihre Höhe heller.
-  Ob Luft im Licht liegt, entscheidet allein, ob in ihrer Spalte darüber
-  Wasser steht, wie weit oben auch immer: Luft unter einem Überhang, auf
-  dem ein Teich liegt, gilt als dunkel.
-- **Blocklicht nur am Block selbst.** Den Schein auf die Nachbarn, im Spiel
-  eine Stufe weniger je Block, rechnet der Renderer nicht. Der Grund neben
-  einer Seelaterne liegt im Himmelslicht.
+  der untere Teil der Seiten hier heller als der Deckel.
 - **Kein Flackern.** Das Spiel lässt `BlockFactor` zufällig um 1,4
   flackern; der Renderer nimmt 1,4.
 - **Die Oberfläche bleibt eben.** Minecraft gleicht die Eckhöhen an die

@@ -19,7 +19,6 @@ use image::RgbaImage;
 
 use super::Sprite;
 use super::metatile::Draw;
-use super::rasterizer::NO_AO;
 
 /// Kantenlänge der Zellen, in die eine Kachel zerlegt wird: eine
 /// Arbeitsgruppe je Zelle, ein Thread je Pixel. Muss zur
@@ -301,7 +300,7 @@ pub struct Worker<'g> {
     bind: Option<wgpu::BindGroup>,
     /// Die Pixel der Sprites eines Durchgangs, eines nach dem anderen.
     sprite_bytes: Vec<u8>,
-    /// Instanzen, 40 Bytes je Stück, fertig für den Puffer.
+    /// Instanzen, 64 Bytes je Stück, fertig für den Puffer.
     inst_bytes: Vec<u8>,
     list_data: Vec<u32>,
 }
@@ -424,25 +423,24 @@ impl Worker<'_> {
                         }
                         wort
                     });
-                let ao = d.sprite.ao.is_some() && d.ao != NO_AO;
-                let flags = ao as u32
+                let ecken = d.ecken.filter(|_| d.sprite.ao.is_some());
+                let flags = ecken.is_some() as u32
                     | (d.sprite.tint.is_some() as u32) << 1
                     | (d.sprite.ao.is_some() as u32) << 2;
-                for word in [
+                let [r, g, b] = d.licht;
+                let kopf = [
                     wort,
                     w as u32 | (h as u32) << 16,
                     d.origin.0 as u32,
                     d.origin.1 as u32,
-                    {
-                        let [r, g, b] = d.light.factors();
-                        r | g << 8 | b << 16 | flags << 24
-                    },
-                    d.ao[0],
-                    d.ao[1],
-                    d.ao[2],
-                    d.tint[0],
-                    d.tint[1],
-                ] {
+                    r | g << 8 | b << 16 | flags << 24,
+                ];
+                let ecken = ecken.unwrap_or([[u32::MAX; 3]; 3]);
+                for word in kopf
+                    .into_iter()
+                    .chain(ecken.into_iter().flatten())
+                    .chain(d.tint)
+                {
                     self.inst_bytes.extend_from_slice(&word.to_le_bytes());
                 }
                 instances += 1;
@@ -585,13 +583,14 @@ mod tests {
             image: RgbaImage::from_pixel(4, 4, image::Rgba([200, 10, 10, 255])),
             offset: (0, 0),
             ao: None,
+            weich: false,
             tint: None,
         };
         let liste = vec![Draw {
             sprite: &sprite,
             origin: (3, 3),
-            light: crate::render::rasterizer::Light::FULL,
-            ao: NO_AO,
+            licht: [255; 3],
+            ecken: None,
             tint: [0; 2],
         }];
         let mut worker = gpu.worker(1, 64);

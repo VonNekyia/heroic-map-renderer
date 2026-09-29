@@ -97,8 +97,8 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
     Belege aus dem Spiel stehen in `docs/`. Der Kommentar verweist darauf:
 
     ```rust
-    /// Das Himmelslicht, in dem das Spiel den Block zeichnet.
-    /// Siehe docs/renderer/wasser-und-licht.md, „Licht von der Seite“.
+    /// In welchem Licht das Spiel den Block zeichnet.
+    /// Siehe docs/renderer/wasser-und-licht.md, „Welches Licht ein Block bekommt“.
     ```
 
 19. Ein Satz Begründung bleibt, wo der Code ohne ihn falsch aussähe, etwa

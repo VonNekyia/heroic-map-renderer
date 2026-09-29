@@ -1217,18 +1217,25 @@ const IM_SPEICHER: &str = "davon schon während des Renderns";
 /// sind Byte für Byte, was `--pyramid` von der Platte baut: auf einem
 /// Thread; auf zweien, deren Stücke Eltern zerschneiden; über der
 /// gröbsten nativen Stufe; und für einen Ausschnitt in einem bestehenden
-/// Baum, an dessen Rand die Eltern von der Platte kommen.
+/// Baum, an dessen Rand die Eltern von der Platte kommen. Mit zwei
+/// nativen Stufen ist die gröbste zu klein für Streifen, und nichts
+/// entsteht im Speicher, auch nicht über der feineren.
 #[test]
 fn feine_stufen_im_speicher_wie_von_der_platte() {
     let welt = weite_welt();
     let ganz = ["--scale", "32", "--native-levels", "0"];
     let nativ = ["--scale", "32", "--native-levels", "1"];
-    for (threads, args, stufen) in [(1, &ganz, 0), (2, &ganz, 0), (1, &nativ, 1)] {
+    let zwei = ["--scale", "32", "--native-levels", "2"];
+    for (threads, args, stufen) in [(1, &ganz, 0), (2, &ganz, 0), (1, &nativ, 1), (1, &zwei, 2)] {
         let fall = format!("{threads} Threads, {args:?}");
         let out = tempdir();
         let ausgabe = export_auf(threads, welt.path(), out.path(), args);
         let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
-        assert!(meldung.contains(IM_SPEICHER), "{fall}: {meldung}");
+        assert_eq!(
+            meldung.contains(IM_SPEICHER),
+            stufen < 2,
+            "{fall}: {meldung}"
+        );
         let ab = max_zoom(out.path()) - stufen;
         assert!(ab > 1, "{fall}: keine Pyramide zu prüfen");
         // Je Stufe zählt jede Kachel einmal, ob aus dem Speicher oder von

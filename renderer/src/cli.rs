@@ -1716,8 +1716,12 @@ fn schreibe_info(dir: &Path, info: &MapInfo, zeit: Option<SystemTime>) -> Result
 /// danach [`ohne_veraltete`] heraus. `waisen` bekommen ihre Elternkachel
 /// neu.
 ///
-/// Auch mit `--resume` baut es alle diese Eltern neu: Einer Elternkachel
-/// sieht man nicht an, ob sie zu ihren Kindern passt.
+/// Was schon im Speicher entstand ([`ImSpeicher`]), baut es nicht noch
+/// einmal, zählt es aber mit; was dort leer blieb, kommt nach `weg`.
+///
+/// Auch mit `--resume` baut der Lauf alle diese Eltern neu, im Speicher
+/// oder hier: Einer Elternkachel sieht man nicht an, ob sie zu ihren
+/// Kindern passt.
 /// Siehe docs/entscheidungen/0019-resume-behaelt-die-basiskacheln.md.
 fn build_pyramid(
     dir: &Path,
@@ -1731,6 +1735,12 @@ fn build_pyramid(
     let mut kandidaten = kandidaten;
     let mut bytes = 0usize;
     let mut gesamt = 0usize;
+    // Im Speicher entsteht nur, was über der Stufe liegt, die ihn füllt;
+    // sonst hätte der Lauf eine gerenderte Stufe verkleinert.
+    debug_assert!(
+        im_speicher.keys().all(|(z, _)| *z < max_zoom),
+        "im Speicher gebaut, wo gerendert wird"
+    );
     // Was im Speicher leer blieb, verschwindet am Ende wie hier.
     weg.extend(
         im_speicher
@@ -2222,8 +2232,9 @@ fn pruefe_bestand(
 ///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
 /// [`build_pyramid`]. Dazu die Kacheln jeder nativen Stufe, die etwas
-/// zeigen. Leer gewordene Kacheln kommen nach `weg` und verschwinden erst
-/// am Ende des Laufs.
+/// zeigen, und was über der letzten schon im Speicher entstand: Sie gibt
+/// die Viertel ab ([`ImSpeicher`]). Leer gewordene Kacheln kommen nach
+/// `weg` und verschwinden erst am Ende des Laufs.
 ///
 /// Auch mit `--resume` rendert es jede Kachel neu. Was auf einer nativen
 /// Stufe liegt, kann `--pyramid` verkleinert haben, womöglich bevor die
@@ -3415,6 +3426,37 @@ mod tests {
         assert_eq!(lauf(1).1, BTreeMap::from([(1, stufe_1)]), "ab Zoom 1");
     }
 
+    /// Was im Speicher leer blieb, verschwindet am Ende wie eine leere
+    /// Elternkachel von der Platte, und der Durchgang baut es nicht noch
+    /// einmal: Seine Elternkachel sieht es nicht als Kind.
+    #[test]
+    fn leer_im_speicher_kommt_nach_weg() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = |x, y| TileId { x, y };
+        schreibe(
+            dir.path(),
+            2,
+            t(0, 0),
+            &RgbaImage::from_pixel(TILE, TILE, Rgba([9; 4])),
+        )
+        .unwrap();
+        let mut weg = BTreeSet::new();
+        let im_speicher = BTreeMap::from([((1, t(0, 0)), None)]);
+        build_pyramid(
+            dir.path(),
+            2,
+            BTreeSet::from([t(0, 0)]),
+            &BTreeMap::new(),
+            &mut weg,
+            &im_speicher,
+        )
+        .unwrap();
+        assert_eq!(weg, BTreeSet::from([(1, t(0, 0)), (0, t(0, 0))]));
+        for z in [0, 1] {
+            assert!(!tile_path(dir.path(), z, t(0, 0)).exists(), "Zoom {z}");
+        }
+    }
+
     /// Auf der Basis zählt die Liste der ganzen Stufe, darüber die in der
     /// Fläche eines Ausschnitts; daneben und auf einer Stufe ohne Liste
     /// könnte eine Kachel liegen.
@@ -3464,13 +3506,17 @@ mod tests {
             (5, 1),
             // (2, 2): eines; neben ihr liegt (3, 2) auf Zoom 1 da
             (4, 4),
+            // (5, 0): eines; daneben entsteht (4, 0) von der Platte, über
+            // der Waise (8, 0), also auch (2, 0) auf Zoom 0
+            (10, 0),
         ]);
         let bleiben = menge(&[(1, 2)]);
         let kandidaten: BTreeSet<TileId> = gerendert.union(&bleiben).copied().collect();
-        let da_auf_2 = menge(&[(1, 2), (3, 3)]);
+        // (8, 0) liegt ohne Chunk da, und ihre Elternkachel fehlt.
+        let da_auf_2 = menge(&[(1, 2), (3, 3), (8, 0)]);
         // (6, 0) auf Zoom 1 ist eine Waise, ihre Elternkachel fehlt.
         let da_auf_1 = menge(&[(3, 2), (6, 0)]);
-        let waisen = BTreeMap::from([(1, menge(&[(6, 0)]))]);
+        let waisen = BTreeMap::from([(2, menge(&[(8, 0)])), (1, menge(&[(6, 0)]))]);
         let vielleicht_da = |z: u32, tile: &TileId| match z {
             2 => da_auf_2.contains(tile),
             1 => da_auf_1.contains(tile),
@@ -3495,6 +3541,7 @@ mod tests {
             ((1, t(1, 0)), 2),
             ((1, t(2, 0)), 2),
             ((1, t(2, 2)), 1),
+            ((1, t(5, 0)), 1),
         ];
         let mut beide = BTreeMap::from(zoom_1);
         beide.insert((0, t(1, 0)), 1);

@@ -40,7 +40,19 @@ prüfte niemand. Issue #70.
 
 Zehn Läufe auf `ubuntu-latest`, Stand der PR zu #70:
 
-STREUUNG
+| Wert | kleinster | grösster | Schwelle |
+|---|---|---|---|
+| CLS | 0 | 0 | ≤ 0,1, Fehler |
+| TBT | 0 ms | 0 ms | ≤ 300 ms, Fehler |
+| LCP | 1396 ms | 1506 ms | ≤ 4000 ms, Warnung |
+| Performance, Barrierefreiheit, SEO | 1 | 1 | ≥ 0,5 Warnung, ≥ 0,9 Fehler |
+| Best Practices | 0,96 | 0,96 | ≥ 0,9, Fehler |
+
+- CLS und TBT streuten nicht. Die Schwellen liegen weit darüber; sie
+  fangen ein Layout, das springt, oder ein Skript, das den Start blockiert,
+  nicht das Rauschen des Runners.
+- Best Practices verliert 0,04 an der Anfrage nach `/favicon.ico`, die ins
+  Leere geht. Das Icon kommt mit #71.
 
 ## Verworfene Alternativen
 

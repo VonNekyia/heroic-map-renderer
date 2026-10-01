@@ -8,7 +8,7 @@ module.exports = {
       url: [`http://127.0.0.1:${PORT}/`],
       startServerCommand: `npx vite preview --host 127.0.0.1 --port ${PORT} --strictPort`,
       startServerReadyPattern: 'Local',
-      numberOfRuns: 10,
+      numberOfRuns: 3,
       settings: {
         chromeFlags: '--headless=new --no-sandbox --disable-dev-shm-usage',
         onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'],

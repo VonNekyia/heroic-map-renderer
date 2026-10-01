@@ -20,27 +20,22 @@ function kamera(name: string, scale: number): Projektion {
   return p;
 }
 
-/**
- * Die Einträge des Renderers, aktuell gehalten von einem seiner Tests.
- * Genordete Kameras rechnet das Frontend erst mit seiner PR zu #67; die
- * entfernt diesen Filter.
- */
-const eintraege = (
-  JSON.parse(
-    readFileSync(new URL('../../renderer/tests/fixtures/projektion.json', import.meta.url), 'utf8'),
-  ) as {
-    camera: string;
-    direction: string;
-    scale: number;
-    block: Block;
-    pixel: Punkt;
-    eben?: 0;
-    wand?: 'south' | 'east';
-  }[]
-).filter((e) => e.camera !== 'top-north' && e.camera !== 'north-45');
+/** Die Einträge des Renderers, aktuell gehalten von einem seiner Tests. */
+const eintraege = JSON.parse(
+  readFileSync(new URL('../../renderer/tests/fixtures/projektion.json', import.meta.url), 'utf8'),
+) as {
+  camera: string;
+  direction: string;
+  scale: number;
+  block: Block;
+  pixel: Punkt;
+  eben?: 0;
+  wand?: 'south' | 'east';
+}[];
 
 test('die Projektion rechnet wie der Renderer, jede Kamera', () => {
   const paare = eintraege.filter((e) => e.eben === undefined && e.wand === undefined);
+  expect(new Set(paare.map((e) => e.camera))).toContain('north-45');
   expect(new Set(paare.map((e) => e.camera)).size).toBeGreaterThan(5);
   for (const { camera, direction, scale, block, pixel } of paare) {
     const p = kamera(camera, scale);

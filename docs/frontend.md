@@ -104,12 +104,13 @@ brauchbare `heightsCell`, `minY` und `maxY`; die Karte lädt dann trotzdem,
 und die Konsole sagt, was fehlt.
 
 Ein Bildpunkt allein verrät den Block nicht: Die Projektion wirft die
-Blickachse (b, 2a, b) der Kamera auf einen Punkt, siehe
+Blickachse der Kamera auf einen Punkt, diagonal (b, 2a, b), genordet
+(0, a, b), siehe
 [Die Kamera](renderer/kamera.md), „Projektion“. Die Zahlen h, a und b
 liest das Frontend aus `projection` in `map.json`, siehe
 [map.json](benutzung/map-json.md), „Kamera und Projektion“; fehlt sie,
 rechnet es 2:1 aus `scale`. Kennt es `azimuth` oder `direction` nicht,
-heute alles ausser `diagonal` und `se`, oder sind `u` und `v` keine ganzen
+heute alles ausser `diagonal` mit `se` und `north` mit `s`, oder sind `u` und `v` keine ganzen
 Zahlen ab 1 oder `y` keine ganze Zahl ab 0, zeigt es keine Koordinaten,
 und die Konsole nennt den Grund.
 [`web/src/pick.ts`](../web/src/pick.ts) geht deshalb den Strahl durch die
@@ -118,9 +119,11 @@ Mitte des Pixels ab, wo auch der Renderer abtastet:
 1. `strahl` zählt die Würfel von vorn nach hinten auf, von `maxY` bis
    `minY`, als Gang durch das Würfelgitter: bei 2:1 drei je Schicht, rund
    1150 über die ganze Bauhöhe, bei steileren Kameras weniger, von oben
-   einen je Schicht.
+   einen je Schicht. Genordet bleibt x je Pixel fest, nur z wandert, bei
+   `north-45` zwei Würfel je Schicht.
    - Gerechnet wird ganzzahlig, damit eine Pixelmitte auf einer Blockkante
-     genau dort liegt; das kommt bei 1:1, `top` und etwa 5:3 vor.
+     genau dort liegt; das kommt bei 1:1, `top` und etwa 5:3 vor, genordet
+     nie.
    - Dort gilt die Füllregel des Renderers: Der Pixel gehört der Fläche
      rechts der Kante, siehe [Rastern ohne Nähte](renderer/naehte.md),
      „Füllregel“. `strahl` rückt die Mitte dafür um ein unendlich kleines

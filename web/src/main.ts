@@ -29,10 +29,10 @@ interface MapInfo {
   maxY?: number;
   /** Die Kamera des Baums, gekürzt, etwa `8:5` oder `top`; ohne sie 2:1. */
   camera?: string;
-  /** Wo die Kamera steht; ohne Angabe `se`. */
+  /** Wo die Kamera steht; ohne Angabe `se`, genordet `s`. */
   direction?: string;
   /** Die Zahlen der Projektion; ohne sie rechnet das Frontend 2:1 aus `scale`. */
-  projection?: Projektion & { azimuth: string };
+  projection?: Projektion;
 }
 
 /** In einer Höhenkarte: keine Zelle mit Block, oder kein fertiger Chunk. */
@@ -145,14 +145,16 @@ function hatHoehen(info: MapInfo): info is MapInfo & Hoehen {
  * Siehe docs/frontend.md, „Koordinaten“.
  */
 function projektion(info: MapInfo): Projektion | string {
-  const { direction = 'se', projection } = info;
-  if (direction !== 'se') return `direction ${direction} unbekannt`;
-  if (projection === undefined) return zweiZuEins(info.scale);
+  const { projection = zweiZuEins(info.scale) } = info;
   const { azimuth, u, v, y } = projection;
-  if (azimuth !== 'diagonal') return `azimuth ${String(azimuth)} unbekannt`;
+  // Die Richtung, aus der die Kamera schaut, solange es nur eine gibt.
+  const richtung = azimuth === 'diagonal' ? 'se' : azimuth === 'north' ? 's' : undefined;
+  if (richtung === undefined) return `azimuth ${String(azimuth)} unbekannt`;
+  const { direction = richtung } = info;
+  if (direction !== richtung) return `direction ${direction} unbekannt`;
   const ganz = (n: unknown, min: number) => Number.isInteger(n) && (n as number) >= min;
   if (!ganz(u, 1) || !ganz(v, 1) || !ganz(y, 0)) return 'projection ohne ganze u, v und y';
-  return { u, v, y };
+  return { azimuth, u, v, y };
 }
 
 /** Eine Höhenkarte: zlib, darin n × n Zellen, je i16 little-endian. */

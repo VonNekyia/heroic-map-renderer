@@ -121,9 +121,26 @@ test('die Koordinaten rechnen mit projection aus map.json', async ({ page }) => 
   await expect(page.locator('.koordinaten')).toHaveText('X 27  Y 0  Z -23');
 });
 
+test('genordet rechnen die Koordinaten mit u = x und v = z', async ({ page }) => {
+  await welt(page, {
+    camera: 'top-north',
+    direction: 's',
+    projection: { azimuth: 'north', u: 16, v: 16, y: 0 },
+  });
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  // Die Mitte des Pixels (400, 36) liegt über Spalte 400,5 / 16 und 36,5 / 16.
+  await page.mouse.move(...(await bildschirm(page, 400, 36)));
+  await expect(page.locator('.koordinaten')).toHaveText('X 25  Y 0  Z 2');
+});
+
 for (const [mehr, grund] of [
-  [{ projection: { azimuth: 'north', u: 16, v: 16, y: 0 } }, 'azimuth north unbekannt'],
+  [{ projection: { azimuth: 'up', u: 16, v: 16, y: 0 } }, 'azimuth up unbekannt'],
   [{ direction: 'sw' }, 'direction sw unbekannt'],
+  [
+    { direction: 'se', projection: { azimuth: 'north', u: 16, v: 16, y: 16 } },
+    'direction se unbekannt',
+  ],
   [{ projection: { azimuth: 'diagonal', u: 8, v: 0, y: 8 } }, 'projection ohne ganze u, v und y'],
 ] as const) {
   test(`eine Kamera, die das Frontend nicht kennt, zeigt keine Koordinaten: ${grund}`, async ({

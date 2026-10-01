@@ -264,3 +264,23 @@ fn gleiche_section_aus_quellen() {
     let licht = licht_in(&World::open(dir.path()).unwrap(), &[[8, 15, 8], [8, 16, 8]]);
     assert_eq!(licht, [(0, 15), (15, 14)]);
 }
+
+/// Der unsichtbare Lichtblock hat keine Familie, dämpft nicht und dunkelt
+/// nicht ab. In `Masks::of` bekommt er seine Klasse nur über das Bit
+/// `EINZELN`; sonst fiele er dort wie Luft heraus, und sein Licht fehlte.
+#[test]
+fn quelle_ohne_familie_leuchtet() {
+    let dir = TempDir::new().unwrap();
+    common::write_world_sections(
+        dir.path(),
+        &[(0, 0)],
+        0..=0,
+        |x, y, z| match (x, y, z) {
+            (8, 8, 8) => "minecraft:light[level=15,waterlogged=false]",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let licht = licht_in(&World::open(dir.path()).unwrap(), &[[8, 8, 8], [8, 8, 11]]);
+    assert_eq!(licht, [(15, 15), (15, 12)]);
+}

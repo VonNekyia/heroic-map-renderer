@@ -12,8 +12,9 @@ code:
 
 Die Regel aus #58 kostet keine messbare Zeit. Am Stand wie an einer
 Eisszene der Testwelt liegen Basis, native Stufen und ganzer Lauf mit und
-ohne Karte innerhalb der Streuung von master, und die Spitze des Speichers
-bleibt gleich. Die Tabelle wächst bei scale 32 um 90 Sprites am Stand und
+ohne Karte innerhalb der Streuung von master. Die Spitze des Speichers
+liegt dreimal in der Streuung; an der Eisszene mit Karte liegt sie bei B
+0,08 GiB tiefer, und die Spannen trennen sich. Die Tabelle wächst bei scale 32 um 90 Sprites am Stand und
 um 45 an der Eisszene, 4,2 und 3,4 %. Es ändern sich nur Kacheln, in denen
 `sprite_at` eine Fassung der Regel wählt: am Stand 486 der 8500 gerenderten
 Kacheln, an der Eisszene 1112 von 2125.
@@ -118,9 +119,12 @@ Kacheln, in denen BZ eine Fassung der Regel meldet.
 
 ## Schluss
 
-- In jeder Serie überlappen die Spannen von A und B. Ein Unterschied ist
-  nicht zu sehen, weder durch die Nachschläge zu den Nachbarn noch durch
-  die Sprites mehr.
+- Bei der Zeit überlappen in jeder Serie die Spannen von A und B. Ein
+  Unterschied ist nicht zu sehen, weder durch die Nachschläge zu den
+  Nachbarn noch durch die Sprites mehr.
 - An der Eisszene fallen Blöcke mitten im Eis ganz weg. Schneller wird sie
   dadurch nicht messbar.
-- Die Spitze des Speichers bleibt innerhalb der Streuung.
+- Die Spitze des Speichers bleibt am Stand und an der Eisszene ohne Karte
+  innerhalb der Streuung. An der Eisszene mit Karte liegt B bei 2,18 GiB
+  (2,08–2,18), A bei 2,26 GiB (2,26–2,29); die Spannen trennen sich. Woran
+  das liegt, zeigt die Messung nicht.

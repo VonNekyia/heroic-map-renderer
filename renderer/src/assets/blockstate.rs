@@ -1117,6 +1117,44 @@ mod tests {
     /// Wasser hat kein Bit, Glas nur die volle Kollisionsform, Seelensand
     /// dunkelt ab wie Stein, aber ohne sie, der Ofen an wie aus, der Kolben
     /// nur eingefahren, die Platte nur doppelt.
+    #[test]
+    fn schatten_wie_im_spiel() {
+        for (name, ziffern) in SCHATTEN.iter() {
+            let definition = Definition::of(&format!("minecraft:{name}"))
+                .unwrap_or_else(|| panic!("{name} fehlt in blocks.txt"));
+            assert!(
+                ziffern.len() == 1 || ziffern.len() == definition.states(),
+                "{name}: {} Ziffern für {} Zustände",
+                ziffern.len(),
+                definition.states()
+            );
+            assert!(ziffern.iter().all(|z| (b'0'..=b'7').contains(z)), "{name}");
+        }
+        let bits = |text: &str| schatten(&state(text));
+        let alle = DUNKELT | SICHT | KOLLISION;
+        assert_eq!(bits("minecraft:stone"), alle);
+        assert_eq!(bits("minecraft:soul_sand"), DUNKELT | SICHT);
+        assert_eq!(
+            bits("minecraft:oak_leaves[distance=7,persistent=false,waterlogged=false]"),
+            DUNKELT | KOLLISION
+        );
+        assert_eq!(bits("minecraft:glass"), KOLLISION);
+        assert_eq!(bits("minecraft:water[level=0]"), 0);
+        assert_eq!(bits("minecraft:glowstone"), alle);
+        assert_eq!(bits("minecraft:furnace[facing=north,lit=true]"), alle);
+        assert_eq!(bits("minecraft:furnace[facing=north,lit=false]"), alle);
+        assert_eq!(bits("minecraft:chiseled_bookshelf"), alle);
+        assert_eq!(bits("minecraft:piston[extended=true,facing=up]"), 0);
+        assert_eq!(bits("minecraft:piston[extended=false,facing=up]"), alle);
+        assert_eq!(
+            bits("minecraft:oak_slab[type=double,waterlogged=false]"),
+            alle
+        );
+        assert_eq!(bits("minecraft:oak_slab[type=top,waterlogged=false]"), 0);
+        assert_eq!(bits("minecraft:oak_slab[type=bottom,waterlogged=false]"), 0);
+        assert_eq!(bits("mod:stein"), 0);
+    }
+
     /// Jede Zeile aus `nachbarn.txt` nennt einen Block aus `blocks.txt`, bei
     /// `verbunden` mit allen vier waagrechten Seiten. Dazu Paare, für die
     /// `skipRendering` in 26.2 so antwortet: Glas zu Glas, nicht zu Eis oder
@@ -1277,44 +1315,6 @@ mod tests {
         // Wasser zu Wasser lässt das Spiel auch weg, über die Masken der
         // Flüssigkeiten, nicht über diese Tabelle.
         assert!(nachbarregel(&state("minecraft:water[level=0]")).is_none());
-    }
-
-    #[test]
-    fn schatten_wie_im_spiel() {
-        for (name, ziffern) in SCHATTEN.iter() {
-            let definition = Definition::of(&format!("minecraft:{name}"))
-                .unwrap_or_else(|| panic!("{name} fehlt in blocks.txt"));
-            assert!(
-                ziffern.len() == 1 || ziffern.len() == definition.states(),
-                "{name}: {} Ziffern für {} Zustände",
-                ziffern.len(),
-                definition.states()
-            );
-            assert!(ziffern.iter().all(|z| (b'0'..=b'7').contains(z)), "{name}");
-        }
-        let bits = |text: &str| schatten(&state(text));
-        let alle = DUNKELT | SICHT | KOLLISION;
-        assert_eq!(bits("minecraft:stone"), alle);
-        assert_eq!(bits("minecraft:soul_sand"), DUNKELT | SICHT);
-        assert_eq!(
-            bits("minecraft:oak_leaves[distance=7,persistent=false,waterlogged=false]"),
-            DUNKELT | KOLLISION
-        );
-        assert_eq!(bits("minecraft:glass"), KOLLISION);
-        assert_eq!(bits("minecraft:water[level=0]"), 0);
-        assert_eq!(bits("minecraft:glowstone"), alle);
-        assert_eq!(bits("minecraft:furnace[facing=north,lit=true]"), alle);
-        assert_eq!(bits("minecraft:furnace[facing=north,lit=false]"), alle);
-        assert_eq!(bits("minecraft:chiseled_bookshelf"), alle);
-        assert_eq!(bits("minecraft:piston[extended=true,facing=up]"), 0);
-        assert_eq!(bits("minecraft:piston[extended=false,facing=up]"), alle);
-        assert_eq!(
-            bits("minecraft:oak_slab[type=double,waterlogged=false]"),
-            alle
-        );
-        assert_eq!(bits("minecraft:oak_slab[type=top,waterlogged=false]"), 0);
-        assert_eq!(bits("minecraft:oak_slab[type=bottom,waterlogged=false]"), 0);
-        assert_eq!(bits("mod:stein"), 0);
     }
 
     #[test]

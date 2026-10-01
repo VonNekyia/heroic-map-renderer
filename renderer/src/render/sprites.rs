@@ -216,21 +216,16 @@ const SEITEN: [Face; 6] = [
 ];
 
 impl Family {
-    /// Die Alternative fuer einen Block, dieselbe, die der 26.2-Client
-    /// wuerfelt: `nextInt(total)` aus `Mth.getSeed` der Position, die Gewichte
-    /// in Listenreihenfolge abgezaehlt.
-    /// Siehe docs/renderer/varianten.md, „Wie gewürfelt wird“.
-    pub fn pick(&self, pos: [i32; 3]) -> Option<SpriteId> {
-        self.wahl(pos).and_then(|i| self.sprite(i))
-    }
-
     /// Das Grundbild einer Alternative, nach ihrem Platz aus
     /// [`Family::wahl`].
     pub fn sprite(&self, wahl: usize) -> Option<SpriteId> {
         self.alternatives[wahl].1
     }
 
-    /// Welche Alternative [`Family::pick`] nimmt, als Platz in der Liste.
+    /// Die Alternative fuer einen Block, als Platz in der Liste, dieselbe,
+    /// die der 26.2-Client wuerfelt: `nextInt(total)` aus `Mth.getSeed` der
+    /// Position, die Gewichte in Listenreihenfolge abgezaehlt.
+    /// Siehe docs/renderer/varianten.md, „Wie gewürfelt wird“.
     pub fn wahl(&self, pos: [i32; 3]) -> Option<usize> {
         if self.alternatives.len() == 1 {
             return Some(0);
@@ -324,10 +319,11 @@ pub fn mask_bit(face: Face) -> u8 {
 /// die Faerbung), die Modellverweise samt Drehung und Gewicht, Art und
 /// Menge der Fluessigkeit, wo die Wahl der Alternative ihre Saat nimmt und
 /// was sein Blockentity zeichnet, dazu die volle Kollisionsform, siehe
-/// [`kollision`], und zu welchen Nachbarn er Flächen weglässt. Die Verweise
-/// reichen, die Modelle selbst laedt erst die Familie. Eine Truhe hat in jeder Lage dasselbe Blockmodell, aber nicht
-/// dasselbe Bild aus [`blockentity::bild`]; das trennt auch, wo die andere
-/// Hälfte einer Doppelkiste steht.
+/// [`kollision`], und zu welchen Nachbarn er Flächen weglässt. Die
+/// Verweise reichen, die Modelle selbst laedt erst die Familie. Eine Truhe
+/// hat in jeder Lage dasselbe Blockmodell, aber nicht dasselbe Bild aus
+/// [`blockentity::bild`]; das trennt auch, wo die andere Hälfte einer
+/// Doppelkiste steht.
 type FamilyKey = (
     String,
     Vec<(u32, Vec<ModelRef>)>,
@@ -1448,8 +1444,8 @@ mod tests {
         for (pos, _, erwartet) in CLIENT {
             for (liste, soll) in listen.iter().zip(erwartet) {
                 assert_eq!(
-                    liste.pick(pos),
-                    Some(SpriteId(soll)),
+                    liste.wahl(pos),
+                    Some(soll as usize),
                     "{pos:?} bei {} Alternativen",
                     liste.alternatives.len()
                 );
@@ -1867,11 +1863,7 @@ mod tests {
         assert_eq!(family.total, 4);
         assert_eq!(family.alternatives.len(), 2);
         for (pos, _, erwartet) in CLIENT {
-            assert_eq!(
-                family.pick(pos),
-                family.alternatives[erwartet[2] as usize].1,
-                "{pos:?}"
-            );
+            assert_eq!(family.wahl(pos), Some(erwartet[2] as usize), "{pos:?}");
         }
     }
 

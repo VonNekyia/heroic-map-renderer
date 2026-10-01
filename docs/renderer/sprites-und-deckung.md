@@ -111,7 +111,7 @@ aus dem Spiel gelesen, siehe [Erzeugte Tabellen](../entwicklung/tabellen.md):
 
 | Regel | Klasse | Blöcke | Fläche entfällt zu einem Nachbarn |
 |---|---|---|---|
-| `gleich` | `HalfTransparentBlock`, `PowderSnowBlock` | 32: Eis, Glas, Buntglas, Slime, Honig, Kupfergitter, blaues Eis, Pulverschnee | desselben Blocks, in jeder Richtung |
+| `gleich` | `HalfTransparentBlock`, `PowderSnowBlock` | 32: Eis, brüchiges Eis, blaues Eis, Glas, getöntes Glas, Buntglas, Slime, Honig, Kupferrost (`copper_grate`), Pulverschnee | desselben Blocks, in jeder Richtung |
 | `senkrecht` | `MangroveRootsBlock` | Mangrovenwurzeln | desselben Blocks, nur oben und unten |
 | `verbunden` | `IronBarsBlock` | 26: Scheiben und Gitter | desselben Blocks oben und unten; waagrecht nur, wenn beide zueinander verbunden sind. Eisengitter und Kupfergitter teilen den Tag `bars` und lassen waagrecht auch zueinander weg |
 
@@ -123,7 +123,7 @@ aus dem Spiel gelesen, siehe [Erzeugte Tabellen](../entwicklung/tabellen.md):
   [Wasser und Licht](wasser-und-licht.md).
 - **Verschiedene Blöcke** bleiben übereinander: Eis neben Glas, Gläser
   verschiedener Farbe, `ice` neben `frosted_ice`, gewachstes neben
-  ungewachstem Kupfergitter, Scheibe neben Gitter.
+  ungewachstem Kupferrost, Scheibe neben Gitter.
 
 Im Renderer, siehe
 [0044](../entscheidungen/0044-flaechen-zu-gleichen-nachbarn.md):
@@ -136,13 +136,15 @@ Im Renderer, siehe
   Süden und Osten. Bei einer Scheibe ist es nur das Ende eines Arms nach
   Osten oder Süden; Pfosten und Kanten haben keine `cullface`. Bei
   Mangrovenwurzeln sind es oben und unten: Die untere Schicht zeigt ihre
-  Oberseite mit `cullface` unten zur Kamera.
+  Oberseite mit `cullface` unten zur Kamera. Bei Pulverschnee sind es alle
+  sechs: Seine inneren Schichten zeigen mit `cullface` nach unten, Norden
+  und Westen zur Kamera.
 - **Fassungen:** Je Alternative gibt es eine Fassung je Maske über diese
   Seiten, ohne die Flächen, deren `cullface` zu einer Seite der Maske zeigt.
   Führt der Block eine Flüssigkeit, gibt es sie je Maske der Flüssigkeit
   noch einmal (`SpriteSet::insert_nachbarn`). Bei Eis sind das 8, bei einer
   gefluteten Scheibe mit einem Arm nach Osten 16, bei gefluteten
-  Mangrovenwurzeln 32. Die Fassungen gehören der Familie, nicht wie bei
+  Mangrovenwurzeln 32, bei Pulverschnee 64. Die Fassungen gehören der Familie, nicht wie bei
   Wasser dem Sprite.
 - **Beim Zeichnen** fragt `sprite_at` die Nachbarn zu diesen Seiten
   (`Nachbarregel::verdeckt`) und nimmt die Fassung. Bleibt nichts, fällt der
@@ -160,9 +162,11 @@ Was bleibt eine Näherung:
 
 - **Innere Flächen vor einem vollen Nachbarn.** Den ersten Fall baut der
   Renderer nicht nach. Er greift bei Flächen, die zur Kamera zeigen, deren
-  `cullface` aber nach unten, Norden oder Westen weist, etwa bei den
-  inneren Schichten der Mangrovenwurzeln. Steht dort ein voller Block,
-  lässt das Spiel sie weg, der Renderer zeichnet sie.
+  `cullface` aber nach unten, Norden oder Westen weist. Solche Flächen
+  haben in 26.2 die Mangrovenwurzeln, der Spawner, der Prüfungs-Spawner und
+  die Choruspflanze, dazu der Pulverschnee, bei dem es nicht zu sehen ist,
+  denn er deckt. Steht dort ein voller Block, lässt das Spiel sie weg, der
+  Renderer zeichnet sie.
 
 ## Hineinragende Nachbarmodelle
 

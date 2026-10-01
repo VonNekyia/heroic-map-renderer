@@ -1765,7 +1765,7 @@ impl<'a> ChunkCache<'a> {
         // Flächen zu gleichen Nachbarn entfallen wie `skipRendering` im
         // Spiel; bleibt nichts, fällt der Block weg.
         // Siehe docs/renderer/sprites-und-deckung.md, „Flächen zu gleichen Nachbarn“.
-        let masked = match family.nachbarn {
+        let sprite = match family.nachbarn {
             Some(regel) if family.hat_nachbarn() => {
                 let mut nachbarn = 0;
                 for (k, face) in family.nachbarseiten().enumerate() {
@@ -1783,7 +1783,6 @@ impl<'a> ChunkCache<'a> {
             _ if family.fluid.is_some() => sprites.masked(id, fluessig),
             _ => Some(id),
         };
-        let sprite = masked;
         if sprite.is_none() && strips.iter().all(Option::is_none) {
             return Ok(Drawn::default());
         }

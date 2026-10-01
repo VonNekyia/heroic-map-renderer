@@ -66,9 +66,13 @@ gleichen Nachbarn“.
 
 - Eine siebte Tabelle, die mit jeder Spielversion neu erzeugt wird, siehe
   [Erzeugte Tabellen](../entwicklung/tabellen.md).
-- Mehr Sprites: je Familie mit Regel bis zu 8 Fassungen, geflutet bis zu
-  64. Dazu je gezeichnetem Block mit Regel bis zu drei Nachschläge, bei
-  Mangrovenwurzeln zwei. Am Stand und an einer Eisszene der Testwelt sind
+- Mehr Sprites: je Alternative eine Fassung je Maske über ihre Seiten,
+  geflutet je Maske der Flüssigkeit noch einmal. Bei Eis sind das 8, bei
+  Pulverschnee 64, denn seine inneren Schichten zeigen mit `cullface` zu
+  allen sechs Seiten. Ein Pack mit inneren Flächen bringt je Alternative
+  bis zu 64, geflutet bis zu 512. Dazu je gezeichnetem Block mit Regel ein
+  Nachschlag je Seite, bei Eis drei, bei Mangrovenwurzeln zwei, bei
+  Pulverschnee sechs. Am Stand und an einer Eisszene der Testwelt sind
   das 3 bis 4 % mehr Sprites und keine messbare Zeit, siehe
   [2026-10-01, Flächen zu gleichen Nachbarn](../messungen/2026-10-01-flaechen-zu-gleichen-nachbarn.md).
 - Mitten in einer Eismasse fällt der Block weg, ohne Pixel.

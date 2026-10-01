@@ -3,7 +3,7 @@ title: "0046: Drei Renderarten, zwei Backends, ein Kern"
 description: Warum die Karte beim Raster bleibt, Cinematic und Showcase ein gemeinsames Strahlen-Backend bekommen, Cinematic nur das Licht des Spiels nimmt und beide Backends Welt, Modelle, Biomfarben und Licht aus einem Kern nehmen.
 status: gilt
 date: 2026-10-01
-issues: []
+issues: [72, 73, 74]
 code:
   - renderer/src/render/metatile.rs
   - renderer/src/render/rasterizer.rs

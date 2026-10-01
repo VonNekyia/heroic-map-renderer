@@ -26,7 +26,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Wie der Renderer das Spiel nachbaut
 
-- [Die Kamera](renderer/kamera.md): Projektion, scale, Zeichenreihenfolge, f64.
+- [Die Kamera](renderer/kamera.md): Projektion, scale, Zeichenreihenfolge, Teile je Würfel im Raum, f64.
 - [Der Weg einer Kachel](renderer/renderpfad.md): Vorlauf, Streifen, Bitmasken, Kandidaten, Blit, Kodieren, Speicher.
 - [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Flächen zu gleichen Nachbarn, Deckungsmaske.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
@@ -99,6 +99,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0043](entscheidungen/0043-native-stufen-in-baendern.md): Native Stufen in Bändern, mit Chunks und Licht über alle Stufen.
 - [0044](entscheidungen/0044-flaechen-zu-gleichen-nachbarn.md): Flächen zu gleichen Nachbarn nach der Regel des Spiels, aus einer Tabelle, mit Fassungen je Familie.
 - [0045](entscheidungen/0045-varianten-genau-drehen.md): Varianten genau um Vielfache von 90 Grad drehen, wie die Matrix des Spiels, Elemente ebenso.
+- [0046](entscheidungen/0046-teile-je-wuerfel-im-raum.md): Teile je Würfel im Raum, je Fragment, vor einem Block mit Flächen nur auf den Vorderseiten.
 
 ## Messungen
 

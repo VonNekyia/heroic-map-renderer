@@ -1,10 +1,11 @@
 ---
 title: Die Kamera
-description: Die feste isometrische Projektion, der scale, die Zeichenreihenfolge ohne Tiefenpuffer und warum Weltkoordinaten in f64 projiziert werden.
+description: Die feste isometrische Projektion, der scale, die Zeichenreihenfolge ohne Tiefenpuffer, wie überhängende Modelle im Raum in Teile je Würfel zerfallen und warum Weltkoordinaten in f64 projiziert werden.
 code:
   - renderer/src/render/projection.rs
   - renderer/src/render/metatile.rs
   - renderer/src/render/sprites.rs
+  - renderer/src/render/rasterizer.rs
   - renderer/tests/heights.rs
   - renderer/tests/fixtures/projektion.json
 ---
@@ -89,15 +90,65 @@ je Würfel, und jeder Teil wird zu dem Zeitpunkt gezeichnet, der zu seinem
 eigenen Würfel gehört. Sonst käme ein zwei Blöcke hohes Modell zu früh, und
 ein Block dahinter mit höherem Ursprung übermalte seine obere Hälfte.
 
-Zugeordnet wird über den Bildschirm: die Umrisse benachbarter Würfel
-kacheln die Ebene lückenlos, ein Pixel liegt also in genau einem, bis auf
-die Blickachse, wo Würfel im Abstand (1, 1, 1) aufeinanderfallen. Dort
-gewinnt der vordere, und genau dessen Geometrie hat auch der Tiefenpuffer
-des Rasterizers stehen lassen. Ein Modell, das zwei Würfel entlang der
-Blickachse ausfüllt, wäre so nicht auflösbar; in Vanilla gibt es keines.
+Zugeordnet wird im Raum, je Fragment (`Raster::teile` in
+`renderer/src/render/rasterizer.rs`):
+- **Fragment:** Der Rasterizer gibt jeder Ecke ihre Lage im Raum mit. Ein
+  Fragment, der Beitrag einer Fläche zu einem Pixel, gehört dem Würfel, in
+  dem sein Punkt liegt.
+- **Gemischt je Würfel:** Welche Pixel eine Fläche deckt, das Mittel der
+  Textur, die AO-Karte und die Füllregel bleiben die des ganzen Modells.
+  Nur die Mischung der Fragmente geschieht je Würfel. Übereinander gelegt
+  sind die Teile ohne Nachbarn Pixel für Pixel das ganze Modell; eine Naht
+  gibt es nicht.
+- **Fläche in einer Würfelebene:** Sie gehört dem Würfel dahinter, von der
+  Kamera aus gesehen. Die Oberseite eines Blocks bei y = 1 gehört dem
+  eigenen.
+- **Grenze je Dreieck:** Der Würfel eines Fragments bleibt zwischen dem der
+  kleinsten und dem der grössten Ecke seines Dreiecks. Die Gewichte runden,
+  und ein Fragment an einer eigenen Kante fiele sonst knapp in den
+  Nachbarwürfel. Eine Toleranz an den Ecken braucht es nicht, denn seit
+  [0045](../entscheidungen/0045-varianten-genau-drehen.md) liegt eine Ecke
+  auf einer Würfelebene genau darauf.
+- **Spielraum:** Passt das Bild des ganzen Modells bis auf eine Pixelbreite
+  in den eigenen Umriss (`fits_cell`), bleibt es ganz. So bleiben
+  Wandfackeln, Korallenfächer und Getreide bei kleinem scale ein Teil. Erst
+  was weiter hinausragt, zerfällt.
+
+Bis #65 wurde über den Bildschirm zugeordnet: Ein Pixel gehörte dem
+vordersten Würfel der Hülle, dessen Umriss ihn enthält. Die Umrisse
+kacheln die Ebene aber nicht. Das Sechseck eines Würfels hat die Fläche
+3s²/4, seine Stellen auf dem Bildschirm liegen alle s²/4 auseinander, also
+liegt jeder Pixel in drei Sechsecken. Lag das sichtbare Fragment weiter
+hinten, kam sein Teil zu spät und übermalte einen Block davor: Feuer etwa
+die Südseite des Blocks darüber. Warum es so ist:
+[0046](../entscheidungen/0046-teile-je-wuerfel-im-raum.md).
 
 Die Kandidaten kommen sortiert nach `(y, v, u)` aus den Bitmasken, siehe
 [Der Weg einer Kachel](renderpfad.md), „Bitmasken“.
+
+### Ein Teil im Würfel eines anderen Blocks
+
+Ragt ein Modell in einen Würfel, in dem ein anderer Block steht, fehlt im
+selben Würfel die Tiefe je Pixel. Es entscheidet der Rang im Schlüssel der
+Kandidaten (`candidates` in `renderer/src/render/metatile.rs`):
+- **Würfelform:** Liegt jede Fläche des Blocks, die die Kamera sieht, auf
+  einer der drei vorderen Seiten seines Würfels (`auf_den_vorderseiten`),
+  liegt das Teil hinter jeder von ihnen. Es kommt vor dem Block.
+  - Ein deckender Block wie Stein deckt es dann ganz, und die
+    Deckungsmaske lässt es fallen.
+  - Durch die Löcher von Laub und Glas scheint es durch.
+  - Ein Grasblock mit Overlay hat Würfelform, Schleim mit seinem inneren
+    Würfel und Ackerboden mit 15/16 haben keine.
+  - Eine Familie hat Würfelform nur, wenn jede ihrer Alternativen sie hat.
+- **Sonst:** Das Teil kommt nach dem Block, siehe „Was bleibt eine
+  Näherung“.
+
+Die Referenz ohne Culling (`render_area_without_culling`) zeichnet in
+derselben Reihenfolge.
+
+Das Licht eines Teils kommt von seinem eigenen Block, nicht vom Würfel, in
+dem es liegt. 2:1 ändert sich durch die Zuordnung im Raum also nur über die
+Reihenfolge.
 
 ## Stufen, die von der Kamera wegzeigen
 
@@ -122,5 +173,9 @@ auf demselben Pixel.
 
 ## Was bleibt eine Näherung
 
-- **Ein Modell, das zwei Würfel entlang der Blickachse ausfüllt**, liesse
-  sich nicht zuordnen; in Vanilla gibt es keines.
+- **Ein Teil im Würfel eines Blocks ohne Würfelform** kommt nach dem
+  Block, auch wo das Spiel es dahinter zeigt. Das trifft etwa die oberen bis
+  zu 6,7/16 des Feuers unter einer Platte, einer Stufe oder Schleim.
+  Innerhalb eines Würfels fehlt die Tiefe je Pixel, und keine feste
+  Reihenfolge stimmt immer: Der Fuss von Getreide liegt über der Oberseite
+  des Ackerbodens, also vor ihm.

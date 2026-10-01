@@ -3,7 +3,6 @@ use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
 
 use anyhow::Result;
-use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
 use crate::assets::blockentity;
@@ -14,7 +13,7 @@ use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, CardinalLight, Face, Textures, Tints, fluid, models_of};
 use crate::world::{BlockState, Blockdaten};
 
-use super::rasterizer::{Lightmap, faces_camera, render_mit_licht};
+use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
 use super::tint::BiomeTable;
 use super::{Projection, Sprite, render};
 
@@ -28,8 +27,9 @@ pub type Cell = [i32; 3];
 /// Der Wuerfel des Blocks selbst.
 pub const OWN_CELL: Cell = [0, 0, 0];
 
-/// Obergrenze fuer die Wuerfel, die ein Modell belegen darf. Ein kaputtes
-/// Modell soll hier nicht in eine Schleife ueber Millionen Zellen laufen.
+/// Obergrenze fuer die Wuerfel, in die ein Modell zerfaellt; darueber bleibt
+/// es ganz. Jeder Wuerfel kostet im Renderpfad je ueberhaengendem Block ein
+/// Nachschlagen, und ein kaputtes Modell soll nicht hunderte davon bringen.
 const MAX_CELLS: usize = 64;
 
 /// Alle Sprites, die fuer einen Renderlauf gebraucht werden.
@@ -177,6 +177,11 @@ pub struct Family {
     /// Ragt eine Alternative in Nachbarwuerfel? Dann muss der Renderer
     /// von diesem Block aus auch dort zeichnen.
     pub foreign: bool,
+    /// Liegt in jeder Alternative jede Fläche, die die Kamera sieht, auf
+    /// einer der drei vorderen Seiten des Würfels ([`auf_den_vorderseiten`])?
+    /// Dann kommt ein fremdes Teil in diesem Würfel vor den Block.
+    /// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+    pub wuerfelform: bool,
     /// Besteht jede Alternative nur aus der Fluessigkeit, ohne Modell
     /// daneben: Wasser, Lava, Blasensaeule. Dann bleibt vom Block nichts,
     /// wo ueber ihm dieselbe Fluessigkeit steht und zu beiden Seiten
@@ -670,6 +675,7 @@ impl SpriteSet {
             covers_floor: all(|e| e.covers_floor),
             contained,
             foreign,
+            wuerfelform: models.iter().all(|(_, model)| auf_den_vorderseiten(model)),
             pure_fluid,
             fluid,
             resolver: match source_of(state.name()) {
@@ -882,7 +888,7 @@ impl SpriteSet {
         const WEISS: Tint = [255; 3];
         let raster = |tints| {
             let (textures, projection) = (assets.textures(), &self.projection);
-            render_mit_licht(
+            rastern(
                 model,
                 textures,
                 projection,
@@ -891,42 +897,80 @@ impl SpriteSet {
                 kollision(state),
             )
         };
-        let mut sprite = raster(tints(SCHWARZ, SCHWARZ))?;
-        if biome || water {
-            let weiss = |ja: bool, tints| {
-                ja.then(|| raster(tints).expect("dasselbe Modell, nur anders gefaerbt"))
-            };
-            let block = weiss(biome, tints(WEISS, SCHWARZ));
-            let wasser = weiss(water, tints(SCHWARZ, WEISS));
-            let karte = tint_map(&sprite, block.as_ref(), wasser.as_ref());
-            if karte.iter().any(|&w| w != 0) {
-                sprite.tint = Some(karte);
+        let schwarz = raster(tints(SCHWARZ, SCHWARZ))?;
+        let weiss = |ja: bool, tints| {
+            ja.then(|| raster(tints).expect("dasselbe Modell, nur anders gefaerbt"))
+        };
+        let block = weiss(biome, tints(WEISS, SCHWARZ));
+        let wasser = weiss(water, tints(SCHWARZ, WEISS));
+        // Die Tönungskarte aus den drei Rastern, je Teil aus denselben
+        // Fragmenten: Die Farbe ändert weder Füllregel noch Alpha-Test.
+        let getoent = |mut sprite: Sprite, block: Option<Sprite>, wasser: Option<Sprite>| {
+            if block.is_some() || wasser.is_some() {
+                let karte = tint_map(&sprite, block.as_ref(), wasser.as_ref());
+                if karte.iter().any(|&w| w != 0) {
+                    sprite.tint = Some(karte);
+                }
             }
+            sprite
+        };
+        let ganz = schwarz.ganz();
+        // Was bis auf eine Pixelbreite in seinem Umriss bleibt, bleibt ganz,
+        // wie Wandfackeln und Korallenfächer.
+        // Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+        let passt = fits_cell(&ganz, OWN_CELL, self.projection);
+        if passt || !(2..=MAX_CELLS).contains(&schwarz.zellen()) {
+            let sprite = getoent(
+                ganz,
+                block.as_ref().map(Raster::ganz),
+                wasser.as_ref().map(Raster::ganz),
+            );
+            return Some(self.insert(vec![(OWN_CELL, sprite)], passt));
         }
-        Some(self.insert(sprite, model))
+        let mut block = block.map(|r| r.teile().into_iter());
+        let mut wasser = wasser.map(|r| r.teile().into_iter());
+        let parts = schwarz
+            .teile()
+            .into_iter()
+            .map(|(cell, sprite)| {
+                let weiter = |teile: &mut Option<std::vec::IntoIter<(Cell, Sprite)>>| {
+                    let (zelle, sprite) = teile.as_mut()?.next()?;
+                    debug_assert_eq!(zelle, cell, "dieselben Fragmente");
+                    Some(sprite)
+                };
+                (
+                    cell,
+                    getoent(sprite, weiter(&mut block), weiter(&mut wasser)),
+                )
+            })
+            .collect();
+        Some(self.insert(parts, false))
     }
 
-    /// Zerlegt ein Sprite in seine Wuerfel und nimmt es in die Tabelle auf.
+    /// Nimmt die Teile eines Sprites in die Tabelle auf, siehe
+    /// [`Raster::teile`].
     ///
     /// Pixelgleiche Sprites teilen sich den Eintrag: die Maskenfassungen
     /// einer gefluteten oberen Platte sind gleich, wo ihr Wasser in der
     /// deckenden Haelfte liegt, und eine Blasensaeule sieht aus wie Wasser.
-    /// Nur fuer Sprites im eigenen Wuerfel — die Zerlegung eines
-    /// ueberhaengenden haengt am Modell, nicht nur am Bild. Welche Farbe des
-    /// Bioms eine Tönungskarte trägt, hängt an der Familie, nicht am Sprite.
-    fn insert(&mut self, sprite: Sprite, model: &BakedModel) -> SpriteId {
-        let key = fits_cell(&sprite, OWN_CELL, self.projection).then(|| content_hash(&sprite));
+    /// Nur fuer Sprites, die in ihren Umriss passen (`passt`) — die
+    /// Zerlegung eines ueberhaengenden haengt am Modell, nicht nur am Bild.
+    /// Welche Farbe des Bioms eine Tönungskarte trägt, hängt an der Familie,
+    /// nicht am Sprite.
+    fn insert(&mut self, parts: Vec<(Cell, Sprite)>, passt: bool) -> SpriteId {
+        let key = passt.then(|| content_hash(&parts[0].1));
         if let Some(key) = key
             && let Some(ids) = self.by_content.get(&key)
             && let Some(&id) = ids
                 .iter()
-                .find(|&&id| same_image(&self.sprites[id.0 as usize].parts[0].1, &sprite))
+                .find(|&&id| same_image(&self.sprites[id.0 as usize].parts[0].1, &parts[0].1))
         {
             return id;
         }
 
-        let tints = tint_kinds(&sprite);
-        let parts = split(sprite, model, self.projection);
+        let tints = parts
+            .iter()
+            .fold(0, |kinds, (_, sprite)| kinds | tint_kinds(sprite));
         let own = parts
             .iter()
             .find(|(cell, _)| *cell == OWN_CELL)
@@ -1249,146 +1293,13 @@ fn fits_cell(sprite: &Sprite, cell: Cell, projection: Projection) -> bool {
         })
 }
 
-/// Zerlegt ein Sprite in die Blockwuerfel, in denen seine Geometrie liegt,
-/// damit jeder Teil zu dem Zeitpunkt gezeichnet wird, der zu seinem Wuerfel
-/// gehoert. Zugeordnet wird ueber den Bildschirm; auf der Blickachse, wo
-/// Wuerfel im Abstand eines Vielfachen von (1, 1, 1) aufeinanderfallen,
-/// gewinnt der vordere.
-/// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
-fn split(sprite: Sprite, model: &BakedModel, projection: Projection) -> Vec<(Cell, Sprite)> {
-    if fits_cell(&sprite, OWN_CELL, projection) {
-        return vec![(OWN_CELL, sprite)];
-    }
-    let cells = cells_of(model, projection);
-    if cells.len() < 2 {
-        return vec![(OWN_CELL, sprite)];
-    }
-
-    let half = projection.scale() as f32 / 2.0;
-    let breite = sprite.image.width();
-    let mut owner = vec![usize::MAX; (breite * sprite.image.height()) as usize];
-    for (x, y, pixel) in sprite.image.enumerate_pixels() {
-        if pixel.0[3] == 0 {
-            continue;
-        }
-        let (px, py) = pixel_center(&sprite, x, y);
-        // Vorderste Zelle zuerst: an den Umrisskanten gewinnt sie.
-        owner[(y * breite + x) as usize] = cells
-            .iter()
-            .position(|&(_, cx, cy)| in_outline(px - cx, py - cy, half, 1.0))
-            .unwrap_or(0);
-    }
-
-    cells
-        .iter()
-        .enumerate()
-        .filter_map(|(index, &(cell, _, _))| Some((cell, extract(&sprite, &owner, index)?)))
-        .collect()
-}
-
-/// Schneidet die einem Wuerfel zugeordneten Pixel als eigenes Sprite
-/// heraus.
-fn extract(sprite: &Sprite, owner: &[usize], index: usize) -> Option<Sprite> {
-    let breite = sprite.image.width();
-    let gehoert = |x: u32, y: u32| owner[(y * breite + x) as usize] == index;
-
-    let mut umriss: Option<(u32, u32, u32, u32)> = None;
-    for (x, y, _) in sprite.image.enumerate_pixels() {
-        if !gehoert(x, y) {
-            continue;
-        }
-        umriss = Some(match umriss {
-            None => (x, y, x, y),
-            Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
-        });
-    }
-    let (x0, y0, x1, y1) = umriss?;
-
-    let mut image = RgbaImage::new(x1 - x0 + 1, y1 - y0 + 1);
-    let pixels = (image.width() * image.height()) as usize;
-    let mut ao = sprite.ao.as_ref().map(|_| vec![0u32; pixels]);
-    let mut tint = sprite.tint.as_ref().map(|_| vec![0u32; 2 * pixels]);
-    for y in y0..=y1 {
-        for x in x0..=x1 {
-            if gehoert(x, y) {
-                image.put_pixel(x - x0, y - y0, *sprite.image.get_pixel(x, y));
-                let (teil, ganz) = (
-                    ((y - y0) * (x1 - x0 + 1) + x - x0) as usize,
-                    (y * breite + x) as usize,
-                );
-                if let (Some(neu), Some(alt)) = (&mut ao, &sprite.ao) {
-                    neu[teil] = alt[ganz];
-                }
-                if let (Some(neu), Some(alt)) = (&mut tint, &sprite.tint) {
-                    neu[2 * teil..][..2].copy_from_slice(&alt[2 * ganz..][..2]);
-                }
-            }
-        }
-    }
-    Some(Sprite {
-        image,
-        offset: (sprite.offset.0 + x0 as i32, sprite.offset.1 + y0 as i32),
-        ao,
-        weich: sprite.weich,
-        tint,
-    })
-}
-
-/// Die Wuerfel, die das Modell beruehrt — je Bildschirmposition einer, und
-/// zwar der vorderste. Sortiert von vorne nach hinten.
-fn cells_of(model: &BakedModel, projection: Projection) -> Vec<(Cell, f32, f32)> {
-    let mut min = [f32::MAX; 3];
-    let mut max = [f32::MIN; 3];
-    for quad in &model.quads {
-        for corner in &quad.corners {
-            for achse in 0..3 {
-                min[achse] = min[achse].min(corner[achse]);
-                max[achse] = max[achse].max(corner[achse]);
-            }
-        }
-    }
-
-    let bereich = |achse: usize| {
-        let lo = min[achse].floor() as i32;
-        let hi = (max[achse].ceil() as i32 - 1).max(lo);
-        lo..=hi
-    };
-    let anzahl = bereich(0).count() * bereich(1).count() * bereich(2).count();
-    if anzahl == 0 || anzahl > MAX_CELLS {
-        return Vec::new();
-    }
-
-    // Wuerfel entlang der Blickachse landen auf derselben Bildschirmstelle.
-    // Von denen kann nur der vorderste sichtbar sein.
-    let mut vorderste: HashMap<(i32, i32), Cell> = HashMap::new();
-    for dx in bereich(0) {
-        for dy in bereich(1) {
-            for dz in bereich(2) {
-                let stelle = (dx - dz, dx + dz - 2 * dy);
-                let eintrag = vorderste.entry(stelle).or_insert([dx, dy, dz]);
-                if dx + dy + dz > eintrag[0] + eintrag[1] + eintrag[2] {
-                    *eintrag = [dx, dy, dz];
-                }
-            }
-        }
-    }
-
-    let mut cells: Vec<Cell> = vorderste.into_values().collect();
-    cells.sort_by_key(|cell| (-(cell[0] + cell[1] + cell[2]), *cell));
-    cells
-        .into_iter()
-        .map(|cell| {
-            let (cx, cy) = cell_center(cell, projection);
-            (cell, cx, cy)
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::assets::model_of;
+    use crate::render::rasterizer::over;
     use crate::world::Muster;
+    use image::RgbaImage;
 
     /// Referenzwerte aus den Klassen des 26.2-Clients selbst:
     /// `Mth.getSeed` und `SingleThreadedRandomSource.nextInt`, abgezaehlt
@@ -1426,6 +1337,7 @@ mod tests {
             covers_floor: false,
             contained: true,
             foreign: false,
+            wuerfelform: false,
             pure_fluid: false,
             seed_offset: [0, 0, 0],
             resolver: None,
@@ -1707,28 +1619,124 @@ mod tests {
             "nach der Zerlegung bleibt jeder Teil in seinem Würfel"
         );
         assert!(
-            !entry.contained,
-            "der eigene Teil nutzt den Spielraum der Zerlegung"
+            entry.contained,
+            "im Raum zugeordnet bleibt der eigene Teil in seinem Umriss"
         );
     }
 
+    /// Ein fremdes Teil kommt vor einen Block, dessen Flächen alle auf den
+    /// Vorderseiten seines Würfels liegen: ein voller Würfel, Laub mit
+    /// Löchern, ein Grasblock mit Overlay. Ackerboden endet darunter, Schleim
+    /// hat einen Würfel darin, Feuer steht quer im Würfel. Eine Familie nur,
+    /// wenn jede Alternative die Bedingung erfüllt, also nicht aus vollem
+    /// Würfel und Ackerboden gemischt.
+    #[test]
+    fn wuerfelform_nur_mit_flaechen_auf_den_vorderseiten() {
+        let mut assets = assets();
+        let namen = [
+            ("einfarbig", true),
+            ("laub", true),
+            ("mit_overlay", true),
+            ("ackerboden", false),
+            ("schleim", false),
+            ("hochfeuer", false),
+            ("seerose", false),
+            ("gemischt", false),
+        ];
+        let states: Vec<BlockState> = namen.iter().map(|(name, _)| state(name)).collect();
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        for (name, soll) in namen {
+            let family = set.family_of(&state(name)).unwrap();
+            assert_eq!(family.wuerfelform, soll, "{name}");
+        }
+    }
+
+    /// Ein Teil ohne Fläche im Licht davor behält die AO-Karte des Modells:
+    /// Seine Pixel liegen im Licht der eigenen Zelle (`innen`), auch wenn
+    /// jeder Pixel des eigenen Teils eine Seite hat.
+    #[test]
+    fn teil_ohne_seite_liegt_im_licht_der_eigenen_zelle() {
+        let mut assets = assets();
+        let set = build(&mut assets, &[state("blech")], Projection::new(16)).unwrap();
+        let id = set.id(&state("blech")).unwrap();
+        let entry = &set.sprites[id.0 as usize];
+        let cells: Vec<Cell> = entry.parts.iter().map(|(cell, _)| *cell).collect();
+        assert_eq!(cells, [[-1, 0, 0], OWN_CELL]);
+        assert!(
+            !ohne_seite(&entry.parts[1].1),
+            "der eigene Teil hat überall eine Seite"
+        );
+        assert!(set.innen(id));
+    }
+
+    /// Spielraum: Was bis auf eine Pixelbreite in seinen Umriss passt, bleibt
+    /// ganz, und erst was darüber hinausragt, zerfällt. Ein Rand von 0,5/16
+    /// Block um den Würfel bleibt bis scale 32 ganz, Getreide mit 1/16 Block
+    /// in seinem Boden bis scale 16; bei scale 64 zerfallen beide.
+    #[test]
+    fn knapper_ueberstand_bleibt_ganz() {
+        let mut ganz_bis = std::collections::HashMap::new();
+        for scale in (4..=64).step_by(4) {
+            let mut assets = assets();
+            let projection = Projection::new(scale);
+            for name in ["rand", "getreide"] {
+                let set = build(&mut assets, &[state(name)], projection).unwrap();
+                let id = set.id(&state(name)).unwrap();
+                let parts = &set.sprites[id.0 as usize].parts;
+                let model = model_of(&mut assets, &state(name)).unwrap();
+                let bild =
+                    render(&model, assets.textures(), &projection, Tints::default()).unwrap();
+                let passt = fits_cell(&bild, OWN_CELL, projection);
+                assert_eq!(parts.len() == 1, passt, "{name}, scale {scale}");
+                if passt {
+                    ganz_bis.insert(name, scale);
+                }
+            }
+        }
+        assert!(ganz_bis["rand"] >= 32, "{ganz_bis:?}");
+        assert!(ganz_bis["getreide"] >= 16, "{ganz_bis:?}");
+        assert!(ganz_bis.values().all(|&bis| bis < 64), "{ganz_bis:?}");
+    }
+
     /// Ein zwei Blöcke hohes Modell ebenso — der obere Teil gehört in den
-    /// Würfel darüber, sonst wird er zu früh gezeichnet.
+    /// Würfel darüber, sonst wird er zu früh gezeichnet. Bei jedem scale
+    /// genau in die Würfel seiner Geometrie, ohne Splitter in einem
+    /// Nachbarwürfel an den eigenen Kanten, auch wo ein Modell kaum
+    /// hinausragt wie Feuer.
     #[test]
     fn hohes_modell_zerfaellt_nach_oben() {
-        let mut assets = assets();
-        let states = [state("turm")];
-        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
-        let id = set.id(&state("turm")).unwrap();
-
-        assert!(set.part(id, OWN_CELL).is_some());
-        assert!(set.part(id, [0, 1, 0]).is_some());
-        assert!(
-            set.sprites[id.0 as usize]
-                .parts
-                .iter()
-                .all(|(cell, sprite)| fits_cell(sprite, *cell, set.projection))
-        );
+        for scale in (4..=64).step_by(4) {
+            let mut assets = assets();
+            let projection = Projection::new(scale);
+            for (name, soll) in [
+                ("turm", [OWN_CELL, [0, 1, 0]]),
+                ("hochfeuer", [OWN_CELL, [0, 1, 0]]),
+                ("ueberhang", [[-1, 0, 0], OWN_CELL]),
+            ] {
+                let set = build(&mut assets, &[state(name)], projection).unwrap();
+                let id = set.id(&state(name)).unwrap();
+                let cells: Vec<Cell> = set.sprites[id.0 as usize]
+                    .parts
+                    .iter()
+                    .map(|(cell, _)| *cell)
+                    .collect();
+                let model = model_of(&mut assets, &state(name)).unwrap();
+                let bild =
+                    render(&model, assets.textures(), &projection, Tints::default()).unwrap();
+                if fits_cell(&bild, OWN_CELL, projection) {
+                    assert_eq!(cells, [OWN_CELL], "{name}, scale {scale}");
+                } else {
+                    assert_eq!(cells, soll, "{name}, scale {scale}");
+                }
+                assert!(
+                    set.sprites[id.0 as usize]
+                        .parts
+                        .iter()
+                        .all(|(cell, sprite)| fits_cell(sprite, *cell, projection)),
+                    "{name}, scale {scale}"
+                );
+            }
+        }
     }
 
     /// Ein Modell, das knapp über seinen Würfel ragt, zerfällt nicht, liegt
@@ -1782,33 +1790,42 @@ mod tests {
         assert!(!masks.contains(&sprite));
     }
 
-    /// Die Zerlegung ist eine Aufteilung: kein Pixel darf verloren gehen
-    /// und keines doppelt vergeben werden.
+    /// Keine Naht: Die Teile eines Modells, in der Reihenfolge ihrer Würfel
+    /// übereinander gelegt, sind ohne Nachbarn Pixel für Pixel das ganze
+    /// Modell, bei jedem scale.
     #[test]
-    fn zerlegung_erhaelt_jedes_pixel() {
-        let projection = Projection::new(16);
-        for name in ["turm", "ueberhang", "einfarbig", "seerose", "oak_fence"] {
-            let mut assets = assets();
-            let model = model_of(&mut assets, &state(name)).unwrap();
-            let ganz = render(&model, assets.textures(), &projection, Tints::default()).unwrap();
-
-            let sichtbar = |sprite: &Sprite| {
-                let offset = sprite.offset;
-                sprite
-                    .image
-                    .enumerate_pixels()
-                    .filter(|(_, _, p)| p.0[3] > 0)
-                    .map(|(x, y, p)| ((x as i32 + offset.0, y as i32 + offset.1), *p))
-                    .collect::<Vec<_>>()
-            };
-
-            let mut vorher = sichtbar(&ganz);
-            let teile = split(ganz, &model, projection);
-            let mut nachher: Vec<_> = teile.iter().flat_map(|(_, s)| sichtbar(s)).collect();
-
-            vorher.sort_by_key(|(pos, _)| *pos);
-            nachher.sort_by_key(|(pos, _)| *pos);
-            assert_eq!(vorher, nachher, "{name}");
+    fn zerlegtes_modell_ist_ohne_nachbarn_das_ganze() {
+        for scale in (4..=64).step_by(4) {
+            let projection = Projection::new(scale);
+            for name in ["turm", "ueberhang", "hochfeuer", "einfarbig", "seerose"] {
+                let mut assets = assets();
+                let model = model_of(&mut assets, &state(name)).unwrap();
+                let raster = rastern(
+                    &model,
+                    assets.textures(),
+                    &projection,
+                    Tints::default(),
+                    CardinalLight::Default,
+                    false,
+                )
+                .unwrap();
+                let ganz = raster.ganz();
+                let mut teile = raster.teile();
+                // Wie die Kandidaten: nach Höhe, Tiefe, Spalte.
+                teile.sort_by_key(|([x, y, z], _)| (*y, x + z, x - z));
+                let mut bild = RgbaImage::new(ganz.image.width(), ganz.image.height());
+                for (_, teil) in &teile {
+                    for (x, y, pixel) in teil.image.enumerate_pixels() {
+                        let (bx, by) = (
+                            (teil.offset.0 + x as i32 - ganz.offset.0) as u32,
+                            (teil.offset.1 + y as i32 - ganz.offset.1) as u32,
+                        );
+                        let unten = bild.get_pixel(bx, by).0;
+                        bild.put_pixel(bx, by, image::Rgba(over(pixel.0, unten)));
+                    }
+                }
+                assert_eq!(bild.as_raw(), ganz.image.as_raw(), "{name}, scale {scale}");
+            }
         }
     }
 

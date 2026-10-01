@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
 use image::{Rgba, RgbaImage};
@@ -6,8 +7,8 @@ use crate::assets::baker::{BakedModel, Quad};
 use crate::assets::blockentity::Entity;
 use crate::assets::{CardinalLight, DimensionType, Face, Textures, Tint, Tints, fluid};
 
-use super::Projection;
 use super::pyramid::{LINEAR, to_srgb};
+use super::{Cell, Projection};
 
 /// Abtastpunkte je Pixelkante für die Textur. Die Geometrie wird nur im
 /// Pixelmittelpunkt geprüft, die Textur über den Pixel gemittelt, so
@@ -414,6 +415,105 @@ pub fn render_mit_licht(
     licht: CardinalLight,
     kollision: bool,
 ) -> Option<Sprite> {
+    rastern(model, textures, projection, tints, licht, kollision).map(|raster| raster.ganz())
+}
+
+/// Ein gerastertes Modell: seine Fragmente je Pixel, gemischt erst auf
+/// Abruf, als ganzes Sprite oder je Würfel, siehe [`Raster::teile`].
+pub struct Raster {
+    canvas: Canvas,
+    offset: (i32, i32),
+    ao: bool,
+    weich: bool,
+}
+
+impl Raster {
+    /// Das ganze Modell als ein Sprite.
+    pub fn ganz(&self) -> Sprite {
+        let (image, ao) = self.canvas.mischen(self.ao, |_| true);
+        Sprite {
+            image,
+            offset: self.offset,
+            ao: ao.filter(|karte| karte.iter().any(|&w| w >> 24 != 0)),
+            weich: self.weich,
+            tint: None,
+        }
+    }
+
+    /// In wie vielen Würfeln Fragmente liegen.
+    pub fn zellen(&self) -> usize {
+        self.canvas.zellen().len()
+    }
+
+    /// Je Würfel, in dem Fragmente liegen, deren Mischung als eigenes
+    /// Sprite, auf seine Pixel zugeschnitten, mit Versatz zum Block des
+    /// Modells. Die Pixel aller Teile sind zusammen genau die des ganzen
+    /// Modells, mit derselben Füllregel und demselben Mittel der Textur.
+    ///
+    /// Eine AO-Karte bekommt jeder Teil, wenn das ganze Modell eine hat,
+    /// auch einer ohne Seite: Seine Pixel liegen dann im Licht der eigenen
+    /// Zelle, siehe [`Sprite::ao`].
+    /// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+    pub fn teile(&self) -> Vec<(Cell, Sprite)> {
+        let mit_ao = self.ganz().ao.is_some();
+        self.canvas
+            .zellen()
+            .into_iter()
+            .filter_map(|zelle| {
+                let (image, ao) = self.canvas.mischen(mit_ao, |f| f.zelle == zelle);
+                let sprite = Sprite {
+                    image,
+                    offset: self.offset,
+                    ao,
+                    weich: self.weich,
+                    tint: None,
+                };
+                Some((zelle, zuschneiden(&sprite)?))
+            })
+            .collect()
+    }
+}
+
+/// Das Sprite auf seine Pixel mit Alpha über 0 zugeschnitten, samt
+/// AO-Karte. `None` ohne solche Pixel.
+fn zuschneiden(sprite: &Sprite) -> Option<Sprite> {
+    let mut umriss: Option<(u32, u32, u32, u32)> = None;
+    for (x, y, pixel) in sprite.image.enumerate_pixels() {
+        if pixel.0[3] == 0 {
+            continue;
+        }
+        umriss = Some(match umriss {
+            None => (x, y, x, y),
+            Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+        });
+    }
+    let (x0, y0, x1, y1) = umriss?;
+    let (breite, w) = (sprite.image.width(), x1 - x0 + 1);
+    let image = image::imageops::crop_imm(&sprite.image, x0, y0, w, y1 - y0 + 1).to_image();
+    let ao = sprite.ao.as_ref().map(|karte| {
+        (y0..=y1)
+            .flat_map(|y| (x0..=x1).map(move |x| karte[(y * breite + x) as usize]))
+            .collect::<Vec<u32>>()
+    });
+    Some(Sprite {
+        image,
+        offset: (sprite.offset.0 + x0 as i32, sprite.offset.1 + y0 as i32),
+        ao,
+        weich: sprite.weich,
+        tint: None,
+    })
+}
+
+/// Rastert ein gebackenes Modell in seine Fragmente, siehe [`Raster`] und
+/// [`render_mit_licht`].
+pub fn rastern(
+    model: &BakedModel,
+    textures: &Textures,
+    projection: &Projection,
+    tints: Tints,
+    licht: CardinalLight,
+    kollision: bool,
+) -> Option<Raster> {
     let mut projected: Vec<ProjectedQuad> = model
         .quads
         .iter()
@@ -463,13 +563,12 @@ pub fn render_mit_licht(
         );
     }
 
-    let (image, ao) = canvas.into_image(ao);
-    Some(Sprite {
-        image,
+    canvas.sortieren();
+    Some(Raster {
+        canvas,
         offset: (min_x, min_y),
         ao,
         weich: model.ambient_occlusion,
-        tint: None,
     })
 }
 
@@ -563,6 +662,7 @@ impl<'a> ProjectedQuad<'a> {
                 v: self.quad.uvs[i][1],
                 s,
                 t,
+                pos: self.quad.corners[i],
             }
         });
         // Die Texturmittelung tastet knapp neben dem Pixelmittelpunkt ab,
@@ -748,6 +848,9 @@ struct Vertex {
     /// Lage auf der Seite für die weiche Beleuchtung, siehe [`face_coords`].
     s: f32,
     t: f32,
+    /// Lage im Raum, in Blockbreiten vom Ursprung des Blocks, für den
+    /// Würfel eines Fragments, siehe [`zellbereich`].
+    pos: [f32; 3],
 }
 
 /// Wie ein Texel zur Farbe wird: Helligkeit der Fläche, Färbung, ob sie
@@ -806,9 +909,11 @@ struct Fragment {
     color: [u8; 4],
     /// Eintrag der AO-Karte, 0 ohne weiche Beleuchtung.
     ao: u32,
+    /// Der Würfel, in dem es liegt, relativ zum Block des Modells.
+    zelle: Cell,
 }
 
-/// Die Fragmente eines Sprites, gemischt erst in `into_image`.
+/// Die Fragmente eines Sprites, gemischt erst in [`Canvas::mischen`].
 struct Canvas {
     width: u32,
     height: u32,
@@ -869,6 +974,8 @@ impl Canvas {
             top_left(v[2], v[0]),
             top_left(v[0], v[1]),
         ];
+        let bereich: [(i32, i32); 3] = std::array::from_fn(|achse| zellbereich(&v, achse));
+        let fest = bereich.iter().all(|&(lo, hi)| lo == hi);
 
         let min_x = v
             .iter()
@@ -920,42 +1027,99 @@ impl Canvas {
                     let t = w[0] * v[0].t + w[1] * v[1].t + w[2] * v[2].t;
                     ao_word(face, corner_weights(face, [s, t]))
                 });
+                // Der Punkt im Raum von einer Ecke aus, damit eine Achse, auf
+                // der alle Ecken gleich liegen, genau bleibt.
+                let zelle = if fest {
+                    bereich.map(|(lo, _)| lo)
+                } else {
+                    std::array::from_fn(|a| {
+                        let p = v[0].pos[a]
+                            + w[1] * (v[1].pos[a] - v[0].pos[a])
+                            + w[2] * (v[2].pos[a] - v[0].pos[a]);
+                        (p.floor() as i32).clamp(bereich[a].0, bereich[a].1)
+                    })
+                };
                 self.fragments.push(Fragment {
                     pixel: index as u32,
                     depth,
                     order,
                     color: shaded(texel, shade, tint),
                     ao,
+                    zelle,
                 });
             }
         }
     }
 
-    /// Mischt je Pixel die Fragmente von hinten nach vorne. Mit `ao` dazu
-    /// die AO-Karte aus dem vordersten Fragment je Pixel, wenn einer eine
-    /// Seite hat.
-    fn into_image(mut self, ao: bool) -> (RgbaImage, Option<Vec<u32>>) {
+    /// Ordnet die Fragmente je Pixel von hinten nach vorne.
+    fn sortieren(&mut self) {
         self.fragments.sort_unstable_by(|a, b| {
             a.pixel
                 .cmp(&b.pixel)
                 .then(a.depth.total_cmp(&b.depth))
                 .then(a.order.cmp(&b.order))
         });
+    }
+
+    /// Die Würfel, in denen Fragmente liegen.
+    fn zellen(&self) -> BTreeSet<Cell> {
+        self.fragments.iter().map(|f| f.zelle).collect()
+    }
+
+    /// Mischt je Pixel die Fragmente, die `nimm` durchlässt, von hinten nach
+    /// vorne, nach [`Canvas::sortieren`]. Mit `ao` dazu die AO-Karte aus dem
+    /// vordersten von ihnen je Pixel.
+    fn mischen(&self, ao: bool, nimm: impl Fn(&Fragment) -> bool) -> (RgbaImage, Option<Vec<u32>>) {
         let mut image = RgbaImage::new(self.width, self.height);
         let mut map = ao.then(|| vec![0u32; (self.width * self.height) as usize]);
         for pixel in self.fragments.chunk_by(|a, b| a.pixel == b.pixel) {
+            let mut vorderstes = None;
             let mut color = [0u8; 4];
-            for fragment in pixel {
+            for fragment in pixel.iter().filter(|f| nimm(f)) {
                 color = over(fragment.color, color);
+                vorderstes = Some(fragment);
             }
-            let index = pixel[0].pixel;
+            let Some(vorderstes) = vorderstes else {
+                continue;
+            };
+            let index = vorderstes.pixel;
             image.put_pixel(index % self.width, index / self.width, Rgba(color));
             if let Some(map) = &mut map {
-                map[index as usize] = pixel[pixel.len() - 1].ao;
+                map[index as usize] = vorderstes.ao;
             }
         }
-        (image, map.filter(|map| map.iter().any(|&w| w >> 24 != 0)))
+        (image, map)
     }
+}
+
+/// Liegt jede Fläche, die der Rasterizer vom Modell zeichnet, auf einer der
+/// drei vorderen Seiten seines Würfels, bei x, y oder z gleich 1? Dann liegt
+/// alles im Würfel hinter jeder von ihnen.
+/// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+pub(crate) fn auf_den_vorderseiten(model: &BakedModel) -> bool {
+    model
+        .quads
+        .iter()
+        .filter(|quad| seite(quad).is_some())
+        .all(|quad| (0..3).any(|achse| quad.corners.iter().all(|c| c[achse] == 1.0)))
+}
+
+/// Die Würfel, in denen ein Dreieck liegt, auf einer Achse: von der
+/// kleinsten bis zur grössten Ecke. Liegt das ganze Dreieck in einer
+/// Würfelebene, gehört es dem Würfel dahinter, von der Kamera aus gesehen.
+/// Je Fragment bleibt der Würfel in diesem Bereich: Die Gewichte runden,
+/// und ein Fragment an einer eigenen Kante fiele sonst knapp in einen
+/// Nachbarwürfel.
+/// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+fn zellbereich(v: &[Vertex; 3], achse: usize) -> (i32, i32) {
+    let werte = v.map(|p| p.pos[achse]);
+    let lo = werte.iter().copied().fold(f32::MAX, f32::min);
+    let hi = werte.iter().copied().fold(f32::MIN, f32::max);
+    if lo == hi && lo == lo.round() {
+        return (lo as i32 - 1, lo as i32 - 1);
+    }
+    let unten = lo.floor() as i32;
+    (unten, (hi.ceil() as i32 - 1).max(unten))
 }
 
 /// Füllregel: liegt die Kante von `a` nach `b` oben oder links? Bei dem
@@ -1693,6 +1857,7 @@ mod tests {
             v: y,
             s: 0.0,
             t: 0.0,
+            pos: [0.0; 3],
         };
         let v = [ecke(-1.0, -1.0), ecke(3.0, -1.0), ecke(-1.0, 3.0)];
         let area = edge(v[0], v[1], v[2].x, v[2].y);
@@ -1959,6 +2124,51 @@ mod tests {
             entity: None,
             cullface: None,
         }
+    }
+
+    /// Eine Fläche genau in einer Würfelebene gehört dem Würfel dahinter,
+    /// von der Kamera aus: eine Ostseite bei x = 0 dem westlichen, die
+    /// Oberseite bei y = 1 dem eigenen. Eine Fläche quer durch eine Ebene
+    /// teilt sich auf beide Würfel.
+    #[test]
+    fn flaeche_in_einer_wuerfelebene_gehoert_dem_wuerfel_dahinter() {
+        use crate::assets::baker::box_quads;
+        let zellen = |from: [f32; 3], to: [f32; 3], seite: fn([f32; 3]) -> bool| {
+            let quads = box_quads(from, to, Textures::MISSING, None, None)
+                .filter(|q| seite(q.normal()))
+                .collect();
+            let model = BakedModel {
+                quads,
+                ambient_occlusion: false,
+            };
+            let projection = Projection::new(16);
+            let raster = rastern(
+                &model,
+                &Textures::new(),
+                &projection,
+                Tints::default(),
+                CardinalLight::Default,
+                false,
+            )
+            .unwrap();
+            raster
+                .teile()
+                .into_iter()
+                .map(|(zelle, _)| zelle)
+                .collect::<Vec<_>>()
+        };
+        let osten = |n: [f32; 3]| n[0] > 0.0;
+        let oben = |n: [f32; 3]| n[1] > 0.0;
+        let sueden = |n: [f32; 3]| n[2] > 0.0;
+        assert_eq!(
+            zellen([-8.0, 0.0, 0.0], [0.0, 16.0, 16.0], osten),
+            [[-1, 0, 0]]
+        );
+        assert_eq!(zellen([0.0; 3], [16.0; 3], oben), [[0, 0, 0]]);
+        assert_eq!(
+            zellen([8.0, 0.0, 0.0], [24.0, 16.0, 16.0], sueden),
+            [[0, 0, 0], [1, 0, 0]]
+        );
     }
 
     #[test]

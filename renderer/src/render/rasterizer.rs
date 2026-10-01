@@ -1095,7 +1095,7 @@ impl Canvas {
 /// Liegt jede Fläche, die der Rasterizer vom Modell zeichnet, auf einer der
 /// drei vorderen Seiten seines Würfels, bei x, y oder z gleich 1? Dann liegt
 /// alles im Würfel hinter jeder von ihnen.
-/// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+/// Siehe docs/renderer/kamera.md, „Ein Teil im Würfel eines anderen Blocks“.
 pub(crate) fn auf_den_vorderseiten(model: &BakedModel) -> bool {
     model
         .quads

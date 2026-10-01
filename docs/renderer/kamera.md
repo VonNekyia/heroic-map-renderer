@@ -96,7 +96,8 @@ Zugeordnet wird im Raum, je Fragment (`Raster::teile` in
   Fragment, der Beitrag einer Fläche zu einem Pixel, gehört dem Würfel, in
   dem sein Punkt liegt.
 - **Gemischt je Würfel:** Welche Pixel eine Fläche deckt, das Mittel der
-  Textur, die AO-Karte und die Füllregel bleiben die des ganzen Modells.
+  Textur, die AO-Werte der Fragmente und die Füllregel bleiben die des
+  ganzen Modells.
   Nur die Mischung der Fragmente geschieht je Würfel. Übereinander gelegt
   sind die Teile ohne Nachbarn Pixel für Pixel das ganze Modell; eine Naht
   gibt es nicht.

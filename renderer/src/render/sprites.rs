@@ -180,7 +180,7 @@ pub struct Family {
     /// Liegt in jeder Alternative jede Fläche, die die Kamera sieht, auf
     /// einer der drei vorderen Seiten des Würfels ([`auf_den_vorderseiten`])?
     /// Dann kommt ein fremdes Teil in diesem Würfel vor den Block.
-    /// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+    /// Siehe docs/renderer/kamera.md, „Ein Teil im Würfel eines anderen Blocks“.
     pub wuerfelform: bool,
     /// Besteht jede Alternative nur aus der Fluessigkeit, ohne Modell
     /// daneben: Wasser, Lava, Blasensaeule. Dann bleibt vom Block nichts,

@@ -1689,7 +1689,7 @@ impl<'a> ChunkCache<'a> {
         // lässt die Deckungsmaske fallen. Ein Teil liegt in seinem Würfel,
         // also hinter jeder Fläche auf dessen Vorderseiten: Hat der Block
         // dort nur solche (`wuerfelform`), kommt es vor ihm, sonst nach ihm.
-        // Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+        // Siehe docs/renderer/kamera.md, „Ein Teil im Würfel eines anderen Blocks“.
         for anchor in anchors {
             for (i, cell) in foreign.iter().enumerate() {
                 let [x, y, z] = [

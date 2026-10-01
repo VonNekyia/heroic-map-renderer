@@ -22,6 +22,8 @@ description: Hält eine Entscheidung als eigene Datei in docs/entscheidungen/ fe
 5. **Ablösen:** In der alten Datei nur `status: abgelöst durch NNNN` setzen
    und unter dem Titel einen Satz mit Verweis auf die neue ergänzen. Der
    Rest bleibt, wie er war.
+   Löst die neue nur einen Teil ab, bleibt `status: gilt`, und der Satz
+   unter dem Titel nennt den abgelösten Teil.
 6. **Verweisen:** Die Seiten in `docs/`, die das Thema beschreiben, und die
    Kommentare am Code verweisen auf die Entscheidung. Der Kommentar erzählt
    sie nicht nach.

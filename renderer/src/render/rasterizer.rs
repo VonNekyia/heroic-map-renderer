@@ -450,12 +450,12 @@ impl Raster {
     /// Modells. Die Pixel aller Teile sind zusammen genau die des ganzen
     /// Modells, mit derselben Füllregel und demselben Mittel der Textur.
     ///
-    /// Eine AO-Karte bekommt jeder Teil, wenn das ganze Modell eine hat,
-    /// auch einer ohne Seite: Seine Pixel liegen dann im Licht der eigenen
-    /// Zelle, siehe [`Sprite::ao`].
+    /// Mit `mit_ao` bekommt jeder Teil eine AO-Karte, auch einer ohne Seite:
+    /// Seine Pixel liegen dann im Licht der eigenen Zelle, siehe
+    /// [`Sprite::ao`]. Der Aufrufer setzt es, wenn das ganze Modell eine
+    /// hat.
     /// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
-    pub fn teile(&self) -> Vec<(Cell, Sprite)> {
-        let mit_ao = self.ganz().ao.is_some();
+    pub fn teile(&self, mit_ao: bool) -> Vec<(Cell, Sprite)> {
         self.canvas
             .zellen()
             .into_iter()
@@ -2152,7 +2152,7 @@ mod tests {
             )
             .unwrap();
             raster
-                .teile()
+                .teile(false)
                 .into_iter()
                 .map(|(zelle, _)| zelle)
                 .collect::<Vec<_>>()

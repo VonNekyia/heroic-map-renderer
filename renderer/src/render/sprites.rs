@@ -927,10 +927,12 @@ impl SpriteSet {
             );
             return Some(self.insert(vec![(OWN_CELL, sprite)], passt));
         }
-        let mut block = block.map(|r| r.teile().into_iter());
-        let mut wasser = wasser.map(|r| r.teile().into_iter());
+        // Die AO-Karte braucht nur das schwarze Raster; die anderen geben
+        // nur Farben für die Tönungskarte.
+        let mut block = block.map(|r| r.teile(false).into_iter());
+        let mut wasser = wasser.map(|r| r.teile(false).into_iter());
         let parts = schwarz
-            .teile()
+            .teile(ganz.ao.is_some())
             .into_iter()
             .map(|(cell, sprite)| {
                 let weiter = |teile: &mut Option<std::vec::IntoIter<(Cell, Sprite)>>| {
@@ -1810,7 +1812,7 @@ mod tests {
                 )
                 .unwrap();
                 let ganz = raster.ganz();
-                let mut teile = raster.teile();
+                let mut teile = raster.teile(ganz.ao.is_some());
                 // Wie die Kandidaten: nach Höhe, Tiefe, Spalte.
                 teile.sort_by_key(|([x, y, z], _)| (*y, x + z, x - z));
                 let mut bild = RgbaImage::new(ganz.image.width(), ganz.image.height());

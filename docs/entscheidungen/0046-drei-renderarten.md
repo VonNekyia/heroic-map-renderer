@@ -1,7 +1,7 @@
 ---
 title: "0046: Drei Renderarten, zwei Backends, ein Kern"
 description: Warum die Karte beim Raster bleibt, Cinematic und Showcase ein gemeinsames Strahlen-Backend bekommen, Cinematic nur das Licht des Spiels nimmt und beide Backends Welt, Modelle, Biomfarben und Licht aus einem Kern nehmen.
-status: gilt
+status: abgelöst durch 0053
 date: 2026-10-01
 issues: [72, 73, 74]
 code:
@@ -14,6 +14,8 @@ code:
 ---
 
 # 0046: Drei Renderarten, zwei Backends, ein Kern
+
+Abgelöst durch [0053: Cinematic als Schalter der Karte](0053-cinematic-als-schalter-der-karte.md).
 
 ## Anlass
 

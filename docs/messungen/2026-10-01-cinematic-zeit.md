@@ -123,7 +123,8 @@ Zeit je Bild, Median der drei Runden, in Klammern die Spannweite:
 
 - Strahlen zum Himmel kosten das 2,4- bis 3,7-Fache des Lichts des Spiels.
 - Der grösste Hebel ist ein Strahl je Pixel: ein Viertel der Zeit. Glätten
-  nur an Kanten holt davon je nach Laub ein Drittel bis die Hälfte zurück.
+  nur an Kanten kostet je nach Laub ein Drittel bis das Doppelte dazu;
+  zusammen bleiben 26 bis 39 % der Zeit von heute.
 - Der Start an der Höhe spart ein Viertel bis zwei Fünftel und ändert kein
   Pixel.
 - Die Decke für die Sonne spart 0 bis 9 %: Die Strahlen zur Sonne kosten

@@ -116,11 +116,13 @@ gezählt in
 - **Vollrender:** Jeder Thread geht mehrere ganze Streifen zu 8 Spalten
   nacheinander. Auf der Basis wird jeder Chunk im Mittel 1,73-mal
   dekodiert, vor dem Licht 1,56-mal, und sein Licht 1,31-mal gerechnet.
-- **Ausschnitte mit allen Threads:** schmalere Streifen und kalte Starts
-  mitten im Streifen. Über 65 536 Kacheln der grossen Welt lud eine Kachel
-  vor dem Licht im Mittel 2,0 Chunks neu, bei etwa einer Kachel je Chunk
-  also rund zwei Dekodierungen je Chunk. Am Stand der Testwelt mit 4
-  Spalten sind es mit Licht 2,86 Dekodierungen und 1,68 Lichtrechnungen.
+- **Ausschnitte mit allen Threads:** schmalere Streifen oder kalte Starts
+  mitten im Streifen. Über 65 536 Kacheln der grossen Welt, mit 8 Spalten
+  wie im Vollrender, lud eine Kachel vor dem Licht im Mittel 2,0 Chunks
+  neu, bei etwa einer Kachel je Chunk also rund zwei Dekodierungen je
+  Chunk: Das Stück eines Threads umfasst dort nur gut einen Streifen. Am
+  Stand der Testwelt mit 4 Spalten sind es mit Licht 2,86 Dekodierungen
+  und 1,68 Lichtrechnungen.
   Was an Ausschnitten gemessen ist, überzeichnet deshalb, was Dekodieren
   und Licht am Vollrender kosten.
 

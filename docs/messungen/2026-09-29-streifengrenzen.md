@@ -14,9 +14,11 @@ In der Reihenfolge eines Vollrenders dekodiert die Basis bei scale 32 jeden
 Chunk im Mittel 1,73-mal und rechnet sein Licht 1,31-mal; vor #49 waren es
 1,56 Dekodierungen. Doppelt gearbeitet wird nur an den Grenzen der
 Streifen, innerhalb eines Streifens verdrängt der Cache nichts, was er noch
-braucht. Ausschnitte, die mit allen Threads gerendert werden, haben
-schmalere Streifen und viele kalte Starts und überzeichnen das Doppelte: am
-Stand 2,86 Dekodierungen und 1,68 Lichtrechnungen je Chunk. Breitere
+braucht. Ausschnitte mit allen Threads überzeichnen das Doppelte: Das
+Stück eines Threads umfasst dort höchstens gut einen Streifen, viele
+Threads beginnen mitten in einem, und bei wenigen Kacheln je Thread werden
+die Streifen schmaler, am Stand 4 Spalten, am Fichtenwald 2. Am Stand sind
+es 2,86 Dekodierungen und 1,68 Lichtrechnungen je Chunk. Breitere
 Streifen sparten gerechnet rund 4 % CPU-Zeit und kosten Speicher; ein Cache
 für alle Threads hilft in dieser Reihenfolge nicht.
 
@@ -132,9 +134,10 @@ gerechnet höchstens 7 %: 42 % des Ladens und 24 % der Ausbreitung.
 - In der Reihenfolge eines Vollrenders kommt das Doppelte nur von den
   Streifengrenzen: 1,73 Dekodierungen und 1,31 Lichtrechnungen je Chunk
   mit #49, 1,56 Dekodierungen vor #49.
-- Ausschnitte überzeichnen das. Mit allen Threads haben sie schmalere
-  Streifen, der Stand 4 Spalten, der Fichtenwald 2, und viele Threads
-  beginnen mitten in einem Streifen. Mehrkosten, die an solchen
+- Ausschnitte mit allen Threads überzeichnen das. Viele Threads beginnen
+  dort mitten in einem Streifen, und Ausschnitte mit wenigen Kacheln je
+  Thread bekommen schmalere Streifen, der Stand 4 Spalten, der
+  Fichtenwald 2. Mehrkosten, die an solchen
   Ausschnitten gemessen und auf einen Vollrender hochgerechnet sind, liegen
   deshalb eher zu hoch.
 - Streifen zu 16 Spalten und ein Cache für alle Threads sind verworfen,

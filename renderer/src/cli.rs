@@ -2267,8 +2267,8 @@ fn pruefe_bestand(
 /// Fläche erneut.
 /// Siehe docs/benutzung/zoomstufen.md, „Native Stufen“.
 ///
-/// Alle Stufen laufen in einem Durchgang, in Bändern aus [`BAND`] Kacheln
-/// der gröbsten Stufe. Ein Thread rendert je Band jede Stufe von fein nach
+/// Alle Stufen laufen in einem Durchgang, in Bändern aus bis zu [`BAND`]
+/// Kacheln der gröbsten Stufe. Ein Thread rendert je Band jede Stufe von fein nach
 /// grob, mit einem Cache, der Chunks und ihr Licht über die Stufen behält
 /// ([`ChunkCache::mit_vorrat`]). Die Kinder einer Kachel liegen im selben
 /// Band; ob eine leere Kachel bleibt, entscheidet deshalb, was vor den
@@ -2359,10 +2359,13 @@ fn render_coarser(
         band,
         4 * streifenbreite(scale),
         || {
-            (
-                ChunkCache::mit_vorrat(world, &je_stufe[0].1, 1),
-                None::<Worker>,
-            )
+            let sprites = &je_stufe[0].1;
+            let chunks = if stufen == 1 {
+                ChunkCache::with_row(world, sprites, breite)
+            } else {
+                ChunkCache::mit_vorrat(world, sprites, breite)
+            };
+            (chunks, None::<Worker>)
         },
         |(chunks, worker), band| -> Result<Vec<_>> {
             chunks.neues_band();
@@ -2441,12 +2444,22 @@ fn render_coarser(
     }
     let seconds = started.elapsed().as_secs_f64();
     println!(
-        "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s), in Bändern aus {band} Kacheln \
-         bei scale {scale}",
+        "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s){}",
         bytes as f64 / 1_048_576.0,
         gerendert as f64 / seconds,
+        baender_im_log(stufen, band, scale),
     );
     Ok((grob, kandidaten, gezeigt, im_speicher))
+}
+
+/// Was das Log über die Bänder der nativen Stufen sagt: nichts bei einer
+/// Stufe, denn sie läuft in Gruppen wie die Basis.
+fn baender_im_log(stufen: u32, band: usize, scale: u32) -> String {
+    match (stufen, band) {
+        (1, _) => String::new(),
+        (_, 1) => format!(", in Bändern aus 1 Kachel bei scale {scale}"),
+        _ => format!(", in Bändern aus {band} Kacheln bei scale {scale}"),
+    }
 }
 
 /// Wie viele Kacheln der gröbsten nativen Stufe ein Band höchstens hat,
@@ -3227,6 +3240,22 @@ fn bounds(regions: &[(i32, i32)]) -> Option<(i32, i32, i32, i32)> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    /// Bänder gibt es erst ab zwei nativen Stufen; eine Kachel in der
+    /// Einzahl.
+    #[test]
+    fn baender_im_log_nur_mit_baendern() {
+        assert_eq!(baender_im_log(1, 16, 16), "");
+        assert_eq!(baender_im_log(1, 1, 16), "");
+        assert_eq!(
+            baender_im_log(3, 1, 4),
+            ", in Bändern aus 1 Kachel bei scale 4"
+        );
+        assert_eq!(
+            baender_im_log(3, 4, 4),
+            ", in Bändern aus 4 Kacheln bei scale 4"
+        );
+    }
 
     /// Fremd ist nur, was nach dem Beginn und vor der Liste entstand, und
     /// stehen bleibt es nur auf nativen Stufen. Der Baum hat Basis 3 und

@@ -74,7 +74,7 @@ Kacheln:    256 geschrieben, 0 leer, 256x256 px, 24 Threads + GPU
 Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 6.0 MB
 Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.4 MB
 Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.4 MB
-            7.7 MB in 0.6 s (138 Kacheln/s), in Bändern aus 1 Kacheln bei scale 4
+            7.7 MB in 0.6 s (138 Kacheln/s), in Bändern aus 1 Kachel bei scale 4
 Zoom  6:     2 Kacheln
 ...
 Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
@@ -87,8 +87,9 @@ die Basis braucht hier eine Drittelsekunde. Wie stark sie streut, steht in
 [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md),
 „Die Beispielausgabe“. Die Ausgabe oben ist ein Lauf aus
 [2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md),
-„Beispiel“. Die nativen Stufen nennen ihre Zeit zusammen, in der Zeile
-unter ihnen, mit der Grösse der Bänder, siehe
+„Beispiel“; dort stand „aus 1 Kachel“ noch in der Mehrzahl. Die
+nativen Stufen nennen ihre Zeit zusammen, in der Zeile unter ihnen, ab zwei
+Stufen mit der Grösse der Bänder, siehe
 [Der Weg einer Kachel](../renderer/renderpfad.md), „Native Stufen in
 Bändern“.
 

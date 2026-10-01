@@ -1301,7 +1301,8 @@ fn feine_stufen_im_speicher_wie_von_der_platte() {
 /// Ackerboden, dessen Raster bei scale 4 kippt, siehe
 /// `licht_unbekannter_bloecke_haengt_nicht_am_scale` in `tests/licht.rs`.
 /// Bei scale 4 reicht sie für drei Bänder, bei 8 für mehr: Dann fällt auch,
-/// was ein Band nicht mehr braucht, aus dem Vorrat.
+/// was ein Band nicht mehr braucht, aus dem Vorrat. Eine einzelne Stufe
+/// läuft ohne Bänder, und das Log nennt keine.
 #[test]
 fn native_stufen_wie_der_weg_je_stufe() {
     let welt = tempdir();
@@ -1367,6 +1368,13 @@ fn native_stufen_wie_der_weg_je_stufe() {
             assert_eq!(ganz_auf_der_karte(&lauf), stufen as usize, "{fall}");
         }
         gelungen(&lauf);
+        // Bänder nennt das Log erst ab zwei Stufen.
+        let ausgabe = String::from_utf8_lossy(&lauf.stdout);
+        assert_eq!(
+            ausgabe.contains("in Bändern aus"),
+            stufen > 1,
+            "{fall}:\n{ausgabe}"
+        );
         let oben = max_zoom(out.path());
         // Drei Bänder aus vier Kacheln bei scale 4, mehr bei 8.
         let mindestens = [1, 13, 9][stufen as usize - 1];

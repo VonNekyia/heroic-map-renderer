@@ -42,7 +42,8 @@ sind nur Familien, Masken, Kandidaten und Varianten.
   nicht mehr an der Zoomstufe, und der Vorrat teilt es immer.
 - **Kleine Ausschnitte:** Bei weniger als vier Kacheln der gröbsten Stufe
   je Thread werden die Bänder kleiner, bis jeder Thread eines hat. Eine
-  einzelne native Stufe teilt nichts; sie läuft in Gruppen wie die Basis.
+  einzelne native Stufe teilt nichts; sie läuft in Gruppen wie die Basis,
+  mit deren Cache ohne Vorrat.
 - **Unverändert:** die Basis und die feinen Stufen im Speicher
   ([0042](0042-feine-stufen-im-speicher.md)); die gröbste Stufe gibt ihre
   Viertel ab wie bisher.
@@ -87,7 +88,8 @@ Kachel darunter; ein Chunk liegt in 1,54 Spalten.
   die nativen Stufen des Vollrenders von 50 auf 31 bis 34 min, siehe
   [2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md).
 - Das Log nennt je native Stufe Kacheln und MB; die Zeit steht nur für alle
-  zusammen, in derselben Zeile wie die Bänder.
+  zusammen, in der Zeile darunter, ab zwei Stufen mit der Grösse der
+  Bänder.
 - Auf einer Karte zeichnet die gröbste Stufe je Durchgang ein Band, bis zu
   vier Kacheln statt sechzehn.
 - Der Vorrat hält das laufende und das vorige Band, nicht nur eines: Was

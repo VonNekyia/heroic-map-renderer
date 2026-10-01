@@ -166,7 +166,7 @@ Kacheln bei scale 16, 16 bei 8 und die 4 bei 4, jede Stufe Zeile für Zeile
 - **Kleine Ausschnitte:** Gibt es weniger als vier Kacheln der gröbsten
   Stufe je Thread, werden die Bänder kleiner, bis jeder Thread eines hat.
   Mit nur einer nativen Stufe gibt es nichts zu teilen; sie läuft in
-  Gruppen wie die Basis.
+  Gruppen wie die Basis, mit deren Cache ohne Vorrat.
 - **Leere Kacheln:** Die Kinder einer Kachel liegen im selben Band. Ob eine
   leere Kachel über einem Kind stehen bleibt (`kind_bleibt`), entscheidet
   der Thread des Bands allein.

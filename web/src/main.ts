@@ -146,10 +146,10 @@ function hatHoehen(info: MapInfo): info is MapInfo & Hoehen {
  */
 function projektion(info: MapInfo): Projektion | string {
   const { direction = 'se', projection } = info;
-  if (direction !== 'se') return `direction ${direction}`;
+  if (direction !== 'se') return `direction ${direction} unbekannt`;
   if (projection === undefined) return zweiZuEins(info.scale);
   const { azimuth, u, v, y } = projection;
-  if (azimuth !== 'diagonal') return `azimuth ${String(azimuth)}`;
+  if (azimuth !== 'diagonal') return `azimuth ${String(azimuth)} unbekannt`;
   const ganz = (n: unknown, min: number) => Number.isInteger(n) && (n as number) >= min;
   if (!ganz(u, 1) || !ganz(v, 1) || !ganz(y, 0)) return 'projection ohne ganze u, v und y';
   return { u, v, y };
@@ -331,7 +331,7 @@ async function start(): Promise<void> {
 
   if (hatHoehen(info)) {
     const p = projektion(info);
-    if (typeof p === 'string') console.warn(`${base}/map.json: keine Koordinaten, ${p} unbekannt`);
+    if (typeof p === 'string') console.warn(`${base}/map.json: keine Koordinaten, ${p}`);
     else koordinaten(map, base, p, info);
   } else if (info.heights !== undefined) {
     console.warn(`${base}/map.json: heights ohne brauchbare heightsCell, minY und maxY`);

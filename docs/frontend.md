@@ -109,8 +109,9 @@ Blickachse (b, 2a, b) der Kamera auf einen Punkt, siehe
 liest das Frontend aus `projection` in `map.json`, siehe
 [map.json](benutzung/map-json.md), „Kamera und Projektion“; fehlt sie,
 rechnet es 2:1 aus `scale`. Kennt es `azimuth` oder `direction` nicht,
-heute alles ausser `diagonal` und `se`, zeigt es keine Koordinaten, und
-die Konsole sagt, was es nicht kennt.
+heute alles ausser `diagonal` und `se`, oder sind `u` und `v` keine ganzen
+Zahlen ab 1 oder `y` keine ganze Zahl ab 0, zeigt es keine Koordinaten,
+und die Konsole nennt den Grund.
 [`web/src/pick.ts`](../web/src/pick.ts) geht deshalb den Strahl durch die
 Mitte des Pixels ab, wo auch der Renderer abtastet:
 

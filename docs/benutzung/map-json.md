@@ -82,11 +82,8 @@ das Frontend liest die Datei in `web/src/main.ts`.
 - **`--pyramid`** behält die drei Felder.
 - **Ein Baum, eine Kamera:** siehe [Zoomstufen](zoomstufen.md), „Ein Baum,
   eine Kamera“.
-- **Das Frontend** liest die drei Felder heute noch nicht und rechnet 2:1
-  aus `scale`, siehe [Frontend](../frontend.md), „Koordinaten“. Wie es sie
-  lesen wird, entscheidet
-  [0051](../entscheidungen/0051-kameras-und-richtungen.md), „Strahl im
-  Frontend“.
+- **Das Frontend** rechnet die Koordinaten aus diesen Feldern, siehe
+  [Frontend](../frontend.md), „Koordinaten“.
 
 Für die Koordinaten rechnet das Frontend die Projektion nach. Damit es
 dabei nicht vom Renderer abweicht, liegen Einträge in

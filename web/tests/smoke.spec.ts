@@ -121,12 +121,12 @@ test('die Koordinaten rechnen mit projection aus map.json', async ({ page }) => 
   await expect(page.locator('.koordinaten')).toHaveText('X 27  Y 0  Z -23');
 });
 
-for (const mehr of [
-  { projection: { azimuth: 'north', u: 16, v: 16, y: 0 } },
-  { direction: 'sw' },
-  { projection: { azimuth: 'diagonal', u: 8, v: 0, y: 8 } },
-]) {
-  test(`eine Kamera, die das Frontend nicht kennt, zeigt keine Koordinaten: ${JSON.stringify(mehr)}`, async ({
+for (const [mehr, grund] of [
+  [{ projection: { azimuth: 'north', u: 16, v: 16, y: 0 } }, 'azimuth north unbekannt'],
+  [{ direction: 'sw' }, 'direction sw unbekannt'],
+  [{ projection: { azimuth: 'diagonal', u: 8, v: 0, y: 8 } }, 'projection ohne ganze u, v und y'],
+] as const) {
+  test(`eine Kamera, die das Frontend nicht kennt, zeigt keine Koordinaten: ${grund}`, async ({
     page,
   }) => {
     const warnungen: string[] = [];
@@ -138,7 +138,7 @@ for (const mehr of [
 
     await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
     await expect(page.locator('.koordinaten')).toHaveCount(0);
-    expect(warnungen.join(' ')).toContain('keine Koordinaten');
+    expect(warnungen).toContain(`/tiles-demo/map.json: keine Koordinaten, ${grund}`);
   });
 }
 

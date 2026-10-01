@@ -18,10 +18,18 @@ function kamera(name: string, scale: number): Projektion {
 /** Die Einträge des Renderers, aktuell gehalten von einem seiner Tests. */
 const eintraege = JSON.parse(
   readFileSync(new URL('../../renderer/tests/fixtures/projektion.json', import.meta.url), 'utf8'),
-) as { camera: string; direction: string; scale: number; block: Block; pixel: Punkt; eben?: 0 }[];
+) as {
+  camera: string;
+  direction: string;
+  scale: number;
+  block: Block;
+  pixel: Punkt;
+  eben?: 0;
+  wand?: 'south' | 'east';
+}[];
 
 test('die Projektion rechnet wie der Renderer, jede Kamera', () => {
-  const paare = eintraege.filter((e) => e.eben === undefined);
+  const paare = eintraege.filter((e) => e.eben === undefined && e.wand === undefined);
   expect(new Set(paare.map((e) => e.camera)).size).toBeGreaterThan(5);
   for (const { camera, direction, scale, block, pixel } of paare) {
     expect(direction).toBe('se');
@@ -31,14 +39,17 @@ test('die Projektion rechnet wie der Renderer, jede Kamera', () => {
 });
 
 test('eine Pixelmitte auf einer Blockkante bekommt der Block, den der Renderer zeichnet', () => {
-  const kanten = eintraege.filter((e) => e.eben !== undefined);
-  expect(kanten.length).toBeGreaterThanOrEqual(6);
-  for (const { camera, scale, block, pixel } of kanten) {
-    // Ebener Boden, Oberseiten bei y = 0.
+  const kanten = eintraege.filter((e) => e.eben !== undefined || e.wand !== undefined);
+  expect(kanten.filter((e) => e.eben !== undefined).length).toBeGreaterThanOrEqual(6);
+  // Auf der Südseite gewinnt die obere Fläche, auf der Ostseite die untere.
+  expect(new Set(kanten.map((e) => e.wand))).toEqual(new Set([undefined, 'south', 'east']));
+  for (const { camera, scale, block, pixel, wand } of kanten) {
+    // Ebener Boden mit Oberseiten bei y = 0, oder eine Säule aus (4, 0, 4)
+    // und (4, 1, 4) im Leeren.
+    const hoehe = wand ? (x: number, z: number) => (x === 4 && z === 4 ? 1 : undefined) : () => -1;
     const bloecke = strahl(pixel[0], pixel[1], kamera(camera, scale), -64, 319);
-    expect(pick(bloecke, () => -1), `${camera}, scale ${scale}, Pixel ${String(pixel)}`).toEqual(
-      block,
-    );
+    const name = `${camera}, scale ${scale}, ${wand ?? 'eben'}, Pixel ${String(pixel)}`;
+    expect(pick(bloecke, hoehe), name).toEqual(block);
   }
 });
 

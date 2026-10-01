@@ -26,7 +26,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Wie der Renderer das Spiel nachbaut
 
-- [Die Kamera](renderer/kamera.md): Projektion, scale, Zeichenreihenfolge, f64.
+- [Die Kamera](renderer/kamera.md): Projektion, scale, Zeichenreihenfolge, Teile je Würfel im Raum, f64.
 - [Der Weg einer Kachel](renderer/renderpfad.md): Vorlauf, Streifen, Bitmasken, Kandidaten, Blit, Kodieren, Speicher.
 - [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Flächen zu gleichen Nachbarn, Deckungsmaske.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
@@ -103,6 +103,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0047](entscheidungen/0047-lighthouse-gegen-den-build.md): Lighthouse gegen den Build mit festen Schwellen, ohne Crawler und Baseline; die Header setzt der Betreiber.
 - [0048](entscheidungen/0048-seite-beim-build.md): Adresse, Titel, Beschreibung und Vorschaubild der Seite beim Build; keine Sitemap, kein JSON-LD.
 - [0049](entscheidungen/0049-umriss-nur-ohne-zeiger.md): Umriss nur beim Tippen mit Finger oder Stift, nicht mit der Maus.
+- [0050](entscheidungen/0050-teile-je-wuerfel-im-raum.md): Teile je Würfel im Raum, je Fragment, vor einem Block mit Flächen nur auf den Vorderseiten.
 
 ## Messungen
 
@@ -132,3 +133,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-01, Native Stufen in Bändern](messungen/2026-10-01-native-stufen-in-baendern.md): was die Bänder aus #59 an Ausschnitten der Testwelt bringen, im Wechsel gegen master, mit und ohne Karte, auf 24 Threads und einem, dazu Bänder aus einer Kachel, Speicher und Dekodierungen.
 - [2026-10-01, Strahlen durch die Blockwelt](messungen/2026-10-01-strahlen-prototyp.md): was ein Primärstrahl der 2:1-Kamera am Prototyp kostet, gegen das Raster, und wie genau er ohne Licht dasselbe Bild liefert wie die Karte.
 - [2026-10-01, Cinematic, Zeit je Bild](messungen/2026-10-01-cinematic-zeit.md): was ein Bild in Cinematic am Prototyp kostet, mit dem Licht des Spiels und mit Strahlen zum Himmel, und was ein Strahl je Pixel, der Start an der Höhe und eine Decke für die Strahlen zur Sonne bringen.
+- [2026-10-01, Teile je Würfel im Raum](messungen/2026-10-01-teile-je-wuerfel-im-raum.md): was die Zuordnung der Teile im Raum aus #65 an Kacheln ändert und kostet, am Stand und an einer Feuerszene der Testwelt, im Wechsel gegen master, mit und ohne Karte, dazu Sprites und die Spitze des Speichers.

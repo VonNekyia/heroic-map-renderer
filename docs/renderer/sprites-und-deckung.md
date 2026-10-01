@@ -77,11 +77,13 @@ trotzdem den Block darunter.
 
 Genauso streng ist die Frage, ob ein verdeckter Block überhaupt wegfallen
 darf: nur, wenn sein Sprite Pixel für Pixel in diesem Umriss bleibt.
-Schilder, Weizen, Rote Bete, Schienen, Feuer und das Lesepult legen je nach
-scale ein paar Pixel knapp daneben, die kein Nachbar sicher deckt; sie
-werden immer gezeichnet. Aus demselben Grund kommen Teile, die ein Modell
-in einen Nachbarwürfel legt, auch in einen verdeckten Würfel: die Zerlegung
-lässt ihnen eine Pixelbreite Spielraum.
+Schilder, Weizen, Rote Bete, Schienen, Feuer und das Lesepult bleiben je
+nach scale im Spielraum einer Pixelbreite ganz (siehe [Die Kamera](kamera.md),
+„Sortiert wird nach Würfeln“). Dann legen sie ein paar Pixel knapp daneben,
+die kein Nachbar sicher deckt, und werden immer gezeichnet. Zerfällt ein
+Modell, liegt jeder Teil im Umriss seines Würfels. Teile, die es in einen
+Nachbarwürfel legt, kommen trotzdem auch in einen verdeckten Würfel; was
+dort verdeckt ist, lässt die Deckungsmaske fallen.
 
 Nachbarn verdecken nur bei Vielfachen von 4 als scale; bei anderen, die nur
 die Bibliothek annimmt, liegen Blöcke auf halben Pixeln, und ihre Umrisse

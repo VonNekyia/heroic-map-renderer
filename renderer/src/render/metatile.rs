@@ -269,8 +269,27 @@ pub fn render_area_without_culling(
     let mut canvas = RgbaImage::new(rect.width, rect.height);
     let mut chunks = ChunkCache::new(world, sprites);
 
+    // Die Teile anderer Blöcke in diesem Würfel.
+    let fremde = |chunks: &mut ChunkCache, canvas: &mut RgbaImage, pos: [i32; 3]| -> Result<()> {
+        for &cell in sprites.foreign_cells() {
+            let anchor = anchor_of(pos, cell);
+            let drawn = chunks.sprite_at(anchor[0], anchor[1], anchor[2])?;
+            if let Some(id) = drawn.sprite
+                && let Some(part) = sprites.part(id, cell)
+            {
+                let origin = origin_of(projection, rect, anchor, part);
+                blit(canvas, part, origin, drawn.licht());
+            }
+        }
+        Ok(())
+    };
     for y in y_range.0..=y_range.1 {
         for (x, z) in columns_at(projection, rect, y) {
+            // Wie in `candidates`: vor einem Block in Würfelform, sonst nach ihm.
+            let vor = chunks.family_at(x, y, z)?.is_some_and(|f| f.wuerfelform);
+            if vor {
+                fremde(&mut chunks, &mut canvas, [x, y, z])?;
+            }
             let drawn = chunks.sprite_at(x, y, z)?;
             for id in drawn.ids() {
                 if let Some(part) = sprites.part(id, OWN_CELL) {
@@ -278,15 +297,8 @@ pub fn render_area_without_culling(
                     blit(&mut canvas, part, origin, drawn.licht());
                 }
             }
-            for &cell in sprites.foreign_cells() {
-                let anchor = anchor_of([x, y, z], cell);
-                let drawn = chunks.sprite_at(anchor[0], anchor[1], anchor[2])?;
-                if let Some(id) = drawn.sprite
-                    && let Some(part) = sprites.part(id, cell)
-                {
-                    let origin = origin_of(projection, rect, anchor, part);
-                    blit(&mut canvas, part, origin, drawn.licht());
-                }
+            if !vor {
+                fremde(&mut chunks, &mut canvas, [x, y, z])?;
             }
         }
     }
@@ -1543,14 +1555,17 @@ impl<'a> ChunkCache<'a> {
         let (v_lo, v_hi) = (v0_min + 2 * y_range.0, v0_max + 2 * y_range.1);
         debug_assert!(y_range.1 - y_range.0 < 1 << 10);
         debug_assert!(v_hi - v_lo < 1 << 22 && u_max - u_min < 1 << 22);
-        debug_assert!(foreign.len() < 1 << 10);
-        // Jeder Kandidat liegt im Band, also nie vor dessen Rand.
-        let key_of = |y: i32, v: i32, u: i32, kind: u16| -> u64 {
+        debug_assert!(foreign.len() < 1 << 9);
+        // Jeder Kandidat liegt im Band, also nie vor dessen Rand. Im selben
+        // Würfel ordnet der Rang: fremde Teile vor dem Block, der Block,
+        // fremde Teile nach ihm.
+        let key_of = |y: i32, v: i32, u: i32, rang: u16| -> u64 {
             ((y - y_range.0) as u64) << 54
                 | ((v - v_lo) as u64) << 32
                 | ((u - u_min) as u64) << 10
-                | kind as u64
+                | rang as u64
         };
+        let eigen = foreign.len() as u16;
         let in_y = |y: i32| (y_range.0..=y_range.1).contains(&y);
         let in_band = |y: i32, v: i32, u: i32| {
             in_y(y)
@@ -1651,7 +1666,7 @@ impl<'a> ChunkCache<'a> {
                             continue;
                         }
                         out.push(Candidate {
-                            key: key_of(y, v, u, 0),
+                            key: key_of(y, v, u, eigen),
                             x,
                             y,
                             z,
@@ -1670,9 +1685,11 @@ impl<'a> ChunkCache<'a> {
 
         // Fremde Teile: vom Anker aus in jeden Würfel, den ein Modell der
         // Familie belegen kann. Gezeichnet wird dort, wenn der Würfel im
-        // Band liegt, auch wenn er verdeckt ist: die Zerlegung lässt jedem
-        // Teil eine Pixelbreite Spielraum über seinen Würfel hinaus, und den
-        // deckt kein Nachbar sicher, die nach +x und +z höchstens zum Teil.
+        // Band liegt, auch wenn er verdeckt ist; was dann verdeckt ist,
+        // lässt die Deckungsmaske fallen. Ein Teil liegt in seinem Würfel,
+        // also hinter jeder Fläche auf dessen Vorderseiten: Hat der Block
+        // dort nur solche (`wuerfelform`), kommt es vor ihm, sonst nach ihm.
+        // Siehe docs/renderer/kamera.md, „Ein Teil im Würfel eines anderen Blocks“.
         for anchor in anchors {
             for (i, cell) in foreign.iter().enumerate() {
                 let [x, y, z] = [
@@ -1683,8 +1700,9 @@ impl<'a> ChunkCache<'a> {
                 let (u, v) = (x - z, x + z);
                 if in_band(y, v, u) {
                     let kind = i as u16 + 1;
+                    let vor = self.family_at(x, y, z)?.is_some_and(|f| f.wuerfelform);
                     out.push(Candidate {
-                        key: key_of(y, v, u, kind),
+                        key: key_of(y, v, u, if vor { kind - 1 } else { eigen + kind }),
                         x,
                         y,
                         z,

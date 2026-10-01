@@ -620,6 +620,135 @@ fn hohe_modelle_werden_nicht_uebermalt() {
     assert_ne!(a.as_raw(), b.as_raw());
 }
 
+/// Eine Szene aus wenigen Blöcken in Chunk (0, 0) bei `scale`. Schneller
+/// Weg und Referenz müssen sie gleich zeichnen.
+fn szene_bei(scale: u32, block: impl Fn(i32, i32, i32) -> &'static str) -> RgbaImage {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(scale);
+    let sprites = tabelle(&mut assets(), &world, projection);
+    let rect = ScreenRect::centered(8 * scale, 8 * scale);
+    let schnell = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+    let referenz = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+    assert_eq!(
+        schnell.as_raw(),
+        referenz.as_raw(),
+        "scale {scale}: Referenz"
+    );
+    schnell
+}
+
+/// Wo `ohne` deckt, gleicht ihm `mit`: Was dazukam, liegt dahinter.
+fn gleich_wo_deckend(ohne: &RgbaImage, mit: &RgbaImage, wo: &str) {
+    let mut gedeckt = 0;
+    for (x, y, pixel) in ohne.enumerate_pixels() {
+        if pixel.0[3] == 255 {
+            gedeckt += 1;
+            assert_eq!(
+                mit.get_pixel(x, y),
+                pixel,
+                "{wo}: Pixel ({x}, {y}) übermalt"
+            );
+        }
+    }
+    assert!(gedeckt > 30, "{wo}: zu wenig Prüffläche");
+}
+
+/// Ein Block über einem Modell, das in seinen Würfel ragt, wie Feuer.
+fn ueber_feuer(block: &'static str) -> impl Fn(i32, i32, i32) -> &'static str {
+    move |x, y, z| match (x, y, z) {
+        (8, 4, 8) => "minecraft:hochfeuer",
+        (8, 5, 8) => block,
+        _ => "minecraft:air",
+    }
+}
+
+/// Derselbe Block allein.
+fn allein(block: &'static str) -> impl Fn(i32, i32, i32) -> &'static str {
+    move |x, y, z| {
+        if (x, y, z) == (8, 5, 8) {
+            block
+        } else {
+            "minecraft:air"
+        }
+    }
+}
+
+/// Feuer unter einem deckenden Block: Was von ihm im Spiel hinter dessen
+/// Seiten liegt, bleibt dahinter, und der Teil im Innern des Blocks fällt
+/// weg. Wo der Block allein deckt, ändert das Feuer kein Pixel; zu sehen
+/// ist es trotzdem.
+#[test]
+fn feuer_unter_einem_deckenden_block() {
+    for scale in [16, 32, 64] {
+        let mit = szene_bei(scale, ueber_feuer("minecraft:einfarbig"));
+        let ohne = szene_bei(scale, allein("minecraft:einfarbig"));
+        gleich_wo_deckend(&ohne, &mit, &format!("scale {scale}"));
+        assert_ne!(mit.as_raw(), ohne.as_raw(), "scale {scale}: Feuer zu sehen");
+    }
+}
+
+/// Feuer unter Laub: Der Teil im Würfel des Laubs liegt hinter dessen
+/// Seiten, die Löcher haben. Wo das Laub deckt, ändert das Feuer nichts;
+/// durch die Löcher ist es zu sehen.
+#[test]
+fn feuer_unter_laub_scheint_durch_die_loecher() {
+    for scale in [16, 32, 64] {
+        let mit = szene_bei(scale, ueber_feuer("minecraft:laub"));
+        let ohne = szene_bei(scale, allein("minecraft:laub"));
+        let umriss = szene_bei(scale, allein("minecraft:einfarbig"));
+        gleich_wo_deckend(&ohne, &mit, &format!("scale {scale}"));
+        let durch = umriss
+            .enumerate_pixels()
+            .filter(|&(x, y, p)| {
+                p.0[3] == 255 && ohne.get_pixel(x, y).0[3] == 0 && mit.get_pixel(x, y).0[3] != 0
+            })
+            .count();
+        assert!(durch > 0, "scale {scale}: nichts durch die Löcher");
+    }
+}
+
+/// Schleim hat einen Würfel in seinem Würfel, der vor einem fremden Teil
+/// liegen kann. Ein Teil darin kommt deshalb nach dem Block, wie zuvor, und
+/// das Feuer liegt über ihm: eine Näherung.
+/// Siehe docs/renderer/kamera.md, „Was bleibt eine Näherung“.
+#[test]
+fn feuer_unter_schleim_bleibt_nach_dem_block() {
+    let mit = szene_bei(32, ueber_feuer("minecraft:schleim"));
+    let ohne = szene_bei(32, allein("minecraft:schleim"));
+    let uebermalt = ohne
+        .enumerate_pixels()
+        .filter(|&(x, y, p)| p.0[3] == 255 && mit.get_pixel(x, y) != p)
+        .count();
+    assert!(uebermalt > 0);
+}
+
+/// Getreide steht 1/16 tief in seinem Boden. Auf Ackerboden, 15/16 hoch,
+/// liegt der Fuss über dessen Oberseite und bleibt zu sehen; in einem vollen
+/// Block liegt er im Innern und fällt weg. Bei scale 64, wo das Modell
+/// zerfällt.
+#[test]
+fn getreide_im_boden() {
+    let feld = |boden: &'static str, pflanze: &'static str| {
+        szene_bei(64, move |x, y, z| match (x, y, z) {
+            (8, 4, 8) => boden,
+            (8, 5, 8) => pflanze,
+            _ => "minecraft:air",
+        })
+    };
+    assert_ne!(
+        feld("minecraft:ackerboden", "minecraft:getreide").as_raw(),
+        feld("minecraft:ackerboden", "minecraft:getreide_ohne_fuss").as_raw(),
+        "auf Ackerboden ist der Fuss zu sehen"
+    );
+    assert_eq!(
+        feld("minecraft:einfarbig", "minecraft:getreide").as_raw(),
+        feld("minecraft:einfarbig", "minecraft:getreide_ohne_fuss").as_raw(),
+        "im vollen Block fällt der Fuss weg"
+    );
+}
+
 /// Die Oberseite des Grasblocks der Fixture in der Farbe `tint`: ihre
 /// Textur (150, 110, 60) mal der Farbe je Kanal, ganzzahlig wie
 /// `rasterizer::tinted`; die Oberseite liegt im vollen Licht.

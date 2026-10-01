@@ -12,6 +12,9 @@ code:
 
 # 0001: Zeichenreihenfolge statt Tiefenpuffer
 
+Die Zuordnung der Teile über den Bildschirm ist abgelöst durch
+[0050](0050-teile-je-wuerfel-im-raum.md), die Zuordnung im Raum.
+
 ## Anlass
 
 Schritt 4, der Metatile-Renderer, setzt die Sprites der Blöcke zu einem Bild

@@ -105,6 +105,8 @@ Licht. Seitdem dekodiert ein Lauf der Testwelt über alle Stufen 6 bis 9 %
 öfter, um (-64, 416) 10,6 statt 9,8 Mal je Chunk; das Rechnen des Lichts
 kostet mehr als das Lesen, siehe
 [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md).
+Mit den Bändern aus #59 sind es dort 5,1 Mal, siehe „Native Stufen in
+Bändern“.
 
 Doppelt dekodiert wird nur an den Grenzen der Streifen: Ein Chunk, der in
 zwei Streifen reicht, wird in jedem geladen, und innerhalb eines Streifens
@@ -171,6 +173,16 @@ Kacheln bei scale 16, 16 bei 8 und die 4 bei 4, jede Stufe Zeile für Zeile
 - **Feine Stufen im Speicher:** Die gröbste Stufe gibt ihre Viertel ab, wie
   ohne native Stufen die Basis, siehe
   [Zoomstufen](../benutzung/zoomstufen.md), „Feine Stufen im Speicher“.
+
+Am Stand und am Fichtenwald der Testwelt werden die drei nativen Stufen so
+30 bis 38 % kürzer, mit und ohne Karte, auf 24 Threads wie auf einem. Am
+Stand mit 24 Threads dekodieren sie einen Chunk 2,3- statt 7,8-mal und
+rechnen sein Licht 1,3- statt 4,6-mal. Dort bekommt jeder Thread nur rund
+ein Band. Auf einem Thread folgen die Bänder aufeinander wie im
+Vollrender, und an diesen kleinen Ausschnitten dekodieren sie jeden Chunk
+einmal. Im Vollrender sind die Spalten lang; gerechnet wird ein Chunk dort
+rund 1,5-mal dekodiert, so oft, wie Spalten ihn schneiden. Gemessen in
+[2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md).
 
 ## Bitmasken
 
@@ -337,6 +349,14 @@ zweite Ring am Rand des Streifens, siehe „Streifen und Cache je Thread“,
 und je Chunk mit Licht bis 4 KB je Section, in der nicht jede Zelle
 dasselbe Licht hat. Auf der Testwelt liegt die Spitze damit auf 24 Threads
 0,4 bis 0,8 GiB höher, im Median 0,5 bis 0,65 GiB, siehe [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md).
+
+Mit nativen Stufen liegt die Spitze in ihnen, denn bei scale 4 braucht eine
+Kachel 368 Chunks. Dazu kommt der Vorrat der Bänder, siehe „Native Stufen
+in Bändern“: je Thread das laufende und das vorige Band, gerechnet bis rund
+1300 Chunks samt Licht zu rund 65 KB, rund 85 MB, und einen Teil davon hält
+der Cache ohnehin. An Ausschnitten der Testwelt steigt die Spitze damit
+ohne Karte um bis zu 0,07 GiB, mit Karte um 0,2 bis 0,35 GiB, siehe
+[2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md).
 
 Die Sprite-Tabelle teilen sich alle Threads. Fast jedes Sprite hat eine
 AO-Karte, 4 Bytes je Pixel wie das Bild, siehe

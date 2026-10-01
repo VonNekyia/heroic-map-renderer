@@ -82,7 +82,11 @@ Fläche. Warum verlustfrei:
 Die Dauer hängt nicht nur an der Kachelzahl: jede native Stufe zeichnet
 jeden Block ihrer Fläche noch einmal, und zusammen brauchen sie bei scale 32
 etwa so lange wie die Basis. Das ist etwa so lange wie ein Lauf bei
-scale 16 samt seinen Stufen über dieselbe Fläche. Die Sprite-Tabellen aller
+scale 16 samt seinen Stufen über dieselbe Fläche. Seit #59 teilen sie sich
+Chunks und Licht und sind an Ausschnitten der Testwelt 30 bis 38 % kürzer,
+siehe
+[2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md).
+Die Sprite-Tabellen aller
 3110 Blockstates brauchen über die vier Stufen zusammen rund 6 s, mit #21
 weniger, bei scale 32 rund 2 statt 3 s; der Vorlauf für die ganze Welt 5 bis
 11 s.
@@ -123,6 +127,7 @@ Ausschnitten hochgerechnet:
 | #34, Licht aus der Ausbreitung | rund 190 bis 200 GB, 3 bis 8 % mehr | 78 bis 89 min, Basis 51 bis 62; zu hoch, siehe unten | hochgerechnet | [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md) |
 | #49 mit #53, drei native Stufen | 188 GB: Basis 142,2, native Stufen 44,6, Pyramide 1,1 | 95 min: Basis 43,6, native Stufen 50 | gemessen | [2026-09-29, Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md) |
 | #49 mit #53, scale 24, eine native Stufe | 110 GB: Basis 82,5, native Stufe 19,4, Pyramide 8,5 | 55 min: Basis 29,6, native Stufe 23,3 | gemessen | [2026-09-29, Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md) |
+| #59, native Stufen in Bändern, drei native Stufen | wie mit #49 | 76 bis 79 min: native Stufen 31 bis 34 statt 50 | hochgerechnet | [2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md) |
 
 Die Grössen sind Summen der Dateigrössen. Belegt ist auf NTFS mit Clustern
 zu 4 KiB mehr: beim Lauf mit #21 rund 194 GB, davon 6,8 GB Verschnitt und
@@ -136,7 +141,11 @@ Threads schmalere Streifen als ein Vollrender, dort wird öfter doppelt
 dekodiert und Licht gerechnet, siehe
 [2026-09-29, Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md).
 Mit drei nativen Stufen brauchen diese mehr Zeit als die Basis. Ohne native
-Stufen ist mit #49 noch kein Vollrender gemessen.
+Stufen ist mit #49 noch kein Vollrender gemessen. Die Hochrechnung für #59
+nimmt die 33 bis 38 %, um die die nativen Stufen an den Ausschnitten mit
+Karte und auf einem Thread kürzer wurden; mit 24 Threads ohne Karte waren
+es am Stand 30 %. Eine einzelne native Stufe teilt nichts und bleibt, wie
+sie war.
 
 Die Pyramide brauchte im Vollrender mit #21 26 von 66 min. Seitdem baut
 #38 sie schneller von der Platte und #39 die feinen Stufen schon während

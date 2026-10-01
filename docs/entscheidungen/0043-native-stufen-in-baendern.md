@@ -80,12 +80,21 @@ Kachel darunter; ein Chunk liegt in 1,54 Spalten.
 
 ## Folgen
 
+- **Gemessen** an Ausschnitten der Testwelt mit drei nativen Stufen: Die
+  nativen Stufen werden 30 bis 38 % kürzer, mit und ohne Karte, auf 24
+  Threads wie auf einem, jede Kachel Byte für Byte dieselbe. Bänder aus
+  vier Kacheln sind am Stand 0,9 s schneller als aus einer. Gerechnet kämen
+  die nativen Stufen des Vollrenders von 50 auf 31 bis 34 min, siehe
+  [2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md).
 - Das Log nennt je native Stufe Kacheln und MB; die Zeit steht nur für alle
   zusammen, in derselben Zeile wie die Bänder.
 - Auf einer Karte zeichnet die gröbste Stufe je Durchgang ein Band, bis zu
   vier Kacheln statt sechzehn.
 - Der Vorrat hält das laufende und das vorige Band, nicht nur eines: Was
-  das vorige nicht mehr braucht, zeigt erst das nächste.
+  das vorige nicht mehr braucht, zeigt erst das nächste. #59 rechnete mit
+  einem Band, 884 Chunks samt Ring und rund 57 MB je Thread; gerechnet
+  sind es bis rund 1300 Chunks und 85 MB. An den Ausschnitten stieg die
+  Spitze ohne Karte um bis zu 0,07 GiB, mit Karte um 0,2 bis 0,35 GiB.
 - Blöcke, die 26.2 nicht kennt, haben auf den nativen Stufen das Licht der
   Basis. Ihre Kacheln sind deshalb nicht mehr die Basiskacheln eines
   Exports beim scale der Stufe.

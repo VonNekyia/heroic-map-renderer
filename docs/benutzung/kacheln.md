@@ -70,13 +70,14 @@ Höhen:      4 Regionen, 0.0 MB in 0.0 s
             200/256 Kacheln
             256/256 Kacheln
 Kacheln:    256 geschrieben, 0 leer, 256x256 px, 24 Threads + GPU
-            22.9 MB in 0.5 s (491 Kacheln/s, 91 kB je Kachel)
-Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 5.7 MB in 0.3 s
-Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.3 MB in 0.2 s
-Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.4 MB in 0.2 s
+            23.7 MB in 0.3 s (794 Kacheln/s, 95 kB je Kachel)
+Zoom  9:     64 Kacheln nativ bei scale 16 + GPU, 6.0 MB
+Zoom  8:     16 Kacheln nativ bei scale 8 + GPU, 1.4 MB
+Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.4 MB
+            7.7 MB in 0.6 s (138 Kacheln/s), in Bändern aus 1 Kacheln bei scale 4
 Zoom  6:     2 Kacheln
 ...
-Pyramide:   9 Kacheln, 0.2 MB in 0.1 s
+Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
 Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/map.json
 ```
 
@@ -84,7 +85,12 @@ MB und kB zählt die Ausgabe binär, 2^20 und 2^10 Byte, siehe
 [Was ein Lauf kostet](kosten.md). Die Rate eines so kurzen Laufs sagt wenig;
 die Basis braucht hier eine Drittelsekunde. Wie stark sie streut, steht in
 [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md),
-„Die Beispielausgabe“.
+„Die Beispielausgabe“. Die Ausgabe oben ist ein Lauf aus
+[2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md),
+„Beispiel“. Die nativen Stufen nennen ihre Zeit zusammen, in der Zeile
+unter ihnen, mit der Grösse der Bänder, siehe
+[Der Weg einer Kachel](../renderer/renderpfad.md), „Native Stufen in
+Bändern“.
 
 Der Ausschnitt wird aufgerundet, bevor der Vorlauf irgendetwas
 ausschliesst, und zwar auf ganze Kacheln der gröbsten nativen Stufe: mit

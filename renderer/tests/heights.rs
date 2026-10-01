@@ -108,6 +108,92 @@ fn kantenpixel() -> Vec<String> {
     zeilen
 }
 
+/// Pixel, deren Mitte genau auf der Kante zwischen zwei Seitenflächen
+/// übereinander liegt: eine Säule aus zwei Blöcken verschiedener Farbe, je
+/// eine Kante auf der Süd- und der Ostseite, bei 1:1 und 5:3. Von oben gibt
+/// es keine Seitenflächen. Als Eintrag
+/// `{camera, direction, scale, pixel, block, wand}`: `pixel` ist das Pixel,
+/// `block` der Block, dessen Fläche der Renderer dort zeigt, `wand` die
+/// Seite, `"south"` oder `"east"`.
+/// Siehe docs/benutzung/map-json.md, „Kamera und Projektion“.
+fn wandpixel() -> Vec<String> {
+    let dir = tempfile::tempdir().unwrap();
+    common::write_world_sections(
+        dir.path(),
+        &[(0, 0)],
+        [0],
+        |x, y, z| match (x, y, z) {
+            (4, 0, 4) => "minecraft:einfarbig",
+            (4, 1, 4) => "minecraft:blauwuerfel",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let world = World::open(dir.path()).unwrap();
+    let hoehen = (0, 15);
+    let mut zeilen = Vec::new();
+    for (kamera, scale) in [("1:1", 32), ("5:3", 30)] {
+        let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
+        let mut assets = Assets::open(vec![base]).unwrap();
+        let states = survey(&world, projection, hoehen, None).unwrap().states;
+        let sprites = SpriteSet::build_in(&mut assets, &states, projection).unwrap();
+        let s = scale as i32;
+        let (ax, ay) = projection.project_block([4, 1, 4]);
+        let rect = ScreenRect {
+            x: ax as i32 - 2 * s,
+            y: ay as i32 - 2 * s,
+            width: 4 * scale,
+            height: 4 * scale,
+        };
+        let bild = render_area(&world, &sprites, rect, hoehen).unwrap();
+        let farbe = |px: f64, py: f64| {
+            *bild.get_pixel(
+                (px.floor() as i32 - rect.x) as u32,
+                (py.floor() as i32 - rect.y) as u32,
+            )
+        };
+        // Die Farbe eines Blocks mitten auf seiner Süd- oder Ostseite.
+        let mitte = |y: i32, wand: &str| {
+            let punkt = match wand {
+                "south" => [4.5, y as f32 + 0.5, 5.0],
+                _ => [5.0, y as f32 + 0.5, 4.5],
+            };
+            let (px, py) = projection.project(punkt);
+            farbe(px as f64, py as f64)
+        };
+        // Die Kante zwischen y 0 und 1: im Süden von (4, 1, 5) nach
+        // (5, 1, 5), im Osten von (5, 1, 4) nach (5, 1, 5).
+        for (wand, von, nach) in [
+            ("south", [4, 1, 5], [5, 1, 5]),
+            ("east", [5, 1, 4], [5, 1, 5]),
+        ] {
+            let p0 = projection.project_block(von);
+            let p1 = projection.project_block(nach);
+            let (px, py) = pixelmitte_auf(p0, p1).expect("die Kante trifft eine Pixelmitte");
+            assert_ne!(mitte(0, wand), mitte(1, wand), "zwei Farben");
+            let hier = farbe(px, py);
+            let y = if hier == mitte(1, wand) {
+                1
+            } else {
+                assert_eq!(
+                    hier,
+                    mitte(0, wand),
+                    "{kamera}, {wand}: weder oben noch unten"
+                );
+                0
+            };
+            zeilen.push(format!(
+                "  {{\"camera\": \"{kamera}\", \"direction\": \"se\", \"scale\": {scale}, \
+                 \"pixel\": [{}, {}], \"block\": [4, {y}, 4], \"wand\": \"{wand}\"}}",
+                px.floor(),
+                py.floor(),
+            ));
+        }
+    }
+    zeilen
+}
+
 /// Die erste Pixelmitte strikt zwischen zwei ganzzahligen Bildpunkten auf
 /// ihrer Verbindung, falls eine darauf liegt.
 fn pixelmitte_auf(p0: (f64, f64), p1: (f64, f64)) -> Option<(f64, f64)> {
@@ -306,6 +392,7 @@ fn projektion_als_datei_ist_aktuell() {
         }
     }
     zeilen.extend(kantenpixel());
+    zeilen.extend(wandpixel());
     let text = format!("[\n{}\n]\n", zeilen.join(",\n"));
 
     let pfad = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projektion.json");

@@ -92,23 +92,31 @@ je Kamera und scale. Ein Test des Renderers hält die Datei aktuell
 (`projektion_als_datei_ist_aktuell` in `renderer/tests/heights.rs`), und
 das Frontend prüft sein Modell daran. Jeder Eintrag nennt `camera`,
 `direction`, `scale`, `block` und `pixel`. `pixel` meint zweierlei, je
-nachdem, ob `eben` dasteht:
+nachdem, ob `eben` oder `wand` dasteht:
 
 | Eintrag | `pixel` | `block` |
 |---|---|---|
-| ohne `eben` | `project_block(block)`, die Ecke des Blocks mit den kleinsten Koordinaten | irgendein Block, auch negativ und bei 2²⁴ |
-| mit `eben: 0` | ein Pixel, dessen Mitte bei +0,5 genau auf einer Blockkante liegt | der Block, dessen Oberseite der Renderer dort zeigt |
+| ohne `eben` und `wand` | `project_block(block)`, die Ecke des Blocks mit den kleinsten Koordinaten | irgendein Block, auch negativ und bei 2²⁴ |
+| mit `eben: 0` | ein Pixel, dessen Mitte bei +0,5 genau auf der Kante zweier Oberseiten liegt | der Block, dessen Oberseite der Renderer dort zeigt |
+| mit `wand: "south"` oder `"east"` | ein Pixel, dessen Mitte bei +0,5 genau auf der Kante zweier Seitenflächen übereinander liegt | der Block, dessen Seite der Renderer dort zeigt |
 
 - **Kantenpixel** gibt es für die Kameras, deren Blockkanten Pixelmitten
   treffen: `top` und 1:1 bei scale 32, 5:3 bei scale 30, siehe
-  [Kamera](../renderer/kamera.md), „Blockkanten auf Pixelmitten“.
-- **Gerendert** sind sie auf einem ebenen Boden aus Oberseiten bei y = 0,
-  also mit `block[1]` = −1, im Schachbrett aus zwei Farben, damit jeder
-  Pixel seinen Block verrät (`kantenpixel` in `renderer/tests/heights.rs`).
-- **Je Kamera zwei:** einer auf einer Ostkante, zwischen (x, z) und
-  (x + 1, z), einer auf einer Südkante, zwischen (x, z) und (x, z + 1).
-  Nach der Füllregel bekommt den ersten der östliche Block, den zweiten der
-  nördliche.
+  [Kamera](../renderer/kamera.md), „Blockkanten auf Pixelmitten“. Von oben
+  gibt es keine Seitenflächen, also auch keine Einträge mit `wand`.
+- **Auf Oberseiten** gerendert auf einem ebenen Boden aus Oberseiten bei
+  y = 0, also mit `block[1]` = −1, im Schachbrett aus zwei Farben, damit
+  jeder Pixel seinen Block verrät (`kantenpixel` in
+  `renderer/tests/heights.rs`). Je Kamera zwei: einer auf einer Ostkante,
+  zwischen (x, z) und (x + 1, z), einer auf einer Südkante, zwischen
+  (x, z) und (x, z + 1). Nach der Füllregel bekommt den ersten der östliche
+  Block, den zweiten der nördliche.
+- **An Wänden** gerendert an einer Säule aus zwei Blöcken verschiedener
+  Farbe bei y = 0 und 1 (`wandpixel`). Je Kamera zwei: einer auf der Kante
+  der Südseiten, einer auf der Kante der Ostseiten. Nach der Füllregel
+  bekommt den auf der Südseite der obere Block, den auf der Ostseite der
+  untere: Die Kante zwischen den Südseiten liegt für die obere Fläche links,
+  die zwischen den Ostseiten rechts.
 
 ## Höhen
 

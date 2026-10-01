@@ -3555,6 +3555,16 @@ fn andere_kamera_wird_abgelehnt() {
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(meldung.contains("Kamera 4:3"), "Meldung: {meldung}");
     assert!(meldung.contains("--camera 4:3"), "Meldung: {meldung}");
+    assert!(!meldung.contains("--scale"), "Meldung: {meldung}");
+
+    // Weicht auch der scale ab, nennt die Meldung beide.
+    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
+    assert!(!ausgabe.status.success(), "2:1 hätte abbrechen müssen");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        meldung.contains("--camera 4:3 --scale 8"),
+        "Meldung: {meldung}"
+    );
     assert_eq!(
         schnappschuss(out.path()),
         vorher,

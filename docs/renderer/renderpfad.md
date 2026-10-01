@@ -79,9 +79,7 @@ Cache hält, bei einer ganzen Welt. Die Breite ist eine Zweierpotenz, damit
 Geschwister ab zwei Spalten im selben Streifen liegen. Bei einer Spalte, ab
 scale 4 oder unter rund 20 Kacheln je Thread, liegen sie eine Spalte
 auseinander; zwei Spalten hielten dort je Thread eine Kachel mehr im Cache,
-bei scale 4 rund 250 Chunks. Über 65 536 Kacheln lädt
-eine Kachel der Basis im Mittel gut zwei Chunks neu; bei etwa einer Kachel
-je Chunk wird dort jeder Chunk rund zweimal dekodiert. Siehe
+bei scale 4 rund 250 Chunks. Siehe
 [0025](../entscheidungen/0025-streifen-und-cache-je-thread.md).
 
 Ohne Cache über Kacheln hinweg dekodierte jede Kachel ihre gut hundert
@@ -107,6 +105,41 @@ Licht. Seitdem dekodiert ein Lauf der Testwelt über alle Stufen 6 bis 9 %
 öfter, um (-64, 416) 10,6 statt 9,8 Mal je Chunk; das Rechnen des Lichts
 kostet mehr als das Lesen, siehe
 [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md).
+
+Doppelt dekodiert wird nur an den Grenzen der Streifen: Ein Chunk, der in
+zwei Streifen reicht, wird in jedem geladen, und innerhalb eines Streifens
+verdrängt der Cache nichts, was er noch braucht. Wie oft das vorkommt,
+hängt an der Breite der Streifen und daran, wie die Threads sie gehen,
+gezählt in
+[2026-09-29, Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md):
+
+- **Vollrender:** Jeder Thread geht mehrere ganze Streifen zu 8 Spalten
+  nacheinander. Auf der Basis wird jeder Chunk im Mittel 1,73-mal
+  dekodiert, vor dem Licht 1,56-mal, und sein Licht 1,31-mal gerechnet.
+- **Ausschnitte mit allen Threads:** schmalere Streifen oder kalte Starts
+  mitten im Streifen. Über 65 536 Kacheln der grossen Welt, mit 8 Spalten
+  wie im Vollrender, lud eine Kachel vor dem Licht im Mittel 2,0 Chunks
+  neu, bei etwa einer Kachel je Chunk also rund zwei Dekodierungen je
+  Chunk: Das Stück eines Threads umfasst dort nur gut einen Streifen. Am
+  Stand der Testwelt mit 4 Spalten sind es mit Licht 2,86 Dekodierungen
+  und 1,68 Lichtrechnungen.
+  Was an Ausschnitten gemessen ist, überzeichnet deshalb, was Dekodieren
+  und Licht am Vollrender kosten.
+
+Zwei Hebel dagegen sind durchgerechnet und verworfen:
+
+- **Streifen zu 16 Spalten** statt 8 (`streifenbreite`): 1,31 statt 1,73
+  Dekodierungen und 1,13 statt 1,31 Lichtrechnungen je Chunk, gerechnet
+  rund 4 % weniger CPU-Zeit. Dafür hält jeder Thread gut 340 Chunks mehr
+  im Cache, bis rund 100 MB.
+- **Ein Cache für alle Threads:** Er hilft nur, wenn die Threads
+  benachbarte Streifen Zeile für Zeile nebeneinander gehen. Im Vollrender
+  braucht die Chunks an einer Grenze derselbe Thread erst einen ganzen
+  Streifen später wieder, und kein anderer Thread zur selben Zeit; so lange
+  hält sie auch ein geteilter Cache nicht. Die Threads im Gleichschritt
+  über benachbarte Streifen zu führen, baut Verteilung und Cache um und
+  spart gerechnet höchstens 7 %, wenn gar nichts mehr doppelt gerechnet
+  wird.
 
 ## Bitmasken
 

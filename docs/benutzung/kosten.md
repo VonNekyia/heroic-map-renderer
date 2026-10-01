@@ -129,12 +129,14 @@ zu 4 KiB mehr: beim Lauf mit #21 rund 194 GB, davon 6,8 GB Verschnitt und
 gerechnet 3,4 GB Einträge in der MFT, siehe dort.
 
 Die Hochrechnung für #34 war zu hoch: Die Basis brauchte im Vollrender mit
-#49 43,6 min, 12 % mehr als mit #21, hochgerechnet waren 51 bis 62 min.
-Die Ausschnitte liefen mit schmaleren Streifen als die grosse Welt und
-rechneten das Licht vermutlich öfter, siehe
-[2026-09-29, Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md). Mit drei nativen Stufen
-brauchen diese mehr Zeit als die Basis. Ohne native Stufen ist mit #49
-noch kein Vollrender gemessen.
+#49 43,6 min, 12 % mehr als mit #21, hochgerechnet waren 51 bis 62 min,
+siehe [2026-09-29, Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md).
+Vermutlich liegt es an den Streifen: Die Ausschnitte haben mit allen
+Threads schmalere Streifen als ein Vollrender, dort wird öfter doppelt
+dekodiert und Licht gerechnet, siehe
+[2026-09-29, Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md).
+Mit drei nativen Stufen brauchen diese mehr Zeit als die Basis. Ohne native
+Stufen ist mit #49 noch kein Vollrender gemessen.
 
 Die Pyramide brauchte im Vollrender mit #21 26 von 66 min. Seitdem baut
 #38 sie schneller von der Platte und #39 die feinen Stufen schon während

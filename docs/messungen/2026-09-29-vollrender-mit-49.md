@@ -94,7 +94,8 @@ Die Spitze des Arbeitsspeichers ist nicht gemessen.
     Spalten, die grosse Welt mit 8.
   - Schmale Streifen dekodieren einen Chunk öfter und rechnen sein Licht
     öfter. Das macht das Licht an den Ausschnitten vermutlich teurer als
-    auf der grossen Welt; gemessen ist das nicht.
+    auf der grossen Welt; gemessen ist das nicht, gezählt in
+    [2026-09-29, Doppelte Arbeit an Streifengrenzen](2026-09-29-streifengrenzen.md).
 - **Grösse:** Eine Basiskachel wiegt 57,2 kB statt 54,7 kB, 5 % mehr. Die
   Hochrechnung nannte 3 bis 8 %.
 - **Die nativen Stufen** sind der grösste Posten: 50 min gegen 43,6 min

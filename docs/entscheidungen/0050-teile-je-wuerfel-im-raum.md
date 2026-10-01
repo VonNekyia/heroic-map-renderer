@@ -1,5 +1,5 @@
 ---
-title: "0046: Teile je Würfel im Raum"
+title: "0050: Teile je Würfel im Raum"
 description: Warum ein Modell, das seinen Würfel verlässt, je Fragment nach seiner Lage im Raum in Teile zerfällt und ein Teil vor einem Block mit Flächen nur auf den Vorderseiten kommt, statt über den Bildschirm zugeordnet oder an den Würfelebenen geschnitten zu werden.
 status: gilt
 date: 2026-10-01
@@ -10,7 +10,7 @@ code:
   - renderer/src/render/metatile.rs
 ---
 
-# 0046: Teile je Würfel im Raum
+# 0050: Teile je Würfel im Raum
 
 ## Anlass
 
@@ -93,7 +93,9 @@ Zugeordnet wird je Fragment, nach seiner Lage im Raum. Wie, steht in
 
 - 2:1 ändert sich nur über die Reihenfolge, denn das Licht eines Teils kommt
   weiter von seinem eigenen Block. Pixel ändern sich, wo ein Teil früher zu
-  spät kam oder im Innern eines Blocks mit Würfelform lag.
+  spät kam oder im Innern eines Blocks mit Würfelform lag. Wie viele
+  Kacheln das sind und was es kostet:
+  [2026-10-01, Teile je Würfel im Raum](../messungen/2026-10-01-teile-je-wuerfel-im-raum.md).
 - Ein Teil im Würfel eines Blocks ohne Würfelform kommt nach dem Block. Das
   bleibt eine Näherung, siehe [Die Kamera](../renderer/kamera.md), „Was
   bleibt eine Näherung“.

@@ -28,7 +28,7 @@ Zugeordnet wird über den Bildschirm, denn die Würfelumrisse kacheln die
 Ebene lückenlos. Siehe [Die Kamera](../renderer/kamera.md).
 
 Die Zuordnung über den Bildschirm ist abgelöst durch
-[0046](0046-teile-je-wuerfel-im-raum.md): Die Umrisse kacheln die Ebene
+[0050](0050-teile-je-wuerfel-im-raum.md): Die Umrisse kacheln die Ebene
 nicht, jeder Pixel liegt in dreien.
 
 ## Verworfene Alternativen
@@ -42,7 +42,7 @@ nicht, jeder Pixel liegt in dreien.
 ## Folgen
 
 - Ein Modell, das zwei Würfel entlang der Blickachse ausfüllt, wäre nicht
-  auflösbar; in Vanilla gibt es keines. Seit 0046 lässt es sich zuordnen.
+  auflösbar; in Vanilla gibt es keines. Seit 0050 lässt es sich zuordnen.
 - Die Kandidaten müssen in dieser Reihenfolge kommen. Seit
   [0021](0021-bitmasken-statt-blockbesuche.md) liefern die Bitmasken sie
   sortiert nach `(y, v, u)`.

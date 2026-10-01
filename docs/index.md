@@ -99,7 +99,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0043](entscheidungen/0043-native-stufen-in-baendern.md): Native Stufen in Bändern, mit Chunks und Licht über alle Stufen.
 - [0044](entscheidungen/0044-flaechen-zu-gleichen-nachbarn.md): Flächen zu gleichen Nachbarn nach der Regel des Spiels, aus einer Tabelle, mit Fassungen je Familie.
 - [0045](entscheidungen/0045-varianten-genau-drehen.md): Varianten genau um Vielfache von 90 Grad drehen, wie die Matrix des Spiels, Elemente ebenso.
-- [0046](entscheidungen/0046-teile-je-wuerfel-im-raum.md): Teile je Würfel im Raum, je Fragment, vor einem Block mit Flächen nur auf den Vorderseiten.
+- [0050](entscheidungen/0050-teile-je-wuerfel-im-raum.md): Teile je Würfel im Raum, je Fragment, vor einem Block mit Flächen nur auf den Vorderseiten.
 
 ## Messungen
 
@@ -127,3 +127,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-09-29, Doppelte Arbeit an Streifengrenzen](messungen/2026-09-29-streifengrenzen.md): wie oft die Basis einen Chunk dekodiert und sein Licht rechnet, am Stand mit einem Thread, der Hälfte und allen, und in der Reihenfolge eines Vollrenders mit Streifen zu 8, 16 und 32 Spalten.
 - [2026-10-01, Flächen zu gleichen Nachbarn](messungen/2026-10-01-flaechen-zu-gleichen-nachbarn.md): was die Regel aus #58 an Kacheln ändert und kostet, am Stand und an einer Eisszene der Testwelt, im Wechsel gegen master, mit und ohne Karte, dazu Sprites, Fassungen und die Spitze des Speichers.
 - [2026-10-01, Native Stufen in Bändern](messungen/2026-10-01-native-stufen-in-baendern.md): was die Bänder aus #59 an Ausschnitten der Testwelt bringen, im Wechsel gegen master, mit und ohne Karte, auf 24 Threads und einem, dazu Bänder aus einer Kachel, Speicher und Dekodierungen.
+- [2026-10-01, Teile je Würfel im Raum](messungen/2026-10-01-teile-je-wuerfel-im-raum.md): was die Zuordnung der Teile im Raum aus #65 an Kacheln ändert und kostet, am Stand und an einer Feuerszene der Testwelt, im Wechsel gegen master, mit und ohne Karte, dazu Sprites und die Spitze des Speichers.

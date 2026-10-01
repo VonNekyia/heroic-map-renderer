@@ -121,7 +121,7 @@ kacheln die Ebene aber nicht. Das Sechseck eines Würfels hat die Fläche
 liegt jeder Pixel in drei Sechsecken. Lag das sichtbare Fragment weiter
 hinten, kam sein Teil zu spät und übermalte einen Block davor: Feuer etwa
 die Südseite des Blocks darüber. Warum es so ist:
-[0046](../entscheidungen/0046-teile-je-wuerfel-im-raum.md).
+[0050](../entscheidungen/0050-teile-je-wuerfel-im-raum.md).
 
 Die Kandidaten kommen sortiert nach `(y, v, u)` aus den Bitmasken, siehe
 [Der Weg einer Kachel](renderpfad.md), „Bitmasken“.
@@ -149,6 +149,11 @@ derselben Reihenfolge.
 Das Licht eines Teils kommt von seinem eigenen Block, nicht vom Würfel, in
 dem es liegt. 2:1 ändert sich durch die Zuordnung im Raum also nur über die
 Reihenfolge.
+
+Gemessen an der Testwelt: Am Stand änderte sich 1 der 8500 gerenderten
+Kacheln, an einer Feuerszene 3 von 2125, jede mit einem zerfallenen
+Modell. Zeit und Speicher blieben in der Streuung, siehe
+[2026-10-01, Teile je Würfel im Raum](../messungen/2026-10-01-teile-je-wuerfel-im-raum.md).
 
 ## Stufen, die von der Kamera wegzeigen
 

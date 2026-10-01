@@ -1,6 +1,6 @@
 ---
 title: Die Kamera
-description: Die Kameras von --camera, die Projektion mit h, a und b, die Regel „ganze Pixel“ für scale und Kamera, die Zeichenreihenfolge ohne Tiefenpuffer, die Draufsicht, Blockkanten auf Pixelmitten, wie überhängende Modelle im Raum in Teile je Würfel zerfallen und warum Weltkoordinaten in f64 projiziert werden.
+description: Die Kameras von --camera, diagonal und genordet, die Projektion mit h, a und b, die Regel „ganze Pixel“ für scale und Kamera, die Zeichenreihenfolge ohne Tiefenpuffer, die Draufsicht, Blockkanten auf Pixelmitten, wie überhängende Modelle im Raum in Teile je Würfel zerfallen und warum Weltkoordinaten in f64 projiziert werden.
 code:
   - renderer/src/render/projection.rs
   - renderer/src/render/metatile.rs
@@ -14,11 +14,14 @@ code:
 # Die Kamera
 
 Die Kamera ist eine Parallelprojektion ohne Perspektive. `--camera` wählt
-sie je Lauf: schräg mit dem Rautenverhältnis `W:H` von 2:1 bis 1:1, Vorgabe
-2:1, oder von oben (`top`). Sichtbar sind schräg immer dieselben drei
-Seiten, oben, Süden und Osten, von oben nur die Oberseite. Daraus folgt
-eine Zeichenreihenfolge nach Höhe und Tiefe, die jeden Tiefenpuffer über
-die Kachel überflüssig macht. `scale` ist die Pixelbreite eines Würfels,
+sie je Lauf. Diagonal, mit der Kamera im Südosten: schräg mit dem
+Rautenverhältnis `W:H` von 2:1 bis 1:1, Vorgabe 2:1, oder von oben (`top`).
+Genordet, mit der Kamera im Süden und Norden oben: von oben (`top-north`)
+oder schräg 45° hoch (`north-45`). Sichtbar sind diagonal schräg immer
+dieselben drei Seiten, oben, Süden und Osten, bei `north-45` oben und
+Süden, von oben nur die Oberseite. Daraus folgt eine Zeichenreihenfolge
+nach Höhe und Tiefe, die jeden Tiefenpuffer über die Kachel überflüssig
+macht. `scale` ist die Pixelbreite eines Würfels,
 Vorgabe 32. Alle Faktoren stehen in
 [`renderer/src/render/projection.rs`](../../renderer/src/render/projection.rs).
 
@@ -28,22 +31,27 @@ Vorgabe 32. Alle Faktoren stehen in
 screen_x = u · h
 screen_y = v · a − y · b
 
-u = x − z,  v = x + z,  h = scale/2
+diagonal:  u = x − z,  v = x + z,  h = scale/2
+genordet:  u = x,      v = z,      h = scale
 ```
 
-| Kamera | a | b | Blickachse (b, 2a, b) |
-|---|---|---|---|
-| `W:H` | scale · H/(2W) | scale/2 | ∝ (W, 2H, W) |
-| `top` | scale/2 | 0 | ∝ (0, 1, 0) |
+| Kamera | Azimut | a | b | Blickachse |
+|---|---|---|---|---|
+| `W:H` | diagonal | scale · H/(2W) | scale/2 | (b, 2a, b) ∝ (W, 2H, W) |
+| `top` | diagonal | scale/2 | 0 | (b, 2a, b) ∝ (0, 1, 0) |
+| `top-north` | genordet | scale | 0 | (0, a, b) ∝ (0, 1, 0) |
+| `north-45` | genordet | scale | scale | (0, a, b) ∝ (0, 1, 1) |
 
 `Projection::achse` kürzt die Achse auf teilerfremde Zahlen, 2:1 etwa von
-(2, 2, 2) auf (1, 1, 1).
+(2, 2, 2) auf (1, 1, 1). Welche Achsen u und v sind, sagt
+`Projection::uv`.
 
 - **`h`:** Pixel je Schritt in u. Ein Würfel ist immer `scale` breit.
-- **`a`:** Pixel je Schritt in v. Die Oberseite eines Blocks ist eine Raute
-  von scale × 2a.
-- **`b`:** Pixel je Block Höhe. Schräg bleibt b = scale/2, die Wände sind
-  bei jeder Raute gleich hoch. Von oben ist b = 0.
+- **`a`:** Pixel je Schritt in v. Die Oberseite eines Blocks ist diagonal
+  eine Raute von scale × 2a, genordet ein Quadrat von scale × scale.
+- **`b`:** Pixel je Block Höhe. Diagonal schräg bleibt b = scale/2, die
+  Wände sind bei jeder Raute gleich hoch. Bei `north-45` ist b = scale,
+  die Südwand so hoch wie die Oberseite tief. Von oben ist b = 0.
 - **2:1:** a = scale/4, b = scale/2, Achse (1, 1, 1). Ein voller Würfel
   belegt genau `scale` mal `scale` Pixel.
 - **Blickachse:** Punkte, die sich um ein Vielfaches von ihr
@@ -51,6 +59,7 @@ u = x − z,  v = x + z,  h = scale/2
   heisst (b, 2a, b) statt (1, k, 1), damit bei b = 0 nichts unendlich wird.
   Die Tiefe eines Punkts ist sein Produkt mit der Achse
   (`Projection::depth`).
+- **Genordet** ist Osten rechts und Süden unten, siehe „Genordet“.
 
 Bei scale 32:
 
@@ -62,8 +71,12 @@ Bei scale 32:
 | 4:3 | 12 | (2, 3, 2) | 46,7° | 16, 8 | 1,5 |
 | 1:1 | 16 | (1, 2, 1) | 54,7° | 16, 8, 4 | 2 |
 | `top` | 16 | (0, 1, 0) | 90° | 16, 8, 4 | 2 |
+| `top-north` | 32 | (0, 1, 0) | 90° | 16, 8, 4 | 4 |
+| `north-45` | 32 | (0, 1, 1) | 45° | 16, 8, 4 | 4 |
 
-Der Winkel der Achse über dem Horizont ist atan(√2 · a/b).
+Der Winkel der Achse über dem Horizont ist diagonal atan(√2 · a/b),
+genordet atan(a/b). Genordet bei scale 16 belegt eine Spalte so viel wie
+2:1 bei scale 32.
 
 `Projection::project_block` bildet die Ecke (x, y, z) eines Blocks ab, die
 mit den kleinsten Koordinaten. Für die Koordinatenanzeige rechnet das
@@ -87,16 +100,23 @@ senkrecht gestaucht oder gestreckt. Das gilt auch für 2:1:
 - 2:1 ist so die echte Isometrie entlang (1, 1, 1), senkrecht um √3/2
   gestaucht. Nach der Raute wirkt sie asin(H/W) = 30° hoch, die Achse steht
   35,3° über dem Horizont.
-- 1:1 ist um √(3/2) gestreckt. Unverzerrt ist nur `top`.
+- 1:1 ist um √(3/2) gestreckt.
+- `north-45` ist die Parallelprojektion entlang (0, 1, 1), senkrecht um √2
+  gestreckt: Die Zeilen (h, 0, 0) und (0, −b, a) sind scale und
+  scale · √2 lang. Echt von 45° hoch wäre die Oberseite nur scale/√2
+  hoch.
+- Unverzerrt sind nur `top` und `top-north`.
 
 ## Kameras
 
-`--camera` nimmt `W:H` oder `top` (`Kamera::parse`):
+`--camera` nimmt `W:H`, `top`, `top-north` oder `north-45`
+(`Kamera::parse`):
 - **Gekürzt:** `16:10` wird `8:5`, bevor der Renderer es schreibt. So
   landet dieselbe Kamera nie in zwei Kachelbäumen.
 - **Von 2:1 bis 1:1:** Flacher verdeckt das Gelände mehr und kostet mehr;
   steiler erschiene die Oberseite höher als von oben. Die Meldung sagt das
   so, etwa „3:1 ist flacher als 2:1“ oder „1:2 ist steiler als 1:1“.
+- **Genordet** geht jeder scale, siehe „Genordet“.
 - **Nur auf ganzen Pixeln,** siehe „Ganze Pixel“. Sonst bricht der Lauf ab,
   bevor er die Welt liest.
 - **Ein Baum, eine Kamera:** Die Kamera gehört zum Kachelbaum wie der
@@ -111,11 +131,17 @@ Was sich je Kamera im Bild ändert:
   und bei 1:1 und `top`, mit einem. Bei 4:3 läuft die Treppe 3:4, und
   Texelzeilen werden ungleich hoch.
 - **Von oben** verschwindet jede senkrechte Fläche, siehe „Von oben“.
+- **Genordet** liegt die Karte um 45° gedreht gegen die diagonalen, siehe
+  „Genordet“.
 - **Kosten:** Je Spalte der Welt kostet eine schräge Kamera in der Basis
   etwa so viel mehr wie ihre Pixel, an Bytes 8:5 das 1,22- bis 1,28-fache,
   4:3 das 1,39- bis 1,46-fache, 1:1 das 1,88- bis 2,02-fache; `top` liegt
   mit 1,12 bis 1,61 darunter. Gemessen und eingeschränkt in
-  [2026-10-01, Kameras](../messungen/2026-10-01-kameras.md).
+  [2026-10-01, Kameras](../messungen/2026-10-01-kameras.md). Genordet bei
+  scale 16 hat ein Block so viele Pixel wie in 2:1 bei scale 32; `north-45`
+  kostet je Spalte etwa wie 2:1, an Bytes das 0,95- bis 0,98-fache,
+  `top-north` das 0,53- bis 0,75-fache, siehe
+  [2026-10-02, Genordete Kameras](../messungen/2026-10-02-genordete-kameras.md).
 
 ![Dasselbe Dorf in 2:1, 4:3, 1:1 und von oben](../bilder/kameras.webp)
 
@@ -148,6 +174,10 @@ und benachbarte Reihen überdeckten sich.
   12 und 6; 12:7, 4:3 und 12:11 keine (`native_stufen_nur_auf_ganzen_pixeln`
   in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
 - **`top`** braucht einen geraden scale.
+- **Genordet** liegt jede Ecke bei jedem scale auf ganzen Pixeln, auch bei
+  einem ungeraden; `Kamera::schritt` ist 1. Native Stufen halbieren ihn,
+  solange er gerade ist und die Hälfte mindestens 4: bei 6 keine, bei 12
+  nur 6, bei 16 8 und 4, bei 24 12 und 6, bei 48 24, 12 und 6.
 - **Native Stufen** gehen, solange der scale der Stufe die Regel erfüllt,
   bis scale 4, siehe [Zoomstufen](../benutzung/zoomstufen.md), „Native
   Stufen“.
@@ -166,18 +196,19 @@ top geht bei scale 31 nicht: der scale muss gerade sein. top geht bei scale 30 o
 ## Zeichenreihenfolge
 
 Der Metatile-Renderer sortiert erst nach Höhe `y`, innerhalb einer Höhe
-nach Tiefe `v = x + z`. Beides ist nötig, und beides gilt für jede Achse
-mit b ≥ 0 und a > 0:
+nach Tiefe `v`, diagonal `x + z`, genordet `z`. Beides ist nötig, und
+beides gilt für jede Achse mit b ≥ 0 und a > 0, diagonal wie genordet:
 
 - **Verdeckt B den Block A, dann liegt B nie tiefer.** Auf einem Pixel
   liegt der vordere Punkt um ein Vielfaches der Achse vor dem hinteren, und
   die Achse steigt mit 2a > 0. Ein Würfel ganz unter dem anderen kann also
   nicht vorn liegen.
 - **Auf gleicher Höhe verdecken Blöcke einander sehr wohl:** der Südnachbar
-  `(x, y, z+1)` verdeckt die Südfläche von `(x, y, z)`, der Ostnachbar
-  `(x+1, y, z)` die Ostfläche. Dort heisst "verdeckt" genau `v_B > v_A`,
-  denn auf einer Höhe wächst die Tiefe mit b · v. Von oben überlappen sich
-  Blöcke einer Höhe gar nicht.
+  `(x, y, z+1)` verdeckt die Südfläche von `(x, y, z)`, diagonal auch der
+  Ostnachbar `(x+1, y, z)` die Ostfläche. Dort heisst "verdeckt" genau
+  `v_B > v_A`, denn auf einer Höhe wächst die Tiefe mit b · v. Genordet
+  liegt der Ostnachbar neben dem Umriss. Von oben überlappen sich Blöcke
+  einer Höhe gar nicht.
 
 Zusammen ergibt das eine gültige Reihenfolge, und ein globaler Tiefenpuffer
 wird unnötig, siehe
@@ -288,7 +319,8 @@ Sprite-Tabelle bei scale 32 kostet einmal je Lauf rund 0,025 s mehr, siehe
 
 ## Von oben
 
-Bei `top` ist b = 0 und die Achse (0, 1, 0). Was daraus folgt:
+Bei `top` und `top-north` ist b = 0 und die Achse (0, 1, 0). Was daraus
+folgt:
 - **Senkrechte Flächen stehen auf der Kante** und fallen weg
   (`zur_kamera` und `EDGE_ON` in `renderer/src/render/rasterizer.rs`).
   Gras, Blumen, Getreide und Seegras sind Kreuze aus senkrechten Flächen
@@ -300,7 +332,7 @@ Bei `top` ist b = 0 und die Achse (0, 1, 0). Was daraus folgt:
   mit n_y = 0,0079: die Fahne eines Banners, im Modell des Spiels um 0,45°
   geneigt. Zwischen dem Rauschen des Bakers, 1e-7 der Länge, und echter
   Neigung liegt also keine Fläche; die Grenze `EDGE_ON` liegt bei 1e-4. Das
-  prüft `von_oben_keine_haarlinie_an_allen_vanilla_bloecken` in
+  prüft `keine_haarlinie_an_allen_vanilla_bloecken` in
   `renderer/src/render/sprites.rs`, ignoriert, weil er die Vanilla-Assets
   braucht; er nennt die drei steilsten Blöcke.
 - **Verdeckt** ist ein Würfel von oben allein durch den Block darüber,
@@ -310,11 +342,51 @@ Bei `top` ist b = 0 und die Achse (0, 1, 0). Was daraus folgt:
 - **Der Boden eines Würfels,** die Oberseite des Blocks darunter, liegt
   schräg b tiefer im Bild, von oben an derselben Stelle.
 
+## Genordet
+
+`top-north` und `north-45` blicken mit Norden oben, die Kamera steht im
+Süden: u = x, v = z, h = a = scale. Entschieden in
+[0052](../entscheidungen/0052-genordete-kameras.md).
+- **Jeder scale:** Jede Ecke liegt auf ganzen Pixeln, auch bei 6, 12, 24
+  und 48 und bei einem ungeraden scale. Die Tests prüfen genordet 6, 12, 16, 24
+  und 48 und gezogene scales, siehe [Tests](../entwicklung/tests.md),
+  „Kameras“. Empfohlen ist scale 16: Dann ist jedes Texel einer Oberseite
+  genau ein Pixel, und die Oberseite belegt so viel wie 2:1 bei scale 32.
+- **Umriss:** das Rechteck von (0, −b) bis (h, a) um den Bildpunkt der
+  Ecke mit den kleinsten Koordinaten, bei `north-45` die Oberseite mit der
+  Südwand darunter (`in_outline` in
+  [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs)).
+- **Sichtbar** sind bei `north-45` die Oberseite und die Südwand. Nordwände
+  sind verdeckt, Ost- und Westwände stehen auf der Kante und fallen weg wie
+  von oben jede senkrechte Fläche. Pflanzen bleiben zu sehen, ihre Kreuze
+  stehen schräg zur Achse. `top-north` zeigt nur Oberseiten wie `top`.
+- **Keine Haarlinie:** Bei `north-45` steht jede Fläche eines
+  Vanilla-Blocks, die die Kamera sieht, messbar schräg zur Achse.
+  `keine_haarlinie_an_allen_vanilla_bloecken` in
+  `renderer/src/render/sprites.rs` prüft das für `top` und `north-45`; er
+  nennt je Kamera die drei steilsten Blöcke.
+- **Verdeckt** ist ein Würfel durch den Nachbarn nach +z und den Block
+  darüber; der nach +x liegt neben dem Umriss. Bei `top-north` deckt der
+  Block darüber allein, siehe
+  [Sprites und Deckung](sprites-und-deckung.md), „Verdeckte Würfel“.
+- **Das Band** der Kandidaten ist ein Rechteck in x und z, siehe
+  [Der Weg einer Kachel](renderpfad.md), „Kandidaten“.
+- **Blockkanten** liegen auf ganzen Pixeln, nie auf einer Pixelmitte; es
+  gibt keine Kantenpixel, siehe „Blockkanten auf Pixelmitten“.
+- **Gegen die diagonalen Kameras** liegt die Karte um 45° gedreht. Den
+  Azimut und die Drehung aus Stufe 3 hält 0052 auseinander.
+
+![Dasselbe Dorf in top-north und north-45](../bilder/genordet.webp)
+
+Dasselbe Dorf der Testwelt wie in „Kameras“, links `top-north`, rechts
+`north-45`, scale 16, um den Block (−352, 64, 578), Stand `d93682d`.
+
 ## Blockkanten auf Pixelmitten
 
 Der Rasterizer tastet jeden Pixel in seiner Mitte ab, bei +0,5. Senkrechte
 Kanten liegen bei u · h, also auf ganzen Pixeln und nie auf einer Mitte.
-Eine Kante der Raute steigt um a je h, also H:W, von oben 1:1:
+Genordet gilt das für jede Kante, auch die waagerechten bei v · a − y · b.
+Diagonal steigt eine Kante der Raute um a je h, also H:W, von oben 1:1:
 - **Sie trifft Pixelmitten genau dann,** wenn W und H, gekürzt, beide
   ungerade sind: Eine Mitte liegt auf ihr, wenn (2j + 1)/(2i + 1) = H/W.
 - **Das sind** 1:1, `top`, dazu etwa 5:3 und 7:5, bei jedem scale, an dem
@@ -348,9 +420,13 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --ass
 ```
 
 Unsichtbar ist die Stufe genau dann, wenn b = 2a oder b = 0 ist: in 2:1
-und von oben. Bei jeder anderen Kamera ist 0 < b < 2a. Die höhere
-Oberseite überdeckt dann einen Streifen der tieferen, und die Stufe zeigt
-sich.
+und von oben. Bei jeder anderen diagonalen Kamera ist 0 < b < 2a. Die
+höhere Oberseite überdeckt dann einen Streifen der tieferen, und die Stufe
+zeigt sich.
+
+Genordet ist eine Reihe Quadrate a hoch. Bei `north-45` ist b = a: Eine
+Stufe nach Norden ist dort unsichtbar wie in 2:1. Eine nach Osten oder
+Westen zeigt keine Wand, nur die Oberseiten um eine Reihe versetzt.
 
 ## Weltkoordinaten in f64
 

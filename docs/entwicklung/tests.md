@@ -131,7 +131,9 @@ Die Invarianten gelten für jede Kamera. `kameras()` in
 `renderer/tests/metatile.rs` liefert sie: 16:9, 8:5, 4:3, 1:1 und `top`
 bei scale 32, 5:3 bei scale 30, 1:1 und `top` bei scale 4 und 6, dazu sechs
 Paare aus gültigem W:H und scale, gezogen mit fester Saat, damit jeder Lauf
-dieselben prüft, ohne 2:1 und ohne eine Kamera zweimal. Das Bild ist bei
+dieselben prüft, ohne 2:1 und ohne eine Kamera zweimal. Genordet kommen
+`top-north` bei 6, 16 und 24 und `north-45` bei 12, 16 und 48 dazu, je mit
+einem gezogenen scale, der auch ungerade sein kann. Das Bild ist bei
 `verdecken_aendert_kein_pixel` und `schneller_weg_gleicht_der_referenz`
 das Rechteck um alle Blöcke der Szene, bei jeder Kamera. Je Kamera:
 
@@ -144,28 +146,31 @@ das Rechteck um alle Blöcke der Szene, bei jeder Kamera. Je Kamera:
 | `projektion_als_datei_ist_aktuell` (`renderer/tests/heights.rs`) | die Datei für das Frontend, samt Kantenpixeln |
 
 Dazu einzeln: `von_oben_ragt_der_turm_durch_den_teppich` (`metatile.rs`),
-`heights_traegt_hoehen_nach` auch für einen Baum von oben und
+`heights_traegt_hoehen_nach` auch für einen Baum von oben und einen in
+`north-45`, `genordeter_baum_mit_azimut_und_richtung` und
 `kamera_ohne_ganze_pixel_bricht_vor_der_welt_ab` (`cli.rs`).
 
-Dazu Unit-Tests in den Quelldateien: die Achse je Kamera und die Regel
-„ganze Pixel“ (`projection.rs`), welche Flächen die Kamera sieht
-(`rasterizer.rs`), Umriss, Deckung, Licht unbekannter Blöcke, die Teile
-je Würfel ohne Naht und ein Modell ganz in einem fremden Würfel
+Dazu Unit-Tests in den Quelldateien: die Achse je Kamera, die Regel
+„ganze Pixel“ und die genordete Projektion (`projection.rs`), Spalten,
+Reihenfolge und Band für beide Azimute (`metatile.rs`), welche Flächen die
+Kamera sieht (`rasterizer.rs`), Umriss, Deckung, Licht unbekannter Blöcke,
+die Teile je Würfel ohne Naht und ein Modell ganz in einem fremden Würfel
 (`sprites.rs`), Schalter und Meldungen (`cli.rs`). Zwei ignorierte Tests
-laufen über alle Vanilla-Zustände: die Haarlinien von oben und die Modelle,
-die in 2:1 ganz in einem fremden Würfel liegen, siehe
-[Die Kamera](../renderer/kamera.md), „Von oben“ und „Sortiert wird nach
-Würfeln“.
+laufen über alle Vanilla-Zustände: die Haarlinien von oben und bei
+`north-45` und die Modelle, die in 2:1 ganz in einem fremden Würfel
+liegen, siehe [Die Kamera](../renderer/kamera.md), „Von oben“,
+„Genordet“ und „Sortiert wird nach Würfeln“.
 
 ## Goldbild
 
 Unter `renderer/tests/fixtures/golden/` liegen Goldbilder: jede Änderung an
 Projektion, Baking, Rasterizer oder Maleralgorithmus fällt damit auf.
-`metatile.png` zeigt 2:1, `metatile-4x3.png` und `metatile-top.png` die
-Szene aus `common::szene` in 4:3 und von oben. Der Test vergleicht alle
-drei, schreibt zu jedem abweichenden das Ist-Bild daneben, als
-`metatile-ist.png`, `metatile-4x3-ist.png` oder `metatile-top-ist.png`, und
-fällt erst dann; in CI liegen sie als Artefakt am fehlgeschlagenen Lauf.
+`metatile.png` zeigt 2:1, `metatile-4x3.png`, `metatile-top.png`,
+`metatile-top-north.png` und `metatile-north-45.png` die Szene aus
+`common::szene` in 4:3, von oben, genordet von oben und in `north-45`, alle
+bei scale 16. Der Test vergleicht alle, schreibt zu jedem abweichenden das
+Ist-Bild daneben, als `<name>-ist.png`, und fällt erst dann; in CI liegen
+sie als Artefakt am fehlgeschlagenen Lauf.
 Neu erzeugen nach einer gewollten Änderung: Skill
 [`goldbild-erneuern`](../../skills/goldbild-erneuern/SKILL.md).
 

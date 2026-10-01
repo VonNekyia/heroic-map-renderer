@@ -60,9 +60,9 @@ impl ScreenRect {
 /// Rendert einen Ausschnitt der Welt.
 ///
 /// Gezeichnet wird nach dem Maleralgorithmus, und zwar je Blockwürfel:
-/// erst nach Höhe `y`, innerhalb einer Höhe nach Tiefe `v = x + z`. Ein
-/// Würfel, der einen anderen verdeckt, liegt nie tiefer, und auf gleicher
-/// Höhe verdeckt er ihn genau bei grösserem `v`. Ein Modell, das über
+/// erst nach Höhe `y`, innerhalb einer Höhe nach Tiefe `v`, diagonal
+/// `x + z`, genordet `z`. Ein Würfel, der einen anderen verdeckt, liegt nie
+/// tiefer, und auf gleicher Höhe verdeckt er ihn genau bei grösserem `v`. Ein Modell, das über
 /// seinen Würfel hinausragt, ist in `SpriteSet` bereits in Teile je Würfel
 /// zerlegt. Die Reihenfolge kommt aus dem Schlüssel `(y, v, u, Teil)`,
 /// nach dem die Kandidaten sortiert werden, siehe [`render_area_with`].
@@ -427,7 +427,7 @@ struct Candidate {
     loose: bool,
 }
 
-/// Bereich von `u = x - z`, dessen Spalten in das Rechteck fallen können.
+/// Bereich von `u`, dessen Spalten in das Rechteck fallen können.
 ///
 /// `screen_x = u * h`. f64, weil rect und Weltkoordinaten bis knapp
 /// 30 Millionen gehen: siehe Projection::project_block.
@@ -440,7 +440,7 @@ fn u_window(projection: Projection, rect: ScreenRect) -> (i32, i32) {
     )
 }
 
-/// Bereich von `v = x + z` auf dieser Höhe: `screen_y = v * a - y * b`,
+/// Bereich von `v` auf dieser Höhe: `screen_y = v * a - y * b`,
 /// nach aussen gerundet. Von oben ist er für jede Höhe derselbe.
 fn v_window(projection: Projection, rect: ScreenRect, y: i32) -> (i32, i32) {
     let bleed = BLEED_BLOCKS as f64 * projection.scale() as f64;
@@ -456,9 +456,10 @@ fn v_window(projection: Projection, rect: ScreenRect, y: i32) -> (i32, i32) {
 /// kann — in Zeichenreihenfolge, so wie sie die Referenz abläuft.
 ///
 /// Statt über x und z zu laufen, läuft die Schleife über die beiden
-/// Bildschirmachsen: `u = x - z` steuert die waagerechte, `v = x + z` die
-/// senkrechte Position. Damit ist der Bereich je Höhe ein schmales Band
-/// statt der gesamten Grundfläche.
+/// Bildschirmachsen: `u` steuert die waagerechte, `v` die senkrechte
+/// Position, diagonal `x - z` und `x + z`, genordet `x` und `z`. Damit ist
+/// der Bereich je Höhe diagonal ein schmales Band statt der gesamten
+/// Grundfläche.
 ///
 /// `v` läuft aussen: Auf einer Höhe ist `v` die Tiefe entlang der
 /// Blickachse, und liefe `u` aussen, käme der Südnachbar zu früh und würde
@@ -471,13 +472,23 @@ fn columns_at(
 ) -> impl Iterator<Item = (i32, i32)> {
     let (u_min, u_max) = u_window(projection, rect);
     let (v_min, v_max) = v_window(projection, rect, y);
+    let genordet = projection.kamera().genordet();
 
     (v_min..=v_max).flat_map(move |v| {
-        // x und z sind ganzzahlig, also haben u und v dieselbe Parität.
-        let start = u_min + (u_min - v).rem_euclid(2);
-        (start..=u_max)
-            .step_by(2)
-            .map(move |u| ((u + v) / 2, (v - u) / 2))
+        // Diagonal sind x und z ganzzahlig, also haben u und v dieselbe
+        // Parität.
+        let (start, schritt) = if genordet {
+            (u_min, 1)
+        } else {
+            (u_min + (u_min - v).rem_euclid(2), 2)
+        };
+        (start..=u_max).step_by(schritt).map(move |u| {
+            if genordet {
+                (u, v)
+            } else {
+                ((u + v) / 2, (v - u) / 2)
+            }
+        })
     })
 }
 
@@ -1468,7 +1479,8 @@ impl<'a> ChunkCache<'a> {
     /// Ein Block ist verdeckt, wenn die Nachbarn nach +x und +z ihren ganzen
     /// Umriss decken und der nach +y seinen Boden. Nach +y ist das ein Shift
     /// in derselben Spalte; am oberen Rand kommt das Bit aus der Section
-    /// darüber, an den Rändern +x und +z aus dem Nachbarchunk.
+    /// darüber, an den Rändern +x und +z aus dem Nachbarchunk. Genordet
+    /// liegt der Nachbar nach +x neben dem Umriss und zählt nicht.
     ///
     /// Reine Flüssigkeit, Wasser wie Lava, zeichnet ausserdem nichts, wo über
     /// ihr dieselbe steht und sie zu beiden Seiten an dieselbe mit derselben
@@ -1497,9 +1509,11 @@ impl<'a> ChunkCache<'a> {
         let nz = self.edge((key.0, key.1 + 1), section_y, false)?;
         let projection = self.sprites.projection();
         let verdecken = projection.ganze_pixel();
-        // Von oben stehen die Seiten auf der Kante: Es deckt der Block darüber
-        // allein, als wären beide Nachbarn deckend.
-        let seiten = if projection.b() == 0.0 { u16::MAX } else { 0 };
+        // Ein Nachbar, der neben dem Umriss liegt, zählt, als wäre er deckend:
+        // von oben beide, genordet der nach +x.
+        let (mit_x, mit_z) = projection.verdeckende_seiten();
+        let seite_x = if mit_x { 0 } else { u16::MAX };
+        let seite_z = if mit_z { 0 } else { u16::MAX };
 
         let loaded = self.slots[slot].loaded.as_mut().expect("geladen");
         let above = section_y
@@ -1515,7 +1529,7 @@ impl<'a> ChunkCache<'a> {
             let (x, z) = (col & 15, col >> 4);
             let (sx, fx, ux) = if x < 15 { rand(m, col + 1) } else { nx[z] };
             let (sz, fz, uz) = if z < 15 { rand(m, col + 16) } else { nz[x] };
-            let (sx, sz) = (sx | seiten, sz | seiten);
+            let (sx, sz) = (sx | seite_x, sz | seite_z);
             let top = above.map_or(0, |a| a.bits[FLOOR][col] & 1);
             let floor_up = (m.bits[FLOOR][col] >> 1) | (top << 15);
             let hidden = sx & floor_up & sz;
@@ -1630,14 +1644,20 @@ impl<'a> ChunkCache<'a> {
 
         let mut out = Vec::with_capacity(8192);
         let mut anchors: Vec<[i32; 3]> = Vec::new();
-        for key in band_chunks(u_min - pad, u_max + pad, v_lo - pad, v_hi + pad) {
+        let genordet = projection.kamera().genordet();
+        for key in band_chunks(genordet, u_min - pad, u_max + pad, v_lo - pad, v_hi + pad) {
             let slot = self.slot(key)?;
             let sections = match &self.slots[slot].loaded {
                 Some(loaded) => loaded.chunk.sections().len(),
                 None => continue,
             };
-            let v0 = key.0 * 16 + key.1 * 16;
-            let (y_lo, y_hi) = y_span(v0, v0 + 30);
+            // Die kleinste und grösste Tiefe `v` im Chunk.
+            let (y_lo, y_hi) = if genordet {
+                y_span(key.1 * 16, key.1 * 16 + 15)
+            } else {
+                let v0 = key.0 * 16 + key.1 * 16;
+                y_span(v0, v0 + 30)
+            };
             let in_reach = |sy: i8| {
                 let base = sy as i32 * 16;
                 base + 15 >= y_lo && base <= y_hi
@@ -1669,7 +1689,7 @@ impl<'a> ChunkCache<'a> {
                     }
                     let x = key.0 * 16 + (col & 15) as i32;
                     let z = key.1 * 16 + (col >> 4) as i32;
-                    let (u, v) = (x - z, x + z);
+                    let (u, v) = projection.uv(x, z);
                     let mut bits = own;
                     while bits != 0 {
                         let b = bits.trailing_zeros();
@@ -1716,7 +1736,7 @@ impl<'a> ChunkCache<'a> {
                     anchor[1] + cell[1],
                     anchor[2] + cell[2],
                 ];
-                let (u, v) = (x - z, x + z);
+                let (u, v) = projection.uv(x, z);
                 if in_band(y, v, u) {
                     let kind = i as u16 + 1;
                     let vor = self.family_at(x, y, z)?.is_some_and(|f| f.wuerfelform);
@@ -2258,10 +2278,16 @@ fn region_of((cx, cz): (i32, i32)) -> (i32, i32) {
 }
 
 /// Alle Chunks, die das Band `u ∈ [u_min, u_max]`, `v ∈ [v_lo, v_hi]`
-/// berühren können — grob über die Hüllbox, dann je Chunk gegen das Band.
-/// Ein paar Chunks zu viel schaden nicht: jeder Kandidat wird ohnehin
-/// einzeln gegen das Band geprüft.
-fn band_chunks(u_min: i32, u_max: i32, v_lo: i32, v_hi: i32) -> Vec<(i32, i32)> {
+/// berühren können — diagonal grob über die Hüllbox, dann je Chunk gegen
+/// das Band; genordet ist das Band ein Rechteck in x und z. Ein paar Chunks
+/// zu viel schaden nicht: jeder Kandidat wird ohnehin einzeln gegen das
+/// Band geprüft.
+fn band_chunks(genordet: bool, u_min: i32, u_max: i32, v_lo: i32, v_hi: i32) -> Vec<(i32, i32)> {
+    if genordet {
+        return ((v_lo >> 4)..=(v_hi >> 4))
+            .flat_map(|cz| ((u_min >> 4)..=(u_max >> 4)).map(move |cx| (cx, cz)))
+            .collect();
+    }
     // x = (u + v) / 2, z = (v - u) / 2
     let x0 = (u_min + v_lo).div_euclid(2) - 1;
     let x1 = (u_max + v_hi).div_euclid(2) + 1;
@@ -2283,9 +2309,20 @@ fn band_chunks(u_min: i32, u_max: i32, v_lo: i32, v_hi: i32) -> Vec<(i32, i32)> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::Kamera;
 
     fn rect() -> ScreenRect {
         ScreenRect::centered(64, 64)
+    }
+
+    /// Je Azimut eine Kamera: diagonal 2:1, genordet `north-45` und
+    /// `top-north`.
+    fn azimute() -> [Projection; 3] {
+        [
+            Projection::new(16),
+            Projection::mit_kamera(16, Kamera::Nord45),
+            Projection::mit_kamera(16, Kamera::ObenNord),
+        ]
     }
 
     /// [`AO_WERTE`] wie im Spiel: das Mittel aus vier Werten 1 oder 0,2 in
@@ -2313,82 +2350,103 @@ mod tests {
         assert_eq!((r.right(), r.bottom()), (32, 16));
     }
 
-    /// u und v müssen dieselbe Parität haben, sonst wären x und z nicht
-    /// ganzzahlig.
+    /// Diagonal müssen u und v dieselbe Parität haben, sonst wären x und z
+    /// nicht ganzzahlig. Keine Spalte kommt zweimal.
     #[test]
     fn spalten_sind_ganzzahlig_und_eindeutig() {
-        let spalten: Vec<(i32, i32)> = columns_at(Projection::new(16), rect(), 0).collect();
-        assert!(!spalten.is_empty());
+        for projection in azimute() {
+            let spalten: Vec<(i32, i32)> = columns_at(projection, rect(), 0).collect();
+            assert!(!spalten.is_empty());
 
-        let mut gesehen = std::collections::HashSet::new();
-        for (x, z) in &spalten {
-            assert!(gesehen.insert((*x, *z)), "Spalte ({x}, {z}) doppelt");
+            let mut gesehen = std::collections::HashSet::new();
+            for (x, z) in &spalten {
+                assert!(gesehen.insert((*x, *z)), "Spalte ({x}, {z}) doppelt");
+            }
         }
     }
 
     /// Jede Spalte, die im Rechteck landet, muss auch besucht werden.
     #[test]
     fn spalten_decken_das_rechteck_ab() {
-        let projection = Projection::new(16);
-        let rect = rect();
-        let y = 5;
-        let besucht: std::collections::HashSet<(i32, i32)> =
-            columns_at(projection, rect, y).collect();
+        for projection in azimute() {
+            let kamera = projection.kamera();
+            let rect = rect();
+            let y = 5;
+            let besucht: std::collections::HashSet<(i32, i32)> =
+                columns_at(projection, rect, y).collect();
 
-        for x in -40..40 {
-            for z in -40..40 {
-                let (sx, sy) = projection.project([x as f32, y as f32, z as f32]);
-                let drin = sx >= rect.x as f32
-                    && sx < rect.right() as f32
-                    && sy >= rect.y as f32
-                    && sy < rect.bottom() as f32;
-                if drin {
-                    assert!(besucht.contains(&(x, z)), "({x}, {z}) fehlt");
+            for x in -40..40 {
+                for z in -40..40 {
+                    let (sx, sy) = projection.project([x as f32, y as f32, z as f32]);
+                    let drin = sx >= rect.x as f32
+                        && sx < rect.right() as f32
+                        && sy >= rect.y as f32
+                        && sy < rect.bottom() as f32;
+                    if drin {
+                        assert!(besucht.contains(&(x, z)), "{kamera}: ({x}, {z}) fehlt");
+                    }
                 }
             }
         }
     }
 
-    /// Die Referenz verlässt sich darauf, dass die Tiefe `v = x + z`
-    /// innerhalb einer Höhe nie fällt; der Schlüssel der Kandidaten sortiert
-    /// genauso.
+    /// Die Referenz verlässt sich darauf, dass die Tiefe `v` innerhalb
+    /// einer Höhe nie fällt; der Schlüssel der Kandidaten sortiert genauso.
     #[test]
     fn spalten_kommen_nach_tiefe_sortiert() {
-        let mut vorher = i32::MIN;
-        let mut gesehen = 0;
-        for (x, z) in columns_at(Projection::new(16), rect(), 7) {
-            assert!(x + z >= vorher, "v fällt von {vorher} auf {}", x + z);
-            vorher = x + z;
-            gesehen += 1;
+        for projection in azimute() {
+            let kamera = projection.kamera();
+            let mut vorher = i32::MIN;
+            let mut gesehen = 0;
+            for (x, z) in columns_at(projection, rect(), 7) {
+                let v = projection.uv(x, z).1;
+                assert!(v >= vorher, "{kamera}: v fällt von {vorher} auf {v}");
+                vorher = v;
+                gesehen += 1;
+            }
+            assert!(gesehen > 15, "{kamera}: nur {gesehen} Spalten geprüft");
         }
-        assert!(gesehen > 100, "nur {gesehen} Spalten geprüft");
     }
 
-    /// Eine höhere Ebene verschiebt das Band nach unten in der Welt.
+    /// Eine höhere Ebene verschiebt das Band nach unten in der Welt, ausser
+    /// von oben.
     #[test]
     fn hoehere_ebene_verschiebt_das_band() {
-        let mitte = |y| {
-            let v: Vec<(i32, i32)> = columns_at(Projection::new(16), rect(), y).collect();
-            let summe: i32 = v.iter().map(|(x, z)| x + z).sum();
-            summe / v.len() as i32
-        };
-        assert!(mitte(64) > mitte(0));
+        for projection in azimute() {
+            let mitte = |y| {
+                let v: Vec<(i32, i32)> = columns_at(projection, rect(), y).collect();
+                let summe: i32 = v.iter().map(|&(x, z)| projection.uv(x, z).1).sum();
+                summe / v.len() as i32
+            };
+            if projection.b() > 0.0 {
+                assert!(mitte(64) > mitte(0), "{}", projection.kamera());
+            } else {
+                assert_eq!(mitte(64), mitte(0), "{}", projection.kamera());
+            }
+        }
     }
 
     /// Jede Chunkspalte, die das Band berührt, ist dabei: sonst fehlten der
     /// Kachel Kandidaten, und die Referenz zeichnete sie.
     #[test]
     fn band_chunks_decken_das_band_ab() {
-        let projection = Projection::new(16);
-        let rect = rect();
-        let (u_min, u_max) = u_window(projection, rect);
-        let v_lo = v_window(projection, rect, -64).0;
-        let v_hi = v_window(projection, rect, 319).1;
-        let chunks: std::collections::HashSet<(i32, i32)> =
-            band_chunks(u_min, u_max, v_lo, v_hi).into_iter().collect();
-        for y in [-64, 0, 100, 319] {
-            for (x, z) in columns_at(projection, rect, y) {
-                assert!(chunks.contains(&(x >> 4, z >> 4)), "({x}, {z}) auf {y}");
+        for projection in azimute() {
+            let kamera = projection.kamera();
+            let rect = rect();
+            let (u_min, u_max) = u_window(projection, rect);
+            let v_lo = v_window(projection, rect, -64).0;
+            let v_hi = v_window(projection, rect, 319).1;
+            let chunks: std::collections::HashSet<(i32, i32)> =
+                band_chunks(kamera.genordet(), u_min, u_max, v_lo, v_hi)
+                    .into_iter()
+                    .collect();
+            for y in [-64, 0, 100, 319] {
+                for (x, z) in columns_at(projection, rect, y) {
+                    assert!(
+                        chunks.contains(&(x >> 4, z >> 4)),
+                        "{kamera}: ({x}, {z}) auf {y}"
+                    );
+                }
             }
         }
     }

@@ -15,6 +15,9 @@ code:
 
 # 0051: Kameras und Richtungen
 
+Stufe 2, die genordeten Kameras `top-north` und `north-45`, hält
+[0052](0052-genordete-kameras.md) fest.
+
 ## Anlass
 
 Bis #66 zeichnete der Renderer nur 2:1: eine feste Achse (1, 1, 1),

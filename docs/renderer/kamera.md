@@ -139,9 +139,14 @@ Pixeln liegt (`Projection::ganze_pixel`): a ist ganz, und scale ist gerade.
 Dann sind auch h und b ganz. Sonst lägen Blockreihen zwischen den Pixeln,
 und benachbarte Reihen überdeckten sich.
 
-- **2:1** heisst das: ein Vielfaches von 4, die Regel von früher.
+- **Ein gekürztes W:H** braucht ein Vielfaches von 2W (`Kamera::schritt`),
+  2:1 also eines von 4, die Regel von früher.
 - **Bei scale 32** gehen 16:a mit a von 8 bis 16, gekürzt 2:1, 16:9, 8:5,
   16:11, 4:3, 16:13, 8:7, 16:15 und 1:1.
+- **Bei scale 24** gehen 2:1, 12:7, 3:2, 4:3, 6:5, 12:11 und 1:1, nicht
+  8:5 und 16:9. Native Stufen haben 2:1 und 6:5 nur 12; 3:2, 1:1 und `top`
+  12 und 6; 12:7, 4:3 und 12:11 keine (`native_stufen_nur_auf_ganzen_pixeln`
+  in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
 - **`top`** braucht einen geraden scale.
 - **Native Stufen** gehen, solange der scale der Stufe die Regel erfüllt,
   bis scale 4, siehe [Zoomstufen](../benutzung/zoomstufen.md), „Native
@@ -221,8 +226,8 @@ Zugeordnet wird im Raum, je Fragment (`Raster::teile` in
 - **Ein fremder Würfel:** Liegen alle Fragmente in einem einzigen Würfel,
   der nicht der eigene ist, wird das Modell ein Teil dort, ausser es passt
   in den Spielraum. In 2:1 trifft das unter den 32 366 Zuständen aus
-  `blocks.txt` von 26.2, bei jedem scale von 4 bis 64 in Schritten von 4,
-  nur die stehenden Banner mit `rotation` 2 und 10 bei scale 16: Nur ihre
+  `blocks.txt` von 26.2, bei jedem Vielfachen von 4 von 4 bis 64, nur die
+  stehenden Banner mit `rotation` 2 und 10 bei scale 16: Nur ihre
   Fahne trifft Pixelmitten, und die liegt im Würfel darüber. Stiele,
   Getreide und stehende Schilder, deren Fragmente bei manchen scales ebenso
   alle in einem fremden Würfel liegen, bleiben im Spielraum ganz. Das prüft

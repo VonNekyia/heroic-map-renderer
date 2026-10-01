@@ -366,13 +366,14 @@ fn projektion_als_datei_ist_aktuell() {
         [weit - 1, -64, weit - 1],
     ];
     // Je Kamera scale 32 und ein kleinerer, bei dem sie auf ganzen Pixeln
-    // liegt; 5:3 nur bei 30, wo Blockkanten Pixelmitten treffen.
+    // liegt, 1:1 und top auch bei 6 mit ungeraden h und a; 5:3 nur bei 30,
+    // wo Blockkanten Pixelmitten treffen.
     let kameras = [
-        ("2:1", &[4, 12, 16, 32, 64][..]),
+        ("2:1", &[4, 12, 16, 24, 32, 48, 64][..]),
         ("8:5", &[16, 32]),
         ("4:3", &[8, 32]),
-        ("1:1", &[4, 32]),
-        ("top", &[4, 32]),
+        ("1:1", &[4, 6, 32]),
+        ("top", &[4, 6, 32]),
         ("5:3", &[30]),
     ];
     let mut zeilen = Vec::new();

@@ -4232,6 +4232,14 @@ mod tests {
         assert_eq!(mit("1:1", 32), 3);
         assert_eq!(mit("top", 32), 3);
         assert_eq!(mit("5:3", 30), 0, "15 ist ungerade");
+        // Bei scale 24, wie in kamera.md, „Ganze Pixel“.
+        assert_eq!(mit("12:7", 24), 0, "bei 12 wäre a = 3,5");
+        assert_eq!(mit("3:2", 24), 2, "12, 6");
+        assert_eq!(mit("4:3", 24), 0, "bei 12 wäre a = 4,5");
+        assert_eq!(mit("6:5", 24), 1, "12, bei 6 wäre a = 2,5");
+        assert_eq!(mit("12:11", 24), 0, "bei 12 wäre a = 5,5");
+        assert_eq!(mit("1:1", 24), 2, "12, 6");
+        assert_eq!(mit("top", 24), 2, "12, 6");
     }
 
     /// Ohne ganze Pixel nennt die Meldung die nächsten Kameras beim selben

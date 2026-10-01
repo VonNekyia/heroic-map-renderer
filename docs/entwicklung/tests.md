@@ -129,7 +129,7 @@ von 4 bis 32, dazu bei jeder Kamera der Invarianten.
 
 Die Invarianten gelten für jede Kamera. `kameras()` in
 `renderer/tests/metatile.rs` liefert sie: 16:9, 8:5, 4:3, 1:1 und `top`
-bei scale 32, 5:3 bei scale 30, 1:1 und `top` bei scale 4, dazu sechs
+bei scale 32, 5:3 bei scale 30, 1:1 und `top` bei scale 4 und 6, dazu sechs
 Paare aus gültigem W:H und scale, gezogen mit fester Saat, damit jeder Lauf
 dieselben prüft, ohne 2:1 und ohne eine Kamera zweimal. Das Bild ist bei
 `verdecken_aendert_kein_pixel` und `schneller_weg_gleicht_der_referenz`

@@ -2199,8 +2199,8 @@ mod tests {
 
     /// Die Tönungskarte an allen Vanilla-Blöcken, die gefärbt oder geflutet
     /// sein können: je Block aus `blocks.txt` bis zu 24 Zustände, die ersten
-    /// und die letzten zwölf, geflutete immer mit Wasser, bei scale 4, 8, 16
-    /// und 32, mit drei Paaren aus
+    /// und die letzten zwölf, geflutete immer mit Wasser, bei scale 4, 8, 12,
+    /// 16, 24, 32 und 48, mit drei Paaren aus
     /// Block- und Wasserfarbe, gegen das Raster, das die Farben gleich trägt,
     /// beide ohne Licht. Braucht die Asset-Wurzeln wie `--assets`, als
     /// Pfadliste in `ASSETS`, deshalb `#[ignore]`; unter Windows trennt `;`:
@@ -2276,7 +2276,7 @@ mod tests {
         ];
         let (mut raster, mut ueber_eins, mut groesste, mut ragen) = (0, 0, 0, 0);
         let mut je_block: BTreeMap<&str, i32> = BTreeMap::new();
-        for scale in [4, 8, 16, 32] {
+        for scale in [4, 8, 12, 16, 24, 32, 48] {
             let projection = Projection::new(scale);
             let set = build(&mut assets, &states, projection).unwrap();
             for st in &states {
@@ -2614,7 +2614,7 @@ mod tests {
         // Auf jeder Stufe gleich, auch bei scale 4: dort blieb vom
         // geschrumpften Boden frueher kein Pixel, und nichts wurde verdeckt.
         // Nur Lava deckt bei scale 4 auch ihren Umriss.
-        for scale in [32, 16, 8, 4] {
+        for scale in [48, 32, 24, 16, 12, 8, 4] {
             let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let flags = |text: &str| {
                 let f = set.family_of(&state(text)).unwrap();

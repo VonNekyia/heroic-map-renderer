@@ -106,7 +106,7 @@ fn verdecken_aendert_kein_pixel() {
     let dir = tempdir();
     common::write_world(dir.path(), &[(0, 0)], welt);
     let world = World::open(dir.path()).unwrap();
-    let zwei_zu_eins = [32, 16, 8, 4].map(Projection::new);
+    let zwei_zu_eins = [48, 32, 24, 16, 12, 8, 4].map(Projection::new);
     for projection in zwei_zu_eins.into_iter().chain(kameras()) {
         let (scale, kamera) = (projection.scale(), projection.kamera());
         // Das Rechteck um die ganze Szene: jeder Block liegt darin.
@@ -162,6 +162,8 @@ fn kameras() -> Vec<Projection> {
         ("5:3", 30),
         ("1:1", 4),
         ("top", 4),
+        ("1:1", 6),
+        ("top", 6),
     ]
     .into_iter()
     .map(|(kamera, scale)| Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap()))
@@ -173,7 +175,7 @@ fn kameras() -> Vec<Projection> {
         zustand ^= zustand << 17;
         (zustand % n as u64) as u32
     };
-    while out.len() < 14 {
+    while out.len() < 16 {
         // Ein gerader scale von 4 bis 44 und ein ganzes a von scale/4 bis scale/2.
         let scale = 4 + 2 * zufall(21);
         let a = scale.div_ceil(4) + zufall(scale / 2 - scale.div_ceil(4) + 1);

@@ -17,7 +17,8 @@ kürzer. Jede Kachel ist Byte für Byte dieselbe. Am Stand mit 24 Threads
 dekodieren die nativen Stufen einen Chunk 2,3- statt 7,8-mal und rechnen
 sein Licht 1,3- statt 4,6-mal, auf einem Thread jeden Chunk einmal. Die
 Spitze des Arbeitsspeichers steigt ohne Karte um bis zu 0,1 GiB, mit Karte
-um 0,2 bis 0,35 GiB, im privaten Speicher um rund 0,7 GiB.
+um 0,2 bis 0,35 GiB. Im privaten Speicher sind es mit Karte rund 0,7 GiB,
+ohne Karte 0,12 GiB.
 
 ## Aufbau
 

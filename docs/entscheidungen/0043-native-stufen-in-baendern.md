@@ -96,8 +96,8 @@ Kachel darunter; ein Chunk liegt in 1,54 Spalten.
   das vorige nicht mehr braucht, zeigt erst das nächste. #59 rechnete mit
   einem Band, 884 Chunks samt Ring und rund 57 MB je Thread; gerechnet
   sind es bis rund 1300 Chunks und 85 MB. An den Ausschnitten stieg die
-  Spitze ohne Karte um bis zu 0,1 GiB, mit Karte um 0,2 bis 0,35 GiB und im
-  privaten Speicher um rund 0,7 GiB.
+  Spitze ohne Karte um bis zu 0,1 GiB, mit Karte um 0,2 bis 0,35 GiB. Im
+  privaten Speicher sind es mit Karte rund 0,7 GiB, ohne Karte 0,12 GiB.
 - Blöcke, die 26.2 nicht kennt, haben auf den nativen Stufen das Licht der
   Basis. Ihre Kacheln sind deshalb nicht mehr die Basiskacheln eines
   Exports beim scale der Stufe.

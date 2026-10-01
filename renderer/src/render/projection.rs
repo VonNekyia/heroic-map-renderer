@@ -203,6 +203,16 @@ impl Projection {
         }
     }
 
+    /// Welche Nachbarn beim Verdecken ihren ganzen Umriss decken müssen,
+    /// nach +x und nach +z: die, deren Umriss den eigenen überlappt.
+    /// Diagonal schräg beide, genordet schräg nur der nach +z, von oben
+    /// keiner. Den Boden deckt immer der Block darüber.
+    /// Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
+    pub fn verdeckende_seiten(&self) -> (bool, bool) {
+        let schraeg = self.b() > 0.0;
+        (schraeg && !self.kamera.genordet(), schraeg)
+    }
+
     /// Die Bildachsen einer Blockspalte: diagonal `(x - z, x + z)`,
     /// genordet `(x, z)`.
     pub fn uv(&self, x: i32, z: i32) -> (i32, i32) {

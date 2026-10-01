@@ -1788,6 +1788,43 @@ mod tests {
         }
     }
 
+    /// Beim Verdecken zählt ein Nachbar nach +x oder +z genau dann, wenn
+    /// sein Umriss den eigenen überlappt: diagonal schräg beide, genordet
+    /// schräg nur der nach +z, von oben keiner. Geprüft an Pixelmitten, um
+    /// ein Viertel Pixel geschrumpft, damit Umrisse, die sich nur berühren,
+    /// nicht zählen.
+    #[test]
+    fn verdeckende_seiten_ueberlappen_den_umriss() {
+        for (kamera, scale) in [
+            ("2:1", 32),
+            ("4:3", 32),
+            ("1:1", 32),
+            ("top", 32),
+            ("5:3", 30),
+            ("top-north", 16),
+            ("north-45", 16),
+            ("north-45", 7),
+        ] {
+            let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+            let ueberlappt = |nachbar: [i32; 3]| {
+                let (dx, dy) = projection.project_block(nachbar);
+                let s = 2 * scale as i32;
+                (-s..s).any(|y| {
+                    (-s..s).any(|x| {
+                        let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+                        in_outline(px, py, projection, -0.25)
+                            && in_outline(px - dx as f32, py - dy as f32, projection, -0.25)
+                    })
+                })
+            };
+            assert_eq!(
+                projection.verdeckende_seiten(),
+                (ueberlappt([1, 0, 0]), ueberlappt([0, 0, 1])),
+                "{kamera} bei {scale}"
+            );
+        }
+    }
+
     /// Spielraum: Was bis auf eine Pixelbreite in seinen Umriss passt, bleibt
     /// ganz, und erst was darüber hinausragt, zerfällt. Ein Rand von 0,5/16
     /// Block um den Würfel bleibt bis scale 32 ganz, Getreide mit 1/16 Block

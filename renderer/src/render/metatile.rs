@@ -1509,16 +1509,11 @@ impl<'a> ChunkCache<'a> {
         let nz = self.edge((key.0, key.1 + 1), section_y, false)?;
         let projection = self.sprites.projection();
         let verdecken = projection.ganze_pixel();
-        // Von oben stehen die Seiten auf der Kante: Es deckt der Block darüber
-        // allein, als wären beide Nachbarn deckend. Genordet liegt der nach
-        // +x neben dem Umriss, als wäre er deckend.
-        let oben = projection.b() == 0.0;
-        let seite_x = if oben || projection.kamera().genordet() {
-            u16::MAX
-        } else {
-            0
-        };
-        let seite_z = if oben { u16::MAX } else { 0 };
+        // Ein Nachbar, der neben dem Umriss liegt, zählt, als wäre er deckend:
+        // von oben beide, genordet der nach +x.
+        let (mit_x, mit_z) = projection.verdeckende_seiten();
+        let seite_x = if mit_x { 0 } else { u16::MAX };
+        let seite_z = if mit_z { 0 } else { u16::MAX };
 
         let loaded = self.slots[slot].loaded.as_mut().expect("geladen");
         let above = section_y

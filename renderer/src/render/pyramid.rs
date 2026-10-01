@@ -283,12 +283,13 @@ pub struct MapInfo {
     /// Oberster Block, den der Renderer zeichnet; steht mit `heights`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_y: Option<i32>,
-    /// Die Kamera, gekürzt: `"2:1"`, `"4:3"`, `"top"`. Fehlt das Feld,
-    /// stammt der Baum aus einem älteren Stand und zeigt 2:1.
+    /// Die Kamera, gekürzt: `"2:1"`, `"4:3"`, `"top"`, `"top-north"`,
+    /// `"north-45"`. Fehlt das Feld, stammt der Baum aus einem älteren Stand
+    /// und zeigt 2:1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera: Option<String>,
-    /// Aus welcher Richtung die Kamera blickt, heute immer `"se"`. Fehlt das
-    /// Feld, ist es `se`.
+    /// Wo die Kamera steht: diagonal `"se"`, genordet `"s"`. Fehlt das
+    /// Feld, gilt die Richtung der Kamera.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direction: Option<String>,
     /// Die Projektion in Pixeln der feinsten Stufe; steht mit `camera`.
@@ -296,9 +297,10 @@ pub struct MapInfo {
     pub projection: Option<ProjectionInfo>,
 }
 
-/// Die Projektion in `map.json`: `azimuth` heute immer `"diagonal"`, `u`
-/// Pixel je Schritt in x − z (h), `v` je Schritt in x + z (a), `y` je Block
-/// Höhe (b), siehe [`super::Projection`].
+/// Die Projektion in `map.json`: `azimuth` `"diagonal"` oder `"north"`,
+/// `u` Pixel je Schritt in u (h), `v` je Schritt in v (a), `y` je Block
+/// Höhe (b), diagonal mit u = x − z und v = x + z, genordet mit u = x und
+/// v = z, siehe [`super::Projection`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectionInfo {
     pub azimuth: String,

@@ -1302,18 +1302,22 @@ mod tests {
 
     /// Ob die Kamera eine Fläche sieht, hängt an ihrer Achse: Eine Fläche
     /// nach Süden, 30° nach unten gekippt, sehen 2:1 und 4:3 noch, 1:1 und
-    /// von oben nicht mehr (tan 30° liegt zwischen 1/2 und 2/3). Eine
-    /// senkrechte steht von oben auf der Kante.
+    /// von oben nicht mehr (tan 30° liegt zwischen 1/2 und 2/3), `north-45`
+    /// bis 45°. Eine senkrechte steht von oben auf der Kante, eine nach Osten
+    /// auch bei `north-45`.
     #[test]
     fn zur_kamera_folgt_der_achse() {
         let (sin, cos) = 30f32.to_radians().sin_cos();
         let gekippt = [0.0, -sin, cos];
         let senkrecht = [0.0, 0.0, 1.0];
-        for (kamera, sieht_gekippt, sieht_senkrecht) in [
-            ("2:1", true, true),
-            ("4:3", true, true),
-            ("1:1", false, true),
-            ("top", false, false),
+        let osten = [1.0, 0.0, 0.0];
+        for (kamera, sieht_gekippt, sieht_senkrecht, sieht_osten) in [
+            ("2:1", true, true, true),
+            ("4:3", true, true, true),
+            ("1:1", false, true, true),
+            ("top", false, false, false),
+            ("north-45", true, true, false),
+            ("top-north", false, false, false),
         ] {
             let p = Projection::mit_kamera(32, Kamera::parse(kamera).unwrap());
             assert_eq!(zur_kamera(gekippt, &p), sieht_gekippt, "{kamera}, gekippt");
@@ -1322,6 +1326,7 @@ mod tests {
                 sieht_senkrecht,
                 "{kamera}, senkrecht"
             );
+            assert_eq!(zur_kamera(osten, &p), sieht_osten, "{kamera}, Osten");
         }
     }
 

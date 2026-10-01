@@ -70,8 +70,9 @@ pub struct Args {
     scale: u32,
 
     /// Kamera: `W:H` schräg mit der Raute W:H der Oberseite, von 2:1 bis
-    /// 1:1, oder `top` von oben. Vorgabe 2:1; ein bestehender Kachelbaum
-    /// verlangt seine Kamera
+    /// 1:1, oder `top` von oben, beide diagonal; genordet `top-north` von
+    /// oben oder `north-45` schräg von Süden. Vorgabe 2:1; ein bestehender
+    /// Kachelbaum verlangt seine Kamera
     #[arg(long, value_name = "KAMERA", default_value = "2:1", value_parser = Kamera::parse)]
     camera: Kamera,
 
@@ -169,10 +170,6 @@ fn parse_scale(text: &str) -> std::result::Result<u32, String> {
     Ok(scale)
 }
 
-/// Aus welcher Richtung die Kamera blickt; bis `--direction` immer von
-/// Südost.
-const RICHTUNG: &str = "se";
-
 /// Die Projektion aus `--scale` und `--camera`. Jede Blockecke muss auf
 /// ganzen Pixeln liegen, sonst rundet `blit` ganze Blockreihen, und
 /// benachbarte Reihen überdecken sich. Geht das nicht, nennt die Meldung
@@ -222,7 +219,8 @@ fn ungueltig(projection: Projection) -> String {
 }
 
 /// Die Projektion eines bestehenden Baums aus seiner `map.json`: ohne
-/// `camera` 2:1, ohne `direction` von Südost.
+/// `camera` 2:1, ohne `direction` aus der Richtung der Kamera
+/// ([`Kamera::richtung`]); eine andere kennt dieser Stand nicht.
 fn projektion_des_baums(dir: &Path, info: &MapInfo) -> Result<Projection> {
     let pfad = dir.join("map.json");
     let kamera = match &info.camera {
@@ -232,11 +230,12 @@ fn projektion_des_baums(dir: &Path, info: &MapInfo) -> Result<Projection> {
         }
     };
     if let Some(richtung) = &info.direction
-        && richtung != RICHTUNG
+        && richtung != kamera.richtung()
     {
         bail!(
-            "{} blickt aus Richtung {richtung}, dieser Stand kennt nur {RICHTUNG}",
-            pfad.display()
+            "{} blickt aus Richtung {richtung}, dieser Stand kennt für {kamera} nur {}",
+            pfad.display(),
+            kamera.richtung()
         );
     }
     Ok(Projection::mit_kamera(info.scale, kamera))
@@ -1678,9 +1677,9 @@ fn schreibe_map_json(
 fn mit_kamera(info: MapInfo, projection: Projection) -> MapInfo {
     MapInfo {
         camera: Some(projection.kamera().to_string()),
-        direction: Some(RICHTUNG.to_string()),
+        direction: Some(projection.kamera().richtung().to_string()),
         projection: Some(ProjectionInfo {
-            azimuth: "diagonal".to_string(),
+            azimuth: projection.kamera().azimut().to_string(),
             u: projection.h() as u32,
             v: projection.a() as u32,
             y: projection.b() as u32,
@@ -4240,6 +4239,16 @@ mod tests {
         assert_eq!(mit("12:11", 24), 0, "bei 12 wäre a = 5,5");
         assert_eq!(mit("1:1", 24), 2, "12, 6");
         assert_eq!(mit("top", 24), 2, "12, 6");
+        // Genordet geht jeder scale; die Stufe halbiert ihn, solange er gerade
+        // ist.
+        for kamera in ["top-north", "north-45"] {
+            assert_eq!(mit(kamera, 32), 3, "16, 8, 4");
+            assert_eq!(mit(kamera, 24), 2, "12, 6");
+            assert_eq!(mit(kamera, 16), 2, "8, 4");
+            assert_eq!(mit(kamera, 12), 1, "6");
+            assert_eq!(mit(kamera, 6), 0, "3 ist kleiner als 4");
+            assert_eq!(mit(kamera, 30), 1, "15, das ungerade keine Hälfte mehr hat");
+        }
     }
 
     /// Ohne ganze Pixel nennt die Meldung die nächsten Kameras beim selben
@@ -4284,6 +4293,9 @@ mod tests {
             ("1:1", 4),
             ("top", 4),
             ("5:3", 30),
+            ("top-north", 7),
+            ("north-45", 7),
+            ("north-45", 4),
         ] {
             assert!(
                 projektion(scale, Kamera::parse(kamera).unwrap()).is_ok(),
@@ -4299,6 +4311,8 @@ mod tests {
         assert_eq!(kamera("16:10").unwrap().to_string(), "8:5");
         assert_eq!(kamera("4:2").unwrap(), Kamera::ZWEI_ZU_EINS);
         assert_eq!(kamera("top").unwrap(), Kamera::Oben);
+        assert_eq!(kamera("top-north").unwrap(), Kamera::ObenNord);
+        assert_eq!(kamera("north-45").unwrap(), Kamera::Nord45);
         assert_eq!(
             Args::try_parse_from(["x"]).unwrap().camera,
             Kamera::ZWEI_ZU_EINS
@@ -4308,6 +4322,8 @@ mod tests {
             ("1:2", "steiler als 1:1"),
             ("0:1", "keine Kamera"),
             ("oben", "keine Kamera"),
+            ("north", "keine Kamera"),
+            ("north-30", "keine Kamera"),
         ] {
             let fehler = kamera(text).unwrap_err().to_string();
             assert!(fehler.contains(grund), "{text}: {fehler}");

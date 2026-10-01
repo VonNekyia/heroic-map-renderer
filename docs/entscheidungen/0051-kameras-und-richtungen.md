@@ -125,7 +125,9 @@ mit b ≥ 0 und a > 0, siehe [Die Kamera](../renderer/kamera.md),
 - 2:1 bleibt Byte für Byte gleich, das Goldbild und die Tests mit festen
   Pixeln ändern sich nicht. Neue Goldbilder zeigen 4:3 und `top`.
 - Mit a wachsen die Pixel je Spalte: 4:3 hat das 1,5-fache von 2:1, 1:1
-  und `top` das Doppelte.
+  und `top` das Doppelte. Die Bytes der Basis je Spalte folgen dem bei den
+  schrägen Kameras eng, `top` bleibt darunter, siehe
+  [2026-10-01, Kameras](../messungen/2026-10-01-kameras.md).
 - Manche Kameras haben weniger native Stufen: 16:9 bei scale 32 keine,
   4:3 zwei.
 - Von oben verschwinden senkrechte Flächen, etwa Gras und Blumen.

@@ -108,6 +108,12 @@ Was sich je Kamera im Bild ändert:
   und bei 1:1 und `top`, mit einem. Bei 4:3 läuft die Treppe 3:4, und
   Texelzeilen werden ungleich hoch.
 - **Von oben** verschwindet jede senkrechte Fläche, siehe „Von oben“.
+- **Kosten:** Je Spalte der Welt kostet eine schräge Kamera in der Basis
+  etwa so viel mehr wie ihre Pixel, an Bytes 8:5 das 1,22- bis 1,28-fache,
+  4:3 das 1,39- bis 1,46-fache, 1:1 das 1,88- bis 2,02-fache; `top` liegt
+  mit 1,12 bis 1,61 darunter. Auf gleicher Bildfläche ist jede andere
+  Kamera schneller als 2:1 und braucht weniger Speicher, siehe
+  [2026-10-01, Kameras](../messungen/2026-10-01-kameras.md).
 
 ![Dasselbe Dorf in 2:1, 4:3, 1:1 und von oben](../bilder/kameras.webp)
 
@@ -307,8 +313,10 @@ Eine Kante der Raute steigt um a je h, also H:W, von oben 1:1:
 ## Stufen, die von der Kamera wegzeigen
 
 Eine Geländestufe, die nach Norden oder Westen zeigt, ist in 2:1
-unsichtbar: Die Oberseite eine Stufe höher liegt im Bild genau neben der
-Oberseite davor, als wäre der Boden eben. Was hinter der Stufe steht,
+unsichtbar. Die Oberseite eine Stufe höher liegt im Bild b Pixel über ihrem
+Platz in ebenem Boden. In 2:1 ist b = 2a, genau eine Reihe Rauten: Sie
+liegt dort, wo in ebenem Boden die Oberseite dahinter läge, und das Bild
+sieht aus, als wäre der Boden eben. Was hinter der Stufe steht,
 verdeckt sie bis auf die Ränder, die über ihre hintere Ecke ragen. Über
 einer scheinbar ebenen Wiese stehen deshalb einzelne Pixel, von einem roten
 Pilz etwa zwei. Das ist kein Fehler. Nachzustellen in der Testwelt am Pilz
@@ -318,9 +326,10 @@ bei (−155, 72, −4359):
 cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --render stufe.png --center -227 -4431 --size 128 --scale 32
 ```
 
-Steilere Kameras zeigen die Stufe: Die höhere Oberseite liegt 2a − b
-Pixel tiefer als ihr Platz in einem ebenen Boden und verdeckt einen
-Streifen der tieferen.
+Unsichtbar ist die Stufe genau dann, wenn b = 2a oder b = 0 ist: in 2:1
+und von oben. Bei jeder anderen Kamera ist 0 < b < 2a. Die höhere
+Oberseite überdeckt dann einen Streifen der tieferen, und die Stufe zeigt
+sich.
 
 ## Weltkoordinaten in f64
 

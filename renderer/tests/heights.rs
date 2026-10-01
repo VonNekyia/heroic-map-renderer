@@ -5,8 +5,9 @@ mod common;
 
 use std::path::PathBuf;
 
+use terranova_render::assets::Assets;
 use terranova_render::render::heights::{EMPTY, RegionHeights};
-use terranova_render::render::{Projection, ScreenRect, survey};
+use terranova_render::render::{Kamera, Projection, ScreenRect, SpriteSet, render_area, survey};
 use terranova_render::world::{REGION, World};
 
 /// Die gebaute Welt reicht von y=0 bis y=47.
@@ -25,6 +26,98 @@ fn lies(world: &World, bounds: Option<ScreenRect>) -> Vec<RegionHeights> {
 /// Ob der Chunk (cx, cz) der Region gelesen ist.
 fn gelesen(region: &RegionHeights, cx: i32, cz: i32) -> bool {
     region.read[(cz.rem_euclid(REGION) * REGION + cx.rem_euclid(REGION)) as usize]
+}
+
+/// Pixel, deren Mitte genau auf der Kante zwischen zwei Oberseiten liegt:
+/// je eine Kante nach Osten und nach Süden bei `top`, 1:1 und 5:3, den
+/// Kameras, deren Blockkanten Pixelmitten treffen. Welcher Block das Pixel
+/// bekommt, entscheidet die Füllregel des Rasterizers; hier steht, was er
+/// auf ebenem Boden zeichnet, dessen Oberseiten bei y = 0 liegen. Als
+/// Eintrag `{camera, direction, scale, pixel, block, eben: 0}`: `pixel` ist
+/// das Pixel, nicht der Bildpunkt einer Ecke.
+/// Siehe docs/benutzung/map-json.md, „Kamera und Projektion“.
+fn kantenpixel() -> Vec<String> {
+    let dir = tempfile::tempdir().unwrap();
+    // Ein Schachbrett aus zwei Farben, damit das Bild den Block verrät.
+    common::write_world_sections(
+        dir.path(),
+        &[(0, 0)],
+        [-1],
+        |x, y, z| match (y, (x + z) % 2) {
+            (-1, 0) => "minecraft:einfarbig",
+            (-1, _) => "minecraft:blauwuerfel",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let world = World::open(dir.path()).unwrap();
+    let boden = (-16, -1);
+    let mut zeilen = Vec::new();
+    for (kamera, scale) in [("top", 32), ("1:1", 32), ("5:3", 30)] {
+        let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
+        let mut assets = Assets::open(vec![base]).unwrap();
+        let states = survey(&world, projection, boden, None).unwrap().states;
+        let sprites = SpriteSet::build_in(&mut assets, &states, projection).unwrap();
+        let s = scale as i32;
+        let (ax, ay) = projection.project_block([4, 0, 4]);
+        let rect = ScreenRect {
+            x: ax as i32 - 2 * s,
+            y: ay as i32 - s,
+            width: 4 * scale,
+            height: 4 * scale,
+        };
+        let bild = render_area(&world, &sprites, rect, boden).unwrap();
+        let farbe = |px: f64, py: f64| {
+            *bild.get_pixel((px as i32 - rect.x) as u32, (py as i32 - rect.y) as u32)
+        };
+        // Die Farbe eines Blocks mitten auf seiner Oberseite.
+        let mitte = |[x, z]: [i32; 2]| {
+            let (px, py) = projection.project_block([x, 0, z]);
+            farbe(px, py + projection.a())
+        };
+        let a = [4, 4];
+        // Die Kante nach Osten von (5, 0, 4) nach (5, 0, 5), nach Süden von
+        // (5, 0, 5) nach (4, 0, 5).
+        for (nachbar, von, nach) in [([5, 4], [5, 4], [5, 5]), ([4, 5], [5, 5], [4, 5])] {
+            let p0 = projection.project_block([von[0], 0, von[1]]);
+            let p1 = projection.project_block([nach[0], 0, nach[1]]);
+            let (px, py) = pixelmitte_auf(p0, p1).expect("die Kante trifft eine Pixelmitte");
+            let hier = farbe(px, py);
+            let block = if hier == mitte(a) {
+                a
+            } else {
+                assert_eq!(
+                    hier,
+                    mitte(nachbar),
+                    "{kamera}: weder der eine noch der andere"
+                );
+                nachbar
+            };
+            assert_ne!(mitte(a), mitte(nachbar), "Schachbrett");
+            zeilen.push(format!(
+                "  {{\"camera\": \"{kamera}\", \"direction\": \"se\", \"scale\": {scale}, \
+                 \"pixel\": [{}, {}], \"block\": [{}, -1, {}], \"eben\": 0}}",
+                px.floor(),
+                py.floor(),
+                block[0],
+                block[1]
+            ));
+        }
+    }
+    zeilen
+}
+
+/// Die erste Pixelmitte strikt zwischen zwei ganzzahligen Bildpunkten auf
+/// ihrer Verbindung, falls eine darauf liegt.
+fn pixelmitte_auf(p0: (f64, f64), p1: (f64, f64)) -> Option<(f64, f64)> {
+    let (dx, dy) = (p1.0 - p0.0, p1.1 - p0.1);
+    let (lo, hi) = (p0.0.min(p1.0) as i64, p0.0.max(p1.0) as i64);
+    (lo..hi).map(|i| i as f64 + 0.5).find_map(|px| {
+        let t = (px - p0.0) / dx;
+        let py = p0.1 + t * dy;
+        (t > 0.0 && t < 1.0 && py.fract().abs() == 0.5).then_some((px, py))
+    })
 }
 
 /// Je Zelle aus 4×4 Spalten in Chunk (0, 0) ein Fall; dazu eine Zelle in
@@ -177,25 +270,42 @@ fn projektion_als_datei_ist_aktuell() {
         [0, 0, 1],
         [-1, -64, -1],
         [5, 319, -7],
+        [-37, -60, -91],
+        [-120, 300, -45],
         [weit, 0, -weit],
         [-weit, 319, weit],
         [weit - 1, -64, weit - 1],
     ];
+    // Je Kamera scale 32 und ein kleinerer, bei dem sie auf ganzen Pixeln
+    // liegt; 5:3 nur bei 30, wo Blockkanten Pixelmitten treffen.
+    let kameras = [
+        ("2:1", &[4, 12, 16, 32, 64][..]),
+        ("8:5", &[16, 32]),
+        ("4:3", &[8, 32]),
+        ("1:1", &[4, 32]),
+        ("top", &[4, 32]),
+        ("5:3", &[30]),
+    ];
     let mut zeilen = Vec::new();
-    for scale in [4, 12, 16, 32, 64] {
-        let projection = Projection::new(scale);
-        for block in bloecke {
-            let (x, y) = projection.project_block(block);
-            assert!(
-                x.fract() == 0.0 && y.fract() == 0.0,
-                "{block:?} bei {scale}"
-            );
-            zeilen.push(format!(
-                "  {{\"scale\": {scale}, \"block\": [{}, {}, {}], \"pixel\": [{x}, {y}]}}",
-                block[0], block[1], block[2]
-            ));
+    for (kamera, scales) in kameras {
+        for &scale in scales {
+            let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+            assert!(projection.ganze_pixel(), "{kamera} bei {scale}");
+            for block in bloecke {
+                let (x, y) = projection.project_block(block);
+                assert!(
+                    x.fract() == 0.0 && y.fract() == 0.0,
+                    "{block:?} bei {kamera}, {scale}"
+                );
+                zeilen.push(format!(
+                    "  {{\"camera\": \"{kamera}\", \"direction\": \"se\", \"scale\": {scale}, \
+                     \"block\": [{}, {}, {}], \"pixel\": [{x}, {y}]}}",
+                    block[0], block[1], block[2]
+                ));
+            }
         }
     }
+    zeilen.extend(kantenpixel());
     let text = format!("[\n{}\n]\n", zeilen.join(",\n"));
 
     let pfad = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projektion.json");

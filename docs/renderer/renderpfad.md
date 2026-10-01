@@ -251,11 +251,13 @@ Section sagt, ob überhaupt ein Kandidat drinsteht. Entscheidend bleibt die
 Prüfung je Block; das spart nur die Schleife über Sections, die das Band
 gar nicht berührt.
 
-Das Fenster von `v = x + z` gilt je Höhe: `screen_y = v · a − y · b`,
-nach aussen gerundet (`v_window`). Es verschiebt sich je Höhe um b/a, in
-2:1 um genau 2. Von oben ist b = 0, das Fenster ist für jede Höhe
-dasselbe, und das Band erreicht jede Höhe; siehe
-[Die Kamera](kamera.md), „Von oben“.
+Das Fenster von `v` gilt je Höhe: `screen_y = v · a − y · b`, nach
+aussen gerundet (`v_window`). Es verschiebt sich je Höhe um b/a, in 2:1 um
+genau 2, bei `north-45` um 1. Von oben ist b = 0, das Fenster ist für jede
+Höhe dasselbe, und das Band erreicht jede Höhe; siehe
+[Die Kamera](kamera.md), „Von oben“. Diagonal ist v = x + z und das Band
+ein schräger Streifen über die Chunks, genordet ist v = z und das Band ein
+Rechteck in x und z (`band_chunks`).
 
 Das Band um die Kachel hat drei Blöcke Reserve für Modelle, die aus ihrem
 Würfel ragen (`BLEED_BLOCKS`). Für alles, was im Umriss seines Würfels

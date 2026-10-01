@@ -40,6 +40,8 @@ LUECKE = 8
 # Dasselbe Dorf je Kamera für docs/renderer/kamera.md, zwei mal zwei: der
 # Block ZIEL in der Mitte jedes Felds, scale 16.
 KAMERAS = ("2:1", "4:3", "1:1", "top")
+# Dasselbe für die genordeten Kameras, nebeneinander.
+GENORDET = ("top-north", "north-45")
 ZIEL = (-352, 64, 578)
 FELD = (640, 480)
 # Der Banner: dieser Ausschnitt von "welt" vor dem Zuschnitt, darüber die
@@ -61,8 +63,10 @@ def rendern(renderer, daten, ziel, center, scale, size, extra=()):
 def mitte(kamera, ziel):
     """--center, das den Block ziel in die Bildmitte legt. --center nennt die
     Spalte, deren Höhe 0 in der Mitte landet; v rückt je Block Höhe um b/a,
-    schräg W/H, von oben 0."""
+    schräg W/H, von oben 0, bei north-45 1. Genordet ist v = z."""
     x, y, z = ziel
+    if kamera in GENORDET:
+        return x, z - (y if kamera == "north-45" else 0)
     b_je_a = 0 if kamera == "top" else Fraction(*map(int, kamera.split(":")))
     u, v = x - z, x + z - round(y * b_je_a)
     v -= (u + v) % 2
@@ -107,6 +111,16 @@ def main():
         for i, feld in enumerate(felder):
             raster.paste(feld, ((i % 2) * (FELD[0] + LUECKE), (i // 2) * (FELD[1] + LUECKE)))
         webp(raster, "kameras")
+        felder = []
+        for kamera in GENORDET:
+            png = Path(tmp) / f"kamera-{kamera}.png"
+            rendern(renderer, daten, png, mitte(kamera, ZIEL), 16, FELD[0], ["--camera", kamera])
+            oben = (FELD[0] - FELD[1]) // 2
+            felder.append(Image.open(png).convert("RGBA").crop((0, oben, FELD[0], oben + FELD[1])))
+        paar = Image.new("RGBA", (2 * FELD[0] + LUECKE, FELD[1]), (255, 255, 255, 255))
+        for i, feld in enumerate(felder):
+            paar.paste(feld, (i * (FELD[0] + LUECKE), 0))
+        webp(paar, "genordet")
     banner.alpha_composite(Image.open(BILDER / "quellen" / "banner-ebenen.png").convert("RGBA"))
     webp(banner, "banner")
 

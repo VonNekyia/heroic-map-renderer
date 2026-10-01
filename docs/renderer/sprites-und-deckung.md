@@ -94,6 +94,9 @@ scale 6 blieben sonst Spalten von einem Pixel.
 Von oben verdeckt der Block darüber allein, mit seinem Boden: Der Umriss
 eines Würfels ist dort seine Oberseite, und die Nachbarn nach +x und +z
 liegen daneben, nicht davor (`expose` in `renderer/src/render/metatile.rs`).
+Bei `north-45` verdecken der Südnachbar mit seinem ganzen Umriss und der
+Block darüber mit seinem Boden; der Ostnachbar liegt daneben. `top-north`
+verdeckt wie von oben, siehe [Die Kamera](kamera.md), „Genordet“.
 
 ## Flächen zu gleichen Nachbarn
 

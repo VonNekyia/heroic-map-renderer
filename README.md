@@ -45,7 +45,8 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet
   auf der Grafikkarte über Vulkan oder DX12. Ohne Karte zeichnet die CPU
   dasselbe Bild.
 - **Kameras:** 2:1 als Vorgabe, mit `--camera` jede Raute bis 1:1 oder
-  die Draufsicht, siehe [Die Kamera](docs/renderer/kamera.md).
+  die Draufsicht, dazu genordet von oben oder schräg von Süden, siehe
+  [Die Kamera](docs/renderer/kamera.md).
 - **Für grosse Welten:** Zoomstufen darüber, native Stufen auf Wunsch,
   `--resume` nach einem Abbruch, Zusehen während eines Renders.
 - **Schlankes Frontend:** Leaflet mit Vite und TypeScript. Es lädt nur

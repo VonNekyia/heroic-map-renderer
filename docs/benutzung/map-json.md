@@ -47,8 +47,8 @@ das Frontend liest die Datei in `web/src/main.ts`.
 |---|---|---|
 | `tileSize` | Kantenlänge einer Kachel in Pixeln | |
 | `scale` | Pixelbreite eines Blocks auf der Basis | [Kamera](../renderer/kamera.md) |
-| `camera` | `--camera`, gekürzt, etwa `8:5` oder `top` | „Kamera und Projektion“ unten |
-| `direction` | woher die Kamera blickt, heute immer `se` | „Kamera und Projektion“ unten |
+| `camera` | `--camera`, gekürzt, etwa `8:5`, `top` oder `north-45` | „Kamera und Projektion“ unten |
+| `direction` | wo die Kamera steht: diagonal `se`, genordet `s` | „Kamera und Projektion“ unten |
 | `projection` | die Projektion in Pixeln der Basis | „Kamera und Projektion“ unten |
 | `minZoom`, `maxZoom` | gröbste und feinste Stufe; `maxZoom` ist die Basis | [Zoomstufen](zoomstufen.md) |
 | `tiles` | Pfadmuster der Kacheln | [Kacheln exportieren](kacheln.md) |
@@ -64,7 +64,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 
 `camera`, `direction` und `projection` beschreiben die Kamera des Baums
 (`mit_kamera` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)). Bei
-`--camera 8:5` und scale 32:
+`--camera 8:5` und scale 32, dann bei `--camera north-45` und scale 16:
 
 ```json
 "camera": "8:5",
@@ -72,12 +72,20 @@ das Frontend liest die Datei in `web/src/main.ts`.
 "projection": { "azimuth": "diagonal", "u": 16, "v": 10, "y": 16 }
 ```
 
+```json
+"camera": "north-45",
+"direction": "s",
+"projection": { "azimuth": "north", "u": 16, "v": 16, "y": 16 }
+```
+
 - **`projection`:** die Zahlen der Projektion in Pixeln der Basis: `u` ist
   h, `v` ist a, `y` ist b, siehe [Kamera](../renderer/kamera.md),
-  „Projektion“. `azimuth` ist heute immer `diagonal`: u = x − z,
-  v = x + z.
-- **`direction`:** heute immer `se`, die Kamera steht im Südosten. Das Feld
-  steht schon jetzt da, damit sich das Format nur einmal ändert.
+  „Projektion“. `azimuth` ist `diagonal` mit u = x − z und v = x + z oder
+  `north` mit u = x und v = z.
+- **`direction`:** wo die Kamera steht, diagonal `se` im Südosten, genordet
+  `s` im Süden. Die übrigen Richtungen kommen mit `--direction` (#68).
+  Fehlt das Feld, gilt die Richtung der Kamera; nennt es eine andere,
+  bricht der Lauf ab.
 - **Ältere Bäume:** Fehlt `camera`, ist der Baum 2:1.
 - **`--pyramid`** behält die drei Felder.
 - **Ein Baum, eine Kamera:** siehe [Zoomstufen](zoomstufen.md), „Ein Baum,
@@ -107,6 +115,8 @@ nachdem, ob `eben` oder `wand` dasteht:
   treffen: `top` und 1:1 bei scale 32, 5:3 bei scale 30, siehe
   [Kamera](../renderer/kamera.md), „Blockkanten auf Pixelmitten“. Von oben
   gibt es keine Seitenflächen, also auch keine Einträge mit `wand`.
+  Genordet liegt keine Kante auf einer Pixelmitte, die Einträge für
+  `top-north` und `north-45` sind nur Ecken.
 - **Auf Oberseiten** gerendert auf einem ebenen Boden aus Oberseiten bei
   y = 0, also mit `block[1]` = −1, im Schachbrett aus zwei Farben, damit
   jeder Pixel seinen Block verrät (`kantenpixel` in

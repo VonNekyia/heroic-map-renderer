@@ -26,7 +26,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Wie der Renderer das Spiel nachbaut
 
-- [Die Kamera](renderer/kamera.md): Kameras und Projektion, scale, ganze Pixel, Zeichenreihenfolge, Teile je Würfel im Raum, von oben, Blockkanten auf Pixelmitten, f64.
+- [Die Kamera](renderer/kamera.md): Kameras und Projektion, diagonal und genordet, scale, ganze Pixel, Zeichenreihenfolge, Teile je Würfel im Raum, von oben, genordet, Blockkanten auf Pixelmitten, f64.
 - [Der Weg einer Kachel](renderer/renderpfad.md): Vorlauf, Streifen, Bitmasken, Kandidaten, Blit, Kodieren, Speicher.
 - [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Flächen zu gleichen Nachbarn, Deckungsmaske.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
@@ -105,6 +105,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0049](entscheidungen/0049-umriss-nur-ohne-zeiger.md): Umriss nur beim Tippen mit Finger oder Stift, nicht mit der Maus.
 - [0050](entscheidungen/0050-teile-je-wuerfel-im-raum.md): Teile je Würfel im Raum, je Fragment, vor einem Block mit Flächen nur auf den Vorderseiten.
 - [0051](entscheidungen/0051-kameras-und-richtungen.md): Kameras und Richtungen: jede Raute von 2:1 bis 1:1 und `top`, ganze Pixel statt Vielfachen von 4, eine Kamera je Baum.
+- [0052](entscheidungen/0052-genordete-kameras.md): Genordete Kameras: `top-north` und `north-45` mit u = x und v = z, jeder scale, `direction` `s`.
 
 ## Messungen
 

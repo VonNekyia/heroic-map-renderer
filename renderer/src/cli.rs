@@ -2313,7 +2313,7 @@ fn render_coarser(
     for _ in 0..stufen {
         z -= 1;
         scale /= 2;
-        let mut sprites = SpriteSet::build_in(assets, states, Projection::new(scale))?;
+        let mut sprites = SpriteSet::build_in(assets, states, projection.bei(scale))?;
         // Was unbekannt ist, hat die Basis schon gemeldet.
         sprites.add_entities(assets, entities)?;
         sprites.set_biomes(biomes.clone());

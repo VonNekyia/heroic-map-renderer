@@ -621,11 +621,12 @@ impl SpriteSet {
     ) -> Option<Family> {
         let fluid = fluid::key(state);
         let nachbarn = blockstate::nachbarregel(state);
+        let projection = self.projection;
         let seiten = nachbarn.map_or(0, |regel| {
             models
                 .iter()
                 .flat_map(|(_, model)| &model.quads)
-                .filter(|q| faces_camera(q))
+                .filter(|q| faces_camera(q, &projection))
                 .filter_map(|q| q.cullface)
                 .filter(|&face| regel.wirkt(face))
                 .fold(0, |seiten, face| seiten | seite(face))
@@ -675,7 +676,9 @@ impl SpriteSet {
             covers_floor: all(|e| e.covers_floor),
             contained,
             foreign,
-            wuerfelform: models.iter().all(|(_, model)| auf_den_vorderseiten(model)),
+            wuerfelform: models
+                .iter()
+                .all(|(_, model)| auf_den_vorderseiten(model, &projection)),
             pure_fluid,
             fluid,
             resolver: match source_of(state.name()) {
@@ -866,14 +869,16 @@ impl SpriteSet {
         // was der Rasterizer zeichnet: ein gefluteter Zaun mitten im Wasser
         // behaelt vom Wasserwuerfel nur die abgewandten Seiten, und die
         // braeuchten sonst eine Karte, die nichts traegt.
-        let (block, water) = model.quads.iter().filter(|q| faces_camera(q)).fold(
-            (false, false),
-            |(block, water), q| match q.tint_index {
+        let projection = self.projection;
+        let (block, water) = model
+            .quads
+            .iter()
+            .filter(|q| faces_camera(q, &projection))
+            .fold((false, false), |(block, water), q| match q.tint_index {
                 None => (block, water),
                 Some(fluid::TINT_INDEX) => (block, true),
                 Some(_) => (true, water),
-            },
-        );
+            });
         let source = source_of(state.name()).filter(|_| block);
         let biome = matches!(source, Some(Source::Biome(_)));
         let fixed = match source {
@@ -977,9 +982,9 @@ impl SpriteSet {
             .iter()
             .find(|(cell, _)| *cell == OWN_CELL)
             .map(|(_, sprite)| sprite);
-        // Der Boden ist die Oberseite des Blocks darunter, eine halbe
-        // Blockhoehe tiefer im Bild.
-        let floor = self.projection.scale() as i32 / 2;
+        // Der Boden ist die Oberseite des Blocks darunter, eine Blockhöhe
+        // `b` tiefer im Bild; von oben liegt er an derselben Stelle.
+        let floor = self.projection.b() as i32;
         let opaque = own.is_some_and(|sprite| covers_all(sprite, &self.masks.outline, 0));
         let covers_floor = own.is_some_and(|sprite| covers_all(sprite, &self.masks.top, floor));
         let contained = own.is_none_or(|sprite| self.masks.contains(sprite));
@@ -1175,15 +1180,21 @@ impl SpriteSet {
 }
 
 /// Der Umriss eines vollen Blocks ist ein Sechseck mit den Ecken
-/// `(0, -s/2)`, `(s/2, -s/4)`, `(s/2, s/4)`, `(0, s/2)`, `(-s/2, s/4)`,
-/// `(-s/2, -s/4)`; die vier schraegen Kanten haben die Steigung plus/minus
-/// ein halb. `slack` dehnt das Sechseck nach aussen, negative Werte
-/// schrumpfen es.
+/// `(0, -b)`, `(h, a - b)`, `(h, a)`, `(0, 2a)`, `(-h, a)`, `(-h, a - b)`;
+/// die vier schraegen Kanten haben die Steigung plus/minus a/h, bei 2:1
+/// ein halb. Von oben ist es die Raute der Oberseite. `slack` dehnt das
+/// Sechseck nach aussen, negative Werte schrumpfen es.
 ///
-/// `px`, `py` sind Pixelmittelpunkte relativ zum Mittelpunkt des Umrisses.
-fn in_outline(px: f32, py: f32, half: f32, slack: f32) -> bool {
-    let limit = half + slack;
-    px.abs() <= limit && (py + px / 2.0).abs() <= limit && (py - px / 2.0).abs() <= limit
+/// `px`, `py` sind Pixelmittelpunkte relativ zum Bild der Ecke mit den
+/// kleinsten Koordinaten.
+fn in_outline(px: f32, py: f32, projection: Projection, slack: f32) -> bool {
+    let (h, a, b) = (
+        projection.h() as f32,
+        projection.a() as f32,
+        projection.b() as f32,
+    );
+    let (x, m) = (px.abs(), a / h);
+    x <= h + slack && py >= m * x - b - slack && py <= 2.0 * a - m * x + slack
 }
 
 /// Pixelmittelpunkt relativ zum Blockursprung.
@@ -1283,7 +1294,6 @@ fn tint_kinds(sprite: &Sprite) -> u8 {
 /// eine Pixelbreite Toleranz: mehr verschiebt die Rundung beim Rastern
 /// nicht.
 fn fits_cell(sprite: &Sprite, cell: Cell, projection: Projection) -> bool {
-    let half = projection.scale() as f32 / 2.0;
     let (cx, cy) = cell_center(cell, projection);
     sprite
         .image
@@ -1291,7 +1301,7 @@ fn fits_cell(sprite: &Sprite, cell: Cell, projection: Projection) -> bool {
         .filter(|(_, _, pixel)| pixel.0[3] > 0)
         .all(|(x, y, _)| {
             let (px, py) = pixel_center(sprite, x, y);
-            in_outline(px - cx, py - cy, half, 1.0)
+            in_outline(px - cx, py - cy, projection, 1.0)
         })
 }
 

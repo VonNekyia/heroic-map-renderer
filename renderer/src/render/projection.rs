@@ -1,13 +1,14 @@
-/// Die feste isometrische Kamera.
+/// Die Kamera eines Laufs: schräg mit der Raute W:H oder von oben.
 ///
 /// ```text
-/// screen_x = (x - z) * scale/2
-/// screen_y = (x + z) * scale/4 - y * scale/2
+/// screen_x = (x - z) * h
+/// screen_y = (x + z) * a - y * b
 /// ```
 ///
-/// Damit belegt ein voller Würfel genau `scale` mal `scale` Pixel: die
-/// Oberseite wird zur Raute von `scale` Breite und `scale/2` Höhe, die
-/// Seitenflächen sind `scale/2` breit: die klassische 2:1-Isometrie.
+/// `h` ist immer scale/2. Schräg ist `a` = scale · H/(2W) und `b` =
+/// scale/2, die Wände bleiben bei jeder Raute so hoch. Von oben ist `a` =
+/// scale/2 und `b` = 0. 2:1 ist die Vorgabe: `a` = scale/4, ein voller
+/// Würfel belegt dann genau `scale` mal `scale` Pixel.
 ///
 /// Es gibt keine freie Kamera und keine Perspektive. Alle Faktoren stehen
 /// hier und nirgendwo sonst.
@@ -16,6 +17,75 @@
 pub struct Projection {
     /// Pixelbreite eines Blocks.
     scale: u32,
+    kamera: Kamera,
+}
+
+/// Schräg mit der Raute `breite`:`hoehe`, gekürzt, oder von oben.
+/// Siehe docs/renderer/kamera.md, „Kameras“.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Kamera {
+    Schraeg { breite: u32, hoehe: u32 },
+    Oben,
+}
+
+impl Kamera {
+    /// Die Vorgabe.
+    pub const ZWEI_ZU_EINS: Kamera = Kamera::Schraeg {
+        breite: 2,
+        hoehe: 1,
+    };
+
+    /// `W:H` oder `top`. W:H wird gekürzt und muss zwischen 2:1 und 1:1
+    /// liegen: flacher verdeckt das Gelände mehr, steiler erschiene die
+    /// Oberseite höher als von oben.
+    pub fn parse(text: &str) -> Result<Kamera, String> {
+        if text == "top" {
+            return Ok(Kamera::Oben);
+        }
+        let (w, h) = text
+            .split_once(':')
+            .and_then(|(w, h)| Some((w.trim().parse::<u32>().ok()?, h.trim().parse::<u32>().ok()?)))
+            .filter(|&(w, h)| w > 0 && h > 0)
+            .ok_or_else(|| {
+                format!("{text} ist keine Kamera: W:H mit ganzen Zahlen über 0 oder top")
+            })?;
+        let g = ggt(w, h);
+        let (breite, hoehe) = (w / g, h / g);
+        if breite > 2 * hoehe {
+            return Err(format!("{text} ist flacher als 2:1"));
+        }
+        if hoehe > breite {
+            return Err(format!("{text} ist steiler als 1:1"));
+        }
+        Ok(Kamera::Schraeg { breite, hoehe })
+    }
+
+    /// `a` je scale als Bruch: schräg H/(2W), von oben 1/2.
+    fn a_je_scale(self) -> (u32, u32) {
+        match self {
+            Kamera::Schraeg { breite, hoehe } => (hoehe, 2 * breite),
+            Kamera::Oben => (1, 2),
+        }
+    }
+}
+
+impl std::fmt::Display for Kamera {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Kamera::Schraeg { breite, hoehe } => write!(f, "{breite}:{hoehe}"),
+            Kamera::Oben => write!(f, "top"),
+        }
+    }
+}
+
+impl Default for Kamera {
+    fn default() -> Self {
+        Kamera::ZWEI_ZU_EINS
+    }
+}
+
+fn ggt(a: u32, b: u32) -> u32 {
+    if b == 0 { a } else { ggt(b, a % b) }
 }
 
 impl Projection {
@@ -25,9 +95,15 @@ impl Projection {
     /// Kacheln. Siehe `--scale`.
     pub const DEFAULT_SCALE: u32 = 32;
 
+    /// 2:1, die Vorgabe.
     pub fn new(scale: u32) -> Projection {
+        Projection::mit_kamera(scale, Kamera::ZWEI_ZU_EINS)
+    }
+
+    pub fn mit_kamera(scale: u32, kamera: Kamera) -> Projection {
         Projection {
             scale: scale.max(2),
+            kamera,
         }
     }
 
@@ -35,11 +111,60 @@ impl Projection {
         self.scale
     }
 
+    pub fn kamera(&self) -> Kamera {
+        self.kamera
+    }
+
+    /// Dieselbe Kamera bei einem anderen scale, etwa für eine native Stufe.
+    pub fn bei(&self, scale: u32) -> Projection {
+        Projection::mit_kamera(scale, self.kamera)
+    }
+
+    /// Pixel je Schritt in `u = x - z`: scale/2.
+    pub fn h(&self) -> f64 {
+        self.scale as f64 / 2.0
+    }
+
+    /// Pixel je Schritt in `v = x + z`.
+    pub fn a(&self) -> f64 {
+        let (zaehler, nenner) = self.kamera.a_je_scale();
+        (self.scale * zaehler) as f64 / nenner as f64
+    }
+
+    /// Pixel je Block Höhe: schräg scale/2, von oben 0.
+    pub fn b(&self) -> f64 {
+        match self.kamera {
+            Kamera::Schraeg { .. } => self.scale as f64 / 2.0,
+            Kamera::Oben => 0.0,
+        }
+    }
+
+    /// Liegt jede Blockecke auf ganzen Pixeln? Genau dann, wenn `a` ganz und
+    /// der scale gerade ist; bei 2:1 heisst das: ein Vielfaches von 4.
+    /// Siehe docs/renderer/kamera.md, „Ganze Pixel“.
+    pub fn ganze_pixel(&self) -> bool {
+        let (zaehler, nenner) = self.kamera.a_je_scale();
+        self.scale.is_multiple_of(2) && (self.scale * zaehler).is_multiple_of(nenner)
+    }
+
+    /// Die Blickachse (b, 2a, b), gekürzt auf ganze teilerfremde Zahlen:
+    /// 2:1 (1, 1, 1), 4:3 (2, 3, 2), 1:1 (1, 2, 1), von oben (0, 1, 0).
+    /// Punkte, die sich um ein Vielfaches davon unterscheiden, landen auf
+    /// demselben Pixel.
+    pub fn achse(&self) -> [f32; 3] {
+        let (seite, mitte) = match self.kamera {
+            // (scale/2, scale·H/W, scale/2) ∝ (W, 2H, W)
+            Kamera::Schraeg { breite, hoehe } => (breite, 2 * hoehe),
+            Kamera::Oben => (0, 1),
+        };
+        let g = ggt(seite, mitte);
+        [seite / g, mitte / g, seite / g].map(|c| c as f32)
+    }
+
     /// Weltkoordinaten in Blockeinheiten auf Bildschirmpixel abbilden.
     pub fn project(&self, [x, y, z]: [f32; 3]) -> (f32, f32) {
-        let half = self.scale as f32 / 2.0;
-        let quarter = self.scale as f32 / 4.0;
-        ((x - z) * half, (x + z) * quarter - y * half)
+        let (h, a, b) = (self.h() as f32, self.a() as f32, self.b() as f32);
+        ((x - z) * h, (x + z) * a - y * b)
     }
 
     /// Blockkoordinaten auf Bildschirmpixel abbilden, in f64 anders als
@@ -47,20 +172,17 @@ impl Projection {
     /// Weltkoordinaten nicht.
     /// Siehe docs/renderer/kamera.md, „Weltkoordinaten in f64“.
     pub fn project_block(&self, [x, y, z]: [i32; 3]) -> (f64, f64) {
-        let half = self.scale as f64 / 2.0;
-        let quarter = self.scale as f64 / 4.0;
         (
-            (x as f64 - z as f64) * half,
-            (x as f64 + z as f64) * quarter - y as f64 * half,
+            (x as f64 - z as f64) * self.h(),
+            (x as f64 + z as f64) * self.a() - y as f64 * self.b(),
         )
     }
 
-    /// Tiefe entlang der Blickachse. Größer heißt näher an der Kamera.
-    ///
-    /// Die Blickrichtung ist (1, 1, 1): genau die Punkte, die sich um ein
-    /// Vielfaches davon unterscheiden, landen auf demselben Pixel.
-    pub fn depth([x, y, z]: [f32; 3]) -> f32 {
-        x + y + z
+    /// Tiefe entlang der Blickachse ([`Projection::achse`]). Größer heißt
+    /// näher an der Kamera.
+    pub fn depth(&self, [x, y, z]: [f32; 3]) -> f32 {
+        let [ax, ay, az] = self.achse();
+        x * ax + y * ay + z * az
     }
 }
 
@@ -115,15 +237,16 @@ mod tests {
         let vorne = p.project([1.0, 1.0, 1.0]);
         let hinten = p.project([0.0, 0.0, 0.0]);
         assert_eq!(vorne, hinten);
-        assert!(Projection::depth([1.0, 1.0, 1.0]) > Projection::depth([0.0, 0.0, 0.0]));
+        assert!(p.depth([1.0, 1.0, 1.0]) > p.depth([0.0, 0.0, 0.0]));
     }
 
     /// Occlusion verlangt, dass ein verdeckender Block nie tiefer liegt.
     #[test]
     fn hoehere_bloecke_sind_naeher() {
-        assert!(Projection::depth([0.0, 1.0, 0.0]) > Projection::depth([0.0, 0.0, 0.0]));
-        assert!(Projection::depth([1.0, 0.0, 0.0]) > Projection::depth([0.0, 0.0, 0.0]));
-        assert!(Projection::depth([0.0, 0.0, 1.0]) > Projection::depth([0.0, 0.0, 0.0]));
+        let p = Projection::new(16);
+        assert!(p.depth([0.0, 1.0, 0.0]) > p.depth([0.0, 0.0, 0.0]));
+        assert!(p.depth([1.0, 0.0, 0.0]) > p.depth([0.0, 0.0, 0.0]));
+        assert!(p.depth([0.0, 0.0, 1.0]) > p.depth([0.0, 0.0, 0.0]));
     }
 
     #[test]

@@ -36,4 +36,18 @@ export default defineConfig({
   // Anfrage die Platte, statt in seiner Liste vom Start nachzusehen.
   // Siehe docs/frontend.md, „Einem Render zusehen“.
   server: { watch: { ignored: ['**/public/tiles/**'] } },
+  // Die Header, unter denen die Tests den Build prüfen, streng wie in
+  // Produktion. Siehe docs/frontend.md, „Ausliefern“.
+  preview: {
+    headers: {
+      'Content-Security-Policy':
+        "default-src 'self'; object-src 'none'; " +
+        "base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'SAMEORIGIN',
+    },
+  },
 });

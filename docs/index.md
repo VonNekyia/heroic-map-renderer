@@ -100,6 +100,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0044](entscheidungen/0044-flaechen-zu-gleichen-nachbarn.md): Flächen zu gleichen Nachbarn nach der Regel des Spiels, aus einer Tabelle, mit Fassungen je Familie.
 - [0045](entscheidungen/0045-varianten-genau-drehen.md): Varianten genau um Vielfache von 90 Grad drehen, wie die Matrix des Spiels, Elemente ebenso.
 - [0046](entscheidungen/0046-drei-renderarten.md): Drei Renderarten, zwei Backends, ein Kern; Cinematic nur mit dem Licht des Spiels.
+- [0047](entscheidungen/0047-lighthouse-gegen-den-build.md): Lighthouse gegen den Build mit festen Schwellen, ohne Crawler und Baseline; die Header setzt der Betreiber.
 
 ## Messungen
 

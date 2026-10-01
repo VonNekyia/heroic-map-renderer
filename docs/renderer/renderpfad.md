@@ -128,7 +128,8 @@ Bit mehr, `EINZELN`. Nach der Schleife liest `Masks::of` nur die gesetzten
 Bits dieser Klassen und dort den Eintrag der Palette, für `formen` und
 `quellen`. So kommt auch ein Block ohne Familie und ohne jedes andere Bit
 zu seiner Klasse, etwa der unsichtbare Lichtblock. Sammelte die Schleife
-die Listen selbst, kostete `Masks::of` gut das Doppelte, siehe #53.
+die Listen selbst, brauchte `Masks::of` fast doppelt so lange, gemessen in
+[2026-09-29, Masken aus den Klassen](../messungen/2026-09-29-masken-aus-den-klassen.md).
 
 Verdeckt ist ein Block, wenn die Nachbarn nach +x und +z deckend sind und
 der nach +y seinen Boden deckt, siehe

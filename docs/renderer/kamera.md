@@ -220,11 +220,15 @@ Zugeordnet wird im Raum, je Fragment (`Raster::teile` in
   was weiter hinausragt, zerfällt.
 - **Ein fremder Würfel:** Liegen alle Fragmente in einem einzigen Würfel,
   der nicht der eigene ist, wird das Modell ein Teil dort, ausser es passt
-  in den Spielraum. In 2:1 trifft das unter den Zuständen von Vanilla nur
-  die stehenden Banner mit `rotation` 2 und 10 bei scale 16: Nur ihre Fahne
-  trifft Pixelmitten, und die liegt im Würfel darüber. Stiele, Getreide und
-  stehende Schilder, deren Fragmente bei manchen scales ebenso alle in
-  einem fremden Würfel liegen, bleiben im Spielraum ganz.
+  in den Spielraum. In 2:1 trifft das unter den 32 366 Zuständen aus
+  `blocks.txt` von 26.2, bei jedem scale von 4 bis 64 in Schritten von 4,
+  nur die stehenden Banner mit `rotation` 2 und 10 bei scale 16: Nur ihre
+  Fahne trifft Pixelmitten, und die liegt im Würfel darüber. Stiele,
+  Getreide und stehende Schilder, deren Fragmente bei manchen scales ebenso
+  alle in einem fremden Würfel liegen, bleiben im Spielraum ganz. Das prüft
+  `zwei_zu_eins_in_einem_fremden_wuerfel` in
+  `renderer/src/render/sprites.rs`, ignoriert, weil er die Vanilla-Assets
+  braucht; er nennt die Zustände je scale.
 - **Jede Kamera:** Der Umriss eines Würfels folgt aus h, a und b
   (`in_outline` in `renderer/src/render/sprites.rs`); die Zuordnung im
   Raum braucht nichts sonst. Von oben hat die Höhe im Bild keine

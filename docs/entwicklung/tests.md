@@ -151,9 +151,11 @@ Dazu Unit-Tests in den Quelldateien: die Achse je Kamera und die Regel
 „ganze Pixel“ (`projection.rs`), welche Flächen die Kamera sieht
 (`rasterizer.rs`), Umriss, Deckung, Licht unbekannter Blöcke, die Teile
 je Würfel ohne Naht und ein Modell ganz in einem fremden Würfel
-(`sprites.rs`), Schalter und Meldungen (`cli.rs`). Die
-Haarlinien von oben prüft ein ignorierter Test über alle Vanilla-Zustände,
-siehe [Die Kamera](../renderer/kamera.md), „Von oben“.
+(`sprites.rs`), Schalter und Meldungen (`cli.rs`). Zwei ignorierte Tests
+laufen über alle Vanilla-Zustände: die Haarlinien von oben und die Modelle,
+die in 2:1 ganz in einem fremden Würfel liegen, siehe
+[Die Kamera](../renderer/kamera.md), „Von oben“ und „Sortiert wird nach
+Würfeln“.
 
 ## Goldbild
 

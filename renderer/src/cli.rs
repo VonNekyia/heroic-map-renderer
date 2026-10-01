@@ -4250,6 +4250,11 @@ mod tests {
              (a = 10). 5:3 geht bei scale 30 oder 40."
         );
         assert_eq!(
+            fehler("3:2", 32),
+            "3:2 geht bei scale 32 nicht (a = 10,67). Nächste gültige: 8:5 (a = 10) oder 16:11 \
+             (a = 11). 3:2 geht bei scale 30 oder 36."
+        );
+        assert_eq!(
             fehler("2:1", 18),
             "2:1 geht bei scale 18 nicht (a = 4,5). Nächste gültige: 9:5 (a = 5). 2:1 geht bei \
              scale 16 oder 20."

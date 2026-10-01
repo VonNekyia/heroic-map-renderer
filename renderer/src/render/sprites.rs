@@ -2355,9 +2355,44 @@ mod tests {
         let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
         let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
         let oben = Projection::mit_kamera(32, Kamera::Oben);
-        let (mut zustaende, mut flaechen) = (0, 0);
+        let zustaende = vanilla_zustaende();
+        let mut flaechen = 0;
         // Je Block die steilste Fläche, die die Kamera von oben sieht.
         let mut je_block: BTreeMap<&str, f32> = BTreeMap::new();
+        for st in &zustaende {
+            for (_, model) in models_of(&mut assets, st, None).unwrap() {
+                for quad in &model.quads {
+                    if !faces_camera(quad, &oben) {
+                        continue;
+                    }
+                    flaechen += 1;
+                    let n = quad.normal();
+                    let laenge = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+                    let steilste = je_block.entry(st.name()).or_insert(1.0);
+                    *steilste = steilste.min(n[1] / laenge);
+                }
+            }
+        }
+        let mut steilste: Vec<(f32, &str)> = je_block.iter().map(|(&b, &n)| (n, b)).collect();
+        steilste.sort_by(|a, b| a.0.total_cmp(&b.0));
+        println!(
+            "{} Zustände, {flaechen} Flächen von oben; die steilsten:",
+            zustaende.len()
+        );
+        for (n, block) in &steilste[..3] {
+            println!("  {block}: n_y = {n}");
+        }
+        let steil = steilste[0].0;
+        assert!(
+            steil > 1e-3,
+            "eine Fläche steht fast senkrecht: n_y = {steil}"
+        );
+    }
+
+    /// Alle Zustände aus `blocks.txt`, wie ein Zählwerk, das letzte Merkmal
+    /// läuft innen.
+    fn vanilla_zustaende() -> Vec<BlockState> {
+        let mut out = Vec::new();
         for zeile in include_str!("../assets/blocks.txt").lines() {
             let mut teile = zeile.split_whitespace();
             let Some(name) = teile.next() else { continue };
@@ -2365,7 +2400,6 @@ mod tests {
                 .filter_map(|t| t.split_once('='))
                 .map(|(k, v)| (k, v.split(',').collect()))
                 .collect();
-            // Alle Zustände wie ein Zählwerk, das letzte Merkmal läuft innen.
             let mut index = vec![0usize; props.len()];
             'zustand: loop {
                 let merkmale: Vec<String> = props
@@ -2378,21 +2412,7 @@ mod tests {
                 } else {
                     format!("{name}[{}]", merkmale.join(","))
                 };
-                if let Ok(st) = BlockState::parse(&text) {
-                    zustaende += 1;
-                    for (_, model) in models_of(&mut assets, &st, None).unwrap() {
-                        for quad in &model.quads {
-                            if !faces_camera(quad, &oben) {
-                                continue;
-                            }
-                            flaechen += 1;
-                            let n = quad.normal();
-                            let laenge = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-                            let steilste = je_block.entry(name).or_insert(1.0);
-                            *steilste = steilste.min(n[1] / laenge);
-                        }
-                    }
-                }
+                out.extend(BlockState::parse(&text).ok());
                 for s in (0..props.len()).rev() {
                     index[s] += 1;
                     if index[s] < props[s].1.len() {
@@ -2403,16 +2423,79 @@ mod tests {
                 break;
             }
         }
-        let mut steilste: Vec<(f32, &str)> = je_block.iter().map(|(&b, &n)| (n, b)).collect();
-        steilste.sort_by(|a, b| a.0.total_cmp(&b.0));
-        println!("{zustaende} Zustände, {flaechen} Flächen von oben; die steilsten:");
-        for (n, block) in &steilste[..3] {
-            println!("  {block}: n_y = {n}");
+        out
+    }
+
+    /// In 2:1 liegen bei manchen scales alle Fragmente eines Modells in einem
+    /// einzigen fremden Würfel. Je Vielfaches von 4 bis 64 nennt der Test
+    /// die Zustände von Vanilla, die dort ein Teil werden, und die, die im
+    /// Spielraum ganz bleiben. Braucht die Asset-Wurzeln in `ASSETS` wie
+    /// [`von_oben_keine_haarlinie_an_allen_vanilla_bloecken`], deshalb
+    /// `#[ignore]`:
+    ///
+    /// ```bash
+    /// ASSETS="$PWD/vanilla-assets:$PWD/assets" cargo test --release --manifest-path renderer/Cargo.toml --lib zwei_zu_eins_in_einem_fremden_wuerfel -- --ignored --nocapture
+    /// ```
+    ///
+    /// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+    #[test]
+    #[ignore]
+    fn zwei_zu_eins_in_einem_fremden_wuerfel() {
+        let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
+        let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
+        let zustaende = vanilla_zustaende();
+        let mut anders = Vec::new();
+        for scale in (4..=64).step_by(4) {
+            let projection = Projection::new(scale);
+            let (mut teil, mut ganz) = (BTreeSet::new(), BTreeSet::new());
+            for st in &zustaende {
+                for (_, model) in models_of(&mut assets, st, None).unwrap() {
+                    let Some(raster) = rastern(
+                        &model,
+                        assets.textures(),
+                        &projection,
+                        Tints::default(),
+                        CardinalLight::Default,
+                        kollision(st),
+                    ) else {
+                        continue;
+                    };
+                    let zellen = raster.zellen();
+                    let [zelle] = zellen.iter().collect::<Vec<_>>()[..] else {
+                        continue;
+                    };
+                    if *zelle == OWN_CELL {
+                        continue;
+                    }
+                    let eintrag = format!("{st} {zelle:?}");
+                    if fits_cell(&raster.ganz(), OWN_CELL, projection) {
+                        ganz.insert(eintrag);
+                    } else {
+                        teil.insert(eintrag);
+                    }
+                }
+            }
+            println!(
+                "scale {scale}: {} ein Teil, {} im Spielraum ganz",
+                teil.len(),
+                ganz.len()
+            );
+            for eintrag in &teil {
+                println!("  Teil {eintrag}");
+            }
+            for eintrag in &ganz {
+                println!("  ganz {eintrag}");
+            }
+            // So steht es in kamera.md: ein Teil werden nur die 32 stehenden
+            // Banner bei scale 16.
+            let banner = teil.iter().all(|e| e.contains("_banner["));
+            if teil.len() != if scale == 16 { 32 } else { 0 } || !banner {
+                anders.push(scale);
+            }
         }
-        let steil = steilste[0].0;
         assert!(
-            steil > 1e-3,
-            "eine Fläche steht fast senkrecht: n_y = {steil}"
+            anders.is_empty(),
+            "anders als in der Doku bei scale {anders:?}"
         );
     }
 

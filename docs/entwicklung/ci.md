@@ -27,6 +27,12 @@ Dieselben Befehle lokal: [Tests](tests.md), „Laufen lassen“.
 | Coverage | Ubuntu | `cargo llvm-cov --all-targets` |
 | Doku | Ubuntu | `bash .github/pruefe-doku.sh`, dazu eine Probe, dass sie anschlägt |
 
+Jeder Job hat ein Zeitlimit (`timeout-minutes` in `ci.yml`), etwa das
+Drei- bis Fünffache seiner üblichen Dauer. Ohne Limit wartet GitHub bis zu
+6 Stunden, und ein hängender Job hielte so lange jeden Merge auf. An einem
+langsamen Tag braucht etwa `apt` beim Installieren des Browsers sechs
+Minuten statt Sekunden; die Limits lassen dafür Platz.
+
 Die Tests laufen in Release, weil sich die Überlauf-Semantik zwischen Debug
 und Release unterscheidet; die Prüfungen im Regionsleser müssen in beiden
 greifen. Ein Test läuft nur dort, siehe [Tests](tests.md), „Laufen

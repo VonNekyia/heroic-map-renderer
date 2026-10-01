@@ -16,6 +16,7 @@ jobs:
   rust:
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     # Hier gibt es immer einen Software-Adapter (unten); fehlt er, ist das
     # ein Fehler und kein übersprungener GPU-Test.
     env:
@@ -73,6 +74,7 @@ jobs:
   web:
     name: Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -116,6 +118,7 @@ jobs:
   lighthouse:
     name: Lighthouse
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -174,6 +177,7 @@ jobs:
   doku:
     name: Doku
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: .
@@ -205,6 +209,7 @@ jobs:
   deny:
     name: Dependencies
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
@@ -214,6 +219,7 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       TERRANOVA_GPU_PFLICHT: "1"
     steps:

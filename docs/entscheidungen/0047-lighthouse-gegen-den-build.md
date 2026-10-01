@@ -45,7 +45,8 @@ Zehn Läufe auf `ubuntu-latest`, Stand der PR zu #70:
 | CLS | 0 | 0 | ≤ 0,1, Fehler |
 | TBT | 0 ms | 0 ms | ≤ 300 ms, Fehler |
 | LCP | 1396 ms | 1506 ms | ≤ 4000 ms, Warnung |
-| Performance, Barrierefreiheit, SEO | 1 | 1 | ≥ 0,5 Warnung, ≥ 0,9 Fehler |
+| Performance | 1 | 1 | ≥ 0,5, Warnung |
+| Barrierefreiheit, SEO | 1 | 1 | ≥ 0,9, Fehler |
 | Best Practices | 0,96 | 0,96 | ≥ 0,9, Fehler |
 
 - CLS und TBT streuten nicht. Die Schwellen liegen weit darüber; sie

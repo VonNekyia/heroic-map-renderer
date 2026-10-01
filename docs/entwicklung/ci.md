@@ -1,17 +1,18 @@
 ---
 title: CI
-description: Welche Jobs die CI bei jedem Push und jeder PR laufen lässt, mit welchen Adaptern die GPU-Tests laufen und wie die Doku-Prüfung Verweise, Links und Frontmatter prüft.
+description: Welche Jobs die CI bei jedem Push und jeder PR laufen lässt, mit welchen Adaptern die GPU-Tests laufen, welche Schwellen Lighthouse an die Karte anlegt und wie die Doku-Prüfung Verweise, Links und Frontmatter prüft.
 code:
   - .github/workflows/ci.yml
   - .github/pruefe-doku.sh
   - renderer/deny.toml
+  - web/lighthouserc.cjs
 ---
 
 # CI
 
 Die CI in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) läuft
 bei jedem Push auf `master` und bei jeder PR: Rust unter Ubuntu und
-Windows, das Frontend, die Lizenzen der Abhängigkeiten, die Coverage und die
+Windows, das Frontend samt Lighthouse, die Lizenzen der Abhängigkeiten, die Coverage und die
 Doku. Ein fehlender GPU-Adapter ist dort ein Fehler, kein übergangener Test.
 Dieselben Befehle lokal: [Tests](tests.md), „Laufen lassen“.
 
@@ -21,6 +22,7 @@ Dieselben Befehle lokal: [Tests](tests.md), „Laufen lassen“.
 |---|---|---|
 | Rust | Ubuntu und Windows | `cargo fmt --all --check` (nur Ubuntu), `cargo clippy --all-targets -- -D warnings`, `cargo nextest run --all-targets`, unter Ubuntu auch in Release |
 | Frontend | Ubuntu | `npm run check`, `npm run lint`, der Build mit einer Attrappe unter `public/tiles`, der Smoke-Test mit Playwright |
+| Lighthouse | Ubuntu | Lighthouse gegen den Build, mit Schwellen, siehe unten |
 | Dependencies | Ubuntu | `cargo deny check` mit [`renderer/deny.toml`](../../renderer/deny.toml); die Lizenzen der Abhängigkeiten, nicht die der eigenen Crate, siehe [0034](../entscheidungen/0034-eigene-lizenz.md) |
 | Coverage | Ubuntu | `cargo llvm-cov --all-targets` |
 | Doku | Ubuntu | `bash .github/pruefe-doku.sh`, dazu eine Probe, dass sie anschlägt |
@@ -37,6 +39,39 @@ Die GPU-Tests brauchen einen Adapter. Auf Windows ist WARP dabei, auf
 Ubuntu liefert Mesa mit lavapipe eine Vulkan-Implementierung in Software:
 langsam, aber derselbe Shader-Weg wie auf einer Karte. Rust und Coverage
 setzen `TERRANOVA_GPU_PFLICHT`; fehlt der Adapter, ist das ein Fehler.
+
+## Lighthouse
+
+Der Job prüft die Karte so, wie ein Betreiber sie ausliefert: `npm run
+build`, die Kacheln aus `public/tiles-demo` als `dist/tiles` daneben,
+ausgeliefert mit `vite preview` unter den Headern aus `preview.headers` in
+[`web/vite.config.ts`](../../web/vite.config.ts). Lighthouse lädt die Seite
+dreimal; gewertet wird der Median.
+
+- **Versionen fest:** `@lhci/cli` steht genau im `package-lock.json`, mit
+  Prüfsumme. Der Browser ist das Chromium, das Playwright in seiner festen
+  Version mitbringt, nicht das Chrome des Runners, das wechselt.
+- **Schwellen** in [`web/lighthouserc.cjs`](../../web/lighthouserc.cjs). Fehler
+  sind SEO, Barrierefreiheit und Best Practices, Layout-Sprünge (CLS) und
+  blockierende Skripte (TBT), dazu Titel, Beschreibung, HTTP-Status,
+  Indexierbarkeit und `robots.txt`. Performance und LCP sind nur Warnungen:
+  Auf einem geteilten Runner schwanken sie stark, und die Karte lädt ihre
+  Kacheln erst nach dem Skript.
+- **Abstand zur Streuung:** Die Schwellen für CLS und TBT halten Abstand zu
+  dem, was zehn Läufe auf dem Runner streuten, siehe
+  [0047](../entscheidungen/0047-lighthouse-gegen-den-build.md).
+- **Bericht:** Der Schritt „Werte je Lauf“ schreibt Kategorien, CLS, TBT
+  und LCP jedes Laufs ins Log. Die HTML-Berichte liegen als Artefakt
+  `lighthouse` am Lauf, 14 Tage, auch wenn er grün ist.
+
+Lokal, aus `web/`, mit dem Chromium von Playwright:
+
+```bash
+npm run build && cp -r dist/tiles-demo dist/tiles
+export CHROME_PATH="$(node --input-type=module -e "import {chromium} from '@playwright/test'; console.log(chromium.executablePath())")"
+npx lhci collect --config=./lighthouserc.cjs
+npx lhci assert --config=./lighthouserc.cjs
+```
 
 ## Die Doku-Prüfung
 

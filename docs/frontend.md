@@ -9,6 +9,7 @@ code:
   - web/vite.config.ts
   - web/package.json
   - web/public/tiles-demo
+  - web/public/robots.txt
 ---
 
 # Frontend
@@ -35,7 +36,8 @@ ausliefert; damit braucht das Frontend keine Konfiguration, siehe
 legt die Seite unter `web/dist` ab, ohne `public/tiles`: dort liegt oft ein
 Link auf Hunderte Gigabyte, und Vite folgte ihm beim Kopieren, auch unter
 `npm test`. Beim Ausliefern gehören die Kacheln als `tiles/` neben die
-Seite, oder `?tiles=` nennt ihren Pfad; statisch ausliefern reicht.
+Seite, oder `?tiles=` nennt ihren Pfad; statisch ausliefern reicht, siehe
+„Ausliefern“.
 
 Ohne echte Kacheln zeigt `http://localhost:5173/?tiles=/tiles-demo` einen
 kleinen Kachelbaum, der mit im Repository liegt, 7 Dateien, 6,6 kB. Er ist
@@ -118,6 +120,20 @@ Warum der Strahl gegen Höhen läuft, siehe
 kommen, warum je 4 × 4 Spalten und warum über Wasser die Oberfläche, siehe
 [0036](entscheidungen/0036-hoehen-aus-der-heightmap.md).
 
+## Ausliefern
+
+`web/dist` ist die ganze Seite, statisch. Die Kacheln liegen als `tiles/`
+daneben.
+
+- **Header:** Die Karte läuft unter einer strengen Content-Security-Policy
+  ohne Ausnahmen für Inline-Skripte, Inline-Styles oder fremde Quellen. Die
+  Header, unter denen die Tests das prüfen, stehen in `preview.headers` in
+  [`web/vite.config.ts`](../web/vite.config.ts); ein Betreiber setzt sie
+  in seinem Server so oder strenger. Liegen die Kacheln auf einer anderen
+  Domain als die Seite, brauchen `img-src` und `connect-src` diese Domain.
+- **`robots.txt`** erlaubt alles. Sie wirkt nur im Wurzelverzeichnis einer
+  Domain.
+
 ## Prüfen
 
 ```bash
@@ -127,7 +143,8 @@ npm run lint      # ESLint
 npm test          # Playwright, baut vorher und prüft den Build
 ```
 
-Die Tests: [Tests](entwicklung/tests.md).
+Die Tests: [Tests](entwicklung/tests.md). Lighthouse in der CI und lokal:
+[CI](entwicklung/ci.md), „Lighthouse“.
 
 ## Was bleibt eine Näherung
 

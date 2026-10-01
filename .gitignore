@@ -24,5 +24,9 @@ web/test-results/
 web/playwright-report/
 web/public/tiles/
 
+# Lighthouse
+web/.lighthouseci/
+web/lighthouse/
+
 # Zweites Build-Verzeichnis, wenn target/ von einem laufenden Render belegt ist
 renderer/target*/

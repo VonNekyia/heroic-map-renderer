@@ -24,6 +24,16 @@ body {
   white-space: pre;
 }
 
+/* Für Screenreader und Suchmaschinen, nicht für das Auge. */
+.unsichtbar {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .error {
   margin: 0;
   padding: 2rem;

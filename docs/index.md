@@ -101,6 +101,8 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0045](entscheidungen/0045-varianten-genau-drehen.md): Varianten genau um Vielfache von 90 Grad drehen, wie die Matrix des Spiels, Elemente ebenso.
 - [0046](entscheidungen/0046-drei-renderarten.md): Drei Renderarten, zwei Backends, ein Kern; Cinematic nur mit dem Licht des Spiels.
 - [0047](entscheidungen/0047-lighthouse-gegen-den-build.md): Lighthouse gegen den Build mit festen Schwellen, ohne Crawler und Baseline; die Header setzt der Betreiber.
+- [0048](entscheidungen/0048-seite-beim-build.md): Adresse, Titel, Beschreibung und Vorschaubild der Seite beim Build; keine Sitemap, kein JSON-LD.
+- [0049](entscheidungen/0049-umriss-nur-ohne-zeiger.md): Umriss nur beim Tippen mit Finger oder Stift, nicht mit der Maus.
 - [0050](entscheidungen/0050-teile-je-wuerfel-im-raum.md): Teile je Würfel im Raum, je Fragment, vor einem Block mit Flächen nur auf den Vorderseiten.
 
 ## Messungen

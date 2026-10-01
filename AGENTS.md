@@ -42,7 +42,7 @@ spricht es vorher mit der anderen Seite ab.
 | [`alternativen-recherchieren`](skills/alternativen-recherchieren/SKILL.md) | ein besseres Verfahren, eine Optimierung oder eine Alternative wird gesucht; vor jedem grösseren Umbau |
 | [`tabellen-neu-erzeugen`](skills/tabellen-neu-erzeugen/SKILL.md) | eine neue Spielversion, oder `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `nachbarn.txt`, `blockentities.txt` oder `dimensionstypen.txt` passt nicht mehr zum Spiel |
 | [`goldbild-erneuern`](skills/goldbild-erneuern/SKILL.md) | das Goldbild fällt nach einer gewollten Änderung am Bild |
-| [`doku-bilder-rendern`](skills/doku-bilder-rendern/SKILL.md) | ein Bild in `docs/bilder/` oder im README ist veraltet |
+| [`doku-bilder-rendern`](skills/doku-bilder-rendern/SKILL.md) | ein Bild in `docs/bilder/`, im README oder unter `web/public` ist veraltet |
 
 Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 

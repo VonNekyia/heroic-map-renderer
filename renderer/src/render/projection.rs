@@ -256,6 +256,54 @@ mod tests {
         assert!(p.depth([0.0, 0.0, 1.0]) > p.depth([0.0, 0.0, 0.0]));
     }
 
+    /// Je Kamera: Punkte entlang ihrer Achse landen auf demselben Pixel, die
+    /// Tiefe wächst zur Kamera und fällt zu keinem der Nachbarn, die einen
+    /// Block verdecken können. Jede Ecke liegt auf ganzen Pixeln.
+    #[test]
+    fn achse_jeder_kamera_steht_im_bild_still() {
+        let kameras = [
+            ("2:1", 32, [1.0, 1.0, 1.0]),
+            ("16:9", 32, [8.0, 9.0, 8.0]),
+            ("8:5", 32, [4.0, 5.0, 4.0]),
+            ("4:3", 32, [2.0, 3.0, 2.0]),
+            ("1:1", 32, [1.0, 2.0, 1.0]),
+            ("top", 32, [0.0, 1.0, 0.0]),
+            ("5:3", 30, [5.0, 6.0, 5.0]),
+        ];
+        for (kamera, scale, achse) in kameras {
+            let p = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+            assert_eq!(p.achse(), achse, "{kamera}");
+            assert_eq!(p.project([0.0; 3]), p.project(achse), "{kamera}");
+            assert!(p.depth(achse) > p.depth([0.0; 3]), "{kamera}");
+            for nachbar in [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] {
+                assert!(
+                    p.depth(nachbar) >= p.depth([0.0; 3]),
+                    "{kamera}, {nachbar:?}"
+                );
+            }
+            assert!(p.ganze_pixel(), "{kamera} bei {scale}");
+            for block in [[1, 0, 0], [0, 1, 0], [0, 0, 1], [-7, 300, 13]] {
+                let (x, y) = p.project_block(block);
+                assert!(x.fract() == 0.0 && y.fract() == 0.0, "{kamera}, {block:?}");
+            }
+        }
+    }
+
+    /// 2:1 auf ganzen Pixeln genau bei Vielfachen von 4, von oben bei
+    /// geradem scale.
+    #[test]
+    fn ganze_pixel_wie_die_alte_regel() {
+        for scale in 2..=64 {
+            assert_eq!(
+                Projection::new(scale).ganze_pixel(),
+                scale % 4 == 0,
+                "{scale}"
+            );
+            let oben = Projection::mit_kamera(scale, Kamera::Oben);
+            assert_eq!(oben.ganze_pixel(), scale % 2 == 0, "top bei {scale}");
+        }
+    }
+
     #[test]
     fn scale_hat_eine_untergrenze() {
         assert_eq!(Projection::new(0).scale(), 2);

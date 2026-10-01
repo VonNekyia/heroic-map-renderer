@@ -15,7 +15,7 @@ use crate::world::{BlockState, Blockdaten};
 
 use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
 use super::tint::BiomeTable;
-use super::{Projection, Sprite, render};
+use super::{Kamera, Projection, Sprite, render};
 
 /// Verweis in die Sprite-Tabelle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -549,6 +549,22 @@ impl SpriteSet {
 
         for fluid in fluids {
             set.insert_strips(assets, fluid);
+        }
+
+        // Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet
+        // das Raster in 2:1, damit das Licht nicht an der Kamera hängt: von
+        // oben deckte schon eine flache Platte den ganzen Umriss.
+        if projection.kamera() != Kamera::ZWEI_ZU_EINS {
+            let unbekannt: BTreeSet<BlockState> = seen
+                .into_iter()
+                .filter(|state| blockstate::Definition::of(state.name()).is_none())
+                .cloned()
+                .collect();
+            if !unbekannt.is_empty() {
+                let zwei =
+                    SpriteSet::build_in(assets, &unbekannt, Projection::new(projection.scale()))?;
+                set.licht_deckend = Some(zwei.licht_deckend(&unbekannt));
+            }
         }
         Ok(set)
     }
@@ -1636,6 +1652,36 @@ mod tests {
         );
     }
 
+    /// Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet bei
+    /// jeder Kamera das Raster in 2:1: Von oben deckte schon eine flache
+    /// Seerose den ganzen Umriss, und ihr Würfel bliebe dunkel.
+    #[test]
+    fn licht_unbekannter_bloecke_haengt_nicht_an_der_kamera() {
+        let namen = [
+            "einfarbig",
+            "seerose",
+            "laub",
+            "ackerboden",
+            "untere_platte",
+            "teppich",
+        ];
+        let states: Vec<BlockState> = namen.iter().map(|name| state(name)).collect();
+        let zwei = build(&mut assets(), &states, Projection::new(16)).unwrap();
+        assert!(zwei.deckt_fuer_licht(&state("einfarbig")));
+        assert!(!zwei.deckt_fuer_licht(&state("seerose")));
+        for kamera in ["4:3", "1:1", "top"] {
+            let projection = Projection::mit_kamera(16, Kamera::parse(kamera).unwrap());
+            let set = build(&mut assets(), &states, projection).unwrap();
+            for st in &states {
+                assert_eq!(
+                    set.deckt_fuer_licht(st),
+                    zwei.deckt_fuer_licht(st),
+                    "{kamera}, {st:?}"
+                );
+            }
+        }
+    }
+
     /// Ein fremdes Teil kommt vor einen Block, dessen Flächen alle auf den
     /// Vorderseiten seines Würfels liegen: ein voller Würfel, Laub mit
     /// Löchern, ein Grasblock mit Overlay. Ackerboden endet darunter, Schleim
@@ -1807,20 +1853,28 @@ mod tests {
     /// Modell, bei jedem scale.
     #[test]
     fn zerlegtes_modell_ist_ohne_nachbarn_das_ganze() {
-        for scale in (4..=64).step_by(4) {
-            let projection = Projection::new(scale);
+        let kameras = ["2:1", "8:5", "4:3", "1:1", "top"].map(|k| Kamera::parse(k).unwrap());
+        let projektionen = (4..=64)
+            .step_by(2)
+            .flat_map(|scale| kameras.map(|k| Projection::mit_kamera(scale, k)))
+            .filter(Projection::ganze_pixel);
+        for projection in projektionen {
+            let (scale, kamera) = (projection.scale(), projection.kamera());
             for name in ["turm", "ueberhang", "hochfeuer", "einfarbig", "seerose"] {
                 let mut assets = assets();
                 let model = model_of(&mut assets, &state(name)).unwrap();
-                let raster = rastern(
+                let Some(raster) = rastern(
                     &model,
                     assets.textures(),
                     &projection,
                     Tints::default(),
                     CardinalLight::Default,
                     false,
-                )
-                .unwrap();
+                ) else {
+                    // Von oben steht Feuer ganz auf der Kante.
+                    assert_eq!((name, kamera), ("hochfeuer", Kamera::Oben), "scale {scale}");
+                    continue;
+                };
                 let ganz = raster.ganz();
                 let mut teile = raster.teile(ganz.ao.is_some());
                 // Wie die Kandidaten: nach Höhe, Tiefe, Spalte.
@@ -1836,7 +1890,11 @@ mod tests {
                         bild.put_pixel(bx, by, image::Rgba(over(pixel.0, unten)));
                     }
                 }
-                assert_eq!(bild.as_raw(), ganz.image.as_raw(), "{name}, scale {scale}");
+                assert_eq!(
+                    bild.as_raw(),
+                    ganz.image.as_raw(),
+                    "{name}, {kamera}, scale {scale}"
+                );
             }
         }
     }
@@ -2166,6 +2224,80 @@ mod tests {
             println!("  {name}: {max}");
         }
         assert!(groesste <= 1, "höchstens {groesste}");
+    }
+
+    /// Von oben steht jede senkrechte Fläche auf der Kante. Keine Fläche eines
+    /// Vanilla-Blocks liegt zwischen dem Rauschen unter `EDGE_ON` und einer
+    /// echten Neigung, sonst bliebe sie als Haarlinie im Bild: Jede, die die
+    /// Kamera von oben sieht, hat n_y über 1e-3. Die steilste ist die Fahne
+    /// der Banner, um 0,45° geneigt wie im Modell des Spiels, mit n_y 0,0079.
+    /// Alle Zustände aus `blocks.txt`. Braucht die
+    /// Asset-Wurzeln in `ASSETS` wie
+    /// [`toenungskarte_an_allen_vanilla_bloecken`], deshalb `#[ignore]`:
+    ///
+    /// ```bash
+    /// ASSETS="$PWD/vanilla-assets:$PWD/assets" cargo test --release --manifest-path renderer/Cargo.toml --lib von_oben_keine_haarlinie_an_allen_vanilla_bloecken -- --ignored --nocapture
+    /// ```
+    ///
+    /// Siehe docs/renderer/kamera.md, „Von oben“.
+    #[test]
+    #[ignore]
+    fn von_oben_keine_haarlinie_an_allen_vanilla_bloecken() {
+        let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
+        let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
+        let oben = Projection::mit_kamera(32, Kamera::Oben);
+        let (mut zustaende, mut flaechen, mut steil) = (0, 0, 1.0f32);
+        for zeile in include_str!("../assets/blocks.txt").lines() {
+            let mut teile = zeile.split_whitespace();
+            let Some(name) = teile.next() else { continue };
+            let props: Vec<(&str, Vec<&str>)> = teile
+                .filter_map(|t| t.split_once('='))
+                .map(|(k, v)| (k, v.split(',').collect()))
+                .collect();
+            // Alle Zustände wie ein Zählwerk, das letzte Merkmal läuft innen.
+            let mut index = vec![0usize; props.len()];
+            'zustand: loop {
+                let merkmale: Vec<String> = props
+                    .iter()
+                    .zip(&index)
+                    .map(|((k, v), &i)| format!("{k}={}", v[i]))
+                    .collect();
+                let text = if merkmale.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name}[{}]", merkmale.join(","))
+                };
+                if let Ok(st) = BlockState::parse(&text) {
+                    zustaende += 1;
+                    for (_, model) in models_of(&mut assets, &st, None).unwrap() {
+                        for quad in &model.quads {
+                            if !faces_camera(quad, &oben) {
+                                continue;
+                            }
+                            flaechen += 1;
+                            let n = quad.normal();
+                            let laenge = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+                            steil = steil.min(n[1] / laenge);
+                        }
+                    }
+                }
+                for s in (0..props.len()).rev() {
+                    index[s] += 1;
+                    if index[s] < props[s].1.len() {
+                        continue 'zustand;
+                    }
+                    index[s] = 0;
+                }
+                break;
+            }
+        }
+        println!(
+            "{zustaende} Zustände, {flaechen} Flächen von oben, die steilste mit n_y = {steil}"
+        );
+        assert!(
+            steil > 1e-3,
+            "eine Fläche steht fast senkrecht: n_y = {steil}"
+        );
     }
 
     /// Ein Pack darf Zustände mit verschiedener Kollisionsform auf dasselbe

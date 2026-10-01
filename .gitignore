@@ -17,7 +17,7 @@ node_modules/
 web/dist/
 
 # Ist-Bild eines gefallenen Goldbild-Tests
-metatile-ist.png
+metatile*-ist.png
 
 # Playwright
 web/test-results/

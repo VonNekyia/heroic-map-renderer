@@ -109,7 +109,8 @@ fn verdecken_aendert_kein_pixel() {
     let zwei_zu_eins = [32, 16, 8, 4].map(Projection::new);
     for projection in zwei_zu_eins.into_iter().chain(kameras()) {
         let (scale, kamera) = (projection.scale(), projection.kamera());
-        let rect = ScreenRect::centered(20 * scale, 20 * scale);
+        // Das Rechteck um die ganze Szene: jeder Block liegt darin.
+        let rect = rect_um(projection, [0, 0, 0], [16, 4, 16]);
         let sprites = tabelle(&mut assets(), &world, projection);
         let mit = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
         let ohne = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
@@ -125,9 +126,32 @@ fn verdecken_aendert_kein_pixel() {
     }
 }
 
+/// Das Rechteck in Pixeln um die Ecken des Quaders von `min` bis `max`.
+fn rect_um(projection: Projection, min: [i32; 3], max: [i32; 3]) -> ScreenRect {
+    let ecken: Vec<(f64, f64)> = (0..8)
+        .map(|i| {
+            let ecke = |k: usize| if i >> k & 1 == 0 { min[k] } else { max[k] };
+            projection.project_block([ecke(0), ecke(1), ecke(2)])
+        })
+        .collect();
+    let (x0, x1) = ecken.iter().fold((f64::MAX, f64::MIN), |(lo, hi), e| {
+        (lo.min(e.0), hi.max(e.0))
+    });
+    let (y0, y1) = ecken.iter().fold((f64::MAX, f64::MIN), |(lo, hi), e| {
+        (lo.min(e.1), hi.max(e.1))
+    });
+    ScreenRect {
+        x: x0.floor() as i32,
+        y: y0.floor() as i32,
+        width: (x1.ceil() - x0.floor()) as u32,
+        height: (y1.ceil() - y0.floor()) as u32,
+    }
+}
+
 /// Kameras für die Invarianten: die aus dem Issue und Paare aus gültigem
 /// W:H und scale, gezogen mit fester Saat, damit jeder Lauf dieselben
-/// prüft. Jede liegt auf ganzen Pixeln.
+/// prüft. Gezogen wird nur, was weder 2:1 noch schon dabei ist. Jede liegt
+/// auf ganzen Pixeln.
 fn kameras() -> Vec<Projection> {
     let mut out: Vec<Projection> = [
         ("16:9", 32),
@@ -154,7 +178,9 @@ fn kameras() -> Vec<Projection> {
         let scale = 4 + 2 * zufall(21);
         let a = scale.div_ceil(4) + zufall(scale / 2 - scale.div_ceil(4) + 1);
         let kamera = Kamera::schraeg(scale, 2 * a).unwrap();
-        out.push(Projection::mit_kamera(scale, kamera));
+        if kamera != Kamera::ZWEI_ZU_EINS && out.iter().all(|p| p.kamera() != kamera) {
+            out.push(Projection::mit_kamera(scale, kamera));
+        }
     }
     for projection in &out {
         assert!(projection.ganze_pixel(), "{projection:?}");
@@ -294,8 +320,9 @@ fn hoeher_gesetzt_gleiches_bild() {
 
 /// Der schnelle Weg über Kandidaten und Bitmasken muss Byte für Byte das
 /// Bild der Referenz liefern, die jeden Block im Band abläuft: in der
-/// Szene aus `common::szene`, einmal ganz im Bild, einmal von einem
-/// kleineren Rechteck angeschnitten, bei jedem scale, den `--scale` und
+/// Szene aus `common::szene`, einmal ganz im Bild, im Rechteck um alle
+/// ihre Blöcke, einmal von einem kleineren angeschnitten, bei jedem scale,
+/// den `--scale` und
 /// die nativen Stufen annehmen, bis 32, dazu bei 2 und 6, wo Blöcke auf
 /// halben Pixeln liegen. Die Rechtecke sind meist keine Vielfachen von 64
 /// Pixeln breit, den Wörtern der Deckungsmaske.
@@ -326,12 +353,8 @@ fn schneller_weg_gleicht_der_referenz() {
         let (sx, sy) = projection.project_block(mitte_der_szene);
         let (zx, zy) = Projection::new(scale).project_block(mitte_der_szene);
         let (dx, dy) = ((sx - zx) as i32, (sy - zy) as i32);
-        let ganz = ScreenRect {
-            x: -17 * s + dx,
-            y: -25 * s + dy,
-            width: 34 * scale,
-            height: 42 * scale,
-        };
+        // Die Szene reicht von y −16 bis zur Säule bei (28, 40, 28).
+        let ganz = rect_um(projection, [0, -16, 0], [32, 41, 32]);
         let mitte = ScreenRect {
             x: -5 * s + dx,
             y: -10 * s + dy,
@@ -500,7 +523,11 @@ fn tempdir() -> TempDir {
 /// `UPDATE_GOLDEN=1 cargo test --test metatile`.
 #[test]
 fn goldbild_bleibt_gleich() {
-    goldbild("metatile", render(&tempdir(), gelaende, 128));
+    // Erst alle vergleichen, dann fallen: So liegt zu jedem abweichenden
+    // Goldbild ein Ist-Bild daneben.
+    let mut fehler: Vec<String> = goldbild("metatile", render(&tempdir(), gelaende, 128))
+        .into_iter()
+        .collect();
 
     let dir = tempdir();
     let world = common::write_szene(dir.path());
@@ -518,14 +545,17 @@ fn goldbild_bleibt_gleich() {
             width: 160,
             height: 192,
         };
-        goldbild(
+        fehler.extend(goldbild(
             name,
             render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
-        );
+        ));
     }
+    assert!(fehler.is_empty(), "{}", fehler.join("\n"));
 }
 
-fn goldbild(name: &str, bild: RgbaImage) {
+/// Vergleicht `bild` mit dem Goldbild `name`; weicht es ab, liegt das
+/// Ist-Bild daneben, und die Antwort sagt, wie sehr.
+fn goldbild(name: &str, bild: RgbaImage) -> Option<String> {
     let pfad = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/golden")
         .join(format!("{name}.png"));
@@ -533,30 +563,31 @@ fn goldbild(name: &str, bild: RgbaImage) {
     if std::env::var_os("UPDATE_GOLDEN").is_some() {
         std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
         bild.save(&pfad).unwrap();
-        return;
+        return None;
     }
 
     let gold = image::open(&pfad)
         .unwrap_or_else(|e| panic!("{} lesen: {e}", pfad.display()))
         .into_rgba8();
-    assert_eq!(bild.dimensions(), gold.dimensions());
-
-    let abweichend = bild
-        .pixels()
-        .zip(gold.pixels())
-        .filter(|(a, b)| a != b)
-        .count();
-    if abweichend > 0 {
+    let abweichend = if bild.dimensions() == gold.dimensions() {
+        bild.pixels()
+            .zip(gold.pixels())
+            .filter(|(a, b)| a != b)
+            .count()
+    } else {
+        (bild.width() * bild.height()) as usize
+    };
+    (abweichend > 0).then(|| {
         // Neben dem Goldbild statt in %TEMP%: so kann CI das Bild als
         // Artefakt hochladen, wenn der Test fällt.
         let neu = pfad.with_file_name(format!("{name}-ist.png"));
         bild.save(&neu).ok();
-        panic!(
-            "{abweichend} von {} Pixeln weichen vom Goldbild ab. Aktuelles Bild: {}",
+        format!(
+            "{name}: {abweichend} von {} Pixeln weichen vom Goldbild ab. Aktuelles Bild: {}",
             bild.width() * bild.height(),
             neu.display()
-        );
-    }
+        )
+    })
 }
 
 /// Ein Block, dessen drei kamerazugewandte Nachbarn volle Blöcke sind, ist

@@ -677,3 +677,40 @@ fn teildeckung_verdeckt_nicht() {
         .count();
     assert_eq!(halb, 0, "{halb} Pixel sind halb durchsichtig");
 }
+
+/// Ein voller Würfel mit einer Farbe sieht in jeder Vierteldrehung gleich
+/// aus: Die Drehung einer Variante ist genau wie im Spiel und legt keine
+/// Kante knapp neben ihren Platz. Geprüft an allen 64 Kombinationen um X, Y
+/// und Z, bei scale 4 bis 64.
+#[test]
+fn gedrehter_wuerfel_bleibt_pixelgleich() {
+    let mut assets = assets();
+    let model = assets.model("minecraft:block/blauwuerfel").unwrap();
+    let gedreht = |x, y, z| {
+        bake(&[ResolvedVariant {
+            model_id: String::new(),
+            model: Arc::clone(&model),
+            x,
+            y,
+            z,
+            uvlock: false,
+        }])
+    };
+    let viertel = [0, 90, 180, 270];
+    for scale in (4..=64).step_by(4) {
+        let projection = Projection::new(scale);
+        let bild = |modell: &BakedModel| {
+            render(modell, assets.textures(), &projection, Tints::default()).expect("Sprite")
+        };
+        let soll = bild(&gedreht(0, 0, 0));
+        for x in viertel {
+            for y in viertel {
+                for z in viertel {
+                    let ist = bild(&gedreht(x, y, z));
+                    assert_eq!(ist.offset, soll.offset, "scale {scale}, {x} {y} {z}");
+                    assert!(ist.image == soll.image, "scale {scale}, {x} {y} {z}");
+                }
+            }
+        }
+    }
+}

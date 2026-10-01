@@ -223,7 +223,7 @@ fn rotate_face(face: Face, x: i32, y: i32, z: i32) -> Face {
         Face::West => [-1.0, 0.0, 0.0],
         Face::East => [1.0, 0.0, 0.0],
     };
-    let n = rotate_z(rotate_y(rotate_x(n, -(x as f32)), -(y as f32)), -(z as f32));
+    let n = viertel_drehen(n, x, y, z);
 
     let achse = if n[0].abs() >= n[1].abs() && n[0].abs() >= n[2].abs() {
         0
@@ -251,8 +251,7 @@ fn rotate_face(face: Face, x: i32, y: i32, z: i32) -> Face {
 fn lock_uv(face: Face, [u, v]: [f32; 2], x: i32, y: i32, z: i32) -> [f32; 2] {
     let plane = plane_of(face, [0.0; 3], [BLOCK; 3]);
     let punkt = rotate_variant(corner(face, u, v, plane), x, y, z);
-    // Vierteldrehungen über sin/cos treffen die ganzen Zahlen knapp daneben.
-    uv_of(rotate_face(face, x, y, z), punkt).map(|a| (a * 1000.0).round() / 1000.0)
+    uv_of(rotate_face(face, x, y, z), punkt)
 }
 
 /// Fehlt `uv` im Modell, leitet Minecraft sie aus der Größe des Elements ab.
@@ -324,50 +323,55 @@ fn rotate_all(v: [f32; 3], angles: [f32; 3]) -> [f32; 3] {
 
 /// Drehung des ganzen Modells um den Blockmittelpunkt, wie sie in der
 /// Blockstate-Datei steht.
-///
-/// Minecraft dreht dort mit umgekehrtem Vorzeichen (`BlockModelRotation`).
 fn rotate_variant(point: [f32; 3], x: i32, y: i32, z: i32) -> [f32; 3] {
     if x == 0 && y == 0 && z == 0 {
         return point;
     }
-    let mut v = [point[0] - CENTER, point[1] - CENTER, point[2] - CENTER];
-    v = rotate_x(v, -(x as f32));
-    v = rotate_y(v, -(y as f32));
-    v = rotate_z(v, -(z as f32));
-    [v[0] + CENTER, v[1] + CENTER, v[2] + CENTER]
+    let v = [point[0] - CENTER, point[1] - CENTER, point[2] - CENTER];
+    let [a, b, c] = viertel_drehen(v, x, y, z);
+    [a + CENTER, b + CENTER, c + CENTER]
 }
 
-fn rotate_x([x, y, z]: [f32; 3], degrees: f32) -> [f32; 3] {
-    if degrees == 0.0 {
-        return [x, y, z];
+/// Die Drehung einer Variante, um X, dann Y, dann Z wie
+/// `Quadrant.fromXYZAngles`, mit umgekehrtem Vorzeichen wie
+/// `BlockModelRotation`. Blockstates erlauben nur Vielfache von 90 Grad,
+/// also ist sie genau wie die Matrix des Spiels.
+/// Siehe docs/renderer/modelle-und-texturen.md, „Drehung der Varianten“.
+fn viertel_drehen(v: [f32; 3], x: i32, y: i32, z: i32) -> [f32; 3] {
+    rotate_all(v, [-x as f32, -y as f32, -z as f32])
+}
+
+/// sin und cos eines Winkels in Grad: für Vielfache von 90 Grad genau 0 oder
+/// ±1, sonst über `sin_cos`.
+/// Siehe docs/renderer/modelle-und-texturen.md, „Drehung der Varianten“.
+fn sin_cos(grad: f32) -> (f32, f32) {
+    match grad.rem_euclid(360.0) {
+        0.0 => (0.0, 1.0),
+        90.0 => (1.0, 0.0),
+        180.0 => (0.0, -1.0),
+        270.0 => (-1.0, 0.0),
+        _ => grad.to_radians().sin_cos(),
     }
-    let (sin, cos) = degrees.to_radians().sin_cos();
+}
+
+fn rotate_x([x, y, z]: [f32; 3], grad: f32) -> [f32; 3] {
+    let (sin, cos) = sin_cos(grad);
     [x, y * cos - z * sin, y * sin + z * cos]
 }
 
-fn rotate_y([x, y, z]: [f32; 3], degrees: f32) -> [f32; 3] {
-    if degrees == 0.0 {
-        return [x, y, z];
-    }
-    let (sin, cos) = degrees.to_radians().sin_cos();
+fn rotate_y([x, y, z]: [f32; 3], grad: f32) -> [f32; 3] {
+    let (sin, cos) = sin_cos(grad);
     [x * cos + z * sin, y, -x * sin + z * cos]
 }
 
-fn rotate_z([x, y, z]: [f32; 3], degrees: f32) -> [f32; 3] {
-    if degrees == 0.0 {
-        return [x, y, z];
-    }
-    let (sin, cos) = degrees.to_radians().sin_cos();
+fn rotate_z([x, y, z]: [f32; 3], grad: f32) -> [f32; 3] {
+    let (sin, cos) = sin_cos(grad);
     [x * cos - y * sin, x * sin + y * cos, z]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn rund(v: [f32; 3]) -> [f32; 3] {
-        v.map(|a| (a * 1000.0).round() / 1000.0)
-    }
 
     /// `corner` und `default_uv` müssen zueinander passen: die abgeleiteten
     /// Texturkoordinaten müssen wieder die Ecken des Elements ergeben.
@@ -444,29 +448,158 @@ mod tests {
 
     #[test]
     fn drehungen_sind_rechtshaendig() {
-        assert_eq!(rund(rotate_y([1.0, 0.0, 0.0], 90.0)), [0.0, 0.0, -1.0]);
-        assert_eq!(rund(rotate_x([0.0, 1.0, 0.0], 90.0)), [0.0, 0.0, 1.0]);
-        assert_eq!(rund(rotate_z([1.0, 0.0, 0.0], 90.0)), [0.0, 1.0, 0.0]);
+        assert_eq!(rotate_y([1.0, 0.0, 0.0], 90.0), [0.0, 0.0, -1.0]);
+        assert_eq!(rotate_x([0.0, 1.0, 0.0], 90.0), [0.0, 0.0, 1.0]);
+        assert_eq!(rotate_z([1.0, 0.0, 0.0], 90.0), [0.0, 1.0, 0.0]);
+    }
+
+    /// Je Drehung um X, Y und Z die Bilder der Einheitsvektoren im Spiel:
+    /// `Quadrant.fromXYZAngles(x, y, z).transformation()` aus dem Client 26.2,
+    /// mit einer Probe ausgelesen.
+    const SPIEL: [([i32; 3], [[i32; 3]; 3]); 64] = [
+        ([0, 0, 0], [[1, 0, 0], [0, 1, 0], [0, 0, 1]]),
+        ([0, 0, 90], [[0, -1, 0], [1, 0, 0], [0, 0, 1]]),
+        ([0, 0, 180], [[-1, 0, 0], [0, -1, 0], [0, 0, 1]]),
+        ([0, 0, 270], [[0, 1, 0], [-1, 0, 0], [0, 0, 1]]),
+        ([0, 90, 0], [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]),
+        ([0, 90, 90], [[0, 0, 1], [1, 0, 0], [0, 1, 0]]),
+        ([0, 90, 180], [[0, 0, 1], [0, -1, 0], [1, 0, 0]]),
+        ([0, 90, 270], [[0, 0, 1], [-1, 0, 0], [0, -1, 0]]),
+        ([0, 180, 0], [[-1, 0, 0], [0, 1, 0], [0, 0, -1]]),
+        ([0, 180, 90], [[0, 1, 0], [1, 0, 0], [0, 0, -1]]),
+        ([0, 180, 180], [[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
+        ([0, 180, 270], [[0, -1, 0], [-1, 0, 0], [0, 0, -1]]),
+        ([0, 270, 0], [[0, 0, -1], [0, 1, 0], [1, 0, 0]]),
+        ([0, 270, 90], [[0, 0, -1], [1, 0, 0], [0, -1, 0]]),
+        ([0, 270, 180], [[0, 0, -1], [0, -1, 0], [-1, 0, 0]]),
+        ([0, 270, 270], [[0, 0, -1], [-1, 0, 0], [0, 1, 0]]),
+        ([90, 0, 0], [[1, 0, 0], [0, 0, -1], [0, 1, 0]]),
+        ([90, 0, 90], [[0, -1, 0], [0, 0, -1], [1, 0, 0]]),
+        ([90, 0, 180], [[-1, 0, 0], [0, 0, -1], [0, -1, 0]]),
+        ([90, 0, 270], [[0, 1, 0], [0, 0, -1], [-1, 0, 0]]),
+        ([90, 90, 0], [[0, 0, 1], [1, 0, 0], [0, 1, 0]]),
+        ([90, 90, 90], [[0, 0, 1], [0, -1, 0], [1, 0, 0]]),
+        ([90, 90, 180], [[0, 0, 1], [-1, 0, 0], [0, -1, 0]]),
+        ([90, 90, 270], [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]),
+        ([90, 180, 0], [[-1, 0, 0], [0, 0, 1], [0, 1, 0]]),
+        ([90, 180, 90], [[0, 1, 0], [0, 0, 1], [1, 0, 0]]),
+        ([90, 180, 180], [[1, 0, 0], [0, 0, 1], [0, -1, 0]]),
+        ([90, 180, 270], [[0, -1, 0], [0, 0, 1], [-1, 0, 0]]),
+        ([90, 270, 0], [[0, 0, -1], [-1, 0, 0], [0, 1, 0]]),
+        ([90, 270, 90], [[0, 0, -1], [0, 1, 0], [1, 0, 0]]),
+        ([90, 270, 180], [[0, 0, -1], [1, 0, 0], [0, -1, 0]]),
+        ([90, 270, 270], [[0, 0, -1], [0, -1, 0], [-1, 0, 0]]),
+        ([180, 0, 0], [[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
+        ([180, 0, 90], [[0, -1, 0], [-1, 0, 0], [0, 0, -1]]),
+        ([180, 0, 180], [[-1, 0, 0], [0, 1, 0], [0, 0, -1]]),
+        ([180, 0, 270], [[0, 1, 0], [1, 0, 0], [0, 0, -1]]),
+        ([180, 90, 0], [[0, 0, 1], [0, -1, 0], [1, 0, 0]]),
+        ([180, 90, 90], [[0, 0, 1], [-1, 0, 0], [0, -1, 0]]),
+        ([180, 90, 180], [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]),
+        ([180, 90, 270], [[0, 0, 1], [1, 0, 0], [0, 1, 0]]),
+        ([180, 180, 0], [[-1, 0, 0], [0, -1, 0], [0, 0, 1]]),
+        ([180, 180, 90], [[0, 1, 0], [-1, 0, 0], [0, 0, 1]]),
+        ([180, 180, 180], [[1, 0, 0], [0, 1, 0], [0, 0, 1]]),
+        ([180, 180, 270], [[0, -1, 0], [1, 0, 0], [0, 0, 1]]),
+        ([180, 270, 0], [[0, 0, -1], [0, -1, 0], [-1, 0, 0]]),
+        ([180, 270, 90], [[0, 0, -1], [-1, 0, 0], [0, 1, 0]]),
+        ([180, 270, 180], [[0, 0, -1], [0, 1, 0], [1, 0, 0]]),
+        ([180, 270, 270], [[0, 0, -1], [1, 0, 0], [0, -1, 0]]),
+        ([270, 0, 0], [[1, 0, 0], [0, 0, 1], [0, -1, 0]]),
+        ([270, 0, 90], [[0, -1, 0], [0, 0, 1], [-1, 0, 0]]),
+        ([270, 0, 180], [[-1, 0, 0], [0, 0, 1], [0, 1, 0]]),
+        ([270, 0, 270], [[0, 1, 0], [0, 0, 1], [1, 0, 0]]),
+        ([270, 90, 0], [[0, 0, 1], [-1, 0, 0], [0, -1, 0]]),
+        ([270, 90, 90], [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]),
+        ([270, 90, 180], [[0, 0, 1], [1, 0, 0], [0, 1, 0]]),
+        ([270, 90, 270], [[0, 0, 1], [0, -1, 0], [1, 0, 0]]),
+        ([270, 180, 0], [[-1, 0, 0], [0, 0, -1], [0, -1, 0]]),
+        ([270, 180, 90], [[0, 1, 0], [0, 0, -1], [-1, 0, 0]]),
+        ([270, 180, 180], [[1, 0, 0], [0, 0, -1], [0, 1, 0]]),
+        ([270, 180, 270], [[0, -1, 0], [0, 0, -1], [1, 0, 0]]),
+        ([270, 270, 0], [[0, 0, -1], [1, 0, 0], [0, -1, 0]]),
+        ([270, 270, 90], [[0, 0, -1], [0, -1, 0], [-1, 0, 0]]),
+        ([270, 270, 180], [[0, 0, -1], [-1, 0, 0], [0, 1, 0]]),
+        ([270, 270, 270], [[0, 0, -1], [0, 1, 0], [1, 0, 0]]),
+    ];
+
+    /// Varianten drehen sich genau wie im Spiel: Für jede der 64
+    /// Kombinationen sind die Bilder der Einheitsvektoren die des Spiels, und
+    /// die Ecken eines vollen Würfels liegen danach genau auf 0 oder 16,
+    /// wieder alle acht. Über sin und cos in f32 lagen sie bis zu rund 1e-6
+    /// daneben.
+    #[test]
+    fn vierteldrehungen_genau_wie_im_spiel() {
+        let ecken: Vec<[f32; 3]> = (0..8)
+            .map(|i| [(i >> 2) & 1, (i >> 1) & 1, i & 1].map(|a| 16.0 * a as f32))
+            .collect();
+        for ([x, y, z], bilder) in SPIEL {
+            for (achse, bild) in bilder.iter().enumerate() {
+                let mut e = [0.0; 3];
+                e[achse] = 1.0;
+                assert_eq!(
+                    viertel_drehen(e, x, y, z),
+                    bild.map(|a| a as f32),
+                    "{x} {y} {z}"
+                );
+            }
+            let mut gedreht: Vec<[f32; 3]> =
+                ecken.iter().map(|&p| rotate_variant(p, x, y, z)).collect();
+            assert!(
+                gedreht.iter().flatten().all(|&a| a == 0.0 || a == BLOCK),
+                "{x} {y} {z}: {gedreht:?}"
+            );
+            gedreht.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            assert_eq!(gedreht, ecken, "{x} {y} {z}");
+        }
+    }
+
+    /// `uvlock` bleibt über jede Drehung genau: Für alle 64 Drehungen und
+    /// jede Seite landet eine ganzzahlige Texturkoordinate wieder genau auf
+    /// einer ganzen Zahl, ohne Runden. Dafür rundete `lock_uv` auf
+    /// Tausendstel, solange die Drehung über sin und cos in f32 lief.
+    #[test]
+    fn uvlock_bleibt_ganzzahlig() {
+        let viertel = [0, 90, 180, 270];
+        for face in [
+            Face::Down,
+            Face::Up,
+            Face::North,
+            Face::South,
+            Face::West,
+            Face::East,
+        ] {
+            for (x, y, z) in viertel
+                .into_iter()
+                .flat_map(|x| viertel.into_iter().map(move |y| (x, y)))
+                .flat_map(|(x, y)| viertel.into_iter().map(move |z| (x, y, z)))
+            {
+                for (u, v) in (0..=16).flat_map(|u| (0..=16).map(move |v| (u, v))) {
+                    let uv = lock_uv(face, [u as f32, v as f32], x, y, z);
+                    assert!(
+                        uv.iter()
+                            .all(|a| a.fract() == 0.0 && (0.0..=BLOCK).contains(a)),
+                        "{face:?} {x} {y} {z}, ({u}, {v}): {uv:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
     fn variantendrehung_laeuft_um_den_blockmittelpunkt() {
         // Der Mittelpunkt bleibt liegen
-        assert_eq!(
-            rund(rotate_variant([8.0, 8.0, 8.0], 0, 90, 0)),
-            [8.0, 8.0, 8.0]
-        );
-        // 90 Grad um Y schiebt die Nordkante nach Osten
-        assert_eq!(
-            rund(rotate_variant([8.0, 8.0, 0.0], 0, 90, 0)),
-            [16.0, 8.0, 8.0]
-        );
+        assert_eq!(rotate_variant([8.0, 8.0, 8.0], 0, 90, 0), [8.0, 8.0, 8.0]);
+        // 90 Grad um Y schiebt die Nordkante nach Osten und die Ostkante
+        // nach Süden
+        assert_eq!(rotate_variant([8.0, 8.0, 0.0], 0, 90, 0), [16.0, 8.0, 8.0]);
+        assert_eq!(rotate_variant([16.0, 8.0, 8.0], 0, 90, 0), [8.0, 8.0, 16.0]);
         // Vier Vierteldrehungen sind die Identität
         let mut p = [3.0, 5.0, 7.0];
         for _ in 0..4 {
             p = rotate_variant(p, 0, 90, 0);
         }
-        assert_eq!(rund(p), [3.0, 5.0, 7.0]);
+        assert_eq!(p, [3.0, 5.0, 7.0]);
     }
 
     /// Bei den Winkeln, die in Vanilla und im Pack vorkommen, stimmt der
@@ -488,7 +621,7 @@ mod tests {
     /// bleibt bei 1.
     #[test]
     fn rescale_bleibt_bei_jedem_winkel_begrenzt() {
-        assert_eq!(rund(rescale_factors([0.0, 90.0, 0.0])), [1.0, 1.0, 1.0]);
+        assert_eq!(rescale_factors([0.0, 90.0, 0.0]), [1.0, 1.0, 1.0]);
 
         // 60 Grad: die größte Komponente ist sin, nicht cos
         let f = rescale_factors([0.0, 60.0, 0.0]);
@@ -518,19 +651,27 @@ mod tests {
         }
     }
 
-    /// Eine Vierteldrehung bildet den Würfel auf sich selbst ab; mit
-    /// `rescale` darf er den Einheitswürfel nicht verlassen.
+    /// Eine Vierteldrehung bildet den Würfel genau auf sich selbst ab, auch
+    /// mit `rescale` und über zwei Achsen.
     #[test]
-    fn vierteldrehung_mit_rescale_bleibt_im_wuerfel() {
-        let rotation = Rotation {
-            origin: [8.0, 8.0, 8.0],
-            angles: [0.0, 90.0, 0.0],
-            rescale: true,
-        };
-        for ecke in [[0.0, 0.0, 0.0], [16.0, 16.0, 16.0], [0.0, 16.0, 0.0]] {
-            let p = rotate_element(ecke, &rotation);
-            for a in p {
-                assert!((-0.001..=16.001).contains(&a), "{ecke:?} -> {p:?}");
+    fn vierteldrehung_der_elemente_bleibt_im_wuerfel() {
+        for (angles, rescale) in [
+            ([0.0, 90.0, 0.0], true),
+            ([0.0, -90.0, 0.0], false),
+            ([180.0, 0.0, -180.0], false),
+            ([180.0, 0.0, -180.0], true),
+        ] {
+            let rotation = Rotation {
+                origin: [8.0, 8.0, 8.0],
+                angles,
+                rescale,
+            };
+            for ecke in [[0.0, 0.0, 0.0], [16.0, 16.0, 16.0], [0.0, 16.0, 0.0]] {
+                let p = rotate_element(ecke, &rotation);
+                assert!(
+                    p.iter().all(|&a| a == 0.0 || a == BLOCK),
+                    "{angles:?} {rescale}: {ecke:?} -> {p:?}"
+                );
             }
         }
     }

@@ -53,6 +53,45 @@ ihre Seite des Einheitswürfels, dreht sich mit der Variante mit und wird
 auf der Zielseite wieder zur Texturkoordinate. 143 Vanilla-Blockstates
 setzen `uvlock`, fast alle Treppen, Zäune und Falltüren darunter.
 
+## Drehung der Varianten
+
+Die Blockstate-Datei dreht ein Modell um Vielfache von 90 Grad um x, y und
+z (`quadrant` in `blockstate.rs`). Belegt per javap am Client 26.2:
+
+- **Zusammensetzen:** je Achse eine Vierteldrehung (`Quadrant`), zuerst um
+  x, dann um y, dann um z (`Quadrant.fromXYZAngles`).
+- **Matrix:** die der `OctahedralGroup`, nur aus 0 und ±1.
+- **Ecken:** `FaceBakery.rotateVertexBy` dreht jede Ecke damit um die
+  Blockmitte.
+
+Der Renderer rechnet genauso ohne Rundung: sin und cos sind 0 oder ±1
+(`sin_cos` in `baker.rs`). Dieselbe Drehung nehmen die `cullface`
+und `uvlock`. Für alle 64 Kombinationen sind die Bilder der
+Einheitsvektoren die des Spiels, mit einer Probe ausgelesen und im Test
+`vierteldrehungen_genau_wie_im_spiel` festgehalten. Warum so:
+[0045](../entscheidungen/0045-varianten-genau-drehen.md).
+
+Über `sin_cos` in `f32` war cos(90°) nicht 0, sondern −4,4e-8, und eine
+Ecke lag rund 3e-7 neben 0 oder 16. Bei scale 4 verschob das den Rahmen
+eines vollen Würfels in der Drehung (180, 0, 180) um ein Pixel, und
+`uvlock` musste auf Tausendstel runden.
+
+Elemente dreht der Renderer mit demselben `sin_cos`: Vielfache von 90 Grad
+genau, andere Winkel wie 22,5, 45 oder 67,5 Grad über `sin_cos` in `f32`.
+Das Spiel rechnet dort mit JOML (`CuboidRotation`, `Matrix4f.rotation` und
+`rotationZYX`). Belegt per javap und Probe am Client 26.2:
+
+- **±90 und ±270 Grad:** genau, denn `Math.cosFromSin` macht aus sin = ±1
+  ein cos von genau 0. So dreht Vanilla zwei Elemente in
+  `template_hanging_sign_rot_2`. Der Test
+  `vierteldrehung_der_elemente_bleibt_im_wuerfel` prüft, dass die Ecken
+  eines vollen Würfels dabei genau auf 0 oder 16 bleiben.
+- **±180 Grad:** nicht genau, sin ist ±8,7e-8. Ein voller Würfel, um 180
+  Grad über x und z gedreht, hat im Spiel eine Ecke bei 1,4e-6 statt 0.
+  Der Renderer rechnet hier genau, warum, steht in
+  [0045](../entscheidungen/0045-varianten-genau-drehen.md), „Verworfene
+  Alternativen“.
+
 ## `.mcmeta`
 
 Eine `.mcmeta` liest der Renderer wie der Block-Atlas: `animation` und

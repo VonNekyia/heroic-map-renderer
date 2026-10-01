@@ -53,6 +53,30 @@ ihre Seite des Einheitswürfels, dreht sich mit der Variante mit und wird
 auf der Zielseite wieder zur Texturkoordinate. 143 Vanilla-Blockstates
 setzen `uvlock`, fast alle Treppen, Zäune und Falltüren darunter.
 
+## Drehung der Varianten
+
+Die Blockstate-Datei dreht ein Modell um Vielfache von 90 Grad um x, y und
+z (`quadrant` in `blockstate.rs`). Belegt per javap am Client 26.2:
+
+- **Zusammensetzen:** je Achse eine Vierteldrehung (`Quadrant`), zuerst um
+  x, dann um y, dann um z (`Quadrant.fromXYZAngles`).
+- **Matrix:** die der `OctahedralGroup`, nur aus 0 und ±1.
+- **Ecken:** `FaceBakery.rotateVertexBy` dreht jede Ecke damit um die
+  Blockmitte.
+
+Der Renderer rechnet genauso ohne Rundung: sin und cos sind 0 oder ±1
+(`viertel_drehen` in `baker.rs`). Dieselbe Drehung nehmen die `cullface`
+und `uvlock`. Für alle 64 Kombinationen sind die Bilder der
+Einheitsvektoren die des Spiels, mit einer Probe ausgelesen und im Test
+`vierteldrehungen_genau_wie_im_spiel` festgehalten. Warum so:
+[0045](../entscheidungen/0045-varianten-genau-drehen.md).
+
+Über `sin_cos` in `f32` war cos(90°) nicht 0, sondern −4,4e-8, und eine
+Ecke lag rund 3e-7 neben 0 oder 16. Bei scale 4 verschob das den Rahmen
+eines vollen Würfels in der Drehung (180, 0, 180) um ein Pixel, und
+`uvlock` musste auf Tausendstel runden. Die Drehung der Elemente, etwa um
+22,5 oder 45 Grad, rechnet weiter über `sin_cos`.
+
 ## `.mcmeta`
 
 Eine `.mcmeta` liest der Renderer wie der Block-Atlas: `animation` und

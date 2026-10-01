@@ -28,7 +28,8 @@ läuft. Die darf nicht im Repository stehen. Issue #71.
 - Ohne `SITE_URL` fehlt alles, was eine absolute Adresse braucht; Titel,
   Beschreibung und Icon bleiben.
 - `robots.txt` erlaubt alles ausser `tiles/`, ab der Wurzel der Domain
-  gerechnet.
+  gerechnet; `tiles/map.json` bleibt erlaubt, sonst rendert eine
+  Suchmaschine statt der Seite eine Fehlermeldung.
 - Tests und Doku nennen nur `https://example.org/` (RFC 2606).
 
 ## Verworfene Alternativen
@@ -51,6 +52,6 @@ läuft. Die darf nicht im Repository stehen. Issue #71.
 ## Folgen
 
 - Für jede Adresse ein eigener Build. Die Seite ist klein, der Build dauert
-  unter einer Sekunde.
+  rund zwei Sekunden (in der CI 1,9 s).
 - Lighthouse am Build ohne `SITE_URL`: alle vier Kategorien 1, auch Best
   Practices, seit das Icon `/favicon.ico` erspart.

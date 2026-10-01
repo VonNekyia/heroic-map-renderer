@@ -1,6 +1,6 @@
 ---
 name: doku-bilder-rendern
-description: Rendert die Bilder unter docs/bilder/ aus der Testwelt neu, samt Galerie und Banner des README, mit den Befehlen, aus denen sie stammen. Nutzen, wenn sich das Bild des Renderers sichtbar geändert hat oder ein Bild im README oder in docs/ veraltet ist.
+description: Rendert die Bilder unter docs/bilder/ aus der Testwelt neu, samt Galerie und Banner des README und Vorschaubild und Icons der Karte, mit den Befehlen, aus denen sie stammen. Nutzen, wenn sich das Bild des Renderers sichtbar geändert hat oder ein Bild im README, in docs/ oder unter web/public veraltet ist.
 ---
 
 # Doku-Bilder rendern
@@ -25,6 +25,7 @@ Testwelt liegt unter `./world`, die Assets wie in
    | `welt.webp`, `dorf.webp`, `ufer.webp`, `eis.webp`, `savanne.webp` | zugeschnitten, verlustfrei, Tabelle `README` |
    | `banner.webp` | der Ausschnitt `BANNER` der Übersicht unter `quellen/banner-ebenen.png` |
    | `biomgrenze-savanne.webp`, `biomgrenze-ozean.webp` | je zweimal gerendert, links `--biome-blend 0`, rechts `2`, zugeschnitten und nebeneinander, Tabelle `GRENZEN` |
+   | `web/public/vorschau.jpg`, `favicon.png`, `apple-touch-icon.png` | [`web-bilder.py`](web-bilder.py): die Mitte von `welt.webp` auf 1200 × 630, die Icons aus der Ebene „Insel“ des Banners, siehe Schritt 3 |
    | `sprites.png` | der Befehl in [`docs/benutzung/schalter.md`](../../docs/benutzung/schalter.md), „Sprites rastern: `--sprite`“ |
 
    Liegen `world/` und die Assets nicht in der Wurzel, nennt ein zweites
@@ -41,7 +42,13 @@ Testwelt liegt unter `./world`, die Assets wie in
    ```
 
    Wer Insel oder Schrift ändert, ändert die Ebenen in Aseprite und
-   exportiert sie ohne Karte neu.
+   exportiert sie ohne Karte neu. Danach und nach einem neuen `welt.webp`
+   die Bilder der Karte unter `web/public`:
+
+   ```bash
+   aseprite -b --layer Insel docs/bilder/quellen/banner.aseprite --save-as insel.png
+   python skills/doku-bilder-rendern/web-bilder.py insel.png
+   ```
 4. **Die übrigen Bilder** `kacheln.png`, `zoomstufen.png`,
    `zeichenreihenfolge.png` und `frontend.png` entstanden in den Schritten
    5, 6, 4 und 7; wie genau, ist nicht festgehalten. Wer eines neu macht,

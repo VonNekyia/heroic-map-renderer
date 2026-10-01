@@ -9,16 +9,17 @@ const TILES = join(PUBLIC, 'tiles');
 /** Was der Betreiber beim Build setzt, siehe docs/frontend.md, „Ausliefern“. */
 const SEITE = {
   url: adresse(process.env.SITE_URL),
-  titel: process.env.SITE_TITLE ?? 'Heroic Map Renderer',
-  beschreibung: process.env.SITE_DESCRIPTION ?? 'Isometrische Karte einer Minecraft-Welt.',
-  bild: process.env.SITE_IMAGE ?? 'vorschau.jpg',
+  // Leere Werte, etwa aus der CI, zählen wie keine.
+  titel: process.env.SITE_TITLE || 'Heroic Map Renderer',
+  beschreibung: process.env.SITE_DESCRIPTION || 'Isometrische Karte einer Minecraft-Welt.',
+  bild: process.env.SITE_IMAGE || 'vorschau.jpg',
 };
 
 /** Die Adresse der Seite, mit `/` am Ende; leer ohne Angabe. */
 function adresse(wert: string | undefined): URL | undefined {
   if (!wert) return undefined;
-  const url = new URL(wert);
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+  const url = URL.canParse(wert) ? new URL(wert) : undefined;
+  if (!url || (url.protocol !== 'https:' && url.protocol !== 'http:')) {
     throw new Error(`SITE_URL muss mit http:// oder https:// beginnen: ${wert}`);
   }
   if (!url.pathname.endsWith('/')) url.pathname += '/';
@@ -53,26 +54,32 @@ export default defineConfig({
         const meta = (property: string, content: string) => ({
           tag: 'meta',
           attrs: { property, content },
+          injectTo: 'head' as const,
         });
         return {
           html: kopf,
           tags: [
-            { tag: 'link', attrs: { rel: 'canonical', href: url.href } },
+            { tag: 'link', attrs: { rel: 'canonical', href: url.href }, injectTo: 'head' },
             meta('og:url', url.href),
             meta('og:image', bild),
             meta('og:image:alt', `Ausschnitt der Karte: ${SEITE.titel}`),
-            { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
+            {
+              tag: 'meta',
+              attrs: { name: 'twitter:card', content: 'summary_large_image' },
+              injectTo: 'head',
+            },
           ],
         };
       },
-      // Suchmaschinen finden die Seite, rufen aber nicht jede Kachel ab.
-      // Der Pfad zählt ab der Wurzel der Domain.
+      // Suchmaschinen finden die Seite, rufen aber nicht jede Kachel ab;
+      // map.json brauchen sie, um die Seite zu rendern. Der Pfad zählt ab
+      // der Wurzel der Domain.
       generateBundle() {
         const pfad = SEITE.url?.pathname ?? '/';
         this.emitFile({
           type: 'asset',
           fileName: 'robots.txt',
-          source: `User-agent: *\nDisallow: ${pfad}tiles/\n`,
+          source: `User-agent: *\nAllow: ${pfad}tiles/map.json\nDisallow: ${pfad}tiles/\n`,
         });
       },
     },

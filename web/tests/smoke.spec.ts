@@ -153,10 +153,13 @@ test.describe('auf dem Touchscreen', () => {
     await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
     // Ohne Zeiger zeigt der Umriss den Block: Sechseck und die drei Kanten
     // der vorderen Ecke.
-    await expect(page.locator('.leaflet-overlay-pane path')).toHaveAttribute(
-      'd',
-      /^M[^M]+M[^M]+M[^M]+$/,
-    );
+    const linie = page.locator('.leaflet-overlay-pane path');
+    await expect(linie).toHaveAttribute('d', /^M[^M]+M[^M]+M[^M]+$/);
+
+    // Kommt danach die Maus, zeigt wieder ihr Zeiger den Block.
+    await page.mouse.move(...(await bildschirm(page, 160, 236)));
+    await expect(page.locator('.koordinaten')).toHaveText('X 40  Y 0  Z 20');
+    await expect(linie).not.toHaveAttribute('d', /M[^M]+M/);
   });
 });
 

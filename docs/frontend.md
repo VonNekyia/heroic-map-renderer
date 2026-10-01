@@ -145,18 +145,24 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   | `SITE_DESCRIPTION` | `Isometrische Karte einer Minecraft-Welt.` | `description`, `og:description` |
   | `SITE_IMAGE` | `vorschau.jpg` | Vorschau beim Teilen, relativ zu `SITE_URL` oder absolut |
 
-  Ohne `SITE_URL` fehlen `canonical`, `og:url` und das Vorschaubild; Titel,
+  Leere Werte zählen wie keine. Ohne `SITE_URL` fehlen `canonical`,
+  `og:url` und das Vorschaubild; Titel,
   Beschreibung und Icon bleiben. Die Adresse steht nie im Repository. Warum
   beim Build: [0048](entscheidungen/0048-seite-beim-build.md).
 - **Vorschaubild:** `public/vorschau.jpg`, 1200 × 630, ist ein Ausschnitt
-  aus `docs/bilder/welt.webp`, der Testwelt. Wer seine Welt zeigen will,
+  aus `docs/bilder/welt.webp`, der Testwelt; wie es entsteht, steht im
+  Skill [`doku-bilder-rendern`](../skills/doku-bilder-rendern/SKILL.md). Wer seine Welt zeigen will,
   legt ein eigenes Bild neben die Seite und nennt es in `SITE_IMAGE`.
 - **Icon:** `public/favicon.png` und `public/apple-touch-icon.png` sind die
-  Ebene „Insel“ aus `docs/bilder/quellen/banner.aseprite`.
+  Ebene „Insel“ aus `docs/bilder/quellen/banner.aseprite`, ebenso aus dem
+  Skill.
 - **`robots.txt`** schreibt der Build: alles erlaubt ausser `tiles/`, damit
-  Suchmaschinen die Seite finden, aber nicht jede Kachel abrufen. Sie wirkt
-  nur im Wurzelverzeichnis einer Domain; der Pfad zählt deshalb ab dort,
-  mit `SITE_URL=https://example.org/karte/` also `Disallow: /karte/tiles/`.
+  Suchmaschinen die Seite finden, aber nicht jede Kachel abrufen.
+  `tiles/map.json` bleibt erlaubt: Ohne sie rendert eine Suchmaschine nur
+  die Meldung, dass die Karte nicht lädt. Die längere Regel gewinnt
+  (RFC 9309). `robots.txt` wirkt nur im Wurzelverzeichnis einer Domain;
+  der Pfad zählt deshalb ab dort, mit `SITE_URL=https://example.org/karte/`
+  also `Allow: /karte/tiles/map.json` und `Disallow: /karte/tiles/`.
 
 ## Prüfen
 

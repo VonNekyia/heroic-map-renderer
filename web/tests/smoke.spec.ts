@@ -126,7 +126,7 @@ test('unvollständige Höhen lassen die Karte stehen', async ({ page }) => {
   await expect(page.locator('.koordinaten')).toHaveCount(0);
 });
 
-test('die Maus zeigt Koordinaten und Umriss des Blocks darunter', async ({ page }) => {
+test('die Maus zeigt Koordinaten des Blocks darunter, ohne Umriss', async ({ page }) => {
   await welt(page);
   await page.goto(DEMO);
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
@@ -138,11 +138,8 @@ test('die Maus zeigt Koordinaten und Umriss des Blocks darunter', async ({ page 
   await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
   await page.mouse.move(...(await bildschirm(page, 160, 236)));
   await expect(anzeige).toHaveText('X 40  Y 0  Z 20');
-  // Umriss und die drei Kanten der vorderen Ecke.
-  await expect(page.locator('.leaflet-overlay-pane path')).toHaveAttribute(
-    'd',
-    /^M[^M]+M[^M]+M[^M]+$/,
-  );
+  // Den Block zeigt der Mauszeiger; ein Umriss hat keine Linie.
+  await expect(page.locator('.leaflet-overlay-pane path')).not.toHaveAttribute('d', /M[^M]+M/);
 });
 
 test.describe('auf dem Touchscreen', () => {
@@ -154,6 +151,12 @@ test.describe('auf dem Touchscreen', () => {
     await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
     await page.touchscreen.tap(...(await bildschirm(page, 400, 36)));
     await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
+    // Ohne Zeiger zeigt der Umriss den Block: Sechseck und die drei Kanten
+    // der vorderen Ecke.
+    await expect(page.locator('.leaflet-overlay-pane path')).toHaveAttribute(
+      'd',
+      /^M[^M]+M[^M]+M[^M]+$/,
+    );
   });
 });
 

@@ -220,10 +220,21 @@ function koordinaten(
   const rahmen = L.polyline([], { color: '#000', weight: 2, opacity: 0.8, interactive: false });
   rahmen.addTo(map);
 
+  // Den Umriss zeigt nur ein Finger oder Stift; mit der Maus zeigt der
+  // Zeiger selbst, wohin man zielt. Siehe docs/frontend.md, „Koordinaten“.
+  let ohneZeiger = false;
+  const merke = (event: PointerEvent): void => {
+    ohneZeiger = event.pointerType !== 'mouse';
+  };
+  map.getContainer().addEventListener('pointerdown', merke);
+  map.getContainer().addEventListener('pointermove', merke);
+
   const zeige = (block: Block | undefined): void => {
     anzeige.textContent = block ? `X ${block[0]}  Y ${block[1]}  Z ${block[2]}` : 'X –  Y –  Z –';
     rahmen.setLatLngs(
-      block ? umriss(block, scale).map((linie) => linie.map(([x, y]) => point(x, y))) : [],
+      block && ohneZeiger
+        ? umriss(block, scale).map((linie) => linie.map(([x, y]) => point(x, y)))
+        : [],
     );
   };
   // Lädt eine Bewegung noch Höhen, kann eine spätere vor ihr fertig sein.

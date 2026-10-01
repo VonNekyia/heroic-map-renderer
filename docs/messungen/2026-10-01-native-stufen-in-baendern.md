@@ -16,8 +16,8 @@ mit und ohne Karte wie auf einem Thread; der ganze Lauf wird 11 bis 19 %
 kürzer. Jede Kachel ist Byte für Byte dieselbe. Am Stand mit 24 Threads
 dekodieren die nativen Stufen einen Chunk 2,3- statt 7,8-mal und rechnen
 sein Licht 1,3- statt 4,6-mal, auf einem Thread jeden Chunk einmal. Die
-Spitze des Arbeitsspeichers steigt ohne Karte um bis zu 0,07 GiB, mit Karte
-um 0,2 bis 0,35 GiB.
+Spitze des Arbeitsspeichers steigt ohne Karte um bis zu 0,1 GiB, mit Karte
+um 0,2 bis 0,35 GiB, im privaten Speicher um rund 0,7 GiB.
 
 ## Aufbau
 
@@ -28,6 +28,8 @@ um 0,2 bis 0,35 GiB.
   - **C:** B mit `BAND = 1`, nur für diese Messung;
   - **D:** B, das den Zeichner der Karte zu Beginn jedes Bands verwirft,
     nur für diese Messung;
+  - **F:** B, das die gröbste Stufe auf der CPU zeichnet, nur für diese
+    Messung;
   - A und B mit einem **Zähler**, nur für diese Messung und nicht
     eingecheckt, nach dem Muster von
     [2026-09-29, Licht ausbreiten](2026-09-29-licht-ausbreiten.md): Er
@@ -59,13 +61,18 @@ um 0,2 bis 0,35 GiB.
   - **Zähler:** Stand mit 24 Threads, Stand, klein, und Fichtenwald auf
     einem Thread, `--gpu off`, je ein Lauf;
   - **Speicher über die Zeit:** Stand, 24 Threads, A und B mit und ohne
-    Karte, je ein Lauf, der Arbeitsspeicher alle 20 ms.
+    Karte, je ein Lauf, der Arbeitsspeicher alle 20 ms;
+  - **Privater Speicher:** Stand, 24 Threads, A und B im Wechsel, mit Karte
+    drei Runden, ohne zwei. Das Skript lief versehentlich zweimal
+    hintereinander; beide Durchgänge zählen. Dazu A, B und F mit Karte in
+    den Folgen ABF, FBA.
 - 24 Threads heisst `RAYON_NUM_THREADS=24`. Jeder Lauf in ein frisches
   Verzeichnis, das vom Echtzeitschutz ausgenommen war, siehe
   [Echtzeitschutz unter Windows](../benutzung/echtzeitschutz.md). Bis auf
   die letzte Serie lief nebenher nichts, die Last lag vor und nach jeder
-  Serie bei 0 bis 5 %. Während der letzten baute und renderte nebenher ein
-  anderer Prozess; sie misst keine Zeit.
+  Serie bei 0 bis 5 %. Während der Serien „Speicher über die Zeit“ und
+  „Privater Speicher“ baute und renderte nebenher ein anderer Prozess; sie
+  messen keine Zeit.
 
 Der Befehl, aus der Wurzel des Repositorys, für den Stand ohne Karte:
 
@@ -81,7 +88,9 @@ Zeit für alle zusammen nennt. Beide schliessen das Bauen der
 Sprite-Tabellen ein. Die Dauer der Basis stammt ebenfalls aus der Ausgabe,
 die des ganzen Laufs von der Uhr des Messskripts, die Spitze des
 Arbeitsspeichers aus `GetProcessMemoryInfo` (`PeakWorkingSetSize`) des
-beendeten Prozesses, über die Zeit aus `WorkingSetSize`. Alle Läufe vom
+beendeten Prozesses, über die Zeit aus `WorkingSetSize`, die Spitze des
+privaten Speichers aus `PeakPagefileUsage`, der Spitze von
+`PrivateUsage`. Alle Läufe vom
 01.10. In den Tabellen steht der Median, dahinter die Spanne.
 
 ## Ergebnis
@@ -172,6 +181,20 @@ Das Höchste je Phase. Bei beiden Ständen liegt die Spitze in den nativen
 Stufen: Bei scale 4 braucht eine Kachel 368 Chunks, und die Caches sind
 entsprechend voll.
 
+### Privater Speicher
+
+| Stand, 24 Threads | Läufe | Working Set | privat |
+|---|---|---|---|
+| A mit Karte | 8 | 2,88 GiB (2,79–2,99) | 3,57 GiB (3,49–3,72) |
+| B mit Karte | 8 | 3,15 GiB (3,08–3,22) | 4,28 GiB (4,23–4,35) |
+| F mit Karte | 2 | 3,04 GiB (3,03–3,05) | 4,16 GiB (4,15–4,17) |
+| A ohne Karte | 4 | 2,33 GiB (2,30–2,34) | 2,72 GiB (2,70–2,74) |
+| B ohne Karte | 4 | 2,42 GiB (2,36–2,44) | 2,84 GiB (2,80–2,86) |
+
+Mit Karte liegt B im Working Set 0,27 GiB über A, im privaten Speicher
+0,71 GiB; ohne Karte 0,09 und 0,12 GiB. Zeichnet B die gröbste Stufe auf
+der CPU (F), bleiben davon 0,59 GiB.
+
 ## Schluss
 
 - **Zeit:** Am Stand und am Fichtenwald werden die nativen Stufen in
@@ -189,10 +212,13 @@ entsprechend voll.
   einmal gerechnet; an so kleinen Ausschnitten teilen sich auch die
   Spalten ihre Chunks. Im Vollrender sind die Spalten lang, gerechnet sind
   es dort 1,5 je Chunk, so oft, wie Spalten ihn schneiden.
-- **Speicher:** Ohne Karte steigt die Spitze um bis zu 0,07 GiB, mit Karte
-  um 0,2 bis 0,35 GiB, an beiden Ausschnitten gleich. Ein Zeichner je Band
-  statt je Thread ändert daran nichts (D); woher der Rest mit Karte kommt,
-  zeigt diese Messung nicht. Im Vollrender hält jeder Thread gerechnet bis
+- **Speicher:** Ohne Karte steigt die Spitze um bis zu 0,1 GiB, mit Karte
+  um 0,2 bis 0,35 GiB, an beiden Ausschnitten gleich. Das Mehr mit Karte
+  steckt auch im privaten Speicher, dort sind es 0,71 GiB; eingeblendeter
+  Speicher allein ist es also nicht. Ein Zeichner je Band statt je Thread
+  ändert daran nichts (D), die gröbste Stufe auf der CPU wenig (F): Die
+  vielen kleinen Durchgänge der gröbsten Stufe sind es nicht. Woher es
+  kommt, zeigt diese Messung nicht. Im Vollrender hält jeder Thread gerechnet bis
   zu anderthalb Bänder, rund 1300 Chunks samt Licht zu rund 65 KB, also
   bis rund 85 MB, und einen Teil davon ohnehin im Cache.
 - **Vollrender, gerechnet:** Mit 33 bis 38 % weniger, wie mit Karte und

@@ -355,7 +355,9 @@ Kachel 368 Chunks. Dazu kommt der Vorrat der Bänder, siehe „Native Stufen
 in Bändern“: je Thread das laufende und das vorige Band, gerechnet bis rund
 1300 Chunks samt Licht zu rund 65 KB, rund 85 MB, und einen Teil davon hält
 der Cache ohnehin. An Ausschnitten der Testwelt steigt die Spitze damit
-ohne Karte um bis zu 0,07 GiB, mit Karte um 0,2 bis 0,35 GiB, siehe
+ohne Karte um bis zu 0,1 GiB, mit Karte um 0,2 bis 0,35 GiB und im
+privaten Speicher um rund 0,7 GiB; woher das Mehr mit Karte kommt, ist
+offen, siehe
 [2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md).
 
 Die Sprite-Tabelle teilen sich alle Threads. Fast jedes Sprite hat eine

@@ -681,7 +681,7 @@ fn teildeckung_verdeckt_nicht() {
 /// Ein voller Würfel mit einer Farbe sieht in jeder Vierteldrehung gleich
 /// aus: Die Drehung einer Variante ist genau wie im Spiel und legt keine
 /// Kante knapp neben ihren Platz. Geprüft an allen 64 Kombinationen um X, Y
-/// und Z, bei jedem scale, den die Kacheln nehmen.
+/// und Z, bei scale 4 bis 64.
 #[test]
 fn gedrehter_wuerfel_bleibt_pixelgleich() {
     let mut assets = assets();

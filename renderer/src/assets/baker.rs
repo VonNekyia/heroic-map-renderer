@@ -334,67 +334,44 @@ fn rotate_variant(point: [f32; 3], x: i32, y: i32, z: i32) -> [f32; 3] {
 
 /// Die Drehung einer Variante, um X, dann Y, dann Z wie
 /// `Quadrant.fromXYZAngles`, mit umgekehrtem Vorzeichen wie
-/// `BlockModelRotation`. Wie die Matrix des Spiels ohne Rundung: sin und cos
-/// sind 0 oder ±1.
+/// `BlockModelRotation`. Blockstates erlauben nur Vielfache von 90 Grad,
+/// also ist sie genau wie die Matrix des Spiels.
 /// Siehe docs/renderer/modelle-und-texturen.md, „Drehung der Varianten“.
 fn viertel_drehen(v: [f32; 3], x: i32, y: i32, z: i32) -> [f32; 3] {
-    let v = um_x(v, viertel(-x));
-    let v = um_y(v, viertel(-y));
-    um_z(v, viertel(-z))
+    rotate_all(v, [-x as f32, -y as f32, -z as f32])
 }
 
-/// sin und cos einer Vierteldrehung, genau. Andere Winkel lässt `quadrant`
-/// in `blockstate.rs` nicht durch.
-fn viertel(grad: i32) -> (f32, f32) {
-    match grad.rem_euclid(360) {
-        0 => (0.0, 1.0),
-        90 => (1.0, 0.0),
-        180 => (0.0, -1.0),
-        270 => (-1.0, 0.0),
-        _ => unreachable!("Drehung um {grad} Grad, keine Vierteldrehung"),
+/// sin und cos eines Winkels in Grad: für Vielfache von 90 Grad genau 0 oder
+/// ±1, sonst über `sin_cos`.
+/// Siehe docs/renderer/modelle-und-texturen.md, „Drehung der Varianten“.
+fn sin_cos(grad: f32) -> (f32, f32) {
+    match grad.rem_euclid(360.0) {
+        0.0 => (0.0, 1.0),
+        90.0 => (1.0, 0.0),
+        180.0 => (0.0, -1.0),
+        270.0 => (-1.0, 0.0),
+        _ => grad.to_radians().sin_cos(),
     }
 }
 
-fn rotate_x(v: [f32; 3], degrees: f32) -> [f32; 3] {
-    if degrees == 0.0 {
-        return v;
-    }
-    um_x(v, degrees.to_radians().sin_cos())
-}
-
-fn rotate_y(v: [f32; 3], degrees: f32) -> [f32; 3] {
-    if degrees == 0.0 {
-        return v;
-    }
-    um_y(v, degrees.to_radians().sin_cos())
-}
-
-fn rotate_z(v: [f32; 3], degrees: f32) -> [f32; 3] {
-    if degrees == 0.0 {
-        return v;
-    }
-    um_z(v, degrees.to_radians().sin_cos())
-}
-
-fn um_x([x, y, z]: [f32; 3], (sin, cos): (f32, f32)) -> [f32; 3] {
+fn rotate_x([x, y, z]: [f32; 3], grad: f32) -> [f32; 3] {
+    let (sin, cos) = sin_cos(grad);
     [x, y * cos - z * sin, y * sin + z * cos]
 }
 
-fn um_y([x, y, z]: [f32; 3], (sin, cos): (f32, f32)) -> [f32; 3] {
+fn rotate_y([x, y, z]: [f32; 3], grad: f32) -> [f32; 3] {
+    let (sin, cos) = sin_cos(grad);
     [x * cos + z * sin, y, -x * sin + z * cos]
 }
 
-fn um_z([x, y, z]: [f32; 3], (sin, cos): (f32, f32)) -> [f32; 3] {
+fn rotate_z([x, y, z]: [f32; 3], grad: f32) -> [f32; 3] {
+    let (sin, cos) = sin_cos(grad);
     [x * cos - y * sin, x * sin + y * cos, z]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn rund(v: [f32; 3]) -> [f32; 3] {
-        v.map(|a| (a * 1000.0).round() / 1000.0)
-    }
 
     /// `corner` und `default_uv` müssen zueinander passen: die abgeleiteten
     /// Texturkoordinaten müssen wieder die Ecken des Elements ergeben.
@@ -471,9 +448,9 @@ mod tests {
 
     #[test]
     fn drehungen_sind_rechtshaendig() {
-        assert_eq!(rund(rotate_y([1.0, 0.0, 0.0], 90.0)), [0.0, 0.0, -1.0]);
-        assert_eq!(rund(rotate_x([0.0, 1.0, 0.0], 90.0)), [0.0, 0.0, 1.0]);
-        assert_eq!(rund(rotate_z([1.0, 0.0, 0.0], 90.0)), [0.0, 1.0, 0.0]);
+        assert_eq!(rotate_y([1.0, 0.0, 0.0], 90.0), [0.0, 0.0, -1.0]);
+        assert_eq!(rotate_x([0.0, 1.0, 0.0], 90.0), [0.0, 0.0, 1.0]);
+        assert_eq!(rotate_z([1.0, 0.0, 0.0], 90.0), [0.0, 1.0, 0.0]);
     }
 
     /// Je Drehung um X, Y und Z die Bilder der Einheitsvektoren im Spiel:
@@ -612,21 +589,17 @@ mod tests {
     #[test]
     fn variantendrehung_laeuft_um_den_blockmittelpunkt() {
         // Der Mittelpunkt bleibt liegen
-        assert_eq!(
-            rund(rotate_variant([8.0, 8.0, 8.0], 0, 90, 0)),
-            [8.0, 8.0, 8.0]
-        );
-        // 90 Grad um Y schiebt die Nordkante nach Osten
-        assert_eq!(
-            rund(rotate_variant([8.0, 8.0, 0.0], 0, 90, 0)),
-            [16.0, 8.0, 8.0]
-        );
+        assert_eq!(rotate_variant([8.0, 8.0, 8.0], 0, 90, 0), [8.0, 8.0, 8.0]);
+        // 90 Grad um Y schiebt die Nordkante nach Osten und die Ostkante
+        // nach Süden
+        assert_eq!(rotate_variant([8.0, 8.0, 0.0], 0, 90, 0), [16.0, 8.0, 8.0]);
+        assert_eq!(rotate_variant([16.0, 8.0, 8.0], 0, 90, 0), [8.0, 8.0, 16.0]);
         // Vier Vierteldrehungen sind die Identität
         let mut p = [3.0, 5.0, 7.0];
         for _ in 0..4 {
             p = rotate_variant(p, 0, 90, 0);
         }
-        assert_eq!(rund(p), [3.0, 5.0, 7.0]);
+        assert_eq!(p, [3.0, 5.0, 7.0]);
     }
 
     /// Bei den Winkeln, die in Vanilla und im Pack vorkommen, stimmt der
@@ -648,7 +621,7 @@ mod tests {
     /// bleibt bei 1.
     #[test]
     fn rescale_bleibt_bei_jedem_winkel_begrenzt() {
-        assert_eq!(rund(rescale_factors([0.0, 90.0, 0.0])), [1.0, 1.0, 1.0]);
+        assert_eq!(rescale_factors([0.0, 90.0, 0.0]), [1.0, 1.0, 1.0]);
 
         // 60 Grad: die größte Komponente ist sin, nicht cos
         let f = rescale_factors([0.0, 60.0, 0.0]);
@@ -678,19 +651,27 @@ mod tests {
         }
     }
 
-    /// Eine Vierteldrehung bildet den Würfel auf sich selbst ab; mit
-    /// `rescale` darf er den Einheitswürfel nicht verlassen.
+    /// Eine Vierteldrehung bildet den Würfel genau auf sich selbst ab, auch
+    /// mit `rescale` und über zwei Achsen.
     #[test]
-    fn vierteldrehung_mit_rescale_bleibt_im_wuerfel() {
-        let rotation = Rotation {
-            origin: [8.0, 8.0, 8.0],
-            angles: [0.0, 90.0, 0.0],
-            rescale: true,
-        };
-        for ecke in [[0.0, 0.0, 0.0], [16.0, 16.0, 16.0], [0.0, 16.0, 0.0]] {
-            let p = rotate_element(ecke, &rotation);
-            for a in p {
-                assert!((-0.001..=16.001).contains(&a), "{ecke:?} -> {p:?}");
+    fn vierteldrehung_der_elemente_bleibt_im_wuerfel() {
+        for (angles, rescale) in [
+            ([0.0, 90.0, 0.0], true),
+            ([0.0, -90.0, 0.0], false),
+            ([180.0, 0.0, -180.0], false),
+            ([180.0, 0.0, -180.0], true),
+        ] {
+            let rotation = Rotation {
+                origin: [8.0, 8.0, 8.0],
+                angles,
+                rescale,
+            };
+            for ecke in [[0.0, 0.0, 0.0], [16.0, 16.0, 16.0], [0.0, 16.0, 0.0]] {
+                let p = rotate_element(ecke, &rotation);
+                assert!(
+                    p.iter().all(|&a| a == 0.0 || a == BLOCK),
+                    "{angles:?} {rescale}: {ecke:?} -> {p:?}"
+                );
             }
         }
     }

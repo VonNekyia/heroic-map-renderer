@@ -2318,12 +2318,14 @@ mod tests {
     }
 
     /// Bleibt eine Familie im Würfel, bleibt jede ihrer Fassungen im Umriss:
-    /// Masken, Biome und die Streifen ihrer Flüssigkeit. `contained`
+    /// Masken, Biome, die Streifen ihrer Flüssigkeit und die Fassungen ohne
+    /// Flächen zu gleichen Nachbarn. `contained`
     /// prüft nur die Grundbilder, darauf bauen aber die Deckungsmaske
     /// (`bedeckt`) und die Kandidatensuche (`touches`): Ein enthaltener
     /// Block fällt weg, wenn sein Umriss bedeckt ist oder die Kachel nicht
-    /// berührt. Geprüft an den Blöcken der Testszenen, Wasser und Lava in
-    /// jeder Höhe, bei jedem scale von 4 bis 32.
+    /// berührt. Geprüft an den Blöcken der Testszenen, Eis, gefluteten
+    /// Scheiben und Wurzeln, Wasser und Lava in jeder Höhe, bei jedem scale
+    /// von 4 bis 32.
     #[test]
     fn fassungen_enthaltener_familien_bleiben_im_umriss() {
         let mut assets = assets();
@@ -2348,6 +2350,9 @@ mod tests {
             "druckplatte",
             "teppich",
             "mit_overlay",
+            "ice",
+            "glass_pane[east=true,north=false,south=true,waterlogged=true,west=false]",
+            "mangrove_roots[waterlogged=true]",
         ]
         .into_iter()
         .map(state)
@@ -2372,6 +2377,7 @@ mod tests {
                     .copied()
                     .collect();
                 ids.extend(masken);
+                ids.extend(family.fassungen.iter().flatten().flatten());
                 if let Some((fluid, _)) = family.fluid {
                     ids.extend(
                         set.strips

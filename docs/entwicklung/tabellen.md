@@ -1,16 +1,18 @@
 ---
 title: Erzeugte Tabellen
-description: Die Tabellen aus dem Spiel, blocks.txt, leuchten.txt, licht.txt, schatten.txt, blockentities.txt und dimensionstypen.txt - was darin steht, gegen welche Version, welche Tests sie festhalten und wie man sie neu erzeugt.
+description: Die Tabellen aus dem Spiel, blocks.txt, leuchten.txt, licht.txt, schatten.txt, nachbarn.txt, blockentities.txt und dimensionstypen.txt - was darin steht, gegen welche Version, welche Tests sie festhalten und wie man sie neu erzeugt.
 code:
   - renderer/src/assets/blocks.txt
   - renderer/src/assets/leuchten.txt
   - renderer/src/assets/licht.txt
   - renderer/src/assets/schatten.txt
+  - renderer/src/assets/nachbarn.txt
   - renderer/src/assets/blockentities.txt
   - renderer/src/assets/dimensionstypen.txt
   - renderer/src/assets/Leuchten.java
   - renderer/src/assets/Licht.java
   - renderer/src/assets/Schatten.java
+  - renderer/src/assets/Nachbarn.java
   - renderer/src/assets/Blockentities.java
   - renderer/src/assets/Dimensionstypen.java
   - renderer/src/assets/blockstate.rs
@@ -20,8 +22,8 @@ code:
 
 # Erzeugte Tabellen
 
-Was Minecraft im Code verdrahtet und der Renderer braucht, steht in sechs
-Tabellen unter `renderer/src/assets/`, vier aus dem Server-JAR von 26.2,
+Was Minecraft im Code verdrahtet und der Renderer braucht, steht in sieben
+Tabellen unter `renderer/src/assets/`, fünf aus dem Server-JAR von 26.2,
 zwei aus dem Client-JAR, und ins Binär einkompiliert (`blockstate.rs`,
 `blockentity.rs`, `dimension.rs`). Von Hand werden sie nie geändert; für
 eine andere Version erzeugt sie der Skill
@@ -38,6 +40,7 @@ Haben alle Zustände eines Blocks dasselbe Zeichen, steht es einmal.
 | [`leuchten.txt`](../../renderer/src/assets/leuchten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer 0 bis f für `getLightEmission`, mit `emissiveRendering` dieselbe Stufe als Buchstabe g bis v; Blöcke, die nie leuchten, fehlen | `Leuchten.java` | 109 Blöcke aus 26.2 |
 | [`licht.txt`](../../renderer/src/assets/licht.txt) | je Zustand in der Reihenfolge von `getPossibleStates` sieben Zeichen: `getLightDampening` (0, 1 oder f), dann je Richtung von `Direction.values()` die Fläche, mit der er das Licht an dieser Seite aufhält, zur Basis 36: 0 keine, 1 die ganze Seite, ab 2 eine Teilfläche. Am Ende je Achse die Paare aus Teilflächen, die zusammen eine Seite decken, als `paar <achse> <a> <b>`; Blöcke, die das Licht nirgends aufhalten, fehlen | `Licht.java` | 852 Blöcke mit 18 323 Zuständen und 288 Paare aus 26.2 |
 | [`schatten.txt`](../../renderer/src/assets/schatten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer, Bit 1 für `getShadeBrightness` 0,2, Bit 2 für `isViewBlocking` mit `getLightDampening` > 0, Bit 4 für `isCollisionShapeFullBlock`; Blöcke ohne Bit fehlen | `Schatten.java` | 517 Blöcke aus 26.2 |
+| [`nachbarn.txt`](../../renderer/src/assets/nachbarn.txt) | je Block mit eigenem `skipRendering` eine Zeile: der Name, die Regel `gleich`, `senkrecht` oder `verbunden` und bei `verbunden` womöglich der Tag seiner Gruppe. Wasser und Lava fehlen, Laub mit den Vorgaben des Spiels auch | `Nachbarn.java`, mit den Tags des Spiels | 59 Blöcke aus 26.2 |
 | [`dimensionstypen.txt`](../../renderer/src/assets/dimensionstypen.txt) | die Vorgaben der vier Attribute der Lightmap aus `EnvironmentAttributes`; je Dimensionstyp des Spiels `has_skylight`, `cardinal_light` und die Attribute, die er setzt. Das Format steht im Kopf von `Dimensionstypen.java` | `Dimensionstypen.java` mit dem Client-JAR, über `VanillaRegistries.createLookup` | 4 Typen aus 26.2 |
 | [`blockentities.txt`](../../renderer/src/assets/blockentities.txt) | je Zustand eines Blocks mit Blockentity-Renderer, was das Spiel aus Modellen zeichnet: Flächen, Lage, Textur, Schicht, Farbe; dazu die Farbstoffe, die Scherben, die Regel und die Muster des Spiels für Banner. Das Format steht im Kopf von `Blockentities.java` | `Blockentities.java` mit dem Client-JAR | 26.2, Zahlen in [Blockentities](../renderer/blockentities.md), „Die Tabelle“ |
 
@@ -50,6 +53,9 @@ aufhalten, siehe [Wasser und Licht](../renderer/wasser-und-licht.md).
 die Sicht nehmen und bei welchen jede ebene Fläche im Licht der Zelle davor
 liegt, siehe [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md).
 Andere Werte als 0,2 und 1 gibt `getShadeBrightness` in 26.2 nicht zurück.
+`nachbarn.txt` sagt, welche Flächen zu gleichen Nachbarn entfallen, siehe
+[Sprites und Deckung](../renderer/sprites-und-deckung.md), „Flächen zu
+gleichen Nachbarn“.
 `blockentities.txt` gibt Truhen, Bannern und den übrigen Blockentities ihr
 Bild, siehe [Blockentities](../renderer/blockentities.md).
 `dimensionstypen.txt` gibt jeder Dimension ihren Typ, siehe
@@ -62,6 +68,8 @@ Bild, siehe [Blockentities](../renderer/blockentities.md).
 - `leuchten_wie_im_spiel`, `licht_wie_im_spiel` und `schatten_wie_im_spiel`
   prüfen Stufen, Flächen und Bits einzelner Blöcke aus den Tabellen und
   die Zahl der Paare.
+- `nachbarn_wie_im_spiel` hält die Zahl der Blöcke in `nachbarn.txt` fest
+  und prüft Paare, für die `skipRendering` in 26.2 so antwortet.
 - `tabelle_wie_im_spiel` prüft, dass jeder Verweis in `blockentities.txt`
   auf etwas zeigt, das es gibt, und jeder Block so viele Bilder hat wie
   Zustände oder eines; dazu die Zahl der Blöcke und Farbstoffe und die Regel

@@ -1,9 +1,12 @@
 ---
 title: Sprites und Deckung
-description: Wie die Sprite-Tabelle aus Familien und Fassungen entsteht, wann ein Sprite als deckend gilt, wann ein Würfel wegfällt und wie die Deckungsmaske nur zeichnet, was am Ende zu sehen ist.
+description: Wie die Sprite-Tabelle aus Familien und Fassungen entsteht, wann ein Sprite als deckend gilt, wann ein Würfel wegfällt, welche Flächen zu gleichen Nachbarn entfallen und wie die Deckungsmaske nur zeichnet, was am Ende zu sehen ist.
 code:
   - renderer/src/render/sprites.rs
   - renderer/src/render/metatile.rs
+  - renderer/src/assets/baker.rs
+  - renderer/src/assets/blockstate.rs
+  - renderer/src/assets/nachbarn.txt
 ---
 
 # Sprites und Deckung
@@ -23,11 +26,13 @@ Die Tabelle entsteht nach dem Vorlauf, der alle vorkommenden Blockstates
 einsammelt, siehe [Der Weg einer Kachel](renderpfad.md), „Vorlauf“.
 Blockstates mit gleichem Bild teilen sich eine Familie: gleicher Name,
 gleiche Modelle, gleiche Flüssigkeit, gleicher Ort der Saat, gleiches Bild
-aus dem Blockentity und gleiche Kollisionsform (`family_key` in
-`sprites.rs`). Das Bild zählt, weil eine Truhe in jeder Lage dasselbe
-Blockmodell hat, die Kollisionsform, weil bei voller jede ebene Fläche im
-Licht der Zelle davor liegt, siehe
-[Weiche Beleuchtung](weiche-beleuchtung.md), „Die Regeln des Spiels“. Licht
+aus dem Blockentity, gleiche Kollisionsform und gleiche Regel zu den
+Nachbarn (`family_key` in `sprites.rs`). Das Bild zählt, weil eine Truhe in
+jeder Lage dasselbe Blockmodell hat, die Kollisionsform, weil bei voller
+jede ebene Fläche im Licht der Zelle davor liegt, siehe
+[Weiche Beleuchtung](weiche-beleuchtung.md), „Die Regeln des Spiels“. Die
+Regel zählt, weil ein Pack einem Gitter in jeder Verbindung dasselbe Modell
+geben kann, siehe unten, „Flächen zu gleichen Nachbarn“. Licht
 trägt kein Sprite, es kommt beim Zeichnen. Banner mit Mustern und Krüge mit
 Scherben bekommen je Familie und Daten eine eigene Familie
 (`SpriteSet::add_entities`), siehe [Blockentities](blockentities.md), „Im
@@ -35,7 +40,8 @@ Renderpfad“.
 Eine Familie hat ihre Alternativen, siehe
 [Varianten aus der Position](varianten.md), und
 Fassungen: eine je Maske verdeckter Flüssigkeitsflächen, dazu die Streifen
-an Wasserstufen, siehe [Wasser und Licht](wasser-und-licht.md). Gefärbte
+an Wasserstufen, siehe [Wasser und Licht](wasser-und-licht.md), und eine je
+Maske gleicher Nachbarn, siehe unten. Gefärbte
 Flächen tragen statt der Farbe eine Tönungskarte, siehe
 [Biomfarben](biomfarben.md), „Tönung beim Zeichnen“. Pixelgleiche Sprites
 teilen sich einen Eintrag.
@@ -81,6 +87,77 @@ Nachbarn verdecken nur bei Vielfachen von 4 als scale; bei anderen, die nur
 die Bibliothek annimmt, liegen Blöcke auf halben Pixeln, und ihre Umrisse
 schliessen nicht lückenlos an. Bei scale 6 blieben sonst Spalten von einem
 Pixel.
+
+## Flächen zu gleichen Nachbarn
+
+Das Spiel zeichnet eine Fläche mit `cullface` nur, wenn
+`Block.shouldRenderFace` sie erlaubt, zur `cullface`, wie die Variante sie
+dreht (`UnbakedCuboidGeometry`, `Direction.rotate`). Flächen ohne
+`cullface` zeichnet es immer. `shouldRenderFace` entscheidet in dieser
+Reihenfolge, belegt per javap am Client 26.2:
+
+1. Deckt die Seite des Nachbarn voll (`getFaceOcclusionShape` ist
+   `Shapes.block()`), entfällt die Fläche. Zeigt sie zur Kamera, übermalt
+   der Nachbar sie im Renderer ohnehin.
+2. Sonst entfällt sie, wenn `skipRendering(nachbar, richtung)` des eigenen
+   Blocks wahr ist. Das baut der Renderer nach.
+3. Sonst vergleicht das Spiel die Formen beider Seiten. Ohne `canOcclude`,
+   also bei allem Durchscheinenden, hat der Block keine Form, und die
+   Fläche bleibt.
+
+`skipRendering` überschreiben in 26.2 sechs Klassen mit 72 Blöcken. Ihre
+Regeln stehen in [`nachbarn.txt`](../../renderer/src/assets/nachbarn.txt),
+aus dem Spiel gelesen, siehe [Erzeugte Tabellen](../entwicklung/tabellen.md):
+
+| Regel | Klasse | Blöcke | Fläche entfällt zu einem Nachbarn |
+|---|---|---|---|
+| `gleich` | `HalfTransparentBlock`, `PowderSnowBlock` | 32: Eis, Glas, Buntglas, Slime, Honig, Kupfergitter, blaues Eis, Pulverschnee | desselben Blocks, in jeder Richtung |
+| `senkrecht` | `MangroveRootsBlock` | Mangrovenwurzeln | desselben Blocks, nur oben und unten |
+| `verbunden` | `IronBarsBlock` | 26: Scheiben und Gitter | desselben Blocks oben und unten; waagrecht nur, wenn beide zueinander verbunden sind. Eisengitter und Kupfergitter teilen den Tag `bars` und lassen waagrecht auch zueinander weg |
+
+- **Laub** (`LeavesBlock`, 11 Blöcke) lässt nur ohne `cutoutLeaves` etwas
+  weg. Das schaltet die Grafik „Schnell“ aus; mit der Vorgabe des Spiels
+  entfällt nichts, und Laub fehlt in der Tabelle.
+- **Wasser und Lava** (`LiquidBlock`) lassen ihre Flächen zu derselben
+  Flüssigkeit weg. Das tun schon die Masken der Flüssigkeiten, siehe
+  [Wasser und Licht](wasser-und-licht.md).
+- **Verschiedene Blöcke** bleiben übereinander: Eis neben Glas, Gläser
+  verschiedener Farbe, `ice` neben `frosted_ice`, gewachstes neben
+  ungewachstem Kupfergitter, Scheibe neben Gitter.
+
+Im Renderer, siehe
+[0044](../entscheidungen/0044-flaechen-zu-gleichen-nachbarn.md):
+
+- **Baker:** Jedes Viereck trägt seine `cullface`, mit der Variante gedreht
+  (`Quad::cullface`, `rotate_face` in `baker.rs`).
+- **Seiten:** Eine Familie mit Regel kennt die Seiten, zu denen eine
+  Fläche, die die Kamera sieht, ihre `cullface` hat und die Regel wirken
+  kann (`Nachbarregel::wirkt` in `blockstate.rs`). Bei Eis sind das oben,
+  Süden und Osten. Bei einer Scheibe ist es nur das Ende eines Arms nach
+  Osten oder Süden; Pfosten und Kanten haben keine `cullface`. Bei
+  Mangrovenwurzeln sind es oben und unten: Die untere Schicht zeigt ihre
+  Oberseite mit `cullface` unten zur Kamera.
+- **Fassungen:** Je Alternative gibt es eine Fassung je Maske über diese
+  Seiten, ohne die Flächen, deren `cullface` zu einer Seite der Maske zeigt.
+  Führt der Block eine Flüssigkeit, gibt es sie je Maske der Flüssigkeit
+  noch einmal (`SpriteSet::insert_nachbarn`). Bei Eis sind das 8, bei einer
+  gefluteten Scheibe mit einem Arm nach Osten 16, bei gefluteten
+  Mangrovenwurzeln 32. Die Fassungen gehören der Familie, nicht wie bei
+  Wasser dem Sprite.
+- **Beim Zeichnen** fragt `sprite_at` die Nachbarn zu diesen Seiten
+  (`Nachbarregel::verdeckt`) und nimmt die Fassung. Bleibt nichts, fällt der
+  Block weg, etwa mitten in einer Eismasse.
+
+Deckende Blöcke mit Regel ändern so kein Pixel, blaues Eis etwa: Was sie zu
+einem gleichen Nachbarn weglassen, übermalt der Nachbar.
+
+Was bleibt eine Näherung:
+
+- **Innere Flächen vor einem vollen Nachbarn.** Den ersten Fall baut der
+  Renderer nicht nach. Er greift bei Flächen, die zur Kamera zeigen, deren
+  `cullface` aber nach unten, Norden oder Westen weist, etwa bei den
+  inneren Schichten der Mangrovenwurzeln. Steht dort ein voller Block,
+  lässt das Spiel sie weg, der Renderer zeichnet sie.
 
 ## Hineinragende Nachbarmodelle
 

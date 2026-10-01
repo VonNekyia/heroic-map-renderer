@@ -28,7 +28,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 - [Die Kamera](renderer/kamera.md): Projektion, scale, Zeichenreihenfolge, f64.
 - [Der Weg einer Kachel](renderer/renderpfad.md): Vorlauf, Streifen, Bitmasken, Kandidaten, Blit, Kodieren, Speicher.
-- [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Deckungsmaske.
+- [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Flächen zu gleichen Nachbarn, Deckungsmaske.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
 - [Wasser und Licht](renderer/wasser-und-licht.md): Flüssigkeiten, Flächen, Streifen, Himmels- und Blocklicht.
 - [Weiche Beleuchtung](renderer/weiche-beleuchtung.md): die Regeln von `BlockModelLighter` für volle Würfel.
@@ -97,6 +97,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0041](entscheidungen/0041-dimensionstypen-aus-dem-spiel.md): Dimensionstypen aus einer Tabelle des Spiels, Datenwurzeln darüber.
 - [0042](entscheidungen/0042-feine-stufen-im-speicher.md): Die feinen Stufen der Pyramide entstehen im Export aus dem Speicher.
 - [0043](entscheidungen/0043-native-stufen-in-baendern.md): Native Stufen in Bändern, mit Chunks und Licht über alle Stufen.
+- [0044](entscheidungen/0044-flaechen-zu-gleichen-nachbarn.md): Flächen zu gleichen Nachbarn nach der Regel des Spiels, aus einer Tabelle, mit Fassungen je Familie.
 
 ## Messungen
 

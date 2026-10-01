@@ -120,11 +120,17 @@ Ausschnitten hochgerechnet:
 | #18, weiche Beleuchtung | rund 185 GB, 170 bis 230 | 65 bis 75 min | hochgerechnet | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md) |
 | #21, Übergänge zwischen Biomen | rund 185 GB, 1 % mehr | 66 bis 76 min | hochgerechnet | [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md) |
 | #21 | 184 GB: Basis 136,6, Pyramide 47,4 | 66 min | gemessen | [2026-09-27, Vollrender mit #21](../messungen/2026-09-27-vollrender-mit-21.md) |
-| #34, Licht aus der Ausbreitung | rund 190 bis 200 GB, 3 bis 8 % mehr | 78 bis 89 min | hochgerechnet | [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md) |
+| #34, Licht aus der Ausbreitung | rund 190 bis 200 GB, 3 bis 8 % mehr | 78 bis 89 min | hochgerechnet, eher zu hoch | [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md) |
 
 Die Grössen sind Summen der Dateigrössen. Belegt ist auf NTFS mit Clustern
 zu 4 KiB mehr: beim Lauf mit #21 rund 194 GB, davon 6,8 GB Verschnitt und
 gerechnet 3,4 GB Einträge in der MFT, siehe dort.
+
+Die Dauer mit #34 ist an Ausschnitten hochgerechnet, die mit allen Threads
+schmalere Streifen haben als ein Vollrender. Dort wird öfter doppelt
+dekodiert und Licht gerechnet; die 78 bis 89 min liegen deshalb eher zu
+hoch, siehe
+[2026-09-29, Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md).
 
 Die Pyramide brauchte im Vollrender mit #21 26 von 66 min. Seitdem baut
 #38 sie schneller von der Platte und #39 die feinen Stufen schon während

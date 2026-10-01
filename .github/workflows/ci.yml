@@ -113,6 +113,64 @@ jobs:
           name: playwright-report
           path: web/playwright-report
 
+  lighthouse:
+    name: Lighthouse
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      # Das Chromium von Playwright hat eine feste Version, das Chrome des
+      # Runners nicht.
+      - name: Browser
+        run: |
+          npx playwright install --with-deps --no-shell chromium
+          echo "CHROME_PATH=$(node --input-type=module -e "import {chromium} from '@playwright/test'; console.log(chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      # Ausgeliefert wie in Produktion: die Kacheln als tiles/ neben der Seite.
+      - name: Build mit Kacheln daneben
+        run: |
+          npm run build
+          cp -r dist/tiles-demo dist/tiles
+
+      - name: Lighthouse
+        run: npx lhci collect --config=./lighthouserc.cjs
+
+      - name: Werte je Lauf
+        run: |
+          node -e "
+          const fs = require('fs');
+          for (const f of fs.readdirSync('.lighthouseci').filter((f) => /^lhr-.*\.json$/.test(f))) {
+            const r = JSON.parse(fs.readFileSync('.lighthouseci/' + f));
+            const k = Object.entries(r.categories).map(([n, c]) => n + ' ' + c.score).join(', ');
+            const a = (id) => Math.round(r.audits[id].numericValue * 1000) / 1000;
+            console.log(k + ' | CLS ' + a('cumulative-layout-shift') + ' | TBT ' + a('total-blocking-time') + ' ms | LCP ' + a('largest-contentful-paint') + ' ms');
+          }"
+
+      - name: Berichte schreiben
+        if: always()
+        run: npx lhci upload --config=./lighthouserc.cjs
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse
+          path: web/lighthouse
+          retention-days: 14
+
+      - name: Schwellen
+        run: npx lhci assert --config=./lighthouserc.cjs
+
   doku:
     name: Doku
     runs-on: ubuntu-latest

@@ -92,6 +92,27 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
   await expect(page.locator('.koordinaten')).toHaveCount(0);
 });
 
+test('die Karte läuft unter strengen Headern', async ({ page }) => {
+  await page.addInitScript(() => {
+    const verletzt: string[] = [];
+    (window as unknown as { verletzt: string[] }).verletzt = verletzt;
+    document.addEventListener('securitypolicyviolation', (e) =>
+      verletzt.push(`${e.effectiveDirective} ${e.blockedURI}`),
+    );
+  });
+  await welt(page);
+  const antwort = await page.goto(DEMO);
+  expect(antwort?.headers()['content-security-policy']).toContain("default-src 'self'");
+
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  // Koordinaten holen Höhen und entpacken sie; auch das muss erlaubt sein.
+  await page.mouse.move(...(await bildschirm(page, 400, 36)));
+  await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
+  expect(await page.evaluate(() => (window as unknown as { verletzt: string[] }).verletzt)).toEqual(
+    [],
+  );
+});
+
 test('unvollständige Höhen lassen die Karte stehen', async ({ page }) => {
   await page.route('**/tiles-demo/map.json', async (route) => {
     const response = await route.fetch();

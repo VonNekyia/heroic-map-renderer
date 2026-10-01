@@ -3,21 +3,21 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', 'public', 'test-results', 'playwright-report'] },
+  { ignores: ['dist', 'public', 'test-results', 'playwright-report', 'lighthouse', '.lighthouseci'] },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {
     languageOptions: {
       globals: globals.browser,
       parserOptions: {
-        // Die Konfigurationsdatei selbst steht in keinem tsconfig.
-        projectService: { allowDefaultProject: ['eslint.config.js'] },
+        // Die Konfigurationsdateien selbst stehen in keinem tsconfig.
+        projectService: { allowDefaultProject: ['eslint.config.js', 'lighthouserc.cjs'] },
         tsconfigRootDir: import.meta.dirname,
       },
     },
   },
   {
-    files: ['tests/**', 'playwright.config.ts', 'vite.config.ts'],
+    files: ['tests/**', 'playwright.config.ts', 'vite.config.ts', 'lighthouserc.cjs'],
     languageOptions: { globals: globals.node },
   },
 );

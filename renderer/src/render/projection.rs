@@ -49,15 +49,22 @@ impl Kamera {
             .ok_or_else(|| {
                 format!("{text} ist keine Kamera: W:H mit ganzen Zahlen über 0 oder top")
             })?;
+        Kamera::schraeg(w, h)
+    }
+
+    /// Schräg mit der Raute `w`:`h`, gekürzt; zwischen 2:1 und 1:1.
+    pub fn schraeg(w: u32, h: u32) -> Result<Kamera, String> {
+        if w > 2 * h {
+            return Err(format!("{w}:{h} ist flacher als 2:1"));
+        }
+        if h > w {
+            return Err(format!("{w}:{h} ist steiler als 1:1"));
+        }
         let g = ggt(w, h);
-        let (breite, hoehe) = (w / g, h / g);
-        if breite > 2 * hoehe {
-            return Err(format!("{text} ist flacher als 2:1"));
-        }
-        if hoehe > breite {
-            return Err(format!("{text} ist steiler als 1:1"));
-        }
-        Ok(Kamera::Schraeg { breite, hoehe })
+        Ok(Kamera::Schraeg {
+            breite: w / g,
+            hoehe: h / g,
+        })
     }
 
     /// `a` je scale als Bruch: schräg H/(2W), von oben 1/2.

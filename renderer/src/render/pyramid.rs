@@ -231,9 +231,10 @@ static SRGB_STEPS: LazyLock<[f32; 255]> = LazyLock::new(|| {
 
 /// Was das Frontend über die Karte wissen muss.
 ///
-/// Die Projektion selbst steht nicht drin: sie hängt allein an `scale`.
-/// Das Frontend rechnet sie für die Koordinaten nach; dass beide gleich
+/// Die Projektion steht in `projection`, in Pixeln der feinsten Stufe. Das
+/// Frontend rechnet sie für die Koordinaten nach; dass beide gleich
 /// rechnen, prüfen beide an `renderer/tests/fixtures/projektion.json`.
+/// Siehe docs/benutzung/map-json.md, „Kamera und Projektion“.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MapInfo {
@@ -282,6 +283,28 @@ pub struct MapInfo {
     /// Oberster Block, den der Renderer zeichnet; steht mit `heights`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_y: Option<i32>,
+    /// Die Kamera, gekürzt: `"2:1"`, `"4:3"`, `"top"`. Fehlt das Feld,
+    /// stammt der Baum aus einem älteren Stand und zeigt 2:1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera: Option<String>,
+    /// Aus welcher Richtung die Kamera blickt, heute immer `"se"`. Fehlt das
+    /// Feld, ist es `se`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+    /// Die Projektion in Pixeln der feinsten Stufe; steht mit `camera`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projection: Option<ProjectionInfo>,
+}
+
+/// Die Projektion in `map.json`: `azimuth` heute immer `"diagonal"`, `u`
+/// Pixel je Schritt in x − z (h), `v` je Schritt in x + z (a), `y` je Block
+/// Höhe (b), siehe [`super::Projection`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectionInfo {
+    pub azimuth: String,
+    pub u: u32,
+    pub v: u32,
+    pub y: u32,
 }
 
 /// Liest ein Feld, das auch `null` sein darf: nur ein fehlendes bleibt
@@ -313,6 +336,9 @@ impl MapInfo {
             heights_cell: None,
             min_y: None,
             max_y: None,
+            camera: None,
+            direction: None,
+            projection: None,
         }
     }
 }

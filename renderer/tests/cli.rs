@@ -2215,6 +2215,12 @@ fn map_json_beschreibt_die_kacheln() {
     assert_eq!(info["minZoom"], 0);
     assert_eq!(info["scale"], 8);
     assert_eq!(info["tiles"], "{z}/{x}/{y}.webp");
+    assert_eq!(info["camera"], "2:1");
+    assert_eq!(info["direction"], "se");
+    assert_eq!(
+        info["projection"],
+        serde_json::json!({"azimuth": "diagonal", "u": 4, "v": 2, "y": 4})
+    );
 
     let basis = info["maxZoom"].as_u64().unwrap() as u32;
     assert!(
@@ -3459,6 +3465,73 @@ fn anderer_scale_wird_abgelehnt() {
         vorher,
         "der Baum hat sich verändert"
     );
+}
+
+/// Zwei Kameras in einem Baum mischten sich still. Eine andere Kamera bricht
+/// ab, bevor sie eine Kachel schreibt, und `map.json` nennt Kamera und
+/// Projektion der feinsten Stufe.
+#[test]
+fn andere_kamera_wird_abgelehnt() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let out = tempdir();
+    gelungen(&tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "8", "--camera", "8:6"],
+    ));
+    let info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.path().join("map.json")).unwrap())
+            .unwrap();
+    assert_eq!(info["camera"], "4:3", "gekürzt");
+    assert_eq!(
+        info["projection"],
+        serde_json::json!({"azimuth": "diagonal", "u": 4, "v": 3, "y": 4})
+    );
+    let vorher = schnappschuss(out.path());
+
+    // Ohne --camera: die Vorgabe ist 2:1.
+    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8"]);
+    assert!(!ausgabe.status.success(), "2:1 hätte abbrechen müssen");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("Kamera 4:3"), "Meldung: {meldung}");
+    assert!(meldung.contains("--camera 4:3"), "Meldung: {meldung}");
+    assert_eq!(
+        schnappschuss(out.path()),
+        vorher,
+        "der Baum hat sich verändert"
+    );
+}
+
+/// Ein Baum aus einem älteren Stand nennt keine Kamera und zeigt 2:1: Ein
+/// Lauf in 2:1 nimmt ihn auf und trägt sie ein, einer mit anderer Kamera
+/// nicht.
+#[test]
+fn baum_ohne_kamera_zeigt_zwei_zu_eins() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+    let karte = out.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    for feld in ["camera", "direction", "projection"] {
+        info.as_object_mut().unwrap().remove(feld);
+    }
+    std::fs::write(&karte, serde_json::to_string(&info).unwrap()).unwrap();
+
+    let ausgabe = tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "8", "--camera", "top"],
+    );
+    assert!(!ausgabe.status.success(), "top hätte abbrechen müssen");
+    assert!(String::from_utf8_lossy(&ausgabe.stderr).contains("Kamera 2:1"));
+
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
+    let info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    assert_eq!(info["camera"], "2:1");
 }
 
 /// Auch wenn nichts sichtbar ist, muss `map.json` geschrieben werden — und

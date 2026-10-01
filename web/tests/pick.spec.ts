@@ -12,9 +12,12 @@ function projiziere(x: number, y: number, z: number, scale: number): Punkt {
 test('die Projektion rechnet wie der Renderer', () => {
   // Paare aus Projection::project_block, aktuell gehalten von einem Test
   // des Renderers.
-  const paare = JSON.parse(
+  const eintraege = JSON.parse(
     readFileSync(new URL('../../renderer/tests/fixtures/projektion.json', import.meta.url), 'utf8'),
-  ) as { scale: number; block: Block; pixel: Punkt }[];
+  ) as { camera: string; eben?: number; scale: number; block: Block; pixel: Punkt }[];
+  // Bis zur Frontend-PR zu #66 nur 2:1 ohne Kantenpixel; sie ersetzt diese
+  // Zeile durch das allgemeine Modell.
+  const paare = eintraege.filter((e) => e.camera === '2:1' && e.eben === undefined);
   expect(paare.length).toBeGreaterThan(0);
   for (const { scale, block, pixel } of paare) {
     expect(projiziere(...block, scale), `scale ${scale}, Block ${String(block)}`).toEqual(pixel);

@@ -306,8 +306,8 @@ pub fn render_area_without_culling(
     Ok(canvas)
 }
 
-/// Wo der Ursprung eines Blocks auf der Leinwand liegt; dort sitzt die
-/// Mitte seines Umrisses.
+/// Wo der Ursprung eines Blocks auf der Leinwand liegt: der Bildpunkt
+/// seiner Ecke mit den kleinsten Koordinaten (`Projection::project_block`).
 fn block_origin(projection: Projection, rect: ScreenRect, anchor: [i32; 3]) -> (i32, i32) {
     let (sx, sy) = projection.project_block(anchor);
     (sx.round() as i32 - rect.x, sy.round() as i32 - rect.y)
@@ -429,26 +429,26 @@ struct Candidate {
 
 /// Bereich von `u = x - z`, dessen Spalten in das Rechteck fallen können.
 ///
-/// `screen_x = u * scale/2`. f64, weil rect und Weltkoordinaten bis knapp
+/// `screen_x = u * h`. f64, weil rect und Weltkoordinaten bis knapp
 /// 30 Millionen gehen: siehe Projection::project_block.
 fn u_window(projection: Projection, rect: ScreenRect) -> (i32, i32) {
-    let scale = projection.scale() as f64;
-    let bleed = BLEED_BLOCKS as f64 * scale;
+    let bleed = BLEED_BLOCKS as f64 * projection.scale() as f64;
+    let h = projection.h();
     (
-        ((rect.x as f64 - bleed) / (scale / 2.0)).floor() as i32,
-        ((rect.right() as f64 + bleed) / (scale / 2.0)).ceil() as i32,
+        ((rect.x as f64 - bleed) / h).floor() as i32,
+        ((rect.right() as f64 + bleed) / h).ceil() as i32,
     )
 }
 
-/// Bereich von `v = x + z` auf dieser Höhe: `screen_y = v * scale/4 - y *
-/// scale/2`.
+/// Bereich von `v = x + z` auf dieser Höhe: `screen_y = v * a - y * b`,
+/// nach aussen gerundet. Von oben ist er für jede Höhe derselbe.
 fn v_window(projection: Projection, rect: ScreenRect, y: i32) -> (i32, i32) {
-    let scale = projection.scale() as f64;
-    let bleed = BLEED_BLOCKS as f64 * scale;
-    let offset = y as f64 * scale / 2.0;
+    let bleed = BLEED_BLOCKS as f64 * projection.scale() as f64;
+    let offset = y as f64 * projection.b();
+    let a = projection.a();
     (
-        ((rect.y as f64 - bleed + offset) / (scale / 4.0)).floor() as i32,
-        ((rect.bottom() as f64 + bleed + offset) / (scale / 4.0)).ceil() as i32,
+        ((rect.y as f64 - bleed + offset) / a).floor() as i32,
+        ((rect.bottom() as f64 + bleed + offset) / a).ceil() as i32,
     )
 }
 
@@ -1477,9 +1477,12 @@ impl<'a> ChunkCache<'a> {
     /// Seiten hinein. Lava deckt nur bei scale 4, sonst fiele dort kein Block
     /// weg.
     ///
-    /// Beides gilt nur bei einem Vielfachen von 4 als scale, wenn jeder Block
-    /// auf ganzen Pixeln liegt; bei anderen, die nur die Bibliothek annimmt,
-    /// verdeckt kein Nachbar.
+    /// Von oben stehen die Seiten auf der Kante; dort verdeckt der Block
+    /// darüber allein, mit seinem Boden.
+    ///
+    /// Beides gilt nur, wenn jeder Block auf ganzen Pixeln liegt
+    /// (`Projection::ganze_pixel`); bei anderen scales, die nur die
+    /// Bibliothek annimmt, verdeckt kein Nachbar.
     /// Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
     /// Siehe docs/renderer/renderpfad.md, „Bitmasken“.
     fn expose(&mut self, slot: usize, s: usize) -> Result<()> {
@@ -1492,7 +1495,11 @@ impl<'a> ChunkCache<'a> {
         };
         let nx = self.edge((key.0 + 1, key.1), section_y, true)?;
         let nz = self.edge((key.0, key.1 + 1), section_y, false)?;
-        let verdecken = self.sprites.projection().scale().is_multiple_of(4);
+        let projection = self.sprites.projection();
+        let verdecken = projection.ganze_pixel();
+        // Von oben stehen die Seiten auf der Kante: Es deckt der Block darüber
+        // allein, als wären beide Nachbarn deckend.
+        let seiten = if projection.b() == 0.0 { u16::MAX } else { 0 };
 
         let loaded = self.slots[slot].loaded.as_mut().expect("geladen");
         let above = section_y
@@ -1508,6 +1515,7 @@ impl<'a> ChunkCache<'a> {
             let (x, z) = (col & 15, col >> 4);
             let (sx, fx, ux) = if x < 15 { rand(m, col + 1) } else { nx[z] };
             let (sz, fz, uz) = if z < 15 { rand(m, col + 16) } else { nz[x] };
+            let (sx, sz) = (sx | seiten, sz | seiten);
             let top = above.map_or(0, |a| a.bits[FLOOR][col] & 1);
             let floor_up = (m.bits[FLOOR][col] >> 1) | (top << 15);
             let hidden = sx & floor_up & sz;
@@ -1550,9 +1558,15 @@ impl<'a> ChunkCache<'a> {
     ) -> Result<Vec<Candidate>> {
         let projection = self.sprites.projection();
         let (u_min, u_max) = u_window(projection, rect);
-        // Das Fenster von `v` verschiebt sich je Höhe um genau 2.
-        let (v0_min, v0_max) = v_window(projection, rect, 0);
-        let (v_lo, v_hi) = (v0_min + 2 * y_range.0, v0_max + 2 * y_range.1);
+        // Das Fenster von `v` je Höhe; es verschiebt sich um b/a je Höhe, bei
+        // 2:1 um genau 2, von oben gar nicht.
+        let fenster: Vec<(i32, i32)> = (y_range.0..=y_range.1)
+            .map(|y| v_window(projection, rect, y))
+            .collect();
+        let (v_lo, v_hi) = (
+            v_window(projection, rect, y_range.0).0,
+            v_window(projection, rect, y_range.1).1,
+        );
         debug_assert!(y_range.1 - y_range.0 < 1 << 10);
         debug_assert!(v_hi - v_lo < 1 << 22 && u_max - u_min < 1 << 22);
         debug_assert!(foreign.len() < 1 << 9);
@@ -1568,9 +1582,10 @@ impl<'a> ChunkCache<'a> {
         let eigen = foreign.len() as u16;
         let in_y = |y: i32| (y_range.0..=y_range.1).contains(&y);
         let in_band = |y: i32, v: i32, u: i32| {
-            in_y(y)
-                && (u_min..=u_max).contains(&u)
-                && (v0_min + 2 * y..=v0_max + 2 * y).contains(&v)
+            in_y(y) && (u_min..=u_max).contains(&u) && {
+                let (lo, hi) = fenster[(y - y_range.0) as usize];
+                (lo..=hi).contains(&v)
+            }
         };
         // Das Band hat Reserve für Modelle, die aus ihrem Würfel ragen. Alle
         // anderen bleiben in dessen Umriss (`contained`) und zählen nur, wenn
@@ -1595,17 +1610,21 @@ impl<'a> ChunkCache<'a> {
             .unwrap_or(0);
 
         let pad_y = foreign.iter().map(|c| c[1].abs()).max().unwrap_or(0);
-        let scale = projection.scale() as f64;
-        let bleed = BLEED_BLOCKS as f64 * scale;
+        let bleed = BLEED_BLOCKS as f64 * projection.scale() as f64;
+        let (a, b) = (projection.a(), projection.b());
         // Höhen, die das Band in einem Chunk erreichen kann: die Umkehrung
         // von `v_window` für die kleinste und grösste Tiefe `v` des Chunks,
         // grosszügig gerundet. Entscheidend bleibt die Prüfung je Block
         // (`touches`, `in_band`); das hier spart nur die Schleife über
         // Sections, die das Band in diesem Chunk gar nicht berührt.
         // Siehe docs/renderer/renderpfad.md, „Kandidaten“.
+        // Von oben erreicht das Band jede Höhe.
         let y_span = |va: i32, vb: i32| {
-            let lo = ((va - 1) as f64 * scale / 4.0 - rect.bottom() as f64 - bleed) / (scale / 2.0);
-            let hi = ((vb + 1) as f64 * scale / 4.0 - rect.y as f64 + bleed) / (scale / 2.0);
+            if b == 0.0 {
+                return (i32::MIN / 4, i32::MAX / 4);
+            }
+            let lo = ((va - 1) as f64 * a - rect.bottom() as f64 - bleed) / b;
+            let hi = ((vb + 1) as f64 * a - rect.y as f64 + bleed) / b;
             (lo.floor() as i32 - 1 - pad_y, hi.ceil() as i32 + 1 + pad_y)
         };
 

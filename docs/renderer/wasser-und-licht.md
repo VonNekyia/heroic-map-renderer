@@ -279,6 +279,16 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
   Stufen nehmen die Antwort von dort, sonst hätte dieselbe Welt auf jeder
   Stufe anderes Licht: Ein Block mit 15/16 Höhe deckt bei scale 32 seinen
   Umriss nicht, bei scale 4 schliesst das Raster die Lücke.
+  - **In 2:1, bei jeder Kamera:** Das Raster ist immer das von 2:1 beim
+    scale der Basis, auch wenn der Lauf eine andere Kamera hat
+    (`SpriteSet::build_in`). Von oben deckt schon eine flache Seerose
+    ihren ganzen Umriss, ihr Würfel bliebe dunkel, und dieselbe Welt hätte
+    je Kamera anderes Licht.
+  - **Bei einem scale, den 2:1 nicht nimmt,** rastert 2:1 auf halben
+    Pixeln, etwa bei 5:3 und scale 30 mit a = 7,5. Die Blöcke der Tests
+    entscheiden dort wie 2:1 bei scale 32, auch der mit 15/16 Höhe
+    (`licht_unbekannter_bloecke_haengt_nicht_an_der_kamera` in
+    `renderer/src/render/sprites.rs`).
 - **Kein Flackern.** Das Spiel lässt `BlockFactor` zufällig um 1,4
   flackern; der Renderer nimmt 1,4.
 - **Die Oberfläche bleibt eben.** Minecraft gleicht die Eckhöhen an die

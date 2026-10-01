@@ -12,6 +12,7 @@ stehen im Skill daneben.
 import subprocess
 import sys
 import tempfile
+from fractions import Fraction
 from pathlib import Path
 
 from PIL import Image
@@ -36,6 +37,11 @@ GRENZEN = {
     "biomgrenze-ozean": ((816, 720), 8, 800, (60, 60, 800, 540)),
 }
 LUECKE = 8
+# Dasselbe Dorf je Kamera für docs/renderer/kamera.md, zwei mal zwei: der
+# Block ZIEL in der Mitte jedes Felds, scale 16.
+KAMERAS = ("2:1", "4:3", "1:1", "top")
+ZIEL = (-352, 64, 578)
+FELD = (640, 480)
 # Der Banner: dieser Ausschnitt von "welt" vor dem Zuschnitt, darüber die
 # Ebenen aus docs/bilder/quellen/banner.aseprite.
 BANNER = (520, 690, 1800, 1090)
@@ -50,6 +56,17 @@ def rendern(renderer, daten, ziel, center, scale, size, extra=()):
          *extra],
         check=True,
     )
+
+
+def mitte(kamera, ziel):
+    """--center, das den Block ziel in die Bildmitte legt. --center nennt die
+    Spalte, deren Höhe 0 in der Mitte landet; v rückt je Block Höhe um b/a,
+    schräg W/H, von oben 0."""
+    x, y, z = ziel
+    b_je_a = 0 if kamera == "top" else Fraction(*map(int, kamera.split(":")))
+    u, v = x - z, x + z - round(y * b_je_a)
+    v -= (u + v) % 2
+    return (u + v) // 2, (v - u) // 2
 
 
 def webp(bild, name):
@@ -80,6 +97,16 @@ def main():
             for i, feld in enumerate(felder):
                 paar.paste(feld, (i * (breite + LUECKE), 0))
             webp(paar, name)
+        felder = []
+        for kamera in KAMERAS:
+            png = Path(tmp) / f"kamera-{kamera.replace(':', 'x')}.png"
+            rendern(renderer, daten, png, mitte(kamera, ZIEL), 16, FELD[0], ["--camera", kamera])
+            oben = (FELD[0] - FELD[1]) // 2
+            felder.append(Image.open(png).convert("RGBA").crop((0, oben, FELD[0], oben + FELD[1])))
+        raster = Image.new("RGBA", (2 * FELD[0] + LUECKE, 2 * FELD[1] + LUECKE), (255, 255, 255, 255))
+        for i, feld in enumerate(felder):
+            raster.paste(feld, ((i % 2) * (FELD[0] + LUECKE), (i // 2) * (FELD[1] + LUECKE)))
+        webp(raster, "kameras")
     banner.alpha_composite(Image.open(BILDER / "quellen" / "banner-ebenen.png").convert("RGBA"))
     webp(banner, "banner")
 

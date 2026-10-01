@@ -13,7 +13,9 @@ code:
 # 0001: Zeichenreihenfolge statt Tiefenpuffer
 
 Die Zuordnung der Teile über den Bildschirm ist abgelöst durch
-[0050](0050-teile-je-wuerfel-im-raum.md), die Zuordnung im Raum.
+[0050](0050-teile-je-wuerfel-im-raum.md), die Zuordnung im Raum. Die
+Reihenfolge gilt seit [0051](0051-kameras-und-richtungen.md) für jede
+Kamera.
 
 ## Anlass
 

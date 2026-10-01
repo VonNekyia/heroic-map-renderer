@@ -11,6 +11,9 @@ code:
 
 # 0013: scale 32 als Standard
 
+Statt Vielfachen von 4 gilt seit [0051](0051-kameras-und-richtungen.md)
+die Regel „ganze Pixel“ für scale und Kamera zusammen.
+
 ## Anlass
 
 `scale` ist die Breite des ganzen Würfels, eine Seitenfläche ist halb so

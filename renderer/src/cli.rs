@@ -20,9 +20,10 @@ use terranova_render::render::heights::{self, Heights, RegionHeights};
 use terranova_render::render::pyramid;
 use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
-    BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Gpu, MapInfo, Projection, Reach, ScreenRect,
-    SpriteSet, Survey, TILE, TileId, corner_tiles, decode_webp, draw_list, encode_webp, render,
-    render_area, render_area_with, streifenbreite, survey, world_box,
+    BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Gpu, Kamera, MapInfo, Projection,
+    ProjectionInfo, Reach, ScreenRect, SpriteSet, Survey, TILE, TileId, corner_tiles, decode_webp,
+    draw_list, encode_webp, render, render_area, render_area_with, streifenbreite, survey,
+    world_box,
 };
 use terranova_render::world::biomzoom::{obfuscate_seed, zoom};
 use terranova_render::world::{BlockState, Blockdaten, REGION, World};
@@ -63,9 +64,16 @@ pub struct Args {
     #[arg(long, value_name = "DATEI")]
     sprite: Option<PathBuf>,
 
-    /// Pixelbreite eines Blocks, ein Vielfaches von 4
+    /// Pixelbreite eines Blocks; jede Blockecke muss bei der Kamera auf
+    /// ganzen Pixeln liegen, bei 2:1 heisst das ein Vielfaches von 4
     #[arg(long, default_value_t = Projection::DEFAULT_SCALE, value_parser = parse_scale)]
     scale: u32,
+
+    /// Kamera: `W:H` schräg mit der Raute W:H der Oberseite, von 2:1 bis
+    /// 1:1, oder `top` von oben. Vorgabe 2:1; ein bestehender Kachelbaum
+    /// verlangt seine Kamera
+    #[arg(long, value_name = "KAMERA", default_value = "2:1", value_parser = Kamera::parse)]
+    camera: Kamera,
 
     /// Wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, in
     /// Blöcken, wie der Biomübergang im Spiel: 0 bis 7, Vorgabe 2; ein
@@ -139,9 +147,9 @@ pub struct Args {
 
     /// Die Höhen für die Koordinatenanzeige in diesen Kachelbaum schreiben,
     /// ohne zu rendern, etwa in einen Baum aus einem Stand ohne sie. Liest
-    /// die ganze Welt, braucht --world und nimmt den scale aus map.json.
-    /// Jeder Export schreibt sie ohnehin
-    #[arg(long, value_name = "VERZEICHNIS", conflicts_with = "tiles")]
+    /// die ganze Welt, braucht --world und nimmt scale und Kamera aus
+    /// map.json. Jeder Export schreibt sie ohnehin
+    #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = ["tiles", "camera", "scale"])]
     heights: Option<PathBuf>,
 
     /// Die Zoomstufen und map.json dieses Kachelbaums aus seinen
@@ -151,18 +159,87 @@ pub struct Args {
     pyramid: Option<PathBuf>,
 }
 
-/// Die Projektion setzt Blöcke in Schritten von scale/4 Pixeln. Nur bei
-/// einem Vielfachen von 4 liegt jeder Block auf ganzen Pixeln; sonst
-/// rundet `blit` jede zweite Blockreihe, und benachbarte Reihen überdecken
-/// sich. Dann halbiert auch jede native Stufe exakt.
+/// Mindestens [`NATIVE_MIN_SCALE`]. Ob der scale zur Kamera passt, prüft
+/// [`projektion`].
 fn parse_scale(text: &str) -> std::result::Result<u32, String> {
     let scale: u32 = text.parse().map_err(|e| format!("{e}"))?;
-    if scale < 4 || !scale.is_multiple_of(4) {
-        return Err(format!(
-            "{scale} ist kein Vielfaches von 4: jede zweite Blockreihe läge auf einem halben Pixel"
-        ));
+    if scale < NATIVE_MIN_SCALE {
+        return Err(format!("{scale} ist kleiner als {NATIVE_MIN_SCALE}"));
     }
     Ok(scale)
+}
+
+/// Aus welcher Richtung die Kamera blickt; bis `--direction` immer von
+/// Südost.
+const RICHTUNG: &str = "se";
+
+/// Die Projektion aus `--scale` und `--camera`. Jede Blockecke muss auf
+/// ganzen Pixeln liegen, sonst rundet `blit` ganze Blockreihen, und
+/// benachbarte Reihen überdecken sich. Geht das nicht, nennt die Meldung
+/// die nächsten Kameras beim selben scale und die nächsten scales für
+/// diese Kamera.
+/// Siehe docs/renderer/kamera.md, „Ganze Pixel“.
+fn projektion(scale: u32, kamera: Kamera) -> Result<Projection> {
+    let projection = Projection::mit_kamera(scale, kamera);
+    if !projection.ganze_pixel() {
+        bail!("{}", ungueltig(projection));
+    }
+    Ok(projection)
+}
+
+/// Die Meldung zu einer Projektion ohne ganze Pixel, siehe [`projektion`].
+/// Beim selben scale geht jedes ganze a von scale/4 bis scale/2; die
+/// nächsten scales sind die Vielfachen von [`Kamera::schritt`] daneben.
+fn ungueltig(projection: Projection) -> String {
+    let (scale, kamera) = (projection.scale(), projection.kamera());
+    let zahl = |a: f64| format!("{}", (a * 100.0).round() / 100.0).replace('.', ",");
+    let mut text = if !scale.is_multiple_of(2) {
+        format!("{kamera} geht bei scale {scale} nicht: der scale muss gerade sein.")
+    } else {
+        let a = projection.a();
+        let nachbarn: Vec<String> = [a.floor() as u32, a.ceil() as u32]
+            .into_iter()
+            .filter_map(|a| Some(format!("{} (a = {a})", Kamera::schraeg(scale, 2 * a).ok()?)))
+            .collect();
+        format!(
+            "{kamera} geht bei scale {scale} nicht (a = {}). Nächste gültige: {}.",
+            zahl(a),
+            nachbarn.join(" oder ")
+        )
+    };
+    let (s, k) = (u64::from(scale), kamera.schritt());
+    let darunter = (s - 1) / k * k;
+    let scales: Vec<String> = [
+        (darunter >= u64::from(NATIVE_MIN_SCALE)).then_some(darunter),
+        Some((s / k + 1) * k),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|s| s.to_string())
+    .collect();
+    text += &format!(" {kamera} geht bei scale {}.", scales.join(" oder "));
+    text
+}
+
+/// Die Projektion eines bestehenden Baums aus seiner `map.json`: ohne
+/// `camera` 2:1, ohne `direction` von Südost.
+fn projektion_des_baums(dir: &Path, info: &MapInfo) -> Result<Projection> {
+    let pfad = dir.join("map.json");
+    let kamera = match &info.camera {
+        None => Kamera::ZWEI_ZU_EINS,
+        Some(text) => {
+            Kamera::parse(text).map_err(|e| anyhow::anyhow!("{}: {e}", pfad.display()))?
+        }
+    };
+    if let Some(richtung) = &info.direction
+        && richtung != RICHTUNG
+    {
+        bail!(
+            "{} blickt aus Richtung {richtung}, dieser Stand kennt nur {RICHTUNG}",
+            pfad.display()
+        );
+    }
+    Ok(Projection::mit_kamera(info.scale, kamera))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -186,6 +263,8 @@ struct Karte {
 pub fn run() -> Result<()> {
     std::panic::set_hook(still_beim_fangen(std::panic::take_hook()));
     let args = Args::parse();
+    // Vor allem anderen: Ohne ganze Pixel geht keine Kachel.
+    let projection = projektion(args.scale, args.camera)?;
 
     if args.world.is_none() && (args.at.is_some() || args.scan) {
         bail!("--at und --scan brauchen --world");
@@ -330,7 +409,7 @@ pub fn run() -> Result<()> {
             describe(assets, state)?;
         }
         if let Some(path) = &args.sprite {
-            write_sprites(assets, &states, Projection::new(args.scale), path)?;
+            write_sprites(assets, &states, projection, path)?;
         }
     }
 
@@ -346,12 +425,11 @@ pub fn run() -> Result<()> {
             }
         }
         if args.scan {
-            scan(world, regions, assets.as_mut(), Projection::new(args.scale))?;
+            scan(world, regions, assets.as_mut(), projection)?;
         }
         if let Some(at) = &args.at {
             at_coordinate(world, assets.as_mut(), at[0], at[1], at[2])?;
         }
-        let projection = Projection::new(args.scale);
         let center = (args.center[0], args.center[1]);
         if let Some(path) = &args.render {
             let size = args.size.unwrap_or(1024);
@@ -883,7 +961,7 @@ fn write_tiles(
     let uebernommen = pruefe_bestand(
         dir,
         bestand.as_ref(),
-        projection.scale(),
+        projection,
         kennung.as_deref().ok_or(warum.as_str()),
     )?;
     // Ein bestehender Baum behält seine Nummerierung, auch wenn die Welt
@@ -900,7 +978,7 @@ fn write_tiles(
     // ein Ausschnitt wird auf ganze Kacheln der gröbsten nativen Stufe
     // aufgerundet, und der Vorlauf sieht jeden Block, den irgendeine
     // Stufe braucht.
-    let stufen = native_stufen(dir, bestand.as_ref(), native, projection.scale(), max_zoom)?;
+    let stufen = native_stufen(dir, bestand.as_ref(), native, projection, max_zoom)?;
     let blend = mischung(dir, bestand.as_ref(), blend)?;
     let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
 
@@ -990,7 +1068,7 @@ fn write_tiles(
     // er vorher, legt er für das Verzeichnis nichts fest.
     let (_, _, pfad) = schreibe_map_json(
         dir,
-        projection.scale(),
+        projection,
         max_zoom,
         stufen,
         blend,
@@ -1188,7 +1266,7 @@ fn write_tiles(
     basis.retain(|tile| !weg.contains(&(max_zoom, *tile)));
     let (info, anzahl, path) = schreibe_map_json(
         dir,
-        projection.scale(),
+        projection,
         max_zoom,
         stufen,
         blend,
@@ -1232,7 +1310,7 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
     // Welt ist er älter als die nativen Stufen und hat keine.
     let nativ = alt.native_levels.unwrap_or_else(|| {
         if alt.world.is_some() {
-            native_levels(alt.scale, max_zoom)
+            native_levels(Projection::new(alt.scale), max_zoom)
         } else {
             0
         }
@@ -1351,6 +1429,9 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
         heights_cell: alt.heights_cell,
         min_y: alt.min_y,
         max_y: alt.max_y,
+        camera: alt.camera,
+        direction: alt.direction,
+        projection: alt.projection,
         ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
     let path = schreibe_info(dir, &info, Some(stempel))?;
@@ -1571,7 +1652,7 @@ fn powershell_text(text: &str) -> String {
 /// bis hierher hat vielleicht nichts das Verzeichnis angelegt.
 fn schreibe_map_json(
     dir: &Path,
-    scale: u32,
+    projection: Projection,
     max_zoom: u32,
     stufen: u32,
     blend: u8,
@@ -1582,10 +1663,30 @@ fn schreibe_map_json(
         native_levels: Some(stufen),
         biome_blend: Some(blend),
         world: Some(kennung.map(str::to_string)),
-        ..mit_hoehen(MapInfo::new(scale, max_zoom, basis))
+        ..mit_kamera(
+            mit_hoehen(MapInfo::new(projection.scale(), max_zoom, basis)),
+            projection,
+        )
     };
     let path = schreibe_info(dir, &info, None)?;
     Ok((info, basis.len(), path))
+}
+
+/// `info` mit Kamera, Richtung und Projektion in Pixeln der feinsten
+/// Stufe.
+/// Siehe docs/benutzung/map-json.md, „Kamera und Projektion“.
+fn mit_kamera(info: MapInfo, projection: Projection) -> MapInfo {
+    MapInfo {
+        camera: Some(projection.kamera().to_string()),
+        direction: Some(RICHTUNG.to_string()),
+        projection: Some(ProjectionInfo {
+            azimuth: "diagonal".to_string(),
+            u: projection.h() as u32,
+            v: projection.a() as u32,
+            y: projection.b() as u32,
+        }),
+        ..info
+    }
 }
 
 /// `info` mit den Feldern, die die Höhen beschreiben, siehe
@@ -1678,7 +1779,7 @@ fn hoehen_ohne_region(world: &World, reach: Reach, dir: &Path) -> Result<Vec<Pat
 
 /// Schreibt Höhen und ihre Felder in `map.json` eines bestehenden Baums,
 /// ohne zu rendern. Die Welt muss zum Baum gehören wie bei einem Export,
-/// der scale kommt aus seiner `map.json`.
+/// scale und Kamera kommen aus seiner `map.json`.
 /// Siehe docs/benutzung/map-json.md, „Höhen“.
 fn fill_heights(world: &World, dir: &Path) -> Result<()> {
     let karte = dir.join("map.json");
@@ -1690,13 +1791,13 @@ fn fill_heights(world: &World, dir: &Path) -> Result<()> {
     })?;
     let kennung = kennung(world, Some(&bestand))?;
     let warum = ohne_kennung(world);
+    let projection = projektion_des_baums(dir, &bestand)?;
     let uebernommen = pruefe_bestand(
         dir,
         Some(&bestand),
-        bestand.scale,
+        projection,
         kennung.as_deref().ok_or(warum.as_str()),
     )?;
-    let projection = Projection::new(bestand.scale);
 
     let started = Instant::now();
     let survey = survey(world, projection, Y_RANGE, None)?;
@@ -2049,10 +2150,10 @@ fn ohne_veraltete(
     Ok(())
 }
 
-/// Bis zu welchem scale gröbere Zoomstufen noch aus der Welt gerendert
-/// werden statt aus der feineren Stufe verkleinert: Die Projektion setzt
-/// Blöcke in Schritten von scale/4 Pixeln, und nur bei einem Vielfachen von
-/// 4 liegt jeder Block auf ganzen Pixeln.
+/// Der kleinste scale, für `--scale` und bis zu dem gröbere Zoomstufen noch
+/// aus der Welt gerendert werden statt aus der feineren verkleinert. In 2:1
+/// läge darunter jede zweite Blockreihe auf einem halben Pixel; jede andere
+/// Kamera hat dieselbe Grenze.
 /// Siehe docs/entscheidungen/0016-native-stufen-nur-auf-wunsch.md.
 const NATIVE_MIN_SCALE: u32 = 4;
 
@@ -2067,10 +2168,10 @@ fn native_stufen(
     dir: &Path,
     bestand: Option<&MapInfo>,
     verlangt: Option<u32>,
-    scale: u32,
+    projection: Projection,
     max_zoom: u32,
 ) -> Result<u32> {
-    let moeglich = native_levels(scale, max_zoom);
+    let moeglich = native_levels(projection, max_zoom);
     let hier = verlangt.map(|n| n.min(moeglich));
     match (bestand.map(|alt| alt.native_levels), hier) {
         (Some(Some(dort)), Some(hier)) if dort != hier => bail!(
@@ -2119,11 +2220,16 @@ fn mischung(dir: &Path, bestand: Option<&MapInfo>, verlangt: Option<u8>) -> Resu
 }
 
 /// Wie viele Stufen über der Basis nativ gerendert werden können: solange
-/// der halbe scale noch ein Vielfaches von 4 ist, bei scale 32 also drei
-/// (16, 8, 4), bei 16 zwei, bei 12 keine.
-fn native_levels(scale: u32, max_zoom: u32) -> u32 {
-    let (mut stufen, mut scale) = (0, scale);
-    while stufen < max_zoom && (scale / 2).is_multiple_of(4) && scale / 2 >= NATIVE_MIN_SCALE {
+/// beim halben scale jede Blockecke auf ganzen Pixeln liegt, bis
+/// [`NATIVE_MIN_SCALE`]. In 2:1 bei scale 32 drei (16, 8, 4), bei 16 zwei,
+/// bei 12 keine; in 8:5 bei 32 eine.
+fn native_levels(projection: Projection, max_zoom: u32) -> u32 {
+    let (mut stufen, mut scale) = (0, projection.scale());
+    while stufen < max_zoom
+        && scale.is_multiple_of(2)
+        && scale / 2 >= NATIVE_MIN_SCALE
+        && projection.bei(scale / 2).ganze_pixel()
+    {
         stufen += 1;
         scale /= 2;
     }
@@ -2204,9 +2310,10 @@ const VOR_26_1: &str =
 fn pruefe_bestand(
     dir: &Path,
     bestand: Option<&MapInfo>,
-    scale: u32,
+    projection: Projection,
     kennung: std::result::Result<&str, &str>,
 ) -> Result<bool> {
+    let scale = projection.scale();
     let Some(alt) = bestand else {
         return Ok(false);
     };
@@ -2238,14 +2345,33 @@ fn pruefe_bestand(
         ),
         _ => {}
     }
+    // Zwei Kameras in einem Baum mischten sich still.
+    // Siehe docs/benutzung/zoomstufen.md, „Ein Baum, eine Kamera“.
+    let dort = projektion_des_baums(dir, alt)?;
+    if dort.kamera() != projection.kamera() {
+        // Weicht auch der scale ab, gehört er in den Befehl.
+        let auch_scale = if alt.scale != scale {
+            format!(" --scale {}", alt.scale)
+        } else {
+            String::new()
+        };
+        bail!(
+            "{anzeige} gehört zu einem Baum mit Kamera {}, dieser Lauf hätte {}. Mit --camera \
+             {}{auch_scale} weiterrendern oder ein neues Verzeichnis nehmen.",
+            dort.kamera(),
+            projection.kamera(),
+            dort.kamera()
+        );
+    }
     if alt.scale != scale {
-        // Ältere Stände nahmen auch scale, die kein Vielfaches von 4 sind.
-        let weiter = match parse_scale(&alt.scale.to_string()) {
-            Ok(_) => format!(
+        // Ältere Stände nahmen auch scale, die nicht auf ganzen Pixeln liegen.
+        let weiter = if dort.ganze_pixel() {
+            format!(
                 "Mit --scale {} weiterrendern oder ein neues Verzeichnis nehmen.",
                 alt.scale
-            ),
-            Err(_) => "Dieser scale geht nicht mehr, ein neues Verzeichnis nehmen.".to_string(),
+            )
+        } else {
+            "Dieser scale geht nicht mehr, ein neues Verzeichnis nehmen.".to_string()
         };
         bail!(
             "{} gehört zu einem Baum mit scale {}, dieser Lauf hätte scale {scale}. {weiter}",
@@ -2313,11 +2439,15 @@ fn render_coarser(
     for _ in 0..stufen {
         z -= 1;
         scale /= 2;
-        let mut sprites = SpriteSet::build_in(assets, states, Projection::new(scale))?;
+        let mut sprites = SpriteSet::build_mit_licht(
+            assets,
+            states,
+            projection.bei(scale),
+            Some(licht_deckend.clone()),
+        )?;
         // Was unbekannt ist, hat die Basis schon gemeldet.
         sprites.add_entities(assets, entities)?;
         sprites.set_biomes(biomes.clone());
-        sprites.set_licht_deckend(licht_deckend.clone());
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
         je_stufe.push((z, sprites, kandidaten.clone()));
@@ -3805,18 +3935,20 @@ mod tests {
         );
     }
 
-    /// `--scale` nimmt nur Vielfache von 4: bei 2, 6 oder 9 lägen Blöcke
-    /// auf halben Pixeln, und native Stufen hätten den falschen Massstab.
+    /// In 2:1, der Vorgabe, gehen nur Vielfache von 4: bei 2, 6 oder 9 lägen
+    /// Blöcke auf halben Pixeln, und native Stufen hätten den falschen
+    /// Massstab. Unter 4 lehnt schon `parse_scale` ab.
     #[test]
-    fn scale_nur_als_vielfaches_von_vier() {
+    fn scale_nur_auf_ganzen_pixeln() {
+        let geht = |scale: &str| {
+            Args::try_parse_from(["x", "--scale", scale])
+                .is_ok_and(|args| projektion(args.scale, args.camera).is_ok())
+        };
         for gut in ["4", "8", "12", "32", "64"] {
-            assert!(Args::try_parse_from(["x", "--scale", gut]).is_ok(), "{gut}");
+            assert!(geht(gut), "{gut}");
         }
         for schlecht in ["0", "2", "6", "9", "17", "33"] {
-            assert!(
-                Args::try_parse_from(["x", "--scale", schlecht]).is_err(),
-                "{schlecht}"
-            );
+            assert!(!geht(schlecht), "{schlecht}");
         }
     }
 
@@ -4076,17 +4208,110 @@ mod tests {
 
     #[test]
     fn native_stufen_nur_auf_ganzen_pixeln() {
-        assert_eq!(native_levels(32, 9), 3, "16, 8, 4");
-        assert_eq!(native_levels(16, 9), 2);
-        assert_eq!(native_levels(8, 9), 1);
-        assert_eq!(native_levels(4, 9), 0);
-        assert_eq!(native_levels(12, 9), 0, "6 läge auf halben Pixeln");
-        assert_eq!(native_levels(24, 9), 1, "12, dann 6 nicht mehr");
+        let p = Projection::new;
+        assert_eq!(native_levels(p(32), 9), 3, "16, 8, 4");
+        assert_eq!(native_levels(p(16), 9), 2);
+        assert_eq!(native_levels(p(8), 9), 1);
+        assert_eq!(native_levels(p(4), 9), 0);
+        assert_eq!(native_levels(p(12), 9), 0, "6 läge auf halben Pixeln");
+        assert_eq!(native_levels(p(24), 9), 1, "12, dann 6 nicht mehr");
         assert_eq!(
-            native_levels(32, 2),
+            native_levels(p(32), 2),
             2,
             "nicht mehr Stufen als die Pyramide hat"
         );
+        let mit = |kamera: &str, scale| {
+            native_levels(
+                Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap()),
+                9,
+            )
+        };
+        assert_eq!(mit("16:9", 32), 0, "bei 16 wäre a = 4,5");
+        assert_eq!(mit("8:5", 32), 1, "16, bei 8 wäre a = 2,5");
+        assert_eq!(mit("4:3", 32), 2, "16, 8, bei 4 wäre a = 1,5");
+        assert_eq!(mit("1:1", 32), 3);
+        assert_eq!(mit("top", 32), 3);
+        assert_eq!(mit("5:3", 30), 0, "15 ist ungerade");
+        // Bei scale 24, wie in kamera.md, „Ganze Pixel“.
+        assert_eq!(mit("12:7", 24), 0, "bei 12 wäre a = 3,5");
+        assert_eq!(mit("3:2", 24), 2, "12, 6");
+        assert_eq!(mit("4:3", 24), 0, "bei 12 wäre a = 4,5");
+        assert_eq!(mit("6:5", 24), 1, "12, bei 6 wäre a = 2,5");
+        assert_eq!(mit("12:11", 24), 0, "bei 12 wäre a = 5,5");
+        assert_eq!(mit("1:1", 24), 2, "12, 6");
+        assert_eq!(mit("top", 24), 2, "12, 6");
+    }
+
+    /// Ohne ganze Pixel nennt die Meldung die nächsten Kameras beim selben
+    /// scale und die nächsten scales für diese Kamera.
+    #[test]
+    fn kamera_ohne_ganze_pixel_nennt_nachbarn() {
+        let fehler = |kamera: &str, scale| {
+            format!(
+                "{:#}",
+                projektion(scale, Kamera::parse(kamera).unwrap()).unwrap_err()
+            )
+        };
+        assert_eq!(
+            fehler("5:3", 32),
+            "5:3 geht bei scale 32 nicht (a = 9,6). Nächste gültige: 16:9 (a = 9) oder 8:5 \
+             (a = 10). 5:3 geht bei scale 30 oder 40."
+        );
+        assert_eq!(
+            fehler("3:2", 32),
+            "3:2 geht bei scale 32 nicht (a = 10,67). Nächste gültige: 8:5 (a = 10) oder 16:11 \
+             (a = 11). 3:2 geht bei scale 30 oder 36."
+        );
+        assert_eq!(
+            fehler("2:1", 18),
+            "2:1 geht bei scale 18 nicht (a = 4,5). Nächste gültige: 9:5 (a = 5). 2:1 geht bei \
+             scale 16 oder 20."
+        );
+        assert_eq!(
+            fehler("top", 31),
+            "top geht bei scale 31 nicht: der scale muss gerade sein. top geht bei scale 30 oder 32."
+        );
+        assert_eq!(
+            fehler("2:1", 6),
+            "2:1 geht bei scale 6 nicht (a = 1,5). Nächste gültige: 3:2 (a = 2). 2:1 geht bei \
+             scale 4 oder 8."
+        );
+        for (kamera, scale) in [
+            ("2:1", 32),
+            ("2:1", 4),
+            ("8:5", 32),
+            ("4:3", 32),
+            ("1:1", 4),
+            ("top", 4),
+            ("5:3", 30),
+        ] {
+            assert!(
+                projektion(scale, Kamera::parse(kamera).unwrap()).is_ok(),
+                "{kamera} bei {scale}"
+            );
+        }
+    }
+
+    /// `--camera` kürzt, und flacher als 2:1 oder steiler als 1:1 geht nicht.
+    #[test]
+    fn kamera_wird_gekuerzt_und_begrenzt() {
+        let kamera = |text: &str| Args::try_parse_from(["x", "--camera", text]).map(|a| a.camera);
+        assert_eq!(kamera("16:10").unwrap().to_string(), "8:5");
+        assert_eq!(kamera("4:2").unwrap(), Kamera::ZWEI_ZU_EINS);
+        assert_eq!(kamera("top").unwrap(), Kamera::Oben);
+        assert_eq!(
+            Args::try_parse_from(["x"]).unwrap().camera,
+            Kamera::ZWEI_ZU_EINS
+        );
+        for (text, grund) in [
+            ("3:1", "flacher als 2:1"),
+            ("1:2", "steiler als 1:1"),
+            ("0:1", "keine Kamera"),
+            ("oben", "keine Kamera"),
+        ] {
+            let fehler = kamera(text).unwrap_err().to_string();
+            assert!(fehler.contains(grund), "{text}: {fehler}");
+        }
     }
 
     #[test]

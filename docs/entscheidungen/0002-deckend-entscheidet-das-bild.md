@@ -11,6 +11,9 @@ code:
 
 # 0002: Deckend entscheidet das fertige Sprite
 
+Statt Vielfachen von 4 als scale gilt seit
+[0051](0051-kameras-und-richtungen.md) die Regel „ganze Pixel“ der Kamera.
+
 ## Anlass
 
 Neun von zehn nicht-leeren Blöcken liegen unter der Oberfläche. Verdeckte

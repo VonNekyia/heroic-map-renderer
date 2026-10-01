@@ -12,6 +12,10 @@ code:
 
 # 0016: Native Stufen nur auf ganzen Pixeln und nur auf Wunsch
 
+Ob eine Stufe auf ganzen Pixeln liegt, entscheidet seit
+[0051](0051-kameras-und-richtungen.md) die Kamera des Baums, nicht mehr ein
+scale in Vielfachen von 4.
+
 ## Anlass
 
 Das Verkleinern mittelt Nachbarblöcke ineinander; die Karte verschwamm beim

@@ -41,7 +41,7 @@ Job eine Sicherung von 120 Minuten.
 Die Tests laufen in Release, weil sich die Überlauf-Semantik zwischen Debug
 und Release unterscheidet; die Prüfungen im Regionsleser müssen in beiden
 greifen. Ein Test läuft nur dort, siehe [Tests](tests.md), „Laufen
-lassen“. Fällt das Goldbild, liegt das Ist-Bild als Artefakt am Lauf, siehe
+lassen“. Fällt ein Goldbild, liegt das Ist-Bild als Artefakt am Lauf, siehe
 [Tests](tests.md), „Goldbild“.
 
 ## GPU-Tests in der CI

@@ -440,9 +440,9 @@ impl Raster {
         }
     }
 
-    /// In wie vielen Würfeln Fragmente liegen.
-    pub fn zellen(&self) -> usize {
-        self.canvas.zellen().len()
+    /// Die Würfel, in denen Fragmente liegen.
+    pub fn zellen(&self) -> BTreeSet<Cell> {
+        self.canvas.zellen()
     }
 
     /// Je Würfel, in dem Fragmente liegen, deren Mischung als eigenes
@@ -518,7 +518,7 @@ pub fn rastern(
         .quads
         .iter()
         .filter_map(|quad| {
-            let rueckseite = seite(quad)?;
+            let rueckseite = seite(quad, projection)?;
             Some(ProjectedQuad::new(
                 quad, projection, rueckseite, licht, kollision,
             ))
@@ -615,7 +615,7 @@ impl<'a> ProjectedQuad<'a> {
     ) -> ProjectedQuad<'a> {
         let screen = quad.corners.map(|corner| {
             let (x, y) = projection.project(corner);
-            (x, y, Projection::depth(corner))
+            (x, y, projection.depth(corner))
         });
         ProjectedQuad {
             quad,
@@ -754,32 +754,35 @@ impl<'a> ProjectedQuad<'a> {
 
 /// True, wenn die Fläche der Kamera zugewandt ist.
 ///
-/// Die Kamera blickt entlang (-1, -1, -1); eine Fläche ist also sichtbar,
-/// wenn ihre Normale eine Komponente in Richtung (1, 1, 1) hat. Ohne diese
+/// Die Kamera blickt gegen ihre Achse ([`Projection::achse`], bei 2:1
+/// (1, 1, 1)); eine Fläche ist also sichtbar, wenn ihre Normale eine
+/// Komponente in Richtung der Achse hat. Ohne diese
 /// Prüfung gewinnen abgewandte Flächen den Tiefentest, wenn sie mit einer
 /// sichtbaren zusammenfallen — beim Seerosenblatt liegen `down` und `up` in
 /// derselben Ebene. Eine Fläche parallel zur Blickrichtung zählt nicht,
 /// siehe `EDGE_ON`.
-pub(crate) fn faces_camera(quad: &Quad) -> bool {
-    zur_kamera(quad.normal())
+pub(crate) fn faces_camera(quad: &Quad, projection: &Projection) -> bool {
+    zur_kamera(quad.normal(), projection)
 }
 
-/// Zeigt die Normale zur Kamera, siehe [`faces_camera`]?
-fn zur_kamera(n: [f32; 3]) -> bool {
+/// Zeigt die Normale zur Kamera, siehe [`faces_camera`]? Von oben steht
+/// jede senkrechte Fläche auf der Kante.
+fn zur_kamera(n: [f32; 3], projection: &Projection) -> bool {
     let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    n[0] + n[1] + n[2] > EDGE_ON * length
+    let [ax, ay, az] = projection.achse();
+    n[0] * ax + n[1] * ay + n[2] * az > EDGE_ON * length
 }
 
 /// Welche Seite einer Fläche die Kamera sieht: `Some(false)` die Vorderseite,
 /// `Some(true)` die Rückseite, die nur eine Schicht ohne Culling zeichnet
 /// (`RenderPipeline.isCull`), `None` keine.
-fn seite(quad: &Quad) -> Option<bool> {
+fn seite(quad: &Quad, projection: &Projection) -> Option<bool> {
     let n = quad.normal();
-    if zur_kamera(n) {
+    if zur_kamera(n, projection) {
         return Some(false);
     }
     let beidseitig = quad.entity.is_some_and(|e| e.schicht.beidseitig);
-    (beidseitig && zur_kamera(n.map(|a| -a))).then_some(true)
+    (beidseitig && zur_kamera(n.map(|a| -a), projection)).then_some(true)
 }
 
 /// Wie hell eine Fläche aus einem Blockentity-Modell ist:
@@ -1096,11 +1099,11 @@ impl Canvas {
 /// drei vorderen Seiten seines Würfels, bei x, y oder z gleich 1? Dann liegt
 /// alles im Würfel hinter jeder von ihnen.
 /// Siehe docs/renderer/kamera.md, „Ein Teil im Würfel eines anderen Blocks“.
-pub(crate) fn auf_den_vorderseiten(model: &BakedModel) -> bool {
+pub(crate) fn auf_den_vorderseiten(model: &BakedModel, projection: &Projection) -> bool {
     model
         .quads
         .iter()
-        .filter(|quad| seite(quad).is_some())
+        .filter(|quad| seite(quad, projection).is_some())
         .all(|quad| (0..3).any(|achse| quad.corners.iter().all(|c| c[achse] == 1.0)))
 }
 
@@ -1295,6 +1298,32 @@ mod tests {
     use super::*;
     use crate::assets::baker::Quad;
     use crate::assets::blockentity::Schicht;
+    use crate::render::Kamera;
+
+    /// Ob die Kamera eine Fläche sieht, hängt an ihrer Achse: Eine Fläche
+    /// nach Süden, 30° nach unten gekippt, sehen 2:1 und 4:3 noch, 1:1 und
+    /// von oben nicht mehr (tan 30° liegt zwischen 1/2 und 2/3). Eine
+    /// senkrechte steht von oben auf der Kante.
+    #[test]
+    fn zur_kamera_folgt_der_achse() {
+        let (sin, cos) = 30f32.to_radians().sin_cos();
+        let gekippt = [0.0, -sin, cos];
+        let senkrecht = [0.0, 0.0, 1.0];
+        for (kamera, sieht_gekippt, sieht_senkrecht) in [
+            ("2:1", true, true),
+            ("4:3", true, true),
+            ("1:1", false, true),
+            ("top", false, false),
+        ] {
+            let p = Projection::mit_kamera(32, Kamera::parse(kamera).unwrap());
+            assert_eq!(zur_kamera(gekippt, &p), sieht_gekippt, "{kamera}, gekippt");
+            assert_eq!(
+                zur_kamera(senkrecht, &p),
+                sieht_senkrecht,
+                "{kamera}, senkrecht"
+            );
+        }
+    }
 
     /// Die Helligkeit im Himmelslicht `licht` ohne Blocklicht in der
     /// Oberwelt, in jedem Kanal gleich.
@@ -2022,14 +2051,15 @@ mod tests {
                 Tints::default(),
             )
         };
-        assert_eq!(seite(&unterseite()), None, "Blockmodell");
+        let p = Projection::new(16);
+        assert_eq!(seite(&unterseite(), &p), None, "Blockmodell");
         assert!(bild(unterseite()).is_none());
         let mit_culling = aus_entity(unterseite(), schicht(false, true));
-        assert_eq!(seite(&mit_culling), None);
+        assert_eq!(seite(&mit_culling, &p), None);
         assert!(bild(mit_culling).is_none());
 
         let je_seite = aus_entity(unterseite(), schicht(true, true));
-        assert_eq!(seite(&je_seite), Some(true));
+        assert_eq!(seite(&je_seite, &p), Some(true));
         let licht = CardinalLight::Default;
         assert_eq!(
             shade_factor(&je_seite, true, licht),
@@ -2049,7 +2079,10 @@ mod tests {
             ],
             true,
         );
-        assert_eq!(seite(&aus_entity(oben, schicht(true, true))), Some(false));
+        assert_eq!(
+            seite(&aus_entity(oben, schicht(true, true)), &p),
+            Some(false)
+        );
     }
 
     /// Die Schwellen der Alpha-Tests (`color.a < ALPHA_CUTOUT` verwirft):

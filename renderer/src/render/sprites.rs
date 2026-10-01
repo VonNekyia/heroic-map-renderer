@@ -15,7 +15,7 @@ use crate::world::{BlockState, Blockdaten};
 
 use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
 use super::tint::BiomeTable;
-use super::{Projection, Sprite, render};
+use super::{Kamera, Projection, Sprite, render};
 
 /// Verweis in die Sprite-Tabelle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,9 +73,10 @@ pub struct SpriteSet {
     /// Die Farben der Biome, mit denen die Sprites beim Zeichnen getönt
     /// werden.
     biomes: BiomeTable,
-    /// Die Blöcke, die 26.2 nicht kennt und die nach dem Raster der Basis
-    /// das Licht ganz aufhalten, siehe [`SpriteSet::deckt_fuer_licht`].
-    /// `None` in der Tabelle der Basis selbst.
+    /// Die Blöcke, die 26.2 nicht kennt und die das Licht ganz aufhalten,
+    /// entschieden im Raster in 2:1 beim scale der Basis, siehe
+    /// [`SpriteSet::deckt_fuer_licht`]. `None` nur in einer Tabelle der Basis
+    /// in 2:1: Dort entscheidet sie selbst.
     licht_deckend: Option<HashSet<BlockState>>,
 }
 
@@ -488,6 +489,19 @@ impl SpriteSet {
         states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
     ) -> Result<SpriteSet> {
+        SpriteSet::build_mit_licht(assets, states, projection, None)
+    }
+
+    /// Wie [`SpriteSet::build_in`], nur kommt aus `licht_deckend`, welche
+    /// Blöcke, die 26.2 nicht kennt, das Licht ganz aufhalten
+    /// ([`SpriteSet::licht_deckend`]). Eine native Stufe nimmt so die Antwort
+    /// der Basis, damit ihr Licht nicht am scale hängt.
+    pub fn build_mit_licht<'a>(
+        assets: &mut Assets,
+        states: impl IntoIterator<Item = &'a BlockState>,
+        projection: Projection,
+        licht_deckend: Option<HashSet<BlockState>>,
+    ) -> Result<SpriteSet> {
         let typ = assets.dimension_type();
         let mut set = SpriteSet {
             sprites: Vec::new(),
@@ -549,6 +563,24 @@ impl SpriteSet {
 
         for fluid in fluids {
             set.insert_strips(assets, fluid);
+        }
+
+        // Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet
+        // das Raster in 2:1, damit das Licht nicht an der Kamera hängt: von
+        // oben deckte schon eine flache Platte den ganzen Umriss.
+        if licht_deckend.is_some() {
+            set.licht_deckend = licht_deckend;
+        } else if projection.kamera() != Kamera::ZWEI_ZU_EINS {
+            let unbekannt: BTreeSet<BlockState> = seen
+                .into_iter()
+                .filter(|state| blockstate::Definition::of(state.name()).is_none())
+                .cloned()
+                .collect();
+            if !unbekannt.is_empty() {
+                let zwei =
+                    SpriteSet::build_in(assets, &unbekannt, Projection::new(projection.scale()))?;
+                set.licht_deckend = Some(zwei.licht_deckend(&unbekannt));
+            }
         }
         Ok(set)
     }
@@ -621,11 +653,12 @@ impl SpriteSet {
     ) -> Option<Family> {
         let fluid = fluid::key(state);
         let nachbarn = blockstate::nachbarregel(state);
+        let projection = self.projection;
         let seiten = nachbarn.map_or(0, |regel| {
             models
                 .iter()
                 .flat_map(|(_, model)| &model.quads)
-                .filter(|q| faces_camera(q))
+                .filter(|q| faces_camera(q, &projection))
                 .filter_map(|q| q.cullface)
                 .filter(|&face| regel.wirkt(face))
                 .fold(0, |seiten, face| seiten | seite(face))
@@ -675,7 +708,9 @@ impl SpriteSet {
             covers_floor: all(|e| e.covers_floor),
             contained,
             foreign,
-            wuerfelform: models.iter().all(|(_, model)| auf_den_vorderseiten(model)),
+            wuerfelform: models
+                .iter()
+                .all(|(_, model)| auf_den_vorderseiten(model, &projection)),
             pure_fluid,
             fluid,
             resolver: match source_of(state.name()) {
@@ -702,10 +737,10 @@ impl SpriteSet {
     }
 
     /// Hält ein Block, den 26.2 nicht kennt, das Licht ganz auf? Wenn sein
-    /// Sprite den ganzen Umriss deckt, und zwar im Raster der Basis: Eine
-    /// native Stufe nimmt die Antwort von dort
-    /// ([`SpriteSet::set_licht_deckend`]), damit ihr Licht nicht am scale
-    /// hängt.
+    /// Sprite den ganzen Umriss deckt, und zwar im Raster in 2:1 beim scale
+    /// der Basis: Eine andere Kamera nimmt die Antwort von dort, eine native
+    /// Stufe die der Basis ([`SpriteSet::build_mit_licht`]), damit das Licht
+    /// weder an der Kamera noch am scale hängt.
     /// Siehe docs/renderer/wasser-und-licht.md, „Was bleibt eine Näherung“.
     pub fn deckt_fuer_licht(&self, state: &BlockState) -> bool {
         match &self.licht_deckend {
@@ -717,7 +752,7 @@ impl SpriteSet {
     }
 
     /// Die Zustände aus `states`, die 26.2 nicht kennt und die nach dieser
-    /// Tabelle das Licht ganz aufhalten, für [`SpriteSet::set_licht_deckend`].
+    /// Tabelle das Licht ganz aufhalten, für [`SpriteSet::build_mit_licht`].
     pub fn licht_deckend(&self, states: &BTreeSet<BlockState>) -> HashSet<BlockState> {
         states
             .iter()
@@ -726,12 +761,6 @@ impl SpriteSet {
             })
             .cloned()
             .collect()
-    }
-
-    /// Nimmt für Blöcke, die 26.2 nicht kennt, aus der Tabelle der Basis,
-    /// ob sie das Licht ganz aufhalten ([`SpriteSet::licht_deckend`]).
-    pub fn set_licht_deckend(&mut self, deckend: HashSet<BlockState>) {
-        self.licht_deckend = Some(deckend);
     }
 
     /// Streifen der Seitenflaechen ueber niedrigeren Nachbarn derselben
@@ -866,14 +895,16 @@ impl SpriteSet {
         // was der Rasterizer zeichnet: ein gefluteter Zaun mitten im Wasser
         // behaelt vom Wasserwuerfel nur die abgewandten Seiten, und die
         // braeuchten sonst eine Karte, die nichts traegt.
-        let (block, water) = model.quads.iter().filter(|q| faces_camera(q)).fold(
-            (false, false),
-            |(block, water), q| match q.tint_index {
+        let projection = self.projection;
+        let (block, water) = model
+            .quads
+            .iter()
+            .filter(|q| faces_camera(q, &projection))
+            .fold((false, false), |(block, water), q| match q.tint_index {
                 None => (block, water),
                 Some(fluid::TINT_INDEX) => (block, true),
                 Some(_) => (true, water),
-            },
-        );
+            });
         let source = source_of(state.name()).filter(|_| block);
         let biome = matches!(source, Some(Source::Biome(_)));
         let fixed = match source {
@@ -915,11 +946,15 @@ impl SpriteSet {
             sprite
         };
         let ganz = schwarz.ganz();
+        let zellen = schwarz.zellen();
+        let eigen = zellen.iter().all(|&zelle| zelle == OWN_CELL);
         // Was bis auf eine Pixelbreite in seinem Umriss bleibt, bleibt ganz,
-        // wie Wandfackeln und Korallenfächer.
+        // wie Wandfackeln und Korallenfächer. Von oben hat die Höhe im Bild
+        // keine Ausdehnung; dort gilt der Spielraum nur im eigenen Würfel.
         // Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
-        let passt = fits_cell(&ganz, OWN_CELL, self.projection);
-        if passt || !(2..=MAX_CELLS).contains(&schwarz.zellen()) {
+        let passt =
+            fits_cell(&ganz, OWN_CELL, self.projection) && (self.projection.b() > 0.0 || eigen);
+        if passt || eigen || zellen.len() > MAX_CELLS {
             let sprite = getoent(
                 ganz,
                 block.as_ref().map(Raster::ganz),
@@ -977,9 +1012,9 @@ impl SpriteSet {
             .iter()
             .find(|(cell, _)| *cell == OWN_CELL)
             .map(|(_, sprite)| sprite);
-        // Der Boden ist die Oberseite des Blocks darunter, eine halbe
-        // Blockhoehe tiefer im Bild.
-        let floor = self.projection.scale() as i32 / 2;
+        // Der Boden ist die Oberseite des Blocks darunter, eine Blockhöhe
+        // `b` tiefer im Bild; von oben liegt er an derselben Stelle.
+        let floor = self.projection.b() as i32;
         let opaque = own.is_some_and(|sprite| covers_all(sprite, &self.masks.outline, 0));
         let covers_floor = own.is_some_and(|sprite| covers_all(sprite, &self.masks.top, floor));
         let contained = own.is_none_or(|sprite| self.masks.contains(sprite));
@@ -1175,15 +1210,21 @@ impl SpriteSet {
 }
 
 /// Der Umriss eines vollen Blocks ist ein Sechseck mit den Ecken
-/// `(0, -s/2)`, `(s/2, -s/4)`, `(s/2, s/4)`, `(0, s/2)`, `(-s/2, s/4)`,
-/// `(-s/2, -s/4)`; die vier schraegen Kanten haben die Steigung plus/minus
-/// ein halb. `slack` dehnt das Sechseck nach aussen, negative Werte
-/// schrumpfen es.
+/// `(0, -b)`, `(h, a - b)`, `(h, a)`, `(0, 2a)`, `(-h, a)`, `(-h, a - b)`;
+/// die vier schraegen Kanten haben die Steigung plus/minus a/h, bei 2:1
+/// ein halb. Von oben ist es die Raute der Oberseite. `slack` dehnt das
+/// Sechseck nach aussen, negative Werte schrumpfen es.
 ///
-/// `px`, `py` sind Pixelmittelpunkte relativ zum Mittelpunkt des Umrisses.
-fn in_outline(px: f32, py: f32, half: f32, slack: f32) -> bool {
-    let limit = half + slack;
-    px.abs() <= limit && (py + px / 2.0).abs() <= limit && (py - px / 2.0).abs() <= limit
+/// `px`, `py` sind Pixelmittelpunkte relativ zum Bild der Ecke mit den
+/// kleinsten Koordinaten.
+fn in_outline(px: f32, py: f32, projection: Projection, slack: f32) -> bool {
+    let (h, a, b) = (
+        projection.h() as f32,
+        projection.a() as f32,
+        projection.b() as f32,
+    );
+    let (x, m) = (px.abs(), a / h);
+    x <= h + slack && py >= m * x - b - slack && py <= 2.0 * a - m * x + slack
 }
 
 /// Pixelmittelpunkt relativ zum Blockursprung.
@@ -1194,8 +1235,9 @@ fn pixel_center(sprite: &Sprite, x: u32, y: u32) -> (f32, f32) {
     )
 }
 
-/// Bildschirmmittelpunkt eines Wuerfels, relativ zum Blockursprung.
-fn cell_center(cell: Cell, projection: Projection) -> (f32, f32) {
+/// Der Bildpunkt der Ecke eines Würfels mit den kleinsten Koordinaten,
+/// relativ zum Blockursprung: der Ursprung seines Umrisses.
+fn cell_origin(cell: Cell, projection: Projection) -> (f32, f32) {
     let (x, y) = projection.project_block(cell);
     (x as f32, y as f32)
 }
@@ -1283,15 +1325,14 @@ fn tint_kinds(sprite: &Sprite) -> u8 {
 /// eine Pixelbreite Toleranz: mehr verschiebt die Rundung beim Rastern
 /// nicht.
 fn fits_cell(sprite: &Sprite, cell: Cell, projection: Projection) -> bool {
-    let half = projection.scale() as f32 / 2.0;
-    let (cx, cy) = cell_center(cell, projection);
+    let (cx, cy) = cell_origin(cell, projection);
     sprite
         .image
         .enumerate_pixels()
         .filter(|(_, _, pixel)| pixel.0[3] > 0)
         .all(|(x, y, _)| {
             let (px, py) = pixel_center(sprite, x, y);
-            in_outline(px - cx, py - cy, half, 1.0)
+            in_outline(px - cx, py - cy, projection, 1.0)
         })
 }
 
@@ -1626,6 +1667,42 @@ mod tests {
         );
     }
 
+    /// Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet bei
+    /// jeder Kamera das Raster in 2:1: Von oben deckte schon eine flache
+    /// Seerose den ganzen Umriss, und ihr Würfel bliebe dunkel.
+    #[test]
+    fn licht_unbekannter_bloecke_haengt_nicht_an_der_kamera() {
+        let namen = [
+            "einfarbig",
+            "seerose",
+            "laub",
+            "ackerboden",
+            "untere_platte",
+            "teppich",
+        ];
+        let states: Vec<BlockState> = namen.iter().map(|name| state(name)).collect();
+        let zwei = |scale| build(&mut assets(), &states, Projection::new(scale)).unwrap();
+        let (zwei_16, zwei_32) = (zwei(16), zwei(32));
+        assert!(zwei_16.deckt_fuer_licht(&state("einfarbig")));
+        assert!(!zwei_16.deckt_fuer_licht(&state("seerose")));
+        for (kamera, scale, vergleich) in [
+            ("4:3", 16, &zwei_16),
+            ("1:1", 16, &zwei_16),
+            ("top", 16, &zwei_16),
+            ("5:3", 30, &zwei_32),
+        ] {
+            let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+            let set = build(&mut assets(), &states, projection).unwrap();
+            for st in &states {
+                assert_eq!(
+                    set.deckt_fuer_licht(st),
+                    vergleich.deckt_fuer_licht(st),
+                    "{kamera} bei {scale}, {st:?}"
+                );
+            }
+        }
+    }
+
     /// Ein fremdes Teil kommt vor einen Block, dessen Flächen alle auf den
     /// Vorderseiten seines Würfels liegen: ein voller Würfel, Laub mit
     /// Löchern, ein Grasblock mit Overlay. Ackerboden endet darunter, Schleim
@@ -1669,6 +1746,36 @@ mod tests {
             "der eigene Teil hat überall eine Seite"
         );
         assert!(set.innen(id));
+    }
+
+    /// Der Umriss folgt der Kamera: Ein voller Würfel passt bei jeder in
+    /// seinen eigenen, ein Modell, das zur Seite hinausragt, bei keiner. Ein
+    /// Turm doppelter Höhe passt nur von oben, wo die Höhe nicht ins Bild
+    /// geht.
+    #[test]
+    fn umriss_folgt_der_kamera() {
+        let mut assets = assets();
+        for (kamera, scale) in [
+            ("2:1", 32),
+            ("8:5", 32),
+            ("4:3", 32),
+            ("1:1", 32),
+            ("top", 32),
+            ("5:3", 30),
+        ] {
+            let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+            let oben = projection.kamera() == Kamera::Oben;
+            for (name, passt) in [("einfarbig", true), ("ueberhang", false), ("turm", oben)] {
+                let model = model_of(&mut assets, &state(name)).unwrap();
+                let bild =
+                    render(&model, assets.textures(), &projection, Tints::default()).unwrap();
+                assert_eq!(
+                    fits_cell(&bild, OWN_CELL, projection),
+                    passt,
+                    "{name}, {kamera}"
+                );
+            }
+        }
     }
 
     /// Spielraum: Was bis auf eine Pixelbreite in seinen Umriss passt, bleibt
@@ -1741,6 +1848,64 @@ mod tests {
         }
     }
 
+    /// Liegen alle Fragmente in einem einzigen fremden Würfel, wird das
+    /// Modell ein Teil dort, nicht ein ganzes im eigenen: wie die Stiele und
+    /// Karotten von Vanilla bei manchen scales im Würfel darunter. Ganz
+    /// bleibt es nur im Spielraum einer Pixelbreite, schräg; von oben nie.
+    /// Bei jeder Kamera und jedem scale.
+    #[test]
+    fn ein_fremder_wuerfel_wird_ein_teil() {
+        let kameras = ["2:1", "8:5", "4:3", "1:1", "top"].map(|k| Kamera::parse(k).unwrap());
+        let projektionen = (4..=64)
+            .step_by(2)
+            .flat_map(|scale| kameras.map(|k| Projection::mit_kamera(scale, k)))
+            .filter(Projection::ganze_pixel);
+        let mut zerfallen = Vec::new();
+        for projection in projektionen {
+            let (kamera, scale) = (projection.kamera(), projection.scale());
+            let mut assets = assets();
+            let set = build(&mut assets, &[state("unter_dem_boden")], projection).unwrap();
+            let id = set.id(&state("unter_dem_boden")).unwrap();
+            let cells: Vec<Cell> = set.sprites[id.0 as usize]
+                .parts
+                .iter()
+                .map(|(cell, _)| *cell)
+                .collect();
+            let model = model_of(&mut assets, &state("unter_dem_boden")).unwrap();
+            let bild = render(&model, assets.textures(), &projection, Tints::default()).unwrap();
+            let spielraum = projection.b() > 0.0 && fits_cell(&bild, OWN_CELL, projection);
+            let soll = if spielraum { OWN_CELL } else { [0, -1, 0] };
+            assert_eq!(cells, [soll], "{kamera}, scale {scale}");
+            if !spielraum {
+                zerfallen.push((kamera.to_string(), scale));
+            }
+        }
+        assert!(
+            zerfallen.contains(&("2:1".to_string(), 64)),
+            "{zerfallen:?}"
+        );
+        assert!(zerfallen.contains(&("top".to_string(), 4)), "{zerfallen:?}");
+    }
+
+    /// Von oben hat die Höhe im Bild keine Ausdehnung: Ein Turm doppelter
+    /// Höhe passt in seinen Umriss, zerfällt aber trotzdem. Zu sehen ist nur
+    /// seine Oberseite, und die liegt im Würfel darüber.
+    #[test]
+    fn von_oben_zerfaellt_der_turm() {
+        for scale in (4..=64).step_by(2) {
+            let mut assets = assets();
+            let projection = Projection::mit_kamera(scale, Kamera::Oben);
+            let set = build(&mut assets, &[state("turm")], projection).unwrap();
+            let id = set.id(&state("turm")).unwrap();
+            let cells: Vec<Cell> = set.sprites[id.0 as usize]
+                .parts
+                .iter()
+                .map(|(cell, _)| *cell)
+                .collect();
+            assert_eq!(cells, [[0, 1, 0]], "scale {scale}");
+        }
+    }
+
     /// Ein Modell, das knapp über seinen Würfel ragt, zerfällt nicht, liegt
     /// aber auch nicht im Umriss: seine Randpixel deckt kein Nachbar, und
     /// verdeckt fallen darf es deshalb nie. So liegen Schilder, Weizen oder
@@ -1797,20 +1962,28 @@ mod tests {
     /// Modell, bei jedem scale.
     #[test]
     fn zerlegtes_modell_ist_ohne_nachbarn_das_ganze() {
-        for scale in (4..=64).step_by(4) {
-            let projection = Projection::new(scale);
+        let kameras = ["2:1", "8:5", "4:3", "1:1", "top"].map(|k| Kamera::parse(k).unwrap());
+        let projektionen = (4..=64)
+            .step_by(2)
+            .flat_map(|scale| kameras.map(|k| Projection::mit_kamera(scale, k)))
+            .filter(Projection::ganze_pixel);
+        for projection in projektionen {
+            let (scale, kamera) = (projection.scale(), projection.kamera());
             for name in ["turm", "ueberhang", "hochfeuer", "einfarbig", "seerose"] {
                 let mut assets = assets();
                 let model = model_of(&mut assets, &state(name)).unwrap();
-                let raster = rastern(
+                let Some(raster) = rastern(
                     &model,
                     assets.textures(),
                     &projection,
                     Tints::default(),
                     CardinalLight::Default,
                     false,
-                )
-                .unwrap();
+                ) else {
+                    // Von oben steht Feuer ganz auf der Kante.
+                    assert_eq!((name, kamera), ("hochfeuer", Kamera::Oben), "scale {scale}");
+                    continue;
+                };
                 let ganz = raster.ganz();
                 let mut teile = raster.teile(ganz.ao.is_some());
                 // Wie die Kandidaten: nach Höhe, Tiefe, Spalte.
@@ -1826,7 +1999,11 @@ mod tests {
                         bild.put_pixel(bx, by, image::Rgba(over(pixel.0, unten)));
                     }
                 }
-                assert_eq!(bild.as_raw(), ganz.image.as_raw(), "{name}, scale {scale}");
+                assert_eq!(
+                    bild.as_raw(),
+                    ganz.image.as_raw(),
+                    "{name}, {kamera}, scale {scale}"
+                );
             }
         }
     }
@@ -2022,8 +2199,8 @@ mod tests {
 
     /// Die Tönungskarte an allen Vanilla-Blöcken, die gefärbt oder geflutet
     /// sein können: je Block aus `blocks.txt` bis zu 24 Zustände, die ersten
-    /// und die letzten zwölf, geflutete immer mit Wasser, bei scale 4, 8, 16
-    /// und 32, mit drei Paaren aus
+    /// und die letzten zwölf, geflutete immer mit Wasser, bei scale 4, 8, 12,
+    /// 16, 24, 32 und 48, mit drei Paaren aus
     /// Block- und Wasserfarbe, gegen das Raster, das die Farben gleich trägt,
     /// beide ohne Licht. Braucht die Asset-Wurzeln wie `--assets`, als
     /// Pfadliste in `ASSETS`, deshalb `#[ignore]`; unter Windows trennt `;`:
@@ -2099,7 +2276,7 @@ mod tests {
         ];
         let (mut raster, mut ueber_eins, mut groesste, mut ragen) = (0, 0, 0, 0);
         let mut je_block: BTreeMap<&str, i32> = BTreeMap::new();
-        for scale in [4, 8, 16, 32] {
+        for scale in [4, 8, 12, 16, 24, 32, 48] {
             let projection = Projection::new(scale);
             let set = build(&mut assets, &states, projection).unwrap();
             for st in &states {
@@ -2156,6 +2333,173 @@ mod tests {
             println!("  {name}: {max}");
         }
         assert!(groesste <= 1, "höchstens {groesste}");
+    }
+
+    /// Von oben steht jede senkrechte Fläche auf der Kante. Keine Fläche eines
+    /// Vanilla-Blocks liegt zwischen dem Rauschen unter `EDGE_ON` und einer
+    /// echten Neigung, sonst bliebe sie als Haarlinie im Bild: Jede, die die
+    /// Kamera von oben sieht, hat n_y über 1e-3. Die steilste ist die Fahne
+    /// der Banner, um 0,45° geneigt wie im Modell des Spiels, mit n_y 0,0079.
+    /// Alle Zustände aus `blocks.txt`. Braucht die
+    /// Asset-Wurzeln in `ASSETS` wie
+    /// [`toenungskarte_an_allen_vanilla_bloecken`], deshalb `#[ignore]`:
+    ///
+    /// ```bash
+    /// ASSETS="$PWD/vanilla-assets:$PWD/assets" cargo test --release --manifest-path renderer/Cargo.toml --lib von_oben_keine_haarlinie_an_allen_vanilla_bloecken -- --ignored --nocapture
+    /// ```
+    ///
+    /// Siehe docs/renderer/kamera.md, „Von oben“.
+    #[test]
+    #[ignore]
+    fn von_oben_keine_haarlinie_an_allen_vanilla_bloecken() {
+        let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
+        let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
+        let oben = Projection::mit_kamera(32, Kamera::Oben);
+        let zustaende = vanilla_zustaende();
+        let mut flaechen = 0;
+        // Je Block die steilste Fläche, die die Kamera von oben sieht.
+        let mut je_block: BTreeMap<&str, f32> = BTreeMap::new();
+        for st in &zustaende {
+            for (_, model) in models_of(&mut assets, st, None).unwrap() {
+                for quad in &model.quads {
+                    if !faces_camera(quad, &oben) {
+                        continue;
+                    }
+                    flaechen += 1;
+                    let n = quad.normal();
+                    let laenge = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+                    let steilste = je_block.entry(st.name()).or_insert(1.0);
+                    *steilste = steilste.min(n[1] / laenge);
+                }
+            }
+        }
+        let mut steilste: Vec<(f32, &str)> = je_block.iter().map(|(&b, &n)| (n, b)).collect();
+        steilste.sort_by(|a, b| a.0.total_cmp(&b.0));
+        println!(
+            "{} Zustände, {flaechen} Flächen von oben; die steilsten:",
+            zustaende.len()
+        );
+        for (n, block) in &steilste[..3] {
+            println!("  {block}: n_y = {n}");
+        }
+        let steil = steilste[0].0;
+        assert!(
+            steil > 1e-3,
+            "eine Fläche steht fast senkrecht: n_y = {steil}"
+        );
+    }
+
+    /// Alle Zustände aus `blocks.txt`, wie ein Zählwerk, das letzte Merkmal
+    /// läuft innen.
+    fn vanilla_zustaende() -> Vec<BlockState> {
+        let mut out = Vec::new();
+        for zeile in include_str!("../assets/blocks.txt").lines() {
+            let mut teile = zeile.split_whitespace();
+            let Some(name) = teile.next() else { continue };
+            let props: Vec<(&str, Vec<&str>)> = teile
+                .filter_map(|t| t.split_once('='))
+                .map(|(k, v)| (k, v.split(',').collect()))
+                .collect();
+            let mut index = vec![0usize; props.len()];
+            'zustand: loop {
+                let merkmale: Vec<String> = props
+                    .iter()
+                    .zip(&index)
+                    .map(|((k, v), &i)| format!("{k}={}", v[i]))
+                    .collect();
+                let text = if merkmale.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name}[{}]", merkmale.join(","))
+                };
+                out.extend(BlockState::parse(&text).ok());
+                for s in (0..props.len()).rev() {
+                    index[s] += 1;
+                    if index[s] < props[s].1.len() {
+                        continue 'zustand;
+                    }
+                    index[s] = 0;
+                }
+                break;
+            }
+        }
+        out
+    }
+
+    /// In 2:1 liegen bei manchen scales alle Fragmente eines Modells in einem
+    /// einzigen fremden Würfel. Je Vielfaches von 4 bis 64 nennt der Test
+    /// die Zustände von Vanilla, die dort ein Teil werden, und die, die im
+    /// Spielraum ganz bleiben. Braucht die Asset-Wurzeln in `ASSETS` wie
+    /// [`von_oben_keine_haarlinie_an_allen_vanilla_bloecken`], deshalb
+    /// `#[ignore]`:
+    ///
+    /// ```bash
+    /// ASSETS="$PWD/vanilla-assets:$PWD/assets" cargo test --release --manifest-path renderer/Cargo.toml --lib zwei_zu_eins_in_einem_fremden_wuerfel -- --ignored --nocapture
+    /// ```
+    ///
+    /// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+    #[test]
+    #[ignore]
+    fn zwei_zu_eins_in_einem_fremden_wuerfel() {
+        let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
+        let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
+        let zustaende = vanilla_zustaende();
+        let mut anders = Vec::new();
+        for scale in (4..=64).step_by(4) {
+            let projection = Projection::new(scale);
+            let (mut teil, mut ganz) = (BTreeSet::new(), BTreeSet::new());
+            for st in &zustaende {
+                for (_, model) in models_of(&mut assets, st, None).unwrap() {
+                    let Some(raster) = rastern(
+                        &model,
+                        assets.textures(),
+                        &projection,
+                        Tints::default(),
+                        CardinalLight::Default,
+                        kollision(st),
+                    ) else {
+                        continue;
+                    };
+                    let zellen = raster.zellen();
+                    let [zelle] = zellen.iter().collect::<Vec<_>>()[..] else {
+                        continue;
+                    };
+                    if *zelle == OWN_CELL {
+                        continue;
+                    }
+                    let eintrag = format!("{st} {zelle:?}");
+                    if fits_cell(&raster.ganz(), OWN_CELL, projection) {
+                        ganz.insert(eintrag);
+                    } else {
+                        teil.insert(eintrag);
+                    }
+                }
+            }
+            println!(
+                "scale {scale}: {} ein Teil, {} im Spielraum ganz",
+                teil.len(),
+                ganz.len()
+            );
+            for eintrag in &teil {
+                println!("  Teil {eintrag}");
+            }
+            for eintrag in &ganz {
+                println!("  ganz {eintrag}");
+            }
+            // So steht es in kamera.md: ein Teil werden nur die 32 stehenden
+            // Banner bei scale 16.
+            // Die schliessende Klammer hält rotation=12 und Wandbanner draussen.
+            let banner = teil
+                .iter()
+                .all(|e| e.contains("_banner[rotation=2]") || e.contains("_banner[rotation=10]"));
+            if teil.len() != if scale == 16 { 32 } else { 0 } || !banner {
+                anders.push(scale);
+            }
+        }
+        assert!(
+            anders.is_empty(),
+            "anders als in der Doku bei scale {anders:?}"
+        );
     }
 
     /// Ein Pack darf Zustände mit verschiedener Kollisionsform auf dasselbe
@@ -2273,7 +2617,7 @@ mod tests {
         // Auf jeder Stufe gleich, auch bei scale 4: dort blieb vom
         // geschrumpften Boden frueher kein Pixel, und nichts wurde verdeckt.
         // Nur Lava deckt bei scale 4 auch ihren Umriss.
-        for scale in [32, 16, 8, 4] {
+        for scale in [48, 32, 24, 16, 12, 8, 4] {
             let set = build(&mut assets, &states, Projection::new(scale)).unwrap();
             let flags = |text: &str| {
                 let f = set.family_of(&state(text)).unwrap();
@@ -2296,6 +2640,25 @@ mod tests {
         );
         assert_eq!(flags("druckplatte"), (false, false), "Rand frei");
         assert_eq!(flags("teppich"), (false, true), "Boden ganz");
+
+        // Von oben liegt der Boden an derselben Stelle wie der Umriss, und
+        // jede volle Oberseite deckt beide, auch die flache von Lava und
+        // Teppich. Die Druckplatte lässt ihren Rand frei.
+        let set = build(
+            &mut assets,
+            &states,
+            Projection::mit_kamera(32, Kamera::Oben),
+        )
+        .unwrap();
+        let flags = |text: &str| {
+            let f = set.family_of(&state(text)).unwrap();
+            (f.opaque, f.covers_floor)
+        };
+        assert_eq!(flags("einfarbig"), (true, true), "von oben");
+        assert_eq!(flags("lava"), (true, true), "von oben");
+        assert_eq!(flags("teppich"), (true, true), "von oben");
+        assert_eq!(flags("druckplatte"), (false, false), "von oben");
+        assert_eq!(flags("water"), (false, false), "von oben");
     }
 
     /// Streifen gibt es je Paar aus eigener Hoehe und Nachbarhoehe, fuer

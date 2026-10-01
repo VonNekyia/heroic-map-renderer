@@ -312,7 +312,7 @@ fn licht_unbekannter_bloecke_haengt_nicht_am_scale() {
     .unwrap();
     let mut tabelle =
         |scale| SpriteSet::build_in(&mut assets, &states, Projection::new(scale)).unwrap();
-    let (basis, mut grob) = (tabelle(32), tabelle(4));
+    let (basis, grob) = (tabelle(32), tabelle(4));
     let unter = |sprites: &SpriteSet| {
         ChunkCache::new(&world, sprites)
             .licht_at([8, 7, 8])
@@ -320,6 +320,12 @@ fn licht_unbekannter_bloecke_haengt_nicht_am_scale() {
     };
     assert_eq!(unter(&basis), (15, 0));
     assert_eq!(unter(&grob), (14, 0), "bei scale 4 deckt das Raster nicht");
-    grob.set_licht_deckend(basis.licht_deckend(&states));
+    let grob = SpriteSet::build_mit_licht(
+        &mut assets,
+        &states,
+        Projection::new(4),
+        Some(basis.licht_deckend(&states)),
+    )
+    .unwrap();
     assert_eq!(unter(&grob), (15, 0));
 }

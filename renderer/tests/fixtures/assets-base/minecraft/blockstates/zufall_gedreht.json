@@ -1,0 +1,6 @@
+{ "variants": { "": [
+  { "model": "minecraft:block/einfarbig" },
+  { "model": "minecraft:block/einfarbig", "y": 90 },
+  { "model": "minecraft:block/einfarbig", "y": 180 },
+  { "model": "minecraft:block/einfarbig", "y": 270 }
+] } }

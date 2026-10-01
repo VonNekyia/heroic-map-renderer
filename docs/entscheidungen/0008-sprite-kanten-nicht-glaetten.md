@@ -10,6 +10,9 @@ code:
 
 # 0008: Sprite-Kanten werden nicht geglättet
 
+Die Treppen liegen seit [0051](0051-kameras-und-richtungen.md) im Raster
+der Kamera des Laufs, nicht mehr nur in 2:1.
+
 ## Anlass
 
 Das zweite Review von #8 wies Nähte nach: Jede Oberseite wurde einzeln mit

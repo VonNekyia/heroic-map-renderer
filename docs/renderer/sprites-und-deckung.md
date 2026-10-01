@@ -85,10 +85,15 @@ Modell, liegt jeder Teil im Umriss seines Würfels. Teile, die es in einen
 Nachbarwürfel legt, kommen trotzdem auch in einen verdeckten Würfel; was
 dort verdeckt ist, lässt die Deckungsmaske fallen.
 
-Nachbarn verdecken nur bei Vielfachen von 4 als scale; bei anderen, die nur
-die Bibliothek annimmt, liegen Blöcke auf halben Pixeln, und ihre Umrisse
-schliessen nicht lückenlos an. Bei scale 6 blieben sonst Spalten von einem
-Pixel.
+Nachbarn verdecken nur, wenn jede Blockecke auf ganzen Pixeln liegt, siehe
+[Die Kamera](kamera.md), „Ganze Pixel“; in 2:1 heisst das: bei Vielfachen
+von 4 als scale. Bei anderen, die nur die Bibliothek annimmt, liegen Blöcke
+auf halben Pixeln, und ihre Umrisse schliessen nicht lückenlos an. Bei
+scale 6 blieben sonst Spalten von einem Pixel.
+
+Von oben verdeckt der Block darüber allein, mit seinem Boden: Der Umriss
+eines Würfels ist dort seine Oberseite, und die Nachbarn nach +x und +z
+liegen daneben, nicht davor (`expose` in `renderer/src/render/metatile.rs`).
 
 ## Flächen zu gleichen Nachbarn
 

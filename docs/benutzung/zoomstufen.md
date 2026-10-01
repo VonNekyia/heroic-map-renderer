@@ -1,6 +1,6 @@
 ---
 title: Zoomstufen
-description: Wie die gröberen Zoomstufen entstehen, wie sie nummeriert sind, wann sie nativ gerendert werden und warum ein Baum zu genau einer Welt und einem scale gehört.
+description: Wie die gröberen Zoomstufen entstehen, wie sie nummeriert sind, wann sie nativ gerendert werden und warum ein Baum zu genau einer Welt, einem scale und einer Kamera gehört.
 code:
   - renderer/src/render/pyramid.rs
   - renderer/src/render/tiles.rs
@@ -14,8 +14,8 @@ halbe Kantenlänge gestaucht, gemittelt in linearem Licht mit
 vormultipliziertem Alpha; die Welt wird dafür kein zweites Mal angefasst.
 Ausgenommen sind native Stufen direkt unter der Basis, wenn
 `--native-levels` sie verlangt. Die Nummerierung hängt an der Welt, nicht am
-Ausschnitt, und ein Baum gehört zu genau einer Welt, einem scale und einer
-Zahl nativer Stufen. Das Verkleinern steht in `merge` in
+Ausschnitt, und ein Baum gehört zu genau einer Welt, einem scale, einer
+Kamera und einer Zahl nativer Stufen. Das Verkleinern steht in `merge` in
 [`renderer/src/render/pyramid.rs`](../../renderer/src/render/pyramid.rs).
 Die feinen Stufen baut ein Export im Speicher, während die Basis entsteht,
 die übrigen am Ende aus den Dateien.
@@ -170,8 +170,27 @@ kein Feld `world` hat, gehört ab dem nächsten Lauf zu dessen Welt, der
 Lauf sagt es; sonst müsste jeder bestehende Baum neu entstehen, bei einer
 grossen Welt über Stunden. Eine Welt ohne Kennung übernimmt ihn nicht,
 sonst nähme er danach seine eigene nicht mehr auf. Einer mit scale 2, 6
-oder 10 lässt sich nicht fortsetzen, `--scale` nimmt nur noch Vielfache
-von 4. Die Kennung selbst: [Welten und Kennung](welten.md).
+oder 10 lässt sich nicht fortsetzen: Bei seiner Kamera 2:1 liegt dieser
+scale nicht auf ganzen Pixeln, siehe [Kamera](../renderer/kamera.md),
+„Ganze Pixel“. Die Kennung selbst: [Welten und Kennung](welten.md).
+
+## Ein Baum, eine Kamera
+
+Die Kamera gehört zum Baum wie der scale: `map.json` hält sie als `camera`
+fest, siehe [`map.json`](map-json.md), „Kamera und Projektion“.
+- **Eine andere Kamera** bricht ab, bevor der Lauf einen Chunk liest, mit
+  „… gehört zu einem Baum mit Kamera 4:3, dieser Lauf hätte 2:1. Mit
+  --camera 4:3 weiterrendern oder ein neues Verzeichnis nehmen.“ Sonst
+  lägen Kacheln zweier Kameras still in einem Baum (`pruefe_bestand` in
+  [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
+- **Ohne `--camera`** gilt 2:1, auch in einen bestehenden Baum. Ein Baum
+  mit einer anderen Kamera verlangt sie also wie seinen scale.
+- **Ein Baum ohne `camera`** stammt aus einem Stand vor den Kameras; was
+  dann gilt und was `--pyramid` behält, steht in [`map.json`](map-json.md),
+  „Kamera und Projektion“. Wie `--heights` zu seiner Kamera kommt, steht
+  dort unter „Höhen“.
+- **Jede Kamera ein eigener Baum:** heute ein eigenes Verzeichnis je
+  `--tiles`. Die Höhen schreibt jeder Baum für sich, wie bisher.
 
 ## Native Stufen
 
@@ -182,13 +201,16 @@ Verläufen. Wer die Kanten länger scharf haben will, lässt mit
 Sprites in dieser Grösse. Ein nativer Render hält den Umriss jedes Blocks
 scharf und mittelt stattdessen die Textur über den Block, was auf einer
 Karte niemand vermisst. Das geht, solange jeder Block auf ganzen Pixeln
-liegt, der scale der Stufe also durch vier teilbar ist: bei scale 32 drei
-Stufen lang, 16, 8 und 4. Bei scale 2 läge jede zweite Blockreihe auf
-einem halben Pixel, und benachbarte Reihen überdeckten sich; aus demselben
-Grund nimmt `--scale` nur Vielfache von 4.
+liegt, der scale der Stufe also bei der Kamera des Baums die Regel „ganze
+Pixel“ erfüllt, bis scale 4, siehe [Kamera](../renderer/kamera.md), „Ganze
+Pixel“; wie viele Stufen das je Kamera bei scale 32 sind, steht dort in der
+Tabelle unter „Projektion“. Den Rest baut die Pyramide (`native_levels` in
+[`renderer/src/cli.rs`](../../renderer/src/cli.rs)). Bei scale 2 läge in
+2:1 jede zweite Blockreihe auf einem halben Pixel, und benachbarte Reihen
+überdeckten sich.
 
 Der Preis ist hoch: jede Stufe zeichnet jeden Block ihrer Fläche erneut.
-Mit allen drei Stufen kommt bei scale 32 in Bytes ein Drittel dazu, ein
+Mit allen drei Stufen kommt in 2:1 bei scale 32 in Bytes ein Drittel dazu, ein
 Viertel je Stufe, und sie brauchen zusammen etwa so lange wie die Basis,
 siehe [Was ein Lauf kostet](kosten.md). Chunks und Licht teilen sie sich
 dafür über alle Stufen, in Bändern, siehe
@@ -201,7 +223,7 @@ Die Zahl gehört zum Baum wie der scale: `map.json` hält sie als
 einer mit einer anderen bricht ab, bevor er einen Chunk liest. Sonst lägen
 über einem nachgerenderten Ausschnitt verkleinerte Kacheln neben nativen,
 und an einer unveränderten Welt änderte ein Nachrendern Dateien. Mehr, als
-der scale hergibt, heisst alle. Nennt die `map.json` eines Baums aus einem
+der scale bei dieser Kamera hergibt, heisst alle. Nennt die `map.json` eines Baums aus einem
 älteren Stand die Zahl nicht, bricht ein Lauf ohne den Schalter ab und
 fragt nach ihr: der Stand davor renderte alle Stufen nativ, die der scale
 hergibt, und mit 0 lägen über dem Ausschnitt verkleinerte Kacheln neben

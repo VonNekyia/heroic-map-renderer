@@ -15,7 +15,7 @@ use terranova_render::render::rasterizer::{
     Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
 };
 use terranova_render::render::{
-    BiomeTable, ChunkCache, Projection, ScreenRect, SpriteSet, draw_list, render_area,
+    BiomeTable, ChunkCache, Kamera, Projection, ScreenRect, SpriteSet, draw_list, render_area,
     render_area_with, render_area_without_culling, survey,
 };
 use terranova_render::world::{BlockState, World};
@@ -106,9 +106,11 @@ fn verdecken_aendert_kein_pixel() {
     let dir = tempdir();
     common::write_world(dir.path(), &[(0, 0)], welt);
     let world = World::open(dir.path()).unwrap();
-    for scale in [32, 16, 8, 4] {
-        let projection = Projection::new(scale);
-        let rect = ScreenRect::centered(20 * scale, 20 * scale);
+    let zwei_zu_eins = [48, 32, 24, 16, 12, 8, 4].map(Projection::new);
+    for projection in zwei_zu_eins.into_iter().chain(kameras()) {
+        let (scale, kamera) = (projection.scale(), projection.kamera());
+        // Das Rechteck um die ganze Szene: jeder Block liegt darin.
+        let rect = rect_um(projection, [0, 0, 0], [16, 4, 16]);
         let sprites = tabelle(&mut assets(), &world, projection);
         let mit = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
         let ohne = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
@@ -117,14 +119,213 @@ fn verdecken_aendert_kein_pixel() {
             .zip(ohne.pixels())
             .filter(|(a, b)| a != b)
             .count();
-        assert_eq!(falsch, 0, "scale {scale}: Verdecken ändert {falsch} Pixel");
+        assert_eq!(
+            falsch, 0,
+            "{kamera}, scale {scale}: Verdecken ändert {falsch} Pixel"
+        );
+    }
+}
+
+/// Das Rechteck in Pixeln um die Ecken des Quaders von `min` bis `max`.
+fn rect_um(projection: Projection, min: [i32; 3], max: [i32; 3]) -> ScreenRect {
+    let ecken: Vec<(f64, f64)> = (0..8)
+        .map(|i| {
+            let ecke = |k: usize| if i >> k & 1 == 0 { min[k] } else { max[k] };
+            projection.project_block([ecke(0), ecke(1), ecke(2)])
+        })
+        .collect();
+    let (x0, x1) = ecken.iter().fold((f64::MAX, f64::MIN), |(lo, hi), e| {
+        (lo.min(e.0), hi.max(e.0))
+    });
+    let (y0, y1) = ecken.iter().fold((f64::MAX, f64::MIN), |(lo, hi), e| {
+        (lo.min(e.1), hi.max(e.1))
+    });
+    ScreenRect {
+        x: x0.floor() as i32,
+        y: y0.floor() as i32,
+        width: (x1.ceil() - x0.floor()) as u32,
+        height: (y1.ceil() - y0.floor()) as u32,
+    }
+}
+
+/// Kameras für die Invarianten: die aus dem Issue, 1:1 und `top` bei scale
+/// 6, dem ersten mit ungeraden h und a, und Paare aus gültigem W:H und
+/// scale, gezogen mit fester Saat, damit jeder Lauf dieselben prüft.
+/// Gezogen wird nur, was weder 2:1 noch schon dabei ist. Jede liegt auf
+/// ganzen Pixeln.
+fn kameras() -> Vec<Projection> {
+    let mut out: Vec<Projection> = [
+        ("16:9", 32),
+        ("8:5", 32),
+        ("4:3", 32),
+        ("1:1", 32),
+        ("top", 32),
+        ("5:3", 30),
+        ("1:1", 4),
+        ("top", 4),
+        ("1:1", 6),
+        ("top", 6),
+    ]
+    .into_iter()
+    .map(|(kamera, scale)| Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap()))
+    .collect();
+    let mut zustand: u64 = 0x9e37_79b9_7f4a_7c15;
+    let mut zufall = |n: u32| {
+        zustand ^= zustand << 13;
+        zustand ^= zustand >> 7;
+        zustand ^= zustand << 17;
+        (zustand % n as u64) as u32
+    };
+    while out.len() < 16 {
+        // Ein gerader scale von 4 bis 44 und ein ganzes a von scale/4 bis scale/2.
+        let scale = 4 + 2 * zufall(21);
+        let a = scale.div_ceil(4) + zufall(scale / 2 - scale.div_ceil(4) + 1);
+        let kamera = Kamera::schraeg(scale, 2 * a).unwrap();
+        if kamera != Kamera::ZWEI_ZU_EINS && out.iter().all(|p| p.kamera() != kamera) {
+            out.push(Projection::mit_kamera(scale, kamera));
+        }
+    }
+    for projection in &out {
+        assert!(projection.ganze_pixel(), "{projection:?}");
+    }
+    out
+}
+
+/// In deckendem Gelände bleibt kein Pixel offen, auch bei Kameras, deren
+/// Blockkanten Pixelmitten treffen: Dort entscheidet die Füllregel, und die
+/// braucht genaue Ecken. Gelände aus Stufen, jeder Block zufällig um ein
+/// Vielfaches von 90 Grad gedreht wie Sand und Gras im Spiel.
+/// Siehe docs/renderer/kamera.md, „Blockkanten auf Pixelmitten“.
+#[test]
+fn kein_loch_in_deckendem_gelaende() {
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..=2)
+        .flat_map(|cx| (0..=2).map(move |cz| (cx, cz)))
+        .collect();
+    common::write_world(dir.path(), &chunks, |x, y, z| {
+        let hoehe = 2 + (x.rem_euclid(7) + 2 * z.rem_euclid(5)) % 6;
+        if y <= hoehe {
+            "minecraft:zufall_gedreht"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let world = World::open(dir.path()).unwrap();
+    for projection in [Projection::new(32)].into_iter().chain(kameras()) {
+        let (scale, kamera) = (projection.scale(), projection.kamera());
+        let sprites = tabelle(&mut assets(), &world, projection);
+        // Mitten im Gelände: um den Block (24, 4, 24) im mittleren Chunk.
+        let (mx, my) = projection.project_block([24, 4, 24]);
+        let rect = ScreenRect {
+            x: mx as i32 - 4 * scale as i32,
+            y: my as i32 - 4 * scale as i32,
+            width: 8 * scale,
+            height: 8 * scale,
+        };
+        let bild = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+        let offen: Vec<(u32, u32)> = bild
+            .enumerate_pixels()
+            .filter(|(_, _, p)| p.0[3] < 255)
+            .map(|(x, y, _)| (x, y))
+            .collect();
+        assert!(
+            offen.is_empty(),
+            "{kamera}, scale {scale}: {} offen, etwa {:?}",
+            offen.len(),
+            &offen[..offen.len().min(8)]
+        );
+    }
+}
+
+/// Von oben ragt ein Turm doppelter Höhe durch einen Teppich über ihm und
+/// ist zu sehen; in einem vollen Block über ihm verschwindet er. Sein
+/// oberes Teil liegt im Würfel darüber: nach dem Teppich, der keine
+/// Würfelform hat, vor dem vollen Block.
+/// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+#[test]
+fn von_oben_ragt_der_turm_durch_den_teppich() {
+    let projection = Projection::mit_kamera(32, Kamera::Oben);
+    let bild = |turm: bool, darueber: &'static str| {
+        let dir = tempdir();
+        common::write_world(dir.path(), &[(0, 0)], move |x, y, z| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (8, 1, 8) if turm => "minecraft:turm",
+            (8, 2, 8) => darueber,
+            _ => "minecraft:air",
+        });
+        let world = World::open(dir.path()).unwrap();
+        let sprites = tabelle(&mut assets(), &world, projection);
+        let (mx, my) = projection.project_block([8, 0, 8]);
+        let rect = ScreenRect {
+            x: mx as i32 - 64,
+            y: my as i32 - 32,
+            width: 128,
+            height: 128,
+        };
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+    };
+    assert!(
+        bild(true, "minecraft:teppich") != bild(false, "minecraft:teppich"),
+        "unter dem Teppich verschwunden"
+    );
+    assert!(
+        bild(true, "minecraft:einfarbig") == bild(false, "minecraft:einfarbig"),
+        "durch den vollen Block zu sehen"
+    );
+}
+
+/// Dieselbe Welt 40 Blöcke höher gibt dasselbe Bild um den verschobenen
+/// Block, bei jeder Kamera. Von oben ändert die Höhe den Bildpunkt gar
+/// nicht, und das Fenster von `v` ist für jede Höhe dasselbe. Ein Überhang
+/// ragt aus seinem Würfel und zählt deshalb über das Band, nicht über den
+/// Kasten seines Umrisses; die Referenz läuft dasselbe Band ab und sähe
+/// ein falsches Fenster nicht.
+#[test]
+fn hoeher_gesetzt_gleiches_bild() {
+    let y_range = (0, 63);
+    let bild = |hoehe: i32, projection: Projection| {
+        let dir = tempdir();
+        common::write_world_sections(
+            dir.path(),
+            &[(0, 0)],
+            0..=3,
+            move |x, y, z| match (x, y - hoehe, z) {
+                (_, 0, _) => "minecraft:einfarbig",
+                (8, 1, 8) => "minecraft:ueberhang",
+                _ => "minecraft:air",
+            },
+            |_, _| None,
+        );
+        let world = World::open(dir.path()).unwrap();
+        let survey = survey(&world, projection, y_range, None).unwrap();
+        let sprites = SpriteSet::build_in(&mut assets(), &survey.states, projection).unwrap();
+        let s = projection.scale() as i32;
+        let (mx, my) = projection.project_block([8, hoehe + 1, 8]);
+        let rect = ScreenRect {
+            x: mx as i32 - 3 * s,
+            y: my as i32 - 3 * s,
+            width: 6 * s as u32,
+            height: 6 * s as u32,
+        };
+        render_area(&world, &sprites, rect, y_range).unwrap()
+    };
+    for projection in [Projection::new(32)].into_iter().chain(kameras()) {
+        let (scale, kamera) = (projection.scale(), projection.kamera());
+        let unten = bild(0, projection);
+        let sichtbar = unten.pixels().filter(|p| p.0[3] > 0).count();
+        assert!(sichtbar > 0, "{kamera}, scale {scale}: leer");
+        assert!(
+            unten == bild(40, projection),
+            "{kamera}, scale {scale}: 40 Blöcke höher anders"
+        );
     }
 }
 
 /// Der schnelle Weg über Kandidaten und Bitmasken muss Byte für Byte das
 /// Bild der Referenz liefern, die jeden Block im Band abläuft: in der
-/// Szene aus `common::szene`, einmal ganz im Bild, einmal von einem
-/// kleineren Rechteck angeschnitten, bei jedem scale, den `--scale` und
+/// Szene aus `common::szene`, einmal ganz im Bild, im Rechteck um alle
+/// ihre Blöcke, einmal von einem kleineren angeschnitten, bei jedem scale,
+/// den `--scale` und
 /// die nativen Stufen annehmen, bis 32, dazu bei 2 und 6, wo Blöcke auf
 /// halben Pixeln liegen. Die Rechtecke sind meist keine Vielfachen von 64
 /// Pixeln breit, den Wörtern der Deckungsmaske.
@@ -134,8 +335,12 @@ fn schneller_weg_gleicht_der_referenz() {
     let world = common::write_szene(dir.path());
     let y_range = common::SZENE_Y;
     let daten = common::biomdaten();
-    for scale in [2, 6].into_iter().chain((4..=32).step_by(4)) {
-        let projection = Projection::new(scale);
+    let zwei_zu_eins = [2, 6]
+        .into_iter()
+        .chain((4..=32).step_by(4))
+        .map(Projection::new);
+    for projection in zwei_zu_eins.chain(kameras()) {
+        let (scale, kamera) = (projection.scale(), projection.kamera());
         let survey = survey(&world, projection, y_range, None).unwrap();
         let mut assets = assets();
         assets.load_biomes(&daten).unwrap();
@@ -146,15 +351,16 @@ fn schneller_weg_gleicht_der_referenz() {
             "Gras ohne Tönungskarte"
         );
         let s = scale as i32;
-        let ganz = ScreenRect {
-            x: -17 * s,
-            y: -25 * s,
-            width: 34 * scale,
-            height: 42 * scale,
-        };
+        // Um so viel liegt die Szene bei dieser Kamera anders als bei 2:1.
+        let mitte_der_szene = [8, 8, 8];
+        let (sx, sy) = projection.project_block(mitte_der_szene);
+        let (zx, zy) = Projection::new(scale).project_block(mitte_der_szene);
+        let (dx, dy) = ((sx - zx) as i32, (sy - zy) as i32);
+        // Die Szene reicht von y −16 bis zur Säule bei (28, 40, 28).
+        let ganz = rect_um(projection, [0, -16, 0], [32, 41, 32]);
         let mitte = ScreenRect {
-            x: -5 * s,
-            y: -10 * s,
+            x: -5 * s + dx,
+            y: -10 * s + dy,
             width: 10 * scale,
             height: 15 * scale,
         };
@@ -166,11 +372,14 @@ fn schneller_weg_gleicht_der_referenz() {
                 .zip(referenz.pixels())
                 .filter(|(a, b)| a != b)
                 .count();
-            assert_eq!(falsch, 0, "scale {scale}, {rect:?}: {falsch} Pixel anders");
+            assert_eq!(
+                falsch, 0,
+                "{kamera}, scale {scale}, {rect:?}: {falsch} Pixel anders"
+            );
             let sichtbar = referenz.pixels().filter(|p| p.0[3] > 0).count();
             assert!(
                 sichtbar * 4 > referenz.pixels().len(),
-                "scale {scale}: Szene nicht im Bild"
+                "{kamera}, scale {scale}: Szene nicht im Bild"
             );
         }
     }
@@ -310,40 +519,78 @@ fn tempdir() -> TempDir {
     tempfile::tempdir().expect("Temporärverzeichnis")
 }
 
-/// Goldbild: hält fest, wie der fertige Ausschnitt aussieht. Neu erzeugen
-/// mit `UPDATE_GOLDEN=1 cargo test --test metatile`.
+/// Goldbilder: halten fest, wie der fertige Ausschnitt aussieht. In 2:1 das
+/// Gelände bei scale 16, als Beispiele für die anderen Kameras die Szene aus
+/// `common::szene` in 4:3 und von oben, wo das Gelände nur Oberseiten
+/// gleicher Farbe zeigte. Neu erzeugen mit
+/// `UPDATE_GOLDEN=1 cargo test --test metatile`.
 #[test]
 fn goldbild_bleibt_gleich() {
-    let bild = render(&tempdir(), gelaende, 128);
-    let pfad = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golden/metatile.png");
+    // Erst alle vergleichen, dann fallen: So liegt zu jedem abweichenden
+    // Goldbild ein Ist-Bild daneben.
+    let mut fehler: Vec<String> = goldbild("metatile", render(&tempdir(), gelaende, 128))
+        .into_iter()
+        .collect();
+
+    let dir = tempdir();
+    let world = common::write_szene(dir.path());
+    for (kamera, name) in [("4:3", "metatile-4x3"), ("top", "metatile-top")] {
+        let projection = Projection::mit_kamera(16, Kamera::parse(kamera).unwrap());
+        let survey = survey(&world, projection, common::SZENE_Y, None).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&common::biomdaten()).unwrap();
+        let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        // Um die Mitte der Szene, 10 mal 12 Blöcke.
+        let (mx, my) = projection.project_block([8, 8, 8]);
+        let rect = ScreenRect {
+            x: mx as i32 - 80,
+            y: my as i32 - 96,
+            width: 160,
+            height: 192,
+        };
+        fehler.extend(goldbild(
+            name,
+            render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
+        ));
+    }
+    assert!(fehler.is_empty(), "{}", fehler.join("\n"));
+}
+
+/// Vergleicht `bild` mit dem Goldbild `name`; weicht es ab, liegt das
+/// Ist-Bild daneben, und die Antwort sagt, wie sehr.
+fn goldbild(name: &str, bild: RgbaImage) -> Option<String> {
+    let pfad = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/golden")
+        .join(format!("{name}.png"));
 
     if std::env::var_os("UPDATE_GOLDEN").is_some() {
         std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
         bild.save(&pfad).unwrap();
-        return;
+        return None;
     }
 
     let gold = image::open(&pfad)
         .unwrap_or_else(|e| panic!("{} lesen: {e}", pfad.display()))
         .into_rgba8();
-    assert_eq!(bild.dimensions(), gold.dimensions());
-
-    let abweichend = bild
-        .pixels()
-        .zip(gold.pixels())
-        .filter(|(a, b)| a != b)
-        .count();
-    if abweichend > 0 {
+    let abweichend = if bild.dimensions() == gold.dimensions() {
+        bild.pixels()
+            .zip(gold.pixels())
+            .filter(|(a, b)| a != b)
+            .count()
+    } else {
+        (bild.width() * bild.height()) as usize
+    };
+    (abweichend > 0).then(|| {
         // Neben dem Goldbild statt in %TEMP%: so kann CI das Bild als
         // Artefakt hochladen, wenn der Test fällt.
-        let neu = pfad.with_file_name("metatile-ist.png");
+        let neu = pfad.with_file_name(format!("{name}-ist.png"));
         bild.save(&neu).ok();
-        panic!(
-            "{abweichend} von {} Pixeln weichen vom Goldbild ab. Aktuelles Bild: {}",
+        format!(
+            "{name}: {abweichend} von {} Pixeln weichen vom Goldbild ab. Aktuelles Bild: {}",
             bild.width() * bild.height(),
             neu.display()
-        );
-    }
+        )
+    })
 }
 
 /// Ein Block, dessen drei kamerazugewandte Nachbarn volle Blöcke sind, ist

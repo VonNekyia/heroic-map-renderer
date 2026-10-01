@@ -68,9 +68,9 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `renderer/tests/gpu.rs` | die Karte gegen die CPU, Byte für Byte |
 | `renderer/tests/licht.rs` | die Ausbreitung des Lichts gegen einen Lauf von Vanilla 26.2 und an gebauten Welten |
 | `renderer/tests/common/mod.rs` | gemeinsame Szenen und Helfer |
-| `web/tests/smoke.spec.ts` | das Frontend am Demo-Kachelbaum, die Koordinaten mit Maus und Touch über Höhen, die der Test liefert, den Umriss nur beim Tippen, und dass die Karte unter den strengen Headern aus `preview.headers` in `web/vite.config.ts` ohne Verletzung der Content-Security-Policy läuft |
+| `web/tests/smoke.spec.ts` | das Frontend am Demo-Kachelbaum, die Koordinaten mit Maus und Touch über Höhen, die der Test liefert, mit `projection` aus `map.json` und ohne Anzeige bei unbekanntem `azimuth` oder `direction`, den Umriss nur beim Tippen, und dass die Karte unter den strengen Headern aus `preview.headers` in `web/vite.config.ts` ohne Verletzung der Content-Security-Policy läuft |
 | `web/tests/seite.spec.ts` | den Kopf der Seite und `robots.txt`, ohne `SITE_URL` am ausgelieferten Build und mit `SITE_URL=https://example.org/karte` an einem eigenen Build |
-| `web/tests/pick.spec.ts` | den Strahl: jeder Bildpunkt eines kleinen Geländes gegen den Würfel, den das Zeichnen dort hinterlässt, gerechnet mit der Projektion aus [Die Kamera](../renderer/kamera.md), die der Test an `renderer/tests/fixtures/projektion.json` des Renderers prüft |
+| `web/tests/pick.spec.ts` | den Strahl: für 2:1, 8:5, 4:3, 1:1, 5:3 und `top` jeder Bildpunkt eines kleinen Geländes gegen den Würfel, den das Zeichnen dort in der Reihenfolge (y, v, u) und nach der Füllregel hinterlässt; dazu die Projektion jeder Kamera und die Kantenpixel auf Oberseiten und an Wänden gegen `renderer/tests/fixtures/projektion.json` des Renderers |
 
 Dazu stehen Unit-Tests in den Quelldateien selbst, unter `mod tests`.
 

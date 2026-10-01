@@ -104,15 +104,27 @@ brauchbare `heightsCell`, `minY` und `maxY`; die Karte lädt dann trotzdem,
 und die Konsole sagt, was fehlt.
 
 Ein Bildpunkt allein verrät den Block nicht: Die Projektion wirft die
-Blickachse (1, 1, 1) auf einen Punkt, siehe [Die Kamera](renderer/kamera.md).
-Das Frontend rechnet heute nur 2:1, aus `scale`; `camera` und `projection`
-aus `map.json` liest es noch nicht. In einem Baum einer anderen Kamera
-zeigt die Karte die Kacheln richtig, die Koordinaten aber nicht.
+Blickachse (b, 2a, b) der Kamera auf einen Punkt, siehe
+[Die Kamera](renderer/kamera.md), „Projektion“. Die Zahlen h, a und b
+liest das Frontend aus `projection` in `map.json`, siehe
+[map.json](benutzung/map-json.md), „Kamera und Projektion“; fehlt sie,
+rechnet es 2:1 aus `scale`. Kennt es `azimuth` oder `direction` nicht,
+heute alles ausser `diagonal` und `se`, oder sind `u` und `v` keine ganzen
+Zahlen ab 1 oder `y` keine ganze Zahl ab 0, zeigt es keine Koordinaten,
+und die Konsole nennt den Grund.
 [`web/src/pick.ts`](../web/src/pick.ts) geht deshalb den Strahl durch die
 Mitte des Pixels ab, wo auch der Renderer abtastet:
 
 1. `strahl` zählt die Würfel von vorn nach hinten auf, von `maxY` bis
-   `minY`, je Schicht drei.
+   `minY`, als Gang durch das Würfelgitter: bei 2:1 drei je Schicht, rund
+   1150 über die ganze Bauhöhe, bei steileren Kameras weniger, von oben
+   einen je Schicht.
+   - Gerechnet wird ganzzahlig, damit eine Pixelmitte auf einer Blockkante
+     genau dort liegt; das kommt bei 1:1, `top` und etwa 5:3 vor.
+   - Dort gilt die Füllregel des Renderers: Der Pixel gehört der Fläche
+     rechts der Kante, siehe [Rastern ohne Nähte](renderer/naehte.md),
+     „Füllregel“. `strahl` rückt die Mitte dafür um ein unendlich kleines
+     Stück nach rechts.
 2. `pick` nimmt den ersten, dessen Zelle bis zu ihm hinauf gefüllt ist:
    `y` ≤ Höhe der Zelle.
 3. Die Höhe steht je Zelle aus `heightsCell` × `heightsCell` Spalten, heute
@@ -122,7 +134,10 @@ Mitte des Pixels ab, wo auch der Renderer abtastet:
    4 × 4 zusammen 2 MiB.
 
 Warum der Strahl gegen Höhen läuft, siehe
-[0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md); woher die Höhen
+[0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md); warum durch
+das Würfelgitter und mit den Zahlen aus `map.json`, siehe
+[0051](entscheidungen/0051-kameras-und-richtungen.md), „Strahl im
+Frontend“; woher die Höhen
 kommen, warum je 4 × 4 Spalten und warum über Wasser die Oberfläche, siehe
 [0036](entscheidungen/0036-hoehen-aus-der-heightmap.md).
 

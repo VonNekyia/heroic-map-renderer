@@ -1,7 +1,7 @@
 /**
  * Welcher Block an einem Bildpunkt der Karte zu sehen ist.
  *
- * Die Projektion des Renderers wirft die Blickachse (1, 1, 1) auf einen
+ * Die Projektion des Renderers wirft die Blickachse (b, 2a, b) auf einen
  * Punkt: Ein Bildpunkt kann jeden Würfel entlang seines Strahls zeigen.
  * Welcher es ist, entscheidet die Höhe der Spalten, durch die der Strahl
  * geht. Ohne Leaflet, damit die Tests es in Node laden.
@@ -15,27 +15,77 @@ export type Block = readonly [x: number, y: number, z: number];
 export const REGION = 512;
 
 /**
- * Die Würfel entlang des Strahls durch den Bildpunkt (u, v) der feinsten
- * Stufe, von vorn nach hinten, von Höhe `maxY` bis `minY`.
- *
- * Abgetastet wird die Mitte des Pixels wie im Renderer. Der Strahl ist
- * `(x0 + t, t, z0 + t)`; in jeder Schicht kreuzt er je einmal eine
- * x- und eine z-Grenze, trifft also drei Würfel. Die Nachkommaanteile von
- * x0 und z0 sind dort nie 0 und nie gleich, eine Kante trifft er nie.
+ * Die Zahlen der Projektion in Pixeln der feinsten Stufe, wie `projection`
+ * in `map.json`: `u` ist h, `v` ist a, `y` ist b.
+ * Siehe docs/benutzung/map-json.md, „Kamera und Projektion“.
  */
-export function strahl(u: number, v: number, scale: number, minY: number, maxY: number): Block[] {
-  const mu = Math.floor(u) + 0.5;
-  const mv = Math.floor(v) + 0.5;
-  const x0 = (mu + 2 * mv) / scale;
-  const z0 = (2 * mv - mu) / scale;
-  const fx = Math.floor(x0);
-  const fz = Math.floor(z0);
-  const xZuerst = x0 - fx > z0 - fz;
+export interface Projektion {
+  u: number;
+  v: number;
+  y: number;
+}
+
+/** Die Projektion von 2:1, für Bäume ohne `projection`. */
+export function zweiZuEins(scale: number): Projektion {
+  return { u: scale / 2, v: scale / 4, y: scale / 2 };
+}
+
+/** Der Bildpunkt der Ecke (x, y, z), wie `Projection::project_block`. */
+export function projiziere(x: number, y: number, z: number, p: Projektion): [number, number] {
+  return [(x - z) * p.u, (x + z) * p.v - y * p.y];
+}
+
+/**
+ * Die Würfel entlang des Strahls durch den Bildpunkt (px, py) der
+ * feinsten Stufe, von vorn nach hinten, von Höhe `maxY` bis `minY`.
+ *
+ * Abgetastet wird die Mitte des Pixels wie im Renderer. Je Schicht geht
+ * der Strahl von oben nach unten durch das Würfelgitter. Gerechnet wird
+ * ganzzahlig, mal 4·h·a, damit eine Mitte genau auf einer Kante auch genau
+ * dort liegt. Dort entscheidet die Füllregel des Renderers: Sie gibt den
+ * Pixel der Fläche rechts der Kante. Das gleicht einer Mitte, die um ein
+ * unendlich kleines Stück nach rechts rückt; x wächst dabei, z fällt.
+ * Siehe docs/frontend.md, „Koordinaten“.
+ */
+export function strahl(
+  px: number,
+  py: number,
+  { u: h, v: a, y: b }: Projektion,
+  minY: number,
+  maxY: number,
+): Block[] {
+  const i = 2 * Math.floor(px) + 1;
+  const j = 2 * Math.floor(py) + 1;
+  // Auf Höhe t liegt der Strahl bei x = (X0 + s·t)/n und z = (Z0 + s·t)/n.
+  const n = 4 * h * a;
+  const s = 2 * h * b;
+  const X0 = a * i + h * j;
+  const Z0 = h * j - a * i;
   const bloecke: Block[] = [];
   for (let y = maxY; y >= minY; y--) {
-    const x = fx + y;
-    const z = fz + y;
-    bloecke.push([x + 1, y, z + 1], xZuerst ? [x + 1, y, z] : [x, y, z + 1], [x, y, z]);
+    let X = X0 + s * (y + 1);
+    let Z = Z0 + s * (y + 1);
+    let x = Math.floor(X / n);
+    let z = Math.ceil(Z / n) - 1;
+    bloecke.push([x, y, z]);
+    // Bis zum Boden der Schicht fallen X und Z um s. Wer zuerst die
+    // untere Grenze seines Würfels erreicht, wechselt; beide zugleich
+    // nie, denn senkrechte Kanten liegen nie auf einer Pixelmitte. Mit der
+    // gerückten Mitte liegt X knapp über, Z knapp unter dem gerechneten
+    // Wert: Eine Grenze in z genau am Boden zählt noch, eine in x nicht.
+    let rest = s;
+    for (;;) {
+      const dx = X - x * n;
+      const dz = Z - z * n;
+      const d = Math.min(dx, dz);
+      if (dx < dz ? dx >= rest : dz > rest) break;
+      X -= d;
+      Z -= d;
+      rest -= d;
+      if (dx < dz) x--;
+      else z--;
+      bloecke.push([x, y, z]);
+    }
   }
   return bloecke;
 }
@@ -55,21 +105,18 @@ export function pick(
 /**
  * Die sichtbaren Kanten eines Würfels in Pixeln der feinsten Stufe, wie
  * der Auswahlrahmen im Spiel: der Umriss und die drei Kanten der vorderen
- * Ecke.
+ * Ecke. Von oben (b = 0) bleibt die Raute der Oberseite.
  */
-export function umriss([x, y, z]: Block, scale: number): [number, number][][] {
-  const h = scale / 2;
-  const q = scale / 4;
-  // Die hintere obere Ecke (x, y+1, z) ist der oberste Punkt.
-  const sx = (x - z) * h;
-  const sy = (x + z) * q - (y + 1) * h;
-  const oben: [number, number] = [sx, sy];
-  const rechtsOben: [number, number] = [sx + h, sy + q];
-  const rechtsUnten: [number, number] = [sx + h, sy + 3 * q];
-  const unten: [number, number] = [sx, sy + scale];
-  const linksUnten: [number, number] = [sx - h, sy + 3 * q];
-  const linksOben: [number, number] = [sx - h, sy + q];
-  const vorn: [number, number] = [sx, sy + h];
+export function umriss([x, y, z]: Block, p: Projektion): [number, number][][] {
+  const ecke = (dx: number, dy: number, dz: number) => projiziere(x + dx, y + dy, z + dz, p);
+  const oben = ecke(0, 1, 0);
+  const rechtsOben = ecke(1, 1, 0);
+  const vorn = ecke(1, 1, 1);
+  const linksOben = ecke(0, 1, 1);
+  if (p.y === 0) return [[oben, rechtsOben, vorn, linksOben, oben]];
+  const rechtsUnten = ecke(1, 0, 0);
+  const unten = ecke(1, 0, 1);
+  const linksUnten = ecke(0, 0, 1);
   return [
     [oben, rechtsOben, rechtsUnten, unten, linksUnten, linksOben, oben],
     [linksOben, vorn, rechtsOben],

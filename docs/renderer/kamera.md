@@ -31,10 +31,13 @@ screen_y = v · a − y · b
 u = x − z,  v = x + z,  h = scale/2
 ```
 
-| Kamera | a | b | Blickachse (b, 2a, b), gekürzt |
+| Kamera | a | b | Blickachse (b, 2a, b) |
 |---|---|---|---|
-| `W:H` | scale · H/(2W) | scale/2 | (W, 2H, W) |
-| `top` | scale/2 | 0 | (0, 1, 0) |
+| `W:H` | scale · H/(2W) | scale/2 | ∝ (W, 2H, W) |
+| `top` | scale/2 | 0 | ∝ (0, 1, 0) |
+
+`Projection::achse` kürzt die Achse auf teilerfremde Zahlen, 2:1 etwa von
+(2, 2, 2) auf (1, 1, 1).
 
 - **`h`:** Pixel je Schritt in u. Ein Würfel ist immer `scale` breit.
 - **`a`:** Pixel je Schritt in v. Die Oberseite eines Blocks ist eine Raute
@@ -111,8 +114,7 @@ Was sich je Kamera im Bild ändert:
 - **Kosten:** Je Spalte der Welt kostet eine schräge Kamera in der Basis
   etwa so viel mehr wie ihre Pixel, an Bytes 8:5 das 1,22- bis 1,28-fache,
   4:3 das 1,39- bis 1,46-fache, 1:1 das 1,88- bis 2,02-fache; `top` liegt
-  mit 1,12 bis 1,61 darunter. Auf gleicher Bildfläche ist jede andere
-  Kamera schneller als 2:1 und braucht weniger Speicher, siehe
+  mit 1,12 bis 1,61 darunter. Gemessen und eingeschränkt in
   [2026-10-01, Kameras](../messungen/2026-10-01-kameras.md).
 
 ![Dasselbe Dorf in 2:1, 4:3, 1:1 und von oben](../bilder/kameras.webp)
@@ -134,12 +136,17 @@ bei scale 16. Wer die Hälfte der Texturzeilen verschmerzen kann, gibt
 
 `--scale` und `--camera` gehen nur zusammen, wenn jede Blockecke auf ganzen
 Pixeln liegt (`Projection::ganze_pixel`): a ist ganz, und scale ist gerade.
-Dann sind auch h und b ganz. Sonst läge jede zweite Blockreihe auf einem
-halben Pixel, und benachbarte Reihen überdeckten sich.
+Dann sind auch h und b ganz. Sonst lägen Blockreihen zwischen den Pixeln,
+und benachbarte Reihen überdeckten sich.
 
-- **2:1** heisst das: ein Vielfaches von 4, die Regel von früher.
+- **Ein gekürztes W:H** braucht ein Vielfaches von 2W (`Kamera::schritt`),
+  2:1 also eines von 4, die Regel von früher.
 - **Bei scale 32** gehen 16:a mit a von 8 bis 16, gekürzt 2:1, 16:9, 8:5,
   16:11, 4:3, 16:13, 8:7, 16:15 und 1:1.
+- **Bei scale 24** gehen 2:1, 12:7, 3:2, 4:3, 6:5, 12:11 und 1:1, nicht
+  8:5 und 16:9. Native Stufen haben 2:1 und 6:5 nur 12; 3:2, 1:1 und `top`
+  12 und 6; 12:7, 4:3 und 12:11 keine (`native_stufen_nur_auf_ganzen_pixeln`
+  in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
 - **`top`** braucht einen geraden scale.
 - **Native Stufen** gehen, solange der scale der Stufe die Regel erfüllt,
   bis scale 4, siehe [Zoomstufen](../benutzung/zoomstufen.md), „Native
@@ -216,10 +223,26 @@ Zugeordnet wird im Raum, je Fragment (`Raster::teile` in
   in den eigenen Umriss (`fits_cell`), bleibt es ganz. So bleiben
   Wandfackeln, Korallenfächer und Getreide bei kleinem scale ein Teil. Erst
   was weiter hinausragt, zerfällt.
+- **Ein fremder Würfel:** Liegen alle Fragmente in einem einzigen Würfel,
+  der nicht der eigene ist, wird das Modell ein Teil dort, ausser es passt
+  in den Spielraum. In 2:1 trifft das unter den 32 366 Zuständen aus
+  `blocks.txt` von 26.2, bei jedem Vielfachen von 4 von 4 bis 64, nur die
+  stehenden Banner mit `rotation` 2 und 10 bei scale 16: Nur ihre
+  Fahne trifft Pixelmitten, und die liegt im Würfel darüber. Stiele,
+  Getreide und stehende Schilder, deren Fragmente bei manchen scales ebenso
+  alle in einem fremden Würfel liegen, bleiben im Spielraum ganz. Das prüft
+  `zwei_zu_eins_in_einem_fremden_wuerfel` in
+  `renderer/src/render/sprites.rs`, ignoriert, weil er die Vanilla-Assets
+  braucht; er nennt die Zustände je scale.
 - **Jede Kamera:** Der Umriss eines Würfels folgt aus h, a und b
   (`in_outline` in `renderer/src/render/sprites.rs`); die Zuordnung im
-  Raum braucht nichts sonst. Von oben passt etwa ein Modell, das zwei
-  Blöcke hoch senkrecht aufragt, in den eigenen Umriss und bleibt ganz.
+  Raum braucht nichts sonst. Von oben hat die Höhe im Bild keine
+  Ausdehnung: Dort gilt der Spielraum nur, wenn alle Fragmente im eigenen
+  Würfel liegen. Ein Modell, das zwei Blöcke hoch aufragt, passt von oben
+  in seinen Umriss, zerfällt aber trotzdem, und durch einen Teppich über
+  ihm bleibt sein oberes Teil zu sehen
+  (`von_oben_ragt_der_turm_durch_den_teppich` in
+  `renderer/tests/metatile.rs`).
 
 Bis #65 wurde über den Bildschirm zugeordnet: Ein Pixel gehörte dem
 vordersten Würfel der Hülle, dessen Umriss ihn enthält. Die Umrisse
@@ -272,14 +295,14 @@ Bei `top` ist b = 0 und die Achse (0, 1, 0). Was daraus folgt:
   und verschwinden. Häuser werden zu Rechtecken. Relief zeigen nur noch die
   weiche Beleuchtung und das Himmelslicht.
 - **Keine Haarlinie:** Jede Fläche eines Vanilla-Blocks, die die Kamera
-  von oben sieht, zeigt deutlich nach oben. Über alle 32 366 Zustände aus
-  `blocks.txt` sieht sie 96 750 Flächen, die steilste mit n_y = 0,0079:
-  die Fahne eines Banners, im Modell des Spiels um 0,45° geneigt. Danach
-  kommen die Statuen des Kupfergolems mit 0,045. Zwischen dem Rauschen des
-  Bakers, 1e-7 der Länge, und echter Neigung liegt also keine Fläche; die
-  Grenze `EDGE_ON` liegt bei 1e-4. Das prüft
-  `von_oben_keine_haarlinie_an_allen_vanilla_bloecken` in `sprites.rs`,
-  ignoriert, weil er die Vanilla-Assets braucht.
+  von oben sieht, steht messbar schräg, weit über dem Rauschen. Über alle
+  32 366 Zustände aus `blocks.txt` sieht sie 96 750 Flächen, die steilste
+  mit n_y = 0,0079: die Fahne eines Banners, im Modell des Spiels um 0,45°
+  geneigt. Zwischen dem Rauschen des Bakers, 1e-7 der Länge, und echter
+  Neigung liegt also keine Fläche; die Grenze `EDGE_ON` liegt bei 1e-4. Das
+  prüft `von_oben_keine_haarlinie_an_allen_vanilla_bloecken` in
+  `renderer/src/render/sprites.rs`, ignoriert, weil er die Vanilla-Assets
+  braucht; er nennt die drei steilsten Blöcke.
 - **Verdeckt** ist ein Würfel von oben allein durch den Block darüber,
   siehe [Sprites und Deckung](sprites-und-deckung.md), „Verdeckte Würfel“.
 - **Jede Höhe liegt im Band:** Das Fenster von v ist für jede Höhe
@@ -304,9 +327,7 @@ Eine Kante der Raute steigt um a je h, also H:W, von oben 1:1:
 - **In deckendem Gelände bleibt kein Pixel offen,** auch nicht auf solchen
   Kanten. Das prüft `kein_loch_in_deckendem_gelaende` in
   `renderer/tests/metatile.rs` an Stufen aus zufällig gedrehten Blöcken,
-  für 2:1 und jede Kamera der Invarianten. In der Testwelt um (−64, 416)
-  ist bei 4096 × 4096 Pixeln kein Pixel offen, in 2:1, 4:3, 1:1 und `top`
-  bei scale 16 und in 5:3 bei scale 30.
+  für 2:1 und jede Kamera der Invarianten.
 - **Das Frontend** bekommt solche Pixel in `projektion.json` vorgerechnet,
   siehe [`map.json`](../benutzung/map-json.md), „Kamera und Projektion“.
 

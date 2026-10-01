@@ -66,11 +66,13 @@ Siehe [Die Kamera](../renderer/kamera.md) und
   der Blickachse (b, 2a, b), von `maxY` bis `minY`, für jede schräge
   Kamera, auch 2:1. Treffer ist wie bisher der erste Würfel, dessen Zelle
   bis zu ihm hinauf gefüllt ist.
-- **Draufsicht (`y` = 0):** Der Strahl ist senkrecht. Die Spalte folgt aus
-  dem Pixel, die Höhe aus `heights`. Liegt die Mitte eines Pixels genau auf
-  einer Blockkante, gilt die Füllregel des Renderers; die Kantenpixel in
-  `renderer/tests/fixtures/projektion.json` legen sie fest, für `top`, 1:1
-  und 5:3, auf Oberseiten wie an Wänden.
+- **Draufsicht (`y` = 0):** Der Strahl ist senkrecht und trifft je Schicht
+  genau einen Würfel, den der Spalte unter dem Pixel. Welcher es ist, sagt
+  die Höhe aus `heights`.
+- **Kantenpixel:** Liegt die Mitte eines Pixels genau auf einer Blockkante,
+  gilt die Füllregel des Renderers. Die Kantenpixel in
+  `renderer/tests/fixtures/projektion.json` legen sie fest: auf Oberseiten
+  für `top`, 1:1 und 5:3, an Wänden für 1:1 und 5:3.
 - **Zahlen nur aus `map.json`:** Das Frontend rechnet aus `projection`
   (`u`, `v`, `y`) und führt keine Tabelle der Kameras. Fehlt `projection`,
   gilt 2:1 aus `scale`. Kennt es `azimuth` oder `direction` nicht, zeigt es
@@ -87,7 +89,7 @@ Siehe [Die Kamera](../renderer/kamera.md) und
 | [0008](0008-sprite-kanten-nicht-glaetten.md) | Treppen im 2:1-Raster | Treppen im Raster der Kamera |
 | [0013](0013-scale-32-als-standard.md) | `--scale` nur in Vielfachen von 4 | scale und Kamera auf ganzen Pixeln |
 | [0016](0016-native-stufen-nur-auf-wunsch.md) | native Stufen, solange der scale durch vier teilbar ist | solange die Stufe auf ganzen Pixeln liegt |
-| [0035](0035-koordinaten-aus-hoehenkarten.md) | die drei Würfel je Schicht entlang (1, 1, 1) | ein Gang durch das Würfelgitter entlang der Achse aus `projection`, von oben senkrecht |
+| [0035](0035-koordinaten-aus-hoehenkarten.md) | der Strahl entlang (1, 1, 1) | ein Gang durch das Würfelgitter entlang der Achse aus `projection`, von oben senkrecht |
 | [0038](0038-cutout-wie-im-spiel.md) | der Satz zur festen Blickachse | die Blickachse der Kamera des Laufs |
 
 Die Reihenfolge nach Höhe und Tiefe aus
@@ -114,8 +116,9 @@ mit b ≥ 0 und a > 0, siehe [Die Kamera](../renderer/kamera.md),
   Frontend zweimal.
 - **Eine Formel je Kamera im Frontend:** Jede Zahl stünde dann zweimal,
   im Renderer und im Frontend.
-- **Die drei Würfel je Schicht aus 0035 verallgemeinern:** Sie tragen nur,
-  wenn b/(2a) ganz ist, also bei 2:1.
+- **Die drei Würfel je Schicht des heutigen Strahls verallgemeinern**
+  ([Frontend](../frontend.md), „Koordinaten“): Sie tragen nur, wenn b/(2a)
+  ganz ist, also bei 2:1.
 - **Licht unbekannter Blöcke im Raster der Kamera des Laufs.** Von oben
   deckt schon eine flache Seerose ihren ganzen Umriss, und ihr Würfel
   bliebe dunkel.

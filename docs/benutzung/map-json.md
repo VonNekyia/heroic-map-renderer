@@ -47,7 +47,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 |---|---|---|
 | `tileSize` | Kantenlänge einer Kachel in Pixeln | |
 | `scale` | Pixelbreite eines Blocks auf der Basis | [Kamera](../renderer/kamera.md) |
-| `camera` | `--camera`, gekürzt, etwa `8:5` oder `top`; fehlt es, ist der Baum 2:1 | „Kamera und Projektion“ unten |
+| `camera` | `--camera`, gekürzt, etwa `8:5` oder `top` | „Kamera und Projektion“ unten |
 | `direction` | woher die Kamera blickt, heute immer `se` | „Kamera und Projektion“ unten |
 | `projection` | die Projektion in Pixeln der Basis | „Kamera und Projektion“ unten |
 | `minZoom`, `maxZoom` | gröbste und feinste Stufe; `maxZoom` ist die Basis | [Zoomstufen](zoomstufen.md) |
@@ -75,15 +75,18 @@ das Frontend liest die Datei in `web/src/main.ts`.
 - **`projection`:** die Zahlen der Projektion in Pixeln der Basis: `u` ist
   h, `v` ist a, `y` ist b, siehe [Kamera](../renderer/kamera.md),
   „Projektion“. `azimuth` ist heute immer `diagonal`: u = x − z,
-  v = x + z. Das Frontend rechnet nur aus diesen Zahlen und führt keine
-  eigene Tabelle der Kameras.
+  v = x + z.
 - **`direction`:** heute immer `se`, die Kamera steht im Südosten. Das Feld
   steht schon jetzt da, damit sich das Format nur einmal ändert.
-- **Ältere Bäume:** Fehlt `camera`, ist der Baum 2:1; fehlt `projection`,
-  rechnet das Frontend aus `scale` wie bei 2:1. Einen unbekannten
-  `azimuth` oder eine unbekannte `direction` meldet das Frontend.
+- **Ältere Bäume:** Fehlt `camera`, ist der Baum 2:1.
+- **`--pyramid`** behält die drei Felder.
 - **Ein Baum, eine Kamera:** siehe [Zoomstufen](zoomstufen.md), „Ein Baum,
-  eine Kamera“. `--pyramid` behält die drei Felder.
+  eine Kamera“.
+- **Das Frontend** liest die drei Felder heute noch nicht und rechnet 2:1
+  aus `scale`, siehe [Frontend](../frontend.md), „Koordinaten“. Wie es sie
+  lesen wird, entscheidet
+  [0051](../entscheidungen/0051-kameras-und-richtungen.md), „Strahl im
+  Frontend“.
 
 Für die Koordinaten rechnet das Frontend die Projektion nach. Damit es
 dabei nicht vom Renderer abweicht, liegen Einträge in
@@ -159,8 +162,9 @@ Welcher Lauf welche Höhen schreibt:
   ihre Höhen, wie ihre Kacheln.
 - **`--heights DIR`** schreibt Höhen und Felder in einen bestehenden Baum,
   ohne zu rendern, etwa in einen aus einem Stand ohne Höhen. Der Aufruf
-  liest die ganze Welt, braucht nur `--world`, nimmt den scale aus
-  `map.json` und prüft wie ein Export, ob die Welt zum Baum gehört.
+  liest die ganze Welt, braucht nur `--world`, nimmt scale und Kamera aus
+  `map.json`, nimmt deshalb weder `--scale` noch `--camera` an und prüft
+  wie ein Export, ob die Welt zum Baum gehört.
 - **`--resume`** schreibt die Höhen neu wie ein Export.
 - **`--pyramid`** lässt Höhen und Felder stehen.
 - **`--prune`** entfernt am Ende des Laufs die Höhen von Regionen ohne

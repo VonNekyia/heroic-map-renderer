@@ -440,9 +440,9 @@ impl Raster {
         }
     }
 
-    /// In wie vielen Würfeln Fragmente liegen.
-    pub fn zellen(&self) -> usize {
-        self.canvas.zellen().len()
+    /// Die Würfel, in denen Fragmente liegen.
+    pub fn zellen(&self) -> BTreeSet<Cell> {
+        self.canvas.zellen()
     }
 
     /// Je Würfel, in dem Fragmente liegen, deren Mischung als eigenes

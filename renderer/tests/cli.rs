@@ -1336,11 +1336,15 @@ fn native_stufen_wie_der_weg_je_stufe() {
     let deckend = basis.licht_deckend(&survey.states);
     let biomes = BiomeTable::new(assets.colors()).with(BLEND_DEFAULT, world.seed().unwrap());
     let tabellen = BTreeMap::from([16, 8, 4].map(|scale| {
-        let mut sprites =
-            SpriteSet::build_in(&mut assets, &survey.states, Projection::new(scale)).unwrap();
+        let mut sprites = SpriteSet::build_mit_licht(
+            &mut assets,
+            &survey.states,
+            Projection::new(scale),
+            Some(deckend.clone()),
+        )
+        .unwrap();
         sprites.add_entities(&mut assets, &survey.entities).unwrap();
         sprites.set_biomes(biomes.clone());
-        sprites.set_licht_deckend(deckend.clone());
         (scale, sprites)
     }));
     let mut caches: BTreeMap<u32, ChunkCache> = tabellen
@@ -2384,25 +2388,13 @@ fn ausschnitt_behaelt_die_hoehen_daneben() {
 /// `--heights` schreibt in einen Baum ohne Höhen, etwa aus einem älteren
 /// Stand, dieselben Höhen und Felder wie ein Export, ohne eine Kachel
 /// anzufassen und ohne Assets. Wie ein Export nur in einen Baum dieser
-/// Welt, und nur in einen Baum.
+/// Welt, und nur in einen Baum. Auch in einen Baum einer anderen Kamera:
+/// Scale und Kamera kommen aus seiner `map.json`.
 #[test]
 fn heights_traegt_hoehen_nach() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
     common::write_wurzel(welt.path(), 4_815_162_342);
-    let out = tempdir();
-    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
-    let soll = schnappschuss(out.path());
-
-    std::fs::remove_dir_all(out.path().join("heights")).unwrap();
-    let karte = out.path().join("map.json");
-    let mut info: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
-    for feld in ["heights", "heightsCell", "minY", "maxY"] {
-        info.as_object_mut().unwrap().remove(feld).expect(feld);
-    }
-    std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
-
     let nachtragen = |welt: &Path, dir: &Path| {
         cli(&[
             OsStr::new("--world"),
@@ -2411,6 +2403,31 @@ fn heights_traegt_hoehen_nach() {
             dir.as_os_str(),
         ])
     };
+    let ohne_hoehen = |dir: &Path| {
+        std::fs::remove_dir_all(dir.join("heights")).unwrap();
+        let karte = dir.join("map.json");
+        let mut info: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+        for feld in ["heights", "heightsCell", "minY", "maxY"] {
+            info.as_object_mut().unwrap().remove(feld).expect(feld);
+        }
+        std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
+    };
+    let oben = tempdir();
+    gelungen(&tiles(
+        welt.path(),
+        oben.path(),
+        &["--scale", "16", "--camera", "top"],
+    ));
+    let soll = schnappschuss(oben.path());
+    ohne_hoehen(oben.path());
+    gelungen(&nachtragen(welt.path(), oben.path()));
+    assert_eq!(schnappschuss(oben.path()), soll, "von oben");
+
+    let out = tempdir();
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+    let soll = schnappschuss(out.path());
+    ohne_hoehen(out.path());
     gelungen(&nachtragen(welt.path(), out.path()));
     assert_eq!(schnappschuss(out.path()), soll);
 
@@ -2450,6 +2467,48 @@ fn heights_braucht_die_welt() {
         "--heights neben --tiles lief durch"
     );
     assert!(schnappschuss(out.path()).is_empty(), "etwas geschrieben");
+
+    // Scale und Kamera kommen aus map.json; wer sie nennt, irrt sich.
+    for schalter in [["--camera", "4:3"], ["--scale", "16"]] {
+        let ausgabe = cli(&[
+            OsStr::new("--world"),
+            welt.path().as_os_str(),
+            OsStr::new("--heights"),
+            out.path().as_os_str(),
+            OsStr::new(schalter[0]),
+            OsStr::new(schalter[1]),
+        ]);
+        assert!(!ausgabe.status.success(), "{schalter:?} lief durch");
+        let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(
+            meldung.contains("cannot be used with"),
+            "{schalter:?}: {meldung}"
+        );
+    }
+}
+
+/// Ein Paar aus Kamera und scale ohne ganze Pixel bricht ab, bevor der Lauf
+/// die Welt liest oder etwas schreibt, und nennt die Nachbarn.
+#[test]
+fn kamera_ohne_ganze_pixel_bricht_vor_der_welt_ab() {
+    let leer = tempdir();
+    let welt = leer.path().join("fehlt");
+    let out = leer.path().join("out");
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        welt.as_os_str(),
+        OsStr::new("--tiles"),
+        out.as_os_str(),
+        OsStr::new("--camera"),
+        OsStr::new("5:3"),
+    ]);
+    assert!(!ausgabe.status.success());
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        meldung.contains("5:3 geht bei scale 32 nicht (a = 9,6). Nächste gültige: 16:9 (a = 9)"),
+        "{meldung}"
+    );
+    assert!(!out.exists(), "out angelegt");
 }
 
 /// Die Höhen einer Region, deren Datei fehlt, entfernt nur --prune, wie die
@@ -3496,6 +3555,16 @@ fn andere_kamera_wird_abgelehnt() {
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(meldung.contains("Kamera 4:3"), "Meldung: {meldung}");
     assert!(meldung.contains("--camera 4:3"), "Meldung: {meldung}");
+    assert!(!meldung.contains("--scale"), "Meldung: {meldung}");
+
+    // Weicht auch der scale ab, nennt die Meldung beide.
+    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
+    assert!(!ausgabe.status.success(), "2:1 hätte abbrechen müssen");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        meldung.contains("--camera 4:3 --scale 8"),
+        "Meldung: {meldung}"
+    );
     assert_eq!(
         schnappschuss(out.path()),
         vorher,

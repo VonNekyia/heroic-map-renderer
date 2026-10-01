@@ -12,8 +12,8 @@ code:
 # 0035: Koordinaten aus Höhenkarten
 
 Den Umriss zeigt seit [0049](0049-umriss-nur-ohne-zeiger.md) nur noch ein Tippen, nicht mehr die Maus.
-Die drei Würfel je Schicht entlang (1, 1, 1) löst
-[0051](0051-kameras-und-richtungen.md) ab, „Strahl im Frontend“.
+Den Strahl entlang (1, 1, 1) löst [0051](0051-kameras-und-richtungen.md)
+ab, „Strahl im Frontend“.
 
 ## Anlass
 

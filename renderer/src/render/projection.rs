@@ -20,20 +20,28 @@ pub struct Projection {
     kamera: Kamera,
 }
 
-/// Schräg mit der Raute `breite`:`hoehe`, gekürzt, oder von oben.
+/// Schräg mit einer Raute W:H oder von oben.
 /// Siehe docs/renderer/kamera.md, „Kameras“.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kamera {
-    Schraeg { breite: u32, hoehe: u32 },
+    Schraeg(Raute),
     Oben,
+}
+
+/// Die Raute W:H einer schrägen Kamera, gekürzt und zwischen 2:1 und 1:1:
+/// Sie entsteht nur über [`Kamera::schraeg`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Raute {
+    breite: u32,
+    hoehe: u32,
 }
 
 impl Kamera {
     /// Die Vorgabe.
-    pub const ZWEI_ZU_EINS: Kamera = Kamera::Schraeg {
+    pub const ZWEI_ZU_EINS: Kamera = Kamera::Schraeg(Raute {
         breite: 2,
         hoehe: 1,
-    };
+    });
 
     /// `W:H` oder `top`. W:H wird gekürzt und muss zwischen 2:1 und 1:1
     /// liegen: flacher verdeckt das Gelände mehr, steiler erschiene die
@@ -54,23 +62,34 @@ impl Kamera {
 
     /// Schräg mit der Raute `w`:`h`, gekürzt; zwischen 2:1 und 1:1.
     pub fn schraeg(w: u32, h: u32) -> Result<Kamera, String> {
-        if w > 2 * h {
+        if u64::from(w) > 2 * u64::from(h) {
             return Err(format!("{w}:{h} ist flacher als 2:1"));
         }
         if h > w {
             return Err(format!("{w}:{h} ist steiler als 1:1"));
         }
-        let g = ggt(w, h);
-        Ok(Kamera::Schraeg {
+        let g = ggt(w.into(), h.into()) as u32;
+        Ok(Kamera::Schraeg(Raute {
             breite: w / g,
             hoehe: h / g,
-        })
+        }))
+    }
+
+    /// Der Schritt im scale, in dem jede Blockecke auf ganzen Pixeln liegt:
+    /// schräg 2W, denn a = scale · H/(2W) mit teilerfremden W und H ist
+    /// genau dann ganz und der scale gerade; von oben 2.
+    /// Siehe docs/renderer/kamera.md, „Ganze Pixel“.
+    pub fn schritt(self) -> u64 {
+        match self {
+            Kamera::Schraeg(Raute { breite, .. }) => 2 * u64::from(breite),
+            Kamera::Oben => 2,
+        }
     }
 
     /// `a` je scale als Bruch: schräg H/(2W), von oben 1/2.
-    fn a_je_scale(self) -> (u32, u32) {
+    fn a_je_scale(self) -> (u64, u64) {
         match self {
-            Kamera::Schraeg { breite, hoehe } => (hoehe, 2 * breite),
+            Kamera::Schraeg(Raute { breite, hoehe }) => (hoehe.into(), 2 * u64::from(breite)),
             Kamera::Oben => (1, 2),
         }
     }
@@ -79,19 +98,13 @@ impl Kamera {
 impl std::fmt::Display for Kamera {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Kamera::Schraeg { breite, hoehe } => write!(f, "{breite}:{hoehe}"),
+            Kamera::Schraeg(Raute { breite, hoehe }) => write!(f, "{breite}:{hoehe}"),
             Kamera::Oben => write!(f, "top"),
         }
     }
 }
 
-impl Default for Kamera {
-    fn default() -> Self {
-        Kamera::ZWEI_ZU_EINS
-    }
-}
-
-fn ggt(a: u32, b: u32) -> u32 {
+fn ggt(a: u64, b: u64) -> u64 {
     if b == 0 { a } else { ggt(b, a % b) }
 }
 
@@ -135,23 +148,23 @@ impl Projection {
     /// Pixel je Schritt in `v = x + z`.
     pub fn a(&self) -> f64 {
         let (zaehler, nenner) = self.kamera.a_je_scale();
-        (self.scale * zaehler) as f64 / nenner as f64
+        (u64::from(self.scale) * zaehler) as f64 / nenner as f64
     }
 
     /// Pixel je Block Höhe: schräg scale/2, von oben 0.
     pub fn b(&self) -> f64 {
         match self.kamera {
-            Kamera::Schraeg { .. } => self.scale as f64 / 2.0,
+            Kamera::Schraeg(_) => self.scale as f64 / 2.0,
             Kamera::Oben => 0.0,
         }
     }
 
     /// Liegt jede Blockecke auf ganzen Pixeln? Genau dann, wenn `a` ganz und
-    /// der scale gerade ist; bei 2:1 heisst das: ein Vielfaches von 4.
+    /// der scale gerade ist, also ein Vielfaches von [`Kamera::schritt`];
+    /// bei 2:1 heisst das: ein Vielfaches von 4.
     /// Siehe docs/renderer/kamera.md, „Ganze Pixel“.
     pub fn ganze_pixel(&self) -> bool {
-        let (zaehler, nenner) = self.kamera.a_je_scale();
-        self.scale.is_multiple_of(2) && (self.scale * zaehler).is_multiple_of(nenner)
+        u64::from(self.scale).is_multiple_of(self.kamera.schritt())
     }
 
     /// Die Blickachse (b, 2a, b), gekürzt auf ganze teilerfremde Zahlen:
@@ -161,7 +174,7 @@ impl Projection {
     pub fn achse(&self) -> [f32; 3] {
         let (seite, mitte) = match self.kamera {
             // (scale/2, scale·H/W, scale/2) ∝ (W, 2H, W)
-            Kamera::Schraeg { breite, hoehe } => (breite, 2 * hoehe),
+            Kamera::Schraeg(Raute { breite, hoehe }) => (u64::from(breite), 2 * u64::from(hoehe)),
             Kamera::Oben => (0, 1),
         };
         let g = ggt(seite, mitte);
@@ -302,6 +315,45 @@ mod tests {
             let oben = Projection::mit_kamera(scale, Kamera::Oben);
             assert_eq!(oben.ganze_pixel(), scale % 2 == 0, "top bei {scale}");
         }
+    }
+
+    /// Der Schritt 2W gibt dieselben scales wie die Regel selbst: `a` ganz
+    /// und der scale gerade, für jede gekürzte Raute bis 32:32.
+    #[test]
+    fn schritt_gleicht_der_regel() {
+        for w in 1..=32u32 {
+            for h in w.div_ceil(2)..=w {
+                let kamera = Kamera::schraeg(w, h).unwrap();
+                let Kamera::Schraeg(Raute { breite, hoehe }) = kamera else {
+                    unreachable!()
+                };
+                for scale in 2..=256u32 {
+                    let p = Projection::mit_kamera(scale, kamera);
+                    let regel = scale % 2 == 0 && (scale * hoehe) % (2 * breite) == 0;
+                    assert_eq!(p.ganze_pixel(), regel, "{kamera} bei {scale}");
+                }
+            }
+        }
+    }
+
+    /// Grosse Rauten laufen nicht über: Die Regel lehnt sie ab, statt mit
+    /// a = 0 weiterzurechnen.
+    #[test]
+    fn grosse_rauten_laufen_nicht_ueber() {
+        let k = Kamera::parse("134217729:134217728").unwrap();
+        let p = Projection::mit_kamera(32, k);
+        assert!(!p.ganze_pixel());
+        assert!(
+            (p.a() - 16.0).abs() < 1e-6 && p.a() != 16.0,
+            "a = {}",
+            p.a()
+        );
+        assert_eq!(p.achse(), [134217729.0, 268435456.0, 134217729.0]);
+        assert_eq!(
+            Kamera::parse("4294967295:1"),
+            Err("4294967295:1 ist flacher als 2:1".to_string())
+        );
+        assert_eq!(Kamera::parse("4294967295:4294967295"), Kamera::parse("1:1"));
     }
 
     #[test]

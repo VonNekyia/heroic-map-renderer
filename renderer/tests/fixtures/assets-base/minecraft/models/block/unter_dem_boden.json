@@ -1,0 +1,15 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": { "all": "minecraft:block/blau" },
+  "elements": [
+    {
+      "from": [2, -3, 2],
+      "to": [14, -1, 14],
+      "faces": {
+        "up":    { "texture": "#all" },
+        "south": { "texture": "#all" },
+        "east":  { "texture": "#all" }
+      }
+    }
+  ]
+}

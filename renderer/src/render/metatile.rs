@@ -306,8 +306,8 @@ pub fn render_area_without_culling(
     Ok(canvas)
 }
 
-/// Wo der Ursprung eines Blocks auf der Leinwand liegt; dort sitzt die
-/// Mitte seines Umrisses.
+/// Wo der Ursprung eines Blocks auf der Leinwand liegt: der Bildpunkt
+/// seiner Ecke mit den kleinsten Koordinaten (`Projection::project_block`).
 fn block_origin(projection: Projection, rect: ScreenRect, anchor: [i32; 3]) -> (i32, i32) {
     let (sx, sy) = projection.project_block(anchor);
     (sx.round() as i32 - rect.x, sy.round() as i32 - rect.y)
@@ -1477,9 +1477,12 @@ impl<'a> ChunkCache<'a> {
     /// Seiten hinein. Lava deckt nur bei scale 4, sonst fiele dort kein Block
     /// weg.
     ///
-    /// Beides gilt nur bei einem Vielfachen von 4 als scale, wenn jeder Block
-    /// auf ganzen Pixeln liegt; bei anderen, die nur die Bibliothek annimmt,
-    /// verdeckt kein Nachbar.
+    /// Von oben stehen die Seiten auf der Kante; dort verdeckt der Block
+    /// darüber allein, mit seinem Boden.
+    ///
+    /// Beides gilt nur, wenn jeder Block auf ganzen Pixeln liegt
+    /// (`Projection::ganze_pixel`); bei anderen scales, die nur die
+    /// Bibliothek annimmt, verdeckt kein Nachbar.
     /// Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
     /// Siehe docs/renderer/renderpfad.md, „Bitmasken“.
     fn expose(&mut self, slot: usize, s: usize) -> Result<()> {

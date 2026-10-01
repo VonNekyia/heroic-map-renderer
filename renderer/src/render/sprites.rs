@@ -7,7 +7,7 @@ use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, Quad, box_quads};
 use crate::assets::blockentity;
-use crate::assets::blockstate::{self, KOLLISION, ModelRef};
+use crate::assets::blockstate::{self, KOLLISION, ModelRef, Nachbarregel, seite};
 use crate::assets::colors::{Resolver, Source, Tint, source_of, tinted_below};
 use crate::assets::fluid::Fluid;
 use crate::assets::noise::JavaRandom;
@@ -189,7 +189,27 @@ pub struct Family {
     /// Wo die andere Hälfte einer Doppelkiste steht, relativ zum Block,
     /// siehe [`doppelkiste`].
     pub doppelkiste: Option<[i32; 3]>,
+    /// Zu welchen Nachbarn der Block Flächen weglässt, siehe
+    /// [`blockstate::nachbarregel`].
+    pub nachbarn: Option<Nachbarregel>,
+    /// Die Seiten, zu denen das wirklich eine Fläche trifft: eine, die die
+    /// Kamera sieht, mit ihrer `cullface` dort, und die Regel kann dorthin
+    /// wirken. Bits nach [`seite`].
+    seiten: u8,
+    /// Je Alternative ihre Fassungen ohne Flächen zu gleichen Nachbarn, wenn
+    /// `seiten` nicht leer ist, siehe [`Family::ohne_nachbarn`].
+    fassungen: Vec<Vec<Option<SpriteId>>>,
 }
+
+/// Die Seiten in der Reihenfolge von `Direction.values()`, wie [`seite`].
+const SEITEN: [Face; 6] = [
+    Face::Down,
+    Face::Up,
+    Face::North,
+    Face::South,
+    Face::West,
+    Face::East,
+];
 
 impl Family {
     /// Die Alternative fuer einen Block, dieselbe, die der 26.2-Client
@@ -197,19 +217,52 @@ impl Family {
     /// in Listenreihenfolge abgezaehlt.
     /// Siehe docs/renderer/varianten.md, „Wie gewürfelt wird“.
     pub fn pick(&self, pos: [i32; 3]) -> Option<SpriteId> {
+        self.wahl(pos).and_then(|i| self.sprite(i))
+    }
+
+    /// Das Grundbild einer Alternative, nach ihrem Platz aus
+    /// [`Family::wahl`].
+    pub fn sprite(&self, wahl: usize) -> Option<SpriteId> {
+        self.alternatives[wahl].1
+    }
+
+    /// Welche Alternative [`Family::pick`] nimmt, als Platz in der Liste.
+    pub fn wahl(&self, pos: [i32; 3]) -> Option<usize> {
         if self.alternatives.len() == 1 {
-            return self.alternatives[0].1;
+            return Some(0);
         }
         let [dx, dy, dz] = self.seed_offset;
         let pos = [pos[0] + dx, pos[1] + dy, pos[2] + dz];
         let mut n = java_next_int(seed(pos), self.total as i32);
-        for &(weight, id) in &self.alternatives {
+        for (i, &(weight, _)) in self.alternatives.iter().enumerate() {
             n -= weight as i32;
             if n < 0 {
-                return id;
+                return Some(i);
             }
         }
         None
+    }
+
+    /// Die Seiten, zu denen [`Family::ohne_nachbarn`] fragt, in dieser
+    /// Reihenfolge. Leer für Blöcke ohne Regel.
+    pub fn nachbarseiten(&self) -> impl Iterator<Item = Face> + '_ {
+        SEITEN
+            .into_iter()
+            .filter(|&face| self.seiten & seite(face) != 0)
+    }
+
+    /// Die Fassung einer Alternative ohne die Flächen zu gleichen Nachbarn:
+    /// `nachbarn` trägt je Seite aus [`Family::nachbarseiten`] ein Bit, in
+    /// deren Reihenfolge, `fluessig` die Maske der Flüssigkeit im Block wie
+    /// bei [`SpriteSet::masked`]. `None`, wenn nichts bleibt.
+    pub fn ohne_nachbarn(&self, wahl: usize, fluessig: u8, nachbarn: u8) -> Option<SpriteId> {
+        let je_nachbar = if self.fluid.is_some() { 8 } else { 1 };
+        self.fassungen[wahl][fluessig as usize + je_nachbar * nachbarn as usize]
+    }
+
+    /// Hat der Block Fassungen ohne Flächen zu gleichen Nachbarn?
+    pub fn hat_nachbarn(&self) -> bool {
+        self.seiten != 0
     }
 }
 
@@ -267,8 +320,8 @@ pub fn mask_bit(face: Face) -> u8 {
 /// die Faerbung), die Modellverweise samt Drehung und Gewicht, Art und
 /// Menge der Fluessigkeit, wo die Wahl der Alternative ihre Saat nimmt und
 /// was sein Blockentity zeichnet, dazu die volle Kollisionsform, siehe
-/// [`kollision`]. Die Verweise reichen, die Modelle selbst laedt erst die
-/// Familie. Eine Truhe hat in jeder Lage dasselbe Blockmodell, aber nicht
+/// [`kollision`], und zu welchen Nachbarn er Flächen weglässt. Die Verweise
+/// reichen, die Modelle selbst laedt erst die Familie. Eine Truhe hat in jeder Lage dasselbe Blockmodell, aber nicht
 /// dasselbe Bild aus [`blockentity::bild`]; das trennt auch, wo die andere
 /// Hälfte einer Doppelkiste steht.
 type FamilyKey = (
@@ -278,6 +331,7 @@ type FamilyKey = (
     [i32; 3],
     Option<usize>,
     bool,
+    Option<Nachbarregel>,
 );
 
 /// Was die Sprites einer Blockstate bestimmt. Das Licht gehört nicht dazu,
@@ -291,6 +345,7 @@ fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
         seed_offset(state),
         blockentity::bild(state),
         kollision(state),
+        blockstate::nachbarregel(state),
     ))
 }
 
@@ -559,13 +614,34 @@ impl SpriteSet {
         models: &[(u32, BakedModel)],
     ) -> Option<Family> {
         let fluid = fluid::key(state);
+        let nachbarn = blockstate::nachbarregel(state);
+        let seiten = nachbarn.map_or(0, |regel| {
+            models
+                .iter()
+                .flat_map(|(_, model)| &model.quads)
+                .filter(|q| faces_camera(q))
+                .filter_map(|q| q.cullface)
+                .filter(|&face| regel.wirkt(face))
+                .fold(0, |seiten, face| seiten | seite(face))
+        });
+        // Mit Seiten trägt die Familie die Fassungen der Flüssigkeit selbst,
+        // zusammen mit denen ohne Flächen zu gleichen Nachbarn.
         let alternatives: Vec<(u32, Option<SpriteId>)> = models
             .iter()
             .map(|(weight, model)| {
-                let id = self.insert_fluid(assets, state, model, fluid.is_some());
+                let id = self.insert_fluid(assets, state, model, fluid.is_some() && seiten == 0);
                 (*weight, id)
             })
             .collect();
+        let fassungen = match seiten {
+            0 => Vec::new(),
+            _ => models
+                .iter()
+                .map(|(_, model)| {
+                    self.insert_nachbarn(assets, state, model, fluid.is_some(), seiten)
+                })
+                .collect(),
+        };
         if alternatives.iter().all(|(_, id)| id.is_none()) {
             return None;
         }
@@ -601,6 +677,9 @@ impl SpriteSet {
             },
             tint_below: tinted_below(state.name(), state.prop("half")),
             doppelkiste: doppelkiste(state),
+            nachbarn,
+            seiten,
+            fassungen,
             alternatives,
         })
     }
@@ -678,6 +757,61 @@ impl SpriteSet {
         }
         self.by_mask.insert(base, variants);
         Some(base)
+    }
+
+    /// Die Fassungen eines Modells für [`Family::ohne_nachbarn`]: je Maske
+    /// der Flüssigkeit, falls der Block eine führt, und je Maske über die
+    /// `seiten` eine, ohne die Flächen, deren `cullface` zu einer Seite der
+    /// Maske zeigt. Mit Flüssigkeit kommt deren Maske wie in
+    /// [`SpriteSet::masked`] dazu. Eintrag 0 ist das Grundbild.
+    /// Siehe docs/renderer/sprites-und-deckung.md, „Flächen zu gleichen Nachbarn“.
+    fn insert_nachbarn(
+        &mut self,
+        assets: &Assets,
+        state: &BlockState,
+        model: &BakedModel,
+        has_fluid: bool,
+        seiten: u8,
+    ) -> Vec<Option<SpriteId>> {
+        let voll = full_height(model);
+        let liste: Vec<Face> = SEITEN
+            .into_iter()
+            .filter(|&face| seiten & seite(face) != 0)
+            .collect();
+        let je_nachbar = if has_fluid { 8 } else { 1 };
+        (0..je_nachbar << liste.len())
+            .map(|i| {
+                let fluessig = (i % je_nachbar) as u8;
+                let weg = liste
+                    .iter()
+                    .enumerate()
+                    .filter(|&(k, _)| (i / je_nachbar) >> k & 1 != 0)
+                    .fold(0, |weg, (_, &face)| weg | seite(face));
+                let quelle = if fluessig & mask_bit(Face::Up) == 0 {
+                    model
+                } else {
+                    &voll
+                };
+                let quads = quelle
+                    .quads
+                    .iter()
+                    .filter(|q| {
+                        q.fluid
+                            .is_none_or(|(_, face)| fluessig & mask_bit(face) == 0)
+                    })
+                    .filter(|q| q.cullface.is_none_or(|face| weg & seite(face) == 0))
+                    .cloned()
+                    .collect();
+                self.insert_tinted(
+                    assets,
+                    state,
+                    &BakedModel {
+                        quads,
+                        ambient_occlusion: model.ambient_occlusion,
+                    },
+                )
+            })
+            .collect()
     }
 
     /// Rastert ein Modell, gefärbte Flächen als Tönungskarte: Die Farbe des
@@ -854,8 +988,9 @@ impl SpriteSet {
         self.sprites[id.0 as usize].tints
     }
 
-    /// Wie viele Sprites Fassungen sind: Masken und Streifen — alles, was
-    /// nicht das Grundbild einer Alternative ist.
+    /// Wie viele Sprites Fassungen sind: Masken, Streifen und Bilder ohne
+    /// Flächen zu gleichen Nachbarn — alles, was nicht das Grundbild einer
+    /// Alternative ist.
     /// Familien teilen sich pixelgleiche Grundbilder, es kann also mehr
     /// Familien geben als Sprites.
     pub fn variants(&self) -> usize {
@@ -1262,6 +1397,9 @@ mod tests {
             resolver: None,
             tint_below: false,
             doppelkiste: None,
+            nachbarn: None,
+            seiten: 0,
+            fassungen: Vec::new(),
         };
         let listen = [
             family(&[1, 1, 1, 1]),
@@ -1297,6 +1435,131 @@ mod tests {
         projection: Projection,
     ) -> Result<SpriteSet> {
         SpriteSet::build_in(assets, states, projection)
+    }
+
+    /// Die Seiten einer Familie, zu denen sie Flächen weglassen kann.
+    fn seiten_von(set: &SpriteSet, text: &str) -> Vec<Face> {
+        set.family_of(&state(text))
+            .unwrap()
+            .nachbarseiten()
+            .collect()
+    }
+
+    /// Eine Scheibe der Fixtures, verbunden zu den genannten Seiten.
+    fn scheibe(name: &str, seiten: &[&str], wasser: bool) -> String {
+        let an = |seite| seiten.contains(&seite);
+        format!(
+            "minecraft:{name}[east={},north={},south={},waterlogged={wasser},west={}]",
+            an("east"),
+            an("north"),
+            an("south"),
+            an("west")
+        )
+    }
+
+    /// Eis lässt nach oben, Süden und Osten Flächen weg, die die Kamera
+    /// sieht. Ohne Nachbar bleibt das Grundbild, mit allen dreien nichts,
+    /// mit einem eine eigene Fassung.
+    #[test]
+    fn eis_hat_je_maske_eine_fassung() {
+        let mut assets = assets();
+        let states = [state("minecraft:ice")];
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(
+            seiten_von(&set, "minecraft:ice"),
+            [Face::Up, Face::South, Face::East]
+        );
+        let family = set.family_of(&states[0]).unwrap();
+        let base = family.sprite(0).unwrap();
+        assert_eq!(family.ohne_nachbarn(0, 0, 0), Some(base));
+        assert_eq!(family.ohne_nachbarn(0, 0, 0b111), None);
+        let einzeln: HashSet<SpriteId> = (0..3)
+            .map(|k| family.ohne_nachbarn(0, 0, 1 << k).unwrap())
+            .collect();
+        assert_eq!(einzeln.len(), 3);
+        assert!(!einzeln.contains(&base));
+    }
+
+    /// Die `cullface` dreht sich mit der Variante: Der Arm nach Osten ist der
+    /// nach Norden um 90 Grad, sein Ende zeigt nach Osten und lässt seine
+    /// Fläche dorthin weg, der um 180 Grad nach Süden. Enden nach Norden und
+    /// Westen sieht die Kamera nicht, und der Pfosten hat keine `cullface`.
+    #[test]
+    fn scheiben_drehen_die_cullface_mit() {
+        let mut assets = assets();
+        let osten = scheibe("glass_pane", &["east"], false);
+        let sueden = scheibe("glass_pane", &["south"], false);
+        let hinten = scheibe("glass_pane", &["north", "west"], false);
+        let allein = scheibe("glass_pane", &[], false);
+        let geflutet = scheibe("glass_pane", &["east"], true);
+        let states = [&osten, &sueden, &hinten, &allein, &geflutet].map(|s| state(s));
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(seiten_von(&set, &osten), [Face::East]);
+        assert_eq!(seiten_von(&set, &sueden), [Face::South]);
+        assert_eq!(seiten_von(&set, &hinten), []);
+        assert_eq!(seiten_von(&set, &allein), []);
+        assert!(!set.family_of(&states[3]).unwrap().hat_nachbarn());
+        // Mit Wasser je Maske der Flüssigkeit und je Maske der Seiten eine.
+        let family = set.family_of(&states[4]).unwrap();
+        assert_eq!(family.fassungen[0].len(), 8 << 1);
+
+        let models = models_of(&mut assets, &states[0], None).unwrap();
+        let enden: Vec<&Quad> = models[0]
+            .1
+            .quads
+            .iter()
+            .filter(|q| q.cullface.is_some())
+            .collect();
+        assert_eq!(enden.len(), 1);
+        assert_eq!(enden[0].cullface, Some(Face::East));
+        assert!(enden[0].normal()[0] > 0.0, "die Fläche zeigt nach Osten");
+    }
+
+    /// Mangrovenwurzeln lassen nur oben und unten weg, auch über die innere
+    /// Fläche mit `cullface` unten, die zur Kamera zeigt. Mit Wasser im Block
+    /// gibt es 8 Masken der Flüssigkeit je Maske der zwei Seiten.
+    #[test]
+    fn wurzeln_nur_senkrecht() {
+        let mut assets = assets();
+        let states = [
+            state("minecraft:mangrove_roots[waterlogged=false]"),
+            state("minecraft:mangrove_roots[waterlogged=true]"),
+        ];
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(
+            seiten_von(&set, "minecraft:mangrove_roots[waterlogged=false]"),
+            [Face::Down, Face::Up]
+        );
+        let geflutet = set.family_of(&states[1]).unwrap();
+        assert_eq!(geflutet.fassungen[0].len(), 32);
+        // Oben und unten ein Nachbar, mitten im Wasser: Es bleibt die Seite
+        // nach Osten, und sie ist ein anderes Bild als ohne die Nachbarn.
+        let innen = geflutet.ohne_nachbarn(0, 7, 0b11).unwrap();
+        assert_ne!(Some(innen), geflutet.ohne_nachbarn(0, 7, 0));
+    }
+
+    /// Zu welchen Nachbarn ein Block Flächen weglässt, gehört zum Schlüssel
+    /// der Familie. Ein Pack, das die Verbindungen eines Gitters nicht
+    /// zeichnet, gibt allen Zuständen dasselbe Modell, aber nicht dieselben
+    /// Seiten: Nur verbunden lässt das Gitter waagrecht etwas weg.
+    #[test]
+    fn verbindungen_trennen_familien() {
+        let pack = tempfile::tempdir().unwrap();
+        let dir = pack.path().join("minecraft/blockstates");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("iron_bars.json"),
+            r#"{ "variants": { "": { "model": "minecraft:block/eis" } } }"#,
+        )
+        .unwrap();
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
+        let mut assets = Assets::open(vec![base, pack.path().to_path_buf()]).unwrap();
+        let ost = scheibe("iron_bars", &["east"], false);
+        let ohne = scheibe("iron_bars", &[], false);
+        let states = [state(&ost), state(&ohne)];
+        let set = build(&mut assets, &states, Projection::new(16)).unwrap();
+        assert_eq!(seiten_von(&set, &ost), [Face::Up, Face::East]);
+        assert_eq!(seiten_von(&set, &ohne), [Face::Up]);
     }
 
     #[test]

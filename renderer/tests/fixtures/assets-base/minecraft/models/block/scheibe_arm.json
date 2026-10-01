@@ -1,0 +1,39 @@
+{
+  "ambientocclusion": false,
+  "textures": {
+    "pane": "minecraft:block/eis",
+    "particle": "#pane"
+  },
+  "elements": [
+    {
+      "from": [
+        7,
+        0,
+        0
+      ],
+      "to": [
+        9,
+        16,
+        7
+      ],
+      "faces": {
+        "down": {
+          "texture": "#pane"
+        },
+        "up": {
+          "texture": "#pane"
+        },
+        "north": {
+          "texture": "#pane",
+          "cullface": "north"
+        },
+        "west": {
+          "texture": "#pane"
+        },
+        "east": {
+          "texture": "#pane"
+        }
+      }
+    }
+  ]
+}

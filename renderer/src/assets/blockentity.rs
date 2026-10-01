@@ -295,6 +295,7 @@ fn zeichne(model: &mut BakedModel, z: &Zeichnung, texture: TextureId, farbe: [u8
             force_translucent: false,
             fluid: None,
             entity,
+            cullface: None,
         });
     }
 }

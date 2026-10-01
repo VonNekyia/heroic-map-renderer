@@ -24,6 +24,11 @@ pub struct Quad {
     /// Gesetzt für die Flächen aus einem Blockentity-Modell: Licht, Deckung
     /// und Farbe kommen dann aus seiner Schicht wie im Spiel.
     pub entity: Option<Entity>,
+    /// Die `cullface` der Fläche, mit der Variante gedreht wie im Spiel
+    /// (`Direction.rotate` in `UnbakedCuboidGeometry`): Steht dort ein
+    /// Nachbar, zu dem der Block Flächen weglässt, entfällt sie.
+    /// Siehe docs/renderer/sprites-und-deckung.md, „Flächen zu gleichen Nachbarn“.
+    pub cullface: Option<Face>,
 }
 
 impl Quad {
@@ -113,6 +118,9 @@ pub fn bake(variants: &[ResolvedVariant]) -> BakedModel {
                     force_translucent: data.force_translucent,
                     fluid: None,
                     entity: None,
+                    cullface: data
+                        .cullface
+                        .map(|face| rotate_face(face, variant.x, variant.y, variant.z)),
                 });
             }
         }
@@ -158,6 +166,7 @@ pub fn box_quads(
             force_translucent: false,
             fluid: fluid.map(|fluid| (fluid, face)),
             entity: None,
+            cullface: None,
         }
     })
 }

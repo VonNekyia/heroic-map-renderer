@@ -3307,3 +3307,167 @@ fn weiche_beleuchtung_verlaeuft_ueber_die_flaeche() {
     // Die Raute der Oberseite hat bei scale 32 256 Pixel, ohne den Rand gut 200.
     assert!(geprueft > 180, "nur {geprueft} Pixel auf der Oberseite");
 }
+
+fn gleich(a: [u8; 4], b: [u8; 4]) -> bool {
+    a.iter()
+        .zip(b)
+        .all(|(&a, b)| (a as i32 - b as i32).abs() <= 1)
+}
+
+/// Eis lässt Flächen zu Eis weg wie das Spiel. Durch eine Eisdecke sieht
+/// man eine Schicht, nicht drei, und in einem Turm aus Eis entfällt die
+/// Fläche zwischen zwei Blöcken. Verglichen wird mit einem einzelnen Block,
+/// an Punkten, deren Sichtstrahl im Innern durch die Flächen zwischen den
+/// Blöcken ginge: in der Decke durch eine Süd- und eine Ostseite, im Turm
+/// durch die Oberseite des unteren Blocks.
+#[test]
+fn eis_zeigt_eine_schicht() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 192);
+    let bild = |block: fn(i32, i32, i32) -> &'static str| {
+        render_chunks(&tempdir(), &[(0, 0)], block, projection, rect)
+    };
+    let einzeln = bild(|x, y, z| match (x, y, z) {
+        (5, 1, 5) => "minecraft:ice",
+        _ => "minecraft:air",
+    });
+    let decke = bild(|x, y, z| {
+        if y == 1 && (4..7).contains(&x) && (4..7).contains(&z) {
+            "minecraft:ice"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let turm = bild(|x, y, z| match (x, y, z) {
+        (5, 1..=2, 5) => "minecraft:ice",
+        _ => "minecraft:air",
+    });
+
+    let oben = punkt(&einzeln, projection, rect, [5.8, 2.0, 5.4]);
+    assert_eq!(oben[3], 190, "eine Schicht Eis");
+    for (x, z) in [(5, 5), (6, 5), (5, 6), (6, 6)] {
+        let p = punkt(
+            &decke,
+            projection,
+            rect,
+            [x as f64 + 0.8, 2.0, z as f64 + 0.4],
+        );
+        assert!(
+            gleich(p, oben),
+            "Decke bei ({x}, {z}): {p:?} statt {oben:?}"
+        );
+    }
+    let seite = punkt(&einzeln, projection, rect, [5.6, 1.3, 6.0]);
+    let p = punkt(&turm, projection, rect, [5.6, 2.3, 6.0]);
+    assert!(gleich(p, seite), "Turm: {p:?} statt {seite:?}");
+}
+
+/// Eine Scheibe der Fixtures, nach Osten oder Westen verbunden.
+fn scheibe(name: &str, ost: bool, west: bool) -> &'static str {
+    let text = format!(
+        "minecraft:{name}[east={ost},north=false,south=false,waterlogged=false,west={west}]"
+    );
+    Box::leak(text.into_boxed_str())
+}
+
+/// Zwei verbundene Scheiben zeigen am Stoss keine Fläche, wie das Spiel:
+/// Das Ende des Arms nach Osten entfällt am Arm des Nachbarn nach Westen.
+/// Gitter lassen es auch an Kupfergittern weg, die mit ihnen den Tag `bars`
+/// teilen, eine Scheibe an einem Gitter nicht. Verglichen wird ein Punkt der
+/// Südseite des westlichen Arms dicht am Stoss, dessen Sichtstrahl durch das
+/// Ende ginge, mit einem weiter davon.
+#[test]
+fn verbundene_scheiben_ohne_stoss() {
+    let projection = Projection::new(64);
+    let rect = ScreenRect::centered(256, 256);
+    for (links, rechts, stoss) in [
+        ("glass_pane", "glass_pane", false),
+        ("iron_bars", "copper_bars", false),
+        ("glass_pane", "iron_bars", true),
+    ] {
+        let (a, b) = (scheibe(links, true, false), scheibe(rechts, false, true));
+        let bild = render_chunks(
+            &tempdir(),
+            &[(0, 0)],
+            move |x, y, z| match (x, y, z) {
+                (4, 1, 5) => a,
+                (5, 1, 5) => b,
+                _ => "minecraft:air",
+            },
+            projection,
+            rect,
+        );
+        let sued = 5.0 + 9.0 / 16.0;
+        let nah = punkt(&bild, projection, rect, [5.06, 1.5, sued]);
+        let weit = punkt(&bild, projection, rect, [5.3, 1.5, sued]);
+        assert!(weit[3] > 0, "{links} gegen {rechts}: der Arm fehlt");
+        assert_eq!(
+            !gleich(nah, weit),
+            stoss,
+            "{links} gegen {rechts}: {nah:?} und {weit:?}"
+        );
+    }
+}
+
+/// Mangrovenwurzeln lassen nur oben und unten Flächen weg, auch die innere
+/// mit `cullface` unten. Im Turm aus zweien sieht man durch die Südseite des
+/// oberen dort, wo der Sichtstrahl zwischen beiden durchgeht, nichts; bei
+/// einem allein liegt dort seine Oberseite. Geflutet bleibt im Turm nur die
+/// Südseite des Wassers oben, wie bei Wasser allein: Die Oberseite des
+/// Wassers unten entfällt über die Maske der Flüssigkeit, die Schichten der
+/// Wurzeln über die Regel.
+#[test]
+fn wurzeln_nur_senkrecht_auch_geflutet() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 192);
+    let bild = |block: fn(i32, i32, i32) -> &'static str| {
+        render_chunks(&tempdir(), &[(0, 0)], block, projection, rect)
+    };
+    let stelle = [5.6, 2.3, 6.0];
+    let allein = bild(|x, y, z| match (x, y, z) {
+        (5, 1, 5) => "minecraft:mangrove_roots[waterlogged=false]",
+        _ => "minecraft:air",
+    });
+    let turm = bild(|x, y, z| match (x, y, z) {
+        (5, 1..=2, 5) => "minecraft:mangrove_roots[waterlogged=false]",
+        _ => "minecraft:air",
+    });
+    assert!(
+        punkt(&allein, projection, rect, stelle)[3] > 0,
+        "die Oberseite fehlt"
+    );
+    assert_eq!(punkt(&turm, projection, rect, stelle)[3], 0);
+
+    let wasser = bild(|x, y, z| match (x, y, z) {
+        (5, 2, 5) => "minecraft:water",
+        _ => "minecraft:air",
+    });
+    let geflutet = bild(|x, y, z| match (x, y, z) {
+        (5, 1..=2, 5) => "minecraft:mangrove_roots[waterlogged=true]",
+        _ => "minecraft:air",
+    });
+    let soll = punkt(&wasser, projection, rect, stelle);
+    let p = punkt(&geflutet, projection, rect, stelle);
+    assert!(soll[3] > 0, "das Wasser fehlt");
+    assert!(gleich(p, soll), "geflutet: {p:?} statt {soll:?}");
+}
+
+/// Ein deckender Block mit Regel ändert kein Pixel: Was er zu einem
+/// gleichen Nachbarn weglässt, übermalt der Nachbar ohnehin. Blaues Eis hat
+/// in den Fixtures das Modell von `blauwuerfel`, den 26.2 nicht kennt.
+#[test]
+fn deckendes_eis_aendert_kein_pixel() {
+    let wuerfel = |name: &'static str| {
+        move |x: i32, y: i32, z: i32| {
+            if (4..7).contains(&x) && (1..4).contains(&y) && (4..7).contains(&z) {
+                name
+            } else {
+                "minecraft:air"
+            }
+        }
+    };
+    let eis = szene(&tempdir(), wuerfel("minecraft:blue_ice"));
+    let blau = szene(&tempdir(), wuerfel("minecraft:blauwuerfel"));
+    assert!(eis.pixels().any(|p| p.0[3] > 0));
+    assert!(eis == blau, "blaues Eis anders als der blaue Würfel");
+}

@@ -245,6 +245,7 @@ fn unsinnig_grosse_modelle_werden_uebersprungen() {
             force_translucent: false,
             fluid: None,
             entity: None,
+            cullface: None,
         }],
         ambient_occlusion: false,
     };
@@ -628,6 +629,7 @@ fn flaeche(z: f32, von: f32, bis: f32, texture: TextureId) -> Quad {
         force_translucent: false,
         fluid: None,
         entity: None,
+        cullface: None,
     }
 }
 

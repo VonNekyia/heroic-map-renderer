@@ -9,14 +9,12 @@ const DEMO = '/?tiles=/tiles-demo';
  * bis Y 5 in der Zelle der Spalten 32 bis 35 und -16 bis -13, in einer
  * negativen Region. Ein falscher Platz in der Höhenkarte fiele so auf.
  */
-async function welt(page: Page): Promise<void> {
+async function welt(page: Page, mehr: object = {}): Promise<void> {
   await page.route('**/tiles-demo/map.json', async (route) => {
     const response = await route.fetch();
     const info = (await response.json()) as object;
-    await route.fulfill({
-      response,
-      json: { ...info, heights: 'heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319 },
-    });
+    const hoehen = { heights: 'heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319 };
+    await route.fulfill({ response, json: { ...info, ...hoehen, ...mehr } });
   });
   await page.route('**/tiles-demo/heights/*.bin', async (route) => {
     const karte = new Int16Array(128 * 128);
@@ -112,6 +110,37 @@ test('die Karte läuft unter strengen Headern', async ({ page }) => {
     [],
   );
 });
+
+test('die Koordinaten rechnen mit projection aus map.json', async ({ page }) => {
+  // Eine Draufsicht über den Kacheln von 2:1: falsch fürs Auge, aber so
+  // zeigt sich, dass projection gilt und nicht scale.
+  await welt(page, { camera: 'top', projection: { azimuth: 'diagonal', u: 8, v: 8, y: 0 } });
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await page.mouse.move(...(await bildschirm(page, 400, 36)));
+  await expect(page.locator('.koordinaten')).toHaveText('X 27  Y 0  Z -23');
+});
+
+for (const [mehr, grund] of [
+  [{ projection: { azimuth: 'north', u: 16, v: 16, y: 0 } }, 'azimuth north unbekannt'],
+  [{ direction: 'sw' }, 'direction sw unbekannt'],
+  [{ projection: { azimuth: 'diagonal', u: 8, v: 0, y: 8 } }, 'projection ohne ganze u, v und y'],
+] as const) {
+  test(`eine Kamera, die das Frontend nicht kennt, zeigt keine Koordinaten: ${grund}`, async ({
+    page,
+  }) => {
+    const warnungen: string[] = [];
+    page.on('console', (m) => {
+      if (m.type() === 'warning') warnungen.push(m.text());
+    });
+    await welt(page, mehr);
+    await page.goto(DEMO);
+
+    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await expect(page.locator('.koordinaten')).toHaveCount(0);
+    expect(warnungen).toContain(`/tiles-demo/map.json: keine Koordinaten, ${grund}`);
+  });
+}
 
 test('unvollständige Höhen lassen die Karte stehen', async ({ page }) => {
   await page.route('**/tiles-demo/map.json', async (route) => {

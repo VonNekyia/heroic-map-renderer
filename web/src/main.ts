@@ -1,6 +1,15 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { pick, REGION, region, strahl, umriss, type Block } from './pick';
+import {
+  pick,
+  REGION,
+  region,
+  strahl,
+  umriss,
+  zweiZuEins,
+  type Block,
+  type Projektion,
+} from './pick';
 import './style.css';
 
 /** Was `map.json` aus dem Renderer mitbringt. */
@@ -18,6 +27,12 @@ interface MapInfo {
   /** Der Bereich in Y, in dem jeder gezeichnete Block liegt. */
   minY?: number;
   maxY?: number;
+  /** Die Kamera des Baums, gekürzt, etwa `8:5` oder `top`; ohne sie 2:1. */
+  camera?: string;
+  /** Wo die Kamera steht; ohne Angabe `se`. */
+  direction?: string;
+  /** Die Zahlen der Projektion; ohne sie rechnet das Frontend 2:1 aus `scale`. */
+  projection?: Projektion & { azimuth: string };
 }
 
 /** In einer Höhenkarte: keine Zelle mit Block, oder kein fertiger Chunk. */
@@ -124,6 +139,22 @@ function hatHoehen(info: MapInfo): info is MapInfo & Hoehen {
   );
 }
 
+/**
+ * Die Projektion, mit der die Koordinaten rechnen, oder der Grund, warum
+ * es keine gibt: Azimut oder Richtung kennt das Frontend nicht.
+ * Siehe docs/frontend.md, „Koordinaten“.
+ */
+function projektion(info: MapInfo): Projektion | string {
+  const { direction = 'se', projection } = info;
+  if (direction !== 'se') return `direction ${direction} unbekannt`;
+  if (projection === undefined) return zweiZuEins(info.scale);
+  const { azimuth, u, v, y } = projection;
+  if (azimuth !== 'diagonal') return `azimuth ${String(azimuth)} unbekannt`;
+  const ganz = (n: unknown, min: number) => Number.isInteger(n) && (n as number) >= min;
+  if (!ganz(u, 1) || !ganz(v, 1) || !ganz(y, 0)) return 'projection ohne ganze u, v und y';
+  return { u, v, y };
+}
+
 /** Eine Höhenkarte: zlib, darin n × n Zellen, je i16 little-endian. */
 async function ladeKarte(path: string, n: number): Promise<Int16Array | null> {
   const response = await fetch(path);
@@ -203,13 +234,8 @@ function hoehen(base: string, muster: string, zelle: number) {
 function koordinaten(
   map: L.Map,
   base: string,
-  {
-    scale,
-    heights,
-    heightsCell,
-    minY,
-    maxY,
-  }: Required<Pick<MapInfo, 'scale' | 'heights' | 'heightsCell' | 'minY' | 'maxY'>>,
+  p: Projektion,
+  { heights, heightsCell, minY, maxY }: Hoehen,
 ): void {
   const karten = hoehen(base, heights, heightsCell);
   const anzeige = L.DomUtil.create('div', 'koordinaten');
@@ -233,7 +259,7 @@ function koordinaten(
     anzeige.textContent = block ? `X ${block[0]}  Y ${block[1]}  Z ${block[2]}` : 'X –  Y –  Z –';
     rahmen.setLatLngs(
       block && ohneZeiger
-        ? umriss(block, scale).map((linie) => linie.map(([x, y]) => point(x, y)))
+        ? umriss(block, p).map((linie) => linie.map(([x, y]) => point(x, y)))
         : [],
     );
   };
@@ -242,7 +268,7 @@ function koordinaten(
   let zuletzt = 0;
   const ziele = async (event: L.LeafletMouseEvent): Promise<void> => {
     const nummer = ++zuletzt;
-    const bloecke = strahl(event.latlng.lng, event.latlng.lat, scale, minY, maxY);
+    const bloecke = strahl(event.latlng.lng, event.latlng.lat, p, minY, maxY);
     await karten.lade(bloecke);
     if (nummer === zuletzt) zeige(pick(bloecke, karten.hoehe));
   };
@@ -304,7 +330,9 @@ async function start(): Promise<void> {
   }).addTo(map);
 
   if (hatHoehen(info)) {
-    koordinaten(map, base, info);
+    const p = projektion(info);
+    if (typeof p === 'string') console.warn(`${base}/map.json: keine Koordinaten, ${p}`);
+    else koordinaten(map, base, p, info);
   } else if (info.heights !== undefined) {
     console.warn(`${base}/map.json: heights ohne brauchbare heightsCell, minY und maxY`);
   }

@@ -73,6 +73,10 @@ pub struct SpriteSet {
     /// Die Farben der Biome, mit denen die Sprites beim Zeichnen getönt
     /// werden.
     biomes: BiomeTable,
+    /// Die Blöcke, die 26.2 nicht kennt und die nach dem Raster der Basis
+    /// das Licht ganz aufhalten, siehe [`SpriteSet::deckt_fuer_licht`].
+    /// `None` in der Tabelle der Basis selbst.
+    licht_deckend: Option<HashSet<BlockState>>,
 }
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
@@ -499,6 +503,7 @@ impl SpriteSet {
             masks: Masks::new(assets.textures(), projection),
             foreign: BTreeSet::new(),
             biomes: BiomeTable::new(assets.colors()),
+            licht_deckend: None,
         };
 
         // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
@@ -692,6 +697,39 @@ impl SpriteSet {
 
     pub fn biomes(&self) -> &BiomeTable {
         &self.biomes
+    }
+
+    /// Hält ein Block, den 26.2 nicht kennt, das Licht ganz auf? Wenn sein
+    /// Sprite den ganzen Umriss deckt, und zwar im Raster der Basis: Eine
+    /// native Stufe nimmt die Antwort von dort
+    /// ([`SpriteSet::set_licht_deckend`]), damit ihr Licht nicht am scale
+    /// hängt.
+    /// Siehe docs/renderer/wasser-und-licht.md, „Was bleibt eine Näherung“.
+    pub fn deckt_fuer_licht(&self, state: &BlockState) -> bool {
+        match &self.licht_deckend {
+            Some(deckend) => deckend.contains(state),
+            None => self
+                .family_index(state)
+                .is_some_and(|i| self.families[i as usize].opaque),
+        }
+    }
+
+    /// Die Zustände aus `states`, die 26.2 nicht kennt und die nach dieser
+    /// Tabelle das Licht ganz aufhalten, für [`SpriteSet::set_licht_deckend`].
+    pub fn licht_deckend(&self, states: &BTreeSet<BlockState>) -> HashSet<BlockState> {
+        states
+            .iter()
+            .filter(|state| {
+                blockstate::Definition::of(state.name()).is_none() && self.deckt_fuer_licht(state)
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Nimmt für Blöcke, die 26.2 nicht kennt, aus der Tabelle der Basis,
+    /// ob sie das Licht ganz aufhalten ([`SpriteSet::licht_deckend`]).
+    pub fn set_licht_deckend(&mut self, deckend: HashSet<BlockState>) {
+        self.licht_deckend = Some(deckend);
     }
 
     /// Streifen der Seitenflaechen ueber niedrigeren Nachbarn derselben

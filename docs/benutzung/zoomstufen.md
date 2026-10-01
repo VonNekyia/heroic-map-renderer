@@ -190,7 +190,10 @@ Grund nimmt `--scale` nur Vielfache von 4.
 Der Preis ist hoch: jede Stufe zeichnet jeden Block ihrer Fläche erneut.
 Mit allen drei Stufen kommt bei scale 32 in Bytes ein Drittel dazu, ein
 Viertel je Stufe, und sie brauchen zusammen etwa so lange wie die Basis,
-siehe [Was ein Lauf kostet](kosten.md). Deshalb ist die Vorgabe 0, siehe
+siehe [Was ein Lauf kostet](kosten.md). Chunks und Licht teilen sie sich
+dafür über alle Stufen, in Bändern, siehe
+[Der Weg einer Kachel](../renderer/renderpfad.md), „Native Stufen in
+Bändern“. Deshalb ist die Vorgabe 0, siehe
 [0016](../entscheidungen/0016-native-stufen-nur-auf-wunsch.md).
 
 Die Zahl gehört zum Baum wie der scale: `map.json` hält sie als

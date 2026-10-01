@@ -25,7 +25,7 @@ rendern die Threads in Streifen mit warmem Cache, Bitmasken je Section
 liefern die Kandidaten, eine Deckungsmaske siebt sie, und libwebp packt das
 Ergebnis. Keiner dieser Umbauten hat einen Pixel geändert; die Messungen
 stehen unten. Die Stationen stehen in `cli.rs` (`write_tiles`, `rendere`,
-`verteile`) und
+`render_coarser`, `verteile`) und
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs).
 
 ## Vorlauf
@@ -43,8 +43,8 @@ fertig erzeugt sind, zählt er und übergeht sie, siehe
 Chunks“.
 
 Die Welt wird deshalb mehrmals durchlaufen: vom Vorlauf, von der Basis und
-von jeder nativen Stufe, bei scale 32 mit allen dreien also fünfmal. In
-jedem Durchgang dekodiert jeder Thread seine Chunks selbst. Die Höhen für
+einmal von allen nativen Stufen zusammen, siehe „Native Stufen in
+Bändern“. In jedem Durchgang dekodiert jeder Thread seine Chunks selbst. Die Höhen für
 die Koordinatenanzeige liest der Vorlauf mit, aus der Heightmap jedes
 Chunks, siehe [map.json](../benutzung/map-json.md), „Höhen“. Wie Muster und
 Scherben in die Sprite-Tabelle kommen, steht in
@@ -53,7 +53,7 @@ Scherben in die Sprite-Tabelle kommen, steht in
 ## Streifen und Cache je Thread
 
 Gerendert wird in Streifen, Zeile für Zeile, bei scale 32 bis zu acht
-Kacheln breit, auf der Basis und auf jeder nativen Stufe
+Kacheln breit, auf der Basis und auf der gröbsten nativen Stufe
 (`streifenbreite`). Jeder Thread bekommt ein zusammenhängendes Stück, nimmt
 es von vorn und holt sich, wenn er fertig ist, die hintere Hälfte des
 grössten, das noch übrig ist (`verteile` in `cli.rs`). Gestohlen wird erst,
@@ -105,6 +105,8 @@ Licht. Seitdem dekodiert ein Lauf der Testwelt über alle Stufen 6 bis 9 %
 öfter, um (-64, 416) 10,6 statt 9,8 Mal je Chunk; das Rechnen des Lichts
 kostet mehr als das Lesen, siehe
 [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md).
+Mit den Bändern aus #59 sind es dort 5,1 Mal, siehe „Native Stufen in
+Bändern“.
 
 Doppelt dekodiert wird nur an den Grenzen der Streifen: Ein Chunk, der in
 zwei Streifen reicht, wird in jedem geladen, und innerhalb eines Streifens
@@ -140,6 +142,55 @@ Zwei Hebel dagegen sind durchgerechnet und verworfen:
   über benachbarte Streifen zu führen, baut Verteilung und Cache um und
   spart gerechnet höchstens 7 %, wenn gar nichts mehr doppelt gerechnet
   wird.
+
+## Native Stufen in Bändern
+
+Die nativen Stufen laufen zusammen in einem Durchgang (`render_coarser` in
+`cli.rs`). Verteilt werden die Kacheln der gröbsten Stufe, in ihren
+Streifen wie oben, in Bändern aus bis zu vier Kacheln (`BAND`). Ein Thread
+rendert je Band jede Stufe von fein nach grob, bei drei Stufen also 64
+Kacheln bei scale 16, 16 bei 8 und die 4 bei 4, jede Stufe Zeile für Zeile
+über die Breite des Bands. Warum so:
+[0043](../entscheidungen/0043-native-stufen-in-baendern.md).
+
+- **Vorrat:** Der Cache eines Threads hält die dekodierten Chunks und ihr
+  Licht über die Stufen (`ChunkCache::mit_vorrat`). Was am scale hängt,
+  Familien, Masken, Kandidaten und Varianten, verwirft er beim Wechsel der
+  Stufe (`ChunkCache::wechsle`) und baut es aus dem Vorrat neu. Das Licht
+  hängt nicht am scale, siehe [Wasser und Licht](wasser-und-licht.md),
+  „Was bleibt eine Näherung“.
+- **Von Band zu Band:** Zwei Bänder untereinander teilen sich viele
+  Chunks, bei scale 4 je Kachel 280 von 368. Der Vorrat hält deshalb, was
+  das letzte Band gebraucht hat, bis das nächste fertig ist
+  (`ChunkCache::neues_band`).
+- **Kleine Ausschnitte:** Gibt es weniger als vier Kacheln der gröbsten
+  Stufe je Thread, werden die Bänder kleiner, bis jeder Thread eines hat.
+  Mit nur einer nativen Stufe gibt es nichts zu teilen; sie läuft in
+  Gruppen wie die Basis, mit deren Cache ohne Vorrat.
+- **Leere Kacheln:** Die Kinder einer Kachel liegen im selben Band. Ob eine
+  leere Kachel über einem Kind stehen bleibt (`kind_bleibt`), entscheidet
+  der Thread des Bands allein.
+- **Abbruch:** Innerhalb eines Bands ist die feinere Stufe fertig, bevor die
+  gröbere beginnt. Andere Bänder haben womöglich noch nicht begonnen und
+  fangen nach dem Abbruch keines mehr an (`verteile`). Ihre Kacheln zeigen
+  noch den alten Stand, auch auf einer feineren Stufe als der, an der der
+  Lauf abbrach. Nicht erreichte Kacheln gab es auch ohne Bänder, nach einem
+  Abbruch mitten in einer Stufe. Was ein Lauf gerendert hat, zeigt dagegen
+  schon den neuen, siehe [Kacheln](../benutzung/kacheln.md), „Wann
+  entfernt wird“.
+- **Feine Stufen im Speicher:** Die gröbste Stufe gibt ihre Viertel ab, wie
+  ohne native Stufen die Basis, siehe
+  [Zoomstufen](../benutzung/zoomstufen.md), „Feine Stufen im Speicher“.
+
+Am Stand und am Fichtenwald der Testwelt werden die drei nativen Stufen so
+30 bis 38 % kürzer, mit und ohne Karte, auf 24 Threads wie auf einem. Am
+Stand mit 24 Threads dekodieren sie einen Chunk 2,3- statt 7,8-mal und
+rechnen sein Licht 1,3- statt 4,6-mal. Dort bekommt jeder Thread nur rund
+ein Band. Auf einem Thread folgen die Bänder aufeinander wie im
+Vollrender, und an diesen kleinen Ausschnitten dekodieren sie jeden Chunk
+einmal. Im Vollrender sind die Spalten lang; gerechnet wird ein Chunk dort
+rund 1,5-mal dekodiert, so oft, wie Spalten ihn schneiden. Gemessen in
+[2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md).
 
 ## Bitmasken
 
@@ -306,6 +357,16 @@ zweite Ring am Rand des Streifens, siehe „Streifen und Cache je Thread“,
 und je Chunk mit Licht bis 4 KB je Section, in der nicht jede Zelle
 dasselbe Licht hat. Auf der Testwelt liegt die Spitze damit auf 24 Threads
 0,4 bis 0,8 GiB höher, im Median 0,5 bis 0,65 GiB, siehe [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md).
+
+Mit nativen Stufen liegt die Spitze in ihnen, denn bei scale 4 braucht eine
+Kachel 368 Chunks. Dazu kommt der Vorrat der Bänder, siehe „Native Stufen
+in Bändern“: je Thread das laufende und das vorige Band, gerechnet bis rund
+1300 Chunks samt Licht zu rund 65 KB, rund 85 MB, und einen Teil davon hält
+der Cache ohnehin. An Ausschnitten der Testwelt steigt die Spitze damit
+ohne Karte um bis zu 0,1 GiB, mit Karte um 0,2 bis 0,35 GiB. Im privaten
+Speicher sind es mit Karte rund 0,7 GiB, ohne Karte 0,12 GiB; woher das
+Mehr mit Karte kommt, ist offen, siehe
+[2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md).
 
 Die Sprite-Tabelle teilen sich alle Threads. Fast jedes Sprite hat eine
 AO-Karte, 4 Bytes je Pixel wie das Bild, siehe

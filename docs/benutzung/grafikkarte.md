@@ -30,7 +30,10 @@ Zelle steht die Liste der Sprites, die sie berühren, in Zeichenreihenfolge,
 und jeder Pixel-Thread geht seine Liste durch und mischt. Sechzehn Kacheln
 gehen je Durchgang hinüber, mit ihnen die Sprites, die sie brauchen, jedes
 einmal; die fertigen Bilder kommen zurück und werden wie bisher als WebP
-geschrieben.
+geschrieben. Auf der gröbsten von mehreren nativen Stufen ist ein
+Durchgang ein Band, bis zu vier Kacheln, siehe
+[Der Weg einer Kachel](../renderer/renderpfad.md), „Native Stufen in
+Bändern“.
 
 Eine Instanz trägt Sprite, Position, die Faktoren des Lichts, je Farbkanal
 die drei Wörter des Lichts an den Ecken, die Farben des Blocks für die

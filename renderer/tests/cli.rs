@@ -18,7 +18,8 @@ use terranova_render::assets::{Assets, DimensionType};
 use terranova_render::render::heights::{self, EMPTY, Heights};
 use terranova_render::render::rasterizer::{Light, Lightmap};
 use terranova_render::render::{
-    Projection, SpriteSet, TileId, encode_webp, pyramid, render_area, streifenbreite, survey,
+    BLEND_DEFAULT, BiomeTable, ChunkCache, Projection, SpriteSet, TileId, encode_webp, pyramid,
+    render_area, render_area_with, streifenbreite, survey,
 };
 use terranova_render::world::World;
 
@@ -640,14 +641,22 @@ fn ohne_prune_bleibt_keine_kachel_ohne_eltern() {
 }
 
 /// Eine Kachel, die leer geworden ist, verschwindet erst am Ende des Laufs,
-/// zeigt aber schon ab dem Rendern nichts mehr. Bricht der Lauf danach ab,
-/// steht sie noch da, durchsichtig: ein späterer Ausschnitt nähme sonst
-/// ihren alten Inhalt in die Elternkachel. Der zweite Block bei (0, 4, 0)
-/// reicht in die Kacheln (-1, -1) und (0, -1) der Basis und der Stufe
-/// darüber, der erste nicht, auch wenn der Vorlauf sie nennt. Den Abbruch
-/// erzwingt ein Verzeichnis an der Stelle einer Kachel des ersten Blocks
-/// zwei Stufen über der Basis; bis dahin sind die beiden fertig. Bei
-/// scale 16 sind sie nativ, bei 12 verkleinert.
+/// zeigt aber schon ab dem Rendern nichts mehr: ein späterer Ausschnitt
+/// nähme sonst ihren alten Inhalt in die Elternkachel. Nach einem Abbruch
+/// ist deshalb jede leer gewordene Kachel entweder durchsichtig, weil schon
+/// gerendert, oder unverändert alt, weil nicht erreicht. Der nächste Lauf
+/// heilt beides. Der zweite Block bei (0, 4, 0) reicht in die Kacheln
+/// (-1, -1) und (0, -1) der Basis und der Stufe darüber, der erste nicht,
+/// auch wenn der Vorlauf sie nennt. Den Abbruch erzwingt ein Verzeichnis an
+/// der Stelle einer Kachel des ersten Blocks zwei Stufen über der Basis.
+/// Bei scale 16 sind beide Stufen darüber nativ, bei 12 verkleinert.
+/// Auf einem Thread prüft der Test die strenge Form, alle durchsichtig:
+/// Dort ist bis zum Abbruch alles darunter erreicht, denn die Basis rendert
+/// (0, 0) zuletzt, und die vier Kacheln der gröbsten nativen Stufe liegen
+/// in einem Band, das die feinere Stufe vor der gröberen rendert. Auf vier
+/// Threads hat jeder sein eigenes Stück, bei scale 16 ein Band je Kachel.
+/// Bricht einer ab, bevor ein anderer begonnen hat, fängt der nicht mehr an
+/// (`verteile`), und dessen Kacheln bleiben unverändert alt.
 #[test]
 fn leer_gewordene_kachel_zeigt_nach_abbruch_nichts() {
     let alt = tempdir();
@@ -665,43 +674,44 @@ fn leer_gewordene_kachel_zeigt_nach_abbruch_nichts() {
     for scale in ["16", "12"] {
         let voll = tempdir();
         gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
-        let baum = tempdir();
-        gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
-        let z = max_zoom(baum.path());
-        let stufen = [z, z - 1];
-        for (stufe, tile) in stufen.iter().flat_map(|&s| leer_geworden.map(|t| (s, t))) {
-            let alt = bild(&kacheln(baum.path(), stufe)[&tile]);
-            assert!(
-                alt.pixels().any(|p| p.0[3] > 0),
-                "scale {scale}: {stufe} {tile:?}"
-            );
-            assert!(
-                !kacheln(voll.path(), stufe).contains_key(&tile),
-                "scale {scale}"
-            );
-        }
-        let vorher: Vec<BTreeMap<TileId, PathBuf>> =
-            stufen.iter().map(|&s| kacheln(baum.path(), s)).collect();
-        let sperre = baum.path().join(format!("{}/0/0.webp", z - 2));
-        std::fs::remove_file(&sperre).unwrap();
-        std::fs::create_dir(&sperre).unwrap();
-        let ausgabe = tiles(neu.path(), baum.path(), &["--scale", scale]);
-        assert!(!ausgabe.status.success(), "scale {scale}: kein Abbruch");
-        for (stufe, bestand) in stufen.iter().zip(&vorher) {
-            for tile in &leer_geworden {
+        for threads in [1, 4] {
+            let fall = format!("scale {scale}, {threads} Threads");
+            let baum = tempdir();
+            gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
+            let z = max_zoom(baum.path());
+            let stufen = [z, z - 1];
+            let mut vorher = BTreeMap::new();
+            for (stufe, tile) in stufen.iter().flat_map(|&s| leer_geworden.map(|t| (s, t))) {
+                let pfad = kacheln(baum.path(), stufe)[&tile].clone();
                 assert!(
-                    bild(&bestand[tile]).pixels().all(|p| p.0[3] == 0),
-                    "scale {scale}: {stufe} {tile:?} zeigt noch den alten Inhalt"
+                    bild(&pfad).pixels().any(|p| p.0[3] > 0),
+                    "{fall}: {stufe} {tile:?}"
+                );
+                assert!(!kacheln(voll.path(), stufe).contains_key(&tile), "{fall}");
+                vorher.insert((stufe, tile), (std::fs::read(&pfad).unwrap(), pfad));
+            }
+            let sperre = baum.path().join(format!("{}/0/0.webp", z - 2));
+            std::fs::remove_file(&sperre).unwrap();
+            std::fs::create_dir(&sperre).unwrap();
+            let schalter = ["--native-levels", "9", "--scale", scale];
+            let ausgabe = export_auf(threads, neu.path(), baum.path(), &schalter);
+            assert!(!ausgabe.status.success(), "{fall}: kein Abbruch");
+            for ((stufe, tile), (bytes, pfad)) in &vorher {
+                let durchsichtig = bild(pfad).pixels().all(|p| p.0[3] == 0);
+                let unberuehrt = threads > 1 && std::fs::read(pfad).unwrap() == *bytes;
+                assert!(
+                    durchsichtig || unberuehrt,
+                    "{fall}: {stufe} {tile:?} zeigt noch den alten Inhalt"
                 );
             }
+            std::fs::remove_dir(&sperre).unwrap();
+            gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));
+            assert_eq!(
+                schnappschuss(baum.path()),
+                schnappschuss(voll.path()),
+                "{fall}"
+            );
         }
-        std::fs::remove_dir(&sperre).unwrap();
-        gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));
-        assert_eq!(
-            schnappschuss(baum.path()),
-            schnappschuss(voll.path()),
-            "scale {scale}"
-        );
     }
 }
 
@@ -1288,6 +1298,115 @@ fn feine_stufen_im_speicher_wie_von_der_platte() {
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
     assert!(meldung.contains(IM_SPEICHER), "Ausschnitt: {meldung}");
     assert_eq!(schnappschuss(out.path()), soll, "Ausschnitt");
+}
+
+/// Die nativen Stufen laufen in Bändern und teilen Chunks und Licht über
+/// die Stufen (`render_coarser`). Jede ihrer Kacheln ist trotzdem Byte für
+/// Byte, was der Weg je Stufe zeichnet: ein Cache je scale ohne Vorrat, mit
+/// der Tabelle des scale und dem Licht der Basis. Mit drei Stufen auf
+/// einem Thread und mit Karte, mit zwei auf drei Threads und mit einer.
+/// Die Welt ist ein Streifen aus der Szene aus `common::szene` entlang
+/// einer Spalte der Kacheln, mit Licht, Wasser, Lava und zwei Biomen, dazu
+/// Ackerboden, dessen Raster bei scale 4 kippt, siehe
+/// `licht_unbekannter_bloecke_haengt_nicht_am_scale` in `tests/licht.rs`.
+/// Bei scale 4 reicht sie für drei Bänder, bei 8 für mehr: Dann fällt auch,
+/// was ein Band nicht mehr braucht, aus dem Vorrat. Eine einzelne Stufe
+/// läuft ohne Bänder, und das Log nennt keine.
+#[test]
+fn native_stufen_wie_der_weg_je_stufe() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (1..31)
+        .flat_map(|x| (x - 1..=x + 1).map(move |z| (x, z)))
+        .collect();
+    let szene = |x: i32, y: i32, z: i32| common::szene(x.rem_euclid(32), y, z.rem_euclid(32));
+    let biom = |cx: i32, _: i32| {
+        Some(if cx.rem_euclid(2) == 0 {
+            "minecraft:plains"
+        } else {
+            "minecraft:frozen"
+        })
+    };
+    common::write_world_sections(welt.path(), &chunks, -1..=2, szene, biom);
+
+    // Der Weg je Stufe, wie die Binärdatei ihn ohne Bänder ginge.
+    let world = World::open(welt.path()).unwrap();
+    let survey = survey(&world, Projection::new(32), (-64, 319), None).unwrap();
+    let mut assets = Assets::open(vec![assets()]).unwrap();
+    let basis = SpriteSet::build_in(&mut assets, &survey.states, Projection::new(32)).unwrap();
+    let deckend = basis.licht_deckend(&survey.states);
+    let biomes = BiomeTable::new(assets.colors()).with(BLEND_DEFAULT, world.seed().unwrap());
+    let tabellen = BTreeMap::from([16, 8, 4].map(|scale| {
+        let mut sprites =
+            SpriteSet::build_in(&mut assets, &survey.states, Projection::new(scale)).unwrap();
+        sprites.add_entities(&mut assets, &survey.entities).unwrap();
+        sprites.set_biomes(biomes.clone());
+        sprites.set_licht_deckend(deckend.clone());
+        (scale, sprites)
+    }));
+    let mut caches: BTreeMap<u32, ChunkCache> = tabellen
+        .iter()
+        .map(|(scale, sprites)| (*scale, ChunkCache::new(&world, sprites)))
+        .collect();
+    let mut soll: BTreeMap<(u32, TileId), RgbaImage> = BTreeMap::new();
+
+    let faelle = [
+        (1, 32, 3, "off"),
+        (3, 32, 3, "on"),
+        (3, 32, 2, "off"),
+        (1, 8, 1, "off"),
+    ];
+    for (threads, scale, stufen, gpu) in faelle {
+        let fall = format!("{threads} Threads, scale {scale}, {stufen} Stufen, --gpu {gpu}");
+        let out = tempdir();
+        let args = [
+            "--scale",
+            &scale.to_string(),
+            "--native-levels",
+            &stufen.to_string(),
+            "--gpu",
+            gpu,
+        ];
+        let lauf = export_auf(threads, welt.path(), out.path(), &args);
+        if gpu == "on" {
+            if !lauf.status.success()
+                && String::from_utf8_lossy(&lauf.stderr).contains("keine Grafikkarte gefunden")
+            {
+                common::ohne_gpu();
+                continue;
+            }
+            assert_eq!(ganz_auf_der_karte(&lauf), stufen as usize, "{fall}");
+        }
+        gelungen(&lauf);
+        // Bänder nennt das Log erst ab zwei Stufen.
+        let ausgabe = String::from_utf8_lossy(&lauf.stdout);
+        assert_eq!(
+            ausgabe.contains("in Bändern aus"),
+            stufen > 1,
+            "{fall}:\n{ausgabe}"
+        );
+        let oben = max_zoom(out.path());
+        // Drei Bänder aus vier Kacheln bei scale 4, mehr bei 8.
+        let mindestens = [1, 13, 9][stufen as usize - 1];
+        let grob = kacheln(out.path(), oben - stufen).len();
+        assert!(
+            grob >= mindestens,
+            "{fall}: {grob} Kacheln auf der gröbsten Stufe"
+        );
+        for k in 1..=stufen {
+            let s = scale >> k;
+            let ist = kacheln(out.path(), oben - k);
+            assert!(!ist.is_empty(), "{fall}: scale {s} ohne Kacheln");
+            for (tile, pfad) in ist {
+                let soll = soll.entry((s, tile)).or_insert_with(|| {
+                    render_area_with(caches.get_mut(&s).unwrap(), tile.rect(), (-64, 319)).unwrap()
+                });
+                assert!(
+                    bild(&pfad).as_raw() == soll.as_raw(),
+                    "{fall}: scale {s}, {tile:?} ist nicht, was der Weg je Stufe zeichnet"
+                );
+            }
+        }
+    }
 }
 
 /// Bricht ein Export mitten in der Basis ab, steht über ihr keine

@@ -96,6 +96,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0040](entscheidungen/0040-licht-selbst-ausbreiten.md): Licht selbst ausbreiten, je Chunk mit Rand.
 - [0041](entscheidungen/0041-dimensionstypen-aus-dem-spiel.md): Dimensionstypen aus einer Tabelle des Spiels, Datenwurzeln darüber.
 - [0042](entscheidungen/0042-feine-stufen-im-speicher.md): Die feinen Stufen der Pyramide entstehen im Export aus dem Speicher.
+- [0043](entscheidungen/0043-native-stufen-in-baendern.md): Native Stufen in Bändern, mit Chunks und Licht über alle Stufen.
 
 ## Messungen
 
@@ -121,3 +122,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-09-29, Masken aus den Klassen](messungen/2026-09-29-masken-aus-den-klassen.md): was es bringt, Flächen und Quellen für die Ausbreitung aus den Klassenmasken zu lesen statt in der Schleife über die Blöcke zu sammeln (#53), im Wechsel gegen master, mit einem und 24 Threads, dazu Bytegleichheit.
 - [2026-09-29, Vollrender mit #49](messungen/2026-09-29-vollrender-mit-49.md): zwei Vollrender der grossen Welt mit dem Licht aus der Ausbreitung, scale 32 mit drei nativen Stufen und scale 24 mit einer: Dauer je Stufe, Kacheln, Grösse, gegen #21 und die Hochrechnung.
 - [2026-09-29, Doppelte Arbeit an Streifengrenzen](messungen/2026-09-29-streifengrenzen.md): wie oft die Basis einen Chunk dekodiert und sein Licht rechnet, am Stand mit einem Thread, der Hälfte und allen, und in der Reihenfolge eines Vollrenders mit Streifen zu 8, 16 und 32 Spalten.
+- [2026-10-01, Native Stufen in Bändern](messungen/2026-10-01-native-stufen-in-baendern.md): was die Bänder aus #59 an Ausschnitten der Testwelt bringen, im Wechsel gegen master, mit und ohne Karte, auf 24 Threads und einem, dazu Bänder aus einer Kachel, Speicher und Dekodierungen.

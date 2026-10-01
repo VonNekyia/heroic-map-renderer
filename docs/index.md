@@ -17,16 +17,16 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Assets und Biomdaten](benutzung/assets.md): Asset- und Datenwurzeln aus dem Client-JAR, gestapelt.
 - [Welten und Kennung](benutzung/welten.md): Welten ab 26.1, nicht fertig erzeugte Chunks, Weltwurzel, Dimension, Seed und die Kennung im Baum.
 - [Kacheln exportieren](benutzung/kacheln.md): `--tiles`, Ausschnitte, Ablage, leere Kacheln und `--prune`.
-- [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt.
+- [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt und Kamera.
 - [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md): `--pyramid` während eines Renders und `--resume` nach einem Abbruch.
-- [map.json](benutzung/map-json.md): die Felder und wann die Datei entsteht.
+- [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt `projektion.json`, und wann die Datei entsteht.
 - [Was ein Lauf kostet](benutzung/kosten.md): Platz und Dauer je scale, die grosse Welt gemessen und hochgerechnet.
 - [Grafikkarte](benutzung/grafikkarte.md): `--gpu`, Adapter, Backends, Rückfall auf die CPU.
 - [Echtzeitschutz unter Windows](benutzung/echtzeitschutz.md): die Defender-Ausnahme und `--defender-exclusion`.
 
 ## Wie der Renderer das Spiel nachbaut
 
-- [Die Kamera](renderer/kamera.md): Projektion, scale, Zeichenreihenfolge, Teile je Würfel im Raum, f64.
+- [Die Kamera](renderer/kamera.md): Kameras und Projektion, scale, ganze Pixel, Zeichenreihenfolge, Teile je Würfel im Raum, von oben, Blockkanten auf Pixelmitten, f64.
 - [Der Weg einer Kachel](renderer/renderpfad.md): Vorlauf, Streifen, Bitmasken, Kandidaten, Blit, Kodieren, Speicher.
 - [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Flächen zu gleichen Nachbarn, Deckungsmaske.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
@@ -47,7 +47,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 ## Entwicklung
 
 - [Aufbau des Codes](entwicklung/aufbau.md): welche Datei was tut.
-- [Tests](entwicklung/tests.md): laufen lassen, Fixtures, Goldbild, GPU-Tests.
+- [Tests](entwicklung/tests.md): laufen lassen, Fixtures, Kameras, Goldbilder, GPU-Tests.
 - [CI](entwicklung/ci.md): die Jobs und die Doku-Prüfung.
 - [Eingabedaten](entwicklung/eingabedaten.md): was nicht im Repository liegt und was für Tests mitkommt.
 - [Erzeugte Tabellen](entwicklung/tabellen.md): `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `blockentities.txt`, `dimensionstypen.txt`.
@@ -104,6 +104,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0048](entscheidungen/0048-seite-beim-build.md): Adresse, Titel, Beschreibung und Vorschaubild der Seite beim Build; keine Sitemap, kein JSON-LD.
 - [0049](entscheidungen/0049-umriss-nur-ohne-zeiger.md): Umriss nur beim Tippen mit Finger oder Stift, nicht mit der Maus.
 - [0050](entscheidungen/0050-teile-je-wuerfel-im-raum.md): Teile je Würfel im Raum, je Fragment, vor einem Block mit Flächen nur auf den Vorderseiten.
+- [0051](entscheidungen/0051-kameras-und-richtungen.md): Kameras und Richtungen: jede Raute von 2:1 bis 1:1 und `top`, ganze Pixel statt Vielfachen von 4, eine Kamera je Baum.
 
 ## Messungen
 

@@ -25,7 +25,8 @@ Texte.
 | `--at X Y Z` | die Blockstate an dieser Weltkoordinate ausgeben | unten |
 | `--block BLOCKSTATE` | eine Blockstate auflösen, mehrfach | unten |
 | `--sprite DATEI` | die Blockstates aus `--block` als Sprites in eine PNG rastern | unten |
-| `--scale N` | Pixelbreite eines Blocks, ein Vielfaches von 4, Vorgabe 32 | [Kamera](../renderer/kamera.md) |
+| `--scale N` | Pixelbreite eines Blocks, Vorgabe 32; jede Blockecke muss bei der Kamera auf ganzen Pixeln liegen, in 2:1 ein Vielfaches von 4 | [Kamera](../renderer/kamera.md), „Ganze Pixel“ |
+| `--camera KAMERA` | `W:H` schräg von 2:1 bis 1:1 oder `top` von oben, Vorgabe `2:1`; ein bestehender Kachelbaum verlangt seine | [Kamera](../renderer/kamera.md), „Kameras“ |
 | `--biome-blend N` | wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, 0 bis 7 Blöcke wie der Biomübergang im Spiel, Vorgabe 2; ein bestehender Kachelbaum behält seinen | [Biomfarben](../renderer/biomfarben.md), [map.json](map-json.md) |
 | `--render DATEI` | einen Weltausschnitt in eine PNG rendern | unten |
 | `--center X Z` | die Blockspalte in der Bildmitte, Vorgabe `0 0` | unten |

@@ -41,19 +41,25 @@ Dreiecke einer Fläche die Pixel auf ihrer Diagonale an, und bei scale 2
 bekam Wasser dort Alpha 233 statt 180. Geprüft ist beides an 300 zufällig
 gedrehten Quadern bei scale 4 bis 64, gedreht vom Baker selbst.
 
+Bei Kameras, deren Blockkanten Pixelmitten treffen, entscheidet die Regel
+auch zwischen zwei Blöcken, siehe [Die Kamera](kamera.md), „Blockkanten auf
+Pixelmitten“.
+
 ## Flächen parallel zur Blickrichtung
 
 Dabei zeigte sich eine Fläche genau parallel zur Blickrichtung: Der Baker
-dreht in f32, und die Summe ihrer Normalen liegt um 1e-7 ihrer Länge neben
-null, mal davor, mal dahinter. Lag sie davor, legte die Fläche einen
+dreht in f32, und das Produkt ihrer Normalen mit der Blickachse, in 2:1 die
+Summe der Normalen, liegt um 1e-7 ihrer Länge neben null, mal davor, mal
+dahinter. Lag sie davor, legte die Fläche einen
 Streifen von 2e-7 Pixeln Breite auf die Kante ihres Nachbarn, und ein
 Pixelmittelpunkt genau darauf bekam beide. Solche Flächen zählen jetzt als
 abgewandt (`EDGE_ON`). Echte Drehungen liegen weit darüber: um eine Achse
 in Schritten von 22,5 Grad, dazu Vielfache von 90, ist die kleinste Summe
-ungleich null 0,54 der Länge. In Vanilla und im Pack haben 82
+ungleich null in 2:1 0,54 der Länge. In Vanilla und im Pack haben 82
 Blockstates eine, etwa Kerzen, Hängeschilder und schräge Schienen. Ihre
 Pixel bleiben auf allen fünf scales gleich, nur 370 von 1705 Sprites
-bekommen einen kleineren Rahmen.
+bekommen einen kleineren Rahmen. Von oben steht jede senkrechte Fläche so
+auf der Kante, siehe [Die Kamera](kamera.md), „Von oben“.
 
 ## Fragmente je Pixel
 
@@ -141,8 +147,10 @@ sieht man deshalb den Boden, mehr als mit der Kamera des Spiels, siehe
   genau auf einer Aussenkante neben einer Öffnung im Modell, gehört sie
   nach der Füllregel der Öffnung, wie auf einer Grafikkarte. Das betrifft
   bei scale 8 und 16 einzelne Pixel in Zauntoren.
-- **Kanten gegen Luft sind Treppen** im 2:1-Raster statt Verläufe, die
-  Silhouette, die isometrische Pixelkunst ohnehin hat.
+- **Kanten gegen Luft sind Treppen** im Raster der Kamera statt Verläufe,
+  die Silhouette, die isometrische Pixelkunst ohnehin hat. Gleichmässig
+  sind sie nur bei 2:1, 1:1 und `top`, siehe [Die Kamera](kamera.md),
+  „Kameras“.
 - **Keine Mip-Stufen.** Das Spiel baut für Flächen mit Löchern kleinere
   Stufen, die ihre Deckung halten (`MipmapGenerator.scaleAlphaToCoverage`).
   Der Renderer mittelt stattdessen je Pixel über alle Texel darunter und

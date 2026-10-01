@@ -244,10 +244,17 @@ zusammen. Siehe
 
 Die Sammelschleife lief je Kachel über alle 24 Sections aller gut hundert
 Band-Chunks, 256 Spalten je Section. Das Band erreicht in einem Chunk aber
-nur rund 36 Höhen, also drei Sections; die Umkehrung von `v_window` grenzt
-sie ein, und ein Flag je Section sagt, ob überhaupt ein Kandidat
-drinsteht. Entscheidend bleibt die Prüfung je Block; das spart nur die
-Schleife über Sections, die das Band gar nicht berührt.
+nur rund 36 Höhen, also drei Sections, in 2:1 bei scale 32; die Umkehrung
+von `v_window` grenzt sie ein (`y_span` in `candidates`), und ein Flag je
+Section sagt, ob überhaupt ein Kandidat drinsteht. Entscheidend bleibt die
+Prüfung je Block; das spart nur die Schleife über Sections, die das Band
+gar nicht berührt.
+
+Das Fenster von `v = x + z` gilt je Höhe: `screen_y = v · a − y · b`,
+nach aussen gerundet (`v_window`). Es verschiebt sich je Höhe um b/a, in
+2:1 um genau 2. Von oben ist b = 0, das Fenster ist für jede Höhe
+dasselbe, und das Band erreicht jede Höhe; siehe
+[Die Kamera](kamera.md), „Von oben“.
 
 Das Band um die Kachel hat drei Blöcke Reserve für Modelle, die aus ihrem
 Würfel ragen (`BLEED_BLOCKS`). Für alles, was im Umriss seines Würfels

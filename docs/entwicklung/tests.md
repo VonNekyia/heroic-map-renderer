@@ -1,6 +1,6 @@
 ---
 title: Tests
-description: Wie man die Tests laufen lässt, welche Datei was prüft, woher Fixtures und Sollwerte kommen und wie das Goldbild Änderungen am Bild auffängt.
+description: Wie man die Tests laufen lässt, welche Datei was prüft, woher Fixtures und Sollwerte kommen und wie die Goldbilder Änderungen am Bild auffangen.
 code:
   - renderer/tests/assets.rs
   - renderer/tests/cli.rs
@@ -120,16 +120,41 @@ Kinder ist.
 
 `schneller_weg_gleicht_der_referenz` rendert eine Szene über mehrere Chunks,
 Biome und Sections Byte für Byte gegen `render_area_without_culling`, die
-Referenz ohne jede Abkürzung, bei scale 2, 6 und jedem Vielfachen von 4
-bis 32.
+Referenz ohne jede Abkürzung, in 2:1 bei scale 2, 6 und jedem Vielfachen
+von 4 bis 32, dazu bei jeder Kamera der Invarianten.
+
+## Kameras
+
+Die Invarianten gelten für jede Kamera. `kameras()` in
+`renderer/tests/metatile.rs` liefert sie: 16:9, 8:5, 4:3, 1:1 und `top`
+bei scale 32, 5:3 bei scale 30, 1:1 und `top` bei scale 4, dazu Paare aus
+gültigem W:H und scale, gezogen mit fester Saat, damit jeder Lauf dieselben
+prüft. Je Kamera:
+
+| Test | Prüft |
+|---|---|
+| `verdecken_aendert_kein_pixel` | Verdecken ist nur eine Abkürzung |
+| `schneller_weg_gleicht_der_referenz` | Kandidaten und Bitmasken gegen die Referenz |
+| `kein_loch_in_deckendem_gelaende` | kein offener Pixel, auch auf Kanten, die Pixelmitten treffen |
+| `hoeher_gesetzt_gleiches_bild` | dieselbe Welt 40 Blöcke höher gibt dasselbe Bild, auch von oben, wo die Referenz dasselbe Band abläuft |
+| `projektion_als_datei_ist_aktuell` (`renderer/tests/heights.rs`) | die Datei für das Frontend, samt Kantenpixeln |
+
+Dazu Unit-Tests in den Quelldateien: die Achse je Kamera und die Regel
+„ganze Pixel“ (`projection.rs`), welche Flächen die Kamera sieht
+(`rasterizer.rs`), Umriss, Deckung, Licht unbekannter Blöcke und die Teile
+je Würfel ohne Naht (`sprites.rs`), Schalter und Meldungen (`cli.rs`). Die
+Haarlinien von oben prüft ein ignorierter Test über alle Vanilla-Zustände,
+siehe [Die Kamera](../renderer/kamera.md), „Von oben“.
 
 ## Goldbild
 
-Unter `renderer/tests/fixtures/golden/` liegt ein Goldbild: jede Änderung an
-Projektion, Baking, Rasterizer oder Maleralgorithmus fällt damit auf. Fällt
-der Test, schreibt er das Ist-Bild daneben als `metatile-ist.png`; in CI
-liegt es als Artefakt am fehlgeschlagenen Lauf. Neu erzeugen nach einer
-gewollten Änderung: Skill
+Unter `renderer/tests/fixtures/golden/` liegen Goldbilder: jede Änderung an
+Projektion, Baking, Rasterizer oder Maleralgorithmus fällt damit auf.
+`metatile.png` zeigt 2:1, `metatile-4x3.png` und `metatile-top.png` die
+Szene aus `common::szene` in 4:3 und von oben. Fällt der Test, schreibt er
+das Ist-Bild daneben als `metatile-ist.png`, `metatile-4x3-ist.png` oder
+`metatile-top-ist.png`; in CI liegen sie als Artefakt am fehlgeschlagenen
+Lauf. Neu erzeugen nach einer gewollten Änderung: Skill
 [`goldbild-erneuern`](../../skills/goldbild-erneuern/SKILL.md).
 
 ## GPU-Tests

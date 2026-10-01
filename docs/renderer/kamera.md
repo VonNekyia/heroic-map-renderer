@@ -1,46 +1,113 @@
 ---
 title: Die Kamera
-description: Die feste isometrische Projektion, der scale, die Zeichenreihenfolge ohne Tiefenpuffer, wie überhängende Modelle im Raum in Teile je Würfel zerfallen und warum Weltkoordinaten in f64 projiziert werden.
+description: Die Kameras von --camera, die Projektion mit h, a und b, die Regel „ganze Pixel“ für scale und Kamera, die Zeichenreihenfolge ohne Tiefenpuffer, die Draufsicht, Blockkanten auf Pixelmitten, wie überhängende Modelle im Raum in Teile je Würfel zerfallen und warum Weltkoordinaten in f64 projiziert werden.
 code:
   - renderer/src/render/projection.rs
   - renderer/src/render/metatile.rs
   - renderer/src/render/sprites.rs
   - renderer/src/render/rasterizer.rs
+  - renderer/src/cli.rs
   - renderer/tests/heights.rs
   - renderer/tests/fixtures/projektion.json
 ---
 
 # Die Kamera
 
-Die Kamera ist fest und orthographisch, alle Faktoren stehen in
+Die Kamera ist eine Parallelprojektion ohne Perspektive. `--camera` wählt
+sie je Lauf: schräg mit dem Rautenverhältnis `W:H` von 2:1 bis 1:1, Vorgabe
+2:1, oder von oben (`top`). Sichtbar sind schräg immer dieselben drei
+Seiten, oben, Süden und Osten, von oben nur die Oberseite. Daraus folgt
+eine Zeichenreihenfolge nach Höhe und Tiefe, die jeden Tiefenpuffer über
+die Kachel überflüssig macht. `scale` ist die Pixelbreite eines Würfels,
+Vorgabe 32. Alle Faktoren stehen in
 [`renderer/src/render/projection.rs`](../../renderer/src/render/projection.rs).
-Sichtbar sind immer dieselben drei Seiten: oben, Süden und Osten. Daraus
-folgt eine Zeichenreihenfolge nach Höhe und Tiefe, die jeden Tiefenpuffer
-über die Kachel überflüssig macht. `scale` ist die Pixelbreite eines
-Würfels, Vorgabe 32.
 
 ## Projektion
 
 ```text
-screen_x = (x - z) * scale/2
-screen_y = (x + z) * scale/4 - y * scale/2
+screen_x = u · h
+screen_y = v · a − y · b
+
+u = x − z,  v = x + z,  h = scale/2
 ```
 
-Damit belegt ein voller Würfel genau `scale` mal `scale` Pixel. Sichtbar
-sind immer dieselben drei Seiten: oben, Süden (links im Bild) und Osten
-(rechts). Die Blickachse ist (1, 1, 1): Punkte, die sich um ein Vielfaches
-davon unterscheiden, landen auf demselben Pixel.
+| Kamera | a | b | Blickachse (b, 2a, b), gekürzt |
+|---|---|---|---|
+| `W:H` | scale · H/(2W) | scale/2 | (W, 2H, W) |
+| `top` | scale/2 | 0 | (0, 1, 0) |
+
+- **`h`:** Pixel je Schritt in u. Ein Würfel ist immer `scale` breit.
+- **`a`:** Pixel je Schritt in v. Die Oberseite eines Blocks ist eine Raute
+  von scale × 2a.
+- **`b`:** Pixel je Block Höhe. Schräg bleibt b = scale/2, die Wände sind
+  bei jeder Raute gleich hoch. Von oben ist b = 0.
+- **2:1:** a = scale/4, b = scale/2, Achse (1, 1, 1). Ein voller Würfel
+  belegt genau `scale` mal `scale` Pixel.
+- **Blickachse:** Punkte, die sich um ein Vielfaches von ihr
+  unterscheiden, landen auf demselben Pixel (`Projection::achse`). Sie
+  heisst (b, 2a, b) statt (1, k, 1), damit bei b = 0 nichts unendlich wird.
+  Die Tiefe eines Punkts ist sein Produkt mit der Achse
+  (`Projection::depth`).
+
+Bei scale 32:
+
+| Kamera | a | Achse | Winkel der Achse | native Stufen | Pixel je Spalte gegen 2:1 |
+|---|---|---|---|---|---|
+| 2:1 | 8 | (1, 1, 1) | 35,3° | 16, 8, 4 | 1 |
+| 16:9 | 9 | (8, 9, 8) | 38,5° | keine | 1,13 |
+| 8:5 | 10 | (4, 5, 4) | 41,5° | 16 | 1,25 |
+| 4:3 | 12 | (2, 3, 2) | 46,7° | 16, 8 | 1,5 |
+| 1:1 | 16 | (1, 2, 1) | 54,7° | 16, 8, 4 | 2 |
+| `top` | 16 | (0, 1, 0) | 90° | 16, 8, 4 | 2 |
+
+Der Winkel der Achse über dem Horizont ist atan(√2 · a/b).
 
 `Projection::project_block` bildet die Ecke (x, y, z) eines Blocks ab, die
 mit den kleinsten Koordinaten. Für die Koordinatenanzeige rechnet das
-Frontend dieselbe Formel rückwärts, siehe
-[Frontend](../frontend.md), „Koordinaten“. Damit beide gleich rechnen,
-stehen je scale einige Blöcke samt Bildpunkt in
+Frontend dieselbe Formel rückwärts, aus den Zahlen in `map.json`, siehe
+[`map.json`](../benutzung/map-json.md), „Kamera und Projektion“. Damit
+beide gleich rechnen, stehen je Kamera und scale einige Blöcke samt
+Bildpunkt in
 [`renderer/tests/fixtures/projektion.json`](../../renderer/tests/fixtures/projektion.json),
-auch negative und welche bei 2²⁴. Ein Test des Renderers schlägt an, wenn
-die Datei veraltet ist, und schreibt sie mit
-`UPDATE_GOLDEN=1 cargo test --test heights` neu. Das Frontend prüft sein
+auch negative und welche bei 2²⁴, dazu Pixel genau auf Blockkanten. Ein
+Test des Renderers schlägt an, wenn die Datei veraltet ist, und schreibt sie
+mit `UPDATE_GOLDEN=1 cargo test --test heights` neu. Das Frontend prüft sein
 Modell an ihr.
+
+### Gestaucht, nicht isometrisch
+
+Jede Kamera ist eine Parallelprojektion entlang ihrer Blickachse, danach
+senkrecht gestaucht oder gestreckt. Das gilt auch für 2:1:
+- Beide Zeilen der Projektion stehen senkrecht auf der Achse (b, 2a, b):
+  (h, 0, −h) für `screen_x`, (a, −b, a) für `screen_y`.
+- Ihre Längen sind verschieden: h · √2 gegen √(2a² + b²).
+- 2:1 ist so die echte Isometrie entlang (1, 1, 1), senkrecht um √3/2
+  gestaucht. Nach der Raute wirkt sie asin(H/W) = 30° hoch, die Achse steht
+  35,3° über dem Horizont.
+- 1:1 ist um √(3/2) gestreckt. Unverzerrt ist nur `top`.
+
+## Kameras
+
+`--camera` nimmt `W:H` oder `top` (`Kamera::parse`):
+- **Gekürzt:** `16:10` wird `8:5`, bevor der Renderer es schreibt. So
+  landet dieselbe Kamera nie in zwei Kachelbäumen.
+- **Von 2:1 bis 1:1:** Flacher verdeckt das Gelände mehr und kostet mehr;
+  steiler erschiene die Oberseite höher als von oben. Die Meldung sagt das
+  so, etwa „3:1 ist flacher als 2:1“ oder „1:2 ist steiler als 1:1“.
+- **Nur auf ganzen Pixeln,** siehe „Ganze Pixel“. Sonst bricht der Lauf ab,
+  bevor er die Welt liest.
+- **Ein Baum, eine Kamera:** Die Kamera gehört zum Kachelbaum wie der
+  scale, siehe [Zoomstufen](../benutzung/zoomstufen.md), „Ein Baum, eine
+  Kamera“.
+
+Was sich je Kamera im Bild ändert:
+- **Schräg** bleiben die Wände gleich hoch, und die Oberseiten wachsen mit
+  a.
+- **Kanten gegen Luft** laufen wie die Kanten der Raute H:W. Eine
+  gleichmässige Treppe ergibt das nur bei 2:1, mit zwei Pixeln je Zeile,
+  und bei 1:1 und `top`, mit einem. Bei 4:3 läuft die Treppe 3:4, und
+  Texelzeilen werden ungleich hoch.
+- **Von oben** verschwindet jede senkrechte Fläche, siehe „Von oben“.
 
 ## scale
 
@@ -52,23 +119,47 @@ Preis: viermal so viele Kacheln, für die Testwelt rund 300 000 statt 74 000
 bei scale 16. Wer die Hälfte der Texturzeilen verschmerzen kann, gibt
 `--scale 16` an.
 
-`--scale` nimmt nur Vielfache von 4: Die Projektion setzt Blöcke in
-Schritten von scale/4 Pixeln, und nur dann liegt jeder Block auf ganzen
-Pixeln. Sonst läge jede zweite Blockreihe auf einem halben Pixel, und
-benachbarte Reihen überdeckten sich.
+## Ganze Pixel
+
+`--scale` und `--camera` gehen nur zusammen, wenn jede Blockecke auf ganzen
+Pixeln liegt (`Projection::ganze_pixel`): a ist ganz, und scale ist gerade.
+Dann sind auch h und b ganz. Sonst läge jede zweite Blockreihe auf einem
+halben Pixel, und benachbarte Reihen überdeckten sich.
+
+- **2:1** heisst das: ein Vielfaches von 4, die Regel von früher.
+- **Bei scale 32** gehen 16:a mit a von 8 bis 16, gekürzt 2:1, 16:9, 8:5,
+  16:11, 4:3, 16:13, 8:7, 16:15 und 1:1.
+- **`top`** braucht einen geraden scale.
+- **Native Stufen** gehen, solange der scale der Stufe die Regel erfüllt,
+  bis scale 4, siehe [Zoomstufen](../benutzung/zoomstufen.md), „Native
+  Stufen“.
+- **Verdecken** prüft dieselbe Regel, siehe
+  [Sprites und Deckung](sprites-und-deckung.md), „Verdeckte Würfel“.
+
+Geht ein Paar nicht, nennt die Meldung die nächsten Kameras beim selben
+scale und die nächsten scales für diese Kamera (`projektion` in
+[`renderer/src/cli.rs`](../../renderer/src/cli.rs)):
+
+```text
+5:3 geht bei scale 32 nicht (a = 9,6). Nächste gültige: 16:9 (a = 9) oder 8:5 (a = 10). 5:3 geht bei scale 30 oder 40.
+top geht bei scale 31 nicht: der scale muss gerade sein. top geht bei scale 30 oder 32.
+```
 
 ## Zeichenreihenfolge
 
 Der Metatile-Renderer sortiert erst nach Höhe `y`, innerhalb einer Höhe
-nach Tiefe `v = x + z`. Beides ist nötig:
+nach Tiefe `v = x + z`. Beides ist nötig, und beides gilt für jede Achse
+mit b ≥ 0 und a > 0:
 
-- Verdeckt B den Block A, dann liegt B nie tiefer. Sonst wäre der
-  senkrechte Abstand im Bild mindestens eine Blockhöhe, und die Umrisse
-  berührten sich höchstens.
-- Auf gleicher Höhe verdecken Blöcke einander sehr wohl: der Südnachbar
+- **Verdeckt B den Block A, dann liegt B nie tiefer.** Auf einem Pixel
+  liegt der vordere Punkt um ein Vielfaches der Achse vor dem hinteren, und
+  die Achse steigt mit 2a > 0. Ein Würfel ganz unter dem anderen kann also
+  nicht vorn liegen.
+- **Auf gleicher Höhe verdecken Blöcke einander sehr wohl:** der Südnachbar
   `(x, y, z+1)` verdeckt die Südfläche von `(x, y, z)`, der Ostnachbar
   `(x+1, y, z)` die Ostfläche. Dort heisst "verdeckt" genau `v_B > v_A`,
-  denn `depth = x + y + z = v + y`.
+  denn auf einer Höhe wächst die Tiefe mit b · v. Von oben überlappen sich
+  Blöcke einer Höhe gar nicht.
 
 Zusammen ergibt das eine gültige Reihenfolge, und ein globaler Tiefenpuffer
 wird unnötig, siehe
@@ -114,6 +205,10 @@ Zugeordnet wird im Raum, je Fragment (`Raster::teile` in
   in den eigenen Umriss (`fits_cell`), bleibt es ganz. So bleiben
   Wandfackeln, Korallenfächer und Getreide bei kleinem scale ein Teil. Erst
   was weiter hinausragt, zerfällt.
+- **Jede Kamera:** Der Umriss eines Würfels folgt aus h, a und b
+  (`in_outline` in `renderer/src/render/sprites.rs`); die Zuordnung im
+  Raum braucht nichts sonst. Von oben passt etwa ein Modell, das zwei
+  Blöcke hoch senkrecht aufragt, in den eigenen Umriss und bleibt ganz.
 
 Bis #65 wurde über den Bildschirm zugeordnet: Ein Pixel gehörte dem
 vordersten Würfel der Hülle, dessen Umriss ihn enthält. Die Umrisse
@@ -157,19 +252,68 @@ Modell. Basis, native Stufen und Speicher blieben in der Streuung. Die
 Sprite-Tabelle bei scale 32 kostet einmal je Lauf rund 0,025 s mehr, siehe
 [2026-10-01, Teile je Würfel im Raum](../messungen/2026-10-01-teile-je-wuerfel-im-raum.md).
 
+## Von oben
+
+Bei `top` ist b = 0 und die Achse (0, 1, 0). Was daraus folgt:
+- **Senkrechte Flächen stehen auf der Kante** und fallen weg
+  (`zur_kamera` und `EDGE_ON` in `renderer/src/render/rasterizer.rs`).
+  Gras, Blumen, Getreide und Seegras sind Kreuze aus senkrechten Flächen
+  und verschwinden. Häuser werden zu Rechtecken. Relief zeigen nur noch die
+  weiche Beleuchtung und das Himmelslicht.
+- **Keine Haarlinie:** Jede Fläche eines Vanilla-Blocks, die die Kamera
+  von oben sieht, zeigt deutlich nach oben. Über alle 32 366 Zustände aus
+  `blocks.txt` sieht sie 96 750 Flächen, die steilste mit n_y = 0,0079:
+  die Fahne eines Banners, im Modell des Spiels um 0,45° geneigt. Danach
+  kommen die Statuen des Kupfergolems mit 0,045. Zwischen dem Rauschen des
+  Bakers, 1e-7 der Länge, und echter Neigung liegt also keine Fläche; die
+  Grenze `EDGE_ON` liegt bei 1e-4. Das prüft
+  `von_oben_keine_haarlinie_an_allen_vanilla_bloecken` in `sprites.rs`,
+  ignoriert, weil er die Vanilla-Assets braucht.
+- **Verdeckt** ist ein Würfel von oben allein durch den Block darüber,
+  siehe [Sprites und Deckung](sprites-und-deckung.md), „Verdeckte Würfel“.
+- **Jede Höhe liegt im Band:** Das Fenster von v ist für jede Höhe
+  dasselbe, siehe [Der Weg einer Kachel](renderpfad.md), „Kandidaten“.
+- **Der Boden eines Würfels,** die Oberseite des Blocks darunter, liegt
+  schräg b tiefer im Bild, von oben an derselben Stelle.
+
+## Blockkanten auf Pixelmitten
+
+Der Rasterizer tastet jeden Pixel in seiner Mitte ab, bei +0,5. Senkrechte
+Kanten liegen bei u · h, also auf ganzen Pixeln und nie auf einer Mitte.
+Eine Kante der Raute steigt um a je h, also H:W, von oben 1:1:
+- **Sie trifft Pixelmitten genau dann,** wenn W und H, gekürzt, beide
+  ungerade sind: Eine Mitte liegt auf ihr, wenn (2j + 1)/(2i + 1) = H/W.
+- **Das sind** 1:1, `top`, dazu etwa 5:3 und 7:5, bei jedem scale, an dem
+  sie gelten. Bei scale 32 also nur 1:1 und `top`, 2:1 nie.
+- **Welcher der beiden Blöcke** einen solchen Pixel bekommt, entscheidet
+  die Füllregel, siehe [Rastern ohne Nähte](naehte.md), „Füllregel“. Sie
+  braucht genaue Ecken; seit
+  [0045](../entscheidungen/0045-varianten-genau-drehen.md) dreht der Baker
+  Varianten genau.
+- **In deckendem Gelände bleibt kein Pixel offen,** auch nicht auf solchen
+  Kanten. Das prüft `kein_loch_in_deckendem_gelaende` in
+  `renderer/tests/metatile.rs` an Stufen aus zufällig gedrehten Blöcken,
+  für 2:1 und jede Kamera der Invarianten.
+- **Das Frontend** bekommt solche Pixel in `projektion.json` vorgerechnet,
+  siehe [`map.json`](../benutzung/map-json.md), „Kamera und Projektion“.
+
 ## Stufen, die von der Kamera wegzeigen
 
-Eine Geländestufe, die nach Norden oder Westen zeigt, ist in der Projektion
-unsichtbar: Die Oberseite eine Stufe höher liegt auf der Blickachse genau
-auf dem Boden dahinter. Was hinter der Stufe steht, verdeckt sie bis auf
-die Ränder, die über ihre hintere Ecke ragen. Über einer scheinbar ebenen
-Wiese stehen deshalb einzelne Pixel, von einem roten Pilz etwa zwei. Das
-ist kein Fehler. Nachzustellen in der Testwelt am Pilz bei
-(−155, 72, −4359):
+Eine Geländestufe, die nach Norden oder Westen zeigt, ist in 2:1
+unsichtbar: Die Oberseite eine Stufe höher liegt im Bild genau neben der
+Oberseite davor, als wäre der Boden eben. Was hinter der Stufe steht,
+verdeckt sie bis auf die Ränder, die über ihre hintere Ecke ragen. Über
+einer scheinbar ebenen Wiese stehen deshalb einzelne Pixel, von einem roten
+Pilz etwa zwei. Das ist kein Fehler. Nachzustellen in der Testwelt am Pilz
+bei (−155, 72, −4359):
 
 ```bash
 cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --render stufe.png --center -227 -4431 --size 128 --scale 32
 ```
+
+Steilere Kameras zeigen die Stufe: Die höhere Oberseite liegt 2a − b
+Pixel tiefer als ihr Platz in einem ebenen Boden und verdeckt einen
+Streifen der tieferen.
 
 ## Weltkoordinaten in f64
 

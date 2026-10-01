@@ -105,6 +105,9 @@ und die Konsole sagt, was fehlt.
 
 Ein Bildpunkt allein verrät den Block nicht: Die Projektion wirft die
 Blickachse (1, 1, 1) auf einen Punkt, siehe [Die Kamera](renderer/kamera.md).
+Das Frontend rechnet heute nur 2:1, aus `scale`; `camera` und `projection`
+aus `map.json` liest es noch nicht. In einem Baum einer anderen Kamera
+zeigt die Karte die Kacheln richtig, die Koordinaten aber nicht.
 [`web/src/pick.ts`](../web/src/pick.ts) geht deshalb den Strahl durch die
 Mitte des Pixels ab, wo auch der Renderer abtastet:
 

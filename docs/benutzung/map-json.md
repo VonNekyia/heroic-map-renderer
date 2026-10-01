@@ -1,6 +1,6 @@
 ---
 title: map.json
-description: Die Felder von map.json, wann der Export die Datei schreibt, die Höhen je Region für die Koordinatenanzeige, wie das Frontend die Projektion nachrechnet und warum ein Baum seinen Radius der Mischung behält.
+description: Die Felder von map.json, Kamera und Projektion samt projektion.json mit Kantenpixeln, wann der Export die Datei schreibt, die Höhen je Region für die Koordinatenanzeige und warum ein Baum seinen Radius der Mischung behält.
 code:
   - renderer/src/render/pyramid.rs
   - renderer/src/render/heights.rs
@@ -13,7 +13,7 @@ code:
 # `map.json`
 
 `map.json` liegt an der Wurzel jedes Kachelbaums und sagt dem Frontend, was
-es vorfindet: Kachelgrösse, scale, Zoomstufen, Pfadmuster, den belegten
+es vorfindet: Kachelgrösse, scale, Kamera, Zoomstufen, Pfadmuster, den belegten
 Bereich, die Zahl nativer Stufen, den Radius der Mischung der Biomfarben,
 die Kennung der Welt und wo die Höhen liegen. Der Typ ist
 `MapInfo` in
@@ -26,6 +26,9 @@ das Frontend liest die Datei in `web/src/main.ts`.
 {
   "tileSize": 256,
   "scale": 32,
+  "camera": "2:1",
+  "direction": "se",
+  "projection": { "azimuth": "diagonal", "u": 16, "v": 8, "y": 16 },
   "minZoom": 0,
   "maxZoom": 10,
   "tiles": "{z}/{x}/{y}.webp",
@@ -44,6 +47,9 @@ das Frontend liest die Datei in `web/src/main.ts`.
 |---|---|---|
 | `tileSize` | Kantenlänge einer Kachel in Pixeln | |
 | `scale` | Pixelbreite eines Blocks auf der Basis | [Kamera](../renderer/kamera.md) |
+| `camera` | `--camera`, gekürzt, etwa `8:5` oder `top`; fehlt es, ist der Baum 2:1 | „Kamera und Projektion“ unten |
+| `direction` | woher die Kamera blickt, heute immer `se` | „Kamera und Projektion“ unten |
+| `projection` | die Projektion in Pixeln der Basis | „Kamera und Projektion“ unten |
 | `minZoom`, `maxZoom` | gröbste und feinste Stufe; `maxZoom` ist die Basis | [Zoomstufen](zoomstufen.md) |
 | `tiles` | Pfadmuster der Kacheln | [Kacheln exportieren](kacheln.md) |
 | `bounds` | belegter Bereich auf der feinsten Stufe in Pixeln, `[links, oben, rechts, unten]` | |
@@ -54,13 +60,55 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `heightsCell` | Kantenlänge einer Zelle der Höhen in Blöcken, heute 4; steht mit `heights` | „Höhen“ unten |
 | `minY`, `maxY` | unterster und oberster Block, den der Renderer zeichnet; stehen mit `heights` | „Höhen“ unten |
 
-Die Projektion selbst steht nicht drin: sie hängt allein an `scale`, die
-Formel steht in [Kamera](../renderer/kamera.md), „Projektion“. Für die
-Koordinaten rechnet das Frontend sie nach. Damit es dabei nicht vom Renderer
-abweicht, liegen Paare aus Block und Bildpunkt in
-[`renderer/tests/fixtures/projektion.json`](../../renderer/tests/fixtures/projektion.json).
-Ein Test des Renderers hält die Datei aktuell, und das Frontend prüft sein
-Modell daran.
+## Kamera und Projektion
+
+`camera`, `direction` und `projection` beschreiben die Kamera des Baums
+(`mit_kamera` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)). Bei
+`--camera 8:5` und scale 32:
+
+```json
+"camera": "8:5",
+"direction": "se",
+"projection": { "azimuth": "diagonal", "u": 16, "v": 10, "y": 16 }
+```
+
+- **`projection`:** die Zahlen der Projektion in Pixeln der Basis: `u` ist
+  h, `v` ist a, `y` ist b, siehe [Kamera](../renderer/kamera.md),
+  „Projektion“. `azimuth` ist heute immer `diagonal`: u = x − z,
+  v = x + z. Das Frontend rechnet nur aus diesen Zahlen und führt keine
+  eigene Tabelle der Kameras.
+- **`direction`:** heute immer `se`, die Kamera steht im Südosten. Das Feld
+  steht schon jetzt da, damit sich das Format nur einmal ändert.
+- **Ältere Bäume:** Fehlt `camera`, ist der Baum 2:1; fehlt `projection`,
+  rechnet das Frontend aus `scale` wie bei 2:1. Einen unbekannten
+  `azimuth` oder eine unbekannte `direction` meldet das Frontend.
+- **Ein Baum, eine Kamera:** siehe [Zoomstufen](zoomstufen.md), „Ein Baum,
+  eine Kamera“. `--pyramid` behält die drei Felder.
+
+Für die Koordinaten rechnet das Frontend die Projektion nach. Damit es
+dabei nicht vom Renderer abweicht, liegen Einträge in
+[`renderer/tests/fixtures/projektion.json`](../../renderer/tests/fixtures/projektion.json),
+je Kamera und scale. Ein Test des Renderers hält die Datei aktuell
+(`projektion_als_datei_ist_aktuell` in `renderer/tests/heights.rs`), und
+das Frontend prüft sein Modell daran. Jeder Eintrag nennt `camera`,
+`direction`, `scale`, `block` und `pixel`. `pixel` meint zweierlei, je
+nachdem, ob `eben` dasteht:
+
+| Eintrag | `pixel` | `block` |
+|---|---|---|
+| ohne `eben` | `project_block(block)`, die Ecke des Blocks mit den kleinsten Koordinaten | irgendein Block, auch negativ und bei 2²⁴ |
+| mit `eben: 0` | ein Pixel, dessen Mitte bei +0,5 genau auf einer Blockkante liegt | der Block, dessen Oberseite der Renderer dort zeigt |
+
+- **Kantenpixel** gibt es für die Kameras, deren Blockkanten Pixelmitten
+  treffen: `top` und 1:1 bei scale 32, 5:3 bei scale 30, siehe
+  [Kamera](../renderer/kamera.md), „Blockkanten auf Pixelmitten“.
+- **Gerendert** sind sie auf einem ebenen Boden aus Oberseiten bei y = 0,
+  also mit `block[1]` = −1, im Schachbrett aus zwei Farben, damit jeder
+  Pixel seinen Block verrät (`kantenpixel` in `renderer/tests/heights.rs`).
+- **Je Kamera zwei:** einer auf einer Ostkante, zwischen (x, z) und
+  (x + 1, z), einer auf einer Südkante, zwischen (x, z) und (x, z + 1).
+  Nach der Füllregel bekommt den ersten der östliche Block, den zweiten der
+  nördliche.
 
 ## Höhen
 

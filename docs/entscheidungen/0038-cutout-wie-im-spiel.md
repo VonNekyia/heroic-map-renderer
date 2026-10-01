@@ -11,6 +11,9 @@ code:
 
 # 0038: Flächen mit Löchern werden ausgeschnitten
 
+Die feste Blickachse ist seit [0051](0051-kameras-und-richtungen.md) die
+Achse der Kamera des Laufs.
+
 ## Anlass
 
 Laub sah auf der Karte milchig aus, am stärksten die Oberseiten der

@@ -18,7 +18,8 @@ use terranova_render::assets::{Assets, DimensionType};
 use terranova_render::render::heights::{self, EMPTY, Heights};
 use terranova_render::render::rasterizer::{Light, Lightmap};
 use terranova_render::render::{
-    Projection, SpriteSet, TileId, encode_webp, pyramid, render_area, streifenbreite, survey,
+    BLEND_DEFAULT, BiomeTable, ChunkCache, Projection, SpriteSet, TileId, encode_webp, pyramid,
+    render_area, render_area_with, streifenbreite, survey,
 };
 use terranova_render::world::World;
 
@@ -1288,6 +1289,107 @@ fn feine_stufen_im_speicher_wie_von_der_platte() {
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
     assert!(meldung.contains(IM_SPEICHER), "Ausschnitt: {meldung}");
     assert_eq!(schnappschuss(out.path()), soll, "Ausschnitt");
+}
+
+/// Die nativen Stufen laufen in Bändern und teilen Chunks und Licht über
+/// die Stufen (`render_coarser`). Jede ihrer Kacheln ist trotzdem Byte für
+/// Byte, was der Weg je Stufe zeichnet: ein Cache je scale ohne Vorrat, mit
+/// der Tabelle des scale und dem Licht der Basis. Mit drei Stufen auf
+/// einem Thread und mit Karte, mit zwei auf drei Threads und mit einer.
+/// Die Welt ist ein Streifen aus der Szene aus `common::szene` entlang
+/// einer Spalte der Kacheln, mit Licht, Wasser, Lava und zwei Biomen, dazu
+/// Ackerboden, dessen Raster bei scale 4 kippt, siehe
+/// `licht_unbekannter_bloecke_haengt_nicht_am_scale` in `tests/licht.rs`.
+/// Bei scale 4 reicht sie für drei Bänder, bei 8 für mehr: Dann fällt auch,
+/// was ein Band nicht mehr braucht, aus dem Vorrat.
+#[test]
+fn native_stufen_wie_der_weg_je_stufe() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (1..31)
+        .flat_map(|x| (x - 1..=x + 1).map(move |z| (x, z)))
+        .collect();
+    let szene = |x: i32, y: i32, z: i32| common::szene(x.rem_euclid(32), y, z.rem_euclid(32));
+    let biom = |cx: i32, _: i32| {
+        Some(if cx.rem_euclid(2) == 0 {
+            "minecraft:plains"
+        } else {
+            "minecraft:frozen"
+        })
+    };
+    common::write_world_sections(welt.path(), &chunks, -1..=2, szene, biom);
+
+    // Der Weg je Stufe, wie die Binärdatei ihn ohne Bänder ginge.
+    let world = World::open(welt.path()).unwrap();
+    let survey = survey(&world, Projection::new(32), (-64, 319), None).unwrap();
+    let mut assets = Assets::open(vec![assets()]).unwrap();
+    let basis = SpriteSet::build_in(&mut assets, &survey.states, Projection::new(32)).unwrap();
+    let deckend = basis.licht_deckend(&survey.states);
+    let biomes = BiomeTable::new(assets.colors()).with(BLEND_DEFAULT, world.seed().unwrap());
+    let tabellen = BTreeMap::from([16, 8, 4].map(|scale| {
+        let mut sprites =
+            SpriteSet::build_in(&mut assets, &survey.states, Projection::new(scale)).unwrap();
+        sprites.add_entities(&mut assets, &survey.entities).unwrap();
+        sprites.set_biomes(biomes.clone());
+        sprites.set_licht_deckend(deckend.clone());
+        (scale, sprites)
+    }));
+    let mut caches: BTreeMap<u32, ChunkCache> = tabellen
+        .iter()
+        .map(|(scale, sprites)| (*scale, ChunkCache::new(&world, sprites)))
+        .collect();
+    let mut soll: BTreeMap<(u32, TileId), RgbaImage> = BTreeMap::new();
+
+    let faelle = [
+        (1, 32, 3, "off"),
+        (3, 32, 3, "on"),
+        (3, 32, 2, "off"),
+        (1, 8, 1, "off"),
+    ];
+    for (threads, scale, stufen, gpu) in faelle {
+        let fall = format!("{threads} Threads, scale {scale}, {stufen} Stufen, --gpu {gpu}");
+        let out = tempdir();
+        let args = [
+            "--scale",
+            &scale.to_string(),
+            "--native-levels",
+            &stufen.to_string(),
+            "--gpu",
+            gpu,
+        ];
+        let lauf = export_auf(threads, welt.path(), out.path(), &args);
+        if gpu == "on" {
+            if !lauf.status.success()
+                && String::from_utf8_lossy(&lauf.stderr).contains("keine Grafikkarte gefunden")
+            {
+                common::ohne_gpu();
+                continue;
+            }
+            assert_eq!(ganz_auf_der_karte(&lauf), stufen as usize, "{fall}");
+        }
+        gelungen(&lauf);
+        let oben = max_zoom(out.path());
+        // Drei Bänder aus vier Kacheln bei scale 4, mehr bei 8.
+        let mindestens = [1, 13, 9][stufen as usize - 1];
+        let grob = kacheln(out.path(), oben - stufen).len();
+        assert!(
+            grob >= mindestens,
+            "{fall}: {grob} Kacheln auf der gröbsten Stufe"
+        );
+        for k in 1..=stufen {
+            let s = scale >> k;
+            let ist = kacheln(out.path(), oben - k);
+            assert!(!ist.is_empty(), "{fall}: scale {s} ohne Kacheln");
+            for (tile, pfad) in ist {
+                let soll = soll.entry((s, tile)).or_insert_with(|| {
+                    render_area_with(caches.get_mut(&s).unwrap(), tile.rect(), (-64, 319)).unwrap()
+                });
+                assert!(
+                    bild(&pfad).as_raw() == soll.as_raw(),
+                    "{fall}: scale {s}, {tile:?} ist nicht, was der Weg je Stufe zeichnet"
+                );
+            }
+        }
+    }
 }
 
 /// Bricht ein Export mitten in der Basis ab, steht über ihr keine

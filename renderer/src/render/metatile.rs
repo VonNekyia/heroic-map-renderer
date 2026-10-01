@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use anyhow::Result;
 use image::RgbaImage;
@@ -814,6 +815,30 @@ pub struct ChunkCache<'a> {
     ausbreitung: Ausbreitung,
     /// Die Dimension hat Himmelslicht (`has_skylight`).
     himmel: bool,
+    /// Nur für die nativen Stufen: dekodierte Chunks und ihr Licht über den
+    /// Wechsel der Sprite-Tabelle hinweg, siehe [`ChunkCache::mit_vorrat`].
+    vorrat: Option<Vorrat>,
+}
+
+/// Was von einem Chunk nicht am scale hängt: er selbst und sein Licht,
+/// denn Blöcke, die 26.2 nicht kennt, halten es nach dem Raster der Basis
+/// auf ([`SpriteSet::deckt_fuer_licht`]). Ein Cache der nativen Stufen
+/// behält beides über [`ChunkCache::wechsle`] und über die Kacheln eines
+/// Bands hinweg bis ins nächste; was ein ganzes Band lang niemand
+/// brauchte, geht ([`ChunkCache::neues_band`]).
+/// Siehe docs/entscheidungen/0043-native-stufen-in-baendern.md.
+#[derive(Default)]
+struct Vorrat {
+    chunks: HashMap<(i32, i32), Gemerkt>,
+    /// Laufende Nummer des Bands, das Verfallsdatum der Einträge.
+    band: u32,
+}
+
+struct Gemerkt {
+    /// `None` für einen Chunk, der fehlt oder nicht fertig ist.
+    chunk: Option<Rc<Chunk>>,
+    licht: Option<Rc<ChunkLicht>>,
+    band: u32,
 }
 
 /// Chunk und Höhe, dazu das Biom je Block der Schicht.
@@ -829,7 +854,7 @@ struct Slot {
 /// damit einmal je Section gehasht statt einmal je Block — im Renderpfad
 /// war das der teuerste Schritt.
 struct Loaded {
-    chunk: Chunk,
+    chunk: Rc<Chunk>,
     families: Vec<Vec<Option<u32>>>,
     /// Je Section und Paletteneintrag, wie hell der Block selbst leuchtet:
     /// [`blockstate::leuchten`].
@@ -843,7 +868,7 @@ struct Loaded {
     exposed: Vec<Option<Box<Exposed>>>,
     /// Das ausgebreitete Licht, sobald einmal berechnet, siehe
     /// [`ChunkCache::licht_slot`]: Dafür müssen die Nachbarn da sein.
-    licht: Option<Box<ChunkLicht>>,
+    licht: Option<Rc<ChunkLicht>>,
     /// Je Section und Paletteneintrag der Biome die Nummer des Bioms in der
     /// [`BiomeTable`](super::BiomeTable).
     biomes: Vec<Vec<u16>>,
@@ -1088,7 +1113,7 @@ impl Masks {
 }
 
 impl Loaded {
-    fn new(chunk: Chunk, sprites: &SpriteSet) -> Loaded {
+    fn new(chunk: Rc<Chunk>, sprites: &SpriteSet) -> Loaded {
         let families: Vec<Vec<Option<u32>>> = chunk
             .sections()
             .iter()
@@ -1228,6 +1253,49 @@ impl<'a> ChunkCache<'a> {
             biome_last: usize::MAX,
             ausbreitung: Ausbreitung::default(),
             himmel: sprites.himmel(),
+            vorrat: None,
+        }
+    }
+
+    /// Ein Cache für die nativen Stufen, die bandweise laufen: Er behält
+    /// jeden Chunk und sein Licht im Vorrat, auch wenn er mit
+    /// [`ChunkCache::wechsle`] zur nächsten Stufe geht.
+    /// Siehe docs/entscheidungen/0043-native-stufen-in-baendern.md.
+    pub fn mit_vorrat(world: &'a World, sprites: &'a SpriteSet, tiles: usize) -> ChunkCache<'a> {
+        ChunkCache {
+            vorrat: Some(Vorrat::default()),
+            ..ChunkCache::with_row(world, sprites, tiles)
+        }
+    }
+
+    /// Wechselt zur Sprite-Tabelle eines anderen scale, für Kacheln in
+    /// Zeilen von `tiles`. Was an der Tabelle hängt, geht mit den Slots:
+    /// Familien, Masken, Kandidaten und Varianten. Chunks und Licht bleiben
+    /// im Vorrat. Mit derselben Tabelle bleibt alles.
+    pub fn wechsle(&mut self, sprites: &'a SpriteSet, tiles: usize) {
+        self.keep = tiles as u32;
+        if std::ptr::eq(self.sprites, sprites) {
+            return;
+        }
+        self.sprites = sprites;
+        self.himmel = sprites.himmel();
+        self.slots.clear();
+        self.index.clear();
+        self.last = usize::MAX;
+        self.grenze = CACHE_CHUNKS;
+        self.biome_layers.clear();
+        self.biome_index.clear();
+        self.biome_last = usize::MAX;
+    }
+
+    /// Beginnt ein neues Band. Was das Band davor nicht gebraucht hat, geht
+    /// aus dem Vorrat; was es gebraucht hat, bleibt, denn einen Teil davon
+    /// braucht das neue.
+    pub fn neues_band(&mut self) {
+        if let Some(vorrat) = &mut self.vorrat {
+            vorrat.band += 1;
+            let band = vorrat.band;
+            vorrat.chunks.retain(|_, gemerkt| gemerkt.band + 1 >= band);
         }
     }
 
@@ -1282,16 +1350,40 @@ impl<'a> ChunkCache<'a> {
     }
 
     fn load(&mut self, key: (i32, i32)) -> Result<usize> {
-        let region_key = region_of(key);
-        if !self.regions.contains_key(&region_key) {
-            let region = self.world.region(region_key.0, region_key.1)?;
-            self.regions.insert(region_key, region);
-        }
-        let chunk = match self.regions.get_mut(&region_key) {
-            Some(Some(region)) => region.chunk(key.0, key.1)?,
-            _ => None,
+        let gemerkt = self.vorrat.as_mut().and_then(|vorrat| {
+            let band = vorrat.band;
+            vorrat.chunks.get_mut(&key).map(|gemerkt| {
+                gemerkt.band = band;
+                (gemerkt.chunk.clone(), gemerkt.licht.clone())
+            })
+        });
+        let (chunk, licht) = match gemerkt {
+            Some(paar) => paar,
+            None => {
+                let region_key = region_of(key);
+                if !self.regions.contains_key(&region_key) {
+                    let region = self.world.region(region_key.0, region_key.1)?;
+                    self.regions.insert(region_key, region);
+                }
+                let chunk = match self.regions.get_mut(&region_key) {
+                    Some(Some(region)) => region.chunk(key.0, key.1)?.map(Rc::new),
+                    _ => None,
+                };
+                if let Some(vorrat) = &mut self.vorrat {
+                    let gemerkt = Gemerkt {
+                        chunk: chunk.clone(),
+                        licht: None,
+                        band: vorrat.band,
+                    };
+                    vorrat.chunks.insert(key, gemerkt);
+                }
+                (chunk, None)
+            }
         };
-        let loaded = chunk.map(|chunk| Loaded::new(chunk, self.sprites));
+        let loaded = chunk.map(|chunk| Loaded {
+            licht,
+            ..Loaded::new(chunk, self.sprites)
+        });
         self.slots.push(Slot {
             key,
             loaded,
@@ -1324,8 +1416,12 @@ impl<'a> ChunkCache<'a> {
             .collect();
         let chunks = std::array::from_fn(|k| eingaben[k].as_deref());
         let licht = self.ausbreitung.chunk(&chunks, self.himmel);
+        let licht = Rc::new(licht);
+        if let Some(gemerkt) = self.vorrat.as_mut().and_then(|v| v.chunks.get_mut(&key)) {
+            gemerkt.licht = Some(Rc::clone(&licht));
+        }
         if let Some(loaded) = self.slots[i].loaded.as_mut() {
-            loaded.licht = Some(Box::new(licht));
+            loaded.licht = Some(licht);
         }
         self.last = i;
         Ok(Some(i))

@@ -2034,7 +2034,10 @@ fn ohne_veraltete(
         if z >= max_zoom - stufen {
             geaendert = eltern
                 .into_iter()
-                .filter(|tile| !gezeigt.contains(&(z, *tile)) && !kind_bleibt(dir, z, *tile, weg))
+                .filter(|tile| {
+                    !gezeigt.contains(&(z, *tile))
+                        && !kind_bleibt(dir, z, *tile, |k| weg.contains(k))
+                })
                 .collect();
             weg.extend(geaendert.iter().map(|tile| (z, *tile)));
         } else {
@@ -2264,6 +2267,14 @@ fn pruefe_bestand(
 /// Fläche erneut.
 /// Siehe docs/benutzung/zoomstufen.md, „Native Stufen“.
 ///
+/// Alle Stufen laufen in einem Durchgang, in Bändern aus [`BAND`] Kacheln
+/// der gröbsten Stufe. Ein Thread rendert je Band jede Stufe von fein nach
+/// grob, mit einem Cache, der Chunks und ihr Licht über die Stufen behält
+/// ([`ChunkCache::mit_vorrat`]). Die Kinder einer Kachel liegen im selben
+/// Band; ob eine leere Kachel bleibt, entscheidet deshalb, was vor den
+/// nativen Stufen und in ihrem Band wegfiel.
+/// Siehe docs/entscheidungen/0043-native-stufen-in-baendern.md.
+///
 /// Liefert die letzte native Stufe und ihre Kacheln; darunter übernimmt
 /// [`build_pyramid`]. Dazu die Kacheln jeder nativen Stufe, die etwas
 /// zeigen, und was über der letzten schon im Speicher entstand: Sie gibt
@@ -2291,16 +2302,17 @@ fn render_coarser(
     weg: &mut BTreeSet<(u32, TileId)>,
     karte: Option<&Karte>,
 ) -> Result<(u32, BTreeSet<TileId>, Kacheln, Speicherstand)> {
-    let mut z = max_zoom;
-    let mut scale = projection.scale();
-    let mut kandidaten = kandidaten;
-    let mut gezeigt = BTreeSet::new();
-    let mut im_speicher = Speicherstand::new();
-
-    for i in 0..stufen {
+    if stufen == 0 {
+        return Ok((max_zoom, kandidaten, Kacheln::new(), Speicherstand::new()));
+    }
+    let started = Instant::now();
+    // Je Stufe, von fein nach grob, ihre Zoomstufe, Sprite-Tabelle und
+    // Kandidaten.
+    let mut je_stufe = Vec::new();
+    let (mut z, mut scale, mut kandidaten) = (max_zoom, projection.scale(), kandidaten);
+    for _ in 0..stufen {
         z -= 1;
         scale /= 2;
-        let started = Instant::now();
         let mut sprites = SpriteSet::build_in(assets, states, Projection::new(scale))?;
         // Was unbekannt ist, hat die Basis schon gemeldet.
         sprites.add_entities(assets, entities)?;
@@ -2308,76 +2320,142 @@ fn render_coarser(
         sprites.set_licht_deckend(licht_deckend.clone());
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
-
-        let bisher = &*weg;
-        let reihe: Vec<TileId> = kandidaten.iter().copied().collect();
-        // Die gröbste native Stufe gibt die Viertel für die feinen Stufen
-        // ab.
-        let speicher = (i + 1 == stufen).then(|| {
-            ImSpeicher::new(
-                dir,
-                z,
-                streifen(reihe.len(), scale),
-                |tile| kandidaten.contains(tile),
-                &kandidaten,
-                waisen,
-                &vielleicht_da,
-            )
-        });
-        // Je Kachel: zeigt sie etwas, bleibt sie stehen, und wie gross ist
-        // sie?
-        let (stufe, auf_der_karte) = rendere(
-            world,
-            &sprites,
-            &reihe,
-            false,
-            karte,
-            |tile, image| -> Result<(bool, bool, usize)> {
-                let zeigt = image.pixels().any(|p| p.0[3] > 0);
-                // Leer, aber über einer Kachel, die bleibt: dann bleibt sie
-                // auch, durchsichtig, sonst stünde die darunter ohne Eltern.
-                // Das trifft Kacheln ohne Chunk: ohne --prune bleiben sie,
-                // mit ihm bis zum Ende des Laufs.
-                if !zeigt && !kind_bleibt(dir, z, tile, bisher) {
-                    verblasse(dir, z, tile)?;
-                    if let Some(speicher) = &speicher {
-                        speicher.abgeben(z, tile, None)?;
-                    }
-                    return Ok((false, false, 0));
-                }
-                let bytes = schreibe(dir, z, tile, &image)?;
-                if let Some(speicher) = &speicher {
-                    speicher.abgeben(z, tile, Some(image))?;
-                }
-                Ok((zeigt, true, bytes))
-            },
-        )?;
-        if let Some(speicher) = speicher {
-            im_speicher = speicher.ende()?;
-        }
-        let (mut bytes, mut bleiben) = (0usize, 0usize);
-        for (tile, (zeigt, bleibt, n)) in stufe {
-            bytes += n;
-            bleiben += bleibt as usize;
-            if zeigt {
-                gezeigt.insert((z, tile));
-            }
-            if !bleibt {
-                weg.insert((z, tile));
-            }
-        }
-        println!(
-            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {scale}{}, {:.1} MB in {:.1} s",
-            im_log(auf_der_karte, reihe.len()),
-            bytes as f64 / 1_048_576.0,
-            started.elapsed().as_secs_f64()
-        );
+        je_stufe.push((z, sprites, kandidaten.clone()));
     }
-    Ok((z, kandidaten, gezeigt, im_speicher))
+    let grob = z;
+
+    // Die gröbste Stufe läuft in Streifen wie in `rendere` und gibt die
+    // Viertel für die feinen Stufen ab.
+    let breite = streifen(kandidaten.len(), scale);
+    let mut reihe: Vec<TileId> = kandidaten.iter().copied().collect();
+    reihe.sort_unstable_by_key(|tile| (tile.x.div_euclid(breite as i32), tile.y, tile.x));
+    let speicher = ImSpeicher::new(
+        dir,
+        grob,
+        breite,
+        |tile| kandidaten.contains(tile),
+        &kandidaten,
+        waisen,
+        &vielleicht_da,
+    );
+    let je_durchgang = if karte.is_some() {
+        GPU_TILES as usize
+    } else {
+        1
+    };
+    // Eine Stufe allein teilt nichts mit einer anderen; sie läuft in
+    // Gruppen wie in `rendere`. Sonst bekommt jeder Thread mindestens ein
+    // Band.
+    let band = if stufen == 1 {
+        je_durchgang
+    } else {
+        BAND.min(reihe.len().div_ceil(rayon::current_num_threads()))
+            .max(1)
+    };
+    let auf_der_karte: Vec<AtomicUsize> = je_stufe.iter().map(|_| AtomicUsize::new(0)).collect();
+    let bisher = &*weg;
+    let kacheln = verteile(
+        &reihe,
+        band,
+        4 * streifenbreite(scale),
+        || {
+            (
+                ChunkCache::mit_vorrat(world, &je_stufe[0].1, 1),
+                None::<Worker>,
+            )
+        },
+        |(chunks, worker), band| -> Result<Vec<_>> {
+            chunks.neues_band();
+            let mut out = Vec::new();
+            let mut weg_hier = HashSet::new();
+            for ((z, sprites, kandidaten), auf_der_karte) in je_stufe.iter().zip(&auf_der_karte) {
+                let tiefe = z - grob;
+                let zeile = breite << tiefe;
+                let mut stufe: Vec<TileId> = band
+                    .iter()
+                    .flat_map(|tile| nachfahren(*tile, tiefe))
+                    .filter(|tile| kandidaten.contains(tile))
+                    .collect();
+                stufe
+                    .sort_unstable_by_key(|tile| (tile.x.div_euclid(zeile as i32), tile.y, tile.x));
+                chunks.wechsle(sprites, zeile);
+                let speicher = (*z == grob).then_some(&speicher);
+                for gruppe in stufe.chunks(je_durchgang) {
+                    let bilder = zeichne(chunks, worker, karte, gruppe, auf_der_karte)?;
+                    for (&tile, image) in gruppe.iter().zip(bilder) {
+                        let zeigt = image.pixels().any(|p| p.0[3] > 0);
+                        // Leer, aber über einer Kachel, die bleibt: dann
+                        // bleibt sie auch, durchsichtig, sonst stünde die
+                        // darunter ohne Eltern. Das trifft Kacheln ohne
+                        // Chunk: ohne --prune bleiben sie, mit ihm bis zum
+                        // Ende des Laufs.
+                        let fiel_weg =
+                            |k: &(u32, TileId)| bisher.contains(k) || weg_hier.contains(k);
+                        if !zeigt && !kind_bleibt(dir, *z, tile, fiel_weg) {
+                            verblasse(dir, *z, tile)?;
+                            if let Some(speicher) = speicher {
+                                speicher.abgeben(*z, tile, None)?;
+                            }
+                            weg_hier.insert((*z, tile));
+                            out.push(((*z, tile), (false, false, 0)));
+                            continue;
+                        }
+                        let bytes = schreibe(dir, *z, tile, &image)?;
+                        if let Some(speicher) = speicher {
+                            speicher.abgeben(*z, tile, Some(image))?;
+                        }
+                        out.push(((*z, tile), (zeigt, true, bytes)));
+                    }
+                }
+            }
+            Ok(out)
+        },
+    )?;
+    let im_speicher = speicher.ende()?;
+
+    let mut gezeigt = Kacheln::new();
+    // Je Stufe: Bytes und wie viele Kacheln bleiben.
+    let mut summen: HashMap<u32, (usize, usize)> = HashMap::new();
+    for ((z, tile), (zeigt, bleibt, n)) in kacheln {
+        let summe = summen.entry(z).or_default();
+        summe.0 += n;
+        summe.1 += bleibt as usize;
+        if zeigt {
+            gezeigt.insert((z, tile));
+        }
+        if !bleibt {
+            weg.insert((z, tile));
+        }
+    }
+    let (mut bytes, mut gerendert) = (0usize, 0usize);
+    for ((z, sprites, kandidaten), auf_der_karte) in je_stufe.iter().zip(auf_der_karte) {
+        let (stufe_bytes, bleiben) = summen.get(z).copied().unwrap_or_default();
+        println!(
+            "Zoom {z:>2}:     {bleiben} Kacheln nativ bei scale {}{}, {:.1} MB",
+            sprites.projection().scale(),
+            im_log(auf_der_karte.into_inner(), kandidaten.len()),
+            stufe_bytes as f64 / 1_048_576.0,
+        );
+        bytes += stufe_bytes;
+        gerendert += kandidaten.len();
+    }
+    let seconds = started.elapsed().as_secs_f64();
+    println!(
+        "            {:.1} MB in {seconds:.1} s ({:.0} Kacheln/s), in Bändern aus {band} Kacheln \
+         bei scale {scale}",
+        bytes as f64 / 1_048_576.0,
+        gerendert as f64 / seconds,
+    );
+    Ok((grob, kandidaten, gezeigt, im_speicher))
 }
 
-/// Rendert Kacheln und gibt jedes Bild an `ablegen` — für die Basis wie für
-/// jede native Stufe.
+/// Wie viele Kacheln der gröbsten nativen Stufe ein Band höchstens hat,
+/// wenn es mehr als eine Stufe gibt, siehe [`render_coarser`].
+/// Siehe docs/entscheidungen/0043-native-stufen-in-baendern.md.
+const BAND: usize = 4;
+
+/// Rendert Kacheln und gibt jedes Bild an `ablegen`, für die Basis. Die
+/// nativen Stufen laufen in Bändern, siehe [`render_coarser`].
 ///
 /// Die Kacheln laufen in Streifen, jeder Zeile für Zeile
 /// ([`breite_der_streifen`]), verteilt von [`verteile`]. Jeder Thread
@@ -2419,31 +2497,7 @@ fn rendere<T: Send>(
         4 * streifenbreite(sprites.projection().scale()),
         || (ChunkCache::with_row(world, sprites, breite), None::<Worker>),
         |(chunks, worker), gruppe| -> Result<Vec<(TileId, T)>> {
-            let bilder = match karte {
-                Some(karte) if !karte.aus.load(Ordering::Relaxed) => {
-                    let listen = gruppe
-                        .iter()
-                        .map(|tile| draw_list(chunks, tile.rect(), Y_RANGE))
-                        .collect::<Result<Vec<_>>>()?;
-                    mit_rueckfall(
-                        &karte.aus,
-                        || {
-                            let worker =
-                                worker.get_or_insert_with(|| karte.gpu.worker(GPU_TILES, TILE));
-                            let bilder = worker.render(&listen)?;
-                            auf_der_karte.fetch_add(gruppe.len(), Ordering::Relaxed);
-                            Ok(bilder)
-                        },
-                        || auf_der_cpu(chunks, gruppe),
-                    )?
-                }
-                _ => {
-                    // Ein Zeichner, dessen Karte versagt hat, hält sonst
-                    // seine Puffer bis zum Ende der Stufe.
-                    *worker = None;
-                    auf_der_cpu(chunks, gruppe)?
-                }
-            };
+            let bilder = zeichne(chunks, worker, karte, gruppe, &auf_der_karte)?;
             let mut out = Vec::with_capacity(gruppe.len());
             for (&tile, image) in gruppe.iter().zip(bilder) {
                 out.push((tile, ablegen(tile, image)?));
@@ -2458,6 +2512,42 @@ fn rendere<T: Send>(
         },
     )?;
     Ok((kacheln, auf_der_karte.into_inner()))
+}
+
+/// Die Bilder einer Gruppe von höchstens [`GPU_TILES`] Kacheln: auf der
+/// Karte, solange sie nicht versagt hat, sonst auf der CPU. Was die Karte
+/// zeichnete, zählt `auf_der_karte`.
+fn zeichne<'k>(
+    chunks: &mut ChunkCache,
+    worker: &mut Option<Worker<'k>>,
+    karte: Option<&'k Karte>,
+    gruppe: &[TileId],
+    auf_der_karte: &AtomicUsize,
+) -> Result<Vec<RgbaImage>> {
+    match karte {
+        Some(karte) if !karte.aus.load(Ordering::Relaxed) => {
+            let listen = gruppe
+                .iter()
+                .map(|tile| draw_list(chunks, tile.rect(), Y_RANGE))
+                .collect::<Result<Vec<_>>>()?;
+            mit_rueckfall(
+                &karte.aus,
+                || {
+                    let worker = worker.get_or_insert_with(|| karte.gpu.worker(GPU_TILES, TILE));
+                    let bilder = worker.render(&listen)?;
+                    auf_der_karte.fetch_add(gruppe.len(), Ordering::Relaxed);
+                    Ok(bilder)
+                },
+                || auf_der_cpu(chunks, gruppe),
+            )
+        }
+        _ => {
+            // Ein Zeichner, dessen Karte versagt hat, hält sonst seine
+            // Puffer bis zum Ende des Laufs.
+            *worker = None;
+            auf_der_cpu(chunks, gruppe)
+        }
+    }
 }
 
 /// Verteilt `reihe` auf alle Threads, mit einem Zustand je Thread
@@ -2549,10 +2639,21 @@ fn breite_der_streifen(je_thread: usize, scale: u32) -> usize {
 type Kacheln = BTreeSet<(u32, TileId)>;
 
 /// Steht unter dieser Kachel ein Kind, das nach dem Lauf bleibt?
-fn kind_bleibt(dir: &Path, z: u32, tile: TileId, weg: &BTreeSet<(u32, TileId)>) -> bool {
+fn kind_bleibt(dir: &Path, z: u32, tile: TileId, weg: impl Fn(&(u32, TileId)) -> bool) -> bool {
     tile.children()
         .into_iter()
-        .any(|kind| !weg.contains(&(z + 1, kind)) && tile_path(dir, z + 1, kind).is_file())
+        .any(|kind| !weg(&(z + 1, kind)) && tile_path(dir, z + 1, kind).is_file())
+}
+
+/// Die Kacheln, aus denen diese `tiefe` Stufen feiner besteht.
+fn nachfahren(tile: TileId, tiefe: u32) -> impl Iterator<Item = TileId> {
+    let (x0, y0, n) = (tile.x << tiefe, tile.y << tiefe, 1 << tiefe);
+    (0..n).flat_map(move |dy| {
+        (0..n).map(move |dx| TileId {
+            x: x0 + dx,
+            y: y0 + dy,
+        })
+    })
 }
 
 /// Eine Kachel, die nichts mehr zeigt und am Ende des Laufs verschwindet,

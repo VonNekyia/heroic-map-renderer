@@ -96,6 +96,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0040](entscheidungen/0040-licht-selbst-ausbreiten.md): Licht selbst ausbreiten, je Chunk mit Rand.
 - [0041](entscheidungen/0041-dimensionstypen-aus-dem-spiel.md): Dimensionstypen aus einer Tabelle des Spiels, Datenwurzeln darüber.
 - [0042](entscheidungen/0042-feine-stufen-im-speicher.md): Die feinen Stufen der Pyramide entstehen im Export aus dem Speicher.
+- [0043](entscheidungen/0043-native-stufen-in-baendern.md): Native Stufen in Bändern, mit Chunks und Licht über alle Stufen.
 
 ## Messungen
 

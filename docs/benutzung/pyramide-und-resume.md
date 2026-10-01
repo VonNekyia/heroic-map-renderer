@@ -44,10 +44,13 @@ wiederholen, während ein Vollrender noch Stunden läuft: die Karte im Browser
 zeigt, was fertig ist, und wächst mit jedem Aufruf. Warum Zeiten und nicht
 Inhalte: [0017](../entscheidungen/0017-pyramide-vergleicht-zeiten.md).
 
-Die Basis und die nativen Stufen rendern in Streifen, deren Breite eine
-Zweierpotenz ist. Ab zwei Spalten, also ab scale 8 und ab rund 20 Kacheln
-je Thread, liegen Geschwister im selben Streifen, werden kurz nacheinander
-fertig, und ein Aufruf baut ihre Elternkachel selten zweimal. Die feinen
+Die Basis und die gröbste native Stufe rendern in Streifen, deren Breite
+eine Zweierpotenz ist. Ab zwei Spalten, also ab scale 8 und ab rund 20
+Kacheln je Thread, liegen Geschwister im selben Streifen, werden kurz
+nacheinander fertig, und ein Aufruf baut ihre Elternkachel selten zweimal.
+Auf den feineren nativen Stufen liegen sie ohnehin im selben Band, siehe
+[Der Weg einer Kachel](../renderer/renderpfad.md), „Native Stufen in
+Bändern“. Die feinen
 Stufen schreibt der Export dann ohnehin selbst, sobald alle Kinder einer
 Kachel fertig sind, siehe [Zoomstufen](zoomstufen.md), „Feine Stufen im
 Speicher“. Ein Aufruf nebenher findet sie jünger als ihre Kinder und baut

@@ -13,8 +13,9 @@ Liest `Masks::of` die Flächen und Quellen für die Ausbreitung aus den
 Masken ihrer Klassen, statt sie in der Schleife über die 4096 Blöcke zu
 sammeln, braucht es 46 bis 48 % weniger Zeit. Seinen Anteil an der Zeit der
 Basis senkt das am Stand der Testwelt von 6,0 auf 3,3 %, am Fichtenwald von
-12,4 auf 7,1 %. Der ganze Lauf wird dadurch 1,7 bis 5,5 % kürzer, und jede
-Kachel bleibt Byte für Byte gleich.
+12,4 auf 7,1 %. Der ganze Lauf wird dadurch im Median 1,7 bis 5,5 %
+kürzer, am Stand liegt das in der Streuung. Jede Kachel bleibt Byte für
+Byte gleich.
 
 ## Aufbau
 

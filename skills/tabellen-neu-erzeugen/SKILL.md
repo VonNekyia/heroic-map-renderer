@@ -1,6 +1,6 @@
 ---
 name: tabellen-neu-erzeugen
-description: Erzeugt blocks.txt, leuchten.txt, licht.txt, schatten.txt, blockentities.txt und dimensionstypen.txt unter renderer/src/assets/ aus dem Server- und dem Client-JAR einer Minecraft-Version neu. Nutzen für eine neue Spielversion oder wenn eine der Tabellen nicht mehr zum Spiel passt; die Tabellen nie von Hand ändern.
+description: Erzeugt blocks.txt, leuchten.txt, licht.txt, schatten.txt, nachbarn.txt, blockentities.txt und dimensionstypen.txt unter renderer/src/assets/ aus dem Server- und dem Client-JAR einer Minecraft-Version neu. Nutzen für eine neue Spielversion oder wenn eine der Tabellen nicht mehr zum Spiel passt; die Tabellen nie von Hand ändern.
 ---
 
 # Tabellen neu erzeugen
@@ -41,7 +41,23 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    wie viele Teilflächen je Richtung. Gibt eine Version eine andere
    Dämpfung als 0, 1 oder 15 oder mehr Teilflächen, als die Basis 36 fasst,
    bricht er ab.
-4. **`blockentities.txt`:** Die Renderer der Blockentities gibt es nur im
+4. **`nachbarn.txt`:** `Nachbarn.java` aus `renderer/src/assets/` mit
+   demselben Klassenpfad:
+
+   ```bash
+   java -cp "$(ls versions/*/server-*.jar):$(find libraries -name '*.jar' | paste -sd:)" Nachbarn.java > nachbarn.txt
+   ```
+
+   Er bindet die Tags des Spiels und prüft jede Regel an allen Paaren aus
+   Zustand, Nachbarzustand und Richtung, die Tabelle danach an 10 Mio.
+   zufälligen Paaren. Auf stderr stehen die Blöcke mit eigenem
+   `skipRendering` je Klasse, für 26.2 72, die Regeln, die Blöcke ohne
+   Wirkung, für 26.2 das Laub, und die Flüssigkeiten. Passt eine Regel
+   nicht, nennt er den Block auf stderr und endet mit Exit-Code 1,
+   `nachbarn.txt` bleibt dann leer. Eine neue Regel im Spiel belegen, Skill
+   [`spielverhalten-belegen`](../spielverhalten-belegen/SKILL.md), und in
+   `Nachbarn.java` und `Nachbarregel` in `blockstate.rs` nachbauen.
+5. **`blockentities.txt`:** Die Renderer der Blockentities gibt es nur im
    Client. Das Client-JAR der Version liegt im Manifest unter
    `downloads.client.url`, die Prüfsumme unter `downloads.client.sha1`; als
    `client.jar` in dasselbe Verzeichnis legen, dazu `Blockentities.java`
@@ -62,7 +78,7 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    [`spielverhalten-belegen`](../spielverhalten-belegen/SKILL.md), und die
    Mengen in `Blockentities.java` anpassen. Der Bootstrap des Spiels legt im
    Verzeichnis `logs/` an.
-5. **`dimensionstypen.txt`:** mit demselben Klassenpfad wie in Schritt 4,
+6. **`dimensionstypen.txt`:** mit demselben Klassenpfad wie in Schritt 5,
    dazu `Dimensionstypen.java` aus `renderer/src/assets/`:
 
    ```bash
@@ -70,20 +86,21 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    ```
 
    Auf stderr steht, wie viele Dimensionstypen es sind, für 26.2 vier.
-6. **Einsetzen:** die sechs Dateien nach `renderer/src/assets/` kopieren.
+7. **Einsetzen:** die sieben Dateien nach `renderer/src/assets/` kopieren.
    Für 26.2 ergeben die Befehle für `blocks.txt`, `leuchten.txt`,
-   `licht.txt`, `schatten.txt`, `blockentities.txt` und
+   `licht.txt`, `schatten.txt`, `nachbarn.txt`, `blockentities.txt` und
    `dimensionstypen.txt` genau die Dateien im Repository.
-7. **Neu bauen und testen:** Die Tabellen sind einkompiliert, der Renderer
+8. **Neu bauen und testen:** Die Tabellen sind einkompiliert, der Renderer
    muss danach neu gebaut werden. `blocktabelle_aus_26_2` bekommt die Zahlen
    der neuen Version, `tabelle_wie_im_spiel` in `blockentity.rs` die Zahl
    der Blöcke mit Blockentity und der Bannermuster, `tabelle_wie_im_spiel`
-   in `dimension.rs` die Dimensionstypen; `leuchten_wie_im_spiel`,
-   `licht_wie_im_spiel`, `schatten_wie_im_spiel`, `bild_je_zustand` und
-   `zuordnung_je_zustand` prüfen einzelne Blöcke. Ändert sich ein Wert, den
-   ein Test festhält, den Wert im Spiel belegen, Skill
-   [`spielverhalten-belegen`](../spielverhalten-belegen/SKILL.md).
-8. **Doku nachziehen:** die Spalte „Stand“ in
+   in `dimension.rs` die Dimensionstypen, `nachbarn_wie_im_spiel` die Zahl
+   der Blöcke in `nachbarn.txt`; `leuchten_wie_im_spiel`,
+   `licht_wie_im_spiel`, `schatten_wie_im_spiel`, `nachbarn_wie_im_spiel`,
+   `bild_je_zustand` und `zuordnung_je_zustand` prüfen einzelne Blöcke.
+   Ändert sich ein Wert, den ein Test festhält, den Wert im Spiel belegen,
+   Skill [`spielverhalten-belegen`](../spielverhalten-belegen/SKILL.md).
+9. **Doku nachziehen:** die Spalte „Stand“ in
    [`docs/entwicklung/tabellen.md`](../../docs/entwicklung/tabellen.md), die
    Zahlen unter „Die Tabelle“ in
    [`docs/renderer/blockentities.md`](../../docs/renderer/blockentities.md)

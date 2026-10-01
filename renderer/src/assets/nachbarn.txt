@@ -1,0 +1,59 @@
+mangrove_roots senkrecht
+glass gleich
+ice gleich
+white_stained_glass gleich
+orange_stained_glass gleich
+magenta_stained_glass gleich
+light_blue_stained_glass gleich
+yellow_stained_glass gleich
+lime_stained_glass gleich
+pink_stained_glass gleich
+gray_stained_glass gleich
+light_gray_stained_glass gleich
+cyan_stained_glass gleich
+purple_stained_glass gleich
+blue_stained_glass gleich
+brown_stained_glass gleich
+green_stained_glass gleich
+red_stained_glass gleich
+black_stained_glass gleich
+iron_bars verbunden bars
+copper_bars verbunden bars
+exposed_copper_bars verbunden bars
+weathered_copper_bars verbunden bars
+oxidized_copper_bars verbunden bars
+waxed_copper_bars verbunden bars
+waxed_exposed_copper_bars verbunden bars
+waxed_weathered_copper_bars verbunden bars
+waxed_oxidized_copper_bars verbunden bars
+glass_pane verbunden
+white_stained_glass_pane verbunden
+orange_stained_glass_pane verbunden
+magenta_stained_glass_pane verbunden
+light_blue_stained_glass_pane verbunden
+yellow_stained_glass_pane verbunden
+lime_stained_glass_pane verbunden
+pink_stained_glass_pane verbunden
+gray_stained_glass_pane verbunden
+light_gray_stained_glass_pane verbunden
+cyan_stained_glass_pane verbunden
+purple_stained_glass_pane verbunden
+blue_stained_glass_pane verbunden
+brown_stained_glass_pane verbunden
+green_stained_glass_pane verbunden
+red_stained_glass_pane verbunden
+black_stained_glass_pane verbunden
+slime_block gleich
+frosted_ice gleich
+blue_ice gleich
+honey_block gleich
+tinted_glass gleich
+powder_snow gleich
+copper_grate gleich
+exposed_copper_grate gleich
+weathered_copper_grate gleich
+oxidized_copper_grate gleich
+waxed_copper_grate gleich
+waxed_exposed_copper_grate gleich
+waxed_weathered_copper_grate gleich
+waxed_oxidized_copper_grate gleich

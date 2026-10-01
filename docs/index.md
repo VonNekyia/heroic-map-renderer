@@ -28,7 +28,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 - [Die Kamera](renderer/kamera.md): Projektion, scale, Zeichenreihenfolge, f64.
 - [Der Weg einer Kachel](renderer/renderpfad.md): Vorlauf, Streifen, Bitmasken, Kandidaten, Blit, Kodieren, Speicher.
-- [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Deckungsmaske.
+- [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Flächen zu gleichen Nachbarn, Deckungsmaske.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
 - [Wasser und Licht](renderer/wasser-und-licht.md): Flüssigkeiten, Flächen, Streifen, Himmels- und Blocklicht.
 - [Weiche Beleuchtung](renderer/weiche-beleuchtung.md): die Regeln von `BlockModelLighter` für volle Würfel.
@@ -97,6 +97,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0041](entscheidungen/0041-dimensionstypen-aus-dem-spiel.md): Dimensionstypen aus einer Tabelle des Spiels, Datenwurzeln darüber.
 - [0042](entscheidungen/0042-feine-stufen-im-speicher.md): Die feinen Stufen der Pyramide entstehen im Export aus dem Speicher.
 - [0043](entscheidungen/0043-native-stufen-in-baendern.md): Native Stufen in Bändern, mit Chunks und Licht über alle Stufen.
+- [0044](entscheidungen/0044-flaechen-zu-gleichen-nachbarn.md): Flächen zu gleichen Nachbarn nach der Regel des Spiels, aus einer Tabelle, mit Fassungen je Familie.
 
 ## Messungen
 
@@ -122,4 +123,5 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-09-29, Masken aus den Klassen](messungen/2026-09-29-masken-aus-den-klassen.md): was es bringt, Flächen und Quellen für die Ausbreitung aus den Klassenmasken zu lesen statt in der Schleife über die Blöcke zu sammeln (#53), im Wechsel gegen master, mit einem und 24 Threads, dazu Bytegleichheit.
 - [2026-09-29, Vollrender mit #49](messungen/2026-09-29-vollrender-mit-49.md): zwei Vollrender der grossen Welt mit dem Licht aus der Ausbreitung, scale 32 mit drei nativen Stufen und scale 24 mit einer: Dauer je Stufe, Kacheln, Grösse, gegen #21 und die Hochrechnung.
 - [2026-09-29, Doppelte Arbeit an Streifengrenzen](messungen/2026-09-29-streifengrenzen.md): wie oft die Basis einen Chunk dekodiert und sein Licht rechnet, am Stand mit einem Thread, der Hälfte und allen, und in der Reihenfolge eines Vollrenders mit Streifen zu 8, 16 und 32 Spalten.
+- [2026-10-01, Flächen zu gleichen Nachbarn](messungen/2026-10-01-flaechen-zu-gleichen-nachbarn.md): was die Regel aus #58 an Kacheln ändert und kostet, am Stand und an einer Eisszene der Testwelt, im Wechsel gegen master, mit und ohne Karte, dazu Sprites, Fassungen und die Spitze des Speichers.
 - [2026-10-01, Native Stufen in Bändern](messungen/2026-10-01-native-stufen-in-baendern.md): was die Bänder aus #59 an Ausschnitten der Testwelt bringen, im Wechsel gegen master, mit und ohne Karte, auf 24 Threads und einem, dazu Bänder aus einer Kachel, Speicher und Dekodierungen.

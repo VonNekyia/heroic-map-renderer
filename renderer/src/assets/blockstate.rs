@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::{Number, Value};
 
+use super::model::Face;
 use crate::world::BlockState;
 
 /// Der Inhalt einer `blockstates/*.json`: eine Variantentabelle, eine Liste
@@ -389,6 +390,122 @@ pub fn schatten(state: &BlockState) -> u8 {
             .and_then(|i| ziffern.get(i).copied()),
     };
     ziffer.map_or(0, |z| z - b'0')
+}
+
+/// Wann ein Block von 26.2 eine Fläche zu seinem Nachbarn weglässt: sein
+/// eigenes `skipRendering`, das `Block.shouldRenderFace` fragt.
+/// Siehe docs/renderer/sprites-und-deckung.md, „Flächen zu gleichen Nachbarn“.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Regel {
+    /// Zu einem Nachbarn desselben Blocks jede Fläche.
+    Gleich,
+    /// Zu einem Nachbarn desselben Blocks nur oben und unten.
+    Senkrecht,
+    /// Zu einem Nachbarn desselben Blocks oben und unten; waagrecht, wenn
+    /// beide zueinander verbunden sind, mit einer Gruppe auch zu ihren
+    /// Blöcken.
+    Verbunden,
+}
+
+/// Aus dem Spiel gelesen (`Nachbarn.java`): je Block, der Flächen zu
+/// bestimmten Nachbarn weglässt, seine [`Regel`], bei `verbunden` womöglich
+/// mit dem Tag seiner Gruppe. Der Block zählt als Zeile in der Datei, eine
+/// Gruppe als Zeile ihres ersten Blocks; die Verbindungen kommen erst mit
+/// dem Zustand dazu. Wasser und Lava fehlen, ihre Flächen entfallen über
+/// die Masken der Flüssigkeiten. Neu erzeugen mit dem Skill
+/// `tabellen-neu-erzeugen`.
+/// Siehe docs/entwicklung/tabellen.md, „Die Tabellen“.
+static NACHBARN: LazyLock<HashMap<&'static str, Nachbarregel>> = LazyLock::new(|| {
+    let mut gruppen = HashMap::new();
+    include_str!("nachbarn.txt")
+        .lines()
+        .enumerate()
+        .filter_map(|(zeile, line)| {
+            let mut teile = line.split(' ');
+            let name = teile.next()?;
+            let regel = match teile.next()? {
+                "gleich" => Regel::Gleich,
+                "senkrecht" => Regel::Senkrecht,
+                "verbunden" => Regel::Verbunden,
+                _ => return None,
+            };
+            let block = zeile as u16;
+            let gruppe = teile.next().map(|tag| *gruppen.entry(tag).or_insert(block));
+            let verbunden = 0;
+            Some((
+                name,
+                Nachbarregel {
+                    regel,
+                    block,
+                    gruppe,
+                    verbunden,
+                },
+            ))
+        })
+        .collect()
+});
+
+/// Die [`Regel`] eines Zustands mit allem, was sie von ihm braucht.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Nachbarregel {
+    regel: Regel,
+    /// Der Block als Nummer aus [`NACHBARN`]: `neighbor.is(this)`.
+    block: u16,
+    /// Die Gruppe als Nummer aus [`NACHBARN`].
+    gruppe: Option<u16>,
+    /// Bei [`Regel::Verbunden`] die Seiten, zu denen der Zustand verbunden
+    /// ist, als Bits nach [`seite`].
+    verbunden: u8,
+}
+
+/// Das Bit einer Seite, in der Reihenfolge von `Direction.values()`.
+pub fn seite(face: Face) -> u8 {
+    1 << face as u8
+}
+
+fn senkrecht(face: Face) -> bool {
+    matches!(face, Face::Down | Face::Up)
+}
+
+impl Nachbarregel {
+    /// Kann die Regel eine Fläche zu dieser Seite überhaupt weglassen?
+    pub fn wirkt(&self, face: Face) -> bool {
+        match self.regel {
+            Regel::Gleich => true,
+            Regel::Senkrecht => senkrecht(face),
+            Regel::Verbunden => senkrecht(face) || self.verbunden & seite(face) != 0,
+        }
+    }
+
+    /// Entfällt die Fläche zur Seite `face`, wenn dort `nachbar` steht? Wie
+    /// `skipRendering` in 26.2.
+    pub fn verdeckt(&self, nachbar: &Nachbarregel, face: Face) -> bool {
+        let gleich = nachbar.block == self.block;
+        match self.regel {
+            Regel::Gleich => gleich,
+            Regel::Senkrecht => gleich && senkrecht(face),
+            Regel::Verbunden if senkrecht(face) => gleich,
+            Regel::Verbunden => {
+                (gleich || self.gruppe.is_some() && nachbar.gruppe == self.gruppe)
+                    && self.verbunden & seite(face) != 0
+                    && nachbar.verbunden & seite(face.gegenueber()) != 0
+            }
+        }
+    }
+}
+
+/// Die [`Nachbarregel`] eines Zustands, `None` für Blöcke, die keine Fläche
+/// zu einem Nachbarn weglassen, auch für alle, die 26.2 nicht kennt.
+pub fn nachbarregel(state: &BlockState) -> Option<Nachbarregel> {
+    let regel = *NACHBARN.get(state.name().strip_prefix("minecraft:")?)?;
+    let verbunden = match regel.regel {
+        Regel::Verbunden => [Face::North, Face::South, Face::West, Face::East]
+            .into_iter()
+            .filter(|face| state.prop(face.name()) == Some("true"))
+            .fold(0, |bits, face| bits | seite(face)),
+        _ => 0,
+    };
+    Some(Nachbarregel { verbunden, ..regel })
 }
 
 impl BlockStateDef {
@@ -1036,6 +1153,168 @@ mod tests {
         assert_eq!(bits("minecraft:oak_slab[type=top,waterlogged=false]"), 0);
         assert_eq!(bits("minecraft:oak_slab[type=bottom,waterlogged=false]"), 0);
         assert_eq!(bits("mod:stein"), 0);
+    }
+
+    /// Jede Zeile aus `nachbarn.txt` nennt einen Block aus `blocks.txt`, bei
+    /// `verbunden` mit allen vier waagrechten Seiten. Dazu Paare, für die
+    /// `skipRendering` in 26.2 so antwortet: Glas zu Glas, nicht zu Eis oder
+    /// anders gefärbtem Glas, Mangrovenwurzeln nur senkrecht, Scheiben
+    /// senkrecht immer und waagrecht nur verbunden, Gitter verbunden auch zu
+    /// Kupfergittern, aber nie zu Scheiben, Laub mit den Vorgaben nie. Die
+    /// Antworten des Spiels hat eine Probe gegen 26.2 für genau diese Paare
+    /// geholt.
+    #[test]
+    fn nachbarn_wie_im_spiel() {
+        assert_eq!(NACHBARN.len(), 59);
+        for name in NACHBARN.keys() {
+            let definition = Definition::of(&format!("minecraft:{name}"))
+                .unwrap_or_else(|| panic!("{name} fehlt in blocks.txt"));
+            if NACHBARN[name].regel == Regel::Verbunden {
+                for seite in ["north", "south", "west", "east"] {
+                    assert!(
+                        definition.props.iter().any(|(p, _)| *p == seite),
+                        "{name} {seite}"
+                    );
+                }
+            }
+        }
+        let verdeckt = |eigen: &str, nachbar: &str, face| match (
+            nachbarregel(&state(eigen)),
+            nachbarregel(&state(nachbar)),
+        ) {
+            (Some(a), Some(b)) => a.verdeckt(&b, face),
+            _ => false,
+        };
+        let scheibe = |name: &str, ost: bool, west: bool| {
+            format!(
+                "minecraft:{name}[east={ost},north=false,south=false,waterlogged=false,west={west}]"
+            )
+        };
+        let faelle = [
+            ("minecraft:glass", "minecraft:glass", Face::Up, true),
+            ("minecraft:glass", "minecraft:glass", Face::East, true),
+            ("minecraft:glass", "minecraft:glass", Face::Down, true),
+            ("minecraft:glass", "minecraft:ice", Face::East, false),
+            (
+                "minecraft:white_stained_glass",
+                "minecraft:orange_stained_glass",
+                Face::South,
+                false,
+            ),
+            (
+                "minecraft:ice",
+                "minecraft:frosted_ice[age=0]",
+                Face::Up,
+                false,
+            ),
+            (
+                "minecraft:copper_grate[waterlogged=false]",
+                "minecraft:waxed_copper_grate[waterlogged=false]",
+                Face::East,
+                false,
+            ),
+            (
+                "minecraft:powder_snow",
+                "minecraft:powder_snow",
+                Face::Up,
+                true,
+            ),
+            (
+                "minecraft:mangrove_roots[waterlogged=false]",
+                "minecraft:mangrove_roots[waterlogged=true]",
+                Face::Up,
+                true,
+            ),
+            (
+                "minecraft:mangrove_roots[waterlogged=false]",
+                "minecraft:mangrove_roots[waterlogged=false]",
+                Face::Down,
+                true,
+            ),
+            (
+                "minecraft:mangrove_roots[waterlogged=false]",
+                "minecraft:mangrove_roots[waterlogged=false]",
+                Face::East,
+                false,
+            ),
+            (
+                &scheibe("glass_pane", true, false),
+                &scheibe("glass_pane", false, true),
+                Face::East,
+                true,
+            ),
+            (
+                &scheibe("glass_pane", true, false),
+                &scheibe("glass_pane", false, false),
+                Face::East,
+                false,
+            ),
+            (
+                &scheibe("glass_pane", false, false),
+                &scheibe("glass_pane", false, true),
+                Face::East,
+                false,
+            ),
+            (
+                &scheibe("glass_pane", false, true),
+                &scheibe("glass_pane", true, false),
+                Face::West,
+                true,
+            ),
+            (
+                &scheibe("glass_pane", false, false),
+                &scheibe("glass_pane", false, false),
+                Face::Up,
+                true,
+            ),
+            (
+                &scheibe("glass_pane", true, false),
+                &scheibe("white_stained_glass_pane", false, true),
+                Face::East,
+                false,
+            ),
+            (
+                &scheibe("iron_bars", true, false),
+                &scheibe("copper_bars", false, true),
+                Face::East,
+                true,
+            ),
+            (
+                &scheibe("iron_bars", true, false),
+                &scheibe("copper_bars", false, true),
+                Face::Up,
+                false,
+            ),
+            (
+                &scheibe("iron_bars", false, false),
+                &scheibe("iron_bars", false, false),
+                Face::Down,
+                true,
+            ),
+            (
+                &scheibe("iron_bars", true, false),
+                &scheibe("glass_pane", false, true),
+                Face::East,
+                false,
+            ),
+            (
+                "minecraft:oak_leaves[distance=1,persistent=false,waterlogged=false]",
+                "minecraft:oak_leaves[distance=1,persistent=false,waterlogged=false]",
+                Face::Up,
+                false,
+            ),
+            ("mod:glas", "mod:glas", Face::Up, false),
+        ];
+        for (eigen, nachbar, face, soll) in faelle {
+            assert_eq!(
+                verdeckt(eigen, nachbar, face),
+                soll,
+                "{eigen} gegen {nachbar} nach {face:?}"
+            );
+        }
+        // Wasser zu Wasser lässt das Spiel auch weg, über die Masken der
+        // Flüssigkeiten, nicht über diese Tabelle.
+        assert!(nachbarregel(&state("minecraft:water[level=0]")).is_none());
     }
 
     #[test]

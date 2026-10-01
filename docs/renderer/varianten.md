@@ -11,7 +11,7 @@ code:
 
 34 Vanilla-Blockstates liegen als Liste vor, Sand, Stein, Erde, Grasblock in
 vier Drehungen. Welche ein Block bekommt, würfelt Minecraft aus seiner
-Position, und der Renderer rechnet genau das nach (`Family::pick`, `seed`
+Position, und der Renderer rechnet genau das nach (`Family::wahl`, `seed`
 und `java_next_int` in
 [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs)).
 Damit sieht Sand aus wie im Spiel statt wie eine Tapete, und die Wahl hängt

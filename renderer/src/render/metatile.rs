@@ -1700,20 +1700,24 @@ impl<'a> ChunkCache<'a> {
     /// Was an einer Weltkoordinate zu zeichnen ist — nichts für Luft,
     /// fehlende Chunks und Blöcke ohne sichtbare Geometrie.
     ///
-    /// Drei Entscheidungen fallen hier: welche Alternative die Position
-    /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken und in
-    /// welchen Farben sein Biom den Block tönt. Die Bilder sind vorab
-    /// gerastert, die Farben kommen beim Zeichnen dazu.
+    /// Vier Entscheidungen fallen hier: welche Alternative die Position
+    /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken, welche
+    /// Flächen zu gleichen Nachbarn entfallen und in welchen Farben sein
+    /// Biom den Block tönt. Die Bilder sind vorab gerastert, die Farben
+    /// kommen beim Zeichnen dazu.
     fn sprite_at(&mut self, x: i32, y: i32, z: i32) -> Result<Drawn> {
         let sprites = self.sprites;
         let Some((family, leuchten)) = self.block_at(x, y, z)? else {
             return Ok(Drawn::default());
         };
-        let Some(id) = family.pick([x, y, z]) else {
+        let Some(wahl) = family.wahl([x, y, z]) else {
             return Ok(Drawn::default());
         };
-        let mut sprite = Some(id);
+        let Some(id) = family.sprite(wahl) else {
+            return Ok(Drawn::default());
+        };
         let mut strips = [None; 2];
+        let mut fluessig = 0;
 
         if let Some((fluid, amount)) = family.fluid {
             let same = |other: Option<&Family>| {
@@ -1723,7 +1727,9 @@ impl<'a> ChunkCache<'a> {
             // Kante, und die Oberseite entfällt.
             let above = same(self.family_at(x, y + 1, z)?);
             let own = if above { fluid::FULL } else { amount };
-            let mut mask = if above { mask_bit(Face::Up) } else { 0 };
+            if above {
+                fluessig |= mask_bit(Face::Up);
+            }
 
             // Zur selben Flüssigkeit nebenan nie eine Seitenfläche, wie
             // `shouldRenderFace` im Spiel; steht der Nachbar tiefer, bleibt
@@ -1742,7 +1748,7 @@ impl<'a> ChunkCache<'a> {
                 if kind != fluid {
                     continue;
                 }
-                mask |= mask_bit(face);
+                fluessig |= mask_bit(face);
                 if other_amount < own {
                     let below = if same(self.family_at(x + dx, y + 1, z + dz)?) {
                         fluid::FULL
@@ -1754,12 +1760,31 @@ impl<'a> ChunkCache<'a> {
                     }
                 }
             }
+        }
 
-            match sprites.masked(id, mask) {
-                Some(masked) => sprite = Some(masked),
-                None if strips.iter().all(Option::is_none) => return Ok(Drawn::default()),
-                None => sprite = None,
+        // Flächen zu gleichen Nachbarn entfallen wie `skipRendering` im
+        // Spiel; bleibt nichts, fällt der Block weg.
+        // Siehe docs/renderer/sprites-und-deckung.md, „Flächen zu gleichen Nachbarn“.
+        let sprite = match family.nachbarn {
+            Some(regel) if family.hat_nachbarn() => {
+                let mut nachbarn = 0;
+                for (k, face) in family.nachbarseiten().enumerate() {
+                    let [dx, dy, dz] = face.versatz();
+                    let nachbar = self.family_at(x + dx, y + dy, z + dz)?;
+                    if nachbar
+                        .and_then(|nachbar| nachbar.nachbarn)
+                        .is_some_and(|nachbar| regel.verdeckt(&nachbar, face))
+                    {
+                        nachbarn |= 1 << k;
+                    }
+                }
+                family.ohne_nachbarn(wahl, fluessig, nachbarn)
             }
+            _ if family.fluid.is_some() => sprites.masked(id, fluessig),
+            _ => Some(id),
+        };
+        if sprite.is_none() && strips.iter().all(Option::is_none) {
+            return Ok(Drawn::default());
         }
 
         let (licht, ecken, wasser) = self.licht_fuer([x, y, z], family, leuchten, sprite)?;

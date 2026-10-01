@@ -1957,6 +1957,7 @@ mod tests {
             force_translucent: false,
             fluid: None,
             entity: None,
+            cullface: None,
         }
     }
 

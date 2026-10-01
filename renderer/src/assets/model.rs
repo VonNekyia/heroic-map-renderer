@@ -41,6 +41,30 @@ impl Face {
             Face::East => "east",
         }
     }
+
+    /// Die Seite gegenüber.
+    pub fn gegenueber(self) -> Face {
+        match self {
+            Face::Down => Face::Up,
+            Face::Up => Face::Down,
+            Face::North => Face::South,
+            Face::South => Face::North,
+            Face::West => Face::East,
+            Face::East => Face::West,
+        }
+    }
+
+    /// Wo der Nachbar zu dieser Seite steht, relativ zum Block.
+    pub fn versatz(self) -> [i32; 3] {
+        match self {
+            Face::Down => [0, -1, 0],
+            Face::Up => [0, 1, 0],
+            Face::North => [0, 0, -1],
+            Face::South => [0, 0, 1],
+            Face::West => [-1, 0, 0],
+            Face::East => [1, 0, 0],
+        }
+    }
 }
 
 /// Drehung eines Elements, wie im Modell-JSON angegeben.

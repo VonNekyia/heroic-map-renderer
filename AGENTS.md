@@ -117,8 +117,10 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 ### Entwurf
 
 22. Bei jeder neuen Abhängigkeit und jedem neuen Feature gilt die Frage:
-    Braucht ein Offline-Renderer für isometrische Minecraft-Rastertiles das
-    wirklich? Wenn nein, kommt es nicht dazu.
+    Braucht eine der drei Renderarten das wirklich, die Karte aus
+    Rasterkacheln, Cinematic oder Showcase, und geht es nicht mit dem, was
+    schon da ist? Wenn nein, kommt es nicht dazu. Was nur die Bilder
+    brauchen, macht die Karte weder langsamer noch anders.
 
 ### Fremde Arbeit
 

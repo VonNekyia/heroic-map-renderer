@@ -379,7 +379,7 @@ Süden: u = x, v = z, h = a = scale. Entschieden in
 ![Dasselbe Dorf in top-north und north-45](../bilder/genordet.webp)
 
 Dasselbe Dorf der Testwelt wie in „Kameras“, links `top-north`, rechts
-`north-45`, scale 16, um den Block (−352, 64, 578), Stand __STAND__.
+`north-45`, scale 16, um den Block (−352, 64, 578), Stand `d93682d`.
 
 ## Blockkanten auf Pixelmitten
 

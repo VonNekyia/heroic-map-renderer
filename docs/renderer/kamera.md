@@ -153,7 +153,8 @@ Reihenfolge.
 
 Gemessen an der Testwelt: Am Stand änderte sich 1 der 8500 gerenderten
 Kacheln, an einer Feuerszene 3 von 2125, jede mit einem zerfallenen
-Modell. Zeit und Speicher blieben in der Streuung, siehe
+Modell. Basis, native Stufen und Speicher blieben in der Streuung. Die
+Sprite-Tabelle bei scale 32 kostet einmal je Lauf rund 0,025 s mehr, siehe
 [2026-10-01, Teile je Würfel im Raum](../messungen/2026-10-01-teile-je-wuerfel-im-raum.md).
 
 ## Stufen, die von der Kamera wegzeigen

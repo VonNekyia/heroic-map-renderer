@@ -108,8 +108,8 @@ auslässt. Mit Grafikkarte zeichnet die Karte, siehe
 ## Die grosse Welt
 
 Die grosse Welt hat 2,5 Millionen Chunks und bei scale 32 rund 2,5
-Millionen Basiskacheln. Ganz gemessen sind die Vollrender mit #11 und mit
-#21, beide mit Live-Ansicht nebenher; die übrigen Zahlen sind aus
+Millionen Basiskacheln. Ganz gemessen sind die Vollrender mit #11, mit #21
+und mit #49, alle mit Live-Ansicht nebenher; die übrigen Zahlen sind aus
 Ausschnitten hochgerechnet:
 
 | Stand | Grösse | Dauer | | Messung |
@@ -120,17 +120,23 @@ Ausschnitten hochgerechnet:
 | #18, weiche Beleuchtung | rund 185 GB, 170 bis 230 | 65 bis 75 min | hochgerechnet | [2026-09-27, Weiche Beleuchtung](../messungen/2026-09-27-weiche-beleuchtung.md) |
 | #21, Übergänge zwischen Biomen | rund 185 GB, 1 % mehr | 66 bis 76 min | hochgerechnet | [2026-09-27, Biomübergänge](../messungen/2026-09-27-biomuebergaenge.md) |
 | #21 | 184 GB: Basis 136,6, Pyramide 47,4 | 66 min | gemessen | [2026-09-27, Vollrender mit #21](../messungen/2026-09-27-vollrender-mit-21.md) |
-| #34, Licht aus der Ausbreitung | rund 190 bis 200 GB, 3 bis 8 % mehr | 78 bis 89 min | hochgerechnet, eher zu hoch | [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md) |
+| #34, Licht aus der Ausbreitung | rund 190 bis 200 GB, 3 bis 8 % mehr | 78 bis 89 min, Basis 51 bis 62; zu hoch, siehe unten | hochgerechnet | [2026-09-29, Licht ausbreiten](../messungen/2026-09-29-licht-ausbreiten.md) |
+| #49 mit #53, drei native Stufen | 188 GB: Basis 142,2, native Stufen 44,6, Pyramide 1,1 | 95 min: Basis 43,6, native Stufen 50 | gemessen | [2026-09-29, Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md) |
+| #49 mit #53, scale 24, eine native Stufe | 110 GB: Basis 82,5, native Stufe 19,4, Pyramide 8,5 | 55 min: Basis 29,6, native Stufe 23,3 | gemessen | [2026-09-29, Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md) |
 
 Die Grössen sind Summen der Dateigrössen. Belegt ist auf NTFS mit Clustern
 zu 4 KiB mehr: beim Lauf mit #21 rund 194 GB, davon 6,8 GB Verschnitt und
 gerechnet 3,4 GB Einträge in der MFT, siehe dort.
 
-Die Dauer mit #34 ist an Ausschnitten hochgerechnet, die mit allen Threads
-schmalere Streifen haben als ein Vollrender. Dort wird öfter doppelt
-dekodiert und Licht gerechnet; die 78 bis 89 min liegen deshalb eher zu
-hoch, siehe
+Die Hochrechnung für #34 war zu hoch: Die Basis brauchte im Vollrender mit
+#49 43,6 min, 12 % mehr als mit #21, hochgerechnet waren 51 bis 62 min,
+siehe [2026-09-29, Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md).
+Vermutlich liegt es an den Streifen: Die Ausschnitte haben mit allen
+Threads schmalere Streifen als ein Vollrender, dort wird öfter doppelt
+dekodiert und Licht gerechnet, siehe
 [2026-09-29, Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md).
+Mit drei nativen Stufen brauchen diese mehr Zeit als die Basis. Ohne native
+Stufen ist mit #49 noch kein Vollrender gemessen.
 
 Die Pyramide brauchte im Vollrender mit #21 26 von 66 min. Seitdem baut
 #38 sie schneller von der Platte und #39 die feinen Stufen schon während

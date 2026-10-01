@@ -1133,8 +1133,9 @@ fn write_tiles(
         bytes as f64 / geschrieben.max(1) as f64 / 1024.0,
     );
 
-    // Die nativen Stufen bauen ihre eigenen Tabellen; die der Basis wird
-    // nicht mehr gebraucht.
+    // Die nativen Stufen bauen ihre eigenen Tabellen; aus der der Basis
+    // nehmen sie nur, welche Blöcke das Licht aufhalten.
+    let licht_deckend = sprites.licht_deckend(&survey.states);
     drop(sprites);
     let (z, kandidaten, gezeigt, nativ_im_speicher) = render_coarser(
         world,
@@ -1142,6 +1143,7 @@ fn write_tiles(
         &survey.states,
         &survey.entities,
         &biomes,
+        &licht_deckend,
         projection,
         dir,
         max_zoom,
@@ -2278,6 +2280,7 @@ fn render_coarser(
     states: &BTreeSet<BlockState>,
     entities: &BTreeSet<(BlockState, Blockdaten)>,
     biomes: &BiomeTable,
+    licht_deckend: &HashSet<BlockState>,
     projection: Projection,
     dir: &Path,
     max_zoom: u32,
@@ -2302,6 +2305,7 @@ fn render_coarser(
         // Was unbekannt ist, hat die Basis schon gemeldet.
         sprites.add_entities(assets, entities)?;
         sprites.set_biomes(biomes.clone());
+        sprites.set_licht_deckend(licht_deckend.clone());
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
 

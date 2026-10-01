@@ -274,7 +274,11 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
   (`lichtweg` in `metatile.rs`). Ihr Modell kennt der Renderer aber nur für
   Zustände, die der Vorlauf gesehen hat, also im Ausschnitt: Ausserhalb
   eines `--size`, im Rand der Ausbreitung, lässt ein solcher Block das
-  Licht immer durch.
+  Licht immer durch. Ob das Modell den Umriss deckt, entscheidet sein
+  Sprite im Raster der Basis (`SpriteSet::deckt_fuer_licht`). Die nativen
+  Stufen nehmen die Antwort von dort, sonst hätte dieselbe Welt auf jeder
+  Stufe anderes Licht: Ein Block mit 15/16 Höhe deckt bei scale 32 seinen
+  Umriss nicht, bei scale 4 schliesst das Raster die Lücke.
 - **Kein Flackern.** Das Spiel lässt `BlockFactor` zufällig um 1,4
   flackern; der Renderer nimmt 1,4.
 - **Die Oberfläche bleibt eben.** Minecraft gleicht die Eckhöhen an die

@@ -951,14 +951,15 @@ fn flags(family: &Family) -> u16 {
 
 /// Wie ein Zustand das Licht aufhält: aus der Tabelle des Spiels,
 /// [`blockstate::lichtweg`]. Einen Block, den 26.2 nicht kennt, kennt sie
-/// nicht; deckt sein Modell den ganzen Umriss, lässt er wie ein Block mit
-/// voller Form kein Licht hinein, sonst lässt er es durch.
-fn lichtweg(state: &BlockState, family: Option<&Family>) -> Lichtweg {
+/// nicht; deckt sein Modell den ganzen Umriss
+/// ([`SpriteSet::deckt_fuer_licht`]), lässt er wie ein Block mit voller
+/// Form kein Licht hinein, sonst lässt er es durch.
+fn lichtweg(state: &BlockState, sprites: &SpriteSet) -> Lichtweg {
     if blockstate::Definition::of(state.name()).is_some() {
         return blockstate::lichtweg(state);
     }
     Lichtweg {
-        daempfung: if family.is_some_and(|f| f.opaque) {
+        daempfung: if sprites.deckt_fuer_licht(state) {
             15
         } else {
             0
@@ -1122,8 +1123,7 @@ impl Loaded {
                 let schatten: Vec<u8> = palette.iter().map(blockstate::schatten).collect();
                 let wege: Vec<Lichtweg> = palette
                     .iter()
-                    .zip(families)
-                    .map(|(state, family)| lichtweg(state, family.map(|i| sprites.family(i))))
+                    .map(|state| lichtweg(state, sprites))
                     .collect();
                 Masks::of(section, families, (&schatten, &wege, leuchten), sprites)
             })

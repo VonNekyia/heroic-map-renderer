@@ -1666,17 +1666,23 @@ mod tests {
             "teppich",
         ];
         let states: Vec<BlockState> = namen.iter().map(|name| state(name)).collect();
-        let zwei = build(&mut assets(), &states, Projection::new(16)).unwrap();
-        assert!(zwei.deckt_fuer_licht(&state("einfarbig")));
-        assert!(!zwei.deckt_fuer_licht(&state("seerose")));
-        for kamera in ["4:3", "1:1", "top"] {
-            let projection = Projection::mit_kamera(16, Kamera::parse(kamera).unwrap());
+        let zwei = |scale| build(&mut assets(), &states, Projection::new(scale)).unwrap();
+        let (zwei_16, zwei_32) = (zwei(16), zwei(32));
+        assert!(zwei_16.deckt_fuer_licht(&state("einfarbig")));
+        assert!(!zwei_16.deckt_fuer_licht(&state("seerose")));
+        for (kamera, scale, vergleich) in [
+            ("4:3", 16, &zwei_16),
+            ("1:1", 16, &zwei_16),
+            ("top", 16, &zwei_16),
+            ("5:3", 30, &zwei_32),
+        ] {
+            let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
             let set = build(&mut assets(), &states, projection).unwrap();
             for st in &states {
                 assert_eq!(
                     set.deckt_fuer_licht(st),
-                    zwei.deckt_fuer_licht(st),
-                    "{kamera}, {st:?}"
+                    vergleich.deckt_fuer_licht(st),
+                    "{kamera} bei {scale}, {st:?}"
                 );
             }
         }
@@ -1725,6 +1731,36 @@ mod tests {
             "der eigene Teil hat überall eine Seite"
         );
         assert!(set.innen(id));
+    }
+
+    /// Der Umriss folgt der Kamera: Ein voller Würfel passt bei jeder in
+    /// seinen eigenen, ein Modell, das zur Seite hinausragt, bei keiner. Ein
+    /// Turm doppelter Höhe passt nur von oben, wo die Höhe nicht ins Bild
+    /// geht.
+    #[test]
+    fn umriss_folgt_der_kamera() {
+        let mut assets = assets();
+        for (kamera, scale) in [
+            ("2:1", 32),
+            ("8:5", 32),
+            ("4:3", 32),
+            ("1:1", 32),
+            ("top", 32),
+            ("5:3", 30),
+        ] {
+            let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+            let oben = projection.kamera() == Kamera::Oben;
+            for (name, passt) in [("einfarbig", true), ("ueberhang", false), ("turm", oben)] {
+                let model = model_of(&mut assets, &state(name)).unwrap();
+                let bild =
+                    render(&model, assets.textures(), &projection, Tints::default()).unwrap();
+                assert_eq!(
+                    fits_cell(&bild, OWN_CELL, projection),
+                    passt,
+                    "{name}, {kamera}"
+                );
+            }
+        }
     }
 
     /// Spielraum: Was bis auf eine Pixelbreite in seinen Umriss passt, bleibt
@@ -2438,6 +2474,25 @@ mod tests {
         );
         assert_eq!(flags("druckplatte"), (false, false), "Rand frei");
         assert_eq!(flags("teppich"), (false, true), "Boden ganz");
+
+        // Von oben liegt der Boden an derselben Stelle wie der Umriss, und
+        // jede volle Oberseite deckt beide, auch die flache von Lava und
+        // Teppich. Die Druckplatte lässt ihren Rand frei.
+        let set = build(
+            &mut assets,
+            &states,
+            Projection::mit_kamera(32, Kamera::Oben),
+        )
+        .unwrap();
+        let flags = |text: &str| {
+            let f = set.family_of(&state(text)).unwrap();
+            (f.opaque, f.covers_floor)
+        };
+        assert_eq!(flags("einfarbig"), (true, true), "von oben");
+        assert_eq!(flags("lava"), (true, true), "von oben");
+        assert_eq!(flags("teppich"), (true, true), "von oben");
+        assert_eq!(flags("druckplatte"), (false, false), "von oben");
+        assert_eq!(flags("water"), (false, false), "von oben");
     }
 
     /// Streifen gibt es je Paar aus eigener Hoehe und Nachbarhoehe, fuer

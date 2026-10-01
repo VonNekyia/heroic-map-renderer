@@ -208,6 +208,53 @@ fn kein_loch_in_deckendem_gelaende() {
     }
 }
 
+/// Dieselbe Welt 40 Blöcke höher gibt dasselbe Bild um den verschobenen
+/// Block, bei jeder Kamera. Von oben ändert die Höhe den Bildpunkt gar
+/// nicht, und das Fenster von `v` ist für jede Höhe dasselbe. Ein Überhang
+/// ragt aus seinem Würfel und zählt deshalb über das Band, nicht über den
+/// Kasten seines Umrisses; die Referenz läuft dasselbe Band ab und sähe
+/// ein falsches Fenster nicht.
+#[test]
+fn hoeher_gesetzt_gleiches_bild() {
+    let y_range = (0, 63);
+    let bild = |hoehe: i32, projection: Projection| {
+        let dir = tempdir();
+        common::write_world_sections(
+            dir.path(),
+            &[(0, 0)],
+            0..=3,
+            move |x, y, z| match (x, y - hoehe, z) {
+                (_, 0, _) => "minecraft:einfarbig",
+                (8, 1, 8) => "minecraft:ueberhang",
+                _ => "minecraft:air",
+            },
+            |_, _| None,
+        );
+        let world = World::open(dir.path()).unwrap();
+        let survey = survey(&world, projection, y_range, None).unwrap();
+        let sprites = SpriteSet::build_in(&mut assets(), &survey.states, projection).unwrap();
+        let s = projection.scale() as i32;
+        let (mx, my) = projection.project_block([8, hoehe + 1, 8]);
+        let rect = ScreenRect {
+            x: mx as i32 - 3 * s,
+            y: my as i32 - 3 * s,
+            width: 6 * s as u32,
+            height: 6 * s as u32,
+        };
+        render_area(&world, &sprites, rect, y_range).unwrap()
+    };
+    for projection in [Projection::new(32)].into_iter().chain(kameras()) {
+        let (scale, kamera) = (projection.scale(), projection.kamera());
+        let unten = bild(0, projection);
+        let sichtbar = unten.pixels().filter(|p| p.0[3] > 0).count();
+        assert!(sichtbar > 0, "{kamera}, scale {scale}: leer");
+        assert!(
+            unten == bild(40, projection),
+            "{kamera}, scale {scale}: 40 Blöcke höher anders"
+        );
+    }
+}
+
 /// Der schnelle Weg über Kandidaten und Bitmasken muss Byte für Byte das
 /// Bild der Referenz liefern, die jeden Block im Band abläuft: in der
 /// Szene aus `common::szene`, einmal ganz im Bild, einmal von einem

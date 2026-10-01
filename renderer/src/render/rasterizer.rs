@@ -1298,6 +1298,32 @@ mod tests {
     use super::*;
     use crate::assets::baker::Quad;
     use crate::assets::blockentity::Schicht;
+    use crate::render::Kamera;
+
+    /// Ob die Kamera eine Fläche sieht, hängt an ihrer Achse: Eine Fläche
+    /// nach Süden, 30° nach unten gekippt, sehen 2:1 und 4:3 noch, 1:1 und
+    /// von oben nicht mehr (tan 30° liegt zwischen 1/2 und 2/3). Eine
+    /// senkrechte steht von oben auf der Kante.
+    #[test]
+    fn zur_kamera_folgt_der_achse() {
+        let (sin, cos) = 30f32.to_radians().sin_cos();
+        let gekippt = [0.0, -sin, cos];
+        let senkrecht = [0.0, 0.0, 1.0];
+        for (kamera, sieht_gekippt, sieht_senkrecht) in [
+            ("2:1", true, true),
+            ("4:3", true, true),
+            ("1:1", false, true),
+            ("top", false, false),
+        ] {
+            let p = Projection::mit_kamera(32, Kamera::parse(kamera).unwrap());
+            assert_eq!(zur_kamera(gekippt, &p), sieht_gekippt, "{kamera}, gekippt");
+            assert_eq!(
+                zur_kamera(senkrecht, &p),
+                sieht_senkrecht,
+                "{kamera}, senkrecht"
+            );
+        }
+    }
 
     /// Die Helligkeit im Himmelslicht `licht` ohne Blocklicht in der
     /// Oberwelt, in jedem Kanal gleich.

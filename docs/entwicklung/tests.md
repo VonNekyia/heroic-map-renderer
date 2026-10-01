@@ -6,6 +6,7 @@ code:
   - renderer/tests/cli.rs
   - renderer/tests/common/mod.rs
   - renderer/tests/gpu.rs
+  - renderer/tests/heights.rs
   - renderer/tests/licht.rs
   - renderer/tests/metatile.rs
   - renderer/tests/region_format.rs
@@ -23,7 +24,7 @@ code:
 Die Rust-Tests laufen mit `cargo nextest`, in Debug und Release, das
 Frontend mit Playwright. Sollwerte stammen aus unabhängigen Quellen: einem
 eigenen Python-Decoder, den Klassen des 26.2-Clients oder einer Rechnung
-mit den Werten des Spiels, nicht aus dem Code selbst. Ein Goldbild fängt
+mit den Werten des Spiels, nicht aus dem Code selbst. Goldbilder fangen
 jede Änderung am Bild. Was die CI davon laufen lässt, steht in
 [CI](ci.md).
 
@@ -60,7 +61,8 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `renderer/tests/region_format.rs` | beschädigte Regionsdateien, zur Laufzeit gebaut |
 | `renderer/tests/assets.rs` | den Asset-Layer am synthetischen Assetbaum |
 | `renderer/tests/render.rs` | Projektion, Baking und Rasterizer zusammen: von der Blockstate bis zu den Pixeln des Sprites |
-| `renderer/tests/metatile.rs` | ganze Welten im Speicher, gerendert, samt Goldbild |
+| `renderer/tests/metatile.rs` | ganze Welten im Speicher, gerendert, samt Goldbildern |
+| `renderer/tests/heights.rs` | die Höhen für die Koordinatenanzeige und `projektion.json` für das Frontend |
 | `renderer/tests/tiles.rs` | die Naht: jede Kachel gegen den Ausschnitt eines grossen Renderings |
 | `renderer/tests/cli.rs` | die ganze Exportkette über das echte Binär |
 | `renderer/tests/gpu.rs` | die Karte gegen die CPU, Byte für Byte |
@@ -127,9 +129,11 @@ von 4 bis 32, dazu bei jeder Kamera der Invarianten.
 
 Die Invarianten gelten für jede Kamera. `kameras()` in
 `renderer/tests/metatile.rs` liefert sie: 16:9, 8:5, 4:3, 1:1 und `top`
-bei scale 32, 5:3 bei scale 30, 1:1 und `top` bei scale 4, dazu Paare aus
-gültigem W:H und scale, gezogen mit fester Saat, damit jeder Lauf dieselben
-prüft. Je Kamera:
+bei scale 32, 5:3 bei scale 30, 1:1 und `top` bei scale 4, dazu sechs
+Paare aus gültigem W:H und scale, gezogen mit fester Saat, damit jeder Lauf
+dieselben prüft, ohne 2:1 und ohne eine Kamera zweimal. Das Bild ist bei
+`verdecken_aendert_kein_pixel` und `schneller_weg_gleicht_der_referenz`
+das Rechteck um alle Blöcke der Szene, bei jeder Kamera. Je Kamera:
 
 | Test | Prüft |
 |---|---|
@@ -139,10 +143,15 @@ prüft. Je Kamera:
 | `hoeher_gesetzt_gleiches_bild` | dieselbe Welt 40 Blöcke höher gibt dasselbe Bild, auch von oben, wo die Referenz dasselbe Band abläuft |
 | `projektion_als_datei_ist_aktuell` (`renderer/tests/heights.rs`) | die Datei für das Frontend, samt Kantenpixeln |
 
+Dazu einzeln: `von_oben_ragt_der_turm_durch_den_teppich` (`metatile.rs`),
+`heights_traegt_hoehen_nach` auch für einen Baum von oben und
+`kamera_ohne_ganze_pixel_bricht_vor_der_welt_ab` (`cli.rs`).
+
 Dazu Unit-Tests in den Quelldateien: die Achse je Kamera und die Regel
 „ganze Pixel“ (`projection.rs`), welche Flächen die Kamera sieht
-(`rasterizer.rs`), Umriss, Deckung, Licht unbekannter Blöcke und die Teile
-je Würfel ohne Naht (`sprites.rs`), Schalter und Meldungen (`cli.rs`). Die
+(`rasterizer.rs`), Umriss, Deckung, Licht unbekannter Blöcke, die Teile
+je Würfel ohne Naht und ein Modell ganz in einem fremden Würfel
+(`sprites.rs`), Schalter und Meldungen (`cli.rs`). Die
 Haarlinien von oben prüft ein ignorierter Test über alle Vanilla-Zustände,
 siehe [Die Kamera](../renderer/kamera.md), „Von oben“.
 
@@ -151,10 +160,11 @@ siehe [Die Kamera](../renderer/kamera.md), „Von oben“.
 Unter `renderer/tests/fixtures/golden/` liegen Goldbilder: jede Änderung an
 Projektion, Baking, Rasterizer oder Maleralgorithmus fällt damit auf.
 `metatile.png` zeigt 2:1, `metatile-4x3.png` und `metatile-top.png` die
-Szene aus `common::szene` in 4:3 und von oben. Fällt der Test, schreibt er
-das Ist-Bild daneben als `metatile-ist.png`, `metatile-4x3-ist.png` oder
-`metatile-top-ist.png`; in CI liegen sie als Artefakt am fehlgeschlagenen
-Lauf. Neu erzeugen nach einer gewollten Änderung: Skill
+Szene aus `common::szene` in 4:3 und von oben. Der Test vergleicht alle
+drei, schreibt zu jedem abweichenden das Ist-Bild daneben, als
+`metatile-ist.png`, `metatile-4x3-ist.png` oder `metatile-top-ist.png`, und
+fällt erst dann; in CI liegen sie als Artefakt am fehlgeschlagenen Lauf.
+Neu erzeugen nach einer gewollten Änderung: Skill
 [`goldbild-erneuern`](../../skills/goldbild-erneuern/SKILL.md).
 
 ## GPU-Tests

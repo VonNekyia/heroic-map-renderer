@@ -162,9 +162,11 @@ und sich die Verläufe der weichen Beleuchtung schlechter packen als ebene
 Flächen. Beim Packen geht dabei nichts verloren: libwebp bleibt verlustfrei,
 Pixel für Pixel.
 
-Eine Kachel ist ein schräger Schnitt durch die volle Bauhöhe von 384
+In 2:1 ist eine Kachel ein schräger Schnitt durch die volle Bauhöhe von 384
 Blöcken: rund 320 000 Blockpositionen, gut hundert Chunks, und neun von zehn
-nicht-leeren Blöcken liegen unter der Oberfläche. Der erste Vollrender der
+nicht-leeren Blöcken liegen unter der Oberfläche. Alle Zahlen dieser Seite
+gelten für 2:1; was die anderen Kameras kosten, steht in
+[2026-10-01, Kameras](../messungen/2026-10-01-kameras.md). Der erste Vollrender der
 grossen Welt, ein früher Stand vor allen Umbauten, hätte für die Basis knapp
 16 Stunden gebraucht, siehe
 [2026-09-22, Erster Vollrender](../messungen/2026-09-22-erster-vollrender.md).

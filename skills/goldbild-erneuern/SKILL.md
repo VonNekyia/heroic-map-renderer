@@ -5,20 +5,18 @@ description: Erneuert die Goldbilder unter renderer/tests/fixtures/golden/ nach 
 
 # Goldbild erneuern
 
-Die Goldbilder halten fest, wie kleine Ausschnitte aussehen: in 2:1
-(`metatile.png`), in 4:3 (`metatile-4x3.png`) und von oben
-(`metatile-top.png`). Jede Änderung am Bild fällt damit auf. Siehe
+Die Goldbilder halten fest, wie kleine Ausschnitte aussehen; jede
+Änderung am Bild fällt damit auf. Welche es gibt, steht in
 [`docs/entwicklung/tests.md`](../../docs/entwicklung/tests.md), „Goldbild“.
 
 ## Ablauf
 
 1. **Ist die Änderung gewollt?** Fällt `goldbild_bleibt_gleich`, liegt das
-   Ist-Bild als `renderer/tests/fixtures/golden/<name>-ist.png` neben dem
-   Goldbild, etwa `metatile-ist.png`, in der CI als Artefakt
-   `goldbild-ist-<os>` am Lauf. Der Test bricht beim ersten abweichenden
-   ab; nach dem Erneuern zeigt ein zweiter Lauf die übrigen. Beide Bilder
-   nebeneinander ansehen. Gehört die Änderung nicht zur PR, ist es ein
-   Fehler: beheben, nicht erneuern.
+   Ist-Bild jedes abweichenden als
+   `renderer/tests/fixtures/golden/<name>-ist.png` neben seinem Goldbild,
+   etwa `metatile-ist.png`, in der CI als Artefakt `goldbild-ist-<os>` am
+   Lauf. Beide Bilder nebeneinander ansehen. Gehört die Änderung nicht zur
+   PR, ist es ein Fehler: beheben, nicht erneuern.
 2. **Erneuern** in `renderer/`:
 
    ```bash

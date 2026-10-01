@@ -185,10 +185,10 @@ fest, siehe [`map.json`](map-json.md), „Kamera und Projektion“.
   [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
 - **Ohne `--camera`** gilt 2:1, auch in einen bestehenden Baum. Ein Baum
   mit einer anderen Kamera verlangt sie also wie seinen scale.
-- **Ein Baum ohne `camera`** stammt aus einem Stand vor den Kameras und ist
-  2:1.
-- **`--pyramid`** behält Kamera, Richtung und Projektion. **`--heights`**
-  nimmt die Kamera aus `map.json`.
+- **Ein Baum ohne `camera`** stammt aus einem Stand vor den Kameras; was
+  dann gilt und was `--pyramid` behält, steht in [`map.json`](map-json.md),
+  „Kamera und Projektion“. Wie `--heights` zu seiner Kamera kommt, steht
+  dort unter „Höhen“.
 - **Jede Kamera ein eigener Baum:** heute ein eigenes Verzeichnis je
   `--tiles`. Die Höhen schreibt jeder Baum für sich, wie bisher.
 
@@ -203,15 +203,14 @@ scharf und mittelt stattdessen die Textur über den Block, was auf einer
 Karte niemand vermisst. Das geht, solange jeder Block auf ganzen Pixeln
 liegt, der scale der Stufe also bei der Kamera des Baums die Regel „ganze
 Pixel“ erfüllt, bis scale 4, siehe [Kamera](../renderer/kamera.md), „Ganze
-Pixel“. In 2:1 heisst das: durch vier teilbar, bei scale 32 drei Stufen
-lang, 16, 8 und 4. Bei 4:3 und scale 32 sind es zwei, 16 und 8, bei 16:9
-keine; den Rest baut die Pyramide (`native_levels` in
-[`renderer/src/cli.rs`](../../renderer/src/cli.rs)). Bei scale 2 läge
-jede zweite Blockreihe auf einem halben Pixel, und benachbarte Reihen
+Pixel“; wie viele Stufen das je Kamera bei scale 32 sind, steht dort in der
+Tabelle unter „Projektion“. Den Rest baut die Pyramide (`native_levels` in
+[`renderer/src/cli.rs`](../../renderer/src/cli.rs)). Bei scale 2 läge in
+2:1 jede zweite Blockreihe auf einem halben Pixel, und benachbarte Reihen
 überdeckten sich.
 
 Der Preis ist hoch: jede Stufe zeichnet jeden Block ihrer Fläche erneut.
-Mit allen drei Stufen kommt bei scale 32 in Bytes ein Drittel dazu, ein
+Mit allen drei Stufen kommt in 2:1 bei scale 32 in Bytes ein Drittel dazu, ein
 Viertel je Stufe, und sie brauchen zusammen etwa so lange wie die Basis,
 siehe [Was ein Lauf kostet](kosten.md). Chunks und Licht teilen sie sich
 dafür über alle Stufen, in Bändern, siehe

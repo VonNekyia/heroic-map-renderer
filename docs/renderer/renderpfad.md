@@ -17,9 +17,10 @@ code:
 
 # Der Weg einer Kachel
 
-Eine Kachel ist ein schräger Schnitt durch die volle Bauhöhe von 384
+In 2:1 ist eine Kachel ein schräger Schnitt durch die volle Bauhöhe von 384
 Blöcken: rund 320 000 Blockpositionen, gut hundert Chunks, und neun von zehn
-nicht-leeren Blöcken liegen unter der Oberfläche. Der Renderer fasst deshalb
+nicht-leeren Blöcken liegen unter der Oberfläche; die anderen Kameras siehe
+[2026-10-01, Kameras](../messungen/2026-10-01-kameras.md). Der Renderer fasst deshalb
 weder Luft noch Verdecktes an: Ein Vorlauf baut die Sprite-Tabelle, dann
 rendern die Threads in Streifen mit warmem Cache, Bitmasken je Section
 liefern die Kandidaten, eine Deckungsmaske siebt sie, und libwebp packt das

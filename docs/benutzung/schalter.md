@@ -25,7 +25,7 @@ Texte.
 | `--at X Y Z` | die Blockstate an dieser Weltkoordinate ausgeben | unten |
 | `--block BLOCKSTATE` | eine Blockstate auflösen, mehrfach | unten |
 | `--sprite DATEI` | die Blockstates aus `--block` als Sprites in eine PNG rastern | unten |
-| `--scale N` | Pixelbreite eines Blocks, Vorgabe 32; jede Blockecke muss bei der Kamera auf ganzen Pixeln liegen, in 2:1 ein Vielfaches von 4 | [Kamera](../renderer/kamera.md), „Ganze Pixel“ |
+| `--scale N` | Pixelbreite eines Blocks, ab 4, Vorgabe 32; jede Blockecke muss bei der Kamera auf ganzen Pixeln liegen, in 2:1 ein Vielfaches von 4 | [Kamera](../renderer/kamera.md), „Ganze Pixel“ |
 | `--camera KAMERA` | `W:H` schräg von 2:1 bis 1:1 oder `top` von oben, Vorgabe `2:1`; ein bestehender Kachelbaum verlangt seine | [Kamera](../renderer/kamera.md), „Kameras“ |
 | `--biome-blend N` | wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, 0 bis 7 Blöcke wie der Biomübergang im Spiel, Vorgabe 2; ein bestehender Kachelbaum behält seinen | [Biomfarben](../renderer/biomfarben.md), [map.json](map-json.md) |
 | `--render DATEI` | einen Weltausschnitt in eine PNG rendern | unten |
@@ -131,14 +131,20 @@ Render:     390 Chunks gelesen, 215 Blockstates, 536 Sprites
             900x900 px bei (-4290, 958) und scale 16 in 0.3 s -> docs/bilder/map.png
 ```
 
-`--center` nennt die Blockspalte, die in der Bildmitte landet, `--scale` die
-Pixelbreite eines Blocks, `--size` die Kantenlänge, mindestens 1. Die
+`--center` nennt die Blockspalte, deren Höhe 0 in der Bildmitte landet,
+`--scale` die Pixelbreite eines Blocks, `--size` die Kantenlänge,
+mindestens 1. Eine Oberfläche in Höhe y liegt schräg y · b Pixel über ihrer
+Spalte; welche Spalte dann in der Mitte zu sehen ist, hängt an a und damit
+an der Kamera, siehe [Kamera](../renderer/kamera.md), „Projektion“. Von
+oben ist es die Spalte selbst. Wer bei jeder Kamera denselben Block in der
+Mitte will, rechnet `--center` je Kamera, wie `mitte` in
+[`skills/doku-bilder-rendern/bilder-rendern.py`](../../skills/doku-bilder-rendern/bilder-rendern.py). Die
 Ausgabe nennt die linke obere Bildecke in Pixeln. Die Sprite-Tabelle kommt
 aus demselben Vorlauf wie beim Kachelexport, nur über den Ausschnitt, und
-der dekodiert nur, was im Bild landen kann: der sichtbare Bereich ist ein
-schmales diagonales Band in x und z, kein Rechteck. Wer stattdessen die
-Hüllbox nähme, läse für einen 1024er Ausschnitt rund das Sechzehnfache an
-Chunks.
+der dekodiert nur, was im Bild landen kann: der sichtbare Bereich ist
+schräg ein schmales diagonales Band in x und z, kein Rechteck. Wer
+stattdessen die Hüllbox nähme, läse in 2:1 für einen 1024er Ausschnitt rund
+das Sechzehnfache an Chunks.
 
 Alles über 1024 Pixel Kantenlänge rendert `--render` in Stücken, siehe
 [Der Weg einer Kachel](../renderer/renderpfad.md), „Grosse Ausschnitte“.

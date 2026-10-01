@@ -148,10 +148,11 @@ fn rect_um(projection: Projection, min: [i32; 3], max: [i32; 3]) -> ScreenRect {
     }
 }
 
-/// Kameras für die Invarianten: die aus dem Issue und Paare aus gültigem
-/// W:H und scale, gezogen mit fester Saat, damit jeder Lauf dieselben
-/// prüft. Gezogen wird nur, was weder 2:1 noch schon dabei ist. Jede liegt
-/// auf ganzen Pixeln.
+/// Kameras für die Invarianten: die aus dem Issue, 1:1 und `top` bei scale
+/// 6, dem ersten mit ungeraden h und a, und Paare aus gültigem W:H und
+/// scale, gezogen mit fester Saat, damit jeder Lauf dieselben prüft.
+/// Gezogen wird nur, was weder 2:1 noch schon dabei ist. Jede liegt auf
+/// ganzen Pixeln.
 fn kameras() -> Vec<Projection> {
     let mut out: Vec<Projection> = [
         ("16:9", 32),

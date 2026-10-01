@@ -2488,7 +2488,10 @@ mod tests {
             }
             // So steht es in kamera.md: ein Teil werden nur die 32 stehenden
             // Banner bei scale 16.
-            let banner = teil.iter().all(|e| e.contains("_banner["));
+            // Die schliessende Klammer hält rotation=12 und Wandbanner draussen.
+            let banner = teil
+                .iter()
+                .all(|e| e.contains("_banner[rotation=2]") || e.contains("_banner[rotation=10]"));
             if teil.len() != if scale == 16 { 32 } else { 0 } || !banner {
                 anders.push(scale);
             }

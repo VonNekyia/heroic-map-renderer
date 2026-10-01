@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt, unter welchen Headern es ausgeliefert werden kann und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -9,7 +9,9 @@ code:
   - web/vite.config.ts
   - web/package.json
   - web/public/tiles-demo
-  - web/public/robots.txt
+  - web/public/vorschau.jpg
+  - web/public/favicon.png
+  - web/public/apple-touch-icon.png
 ---
 
 # Frontend
@@ -92,8 +94,10 @@ lässt solche Kacheln leer.
 
 Unten links steht, welcher Block unter Maus oder Finger zu sehen ist,
 `X 35  Y 5  Z -15`, auf wenige Blöcke genau. Dazu zeichnet die Karte seinen
-Umriss wie den Auswahlrahmen im Spiel. Die Maus zeigt ihn beim
-Darüberfahren, auf dem Touchscreen zeigt ihn ein Tippen. Über Wasser nennt
+Umriss wie den Auswahlrahmen im Spiel, aber nur beim Tippen mit Finger
+oder Stift; mit der Maus zeigt der Zeiger selbst, wohin man zielt, und die
+Anzeige genügt, siehe
+[0049](entscheidungen/0049-umriss-nur-ohne-zeiger.md). Über Wasser nennt
 die Anzeige die Oberfläche, die man sieht; das Spiel zielt dort auf den
 Grund. Ohne `heights` in `map.json` gibt es keine Anzeige, ebenso ohne
 brauchbare `heightsCell`, `minY` und `maxY`; die Karte lädt dann trotzdem,
@@ -130,8 +134,35 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   [`web/vite.config.ts`](../web/vite.config.ts); ein Betreiber setzt sie
   in seinem Server so oder strenger. Liegen die Kacheln auf einer anderen
   Domain als die Seite, brauchen `img-src` und `connect-src` diese Domain.
-- **`robots.txt`** erlaubt alles. Sie wirkt nur im Wurzelverzeichnis einer
-  Domain.
+- **Adresse, Titel, Beschreibung, Bild:** Der Betreiber setzt sie beim
+  Build, etwa
+  `SITE_URL=https://example.org/karte/ SITE_TITLE="Karte von …" npm run build`.
+
+  | Variable | ohne Angabe | wofür |
+  |---|---|---|
+  | `SITE_URL` | keine Adresse | `canonical`, `og:url`, `og:image` als absolute Adresse und der Pfad in `robots.txt` |
+  | `SITE_TITLE` | `Heroic Map Renderer` | `<title>`, `og:title`, die Überschrift für Screenreader |
+  | `SITE_DESCRIPTION` | `Isometrische Karte einer Minecraft-Welt.` | `description`, `og:description` |
+  | `SITE_IMAGE` | `vorschau.jpg` | Vorschau beim Teilen, relativ zu `SITE_URL` oder absolut |
+
+  Leere Werte zählen wie keine. Ohne `SITE_URL` fehlen `canonical`,
+  `og:url` und das Vorschaubild; Titel,
+  Beschreibung und Icon bleiben. Die Adresse steht nie im Repository. Warum
+  beim Build: [0048](entscheidungen/0048-seite-beim-build.md).
+- **Vorschaubild:** `public/vorschau.jpg`, 1200 × 630, ist ein Ausschnitt
+  aus `docs/bilder/welt.webp`, der Testwelt; wie es entsteht, steht im
+  Skill [`doku-bilder-rendern`](../skills/doku-bilder-rendern/SKILL.md). Wer seine Welt zeigen will,
+  legt ein eigenes Bild neben die Seite und nennt es in `SITE_IMAGE`.
+- **Icon:** `public/favicon.png` und `public/apple-touch-icon.png` sind die
+  Ebene „Insel“ aus `docs/bilder/quellen/banner.aseprite`, ebenso aus dem
+  Skill.
+- **`robots.txt`** schreibt der Build: alles erlaubt ausser `tiles/`, damit
+  Suchmaschinen die Seite finden, aber nicht jede Kachel abrufen.
+  `tiles/map.json` bleibt erlaubt: Ohne sie rendert eine Suchmaschine nur
+  die Meldung, dass die Karte nicht lädt. Die längere Regel gewinnt
+  (RFC 9309). `robots.txt` wirkt nur im Wurzelverzeichnis einer Domain;
+  der Pfad zählt deshalb ab dort, mit `SITE_URL=https://example.org/karte/`
+  also `Allow: /karte/tiles/map.json` und `Disallow: /karte/tiles/`.
 
 ## Prüfen
 

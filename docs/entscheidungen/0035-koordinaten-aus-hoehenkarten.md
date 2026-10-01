@@ -11,6 +11,8 @@ code:
 
 # 0035: Koordinaten aus Höhenkarten
 
+Den Umriss zeigt seit [0049](0049-umriss-nur-ohne-zeiger.md) nur noch ein Tippen, nicht mehr die Maus.
+
 ## Anlass
 
 Der Maintainer wollte die Koordinaten des Blocks unter Maus und Finger,

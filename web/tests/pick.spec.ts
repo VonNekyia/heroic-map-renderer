@@ -10,9 +10,11 @@ type Punkt = [number, number];
  * kennt Kameras beim Namen; das Frontend liest die Zahlen.
  */
 function kamera(name: string, scale: number): Projektion {
-  if (name === 'top') return { u: scale / 2, v: scale / 2, y: 0 };
-  const [w, h] = name.split(':').map(Number) as [number, number];
-  return { u: scale / 2, v: (scale * h) / (2 * w), y: scale / 2 };
+  const [w, h] = name === 'top' ? [1, 1] : (name.split(':').map(Number) as [number, number]);
+  const p = { u: scale / 2, v: (scale * h) / (2 * w), y: name === 'top' ? 0 : scale / 2 };
+  // Nur gültige Paare, wie beim Renderer: jede Ecke auf ganzen Pixeln.
+  if (scale % 2 !== 0 || !Number.isInteger(p.v)) throw new Error(`${name} bei ${scale} ungültig`);
+  return p;
 }
 
 /** Die Einträge des Renderers, aktuell gehalten von einem seiner Tests. */

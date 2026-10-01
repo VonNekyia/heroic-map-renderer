@@ -84,3 +84,5 @@ Siehe [Die Kamera](../renderer/kamera.md), „Genordet“.
   die von der Kamera wegzeigen“.
 - Bis das Frontend genordet rechnet, stimmen seine Koordinaten in diesen
   Bäumen nicht.
+- Was die beiden bei scale 16 gegen 2:1 bei scale 32 kosten, steht in
+  [2026-10-02, Genordete Kameras](../messungen/2026-10-02-genordete-kameras.md).

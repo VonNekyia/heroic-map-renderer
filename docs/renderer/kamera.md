@@ -137,7 +137,11 @@ Was sich je Kamera im Bild ändert:
   etwa so viel mehr wie ihre Pixel, an Bytes 8:5 das 1,22- bis 1,28-fache,
   4:3 das 1,39- bis 1,46-fache, 1:1 das 1,88- bis 2,02-fache; `top` liegt
   mit 1,12 bis 1,61 darunter. Gemessen und eingeschränkt in
-  [2026-10-01, Kameras](../messungen/2026-10-01-kameras.md).
+  [2026-10-01, Kameras](../messungen/2026-10-01-kameras.md). Genordet bei
+  scale 16 hat ein Block so viele Pixel wie in 2:1 bei scale 32; `north-45`
+  kostet je Spalte etwa wie 2:1, an Bytes das 0,95- bis 0,98-fache,
+  `top-north` das 0,53- bis 0,75-fache, siehe
+  [2026-10-02, Genordete Kameras](../messungen/2026-10-02-genordete-kameras.md).
 
 ![Dasselbe Dorf in 2:1, 4:3, 1:1 und von oben](../bilder/kameras.webp)
 

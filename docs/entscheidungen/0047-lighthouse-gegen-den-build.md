@@ -44,7 +44,7 @@ Zehn Läufe auf `ubuntu-latest`, Stand der PR zu #70:
 |---|---|---|---|
 | CLS | 0 | 0 | ≤ 0,1, Fehler |
 | TBT | 0 ms | 0 ms | ≤ 300 ms, Fehler |
-| LCP | 1396 ms | 1506 ms | ≤ 4000 ms, Warnung |
+| LCP | 1396 ms | 1505 ms | ≤ 4000 ms, Warnung |
 | Performance | 1 | 1 | ≥ 0,5, Warnung |
 | Barrierefreiheit, SEO | 1 | 1 | ≥ 0,9, Fehler |
 | Best Practices | 0,96 | 0,96 | ≥ 0,9, Fehler |
@@ -61,7 +61,7 @@ Zehn Läufe auf `ubuntu-latest`, Stand der PR zu #70:
   Links. Die Karte ist eine einzige Seite ohne interne Links. Was er dort
   fände, decken Lighthouse (Status, Konsole, Metadaten, Barrierefreiheit)
   und der Smoke-Test (fehlende Kacheln, Fehler beim Laden) schon ab. Dazu
-  kämen ein Binary von gut 40 MB je Lauf und eine Baseline.
+  kämen ein eigenes Binary je Lauf und eine Baseline.
 - **Vergleich mit einer Baseline.** Sie muss bei jeder gewollten Änderung
   nachgezogen werden. Für eine Seite genügen feste Schwellen.
 - **Die Header einer Produktion prüfen.** Das Repository kennt keine
@@ -73,6 +73,7 @@ Zehn Läufe auf `ubuntu-latest`, Stand der PR zu #70:
 
 - Eine neue Abhängigkeit für die Entwicklung, `@lhci/cli` mit Lighthouse,
   rund 320 Pakete. In den Build der Karte kommt nichts davon.
-- Ein Job mehr, rund 2 bis 3 Minuten, parallel zu den übrigen.
+- Ein Job mehr, rund anderthalb Minuten mit drei Läufen (gemessen 83 und
+  101 s), parallel zu den übrigen.
 - `index.html` hat eine Beschreibung, und `public/robots.txt` erlaubt
   alles: Ohne beides fiel der Stand durch.

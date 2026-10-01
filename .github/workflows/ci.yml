@@ -134,7 +134,7 @@ jobs:
       # Runners nicht.
       - name: Browser
         run: |
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps --no-shell chromium
           echo "CHROME_PATH=$(node --input-type=module -e "import {chromium} from '@playwright/test'; console.log(chromium.executablePath())")" >> "$GITHUB_ENV"
 
       # Ausgeliefert wie in Produktion: die Kacheln als tiles/ neben der Seite.

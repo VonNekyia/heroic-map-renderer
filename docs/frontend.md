@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt, unter welchen Headern es ausgeliefert werden kann und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -37,8 +37,7 @@ ausliefert; damit braucht das Frontend keine Konfiguration, siehe
 [0006](entscheidungen/0006-kacheln-unter-web-public.md). `npm run build`
 legt die Seite unter `web/dist` ab, ohne `public/tiles`: dort liegt oft ein
 Link auf Hunderte Gigabyte, und Vite folgte ihm beim Kopieren, auch unter
-`npm test`. Beim Ausliefern gehören die Kacheln als `tiles/` neben die
-Seite, oder `?tiles=` nennt ihren Pfad; statisch ausliefern reicht, siehe
+`npm test`. Wohin die Kacheln beim Ausliefern gehören, steht unter
 „Ausliefern“.
 
 Ohne echte Kacheln zeigt `http://localhost:5173/?tiles=/tiles-demo` einen
@@ -126,8 +125,8 @@ kommen, warum je 4 × 4 Spalten und warum über Wasser die Oberfläche, siehe
 
 ## Ausliefern
 
-`web/dist` ist die ganze Seite, statisch. Die Kacheln liegen als `tiles/`
-daneben.
+`web/dist` ist die ganze Seite; statisch ausliefern reicht. Die Kacheln
+liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
 
 - **Header:** Die Karte läuft unter einer strengen Content-Security-Policy
   ohne Ausnahmen für Inline-Skripte, Inline-Styles oder fremde Quellen. Die

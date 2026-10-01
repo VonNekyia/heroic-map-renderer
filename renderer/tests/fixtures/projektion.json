@@ -158,5 +158,9 @@
   {"camera": "1:1", "direction": "se", "scale": 32, "pixel": [0, 159], "block": [5, -1, 4], "eben": 0},
   {"camera": "1:1", "direction": "se", "scale": 32, "pixel": [-16, 144], "block": [4, -1, 4], "eben": 0},
   {"camera": "5:3", "direction": "se", "scale": 30, "pixel": [2, 88], "block": [5, -1, 4], "eben": 0},
-  {"camera": "5:3", "direction": "se", "scale": 30, "pixel": [-13, 82], "block": [4, -1, 4], "eben": 0}
+  {"camera": "5:3", "direction": "se", "scale": 30, "pixel": [-13, 82], "block": [4, -1, 4], "eben": 0},
+  {"camera": "1:1", "direction": "se", "scale": 32, "pixel": [-16, 128], "block": [4, 1, 4], "wand": "south"},
+  {"camera": "1:1", "direction": "se", "scale": 32, "pixel": [0, 143], "block": [4, 0, 4], "wand": "east"},
+  {"camera": "5:3", "direction": "se", "scale": 30, "pixel": [-13, 67], "block": [4, 1, 4], "wand": "south"},
+  {"camera": "5:3", "direction": "se", "scale": 30, "pixel": [2, 73], "block": [4, 0, 4], "wand": "east"}
 ]

@@ -70,14 +70,14 @@ Siehe [Die Kamera](../renderer/kamera.md) und
   dem Pixel, die Höhe aus `heights`. Liegt die Mitte eines Pixels genau auf
   einer Blockkante, gilt die Füllregel des Renderers; die Kantenpixel in
   `renderer/tests/fixtures/projektion.json` legen sie fest, für `top`, 1:1
-  und 5:3.
+  und 5:3, auf Oberseiten wie an Wänden.
 - **Zahlen nur aus `map.json`:** Das Frontend rechnet aus `projection`
   (`u`, `v`, `y`) und führt keine Tabelle der Kameras. Fehlt `projection`,
   gilt 2:1 aus `scale`. Kennt es `azimuth` oder `direction` nicht, zeigt es
   keine Koordinaten und warnt in der Konsole.
 - **Kosten:** Je Pixel höchstens etwa so viele Schritte wie bei 2:1, rund
   1150 über die ganze Bauhöhe. Steilere Kameras brauchen weniger, die
-  Draufsicht einen.
+  Draufsicht einen je Schicht.
 
 ## Was sie ablöst
 

@@ -151,6 +151,11 @@ Im Renderer, siehe
 Deckende Blöcke mit Regel ändern so kein Pixel, blaues Eis etwa: Was sie zu
 einem gleichen Nachbarn weglassen, übermalt der Nachbar.
 
+Zeit kostet das nicht messbar: Am Stand und an einer Eisszene der Testwelt
+liegen A und B mit und ohne Karte innerhalb der Streuung. Die Tabelle hat
+bei scale 32 dort 3 bis 4 % mehr Sprites. Gemessen in
+[2026-10-01, Flächen zu gleichen Nachbarn](../messungen/2026-10-01-flaechen-zu-gleichen-nachbarn.md).
+
 Was bleibt eine Näherung:
 
 - **Innere Flächen vor einem vollen Nachbarn.** Den ersten Fall baut der

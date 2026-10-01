@@ -68,7 +68,9 @@ gleichen Nachbarn“.
   [Erzeugte Tabellen](../entwicklung/tabellen.md).
 - Mehr Sprites: je Familie mit Regel bis zu 8 Fassungen, geflutet bis zu
   64. Dazu je gezeichnetem Block mit Regel bis zu drei Nachschläge, bei
-  Mangrovenwurzeln zwei. Wie viel das kostet, steht in der Messung zu #58.
+  Mangrovenwurzeln zwei. Am Stand und an einer Eisszene der Testwelt sind
+  das 3 bis 4 % mehr Sprites und keine messbare Zeit, siehe
+  [2026-10-01, Flächen zu gleichen Nachbarn](../messungen/2026-10-01-flaechen-zu-gleichen-nachbarn.md).
 - Mitten in einer Eismasse fällt der Block weg, ohne Pixel.
 - Innere Flächen vor einem vollen Nachbarn bleiben eine Näherung, siehe
   [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Flächen zu

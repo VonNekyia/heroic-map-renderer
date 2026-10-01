@@ -82,11 +82,15 @@ Zugeordnet wird je Fragment, nach seiner Lage im Raum. Wie, steht in
   Würfel in ihrem Würfel, der vor einem Teil liegen kann. Die Bedingung
   „alle Flächen auf den Vorderseiten“ nimmt sie heraus und ist genau die,
   unter der „vor dem Block“ stimmt.
-- **`opaque` allein.** `opaque` entscheidet nach dem Bild. Bei scale 4 liegt
-  die Oberseite von Ackerboden (15/16) nur 0,125 Pixel tiefer, die
-  Pixelmitten des Umrisses liegen aber mindestens 0,25 Pixel unter dessen
-  oberen Kanten, also gilt Ackerboden als `opaque`. Der Fuss von Getreide
-  liegt über ihm und ist im Spiel zu sehen; er fiele weg.
+- **`opaque` allein.** `opaque` entscheidet nach dem Bild, nicht nach der
+  Form, und hängt so am scale. Bei scale 4 liegt die Oberseite von
+  Ackerboden (15/16) nur 0,125 Pixel tiefer, die Pixelmitten des Umrisses
+  liegen aber mindestens 0,25 Pixel unter dessen oberen Kanten, also gilt
+  Ackerboden als `opaque`. Ein Teil über seiner Oberseite, etwa der Fuss
+  von Getreide, ist im Spiel zu sehen und fiele weg, sobald sein Modell
+  zerfällt. Getreide selbst bleibt bei kleinem scale ganz, siehe den
+  Spielraum in [Die Kamera](../renderer/kamera.md), „Sortiert wird nach
+  Würfeln“.
 - **Eine Toleranz von 1e-4 an den Würfelebenen.** Siehe Herleitung.
 
 ## Folgen

@@ -109,6 +109,11 @@ Was sich je Kamera im Bild ändert:
   Texelzeilen werden ungleich hoch.
 - **Von oben** verschwindet jede senkrechte Fläche, siehe „Von oben“.
 
+![Dasselbe Dorf in 2:1, 4:3, 1:1 und von oben](../bilder/kameras.webp)
+
+Dasselbe Dorf der Testwelt in 2:1 und 4:3 (oben), 1:1 und von oben
+(unten), scale 16, um den Block (−352, 64, 578), Stand `ad17fd5`.
+
 ## scale
 
 `scale` ist die Breite des ganzen Würfels; eine Seitenfläche ist halb so
@@ -293,7 +298,9 @@ Eine Kante der Raute steigt um a je h, also H:W, von oben 1:1:
 - **In deckendem Gelände bleibt kein Pixel offen,** auch nicht auf solchen
   Kanten. Das prüft `kein_loch_in_deckendem_gelaende` in
   `renderer/tests/metatile.rs` an Stufen aus zufällig gedrehten Blöcken,
-  für 2:1 und jede Kamera der Invarianten.
+  für 2:1 und jede Kamera der Invarianten. In der Testwelt um (−64, 416)
+  ist bei 4096 × 4096 Pixeln kein Pixel offen, in 2:1, 4:3, 1:1 und `top`
+  bei scale 16 und in 5:3 bei scale 30.
 - **Das Frontend** bekommt solche Pixel in `projektion.json` vorgerechnet,
   siehe [`map.json`](../benutzung/map-json.md), „Kamera und Projektion“.
 

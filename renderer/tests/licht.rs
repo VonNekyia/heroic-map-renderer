@@ -13,6 +13,7 @@
 
 mod common;
 
+use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -20,7 +21,7 @@ use serde::Deserialize;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::{ChunkCache, Projection, SpriteSet};
-use terranova_render::world::{Chunk, World};
+use terranova_render::world::{BlockState, Chunk, World};
 
 fn fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/licht")
@@ -283,4 +284,42 @@ fn quelle_ohne_familie_leuchtet() {
     );
     let licht = licht_in(&World::open(dir.path()).unwrap(), &[[8, 8, 8], [8, 8, 11]]);
     assert_eq!(licht, [(15, 15), (15, 12)]);
+}
+
+/// Ein Block, den 26.2 nicht kennt, hält das Licht nach dem Raster der
+/// Basis auf, auf jeder nativen Stufe gleich. Der Ackerboden der Fixtures
+/// ist 15/16 hoch: Bei scale 32 deckt sein Sprite den Umriss nicht, bei 4
+/// schliesst das Raster die Lücke. Nimmt die Tabelle bei 4 die Antwort der
+/// Basis, fällt das Himmelslicht unter ihm wie bei 32 senkrecht durch.
+#[test]
+fn licht_unbekannter_bloecke_haengt_nicht_am_scale() {
+    let dir = TempDir::new().unwrap();
+    common::write_world_sections(
+        dir.path(),
+        &[(0, 0)],
+        0..=0,
+        |x, y, z| match (x, y, z) {
+            (8, 8, 8) => "minecraft:ackerboden",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let world = World::open(dir.path()).unwrap();
+    let states: BTreeSet<BlockState> = [BlockState::parse("minecraft:ackerboden").unwrap()].into();
+    let mut assets = Assets::open(vec![
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base"),
+    ])
+    .unwrap();
+    let mut tabelle =
+        |scale| SpriteSet::build_in(&mut assets, &states, Projection::new(scale)).unwrap();
+    let (basis, mut grob) = (tabelle(32), tabelle(4));
+    let unter = |sprites: &SpriteSet| {
+        ChunkCache::new(&world, sprites)
+            .licht_at([8, 7, 8])
+            .unwrap()
+    };
+    assert_eq!(unter(&basis), (15, 0));
+    assert_eq!(unter(&grob), (14, 0), "bei scale 4 deckt das Raster nicht");
+    grob.set_licht_deckend(basis.licht_deckend(&states));
+    assert_eq!(unter(&grob), (15, 0));
 }

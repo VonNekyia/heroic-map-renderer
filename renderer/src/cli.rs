@@ -71,7 +71,7 @@ pub struct Args {
 
     /// Kamera: `W:H` schräg mit der Raute W:H der Oberseite, von 2:1 bis
     /// 1:1, oder `top` von oben. Vorgabe 2:1; ein bestehender Kachelbaum
-    /// verlangt seine
+    /// verlangt seine Kamera
     #[arg(long, value_name = "KAMERA", default_value = "2:1", value_parser = Kamera::parse)]
     camera: Kamera,
 
@@ -147,9 +147,9 @@ pub struct Args {
 
     /// Die Höhen für die Koordinatenanzeige in diesen Kachelbaum schreiben,
     /// ohne zu rendern, etwa in einen Baum aus einem Stand ohne sie. Liest
-    /// die ganze Welt, braucht --world und nimmt den scale aus map.json.
-    /// Jeder Export schreibt sie ohnehin
-    #[arg(long, value_name = "VERZEICHNIS", conflicts_with = "tiles")]
+    /// die ganze Welt, braucht --world und nimmt scale und Kamera aus
+    /// map.json. Jeder Export schreibt sie ohnehin
+    #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = ["tiles", "camera", "scale"])]
     heights: Option<PathBuf>,
 
     /// Die Zoomstufen und map.json dieses Kachelbaums aus seinen
@@ -188,34 +188,30 @@ fn projektion(scale: u32, kamera: Kamera) -> Result<Projection> {
 }
 
 /// Die Meldung zu einer Projektion ohne ganze Pixel, siehe [`projektion`].
+/// Beim selben scale geht jedes ganze a von scale/4 bis scale/2; die
+/// nächsten scales sind die Vielfachen von [`Kamera::schritt`] daneben.
 fn ungueltig(projection: Projection) -> String {
     let (scale, kamera) = (projection.scale(), projection.kamera());
-    let zahl = |a: f64| format!("{a}").replace('.', ",");
+    let zahl = |a: f64| format!("{}", (a * 100.0).round() / 100.0).replace('.', ",");
     let mut text = if !scale.is_multiple_of(2) {
         format!("{kamera} geht bei scale {scale} nicht: der scale muss gerade sein.")
     } else {
         let a = projection.a();
-        // Schräg geht jedes ganze a von scale/4 bis scale/2.
-        let gueltig = |a: u32| 4 * a >= scale && 2 * a <= scale;
         let nachbarn: Vec<String> = [a.floor() as u32, a.ceil() as u32]
             .into_iter()
-            .filter(|&a| gueltig(a))
-            .map(|a| {
-                let nachbar = Kamera::schraeg(scale, 2 * a).expect("zwischen 2:1 und 1:1");
-                format!("{nachbar} (a = {a})")
-            })
+            .filter_map(|a| Some(format!("{} (a = {a})", Kamera::schraeg(scale, 2 * a).ok()?)))
             .collect();
-        let mut text = format!("{kamera} geht bei scale {scale} nicht (a = {}).", zahl(a));
-        if !nachbarn.is_empty() {
-            text += &format!(" Nächste gültige: {}.", nachbarn.join(" oder "));
-        }
-        text
+        format!(
+            "{kamera} geht bei scale {scale} nicht (a = {}). Nächste gültige: {}.",
+            zahl(a),
+            nachbarn.join(" oder ")
+        )
     };
+    let (s, k) = (u64::from(scale), kamera.schritt());
+    let darunter = (s - 1) / k * k;
     let scales: Vec<String> = [
-        (1..scale)
-            .rev()
-            .find(|&s| s >= NATIVE_MIN_SCALE && projection.bei(s).ganze_pixel()),
-        (scale + 1..).find(|&s| projection.bei(s).ganze_pixel()),
+        (darunter >= u64::from(NATIVE_MIN_SCALE)).then_some(darunter),
+        Some((s / k + 1) * k),
     ]
     .into_iter()
     .flatten()
@@ -1783,7 +1779,7 @@ fn hoehen_ohne_region(world: &World, reach: Reach, dir: &Path) -> Result<Vec<Pat
 
 /// Schreibt Höhen und ihre Felder in `map.json` eines bestehenden Baums,
 /// ohne zu rendern. Die Welt muss zum Baum gehören wie bei einem Export,
-/// der scale kommt aus seiner `map.json`.
+/// scale und Kamera kommen aus seiner `map.json`.
 /// Siehe docs/benutzung/map-json.md, „Höhen“.
 fn fill_heights(world: &World, dir: &Path) -> Result<()> {
     let karte = dir.join("map.json");
@@ -2154,10 +2150,10 @@ fn ohne_veraltete(
     Ok(())
 }
 
-/// Bis zu welchem scale gröbere Zoomstufen noch aus der Welt gerendert
-/// werden statt aus der feineren Stufe verkleinert: Die Projektion setzt
-/// Blöcke in Schritten von scale/4 Pixeln, und nur bei einem Vielfachen von
-/// 4 liegt jeder Block auf ganzen Pixeln.
+/// Der kleinste scale, für `--scale` und bis zu dem gröbere Zoomstufen noch
+/// aus der Welt gerendert werden statt aus der feineren verkleinert. In 2:1
+/// läge darunter jede zweite Blockreihe auf einem halben Pixel; jede andere
+/// Kamera hat dieselbe Grenze.
 /// Siehe docs/entscheidungen/0016-native-stufen-nur-auf-wunsch.md.
 const NATIVE_MIN_SCALE: u32 = 4;
 
@@ -2353,9 +2349,15 @@ fn pruefe_bestand(
     // Siehe docs/benutzung/zoomstufen.md, „Ein Baum, eine Kamera“.
     let dort = projektion_des_baums(dir, alt)?;
     if dort.kamera() != projection.kamera() {
+        // Weicht auch der scale ab, gehört er in den Befehl.
+        let auch_scale = if alt.scale != scale {
+            format!(" --scale {}", alt.scale)
+        } else {
+            String::new()
+        };
         bail!(
-            "{anzeige} gehört zu einem Baum mit Kamera {}, dieser Lauf hätte {}. Mit --camera {} \
-             weiterrendern oder ein neues Verzeichnis nehmen.",
+            "{anzeige} gehört zu einem Baum mit Kamera {}, dieser Lauf hätte {}. Mit --camera \
+             {}{auch_scale} weiterrendern oder ein neues Verzeichnis nehmen.",
             dort.kamera(),
             projection.kamera(),
             dort.kamera()
@@ -2437,11 +2439,15 @@ fn render_coarser(
     for _ in 0..stufen {
         z -= 1;
         scale /= 2;
-        let mut sprites = SpriteSet::build_in(assets, states, projection.bei(scale))?;
+        let mut sprites = SpriteSet::build_mit_licht(
+            assets,
+            states,
+            projection.bei(scale),
+            Some(licht_deckend.clone()),
+        )?;
         // Was unbekannt ist, hat die Basis schon gemeldet.
         sprites.add_entities(assets, entities)?;
         sprites.set_biomes(biomes.clone());
-        sprites.set_licht_deckend(licht_deckend.clone());
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
         je_stufe.push((z, sprites, kandidaten.clone()));
@@ -3929,8 +3935,9 @@ mod tests {
         );
     }
 
-    /// `--scale` nimmt nur Vielfache von 4: bei 2, 6 oder 9 lägen Blöcke
-    /// auf halben Pixeln, und native Stufen hätten den falschen Massstab.
+    /// In 2:1, der Vorgabe, gehen nur Vielfache von 4: bei 2, 6 oder 9 lägen
+    /// Blöcke auf halben Pixeln, und native Stufen hätten den falschen
+    /// Massstab. Unter 4 lehnt schon `parse_scale` ab.
     #[test]
     fn scale_nur_auf_ganzen_pixeln() {
         let geht = |scale: &str| {

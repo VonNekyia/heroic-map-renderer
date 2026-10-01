@@ -69,7 +69,10 @@ fn kantenpixel() -> Vec<String> {
         };
         let bild = render_area(&world, &sprites, rect, boden).unwrap();
         let farbe = |px: f64, py: f64| {
-            *bild.get_pixel((px as i32 - rect.x) as u32, (py as i32 - rect.y) as u32)
+            *bild.get_pixel(
+                (px.floor() as i32 - rect.x) as u32,
+                (py.floor() as i32 - rect.y) as u32,
+            )
         };
         // Die Farbe eines Blocks mitten auf seiner Oberseite.
         let mitte = |[x, z]: [i32; 2]| {

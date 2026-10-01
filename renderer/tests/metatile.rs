@@ -208,6 +208,43 @@ fn kein_loch_in_deckendem_gelaende() {
     }
 }
 
+/// Von oben ragt ein Turm doppelter Höhe durch einen Teppich über ihm und
+/// ist zu sehen; in einem vollen Block über ihm verschwindet er. Sein
+/// oberes Teil liegt im Würfel darüber: nach dem Teppich, der keine
+/// Würfelform hat, vor dem vollen Block.
+/// Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
+#[test]
+fn von_oben_ragt_der_turm_durch_den_teppich() {
+    let projection = Projection::mit_kamera(32, Kamera::Oben);
+    let bild = |turm: bool, darueber: &'static str| {
+        let dir = tempdir();
+        common::write_world(dir.path(), &[(0, 0)], move |x, y, z| match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (8, 1, 8) if turm => "minecraft:turm",
+            (8, 2, 8) => darueber,
+            _ => "minecraft:air",
+        });
+        let world = World::open(dir.path()).unwrap();
+        let sprites = tabelle(&mut assets(), &world, projection);
+        let (mx, my) = projection.project_block([8, 0, 8]);
+        let rect = ScreenRect {
+            x: mx as i32 - 64,
+            y: my as i32 - 32,
+            width: 128,
+            height: 128,
+        };
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+    };
+    assert!(
+        bild(true, "minecraft:teppich") != bild(false, "minecraft:teppich"),
+        "unter dem Teppich verschwunden"
+    );
+    assert!(
+        bild(true, "minecraft:einfarbig") == bild(false, "minecraft:einfarbig"),
+        "durch den vollen Block zu sehen"
+    );
+}
+
 /// Dieselbe Welt 40 Blöcke höher gibt dasselbe Bild um den verschobenen
 /// Block, bei jeder Kamera. Von oben ändert die Höhe den Bildpunkt gar
 /// nicht, und das Fenster von `v` ist für jede Höhe dasselbe. Ein Überhang

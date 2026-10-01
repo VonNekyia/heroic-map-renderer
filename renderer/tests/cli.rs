@@ -1336,11 +1336,15 @@ fn native_stufen_wie_der_weg_je_stufe() {
     let deckend = basis.licht_deckend(&survey.states);
     let biomes = BiomeTable::new(assets.colors()).with(BLEND_DEFAULT, world.seed().unwrap());
     let tabellen = BTreeMap::from([16, 8, 4].map(|scale| {
-        let mut sprites =
-            SpriteSet::build_in(&mut assets, &survey.states, Projection::new(scale)).unwrap();
+        let mut sprites = SpriteSet::build_mit_licht(
+            &mut assets,
+            &survey.states,
+            Projection::new(scale),
+            Some(deckend.clone()),
+        )
+        .unwrap();
         sprites.add_entities(&mut assets, &survey.entities).unwrap();
         sprites.set_biomes(biomes.clone());
-        sprites.set_licht_deckend(deckend.clone());
         (scale, sprites)
     }));
     let mut caches: BTreeMap<u32, ChunkCache> = tabellen

@@ -73,9 +73,10 @@ pub struct SpriteSet {
     /// Die Farben der Biome, mit denen die Sprites beim Zeichnen getönt
     /// werden.
     biomes: BiomeTable,
-    /// Die Blöcke, die 26.2 nicht kennt und die nach dem Raster der Basis
-    /// das Licht ganz aufhalten, siehe [`SpriteSet::deckt_fuer_licht`].
-    /// `None` in der Tabelle der Basis selbst.
+    /// Die Blöcke, die 26.2 nicht kennt und die das Licht ganz aufhalten,
+    /// entschieden im Raster in 2:1 beim scale der Basis, siehe
+    /// [`SpriteSet::deckt_fuer_licht`]. `None` nur in einer Tabelle der Basis
+    /// in 2:1: Dort entscheidet sie selbst.
     licht_deckend: Option<HashSet<BlockState>>,
 }
 
@@ -488,6 +489,19 @@ impl SpriteSet {
         states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
     ) -> Result<SpriteSet> {
+        SpriteSet::build_mit_licht(assets, states, projection, None)
+    }
+
+    /// Wie [`SpriteSet::build_in`], nur kommt aus `licht_deckend`, welche
+    /// Blöcke, die 26.2 nicht kennt, das Licht ganz aufhalten
+    /// ([`SpriteSet::licht_deckend`]). Eine native Stufe nimmt so die Antwort
+    /// der Basis, damit ihr Licht nicht am scale hängt.
+    pub fn build_mit_licht<'a>(
+        assets: &mut Assets,
+        states: impl IntoIterator<Item = &'a BlockState>,
+        projection: Projection,
+        licht_deckend: Option<HashSet<BlockState>>,
+    ) -> Result<SpriteSet> {
         let typ = assets.dimension_type();
         let mut set = SpriteSet {
             sprites: Vec::new(),
@@ -554,7 +568,9 @@ impl SpriteSet {
         // Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet
         // das Raster in 2:1, damit das Licht nicht an der Kamera hängt: von
         // oben deckte schon eine flache Platte den ganzen Umriss.
-        if projection.kamera() != Kamera::ZWEI_ZU_EINS {
+        if licht_deckend.is_some() {
+            set.licht_deckend = licht_deckend;
+        } else if projection.kamera() != Kamera::ZWEI_ZU_EINS {
             let unbekannt: BTreeSet<BlockState> = seen
                 .into_iter()
                 .filter(|state| blockstate::Definition::of(state.name()).is_none())
@@ -721,10 +737,10 @@ impl SpriteSet {
     }
 
     /// Hält ein Block, den 26.2 nicht kennt, das Licht ganz auf? Wenn sein
-    /// Sprite den ganzen Umriss deckt, und zwar im Raster der Basis: Eine
-    /// native Stufe nimmt die Antwort von dort
-    /// ([`SpriteSet::set_licht_deckend`]), damit ihr Licht nicht am scale
-    /// hängt.
+    /// Sprite den ganzen Umriss deckt, und zwar im Raster in 2:1 beim scale
+    /// der Basis: Eine andere Kamera nimmt die Antwort von dort, eine native
+    /// Stufe die der Basis ([`SpriteSet::build_mit_licht`]), damit das Licht
+    /// weder an der Kamera noch am scale hängt.
     /// Siehe docs/renderer/wasser-und-licht.md, „Was bleibt eine Näherung“.
     pub fn deckt_fuer_licht(&self, state: &BlockState) -> bool {
         match &self.licht_deckend {
@@ -736,7 +752,7 @@ impl SpriteSet {
     }
 
     /// Die Zustände aus `states`, die 26.2 nicht kennt und die nach dieser
-    /// Tabelle das Licht ganz aufhalten, für [`SpriteSet::set_licht_deckend`].
+    /// Tabelle das Licht ganz aufhalten, für [`SpriteSet::build_mit_licht`].
     pub fn licht_deckend(&self, states: &BTreeSet<BlockState>) -> HashSet<BlockState> {
         states
             .iter()
@@ -745,12 +761,6 @@ impl SpriteSet {
             })
             .cloned()
             .collect()
-    }
-
-    /// Nimmt für Blöcke, die 26.2 nicht kennt, aus der Tabelle der Basis,
-    /// ob sie das Licht ganz aufhalten ([`SpriteSet::licht_deckend`]).
-    pub fn set_licht_deckend(&mut self, deckend: HashSet<BlockState>) {
-        self.licht_deckend = Some(deckend);
     }
 
     /// Streifen der Seitenflaechen ueber niedrigeren Nachbarn derselben
@@ -936,11 +946,15 @@ impl SpriteSet {
             sprite
         };
         let ganz = schwarz.ganz();
+        let zellen = schwarz.zellen();
+        let eigen = zellen.iter().all(|&zelle| zelle == OWN_CELL);
         // Was bis auf eine Pixelbreite in seinem Umriss bleibt, bleibt ganz,
-        // wie Wandfackeln und Korallenfächer.
+        // wie Wandfackeln und Korallenfächer. Von oben hat die Höhe im Bild
+        // keine Ausdehnung; dort gilt der Spielraum nur im eigenen Würfel.
         // Siehe docs/renderer/kamera.md, „Sortiert wird nach Würfeln“.
-        let passt = fits_cell(&ganz, OWN_CELL, self.projection);
-        if passt || !(2..=MAX_CELLS).contains(&schwarz.zellen()) {
+        let passt =
+            fits_cell(&ganz, OWN_CELL, self.projection) && (self.projection.b() > 0.0 || eigen);
+        if passt || eigen || zellen.len() > MAX_CELLS {
             let sprite = getoent(
                 ganz,
                 block.as_ref().map(Raster::ganz),
@@ -1221,8 +1235,9 @@ fn pixel_center(sprite: &Sprite, x: u32, y: u32) -> (f32, f32) {
     )
 }
 
-/// Bildschirmmittelpunkt eines Wuerfels, relativ zum Blockursprung.
-fn cell_center(cell: Cell, projection: Projection) -> (f32, f32) {
+/// Der Bildpunkt der Ecke eines Würfels mit den kleinsten Koordinaten,
+/// relativ zum Blockursprung: der Ursprung seines Umrisses.
+fn cell_origin(cell: Cell, projection: Projection) -> (f32, f32) {
     let (x, y) = projection.project_block(cell);
     (x as f32, y as f32)
 }
@@ -1310,7 +1325,7 @@ fn tint_kinds(sprite: &Sprite) -> u8 {
 /// eine Pixelbreite Toleranz: mehr verschiebt die Rundung beim Rastern
 /// nicht.
 fn fits_cell(sprite: &Sprite, cell: Cell, projection: Projection) -> bool {
-    let (cx, cy) = cell_center(cell, projection);
+    let (cx, cy) = cell_origin(cell, projection);
     sprite
         .image
         .enumerate_pixels()
@@ -1833,6 +1848,64 @@ mod tests {
         }
     }
 
+    /// Liegen alle Fragmente in einem einzigen fremden Würfel, wird das
+    /// Modell ein Teil dort, nicht ein ganzes im eigenen: wie die Stiele und
+    /// Karotten von Vanilla bei manchen scales im Würfel darunter. Ganz
+    /// bleibt es nur im Spielraum einer Pixelbreite, schräg; von oben nie.
+    /// Bei jeder Kamera und jedem scale.
+    #[test]
+    fn ein_fremder_wuerfel_wird_ein_teil() {
+        let kameras = ["2:1", "8:5", "4:3", "1:1", "top"].map(|k| Kamera::parse(k).unwrap());
+        let projektionen = (4..=64)
+            .step_by(2)
+            .flat_map(|scale| kameras.map(|k| Projection::mit_kamera(scale, k)))
+            .filter(Projection::ganze_pixel);
+        let mut zerfallen = Vec::new();
+        for projection in projektionen {
+            let (kamera, scale) = (projection.kamera(), projection.scale());
+            let mut assets = assets();
+            let set = build(&mut assets, &[state("unter_dem_boden")], projection).unwrap();
+            let id = set.id(&state("unter_dem_boden")).unwrap();
+            let cells: Vec<Cell> = set.sprites[id.0 as usize]
+                .parts
+                .iter()
+                .map(|(cell, _)| *cell)
+                .collect();
+            let model = model_of(&mut assets, &state("unter_dem_boden")).unwrap();
+            let bild = render(&model, assets.textures(), &projection, Tints::default()).unwrap();
+            let spielraum = projection.b() > 0.0 && fits_cell(&bild, OWN_CELL, projection);
+            let soll = if spielraum { OWN_CELL } else { [0, -1, 0] };
+            assert_eq!(cells, [soll], "{kamera}, scale {scale}");
+            if !spielraum {
+                zerfallen.push((kamera.to_string(), scale));
+            }
+        }
+        assert!(
+            zerfallen.contains(&("2:1".to_string(), 64)),
+            "{zerfallen:?}"
+        );
+        assert!(zerfallen.contains(&("top".to_string(), 4)), "{zerfallen:?}");
+    }
+
+    /// Von oben hat die Höhe im Bild keine Ausdehnung: Ein Turm doppelter
+    /// Höhe passt in seinen Umriss, zerfällt aber trotzdem. Zu sehen ist nur
+    /// seine Oberseite, und die liegt im Würfel darüber.
+    #[test]
+    fn von_oben_zerfaellt_der_turm() {
+        for scale in (4..=64).step_by(2) {
+            let mut assets = assets();
+            let projection = Projection::mit_kamera(scale, Kamera::Oben);
+            let set = build(&mut assets, &[state("turm")], projection).unwrap();
+            let id = set.id(&state("turm")).unwrap();
+            let cells: Vec<Cell> = set.sprites[id.0 as usize]
+                .parts
+                .iter()
+                .map(|(cell, _)| *cell)
+                .collect();
+            assert_eq!(cells, [[0, 1, 0]], "scale {scale}");
+        }
+    }
+
     /// Ein Modell, das knapp über seinen Würfel ragt, zerfällt nicht, liegt
     /// aber auch nicht im Umriss: seine Randpixel deckt kein Nachbar, und
     /// verdeckt fallen darf es deshalb nie. So liegen Schilder, Weizen oder
@@ -2282,7 +2355,9 @@ mod tests {
         let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
         let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
         let oben = Projection::mit_kamera(32, Kamera::Oben);
-        let (mut zustaende, mut flaechen, mut steil) = (0, 0, 1.0f32);
+        let (mut zustaende, mut flaechen) = (0, 0);
+        // Je Block die steilste Fläche, die die Kamera von oben sieht.
+        let mut je_block: BTreeMap<&str, f32> = BTreeMap::new();
         for zeile in include_str!("../assets/blocks.txt").lines() {
             let mut teile = zeile.split_whitespace();
             let Some(name) = teile.next() else { continue };
@@ -2313,7 +2388,8 @@ mod tests {
                             flaechen += 1;
                             let n = quad.normal();
                             let laenge = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-                            steil = steil.min(n[1] / laenge);
+                            let steilste = je_block.entry(name).or_insert(1.0);
+                            *steilste = steilste.min(n[1] / laenge);
                         }
                     }
                 }
@@ -2327,9 +2403,13 @@ mod tests {
                 break;
             }
         }
-        println!(
-            "{zustaende} Zustände, {flaechen} Flächen von oben, die steilste mit n_y = {steil}"
-        );
+        let mut steilste: Vec<(f32, &str)> = je_block.iter().map(|(&b, &n)| (n, b)).collect();
+        steilste.sort_by(|a, b| a.0.total_cmp(&b.0));
+        println!("{zustaende} Zustände, {flaechen} Flächen von oben; die steilsten:");
+        for (n, block) in &steilste[..3] {
+            println!("  {block}: n_y = {n}");
+        }
+        let steil = steilste[0].0;
         assert!(
             steil > 1e-3,
             "eine Fläche steht fast senkrecht: n_y = {steil}"

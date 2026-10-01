@@ -376,8 +376,8 @@ fn projektion_als_datei_ist_aktuell() {
         ("1:1", &[4, 6, 32]),
         ("top", &[4, 6, 32]),
         ("5:3", &[30]),
-        ("top-north", &[6, 16, 32]),
-        ("north-45", &[7, 16, 24, 32]),
+        ("top-north", &[6, 12, 16, 24, 32, 48]),
+        ("north-45", &[6, 7, 12, 16, 24, 32, 48]),
     ];
     let mut zeilen = Vec::new();
     for (kamera, scales) in kameras {

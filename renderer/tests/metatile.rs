@@ -148,6 +148,60 @@ fn rect_um(projection: Projection, min: [i32; 3], max: [i32; 3]) -> ScreenRect {
     }
 }
 
+/// Kleine Ausschnitte gleichen dem grossen Bild, je Kamera: Ein Ausschnitt
+/// von 128 Pixeln liest nur die Sections, die sein Band erreicht (`y_span`),
+/// und nur die Chunks seines Bands; das grosse Bild über die ganze Szene
+/// liest alle. Fehlt einem Ausschnitt eine Section oder ein Chunk, weicht er
+/// ab. Die Szene reicht über zwei Chunks in x und z und vier Sections.
+#[test]
+fn kleine_ausschnitte_gleichen_dem_grossen_bild() {
+    let dir = tempdir();
+    let world = common::write_szene(dir.path());
+    let y_range = common::SZENE_Y;
+    for (kamera, scale) in [
+        ("2:1", 16),
+        ("4:3", 16),
+        ("top", 16),
+        ("top-north", 16),
+        ("north-45", 16),
+        ("north-45", 7),
+    ] {
+        let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+        let survey = survey(&world, projection, y_range, None).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&common::biomdaten()).unwrap();
+        let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        let ganz = rect_um(projection, [0, -16, 0], [32, 48, 32]);
+        let gross = render_area(&world, &sprites, ganz, y_range).unwrap();
+        let mut ausschnitte = 0;
+        for y in (ganz.y..ganz.bottom()).step_by(128) {
+            for x in (ganz.x..ganz.right()).step_by(128) {
+                let rect = ScreenRect {
+                    x,
+                    y,
+                    width: 128.min((ganz.right() - x) as u32),
+                    height: 128.min((ganz.bottom() - y) as u32),
+                };
+                let klein = render_area(&world, &sprites, rect, y_range).unwrap();
+                let soll = image::imageops::crop_imm(
+                    &gross,
+                    (x - ganz.x) as u32,
+                    (y - ganz.y) as u32,
+                    rect.width,
+                    rect.height,
+                )
+                .to_image();
+                assert!(
+                    klein == soll,
+                    "{kamera} bei {scale}: Ausschnitt bei ({x}, {y})"
+                );
+                ausschnitte += 1;
+            }
+        }
+        assert!(ausschnitte >= 4, "{kamera}: nur {ausschnitte} Ausschnitte");
+    }
+}
+
 /// Kameras für die Invarianten: die aus dem Issue, 1:1 und `top` bei scale
 /// 6, dem ersten mit ungeraden h und a, und Paare aus gültigem W:H und
 /// scale, gezogen mit fester Saat, damit jeder Lauf dieselben prüft.

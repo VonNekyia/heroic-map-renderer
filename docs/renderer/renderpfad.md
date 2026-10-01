@@ -170,6 +170,14 @@ Kacheln bei scale 16, 16 bei 8 und die 4 bei 4, jede Stufe Zeile für Zeile
 - **Leere Kacheln:** Die Kinder einer Kachel liegen im selben Band. Ob eine
   leere Kachel über einem Kind stehen bleibt (`kind_bleibt`), entscheidet
   der Thread des Bands allein.
+- **Abbruch:** Innerhalb eines Bands ist die feinere Stufe fertig, bevor die
+  gröbere beginnt. Andere Bänder haben womöglich noch nicht begonnen und
+  fangen nach dem Abbruch keines mehr an (`verteile`). Ihre Kacheln zeigen
+  noch den alten Stand, auch auf einer feineren Stufe als der, an der der
+  Lauf abbrach. Nicht erreichte Kacheln gab es auch ohne Bänder, nach einem
+  Abbruch mitten in einer Stufe. Was ein Lauf gerendert hat, zeigt dagegen
+  schon den neuen, siehe [Kacheln](../benutzung/kacheln.md), „Wann
+  entfernt wird“.
 - **Feine Stufen im Speicher:** Die gröbste Stufe gibt ihre Viertel ab, wie
   ohne native Stufen die Basis, siehe
   [Zoomstufen](../benutzung/zoomstufen.md), „Feine Stufen im Speicher“.

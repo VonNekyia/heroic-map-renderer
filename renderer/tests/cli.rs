@@ -641,14 +641,22 @@ fn ohne_prune_bleibt_keine_kachel_ohne_eltern() {
 }
 
 /// Eine Kachel, die leer geworden ist, verschwindet erst am Ende des Laufs,
-/// zeigt aber schon ab dem Rendern nichts mehr. Bricht der Lauf danach ab,
-/// steht sie noch da, durchsichtig: ein späterer Ausschnitt nähme sonst
-/// ihren alten Inhalt in die Elternkachel. Der zweite Block bei (0, 4, 0)
-/// reicht in die Kacheln (-1, -1) und (0, -1) der Basis und der Stufe
-/// darüber, der erste nicht, auch wenn der Vorlauf sie nennt. Den Abbruch
-/// erzwingt ein Verzeichnis an der Stelle einer Kachel des ersten Blocks
-/// zwei Stufen über der Basis; bis dahin sind die beiden fertig. Bei
-/// scale 16 sind sie nativ, bei 12 verkleinert.
+/// zeigt aber schon ab dem Rendern nichts mehr: ein späterer Ausschnitt
+/// nähme sonst ihren alten Inhalt in die Elternkachel. Nach einem Abbruch
+/// ist deshalb jede leer gewordene Kachel entweder durchsichtig, weil schon
+/// gerendert, oder unverändert alt, weil nicht erreicht. Der nächste Lauf
+/// heilt beides. Der zweite Block bei (0, 4, 0) reicht in die Kacheln
+/// (-1, -1) und (0, -1) der Basis und der Stufe darüber, der erste nicht,
+/// auch wenn der Vorlauf sie nennt. Den Abbruch erzwingt ein Verzeichnis an
+/// der Stelle einer Kachel des ersten Blocks zwei Stufen über der Basis.
+/// Bei scale 16 sind beide Stufen darüber nativ, bei 12 verkleinert.
+/// Auf einem Thread prüft der Test die strenge Form, alle durchsichtig:
+/// Dort ist bis zum Abbruch alles darunter erreicht, denn die Basis rendert
+/// (0, 0) zuletzt, und die vier Kacheln der gröbsten nativen Stufe liegen
+/// in einem Band, das die feinere Stufe vor der gröberen rendert. Auf vier
+/// Threads hat jeder sein eigenes Stück, bei scale 16 ein Band je Kachel.
+/// Bricht einer ab, bevor ein anderer begonnen hat, fängt der nicht mehr an
+/// (`verteile`), und dessen Kacheln bleiben unverändert alt.
 #[test]
 fn leer_gewordene_kachel_zeigt_nach_abbruch_nichts() {
     let alt = tempdir();
@@ -666,43 +674,44 @@ fn leer_gewordene_kachel_zeigt_nach_abbruch_nichts() {
     for scale in ["16", "12"] {
         let voll = tempdir();
         gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
-        let baum = tempdir();
-        gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
-        let z = max_zoom(baum.path());
-        let stufen = [z, z - 1];
-        for (stufe, tile) in stufen.iter().flat_map(|&s| leer_geworden.map(|t| (s, t))) {
-            let alt = bild(&kacheln(baum.path(), stufe)[&tile]);
-            assert!(
-                alt.pixels().any(|p| p.0[3] > 0),
-                "scale {scale}: {stufe} {tile:?}"
-            );
-            assert!(
-                !kacheln(voll.path(), stufe).contains_key(&tile),
-                "scale {scale}"
-            );
-        }
-        let vorher: Vec<BTreeMap<TileId, PathBuf>> =
-            stufen.iter().map(|&s| kacheln(baum.path(), s)).collect();
-        let sperre = baum.path().join(format!("{}/0/0.webp", z - 2));
-        std::fs::remove_file(&sperre).unwrap();
-        std::fs::create_dir(&sperre).unwrap();
-        let ausgabe = tiles(neu.path(), baum.path(), &["--scale", scale]);
-        assert!(!ausgabe.status.success(), "scale {scale}: kein Abbruch");
-        for (stufe, bestand) in stufen.iter().zip(&vorher) {
-            for tile in &leer_geworden {
+        for threads in [1, 4] {
+            let fall = format!("scale {scale}, {threads} Threads");
+            let baum = tempdir();
+            gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
+            let z = max_zoom(baum.path());
+            let stufen = [z, z - 1];
+            let mut vorher = BTreeMap::new();
+            for (stufe, tile) in stufen.iter().flat_map(|&s| leer_geworden.map(|t| (s, t))) {
+                let pfad = kacheln(baum.path(), stufe)[&tile].clone();
                 assert!(
-                    bild(&bestand[tile]).pixels().all(|p| p.0[3] == 0),
-                    "scale {scale}: {stufe} {tile:?} zeigt noch den alten Inhalt"
+                    bild(&pfad).pixels().any(|p| p.0[3] > 0),
+                    "{fall}: {stufe} {tile:?}"
+                );
+                assert!(!kacheln(voll.path(), stufe).contains_key(&tile), "{fall}");
+                vorher.insert((stufe, tile), (std::fs::read(&pfad).unwrap(), pfad));
+            }
+            let sperre = baum.path().join(format!("{}/0/0.webp", z - 2));
+            std::fs::remove_file(&sperre).unwrap();
+            std::fs::create_dir(&sperre).unwrap();
+            let schalter = ["--native-levels", "9", "--scale", scale];
+            let ausgabe = export_auf(threads, neu.path(), baum.path(), &schalter);
+            assert!(!ausgabe.status.success(), "{fall}: kein Abbruch");
+            for ((stufe, tile), (bytes, pfad)) in &vorher {
+                let durchsichtig = bild(pfad).pixels().all(|p| p.0[3] == 0);
+                let unberuehrt = threads > 1 && std::fs::read(pfad).unwrap() == *bytes;
+                assert!(
+                    durchsichtig || unberuehrt,
+                    "{fall}: {stufe} {tile:?} zeigt noch den alten Inhalt"
                 );
             }
+            std::fs::remove_dir(&sperre).unwrap();
+            gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));
+            assert_eq!(
+                schnappschuss(baum.path()),
+                schnappschuss(voll.path()),
+                "{fall}"
+            );
         }
-        std::fs::remove_dir(&sperre).unwrap();
-        gelungen(&tiles(neu.path(), baum.path(), &["--scale", scale]));
-        assert_eq!(
-            schnappschuss(baum.path()),
-            schnappschuss(voll.path()),
-            "scale {scale}"
-        );
     }
 }
 

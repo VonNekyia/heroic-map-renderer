@@ -66,8 +66,10 @@ Grundlage für
   Runde bis 6 % langsamer als in den Runden davor; der Median nimmt die
   mittlere Runde.
 
-- **Zeit je Strahl:** Zeit je Bild mit Strahlen weniger der ohne, mal 24
-  Threads, geteilt durch die Strahlen zur Sonne.
+- **Zeit je Strahl:** der Median der Zeit je Bild mit Strahlen weniger dem
+  Median ohne, beide auf die Millisekunde wie in der Tabelle, mal 24
+  Threads, geteilt durch die Strahlen zur Sonne des Ausschnitts. Für die
+  Streuung dasselbe je Runde, gegen „ohne“ derselben Runde.
 - **Grösse:** Je Ausschnitt die Bilder der Karte (`--render`, Raster) und
   von Cinematic mit harten Schatten (`SONNE_RADIUS=0`), in 6 × 6 Kacheln
   zu 256 × 256 Pixeln geschnitten, links oben beginnend, und als WebP
@@ -88,29 +90,29 @@ Grundlage für
 **Gleichheit:** Jedes Bild jeder schnellen Art ist Pixel für Pixel gleich
 dem des alten Gangs, in allen Runden aller Reihen.
 
-**Strahlen zur Sonne je Bild:** 3,84 Mio. im Dorf, 1,50 je Pixel, denn
-unter Wasser bekommt auch der Grund einen; 2,29 und 2,27 Mio. am Hügel und
-am Stand, 0,89 je Pixel.
+**Strahlen zur Sonne je Bild,** in jeder Art und Runde gleich: 3 836 791
+im Dorf, 1,50 je Pixel, denn unter Wasser bekommt auch der Grund einen;
+2 291 045 am Hügel und 2 265 925 am Stand, 0,89 je Pixel.
 
 **Zeit je Bild** in s, Median der drei Runden, Spannweite in Klammern;
 Reihe 1 im einzigen Durchgang mit leerem Cache, die anderen im zweiten:
 
 | Reihe | Art | Dorf | Hügel | Stand |
 |---|---|---|---|---|
-| 1, kalt | alt | 3,31 (2,98–3,31) | 1,30 (1,26–1,39) | 1,83 (1,77–1,86) |
-| 1, kalt | Bitmasken | 3,14 (2,94–3,19) | 1,20 (1,16–1,24) | 1,73 (1,72–1,79) |
-| 1, kalt | ohne | 2,20 (2,10–2,22) | 0,99 (0,98–1,06) | 1,43 (1,40–1,45) |
-| 2, warm | alt | 3,25 (2,89–3,25) | 1,28 (1,25–1,29) | 1,73 (1,69–1,75) |
-| 2, warm | Bitmasken | 3,13 (2,92–3,20) | 1,15 (1,14–1,18) | 1,68 (1,65–1,70) |
-| 2, warm | ohne | 2,17 (2,14–2,20) | 0,94 (0,93–0,94) | 1,35 (1,35–1,40) |
-| 3, warm | alt | 3,27 (2,88–3,32) | 1,27 (1,27–1,40) | 1,76 (1,74–1,83) |
-| 3, warm | Bitmasken | 3,06 (2,92–3,13) | 1,17 (1,10–1,19) | 1,66 (1,66–1,75) |
-| 3, warm | Test der Zelle | 2,61 (2,49–2,61) | 1,15 (1,15–1,16) | 1,59 (1,58–1,61) |
-| 3, warm | ohne | 2,14 (2,04–2,15) | 0,95 (0,93–0,96) | 1,43 (1,39–1,48) |
-| 4, warm | alt | 3,43 (3,11–3,46) | 1,32 (1,28–1,35) | 1,76 (1,74–1,86) |
-| 4, warm | Bitmasken, Nachschlag je Section | 3,21 (2,91–3,26) | 1,17 (1,14–1,19) | 1,66 (1,64–1,72) |
-| 4, warm | Test der Zelle, Nachschlag je Section | 2,67 (2,54–2,68) | 1,16 (1,12–1,18) | 1,55 (1,51–1,65) |
-| 4, warm | ohne | 2,24 (2,08–2,27) | 1,00 (0,95–1,02) | 1,42 (1,41–1,43) |
+| 1, kalt | alt | 3,306 (2,984–3,315) | 1,305 (1,261–1,385) | 1,826 (1,773–1,863) |
+| 1, kalt | Bitmasken | 3,139 (2,936–3,187) | 1,195 (1,163–1,235) | 1,733 (1,719–1,786) |
+| 1, kalt | ohne | 2,197 (2,098–2,220) | 0,989 (0,978–1,065) | 1,434 (1,401–1,449) |
+| 2, warm | alt | 3,246 (2,886–3,249) | 1,283 (1,253–1,294) | 1,729 (1,692–1,755) |
+| 2, warm | Bitmasken | 3,132 (2,924–3,197) | 1,147 (1,141–1,181) | 1,679 (1,645–1,696) |
+| 2, warm | ohne | 2,168 (2,137–2,203) | 0,936 (0,930–0,939) | 1,351 (1,349–1,404) |
+| 3, warm | alt | 3,269 (2,875–3,317) | 1,268 (1,268–1,397) | 1,764 (1,744–1,832) |
+| 3, warm | Bitmasken | 3,061 (2,916–3,133) | 1,167 (1,096–1,187) | 1,662 (1,657–1,749) |
+| 3, warm | Test der Zelle | 2,607 (2,486–2,607) | 1,149 (1,145–1,163) | 1,586 (1,585–1,613) |
+| 3, warm | ohne | 2,136 (2,036–2,152) | 0,955 (0,934–0,958) | 1,428 (1,386–1,484) |
+| 4, warm | alt | 3,431 (3,108–3,465) | 1,317 (1,282–1,351) | 1,760 (1,738–1,860) |
+| 4, warm | Bitmasken, Nachschlag je Section | 3,208 (2,908–3,258) | 1,166 (1,135–1,187) | 1,661 (1,641–1,718) |
+| 4, warm | Test der Zelle, Nachschlag je Section | 2,666 (2,545–2,680) | 1,157 (1,122–1,180) | 1,550 (1,506–1,646) |
+| 4, warm | ohne | 2,236 (2,083–2,273) | 1,005 (0,952–1,022) | 1,424 (1,406–1,430) |
 
 **Je Strahl und Thread:**
 
@@ -130,6 +132,21 @@ Reihe 1 im einzigen Durchgang mit leerem Cache, die anderen im zweiten:
 Die Arten liegen nur innerhalb einer Reihe nebeneinander. Gegen den alten
 Gang derselben Reihe kostet ein Strahl mit Test der Zelle in Reihe 3 42,
 62 und 47 %, mit Nachschlag je Section in Reihe 4 36, 49 und 38 %.
+
+**Wie sicher je Strahl ist:** Je Strahl ist eine kleine Differenz zweier
+Zeiten. Beim schnellsten Gang in Reihe 4 sind es im Dorf 0,43 s, am Hügel
+0,15 s und am Stand 0,13 s, bei Spannweiten der Zeiten bis 0,19 s. Je
+Runde gerechnet, gegen „ohne“ derselben Runde:
+
+| Reihe 4, Test der Zelle, Nachschlag je Section | Runde 1 | Runde 2 | Runde 3 |
+|---|---|---|---|
+| Dorf | 2,9 µs | 2,5 µs | 2,8 µs |
+| Hügel | 1,8 µs | 1,6 µs | 1,7 µs |
+| Stand | 1,5 µs | 0,9 µs | 2,3 µs |
+
+Im Dorf und am Hügel streut je Strahl um rund 10 %, am Stand von 0,9 bis
+2,3 µs. Am Hügel liegen Bitmasken und Test der Zelle je Runde
+übereinander, 1,7 bis 1,9 µs gegen 1,6 bis 1,8 µs.
 
 **Was ein Strahl tut,** Reihe 3, Test der Zelle: 18 bis 23 Zellen, davon
 0,4 bis 0,8 mit Flächentest und 4 bis 7 Dreiecken, im Dorf 5,8 Zellen
@@ -168,10 +185,11 @@ fällt, und Pixel an Schattenkanten.
   ihm 36 bis 49 % des alten Gangs.
 - Am meisten bringt der Test der Zelle, vor allem über Wasser. In Reihe 4
   sinkt ein Strahl mit ihm im Dorf von 6,1 auf 2,7 µs, bei 5,8 Zellen
-  reinem Wasser je Strahl; am Stand von 2,5 auf 1,3 µs, am Hügel von 1,7
-  auf 1,6 µs.
+  reinem Wasser je Strahl, am Stand von 2,5 auf 1,3 µs, dort mit grosser
+  Streuung. Am Hügel liegt der Unterschied im Rauschen.
 - Der Nachschlag je Section bringt weniger: gegen den alten Gang derselben
-  Reihe 36 bis 49 % statt 42 bis 62 %.
+  Reihe 36 bis 49 % statt 42 bis 62 %. Am Stand liegt auch das im
+  Rauschen.
 - Was bleibt, ist Arbeit je Zelle, rund 75 bis 120 ns bei 18 bis 23 Zellen
   je Strahl. Für das Ziel aus 0053, höchstens 0,5 µs je Strahl, dürften es
   nur 22 bis 28 ns sein. Das Laden der Chunks ist es nicht: Kalt sind die

@@ -58,9 +58,11 @@ scale 32 rund einen bis drei Tage statt 44 min, hochgerechnet aus
   Blickachse, die Normale und die Farbe ohne die Schattierung nach
   Richtung. Gebacken werden sie nur mit dem Schalter.
 - **Ein Strahl zur Sonne je sichtbarem Texel,** unter scale 32 je Pixel.
-  Er geht durchs Blockgitter über die Bitmasken der Sections und durch den
-  Chunk-Cache. Volle Würfel treffen ohne Flächentest, reines Wasser lässt
-  die Sonne durch, die übrigen Zellen prüfen die Flächen ihres Modells mit
+  Auf achsparallelen Flächen beginnt er in der Mitte des Texels, auf
+  1/16 Block gerundet; schräge Flächen bleiben je Pixel. Er geht durchs
+  Blockgitter über die Bitmasken der Sections und durch den Chunk-Cache.
+  Volle Würfel treffen ohne Flächentest, reines Wasser lässt die Sonne
+  durch, die übrigen Zellen prüfen die Flächen ihres Modells mit
   Alpha-Test. Das ist exakt: kein Raster für Schatten, kein Bias, kein
   Rauschen.
 - **Die Sonne steht fest zur Kamera:** von links, rund 48° hoch, wie in der
@@ -126,10 +128,10 @@ sie Tage.
   der Sonne, je nach Belichtung, und der Rand jeder Kachel bräuchte Strahlen
   zur Sonne. Bloom aus dem, was leuchtet, braucht am Rand nur das Raster.
 - **Karte und Cinematic in einem Lauf,** beide Bäume auf einmal.
-  Kandidaten, Deckung, Sprite-Wahl, Chunks und Licht teilten sich beide,
-  gerechnet 25 bis 30 min je Paar auf der grossen Welt. Es braucht aber
-  zwei Ausgaben und zwei Pyramiden in einem Lauf. Erst, wenn beide Bäume
-  regelmässig entstehen.
+  Kandidaten, Deckung, Sprite-Wahl, Chunks und Licht teilten sich beide;
+  das spart gerechnet 25 bis 30 min je Paar auf der grossen Welt. Es
+  braucht aber zwei Ausgaben und zwei Pyramiden in einem Lauf. Erst, wenn
+  beide Bäume regelmässig entstehen.
 - **Die Grafikkarte:** Seit der Deckungsmaske zeichnet die CPU ohne Karte
   etwa so schnell wie mit, siehe [Grafikkarte](../benutzung/grafikkarte.md).
   Den Schatten müsste der Shader mit der Welt rechnen, die heute nur die

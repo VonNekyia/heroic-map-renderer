@@ -99,12 +99,13 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0043](entscheidungen/0043-native-stufen-in-baendern.md): Native Stufen in Bändern, mit Chunks und Licht über alle Stufen.
 - [0044](entscheidungen/0044-flaechen-zu-gleichen-nachbarn.md): Flächen zu gleichen Nachbarn nach der Regel des Spiels, aus einer Tabelle, mit Fassungen je Familie.
 - [0045](entscheidungen/0045-varianten-genau-drehen.md): Varianten genau um Vielfache von 90 Grad drehen, wie die Matrix des Spiels, Elemente ebenso.
-- [0046](entscheidungen/0046-drei-renderarten.md): Drei Renderarten, zwei Backends, ein Kern; Cinematic nur mit dem Licht des Spiels.
+- [0046](entscheidungen/0046-drei-renderarten.md): Drei Renderarten, zwei Backends, ein Kern, abgelöst durch 0053.
 - [0047](entscheidungen/0047-lighthouse-gegen-den-build.md): Lighthouse gegen den Build mit festen Schwellen, ohne Crawler und Baseline; die Header setzt der Betreiber.
 - [0048](entscheidungen/0048-seite-beim-build.md): Adresse, Titel, Beschreibung und Vorschaubild der Seite beim Build; keine Sitemap, kein JSON-LD.
 - [0049](entscheidungen/0049-umriss-nur-ohne-zeiger.md): Umriss nur beim Tippen mit Finger oder Stift, nicht mit der Maus.
 - [0050](entscheidungen/0050-teile-je-wuerfel-im-raum.md): Teile je Würfel im Raum, je Fragment, vor einem Block mit Flächen nur auf den Vorderseiten.
 - [0051](entscheidungen/0051-kameras-und-richtungen.md): Kameras und Richtungen: jede Raute von 2:1 bis 1:1 und `top`, ganze Pixel statt Vielfachen von 4, eine Kamera je Baum.
+- [0053](entscheidungen/0053-cinematic-als-schalter-der-karte.md): Cinematic als Schalter der Karte: im Raster gezeichnet, ein Strahl zur Sonne je Texel, ein eigener Kachelbaum mit `look`; Showcase entfällt.
 
 ## Messungen
 
@@ -136,3 +137,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-01, Cinematic, Zeit je Bild](messungen/2026-10-01-cinematic-zeit.md): was ein Bild in Cinematic am Prototyp kostet, mit dem Licht des Spiels und mit Strahlen zum Himmel, und was ein Strahl je Pixel, der Start an der Höhe und eine Decke für die Strahlen zur Sonne bringen.
 - [2026-10-01, Teile je Würfel im Raum](messungen/2026-10-01-teile-je-wuerfel-im-raum.md): was die Zuordnung der Teile im Raum aus #65 an Kacheln ändert und kostet, am Stand und an einer Feuerszene der Testwelt, im Wechsel gegen master, mit und ohne Karte, dazu Sprites und die Spitze des Speichers.
 - [2026-10-01, Kameras](messungen/2026-10-01-kameras.md): was jede Kamera aus #66 am Stand und im Fichtenwald kostet, je Spalte gegen 2:1, ohne und mit Karte, und dass 2:1 Byte für Byte gleich bleibt.
+- [2026-10-02, Strahl zur Sonne und Grösse der Kacheln für Cinematic](messungen/2026-10-02-strahl-zur-sonne.md): was ein Strahl zur Sonne am Prototyp kostet, mit altem Gang, über die Bitmasken, mit schnellem Test der Zelle und Nachschlag je Section, wie schwer Kacheln in Cinematic gegen die der Karte sind und was ein Strahl je Texel statt je Pixel am Bild ändert.

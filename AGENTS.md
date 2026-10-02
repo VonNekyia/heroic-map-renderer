@@ -117,10 +117,10 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 ### Entwurf
 
 22. Bei jeder neuen Abhängigkeit und jedem neuen Feature gilt die Frage:
-    Braucht eine der drei Renderarten das wirklich, die Karte aus
-    Rasterkacheln, Cinematic oder Showcase, und geht es nicht mit dem, was
-    schon da ist? Wenn nein, kommt es nicht dazu. Was nur die Bilder
-    brauchen, macht die Karte weder langsamer noch anders.
+    Braucht die Karte aus Rasterkacheln das wirklich, mit oder ohne
+    Cinematic, und geht es nicht mit dem, was schon da ist? Wenn nein,
+    kommt es nicht dazu. Was nur Cinematic braucht, macht die Karte ohne
+    Cinematic weder langsamer noch anders.
 
 ### Fremde Arbeit
 

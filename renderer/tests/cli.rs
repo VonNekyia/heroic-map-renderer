@@ -4291,8 +4291,9 @@ fn andere_richtung_im_ordner_wird_abgelehnt() {
 /// Cinematic in den eigenen Ordner `"cinematic"` mit dem Fingerabdruck der
 /// Werte, und `trees.json` nennt beide. Liegt ein Baum im Ordner des anderen
 /// looks, bricht ein Lauf ab und nennt den Schalter, in beide Richtungen;
-/// ebenso Cinematic mit anderen Werten, auch mit `--resume`. `--pyramid`
-/// behält beide Felder.
+/// ebenso Cinematic mit anderen Werten, auch mit `--resume`. Einen look,
+/// den es nicht gibt, nimmt kein Lauf an, und `trees.json` nennt den Baum
+/// nicht. `--pyramid` behält beide Felder.
 #[test]
 fn ein_baum_ein_look() {
     let welt = tempdir();
@@ -4403,6 +4404,29 @@ fn ein_baum_ein_look() {
         &kino,
         &["--scale", "8", "--cinematic", "--resume"],
     ));
+
+    // Ein look, den es nicht gibt: Der Lauf in den Baum bricht ab, und
+    // trees.json nennt ihn nicht mehr, sobald ein Lauf sie neu schreibt.
+    let mut neu = info(&kino);
+    neu["look"] = "foo".into();
+    std::fs::write(&pfad, serde_json::to_string_pretty(&neu).unwrap()).unwrap();
+    let ausgabe = export(welt.path(), &kino, &["--scale", "8", "--cinematic"]);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("look foo gibt es nicht"),
+        "{meldung}"
+    );
+    gelungen(&export(
+        welt.path(),
+        karte.path(),
+        &["--scale", "8", "--resume"],
+    ));
+    let liste: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(wurzel.join("trees.json")).unwrap()).unwrap();
+    assert_eq!(
+        liste["trees"],
+        serde_json::json!([{"path": "2x1-se", "camera": "2:1", "direction": "se", "look": "map"}])
+    );
 
     let ausgabe = cli(&[
         OsStr::new("--world"),

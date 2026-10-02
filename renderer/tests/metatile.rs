@@ -679,11 +679,51 @@ fn hdr_haelt_die_tiefe_der_vordersten_flaeche() {
     assert_eq!((hdr.tiefe[0], hdr.farbe[0][3]), (f32::NEG_INFINITY, 0.0));
 }
 
-/// Ein Biom mit eigener `sky_color` färbt das Himmelslicht: Die Oberseite
-/// eines Blocks im vollen Himmelslicht hat in jedem Biom die Farbe, die
-/// `Kino` rechnet, die Textur linear mal dem Licht im Himmel ihres Bioms.
-/// Frozen setzt in der Fixture `#ffa040`, plains nichts und nimmt den
-/// Himmel der Oberwelt. Mit Radius 0, ohne Mischung über die Grenze.
+/// Zwei Draws auf einem Pixel: Eis vor der Ostseite eines Blocks, beide
+/// gezeichnet, denn Eis deckt nicht ganz. Die Tiefe ist die der Oberseite
+/// des Eises, der vorderen Fläche, und der Pixel deckt ganz.
+#[test]
+fn hdr_haelt_die_tiefe_des_vorderen_draws() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 3, 8) => "minecraft:einfarbig",
+        (9, 3, 9) => "minecraft:ice",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    let kino =
+        SpriteSet::build_mit_licht(&mut assets(), &states, projection, None, Some(LOOK)).unwrap();
+    let rect = rect_um(projection, [8, 3, 8], [10, 4, 10]);
+    let hdr = render_hdr_with(&mut ChunkCache::new(&world, &kino), rect, Y_RANGE).unwrap();
+    // Auf der Oberseite des Eises, vor der Ostseite von (8, 3, 8) bei y 3,7.
+    let (sx, sy) = projection.project([9.3, 4.0, 9.1]);
+    let (px, py) = (sx.floor() as i32, sy.floor() as i32);
+    let i = ((py - rect.y) as u32 * hdr.width + (px - rect.x) as u32) as usize;
+    let u = (px as f32 + 0.5) / projection.h() as f32;
+    let v = (py as f32 + 0.5 + 4.0 * projection.b() as f32) / projection.a() as f32;
+    let eis = projection.depth([(v + u) / 2.0, 4.0, (v - u) / 2.0]);
+    let (ostseite, z) = (projection.depth([9.0, 3.7, 8.8]), (v - u) / 2.0);
+    assert!((9.0..10.0).contains(&z), "z {z}");
+    assert!(eis > ostseite);
+    assert!(
+        (hdr.tiefe[i] - eis).abs() < 1e-3,
+        "Tiefe {} statt {eis}",
+        hdr.tiefe[i]
+    );
+    assert_eq!(hdr.farbe[i][3], 1.0);
+}
+
+/// Ein Biom mit eigener `sky_color` färbt das Himmelslicht, gemischt über
+/// die Blöcke im Quadrat mit dem Radius 2, auch aus `nw`: Die Oberseite
+/// eines Blocks im vollen Himmelslicht hat in HDR die Textur linear mal dem
+/// Himmelslicht dreifach und der Umgebung. Frozen setzt in der Fixture
+/// `#ffa040`, plains nichts und nimmt den Himmel der Oberwelt. Mitten in
+/// einem Biom gilt seine Farbe, an der Grenze bei x = 16 das Mittel der 25
+/// Blöcke, zwei Spalten plains und drei frozen. Das Soll in Python
+/// gerechnet.
 /// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
 #[test]
 fn biom_faerbt_das_himmelslicht() {
@@ -704,54 +744,33 @@ fn biom_faerbt_das_himmelslicht() {
     };
     common::write_world_sections(dir.path(), &[(0, 0), (1, 0)], 0..=0, boden, biom);
     let world = World::open(dir.path()).unwrap();
-    let projection = Projection::new(16);
+    let kamera = Kamera::ZWEI_ZU_EINS;
+    let projection = Projection::new(16).aus(Richtung::parse("nw", kamera).unwrap());
     let survey = survey(&world, projection, Y_RANGE, None).unwrap();
     let mut assets = assets();
     assets.load_biomes(&common::biomdaten()).unwrap();
-    let biomes = BiomeTable::new(assets.colors()).with(0, None);
-    let mut karte = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
     let mut kino =
         SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
             .unwrap();
-    karte.set_biomes(biomes.clone());
-    kino.set_biomes(biomes.clone());
+    kino.set_biomes(BiomeTable::new(assets.colors()).with(2, None));
     let rect = rect_um(projection, [0, 0, 0], [32, 4, 16]);
-    let (a, b) = (
-        render_area(&world, &karte, rect, Y_RANGE).unwrap(),
-        render_area(&world, &kino, rect, Y_RANGE).unwrap(),
-    );
-    // Die Mitte der Oberseite des Blocks (x, 3, z).
-    let pixel = |bild: &RgbaImage, x: i32, z: i32| {
-        let (sx, sy) = projection.project([x as f32 + 0.5, 4.0, z as f32 + 0.5]);
-        bild.get_pixel(
-            (sx.floor() as i32 - rect.x) as u32,
-            (sy.floor() as i32 - rect.y) as u32,
-        )
-        .0
-    };
-    let linear = |c: u8| {
-        let c = c as f32 / 255.0;
-        if c <= 0.04045 {
-            c / 12.92
-        } else {
-            ((c + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    let k = kino.kino().unwrap();
-    let mut farben = Vec::new();
-    for (x, name) in [(8, "minecraft:plains"), (24, "minecraft:frozen")] {
-        // Die Karte zeigt die Oberseite im vollen Licht in der Farbe der
-        // Textur.
-        let textur = pixel(&a, x, 8);
-        let licht = k.licht(k.himmel(biomes.id(name)), 240.0, 0.0, 255.0);
-        let soll = k.ton(std::array::from_fn(|c| linear(textur[c]) * licht[c]));
-        let ist = pixel(&b, x, 8);
-        assert_eq!(ist, [soll[0], soll[1], soll[2], 255], "{name}");
-        farben.push(ist);
+    let hdr = render_hdr_with(&mut ChunkCache::new(&world, &kino), rect, Y_RANGE).unwrap();
+    for (x, soll) in [
+        (4, [0.2614195, 0.2219919, 0.1373306]),
+        (28, [0.8187543, 0.2097489, 0.0408742]),
+        (16, [0.5958204, 0.2146461, 0.0794568]),
+    ] {
+        // Die Mitte der Oberseite des Blocks (x, 3, 8), im Blick.
+        let [bx, by, bz] = blick(projection, [x, 3, 8]);
+        let (sx, sy) = projection.project([bx as f32 + 0.5, by as f32 + 1.0, bz as f32 + 0.5]);
+        let i =
+            (sy.floor() as i32 - rect.y) as u32 * rect.width + (sx.floor() as i32 - rect.x) as u32;
+        let ist = hdr.farbe[i as usize];
+        assert!(
+            (0..3).all(|c| (ist[c] - soll[c]).abs() < 1e-4) && ist[3] == 1.0,
+            "x = {x}: {ist:?} statt {soll:?}"
+        );
     }
-    // Der Himmel von frozen ist wärmer.
-    let waerme = |p: [u8; 4]| p[0] as f32 / p[2] as f32;
-    assert!(waerme(farben[1]) > waerme(farben[0]), "{farben:?}");
 }
 
 /// Ein Ausschnitt, grösser als ein Stück von `render_area`, gleicht Byte

@@ -375,7 +375,7 @@ pub fn run() -> Result<()> {
                 );
             }
             let modifikatoren = assets.colors().biome_modifiers();
-            if !modifikatoren.is_empty() {
+            if args.cinematic && !modifikatoren.is_empty() {
                 println!(
                     "            {} Biome setzen eine Farbe des Himmels mit Modifikator; Cinematic nimmt die des Dimensionstyps:",
                     modifikatoren.len()

@@ -61,18 +61,15 @@ const BRIGHTNESS_FACTOR: f32 = 0.5;
 /// Siehe docs/renderer/wasser-und-licht.md, „Helligkeit wie im Spiel“.
 pub fn brightness_rgb(typ: &DimensionType, sky: u8, block: u8) -> [f32; 3] {
     let level = |l: u8| l.min(FULL_LIGHT) as f32 / 15.0;
-    let get_brightness = |l: f32| l / (4.0 - 3.0 * l);
-    let farbe = |c: Tint| c.map(|c| c as f32 / 255.0);
-    let umgebung = farbe(typ.ambient_light_color);
-    let himmel = farbe(typ.sky_light_color);
-    let tint = farbe(typ.block_light_tint);
+    let umgebung = roh(typ.ambient_light_color);
+    let himmel = roh(typ.sky_light_color);
     let b = level(block);
     let sky_brightness = get_brightness(level(sky)) * typ.sky_light_factor;
     let block_brightness = get_brightness(b) * BLOCK_FACTOR;
-    let mix = 0.9 * (2.0 * b - 1.0) * (2.0 * b - 1.0);
+    let block_color = blocklicht_farbe(typ.block_light_tint, b);
     let color: [f32; 3] = std::array::from_fn(|c| {
-        let block_color = tint[c] + (1.0 - tint[c]) * mix;
-        (umgebung[c] + himmel[c] * sky_brightness + block_color * block_brightness).clamp(0.0, 1.0)
+        (umgebung[c] + himmel[c] * sky_brightness + block_color[c] * block_brightness)
+            .clamp(0.0, 1.0)
     });
     let max = color.iter().fold(0.0f32, |a, &c| a.max(c));
     if max == 0.0 {
@@ -81,6 +78,26 @@ pub fn brightness_rgb(typ: &DimensionType, sky: u8, block: u8) -> [f32; 3] {
     let rest = 1.0 - max;
     let scaled = 1.0 - rest * rest * rest * rest;
     color.map(|c| c + (c * (scaled / max) - c) * BRIGHTNESS_FACTOR)
+}
+
+/// `get_brightness` in `lightmap.fsh`: die Helligkeit einer Stufe von 0
+/// bis 1.
+pub(crate) fn get_brightness(level: f32) -> f32 {
+    level / (4.0 - 3.0 * level)
+}
+
+/// Eine Farbe aus dem Dimensionstyp, wie das Spiel sie liest: je Kanal
+/// c/255 (`ARGB.vector3fFromRGB24`).
+pub(crate) fn roh(farbe: Tint) -> [f32; 3] {
+    farbe.map(|c| f32::from(c) / 255.0)
+}
+
+/// Die Farbe des Blocklichts der Stufe `b` von 0 bis 1 wie in
+/// `lightmap.fsh`: `BlockLightTint` roh zu Weiss gemischt mit
+/// `0,9 · (2b − 1)²`.
+pub(crate) fn blocklicht_farbe(tint: Tint, b: f32) -> [f32; 3] {
+    let mix = 0.9 * (2.0 * b - 1.0) * (2.0 * b - 1.0);
+    roh(tint).map(|t| t + (1.0 - t) * mix)
 }
 
 /// Die Lightmap einer Dimension: [`brightness_rgb`] je Himmels- und
@@ -389,6 +406,9 @@ pub struct Geometrie {
     /// Die Normale der Fläche in der Welt, normiert, auf der Seite, die die
     /// Kamera sieht.
     pub normale: [f32; 3],
+    /// Die Fläche wird nach ihrer Richtung schattiert (`shade`); ohne
+    /// bekommt sie in Cinematic das Licht einer Fläche nach oben.
+    pub shade: bool,
 }
 
 /// Ein Pixel in den Farben seines Blocks: je Kanal der Rest aus dem Bild
@@ -474,7 +494,7 @@ pub struct Raster {
     weich: bool,
     /// Für Cinematic je Rang einer Fläche ihre Normale, siehe
     /// [`Geometrie::normale`].
-    normalen: Option<Vec<[f32; 3]>>,
+    normalen: Option<Vec<([f32; 3], bool)>>,
 }
 
 impl Raster {
@@ -622,7 +642,12 @@ pub fn rastern(
     // Modellreihenfolge.
     // Siehe docs/renderer/naehte.md, „Fragmente je Pixel“.
     projected.sort_by(|a, b| a.depth.total_cmp(&b.depth));
-    let normalen = kino.then(|| projected.iter().map(|q| q.normale).collect());
+    let normalen = kino.then(|| {
+        projected
+            .iter()
+            .map(|q| (q.normale, q.quad.shade))
+            .collect()
+    });
 
     let (min_x, min_y, max_x, max_y) = bounds(&projected)?;
     let width = (max_x - min_x).max(1) as u32;
@@ -1194,7 +1219,7 @@ impl Canvas {
     fn mischen(
         &self,
         ao: bool,
-        normalen: Option<&[[f32; 3]]>,
+        normalen: Option<&[([f32; 3], bool)]>,
         nimm: impl Fn(&Fragment) -> bool,
     ) -> (RgbaImage, Option<Vec<u32>>, Option<Vec<Geometrie>>) {
         let pixel = (self.width * self.height) as usize;
@@ -1217,9 +1242,11 @@ impl Canvas {
                 map[index as usize] = vorderstes.ao;
             }
             if let (Some(geometrie), Some(normalen)) = (&mut geometrie, normalen) {
+                let (normale, shade) = normalen[vorderstes.order as usize];
                 geometrie[index as usize] = Geometrie {
                     tiefe: vorderstes.depth,
-                    normale: normalen[vorderstes.order as usize],
+                    normale,
+                    shade,
                 };
             }
         }
@@ -2574,6 +2601,69 @@ mod tests {
         assert_eq!(sprite.image.get_pixel(8, 8).0[3], 255);
         assert_eq!(sprite.image.get_pixel(0, 0).0[3], 0);
         assert_eq!(sprite.image.get_pixel(15, 0).0[3], 0);
+    }
+
+    /// Decken sich zwei Flächen eines Modells, trägt die Geometrie des
+    /// Pixels die vordere: Ein kleiner Kasten steht auf einer Platte, und an
+    /// seiner Südseite liegt die Oberseite der Platte dahinter. Dort stehen
+    /// Tiefe und Normale der Südseite, daneben die der Oberseite. Die
+    /// Flächen des Kastens haben kein `shade`, das trägt die Geometrie mit.
+    #[test]
+    fn geometrie_der_vorderen_flaeche() {
+        let kasten =
+            |from, to| crate::assets::baker::box_quads(from, to, Textures::MISSING, None, None);
+        let model = BakedModel {
+            quads: kasten([0.0; 3], [16.0, 8.0, 16.0])
+                .chain(
+                    kasten([0.0, 8.0, 0.0], [8.0, 16.0, 8.0]).map(|q| Quad { shade: false, ..q }),
+                )
+                .collect(),
+            ambient_occlusion: true,
+        };
+        let projection = Projection::new(16);
+        let licht = CardinalLight::Default;
+        let textures = Textures::new();
+        let sprite = rastern(
+            &model,
+            &textures,
+            &projection,
+            Tints::default(),
+            licht,
+            true,
+            true,
+        )
+        .unwrap()
+        .ganz();
+        let geometrie = sprite.geometrie.as_ref().unwrap();
+        let (h, a, b) = (
+            projection.h() as f32,
+            projection.a() as f32,
+            projection.b() as f32,
+        );
+        let am = |punkt: [f32; 3]| {
+            let (sx, sy) = projection.project(punkt);
+            let (x, y) = (
+                sx.floor() as i32 - sprite.offset.0,
+                sy.floor() as i32 - sprite.offset.1,
+            );
+            let g = geometrie[(y as u32 * sprite.image.width() + x as u32) as usize];
+            (g, (sx.floor() + 0.5, sy.floor() + 0.5))
+        };
+        // Auf der Südseite des Kastens, z = 0,5: x aus u = x − z, y aus v.
+        let (g, (sx, sy)) = am([0.4, 0.6, 0.5]);
+        let x = sx / h + 0.5;
+        let y = ((x + 0.5) * a - sy) / b;
+        assert_eq!((g.normale, g.shade), ([0.0, 0.0, 1.0], false));
+        assert!(
+            (g.tiefe - projection.depth([x, y, 0.5])).abs() < 1e-4,
+            "{g:?}"
+        );
+        // Auf der Oberseite der Platte, y = 0,5.
+        let (g, (sx, sy)) = am([0.75, 0.5, 0.75]);
+        let (u, v) = (sx / h, (sy + 0.5 * b) / a);
+        assert_eq!((g.normale, g.shade), ([0.0, 1.0, 0.0], true));
+        let soll = projection.depth([(v + u) / 2.0, 0.5, (v - u) / 2.0]);
+        assert!((g.tiefe - soll).abs() < 1e-4, "{g:?}");
     }
 
     /// Cinematic rastert dieselben Pixel wie die Karte, ohne Schattierung

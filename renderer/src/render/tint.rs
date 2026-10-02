@@ -113,20 +113,25 @@ impl BiomeTable {
         [x, y, z]: [i32; 3],
         mut biome_of: impl FnMut([i32; 3]) -> Result<u16>,
     ) -> Result<Tint> {
-        let r = self.radius as i32;
-        if r == 0 {
+        if self.radius == 0 {
             return Ok(self.color(biome_of([x, y, z])?, resolver, x, z));
         }
         let mut summe = [0u32; 3];
-        for cz in z - r..=z + r {
-            for cx in x - r..=x + r {
-                let farbe = self.color(biome_of([cx, y, cz])?, resolver, cx, cz);
-                for (s, c) in summe.iter_mut().zip(farbe) {
-                    *s += c as u32;
-                }
+        let mut n = 0;
+        for [cx, cy, cz] in self.quadrat([x, y, z]) {
+            let farbe = self.color(biome_of([cx, cy, cz])?, resolver, cx, cz);
+            for (s, c) in summe.iter_mut().zip(farbe) {
+                *s += c as u32;
             }
+            n += 1;
         }
-        let n = ((2 * r + 1) * (2 * r + 1)) as u32;
         Ok(summe.map(|s| (s / n) as u8))
+    }
+
+    /// Die Blöcke im Quadrat mit dem Radius um den Block, auf seiner Höhe,
+    /// über die [`BiomeTable::blend`] mischt, Zeile für Zeile nach z.
+    pub fn quadrat(&self, [x, y, z]: [i32; 3]) -> impl Iterator<Item = [i32; 3]> + use<> {
+        let r = self.radius as i32;
+        (z - r..=z + r).flat_map(move |cz| (x - r..=x + r).map(move |cx| [cx, y, cz]))
     }
 }

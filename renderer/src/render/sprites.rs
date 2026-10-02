@@ -781,11 +781,6 @@ impl SpriteSet {
         &self.biomes
     }
 
-    /// Mit welchen Werten Cinematic zeichnet; `None` für die Karte.
-    pub fn look(&self) -> Option<&Look> {
-        self.kino.as_ref().map(Kino::look)
-    }
-
     /// Womit Cinematic zeichnet; `None` für die Karte.
     pub fn kino(&self) -> Option<&Kino> {
         self.kino.as_ref()

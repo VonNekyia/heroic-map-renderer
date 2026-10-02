@@ -62,6 +62,8 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `metatile.rs` | eine Kachel rendern: Chunk-Cache, Bitmasken, Kandidaten, Deckungsmaske, Licht, weiche Beleuchtung, Biom je Block, Blit, siehe [Der Weg einer Kachel](../renderer/renderpfad.md) |
 | `look.rs` | die Werte des Looks von Cinematic an einer Stelle und ihr Fingerabdruck, siehe [Cinematic](../renderer/cinematic.md), „Werte des Looks“ |
 | `kino.rs` | das Licht von Cinematic in HDR und der Ton am Ende, siehe [Cinematic](../renderer/cinematic.md), „Licht in HDR“ |
+| `sonne.rs` | was ein Block dem Strahl zur Sonne in den Weg stellt und der Test eines Strahls dagegen, siehe [Cinematic](../renderer/cinematic.md), „Schatten“ |
+| `metatile/strahl.rs` | der Strahl zur Sonne durch den Chunk-Cache: schneller Gang und langsamer Bezug, siehe [Cinematic](../renderer/cinematic.md), „Der schnelle Gang“ |
 | `licht.rs` | Himmels- und Blocklicht ausbreiten wie das Spiel, siehe [Wasser und Licht](../renderer/wasser-und-licht.md), „Licht ausbreiten“ |
 | `tint.rs` | die Farben der Biome und ihre Mischung über Biomgrenzen, siehe [Biomfarben](../renderer/biomfarben.md) |
 | `tiles.rs` | Kachelraster, Vorlauf (`survey`), WebP (`encode_webp`) |

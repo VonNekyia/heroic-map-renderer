@@ -349,8 +349,9 @@ fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey
     Ok(survey)
 }
 
-/// Bildrechteck, in dem eine Blockspalte der Kantenlänge `kante` landen
-/// kann — die Reserve für überstehende Sprites eingerechnet.
+/// Bildrechteck, in dem eine Blockspalte der Welt mit der Kantenlänge
+/// `kante` ab `(x, z)` landen kann — die Reserve für überstehende Sprites
+/// eingerechnet. Ihre Ecken dreht es in den Blick.
 fn column_box(
     projection: Projection,
     x: i32,
@@ -360,10 +361,12 @@ fn column_box(
 ) -> ScreenRect {
     let mut min = (i32::MAX, i32::MAX);
     let mut max = (i32::MIN, i32::MIN);
+    let richtung = projection.richtung();
     for &cx in &[x, x + kante] {
         for &cz in &[z, z + kante] {
+            let [bx, _, bz] = richtung.versatz_in_den_blick([cx, 0, cz]);
             for &cy in &[y_range.0, y_range.1] {
-                let (sx, sy) = projection.project_block([cx, cy, cz]);
+                let (sx, sy) = projection.project_block([bx, cy, bz]);
                 min = (min.0.min(sx.floor() as i32), min.1.min(sy.floor() as i32));
                 max = (max.0.max(sx.ceil() as i32), max.1.max(sy.ceil() as i32));
             }

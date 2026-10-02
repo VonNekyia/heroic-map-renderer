@@ -8,7 +8,7 @@ use crate::assets::blockentity::Entity;
 use crate::assets::{CardinalLight, DimensionType, Face, Textures, Tint, Tints, fluid};
 
 use super::pyramid::{LINEAR, to_srgb};
-use super::{Cell, Projection};
+use super::{Cell, Projection, Richtung};
 
 /// Abtastpunkte je Pixelkante für die Textur. Die Geometrie wird nur im
 /// Pixelmittelpunkt geprüft, die Textur über den Pixel gemittelt, so
@@ -213,16 +213,45 @@ pub fn darken(pixel: [u8; 4], factors: [u32; 3]) -> [u8; 4] {
 /// `north-45` sieht Osten nicht, von oben nur die Oberseite.
 pub const AO_FACES: [Face; 3] = [Face::Up, Face::South, Face::East];
 
-/// Die Ecken einer Seite aus [`AO_FACES`] in der Reihenfolge von `FaceInfo`
-/// in 26.2, in den beiden Koordinaten der Seite: oben `(x, z)`, Süden
-/// `(x, y)`, Osten `(z, y)`. Das Spiel zeichnet das Viereck als die
-/// Dreiecke 0-1-2 und 2-3-0.
+/// Die Ecken der Seiten oben und rundum in der Reihenfolge von `FaceInfo`
+/// in 26.2, im Würfel 0..1, per javap am 26.2-Client. Das Spiel zeichnet
+/// das Viereck als die Dreiecke 0-1-2 und 2-3-0.
 /// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
-const FACE_INFO: [[[f32; 2]; 4]; 3] = [
-    [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
-    [[0.0, 1.0], [0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
-    [[1.0, 1.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
+const FACE_INFO: [(Face, [[f32; 3]; 4]); 5] = [
+    (
+        Face::Up,
+        [[0., 1., 0.], [0., 1., 1.], [1., 1., 1.], [1., 1., 0.]],
+    ),
+    (
+        Face::North,
+        [[1., 1., 0.], [1., 0., 0.], [0., 0., 0.], [0., 1., 0.]],
+    ),
+    (
+        Face::South,
+        [[0., 1., 1.], [0., 0., 1.], [1., 0., 1.], [1., 1., 1.]],
+    ),
+    (
+        Face::West,
+        [[0., 1., 0.], [0., 0., 0.], [0., 0., 1.], [0., 1., 1.]],
+    ),
+    (
+        Face::East,
+        [[1., 1., 1.], [1., 0., 1.], [1., 0., 0.], [1., 1., 0.]],
+    ),
 ];
+
+/// Die Ecken der Seite `seite` aus [`AO_FACES`] im Blick, in ihren beiden
+/// Koordinaten ([`face_coords`]): die Ecken der Seite der Welt, die dort
+/// liegt, in deren Reihenfolge aus [`FACE_INFO`]. In dieser Reihenfolge
+/// legt [`ChunkCache::ecken_at`](super::metatile) die Werte ab.
+pub(crate) fn ecken_im_blick(richtung: Richtung, seite: usize) -> [[f32; 2]; 4] {
+    let welt = richtung.seite_in_die_welt(AO_FACES[seite]);
+    let (_, ecken) = FACE_INFO
+        .iter()
+        .find(|(face, _)| *face == welt)
+        .expect("oben oder rundum");
+    ecken.map(|ecke| face_coords(seite, richtung.punkt_in_den_blick(ecke)))
+}
 
 /// Die Seite aus [`AO_FACES`], als die das Spiel ein Viereck im Licht der
 /// Zelle davor zeichnet, weich mit den vier Werten je Ecke oder flach
@@ -259,8 +288,8 @@ fn ao_face(quad: &Quad, kollision: bool) -> Option<usize> {
         .map(|(face, _)| face)
 }
 
-/// Die Koordinaten eines Punkts auf einer Seite aus [`AO_FACES`], wie in
-/// [`FACE_INFO`].
+/// Die Koordinaten eines Punkts auf einer Seite aus [`AO_FACES`]: oben
+/// `(x, z)`, Süden `(x, y)`, Osten `(z, y)`.
 fn face_coords(face: usize, [x, y, z]: [f32; 3]) -> [f32; 2] {
     match face {
         0 => [x, z],
@@ -269,12 +298,11 @@ fn face_coords(face: usize, [x, y, z]: [f32; 3]) -> [f32; 2] {
     }
 }
 
-/// Die Anteile der vier Ecken aus [`FACE_INFO`] an einem Punkt der Seite,
-/// in 255steln und zusammen genau 255: baryzentrisch in dem der beiden
-/// Dreiecke des Spiels, in dem der Punkt liegt. So verläuft die
-/// Helligkeit der Ecken im Spiel über die Fläche.
-fn corner_weights(face: usize, p: [f32; 2]) -> [u32; 4] {
-    let e = FACE_INFO[face];
+/// Die Anteile der vier Ecken `e` einer Seite aus [`ecken_im_blick`] an
+/// einem Punkt der Seite, in 255steln und zusammen genau 255:
+/// baryzentrisch in dem der beiden Dreiecke des Spiels, in dem der Punkt
+/// liegt. So verläuft die Helligkeit der Ecken im Spiel über die Fläche.
+fn corner_weights(e: [[f32; 2]; 4], p: [f32; 2]) -> [u32; 4] {
     let bary = |[a, b, c]: [usize; 3]| {
         let (pa, pb, pc) = (e[a], e[b], e[c]);
         let flaeche = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]);
@@ -304,7 +332,7 @@ fn ao_word(face: usize, w: [u32; 4]) -> u32 {
 
 /// Das Licht an den Ecken der drei Seiten aus [`AO_FACES`], die weiche
 /// Beleuchtung eingerechnet: je Farbkanal und Seite ein Wort, ein Byte je
-/// Ecke in der Reihenfolge von [`FACE_INFO`], in 255steln. So liefert es
+/// Ecke in der Reihenfolge von [`ecken_im_blick`], in 255steln. So liefert es
 /// [`ChunkCache::ecken_at`](super::metatile) je Block.
 pub type Ecken = [[u32; 3]; 3];
 
@@ -517,13 +545,22 @@ pub fn rastern(
     licht: CardinalLight,
     kollision: bool,
 ) -> Option<Raster> {
-    let mut projected: Vec<ProjectedQuad> = model
+    // Gerastert wird im Blick, schattiert nach der Richtung in der Welt.
+    let richtung = projection.richtung();
+    let im_blick: Vec<Quad> = model
         .quads
         .iter()
-        .filter_map(|quad| {
+        .map(|quad| quad_im_blick(quad, richtung))
+        .collect();
+    let ecken: [[[f32; 2]; 4]; 3] = std::array::from_fn(|s| ecken_im_blick(richtung, s));
+    let mut projected: Vec<ProjectedQuad> = im_blick
+        .iter()
+        .zip(&model.quads)
+        .filter_map(|(quad, welt)| {
             let rueckseite = seite(quad, projection)?;
+            let shade = shade_factor(welt, rueckseite, licht);
             Some(ProjectedQuad::new(
-                quad, projection, rueckseite, licht, kollision,
+                quad, projection, shade, kollision, &ecken,
             ))
         })
         .collect();
@@ -603,18 +640,20 @@ struct ProjectedQuad<'a> {
     /// Tiefe der vordersten Ecke, nur zum Sortieren.
     depth: f32,
     shade: f32,
-    /// Als welche Seite das Viereck weich beleuchtet wird, siehe [`ao_face`].
-    ao_face: Option<usize>,
+    /// Als welche Seite das Viereck weich beleuchtet wird, siehe [`ao_face`],
+    /// mit deren Ecken aus [`ecken_im_blick`].
+    ao_face: Option<(usize, [[f32; 2]; 4])>,
 }
 
 impl<'a> ProjectedQuad<'a> {
-    /// `rueckseite`: Die Kamera sieht die Fläche von hinten, siehe [`seite`].
+    /// `quad` im Blick, `shade` aus [`shade_factor`], `ecken` je Seite aus
+    /// [`ecken_im_blick`].
     fn new(
         quad: &'a Quad,
         projection: &Projection,
-        rueckseite: bool,
-        licht: CardinalLight,
+        shade: f32,
         kollision: bool,
+        ecken: &[[[f32; 2]; 4]; 3],
     ) -> ProjectedQuad<'a> {
         let screen = quad.corners.map(|corner| {
             let (x, y) = projection.project(corner);
@@ -624,8 +663,8 @@ impl<'a> ProjectedQuad<'a> {
             quad,
             screen,
             depth: screen.iter().map(|&(_, _, d)| d).fold(f32::MIN, f32::max),
-            shade: shade_factor(quad, rueckseite, licht),
-            ao_face: ao_face(quad, kollision),
+            shade,
+            ao_face: ao_face(quad, kollision).map(|face| (face, ecken[face])),
         }
     }
 
@@ -656,7 +695,7 @@ impl<'a> ProjectedQuad<'a> {
         let ao_face = self.ao_face;
         let vertices: [Vertex; 4] = std::array::from_fn(|i| {
             let (x, y, depth) = self.screen[i];
-            let [s, t] = ao_face.map_or([0.0; 2], |f| face_coords(f, self.quad.corners[i]));
+            let [s, t] = ao_face.map_or([0.0; 2], |(f, _)| face_coords(f, self.quad.corners[i]));
             Vertex {
                 x: x - min_x as f32,
                 y: y - min_y as f32,
@@ -763,9 +802,21 @@ impl<'a> ProjectedQuad<'a> {
 /// Prüfung gewinnen abgewandte Flächen den Tiefentest, wenn sie mit einer
 /// sichtbaren zusammenfallen — beim Seerosenblatt liegen `down` und `up` in
 /// derselben Ebene. Eine Fläche parallel zur Blickrichtung zählt nicht,
-/// siehe `EDGE_ON`.
+/// siehe `EDGE_ON`. `quad` liegt in der Welt.
 pub(crate) fn faces_camera(quad: &Quad, projection: &Projection) -> bool {
-    zur_kamera(quad.normal(), projection)
+    let richtung = projection.richtung();
+    zur_kamera(richtung.normale_in_den_blick(quad.normal()), projection)
+}
+
+/// Das Viereck der Welt im Blick aus `richtung`, um die Mitte seines
+/// Blocks gedreht. Seine Seiten, `fluid` und `cullface`, bleiben die der
+/// Welt.
+/// Siehe docs/renderer/richtungen.md, „Im Blick“.
+fn quad_im_blick(quad: &Quad, richtung: Richtung) -> Quad {
+    Quad {
+        corners: quad.corners.map(|ecke| richtung.punkt_in_den_blick(ecke)),
+        ..quad.clone()
+    }
 }
 
 /// Zeigt die Normale zur Kamera, siehe [`faces_camera`]? Von oben steht
@@ -776,9 +827,9 @@ fn zur_kamera(n: [f32; 3], projection: &Projection) -> bool {
     n[0] * ax + n[1] * ay + n[2] * az > EDGE_ON * length
 }
 
-/// Welche Seite einer Fläche die Kamera sieht: `Some(false)` die Vorderseite,
-/// `Some(true)` die Rückseite, die nur eine Schicht ohne Culling zeichnet
-/// (`RenderPipeline.isCull`), `None` keine.
+/// Welche Seite einer Fläche im Blick die Kamera sieht: `Some(false)` die
+/// Vorderseite, `Some(true)` die Rückseite, die nur eine Schicht ohne
+/// Culling zeichnet (`RenderPipeline.isCull`), `None` keine.
 fn seite(quad: &Quad, projection: &Projection) -> Option<bool> {
     let n = quad.normal();
     if zur_kamera(n, projection) {
@@ -868,7 +919,7 @@ struct Shading {
     shade: f32,
     tint: Option<[f32; 3]>,
     order: u32,
-    ao_face: Option<usize>,
+    ao_face: Option<(usize, [[f32; 2]; 4])>,
     deckung: Deckung,
 }
 
@@ -1028,10 +1079,10 @@ impl Canvas {
                 if texel[3] == 255 {
                     self.front[index] = self.front[index].max(depth);
                 }
-                let ao = ao_face.map_or(0, |face| {
+                let ao = ao_face.map_or(0, |(face, ecken)| {
                     let s = w[0] * v[0].s + w[1] * v[1].s + w[2] * v[2].s;
                     let t = w[0] * v[0].t + w[1] * v[1].t + w[2] * v[2].t;
-                    ao_word(face, corner_weights(face, [s, t]))
+                    ao_word(face, corner_weights(ecken, [s, t]))
                 });
                 // Der Punkt im Raum von einer Ecke aus, damit eine Achse, auf
                 // der alle Ecken gleich liegen, genau bleibt.
@@ -1099,13 +1150,14 @@ impl Canvas {
 }
 
 /// Liegt jede Fläche, die der Rasterizer vom Modell zeichnet, auf einer der
-/// drei vorderen Seiten seines Würfels, bei x, y oder z gleich 1? Dann liegt
-/// alles im Würfel hinter jeder von ihnen.
+/// drei vorderen Seiten seines Würfels im Blick, bei x, y oder z gleich 1?
+/// Dann liegt alles im Würfel hinter jeder von ihnen.
 /// Siehe docs/renderer/kamera.md, „Ein Teil im Würfel eines anderen Blocks“.
 pub(crate) fn auf_den_vorderseiten(model: &BakedModel, projection: &Projection) -> bool {
     model
         .quads
         .iter()
+        .map(|quad| quad_im_blick(quad, projection.richtung()))
         .filter(|quad| seite(quad, projection).is_some())
         .all(|quad| (0..3).any(|achse| quad.corners.iter().all(|c| c[achse] == 1.0)))
 }
@@ -1642,26 +1694,64 @@ mod tests {
     /// dunklen und der hellen Ecke.
     #[test]
     fn anteile_der_ecken() {
-        assert_eq!(corner_weights(0, [0.0, 0.0]), [255, 0, 0, 0]);
-        assert_eq!(corner_weights(0, [0.0, 1.0]), [0, 255, 0, 0]);
-        assert_eq!(corner_weights(0, [1.0, 1.0]), [0, 0, 255, 0]);
-        assert_eq!(corner_weights(0, [1.0, 0.0]), [0, 0, 0, 255]);
-        assert_eq!(corner_weights(0, [0.25, 0.75]), [64, 127, 64, 0]);
-        assert_eq!(corner_weights(0, [0.75, 0.25]), [64, 0, 64, 127]);
-        for face in 0..3 {
-            for i in 0..=10 {
-                for j in 0..=10 {
-                    let w = corner_weights(face, [i as f32 / 10.0, j as f32 / 10.0]);
-                    assert_eq!(w.iter().sum::<u32>(), 255, "Seite {face}, {i}, {j}");
+        let oben = ecken_im_blick(Richtung::default(), 0);
+        assert_eq!(corner_weights(oben, [0.0, 0.0]), [255, 0, 0, 0]);
+        assert_eq!(corner_weights(oben, [0.0, 1.0]), [0, 255, 0, 0]);
+        assert_eq!(corner_weights(oben, [1.0, 1.0]), [0, 0, 255, 0]);
+        assert_eq!(corner_weights(oben, [1.0, 0.0]), [0, 0, 0, 255]);
+        assert_eq!(corner_weights(oben, [0.25, 0.75]), [64, 127, 64, 0]);
+        assert_eq!(corner_weights(oben, [0.75, 0.25]), [64, 0, 64, 127]);
+        for k in 0..4 {
+            let richtung =
+                Richtung::parse(["se", "sw", "nw", "ne"][k], Kamera::ZWEI_ZU_EINS).unwrap();
+            for face in 0..3 {
+                let ecken = ecken_im_blick(richtung, face);
+                for i in 0..=10 {
+                    for j in 0..=10 {
+                        let w = corner_weights(ecken, [i as f32 / 10.0, j as f32 / 10.0]);
+                        assert_eq!(w.iter().sum::<u32>(), 255, "Seite {face}, {i}, {j}");
+                    }
                 }
             }
         }
         let innenecke = [u32::from_le_bytes([102, 153, 255, 153]), u32::MAX, u32::MAX];
-        let an = |p| ecken_faktor(ao_word(0, corner_weights(0, p)), innenecke);
+        let an = |p| ecken_faktor(ao_word(0, corner_weights(oben, p)), innenecke);
         assert_eq!(an([0.0, 0.0]), 102);
         assert_eq!(an([0.5, 0.5]), 178);
         assert_eq!(an([1.0, 1.0]), 255);
         assert_eq!(ecken_faktor(0, innenecke), 255, "Pixel ohne Seite");
+    }
+
+    /// Aus der Vorgabe-Richtung sind die Ecken die von oben, Süden und
+    /// Osten aus `FaceInfo`. Aus jeder anderen liegt an derselben Stelle der
+    /// Seite die Ecke der Seite der Welt, die dort liegt: aus Nordwesten
+    /// zeigt die Seite nach Süden die Ecken des Nordens, deren erste oben
+    /// links.
+    #[test]
+    fn ecken_der_seiten_im_blick() {
+        let vorgabe = Richtung::default();
+        assert_eq!(
+            std::array::from_fn::<_, 3, _>(|s| ecken_im_blick(vorgabe, s)),
+            [
+                [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
+                [[0.0, 1.0], [0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
+                [[1.0, 1.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
+            ]
+        );
+        let nw = Richtung::parse("nw", Kamera::ZWEI_ZU_EINS).unwrap();
+        // Norden: (1, 1, 0), (1, 0, 0), (0, 0, 0), (0, 1, 0), halb gedreht.
+        assert_eq!(
+            ecken_im_blick(nw, 1),
+            [[0.0, 1.0], [0.0, 0.0], [1.0, 0.0], [1.0, 1.0]]
+        );
+        for name in ["sw", "nw", "ne"] {
+            let richtung = Richtung::parse(name, Kamera::ZWEI_ZU_EINS).unwrap();
+            for s in 0..3 {
+                let mut ecken = ecken_im_blick(richtung, s).map(|[a, b]| (a as u8, b as u8));
+                ecken.sort();
+                assert_eq!(ecken, [(0, 0), (0, 1), (1, 0), (1, 1)], "{name}, Seite {s}");
+            }
+        }
     }
 
     /// Über dem Grund D im Licht l ergibt die Oberfläche `α · W + (1 − α) ·

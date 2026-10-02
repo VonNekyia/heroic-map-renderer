@@ -15,7 +15,7 @@ use crate::world::{BlockState, Blockdaten};
 
 use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
 use super::tint::BiomeTable;
-use super::{Kamera, Projection, Sprite, render};
+use super::{Kamera, Projection, Richtung, Sprite, render};
 
 /// Verweis in die Sprite-Tabelle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -196,8 +196,8 @@ pub struct Family {
     /// Nimmt der Block diese Farbe am Block darunter, siehe
     /// [`tinted_below`]?
     pub tint_below: bool,
-    /// Wo die andere Hälfte einer Doppelkiste steht, relativ zum Block,
-    /// siehe [`doppelkiste`].
+    /// Wo die andere Hälfte einer Doppelkiste steht, relativ zum Block, im
+    /// Blick, siehe [`doppelkiste`].
     pub doppelkiste: Option<[i32; 3]>,
     /// Zu welchen Nachbarn der Block Flächen weglässt, siehe
     /// [`blockstate::nachbarregel`].
@@ -228,9 +228,10 @@ impl Family {
         self.alternatives[wahl].1
     }
 
-    /// Die Alternative fuer einen Block, als Platz in der Liste, dieselbe,
-    /// die der 26.2-Client wuerfelt: `nextInt(total)` aus `Mth.getSeed` der
-    /// Position, die Gewichte in Listenreihenfolge abgezaehlt.
+    /// Die Alternative fuer einen Block an `pos` in der Welt, als Platz in
+    /// der Liste, dieselbe, die der 26.2-Client wuerfelt: `nextInt(total)`
+    /// aus `Mth.getSeed` der Position, die Gewichte in Listenreihenfolge
+    /// abgezaehlt.
     /// Siehe docs/renderer/varianten.md, „Wie gewürfelt wird“.
     pub fn wahl(&self, pos: [i32; 3]) -> Option<usize> {
         if self.alternatives.len() == 1 {
@@ -249,7 +250,7 @@ impl Family {
     }
 
     /// Die Seiten, zu denen [`Family::ohne_nachbarn`] fragt, in dieser
-    /// Reihenfolge. Leer für Blöcke ohne Regel.
+    /// Reihenfolge, Seiten der Welt. Leer für Blöcke ohne Regel.
     pub fn nachbarseiten(&self) -> impl Iterator<Item = Face> + '_ {
         SEITEN
             .into_iter()
@@ -566,12 +567,15 @@ impl SpriteSet {
         }
 
         // Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet
-        // das Raster in 2:1, damit das Licht nicht an der Kamera hängt: von
-        // oben deckte schon eine flache Platte den ganzen Umriss. 2:1 nimmt
-        // nur Vielfache von 4; sonst rastert es beim nächsten darüber.
+        // das Raster in 2:1 aus der Vorgabe-Richtung, damit das Licht nicht
+        // an der Kamera hängt: von oben deckte schon eine flache Platte den
+        // ganzen Umriss. 2:1 nimmt nur Vielfache von 4; sonst rastert es
+        // beim nächsten darüber.
         if licht_deckend.is_some() {
             set.licht_deckend = licht_deckend;
-        } else if projection.kamera() != Kamera::ZWEI_ZU_EINS {
+        } else if projection.kamera() != Kamera::ZWEI_ZU_EINS
+            || projection.richtung() != Richtung::default()
+        {
             let unbekannt: BTreeSet<BlockState> = seen
                 .into_iter()
                 .filter(|state| blockstate::Definition::of(state.name()).is_none())
@@ -719,7 +723,7 @@ impl SpriteSet {
                 _ => None,
             },
             tint_below: tinted_below(state.name(), state.prop("half")),
-            doppelkiste: doppelkiste(state),
+            doppelkiste: doppelkiste(state).map(|d| projection.richtung().versatz_in_den_blick(d)),
             nachbarn,
             seiten,
             fassungen,
@@ -766,14 +770,18 @@ impl SpriteSet {
 
     /// Streifen der Seitenflaechen ueber niedrigeren Nachbarn derselben
     /// Fluessigkeit, je Paar aus eigener Hoehe und Nachbarhoehe in Neunteln
-    /// und je Seite — der Renderer haengt sie an, wo eine Oberflaeche an
-    /// eine hoehere Saeule oder eine Stufe fliessenden Wassers stoesst.
+    /// und je Seite im Blick — der Renderer haengt sie an, wo eine
+    /// Oberflaeche an eine hoehere Saeule oder eine Stufe fliessenden
+    /// Wassers stoesst. Gebaut wird der Streifen der Seite der Welt, die
+    /// dort liegt.
     fn insert_strips(&mut self, assets: &mut Assets, fluid: Fluid) {
         let state = fluid.source();
+        let richtung = self.projection.richtung();
         for own in 2..=fluid::FULL {
             for below in 1..own {
                 for face in [Face::East, Face::South] {
-                    let model = fluid::strip(assets, fluid, face, below, own);
+                    let welt = richtung.seite_in_die_welt(face);
+                    let model = fluid::strip(assets, fluid, welt, below, own);
                     if let Some(id) = self.insert_tinted(assets, &state, &model) {
                         self.strips.insert((fluid, own, below, face), id);
                     }
@@ -802,6 +810,7 @@ impl SpriteSet {
         // Blockkante (`FlowingFluid.getHeight`); an der Oberflaeche endet
         // sie bei ihrer eigenen Hoehe.
         let voll = full_height(model);
+        let richtung = self.projection.richtung();
         let mut variants = vec![None; 8];
         variants[0] = Some(base);
         for mask in 1..8u8 {
@@ -810,10 +819,15 @@ impl SpriteSet {
             } else {
                 &voll
             };
+            // Die Maske nennt Seiten im Blick, das Modell die der Welt.
             let quads = quelle
                 .quads
                 .iter()
-                .filter(|q| q.fluid.is_none_or(|(_, face)| mask & mask_bit(face) == 0))
+                .filter(|q| {
+                    q.fluid.is_none_or(|(_, face)| {
+                        mask & mask_bit(richtung.seite_in_den_blick(face)) == 0
+                    })
+                })
                 .cloned()
                 .collect();
             variants[mask as usize] = self.insert_tinted(
@@ -844,6 +858,7 @@ impl SpriteSet {
         seiten: u8,
     ) -> Vec<Option<SpriteId>> {
         let voll = full_height(model);
+        let richtung = self.projection.richtung();
         let liste: Vec<Face> = SEITEN
             .into_iter()
             .filter(|&face| seiten & seite(face) != 0)
@@ -866,8 +881,9 @@ impl SpriteSet {
                     .quads
                     .iter()
                     .filter(|q| {
-                        q.fluid
-                            .is_none_or(|(_, face)| fluessig & mask_bit(face) == 0)
+                        q.fluid.is_none_or(|(_, face)| {
+                            fluessig & mask_bit(richtung.seite_in_den_blick(face)) == 0
+                        })
                     })
                     .filter(|q| q.cullface.is_none_or(|face| weg & seite(face) == 0))
                     .cloned()

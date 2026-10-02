@@ -1,3 +1,5 @@
+use crate::assets::Face;
+
 /// Die Kamera eines Laufs: diagonal schräg mit der Raute W:H oder von oben,
 /// oder genordet von oben oder schräg von Süden.
 ///
@@ -209,7 +211,66 @@ impl Richtung {
 
     /// Wo der Block `(x, z)` im Blick in der Welt liegt.
     pub fn in_die_welt(self, blick: [i32; 2]) -> [i32; 2] {
-        Richtung((4 - self.0) % 4).in_den_blick(blick)
+        self.zurueck().in_den_blick(blick)
+    }
+
+    /// Die Drehung zurück in die Welt.
+    fn zurueck(self) -> Richtung {
+        Richtung((4 - self.0) % 4)
+    }
+
+    /// Wohin ein Versatz der Welt im Blick zeigt, oder ein Punkt der Welt
+    /// mit stetigen Koordinaten, etwa die Ecke eines Kastens: eine
+    /// Vierteldrehung ist `(x, z)` nach `(z, −x)`.
+    pub fn versatz_in_den_blick(self, [x, y, z]: [i32; 3]) -> [i32; 3] {
+        match self.0 {
+            0 => [x, y, z],
+            1 => [z, y, -x],
+            2 => [-x, y, -z],
+            _ => [-z, y, x],
+        }
+    }
+
+    /// Wohin ein Versatz im Blick in der Welt zeigt.
+    pub fn versatz_in_die_welt(self, blick: [i32; 3]) -> [i32; 3] {
+        self.zurueck().versatz_in_den_blick(blick)
+    }
+
+    /// Wohin die Normale einer Fläche der Welt im Blick zeigt, wie
+    /// [`Richtung::versatz_in_den_blick`].
+    pub fn normale_in_den_blick(self, [x, y, z]: [f32; 3]) -> [f32; 3] {
+        match self.0 {
+            0 => [x, y, z],
+            1 => [z, y, -x],
+            2 => [-x, y, -z],
+            _ => [-z, y, x],
+        }
+    }
+
+    /// Wo ein Punkt eines Modells im Blick liegt, in Blockbreiten vom
+    /// Ursprung seines Blocks: gedreht um die Mitte des Blocks.
+    pub fn punkt_in_den_blick(self, [x, y, z]: [f32; 3]) -> [f32; 3] {
+        match self.0 {
+            0 => [x, y, z],
+            1 => [z, y, 1.0 - x],
+            2 => [1.0 - x, y, 1.0 - z],
+            _ => [1.0 - z, y, x],
+        }
+    }
+
+    /// Welche Seite eine Seite der Welt im Blick ist.
+    pub fn seite_in_den_blick(self, seite: Face) -> Face {
+        const RUNDUM: [Face; 4] = [Face::North, Face::East, Face::South, Face::West];
+        match RUNDUM.iter().position(|&s| s == seite) {
+            // Im Blick dreht sich die Welt gegen den Uhrzeigersinn.
+            Some(i) => RUNDUM[(i + 4 - self.0 as usize) % 4],
+            None => seite,
+        }
+    }
+
+    /// Welche Seite eine Seite im Blick in der Welt ist.
+    pub fn seite_in_die_welt(self, seite: Face) -> Face {
+        self.zurueck().seite_in_den_blick(seite)
     }
 }
 

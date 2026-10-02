@@ -13,11 +13,11 @@ use crate::world::{BlockState, Chunk, REGION, Region, Section, World};
 
 use super::licht::{Ausbreitung, ChunkLicht, Eingabe};
 use super::rasterizer::{
-    Ecken, Light, VOLL_HELL, darken, ecken_faktor, over, pack, smooth_blend, tinted,
+    AO_FACES, Ecken, Light, VOLL_HELL, darken, ecken_faktor, over, pack, smooth_blend, tinted,
     tinted_im_licht,
 };
 use super::sprites::{Family, Rows, TINT_BLOCK, TINT_WATER, mask_bit};
-use super::{Cell, OWN_CELL, Projection, Sprite, SpriteId, SpriteSet};
+use super::{Cell, OWN_CELL, Projection, Richtung, Sprite, SpriteId, SpriteSet};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
 ///
@@ -330,8 +330,8 @@ fn anchor_of([x, y, z]: [i32; 3], cell: Cell) -> [i32; 3] {
     [x - cell[0], y - cell[1], z - cell[2]]
 }
 
-/// Eine Seite aus [`AO_FACES`](super::rasterizer::AO_FACES), wie
-/// `BlockModelLighter` sie sieht, per javap am 26.2-Client.
+/// Eine Seite, wie `BlockModelLighter` sie sieht, per javap am 26.2-Client.
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct AoSeite {
     /// Wohin sie zeigt.
     richtung: [i32; 3],
@@ -342,26 +342,75 @@ struct AoSeite {
     remap: [usize; 4],
 }
 
-const AO_SEITEN: [AoSeite; 3] = [
+/// Die Seiten der Welt, die eine Kamera aus einer ihrer Richtungen sieht:
+/// oben und die vier rundum.
+const AO_WELT: [(Face, AoSeite); 5] = [
     // Oben: Osten, Westen, Norden, Süden.
-    AoSeite {
-        richtung: [0, 1, 0],
-        nachbarn: [[1, 0, 0], [-1, 0, 0], [0, 0, -1], [0, 0, 1]],
-        remap: [2, 3, 0, 1],
-    },
+    (
+        Face::Up,
+        AoSeite {
+            richtung: [0, 1, 0],
+            nachbarn: [[1, 0, 0], [-1, 0, 0], [0, 0, -1], [0, 0, 1]],
+            remap: [2, 3, 0, 1],
+        },
+    ),
+    // Norden: oben, unten, Osten, Westen.
+    (
+        Face::North,
+        AoSeite {
+            richtung: [0, 0, -1],
+            nachbarn: [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0]],
+            remap: [3, 0, 1, 2],
+        },
+    ),
     // Süden: Westen, Osten, unten, oben.
-    AoSeite {
-        richtung: [0, 0, 1],
-        nachbarn: [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0]],
-        remap: [0, 1, 2, 3],
-    },
+    (
+        Face::South,
+        AoSeite {
+            richtung: [0, 0, 1],
+            nachbarn: [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0]],
+            remap: [0, 1, 2, 3],
+        },
+    ),
+    // Westen: oben, unten, Norden, Süden.
+    (
+        Face::West,
+        AoSeite {
+            richtung: [-1, 0, 0],
+            nachbarn: [[0, 1, 0], [0, -1, 0], [0, 0, -1], [0, 0, 1]],
+            remap: [3, 0, 1, 2],
+        },
+    ),
     // Osten: unten, oben, Norden, Süden.
-    AoSeite {
-        richtung: [1, 0, 0],
-        nachbarn: [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]],
-        remap: [1, 2, 3, 0],
-    },
+    (
+        Face::East,
+        AoSeite {
+            richtung: [1, 0, 0],
+            nachbarn: [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]],
+            remap: [1, 2, 3, 0],
+        },
+    ),
 ];
+
+/// Die Seiten aus [`AO_FACES`] im Blick aus `richtung`: je Seite die der
+/// Welt, die dort liegt, mit ihren Nachbarn in den Blick gedreht. Ihre
+/// Werte legt [`ChunkCache::ecken_at`] auf die Ecken derselben Seite der
+/// Welt, wie `rasterizer::ecken_im_blick` sie im Blick zeigt.
+/// Siehe docs/renderer/weiche-beleuchtung.md, „Aus jeder Richtung“.
+fn ao_seiten(richtung: Richtung) -> [AoSeite; 3] {
+    AO_FACES.map(|blick| {
+        let welt = richtung.seite_in_die_welt(blick);
+        let (_, seite) = AO_WELT
+            .iter()
+            .find(|(face, _)| *face == welt)
+            .expect("oben oder rundum");
+        AoSeite {
+            richtung: richtung.versatz_in_den_blick(seite.richtung),
+            nachbarn: seite.nachbarn.map(|n| richtung.versatz_in_den_blick(n)),
+            remap: seite.remap,
+        }
+    })
+}
 /// Der Wert einer Ecke, wenn so viele ihrer vier Blöcke abdunkeln:
 /// `ARGB.gray` des Mittels aus 1 und 0,2, in f32 wie im Spiel.
 const AO_WERTE: [u32; 5] = [255, 204, 153, 102, 51];
@@ -844,6 +893,13 @@ pub struct ChunkCache<'a> {
     /// Nur für die nativen Stufen: dekodierte Chunks und ihr Licht über den
     /// Wechsel der Sprite-Tabelle hinweg, siehe [`ChunkCache::mit_vorrat`].
     vorrat: Option<Vorrat>,
+    /// Woher die Kamera schaut. Slots, Bitmasken, Kandidaten und alle
+    /// Koordinaten der Nachschläge liegen im Blick; Chunks, Licht, Biome und
+    /// die Saat der Alternativen in der Welt.
+    /// Siehe docs/renderer/richtungen.md.
+    richtung: Richtung,
+    /// Die Seiten für [`ChunkCache::ecken_at`], siehe [`ao_seiten`].
+    ao_seiten: [AoSeite; 3],
 }
 
 /// Was von einem Chunk nicht am scale hängt: er selbst und sein Licht,
@@ -871,6 +927,7 @@ struct Gemerkt {
 type BiomeLayer = ((i32, i32, i32), Box<[u16; 256]>);
 
 struct Slot {
+    /// Der Chunk im Blick.
     key: (i32, i32),
     loaded: Option<Loaded>,
     used: u32,
@@ -947,7 +1004,9 @@ const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
 /// Bitmasken einer Section: je Eigenschaft und Spalte `z * 16 + x` ein
 /// Wort, Bit `y`. Ob ein Block von seinen drei Nachbarn verdeckt ist, sind
 /// damit für sechzehn Blöcke einer Spalte auf einmal ein paar
-/// Wortoperationen.
+/// Wortoperationen. Die Spalten liegen im Blick, nur die für die
+/// Ausbreitung, [`DAEMPFT`] und [`DICHT`], in der Welt wie `formen` und
+/// `quellen`.
 /// Siehe docs/renderer/renderpfad.md, „Bitmasken“.
 struct Masks {
     bits: [[u16; 256]; FLAGS],
@@ -1024,12 +1083,14 @@ impl Masks {
     /// der abdunkelt, die Sicht nimmt, das Licht aufhält oder leuchtet.
     /// Je Paletteneintrag hat `schatten` die Bits aus
     /// [`blockstate::schatten`], `wege` den [`Lichtweg`] und `leuchten` das
-    /// [`Leuchten`].
+    /// [`Leuchten`]. `blick` nennt je Spalte der Welt die im Blick, aus der
+    /// Vorgabe-Richtung keine, siehe [`spalten_im_blick`].
     fn of(
         section: &Section,
         families: &[Option<u32>],
         (schatten, wege, leuchten): (&[u8], &[Lichtweg], &[Leuchten]),
         sprites: &SpriteSet,
+        blick: Option<&[u8; 256]>,
     ) -> Option<Box<Masks>> {
         let bit = |set: bool, flag: usize| (set as u16) << flag;
         let flags: Vec<u16> = (0..families.len())
@@ -1105,9 +1166,20 @@ impl Masks {
                 }
             });
             for (&flag, maske) in klassen.iter().zip(&je_klasse) {
+                let gedreht = blick.map(|blick| {
+                    let mut gedreht = [0u16; 256];
+                    for (col, &spalte) in maske.iter().enumerate() {
+                        gedreht[blick[col] as usize] = spalte;
+                    }
+                    gedreht
+                });
                 for (b, bits) in m.bits.iter_mut().enumerate() {
                     if flag >> b & 1 != 0 {
-                        for (bits, spalte) in bits.iter_mut().zip(maske) {
+                        let quelle = match &gedreht {
+                            Some(gedreht) if b != DAEMPFT && b != DICHT => gedreht,
+                            _ => maske,
+                        };
+                        for (bits, spalte) in bits.iter_mut().zip(quelle) {
                             *bits |= spalte;
                         }
                     }
@@ -1138,8 +1210,22 @@ impl Masks {
     }
 }
 
+/// Je Spalte `z * 16 + x` eines Chunks der Welt die Spalte im Blick aus
+/// `richtung`; aus der Vorgabe-Richtung `None`.
+fn spalten_im_blick(richtung: Richtung) -> Option<[u8; 256]> {
+    (richtung != Richtung::default()).then(|| {
+        std::array::from_fn(|col| {
+            let [x, z] = richtung
+                .in_den_blick([col as i32 & 15, col as i32 >> 4])
+                .map(|c| c & 15);
+            (z * 16 + x) as u8
+        })
+    })
+}
+
 impl Loaded {
     fn new(chunk: Rc<Chunk>, sprites: &SpriteSet) -> Loaded {
+        let blick = spalten_im_blick(sprites.projection().richtung());
         let families: Vec<Vec<Option<u32>>> = chunk
             .sections()
             .iter()
@@ -1176,7 +1262,13 @@ impl Loaded {
                     .iter()
                     .map(|state| lichtweg(state, sprites))
                     .collect();
-                Masks::of(section, families, (&schatten, &wege, leuchten), sprites)
+                Masks::of(
+                    section,
+                    families,
+                    (&schatten, &wege, leuchten),
+                    sprites,
+                    blick.as_ref(),
+                )
             })
             .collect();
         // Flüssigkeit über dem obersten Block einer Section steht in der
@@ -1280,6 +1372,8 @@ impl<'a> ChunkCache<'a> {
             ausbreitung: Ausbreitung::default(),
             himmel: sprites.himmel(),
             vorrat: None,
+            richtung: sprites.projection().richtung(),
+            ao_seiten: ao_seiten(sprites.projection().richtung()),
         }
     }
 
@@ -1343,12 +1437,18 @@ impl<'a> ChunkCache<'a> {
             .enumerate()
             .map(|(i, slot)| (slot.key, i))
             .collect();
-        let regionen: HashSet<(i32, i32)> =
-            self.slots.iter().map(|slot| region_of(slot.key)).collect();
+        let regionen: HashSet<(i32, i32)> = self
+            .slots
+            .iter()
+            .map(|slot| region_of(self.in_die_welt(slot.key)))
+            .collect();
         self.regions.retain(|key, _| regionen.contains(key));
         // Biome nach dem Zoom nur für Chunks, die bleiben.
-        self.biome_layers
-            .retain(|((cx, _, cz), _)| self.index.contains_key(&(*cx, *cz)));
+        let richtung = self.richtung;
+        self.biome_layers.retain(|((cx, _, cz), _)| {
+            let [bx, bz] = richtung.in_den_blick([*cx, *cz]);
+            self.index.contains_key(&(bx, bz))
+        });
         self.biome_index = self
             .biome_layers
             .iter()
@@ -1359,7 +1459,13 @@ impl<'a> ChunkCache<'a> {
         self.grenze = (self.slots.len() + self.slots.len() / 4).max(CACHE_CHUNKS);
     }
 
-    /// Slot des Chunks, geladen falls nötig.
+    /// Wo ein Chunk im Blick in der Welt liegt.
+    fn in_die_welt(&self, (cx, cz): (i32, i32)) -> (i32, i32) {
+        let [x, z] = self.richtung.in_die_welt([cx, cz]);
+        (x, z)
+    }
+
+    /// Slot des Chunks im Blick, geladen falls nötig.
     fn slot(&mut self, key: (i32, i32)) -> Result<usize> {
         if let Some(slot) = self.slots.get(self.last)
             && slot.key == key
@@ -1386,13 +1492,14 @@ impl<'a> ChunkCache<'a> {
         let (chunk, licht) = match gemerkt {
             Some(paar) => paar,
             None => {
-                let region_key = region_of(key);
+                let welt = self.in_die_welt(key);
+                let region_key = region_of(welt);
                 if !self.regions.contains_key(&region_key) {
                     let region = self.world.region(region_key.0, region_key.1)?;
                     self.regions.insert(region_key, region);
                 }
                 let chunk = match self.regions.get_mut(&region_key) {
-                    Some(Some(region)) => region.chunk(key.0, key.1)?.map(Rc::new),
+                    Some(Some(region)) => region.chunk(welt.0, welt.1)?.map(Rc::new),
                     _ => None,
                 };
                 if let Some(vorrat) = &mut self.vorrat {
@@ -1420,9 +1527,10 @@ impl<'a> ChunkCache<'a> {
         Ok(i)
     }
 
-    /// Der Slot des Chunks, mit seinem ausgebreiteten Licht, beim ersten Mal
-    /// gerechnet; dafür lädt er die acht Nachbarn. `None`, wenn der Chunk
-    /// fehlt oder nicht fertig ist.
+    /// Der Slot des Chunks im Blick, mit seinem ausgebreiteten Licht, beim
+    /// ersten Mal gerechnet; dafür lädt er die acht Nachbarn, so wie sie in
+    /// der Welt um ihn liegen. `None`, wenn der Chunk fehlt oder nicht
+    /// fertig ist.
     /// Siehe docs/renderer/wasser-und-licht.md, „Licht ausbreiten“.
     fn licht_slot(&mut self, key: (i32, i32)) -> Result<Option<usize>> {
         let i = self.slot(key)?;
@@ -1431,10 +1539,12 @@ impl<'a> ChunkCache<'a> {
             Some(loaded) if loaded.licht.is_some() => return Ok(Some(i)),
             Some(_) => {}
         }
+        let [wx, wz] = self.richtung.in_die_welt([key.0, key.1]);
         let mut nachbarn = [0; 9];
         for (k, n) in nachbarn.iter_mut().enumerate() {
             let (dx, dz) = (k as i32 % 3 - 1, k as i32 / 3 - 1);
-            *n = self.slot((key.0 + dx, key.1 + dz))?;
+            let [bx, bz] = self.richtung.in_den_blick([wx + dx, wz + dz]);
+            *n = self.slot((bx, bz))?;
         }
         let eingaben: Vec<Option<Vec<Eingabe>>> = nachbarn
             .iter()
@@ -1453,8 +1563,9 @@ impl<'a> ChunkCache<'a> {
         Ok(Some(i))
     }
 
-    /// Himmels- und Blocklicht der Zelle an `(x, y, z)`, so wie das Spiel
-    /// es ausbreitet und speichert. In einem Chunk, der fehlt, keines.
+    /// Himmels- und Blocklicht der Zelle an `(x, y, z)` im Blick, so wie
+    /// das Spiel es ausbreitet und speichert. In einem Chunk, der fehlt,
+    /// keines.
     pub fn licht_at(&mut self, p: [i32; 3]) -> Result<(u8, u8)> {
         let Light { sky, block } = Light::from_packed(self.zelle(p)?.0);
         Ok((sky, block))
@@ -1767,7 +1878,7 @@ impl<'a> ChunkCache<'a> {
         Ok(out)
     }
 
-    /// Was an einer Weltkoordinate zu zeichnen ist — nichts für Luft,
+    /// Was an einer Stelle im Blick zu zeichnen ist — nichts für Luft,
     /// fehlende Chunks und Blöcke ohne sichtbare Geometrie.
     ///
     /// Vier Entscheidungen fallen hier: welche Alternative die Position
@@ -1780,7 +1891,9 @@ impl<'a> ChunkCache<'a> {
         let Some((family, leuchten)) = self.block_at(x, y, z)? else {
             return Ok(Drawn::default());
         };
-        let Some(wahl) = family.wahl([x, y, z]) else {
+        // Gewürfelt wird in der Welt.
+        let [wx, wz] = self.richtung.in_die_welt([x, z]);
+        let Some(wahl) = family.wahl([wx, y, wz]) else {
             return Ok(Drawn::default());
         };
         let Some(id) = family.sprite(wahl) else {
@@ -1839,7 +1952,7 @@ impl<'a> ChunkCache<'a> {
             Some(regel) if family.hat_nachbarn() => {
                 let mut nachbarn = 0;
                 for (k, face) in family.nachbarseiten().enumerate() {
-                    let [dx, dy, dz] = face.versatz();
+                    let [dx, dy, dz] = self.richtung.versatz_in_den_blick(face.versatz());
                     let nachbar = self.family_at(x + dx, y + dy, z + dz)?;
                     if nachbar
                         .and_then(|nachbar| nachbar.nachbarn)
@@ -1880,9 +1993,10 @@ impl<'a> ChunkCache<'a> {
     /// trägt, bei `tint_below` am Block darunter; die des Wassers mit
     /// [`TINT_WATER`], am Block selbst. Beide gemischt wie im Client
     /// ([`BiomeTable::blend`](super::BiomeTable::blend)). 0, wo keine Karte
-    /// sie braucht.
+    /// sie braucht. `(x, y, z)` liegt im Blick, gemischt wird in der Welt.
     fn tints_at(&mut self, [x, y, z]: [i32; 3], family: &Family, kinds: u8) -> Result<[u32; 2]> {
         let table = self.sprites.biomes();
+        let [x, z] = self.richtung.in_die_welt([x, z]);
         let mut farbe = |resolver, block| {
             Ok::<_, anyhow::Error>(pack(table.blend(resolver, block, |p| self.biome_of(p))?))
         };
@@ -1901,7 +2015,7 @@ impl<'a> ChunkCache<'a> {
         ])
     }
 
-    /// Das Biom eines Blocks als Nummer der [`BiomeTable`](super::BiomeTable):
+    /// Das Biom eines Blocks der Welt als Nummer der [`BiomeTable`](super::BiomeTable):
     /// das der Viertelposition aus
     /// [`BiomeTable::quart`](super::BiomeTable::quart), einmal je Block
     /// gerechnet und dann behalten, denn die Mischung fragt jeden Block bis
@@ -1939,7 +2053,8 @@ impl<'a> ChunkCache<'a> {
     /// Siehe docs/renderer/biomfarben.md, „Biom je Block“.
     fn noise_biome(&mut self, [qx, qy, qz]: [i32; 3]) -> Result<u16> {
         let plains = self.sprites.biomes().plains();
-        let slot = self.slot((qx >> 2, qz >> 2))?;
+        let [cx, cz] = self.richtung.in_den_blick([qx >> 2, qz >> 2]);
+        let slot = self.slot((cx, cz))?;
         let Some(loaded) = &self.slots[slot].loaded else {
             return Ok(plains);
         };
@@ -2049,7 +2164,7 @@ impl<'a> ChunkCache<'a> {
         };
         let bei = |p: [i32; 3], o: [i32; 3]| [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
         let mut seiten: [Option<[[u32; 3]; 4]>; 3] = [None; 3];
-        for (seite, s) in AO_SEITEN.iter().enumerate() {
+        for (seite, s) in self.ao_seiten.iter().enumerate() {
             let (d, nachbarn) = (s.richtung, s.nachbarn);
             let vor = d;
             if bit(fest, vor) {
@@ -2150,21 +2265,24 @@ impl<'a> ChunkCache<'a> {
         Ok((roh, voll))
     }
 
-    /// Das Licht der Zelle an `(x, y, z)`, gepackt wie [`Light::packed`],
-    /// und ob das Spiel den Block dort voll hell zeichnet ([`VOLL`]). In
-    /// einem Chunk, der fehlt, keines.
+    /// Das Licht der Zelle an `(x, y, z)` im Blick, gepackt wie
+    /// [`Light::packed`], und ob das Spiel den Block dort voll hell zeichnet
+    /// ([`VOLL`]). In einem Chunk, der fehlt, keines.
     fn zelle(&mut self, [x, y, z]: [i32; 3]) -> Result<(u32, bool)> {
         let Some(i) = self.licht_slot((x >> 4, z >> 4))? else {
             return Ok((0, false));
         };
         let loaded = self.slots[i].loaded.as_ref().expect("eben geladen");
-        let (lx, lz) = ((x & 15) as usize, (z & 15) as usize);
+        // Das Licht liegt in der Welt, die Masken im Blick.
+        let [wx, wz] = self.richtung.in_die_welt([x, z]);
+        let (lx, lz) = ((wx & 15) as usize, (wz & 15) as usize);
         let wert = loaded.licht.as_deref().map_or(0, |l| l.at(lx, y, lz));
+        let col = ((z & 15) * 16 + (x & 15)) as usize;
         let voll = i8::try_from(y >> 4)
             .ok()
             .and_then(|sy| loaded.chunk.section_index(sy))
             .and_then(|s| loaded.masks[s].as_deref())
-            .is_some_and(|m| m.bits[VOLL][lz * 16 + lx] >> (y & 15) & 1 != 0);
+            .is_some_and(|m| m.bits[VOLL][col] >> (y & 15) & 1 != 0);
         let licht = Light {
             sky: wert >> 4,
             block: wert & 15,
@@ -2237,6 +2355,7 @@ impl<'a> ChunkCache<'a> {
         let Some(loaded) = self.slots[i].loaded.as_ref() else {
             return Ok(None);
         };
+        let [x, z] = self.richtung.in_die_welt([x, z]);
         let Some((section, slot)) = loaded.chunk.slot(x, y, z) else {
             return Ok(None);
         };
@@ -2265,13 +2384,14 @@ impl<'a> ChunkCache<'a> {
         Ok(Some((self.sprites.family(index), leuchten)))
     }
 
-    /// Die Familie des Blocks an einer Weltkoordinate — ein Nachschlag im
+    /// Die Familie des Blocks an einer Stelle im Blick — ein Nachschlag im
     /// Chunk-Cache und zwei Indizes, ohne die Blockstate zu hashen.
     fn family_at(&mut self, x: i32, y: i32, z: i32) -> Result<Option<&'a Family>> {
         let i = self.slot((x >> 4, z >> 4))?;
         let Some(loaded) = self.slots[i].loaded.as_ref() else {
             return Ok(None);
         };
+        let [x, z] = self.richtung.in_die_welt([x, z]);
         let Some((section, slot)) = loaded.chunk.slot(x, y, z) else {
             return Ok(None);
         };
@@ -2352,6 +2472,63 @@ mod tests {
                     AO_WERTE[maske.count_ones() as usize],
                     "{maske:04b}"
                 );
+            }
+        }
+    }
+
+    /// Je Richtung und Seite im Blick gehört jeder Wert von `ecken_at` an
+    /// die Ecke, an der seine beiden Nachbarn aus `AdjacencyInfo.corners`
+    /// zusammenstossen: `AmbientVertexRemap` legt ihn auf die Ecke aus
+    /// `FaceInfo`, die `ecken_im_blick` dort zeigt. Aus der Vorgabe sind die
+    /// Seiten die aus dem Spiel für oben, Süden und Osten.
+    #[test]
+    fn ecken_im_blick_passen_zu_den_nachbarn() {
+        use crate::render::rasterizer::ecken_im_blick;
+        let vorgabe = ao_seiten(Richtung::default());
+        assert_eq!(
+            vorgabe.map(|s| s.richtung),
+            [[0, 1, 0], [0, 0, 1], [1, 0, 0]]
+        );
+        assert_eq!(
+            vorgabe[0].nachbarn,
+            [[1, 0, 0], [-1, 0, 0], [0, 0, -1], [0, 0, 1]]
+        );
+        assert_eq!(
+            vorgabe.map(|s| s.remap),
+            [[2, 3, 0, 1], [0, 1, 2, 3], [1, 2, 3, 0]]
+        );
+        // Aus Nordwesten zeigt die Seite im Süden den Norden: oben, unten,
+        // Osten und Westen der Welt, im Blick Westen und Osten getauscht.
+        let nw = Richtung::parse("nw", Kamera::ZWEI_ZU_EINS).unwrap();
+        assert_eq!(
+            ao_seiten(nw)[1],
+            AoSeite {
+                richtung: [0, 0, 1],
+                nachbarn: [[0, 1, 0], [0, -1, 0], [-1, 0, 0], [1, 0, 0]],
+                remap: [3, 0, 1, 2],
+            }
+        );
+        // Je Wert von `ecken_at` die zwei Nachbarn seiner Ecke.
+        const PAARE: [(usize, usize); 4] = [(3, 0), (2, 0), (2, 1), (3, 1)];
+        for name in ["se", "sw", "nw", "ne"] {
+            let richtung = Richtung::parse(name, Kamera::ZWEI_ZU_EINS).unwrap();
+            for (s, seite) in ao_seiten(richtung).iter().enumerate() {
+                assert_eq!(seite.richtung, vorgabe[s].richtung, "{name}, Seite {s}");
+                let ecken = ecken_im_blick(richtung, s);
+                for (i, &(a, b)) in PAARE.iter().enumerate() {
+                    // Die Ecke im Würfel 0..1, in den Koordinaten der Seite.
+                    let ecke: [f32; 3] = std::array::from_fn(|k| {
+                        let n = seite.nachbarn[a][k] + seite.nachbarn[b][k] + seite.richtung[k];
+                        0.5 + 0.5 * n as f32
+                    });
+                    let [x, y, z] = ecke;
+                    let soll = match s {
+                        0 => [x, z],
+                        1 => [x, y],
+                        _ => [z, y],
+                    };
+                    assert_eq!(ecken[seite.remap[i]], soll, "{name}, Seite {s}, Wert {i}");
+                }
             }
         }
     }

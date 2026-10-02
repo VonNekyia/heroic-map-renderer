@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt und als /tp kopiert, zwischen Ansichten umschaltet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -96,7 +96,9 @@ lässt solche Kacheln leer.
 
 Unten links steht, welcher Block unter Maus oder Finger zu sehen ist,
 `X 35  Y 5  Z -15`, auf wenige Blöcke genau; das Symbol daneben kopiert
-`/tp`, siehe „Koordinaten kopieren“. Dazu zeichnet die Karte seinen
+`/tp`, siehe „Koordinaten kopieren“, und ein Klick auf einen Wert springt
+zu einer Eingabe, siehe „Zu Koordinaten springen“. Dazu zeichnet die Karte
+seinen
 Umriss wie den Auswahlrahmen im Spiel, aber nur beim Tippen mit Finger
 oder Stift; mit der Maus zeigt der Zeiger selbst, wohin man zielt, und die
 Anzeige genügt, siehe
@@ -189,6 +191,34 @@ Screenreader „/tp kopieren“, per Tastatur erreichbar. Er kopiert
   | noch kein Block gewählt | `Erst einen Block wählen` |
   | keine Zwischenablage: Die gibt es nur im sicheren Kontext, unter HTTPS oder auf `localhost` | `Kopieren geht nur über HTTPS` |
   | der Browser verweigert das Schreiben | `Kopieren fehlgeschlagen` |
+
+## Zu Koordinaten springen
+
+Jeder Wert der Anzeige ist ein Knopf. Ein Klick oder Tippen, per Tastatur
+Enter, macht ihn zu einem Eingabefeld; Enter springt dorthin.
+
+- **Die anderen beiden Werte** bleiben, wie sie beim Klick standen. Während
+  des Eintrags folgt die Anzeige keinem Zeiger. Zeigt sie noch keinen
+  Block, gilt der in der Mitte der Karte.
+- **Y:** Ändert sich X oder Z, kommt Y aus der Höhenkarte, die Oberfläche
+  dort; sonst läge die Mitte in der Schrägsicht neben dem Block. Ohne Höhe
+  dort bleibt Y. Wird Y selbst geändert, gilt es.
+- **Der Sprung** setzt die Mitte der Oberseite des Blocks in die Mitte der
+  Karte, auf derselben Stufe, wie `at` in der Adresse. Danach hält die
+  Anzeige den Block wie nach einem Klick. Die Adresse folgt wie nach jeder
+  Bewegung, mit dem Block, den die Mitte dann zeigt; liegt ein Y in der
+  Luft oder im Boden, ist das der Block, den man dort sieht.
+- **Abbrechen:** Escape oder ein Klick daneben. Escape lässt dabei einen
+  gehaltenen Block gehalten.
+- **Abgewiesen** werden Eingaben, die keine ganze Zahl sind, X oder Z über
+  ±30 000 000 (die Weltgrenze des Spiels) und Y ausserhalb von `minY` bis
+  `maxY`. Das Feld wird rot, trägt `aria-invalid`, die Rückmeldung nennt den
+  Grund, und es bleibt offen.
+- **Auf dem Handy:** Das Feld ist `type="text"` ohne `inputmode`. Mit
+  `inputmode="numeric"` fehlt auf vielen Tastaturen das Minus, auch
+  `decimal` bietet es nicht überall.
+- **Mit der Maus** verschiebt ein Klick in die Anzeige die Karte nicht,
+  wie überall in der Leiste.
 
 ## Ansichten und Kompass
 

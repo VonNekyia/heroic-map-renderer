@@ -42,6 +42,29 @@ body {
   outline: 2px solid #000;
 }
 
+/* Ein Wert der Anzeige; ein Klick macht ihn editierbar. */
+.wert {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted;
+  cursor: text;
+}
+
+.feld {
+  padding: 0;
+  border: 1px solid #000;
+  font: inherit;
+}
+
+/* Eine Eingabe, die nicht taugt. */
+.feld.falsch {
+  outline: 2px solid #c00;
+  background: #fdd;
+}
+
 .kopieren {
   border: 0;
   font: inherit;

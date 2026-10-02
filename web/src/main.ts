@@ -234,6 +234,21 @@ function hoehen(base: string, muster: string, zelle: number) {
   };
 }
 
+/** Setzt die Mitte der Oberseite eines Blocks der Welt in die Mitte der Karte. */
+function zentriere(
+  map: L.Map,
+  { p, k }: { p: Projektion; k: number },
+  block: Block,
+  zoom: number,
+): void {
+  const [x, y, z] = inDenBlick(block, k);
+  const [px, py] = projiziere(x + 0.5, y + 1, z + 0.5, p);
+  map.setView(point(px, py), zoom);
+}
+
+/** Wie weit X und Z gehen: die Weltgrenze des Spiels. */
+const WELTGRENZE = 30_000_000;
+
 /**
  * Koordinaten und Umriss des Blocks, der unter Maus oder Finger zu sehen
  * ist, auf wenige Blöcke genau. Siehe docs/frontend.md, „Koordinaten“.
@@ -286,10 +301,21 @@ function koordinaten(
   // Anzeige unterwegs einen anderen Block zeigt.
   let gehalten = false;
   let gezeigt: Block | undefined;
+  // Jeder Wert ist ein Knopf: Ein Klick macht ihn editierbar.
+  const werte = ['X', 'Y', 'Z'].map((achse) => {
+    const wert = document.createElement('button');
+    wert.type = 'button';
+    wert.className = 'wert';
+    wert.title = `${achse} eingeben`;
+    return wert;
+  }) as [HTMLButtonElement, HTMLButtonElement, HTMLButtonElement];
+  anzeige.append('X ', werte[0], '  Y ', werte[1], '  Z ', werte[2]);
+  const schreibe = (welt: Block | undefined): void => {
+    werte.forEach((wert, achse) => (wert.textContent = welt ? String(welt[achse]) : '–'));
+  };
   const zeige = (block: Block | undefined): void => {
     gezeigt = block;
-    const welt = block && inDieWelt(block, k);
-    anzeige.textContent = welt ? `X ${welt[0]}  Y ${welt[1]}  Z ${welt[2]}` : 'X –  Y –  Z –';
+    schreibe(block && inDieWelt(block, k));
     // Gehalten zeigt es die Anzeige; der Umriss bleibt nach 0049 beim Finger
     // und Stift.
     anzeige.classList.toggle('gehalten', gehalten && block !== undefined);
@@ -330,13 +356,15 @@ function koordinaten(
     );
   });
   // Lädt eine Bewegung noch Höhen, kann eine spätere vor ihr fertig sein.
-  // Es gilt die letzte.
+  // Es gilt die letzte. Während eines Eintrags folgt die Anzeige keinem
+  // Zeiger.
   let zuletzt = 0;
+  let eintrag: { stand: Block; achse: number; feld: HTMLInputElement } | undefined;
   const ziele = async (event: L.LeafletMouseEvent): Promise<void> => {
     const nummer = ++zuletzt;
     const bloecke = strahl(event.latlng.lng, event.latlng.lat, p, minY, maxY);
     await karten.lade(bloecke.map((block) => inDieWelt(block, k)));
-    if (nummer === zuletzt) zeige(pick(bloecke, hoehe));
+    if (nummer === zuletzt && !eintrag) zeige(pick(bloecke, hoehe));
   };
   /** Der Block in der Welt, den ein Bildpunkt zeigt. */
   const bei = async (px: number, py: number): Promise<Block | undefined> => {
@@ -346,9 +374,89 @@ function koordinaten(
     return block && inDieWelt(block, k);
   };
 
+  // Ein Klick auf einen Wert macht ihn editierbar; Enter springt dorthin.
+  // Siehe docs/frontend.md, „Zu Koordinaten springen“.
+  const beende = (): void => {
+    if (!eintrag) return;
+    const { achse, feld } = eintrag;
+    eintrag = undefined;
+    feld.replaceWith(werte[achse]!);
+    zeige(gezeigt);
+  };
+  const weise = (feld: HTMLInputElement, text: string): void => {
+    feld.classList.add('falsch');
+    feld.setAttribute('aria-invalid', 'true');
+    melde(text);
+  };
+  const springe = async (): Promise<void> => {
+    if (!eintrag) return;
+    const { stand, achse, feld } = eintrag;
+    const text = feld.value.trim();
+    if (!/^-?\d+$/.test(text)) return weise(feld, 'Nur ganze Zahlen');
+    const wert = Number(text);
+    if (achse === 1 ? wert < minY || wert > maxY : Math.abs(wert) > WELTGRENZE) {
+      return weise(feld, achse === 1 ? `Y von ${minY} bis ${maxY}` : `X und Z bis ±${WELTGRENZE}`);
+    }
+    let [x, y, z] = stand;
+    if (achse === 0) x = wert;
+    if (achse === 1) y = wert;
+    if (achse === 2) z = wert;
+    // Ändert sich X oder Z, kommt Y aus der Höhenkarte, sonst läge die Mitte
+    // in der Schrägsicht neben dem Block. Ohne Höhe dort bleibt Y.
+    if (achse !== 1) {
+      await karten.lade([[x, y, z]]);
+      y = karten.hoehe(x, z) ?? y;
+    }
+    const ziel: Block = [x, y, z];
+    beende();
+    zentriere(map, { p, k }, ziel, map.getZoom());
+    // Wie nach einem Klick: Die Anzeige hält den Block, bis sich die Karte
+    // wieder bewegt.
+    zuletzt++;
+    gehalten = true;
+    zeige(inDenBlick(ziel, k));
+  };
+  const beginne = async (achse: number): Promise<void> => {
+    if (eintrag) return;
+    zuletzt++;
+    // Ohne gezeigten Block gilt der in der Mitte der Karte.
+    const { lat, lng } = map.getCenter();
+    const stand = (gezeigt && inDieWelt(gezeigt, k)) ?? (await bei(lng, lat));
+    if (!stand) return melde('Erst einen Block wählen');
+    const feld = document.createElement('input');
+    // Text statt Zahl: Nur so bietet jede Tastatur auf dem Handy das Minus.
+    feld.type = 'text';
+    feld.className = 'feld';
+    feld.value = String(stand[achse]);
+    feld.size = Math.max(feld.value.length, 3);
+    feld.enterKeyHint = 'go';
+    feld.autocomplete = 'off';
+    feld.spellcheck = false;
+    feld.setAttribute('aria-label', `${'XYZ'[achse]!} eingeben`);
+    feld.addEventListener('input', () => {
+      feld.classList.remove('falsch');
+      feld.removeAttribute('aria-invalid');
+    });
+    feld.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') void springe();
+      if (event.key === 'Escape') {
+        // Escape bricht nur den Eintrag ab, nicht auch das Festhalten.
+        event.stopPropagation();
+        beende();
+      }
+    });
+    feld.addEventListener('blur', beende);
+    eintrag = { stand, achse, feld };
+    schreibe(stand);
+    werte[achse]!.replaceWith(feld);
+    feld.focus();
+    feld.select();
+  };
+  werte.forEach((wert, achse) => wert.addEventListener('click', () => void beginne(achse)));
+
   zeige(undefined);
   map.on('mousemove', (event) => {
-    if (!gehalten) void ziele(event);
+    if (!gehalten && !eintrag) void ziele(event);
   });
   // Beginnt ein Druck in der Leiste und endet er über der Karte, schickt der
   // Browser den click an die Karte; der wählt keinen Block.
@@ -368,7 +476,7 @@ function koordinaten(
     if (event.key === 'Escape') lasse();
   });
   map.on('mouseout', () => {
-    if (gehalten) return;
+    if (gehalten || eintrag) return;
     zuletzt++;
     zeige(undefined);
   });
@@ -585,10 +693,7 @@ async function start(): Promise<void> {
   const at = parameter.get('at')?.split(',').map(Number);
   const zoom = Number(parameter.get('zoom') ?? Number.NaN);
   if (at?.length === 3 && at.every(Number.isInteger) && typeof blick !== 'string') {
-    const [x, y, z] = inDenBlick(at as unknown as Block, blick.k);
-    // Die Mitte der Oberseite.
-    const [px, py] = projiziere(x + 0.5, y + 1, z + 0.5, blick.p);
-    map.setView(point(px, py), info.maxZoom + (Number.isFinite(zoom) ? zoom : 0));
+    zentriere(map, blick, at as unknown as Block, info.maxZoom + (Number.isFinite(zoom) ? zoom : 0));
   } else {
     map.fitBounds(bounds);
   }

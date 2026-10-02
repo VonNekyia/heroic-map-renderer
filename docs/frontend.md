@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt, zwischen Ansichten umschaltet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt und als /tp kopiert, zwischen Ansichten umschaltet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -95,7 +95,8 @@ lässt solche Kacheln leer.
 ## Koordinaten
 
 Unten links steht, welcher Block unter Maus oder Finger zu sehen ist,
-`X 35  Y 5  Z -15`, auf wenige Blöcke genau. Dazu zeichnet die Karte seinen
+`X 35  Y 5  Z -15`, auf wenige Blöcke genau; das Symbol daneben kopiert
+`/tp`, siehe „Koordinaten kopieren“. Dazu zeichnet die Karte seinen
 Umriss wie den Auswahlrahmen im Spiel, aber nur beim Tippen mit Finger
 oder Stift; mit der Maus zeigt der Zeiger selbst, wohin man zielt, und die
 Anzeige genügt, siehe
@@ -153,6 +154,41 @@ das Würfelgitter und mit den Zahlen aus `map.json`, siehe
 Frontend“; woher die Höhen
 kommen, warum je 4 × 4 Spalten und warum über Wasser die Oberfläche, siehe
 [0036](entscheidungen/0036-hoehen-aus-der-heightmap.md).
+
+## Koordinaten kopieren
+
+Rechts neben der Anzeige steht ein Knopf mit einem Kopiersymbol, für
+Screenreader „/tp kopieren“, per Tastatur erreichbar. Er kopiert
+`/tp X Y Z` für den gezeigten Block, zum Einfügen im Spiel.
+
+- **Y ist einen Block höher** als der gezeigte, sonst stünde man im Block.
+  x und z rückt das Spiel selbst auf die Mitte des Blocks: `TeleportCommand`
+  nimmt `Vec3Argument.vec3()`, und `WorldCoordinate.parseDouble` zählt zu
+  einer ganzen Zahl ohne Punkt 0,5 dazu, für x und z, nicht für y
+  (`WorldCoordinates.parseDouble`; Client 26.2, per javap). Aus
+  `X 35  Y 5  Z -15` wird `/tp 35 6 -15`, man steht bei (35,5; 6; −15,5)
+  mitten auf dem Block.
+- **Mit der Maus** hält ein Klick auf die Karte den Block fest. Sonst
+  zeigte die Anzeige auf dem Weg zum Knopf jeden Block, über den die Maus
+  fährt. Die Anzeige trägt dann einen Rahmen; einen Umriss gibt es mit der
+  Maus weiter nicht, siehe
+  [0049](entscheidungen/0049-umriss-nur-ohne-zeiger.md). Los lässt sie,
+  sobald sich die Karte bewegt, bei Escape oder mit dem nächsten Klick auf
+  einen anderen Block.
+- **Mit Finger oder Stift** bleibt der getippte Block ohnehin stehen: auf
+  den Block tippen, dann auf das Symbol.
+- **In der Leiste** aus Anzeige, Knopf und Rückmeldung verschiebt Ziehen
+  die Karte nicht, und die Maus darüber ändert die Anzeige nicht. Endet ein
+  Druck aus der Leiste über der Karte, wählt das keinen Block.
+- **Rückmeldung** zwei Sekunden lang neben dem Knopf, als `role="status"`,
+  damit Screenreader sie sagen:
+
+  | Fall | Text |
+  |---|---|
+  | kopiert | `Kopiert: /tp 35 6 -15` |
+  | noch kein Block gewählt | `Erst einen Block wählen` |
+  | keine Zwischenablage: Die gibt es nur im sicheren Kontext, unter HTTPS oder auf `localhost` | `Kopieren geht nur über HTTPS` |
+  | der Browser verweigert das Schreiben | `Kopieren fehlgeschlagen` |
 
 ## Ansichten und Kompass
 

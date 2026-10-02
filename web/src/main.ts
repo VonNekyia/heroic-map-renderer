@@ -250,9 +250,23 @@ function koordinaten(
     const [wx, , wz] = inDieWelt([x, 0, z], k);
     return karten.hoehe(wx, wz);
   };
-  const anzeige = L.DomUtil.create('div', 'koordinaten');
+  // Unten links die Anzeige, daneben ein Knopf, der `/tp` kopiert, und die
+  // Rückmeldung. Siehe docs/frontend.md, „Koordinaten kopieren“.
+  const leiste = L.DomUtil.create('div', 'leiste');
+  const anzeige = L.DomUtil.create('div', 'koordinaten', leiste);
+  const kopieren = L.DomUtil.create('button', 'kopieren', leiste);
+  kopieren.type = 'button';
+  kopieren.textContent = '⧉';
+  kopieren.title = '/tp kopieren';
+  kopieren.setAttribute('aria-label', '/tp kopieren');
+  const meldung = L.DomUtil.create('span', 'meldung', leiste);
+  meldung.setAttribute('role', 'status');
+  // Ein Klick in die Leiste verschiebt die Karte nicht und wählt keinen
+  // Block; die Maus darüber ändert die Anzeige nicht.
+  L.DomEvent.disableClickPropagation(leiste);
+  L.DomEvent.on(leiste, 'mousemove', L.DomEvent.stopPropagation);
   const control = new L.Control({ position: 'bottomleft' });
-  control.onAdd = () => anzeige;
+  control.onAdd = () => leiste;
   control.addTo(map);
   // Wie der Auswahlrahmen im Spiel.
   const rahmen = L.polyline([], { color: '#000', weight: 2, opacity: 0.8, interactive: false });
@@ -267,15 +281,54 @@ function koordinaten(
   map.getContainer().addEventListener('pointerdown', merke);
   map.getContainer().addEventListener('pointermove', merke);
 
+  // Ein Mausklick auf die Karte hält den Block fest, bis sich die Karte
+  // bewegt oder Escape kommt; so kommt die Maus zur Leiste, ohne dass die
+  // Anzeige unterwegs einen anderen Block zeigt.
+  let gehalten = false;
+  let gezeigt: Block | undefined;
   const zeige = (block: Block | undefined): void => {
+    gezeigt = block;
     const welt = block && inDieWelt(block, k);
     anzeige.textContent = welt ? `X ${welt[0]}  Y ${welt[1]}  Z ${welt[2]}` : 'X –  Y –  Z –';
+    // Gehalten zeigt es die Anzeige; der Umriss bleibt nach 0049 beim Finger
+    // und Stift.
+    anzeige.classList.toggle('gehalten', gehalten && block !== undefined);
     rahmen.setLatLngs(
       block && ohneZeiger
         ? umriss(block, p).map((linie) => linie.map(([x, y]) => point(x, y)))
         : [],
     );
   };
+  const lasse = (): void => {
+    if (!gehalten) return;
+    gehalten = false;
+    zeige(gezeigt);
+  };
+  let rueckmeldung: number | undefined;
+  const melde = (text: string): void => {
+    meldung.textContent = text;
+    window.clearTimeout(rueckmeldung);
+    rueckmeldung = window.setTimeout(() => (meldung.textContent = ''), 2000);
+  };
+  kopieren.addEventListener('click', () => {
+    const welt = gezeigt && inDieWelt(gezeigt, k);
+    if (!welt) {
+      melde('Erst einen Block wählen');
+      return;
+    }
+    // Einen Block höher, sonst steht man im Block; x und z rückt das Spiel
+    // auf die Mitte. Siehe docs/frontend.md, „Koordinaten kopieren“.
+    const befehl = `/tp ${welt[0]} ${welt[1] + 1} ${welt[2]}`;
+    // Die Zwischenablage gibt es nur im sicheren Kontext, HTTPS oder localhost.
+    if (!('clipboard' in navigator)) {
+      melde('Kopieren geht nur über HTTPS');
+      return;
+    }
+    navigator.clipboard.writeText(befehl).then(
+      () => melde(`Kopiert: ${befehl}`),
+      () => melde('Kopieren fehlgeschlagen'),
+    );
+  });
   // Lädt eine Bewegung noch Höhen, kann eine spätere vor ihr fertig sein.
   // Es gilt die letzte.
   let zuletzt = 0;
@@ -294,10 +347,28 @@ function koordinaten(
   };
 
   zeige(undefined);
-  map.on('mousemove', (event) => void ziele(event));
-  // Auf dem Touchscreen kommt ein Tippen als click.
-  map.on('click', (event) => void ziele(event));
+  map.on('mousemove', (event) => {
+    if (!gehalten) void ziele(event);
+  });
+  // Beginnt ein Druck in der Leiste und endet er über der Karte, schickt der
+  // Browser den click an die Karte; der wählt keinen Block.
+  let inLeiste = false;
+  map.getContainer().addEventListener('pointerdown', (event) => {
+    inLeiste = leiste.contains(event.target as Node);
+  });
+  // Auf dem Touchscreen kommt ein Tippen als click. Festhalten braucht es
+  // nur mit der Maus; ohne sie folgt die Anzeige ohnehin keinem Zeiger.
+  map.on('click', (event) => {
+    if (inLeiste) return;
+    gehalten = !ohneZeiger;
+    void ziele(event);
+  });
+  map.on('movestart', lasse);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') lasse();
+  });
   map.on('mouseout', () => {
+    if (gehalten) return;
     zuletzt++;
     zeige(undefined);
   });

@@ -204,8 +204,106 @@ test('die Maus zeigt Koordinaten des Blocks darunter, ohne Umriss', async ({ pag
   await expect(page.locator('.leaflet-overlay-pane path')).not.toHaveAttribute('d', /M[^M]+M/);
 });
 
+test('das Kopiersymbol kopiert /tp, ein Klick hält den Block dafür fest', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const anzeige = page.locator('.koordinaten');
+  const kopieren = page.getByRole('button', { name: '/tp kopieren' });
+  const meldung = page.getByRole('status');
+  const linie = page.locator('.leaflet-overlay-pane path');
+
+  // Gehalten zeigt es die Anzeige; einen Umriss gibt es mit der Maus nach
+  // 0049 weiter nicht. Unterwegs zum Knopf bleibt der Block.
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+  await expect(anzeige).toHaveClass(/gehalten/);
+  await expect(linie).not.toHaveAttribute('d', /M[^M]+M/);
+  await page.mouse.move(...(await bildschirm(page, 160, 236)), { steps: 5 });
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+
+  // Ziehen in der Leiste verschiebt die Karte nicht und wählt keinen Block,
+  // auch wenn es über der Karte endet.
+  const ebene = page.locator('.leaflet-map-pane');
+  const lage = await ebene.evaluate((e) => (e as HTMLElement).style.transform);
+  const leiste = (await anzeige.boundingBox())!;
+  await page.mouse.move(leiste.x + 10, leiste.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(leiste.x + 80, leiste.y - 60, { steps: 5 });
+  await page.mouse.up();
+  expect(await ebene.evaluate((e) => (e as HTMLElement).style.transform)).toBe(lage);
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+
+  // Einen Block höher als der gezeigte, sonst steht man im Block; x und z
+  // rückt das Spiel auf die Mitte (TeleportCommand, Client 26.2, per javap).
+  await kopieren.click();
+  await expect(meldung).toHaveText('Kopiert: /tp 35 6 -15');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/tp 35 6 -15');
+  await expect(meldung).toBeEmpty();
+
+  // Per Tastatur ebenso.
+  await page.evaluate(() => navigator.clipboard.writeText(''));
+  await kopieren.focus();
+  await page.keyboard.press('Enter');
+  await expect(meldung).toHaveText('Kopiert: /tp 35 6 -15');
+
+  // Escape lässt los, dann folgt die Anzeige wieder der Maus.
+  await page.keyboard.press('Escape');
+  await expect(anzeige).not.toHaveClass(/gehalten/);
+  await page.mouse.move(...(await bildschirm(page, 160, 236)));
+  await expect(anzeige).toHaveText('X 40  Y 0  Z 20');
+});
+
+test('ohne Zwischenablage sagt die Rückmeldung, warum nicht kopiert wird', async ({ page }) => {
+  // Wie ausserhalb eines sicheren Kontexts: navigator.clipboard fehlt.
+  await page.addInitScript(() => {
+    delete (Navigator.prototype as { clipboard?: unknown }).clipboard;
+  });
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const kopieren = page.getByRole('button', { name: '/tp kopieren' });
+  await kopieren.click();
+  await expect(page.getByRole('status')).toHaveText('Erst einen Block wählen');
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await kopieren.click();
+  await expect(page.getByRole('status')).toHaveText('Kopieren geht nur über HTTPS');
+});
+
+test('schlägt das Kopieren fehl, sagt die Rückmeldung es', async ({ page }) => {
+  await page.addInitScript(() => {
+    Clipboard.prototype.writeText = () => Promise.reject(new Error('verweigert'));
+  });
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await page.getByRole('button', { name: '/tp kopieren' }).click();
+  await expect(page.getByRole('status')).toHaveText('Kopieren fehlgeschlagen');
+});
+
 test.describe('auf dem Touchscreen', () => {
   test.use({ hasTouch: true });
+
+  test('Tippen auf den Block, dann auf das Kopiersymbol kopiert /tp', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await welt(page);
+    await page.goto(DEMO);
+    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await page.touchscreen.tap(...(await bildschirm(page, 400, 36)));
+    await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
+    const knopf = (await page.getByRole('button', { name: '/tp kopieren' }).boundingBox())!;
+    await page.touchscreen.tap(knopf.x + knopf.width / 2, knopf.y + knopf.height / 2);
+    await expect(page.getByRole('status')).toHaveText('Kopiert: /tp 35 6 -15');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/tp 35 6 -15');
+  });
 
   test('ein Tippen zeigt den Block darunter', async ({ page }) => {
     await welt(page);

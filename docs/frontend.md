@@ -164,21 +164,33 @@ den aus `?tree=<path>`, sonst den ersten. Ohne `trees.json` (404, oder ein
 Server, der stattdessen die Seite schickt) ist der Kachelpfad selbst der
 Baum, wie bisher.
 
-Bei mehr als einem Baum steht neben dem Kompass ein `select` mit
-`camera · direction`, dazu `look`, wenn es nicht `map` ist. Die Wahl lädt
-die Seite neu, mit drei Parametern in der Adresse:
+Bei mehr als einem Baum steht neben dem Kompass ein `select`. Er nennt
+jeden Baum lesbar, nicht mit seinen Kürzeln:
+
+| Kamera | Name |
+|---|---|
+| W:H, etwa 2:1 | „2:1 aus Südost“, ebenso Südwest, Nordwest, Nordost |
+| `top` | „Von oben aus Südost“ |
+| `top-north` | „Von oben, Norden oben“; aus `w` Osten, aus `n` Süden, aus `e` Westen |
+| `north-45` | „Schräg, Norden oben“, ebenso |
+
+Ein `look` ausser `map` kommt dazu, `cinematic` als „· Cinematic“. Eine
+unbekannte Kamera oder Richtung steht als `camera · direction` da. Die
+Wahl lädt die Seite neu, mit drei Parametern in der Adresse:
 
 | Parameter | Inhalt |
 |---|---|
 | `tree` | `path` des Baums aus `trees.json` |
 | `at` | der Block in der Mitte, `x,y,z` in Weltkoordinaten |
-| `zoom` | die Zoomstufe |
+| `zoom` | die Zoomstufe ab der feinsten gerenderten: 0 ist ein Pixel der Kachel je Pixel des Bildschirms, −1 halb so gross |
 
 Der neue Baum setzt die Mitte der Oberseite von `at` in die Mitte der
-Karte, auf derselben Zoomstufe. So bleibt beim Umschalten derselbe Block in
-der Mitte, auch aus einer anderen Richtung. Ohne Koordinaten im alten Baum
-fehlt `at`, und der neue zeigt die ganze Karte. Die Adresse lässt sich so
-auch teilen.
+Karte. `zoom` zählt ab `maxZoom`, weil `maxZoom` je Baum an seiner
+Ausdehnung hängt, siehe [Zoomstufen](benutzung/zoomstufen.md),
+„Nummerierung“. So bleibt beim Umschalten derselbe Block in der Mitte, mit
+derselben Vergrösserung, auch aus einer anderen Richtung. Ohne Koordinaten
+im alten Baum fehlt `at`, und der neue zeigt die ganze Karte. Die Adresse
+lässt sich so auch teilen.
 
 ## Ausliefern
 

@@ -275,26 +275,42 @@ test('ohne map.json sagt die Seite warum', async ({ page }) => {
  * Zwei Bäume unter `/tiles-baeume`, wie der Renderer sie anlegt: `trees.json`
  * mit `2x1-se` und `2x1-nw`, je ein `map.json`, Höhen geteilt in `heights/`.
  * Beide zeigen die Kacheln des Demobaums; die Höhen sind eben auf Y 0.
+ * `2x1-nw` hat eine Stufe mehr, wie ein Baum mit grösserer Ausdehnung:
+ * seine Stufe z ist die Stufe z − 1 des Demobaums. Zwei weitere Einträge
+ * stehen nur in der Liste, für die Namen im Umschalter.
  */
 async function baeume(page: Page): Promise<void> {
-  const trees = ['se', 'nw'].map((direction) => ({
-    path: `2x1-${direction}`,
-    camera: '2:1',
-    direction,
-    look: 'map',
-  }));
+  const trees = [
+    ...['se', 'nw'].map((direction) => ({
+      path: `2x1-${direction}`,
+      camera: '2:1',
+      direction,
+      look: 'map',
+    })),
+    { path: 'top-se', camera: 'top', direction: 'se', look: 'map' },
+    { path: 'top-north-w-cinematic', camera: 'top-north', direction: 'w', look: 'cinematic' },
+  ];
   await page.route('**/tiles-baeume/trees.json', (route) => route.fulfill({ json: { trees } }));
   await page.route('**/tiles-baeume/*/**', async (route) => {
-    const url = route.request().url().replace(/\/tiles-baeume\/2x1-\w+\//, '/tiles-demo/');
+    const url = route
+      .request()
+      .url()
+      .replace(/\/tiles-baeume\/2x1-se\//, '/tiles-demo/')
+      .replace(/\/tiles-baeume\/2x1-nw\/(\d+)\//, (_, z: string) => `/tiles-demo/${Number(z) - 1}/`);
     await route.fulfill({ response: await route.fetch({ url }) });
   });
   await page.route('**/tiles-baeume/*/map.json', async (route) => {
-    const direction = /2x1-(\w+)\//.exec(route.request().url())![1];
+    const direction = /2x1-(\w+)\//.exec(route.request().url())![1]!;
     const url = route.request().url().replace(/\/tiles-baeume\/2x1-\w+\//, '/tiles-demo/');
     const response = await route.fetch({ url });
-    const info = (await response.json()) as object;
+    const info = (await response.json()) as { minZoom: number; maxZoom: number };
     const hoehen = { heights: '../heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319 };
-    await route.fulfill({ response, json: { ...info, ...hoehen, camera: '2:1', direction } });
+    const stufen =
+      direction === 'nw' ? { minZoom: info.minZoom + 1, maxZoom: info.maxZoom + 1 } : {};
+    await route.fulfill({
+      response,
+      json: { ...info, ...hoehen, ...stufen, camera: '2:1', direction },
+    });
   });
   await page.route('**/tiles-baeume/heights/*.bin', (route) =>
     route.fulfill({ body: deflateSync(Buffer.from(new Int16Array(128 * 128).buffer)) }),
@@ -310,24 +326,43 @@ async function mitte(page: Page): Promise<string | null> {
   return page.locator('.koordinaten').textContent();
 }
 
+/** Die Stufen, aus denen die sichtbaren Kacheln eines Baums unter `/tiles-baeume` stammen. */
+async function baumStufen(page: Page): Promise<number[]> {
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const quellen = await page
+    .locator('img.leaflet-tile-loaded')
+    .evaluateAll((bilder) => bilder.map((bild) => (bild as HTMLImageElement).src));
+  const stufen = quellen.map((src) => Number(/\/tiles-baeume\/[\w-]+\/(\d+)\//.exec(src)?.[1]));
+  return [...new Set(stufen)];
+}
+
 test('der Umschalter öffnet den anderen Baum mit demselben Block in der Mitte', async ({
   page,
 }) => {
   await baeume(page);
   await page.goto('/?tiles=/tiles-baeume');
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
   // Ohne tree der erste Baum; Norden zeigt aus Südosten nach rechts oben.
   const auswahl = page.locator('select.baeume');
   await expect(auswahl).toHaveValue('2x1-se');
-  await expect(auswahl.locator('option')).toHaveText(['2:1 · se', '2:1 · nw']);
+  await expect(auswahl.locator('option')).toHaveText([
+    '2:1 aus Südost',
+    '2:1 aus Nordwest',
+    'Von oben aus Südost',
+    'Von oben, Osten oben · Cinematic',
+  ]);
   await expect(page.locator('.kompass')).toHaveAttribute('style', /rotate\(63\.4deg\)/);
+  const [stufe] = await baumStufen(page);
   const vorher = await mitte(page);
 
   await auswahl.selectOption('2x1-nw');
   await page.waitForURL(/tree=2x1-nw/);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
-  const at = new URL(page.url()).searchParams.get('at')!.split(',');
+  const adresse = new URL(page.url()).searchParams;
+  const at = adresse.get('at')!.split(',');
   expect(vorher).toBe(`X ${at[0]}  Y ${at[1]}  Z ${at[2]}`);
+  // `zoom` zählt ab der feinsten Stufe: Der neue Baum hat eine Stufe mehr
+  // und zeigt dieselbe Vergrösserung eine Stufe höher.
+  expect(adresse.get('zoom')).toBe(String(stufe! - 2));
+  expect(await baumStufen(page)).toEqual([stufe! + 1]);
   await expect(page.locator('select.baeume')).toHaveValue('2x1-nw');
   await expect(page.locator('.kompass')).toHaveAttribute('style', /rotate\(-116\.6deg\)/);
   expect(await mitte(page)).toBe(vorher);

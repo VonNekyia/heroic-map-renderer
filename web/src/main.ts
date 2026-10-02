@@ -359,12 +359,41 @@ function kompass(map: L.Map, grad: number): void {
   control.addTo(map);
 }
 
+const HIMMEL: Record<string, string> = {
+  se: 'Südost',
+  sw: 'Südwest',
+  nw: 'Nordwest',
+  ne: 'Nordost',
+  // Genordet steht oben, wohin die Kamera blickt.
+  s: 'Norden',
+  w: 'Osten',
+  n: 'Süden',
+  e: 'Westen',
+};
+
+/** Der Name eines Baums im Umschalter, etwa „2:1 aus Südost“. */
+function anzeigename({ camera, direction, look }: Baum): string {
+  const himmel = HIMMEL[direction];
+  const name = !himmel
+    ? `${camera} · ${direction}`
+    : camera === 'top-north'
+      ? `Von oben, ${himmel} oben`
+      : camera === 'north-45'
+        ? `Schräg, ${himmel} oben`
+        : `${camera === 'top' ? 'Von oben' : camera} aus ${himmel}`;
+  if (look === 'map') return name;
+  return `${name} · ${look === 'cinematic' ? 'Cinematic' : look}`;
+}
+
 /**
  * Der Umschalter zwischen den Bäumen. Er öffnet den gewählten Baum mit dem
- * Block, der in der Mitte zu sehen ist, wieder in der Mitte.
+ * Block, der in der Mitte zu sehen ist, wieder in der Mitte, und mit
+ * derselben Vergrösserung gegenüber der feinsten Stufe: `maxZoom` hängt je
+ * Baum an seiner Ausdehnung.
  */
 function umschalter(
   map: L.Map,
+  maxZoom: number,
   liste: Baum[],
   aktuell: Baum,
   mitte: () => Promise<Block | undefined>,
@@ -372,8 +401,7 @@ function umschalter(
   const auswahl = L.DomUtil.create('select', 'baeume');
   auswahl.setAttribute('aria-label', 'Ansicht');
   for (const baum of liste) {
-    const name = [baum.camera, baum.direction, ...(baum.look === 'map' ? [] : [baum.look])];
-    auswahl.add(new Option(name.join(' · '), baum.path, false, baum === aktuell));
+    auswahl.add(new Option(anzeigename(baum), baum.path, false, baum === aktuell));
   }
   L.DomEvent.disableClickPropagation(auswahl);
   auswahl.addEventListener('change', () => {
@@ -382,7 +410,7 @@ function umschalter(
       adresse.searchParams.set('tree', auswahl.value);
       if (block) adresse.searchParams.set('at', block.join(','));
       else adresse.searchParams.delete('at');
-      adresse.searchParams.set('zoom', String(map.getZoom()));
+      adresse.searchParams.set('zoom', String(map.getZoom() - maxZoom));
       location.assign(adresse);
     });
   });
@@ -455,18 +483,18 @@ async function start(): Promise<void> {
       const { lat, lng } = map.getCenter();
       return bei ? bei(lng, lat) : Promise.resolve(undefined);
     };
-    umschalter(map, liste, baum, mitte);
+    umschalter(map, info.maxZoom, liste, baum, mitte);
   }
 
   // Kommt die Seite aus dem Umschalter, steht der Block der Mitte in der
-  // Adresse, in Weltkoordinaten.
+  // Adresse, in Weltkoordinaten, und `zoom` zählt ab der feinsten Stufe.
   const at = parameter.get('at')?.split(',').map(Number);
   const zoom = Number(parameter.get('zoom') ?? Number.NaN);
   if (at?.length === 3 && at.every(Number.isInteger) && typeof blick !== 'string') {
     const [x, y, z] = inDenBlick(at as unknown as Block, blick.k);
     // Die Mitte der Oberseite.
     const [px, py] = projiziere(x + 0.5, y + 1, z + 0.5, blick.p);
-    map.setView(point(px, py), Number.isFinite(zoom) ? zoom : info.maxZoom);
+    map.setView(point(px, py), info.maxZoom + (Number.isFinite(zoom) ? zoom : 0));
   } else {
     map.fitBounds(bounds);
   }

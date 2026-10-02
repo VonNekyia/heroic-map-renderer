@@ -3967,27 +3967,30 @@ fn richtung_ist_ein_eigener_baum() {
     assert_eq!(farben(&sw), soll, "aus sw");
 }
 
-/// `--center` nennt eine Spalte der Welt, auch mit `--direction`: Die Mitte
-/// des Bilds zeigt aus jeder Richtung den blauen Fleck um die Spalte
-/// (40, −20), in einem Boden einer anderen Farbe. Der Chunk an der Stelle
-/// im Blick fehlt; ungedreht bliebe die Mitte leer.
+/// `--center 40 -20` legt den Punkt (40, 0, −20) der Welt in die Bildmitte,
+/// aus jeder Richtung und bei jeder Art von Kamera. Um ihn liegen vier blaue
+/// Blöcke mit der Oberseite in Höhe 0, in einem Boden einer anderen Farbe.
+/// Die Pixel um die Mitte sind nur blau, wenn der Punkt genau dort liegt:
+/// Einen Block daneben läge die Mitte auf einer Kante oder Ecke der vier.
+/// Der Chunk an der Stelle im Blick fehlt; ungedreht bliebe die Mitte leer.
 #[test]
 fn center_in_der_welt_aus_jeder_richtung() {
     let welt = tempdir();
-    common::write_world(welt.path(), &[(2, -2)], |x, y, z| match (x, y, z) {
-        (38..=42, 0, -22..=-18) => "minecraft:blauwuerfel",
-        (_, 0, _) => "minecraft:einfarbig",
+    let block = |x, y, z| match (x, y, z) {
+        (39..=40, -1, -21..=-20) => "minecraft:blauwuerfel",
+        (_, -1, _) => "minecraft:einfarbig",
         _ => "minecraft:air",
-    });
+    };
+    common::write_world_sections(welt.path(), &[(2, -2)], [-1], block, |_, _| None);
     let blau = image::Rgba([40, 60, 200, 255]);
-    for (kamera, richtung) in [
-        ("2:1", "se"),
-        ("2:1", "sw"),
-        ("2:1", "nw"),
-        ("2:1", "ne"),
-        ("top-north", "w"),
-        ("north-45", "e"),
-    ] {
+    let diagonal = ["se", "sw", "nw", "ne"].map(|r| ("2:1", r));
+    let genordet = ["s", "w", "n", "e"];
+    for (kamera, richtung) in diagonal
+        .into_iter()
+        .chain([("top", "nw")])
+        .chain(genordet.map(|r| ("top-north", r)))
+        .chain(genordet.map(|r| ("north-45", r)))
+    {
         let png = tempdir();
         let pfad = png.path().join("bild.png");
         gelungen(&cli(&[
@@ -4008,12 +4011,15 @@ fn center_in_der_welt_aus_jeder_richtung() {
             OsStr::new(richtung),
         ]));
         let bild = image::open(&pfad).unwrap().into_rgba8();
-        let mitte = *bild.get_pixel(16, 16);
-        assert_eq!(
-            [mitte[2] > mitte[0], mitte[3] == 255],
-            [true, true],
-            "{kamera} {richtung}: {mitte:?}, blau ist {blau:?}"
-        );
+        // Die Mitte ist die Ecke zwischen den Pixeln 15 und 16.
+        for (x, y) in [(14, 15), (17, 15), (14, 16), (17, 16)] {
+            let p = *bild.get_pixel(x, y);
+            assert_eq!(
+                [p[2] > p[0], p[3] == 255],
+                [true, true],
+                "{kamera} {richtung}, Pixel ({x}, {y}): {p:?}, blau ist {blau:?}"
+            );
+        }
     }
 }
 

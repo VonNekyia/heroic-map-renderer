@@ -46,8 +46,9 @@ in [0055](../entscheidungen/0055-welt-beim-zugriff-drehen.md).
 - **Die andere Hälfte einer Doppelkiste** legt die Familie relativ im
   Blick ab.
 - **Vorlauf und `--center`:** Der Kasten einer Spalte (`column_box` in
-  `tiles.rs`) dreht seine Ecken in den Blick, `--center` den Block
-  (`window` in `cli.rs`).
+  `tiles.rs`) dreht seine Ecken in den Blick, `--center` seinen Punkt
+  (`window` in `cli.rs`). So liegt aus jeder Richtung derselbe Punkt der
+  Welt in der Bildmitte.
 
 ## In der Welt
 

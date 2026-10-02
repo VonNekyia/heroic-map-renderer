@@ -56,21 +56,13 @@ Himmelslicht und Leuchten kommen dazu.
   Ab 1,0 ist es warm mit 1,5: Savanne, Badlands, Wüste. Ebenen und Strände
   (0,8) bekommen 1,3, Wald (0,7) 1,2.
 
-**Werte an einer Stelle, ohne Mischen:** Der User will den Look später
-noch anpassen können.
-- **Eine Stelle:** Alle Werte des Looks stehen im Code an einer Stelle,
-  als benannte Werte eines Looks, nicht verteilt. Die Werte hier sind der
-  Anfang: Eine spätere Anpassung ist eine kleine Änderung an dieser Stelle
-  und ein neues Rendern.
-- **Fingerabdruck:** Ein Cinematic-Baum merkt sich als kurzen Fingerabdruck
-  in `map.json`, mit welchen Werten er gerendert ist.
-  - Mit anderen Werten mischt ein Lauf keine alten und neuen Kacheln, auch
-    nicht mit `--resume`.
-  - Er bricht ab, bevor er einen Chunk liest, wie bei einem anderen scale
-    oder einem anderen Radius der Mischung; siehe
-    [`map.json`](../benutzung/map-json.md), „Radius der Mischung“.
-  - Die Form legen Backend und Frontend in #72 fest, denn `map.json` ist
-    ihr Vertrag.
+**Werte an einer Stelle:** Der User will den Look später noch anpassen
+können.
+- Alle Werte des Looks stehen im Code an einer Stelle, als benannte Werte
+  eines Looks, nicht verteilt.
+- Die Werte hier sind der Anfang: Eine spätere Anpassung ist eine kleine
+  Änderung an dieser Stelle und ein neues Rendern. Wie alte Kacheln dabei
+  nicht mit neuen gemischt werden, steht unter „Folgen“.
 
 **Grenzen:** Das Prüfmass für #73. Die Kennzahlen sind erklärt in
 [Look von Cinematic](../messungen/2026-10-02-look-von-cinematic.md).
@@ -193,13 +185,21 @@ Alle Zahlen stammen aus
     `--data` bekommen sie ihre Temperatur.
   - **Kurve, Belichtung, Weissabgleich und Bloom** rechnet heute nur die
     Nachbearbeitung des Prototyps; #73 rechnet sie je Pixel.
-  - **Werte an einer Stelle:** #73 setzt sie dort und leitet aus ihnen den
-    Fingerabdruck ab.
-  - **#72:** legt fest, wie der Fingerabdruck in `map.json` steht.
+  - **Werte an einer Stelle:** #73 setzt sie dort.
+- **Kein Mischen.**
+  - Ein Cinematic-Baum merkt sich als kurzen Fingerabdruck in `map.json`,
+    mit welchen Werten er gerendert ist. #73 leitet ihn aus den Werten an
+    der einen Stelle ab.
+  - Ändern sich die Werte, mischt ein Lauf keine alten und neuen Kacheln,
+    auch nicht mit `--resume`.
+  - Er bricht ab, bevor er einen Chunk liest, wie bei einem anderen scale
+    oder Radius der Mischung; siehe
+    [`map.json`](../benutzung/map-json.md), „Radius der Mischung“.
+  - Die Form legen Backend und Frontend in #72 fest, denn `map.json` ist
+    ihr Vertrag.
 - **Später anpassen.**
   - Die Werte an der einen Stelle ändern, dann die Cinematic-Bäume neu
     rendern.
-  - Ein alter Baum bricht mit den neuen Werten ab, statt zu mischen.
   - Die neuen Werte hält eine Entscheidung fest, die die Tabelle hier
     ablöst.
 - **Kachelsicher.**

@@ -64,8 +64,8 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    java -cp "$(ls versions/*/server-*.jar):$(find libraries -name '*.jar' | paste -sd:)" Seiten.java > seiten.txt
    ```
 
-   Auf stderr stehen die Zahlen der Blöcke, der Zustände mit einer vollen
-   Seite und der Zustände mit allen sechs. Weichen sie ab, die Zahl in
+   Auf stderr stehen die Zahlen der Blöcke, der Zustände mit mindestens
+   einer vollen Seite und der Zustände mit allen sechs. Weichen sie ab, die Zahl in
    `seiten_wie_im_spiel` nachziehen.
 6. **`blockentities.txt`:** Die Renderer der Blockentities gibt es nur im
    Client. Das Client-JAR der Version liegt im Manifest unter

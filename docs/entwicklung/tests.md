@@ -111,8 +111,10 @@ Partikeltextur wie im Spiel und kleine, selbst gemalte Texturen unter
 `textures/entity`. Der Spawner hat nur das innere, in x gespiegelte
 Element von `cube_all_inner_faces` aus 26.2, einfarbig, die untere Schicht
 der Mangrovenwurzeln eine eigene Farbe. Das Pack `assets-platten` zeichnet
-jede Platte mit dem Modell der unteren, für zwei Familien mit demselben
-Bild, die verschieden decken. Biome und Bannermuster für die Tests liegen
+jeden Zustand der Eichenplatte mit dem Modell der unteren, für zwei
+Familien mit demselben Bild, die verschieden decken. Das Pack
+`assets-wurzeln` gibt den Mangrovenwurzeln die sechs Schichten aus 26.2,
+für ihre Seiten aus jeder Richtung. Biome und Bannermuster für die Tests liegen
 unter `renderer/tests/fixtures/data-base`.
 
 ## Welten im Speicher

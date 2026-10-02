@@ -43,7 +43,7 @@ Haben alle Zustände eines Blocks dasselbe Zeichen, steht es einmal.
 | [`licht.txt`](../../renderer/src/assets/licht.txt) | je Zustand in der Reihenfolge von `getPossibleStates` sieben Zeichen: `getLightDampening` (0, 1 oder f), dann je Richtung von `Direction.values()` die Fläche, mit der er das Licht an dieser Seite aufhält, zur Basis 36: 0 keine, 1 die ganze Seite, ab 2 eine Teilfläche. Am Ende je Achse die Paare aus Teilflächen, die zusammen eine Seite decken, als `paar <achse> <a> <b>`; Blöcke, die das Licht nirgends aufhalten, fehlen | `Licht.java` | 852 Blöcke mit 18 323 Zuständen und 288 Paare aus 26.2 |
 | [`schatten.txt`](../../renderer/src/assets/schatten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer, Bit 1 für `getShadeBrightness` 0,2, Bit 2 für `isViewBlocking` mit `getLightDampening` > 0, Bit 4 für `isCollisionShapeFullBlock`; Blöcke ohne Bit fehlen | `Schatten.java` | 517 Blöcke aus 26.2 |
 | [`nachbarn.txt`](../../renderer/src/assets/nachbarn.txt) | je Block mit eigenem `skipRendering` eine Zeile: der Name, die Regel `gleich`, `senkrecht` oder `verbunden` und bei `verbunden` womöglich der Tag seiner Gruppe. Wasser und Lava fehlen, Laub mit den Vorgaben des Spiels auch | `Nachbarn.java`, mit den Tags des Spiels | 59 Blöcke aus 26.2 |
-| [`seiten.txt`](../../renderer/src/assets/seiten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` zwei Hexziffern: die Seiten, an denen `getFaceOcclusionShape` genau `Shapes.block()` ist, ein Bit je Richtung von `Direction.values()`, 1 unten bis 20 Osten; Blöcke, die nirgends voll decken, fehlen | `Seiten.java` | 480 Blöcke aus 26.2, 3709 Zustände mit einer vollen Seite, 2783 mit allen sechs |
+| [`seiten.txt`](../../renderer/src/assets/seiten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` zwei Hexziffern: die Seiten, an denen `getFaceOcclusionShape` genau `Shapes.block()` ist, ein Bit je Richtung von `Direction.values()`, 1 unten bis 20 Osten; Blöcke, die nirgends voll decken, fehlen | `Seiten.java` | 480 Blöcke aus 26.2, 3709 Zustände mit mindestens einer vollen Seite, 2783 mit allen sechs |
 | [`dimensionstypen.txt`](../../renderer/src/assets/dimensionstypen.txt) | die Vorgaben der vier Attribute der Lightmap aus `EnvironmentAttributes`; je Dimensionstyp des Spiels `has_skylight`, `cardinal_light` und die Attribute, die er setzt. Das Format steht im Kopf von `Dimensionstypen.java` | `Dimensionstypen.java` mit dem Client-JAR, über `VanillaRegistries.createLookup` | 4 Typen aus 26.2 |
 | [`blockentities.txt`](../../renderer/src/assets/blockentities.txt) | je Zustand eines Blocks mit Blockentity-Renderer, was das Spiel aus Modellen zeichnet: Flächen, Lage, Textur, Schicht, Farbe; dazu die Farbstoffe, die Scherben, die Regel und die Muster des Spiels für Banner. Das Format steht im Kopf von `Blockentities.java` | `Blockentities.java` mit dem Client-JAR | 26.2, Zahlen in [Blockentities](../renderer/blockentities.md), „Die Tabelle“ |
 
@@ -59,7 +59,9 @@ Andere Werte als 0,2 und 1 gibt `getShadeBrightness` in 26.2 nicht zurück.
 `nachbarn.txt` sagt, welche Flächen zu gleichen Nachbarn entfallen, siehe
 [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Flächen zu
 gleichen Nachbarn“. `seiten.txt` sagt, vor welchen Seiten die Flächen jedes
-Nachbarn entfallen, ebenda, „Flächen vor einem vollen Nachbarn“.
+Nachbarn entfallen, siehe [Sprites und
+Deckung](../renderer/sprites-und-deckung.md), „Flächen vor einem vollen
+Nachbarn“.
 `blockentities.txt` gibt Truhen, Bannern und den übrigen Blockentities ihr
 Bild, siehe [Blockentities](../renderer/blockentities.md).
 `dimensionstypen.txt` gibt jeder Dimension ihren Typ, siehe
@@ -75,8 +77,8 @@ Bild, siehe [Blockentities](../renderer/blockentities.md).
 - `nachbarn_wie_im_spiel` hält die Zahl der Blöcke in `nachbarn.txt` fest
   und prüft Paare, für die `skipRendering` in 26.2 so antwortet.
 - `seiten_wie_im_spiel` hält die Zahl der Blöcke in `seiten.txt` fest und
-  prüft Seiten einzelner Zustände, dazu Paare, für die
-  `Block.shouldRenderFace` in 26.2 so antwortet.
+  prüft die Bits einzelner Zustände, darunter die, für die
+  `Block.shouldRenderFace` in 26.2 eine Fläche weglässt oder zeichnet.
 - `tabelle_wie_im_spiel` prüft, dass jeder Verweis in `blockentities.txt`
   auf etwas zeigt, das es gibt, und jeder Block so viele Bilder hat wie
   Zustände oder eines; dazu die Zahl der Blöcke und Farbstoffe und die Regel

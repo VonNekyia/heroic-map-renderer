@@ -21,8 +21,8 @@ dorthin voll deckt, im ersten Fall von `Block.shouldRenderFace`. Der
 Renderer zeichnete sie. Zu sehen war das an den inneren Schichten der
 Mangrovenwurzeln auf Schlamm und an den Innenwänden eines Spawners. Seit
 [0044](0044-flaechen-zu-gleichen-nachbarn.md) stand der Fall als Näherung
-da, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md),
-„Flächen vor einem vollen Nachbarn“.
+unter „Folgen“, mit der Begründung, er zähle nur für innere Flächen, deren
+`cullface` von der Kamera weg weist.
 
 ## Entscheidung
 
@@ -30,10 +30,13 @@ da, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md),
   Zustand und Richtung, ob `getFaceOcclusionShape` genau `Shapes.block()`
   ist, und schreibt `seiten.txt`. Die Seiten gehören zum Schlüssel der
   Familie.
-- **Eine Familie fragt nur zu Seiten, die etwas ändern:** wo eine Fläche,
-  die die Kamera sieht, ihre `cullface` hat und nicht auf der Wand zu
-  dieser Seite liegt und dorthin zeigt (`auf_der_wand`). Liegt sie dort,
-  übermalt sie der volle Nachbar ohnehin.
+- **Eine Familie fragt nur zu Seiten, die etwas ändern können:** wo eine
+  Fläche, die die Kamera sieht, ihre `cullface` hat und nicht zu dieser
+  Seite zeigt und auf der Wand dorthin oder dahinter im Würfel des
+  Nachbarn liegt (`auf_der_wand`). Liegt sie so, übermalt sie der volle
+  Nachbar ohnehin. Beschrieben in
+  [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Flächen vor
+  einem vollen Nachbarn“.
 - **Dieselben Fassungen wie in 0044.** Die Seiten aus beiden Fällen bilden
   eine Maske; `sprite_at` setzt ein Bit, wenn der Nachbar voll deckt oder
   die Regel aus `nachbarn.txt` greift.
@@ -65,10 +68,17 @@ da, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md),
 - Eine achte Tabelle, die mit jeder Spielversion neu erzeugt wird, siehe
   [Erzeugte Tabellen](../entwicklung/tabellen.md).
 - Mehr Fassungen je Alternative, aus `se`: Mangrovenwurzeln 16 statt 4,
-  geflutet 128 statt 32; Spawner und Prüfungs-Spawner 8, der Trichter 2.
+  geflutet 128 statt 32; Spawner und Prüfungsspawner 8, der Trichter 2.
   Pulverschnee hatte über seine Regel schon alle sechs Seiten.
+- Mehr Nachschläge je gezeichnetem Block, aus `se`: Mangrovenwurzeln 4
+  statt 2, Spawner und Prüfungsspawner 3, der Trichter 1.
+- Die Tabelle wächst: In den 17 Läufen der Doku-Bilder der Testwelt sind es
+  1 bis 16 Sprites mehr, 0,6 bis 2,4 %. Für jeden anderen Block kostet
+  `sprite_at` einen Vergleich wie vorher; eine Zeitreihe braucht es
+  nicht.
 - Der Trichter bekommt Fassungen, die nichts ändern: Das Innere seiner
   Schale übermalt der Block darüber.
 - Ein Block, den 26.2 nicht kennt, deckt nirgends.
 - Der dritte Fall, der Vergleich der Formen, fehlt weiter. In 26.2 ändert er
-  kein Pixel, siehe „Flächen zu gleichen Nachbarn“.
+  kein Pixel, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md),
+  „Flächen zu gleichen Nachbarn“.

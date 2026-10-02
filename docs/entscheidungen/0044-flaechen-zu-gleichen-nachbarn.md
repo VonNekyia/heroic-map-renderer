@@ -15,9 +15,10 @@ code:
 
 # 0044: Flächen zu gleichen Nachbarn nach der Regel des Spiels
 
-Den ersten Fall von `shouldRenderFace`, die volle Seite des Nachbarn,
-bringt [0057](0057-flaechen-vor-einem-vollen-nachbarn.md) nach; die
-Näherung dazu unter „Folgen“ entfällt.
+[0057](0057-flaechen-vor-einem-vollen-nachbarn.md) löst zwei Stellen ab:
+die verworfene Alternative „Den ersten Fall von `shouldRenderFace`
+mitnehmen“, deren Begründung am Spawner nicht hält, und die Näherung dazu
+unter „Folgen“.
 
 ## Anlass
 

@@ -115,6 +115,9 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 - Liest Welten ab 26.1 und Resourcepacks wie der Client von 26.2.
 - Truhen, Banner, Köpfe, Krüge und die übrigen Blockentities aus den
   Modellen des Spiels, mit Bannermustern und Scherben.
+- Cinematic mit `--cinematic`: dieselbe Karte im Licht des Spiels in HDR,
+  mit Weissabgleich, Belichtung und Kurve, als eigener Baum. Sonne, Wasser,
+  Leuchten und Bloom kommen noch, siehe [Cinematic](docs/renderer/cinematic.md).
 - Noch nicht: Text auf Schildern und Gegenstände in Blöcken, weiche
   Beleuchtung für Flächen im Innern eines Blocks, etwa auf Schneedecken.
 

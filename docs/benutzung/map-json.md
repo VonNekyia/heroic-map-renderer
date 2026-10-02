@@ -174,8 +174,14 @@ die alle Bäume teilen. Entschieden in
   Baum aus einem Stand vor #68. Der Lauf bricht dann ab, bevor er die Welt
   liest, und nennt den Ordner, in den der Baum gehört; er deutet ihn nicht
   um und verschiebt nichts. Verschiebt man den Baum samt allem darin
-  dorthin, schreibt der nächste Lauf seine Höhen unter die Wurzel.
+  dorthin, schreibt der nächste Lauf seine Höhen unter die Wurzel. Bis
+  dahin bleibt er lesbar: Seine `map.json` verweist relativ auf die Höhen
+  in seinem Ordner.
   `--pyramid` nimmt weiter jeden Baum, auch einen der alten Ablage.
+- **Der scale steht nicht im Namen:** Ein zweiter scale derselben Kamera
+  und Richtung braucht eine eigene Wurzel. Im selben Ordner bricht der Lauf
+  ab, bevor er einen Chunk liest, siehe [Zoomstufen](zoomstufen.md), „Ein
+  Baum, eine Welt“.
 
 ## Höhen
 

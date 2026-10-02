@@ -982,6 +982,7 @@ impl SpriteSet {
                 tints,
                 self.licht,
                 kollision(state),
+                self.look.is_some(),
             )
         };
         let schwarz = raster(tints(SCHWARZ, SCHWARZ))?;
@@ -1324,6 +1325,10 @@ fn content_hash(sprite: &Sprite) -> u64 {
     sprite.ao.hash(&mut hasher);
     sprite.weich.hash(&mut hasher);
     sprite.tint.hash(&mut hasher);
+    for g in sprite.geometrie.iter().flatten() {
+        g.tiefe.to_bits().hash(&mut hasher);
+        g.normale.map(f32::to_bits).hash(&mut hasher);
+    }
     hasher.finish()
 }
 
@@ -1334,6 +1339,7 @@ fn same_image(a: &Sprite, b: &Sprite) -> bool {
         && a.ao == b.ao
         && a.weich == b.weich
         && a.tint == b.tint
+        && a.geometrie == b.geometrie
 }
 
 /// Die Tönungskarte aus drei Rastern desselben Modells: `schwarz` mit
@@ -2190,6 +2196,7 @@ mod tests {
             ao: None,
             weich: false,
             tint: None,
+            geometrie: None,
         };
         assert!(masks.contains(&sprite));
         let (x, y) = stelle(masks.outline[0]);
@@ -2221,6 +2228,7 @@ mod tests {
                     &projection,
                     Tints::default(),
                     CardinalLight::Default,
+                    false,
                     false,
                 ) else {
                     // Von oben steht Feuer ganz auf der Kante.
@@ -2713,6 +2721,7 @@ mod tests {
                         Tints::default(),
                         CardinalLight::Default,
                         kollision(st),
+                        false,
                     ) else {
                         continue;
                     };

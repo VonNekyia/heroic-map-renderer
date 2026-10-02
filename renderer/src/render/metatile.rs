@@ -2699,6 +2699,7 @@ mod tests {
             ao: None,
             weich: false,
             tint: None,
+            geometrie: None,
         };
         let (deckend, halb) = (sprite(255), sprite(128));
         let (voll, durch) = (Rows::of(&deckend), Rows::of(&halb));

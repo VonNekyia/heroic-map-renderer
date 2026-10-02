@@ -373,6 +373,22 @@ pub struct Sprite {
     /// deren Farbe vom Biom kommt.
     /// Siehe docs/renderer/biomfarben.md, „Tönung beim Zeichnen“.
     pub tint: Option<Vec<u32>>,
+    /// Nur in Sprites für Cinematic: je Pixel Tiefe und Normale seines
+    /// vordersten Fragments, siehe [`Geometrie`].
+    pub geometrie: Option<Vec<Geometrie>>,
+}
+
+/// Was ein Sprite für Cinematic an einem Pixel über die vorderste Fläche
+/// weiss, die es dort zeigt.
+/// Siehe docs/renderer/cinematic.md, „Sprites für Cinematic“.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Geometrie {
+    /// Die Tiefe entlang der Blickachse relativ zum Ursprung des Blocks im
+    /// Blick, wie [`Projection::depth`]: grösser heisst näher.
+    pub tiefe: f32,
+    /// Die Normale der Fläche in der Welt, normiert, auf der Seite, die die
+    /// Kamera sieht.
+    pub normale: [f32; 3],
 }
 
 /// Ein Pixel in den Farben seines Blocks: je Kanal der Rest aus dem Bild
@@ -446,7 +462,7 @@ pub fn render_mit_licht(
     licht: CardinalLight,
     kollision: bool,
 ) -> Option<Sprite> {
-    rastern(model, textures, projection, tints, licht, kollision).map(|raster| raster.ganz())
+    rastern(model, textures, projection, tints, licht, kollision, false).map(|raster| raster.ganz())
 }
 
 /// Ein gerastertes Modell: seine Fragmente je Pixel, gemischt erst auf
@@ -456,18 +472,24 @@ pub struct Raster {
     offset: (i32, i32),
     ao: bool,
     weich: bool,
+    /// Für Cinematic je Rang einer Fläche ihre Normale, siehe
+    /// [`Geometrie::normale`].
+    normalen: Option<Vec<[f32; 3]>>,
 }
 
 impl Raster {
     /// Das ganze Modell als ein Sprite.
     pub fn ganz(&self) -> Sprite {
-        let (image, ao) = self.canvas.mischen(self.ao, |_| true);
+        let (image, ao, geometrie) = self
+            .canvas
+            .mischen(self.ao, self.normalen.as_deref(), |_| true);
         Sprite {
             image,
             offset: self.offset,
             ao: ao.filter(|karte| karte.iter().any(|&w| w >> 24 != 0)),
             weich: self.weich,
             tint: None,
+            geometrie,
         }
     }
 
@@ -491,13 +513,16 @@ impl Raster {
             .zellen()
             .into_iter()
             .filter_map(|zelle| {
-                let (image, ao) = self.canvas.mischen(mit_ao, |f| f.zelle == zelle);
+                let (image, ao, geometrie) =
+                    self.canvas
+                        .mischen(mit_ao, self.normalen.as_deref(), |f| f.zelle == zelle);
                 let sprite = Sprite {
                     image,
                     offset: self.offset,
                     ao,
                     weich: self.weich,
                     tint: None,
+                    geometrie,
                 };
                 Some((zelle, zuschneiden(&sprite)?))
             })
@@ -506,7 +531,7 @@ impl Raster {
 }
 
 /// Das Sprite auf seine Pixel mit Alpha über 0 zugeschnitten, samt
-/// AO-Karte. `None` ohne solche Pixel.
+/// AO-Karte und Geometrie. `None` ohne solche Pixel.
 fn zuschneiden(sprite: &Sprite) -> Option<Sprite> {
     let mut umriss: Option<(u32, u32, u32, u32)> = None;
     for (x, y, pixel) in sprite.image.enumerate_pixels() {
@@ -521,22 +546,36 @@ fn zuschneiden(sprite: &Sprite) -> Option<Sprite> {
     let (x0, y0, x1, y1) = umriss?;
     let (breite, w) = (sprite.image.width(), x1 - x0 + 1);
     let image = image::imageops::crop_imm(&sprite.image, x0, y0, w, y1 - y0 + 1).to_image();
-    let ao = sprite.ao.as_ref().map(|karte| {
+    fn ausschnitt<T: Copy>(
+        karte: &[T],
+        breite: u32,
+        (x0, y0, x1, y1): (u32, u32, u32, u32),
+    ) -> Vec<T> {
         (y0..=y1)
             .flat_map(|y| (x0..=x1).map(move |x| karte[(y * breite + x) as usize]))
-            .collect::<Vec<u32>>()
-    });
+            .collect()
+    }
+    let umriss = (x0, y0, x1, y1);
     Some(Sprite {
         image,
         offset: (sprite.offset.0 + x0 as i32, sprite.offset.1 + y0 as i32),
-        ao,
+        ao: sprite
+            .ao
+            .as_deref()
+            .map(|karte| ausschnitt(karte, breite, umriss)),
         weich: sprite.weich,
         tint: None,
+        geometrie: sprite
+            .geometrie
+            .as_deref()
+            .map(|karte| ausschnitt(karte, breite, umriss)),
     })
 }
 
 /// Rastert ein gebackenes Modell in seine Fragmente, siehe [`Raster`] und
-/// [`render_mit_licht`].
+/// [`render_mit_licht`]. Mit `kino` für Cinematic: ohne Schattierung nach
+/// Richtung, dafür mit [`Sprite::geometrie`].
+/// Siehe docs/renderer/cinematic.md, „Sprites für Cinematic“.
 pub fn rastern(
     model: &BakedModel,
     textures: &Textures,
@@ -544,6 +583,7 @@ pub fn rastern(
     tints: Tints,
     licht: CardinalLight,
     kollision: bool,
+    kino: bool,
 ) -> Option<Raster> {
     // Gerastert wird im Blick, schattiert nach der Richtung in der Welt.
     let richtung = projection.richtung();
@@ -558,9 +598,18 @@ pub fn rastern(
         .zip(&model.quads)
         .filter_map(|(quad, welt)| {
             let rueckseite = seite(quad, projection)?;
-            let shade = shade_factor(welt, rueckseite, licht);
+            let shade = if kino {
+                1.0
+            } else {
+                shade_factor(welt, rueckseite, licht)
+            };
             Some(ProjectedQuad::new(
-                quad, projection, shade, kollision, &ecken,
+                quad,
+                projection,
+                shade,
+                kollision,
+                &ecken,
+                normale(welt, rueckseite),
             ))
         })
         .collect();
@@ -573,6 +622,7 @@ pub fn rastern(
     // Modellreihenfolge.
     // Siehe docs/renderer/naehte.md, „Fragmente je Pixel“.
     projected.sort_by(|a, b| a.depth.total_cmp(&b.depth));
+    let normalen = kino.then(|| projected.iter().map(|q| q.normale).collect());
 
     let (min_x, min_y, max_x, max_y) = bounds(&projected)?;
     let width = (max_x - min_x).max(1) as u32;
@@ -609,7 +659,17 @@ pub fn rastern(
         offset: (min_x, min_y),
         ao,
         weich: model.ambient_occlusion,
+        normalen,
     })
+}
+
+/// Die Normale von `quad` in der Welt, normiert, auf der Seite, die die
+/// Kamera sieht: mit `rueckseite` umgekehrt.
+fn normale(quad: &Quad, rueckseite: bool) -> [f32; 3] {
+    let n = quad.normal();
+    let laenge = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    let k = if rueckseite { -1.0 } else { 1.0 } / laenge;
+    n.map(|a| a * k)
 }
 
 fn bounds(quads: &[ProjectedQuad]) -> Option<(i32, i32, i32, i32)> {
@@ -643,17 +703,20 @@ struct ProjectedQuad<'a> {
     /// Als welche Seite das Viereck weich beleuchtet wird, siehe [`ao_face`],
     /// mit deren Ecken aus [`ecken_im_blick`].
     ao_face: Option<(usize, [[f32; 2]; 4])>,
+    /// Die Normale in der Welt, siehe [`normale`].
+    normale: [f32; 3],
 }
 
 impl<'a> ProjectedQuad<'a> {
     /// `quad` im Blick, `shade` aus [`shade_factor`], `ecken` je Seite aus
-    /// [`ecken_im_blick`].
+    /// [`ecken_im_blick`], `normale` aus [`normale`].
     fn new(
         quad: &'a Quad,
         projection: &Projection,
         shade: f32,
         kollision: bool,
         ecken: &[[[f32; 2]; 4]; 3],
+        normale: [f32; 3],
     ) -> ProjectedQuad<'a> {
         let screen = quad.corners.map(|corner| {
             let (x, y) = projection.project(corner);
@@ -665,6 +728,7 @@ impl<'a> ProjectedQuad<'a> {
             depth: screen.iter().map(|&(_, _, d)| d).fold(f32::MIN, f32::max),
             shade,
             ao_face: ao_face(quad, kollision).map(|face| (face, ecken[face])),
+            normale,
         }
     }
 
@@ -1125,10 +1189,18 @@ impl Canvas {
 
     /// Mischt je Pixel die Fragmente, die `nimm` durchlässt, von hinten nach
     /// vorne, nach [`Canvas::sortieren`]. Mit `ao` dazu die AO-Karte aus dem
-    /// vordersten von ihnen je Pixel.
-    fn mischen(&self, ao: bool, nimm: impl Fn(&Fragment) -> bool) -> (RgbaImage, Option<Vec<u32>>) {
+    /// vordersten von ihnen je Pixel, mit `normalen` je Rang einer Fläche
+    /// dessen [`Geometrie`].
+    fn mischen(
+        &self,
+        ao: bool,
+        normalen: Option<&[[f32; 3]]>,
+        nimm: impl Fn(&Fragment) -> bool,
+    ) -> (RgbaImage, Option<Vec<u32>>, Option<Vec<Geometrie>>) {
+        let pixel = (self.width * self.height) as usize;
         let mut image = RgbaImage::new(self.width, self.height);
-        let mut map = ao.then(|| vec![0u32; (self.width * self.height) as usize]);
+        let mut map = ao.then(|| vec![0u32; pixel]);
+        let mut geometrie = normalen.map(|_| vec![Geometrie::default(); pixel]);
         for pixel in self.fragments.chunk_by(|a, b| a.pixel == b.pixel) {
             let mut vorderstes = None;
             let mut color = [0u8; 4];
@@ -1144,8 +1216,14 @@ impl Canvas {
             if let Some(map) = &mut map {
                 map[index as usize] = vorderstes.ao;
             }
+            if let (Some(geometrie), Some(normalen)) = (&mut geometrie, normalen) {
+                geometrie[index as usize] = Geometrie {
+                    tiefe: vorderstes.depth,
+                    normale: normalen[vorderstes.order as usize],
+                };
+            }
         }
-        (image, map)
+        (image, map, geometrie)
     }
 }
 
@@ -2293,6 +2371,7 @@ mod tests {
                 Tints::default(),
                 CardinalLight::Default,
                 false,
+                false,
             )
             .unwrap();
             raster
@@ -2495,5 +2574,82 @@ mod tests {
         assert_eq!(sprite.image.get_pixel(8, 8).0[3], 255);
         assert_eq!(sprite.image.get_pixel(0, 0).0[3], 0);
         assert_eq!(sprite.image.get_pixel(15, 0).0[3], 0);
+    }
+
+    /// Cinematic rastert dieselben Pixel wie die Karte, ohne Schattierung
+    /// nach Richtung: Die Karte zeigt jede Seite in der Farbe der Textur mal
+    /// dem Faktor ihrer Richtung, Cinematic die Farbe selbst. Je Pixel steht
+    /// die Normale seiner Seite, auf der Oberseite die Tiefe ihrer Ebene an
+    /// der Mitte des Pixels.
+    #[test]
+    fn cinematic_ohne_schattierung_mit_geometrie() {
+        let model = BakedModel {
+            quads: crate::assets::baker::box_quads(
+                [0.0; 3],
+                [16.0; 3],
+                Textures::MISSING,
+                None,
+                None,
+            )
+            .collect(),
+            ambient_occlusion: true,
+        };
+        let textures = Textures::new();
+        let projection = Projection::new(16);
+        let raster = |kino| {
+            let licht = CardinalLight::Default;
+            rastern(
+                &model,
+                &textures,
+                &projection,
+                Tints::default(),
+                licht,
+                true,
+                kino,
+            )
+            .unwrap()
+            .ganz()
+        };
+        let (karte, kino) = (raster(false), raster(true));
+        assert!(karte.geometrie.is_none());
+        let geometrie = kino.geometrie.as_ref().expect("Geometrie");
+        assert_eq!(
+            (karte.offset, karte.image.dimensions(), &karte.ao),
+            (kino.offset, kino.image.dimensions(), &kino.ao)
+        );
+        let mut oben = 0;
+        let pixel = karte.image.enumerate_pixels().zip(kino.image.pixels());
+        for (((x, y, k), c), g) in pixel.zip(geometrie) {
+            assert_eq!(k.0[3], c.0[3], "({x}, {y})");
+            if c.0[3] == 0 {
+                continue;
+            }
+            let faktor = if g.normale == [0.0, 1.0, 0.0] {
+                1.0
+            } else if g.normale == [0.0, 0.0, 1.0] {
+                0.8
+            } else if g.normale == [1.0, 0.0, 0.0] {
+                0.6
+            } else {
+                panic!("({x}, {y}): Normale {:?}", g.normale);
+            };
+            assert_eq!(k.0, shaded(c.0, faktor, None), "({x}, {y})");
+            if faktor == 1.0 {
+                oben += 1;
+                // Auf der Oberseite, y = 1, aus der Mitte des Pixels:
+                // u = x − z, v = x + z.
+                let sx = (kino.offset.0 + x as i32) as f32 + 0.5;
+                let sy = (kino.offset.1 + y as i32) as f32 + 0.5;
+                let u = sx / projection.h() as f32;
+                let v = (sy + projection.b() as f32) / projection.a() as f32;
+                let erwartet = projection.depth([(v + u) / 2.0, 1.0, (v - u) / 2.0]);
+                assert!(
+                    (g.tiefe - erwartet).abs() < 1e-4,
+                    "({x}, {y}): Tiefe {} statt {erwartet}",
+                    g.tiefe
+                );
+            }
+        }
+        assert!(oben > 0);
     }
 }

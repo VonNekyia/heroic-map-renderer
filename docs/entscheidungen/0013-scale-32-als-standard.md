@@ -12,7 +12,8 @@ code:
 # 0013: scale 32 als Standard
 
 Statt Vielfachen von 4 gilt seit [0051](0051-kameras-und-richtungen.md)
-die Regel „ganze Pixel“ für scale und Kamera zusammen.
+die Regel „ganze Pixel“ für scale und Kamera zusammen. Für `top-north` und
+`north-45` ist die Vorgabe seit [0052](0052-genordete-kameras.md) 16.
 
 ## Anlass
 

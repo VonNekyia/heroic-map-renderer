@@ -36,6 +36,10 @@ v = x + z.
 - **Jeder scale:** Alle Ecken liegen auf ganzen Pixeln, auch bei einem
   ungeraden scale. Native Stufen gehen, solange der scale gerade ist und
   die Hälfte mindestens 4.
+- **Vorgabe 16:** Ohne `--scale` rendern `top-north` und `north-45` bei
+  scale 16, alle anderen Kameras weiter bei 32 aus
+  [0013](0013-scale-32-als-standard.md). Bei 16 ist genordet jedes Texel
+  einer Oberseite ein Pixel. Vom User am 02.10. entschieden.
 - **`map.json`:** `azimuth` ist `north`, `direction` ist `s`, die Kamera
   steht im Süden. Diagonal bleibt es `diagonal` und `se`. Fehlt
   `direction`, gilt die Richtung der Kamera; eine andere bricht ab, bis
@@ -47,11 +51,16 @@ v = x + z.
   - Verdeckt ist ein Würfel, wenn der Nachbar nach +z seinen ganzen Umriss
     deckt und der nach +y seinen Boden. Der nach +x liegt neben dem
     Umriss und zählt nicht. Bei `top-north` deckt der Block darüber allein,
-    wie bei `top`.
+    wie bei `top`. Welche Nachbarn zählen, sagt
+    `Projection::verdeckende_seiten`.
+- **Licht unbekannter Blöcke:** weiter aus dem Raster in 2:1 beim scale der
+  Basis. Nimmt 2:1 diesen scale nicht, wie bei 6 und jedem ungeraden,
+  rastert es beim nächsten Vielfachen von 4 darüber, siehe
+  [Wasser und Licht](../renderer/wasser-und-licht.md), „Was bleibt eine
+  Näherung“.
 - **Unverändert:** Die Teile je Würfel im Raum aus
-  [0050](0050-teile-je-wuerfel-im-raum.md), der Spielraum (von oben nur im
-  eigenen Würfel) und das Licht unbekannter Blöcke aus dem Raster in 2:1
-  beim scale der Basis hängen nicht am Azimut.
+  [0050](0050-teile-je-wuerfel-im-raum.md) und der Spielraum (von oben nur
+  im eigenen Würfel) hängen nicht am Azimut.
 
 Siehe [Die Kamera](../renderer/kamera.md), „Genordet“.
 
@@ -76,13 +85,13 @@ Siehe [Die Kamera](../renderer/kamera.md), „Genordet“.
 
 - Eine Oberseite belegt genordet scale × scale Pixel, bei scale 16 so viel
   wie in 2:1 bei scale 32, bei scale 32 das Vierfache.
-- Bei `north-45` sind Nordwände verdeckt, Ost- und Westwände stehen auf der
-  Kante und fallen weg. Häuser zeigen ihre Südwand.
+- Bei `north-45` zeigen Nordwände von der Kamera weg, Ost- und Westwände
+  stehen auf der Kante und fallen weg. Häuser zeigen ihre Südwand.
 - `top-north` zeigt wie `top` nur Oberseiten, um 45° gedreht.
 - Eine Stufe nach Norden ist bei `north-45` unsichtbar, wie in 2:1 eine nach
   Norden oder Westen, siehe [Die Kamera](../renderer/kamera.md), „Stufen,
   die von der Kamera wegzeigen“.
-- Bis das Frontend genordet rechnet, stimmen seine Koordinaten in diesen
-  Bäumen nicht.
+- Bis das Frontend genordet rechnet, zeigt es in diesen Bäumen keine
+  Koordinaten und warnt.
 - Was die beiden bei scale 16 gegen 2:1 bei scale 32 kosten, steht in
   [2026-10-02, Genordete Kameras](../messungen/2026-10-02-genordete-kameras.md).

@@ -65,9 +65,10 @@ pub struct Args {
     sprite: Option<PathBuf>,
 
     /// Pixelbreite eines Blocks; jede Blockecke muss bei der Kamera auf
-    /// ganzen Pixeln liegen, bei 2:1 heisst das ein Vielfaches von 4
-    #[arg(long, default_value_t = Projection::DEFAULT_SCALE, value_parser = parse_scale)]
-    scale: u32,
+    /// ganzen Pixeln liegen, bei 2:1 heisst das ein Vielfaches von 4.
+    /// Vorgabe 32, bei top-north und north-45 16
+    #[arg(long, value_parser = parse_scale)]
+    scale: Option<u32>,
 
     /// Kamera: `W:H` schräg mit der Raute W:H der Oberseite, von 2:1 bis
     /// 1:1, oder `top` von oben, beide diagonal; genordet `top-north` von
@@ -263,7 +264,8 @@ pub fn run() -> Result<()> {
     std::panic::set_hook(still_beim_fangen(std::panic::take_hook()));
     let args = Args::parse();
     // Vor allem anderen: Ohne ganze Pixel geht keine Kachel.
-    let projection = projektion(args.scale, args.camera)?;
+    let scale = args.scale.unwrap_or(args.camera.vorgabe_scale());
+    let projection = projektion(scale, args.camera)?;
 
     if args.world.is_none() && (args.at.is_some() || args.scan) {
         bail!("--at und --scan brauchen --world");
@@ -3941,7 +3943,7 @@ mod tests {
     fn scale_nur_auf_ganzen_pixeln() {
         let geht = |scale: &str| {
             Args::try_parse_from(["x", "--scale", scale])
-                .is_ok_and(|args| projektion(args.scale, args.camera).is_ok())
+                .is_ok_and(|args| projektion(args.scale.unwrap(), args.camera).is_ok())
         };
         for gut in ["4", "8", "12", "32", "64"] {
             assert!(geht(gut), "{gut}");

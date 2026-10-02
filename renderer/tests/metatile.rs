@@ -239,8 +239,12 @@ fn kleine_ausschnitte_gleichen_dem_grossen_bild() {
 /// scale: `top-north` und `north-45` je bei 16 und seinen nativen Stufen 8
 /// und 4, dazu bei 6, 12, 24 und 48 und je ein gezogener ungerader. Jede
 /// liegt auf ganzen Pixeln. Jede läuft aus der Vorgabe, wie fast jeder Lauf
-/// der grossen Welt, und noch einmal aus einer der drei anderen Richtungen,
-/// reihum; so kommt jede bei schrägen, flachen und genordeten Kameras vor.
+/// der grossen Welt. Aus einer der drei anderen Richtungen, reihum, laufen
+/// je Art die mit dem kleinsten scale, schräg mit W:H, 1:1, `top`,
+/// `top-north` und `north-45`, dazu die genordete mit ungeradem scale. Die
+/// Spalten dreht `spalten_im_blick` unabhängig von Kamera und scale; die
+/// Drehung je Kamera prüft `gedrehte_szene_wie_aus_der_vorgabe` in
+/// `richtung.rs`.
 fn kameras() -> Vec<Projection> {
     let mut out: Vec<Projection> = [
         ("16:9", 32),
@@ -283,8 +287,25 @@ fn kameras() -> Vec<Projection> {
             out.push(Projection::mit_kamera(scale, kamera));
         }
     }
-    // Jede aus der Vorgabe, dazu jede aus einer anderen Richtung, reihum.
-    let gedreht: Vec<Projection> = out
+    // Aus einer anderen Richtung je Art die kleinste, dazu eine ungerade.
+    let eins = Kamera::parse("1:1").unwrap();
+    let art = |p: &Projection| match p.kamera() {
+        k if k == eins => 1,
+        Kamera::Schraeg(_) => 0,
+        Kamera::Oben => 2,
+        Kamera::ObenNord => 3,
+        Kamera::Nord45 => 4,
+    };
+    let mut auswahl: Vec<Projection> = (0..5)
+        .filter_map(|a| out.iter().filter(|p| art(p) == a).min_by_key(|p| p.scale()))
+        .copied()
+        .collect();
+    auswahl.extend(
+        out.iter()
+            .find(|p| p.kamera().genordet() && p.scale() % 2 == 1)
+            .copied(),
+    );
+    let gedreht: Vec<Projection> = auswahl
         .iter()
         .enumerate()
         .map(|(i, projection)| projection.aus(richtung(i % 3 + 1, projection.kamera())))

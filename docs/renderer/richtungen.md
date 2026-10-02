@@ -168,9 +168,10 @@ In `renderer/tests/richtung.rs`:
 - `wasser_aus_der_welt`: Wasser in Stufen in der Luft, ebenso gedreht; aus
   der Vorgabe zeigt es nach Osten einen Streifen.
 
-In `renderer/tests/metatile.rs` läuft jede Kamera der Invarianten aus der
-Vorgabe und aus einer anderen Richtung, reihum: Der schnelle Weg gleicht
-der Referenz, kleine Ausschnitte dem grossen Bild, Verdecken ändert kein
+In `renderer/tests/metatile.rs` laufen die Kameras der Invarianten aus
+der Vorgabe, eine Auswahl je Art auch aus den anderen Richtungen, siehe
+[Tests](../entwicklung/tests.md), „Kameras“: Der schnelle Weg gleicht der
+Referenz, kleine Ausschnitte dem grossen Bild, Verdecken ändert kein
 Pixel, deckendes Gelände hat kein Loch, und höher gesetzt bleibt das Bild
 gleich. Die Doppelkiste liegt aus jeder Richtung im helleren Licht beider
 Hälften (`doppelkiste_im_helleren_licht_beider_haelften`), und ein

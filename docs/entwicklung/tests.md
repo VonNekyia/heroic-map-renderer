@@ -136,9 +136,14 @@ Paare aus gültigem W:H und scale, gezogen mit fester Saat, damit jeder Lauf
 dieselben prüft, ohne 2:1 und ohne eine Kamera zweimal. Genordet kommen
 `top-north` und `north-45` je bei 16 und seinen nativen Stufen 8 und 4
 dazu, `top-north` bei 6 und 24, `north-45` bei 12 und 48, und je ein
-gezogener ungerader scale. Jede läuft aus der Vorgabe und noch einmal aus
-einer der drei anderen Richtungen, reihum, so prüft jede Invariante alle
-vier, siehe [Richtungen](../renderer/richtungen.md). Das Bild ist bei
+gezogener ungerader scale. Jede läuft aus der Vorgabe. Aus einer der drei
+anderen Richtungen, reihum, laufen je Art die mit dem kleinsten scale und
+die genordete mit ungeradem: 9:5 bei 18, 1:1, `top`, `top-north` und
+`north-45` bei 4 und `top-north` bei 31. So prüft jede Invariante alle
+vier Richtungen, schräg wie genordet. Die Spalten dreht `spalten_im_blick`
+unabhängig von Kamera und scale, die Drehung je Kamera prüft
+`gedrehte_szene_wie_aus_der_vorgabe`, siehe
+[Richtungen](../renderer/richtungen.md). Das Bild ist bei
 `verdecken_aendert_kein_pixel` und `schneller_weg_gleicht_der_referenz`
 das Rechteck um alle Blöcke der Szene, bei jeder Kamera. Je Kamera:
 
@@ -180,6 +185,20 @@ laufen über alle Vanilla-Zustände: die Haarlinien von oben und bei
 `north-45` und die Modelle, die in 2:1 ganz in einem fremden Würfel
 liegen, siehe [Die Kamera](../renderer/kamera.md), „Von oben“,
 „Genordet“ und „Sortiert wird nach Würfeln“.
+
+## Mutationen
+
+Ob ein Test eine Stelle wirklich prüft, zeigt eine Mutation: die Stelle
+einzeln falsch machen, die Tests dazu laufen lassen, zurücksetzen. Fällt
+kein Test, prüft ihn keiner. Mutationen bauen mit dem Profil `mutation`:
+Es rechnet wie `release`, mit `codegen-units = 16` und `incremental`, und
+baut nach einer Änderung schneller neu.
+
+```bash
+cargo nextest run --cargo-profile mutation -E 'binary(metatile)'
+```
+
+Messungen bauen weiter mit `release`.
 
 ## Goldbild
 

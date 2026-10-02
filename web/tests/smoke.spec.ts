@@ -204,8 +204,275 @@ test('die Maus zeigt Koordinaten des Blocks darunter, ohne Umriss', async ({ pag
   await expect(page.locator('.leaflet-overlay-pane path')).not.toHaveAttribute('d', /M[^M]+M/);
 });
 
+test('das Kopiersymbol kopiert /tp, ein Klick hält den Block dafür fest', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const anzeige = page.locator('.koordinaten');
+  const kopieren = page.getByRole('button', { name: '/tp kopieren' });
+  const meldung = page.getByRole('status');
+  const linie = page.locator('.leaflet-overlay-pane path');
+
+  // Gehalten zeigt es die Anzeige; einen Umriss gibt es mit der Maus nach
+  // 0049 weiter nicht. Unterwegs zum Knopf bleibt der Block.
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+  await expect(anzeige).toHaveClass(/gehalten/);
+  await expect(linie).not.toHaveAttribute('d', /M[^M]+M/);
+  await page.mouse.move(...(await bildschirm(page, 160, 236)), { steps: 5 });
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+
+  // Ziehen in der Leiste verschiebt die Karte nicht und wählt keinen Block,
+  // auch wenn es über der Karte endet.
+  const ebene = page.locator('.leaflet-map-pane');
+  const lage = await ebene.evaluate((e) => (e as HTMLElement).style.transform);
+  const leiste = (await anzeige.boundingBox())!;
+  await page.mouse.move(leiste.x + 10, leiste.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(leiste.x + 80, leiste.y - 60, { steps: 5 });
+  await page.mouse.up();
+  expect(await ebene.evaluate((e) => (e as HTMLElement).style.transform)).toBe(lage);
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+
+  // Einen Block höher als der gezeigte, sonst steht man im Block; x und z
+  // rückt das Spiel auf die Mitte (TeleportCommand, Client 26.2, per javap).
+  await kopieren.click();
+  await expect(meldung).toHaveText('Kopiert: /tp 35 6 -15');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/tp 35 6 -15');
+  await expect(meldung).toBeEmpty();
+
+  // Per Tastatur ebenso.
+  await page.evaluate(() => navigator.clipboard.writeText(''));
+  await kopieren.focus();
+  await page.keyboard.press('Enter');
+  await expect(meldung).toHaveText('Kopiert: /tp 35 6 -15');
+
+  // Escape lässt los, dann folgt die Anzeige wieder der Maus.
+  await page.keyboard.press('Escape');
+  await expect(anzeige).not.toHaveClass(/gehalten/);
+  await page.mouse.move(...(await bildschirm(page, 160, 236)));
+  await expect(anzeige).toHaveText('X 40  Y 0  Z 20');
+});
+
+test('ein Klick auf X macht es editierbar, Enter springt hin, Y aus der Höhenkarte', async ({
+  page,
+}) => {
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const anzeige = page.locator('.koordinaten');
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+
+  await page.locator('.wert').first().click();
+  const feld = page.getByRole('textbox', { name: 'X eingeben' });
+  await expect(feld).toHaveValue('35');
+  await expect(feld).toBeFocused();
+  // Text statt Zahl, damit jede Tastatur auf dem Handy das Minus bietet.
+  await expect(feld).toHaveAttribute('type', 'text');
+  await expect(feld).not.toHaveAttribute('inputmode', /.*/);
+  // Die anderen Werte bleiben, wie sie beim Klick standen.
+  await page.mouse.move(...(await bildschirm(page, 160, 236)), { steps: 5 });
+  await expect(page.locator('.wert')).toHaveText(['5', '-15']);
+
+  // Neben der Säule ist der Boden bei Y 0; die Adresse folgt.
+  await feld.fill('40');
+  await feld.press('Enter');
+  await expect(anzeige).toHaveText('X 40  Y 0  Z -15');
+  await expect.poll(() => new URL(page.url()).searchParams.get('at')).toBe('40,0,-15');
+  // Die Mitte der Karte zeigt jetzt diesen Block.
+  await page.keyboard.press('Escape');
+  expect(await mitte(page)).toBe('X 40  Y 0  Z -15');
+});
+
+test('wird Y selbst geändert, gilt es', async ({ page }) => {
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await page.locator('.wert').nth(1).click();
+  const feld = page.getByRole('textbox', { name: 'Y eingeben' });
+  await feld.fill('70');
+  await feld.press('Enter');
+  await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 70  Z -15');
+});
+
+test('unbrauchbare Eingaben weist die Anzeige sichtbar ab', async ({ page }) => {
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await page.locator('.wert').nth(2).click();
+  const feld = page.getByRole('textbox', { name: 'Z eingeben' });
+  const meldung = page.getByRole('status');
+  for (const [text, grund] of [
+    ['abc', 'Nur ganze Zahlen'],
+    ['1.5', 'Nur ganze Zahlen'],
+    ['', 'Nur ganze Zahlen'],
+    ['30000001', 'X und Z bis ±30000000'],
+  ]) {
+    await feld.fill(text!);
+    await feld.press('Enter');
+    await expect(feld).toHaveClass(/falsch/);
+    await expect(feld).toHaveAttribute('aria-invalid', 'true');
+    await expect(meldung).toHaveText(grund!);
+  }
+  // Eine neue Eingabe nimmt die Markierung weg; ein Minus geht.
+  await feld.fill('-20');
+  await expect(feld).not.toHaveClass(/falsch/);
+  await feld.press('Enter');
+  await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 0  Z -20');
+
+  await page.locator('.wert').nth(1).click();
+  const hoehe = page.getByRole('textbox', { name: 'Y eingeben' });
+  await hoehe.fill('400');
+  await hoehe.press('Enter');
+  await expect(meldung).toHaveText('Y von -64 bis 319');
+});
+
+test('wer abbricht, während die Höhenkarte lädt, springt nicht', async ({ page }) => {
+  await welt(page);
+  // Die Höhenkarte der Region um X 600 kommt erst, wenn der Test sie freigibt.
+  let freigeben = () => {};
+  const frei = new Promise<void>((weiter) => (freigeben = weiter));
+  await page.route('**/tiles-demo/heights/1.-1.bin', async (route) => {
+    await frei;
+    await route.fulfill({ body: deflateSync(Buffer.from(new Int16Array(128 * 128).buffer)) });
+  });
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const ebene = page.locator('.leaflet-map-pane');
+  const anzeige = page.locator('.koordinaten');
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+  const lage = await ebene.evaluate((e) => (e as HTMLElement).style.transform);
+  const at = new URL(page.url()).searchParams.get('at');
+
+  await page.locator('.wert').first().click();
+  const feld = page.getByRole('textbox', { name: 'X eingeben' });
+  await feld.fill('600');
+  const anfrage = page.waitForRequest('**/tiles-demo/heights/1.-1.bin');
+  await feld.press('Enter');
+  await anfrage;
+  await feld.press('Escape');
+  const antwort = page.waitForResponse('**/tiles-demo/heights/1.-1.bin');
+  freigeben();
+  await antwort;
+
+  await expect(page.getByRole('textbox')).toHaveCount(0);
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+  expect(await ebene.evaluate((e) => (e as HTMLElement).style.transform)).toBe(lage);
+  expect(new URL(page.url()).searchParams.get('at')).toBe(at);
+});
+
+test('Escape oder ein Klick daneben bricht den Eintrag ab', async ({ page }) => {
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const anzeige = page.locator('.koordinaten');
+  const ebene = page.locator('.leaflet-map-pane');
+  const lage = await ebene.evaluate((e) => (e as HTMLElement).style.transform);
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+
+  await page.locator('.wert').first().click();
+  await page.getByRole('textbox').fill('99');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('textbox')).toHaveCount(0);
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+  // Escape bricht nur den Eintrag ab; der Block bleibt gehalten.
+  await expect(anzeige).toHaveClass(/gehalten/);
+
+  await page.locator('.wert').first().click();
+  await page.getByRole('textbox').fill('99');
+  await page.mouse.click(...(await bildschirm(page, 160, 236)));
+  await expect(page.getByRole('textbox')).toHaveCount(0);
+  await expect(anzeige).toHaveText('X 40  Y 0  Z 20');
+  // Gesprungen ist die Karte dabei nicht.
+  expect(await ebene.evaluate((e) => (e as HTMLElement).style.transform)).toBe(lage);
+});
+
+test('ohne gezeigten Block nimmt der Eintrag den Block in der Mitte, auch per Tastatur', async ({
+  page,
+}) => {
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get('at')).not.toBeNull();
+  const at = new URL(page.url()).searchParams.get('at')!.split(',');
+  await page.locator('.wert').first().focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('textbox', { name: 'X eingeben' })).toHaveValue(at[0]!);
+  await expect(page.locator('.wert')).toHaveText([at[1]!, at[2]!]);
+  // Auch ungehalten folgt die Anzeige beim Eintrag nicht der Maus.
+  await page.mouse.move(...(await bildschirm(page, 400, 36)), { steps: 5 });
+  await expect(page.locator('.wert')).toHaveText([at[1]!, at[2]!]);
+});
+
+test('ohne Zwischenablage sagt die Rückmeldung, warum nicht kopiert wird', async ({ page }) => {
+  // Wie ausserhalb eines sicheren Kontexts: navigator.clipboard fehlt.
+  await page.addInitScript(() => {
+    delete (Navigator.prototype as { clipboard?: unknown }).clipboard;
+  });
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const kopieren = page.getByRole('button', { name: '/tp kopieren' });
+  await kopieren.click();
+  await expect(page.getByRole('status')).toHaveText('Erst einen Block wählen');
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await kopieren.click();
+  await expect(page.getByRole('status')).toHaveText('Kopieren geht nur über HTTPS');
+});
+
+test('schlägt das Kopieren fehl, sagt die Rückmeldung es', async ({ page }) => {
+  await page.addInitScript(() => {
+    Clipboard.prototype.writeText = () => Promise.reject(new Error('verweigert'));
+  });
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await page.getByRole('button', { name: '/tp kopieren' }).click();
+  await expect(page.getByRole('status')).toHaveText('Kopieren fehlgeschlagen');
+});
+
 test.describe('auf dem Touchscreen', () => {
   test.use({ hasTouch: true });
+
+  test('Tippen auf den Block, dann auf das Kopiersymbol kopiert /tp', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await welt(page);
+    await page.goto(DEMO);
+    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await page.touchscreen.tap(...(await bildschirm(page, 400, 36)));
+    await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
+    const knopf = (await page.getByRole('button', { name: '/tp kopieren' }).boundingBox())!;
+    await page.touchscreen.tap(knopf.x + knopf.width / 2, knopf.y + knopf.height / 2);
+    await expect(page.getByRole('status')).toHaveText('Kopiert: /tp 35 6 -15');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/tp 35 6 -15');
+  });
+
+  test('Tippen auf Z, ein negativer Wert und Enter springt hin', async ({ page }) => {
+    await welt(page);
+    await page.goto(DEMO);
+    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await page.touchscreen.tap(...(await bildschirm(page, 400, 36)));
+    const z = (await page.locator('.wert').nth(2).boundingBox())!;
+    await page.touchscreen.tap(z.x + z.width / 2, z.y + z.height / 2);
+    const feld = page.getByRole('textbox', { name: 'Z eingeben' });
+    await expect(feld).toBeFocused();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('-20');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 0  Z -20');
+  });
 
   test('ein Tippen zeigt den Block darunter', async ({ page }) => {
     await welt(page);
@@ -223,6 +490,37 @@ test.describe('auf dem Touchscreen', () => {
     await expect(page.locator('.koordinaten')).toHaveText('X 40  Y 0  Z 20');
     await expect(linie).not.toHaveAttribute('d', /M[^M]+M/);
   });
+});
+
+test('die Adresse folgt der Karte, ohne Einträge im Verlauf', async ({ page }) => {
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const parameter = (name: string) => new URL(page.url()).searchParams.get(name);
+  // Schon die erste Ansicht steht in der Adresse.
+  await expect.poll(() => parameter('at')).toMatch(/^-?\d+,-?\d+,-?\d+$/);
+  const zoom = Number(parameter('zoom'));
+  const verlauf = await page.evaluate(() => history.length);
+
+  // Ein Zug mit der Maus, dann eine Stufe heraus.
+  const karte = (await page.locator('#map').boundingBox())!;
+  const [x, y] = [karte.x + karte.width / 2, karte.y + karte.height / 2];
+  const vorher = parameter('at');
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 120, y - 60, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(() => parameter('at')).not.toBe(vorher);
+  await zoomClick(page, page.locator('.leaflet-control-zoom-out'));
+  await expect.poll(() => parameter('zoom')).toBe(String(zoom - 1));
+  expect(await page.evaluate(() => history.length)).toBe(verlauf);
+
+  // Neu geladen steht derselbe Block in der Mitte, auf derselben Stufe.
+  const at = parameter('at')!.split(',');
+  await page.reload();
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  expect(await mitte(page)).toBe(`X ${at[0]}  Y ${at[1]}  Z ${at[2]}`);
+  expect(parameter('zoom')).toBe(String(zoom - 1));
 });
 
 test('zoomen wechselt die Kachelstufe, bis es keine feinere gibt', async ({ page }) => {

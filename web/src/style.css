@@ -16,12 +16,65 @@ body {
   image-rendering: pixelated;
 }
 
-/* Die Koordinaten des Blocks unter Maus oder Finger. */
-.koordinaten {
+/* Unten links: die Koordinaten des Blocks unter Maus oder Finger, der
+   Knopf, der /tp kopiert, und die Rückmeldung. */
+.leiste {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  font: 12px/1.6 ui-monospace, monospace;
+}
+
+.koordinaten,
+.kopieren,
+.meldung {
   padding: 0 0.5em;
   background: rgba(255, 255, 255, 0.8);
-  font: 12px/1.6 ui-monospace, monospace;
+  color: #000;
+}
+
+.koordinaten {
   white-space: pre;
+}
+
+/* Ein Klick hält den Block fest; die Anzeige folgt dann nicht der Maus. */
+.koordinaten.gehalten {
+  outline: 2px solid #000;
+}
+
+/* Ein Wert der Anzeige; ein Klick macht ihn editierbar. */
+.wert {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted;
+  cursor: text;
+}
+
+.feld {
+  padding: 0;
+  border: 1px solid #000;
+  font: inherit;
+}
+
+/* Eine Eingabe, die nicht taugt. */
+.feld.falsch {
+  outline: 2px solid #c00;
+  background: #fdd;
+}
+
+.kopieren {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Leer bleibt sie im Baum, damit Screenreader die nächste Meldung sagen. */
+.meldung:empty {
+  padding: 0;
+  background: none;
 }
 
 /* Für Screenreader und Suchmaschinen, nicht für das Auge. */

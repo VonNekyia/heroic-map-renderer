@@ -234,6 +234,21 @@ function hoehen(base: string, muster: string, zelle: number) {
   };
 }
 
+/** Setzt die Mitte der Oberseite eines Blocks der Welt in die Mitte der Karte. */
+function zentriere(
+  map: L.Map,
+  { p, k }: { p: Projektion; k: number },
+  block: Block,
+  zoom: number,
+): void {
+  const [x, y, z] = inDenBlick(block, k);
+  const [px, py] = projiziere(x + 0.5, y + 1, z + 0.5, p);
+  map.setView(point(px, py), zoom);
+}
+
+/** Wie weit X und Z gehen: die Weltgrenze des Spiels. */
+const WELTGRENZE = 30_000_000;
+
 /**
  * Koordinaten und Umriss des Blocks, der unter Maus oder Finger zu sehen
  * ist, auf wenige Blöcke genau. Siehe docs/frontend.md, „Koordinaten“.
@@ -250,9 +265,23 @@ function koordinaten(
     const [wx, , wz] = inDieWelt([x, 0, z], k);
     return karten.hoehe(wx, wz);
   };
-  const anzeige = L.DomUtil.create('div', 'koordinaten');
+  // Unten links die Anzeige, daneben ein Knopf, der `/tp` kopiert, und die
+  // Rückmeldung. Siehe docs/frontend.md, „Koordinaten kopieren“.
+  const leiste = L.DomUtil.create('div', 'leiste');
+  const anzeige = L.DomUtil.create('div', 'koordinaten', leiste);
+  const kopieren = L.DomUtil.create('button', 'kopieren', leiste);
+  kopieren.type = 'button';
+  kopieren.textContent = '⧉';
+  kopieren.title = '/tp kopieren';
+  kopieren.setAttribute('aria-label', '/tp kopieren');
+  const meldung = L.DomUtil.create('span', 'meldung', leiste);
+  meldung.setAttribute('role', 'status');
+  // Ein Klick in die Leiste verschiebt die Karte nicht und wählt keinen
+  // Block; die Maus darüber ändert die Anzeige nicht.
+  L.DomEvent.disableClickPropagation(leiste);
+  L.DomEvent.on(leiste, 'mousemove', L.DomEvent.stopPropagation);
   const control = new L.Control({ position: 'bottomleft' });
-  control.onAdd = () => anzeige;
+  control.onAdd = () => leiste;
   control.addTo(map);
   // Wie der Auswahlrahmen im Spiel.
   const rahmen = L.polyline([], { color: '#000', weight: 2, opacity: 0.8, interactive: false });
@@ -267,23 +296,75 @@ function koordinaten(
   map.getContainer().addEventListener('pointerdown', merke);
   map.getContainer().addEventListener('pointermove', merke);
 
+  // Ein Mausklick auf die Karte hält den Block fest, bis sich die Karte
+  // bewegt oder Escape kommt; so kommt die Maus zur Leiste, ohne dass die
+  // Anzeige unterwegs einen anderen Block zeigt.
+  let gehalten = false;
+  let gezeigt: Block | undefined;
+  // Jeder Wert ist ein Knopf: Ein Klick macht ihn editierbar.
+  const werte = ['X', 'Y', 'Z'].map((achse) => {
+    const wert = document.createElement('button');
+    wert.type = 'button';
+    wert.className = 'wert';
+    wert.title = `${achse} eingeben`;
+    return wert;
+  }) as [HTMLButtonElement, HTMLButtonElement, HTMLButtonElement];
+  anzeige.append('X ', werte[0], '  Y ', werte[1], '  Z ', werte[2]);
+  const schreibe = (welt: Block | undefined): void => {
+    werte.forEach((wert, achse) => (wert.textContent = welt ? String(welt[achse]) : '–'));
+  };
   const zeige = (block: Block | undefined): void => {
-    const welt = block && inDieWelt(block, k);
-    anzeige.textContent = welt ? `X ${welt[0]}  Y ${welt[1]}  Z ${welt[2]}` : 'X –  Y –  Z –';
+    gezeigt = block;
+    schreibe(block && inDieWelt(block, k));
+    // Gehalten zeigt es die Anzeige; der Umriss bleibt nach 0049 beim Finger
+    // und Stift.
+    anzeige.classList.toggle('gehalten', gehalten && block !== undefined);
     rahmen.setLatLngs(
       block && ohneZeiger
         ? umriss(block, p).map((linie) => linie.map(([x, y]) => point(x, y)))
         : [],
     );
   };
+  const lasse = (): void => {
+    if (!gehalten) return;
+    gehalten = false;
+    zeige(gezeigt);
+  };
+  let rueckmeldung: number | undefined;
+  const melde = (text: string): void => {
+    meldung.textContent = text;
+    window.clearTimeout(rueckmeldung);
+    rueckmeldung = window.setTimeout(() => (meldung.textContent = ''), 2000);
+  };
+  kopieren.addEventListener('click', () => {
+    const welt = gezeigt && inDieWelt(gezeigt, k);
+    if (!welt) {
+      melde('Erst einen Block wählen');
+      return;
+    }
+    // Einen Block höher, sonst steht man im Block; x und z rückt das Spiel
+    // auf die Mitte. Siehe docs/frontend.md, „Koordinaten kopieren“.
+    const befehl = `/tp ${welt[0]} ${welt[1] + 1} ${welt[2]}`;
+    // Die Zwischenablage gibt es nur im sicheren Kontext, HTTPS oder localhost.
+    if (!('clipboard' in navigator)) {
+      melde('Kopieren geht nur über HTTPS');
+      return;
+    }
+    navigator.clipboard.writeText(befehl).then(
+      () => melde(`Kopiert: ${befehl}`),
+      () => melde('Kopieren fehlgeschlagen'),
+    );
+  });
   // Lädt eine Bewegung noch Höhen, kann eine spätere vor ihr fertig sein.
-  // Es gilt die letzte.
+  // Es gilt die letzte. Während eines Eintrags folgt die Anzeige keinem
+  // Zeiger.
   let zuletzt = 0;
+  let eintrag: { stand: Block; achse: number; feld: HTMLInputElement } | undefined;
   const ziele = async (event: L.LeafletMouseEvent): Promise<void> => {
     const nummer = ++zuletzt;
     const bloecke = strahl(event.latlng.lng, event.latlng.lat, p, minY, maxY);
     await karten.lade(bloecke.map((block) => inDieWelt(block, k)));
-    if (nummer === zuletzt) zeige(pick(bloecke, hoehe));
+    if (nummer === zuletzt && !eintrag) zeige(pick(bloecke, hoehe));
   };
   /** Der Block in der Welt, den ein Bildpunkt zeigt. */
   const bei = async (px: number, py: number): Promise<Block | undefined> => {
@@ -293,11 +374,112 @@ function koordinaten(
     return block && inDieWelt(block, k);
   };
 
+  // Ein Klick auf einen Wert macht ihn editierbar; Enter springt dorthin.
+  // Siehe docs/frontend.md, „Zu Koordinaten springen“.
+  const beende = (): void => {
+    if (!eintrag) return;
+    const { achse, feld } = eintrag;
+    eintrag = undefined;
+    feld.replaceWith(werte[achse]!);
+    zeige(gezeigt);
+  };
+  const weise = (feld: HTMLInputElement, text: string): void => {
+    feld.classList.add('falsch');
+    feld.setAttribute('aria-invalid', 'true');
+    melde(text);
+  };
+  const springe = async (): Promise<void> => {
+    if (!eintrag) return;
+    const { stand, achse, feld } = eintrag;
+    const text = feld.value.trim();
+    if (!/^-?\d+$/.test(text)) return weise(feld, 'Nur ganze Zahlen');
+    const wert = Number(text);
+    if (achse === 1 ? wert < minY || wert > maxY : Math.abs(wert) > WELTGRENZE) {
+      return weise(feld, achse === 1 ? `Y von ${minY} bis ${maxY}` : `X und Z bis ±${WELTGRENZE}`);
+    }
+    let [x, y, z] = stand;
+    if (achse === 0) x = wert;
+    if (achse === 1) y = wert;
+    if (achse === 2) z = wert;
+    // Ändert sich X oder Z, kommt Y aus der Höhenkarte, sonst läge die Mitte
+    // in der Schrägsicht neben dem Block. Ohne Höhe dort bleibt Y.
+    if (achse !== 1) {
+      await karten.lade([[x, y, z]]);
+      // Ein Abbruch oder ein zweites Enter während des Ladens: dann springt
+      // dieser Aufruf nicht.
+      if (eintrag?.feld !== feld) return;
+      y = karten.hoehe(x, z) ?? y;
+    }
+    const ziel: Block = [x, y, z];
+    beende();
+    zentriere(map, { p, k }, ziel, map.getZoom());
+    // Wie nach einem Klick: Die Anzeige hält den Block, bis sich die Karte
+    // wieder bewegt.
+    zuletzt++;
+    gehalten = true;
+    zeige(inDenBlick(ziel, k));
+  };
+  const beginne = async (achse: number): Promise<void> => {
+    if (eintrag) return;
+    zuletzt++;
+    // Ohne gezeigten Block gilt der in der Mitte der Karte.
+    const { lat, lng } = map.getCenter();
+    const stand = (gezeigt && inDieWelt(gezeigt, k)) ?? (await bei(lng, lat));
+    if (!stand) return melde('Erst einen Block wählen');
+    const feld = document.createElement('input');
+    // Text statt Zahl: Nur so bietet jede Tastatur auf dem Handy das Minus.
+    feld.type = 'text';
+    feld.className = 'feld';
+    feld.value = String(stand[achse]);
+    feld.size = Math.max(feld.value.length, 3);
+    feld.enterKeyHint = 'go';
+    feld.autocomplete = 'off';
+    feld.spellcheck = false;
+    feld.setAttribute('aria-label', `${'XYZ'[achse]!} eingeben`);
+    feld.addEventListener('input', () => {
+      feld.classList.remove('falsch');
+      feld.removeAttribute('aria-invalid');
+    });
+    feld.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') void springe();
+      if (event.key === 'Escape') {
+        // Escape bricht nur den Eintrag ab, nicht auch das Festhalten.
+        event.stopPropagation();
+        beende();
+      }
+    });
+    feld.addEventListener('blur', beende);
+    eintrag = { stand, achse, feld };
+    schreibe(stand);
+    werte[achse]!.replaceWith(feld);
+    feld.focus();
+    feld.select();
+  };
+  werte.forEach((wert, achse) => wert.addEventListener('click', () => void beginne(achse)));
+
   zeige(undefined);
-  map.on('mousemove', (event) => void ziele(event));
-  // Auf dem Touchscreen kommt ein Tippen als click.
-  map.on('click', (event) => void ziele(event));
+  map.on('mousemove', (event) => {
+    if (!gehalten && !eintrag) void ziele(event);
+  });
+  // Beginnt ein Druck in der Leiste und endet er über der Karte, schickt der
+  // Browser den click an die Karte; der wählt keinen Block.
+  let inLeiste = false;
+  map.getContainer().addEventListener('pointerdown', (event) => {
+    inLeiste = leiste.contains(event.target as Node);
+  });
+  // Auf dem Touchscreen kommt ein Tippen als click. Festhalten braucht es
+  // nur mit der Maus; ohne sie folgt die Anzeige ohnehin keinem Zeiger.
+  map.on('click', (event) => {
+    if (inLeiste) return;
+    gehalten = !ohneZeiger;
+    void ziele(event);
+  });
+  map.on('movestart', lasse);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') lasse();
+  });
   map.on('mouseout', () => {
+    if (gehalten || eintrag) return;
     zuletzt++;
     zeige(undefined);
   });
@@ -386,17 +568,35 @@ function anzeigename({ camera, direction, look }: Baum): string {
 }
 
 /**
+ * Die Adresse der Ansicht: der Baum, der Block der Mitte in Weltkoordinaten
+ * und der Zoom ab der feinsten Stufe, denn `maxZoom` hängt je Baum an seiner
+ * Ausdehnung. Siehe docs/frontend.md, „Ansichten und Kompass“.
+ */
+async function adresse(
+  map: L.Map,
+  maxZoom: number,
+  mitte: () => Promise<Block | undefined>,
+  tree: string | undefined,
+): Promise<URL> {
+  const block = await mitte();
+  const url = new URL(location.href);
+  if (tree !== undefined) url.searchParams.set('tree', tree);
+  if (block) url.searchParams.set('at', block.join(','));
+  else url.searchParams.delete('at');
+  url.searchParams.set('zoom', String(map.getZoom() - maxZoom));
+  return url;
+}
+
+/**
  * Der Umschalter zwischen den Bäumen. Er öffnet den gewählten Baum mit dem
- * Block, der in der Mitte zu sehen ist, wieder in der Mitte, und mit
- * derselben Vergrösserung gegenüber der feinsten Stufe: `maxZoom` hängt je
- * Baum an seiner Ausdehnung.
+ * Block, der in der Mitte zu sehen ist, wieder in der Mitte, mit derselben
+ * Vergrösserung.
  */
 function umschalter(
   map: L.Map,
-  maxZoom: number,
   liste: Baum[],
   aktuell: Baum,
-  mitte: () => Promise<Block | undefined>,
+  ansicht: (tree: string) => Promise<URL>,
 ): void {
   const auswahl = L.DomUtil.create('select', 'baeume');
   auswahl.setAttribute('aria-label', 'Ansicht');
@@ -405,14 +605,7 @@ function umschalter(
   }
   L.DomEvent.disableClickPropagation(auswahl);
   auswahl.addEventListener('change', () => {
-    void mitte().then((block) => {
-      const adresse = new URL(location.href);
-      adresse.searchParams.set('tree', auswahl.value);
-      if (block) adresse.searchParams.set('at', block.join(','));
-      else adresse.searchParams.delete('at');
-      adresse.searchParams.set('zoom', String(map.getZoom() - maxZoom));
-      location.assign(adresse);
-    });
+    void ansicht(auswahl.value).then((url) => location.assign(url));
   });
   const control = new L.Control({ position: 'topright' });
   control.onAdd = () => auswahl;
@@ -478,23 +671,32 @@ async function start(): Promise<void> {
   } else if (info.heights !== undefined) {
     console.warn(`${base}/map.json: heights ohne brauchbare heightsCell, minY und maxY`);
   }
-  if (liste && baum && liste.length > 1) {
-    const mitte = () => {
-      const { lat, lng } = map.getCenter();
-      return bei ? bei(lng, lat) : Promise.resolve(undefined);
-    };
-    umschalter(map, info.maxZoom, liste, baum, mitte);
+  const mitte = () => {
+    const { lat, lng } = map.getCenter();
+    return bei ? bei(lng, lat) : Promise.resolve(undefined);
+  };
+  const ansicht = (tree: string | undefined) => adresse(map, info.maxZoom, mitte, tree);
+  if (liste && baum && liste.length > 1) umschalter(map, liste, baum, ansicht);
+  // Die Adresse folgt der Karte, ohne Einträge im Verlauf. Ohne Koordinaten
+  // gibt es keinen Block für `at`, und sie bleibt, wie sie ist. Es gilt die
+  // letzte Bewegung.
+  if (bei) {
+    let zuletzt = 0;
+    map.on('moveend', () => {
+      const nummer = ++zuletzt;
+      void ansicht(baum?.path).then((url) => {
+        if (nummer === zuletzt) history.replaceState(history.state, '', url);
+      });
+    });
   }
 
-  // Kommt die Seite aus dem Umschalter, steht der Block der Mitte in der
-  // Adresse, in Weltkoordinaten, und `zoom` zählt ab der feinsten Stufe.
+  // Kommt die Seite aus dem Umschalter oder aus einer kopierten Adresse,
+  // steht der Block der Mitte darin, in Weltkoordinaten, und `zoom` zählt ab
+  // der feinsten Stufe.
   const at = parameter.get('at')?.split(',').map(Number);
   const zoom = Number(parameter.get('zoom') ?? Number.NaN);
   if (at?.length === 3 && at.every(Number.isInteger) && typeof blick !== 'string') {
-    const [x, y, z] = inDenBlick(at as unknown as Block, blick.k);
-    // Die Mitte der Oberseite.
-    const [px, py] = projiziere(x + 0.5, y + 1, z + 0.5, blick.p);
-    map.setView(point(px, py), info.maxZoom + (Number.isFinite(zoom) ? zoom : 0));
+    zentriere(map, blick, at as unknown as Block, info.maxZoom + (Number.isFinite(zoom) ? zoom : 0));
   } else {
     map.fitBounds(bounds);
   }

@@ -63,7 +63,7 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `renderer/tests/assets.rs` | den Asset-Layer am synthetischen Assetbaum |
 | `renderer/tests/render.rs` | Projektion, Baking und Rasterizer zusammen: von der Blockstate bis zu den Pixeln des Sprites |
 | `renderer/tests/metatile.rs` | ganze Welten im Speicher, gerendert, samt Goldbildern |
-| `renderer/tests/richtung.rs` | die Richtungen der Kamera: Modelle gedreht, Seiten nach der Welt schattiert, Licht, Alternativen und Biome aus der Welt, siehe [Richtungen](../renderer/richtungen.md) |
+| `renderer/tests/richtung.rs` | die Richtungen der Kamera: Modelle gedreht, Seiten nach der Welt schattiert, auch die eines Blockentities, Licht, Alternativen und Biome aus der Welt; gedrehte Szenen je Kamera aus allen vier Richtungen wie aus der Vorgabe: Treppen, Türen, Zäune, Scheiben, Licht unter einem Dach, Teile in fremden Würfeln, Blockentities und Wasser, dazu Eis und Wasser in Stufen, siehe [Richtungen](../renderer/richtungen.md) |
 | `renderer/tests/heights.rs` | die Höhen für die Koordinatenanzeige und `projektion.json` für das Frontend |
 | `renderer/tests/tiles.rs` | die Naht: jede Kachel gegen den Ausschnitt eines grossen Renderings |
 | `renderer/tests/cli.rs` | die ganze Exportkette über das echte Binär |
@@ -136,9 +136,9 @@ Paare aus gültigem W:H und scale, gezogen mit fester Saat, damit jeder Lauf
 dieselben prüft, ohne 2:1 und ohne eine Kamera zweimal. Genordet kommen
 `top-north` und `north-45` je bei 16 und seinen nativen Stufen 8 und 4
 dazu, `top-north` bei 6 und 24, `north-45` bei 12 und 48, und je ein
-gezogener ungerader scale. Die Richtungen gehen dabei der Reihe nach
-rundum, so prüft jede Invariante alle vier, siehe
-[Richtungen](../renderer/richtungen.md). Das Bild ist bei
+gezogener ungerader scale. Jede läuft aus der Vorgabe und noch einmal aus
+einer der drei anderen Richtungen, reihum, so prüft jede Invariante alle
+vier, siehe [Richtungen](../renderer/richtungen.md). Das Bild ist bei
 `verdecken_aendert_kein_pixel` und `schneller_weg_gleicht_der_referenz`
 das Rechteck um alle Blöcke der Szene, bei jeder Kamera. Je Kamera:
 
@@ -148,7 +148,7 @@ das Rechteck um alle Blöcke der Szene, bei jeder Kamera. Je Kamera:
 | `schneller_weg_gleicht_der_referenz` | Kandidaten und Bitmasken gegen die Referenz |
 | `kein_loch_in_deckendem_gelaende` | kein offener Pixel, auch auf Kanten, die Pixelmitten treffen |
 | `hoeher_gesetzt_gleiches_bild` | dieselbe Welt 40 Blöcke höher gibt dasselbe Bild, auch von oben, wo die Referenz dasselbe Band abläuft |
-| `kleine_ausschnitte_gleichen_dem_grossen_bild` | Ausschnitte von 128 Pixeln gleichen dem Bild der ganzen Szene, für 2:1 aus allen vier Richtungen, 4:3, `top`, `top-north` und `north-45` bei 16 und `north-45` bei 7, jede aus einer anderen Richtung; ein Ausschnitt liest nur die Sections und Chunks seines Bands (`y_span`) |
+| `kleine_ausschnitte_gleichen_dem_grossen_bild` | Ausschnitte von 128 Pixeln gleichen dem Bild der ganzen Szene, für 2:1 aus allen vier Richtungen, 4:3, `top`, `top-north` und `north-45` bei 16 und `north-45` bei 7, jede aus der Vorgabe und aus einer anderen Richtung; ein Ausschnitt liest nur die Sections und Chunks seines Bands (`y_span`) |
 | `projektion_als_datei_ist_aktuell` (`renderer/tests/heights.rs`) | die Datei für das Frontend, samt Kantenpixeln |
 
 Dazu einzeln: `von_oben_ragt_der_turm_durch_den_teppich` (`metatile.rs`),
@@ -159,10 +159,16 @@ unter einer Wurzel prüfen `liste_der_baeume_unter_der_wurzel`,
 `alte_ablage_nennt_den_ordner`, `baum_statt_wurzel_nennt_die_wurzel`,
 `eine_wurzel_eine_welt`, `kaputter_nachbar_wird_uebergangen` und
 `andere_richtung_im_ordner_wird_abgelehnt` (`cli.rs`). Welche Richtungen
-eine Kamera nimmt, prüfen `richtung_wird_je_kamera_geprueft` (`cli.rs`)
-und `falsche_richtung_nennt_die_vier` (`projection.rs`), die Drehung nach
-der Tabelle `richtungen_drehen_die_welt_wie_die_tabelle`
-(`projection.rs`).
+eine Kamera nimmt, prüfen `richtung_wird_je_kamera_geprueft` (`cli.rs`),
+jede Kamera mit jeder ihrer Richtungen, und `falsche_richtung_nennt_die_vier`
+(`projection.rs`), die Drehung nach der Tabelle
+`richtungen_drehen_die_welt_wie_die_tabelle` (`projection.rs`). Den Lauf
+mit `--direction` prüft `richtung_ist_ein_eigener_baum` aus `nw` und `sw`,
+`--center` aus jeder Richtung `center_in_der_welt_aus_jeder_richtung`
+(`cli.rs`). Die Tabellen der weichen Beleuchtung je Richtung prüfen
+`ecken_im_blick_passen_zu_den_nachbarn` (`metatile.rs`) und
+`ecken_der_seiten_im_blick` (`rasterizer.rs`), aus `nw` und `sw` mit
+festen Zahlen.
 
 Dazu Unit-Tests in den Quelldateien: die Achse je Kamera, die Regel
 „ganze Pixel“ und die genordete Projektion (`projection.rs`), Spalten,
@@ -182,7 +188,8 @@ Projektion, Baking, Rasterizer oder Maleralgorithmus fällt damit auf.
 `metatile.png` zeigt 2:1, `metatile-4x3.png`, `metatile-top.png`,
 `metatile-top-north.png` und `metatile-north-45.png` die Szene aus
 `common::szene` in 4:3, von oben, genordet von oben und in `north-45`,
-`metatile-nw.png` dieselbe in 2:1 aus `nw`, alle bei scale 16. Der Test vergleicht alle, schreibt zu jedem abweichenden das
+`metatile-nw.png` dieselbe in 2:1 aus `nw` um die Treppe aus Stein, alle
+bei scale 16. Der Test vergleicht alle, schreibt zu jedem abweichenden das
 Ist-Bild daneben, als `<name>-ist.png`, und fällt erst dann; in CI liegen
 sie als Artefakt am fehlgeschlagenen Lauf.
 Neu erzeugen nach einer gewollten Änderung: Skill

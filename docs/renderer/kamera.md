@@ -14,12 +14,14 @@ code:
 # Die Kamera
 
 Die Kamera ist eine Parallelprojektion ohne Perspektive. `--camera` wählt
-sie je Lauf. Diagonal, mit der Kamera im Südosten: schräg mit dem
-Rautenverhältnis `W:H` von 2:1 bis 1:1, Vorgabe 2:1, oder von oben (`top`).
-Genordet, mit der Kamera im Süden und Norden oben: von oben (`top-north`)
-oder schräg 45° hoch (`north-45`). Sichtbar sind diagonal schräg immer
-dieselben drei Seiten, oben, Süden und Osten, bei `north-45` oben und
-Süden, von oben nur die Oberseite. Daraus folgt eine Zeichenreihenfolge
+sie je Lauf. Diagonal, aus der Vorgabe mit der Kamera im Südosten: schräg
+mit dem Rautenverhältnis `W:H` von 2:1 bis 1:1, Vorgabe 2:1, oder von oben
+(`top`). Genordet, aus der Vorgabe mit der Kamera im Süden und Norden oben:
+von oben (`top-north`) oder schräg 45° hoch (`north-45`). Sichtbar sind
+diagonal schräg immer dieselben drei Seiten im Blick, aus der Vorgabe oben,
+Süden und Osten, bei `north-45` oben und Süden, von oben nur die
+Oberseite. Aus einer anderen Richtung liegen dort andere Seiten der Welt,
+siehe [Richtungen](richtungen.md). Daraus folgt eine Zeichenreihenfolge
 nach Höhe und Tiefe, die jeden Tiefenpuffer über die Kachel überflüssig
 macht. `scale` ist die Pixelbreite eines Würfels,
 Vorgabe 32, genordet 16. Alle Faktoren stehen in
@@ -59,7 +61,8 @@ genordet:  u = x,      v = z,      h = scale
   heisst (b, 2a, b) statt (1, k, 1), damit bei b = 0 nichts unendlich wird.
   Die Tiefe eines Punkts ist sein Produkt mit der Achse
   (`Projection::depth`).
-- **Genordet** ist Osten rechts und Süden unten, siehe „Genordet“.
+- **Genordet** ist aus der Vorgabe Osten rechts und Süden unten, siehe
+  „Genordet“.
 
 Bei scale 32:
 
@@ -346,8 +349,9 @@ folgt:
 
 ## Genordet
 
-`top-north` und `north-45` blicken mit Norden oben, die Kamera steht im
-Süden: u = x, v = z, h = a = scale. Entschieden in
+`top-north` und `north-45` blicken aus der Vorgabe mit Norden oben, die
+Kamera steht im Süden: u = x, v = z, h = a = scale, im Blick, siehe
+[Richtungen](richtungen.md). Entschieden in
 [0052](../entscheidungen/0052-genordete-kameras.md).
 - **Jeder scale:** Jede Ecke liegt auf ganzen Pixeln, auch bei 6, 12, 24
   und 48 und bei einem ungeraden scale. Die Tests prüfen genordet 4, 6, 8,
@@ -361,10 +365,12 @@ Süden: u = x, v = z, h = a = scale. Entschieden in
   Ecke mit den kleinsten Koordinaten, bei `north-45` die Oberseite mit der
   Südwand darunter (`in_outline` in
   [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs)).
-- **Sichtbar** sind bei `north-45` die Oberseite und die Südwand. Nordwände
-  zeigen von der Kamera weg, Ost- und Westwände stehen auf der Kante und
-  fallen weg wie von oben jede senkrechte Fläche. Pflanzen bleiben zu sehen, ihre Kreuze
-  stehen schräg zur Achse. `top-north` zeigt nur Oberseiten wie `top`.
+- **Sichtbar** sind bei `north-45` die Oberseite und die Wand nach Süden
+  im Blick, aus der Vorgabe die Südwand. Wände nach Norden im Blick zeigen
+  von der Kamera weg, die nach Osten und Westen stehen auf der Kante und
+  fallen weg wie von oben jede senkrechte Fläche. Pflanzen bleiben zu
+  sehen, ihre Kreuze stehen schräg zur Achse. `top-north` zeigt nur
+  Oberseiten wie `top`.
 - **Keine Haarlinie:** Bei `north-45` steht jede Fläche eines
   Vanilla-Blocks, die die Kamera sieht, messbar schräg zur Achse. Über alle
   32 366 Zustände aus `blocks.txt` sieht sie 186 616 Flächen, die steilste

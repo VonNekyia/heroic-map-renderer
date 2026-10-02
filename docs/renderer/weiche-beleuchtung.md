@@ -21,7 +21,8 @@ zur Kante hin dunkler, in einer Innenecke am meisten.
 `BlockModelLighter.prepareQuadAmbientOcclusion` rechnet dafür in 26.2 je
 Ecke einer Fläche einen Wert, und die Grafikkarte lässt ihn zwischen den
 Ecken verlaufen, mit ihm das Licht an jeder Ecke. Der Renderer tut dasselbe
-für die drei Seiten, die er zeigt, oben, Süden und Osten: `ecken_at` in
+für die drei Seiten, die er im Blick zeigt, aus der Vorgabe oben, Süden
+und Osten, siehe „Aus jeder Richtung“: `ecken_at` in
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs),
 die AO-Karte in `renderer/src/render/rasterizer.rs`. Das gilt für jede
 Fläche auf dem Rand des Blocks, auch die einer Treppe, einer Platte oder

@@ -39,8 +39,10 @@ Deckungsmaske hängen alle daran, dass die Kamera bei +x, +z steht.
   wird nach der Fläche in der Welt, weich beleuchtet mit den Tabellen ihrer
   Seite der Welt.
 - **Was das Spiel an der Welt festmacht,** bleibt dort: die Saat der
-  Alternativen, die Biome, die Seiten der Regeln zu gleichen Nachbarn, das
-  Raster für das Licht unbekannter Blöcke.
+  Alternativen, die Biome, die Seiten der Regeln zu gleichen Nachbarn.
+- **Das Licht unbekannter Blöcke,** eine Näherung des Renderers,
+  entscheidet weiter das Raster in 2:1 aus der Vorgabe-Richtung. So hat
+  dieselbe Welt aus jeder Richtung dasselbe Licht.
 
 Wie das im Einzelnen aussieht, steht in
 [Richtungen](../renderer/richtungen.md).
@@ -49,15 +51,26 @@ Wie das im Einzelnen aussieht, steht in
 
 - **Kacheln oder Bilder drehen.** Eine Drehung des Bilds zeigt die Rückseite
   nicht: Aus `nw` sieht die Kamera die Nord- und Westseiten, die aus `se`
-  gar nicht gezeichnet sind. Diagonal ginge es nicht einmal für die
-  Oberseiten, denn die Raute 2:1 ist nicht quadratisch.
+  gar nicht gezeichnet sind. Schräg ginge es nicht einmal für die
+  Oberseiten, denn die Raute von W:H ist nicht quadratisch. Von oben, in
+  `top` und `top-north`, sind die Oberseiten quadratisch; aber dort, wo
+  Blockkanten Pixelmitten treffen, gäbe die Füllregel einen Pixel im
+  gedrehten Bild dem falschen Block, und für eine Kamera gäbe es zwei Wege
+  im Code.
+- **Die Richtung in den Vorzeichen der Projektion,** also die Kamera
+  wirklich nach `nw` stellen. Dann änderte sich jede feste Seite in den
+  heissen Schleifen: `expose`, `fluid_hidden`, `mask_bit`, die Fassungen
+  aus #58, `AO_FACES` und `AO_SEITEN`, `ecken_at` und das Licht von der
+  Seite. Ein Fehler zeigte sich nur in einer Richtung. Lohnen würde es
+  sich erst bei freien Winkeln.
 - **Die Blockstate drehen** (`BlockState.rotate`), dann die gedrehte Welt
   aus der Vorgabe zeichnen. Das braucht das Drehverhalten jedes Blocks aus
   dem Spiel nachgebaut, von `facing` über `rotation` bis zu den Formen der
   Schienen. Und das Bild wäre falsch: Schattierung, weiche Beleuchtung,
-  Saat und Biome gehörten dann zur gedrehten Welt, nicht zur gezeigten,
-  siehe [Richtungen](../renderer/richtungen.md), „Nicht das gedrehte
-  Bild“.
+  Saat, Biome und Texturen gehörten dann zur gedrehten Welt, nicht zur
+  gezeigten. Eine Textur ohne Symmetrie auf einem Block ohne Richtung, wie
+  Stein, sähe aus `nw` gedreht aus, in der gedrehten Welt nicht. Siehe
+  [Richtungen](../renderer/richtungen.md), „Nicht das gedrehte Bild“.
 - **Ganze Chunks beim Laden drehen,** Blöcke, Biome und Blockentities in
   neue Sections umgelegt. Dann müssten auch die Formen der Ausbreitung
   mitgedreht werden, die je Seite der Welt gelten, und das Licht hinge an
@@ -77,7 +90,7 @@ Wie das im Einzelnen aussieht, steht in
   dort, auch das Umlegen der Masken.
 - Jede Richtung braucht ihre eigene Sprite-Tabelle und ihren eigenen
   Kachelbaum, siehe [0054](0054-baeume-unter-einer-wurzel.md).
-- Was künftig an der Lage hängt, muss beim Zugriff drehen. Die Tests in
-  `renderer/tests/richtung.rs` prüfen die Wege, die es heute gibt: Modell,
-  Schattierung, Licht, Saat, Biom, Flächen zu gleichen Nachbarn und
-  Wasser, siehe [Richtungen](../renderer/richtungen.md), „Belegt“.
+- Was künftig an der Lage hängt, muss beim Zugriff drehen und einen Test
+  aus jeder Richtung bekommen. Welche Wege die Tests heute prüfen, steht in
+  [Richtungen](../renderer/richtungen.md), „Belegt“; was dort fehlt, ist
+  ungeprüft.

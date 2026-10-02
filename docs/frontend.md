@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt, zwischen Ansichten umschaltet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -95,7 +95,10 @@ lässt solche Kacheln leer.
 ## Koordinaten
 
 Unten links steht, welcher Block unter Maus oder Finger zu sehen ist,
-`X 35  Y 5  Z -15`, auf wenige Blöcke genau. Dazu zeichnet die Karte seinen
+`X 35  Y 5  Z -15`, auf wenige Blöcke genau; das Symbol daneben kopiert
+`/tp`, siehe „Koordinaten kopieren“, und ein Klick auf einen Wert springt
+zu einer Eingabe, siehe „Zu Koordinaten springen“. Dazu zeichnet die Karte
+seinen
 Umriss wie den Auswahlrahmen im Spiel, aber nur beim Tippen mit Finger
 oder Stift; mit der Maus zeigt der Zeiger selbst, wohin man zielt, und die
 Anzeige genügt, siehe
@@ -103,7 +106,8 @@ Anzeige genügt, siehe
 die Anzeige die Oberfläche, die man sieht; das Spiel zielt dort auf den
 Grund. Ohne `heights` in `map.json` gibt es keine Anzeige, ebenso ohne
 brauchbare `heightsCell`, `minY` und `maxY`; die Karte lädt dann trotzdem,
-und die Konsole sagt, was fehlt.
+und die Konsole sagt, was fehlt. Fehlt nur die Höhenkarte einer Region (404
+oder eine HTML-Seite statt der Datei), steht dort `X –  Y –  Z –`.
 
 Ein Bildpunkt allein verrät den Block nicht: Die Projektion wirft die
 Blickachse der Kamera auf einen Punkt, diagonal (b, 2a, b), genordet
@@ -154,6 +158,71 @@ Frontend“; woher die Höhen
 kommen, warum je 4 × 4 Spalten und warum über Wasser die Oberfläche, siehe
 [0036](entscheidungen/0036-hoehen-aus-der-heightmap.md).
 
+## Koordinaten kopieren
+
+Rechts neben der Anzeige steht ein Knopf mit einem Kopiersymbol, für
+Screenreader „/tp kopieren“, per Tastatur erreichbar. Er kopiert
+`/tp X Y Z` für den gezeigten Block, zum Einfügen im Spiel.
+
+- **Y ist einen Block höher** als der gezeigte, sonst stünde man im Block.
+  x und z rückt das Spiel selbst auf die Mitte des Blocks: `TeleportCommand`
+  nimmt `Vec3Argument.vec3()`, und `WorldCoordinate.parseDouble` zählt zu
+  einer ganzen Zahl ohne Punkt 0,5 dazu, für x und z, nicht für y
+  (`WorldCoordinates.parseDouble`; Client 26.2, per javap). Aus
+  `X 35  Y 5  Z -15` wird `/tp 35 6 -15`, man steht bei (35,5; 6; −15,5)
+  mitten auf dem Block.
+- **Mit der Maus** hält ein Klick auf die Karte den Block fest. Sonst
+  zeigte die Anzeige auf dem Weg zum Knopf jeden Block, über den die Maus
+  fährt. Die Anzeige trägt dann einen Rahmen; einen Umriss gibt es mit der
+  Maus weiter nicht, siehe
+  [0049](entscheidungen/0049-umriss-nur-ohne-zeiger.md). Los lässt sie,
+  sobald sich die Karte bewegt, bei Escape oder mit dem nächsten Klick auf
+  einen anderen Block.
+- **Mit Finger oder Stift** bleibt der getippte Block ohnehin stehen: auf
+  den Block tippen, dann auf das Symbol.
+- **In der Leiste** aus Anzeige, Knopf und Rückmeldung verschiebt Ziehen
+  die Karte nicht, und die Maus darüber ändert die Anzeige nicht. Endet ein
+  Druck aus der Leiste über der Karte, wählt das keinen Block.
+- **Rückmeldung** zwei Sekunden lang neben dem Knopf, als `role="status"`,
+  damit Screenreader sie sagen:
+
+  | Fall | Text |
+  |---|---|
+  | kopiert | `Kopiert: /tp 35 6 -15` |
+  | noch kein Block gewählt | `Erst einen Block wählen` |
+  | keine Zwischenablage: Die gibt es nur im sicheren Kontext, unter HTTPS oder auf `localhost` | `Kopieren geht nur über HTTPS` |
+  | der Browser verweigert das Schreiben | `Kopieren fehlgeschlagen` |
+
+## Zu Koordinaten springen
+
+Jeder Wert der Anzeige ist ein Knopf. Ein Klick oder Tippen, per Tastatur
+Enter, macht ihn zu einem Eingabefeld; Enter springt dorthin.
+
+- **Die anderen beiden Werte** bleiben, wie sie beim Klick standen. Während
+  des Eintrags folgt die Anzeige keinem Zeiger. Zeigt sie noch keinen
+  Block, gilt der in der Mitte der Karte.
+- **Y:** Ändert sich X oder Z, kommt Y aus der Höhenkarte, die Oberfläche
+  dort; sonst läge die Mitte in der Schrägsicht neben dem Block. Ohne Höhe
+  dort bleibt Y. Wird Y selbst geändert, gilt es.
+- **Der Sprung** setzt die Mitte der Oberseite des Blocks in die Mitte der
+  Karte, auf derselben Stufe, wie `at` in der Adresse. Danach hält die
+  Anzeige den Block wie nach einem Klick. Die Adresse folgt wie nach jeder
+  Bewegung, mit dem Block, den die Mitte dann zeigt; liegt ein Y in der
+  Luft oder im Boden, ist das der Block, den man dort sieht.
+- **Abbrechen:** Escape oder ein Klick daneben. Escape lässt dabei einen
+  gehaltenen Block gehalten. Das gilt auch, während die Höhenkarte für den
+  Sprung noch lädt: Dann springt die Karte nicht mehr, und ein zweites
+  Enter springt nicht noch einmal.
+- **Abgewiesen** werden Eingaben, die keine ganze Zahl sind, X oder Z über
+  ±30 000 000 (die Weltgrenze des Spiels) und Y ausserhalb von `minY` bis
+  `maxY`. Das Feld wird rot, trägt `aria-invalid`, die Rückmeldung nennt den
+  Grund, und es bleibt offen.
+- **Auf dem Handy:** Das Feld ist `type="text"` ohne `inputmode`. Mit
+  `inputmode="numeric"` fehlt auf vielen Tastaturen das Minus, auch
+  `decimal` bietet es nicht überall.
+- **Mit der Maus** verschiebt ein Klick in die Anzeige die Karte nicht,
+  wie überall in der Leiste.
+
 ## Ansichten und Kompass
 
 Oben rechts zeigt ein Pfeil nach Norden, gedreht nach `projection` und
@@ -162,10 +231,11 @@ oben.
 
 Liegt unter dem Kachelpfad eine `trees.json`, ist jeder Eintrag unter
 `trees` ein eigener Baum mit eigenem `map.json`, siehe
-[0051](entscheidungen/0051-kameras-und-richtungen.md). Das Frontend öffnet
+[map.json](benutzung/map-json.md), „Liste der Bäume“. Das Frontend öffnet
 den aus `?tree=<path>`, sonst den ersten. Ohne `trees.json` (404, oder ein
 Server, der stattdessen die Seite schickt) ist der Kachelpfad selbst der
-Baum, wie bisher.
+Baum, wie bisher. Eine Liste ohne brauchbare Einträge zeigt die Seite als
+Fehler an, wie eine fehlende `map.json`.
 
 Bei mehr als einem Baum steht neben dem Kompass ein `select`. Er nennt
 jeden Baum lesbar, nicht mit seinen Kürzeln:
@@ -192,8 +262,14 @@ Karte. `zoom` zählt ab `maxZoom`, weil `maxZoom` je Baum an seiner
 Ausdehnung hängt, siehe [Zoomstufen](benutzung/zoomstufen.md),
 „Nummerierung“. So bleibt beim Umschalten derselbe Block in der Mitte, mit
 derselben Vergrösserung, auch aus einer anderen Richtung. Ohne Koordinaten
-im alten Baum fehlt `at`, und der neue zeigt die ganze Karte. Die Adresse
-lässt sich so auch teilen.
+im alten Baum fehlt `at`, und der neue zeigt die ganze Karte.
+
+Die Adresse folgt der Karte: Nach jedem Verschieben oder Zoomen schreibt
+das Frontend `at` und `zoom` hinein, mit dem Baum in `tree`, wenn es eine
+Liste gibt. Es nimmt `history.replaceState`, der Verlauf bekommt also
+keine Einträge. Wer die Adresse kopiert oder die Seite neu lädt, sieht
+denselben Block in der Mitte auf derselben Stufe. Ohne Koordinaten gibt es
+keinen Block für `at`, und die Adresse bleibt, wie sie ist.
 
 ## Ausliefern
 

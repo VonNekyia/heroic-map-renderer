@@ -283,7 +283,9 @@ Sprites mit Tönungskarte in den Farben seines Blocks (`tinted`), siehe
 dann mit dem Licht des Blocks und dem Faktor der weichen Beleuchtung, siehe
 [Wasser und Licht](wasser-und-licht.md) und
 [Weiche Beleuchtung](weiche-beleuchtung.md). Auf der Karte: siehe
-[Grafikkarte](../benutzung/grafikkarte.md).
+[Grafikkarte](../benutzung/grafikkarte.md). Mit `--cinematic` zeichnet er
+dieselben Pixel in HDR, siehe [Cinematic](cinematic.md), „Zeichnen in
+HDR“.
 
 ## Grosse Ausschnitte
 

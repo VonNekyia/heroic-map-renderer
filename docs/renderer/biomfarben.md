@@ -204,8 +204,12 @@ Was er aus einem Biom braucht, liest der Renderer wie `Biome.DIRECT_CODEC`
 in 26.2: Pflicht sind `has_precipitation`, `temperature`, `downfall`,
 `effects` und darin `water_color`. Eine Farbe darf wie im Client eine ganze
 Zahl sein, `#rrggbb` oder drei Kommazahlen von 0 bis 1 wie
-`[0.2, 0.4, 0.8]`. Ein Biom, das der Codec ablehnt, übergeht der Renderer
-und nennt es beim Start; der Client lüde sein Datenpaket gar nicht. Woher
+`[0.2, 0.4, 0.8]`. Aus `attributes` liest er die Farben von Himmel, Nebel
+und Wassernebel für Cinematic, siehe [Cinematic](cinematic.md), „Farbe des
+Himmels“; `attributes` darf fehlen, ist es da, muss es ein Objekt sein, und
+eine dieser Farben muss eine Farbe sein oder ein Modifikator. Ein Biom, das
+der Codec ablehnt, übergeht der Renderer und nennt es beim Start; der
+Client lüde sein Datenpaket gar nicht. Woher
 die Biomdefinitionen kommen: [Assets und Biomdaten](../benutzung/assets.md).
 
 ## Belege

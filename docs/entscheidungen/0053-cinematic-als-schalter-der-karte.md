@@ -94,7 +94,8 @@ scale 32 rund einen bis drei Tage statt 44 min, hochgerechnet aus
   Vorschau. Sie scheint, wo der Dimensionstyp Himmelslicht zeigt.
 - **Nähte:** Was ein Pixel bekommt, hängt nur an der Welt und an seinem
   Platz im Pixelraster. Bloom rechnet mit einem Rand um jede Kachel.
-- **Schalter `--cinematic`.** Den Namen entscheidet der User. Ein
+- **Schalter `--cinematic`.** So hat der User den Namen am 02.10.
+  entschieden. Ein
   Kachelbaum ist mit oder ohne Cinematic: `map.json` hält es als `look`
   fest, und ein Lauf mit dem anderen bricht ab, bevor er einen Chunk liest.
 - **Auf der CPU.** Die Grafikkarte zeichnet weiter nur die Karte.

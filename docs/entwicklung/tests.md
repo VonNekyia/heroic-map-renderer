@@ -223,7 +223,8 @@ Projektion, Baking, Rasterizer oder Maleralgorithmus fällt damit auf.
 `metatile.png` zeigt 2:1, `metatile-4x3.png`, `metatile-top.png`,
 `metatile-top-north.png` und `metatile-north-45.png` die Szene aus
 `common::szene` in 4:3, von oben, genordet von oben und in `north-45`,
-`metatile-nw.png` dieselbe in 2:1 aus `nw` um die Treppe aus Stein, alle
+`metatile-nw.png` dieselbe in 2:1 aus `nw` um die Treppe aus Stein,
+`metatile-cinematic.png` sie mit Cinematic in 2:1 um dieselbe Treppe, alle
 bei scale 16. Der Test vergleicht alle, schreibt zu jedem abweichenden das
 Ist-Bild daneben, als `<name>-ist.png`, und fällt erst dann; in CI liegen
 sie als Artefakt am fehlgeschlagenen Lauf.

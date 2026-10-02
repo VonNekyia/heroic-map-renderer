@@ -1,6 +1,6 @@
 ---
 title: Zoomstufen
-description: Wie die gröberen Zoomstufen entstehen, wie sie nummeriert sind, wann sie nativ gerendert werden und warum ein Baum zu genau einer Welt, einem scale und einer Kamera gehört.
+description: Wie die gröberen Zoomstufen entstehen, wie sie nummeriert sind, wann sie nativ gerendert werden und warum ein Baum zu genau einer Welt, einem scale, einer Kamera und einem look gehört.
 code:
   - renderer/src/render/pyramid.rs
   - renderer/src/render/tiles.rs
@@ -198,6 +198,29 @@ fest, siehe [`map.json`](map-json.md), „Kamera und Projektion“.
   „Kamera und Projektion“. Wie `--heights` zu seiner Kamera kommt, steht
   dort unter „Höhen“.
 - **Die Höhen** teilen alle Bäume unter einer Wurzel.
+
+## Ein Baum, ein look
+
+Der look gehört zum Baum wie die Kamera: `map.json` hält ihn als `look`
+fest, Cinematic dazu den Fingerabdruck seiner Werte als `lookHash`, siehe
+[`map.json`](map-json.md), „Look“.
+- **Jeder look ein eigener Baum:** Mit `--cinematic` schreibt ein Lauf in
+  den Ordner `<kamera>-<richtung>-cinematic`, ohne in
+  `<kamera>-<richtung>`.
+- **Ein Baum mit dem anderen look im Ordner,** etwa nach dem Umbenennen,
+  bricht ab, bevor der Lauf einen Chunk liest, mit „… gehört zu einem Baum
+  mit --cinematic, dieser Lauf zeichnet ohne. Den Ordner nach
+  …/2x1-se-cinematic umbenennen oder eine neue Wurzel nehmen.“, umgekehrt
+  ebenso (`pruefe_look` in
+  [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
+- **Andere Werte des Looks:** Nennt ein Baum mit Cinematic einen anderen
+  oder keinen `lookHash`, bricht der Lauf ebenso ab, auch mit `--resume`:
+  „… gehört zu einem Baum mit --cinematic und anderen Werten des Looks:
+  lookHash dort …, hier …. Den Baum löschen und neu rendern oder eine neue
+  Wurzel nehmen.“ Sonst lägen alte und neue Kacheln in einem Baum, siehe
+  [0058](../entscheidungen/0058-look-von-cinematic.md), „Folgen“.
+- **Ein Baum ohne `look`** zeigt die Karte.
+- **Die Höhen** teilen auch Karte und Cinematic.
 
 ## Native Stufen
 

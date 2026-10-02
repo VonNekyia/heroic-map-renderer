@@ -15,7 +15,10 @@ da ist; `--gpu off` lässt die CPU zeichnen, `--gpu on` verlangt eine Karte
 und nimmt auch einen Software-Adapter. Das Bild ist in allen Fällen
 dasselbe, Byte für Byte. Die Karte übernimmt nur das Zeichnen, auf der
 Basis und auf den nativen Stufen; `--render` und `--pyramid` bleiben auf der
-CPU, `--gpu` verlangt `--tiles`. Der Zeichner steht in
+CPU, `--gpu` verlangt `--tiles`. Mit `--cinematic` zeichnet immer die CPU,
+auch mit `--gpu on`, und das Log sagt es einmal:
+`GPU:        aus, Cinematic zeichnet die CPU`, siehe
+[Cinematic](../renderer/cinematic.md). Der Zeichner steht in
 [`renderer/src/render/gpu.rs`](../../renderer/src/render/gpu.rs), der
 Shader in `gpu.wgsl` daneben.
 

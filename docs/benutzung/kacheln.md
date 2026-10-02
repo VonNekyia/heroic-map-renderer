@@ -113,7 +113,8 @@ erste Kachel schreibt.
 Unter der Wurzel von `--tiles` liegt jeder Baum in seinem eigenen Ordner,
 daneben `trees.json` und die Höhen, die alle Bäume teilen. Wie die Ordner
 heissen, steht in [map.json](map-json.md), „Liste der Bäume“, die Höhen
-unter „Höhen“. In einem Baum liegen die Kacheln als `<z>/<x>/<y>.webp`;
+unter „Höhen“; mit `--cinematic` trägt der Ordner den Anhang `-cinematic`,
+siehe [Cinematic](../renderer/cinematic.md). In einem Baum liegen die Kacheln als `<z>/<x>/<y>.webp`;
 x und y dürfen negativ sein, weil der Blockursprung mitten in der Welt
 liegt. Jede
 Kachel, jede Datei der Höhen, `map.json` und `trees.json` entstehen erst als

@@ -62,8 +62,11 @@ Wie `DimensionType.DIRECT_CODEC` in 26.2, so weit er es braucht:
 | `visual/sky_light_factor` | 1 | 1 | 0 | 0 |
 | `visual/sky_light_color` | `#ffffff` | `#ffffff` | `#7a7aff` | `#ac60cd` |
 | `visual/block_light_tint` | `#ffd88c` | `#ffd88c` | `#ffd88c` | `#ffd88c` |
+| `visual/sky_color` | `#000000` | `#78a7ff` | `#000000` | `#000000` |
+| `visual/fog_color` | `#000000` | `#c0d8ff` | `#000000` | `#181318` |
+| `visual/water_fog_color` | `#050533` | `#050533` | `#050533` | `#050533` |
 
-- Die vier Attribute stehen unter `attributes`, als
+- Die Attribute stehen unter `attributes`, als
   `minecraft:visual/…` oder ohne Namensraum als `visual/…`, denn
   `EnvironmentAttributes.CODEC` liest die Schlüssel als ID
   (`byNameCodec`). Ihre Vorgaben sind die aus `EnvironmentAttributes`;
@@ -78,9 +81,11 @@ Wie `DimensionType.DIRECT_CODEC` in 26.2, so weit er es braucht:
 - `overworld_caves` steht auch in der Tabelle; das Spiel nimmt ihn für
   keine seiner drei Dimensionen.
 
-Die Lightmap aus den vier Attributen und ob der Lauf Himmelslicht
-ausbreitet, legt `SpriteSet::build_in` aus dem Typ fest, siehe
-[Wasser und Licht](wasser-und-licht.md), „Helligkeit wie im Spiel“.
+Die Lightmap aus den vier Attributen bis `block_light_tint` und ob der
+Lauf Himmelslicht ausbreitet, legt `SpriteSet::build_in` aus dem Typ fest,
+siehe [Wasser und Licht](wasser-und-licht.md), „Helligkeit wie im Spiel“.
+Die drei Farben darunter nimmt Cinematic für Biome, die keine eigene
+setzen, siehe [Cinematic](cinematic.md), „Farbe des Himmels“.
 
 ## Schattierung nach Richtung
 
@@ -128,8 +133,8 @@ Belegt per javap am Client 26.2 und an den Daten im JAR:
 - `DimensionTypes.bootstrap` und die JSON-Dateien unter
   `data/minecraft/dimension_type/`: Nur `the_nether` setzt
   `cardinal_light` `nether` und `has_skylight` falsch.
-- `EnvironmentAttributes`, statischer Initialisierer: die Vorgaben der vier
-  Attribute. `EnvironmentAttributeMap`, `AttributeTypes.RGB_COLOR`,
+- `EnvironmentAttributes`, statischer Initialisierer: die Vorgaben der
+  sieben Attribute, die Farben als `AttributeTypes.RGB_COLOR`. `EnvironmentAttributeMap`, `AttributeTypes.RGB_COLOR`,
   `EnvironmentAttributeSystem.addDefaultLayers`.
 - `GameRenderer.setLevel` ruft `Lighting.updateLevel` mit
   `cardinalLightType` des Typs; `Lighting` mit den beiden Lichtpaaren.
@@ -146,7 +151,7 @@ Die Tabelle schreibt `Dimensionstypen.java` aus dem Spiel selbst, über
 
 ## Was bleibt eine Näherung
 
-- **Modifikatoren:** Setzt ein Typ eines der vier Attribute nicht mit einem
+- **Modifikatoren:** Setzt ein Typ eines der Attribute nicht mit einem
   Wert, sondern mit einem Modifikator (`{"modifier": …}`), rechnet der
   Renderer ihn nicht und nimmt die Vorgabe. Die Ausgabe nennt jede solche
   Datei. Vanilla setzt keinen.
@@ -161,5 +166,7 @@ Die Tabelle schreibt `Dimensionstypen.java` aus dem Spiel selbst, über
   eigene Dimension ohne Definition in einer Datenwurzel bekommt den der
   Oberwelt, mit Meldung.
 - **Biome und Zeitleisten** können die Attribute im Spiel weiter ändern.
-  In Vanilla setzt kein Biom eines der vier Attribute, und die Zeitleiste
-  `day` der Oberwelt lässt sie am Tag, wie sie sind.
+  In Vanilla setzt kein Biom eines der vier Attribute der Lightmap, und die
+  Zeitleiste `day` der Oberwelt lässt sie am Tag, wie sie sind. Die Farben
+  des Himmels setzen viele Biome; Cinematic liest sie dort, siehe
+  [Cinematic](cinematic.md), „Farbe des Himmels“.

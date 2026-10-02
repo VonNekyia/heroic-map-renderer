@@ -28,7 +28,9 @@ Reviewers eingeschlossen.
   Windows im Pfad nicht erlaubt: `2x1-se`, `8x5-se`, `top-se`,
   `top-north-s`, `north-45-n`. Ein Baum mit Cinematic aus #72 hängt
   `-cinematic` an, etwa `2x1-se-cinematic`, mit `look` `cinematic`; die
-  Karte bleibt ohne Anhang, `look` `map`.
+  Karte bleibt ohne Anhang, `look` `map`. Der scale steht nicht im Namen:
+  Ein zweiter scale derselben Kamera und Richtung braucht eine eigene
+  Wurzel, im selben Ordner bricht `pruefe_bestand` ab.
 - **`trees.json` neben den Bäumen** nennt je Baum `path`, `camera`,
   `direction` und `look`. Der Lauf liest sie aus der Platte, je Ordner mit
   `map.json` ein Eintrag; er führt sie nicht fort.
@@ -71,8 +73,9 @@ Siehe [`map.json`](../benutzung/map-json.md), „Liste der Bäume“.
 - Das Frontend lädt zuerst `trees.json`; fehlt sie, gilt der Kachelpfad
   selbst als Baum, wie in der alten Ablage.
 - Wer einen Baum der alten Ablage weiterrendern will, verschiebt ihn samt
-  allem darin in den genannten Ordner. Der nächste Lauf schreibt die
-  Höhen dann unter die Wurzel; die alten im Ordner des Baums liest niemand
-  mehr.
+  allem darin in den genannten Ordner. Bis zum nächsten Lauf bleibt er
+  lesbar, seine `map.json` verweist relativ auf die Höhen in seinem
+  Ordner. Der nächste Lauf schreibt die Höhen dann unter die Wurzel; die
+  alten im Ordner des Baums liest niemand mehr.
 - `--defender-exclusion` nimmt eine Wurzel mit `trees.json` wie einen
   Kachelordner.

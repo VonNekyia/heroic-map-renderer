@@ -1,12 +1,13 @@
 ---
 title: Sprites und Deckung
-description: Wie die Sprite-Tabelle aus Familien und Fassungen entsteht, wann ein Sprite als deckend gilt, wann ein Würfel wegfällt, welche Flächen zu gleichen Nachbarn entfallen und wie die Deckungsmaske nur zeichnet, was am Ende zu sehen ist.
+description: Wie die Sprite-Tabelle aus Familien und Fassungen entsteht, wann ein Sprite als deckend gilt, wann ein Würfel wegfällt, welche Flächen zu gleichen Nachbarn und vor einem vollen Nachbarn entfallen und wie die Deckungsmaske nur zeichnet, was am Ende zu sehen ist.
 code:
   - renderer/src/render/sprites.rs
   - renderer/src/render/metatile.rs
   - renderer/src/assets/baker.rs
   - renderer/src/assets/blockstate.rs
   - renderer/src/assets/nachbarn.txt
+  - renderer/src/assets/seiten.txt
 ---
 
 # Sprites und Deckung
@@ -26,13 +27,16 @@ Die Tabelle entsteht nach dem Vorlauf, der alle vorkommenden Blockstates
 einsammelt, siehe [Der Weg einer Kachel](renderpfad.md), „Vorlauf“.
 Blockstates mit gleichem Bild teilen sich eine Familie: gleicher Name,
 gleiche Modelle, gleiche Flüssigkeit, gleicher Ort der Saat, gleiches Bild
-aus dem Blockentity, gleiche Kollisionsform und gleiche Regel zu den
-Nachbarn (`family_key` in `sprites.rs`). Das Bild zählt, weil eine Truhe in
-jeder Lage dasselbe Blockmodell hat, die Kollisionsform, weil bei voller
-jede ebene Fläche im Licht der Zelle davor liegt, siehe
-[Weiche Beleuchtung](weiche-beleuchtung.md), „Die Regeln des Spiels“. Die
-Regel zählt, weil ein Pack einem Gitter in jeder Verbindung dasselbe Modell
-geben kann, siehe unten, „Flächen zu gleichen Nachbarn“. Licht
+aus dem Blockentity, gleiche Kollisionsform, gleiche Regel zu den
+Nachbarn und gleiche volle Seiten (`family_key` in `sprites.rs`). Das Bild
+zählt, weil eine Truhe in jeder Lage dasselbe Blockmodell hat, die
+Kollisionsform, weil bei voller jede ebene Fläche im Licht der Zelle davor
+liegt, siehe [Weiche Beleuchtung](weiche-beleuchtung.md), „Die Regeln des
+Spiels“. Die Regel zählt, weil ein Pack einem Gitter in jeder Verbindung
+dasselbe Modell geben kann, siehe unten, „Flächen zu gleichen Nachbarn“.
+Die vollen Seiten zählen, weil ein Pack zwei Zuständen, die verschieden
+decken, dasselbe Modell geben kann, siehe unten, „Flächen vor einem vollen
+Nachbarn“. Licht
 trägt kein Sprite, es kommt beim Zeichnen. Banner mit Mustern und Krüge mit
 Scherben bekommen je Familie und Daten eine eigene Familie
 (`SpriteSet::add_entities`), siehe [Blockentities](blockentities.md), „Im
@@ -41,7 +45,7 @@ Eine Familie hat ihre Alternativen, siehe
 [Varianten aus der Position](varianten.md), und
 Fassungen: eine je Maske verdeckter Flüssigkeitsflächen, dazu die Streifen
 an Wasserstufen, siehe [Wasser und Licht](wasser-und-licht.md), und eine je
-Maske gleicher Nachbarn, siehe unten. Gefärbte
+Maske verdeckender Nachbarn, siehe unten. Gefärbte
 Flächen tragen statt der Farbe eine Tönungskarte, siehe
 [Biomfarben](biomfarben.md), „Tönung beim Zeichnen“. Pixelgleiche Sprites
 teilen sich einen Eintrag.
@@ -113,13 +117,16 @@ dreht (`UnbakedCuboidGeometry`, `Direction.rotate`). Flächen ohne
 Reihenfolge, belegt per javap am Client 26.2:
 
 1. Deckt die Seite des Nachbarn voll (`getFaceOcclusionShape` ist
-   `Shapes.block()`), entfällt die Fläche. Zeigt sie zur Kamera, übermalt
-   der Nachbar sie im Renderer ohnehin.
+   `Shapes.block()`), entfällt die Fläche. Das baut der Renderer nach,
+   siehe „Flächen vor einem vollen Nachbarn“.
 2. Sonst entfällt sie, wenn `skipRendering(nachbar, richtung)` des eigenen
    Blocks wahr ist. Das baut der Renderer nach.
 3. Sonst vergleicht das Spiel die Formen beider Seiten. Ohne `canOcclude`,
    also bei allem Durchscheinenden, hat der Block keine Form, und die
-   Fläche bleibt.
+   Fläche bleibt. Mit `canOcclude` liegt in 26.2 jede Fläche mit
+   `cullface`, die eine Kamera sieht, auf ihrer Wand und zeigt hinaus. Was
+   der Nachbar dort deckt, übermalt er. Der dritte Fall ändert so kein
+   Pixel und fehlt im Renderer.
 
 `skipRendering` überschreiben in 26.2 sechs Klassen mit 72 Blöcken. Ihre
 Regeln stehen in [`nachbarn.txt`](../../renderer/src/assets/nachbarn.txt),
@@ -158,14 +165,16 @@ Im Renderer, siehe
   Mangrovenwurzeln sind es oben und unten: Die untere Schicht zeigt ihre
   Oberseite mit `cullface` unten zur Kamera. Bei Pulverschnee sind es alle
   sechs: Seine inneren Schichten zeigen mit `cullface` nach unten und im
-  Blick nach Norden und Westen zur Kamera.
+  Blick nach Norden und Westen zur Kamera. Dazu kommen die Seiten aus
+  „Flächen vor einem vollen Nachbarn“.
 - **Fassungen:** Je Alternative gibt es eine Fassung je Maske über diese
   Seiten, ohne die Flächen, deren `cullface` zu einer Seite der Maske zeigt.
   Führt der Block eine Flüssigkeit, gibt es sie je Maske der Flüssigkeit
   noch einmal (`SpriteSet::insert_nachbarn`). Bei Eis sind das 8, bei einer
-  gefluteten Scheibe mit einem Arm nach Osten 16, bei gefluteten
-  Mangrovenwurzeln 32, bei Pulverschnee 64. Die Fassungen gehören der Familie, nicht wie bei
-  Wasser dem Sprite.
+  gefluteten Scheibe mit einem Arm nach Osten 16, bei Pulverschnee 64, bei
+  gefluteten Mangrovenwurzeln mit den Seiten vor einem vollen Nachbarn
+  128. Die Fassungen gehören der Familie, nicht wie bei Wasser dem
+  Sprite.
 - **Beim Zeichnen** fragt `sprite_at` die Nachbarn zu diesen Seiten
   (`Nachbarregel::verdeckt`) und nimmt die Fassung. Bleibt nichts, fällt der
   Block weg, etwa mitten in einer Eismasse.
@@ -178,16 +187,92 @@ liegen A und B mit und ohne Karte innerhalb der Streuung. Die Tabelle hat
 bei scale 32 dort 3 bis 4 % mehr Sprites. Gemessen in
 [2026-10-01, Flächen zu gleichen Nachbarn](../messungen/2026-10-01-flaechen-zu-gleichen-nachbarn.md).
 
+## Flächen vor einem vollen Nachbarn
+
+Deckt ein Nachbar zur `cullface` einer Fläche voll, lässt das Spiel sie
+weg, im ersten Fall von `Block.shouldRenderFace`. Der Renderer baut das
+nach, siehe
+[0057](../entscheidungen/0057-flaechen-vor-einem-vollen-nachbarn.md).
+Belegt per javap am Client 26.2 und mit einer Probe gegen 26.2.
+
+- **Voll** heisst: `getFaceOcclusionShape` des Nachbarn ist genau
+  `Shapes.block()`, als Objekt verglichen. Ein voller Würfel
+  (`solidRender`) liefert es an allen sechs Seiten. Sonst schneidet
+  `VoxelShape.calculateFace` die Form an der Seite zu einer `SliceShape`
+  und gibt `Shapes.block()` nur, wenn diese in jeder Achse genau die
+  Koordinaten 0 und 1 hat (`isCubeLikeAlong`). Die beiden anderen Achsen
+  nimmt die `SliceShape` von der ganzen Form: Jede Teilung dort zählt,
+  auch eine über der Seite. Ist die Form entlang der Achse schon
+  würfelartig, gibt `calculateFace` die Form selbst zurück, und voll ist
+  sie nur als Würfel.
+  - Eine untere Platte deckt so nach unten voll, Schnee mit acht Schichten
+    an allen Seiten, Ackerboden nur unten.
+  - Ein Endportalrahmen deckt unten voll, mit Auge nicht: Das Auge teilt
+    die Form in x und z.
+  - Eine Treppe deckt nie voll: Auch ihre volle Rückseite trägt die
+    Teilung bei der Hälfte.
+  - Blöcke ohne `canOcclude` wie Glas, Laub und Eis decken nirgends.
+- **Die Tabelle** [`seiten.txt`](../../renderer/src/assets/seiten.txt)
+  trägt je Zustand die Seiten, an denen er voll deckt, aus dem Spiel
+  gelesen, siehe [Erzeugte Tabellen](../entwicklung/tabellen.md). Die
+  Familie trägt sie als `Family::voll` aus `blockstate::volle_seiten`. Sie
+  gehört zum Schlüssel der Familie: Zwei Zustände mit gleichem Bild, die
+  verschieden decken, bleiben zwei Familien.
+- **Die Seiten einer Familie:** Sie fragt zu einer Seite, wenn eine
+  Fläche, die die Kamera sieht, ihre `cullface` dort hat und ein voller
+  Nachbar sie nicht ohnehin übermalt. Das tut er nur, wenn sie auf der
+  Wand zu ihm liegt oder dahinter in seinem Würfel und zu ihm zeigt
+  (`auf_der_wand` in `sprites.rs`). So bekommen volle Würfel, Platten und
+  Treppen dafür keine Fassungen; der Sockel des Hebels liegt 0,02 hinter
+  der Wand und zählt mit.
+- **Beim Zeichnen** fragt `sprite_at` zu jeder Seite den Nachbarn: Deckt er
+  zur gegenüberliegenden Seite voll, oder lässt die Regel aus „Flächen zu
+  gleichen Nachbarn“ die Fläche weg, nimmt es die Fassung ohne die Flächen
+  mit `cullface` dort. Die Fassungen sind dieselben wie dort.
+
+Aus allen Blockmodellen des Clients 26.2 haben diese Blöcke Flächen, die
+eine Kamera sieht und ein voller Nachbar nicht übermalt:
+
+| Block | Flächen | Seiten dafür aus `se` |
+|---|---|---|
+| Mangrovenwurzeln | die inneren Schichten, nach innen | unten, Norden, Westen |
+| Pulverschnee | dasselbe; er deckt, zu sehen ist es nicht | unten, Norden, Westen |
+| Spawner, Prüfungsspawner | die Innenseiten von Boden und Wänden, durch das Gitter | unten, Süden, Westen |
+| Trichter | der Boden der Schale und die Innenseiten des Rands, mit `cullface` oben | oben |
+
+- **Der Spawner** hat in `cube_all_inner_faces` und
+  `cube_bottom_top_inner_faces` ein zweites Element mit `from` x 15,998 und
+  `to` x 0,002. Das Spiel nimmt beide unsortiert (`FaceInfo.Extent`), die
+  Richtung einer Fläche aus ihren Ecken (`FaceBakery.calculateFacing`).
+  Seine Flächen zeigen deshalb nach innen. Die Wände in z tragen die
+  `cullface` der Wand gegenüber, die übrigen die ihrer eigenen. Die
+  Nordwand innen, die die Kamera aus `se` sieht, entfällt so vor einem
+  vollen Block im Süden; einer im Norden ändert nichts. Der Baker rechnet
+  genauso.
+- **Der Trichter** lässt vor einem vollen Block darüber das Innere seiner
+  Schale weg. Zu sehen ist das nicht: Jeder Strahl aus der Schale geht
+  durch die Öffnung in den Block darüber. Die Seite kostet nur Fassungen
+  und einen Nachschlag je Block.
+- **Die Choruspflanze** hat solche Flächen nur im Modell `chorus_plant` für
+  den Gegenstand; ihr Blockstate nimmt es nicht.
+- **Kerzenkuchen** haben sie nur nach unten, das sieht keine Kamera. Der
+  **Hebel** hat seinen Sockel hinter der Wand, an Wand und Decke gedreht;
+  der volle Nachbar übermalt ihn.
+
 Was bleibt eine Näherung:
 
-- **Innere Flächen vor einem vollen Nachbarn.** Den ersten Fall baut der
-  Renderer nicht nach. Er greift bei Flächen, die zur Kamera zeigen, deren
-  `cullface` aber nach unten oder im Blick nach Norden oder Westen weist,
-  aus der Vorgabe nach Norden oder Westen der Welt. Solche Flächen
-  haben in 26.2 die Mangrovenwurzeln, der Spawner, der Prüfungs-Spawner und
-  die Choruspflanze, dazu der Pulverschnee, bei dem es nicht zu sehen ist,
-  denn er deckt. Steht dort ein voller Block, lässt das Spiel sie weg, der
-  Renderer zeichnet sie.
+- **Blöcke, die 26.2 nicht kennt,** decken nirgends. Im Spiel kann ein
+  solcher Block voll decken.
+- **Der dritte Fall** ändert nur für die Modelle aus 26.2 kein Pixel. Ein
+  Pack mit einer Fläche mit `cullface` neben ihrer Wand an einem Block mit
+  `canOcclude` kann abweichen.
+- **Das grosse Tropfblatt, gekippt:** Die Blattkanten in
+  `big_dripleaf_partial_tilt` und `big_dripleaf_full_tilt` liegen auf der
+  Wand im Westen und im Osten. Gekippt um x ragen sie bis z 17,53/16 und
+  18,83/16 über den Block hinaus, ein voller Nachbar übermalt nur seinen
+  Würfel. Was darüber hinausragt, zeichnet der Renderer, das Spiel nicht.
+  Zu sehen ist es kaum: Die Textur ist dort durchsichtig, und das Blatt
+  kippt nur kurz.
 
 ## Hineinragende Nachbarmodelle
 

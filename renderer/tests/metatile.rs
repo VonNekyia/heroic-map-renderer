@@ -3916,7 +3916,7 @@ fn verbundene_scheiben_ohne_stoss() {
     }
 }
 
-/// Mangrovenwurzeln lassen nur oben und unten Flächen weg, auch die innere
+/// Mangrovenwurzeln lassen zu sich selbst nur oben und unten Flächen weg, auch die innere
 /// mit `cullface` unten. Im Turm aus zweien sieht man durch die Südseite des
 /// oberen dort, wo der Sichtstrahl zwischen beiden durchgeht, nichts; bei
 /// einem allein liegt dort seine Oberseite. Geflutet bleibt im Turm nur die
@@ -3957,6 +3957,98 @@ fn wurzeln_nur_senkrecht_auch_geflutet() {
     let p = punkt(&geflutet, projection, rect, stelle);
     assert!(soll[3] > 0, "das Wasser fehlt");
     assert!(gleich(p, soll), "geflutet: {p:?} statt {soll:?}");
+}
+
+/// Zeigt der Pixel etwas Blaues? Die Flächen, um die es geht, sind blau, was
+/// dahinter liegt, nicht; das Licht ändert das Verhältnis der Kanäle nicht.
+fn blau(p: [u8; 4]) -> bool {
+    p[3] > 0 && u16::from(p[2]) > 2 * u16::from(p[0])
+}
+
+/// Vor einem Nachbarn, der zu ihrer `cullface` voll deckt, entfällt eine
+/// Fläche, wie im ersten Fall von `Block.shouldRenderFace` in 26.2: die
+/// untere Schicht der Mangrovenwurzeln auf Stein, einer oberen und einer
+/// doppelten Platte. Auf einer unteren Platte und einer oberen Treppe
+/// bleibt sie, deren Oberseite ist im Spiel nicht `Shapes.block()`. Die
+/// doppelte Platte hat in den Fixtures das Modell der unteren und steht in
+/// derselben Welt. Die Schicht ist blau, ihre Stelle sieht keine andere
+/// Schicht.
+#[test]
+fn wurzeln_ohne_untere_schicht_vor_vollem_block() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 192);
+    const DARUNTER: [(&str, bool); 7] = [
+        ("minecraft:air", true),
+        ("minecraft:stone", false),
+        ("minecraft:oak_slab[type=top,waterlogged=false]", false),
+        ("minecraft:oak_slab[type=bottom,waterlogged=false]", true),
+        ("minecraft:oak_slab[type=double,waterlogged=false]", false),
+        (
+            "minecraft:oak_stairs[facing=north,half=top,shape=straight,waterlogged=false]",
+            true,
+        ),
+        ("minecraft:oak_planks", false),
+    ];
+    let bild = render_chunks(
+        &tempdir(),
+        &[(0, 0)],
+        |x, y, z| match (x % 2, x / 2, y, z) {
+            (1, i, 1, 5) if i < 7 => "minecraft:mangrove_roots[waterlogged=false]",
+            (1, i, 0, 5) if i < 7 => DARUNTER[i as usize].0,
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    for (i, (darunter, schicht)) in DARUNTER.into_iter().enumerate() {
+        let p = punkt(&bild, projection, rect, [2.0 * i as f64 + 1.3, 1.001, 5.9]);
+        assert_eq!(blau(p), schicht, "auf {darunter}: {p:?}");
+    }
+}
+
+/// Ein Spawner zeigt seine Wände von innen. Das innere Element von
+/// `cube_all_inner_faces` läuft in x von 15,998 nach 0,002, seine Flächen zeigen
+/// nach innen. Die Wände in z tragen dadurch die `cullface` der Wand
+/// gegenüber, die übrigen die ihrer eigenen. Die Nordwand, die die Kamera
+/// sieht, entfällt deshalb vor einem vollen Block im Süden, nicht im
+/// Norden, der Boden vor einem darunter. Eine untere Platte deckt zur
+/// Seite nicht voll. Das Fixture hat nur das innere Element, blau; keine der
+/// beiden Stellen liegt im Bild eines Nachbarn.
+#[test]
+fn spawner_ohne_innere_wand_vor_vollem_block() {
+    let projection = Projection::new(16);
+    let rect = ScreenRect::centered(256, 192);
+    let (wand, boden) = ([5.3, 1.6, 5.002], [5.7, 1.002, 5.2]);
+    for (nachbar, wo, mit_wand, mit_boden) in [
+        ("minecraft:air", [5, 1, 6], true, true),
+        ("minecraft:stone", [5, 1, 6], false, true),
+        ("minecraft:stone", [5, 1, 4], true, true),
+        (
+            "minecraft:oak_slab[type=bottom,waterlogged=false]",
+            [5, 1, 6],
+            true,
+            true,
+        ),
+        ("minecraft:stone", [5, 0, 5], true, false),
+    ] {
+        let bild = render_chunks(
+            &tempdir(),
+            &[(0, 0)],
+            move |x, y, z| match [x, y, z] {
+                [5, 1, 5] => "minecraft:spawner",
+                p if p == wo => nachbar,
+                _ => "minecraft:air",
+            },
+            projection,
+            rect,
+        );
+        let (w, b) = (
+            punkt(&bild, projection, rect, wand),
+            punkt(&bild, projection, rect, boden),
+        );
+        assert_eq!(blau(w), mit_wand, "{nachbar} bei {wo:?}, Wand: {w:?}");
+        assert_eq!(blau(b), mit_boden, "{nachbar} bei {wo:?}, Boden: {b:?}");
+    }
 }
 
 /// Ein deckender Block mit Regel ändert kein Pixel: Was er zu einem

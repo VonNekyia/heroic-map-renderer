@@ -15,6 +15,11 @@ code:
 
 # 0044: Flächen zu gleichen Nachbarn nach der Regel des Spiels
 
+[0057](0057-flaechen-vor-einem-vollen-nachbarn.md) löst zwei Stellen ab:
+die verworfene Alternative „Den ersten Fall von `shouldRenderFace`
+mitnehmen“, deren Begründung am Spawner nicht hält, und die Näherung dazu
+unter „Folgen“.
+
 ## Anlass
 
 #58: Eis, Glas, Scheiben und Gitter wirkten auf der Karte zu deckend. Der

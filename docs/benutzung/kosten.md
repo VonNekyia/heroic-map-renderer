@@ -170,8 +170,8 @@ gelten für 2:1 aus der Vorgabe; was die anderen Kameras kosten, steht in
 [2026-10-02, Genordete Kameras](../messungen/2026-10-02-genordete-kameras.md),
 was eine andere Richtung kostet, in
 [2026-10-02, Richtungen](../messungen/2026-10-02-richtungen.md). Der erste
-Vollrender der grossen Welt, ein früher Stand vor allen Umbauten, hätte für die Basis knapp
-16 Stunden gebraucht, siehe
+Vollrender der grossen Welt, ein früher Stand vor allen Umbauten, hätte für
+die Basis knapp 16 Stunden gebraucht, siehe
 [2026-09-22, Erster Vollrender](../messungen/2026-09-22-erster-vollrender.md).
 Wie der Renderer seitdem schneller wurde, steht in
 [Der Weg einer Kachel](../renderer/renderpfad.md).

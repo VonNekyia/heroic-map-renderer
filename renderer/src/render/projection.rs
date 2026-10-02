@@ -23,6 +23,9 @@ pub struct Projection {
     /// Pixelbreite eines Blocks.
     scale: u32,
     kamera: Kamera,
+    /// Wo die Kamera steht. Alle Rechnungen dieser Datei gelten im Blick;
+    /// in die Welt dreht [`Richtung`].
+    richtung: Richtung,
 }
 
 /// Diagonal schräg mit einer Raute W:H oder von oben; genordet, Norden
@@ -120,12 +123,6 @@ impl Kamera {
         }
     }
 
-    /// Wo die Kamera steht, wie `direction` in `map.json`: diagonal im
-    /// Südosten, genordet im Süden.
-    pub fn richtung(self) -> &'static str {
-        if self.genordet() { "s" } else { "se" }
-    }
-
     /// Der Azimut wie `projection.azimuth` in `map.json`: `diagonal` oder
     /// `north`.
     pub fn azimut(self) -> &'static str {
@@ -156,6 +153,66 @@ impl std::fmt::Display for Kamera {
     }
 }
 
+/// Wo die Kamera steht, als Zahl der Vierteldrehungen von der Vorgabe aus,
+/// im Uhrzeigersinn: diagonal `se`, `sw`, `nw`, `ne`, genordet `s`, `w`,
+/// `n`, `e`. Der Renderer dreht dafür die Welt: Im Blick steht die Kamera
+/// immer bei +x, +z wie aus der Vorgabe.
+/// Siehe docs/renderer/kamera.md, „Richtungen“.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Richtung(u8);
+
+impl Richtung {
+    const DIAGONAL: [&'static str; 4] = ["se", "sw", "nw", "ne"];
+    const GENORDET: [&'static str; 4] = ["s", "w", "n", "e"];
+
+    /// Die Richtung `text` für `kamera`: diagonal eine Ecke, genordet eine
+    /// Seite.
+    pub fn parse(text: &str, kamera: Kamera) -> Result<Richtung, String> {
+        let namen = Richtung::namen(kamera);
+        let liste = format!("{} oder {}", namen[..3].join(", "), namen[3]);
+        match namen.iter().position(|&name| name == text) {
+            Some(k) => Ok(Richtung(k as u8)),
+            None if kamera.genordet() => Err(format!("{kamera} schaut von einer Seite: {liste}")),
+            None => Err(format!("{kamera} schaut über eine Ecke: {liste}")),
+        }
+    }
+
+    fn namen(kamera: Kamera) -> [&'static str; 4] {
+        if kamera.genordet() {
+            Richtung::GENORDET
+        } else {
+            Richtung::DIAGONAL
+        }
+    }
+
+    /// Der Name wie `direction` in `map.json`.
+    pub fn name(self, kamera: Kamera) -> &'static str {
+        Richtung::namen(kamera)[self.0 as usize]
+    }
+
+    /// Vierteldrehungen von der Vorgabe aus, 0 bis 3.
+    pub fn vierteldrehungen(self) -> u8 {
+        self.0
+    }
+
+    /// Wo der Block `(x, z)` der Welt im Blick liegt. Dieselbe Formel gilt
+    /// für Chunks und für die Zellen der Biome; eine Vierteldrehung ist
+    /// `(x, z)` nach `(z, −x − 1)`.
+    pub fn in_den_blick(self, [x, z]: [i32; 2]) -> [i32; 2] {
+        match self.0 {
+            0 => [x, z],
+            1 => [z, -x - 1],
+            2 => [-x - 1, -z - 1],
+            _ => [-z - 1, x],
+        }
+    }
+
+    /// Wo der Block `(x, z)` im Blick in der Welt liegt.
+    pub fn in_die_welt(self, blick: [i32; 2]) -> [i32; 2] {
+        Richtung((4 - self.0) % 4).in_den_blick(blick)
+    }
+}
+
 fn ggt(a: u64, b: u64) -> u64 {
     if b == 0 { a } else { ggt(b, a % b) }
 }
@@ -173,11 +230,18 @@ impl Projection {
         Projection::mit_kamera(scale, Kamera::ZWEI_ZU_EINS)
     }
 
+    /// Die Kamera in ihrer Vorgabe-Richtung.
     pub fn mit_kamera(scale: u32, kamera: Kamera) -> Projection {
         Projection {
             scale: scale.max(2),
             kamera,
+            richtung: Richtung::default(),
         }
+    }
+
+    /// Dieselbe Projektion aus einer anderen Richtung.
+    pub fn aus(self, richtung: Richtung) -> Projection {
+        Projection { richtung, ..self }
     }
 
     pub fn scale(&self) -> u32 {
@@ -188,9 +252,17 @@ impl Projection {
         self.kamera
     }
 
-    /// Dieselbe Kamera bei einem anderen scale, etwa für eine native Stufe.
+    pub fn richtung(&self) -> Richtung {
+        self.richtung
+    }
+
+    /// Dieselbe Kamera aus derselben Richtung bei einem anderen scale, etwa
+    /// für eine native Stufe.
     pub fn bei(&self, scale: u32) -> Projection {
-        Projection::mit_kamera(scale, self.kamera)
+        Projection {
+            scale: scale.max(2),
+            ..*self
+        }
     }
 
     /// Pixel je Schritt in `u`: diagonal scale/2, genordet scale.
@@ -432,11 +504,67 @@ mod tests {
             assert_eq!((p.h(), p.a(), p.b()), (16.0, 16.0, b));
             assert_eq!(p.uv(3, -5), (3, -5));
             assert_eq!(Kamera::parse(&kamera.to_string()), Ok(kamera));
-            assert_eq!((kamera.richtung(), kamera.azimut()), ("s", "north"));
+            let vorgabe = Richtung::default().name(kamera);
+            assert_eq!((vorgabe, kamera.azimut()), ("s", "north"));
         }
         let diagonal = Kamera::ZWEI_ZU_EINS;
-        assert_eq!((diagonal.richtung(), diagonal.azimut()), ("se", "diagonal"));
+        let vorgabe = Richtung::default().name(diagonal);
+        assert_eq!((vorgabe, diagonal.azimut()), ("se", "diagonal"));
         assert_eq!(Projection::new(16).uv(3, -5), (8, -2));
+    }
+
+    /// Die Tabelle aus #68: wo der Block (x, z) der Welt im Blick liegt, je
+    /// Richtung, mit den Namen diagonal und genordet. `in_die_welt` kehrt
+    /// `in_den_blick` um, und die Formel für Blöcke gilt auch für Chunks:
+    /// Der Chunk eines Blocks im Blick ist der gedrehte Chunk seines Blocks
+    /// in der Welt.
+    #[test]
+    fn richtungen_drehen_die_welt_wie_die_tabelle() {
+        let (x, z) = (5, -7);
+        for (k, diagonal, genordet, blick) in [
+            (0, "se", "s", [x, z]),
+            (1, "sw", "w", [z, -x - 1]),
+            (2, "nw", "n", [-x - 1, -z - 1]),
+            (3, "ne", "e", [-z - 1, x]),
+        ] {
+            let schraeg = Richtung::parse(diagonal, Kamera::ZWEI_ZU_EINS).unwrap();
+            assert_eq!(schraeg, Richtung::parse(genordet, Kamera::Nord45).unwrap());
+            assert_eq!(schraeg.vierteldrehungen(), k);
+            assert_eq!(schraeg.name(Kamera::Oben), diagonal);
+            assert_eq!(schraeg.name(Kamera::ObenNord), genordet);
+            assert_eq!(schraeg.in_den_blick([x, z]), blick, "{diagonal}");
+            for px in -40..40 {
+                for pz in [-33, -17, -16, -1, 0, 15, 16, 31] {
+                    let welt = [px, pz];
+                    let im_blick = schraeg.in_den_blick(welt);
+                    assert_eq!(schraeg.in_die_welt(im_blick), welt, "{diagonal}");
+                    assert_eq!(
+                        im_blick.map(|c| c >> 4),
+                        schraeg.in_den_blick(welt.map(|c| c >> 4)),
+                        "{diagonal}: Chunk von {welt:?}"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            Richtung::default(),
+            Richtung::parse("se", Kamera::ZWEI_ZU_EINS).unwrap()
+        );
+    }
+
+    /// Eine Richtung, die nicht zur Kamera passt, nennt die vier, die gehen.
+    #[test]
+    fn falsche_richtung_nennt_die_vier() {
+        let schraeg = Kamera::parse("8:5").unwrap();
+        assert_eq!(
+            Richtung::parse("n", schraeg),
+            Err("8:5 schaut über eine Ecke: se, sw, nw oder ne".to_string())
+        );
+        assert_eq!(
+            Richtung::parse("ne", Kamera::Nord45),
+            Err("north-45 schaut von einer Seite: s, w, n oder e".to_string())
+        );
+        assert!(Richtung::parse("SE", Kamera::Oben).is_err());
     }
 
     /// Der Schritt 2W gibt dieselben scales wie die Regel selbst: `a` ganz

@@ -21,11 +21,16 @@ Am Prototyp kostet der schnellste Gang, der Gang in Stufen, 0,75 bis
 0,91 µs je Strahl und Thread. Seine Bilder sind Pixel für Pixel die des
 alten Gangs, siehe
 [Gang zur Sonne in Stufen](../messungen/2026-10-02-gang-zur-sonne-in-stufen.md).
-Die Zeit verteilt sich auf viele kleine Posten: den Weg durch das Gitter,
-die Wechsel von Chunk und Section, den Test der Zellen mit Modell. Einen
-grossen Posten gibt es nicht mehr. 0,5 µs sind mit dem exakten Strahl
-nicht in Sicht. Am 02.10. hat der User entschieden, mit dem Preis unter
-„Folgen“ vor sich.
+
+Eingeschätzt, nicht gemessen: Die Zeit verteilt sich auf viele kleine
+Posten, den Weg durch das Gitter, die Wechsel von Chunk und Section und den
+Test der Zellen mit Modell. Einen grossen Posten gibt es nicht mehr. Die
+Einschätzung stützt sich auf Profile am Prototyp während der Arbeit an den
+Gängen, nicht auf eine Messreihe. 0,5 µs sind mit dem exakten Strahl damit
+nicht in Sicht.
+
+Am 02.10. hat der User entschieden, mit 35 bis 115 min als Preis vor
+sich, siehe „Folgen“.
 
 ## Entscheidung
 
@@ -45,27 +50,34 @@ Schattenkarte gibt es nicht.
   - Sie braucht eigenen Speicher, je Chunk 32 KB, und rechnet Chunks an
     den Grenzen der Streifen doppelt.
   - Sie kostet 2 bis 3 Tage mehr Arbeit als der Strahl je Texel.
-  - Sie spart 38 bis 116 min je Basis der grossen Welt bei scale 32,
+  - Sie spart rund 39 bis 110 min je Basis der grossen Welt bei scale 32,
     siehe „Folgen“.
 - **Weiter am exakten Strahl feilen, bis er 0,5 µs erreicht.** Am Prototyp
   bleiben dafür nur kleine Hebel: ein billigerer Test der Zelle und
-  Nachschläge über die Säule. Geschätzt bringen sie zusammen 10 bis 20 %.
-  Nötig wären 33 bis 45 %.
+  Nachschläge über die Säule. Geschätzt, nicht gemessen, bringen sie
+  zusammen 10 bis 20 %. Nötig wären 33 bis 45 %.
 
 ## Folgen
 
 - **Der Preis:** Gegen die Schattenkarte kostet der exakte Strahl je Basis
-  der grossen Welt bei scale 32 gerechnet 38 bis 116 min mehr.
-  - Die Basis hat 163 Mrd. Pixel. An den Ausschnitten der Testwelt bekommt
-    ein Pixel 0,89 bis 1,50 Strahlen zur Sonne, also rund 145 bis 245 Mrd.
-    Strahlen.
-  - Bei 0,75 bis 0,91 µs je Strahl und 24 Threads kosten sie 76 bis
-    155 min.
+  der grossen Welt bei scale 32 gerechnet rund 39 bis 110 min mehr.
+  - Die Basis hat 163 Mrd. Pixel: 2 491 797 Kacheln zu 256 × 256 Pixeln
+    im [Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md).
+  - An den Ausschnitten der Testwelt bekommt ein Pixel 0,89 bis 1,50
+    Strahlen zur Sonne. Das sind rund 145 bis 245 Mrd. Strahlen, bei 0,75
+    bis 0,91 µs je Strahl und 24 Threads 76 bis 155 min.
+  - In 2:1 bei scale 32 deckt eine Blockspalte 256 Pixel. Sie bekommt also
+    230 bis 380 Strahlen mit einem Strahl je Texel.
   - Die Schattenkarte bei 1/8 Block braucht je Blockspalte rund 110
-    Strahlen statt 230 bis 380 je Texel, spart also die Hälfte bis drei
-    Viertel davon.
+    Strahlen: 64 Felder mit je einem Strahl, mal 1,73, weil sie Chunks an
+    den Grenzen der Streifen doppelt rechnet. Die 1,73 sind geschätzt, so
+    oft wie das Dekodieren in
+    [Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md).
+  - Sie spart damit 52 bis 71 % der Strahlen, 1 − 110/230 und
+    1 − 110/380, also rund 39 bis 110 min.
   - Dem User lag bei der Entscheidung die Spanne 35 bis 115 min vor,
-    gerechnet mit 0,7 bis 0,9 µs je Strahl.
+    gerechnet mit 0,7 bis 0,9 µs je Strahl und der Hälfte bis drei
+    Vierteln Ersparnis.
 - **Ein Cinematic-Baum** kostet damit auf der grossen Welt bei scale 32
   gerechnet rund 2,1 bis 3,8 h statt 44 min für die Karte. 0053 rechnete
   mit 1,5 bis 2,5 h, wenn der Strahl sein Ziel trifft. Nur der Posten der

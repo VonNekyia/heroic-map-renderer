@@ -82,8 +82,9 @@ eine andere Sitzung und liess ihre Tests laufen.
   Gang fünf Runden, mit warmem Cache.
 - **Zeit je Strahl:** der Median der Zeit je Durchgang mit Strahlen weniger
   dem Median ohne, mal 24 Threads, geteilt durch die Strahlen zur Sonne des
-  Ausschnitts. In Teil A je Runde gegen „ohne“ derselben Runde, in Teil B
-  je Prozess, dann der Median der drei Prozesse.
+  Ausschnitts. In Teil A aus den Medianen der drei Runden, dazu je Runde
+  gegen „ohne“ derselben Runde; in Teil B je Prozess, dann der Median der
+  drei Prozesse.
 - Die Zahlen stammen aus der Ausgabe der Läufe, Zeilen `Strahlen:`,
   `Durchgang:` und `Wiederholt:`, ausgewertet mit einem Skript.
 
@@ -117,7 +118,9 @@ Spannweite in Klammern:
 | Gang 12 | 2,395 s (2,395–2,406) | 1,077 s (1,064–1,110) | 1,532 s (1,518–1,571) |
 | ohne | 2,274 s (2,249–2,286) | 1,002 s (0,988–1,009) | 1,444 s (1,443–1,466) |
 
-Daraus je Strahl und Thread, Median, in Klammern je Runde:
+Daraus je Strahl und Thread. Der vordere Wert kommt aus den Medianen der
+Zeiten oben, nicht aus den Werten in Klammern. In Klammern steht je Runde
+der Wert gegen „ohne“ derselben Runde:
 
 | Art | Dorf | Hügel | Stand |
 |---|---|---|---|
@@ -147,9 +150,11 @@ Daten der Strahlen zur Sonne liegen dort nicht warm.
 - Der Gang in Stufen ändert kein Pixel und kostet je Strahl 34 bis 43 %
   des schnellsten Gangs aus Reihe 4, 0,75 bis 0,91 µs.
 - Das Ziel von 0,5 µs verfehlt er um das 1,5- bis 1,8-Fache.
-- Was bleibt, sind viele kleine Posten: der Weg durch das Gitter, die
-  Wechsel von Chunk und Section, der Test der Zellen mit Modell. Einen
-  grossen gibt es nicht mehr.
+- Eingeschätzt, nicht gemessen: Was bleibt, sind viele kleine Posten, der
+  Weg durch das Gitter, die Wechsel von Chunk und Section und der Test der
+  Zellen mit Modell. Einen grossen gibt es nicht mehr. Die Einschätzung
+  stützt sich auf Profile am Prototyp während der Arbeit an den Gängen;
+  diese Reihe zerlegt die Zeit nicht.
 - Getrennte Läufe und der Wechsel in einem Prozess geben dieselbe
   Grössenordnung, 0,75 bis 0,93 µs. Im Wechsel streut es je Prozess
   weniger, weil jeder Durchgang dieselben Strahlen und Caches hat.

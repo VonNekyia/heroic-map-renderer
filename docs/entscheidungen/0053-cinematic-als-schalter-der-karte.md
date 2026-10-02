@@ -20,10 +20,15 @@ code:
 mit oder ohne den Anhang `-cinematic` und bricht nur ab, wenn in diesem
 schon ein Baum mit dem anderen steht.
 
-[0056](0056-exakter-strahl-zur-sonne.md) löst zwei Stellen ab: das Ziel
-von höchstens 0,5 µs je Strahl zur Sonne unter „Entscheidung“ und die
-Schattenkarte als Ausweg unter „Verworfene Alternativen“. Der exakte
-Strahl je Texel bleibt, bei rund 0,7 bis 0,9 µs.
+[0056](0056-exakter-strahl-zur-sonne.md) löst drei Stellen ab:
+
+- das Ziel von höchstens 0,5 µs je Strahl zur Sonne unter „Entscheidung“;
+- die Schattenkarte als Ausweg unter „Verworfene Alternativen“;
+- die Kosten eines Cinematic-Baums unter „Folgen“, gerechnet mit diesem
+  Ziel.
+
+Der exakte Strahl je Texel bleibt, bei rund 0,7 bis 0,9 µs. Was ein
+Cinematic-Baum damit kostet, steht in 0056.
 
 ## Anlass
 

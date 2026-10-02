@@ -3862,8 +3862,8 @@ fn ohne_scale_genordet_16_sonst_32() {
 
 /// `--direction` passt zur Kamera: diagonal über eine Ecke, genordet von
 /// einer Seite. Eine falsche Kombination bricht ab, bevor der Lauf die Welt
-/// liest, und nennt die vier, die gehen. Die Vorgabe darf man nennen; eine
-/// andere gültige Richtung bricht in diesem Stand ebenso vor der Welt ab.
+/// liest, und nennt die vier, die gehen. Jede passende geht, die Vorgabe
+/// auch.
 #[test]
 fn richtung_wird_je_kamera_geprueft() {
     let leer = tempdir();
@@ -3890,16 +3890,6 @@ fn richtung_wird_je_kamera_geprueft() {
         ),
         ("8:5", "n", "8:5 schaut über eine Ecke: se, sw, nw oder ne"),
         ("top", "s", "top schaut über eine Ecke: se, sw, nw oder ne"),
-        (
-            "2:1",
-            "sw",
-            "--direction sw kommt erst mit der Drehung der Welt",
-        ),
-        (
-            "north-45",
-            "e",
-            "--direction e kommt erst mit der Drehung der Welt",
-        ),
     ] {
         let ausgabe = lauf(kamera, richtung);
         assert!(!ausgabe.status.success(), "{kamera} {richtung}");
@@ -3907,12 +3897,122 @@ fn richtung_wird_je_kamera_geprueft() {
         assert!(meldung.contains(soll), "{kamera} {richtung}: {meldung}");
         assert!(!String::from_utf8_lossy(&ausgabe.stdout).contains("Welt:"));
     }
-    // Die Vorgabe geht; dann scheitert der Lauf erst an der fehlenden Welt.
-    for (kamera, richtung) in [("2:1", "se"), ("north-45", "s")] {
+    // Jede Kamera mit jeder ihrer vier Richtungen scheitert erst an der
+    // fehlenden Welt.
+    let diagonal = ["2:1", "8:5", "4:3", "1:1", "top"].map(|k| (k, ["se", "sw", "nw", "ne"]));
+    let genordet = ["top-north", "north-45"].map(|k| (k, ["s", "w", "n", "e"]));
+    for (kamera, richtung) in diagonal
+        .into_iter()
+        .chain(genordet)
+        .flat_map(|(kamera, richtungen)| richtungen.map(|r| (kamera, r)))
+    {
         let meldung = String::from_utf8_lossy(&lauf(kamera, richtung).stderr).into_owned();
         assert!(
             meldung.contains("kein region-Verzeichnis"),
             "{kamera} {richtung}: {meldung}"
+        );
+    }
+}
+
+/// Mit `--direction` entsteht ein eigener Baum unter derselben Wurzel, mit
+/// der Richtung in `map.json` und `trees.json`. Ein Kasten aus einem Block
+/// einer Farbe sieht aus `nw` und `sw` aus wie aus `se`, nur liegt er im
+/// Blick woanders: Alle Bäume haben auf der feinsten Stufe dieselben Pixel.
+/// Aus `sw` liegen die Seiten der Welt anders, je Seite gleich viele Pixel
+/// wie aus `se`; ein falscher Drehsinn verlöre Kacheln. Der
+/// Vorlauf findet die Kacheln also auch im Blick, über die Grenze zweier
+/// Chunks hinweg. Der Kasten liegt weit weg vom Ursprung; dort deckte schon
+/// der ungedrehte Kasten eines Chunks die Kacheln im Blick.
+#[test]
+fn richtung_ist_ein_eigener_baum() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(10, 10), (11, 10)], |x, y, z| {
+        match (x, y, z) {
+            (170..=181, 0..=2, 163..=166) => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        }
+    });
+    let se = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), se.path(), &[]));
+    let nw = se.wurzel().join("2x1-nw");
+    gelungen(&tiles(welt.path(), &nw, &["--direction", "nw"]));
+    let sw = se.wurzel().join("2x1-sw");
+    gelungen(&tiles(welt.path(), &sw, &["--direction", "sw"]));
+    let info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(nw.join("map.json")).unwrap()).unwrap();
+    assert_eq!(info["direction"], "nw");
+    let liste: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(se.wurzel().join("trees.json")).unwrap())
+            .unwrap();
+    let ordner: Vec<&str> = liste["trees"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|baum| baum["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(ordner, ["2x1-se", "2x1-nw", "2x1-sw"]);
+    // Je Farbe, wie viele Pixel sie auf der feinsten Stufe hat.
+    let farben = |dir: &Path| {
+        let mut farben: BTreeMap<[u8; 4], usize> = BTreeMap::new();
+        for pfad in kacheln(dir, max_zoom(dir)).values() {
+            for pixel in bild(pfad).pixels().filter(|p| p.0[3] > 0) {
+                *farben.entry(pixel.0).or_default() += 1;
+            }
+        }
+        farben
+    };
+    let soll = farben(se.path());
+    assert!(soll.len() >= 3, "drei Seiten, drei Farben: {soll:?}");
+    assert_eq!(farben(&nw), soll, "aus nw");
+    assert_eq!(farben(&sw), soll, "aus sw");
+}
+
+/// `--center` nennt eine Spalte der Welt, auch mit `--direction`: Die Mitte
+/// des Bilds zeigt aus jeder Richtung den blauen Fleck um die Spalte
+/// (40, −20), in einem Boden einer anderen Farbe. Der Chunk an der Stelle
+/// im Blick fehlt; ungedreht bliebe die Mitte leer.
+#[test]
+fn center_in_der_welt_aus_jeder_richtung() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(2, -2)], |x, y, z| match (x, y, z) {
+        (38..=42, 0, -22..=-18) => "minecraft:blauwuerfel",
+        (_, 0, _) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    });
+    let blau = image::Rgba([40, 60, 200, 255]);
+    for (kamera, richtung) in [
+        ("2:1", "se"),
+        ("2:1", "sw"),
+        ("2:1", "nw"),
+        ("2:1", "ne"),
+        ("top-north", "w"),
+        ("north-45", "e"),
+    ] {
+        let png = tempdir();
+        let pfad = png.path().join("bild.png");
+        gelungen(&cli(&[
+            OsStr::new("--world"),
+            welt.path().as_os_str(),
+            OsStr::new("--assets"),
+            assets_ref(),
+            OsStr::new("--render"),
+            pfad.as_os_str(),
+            OsStr::new("--center"),
+            OsStr::new("40"),
+            OsStr::new("-20"),
+            OsStr::new("--size"),
+            OsStr::new("32"),
+            OsStr::new("--camera"),
+            OsStr::new(kamera),
+            OsStr::new("--direction"),
+            OsStr::new(richtung),
+        ]));
+        let bild = image::open(&pfad).unwrap().into_rgba8();
+        let mitte = *bild.get_pixel(16, 16);
+        assert_eq!(
+            [mitte[2] > mitte[0], mitte[3] == 255],
+            [true, true],
+            "{kamera} {richtung}: {mitte:?}, blau ist {blau:?}"
         );
     }
 }

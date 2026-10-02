@@ -29,7 +29,8 @@ abgezählt, bis sie verbraucht ist. Bis 1.21.4 nahm Minecraft stattdessen
 auch an den Extremwerten von `int`, mit vier Gewichtslisten, gegen die
 Klassen des 26.2-Clients. Alle Alternativen sind vorab gerastert; der
 Renderpfad rechnet je Block nur die Saat, bei einer einzigen Alternative
-nicht einmal die.
+nicht einmal die. Die Position ist die in der Welt, aus jeder Richtung der
+Kamera, siehe [Richtungen](richtungen.md).
 
 ## Doppelblöcke
 

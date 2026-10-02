@@ -21,7 +21,8 @@ unter einer Wurzel mit der Liste der Bäume hält
 [0054](0054-baeume-unter-einer-wurzel.md) fest. Sie löst einen Teil von
 „Ein Baum, eine Kamera“ ab: Ein Lauf mit einer anderen Kamera schreibt in
 den Ordner seiner Kamera und bricht nur ab, wenn in diesem schon ein Baum
-mit einer anderen steht.
+mit einer anderen steht. Wie sich die Welt für eine Richtung dreht, hält
+[0055](0055-welt-beim-zugriff-drehen.md) fest.
 
 ## Anlass
 

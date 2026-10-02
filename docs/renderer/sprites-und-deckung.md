@@ -145,16 +145,20 @@ Im Renderer, siehe
 [0044](../entscheidungen/0044-flaechen-zu-gleichen-nachbarn.md):
 
 - **Baker:** Jedes Viereck trägt seine `cullface`, mit der Variante gedreht
-  (`Quad::cullface`, `rotate_face` in `baker.rs`).
+  (`Quad::cullface`, `rotate_face` in `baker.rs`). Sie bleibt eine Seite
+  der Welt, aus jeder Richtung der Kamera; den Nachbarn dort sucht der
+  Cache im Blick, siehe [Richtungen](richtungen.md).
 - **Seiten:** Eine Familie mit Regel kennt die Seiten, zu denen eine
   Fläche, die die Kamera sieht, ihre `cullface` hat und die Regel wirken
-  kann (`Nachbarregel::wirkt` in `blockstate.rs`). Bei Eis sind das oben,
-  Süden und Osten. Bei einer Scheibe ist es nur das Ende eines Arms nach
-  Osten oder Süden; Pfosten und Kanten haben keine `cullface`. Bei
+  kann (`Nachbarregel::wirkt` in `blockstate.rs`). Bei Eis sind das aus
+  der Vorgabe oben, Süden und Osten, aus jeder Richtung die Seiten der
+  Welt, die im Blick oben, im Süden und im Osten liegen. Bei einer Scheibe
+  ist es nur das Ende eines Arms nach Osten oder Süden im Blick; Pfosten
+  und Kanten haben keine `cullface`. Bei
   Mangrovenwurzeln sind es oben und unten: Die untere Schicht zeigt ihre
   Oberseite mit `cullface` unten zur Kamera. Bei Pulverschnee sind es alle
-  sechs: Seine inneren Schichten zeigen mit `cullface` nach unten, Norden
-  und Westen zur Kamera.
+  sechs: Seine inneren Schichten zeigen mit `cullface` nach unten und im
+  Blick nach Norden und Westen zur Kamera.
 - **Fassungen:** Je Alternative gibt es eine Fassung je Maske über diese
   Seiten, ohne die Flächen, deren `cullface` zu einer Seite der Maske zeigt.
   Führt der Block eine Flüssigkeit, gibt es sie je Maske der Flüssigkeit
@@ -178,7 +182,8 @@ Was bleibt eine Näherung:
 
 - **Innere Flächen vor einem vollen Nachbarn.** Den ersten Fall baut der
   Renderer nicht nach. Er greift bei Flächen, die zur Kamera zeigen, deren
-  `cullface` aber nach unten, Norden oder Westen weist. Solche Flächen
+  `cullface` aber nach unten oder im Blick nach Norden oder Westen weist,
+  aus der Vorgabe nach Norden oder Westen der Welt. Solche Flächen
   haben in 26.2 die Mangrovenwurzeln, der Spawner, der Prüfungs-Spawner und
   die Choruspflanze, dazu der Pulverschnee, bei dem es nicht zu sehen ist,
   denn er deckt. Steht dort ein voller Block, lässt das Spiel sie weg, der

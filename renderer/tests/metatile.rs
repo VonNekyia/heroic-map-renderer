@@ -15,8 +15,8 @@ use terranova_render::render::rasterizer::{
     Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
 };
 use terranova_render::render::{
-    BiomeTable, ChunkCache, Kamera, Projection, ScreenRect, SpriteSet, draw_list, render_area,
-    render_area_with, render_area_without_culling, survey,
+    BiomeTable, ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, draw_list,
+    render_area, render_area_with, render_area_without_culling, survey,
 };
 use terranova_render::world::{BlockState, World};
 
@@ -131,7 +131,10 @@ fn rect_um(projection: Projection, min: [i32; 3], max: [i32; 3]) -> ScreenRect {
     let ecken: Vec<(f64, f64)> = (0..8)
         .map(|i| {
             let ecke = |k: usize| if i >> k & 1 == 0 { min[k] } else { max[k] };
-            projection.project_block([ecke(0), ecke(1), ecke(2)])
+            let im_blick = projection
+                .richtung()
+                .versatz_in_den_blick([ecke(0), ecke(1), ecke(2)]);
+            projection.project_block(im_blick)
         })
         .collect();
     let (x0, x1) = ecken.iter().fold((f64::MAX, f64::MIN), |(lo, hi), e| {
@@ -148,25 +151,52 @@ fn rect_um(projection: Projection, min: [i32; 3], max: [i32; 3]) -> ScreenRect {
     }
 }
 
+/// Wo der Block `(x, y, z)` der Welt im Blick der Projektion liegt.
+fn blick(projection: Projection, [x, y, z]: [i32; 3]) -> [i32; 3] {
+    let [x, z] = projection.richtung().in_den_blick([x, z]);
+    [x, y, z]
+}
+
+/// Die Richtung `k` Vierteldrehungen von der Vorgabe der Kamera aus.
+fn richtung(k: usize, kamera: Kamera) -> Richtung {
+    let namen = if kamera.genordet() {
+        ["s", "w", "n", "e"]
+    } else {
+        ["se", "sw", "nw", "ne"]
+    };
+    Richtung::parse(namen[k % 4], kamera).unwrap()
+}
+
 /// Kleine Ausschnitte gleichen dem grossen Bild, je Kamera: Ein Ausschnitt
 /// von 128 Pixeln liest nur die Sections, die sein Band erreicht (`y_span`),
 /// und nur die Chunks seines Bands; das grosse Bild über die ganze Szene
 /// liest alle. Fehlt einem Ausschnitt eine Section oder ein Chunk, weicht er
-/// ab. Die Szene reicht über zwei Chunks in x und z und vier Sections.
+/// ab. Die Szene reicht über zwei Chunks in x und z und vier Sections. Je
+/// Kamera aus der Vorgabe und aus einer anderen Richtung, 2:1 aus allen
+/// vier.
 #[test]
 fn kleine_ausschnitte_gleichen_dem_grossen_bild() {
     let dir = tempdir();
     let world = common::write_szene(dir.path());
     let y_range = common::SZENE_Y;
-    for (kamera, scale) in [
-        ("2:1", 16),
-        ("4:3", 16),
-        ("top", 16),
-        ("top-north", 16),
-        ("north-45", 16),
-        ("north-45", 7),
+    for (kamera, scale, k) in [
+        ("2:1", 16, 0),
+        ("2:1", 16, 1),
+        ("2:1", 16, 2),
+        ("2:1", 16, 3),
+        ("4:3", 16, 0),
+        ("4:3", 16, 1),
+        ("top", 16, 0),
+        ("top", 16, 2),
+        ("top-north", 16, 0),
+        ("top-north", 16, 3),
+        ("north-45", 16, 0),
+        ("north-45", 16, 1),
+        ("north-45", 7, 0),
+        ("north-45", 7, 2),
     ] {
-        let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+        let kamera = Kamera::parse(kamera).unwrap();
+        let projection = Projection::mit_kamera(scale, kamera).aus(richtung(k, kamera));
         let survey = survey(&world, projection, y_range, None).unwrap();
         let mut assets = assets();
         assets.load_biomes(&common::biomdaten()).unwrap();
@@ -193,7 +223,7 @@ fn kleine_ausschnitte_gleichen_dem_grossen_bild() {
                 .to_image();
                 assert!(
                     klein == soll,
-                    "{kamera} bei {scale}: Ausschnitt bei ({x}, {y})"
+                    "{kamera} aus {k} bei {scale}: Ausschnitt bei ({x}, {y})"
                 );
                 ausschnitte += 1;
             }
@@ -208,7 +238,9 @@ fn kleine_ausschnitte_gleichen_dem_grossen_bild() {
 /// Gezogen wird nur, was weder 2:1 noch schon dabei ist. Genordet geht jeder
 /// scale: `top-north` und `north-45` je bei 16 und seinen nativen Stufen 8
 /// und 4, dazu bei 6, 12, 24 und 48 und je ein gezogener ungerader. Jede
-/// liegt auf ganzen Pixeln.
+/// liegt auf ganzen Pixeln. Jede läuft aus der Vorgabe, wie fast jeder Lauf
+/// der grossen Welt, und noch einmal aus einer der drei anderen Richtungen,
+/// reihum; so kommt jede bei schrägen, flachen und genordeten Kameras vor.
 fn kameras() -> Vec<Projection> {
     let mut out: Vec<Projection> = [
         ("16:9", 32),
@@ -251,6 +283,13 @@ fn kameras() -> Vec<Projection> {
             out.push(Projection::mit_kamera(scale, kamera));
         }
     }
+    // Jede aus der Vorgabe, dazu jede aus einer anderen Richtung, reihum.
+    let gedreht: Vec<Projection> = out
+        .iter()
+        .enumerate()
+        .map(|(i, projection)| projection.aus(richtung(i % 3 + 1, projection.kamera())))
+        .collect();
+    out.extend(gedreht);
     for projection in &out {
         assert!(projection.ganze_pixel(), "{projection:?}");
     }
@@ -281,7 +320,7 @@ fn kein_loch_in_deckendem_gelaende() {
         let (scale, kamera) = (projection.scale(), projection.kamera());
         let sprites = tabelle(&mut assets(), &world, projection);
         // Mitten im Gelände: um den Block (24, 4, 24) im mittleren Chunk.
-        let (mx, my) = projection.project_block([24, 4, 24]);
+        let (mx, my) = projection.project_block(blick(projection, [24, 4, 24]));
         let rect = ScreenRect {
             x: mx as i32 - 4 * scale as i32,
             y: my as i32 - 4 * scale as i32,
@@ -366,7 +405,7 @@ fn hoeher_gesetzt_gleiches_bild() {
         let survey = survey(&world, projection, y_range, None).unwrap();
         let sprites = SpriteSet::build_in(&mut assets(), &survey.states, projection).unwrap();
         let s = projection.scale() as i32;
-        let (mx, my) = projection.project_block([8, hoehe + 1, 8]);
+        let (mx, my) = projection.project_block(blick(projection, [8, hoehe + 1, 8]));
         let rect = ScreenRect {
             x: mx as i32 - 3 * s,
             y: my as i32 - 3 * s,
@@ -419,7 +458,7 @@ fn schneller_weg_gleicht_der_referenz() {
         let s = scale as i32;
         // Um so viel liegt die Szene bei dieser Kamera anders als bei 2:1.
         let mitte_der_szene = [8, 8, 8];
-        let (sx, sy) = projection.project_block(mitte_der_szene);
+        let (sx, sy) = projection.project_block(blick(projection, mitte_der_szene));
         let (zx, zy) = Projection::new(scale).project_block(mitte_der_szene);
         let (dx, dy) = ((sx - zx) as i32, (sy - zy) as i32);
         // Die Szene reicht von y −16 bis zur Säule bei (28, 40, 28).
@@ -588,8 +627,9 @@ fn tempdir() -> TempDir {
 /// Goldbilder: halten fest, wie der fertige Ausschnitt aussieht. In 2:1 das
 /// Gelände bei scale 16, als Beispiele für die anderen Kameras die Szene aus
 /// `common::szene` in 4:3, von oben und genordet in `top-north` und
-/// `north-45`, wo das Gelände nur Oberseiten gleicher Farbe zeigte. Neu
-/// erzeugen mit `UPDATE_GOLDEN=1 cargo test --test metatile`.
+/// `north-45`, wo das Gelände nur Oberseiten gleicher Farbe zeigte, und in
+/// 2:1 aus Nordwesten um die Treppe aus Stein. Neu erzeugen mit
+/// `UPDATE_GOLDEN=1 cargo test --test metatile`.
 #[test]
 fn goldbild_bleibt_gleich() {
     // Erst alle vergleichen, dann fallen: So liegt zu jedem abweichenden
@@ -600,19 +640,22 @@ fn goldbild_bleibt_gleich() {
 
     let dir = tempdir();
     let world = common::write_szene(dir.path());
-    for (kamera, name) in [
-        ("4:3", "metatile-4x3"),
-        ("top", "metatile-top"),
-        ("top-north", "metatile-top-north"),
-        ("north-45", "metatile-north-45"),
+    // Aus Nordwesten um die Treppe aus Stein, mit Gras und Lava daneben.
+    for (kamera, k, name, mitte) in [
+        ("4:3", 0, "metatile-4x3", [8, 8, 8]),
+        ("top", 0, "metatile-top", [8, 8, 8]),
+        ("top-north", 0, "metatile-top-north", [8, 8, 8]),
+        ("north-45", 0, "metatile-north-45", [8, 8, 8]),
+        ("2:1", 2, "metatile-nw", [6, 4, 25]),
     ] {
-        let projection = Projection::mit_kamera(16, Kamera::parse(kamera).unwrap());
+        let kamera = Kamera::parse(kamera).unwrap();
+        let projection = Projection::mit_kamera(16, kamera).aus(richtung(k, kamera));
         let survey = survey(&world, projection, common::SZENE_Y, None).unwrap();
         let mut assets = assets();
         assets.load_biomes(&common::biomdaten()).unwrap();
         let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
-        // Um die Mitte der Szene, 10 mal 12 Blöcke.
-        let (mx, my) = projection.project_block([8, 8, 8]);
+        // 10 mal 12 Blöcke um `mitte`.
+        let (mx, my) = projection.project_block(blick(projection, mitte));
         let rect = ScreenRect {
             x: mx as i32 - 80,
             y: my as i32 - 96,
@@ -2713,14 +2756,25 @@ fn licht_mit_ecken(
     welt: impl Fn(i32, i32, i32) -> &'static str,
     block: [i32; 3],
 ) -> Vec<Lichter> {
+    licht_mit_ecken_aus(Projection::new(16), chunks, sections, welt, block)
+}
+
+/// Wie `licht_mit_ecken`, aus der Kamera und Richtung von `projection`;
+/// `block` liegt in der Welt.
+fn licht_mit_ecken_aus(
+    projection: Projection,
+    chunks: &[(i32, i32)],
+    sections: std::ops::RangeInclusive<i8>,
+    welt: impl Fn(i32, i32, i32) -> &'static str,
+    block: [i32; 3],
+) -> Vec<Lichter> {
     let dir = tempdir();
     common::write_world_sections(dir.path(), chunks, sections, welt, |_, _| None);
     let world = World::open(dir.path()).unwrap();
-    let projection = Projection::new(16);
     let sprites = tabelle(&mut assets(), &world, projection);
     let rect = ScreenRect::centered(512, 512);
     let draws = draw_list(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap();
-    let (bx, by) = projection.project_block(block);
+    let (bx, by) = projection.project_block(blick(projection, block));
     let (bx, by) = (bx.round() as i32 - rect.x, by.round() as i32 - rect.y);
     draws
         .iter()
@@ -3493,22 +3547,28 @@ fn zugedeckter_block_zeigt_seinen_ueberhang_im_licht_seiner_zelle() {
 /// Eine Doppelkiste liegt in beiden Hälften im helleren Licht ihrer zwei
 /// Zellen (`BrightnessCombiner`): Über der linken Hälfte liegt Stein, in
 /// ihre Zelle kommt Licht nur von der Seite, 14; die rechte liegt unter
-/// freiem Himmel, 15. Nach Norden liegt die rechte östlich der linken.
+/// freiem Himmel, 15. Nach Norden liegt die rechte östlich der linken. So
+/// aus jeder Richtung: Die andere Hälfte liegt in der Welt östlich. Auch
+/// westlich der linken liegt Stein darüber; wer dort nach der rechten
+/// sucht, findet 14.
 #[test]
 fn doppelkiste_im_helleren_licht_beider_haelften() {
     let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
-        (_, 0, _) | (8, 2, 8) => "minecraft:stone",
+        (_, 0, _) | (7..=8, 2, 8) => "minecraft:stone",
         (8, 1, 8) => "minecraft:chest[facing=north,type=left,waterlogged=false]",
         (9, 1, 8) => "minecraft:chest[facing=north,type=right,waterlogged=false]",
         _ => "minecraft:air",
     };
     let soll = (Light::sky(15).factors(), None, None);
-    for block in [[8, 1, 8], [9, 1, 8]] {
-        let lichter = licht_mit_ecken(&[(0, 0)], 0..=0, welt, block);
-        assert!(
-            lichter.contains(&soll),
-            "{block:?}: {lichter:?}, erwartet {soll:?}"
-        );
+    for k in 0..4 {
+        let projection = Projection::new(16).aus(richtung(k, Kamera::ZWEI_ZU_EINS));
+        for block in [[8, 1, 8], [9, 1, 8]] {
+            let lichter = licht_mit_ecken_aus(projection, &[(0, 0)], 0..=0, welt, block);
+            assert!(
+                lichter.contains(&soll),
+                "{block:?} aus {k}: {lichter:?}, erwartet {soll:?}"
+            );
+        }
     }
     // Die Zelle der linken Hälfte selbst liegt dunkler.
     let dir = tempdir();

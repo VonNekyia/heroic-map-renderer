@@ -205,6 +205,10 @@ Blöcke ohne Familie. Die Ausbreitung nimmt ausserdem je Section zwei Listen
 mit: die Blöcke mit einer Fläche, die Licht an einer Seite aufhält
 (`formen`), und die, die leuchten, mit ihrer Stufe (`quellen`).
 
+Die Spalten liegen im Blick der Kamera. Nur was die Ausbreitung liest, die
+Ebenen `DAEMPFT` und `DICHT`, `formen` und `quellen`, liegt in der Lage der
+Welt, siehe [Richtungen](richtungen.md).
+
 Die Masken entstehen in `Masks::of` über Klassen: Die Einträge der Palette
 fallen in wenige Klassen gleicher Bits, und die Schleife über die 4096
 Blöcke setzt je Block nur ein Bit in der Maske seiner Klasse. Einträge mit

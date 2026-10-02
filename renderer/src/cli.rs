@@ -274,14 +274,6 @@ pub fn run() -> Result<()> {
         None => Richtung::default(),
         Some(text) => Richtung::parse(text, args.camera).map_err(|e| anyhow::anyhow!(e))?,
     };
-    // ponytail: bis die Welt beim Zugriff gedreht wird (#68), rendert jede
-    // Richtung den Blick der Vorgabe; dann fällt diese Sperre.
-    ensure!(
-        richtung == Richtung::default(),
-        "--direction {} kommt erst mit der Drehung der Welt, bis dahin nur {}",
-        richtung.name(args.camera),
-        Richtung::default().name(args.camera)
-    );
     let projection = projektion(scale, args.camera)?.aus(richtung);
 
     if args.world.is_none() && (args.at.is_some() || args.scan) {
@@ -863,12 +855,14 @@ fn bake_all(assets: &mut Assets, states: &BTreeSet<BlockState>, projection: Proj
     }
 }
 
-/// Bildausschnitt um eine Blockspalte.
+/// Bildausschnitt um eine Blockspalte der Welt, im Blick aus der Richtung
+/// der Projektion.
 ///
 /// `project_block` und nicht `project`: `--center` nimmt Weltkoordinaten
 /// entgegen, und die brauchen f64.
 fn window(projection: Projection, center: (i32, i32), size: u32) -> ScreenRect {
-    let (cx, cy) = projection.project_block([center.0, 0, center.1]);
+    let [x, z] = projection.richtung().in_den_blick([center.0, center.1]);
+    let (cx, cy) = projection.project_block([x, 0, z]);
     ScreenRect {
         x: cx.round() as i32 - size as i32 / 2,
         y: cy.round() as i32 - size as i32 / 2,

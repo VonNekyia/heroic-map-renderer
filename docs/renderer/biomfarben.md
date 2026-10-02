@@ -73,8 +73,9 @@ Zwei Ausnahmen aus `BlockTintSources`:
 ## Biom je Block
 
 Gespeichert sind Biome je Section in 64 Zellen aus 4×4×4 Blöcken, je
-Viertelposition eines. `BiomeManager.getBiome` gibt einem Block nicht das
-Biom seiner Zelle:
+Viertelposition eines. Gerechnet wird an der Lage in der Welt, aus jeder
+Richtung der Kamera, siehe [Richtungen](richtungen.md).
+`BiomeManager.getBiome` gibt einem Block nicht das Biom seiner Zelle:
 
 - Der Block rückt um zwei nach unten in jeder Achse. Von den acht
   Viertelpositionen an den Ecken der Zelle, in der er dann liegt, gewinnt

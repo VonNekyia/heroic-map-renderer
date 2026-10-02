@@ -108,13 +108,15 @@ Vorgabe sie zeichnet (`Richtung` in
   zurück k-mal (x, z) → (−z − 1, x); y bleibt. Sie gilt ebenso für Chunks
   (`Richtung::in_den_blick` und `Richtung::in_die_welt`).
 - **`projection`** gilt im Blick: u und v rechnen mit x und z im Blick.
-- **Was dieser Stand rendert:** siehe [Kamera](../renderer/kamera.md),
-  „Richtungen“.
+- **Was im Blick liegt und was in der Welt bleibt:** siehe
+  [Richtungen](../renderer/richtungen.md).
 
 Für die Koordinaten rechnet das Frontend die Projektion nach. Damit es
 dabei nicht vom Renderer abweicht, liegen Einträge in
 [`renderer/tests/fixtures/projektion.json`](../../renderer/tests/fixtures/projektion.json),
-je Kamera und scale. Ein Test des Renderers hält die Datei aktuell
+je Kamera und scale, aus den anderen Richtungen für 2:1 und `top` bei
+scale 32, für `top-north` und `north-45` bei 16. Ein Test des Renderers
+hält die Datei aktuell
 (`projektion_als_datei_ist_aktuell` in `renderer/tests/heights.rs`), und
 das Frontend prüft sein Modell daran. Jeder Eintrag nennt `camera`,
 `direction`, `scale`, `block` und `pixel`. `block` steht in
@@ -124,10 +126,13 @@ dasteht:
 
 | Eintrag | `pixel` | `block` |
 |---|---|---|
-| ohne `eben` und `wand` | `project_block(in_den_blick(block))`, die Ecke des Blocks im Blick mit den kleinsten Koordinaten | irgendein Block, auch negativ und bei 2²⁴ |
+| ohne `eben` und `wand` | `project_block(in_den_blick(block))`, die Ecke des Blocks im Blick mit den kleinsten Koordinaten | irgendein Block der Welt, auch negativ und bei 2²⁴ |
 | mit `eben: 0` | ein Pixel, dessen Mitte bei +0,5 genau auf der Kante zweier Oberseiten liegt | der Block, dessen Oberseite der Renderer dort zeigt |
 | mit `wand: "south"` oder `"east"` | ein Pixel, dessen Mitte bei +0,5 genau auf der Kante zweier Seitenflächen übereinander liegt | der Block, dessen Seite der Renderer dort zeigt |
 
+- **Kanten- und Wandpixel** gibt es nur aus der Vorgabe: Im Blick fällt
+  die Füllregel aus jeder Richtung gleich, der Block der Welt ist dann der
+  gedrehte.
 - **Kantenpixel** gibt es für die Kameras, deren Blockkanten Pixelmitten
   treffen: `top` und 1:1 bei scale 32, 5:3 bei scale 30, siehe
   [Kamera](../renderer/kamera.md), „Blockkanten auf Pixelmitten“. Von oben

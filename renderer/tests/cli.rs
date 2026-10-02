@@ -13,6 +13,7 @@ use std::process::{Command, Output, Stdio};
 use std::time::{Duration, SystemTime};
 
 use image::RgbaImage;
+use rayon::prelude::*;
 use tempfile::TempDir;
 use terranova_render::assets::{Assets, DimensionType};
 use terranova_render::render::heights::{self, EMPTY, Heights};
@@ -1383,7 +1384,8 @@ fn feine_stufen_im_speicher_wie_von_der_platte() {
 /// `licht_unbekannter_bloecke_haengt_nicht_am_scale` in `tests/licht.rs`.
 /// Bei scale 4 reicht sie für drei Bänder, bei 8 für mehr: Dann fällt auch,
 /// was ein Band nicht mehr braucht, aus dem Vorrat. Eine einzelne Stufe
-/// läuft ohne Bänder, und das Log nennt keine.
+/// läuft ohne Bänder, und das Log nennt keine. Die vier Läufe sind eigene
+/// Prozesse und laufen nebeneinander, geprüft wird danach der Reihe nach.
 #[test]
 fn native_stufen_wie_der_weg_je_stufe() {
     let welt = tempdir();
@@ -1431,18 +1433,24 @@ fn native_stufen_wie_der_weg_je_stufe() {
         (3, 32, 2, "off"),
         (1, 8, 1, "off"),
     ];
-    for (threads, scale, stufen, gpu) in faelle {
+    let laeufe: Vec<(Baum, Output)> = faelle
+        .par_iter()
+        .map(|&(threads, scale, stufen, gpu)| {
+            let out = neuer_baum("2x1-se");
+            let args = [
+                "--scale",
+                &scale.to_string(),
+                "--native-levels",
+                &stufen.to_string(),
+                "--gpu",
+                gpu,
+            ];
+            let lauf = export_auf(threads, welt.path(), out.path(), &args);
+            (out, lauf)
+        })
+        .collect();
+    for ((threads, scale, stufen, gpu), (out, lauf)) in faelle.into_iter().zip(laeufe) {
         let fall = format!("{threads} Threads, scale {scale}, {stufen} Stufen, --gpu {gpu}");
-        let out = neuer_baum("2x1-se");
-        let args = [
-            "--scale",
-            &scale.to_string(),
-            "--native-levels",
-            &stufen.to_string(),
-            "--gpu",
-            gpu,
-        ];
-        let lauf = export_auf(threads, welt.path(), out.path(), &args);
         if gpu == "on" {
             if !lauf.status.success()
                 && String::from_utf8_lossy(&lauf.stderr).contains("keine Grafikkarte gefunden")

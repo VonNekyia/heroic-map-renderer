@@ -56,7 +56,8 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 2. Entscheidungen in `docs/entscheidungen/` mit `status: gilt` gelten. Wer
    abweichen will, schreibt eine neue, die sie ablöst.
 3. Messungen in `docs/messungen/` sind die Vergleichsbasis. Neue Messungen
-   laufen unter denselben Bedingungen.
+   laufen unter denselben Bedingungen. Liegt die Sperrdatei einer
+   Messreihe, baut und testet niemand: Skill `messung-protokollieren`.
 4. Verhalten des Spiels wird belegt, nicht aus Erinnerung beschrieben:
    Skill `spielverhalten-belegen`.
 5. Widersprechen sich Doku und Code, gilt keins von beiden. Klären und im

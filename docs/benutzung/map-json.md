@@ -150,7 +150,10 @@ die alle Bäume teilen. Entschieden in
 ```
 
 - **Felder:** je Baum `path` relativ zu `trees.json`, `camera` und
-  `direction` wie in seiner `map.json`, `look` heute immer `map`.
+  `direction` wie in seiner `map.json`, `look` heute immer `map`. Mit
+  Cinematic aus #72 kommt `cinematic` dazu, im Ordner mit dem Anhang
+  `-cinematic`, etwa `2x1-se-cinematic`, siehe
+  [0054](../entscheidungen/0054-baeume-unter-einer-wurzel.md).
   Projektion, Zoomstufen und Bereich stehen nur in der `map.json` des
   Baums.
 - **Reihenfolge:** `2x1-se` zuerst, wenn es den Baum gibt, sonst nach

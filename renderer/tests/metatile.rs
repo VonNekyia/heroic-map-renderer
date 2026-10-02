@@ -206,8 +206,9 @@ fn kleine_ausschnitte_gleichen_dem_grossen_bild() {
 /// 6, dem ersten mit ungeraden h und a, und Paare aus gültigem W:H und
 /// scale, gezogen mit fester Saat, damit jeder Lauf dieselben prüft.
 /// Gezogen wird nur, was weder 2:1 noch schon dabei ist. Genordet geht jeder
-/// scale: `top-north` und `north-45` bei 16, dazu bei 6, 12, 24 und 48 und
-/// je ein gezogener, auch ungerade. Jede liegt auf ganzen Pixeln.
+/// scale: `top-north` und `north-45` je bei 16 und seinen nativen Stufen 8
+/// und 4, dazu bei 6, 12, 24 und 48 und je ein gezogener ungerader. Jede
+/// liegt auf ganzen Pixeln.
 fn kameras() -> Vec<Projection> {
     let mut out: Vec<Projection> = [
         ("16:9", 32),
@@ -241,13 +242,11 @@ fn kameras() -> Vec<Projection> {
         }
     }
     for (kamera, scales) in [
-        (Kamera::ObenNord, [16, 6, 24]),
-        (Kamera::Nord45, [16, 12, 48]),
+        (Kamera::ObenNord, [16, 8, 4, 6, 24]),
+        (Kamera::Nord45, [16, 8, 4, 12, 48]),
     ] {
-        let mut gezogen = 4 + zufall(45);
-        while scales.contains(&gezogen) {
-            gezogen = 4 + zufall(45);
-        }
+        // Ein ungerader scale von 5 bis 47.
+        let gezogen = 5 + 2 * zufall(22);
         for scale in scales.into_iter().chain([gezogen]) {
             out.push(Projection::mit_kamera(scale, kamera));
         }

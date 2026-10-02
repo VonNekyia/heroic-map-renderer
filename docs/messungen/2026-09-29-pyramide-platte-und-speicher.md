@@ -170,6 +170,10 @@ selten etwas dazwischen. Läufe mit mindestens 4,5 s Basis:
   C in keinem von drei Läufen, B in einem.
 - Woran es liegt, zeigt diese Messung nicht. Deshalb steht oben der
   Vergleich im selben Zustand.
+- Die Ursache steht in
+  [Zwei Zustände der Basis](2026-10-02-zwei-zustaende-der-basis.md): Das
+  Messskript löschte den Baum des vorigen Laufs unmittelbar vor dem
+  nächsten.
 
 ## Schluss
 

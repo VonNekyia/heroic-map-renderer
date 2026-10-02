@@ -8,8 +8,13 @@ const DEMO = '/?tiles=/tiles-demo';
  * Höhen für den Demobaum, je 4 × 4 Spalten: eben auf Y 0, dazu eine Säule
  * bis Y 5 in der Zelle der Spalten 32 bis 35 und -16 bis -13, in einer
  * negativen Region. Ein falscher Platz in der Höhenkarte fiele so auf.
+ * `saeule` setzt sie in eine andere Datei und Zelle.
  */
-async function welt(page: Page, mehr: object = {}): Promise<void> {
+async function welt(
+  page: Page,
+  mehr: object = {},
+  saeule: [datei: string, zelle: number] = ['0.-1.bin', (-4 + 128) * 128 + 8],
+): Promise<void> {
   await page.route('**/tiles-demo/map.json', async (route) => {
     const response = await route.fetch();
     const info = (await response.json()) as object;
@@ -18,7 +23,7 @@ async function welt(page: Page, mehr: object = {}): Promise<void> {
   });
   await page.route('**/tiles-demo/heights/*.bin', async (route) => {
     const karte = new Int16Array(128 * 128);
-    if (route.request().url().endsWith('/0.-1.bin')) karte[(-4 + 128) * 128 + 8] = 5;
+    if (route.request().url().endsWith(`/${saeule[0]}`)) karte[saeule[1]] = 5;
     await route.fulfill({ body: deflateSync(Buffer.from(karte.buffer)) });
   });
 }
@@ -121,9 +126,37 @@ test('die Koordinaten rechnen mit projection aus map.json', async ({ page }) => 
   await expect(page.locator('.koordinaten')).toHaveText('X 27  Y 0  Z -23');
 });
 
+test('aus Nordwesten zeigt die Anzeige Weltkoordinaten', async ({ page }) => {
+  // Im Blick aus Nordwesten liegt (35, 5, -15) dort, wo aus Südosten
+  // derselbe Pixel ist; in der Welt ist das (-36, 5, 14). Dort steht die
+  // Säule: Zelle der Spalten -36 bis -33 und 12 bis 15, Region -1.0.
+  await welt(page, { direction: 'nw' }, ['-1.0.bin', 3 * 128 + 119]);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await page.mouse.move(...(await bildschirm(page, 400, 36)));
+  await expect(page.locator('.koordinaten')).toHaveText('X -36  Y 5  Z 14');
+});
+
+test('genordet rechnen die Koordinaten mit u = x und v = z', async ({ page }) => {
+  await welt(page, {
+    camera: 'top-north',
+    direction: 's',
+    projection: { azimuth: 'north', u: 16, v: 16, y: 0 },
+  });
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  // Die Mitte des Pixels (400, 36) liegt über Spalte 400,5 / 16 und 36,5 / 16.
+  await page.mouse.move(...(await bildschirm(page, 400, 36)));
+  await expect(page.locator('.koordinaten')).toHaveText('X 25  Y 0  Z 2');
+});
+
 for (const [mehr, grund] of [
-  [{ projection: { azimuth: 'north', u: 16, v: 16, y: 0 } }, 'azimuth north unbekannt'],
-  [{ direction: 'sw' }, 'direction sw unbekannt'],
+  [{ projection: { azimuth: 'up', u: 16, v: 16, y: 0 } }, 'azimuth up unbekannt'],
+  [{ direction: 's' }, 'direction s unbekannt'],
+  [
+    { direction: 'se', projection: { azimuth: 'north', u: 16, v: 16, y: 16 } },
+    'direction se unbekannt',
+  ],
   [{ projection: { azimuth: 'diagonal', u: 8, v: 0, y: 8 } }, 'projection ohne ganze u, v und y'],
 ] as const) {
   test(`eine Kamera, die das Frontend nicht kennt, zeigt keine Koordinaten: ${grund}`, async ({
@@ -236,4 +269,108 @@ test('passt Zoom 0 nicht ins Fenster, geht es weiter heraus', async ({ page }) =
 test('ohne map.json sagt die Seite warum', async ({ page }) => {
   await page.goto('/?tiles=/gibt-es-nicht');
   await expect(page.locator('.error')).toContainText('map.json');
+});
+
+/**
+ * Zwei Bäume unter `/tiles-baeume`, wie der Renderer sie anlegt: `trees.json`
+ * mit `2x1-se` und `2x1-nw`, je ein `map.json`, Höhen geteilt in `heights/`.
+ * Beide zeigen die Kacheln des Demobaums; die Höhen sind eben auf Y 0.
+ * `2x1-nw` hat eine Stufe mehr, wie ein Baum mit grösserer Ausdehnung:
+ * seine Stufe z ist die Stufe z − 1 des Demobaums. Zwei weitere Einträge
+ * stehen nur in der Liste, für die Namen im Umschalter.
+ */
+async function baeume(page: Page): Promise<void> {
+  const trees = [
+    ...['se', 'nw'].map((direction) => ({
+      path: `2x1-${direction}`,
+      camera: '2:1',
+      direction,
+      look: 'map',
+    })),
+    { path: 'top-se', camera: 'top', direction: 'se', look: 'map' },
+    { path: 'top-north-w-cinematic', camera: 'top-north', direction: 'w', look: 'cinematic' },
+  ];
+  await page.route('**/tiles-baeume/trees.json', (route) => route.fulfill({ json: { trees } }));
+  await page.route('**/tiles-baeume/*/**', async (route) => {
+    const url = route
+      .request()
+      .url()
+      .replace(/\/tiles-baeume\/2x1-se\//, '/tiles-demo/')
+      .replace(/\/tiles-baeume\/2x1-nw\/(\d+)\//, (_, z: string) => `/tiles-demo/${Number(z) - 1}/`);
+    await route.fulfill({ response: await route.fetch({ url }) });
+  });
+  await page.route('**/tiles-baeume/*/map.json', async (route) => {
+    const direction = /2x1-(\w+)\//.exec(route.request().url())![1]!;
+    const url = route.request().url().replace(/\/tiles-baeume\/2x1-\w+\//, '/tiles-demo/');
+    const response = await route.fetch({ url });
+    const info = (await response.json()) as { minZoom: number; maxZoom: number };
+    const hoehen = { heights: '../heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319 };
+    const stufen =
+      direction === 'nw' ? { minZoom: info.minZoom + 1, maxZoom: info.maxZoom + 1 } : {};
+    await route.fulfill({
+      response,
+      json: { ...info, ...hoehen, ...stufen, camera: '2:1', direction },
+    });
+  });
+  await page.route('**/tiles-baeume/heights/*.bin', (route) =>
+    route.fulfill({ body: deflateSync(Buffer.from(new Int16Array(128 * 128).buffer)) }),
+  );
+}
+
+/** Die Koordinaten des Blocks in der Mitte der Karte, unter der Maus. */
+async function mitte(page: Page): Promise<string | null> {
+  const karte = await page.locator('#map').boundingBox();
+  if (!karte) throw new Error('Karte nicht zu sehen');
+  await page.mouse.move(karte.x + karte.width / 2, karte.y + karte.height / 2);
+  await expect(page.locator('.koordinaten')).toHaveText(/^X -?\d/);
+  return page.locator('.koordinaten').textContent();
+}
+
+/** Die Stufen, aus denen die sichtbaren Kacheln eines Baums unter `/tiles-baeume` stammen. */
+async function baumStufen(page: Page): Promise<number[]> {
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const quellen = await page
+    .locator('img.leaflet-tile-loaded')
+    .evaluateAll((bilder) => bilder.map((bild) => (bild as HTMLImageElement).src));
+  const stufen = quellen.map((src) => Number(/\/tiles-baeume\/[\w-]+\/(\d+)\//.exec(src)?.[1]));
+  return [...new Set(stufen)];
+}
+
+test('der Umschalter öffnet den anderen Baum mit demselben Block in der Mitte', async ({
+  page,
+}) => {
+  await baeume(page);
+  await page.goto('/?tiles=/tiles-baeume');
+  // Ohne tree der erste Baum; Norden zeigt aus Südosten nach rechts oben.
+  const auswahl = page.locator('select.baeume');
+  await expect(auswahl).toHaveValue('2x1-se');
+  await expect(auswahl.locator('option')).toHaveText([
+    '2:1 aus Südost',
+    '2:1 aus Nordwest',
+    'Von oben aus Südost',
+    'Von oben, Osten oben · Cinematic',
+  ]);
+  await expect(page.locator('.kompass')).toHaveAttribute('style', /rotate\(63\.4deg\)/);
+  const [stufe] = await baumStufen(page);
+  const vorher = await mitte(page);
+
+  await auswahl.selectOption('2x1-nw');
+  await page.waitForURL(/tree=2x1-nw/);
+  const adresse = new URL(page.url()).searchParams;
+  const at = adresse.get('at')!.split(',');
+  expect(vorher).toBe(`X ${at[0]}  Y ${at[1]}  Z ${at[2]}`);
+  // `zoom` zählt ab der feinsten Stufe: Der neue Baum hat eine Stufe mehr
+  // und zeigt dieselbe Vergrösserung eine Stufe höher.
+  expect(adresse.get('zoom')).toBe(String(stufe! - 2));
+  expect(await baumStufen(page)).toEqual([stufe! + 1]);
+  await expect(page.locator('select.baeume')).toHaveValue('2x1-nw');
+  await expect(page.locator('.kompass')).toHaveAttribute('style', /rotate\(-116\.6deg\)/);
+  expect(await mitte(page)).toBe(vorher);
+});
+
+test('ein Baum allein braucht keinen Umschalter, nur den Kompass', async ({ page }) => {
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('select.baeume')).toHaveCount(0);
+  await expect(page.locator('.kompass')).toHaveAttribute('style', /rotate\(63\.4deg\)/);
 });

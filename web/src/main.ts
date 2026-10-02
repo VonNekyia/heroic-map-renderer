@@ -405,6 +405,9 @@ function koordinaten(
     // in der Schrägsicht neben dem Block. Ohne Höhe dort bleibt Y.
     if (achse !== 1) {
       await karten.lade([[x, y, z]]);
+      // Ein Abbruch oder ein zweites Enter während des Ladens: dann springt
+      // dieser Aufruf nicht.
+      if (eintrag?.feld !== feld) return;
       y = karten.hoehe(x, z) ?? y;
     }
     const ziel: Block = [x, y, z];

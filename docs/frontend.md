@@ -210,7 +210,9 @@ Enter, macht ihn zu einem Eingabefeld; Enter springt dorthin.
   Bewegung, mit dem Block, den die Mitte dann zeigt; liegt ein Y in der
   Luft oder im Boden, ist das der Block, den man dort sieht.
 - **Abbrechen:** Escape oder ein Klick daneben. Escape lässt dabei einen
-  gehaltenen Block gehalten.
+  gehaltenen Block gehalten. Das gilt auch, während die Höhenkarte für den
+  Sprung noch lädt: Dann springt die Karte nicht mehr, und ein zweites
+  Enter springt nicht noch einmal.
 - **Abgewiesen** werden Eingaben, die keine ganze Zahl sind, X oder Z über
   ±30 000 000 (die Weltgrenze des Spiels) und Y ausserhalb von `minY` bis
   `maxY`. Das Feld wird rot, trägt `aria-invalid`, die Rückmeldung nennt den

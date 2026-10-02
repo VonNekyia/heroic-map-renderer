@@ -334,6 +334,41 @@ test('unbrauchbare Eingaben weist die Anzeige sichtbar ab', async ({ page }) => 
   await expect(meldung).toHaveText('Y von -64 bis 319');
 });
 
+test('wer abbricht, während die Höhenkarte lädt, springt nicht', async ({ page }) => {
+  await welt(page);
+  // Die Höhenkarte der Region um X 600 kommt erst, wenn der Test sie freigibt.
+  let freigeben = () => {};
+  const frei = new Promise<void>((weiter) => (freigeben = weiter));
+  await page.route('**/tiles-demo/heights/1.-1.bin', async (route) => {
+    await frei;
+    await route.fulfill({ body: deflateSync(Buffer.from(new Int16Array(128 * 128).buffer)) });
+  });
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const ebene = page.locator('.leaflet-map-pane');
+  const anzeige = page.locator('.koordinaten');
+  await page.mouse.click(...(await bildschirm(page, 400, 36)));
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+  const lage = await ebene.evaluate((e) => (e as HTMLElement).style.transform);
+  const at = new URL(page.url()).searchParams.get('at');
+
+  await page.locator('.wert').first().click();
+  const feld = page.getByRole('textbox', { name: 'X eingeben' });
+  await feld.fill('600');
+  const anfrage = page.waitForRequest('**/tiles-demo/heights/1.-1.bin');
+  await feld.press('Enter');
+  await anfrage;
+  await feld.press('Escape');
+  const antwort = page.waitForResponse('**/tiles-demo/heights/1.-1.bin');
+  freigeben();
+  await antwort;
+
+  await expect(page.getByRole('textbox')).toHaveCount(0);
+  await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
+  expect(await ebene.evaluate((e) => (e as HTMLElement).style.transform)).toBe(lage);
+  expect(new URL(page.url()).searchParams.get('at')).toBe(at);
+});
+
 test('Escape oder ein Klick daneben bricht den Eintrag ab', async ({ page }) => {
   await welt(page);
   await page.goto(DEMO);

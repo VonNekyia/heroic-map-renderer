@@ -11,8 +11,18 @@ description: Misst Laufzeit, Grösse oder Speicher vergleichbar und hält das Er
    `docs/messungen/`. Ihre Bedingungen übernehmen: Welt, Ausschnitt,
    Kachelzahl, scale, Threads, Grafikkarte an oder aus, native Stufen,
    Build-Profil.
-2. **Ruhe und Sperre:** Während der Messung laufen keine anderen Builds,
-   Tests oder Messungen. Vor einer Zeitreihe die Sperrdatei im gemeinsamen
+2. **Umfang planen:** nur messen, was die Entscheidung braucht, und vor der
+   Reihe ihre Dauer schätzen und nennen.
+   - Nur so oft wiederholen, wie die Entscheidung braucht. Kalte Builds
+     streuen kaum, einer je Stand reicht.
+   - Bei Tests reicht statt der ganzen Suite der Test, der die Zeit
+     bestimmt.
+   - Was die CI betrifft, misst die CI: die Schritte vorher und nachher in
+     der PR. Das kostet keine Ruhe am Rechner.
+   - Eine Reihe über 30 min nur mit Begründung im Plan.
+3. **Ruhe und Sperre:** Während der Messung laufen keine anderen Builds,
+   Tests oder Messungen. Vor jedem Lauf die Last prüfen; liegt sie über
+   10 %, warten. Vor einer Zeitreihe die Sperrdatei im gemeinsamen
    Git-Verzeichnis anlegen, mit Sitzung, Zweck und Beginn; sie gilt für
    alle Worktrees:
 
@@ -24,26 +34,29 @@ description: Misst Laufzeit, Grösse oder Speicher vergleichbar und hält das Er
    sie liegt, und wartet: `test -e "$(git rev-parse --git-common-dir)/messung.lock"`.
    Eine fremde Sperre nie löschen; liegt sie länger als angesagt, die
    Sitzung fragen, die sie gelegt hat.
-3. **Messen:** die Stände abwechselnd (A, B, A, B …), mindestens drei Läufe
-   je Stand, jeder Lauf frisch in ein leeres Ausgabeverzeichnis. Ein Lauf
-   dauert einige Sekunden; unter einer Sekunde sagt die Rate wenig. Nach
-   jedem Lauf seinen Baum löschen und 15 s warten, bevor der nächste
-   beginnt, oder erst am Ende der Reihe löschen. Ein Baum, der unmittelbar
+4. **Messen:** die Stände abwechselnd (A, B, A, B …), in der Regel drei
+   Läufe je Stand, jeder Lauf frisch in ein leeres Ausgabeverzeichnis. Ob
+   ein Schalter wirkt, steht im Log, etwa das Profil in `Finished`;
+   `cargo --config … nextest run` lässt `--config` fallen, erst hinter
+   `nextest run` wirkt es. Ein Lauf dauert einige Sekunden; unter einer
+   Sekunde sagt die Rate wenig. Nach jedem Lauf seinen Baum löschen und
+   15 s warten, bevor der nächste beginnt, oder erst am Ende der Reihe
+   löschen. Ein Baum, der unmittelbar
    vor einem Lauf gelöscht wird, staut dessen Schreiben, siehe
    [Zwei Zustände der Basis](../../docs/messungen/2026-10-02-zwei-zustaende-der-basis.md).
    Getestet mit Bäumen von rund 0,46 GB; bei grösseren länger warten.
-4. **Auswerten:** Mittel oder bestes je Stand, dazu die Streuung. Ein
+5. **Auswerten:** Mittel oder bestes je Stand, dazu die Streuung. Ein
    Unterschied innerhalb der Streuung ist keiner.
-5. **Einheiten:** Grössen dezimal, GB heisst 10^9 Byte. Die Ausgabe des
+6. **Einheiten:** Grössen dezimal, GB heisst 10^9 Byte. Die Ausgabe des
    Renderers zählt MB und kB binär; Werte aus ihr umrechnen oder als MiB
    und KiB schreiben. Speicher an der Spitze in GiB.
-6. **Datei** `docs/messungen/JJJJ-MM-TT-titel.md` nach der Vorlage unten.
+7. **Datei** `docs/messungen/JJJJ-MM-TT-titel.md` nach der Vorlage unten.
    Unter „Ablauf“ steht, woher jede Zahl stammt: Ausgabe des Laufs,
    Messskript oder Dateigrössen, mit Datum. Alte Messungen nie
    überschreiben.
-7. **Nachziehen:** Die Seite des Themas nennt die neue Zahl und verweist auf
+8. **Nachziehen:** Die Seite des Themas nennt die neue Zahl und verweist auf
    die Messung. Zahlen im PR-Text stammen aus der Datei.
-8. **Eintragen:** eine Zeile in `docs/index.md`.
+9. **Eintragen:** eine Zeile in `docs/index.md`.
 
 ## Vorlage
 

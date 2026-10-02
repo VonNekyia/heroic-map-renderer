@@ -1,7 +1,8 @@
 {
   "parent": "minecraft:block/block",
   "textures": {
-    "all": "minecraft:block/eis"
+    "all": "minecraft:block/eis",
+    "unten": "minecraft:block/blau"
   },
   "elements": [
     {
@@ -35,7 +36,7 @@
       ],
       "faces": {
         "up": {
-          "texture": "#all",
+          "texture": "#unten",
           "cullface": "down"
         }
       }

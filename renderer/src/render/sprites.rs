@@ -202,11 +202,16 @@ pub struct Family {
     /// Zu welchen Nachbarn der Block Flächen weglässt, siehe
     /// [`blockstate::nachbarregel`].
     pub nachbarn: Option<Nachbarregel>,
+    /// Die Seiten der Welt, an denen der Block voll deckt, siehe
+    /// [`blockstate::volle_seiten`]: Dorthin lässt jeder Nachbar seine
+    /// Flächen mit `cullface` weg.
+    pub voll: u8,
     /// Die Seiten, zu denen das wirklich eine Fläche trifft: eine, die die
     /// Kamera sieht, mit ihrer `cullface` dort, und die Regel kann dorthin
-    /// wirken. Bits nach [`seite`].
+    /// wirken oder ein Nachbar, der dort voll deckt, übermalt sie nicht
+    /// ([`auf_der_wand`]). Bits nach [`seite`].
     seiten: u8,
-    /// Je Alternative ihre Fassungen ohne Flächen zu gleichen Nachbarn, wenn
+    /// Je Alternative ihre Fassungen ohne die Flächen zu Nachbarn, wenn
     /// `seiten` nicht leer ist, siehe [`Family::ohne_nachbarn`].
     fassungen: Vec<Vec<Option<SpriteId>>>,
 }
@@ -250,15 +255,15 @@ impl Family {
     }
 
     /// Die Seiten, zu denen [`Family::ohne_nachbarn`] fragt, in dieser
-    /// Reihenfolge, Seiten der Welt. Leer für Blöcke ohne Regel.
+    /// Reihenfolge, Seiten der Welt. Leer für die meisten Blöcke.
     pub fn nachbarseiten(&self) -> impl Iterator<Item = Face> + '_ {
         SEITEN
             .into_iter()
             .filter(|&face| self.seiten & seite(face) != 0)
     }
 
-    /// Die Fassung einer Alternative ohne die Flächen zu gleichen Nachbarn:
-    /// `nachbarn` trägt je Seite aus [`Family::nachbarseiten`] ein Bit, in
+    /// Die Fassung einer Alternative ohne die Flächen zu Nachbarn, die sie
+    /// verdecken: `nachbarn` trägt je Seite aus [`Family::nachbarseiten`] ein Bit, in
     /// deren Reihenfolge, `fluessig` die Maske der Flüssigkeit im Block wie
     /// bei [`SpriteSet::masked`]. `None`, wenn nichts bleibt.
     pub fn ohne_nachbarn(&self, wahl: usize, fluessig: u8, nachbarn: u8) -> Option<SpriteId> {
@@ -266,7 +271,7 @@ impl Family {
         self.fassungen[wahl][fluessig as usize + je_nachbar * nachbarn as usize]
     }
 
-    /// Hat der Block Fassungen ohne Flächen zu gleichen Nachbarn?
+    /// Hat der Block Fassungen ohne Flächen zu Nachbarn?
     pub fn hat_nachbarn(&self) -> bool {
         self.seiten != 0
     }
@@ -326,7 +331,8 @@ pub fn mask_bit(face: Face) -> u8 {
 /// die Faerbung), die Modellverweise samt Drehung und Gewicht, Art und
 /// Menge der Fluessigkeit, wo die Wahl der Alternative ihre Saat nimmt und
 /// was sein Blockentity zeichnet, dazu die volle Kollisionsform, siehe
-/// [`kollision`], und zu welchen Nachbarn er Flächen weglässt. Die
+/// [`kollision`], zu welchen Nachbarn er Flächen weglässt und wo er selbst
+/// voll deckt. Die
 /// Verweise reichen, die Modelle selbst laedt erst die Familie. Eine Truhe
 /// hat in jeder Lage dasselbe Blockmodell, aber nicht dasselbe Bild aus
 /// [`blockentity::bild`]; das trennt auch, wo die andere Hälfte einer
@@ -339,6 +345,7 @@ type FamilyKey = (
     Option<usize>,
     bool,
     Option<Nachbarregel>,
+    u8,
 );
 
 /// Was die Sprites einer Blockstate bestimmt. Das Licht gehört nicht dazu,
@@ -353,7 +360,27 @@ fn family_key(assets: &mut Assets, state: &BlockState) -> Result<FamilyKey> {
         blockentity::bild(state),
         kollision(state),
         blockstate::nachbarregel(state),
+        blockstate::volle_seiten(state),
     ))
+}
+
+/// Zeigt die Fläche zur Seite `face`, und liegt jede Ecke auf der Wand
+/// dorthin oder dahinter im Würfel des Nachbarn? Nur dann übermalt sie ein
+/// Nachbar dort, der voll deckt.
+/// Siehe docs/renderer/sprites-und-deckung.md, „Flächen vor einem vollen Nachbarn“.
+fn auf_der_wand(quad: &Quad, face: Face) -> bool {
+    let d = face.versatz();
+    let achse = d.iter().position(|&a| a != 0).expect("eine Achse je Seite");
+    let (richtung, wand) = if d[achse] > 0 {
+        (1.0, 1.0)
+    } else {
+        (-1.0, 0.0)
+    };
+    quad.normal()[achse] * richtung > 0.0
+        && quad
+            .corners
+            .iter()
+            .all(|ecke| (-1e-5..=1.0).contains(&((ecke[achse] - wand) * richtung)))
 }
 
 /// Wo die andere Hälfte einer Doppelkiste steht, relativ zum Block, wie
@@ -659,17 +686,17 @@ impl SpriteSet {
         let fluid = fluid::key(state);
         let nachbarn = blockstate::nachbarregel(state);
         let projection = self.projection;
-        let seiten = nachbarn.map_or(0, |regel| {
-            models
-                .iter()
-                .flat_map(|(_, model)| &model.quads)
-                .filter(|q| faces_camera(q, &projection))
-                .filter_map(|q| q.cullface)
-                .filter(|&face| regel.wirkt(face))
-                .fold(0, |seiten, face| seiten | seite(face))
-        });
+        let seiten = models
+            .iter()
+            .flat_map(|(_, model)| &model.quads)
+            .filter(|q| faces_camera(q, &projection))
+            .filter_map(|q| q.cullface.map(|face| (q, face)))
+            .filter(|&(q, face)| {
+                nachbarn.is_some_and(|regel| regel.wirkt(face)) || !auf_der_wand(q, face)
+            })
+            .fold(0, |seiten, (_, face)| seiten | seite(face));
         // Mit Seiten trägt die Familie die Fassungen der Flüssigkeit selbst,
-        // zusammen mit denen ohne Flächen zu gleichen Nachbarn.
+        // zusammen mit denen ohne Flächen zu Nachbarn.
         let alternatives: Vec<(u32, Option<SpriteId>)> = models
             .iter()
             .map(|(weight, model)| {
@@ -725,6 +752,7 @@ impl SpriteSet {
             tint_below: tinted_below(state.name(), state.prop("half")),
             doppelkiste: doppelkiste(state).map(|d| projection.richtung().versatz_in_den_blick(d)),
             nachbarn,
+            voll: blockstate::volle_seiten(state),
             seiten,
             fassungen,
             alternatives,
@@ -1121,7 +1149,7 @@ impl SpriteSet {
     }
 
     /// Wie viele Sprites Fassungen sind: Masken, Streifen und Bilder ohne
-    /// Flächen zu gleichen Nachbarn — alles, was nicht das Grundbild einer
+    /// Flächen zu Nachbarn — alles, was nicht das Grundbild einer
     /// Alternative ist.
     /// Familien teilen sich pixelgleiche Grundbilder, es kann also mehr
     /// Familien geben als Sprites.
@@ -1409,6 +1437,7 @@ mod tests {
             tint_below: false,
             doppelkiste: None,
             nachbarn: None,
+            voll: 0,
             seiten: 0,
             fassungen: Vec::new(),
         };
@@ -1526,7 +1555,121 @@ mod tests {
         assert!(enden[0].normal()[0] > 0.0, "die Fläche zeigt nach Osten");
     }
 
-    /// Mangrovenwurzeln lassen nur oben und unten weg, auch über die innere
+    /// Vor einem vollen Nachbarn zählen nur Seiten, deren Flächen er nicht
+    /// übermalt. Der Spawner der Fixtures hat das innere Element von
+    /// `cube_all_inner_faces` aus 26.2, in x von 15,998 nach 0,002: Seine
+    /// Flächen zeigen nach innen, die Wände in z mit der `cullface` der Wand
+    /// gegenüber, die übrigen mit der eigenen. Die Kamera sieht Boden und
+    /// zwei Wände, deren `cullface` aus `se` unten, Süden und Westen sind,
+    /// aus `sw` unten, Süden und Osten, aus `nw` unten, Norden und Osten, aus
+    /// `ne` unten, Norden und Westen; von oben nur den Boden. Ein voller
+    /// Würfel hat jede Fläche auf ihrer Wand und keine Seite. Bei den Wurzeln
+    /// liegt die Schicht im Osten auf ihrer Wand, oben und unten zählen über
+    /// die Regel.
+    #[test]
+    fn seiten_vor_vollen_nachbarn() {
+        let mut assets = assets();
+        let (spawner, stein) = ("minecraft:spawner", "minecraft:stone");
+        let wurzeln = "minecraft:mangrove_roots[waterlogged=false]";
+        let states = [spawner, stein, wurzeln].map(state);
+        let aus = |kamera: &str, richtung: &str| {
+            let kamera = Kamera::parse(kamera).unwrap();
+            Projection::mit_kamera(16, kamera).aus(Richtung::parse(richtung, kamera).unwrap())
+        };
+        for (projection, seiten) in [
+            (
+                aus("2:1", "se"),
+                [Face::Down, Face::South, Face::West].as_slice(),
+            ),
+            (aus("2:1", "sw"), &[Face::Down, Face::South, Face::East]),
+            (aus("2:1", "nw"), &[Face::Down, Face::North, Face::East]),
+            (aus("2:1", "ne"), &[Face::Down, Face::North, Face::West]),
+            (aus("top", "se"), &[Face::Down]),
+        ] {
+            let set = build(&mut assets, &states, projection).unwrap();
+            assert_eq!(seiten_von(&set, spawner), seiten, "{projection:?}");
+            assert_eq!(seiten_von(&set, stein), [], "{projection:?}");
+        }
+        let set = build(&mut assets, &states, aus("2:1", "se")).unwrap();
+        assert_eq!(seiten_von(&set, wurzeln), [Face::Down, Face::Up]);
+    }
+
+    /// Wo ein Block voll deckt, gehört zum Schlüssel seiner Familie. Das
+    /// Pack `assets-platten` zeichnet jede Platte mit dem Modell der unteren;
+    /// die obere deckt trotzdem nach oben, die untere nach unten, und beide
+    /// haben dieselbe Kollisionsform.
+    #[test]
+    fn volle_seiten_trennen_familien() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let packs = vec![
+            fixtures.join("assets-base"),
+            fixtures.join("assets-platten"),
+        ];
+        let mut assets = Assets::open(packs).unwrap();
+        let oben = state("minecraft:oak_slab[type=top,waterlogged=false]");
+        let unten = state("minecraft:oak_slab[type=bottom,waterlogged=false]");
+        let set = build(&mut assets, [&oben, &unten], Projection::new(16)).unwrap();
+        assert_eq!(set.family_of(&oben).unwrap().voll, seite(Face::Up));
+        assert_eq!(set.family_of(&unten).unwrap().voll, seite(Face::Down));
+    }
+
+    /// Mit den sechs Schichten aus 26.2 (Pack `assets-wurzeln`) haben
+    /// Mangrovenwurzeln aus jeder Richtung zwei waagrechte Seiten: die
+    /// inneren Flächen der hinteren Schichten, 0,002 vor ihrer Wand. Aus `se`
+    /// Norden und Westen. Oben und unten zählen über die Regel. Das gibt je
+    /// Alternative 16 Fassungen, geflutet 128.
+    #[test]
+    fn wurzeln_mit_den_schichten_aus_26_2() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let packs = vec![
+            fixtures.join("assets-base"),
+            fixtures.join("assets-wurzeln"),
+        ];
+        let mut assets = Assets::open(packs).unwrap();
+        let trocken = "minecraft:mangrove_roots[waterlogged=false]";
+        let states = [trocken, "minecraft:mangrove_roots[waterlogged=true]"].map(state);
+        let kamera = Kamera::parse("2:1").unwrap();
+        for (richtung, waagrecht) in [
+            ("se", [Face::North, Face::West]),
+            ("sw", [Face::North, Face::East]),
+            ("nw", [Face::South, Face::East]),
+            ("ne", [Face::South, Face::West]),
+        ] {
+            let projection =
+                Projection::mit_kamera(16, kamera).aus(Richtung::parse(richtung, kamera).unwrap());
+            let set = build(&mut assets, &states, projection).unwrap();
+            let seiten = [[Face::Down, Face::Up], waagrecht].concat();
+            assert_eq!(seiten_von(&set, trocken), seiten, "{richtung}");
+            let fassungen = states
+                .each_ref()
+                .map(|s| set.family_of(s).unwrap().fassungen[0].len());
+            assert_eq!(fassungen, [16, 128], "{richtung}");
+        }
+    }
+
+    /// Nur eine Fläche auf der Wand zu ihrer Seite oder dahinter, die dorthin
+    /// zeigt, übermalt ein voller Nachbar dort: die Nordseite eines Würfels
+    /// zum Norden, auch 0,02 hinter der Wand wie der Sockel eines Hebels in
+    /// 26.2. Nach innen gewendet nicht, 0,002 vor der Wand wie die Wände
+    /// eines Spawners auch nicht.
+    #[test]
+    fn nur_flaechen_auf_der_wand_uebermalt_der_nachbar() {
+        let nord = |z: f32| {
+            box_quads([0.0, 0.0, z], [16.0; 3], Textures::MISSING, None, None)
+                .find(|q| q.normal()[2] < 0.0)
+                .unwrap()
+        };
+        let aussen = nord(0.0);
+        assert!(auf_der_wand(&aussen, Face::North));
+        assert!(!auf_der_wand(&aussen, Face::South));
+        let mut innen = aussen.clone();
+        innen.corners.reverse();
+        assert!(!auf_der_wand(&innen, Face::North), "nach innen gewendet");
+        assert!(!auf_der_wand(&nord(0.002), Face::North), "vor der Wand");
+        assert!(auf_der_wand(&nord(-0.02), Face::North), "hinter der Wand");
+    }
+
+    /// Mangrovenwurzeln lassen zu sich selbst nur oben und unten weg, auch über die innere
     /// Fläche mit `cullface` unten, die zur Kamera zeigt. Mit Wasser im Block
     /// gibt es 8 Masken der Flüssigkeit je Maske der zwei Seiten.
     #[test]
@@ -2823,7 +2966,7 @@ mod tests {
 
     /// Bleibt eine Familie im Würfel, bleibt jede ihrer Fassungen im Umriss:
     /// Masken, Biome, die Streifen ihrer Flüssigkeit und die Fassungen ohne
-    /// Flächen zu gleichen Nachbarn. `contained`
+    /// Flächen zu Nachbarn. `contained`
     /// prüft nur die Grundbilder, darauf bauen aber die Deckungsmaske
     /// (`bedeckt`) und die Kandidatensuche (`touches`): Ein enthaltener
     /// Block fällt weg, wenn sein Umriss bedeckt ist oder die Kachel nicht

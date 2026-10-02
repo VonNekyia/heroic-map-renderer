@@ -29,7 +29,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Die Kamera](renderer/kamera.md): Kameras und Projektion, diagonal und genordet, Richtungen, scale, ganze Pixel, Zeichenreihenfolge, Teile je Würfel im Raum, von oben, Blockkanten auf Pixelmitten, f64.
 - [Richtungen](renderer/richtungen.md): was aus sw, nw und ne im Blick liegt und was in der Welt bleibt, Schattierung nach der Seite der Welt, warum es nicht das gedrehte Bild ist.
 - [Der Weg einer Kachel](renderer/renderpfad.md): Vorlauf, Streifen, Bitmasken, Kandidaten, Blit, Kodieren, Speicher.
-- [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Flächen zu gleichen Nachbarn, Deckungsmaske.
+- [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Flächen zu gleichen Nachbarn, Flächen vor einem vollen Nachbarn, Deckungsmaske.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
 - [Wasser und Licht](renderer/wasser-und-licht.md): Flüssigkeiten, Flächen, Streifen, Himmels- und Blocklicht.
 - [Weiche Beleuchtung](renderer/weiche-beleuchtung.md): die Regeln von `BlockModelLighter` für volle Würfel.
@@ -51,7 +51,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Tests](entwicklung/tests.md): laufen lassen, Fixtures, Kameras, Goldbilder, GPU-Tests.
 - [CI](entwicklung/ci.md): die Jobs und die Doku-Prüfung.
 - [Eingabedaten](entwicklung/eingabedaten.md): was nicht im Repository liegt und was für Tests mitkommt.
-- [Erzeugte Tabellen](entwicklung/tabellen.md): `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `blockentities.txt`, `dimensionstypen.txt`.
+- [Erzeugte Tabellen](entwicklung/tabellen.md): die Tabellen aus dem Spiel unter `renderer/src/assets/`, was darin steht und wie man sie neu erzeugt.
 
 ## Entscheidungen
 
@@ -111,6 +111,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0054](entscheidungen/0054-baeume-unter-einer-wurzel.md): Bäume unter einer Wurzel: `--tiles` ist die Wurzel, je Kamera und Richtung ein Ordner, `trees.json` aus der Platte, Höhen für alle gemeinsam, alte Ablage bricht ab.
 - [0055](entscheidungen/0055-welt-beim-zugriff-drehen.md): Die Welt beim Zugriff drehen: im Blick rechnen, Modelle im Rasterizer drehen, Chunks, Licht, Saat und Biome in der Welt.
 - [0056](entscheidungen/0056-exakter-strahl-zur-sonne.md): Exakter Strahl zur Sonne ohne Ziel von 0,5 µs: rund 0,7 bis 0,9 µs je Strahl angenommen, keine Schattenkarte.
+- [0057](entscheidungen/0057-flaechen-vor-einem-vollen-nachbarn.md): Flächen vor einem vollen Nachbarn nach der Tabelle des Spiels: `seiten.txt` sagt, wo ein Block voll deckt, gefragt wird nur zu Seiten, deren Flächen der Nachbar nicht übermalt.
 - [0058](entscheidungen/0058-look-von-cinematic.md): Look von Cinematic. In der Sonne wie die Karte; Kurve bis zum Knie gerade; Weissabgleich nach der Temperatur des Bioms; Bodenpflanzen dämpfen die Sonne auf die Hälfte; kein Nebel.
 
 ## Messungen

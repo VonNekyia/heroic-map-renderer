@@ -3788,6 +3788,52 @@ fn ohne_scale_genordet_16_sonst_32() {
     }
 }
 
+/// `--direction` passt zur Kamera: diagonal über eine Ecke, genordet von
+/// einer Seite. Eine falsche Kombination bricht ab, bevor der Lauf die Welt
+/// liest, und nennt die vier, die gehen. Die Vorgabe darf man nennen.
+#[test]
+fn richtung_wird_je_kamera_geprueft() {
+    let leer = tempdir();
+    let lauf = |kamera: &str, richtung: &str| {
+        cli(&[
+            OsStr::new("--world"),
+            leer.path().join("fehlt").as_os_str(),
+            OsStr::new("--camera"),
+            OsStr::new(kamera),
+            OsStr::new("--direction"),
+            OsStr::new(richtung),
+        ])
+    };
+    for (kamera, richtung, soll) in [
+        (
+            "north-45",
+            "ne",
+            "north-45 schaut von einer Seite: s, w, n oder e",
+        ),
+        (
+            "top-north",
+            "se",
+            "top-north schaut von einer Seite: s, w, n oder e",
+        ),
+        ("8:5", "n", "8:5 schaut über eine Ecke: se, sw, nw oder ne"),
+        ("top", "s", "top schaut über eine Ecke: se, sw, nw oder ne"),
+    ] {
+        let ausgabe = lauf(kamera, richtung);
+        assert!(!ausgabe.status.success(), "{kamera} {richtung}");
+        let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(meldung.contains(soll), "{kamera} {richtung}: {meldung}");
+        assert!(!String::from_utf8_lossy(&ausgabe.stdout).contains("Welt:"));
+    }
+    // Die Vorgabe geht; dann scheitert der Lauf erst an der fehlenden Welt.
+    for (kamera, richtung) in [("2:1", "se"), ("north-45", "s")] {
+        let meldung = String::from_utf8_lossy(&lauf(kamera, richtung).stderr).into_owned();
+        assert!(
+            !meldung.contains("schaut"),
+            "{kamera} {richtung}: {meldung}"
+        );
+    }
+}
+
 /// `trees.json` unter der Wurzel nennt jeden Baum mit Ordner, Kamera,
 /// Richtung und `look`, `2x1-se` zuerst, sonst nach Ordner. Sie kommt aus
 /// der Platte: Ein gelöschter Baum fällt beim nächsten Lauf heraus. Die

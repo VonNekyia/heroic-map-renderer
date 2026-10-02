@@ -132,8 +132,9 @@ Die Invarianten gelten für jede Kamera. `kameras()` in
 bei scale 32, 5:3 bei scale 30, 1:1 und `top` bei scale 4 und 6, dazu sechs
 Paare aus gültigem W:H und scale, gezogen mit fester Saat, damit jeder Lauf
 dieselben prüft, ohne 2:1 und ohne eine Kamera zweimal. Genordet kommen
-`top-north` bei 6, 16 und 24 und `north-45` bei 12, 16 und 48 dazu, je mit
-einem gezogenen scale, der auch ungerade sein kann. Das Bild ist bei
+`top-north` und `north-45` je bei 16 und seinen nativen Stufen 8 und 4
+dazu, `top-north` bei 6 und 24, `north-45` bei 12 und 48, und je ein
+gezogener ungerader scale. Das Bild ist bei
 `verdecken_aendert_kein_pixel` und `schneller_weg_gleicht_der_referenz`
 das Rechteck um alle Blöcke der Szene, bei jeder Kamera. Je Kamera:
 
@@ -143,6 +144,7 @@ das Rechteck um alle Blöcke der Szene, bei jeder Kamera. Je Kamera:
 | `schneller_weg_gleicht_der_referenz` | Kandidaten und Bitmasken gegen die Referenz |
 | `kein_loch_in_deckendem_gelaende` | kein offener Pixel, auch auf Kanten, die Pixelmitten treffen |
 | `hoeher_gesetzt_gleiches_bild` | dieselbe Welt 40 Blöcke höher gibt dasselbe Bild, auch von oben, wo die Referenz dasselbe Band abläuft |
+| `kleine_ausschnitte_gleichen_dem_grossen_bild` | Ausschnitte von 128 Pixeln gleichen dem Bild der ganzen Szene, für 2:1, 4:3, `top`, `top-north` und `north-45` bei 16 und `north-45` bei 7; ein Ausschnitt liest nur die Sections und Chunks seines Bands (`y_span`) |
 | `projektion_als_datei_ist_aktuell` (`renderer/tests/heights.rs`) | die Datei für das Frontend, samt Kantenpixeln |
 
 Dazu einzeln: `von_oben_ragt_der_turm_durch_den_teppich` (`metatile.rs`),

@@ -1,8 +1,10 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
+  inDieWelt,
   pick,
   REGION,
+  RICHTUNGEN,
   region,
   strahl,
   umriss,
@@ -144,17 +146,18 @@ function hatHoehen(info: MapInfo): info is MapInfo & Hoehen {
  * es keine gibt: Azimut oder Richtung kennt das Frontend nicht.
  * Siehe docs/frontend.md, „Koordinaten“.
  */
-function projektion(info: MapInfo): Projektion | string {
+function projektion(info: MapInfo): { p: Projektion; k: number } | string {
   const { projection = zweiZuEins(info.scale) } = info;
   const { azimuth, u, v, y } = projection;
-  // Die Richtung, aus der die Kamera schaut, solange es nur eine gibt.
-  const richtung = azimuth === 'diagonal' ? 'se' : azimuth === 'north' ? 's' : undefined;
-  if (richtung === undefined) return `azimuth ${String(azimuth)} unbekannt`;
-  const { direction = richtung } = info;
-  if (direction !== richtung) return `direction ${direction} unbekannt`;
+  const richtungen = Object.hasOwn(RICHTUNGEN, azimuth) ? RICHTUNGEN[azimuth] : undefined;
+  if (richtungen === undefined) return `azimuth ${String(azimuth)} unbekannt`;
+  // Ohne Angabe die Vorgabe der Kamera, se oder s.
+  const { direction = richtungen[0]! } = info;
+  const k = richtungen.indexOf(direction);
+  if (k < 0) return `direction ${direction} unbekannt`;
   const ganz = (n: unknown, min: number) => Number.isInteger(n) && (n as number) >= min;
   if (!ganz(u, 1) || !ganz(v, 1) || !ganz(y, 0)) return 'projection ohne ganze u, v und y';
-  return { azimuth, u, v, y };
+  return { p: { azimuth, u, v, y }, k };
 }
 
 /** Eine Höhenkarte: zlib, darin n × n Zellen, je i16 little-endian. */
@@ -236,10 +239,15 @@ function hoehen(base: string, muster: string, zelle: number) {
 function koordinaten(
   map: L.Map,
   base: string,
-  p: Projektion,
+  { p, k }: { p: Projektion; k: number },
   { heights, heightsCell, minY, maxY }: Hoehen,
 ): void {
   const karten = hoehen(base, heights, heightsCell);
+  // Der Strahl läuft im Blick, Höhen und Anzeige sind in der Welt.
+  const hoehe = (x: number, z: number) => {
+    const [wx, , wz] = inDieWelt([x, 0, z], k);
+    return karten.hoehe(wx, wz);
+  };
   const anzeige = L.DomUtil.create('div', 'koordinaten');
   const control = new L.Control({ position: 'bottomleft' });
   control.onAdd = () => anzeige;
@@ -258,7 +266,8 @@ function koordinaten(
   map.getContainer().addEventListener('pointermove', merke);
 
   const zeige = (block: Block | undefined): void => {
-    anzeige.textContent = block ? `X ${block[0]}  Y ${block[1]}  Z ${block[2]}` : 'X –  Y –  Z –';
+    const welt = block && inDieWelt(block, k);
+    anzeige.textContent = welt ? `X ${welt[0]}  Y ${welt[1]}  Z ${welt[2]}` : 'X –  Y –  Z –';
     rahmen.setLatLngs(
       block && ohneZeiger
         ? umriss(block, p).map((linie) => linie.map(([x, y]) => point(x, y)))
@@ -271,8 +280,8 @@ function koordinaten(
   const ziele = async (event: L.LeafletMouseEvent): Promise<void> => {
     const nummer = ++zuletzt;
     const bloecke = strahl(event.latlng.lng, event.latlng.lat, p, minY, maxY);
-    await karten.lade(bloecke);
-    if (nummer === zuletzt) zeige(pick(bloecke, karten.hoehe));
+    await karten.lade(bloecke.map((block) => inDieWelt(block, k)));
+    if (nummer === zuletzt) zeige(pick(bloecke, hoehe));
   };
 
   zeige(undefined);

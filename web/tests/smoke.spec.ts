@@ -8,8 +8,13 @@ const DEMO = '/?tiles=/tiles-demo';
  * Höhen für den Demobaum, je 4 × 4 Spalten: eben auf Y 0, dazu eine Säule
  * bis Y 5 in der Zelle der Spalten 32 bis 35 und -16 bis -13, in einer
  * negativen Region. Ein falscher Platz in der Höhenkarte fiele so auf.
+ * `saeule` setzt sie in eine andere Datei und Zelle.
  */
-async function welt(page: Page, mehr: object = {}): Promise<void> {
+async function welt(
+  page: Page,
+  mehr: object = {},
+  saeule: [datei: string, zelle: number] = ['0.-1.bin', (-4 + 128) * 128 + 8],
+): Promise<void> {
   await page.route('**/tiles-demo/map.json', async (route) => {
     const response = await route.fetch();
     const info = (await response.json()) as object;
@@ -18,7 +23,7 @@ async function welt(page: Page, mehr: object = {}): Promise<void> {
   });
   await page.route('**/tiles-demo/heights/*.bin', async (route) => {
     const karte = new Int16Array(128 * 128);
-    if (route.request().url().endsWith('/0.-1.bin')) karte[(-4 + 128) * 128 + 8] = 5;
+    if (route.request().url().endsWith(`/${saeule[0]}`)) karte[saeule[1]] = 5;
     await route.fulfill({ body: deflateSync(Buffer.from(karte.buffer)) });
   });
 }
@@ -121,6 +126,17 @@ test('die Koordinaten rechnen mit projection aus map.json', async ({ page }) => 
   await expect(page.locator('.koordinaten')).toHaveText('X 27  Y 0  Z -23');
 });
 
+test('aus Nordwesten zeigt die Anzeige Weltkoordinaten', async ({ page }) => {
+  // Im Blick aus Nordwesten liegt (35, 5, -15) dort, wo aus Südosten
+  // derselbe Pixel ist; in der Welt ist das (-36, 5, 14). Dort steht die
+  // Säule: Zelle der Spalten -36 bis -33 und 12 bis 15, Region -1.0.
+  await welt(page, { direction: 'nw' }, ['-1.0.bin', 3 * 128 + 119]);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await page.mouse.move(...(await bildschirm(page, 400, 36)));
+  await expect(page.locator('.koordinaten')).toHaveText('X -36  Y 5  Z 14');
+});
+
 test('genordet rechnen die Koordinaten mit u = x und v = z', async ({ page }) => {
   await welt(page, {
     camera: 'top-north',
@@ -136,7 +152,7 @@ test('genordet rechnen die Koordinaten mit u = x und v = z', async ({ page }) =>
 
 for (const [mehr, grund] of [
   [{ projection: { azimuth: 'up', u: 16, v: 16, y: 0 } }, 'azimuth up unbekannt'],
-  [{ direction: 'sw' }, 'direction sw unbekannt'],
+  [{ direction: 's' }, 'direction s unbekannt'],
   [
     { direction: 'se', projection: { azimuth: 'north', u: 16, v: 16, y: 16 } },
     'direction se unbekannt',

@@ -130,6 +130,29 @@ function genordet(
 }
 
 /**
+ * Wo die Kamera steht, diagonal und genordet. Je Zeile dieselbe Drehung:
+ * Index k heisst k Vierteldrehungen gegen die Vorgabe.
+ */
+export const RICHTUNGEN = { diagonal: ['se', 'sw', 'nw', 'ne'], north: ['s', 'w', 'n', 'e'] };
+
+/**
+ * Ein Block des Blicks in Weltkoordinaten. Der Blick einer Richtung mit k
+ * Vierteldrehungen sieht den Block (x, z) der Welt bei R^k(x, z) mit
+ * R(x, z) = (z, −x − 1); zurück geht es mit (x, z) ← (−z − 1, x).
+ * Siehe docs/benutzung/map-json.md, „Kamera und Projektion“.
+ */
+export function inDieWelt([x, y, z]: Block, k: number): Block {
+  for (let i = 0; i < k; i++) [x, z] = [-z - 1, x];
+  return [x, y, z];
+}
+
+/** Ein Block der Welt im Blick mit k Vierteldrehungen. */
+export function inDenBlick([x, y, z]: Block, k: number): Block {
+  for (let i = 0; i < k; i++) [x, z] = [z, -x - 1];
+  return [x, y, z];
+}
+
+/**
  * Der vorderste Würfel des Strahls, dessen Spalte bis zu ihm hinauf
  * gefüllt ist. `hoehe` gibt das Y des obersten gezeichneten Blocks einer
  * Spalte, `undefined` für eine leere.

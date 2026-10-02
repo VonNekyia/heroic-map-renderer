@@ -49,6 +49,14 @@ npm test          # Playwright, baut vorher und prüft den Build
 
 Lighthouse lokal: [CI](ci.md), „Lighthouse“.
 
+Testbauten rechnen mit Optimierung: die Abhängigkeiten mit `opt-level` 2
+(`[profile.dev.package."*"]`), das Crate und die Tests mit 1
+(`[profile.test]`), beide in `renderer/Cargo.toml`. `debug-assertions` und
+`overflow-checks` bleiben an, die Prüfungen des Debug-Builds also auch. Die
+Suite braucht so lokal rund 22 statt 90 s, in der CI auf ubuntu 24 statt
+186 s; das Bauen kostet in der CI dafür 31 bis 98 s mehr, siehe
+[Tests schneller](../messungen/2026-10-02-tests-schneller.md).
+
 Ein Test läuft nur in Release: `eimer_zaehlen_wie_die_binaersuche` in
 `pyramid.rs` prüft jeden f32 von 0 bis 1, gut eine Milliarde Werte, in
 rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
@@ -199,7 +207,8 @@ Ob ein Test eine Stelle wirklich prüft, zeigt eine Mutation: die Stelle
 einzeln falsch machen, die Tests dazu laufen lassen, zurücksetzen. Fällt
 kein Test, prüft ihn keiner. Mutationen bauen mit dem Profil `mutation`:
 Es rechnet wie `release`, mit `codegen-units = 16` und `incremental`, und
-baut nach einer Änderung schneller neu.
+baut nach einer Änderung neu in rund 11 statt 86 s, siehe
+[Tests schneller](../messungen/2026-10-02-tests-schneller.md).
 
 ```bash
 cargo nextest run --cargo-profile mutation -E 'binary(metatile)'

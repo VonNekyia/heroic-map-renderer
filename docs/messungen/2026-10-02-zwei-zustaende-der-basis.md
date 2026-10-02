@@ -1,6 +1,6 @@
 ---
 title: Zwei Zustände der Basis
-description: Warum die Basis am Stand der Testwelt mal 1 bis 2 s länger braucht. Löscht das Messskript den Baum des vorigen Laufs unmittelbar vor dem nächsten, staut das dessen Schreiben. Mit Messung je Thread, am Stand C aus #52 und am heutigen master, mit und ohne Karte.
+description: Warum die Basis am Stand der Testwelt mal 1 bis 2 s länger braucht. Löscht das Messskript den Baum des vorigen Laufs unmittelbar vor dem nächsten, staut das dessen Schreiben. Mit Messung je Thread, am Stand C aus #52 und am heutigen master, mit und ohne Karte, belegt in Reihen, die je Lauf zwischen gleichem Löschen und 15 s Warten wechseln.
 date: 2026-10-02
 commits: [799c2f2, b91884f]
 code:
@@ -14,9 +14,11 @@ Am Stand braucht die Basis mal rund 1 bis 2 s länger, siehe
 und #56. Der Renderer ist nicht die Ursache. Es ist der Ablauf der
 Messreihe: Löscht das Skript den Baum des vorigen Laufs unmittelbar vor dem
 nächsten, hängen in diesem einzelne Schreibvorgänge bis 1,5 s, und die
-Threads warten, statt zu rechnen. Am Stand C traf das 12 von 44 Läufen.
-Mit 15 s Warten nach dem Löschen traf es keinen von 20, mit Löschen erst am
-Ende der Reihe keinen von 24.
+Threads warten, statt zu rechnen. Belegt ist das mit Reihen, die je Lauf
+zwischen gleichem Löschen und 15 s Warten wechseln: Am Stand C hing in 8 von
+20 Läufen mit gleichem Löschen ein einzelnes Schreiben über 300 ms, in
+keinem von 20 mit Warten. Am heutigen master ist es ebenso, 4 von 12 gegen
+0 von 12.
 
 ## Aufbau
 
@@ -50,7 +52,7 @@ renderer/target/release/terranova-render --world ./world --assets ./vanilla-asse
 
 ## Ablauf
 
-- Fünf Reihen am 02.10., je mit und ohne Karte im Wechsel, von Runde zu
+- Sieben Reihen am 02.10., je mit und ohne Karte im Wechsel, von Runde zu
   Runde in anderer Folge. Jeder Lauf in ein frisches Verzeichnis, das vom
   Echtzeitschutz ausgenommen war, siehe
   [Echtzeitschutz unter Windows](../benutzung/echtzeitschutz.md).
@@ -63,9 +65,14 @@ renderer/target/release/terranova-render --world ./world --assets ./vanilla-asse
   | 3 | C | 12 | gleich nach dem Lauf |
   | 4 | C | 12 | erst am Ende der Reihe |
   | 5 | C | 10 | gleich nach dem Lauf, dann 15 s warten |
+  | 6 | C | 10 | im Wechsel: gleich nach dem Lauf, oder dann 15 s warten |
+  | 7 | master | 6 | im Wechsel wie Reihe 6 |
 
   „Gleich nach dem Lauf“ heisst wie in der Reihe zu #52: Das Skript löscht
-  den Baum und startet nach rund einer Sekunde den nächsten Lauf.
+  den Baum und startet nach rund einer Sekunde den nächsten Lauf. In den
+  Reihen 6 und 7 löscht es jeden Baum gleich nach seinem Lauf und wartet
+  vor jedem zweiten Lauf 15 s. Je Runde laufen vier Läufe, mit und ohne
+  Karte, mit und ohne Warten, die Folge von Runde zu Runde gespiegelt.
 - Vor jedem Lauf misst das Skript eine Sekunde lang die Last und wie viel
   die Platten schreiben. Neben den Reihen liefen keine Builds, Tests oder
   Messungen.
@@ -73,7 +80,7 @@ renderer/target/release/terranova-render --world ./world --assets ./vanilla-asse
   Hundertstelsekunde; in Reihe 2 aus der Zeile „MB in“ der Ausgabe, auf
   die Zehntelsekunde. Langsam heisst am Stand C: Basis ab 4,3 s. Die
   schnellen Läufe von C liegen bei 3,0 bis 4,0 s, die langsamen bei 4,5
-  bis 5,7 s.
+  bis 5,7 s. Ein Stau heisst: Ein einzelnes Schreiben dauert über 300 ms.
 - In den Tabellen steht der Median, dahinter die Spanne. Die Zeiten der
   Messung je Thread sind über alle 24 Threads summiert.
 
@@ -93,8 +100,26 @@ renderer/target/release/terranova-render --world ./world --assets ./vanilla-asse
   einer mit und 5 ohne Karte. Sie häufen sich in aufeinanderfolgenden
   Läufen.
 - Am master zeigt Reihe 1 keine zwei Zustände: Alle Läufe einer Art liegen
-  innerhalb von 0,6 s. Die Last stand dort direkt nach dem Löschen eines
-  Baums vor einzelnen Läufen bis 31 %.
+  innerhalb von 0,6 s, kein einzelnes Schreiben dauert über 64 ms. Die Last
+  stand dort direkt nach dem Löschen eines Baums vor einzelnen Läufen bis
+  31 %. Den Stau zeigt master erst in Reihe 7.
+
+**Im Wechsel, Reihen 6 und 7:**
+
+| Reihe | Stand, Ablauf | mit Karte | ohne Karte | Läufe mit Stau | längstes einzelnes Schreiben | Last vor den Läufen |
+|---|---|---|---|---|---|---|
+| 6 | C, gleich löschen | 3,41 s (3,33–4,56) | 4,17 s (3,78–5,25) | 8 von 20 | 23 bis 1354 ms | 0 bis 16 % |
+| 6 | C, 15 s warten | 3,31 s (3,26–3,36) | 3,80 s (3,75–4,02) | 0 von 20 | 14 bis 56 ms | 1 bis 11 % |
+| 7 | master, gleich löschen | 4,50 s (4,09–5,57) | 5,43 s (5,00–7,03) | 4 von 12 | 24 bis 1866 ms | 1 bis 25 % |
+| 7 | master, 15 s warten | 4,34 s (4,21–4,58) | 5,18 s (4,73–5,25) | 0 von 12 | 17 bis 50 ms | 3 bis 14 % |
+
+- Die Läufe mit Stau liegen in Reihe 6 in den Runden 2 bis 8, in Reihe 7
+  in den Runden 1, 2 und 6. Zwischen ihnen liefen Läufe mit Warten, und
+  keiner davon staute.
+- Jeder Lauf mit Stau braucht länger als jeder Lauf mit Warten derselben
+  Reihe und Art.
+- Auch ohne Stau braucht gleiches Löschen etwas länger: Am Median sind es
+  0,07 bis 0,16 s gegen die Läufe mit Warten.
 
 **Messung je Thread, Reihe 3 ohne Karte,** schnelle gegen langsame Läufe:
 
@@ -114,7 +139,7 @@ Der langsame Lauf mit Karte in Reihe 3 sieht genauso aus: 5,21 statt
 3,3 s Basis, 58,5 statt 11,4 s Schreiben, 1402 ms das längste einzelne
 Schreiben, die CPU-Zeit wie in den schnellen.
 
-**Die Karte** war in jedem Lauf nach 0,19 bis 0,39 s mit ihrer ersten
+**Die Karte** war in jedem Lauf nach 0,19 bis 0,53 s mit ihrer ersten
 Gruppe fertig, in schnellen wie in langsamen.
 
 **Ohne Löschen,** in Reihe 4, schrieb die Platte vor den Läufen noch mit 50
@@ -126,21 +151,25 @@ jedem Lauf ruhten.
 
 - **Die Ursache:** Das Löschen des vorigen Baums unmittelbar vor dem
   nächsten Lauf staut dessen Schreiben. Einzelne Schreibvorgänge hängen 0,4
-  bis 1,5 s, die Threads warten. Gerechnet wird in den langsamen Läufen
-  nicht mehr: CPU-Zeit, Zeichnen und Kodieren sind dieselben.
+  bis 1,9 s, die Threads warten. Gerechnet wird in den langsamen Läufen
+  nicht mehr: CPU-Zeit, Zeichnen und Kodieren sind dieselben. Belegt ist
+  das mit den Reihen 6 und 7, die je Lauf zwischen gleichem Löschen und
+  15 s Warten wechseln.
 - **Nicht die Ursache sind:**
-  - die Karte, deren erste Gruppe immer nach 0,2 bis 0,4 s fertig ist;
-  - ein Nachzügler: Die Threads enden in jedem Lauf innerhalb von 0,3
+  - die Karte, deren erste Gruppe immer nach 0,2 bis 0,5 s fertig ist;
+  - ein Nachzügler: Die Threads enden in jedem Lauf innerhalb von 0,2
     bis 0,7 s;
   - die Eltern auf den Render-Threads: Sie kosten nur, soweit sie selbst
     schreiben;
   - das Zurückschreiben allein. Es kostet aber rund 0,3 s Basis.
-- **Ein Fehler im Renderer ist es nicht.** Ein Vollrender löscht während
-  der Basis nichts. Er schreibt jede Kachel über eine Datei daneben und
-  benennt sie dann um.
-- **Offen ist, warum master in Reihe 1 nichts zeigte.** Seine Basis
-  braucht 4,3 bis 5,6 s statt 3,0 bis 4,0 s, er schreibt also langsamer.
-  Ausgeschlossen ist der Zustand dort nicht.
+- **Ein Fehler im Renderer ist es nicht.** Ein Vollrender in ein leeres
+  Verzeichnis löscht während der Basis nichts. Er schreibt jede Kachel über
+  eine Datei daneben und benennt sie dann um. Über einem bestehenden Baum
+  ersetzt aber jedes Umbenennen eine alte Kachel. Ob das genauso staut,
+  ist nicht gemessen.
+- **Master ist genauso betroffen.** In Reihe 7 staute gleiches Löschen 4
+  von 12 Läufen, bis 1,9 s, Warten keinen. Warum Reihe 1 an master in 20
+  Läufen keinen Stau zeigte, ist offen.
 - **Regel:** Nach jedem Lauf seinen Baum löschen und 15 s warten, bevor der
   nächste beginnt, oder erst am Ende der Reihe löschen. Sie steht im Skill
   [`messung-protokollieren`](../../skills/messung-protokollieren/SKILL.md).

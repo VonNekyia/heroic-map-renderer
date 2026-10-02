@@ -132,7 +132,7 @@ mit dem Assert in `kameras()`: eine echte Änderung in `ChunkCache::zelle`
 gebaut, zurückgesetzt, die Rückkehr gestoppt neu gebaut, dann die Suite.
 Ohne heisst `--config` mit `opt-level` 0 für beide Profile, in eigenem
 Zielverzeichnis. Andere Programme lasteten den Rechner dabei mit 23 bis
-39 % aus; der Unterschied ist viermal grösser als das.
+39 % aus. Das macht beide Läufe ungenau, erklärt aber keinen Faktor 4.
 
 | | ohne | mit |
 |---|---|---|

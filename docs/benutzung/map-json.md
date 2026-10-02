@@ -203,9 +203,9 @@ die alle Bäume teilen. Entschieden in
   Ordner, in den der Baum gehört; er deutet ihn nicht um und verschiebt
   nichts. Weiter geht es so: alles ausser `heights/` in den genannten
   Ordner verschieben, `heights/` bleibt in der Wurzel, wo alle Bäume sie
-  lesen. Bis zum nächsten Lauf zeigt das Frontend für den Baum keine
-  Koordinaten, denn seine `map.json` sucht die Höhen noch in seinem eigenen
-  Ordner. Der nächste Lauf schreibt sie neu, mit `../heights/{x}.{z}.bin`.
+  lesen. Bis zum nächsten Lauf zeigt das Frontend für den Baum Striche
+  statt Koordinaten, denn seine `map.json` sucht die Höhen noch in seinem
+  eigenen Ordner, siehe [Frontend](../frontend.md), „Koordinaten“. Der nächste Lauf schreibt sie neu, mit `../heights/{x}.{z}.bin`.
   `--pyramid` nimmt weiter jeden Baum, auch einen der alten Ablage.
 - **Ein Baum statt der Wurzel:** Ist `--tiles` der Ordner eines Baums unter
   einer Wurzel, zu erkennen an der `trees.json` daneben oder an Höhen unter

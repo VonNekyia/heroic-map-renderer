@@ -33,7 +33,9 @@ test('ohne SITE_URL: Titel und Beschreibung, keine Adresse', async ({ page, requ
   await expect(page.locator('meta[name="robots"]')).toHaveCount(0);
 
   const robots = await (await request.get('/robots.txt')).text();
-  expect(robots).toBe('User-agent: *\nAllow: /tiles/map.json\nDisallow: /tiles/\n');
+  expect(robots).toBe(
+    'User-agent: *\nAllow: /tiles/trees.json\nAllow: /tiles/*/map.json\nAllow: /tiles/map.json\nDisallow: /tiles/\n',
+  );
   expect((await request.get('/favicon.png')).ok()).toBe(true);
 });
 
@@ -54,7 +56,9 @@ test('mit SITE_URL: absolute Adressen, robots.txt ab der Wurzel der Domain', () 
   // Der Titel ist maskiert, in Text und Attributen.
   expect(kopf).toContain('<title>Karte &quot;A&quot; &amp; &lt;B&gt;</title>');
   expect(kopf).toContain('content="Karte &quot;A&quot; &amp; &lt;B&gt;"');
-  expect(robots).toBe('User-agent: *\nAllow: /karte/tiles/map.json\nDisallow: /karte/tiles/\n');
+  expect(robots).toBe(
+    'User-agent: *\nAllow: /karte/tiles/trees.json\nAllow: /karte/tiles/*/map.json\nAllow: /karte/tiles/map.json\nDisallow: /karte/tiles/\n',
+  );
 });
 
 test('leere Angaben zählen wie keine, eine Adresse ohne Schema bricht ab', () => {

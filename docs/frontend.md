@@ -215,11 +215,13 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   Skill.
 - **`robots.txt`** schreibt der Build: alles erlaubt ausser `tiles/`, damit
   Suchmaschinen die Seite finden, aber nicht jede Kachel abrufen.
-  `tiles/map.json` bleibt erlaubt: Ohne sie rendert eine Suchmaschine nur
-  die Meldung, dass die Karte nicht lädt. Die längere Regel gewinnt
-  (RFC 9309). `robots.txt` wirkt nur im Wurzelverzeichnis einer Domain;
-  der Pfad zählt deshalb ab dort, mit `SITE_URL=https://example.org/karte/`
-  also `Allow: /karte/tiles/map.json` und `Disallow: /karte/tiles/`.
+  Erlaubt bleiben `tiles/trees.json`, `tiles/*/map.json` und für einen
+  Baum ohne Liste `tiles/map.json`: Ohne sie rendert eine Suchmaschine nur
+  die Meldung, dass die Karte nicht lädt. Die längere Regel gewinnt, `*`
+  steht für beliebige Zeichen (RFC 9309). `robots.txt` wirkt nur im
+  Wurzelverzeichnis einer Domain; der Pfad zählt deshalb ab dort, mit
+  `SITE_URL=https://example.org/karte/` also etwa
+  `Allow: /karte/tiles/trees.json` und `Disallow: /karte/tiles/`.
 
 ## Prüfen
 

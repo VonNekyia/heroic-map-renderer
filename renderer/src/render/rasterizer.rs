@@ -1744,6 +1744,19 @@ mod tests {
             ecken_im_blick(nw, 1),
             [[0.0, 1.0], [0.0, 0.0], [1.0, 0.0], [1.0, 1.0]]
         );
+        // Aus Südwesten: oben gedreht, die Diagonale von Ecke 0 nach 2
+        // gekippt; im Süden der Westen (0, 1, 0), (0, 0, 0), (0, 0, 1),
+        // (0, 1, 1), im Osten der Süden (0, 1, 1), (0, 0, 1), (1, 0, 1),
+        // (1, 1, 1).
+        let sw = Richtung::parse("sw", Kamera::ZWEI_ZU_EINS).unwrap();
+        assert_eq!(
+            std::array::from_fn::<_, 3, _>(|s| ecken_im_blick(sw, s)),
+            [
+                [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]],
+                [[0.0, 1.0], [0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
+                [[1.0, 1.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0]],
+            ]
+        );
         for name in ["sw", "nw", "ne"] {
             let richtung = Richtung::parse(name, Kamera::ZWEI_ZU_EINS).unwrap();
             for s in 0..3 {

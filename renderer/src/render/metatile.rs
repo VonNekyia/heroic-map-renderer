@@ -1397,6 +1397,10 @@ impl<'a> ChunkCache<'a> {
         if std::ptr::eq(self.sprites, sprites) {
             return;
         }
+        // Richtung, Seiten der weichen Beleuchtung und die Schlüssel im
+        // Vorrat gelten im Blick: Alle Stufen eines Laufs schauen aus
+        // derselben Richtung.
+        debug_assert_eq!(sprites.projection().richtung(), self.richtung);
         self.sprites = sprites;
         self.himmel = sprites.himmel();
         self.slots.clear();
@@ -2507,6 +2511,30 @@ mod tests {
                 nachbarn: [[0, 1, 0], [0, -1, 0], [-1, 0, 0], [1, 0, 0]],
                 remap: [3, 0, 1, 2],
             }
+        );
+        // Aus Südwesten zeigt oben Osten, Westen, Norden und Süden der Welt
+        // im Blick im Norden, Süden, Westen und Osten, die Seite im Süden den
+        // Westen und die im Osten den Süden.
+        let sw = Richtung::parse("sw", Kamera::ZWEI_ZU_EINS).unwrap();
+        assert_eq!(
+            ao_seiten(sw),
+            [
+                AoSeite {
+                    richtung: [0, 1, 0],
+                    nachbarn: [[0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]],
+                    remap: [2, 3, 0, 1],
+                },
+                AoSeite {
+                    richtung: [0, 0, 1],
+                    nachbarn: [[0, 1, 0], [0, -1, 0], [-1, 0, 0], [1, 0, 0]],
+                    remap: [3, 0, 1, 2],
+                },
+                AoSeite {
+                    richtung: [1, 0, 0],
+                    nachbarn: [[0, 0, 1], [0, 0, -1], [0, -1, 0], [0, 1, 0]],
+                    remap: [0, 1, 2, 3],
+                },
+            ]
         );
         // Je Wert von `ecken_at` die zwei Nachbarn seiner Ecke.
         const PAARE: [(usize, usize); 4] = [(3, 0), (2, 0), (2, 1), (3, 1)];

@@ -155,12 +155,23 @@ fn gedreht_wie_der_gedrehte_block() {
 /// und Norden 0,8, Osten und Westen 0,6. Aus Südosten zeigt die Seite nach
 /// links den Süden, aus Südwesten den Westen, aus Nordwesten den Norden und
 /// aus Nordosten den Osten; die Seite nach rechts eine Vierteldrehung
-/// weiter. Genordet sieht die Kamera eine Seite, die der Richtung.
+/// weiter. Genordet sieht die Kamera eine Seite, die der Richtung. Ebenso
+/// die Flächen eines Blockentities im Licht der Entities, an einem Topf:
+/// Auch dort sind Norden und Süden gleich hell, Osten und Westen auch.
 #[test]
 fn seiten_so_hell_wie_in_der_welt() {
+    for name in [
+        "minecraft:einfarbig",
+        "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=false]",
+    ] {
+        seiten_so_hell_wie_ihre_seite(name);
+    }
+}
+
+fn seiten_so_hell_wie_ihre_seite(name: &'static str) {
     let farbe = |kamera: Kamera, k: usize, punkt: [f32; 3]| -> Rgba<u8> {
         let projection = Projection::mit_kamera(16, kamera).aus(richtungen(kamera)[k]);
-        let (bild, rect) = einzeln("minecraft:einfarbig", projection);
+        let (bild, rect) = einzeln(name, projection);
         // Ein Punkt auf einer Seite im Blick, an dem Block bei (8, 3, 8).
         let [bx, _, bz] = blick(projection, [8, 3, 8]);
         let (px, py) =
@@ -174,18 +185,18 @@ fn seiten_so_hell_wie_in_der_welt() {
     let rechts = [1.0, 0.5, 0.5];
     let schraeg = Kamera::ZWEI_ZU_EINS;
     let (sued, ost) = (farbe(schraeg, 0, links), farbe(schraeg, 0, rechts));
-    assert_ne!(sued, ost, "Süden und Osten gleich hell");
+    assert_ne!(sued, ost, "{name}: Süden und Osten gleich hell");
     // Je Richtung: welche Seite der Welt links und rechts liegt.
     for (k, [l, r]) in [(1, [ost, sued]), (2, [sued, ost]), (3, [ost, sued])] {
-        assert_eq!(farbe(schraeg, k, links), l, "links aus {k}");
-        assert_eq!(farbe(schraeg, k, rechts), r, "rechts aus {k}");
+        assert_eq!(farbe(schraeg, k, links), l, "{name}: links aus {k}");
+        assert_eq!(farbe(schraeg, k, rechts), r, "{name}: rechts aus {k}");
     }
     let genordet = Kamera::Nord45;
     let seite = |k| farbe(genordet, k, links);
-    assert_eq!(seite(0), sued);
-    assert_eq!(seite(1), ost, "Westen wie Osten");
-    assert_eq!(seite(2), sued, "Norden wie Süden");
-    assert_eq!(seite(3), ost);
+    assert_eq!(seite(0), sued, "{name}");
+    assert_eq!(seite(1), ost, "{name}: Westen wie Osten");
+    assert_eq!(seite(2), sued, "{name}: Norden wie Süden");
+    assert_eq!(seite(3), ost, "{name}");
 }
 
 /// Das Licht einer Zelle ist aus jeder Richtung das ihres Platzes in der
@@ -222,6 +233,40 @@ fn licht_der_welt_aus_jeder_richtung() {
                 richtung.name(kamera)
             );
         }
+    }
+}
+
+/// Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet aus
+/// jeder Richtung das Raster in 2:1 aus der Vorgabe: Die Kerbe, ein Würfel
+/// ohne seine untere Ecke im Nordwesten, deckt aus Südosten ihren Umriss,
+/// aus Nordwesten nicht. Sie liegt über einer Grube aus Brettern; darin ist
+/// es aus jeder Richtung so dunkel wie aus der Vorgabe.
+#[test]
+fn licht_unbekannter_bloecke_aus_der_vorgabe() {
+    let dir = tempfile::tempdir().unwrap();
+    common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
+        (8, 5, 8) => "minecraft:kerbe",
+        (8, 4, 8) => "minecraft:air",
+        (7..=9, 3..=4, 7..=9) => "minecraft:oak_planks",
+        _ => "minecraft:air",
+    });
+    let world = World::open(dir.path()).unwrap();
+    let kamera = Kamera::ZWEI_ZU_EINS;
+    let vorgabe = Projection::mit_kamera(16, kamera);
+    let licht = |projection: Projection| {
+        let sprites = tabelle(&world, projection, Y_RANGE);
+        let mut cache = ChunkCache::new(&world, &sprites);
+        cache.licht_at(blick(projection, [8, 4, 8])).unwrap()
+    };
+    let soll = licht(vorgabe);
+    assert_eq!(soll.0, 0, "die Kerbe hält das Himmelslicht nicht auf");
+    for richtung in &richtungen(kamera)[1..] {
+        assert_eq!(
+            licht(vorgabe.aus(*richtung)),
+            soll,
+            "aus {}",
+            richtung.name(kamera)
+        );
     }
 }
 
@@ -282,93 +327,389 @@ fn alternative_und_biom_aus_der_welt() {
 }
 
 /// Flächen zu gleichen Nachbarn entfallen nach der Seite in der Welt: Eis
-/// in einem Winkel aus drei Armen, nach Osten, Süden und oben, sieht aus
-/// Nordwesten aus wie derselbe Winkel halb gedreht aus Südosten. Eis lässt
-/// jede Fläche zu Eis weg, und es ist durchscheinend: Eine Fläche zu viel
-/// zeigte sich. Seine Textur hat eine Farbe; halb gedreht bleiben auch die
-/// Schatten.
+/// in einem Winkel aus drei Armen, nach Osten, Süden und oben, gedreht wie
+/// aus der Vorgabe. Eis lässt jede Fläche zu Eis weg, und es ist
+/// durchscheinend: Eine Fläche zu viel zeigte sich auch im Alpha. Siehe
+/// `wie_die_vorgabe`.
 #[test]
 fn flaechen_zu_gleichen_nachbarn_aus_der_welt() {
-    let winkel = |x: i32, y: i32, z: i32| match (x, y, z) {
-        (8, 3, 8) | (9, 3, 8) | (8, 3, 9) | (8, 4, 8) => "minecraft:ice",
-        _ => "minecraft:air",
+    let winkel = [[8, 3, 8], [9, 3, 8], [8, 3, 9], [8, 4, 8]].map(|p| (p, "minecraft:ice"));
+    wie_die_vorgabe(&winkel, &[], &[(0, 0)], &KAMERAS);
+}
+
+/// Wasser in Stufen, in der Luft: Es lässt seine Flächen zu demselben
+/// Wasser weg, nach der Seite im Blick, und zeigt über tieferem Wasser einen
+/// Streifen, gedreht wie aus der Vorgabe. Aus der Vorgabe ist der Streifen
+/// nach Osten zu sehen: Steht das Wasser daneben gleich hoch, zeigt derselbe
+/// Pixel dessen Oberfläche. Siehe `wie_die_vorgabe`.
+#[test]
+fn wasser_aus_der_welt() {
+    let stufen = |daneben: &'static str| {
+        vec![
+            ([5, 3, 7], "minecraft:water"),
+            ([6, 3, 7], "minecraft:water[level=2]"),
+            ([7, 3, 7], daneben),
+            ([8, 3, 7], "minecraft:water[level=6]"),
+            ([6, 3, 8], "minecraft:water[level=5]"),
+            ([5, 4, 7], "minecraft:water[level=8]"),
+        ]
     };
-    // Halb gedreht: was in der Welt bei (x, z) steht, steht bei (−x − 1, −z − 1).
-    let gedreht = move |x: i32, y: i32, z: i32| winkel(-x - 1, y, -z - 1);
-    let kamera = Kamera::ZWEI_ZU_EINS;
-    let vorgabe = Projection::mit_kamera(16, kamera);
-    let nw = vorgabe.aus(richtungen(kamera)[2]);
-    // Im Blick liegen beide Winkel an derselben Stelle.
-    let (mx, my) = nw.project_block(blick(nw, [8, 3, 8]));
-    let rect = ScreenRect {
-        x: mx as i32 - 48,
-        y: my as i32 - 48,
-        width: 96,
-        height: 96,
+    let szene = stufen("minecraft:water[level=4]");
+    let vorgabe = Projection::mit_kamera(16, Kamera::ZWEI_ZU_EINS);
+    let rect = rect_um(vorgabe, [4, 2, 6], [10, 6, 10]);
+    // Auf der Seite nach Osten von (6, 3, 7), zwischen den Höhen 4/9 und
+    // 6/9 der beiden Stufen.
+    let (px, py) = pixel(vorgabe, rect, [7.0, 3.0 + 5.0 / 9.0, 7.5]);
+    let mit = gedreht_gerendert(&szene, &[(0, 0)], 0, vorgabe, rect);
+    let ohne = gedreht_gerendert(
+        &stufen("minecraft:water[level=2]"),
+        &[(0, 0)],
+        0,
+        vorgabe,
+        rect,
+    );
+    assert!(mit.get_pixel(px, py).0[3] > 0, "kein Streifen");
+    assert_ne!(
+        mit.get_pixel(px, py),
+        ohne.get_pixel(px, py),
+        "kein Streifen"
+    );
+    wie_die_vorgabe(&szene, &[], &[(0, 0)], &KAMERAS);
+}
+
+/// Die Seiten rundum, im Uhrzeigersinn von oben.
+const RUNDUM: [&str; 4] = ["north", "east", "south", "west"];
+
+/// Die Seite der Welt, die im Blick aus k nach `blick` zeigt: k Schritte
+/// weiter im Uhrzeigersinn. Gerechnet aus der Tabelle in
+/// docs/benutzung/map-json.md, „Kamera und Projektion“, nicht mit dem
+/// Renderer: zurück in die Welt geht eine Richtung (x, z) nach (−z, x).
+fn seite_in_die_welt(k: usize, blick: &str) -> &'static str {
+    let i = RUNDUM.iter().position(|s| *s == blick).unwrap();
+    RUNDUM[(i + k) % 4]
+}
+
+/// Wo der Block (x, z) im Blick aus k in der Welt liegt, nach derselben
+/// Tabelle: k-mal (x, z) → (−z − 1, x). Ebenso für Chunks.
+fn in_die_welt(k: usize, [x, z]: [i32; 2]) -> [i32; 2] {
+    (0..k).fold([x, z], |[x, z], _| [-z - 1, x])
+}
+
+/// Der Blockstate, der in der Welt stehen muss, damit er im Blick aus k so
+/// liegt wie `state` aus der Vorgabe: `facing` und jede Eigenschaft, die
+/// nach einer Seite heisst, in die Welt gedreht, wie `BlockState.rotate`
+/// im Spiel; `half`, `shape`, `hinge`, `open` und `type` bleiben.
+fn drehe(state: &str, k: usize) -> String {
+    let Some((name, rest)) = state.split_once('[') else {
+        return state.to_string();
     };
-    let bild = |welt: &dyn Fn(i32, i32, i32) -> &'static str,
-                chunk: (i32, i32),
-                projection: Projection| {
-        let dir = tempfile::tempdir().unwrap();
-        common::write_world(dir.path(), &[chunk], welt);
-        let world = World::open(dir.path()).unwrap();
-        let sprites = tabelle(&world, projection, Y_RANGE);
-        render_area(&world, &sprites, rect, Y_RANGE).unwrap()
-    };
-    let ist = bild(&winkel, (0, 0), nw);
-    assert!(ist.pixels().any(|p| p.0[3] > 0), "leer");
+    let eigenschaften: Vec<String> = rest
+        .trim_end_matches(']')
+        .split(',')
+        .map(|paar| {
+            let (schluessel, wert) = paar.split_once('=').unwrap();
+            if RUNDUM.contains(&schluessel) {
+                format!("{}={wert}", seite_in_die_welt(k, schluessel))
+            } else if schluessel == "facing" && RUNDUM.contains(&wert) {
+                format!("facing={}", seite_in_die_welt(k, wert))
+            } else {
+                paar.to_string()
+            }
+        })
+        .collect();
+    format!("{name}[{}]", eigenschaften.join(","))
+}
+
+/// `szene` in der Welt um k Vierteldrehungen gedreht, gerendert aus der
+/// Richtung k in `rect`: Jeder Block liegt dann im Blick, wo er in `szene`
+/// liegt, und sieht aus wie dort aus der Vorgabe. Die Chunks der Szene
+/// drehen sich mit, auch die leeren; so fehlt aus jeder Richtung derselbe
+/// Rand.
+fn gedreht_gerendert(
+    szene: &[([i32; 3], &'static str)],
+    chunks: &[(i32, i32)],
+    k: usize,
+    projection: Projection,
+    rect: ScreenRect,
+) -> RgbaImage {
+    let welt: std::collections::HashMap<[i32; 3], &'static str> = szene
+        .iter()
+        .map(|&([x, y, z], state)| {
+            let [wx, wz] = in_die_welt(k, [x, z]);
+            let state: &'static str = Box::leak(drehe(state, k).into_boxed_str());
+            ([wx, y, wz], state)
+        })
+        .collect();
+    let chunks: Vec<(i32, i32)> = chunks
+        .iter()
+        .map(|&(cx, cz)| {
+            let [cx, cz] = in_die_welt(k, [cx, cz]);
+            (cx, cz)
+        })
+        .collect();
+    let dir = tempfile::tempdir().unwrap();
+    common::write_world(dir.path(), &chunks, |x, y, z| {
+        welt.get(&[x, y, z]).copied().unwrap_or("minecraft:air")
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&world, projection, Y_RANGE);
+    render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+}
+
+/// Wie zwei Bilder gleich sein müssen.
+#[derive(Clone, Copy)]
+enum Gleich {
+    /// Nur im Alpha.
+    Alpha,
+    /// Im Alpha genau, in der Farbe bis auf eins je Kanal.
+    Nahe,
+}
+
+/// Die abweichenden Pixel mit Lage und Farben.
+fn abweichend(a: &RgbaImage, b: &RgbaImage, gleich: Gleich) -> Vec<(u32, u32, [u8; 4], [u8; 4])> {
+    a.enumerate_pixels()
+        .zip(b.pixels())
+        .filter(|((_, _, p), q)| {
+            p.0[3] != q.0[3]
+                || matches!(gleich, Gleich::Nahe) && (0..3).any(|c| p.0[c].abs_diff(q.0[c]) > 1)
+        })
+        .map(|((x, y, p), q)| (x, y, p.0, q.0))
+        .collect()
+}
+
+fn pruefe(ist: &RgbaImage, soll: &RgbaImage, gleich: Gleich, was: String) {
+    let falsch = abweichend(ist, soll, gleich);
     assert!(
-        ist == bild(&gedreht, (-1, -1), vorgabe),
-        "aus Nordwesten anders als halb gedreht"
+        falsch.is_empty(),
+        "{was}: {} Pixel, etwa {:?}",
+        falsch.len(),
+        &falsch[..falsch.len().min(6)]
     );
 }
 
-/// Wasser lässt seine Flächen zu demselben Wasser weg, nach der Seite im
-/// Blick, und zeigt über tieferem Wasser einen Streifen: Ein Becken mit
-/// einer Quelle und fliessendem Wasser in Stufen sieht aus Nordwesten aus
-/// wie dasselbe Becken halb gedreht aus Südosten. Wasser und Becken haben
-/// eine Farbe; halb gedreht bleiben die Schatten, auch die der Seiten des
-/// Wassers.
+/// Dieselbe Szene, in der Welt gedreht und aus der mitgedrehten Richtung
+/// gerendert, gleicht ihrem Bild aus der Vorgabe, je Kamera und für k = 1, 2
+/// und 3:
+/// - **Halb gedreht** im Alpha genau und in der Farbe bis auf eins je Kanal:
+///   Norden und Süden sind gleich hell, Osten und Westen auch, das Licht der
+///   Entities ebenso, und die Diagonale der Oberseite liegt wie vorher. Um
+///   eins weicht eine Farbe ab, wo das Mischen der Ecken in anderer
+///   Reihenfolge anders rundet.
+/// - **Aus k = 1 und 3** ist eine Seite anders hell und die Diagonale
+///   gekippt. Dort zählt Alpha, also Geometrie und Weglassen; die Szene
+///   steht dafür ohne Boden in der Luft. Beide Bilder gleichen einander wie
+///   halb gedreht.
+/// - **Blockentities** in `nur_halb` zählen nur halb gedreht: Die Lagen des
+///   Spiels für Blockentities nach Osten und Westen tragen 0,99999994 statt
+///   1 (`blockentities.txt`), und an einer Kante auf Pixelmitten kippte ein
+///   Pixel nach der Füllregel. Nach Norden und Süden sind sie genau.
+///
+/// Alle Texturen haben eine Farbe, oder sie liegen auf einem Modell, das
+/// sich mit seinem Blockstate dreht. Die Szene liegt in Chunks mit
+/// positiven Koordinaten; gedreht reicht sie ins Negative.
+fn wie_die_vorgabe(
+    szene: &[([i32; 3], &'static str)],
+    nur_halb: &[([i32; 3], &'static str)],
+    chunks: &[(i32, i32)],
+    kameras: &[(&str, u32)],
+) {
+    let ganz: Vec<([i32; 3], &'static str)> = szene.iter().chain(nur_halb).copied().collect();
+    let (lo, hi) = ganz
+        .iter()
+        .fold(([i32::MAX; 3], [i32::MIN; 3]), |(lo, hi), (p, _)| {
+            (
+                std::array::from_fn(|i| lo[i].min(p[i])),
+                std::array::from_fn(|i| hi[i].max(p[i])),
+            )
+        });
+    for &(kamera, scale) in kameras {
+        let kamera = Kamera::parse(kamera).unwrap();
+        let vorgabe = Projection::mit_kamera(scale, kamera);
+        let aus = |k: usize| vorgabe.aus(richtungen(kamera)[k]);
+        // Mit einem Block Rand, für Überhänge und Türme.
+        let rect = rect_um(
+            vorgabe,
+            [lo[0] - 1, lo[1] - 1, lo[2] - 1],
+            [hi[0] + 2, hi[1] + 3, hi[2] + 2],
+        );
+        let soll = gedreht_gerendert(szene, chunks, 0, vorgabe, rect);
+        let sichtbar = soll.pixels().filter(|p| p.0[3] > 0).count();
+        assert!(
+            sichtbar > 0 && sichtbar < soll.pixels().len(),
+            "{kamera}: {sichtbar} Pixel sichtbar"
+        );
+        let halb = gedreht_gerendert(&ganz, chunks, 2, aus(2), rect);
+        let soll_ganz = if nur_halb.is_empty() {
+            soll.clone()
+        } else {
+            gedreht_gerendert(&ganz, chunks, 0, vorgabe, rect)
+        };
+        pruefe(
+            &halb,
+            &soll_ganz,
+            Gleich::Nahe,
+            format!("{kamera} bei {scale} aus 2"),
+        );
+        let viertel = [1, 3].map(|k| gedreht_gerendert(szene, chunks, k, aus(k), rect));
+        for (k, bild) in [1, 3].into_iter().zip(&viertel) {
+            pruefe(
+                bild,
+                &soll,
+                Gleich::Alpha,
+                format!("{kamera} bei {scale} aus {k}"),
+            );
+        }
+        pruefe(
+            &viertel[0],
+            &viertel[1],
+            Gleich::Nahe,
+            format!("{kamera} bei {scale}: aus 1 gegen 3"),
+        );
+    }
+}
+
+/// Das Rechteck um den Quader von `lo` bis `hi` im Blick.
+fn rect_um(projection: Projection, lo: [i32; 3], hi: [i32; 3]) -> ScreenRect {
+    let ecken: Vec<(f64, f64)> = (0..8)
+        .map(|i| {
+            let wahl = |a: usize| if i >> a & 1 == 0 { lo[a] } else { hi[a] };
+            projection.project_block([wahl(0), wahl(1), wahl(2)])
+        })
+        .collect();
+    let x0 = ecken.iter().map(|e| e.0).fold(f64::MAX, f64::min).floor() as i32;
+    let x1 = ecken.iter().map(|e| e.0).fold(f64::MIN, f64::max).ceil() as i32;
+    let y0 = ecken.iter().map(|e| e.1).fold(f64::MAX, f64::min).floor() as i32;
+    let y1 = ecken.iter().map(|e| e.1).fold(f64::MIN, f64::max).ceil() as i32;
+    ScreenRect {
+        x: x0,
+        y: y0,
+        width: (x1 - x0) as u32,
+        height: (y1 - y0) as u32,
+    }
+}
+
+/// Die Kameras der gedrehten Szenen.
+const KAMERAS: [(&str, u32); 5] = [
+    ("2:1", 16),
+    ("4:3", 32),
+    ("top", 32),
+    ("top-north", 16),
+    ("north-45", 16),
+];
+
+/// Die Szene aus #68: Treppen in allen Formen, Platten, Türen, Zäune und
+/// Scheiben, die sich verbinden, Eis, Licht unter einem Dach mit einer
+/// Quelle und einem voll hellen Block, weich beleuchtete Bretter, Teile in
+/// fremden Würfeln, auch in einem belegten, eine Doppelkiste und ein Topf,
+/// Wasser in Stufen mit Streifen. Alles steht in der Luft, über die Grenze
+/// zweier Chunks in x und in z. Siehe `wie_die_vorgabe`.
 #[test]
-fn wasser_aus_der_welt() {
-    let becken = |x: i32, y: i32, z: i32| match (x, y, z) {
-        (_, 0, _) => "minecraft:einfarbig",
-        (5..=11, 1, 5..=11) if x == 5 || x == 11 || z == 5 || z == 11 => "minecraft:einfarbig",
-        (6, 1, 6..=10) => "minecraft:water",
-        (7, 1, 6..=10) => "minecraft:water[level=2]",
-        (8, 1, 6..=10) => "minecraft:water[level=4]",
-        (9, 1, 6..=8) => "minecraft:water[level=6]",
-        (6..=7, 2, 6) => "minecraft:water",
-        _ => "minecraft:air",
-    };
-    let gedreht = move |x: i32, y: i32, z: i32| becken(-x - 1, y, -z - 1);
-    let kamera = Kamera::ZWEI_ZU_EINS;
-    let vorgabe = Projection::mit_kamera(16, kamera);
-    let nw = vorgabe.aus(richtungen(kamera)[2]);
-    let (mx, my) = nw.project_block(blick(nw, [8, 1, 8]));
-    let rect = ScreenRect {
-        x: mx as i32 - 128,
-        y: my as i32 - 128,
-        width: 256,
-        height: 256,
-    };
-    let bild = |welt: &dyn Fn(i32, i32, i32) -> &'static str,
-                chunk: (i32, i32),
-                projection: Projection| {
-        let dir = tempfile::tempdir().unwrap();
-        common::write_world(dir.path(), &[chunk], welt);
-        let world = World::open(dir.path()).unwrap();
-        let sprites = tabelle(&world, projection, Y_RANGE);
-        render_area(&world, &sprites, rect, Y_RANGE).unwrap()
-    };
-    let ist = bild(&becken, (0, 0), nw);
-    let soll = bild(&gedreht, (-1, -1), vorgabe);
-    let falsch = ist
-        .pixels()
-        .zip(soll.pixels())
-        .filter(|(a, b)| a != b)
-        .count();
-    assert_eq!(falsch, 0, "aus Nordwesten anders als halb gedreht");
+fn gedrehte_szene_wie_aus_der_vorgabe() {
+    let mut szene: Vec<([i32; 3], &'static str)> = vec![
+        // Treppen auf Brettern, die Bretter weich beleuchtet.
+        ([10, 3, 10], "minecraft:oak_planks"),
+        (
+            [9, 3, 9],
+            "minecraft:oak_stairs[facing=north,half=bottom,shape=outer_left]",
+        ),
+        (
+            [10, 3, 9],
+            "minecraft:oak_stairs[facing=north,half=bottom,shape=straight]",
+        ),
+        (
+            [11, 3, 9],
+            "minecraft:oak_stairs[facing=east,half=top,shape=inner_right]",
+        ),
+        (
+            [9, 3, 10],
+            "minecraft:oak_stairs[facing=west,half=bottom,shape=straight]",
+        ),
+        (
+            [11, 3, 10],
+            "minecraft:oak_stairs[facing=south,half=bottom,shape=outer_right]",
+        ),
+        (
+            [10, 4, 10],
+            "minecraft:oak_stairs[facing=south,half=top,shape=inner_left]",
+        ),
+        // Platten.
+        ([13, 3, 9], "minecraft:oak_slab[type=top]"),
+        ([13, 3, 10], "minecraft:oak_slab[type=bottom]"),
+        // Türen über der Grenze bei x = 16, eine offen, eine zu.
+        (
+            [15, 3, 9],
+            "minecraft:oak_door[facing=east,half=lower,hinge=right,open=false]",
+        ),
+        (
+            [15, 4, 9],
+            "minecraft:oak_door[facing=east,half=upper,hinge=right,open=false]",
+        ),
+        (
+            [16, 3, 9],
+            "minecraft:oak_door[facing=north,half=lower,hinge=left,open=true]",
+        ),
+        (
+            [16, 4, 9],
+            "minecraft:oak_door[facing=north,half=upper,hinge=left,open=true]",
+        ),
+        // Zäune, verbunden.
+        ([9, 3, 12], "minecraft:oak_fence[east=true]"),
+        (
+            [10, 3, 12],
+            "minecraft:oak_fence[east=true,south=true,west=true]",
+        ),
+        ([11, 3, 12], "minecraft:oak_fence[west=true]"),
+        ([10, 3, 13], "minecraft:oak_fence[north=true]"),
+        // Scheiben und Gitter über der Grenze bei z = 16, verbunden.
+        ([13, 3, 15], "minecraft:glass_pane[east=true]"),
+        ([14, 3, 15], "minecraft:glass_pane[south=true,west=true]"),
+        ([14, 3, 16], "minecraft:glass_pane[north=true,south=true]"),
+        ([14, 3, 17], "minecraft:iron_bars[east=true,north=true]"),
+        ([15, 3, 17], "minecraft:iron_bars[west=true]"),
+        // Eis, ein Winkel aus drei Armen.
+        ([18, 3, 9], "minecraft:ice"),
+        ([19, 3, 9], "minecraft:ice"),
+        ([18, 3, 10], "minecraft:ice"),
+        ([18, 4, 9], "minecraft:ice"),
+        // Licht unter einem Dach, mit einer Quelle und einem voll hellen
+        // Block auf dem Boden.
+        ([19, 3, 14], "minecraft:magma_block"),
+        ([20, 3, 15], "minecraft:sea_lantern"),
+        // Teile in fremden Würfeln: frei, nach oben und in einem belegten.
+        ([12, 3, 19], "minecraft:ueberhang_gerichtet[facing=south]"),
+        ([14, 3, 19], "minecraft:turm_gerichtet[facing=east]"),
+        ([16, 3, 19], "minecraft:ueberhang_gerichtet[facing=north]"),
+        ([15, 3, 19], "minecraft:oak_planks"),
+        // Wasser in Stufen, nach Osten und Süden mit Streifen.
+        ([18, 3, 20], "minecraft:water"),
+        ([19, 3, 20], "minecraft:water[level=2]"),
+        ([20, 3, 20], "minecraft:water[level=4]"),
+        ([21, 3, 20], "minecraft:water[level=6]"),
+        ([19, 3, 21], "minecraft:water[level=5]"),
+        ([18, 4, 20], "minecraft:water[level=8]"),
+    ];
+    // Boden und Dach um das Licht, über die Grenze bei z = 16.
+    for x in 18..=21 {
+        for z in 13..=16 {
+            szene.push(([x, 2, z], "minecraft:oak_planks"));
+            szene.push(([x, 6, z], "minecraft:oak_planks"));
+        }
+    }
+    szene.extend((3..=5).map(|y| ([21, y, 16], "minecraft:oak_planks")));
+    // Bretter unter den Treppen.
+    szene.extend((9..=11).flat_map(|x| (9..=10).map(move |z| ([x, 2, z], "minecraft:oak_planks"))));
+    // Blockentities nach Süden und Norden, siehe `wie_die_vorgabe`: eine
+    // Doppelkiste und ein Topf.
+    let entities = [
+        ([9, 3, 21], "minecraft:chest[facing=south,type=right]"),
+        ([10, 3, 21], "minecraft:chest[facing=south,type=left]"),
+        (
+            [12, 3, 22],
+            "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=false]",
+        ),
+    ];
+    let chunks = [(0, 0), (1, 0), (0, 1), (1, 1)];
+    wie_die_vorgabe(&szene, &entities, &chunks, &KAMERAS);
 }
 
 /// Das Rechteck um die Schicht bei y = 0 über die vier Chunks.

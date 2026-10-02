@@ -26,7 +26,9 @@ Reviewers eingeschlossen.
 - **`--tiles` ist die Wurzel.** Jeder Baum liegt darunter im Ordner
   `<kamera>-<richtung>`, die Kamera gekürzt und mit `x` statt `:`, den
   Windows im Pfad nicht erlaubt: `2x1-se`, `8x5-se`, `top-se`,
-  `top-north-s`, `north-45-n`.
+  `top-north-s`, `north-45-n`. Ein Baum mit Cinematic aus #72 hängt
+  `-cinematic` an, etwa `2x1-se-cinematic`, mit `look` `cinematic`; die
+  Karte bleibt ohne Anhang, `look` `map`.
 - **`trees.json` neben den Bäumen** nennt je Baum `path`, `camera`,
   `direction` und `look`. Der Lauf liest sie aus der Platte, je Ordner mit
   `map.json` ein Eintrag; er führt sie nicht fort.

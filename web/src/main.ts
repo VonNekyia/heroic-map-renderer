@@ -250,7 +250,13 @@ function koordinaten(
     const [wx, , wz] = inDieWelt([x, 0, z], k);
     return karten.hoehe(wx, wz);
   };
-  const anzeige = L.DomUtil.create('div', 'koordinaten');
+  const anzeige = L.DomUtil.create('button', 'koordinaten');
+  anzeige.type = 'button';
+  anzeige.title = 'Kopiert /tp für diesen Block';
+  // Ein Klick auf die Anzeige verschiebt die Karte nicht und wählt keinen
+  // Block; die Maus darüber ändert sie nicht.
+  L.DomEvent.disableClickPropagation(anzeige);
+  L.DomEvent.on(anzeige, 'mousemove', L.DomEvent.stopPropagation);
   const control = new L.Control({ position: 'bottomleft' });
   control.onAdd = () => anzeige;
   control.addTo(map);
@@ -267,15 +273,56 @@ function koordinaten(
   map.getContainer().addEventListener('pointerdown', merke);
   map.getContainer().addEventListener('pointermove', merke);
 
+  // Ein Mausklick auf die Karte hält den Block fest, bis sich die Karte
+  // bewegt oder Escape kommt; so kommt die Maus zur Anzeige, ohne dass sie
+  // unterwegs einen anderen Block zeigt. Siehe docs/frontend.md,
+  // „Koordinaten kopieren“.
+  let gehalten = false;
+  let gezeigt: Block | undefined;
+  let rueckmeldung: number | undefined;
   const zeige = (block: Block | undefined): void => {
+    gezeigt = block;
+    window.clearTimeout(rueckmeldung);
     const welt = block && inDieWelt(block, k);
     anzeige.textContent = welt ? `X ${welt[0]}  Y ${welt[1]}  Z ${welt[2]}` : 'X –  Y –  Z –';
+    // Gehalten zeigt es die Anzeige selbst; der Umriss bleibt nach 0049 beim
+    // Finger und Stift.
+    anzeige.classList.toggle('gehalten', gehalten && block !== undefined);
     rahmen.setLatLngs(
       block && ohneZeiger
         ? umriss(block, p).map((linie) => linie.map(([x, y]) => point(x, y)))
         : [],
     );
   };
+  const lasse = (): void => {
+    if (!gehalten) return;
+    gehalten = false;
+    zeige(gezeigt);
+  };
+  const melde = (text: string): void => {
+    anzeige.textContent = text;
+    window.clearTimeout(rueckmeldung);
+    rueckmeldung = window.setTimeout(() => zeige(gezeigt), 2000);
+  };
+  anzeige.addEventListener('click', () => {
+    const welt = gezeigt && inDieWelt(gezeigt, k);
+    if (!welt) {
+      melde('Erst einen Block wählen');
+      return;
+    }
+    // Einen Block höher, sonst steht man im Block; x und z rückt das Spiel
+    // auf die Mitte. Siehe docs/frontend.md, „Koordinaten kopieren“.
+    const befehl = `/tp ${welt[0]} ${welt[1] + 1} ${welt[2]}`;
+    // Die Zwischenablage gibt es nur im sicheren Kontext, HTTPS oder localhost.
+    if (!('clipboard' in navigator)) {
+      melde('Kopieren geht nur über HTTPS');
+      return;
+    }
+    navigator.clipboard.writeText(befehl).then(
+      () => melde(`Kopiert: ${befehl}`),
+      () => melde('Kopieren fehlgeschlagen'),
+    );
+  });
   // Lädt eine Bewegung noch Höhen, kann eine spätere vor ihr fertig sein.
   // Es gilt die letzte.
   let zuletzt = 0;
@@ -294,10 +341,27 @@ function koordinaten(
   };
 
   zeige(undefined);
-  map.on('mousemove', (event) => void ziele(event));
+  map.on('mousemove', (event) => {
+    if (!gehalten) void ziele(event);
+  });
   // Auf dem Touchscreen kommt ein Tippen als click.
-  map.on('click', (event) => void ziele(event));
+  // Beginnt ein Druck auf der Anzeige und endet er über der Karte, schickt
+  // der Browser den click an die Karte; der wählt keinen Block.
+  let aufAnzeige = false;
+  map.getContainer().addEventListener('pointerdown', (event) => {
+    aufAnzeige = anzeige.contains(event.target as Node);
+  });
+  map.on('click', (event) => {
+    if (aufAnzeige) return;
+    gehalten = !ohneZeiger;
+    void ziele(event);
+  });
+  map.on('movestart', lasse);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') lasse();
+  });
   map.on('mouseout', () => {
+    if (gehalten) return;
     zuletzt++;
     zeige(undefined);
   });

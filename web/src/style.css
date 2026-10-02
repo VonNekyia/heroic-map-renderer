@@ -16,12 +16,20 @@ body {
   image-rendering: pixelated;
 }
 
-/* Die Koordinaten des Blocks unter Maus oder Finger. */
+/* Die Koordinaten des Blocks unter Maus oder Finger; ein Klick kopiert /tp. */
 .koordinaten {
   padding: 0 0.5em;
+  border: 0;
   background: rgba(255, 255, 255, 0.8);
+  color: #000;
   font: 12px/1.6 ui-monospace, monospace;
   white-space: pre;
+  cursor: pointer;
+}
+
+/* Ein Klick hält den Block fest; die Anzeige folgt dann nicht der Maus. */
+.koordinaten.gehalten {
+  outline: 2px solid #000;
 }
 
 /* Für Screenreader und Suchmaschinen, nicht für das Auge. */

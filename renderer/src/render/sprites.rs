@@ -1743,7 +1743,7 @@ mod tests {
     /// Löchern, ein Grasblock mit Overlay. Ackerboden endet darunter, Schleim
     /// hat einen Würfel darin, Feuer steht quer im Würfel. Eine Familie nur,
     /// wenn jede Alternative die Bedingung erfüllt, also nicht aus vollem
-    /// Würfel und Ackerboden gemischt.
+    /// Würfel und Ackerboden gemischt. Die Vorderseiten liegen im Blick.
     #[test]
     fn wuerfelform_nur_mit_flaechen_auf_den_vorderseiten() {
         let mut assets = assets();
@@ -1762,6 +1762,16 @@ mod tests {
         for (name, soll) in namen {
             let family = set.family_of(&state(name)).unwrap();
             assert_eq!(family.wuerfelform, soll, "{name}");
+        }
+        // Nach den Seiten im Blick: Der Kerbe fehlt die untere Ecke im
+        // Nordwesten. Aus Südosten liegt alles, was die Kamera sieht, auf den
+        // Vorderseiten, aus Nordwesten auch eine Fläche der Lücke im Innern.
+        for (richtung, soll) in [("se", true), ("nw", false)] {
+            let richtung = Richtung::parse(richtung, Kamera::ZWEI_ZU_EINS).unwrap();
+            let kerbe = state("kerbe");
+            let set = build(&mut assets, [&kerbe], Projection::new(16).aus(richtung)).unwrap();
+            let family = set.family_of(&kerbe).unwrap();
+            assert_eq!(family.wuerfelform, soll, "Kerbe aus {richtung:?}");
         }
     }
 

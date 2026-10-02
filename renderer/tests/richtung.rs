@@ -598,11 +598,12 @@ const KAMERAS: [(&str, u32); 5] = [
 ];
 
 /// Die Szene aus #68: Treppen in allen Formen, Platten, Türen, Zäune und
-/// Scheiben, die sich verbinden, Eis, Licht unter einem Dach mit einer
-/// Quelle und einem voll hellen Block, weich beleuchtete Bretter, Teile in
-/// fremden Würfeln, auch in einem belegten, eine Doppelkiste und ein Topf,
-/// Wasser in Stufen mit Streifen. Alles steht in der Luft, über die Grenze
-/// zweier Chunks in x und in z. Siehe `wie_die_vorgabe`.
+/// Scheiben, die sich verbinden, auch geflutete, Eis, Licht unter einem
+/// Dach mit einer Quelle, ein voll heller Block unter einem flachen Dach
+/// auf weich beleuchteten Brettern, Teile in fremden Würfeln, auch in einem
+/// belegten, eine Doppelkiste und ein Topf, Wasser in Stufen mit Streifen.
+/// Alles steht in der Luft, über die Grenze zweier Chunks in x und in z.
+/// Siehe `wie_die_vorgabe`.
 #[test]
 fn gedrehte_szene_wie_aus_der_vorgabe() {
     let mut szene: Vec<([i32; 3], &'static str)> = vec![
@@ -671,10 +672,22 @@ fn gedrehte_szene_wie_aus_der_vorgabe() {
         ([19, 3, 9], "minecraft:ice"),
         ([18, 3, 10], "minecraft:ice"),
         ([18, 4, 9], "minecraft:ice"),
-        // Licht unter einem Dach, mit einer Quelle und einem voll hellen
-        // Block auf dem Boden.
-        ([19, 3, 14], "minecraft:magma_block"),
+        // Licht unter einem Dach mit einer Quelle.
         ([20, 3, 15], "minecraft:sea_lantern"),
+        // Geflutete Scheiben neben Wasser: die Maske ihrer Flüssigkeit.
+        (
+            [16, 3, 12],
+            "minecraft:glass_pane[east=true,south=true,waterlogged=true]",
+        ),
+        (
+            [16, 3, 13],
+            "minecraft:glass_pane[north=true,waterlogged=true]",
+        ),
+        ([17, 3, 12], "minecraft:water"),
+        // Ein voll heller Block unter einem flachen Dach, fern von der
+        // Quelle: Die Ecken der Bretter daneben nehmen sein Licht. Unter
+        // offenem Himmel oder neben der Quelle sind sie ohnehin voll hell.
+        ([10, 3, 16], "minecraft:magma_block"),
         // Teile in fremden Würfeln: frei, nach oben und in einem belegten.
         ([12, 3, 19], "minecraft:ueberhang_gerichtet[facing=south]"),
         ([14, 3, 19], "minecraft:turm_gerichtet[facing=east]"),
@@ -696,6 +709,16 @@ fn gedrehte_szene_wie_aus_der_vorgabe() {
         }
     }
     szene.extend((3..=5).map(|y| ([21, y, 16], "minecraft:oak_planks")));
+    // Boden und Dach um den Magmablock. Das Dach liegt zwei Zellen hoch:
+    // Eine Zelle hoch zählte der Block in der Ecke nicht, und gedreht nähme
+    // das Spiel einen anderen Nachbarn, siehe docs/renderer/richtungen.md,
+    // „Nicht das gedrehte Bild“.
+    for x in 9..=11 {
+        for z in 15..=17 {
+            szene.push(([x, 2, z], "minecraft:oak_planks"));
+            szene.push(([x, 5, z], "minecraft:oak_planks"));
+        }
+    }
     // Bretter unter den Treppen.
     szene.extend((9..=11).flat_map(|x| (9..=10).map(move |z| ([x, 2, z], "minecraft:oak_planks"))));
     // Blockentities nach Süden und Norden, siehe `wie_die_vorgabe`: eine

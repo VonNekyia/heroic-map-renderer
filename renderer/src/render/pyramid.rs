@@ -296,6 +296,15 @@ pub struct MapInfo {
     /// Die Projektion in Pixeln der feinsten Stufe; steht mit `camera`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub projection: Option<ProjectionInfo>,
+    /// Wie der Baum zeichnet: `"map"` die Karte, `"cinematic"` mit
+    /// `--cinematic`. Fehlt das Feld, stammt der Baum aus einem älteren
+    /// Stand und zeigt die Karte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<String>,
+    /// Der Fingerabdruck der Werte, mit denen Cinematic zeichnet, siehe
+    /// [`super::look::Look::fingerabdruck`]; steht nur mit `"cinematic"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look_hash: Option<String>,
 }
 
 /// Die Projektion in `map.json`: `azimuth` `"diagonal"` oder `"north"`,
@@ -342,6 +351,8 @@ impl MapInfo {
             camera: None,
             direction: None,
             projection: None,
+            look: None,
+            look_hash: None,
         }
     }
 }

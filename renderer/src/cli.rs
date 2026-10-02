@@ -17,6 +17,7 @@ use rayon::prelude::*;
 use terranova_render::assets::{Assets, blockentity, fluid, model_of};
 use terranova_render::render::gpu::Worker;
 use terranova_render::render::heights::{self, Heights, RegionHeights};
+use terranova_render::render::look::{LOOK, Look};
 use terranova_render::render::pyramid;
 use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
@@ -35,6 +36,7 @@ const Y_RANGE: (i32, i32) = (-64, 319);
 
 #[derive(Parser)]
 #[command(name = "terranova-render", version, about)]
+#[command(group(clap::ArgGroup::new("bild").args(["render", "tiles"]).multiple(true)))]
 pub struct Args {
     /// Weltverzeichnis: die Wurzel mit level.dat oder eine Dimension darin
     #[arg(long)]
@@ -93,6 +95,13 @@ pub struct Args {
     /// Einen Weltausschnitt in diese PNG rendern
     #[arg(long, value_name = "DATEI")]
     render: Option<PathBuf>,
+
+    /// Mit --render oder --tiles im Licht des Spiels zeichnen, mit
+    /// Belichtung, Weissabgleich und Kurve, statt als Karte. Jeder Baum mit
+    /// Cinematic liegt in einem eigenen Ordner `<kamera>-<richtung>-cinematic`.
+    /// Zeichnet auf der CPU, auch mit --gpu
+    #[arg(long, requires = "bild")]
+    cinematic: bool,
 
     /// Blockkoordinate, die in der Bildmitte landet: --center X Z
     #[arg(long, num_args = 2, allow_negative_numbers = true, value_names = ["X", "Z"], default_values_t = [0, 0])]
@@ -455,10 +464,11 @@ pub fn run() -> Result<()> {
                 window(projection, center, size),
                 path,
                 args.biome_blend.unwrap_or(BLEND_DEFAULT),
+                args.cinematic.then_some(LOOK),
             )?;
         }
         if let Some(dir) = &args.tiles {
-            let export = oeffne_gpu(args.gpu).and_then(|karte| {
+            let export = oeffne_gpu(args.gpu, args.cinematic).and_then(|karte| {
                 let export = write_tiles(
                     world,
                     assets.as_mut().expect("oben geprüft"),
@@ -470,6 +480,7 @@ pub fn run() -> Result<()> {
                     args.resume,
                     karte.as_ref(),
                     args.biome_blend,
+                    args.cinematic.then_some(LOOK),
                 );
                 // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
                 // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
@@ -647,9 +658,14 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
 
 /// Öffnet die Grafikkarte nach Wunsch. Bei `auto` ist ein Fehler beim
 /// Öffnen kein Grund abzubrechen — dann zeichnet die CPU. Auch eine Panik
-/// aus wgpu nicht, etwa wenn ein Treiber den Shader nicht übersetzt.
-fn oeffne_gpu(mode: GpuMode) -> Result<Option<Karte>> {
+/// aus wgpu nicht, etwa wenn ein Treiber den Shader nicht übersetzt. Mit
+/// `--cinematic` zeichnet immer die CPU, und das Log sagt es.
+fn oeffne_gpu(mode: GpuMode, cinematic: bool) -> Result<Option<Karte>> {
     let gpu = match mode {
+        _ if cinematic => {
+            println!("GPU:        aus, Cinematic zeichnet die CPU");
+            return Ok(None);
+        }
         GpuMode::Off => {
             println!("GPU:        aus (--gpu off)");
             return Ok(None);
@@ -765,11 +781,12 @@ fn render_world(
     rect: ScreenRect,
     path: &Path,
     blend: u8,
+    look: Option<Look>,
 ) -> Result<()> {
     let started = Instant::now();
     // Derselbe Vorlauf wie beim Kachelexport, nur über den Ausschnitt.
     let survey = survey(world, projection, Y_RANGE, Some(rect))?;
-    let mut sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
+    let mut sprites = SpriteSet::build_mit_licht(assets, &survey.states, projection, None, look)?;
     let unbekannt = sprites.add_entities(assets, &survey.entities)?;
     sprites.set_biomes(biomfarben(world, assets, blend)?);
     warn_unknown_biomes(assets, &survey.biomes);
@@ -971,8 +988,9 @@ fn write_tiles(
     resume: bool,
     karte: Option<&Karte>,
     blend: Option<u8>,
+    look: Option<Look>,
 ) -> Result<()> {
-    let dir = &wurzel.join(baum_name(projection));
+    let dir = &wurzel.join(baum_name(projection, look.is_some()));
     // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
     // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
     // einer anderen Stufe, und zwei Läufe passten nicht zusammen.
@@ -987,6 +1005,7 @@ fn write_tiles(
         projection,
         kennung.as_deref().ok_or(warum.as_str()),
     )?;
+    pruefe_look(dir, bestand.as_ref(), look.as_ref())?;
     pruefe_nachbarn(wurzel, dir, world)?;
     // Ein bestehender Baum behält seine Nummerierung, auch wenn die Welt
     // inzwischen gewachsen ist: dann bekommt Zoom 0 mehr Kacheln, und das
@@ -1064,7 +1083,7 @@ fn write_tiles(
     }
 
     let biomes = biomfarben(world, assets, blend)?;
-    let mut sprites = SpriteSet::build_in(assets, &survey.states, projection)?;
+    let mut sprites = SpriteSet::build_mit_licht(assets, &survey.states, projection, None, look)?;
     let unbekannt = sprites.add_entities(assets, &survey.entities)?;
     sprites.set_biomes(biomes.clone());
     println!(
@@ -1097,6 +1116,7 @@ fn write_tiles(
         stufen,
         blend,
         kennung.as_deref(),
+        look.as_ref(),
         &basis,
     )?;
     // Ab jetzt lässt sich der Baum wählen, auch während seines ersten Laufs.
@@ -1257,6 +1277,7 @@ fn write_tiles(
         vielleicht_da,
         &mut weg,
         karte,
+        look,
     )?;
     im_speicher.extend(nativ_im_speicher);
     build_pyramid(dir, z, kandidaten, &waisen, &mut weg, &im_speicher)?;
@@ -1297,6 +1318,7 @@ fn write_tiles(
         stufen,
         blend,
         kennung.as_deref(),
+        look.as_ref(),
         &basis,
     )?;
     schreibe_baeume(wurzel)?;
@@ -1309,11 +1331,32 @@ fn write_tiles(
 const BAEUME: &str = "trees.json";
 
 /// Der Ordner eines Baums unter der Wurzel: `<kamera>-<richtung>`, die
-/// Kamera mit `x` statt `:`, den Windows im Pfad nicht erlaubt.
-fn baum_name(projection: Projection) -> String {
+/// Kamera mit `x` statt `:`, den Windows im Pfad nicht erlaubt, mit
+/// `--cinematic` dahinter `-cinematic`.
+fn baum_name(projection: Projection, cinematic: bool) -> String {
     let kamera = projection.kamera();
     let richtung = projection.richtung().name(kamera);
-    format!("{}-{richtung}", kamera.to_string().replace(':', "x"))
+    let look = if cinematic { "-cinematic" } else { "" };
+    format!("{}-{richtung}{look}", kamera.to_string().replace(':', "x"))
+}
+
+/// Was ein Baum in `look` seiner `map.json` trägt, siehe [`MapInfo::look`].
+fn look_name(cinematic: bool) -> &'static str {
+    if cinematic { "cinematic" } else { "map" }
+}
+
+/// Zeichnet der bestehende Baum mit Cinematic? Ohne `look` stammt er aus
+/// einem älteren Stand und zeigt die Karte.
+/// Siehe docs/benutzung/map-json.md, „Look“.
+fn cinematic_des_baums(dir: &Path, info: &MapInfo) -> Result<bool> {
+    match info.look.as_deref() {
+        None | Some("map") => Ok(false),
+        Some("cinematic") => Ok(true),
+        Some(look) => bail!(
+            "{}: look {look} gibt es nicht, nur map und cinematic",
+            dir.join("map.json").display()
+        ),
+    }
 }
 
 /// Ist `--tiles` eine Wurzel? Liegt dort ein `map.json`, ist es ein Baum:
@@ -1340,7 +1383,10 @@ fn pruefe_wurzel(wurzel: &Path) -> Result<()> {
             eltern.display()
         );
     }
-    let name = baum_name(projektion_des_baums(wurzel, &info)?);
+    let name = baum_name(
+        projektion_des_baums(wurzel, &info)?,
+        cinematic_des_baums(wurzel, &info)?,
+    );
     bail!(
         "{} ist ein Kachelbaum der alten Ablage. --tiles ist jetzt die Wurzel, jeder Baum liegt \
          in einem eigenen Ordner: alles ausser heights/ nach {} verschieben, heights/ bleibt in \
@@ -1352,8 +1398,8 @@ fn pruefe_wurzel(wurzel: &Path) -> Result<()> {
 
 /// Die Bäume unter der Wurzel: je Ordner mit `map.json` sein Pfad, seine
 /// `map.json` und seine Projektion. Ein Ordner, dessen `map.json` sich nicht
-/// lesen lässt oder eine Kamera oder Richtung nennt, die es nicht gibt,
-/// fehlt mit einer Warnung: Das Frontend könnte ihn ohnehin nicht öffnen,
+/// lesen lässt oder eine Kamera, Richtung oder einen look nennt, die es
+/// nicht gibt, fehlt mit einer Warnung: Das Frontend könnte ihn ohnehin nicht öffnen,
 /// und kein Lauf scheitert an einem Nachbarn.
 fn nachbarn(wurzel: &Path) -> Result<Vec<(PathBuf, MapInfo, Projection)>> {
     let mut baeume = Vec::new();
@@ -1367,8 +1413,11 @@ fn nachbarn(wurzel: &Path) -> Result<Vec<(PathBuf, MapInfo, Projection)>> {
             .with_context(|| format!("{} lesen", wurzel.display()))?
             .path();
         let gelesen = lies_bestand(&ordner).and_then(|info| {
-            info.map(|info| Ok((projektion_des_baums(&ordner, &info)?, info)))
-                .transpose()
+            info.map(|info| {
+                cinematic_des_baums(&ordner, &info)?;
+                Ok((projektion_des_baums(&ordner, &info)?, info))
+            })
+            .transpose()
         });
         match gelesen {
             Ok(Some((projection, info))) => baeume.push((ordner, info, projection)),
@@ -1411,7 +1460,7 @@ fn pruefe_nachbarn(wurzel: &Path, dir: &Path, world: &World) -> Result<()> {
 /// Siehe docs/benutzung/map-json.md, „Liste der Bäume“.
 fn schreibe_baeume(wurzel: &Path) -> Result<()> {
     let mut baeume = Vec::new();
-    for (ordner, _, projection) in nachbarn(wurzel)? {
+    for (ordner, info, projection) in nachbarn(wurzel)? {
         let Some(name) = ordner.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
@@ -1420,7 +1469,7 @@ fn schreibe_baeume(wurzel: &Path) -> Result<()> {
             "path": name,
             "camera": kamera.to_string(),
             "direction": projection.richtung().name(kamera),
-            "look": "map",
+            "look": info.look.as_deref().unwrap_or(look_name(false)),
         }));
     }
     let pfad = |baum: &serde_json::Value| baum["path"].as_str().unwrap_or_default().to_string();
@@ -1585,6 +1634,8 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
         camera: alt.camera,
         direction: alt.direction,
         projection: alt.projection,
+        look: alt.look,
+        look_hash: alt.look_hash,
         ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
     let path = schreibe_info(dir, &info, Some(stempel))?;
@@ -1817,6 +1868,7 @@ fn powershell_text(text: &str) -> String {
 /// ausserhalb, und das Frontend startete im falschen Ausschnitt. Auch
 /// ohne eine einzige sichtbare Kachel muss die Datei entstehen können —
 /// bis hierher hat vielleicht nichts das Verzeichnis angelegt.
+#[allow(clippy::too_many_arguments)]
 fn schreibe_map_json(
     dir: &Path,
     projection: Projection,
@@ -1824,12 +1876,15 @@ fn schreibe_map_json(
     stufen: u32,
     blend: u8,
     kennung: Option<&str>,
+    look: Option<&Look>,
     basis: &BTreeSet<TileId>,
 ) -> Result<(MapInfo, usize, PathBuf)> {
     let info = MapInfo {
         native_levels: Some(stufen),
         biome_blend: Some(blend),
         world: Some(kennung.map(str::to_string)),
+        look: Some(look_name(look.is_some()).to_string()),
+        look_hash: look.map(Look::fingerabdruck),
         ..mit_kamera(
             mit_hoehen(
                 MapInfo::new(projection.scale(), max_zoom, basis),
@@ -2535,8 +2590,9 @@ fn pruefe_bestand(
     // Lauf mit ihr schriebe in einen anderen.
     // Siehe docs/benutzung/zoomstufen.md, „Ein Baum, eine Kamera“.
     let dort = projektion_des_baums(dir, alt)?;
+    let cinematic = cinematic_des_baums(dir, alt)?;
     let umbenennen = || {
-        let ziel = dir.with_file_name(baum_name(dort));
+        let ziel = dir.with_file_name(baum_name(dort, cinematic));
         // Weicht auch der scale ab, gehört er in den Befehl.
         let auch_scale = if alt.scale != scale {
             format!(", dann mit --scale {} weiterrendern,", alt.scale)
@@ -2586,6 +2642,46 @@ fn pruefe_bestand(
     Ok(uebernehmen)
 }
 
+/// Prüft, ob der bestehende Baum mit demselben look zeichnet wie dieser
+/// Lauf: Karte und Cinematic mischten sich in einem Baum still, ebenso
+/// Cinematic mit anderen Werten ([`Look::fingerabdruck`]), auch mit
+/// `--resume`. Der Ordner folgt aus dem look; weicht er ab, hat jemand ihn
+/// umbenannt.
+/// Siehe docs/benutzung/zoomstufen.md, „Ein Baum, ein look“.
+fn pruefe_look(dir: &Path, bestand: Option<&MapInfo>, look: Option<&Look>) -> Result<()> {
+    let Some(alt) = bestand else {
+        return Ok(());
+    };
+    let pfad = dir.join("map.json");
+    let anzeige = pfad.display();
+    let cinematic = cinematic_des_baums(dir, alt)?;
+    if cinematic != look.is_some() {
+        let ziel = dir.with_file_name(baum_name(projektion_des_baums(dir, alt)?, cinematic));
+        let (dort, hier) = if cinematic {
+            ("mit", "ohne")
+        } else {
+            ("ohne", "mit")
+        };
+        bail!(
+            "{anzeige} gehört zu einem Baum {dort} --cinematic, dieser Lauf zeichnet {hier}. Den \
+             Ordner nach {} umbenennen oder eine neue Wurzel nehmen.",
+            ziel.display()
+        );
+    }
+    if let Some(look) = look {
+        let hier = look.fingerabdruck();
+        if alt.look_hash.as_deref() != Some(hier.as_str()) {
+            bail!(
+                "{anzeige} gehört zu einem Baum mit --cinematic und anderen Werten des Looks: \
+                 lookHash dort {}, hier {hier}. Den Baum löschen und neu rendern oder eine neue \
+                 Wurzel nehmen.",
+                alt.look_hash.as_deref().unwrap_or("keiner")
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Rendert `stufen` gröbere Zoomstufen aus der Welt: so viele, wie
 /// `--native-levels` verlangt oder `map.json` des Baums nennt, siehe
 /// [`native_stufen`], höchstens [`native_levels`], denn ein Block
@@ -2631,6 +2727,7 @@ fn render_coarser(
     vielleicht_da: impl Fn(u32, &TileId) -> bool,
     weg: &mut BTreeSet<(u32, TileId)>,
     karte: Option<&Karte>,
+    look: Option<Look>,
 ) -> Result<(u32, BTreeSet<TileId>, Kacheln, Speicherstand)> {
     if stufen == 0 {
         return Ok((max_zoom, kandidaten, Kacheln::new(), Speicherstand::new()));
@@ -2648,6 +2745,7 @@ fn render_coarser(
             states,
             projection.bei(scale),
             Some(licht_deckend.clone()),
+            look,
         )?;
         // Was unbekannt ist, hat die Basis schon gemeldet.
         sprites.add_entities(assets, entities)?;

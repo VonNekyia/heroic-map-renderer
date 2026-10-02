@@ -13,6 +13,7 @@ use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, CardinalLight, Face, Textures, Tints, fluid, models_of};
 use crate::world::{BlockState, Blockdaten};
 
+use super::look::Look;
 use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
 use super::tint::BiomeTable;
 use super::{Kamera, Projection, Richtung, Sprite, render};
@@ -78,6 +79,8 @@ pub struct SpriteSet {
     /// [`SpriteSet::deckt_fuer_licht`]. `None` nur in einer Tabelle der Basis
     /// in 2:1: Dort entscheidet sie selbst.
     licht_deckend: Option<HashSet<BlockState>>,
+    /// Mit welchen Werten Cinematic zeichnet; `None` für die Karte.
+    look: Option<Look>,
 }
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
@@ -517,18 +520,20 @@ impl SpriteSet {
         states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
     ) -> Result<SpriteSet> {
-        SpriteSet::build_mit_licht(assets, states, projection, None)
+        SpriteSet::build_mit_licht(assets, states, projection, None, None)
     }
 
     /// Wie [`SpriteSet::build_in`], nur kommt aus `licht_deckend`, welche
     /// Blöcke, die 26.2 nicht kennt, das Licht ganz aufhalten
     /// ([`SpriteSet::licht_deckend`]). Eine native Stufe nimmt so die Antwort
-    /// der Basis, damit ihr Licht nicht am scale hängt.
+    /// der Basis, damit ihr Licht nicht am scale hängt. Mit `look` für
+    /// Cinematic.
     pub fn build_mit_licht<'a>(
         assets: &mut Assets,
         states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
         licht_deckend: Option<HashSet<BlockState>>,
+        look: Option<Look>,
     ) -> Result<SpriteSet> {
         let typ = assets.dimension_type();
         let mut set = SpriteSet {
@@ -547,6 +552,7 @@ impl SpriteSet {
             foreign: BTreeSet::new(),
             biomes: BiomeTable::new(assets.colors()),
             licht_deckend: None,
+            look,
         };
 
         // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
@@ -767,6 +773,11 @@ impl SpriteSet {
 
     pub fn biomes(&self) -> &BiomeTable {
         &self.biomes
+    }
+
+    /// Mit welchen Werten Cinematic zeichnet; `None` für die Karte.
+    pub fn look(&self) -> Option<&Look> {
+        self.look.as_ref()
     }
 
     /// Hält ein Block, den 26.2 nicht kennt, das Licht ganz auf? Wenn sein

@@ -17,6 +17,7 @@ use rayon::prelude::*;
 use tempfile::TempDir;
 use terranova_render::assets::{Assets, DimensionType};
 use terranova_render::render::heights::{self, EMPTY, Heights};
+use terranova_render::render::look::LOOK;
 use terranova_render::render::rasterizer::{Light, Lightmap};
 use terranova_render::render::{
     BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Projection, SpriteSet, TileId, encode_webp,
@@ -59,7 +60,8 @@ fn neuer_baum(name: &str) -> Baum {
 }
 
 /// Der Ordner, den ein Lauf mit diesen Schaltern unter der Wurzel
-/// beschreibt: `<kamera>-<richtung>` mit `x` statt `:`.
+/// beschreibt: `<kamera>-<richtung>` mit `x` statt `:`, mit
+/// `--cinematic` dahinter `-cinematic`.
 fn baum_name(extra: &[&str]) -> String {
     let wert = |schalter: &str| {
         extra
@@ -71,7 +73,12 @@ fn baum_name(extra: &[&str]) -> String {
     let kamera = wert("--camera").map_or(Kamera::ZWEI_ZU_EINS, |k| Kamera::parse(&k).unwrap());
     let richtung = wert("--direction")
         .unwrap_or_else(|| (if kamera.genordet() { "s" } else { "se" }).to_string());
-    format!("{}-{richtung}", kamera.to_string().replace(':', "x"))
+    let look = if extra.contains(&"--cinematic") {
+        "-cinematic"
+    } else {
+        ""
+    };
+    format!("{}-{richtung}{look}", kamera.to_string().replace(':', "x"))
 }
 
 /// Ruft die Binärdatei auf.
@@ -1415,6 +1422,7 @@ fn native_stufen_wie_der_weg_je_stufe() {
             &survey.states,
             Projection::new(scale),
             Some(deckend.clone()),
+            None,
         )
         .unwrap();
         sprites.add_entities(&mut assets, &survey.entities).unwrap();
@@ -4266,6 +4274,136 @@ fn andere_richtung_im_ordner_wird_abgelehnt() {
         "Meldung: {meldung}"
     );
     assert_eq!(schnappschuss(baum.path()), vorher);
+}
+
+/// Ein Baum, ein look: Die Karte schreibt `look` `"map"` ohne Fingerabdruck,
+/// Cinematic in den eigenen Ordner `"cinematic"` mit dem Fingerabdruck der
+/// Werte, und `trees.json` nennt beide. Liegt ein Baum im Ordner des anderen
+/// looks, bricht ein Lauf ab und nennt den Schalter, in beide Richtungen;
+/// ebenso Cinematic mit anderen Werten, auch mit `--resume`. `--pyramid`
+/// behält beide Felder.
+#[test]
+fn ein_baum_ein_look() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let karte = neuer_baum("2x1-se");
+    let wurzel = karte.wurzel();
+    let kino = wurzel.join("2x1-se-cinematic");
+    let info = |baum: &Path| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(baum.join("map.json")).unwrap()).unwrap()
+    };
+    gelungen(&export(welt.path(), karte.path(), &["--scale", "8"]));
+    let lauf = export(
+        welt.path(),
+        &kino,
+        &["--scale", "8", "--cinematic", "--gpu", "on"],
+    );
+    gelungen(&lauf);
+    let log = String::from_utf8_lossy(&lauf.stdout);
+    assert_eq!(log.matches("GPU:").collect::<Vec<_>>(), ["GPU:"], "{log}");
+    assert!(
+        log.contains("GPU:        aus, Cinematic zeichnet die CPU"),
+        "{log}"
+    );
+    assert_eq!(info(karte.path())["look"], "map");
+    assert!(info(karte.path()).get("lookHash").is_none());
+    assert_eq!(info(&kino)["look"], "cinematic");
+    assert_eq!(info(&kino)["lookHash"], LOOK.fingerabdruck().as_str());
+    let liste: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(wurzel.join("trees.json")).unwrap()).unwrap();
+    assert_eq!(
+        liste["trees"],
+        serde_json::json!([
+            {"path": "2x1-se", "camera": "2:1", "direction": "se", "look": "map"},
+            {"path": "2x1-se-cinematic", "camera": "2:1", "direction": "se", "look": "cinematic"}
+        ])
+    );
+
+    // Die Ordner vertauscht: Jeder Lauf schreibt in den Baum des anderen
+    // looks.
+    let zwischen = wurzel.join("zwischen");
+    std::fs::rename(karte.path(), &zwischen).unwrap();
+    std::fs::rename(&kino, karte.path()).unwrap();
+    std::fs::rename(&zwischen, &kino).unwrap();
+    let vorher = [schnappschuss(karte.path()), schnappschuss(&kino)];
+    for (baum, extra, dort, ziel) in [
+        (karte.path(), &["--scale", "8"][..], "mit", &kino),
+        (
+            &kino,
+            &["--scale", "8", "--cinematic"][..],
+            "ohne",
+            &karte.path().to_path_buf(),
+        ),
+    ] {
+        let ausgabe = export(welt.path(), baum, extra);
+        let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(
+            !ausgabe.status.success()
+                && meldung.contains(&format!("gehört zu einem Baum {dort} --cinematic"))
+                && meldung.contains(&format!("Den Ordner nach {} umbenennen", ziel.display())),
+            "{extra:?}: {meldung}"
+        );
+    }
+    assert_eq!([schnappschuss(karte.path()), schnappschuss(&kino)], vorher);
+    std::fs::rename(karte.path(), &zwischen).unwrap();
+    std::fs::rename(&kino, karte.path()).unwrap();
+    std::fs::rename(&zwischen, &kino).unwrap();
+
+    // Andere Werte des Looks, oder keine: kein Lauf schreibt hinein.
+    let pfad = kino.join("map.json");
+    for hash in [Some("0000000000000000"), None] {
+        let mut neu = info(&kino);
+        match hash {
+            Some(hash) => neu["lookHash"] = hash.into(),
+            None => {
+                neu.as_object_mut().unwrap().remove("lookHash");
+            }
+        }
+        std::fs::write(&pfad, serde_json::to_string_pretty(&neu).unwrap()).unwrap();
+        let vorher = schnappschuss(&kino);
+        for extra in [
+            &["--scale", "8", "--cinematic"][..],
+            &["--scale", "8", "--cinematic", "--resume"],
+        ] {
+            let ausgabe = export(welt.path(), &kino, extra);
+            let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+            assert!(
+                !ausgabe.status.success()
+                    && meldung.contains("anderen Werten des Looks")
+                    && meldung.contains(&format!("lookHash dort {}", hash.unwrap_or("keiner"))),
+                "{hash:?} {extra:?}: {meldung}"
+            );
+        }
+        assert_eq!(schnappschuss(&kino), vorher);
+    }
+
+    let mut neu = info(&kino);
+    neu["lookHash"] = LOOK.fingerabdruck().into();
+    std::fs::write(&pfad, serde_json::to_string_pretty(&neu).unwrap()).unwrap();
+    gelungen(&cli(&[OsStr::new("--pyramid"), kino.as_os_str()]));
+    assert_eq!(info(&kino)["look"], "cinematic", "--pyramid");
+    assert_eq!(
+        info(&kino)["lookHash"],
+        LOOK.fingerabdruck().as_str(),
+        "--pyramid"
+    );
+    gelungen(&export(
+        welt.path(),
+        &kino,
+        &["--scale", "8", "--cinematic", "--resume"],
+    ));
+
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--scan"),
+        OsStr::new("--cinematic"),
+    ]);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("--render") && meldung.contains("--tiles"),
+        "{meldung}"
+    );
 }
 
 /// Ein Baum der alten Ablage, `map.json` direkt unter `--tiles`, bricht ab,

@@ -386,17 +386,35 @@ function anzeigename({ camera, direction, look }: Baum): string {
 }
 
 /**
+ * Die Adresse der Ansicht: der Baum, der Block der Mitte in Weltkoordinaten
+ * und der Zoom ab der feinsten Stufe, denn `maxZoom` hängt je Baum an seiner
+ * Ausdehnung. Siehe docs/frontend.md, „Ansichten und Kompass“.
+ */
+async function adresse(
+  map: L.Map,
+  maxZoom: number,
+  mitte: () => Promise<Block | undefined>,
+  tree: string | undefined,
+): Promise<URL> {
+  const block = await mitte();
+  const url = new URL(location.href);
+  if (tree !== undefined) url.searchParams.set('tree', tree);
+  if (block) url.searchParams.set('at', block.join(','));
+  else url.searchParams.delete('at');
+  url.searchParams.set('zoom', String(map.getZoom() - maxZoom));
+  return url;
+}
+
+/**
  * Der Umschalter zwischen den Bäumen. Er öffnet den gewählten Baum mit dem
- * Block, der in der Mitte zu sehen ist, wieder in der Mitte, und mit
- * derselben Vergrösserung gegenüber der feinsten Stufe: `maxZoom` hängt je
- * Baum an seiner Ausdehnung.
+ * Block, der in der Mitte zu sehen ist, wieder in der Mitte, mit derselben
+ * Vergrösserung.
  */
 function umschalter(
   map: L.Map,
-  maxZoom: number,
   liste: Baum[],
   aktuell: Baum,
-  mitte: () => Promise<Block | undefined>,
+  ansicht: (tree: string) => Promise<URL>,
 ): void {
   const auswahl = L.DomUtil.create('select', 'baeume');
   auswahl.setAttribute('aria-label', 'Ansicht');
@@ -405,14 +423,7 @@ function umschalter(
   }
   L.DomEvent.disableClickPropagation(auswahl);
   auswahl.addEventListener('change', () => {
-    void mitte().then((block) => {
-      const adresse = new URL(location.href);
-      adresse.searchParams.set('tree', auswahl.value);
-      if (block) adresse.searchParams.set('at', block.join(','));
-      else adresse.searchParams.delete('at');
-      adresse.searchParams.set('zoom', String(map.getZoom() - maxZoom));
-      location.assign(adresse);
-    });
+    void ansicht(auswahl.value).then((url) => location.assign(url));
   });
   const control = new L.Control({ position: 'topright' });
   control.onAdd = () => auswahl;
@@ -478,16 +489,28 @@ async function start(): Promise<void> {
   } else if (info.heights !== undefined) {
     console.warn(`${base}/map.json: heights ohne brauchbare heightsCell, minY und maxY`);
   }
-  if (liste && baum && liste.length > 1) {
-    const mitte = () => {
-      const { lat, lng } = map.getCenter();
-      return bei ? bei(lng, lat) : Promise.resolve(undefined);
-    };
-    umschalter(map, info.maxZoom, liste, baum, mitte);
+  const mitte = () => {
+    const { lat, lng } = map.getCenter();
+    return bei ? bei(lng, lat) : Promise.resolve(undefined);
+  };
+  const ansicht = (tree: string | undefined) => adresse(map, info.maxZoom, mitte, tree);
+  if (liste && baum && liste.length > 1) umschalter(map, liste, baum, ansicht);
+  // Die Adresse folgt der Karte, ohne Einträge im Verlauf. Ohne Koordinaten
+  // gibt es keinen Block für `at`, und sie bleibt, wie sie ist. Es gilt die
+  // letzte Bewegung.
+  if (bei) {
+    let zuletzt = 0;
+    map.on('moveend', () => {
+      const nummer = ++zuletzt;
+      void ansicht(baum?.path).then((url) => {
+        if (nummer === zuletzt) history.replaceState(history.state, '', url);
+      });
+    });
   }
 
-  // Kommt die Seite aus dem Umschalter, steht der Block der Mitte in der
-  // Adresse, in Weltkoordinaten, und `zoom` zählt ab der feinsten Stufe.
+  // Kommt die Seite aus dem Umschalter oder aus einer kopierten Adresse,
+  // steht der Block der Mitte darin, in Weltkoordinaten, und `zoom` zählt ab
+  // der feinsten Stufe.
   const at = parameter.get('at')?.split(',').map(Number);
   const zoom = Number(parameter.get('zoom') ?? Number.NaN);
   if (at?.length === 3 && at.every(Number.isInteger) && typeof blick !== 'string') {

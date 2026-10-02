@@ -225,6 +225,37 @@ test.describe('auf dem Touchscreen', () => {
   });
 });
 
+test('die Adresse folgt der Karte, ohne Einträge im Verlauf', async ({ page }) => {
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const parameter = (name: string) => new URL(page.url()).searchParams.get(name);
+  // Schon die erste Ansicht steht in der Adresse.
+  await expect.poll(() => parameter('at')).toMatch(/^-?\d+,-?\d+,-?\d+$/);
+  const zoom = Number(parameter('zoom'));
+  const verlauf = await page.evaluate(() => history.length);
+
+  // Ein Zug mit der Maus, dann eine Stufe heraus.
+  const karte = (await page.locator('#map').boundingBox())!;
+  const [x, y] = [karte.x + karte.width / 2, karte.y + karte.height / 2];
+  const vorher = parameter('at');
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 120, y - 60, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(() => parameter('at')).not.toBe(vorher);
+  await zoomClick(page, page.locator('.leaflet-control-zoom-out'));
+  await expect.poll(() => parameter('zoom')).toBe(String(zoom - 1));
+  expect(await page.evaluate(() => history.length)).toBe(verlauf);
+
+  // Neu geladen steht derselbe Block in der Mitte, auf derselben Stufe.
+  const at = parameter('at')!.split(',');
+  await page.reload();
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  expect(await mitte(page)).toBe(`X ${at[0]}  Y ${at[1]}  Z ${at[2]}`);
+  expect(parameter('zoom')).toBe(String(zoom - 1));
+});
+
 test('zoomen wechselt die Kachelstufe, bis es keine feinere gibt', async ({ page }) => {
   await page.goto(DEMO);
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();

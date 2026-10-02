@@ -192,8 +192,14 @@ Karte. `zoom` zählt ab `maxZoom`, weil `maxZoom` je Baum an seiner
 Ausdehnung hängt, siehe [Zoomstufen](benutzung/zoomstufen.md),
 „Nummerierung“. So bleibt beim Umschalten derselbe Block in der Mitte, mit
 derselben Vergrösserung, auch aus einer anderen Richtung. Ohne Koordinaten
-im alten Baum fehlt `at`, und der neue zeigt die ganze Karte. Die Adresse
-lässt sich so auch teilen.
+im alten Baum fehlt `at`, und der neue zeigt die ganze Karte.
+
+Die Adresse folgt der Karte: Nach jedem Verschieben oder Zoomen schreibt
+das Frontend `at` und `zoom` hinein, mit dem Baum in `tree`, wenn es eine
+Liste gibt. Es nimmt `history.replaceState`, der Verlauf bekommt also
+keine Einträge. Wer die Adresse kopiert oder die Seite neu lädt, sieht
+denselben Block in der Mitte auf derselben Stufe. Ohne Koordinaten gibt es
+keinen Block für `at`, und die Adresse bleibt, wie sie ist.
 
 ## Ausliefern
 

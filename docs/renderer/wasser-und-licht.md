@@ -282,8 +282,8 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
   - **In 2:1, bei jeder Kamera:** Das Raster ist immer das von 2:1 aus
     der Vorgabe-Richtung beim scale der Basis, auch wenn der Lauf eine
     andere Kamera oder Richtung hat (`SpriteSet::build_mit_licht`). Von
-    oben deckt schon eine flache Seerose ihren ganzen Umriss, ihr Würfel bliebe dunkel, und dieselbe Welt hätte
-    je Kamera anderes Licht.
+    oben deckt schon eine flache Seerose ihren ganzen Umriss, ihr Würfel
+    bliebe dunkel, und dieselbe Welt hätte je Kamera anderes Licht.
   - **Bei einem scale, den 2:1 nicht nimmt,** lägen die Ecken von 2:1
     zwischen den Pixeln, etwa bei 5:3 und scale 30 mit a = 7,5, bei scale 6
     mit a = 1,5 und bei jedem ungeraden scale genordet. Dann rastert 2:1

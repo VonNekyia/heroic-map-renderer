@@ -12,6 +12,8 @@ code:
 
 `--tiles` rendert die Welt als verlustfreie WebP-Kacheln von 256 mal 256
 Pixeln, stapelt die gröberen Zoomstufen darüber und schreibt `map.json`.
+`--tiles` nennt die Wurzel; jeder Baum liegt darunter in seinem Ordner,
+siehe „Wo die Kacheln liegen“.
 Ein Vorlauf liest dafür jeden Chunk einmal, dann rendern alle Threads die
 Basis in Streifen. `--center` und `--size` schränken auf einen Ausschnitt
 ein, der in einen bestehenden Baum passt. Der Ablauf steht in `write_tiles` in
@@ -78,7 +80,7 @@ Zoom  7:     4 Kacheln nativ bei scale 4 + GPU, 0.4 MB
 Zoom  6:     2 Kacheln
 ...
 Pyramide:   9 Kacheln, 0.2 MB in 0.0 s
-Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/map.json
+Karte:      Zoom 0..10, 256 Basiskacheln, -10240/0 bis -6144/4096 px -> ./tiles/2x1-se/map.json
 ```
 
 MB und kB zählt die Ausgabe binär, 2^20 und 2^10 Byte, siehe
@@ -108,13 +110,17 @@ erste Kachel schreibt.
 
 ## Wo die Kacheln liegen
 
-Die Kacheln liegen als `tiles/<z>/<x>/<y>.webp`; x und y dürfen negativ
-sein, weil der Blockursprung mitten in der Welt liegt. Daneben liegen je
-Region die Höhen für die Koordinatenanzeige als
-`tiles/heights/<x>.<z>.bin`, siehe [map.json](map-json.md), „Höhen“. Jede
-Kachel, jede Datei der Höhen und `map.json` entstehen erst als eigene Datei
-daneben und werden dann getauscht: Ein Leser sieht nie eine halbe Datei,
-siehe [0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md).
+Unter der Wurzel von `--tiles` liegt jeder Baum in einem Ordner
+`<kamera>-<richtung>`, etwa `tiles/2x1-se/`, mit `x` statt `:`. Darin
+liegen die Kacheln als `<z>/<x>/<y>.webp`; x und y dürfen negativ sein,
+weil der Blockursprung mitten in der Welt liegt. Neben den Bäumen liegen
+`tiles/trees.json` mit der Liste der Bäume und je Region die Höhen für die
+Koordinatenanzeige als `tiles/heights/<x>.<z>.bin`, die alle Bäume teilen,
+siehe [map.json](map-json.md), „Liste der Bäume“ und „Höhen“. Jede
+Kachel, jede Datei der Höhen, `map.json` und `trees.json` entstehen erst als
+eigene Datei daneben und werden dann getauscht: Ein Leser sieht nie eine
+halbe Datei, siehe
+[0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md).
 
 Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines
 grossen Renderings gleichen, sonst stünden im Browser Kanten dazwischen.

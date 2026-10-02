@@ -1,6 +1,6 @@
 ---
 title: Die Kamera
-description: Die Kameras von --camera, diagonal und genordet, die Projektion mit h, a und b, die Regel „ganze Pixel“ für scale und Kamera, die Zeichenreihenfolge ohne Tiefenpuffer, die Draufsicht, Blockkanten auf Pixelmitten, wie überhängende Modelle im Raum in Teile je Würfel zerfallen und warum Weltkoordinaten in f64 projiziert werden.
+description: Die Kameras von --camera, diagonal und genordet, die Richtungen von --direction, die Projektion mit h, a und b, die Regel „ganze Pixel“ für scale und Kamera, die Zeichenreihenfolge ohne Tiefenpuffer, die Draufsicht, Blockkanten auf Pixelmitten, wie überhängende Modelle im Raum in Teile je Würfel zerfallen und warum Weltkoordinaten in f64 projiziert werden.
 code:
   - renderer/src/render/projection.rs
   - renderer/src/render/metatile.rs
@@ -388,6 +388,30 @@ Süden: u = x, v = z, h = a = scale. Entschieden in
 
 Dasselbe Dorf der Testwelt wie in „Kameras“, links `top-north`, rechts
 `north-45`, scale 16, um den Block (−352, 64, 578), Stand `d93682d`.
+
+## Richtungen
+
+`--direction` sagt, wo die Kamera steht (`Richtung` in
+[`renderer/src/render/projection.rs`](../../renderer/src/render/projection.rs)).
+Es gibt vier Richtungen in Vierteldrehungen, für jede Kamera eine je Lauf:
+
+| diagonal: W:H, `top` | genordet: `top-north`, `north-45` | Block (x, z) der Welt liegt im Blick bei |
+|---|---|---|
+| `se`, Südost, Vorgabe | `s`, Süden, Norden oben, Vorgabe | (x, z) |
+| `sw`, Südwest | `w`, Westen, Osten oben | (z, −x − 1) |
+| `nw`, Nordwest | `n`, Norden, Süden oben | (−x − 1, −z − 1) |
+| `ne`, Nordost | `e`, Osten, Westen oben | (−z − 1, x) |
+
+- **Im Blick** steht die Kamera immer bei +x, +z, wie aus der Vorgabe;
+  gedreht wird die Welt. Dieselbe Formel gilt für Chunks.
+- **Die falsche Art** bricht ab, bevor der Lauf die Welt liest: „north-45
+  schaut von einer Seite: s, w, n oder e“, „8:5 schaut über eine Ecke: se,
+  sw, nw oder ne“.
+- **Jede Richtung ein eigener Baum,** siehe
+  [`map.json`](../benutzung/map-json.md), „Liste der Bäume“.
+- **Dieser Stand** rendert nur die Vorgabe, `se` und `s`; jede andere
+  Richtung bricht mit einer Meldung ab. Die Drehung der Welt beim Zugriff
+  kommt mit #68.
 
 ## Blockkanten auf Pixelmitten
 

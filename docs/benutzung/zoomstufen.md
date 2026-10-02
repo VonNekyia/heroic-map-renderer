@@ -178,19 +178,22 @@ scale nicht auf ganzen Pixeln, siehe [Kamera](../renderer/kamera.md),
 
 Die Kamera gehört zum Baum wie der scale: `map.json` hält sie als `camera`
 fest, siehe [`map.json`](map-json.md), „Kamera und Projektion“.
-- **Eine andere Kamera** bricht ab, bevor der Lauf einen Chunk liest, mit
-  „… gehört zu einem Baum mit Kamera 4:3, dieser Lauf hätte 2:1. Mit
-  --camera 4:3 weiterrendern oder ein neues Verzeichnis nehmen.“ Sonst
-  lägen Kacheln zweier Kameras still in einem Baum (`pruefe_bestand` in
-  [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
-- **Ohne `--camera`** gilt 2:1, auch in einen bestehenden Baum. Ein Baum
-  mit einer anderen Kamera verlangt sie also wie seinen scale.
+- **Jede Kamera und Richtung ein eigener Baum:** Unter der Wurzel von
+  `--tiles` schreibt ein Lauf in den Ordner `<kamera>-<richtung>`, siehe
+  [`map.json`](map-json.md), „Liste der Bäume“. Eine andere Kamera landet
+  also in einem anderen Ordner.
+- **Ein Baum mit anderer Kamera oder Richtung im Ordner,** etwa nach dem
+  Umbenennen, bricht ab, bevor der Lauf einen Chunk liest, mit „… gehört zu
+  einem Baum mit Kamera 4:3, dieser Lauf hätte 2:1. Mit --camera 4:3
+  weiterrendern oder ein neues Verzeichnis nehmen.“, für die Richtung
+  ebenso. Sonst lägen Kacheln zweier Kameras still in einem Baum
+  (`pruefe_bestand` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
+- **Ohne `--camera`** gilt 2:1.
 - **Ein Baum ohne `camera`** stammt aus einem Stand vor den Kameras; was
   dann gilt und was `--pyramid` behält, steht in [`map.json`](map-json.md),
   „Kamera und Projektion“. Wie `--heights` zu seiner Kamera kommt, steht
   dort unter „Höhen“.
-- **Jede Kamera ein eigener Baum:** heute ein eigenes Verzeichnis je
-  `--tiles`. Die Höhen schreibt jeder Baum für sich, wie bisher.
+- **Die Höhen** teilen alle Bäume unter einer Wurzel.
 
 ## Native Stufen
 

@@ -26,20 +26,21 @@ Texte.
 | `--block BLOCKSTATE` | eine Blockstate auflösen, mehrfach | unten |
 | `--sprite DATEI` | die Blockstates aus `--block` als Sprites in eine PNG rastern | unten |
 | `--scale N` | Pixelbreite eines Blocks, ab 4, Vorgabe 32, bei `top-north` und `north-45` 16; jede Blockecke muss bei der Kamera auf ganzen Pixeln liegen, in 2:1 ein Vielfaches von 4 | [Kamera](../renderer/kamera.md), „Ganze Pixel“ |
-| `--camera KAMERA` | diagonal `W:H` schräg von 2:1 bis 1:1 oder `top` von oben, genordet `top-north` von oben oder `north-45` schräg von Süden, Vorgabe `2:1`; ein bestehender Kachelbaum verlangt seine | [Kamera](../renderer/kamera.md), „Kameras“ |
+| `--camera KAMERA` | diagonal `W:H` schräg von 2:1 bis 1:1 oder `top` von oben, genordet `top-north` von oben oder `north-45` schräg von Süden, Vorgabe `2:1`; jede Kamera schreibt in ihren eigenen Baum | [Kamera](../renderer/kamera.md), „Kameras“ |
+| `--direction RICHTUNG` | wo die Kamera steht: diagonal `se`, `sw`, `nw` oder `ne`, genordet `s`, `w`, `n` oder `e`, Vorgabe `se` und `s`; dieser Stand rendert nur die Vorgabe | [Kamera](../renderer/kamera.md), „Richtungen“ |
 | `--biome-blend N` | wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, 0 bis 7 Blöcke wie der Biomübergang im Spiel, Vorgabe 2; ein bestehender Kachelbaum behält seinen | [Biomfarben](../renderer/biomfarben.md), [map.json](map-json.md) |
 | `--render DATEI` | einen Weltausschnitt in eine PNG rendern | unten |
 | `--center X Z` | die Blockspalte in der Bildmitte, Vorgabe `0 0` | unten |
 | `--size N` | Kantenlänge des Ausschnitts in Pixeln, ab 1; für `--render` Vorgabe 1024, ohne Angabe deckt `--tiles` die ganze Welt | [Kacheln exportieren](kacheln.md) |
 | `--scan` | jeden Chunk dekodieren, auch die nicht fertig erzeugten, mit `--assets` die Blockstates der übrigen auflösen und rastern | unten |
-| `--tiles DIR` | die Welt als WebP-Kacheln exportieren | [Kacheln exportieren](kacheln.md) |
+| `--tiles DIR` | die Welt als WebP-Kacheln exportieren; `DIR` ist die Wurzel, der Baum liegt in `DIR/<kamera>-<richtung>` | [Kacheln exportieren](kacheln.md) |
 | `--prune` | mit `--tiles`: Kacheln entfernen, die kein Chunk mehr berührt, und Höhen von Regionen ohne Regionsdatei | [Kacheln exportieren](kacheln.md) |
 | `--native-levels N` | mit `--tiles`: so viele gröbere Stufen aus der Welt rendern, Vorgabe 0 | [Zoomstufen](zoomstufen.md) |
 | `--resume` | mit `--tiles`: einen abgebrochenen Lauf fortsetzen | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--gpu auto\|on\|off` | mit `--tiles`: die Grafikkarte zeichnet, Vorgabe `auto` | [Grafikkarte](grafikkarte.md) |
 | `--defender-exclusion` | mit `--tiles`, nur unter Windows: eine Ausnahme im Echtzeitschutz setzen | [Echtzeitschutz](echtzeitschutz.md) |
 | `--pyramid DIR` | Zoomstufen und `map.json` aus den Basiskacheln nachbauen, ohne Welt und Assets | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
-| `--heights DIR` | die Höhen für die Koordinatenanzeige in einen bestehenden Baum schreiben, ohne zu rendern; braucht nur `--world` | [map.json](map-json.md), „Höhen“ |
+| `--heights DIR` | die Höhen für die Koordinatenanzeige in einen bestehenden Baum schreiben, ohne zu rendern; `DIR` ist der Ordner des Baums; braucht nur `--world` | [map.json](map-json.md), „Höhen“ |
 
 ## Einen Block ansehen: `--at`
 

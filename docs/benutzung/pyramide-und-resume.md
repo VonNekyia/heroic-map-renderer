@@ -10,7 +10,8 @@ code:
 
 `--pyramid DIR` baut die gröberen Stufen und `map.json` aus den
 Basiskacheln auf der Platte, ohne Welt und Assets, und nur, was sich
-geändert hat; so lässt sich einem Vollrender im Browser zusehen.
+geändert hat; so lässt sich einem Vollrender im Browser zusehen. `DIR` ist
+der Ordner des Baums, etwa `./tiles/2x1-se`, auch einer der alten Ablage.
 `--resume` setzt einen abgebrochenen Export fort: vorhandene Basiskacheln
 bleiben stehen, bis auf die der letzten zwei Minuten. Beides steht in
 [`renderer/src/cli.rs`](../../renderer/src/cli.rs), `rebuild_pyramid` und
@@ -19,7 +20,7 @@ bleiben stehen, bis auf die der letzten zwei Minuten. Beides steht in
 ## Pyramide nachbauen, Karte während des Renders ansehen
 
 ```bash
-cargo run --release --manifest-path renderer/Cargo.toml -- --pyramid ./tiles
+cargo run --release --manifest-path renderer/Cargo.toml -- --pyramid ./tiles/2x1-se
 ```
 
 `--pyramid` rendert nichts und braucht weder Welt noch Assets. Es baut die

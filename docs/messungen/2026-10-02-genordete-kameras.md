@@ -171,9 +171,9 @@ mit Karte.
   master in der Streuung: die Basis am Stand 4,9 gegen 5,0 s ohne und 3,8
   gegen 3,9 s mit Karte, im Fichtenwald gleich.
 - **Mit der Pause streut die Basis kaum.** In 2:1 bei 32 lagen alle Läufe
-  je Stand und Karte innerhalb von 0,3 s, und mit Karte war die Basis am
-  Stand 3,8 s statt 4,7 s in der Serie ohne Pause. Das passt zum langsamen
-  Zustand aus #56; hier einzeln geprüft ist es nicht.
+  je Stand und Karte innerhalb von 0,3 s. Die Serien ohne Pause liefen zu
+  einer anderen Zeit; ein Vergleich mit ihnen trägt nicht. Was die Pause
+  an derselben Stelle bringt, misst #56.
 - **`north-45` bei 16 kostet je Spalte etwa wie 2:1 bei 32.** Seine
   Oberseite hat so viele Pixel wie die von 2:1. Ein voller Würfel belegt
   aber 512 Pixel, Oberseite und Südwand, gegen 768 in 2:1 mit Süd- und

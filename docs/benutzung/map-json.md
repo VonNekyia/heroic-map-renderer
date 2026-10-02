@@ -1,6 +1,6 @@
 ---
 title: map.json
-description: Die Felder von map.json, Kamera und Projektion samt projektion.json mit Kantenpixeln, wann der Export die Datei schreibt, die Höhen je Region für die Koordinatenanzeige und warum ein Baum seinen Radius der Mischung behält.
+description: Die Felder von map.json, Kamera und Projektion samt projektion.json mit Kantenpixeln, die Liste der Bäume trees.json, wann der Export die Dateien schreibt, die Höhen je Region für die Koordinatenanzeige und warum ein Baum seinen Radius der Mischung behält.
 code:
   - renderer/src/render/pyramid.rs
   - renderer/src/render/heights.rs
@@ -12,10 +12,11 @@ code:
 
 # `map.json`
 
-`map.json` liegt an der Wurzel jedes Kachelbaums und sagt dem Frontend, was
+`map.json` liegt im Ordner jedes Kachelbaums und sagt dem Frontend, was
 es vorfindet: Kachelgrösse, scale, Kamera, Zoomstufen, Pfadmuster, den belegten
 Bereich, die Zahl nativer Stufen, den Radius der Mischung der Biomfarben,
-die Kennung der Welt und wo die Höhen liegen. Der Typ ist
+die Kennung der Welt und wo die Höhen liegen. Welche Bäume unter einer
+Wurzel liegen, sagt `trees.json`, siehe „Liste der Bäume“. Der Typ ist
 `MapInfo` in
 [`renderer/src/render/pyramid.rs`](../../renderer/src/render/pyramid.rs);
 das Frontend liest die Datei in `web/src/main.ts`.
@@ -36,7 +37,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
   "nativeLevels": 0,
   "biomeBlend": 2,
   "world": "cb13a94d6c88dae1-6872d5d8ff54db07",
-  "heights": "heights/{x}.{z}.bin",
+  "heights": "../heights/{x}.{z}.bin",
   "heightsCell": 4,
   "minY": -64,
   "maxY": 319
@@ -56,7 +57,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `nativeLevels` | Zahl der nativen Stufen | [Zoomstufen](zoomstufen.md), „Native Stufen“ |
 | `biomeBlend` | Radius der Mischung der Biomfarben, `--biome-blend` | „Radius der Mischung“ unten |
 | `world` | Kennung der Welt und Dimension, oder `null` | [Welten und Kennung](welten.md) |
-| `heights` | Pfadmuster der Höhen je Region; fehlt es, hat der Baum keine | „Höhen“ unten |
+| `heights` | Pfadmuster der Höhen je Region, relativ zum Baum; fehlt es, hat der Baum keine | „Höhen“ unten |
 | `heightsCell` | Kantenlänge einer Zelle der Höhen in Blöcken, heute 4; steht mit `heights` | „Höhen“ unten |
 | `minY`, `maxY` | unterster und oberster Block, den der Renderer zeichnet; stehen mit `heights` | „Höhen“ unten |
 
@@ -82,10 +83,12 @@ das Frontend liest die Datei in `web/src/main.ts`.
   h, `v` ist a, `y` ist b, siehe [Kamera](../renderer/kamera.md),
   „Projektion“. `azimuth` ist `diagonal` mit u = x − z und v = x + z oder
   `north` mit u = x und v = z.
-- **`direction`:** wo die Kamera steht, diagonal `se` im Südosten, genordet
-  `s` im Süden. Die übrigen Richtungen kommen mit `--direction` (#68).
-  Fehlt das Feld, gilt die Richtung der Kamera; nennt es eine andere,
-  bricht der Lauf ab.
+- **`direction`:** wo die Kamera steht, `--direction`: diagonal `se`,
+  `sw`, `nw` oder `ne`, genordet `s`, `w`, `n` oder `e`. Dieser Stand
+  rendert nur die Vorgabe, diagonal `se` im Südosten und genordet `s` im
+  Süden; die übrigen kommen mit der Drehung der Welt in #68. Fehlt das
+  Feld, gilt die Vorgabe; nennt es eine Richtung, die die Kamera nicht
+  kennt, bricht der Lauf ab.
 - **Ältere Bäume:** Fehlt `camera`, ist der Baum 2:1.
 - **`--pyramid`** behält die drei Felder.
 - **Ein Baum, eine Kamera:** siehe [Zoomstufen](zoomstufen.md), „Ein Baum,
@@ -129,15 +132,55 @@ nachdem, ob `eben` oder `wand` dasteht:
   untere: Die Kante zwischen den Südseiten liegt für die obere Fläche links,
   die zwischen den Ostseiten rechts.
 
+## Liste der Bäume
+
+`--tiles` ist die Wurzel. Jeder Baum liegt darunter in seinem Ordner
+`<kamera>-<richtung>`, die Kamera mit `x` statt `:`, etwa `2x1-se`,
+`8x5-se` oder `top-north-s`; daneben liegen `trees.json` und die Höhen,
+die alle Bäume teilen. Entschieden in
+[0054](../entscheidungen/0054-baeume-unter-einer-wurzel.md).
+
+```json
+{
+  "trees": [
+    { "path": "2x1-se", "camera": "2:1", "direction": "se", "look": "map" },
+    { "path": "top-north-s", "camera": "top-north", "direction": "s", "look": "map" }
+  ]
+}
+```
+
+- **Felder:** je Baum `path` relativ zu `trees.json`, `camera` und
+  `direction` wie in seiner `map.json`, `look` heute immer `map`.
+  Projektion, Zoomstufen und Bereich stehen nur in der `map.json` des
+  Baums.
+- **Reihenfolge:** `2x1-se` zuerst, wenn es den Baum gibt, sonst nach
+  `path`. Der erste ist die Vorgabe des Frontends.
+- **Woher:** Der Lauf liest die Liste aus der Platte, je Ordner unter der
+  Wurzel mit `map.json` ein Eintrag, und führt sie nicht fort. So stimmt
+  sie auch nach zwei Läufen nebeneinander oder einem gelöschten Baum
+  (`schreibe_baeume` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
+- **Wann:** direkt nach der ersten `map.json` eines Laufs und am Ende,
+  jedes Mal über eine eigene Datei, die die alte ersetzt. Ein neuer Baum
+  lässt sich so schon während seines ersten Laufs wählen.
+- **Alte Ablage:** Liegt `map.json` direkt unter `--tiles`, ist das ein
+  Baum aus einem Stand vor #68. Der Lauf bricht dann ab, bevor er die Welt
+  liest, und nennt den Ordner, in den der Baum gehört; er deutet ihn nicht
+  um und verschiebt nichts. Verschiebt man den Baum samt allem darin
+  dorthin, schreibt der nächste Lauf seine Höhen unter die Wurzel.
+  `--pyramid` nimmt weiter jeden Baum, auch einen der alten Ablage.
+
 ## Höhen
 
 Das Frontend zeigt unter Maus und Finger die Koordinaten des Blocks, siehe
 [Frontend](../frontend.md), „Koordinaten“. Dafür braucht es je Zelle eine
 Höhe. Die liefert der Renderer:
 
-- **Datei:** je Region `heights/{x}.{z}.bin` neben den Kacheln, x und z
-  wie in `r.x.z.mca`. Darin steht ein zlib-Strom nach RFC 1950, im Browser
-  zu entpacken mit `DecompressionStream('deflate')`.
+- **Datei:** je Region `heights/{x}.{z}.bin` unter der Wurzel, die alle
+  Bäume einer Welt teilen; `map.json` nennt sie als
+  `../heights/{x}.{z}.bin`. Ein Baum der alten Ablage hat sie in seinem
+  eigenen Ordner, `heights/{x}.{z}.bin`. x und z wie in `r.x.z.mca`. Darin
+  steht ein zlib-Strom nach RFC 1950, im Browser zu entpacken mit
+  `DecompressionStream('deflate')`.
 - **Inhalt:** 128 × 128 Werte, je i16 little-endian, zeilenweise nach z. Ein
   Wert gilt für eine Zelle aus `heightsCell` × `heightsCell` Blockspalten,
   heute 4 × 4. Die Spalte (x, z) liegt in der Zelle an
@@ -169,10 +212,12 @@ Welcher Lauf welche Höhen schreibt:
   es dort nicht gibt, wird leer. Die übrigen Chunks einer Region behalten
   ihre Höhen, wie ihre Kacheln.
 - **`--heights DIR`** schreibt Höhen und Felder in einen bestehenden Baum,
-  ohne zu rendern, etwa in einen aus einem Stand ohne Höhen. Der Aufruf
-  liest die ganze Welt, braucht nur `--world`, nimmt scale und Kamera aus
-  `map.json`, nimmt deshalb weder `--scale` noch `--camera` an und prüft
-  wie ein Export, ob die Welt zum Baum gehört.
+  ohne zu rendern, etwa in einen aus einem Stand ohne Höhen. `DIR` ist der
+  Ordner des Baums. Liegt er unter einer Wurzel mit `trees.json`, landen
+  die Höhen dort, sonst in ihm selbst. Der Aufruf liest die ganze Welt,
+  braucht nur `--world`, nimmt scale, Kamera und Richtung aus `map.json`,
+  nimmt deshalb weder `--scale` noch `--camera` noch `--direction` an und
+  prüft wie ein Export, ob die Welt zum Baum gehört.
 - **`--resume`** schreibt die Höhen neu wie ein Export.
 - **`--pyramid`** lässt Höhen und Felder stehen.
 - **`--prune`** entfernt am Ende des Laufs die Höhen von Regionen ohne
@@ -212,6 +257,7 @@ Baum wie die nativen Stufen, siehe
 ## Wann sie geschrieben wird
 
 Jeder Export schreibt `map.json` vor seiner ersten Kachel und am Ende,
-`--pyramid` bei jedem Aufruf. Die Datei geht dabei jedes Mal ganz auf die
+danach jeweils `trees.json`; `--pyramid` schreibt `map.json` bei jedem
+Aufruf. Die Datei geht dabei jedes Mal ganz auf die
 Platte, bevor sie die alte ersetzt: Nach einem Stromausfall steht die alte
 oder die neue da, und kein Lauf scheitert an einer halben.

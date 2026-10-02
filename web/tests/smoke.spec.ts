@@ -459,6 +459,28 @@ test.describe('auf dem Touchscreen', () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/tp 35 6 -15');
   });
 
+  test('für Finger sind Werte und Kopiersymbol gross genug, das Feld hat 16 px', async ({
+    page,
+  }) => {
+    await welt(page);
+    await page.goto(DEMO);
+    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+    // Auch ohne Block, wenn ein Wert nur „–“ zeigt: mindestens 24 px
+    // (WCAG 2.5.8).
+    for (const ziel of [
+      ...(await page.locator('.wert').all()),
+      page.getByRole('button', { name: '/tp kopieren' }),
+    ]) {
+      const { width, height } = (await ziel.boundingBox())!;
+      expect(Math.min(width, height)).toBeGreaterThanOrEqual(24);
+    }
+    // Unter 16 px vergrössert iOS beim Fokus die ganze Seite.
+    await page.locator('.wert').first().click();
+    const feld = page.getByRole('textbox', { name: 'X eingeben' });
+    expect(await feld.evaluate((e) => getComputedStyle(e).fontSize)).toBe('16px');
+  });
+
   test('Tippen auf Z, ein negativer Wert und Enter springt hin', async ({ page }) => {
     await welt(page);
     await page.goto(DEMO);

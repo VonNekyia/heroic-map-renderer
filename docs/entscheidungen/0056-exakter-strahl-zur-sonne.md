@@ -50,8 +50,9 @@ Schattenkarte gibt es nicht.
   - Sie braucht eigenen Speicher, je Chunk 32 KB, und rechnet Chunks an
     den Grenzen der Streifen doppelt.
   - Sie kostet 2 bis 3 Tage mehr Arbeit als der Strahl je Texel.
-  - Sie spart rund 39 bis 110 min je Basis der grossen Welt bei scale 32,
-    siehe „Folgen“.
+  - Sie spart rund 39 bis 121 min je Basis der grossen Welt bei scale 32,
+    je nachdem, wie oft sie Chunks an den Streifengrenzen rechnet, siehe
+    „Folgen“.
 - **Weiter am exakten Strahl feilen, bis er 0,5 µs erreicht.** Am Prototyp
   bleiben dafür nur kleine Hebel: ein billigerer Test der Zelle und
   Nachschläge über die Säule. Geschätzt, nicht gemessen, bringen sie
@@ -60,7 +61,8 @@ Schattenkarte gibt es nicht.
 ## Folgen
 
 - **Der Preis:** Gegen die Schattenkarte kostet der exakte Strahl je Basis
-  der grossen Welt bei scale 32 gerechnet rund 39 bis 110 min mehr.
+  der grossen Welt bei scale 32 gerechnet rund 39 bis 121 min mehr, je
+  nachdem, wie oft die Schattenkarte Chunks an den Streifengrenzen rechnet.
   - Die Basis hat 163 Mrd. Pixel: 2 491 797 Kacheln zu 256 × 256 Pixeln
     im [Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md).
   - An den Ausschnitten der Testwelt bekommt ein Pixel 0,89 bis 1,50
@@ -75,6 +77,9 @@ Schattenkarte gibt es nicht.
     [Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md).
   - Sie spart damit 52 bis 71 % der Strahlen, 1 − 110/230 und
     1 − 110/380, also rund 39 bis 110 min.
+  - Rechnet sie Chunks so oft wie das Licht, 1,31-mal, sind es rund 84
+    Strahlen je Blockspalte. Dann spart sie 63 bis 78 % der Strahlen, rund
+    48 bis 121 min. Welcher Faktor gilt, ist nicht gemessen.
   - Dem User lag bei der Entscheidung die Spanne 35 bis 115 min vor,
     gerechnet mit 0,7 bis 0,9 µs je Strahl und der Hälfte bis drei
     Vierteln Ersparnis.

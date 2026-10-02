@@ -613,6 +613,24 @@ function umschalter(
 }
 
 /**
+ * Ein Knopf ⌂ unter + und −, der die ganze Karte einpasst. Er ist ein Link
+ * wie die beiden, also per Tastatur erreichbar. Siehe docs/frontend.md,
+ * „Zoom über und unter den Kacheln“.
+ */
+function ganzeKarte(map: L.Map, bounds: L.LatLngBounds): void {
+  const knopf = L.DomUtil.create('a', 'ganze-karte', map.zoomControl.getContainer());
+  knopf.href = '#';
+  knopf.role = 'button';
+  knopf.textContent = '⌂';
+  knopf.title = 'Ganze Karte';
+  knopf.setAttribute('aria-label', 'Ganze Karte');
+  L.DomEvent.on(knopf, 'click', (event) => {
+    L.DomEvent.preventDefault(event);
+    map.fitBounds(bounds);
+  });
+}
+
+/**
  * Die feinste Stufe, auf der die ganze Karte in ein Fenster dieser Grösse
  * passt. Ohne Fläche oder ohne Fenster gilt `minZoom` aus `map.json`.
  */
@@ -646,6 +664,7 @@ async function start(): Promise<void> {
   // von Zoom 0, bis die ganze Karte zu sehen ist.
   const minZoom = Math.min(info.minZoom, fitZoom(info, map.getSize()));
   map.setMinZoom(minZoom);
+  ganzeKarte(map, bounds);
 
   L.tileLayer(`${base}/${info.tiles}`, {
     tileSize: info.tileSize,

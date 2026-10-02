@@ -3978,8 +3978,9 @@ fn liste_der_baeume_unter_der_wurzel() {
 
 /// Eine Wurzel, eine Welt: Ihre Bäume teilen sich die Höhen. Ein Lauf einer
 /// anderen Welt in dieselbe Wurzel bricht ab, bevor er etwas liest oder
-/// schreibt, auch mit einer anderen Kamera und in einen neuen Ordner. Ein
-/// Lauf derselben Welt geht.
+/// schreibt, auch mit einer anderen Kamera und in einen neuen Ordner, und
+/// ebenso `--heights` für einen Baum der anderen Welt darin. Ein Lauf
+/// derselben Welt geht.
 #[test]
 fn eine_wurzel_eine_welt() {
     let welt = tempdir();
@@ -4013,6 +4014,30 @@ fn eine_wurzel_eine_welt() {
         "der Baum oder die Höhen haben sich verändert"
     );
 
+    // Ebenso `--heights` für einen Baum der anderen Welt unter dieser Wurzel.
+    let anderswo = neuer_baum("top-se");
+    gelungen(&tiles(
+        fremd.path(),
+        anderswo.path(),
+        &["--scale", "8", "--camera", "top"],
+    ));
+    std::fs::create_dir(&oben).unwrap();
+    std::fs::copy(anderswo.path().join("map.json"), oben.join("map.json")).unwrap();
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        fremd.path().as_os_str(),
+        OsStr::new("--heights"),
+        oben.as_os_str(),
+    ]);
+    assert!(
+        !ausgabe.status.success(),
+        "--heights der fremden Welt lief durch"
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("anderen Welt"), "Meldung: {meldung}");
+    assert_eq!(hoehen(), vorher, "--heights hat die Höhen verändert");
+    std::fs::remove_dir_all(&oben).unwrap();
+
     gelungen(&tiles(
         welt.path(),
         &oben,
@@ -4030,7 +4055,7 @@ fn baum_statt_wurzel_nennt_die_wurzel() {
     let baum = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), baum.path(), &["--scale", "8"]));
     let vorher = schnappschuss(baum.path());
-    let ausgabe = cli(&[
+    let args = [
         OsStr::new("--world"),
         welt.path().as_os_str(),
         OsStr::new("--assets"),
@@ -4039,7 +4064,8 @@ fn baum_statt_wurzel_nennt_die_wurzel() {
         baum.path().as_os_str(),
         OsStr::new("--scale"),
         OsStr::new("8"),
-    ]);
+    ];
+    let ausgabe = cli(&args);
     assert!(!ausgabe.status.success(), "der Baum als Wurzel lief durch");
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     let wurzel = std::path::absolute(baum.wurzel()).unwrap();
@@ -4051,6 +4077,22 @@ fn baum_statt_wurzel_nennt_die_wurzel() {
     assert_eq!(schnappschuss(baum.path()), vorher);
     assert!(!baum.path().join("2x1-se").exists());
     assert!(!baum.path().join("trees.json").exists());
+
+    // Jedes der beiden Zeichen reicht allein: ohne trees.json daneben die
+    // Höhen unter ../, ohne Höhen die trees.json.
+    let nennt_wurzel =
+        || String::from_utf8_lossy(&cli(&args).stderr).contains("--tiles nimmt die Wurzel");
+    let baeume = baum.wurzel().join("trees.json");
+    let liste = std::fs::read(&baeume).unwrap();
+    std::fs::remove_file(&baeume).unwrap();
+    assert!(nennt_wurzel(), "nur die Höhen unter ../");
+    std::fs::write(&baeume, liste).unwrap();
+    let karte = baum.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&karte).unwrap()).unwrap();
+    info.as_object_mut().unwrap().remove("heights").unwrap();
+    std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
+    assert!(nennt_wurzel(), "nur trees.json");
 }
 
 /// Ein Nachbar mit kaputtem `map.json` lässt keinen Lauf scheitern, weder

@@ -15,11 +15,14 @@ use super::kino::Kino;
 use super::licht::{Ausbreitung, ChunkLicht, Eingabe};
 use super::pyramid::LINEAR;
 use super::rasterizer::{
-    AO_FACES, Ecken, Light, VOLL_HELL, darken, ecken_faktor, over, pack, smooth_blend, tinted,
-    tinted_im_licht,
+    AO_FACES, Ecken, Geometrie, Light, VOLL_HELL, darken, ecken_faktor, over, pack, smooth_blend,
+    tinted, tinted_im_licht,
 };
+use super::sonne::texel_mitte;
 use super::sprites::{Family, Rows, TINT_BLOCK, TINT_WATER, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Richtung, Sprite, SpriteId, SpriteSet};
+
+mod strahl;
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
 ///
@@ -152,24 +155,52 @@ pub fn render_hdr_with(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<Hdr> {
-    let kino = chunks
-        .sprites
-        .kino()
-        .expect("eine Sprite-Tabelle für Cinematic");
+    render_hdr(chunks, rect, y_range, false)
+}
+
+/// Wie [`render_hdr_with`], nur mit dem langsamen Bezug des Strahls zur
+/// Sonne ([`ChunkCache::sonne_bezug`]): für Tests, die den schnellen Gang
+/// gegen ihn prüfen.
+pub fn render_hdr_bezug(
+    chunks: &mut ChunkCache,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+) -> Result<Hdr> {
+    render_hdr(chunks, rect, y_range, true)
+}
+
+fn render_hdr(
+    chunks: &mut ChunkCache,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+    bezug: bool,
+) -> Result<Hdr> {
+    let sprites = chunks.sprites;
+    let kino = sprites.kino().expect("eine Sprite-Tabelle für Cinematic");
     let deckung = von_vorn(chunks, rect, y_range)?;
     let mut hdr = Hdr::new(rect.width, rect.height);
-    for &(sprite, origin, ref sicht, licht, daten) in chunks.sichtbar.iter().rev() {
+    // Die Draws aus dem Cache genommen, denn der Strahl zur Sonne braucht ihn.
+    let sichtbar = std::mem::take(&mut chunks.sichtbar);
+    for &(sprite, origin, ref sicht, licht, daten) in sichtbar.iter().rev() {
         blit_hdr(
             &mut hdr,
-            kino,
+            (kino, sprites.projection()),
             sprite,
             origin,
             licht,
             daten,
             sicht,
             &deckung.vis,
-        );
+            &mut |p0, eigen| {
+                if bezug {
+                    chunks.sonne_bezug(p0, eigen)
+                } else {
+                    chunks.sonne(p0, eigen)
+                }
+            },
+        )?;
     }
+    chunks.sichtbar = sichtbar;
     chunks.vis = deckung.vis;
     Ok(hdr)
 }
@@ -252,7 +283,8 @@ fn von_vorn<'a>(
                 ..drawn
             }
         };
-        // Für Cinematic die Tiefe des Blockursprungs, siehe `Hdr::tiefe`.
+        // Für Cinematic die Tiefe des Blockursprungs, siehe `Hdr::tiefe`,
+        // und der Block, von dem der Strahl zur Sonne ausgeht.
         let tiefe = if kino {
             projection.depth(anchor.map(|c| c as f32))
         } else {
@@ -262,7 +294,13 @@ fn von_vorn<'a>(
             if let Some((sprite, rows)) = sprites.part_rows(id, cell) {
                 let origin = origin_of(projection, rect, anchor, sprite);
                 if let Some(sicht) = deckung.zeichne(sprite, rows, origin) {
-                    sichtbar.push((sprite, origin, sicht, ids.licht(), (ids.himmel, tiefe)));
+                    sichtbar.push((
+                        sprite,
+                        origin,
+                        sicht,
+                        ids.licht(),
+                        (ids.himmel, tiefe, anchor),
+                    ));
                 }
             }
         }
@@ -640,8 +678,9 @@ type Licht = ([u32; 3], Option<Ecken>, Option<[u32; 3]>, [u32; 2]);
 type Lichter = ([u32; 3], Option<Ecken>, Option<[u32; 3]>);
 
 /// Was ein Draw für Cinematic dazu trägt: das Himmelslicht an seinem Block
-/// ([`ChunkCache::himmel_at`]) und die Tiefe des Blockursprungs.
-type Kinodaten = ([f32; 3], f32);
+/// ([`ChunkCache::himmel_at`]), die Tiefe des Blockursprungs und der Block,
+/// dem das Modell gehört, im Blick.
+type Kinodaten = ([f32; 3], f32, [i32; 3]);
 
 /// Ein Draw, der bleibt, wie [`von_vorn`] ihn ablegt: der Sprite-Teil,
 /// seine linke obere Ecke auf der Leinwand, seine sichtbaren Pixel, sein
@@ -933,25 +972,30 @@ fn blit_sichtbar(
 /// Farben des Bioms, linear, mal ihr Licht aus [`Kino::licht`], über den
 /// darunter gelegt wie [`over`], vormultipliziert. Das Licht kommt an einem
 /// Pixel auf einer Seite der AO-Karte aus ihren Ecken, mit denselben
-/// Anteilen wie bei der Karte, ungerundet; sonst aus `licht`. Die Tiefe ist
+/// Anteilen wie bei der Karte, ungerundet; sonst aus `licht`. Die Sonne
+/// kommt dazu, so weit sie durchkommt: `sonne` gibt das für einen Punkt im
+/// Blick und den Block des Draws, siehe [`ChunkCache::sonne`]. Die Tiefe ist
 /// die des vordersten gezeichneten Pixels.
 /// Siehe docs/renderer/cinematic.md, „Zeichnen in HDR“.
 #[allow(clippy::too_many_arguments)]
 fn blit_hdr(
     hdr: &mut Hdr,
-    kino: &Kino,
+    (kino, projection): (&Kino, Projection),
     sprite: &Sprite,
     (ox, oy): (i32, i32),
     (licht, ecken, wasser, farben): Licht,
-    (himmel, ursprung): Kinodaten,
+    (himmel, ursprung, anker): Kinodaten,
     sicht: &Sicht,
     vis: &[u64],
-) {
+    sonne: &mut dyn FnMut([f64; 3], [i32; 3]) -> Result<f32>,
+) -> Result<()> {
     let (w, cw) = (sprite.image.width() as usize, hdr.width as usize);
     let src = sprite.image.as_raw();
     let karte = karte(sprite, &ecken);
     let linear = &*LINEAR;
     let zeilen = vis[sicht.start..].chunks(sicht.nk);
+    // Pixel auf demselben Texel beginnen am selben Punkt.
+    let mut letzter: Option<([f64; 3], f32)> = None;
     for (y, woerter) in (sicht.y0..sicht.y1).zip(zeilen) {
         let row = &src[(y - oy) as usize * w * 4..][..w * 4];
         for (j, &bits) in woerter.iter().enumerate() {
@@ -963,10 +1007,19 @@ fn blit_hdr(
                 let i = (y - oy) as usize * w + sx;
                 let s = &row[sx * 4..][..4];
                 let p = y as usize * cw + x;
-                let sonne = sprite
-                    .geometrie
-                    .as_deref()
-                    .map_or([0.0; 3], |g| kino.sonnenlicht(&g[i]));
+                let mut sonnenlicht = [0.0; 3];
+                if let Some(g) = sprite.geometrie.as_deref().map(|g| &g[i]) {
+                    sonnenlicht = kino.sonnenlicht(g);
+                    if sonnenlicht != [0.0; 3] {
+                        let p0 = startpunkt(projection, sprite, (sx, (y - oy) as usize), g, anker);
+                        let frei = match letzter {
+                            Some((q, frei)) if q == p0 => frei,
+                            _ => sonne(p0, anker)?,
+                        };
+                        letzter = Some((p0, frei));
+                        sonnenlicht = sonnenlicht.map(|c| c * frei);
+                    }
+                }
                 mische_hdr(
                     &mut hdr.farbe[p],
                     kino,
@@ -976,7 +1029,7 @@ fn blit_hdr(
                     wasser,
                     anteile(sprite, i, farben),
                     himmel,
-                    sonne,
+                    sonnenlicht,
                 );
                 if let Some(geometrie) = &sprite.geometrie {
                     hdr.tiefe[p] = ursprung + geometrie[i].tiefe;
@@ -984,6 +1037,26 @@ fn blit_hdr(
             }
         }
     }
+    Ok(())
+}
+
+/// Wo der Strahl zur Sonne für Pixel `(sx, sy)` eines Sprites beginnt, im
+/// Blick: am Punkt der vordersten Fläche dort, auf einer achsparallelen
+/// Fläche in der Mitte seines Sechzehntels, ein Tausendstel davor.
+/// Siehe docs/renderer/cinematic.md, „Schatten“.
+fn startpunkt(
+    projection: Projection,
+    sprite: &Sprite,
+    (sx, sy): (usize, usize),
+    g: &Geometrie,
+    anker: [i32; 3],
+) -> [f64; 3] {
+    let bildpunkt = (
+        f64::from(sprite.offset.0) + sx as f64 + 0.5,
+        f64::from(sprite.offset.1) + sy as f64 + 0.5,
+    );
+    let p = texel_mitte(projection.punkt(bildpunkt, g.tiefe.into()), g.normale);
+    std::array::from_fn(|k| f64::from(anker[k]) + p[k] + f64::from(g.normale[k]) * 1e-3)
 }
 
 /// Himmels-, Blocklicht und Schatten an Pixel `i` eines Sprites für
@@ -1193,6 +1266,11 @@ struct Loaded {
     /// Je Block, dessen Blockentity mit seinen Daten ein anderes Bild gibt,
     /// die Familie dafür ([`SpriteSet::variante`]), nach Lage sortiert.
     varianten: Vec<([i32; 3], u32)>,
+    /// Nur für Cinematic: die Blöcke, deren Modell für die Sonne aus dem
+    /// Würfel ragt ([`strahl::ragende`]), und die Säule des schnellen Gangs,
+    /// beide sobald gebraucht.
+    ragende: Option<Vec<[i32; 3]>>,
+    sonne: Option<Box<strahl::Saeule>>,
 }
 
 /// Die Eigenschaften einer Familie, die über Verdeckung entscheiden, je
@@ -1554,6 +1632,8 @@ impl Loaded {
             licht: None,
             biomes,
             varianten,
+            ragende: None,
+            sonne: None,
         }
     }
 }

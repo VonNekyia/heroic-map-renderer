@@ -1,15 +1,19 @@
 ---
 title: Cinematic
-description: Wie --cinematic dieselbe Karte im Licht des Spiels in HDR zeichnet - Sprites ohne Schattierung nach Richtung, Himmels- und Blocklicht getrennt an den Ecken, die Farbe des Himmels je Biom, Weissabgleich, Belichtung und Kurve aus 0058. Stand Phase 1, ohne Sonne.
+description: Wie --cinematic dieselbe Karte im Licht des Spiels in HDR zeichnet - Sprites ohne Schattierung nach Richtung, Himmels- und Blocklicht getrennt an den Ecken, die Farbe des Himmels je Biom, die Sonne mit hartem Schatten aus einem Strahl je Texel, Bodenpflanzen, die nur dämpfen, Weissabgleich, Belichtung und Kurve aus 0058.
 code:
   - renderer/src/render/look.rs
   - renderer/src/render/kino.rs
   - renderer/src/render/metatile.rs
+  - renderer/src/render/metatile/strahl.rs
+  - renderer/src/render/projection.rs
   - renderer/src/render/rasterizer.rs
+  - renderer/src/render/sonne.rs
   - renderer/src/render/sprites.rs
   - renderer/src/render/tint.rs
   - renderer/src/assets/colors.rs
   - renderer/src/assets/dimension.rs
+  - renderer/src/assets/mod.rs
   - renderer/src/cli.rs
 ---
 
@@ -25,7 +29,7 @@ Richtung und jedem scale; anders ist nur das Licht je Pixel, entschieden in
 [0053](../entscheidungen/0053-cinematic-als-schalter-der-karte.md). Es
 zeichnet immer die CPU. Phase 1 (#72) brachte das Licht des Spiels, Phase 2
 (#73) bringt Sonne, Schatten, Wasser, Leuchten, Wärme nach Biom und Bloom;
-bis jetzt davon die Sonne nach dem Winkel zur Fläche, ohne Schatten.
+bis jetzt davon die Sonne mit hartem Schatten und die Bodenpflanzen.
 
 ## Werte des Looks
 
@@ -38,13 +42,18 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
 | Anteil der Farbe des Himmels am Himmelslicht, der Rest ist Nebel | `himmel_anteil`: 0,75 | ja |
 | Stärke des Blocklichts | `block`: 1,5 | ja |
 | Sonne: Stärke, Farbe linear, Höhe, waagrecht von links zur Kamera hin | `sonne`: 3, `sonne_farbe`: (1; 0,93; 0,83), `sonne_hoehe`: 48,47°, `sonne_seite`: 8,75° | ja |
+| Wie weit ein Strahl zur Sonne reicht, in Blöcken entlang des Strahls | `sonne_weite`: 128 | ja |
+| So viel Sonne lässt eine Bodenpflanze durch | `pflanzen`: 0,5 | ja |
 | Belichtung | `belichtung`: 0,25 | ja |
 | Kurve: gerade bis, flach ab | `knie`: 0,8, `flach`: 1,2 | ja |
 
-- **Herkunft:** alle aus 0058, bis auf `himmel_anteil`. 0058 sagt nur „in
-  der Farbe des Himmels“. Der Prototyp aus #89, an dem 0058 abgestimmt
-  ist, nimmt für das Licht auf einer Fläche nach oben die Farbe des Nebels
-  und des Himmels, linear gemischt mit 0,75 Himmel.
+- **Herkunft:** alle aus 0058, bis auf `himmel_anteil` und
+  `sonne_weite`. 0058 sagt nur „in der Farbe des Himmels“. Der Prototyp aus
+  #89, an dem 0058 abgestimmt ist, nimmt für das Licht auf einer Fläche nach
+  oben die Farbe des Nebels und des Himmels, linear gemischt mit 0,75
+  Himmel. Bis 128 Blöcke weit reichte der Strahl zur Sonne im Prototyp, an
+  dem 0056 den Preis gemessen hat, siehe
+  [Gang zur Sonne in Stufen](../messungen/2026-10-02-gang-zur-sonne-in-stufen.md).
 - **Fingerabdruck:** Jeder Baum mit Cinematic hält die Werte als
   `lookHash` in `map.json`; mit anderen bricht ein Lauf ab. Wie er
   gerechnet wird, steht in [`map.json`](../benutzung/map-json.md), „Look“.
@@ -156,6 +165,92 @@ und (0, 0, 1). Aus jeder Richtung steht sie also gleich zum Bild.
   über 0; im Nether und im Ende scheint sie nicht.
 - **Ohne Schatten der weichen Beleuchtung:** Der Schatten an den Ecken
   dunkelt das Licht des Spiels, nicht die Sonne.
+- **So weit sie durchkommt:** mal dem, was der Strahl zur Sonne von ihr
+  übrig lässt, siehe „Schatten“.
+
+## Schatten
+
+Je Pixel, auf den die Sonne scheint, geht ein Strahl zur Sonne, entschieden
+in [0056](../entscheidungen/0056-exakter-strahl-zur-sonne.md). Er gibt 0
+hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
+0,5 (`ChunkCache::sonne` in
+[`renderer/src/render/metatile/strahl.rs`](../../renderer/src/render/metatile/strahl.rs)).
+
+- **Wo er beginnt** (`startpunkt` in
+  [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
+  am Punkt der vordersten Fläche im Pixel, aus dem Bildpunkt und der Tiefe
+  des Sprites zurückgerechnet (`Projection::punkt`), ein Tausendstel vor
+  der Fläche. Auf einer achsparallelen Fläche liegt er in der Mitte seines
+  Sechzehntels Block (`texel_mitte`): Alle Pixel auf einem Texel bekommen
+  denselben Strahl, er wird einmal gerechnet. Auf schrägen Flächen je
+  Pixel.
+- **Was deckt** (`Sonnenform` in
+  [`renderer/src/render/sonne.rs`](../../renderer/src/render/sonne.rs)):
+  je Alternative die Dreiecke ihres Modells im Blick, mit dem Alpha-Test
+  ihrer Schicht. Ausgeschnitten deckt ein Texel ab der Schwelle des
+  Alpha-Tests, gemischt nur mit Alpha 255 (`sonnenschwelle`). Laub deckt
+  also nach seinen Löchern, Glas nur, wo seine Texel ganz decken.
+- **Was durchlässt:** Flächen aus Wasser fehlen ganz, Wasser hält die
+  Sonne nie auf. Ein Block ohne deckenden Texel ebenso.
+- **Lava** reicht unter derselben bis zur Kante, und ihre Flächen entfallen
+  zu derselben und vor einer vollen Seite, wie
+  `LiquidBlockRenderer.shouldRenderFace`.
+- **Modelle, die aus ihrem Würfel ragen,** prüft er in jedem Würfel, in den
+  ihre Hülle reicht (`Sonnenform::zellen`), einmal je Strahl.
+- **Wie weit:** bis `sonne_weite`, 128 Blöcke entlang des Strahls.
+- **Der Test einer Zelle:** erst gegen die Hülle des Modells, dann Dreieck
+  für Dreieck, beidseitig; der erste deckende Treffer genügt. Gerechnet
+  relativ zum Block, also gleich, in welcher Zelle er geprüft wird.
+
+### Der schnelle Gang
+
+`ChunkCache::sonne_gang` geht den Strahl Zelle für Zelle durch das Gitter
+im Blick, springt aber über, was nichts aufhält:
+
+- **Je Chunk eine Säule** (`Saeule`), sobald ein Strahl ihn betritt: ihre
+  Decke, die oberste Zelle mit Block oder hineinragendem Modell. Darüber
+  springt der Strahl zum Rand des Chunks. Dafür lädt der Chunk-Cache die
+  Chunks rundum, aus denen Modelle hineinragen können; das Band wächst
+  nicht im Voraus.
+- **Je Section Bits** (`Bits`), sobald ein Strahl sie betritt, einmal je
+  Section: die Zellen mit Arbeit, die vollen deckenden Würfel und die
+  Zellen, in die ein Modell eines Nachbarn ragt; dazu je Würfel aus
+  4 × 4 × 4 Zellen ein Bit. Durch eine Section und einen Würfel ohne Arbeit
+  springt er hinaus.
+- **Ein voller deckender Würfel** (`Sonnenform::wuerfel`: alle sechs Seiten
+  ganz von einer deckenden Fläche belegt) hält ihn ohne Test auf.
+- **Gleich dem Bezug:** `ChunkCache::sonne_bezug` prüft jede Zelle bis zur
+  Weite mit jedem Block, dessen Modell hineinragen kann. Beide geben
+  dasselbe, denn ein Block, den der Strahl nicht trifft, ändert nichts, ob
+  er geprüft wird oder nicht. Das prüft `schneller_gang_gleicht_dem_bezug`
+  in `renderer/tests/metatile.rs` Bit für Bit am HDR-Puffer, an Szenen mit
+  Wasser, Lava, Laub, Glas und Modellen, die aus ihrem Würfel ragen.
+
+Getestet: einzelne Strahlen durch Würfel, Laub, Wasser, Glas, Pflanze und
+Überhang (`strahlen_zur_sonne`), die Lage des Schattens eines Würfels im
+Bild (`wuerfel_wirft_seinen_schatten`).
+
+## Bodenpflanzen
+
+Eine Bodenpflanze dämpft den Strahl zur Sonne auf `pflanzen`, 0,5, einmal
+je Block, statt ihn zu decken, wie in 0058:
+
+- **Welche:** wessen Modelle jeder Alternative über ihre `parent`-Kette von
+  einer Vorlage des Spiels erben (`Assets::bodenpflanze` in
+  [`renderer/src/assets/mod.rs`](../../renderer/src/assets/mod.rs)): dem
+  Kreuz (`block/cross`, `block/tinted_cross`, `block/cross_emissive`), den
+  Ebenen der Feldfrüchte (`block/crop`), den Blütenteppichen
+  (`block/flowerbed_*`), dem Laub am Boden (`block/template_leaf_litter_*`)
+  und der Vorlage des Seegrases (`block/template_seagrass`). In 26.2 sind
+  das 85 Blöcke, gezählt an den Modellen des Client: 84 ganz, dazu die
+  untere Hälfte der Sonnenblume; ihre Blüte oben hat ein eigenes Modell.
+- **Nicht** dämpft die Pflanze, auf der der Strahl beginnt, und von ihr
+  aus der Block darüber, wenn er ihre obere Hälfte ist
+  (`Family::obere_haelfte`).
+- **Licht:** Flächen ohne `shade` bekommen das Licht einer Fläche nach
+  oben, siehe „Sonne“.
+- Getestet: `bodenpflanze_nach_der_vorlage` in `renderer/tests/assets.rs`
+  und die Pflanze in `strahlen_zur_sonne`.
 
 ## Zeichnen in HDR
 
@@ -202,3 +297,7 @@ mit Cinematic in `renderer/tests/cli.rs`.
 - **Wasser im eigenen Licht nach seinem Anteil an der Farbe:** Der Anteil
   kommt aus der Tönungskarte in sRGB, wie bei der Karte. Das Spiel mischt
   das Wasser als eigene Fläche über das Modell.
+- **Schatten bis 128 Blöcke:** Ein Block, der weiter entlang des Strahls
+  steht, also gut 95 Blöcke höher, wirft keinen Schatten mehr. Das Spiel
+  hat keine Schatten der Sonne; der Prototyp, an dem 0056 den Preis
+  gemessen hat, reichte so weit.

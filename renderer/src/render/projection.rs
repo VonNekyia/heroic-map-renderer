@@ -426,6 +426,33 @@ impl Projection {
         let [ax, ay, az] = self.achse();
         x * ax + y * ay + z * az
     }
+
+    /// Der Punkt, den [`Projection::project`] auf `(x, y)` abbildet und der
+    /// die Tiefe `tiefe` hat ([`Projection::depth`]): die Umkehrung beider
+    /// zusammen, nach der Cramerschen Regel.
+    pub fn punkt(&self, (x, y): (f64, f64), tiefe: f64) -> [f64; 3] {
+        let (h, a, b) = (self.h(), self.a(), self.b());
+        let [ax, ay, az] = self.achse().map(f64::from);
+        let m = if self.kamera.genordet() {
+            [[h, 0.0, 0.0], [0.0, -b, a], [ax, ay, az]]
+        } else {
+            [[h, 0.0, -h], [a, -b, a], [ax, ay, az]]
+        };
+        let det = |m: [[f64; 3]; 3]| {
+            m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+        };
+        let rechts = [x, y, tiefe];
+        let d = det(m);
+        std::array::from_fn(|k| {
+            let mut mk = m;
+            for (zeile, &r) in mk.iter_mut().zip(&rechts) {
+                zeile[k] = r;
+            }
+            det(mk) / d
+        })
+    }
 }
 
 impl Default for Projection {
@@ -437,6 +464,31 @@ impl Default for Projection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn punkt_kehrt_projektion_und_tiefe_um() {
+        let kameras = [
+            Kamera::ZWEI_ZU_EINS,
+            Kamera::schraeg(4, 3).unwrap(),
+            Kamera::schraeg(1, 1).unwrap(),
+            Kamera::Oben,
+            Kamera::ObenNord,
+            Kamera::Nord45,
+        ];
+        for kamera in kameras {
+            let p = Projection::mit_kamera(32, kamera);
+            for q in [[0.25f32, 0.5, 0.75], [1.0, 0.0, 0.3], [0.9, 1.0, 0.1]] {
+                let (x, y) = p.project(q);
+                let r = p.punkt((x.into(), y.into()), p.depth(q).into());
+                for k in 0..3 {
+                    assert!(
+                        (r[k] - f64::from(q[k])).abs() < 1e-5,
+                        "{kamera}: {q:?} → {r:?}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn wuerfel_belegt_genau_scale_mal_scale() {

@@ -783,40 +783,8 @@ impl<'a> ProjectedQuad<'a> {
         // am Rand also knapp ausserhalb der Fläche. Dort bleibt sie im
         // Ausschnitt, den die Fläche aus der Textur nimmt — eine Tür soll
         // nicht ihre Rückseite an die Kante mischen.
-        let mut bounds = [[f32::MAX, f32::MAX], [f32::MIN, f32::MIN]];
-        for [u, v] in self.quad.uvs {
-            bounds[0] = [bounds[0][0].min(u), bounds[0][1].min(v)];
-            bounds[1] = [bounds[1][0].max(u), bounds[1][1].max(v)];
-        }
-        // Die Schicht wie im Spiel. Eine Fläche aus einem Blockentity-Modell
-        // bringt ihre mit. Sonst (`FaceBakery.computeMaterialTransparency`
-        // und `ChunkSectionLayer.byTransparency` in 26.2): mit
-        // `force_translucent` durchscheinend, sonst nach dem Ausschnitt der
-        // Textur. Flüssigkeiten gehen dort nicht durch den FaceBakery. Eine
-        // deckende Fläche deckt ausgeschnitten wie gemischt ganz.
-        let deckung = match self.quad.entity {
-            Some(Entity { schicht, .. }) if schicht.gemischt => Deckung::Gemischt {
-                schwelle: schwelle(schicht.alpha),
-            },
-            Some(Entity { schicht, .. }) => Deckung::Ausgeschnitten {
-                fuellung: None,
-                schwelle: schwelle(schicht.alpha),
-            },
-            None if self.quad.force_translucent
-                || self.quad.fluid.is_some()
-                || textures.durchscheinend(self.quad.texture, bounds[0], bounds[1]) =>
-            {
-                Deckung::Gemischt {
-                    schwelle: schwelle(Some(ALPHA_CUTOUT_TRANSLUCENT)),
-                }
-            }
-            None => Deckung::Ausgeschnitten {
-                fuellung: textures
-                    .fuellung(self.quad.texture)
-                    .map(|farbe| farbe.map(|c| LINEAR[c as usize])),
-                schwelle: schwelle(Some(ALPHA_CUTOUT_CUTOUT)),
-            },
-        };
+        let bounds = ausschnitt(self.quad);
+        let deckung = deckung(self.quad, textures, bounds);
 
         // Die Farbe einer Fläche aus einem Blockentity-Modell multipliziert
         // die Textur wie die Farbe des Bioms, bei Bannern die des Farbstoffs.
@@ -863,6 +831,61 @@ impl<'a> ProjectedQuad<'a> {
                 samples,
             );
         }
+    }
+}
+
+/// Der Ausschnitt, den eine Fläche aus ihrer Textur nimmt: die kleinsten
+/// und die grössten Texturkoordinaten ihrer Ecken.
+pub(crate) fn ausschnitt(quad: &Quad) -> [[f32; 2]; 2] {
+    let mut bounds = [[f32::MAX, f32::MAX], [f32::MIN, f32::MIN]];
+    for [u, v] in quad.uvs {
+        bounds[0] = [bounds[0][0].min(u), bounds[0][1].min(v)];
+        bounds[1] = [bounds[1][0].max(u), bounds[1][1].max(v)];
+    }
+    bounds
+}
+
+/// Wie eine Fläche deckt, nach der Schicht wie im Spiel. Eine Fläche aus
+/// einem Blockentity-Modell bringt ihre mit. Sonst
+/// (`FaceBakery.computeMaterialTransparency` und
+/// `ChunkSectionLayer.byTransparency` in 26.2): mit `force_translucent`
+/// durchscheinend, sonst nach dem Ausschnitt `bounds` der Textur.
+/// Flüssigkeiten gehen dort nicht durch den FaceBakery. Eine deckende Fläche
+/// deckt ausgeschnitten wie gemischt ganz.
+fn deckung(quad: &Quad, textures: &Textures, bounds: [[f32; 2]; 2]) -> Deckung {
+    match quad.entity {
+        Some(Entity { schicht, .. }) if schicht.gemischt => Deckung::Gemischt {
+            schwelle: schwelle(schicht.alpha),
+        },
+        Some(Entity { schicht, .. }) => Deckung::Ausgeschnitten {
+            fuellung: None,
+            schwelle: schwelle(schicht.alpha),
+        },
+        None if quad.force_translucent
+            || quad.fluid.is_some()
+            || textures.durchscheinend(quad.texture, bounds[0], bounds[1]) =>
+        {
+            Deckung::Gemischt {
+                schwelle: schwelle(Some(ALPHA_CUTOUT_TRANSLUCENT)),
+            }
+        }
+        None => Deckung::Ausgeschnitten {
+            fuellung: textures
+                .fuellung(quad.texture)
+                .map(|farbe| farbe.map(|c| LINEAR[c as usize])),
+            schwelle: schwelle(Some(ALPHA_CUTOUT_CUTOUT)),
+        },
+    }
+}
+
+/// Ab welchem Alpha ein Texel der Fläche den Strahl zur Sonne aufhält: in
+/// einer gemischten Schicht nur ganz deckend, ausgeschnitten ab der Schwelle
+/// ihres Alpha-Tests, denn was der Test stehen lässt, deckt dort ganz.
+/// Siehe docs/renderer/cinematic.md, „Schatten“.
+pub(crate) fn sonnenschwelle(quad: &Quad, textures: &Textures) -> u8 {
+    match deckung(quad, textures, ausschnitt(quad)) {
+        Deckung::Gemischt { .. } => 255,
+        Deckung::Ausgeschnitten { schwelle, .. } => schwelle,
     }
 }
 

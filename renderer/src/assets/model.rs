@@ -121,6 +121,9 @@ pub struct ResolvedModel {
     /// `ambientocclusion` des Modells oder des nächsten Parents, der es
     /// setzt, sonst wahr: `ResolvedModel.findTopAmbientOcclusion`.
     pub ambient_occlusion: bool,
+    /// Erbt das Modell über seine `parent`-Kette von einer Vorlage der
+    /// Bodenpflanzen, siehe `Assets::bodenpflanze`?
+    pub bodenpflanze: bool,
 }
 
 impl ResolvedModel {
@@ -201,6 +204,7 @@ impl ResolvedModel {
         Ok(ResolvedModel {
             elements: out,
             ambient_occlusion,
+            bodenpflanze: false,
         })
     }
 }

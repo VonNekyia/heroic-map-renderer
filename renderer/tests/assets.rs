@@ -33,6 +33,17 @@ fn state(text: &str) -> BlockState {
     BlockState::parse(text).unwrap()
 }
 
+/// Eine Bodenpflanze erbt über ihre `parent`-Kette vom Kreuz; ein Kreuz mit
+/// eigenen Elementen ohne diese Vorlage ist keine, ein Würfel auch nicht.
+/// Siehe docs/renderer/cinematic.md, „Bodenpflanzen“.
+#[test]
+fn bodenpflanze_nach_der_vorlage() {
+    let mut assets = base();
+    assert!(assets.bodenpflanze(&state("minecraft:pflanze")).unwrap());
+    assert!(!assets.bodenpflanze(&state("minecraft:kreuz")).unwrap());
+    assert!(!assets.bodenpflanze(&state("minecraft:einfarbig")).unwrap());
+}
+
 #[test]
 fn leere_wurzelliste_ist_fehler() {
     assert!(Assets::open(Vec::new()).is_err());

@@ -16,6 +16,7 @@ use crate::world::{BlockState, Blockdaten};
 use super::kino::Kino;
 use super::look::Look;
 use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
+use super::sonne::{Masken, Sonnenform};
 use super::tint::BiomeTable;
 use super::{Kamera, Projection, Richtung, Sprite, render};
 
@@ -82,6 +83,10 @@ pub struct SpriteSet {
     licht_deckend: Option<HashSet<BlockState>>,
     /// Womit Cinematic zeichnet; `None` für die Karte.
     kino: Option<Kino>,
+    /// Nur für Cinematic: die Texelmasken der [`Sonnenform`]en und die
+    /// Würfel um einen Block, in die irgendein Modell ragt, von und bis.
+    masken: Masken,
+    sonne_reich: [[i32; 3]; 2],
 }
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
@@ -218,6 +223,9 @@ pub struct Family {
     /// Je Alternative ihre Fassungen ohne die Flächen zu Nachbarn, wenn
     /// `seiten` nicht leer ist, siehe [`Family::ohne_nachbarn`].
     fassungen: Vec<Vec<Option<SpriteId>>>,
+    /// Nur für Cinematic: was der Block dem Strahl zur Sonne in den Weg
+    /// stellt.
+    pub sonne: Option<Sonnenform>,
 }
 
 /// Die Seiten in der Reihenfolge von `Direction.values()`, wie [`seite`].
@@ -278,6 +286,12 @@ impl Family {
     /// Hat der Block Fassungen ohne Flächen zu Nachbarn?
     pub fn hat_nachbarn(&self) -> bool {
         self.seiten != 0
+    }
+
+    /// Ist der Block die obere Hälfte des Blocks darunter, siehe
+    /// [`seed_offset`]?
+    pub fn obere_haelfte(&self) -> bool {
+        self.seed_offset == [0, -1, 0]
     }
 }
 
@@ -556,6 +570,8 @@ impl SpriteSet {
             biomes,
             licht_deckend: None,
             kino,
+            masken: Masken::default(),
+            sonne_reich: [[0; 3]; 2],
         };
 
         // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
@@ -585,7 +601,8 @@ impl SpriteSet {
             for member in &members[1..] {
                 assets.skip_like(member, state);
             }
-            let Some(family) = set.rastere_familie(assets, state, &models) else {
+            let pflanze = assets.bodenpflanze(state)?;
+            let Some(family) = set.rastere_familie(assets, state, &models, pflanze) else {
                 continue;
             };
             if let Some((fluid, _)) = family.fluid {
@@ -652,7 +669,8 @@ impl SpriteSet {
             }
             unbekannt.extend(blockentity::unbekannt(daten, assets));
             let models = models_of(assets, state, Some(daten))?;
-            let Some(family) = self.rastere_familie(assets, state, &models) else {
+            let pflanze = assets.bodenpflanze(state)?;
+            let Some(family) = self.rastere_familie(assets, state, &models, pflanze) else {
                 continue;
             };
             // Muster und Scherben liegen auf den Flächen des Modells ohne
@@ -685,12 +703,14 @@ impl SpriteSet {
     }
 
     /// Rastert die Alternativen einer Blockstate zu einer Familie, `None`,
-    /// wenn keine etwas zeichnet.
+    /// wenn keine etwas zeichnet. `pflanze`: Der Block ist eine Bodenpflanze
+    /// ([`Assets::bodenpflanze`]).
     fn rastere_familie(
         &mut self,
         assets: &Assets,
         state: &BlockState,
         models: &[(u32, BakedModel)],
+        pflanze: bool,
     ) -> Option<Family> {
         let fluid = fluid::key(state);
         let nachbarn = blockstate::nachbarregel(state);
@@ -742,6 +762,23 @@ impl SpriteSet {
             && models
                 .iter()
                 .all(|(_, model)| model.quads.iter().all(|q| q.fluid.is_some()));
+        let sonne = self.kino.is_some().then(|| {
+            let lava = fluid.is_some_and(|(art, _)| art == Fluid::Lava);
+            let form = Sonnenform::new(
+                models,
+                lava,
+                full_height,
+                projection.richtung(),
+                assets.textures(),
+                &mut self.masken,
+                pflanze,
+            );
+            for k in 0..3 {
+                self.sonne_reich[0][k] = self.sonne_reich[0][k].min(form.zellen[0][k]);
+                self.sonne_reich[1][k] = self.sonne_reich[1][k].max(form.zellen[1][k]);
+            }
+            form
+        });
         Some(Family {
             total: alternatives.iter().map(|(weight, _)| *weight).sum(),
             seed_offset: seed_offset(state),
@@ -765,6 +802,7 @@ impl SpriteSet {
             seiten,
             fassungen,
             alternatives,
+            sonne,
         })
     }
 
@@ -789,6 +827,17 @@ impl SpriteSet {
     /// Womit Cinematic zeichnet; `None` für die Karte.
     pub fn kino(&self) -> Option<&Kino> {
         self.kino.as_ref()
+    }
+
+    /// Die Texelmasken für [`Sonnenform::trifft`].
+    pub(crate) fn masken(&self) -> &Masken {
+        &self.masken
+    }
+
+    /// Die Würfel um einen Block, in die irgendein Modell der Tabelle ragt,
+    /// relativ zu ihm im Blick, von und bis einschliesslich.
+    pub(crate) fn sonne_reich(&self) -> [[i32; 3]; 2] {
+        self.sonne_reich
     }
 
     /// Hält ein Block, den 26.2 nicht kennt, das Licht ganz auf? Wenn sein
@@ -1468,6 +1517,7 @@ mod tests {
             voll: 0,
             seiten: 0,
             fassungen: Vec::new(),
+            sonne: None,
         };
         let listen = [
             family(&[1, 1, 1, 1]),

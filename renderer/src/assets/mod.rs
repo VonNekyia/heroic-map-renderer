@@ -476,16 +476,29 @@ impl Assets {
             current = raw.parent;
         }
 
-        let model = Arc::new(ResolvedModel::build(
+        let mut model = ResolvedModel::build(
             elements.unwrap_or_default(),
             &textures,
             &mut self.textures,
             &self.packs,
             id,
             ambient_occlusion.unwrap_or(true),
-        )?);
+        )?;
+        model.bodenpflanze = seen.iter().any(|id| vorlage_der_bodenpflanzen(id));
+        let model = Arc::new(model);
         self.models.insert(id.to_string(), Arc::clone(&model));
         Ok(model)
+    }
+
+    /// Ist der Block eine Bodenpflanze? Wenn jedes Modell jeder Alternative
+    /// über seine `parent`-Kette von einer Vorlage aus
+    /// [`vorlage_der_bodenpflanzen`] erbt. Sie dämpft den Strahl zur Sonne in
+    /// Cinematic, statt ihn zu decken.
+    /// Siehe docs/renderer/cinematic.md, „Bodenpflanzen“.
+    pub fn bodenpflanze(&mut self, state: &BlockState) -> Result<bool> {
+        Ok(self.alternatives(state)?.iter().all(|(_, variants)| {
+            !variants.is_empty() && variants.iter().all(|v| v.model.bodenpflanze)
+        }))
     }
 
     /// Eine Modelldatei, wie `CuboidModel` sie liest ([`ModelFile::read`]).
@@ -515,6 +528,24 @@ fn find_file<'a>(
         pack.listed(namespace, kind, path, extension)
             .map(|file| (layer, file))
     })
+}
+
+/// Die Vorlagen der Bodenpflanzen in den Modellen des Spiels: das Kreuz,
+/// die Ebenen der Feldfrüchte, Blütenteppiche und Laub, die Vorlage des
+/// Seegrases.
+/// Siehe docs/renderer/cinematic.md, „Bodenpflanzen“.
+fn vorlage_der_bodenpflanzen(id: &str) -> bool {
+    let (namespace, name) = split_id(id);
+    namespace == "minecraft"
+        && (matches!(
+            name,
+            "block/cross"
+                | "block/tinted_cross"
+                | "block/cross_emissive"
+                | "block/crop"
+                | "block/template_seagrass"
+        ) || name.starts_with("block/flowerbed_")
+            || name.starts_with("block/template_leaf_litter_"))
 }
 
 /// `minecraft:block/stone` -> `("minecraft", "block/stone")`. Ohne Namensraum,

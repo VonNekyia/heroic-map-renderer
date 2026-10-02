@@ -24,6 +24,10 @@ pub struct Look {
     /// Wie weit die Sonne waagrecht von links zur Kamera hin gedreht steht,
     /// in Grad.
     pub sonne_seite: f32,
+    /// Wie weit ein Strahl zur Sonne reicht, in Blöcken entlang des Strahls.
+    pub sonne_weite: f32,
+    /// So viel Sonne lässt eine Bodenpflanze auf dem Strahl durch.
+    pub pflanzen: f32,
     /// Belichtung vor der Kurve.
     pub belichtung: f32,
     /// Bis hierher ist die Kurve eine Gerade.
@@ -41,6 +45,8 @@ pub const LOOK: Look = Look {
     sonne_farbe: [1.0, 0.93, 0.83],
     sonne_hoehe: 48.47,
     sonne_seite: 8.75,
+    sonne_weite: 128.0,
+    pflanzen: 0.5,
     belichtung: 0.25,
     knie: 0.8,
     flach: 1.2,
@@ -50,7 +56,7 @@ impl Look {
     /// Jeder Wert mit seinem Namen, in fester Reihenfolge, wie er im Code
     /// steht. Abgeleitete Werte wie die Richtung der Sonne aus Sinus und
     /// Kosinus fehlen: Deren letztes Bit kann je System abweichen.
-    fn werte(&self) -> [(&'static str, &[f32]); 10] {
+    fn werte(&self) -> [(&'static str, &[f32]); 12] {
         [
             ("himmel", std::slice::from_ref(&self.himmel)),
             ("himmel_anteil", std::slice::from_ref(&self.himmel_anteil)),
@@ -59,6 +65,8 @@ impl Look {
             ("sonne_farbe", &self.sonne_farbe),
             ("sonne_hoehe", std::slice::from_ref(&self.sonne_hoehe)),
             ("sonne_seite", std::slice::from_ref(&self.sonne_seite)),
+            ("sonne_weite", std::slice::from_ref(&self.sonne_weite)),
+            ("pflanzen", std::slice::from_ref(&self.pflanzen)),
             ("belichtung", std::slice::from_ref(&self.belichtung)),
             ("knie", std::slice::from_ref(&self.knie)),
             ("flach", std::slice::from_ref(&self.flach)),
@@ -153,7 +161,7 @@ mod tests {
     /// zieht den Test nach.
     #[test]
     fn fingerabdruck_der_werte_aus_0058() {
-        assert_eq!(LOOK.fingerabdruck(), "99a6b52000e81791");
+        assert_eq!(LOOK.fingerabdruck(), "1294a7ae9c6aaa7f");
         let anders = Look {
             belichtung: 0.26,
             ..LOOK

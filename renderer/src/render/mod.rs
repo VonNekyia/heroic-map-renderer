@@ -7,6 +7,7 @@ pub mod metatile;
 pub mod projection;
 pub mod pyramid;
 pub mod rasterizer;
+pub mod sonne;
 pub mod sprites;
 pub mod tiles;
 pub mod tint;

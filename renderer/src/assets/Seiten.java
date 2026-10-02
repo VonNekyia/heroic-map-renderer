@@ -61,7 +61,7 @@ public class Seiten {
                 out.println(name + " " + z);
             }
         }
-        err.println(bloecke + " Blöcke, " + zustaende + " Zustände mit einer vollen Seite, "
+        err.println(bloecke + " Blöcke, " + zustaende + " Zustände mit mindestens einer vollen Seite, "
                 + ganz + " mit allen sechs");
     }
 }

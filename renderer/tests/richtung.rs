@@ -690,8 +690,7 @@ fn gedrehte_szene_wie_aus_der_vorgabe() {
         // Quelle: Die Ecken der Bretter daneben nehmen sein Licht. Unter
         // offenem Himmel oder neben der Quelle sind sie ohnehin voll hell.
         ([10, 3, 16], "minecraft:magma_block"),
-        // Bretter im Süden und unter dem Spawner aus `nur_halb`.
-        ([13, 3, 13], "minecraft:oak_planks"),
+        // Bretter unter dem Spawner aus `nur_halb`.
         ([13, 2, 12], "minecraft:oak_planks"),
         // Teile in fremden Würfeln: frei, nach oben und in einem belegten.
         ([12, 3, 19], "minecraft:ueberhang_gerichtet[facing=south]"),
@@ -730,6 +729,9 @@ fn gedrehte_szene_wie_aus_der_vorgabe() {
     // und Norden, eine Doppelkiste und ein Topf, und ein Spawner vor vollen
     // Blöcken. Seine inneren Wände tragen die `cullface` gegenüber, nur in z;
     // er hat keine Richtung, und eine Vierteldrehung ändert, was entfällt.
+    // Der Kolben südlich davon deckt nur nach Norden, zum Spawner: Halb
+    // gedreht steht er nördlich, und die Wand entfällt nur, wenn seine
+    // Seiten in der Welt gelesen werden.
     let nur_halb = [
         ([9, 3, 21], "minecraft:chest[facing=south,type=right]"),
         ([10, 3, 21], "minecraft:chest[facing=south,type=left]"),
@@ -738,6 +740,7 @@ fn gedrehte_szene_wie_aus_der_vorgabe() {
             "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=false]",
         ),
         ([13, 3, 12], "minecraft:spawner"),
+        ([13, 3, 13], "minecraft:piston[extended=true,facing=south]"),
     ];
     let chunks = [(0, 0), (1, 0), (0, 1), (1, 1)];
     wie_die_vorgabe(&szene, &nur_halb, &chunks, &KAMERAS);

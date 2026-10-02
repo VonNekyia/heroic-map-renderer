@@ -3916,7 +3916,7 @@ fn verbundene_scheiben_ohne_stoss() {
     }
 }
 
-/// Mangrovenwurzeln lassen nur oben und unten Flächen weg, auch die innere
+/// Mangrovenwurzeln lassen zu sich selbst nur oben und unten Flächen weg, auch die innere
 /// mit `cullface` unten. Im Turm aus zweien sieht man durch die Südseite des
 /// oberen dort, wo der Sichtstrahl zwischen beiden durchgeht, nichts; bei
 /// einem allein liegt dort seine Oberseite. Geflutet bleibt im Turm nur die
@@ -4007,7 +4007,7 @@ fn wurzeln_ohne_untere_schicht_vor_vollem_block() {
 }
 
 /// Ein Spawner zeigt seine Wände von innen. Das innere Element von
-/// `cube_all_inner_faces` läuft in x von 16 nach 0, seine Flächen zeigen
+/// `cube_all_inner_faces` läuft in x von 15,998 nach 0,002, seine Flächen zeigen
 /// nach innen. Die Wände in z tragen dadurch die `cullface` der Wand
 /// gegenüber, die übrigen die ihrer eigenen. Die Nordwand, die die Kamera
 /// sieht, entfällt deshalb vor einem vollen Block im Süden, nicht im

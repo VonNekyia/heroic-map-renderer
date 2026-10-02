@@ -1887,7 +1887,7 @@ impl<'a> ChunkCache<'a> {
     ///
     /// Vier Entscheidungen fallen hier: welche Alternative die Position
     /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken, welche
-    /// Flächen zu gleichen Nachbarn entfallen und in welchen Farben sein
+    /// Flächen zu Nachbarn entfallen und in welchen Farben sein
     /// Biom den Block tönt. Die Bilder sind vorab gerastert, die Farben
     /// kommen beim Zeichnen dazu.
     fn sprite_at(&mut self, x: i32, y: i32, z: i32) -> Result<Drawn> {

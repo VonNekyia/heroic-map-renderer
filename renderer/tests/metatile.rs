@@ -12,7 +12,7 @@ use rayon::prelude::*;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::look::LOOK;
-use terranova_render::render::metatile::STUECK;
+use terranova_render::render::metatile::{STUECK, render_hdr_with};
 use terranova_render::render::rasterizer::{
     Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
 };
@@ -641,6 +641,42 @@ fn cinematic_zeichnet_dieselben_draws_wie_die_karte() {
             );
         }
     });
+}
+
+/// Cinematic hält je Pixel die Tiefe der vordersten Fläche entlang der
+/// Blickachse: auf der Oberseite eines Blocks die ihrer Ebene an der Mitte
+/// des Pixels, wo kein Block ist, −∞.
+/// Siehe docs/renderer/cinematic.md, „Zeichnen in HDR“.
+#[test]
+fn hdr_haelt_die_tiefe_der_vordersten_flaeche() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 3, 8) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    let kino =
+        SpriteSet::build_mit_licht(&mut assets(), &states, projection, None, Some(LOOK)).unwrap();
+    let rect = rect_um(projection, [8, 3, 8], [9, 4, 9]);
+    let hdr = render_hdr_with(&mut ChunkCache::new(&world, &kino), rect, Y_RANGE).unwrap();
+    let (sx, sy) = projection.project([8.5, 4.0, 8.5]);
+    let (px, py) = (sx.floor() as i32, sy.floor() as i32);
+    let i = ((py - rect.y) as u32 * hdr.width + (px - rect.x) as u32) as usize;
+    // Auf der Oberseite, y = 4, aus der Mitte des Pixels: u = x − z,
+    // v = x + z.
+    let u = (px as f32 + 0.5) / projection.h() as f32;
+    let v = (py as f32 + 0.5 + 4.0 * projection.b() as f32) / projection.a() as f32;
+    let soll = projection.depth([(v + u) / 2.0, 4.0, (v - u) / 2.0]);
+    assert!(
+        (hdr.tiefe[i] - soll).abs() < 1e-3,
+        "Tiefe {} statt {soll}",
+        hdr.tiefe[i]
+    );
+    assert_eq!(hdr.farbe[i][3], 1.0);
+    assert_eq!((hdr.tiefe[0], hdr.farbe[0][3]), (f32::NEG_INFINITY, 0.0));
 }
 
 /// Ein Biom mit eigener `sky_color` färbt das Himmelslicht: Die Oberseite

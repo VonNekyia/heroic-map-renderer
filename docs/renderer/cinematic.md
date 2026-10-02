@@ -29,7 +29,8 @@ Richtung und jedem scale; anders ist nur das Licht je Pixel, entschieden in
 [0053](../entscheidungen/0053-cinematic-als-schalter-der-karte.md). Es
 zeichnet immer die CPU. Phase 1 (#72) brachte das Licht des Spiels, Phase 2
 (#73) bringt Sonne, Schatten, Wasser, Leuchten, Wärme nach Biom und Bloom;
-bis jetzt davon die Sonne mit hartem Schatten und die Bodenpflanzen.
+bis jetzt davon die Sonne mit hartem Schatten, die Bodenpflanzen und das
+Wasser.
 
 ## Werte des Looks
 
@@ -44,16 +45,19 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
 | Sonne: Stärke, Farbe linear, Höhe, waagrecht von links zur Kamera hin | `sonne`: 3, `sonne_farbe`: (1; 0,93; 0,83), `sonne_hoehe`: 48,47°, `sonne_seite`: 8,75° | ja |
 | Wie weit ein Strahl zur Sonne reicht, in Blöcken entlang des Strahls | `sonne_weite`: 128 | ja |
 | So viel Sonne lässt eine Bodenpflanze durch | `pflanzen`: 0,5 | ja |
+| Wasser: F0 der Spiegelung, Anteil der Deckkraft seiner Textur, Dichte | `wasser_spiegel`: 0,04, `wasser_textur`: 0,6, `wasser_dichte`: 8 | ja |
 | Belichtung | `belichtung`: 0,25 | ja |
 | Kurve: gerade bis, flach ab | `knie`: 0,8, `flach`: 1,2 | ja |
 
-- **Herkunft:** alle aus 0058, bis auf `himmel_anteil` und
-  `sonne_weite`. 0058 sagt nur „in der Farbe des Himmels“. Der Prototyp aus
+- **Herkunft:** alle aus 0058, bis auf `himmel_anteil`, `sonne_weite` und
+  `wasser_textur`. 0058 sagt nur „in der Farbe des Himmels“. Der Prototyp aus
   #89, an dem 0058 abgestimmt ist, nimmt für das Licht auf einer Fläche nach
   oben die Farbe des Nebels und des Himmels, linear gemischt mit 0,75
   Himmel. Bis 128 Blöcke weit reichte der Strahl zur Sonne im Prototyp, an
   dem 0056 den Preis gemessen hat, siehe
   [Gang zur Sonne in Stufen](../messungen/2026-10-02-gang-zur-sonne-in-stufen.md).
+  Mit 0,6 ihrer Deckkraft deckte die Textur des Wassers im Prototyp, in
+  allen Bildern, an denen 0058 abgestimmt ist.
 - **Fingerabdruck:** Jeder Baum mit Cinematic hält die Werte als
   `lookHash` in `map.json`; mit anderen bricht ein Lauf ab. Wie er
   gerechnet wird, steht in [`map.json`](../benutzung/map-json.md), „Look“.
@@ -148,8 +152,8 @@ Das Himmelslicht hat die Farbe des Himmels am Block:
   aber linear und ungerundet. So mischt 0058 auch die Wärme; Kacheln
   bekommen keine Nähte. Ein Test färbt mit einem Biom aus eigener
   `sky_color` (`biom_faerbt_das_himmelslicht`).
-- **`water_fog_color`** liest der Renderer schon, Cinematic nutzt sie erst
-  mit dem Wasser in #73.
+- **Für das Wasser** dazu Himmel und Nebel getrennt und
+  `water_fog_color`, ebenso gemischt (`Himmelsfarben`), siehe „Wasser“.
 
 ## Sonne
 
@@ -230,6 +234,40 @@ Getestet: einzelne Strahlen durch Würfel, Laub, Wasser, Glas, Pflanze und
 Überhang (`strahlen_zur_sonne`), die Lage des Schattens eines Würfels im
 Bild (`wuerfel_wirft_seinen_schatten`).
 
+## Wasser
+
+Ein Pixel, dessen vorderstes Fragment Wasser ist (`Geometrie::wasser`, sein
+Alpha), mischt sich wie im Prototyp aus #89 von vorn nach hinten
+(`mische_wasser` in
+[`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
+
+1. **Spiegelung:** der Anteil nach Fresnel (Schlick, F0 0,04) aus Blick und
+   Normale, mit dem Himmel in der gespiegelten Richtung, zum Horizont hin in
+   der Farbe des Nebels (`Kino::spiegel`). Aus 2:1 sind das von oben rund
+   5 %.
+2. **Textur:** Vom Rest deckt die Textur des Wassers mit 0,6 ihres Alphas,
+   im Licht des Wassers und der Sonne.
+3. **Im selben Sprite dahinter,** etwa ein gefluteter Block an der
+   Oberfläche, folgt ohne Strecke in seinem Licht.
+4. **Darunter** dämpft das Wasser den Pixel darunter je Kanal nach der
+   Strecke bis zu ihm, `exp(−σ · Strecke)`, und füllt mit `water_fog_color`
+   im Himmelslicht. σ kommt aus der Farbe des Wassers: Kanäle, die sie
+   schwächer trägt, dämpft es stärker, geteilt durch die Dichte 8
+   (`Kino::wasser_dichte`). Tieferes Wasser ist so dunkler und blauer.
+
+- **Die Strecke** kommt aus der Tiefe je Pixel (`Hdr::tiefe`): die des
+  Wassers weniger die des vordersten Pixels darunter, geteilt durch die
+  Länge der Blickachse.
+- **Wasser und Rest** trennt die Tönungskarte, wie für das Licht des
+  Wassers unter „Zeichnen in HDR“.
+- **Spiegelung und Streulicht** liegen im Himmelslicht des Wassers: In
+  einer Höhle spiegelt Wasser keinen hellen Himmel.
+- **Alpha** wie bei der Karte; das Streulicht füllt nur, wo darunter etwas
+  deckt. Über leerem Grund, etwa am Rand der geladenen Chunks, gibt es
+  keine Strecke: Dort mischt Wasser wie jede andere Fläche.
+- Getestet: `tieferes_wasser_ist_dunkler` in `renderer/tests/metatile.rs`,
+  `wasser_spiegelt_und_dampft` in `renderer/src/render/kino.rs`.
+
 ## Bodenpflanzen
 
 Eine Bodenpflanze dämpft den Strahl zur Sonne auf `pflanzen`, 0,5, einmal
@@ -297,6 +335,10 @@ mit Cinematic in `renderer/tests/cli.rs`.
 - **Wasser im eigenen Licht nach seinem Anteil an der Farbe:** Der Anteil
   kommt aus der Tönungskarte in sRGB, wie bei der Karte. Das Spiel mischt
   das Wasser als eigene Fläche über das Modell.
+- **Wasser nur bis zum nächsten Pixel:** Die Strecke reicht bis zum
+  vordersten Pixel darunter, auch wenn dazwischen Luft liegt, etwa hinter
+  einer Wassersäule. Der Prototyp verliess das Wasser an seiner Rückseite;
+  die zeichnet der Rasterizer nicht.
 - **Schatten bis 128 Blöcke:** Ein Block, der weiter entlang des Strahls
   steht, also gut 95 Blöcke höher, wirft keinen Schatten mehr. Das Spiel
   hat keine Schatten der Sonne; der Prototyp, an dem 0056 den Preis

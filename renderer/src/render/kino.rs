@@ -23,11 +23,11 @@ pub struct Kino {
     /// `BlockFactor` in der Farbe zwischen `BlockLightTint` und Weiss wie in
     /// `lightmap.fsh`, mal [`Look::block`].
     block_stufen: [[f32; 3]; 16],
-    /// Himmel und Nebel des Dimensionstyps, für Biome ohne eigene Farbe.
-    vorgabe: (Tint, Tint),
-    /// Je Biom das Himmelslicht in seinen Farben, siehe
-    /// [`Look::himmelslicht`].
-    himmel: Vec<[f32; 3]>,
+    /// Himmel, Nebel und Nebel unter Wasser des Dimensionstyps, für Biome
+    /// ohne eigene Farbe.
+    vorgabe: [Tint; 3],
+    /// Je Biom die Farben seines Himmels.
+    himmel: Vec<Himmelsfarben>,
     /// Weissabgleich mal Belichtung, je Kanal.
     ton: [f32; 3],
     /// Die Richtung zur Sonne im Blick, siehe [`Look::sonne_im_blick`].
@@ -36,6 +36,33 @@ pub struct Kino {
     /// Farbe mal ihrer Stärke; 0, wo der Dimensionstyp kein Himmelslicht
     /// zeigt (`sky_light_factor` 0).
     sonne_licht: [f32; 3],
+}
+
+/// Die Farben des Himmels an einem Block, linear, mit der Stärke 1.
+/// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Himmelsfarben {
+    /// Das Himmelslicht auf einer Fläche, aus Himmel und Nebel nach
+    /// [`Look::himmelslicht`].
+    pub licht: [f32; 3],
+    /// `sky_color` und `fog_color`, die das Wasser spiegelt.
+    pub himmel: [f32; 3],
+    pub nebel: [f32; 3],
+    /// `water_fog_color`, in der Wasser nach der Strecke färbt.
+    pub wassernebel: [f32; 3],
+}
+
+impl Himmelsfarben {
+    /// Jede Farbe mit `f` verrechnet, zum Mischen über Blöcke.
+    pub fn je_farbe(self, other: Himmelsfarben, f: impl Fn(f32, f32) -> f32) -> Himmelsfarben {
+        let paar = |a: [f32; 3], b: [f32; 3]| std::array::from_fn(|c| f(a[c], b[c]));
+        Himmelsfarben {
+            licht: paar(self.licht, other.licht),
+            himmel: paar(self.himmel, other.himmel),
+            nebel: paar(self.nebel, other.nebel),
+            wassernebel: paar(self.wassernebel, other.wassernebel),
+        }
+    }
 }
 
 /// Eine Farbe in linearem Licht.
@@ -76,7 +103,7 @@ impl Kino {
             look,
             himmel_stufen,
             block_stufen,
-            vorgabe: (typ.sky_color, typ.fog_color),
+            vorgabe: [typ.sky_color, typ.fog_color, typ.water_fog_color],
             himmel: Vec::new(),
             ton: weiss.map(|v| v * look.belichtung),
             sonne: look.sonne_im_blick(kamera),
@@ -92,14 +119,20 @@ impl Kino {
     /// Nimmt die Farben der Biome aus `biomes`; was ein Biom nicht setzt,
     /// kommt vom Dimensionstyp.
     pub fn mit_biomen(&mut self, biomes: &BiomeTable) {
-        let (himmel, nebel) = self.vorgabe;
+        let [himmel, nebel, wassernebel] = self.vorgabe;
         self.himmel = biomes
             .himmel()
             .map(|h| {
-                self.look.himmelslicht(
+                let (himmel, nebel) = (
                     linear(h.himmel.unwrap_or(himmel)),
                     linear(h.nebel.unwrap_or(nebel)),
-                )
+                );
+                Himmelsfarben {
+                    licht: self.look.himmelslicht(himmel, nebel),
+                    himmel,
+                    nebel,
+                    wassernebel: linear(h.wassernebel.unwrap_or(wassernebel)),
+                }
             })
             .collect();
     }
@@ -108,9 +141,35 @@ impl Kino {
         &self.look
     }
 
-    /// Das Himmelslicht im Biom `biome`, linear, mit der Stärke 1.
-    pub fn himmel(&self, biome: u16) -> [f32; 3] {
+    /// Die Farben des Himmels im Biom `biome`.
+    pub fn himmel(&self, biome: u16) -> Himmelsfarben {
         self.himmel[biome as usize]
+    }
+
+    /// Was eine Wasserfläche mit der Normale `n` spiegelt, gesehen in
+    /// Richtung `blick` (vom Auge in die Szene, beide Länge 1): ihr Anteil
+    /// nach Fresnel (Schlick, F0 [`Look::wasser_spiegel`]) und der Himmel in
+    /// der gespiegelten Richtung, zum Horizont hin in der Farbe des Nebels,
+    /// wie im Prototyp aus #89.
+    /// Siehe docs/renderer/cinematic.md, „Wasser“.
+    pub fn spiegel(&self, farben: &Himmelsfarben, blick: [f32; 3], n: [f32; 3]) -> (f32, [f32; 3]) {
+        let dn = blick[0] * n[0] + blick[1] * n[1] + blick[2] * n[2];
+        let f0 = self.look.wasser_spiegel;
+        let anteil = f0 + (1.0 - f0) * (1.0 + dn).clamp(0.0, 1.0).powi(5);
+        let hoch = blick[1] - 2.0 * dn * n[1];
+        let h = ((hoch + 0.1) / 0.7).clamp(0.0, 1.0);
+        let h = h * h * (3.0 - 2.0 * h);
+        let himmel =
+            std::array::from_fn(|c| farben.nebel[c] + (farben.himmel[c] - farben.nebel[c]) * h);
+        (anteil, himmel)
+    }
+
+    /// Wie dicht Wasser der Farbe `w`, linear, je Kanal ist, je Block
+    /// Strecke: Kanäle, die die Farbe schwächer trägt, dämpft es stärker,
+    /// geteilt durch [`Look::wasser_dichte`], wie im Prototyp aus #89.
+    pub fn wasser_dichte(&self, w: [f32; 3]) -> [f32; 3] {
+        let m = w.iter().fold(1e-4f32, |a, &c| a.max(c));
+        w.map(|c| (-(c / m).max(0.02).ln() + 0.35) / self.look.wasser_dichte)
     }
 
     /// Das Licht an einem Pixel in HDR je Kanal: `himmel` die Farbe des
@@ -185,6 +244,7 @@ mod tests {
             tiefe: 0.0,
             normale,
             shade,
+            wasser: 0.0,
         };
         let oben = kino.sonnenlicht(&g([0.0, 1.0, 0.0], true));
         let hoch = LOOK.sonne_hoehe.to_radians().sin() * LOOK.sonne;
@@ -241,11 +301,42 @@ mod tests {
     #[test]
     fn himmel_ohne_biom_vom_dimensionstyp() {
         let kino = kino(&DimensionType::oberwelt());
-        let soll = LOOK.himmelslicht(linear([0x78, 0xa7, 0xff]), linear([0xc0, 0xd8, 0xff]));
+        let (himmel, nebel) = (linear([0x78, 0xa7, 0xff]), linear([0xc0, 0xd8, 0xff]));
+        let soll = Himmelsfarben {
+            licht: LOOK.himmelslicht(himmel, nebel),
+            himmel,
+            nebel,
+            wassernebel: linear([0x05, 0x05, 0x33]),
+        };
         assert!(!kino.himmel.is_empty());
         for h in &kino.himmel {
             assert_eq!(*h, soll);
         }
+    }
+
+    /// Wasser von oben spiegelt wenig, von der Seite viel, bei 0058 aus 2:1
+    /// rund 5 %, und zeigt dann den Himmel; flach darüber den Nebel. Wasser
+    /// in seiner eigenen blauen Farbe dämpft Rot stärker als Blau.
+    #[test]
+    fn wasser_spiegelt_und_dampft() {
+        let kino = kino(&DimensionType::oberwelt());
+        let farben = kino.himmel(0);
+        let oben = [0.0, 1.0, 0.0];
+        let r = std::f32::consts::FRAC_1_SQRT_2;
+        let blick = [-1.0 / 3f32.sqrt(); 3];
+        let (steil, himmel) = kino.spiegel(&farben, blick, oben);
+        assert!((0.05..0.06).contains(&steil), "{steil}");
+        for (h, soll) in himmel.iter().zip(farben.himmel) {
+            assert!((h - soll).abs() < 0.002);
+        }
+        let (flach, nebel) = kino.spiegel(&farben, [r, -1e-3, -r], oben);
+        assert!(flach > 0.9, "{flach}");
+        for (n, soll) in nebel.iter().zip(farben.nebel) {
+            assert!((n - soll).abs() < 0.05);
+        }
+        let sigma = kino.wasser_dichte(linear([0x3f, 0x76, 0xe4]));
+        assert!(sigma[0] > sigma[1] && sigma[1] > sigma[2], "{sigma:?}");
+        assert!((sigma[2] - 0.35 / LOOK.wasser_dichte).abs() < 1e-6);
     }
 
     /// Eine weisse Fläche nach oben im vollen Himmelslicht der Oberwelt,
@@ -254,7 +345,7 @@ mod tests {
     #[test]
     fn weisse_flaeche_im_himmelslicht() {
         let kino = kino(&DimensionType::oberwelt());
-        let licht = kino.licht(kino.himmel(0), 240.0, 0.0, 255.0);
+        let licht = kino.licht(kino.himmel(0).licht, 240.0, 0.0, 255.0);
         let [r, g, b] = kino.ton(licht);
         assert!(r < g && g < b && b < 255, "{:?}", [r, g, b]);
         assert_eq!(kino.ton([0.0; 3]), [0; 3]);

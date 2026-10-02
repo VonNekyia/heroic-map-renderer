@@ -28,6 +28,13 @@ pub struct Look {
     pub sonne_weite: f32,
     /// So viel Sonne lässt eine Bodenpflanze auf dem Strahl durch.
     pub pflanzen: f32,
+    /// Wasser: F0 der Spiegelung nach Fresnel.
+    pub wasser_spiegel: f32,
+    /// Wasser: so viel seiner Deckkraft behält seine Textur.
+    pub wasser_textur: f32,
+    /// Wasser: Dichte, durch die die Farbe nach der Strecke bis zum Grund
+    /// geteilt wird.
+    pub wasser_dichte: f32,
     /// Belichtung vor der Kurve.
     pub belichtung: f32,
     /// Bis hierher ist die Kurve eine Gerade.
@@ -47,6 +54,9 @@ pub const LOOK: Look = Look {
     sonne_seite: 8.75,
     sonne_weite: 128.0,
     pflanzen: 0.5,
+    wasser_spiegel: 0.04,
+    wasser_textur: 0.6,
+    wasser_dichte: 8.0,
     belichtung: 0.25,
     knie: 0.8,
     flach: 1.2,
@@ -56,7 +66,7 @@ impl Look {
     /// Jeder Wert mit seinem Namen, in fester Reihenfolge, wie er im Code
     /// steht. Abgeleitete Werte wie die Richtung der Sonne aus Sinus und
     /// Kosinus fehlen: Deren letztes Bit kann je System abweichen.
-    fn werte(&self) -> [(&'static str, &[f32]); 12] {
+    fn werte(&self) -> [(&'static str, &[f32]); 15] {
         [
             ("himmel", std::slice::from_ref(&self.himmel)),
             ("himmel_anteil", std::slice::from_ref(&self.himmel_anteil)),
@@ -67,6 +77,9 @@ impl Look {
             ("sonne_seite", std::slice::from_ref(&self.sonne_seite)),
             ("sonne_weite", std::slice::from_ref(&self.sonne_weite)),
             ("pflanzen", std::slice::from_ref(&self.pflanzen)),
+            ("wasser_spiegel", std::slice::from_ref(&self.wasser_spiegel)),
+            ("wasser_textur", std::slice::from_ref(&self.wasser_textur)),
+            ("wasser_dichte", std::slice::from_ref(&self.wasser_dichte)),
             ("belichtung", std::slice::from_ref(&self.belichtung)),
             ("knie", std::slice::from_ref(&self.knie)),
             ("flach", std::slice::from_ref(&self.flach)),
@@ -161,7 +174,7 @@ mod tests {
     /// zieht den Test nach.
     #[test]
     fn fingerabdruck_der_werte_aus_0058() {
-        assert_eq!(LOOK.fingerabdruck(), "1294a7ae9c6aaa7f");
+        assert_eq!(LOOK.fingerabdruck(), "437e2f6710901da0");
         let anders = Look {
             belichtung: 0.26,
             ..LOOK

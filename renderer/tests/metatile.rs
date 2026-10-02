@@ -745,11 +745,12 @@ fn biom_faerbt_das_himmelslicht() {
         // Die Karte zeigt die Oberseite im vollen Licht in der Farbe der
         // Textur.
         let textur = pixel(&a, x, 8);
-        let licht = k.licht(k.himmel(biomes.id(name)), 240.0, 0.0, 255.0);
+        let licht = k.licht(k.himmel(biomes.id(name)).licht, 240.0, 0.0, 255.0);
         let sonne = k.sonnenlicht(&Geometrie {
             tiefe: 0.0,
             normale: [0.0, 1.0, 0.0],
             shade: true,
+            wasser: 0.0,
         });
         let soll = k.ton(std::array::from_fn(|c| {
             linear(textur[c]) * (licht[c] + sonne[c])
@@ -933,6 +934,45 @@ fn wuerfel_wirft_seinen_schatten() {
         schatten += usize::from(innen);
     }
     assert!(schatten > 50, "nur {schatten} Pixel im Schatten");
+}
+
+/// Tieferes Wasser ist dunkler: Dieselbe Oberfläche über sechs Blöcken
+/// Wasser ist in jedem Kanal dunkler als über einem, und dort scheint der
+/// Grund durch; Rot dämpft es am stärksten.
+/// Siehe docs/renderer/cinematic.md, „Wasser“.
+#[test]
+fn tieferes_wasser_ist_dunkler() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, _: i32| match (x, y) {
+        (..=7, ..=2) | (8.., ..=7) => "minecraft:einfarbig",
+        (_, ..=8) => "minecraft:water",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let sprites = kino_tabelle(&world, projection, Y_RANGE, LOOK);
+    let rect = rect_um(projection, [0, 0, 0], [16, 10, 16]);
+    let hdr = render_hdr_with(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap();
+    let oben = 8.0 + 8.0 / 9.0;
+    let pixel = |x: f32| {
+        let (sx, sy) = projection.project([x, oben, 14.5]);
+        let i =
+            (sy.floor() as i32 - rect.y) as u32 * rect.width + (sx.floor() as i32 - rect.x) as u32;
+        hdr.farbe[i as usize]
+    };
+    let (tief, flach) = (pixel(7.5), pixel(12.5));
+    assert_eq!((tief[3], flach[3]), (1.0, 1.0));
+    for c in 0..3 {
+        assert!(
+            tief[c] < flach[c],
+            "Kanal {c}: tief {tief:?}, flach {flach:?}"
+        );
+    }
+    assert!(
+        flach[0] / tief[0] > flach[2] / tief[2],
+        "tief {tief:?}, flach {flach:?}"
+    );
 }
 
 /// Der schnelle Gang zur Sonne gibt Byte für Byte dasselbe Bild wie der

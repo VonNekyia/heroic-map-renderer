@@ -11,7 +11,7 @@ use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
 use crate::world::{BlockState, Chunk, REGION, Region, Section, World};
 
-use super::kino::Kino;
+use super::kino::{Himmelsfarben, Kino};
 use super::licht::{Ausbreitung, ChunkLicht, Eingabe};
 use super::pyramid::LINEAR;
 use super::rasterizer::{
@@ -555,7 +555,7 @@ struct Drawn {
     ecken: Option<Ecken>,
     wasser: Option<[u32; 3]>,
     tint: [u32; 2],
-    himmel: [f32; 3],
+    himmel: Himmelsfarben,
 }
 
 impl Default for Drawn {
@@ -567,7 +567,7 @@ impl Default for Drawn {
             ecken: None,
             wasser: None,
             tint: [0; 2],
-            himmel: [0.0; 3],
+            himmel: Himmelsfarben::default(),
         }
     }
 }
@@ -677,10 +677,10 @@ type Licht = ([u32; 3], Option<Ecken>, Option<[u32; 3]>, [u32; 2]);
 /// [`Licht`] ohne die Farben, wie [`ChunkCache::licht_fuer`] es gibt.
 type Lichter = ([u32; 3], Option<Ecken>, Option<[u32; 3]>);
 
-/// Was ein Draw für Cinematic dazu trägt: das Himmelslicht an seinem Block
-/// ([`ChunkCache::himmel_at`]), die Tiefe des Blockursprungs und der Block,
-/// dem das Modell gehört, im Blick.
-type Kinodaten = ([f32; 3], f32, [i32; 3]);
+/// Was ein Draw für Cinematic dazu trägt: die Farben des Himmels an seinem
+/// Block ([`ChunkCache::himmel_at`]), die Tiefe des Blockursprungs und der
+/// Block, dem das Modell gehört, im Blick.
+type Kinodaten = (Himmelsfarben, f32, [i32; 3]);
 
 /// Ein Draw, der bleibt, wie [`von_vorn`] ihn ablegt: der Sprite-Teil,
 /// seine linke obere Ecke auf der Leinwand, seine sichtbaren Pixel, sein
@@ -996,6 +996,11 @@ fn blit_hdr(
     let zeilen = vis[sicht.start..].chunks(sicht.nk);
     // Pixel auf demselben Texel beginnen am selben Punkt.
     let mut letzter: Option<([f64; 3], f32)> = None;
+    // Der Blick vom Auge in die Szene, Länge 1, und wie viel Tiefe ein Block
+    // Strecke entlang des Blicks ist.
+    let achse = projection.achse();
+    let je_block = (achse[0] * achse[0] + achse[1] * achse[1] + achse[2] * achse[2]).sqrt();
+    let blick = achse.map(|c| -c / je_block);
     for (y, woerter) in (sicht.y0..sicht.y1).zip(zeilen) {
         let row = &src[(y - oy) as usize * w * 4..][..w * 4];
         for (j, &bits) in woerter.iter().enumerate() {
@@ -1020,17 +1025,40 @@ fn blit_hdr(
                         sonnenlicht = sonnenlicht.map(|c| c * frei);
                     }
                 }
-                mische_hdr(
-                    &mut hdr.farbe[p],
-                    kino,
-                    linear,
-                    [s[0], s[1], s[2], s[3]],
-                    kanaele(karte, i, licht),
-                    wasser,
-                    anteile(sprite, i, farben),
-                    himmel,
-                    sonnenlicht,
-                );
+                let s = [s[0], s[1], s[2], s[3]];
+                let tint = anteile(sprite, i, farben);
+                // Über leerem Grund mischt Wasser wie bei der Karte: Ohne Grund
+                // gibt es keine Strecke, und der Pixel bleibt so offen.
+                let grund = hdr.tiefe[p] > f32::NEG_INFINITY;
+                match (sprite.geometrie.as_deref().map(|g| &g[i]), tint) {
+                    (Some(g), Some(tint)) if g.wasser > 0.0 && grund => {
+                        // Bis zum Grund: der vorderste Pixel darunter.
+                        let strecke = ((ursprung + g.tiefe - hdr.tiefe[p]) / je_block).max(0.0);
+                        let unten = Unten {
+                            licht: kanaele(karte, i, licht),
+                            wasser,
+                            sonne: sonnenlicht,
+                        };
+                        let wasser = Wasserpixel {
+                            alpha: g.wasser,
+                            normale: g.normale,
+                            blick,
+                            strecke,
+                        };
+                        mische_wasser(&mut hdr.farbe[p], kino, s, tint, &himmel, unten, wasser);
+                    }
+                    _ => mische_hdr(
+                        &mut hdr.farbe[p],
+                        kino,
+                        linear,
+                        s,
+                        kanaele(karte, i, licht),
+                        wasser,
+                        tint,
+                        himmel.licht,
+                        sonnenlicht,
+                    ),
+                }
                 if let Some(geometrie) = &sprite.geometrie {
                     hdr.tiefe[p] = ursprung + geometrie[i].tiefe;
                 }
@@ -1038,6 +1066,100 @@ fn blit_hdr(
         }
     }
     Ok(())
+}
+
+/// Das Licht eines Pixels für [`mische_wasser`]: Himmels-, Blocklicht und
+/// Schatten aus [`kanaele`], das des Wassers, falls es in einem anderen
+/// liegt, wie bei [`mische_hdr`], und die Sonne.
+struct Unten {
+    licht: [f32; 3],
+    wasser: Option<[u32; 3]>,
+    sonne: [f32; 3],
+}
+
+/// Was [`mische_wasser`] über die Wasserfläche eines Pixels weiss: ihr
+/// Alpha und ihre Normale aus [`Geometrie`], der Blick vom Auge in die
+/// Szene, Länge 1, und die Strecke bis zum Pixel darunter in Blöcken,
+/// unendlich ohne.
+struct Wasserpixel {
+    alpha: f32,
+    normale: [f32; 3],
+    blick: [f32; 3],
+    strecke: f32,
+}
+
+/// Legt einen Pixel, dessen vorderstes Fragment Wasser ist, für Cinematic
+/// über den darunter, wie der Prototyp aus #89 von vorn nach hinten: Die
+/// Fläche spiegelt den Himmel nach Fresnel ([`Kino::spiegel`]); den Rest
+/// deckt die Textur des Wassers mit [`Look::wasser_textur`] ihres Alphas;
+/// was dahinter im selben Sprite liegt, etwa ein gefluteter Block, folgt
+/// ohne Strecke; darunter dämpft das Wasser den Pixel darunter nach der
+/// Strecke ([`Kino::wasser_dichte`]) und füllt mit `water_fog_color` im
+/// Himmelslicht. Spiegelung und Streulicht liegen im Himmelslicht des
+/// Wassers. Wasser und Rest trennt die Tönungskarte wie in
+/// [`mische_hdr`].
+/// Siehe docs/renderer/cinematic.md, „Wasser“.
+///
+/// [`Look::wasser_textur`]: super::look::Look::wasser_textur
+fn mische_wasser(
+    d: &mut [f32; 4],
+    kino: &Kino,
+    s: [u8; 4],
+    (anteile, farben): ([u32; 2], [u32; 2]),
+    himmel: &Himmelsfarben,
+    unten: Unten,
+    w: Wasserpixel,
+) {
+    let linear = &*LINEAR;
+    let [sky, block, schatten] = unten.licht;
+    let licht = kino.licht(himmel.licht, sky, block, schatten);
+    // Das Wasser liegt im Licht seiner Zelle, ein gefluteter Block an der
+    // Oberfläche im helleren darüber.
+    let [ws, wb, wa] = unten
+        .wasser
+        .map_or([sky, block, schatten], |w| w.map(|c| c as f32));
+    let nass = kino.licht(himmel.licht, ws, wb, wa);
+    let (f, spiegel) = kino.spiegel(himmel, w.blick, w.normale);
+    let spiegel = kino.licht(spiegel, ws, 0.0, wa);
+    let streu = kino.licht(himmel.licht, ws, 0.0, wa);
+    let farbe = tinted(s, anteile, farben);
+    let a_s = f32::from(s[3]) / 255.0;
+    let ([block_k, water_k], [b, wf]) = (anteile, farben);
+    // Vormultipliziert: was vom Wasser kommt und was dahinter liegt.
+    let mut nass_p = [0.0f32; 3];
+    let mut rest_p = [0.0f32; 3];
+    for c in 0..3 {
+        let byte = |word: u32| (word >> (8 * c) & 255) as f32;
+        let rest = f32::from(s[c]) + byte(block_k) * byte(b) / 255.0;
+        let anteil = byte(water_k) * byte(wf) / 255.0;
+        let summe = rest + anteil;
+        let q = if summe > 0.0 { anteil / summe } else { 0.0 };
+        let p = linear[farbe[c] as usize] * a_s;
+        nass_p[c] = p * q;
+        rest_p[c] = p * (1.0 - q);
+    }
+    let a_w = w.alpha.min(a_s);
+    let farbe_w = nass_p.map(|c| c / a_w);
+    let sigma = kino.wasser_dichte(farbe_w);
+    let a1 = a_w * kino.look().wasser_textur;
+    let (innen, a_m) = if a_w < 1.0 {
+        (
+            rest_p.map(|c| c / (1.0 - a_w)),
+            ((a_s - a_w) / (1.0 - a_w)).clamp(0.0, 1.0),
+        )
+    } else {
+        ([0.0; 3], 0.0)
+    };
+    let durch = sigma.map(|sg| (-sg * w.strecke).exp());
+    // Das Streulicht füllt nur, wo darunter etwas deckt; Alpha wie `over`,
+    // damit der Pixel so offen bleibt wie bei der Karte.
+    for c in 0..3 {
+        let grund = durch[c] * d[c] + (1.0 - durch[c]) * himmel.wassernebel[c] * streu[c] * d[3];
+        let unter = innen[c] * (licht[c] + unten.sonne[c]) + (1.0 - a_m) * grund;
+        let wasser = a1 * farbe_w[c] * (nass[c] + unten.sonne[c]) + (1.0 - a1) * unter;
+        d[c] = f * spiegel[c] + (1.0 - f) * wasser;
+    }
+    d[3] = a_s + d[3] * (1.0 - a_s);
 }
 
 /// Wo der Strahl zur Sonne für Pixel `(sx, sy)` eines Sprites beginnt, im
@@ -2304,7 +2426,7 @@ impl<'a> ChunkCache<'a> {
         let tint = self.tints_at([x, y, z], family, kinds)?;
         let himmel = match self.sprites.kino() {
             Some(kino) => self.himmel_at(kino, [x, y, z])?,
-            None => [0.0; 3],
+            None => Himmelsfarben::default(),
         };
         Ok(Drawn {
             sprite,
@@ -2317,26 +2439,24 @@ impl<'a> ChunkCache<'a> {
         })
     }
 
-    /// Das Himmelslicht am Block `(x, y, z)` im Blick für Cinematic, linear
-    /// mit der Stärke 1: je Biom aus [`Kino::himmel`], gemischt über
+    /// Die Farben des Himmels am Block `(x, y, z)` im Blick für Cinematic,
+    /// linear mit der Stärke 1: je Biom aus [`Kino::himmel`], gemischt über
     /// dasselbe Quadrat um den Block wie die Farben des Bioms
     /// ([`BiomeTable::blend`](super::BiomeTable::blend)), aber in linearem
     /// Licht und ungerundet.
     /// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
-    fn himmel_at(&mut self, kino: &Kino, [x, y, z]: [i32; 3]) -> Result<[f32; 3]> {
+    fn himmel_at(&mut self, kino: &Kino, [x, y, z]: [i32; 3]) -> Result<Himmelsfarben> {
         let r = self.sprites.biomes().radius() as i32;
         let [x, z] = self.richtung.in_die_welt([x, z]);
-        let mut summe = [0.0f32; 3];
+        let mut summe = Himmelsfarben::default();
         for cz in z - r..=z + r {
             for cx in x - r..=x + r {
                 let h = kino.himmel(self.biome_of([cx, y, cz])?);
-                for (s, h) in summe.iter_mut().zip(h) {
-                    *s += h;
-                }
+                summe = summe.je_farbe(h, |a, b| a + b);
             }
         }
         let n = ((2 * r + 1) * (2 * r + 1)) as f32;
-        Ok(summe.map(|s| s / n))
+        Ok(summe.je_farbe(summe, |a, _| a / n))
     }
 
     /// Die Farben eines Blocks für seine Tönungskarte, gepackt wie sie: die

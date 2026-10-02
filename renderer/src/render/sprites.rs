@@ -1388,6 +1388,7 @@ fn content_hash(sprite: &Sprite) -> u64 {
     for g in sprite.geometrie.iter().flatten() {
         g.tiefe.to_bits().hash(&mut hasher);
         g.normale.map(f32::to_bits).hash(&mut hasher);
+        g.wasser.to_bits().hash(&mut hasher);
     }
     hasher.finish()
 }

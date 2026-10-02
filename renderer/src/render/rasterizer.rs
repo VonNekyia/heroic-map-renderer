@@ -392,6 +392,8 @@ pub struct Geometrie {
     /// Die Fläche wird nach ihrer Richtung schattiert (`shade`); ohne
     /// bekommt sie in Cinematic das Licht einer Fläche nach oben.
     pub shade: bool,
+    /// Ist das vorderste Fragment Wasser, sein Alpha, sonst 0.
+    pub wasser: f32,
 }
 
 /// Ein Pixel in den Farben seines Blocks: je Kanal der Rest aus dem Bild
@@ -475,9 +477,9 @@ pub struct Raster {
     offset: (i32, i32),
     ao: bool,
     weich: bool,
-    /// Für Cinematic je Rang einer Fläche ihre Normale und `shade`, siehe
-    /// [`Geometrie`].
-    normalen: Option<Vec<([f32; 3], bool)>>,
+    /// Für Cinematic je Rang einer Fläche ihre Normale, `shade` und ob sie
+    /// Wasser ist, siehe [`Geometrie`].
+    normalen: Option<Vec<([f32; 3], bool, bool)>>,
 }
 
 impl Raster {
@@ -628,7 +630,10 @@ pub fn rastern(
     let normalen = kino.then(|| {
         projected
             .iter()
-            .map(|q| (q.normale, q.quad.shade))
+            .map(|q| {
+                let wasser = matches!(q.quad.fluid, Some((fluid::Fluid::Water, _)));
+                (q.normale, q.quad.shade, wasser)
+            })
             .collect()
     });
 
@@ -1225,7 +1230,7 @@ impl Canvas {
     fn mischen(
         &self,
         ao: bool,
-        normalen: Option<&[([f32; 3], bool)]>,
+        normalen: Option<&[([f32; 3], bool, bool)]>,
         nimm: impl Fn(&Fragment) -> bool,
     ) -> (RgbaImage, Option<Vec<u32>>, Option<Vec<Geometrie>>) {
         let pixel = (self.width * self.height) as usize;
@@ -1248,11 +1253,16 @@ impl Canvas {
                 map[index as usize] = vorderstes.ao;
             }
             if let (Some(geometrie), Some(normalen)) = (&mut geometrie, normalen) {
-                let (normale, shade) = normalen[vorderstes.order as usize];
+                let (normale, shade, wasser) = normalen[vorderstes.order as usize];
                 geometrie[index as usize] = Geometrie {
                     tiefe: vorderstes.depth,
                     normale,
                     shade,
+                    wasser: if wasser {
+                        f32::from(vorderstes.color[3]) / 255.0
+                    } else {
+                        0.0
+                    },
                 };
             }
         }

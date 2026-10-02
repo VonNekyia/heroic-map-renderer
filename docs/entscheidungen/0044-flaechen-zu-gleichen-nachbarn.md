@@ -15,6 +15,10 @@ code:
 
 # 0044: Flächen zu gleichen Nachbarn nach der Regel des Spiels
 
+Den ersten Fall von `shouldRenderFace`, die volle Seite des Nachbarn,
+bringt [0057](0057-flaechen-vor-einem-vollen-nachbarn.md) nach; die
+Näherung dazu unter „Folgen“ entfällt.
+
 ## Anlass
 
 #58: Eis, Glas, Scheiben und Gitter wirkten auf der Karte zu deckend. Der

@@ -111,6 +111,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0054](entscheidungen/0054-baeume-unter-einer-wurzel.md): Bäume unter einer Wurzel: `--tiles` ist die Wurzel, je Kamera und Richtung ein Ordner, `trees.json` aus der Platte, Höhen für alle gemeinsam, alte Ablage bricht ab.
 - [0055](entscheidungen/0055-welt-beim-zugriff-drehen.md): Die Welt beim Zugriff drehen: im Blick rechnen, Modelle im Rasterizer drehen, Chunks, Licht, Saat und Biome in der Welt.
 - [0056](entscheidungen/0056-exakter-strahl-zur-sonne.md): Exakter Strahl zur Sonne ohne Ziel von 0,5 µs: rund 0,7 bis 0,9 µs je Strahl angenommen, keine Schattenkarte.
+- [0057](entscheidungen/0057-flaechen-vor-einem-vollen-nachbarn.md): Flächen vor einem vollen Nachbarn nach der Tabelle des Spiels: `seiten.txt` sagt, wo ein Block voll deckt, gefragt wird nur zu Seiten, deren Flächen der Nachbar nicht übermalt.
 
 ## Messungen
 

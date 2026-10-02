@@ -150,7 +150,15 @@ das Rechteck um alle Blöcke der Szene, bei jeder Kamera. Je Kamera:
 Dazu einzeln: `von_oben_ragt_der_turm_durch_den_teppich` (`metatile.rs`),
 `heights_traegt_hoehen_nach` auch für einen Baum von oben und einen in
 `north-45`, `genordeter_baum_mit_azimut_und_richtung` und
-`kamera_ohne_ganze_pixel_bricht_vor_der_welt_ab` (`cli.rs`).
+`kamera_ohne_ganze_pixel_bricht_vor_der_welt_ab` (`cli.rs`). Die Ablage
+unter einer Wurzel prüfen `liste_der_baeume_unter_der_wurzel`,
+`alte_ablage_nennt_den_ordner`, `baum_statt_wurzel_nennt_die_wurzel`,
+`eine_wurzel_eine_welt`, `kaputter_nachbar_wird_uebergangen` und
+`andere_richtung_im_ordner_wird_abgelehnt` (`cli.rs`). Welche Richtungen
+eine Kamera nimmt, prüfen `richtung_wird_je_kamera_geprueft` (`cli.rs`)
+und `falsche_richtung_nennt_die_vier` (`projection.rs`), die Drehung nach
+der Tabelle `richtungen_drehen_die_welt_wie_die_tabelle`
+(`projection.rs`).
 
 Dazu Unit-Tests in den Quelldateien: die Achse je Kamera, die Regel
 „ganze Pixel“ und die genordete Projektion (`projection.rs`), Spalten,

@@ -14,7 +14,7 @@ pub use metatile::{
     BLEED_BLOCKS, ChunkCache, Draw, ScreenRect, draw_all, draw_list, render_area, render_area_with,
     render_area_without_culling, streifenbreite,
 };
-pub use projection::{Kamera, Projection};
+pub use projection::{Kamera, Projection, Richtung};
 pub use pyramid::{MapInfo, ProjectionInfo, depth, merge, parents, shrink};
 pub use rasterizer::{Sprite, render};
 pub use sprites::{Cell, OWN_CELL, SpriteId, SpriteSet};

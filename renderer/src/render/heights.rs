@@ -26,10 +26,17 @@ const JE_CHUNK: usize = 16 / CELL;
 /// Eine Zelle ohne Block oder ohne Chunk.
 pub const EMPTY: i16 = i16::MIN;
 
-/// Pfadmuster der Dateien in `map.json`, relativ zu ihr.
+/// Pfadmuster der Dateien relativ zu dem Ordner, in dem `heights/` liegt:
+/// in einem Baum der alten Ablage dieser selbst.
 pub const PATTERN: &str = "heights/{x}.{z}.bin";
 
-/// Wo die Höhen der Region (rx, rz) liegen, relativ zu `map.json`.
+/// Das Muster in `map.json` eines Baums unter der Wurzel von `--tiles`:
+/// Alle Bäume einer Welt teilen die Höhen dort.
+/// Siehe docs/benutzung/map-json.md, „Höhen“.
+pub const PATTERN_WURZEL: &str = "../heights/{x}.{z}.bin";
+
+/// Wo die Höhen der Region (rx, rz) liegen, relativ zu dem Ordner mit
+/// `heights/`.
 pub fn path_of(rx: i32, rz: i32) -> String {
     PATTERN
         .replace("{x}", &rx.to_string())

@@ -22,8 +22,10 @@ einen neuen, leeren oder Kachelordner (`setze_ausnahme` und
 Die Ausnahme setzt `--defender-exclusion` beim Export. Welchen Ordner es
 ausnimmt, sagt der Lauf, bevor Windows nach Adminrechten fragt; in der
 Abfrage selbst steht der Befehl nur kodiert. Nur mit Zustimmung kommt das
-Verzeichnis von `--tiles` dazu, und nur, wenn es neu, leer oder schon ein
-Kachelbaum mit `map.json` ist, nie die Wurzel eines Laufwerks. Sonst nähme
+Verzeichnis von `--tiles` dazu, und nur, wenn es neu oder leer ist oder
+schon Kachelbäume hält, nie die Wurzel eines Laufwerks: eine Wurzel mit
+`trees.json` oder mit einem Baum darin, etwa nach dem Umzug aus der alten
+Ablage, oder ein Baum der alten Ablage mit `map.json`. Sonst nähme
 ein Versehen in `--tiles` das Benutzerverzeichnis oder ein ganzes Laufwerk
 vom Virenschutz aus. Den Befehl zum Entfernen nennt der Lauf am Anfang und
 am Ende. Warum so eng:
@@ -41,7 +43,7 @@ Remove-MpPreference -ExclusionPath '<kachelordner>'
 
 Solange sie besteht, prüft Defender in diesem Ordner nichts, auch keine
 Datei, die jemand anderes dort ablegt; der Export selbst legt dort nur
-Kacheln und `map.json` ab.
+Kacheln, `map.json`, `trees.json` und die Höhen ab.
 
 ## Der Hinweis beim ersten Export
 

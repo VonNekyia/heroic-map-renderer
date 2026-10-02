@@ -18,8 +18,8 @@ use terranova_render::assets::{Assets, DimensionType};
 use terranova_render::render::heights::{self, EMPTY, Heights};
 use terranova_render::render::rasterizer::{Light, Lightmap};
 use terranova_render::render::{
-    BLEND_DEFAULT, BiomeTable, ChunkCache, Projection, SpriteSet, TileId, encode_webp, pyramid,
-    render_area, render_area_with, streifenbreite, survey,
+    BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Projection, SpriteSet, TileId, encode_webp,
+    pyramid, render_area, render_area_with, streifenbreite, survey,
 };
 use terranova_render::world::World;
 
@@ -31,6 +31,48 @@ fn tempdir() -> TempDir {
     tempfile::tempdir().expect("Temporärverzeichnis")
 }
 
+/// Ein Baum in einer eigenen Wurzel, wie `--tiles` ihn anlegt. Die Tests
+/// rechnen mit [`Baum::path`], dem Ordner des Baums; `export` gibt
+/// `--tiles` die Wurzel darüber und prüft, dass der Lauf genau diesen Ordner
+/// beschreibt.
+struct Baum {
+    wurzel: TempDir,
+    pfad: PathBuf,
+}
+
+impl Baum {
+    fn path(&self) -> &Path {
+        &self.pfad
+    }
+
+    fn wurzel(&self) -> &Path {
+        self.wurzel.path()
+    }
+}
+
+/// Der Baum `name`, etwa `2x1-se`, in einer neuen Wurzel.
+fn neuer_baum(name: &str) -> Baum {
+    let wurzel = tempdir();
+    let pfad = wurzel.path().join(name);
+    Baum { wurzel, pfad }
+}
+
+/// Der Ordner, den ein Lauf mit diesen Schaltern unter der Wurzel
+/// beschreibt: `<kamera>-<richtung>` mit `x` statt `:`.
+fn baum_name(extra: &[&str]) -> String {
+    let wert = |schalter: &str| {
+        extra
+            .iter()
+            .position(|&a| a == schalter)
+            .map(|i| extra[i + 1].to_string())
+    };
+    // Gekürzt wie im Renderer: 8:6 schreibt nach 4x3-se.
+    let kamera = wert("--camera").map_or(Kamera::ZWEI_ZU_EINS, |k| Kamera::parse(&k).unwrap());
+    let richtung = wert("--direction")
+        .unwrap_or_else(|| (if kamera.genordet() { "s" } else { "se" }).to_string());
+    format!("{}-{richtung}", kamera.to_string().replace(':', "x"))
+}
+
 /// Ruft die Binärdatei auf.
 fn cli(args: &[&OsStr]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_terranova-render"))
@@ -39,18 +81,33 @@ fn cli(args: &[&OsStr]) -> Output {
         .expect("terranova-render starten")
 }
 
-/// Kachelexport über die Binärdatei, genau mit diesen Schaltern.
+/// Kachelexport über die Binärdatei, genau mit diesen Schaltern, in den
+/// Baum `out`: `--tiles` bekommt die Wurzel darüber.
 fn export(welt: &Path, out: &Path, extra: &[&str]) -> Output {
+    let wurzel = wurzel_von(out, extra);
     let mut args: Vec<&OsStr> = vec![
         OsStr::new("--world"),
         welt.as_ref(),
         OsStr::new("--assets"),
         assets_ref(),
         OsStr::new("--tiles"),
-        out.as_ref(),
+        wurzel.as_ref(),
     ];
     args.extend(extra.iter().map(OsStr::new));
     cli(&args)
+}
+
+/// Die Wurzel über dem Baum `out`; der Ordner muss zu Kamera und Richtung
+/// in `extra` passen, sonst schriebe der Lauf woandershin.
+fn wurzel_von<'a>(out: &'a Path, extra: &[&str]) -> &'a Path {
+    let name = baum_name(extra);
+    assert_eq!(
+        out.file_name().and_then(|n| n.to_str()),
+        Some(name.as_str()),
+        "der Lauf schreibt nach {name}, der Test liest {}",
+        out.display()
+    );
+    out.parent().expect("ein Baum liegt in einer Wurzel")
 }
 
 /// Kachelexport über die Binärdatei. Ohne eigenes `--native-levels` mit
@@ -126,28 +183,42 @@ fn schnappschuss(dir: &Path) -> BTreeMap<String, Vec<u8>> {
         .collect()
 }
 
-/// Die Dateien der Höhen als `heights/<x>.<z>.bin`, sortiert.
+/// Wo die Höhen eines Baums liegen, relativ zu ihm: unter der Wurzel
+/// `../heights`, in einem Baum der alten Ablage `heights`.
+fn hoehen_ordner(dir: &Path) -> &'static str {
+    if dir.join("heights").is_dir() {
+        "heights"
+    } else {
+        "../heights"
+    }
+}
+
+/// Die Dateien der Höhen als `../heights/<x>.<z>.bin`, in einem Baum der
+/// alten Ablage `heights/<x>.<z>.bin`, sortiert.
 fn hoehen(dir: &Path) -> Vec<String> {
-    let mut namen: Vec<String> = std::fs::read_dir(dir.join("heights"))
+    let ordner = hoehen_ordner(dir);
+    let mut namen: Vec<String> = std::fs::read_dir(dir.join(ordner))
         .into_iter()
         .flatten()
         .flatten()
-        .map(|eintrag| format!("heights/{}", eintrag.file_name().to_string_lossy()))
+        .map(|eintrag| format!("{ordner}/{}", eintrag.file_name().to_string_lossy()))
         .collect();
     namen.sort();
     namen
 }
 
-/// Die Höhen der Region (rx, rz) im Baum.
+/// Die Höhen der Region (rx, rz) des Baums.
 fn hoehen_von(dir: &Path, rx: i32, rz: i32) -> Heights {
-    let pfad = dir.join(heights::path_of(rx, rz));
+    let pfad = dir
+        .join(hoehen_ordner(dir))
+        .join(heights::path_of(rx, rz).trim_start_matches("heights/"));
     let daten = std::fs::read(&pfad).unwrap_or_else(|e| panic!("{} lesen: {e}", pfad.display()));
     Heights::decode(&daten).unwrap()
 }
 
-/// Eine Kopie des Baums in einem neuen Verzeichnis.
-fn kopie(dir: &Path) -> TempDir {
-    let ziel = tempdir();
+/// Eine Kopie des Baums samt Höhen in einer neuen Wurzel.
+fn kopie(dir: &Path) -> Baum {
+    let ziel = neuer_baum(dir.file_name().unwrap().to_str().unwrap());
     for (rel, inhalt) in schnappschuss(dir) {
         let pfad = ziel.path().join(rel);
         std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
@@ -266,8 +337,8 @@ fn ausschnitt_liefert_dieselben_kacheln_wie_der_vollexport() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
 
-    let ganz = tempdir();
-    let teil = tempdir();
+    let ganz = neuer_baum("2x1-se");
+    let teil = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), ganz.path(), &["--scale", "16"]));
     gelungen(&tiles(
         welt.path(),
@@ -304,7 +375,7 @@ fn ausschnitt_liefert_dieselben_kacheln_wie_der_vollexport() {
 /// lassen, die inzwischen leer ist.
 #[test]
 fn zweiter_lauf_raeumt_leer_gewordene_kacheln_weg() {
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
 
     let voll = tempdir();
     common::write_world(voll.path(), &[(0, 0)], |x, y, z| {
@@ -351,7 +422,7 @@ fn verschwundener_chunk_verschwindet_auf_jeder_stufe() {
     common::write_world(neu.path(), &[(0, 0)], zwei_bloecke);
 
     for scale in ["16", "12"] {
-        let baum = tempdir();
+        let baum = neuer_baum("2x1-se");
         gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
         let vorher = dateien(baum.path());
         let ausgabe = tiles(neu.path(), baum.path(), &["--scale", scale, "--prune"]);
@@ -359,7 +430,7 @@ fn verschwundener_chunk_verschwindet_auf_jeder_stufe() {
         // Angesagt wird vor der Basis: bis zum Ende bleibt Zeit für Strg+C.
         let ansage = text.find("Aufräumen:").expect("keine Ansage");
         assert!(ansage < text.find("Kacheln:").unwrap(), "{text}");
-        let voll = tempdir();
+        let voll = neuer_baum("2x1-se");
         gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
 
         let soll = schnappschuss(voll.path());
@@ -390,7 +461,7 @@ fn ohne_prune_bleiben_kacheln_ohne_chunk_stehen() {
     let neu = tempdir();
     common::write_world(neu.path(), &[(0, 0)], zwei_bloecke);
 
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
     let basis = kacheln(baum.path(), max_zoom(baum.path()));
     let ausgabe = tiles(neu.path(), baum.path(), &["--scale", "16"]);
@@ -429,10 +500,10 @@ fn abgebrochenes_aufraeumen_heilt_im_naechsten_lauf() {
     common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
     let neu = tempdir();
     common::write_world(neu.path(), &[(0, 0)], block);
-    let voll = tempdir();
+    let voll = neuer_baum("2x1-se");
     gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
 
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
     let z = max_zoom(baum.path());
     let soll = kacheln(voll.path(), z);
@@ -482,9 +553,9 @@ fn ausschnitt_heilt_auch_angeschnittene_waisen() {
     common::write_world(alt.path(), &[(5, -4), (7, -6)], block);
     let neu = tempdir();
     common::write_world(neu.path(), &[(7, -6)], block);
-    let voll = tempdir();
+    let voll = neuer_baum("2x1-se");
     gelungen(&tiles(neu.path(), voll.path(), &["--scale", "12"]));
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "12"]));
     let z = max_zoom(baum.path());
     let basis: Vec<TileId> = kacheln(baum.path(), z).into_keys().collect();
@@ -518,7 +589,7 @@ fn waise_auf_nativer_stufe_bekommt_eltern() {
     common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
     let neu = tempdir();
     common::write_world(neu.path(), &[(0, 0)], block);
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
     let z = max_zoom(baum.path());
     std::fs::remove_file(baum.path().join(format!("{}/1/0.webp", z - 2))).unwrap();
@@ -549,7 +620,7 @@ fn leerer_ausschnitt_heilt_waisen() {
     common::write_world(neu.path(), &[(0, 0)], block);
     for native in ["9", "0"] {
         let schalter = ["--scale", "16", "--native-levels", native];
-        let baum = tempdir();
+        let baum = neuer_baum("2x1-se");
         gelungen(&tiles(alt.path(), baum.path(), &schalter));
         let z = max_zoom(baum.path());
         for x in [2, 3] {
@@ -588,7 +659,7 @@ fn ausschnitt_laesst_waisen_daneben_stehen() {
         (40, 4, 24) => "minecraft:blauwuerfel",
         _ => "minecraft:air",
     });
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
     let z = max_zoom(baum.path());
     std::fs::remove_file(baum.path().join(format!("{}/0/0.webp", z - 1))).unwrap();
@@ -629,7 +700,7 @@ fn ohne_prune_bleibt_keine_kachel_ohne_eltern() {
         for native in ["9", "0"] {
             let schalter = ["--scale", scale, "--native-levels", native];
             let fall = format!("scale {scale}, --native-levels {native}");
-            let baum = tempdir();
+            let baum = neuer_baum("2x1-se");
             gelungen(&tiles(alt.path(), baum.path(), &schalter));
             let z = max_zoom(baum.path());
             assert!(kacheln(baum.path(), z).contains_key(&stein), "{fall}");
@@ -672,11 +743,11 @@ fn leer_gewordene_kachel_zeigt_nach_abbruch_nichts() {
     });
     let leer_geworden = [TileId { x: -1, y: -1 }, TileId { x: 0, y: -1 }];
     for scale in ["16", "12"] {
-        let voll = tempdir();
+        let voll = neuer_baum("2x1-se");
         gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
         for threads in [1, 4] {
             let fall = format!("scale {scale}, {threads} Threads");
-            let baum = tempdir();
+            let baum = neuer_baum("2x1-se");
             gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
             let z = max_zoom(baum.path());
             let stufen = [z, z - 1];
@@ -724,9 +795,9 @@ fn ansage_kommt_vor_der_ersten_kachel() {
     common::write_world(alt.path(), &[(0, 0), (6, 6)], zwei_bloecke);
     let neu = tempdir();
     common::write_world(neu.path(), &[(0, 0)], zwei_bloecke);
-    let voll = tempdir();
+    let voll = neuer_baum("2x1-se");
     gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
     let z = max_zoom(baum.path());
     let soll = kacheln(voll.path(), z);
@@ -787,9 +858,9 @@ fn abbruch_in_der_pyramide_entfernt_nichts() {
     common::write_world(neu.path(), &[(0, 0)], block);
 
     for scale in ["16", "12"] {
-        let voll = tempdir();
+        let voll = neuer_baum("2x1-se");
         gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
-        let baum = tempdir();
+        let baum = neuer_baum("2x1-se");
         gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
         assert!(max_zoom(baum.path()) > 2, "scale {scale}: zu wenig Stufen");
         let vorher = dateien(baum.path());
@@ -867,10 +938,10 @@ fn prune_raeumt_auch_ueber_leerer_flaeche_auf() {
     common::write_world(alt.path(), &[(0, 0), (12, 0)], block);
     let neu = tempdir();
     common::write_world(neu.path(), &[(0, 0)], block);
-    let voll = tempdir();
+    let voll = neuer_baum("2x1-se");
     gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
 
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
     let ausschnitt = ["--scale", "16", "--center", "200", "8", "--size", "1"];
     let ohne = tiles(neu.path(), baum.path(), &ausschnitt);
@@ -921,9 +992,9 @@ fn abbruch_in_ohne_veraltete_entfernt_nichts() {
     };
 
     for scale in ["16", "12"] {
-        let voll = tempdir();
+        let voll = neuer_baum("2x1-se");
         gelungen(&tiles(neu.path(), voll.path(), &["--scale", scale]));
-        let baum = tempdir();
+        let baum = neuer_baum("2x1-se");
         gelungen(&tiles(alt.path(), baum.path(), &["--scale", scale]));
         let vorher = schnappschuss(baum.path());
         let ohne = kopie(baum.path());
@@ -1017,7 +1088,7 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
         }
     });
 
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(
         welt.path(),
         out.path(),
@@ -1026,7 +1097,7 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
 
     // Gegenprobe: der Vollexport braucht das fehlende Asset sehr wohl, und
     // muss das auch sagen.
-    let alles = tempdir();
+    let alles = neuer_baum("2x1-se");
     let ausgabe = tiles(welt.path(), alles.path(), &["--scale", "16"]);
     assert!(
         !ausgabe.status.success(),
@@ -1044,7 +1115,7 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
 fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     // scale 8 mit einer nativen Stufe (4), dann Verkleinerungen — beide Wege.
     gelungen(&tiles(
         welt.path(),
@@ -1175,7 +1246,8 @@ fn von_grund_auf(dir: &Path) -> BTreeMap<String, Vec<u8>> {
 /// darunter, so nimmt es native Stufen, wie sie sind.
 fn von_der_platte(dir: &Path, ab: u32) -> BTreeMap<String, Vec<u8>> {
     let basis = max_zoom(dir);
-    let frisch = tempdir();
+    // Ein Baum mit eigener Wurzel: die Höhen liegen über ihm.
+    let frisch = neuer_baum(dir.file_name().unwrap().to_str().unwrap());
     let damals = SystemTime::now() - Duration::from_secs(3600);
     for (rel, inhalt) in schnappschuss(dir) {
         let stufe = rel.split_once('/').and_then(|(z, _)| z.parse::<u32>().ok());
@@ -1204,7 +1276,7 @@ fn export_auf(threads: usize, welt: &Path, out: &Path, extra: &[&str]) -> Output
         .arg("--assets")
         .arg(assets_ref())
         .arg("--tiles")
-        .arg(out)
+        .arg(wurzel_von(out, extra))
         .args(extra)
         .env("RAYON_NUM_THREADS", threads.to_string())
         .output()
@@ -1264,7 +1336,7 @@ fn feine_stufen_im_speicher_wie_von_der_platte() {
     let zwei = ["--scale", "32", "--native-levels", "2"];
     for (threads, args, stufen) in [(1, &ganz, 0), (3, &ganz, 0), (1, &nativ, 1), (1, &zwei, 2)] {
         let fall = format!("{threads} Threads, {args:?}");
-        let out = tempdir();
+        let out = neuer_baum("2x1-se");
         let ausgabe = export_auf(threads, welt.path(), out.path(), args);
         let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
         assert_eq!(
@@ -1290,7 +1362,7 @@ fn feine_stufen_im_speicher_wie_von_der_platte() {
         );
     }
 
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&export_auf(1, welt.path(), out.path(), &ganz));
     let soll = schnappschuss(out.path());
     let ausschnitt = [&ganz[..], &["--center", "48", "48", "--size", "1536"]].concat();
@@ -1361,7 +1433,7 @@ fn native_stufen_wie_der_weg_je_stufe() {
     ];
     for (threads, scale, stufen, gpu) in faelle {
         let fall = format!("{threads} Threads, scale {scale}, {stufen} Stufen, --gpu {gpu}");
-        let out = tempdir();
+        let out = neuer_baum("2x1-se");
         let args = [
             "--scale",
             &scale.to_string(),
@@ -1423,7 +1495,7 @@ fn native_stufen_wie_der_weg_je_stufe() {
 fn abgebrochener_export_setzt_sich_fort_wie_in_einem_stueck() {
     let welt = weite_welt();
     let args = ["--scale", "32", "--native-levels", "0"];
-    let ganz = tempdir();
+    let ganz = neuer_baum("2x1-se");
     gelungen(&export_auf(1, welt.path(), ganz.path(), &args));
     let soll = schnappschuss(ganz.path());
     let basis = max_zoom(ganz.path());
@@ -1432,7 +1504,7 @@ fn abgebrochener_export_setzt_sich_fort_wie_in_einem_stueck() {
     // Spalten rendert.
     let mut reihe: Vec<TileId> = kacheln(ganz.path(), basis).into_keys().collect();
     reihe.sort_by_key(|tile| (tile.x.div_euclid(4), tile.y, tile.x));
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     let sperre = kachel_pfad(out.path(), basis, reihe[reihe.len() / 2]);
     std::fs::create_dir_all(&sperre).unwrap();
     let ausgabe = export_auf(1, welt.path(), out.path(), &args);
@@ -1495,7 +1567,7 @@ fn abgebrochener_export_setzt_sich_fort_wie_in_einem_stueck() {
 fn pyramide_laesst_sich_aus_den_kacheln_nachbauen() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(
         welt.path(),
         out.path(),
@@ -1537,7 +1609,7 @@ fn pyramide_holt_jede_aenderung_nach() {
         .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
         .collect();
     common::write_world(welt.path(), &chunks, gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(
         welt.path(),
         out.path(),
@@ -1656,7 +1728,7 @@ fn zukunft_ist_nicht_fremd() {
         .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
         .collect();
     common::write_world(welt.path(), &chunks, gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(
         welt.path(),
         out.path(),
@@ -1715,7 +1787,7 @@ fn pyramide_braucht_einen_baum() {
 
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
     let karte = out.path().join("map.json");
     let mut info: serde_json::Value =
@@ -1765,7 +1837,7 @@ fn pyramide_braucht_einen_baum() {
 fn native_stufen_gehoeren_zum_baum() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&export(
         welt.path(),
         baum.path(),
@@ -1794,7 +1866,7 @@ fn native_stufen_gehoeren_zum_baum() {
     gelungen(&export(welt.path(), baum.path(), &alle));
     assert!(schnappschuss(baum.path()) == vorher);
 
-    let neu = tempdir();
+    let neu = neuer_baum("2x1-se");
     let ausgabe = export(welt.path(), neu.path(), &["--scale", "16"]);
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout);
     assert!(!meldung.contains("nativ bei scale"), "{meldung}");
@@ -1823,7 +1895,7 @@ fn native_stufen_gehoeren_zum_baum() {
     assert_eq!(native_in(neu.path()), Some(1));
 
     // Bei scale 12 gibt es keine native Stufe, also nichts zu fragen.
-    let zwoelf = tempdir();
+    let zwoelf = neuer_baum("2x1-se");
     gelungen(&export(welt.path(), zwoelf.path(), &["--scale", "12"]));
     let karte = zwoelf.path().join("map.json");
     let mut info: serde_json::Value =
@@ -1844,7 +1916,7 @@ fn native_stufen_gehoeren_zum_baum() {
 fn mischung_gehoert_zum_baum() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&export(
         welt.path(),
         baum.path(),
@@ -1872,7 +1944,7 @@ fn mischung_gehoert_zum_baum() {
     gelungen(&cli(&[OsStr::new("--pyramid"), baum.path().as_os_str()]));
     assert_eq!(mischung_in(baum.path()), Some(3), "--pyramid");
 
-    let neu = tempdir();
+    let neu = neuer_baum("2x1-se");
     gelungen(&export(welt.path(), neu.path(), &["--scale", "16"]));
     assert_eq!(mischung_in(neu.path()), Some(2));
 
@@ -1923,7 +1995,7 @@ fn resume_rendert_nur_was_fehlt() {
     // Ursprung trennt die Pyramide Spalte -1 von Spalte 0.
     let chunks: Vec<(i32, i32)> = (4..8).map(|x| (x, 0)).collect();
     common::write_world(welt.path(), &chunks, gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
     let soll = schnappschuss(out.path());
     let z = max_zoom(out.path());
@@ -2020,7 +2092,7 @@ fn resume_ohne_native_stufen_baut_die_pyramide_neu() {
         .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
         .collect();
     common::write_world(welt.path(), &chunks, gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     let args = ["--scale", "8", "--native-levels", "0"];
     gelungen(&tiles(welt.path(), out.path(), &args));
     let soll = schnappschuss(out.path());
@@ -2087,7 +2159,7 @@ fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
     let welt = tempdir();
     let chunks: Vec<(i32, i32)> = (0..4).map(|x| (x, 0)).collect();
     common::write_world(welt.path(), &chunks, gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     let args = ["--scale", "32", "--native-levels", "0"];
     gelungen(&tiles(welt.path(), out.path(), &args));
     let soll = schnappschuss(out.path());
@@ -2125,7 +2197,7 @@ fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
         .arg("--assets")
         .arg(assets_ref())
         .arg("--tiles")
-        .arg(out.path())
+        .arg(out.wurzel())
         .args(&fortsetzen)
         .env("RAYON_NUM_THREADS", "1")
         .stdout(Stdio::null())
@@ -2158,7 +2230,7 @@ fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
 /// Unter Windows nennt der erste Export in ein Verzeichnis die Befehle für
 /// eine Ausnahme im Echtzeitschutz, für genau diesen Ordner und absolut,
 /// auch wenn `--tiles` ihn relativ angibt; der zweite schweigt, dort steht
-/// schon `map.json`. Für einen Ordner, in dem schon anderes liegt, gibt es
+/// schon `trees.json`. Für einen Ordner, in dem schon anderes liegt, gibt es
 /// ihn nicht, und anderswo als unter Windows nie.
 #[test]
 fn hinweis_auf_den_echtzeitschutz_nur_beim_ersten_export() {
@@ -2198,7 +2270,7 @@ fn hinweis_auf_den_echtzeitschutz_nur_beim_ersten_export() {
 fn defender_exclusion_nur_unter_windows() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     let ausgabe = tiles(welt.path(), out.path(), &["--defender-exclusion"]);
     assert!(!ausgabe.status.success());
     let fehler = String::from_utf8_lossy(&ausgabe.stderr);
@@ -2210,7 +2282,7 @@ fn defender_exclusion_nur_unter_windows() {
 fn map_json_beschreibt_die_kacheln() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
 
     let text = std::fs::read_to_string(out.path().join("map.json")).unwrap();
@@ -2270,16 +2342,16 @@ fn export_schreibt_hoehen() {
         (0, 3..=6, 0) => "minecraft:water",
         _ => "minecraft:air",
     });
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
 
     let text = std::fs::read_to_string(out.path().join("map.json")).unwrap();
     let info: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(info["heights"], "heights/{x}.{z}.bin");
+    assert_eq!(info["heights"], "../heights/{x}.{z}.bin");
     assert_eq!(info["heightsCell"], 4);
     assert_eq!(info["minY"], -64);
     assert_eq!(info["maxY"], 319);
-    assert_eq!(hoehen(out.path()), ["heights/0.0.bin"]);
+    assert_eq!(hoehen(out.path()), ["../heights/0.0.bin"]);
     let hoehe = hoehen_von(out.path(), 0, 0);
     assert_eq!(hoehe.get(2, 2), 9, "Wasser 9 und Truhe 7, der obere Median");
     assert_eq!(hoehe.get(3, 2), 7, "nur eine Truhe");
@@ -2313,7 +2385,7 @@ fn unfertige_chunks_nennt_der_lauf() {
             }
         },
     );
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     let export = tiles(welt.path(), out.path(), &["--scale", "16"]);
     let text = String::from_utf8_lossy(&gelungen(&export).stdout);
     assert!(
@@ -2373,7 +2445,7 @@ fn ausschnitt_behaelt_die_hoehen_daneben() {
     };
     let (alt, neu) = (welt(4), welt(9));
     let schalter = ["--scale", "16", "--native-levels", "0"];
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(alt.path(), baum.path(), &schalter));
     assert_eq!(hoehen_von(baum.path(), 0, 0).get(82, 2), 4);
 
@@ -2404,7 +2476,7 @@ fn heights_traegt_hoehen_nach() {
         ])
     };
     let ohne_hoehen = |dir: &Path| {
-        std::fs::remove_dir_all(dir.join("heights")).unwrap();
+        std::fs::remove_dir_all(dir.join(hoehen_ordner(dir))).unwrap();
         let karte = dir.join("map.json");
         let mut info: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
@@ -2414,7 +2486,7 @@ fn heights_traegt_hoehen_nach() {
         std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
     };
     for kamera in ["top", "north-45"] {
-        let anders = tempdir();
+        let anders = neuer_baum(&baum_name(&["--camera", kamera]));
         gelungen(&tiles(
             welt.path(),
             anders.path(),
@@ -2426,12 +2498,51 @@ fn heights_traegt_hoehen_nach() {
         assert_eq!(schnappschuss(anders.path()), soll, "{kamera}");
     }
 
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
     let soll = schnappschuss(out.path());
     ohne_hoehen(out.path());
     gelungen(&nachtragen(welt.path(), out.path()));
     assert_eq!(schnappschuss(out.path()), soll);
+
+    // Auch mit `.` im Ordner des Baums landen die Höhen unter der Wurzel.
+    ohne_hoehen(out.path());
+    let ausgabe = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+        .current_dir(out.path())
+        .arg("--world")
+        .arg(welt.path())
+        .args(["--heights", "."])
+        .output()
+        .expect("terranova-render starten");
+    gelungen(&ausgabe);
+    assert!(!out.path().join("heights").exists(), "Höhen im Baum");
+    assert_eq!(schnappschuss(out.path()), soll, "mit .");
+
+    // Ein Baum der alten Ablage, ohne Wurzel darüber, bekommt sie in sich
+    // selbst.
+    let alt = tempdir();
+    let allein = alt.path().join("karte");
+    for (rel, inhalt) in schnappschuss(out.path()) {
+        if rel.starts_with("../") {
+            continue;
+        }
+        let pfad = allein.join(rel);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(pfad, inhalt).unwrap();
+    }
+    let karte = allein.join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    for feld in ["heights", "heightsCell", "minY", "maxY"] {
+        info.as_object_mut().unwrap().remove(feld).expect(feld);
+    }
+    std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
+    gelungen(&nachtragen(welt.path(), &allein));
+    let info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    assert_eq!(info["heights"], "heights/{x}.{z}.bin");
+    assert!(allein.join("heights/0.0.bin").is_file(), "Höhen fehlen");
+    assert!(!alt.path().join("heights").exists(), "Höhen neben dem Baum");
 
     let fremd = tempdir();
     common::write_world(fremd.path(), &[(0, 0)], gelaende);
@@ -2454,7 +2565,7 @@ fn heights_traegt_hoehen_nach() {
 /// dasselbe Verzeichnis.
 #[test]
 fn heights_braucht_die_welt() {
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     let ausgabe = cli(&[OsStr::new("--heights"), out.path().as_os_str()]);
     assert!(!ausgabe.status.success());
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
@@ -2470,8 +2581,13 @@ fn heights_braucht_die_welt() {
     );
     assert!(schnappschuss(out.path()).is_empty(), "etwas geschrieben");
 
-    // Scale und Kamera kommen aus map.json; wer sie nennt, irrt sich.
-    for schalter in [["--camera", "4:3"], ["--scale", "16"]] {
+    // Scale, Kamera und Richtung kommen aus map.json; wer sie nennt, irrt
+    // sich.
+    for schalter in [
+        ["--camera", "4:3"],
+        ["--scale", "16"],
+        ["--direction", "se"],
+    ] {
         let ausgabe = cli(&[
             OsStr::new("--world"),
             welt.path().as_os_str(),
@@ -2529,11 +2645,11 @@ fn prune_entfernt_die_hoehen_ohne_regionsdatei() {
     common::write_world(alt.path(), &[(-1, 0)], block);
     let neu = tempdir();
     common::write_world(neu.path(), &[(0, 0)], block);
-    let voll = tempdir();
+    let voll = neuer_baum("2x1-se");
     gelungen(&tiles(neu.path(), voll.path(), &["--scale", "16"]));
 
-    let baum = tempdir();
-    let beide = ["heights/-1.0.bin", "heights/0.0.bin"];
+    let baum = neuer_baum("2x1-se");
+    let beide = ["../heights/-1.0.bin", "../heights/0.0.bin"];
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
     assert_eq!(hoehen(baum.path()), beide);
     assert_eq!(hoehen_von(baum.path(), -1, 0).get(126, 2), 4);
@@ -2559,7 +2675,7 @@ fn prune_entfernt_die_hoehen_ohne_regionsdatei() {
         text.contains("Aufräumen:  Höhen ohne Regionsdatei entfernt: 1"),
         "{text}"
     );
-    assert_eq!(hoehen(baum.path()), ["heights/0.0.bin"]);
+    assert_eq!(hoehen(baum.path()), ["../heights/0.0.bin"]);
     assert_eq!(hoehen_von(baum.path(), 0, 0), hoehen_von(voll.path(), 0, 0));
 }
 
@@ -2570,8 +2686,8 @@ fn zoomstufen_haengen_am_massstab() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
 
-    let fein = tempdir();
-    let grob = tempdir();
+    let fein = neuer_baum("2x1-se");
+    let grob = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), fein.path(), &["--scale", "16"]));
     gelungen(&tiles(welt.path(), grob.path(), &["--scale", "4"]));
 
@@ -2617,7 +2733,7 @@ fn nachrendern_in_einen_bestehenden_baum_aendert_nichts() {
 
     for native in ["9", "0"] {
         let schalter = ["--scale", "16", "--native-levels", native];
-        let out = tempdir();
+        let out = neuer_baum("2x1-se");
         gelungen(&tiles(welt.path(), out.path(), &schalter));
         let vorher = schnappschuss(out.path());
         assert!(
@@ -2662,7 +2778,7 @@ fn unbekannter_block_in_der_elternflaeche_bricht_vor_dem_schreiben_ab() {
         (100, 4, 100) => "minecraft:gibt_es_nicht",
         _ => "minecraft:air",
     });
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     let ausgabe = tiles(
         welt.path(),
         out.path(),
@@ -2707,11 +2823,11 @@ fn nachrendern_zeigt_auf_allen_stufen_denselben_stand() {
         });
 
         let schalter = ["--scale", "16", "--native-levels", native];
-        let baum = tempdir();
+        let baum = neuer_baum("2x1-se");
         gelungen(&tiles(alt.path(), baum.path(), &schalter));
         let ausschnitt = [&schalter[..], &["--center", "44", "8", "--size", "4"]].concat();
         gelungen(&tiles(neu.path(), baum.path(), &ausschnitt));
-        let voll = tempdir();
+        let voll = neuer_baum("2x1-se");
         gelungen(&tiles(neu.path(), voll.path(), &schalter));
 
         let nachher = schnappschuss(baum.path());
@@ -2743,7 +2859,7 @@ fn gewachsene_welt_behaelt_die_nummerierung() {
             "minecraft:air"
         }
     });
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
     let vorher = max_zoom(baum.path());
 
@@ -2755,7 +2871,7 @@ fn gewachsene_welt_behaelt_die_nummerierung() {
             "minecraft:air"
         }
     });
-    let frisch = tempdir();
+    let frisch = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), frisch.path(), &["--scale", "16"]));
     let neu = max_zoom(frisch.path());
     assert!(neu > vorher, "die Welt ist nicht gewachsen: {neu}");
@@ -2798,13 +2914,14 @@ fn schreiben_tauscht_die_datei() {
             block => block,
         },
     );
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
     let karte = baum.path().join("map.json");
-    let region = baum.path().join(heights::path_of(0, 0));
+    let region = baum.wurzel().join(heights::path_of(0, 0));
+    let liste = baum.wurzel().join("trees.json");
     let offen: Vec<(PathBuf, Vec<u8>, std::fs::File)> = kacheln(baum.path(), max_zoom(baum.path()))
         .into_values()
-        .chain([karte.clone(), region.clone()])
+        .chain([karte.clone(), region.clone(), liste])
         .map(|pfad| {
             let vorher = std::fs::read(&pfad).unwrap();
             let datei = std::fs::File::open(&pfad).unwrap();
@@ -2828,14 +2945,15 @@ fn schreiben_tauscht_die_datei() {
     );
 
     let mut reste = Vec::new();
-    let mut stapel = vec![baum.path().to_path_buf()];
+    let mut stapel = vec![baum.wurzel().to_path_buf()];
     while let Some(ordner) = stapel.pop() {
         for eintrag in std::fs::read_dir(&ordner).unwrap().flatten() {
             let name = eintrag.file_name().to_string_lossy().into_owned();
             let hoehen = ordner.ends_with("heights") && name.ends_with(".bin");
+            let liste = ordner == baum.wurzel() && name == "trees.json";
             if eintrag.path().is_dir() {
                 stapel.push(eintrag.path());
-            } else if !name.ends_with(".webp") && name != "map.json" && !hoehen {
+            } else if !name.ends_with(".webp") && name != "map.json" && !hoehen && !liste {
                 reste.push(eintrag.path());
             }
         }
@@ -2851,11 +2969,11 @@ fn schreiben_tauscht_die_datei() {
 fn abgebrochener_lauf_hinterlaesst_map_json() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    let probe = tempdir();
+    let probe = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), probe.path(), &["--scale", "16"]));
     // Wo die letzte Kachel hin soll, steht ein Verzeichnis: sie zu
     // schreiben scheitert.
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     let kachel = dateien(probe.path()).pop().expect("eine Kachel");
     std::fs::create_dir_all(out.path().join(&kachel)).unwrap();
     assert!(
@@ -2864,6 +2982,9 @@ fn abgebrochener_lauf_hinterlaesst_map_json() {
             .success(),
         "{kachel} hätte sich nicht schreiben lassen dürfen"
     );
+    // Wählen lässt sich der Baum schon nach dem abgebrochenen ersten Lauf.
+    let liste = std::fs::read_to_string(out.wurzel().join("trees.json")).unwrap();
+    assert!(liste.contains("\"2x1-se\""), "{liste}");
     let ausgabe = tiles(welt.path(), out.path(), &[]);
     assert!(!ausgabe.status.success());
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
@@ -2883,7 +3004,7 @@ fn gescheiterter_lauf_legt_nichts_fest() {
             "minecraft:air"
         }
     });
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     assert!(
         !tiles(kaputt.path(), out.path(), &["--scale", "16"])
             .status
@@ -2911,7 +3032,7 @@ fn fremde_welt_wird_abgelehnt() {
     common::write_world(zweite.path(), &[(0, 0)], gelaende);
     common::write_wurzel(zweite.path(), 2_718_281_828);
 
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(erste.path(), out.path(), &["--scale", "16"]));
     // `map.json` liegt öffentlich neben den Kacheln: den Seed selbst
     // verrät es nicht, nur seine Kennung.
@@ -2950,7 +3071,7 @@ fn fremde_welt_wird_abgelehnt() {
 fn alter_baum_ohne_kennung_wird_uebernommen() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     // Ohne level.dat hat die Welt keine Kennung.
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
     let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
@@ -3012,7 +3133,8 @@ fn alter_scale_nennt_den_ausweg() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
     common::write_wurzel(welt.path(), 4_815_162_342);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
+    std::fs::create_dir_all(out.path()).unwrap();
     std::fs::write(
         out.path().join("map.json"),
         r#"{"tileSize":256,"scale":6,"minZoom":0,"maxZoom":3,"tiles":"{z}/{x}/{y}.webp","bounds":[0,0,256,256]}"#,
@@ -3021,7 +3143,7 @@ fn alter_scale_nennt_den_ausweg() {
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8"]);
     assert!(!ausgabe.status.success());
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
-    assert!(meldung.contains("neues Verzeichnis"), "Meldung: {meldung}");
+    assert!(meldung.contains("neue Wurzel"), "Meldung: {meldung}");
     assert!(!meldung.contains("--scale 6"), "Meldung: {meldung}");
     // Der Baum ohne Kennung wäre übernommen worden. Gemeldet wird das erst
     // vor der ersten Kachel, und die kommt nie.
@@ -3045,7 +3167,7 @@ fn dimensionen_haben_eigene_kennungen() {
     common::write_world(&nether, &[(0, 0)], gelaende);
     common::write_wurzel(welt.path(), 4_815_162_342);
 
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(&nether, baum.path(), &["--scale", "16"]));
     let karte = std::fs::read_to_string(baum.path().join("map.json")).unwrap();
     kennung_in(&karte);
@@ -3055,7 +3177,7 @@ fn dimensionen_haben_eigene_kennungen() {
         "die Oberwelt kam in den Netherbaum"
     );
 
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
     let ausgabe = tiles(&nether, baum.path(), &["--scale", "16"]);
     assert!(
@@ -3077,7 +3199,7 @@ fn dimensionen_haben_eigene_kennungen() {
         "{ohne_wurzel}"
     );
     assert!(ohne_wurzel.contains("--forceUpgrade"), "{ohne_wurzel}");
-    assert!(!ohne_wurzel.contains("neues Verzeichnis"), "{ohne_wurzel}");
+    assert!(!ohne_wurzel.contains("neue Wurzel"), "{ohne_wurzel}");
     common::write_level_dat(kopie.path());
     let ohne_seed = meldung();
     assert!(ohne_seed.contains("nennt keinen Seed"), "{ohne_seed}");
@@ -3201,7 +3323,7 @@ fn ohne_seed_nennt_jeden_ort() {
     let nether = welt.path().join("dimensions/minecraft/the_nether");
     common::write_world(&nether, &[(0, 0)], gelaende);
     common::write_level_dat(welt.path());
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     let ausgabe = tiles(&nether, baum.path(), &["--scale", "16"]);
     let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
     let orte = "weder in dimensions/minecraft/the_nether/data/minecraft/world_gen_settings.dat, \
@@ -3226,7 +3348,7 @@ fn punkt_als_welt_hat_dieselbe_kennung() {
     let nether = welt.path().join("dimensions/minecraft/the_nether");
     common::write_world(&nether, &[(0, 0)], gelaende);
     common::write_wurzel(welt.path(), 42);
-    let baum = tempdir();
+    let baum = neuer_baum("2x1-se");
     gelungen(&tiles(&nether, baum.path(), &["--scale", "16"]));
     let karte = || std::fs::read_to_string(baum.path().join("map.json")).unwrap();
     let vorher = kennung_in(&karte());
@@ -3235,7 +3357,7 @@ fn punkt_als_welt_hat_dieselbe_kennung() {
         .args(["--world", ".", "--assets"])
         .arg(assets())
         .arg("--tiles")
-        .arg(baum.path())
+        .arg(baum.wurzel())
         .args(["--scale", "16"])
         .output()
         .expect("terranova-render starten");
@@ -3253,18 +3375,18 @@ fn zwei_baeume_bekommen_verschiedene_salze() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
     common::write_wurzel(welt.path(), 4_815_162_342);
-    let salz = |baum: &Path| {
-        gelungen(&tiles(welt.path(), baum, &["--scale", "16"]));
+    let salz = |wurzel: &Path| {
+        let baum = wurzel.join("2x1-se");
+        gelungen(&tiles(welt.path(), &baum, &["--scale", "16"]));
         let karte = std::fs::read_to_string(baum.join("map.json")).unwrap();
-        std::fs::remove_dir_all(baum).unwrap();
-        std::fs::create_dir(baum).unwrap();
+        std::fs::remove_dir_all(&baum).unwrap();
         let kennung = kennung_in(&karte);
         u64::from_str_radix(kennung.split('-').next().unwrap(), 16).unwrap()
     };
-    let baum = tempdir();
+    let wurzel = tempdir();
     let salze = [
-        salz(baum.path()),
-        salz(baum.path()),
+        salz(wurzel.path()),
+        salz(wurzel.path()),
         salz(tempdir().path()),
         salz(tempdir().path()),
     ];
@@ -3296,7 +3418,7 @@ fn kennung_in(karte: &str) -> String {
 fn size_null_wird_abgelehnt() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16", "--size", "0"]);
     assert!(!ausgabe.status.success(), "--size 0 lief durch");
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
@@ -3345,7 +3467,7 @@ fn fehlende_texturen_gleich_nach_der_sprite_tabelle() {
         (_, 3, _) => "minecraft:einfarbig",
         _ => "minecraft:air",
     });
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     let text = String::from_utf8_lossy(&gelungen(&export(welt.path(), out.path(), &[])).stdout)
         .into_owned();
     let warnung = text.find("Texturen fehlen").expect(&text);
@@ -3505,7 +3627,7 @@ fn unbekannte_bedingung_nennt_blocks_txt() {
 fn anderer_scale_wird_abgelehnt() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
     let vorher = schnappschuss(out.path());
 
@@ -3528,14 +3650,15 @@ fn anderer_scale_wird_abgelehnt() {
     );
 }
 
-/// Zwei Kameras in einem Baum mischten sich still. Eine andere Kamera bricht
-/// ab, bevor sie eine Kachel schreibt, und `map.json` nennt Kamera und
-/// Projektion der feinsten Stufe.
+/// Zwei Kameras in einem Baum mischten sich still. Jede Kamera hat ihren
+/// eigenen Ordner; trägt einer trotzdem einen Baum mit anderer Kamera, etwa
+/// nach dem Umbenennen, bricht der Lauf ab, bevor er eine Kachel schreibt.
+/// `map.json` nennt Kamera und Projektion der feinsten Stufe.
 #[test]
 fn andere_kamera_wird_abgelehnt() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("4x3-se");
     gelungen(&tiles(
         welt.path(),
         out.path(),
@@ -3549,26 +3672,36 @@ fn andere_kamera_wird_abgelehnt() {
         info["projection"],
         serde_json::json!({"azimuth": "diagonal", "u": 4, "v": 3, "y": 4})
     );
-    let vorher = schnappschuss(out.path());
+    // Der Baum von 4:3 liegt jetzt, wo 2:1 schreibt.
+    let falsch = out.path().with_file_name("2x1-se");
+    std::fs::rename(out.path(), &falsch).unwrap();
+    let vorher = schnappschuss(&falsch);
 
-    // Ohne --camera: die Vorgabe ist 2:1.
-    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8"]);
+    // Ohne --camera: die Vorgabe ist 2:1. Die Meldung rät, den Ordner
+    // zurückzubenennen; mit --camera 4:3 schriebe der Lauf nach 4x3-se.
+    let ziel = out.path().display().to_string();
+    let ausgabe = tiles(welt.path(), &falsch, &["--scale", "8"]);
     assert!(!ausgabe.status.success(), "2:1 hätte abbrechen müssen");
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(meldung.contains("Kamera 4:3"), "Meldung: {meldung}");
-    assert!(meldung.contains("--camera 4:3"), "Meldung: {meldung}");
+    assert!(
+        meldung.contains(&format!("Den Ordner nach {ziel} umbenennen")),
+        "Meldung: {meldung}"
+    );
     assert!(!meldung.contains("--scale"), "Meldung: {meldung}");
 
-    // Weicht auch der scale ab, nennt die Meldung beide.
-    let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
+    // Weicht auch der scale ab, nennt die Meldung ihn dazu.
+    let ausgabe = tiles(welt.path(), &falsch, &["--scale", "16"]);
     assert!(!ausgabe.status.success(), "2:1 hätte abbrechen müssen");
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(
-        meldung.contains("--camera 4:3 --scale 8"),
+        meldung.contains(&format!(
+            "{ziel} umbenennen, dann mit --scale 8 weiterrendern"
+        )),
         "Meldung: {meldung}"
     );
     assert_eq!(
-        schnappschuss(out.path()),
+        schnappschuss(&falsch),
         vorher,
         "der Baum hat sich verändert"
     );
@@ -3576,12 +3709,12 @@ fn andere_kamera_wird_abgelehnt() {
 
 /// Ein Baum aus einem älteren Stand nennt keine Kamera und zeigt 2:1: Ein
 /// Lauf in 2:1 nimmt ihn auf und trägt sie ein, einer mit anderer Kamera
-/// nicht.
+/// nicht, auch wenn der Baum in deren Ordner liegt.
 #[test]
 fn baum_ohne_kamera_zeigt_zwei_zu_eins() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "8"]));
     let karte = out.path().join("map.json");
     let mut info: serde_json::Value =
@@ -3591,11 +3724,10 @@ fn baum_ohne_kamera_zeigt_zwei_zu_eins() {
     }
     std::fs::write(&karte, serde_json::to_string(&info).unwrap()).unwrap();
 
-    let ausgabe = tiles(
-        welt.path(),
-        out.path(),
-        &["--scale", "8", "--camera", "top"],
-    );
+    let fremd = kopie(out.path());
+    let oben = fremd.path().with_file_name("top-se");
+    std::fs::rename(fremd.path(), &oben).unwrap();
+    let ausgabe = tiles(welt.path(), &oben, &["--scale", "8", "--camera", "top"]);
     assert!(!ausgabe.status.success(), "top hätte abbrechen müssen");
     assert!(String::from_utf8_lossy(&ausgabe.stderr).contains("Kamera 2:1"));
 
@@ -3605,14 +3737,15 @@ fn baum_ohne_kamera_zeigt_zwei_zu_eins() {
     assert_eq!(info["camera"], "2:1");
 }
 
-/// Genordet stehen `azimuth` `north` und `direction` `s` in `map.json`. Ein
-/// Baum mit einer anderen Richtung, als seine Kamera hat, bricht ab; fehlt
-/// sie, gilt die der Kamera.
+/// Genordet stehen `azimuth` `north` und `direction` `s` in `map.json`. Eine
+/// andere Kamera schreibt ihren eigenen Baum daneben. Ein Baum mit einer
+/// Richtung, die seine Kamera nicht kennt, bricht ab; fehlt sie, gilt die
+/// Vorgabe der Kamera.
 #[test]
 fn genordeter_baum_mit_azimut_und_richtung() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0)], gelaende);
-    let out = tempdir();
+    let out = neuer_baum("north-45-s");
     let karte = out.path().join("map.json");
     let lies = || -> serde_json::Value {
         serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap()
@@ -3631,9 +3764,30 @@ fn genordeter_baum_mit_azimut_und_richtung() {
     );
     let vorher = schnappschuss(out.path());
 
+    // Eine andere Kamera bekommt ihren eigenen Baum daneben.
+    let oben = out.path().with_file_name("top-north-s");
+    gelungen(&tiles(
+        welt.path(),
+        &oben,
+        &["--scale", "8", "--camera", "top-north"],
+    ));
+    assert!(
+        oben.join("map.json").is_file(),
+        "top-north ohne eigenen Baum"
+    );
+    assert_eq!(
+        schnappschuss(out.path()),
+        vorher,
+        "top-north hat den Baum verändert"
+    );
+    // Liegt der Baum aus north-45 im Ordner von top-north, bricht top-north
+    // ab und rät zurück nach north-45-s.
+    let vertauscht = kopie(out.path());
+    let falsch = vertauscht.path().with_file_name("top-north-s");
+    std::fs::rename(vertauscht.path(), &falsch).unwrap();
     let ausgabe = tiles(
         welt.path(),
-        out.path(),
+        &falsch,
         &["--scale", "8", "--camera", "top-north"],
     );
     assert!(
@@ -3641,11 +3795,10 @@ fn genordeter_baum_mit_azimut_und_richtung() {
         "top-north hätte abbrechen müssen"
     );
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
-    assert!(meldung.contains("--camera north-45"), "Meldung: {meldung}");
-    assert_eq!(
-        schnappschuss(out.path()),
-        vorher,
-        "top-north hat den Baum verändert"
+    assert!(meldung.contains("Kamera north-45"), "Meldung: {meldung}");
+    assert!(
+        meldung.contains(&vertauscht.path().display().to_string()),
+        "Meldung: {meldung}"
     );
 
     let mut info = lies();
@@ -3654,7 +3807,10 @@ fn genordeter_baum_mit_azimut_und_richtung() {
     let ausgabe = tiles(welt.path(), out.path(), &genordet);
     assert!(!ausgabe.status.success(), "se hätte abbrechen müssen");
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
-    assert!(meldung.contains("Richtung se"), "Meldung: {meldung}");
+    assert!(
+        meldung.contains("north-45 schaut von einer Seite: s, w, n oder e"),
+        "Meldung: {meldung}"
+    );
     // Ohne `map.json`, die der Test selbst geändert hat.
     let ohne_karte = |mut baum: BTreeMap<String, Vec<u8>>| {
         baum.remove("map.json");
@@ -3692,16 +3848,355 @@ fn ohne_scale_genordet_16_sonst_32() {
         ("north-45", None, 16),
         ("north-45", Some("8"), 8),
     ] {
-        let out = tempdir();
         let mut args = vec!["--camera", kamera, "--size", "256"];
         if let Some(s) = extra {
             args.extend(["--scale", s]);
         }
+        let out = neuer_baum(&baum_name(&args));
         gelungen(&tiles(welt.path(), out.path(), &args));
         let text = std::fs::read_to_string(out.path().join("map.json")).unwrap();
         let info: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(info["scale"], scale, "{kamera} mit {extra:?}");
     }
+}
+
+/// `--direction` passt zur Kamera: diagonal über eine Ecke, genordet von
+/// einer Seite. Eine falsche Kombination bricht ab, bevor der Lauf die Welt
+/// liest, und nennt die vier, die gehen. Die Vorgabe darf man nennen; eine
+/// andere gültige Richtung bricht in diesem Stand ebenso vor der Welt ab.
+#[test]
+fn richtung_wird_je_kamera_geprueft() {
+    let leer = tempdir();
+    let lauf = |kamera: &str, richtung: &str| {
+        cli(&[
+            OsStr::new("--world"),
+            leer.path().join("fehlt").as_os_str(),
+            OsStr::new("--camera"),
+            OsStr::new(kamera),
+            OsStr::new("--direction"),
+            OsStr::new(richtung),
+        ])
+    };
+    for (kamera, richtung, soll) in [
+        (
+            "north-45",
+            "ne",
+            "north-45 schaut von einer Seite: s, w, n oder e",
+        ),
+        (
+            "top-north",
+            "se",
+            "top-north schaut von einer Seite: s, w, n oder e",
+        ),
+        ("8:5", "n", "8:5 schaut über eine Ecke: se, sw, nw oder ne"),
+        ("top", "s", "top schaut über eine Ecke: se, sw, nw oder ne"),
+        (
+            "2:1",
+            "sw",
+            "--direction sw kommt erst mit der Drehung der Welt",
+        ),
+        (
+            "north-45",
+            "e",
+            "--direction e kommt erst mit der Drehung der Welt",
+        ),
+    ] {
+        let ausgabe = lauf(kamera, richtung);
+        assert!(!ausgabe.status.success(), "{kamera} {richtung}");
+        let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(meldung.contains(soll), "{kamera} {richtung}: {meldung}");
+        assert!(!String::from_utf8_lossy(&ausgabe.stdout).contains("Welt:"));
+    }
+    // Die Vorgabe geht; dann scheitert der Lauf erst an der fehlenden Welt.
+    for (kamera, richtung) in [("2:1", "se"), ("north-45", "s")] {
+        let meldung = String::from_utf8_lossy(&lauf(kamera, richtung).stderr).into_owned();
+        assert!(
+            meldung.contains("kein region-Verzeichnis"),
+            "{kamera} {richtung}: {meldung}"
+        );
+    }
+}
+
+/// `trees.json` unter der Wurzel nennt jeden Baum mit Ordner, Kamera,
+/// Richtung und `look`, `2x1-se` zuerst, auch vor `1x1-se`, sonst nach
+/// Ordner. Sie kommt aus der Platte: Ein gelöschter Baum fällt beim nächsten
+/// Lauf heraus. Die Höhen liegen einmal unter der Wurzel, kein Baum hat
+/// eigene.
+#[test]
+fn liste_der_baeume_unter_der_wurzel() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let oben = neuer_baum("top-north-s");
+    let wurzel = oben.wurzel();
+    let liste = || -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(wurzel.join("trees.json")).unwrap()).unwrap()
+    };
+    let ordner = || -> Vec<String> {
+        liste()["trees"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|baum| baum["path"].as_str().unwrap().to_string())
+            .collect()
+    };
+    gelungen(&tiles(
+        welt.path(),
+        oben.path(),
+        &["--scale", "8", "--camera", "top-north"],
+    ));
+    assert_eq!(
+        liste(),
+        serde_json::json!({"trees": [
+            {"path": "top-north-s", "camera": "top-north", "direction": "s", "look": "map"}
+        ]})
+    );
+    let schraeg = wurzel.join("2x1-se");
+    gelungen(&tiles(welt.path(), &schraeg, &["--scale", "8"]));
+    let vier = wurzel.join("4x3-se");
+    gelungen(&tiles(
+        welt.path(),
+        &vier,
+        &["--scale", "8", "--camera", "4:3"],
+    ));
+    let eins = wurzel.join("1x1-se");
+    gelungen(&tiles(
+        welt.path(),
+        &eins,
+        &["--scale", "8", "--camera", "1:1"],
+    ));
+    assert_eq!(ordner(), ["2x1-se", "1x1-se", "4x3-se", "top-north-s"]);
+    assert_eq!(liste()["trees"][2]["camera"], "4:3");
+    assert!(wurzel.join("heights/0.0.bin").is_file(), "Höhen fehlen");
+    for baum in ordner() {
+        assert!(!wurzel.join(&baum).join("heights").exists(), "{baum}");
+    }
+
+    std::fs::remove_dir_all(&vier).unwrap();
+    gelungen(&tiles(welt.path(), &schraeg, &["--scale", "8"]));
+    assert_eq!(ordner(), ["2x1-se", "1x1-se", "top-north-s"]);
+}
+
+/// Eine Wurzel, eine Welt: Ihre Bäume teilen sich die Höhen. Ein Lauf einer
+/// anderen Welt in dieselbe Wurzel bricht ab, bevor er etwas liest oder
+/// schreibt, auch mit einer anderen Kamera und in einen neuen Ordner, und
+/// ebenso `--heights` für einen Baum der anderen Welt darin. Ein Lauf
+/// derselben Welt geht.
+#[test]
+fn eine_wurzel_eine_welt() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    common::write_wurzel(welt.path(), 4_815_162_342);
+    let fremd = tempdir();
+    common::write_world(fremd.path(), &[(0, 0), (2, 2)], gelaende);
+    common::write_wurzel(fremd.path(), 2_718_281_828);
+    let schraeg = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), schraeg.path(), &["--scale", "8"]));
+    let wurzel = schraeg.wurzel();
+    let hoehen = || schnappschuss(&wurzel.join("2x1-se"));
+    let vorher = hoehen();
+
+    let oben = wurzel.join("top-se");
+    let ausgabe = tiles(
+        fremd.path(),
+        &oben,
+        &["--scale", "8", "--camera", "top", "--prune"],
+    );
+    assert!(!ausgabe.status.success(), "die fremde Welt lief durch");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        meldung.contains("anderen Welt") && meldung.contains("neue Wurzel"),
+        "Meldung: {meldung}"
+    );
+    assert!(!oben.exists(), "der fremde Baum ist angelegt");
+    assert_eq!(
+        hoehen(),
+        vorher,
+        "der Baum oder die Höhen haben sich verändert"
+    );
+
+    // Ebenso `--heights` für einen Baum der anderen Welt unter dieser Wurzel.
+    let anderswo = neuer_baum("top-se");
+    gelungen(&tiles(
+        fremd.path(),
+        anderswo.path(),
+        &["--scale", "8", "--camera", "top"],
+    ));
+    std::fs::create_dir(&oben).unwrap();
+    std::fs::copy(anderswo.path().join("map.json"), oben.join("map.json")).unwrap();
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        fremd.path().as_os_str(),
+        OsStr::new("--heights"),
+        oben.as_os_str(),
+    ]);
+    assert!(
+        !ausgabe.status.success(),
+        "--heights der fremden Welt lief durch"
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("anderen Welt"), "Meldung: {meldung}");
+    assert_eq!(hoehen(), vorher, "--heights hat die Höhen verändert");
+    std::fs::remove_dir_all(&oben).unwrap();
+
+    gelungen(&tiles(
+        welt.path(),
+        &oben,
+        &["--scale", "8", "--camera", "top"],
+    ));
+}
+
+/// `--tiles` nimmt die Wurzel. Wer den Ordner eines Baums nennt, wie für
+/// `--pyramid`, bekommt die Wurzel genannt; nichts ändert sich, und kein
+/// Baum entsteht in ihm.
+#[test]
+fn baum_statt_wurzel_nennt_die_wurzel() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "8"]));
+    let vorher = schnappschuss(baum.path());
+    let args = [
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--tiles"),
+        baum.path().as_os_str(),
+        OsStr::new("--scale"),
+        OsStr::new("8"),
+    ];
+    let ausgabe = cli(&args);
+    assert!(!ausgabe.status.success(), "der Baum als Wurzel lief durch");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    let wurzel = std::path::absolute(baum.wurzel()).unwrap();
+    assert!(
+        meldung.contains(&format!("--tiles nimmt die Wurzel: {}", wurzel.display())),
+        "Meldung: {meldung}"
+    );
+    assert!(!String::from_utf8_lossy(&ausgabe.stdout).contains("Welt:"));
+    assert_eq!(schnappschuss(baum.path()), vorher);
+    assert!(!baum.path().join("2x1-se").exists());
+    assert!(!baum.path().join("trees.json").exists());
+
+    // Jedes der beiden Zeichen reicht allein: ohne trees.json daneben die
+    // Höhen unter ../, ohne Höhen die trees.json.
+    let nennt_wurzel =
+        || String::from_utf8_lossy(&cli(&args).stderr).contains("--tiles nimmt die Wurzel");
+    let baeume = baum.wurzel().join("trees.json");
+    let liste = std::fs::read(&baeume).unwrap();
+    std::fs::remove_file(&baeume).unwrap();
+    assert!(nennt_wurzel(), "nur die Höhen unter ../");
+    std::fs::write(&baeume, liste).unwrap();
+    let karte = baum.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&karte).unwrap()).unwrap();
+    info.as_object_mut().unwrap().remove("heights").unwrap();
+    std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
+    assert!(nennt_wurzel(), "nur trees.json");
+}
+
+/// Ein Nachbar mit kaputtem `map.json` lässt keinen Lauf scheitern, weder
+/// am Anfang noch am Ende: Er fehlt in `trees.json`, und der Lauf sagt es.
+#[test]
+fn kaputter_nachbar_wird_uebergangen() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let baum = neuer_baum("2x1-se");
+    let kaputt = baum.wurzel().join("kaputt");
+    std::fs::create_dir_all(&kaputt).unwrap();
+    std::fs::write(kaputt.join("map.json"), "{").unwrap();
+    let unbekannt = baum.wurzel().join("8x5-se");
+    std::fs::create_dir_all(&unbekannt).unwrap();
+    std::fs::write(
+        unbekannt.join("map.json"),
+        r#"{"tileSize":256,"scale":8,"minZoom":0,"maxZoom":3,"tiles":"{z}/{x}/{y}.webp","bounds":[0,0,256,256],"camera":"8:5","direction":"n"}"#,
+    )
+    .unwrap();
+    let ausgabe = tiles(welt.path(), baum.path(), &["--scale", "8"]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    for ordner in [&kaputt, &unbekannt] {
+        assert!(
+            text.contains(&format!("{} übergangen", ordner.display())),
+            "{text}"
+        );
+    }
+    let liste: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(baum.wurzel().join("trees.json")).unwrap())
+            .unwrap();
+    assert_eq!(liste["trees"].as_array().unwrap().len(), 1, "{liste}");
+    assert_eq!(liste["trees"][0]["path"], "2x1-se");
+}
+
+/// Steht im Ordner eines Baums eine andere gültige Richtung, etwa `sw` nach
+/// dem Umbenennen, bricht ein Lauf aus `se` ab und rät, den Ordner nach
+/// `2x1-sw` umzubenennen.
+#[test]
+fn andere_richtung_im_ordner_wird_abgelehnt() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "8"]));
+    let karte = baum.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info["direction"] = "sw".into();
+    std::fs::write(&karte, serde_json::to_string(&info).unwrap()).unwrap();
+    let vorher = schnappschuss(baum.path());
+    let ausgabe = tiles(welt.path(), baum.path(), &["--scale", "8"]);
+    assert!(!ausgabe.status.success(), "se hätte abbrechen müssen");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    let ziel = baum.path().with_file_name("2x1-sw");
+    assert!(
+        meldung.contains("Richtung sw")
+            && meldung.contains(&format!("Den Ordner nach {} umbenennen", ziel.display())),
+        "Meldung: {meldung}"
+    );
+    assert_eq!(schnappschuss(baum.path()), vorher);
+}
+
+/// Ein Baum der alten Ablage, `map.json` direkt unter `--tiles`, bricht ab,
+/// bevor der Lauf die Welt liest und vor dem Hinweis zum Echtzeitschutz. Die
+/// Meldung nennt den Ordner, in den er gehört, ohne `heights/`, die in der
+/// Wurzel bleibt; nichts ändert sich, auch keine `trees.json`.
+#[test]
+fn alte_ablage_nennt_den_ordner() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let alt = tempdir();
+    let karte = r#"{"tileSize":256,"scale":8,"minZoom":0,"maxZoom":3,"tiles":"{z}/{x}/{y}.webp","bounds":[0,0,256,256],"camera":"north-45","direction":"s"}"#;
+    std::fs::write(alt.path().join("map.json"), karte).unwrap();
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--tiles"),
+        alt.path().as_os_str(),
+        OsStr::new("--camera"),
+        OsStr::new("north-45"),
+    ]);
+    assert!(
+        !ausgabe.status.success(),
+        "die alte Ablage hätte abbrechen müssen"
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    let ziel = alt.path().join("north-45-s");
+    assert!(
+        meldung.contains("alten Ablage")
+            && meldung.contains(&format!("alles ausser heights/ nach {}", ziel.display()))
+            && meldung.contains("heights/ bleibt in der Wurzel"),
+        "Meldung: {meldung}"
+    );
+    let text = String::from_utf8_lossy(&ausgabe.stdout);
+    for vorher in ["Welt:", "Defender:", "Assets:"] {
+        assert!(!text.contains(vorher), "{vorher}: {text}");
+    }
+    assert_eq!(
+        std::fs::read_to_string(alt.path().join("map.json")).unwrap(),
+        karte
+    );
+    assert!(!alt.path().join("trees.json").exists());
+    assert!(!ziel.exists());
 }
 
 /// Auch wenn nichts sichtbar ist, muss `map.json` geschrieben werden — und
@@ -3718,7 +4213,8 @@ fn leeres_ergebnis_legt_das_ziel_trotzdem_an() {
     });
 
     let eltern = tempdir();
-    let ziel = eltern.path().join("gibt-es-noch-nicht");
+    let wurzel = eltern.path().join("gibt-es-noch-nicht");
+    let ziel = wurzel.join("2x1-se");
     gelungen(&tiles(
         welt.path(),
         &ziel,
@@ -3726,6 +4222,7 @@ fn leeres_ergebnis_legt_das_ziel_trotzdem_an() {
     ));
 
     assert!(ziel.join("map.json").is_file(), "map.json fehlt");
+    assert!(wurzel.join("trees.json").is_file(), "trees.json fehlt");
     assert!(dateien(&ziel).is_empty(), "es dürfte keine Kachel geben");
 }
 
@@ -3739,8 +4236,8 @@ fn gpu_liefert_dieselben_kacheln() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (1, 1)], gelaende);
 
-    let cpu = tempdir();
-    let gpu = tempdir();
+    let cpu = neuer_baum("2x1-se");
+    let gpu = neuer_baum("2x1-se");
     let aus = tiles(welt.path(), cpu.path(), &["--scale", "16", "--gpu", "off"]);
     let ausgabe = String::from_utf8_lossy(&gelungen(&aus).stdout);
     assert!(
@@ -3773,7 +4270,7 @@ fn gpu_liefert_dieselben_kacheln() {
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 
     // Ein Ausschnitt.
-    let (cpu, gpu) = (tempdir(), tempdir());
+    let (cpu, gpu) = (neuer_baum("2x1-se"), neuer_baum("2x1-se"));
     let ausschnitt = ["--scale", "16", "--size", "300", "--center", "8", "8"];
     gelungen(&tiles(
         welt.path(),
@@ -3864,20 +4361,20 @@ fn unbekannter_adaptername_ist_keine_panik() {
 fn versagende_karte_steht_einmal_im_log() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (1, 1)], gelaende);
-    let cpu = tempdir();
+    let cpu = neuer_baum("2x1-se");
     gelungen(&tiles(
         welt.path(),
         cpu.path(),
         &["--scale", "16", "--gpu", "off"],
     ));
-    let gpu = tempdir();
+    let gpu = neuer_baum("2x1-se");
     let lauf = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
         .arg("--world")
         .arg(welt.path())
         .arg("--assets")
         .arg(assets_ref())
         .arg("--tiles")
-        .arg(gpu.path())
+        .arg(gpu.wurzel())
         .args(["--native-levels", "9", "--scale", "16", "--gpu", "on"])
         .env("TERRANOVA_GPU_GRENZE", "1024")
         .output()

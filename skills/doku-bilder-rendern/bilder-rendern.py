@@ -38,7 +38,7 @@ GRENZEN = {
 }
 LUECKE = 8
 # Dasselbe Dorf je Kamera für docs/renderer/kamera.md, zwei mal zwei: der
-# Block ZIEL in der Mitte jedes Felds, scale 16.
+# Punkt ZIEL in der Mitte jedes Felds, scale 16.
 KAMERAS = ("2:1", "4:3", "1:1", "top")
 # Dasselbe für die genordeten Kameras, nebeneinander.
 GENORDET = ("top-north", "north-45")

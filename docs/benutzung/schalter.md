@@ -135,11 +135,13 @@ Render:     390 Chunks gelesen, 215 Blockstates, 536 Sprites
 `--center` nennt den Punkt (X, 0, Z) der Welt, die Ecke der Blockspalte
 (X, Z) mit kleinstem x und z; er landet aus jeder Richtung in der
 Bildmitte. `--scale` nennt die Pixelbreite eines Blocks, `--size` die
-Kantenlänge, mindestens 1. Eine Oberfläche in Höhe y liegt schräg y · b Pixel über ihrer
-Spalte; welche Spalte dann in der Mitte zu sehen ist, hängt an a und damit
-an der Kamera, siehe [Kamera](../renderer/kamera.md), „Projektion“. Von
-oben ist es die Spalte selbst. Wer bei jeder Kamera denselben Block in der
-Mitte will, rechnet `--center` je Kamera und Richtung, wie `mitte` in
+Kantenlänge, mindestens 1. Ein Punkt in Höhe y liegt schräg y · b Pixel
+über dem Punkt in Höhe 0 darunter; welcher Punkt einer Oberfläche dann in
+der Mitte zu sehen ist, hängt an a und damit an der Kamera, siehe
+[Kamera](../renderer/kamera.md), „Projektion“. Von oben liegt der Punkt
+selbst in der Mitte, die Ecke von vier Spalten. Wer bei jeder Kamera
+denselben Punkt in der Mitte will, rechnet `--center` je Kamera und
+Richtung, wie `mitte` in
 [`skills/doku-bilder-rendern/bilder-rendern.py`](../../skills/doku-bilder-rendern/bilder-rendern.py). Die
 Ausgabe nennt die linke obere Bildecke in Pixeln. Die Sprite-Tabelle kommt
 aus demselben Vorlauf wie beim Kachelexport, nur über den Ausschnitt, und

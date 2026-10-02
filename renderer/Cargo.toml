@@ -35,3 +35,10 @@ tempfile = "3"
 [profile.release]
 opt-level = 3
 codegen-units = 1
+
+# Für Mutationen: rechnet wie release, baut nach einer Änderung schneller.
+# Gemessen wird weiter mit release. Siehe docs/entwicklung/tests.md.
+[profile.mutation]
+inherits = "release"
+codegen-units = 16
+incremental = true

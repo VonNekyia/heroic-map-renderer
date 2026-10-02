@@ -11,8 +11,19 @@ description: Misst Laufzeit, Grösse oder Speicher vergleichbar und hält das Er
    `docs/messungen/`. Ihre Bedingungen übernehmen: Welt, Ausschnitt,
    Kachelzahl, scale, Threads, Grafikkarte an oder aus, native Stufen,
    Build-Profil.
-2. **Ruhe:** Während der Messung laufen keine anderen Builds, Tests oder
-   Messungen.
+2. **Ruhe und Sperre:** Während der Messung laufen keine anderen Builds,
+   Tests oder Messungen. Vor einer Zeitreihe die Sperrdatei im gemeinsamen
+   Git-Verzeichnis anlegen, mit Sitzung, Zweck und Beginn; sie gilt für
+   alle Worktrees:
+
+   ```bash
+   echo "Backend, #90, $(date -Iseconds)" > "$(git rev-parse --git-common-dir)/messung.lock"
+   ```
+
+   Am Ende der Reihe wieder löschen. Wer baut oder testet, prüft vorher, ob
+   sie liegt, und wartet: `test -e "$(git rev-parse --git-common-dir)/messung.lock"`.
+   Eine fremde Sperre nie löschen; liegt sie länger als angesagt, die
+   Sitzung fragen, die sie gelegt hat.
 3. **Messen:** die Stände abwechselnd (A, B, A, B …), mindestens drei Läufe
    je Stand, jeder Lauf frisch in ein leeres Ausgabeverzeichnis. Ein Lauf
    dauert einige Sekunden; unter einer Sekunde sagt die Rate wenig. Nach

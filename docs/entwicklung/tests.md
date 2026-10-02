@@ -70,9 +70,9 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `renderer/tests/gpu.rs` | die Karte gegen die CPU, Byte für Byte |
 | `renderer/tests/licht.rs` | die Ausbreitung des Lichts gegen einen Lauf von Vanilla 26.2 und an gebauten Welten |
 | `renderer/tests/common/mod.rs` | gemeinsame Szenen und Helfer |
-| `web/tests/smoke.spec.ts` | das Frontend am Demo-Kachelbaum, die Koordinaten mit Maus und Touch über Höhen, die der Test liefert, mit `projection` aus `map.json` und ohne Anzeige bei unbekanntem `azimuth` oder `direction`, den Umriss nur beim Tippen, und dass die Karte unter den strengen Headern aus `preview.headers` in `web/vite.config.ts` ohne Verletzung der Content-Security-Policy läuft |
+| `web/tests/smoke.spec.ts` | das Frontend am Demo-Kachelbaum, die Koordinaten mit Maus und Touch über Höhen, die der Test liefert, mit `projection` aus `map.json`, aus jeder Richtung in Weltkoordinaten, ohne Anzeige bei unbekanntem `azimuth` oder `direction`, den Umriss nur beim Tippen, Kompass und Umschalter zwischen zwei Bäumen aus `trees.json` mit demselben Block in der Mitte, und dass die Karte unter den strengen Headern aus `preview.headers` in `web/vite.config.ts` ohne Verletzung der Content-Security-Policy läuft |
 | `web/tests/seite.spec.ts` | den Kopf der Seite und `robots.txt`, ohne `SITE_URL` am ausgelieferten Build und mit `SITE_URL=https://example.org/karte` an einem eigenen Build |
-| `web/tests/pick.spec.ts` | den Strahl: für 2:1, 8:5, 4:3, 1:1, 5:3 und `top` jeder Bildpunkt eines kleinen Geländes gegen den Würfel, den das Zeichnen dort in der Reihenfolge (y, v, u) und nach der Füllregel hinterlässt; dazu die Projektion jeder Kamera und die Kantenpixel auf Oberseiten und an Wänden gegen `renderer/tests/fixtures/projektion.json` des Renderers |
+| `web/tests/pick.spec.ts` | den Strahl: für 2:1, 8:5, 4:3, 1:1, 5:3, `top`, `top-north` und `north-45` jeder Bildpunkt eines kleinen Geländes gegen den Würfel, den das Zeichnen dort in der Reihenfolge (y, v, u) und nach der Füllregel hinterlässt; dazu die Projektion jeder Kamera und die Kantenpixel auf Oberseiten und an Wänden gegen `renderer/tests/fixtures/projektion.json` des Renderers |
 
 Dazu stehen Unit-Tests in den Quelldateien selbst, unter `mod tests`.
 
@@ -156,8 +156,13 @@ Dazu einzeln: `von_oben_ragt_der_turm_durch_den_teppich` (`metatile.rs`),
 `north-45`, `genordeter_baum_mit_azimut_und_richtung` und
 `kamera_ohne_ganze_pixel_bricht_vor_der_welt_ab` (`cli.rs`). Die Ablage
 unter einer Wurzel prüfen `liste_der_baeume_unter_der_wurzel`,
-`alte_ablage_nennt_den_ordner` und `richtung_wird_je_kamera_geprueft`
-(`cli.rs`).
+`alte_ablage_nennt_den_ordner`, `baum_statt_wurzel_nennt_die_wurzel`,
+`eine_wurzel_eine_welt`, `kaputter_nachbar_wird_uebergangen` und
+`andere_richtung_im_ordner_wird_abgelehnt` (`cli.rs`). Welche Richtungen
+eine Kamera nimmt, prüfen `richtung_wird_je_kamera_geprueft` (`cli.rs`)
+und `falsche_richtung_nennt_die_vier` (`projection.rs`), die Drehung nach
+der Tabelle `richtungen_drehen_die_welt_wie_die_tabelle`
+(`projection.rs`).
 
 Dazu Unit-Tests in den Quelldateien: die Achse je Kamera, die Regel
 „ganze Pixel“ und die genordete Projektion (`projection.rs`), Spalten,

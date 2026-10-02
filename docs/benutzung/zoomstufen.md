@@ -160,9 +160,12 @@ keine einzige Datei.
 ## Ein Baum, eine Welt
 
 Dafür müssen Welt und Massstab passen. Weicht die Kennung der Welt oder
-`scale` vom `map.json` im Zielverzeichnis ab, bricht der Export ab, bevor
+`scale` vom `map.json` im Ordner des Baums ab, bricht der Export ab, bevor
 er einen Chunk liest; sonst lägen im Baum Kacheln zweier Welten oder zweier
-Massstäbe. `map.json` entsteht deshalb direkt vor der ersten Kachel und am
+Massstäbe. Der Ausweg ist eine neue Wurzel: Der scale steht nicht im Namen
+des Ordners, und alle Bäume einer Wurzel gehören zu einer Welt und
+Dimension, weil sie sich die Höhen teilen, siehe
+[`map.json`](map-json.md), „Liste der Bäume“. `map.json` entsteht deshalb direkt vor der ersten Kachel und am
 Ende noch einmal: bricht ein Lauf beim Schreiben ab, steht schon fest, wozu
 der Baum gehört, und scheitert er vorher, etwa an einem fehlenden Asset,
 legt er nichts fest. Ein Baum eines älteren Stands, dessen `map.json` gar
@@ -184,9 +187,10 @@ fest, siehe [`map.json`](map-json.md), „Kamera und Projektion“.
   also in einem anderen Ordner.
 - **Ein Baum mit anderer Kamera oder Richtung im Ordner,** etwa nach dem
   Umbenennen, bricht ab, bevor der Lauf einen Chunk liest, mit „… gehört zu
-  einem Baum mit Kamera 4:3, dieser Lauf hätte 2:1. Mit --camera 4:3
-  weiterrendern oder ein neues Verzeichnis nehmen.“, für die Richtung
-  ebenso. Sonst lägen Kacheln zweier Kameras still in einem Baum
+  einem Baum mit Kamera 4:3, dieser Lauf hätte 2:1. Den Ordner nach
+  …/4x3-se umbenennen oder eine neue Wurzel nehmen.“, für die Richtung
+  ebenso. Ein Lauf mit `--camera 4:3` schriebe nicht in diesen Ordner,
+  sondern nach `4x3-se`. Sonst lägen Kacheln zweier Kameras still in einem Baum
   (`pruefe_bestand` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
 - **Ohne `--camera`** gilt 2:1.
 - **Ein Baum ohne `camera`** stammt aus einem Stand vor den Kameras; was

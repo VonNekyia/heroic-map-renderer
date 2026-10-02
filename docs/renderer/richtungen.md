@@ -17,8 +17,8 @@ code:
 Aus jeder Richtung rechnet der Renderer im Blick: Die Kamera steht dort wie
 aus der Vorgabe bei +x, +z. Projektion, Zeichenreihenfolge, Kandidaten und
 Deckung bleiben, wie sie sind. Gedreht wird die Welt beim Zugriff, in
-Vierteldrehungen nach der Tabelle in [Die Kamera](kamera.md),
-„Richtungen“. Was das Spiel an der Lage in der Welt festmacht, bleibt in
+Vierteldrehungen nach der Tabelle in
+[`map.json`](../benutzung/map-json.md), „Kamera und Projektion“. Was das Spiel an der Lage in der Welt festmacht, bleibt in
 der Welt. Entschieden in
 [0055](../entscheidungen/0055-welt-beim-zugriff-drehen.md).
 

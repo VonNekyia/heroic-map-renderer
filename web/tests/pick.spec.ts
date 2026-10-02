@@ -1,6 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { pick, projiziere, region, strahl, umriss, type Block, type Projektion } from '../src/pick';
+import {
+  inDenBlick,
+  inDieWelt,
+  pick,
+  projiziere,
+  region,
+  RICHTUNGEN,
+  strahl,
+  umriss,
+  type Block,
+  type Projektion,
+} from '../src/pick';
 
 type Punkt = [number, number];
 
@@ -10,39 +21,40 @@ type Punkt = [number, number];
  * kennt Kameras beim Namen; das Frontend liest die Zahlen.
  */
 function kamera(name: string, scale: number): Projektion {
+  if (name === 'top-north') return { azimuth: 'north', u: scale, v: scale, y: 0 };
+  if (name === 'north-45') return { azimuth: 'north', u: scale, v: scale, y: scale };
   const [w, h] = name === 'top' ? [1, 1] : (name.split(':').map(Number) as [number, number]);
-  const p = { u: scale / 2, v: (scale * h) / (2 * w), y: name === 'top' ? 0 : scale / 2 };
+  const y = name === 'top' ? 0 : scale / 2;
+  const p: Projektion = { azimuth: 'diagonal', u: scale / 2, v: (scale * h) / (2 * w), y };
   // Nur gültige Paare, wie beim Renderer: jede Ecke auf ganzen Pixeln.
   if (scale % 2 !== 0 || !Number.isInteger(p.v)) throw new Error(`${name} bei ${scale} ungültig`);
   return p;
 }
 
-/**
- * Die Einträge des Renderers, aktuell gehalten von einem seiner Tests.
- * Genordete Kameras rechnet das Frontend erst mit seiner PR zu #67; die
- * entfernt diesen Filter.
- */
-const eintraege = (
-  JSON.parse(
-    readFileSync(new URL('../../renderer/tests/fixtures/projektion.json', import.meta.url), 'utf8'),
-  ) as {
-    camera: string;
-    direction: string;
-    scale: number;
-    block: Block;
-    pixel: Punkt;
-    eben?: 0;
-    wand?: 'south' | 'east';
-  }[]
-).filter((e) => e.camera !== 'top-north' && e.camera !== 'north-45');
+/** Die Einträge des Renderers, aktuell gehalten von einem seiner Tests. */
+const eintraege = JSON.parse(
+  readFileSync(new URL('../../renderer/tests/fixtures/projektion.json', import.meta.url), 'utf8'),
+) as {
+  camera: string;
+  direction: string;
+  scale: number;
+  block: Block;
+  pixel: Punkt;
+  eben?: 0;
+  wand?: 'south' | 'east';
+}[];
 
 test('die Projektion rechnet wie der Renderer, jede Kamera', () => {
   const paare = eintraege.filter((e) => e.eben === undefined && e.wand === undefined);
+  expect(new Set(paare.map((e) => e.camera))).toContain('north-45');
   expect(new Set(paare.map((e) => e.camera)).size).toBeGreaterThan(5);
   for (const { camera, direction, scale, block, pixel } of paare) {
-    expect(direction).toBe('se');
-    const name = `${camera}, scale ${scale}, Block ${String(block)}`;
-    expect(projiziere(...block, kamera(camera, scale)), name).toEqual(pixel);
+    const p = kamera(camera, scale);
+    // Der Block steht in Weltkoordinaten, das Pixel gilt für ihn im Blick.
+    const k = RICHTUNGEN[p.azimuth].indexOf(direction);
+    const name = `${camera} ${direction}, scale ${scale}, Block ${String(block)}`;
+    expect(k, name).toBeGreaterThanOrEqual(0);
+    expect(projiziere(...inDenBlick(block, k), p), name).toEqual(pixel);
   }
 });
 
@@ -61,10 +73,11 @@ test('eine Pixelmitte auf einer Blockkante bekommt der Block, den der Renderer z
   }
 });
 
-/** Der Umriss eines Würfels, im Uhrzeigersinn auf dem Bildschirm; von oben die Raute. */
+/** Der Umriss eines Würfels, im Uhrzeigersinn auf dem Bildschirm; von oben die Oberseite. */
 function umrandung([x, y, z]: Block, p: Projektion): Punkt[] {
   const ecke = (dx: number, dy: number, dz: number) => projiziere(x + dx, y + dy, z + dz, p);
   if (p.y === 0) return [ecke(0, 1, 0), ecke(1, 1, 0), ecke(1, 1, 1), ecke(0, 1, 1)];
+  if (p.azimuth === 'north') return [ecke(0, 1, 0), ecke(1, 1, 0), ecke(1, 0, 1), ecke(0, 0, 1)];
   return [ecke(0, 1, 0), ecke(1, 1, 0), ecke(1, 0, 0), ecke(1, 0, 1), ecke(0, 0, 1), ecke(0, 1, 1)];
 }
 
@@ -108,6 +121,16 @@ const KAMERAS: [string, number][] = [
   ['top', 32],
   ['top', 6],
   ['top', 4],
+  ['top-north', 6],
+  ['top-north', 7],
+  ['top-north', 16],
+  ['top-north', 48],
+  ['north-45', 6],
+  ['north-45', 7],
+  ['north-45', 12],
+  ['north-45', 24],
+  ['north-45', 32],
+  ['north-45', 48],
 ];
 
 for (const [name, scale] of KAMERAS) {
@@ -140,8 +163,14 @@ for (const [name, scale] of KAMERAS) {
     // nahe einer Ecke des Pixels: zählen muss seine Mitte.
     const falsch: string[] = [];
     let getroffen = 0;
-    for (let u = -12 * p.u - 2; u < 12 * p.u + 2; u++) {
-      for (let v = -12 * p.v - 6 * p.y - 2; v < 12 * p.v + 2; v++) {
+    // Das Rechteck um die Ecken des Geländes, ein Pixel Rand.
+    const ecken = [-6, 6].flatMap((x) =>
+      [0, 6].flatMap((y) => [-6, 6].map((z) => projiziere(x, y, z, p))),
+    );
+    const [u0, u1] = [Math.min(...ecken.map(([u]) => u)), Math.max(...ecken.map(([u]) => u))];
+    const [v0, v1] = [Math.min(...ecken.map(([, v]) => v)), Math.max(...ecken.map(([, v]) => v))];
+    for (let u = u0 - 1; u <= u1; u++) {
+      for (let v = v0 - 1; v <= v1; v++) {
         const erwartet = sichtbar.get(`${u},${v}`);
         const block = pick(strahl(u + 0.97, v + 0.04, p, 0, 5), hoehe);
         if (block) getroffen++;
@@ -156,13 +185,15 @@ for (const [name, scale] of KAMERAS) {
   });
 }
 
-test('ein Strahl geht bei 2:1 drei Würfel je Schicht, bei 1:1 zwei, von oben einen', () => {
+test('ein Strahl geht bei 2:1 drei Würfel je Schicht, bei 1:1 und north-45 zwei, von oben einen', () => {
   expect(strahl(5, 7, kamera('2:1', 32), -64, 319)).toHaveLength(384 * 3);
   expect(strahl(5, 7, kamera('1:1', 32), -64, 319)).toHaveLength(384 * 2);
+  expect(strahl(5, 7, kamera('north-45', 32), -64, 319)).toHaveLength(384 * 2);
   expect(strahl(5, 7, kamera('top', 32), -64, 319)).toHaveLength(384);
+  expect(strahl(5, 7, kamera('top-north', 32), -64, 319)).toHaveLength(384);
 });
 
-test('der Umriss ist das Sechseck des Würfels und die vordere Ecke, von oben die Raute', () => {
+test('der Umriss: Sechseck und vordere Ecke, von oben die Oberseite, genordet ein Rechteck', () => {
   const block: Block = [-3, 70, 12];
   const p = kamera('4:3', 32);
   const ecke = (x: number, y: number, z: number) => projiziere(x, y, z, p);
@@ -174,6 +205,23 @@ test('der Umriss ist das Sechseck des Würfels und die vordere Ecke, von oben di
   ]);
   const oben = kamera('top', 32);
   expect(umriss(block, oben)).toEqual([[...umrandung(block, oben), projiziere(-3, 71, 12, oben)]]);
+  // Genordet: Oberseite und Südseite als Rechteck, dazwischen ihre Kante.
+  const norden = kamera('north-45', 16);
+  const n = (x: number, y: number, z: number) => projiziere(x, y, z, norden);
+  expect(umriss(block, norden)).toEqual([
+    [n(-3, 71, 12), n(-2, 71, 12), n(-2, 70, 13), n(-3, 70, 13), n(-3, 71, 12)],
+    [n(-3, 71, 13), n(-2, 71, 13)],
+  ]);
+});
+
+test('die Drehung des Blicks wie in #68: sw, nw und ne, und zurück', () => {
+  const block: Block = [5, 70, -3];
+  // Block (x, z) der Welt liegt im Blick bei (z, −x − 1), (−x − 1, −z − 1), (−z − 1, x).
+  expect(inDenBlick(block, 0)).toEqual([5, 70, -3]);
+  expect(inDenBlick(block, 1)).toEqual([-3, 70, -6]);
+  expect(inDenBlick(block, 2)).toEqual([-6, 70, 2]);
+  expect(inDenBlick(block, 3)).toEqual([2, 70, 5]);
+  for (let k = 0; k < 4; k++) expect(inDieWelt(inDenBlick(block, k), k)).toEqual(block);
 });
 
 test('Spalten finden Region und Zelle, auch negative', () => {

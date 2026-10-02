@@ -1,6 +1,6 @@
 ---
 title: "0054: Bäume unter einer Wurzel"
-description: Warum --tiles mit #68 die Wurzel ist, jeder Baum in einem Ordner <kamera>-<richtung> liegt, trees.json aus der Platte entsteht, die Höhen für alle Bäume gemeinsam unter der Wurzel liegen und ein Baum der alten Ablage abbricht statt umgedeutet zu werden.
+description: Warum --tiles mit #68 die Wurzel ist, jeder Baum in einem Ordner <kamera>-<richtung> ohne scale liegt, trees.json aus der Platte entsteht, die Höhen für alle Bäume gemeinsam unter der Wurzel liegen, eine Wurzel zu einer Welt gehört und ein Baum der alten Ablage abbricht statt umgedeutet zu werden.
 status: gilt
 date: 2026-10-02
 issues: [68]
@@ -18,8 +18,7 @@ Kamera und Richtung einen. Bisher war `--tiles` der Baum selbst, und jede
 Kamera brauchte ein eigenes Verzeichnis, siehe
 [0051](0051-kameras-und-richtungen.md). Das Frontend soll zwischen den
 Bäumen einer Welt umschalten, ohne einen Ordnernamen herzuleiten.
-Abgestimmt zwischen Backend und Frontend am 02.10., die fünf Punkte des
-Reviewers eingeschlossen.
+Abgestimmt zwischen Backend und Frontend am 02.10.
 
 ## Entscheidung
 
@@ -28,9 +27,10 @@ Reviewers eingeschlossen.
   Windows im Pfad nicht erlaubt: `2x1-se`, `8x5-se`, `top-se`,
   `top-north-s`, `north-45-n`. Ein Baum mit Cinematic aus #72 hängt
   `-cinematic` an, etwa `2x1-se-cinematic`, mit `look` `cinematic`; die
-  Karte bleibt ohne Anhang, `look` `map`. Der scale steht nicht im Namen:
-  Ein zweiter scale derselben Kamera und Richtung braucht eine eigene
-  Wurzel, im selben Ordner bricht `pruefe_bestand` ab.
+  Karte bleibt ohne Anhang, `look` `map`.
+- **Der scale steht nicht im Namen.** Ein zweiter scale derselben Kamera
+  und Richtung braucht eine eigene Wurzel; im selben Ordner bricht
+  `pruefe_bestand` ab.
 - **`trees.json` neben den Bäumen** nennt je Baum `path`, `camera`,
   `direction` und `look`. Der Lauf liest sie aus der Platte, je Ordner mit
   `map.json` ein Eintrag; er führt sie nicht fort.
@@ -42,9 +42,14 @@ Reviewers eingeschlossen.
 - **Die Höhen liegen unter der Wurzel,** `heights/{x}.{z}.bin`, für alle
   Bäume gemeinsam; `map.json` nennt sie als `../heights/{x}.{z}.bin`. Sie
   hängen nur an der Welt, nicht an Kamera oder Richtung.
+- **Eine Wurzel, eine Welt und Dimension.** Bevor ein Lauf einen Chunk
+  liest, prüft er jeden Baum daneben mit dessen eigener Kennung und bricht
+  bei einer anderen Welt oder Dimension ab.
 - **Ein Baum der alten Ablage,** `map.json` direkt unter `--tiles`, bricht
-  ab, bevor der Lauf die Welt liest. Die Meldung nennt den Ordner, in den
-  er gehört. `--pyramid` und `--heights` nehmen weiter jeden Baum, auch
+  ab, bevor der Lauf die Ausnahme im Echtzeitschutz setzt oder die Welt
+  liest. Die Meldung nennt den Ordner, in den er gehört. Ebenso früh
+  bricht ein Baum unter einer Wurzel als `--tiles` ab; die Meldung nennt
+  die Wurzel. `--pyramid` und `--heights` nehmen weiter jeden Baum, auch
   einen der alten Ablage.
 
 Siehe [`map.json`](../benutzung/map-json.md), „Liste der Bäume“.
@@ -67,15 +72,32 @@ Siehe [`map.json`](../benutzung/map-json.md), „Liste der Bäume“.
   er gehört.
 - **Höhen je Baum, wie bisher.** Sie wären für jede Kamera und Richtung
   dieselben Bytes, viermal und mehr geschrieben.
+- **Der scale im Namen, `2x1-se-32`.** Zwei scales derselben Kamera und
+  Richtung sind dieselbe Karte in anderer Auflösung; dafür zoomt das
+  Frontend. Im Umschalter stünden sie als zwei Ansichten, und jeder Name
+  trüge eine Zahl, die meist die Vorgabe ist.
 
 ## Folgen
 
 - Das Frontend lädt zuerst `trees.json`; fehlt sie, gilt der Kachelpfad
   selbst als Baum, wie in der alten Ablage.
-- Wer einen Baum der alten Ablage weiterrendern will, verschiebt ihn samt
-  allem darin in den genannten Ordner. Bis zum nächsten Lauf bleibt er
-  lesbar, seine `map.json` verweist relativ auf die Höhen in seinem
-  Ordner. Der nächste Lauf schreibt die Höhen dann unter die Wurzel; die
-  alten im Ordner des Baums liest niemand mehr.
-- `--defender-exclusion` nimmt eine Wurzel mit `trees.json` wie einen
-  Kachelordner.
+- Wer einen Baum der alten Ablage weiterrendern will, verschiebt alles
+  ausser `heights/` in den genannten Ordner; `heights/` bleibt in der
+  Wurzel. So sind die geteilten Höhen sofort vollständig, auch wenn der
+  nächste Lauf nur einen Ausschnitt rendert. Bis zu diesem Lauf zeigt das
+  Frontend für den Baum keine Koordinaten, denn seine `map.json` sucht die
+  Höhen noch in seinem eigenen Ordner; der Lauf schreibt sie neu.
+- Ein zweiter scale derselben Kamera und Richtung und eine zweite Welt oder
+  Dimension brauchen je eine eigene Wurzel.
+- Zwei Läufe zugleich in eine Wurzel gehen nicht: Mit `--size` schreibt
+  jeder seine Chunks in dieselben Dateien der Höhen, und der spätere
+  überschreibt, was der frühere geändert hat. Die Bäume einer Wurzel
+  rendert man nacheinander.
+- Ein Baum daneben, der sich nicht lesen lässt, fehlt mit einer Warnung in
+  `trees.json`; kein Lauf scheitert an ihm.
+- `--defender-exclusion` nimmt eine Wurzel mit `trees.json` oder mit einem
+  Baum darin wie einen Kachelordner; das löst einen Teil von
+  [0022](0022-defender-ausnahme-nur-mit-zustimmung.md) ab. Ebenso lösen
+  die Ordner je Kamera und je `look` einen Teil von
+  [0051](0051-kameras-und-richtungen.md) und
+  [0053](0053-cinematic-als-schalter-der-karte.md) ab.

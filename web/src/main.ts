@@ -1,8 +1,12 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
+  inDenBlick,
+  inDieWelt,
   pick,
+  projiziere,
   REGION,
+  RICHTUNGEN,
   region,
   strahl,
   umriss,
@@ -29,10 +33,10 @@ interface MapInfo {
   maxY?: number;
   /** Die Kamera des Baums, gekürzt, etwa `8:5` oder `top`; ohne sie 2:1. */
   camera?: string;
-  /** Wo die Kamera steht; ohne Angabe `se`. */
+  /** Wo die Kamera steht; ohne Angabe `se`, genordet `s`. */
   direction?: string;
   /** Die Zahlen der Projektion; ohne sie rechnet das Frontend 2:1 aus `scale`. */
-  projection?: Projektion & { azimuth: string };
+  projection?: Projektion;
 }
 
 /** In einer Höhenkarte: keine Zelle mit Block, oder kein fertiger Chunk. */
@@ -144,15 +148,18 @@ function hatHoehen(info: MapInfo): info is MapInfo & Hoehen {
  * es keine gibt: Azimut oder Richtung kennt das Frontend nicht.
  * Siehe docs/frontend.md, „Koordinaten“.
  */
-function projektion(info: MapInfo): Projektion | string {
-  const { direction = 'se', projection } = info;
-  if (direction !== 'se') return `direction ${direction} unbekannt`;
-  if (projection === undefined) return zweiZuEins(info.scale);
+function projektion(info: MapInfo): { p: Projektion; k: number } | string {
+  const { projection = zweiZuEins(info.scale) } = info;
   const { azimuth, u, v, y } = projection;
-  if (azimuth !== 'diagonal') return `azimuth ${String(azimuth)} unbekannt`;
+  const richtungen = Object.hasOwn(RICHTUNGEN, azimuth) ? RICHTUNGEN[azimuth] : undefined;
+  if (richtungen === undefined) return `azimuth ${String(azimuth)} unbekannt`;
+  // Ohne Angabe die Vorgabe der Kamera, se oder s.
+  const { direction = richtungen[0]! } = info;
+  const k = richtungen.indexOf(direction);
+  if (k < 0) return `direction ${direction} unbekannt`;
   const ganz = (n: unknown, min: number) => Number.isInteger(n) && (n as number) >= min;
   if (!ganz(u, 1) || !ganz(v, 1) || !ganz(y, 0)) return 'projection ohne ganze u, v und y';
-  return { u, v, y };
+  return { p: { azimuth, u, v, y }, k };
 }
 
 /** Eine Höhenkarte: zlib, darin n × n Zellen, je i16 little-endian. */
@@ -234,10 +241,15 @@ function hoehen(base: string, muster: string, zelle: number) {
 function koordinaten(
   map: L.Map,
   base: string,
-  p: Projektion,
+  { p, k }: { p: Projektion; k: number },
   { heights, heightsCell, minY, maxY }: Hoehen,
-): void {
+): (px: number, py: number) => Promise<Block | undefined> {
   const karten = hoehen(base, heights, heightsCell);
+  // Der Strahl läuft im Blick, Höhen und Anzeige sind in der Welt.
+  const hoehe = (x: number, z: number) => {
+    const [wx, , wz] = inDieWelt([x, 0, z], k);
+    return karten.hoehe(wx, wz);
+  };
   const anzeige = L.DomUtil.create('div', 'koordinaten');
   const control = new L.Control({ position: 'bottomleft' });
   control.onAdd = () => anzeige;
@@ -256,7 +268,8 @@ function koordinaten(
   map.getContainer().addEventListener('pointermove', merke);
 
   const zeige = (block: Block | undefined): void => {
-    anzeige.textContent = block ? `X ${block[0]}  Y ${block[1]}  Z ${block[2]}` : 'X –  Y –  Z –';
+    const welt = block && inDieWelt(block, k);
+    anzeige.textContent = welt ? `X ${welt[0]}  Y ${welt[1]}  Z ${welt[2]}` : 'X –  Y –  Z –';
     rahmen.setLatLngs(
       block && ohneZeiger
         ? umriss(block, p).map((linie) => linie.map(([x, y]) => point(x, y)))
@@ -269,8 +282,15 @@ function koordinaten(
   const ziele = async (event: L.LeafletMouseEvent): Promise<void> => {
     const nummer = ++zuletzt;
     const bloecke = strahl(event.latlng.lng, event.latlng.lat, p, minY, maxY);
-    await karten.lade(bloecke);
-    if (nummer === zuletzt) zeige(pick(bloecke, karten.hoehe));
+    await karten.lade(bloecke.map((block) => inDieWelt(block, k)));
+    if (nummer === zuletzt) zeige(pick(bloecke, hoehe));
+  };
+  /** Der Block in der Welt, den ein Bildpunkt zeigt. */
+  const bei = async (px: number, py: number): Promise<Block | undefined> => {
+    const bloecke = strahl(px, py, p, minY, maxY);
+    await karten.lade(bloecke.map((block) => inDieWelt(block, k)));
+    const block = pick(bloecke, hoehe);
+    return block && inDieWelt(block, k);
   };
 
   zeige(undefined);
@@ -281,6 +301,122 @@ function koordinaten(
     zuletzt++;
     zeige(undefined);
   });
+  return bei;
+}
+
+/** Ein Baum aus `trees.json`. Siehe docs/frontend.md, „Ansichten und Kompass“. */
+interface Baum {
+  path: string;
+  camera: string;
+  direction: string;
+  look: string;
+}
+
+function istBaum(value: unknown): value is Baum {
+  if (typeof value !== 'object' || value === null) return false;
+  const baum = value as Record<string, unknown>;
+  return ['path', 'camera', 'direction', 'look'].every((feld) => typeof baum[feld] === 'string');
+}
+
+/** Die Bäume aus `trees.json`, oder `null` ohne sie: dann ist `wurzel` selbst ein Baum. */
+async function ladeListe(wurzel: string): Promise<Baum[] | null> {
+  const path = `${wurzel}/trees.json`;
+  const response = await fetch(path);
+  // Ein Server, der auf unbekannte Pfade die index.html ausliefert, meint
+  // dasselbe wie 404.
+  if (response.status === 404 || response.headers.get('content-type')?.startsWith('text/html')) {
+    return null;
+  }
+  if (!response.ok) throw new Error(`${path}: ${response.status} ${response.statusText}`);
+  const liste = (await response.json().catch(() => undefined)) as { trees?: unknown } | undefined;
+  const trees = liste?.trees;
+  if (!Array.isArray(trees) || trees.length === 0 || !trees.every(istBaum)) {
+    throw new Error(`${path}: keine brauchbare Liste der Bäume`);
+  }
+  return trees;
+}
+
+/** Wohin Norden auf dem Bildschirm zeigt, in Grad im Uhrzeigersinn von oben. */
+function norden({ azimuth, u, v }: Projektion, k: number): number {
+  // Norden ist −z in der Welt; im Blick dreht jede Vierteldrehung (dx, dz)
+  // zu (dz, −dx).
+  let [dx, dz] = [0, -1];
+  for (let i = 0; i < k; i++) [dx, dz] = [dz, -dx];
+  const [sx, sy] = azimuth === 'north' ? [dx * u, dz * v] : [(dx - dz) * u, (dx + dz) * v];
+  return (Math.atan2(sx, -sy) * 180) / Math.PI;
+}
+
+/** Der Kompass oben rechts: ein Pfeil nach Norden. */
+function kompass(map: L.Map, grad: number): void {
+  const element = L.DomUtil.create('div', 'kompass');
+  element.textContent = '↑';
+  element.title = 'Norden';
+  element.setAttribute('role', 'img');
+  element.setAttribute('aria-label', 'Norden');
+  element.style.transform = `rotate(${grad.toFixed(1)}deg)`;
+  const control = new L.Control({ position: 'topright' });
+  control.onAdd = () => element;
+  control.addTo(map);
+}
+
+const HIMMEL: Record<string, string> = {
+  se: 'Südost',
+  sw: 'Südwest',
+  nw: 'Nordwest',
+  ne: 'Nordost',
+  // Genordet steht oben, wohin die Kamera blickt.
+  s: 'Norden',
+  w: 'Osten',
+  n: 'Süden',
+  e: 'Westen',
+};
+
+/** Der Name eines Baums im Umschalter, etwa „2:1 aus Südost“. */
+function anzeigename({ camera, direction, look }: Baum): string {
+  const himmel = HIMMEL[direction];
+  const name = !himmel
+    ? `${camera} · ${direction}`
+    : camera === 'top-north'
+      ? `Von oben, ${himmel} oben`
+      : camera === 'north-45'
+        ? `Schräg, ${himmel} oben`
+        : `${camera === 'top' ? 'Von oben' : camera} aus ${himmel}`;
+  if (look === 'map') return name;
+  return `${name} · ${look === 'cinematic' ? 'Cinematic' : look}`;
+}
+
+/**
+ * Der Umschalter zwischen den Bäumen. Er öffnet den gewählten Baum mit dem
+ * Block, der in der Mitte zu sehen ist, wieder in der Mitte, und mit
+ * derselben Vergrösserung gegenüber der feinsten Stufe: `maxZoom` hängt je
+ * Baum an seiner Ausdehnung.
+ */
+function umschalter(
+  map: L.Map,
+  maxZoom: number,
+  liste: Baum[],
+  aktuell: Baum,
+  mitte: () => Promise<Block | undefined>,
+): void {
+  const auswahl = L.DomUtil.create('select', 'baeume');
+  auswahl.setAttribute('aria-label', 'Ansicht');
+  for (const baum of liste) {
+    auswahl.add(new Option(anzeigename(baum), baum.path, false, baum === aktuell));
+  }
+  L.DomEvent.disableClickPropagation(auswahl);
+  auswahl.addEventListener('change', () => {
+    void mitte().then((block) => {
+      const adresse = new URL(location.href);
+      adresse.searchParams.set('tree', auswahl.value);
+      if (block) adresse.searchParams.set('at', block.join(','));
+      else adresse.searchParams.delete('at');
+      adresse.searchParams.set('zoom', String(map.getZoom() - maxZoom));
+      location.assign(adresse);
+    });
+  });
+  const control = new L.Control({ position: 'topright' });
+  control.onAdd = () => auswahl;
+  control.addTo(map);
 }
 
 /**
@@ -297,7 +433,11 @@ function fitZoom(info: MapInfo, size: L.Point): number {
 async function start(): Promise<void> {
   // Ohne Angabe liegen die Kacheln neben der Seite. Der Parameter ist für
   // den Smoke-Test und für mehrere Karten auf demselben Server da.
-  const base = new URLSearchParams(location.search).get('tiles') ?? 'tiles';
+  const parameter = new URLSearchParams(location.search);
+  const wurzel = parameter.get('tiles') ?? 'tiles';
+  const liste = await ladeListe(wurzel);
+  const baum = liste && (liste.find((b) => b.path === parameter.get('tree')) ?? liste[0]!);
+  const base = baum ? `${wurzel}/${baum.path}` : wurzel;
   const info = await load(base);
 
   const [left, top, right, bottom] = info.bounds;
@@ -329,15 +469,35 @@ async function start(): Promise<void> {
     noWrap: true,
   }).addTo(map);
 
+  const blick = projektion(info);
+  if (typeof blick !== 'string') kompass(map, norden(blick.p, blick.k));
+  let bei: ((px: number, py: number) => Promise<Block | undefined>) | undefined;
   if (hatHoehen(info)) {
-    const p = projektion(info);
-    if (typeof p === 'string') console.warn(`${base}/map.json: keine Koordinaten, ${p}`);
-    else koordinaten(map, base, p, info);
+    if (typeof blick === 'string') console.warn(`${base}/map.json: keine Koordinaten, ${blick}`);
+    else bei = koordinaten(map, base, blick, info);
   } else if (info.heights !== undefined) {
     console.warn(`${base}/map.json: heights ohne brauchbare heightsCell, minY und maxY`);
   }
+  if (liste && baum && liste.length > 1) {
+    const mitte = () => {
+      const { lat, lng } = map.getCenter();
+      return bei ? bei(lng, lat) : Promise.resolve(undefined);
+    };
+    umschalter(map, info.maxZoom, liste, baum, mitte);
+  }
 
-  map.fitBounds(bounds);
+  // Kommt die Seite aus dem Umschalter, steht der Block der Mitte in der
+  // Adresse, in Weltkoordinaten, und `zoom` zählt ab der feinsten Stufe.
+  const at = parameter.get('at')?.split(',').map(Number);
+  const zoom = Number(parameter.get('zoom') ?? Number.NaN);
+  if (at?.length === 3 && at.every(Number.isInteger) && typeof blick !== 'string') {
+    const [x, y, z] = inDenBlick(at as unknown as Block, blick.k);
+    // Die Mitte der Oberseite.
+    const [px, py] = projiziere(x + 0.5, y + 1, z + 0.5, blick.p);
+    map.setView(point(px, py), info.maxZoom + (Number.isFinite(zoom) ? zoom : 0));
+  } else {
+    map.fitBounds(bounds);
+  }
 }
 
 start().catch((error: unknown) => {

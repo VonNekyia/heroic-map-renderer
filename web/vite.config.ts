@@ -72,14 +72,21 @@ export default defineConfig({
         };
       },
       // Suchmaschinen finden die Seite, rufen aber nicht jede Kachel ab;
-      // map.json brauchen sie, um die Seite zu rendern. Der Pfad zählt ab
-      // der Wurzel der Domain.
+      // trees.json und die map.json der Bäume brauchen sie, um die Seite zu
+      // rendern; `tiles/map.json` für einen Baum ohne Liste. Der Pfad zählt
+      // ab der Wurzel der Domain.
       generateBundle() {
         const pfad = SEITE.url?.pathname ?? '/';
+        const erlaubt = ['trees.json', '*/map.json', 'map.json'];
         this.emitFile({
           type: 'asset',
           fileName: 'robots.txt',
-          source: `User-agent: *\nAllow: ${pfad}tiles/map.json\nDisallow: ${pfad}tiles/\n`,
+          source: [
+            'User-agent: *',
+            ...erlaubt.map((datei) => `Allow: ${pfad}tiles/${datei}`),
+            `Disallow: ${pfad}tiles/`,
+            '',
+          ].join('\n'),
         });
       },
     },

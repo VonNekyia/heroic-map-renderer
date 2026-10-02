@@ -2230,7 +2230,7 @@ fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
 /// Unter Windows nennt der erste Export in ein Verzeichnis die Befehle für
 /// eine Ausnahme im Echtzeitschutz, für genau diesen Ordner und absolut,
 /// auch wenn `--tiles` ihn relativ angibt; der zweite schweigt, dort steht
-/// schon `map.json`. Für einen Ordner, in dem schon anderes liegt, gibt es
+/// schon `trees.json`. Für einen Ordner, in dem schon anderes liegt, gibt es
 /// ihn nicht, und anderswo als unter Windows nie.
 #[test]
 fn hinweis_auf_den_echtzeitschutz_nur_beim_ersten_export() {
@@ -2505,6 +2505,45 @@ fn heights_traegt_hoehen_nach() {
     gelungen(&nachtragen(welt.path(), out.path()));
     assert_eq!(schnappschuss(out.path()), soll);
 
+    // Auch mit `.` im Ordner des Baums landen die Höhen unter der Wurzel.
+    ohne_hoehen(out.path());
+    let ausgabe = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+        .current_dir(out.path())
+        .arg("--world")
+        .arg(welt.path())
+        .args(["--heights", "."])
+        .output()
+        .expect("terranova-render starten");
+    gelungen(&ausgabe);
+    assert!(!out.path().join("heights").exists(), "Höhen im Baum");
+    assert_eq!(schnappschuss(out.path()), soll, "mit .");
+
+    // Ein Baum der alten Ablage, ohne Wurzel darüber, bekommt sie in sich
+    // selbst.
+    let alt = tempdir();
+    let allein = alt.path().join("karte");
+    for (rel, inhalt) in schnappschuss(out.path()) {
+        if rel.starts_with("../") {
+            continue;
+        }
+        let pfad = allein.join(rel);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(pfad, inhalt).unwrap();
+    }
+    let karte = allein.join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    for feld in ["heights", "heightsCell", "minY", "maxY"] {
+        info.as_object_mut().unwrap().remove(feld).expect(feld);
+    }
+    std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
+    gelungen(&nachtragen(welt.path(), &allein));
+    let info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    assert_eq!(info["heights"], "heights/{x}.{z}.bin");
+    assert!(allein.join("heights/0.0.bin").is_file(), "Höhen fehlen");
+    assert!(!alt.path().join("heights").exists(), "Höhen neben dem Baum");
+
     let fremd = tempdir();
     common::write_world(fremd.path(), &[(0, 0)], gelaende);
     common::write_wurzel(fremd.path(), 2_718_281_828);
@@ -2542,8 +2581,13 @@ fn heights_braucht_die_welt() {
     );
     assert!(schnappschuss(out.path()).is_empty(), "etwas geschrieben");
 
-    // Scale und Kamera kommen aus map.json; wer sie nennt, irrt sich.
-    for schalter in [["--camera", "4:3"], ["--scale", "16"]] {
+    // Scale, Kamera und Richtung kommen aus map.json; wer sie nennt, irrt
+    // sich.
+    for schalter in [
+        ["--camera", "4:3"],
+        ["--scale", "16"],
+        ["--direction", "se"],
+    ] {
         let ausgabe = cli(&[
             OsStr::new("--world"),
             welt.path().as_os_str(),
@@ -2874,9 +2918,10 @@ fn schreiben_tauscht_die_datei() {
     gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
     let karte = baum.path().join("map.json");
     let region = baum.wurzel().join(heights::path_of(0, 0));
+    let liste = baum.wurzel().join("trees.json");
     let offen: Vec<(PathBuf, Vec<u8>, std::fs::File)> = kacheln(baum.path(), max_zoom(baum.path()))
         .into_values()
-        .chain([karte.clone(), region.clone()])
+        .chain([karte.clone(), region.clone(), liste])
         .map(|pfad| {
             let vorher = std::fs::read(&pfad).unwrap();
             let datei = std::fs::File::open(&pfad).unwrap();
@@ -3098,7 +3143,7 @@ fn alter_scale_nennt_den_ausweg() {
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "8"]);
     assert!(!ausgabe.status.success());
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
-    assert!(meldung.contains("neues Verzeichnis"), "Meldung: {meldung}");
+    assert!(meldung.contains("neue Wurzel"), "Meldung: {meldung}");
     assert!(!meldung.contains("--scale 6"), "Meldung: {meldung}");
     // Der Baum ohne Kennung wäre übernommen worden. Gemeldet wird das erst
     // vor der ersten Kachel, und die kommt nie.
@@ -3154,7 +3199,7 @@ fn dimensionen_haben_eigene_kennungen() {
         "{ohne_wurzel}"
     );
     assert!(ohne_wurzel.contains("--forceUpgrade"), "{ohne_wurzel}");
-    assert!(!ohne_wurzel.contains("neues Verzeichnis"), "{ohne_wurzel}");
+    assert!(!ohne_wurzel.contains("neue Wurzel"), "{ohne_wurzel}");
     common::write_level_dat(kopie.path());
     let ohne_seed = meldung();
     assert!(ohne_seed.contains("nennt keinen Seed"), "{ohne_seed}");
@@ -3632,20 +3677,27 @@ fn andere_kamera_wird_abgelehnt() {
     std::fs::rename(out.path(), &falsch).unwrap();
     let vorher = schnappschuss(&falsch);
 
-    // Ohne --camera: die Vorgabe ist 2:1.
+    // Ohne --camera: die Vorgabe ist 2:1. Die Meldung rät, den Ordner
+    // zurückzubenennen; mit --camera 4:3 schriebe der Lauf nach 4x3-se.
+    let ziel = out.path().display().to_string();
     let ausgabe = tiles(welt.path(), &falsch, &["--scale", "8"]);
     assert!(!ausgabe.status.success(), "2:1 hätte abbrechen müssen");
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(meldung.contains("Kamera 4:3"), "Meldung: {meldung}");
-    assert!(meldung.contains("--camera 4:3"), "Meldung: {meldung}");
+    assert!(
+        meldung.contains(&format!("Den Ordner nach {ziel} umbenennen")),
+        "Meldung: {meldung}"
+    );
     assert!(!meldung.contains("--scale"), "Meldung: {meldung}");
 
-    // Weicht auch der scale ab, nennt die Meldung beide.
+    // Weicht auch der scale ab, nennt die Meldung ihn dazu.
     let ausgabe = tiles(welt.path(), &falsch, &["--scale", "16"]);
     assert!(!ausgabe.status.success(), "2:1 hätte abbrechen müssen");
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     assert!(
-        meldung.contains("--camera 4:3 --scale 8"),
+        meldung.contains(&format!(
+            "{ziel} umbenennen, dann mit --scale 8 weiterrendern"
+        )),
         "Meldung: {meldung}"
     );
     assert_eq!(
@@ -3727,6 +3779,26 @@ fn genordeter_baum_mit_azimut_und_richtung() {
         schnappschuss(out.path()),
         vorher,
         "top-north hat den Baum verändert"
+    );
+    // Liegt der Baum aus north-45 im Ordner von top-north, bricht top-north
+    // ab und rät zurück nach north-45-s.
+    let vertauscht = kopie(out.path());
+    let falsch = vertauscht.path().with_file_name("top-north-s");
+    std::fs::rename(vertauscht.path(), &falsch).unwrap();
+    let ausgabe = tiles(
+        welt.path(),
+        &falsch,
+        &["--scale", "8", "--camera", "top-north"],
+    );
+    assert!(
+        !ausgabe.status.success(),
+        "top-north hätte abbrechen müssen"
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("Kamera north-45"), "Meldung: {meldung}");
+    assert!(
+        meldung.contains(&vertauscht.path().display().to_string()),
+        "Meldung: {meldung}"
     );
 
     let mut info = lies();
@@ -3828,13 +3900,15 @@ fn richtung_wird_je_kamera_geprueft() {
     // Dann scheitert der Lauf erst an der fehlenden Welt.
     for (kamera, richtung) in [
         ("2:1", "se"),
+        ("2:1", "sw"),
         ("north-45", "s"),
+        ("north-45", "e"),
         ("8:5", "nw"),
         ("top-north", "e"),
     ] {
         let meldung = String::from_utf8_lossy(&lauf(kamera, richtung).stderr).into_owned();
         assert!(
-            !meldung.contains("schaut"),
+            meldung.contains("kein region-Verzeichnis"),
             "{kamera} {richtung}: {meldung}"
         );
     }
@@ -3889,9 +3963,10 @@ fn richtung_ist_ein_eigener_baum() {
 }
 
 /// `trees.json` unter der Wurzel nennt jeden Baum mit Ordner, Kamera,
-/// Richtung und `look`, `2x1-se` zuerst, sonst nach Ordner. Sie kommt aus
-/// der Platte: Ein gelöschter Baum fällt beim nächsten Lauf heraus. Die
-/// Höhen liegen einmal unter der Wurzel, kein Baum hat eigene.
+/// Richtung und `look`, `2x1-se` zuerst, auch vor `1x1-se`, sonst nach
+/// Ordner. Sie kommt aus der Platte: Ein gelöschter Baum fällt beim nächsten
+/// Lauf heraus. Die Höhen liegen einmal unter der Wurzel, kein Baum hat
+/// eigene.
 #[test]
 fn liste_der_baeume_unter_der_wurzel() {
     let welt = tempdir();
@@ -3928,8 +4003,14 @@ fn liste_der_baeume_unter_der_wurzel() {
         &vier,
         &["--scale", "8", "--camera", "4:3"],
     ));
-    assert_eq!(ordner(), ["2x1-se", "4x3-se", "top-north-s"]);
-    assert_eq!(liste()["trees"][1]["camera"], "4:3");
+    let eins = wurzel.join("1x1-se");
+    gelungen(&tiles(
+        welt.path(),
+        &eins,
+        &["--scale", "8", "--camera", "1:1"],
+    ));
+    assert_eq!(ordner(), ["2x1-se", "1x1-se", "4x3-se", "top-north-s"]);
+    assert_eq!(liste()["trees"][2]["camera"], "4:3");
     assert!(wurzel.join("heights/0.0.bin").is_file(), "Höhen fehlen");
     for baum in ordner() {
         assert!(!wurzel.join(&baum).join("heights").exists(), "{baum}");
@@ -3937,12 +4018,191 @@ fn liste_der_baeume_unter_der_wurzel() {
 
     std::fs::remove_dir_all(&vier).unwrap();
     gelungen(&tiles(welt.path(), &schraeg, &["--scale", "8"]));
-    assert_eq!(ordner(), ["2x1-se", "top-north-s"]);
+    assert_eq!(ordner(), ["2x1-se", "1x1-se", "top-north-s"]);
+}
+
+/// Eine Wurzel, eine Welt: Ihre Bäume teilen sich die Höhen. Ein Lauf einer
+/// anderen Welt in dieselbe Wurzel bricht ab, bevor er etwas liest oder
+/// schreibt, auch mit einer anderen Kamera und in einen neuen Ordner, und
+/// ebenso `--heights` für einen Baum der anderen Welt darin. Ein Lauf
+/// derselben Welt geht.
+#[test]
+fn eine_wurzel_eine_welt() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    common::write_wurzel(welt.path(), 4_815_162_342);
+    let fremd = tempdir();
+    common::write_world(fremd.path(), &[(0, 0), (2, 2)], gelaende);
+    common::write_wurzel(fremd.path(), 2_718_281_828);
+    let schraeg = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), schraeg.path(), &["--scale", "8"]));
+    let wurzel = schraeg.wurzel();
+    let hoehen = || schnappschuss(&wurzel.join("2x1-se"));
+    let vorher = hoehen();
+
+    let oben = wurzel.join("top-se");
+    let ausgabe = tiles(
+        fremd.path(),
+        &oben,
+        &["--scale", "8", "--camera", "top", "--prune"],
+    );
+    assert!(!ausgabe.status.success(), "die fremde Welt lief durch");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        meldung.contains("anderen Welt") && meldung.contains("neue Wurzel"),
+        "Meldung: {meldung}"
+    );
+    assert!(!oben.exists(), "der fremde Baum ist angelegt");
+    assert_eq!(
+        hoehen(),
+        vorher,
+        "der Baum oder die Höhen haben sich verändert"
+    );
+
+    // Ebenso `--heights` für einen Baum der anderen Welt unter dieser Wurzel.
+    let anderswo = neuer_baum("top-se");
+    gelungen(&tiles(
+        fremd.path(),
+        anderswo.path(),
+        &["--scale", "8", "--camera", "top"],
+    ));
+    std::fs::create_dir(&oben).unwrap();
+    std::fs::copy(anderswo.path().join("map.json"), oben.join("map.json")).unwrap();
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        fremd.path().as_os_str(),
+        OsStr::new("--heights"),
+        oben.as_os_str(),
+    ]);
+    assert!(
+        !ausgabe.status.success(),
+        "--heights der fremden Welt lief durch"
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("anderen Welt"), "Meldung: {meldung}");
+    assert_eq!(hoehen(), vorher, "--heights hat die Höhen verändert");
+    std::fs::remove_dir_all(&oben).unwrap();
+
+    gelungen(&tiles(
+        welt.path(),
+        &oben,
+        &["--scale", "8", "--camera", "top"],
+    ));
+}
+
+/// `--tiles` nimmt die Wurzel. Wer den Ordner eines Baums nennt, wie für
+/// `--pyramid`, bekommt die Wurzel genannt; nichts ändert sich, und kein
+/// Baum entsteht in ihm.
+#[test]
+fn baum_statt_wurzel_nennt_die_wurzel() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "8"]));
+    let vorher = schnappschuss(baum.path());
+    let args = [
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--tiles"),
+        baum.path().as_os_str(),
+        OsStr::new("--scale"),
+        OsStr::new("8"),
+    ];
+    let ausgabe = cli(&args);
+    assert!(!ausgabe.status.success(), "der Baum als Wurzel lief durch");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    let wurzel = std::path::absolute(baum.wurzel()).unwrap();
+    assert!(
+        meldung.contains(&format!("--tiles nimmt die Wurzel: {}", wurzel.display())),
+        "Meldung: {meldung}"
+    );
+    assert!(!String::from_utf8_lossy(&ausgabe.stdout).contains("Welt:"));
+    assert_eq!(schnappschuss(baum.path()), vorher);
+    assert!(!baum.path().join("2x1-se").exists());
+    assert!(!baum.path().join("trees.json").exists());
+
+    // Jedes der beiden Zeichen reicht allein: ohne trees.json daneben die
+    // Höhen unter ../, ohne Höhen die trees.json.
+    let nennt_wurzel =
+        || String::from_utf8_lossy(&cli(&args).stderr).contains("--tiles nimmt die Wurzel");
+    let baeume = baum.wurzel().join("trees.json");
+    let liste = std::fs::read(&baeume).unwrap();
+    std::fs::remove_file(&baeume).unwrap();
+    assert!(nennt_wurzel(), "nur die Höhen unter ../");
+    std::fs::write(&baeume, liste).unwrap();
+    let karte = baum.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&karte).unwrap()).unwrap();
+    info.as_object_mut().unwrap().remove("heights").unwrap();
+    std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
+    assert!(nennt_wurzel(), "nur trees.json");
+}
+
+/// Ein Nachbar mit kaputtem `map.json` lässt keinen Lauf scheitern, weder
+/// am Anfang noch am Ende: Er fehlt in `trees.json`, und der Lauf sagt es.
+#[test]
+fn kaputter_nachbar_wird_uebergangen() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let baum = neuer_baum("2x1-se");
+    let kaputt = baum.wurzel().join("kaputt");
+    std::fs::create_dir_all(&kaputt).unwrap();
+    std::fs::write(kaputt.join("map.json"), "{").unwrap();
+    let unbekannt = baum.wurzel().join("8x5-se");
+    std::fs::create_dir_all(&unbekannt).unwrap();
+    std::fs::write(
+        unbekannt.join("map.json"),
+        r#"{"tileSize":256,"scale":8,"minZoom":0,"maxZoom":3,"tiles":"{z}/{x}/{y}.webp","bounds":[0,0,256,256],"camera":"8:5","direction":"n"}"#,
+    )
+    .unwrap();
+    let ausgabe = tiles(welt.path(), baum.path(), &["--scale", "8"]);
+    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    for ordner in [&kaputt, &unbekannt] {
+        assert!(
+            text.contains(&format!("{} übergangen", ordner.display())),
+            "{text}"
+        );
+    }
+    let liste: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(baum.wurzel().join("trees.json")).unwrap())
+            .unwrap();
+    assert_eq!(liste["trees"].as_array().unwrap().len(), 1, "{liste}");
+    assert_eq!(liste["trees"][0]["path"], "2x1-se");
+}
+
+/// Steht im Ordner eines Baums eine andere gültige Richtung, etwa `sw` nach
+/// dem Umbenennen, bricht ein Lauf aus `se` ab und rät, den Ordner nach
+/// `2x1-sw` umzubenennen.
+#[test]
+fn andere_richtung_im_ordner_wird_abgelehnt() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "8"]));
+    let karte = baum.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info["direction"] = "sw".into();
+    std::fs::write(&karte, serde_json::to_string(&info).unwrap()).unwrap();
+    let vorher = schnappschuss(baum.path());
+    let ausgabe = tiles(welt.path(), baum.path(), &["--scale", "8"]);
+    assert!(!ausgabe.status.success(), "se hätte abbrechen müssen");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    let ziel = baum.path().with_file_name("2x1-sw");
+    assert!(
+        meldung.contains("Richtung sw")
+            && meldung.contains(&format!("Den Ordner nach {} umbenennen", ziel.display())),
+        "Meldung: {meldung}"
+    );
+    assert_eq!(schnappschuss(baum.path()), vorher);
 }
 
 /// Ein Baum der alten Ablage, `map.json` direkt unter `--tiles`, bricht ab,
-/// bevor der Lauf die Welt liest. Die Meldung nennt den Ordner, in den er
-/// gehört; nichts ändert sich, auch keine `trees.json`.
+/// bevor der Lauf die Welt liest und vor dem Hinweis zum Echtzeitschutz. Die
+/// Meldung nennt den Ordner, in den er gehört, ohne `heights/`, die in der
+/// Wurzel bleibt; nichts ändert sich, auch keine `trees.json`.
 #[test]
 fn alte_ablage_nennt_den_ordner() {
     let welt = tempdir();
@@ -3967,10 +4227,15 @@ fn alte_ablage_nennt_den_ordner() {
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
     let ziel = alt.path().join("north-45-s");
     assert!(
-        meldung.contains("alten Ablage") && meldung.contains(&ziel.display().to_string()),
+        meldung.contains("alten Ablage")
+            && meldung.contains(&format!("alles ausser heights/ nach {}", ziel.display()))
+            && meldung.contains("heights/ bleibt in der Wurzel"),
         "Meldung: {meldung}"
     );
-    assert!(!String::from_utf8_lossy(&ausgabe.stdout).contains("Vorlauf"));
+    let text = String::from_utf8_lossy(&ausgabe.stdout);
+    for vorher in ["Welt:", "Defender:", "Assets:"] {
+        assert!(!text.contains(vorher), "{vorher}: {text}");
+    }
     assert_eq!(
         std::fs::read_to_string(alt.path().join("map.json")).unwrap(),
         karte

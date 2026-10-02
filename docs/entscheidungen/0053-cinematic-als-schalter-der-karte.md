@@ -15,6 +15,11 @@ code:
 
 # 0053: Cinematic als Schalter der Karte
 
+[0054](0054-baeume-unter-einer-wurzel.md) löst einen Teil von „Schalter
+`--cinematic`“ ab: Ein Lauf mit dem anderen `look` schreibt in den Ordner
+mit oder ohne den Anhang `-cinematic` und bricht nur ab, wenn in diesem
+schon ein Baum mit dem anderen steht.
+
 ## Anlass
 
 [0046](0046-drei-renderarten.md) plante drei Renderarten mit zwei

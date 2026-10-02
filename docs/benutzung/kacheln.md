@@ -110,13 +110,12 @@ erste Kachel schreibt.
 
 ## Wo die Kacheln liegen
 
-Unter der Wurzel von `--tiles` liegt jeder Baum in einem Ordner
-`<kamera>-<richtung>`, etwa `tiles/2x1-se/`, mit `x` statt `:`. Darin
-liegen die Kacheln als `<z>/<x>/<y>.webp`; x und y dürfen negativ sein,
-weil der Blockursprung mitten in der Welt liegt. Neben den Bäumen liegen
-`tiles/trees.json` mit der Liste der Bäume und je Region die Höhen für die
-Koordinatenanzeige als `tiles/heights/<x>.<z>.bin`, die alle Bäume teilen,
-siehe [map.json](map-json.md), „Liste der Bäume“ und „Höhen“. Jede
+Unter der Wurzel von `--tiles` liegt jeder Baum in seinem eigenen Ordner,
+daneben `trees.json` und die Höhen, die alle Bäume teilen. Wie die Ordner
+heissen, steht in [map.json](map-json.md), „Liste der Bäume“, die Höhen
+unter „Höhen“. In einem Baum liegen die Kacheln als `<z>/<x>/<y>.webp`;
+x und y dürfen negativ sein, weil der Blockursprung mitten in der Welt
+liegt. Jede
 Kachel, jede Datei der Höhen, `map.json` und `trees.json` entstehen erst als
 eigene Datei daneben und werden dann getauscht: Ein Leser sieht nie eine
 halbe Datei, siehe

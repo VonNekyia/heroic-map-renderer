@@ -19,7 +19,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Kacheln exportieren](benutzung/kacheln.md): `--tiles`, Ausschnitte, Ablage, leere Kacheln und `--prune`.
 - [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt und Kamera.
 - [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md): `--pyramid` während eines Renders und `--resume` nach einem Abbruch.
-- [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt `projektion.json`, und wann die Datei entsteht.
+- [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt den Richtungen und `projektion.json`, die Liste der Bäume `trees.json` unter einer Wurzel, die Höhen und wann die Dateien entstehen.
 - [Was ein Lauf kostet](benutzung/kosten.md): Platz und Dauer je scale, die grosse Welt gemessen und hochgerechnet.
 - [Grafikkarte](benutzung/grafikkarte.md): `--gpu`, Adapter, Backends, Rückfall auf die CPU.
 - [Echtzeitschutz unter Windows](benutzung/echtzeitschutz.md): die Defender-Ausnahme und `--defender-exclusion`.
@@ -143,3 +143,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-01, Kameras](messungen/2026-10-01-kameras.md): was jede Kamera aus #66 am Stand und im Fichtenwald kostet, je Spalte gegen 2:1, ohne und mit Karte, und dass 2:1 Byte für Byte gleich bleibt.
 - [2026-10-02, Genordete Kameras](messungen/2026-10-02-genordete-kameras.md): was `top-north` und `north-45` aus #67 bei scale 16 am Stand und im Fichtenwald kosten, je Spalte gegen 2:1 bei scale 32, ohne und mit Karte, und dass 2:1 Byte für Byte gleich bleibt.
 - [2026-10-02, Strahl zur Sonne und Grösse der Kacheln für Cinematic](messungen/2026-10-02-strahl-zur-sonne.md): was ein Strahl zur Sonne am Prototyp kostet, mit altem Gang, über die Bitmasken, mit schnellem Test der Zelle und Nachschlag je Section, wie schwer Kacheln in Cinematic gegen die der Karte sind und was ein Strahl je Texel statt je Pixel am Bild ändert.
+- [2026-10-02, Zwei Zustände der Basis](messungen/2026-10-02-zwei-zustaende-der-basis.md): warum die Basis am Stand mal 1 bis 2 s länger braucht: Das Löschen des vorigen Baums unmittelbar vor dem nächsten Lauf staut dessen Schreiben; mit Messung je Thread, am Stand C aus #52 und am heutigen master.

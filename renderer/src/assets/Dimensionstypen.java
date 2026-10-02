@@ -34,13 +34,17 @@ public class Dimensionstypen {
         var err = System.err;
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
-        // Die Attribute, die der Renderer liest: die der Lightmap. Erst nach
+        // Die Attribute, die der Renderer liest: die der Lightmap, dazu die
+        // Farben von Himmel, Nebel und Wassernebel für Cinematic. Erst nach
         // dem Bootstrap, sonst legt EnvironmentAttributes sie zu früh an.
         List<EnvironmentAttribute<?>> attribute = List.of(
                 EnvironmentAttributes.AMBIENT_LIGHT_COLOR,
                 EnvironmentAttributes.SKY_LIGHT_FACTOR,
                 EnvironmentAttributes.SKY_LIGHT_COLOR,
-                EnvironmentAttributes.BLOCK_LIGHT_TINT);
+                EnvironmentAttributes.BLOCK_LIGHT_TINT,
+                EnvironmentAttributes.SKY_COLOR,
+                EnvironmentAttributes.FOG_COLOR,
+                EnvironmentAttributes.WATER_FOG_COLOR);
         var out = new PrintStream(System.out, true, StandardCharsets.UTF_8);
         // Zeilen enden mit \n wie in den anderen Tabellen, auch unter Windows.
         java.util.function.Consumer<String> zeile = text -> out.print(text + "\n");

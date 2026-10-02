@@ -374,6 +374,18 @@ pub fn run() -> Result<()> {
                         .map(|(pfad, attribut)| format!("{pfad}: {attribut}")),
                 );
             }
+            let modifikatoren = assets.colors().biome_modifiers();
+            if !modifikatoren.is_empty() {
+                println!(
+                    "            {} Biome setzen eine Farbe des Himmels mit Modifikator; Cinematic nimmt die des Dimensionstyps:",
+                    modifikatoren.len()
+                );
+                print_list(
+                    modifikatoren
+                        .iter()
+                        .map(|(pfad, attribut)| format!("{pfad}: {attribut}")),
+                );
+            }
             let kaputt = assets.colors().broken_biomes();
             if !kaputt.is_empty() {
                 println!(

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
-use crate::assets::colors::{BiomeColors, Colors, Resolver, Tint};
+use crate::assets::colors::{BiomeColors, Colors, Himmel, Resolver, Tint};
 use crate::world::biomzoom::{obfuscate_seed, zoom};
 
 /// Wie weit der Client mischt, wenn niemand es ändert:
@@ -87,6 +87,12 @@ impl BiomeTable {
             Some(seed) => zoom(seed, block),
             None => block.map(|c| c >> 2),
         }
+    }
+
+    /// Je Biom, in der Reihenfolge seiner Nummer, die Farben des Himmels,
+    /// die es setzt.
+    pub fn himmel(&self) -> impl Iterator<Item = Himmel> + '_ {
+        self.colors.iter().map(BiomeColors::himmel)
     }
 
     /// Die Farbe von `resolver` im Biom `biome` an der Spalte `(x, z)`.

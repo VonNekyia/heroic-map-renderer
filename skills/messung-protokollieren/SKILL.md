@@ -15,7 +15,12 @@ description: Misst Laufzeit, Grösse oder Speicher vergleichbar und hält das Er
    Messungen.
 3. **Messen:** die Stände abwechselnd (A, B, A, B …), mindestens drei Läufe
    je Stand, jeder Lauf frisch in ein leeres Ausgabeverzeichnis. Ein Lauf
-   dauert einige Sekunden; unter einer Sekunde sagt die Rate wenig.
+   dauert einige Sekunden; unter einer Sekunde sagt die Rate wenig. Nach
+   jedem Lauf seinen Baum löschen und 15 s warten, bevor der nächste
+   beginnt, oder erst am Ende der Reihe löschen. Ein Baum, der unmittelbar
+   vor einem Lauf gelöscht wird, staut dessen Schreiben, siehe
+   [Zwei Zustände der Basis](../../docs/messungen/2026-10-02-zwei-zustaende-der-basis.md).
+   Getestet mit Bäumen von rund 0,46 GB; bei grösseren länger warten.
 4. **Auswerten:** Mittel oder bestes je Stand, dazu die Streuung. Ein
    Unterschied innerhalb der Streuung ist keiner.
 5. **Einheiten:** Grössen dezimal, GB heisst 10^9 Byte. Die Ausgabe des

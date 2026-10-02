@@ -18,7 +18,8 @@ code:
 Stufe 2, die genordeten Kameras `top-north` und `north-45`, hält
 [0052](0052-genordete-kameras.md) fest. Die Ablage je Kamera und Richtung
 unter einer Wurzel mit der Liste der Bäume hält
-[0054](0054-baeume-unter-einer-wurzel.md) fest.
+[0054](0054-baeume-unter-einer-wurzel.md) fest, wie sich die Welt für eine
+Richtung dreht, [0055](0055-welt-beim-zugriff-drehen.md).
 
 ## Anlass
 

@@ -106,6 +106,9 @@ Die Faktoren sind die von `CardinalLighting.DEFAULT` und
   im Nether von unten kommt, siehe [Blockentities](blockentities.md),
   „Licht“.
 
+Gezählt wird die Seite in der Welt, aus jeder Richtung der Kamera, siehe
+[Richtungen](richtungen.md).
+
 Welche Schattierung ein Lauf nimmt, legt `SpriteSet::build_in` aus dem Typ
 fest. Die Faktoren stecken damit im Sprite, auf der CPU wie auf der Karte.
 

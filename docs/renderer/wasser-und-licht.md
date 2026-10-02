@@ -279,9 +279,9 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
   Stufen nehmen die Antwort von dort, sonst hätte dieselbe Welt auf jeder
   Stufe anderes Licht: Ein Block mit 15/16 Höhe deckt bei scale 32 seinen
   Umriss nicht, bei scale 4 schliesst das Raster die Lücke.
-  - **In 2:1, bei jeder Kamera:** Das Raster ist immer das von 2:1 beim
-    scale der Basis, auch wenn der Lauf eine andere Kamera hat
-    (`SpriteSet::build_in`). Von oben deckt schon eine flache Seerose
+  - **In 2:1, bei jeder Kamera:** Das Raster ist immer das von 2:1 aus
+    der Vorgabe-Richtung beim scale der Basis, auch wenn der Lauf eine
+    andere Kamera oder Richtung hat (`SpriteSet::build_mit_licht`). Von oben deckt schon eine flache Seerose
     ihren ganzen Umriss, ihr Würfel bliebe dunkel, und dieselbe Welt hätte
     je Kamera anderes Licht.
   - **Bei einem scale, den 2:1 nicht nimmt,** lägen die Ecken von 2:1

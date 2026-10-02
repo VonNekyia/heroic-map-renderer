@@ -145,7 +145,9 @@ Im Renderer, siehe
 [0044](../entscheidungen/0044-flaechen-zu-gleichen-nachbarn.md):
 
 - **Baker:** Jedes Viereck trägt seine `cullface`, mit der Variante gedreht
-  (`Quad::cullface`, `rotate_face` in `baker.rs`).
+  (`Quad::cullface`, `rotate_face` in `baker.rs`). Sie bleibt eine Seite
+  der Welt, aus jeder Richtung der Kamera; den Nachbarn dort sucht der
+  Cache im Blick, siehe [Richtungen](richtungen.md).
 - **Seiten:** Eine Familie mit Regel kennt die Seiten, zu denen eine
   Fläche, die die Kamera sieht, ihre `cullface` hat und die Regel wirken
   kann (`Nachbarregel::wirkt` in `blockstate.rs`). Bei Eis sind das oben,

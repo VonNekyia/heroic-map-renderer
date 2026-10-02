@@ -403,15 +403,13 @@ Es gibt vier Richtungen in Vierteldrehungen, für jede Kamera eine je Lauf:
 | `ne`, Nordost | `e`, Osten, Westen oben | (−z − 1, x) |
 
 - **Im Blick** steht die Kamera immer bei +x, +z, wie aus der Vorgabe;
-  gedreht wird die Welt. Dieselbe Formel gilt für Chunks.
+  gedreht wird die Welt. Dieselbe Formel gilt für Chunks. Was im Blick
+  liegt und was in der Welt bleibt, steht in [Richtungen](richtungen.md).
 - **Die falsche Art** bricht ab, bevor der Lauf die Welt liest: „north-45
   schaut von einer Seite: s, w, n oder e“, „8:5 schaut über eine Ecke: se,
   sw, nw oder ne“.
 - **Jede Richtung ein eigener Baum,** siehe
   [`map.json`](../benutzung/map-json.md), „Liste der Bäume“.
-- **Dieser Stand** rendert nur die Vorgabe, `se` und `s`; jede andere
-  Richtung bricht mit einer Meldung ab. Die Drehung der Welt beim Zugriff
-  kommt mit #68.
 
 ## Blockkanten auf Pixelmitten
 

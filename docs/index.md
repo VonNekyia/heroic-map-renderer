@@ -27,6 +27,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 ## Wie der Renderer das Spiel nachbaut
 
 - [Die Kamera](renderer/kamera.md): Kameras und Projektion, diagonal und genordet, Richtungen, scale, ganze Pixel, Zeichenreihenfolge, Teile je Würfel im Raum, von oben, Blockkanten auf Pixelmitten, f64.
+- [Richtungen](renderer/richtungen.md): was aus sw, nw und ne im Blick liegt und was in der Welt bleibt, Schattierung nach der Seite der Welt, warum es nicht das gedrehte Bild ist.
 - [Der Weg einer Kachel](renderer/renderpfad.md): Vorlauf, Streifen, Bitmasken, Kandidaten, Blit, Kodieren, Speicher.
 - [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Flächen zu gleichen Nachbarn, Deckungsmaske.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
@@ -108,6 +109,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0052](entscheidungen/0052-genordete-kameras.md): Genordete Kameras: `top-north` und `north-45` mit u = x und v = z, jeder scale, `direction` `s`.
 - [0053](entscheidungen/0053-cinematic-als-schalter-der-karte.md): Cinematic als Schalter der Karte: im Raster gezeichnet, ein Strahl zur Sonne je Texel, ein eigener Kachelbaum mit `look`; Showcase entfällt.
 - [0054](entscheidungen/0054-baeume-unter-einer-wurzel.md): Bäume unter einer Wurzel: `--tiles` ist die Wurzel, je Kamera und Richtung ein Ordner, `trees.json` aus der Platte, Höhen für alle gemeinsam, alte Ablage bricht ab.
+- [0055](entscheidungen/0055-welt-beim-zugriff-drehen.md): Die Welt beim Zugriff drehen: im Blick rechnen, Modelle im Rasterizer drehen, Chunks, Licht, Saat und Biome in der Welt.
 
 ## Messungen
 

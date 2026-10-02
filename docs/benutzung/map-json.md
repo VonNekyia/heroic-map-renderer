@@ -84,10 +84,10 @@ das Frontend liest die Datei in `web/src/main.ts`.
   „Projektion“. `azimuth` ist `diagonal` mit u = x − z und v = x + z oder
   `north` mit u = x und v = z.
 - **`direction`:** wo die Kamera steht, `--direction`: diagonal `se`,
-  `sw`, `nw` oder `ne`, genordet `s`, `w`, `n` oder `e`. Dieser Stand
-  rendert nur die Vorgabe, diagonal `se` im Südosten und genordet `s` im
-  Süden; die übrigen kommen mit der Drehung der Welt in #68. Fehlt das
-  Feld, gilt die Vorgabe; nennt es eine Richtung, die die Kamera nicht
+  `sw`, `nw` oder `ne`, genordet `s`, `w`, `n` oder `e`. Die Projektion
+  gilt im Blick: Ein Block (x, z) der Welt liegt dort, wo die Tabelle in
+  [Die Kamera](../renderer/kamera.md), „Richtungen“, ihn hinlegt. Fehlt
+  das Feld, gilt die Vorgabe; nennt es eine Richtung, die die Kamera nicht
   kennt, bricht der Lauf ab.
 - **Ältere Bäume:** Fehlt `camera`, ist der Baum 2:1.
 - **`--pyramid`** behält die drei Felder.
@@ -100,7 +100,9 @@ das Frontend liest die Datei in `web/src/main.ts`.
 Für die Koordinaten rechnet das Frontend die Projektion nach. Damit es
 dabei nicht vom Renderer abweicht, liegen Einträge in
 [`renderer/tests/fixtures/projektion.json`](../../renderer/tests/fixtures/projektion.json),
-je Kamera und scale. Ein Test des Renderers hält die Datei aktuell
+je Kamera und scale, aus den anderen Richtungen für 2:1 und `top` bei
+scale 32, für `top-north` und `north-45` bei 16. Ein Test des Renderers
+hält die Datei aktuell
 (`projektion_als_datei_ist_aktuell` in `renderer/tests/heights.rs`), und
 das Frontend prüft sein Modell daran. Jeder Eintrag nennt `camera`,
 `direction`, `scale`, `block` und `pixel`. `pixel` meint zweierlei, je
@@ -108,10 +110,13 @@ nachdem, ob `eben` oder `wand` dasteht:
 
 | Eintrag | `pixel` | `block` |
 |---|---|---|
-| ohne `eben` und `wand` | `project_block(block)`, die Ecke des Blocks mit den kleinsten Koordinaten | irgendein Block, auch negativ und bei 2²⁴ |
+| ohne `eben` und `wand` | `project_block` der Ecke des Blocks mit den kleinsten Koordinaten im Blick, aus der Vorgabe auch in der Welt | irgendein Block der Welt, auch negativ und bei 2²⁴ |
 | mit `eben: 0` | ein Pixel, dessen Mitte bei +0,5 genau auf der Kante zweier Oberseiten liegt | der Block, dessen Oberseite der Renderer dort zeigt |
 | mit `wand: "south"` oder `"east"` | ein Pixel, dessen Mitte bei +0,5 genau auf der Kante zweier Seitenflächen übereinander liegt | der Block, dessen Seite der Renderer dort zeigt |
 
+- **Kanten- und Wandpixel** gibt es nur aus der Vorgabe: Im Blick fällt
+  die Füllregel aus jeder Richtung gleich, der Block der Welt ist dann der
+  gedrehte.
 - **Kantenpixel** gibt es für die Kameras, deren Blockkanten Pixelmitten
   treffen: `top` und 1:1 bei scale 32, 5:3 bei scale 30, siehe
   [Kamera](../renderer/kamera.md), „Blockkanten auf Pixelmitten“. Von oben

@@ -68,6 +68,37 @@ eines Zauns; eine Fläche im Innern liegt im Licht der eigenen Zelle, siehe
   (`FluidRenderer`) und die Flächen aus Blockentity-Modellen, siehe
   [Blockentities](blockentities.md), „Licht“.
 
+## Aus jeder Richtung
+
+Das Spiel rechnet jede Fläche mit den Tabellen ihrer Seite in der Welt.
+Aus einer anderen Richtung liegt im Blick an einer Seite eine andere Seite
+der Welt, siehe [Richtungen](richtungen.md):
+
+- **Die Tabellen** für oben und die vier Seiten rundum, per javap am
+  26.2-Client (`AdjacencyInfo`, `AmbientVertexRemap`, `FaceInfo`):
+
+  | Seite | `corners` | `AmbientVertexRemap` | Ecken aus `FaceInfo` |
+  |---|---|---|---|
+  | oben | Osten, Westen, Norden, Süden | 2, 3, 0, 1 | (0, 1, 0), (0, 1, 1), (1, 1, 1), (1, 1, 0) |
+  | Norden | oben, unten, Osten, Westen | 3, 0, 1, 2 | (1, 1, 0), (1, 0, 0), (0, 0, 0), (0, 1, 0) |
+  | Süden | Westen, Osten, unten, oben | 0, 1, 2, 3 | (0, 1, 1), (0, 0, 1), (1, 0, 1), (1, 1, 1) |
+  | Westen | oben, unten, Norden, Süden | 3, 0, 1, 2 | (0, 1, 0), (0, 0, 0), (0, 0, 1), (0, 1, 1) |
+  | Osten | unten, oben, Norden, Süden | 1, 2, 3, 0 | (1, 1, 1), (1, 0, 1), (1, 0, 0), (1, 1, 0) |
+
+- **Im Blick** nimmt `ao_seiten` in `metatile.rs` für jede der drei Seiten
+  die Zeile der Seite der Welt und dreht ihre Nachbarn in den Blick;
+  `ecken_im_blick` in `rasterizer.rs` dreht ihre Ecken. Die AO-Karte und
+  die Werte von `ecken_at` stehen damit in der Reihenfolge der Ecken der
+  Seite der Welt.
+- **Die Diagonale** zwischen den Dreiecken 0-1-2 und 2-3-0 dreht sich mit:
+  Aus `sw` und `ne` läuft sie auf der Oberseite über die anderen beiden
+  Ecken als aus `se` und `nw`. Auf den Seiten bleibt sie, denn die Ecken
+  aus `FaceInfo` liegen dort für jede Seite gleich, von aussen gesehen.
+- **Der Ersatz** für einen Block in der Ecke, der nicht zählt, ist der
+  erste Nachbar aus `corners` der Seite der Welt: Zeigt die Seite im Süden
+  des Blicks aus `nw` den Norden, ist das der Block oben, nicht der im
+  Westen wie für den Süden.
+
 ## Licht an den Ecken
 
 An jeder Ecke mischt das Spiel auch das Licht der vier Zellen, deren

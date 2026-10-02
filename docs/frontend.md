@@ -225,6 +225,14 @@ Enter, macht ihn zu einem Eingabefeld; Enter springt dorthin.
 - **Auf dem Handy:** Das Feld ist `type="text"` ohne `inputmode`. Mit
   `inputmode="numeric"` fehlt auf vielen Tastaturen das Minus, auch
   `decimal` bietet es nicht überall.
+- **Für Finger grösser:** Ist der Hauptzeiger grob (`pointer: coarse`),
+  hat die ganze Leiste 16 px Schrift und doppelte Zeilenhöhe. Werte und
+  Kopiersymbol sind dann mindestens 32 px gross, auch ein Wert, der nur „–“
+  zeigt; WCAG 2.5.8 verlangt 24 px. Und iOS vergrössert beim Fokus nicht die
+  Seite, das tut es bei Feldern unter 16 px Schrift. Am Desktop bleibt die
+  Leiste bei 12 px. Gefragt wird nach dem Gerät, nicht nach dem letzten
+  Zeiger wie beim Umriss, denn die Grösse muss vor dem ersten Tippen
+  stimmen.
 - **Mit der Maus** verschiebt ein Klick in die Anzeige die Karte nicht,
   wie überall in der Leiste.
 

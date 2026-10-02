@@ -315,6 +315,17 @@ fn kameras() -> Vec<Projection> {
     for projection in &out {
         assert!(projection.ganze_pixel(), "{projection:?}");
     }
+    // Schräg wie genordet kommt jede der vier Richtungen vor.
+    for genordet in [false, true] {
+        let mut richtungen: Vec<u8> = out
+            .iter()
+            .filter(|p| p.kamera().genordet() == genordet)
+            .map(|p| p.richtung().vierteldrehungen())
+            .collect();
+        richtungen.sort_unstable();
+        richtungen.dedup();
+        assert_eq!(richtungen, [0, 1, 2, 3], "genordet: {genordet}");
+    }
     out
 }
 

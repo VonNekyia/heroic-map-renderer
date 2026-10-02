@@ -1,14 +1,19 @@
-/// Die Kamera eines Laufs: schräg mit der Raute W:H oder von oben.
+/// Die Kamera eines Laufs: diagonal schräg mit der Raute W:H oder von oben,
+/// oder genordet von oben oder schräg von Süden.
 ///
 /// ```text
-/// screen_x = (x - z) * h
-/// screen_y = (x + z) * a - y * b
+/// screen_x = u * h
+/// screen_y = v * a - y * b
+///
+/// diagonal:  u = x - z,  v = x + z
+/// genordet:  u = x,      v = z
 /// ```
 ///
-/// `h` ist immer scale/2. Schräg ist `a` = scale · H/(2W) und `b` =
+/// Diagonal ist `h` scale/2. Schräg ist `a` = scale · H/(2W) und `b` =
 /// scale/2, die Wände bleiben bei jeder Raute so hoch. Von oben ist `a` =
 /// scale/2 und `b` = 0. 2:1 ist die Vorgabe: `a` = scale/4, ein voller
-/// Würfel belegt dann genau `scale` mal `scale` Pixel.
+/// Würfel belegt dann genau `scale` mal `scale` Pixel. Genordet sind `h`
+/// und `a` scale, `b` ist scale bei `north-45` und 0 bei `top-north`.
 ///
 /// Es gibt keine freie Kamera und keine Perspektive. Alle Faktoren stehen
 /// hier und nirgendwo sonst.
@@ -20,12 +25,17 @@ pub struct Projection {
     kamera: Kamera,
 }
 
-/// Schräg mit einer Raute W:H oder von oben.
+/// Diagonal schräg mit einer Raute W:H oder von oben; genordet, Norden
+/// oben, von oben oder schräg von Süden.
 /// Siehe docs/renderer/kamera.md, „Kameras“.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kamera {
     Schraeg(Raute),
     Oben,
+    /// `top-north`: von oben, Norden oben.
+    ObenNord,
+    /// `north-45`: von Süden, 45° hoch.
+    Nord45,
 }
 
 /// Die Raute W:H einer schrägen Kamera, gekürzt und zwischen 2:1 und 1:1:
@@ -43,19 +53,25 @@ impl Kamera {
         hoehe: 1,
     });
 
-    /// `W:H` oder `top`. W:H wird gekürzt und muss zwischen 2:1 und 1:1
-    /// liegen: flacher verdeckt das Gelände mehr, steiler erschiene die
-    /// Oberseite höher als von oben.
+    /// `W:H`, `top`, `top-north` oder `north-45`. W:H wird gekürzt und muss
+    /// zwischen 2:1 und 1:1 liegen: flacher verdeckt das Gelände mehr,
+    /// steiler erschiene die Oberseite höher als von oben.
     pub fn parse(text: &str) -> Result<Kamera, String> {
-        if text == "top" {
-            return Ok(Kamera::Oben);
+        match text {
+            "top" => return Ok(Kamera::Oben),
+            "top-north" => return Ok(Kamera::ObenNord),
+            "north-45" => return Ok(Kamera::Nord45),
+            _ => {}
         }
         let (w, h) = text
             .split_once(':')
             .and_then(|(w, h)| Some((w.trim().parse::<u32>().ok()?, h.trim().parse::<u32>().ok()?)))
             .filter(|&(w, h)| w > 0 && h > 0)
             .ok_or_else(|| {
-                format!("{text} ist keine Kamera: W:H mit ganzen Zahlen über 0 oder top")
+                format!(
+                    "{text} ist keine Kamera: W:H mit ganzen Zahlen über 0, top, top-north \
+                     oder north-45"
+                )
             })?;
         Kamera::schraeg(w, h)
     }
@@ -77,20 +93,54 @@ impl Kamera {
 
     /// Der Schritt im scale, in dem jede Blockecke auf ganzen Pixeln liegt:
     /// schräg 2W, denn a = scale · H/(2W) mit teilerfremden W und H ist
-    /// genau dann ganz und der scale gerade; von oben 2.
+    /// genau dann ganz und der scale gerade; von oben 2; genordet 1.
     /// Siehe docs/renderer/kamera.md, „Ganze Pixel“.
     pub fn schritt(self) -> u64 {
         match self {
             Kamera::Schraeg(Raute { breite, .. }) => 2 * u64::from(breite),
             Kamera::Oben => 2,
+            Kamera::ObenNord | Kamera::Nord45 => 1,
         }
     }
 
-    /// `a` je scale als Bruch: schräg H/(2W), von oben 1/2.
-    fn a_je_scale(self) -> (u64, u64) {
+    /// Genordet, mit u = x und v = z? Sonst diagonal, u = x − z und
+    /// v = x + z.
+    pub fn genordet(self) -> bool {
+        matches!(self, Kamera::ObenNord | Kamera::Nord45)
+    }
+
+    /// Der scale ohne `--scale`: genordet 16, dort ist jedes Texel einer
+    /// Oberseite schon ein Pixel; sonst [`Projection::DEFAULT_SCALE`].
+    /// Siehe docs/renderer/kamera.md, „Genordet“.
+    pub fn vorgabe_scale(self) -> u32 {
+        if self.genordet() {
+            16
+        } else {
+            Projection::DEFAULT_SCALE
+        }
+    }
+
+    /// Wo die Kamera steht, wie `direction` in `map.json`: diagonal im
+    /// Südosten, genordet im Süden.
+    pub fn richtung(self) -> &'static str {
+        if self.genordet() { "s" } else { "se" }
+    }
+
+    /// Der Azimut wie `projection.azimuth` in `map.json`: `diagonal` oder
+    /// `north`.
+    pub fn azimut(self) -> &'static str {
+        if self.genordet() { "north" } else { "diagonal" }
+    }
+
+    /// `h` und `a` je scale als Bruch: diagonal h = 1/2 und a schräg
+    /// H/(2W), von oben 1/2; genordet beide 1.
+    fn h_a_je_scale(self) -> ((u64, u64), (u64, u64)) {
         match self {
-            Kamera::Schraeg(Raute { breite, hoehe }) => (hoehe.into(), 2 * u64::from(breite)),
-            Kamera::Oben => (1, 2),
+            Kamera::Schraeg(Raute { breite, hoehe }) => {
+                ((1, 2), (hoehe.into(), 2 * u64::from(breite)))
+            }
+            Kamera::Oben => ((1, 2), (1, 2)),
+            Kamera::ObenNord | Kamera::Nord45 => ((1, 1), (1, 1)),
         }
     }
 }
@@ -100,6 +150,8 @@ impl std::fmt::Display for Kamera {
         match self {
             Kamera::Schraeg(Raute { breite, hoehe }) => write!(f, "{breite}:{hoehe}"),
             Kamera::Oben => write!(f, "top"),
+            Kamera::ObenNord => write!(f, "top-north"),
+            Kamera::Nord45 => write!(f, "north-45"),
         }
     }
 }
@@ -109,10 +161,11 @@ fn ggt(a: u64, b: u64) -> u64 {
 }
 
 impl Projection {
-    /// 32 Pixel je Block: eine Seitenfläche ist halb so breit wie der
-    /// Würfel, erst so zeigt sie alle 16 Texel einer Textur. Bei 16 fiele
+    /// 32 Pixel je Block: Diagonal ist eine Seitenfläche halb so breit wie
+    /// der Würfel, erst so zeigt sie alle 16 Texel einer Textur. Bei 16 fiele
     /// jede zweite Texelspalte weg; dafür sind es viermal so viele
-    /// Kacheln. Siehe `--scale`.
+    /// Kacheln. Genordet zeigt schon scale 16 jedes Texel, dort ist das die
+    /// Vorgabe ([`Kamera::vorgabe_scale`]). Siehe `--scale`.
     pub const DEFAULT_SCALE: u32 = 32;
 
     /// 2:1, die Vorgabe.
@@ -140,51 +193,84 @@ impl Projection {
         Projection::mit_kamera(scale, self.kamera)
     }
 
-    /// Pixel je Schritt in `u = x - z`: scale/2.
+    /// Pixel je Schritt in `u`: diagonal scale/2, genordet scale.
     pub fn h(&self) -> f64 {
-        self.scale as f64 / 2.0
-    }
-
-    /// Pixel je Schritt in `v = x + z`.
-    pub fn a(&self) -> f64 {
-        let (zaehler, nenner) = self.kamera.a_je_scale();
+        let ((zaehler, nenner), _) = self.kamera.h_a_je_scale();
         (u64::from(self.scale) * zaehler) as f64 / nenner as f64
     }
 
-    /// Pixel je Block Höhe: schräg scale/2, von oben 0.
+    /// Pixel je Schritt in `v`.
+    pub fn a(&self) -> f64 {
+        let (_, (zaehler, nenner)) = self.kamera.h_a_je_scale();
+        (u64::from(self.scale) * zaehler) as f64 / nenner as f64
+    }
+
+    /// Pixel je Block Höhe: diagonal schräg scale/2, `north-45` scale, von
+    /// oben 0.
     pub fn b(&self) -> f64 {
         match self.kamera {
             Kamera::Schraeg(_) => self.scale as f64 / 2.0,
-            Kamera::Oben => 0.0,
+            Kamera::Nord45 => self.scale as f64,
+            Kamera::Oben | Kamera::ObenNord => 0.0,
         }
     }
 
-    /// Liegt jede Blockecke auf ganzen Pixeln? Genau dann, wenn `a` ganz und
-    /// der scale gerade ist, also ein Vielfaches von [`Kamera::schritt`];
-    /// bei 2:1 heisst das: ein Vielfaches von 4.
+    /// Welche Nachbarn beim Verdecken ihren ganzen Umriss decken müssen,
+    /// nach +x und nach +z: die, deren Umriss den eigenen überlappt.
+    /// Diagonal schräg beide, genordet schräg nur der nach +z, von oben
+    /// keiner. Den Boden deckt immer der Block darüber.
+    /// Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
+    pub fn verdeckende_seiten(&self) -> (bool, bool) {
+        let schraeg = self.b() > 0.0;
+        (schraeg && !self.kamera.genordet(), schraeg)
+    }
+
+    /// Die Bildachsen einer Blockspalte: diagonal `(x - z, x + z)`,
+    /// genordet `(x, z)`.
+    pub fn uv(&self, x: i32, z: i32) -> (i32, i32) {
+        if self.kamera.genordet() {
+            (x, z)
+        } else {
+            (x - z, x + z)
+        }
+    }
+
+    /// Liegt jede Blockecke auf ganzen Pixeln? Genau dann, wenn der scale ein
+    /// Vielfaches von [`Kamera::schritt`] ist. Diagonal heisst das: `a` ganz
+    /// und der scale gerade, bei 2:1 ein Vielfaches von 4. Genordet geht
+    /// jeder scale.
     /// Siehe docs/renderer/kamera.md, „Ganze Pixel“.
     pub fn ganze_pixel(&self) -> bool {
         u64::from(self.scale).is_multiple_of(self.kamera.schritt())
     }
 
-    /// Die Blickachse (b, 2a, b), gekürzt auf ganze teilerfremde Zahlen:
-    /// 2:1 (1, 1, 1), 4:3 (2, 3, 2), 1:1 (1, 2, 1), von oben (0, 1, 0).
-    /// Punkte, die sich um ein Vielfaches davon unterscheiden, landen auf
-    /// demselben Pixel.
+    /// Die Blickachse, gekürzt auf ganze teilerfremde Zahlen: diagonal
+    /// (b, 2a, b), 2:1 (1, 1, 1), 4:3 (2, 3, 2), 1:1 (1, 2, 1), von oben
+    /// (0, 1, 0); genordet (0, a, b), `north-45` (0, 1, 1), `top-north`
+    /// (0, 1, 0). Punkte, die sich um ein Vielfaches davon unterscheiden,
+    /// landen auf demselben Pixel.
     pub fn achse(&self) -> [f32; 3] {
-        let (seite, mitte) = match self.kamera {
+        let [x, y, z] = match self.kamera {
             // (scale/2, scale·H/W, scale/2) ∝ (W, 2H, W)
-            Kamera::Schraeg(Raute { breite, hoehe }) => (u64::from(breite), 2 * u64::from(hoehe)),
-            Kamera::Oben => (0, 1),
+            Kamera::Schraeg(Raute { breite, hoehe }) => {
+                [u64::from(breite), 2 * u64::from(hoehe), u64::from(breite)]
+            }
+            Kamera::Oben | Kamera::ObenNord => [0, 1, 0],
+            Kamera::Nord45 => [0, 1, 1],
         };
-        let g = ggt(seite, mitte);
-        [seite / g, mitte / g, seite / g].map(|c| c as f32)
+        let g = ggt(ggt(x, y), z);
+        [x / g, y / g, z / g].map(|c| c as f32)
     }
 
     /// Weltkoordinaten in Blockeinheiten auf Bildschirmpixel abbilden.
     pub fn project(&self, [x, y, z]: [f32; 3]) -> (f32, f32) {
         let (h, a, b) = (self.h() as f32, self.a() as f32, self.b() as f32);
-        ((x - z) * h, (x + z) * a - y * b)
+        let (u, v) = if self.kamera.genordet() {
+            (x, z)
+        } else {
+            (x - z, x + z)
+        };
+        (u * h, v * a - y * b)
     }
 
     /// Blockkoordinaten auf Bildschirmpixel abbilden, in f64 anders als
@@ -192,10 +278,13 @@ impl Projection {
     /// Weltkoordinaten nicht.
     /// Siehe docs/renderer/kamera.md, „Weltkoordinaten in f64“.
     pub fn project_block(&self, [x, y, z]: [i32; 3]) -> (f64, f64) {
-        (
-            (x as f64 - z as f64) * self.h(),
-            (x as f64 + z as f64) * self.a() - y as f64 * self.b(),
-        )
+        let (x, y, z) = (x as f64, y as f64, z as f64);
+        let (u, v) = if self.kamera.genordet() {
+            (x, z)
+        } else {
+            (x - z, x + z)
+        };
+        (u * self.h(), v * self.a() - y * self.b())
     }
 
     /// Tiefe entlang der Blickachse ([`Projection::achse`]). Größer heißt
@@ -282,6 +371,10 @@ mod tests {
             ("1:1", 32, [1.0, 2.0, 1.0]),
             ("top", 32, [0.0, 1.0, 0.0]),
             ("5:3", 30, [5.0, 6.0, 5.0]),
+            ("top-north", 16, [0.0, 1.0, 0.0]),
+            ("north-45", 16, [0.0, 1.0, 1.0]),
+            ("top-north", 7, [0.0, 1.0, 0.0]),
+            ("north-45", 7, [0.0, 1.0, 1.0]),
         ];
         for (kamera, scale, achse) in kameras {
             let p = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
@@ -314,7 +407,36 @@ mod tests {
             );
             let oben = Projection::mit_kamera(scale, Kamera::Oben);
             assert_eq!(oben.ganze_pixel(), scale % 2 == 0, "top bei {scale}");
+            for kamera in [Kamera::ObenNord, Kamera::Nord45] {
+                assert!(Projection::mit_kamera(scale, kamera).ganze_pixel());
+            }
         }
+    }
+
+    /// Genordet ist Norden oben und Osten rechts. Bei `north-45` sind
+    /// Oberseite und Südwand je scale mal scale, bei `top-north` die
+    /// Oberseite; Ost- und Westwand haben keine Breite.
+    #[test]
+    fn genordet_sind_oberseite_und_suedwand_quadrate() {
+        for (kamera, b) in [(Kamera::Nord45, 16.0), (Kamera::ObenNord, 0.0)] {
+            let p = Projection::mit_kamera(16, kamera);
+            let bild = |e: [i32; 3]| p.project_block(e);
+            assert_eq!(bild([1, 0, 0]).0 - bild([0, 0, 0]).0, 16.0, "Osten rechts");
+            assert_eq!(bild([0, 0, 1]).1 - bild([0, 0, 0]).1, 16.0, "Süden unten");
+            assert_eq!(bild([0, 0, 0]).1 - bild([0, 1, 0]).1, b, "Höhe");
+            assert_eq!(
+                bild([0, 0, 1]).0,
+                bild([0, 0, 0]).0,
+                "keine Ost- und Westwand"
+            );
+            assert_eq!((p.h(), p.a(), p.b()), (16.0, 16.0, b));
+            assert_eq!(p.uv(3, -5), (3, -5));
+            assert_eq!(Kamera::parse(&kamera.to_string()), Ok(kamera));
+            assert_eq!((kamera.richtung(), kamera.azimut()), ("s", "north"));
+        }
+        let diagonal = Kamera::ZWEI_ZU_EINS;
+        assert_eq!((diagonal.richtung(), diagonal.azimut()), ("se", "diagonal"));
+        assert_eq!(Projection::new(16).uv(3, -5), (8, -2));
     }
 
     /// Der Schritt 2W gibt dieselben scales wie die Regel selbst: `a` ganz

@@ -55,6 +55,7 @@ fn kantenpixel() -> Vec<String> {
     let mut zeilen = Vec::new();
     for (kamera, scale) in [("top", 32), ("1:1", 32), ("5:3", 30)] {
         let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+        let richtung = projection.kamera().richtung();
         let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
         let mut assets = Assets::open(vec![base]).unwrap();
         let states = survey(&world, projection, boden, None).unwrap().states;
@@ -99,7 +100,7 @@ fn kantenpixel() -> Vec<String> {
             };
             assert_ne!(mitte(a), mitte(nachbar), "Schachbrett");
             zeilen.push(format!(
-                "  {{\"camera\": \"{kamera}\", \"direction\": \"se\", \"scale\": {scale}, \
+                "  {{\"camera\": \"{kamera}\", \"direction\": \"{richtung}\", \"scale\": {scale}, \
                  \"pixel\": [{}, {}], \"block\": [{}, -1, {}], \"eben\": 0}}",
                 px.floor(),
                 py.floor(),
@@ -137,6 +138,7 @@ fn wandpixel() -> Vec<String> {
     let mut zeilen = Vec::new();
     for (kamera, scale) in [("1:1", 32), ("5:3", 30)] {
         let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+        let richtung = projection.kamera().richtung();
         let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
         let mut assets = Assets::open(vec![base]).unwrap();
         let states = survey(&world, projection, hoehen, None).unwrap().states;
@@ -187,7 +189,7 @@ fn wandpixel() -> Vec<String> {
                 0
             };
             zeilen.push(format!(
-                "  {{\"camera\": \"{kamera}\", \"direction\": \"se\", \"scale\": {scale}, \
+                "  {{\"camera\": \"{kamera}\", \"direction\": \"{richtung}\", \"scale\": {scale}, \
                  \"pixel\": [{}, {}], \"block\": [4, {y}, 4], \"wand\": \"{wand}\"}}",
                 px.floor(),
                 py.floor(),
@@ -367,7 +369,8 @@ fn projektion_als_datei_ist_aktuell() {
     ];
     // Je Kamera scale 32 und ein kleinerer, bei dem sie auf ganzen Pixeln
     // liegt, 1:1 und top auch bei 6 mit ungeraden h und a; 5:3 nur bei 30,
-    // wo Blockkanten Pixelmitten treffen.
+    // wo Blockkanten Pixelmitten treffen. Genordet geht jeder scale, auch
+    // ein ungerader.
     let kameras = [
         ("2:1", &[4, 12, 16, 24, 32, 48, 64][..]),
         ("8:5", &[16, 32]),
@@ -375,11 +378,14 @@ fn projektion_als_datei_ist_aktuell() {
         ("1:1", &[4, 6, 32]),
         ("top", &[4, 6, 32]),
         ("5:3", &[30]),
+        ("top-north", &[6, 12, 16, 24, 32, 48]),
+        ("north-45", &[6, 7, 12, 16, 24, 32, 48]),
     ];
     let mut zeilen = Vec::new();
     for (kamera, scales) in kameras {
         for &scale in scales {
             let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+            let richtung = projection.kamera().richtung();
             assert!(projection.ganze_pixel(), "{kamera} bei {scale}");
             for block in bloecke {
                 let (x, y) = projection.project_block(block);
@@ -388,7 +394,7 @@ fn projektion_als_datei_ist_aktuell() {
                     "{block:?} bei {kamera}, {scale}"
                 );
                 zeilen.push(format!(
-                    "  {{\"camera\": \"{kamera}\", \"direction\": \"se\", \"scale\": {scale}, \
+                    "  {{\"camera\": \"{kamera}\", \"direction\": \"{richtung}\", \"scale\": {scale}, \
                      \"block\": [{}, {}, {}], \"pixel\": [{x}, {y}]}}",
                     block[0], block[1], block[2]
                 ));

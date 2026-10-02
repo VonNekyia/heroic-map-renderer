@@ -25,8 +25,8 @@ Texte.
 | `--at X Y Z` | die Blockstate an dieser Weltkoordinate ausgeben | unten |
 | `--block BLOCKSTATE` | eine Blockstate auflösen, mehrfach | unten |
 | `--sprite DATEI` | die Blockstates aus `--block` als Sprites in eine PNG rastern | unten |
-| `--scale N` | Pixelbreite eines Blocks, ab 4, Vorgabe 32; jede Blockecke muss bei der Kamera auf ganzen Pixeln liegen, in 2:1 ein Vielfaches von 4 | [Kamera](../renderer/kamera.md), „Ganze Pixel“ |
-| `--camera KAMERA` | `W:H` schräg von 2:1 bis 1:1 oder `top` von oben, Vorgabe `2:1`; ein bestehender Kachelbaum verlangt seine | [Kamera](../renderer/kamera.md), „Kameras“ |
+| `--scale N` | Pixelbreite eines Blocks, ab 4, Vorgabe 32, bei `top-north` und `north-45` 16; jede Blockecke muss bei der Kamera auf ganzen Pixeln liegen, in 2:1 ein Vielfaches von 4 | [Kamera](../renderer/kamera.md), „Ganze Pixel“ |
+| `--camera KAMERA` | diagonal `W:H` schräg von 2:1 bis 1:1 oder `top` von oben, genordet `top-north` von oben oder `north-45` schräg von Süden, Vorgabe `2:1`; ein bestehender Kachelbaum verlangt seine | [Kamera](../renderer/kamera.md), „Kameras“ |
 | `--biome-blend N` | wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, 0 bis 7 Blöcke wie der Biomübergang im Spiel, Vorgabe 2; ein bestehender Kachelbaum behält seinen | [Biomfarben](../renderer/biomfarben.md), [map.json](map-json.md) |
 | `--render DATEI` | einen Weltausschnitt in eine PNG rendern | unten |
 | `--center X Z` | die Blockspalte in der Bildmitte, Vorgabe `0 0` | unten |
@@ -142,7 +142,8 @@ Mitte will, rechnet `--center` je Kamera, wie `mitte` in
 Ausgabe nennt die linke obere Bildecke in Pixeln. Die Sprite-Tabelle kommt
 aus demselben Vorlauf wie beim Kachelexport, nur über den Ausschnitt, und
 der dekodiert nur, was im Bild landen kann: der sichtbare Bereich ist
-schräg ein schmales diagonales Band in x und z, kein Rechteck. Wer
+diagonal schräg ein schmales diagonales Band in x und z, kein Rechteck,
+genordet ein Rechteck. Wer
 stattdessen die Hüllbox nähme, läse in 2:1 für einen 1024er Ausschnitt rund
 das Sechzehnfache an Chunks.
 

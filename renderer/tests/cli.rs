@@ -2413,16 +2413,18 @@ fn heights_traegt_hoehen_nach() {
         }
         std::fs::write(&karte, serde_json::to_vec_pretty(&info).unwrap()).unwrap();
     };
-    let oben = tempdir();
-    gelungen(&tiles(
-        welt.path(),
-        oben.path(),
-        &["--scale", "16", "--camera", "top"],
-    ));
-    let soll = schnappschuss(oben.path());
-    ohne_hoehen(oben.path());
-    gelungen(&nachtragen(welt.path(), oben.path()));
-    assert_eq!(schnappschuss(oben.path()), soll, "von oben");
+    for kamera in ["top", "north-45"] {
+        let anders = tempdir();
+        gelungen(&tiles(
+            welt.path(),
+            anders.path(),
+            &["--scale", "16", "--camera", kamera],
+        ));
+        let soll = schnappschuss(anders.path());
+        ohne_hoehen(anders.path());
+        gelungen(&nachtragen(welt.path(), anders.path()));
+        assert_eq!(schnappschuss(anders.path()), soll, "{kamera}");
+    }
 
     let out = tempdir();
     gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
@@ -3601,6 +3603,105 @@ fn baum_ohne_kamera_zeigt_zwei_zu_eins() {
     let info: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
     assert_eq!(info["camera"], "2:1");
+}
+
+/// Genordet stehen `azimuth` `north` und `direction` `s` in `map.json`. Ein
+/// Baum mit einer anderen Richtung, als seine Kamera hat, bricht ab; fehlt
+/// sie, gilt die der Kamera.
+#[test]
+fn genordeter_baum_mit_azimut_und_richtung() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let out = tempdir();
+    let karte = out.path().join("map.json");
+    let lies = || -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap()
+    };
+    let schreibe = |info: &serde_json::Value| {
+        std::fs::write(&karte, serde_json::to_string(info).unwrap()).unwrap();
+    };
+    let genordet = ["--scale", "8", "--camera", "north-45"];
+    gelungen(&tiles(welt.path(), out.path(), &genordet));
+    let info = lies();
+    assert_eq!(info["camera"], "north-45");
+    assert_eq!(info["direction"], "s");
+    assert_eq!(
+        info["projection"],
+        serde_json::json!({"azimuth": "north", "u": 8, "v": 8, "y": 8})
+    );
+    let vorher = schnappschuss(out.path());
+
+    let ausgabe = tiles(
+        welt.path(),
+        out.path(),
+        &["--scale", "8", "--camera", "top-north"],
+    );
+    assert!(
+        !ausgabe.status.success(),
+        "top-north hätte abbrechen müssen"
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("--camera north-45"), "Meldung: {meldung}");
+    assert_eq!(
+        schnappschuss(out.path()),
+        vorher,
+        "top-north hat den Baum verändert"
+    );
+
+    let mut info = lies();
+    info["direction"] = "se".into();
+    schreibe(&info);
+    let ausgabe = tiles(welt.path(), out.path(), &genordet);
+    assert!(!ausgabe.status.success(), "se hätte abbrechen müssen");
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(meldung.contains("Richtung se"), "Meldung: {meldung}");
+    // Ohne `map.json`, die der Test selbst geändert hat.
+    let ohne_karte = |mut baum: BTreeMap<String, Vec<u8>>| {
+        baum.remove("map.json");
+        baum
+    };
+    assert_eq!(
+        ohne_karte(schnappschuss(out.path())),
+        ohne_karte(vorher.clone()),
+        "se hat den Baum verändert"
+    );
+    assert_eq!(lies(), info, "se hat map.json verändert");
+
+    info.as_object_mut().unwrap().remove("direction");
+    schreibe(&info);
+    gelungen(&tiles(welt.path(), out.path(), &genordet));
+    assert_eq!(lies()["direction"], "s");
+    assert_eq!(
+        schnappschuss(out.path()),
+        vorher,
+        "der Baum hat sich verändert"
+    );
+}
+
+/// Ohne `--scale` rendern `top-north` und `north-45` bei 16, wo jedes Texel
+/// einer Oberseite schon ein Pixel ist, alle anderen Kameras bei 32 (User,
+/// 02.10.). Ein angegebener scale bleibt.
+#[test]
+fn ohne_scale_genordet_16_sonst_32() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    for (kamera, extra, scale) in [
+        ("2:1", None, 32),
+        ("top", None, 32),
+        ("top-north", None, 16),
+        ("north-45", None, 16),
+        ("north-45", Some("8"), 8),
+    ] {
+        let out = tempdir();
+        let mut args = vec!["--camera", kamera, "--size", "256"];
+        if let Some(s) = extra {
+            args.extend(["--scale", s]);
+        }
+        gelungen(&tiles(welt.path(), out.path(), &args));
+        let text = std::fs::read_to_string(out.path().join("map.json")).unwrap();
+        let info: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(info["scale"], scale, "{kamera} mit {extra:?}");
+    }
 }
 
 /// Auch wenn nichts sichtbar ist, muss `map.json` geschrieben werden — und

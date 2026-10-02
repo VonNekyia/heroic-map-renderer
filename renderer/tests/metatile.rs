@@ -148,11 +148,67 @@ fn rect_um(projection: Projection, min: [i32; 3], max: [i32; 3]) -> ScreenRect {
     }
 }
 
+/// Kleine Ausschnitte gleichen dem grossen Bild, je Kamera: Ein Ausschnitt
+/// von 128 Pixeln liest nur die Sections, die sein Band erreicht (`y_span`),
+/// und nur die Chunks seines Bands; das grosse Bild über die ganze Szene
+/// liest alle. Fehlt einem Ausschnitt eine Section oder ein Chunk, weicht er
+/// ab. Die Szene reicht über zwei Chunks in x und z und vier Sections.
+#[test]
+fn kleine_ausschnitte_gleichen_dem_grossen_bild() {
+    let dir = tempdir();
+    let world = common::write_szene(dir.path());
+    let y_range = common::SZENE_Y;
+    for (kamera, scale) in [
+        ("2:1", 16),
+        ("4:3", 16),
+        ("top", 16),
+        ("top-north", 16),
+        ("north-45", 16),
+        ("north-45", 7),
+    ] {
+        let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+        let survey = survey(&world, projection, y_range, None).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&common::biomdaten()).unwrap();
+        let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        let ganz = rect_um(projection, [0, -16, 0], [32, 48, 32]);
+        let gross = render_area(&world, &sprites, ganz, y_range).unwrap();
+        let mut ausschnitte = 0;
+        for y in (ganz.y..ganz.bottom()).step_by(128) {
+            for x in (ganz.x..ganz.right()).step_by(128) {
+                let rect = ScreenRect {
+                    x,
+                    y,
+                    width: 128.min((ganz.right() - x) as u32),
+                    height: 128.min((ganz.bottom() - y) as u32),
+                };
+                let klein = render_area(&world, &sprites, rect, y_range).unwrap();
+                let soll = image::imageops::crop_imm(
+                    &gross,
+                    (x - ganz.x) as u32,
+                    (y - ganz.y) as u32,
+                    rect.width,
+                    rect.height,
+                )
+                .to_image();
+                assert!(
+                    klein == soll,
+                    "{kamera} bei {scale}: Ausschnitt bei ({x}, {y})"
+                );
+                ausschnitte += 1;
+            }
+        }
+        assert!(ausschnitte >= 4, "{kamera}: nur {ausschnitte} Ausschnitte");
+    }
+}
+
 /// Kameras für die Invarianten: die aus dem Issue, 1:1 und `top` bei scale
 /// 6, dem ersten mit ungeraden h und a, und Paare aus gültigem W:H und
 /// scale, gezogen mit fester Saat, damit jeder Lauf dieselben prüft.
-/// Gezogen wird nur, was weder 2:1 noch schon dabei ist. Jede liegt auf
-/// ganzen Pixeln.
+/// Gezogen wird nur, was weder 2:1 noch schon dabei ist. Genordet geht jeder
+/// scale: `top-north` und `north-45` je bei 16 und seinen nativen Stufen 8
+/// und 4, dazu bei 6, 12, 24 und 48 und je ein gezogener ungerader. Jede
+/// liegt auf ganzen Pixeln.
 fn kameras() -> Vec<Projection> {
     let mut out: Vec<Projection> = [
         ("16:9", 32),
@@ -182,6 +238,16 @@ fn kameras() -> Vec<Projection> {
         let a = scale.div_ceil(4) + zufall(scale / 2 - scale.div_ceil(4) + 1);
         let kamera = Kamera::schraeg(scale, 2 * a).unwrap();
         if kamera != Kamera::ZWEI_ZU_EINS && out.iter().all(|p| p.kamera() != kamera) {
+            out.push(Projection::mit_kamera(scale, kamera));
+        }
+    }
+    for (kamera, scales) in [
+        (Kamera::ObenNord, [16, 8, 4, 6, 24]),
+        (Kamera::Nord45, [16, 8, 4, 12, 48]),
+    ] {
+        // Ein ungerader scale von 5 bis 47.
+        let gezogen = 5 + 2 * zufall(22);
+        for scale in scales.into_iter().chain([gezogen]) {
             out.push(Projection::mit_kamera(scale, kamera));
         }
     }
@@ -521,9 +587,9 @@ fn tempdir() -> TempDir {
 
 /// Goldbilder: halten fest, wie der fertige Ausschnitt aussieht. In 2:1 das
 /// Gelände bei scale 16, als Beispiele für die anderen Kameras die Szene aus
-/// `common::szene` in 4:3 und von oben, wo das Gelände nur Oberseiten
-/// gleicher Farbe zeigte. Neu erzeugen mit
-/// `UPDATE_GOLDEN=1 cargo test --test metatile`.
+/// `common::szene` in 4:3, von oben und genordet in `top-north` und
+/// `north-45`, wo das Gelände nur Oberseiten gleicher Farbe zeigte. Neu
+/// erzeugen mit `UPDATE_GOLDEN=1 cargo test --test metatile`.
 #[test]
 fn goldbild_bleibt_gleich() {
     // Erst alle vergleichen, dann fallen: So liegt zu jedem abweichenden
@@ -534,7 +600,12 @@ fn goldbild_bleibt_gleich() {
 
     let dir = tempdir();
     let world = common::write_szene(dir.path());
-    for (kamera, name) in [("4:3", "metatile-4x3"), ("top", "metatile-top")] {
+    for (kamera, name) in [
+        ("4:3", "metatile-4x3"),
+        ("top", "metatile-top"),
+        ("top-north", "metatile-top-north"),
+        ("north-45", "metatile-north-45"),
+    ] {
         let projection = Projection::mit_kamera(16, Kamera::parse(kamera).unwrap());
         let survey = survey(&world, projection, common::SZENE_Y, None).unwrap();
         let mut assets = assets();

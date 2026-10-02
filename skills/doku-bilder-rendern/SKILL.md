@@ -26,6 +26,7 @@ Testwelt liegt unter `./world`, die Assets wie in
    | `banner.webp` | der Ausschnitt `BANNER` der Übersicht unter `quellen/banner-ebenen.png` |
    | `biomgrenze-savanne.webp`, `biomgrenze-ozean.webp` | je zweimal gerendert, links `--biome-blend 0`, rechts `2`, zugeschnitten und nebeneinander, Tabelle `GRENZEN` |
    | `kameras.webp` | dasselbe Dorf in 2:1, 4:3, 1:1 und `top`, zwei mal zwei, je mit `--camera` und einem `--center`, das den Block `ZIEL` in die Mitte legt, `KAMERAS` mit `ZIEL` und `FELD` |
+   | `genordet.webp` | dasselbe Dorf in `top-north` und `north-45` nebeneinander, ebenso, `GENORDET` |
    | `web/public/vorschau.jpg`, `favicon.png`, `apple-touch-icon.png` | [`web-bilder.py`](web-bilder.py): die Mitte von `welt.webp` auf 1200 × 630, die Icons aus der Ebene „Insel“ des Banners, siehe Schritt 3 |
    | `sprites.png` | der Befehl in [`docs/benutzung/schalter.md`](../../docs/benutzung/schalter.md), „Sprites rastern: `--sprite`“ |
 

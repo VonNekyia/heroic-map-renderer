@@ -69,11 +69,16 @@ Siehe [0002](../entscheidungen/0002-deckend-entscheidet-das-bild.md).
 
 ## Verdeckte Würfel
 
-Ein Würfel wird übersprungen, wenn seine drei kamerazugewandten Nachbarn ihn
-ganz decken: deren Umrisse setzen genau den eigenen zusammen, mehr nicht.
-Der Ost- und der Südnachbar müssen dafür ihren ganzen Umriss deckend füllen,
-dem Nachbarn darüber genügt sein Boden: Lava endet bei 8/9 und deckt
-trotzdem den Block darunter.
+Ein Würfel wird übersprungen, wenn die Nachbarn, deren Umriss den eigenen
+überlappt, ihn ganz decken: deren Umrisse setzen genau den eigenen
+zusammen, mehr nicht. Diagonal schräg sind das drei, der Ost-, der Süd-
+und der Nachbar darüber. Ost- und Südnachbar müssen dafür ihren ganzen
+Umriss deckend füllen, dem Nachbarn darüber genügt sein Boden: Lava endet
+bei 8/9 und deckt trotzdem den Block darunter. Welche Nachbarn je Kamera
+zählen, legt `Projection::verdeckende_seiten` in
+[`renderer/src/render/projection.rs`](../../renderer/src/render/projection.rs)
+an einer Stelle fest; `verdeckende_seiten_ueberlappen_den_umriss` prüft es
+am Umriss.
 
 Genauso streng ist die Frage, ob ein verdeckter Block überhaupt wegfallen
 darf: nur, wenn sein Sprite Pixel für Pixel in diesem Umriss bleibt.
@@ -94,6 +99,10 @@ scale 6 blieben sonst Spalten von einem Pixel.
 Von oben verdeckt der Block darüber allein, mit seinem Boden: Der Umriss
 eines Würfels ist dort seine Oberseite, und die Nachbarn nach +x und +z
 liegen daneben, nicht davor (`expose` in `renderer/src/render/metatile.rs`).
+Bei `north-45` verdecken der Südnachbar mit seinem ganzen Umriss und der
+Block darüber mit seinem Boden; der Ostnachbar liegt daneben. `top-north`
+verdeckt wie von oben, siehe [Die Kamera](kamera.md), „Genordet“. Den Rand
+eines Nachbarchunks, der nicht zählt, liest `expose` gar nicht.
 
 ## Flächen zu gleichen Nachbarn
 

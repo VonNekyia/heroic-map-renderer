@@ -567,7 +567,8 @@ impl SpriteSet {
 
         // Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet
         // das Raster in 2:1, damit das Licht nicht an der Kamera hängt: von
-        // oben deckte schon eine flache Platte den ganzen Umriss.
+        // oben deckte schon eine flache Platte den ganzen Umriss. 2:1 nimmt
+        // nur Vielfache von 4; sonst rastert es beim nächsten darüber.
         if licht_deckend.is_some() {
             set.licht_deckend = licht_deckend;
         } else if projection.kamera() != Kamera::ZWEI_ZU_EINS {
@@ -577,8 +578,8 @@ impl SpriteSet {
                 .cloned()
                 .collect();
             if !unbekannt.is_empty() {
-                let zwei =
-                    SpriteSet::build_in(assets, &unbekannt, Projection::new(projection.scale()))?;
+                let raster = Projection::new(projection.scale().next_multiple_of(4));
+                let zwei = SpriteSet::build_in(assets, &unbekannt, raster)?;
                 set.licht_deckend = Some(zwei.licht_deckend(&unbekannt));
             }
         }
@@ -1147,9 +1148,9 @@ impl SpriteSet {
     }
 
     /// Der Umriss eines vollen Blocks Zeile für Zeile: je Pixelzeile
-    /// relativ zum Blockursprung die erste und die letzte Spalte. Das
-    /// Sechseck ist konvex; hätte eine Zeile Lücken, verlangte die
-    /// Deckungsmaske nur mehr, nie weniger.
+    /// relativ zum Blockursprung die erste und die letzte Spalte. Diagonal
+    /// ist das Sechseck konvex, genordet ist der Umriss ein Rechteck; hätte
+    /// eine Zeile Lücken, verlangte die Deckungsmaske nur mehr, nie weniger.
     pub fn outline_rows(&self) -> &[(i32, i32, i32)] {
         &self.masks.rows
     }
@@ -1209,11 +1210,13 @@ impl SpriteSet {
     }
 }
 
-/// Der Umriss eines vollen Blocks ist ein Sechseck mit den Ecken
+/// Der Umriss eines vollen Blocks ist diagonal ein Sechseck mit den Ecken
 /// `(0, -b)`, `(h, a - b)`, `(h, a)`, `(0, 2a)`, `(-h, a)`, `(-h, a - b)`;
 /// die vier schraegen Kanten haben die Steigung plus/minus a/h, bei 2:1
-/// ein halb. Von oben ist es die Raute der Oberseite. `slack` dehnt das
-/// Sechseck nach aussen, negative Werte schrumpfen es.
+/// ein halb. Von oben ist es die Raute der Oberseite. Genordet ist er das
+/// Rechteck von `(0, -b)` bis `(h, a)`: die Oberseite, bei `north-45`
+/// darunter die Südwand. `slack` dehnt den Umriss nach aussen, negative
+/// Werte schrumpfen ihn.
 ///
 /// `px`, `py` sind Pixelmittelpunkte relativ zum Bild der Ecke mit den
 /// kleinsten Koordinaten.
@@ -1223,6 +1226,9 @@ fn in_outline(px: f32, py: f32, projection: Projection, slack: f32) -> bool {
         projection.a() as f32,
         projection.b() as f32,
     );
+    if projection.kamera().genordet() {
+        return (-slack..=h + slack).contains(&px) && (-b - slack..=a + slack).contains(&py);
+    }
     let (x, m) = (px.abs(), a / h);
     x <= h + slack && py >= m * x - b - slack && py <= 2.0 * a - m * x + slack
 }
@@ -1669,7 +1675,9 @@ mod tests {
 
     /// Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet bei
     /// jeder Kamera das Raster in 2:1: Von oben deckte schon eine flache
-    /// Seerose den ganzen Umriss, und ihr Würfel bliebe dunkel.
+    /// Seerose den ganzen Umriss, und ihr Würfel bliebe dunkel. Bei einem
+    /// scale, den 2:1 nicht nimmt, etwa 6 oder ungerade, rastert es beim
+    /// nächsten Vielfachen von 4 darüber.
     #[test]
     fn licht_unbekannter_bloecke_haengt_nicht_an_der_kamera() {
         let namen = [
@@ -1682,7 +1690,7 @@ mod tests {
         ];
         let states: Vec<BlockState> = namen.iter().map(|name| state(name)).collect();
         let zwei = |scale| build(&mut assets(), &states, Projection::new(scale)).unwrap();
-        let (zwei_16, zwei_32) = (zwei(16), zwei(32));
+        let (zwei_4, zwei_8, zwei_16, zwei_32) = (zwei(4), zwei(8), zwei(16), zwei(32));
         assert!(zwei_16.deckt_fuer_licht(&state("einfarbig")));
         assert!(!zwei_16.deckt_fuer_licht(&state("seerose")));
         for (kamera, scale, vergleich) in [
@@ -1690,6 +1698,17 @@ mod tests {
             ("1:1", 16, &zwei_16),
             ("top", 16, &zwei_16),
             ("5:3", 30, &zwei_32),
+            ("top-north", 16, &zwei_16),
+            ("north-45", 16, &zwei_16),
+            ("1:1", 6, &zwei_8),
+            ("top", 6, &zwei_8),
+            ("top-north", 4, &zwei_4),
+            ("top-north", 6, &zwei_8),
+            ("top-north", 7, &zwei_8),
+            ("north-45", 5, &zwei_8),
+            ("north-45", 6, &zwei_8),
+            ("north-45", 7, &zwei_8),
+            ("north-45", 8, &zwei_8),
         ] {
             let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
             let set = build(&mut assets(), &states, projection).unwrap();
@@ -1751,7 +1770,7 @@ mod tests {
     /// Der Umriss folgt der Kamera: Ein voller Würfel passt bei jeder in
     /// seinen eigenen, ein Modell, das zur Seite hinausragt, bei keiner. Ein
     /// Turm doppelter Höhe passt nur von oben, wo die Höhe nicht ins Bild
-    /// geht.
+    /// geht, auch genordet.
     #[test]
     fn umriss_folgt_der_kamera() {
         let mut assets = assets();
@@ -1762,9 +1781,12 @@ mod tests {
             ("1:1", 32),
             ("top", 32),
             ("5:3", 30),
+            ("top-north", 16),
+            ("north-45", 16),
+            ("north-45", 7),
         ] {
             let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
-            let oben = projection.kamera() == Kamera::Oben;
+            let oben = projection.b() == 0.0;
             for (name, passt) in [("einfarbig", true), ("ueberhang", false), ("turm", oben)] {
                 let model = model_of(&mut assets, &state(name)).unwrap();
                 let bild =
@@ -1775,6 +1797,43 @@ mod tests {
                     "{name}, {kamera}"
                 );
             }
+        }
+    }
+
+    /// Beim Verdecken zählt ein Nachbar nach +x oder +z genau dann, wenn
+    /// sein Umriss den eigenen überlappt: diagonal schräg beide, genordet
+    /// schräg nur der nach +z, von oben keiner. Geprüft an Pixelmitten, um
+    /// ein Viertel Pixel geschrumpft, damit Umrisse, die sich nur berühren,
+    /// nicht zählen.
+    #[test]
+    fn verdeckende_seiten_ueberlappen_den_umriss() {
+        for (kamera, scale) in [
+            ("2:1", 32),
+            ("4:3", 32),
+            ("1:1", 32),
+            ("top", 32),
+            ("5:3", 30),
+            ("top-north", 16),
+            ("north-45", 16),
+            ("north-45", 7),
+        ] {
+            let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+            let ueberlappt = |nachbar: [i32; 3]| {
+                let (dx, dy) = projection.project_block(nachbar);
+                let s = 2 * scale as i32;
+                (-s..s).any(|y| {
+                    (-s..s).any(|x| {
+                        let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+                        in_outline(px, py, projection, -0.25)
+                            && in_outline(px - dx as f32, py - dy as f32, projection, -0.25)
+                    })
+                })
+            };
+            assert_eq!(
+                projection.verdeckende_seiten(),
+                (ueberlappt([1, 0, 0]), ueberlappt([0, 0, 1])),
+                "{kamera} bei {scale}"
+            );
         }
     }
 
@@ -1855,7 +1914,8 @@ mod tests {
     /// Bei jeder Kamera und jedem scale.
     #[test]
     fn ein_fremder_wuerfel_wird_ein_teil() {
-        let kameras = ["2:1", "8:5", "4:3", "1:1", "top"].map(|k| Kamera::parse(k).unwrap());
+        let kameras = ["2:1", "8:5", "4:3", "1:1", "top", "top-north", "north-45"]
+            .map(|k| Kamera::parse(k).unwrap());
         let projektionen = (4..=64)
             .step_by(2)
             .flat_map(|scale| kameras.map(|k| Projection::mit_kamera(scale, k)))
@@ -1889,20 +1949,22 @@ mod tests {
 
     /// Von oben hat die Höhe im Bild keine Ausdehnung: Ein Turm doppelter
     /// Höhe passt in seinen Umriss, zerfällt aber trotzdem. Zu sehen ist nur
-    /// seine Oberseite, und die liegt im Würfel darüber.
+    /// seine Oberseite, und die liegt im Würfel darüber. Genordet ebenso.
     #[test]
     fn von_oben_zerfaellt_der_turm() {
-        for scale in (4..=64).step_by(2) {
-            let mut assets = assets();
-            let projection = Projection::mit_kamera(scale, Kamera::Oben);
-            let set = build(&mut assets, &[state("turm")], projection).unwrap();
-            let id = set.id(&state("turm")).unwrap();
-            let cells: Vec<Cell> = set.sprites[id.0 as usize]
-                .parts
-                .iter()
-                .map(|(cell, _)| *cell)
-                .collect();
-            assert_eq!(cells, [[0, 1, 0]], "scale {scale}");
+        for kamera in [Kamera::Oben, Kamera::ObenNord] {
+            for scale in (4..=64).step_by(2) {
+                let mut assets = assets();
+                let projection = Projection::mit_kamera(scale, kamera);
+                let set = build(&mut assets, &[state("turm")], projection).unwrap();
+                let id = set.id(&state("turm")).unwrap();
+                let cells: Vec<Cell> = set.sprites[id.0 as usize]
+                    .parts
+                    .iter()
+                    .map(|(cell, _)| *cell)
+                    .collect();
+                assert_eq!(cells, [[0, 1, 0]], "{kamera}, scale {scale}");
+            }
         }
     }
 
@@ -1962,7 +2024,8 @@ mod tests {
     /// Modell, bei jedem scale.
     #[test]
     fn zerlegtes_modell_ist_ohne_nachbarn_das_ganze() {
-        let kameras = ["2:1", "8:5", "4:3", "1:1", "top"].map(|k| Kamera::parse(k).unwrap());
+        let kameras = ["2:1", "8:5", "4:3", "1:1", "top", "top-north", "north-45"]
+            .map(|k| Kamera::parse(k).unwrap());
         let projektionen = (4..=64)
             .step_by(2)
             .flat_map(|scale| kameras.map(|k| Projection::mit_kamera(scale, k)))
@@ -1981,13 +2044,19 @@ mod tests {
                     false,
                 ) else {
                     // Von oben steht Feuer ganz auf der Kante.
-                    assert_eq!((name, kamera), ("hochfeuer", Kamera::Oben), "scale {scale}");
+                    assert!(
+                        name == "hochfeuer" && projection.b() == 0.0,
+                        "{name}, {kamera}, scale {scale}"
+                    );
                     continue;
                 };
                 let ganz = raster.ganz();
                 let mut teile = raster.teile(ganz.ao.is_some());
                 // Wie die Kandidaten: nach Höhe, Tiefe, Spalte.
-                teile.sort_by_key(|([x, y, z], _)| (*y, x + z, x - z));
+                teile.sort_by_key(|&([x, y, z], _)| {
+                    let (u, v) = projection.uv(x, z);
+                    (y, v, u)
+                });
                 let mut bild = RgbaImage::new(ganz.image.width(), ganz.image.height());
                 for (_, teil) in &teile {
                     for (x, y, pixel) in teil.image.enumerate_pixels() {
@@ -2335,58 +2404,65 @@ mod tests {
         assert!(groesste <= 1, "höchstens {groesste}");
     }
 
-    /// Von oben steht jede senkrechte Fläche auf der Kante. Keine Fläche eines
-    /// Vanilla-Blocks liegt zwischen dem Rauschen unter `EDGE_ON` und einer
-    /// echten Neigung, sonst bliebe sie als Haarlinie im Bild: Jede, die die
-    /// Kamera von oben sieht, hat n_y über 1e-3. Die steilste ist die Fahne
-    /// der Banner, um 0,45° geneigt wie im Modell des Spiels, mit n_y 0,0079.
-    /// Alle Zustände aus `blocks.txt`. Braucht die
-    /// Asset-Wurzeln in `ASSETS` wie
+    /// Von oben steht jede senkrechte Fläche auf der Kante, bei `north-45`
+    /// jede nach Osten und Westen. Keine Fläche eines Vanilla-Blocks liegt
+    /// zwischen dem Rauschen unter `EDGE_ON` und einer echten Neigung, sonst
+    /// bliebe sie als Haarlinie im Bild: Jede, die die Kamera sieht, steht
+    /// mit dem Kosinus ihres Winkels zur Achse über 1e-3. Von oben ist das
+    /// n_y; die steilste ist die Fahne der Banner, um 0,45° geneigt wie im
+    /// Modell des Spiels, mit n_y 0,0079. Alle Zustände aus `blocks.txt`.
+    /// Braucht die Asset-Wurzeln in `ASSETS` wie
     /// [`toenungskarte_an_allen_vanilla_bloecken`], deshalb `#[ignore]`:
     ///
     /// ```bash
-    /// ASSETS="$PWD/vanilla-assets:$PWD/assets" cargo test --release --manifest-path renderer/Cargo.toml --lib von_oben_keine_haarlinie_an_allen_vanilla_bloecken -- --ignored --nocapture
+    /// ASSETS="$PWD/vanilla-assets:$PWD/assets" cargo test --release --manifest-path renderer/Cargo.toml --lib keine_haarlinie_an_allen_vanilla_bloecken -- --ignored --nocapture
     /// ```
     ///
     /// Siehe docs/renderer/kamera.md, „Von oben“.
+    /// Siehe docs/renderer/kamera.md, „Genordet“.
     #[test]
     #[ignore]
-    fn von_oben_keine_haarlinie_an_allen_vanilla_bloecken() {
+    fn keine_haarlinie_an_allen_vanilla_bloecken() {
         let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
         let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
-        let oben = Projection::mit_kamera(32, Kamera::Oben);
         let zustaende = vanilla_zustaende();
-        let mut flaechen = 0;
-        // Je Block die steilste Fläche, die die Kamera von oben sieht.
-        let mut je_block: BTreeMap<&str, f32> = BTreeMap::new();
-        for st in &zustaende {
-            for (_, model) in models_of(&mut assets, st, None).unwrap() {
-                for quad in &model.quads {
-                    if !faces_camera(quad, &oben) {
-                        continue;
+        for kamera in [Kamera::Oben, Kamera::Nord45] {
+            let projection = Projection::mit_kamera(32, kamera);
+            let achse = projection.achse();
+            let laenge = |v: [f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            let mut flaechen = 0;
+            // Je Block die steilste Fläche, die die Kamera sieht.
+            let mut je_block: BTreeMap<&str, f32> = BTreeMap::new();
+            for st in &zustaende {
+                for (_, model) in models_of(&mut assets, st, None).unwrap() {
+                    for quad in &model.quads {
+                        if !faces_camera(quad, &projection) {
+                            continue;
+                        }
+                        flaechen += 1;
+                        let n = quad.normal();
+                        let kosinus = (n[0] * achse[0] + n[1] * achse[1] + n[2] * achse[2])
+                            / (laenge(n) * laenge(achse));
+                        let steilste = je_block.entry(st.name()).or_insert(1.0);
+                        *steilste = steilste.min(kosinus);
                     }
-                    flaechen += 1;
-                    let n = quad.normal();
-                    let laenge = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-                    let steilste = je_block.entry(st.name()).or_insert(1.0);
-                    *steilste = steilste.min(n[1] / laenge);
                 }
             }
+            let mut steilste: Vec<(f32, &str)> = je_block.iter().map(|(&b, &n)| (n, b)).collect();
+            steilste.sort_by(|a, b| a.0.total_cmp(&b.0));
+            println!(
+                "{kamera}: {} Zustände, {flaechen} Flächen; die steilsten:",
+                zustaende.len()
+            );
+            for (n, block) in &steilste[..3] {
+                println!("  {block}: Kosinus zur Achse {n}");
+            }
+            let steil = steilste[0].0;
+            assert!(
+                steil > 1e-3,
+                "{kamera}: eine Fläche steht fast auf der Kante, Kosinus {steil}"
+            );
         }
-        let mut steilste: Vec<(f32, &str)> = je_block.iter().map(|(&b, &n)| (n, b)).collect();
-        steilste.sort_by(|a, b| a.0.total_cmp(&b.0));
-        println!(
-            "{} Zustände, {flaechen} Flächen von oben; die steilsten:",
-            zustaende.len()
-        );
-        for (n, block) in &steilste[..3] {
-            println!("  {block}: n_y = {n}");
-        }
-        let steil = steilste[0].0;
-        assert!(
-            steil > 1e-3,
-            "eine Fläche steht fast senkrecht: n_y = {steil}"
-        );
     }
 
     /// Alle Zustände aus `blocks.txt`, wie ein Zählwerk, das letzte Merkmal
@@ -2430,7 +2506,7 @@ mod tests {
     /// einzigen fremden Würfel. Je Vielfaches von 4 bis 64 nennt der Test
     /// die Zustände von Vanilla, die dort ein Teil werden, und die, die im
     /// Spielraum ganz bleiben. Braucht die Asset-Wurzeln in `ASSETS` wie
-    /// [`von_oben_keine_haarlinie_an_allen_vanilla_bloecken`], deshalb
+    /// [`keine_haarlinie_an_allen_vanilla_bloecken`], deshalb
     /// `#[ignore]`:
     ///
     /// ```bash
@@ -2659,6 +2735,34 @@ mod tests {
         assert_eq!(flags("teppich"), (true, true), "von oben");
         assert_eq!(flags("druckplatte"), (false, false), "von oben");
         assert_eq!(flags("water"), (false, false), "von oben");
+
+        // Genordet von oben wie von oben. Von Süden deckt die flache
+        // Oberseite von Teppich den oberen Rand des Umrisses nicht, mit der
+        // Südwand darunter aber den Boden. Lava lässt oben b/9 frei, wie in
+        // 2:1 erst bei scale 4 keinen Pixel.
+        for kamera in [Kamera::ObenNord, Kamera::Nord45] {
+            let oben = kamera == Kamera::ObenNord;
+            for scale in [48, 32, 24, 16, 12, 8, 4] {
+                let projection = Projection::mit_kamera(scale, kamera);
+                let set = build(&mut assets, &states, projection).unwrap();
+                let flags = |text: &str| {
+                    let f = set.family_of(&state(text)).unwrap();
+                    (f.opaque, f.covers_floor)
+                };
+                assert_eq!(flags("einfarbig"), (true, true), "{kamera} bei {scale}");
+                assert_eq!(flags("water"), (false, false), "{kamera} bei {scale}");
+                assert_eq!(
+                    flags("lava"),
+                    (oben || scale == 4, true),
+                    "{kamera} bei {scale}"
+                );
+                assert_eq!(flags("teppich"), (oben, true), "{kamera} bei {scale}");
+                if scale == 16 {
+                    assert_eq!(flags("druckplatte"), (false, false), "{kamera}");
+                    assert_eq!(flags("oak_fence[north=true]"), (false, false), "{kamera}");
+                }
+            }
+        }
     }
 
     /// Streifen gibt es je Paar aus eigener Hoehe und Nachbarhoehe, fuer

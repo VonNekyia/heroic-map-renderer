@@ -1,6 +1,8 @@
 //! Die Werte des Looks von Cinematic an einer Stelle, wie in 0058.
 //! Siehe docs/renderer/cinematic.md, „Werte des Looks“.
 
+use super::Kamera;
+
 /// Die Werte, mit denen Cinematic zeichnet, benannt wie in 0058. Alle gehen
 /// in den Fingerabdruck eines Baums ein, siehe [`Look::fingerabdruck`]: Wer
 /// einen ändert, rendert die Bäume mit Cinematic neu.
@@ -19,6 +21,9 @@ pub struct Look {
     pub sonne_farbe: [f32; 3],
     /// Höhe der Sonne über dem Horizont, in Grad.
     pub sonne_hoehe: f32,
+    /// Wie weit die Sonne waagrecht von links zur Kamera hin gedreht steht,
+    /// in Grad.
+    pub sonne_seite: f32,
     /// Belichtung vor der Kurve.
     pub belichtung: f32,
     /// Bis hierher ist die Kurve eine Gerade.
@@ -35,6 +40,7 @@ pub const LOOK: Look = Look {
     sonne: 3.0,
     sonne_farbe: [1.0, 0.93, 0.83],
     sonne_hoehe: 48.47,
+    sonne_seite: 8.75,
     belichtung: 0.25,
     knie: 0.8,
     flach: 1.2,
@@ -44,7 +50,7 @@ impl Look {
     /// Jeder Wert mit seinem Namen, in fester Reihenfolge, wie er im Code
     /// steht. Abgeleitete Werte wie die Richtung der Sonne aus Sinus und
     /// Kosinus fehlen: Deren letztes Bit kann je System abweichen.
-    fn werte(&self) -> [(&'static str, &[f32]); 9] {
+    fn werte(&self) -> [(&'static str, &[f32]); 10] {
         [
             ("himmel", std::slice::from_ref(&self.himmel)),
             ("himmel_anteil", std::slice::from_ref(&self.himmel_anteil)),
@@ -52,6 +58,7 @@ impl Look {
             ("sonne", std::slice::from_ref(&self.sonne)),
             ("sonne_farbe", &self.sonne_farbe),
             ("sonne_hoehe", std::slice::from_ref(&self.sonne_hoehe)),
+            ("sonne_seite", std::slice::from_ref(&self.sonne_seite)),
             ("belichtung", std::slice::from_ref(&self.belichtung)),
             ("knie", std::slice::from_ref(&self.knie)),
             ("flach", std::slice::from_ref(&self.flach)),
@@ -77,6 +84,31 @@ impl Look {
             }
         }
         format!("{hash:016x}")
+    }
+
+    /// Die Richtung zur Sonne im Blick, Länge 1: fest zur Kamera, um
+    /// [`Look::sonne_hoehe`] über dem Horizont, waagrecht von links um
+    /// [`Look::sonne_seite`] zur Kamera hin. Links und zur Kamera hin sind
+    /// diagonal (−1, 0, 1)/√2 und (1, 0, 1)/√2, genordet (−1, 0, 0) und
+    /// (0, 0, 1). In f64 und dann gerundet, wie [`Look::weissabgleich`].
+    /// Siehe docs/renderer/cinematic.md, „Sonne“.
+    pub fn sonne_im_blick(&self, kamera: Kamera) -> [f32; 3] {
+        let r = std::f64::consts::FRAC_1_SQRT_2;
+        let (rechts, zur_kamera) = if kamera.genordet() {
+            ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+        } else {
+            ([r, 0.0, -r], [r, 0.0, r])
+        };
+        let (h, w) = (
+            f64::from(self.sonne_hoehe).to_radians(),
+            f64::from(self.sonne_seite).to_radians(),
+        );
+        let s: [f64; 3] = std::array::from_fn(|k| {
+            (-w.cos() * rechts[k] + w.sin() * zur_kamera[k]) * h.cos()
+                + if k == 1 { h.sin() } else { 0.0 }
+        });
+        let laenge = (s[0] * s[0] + s[1] * s[1] + s[2] * s[2]).sqrt();
+        s.map(|c| (c / laenge) as f32)
     }
 
     /// Die Kurve je Kanal: bis [`Look::knie`] eine Gerade, darüber eine
@@ -121,7 +153,7 @@ mod tests {
     /// zieht den Test nach.
     #[test]
     fn fingerabdruck_der_werte_aus_0058() {
-        assert_eq!(LOOK.fingerabdruck(), "24417b93d2014610");
+        assert_eq!(LOOK.fingerabdruck(), "99a6b52000e81791");
         let anders = Look {
             belichtung: 0.26,
             ..LOOK
@@ -142,6 +174,35 @@ mod tests {
         let steigung = |x: f32| (LOOK.kurve(x + 1e-3) - LOOK.kurve(x - 1e-3)) / 2e-3;
         assert!((steigung(0.8) - 1.0).abs() < 1e-2);
         assert!(steigung(1.199).abs() < 1e-2);
+    }
+
+    /// Die Sonne steht 48,47° hoch, kommt von links, 8,75° zur Kamera hin
+    /// gedreht: diagonal von Nordwesten etwas mehr von Westen, genordet von
+    /// Westen etwas von Süden.
+    #[test]
+    fn sonne_fest_zur_kamera() {
+        for kamera in [
+            Kamera::ZWEI_ZU_EINS,
+            Kamera::Oben,
+            Kamera::ObenNord,
+            Kamera::Nord45,
+        ] {
+            let s = LOOK.sonne_im_blick(kamera);
+            let laenge = (s[0] * s[0] + s[1] * s[1] + s[2] * s[2]).sqrt();
+            assert!((laenge - 1.0).abs() < 1e-6, "{kamera}");
+            assert!((s[1].asin().to_degrees() - 48.47).abs() < 1e-3, "{kamera}");
+            let waagrecht = (s[0] * s[0] + s[2] * s[2]).sqrt();
+            let (links, zur_kamera) = if kamera.genordet() {
+                (-s[0], s[2])
+            } else {
+                ((s[2] - s[0]) / 2f32.sqrt(), (s[0] + s[2]) / 2f32.sqrt())
+            };
+            assert!(
+                (zur_kamera.atan2(links).to_degrees() - 8.75).abs() < 1e-3,
+                "{kamera}"
+            );
+            assert!((links.hypot(zur_kamera) - waagrecht).abs() < 1e-6);
+        }
     }
 
     /// Nach dem Abgleich hat eine weisse Fläche nach oben in Sonne und

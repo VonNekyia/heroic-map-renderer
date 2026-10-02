@@ -538,7 +538,7 @@ impl SpriteSet {
     ) -> Result<SpriteSet> {
         let typ = assets.dimension_type();
         let biomes = BiomeTable::new(assets.colors());
-        let kino = look.map(|look| Kino::new(look, &typ, &biomes));
+        let kino = look.map(|look| Kino::new(look, &typ, &biomes, projection.kamera()));
         let mut set = SpriteSet {
             sprites: Vec::new(),
             families: Vec::new(),

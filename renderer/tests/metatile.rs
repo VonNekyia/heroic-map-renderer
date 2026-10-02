@@ -14,7 +14,7 @@ use terranova_render::assets::Assets;
 use terranova_render::render::look::LOOK;
 use terranova_render::render::metatile::{STUECK, render_hdr_with};
 use terranova_render::render::rasterizer::{
-    Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
+    Ecken, Geometrie, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
 };
 use terranova_render::render::{
     BiomeTable, ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, draw_list,
@@ -681,7 +681,8 @@ fn hdr_haelt_die_tiefe_der_vordersten_flaeche() {
 
 /// Ein Biom mit eigener `sky_color` färbt das Himmelslicht: Die Oberseite
 /// eines Blocks im vollen Himmelslicht hat in jedem Biom die Farbe, die
-/// `Kino` rechnet, die Textur linear mal dem Licht im Himmel ihres Bioms.
+/// `Kino` rechnet, die Textur linear mal dem Licht im Himmel ihres Bioms
+/// und dem der Sonne.
 /// Frozen setzt in der Fixture `#ffa040`, plains nichts und nimmt den
 /// Himmel der Oberwelt. Mit Radius 0, ohne Mischung über die Grenze.
 /// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
@@ -744,7 +745,14 @@ fn biom_faerbt_das_himmelslicht() {
         // Textur.
         let textur = pixel(&a, x, 8);
         let licht = k.licht(k.himmel(biomes.id(name)), 240.0, 0.0, 255.0);
-        let soll = k.ton(std::array::from_fn(|c| linear(textur[c]) * licht[c]));
+        let sonne = k.sonnenlicht(&Geometrie {
+            tiefe: 0.0,
+            normale: [0.0, 1.0, 0.0],
+            shade: true,
+        });
+        let soll = k.ton(std::array::from_fn(|c| {
+            linear(textur[c]) * (licht[c] + sonne[c])
+        }));
         let ist = pixel(&b, x, 8);
         assert_eq!(ist, [soll[0], soll[1], soll[2], 255], "{name}");
         farben.push(ist);

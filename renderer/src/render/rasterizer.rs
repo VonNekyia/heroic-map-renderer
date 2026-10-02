@@ -386,9 +386,12 @@ pub struct Geometrie {
     /// Die Tiefe entlang der Blickachse relativ zum Ursprung des Blocks im
     /// Blick, wie [`Projection::depth`]: grösser heisst näher.
     pub tiefe: f32,
-    /// Die Normale der Fläche in der Welt, normiert, auf der Seite, die die
+    /// Die Normale der Fläche im Blick, normiert, auf der Seite, die die
     /// Kamera sieht.
     pub normale: [f32; 3],
+    /// Die Fläche wird nach ihrer Richtung schattiert (`shade`); ohne
+    /// bekommt sie in Cinematic das Licht einer Fläche nach oben.
+    pub shade: bool,
 }
 
 /// Ein Pixel in den Farben seines Blocks: je Kanal der Rest aus dem Bild
@@ -472,9 +475,9 @@ pub struct Raster {
     offset: (i32, i32),
     ao: bool,
     weich: bool,
-    /// Für Cinematic je Rang einer Fläche ihre Normale, siehe
-    /// [`Geometrie::normale`].
-    normalen: Option<Vec<[f32; 3]>>,
+    /// Für Cinematic je Rang einer Fläche ihre Normale und `shade`, siehe
+    /// [`Geometrie`].
+    normalen: Option<Vec<([f32; 3], bool)>>,
 }
 
 impl Raster {
@@ -609,7 +612,7 @@ pub fn rastern(
                 shade,
                 kollision,
                 &ecken,
-                normale(welt, rueckseite),
+                normale(quad, rueckseite),
             ))
         })
         .collect();
@@ -622,7 +625,12 @@ pub fn rastern(
     // Modellreihenfolge.
     // Siehe docs/renderer/naehte.md, „Fragmente je Pixel“.
     projected.sort_by(|a, b| a.depth.total_cmp(&b.depth));
-    let normalen = kino.then(|| projected.iter().map(|q| q.normale).collect());
+    let normalen = kino.then(|| {
+        projected
+            .iter()
+            .map(|q| (q.normale, q.quad.shade))
+            .collect()
+    });
 
     let (min_x, min_y, max_x, max_y) = bounds(&projected)?;
     let width = (max_x - min_x).max(1) as u32;
@@ -663,8 +671,8 @@ pub fn rastern(
     })
 }
 
-/// Die Normale von `quad` in der Welt, normiert, auf der Seite, die die
-/// Kamera sieht: mit `rueckseite` umgekehrt.
+/// Die Normale von `quad`, normiert, auf der Seite, die die Kamera sieht:
+/// mit `rueckseite` umgekehrt.
 fn normale(quad: &Quad, rueckseite: bool) -> [f32; 3] {
     let n = quad.normal();
     let laenge = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
@@ -703,7 +711,7 @@ struct ProjectedQuad<'a> {
     /// Als welche Seite das Viereck weich beleuchtet wird, siehe [`ao_face`],
     /// mit deren Ecken aus [`ecken_im_blick`].
     ao_face: Option<(usize, [[f32; 2]; 4])>,
-    /// Die Normale in der Welt, siehe [`normale`].
+    /// Die Normale im Blick, siehe [`normale`].
     normale: [f32; 3],
 }
 
@@ -1194,7 +1202,7 @@ impl Canvas {
     fn mischen(
         &self,
         ao: bool,
-        normalen: Option<&[[f32; 3]]>,
+        normalen: Option<&[([f32; 3], bool)]>,
         nimm: impl Fn(&Fragment) -> bool,
     ) -> (RgbaImage, Option<Vec<u32>>, Option<Vec<Geometrie>>) {
         let pixel = (self.width * self.height) as usize;
@@ -1217,9 +1225,11 @@ impl Canvas {
                 map[index as usize] = vorderstes.ao;
             }
             if let (Some(geometrie), Some(normalen)) = (&mut geometrie, normalen) {
+                let (normale, shade) = normalen[vorderstes.order as usize];
                 geometrie[index as usize] = Geometrie {
                     tiefe: vorderstes.depth,
-                    normale: normalen[vorderstes.order as usize],
+                    normale,
+                    shade,
                 };
             }
         }

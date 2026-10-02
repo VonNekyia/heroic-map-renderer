@@ -23,21 +23,21 @@ Pyramide. Cinematic nimmt dieselben Kandidaten, dieselbe Deckungsmaske und
 dieselben Draws wie die Karte, also dasselbe Pixelraster bei jeder Kamera,
 Richtung und jedem scale; anders ist nur das Licht je Pixel, entschieden in
 [0053](../entscheidungen/0053-cinematic-als-schalter-der-karte.md). Es
-zeichnet immer die CPU. Stand ist Phase 1 (#72): ohne Sonne, Wasser,
-Leuchten, Wärme nach Biom und Bloom, die bringt #73. Ohne Sonne liegen alle
-Seiten eines Blocks im selben Licht, und das Bild ist dunkler als die Karte.
+zeichnet immer die CPU. Phase 1 (#72) brachte das Licht des Spiels, Phase 2
+(#73) bringt Sonne, Schatten, Wasser, Leuchten, Wärme nach Biom und Bloom;
+bis jetzt davon die Sonne nach dem Winkel zur Fläche, ohne Schatten.
 
 ## Werte des Looks
 
 Alle Werte stehen benannt an einer Stelle, `LOOK` in
 [`renderer/src/render/look.rs`](../../renderer/src/render/look.rs):
 
-| Wert | in `Look` | Phase 1 nutzt ihn |
+| Wert | in `Look` | genutzt |
 |---|---|---|
 | Stärke des Himmelslichts | `himmel`: 3 | ja |
 | Anteil der Farbe des Himmels am Himmelslicht, der Rest ist Nebel | `himmel_anteil`: 0,75 | ja |
 | Stärke des Blocklichts | `block`: 1,5 | ja |
-| Sonne: Stärke, Farbe linear, Höhe | `sonne`: 3, `sonne_farbe`: (1; 0,93; 0,83), `sonne_hoehe`: 48,47° | nur im Weissabgleich |
+| Sonne: Stärke, Farbe linear, Höhe, waagrecht von links zur Kamera hin | `sonne`: 3, `sonne_farbe`: (1; 0,93; 0,83), `sonne_hoehe`: 48,47°, `sonne_seite`: 8,75° | ja |
 | Belichtung | `belichtung`: 0,25 | ja |
 | Kurve: gerade bis, flach ab | `knie`: 0,8, `flach`: 1,2 | ja |
 
@@ -62,10 +62,10 @@ Nur mit dem Schalter backt die Sprite-Tabelle eigene Sprites
   Flächen aus Blockentity-Modellen und die Seiten von Flüssigkeiten. Die
   Faktoren der Karte stehen in [Dimensionstypen](dimensionstypen.md),
   „Schattierung nach Richtung“.
-- **Geometrie je Pixel** (`Sprite::geometrie`): die Tiefe entlang der
-  Blickachse relativ zum Ursprung des Blocks und die Normale der Fläche in
-  der Welt, beide vom vordersten Fragment. Phase 1 rechnet noch nicht mit
-  ihnen; die Sonne in #73 braucht sie.
+- **Geometrie je Pixel** (`Sprite::geometrie`): vom vordersten Fragment
+  die Tiefe entlang der Blickachse relativ zum Ursprung des Blocks, die
+  Normale der Fläche im Blick und ob sie `shade` hat. Die Sonne rechnet mit
+  ihnen, siehe „Sonne“.
 - **Sonst wie die Karte:** dieselben Fragmente, Füllregel, Alpha-Tests,
   AO-Karte und Tönungskarte. Ein Sprite deckt also genau die Pixel, die das
   der Karte deckt; das prüft `cinematic_ohne_schattierung_mit_geometrie`.
@@ -142,6 +142,21 @@ Das Himmelslicht hat die Farbe des Himmels am Block:
 - **`water_fog_color`** liest der Renderer schon, Cinematic nutzt sie erst
   mit dem Wasser in #73.
 
+## Sonne
+
+Die Sonne steht fest zur Kamera (`Look::sonne_im_blick`): 48,47° über dem
+Horizont, waagrecht von links um 8,75° zur Kamera hin. Links heisst im Blick
+diagonal (−1, 0, 1)/√2, genordet (−1, 0, 0); zur Kamera hin (1, 0, 1)/√2
+und (0, 0, 1). Aus jeder Richtung steht sie also gleich zum Bild.
+
+- **Licht nach dem Winkel** (`Kino::sonnenlicht`): Farbe mal Stärke 3 mal
+  dem Kosinus zwischen Normale und Sonne, abgewandt nichts. Eine Fläche
+  ohne `shade` bekommt das Licht einer Fläche nach oben, wie in 0058.
+- **Wo:** nur, wo der Dimensionstyp Himmelslicht zeigt, `sky_light_factor`
+  über 0; im Nether und im Ende scheint sie nicht.
+- **Ohne Schatten der weichen Beleuchtung:** Der Schatten an den Ecken
+  dunkelt das Licht des Spiels, nicht die Sonne.
+
 ## Zeichnen in HDR
 
 Der dritte Durchgang von `render_area_with` zeichnet mit dem Look in HDR
@@ -149,7 +164,7 @@ Der dritte Durchgang von `render_area_with` zeichnet mit dem Look in HDR
 Karte, siehe [Der Weg einer Kachel](renderpfad.md), „Blit“:
 
 - **Farbe:** erst in den Farben des Bioms wie bei der Karte (`tinted`),
-  dann linear mal ihr Licht. Liegt das Wasser eines Blocks in einem anderen
+  dann linear mal ihr Licht, dem des Spiels und der Sonne. Liegt das Wasser eines Blocks in einem anderen
   Licht als der Block, bekommt der Anteil des Wassers an der Farbe dessen
   Licht, wie bei der Karte (`tinted_im_licht`).
 - **Mischen:** vormultipliziert über den Pixel darunter, wie `over`.

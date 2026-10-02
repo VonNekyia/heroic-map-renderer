@@ -963,6 +963,10 @@ fn blit_hdr(
                 let i = (y - oy) as usize * w + sx;
                 let s = &row[sx * 4..][..4];
                 let p = y as usize * cw + x;
+                let sonne = sprite
+                    .geometrie
+                    .as_deref()
+                    .map_or([0.0; 3], |g| kino.sonnenlicht(&g[i]));
                 mische_hdr(
                     &mut hdr.farbe[p],
                     kino,
@@ -972,6 +976,7 @@ fn blit_hdr(
                     wasser,
                     anteile(sprite, i, farben),
                     himmel,
+                    sonne,
                 );
                 if let Some(geometrie) = &sprite.geometrie {
                     hdr.tiefe[p] = ursprung + geometrie[i].tiefe;
@@ -1005,9 +1010,9 @@ fn kanaele(karte: Option<(&[u32], &Ecken)>, i: usize, licht: [u32; 3]) -> [f32; 
 
 /// Legt einen Pixel für Cinematic über den darunter, siehe [`blit_hdr`]:
 /// erst die Farbe des Bioms wie bei der Karte ([`tinted`]), dann linear mal
-/// das Licht. Hat der Block Wasser in einem anderen Licht (`wasser`), liegt
-/// der Anteil des Wassers an der Farbe in dessen Licht, wie
-/// [`tinted_im_licht`] es für die Karte rechnet.
+/// das Licht des Spiels und der Sonne (`sonne`). Hat der Block Wasser in
+/// einem anderen Licht (`wasser`), liegt der Anteil des Wassers an der Farbe
+/// in dessen Licht, wie [`tinted_im_licht`] es für die Karte rechnet.
 #[allow(clippy::too_many_arguments)]
 #[inline]
 fn mische_hdr(
@@ -1019,6 +1024,7 @@ fn mische_hdr(
     wasser: Option<[u32; 3]>,
     tint: Option<([u32; 2], [u32; 2])>,
     himmel: [f32; 3],
+    sonne: [f32; 3],
 ) {
     let mut licht = kino.licht(himmel, sky, block, schatten);
     let mut farbe = s;
@@ -1042,7 +1048,7 @@ fn mische_hdr(
     }
     let a = s[3] as f32 / 255.0;
     for c in 0..3 {
-        d[c] = linear[farbe[c] as usize] * licht[c] * a + d[c] * (1.0 - a);
+        d[c] = linear[farbe[c] as usize] * (licht[c] + sonne[c]) * a + d[c] * (1.0 - a);
     }
     d[3] = a + d[3] * (1.0 - a);
 }

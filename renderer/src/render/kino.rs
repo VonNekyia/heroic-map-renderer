@@ -6,9 +6,10 @@
 use crate::assets::DimensionType;
 use crate::assets::colors::Tint;
 
+use super::Kamera;
 use super::look::Look;
 use super::pyramid::{LINEAR, to_srgb};
-use super::rasterizer::BLOCK_FACTOR;
+use super::rasterizer::{BLOCK_FACTOR, Geometrie};
 use super::tint::BiomeTable;
 
 /// Die Werte des Looks, umgerechnet für eine Dimension und ihre Biome.
@@ -29,6 +30,12 @@ pub struct Kino {
     himmel: Vec<[f32; 3]>,
     /// Weissabgleich mal Belichtung, je Kanal.
     ton: [f32; 3],
+    /// Die Richtung zur Sonne im Blick, siehe [`Look::sonne_im_blick`].
+    sonne: [f32; 3],
+    /// Das Licht der Sonne auf einer Fläche, die genau zu ihr zeigt: ihre
+    /// Farbe mal ihrer Stärke; 0, wo der Dimensionstyp kein Himmelslicht
+    /// zeigt (`sky_light_factor` 0).
+    sonne_licht: [f32; 3],
 }
 
 /// Eine Farbe in linearem Licht.
@@ -45,8 +52,8 @@ fn helligkeit(stufe: usize) -> f32 {
 
 impl Kino {
     /// Der Look `look` in der Dimension vom Typ `typ`, mit den Farben der
-    /// Biome aus `biomes`.
-    pub fn new(look: Look, typ: &DimensionType, biomes: &BiomeTable) -> Kino {
+    /// Biome aus `biomes`, aus der Kamera `kamera`.
+    pub fn new(look: Look, typ: &DimensionType, biomes: &BiomeTable, kamera: Kamera) -> Kino {
         let himmel_farbe = linear(typ.sky_light_color);
         let tint = linear(typ.block_light_tint);
         let himmel_stufen = std::array::from_fn(|s| {
@@ -72,6 +79,11 @@ impl Kino {
             vorgabe: (typ.sky_color, typ.fog_color),
             himmel: Vec::new(),
             ton: weiss.map(|v| v * look.belichtung),
+            sonne: look.sonne_im_blick(kamera),
+            sonne_licht: match typ.sky_light_factor > 0.0 {
+                true => look.sonne_farbe.map(|c| c * look.sonne),
+                false => [0.0; 3],
+            },
         };
         kino.mit_biomen(biomes);
         kino
@@ -123,6 +135,24 @@ impl Kino {
         std::array::from_fn(|c| (himmel[c] * h[c] + b[c]) * k)
     }
 
+    /// Die Richtung zur Sonne im Blick.
+    pub fn sonne(&self) -> [f32; 3] {
+        self.sonne
+    }
+
+    /// Das Licht der Sonne auf einem Pixel mit `geometrie`, ohne Schatten:
+    /// nach dem Winkel zwischen Normale und Sonne, eine Fläche ohne `shade`
+    /// wie eine nach oben; abgewandt keines.
+    /// Siehe docs/renderer/cinematic.md, „Sonne“.
+    pub fn sonnenlicht(&self, geometrie: &Geometrie) -> [f32; 3] {
+        let [nx, ny, nz] = match geometrie.shade {
+            true => geometrie.normale,
+            false => [0.0, 1.0, 0.0],
+        };
+        let cos = (nx * self.sonne[0] + ny * self.sonne[1] + nz * self.sonne[2]).max(0.0);
+        self.sonne_licht.map(|c| c * cos)
+    }
+
     /// Eine Farbe aus HDR, linear, nach sRGB: Weissabgleich und Belichtung,
     /// dann je Kanal die Kurve aus [`Look::kurve`].
     pub fn ton(&self, farbe: [f32; 3]) -> [u8; 3] {
@@ -137,7 +167,36 @@ mod tests {
     use crate::render::look::LOOK;
 
     fn kino(typ: &DimensionType) -> Kino {
-        Kino::new(LOOK, typ, &BiomeTable::new(&Colors::default()))
+        Kino::new(
+            LOOK,
+            typ,
+            &BiomeTable::new(&Colors::default()),
+            Kamera::ZWEI_ZU_EINS,
+        )
+    }
+
+    /// Die Sonne nach dem Winkel: eine Fläche nach oben bekommt den Sinus
+    /// der Höhe, eine abgewandte nichts, eine ohne `shade` wie eine nach
+    /// oben. Im Nether scheint sie nicht.
+    #[test]
+    fn sonne_nach_dem_winkel() {
+        let kino = kino(&DimensionType::oberwelt());
+        let g = |normale, shade| Geometrie {
+            tiefe: 0.0,
+            normale,
+            shade,
+        };
+        let oben = kino.sonnenlicht(&g([0.0, 1.0, 0.0], true));
+        let hoch = LOOK.sonne_hoehe.to_radians().sin() * LOOK.sonne;
+        for (o, f) in oben.iter().zip(LOOK.sonne_farbe) {
+            assert!((o - f * hoch).abs() < 1e-5);
+        }
+        let weg = kino.sonne().map(|c| -c);
+        assert_eq!(kino.sonnenlicht(&g(weg, true)), [0.0; 3]);
+        assert_eq!(kino.sonnenlicht(&g(weg, false)), oben);
+        let nether = DimensionType::des_spiels("minecraft:the_nether").unwrap();
+        let im_nether = super::tests::kino(&nether);
+        assert_eq!(im_nether.sonnenlicht(&g([0.0, 1.0, 0.0], true)), [0.0; 3]);
     }
 
     /// Die Stufen wie in `lightmap.fsh`, getrennt und ohne Begrenzung: In

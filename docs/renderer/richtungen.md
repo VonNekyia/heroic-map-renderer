@@ -139,11 +139,14 @@ In `renderer/tests/richtung.rs`:
   Richtung, in 2:1 und `north-45`, an einem Block und an einem Topf im
   Licht der Entities.
 - `gedrehte_szene_wie_aus_der_vorgabe`: Treppen in allen Formen, Platten,
-  Türen, Zäune und Scheiben, die sich verbinden, Eis, Licht unter einem
-  Dach mit einer Quelle und einem voll hellen Block, weich beleuchtete
-  Bretter, Teile in fremden Würfeln, auch in einem belegten, eine
-  Doppelkiste, ein Topf und Wasser in Stufen, alles in der Luft über die
-  Grenzen von vier Chunks. Die Szene wird in der Welt um k Vierteldrehungen
+  Türen, Zäune und Scheiben, die sich verbinden, auch geflutete, Eis,
+  Licht unter einem Dach mit einer Quelle, ein voll heller Block auf weich
+  beleuchteten Brettern, Teile in fremden Würfeln, auch in einem belegten,
+  eine Doppelkiste, ein Topf und Wasser in Stufen, alles in der Luft über
+  die Grenzen von vier Chunks. Der voll helle Block steht unter einem Dach
+  zwei Zellen hoch: Unter freiem Himmel oder neben der Quelle wären die
+  Bretter ohnehin voll hell, und eine Zelle hoch zählte der Block in der
+  Ecke nicht. Die Szene wird in der Welt um k Vierteldrehungen
   gedreht und aus der Richtung k gerendert, für k = 1, 2, 3 und je Kamera
   2:1, 4:3, `top`, `top-north` und `north-45`; gedreht liegt sie bei
   negativen Koordinaten. Halb gedreht gleicht das Bild dem der Vorgabe im
@@ -178,6 +181,8 @@ In `renderer/src/render/metatile.rs` prüft
 `ecken_im_blick_passen_zu_den_nachbarn` die Tabellen der weichen
 Beleuchtung je Richtung, in `renderer/src/render/rasterizer.rs`
 `ecken_der_seiten_im_blick` ihre Ecken, beide aus `nw` und `sw` mit festen
-Zahlen. In `renderer/tests/cli.rs` prüft `richtung_ist_ein_eigener_baum`
-den Lauf mit `--direction` aus `nw` und `sw`,
-`center_in_der_welt_aus_jeder_richtung` `--center`.
+Zahlen. In `renderer/src/render/sprites.rs` prüft
+`wuerfelform_nur_mit_flaechen_auf_den_vorderseiten` die Vorderseiten im
+Blick an der Kerbe, aus `se` und `nw`. In `renderer/tests/cli.rs` prüft
+`richtung_ist_ein_eigener_baum` den Lauf mit `--direction` aus `nw` und
+`sw`, `center_in_der_welt_aus_jeder_richtung` `--center`.

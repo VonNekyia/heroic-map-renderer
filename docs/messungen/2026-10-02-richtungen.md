@@ -26,7 +26,9 @@ derselben Spalten.
 - Stände, Release-Build:
   - **A:** `0fe7a65`, #86, die Ablage ohne Drehung, gleich master
     `703d4d2`;
-  - **B:** `cf8ce5c`, #87 mit der Drehung.
+  - **B:** `cf8ce5c`, #87 mit der Drehung. Die Runde des Reviews danach
+    ändert in `renderer/src` ausser Unit-Tests nur ein `debug_assert`; der
+    Release-Build rechnet wie B.
 - Die Testwelt, `--native-levels 3`, Pyramide, 24 Threads, 2:1 bei scale 32
   mit nativen Stufen bei 16, 8 und 4, `north-45` bei scale 16 mit 8 und 4.
   - **Stand:** um (-64, 416) mit `--size 18432`, wie in

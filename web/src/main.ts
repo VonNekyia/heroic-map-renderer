@@ -304,7 +304,7 @@ function koordinaten(
   return bei;
 }
 
-/** Ein Baum aus `maps.json`. Siehe docs/frontend.md, „Ansichten und Kompass“. */
+/** Ein Baum aus `trees.json`. Siehe docs/frontend.md, „Ansichten und Kompass“. */
 interface Baum {
   path: string;
   camera: string;
@@ -318,9 +318,9 @@ function istBaum(value: unknown): value is Baum {
   return ['path', 'camera', 'direction', 'look'].every((feld) => typeof baum[feld] === 'string');
 }
 
-/** Die Bäume aus `maps.json`, oder `null` ohne sie: dann ist `wurzel` selbst ein Baum. */
+/** Die Bäume aus `trees.json`, oder `null` ohne sie: dann ist `wurzel` selbst ein Baum. */
 async function ladeListe(wurzel: string): Promise<Baum[] | null> {
-  const path = `${wurzel}/maps.json`;
+  const path = `${wurzel}/trees.json`;
   const response = await fetch(path);
   // Ein Server, der auf unbekannte Pfade die index.html ausliefert, meint
   // dasselbe wie 404.

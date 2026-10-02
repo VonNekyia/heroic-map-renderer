@@ -51,7 +51,7 @@ body {
   text-align: center;
 }
 
-/* Der Umschalter zwischen den Bäumen aus maps.json. */
+/* Der Umschalter zwischen den Bäumen aus trees.json. */
 .baeume {
   font: 13px system-ui, sans-serif;
 }

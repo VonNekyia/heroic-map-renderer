@@ -272,7 +272,7 @@ test('ohne map.json sagt die Seite warum', async ({ page }) => {
 });
 
 /**
- * Zwei Bäume unter `/tiles-baeume`, wie der Renderer sie anlegt: `maps.json`
+ * Zwei Bäume unter `/tiles-baeume`, wie der Renderer sie anlegt: `trees.json`
  * mit `2x1-se` und `2x1-nw`, je ein `map.json`, Höhen geteilt in `heights/`.
  * Beide zeigen die Kacheln des Demobaums; die Höhen sind eben auf Y 0.
  */
@@ -283,7 +283,7 @@ async function baeume(page: Page): Promise<void> {
     direction,
     look: 'map',
   }));
-  await page.route('**/tiles-baeume/maps.json', (route) => route.fulfill({ json: { trees } }));
+  await page.route('**/tiles-baeume/trees.json', (route) => route.fulfill({ json: { trees } }));
   await page.route('**/tiles-baeume/*/**', async (route) => {
     const url = route.request().url().replace(/\/tiles-baeume\/2x1-\w+\//, '/tiles-demo/');
     await route.fulfill({ response: await route.fetch({ url }) });

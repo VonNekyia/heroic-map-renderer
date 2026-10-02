@@ -157,10 +157,10 @@ Oben rechts zeigt ein Pfeil nach Norden, gedreht nach `projection` und
 `direction`: aus Südosten bei 2:1 um 63,4°, genordet aus Süden gerade nach
 oben.
 
-Liegt unter dem Kachelpfad eine `maps.json`, ist jeder Eintrag unter
+Liegt unter dem Kachelpfad eine `trees.json`, ist jeder Eintrag unter
 `trees` ein eigener Baum mit eigenem `map.json`, siehe
 [0051](entscheidungen/0051-kameras-und-richtungen.md). Das Frontend öffnet
-den aus `?tree=<path>`, sonst den ersten. Ohne `maps.json` (404, oder ein
+den aus `?tree=<path>`, sonst den ersten. Ohne `trees.json` (404, oder ein
 Server, der stattdessen die Seite schickt) ist der Kachelpfad selbst der
 Baum, wie bisher.
 
@@ -170,7 +170,7 @@ die Seite neu, mit drei Parametern in der Adresse:
 
 | Parameter | Inhalt |
 |---|---|
-| `tree` | `path` des Baums aus `maps.json` |
+| `tree` | `path` des Baums aus `trees.json` |
 | `at` | der Block in der Mitte, `x,y,z` in Weltkoordinaten |
 | `zoom` | die Zoomstufe |
 

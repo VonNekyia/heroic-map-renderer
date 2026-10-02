@@ -855,13 +855,16 @@ fn bake_all(assets: &mut Assets, states: &BTreeSet<BlockState>, projection: Proj
     }
 }
 
-/// Bildausschnitt um eine Blockspalte der Welt, im Blick aus der Richtung
-/// der Projektion.
+/// Bildausschnitt um den Punkt `(x, 0, z)` der Welt, die Ecke der Spalte mit
+/// kleinstem x und z. Er liegt aus jeder Richtung in der Mitte: gedreht als
+/// Punkt, nicht als Block.
 ///
 /// `project_block` und nicht `project`: `--center` nimmt Weltkoordinaten
 /// entgegen, und die brauchen f64.
 fn window(projection: Projection, center: (i32, i32), size: u32) -> ScreenRect {
-    let [x, z] = projection.richtung().in_den_blick([center.0, center.1]);
+    let [x, _, z] = projection
+        .richtung()
+        .versatz_in_den_blick([center.0, 0, center.1]);
     let (cx, cy) = projection.project_block([x, 0, z]);
     ScreenRect {
         x: cx.round() as i32 - size as i32 / 2,

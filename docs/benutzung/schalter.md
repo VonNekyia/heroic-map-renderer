@@ -30,7 +30,7 @@ Texte.
 | `--direction RICHTUNG` | wo die Kamera steht: diagonal `se`, `sw`, `nw` oder `ne`, genordet `s`, `w`, `n` oder `e`, Vorgabe `se` und `s` | [Kamera](../renderer/kamera.md), „Richtungen“ |
 | `--biome-blend N` | wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, 0 bis 7 Blöcke wie der Biomübergang im Spiel, Vorgabe 2; ein bestehender Kachelbaum behält seinen | [Biomfarben](../renderer/biomfarben.md), [map.json](map-json.md) |
 | `--render DATEI` | einen Weltausschnitt in eine PNG rendern | unten |
-| `--center X Z` | die Blockspalte in der Bildmitte, Vorgabe `0 0` | unten |
+| `--center X Z` | der Punkt der Welt in der Bildmitte, Vorgabe `0 0` | unten |
 | `--size N` | Kantenlänge des Ausschnitts in Pixeln, ab 1; für `--render` Vorgabe 1024, ohne Angabe deckt `--tiles` die ganze Welt | [Kacheln exportieren](kacheln.md) |
 | `--scan` | jeden Chunk dekodieren, auch die nicht fertig erzeugten, mit `--assets` die Blockstates der übrigen auflösen und rastern | unten |
 | `--tiles DIR` | die Welt als WebP-Kacheln exportieren; `DIR` ist die Wurzel, der Baum liegt in `DIR/<kamera>-<richtung>` | [Kacheln exportieren](kacheln.md) |
@@ -132,13 +132,16 @@ Render:     390 Chunks gelesen, 215 Blockstates, 536 Sprites
             900x900 px bei (-4290, 958) und scale 16 in 0.3 s -> docs/bilder/map.png
 ```
 
-`--center` nennt die Blockspalte, deren Höhe 0 in der Bildmitte landet,
-`--scale` die Pixelbreite eines Blocks, `--size` die Kantenlänge,
-mindestens 1. Eine Oberfläche in Höhe y liegt schräg y · b Pixel über ihrer
-Spalte; welche Spalte dann in der Mitte zu sehen ist, hängt an a und damit
-an der Kamera, siehe [Kamera](../renderer/kamera.md), „Projektion“. Von
-oben ist es die Spalte selbst. Wer bei jeder Kamera denselben Block in der
-Mitte will, rechnet `--center` je Kamera, wie `mitte` in
+`--center` nennt den Punkt (X, 0, Z) der Welt, die Ecke der Blockspalte
+(X, Z) mit kleinstem x und z; er landet aus jeder Richtung in der
+Bildmitte. `--scale` nennt die Pixelbreite eines Blocks, `--size` die
+Kantenlänge, mindestens 1. Ein Punkt in Höhe y liegt schräg y · b Pixel
+über dem Punkt in Höhe 0 darunter; welcher Punkt einer Oberfläche dann in
+der Mitte zu sehen ist, hängt an a und damit an der Kamera, siehe
+[Kamera](../renderer/kamera.md), „Projektion“. Von oben liegt der Punkt
+selbst in der Mitte, die Ecke von vier Spalten. Wer bei jeder Kamera
+denselben Punkt in der Mitte will, rechnet `--center` je Kamera und
+Richtung, wie `mitte` in
 [`skills/doku-bilder-rendern/bilder-rendern.py`](../../skills/doku-bilder-rendern/bilder-rendern.py). Die
 Ausgabe nennt die linke obere Bildecke in Pixeln. Die Sprite-Tabelle kommt
 aus demselben Vorlauf wie beim Kachelexport, nur über den Ausschnitt, und

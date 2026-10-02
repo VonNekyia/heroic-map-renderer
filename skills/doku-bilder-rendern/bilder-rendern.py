@@ -38,7 +38,7 @@ GRENZEN = {
 }
 LUECKE = 8
 # Dasselbe Dorf je Kamera für docs/renderer/kamera.md, zwei mal zwei: der
-# Block ZIEL in der Mitte jedes Felds, scale 16.
+# Punkt ZIEL in der Mitte jedes Felds, scale 16.
 KAMERAS = ("2:1", "4:3", "1:1", "top")
 # Dasselbe für die genordeten Kameras, nebeneinander.
 GENORDET = ("top-north", "north-45")
@@ -60,17 +60,30 @@ def rendern(renderer, daten, ziel, center, scale, size, extra=()):
     )
 
 
-def mitte(kamera, ziel):
-    """--center, das den Block ziel in die Bildmitte legt. --center nennt die
-    Spalte, deren Höhe 0 in der Mitte landet; v rückt je Block Höhe um b/a,
-    schräg W/H, von oben 0, bei north-45 1. Genordet ist v = z."""
+def drehe(x, z, vierteln):
+    """Ein Punkt der Welt im Blick nach so vielen Vierteldrehungen, wie
+    versatz_in_den_blick in renderer/src/render/projection.rs."""
+    for _ in range(vierteln % 4):
+        x, z = z, -x
+    return x, z
+
+
+def mitte(kamera, ziel, vierteln=0):
+    """--center, das den Punkt ziel in die Bildmitte legt, aus der Richtung
+    nach vierteln Vierteldrehungen: se, sw, nw, ne oder s, w, n, e sind 0 bis
+    3. --center nennt den Punkt (x, 0, z), der in der Mitte landet; v rückt je
+    Block Höhe um b/a, schräg W/H, von oben 0, bei north-45 1. Genordet ist
+    v = z. Gerechnet wird im Blick, das Ergebnis zurück in die Welt gedreht."""
     x, y, z = ziel
+    x, z = drehe(x, z, vierteln)
     if kamera in GENORDET:
-        return x, z - (y if kamera == "north-45" else 0)
-    b_je_a = 0 if kamera == "top" else Fraction(*map(int, kamera.split(":")))
-    u, v = x - z, x + z - round(y * b_je_a)
-    v -= (u + v) % 2
-    return (u + v) // 2, (v - u) // 2
+        mx, mz = x, z - (y if kamera == "north-45" else 0)
+    else:
+        b_je_a = 0 if kamera == "top" else Fraction(*map(int, kamera.split(":")))
+        u, v = x - z, x + z - round(y * b_je_a)
+        v -= (u + v) % 2
+        mx, mz = (u + v) // 2, (v - u) // 2
+    return drehe(mx, mz, -vierteln)
 
 
 def webp(bild, name):

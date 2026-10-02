@@ -6,6 +6,7 @@ import {
   pick,
   projiziere,
   region,
+  RICHTUNGEN,
   strahl,
   umriss,
   type Block,
@@ -49,9 +50,11 @@ test('die Projektion rechnet wie der Renderer, jede Kamera', () => {
   expect(new Set(paare.map((e) => e.camera)).size).toBeGreaterThan(5);
   for (const { camera, direction, scale, block, pixel } of paare) {
     const p = kamera(camera, scale);
-    expect(direction).toBe(p.azimuth === 'north' ? 's' : 'se');
-    const name = `${camera}, scale ${scale}, Block ${String(block)}`;
-    expect(projiziere(...block, p), name).toEqual(pixel);
+    // Der Block steht in Weltkoordinaten, das Pixel gilt für ihn im Blick.
+    const k = RICHTUNGEN[p.azimuth].indexOf(direction);
+    const name = `${camera} ${direction}, scale ${scale}, Block ${String(block)}`;
+    expect(k, name).toBeGreaterThanOrEqual(0);
+    expect(projiziere(...inDenBlick(block, k), p), name).toEqual(pixel);
   }
 });
 

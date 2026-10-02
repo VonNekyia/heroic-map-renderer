@@ -100,7 +100,9 @@ impl Look {
     /// ihr Licht. `himmelslicht` ist das der Oberwelt aus
     /// [`Look::himmelslicht`].
     pub fn weissabgleich(&self, himmelslicht: [f32; 3]) -> [f32; 3] {
-        let hoch = self.sonne_hoehe.to_radians().sin().max(0.0);
+        // In f64 und dann gerundet: so hängt das Ergebnis nicht am letzten
+        // Bit der libm des Systems, und die Goldbilder gelten überall.
+        let hoch = (f64::from(self.sonne_hoehe).to_radians().sin() as f32).max(0.0);
         let e: [f32; 3] = std::array::from_fn(|c| {
             self.sonne_farbe[c] * self.sonne * hoch + himmelslicht[c] * self.himmel
         });

@@ -13,6 +13,7 @@ use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, CardinalLight, Face, Textures, Tints, fluid, models_of};
 use crate::world::{BlockState, Blockdaten};
 
+use super::kino::Kino;
 use super::look::Look;
 use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
 use super::tint::BiomeTable;
@@ -79,8 +80,8 @@ pub struct SpriteSet {
     /// [`SpriteSet::deckt_fuer_licht`]. `None` nur in einer Tabelle der Basis
     /// in 2:1: Dort entscheidet sie selbst.
     licht_deckend: Option<HashSet<BlockState>>,
-    /// Mit welchen Werten Cinematic zeichnet; `None` für die Karte.
-    look: Option<Look>,
+    /// Womit Cinematic zeichnet; `None` für die Karte.
+    kino: Option<Kino>,
 }
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
@@ -536,6 +537,8 @@ impl SpriteSet {
         look: Option<Look>,
     ) -> Result<SpriteSet> {
         let typ = assets.dimension_type();
+        let biomes = BiomeTable::new(assets.colors());
+        let kino = look.map(|look| Kino::new(look, &typ, &biomes));
         let mut set = SpriteSet {
             sprites: Vec::new(),
             families: Vec::new(),
@@ -550,9 +553,9 @@ impl SpriteSet {
             himmel: typ.has_skylight,
             masks: Masks::new(assets.textures(), projection),
             foreign: BTreeSet::new(),
-            biomes: BiomeTable::new(assets.colors()),
+            biomes,
             licht_deckend: None,
-            look,
+            kino,
         };
 
         // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
@@ -768,6 +771,9 @@ impl SpriteSet {
     /// Die Farben der Biome für das Zeichnen, mit dem Radius der Mischung
     /// und dem Seed der Welt, siehe [`BiomeTable`].
     pub fn set_biomes(&mut self, biomes: BiomeTable) {
+        if let Some(kino) = &mut self.kino {
+            kino.mit_biomen(&biomes);
+        }
         self.biomes = biomes;
     }
 
@@ -777,7 +783,12 @@ impl SpriteSet {
 
     /// Mit welchen Werten Cinematic zeichnet; `None` für die Karte.
     pub fn look(&self) -> Option<&Look> {
-        self.look.as_ref()
+        self.kino.as_ref().map(Kino::look)
+    }
+
+    /// Womit Cinematic zeichnet; `None` für die Karte.
+    pub fn kino(&self) -> Option<&Kino> {
+        self.kino.as_ref()
     }
 
     /// Hält ein Block, den 26.2 nicht kennt, das Licht ganz auf? Wenn sein
@@ -982,7 +993,7 @@ impl SpriteSet {
                 tints,
                 self.licht,
                 kollision(state),
-                self.look.is_some(),
+                self.kino.is_some(),
             )
         };
         let schwarz = raster(tints(SCHWARZ, SCHWARZ))?;

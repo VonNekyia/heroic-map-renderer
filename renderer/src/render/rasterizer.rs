@@ -46,7 +46,7 @@ pub const FULL_LIGHT: u8 = 15;
 
 /// `BlockFactor` aus `LightmapRenderStateExtractor.extract`: 1,4 und ein
 /// Flackern, das `tick` zufällig um 0 laufen lässt. Hier ohne Flackern.
-const BLOCK_FACTOR: f32 = 1.4;
+pub(crate) const BLOCK_FACTOR: f32 = 1.4;
 
 /// `BrightnessFactor`: `options.gamma` in der Voreinstellung.
 const BRIGHTNESS_FACTOR: f32 = 0.5;

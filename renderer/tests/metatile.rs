@@ -202,35 +202,46 @@ fn kleine_ausschnitte_gleichen_dem_grossen_bild() {
         let survey = survey(&world, projection, y_range, None).unwrap();
         let mut assets = assets();
         assets.load_biomes(&common::biomdaten()).unwrap();
-        let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
-        let ganz = rect_um(projection, [0, -16, 0], [32, 48, 32]);
-        let gross = render_area(&world, &sprites, ganz, y_range).unwrap();
-        let mut ausschnitte = 0;
-        for y in (ganz.y..ganz.bottom()).step_by(128) {
-            for x in (ganz.x..ganz.right()).step_by(128) {
-                let rect = ScreenRect {
-                    x,
-                    y,
-                    width: 128.min((ganz.right() - x) as u32),
-                    height: 128.min((ganz.bottom() - y) as u32),
-                };
-                let klein = render_area(&world, &sprites, rect, y_range).unwrap();
-                let soll = image::imageops::crop_imm(
-                    &gross,
-                    (x - ganz.x) as u32,
-                    (y - ganz.y) as u32,
-                    rect.width,
-                    rect.height,
-                )
-                .to_image();
-                assert!(
-                    klein == soll,
-                    "{kamera} aus {k} bei {scale}: Ausschnitt bei ({x}, {y})"
-                );
-                ausschnitte += 1;
+        // Die Karte und Cinematic.
+        for look in [None, Some(LOOK)] {
+            let sprites =
+                SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, look)
+                    .unwrap();
+            let ganz = rect_um(projection, [0, -16, 0], [32, 48, 32]);
+            let gross = render_area(&world, &sprites, ganz, y_range).unwrap();
+            assert!(
+                gross == render_area(&world, &sprites, ganz, y_range).unwrap(),
+                "{kamera} aus {k} bei {scale}, Cinematic {}: zweimal anders",
+                look.is_some()
+            );
+            let mut ausschnitte = 0;
+            for y in (ganz.y..ganz.bottom()).step_by(128) {
+                for x in (ganz.x..ganz.right()).step_by(128) {
+                    let rect = ScreenRect {
+                        x,
+                        y,
+                        width: 128.min((ganz.right() - x) as u32),
+                        height: 128.min((ganz.bottom() - y) as u32),
+                    };
+                    let klein = render_area(&world, &sprites, rect, y_range).unwrap();
+                    let soll = image::imageops::crop_imm(
+                        &gross,
+                        (x - ganz.x) as u32,
+                        (y - ganz.y) as u32,
+                        rect.width,
+                        rect.height,
+                    )
+                    .to_image();
+                    assert!(
+                        klein == soll,
+                        "{kamera} aus {k} bei {scale}, Cinematic {}: Ausschnitt bei ({x}, {y})",
+                        look.is_some()
+                    );
+                    ausschnitte += 1;
+                }
             }
+            assert!(ausschnitte >= 4, "{kamera}: nur {ausschnitte} Ausschnitte");
         }
-        assert!(ausschnitte >= 4, "{kamera}: nur {ausschnitte} Ausschnitte");
     }
 }
 
@@ -532,7 +543,9 @@ fn schneller_weg_gleicht_der_referenz() {
 /// mit denselben Pixeln, AO-Karten und Farben des Bioms. Sein Licht trägt
 /// Himmels- und Blocklicht getrennt in Sechzehnteln und den Schatten der
 /// weichen Beleuchtung; durch die Lightmap gerechnet ist es an jeder Ecke
-/// und für das Wasser das Licht der Karte.
+/// und für das Wasser das Licht der Karte. Im Bild ist genau da ein Pixel,
+/// wo die Karte einen hat; sein Alpha weicht höchstens um eins ab, denn die
+/// Karte rundet nach jeder Schicht, Cinematic erst am Ende.
 /// Siehe docs/renderer/cinematic.md, „Licht an den Ecken“.
 #[test]
 fn cinematic_zeichnet_dieselben_draws_wie_die_karte() {
@@ -616,7 +629,93 @@ fn cinematic_zeichnet_dieselben_draws_wie_die_karte() {
                 }
             }
         }
+        let bild = |sprites| render_area(&world, sprites, rect, y_range).unwrap();
+        let (a, b) = (bild(&karte), bild(&kino));
+        for (p, q) in a.pixels().zip(b.pixels()) {
+            assert_eq!(p.0[3] > 0, q.0[3] > 0, "{wo}: Pixel offen");
+            assert!(
+                p.0[3].abs_diff(q.0[3]) <= 1,
+                "{wo}: Alpha {} statt {}",
+                q.0[3],
+                p.0[3]
+            );
+        }
     });
+}
+
+/// Ein Biom mit eigener `sky_color` färbt das Himmelslicht: Die Oberseite
+/// eines Blocks im vollen Himmelslicht hat in jedem Biom die Farbe, die
+/// `Kino` rechnet, die Textur linear mal dem Licht im Himmel ihres Bioms.
+/// Frozen setzt in der Fixture `#ffa040`, plains nichts und nimmt den
+/// Himmel der Oberwelt. Mit Radius 0, ohne Mischung über die Grenze.
+/// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
+#[test]
+fn biom_faerbt_das_himmelslicht() {
+    let dir = tempdir();
+    let boden = |_: i32, y: i32, _: i32| {
+        if y <= 3 {
+            "minecraft:einfarbig"
+        } else {
+            "minecraft:air"
+        }
+    };
+    let biom = |cx: i32, _: i32| {
+        Some(if cx == 0 {
+            "minecraft:plains"
+        } else {
+            "minecraft:frozen"
+        })
+    };
+    common::write_world_sections(dir.path(), &[(0, 0), (1, 0)], 0..=0, boden, biom);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let survey = survey(&world, projection, Y_RANGE, None).unwrap();
+    let mut assets = assets();
+    assets.load_biomes(&common::biomdaten()).unwrap();
+    let biomes = BiomeTable::new(assets.colors()).with(0, None);
+    let mut karte = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+    let mut kino =
+        SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+            .unwrap();
+    karte.set_biomes(biomes.clone());
+    kino.set_biomes(biomes.clone());
+    let rect = rect_um(projection, [0, 0, 0], [32, 4, 16]);
+    let (a, b) = (
+        render_area(&world, &karte, rect, Y_RANGE).unwrap(),
+        render_area(&world, &kino, rect, Y_RANGE).unwrap(),
+    );
+    // Die Mitte der Oberseite des Blocks (x, 3, z).
+    let pixel = |bild: &RgbaImage, x: i32, z: i32| {
+        let (sx, sy) = projection.project([x as f32 + 0.5, 4.0, z as f32 + 0.5]);
+        bild.get_pixel(
+            (sx.floor() as i32 - rect.x) as u32,
+            (sy.floor() as i32 - rect.y) as u32,
+        )
+        .0
+    };
+    let linear = |c: u8| {
+        let c = c as f32 / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let k = kino.kino().unwrap();
+    let mut farben = Vec::new();
+    for (x, name) in [(8, "minecraft:plains"), (24, "minecraft:frozen")] {
+        // Die Karte zeigt die Oberseite im vollen Licht in der Farbe der
+        // Textur.
+        let textur = pixel(&a, x, 8);
+        let licht = k.licht(k.himmel(biomes.id(name)), 240.0, 0.0, 255.0);
+        let soll = k.ton(std::array::from_fn(|c| linear(textur[c]) * licht[c]));
+        let ist = pixel(&b, x, 8);
+        assert_eq!(ist, [soll[0], soll[1], soll[2], 255], "{name}");
+        farben.push(ist);
+    }
+    // Der Himmel von frozen ist wärmer.
+    let waerme = |p: [u8; 4]| p[0] as f32 / p[2] as f32;
+    assert!(waerme(farben[1]) > waerme(farben[0]), "{farben:?}");
 }
 
 /// Ein Ausschnitt, grösser als ein Stück von `render_area`, gleicht Byte
@@ -796,6 +895,26 @@ fn goldbild_bleibt_gleich() {
             render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
         ));
     }
+    // Cinematic in 2:1 um die Treppe aus Stein, mit Gras, Lava und dem Rand
+    // des Beckens, 10 mal 12 Blöcke wie oben.
+    let projection = Projection::new(16);
+    let survey = survey(&world, projection, common::SZENE_Y, None).unwrap();
+    let mut assets = assets();
+    assets.load_biomes(&common::biomdaten()).unwrap();
+    let sprites =
+        SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+            .unwrap();
+    let (mx, my) = projection.project_block([6, 4, 24]);
+    let rect = ScreenRect {
+        x: mx as i32 - 80,
+        y: my as i32 - 96,
+        width: 160,
+        height: 192,
+    };
+    fehler.extend(goldbild(
+        "metatile-cinematic",
+        render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
+    ));
     assert!(fehler.is_empty(), "{}", fehler.join("\n"));
 }
 

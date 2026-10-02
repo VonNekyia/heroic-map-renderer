@@ -30,6 +30,16 @@ schon ein Baum mit dem anderen steht.
 Der exakte Strahl je Texel bleibt, bei rund 0,7 bis 0,9 µs. Was ein
 Cinematic-Baum damit kostet, steht in 0056.
 
+[0058](0058-look-von-cinematic.md) löst unter „Entscheidung“, „Was ein
+Pixel bekommt“, vier Stellen ab:
+
+- den harten Schatten auch hinter Bodenpflanzen: Sie dämpfen die Sonne
+  nur;
+- den Nebel: Er fällt weg;
+- die Schwelle des Bloom: Er hat keine;
+- den festen Weissabgleich und die filmische Kurve: Der Weissabgleich
+  folgt dem Biom, die Kurve ist bis zum Knie eine Gerade.
+
 ## Anlass
 
 [0046](0046-drei-renderarten.md) plante drei Renderarten mit zwei

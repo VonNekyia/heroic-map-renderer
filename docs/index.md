@@ -112,6 +112,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0055](entscheidungen/0055-welt-beim-zugriff-drehen.md): Die Welt beim Zugriff drehen: im Blick rechnen, Modelle im Rasterizer drehen, Chunks, Licht, Saat und Biome in der Welt.
 - [0056](entscheidungen/0056-exakter-strahl-zur-sonne.md): Exakter Strahl zur Sonne ohne Ziel von 0,5 µs: rund 0,7 bis 0,9 µs je Strahl angenommen, keine Schattenkarte.
 - [0057](entscheidungen/0057-flaechen-vor-einem-vollen-nachbarn.md): Flächen vor einem vollen Nachbarn nach der Tabelle des Spiels: `seiten.txt` sagt, wo ein Block voll deckt, gefragt wird nur zu Seiten, deren Flächen der Nachbar nicht übermalt.
+- [0058](entscheidungen/0058-look-von-cinematic.md): Look von Cinematic. In der Sonne wie die Karte; Kurve bis zum Knie gerade; Weissabgleich nach der Temperatur des Bioms; Bodenpflanzen dämpfen die Sonne auf die Hälfte; kein Nebel.
 
 ## Messungen
 
@@ -148,3 +149,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-02, Richtungen](messungen/2026-10-02-richtungen.md): was die Drehung der Welt aus #68 kostet, in 2:1 aus `se` gegen `nw` und aus der Vorgabe gegen #86, ohne und mit Karte, und dass `se` und `s` Byte für Byte gleich bleiben.
 - [2026-10-02, Zwei Zustände der Basis](messungen/2026-10-02-zwei-zustaende-der-basis.md): warum die Basis am Stand mal 1 bis 2 s länger braucht: Das Löschen des vorigen Baums unmittelbar vor dem nächsten Lauf staut dessen Schreiben; mit Messung je Thread, am Stand C aus #52 und am heutigen master.
 - [2026-10-02, Gang zur Sonne in Stufen](messungen/2026-10-02-gang-zur-sonne-in-stufen.md): was ein Strahl zur Sonne am Prototyp mit dem Gang in Stufen kostet, gegen den alten Gang und den schnellsten aus Reihe 4; Bilder aus getrennten Läufen, Zeit aus Durchgängen im Wechsel in einem Prozess.
+- [2026-10-02, Look von Cinematic](messungen/2026-10-02-look-von-cinematic.md): Kennzahlen des Looks aus 0058 am Prototyp über 24 Ansichten der Testwelt gegen die Karte, dazu verworfene Kurven, Dunst, feste Weissabgleiche und die Stufen des Pflanzenschattens an Wiesen.

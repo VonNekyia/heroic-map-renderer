@@ -548,6 +548,16 @@ type Licht = ([u32; 3], Option<Ecken>, Option<[u32; 3]>, [u32; 2]);
 /// [`Licht`] ohne die Farben, wie [`ChunkCache::licht_fuer`] es gibt.
 type Lichter = ([u32; 3], Option<Ecken>, Option<[u32; 3]>);
 
+/// Was Cinematic statt der Helligkeit in die drei Kanäle von [`Ecken`] und
+/// des Lichts eines Draws legt: Himmels- und Blocklicht getrennt, in
+/// Sechzehnteln einer Stufe wie [`smooth_blend`] und [`Light::packed`] sie
+/// liefern, und den Schatten der weichen Beleuchtung in 255steln. Die Farbe
+/// des Lichts kommt erst beim Zeichnen dazu.
+/// Siehe docs/renderer/cinematic.md, „Licht an den Ecken“.
+fn kino_kanaele(licht: u32, schatten: u32) -> [u32; 3] {
+    [licht >> 16 & 255, licht & 255, schatten]
+}
+
 /// Je Licht das hellere zweier Zellen, gepackt wie [`Light::packed`]:
 /// `LightCoordsUtil.max`.
 fn hellstes(a: u32, b: u32) -> u32 {
@@ -2091,7 +2101,8 @@ impl<'a> ChunkCache<'a> {
     /// darin. Eine Flüssigkeit liegt im helleren Licht ihrer Zelle und der
     /// darüber (`FluidRenderer.getLightCoords`), auch unter gleicher
     /// Flüssigkeit; ein Modell mit eigener Flüssigkeit liegt im Licht seiner
-    /// Zelle, seine Flüssigkeit ebenso im helleren.
+    /// Zelle, seine Flüssigkeit ebenso im helleren. Für Cinematic stehen
+    /// statt der Helligkeit die Kanäle aus [`kino_kanaele`].
     /// Siehe docs/renderer/wasser-und-licht.md, „Welches Licht ein Block bekommt“.
     fn licht_fuer(
         &mut self,
@@ -2101,8 +2112,14 @@ impl<'a> ChunkCache<'a> {
         sprite: Option<SpriteId>,
     ) -> Result<Lichter> {
         let lightmap = self.sprites.lightmap();
+        let kino = self.sprites.look().is_some();
+        // Das Licht einer ganzen Stufe, gepackt wie `Light::packed`.
+        let stufe = |licht: u32| match kino {
+            true => kino_kanaele(licht, 255),
+            false => lightmap.factors(Light::from_packed(licht)),
+        };
         if let Leuchten::Voll(_) = leuchten {
-            return Ok((lightmap.factors(Light::from_packed(VOLL_HELL)), None, None));
+            return Ok((stufe(VOLL_HELL), None, None));
         }
         let (licht, ecken) = match sprite.filter(|&id| self.sprites.has_ao(id)) {
             Some(id) => {
@@ -2117,7 +2134,7 @@ impl<'a> ChunkCache<'a> {
                 if let Some([dx, dy, dz]) = family.doppelkiste {
                     eigen = hellstes(eigen, self.lichtwert([x + dx, y + dy, z + dz])?);
                 }
-                (lightmap.factors(Light::from_packed(eigen)), None)
+                (stufe(eigen), None)
             }
         };
         if family.fluid.is_none() {
@@ -2125,7 +2142,7 @@ impl<'a> ChunkCache<'a> {
         }
         let eigen = self.lichtwert([x, y, z])?;
         let oben = self.lichtwert([x, y + 1, z])?;
-        let hell = lightmap.factors(Light::from_packed(hellstes(eigen, oben)));
+        let hell = stufe(hellstes(eigen, oben));
         if family.pure_fluid {
             return Ok((hell, None, None));
         }
@@ -2148,7 +2165,8 @@ impl<'a> ChunkCache<'a> {
     /// der Zelle vor der Seite mit dem eigenen Blocklicht `stufe`. Eine
     /// Seite, die ihr Nachbar deckt, ist nicht zu sehen und nimmt die Werte
     /// einer anderen. Haben alle Ecken dasselbe Licht wie die Pixel ohne
-    /// Seite, gilt es für das ganze Sprite, ohne Ecken.
+    /// Seite, gilt es für das ganze Sprite, ohne Ecken. Für Cinematic stehen
+    /// statt der Helligkeit die Kanäle aus [`kino_kanaele`].
     /// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
     fn ecken_at(
         &mut self,
@@ -2158,6 +2176,12 @@ impl<'a> ChunkCache<'a> {
         innen: Option<Option<[i32; 3]>>,
     ) -> Result<([u32; 3], Option<Ecken>)> {
         let lightmap = self.sprites.lightmap();
+        let kino = self.sprites.look().is_some();
+        // Das Licht einer ganzen Stufe, gepackt wie `Light::packed`.
+        let ganz = |licht: u32| match kino {
+            true => kino_kanaele(licht, 255),
+            false => lightmap.factors(Light::from_packed(licht)),
+        };
         let [fest, dunkelt, sicht] = self.umgebung(block)?;
         let (roh, voll) = self.lichter_um(block)?;
         // Alles relativ zum Block, siehe `umgebung` und `lichter_um`.
@@ -2219,8 +2243,11 @@ impl<'a> ChunkCache<'a> {
                 let mut werte = [[0; 3]; 4];
                 for ((schatten, [a0, a1, a2]), &ziel) in je_ecke.iter().zip(&s.remap) {
                     let ao = AO_WERTE[schatten.iter().filter(|&&d| d).count()];
-                    let l = lightmap.linear(smooth_blend(*a0, *a1, *a2, mitte));
-                    werte[ziel] = l.map(|l| (l * ao + 127) / 255);
+                    let l = smooth_blend(*a0, *a1, *a2, mitte);
+                    werte[ziel] = match kino {
+                        true => kino_kanaele(l, ao),
+                        false => lightmap.linear(l).map(|l| (l * ao + 127) / 255),
+                    };
                 }
                 werte
             } else {
@@ -2229,12 +2256,12 @@ impl<'a> ChunkCache<'a> {
                     sky,
                     block: block.max(stufe),
                 };
-                [lightmap.factors(eigen); 4]
+                [ganz(eigen.packed()); 4]
             });
         }
         let eigen = innen.map(|kiste| {
             let eigen = kiste.map_or(licht([0; 3]), |q| hellstes(licht([0; 3]), licht(q)));
-            lightmap.factors(Light::from_packed(eigen))
+            ganz(eigen)
         });
         let Some(erste) = seiten.iter().flatten().flatten().next().copied() else {
             return Ok((eigen.unwrap_or([255; 3]), None));

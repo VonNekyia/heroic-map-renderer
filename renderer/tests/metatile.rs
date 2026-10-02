@@ -11,6 +11,7 @@ use image::RgbaImage;
 use rayon::prelude::*;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
+use terranova_render::render::look::LOOK;
 use terranova_render::render::metatile::STUECK;
 use terranova_render::render::rasterizer::{
     Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
@@ -522,6 +523,98 @@ fn schneller_weg_gleicht_der_referenz() {
                 sichtbar * 4 > referenz.pixels().len(),
                 "{kamera}, scale {scale}: Szene nicht im Bild"
             );
+        }
+    });
+}
+
+/// Cinematic zeichnet dieselben Draws wie die Karte, bei jeder Kamera und
+/// Richtung der Invarianten: dieselben Sprite-Teile an denselben Stellen,
+/// mit denselben Pixeln, AO-Karten und Farben des Bioms. Sein Licht trägt
+/// Himmels- und Blocklicht getrennt in Sechzehnteln und den Schatten der
+/// weichen Beleuchtung; durch die Lightmap gerechnet ist es an jeder Ecke
+/// und für das Wasser das Licht der Karte.
+/// Siehe docs/renderer/cinematic.md, „Licht an den Ecken“.
+#[test]
+fn cinematic_zeichnet_dieselben_draws_wie_die_karte() {
+    let dir = tempdir();
+    let world = common::write_szene(dir.path());
+    let y_range = common::SZENE_Y;
+    let daten = common::biomdaten();
+    let zwei_zu_eins = [4, 16, 32].map(Projection::new);
+    let projektionen: Vec<Projection> = zwei_zu_eins.into_iter().chain(kameras()).collect();
+    projektionen.into_par_iter().for_each(|projection| {
+        let survey = survey(&world, projection, y_range, None).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&daten).unwrap();
+        let karte = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        let kino =
+            SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+                .unwrap();
+        let rect = rect_um(projection, [0, -16, 0], [32, 41, 32]);
+        let liste =
+            |sprites| draw_list(&mut ChunkCache::new(&world, sprites), rect, y_range).unwrap();
+        let (a, b) = (liste(&karte), liste(&kino));
+        let wo = format!(
+            "{}, scale {}, {:?}",
+            projection.kamera(),
+            projection.scale(),
+            projection.richtung()
+        );
+        assert_eq!(a.len(), b.len(), "{wo}");
+        assert!(a.len() > 100, "{wo}: Szene nicht im Bild");
+        // Die Kanäle von Cinematic durch die Lightmap: was die Karte dort hat.
+        let lightmap = karte.lightmap();
+        let wie_karte =
+            |[s, b, ao]: [u32; 3]| lightmap.linear(s << 16 | b).map(|l| (l * ao + 127) / 255);
+        let ecke = |licht: [u32; 3], ecken: &Option<Ecken>, seite: usize, i: usize| match ecken {
+            Some(e) => std::array::from_fn(|c| e[c][seite] >> (8 * i) & 255),
+            None => licht,
+        };
+        for (k, c) in a.iter().zip(&b) {
+            assert_eq!(
+                (
+                    k.origin,
+                    k.sprite.offset,
+                    k.sprite.image.dimensions(),
+                    k.tint
+                ),
+                (
+                    c.origin,
+                    c.sprite.offset,
+                    c.sprite.image.dimensions(),
+                    c.tint
+                ),
+                "{wo}"
+            );
+            assert_eq!(k.sprite.ao, c.sprite.ao, "{wo}: AO-Karte");
+            let alpha = |p: &image::Rgba<u8>| p.0[3];
+            assert!(
+                k.sprite
+                    .image
+                    .pixels()
+                    .map(alpha)
+                    .eq(c.sprite.image.pixels().map(alpha)),
+                "{wo}: Alpha"
+            );
+            assert!(
+                k.sprite.geometrie.is_none() && c.sprite.geometrie.is_some(),
+                "{wo}"
+            );
+            assert_eq!(k.licht, wie_karte(c.licht), "{wo}: Licht");
+            assert_eq!(
+                k.wasser.unwrap_or(k.licht),
+                wie_karte(c.wasser.unwrap_or(c.licht)),
+                "{wo}: Wasser"
+            );
+            for seite in 0..3 {
+                for i in 0..4 {
+                    assert_eq!(
+                        ecke(k.licht, &k.ecken, seite, i),
+                        wie_karte(ecke(c.licht, &c.ecken, seite, i)),
+                        "{wo}: Seite {seite}, Ecke {i}"
+                    );
+                }
+            }
         }
     });
 }

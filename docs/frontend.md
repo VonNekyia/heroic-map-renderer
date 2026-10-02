@@ -106,7 +106,8 @@ Anzeige genügt, siehe
 die Anzeige die Oberfläche, die man sieht; das Spiel zielt dort auf den
 Grund. Ohne `heights` in `map.json` gibt es keine Anzeige, ebenso ohne
 brauchbare `heightsCell`, `minY` und `maxY`; die Karte lädt dann trotzdem,
-und die Konsole sagt, was fehlt.
+und die Konsole sagt, was fehlt. Fehlt nur die Höhenkarte einer Region (404
+oder eine HTML-Seite statt der Datei), steht dort `X –  Y –  Z –`.
 
 Ein Bildpunkt allein verrät den Block nicht: Die Projektion wirft die
 Blickachse der Kamera auf einen Punkt, diagonal (b, 2a, b), genordet
@@ -228,10 +229,11 @@ oben.
 
 Liegt unter dem Kachelpfad eine `trees.json`, ist jeder Eintrag unter
 `trees` ein eigener Baum mit eigenem `map.json`, siehe
-[0051](entscheidungen/0051-kameras-und-richtungen.md). Das Frontend öffnet
+[map.json](benutzung/map-json.md), „Liste der Bäume“. Das Frontend öffnet
 den aus `?tree=<path>`, sonst den ersten. Ohne `trees.json` (404, oder ein
 Server, der stattdessen die Seite schickt) ist der Kachelpfad selbst der
-Baum, wie bisher.
+Baum, wie bisher. Eine Liste ohne brauchbare Einträge zeigt die Seite als
+Fehler an, wie eine fehlende `map.json`.
 
 Bei mehr als einem Baum steht neben dem Kompass ein `select`. Er nennt
 jeden Baum lesbar, nicht mit seinen Kürzeln:

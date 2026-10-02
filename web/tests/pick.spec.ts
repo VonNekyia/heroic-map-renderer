@@ -1,6 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { pick, projiziere, region, strahl, umriss, type Block, type Projektion } from '../src/pick';
+import {
+  inDenBlick,
+  inDieWelt,
+  pick,
+  projiziere,
+  region,
+  RICHTUNGEN,
+  strahl,
+  umriss,
+  type Block,
+  type Projektion,
+} from '../src/pick';
 
 type Punkt = [number, number];
 
@@ -39,9 +50,11 @@ test('die Projektion rechnet wie der Renderer, jede Kamera', () => {
   expect(new Set(paare.map((e) => e.camera)).size).toBeGreaterThan(5);
   for (const { camera, direction, scale, block, pixel } of paare) {
     const p = kamera(camera, scale);
-    expect(direction).toBe(p.azimuth === 'north' ? 's' : 'se');
-    const name = `${camera}, scale ${scale}, Block ${String(block)}`;
-    expect(projiziere(...block, p), name).toEqual(pixel);
+    // Der Block steht in Weltkoordinaten, das Pixel gilt für ihn im Blick.
+    const k = RICHTUNGEN[p.azimuth].indexOf(direction);
+    const name = `${camera} ${direction}, scale ${scale}, Block ${String(block)}`;
+    expect(k, name).toBeGreaterThanOrEqual(0);
+    expect(projiziere(...inDenBlick(block, k), p), name).toEqual(pixel);
   }
 });
 
@@ -199,6 +212,16 @@ test('der Umriss: Sechseck und vordere Ecke, von oben die Oberseite, genordet ei
     [n(-3, 71, 12), n(-2, 71, 12), n(-2, 70, 13), n(-3, 70, 13), n(-3, 71, 12)],
     [n(-3, 71, 13), n(-2, 71, 13)],
   ]);
+});
+
+test('die Drehung des Blicks wie in #68: sw, nw und ne, und zurück', () => {
+  const block: Block = [5, 70, -3];
+  // Block (x, z) der Welt liegt im Blick bei (z, −x − 1), (−x − 1, −z − 1), (−z − 1, x).
+  expect(inDenBlick(block, 0)).toEqual([5, 70, -3]);
+  expect(inDenBlick(block, 1)).toEqual([-3, 70, -6]);
+  expect(inDenBlick(block, 2)).toEqual([-6, 70, 2]);
+  expect(inDenBlick(block, 3)).toEqual([2, 70, 5]);
+  for (let k = 0; k < 4; k++) expect(inDieWelt(inDenBlick(block, k), k)).toEqual(block);
 });
 
 test('Spalten finden Region und Zelle, auch negative', () => {

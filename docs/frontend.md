@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt, zwischen Ansichten umschaltet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -110,9 +110,10 @@ Blickachse der Kamera auf einen Punkt, diagonal (b, 2a, b), genordet
 liest das Frontend aus `projection` in `map.json`, siehe
 [map.json](benutzung/map-json.md), „Kamera und Projektion“; fehlt sie,
 rechnet es 2:1 aus `scale`. Kennt es `azimuth` oder `direction` nicht,
-heute alles ausser `diagonal` mit `se` und `north` mit `s`, oder sind `u`
-und `v` keine ganzen Zahlen ab 1 oder `y` keine ganze Zahl ab 0, zeigt es
-keine Koordinaten, und die Konsole nennt den Grund.
+alles ausser `diagonal` mit `se`, `sw`, `nw`, `ne` und `north` mit `s`,
+`w`, `n`, `e`, oder sind `u` und `v` keine ganzen Zahlen ab 1 oder `y`
+keine ganze Zahl ab 0, zeigt es keine Koordinaten, und die Konsole nennt
+den Grund.
 [`web/src/pick.ts`](../web/src/pick.ts) geht deshalb den Strahl durch die
 Mitte des Pixels ab, wo auch der Renderer abtastet:
 
@@ -136,6 +137,12 @@ Mitte des Pixels ab, wo auch der Renderer abtastet:
    Regionen, durch die ein Strahl geht, und hält höchstens 64 davon, bei
    4 × 4 zusammen 2 MiB.
 
+Aus einer anderen Richtung als `se` oder `s` rechnet `strahl` im Blick:
+Die Welt ist dort k Vierteldrehungen gedreht, k aus der Reihenfolge
+`se`, `sw`, `nw`, `ne`, genordet `s`, `w`, `n`, `e`. Höhen und Anzeige
+sind in Weltkoordinaten; `inDieWelt` dreht jeden Block des Strahls
+zurück, bevor er seine Höhe nachschlägt, `inDenBlick` dreht hin.
+
 Warum der Strahl gegen Höhen läuft, siehe
 [0035](entscheidungen/0035-koordinaten-aus-hoehenkarten.md); warum durch
 das Würfelgitter und mit den Zahlen aus `map.json`, siehe
@@ -143,6 +150,47 @@ das Würfelgitter und mit den Zahlen aus `map.json`, siehe
 Frontend“; woher die Höhen
 kommen, warum je 4 × 4 Spalten und warum über Wasser die Oberfläche, siehe
 [0036](entscheidungen/0036-hoehen-aus-der-heightmap.md).
+
+## Ansichten und Kompass
+
+Oben rechts zeigt ein Pfeil nach Norden, gedreht nach `projection` und
+`direction`: aus Südosten bei 2:1 um 63,4°, genordet aus Süden gerade nach
+oben.
+
+Liegt unter dem Kachelpfad eine `trees.json`, ist jeder Eintrag unter
+`trees` ein eigener Baum mit eigenem `map.json`, siehe
+[0051](entscheidungen/0051-kameras-und-richtungen.md). Das Frontend öffnet
+den aus `?tree=<path>`, sonst den ersten. Ohne `trees.json` (404, oder ein
+Server, der stattdessen die Seite schickt) ist der Kachelpfad selbst der
+Baum, wie bisher.
+
+Bei mehr als einem Baum steht neben dem Kompass ein `select`. Er nennt
+jeden Baum lesbar, nicht mit seinen Kürzeln:
+
+| Kamera | Name |
+|---|---|
+| W:H, etwa 2:1 | „2:1 aus Südost“, ebenso Südwest, Nordwest, Nordost |
+| `top` | „Von oben aus Südost“ |
+| `top-north` | „Von oben, Norden oben“; aus `w` Osten, aus `n` Süden, aus `e` Westen |
+| `north-45` | „Schräg, Norden oben“, ebenso |
+
+Ein `look` ausser `map` kommt dazu, `cinematic` als „· Cinematic“. Eine
+unbekannte Kamera oder Richtung steht als `camera · direction` da. Die
+Wahl lädt die Seite neu, mit drei Parametern in der Adresse:
+
+| Parameter | Inhalt |
+|---|---|
+| `tree` | `path` des Baums aus `trees.json` |
+| `at` | der Block in der Mitte, `x,y,z` in Weltkoordinaten |
+| `zoom` | die Zoomstufe ab der feinsten gerenderten: 0 ist ein Pixel der Kachel je Pixel des Bildschirms, −1 halb so gross |
+
+Der neue Baum setzt die Mitte der Oberseite von `at` in die Mitte der
+Karte. `zoom` zählt ab `maxZoom`, weil `maxZoom` je Baum an seiner
+Ausdehnung hängt, siehe [Zoomstufen](benutzung/zoomstufen.md),
+„Nummerierung“. So bleibt beim Umschalten derselbe Block in der Mitte, mit
+derselben Vergrösserung, auch aus einer anderen Richtung. Ohne Koordinaten
+im alten Baum fehlt `at`, und der neue zeigt die ganze Karte. Die Adresse
+lässt sich so auch teilen.
 
 ## Ausliefern
 
@@ -179,11 +227,13 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   Skill.
 - **`robots.txt`** schreibt der Build: alles erlaubt ausser `tiles/`, damit
   Suchmaschinen die Seite finden, aber nicht jede Kachel abrufen.
-  `tiles/map.json` bleibt erlaubt: Ohne sie rendert eine Suchmaschine nur
-  die Meldung, dass die Karte nicht lädt. Die längere Regel gewinnt
-  (RFC 9309). `robots.txt` wirkt nur im Wurzelverzeichnis einer Domain;
-  der Pfad zählt deshalb ab dort, mit `SITE_URL=https://example.org/karte/`
-  also `Allow: /karte/tiles/map.json` und `Disallow: /karte/tiles/`.
+  Erlaubt bleiben `tiles/trees.json`, `tiles/*/map.json` und für einen
+  Baum ohne Liste `tiles/map.json`: Ohne sie rendert eine Suchmaschine nur
+  die Meldung, dass die Karte nicht lädt. Die längere Regel gewinnt, `*`
+  steht für beliebige Zeichen (RFC 9309). `robots.txt` wirkt nur im
+  Wurzelverzeichnis einer Domain; der Pfad zählt deshalb ab dort, mit
+  `SITE_URL=https://example.org/karte/` also etwa
+  `Allow: /karte/tiles/trees.json` und `Disallow: /karte/tiles/`.
 
 ## Prüfen
 

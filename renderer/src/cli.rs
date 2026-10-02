@@ -72,8 +72,8 @@ pub struct Args {
 
     /// Kamera: `W:H` schräg mit der Raute W:H der Oberseite, von 2:1 bis
     /// 1:1, oder `top` von oben, beide diagonal; genordet `top-north` von
-    /// oben oder `north-45` schräg von Süden. Vorgabe 2:1; ein bestehender
-    /// Kachelbaum verlangt seine Kamera
+    /// oben oder `north-45` schräg von Süden. Vorgabe 2:1; jede Kamera
+    /// schreibt unter der Wurzel in ihren eigenen Baum
     #[arg(long, value_name = "KAMERA", default_value = "2:1", value_parser = Kamera::parse)]
     camera: Kamera,
 
@@ -148,17 +148,18 @@ pub struct Args {
 
     /// Nur unter Windows: vor dem Export eine Ausnahme im Echtzeitschutz von
     /// Microsoft Defender für das Verzeichnis von --tiles setzen, wenn es neu,
-    /// leer oder schon ein Kachelbaum ist, nie für die Wurzel eines
-    /// Laufwerks. Windows fragt nach Adminrechten; ohne Zustimmung läuft der
+    /// leer oder schon eine Wurzel mit Kachelbäumen ist, nie für die Wurzel
+    /// eines Laufwerks. Windows fragt nach Adminrechten; ohne Zustimmung läuft der
     /// Export ohne sie. Entfernen muss man sie selbst, den Befehl nennt der
     /// Lauf am Anfang und am Ende
     #[arg(long, requires = "tiles")]
     defender_exclusion: bool,
 
-    /// Die Höhen für die Koordinatenanzeige in diesen Kachelbaum schreiben,
-    /// ohne zu rendern, etwa in einen Baum aus einem Stand ohne sie. Liest
-    /// die ganze Welt, braucht --world und nimmt scale und Kamera aus
-    /// map.json. Jeder Export schreibt sie ohnehin
+    /// Die Höhen für die Koordinatenanzeige zu diesem Kachelbaum schreiben,
+    /// ohne zu rendern, etwa zu einem Baum aus einem Stand ohne sie. Liest
+    /// die ganze Welt, braucht --world und nimmt scale, Kamera und Richtung
+    /// aus seiner map.json. Unter einer Wurzel mit trees.json landen sie
+    /// dort, für alle Bäume. Jeder Export schreibt sie ohnehin
     #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = ["tiles", "camera", "scale", "direction"])]
     heights: Option<PathBuf>,
 
@@ -303,6 +304,11 @@ pub fn run() -> Result<()> {
     }
     if args.defender_exclusion && !cfg!(windows) {
         bail!("--defender-exclusion gibt es nur unter Windows");
+    }
+    // Vor dem Echtzeitschutz und vor der Welt: Ist --tiles keine Wurzel,
+    // setzt der Lauf nichts und liest nichts.
+    if let Some(dir) = &args.tiles {
+        pruefe_wurzel(dir)?;
     }
     // Vor allem anderen, dann sitzt noch jemand davor. Der Hinweis kommt nur
     // beim ersten Export in ein Verzeichnis: ob die Ausnahme schon besteht,
@@ -460,7 +466,6 @@ pub fn run() -> Result<()> {
             )?;
         }
         if let Some(dir) = &args.tiles {
-            alte_ablage(dir)?;
             let export = oeffne_gpu(args.gpu).and_then(|karte| {
                 let export = write_tiles(
                     world,
@@ -985,6 +990,7 @@ fn write_tiles(
         projection,
         kennung.as_deref().ok_or(warum.as_str()),
     )?;
+    pruefe_nachbarn(wurzel, dir, world)?;
     // Ein bestehender Baum behält seine Nummerierung, auch wenn die Welt
     // inzwischen gewachsen ist: dann bekommt Zoom 0 mehr Kacheln, und das
     // Frontend zoomt darunter. Sonst müsste jeder Baum nach der ersten
@@ -1313,21 +1319,91 @@ fn baum_name(projection: Projection) -> String {
     format!("{}-{richtung}", kamera.to_string().replace(':', "x"))
 }
 
-/// Liegt `map.json` direkt unter der Wurzel, ist das ein Baum der alten
-/// Ablage. Der Lauf deutet ihn nicht um und verschiebt nichts; die Meldung
-/// nennt den Ordner, in den er gehört.
-fn alte_ablage(wurzel: &Path) -> Result<()> {
+/// Ist `--tiles` eine Wurzel? Liegt dort ein `map.json`, ist es ein Baum:
+/// einer unter einer Wurzel, wenn seine Eltern eine `trees.json` haben oder
+/// er seine Höhen unter `../` sucht, sonst einer der alten Ablage. Der Lauf
+/// deutet keinen um und verschiebt nichts; die Meldung sagt, wie es
+/// weitergeht.
+/// Siehe docs/benutzung/map-json.md, „Liste der Bäume“.
+fn pruefe_wurzel(wurzel: &Path) -> Result<()> {
     let Some(info) = lies_bestand(wurzel)? else {
         return Ok(());
     };
+    let absolut = std::path::absolute(wurzel).unwrap_or_else(|_| wurzel.to_path_buf());
+    if let Some(eltern) = absolut.parent()
+        && (eltern.join(BAEUME).is_file()
+            || info
+                .heights
+                .as_deref()
+                .is_some_and(|h| h.starts_with("../")))
+    {
+        bail!(
+            "{} ist ein Baum unter einer Wurzel. --tiles nimmt die Wurzel: {}",
+            absolut.display(),
+            eltern.display()
+        );
+    }
     let name = baum_name(projektion_des_baums(wurzel, &info)?);
     bail!(
         "{} ist ein Kachelbaum der alten Ablage. --tiles ist jetzt die Wurzel, jeder Baum liegt \
-         in einem eigenen Ordner: den Baum samt allem darin nach {} verschieben, dann \
-         weiterrendern, oder eine neue Wurzel nehmen.",
+         in einem eigenen Ordner: alles ausser heights/ nach {} verschieben, heights/ bleibt in \
+         der Wurzel; dann weiterrendern, oder eine neue Wurzel nehmen.",
         wurzel.join("map.json").display(),
         wurzel.join(&name).display()
     )
+}
+
+/// Die Bäume unter der Wurzel: je Ordner mit `map.json` sein Pfad, seine
+/// `map.json` und seine Projektion. Ein Ordner, dessen `map.json` sich nicht
+/// lesen lässt oder eine Kamera oder Richtung nennt, die es nicht gibt,
+/// fehlt mit einer Warnung: Das Frontend könnte ihn ohnehin nicht öffnen,
+/// und kein Lauf scheitert an einem Nachbarn.
+fn nachbarn(wurzel: &Path) -> Result<Vec<(PathBuf, MapInfo, Projection)>> {
+    let mut baeume = Vec::new();
+    // Eine Wurzel, die es noch nicht gibt, hat keine Bäume.
+    let eintraege = match std::fs::read_dir(wurzel) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(baeume),
+        gelesen => gelesen.with_context(|| format!("{} lesen", wurzel.display()))?,
+    };
+    for eintrag in eintraege {
+        let ordner = eintrag
+            .with_context(|| format!("{} lesen", wurzel.display()))?
+            .path();
+        let gelesen = lies_bestand(&ordner).and_then(|info| {
+            info.map(|info| Ok((projektion_des_baums(&ordner, &info)?, info)))
+                .transpose()
+        });
+        match gelesen {
+            Ok(Some((projection, info))) => baeume.push((ordner, info, projection)),
+            Ok(None) => {}
+            Err(e) => println!("Bäume:      {} übergangen: {e:#}", ordner.display()),
+        }
+    }
+    Ok(baeume)
+}
+
+/// Eine Wurzel, eine Welt und Dimension: Ihre Bäume teilen sich die Höhen.
+/// Jeder Nachbar von `dir`, der eine Welt nennt, muss zu dieser gehören;
+/// seine Kennung trägt ihr eigenes Salz. Einer aus einem Stand ohne das
+/// Feld nennt keine und zählt nicht.
+/// Siehe docs/benutzung/map-json.md, „Liste der Bäume“.
+fn pruefe_nachbarn(wurzel: &Path, dir: &Path, world: &World) -> Result<()> {
+    for (ordner, info, _) in nachbarn(wurzel)? {
+        let Some(dort) = &info.world else {
+            continue;
+        };
+        if ordner == dir {
+            continue;
+        }
+        if dort.as_deref() != kennung(world, Some(&info))?.as_deref() {
+            bail!(
+                "{} gehört zu einer anderen Welt oder Dimension als dieser Lauf, und die Bäume \
+                 einer Wurzel teilen sich die Höhen. Eine neue Wurzel nehmen.",
+                ordner.join("map.json").display()
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Schreibt `trees.json` neu, ohne dass jemand eine halbe sieht: je Ordner
@@ -1338,19 +1414,10 @@ fn alte_ablage(wurzel: &Path) -> Result<()> {
 /// Siehe docs/benutzung/map-json.md, „Liste der Bäume“.
 fn schreibe_baeume(wurzel: &Path) -> Result<()> {
     let mut baeume = Vec::new();
-    let eintraege =
-        std::fs::read_dir(wurzel).with_context(|| format!("{} lesen", wurzel.display()))?;
-    for eintrag in eintraege {
-        let ordner = eintrag
-            .with_context(|| format!("{} lesen", wurzel.display()))?
-            .path();
-        let (Some(name), Some(info)) = (
-            ordner.file_name().and_then(|name| name.to_str()),
-            lies_bestand(&ordner)?,
-        ) else {
+    for (ordner, _, projection) in nachbarn(wurzel)? {
+        let Some(name) = ordner.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        let projection = projektion_des_baums(&ordner, &info)?;
         let kamera = projection.kamera();
         baeume.push(serde_json::json!({
             "path": name,
@@ -1359,7 +1426,8 @@ fn schreibe_baeume(wurzel: &Path) -> Result<()> {
             "look": "map",
         }));
     }
-    baeume.sort_by_key(|baum| (baum["path"] != "2x1-se", baum["path"].to_string()));
+    let pfad = |baum: &serde_json::Value| baum["path"].as_str().unwrap_or_default().to_string();
+    baeume.sort_by_key(|baum| (pfad(baum) != "2x1-se", pfad(baum)));
     let text = serde_json::to_vec_pretty(&serde_json::json!({ "trees": baeume }))?;
     let pfad = wurzel.join(BAEUME);
     tausche(&pfad, &text, None, true).with_context(|| format!("{} schreiben", pfad.display()))
@@ -1623,7 +1691,8 @@ fn melde_echtzeitschutz(dir: &Path) {
 
 /// Warum Hinweis und `--defender-exclusion` diesen Ordner nicht vorschlagen,
 /// `None`, wenn sie es dürfen: Es gibt ihn noch nicht, er ist leer, oder er
-/// ist schon eine Wurzel mit `trees.json` oder ein Kachelbaum der alten
+/// ist schon eine Wurzel mit `trees.json` oder mit einem Baum darin, etwa
+/// nach dem Umzug aus der alten Ablage, oder ein Kachelbaum der alten
 /// Ablage mit `map.json`. Nie die Wurzel eines Laufwerks.
 /// Sonst nähme ein Versehen in `--tiles`, etwa ein relativer Pfad aus dem
 /// falschen Verzeichnis, das Benutzerverzeichnis oder ein ganzes Laufwerk
@@ -1638,9 +1707,19 @@ fn warum_keine_ausnahme(dir: &Path) -> Option<&'static str> {
         Err(_) => Some("der Ordner lässt sich nicht lesen"),
         Ok(mut eintraege) => (eintraege.next().is_some()
             && !ordner.join(BAEUME).is_file()
-            && !ordner.join("map.json").is_file())
-        .then_some("der Ordner ist nicht leer und kein Kachelbaum"),
+            && !ordner.join("map.json").is_file()
+            && !hat_baeume(&ordner))
+        .then_some("der Ordner ist nicht leer und keine Wurzel von Kachelbäumen"),
     }
+}
+
+/// Liegt in einem Unterordner ein `map.json`?
+fn hat_baeume(ordner: &Path) -> bool {
+    std::fs::read_dir(ordner).is_ok_and(|eintraege| {
+        eintraege
+            .flatten()
+            .any(|eintrag| eintrag.path().join("map.json").is_file())
+    })
 }
 
 /// `--defender-exclusion`: Windows fragt nach Adminrechten, und nur mit
@@ -1895,6 +1974,14 @@ fn fill_heights(world: &World, dir: &Path) -> Result<()> {
         projection,
         kennung.as_deref().ok_or(warum.as_str()),
     )?;
+    // Absolut, sonst hätte `.` keine Eltern.
+    let absolut = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let wurzel = absolut
+        .parent()
+        .filter(|wurzel| wurzel.join(BAEUME).is_file());
+    if let Some(wurzel) = wurzel {
+        pruefe_nachbarn(wurzel, &absolut, world)?;
+    }
 
     let started = Instant::now();
     let survey = survey(world, projection, Y_RANGE, None)?;
@@ -1904,9 +1991,9 @@ fn fill_heights(world: &World, dir: &Path) -> Result<()> {
         started.elapsed().as_secs_f64()
     );
     melde_unfertige(&survey);
-    let (ziel, muster) = match dir.parent() {
-        Some(wurzel) if wurzel.join(BAEUME).is_file() => (wurzel, heights::PATTERN_WURZEL),
-        _ => (dir, heights::PATTERN),
+    let (ziel, muster) = match wurzel {
+        Some(wurzel) => (wurzel, heights::PATTERN_WURZEL),
+        None => (dir, heights::PATTERN),
     };
     schreibe_hoehen(survey.heights, ziel)?;
 
@@ -2277,7 +2364,7 @@ fn native_stufen(
     match (bestand.map(|alt| alt.native_levels), hier) {
         (Some(Some(dort)), Some(hier)) if dort != hier => bail!(
             "{} gehört zu einem Baum mit {dort} nativen Stufen, dieser Lauf hätte {hier}. Mit \
-             --native-levels {dort} weiterrendern oder ein neues Verzeichnis nehmen.",
+             --native-levels {dort} weiterrendern oder eine neue Wurzel nehmen.",
             dir.join("map.json").display()
         ),
         (Some(Some(dort)), _) => Ok(dort.min(moeglich)),
@@ -2302,7 +2389,7 @@ fn mischung(dir: &Path, bestand: Option<&MapInfo>, verlangt: Option<u8>) -> Resu
     match (bestand.map(|alt| alt.biome_blend), verlangt) {
         (Some(Some(dort)), Some(hier)) if dort != hier => bail!(
             "{} gehört zu einem Baum mit --biome-blend {dort}, dieser Lauf hätte {hier}. Mit \
-             --biome-blend {dort} weiterrendern oder ein neues Verzeichnis nehmen.",
+             --biome-blend {dort} weiterrendern oder eine neue Wurzel nehmen.",
             dir.join("map.json").display()
         ),
         (Some(Some(dort)), _) => Ok(dort),
@@ -2436,54 +2523,62 @@ fn pruefe_bestand(
             bail!("{anzeige} gehört zur Welt mit Kennung {dort}, diese hat keine Kennung. {warum}")
         }
         (Some(None), Ok(hier)) => bail!(
-            "{anzeige} gehört zu einer Welt ohne Kennung, diese hat {hier}. Ein neues \
-             Verzeichnis nehmen, oder \"world\" aus map.json entfernen, wenn der Baum sicher \
-             zu dieser Welt gehört."
+            "{anzeige} gehört zu einer Welt ohne Kennung, diese hat {hier}. Eine neue Wurzel \
+             nehmen, oder \"world\" aus map.json entfernen, wenn der Baum sicher zu dieser \
+             Welt gehört."
         ),
         (Some(Some(dort)), Ok(hier)) if dort != hier => bail!(
             "{anzeige} gehört zu einer anderen Welt oder Dimension: Kennung dort {dort}, hier \
-             {hier}. Ein neues Verzeichnis nehmen."
+             {hier}. Eine neue Wurzel nehmen."
         ),
         _ => {}
     }
-    // Zwei Kameras in einem Baum mischten sich still.
+    // Zwei Kameras in einem Baum mischten sich still. Der Ordner folgt aus
+    // Kamera und Richtung; weicht eine ab, hat jemand ihn umbenannt, und ein
+    // Lauf mit ihr schriebe in einen anderen.
     // Siehe docs/benutzung/zoomstufen.md, „Ein Baum, eine Kamera“.
     let dort = projektion_des_baums(dir, alt)?;
-    if dort.kamera() != projection.kamera() {
+    let umbenennen = || {
+        let ziel = dir.with_file_name(baum_name(dort));
         // Weicht auch der scale ab, gehört er in den Befehl.
         let auch_scale = if alt.scale != scale {
-            format!(" --scale {}", alt.scale)
+            format!(", dann mit --scale {} weiterrendern,", alt.scale)
         } else {
             String::new()
         };
+        format!(
+            "Den Ordner nach {} umbenennen{auch_scale} oder eine neue Wurzel nehmen.",
+            ziel.display()
+        )
+    };
+    if dort.kamera() != projection.kamera() {
         bail!(
-            "{anzeige} gehört zu einem Baum mit Kamera {}, dieser Lauf hätte {}. Mit --camera \
-             {}{auch_scale} weiterrendern oder ein neues Verzeichnis nehmen.",
+            "{anzeige} gehört zu einem Baum mit Kamera {}, dieser Lauf hätte {}. {}",
             dort.kamera(),
             projection.kamera(),
-            dort.kamera()
+            umbenennen()
         );
     }
     // Ebenso zwei Richtungen.
     if dort.richtung() != projection.richtung() {
         let kamera = dort.kamera();
         bail!(
-            "{anzeige} gehört zu einem Baum aus Richtung {}, dieser Lauf hätte {}. Mit \
-             --direction {} weiterrendern oder ein neues Verzeichnis nehmen.",
+            "{anzeige} gehört zu einem Baum aus Richtung {}, dieser Lauf hätte {}. {}",
             dort.richtung().name(kamera),
             projection.richtung().name(kamera),
-            dort.richtung().name(kamera)
+            umbenennen()
         );
     }
     if alt.scale != scale {
-        // Ältere Stände nahmen auch scale, die nicht auf ganzen Pixeln liegen.
+        // Ältere Stände nahmen auch scale, die nicht auf ganzen Pixeln
+        // liegen. Der scale steht nicht im Namen des Ordners.
         let weiter = if dort.ganze_pixel() {
             format!(
-                "Mit --scale {} weiterrendern oder ein neues Verzeichnis nehmen.",
+                "Mit --scale {} weiterrendern oder eine neue Wurzel nehmen.",
                 alt.scale
             )
         } else {
-            "Dieser scale geht nicht mehr, ein neues Verzeichnis nehmen.".to_string()
+            "Dieser scale geht nicht mehr, eine neue Wurzel nehmen.".to_string()
         };
         bail!(
             "{} gehört zu einem Baum mit scale {}, dieser Lauf hätte scale {scale}. {weiter}",
@@ -3109,7 +3204,8 @@ fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<()> {
 
 /// Ersetzt eine Datei, ohne dass jemand eine halbe sieht: erst eine eigene
 /// daneben, `<name>.<pid>.tmp`, dann umbenennen. Mit `sicher` bringt es die
-/// Datei vor dem Umbenennen auf die Platte; das braucht nur `map.json`.
+/// Datei vor dem Umbenennen auf die Platte; das brauchen nur `map.json` und
+/// `trees.json`.
 /// Siehe docs/entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md.
 fn tausche(
     path: &Path,
@@ -3657,7 +3753,8 @@ mod tests {
     }
 
     /// Eine Ausnahme gibt es für einen Ordner, den es noch nicht gibt, einen
-    /// leeren, eine Wurzel mit `trees.json` und einen Kachelbaum der alten
+    /// leeren, eine Wurzel mit `trees.json` oder mit einem Baum darin, etwa
+    /// nach dem Umzug aus der alten Ablage, und einen Kachelbaum der alten
     /// Ablage, nicht für einen anderen vollen Ordner und nie für die Wurzel
     /// eines Laufwerks.
     #[test]
@@ -3670,6 +3767,10 @@ mod tests {
         std::fs::write(dir.path().join(BAEUME), "{}").unwrap();
         assert_eq!(warum_keine_ausnahme(dir.path()), None);
         std::fs::remove_file(dir.path().join(BAEUME)).unwrap();
+        std::fs::create_dir(dir.path().join("2x1-se")).unwrap();
+        std::fs::write(dir.path().join("2x1-se").join("map.json"), "{}").unwrap();
+        assert_eq!(warum_keine_ausnahme(dir.path()), None);
+        std::fs::remove_dir_all(dir.path().join("2x1-se")).unwrap();
         std::fs::write(dir.path().join("map.json"), "{}").unwrap();
         assert_eq!(warum_keine_ausnahme(dir.path()), None);
         let wurzel = Path::new(std::path::MAIN_SEPARATOR_STR);

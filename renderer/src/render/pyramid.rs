@@ -288,8 +288,9 @@ pub struct MapInfo {
     /// und zeigt 2:1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera: Option<String>,
-    /// Wo die Kamera steht: diagonal `"se"`, genordet `"s"`. Fehlt das
-    /// Feld, gilt die Richtung der Kamera.
+    /// Wo die Kamera steht: diagonal `"se"`, `"sw"`, `"nw"` oder `"ne"`,
+    /// genordet `"s"`, `"w"`, `"n"` oder `"e"`. Fehlt das Feld, gilt die
+    /// Vorgabe der Kamera, `"se"` oder `"s"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direction: Option<String>,
     /// Die Projektion in Pixeln der feinsten Stufe; steht mit `camera`.

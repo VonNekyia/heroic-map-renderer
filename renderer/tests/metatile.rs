@@ -8,6 +8,7 @@ mod common;
 use std::path::PathBuf;
 
 use image::RgbaImage;
+use rayon::prelude::*;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
 use terranova_render::render::metatile::STUECK;
@@ -454,7 +455,9 @@ fn hoeher_gesetzt_gleiches_bild() {
 /// den `--scale` und
 /// die nativen Stufen annehmen, bis 32, dazu bei 2 und 6, wo Blöcke auf
 /// halben Pixeln liegen. Die Rechtecke sind meist keine Vielfachen von 64
-/// Pixeln breit, den Wörtern der Deckungsmaske.
+/// Pixeln breit, den Wörtern der Deckungsmaske. Die Projektionen laufen
+/// parallel: `render_area` rechnet in einem Thread, und der Test bestimmt
+/// sonst die Dauer der Suite.
 #[test]
 fn schneller_weg_gleicht_der_referenz() {
     let dir = tempdir();
@@ -465,7 +468,8 @@ fn schneller_weg_gleicht_der_referenz() {
         .into_iter()
         .chain((4..=32).step_by(4))
         .map(Projection::new);
-    for projection in zwei_zu_eins.chain(kameras()) {
+    let projektionen: Vec<Projection> = zwei_zu_eins.chain(kameras()).collect();
+    projektionen.into_par_iter().for_each(|projection| {
         let (scale, kamera) = (projection.scale(), projection.kamera());
         let survey = survey(&world, projection, y_range, None).unwrap();
         let mut assets = assets();
@@ -508,7 +512,7 @@ fn schneller_weg_gleicht_der_referenz() {
                 "{kamera}, scale {scale}: Szene nicht im Bild"
             );
         }
-    }
+    });
 }
 
 /// Ein Ausschnitt, grösser als ein Stück von `render_area`, gleicht Byte

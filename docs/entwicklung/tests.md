@@ -131,7 +131,8 @@ Kinder ist.
 `schneller_weg_gleicht_der_referenz` rendert eine Szene über mehrere Chunks,
 Biome und Sections Byte für Byte gegen `render_area_without_culling`, die
 Referenz ohne jede Abkürzung, in 2:1 bei scale 2, 6 und jedem Vielfachen
-von 4 bis 32, dazu bei jeder Kamera der Invarianten.
+von 4 bis 32, dazu bei jeder Kamera der Invarianten. Die Projektionen
+rechnet er parallel, sonst bestimmte er allein die Dauer der Suite.
 
 ## Kameras
 

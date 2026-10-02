@@ -284,9 +284,13 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
     (`SpriteSet::build_in`). Von oben deckt schon eine flache Seerose
     ihren ganzen Umriss, ihr Würfel bliebe dunkel, und dieselbe Welt hätte
     je Kamera anderes Licht.
-  - **Bei einem scale, den 2:1 nicht nimmt,** rastert 2:1 auf halben
-    Pixeln, etwa bei 5:3 und scale 30 mit a = 7,5. Die Blöcke der Tests
-    entscheiden dort wie 2:1 bei scale 32, auch der mit 15/16 Höhe
+  - **Bei einem scale, den 2:1 nicht nimmt,** lägen die Ecken von 2:1
+    zwischen den Pixeln, etwa bei 5:3 und scale 30 mit a = 7,5, bei scale 6
+    mit a = 1,5 und bei jedem ungeraden scale genordet. Dann rastert 2:1
+    beim nächsten Vielfachen von 4 darüber: bei 30 wie bei 32, bei 5 bis 7
+    wie bei 8. Das ist eine Näherung, entschieden wird bei einem anderen
+    scale als dem der Basis. Der Block mit 15/16 Höhe etwa deckte auf den
+    halben Pixeln von scale 6 seinen Umriss, bei 8 deckt er ihn nicht
     (`licht_unbekannter_bloecke_haengt_nicht_an_der_kamera` in
     `renderer/src/render/sprites.rs`).
 - **Kein Flackern.** Das Spiel lässt `BlockFactor` zufällig um 1,4

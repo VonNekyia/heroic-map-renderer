@@ -109,6 +109,17 @@ impl Kamera {
         matches!(self, Kamera::ObenNord | Kamera::Nord45)
     }
 
+    /// Der scale ohne `--scale`: genordet 16, dort ist jedes Texel einer
+    /// Oberseite schon ein Pixel; sonst [`Projection::DEFAULT_SCALE`].
+    /// Siehe docs/renderer/kamera.md, „Genordet“.
+    pub fn vorgabe_scale(self) -> u32 {
+        if self.genordet() {
+            16
+        } else {
+            Projection::DEFAULT_SCALE
+        }
+    }
+
     /// Wo die Kamera steht, wie `direction` in `map.json`: diagonal im
     /// Südosten, genordet im Süden.
     pub fn richtung(self) -> &'static str {
@@ -150,10 +161,11 @@ fn ggt(a: u64, b: u64) -> u64 {
 }
 
 impl Projection {
-    /// 32 Pixel je Block: eine Seitenfläche ist halb so breit wie der
-    /// Würfel, erst so zeigt sie alle 16 Texel einer Textur. Bei 16 fiele
+    /// 32 Pixel je Block: Diagonal ist eine Seitenfläche halb so breit wie
+    /// der Würfel, erst so zeigt sie alle 16 Texel einer Textur. Bei 16 fiele
     /// jede zweite Texelspalte weg; dafür sind es viermal so viele
-    /// Kacheln. Siehe `--scale`.
+    /// Kacheln. Genordet zeigt schon scale 16 jedes Texel, dort ist das die
+    /// Vorgabe ([`Kamera::vorgabe_scale`]). Siehe `--scale`.
     pub const DEFAULT_SCALE: u32 = 32;
 
     /// 2:1, die Vorgabe.
@@ -223,9 +235,10 @@ impl Projection {
         }
     }
 
-    /// Liegt jede Blockecke auf ganzen Pixeln? Genau dann, wenn `a` ganz und
-    /// der scale gerade ist, also ein Vielfaches von [`Kamera::schritt`];
-    /// bei 2:1 heisst das: ein Vielfaches von 4.
+    /// Liegt jede Blockecke auf ganzen Pixeln? Genau dann, wenn der scale ein
+    /// Vielfaches von [`Kamera::schritt`] ist. Diagonal heisst das: `a` ganz
+    /// und der scale gerade, bei 2:1 ein Vielfaches von 4. Genordet geht
+    /// jeder scale.
     /// Siehe docs/renderer/kamera.md, „Ganze Pixel“.
     pub fn ganze_pixel(&self) -> bool {
         u64::from(self.scale).is_multiple_of(self.kamera.schritt())

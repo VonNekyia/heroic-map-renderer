@@ -567,7 +567,8 @@ impl SpriteSet {
 
         // Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet
         // das Raster in 2:1, damit das Licht nicht an der Kamera hängt: von
-        // oben deckte schon eine flache Platte den ganzen Umriss.
+        // oben deckte schon eine flache Platte den ganzen Umriss. 2:1 nimmt
+        // nur Vielfache von 4; sonst rastert es beim nächsten darüber.
         if licht_deckend.is_some() {
             set.licht_deckend = licht_deckend;
         } else if projection.kamera() != Kamera::ZWEI_ZU_EINS {
@@ -577,8 +578,8 @@ impl SpriteSet {
                 .cloned()
                 .collect();
             if !unbekannt.is_empty() {
-                let zwei =
-                    SpriteSet::build_in(assets, &unbekannt, Projection::new(projection.scale()))?;
+                let raster = Projection::new(projection.scale().next_multiple_of(4));
+                let zwei = SpriteSet::build_in(assets, &unbekannt, raster)?;
                 set.licht_deckend = Some(zwei.licht_deckend(&unbekannt));
             }
         }
@@ -1147,9 +1148,9 @@ impl SpriteSet {
     }
 
     /// Der Umriss eines vollen Blocks Zeile für Zeile: je Pixelzeile
-    /// relativ zum Blockursprung die erste und die letzte Spalte. Das
-    /// Sechseck ist konvex; hätte eine Zeile Lücken, verlangte die
-    /// Deckungsmaske nur mehr, nie weniger.
+    /// relativ zum Blockursprung die erste und die letzte Spalte. Diagonal
+    /// ist das Sechseck konvex, genordet ist der Umriss ein Rechteck; hätte
+    /// eine Zeile Lücken, verlangte die Deckungsmaske nur mehr, nie weniger.
     pub fn outline_rows(&self) -> &[(i32, i32, i32)] {
         &self.masks.rows
     }
@@ -1674,7 +1675,9 @@ mod tests {
 
     /// Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet bei
     /// jeder Kamera das Raster in 2:1: Von oben deckte schon eine flache
-    /// Seerose den ganzen Umriss, und ihr Würfel bliebe dunkel.
+    /// Seerose den ganzen Umriss, und ihr Würfel bliebe dunkel. Bei einem
+    /// scale, den 2:1 nicht nimmt, etwa 6 oder ungerade, rastert es beim
+    /// nächsten Vielfachen von 4 darüber.
     #[test]
     fn licht_unbekannter_bloecke_haengt_nicht_an_der_kamera() {
         let namen = [
@@ -1687,7 +1690,7 @@ mod tests {
         ];
         let states: Vec<BlockState> = namen.iter().map(|name| state(name)).collect();
         let zwei = |scale| build(&mut assets(), &states, Projection::new(scale)).unwrap();
-        let (zwei_16, zwei_32) = (zwei(16), zwei(32));
+        let (zwei_4, zwei_8, zwei_16, zwei_32) = (zwei(4), zwei(8), zwei(16), zwei(32));
         assert!(zwei_16.deckt_fuer_licht(&state("einfarbig")));
         assert!(!zwei_16.deckt_fuer_licht(&state("seerose")));
         for (kamera, scale, vergleich) in [
@@ -1697,6 +1700,15 @@ mod tests {
             ("5:3", 30, &zwei_32),
             ("top-north", 16, &zwei_16),
             ("north-45", 16, &zwei_16),
+            ("1:1", 6, &zwei_8),
+            ("top", 6, &zwei_8),
+            ("top-north", 4, &zwei_4),
+            ("top-north", 6, &zwei_8),
+            ("top-north", 7, &zwei_8),
+            ("north-45", 5, &zwei_8),
+            ("north-45", 6, &zwei_8),
+            ("north-45", 7, &zwei_8),
+            ("north-45", 8, &zwei_8),
         ] {
             let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
             let set = build(&mut assets(), &states, projection).unwrap();
@@ -2725,23 +2737,31 @@ mod tests {
         assert_eq!(flags("water"), (false, false), "von oben");
 
         // Genordet von oben wie von oben. Von Süden deckt die flache
-        // Oberseite von Lava und Teppich den oberen Rand des Umrisses nicht,
-        // mit der Südwand darunter aber den Boden.
-        for (kamera, flach) in [
-            (Kamera::ObenNord, (true, true)),
-            (Kamera::Nord45, (false, true)),
-        ] {
-            let set = build(&mut assets, &states, Projection::mit_kamera(16, kamera)).unwrap();
-            let flags = |text: &str| {
-                let f = set.family_of(&state(text)).unwrap();
-                (f.opaque, f.covers_floor)
-            };
-            assert_eq!(flags("einfarbig"), (true, true), "{kamera}");
-            assert_eq!(flags("lava"), flach, "{kamera}");
-            assert_eq!(flags("teppich"), flach, "{kamera}");
-            assert_eq!(flags("druckplatte"), (false, false), "{kamera}");
-            assert_eq!(flags("water"), (false, false), "{kamera}");
-            assert_eq!(flags("oak_fence[north=true]"), (false, false), "{kamera}");
+        // Oberseite von Teppich den oberen Rand des Umrisses nicht, mit der
+        // Südwand darunter aber den Boden. Lava lässt oben b/9 frei, wie in
+        // 2:1 erst bei scale 4 keinen Pixel.
+        for kamera in [Kamera::ObenNord, Kamera::Nord45] {
+            let oben = kamera == Kamera::ObenNord;
+            for scale in [48, 32, 24, 16, 12, 8, 4] {
+                let projection = Projection::mit_kamera(scale, kamera);
+                let set = build(&mut assets, &states, projection).unwrap();
+                let flags = |text: &str| {
+                    let f = set.family_of(&state(text)).unwrap();
+                    (f.opaque, f.covers_floor)
+                };
+                assert_eq!(flags("einfarbig"), (true, true), "{kamera} bei {scale}");
+                assert_eq!(flags("water"), (false, false), "{kamera} bei {scale}");
+                assert_eq!(
+                    flags("lava"),
+                    (oben || scale == 4, true),
+                    "{kamera} bei {scale}"
+                );
+                assert_eq!(flags("teppich"), (oben, true), "{kamera} bei {scale}");
+                if scale == 16 {
+                    assert_eq!(flags("druckplatte"), (false, false), "{kamera}");
+                    assert_eq!(flags("oak_fence[north=true]"), (false, false), "{kamera}");
+                }
+            }
         }
     }
 

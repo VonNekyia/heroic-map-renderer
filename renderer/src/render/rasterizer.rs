@@ -12,10 +12,12 @@ use super::{Cell, Projection};
 
 /// Abtastpunkte je Pixelkante für die Textur. Die Geometrie wird nur im
 /// Pixelmittelpunkt geprüft, die Textur über den Pixel gemittelt, so
-/// dicht, dass jeder Texel zählt: eine Seitenfläche ist `scale / 2` Pixel
-/// breit für sechzehn Texel, also liegen `32 / scale` Texel unter jedem
-/// Pixel. Mindestens zwei, damit auch bei scale 32 die Mitte zwischen zwei
-/// Texeln stimmt; höchstens sechzehn, mehr Texel hat eine Textur nicht.
+/// dicht, dass jeder Texel zählt: Diagonal ist eine Seitenfläche
+/// `scale / 2` Pixel breit für sechzehn Texel, also liegen `32 / scale`
+/// Texel unter jedem Pixel. Genordet ist sie `scale` breit; dort tastet es
+/// doppelt so dicht ab wie nötig. Mindestens zwei, damit auch bei scale 32
+/// die Mitte zwischen zwei Texeln stimmt; höchstens sechzehn, mehr Texel
+/// hat eine Textur nicht.
 /// Siehe docs/renderer/naehte.md, „Geometrie im Pixelmittelpunkt“.
 fn texture_samples(scale: u32) -> u32 {
     (32 / scale.max(1)).clamp(2, 16)
@@ -206,8 +208,9 @@ pub fn darken(pixel: [u8; 4], factors: [u32; 3]) -> [u8; 4] {
     ]
 }
 
-/// Die Seiten, die die Kamera sieht, in der Reihenfolge der Nummern in
-/// [`Sprite::ao`]: Seite `i` hat dort die Nummer `i + 1`.
+/// Die Seiten, die eine diagonale schräge Kamera sieht, in der Reihenfolge
+/// der Nummern in [`Sprite::ao`]: Seite `i` hat dort die Nummer `i + 1`.
+/// `north-45` sieht Osten nicht, von oben nur die Oberseite.
 pub const AO_FACES: [Face; 3] = [Face::Up, Face::South, Face::East];
 
 /// Die Ecken einer Seite aus [`AO_FACES`] in der Reihenfolge von `FaceInfo`

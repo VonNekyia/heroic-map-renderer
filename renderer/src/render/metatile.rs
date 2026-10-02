@@ -773,8 +773,11 @@ fn blit_sichtbar(
 /// rendert Streifen Zeile für Zeile, und [`ChunkCache`] behält, was die
 /// letzte Zeile gebraucht hat.
 ///
-/// Eine Kachel ist ein schräger Schnitt durch die volle Bauhöhe: ein Chunk
-/// liegt im Band von drei bis vier Kachelspalten und gut zwanzig Zeilen.
+/// Diagonal ist eine Kachel ein schräger Schnitt durch die volle Bauhöhe:
+/// ein Chunk liegt im Band von drei bis vier Kachelspalten und gut zwanzig
+/// Zeilen. Genordet reicht das Band bei `north-45` in z über die Bauhöhe,
+/// bei `top-north` liegt es unter der Kachel; die Breite ist dort nicht
+/// eigens gemessen.
 /// Spalte für Spalte lädt deshalb jede Kachel die Chunks am unteren Rand
 /// ihrer ganzen Breite neu, samt Rand für Modelle, die überstehen. Über
 /// mehrere Spalten nebeneinander teilen sich die Kacheln einer Zeile diesen
@@ -1480,7 +1483,8 @@ impl<'a> ChunkCache<'a> {
     /// Umriss decken und der nach +y seinen Boden. Nach +y ist das ein Shift
     /// in derselben Spalte; am oberen Rand kommt das Bit aus der Section
     /// darüber, an den Rändern +x und +z aus dem Nachbarchunk. Genordet
-    /// liegt der Nachbar nach +x neben dem Umriss und zählt nicht.
+    /// liegt der Nachbar nach +x neben dem Umriss und zählt nicht; welche
+    /// zählen, sagt `Projection::verdeckende_seiten`.
     ///
     /// Reine Flüssigkeit, Wasser wie Lava, zeichnet ausserdem nichts, wo über
     /// ihr dieselbe steht und sie zu beiden Seiten an dieselbe mit derselben
@@ -1505,15 +1509,24 @@ impl<'a> ChunkCache<'a> {
             }
             (self.slots[slot].key, loaded.chunk.sections()[s].y)
         };
-        let nx = self.edge((key.0 + 1, key.1), section_y, true)?;
-        let nz = self.edge((key.0, key.1 + 1), section_y, false)?;
         let projection = self.sprites.projection();
         let verdecken = projection.ganze_pixel();
         // Ein Nachbar, der neben dem Umriss liegt, zählt, als wäre er deckend:
-        // von oben beide, genordet der nach +x.
+        // von oben beide, genordet der nach +x. Seinen Rand liest es nicht.
         let (mit_x, mit_z) = projection.verdeckende_seiten();
         let seite_x = if mit_x { 0 } else { u16::MAX };
         let seite_z = if mit_z { 0 } else { u16::MAX };
+        let luft = [(0, [0; 2], [0; 2]); 16];
+        let nx = if verdecken && mit_x {
+            self.edge((key.0 + 1, key.1), section_y, true)?
+        } else {
+            luft
+        };
+        let nz = if verdecken && mit_z {
+            self.edge((key.0, key.1 + 1), section_y, false)?
+        } else {
+            luft
+        };
 
         let loaded = self.slots[slot].loaded.as_mut().expect("geladen");
         let above = section_y
@@ -2392,9 +2405,11 @@ mod tests {
 
     /// Die Referenz verlässt sich darauf, dass die Tiefe `v` innerhalb
     /// einer Höhe nie fällt; der Schlüssel der Kandidaten sortiert genauso.
+    /// Die Schwelle liegt je Kamera knapp unter den 431 und 121 Spalten, die
+    /// `columns_at` heute liefert, damit ein Verlust auffällt.
     #[test]
     fn spalten_kommen_nach_tiefe_sortiert() {
-        for projection in azimute() {
+        for (projection, mindestens) in azimute().into_iter().zip([420, 118, 118]) {
             let kamera = projection.kamera();
             let mut vorher = i32::MIN;
             let mut gesehen = 0;
@@ -2404,7 +2419,10 @@ mod tests {
                 vorher = v;
                 gesehen += 1;
             }
-            assert!(gesehen > 15, "{kamera}: nur {gesehen} Spalten geprüft");
+            assert!(
+                gesehen >= mindestens,
+                "{kamera}: nur {gesehen} Spalten geprüft"
+            );
         }
     }
 

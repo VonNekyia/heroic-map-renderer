@@ -91,8 +91,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 - **Ein Baum, eine Kamera:** siehe [Zoomstufen](zoomstufen.md), „Ein Baum,
   eine Kamera“.
 - **Das Frontend** rechnet die Koordinaten aus diesen Feldern, siehe
-  [Frontend](../frontend.md), „Koordinaten“; genordet erst mit seiner PR zu
-  #67, bis dahin zeigt es dort keine Koordinaten und warnt.
+  [Frontend](../frontend.md), „Koordinaten“.
 
 Für die Koordinaten rechnet das Frontend die Projektion nach. Damit es
 dabei nicht vom Renderer abweicht, liegen Einträge in

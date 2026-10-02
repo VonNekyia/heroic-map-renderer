@@ -3790,7 +3790,8 @@ fn ohne_scale_genordet_16_sonst_32() {
 
 /// `--direction` passt zur Kamera: diagonal über eine Ecke, genordet von
 /// einer Seite. Eine falsche Kombination bricht ab, bevor der Lauf die Welt
-/// liest, und nennt die vier, die gehen. Die Vorgabe darf man nennen.
+/// liest, und nennt die vier, die gehen. Jede passende geht, die Vorgabe
+/// auch.
 #[test]
 fn richtung_wird_je_kamera_geprueft() {
     let leer = tempdir();
@@ -3824,14 +3825,67 @@ fn richtung_wird_je_kamera_geprueft() {
         assert!(meldung.contains(soll), "{kamera} {richtung}: {meldung}");
         assert!(!String::from_utf8_lossy(&ausgabe.stdout).contains("Welt:"));
     }
-    // Die Vorgabe geht; dann scheitert der Lauf erst an der fehlenden Welt.
-    for (kamera, richtung) in [("2:1", "se"), ("north-45", "s")] {
+    // Dann scheitert der Lauf erst an der fehlenden Welt.
+    for (kamera, richtung) in [
+        ("2:1", "se"),
+        ("north-45", "s"),
+        ("8:5", "nw"),
+        ("top-north", "e"),
+    ] {
         let meldung = String::from_utf8_lossy(&lauf(kamera, richtung).stderr).into_owned();
         assert!(
             !meldung.contains("schaut"),
             "{kamera} {richtung}: {meldung}"
         );
     }
+}
+
+/// Mit `--direction` entsteht ein eigener Baum unter derselben Wurzel, mit
+/// der Richtung in `map.json` und `trees.json`. Ein Kasten aus einem Block
+/// einer Farbe sieht aus `nw` aus wie aus `se`, nur liegt er im Blick
+/// woanders: Beide Bäume haben auf der feinsten Stufe dieselben Pixel. Der
+/// Vorlauf findet die Kacheln also auch im Blick, über die Grenze zweier
+/// Chunks hinweg. Der Kasten liegt weit weg vom Ursprung; dort deckte schon
+/// der ungedrehte Kasten eines Chunks die Kacheln im Blick.
+#[test]
+fn richtung_ist_ein_eigener_baum() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(10, 10), (11, 10)], |x, y, z| {
+        match (x, y, z) {
+            (170..=181, 0..=2, 163..=166) => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        }
+    });
+    let se = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), se.path(), &[]));
+    let nw = se.wurzel().join("2x1-nw");
+    gelungen(&tiles(welt.path(), &nw, &["--direction", "nw"]));
+    let info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(nw.join("map.json")).unwrap()).unwrap();
+    assert_eq!(info["direction"], "nw");
+    let liste: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(se.wurzel().join("trees.json")).unwrap())
+            .unwrap();
+    let ordner: Vec<&str> = liste["trees"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|baum| baum["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(ordner, ["2x1-se", "2x1-nw"]);
+    // Je Farbe, wie viele Pixel sie auf der feinsten Stufe hat.
+    let farben = |dir: &Path| {
+        let mut farben: BTreeMap<[u8; 4], usize> = BTreeMap::new();
+        for pfad in kacheln(dir, max_zoom(dir)).values() {
+            for pixel in bild(pfad).pixels().filter(|p| p.0[3] > 0) {
+                *farben.entry(pixel.0).or_default() += 1;
+            }
+        }
+        farben
+    };
+    let soll = farben(se.path());
+    assert!(soll.len() >= 3, "drei Seiten, drei Farben: {soll:?}");
+    assert_eq!(farben(&nw), soll);
 }
 
 /// `trees.json` unter der Wurzel nennt jeden Baum mit Ordner, Kamera,

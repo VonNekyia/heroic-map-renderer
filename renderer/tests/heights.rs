@@ -7,7 +7,9 @@ use std::path::PathBuf;
 
 use terranova_render::assets::Assets;
 use terranova_render::render::heights::{EMPTY, RegionHeights};
-use terranova_render::render::{Kamera, Projection, ScreenRect, SpriteSet, render_area, survey};
+use terranova_render::render::{
+    Kamera, Projection, Richtung, ScreenRect, SpriteSet, render_area, survey,
+};
 use terranova_render::world::{REGION, World};
 
 /// Die gebaute Welt reicht von y=0 bis y=47.
@@ -347,7 +349,9 @@ fn unfertige_chunks_bleiben_leer() {
 
 /// Die Projektion als Datei für das Frontend: je scale ein paar Blöcke und
 /// der Bildpunkt ihrer Ecke mit den kleinsten Koordinaten, wie
-/// `Projection::project_block` ihn rechnet, auch negativ und weit draussen.
+/// `Projection::project_block` ihn rechnet, auch negativ und weit draussen;
+/// aus den anderen Richtungen die Ecke mit den kleinsten Koordinaten im
+/// Blick.
 /// Das Frontend prüft sein Vorwärtsmodell daran. Neu schreiben mit
 /// `UPDATE_GOLDEN=1 cargo test --test heights`.
 /// Siehe docs/renderer/kamera.md, „Projektion“.
@@ -381,24 +385,43 @@ fn projektion_als_datei_ist_aktuell() {
         ("top-north", &[6, 12, 16, 24, 32, 48]),
         ("north-45", &[6, 7, 12, 16, 24, 32, 48]),
     ];
+    // Aus den anderen Richtungen je Art ein scale: `block` liegt in der
+    // Welt, `pixel` ist der Bildpunkt der Ecke mit den kleinsten
+    // Koordinaten im Blick.
+    let richtungen = [
+        ("2:1", 32, ["sw", "nw", "ne"]),
+        ("top", 32, ["sw", "nw", "ne"]),
+        ("top-north", 16, ["w", "n", "e"]),
+        ("north-45", 16, ["w", "n", "e"]),
+    ];
+    let mut faelle: Vec<(&str, u32, Option<&str>)> = kameras
+        .iter()
+        .flat_map(|&(kamera, scales)| scales.iter().map(move |&scale| (kamera, scale, None)))
+        .collect();
+    for (kamera, scale, namen) in richtungen {
+        faelle.extend(namen.map(|name| (kamera, scale, Some(name))));
+    }
     let mut zeilen = Vec::new();
-    for (kamera, scales) in kameras {
-        for &scale in scales {
-            let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
-            let richtung = projection.richtung().name(projection.kamera());
-            assert!(projection.ganze_pixel(), "{kamera} bei {scale}");
-            for block in bloecke {
-                let (x, y) = projection.project_block(block);
-                assert!(
-                    x.fract() == 0.0 && y.fract() == 0.0,
-                    "{block:?} bei {kamera}, {scale}"
-                );
-                zeilen.push(format!(
-                    "  {{\"camera\": \"{kamera}\", \"direction\": \"{richtung}\", \"scale\": {scale}, \
+    for (kamera, scale, gedreht) in faelle {
+        let art = Kamera::parse(kamera).unwrap();
+        let mut projection = Projection::mit_kamera(scale, art);
+        if let Some(name) = gedreht {
+            projection = projection.aus(Richtung::parse(name, art).unwrap());
+        }
+        let richtung = projection.richtung().name(projection.kamera());
+        assert!(projection.ganze_pixel(), "{kamera} bei {scale}");
+        for block in bloecke {
+            let [bx, bz] = projection.richtung().in_den_blick([block[0], block[2]]);
+            let (x, y) = projection.project_block([bx, block[1], bz]);
+            assert!(
+                x.fract() == 0.0 && y.fract() == 0.0,
+                "{block:?} bei {kamera}, {scale}"
+            );
+            zeilen.push(format!(
+                "  {{\"camera\": \"{kamera}\", \"direction\": \"{richtung}\", \"scale\": {scale}, \
                      \"block\": [{}, {}, {}], \"pixel\": [{x}, {y}]}}",
-                    block[0], block[1], block[2]
-                ));
-            }
+                block[0], block[1], block[2]
+            ));
         }
     }
     zeilen.extend(kantenpixel());

@@ -5,6 +5,8 @@ status: gilt
 date: 2026-10-02
 issues: [89, 72, 73]
 code:
+  - renderer/src/render/look.rs
+  - renderer/src/render/kino.rs
   - renderer/src/render/tint.rs
   - renderer/src/assets/colors.rs
   - renderer/src/render/metatile.rs
@@ -36,6 +38,7 @@ Himmelslicht und Leuchten kommen dazu.
 |---|---|
 | Sonne | Stärke 3, Farbe (1; 0,93; 0,83) linear, 48,47° hoch, 8,75° von links zur Kamera hin; exakter harter Schatten wie in [0056](0056-exakter-strahl-zur-sonne.md) |
 | Himmelslicht | Stärke 3: das Himmelslicht des Spiels nach der Kurve der Lightmap, in der Farbe des Himmels |
+| Farbe des Himmelslichts | Nebel und Himmel linear gemischt, zu 0,75 der Himmel; aus dem Prototyp von #89 |
 | Blocklicht | Stärke 1,5 |
 | Leuchten | Stärke 2, nur die hellen Texel leuchtender Blöcke |
 | Bodenpflanzen | Sie dämpfen den Strahl zur Sonne auf 0,5, einmal je Block, statt ihn zu decken. Nicht dämpfen die Pflanze, auf der der Strahl beginnt, und bei zwei Blöcken Höhe ihr oberer Block. Flächen ohne `shade` bekommen das Licht einer Fläche nach oben. Die Form der Kreuze bleibt die des Spiels. |

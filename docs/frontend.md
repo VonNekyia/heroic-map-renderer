@@ -47,8 +47,10 @@ zugleich das Fixture des Smoke-Tests.
 ## Einem Render zusehen
 
 Wer einem langen Render zusehen will, legt die Kacheln woanders ab und
-setzt einen Link: unter Windows `mklink /J web\public\tiles <kachelordner>`,
-sonst `ln -s /pfad/zu/tiles web/public/tiles`. Findet Vite unter `public/`
+setzt einen Link auf die Wurzel von `--tiles`, nicht auf einen Baum darin,
+sonst lägen `trees.json` und `../heights` ausserhalb: unter Windows
+`mklink /J web\public\tiles <wurzel>`, sonst
+`ln -s /pfad/zur/wurzel web/public/tiles`. Findet Vite unter `public/`
 einen Link, fragt es bei jeder Anfrage die Platte und liefert auch Kacheln
 aus, die nach seinem Start entstanden sind, etwa durch `--pyramid`, siehe
 [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md). Aus einem
@@ -139,7 +141,8 @@ Mitte des Pixels ab, wo auch der Renderer abtastet:
 
 Aus einer anderen Richtung als `se` oder `s` rechnet `strahl` im Blick:
 Die Welt ist dort k Vierteldrehungen gedreht, k aus der Reihenfolge
-`se`, `sw`, `nw`, `ne`, genordet `s`, `w`, `n`, `e`. Höhen und Anzeige
+`se`, `sw`, `nw`, `ne`, genordet `s`, `w`, `n`, `e`, wie in
+[map.json](benutzung/map-json.md), „Kamera und Projektion“. Höhen und Anzeige
 sind in Weltkoordinaten; `inDieWelt` dreht jeden Block des Strahls
 zurück, bevor er seine Höhe nachschlägt, `inDenBlick` dreht hin.
 

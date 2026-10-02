@@ -10,6 +10,10 @@ code:
 
 # 0022: Die Ausnahme im Echtzeitschutz nur mit Zustimmung
 
+[0054](0054-baeume-unter-einer-wurzel.md) löst einen Teil ab: Hinweis und
+Ausnahme gibt es auch für eine Wurzel mit `trees.json` oder mit einem Baum
+darin.
+
 ## Anlass
 
 Unter Windows prüft Microsoft Defender jede Datei, die der Export schreibt.

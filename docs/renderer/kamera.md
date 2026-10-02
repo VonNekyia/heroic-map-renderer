@@ -394,16 +394,13 @@ Dasselbe Dorf der Testwelt wie in „Kameras“, links `top-north`, rechts
 `--direction` sagt, wo die Kamera steht (`Richtung` in
 [`renderer/src/render/projection.rs`](../../renderer/src/render/projection.rs)).
 Es gibt vier Richtungen in Vierteldrehungen, für jede Kamera eine je Lauf:
-
-| diagonal: W:H, `top` | genordet: `top-north`, `north-45` | Block (x, z) der Welt liegt im Blick bei |
-|---|---|---|
-| `se`, Südost, Vorgabe | `s`, Süden, Norden oben, Vorgabe | (x, z) |
-| `sw`, Südwest | `w`, Westen, Osten oben | (z, −x − 1) |
-| `nw`, Nordwest | `n`, Norden, Süden oben | (−x − 1, −z − 1) |
-| `ne`, Nordost | `e`, Osten, Westen oben | (−z − 1, x) |
+diagonal `se`, `sw`, `nw` und `ne`, genordet `s`, `w`, `n` und `e`,
+Vorgabe `se` und `s`. Wohin jede Richtung einen Block der Welt legt und
+zurück, steht in [`map.json`](../benutzung/map-json.md), „Kamera und
+Projektion“.
 
 - **Im Blick** steht die Kamera immer bei +x, +z, wie aus der Vorgabe;
-  gedreht wird die Welt. Dieselbe Formel gilt für Chunks.
+  gedreht wird die Welt.
 - **Die falsche Art** bricht ab, bevor der Lauf die Welt liest: „north-45
   schaut von einer Seite: s, w, n oder e“, „8:5 schaut über eine Ecke: se,
   sw, nw oder ne“.

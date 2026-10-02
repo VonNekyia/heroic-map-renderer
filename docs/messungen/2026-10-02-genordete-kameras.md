@@ -173,7 +173,8 @@ mit Karte.
 - **Mit der Pause streut die Basis kaum.** In 2:1 bei 32 lagen alle Läufe
   je Stand und Karte innerhalb von 0,3 s. Die Serien ohne Pause liefen zu
   einer anderen Zeit; ein Vergleich mit ihnen trägt nicht. Was die Pause
-  an derselben Stelle bringt, misst #56.
+  an derselben Stelle bringt, misst #56, siehe
+  [2026-10-02, Zwei Zustände der Basis](2026-10-02-zwei-zustaende-der-basis.md).
 - **`north-45` bei 16 kostet je Spalte etwa wie 2:1 bei 32.** Seine
   Oberseite hat so viele Pixel wie die von 2:1. Ein voller Würfel belegt
   aber 512 Pixel, Oberseite und Südwand, gegen 768 in 2:1 mit Süd- und

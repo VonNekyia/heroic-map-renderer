@@ -5,7 +5,7 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::Face;
-use crate::assets::blockstate::{self, DUNKELT, Leuchten, Lichtweg, SICHT};
+use crate::assets::blockstate::{self, DUNKELT, Leuchten, Lichtweg, SICHT, seite};
 use crate::assets::colors::Resolver;
 use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
@@ -1887,7 +1887,7 @@ impl<'a> ChunkCache<'a> {
     ///
     /// Vier Entscheidungen fallen hier: welche Alternative die Position
     /// bekommt, welche Flüssigkeitsflächen die Nachbarn verdecken, welche
-    /// Flächen zu gleichen Nachbarn entfallen und in welchen Farben sein
+    /// Flächen zu Nachbarn entfallen und in welchen Farben sein
     /// Biom den Block tönt. Die Bilder sind vorab gerastert, die Farben
     /// kommen beim Zeichnen dazu.
     fn sprite_at(&mut self, x: i32, y: i32, z: i32) -> Result<Drawn> {
@@ -1949,26 +1949,31 @@ impl<'a> ChunkCache<'a> {
             }
         }
 
-        // Flächen zu gleichen Nachbarn entfallen wie `skipRendering` im
-        // Spiel; bleibt nichts, fällt der Block weg.
-        // Siehe docs/renderer/sprites-und-deckung.md, „Flächen zu gleichen Nachbarn“.
-        let sprite = match family.nachbarn {
-            Some(regel) if family.hat_nachbarn() => {
-                let mut nachbarn = 0;
-                for (k, face) in family.nachbarseiten().enumerate() {
-                    let [dx, dy, dz] = self.richtung.versatz_in_den_blick(face.versatz());
-                    let nachbar = self.family_at(x + dx, y + dy, z + dz)?;
-                    if nachbar
-                        .and_then(|nachbar| nachbar.nachbarn)
-                        .is_some_and(|nachbar| regel.verdeckt(&nachbar, face))
-                    {
-                        nachbarn |= 1 << k;
-                    }
+        // Flächen zu Nachbarn entfallen wie in `Block.shouldRenderFace`: vor
+        // einer Seite, die voll deckt, und nach `skipRendering`. Bleibt
+        // nichts, fällt der Block weg.
+        // Siehe docs/renderer/sprites-und-deckung.md, „Flächen vor einem vollen Nachbarn“.
+        let sprite = if family.hat_nachbarn() {
+            let mut nachbarn = 0;
+            for (k, face) in family.nachbarseiten().enumerate() {
+                let [dx, dy, dz] = self.richtung.versatz_in_den_blick(face.versatz());
+                let Some(nachbar) = self.family_at(x + dx, y + dy, z + dz)? else {
+                    continue;
+                };
+                let voll = nachbar.voll & seite(face.gegenueber()) != 0;
+                let regel = family
+                    .nachbarn
+                    .zip(nachbar.nachbarn)
+                    .is_some_and(|(regel, nachbar)| regel.verdeckt(&nachbar, face));
+                if voll || regel {
+                    nachbarn |= 1 << k;
                 }
-                family.ohne_nachbarn(wahl, fluessig, nachbarn)
             }
-            _ if family.fluid.is_some() => sprites.masked(id, fluessig),
-            _ => Some(id),
+            family.ohne_nachbarn(wahl, fluessig, nachbarn)
+        } else if family.fluid.is_some() {
+            sprites.masked(id, fluessig)
+        } else {
+            Some(id)
         };
         if sprite.is_none() && strips.iter().all(Option::is_none) {
             return Ok(Drawn::default());

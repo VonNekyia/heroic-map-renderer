@@ -78,6 +78,10 @@ in [0055](../entscheidungen/0055-welt-beim-zugriff-drehen.md).
   Cache im Blick,
   siehe [Sprites und Deckung](sprites-und-deckung.md), „Flächen zu gleichen
   Nachbarn“.
+- **Volle Seiten:** Wo ein Nachbar voll deckt (`Family::voll`), sind Seiten
+  der Welt wie die `cullface`, siehe
+  [Sprites und Deckung](sprites-und-deckung.md), „Flächen vor einem vollen
+  Nachbarn“.
 - **Licht unbekannter Blöcke:** Ob ein Block, den 26.2 nicht kennt, das
   Licht aufhält, entscheidet das Raster in 2:1 aus der Vorgabe-Richtung,
   siehe [Wasser und Licht](wasser-und-licht.md), „Was bleibt eine
@@ -106,6 +110,11 @@ Renderer auch:
 - **Texturen** liegen in der Welt. Eine Textur ohne Symmetrie auf einem
   Block ohne Richtung, wie Stein, sieht aus einer anderen Richtung gedreht
   aus.
+- **Modelle ohne Richtung** liegen in der Welt. Beim Spawner tragen die
+  Wände in z die `cullface` der Wand gegenüber, die in x die eigene, siehe
+  [Sprites und Deckung](sprites-und-deckung.md), „Flächen vor einem vollen
+  Nachbarn“. Nach einer Vierteldrehung entfällt vor demselben Nachbarn
+  deshalb eine andere Wand, auch im Spiel.
 
 Halb gedreht gleicht das Bild einer gedrehten Welt dem der Vorgabe deshalb
 nur dort, wo Texturen, Alternativen, Biome und der Ersatz für den Block in
@@ -152,10 +161,11 @@ In `renderer/tests/richtung.rs`:
   negativen Koordinaten. Halb gedreht gleicht das Bild dem der Vorgabe im
   Alpha genau und in der Farbe bis auf eins je Kanal. Aus k = 1 und 3
   gleicht es ihm im Alpha, also in Geometrie und Weglassen, und beide
-  Bilder gleichen einander wie halb gedreht. Die Blockentities, nach Süden
-  und Norden, zählen nur halb gedreht, siehe „Nicht das gedrehte Bild“. Die
-  Drehung der Blockstates rechnet der Test selbst aus der Tabelle, nicht
-  mit dem Renderer.
+  Bilder gleichen einander wie halb gedreht. Nur halb gedreht zählen die
+  Blockentities, nach Süden und Norden, und ein Spawner vor Brettern
+  darunter und einem ausgefahrenen Kolben im Süden, der nur zu ihm voll
+  deckt, siehe „Nicht das gedrehte Bild“. Die Drehung der Blockstates
+  rechnet der Test selbst aus der Tabelle, nicht mit dem Renderer.
 - `licht_der_welt_aus_jeder_richtung`: das Licht jeder Zelle der Szene aus
   `common::szene` und um sie herum, aus allen vier Richtungen.
 - `licht_unbekannter_bloecke_aus_der_vorgabe`: Ein Block, den 26.2 nicht

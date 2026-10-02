@@ -63,7 +63,7 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `renderer/tests/assets.rs` | den Asset-Layer am synthetischen Assetbaum |
 | `renderer/tests/render.rs` | Projektion, Baking und Rasterizer zusammen: von der Blockstate bis zu den Pixeln des Sprites |
 | `renderer/tests/metatile.rs` | ganze Welten im Speicher, gerendert, samt Goldbildern |
-| `renderer/tests/richtung.rs` | die Richtungen der Kamera: Modelle gedreht, Seiten nach der Welt schattiert, auch die eines Blockentities, Licht, Alternativen und Biome aus der Welt; gedrehte Szenen je Kamera aus allen vier Richtungen wie aus der Vorgabe: Treppen, Türen, Zäune, Scheiben, Licht unter einem Dach, Teile in fremden Würfeln, Blockentities und Wasser, dazu Eis und Wasser in Stufen, siehe [Richtungen](../renderer/richtungen.md) |
+| `renderer/tests/richtung.rs` | die Richtungen der Kamera: Modelle gedreht, Seiten nach der Welt schattiert, auch die eines Blockentities, Licht, Alternativen und Biome aus der Welt; gedrehte Szenen je Kamera aus allen vier Richtungen wie aus der Vorgabe: Treppen, Türen, Zäune, Scheiben, Licht unter einem Dach, Teile in fremden Würfeln, Blockentities, einen Spawner vor vollen Blöcken und Wasser, dazu Eis und Wasser in Stufen, siehe [Richtungen](../renderer/richtungen.md) |
 | `renderer/tests/heights.rs` | die Höhen für die Koordinatenanzeige und `projektion.json` für das Frontend |
 | `renderer/tests/tiles.rs` | die Naht: jede Kachel gegen den Ausschnitt eines grossen Renderings |
 | `renderer/tests/cli.rs` | die ganze Exportkette über das echte Binär |
@@ -108,8 +108,14 @@ synthetisch, bildet aber die Formen ab, die eine Bestandsaufnahme über
 Vanilla 26.2 und das TerraNova-Pack ergeben hat. Für die Blockentities
 bringt er Truhe, Banner und Krug mit einem Modell nur aus der
 Partikeltextur wie im Spiel und kleine, selbst gemalte Texturen unter
-`textures/entity`. Biome und Bannermuster für die Tests liegen unter
-`renderer/tests/fixtures/data-base`.
+`textures/entity`. Der Spawner hat nur das innere, in x gespiegelte
+Element von `cube_all_inner_faces` aus 26.2, einfarbig, die untere Schicht
+der Mangrovenwurzeln eine eigene Farbe. Das Pack `assets-platten` zeichnet
+jeden Zustand der Eichenplatte mit dem Modell der unteren, für zwei
+Familien mit demselben Bild, die verschieden decken. Das Pack
+`assets-wurzeln` gibt den Mangrovenwurzeln die sechs Schichten aus 26.2,
+für ihre Seiten aus jeder Richtung. Biome und Bannermuster für die Tests liegen
+unter `renderer/tests/fixtures/data-base`.
 
 ## Welten im Speicher
 

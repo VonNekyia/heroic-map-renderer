@@ -508,6 +508,41 @@ pub fn nachbarregel(state: &BlockState) -> Option<Nachbarregel> {
     Some(Nachbarregel { verbunden, ..regel })
 }
 
+/// Aus dem Spiel gelesen (`Seiten.java`): je Block die Seiten, an denen er
+/// voll deckt, je Zustand zwei Hexziffern in der Reihenfolge von
+/// `getPossibleStates`, oder zwei für alle. Blöcke, die nirgends voll
+/// decken, fehlen. Neu erzeugen mit dem Skill `tabellen-neu-erzeugen`.
+/// Siehe docs/entwicklung/tabellen.md, „Die Tabellen“.
+static SEITEN: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    include_str!("seiten.txt")
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .collect()
+});
+
+/// Die Seiten der Welt, an denen ein Zustand voll deckt
+/// (`getFaceOcclusionShape` ist `Shapes.block()`), als Bits nach [`seite`].
+/// Dorthin lässt jeder Nachbar seine Flächen mit `cullface` weg. Ein Block,
+/// den 26.2 nicht kennt, deckt nirgends.
+/// Siehe docs/renderer/sprites-und-deckung.md, „Flächen vor einem vollen Nachbarn“.
+pub fn volle_seiten(state: &BlockState) -> u8 {
+    let Some(ziffern) = state
+        .name()
+        .strip_prefix("minecraft:")
+        .and_then(|name| SEITEN.get(name))
+    else {
+        return 0;
+    };
+    let paar = match ziffern.len() {
+        2 => Some(*ziffern),
+        _ => Definition::of(state.name())
+            .and_then(|d| d.index(state))
+            .and_then(|i| ziffern.get(2 * i..2 * i + 2)),
+    };
+    paar.and_then(|p| u8::from_str_radix(p, 16).ok())
+        .unwrap_or(0)
+}
+
 impl BlockStateDef {
     /// Liest eine Datei so streng wie der Client: nach dem ersten Dokument
     /// darf nichts mehr kommen (`StrictJsonParser`), und was der Codec
@@ -1152,6 +1187,70 @@ mod tests {
         );
         assert_eq!(bits("minecraft:oak_slab[type=top,waterlogged=false]"), 0);
         assert_eq!(bits("minecraft:oak_slab[type=bottom,waterlogged=false]"), 0);
+        assert_eq!(bits("mod:stein"), 0);
+    }
+
+    /// Jede Zeile aus `seiten.txt` passt zu `blocks.txt`: zwei Hexziffern
+    /// oder zwei je Zustand. Dazu Werte, die `Seiten.java` aus 26.2 las, und
+    /// für Mangrovenwurzeln, Spawner und Pulverschnee die Antworten von
+    /// `Block.shouldRenderFace`, die eine Probe gegen 26.2 holte: Eine Fläche
+    /// entfällt zu Stein, Schlamm, einer oberen Platte und Schnee mit acht
+    /// Schichten, aber nicht zu einer unteren Platte, einer Treppe,
+    /// Ackerboden, Glas oder Laub. Eine Treppe deckt nie voll, ihre Seiten
+    /// sind im Spiel nie genau `Shapes.block()`.
+    #[test]
+    fn seiten_wie_im_spiel() {
+        assert_eq!(SEITEN.len(), 480);
+        for (name, ziffern) in SEITEN.iter() {
+            let definition = Definition::of(&format!("minecraft:{name}"))
+                .unwrap_or_else(|| panic!("{name} fehlt in blocks.txt"));
+            assert!(
+                ziffern.len() == 2 || ziffern.len() == 2 * definition.states(),
+                "{name}: {} Ziffern für {} Zustände",
+                ziffern.len(),
+                definition.states()
+            );
+            assert!(
+                ziffern
+                    .bytes()
+                    .all(|z| z.is_ascii_hexdigit() && !z.is_ascii_uppercase()),
+                "{name}"
+            );
+        }
+        let bits = |text: &str| volle_seiten(&state(text));
+        let alle = 0x3f;
+        let unten = seite(Face::Down);
+        let oben = seite(Face::Up);
+        assert_eq!(bits("minecraft:stone"), alle);
+        assert_eq!(bits("minecraft:mud"), alle);
+        assert_eq!(bits("minecraft:soul_sand"), alle);
+        assert_eq!(
+            bits("minecraft:oak_slab[type=bottom,waterlogged=false]"),
+            unten
+        );
+        assert_eq!(bits("minecraft:oak_slab[type=top,waterlogged=true]"), oben);
+        assert_eq!(
+            bits("minecraft:oak_slab[type=double,waterlogged=false]"),
+            alle
+        );
+        assert_eq!(
+            bits("minecraft:oak_stairs[facing=north,half=top,shape=straight,waterlogged=false]"),
+            0
+        );
+        assert_eq!(bits("minecraft:farmland[moisture=0]"), unten);
+        assert_eq!(bits("minecraft:snow[layers=1]"), unten);
+        assert_eq!(bits("minecraft:snow[layers=8]"), alle);
+        assert_eq!(bits("minecraft:piston[extended=true,facing=up]"), unten);
+        assert_eq!(bits("minecraft:piston[extended=false,facing=up]"), alle);
+        assert_eq!(bits("minecraft:glass"), 0);
+        assert_eq!(
+            bits("minecraft:oak_leaves[distance=7,persistent=false,waterlogged=false]"),
+            0
+        );
+        assert_eq!(bits("minecraft:mangrove_roots[waterlogged=false]"), 0);
+        assert_eq!(bits("minecraft:spawner"), 0);
+        assert_eq!(bits("minecraft:powder_snow"), 0);
+        assert_eq!(bits("minecraft:water[level=0]"), 0);
         assert_eq!(bits("mod:stein"), 0);
     }
 

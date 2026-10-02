@@ -17,9 +17,9 @@ Aus der Vorgabe ändert die Drehung der Welt kein Byte: In 2:1 und in
 Spitze liegen im Wechsel gegen #86 in der Streuung, ohne wie mit Karte:
 Der `match` je Zugriff ist nicht zu sehen. Aus `nw` kostet 2:1 so viel wie
 aus `se`: Die Basis liegt im Median bis 0,2 s darüber oder darunter, die
-Spannen überlappen, die Spitze liegt in der Streuung. Die Kacheln aus `nw` sind am Stand 3 % schwerer, im
-Fichtenwald 14 % leichter; die Kamera sieht dort die Nord- und Westseiten
-derselben Spalten.
+Spannen überlappen, die Spitze liegt in der Streuung. Die Kacheln aus `nw`
+sind am Stand 3 % schwerer, im Fichtenwald 14 % leichter; die Kamera sieht
+dort die Nord- und Westseiten derselben Spalten.
 
 ## Aufbau
 

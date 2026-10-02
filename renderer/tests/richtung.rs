@@ -499,10 +499,12 @@ fn pruefe(ist: &RgbaImage, soll: &RgbaImage, gleich: Gleich, was: String) {
 ///   gekippt. Dort zählt Alpha, also Geometrie und Weglassen; die Szene
 ///   steht dafür ohne Boden in der Luft. Beide Bilder gleichen einander wie
 ///   halb gedreht.
-/// - **Blockentities** in `nur_halb` zählen nur halb gedreht: Die Lagen des
+/// - **Blöcke** in `nur_halb` zählen nur halb gedreht. Die Lagen des
 ///   Spiels für Blockentities nach Osten und Westen tragen 0,99999994 statt
 ///   1 (`blockentities.txt`), und an einer Kante auf Pixelmitten kippte ein
-///   Pixel nach der Füllregel. Nach Norden und Süden sind sie genau.
+///   Pixel nach der Füllregel. Nach Norden und Süden sind sie genau. Ein
+///   Block ohne Richtung, der nur halb gedreht derselbe ist, gehört auch
+///   hierher.
 ///
 /// Alle Texturen haben eine Farbe, oder sie liegen auf einem Modell, das
 /// sich mit seinem Blockstate dreht. Die Szene liegt in Chunks mit
@@ -688,6 +690,8 @@ fn gedrehte_szene_wie_aus_der_vorgabe() {
         // Quelle: Die Ecken der Bretter daneben nehmen sein Licht. Unter
         // offenem Himmel oder neben der Quelle sind sie ohnehin voll hell.
         ([10, 3, 16], "minecraft:magma_block"),
+        // Bretter unter dem Spawner aus `nur_halb`.
+        ([13, 2, 12], "minecraft:oak_planks"),
         // Teile in fremden Würfeln: frei, nach oben und in einem belegten.
         ([12, 3, 19], "minecraft:ueberhang_gerichtet[facing=south]"),
         ([14, 3, 19], "minecraft:turm_gerichtet[facing=east]"),
@@ -721,18 +725,25 @@ fn gedrehte_szene_wie_aus_der_vorgabe() {
     }
     // Bretter unter den Treppen.
     szene.extend((9..=11).flat_map(|x| (9..=10).map(move |z| ([x, 2, z], "minecraft:oak_planks"))));
-    // Blockentities nach Süden und Norden, siehe `wie_die_vorgabe`: eine
-    // Doppelkiste und ein Topf.
-    let entities = [
+    // Nur halb gedreht, siehe `wie_die_vorgabe`: Blockentities nach Süden
+    // und Norden, eine Doppelkiste und ein Topf, und ein Spawner vor vollen
+    // Blöcken. Seine inneren Wände tragen die `cullface` gegenüber, nur in z;
+    // er hat keine Richtung, und eine Vierteldrehung ändert, was entfällt.
+    // Der Kolben südlich davon deckt nur nach Norden, zum Spawner: Halb
+    // gedreht steht er nördlich, und die Wand entfällt nur, wenn seine
+    // Seiten in der Welt gelesen werden.
+    let nur_halb = [
         ([9, 3, 21], "minecraft:chest[facing=south,type=right]"),
         ([10, 3, 21], "minecraft:chest[facing=south,type=left]"),
         (
             [12, 3, 22],
             "minecraft:decorated_pot[cracked=false,facing=north,waterlogged=false]",
         ),
+        ([13, 3, 12], "minecraft:spawner"),
+        ([13, 3, 13], "minecraft:piston[extended=true,facing=south]"),
     ];
     let chunks = [(0, 0), (1, 0), (0, 1), (1, 1)];
-    wie_die_vorgabe(&szene, &entities, &chunks, &KAMERAS);
+    wie_die_vorgabe(&szene, &nur_halb, &chunks, &KAMERAS);
 }
 
 /// Das Rechteck um die Schicht bei y = 0 über die vier Chunks.

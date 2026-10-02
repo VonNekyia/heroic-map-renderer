@@ -108,6 +108,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0052](entscheidungen/0052-genordete-kameras.md): Genordete Kameras: `top-north` und `north-45` mit u = x und v = z, jeder scale, `direction` `s`.
 - [0053](entscheidungen/0053-cinematic-als-schalter-der-karte.md): Cinematic als Schalter der Karte: im Raster gezeichnet, ein Strahl zur Sonne je Texel, ein eigener Kachelbaum mit `look`; Showcase entfällt.
 - [0054](entscheidungen/0054-baeume-unter-einer-wurzel.md): Bäume unter einer Wurzel: `--tiles` ist die Wurzel, je Kamera und Richtung ein Ordner, `trees.json` aus der Platte, Höhen für alle gemeinsam, alte Ablage bricht ab.
+- [0056](entscheidungen/0056-exakter-strahl-zur-sonne.md): Exakter Strahl zur Sonne ohne Ziel von 0,5 µs: rund 0,7 bis 0,9 µs je Strahl angenommen, keine Schattenkarte.
 
 ## Messungen
 
@@ -142,3 +143,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-02, Genordete Kameras](messungen/2026-10-02-genordete-kameras.md): was `top-north` und `north-45` aus #67 bei scale 16 am Stand und im Fichtenwald kosten, je Spalte gegen 2:1 bei scale 32, ohne und mit Karte, und dass 2:1 Byte für Byte gleich bleibt.
 - [2026-10-02, Strahl zur Sonne und Grösse der Kacheln für Cinematic](messungen/2026-10-02-strahl-zur-sonne.md): was ein Strahl zur Sonne am Prototyp kostet, mit altem Gang, über die Bitmasken, mit schnellem Test der Zelle und Nachschlag je Section, wie schwer Kacheln in Cinematic gegen die der Karte sind und was ein Strahl je Texel statt je Pixel am Bild ändert.
 - [2026-10-02, Zwei Zustände der Basis](messungen/2026-10-02-zwei-zustaende-der-basis.md): warum die Basis am Stand mal 1 bis 2 s länger braucht: Das Löschen des vorigen Baums unmittelbar vor dem nächsten Lauf staut dessen Schreiben; mit Messung je Thread, am Stand C aus #52 und am heutigen master.
+- [2026-10-02, Gang zur Sonne in Stufen](messungen/2026-10-02-gang-zur-sonne-in-stufen.md): was ein Strahl zur Sonne am Prototyp mit dem Gang in Stufen kostet, gegen den alten Gang und den schnellsten aus Reihe 4; Bilder aus getrennten Läufen, Zeit aus Durchgängen im Wechsel in einem Prozess.

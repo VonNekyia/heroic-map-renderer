@@ -40,3 +40,18 @@ body {
   color: #e6e6e6;
   font: 1rem/1.5 system-ui, sans-serif;
 }
+
+/* Der Pfeil nach Norden; die Drehung setzt main.ts. */
+.kompass {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.8);
+  font: bold 18px/30px system-ui, sans-serif;
+  text-align: center;
+}
+
+/* Der Umschalter zwischen den Bäumen aus maps.json. */
+.baeume {
+  font: 13px system-ui, sans-serif;
+}

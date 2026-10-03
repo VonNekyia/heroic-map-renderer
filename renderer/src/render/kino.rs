@@ -566,4 +566,38 @@ mod tests {
         assert!(r < g && g < b && b < 255, "{:?}", [r, g, b]);
         assert_eq!(kino.ton([0.0; 3], 1.0, [0.0; 3]), [0; 3]);
     }
+
+    /// Eine Fläche, der Sonne der Oberwelt zugewandt, im vollen
+    /// Himmelslicht dazu: Weiss läuft ohne Wärme nicht über. Mit der vollen
+    /// Wärme 1,5 erreicht Rot bei Weiss 255; ein Texel mit sRGB 240 bleibt
+    /// darunter.
+    /// Siehe docs/renderer/cinematic.md, „Wärme“.
+    #[test]
+    fn weisse_flaeche_in_voller_sonne() {
+        let kino = kino(&DimensionType::oberwelt());
+        let zur_sonne = Geometrie {
+            tiefe: 0.0,
+            normale: kino.sonne(),
+            shade: true,
+            wasser: 0.0,
+        };
+        let himmel = kino.licht(kino.himmel(0).licht, 240.0, 0.0, 255.0);
+        let sonne = kino.sonnenlicht(&zur_sonne);
+        let licht: [f32; 3] = std::array::from_fn(|c| himmel[c] + sonne[c]);
+        let ton = |srgb: f32, w: f32| {
+            let a = super::super::pyramid::linear_wert(srgb / 255.0);
+            kino.ton(licht.map(|c| c * a), w, [0.0; 3])
+        };
+        assert!(
+            ton(255.0, 1.0).iter().all(|&c| c < 255),
+            "{:?}",
+            ton(255.0, 1.0)
+        );
+        assert_eq!(ton(255.0, 1.5)[0], 255);
+        assert!(
+            ton(240.0, 1.5).iter().all(|&c| c < 255),
+            "{:?}",
+            ton(240.0, 1.5)
+        );
+    }
 }

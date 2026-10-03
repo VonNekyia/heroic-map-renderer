@@ -356,9 +356,15 @@ in 0058 (`Look::waerme`, `Kino::ton`):
   dem Mittel kommt `w`.
 - **Je Pixel** gilt die Wärme des vordersten gezeichneten Pixels, aus dem
   Biom seines Blocks (`Hdr::waerme`).
-- Getestet: `waerme_nach_der_temperatur` in `look.rs`, `ton_mit_waerme` in
-  `kino.rs` und die Wärme je Pixel in `biom_faerbt_das_himmelslicht`, an
-  der Grenze aus dem Mittel der Temperatur.
+- **Wo Rot überläuft:** Eine Fläche, die voll zur Sonne zeigt, im vollen
+  Himmelslicht, erreicht ohne Wärme auch in Weiss nicht 255. Mit der vollen
+  Wärme 1,5 erreicht Rot bei Weiss 255, also in Wüste, Savanne und
+  Badlands bei fast weissen Texeln. Ein Texel mit sRGB 240 bleibt darunter,
+  [250, 244, 217]. Die Werte aus 0058 bleiben, wie sie sind.
+- Getestet: `waerme_nach_der_temperatur` in `look.rs`, `ton_mit_waerme` und
+  `weisse_flaeche_in_voller_sonne` in `kino.rs` und die Wärme je Pixel in
+  `biom_faerbt_das_himmelslicht`, an der Grenze aus dem Mittel der
+  Temperatur.
 
 ## Bloom
 

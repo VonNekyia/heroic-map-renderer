@@ -101,7 +101,7 @@ Block bekommt: [Varianten aus der Position](varianten.md).
 ## Was bleibt eine Näherung
 
 - **Eine Multipart-Bedingung, die `blocks.txt` nicht kennt, gilt als
-  Text.** Der Client von 26.2 gäbe dem Block dann kein Modell, einer mit
+  Text.** Der Client von 26.3 gäbe dem Block dann kein Modell, einer mit
   neueren Blöcken schon. Welche Version die Assets haben, steht nirgends;
   die Ausgabe nennt die Datei und wie man die Tabelle neu erzeugt.
 - **`parseInt` nimmt auch andere Unicode-Ziffern**, der Renderer nur ASCII.

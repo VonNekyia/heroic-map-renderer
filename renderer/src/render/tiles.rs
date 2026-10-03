@@ -233,7 +233,8 @@ pub fn corner_tiles(rect: ScreenRect) -> BTreeSet<TileId> {
         .collect()
 }
 
-/// Bildbereich, in dem die ganze Welt liegen kann.
+/// Bildbereich, in dem die ganze Welt liegen kann; mit einem Bereich
+/// ([`World::mit_bereich`]) der, in dem er liegt.
 ///
 /// Gelesen werden nur die Regionsdateinamen, kein einziger Chunk. Das
 /// reicht für die Zoomstufen: die Nummerierung darf nicht davon abhängen,
@@ -244,9 +245,25 @@ pub fn world_box(
     projection: Projection,
     y_range: (i32, i32),
 ) -> Result<Option<ScreenRect>> {
+    let regionen = world.regions()?;
+    if let Some([x0, z0, x1, z1]) = world.bereich() {
+        if regionen.is_empty() {
+            return Ok(None);
+        }
+        // Die Spalten eines Rechtecks liegen im Kasten seiner Eckchunks.
+        let ecke =
+            |cx: i32, cz: i32| column_box(projection, cx * CHUNK, cz * CHUNK, y_range, CHUNK);
+        let ecken = [
+            ecke(x0, z0),
+            ecke(x1 - 1, z0),
+            ecke(x0, z1 - 1),
+            ecke(x1 - 1, z1 - 1),
+        ];
+        return Ok(ecken.into_iter().reduce(union));
+    }
     let kante = REGION * CHUNK;
     let mut ganz: Option<ScreenRect> = None;
-    for (rx, rz) in world.regions()? {
+    for (rx, rz) in regionen {
         let rect = column_box(projection, rx * kante, rz * kante, y_range, kante);
         ganz = Some(match ganz {
             None => rect,
@@ -434,7 +451,7 @@ fn zur_sonne(projection: Projection, look: &Look) -> [[i32; 2]; 2] {
     let d = look.sonne_im_blick(projection.kamera());
     // So viele Chunkgrenzen wie `ChunkCache::horizont`.
     let reicht = |c: f32| {
-        let n = (f64::from(look.sonne_weite) * f64::from(c.abs()) / 16.0).ceil() as i32;
+        let n = (f64::from(look.sonne_weite) * f64::from(c.abs()) / 16.0).floor() as i32 + 1;
         if c < 0.0 { -n } else { n }
     };
     let (x, z) = (reicht(d[0]), reicht(d[2]));

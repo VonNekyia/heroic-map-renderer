@@ -20,7 +20,7 @@ Chunks mit neuem Stempel und zeichnet um jeden geänderten Chunk ein Gebiet
 neu. Das Ergebnis gleicht Byte für Byte einem vollen Lauf über dieselbe
 Welt (`update_gleicht_einem_vollen_lauf` in
 [`renderer/tests/cli.rs`](../../renderer/tests/cli.rs)). Entschieden in
-[0061](../entscheidungen/0061-updates-nach-stempel-und-fingerabdruck.md).
+[0062](../entscheidungen/0062-updates-nach-stempel-und-fingerabdruck.md).
 
 ## Ein Update
 

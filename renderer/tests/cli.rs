@@ -5,7 +5,7 @@
 
 mod common;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -1991,6 +1991,142 @@ fn mischung_gehoert_zum_baum() {
         "{meldung}"
     );
     assert_eq!(mischung_in(neu.path()), Some(0));
+}
+
+/// `--area` zeichnet nur sein Rechteck, nach aussen auf ganze Chunks
+/// gerundet, mit den Ecken in beliebiger Reihenfolge: Der Baum gleicht dem
+/// über eine Welt ohne die Chunks ausserhalb. Das Rechteck gehört zum Baum
+/// wie der Radius der Mischung: Ein Nachrendern ohne `--area` nimmt es aus
+/// `map.json` und ändert an einer unveränderten Welt keine Datei, eines mit
+/// einem anderen bricht ab, ebenso `--area` auf einem Baum ohne. Ohne
+/// `--area` nennt `map.json` die Hülle der fertig erzeugten Chunks.
+#[test]
+fn rechteck_gehoert_zum_baum() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (1, 0), (2, 0), (0, 1)], gelaende);
+    let innen = tempdir();
+    common::write_world(innen.path(), &[(0, 0), (1, 0)], gelaende);
+    let rechteck = ["--scale", "16", "--area", "0", "0", "20", "5"];
+    let baum = neuer_baum("2x1-se");
+    gelungen(&export(welt.path(), baum.path(), &rechteck));
+    assert_eq!(
+        rechteck_in(baum.path()),
+        (Some(vec![0, 0, 32, 16]), Some(true))
+    );
+    let ohne = neuer_baum("2x1-se");
+    gelungen(&export(innen.path(), ohne.path(), &rechteck));
+    assert!(
+        schnappschuss(baum.path()) == schnappschuss(ohne.path()),
+        "ohne die Chunks ausserhalb"
+    );
+    let gedreht = neuer_baum("2x1-se");
+    gelungen(&export(
+        welt.path(),
+        gedreht.path(),
+        &["--scale", "16", "--area", "20", "5", "0", "0"],
+    ));
+    assert!(
+        schnappschuss(baum.path()) == schnappschuss(gedreht.path()),
+        "Ecken vertauscht"
+    );
+
+    let vorher = schnappschuss(baum.path());
+    let ausschnitt = ["--scale", "16", "--center", "8", "8", "--size", "4"];
+    gelungen(&export(welt.path(), baum.path(), &ausschnitt));
+    assert!(
+        schnappschuss(baum.path()) == vorher,
+        "ohne Schalter ein anderes Rechteck"
+    );
+    let ausgabe = export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--area", "0", "0", "40", "5"],
+    );
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("Mit --area 0 0 31 15 weiterrendern"),
+        "{meldung}"
+    );
+    assert!(schnappschuss(baum.path()) == vorher);
+
+    let voll = neuer_baum("2x1-se");
+    gelungen(&export(welt.path(), voll.path(), &["--scale", "16"]));
+    assert_eq!(rechteck_in(voll.path()), (Some(vec![0, 0, 48, 32]), None));
+    let ausgabe = export(welt.path(), voll.path(), &rechteck);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("gehört zu einem Baum ohne --area"),
+        "{meldung}"
+    );
+}
+
+/// Das Rechteck und `areaFixed`, wie `map.json` sie nennt.
+fn rechteck_in(dir: &Path) -> (Option<Vec<i64>>, Option<bool>) {
+    let text = std::fs::read_to_string(dir.join("map.json")).expect("map.json lesen");
+    let info: serde_json::Value = serde_json::from_str(&text).expect("map.json auswerten");
+    let area = info["area"]
+        .as_array()
+        .map(|werte| werte.iter().map(|w| w.as_i64().unwrap()).collect());
+    (area, info["areaFixed"].as_bool())
+}
+
+/// `map.json` trägt den Wasserspiegel der Dimension aus ihrem Generator in
+/// `world_gen_settings.dat`: Noise Settings des Spiels per ID, eigene mit
+/// ihrem `sea_level`, flach −63; unbekannte Noise Settings und eine Welt
+/// ohne die Datei `null`. Eine gesetzte Weltgrenze nennt der Lauf als
+/// `--area`, ohne sie anzuwenden; die Vorgabe des Spiels nennt er nicht.
+#[test]
+fn wasserspiegel_und_weltgrenze() {
+    use fastnbt::Value;
+    let generator = |art: &str, settings: Option<Value>| {
+        let mut eintrag = HashMap::from([("type".to_string(), Value::String(art.to_string()))]);
+        if let Some(settings) = settings {
+            eintrag.insert("settings".to_string(), settings);
+        }
+        Value::Compound(eintrag)
+    };
+    let id = |id: &str| Some(Value::String(id.to_string()));
+    let eigene = Value::Compound(HashMap::from([("sea_level".to_string(), Value::Int(40))]));
+    let faelle = [
+        (
+            Some(generator("minecraft:noise", id("minecraft:overworld"))),
+            Some(63),
+        ),
+        (Some(generator("minecraft:noise", Some(eigene))), Some(40)),
+        (Some(generator("minecraft:flat", None)), Some(-63)),
+        (Some(generator("minecraft:noise", id("pack:eigene"))), None),
+        (None, None),
+    ];
+    for (generator, soll) in faelle {
+        let welt = tempdir();
+        common::write_world(welt.path(), &[(0, 0)], gelaende);
+        common::write_level_dat(welt.path());
+        if let Some(generator) = generator.clone() {
+            common::write_gen_settings_mit(welt.path(), 1, generator);
+        }
+        let baum = neuer_baum("2x1-se");
+        gelungen(&export(welt.path(), baum.path(), &["--scale", "16"]));
+        let text = std::fs::read_to_string(baum.path().join("map.json")).unwrap();
+        let info: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(info.get("seaLevel").is_some(), "{generator:?}");
+        assert_eq!(info["seaLevel"].as_i64(), soll, "{generator:?}");
+    }
+
+    for (size, nennt) in [(100.0, true), (59_999_968.0, false)] {
+        let welt = tempdir();
+        common::write_world(welt.path(), &[(0, 0)], gelaende);
+        common::write_level_dat(welt.path());
+        common::write_grenze(welt.path(), [8.0, 8.0], size);
+        let baum = neuer_baum("2x1-se");
+        let ausgabe = export(welt.path(), baum.path(), &["--scale", "16"]);
+        let log = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+        assert_eq!(
+            log.contains("nur sie zeichnet --area -48 -48 63 63"),
+            nennt,
+            "{log}"
+        );
+        assert_eq!(rechteck_in(baum.path()).1, None, "nur genannt");
+    }
 }
 
 /// Der Radius der Mischung, wie `map.json` ihn nennt.

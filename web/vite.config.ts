@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
-const PUBLIC = fileURLToPath(new URL('./public', import.meta.url));
+const WEB = fileURLToPath(new URL('.', import.meta.url));
+const PUBLIC = join(WEB, 'public');
 const TILES = join(PUBLIC, 'tiles');
 
 /** Was der Betreiber beim Build setzt, siehe docs/frontend.md, „Ausliefern“. */
@@ -14,6 +15,19 @@ const SEITE = {
   beschreibung: process.env.SITE_DESCRIPTION || 'Isometrische Karte einer Minecraft-Welt.',
   bild: process.env.SITE_IMAGE || 'vorschau.jpg',
 };
+
+/**
+ * Der Skin: ein Modul, ein Pfad ab `web/` wie `./skins/tablett` oder ein
+ * Paket. Ohne Angabe keiner. Siehe docs/frontend.md, „Skins“.
+ */
+const SKIN = process.env.SKIN || '';
+/** Texte für den Skin: `titel`, dazu je `SKIN_TEXT_<NAME>` ein Eintrag `<name>`. */
+const SKIN_TEXTE = Object.fromEntries([
+  ['titel', SEITE.titel],
+  ...Object.entries(process.env)
+    .filter(([name, wert]) => name.startsWith('SKIN_TEXT_') && wert)
+    .map(([name, wert]) => [name.slice('SKIN_TEXT_'.length).toLowerCase(), wert]),
+]) as Record<string, string>;
 
 /** Die Adresse der Seite, mit `/` am Ende; leer ohne Angabe. */
 function adresse(wert: string | undefined): URL | undefined {
@@ -39,7 +53,28 @@ export default defineConfig({
   // Der Filter greift, bevor cpSync einen Eintrag ansieht.
   // Siehe docs/entscheidungen/0006-kacheln-unter-web-public.md.
   build: { outDir: 'dist', emptyOutDir: true, copyPublicDir: false },
+  // Ohne Skin fällt sein Import beim Build weg.
+  define: {
+    __SKIN__: JSON.stringify(Boolean(SKIN)),
+    __SKIN_TEXTE__: JSON.stringify(SKIN ? SKIN_TEXTE : {}),
+  },
+  // Ein Skin von ausserhalb nimmt Leaflet aus web/, wie die Karte.
+  resolve: { dedupe: ['leaflet'] },
   plugins: [
+    {
+      // `virtual:skin` ist das Modul aus SKIN, aufgelöst ab web/.
+      name: 'skin',
+      async resolveId(id) {
+        if (id !== 'virtual:skin') return;
+        if (!SKIN) return '\0virtual:skin';
+        const skin = await this.resolve(SKIN, join(WEB, 'index.html'));
+        if (!skin) this.error(`SKIN nicht gefunden: ${SKIN}`);
+        return skin;
+      },
+      load(id) {
+        if (id === '\0virtual:skin') return 'export default undefined;';
+      },
+    },
     {
       // Titel und Beschreibung immer; was eine absolute Adresse braucht,
       // nur mit SITE_URL.

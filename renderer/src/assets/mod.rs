@@ -19,7 +19,7 @@ use crate::world::{BlockState, Blockdaten};
 pub use baker::{BakedModel, Quad, bake};
 pub use blockstate::{BlockStateDef, Definition, ModelRef};
 pub use colors::{Colors, Tint, Tints};
-pub use dimension::{CardinalLight, DimensionType};
+pub use dimension::{CardinalLight, DimensionType, wasserspiegel};
 use model::ModelFile;
 pub use model::{Element, ElementFace, Face, ResolvedModel, Rotation};
 pub use pack::Pack;

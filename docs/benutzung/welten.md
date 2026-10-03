@@ -1,7 +1,8 @@
 ---
 title: Welten und Kennung
-description: Welche Welten der Renderer liest und welche Chunks darin, wie er Weltwurzel, Dimension und Seed findet und wie daraus die Kennung der Welt im Kachelbaum wird.
+description: Welche Welten der Renderer liest und welche Chunks darin, wie er Weltwurzel, Dimension, Seed und Wasserspiegel findet und wie daraus die Kennung der Welt im Kachelbaum wird.
 code:
+  - renderer/src/assets/dimension.rs
   - renderer/src/world/mod.rs
   - renderer/src/world/region.rs
   - renderer/src/world/chunk.rs
@@ -127,6 +128,25 @@ Mit dem Seed würfelt der Renderer auch, welches Biom jeder Block trägt, wie
 das Spiel; ohne ihn gilt je Block das Biom seiner Zelle aus 4×4×4 Blöcken,
 siehe [Biomfarben](../renderer/biomfarben.md), „Biom je Block“. Aus dem
 Speicher des Laufs kommt er dabei nicht heraus.
+
+## Wasserspiegel
+
+Den Wasserspiegel für `seaLevel` in `map.json` liest der Renderer aus
+derselben Datei wie den Seed, `world_gen_settings.dat`, aus dem Generator
+der Dimension, `data.dimensions.<dimension>.generator`, wie
+`ChunkGenerator.getSeaLevel` in 26.2 und 26.3, per javap
+(`wasserspiegel` in
+[`renderer/src/assets/dimension.rs`](../../renderer/src/assets/dimension.rs)):
+
+| Generator | Wasserspiegel |
+|---|---|
+| `minecraft:noise` mit einer ID unter `settings` | `sea_level` dieser Noise Settings des Spiels, aus `dimensionstypen.txt`: `overworld`, `large_biomes`, `amplified` 63, `nether` und `caves` 32, `end` 0, `floating_islands` −64 |
+| `minecraft:noise` mit Noise Settings in der Datei | ihr `sea_level` |
+| `minecraft:flat` | −63 (`FlatLevelSource`) |
+| `minecraft:debug` | 63 (`DebugLevelSource`) |
+| ein anderer, Noise Settings aus einem Datenpaket, keine Datei | keiner, `null` |
+
+Noise Settings aus einem Datenpaket der Welt liest der Renderer nicht.
 
 ## Die Kennung
 

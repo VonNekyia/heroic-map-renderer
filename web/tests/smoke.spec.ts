@@ -91,8 +91,67 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
   expect(await tileZooms(page)).not.toEqual([]);
   expect(fehler).toEqual([]);
-  // Ohne Höhen in map.json keine Koordinaten.
+  // Ohne Höhen in map.json keine Koordinaten, ohne seaLevel und area kein Tablett.
   await expect(page.locator('.koordinaten')).toHaveCount(0);
+  await expect(page.locator('canvas.tablett')).toHaveCount(0);
+});
+
+test('ohne Skin beim Build kein Tablett und kein Code eines Skins, auch mit quadratischem area', {
+  tag: '@ohne-skin',
+}, async ({ page }) => {
+  const skripte: string[] = [];
+  page.on('request', (anfrage) => {
+    if (anfrage.resourceType() === 'script') skripte.push(anfrage.url());
+  });
+  await welt(page, { seaLevel: 0, area: [-64, -64, 64, 64] });
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('canvas.tablett')).toHaveCount(0);
+  // Nur das Bündel der Karte.
+  expect(skripte).toHaveLength(1);
+});
+
+test('map.json, trees.json und Höhen fragt die Seite jedes Mal beim Server nach', async ({
+  page,
+}) => {
+  // Mit Routing schaltet Playwright den Cache ab; geprüft wird deshalb, mit
+  // welchem Cache-Modus die Seite `fetch` aufruft.
+  await page.addInitScript(() => {
+    const modi: Record<string, string | undefined> = {};
+    (window as unknown as { modi: typeof modi }).modi = modi;
+    const holen = window.fetch.bind(window);
+    window.fetch = (eingabe, init) => {
+      const url = eingabe instanceof Request ? eingabe.url : eingabe.toString();
+      const datei = /\/(map\.json|trees\.json|[-\d]+\.[-\d]+\.bin)$/.exec(url)?.[1];
+      if (datei) modi[datei.endsWith('.bin') ? 'Höhen' : datei] = init?.cache;
+      return holen(eingabe, init);
+    };
+  });
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await page.mouse.move(...(await bildschirm(page, 400, 36)));
+  await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
+  expect(await page.evaluate(() => (window as unknown as { modi: object }).modi)).toEqual({
+    'trees.json': 'no-cache',
+    'map.json': 'no-cache',
+    Höhen: 'no-cache',
+  });
+});
+
+test('ohne Routing schickt Chromium dafür Cache-Control: max-age=0', async ({ page }) => {
+  // Dieselbe Anfrage, wie sie beim Server ankommt; ohne Routing wirkt der
+  // Cache des Browsers. Der Demobaum hat keine Höhen.
+  const kopf = new Map<string, string | undefined>();
+  page.on('request', (anfrage) => {
+    const datei = /\/(map\.json|trees\.json)$/.exec(anfrage.url())?.[1];
+    if (datei) void anfrage.allHeaders().then((k) => kopf.set(datei, k['cache-control']));
+  });
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect
+    .poll(() => Object.fromEntries(kopf))
+    .toEqual({ 'trees.json': 'max-age=0', 'map.json': 'max-age=0' });
 });
 
 test('die Karte läuft unter strengen Headern', async ({ page }) => {
@@ -615,6 +674,37 @@ test('passt Zoom 0 nicht ins Fenster, geht es weiter heraus', async ({ page }) =
   expect(await tileZooms(page)).toEqual([0]);
   await expect.poll(() => tileStretch(page)).toBe(0.5);
   await expect(page.locator('.leaflet-control-zoom-out')).toHaveClass(/leaflet-disabled/);
+});
+
+test.describe('der Stand der Karte', () => {
+  test.use({ timezoneId: 'Europe/Berlin' });
+
+  test('kommt aus Last-Modified von map.json, in Ortszeit', async ({ page }) => {
+    await page.route('**/tiles-demo/map.json', async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({
+        response,
+        headers: { ...response.headers(), 'last-modified': 'Fri, 02 Oct 2026 19:40:00 GMT' },
+      });
+    });
+    await page.goto(DEMO);
+    await expect(page.locator('.stand')).toHaveText('Stand: 02.10.2026, 21:40');
+  });
+
+  test('fehlt ohne den Header', async ({ page }) => {
+    await page.route('**/tiles-demo/map.json', async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({ status: 200, contentType: 'application/json', body: await response.text() });
+    });
+    await page.goto(DEMO);
+    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await expect(page.locator('.stand')).toHaveCount(0);
+  });
+
+  test('zeigt Vite von selbst, wie übliche Webserver', async ({ page }) => {
+    await page.goto(DEMO);
+    await expect(page.locator('.stand')).toHaveText(/^Stand: \d\d\.\d\d\.\d{4}, \d\d:\d\d$/);
+  });
 });
 
 test('ohne map.json sagt die Seite warum', async ({ page }) => {

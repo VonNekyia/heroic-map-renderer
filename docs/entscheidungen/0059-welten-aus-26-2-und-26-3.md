@@ -14,8 +14,9 @@ code:
 
 ## Anlass
 
-Der Server ist auf 26.3 gewechselt. #98 hat am Client- und am Server-JAR
-von 26.2 und 26.3 belegt, was sich ändert:
+26.3 ist erschienen. Ein Server, der darauf wechselt, schreibt Chunks im
+neuen Format. #98 hat am Client- und am Server-JAR von 26.2 und 26.3
+belegt, was sich ändert:
 - die Namen der Palette im Chunk;
 - die Scherben eines Krugs;
 - `shade` in den Modellen;

@@ -15,12 +15,12 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 - [Schalter und Beispiele](benutzung/schalter.md): jeder Schalter mit einer Zeile, `--at`, `--block`, `--sprite`, `--render`, `--scan`.
 - [Assets und Biomdaten](benutzung/assets.md): Asset- und Datenwurzeln aus dem Client-JAR, gestapelt.
-- [Welten und Kennung](benutzung/welten.md): Welten ab 26.1, nicht fertig erzeugte Chunks, Weltwurzel, Dimension, Seed und die Kennung im Baum.
-- [Kacheln exportieren](benutzung/kacheln.md): `--tiles`, Ausschnitte, Ablage, leere Kacheln und `--prune`.
+- [Welten und Kennung](benutzung/welten.md): Welten ab 26.1, nicht fertig erzeugte Chunks, Weltwurzel, Dimension, Seed, Wasserspiegel und die Kennung im Baum.
+- [Kacheln exportieren](benutzung/kacheln.md): `--tiles`, Ausschnitte, ein Rechteck der Welt mit `--area`, Ablage, leere Kacheln und `--prune`.
 - [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt und Kamera.
 - [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md): `--pyramid` während eines Renders und `--resume` nach einem Abbruch.
 - [Updates](benutzung/updates.md): `--update` zeichnet nur, wo sich die Welt geändert hat; der Stand je Baum, Stempel und Fingerabdruck je Chunk, das Gebiet einer Änderung.
-- [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt den Richtungen und `projektion.json`, die Liste der Bäume `trees.json` unter einer Wurzel, die Höhen und wann die Dateien entstehen.
+- [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt den Richtungen und `projektion.json`, die Liste der Bäume `trees.json` unter einer Wurzel, die Höhen, Wasserspiegel und Rechteck der Welt und wann die Dateien entstehen.
 - [Was ein Lauf kostet](benutzung/kosten.md): Platz und Dauer je scale, Cinematic gegen die Karte, die grosse Welt gemessen und hochgerechnet.
 - [Grafikkarte](benutzung/grafikkarte.md): `--gpu`, Adapter, Backends, Rückfall auf die CPU.
 - [Echtzeitschutz unter Windows](benutzung/echtzeitschutz.md): die Defender-Ausnahme und `--defender-exclusion`.
@@ -45,7 +45,8 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Frontend
 
-- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger.
+- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Skins beim Build.
+- [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, einmal für fitZoom gezeichnet, Masse nach der Vorlage, Licht und Schatten, was vor und was hinter der Welt liegt.
 
 ## Entwicklung
 
@@ -116,7 +117,10 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0057](entscheidungen/0057-flaechen-vor-einem-vollen-nachbarn.md): Flächen vor einem vollen Nachbarn nach der Tabelle des Spiels: `seiten.txt` sagt, wo ein Block voll deckt, gefragt wird nur zu Seiten, deren Flächen der Nachbar nicht übermalt.
 - [0058](entscheidungen/0058-look-von-cinematic.md): Look von Cinematic. In der Sonne wie die Karte; Kurve bis zum Knie gerade; Weissabgleich nach der Temperatur des Bioms; Bodenpflanzen dämpfen die Sonne auf die Hälfte; kein Nebel.
 - [0059](entscheidungen/0059-welten-aus-26-2-und-26-3.md): Welten und Packs aus 26.2 und 26.3, Tabellen aus 26.3; die Testwelt bleibt auf 26.2.
-- [0061](entscheidungen/0061-updates-nach-stempel-und-fingerabdruck.md): Updates nach Stempel und Fingerabdruck je Chunk, Stand je Baum, volle Höhe nach unten, ein anderer Build verlangt einen vollen Lauf.
+- [0060](entscheidungen/0060-grenze-schatten-sonne-am-renderer.md): Grenze Schatten/Sonne am Renderer 0,35 bis 0,75 statt 0,66 aus 0058; der Look bleibt.
+- [0061](entscheidungen/0061-tablett-im-frontend.md): Tablett und Tisch zeichnet das Frontend aus ebenen Flächen, in zwei Ebenen um die Kacheln, mit der Welt wachsend, Licht über Höhenkarten, Schmuck als Sprites; nicht der Renderer, keine Bilder je Perspektive, keine gebrochenen Zoomstufen.
+- [0062](entscheidungen/0062-updates-nach-stempel-und-fingerabdruck.md): Updates nach Stempel und Fingerabdruck je Chunk, Stand je Baum, volle Höhe nach unten, ein anderer Build verlangt einen vollen Lauf.
+- [0063](entscheidungen/0063-tablett-als-skin.md): Tablett als optionaler Skin: Schalter `SKIN` beim Build, Schnittstelle `skin-api.ts` mit Version, Grenze per ESLint, Ordner wie ein Paket, nur quadratische Karten, einmal für fitZoom; die Lilie an der nahen Ecke darf ins Bild ragen.
 
 ## Messungen
 
@@ -159,3 +163,5 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-03, Look am Renderer](messungen/2026-10-03-look-am-renderer.md): die Kennzahlen des Looks aus 0058 am Renderer mit Cinematic aus #73 über dieselben 24 Ansichten der Testwelt wie am Prototyp, was die Befunde 1 und 2 aus #101 beitragen und warum Schatten heller sind.
 - [2026-10-03, Cinematic mit Sonne](messungen/2026-10-03-cinematic-mit-sonne.md): was Cinematic aus #73 an Stand und Fichtenwald gegen die Karte kostet, dass die Karte gleich bleibt, und was ein Strahl zur Sonne vor und nach dem schnellen Gang kostet, gegen Gang 12 aus 0056.
 - [2026-10-03, Bits „frei zur Sonne“](messungen/2026-10-03-bits-frei-zur-sonne.md): wie viele Strahlen zur Sonne die Bits aus dem Vorschlag zu #73 am Prototyp ohne Gang beantworten, dass jedes Bild gleich bleibt und was ein Strahl mit und ohne sie kostet, im Wechsel in einem Prozess und allein wiederholt.
+- [2026-10-03, Bits „frei zur Sonne“ am Renderer](messungen/2026-10-03-bits-am-renderer.md): dass mit den Bits aus #106 jede Kachel gleich bleibt, wie viele Strahlen sie beantworten, was ein Strahl und ein ganzer Lauf mit Cinematic an Stand und Fichtenwald kostet, vor und nach dem Vorrat für die nativen Stufen.
+- [2026-10-03, Skin Tablett](messungen/2026-10-03-skin-tablett.md): Bündel ohne und mit Skin gegen den Stand vor #112, das einmalige Zeichnen für fitZoom, die Bildzeit beim Ziehen mit CPU 1× und 4× und Lighthouse am Build mit Skin.

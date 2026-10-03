@@ -33,6 +33,7 @@ Texte.
 | `--cinematic` | mit `--render` oder `--tiles`: im Licht des Spiels in HDR zeichnen statt als Karte, in einen eigenen Baum; zeichnet auf der CPU | [Cinematic](../renderer/cinematic.md) |
 | `--center X Z` | der Punkt der Welt in der Bildmitte, Vorgabe `0 0` | unten |
 | `--size N` | Kantenlänge des Ausschnitts in Pixeln, ab 1; für `--render` Vorgabe 1024, ohne Angabe deckt `--tiles` die ganze Welt | [Kacheln exportieren](kacheln.md) |
+| `--area X0 Z0 X1 Z1` | nur dieses Rechteck der Welt zeichnen, zwei inklusive Ecken in Blöcken, nach aussen auf ganze Chunks gerundet; ein Kachelbaum behält seins | [Kacheln exportieren](kacheln.md), „Ein Rechteck der Welt: `--area`“ |
 | `--scan` | jeden Chunk dekodieren, auch die nicht fertig erzeugten, mit `--assets` die Blockstates der übrigen auflösen und rastern | unten |
 | `--tiles DIR` | die Welt als WebP-Kacheln exportieren; `DIR` ist die Wurzel, jeder Baum liegt darunter in seinem Ordner | [Kacheln exportieren](kacheln.md) |
 | `--prune` | mit `--tiles`: Kacheln entfernen, die kein Chunk mehr berührt, und Höhen von Regionen ohne Regionsdatei | [Kacheln exportieren](kacheln.md) |

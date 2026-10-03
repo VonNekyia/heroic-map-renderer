@@ -1,5 +1,5 @@
 ---
-title: "0061: Updates nach Stempel und Fingerabdruck je Chunk"
+title: "0062: Updates nach Stempel und Fingerabdruck je Chunk"
 description: Warum ein Update Chunks nach dem Zeitstempel im Regionskopf vorfiltert und nach einem Fingerabdruck je Chunk entscheidet, warum der Stand je Baum liegt, die Höhe nach unten voll bleibt und ein anderer Build oder andere Assets einen vollen Lauf verlangen.
 status: gilt
 date: 2026-10-03
@@ -12,7 +12,7 @@ code:
   - renderer/src/cli.rs
 ---
 
-# 0061: Updates nach Stempel und Fingerabdruck je Chunk
+# 0062: Updates nach Stempel und Fingerabdruck je Chunk
 
 ## Anlass
 

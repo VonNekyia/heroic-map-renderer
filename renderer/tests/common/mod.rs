@@ -172,6 +172,49 @@ struct SeedNbt {
     seed: i64,
 }
 
+/// `world_gen_settings.dat` an der Wurzel mit dem Seed und der Oberwelt mit
+/// diesem Generator, wie Vanilla sie schreibt: `generator` ist der Eintrag
+/// `data.dimensions."minecraft:overworld".generator`.
+pub fn write_gen_settings_mit(dir: &Path, seed: i64, generator: fastnbt::Value) {
+    use fastnbt::Value;
+    let text = |t: &str| Value::String(t.to_string());
+    let oberwelt = Value::Compound(HashMap::from([
+        ("type".to_string(), text("minecraft:overworld")),
+        ("generator".to_string(), generator),
+    ]));
+    let daten = Value::Compound(HashMap::from([
+        ("seed".to_string(), Value::Long(seed)),
+        (
+            "dimensions".to_string(),
+            Value::Compound(HashMap::from([(
+                "minecraft:overworld".to_string(),
+                oberwelt,
+            )])),
+        ),
+    ]));
+    let datei = Value::Compound(HashMap::from([
+        ("DataVersion".to_string(), Value::Int(4903)),
+        ("data".to_string(), daten),
+    ]));
+    write_gzip_nbt(&dir.join("data/minecraft/world_gen_settings.dat"), &datei);
+}
+
+/// `world_border.dat` an der Wurzel mit Mitte und Kantenlänge in Blöcken,
+/// wie Vanilla sie seit 26.1 schreibt.
+pub fn write_grenze(dir: &Path, [x, z]: [f64; 2], size: f64) {
+    use fastnbt::Value;
+    let daten = Value::Compound(HashMap::from([
+        ("center_x".to_string(), Value::Double(x)),
+        ("center_z".to_string(), Value::Double(z)),
+        ("size".to_string(), Value::Double(size)),
+    ]));
+    let datei = Value::Compound(HashMap::from([
+        ("DataVersion".to_string(), Value::Int(4903)),
+        ("data".to_string(), daten),
+    ]));
+    write_gzip_nbt(&dir.join("data/minecraft/world_border.dat"), &datei);
+}
+
 fn write_gzip_nbt(path: &Path, value: &impl Serialize) {
     use std::io::Write;
     std::fs::create_dir_all(path.parent().unwrap()).expect("Verzeichnis anlegen");

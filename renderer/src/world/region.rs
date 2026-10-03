@@ -30,6 +30,14 @@ pub struct Region {
     /// Verzeichnis der Regionsdatei — dort liegen auch die `.mcc`-Dateien.
     dir: PathBuf,
     file_len: u64,
+    /// Nur die Chunks darin liest die Region, siehe [`World::mit_bereich`].
+    bereich: Option<[i32; 4]>,
+}
+
+/// Liegt der Chunk `(cx, cz)` im Rechteck aus Chunks `[x0, z0, x1, z1]`,
+/// halb offen?
+pub fn im_bereich([x0, z0, x1, z1]: [i32; 4], cx: i32, cz: i32) -> bool {
+    (x0..x1).contains(&cx) && (z0..z1).contains(&cz)
 }
 
 impl Region {
@@ -47,12 +55,18 @@ impl Region {
             file,
             dir: path.parent().unwrap_or(Path::new(".")).to_path_buf(),
             file_len,
+            bereich: None,
         })
     }
 
+    /// Die Region liest nur Chunks in `bereich`, die übrigen fehlen.
+    pub fn mit_bereich(self, bereich: Option<[i32; 4]>) -> Region {
+        Region { bereich, ..self }
+    }
+
     /// Was der Kopf über jeden Chunk der Region sagt, nach z, dann x
-    /// geordnet; `None` für einen leeren Tabelleneintrag. Liest nur die zwei
-    /// Sektoren des Kopfs.
+    /// geordnet; `None` für einen leeren Tabelleneintrag und einen Chunk
+    /// ausserhalb des Bereichs. Liest nur die zwei Sektoren des Kopfs.
     /// Siehe docs/benutzung/updates.md, „Was als geändert gilt“.
     pub fn stempel(&mut self) -> Result<Vec<Option<Stempel>>> {
         let mut kopf = vec![0u8; (HEADER_SECTORS * SECTOR) as usize];
@@ -61,10 +75,12 @@ impl Region {
             .read_exact(&mut kopf)
             .with_context(|| format!("Kopf von r.{}.{}.mca lesen", self.x, self.z))?;
         let wort = |i: usize| u32::from_be_bytes([kopf[i], kopf[i + 1], kopf[i + 2], kopf[i + 3]]);
-        Ok((0..(REGION * REGION) as usize)
+        Ok((0..REGION * REGION)
             .map(|i| {
+                let (cx, cz) = (self.x * REGION + i % REGION, self.z * REGION + i / REGION);
+                let i = i as usize;
                 let ort = wort(4 * i);
-                (ort != 0).then(|| Stempel {
+                (ort != 0 && self.bereich.is_none_or(|b| im_bereich(b, cx, cz))).then(|| Stempel {
                     zeit: wort(SECTOR as usize + 4 * i),
                     ort,
                 })
@@ -83,7 +99,8 @@ impl Region {
     }
 
     /// Chunk an **Welt**-Chunkkoordinaten in jedem Status, wie er in der
-    /// Datei steht. `None` nur für einen leeren Tabelleneintrag.
+    /// Datei steht. `None` für einen leeren Tabelleneintrag und einen Chunk
+    /// ausserhalb des Bereichs.
     ///
     /// Koordinaten aus einer anderen Region sind ein Fehler — ohne die Prüfung
     /// würde die Modulo-Umrechnung still den falschen Chunk liefern.
@@ -100,6 +117,9 @@ impl Region {
                 self.z
             );
         }
+        if self.bereich.is_some_and(|b| !im_bereich(b, cx, cz)) {
+            return Ok(None);
+        }
         let Some(nbt) = self.chunk_nbt(cx, cz)? else {
             return Ok(None);
         };
@@ -109,6 +129,17 @@ impl Region {
                 Some(chunk)
             })
             .with_context(|| format!("Chunk ({cx}, {cz}) aus r.{}.{}.mca", self.x, self.z))
+    }
+
+    /// Die Chunks, die die Tabelle der Datei nennt, in **Welt**-Chunkkoordinaten,
+    /// in jedem Status; mit einem Bereich nur die darin. Gelesen wird nur die
+    /// Tabelle.
+    pub fn vorhanden(&mut self) -> Result<Vec<(i32, i32)>> {
+        Ok((0..REGION * REGION)
+            .zip(self.stempel()?)
+            .filter(|(_, stempel)| stempel.is_some())
+            .map(|(i, _)| (self.x * REGION + i % REGION, self.z * REGION + i / REGION))
+            .collect())
     }
 
     /// Unkomprimiertes Chunk-NBT, oder `None` für einen leeren Tabelleneintrag.

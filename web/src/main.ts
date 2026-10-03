@@ -14,6 +14,7 @@ import {
   type Block,
   type Projektion,
 } from './pick';
+import { VERSION, type Grenzen, type Rechteck } from './skin-api';
 import './style.css';
 
 /** Was `map.json` aus dem Renderer mitbringt. */
@@ -37,6 +38,10 @@ interface MapInfo {
   direction?: string;
   /** Die Zahlen der Projektion; ohne sie rechnet das Frontend 2:1 aus `scale`. */
   projection?: Projektion;
+  /** Höhe der Wasseroberfläche in Blöcken; für einen Skin. */
+  seaLevel?: number;
+  /** Das Rechteck der Welt in Blöcken; für einen Skin. */
+  area?: Rechteck;
 }
 
 /** In einer Höhenkarte: keine Zelle mit Block, oder kein fertiger Chunk. */
@@ -86,9 +91,21 @@ function crs(info: MapInfo): Crs {
   };
 }
 
-async function load(base: string): Promise<MapInfo> {
+/**
+ * `map.json`, `trees.json` und Höhen fragt der Browser jedes Mal beim Server
+ * nach, statt sie aus dem Cache zu nehmen; unverändert kommt 304. So zeigt
+ * die Seite nach einem neuen Lauf seinen Stand, gleich welche Header der
+ * Server setzt. Siehe docs/frontend.md, „Ausliefern“.
+ */
+const FRISCH: RequestInit = { cache: 'no-cache' };
+
+/**
+ * `map.json` und ihr Stand: `Last-Modified`, die Zeit des letzten Laufs, der
+ * sie geschrieben hat. Ohne brauchbaren Header kein Stand.
+ */
+async function load(base: string): Promise<{ info: MapInfo; stand: Date | undefined }> {
   const path = `${base}/map.json`;
-  const response = await fetch(path);
+  const response = await fetch(path, FRISCH);
   if (!response.ok) {
     throw new Error(`${path}: ${response.status} ${response.statusText}`);
   }
@@ -105,7 +122,21 @@ async function load(base: string): Promise<MapInfo> {
   if (!isMapInfo(info)) {
     throw new Error(`${path}: fehlende oder unbrauchbare Felder`);
   }
-  return info;
+  const stand = new Date(response.headers.get('last-modified') ?? Number.NaN);
+  return { info, stand: Number.isNaN(stand.getTime()) ? undefined : stand };
+}
+
+/**
+ * Unten rechts der Stand der Karte, etwa „Stand: 02.10.2026, 21:40“. Siehe
+ * docs/frontend.md, „Stand der Karte“.
+ */
+function standAnzeigen(map: L.Map, stand: Date): void {
+  const element = L.DomUtil.create('div', 'stand');
+  const zeit = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+  element.textContent = `Stand: ${zeit.format(stand)}`;
+  const control = new L.Control({ position: 'bottomright' });
+  control.onAdd = () => element;
+  control.addTo(map);
 }
 
 function isMapInfo(value: unknown): value is MapInfo {
@@ -164,7 +195,7 @@ function projektion(info: MapInfo): { p: Projektion; k: number } | string {
 
 /** Eine Höhenkarte: zlib, darin n × n Zellen, je i16 little-endian. */
 async function ladeKarte(path: string, n: number): Promise<Int16Array | null> {
-  const response = await fetch(path);
+  const response = await fetch(path, FRISCH);
   // Keine Datei heisst kein Chunk. Ein Server, der auf unbekannte Pfade die
   // index.html ausliefert, meint dasselbe.
   if (response.status === 404 || response.headers.get('content-type')?.startsWith('text/html')) {
@@ -503,7 +534,7 @@ function istBaum(value: unknown): value is Baum {
 /** Die Bäume aus `trees.json`, oder `null` ohne sie: dann ist `wurzel` selbst ein Baum. */
 async function ladeListe(wurzel: string): Promise<Baum[] | null> {
   const path = `${wurzel}/trees.json`;
-  const response = await fetch(path);
+  const response = await fetch(path, FRISCH);
   // Ein Server, der auf unbekannte Pfade die index.html ausliefert, meint
   // dasselbe wie 404.
   if (response.status === 404 || response.headers.get('content-type')?.startsWith('text/html')) {
@@ -631,17 +662,19 @@ function ganzeKarte(map: L.Map, bounds: L.LatLngBounds): void {
 }
 
 /**
- * Die feinste Stufe, auf der die ganze Karte in ein Fenster dieser Grösse
- * passt. Ohne Fläche oder ohne Fenster gilt `minZoom` aus `map.json`.
+ * Die feinste Stufe, auf der `grenzen` in ein Fenster dieser Grösse passen.
+ * Ohne Fläche oder ohne Fenster gilt `minZoom` aus `map.json`.
  */
-function fitZoom(info: MapInfo, size: L.Point): number {
-  const [left, top, right, bottom] = info.bounds;
+function fitZoom(grenzen: Grenzen, info: MapInfo, size: L.Point): number {
+  const [left, top, right, bottom] = grenzen;
   const faktor = Math.min(size.x / (right - left), size.y / (bottom - top));
   if (!(faktor > 0 && Number.isFinite(faktor))) return info.minZoom;
   return info.maxZoom + Math.floor(Math.log2(faktor));
 }
 
 async function start(): Promise<void> {
+  // Ein Skin lädt, während map.json kommt; ohne ihn fällt sein Import weg.
+  const skinModul = __SKIN__ ? import('virtual:skin') : undefined;
   // Ohne Angabe liegen die Kacheln neben der Seite. Der Parameter ist für
   // den Smoke-Test und für mehrere Karten auf demselben Server da.
   const parameter = new URLSearchParams(location.search);
@@ -649,22 +682,46 @@ async function start(): Promise<void> {
   const liste = await ladeListe(wurzel);
   const baum = liste && (liste.find((b) => b.path === parameter.get('tree')) ?? liste[0]!);
   const base = baum ? `${wurzel}/${baum.path}` : wurzel;
-  const info = await load(base);
+  const { info, stand } = await load(base);
 
   const [left, top, right, bottom] = info.bounds;
   const bounds = L.latLngBounds(point(left, top), point(right, bottom));
+  const blick = projektion(info);
 
   const map = L.map('map', {
     crs: crs(info),
     maxZoom: info.maxZoom + EXTRA_ZOOM,
     attributionControl: false,
   });
+  // Ein Skin gestaltet um die Karte und sagt, was als ganze Karte gilt. Er
+  // bekommt nur, was in skin-api.ts steht. Siehe docs/frontend.md, „Skins“.
+  let ganz: Grenzen = info.bounds;
+  if (skinModul && typeof blick !== 'string') {
+    const { default: skin } = await skinModul;
+    const { p, k } = blick;
+    const antwort = skin?.({
+      version: VERSION,
+      karte: map,
+      container: map.getContainer(),
+      projektion: p,
+      k,
+      projiziere: (x, y, z) => projiziere(x, y, z, p),
+      maxZoom: info.maxZoom,
+      area: info.area,
+      seaLevel: info.seaLevel,
+      minY: info.minY ?? -64,
+      fitZoom: (grenzen, breite, hoehe) => fitZoom(grenzen, info, L.point(breite, hoehe)),
+      texte: __SKIN_TEXTE__,
+    });
+    if (antwort) ganz = antwort.ganzeKarte;
+  }
+  const einpassen = L.latLngBounds(point(ganz[0], ganz[1]), point(ganz[2], ganz[3]));
   // Ein Baum behält seine Stufen, wenn die Welt wächst, und Zoom 0 passt
   // dann nicht mehr ins Fenster. Darunter verkleinert Leaflet die Kacheln
   // von Zoom 0, bis die ganze Karte zu sehen ist.
-  const minZoom = Math.min(info.minZoom, fitZoom(info, map.getSize()));
+  const minZoom = Math.min(info.minZoom, fitZoom(ganz, info, map.getSize()));
   map.setMinZoom(minZoom);
-  ganzeKarte(map, bounds);
+  ganzeKarte(map, einpassen);
 
   L.tileLayer(`${base}/${info.tiles}`, {
     tileSize: info.tileSize,
@@ -681,8 +738,8 @@ async function start(): Promise<void> {
     noWrap: true,
   }).addTo(map);
 
-  const blick = projektion(info);
   if (typeof blick !== 'string') kompass(map, norden(blick.p, blick.k));
+  if (stand) standAnzeigen(map, stand);
   let bei: ((px: number, py: number) => Promise<Block | undefined>) | undefined;
   if (hatHoehen(info)) {
     if (typeof blick === 'string') console.warn(`${base}/map.json: keine Koordinaten, ${blick}`);
@@ -717,7 +774,7 @@ async function start(): Promise<void> {
   if (at?.length === 3 && at.every(Number.isInteger) && typeof blick !== 'string') {
     zentriere(map, blick, at as unknown as Block, info.maxZoom + (Number.isFinite(zoom) ? zoom : 0));
   } else {
-    map.fitBounds(bounds);
+    map.fitBounds(einpassen);
   }
 }
 

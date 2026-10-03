@@ -15,6 +15,7 @@ target/
 # Frontend
 node_modules/
 web/dist/
+web/dist-skin/
 
 # Ist-Bild eines gefallenen Goldbild-Tests
 metatile*-ist.png

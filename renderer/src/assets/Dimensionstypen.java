@@ -25,6 +25,10 @@ import org.joml.Vector3fc;
  * typ id has_skylight=… cardinal_light=… [attribut=wert]...: ein
  *     Dimensionstyp, mit den Attributen, die er setzt, auf ihre Vorgabe
  *     angewandt wie der Constant-Layer in EnvironmentAttributeSystem.
+ * meer id sea_level: die Noise Settings des Spiels, wie
+ *     NoiseGeneratorSettings.bootstrap sie anlegt, mit ihrem Wasserspiegel
+ *     (NoiseGeneratorSettings.seaLevel), für einen Generator, der sie per ID
+ *     nennt.
  *
  * Farben stehen als #rrggbb, Zahlen wie Float.toString: so, wie ein
  * Datenpaket sie schreiben darf. Die Farben des Lichts hält 26.3 als
@@ -68,7 +72,14 @@ public class Dimensionstypen {
             }
             zeile.accept(text.toString());
         }
-        err.println("Dimensionstypen: " + typen.size());
+        var meere = VanillaRegistries.createWorldLookup().lookupOrThrow(Registries.NOISE_SETTINGS)
+                .listElements()
+                .sorted(Comparator.comparing(meer -> meer.key().identifier().toString()))
+                .toList();
+        for (var meer : meere) {
+            zeile.accept("meer " + meer.key().identifier() + " " + meer.value().seaLevel());
+        }
+        err.println("Dimensionstypen: " + typen.size() + ", Noise Settings: " + meere.size());
     }
 
     static <V> V angewandt(EnvironmentAttributeMap map, EnvironmentAttribute<V> attribut) {

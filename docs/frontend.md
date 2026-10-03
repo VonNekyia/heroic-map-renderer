@@ -1,9 +1,13 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
+  - web/src/skin-api.ts
+  - web/src/skin-modul.d.ts
+  - web/eslint.config.js
+  - web/playwright.config.ts
   - web/src/style.css
   - web/index.html
   - web/vite.config.ts
@@ -284,6 +288,77 @@ keine Einträge. Wer die Adresse kopiert oder die Seite neu lädt, sieht
 denselben Block in der Mitte auf derselben Stufe. Ohne Koordinaten gibt es
 keinen Block für `at`, und die Adresse bleibt, wie sie ist.
 
+## Stand der Karte
+
+Unten rechts steht, wann der letzte Lauf `map.json` geschrieben hat, in
+Ortszeit des Browsers, etwa `Stand: 02.10.2026, 21:40`.
+
+- **Woher:** der Header `Last-Modified` von `map.json`, die das Frontend
+  ohnehin lädt (`load` in [`web/src/main.ts`](../web/src/main.ts)). Vite
+  und übliche Webserver senden ihn von selbst. Fehlt er oder taugt er
+  nicht, fehlt die Anzeige.
+- **Was er bedeutet:** die Zeit, zu der `map.json` zuletzt geschrieben
+  wurde, nicht die der letzten Änderung an der Welt oder an Kacheln:
+  - Ein voller Lauf, ein Ausschnitt, `--resume`, `--pyramid` und
+    `--heights` schreiben `map.json` jedes Mal, auch wenn sich nichts
+    geändert hat. Dann zeigt der Stand die Zeit dieser Prüfung.
+  - Ein `--update` (#100), das nichts zu zeichnen findet, schreibt
+    `map.json` nicht; der Stand bleibt beim letzten Lauf, der etwas
+    geschrieben hat.
+  - Läuft gerade ein Lauf, steht dort sein Beginn: Er schreibt `map.json`
+    vor der ersten Kachel und noch einmal am Ende, siehe
+    [map.json](benutzung/map-json.md), „Wann sie geschrieben wird“.
+- **Aktualisiert** wird die Anzeige beim Laden der Seite, wie die Kacheln,
+  siehe „Ausliefern“, „Cache“.
+
+## Skins
+
+Ein Skin gestaltet um die Karte, ohne ihre Logik zu kennen: heute Rahmen und
+Tisch, später auch die UI. Er ist optional; der Betreiber wählt ihn beim
+Build. Koordinaten, Kopieren, Sprung, Kompass, Umschalter und Stand wissen
+nichts von ihm. Warum so: [0063](entscheidungen/0063-tablett-als-skin.md).
+Der einzige Skin bisher: [Tablett](tablett.md).
+
+- **Schalter:** `SKIN` nennt das Modul des Skins, einen Pfad ab `web/` oder
+  ein Paket, etwa `SKIN=./skins/tablett npm run build`. Das Plugin `skin` in
+  [`web/vite.config.ts`](../web/vite.config.ts) löst `virtual:skin` darauf
+  auf. Ohne `SKIN` fällt der Import aus dem Bündel; es ist 64 Byte grösser
+  als vor #112, siehe [Skin Tablett](messungen/2026-10-03-skin-tablett.md).
+- **Laden:** `start` in `main.ts` lädt den Skin per `import()`, während
+  `map.json` kommt, und ruft ihn an genau einer Stelle auf, bevor es die
+  Ansicht setzt.
+- **Schnittstelle:** [`web/src/skin-api.ts`](../web/src/skin-api.ts), nur
+  Typen und `VERSION`. Ein Skin ist der Default-Export seines Moduls, vom
+  Typ `Skin`:
+  - Er bekommt einen `Kontext`: Karte, Container, Projektion samt
+    `projiziere` und `k`, `maxZoom`, `area`, `seaLevel` und `minY` aus
+    `map.json`, `fitZoom` und die Texte.
+  - Er gibt eine `Antwort` zurück oder nichts. `ganzeKarte` sind die
+    Grenzen, auf die die erste Ansicht und der Knopf ⌂ einpassen und nach
+    denen sich die kleinste Stufe der Kacheln richtet.
+  - Wer die Schnittstelle ändert, hebt `VERSION`. Ein Skin vergleicht sie
+    mit `kontext.version` und bleibt bei einer anderen aus.
+  - Die CSS-Variablen der UI kommen mit der PR für die UI dazu (#112).
+- **Grenze,** geprüft von ESLint (`no-restricted-imports` in
+  [`web/eslint.config.js`](../web/eslint.config.js)):
+  - Ein Skin importiert nur aus seinem Ordner, Leaflet und
+    `heroic-map-renderer/skin-api`, diese nur mit `import type`; den Namen
+    kennt `paths` in `web/tsconfig.json`. Seine Tests dürfen dazu
+    Playwright, Node und `web/tests/kamera.ts`.
+  - Die Grundkarte importiert keinen Skin, und `virtual:skin` nur per
+    `import()`.
+- **Ordner** wie ein Paket: `web/skins/<name>/` mit `package.json`,
+  `index.ts`, Stylesheet und Tests. Leaflet nimmt ein Skin aus `web/`
+  (`resolve.dedupe`), auch wenn er ausserhalb liegt. Den Nachweis führt
+  `web/skins/tablett/tests/auslagern.spec.ts`.
+- **Texte** kommen aus der Build-Konfiguration: `titel` aus `SITE_TITLE`,
+  dazu je `SKIN_TEXT_<NAME>` ein Eintrag `<name>`. Was nicht ins Repository
+  gehört, etwa eine Domain, erreicht einen Skin nur so.
+- **Tests:** Playwright baut zweimal, ohne Skin für das Projekt `grund` auf
+  Port 4173 und mit `SKIN=./skins/tablett` nach `web/dist-skin` für das
+  Projekt `skin` auf 4175. Die Smoke-Tests laufen in beiden, die Tests eines
+  Skins nur mit ihm, Tests mit dem Tag `@ohne-skin` nur ohne.
+
 ## Ausliefern
 
 `web/dist` ist die ganze Seite; statisch ausliefern reicht. Die Kacheln
@@ -295,6 +370,22 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   [`web/vite.config.ts`](../web/vite.config.ts); ein Betreiber setzt sie
   in seinem Server so oder strenger. Liegen die Kacheln auf einer anderen
   Domain als die Seite, brauchen `img-src` und `connect-src` diese Domain.
+- **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
+  Browser danach den neuen Stand zeigt:
+  - **Betreiber** setzen für `tiles/` `Cache-Control: no-cache`, in nginx
+    etwa `location /tiles/ { add_header Cache-Control no-cache; }`. Der
+    Browser fragt dann je Kachel mit `ETag` oder `Last-Modified` nach, und
+    für eine unveränderte kommt ein kurzes 304.
+  - **Ohne den Header** schätzt der Browser die Frische selbst, üblich 10 %
+    der Zeit seit `Last-Modified` (RFC 9111, 4.2.2). Eine Kachel, die 30
+    Tage unverändert war, zeigt er nach einem neuen Lauf bis etwa 3 Tage
+    lang alt.
+  - **Vite** liefert im Dev-Server und mit `npm run preview` schon so aus:
+    `no-cache` mit `ETag`.
+  - **`map.json`, `trees.json` und die Höhen** holt das Frontend selbst mit
+    `cache: 'no-cache'`, gleich welche Header der Server setzt.
+  - **Eine offene Seite** zeigt Kacheln, die sie schon geladen hat, bis zum
+    Neuladen; der Browser fragt ein Bild der Seite nicht noch einmal nach.
 - **Adresse, Titel, Beschreibung, Bild:** Der Betreiber setzt sie beim
   Build, etwa
   `SITE_URL=https://example.org/karte/ SITE_TITLE="Karte von …" npm run build`.

@@ -68,7 +68,13 @@ pub struct World {
     region_dir: PathBuf,
     /// Nur die Chunks darin gehören zur Welt, siehe [`World::mit_bereich`].
     bereich: Option<[i32; 4]>,
+    /// `Data.DataVersion` aus `level.dat` der Weltwurzel.
+    datenversion: Option<i32>,
 }
+
+/// Die Datenversion von 26.3. Eine Welt davor zeichnet die weiche
+/// Beleuchtung wie 26.2, siehe [`World::ecke_wie_26_2`].
+pub const DATENVERSION_26_3: i32 = 5023;
 
 /// Hängt Pfadkomponenten einzeln an. Ein Schrägstrich in `join` scheitert
 /// unter Windows an Pfaden mit dem Präfix für lange Pfade.
@@ -154,10 +160,16 @@ impl World {
         for candidate in REGION_DIRS {
             let dir = under(root, candidate);
             if dir.is_dir() {
+                let home = locate(root);
+                let datenversion = match &home {
+                    Some((wurzel, _)) => datenversion(&wurzel.join("level.dat"))?,
+                    None => None,
+                };
                 return Ok(World {
-                    home: locate(root),
+                    home,
                     region_dir: dir,
                     bereich: None,
+                    datenversion,
                 });
             }
         }
@@ -183,6 +195,19 @@ impl World {
     /// Das Rechteck aus [`World::mit_bereich`].
     pub fn bereich(&self) -> Option<[i32; 4]> {
         self.bereich
+    }
+
+    /// `Data.DataVersion` aus `level.dat`; `None` ohne Weltwurzel oder ohne
+    /// das Feld.
+    pub fn datenversion(&self) -> Option<i32> {
+        self.datenversion
+    }
+
+    /// Ob die weiche Beleuchtung die Sicht in der Ecke wie 26.2 fragt: in
+    /// einer Welt vor [`DATENVERSION_26_3`]. Ohne Datenversion wie 26.3.
+    /// Siehe docs/renderer/weiche-beleuchtung.md, „Welten aus 26.2“.
+    pub fn ecke_wie_26_2(&self) -> bool {
+        self.datenversion.is_some_and(|v| v < DATENVERSION_26_3)
     }
 
     /// Alle vorhandenen Regionen, aufsteigend sortiert; mit einem Bereich
@@ -433,6 +458,21 @@ impl World {
             .map(|datei| Ok(read_nbt::<GenSettings>(&datei)?.data.seed))
             .transpose()
     }
+}
+
+/// `Data.DataVersion` aus `level.dat`. Gelesen wird nur dieses Feld.
+fn datenversion(level: &Path) -> Result<Option<i32>> {
+    #[derive(Deserialize)]
+    struct Daten {
+        #[serde(rename = "DataVersion")]
+        version: Option<i32>,
+    }
+    #[derive(Deserialize)]
+    struct Level {
+        #[serde(rename = "Data")]
+        daten: Daten,
+    }
+    Ok(read_nbt::<Level>(level)?.daten.version)
 }
 
 /// Eine gzip-gepackte NBT-Datei, wie `world_gen_settings.dat`.

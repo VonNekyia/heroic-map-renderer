@@ -1,6 +1,6 @@
 ---
 title: Weiche Beleuchtung
-description: Wie der Renderer Blöcke weich beleuchtet wie das Spiel in der Voreinstellung, nach den Regeln von BlockModelLighter in 26.3, mit dem Licht an jeder Ecke der Flächen auf dem Rand, und was noch fehlt.
+description: Wie der Renderer Blöcke weich beleuchtet wie das Spiel in der Voreinstellung, nach den Regeln von BlockModelLighter in 26.3, eine Welt aus 26.2 mit der Ecke von 26.2, mit dem Licht an jeder Ecke der Flächen auf dem Rand und im Innern, und was eine Näherung bleibt.
 code:
   - renderer/src/render/metatile.rs
   - renderer/src/render/rasterizer.rs
@@ -11,6 +11,9 @@ code:
   - renderer/src/assets/model.rs
   - renderer/src/assets/schatten.txt
   - renderer/src/assets/Schatten.java
+  - renderer/src/assets/sicht262.txt
+  - renderer/src/assets/Sicht262.java
+  - renderer/src/world/mod.rs
 ---
 
 # Weiche Beleuchtung
@@ -26,9 +29,9 @@ und Osten, siehe „Aus jeder Richtung“: `ecken_at` in
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs),
 die AO-Karte in `renderer/src/render/rasterizer.rs`. Das gilt für jede
 Fläche auf dem Rand des Blocks, auch die einer Treppe, einer Platte oder
-eines Zauns; eine Fläche im Innern liegt im Licht der eigenen Zelle, siehe
-„Was bleibt eine Näherung“ und
-[0040](../entscheidungen/0040-licht-selbst-ausbreiten.md).
+eines Zauns, und für jede im Innern, etwa die Oberseite einer unteren
+Platte oder eines Trampelpfads, siehe
+[0064](../entscheidungen/0064-flaechen-im-innern-weich.md).
 
 ## Die Regeln des Spiels
 
@@ -47,12 +50,24 @@ eines Zauns; eine Fläche im Innern liegt im Licht der eigenen Zelle, siehe
   1 (`TransparentBlock`), Seelensand und Schlamm dunkeln trotz kleinerer
   Form ab (`SoulSandBlock`, `MudBlock`). Jede Ecke ist das Mittel ihrer vier
   Werte, und `ARGB.gray` macht daraus 255, 204, 153, 102 oder 51.
+- Jede andere Fläche zählt das Spiel ab der eigenen Zelle: die Nachbarn und
+  die Blöcke in den Ecken in der Schicht des Blocks selbst, statt des
+  Blocks davor den Block selbst (`prepareQuadAmbientOcclusion`). Ihre Seite
+  ist die Richtung, die ihrer Normalen am nächsten liegt, bei Gleichstand
+  die erste aus `Direction.values()`: unten, oben, Norden, Süden, Westen,
+  Osten (`FaceBakery.findClosestDirection`). So zählt auch eine schräge
+  Fläche, und die Ebene einer Blume mit der Normalen nach Südosten liegt
+  im Süden. Ein Viereck ohne Fläche hat keine Normale, `findClosestDirection`
+  gibt `null`, und `bakeQuad` nimmt oben; der Renderer gibt ihm keinen
+  Platz. Zu sehen ist davon nichts, es hat keine Pixel.
 - Der Block in der Ecke zählt nur, wenn hinter einem der beiden Nachbarn,
   noch eine Schicht weiter von der Seite weg, kein Block steht, der kein
   Licht durchlässt: nicht `isLightPermeable`, also `solidRender` und
   `getLightDampening` > 0. In 26.2 stand `isViewBlocking` statt
   `solidRender`; seit 26.3 lassen Eis, Brucheis, Schleimblöcke, die
-  Shulkerkisten, Leuchtfeuer, Spawner und Barriere die Ecke durch. Sonst nimmt
+  Shulkerkisten, Leuchtfeuer, Spawner und die geflutete Barriere die Ecke
+  durch. Eine Welt aus 26.2 zeichnet der Renderer mit der Regel von 26.2,
+  siehe „Welten aus 26.2“. Sonst nimmt
   das Spiel an seiner Stelle den Wert des ersten Nachbarn aus
   `AdjacencyInfo.corners`, für alle vier Ecken denselben, auch für eine
   Ecke, die dieser Nachbar gar nicht berührt. Der Renderer auch.
@@ -71,6 +86,45 @@ eines Zauns; eine Fläche im Innern liegt im Licht der eigenen Zelle, siehe
   Spiel ohne (`ModelBlockRenderer.tesselateBlock`), Flüssigkeiten ebenso
   (`FluidRenderer`) und die Flächen aus Blockentity-Modellen, siehe
   [Blockentities](blockentities.md), „Licht“.
+
+## Welten aus 26.2
+
+Eine Welt aus 26.2 sehen ihre Spieler im Client von 26.2, und der prüft
+die Ecke anders (`prepareQuadAmbientOcclusion`, per javap an den
+Client-JARs von 26.2 und 26.3). Entschieden in
+[0065](../entscheidungen/0065-sicht-in-der-ecke-nach-der-version.md).
+
+| | 26.2 | 26.3 |
+|---|---|---|
+| Ecke: der Nachbar eine Schicht weiter nimmt die Sicht | `isViewBlocking` und `getLightDampening` > 0, Bit 8 (`SICHT_262`) | nicht `isLightPermeable`, Bit 2 (`SICHT`) |
+| Mitte einer Fläche im Innern: Licht der eigenen Zelle vor | `isSolidRender`, Bit 2 | `isSolidRender`, Bit 2 |
+
+- **Anders** sind 23 Blöcke: Eis, Brucheis, Schleimblock, Leuchtfeuer,
+  Spawner, die geflutete Barriere und die 17 Shulkerkisten. In 26.2 nehmen
+  sie in der Ecke die Sicht, in 26.3 nicht (`sicht_von_26_2_wie_im_spiel`
+  in [`renderer/src/assets/blockstate.rs`](../../renderer/src/assets/blockstate.rs)).
+  Für die Mitte ist `isSolidRender` von 26.2 in allen 32 366 Zuständen
+  gleich Bit 2, geprüft am Server-JAR von 26.2 am 03.10.
+- **Welche Regel gilt**, sagt `Data.DataVersion` aus `level.dat` der
+  Weltwurzel: vor 5023, der Datenversion von 26.3, die von 26.2, sonst die
+  von 26.3, auch ohne `level.dat` oder ohne das Feld (`ecke_wie_26_2` in
+  [`renderer/src/world/mod.rs`](../../renderer/src/world/mod.rs)). Es zählt
+  der Lauf, nicht der Chunk: Eine Welt im Übergang sehen alle schon mit
+  26.3, und ihre `level.dat` nennt 26.3. Der Lauf nennt die Regel in der
+  Zeile `Version:`.
+- **Die Version gehört zum Baum,** `ambientOcclusion` in
+  [map.json](../benutzung/map-json.md): Ein Lauf mit der anderen bricht ab
+  und lässt den Baum, wie er ist; ein Baum aus einem älteren Stand bekommt
+  die der Welt (`ecke` in `renderer/src/cli.rs`,
+  `version_der_weichen_beleuchtung_gehoert_zum_baum`). Wechselt eine Welt
+  auf 26.3, braucht ihr Baum eine neue Wurzel.
+- **Im Cache** sind es zwei Ebenen: `VIEW` für die Ecke nach der Version,
+  `OPAQUE` für die Mitte, immer Bit 2 (`Masks::of` in
+  `renderer/src/render/metatile.rs`). `eis_in_der_ecke_nach_der_version_der_welt`
+  und `fester_block_davor_gibt_der_mitte_das_eigene_licht` zeichnen beide.
+- **Die Modelle** kommen aus `--assets`: Zu einer Welt aus 26.2 gehören
+  die Assets aus dem Client von 26.2, siehe
+  [Assets und Biomdaten](../benutzung/assets.md).
 
 ## Aus jeder Richtung
 
@@ -114,9 +168,15 @@ Schatten es zählt (`LightCoordsUtil.smoothBlend`), wie `smooth_blend` in
   [Wasser und Licht](wasser-und-licht.md), „Licht ausbreiten“; ein Block,
   den das Spiel mit `emissiveRendering` zeichnet, der Magmablock etwa,
   gibt beide 15.
-- Ist die Zelle vor der Seite heller als 2, im Himmels- oder im
-  Blocklicht, nimmt ein Nachbar ganz ohne Licht ihres und einer ohne
-  Himmelslicht ihr Himmelslicht. Ein Stein neben der Seite zieht die Ecke
+- Die Mitte ist auf dem Rand die Zelle vor der Seite. Im Innern ist sie
+  es auch, ausser ihr Block ist `isSolidRender`, Stein etwa, nicht aber
+  Glas, Eis, Laub oder eine Platte; dann ist es die eigene Zelle
+  (`prepareQuadAmbientOcclusion`). `isSolidRender` ist in 26.3 genau,
+  was kein Licht durch die Ecke lässt (`getLightDampening` ist dort 15). Die Nachbarn liegen in der Schicht, in
+  der das Spiel zählt.
+- Ist die Mitte heller als 2, im Himmels- oder im Blocklicht, nimmt ein
+  Nachbar ganz ohne Licht ihres und einer ohne Himmelslicht ihr
+  Himmelslicht. Ein Stein neben der Seite zieht die Ecke
   so nicht ins Dunkle; dunkler wird sie über seinen Schatten.
 - Die Ecke ist das Mittel der vier Werte, in Sechzehnteln einer Stufe. Die
   Lightmap liest das Spiel je Ecke linear gefiltert (`terrain.vsh`,
@@ -134,20 +194,32 @@ beiden Fällen im Licht der eigenen Zelle.
 ## Beim Zeichnen
 
 Das Sprite eines Blocks ist an jeder Stelle dasselbe, Schatten und Licht
-hängen aber an den Nachbarn. Der Rasterizer legt deshalb je Pixel die
-Anteile der vier Ecken seiner Seite in 255steln ab, die AO-Karte, für jeden
-Pixel einer Fläche auf dem Rand, auch ohne `ambientocclusion`: Dann trägt
-jede Seite ihr eigenes Licht. Ein Pixel ohne Seite liegt im Licht der
-eigenen Zelle; ob ein Sprite solche Pixel hat, merkt sich die Tabelle
-(`SpriteSet::innen`). Ob der Block volle Kollisionsform hat, steht in
-`schatten.txt` und gehört zum Schlüssel der Familie. Beim Zeichnen rechnet
-`ecken_at` die Ecken aus den
-Nachbarn, ihr Licht aus den 27 Zellen um den Block (`lichter_um`). Ob ein Block
-abdunkelt und ob er die Sicht nimmt, liegt dafür wie „deckend“ als eigene
-Ebene in den Bitmasken der Sections (`DARK`, `VIEW`), auch für Blöcke ohne
-Sprite: Die 31 Blöcke, nach denen die drei Seiten fragen, kommen aus 15
-Spalten, je Spalte aus einem Wort (`umgebung`). Welche Blöcke abdunkeln und
-welche die Sicht nehmen, steht in `renderer/src/assets/schatten.txt`, siehe
+hängen aber an den Nachbarn. Der Rasterizer legt deshalb je Pixel seinen
+Platz und die Anteile der vier Ecken seiner Seite in 255steln ab, die
+AO-Karte. Je Seite im Blick gibt es zwei Plätze, einen für Flächen auf dem
+Rand und einen für Flächen im Innern, zusammen sechs (`AO_PLAETZE`): Eine
+Treppe zeigt oben so beide Stufen, jede mit ihren Ecken. Die Karte gilt
+auch ohne `ambientocclusion`, dann trägt jeder Platz sein eigenes Licht.
+Ein Pixel ohne Platz liegt im Licht der eigenen Zelle: Flüssigkeiten,
+Flächen aus Blockentity-Modellen und Flächen, deren Seite der Blick nicht
+zeigt. Liegt Wasser vor einer Fläche, zählt die Fläche: Den Anteil des
+Wassers beleuchtet die Tönungskarte mit dem Licht des Wassers, siehe
+[Wasser und Licht](wasser-und-licht.md), „Welches Licht ein Block
+bekommt“; der Platz gilt für das, was durch das Wasser zu sehen ist. Ob ein Sprite solche Pixel hat, merkt sich die Tabelle
+(`SpriteSet::innen`), welche Plätze es zeigt, auch (`SpriteSet::plaetze`).
+Ob der Block volle Kollisionsform hat, steht in `schatten.txt` und gehört
+zum Schlüssel der Familie. Beim Zeichnen rechnet `ecken_at` die Ecken der
+Plätze, die das Sprite zeigt, aus den Nachbarn, ihr Licht aus den 27
+Zellen um den Block (`lichter_um`). Ob ein Block abdunkelt, ob er die
+Sicht nimmt, liegt dafür wie „deckend“ als eigene Ebene in den
+Bitmasken der Sections (`DARK`, `VIEW`), auch für Blöcke ohne Sprite. Die
+Sicht nimmt in 26.3 genau ein Block, der `isSolidRender` ist, siehe „Die
+Regeln des Spiels“; dieselbe Ebene gibt deshalb auch die Mitte einer
+Fläche im Innern, geprüft von `sicht_ist_solid_render` in
+`renderer/src/assets/blockstate.rs`. Die 38 Blöcke, nach denen die sechs
+Plätze fragen, kommen aus 15 Spalten, je Spalte aus einem Wort
+(`umgebung`). Welche Blöcke abdunkeln und welche die Sicht nehmen, steht
+in `renderer/src/assets/schatten.txt`, siehe
 [Erzeugte Tabellen](../entwicklung/tabellen.md) und
 [0031](../entscheidungen/0031-eigene-tabellen-statt-der-masken.md).
 
@@ -155,11 +227,11 @@ Je Pixel ergibt die Karte mit den Ecken je Farbkanal einen Faktor,
 ganzzahlig wie das Mischen, auf der CPU wie im Shader der Karte; die
 Schattierung nach Richtung steckt wie bisher im Sprite, siehe
 [Dimensionstypen](dimensionstypen.md), „Schattierung nach Richtung“.
-Eine Instanz auf der Karte trägt dafür je Kanal und Seite ein Wort,
-neun Wörter, siehe [Grafikkarte](../benutzung/grafikkarte.md). Haben
-alle Ecken der Seiten, die zu sehen sind, dasselbe Licht, und die Pixel
-ohne Seite, wenn es welche gibt, auch, trägt der Draw es allein, ohne
-Ecken; eine Seite, die ihr Nachbar deckt, zählt dabei nicht.
+Eine Instanz auf der Karte trägt dafür je Kanal und Platz ein Wort,
+18 Wörter, siehe [Grafikkarte](../benutzung/grafikkarte.md). Haben alle
+Ecken der Plätze, die das Sprite zeigt, dasselbe Licht, und die Pixel ohne
+Platz, wenn es welche gibt, auch, trägt der Draw es allein, ohne Ecken;
+ein Platz, dessen Seite ihr Nachbar deckt, zählt dabei nicht.
 
 ## Was es kostet
 
@@ -191,32 +263,42 @@ dazu seine Ecken aus den Nachbarn wie ein Stein, wo vorher ein Licht je
 Block reichte. Für sich gemessen ist das nicht, nur mit dem ganzen Licht
 zusammen, siehe oben.
 
+Die Flächen im Innern aus
+[0064](../entscheidungen/0064-flaechen-im-innern-weich.md) kosten an Stand
+und Fichtenwald der Testwelt mit 24 Threads im Median 3 bis 4 % mehr Zeit
+am Stand, in der Karte wie in Cinematic, im Fichtenwald Cinematic 5,4 %,
+die Karte dort −1,4 bis +1,5 %, in der Streuung. Die
+Kacheln wiegen 0,1 bis 5,7 % mehr, am meisten mit Schnee, die Spitze des
+Speichers 0,3 bis 5,7 %. Gemessen in
+[2026-10-03, Flächen im Innern weich, Kosten](../messungen/2026-10-03-flaechen-im-innern.md).
+
 ## Was noch fehlt
 
-- **Flächen im Innern weich.** Liegt eine Fläche nicht auf dem Rand, rechnet
-  das Spiel ihre Ecken aus der Schicht des Blocks selbst, das Licht der
-  Mitte aber aus der Zelle davor, wenn die nicht deckt (`isSolidRender`,
-  `prepareQuadAmbientOcclusion`). Der Renderer zeichnet sie flach im Licht
-  der eigenen Zelle, wie das Spiel ohne weiche Beleuchtung. Die grössten Flächen
-  darunter:
-  - Schneedecken: Eine Lage `snow` ist 2/16 hoch, erst acht Lagen sind ein
-    voller Würfel. Verschneite Hänge und Ebenen bleiben oben deshalb ohne
-    weiche Beleuchtung.
-  - Ackerboden und Trampelpfade (`farmland`, `dirt_path`), 15/16 hoch.
-  - Die Oberseite einer unteren Platte und die untere Stufe einer Treppe.
+Aus den Regeln des Spiels nichts mehr. Seit
+[0064](../entscheidungen/0064-flaechen-im-innern-weich.md) liegen auch die
+Flächen im Innern weich, die grössten darunter:
 
-  Als Nachbarn zählen sie schon mit ihrem Wert aus der Tabelle:
-  Schneedecken, Ackerboden, Trampelpfade, Treppen und einfache Platten
-  dunkeln nicht ab, acht Lagen Schnee und eine doppelte Platte schon.
+- Schneedecken: Eine Lage `snow` ist 2/16 hoch, erst acht Lagen sind ein
+  voller Würfel.
+- Ackerboden und Trampelpfade (`farmland`, `dirt_path`), 15/16 hoch.
+- Die Oberseite einer unteren Platte und die untere Stufe einer Treppe.
+
+Als Nachbarn zählen sie mit ihrem Wert aus der Tabelle: Schneedecken,
+Ackerboden, Trampelpfade, Treppen und einfache Platten dunkeln nicht ab,
+acht Lagen Schnee und eine doppelte Platte schon.
 
 ## Was bleibt eine Näherung
 
-- **Flächen im Innern** liegen im Licht der eigenen Zelle, ohne weiche
-  Beleuchtung, siehe „Was noch fehlt“ und
-  [Wasser und Licht](wasser-und-licht.md), „Welches Licht ein Block
-  bekommt“.
-- **Teilflächen auf dem Rand** nehmen an jedem Pixel den Verlauf der ganzen
-  Seite über ihre zwei Dreiecke. Das Spiel mischt die vier Werte an den
+- **Flächen, deren Seite der Blick nicht zeigt**, und die doch zu sehen
+  sind, etwa eine geneigte, die eher nach Norden als nach oben zeigt, von
+  oben gesehen: Sie liegen flach im Licht der eigenen Zelle. Das Spiel
+  beleuchtet sie weich in ihrer Richtung. Gezählt über alle Zustände aus
+  `blocks.txt` mit Modell in den Assets von 26.2, nur Modelle mit
+  `ambientocclusion`, bei scale 32: aus 2:1 keine Fläche, aus 4:3 6 am
+  Haken des Stolperdrahts, aus `top` und `top-north` 26 an drei Blöcken,
+  aus `north-45` 285 an 20 Blöcken, fast alle an Kerzen.
+- **Teilflächen**, auf dem Rand wie im Innern, nehmen an jedem Pixel den
+  Verlauf der ganzen Seite über ihre zwei Dreiecke. Das Spiel mischt die vier Werte an den
   Ecken der Fläche bilinear nach ihrer Lage und lässt sie von dort über die
   Fläche verlaufen. Auf den Kanten der Seite ist beides gleich; im Innern
   weicht es so weit ab, wie eine bilineare Mischung von der über zwei

@@ -19,6 +19,7 @@ use image::RgbaImage;
 
 use super::Sprite;
 use super::metatile::Draw;
+use super::rasterizer::AO_PLAETZE;
 
 /// Kantenlänge der Zellen, in die eine Kachel zerlegt wird: eine
 /// Arbeitsgruppe je Zelle, ein Thread je Pixel. Muss zur
@@ -300,7 +301,7 @@ pub struct Worker<'g> {
     bind: Option<wgpu::BindGroup>,
     /// Die Pixel der Sprites eines Durchgangs, eines nach dem anderen.
     sprite_bytes: Vec<u8>,
-    /// Instanzen, 68 Bytes je Stück, fertig für den Puffer.
+    /// Instanzen, 104 Bytes je Stück, fertig für den Puffer.
     inst_bytes: Vec<u8>,
     list_data: Vec<u32>,
 }
@@ -437,7 +438,7 @@ impl Worker<'_> {
                     d.origin.1 as u32,
                     r | g << 8 | b << 16 | flags << 24,
                 ];
-                let ecken = ecken.unwrap_or([[u32::MAX; 3]; 3]);
+                let ecken = ecken.unwrap_or([[u32::MAX; AO_PLAETZE]; 3]);
                 let [wr, wg, wb] = wasser.unwrap_or([255; 3]);
                 let fuss = [d.tint[0], d.tint[1], wr | wg << 8 | wb << 16];
                 for word in kopf

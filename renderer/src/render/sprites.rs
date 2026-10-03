@@ -515,6 +515,9 @@ struct Entry {
     /// Hat ein Teil eine AO-Karte mit Pixeln ohne Seite? Die liegen im Licht
     /// der eigenen Zelle, siehe [`Sprite::ao`].
     innen: bool,
+    /// Welche Plätze der AO-Karte sichtbare Pixel haben, Bit `p` für Platz
+    /// `p`, siehe [`Sprite::ao`].
+    plaetze: u8,
 }
 
 /// Die Tönungskarte trägt einen Anteil der Farbe des Blocks.
@@ -1144,6 +1147,9 @@ impl SpriteSet {
                 .filter(|cell| *cell != OWN_CELL),
         );
         let innen = parts.iter().any(|(_, sprite)| ohne_seite(sprite));
+        let plaetze = parts
+            .iter()
+            .fold(0, |acc, (_, sprite)| acc | plaetze(sprite));
         self.sprites.push(Entry {
             parts,
             opaque,
@@ -1152,6 +1158,7 @@ impl SpriteSet {
             rows: OnceLock::new(),
             tints,
             innen,
+            plaetze,
         });
         let id = SpriteId(self.sprites.len() as u32 - 1);
         if let Some(key) = key {
@@ -1177,6 +1184,11 @@ impl SpriteSet {
     /// Hat die AO-Karte des Sprites Pixel ohne Seite, siehe [`Entry::innen`]?
     pub fn innen(&self, id: SpriteId) -> bool {
         self.sprites[id.0 as usize].innen
+    }
+
+    /// Welche Plätze der AO-Karte das Sprite zeigt, siehe [`Entry::plaetze`].
+    pub fn plaetze(&self, id: SpriteId) -> u8 {
+        self.sprites[id.0 as usize].plaetze
     }
 
     /// Erlaubt das Modell weiche Beleuchtung, siehe [`Sprite::weich`]?
@@ -1438,6 +1450,18 @@ fn ohne_seite(sprite: &Sprite) -> bool {
             .iter()
             .zip(sprite.image.pixels())
             .any(|(&w, pixel)| w >> 24 == 0 && pixel.0[3] != 0)
+    })
+}
+
+/// Die Plätze der AO-Karte eines Sprites mit sichtbaren Pixeln, Bit `p`
+/// für Platz `p`.
+fn plaetze(sprite: &Sprite) -> u8 {
+    sprite.ao.as_ref().map_or(0, |karte| {
+        karte
+            .iter()
+            .zip(sprite.image.pixels())
+            .filter(|&(&w, pixel)| w >> 24 != 0 && pixel.0[3] != 0)
+            .fold(0, |acc, (&w, _)| acc | 1 << ((w >> 24) - 1))
     })
 }
 
@@ -1998,11 +2022,11 @@ mod tests {
         }
     }
 
-    /// Ein Teil ohne Fläche im Licht davor behält die AO-Karte des Modells:
-    /// Seine Pixel liegen im Licht der eigenen Zelle (`innen`), auch wenn
-    /// jeder Pixel des eigenen Teils eine Seite hat.
+    /// Ein Teil ohne Fläche auf dem Rand behält die AO-Karte des Modells:
+    /// Seine Fläche nach Süden liegt im Innern, Platz 4, gezählt ab der
+    /// Zelle des Blocks. Ohne Seite ist kein Pixel, `innen` gilt nicht.
     #[test]
-    fn teil_ohne_seite_liegt_im_licht_der_eigenen_zelle() {
+    fn teil_ohne_seite_liegt_im_innern_des_blocks() {
         let mut assets = assets();
         let set = build(&mut assets, &[state("blech")], Projection::new(16)).unwrap();
         let id = set.id(&state("blech")).unwrap();
@@ -2013,7 +2037,9 @@ mod tests {
             !ohne_seite(&entry.parts[1].1),
             "der eigene Teil hat überall eine Seite"
         );
-        assert!(set.innen(id));
+        assert_eq!(plaetze(&entry.parts[0].1), 1 << 4, "das Blech");
+        assert_eq!(set.plaetze(id), 0b10111);
+        assert!(!set.innen(id));
     }
 
     /// Der Umriss folgt der Kamera: Ein voller Würfel passt bei jeder in
@@ -2832,9 +2858,9 @@ mod tests {
 
     /// Ein Pack darf Zustände mit verschiedener Kollisionsform auf dasselbe
     /// Modell legen; die Fixtures zeichnen die doppelte Platte wie die
-    /// untere. Deren Oberseite liegt im Innern, im Licht der eigenen Zelle,
-    /// bei der doppelten mit voller Kollisionsform im Licht der Zelle
-    /// darüber: zwei Familien mit verschiedenen Sprites.
+    /// untere. Deren Oberseite liegt im Innern, Platz 3, bei der doppelten
+    /// mit voller Kollisionsform auf dem Rand, Platz 0: zwei Familien mit
+    /// verschiedenen Sprites.
     #[test]
     fn volle_kollisionsform_trennt_die_familie() {
         let mut assets = assets();
@@ -2845,8 +2871,8 @@ mod tests {
         let set = build(&mut assets, &states, Projection::new(16)).unwrap();
         assert_eq!(set.families.len(), 2);
         let [unten, doppelt] = states.map(|st| set.id(&st).unwrap());
-        assert!(set.innen(unten));
-        assert!(!set.innen(doppelt));
+        assert_eq!(set.plaetze(unten), 0b1110);
+        assert_eq!(set.plaetze(doppelt), 0b111);
     }
 
     /// Die andere Hälfte einer Doppelkiste liegt wie in

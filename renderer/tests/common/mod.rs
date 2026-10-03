@@ -227,10 +227,22 @@ fn write_gzip_nbt(path: &Path, value: &impl Serialize) {
     gz.finish().expect("gzip abschliessen");
 }
 
-/// `level.dat`, die Marke der Weltwurzel. Der Renderer liest nichts
-/// daraus: den Seed legt Minecraft seit 26.1 in `world_gen_settings.dat` ab.
+/// `level.dat`, die Marke der Weltwurzel, mit der Datenversion von 26.2
+/// wie die übrigen Dateien hier. Der Renderer liest nur sie daraus: den
+/// Seed legt Minecraft seit 26.1 in `world_gen_settings.dat` ab.
 pub fn write_level_dat(world: &Path) {
-    std::fs::write(world.join("level.dat"), b"").expect("level.dat anlegen");
+    write_level_dat_mit(world, 4903);
+}
+
+/// Wie `write_level_dat`, mit `version` als `Data.DataVersion`.
+pub fn write_level_dat_mit(world: &Path, version: i32) {
+    use fastnbt::Value;
+    let daten = Value::Compound(HashMap::from([(
+        "DataVersion".to_string(),
+        Value::Int(version),
+    )]));
+    let datei = Value::Compound(HashMap::from([("Data".to_string(), daten)]));
+    write_gzip_nbt(&world.join("level.dat"), &datei);
 }
 
 /// Eine Weltwurzel mit ihrem Seed, wie Vanilla sie schreibt.

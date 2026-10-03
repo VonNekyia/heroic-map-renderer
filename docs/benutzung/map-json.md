@@ -46,7 +46,8 @@ das Frontend liest die Datei in `web/src/main.ts`.
   "maxY": 319,
   "look": "map",
   "seaLevel": 63,
-  "area": [-512, -512, 512, 512]
+  "area": [-512, -512, 512, 512],
+  "ambientOcclusion": "26.2"
 }
 ```
 
@@ -71,6 +72,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `seaLevel` | Wasserspiegel der Dimension in Blöcken, oder `null` | „Die Welt“ unten |
 | `area` | das Rechteck der Welt, das der Baum zeichnet, `[x0, z0, x1, z1]` in Blöcken | „Die Welt“ unten |
 | `areaFixed` | `true`, wenn `area` mit `--area` gewählt ist; fehlt sonst | „Die Welt“ unten |
+| `ambientOcclusion` | `"26.2"` oder `"26.3"`: wie welche Version die weiche Beleuchtung die Sicht in der Ecke prüft, nach der Datenversion der Welt; ein Lauf mit der anderen bricht ab | [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md), „Welten aus 26.2“ |
 
 ## Kamera und Projektion
 

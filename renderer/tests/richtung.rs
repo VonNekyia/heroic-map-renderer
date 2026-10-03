@@ -723,8 +723,17 @@ fn gedrehte_szene_wie_aus_der_vorgabe() {
             szene.push(([x, 5, z], "minecraft:oak_planks"));
         }
     }
-    // Bretter unter den Treppen.
-    szene.extend((9..=11).flat_map(|x| (9..=10).map(move |z| ([x, 2, z], "minecraft:oak_planks"))));
+    // Bretter unter den Treppen, nicht unter der westlichen: Sonst deckten
+    // sie und die Bretter östlich der äusseren Treppe beide Nachbarn einer
+    // Ecke ihres Viertels im Innern, und gedreht nähme das Spiel einen
+    // anderen Nachbarn, siehe docs/renderer/richtungen.md, „Nicht das
+    // gedrehte Bild“.
+    szene.extend(
+        (9..=11)
+            .flat_map(|x| (9..=10).map(move |z| [x, 2, z]))
+            .filter(|&p| p != [9, 2, 10])
+            .map(|p| (p, "minecraft:oak_planks")),
+    );
     // Nur halb gedreht, siehe `wie_die_vorgabe`: Blockentities nach Süden
     // und Norden, eine Doppelkiste und ein Topf, und ein Spawner vor vollen
     // Blöcken. Seine inneren Wände tragen die `cullface` gegenüber, nur in z;

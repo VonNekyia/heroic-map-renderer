@@ -15,7 +15,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 - [Schalter und Beispiele](benutzung/schalter.md): jeder Schalter mit einer Zeile, `--at`, `--block`, `--sprite`, `--render`, `--scan`.
 - [Assets und Biomdaten](benutzung/assets.md): Asset- und Datenwurzeln aus dem Client-JAR, gestapelt.
-- [Welten und Kennung](benutzung/welten.md): Welten ab 26.1, nicht fertig erzeugte Chunks, Weltwurzel, Dimension, Seed, Wasserspiegel und die Kennung im Baum.
+- [Welten und Kennung](benutzung/welten.md): Welten ab 26.1, nicht fertig erzeugte Chunks, Weltwurzel, Dimension, Datenversion, Seed, Wasserspiegel und die Kennung im Baum.
 - [Kacheln exportieren](benutzung/kacheln.md): `--tiles`, Ausschnitte, ein Rechteck der Welt mit `--area`, Ablage, leere Kacheln und `--prune`.
 - [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt und Kamera.
 - [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md): `--pyramid` während eines Renders und `--resume` nach einem Abbruch.
@@ -33,7 +33,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Sprites und Deckung](renderer/sprites-und-deckung.md): Sprite-Tabelle, Fassungen, deckend, verdeckte Würfel, Flächen zu gleichen Nachbarn, Flächen vor einem vollen Nachbarn, Deckungsmaske.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
 - [Wasser und Licht](renderer/wasser-und-licht.md): Flüssigkeiten, Flächen, Streifen, Himmels- und Blocklicht.
-- [Weiche Beleuchtung](renderer/weiche-beleuchtung.md): die Regeln von `BlockModelLighter` für volle Würfel.
+- [Weiche Beleuchtung](renderer/weiche-beleuchtung.md): die Regeln von `BlockModelLighter` für Flächen auf dem Rand und im Innern, Welten aus 26.2.
 - [Cinematic](renderer/cinematic.md): `--cinematic`, die Werte des Looks, Sprites ohne Schattierung nach Richtung, Licht an den Ecken und in HDR, Farbe des Himmels, Sonne und Schatten aus dem Strahl, Bodenpflanzen, Wasser, Leuchten, Wärme, Bloom, Ton.
 - [Biomfarben](renderer/biomfarben.md): Colormaps, gefärbte Blöcke, Biom je Block, Übergänge zwischen Biomen, Sumpfgras, Tönung beim Zeichnen, Biome lesen.
 - [Varianten aus der Position](renderer/varianten.md): die Alternative würfeln wie der Client.
@@ -121,6 +121,8 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0061](entscheidungen/0061-tablett-im-frontend.md): Tablett und Tisch zeichnet das Frontend aus ebenen Flächen, in zwei Ebenen um die Kacheln, mit der Welt wachsend, Licht über Höhenkarten, Schmuck als Sprites; nicht der Renderer, keine Bilder je Perspektive, keine gebrochenen Zoomstufen.
 - [0062](entscheidungen/0062-updates-nach-stempel-und-fingerabdruck.md): Updates nach Stempel und Fingerabdruck je Chunk, Stand je Baum, volle Höhe nach unten, ein anderer Build verlangt einen vollen Lauf.
 - [0063](entscheidungen/0063-tablett-als-skin.md): Tablett als optionaler Skin: Schalter `SKIN` beim Build, Schnittstelle `skin-api.ts` mit Version, Grenze per ESLint, Ordner wie ein Paket, nur quadratische Karten, einmal für fitZoom; die Lilie an der nahen Ecke darf ins Bild ragen.
+- [0064](entscheidungen/0064-flaechen-im-innern-weich.md): Flächen im Innern weich wie das Spiel, sechs Plätze in der AO-Karte, die Ecken in der Instanz.
+- [0065](entscheidungen/0065-sicht-in-der-ecke-nach-der-version.md): Die Sicht in der Ecke der weichen Beleuchtung nach der Datenversion der Welt, aus einer Tabelle von 26.2; die Version gehört zum Baum.
 
 ## Messungen
 
@@ -165,3 +167,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-03, Bits „frei zur Sonne“](messungen/2026-10-03-bits-frei-zur-sonne.md): wie viele Strahlen zur Sonne die Bits aus dem Vorschlag zu #73 am Prototyp ohne Gang beantworten, dass jedes Bild gleich bleibt und was ein Strahl mit und ohne sie kostet, im Wechsel in einem Prozess und allein wiederholt.
 - [2026-10-03, Bits „frei zur Sonne“ am Renderer](messungen/2026-10-03-bits-am-renderer.md): dass mit den Bits aus #106 jede Kachel gleich bleibt, wie viele Strahlen sie beantworten, was ein Strahl und ein ganzer Lauf mit Cinematic an Stand und Fichtenwald kostet, vor und nach dem Vorrat für die nativen Stufen.
 - [2026-10-03, Skin Tablett](messungen/2026-10-03-skin-tablett.md): Bündel ohne und mit Skin gegen den Stand vor #112, das einmalige Zeichnen für fitZoom, die Bildzeit beim Ziehen mit CPU 1× und 4× und Lighthouse am Build mit Skin.
+- [2026-10-03, Flächen im Innern weich, Kosten](messungen/2026-10-03-flaechen-im-innern.md): die Karte auf CPU und Grafikkarte und Cinematic mit #51 gegen master, an Stand und Fichtenwald, Zeit, Bytes und Speicher.

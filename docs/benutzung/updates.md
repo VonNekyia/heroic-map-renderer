@@ -48,7 +48,10 @@ Stempeln und sagt `Update:     nichts zu zeichnen`.
 
 - **Gleiche Einstellungen:** Kamera, Richtung, scale, native Stufen, Radius
   der Mischung und `look` kommen aus dem Baum wie bei jedem Lauf in einen
-  bestehenden Baum, siehe [map.json](map-json.md).
+  bestehenden Baum, siehe [map.json](map-json.md). Hat die Welt seitdem
+  die Version gewechselt, bricht das Update ab wie jeder Lauf, siehe
+  [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md), „Welten aus
+  26.2“.
 - **Nicht mit `--size`:** Ein Update hat sein Gebiet aus den Änderungen.
 - **Mit `--prune`:** Wie ein Ausschnitt im Gebiet des Updates, siehe
   [Kacheln exportieren](kacheln.md), „Kacheln ohne Chunk: `--prune`“.

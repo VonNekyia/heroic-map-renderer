@@ -156,7 +156,9 @@ In `renderer/tests/richtung.rs`:
   die Grenzen von vier Chunks. Der voll helle Block steht unter einem Dach
   zwei Zellen hoch: Unter freiem Himmel oder neben der Quelle wären die
   Bretter ohnehin voll hell, und eine Zelle hoch zählte der Block in der
-  Ecke nicht. Die Szene wird in der Welt um k Vierteldrehungen
+  Ecke nicht. Unter der westlichen Treppe fehlt aus demselben Grund ein
+  Brett, für eine Fläche im Innern der äusseren Treppe daneben. Die Szene
+  wird in der Welt um k Vierteldrehungen
   gedreht und aus der Richtung k gerendert, für k = 1, 2, 3 und je Kamera
   2:1, 4:3, `top`, `top-north` und `north-45`; gedreht liegt sie bei
   negativen Koordinaten. Halb gedreht gleicht das Bild dem der Vorgabe im

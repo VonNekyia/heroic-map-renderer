@@ -2060,6 +2060,59 @@ fn rechteck_gehoert_zum_baum() {
     );
 }
 
+/// Die Version der weichen Beleuchtung kommt aus der Datenversion in
+/// `level.dat` und gehört zum Baum: Eine Welt aus 26.2 trägt `26.2` ein,
+/// nach dem Wechsel auf 26.3 bricht ein Lauf in denselben Baum ab und lässt
+/// ihn, wie er ist. Ein Baum aus einem älteren Stand ohne das Feld bekommt
+/// die Version der Welt.
+#[test]
+fn version_der_weichen_beleuchtung_gehoert_zum_baum() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    common::write_wurzel(welt.path(), 1);
+    let baum = neuer_baum("2x1-se");
+    let lauf = ["--scale", "16"];
+    let ausgabe = gelungen(&export(welt.path(), baum.path(), &lauf))
+        .stdout
+        .clone();
+    assert!(
+        String::from_utf8_lossy(&ausgabe)
+            .contains("Datenversion 4903 aus level.dat, weiche Beleuchtung wie 26.2"),
+        "{}",
+        String::from_utf8_lossy(&ausgabe)
+    );
+    let version = |dir: &Path| -> Option<String> {
+        let text = std::fs::read_to_string(dir.join("map.json")).expect("map.json lesen");
+        let info: serde_json::Value = serde_json::from_str(&text).expect("map.json auswerten");
+        info["ambientOcclusion"].as_str().map(str::to_string)
+    };
+    assert_eq!(version(baum.path()).as_deref(), Some("26.2"));
+
+    let vorher = schnappschuss(baum.path());
+    common::write_level_dat_mit(welt.path(), 5023);
+    let ausgabe = export(welt.path(), baum.path(), &lauf);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success()
+            && meldung.contains("weichen Beleuchtung von 26.2, die Welt ist 26.3"),
+        "{meldung}"
+    );
+    assert!(schnappschuss(baum.path()) == vorher);
+
+    let karte = baum.path().join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    info.as_object_mut().unwrap().remove("ambientOcclusion");
+    std::fs::write(&karte, serde_json::to_string(&info).unwrap()).unwrap();
+    let ausgabe = gelungen(&export(welt.path(), baum.path(), &lauf))
+        .stdout
+        .clone();
+    assert!(
+        String::from_utf8_lossy(&ausgabe).contains("nennt keine Version der weichen Beleuchtung")
+    );
+    assert_eq!(version(baum.path()).as_deref(), Some("26.3"));
+}
+
 /// Das Rechteck und `areaFixed`, wie `map.json` sie nennt.
 fn rechteck_in(dir: &Path) -> (Option<Vec<i64>>, Option<bool>) {
     let text = std::fs::read_to_string(dir.join("map.json")).expect("map.json lesen");
@@ -3247,7 +3300,10 @@ fn alter_baum_ohne_kennung_wird_uebernommen() {
     let karte = std::fs::read_to_string(out.path().join("map.json")).unwrap();
     assert!(karte.contains("\"world\": null"), "{karte}");
 
+    // Mit der Datenversion von 26.3: Ohne level.dat zeichnete der Baum wie
+    // 26.3, siehe version_der_weichen_beleuchtung_gehoert_zum_baum.
     common::write_wurzel(welt.path(), 4_815_162_342);
+    common::write_level_dat_mit(welt.path(), 5023);
     let ausgabe = tiles(welt.path(), out.path(), &["--scale", "16"]);
     assert!(
         !ausgabe.status.success(),

@@ -149,7 +149,7 @@ Was sich je Kamera im Bild ändert:
 ![Dasselbe Dorf in 2:1, 4:3, 1:1 und von oben](../bilder/kameras.webp)
 
 Dasselbe Dorf der Testwelt in 2:1 und 4:3 (oben), 1:1 und von oben
-(unten), scale 16, um den Block (−352, 64, 578), Stand `ad17fd5`.
+(unten), scale 16, um den Block (−352, 64, 578), Stand `39c86fb`.
 
 ## scale
 
@@ -393,7 +393,7 @@ Kamera steht im Süden: u = x, v = z, h = a = scale, im Blick, siehe
 ![Dasselbe Dorf in top-north und north-45](../bilder/genordet.webp)
 
 Dasselbe Dorf der Testwelt wie in „Kameras“, links `top-north`, rechts
-`north-45`, scale 16, um den Block (−352, 64, 578), Stand `d93682d`.
+`north-45`, scale 16, um den Block (−352, 64, 578), Stand `39c86fb`.
 
 ## Richtungen
 

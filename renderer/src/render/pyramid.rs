@@ -324,6 +324,11 @@ pub struct MapInfo {
     /// `true`, wenn `area` mit `--area` gewählt ist; fehlt sonst.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub area_fixed: Option<bool>,
+    /// Wie welche Version die weiche Beleuchtung die Sicht in der Ecke
+    /// prüft, `"26.2"` oder `"26.3"`, nach der Datenversion der Welt. Fehlt
+    /// das Feld, stammt der Baum aus einem älteren Stand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ambient_occlusion: Option<String>,
 }
 
 /// Die Projektion in `map.json`: `azimuth` `"diagonal"` oder `"north"`,
@@ -375,6 +380,7 @@ impl MapInfo {
             sea_level: None,
             area: None,
             area_fixed: None,
+            ambient_occlusion: None,
         }
     }
 }

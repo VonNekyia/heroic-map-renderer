@@ -474,6 +474,15 @@ pub fn run() -> Result<()> {
                 "Dimension:  {}",
                 world.dimension().unwrap_or("minecraft:overworld")
             );
+            match world.datenversion() {
+                Some(v) => println!(
+                    "Version:    Datenversion {v} aus level.dat, weiche Beleuchtung wie {}",
+                    ecke_text(world)
+                ),
+                None => println!(
+                    "Version:    keine Datenversion aus level.dat, weiche Beleuchtung wie 26.3"
+                ),
+            }
             if let Some(rueckfall) = rueckfall {
                 println!("            {rueckfall}");
             }
@@ -1084,6 +1093,40 @@ struct Weltdaten {
     area: Option<[i32; 4]>,
     /// Ob `area` mit `--area` gewählt ist.
     fest: bool,
+    /// Wie [`MapInfo::ambient_occlusion`].
+    ecke: &'static str,
+}
+
+/// Wie welche Version die weiche Beleuchtung in `world` die Sicht in der
+/// Ecke prüft.
+fn ecke_text(world: &World) -> &'static str {
+    if world.ecke_wie_26_2() {
+        "26.2"
+    } else {
+        "26.3"
+    }
+}
+
+/// Die Version der weichen Beleuchtung gehört zum Baum: Ein Lauf mit der
+/// anderen bricht ab, seine Kacheln zeigten die Ecken anders. Ein Baum aus
+/// einem älteren Stand bekommt die der Welt.
+/// Siehe docs/renderer/weiche-beleuchtung.md, „Welten aus 26.2“.
+fn ecke(dir: &Path, bestand: Option<&MapInfo>, world: &World) -> Result<&'static str> {
+    let hier = ecke_text(world);
+    match bestand.map(|alt| alt.ambient_occlusion.as_deref()) {
+        Some(Some(dort)) if dort != hier => bail!(
+            "{} gehört zu einem Baum mit der weichen Beleuchtung von {dort}, die Welt ist \
+             {hier}. Eine neue Wurzel nehmen.",
+            dir.join("map.json").display()
+        ),
+        Some(None) => println!(
+            "Licht:      {} nennt keine Version der weichen Beleuchtung, ein älterer Stand. \
+             Dieser Lauf zeichnet wie {hier} und trägt sie ein.",
+            dir.join("map.json").display()
+        ),
+        _ => {}
+    }
+    Ok(hier)
 }
 
 /// Der Wasserspiegel der Dimension, wie [`wasserspiegel`] ihn aus dem
@@ -1203,6 +1246,7 @@ fn write_tiles(
     let stufen = native_stufen(dir, bestand.as_ref(), native, projection, max_zoom)?;
     let blend = mischung(dir, bestand.as_ref(), blend)?;
 
+    let ecke = ecke(dir, bestand.as_ref(), world)?;
     // Ein voller Lauf und ein Update schreiben den Stand des Baums, mit den
     // Stempeln vom Beginn, gelesen vor dem Vorlauf. Mit --resume gilt der
     // Stand vom Beginn des abgebrochenen Laufs.
@@ -1436,6 +1480,7 @@ fn write_tiles(
         sea_level: meer(world)?,
         area: area.map(|area| area.map(|c| 16 * c)),
         fest: fest.is_some(),
+        ecke,
     };
     // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
     // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
@@ -2118,6 +2163,7 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
         sea_level: alt.sea_level,
         area: alt.area,
         area_fixed: alt.area_fixed,
+        ambient_occlusion: alt.ambient_occlusion,
         ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
     let path = schreibe_info(dir, &info, Some(stempel))?;
@@ -2368,6 +2414,7 @@ fn schreibe_map_json(
         sea_level: Some(welt.sea_level),
         area: welt.area,
         area_fixed: welt.fest.then_some(true),
+        ambient_occlusion: Some(welt.ecke.to_string()),
         world: Some(kennung.map(str::to_string)),
         look: Some(look_name(look.is_some()).to_string()),
         look_hash: look.map(Look::fingerabdruck),

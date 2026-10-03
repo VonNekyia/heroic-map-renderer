@@ -39,8 +39,8 @@ Durchgang ein Band, bis zu vier Kacheln, siehe
 Bändern“.
 
 Eine Instanz trägt Sprite, Position, die Faktoren des Lichts, je Farbkanal
-die drei Wörter des Lichts an den Ecken, die Farben des Blocks für die
-Tönungskarte und das Licht seines Wassers, 68 Bytes, siehe
+die sechs Wörter des Lichts an den Ecken der Plätze, die Farben des Blocks
+für die Tönungskarte und das Licht seines Wassers, 104 Bytes, siehe
 [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md), „Beim Zeichnen“. Hinter den Pixeln eines Sprites stehen im Puffer
 seine AO-Karte und seine Tönungskarte, falls es sie hat, siehe
 [Biomfarben](../renderer/biomfarben.md), „Tönung beim Zeichnen“. Die Karte

@@ -1,9 +1,10 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, die Karte in ein Tablett auf einem Tisch legt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
+  - web/src/tablett.ts
   - web/src/style.css
   - web/index.html
   - web/vite.config.ts
@@ -306,6 +307,75 @@ Ortszeit des Browsers, etwa `Stand: 02.10.2026, 21:40`.
     [map.json](benutzung/map-json.md), „Wann sie geschrieben wird“.
 - **Aktualisiert** wird die Anzeige beim Laden der Seite, wie die Kacheln,
   siehe „Ausliefern“, „Cache“.
+
+## Rahmen und Tisch
+
+Die Welt liegt in einem Tablett aus Holz auf einem Tisch (#112). Das Frontend
+zeichnet beides selbst, aus ebenen Rechtecken, mit derselben Projektion wie
+die Karte. Warum so: [0061](entscheidungen/0061-tablett-im-frontend.md).
+Stand: nur die Geometrie, in Flächenfarben; Texturen und die Gegenstände
+selbst kommen in eigenen PRs.
+
+- **Daten:** `seaLevel` und `area` aus `map.json`, zu ergänzen vom
+  Backend (#112, Schritt 1). `area` ist `[x0, z0, x1, z1]` in Blöcken der
+  Welt, `x1` und `z1` sind die Kanten hinter dem letzten Block. Fehlt eins
+  oder taugt es nicht, gibt es kein Tablett. Ohne `minY` gilt −64.
+- **Masse** (`tablett` in [`web/src/tablett.ts`](../web/src/tablett.ts)):
+  - Rand: 1/64 der längeren Seite von `area`, mindestens 16 Blöcke.
+  - Oberkante auf `seaLevel`, der Tisch 1,5 Ränder darunter.
+  - Der Tisch reicht über den Fensterrand hinaus. Vorn reicht er so weit,
+    dass er den Schnitt der Welt bis `minY` verdeckt.
+  - Die Anteile sind vorläufig, bis die Masse aus #112 feststehen.
+- **Flächen:** Gezeichnet werden nur Seiten, die die Kamera sieht: oben, die
+  Seite nach +z und diagonal die nach +x, jeweils im Blick. Von oben (`y` = 0)
+  gibt es keine Seiten. Schattiert wird wie im Spiel: Nord und Süd mit 0,8,
+  Ost und West mit 0,6.
+- **Platzhalter:**
+  - hinten links drei Bücher, hinten eine Kerze und eine Sphäre;
+  - vorn rechts ein Kompass, vorn links Blumen.
+
+  Was über den Wasserspiegel ragt, steht hinten.
+- **Ausblenden:**
+  - Bis eine Stufe über der, auf der die ganze Karte ins Fenster passt,
+    sind Rahmen und Tisch ganz zu sehen.
+  - Bis drei Stufen darüber blenden sie aus, danach fehlen sie.
+  - Die Stufen sind vorläufig (`AUSBLENDEN` in
+    [`web/src/main.ts`](../web/src/main.ts)).
+- **Bedienung:** Beide Leinwände haben `pointer-events: none` und fangen
+  keine Klicks ab.
+
+### Vor und hinter der Welt
+
+Zwei Leinwände liegen um die Kacheln: `tablett-fern` darunter mit allen
+Flächen, `tablett-nah` darüber nur mit den nahen. Eine Fläche ist nah, wenn
+Gelände sie nie verdecken kann:
+
+- **Warum das reicht:** Ein Bildpunkt zeigt Gelände vor einem Punkt des
+  Tabletts nur, wenn es entlang der Blickachse weiter vorn und höher liegt.
+  - Diagonal ist die Achse (b, 2a, b): Das Gelände liegt bei grösserem x
+    und z.
+  - Genordet ist sie (0, a, b): grösseres z bei gleichem x.
+- **Nah ist** im Blick, was ganz bei x ≥ x1 oder z ≥ z1 liegt, genordet
+  auch, was ganz bei x ≤ x0 liegt. Das sind die Wände zur Kamera, die
+  vorderen Streifen von Oberkante und Tisch und die vorderen Gegenstände.
+- **Kein Pixel** von Gelände über dem Wasserspiegel liegt deshalb unter
+  einer nahen Fläche, in keiner Kamera und Richtung.
+- **Der Schnitt** der Welt zur Kamera liegt ganz unter Wand und Tisch.
+- **Die Reihenfolge:** Die fernen Flächen liegen unter den Kacheln. Was dort
+  über sie hinausragt, deckt sie richtig.
+- **Gemalt** wird in einer festen Reihenfolge:
+  1. der Tisch, dann der Boden des Tabletts;
+  2. die Gegenstände hinter dem Rahmen;
+  3. die Wände, dann die Oberkante;
+  4. die Gegenstände davor.
+
+  Gegenstände untereinander sind nach Tiefe sortiert.
+- **Ohne Nähte:** Benachbarte Streifen derselben Ebene überlappen. Was nah
+  ist, liegt auch in der fernen Leinwand. So zeigt keine Kante den
+  Hintergrund.
+
+Die Tests in [`web/tests/tablett.spec.ts`](../web/tests/tablett.spec.ts)
+prüfen das an den Einträgen des Renderers und an einem Hügel an jedem Rand.
 
 ## Ausliefern
 

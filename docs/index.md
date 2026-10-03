@@ -44,7 +44,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Frontend
 
-- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger.
+- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Rahmen und Tisch um die Karte.
 
 ## Entwicklung
 
@@ -116,6 +116,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0058](entscheidungen/0058-look-von-cinematic.md): Look von Cinematic. In der Sonne wie die Karte; Kurve bis zum Knie gerade; Weissabgleich nach der Temperatur des Bioms; Bodenpflanzen dämpfen die Sonne auf die Hälfte; kein Nebel.
 - [0059](entscheidungen/0059-welten-aus-26-2-und-26-3.md): Welten und Packs aus 26.2 und 26.3, Tabellen aus 26.3; die Testwelt bleibt auf 26.2.
 - [0060](entscheidungen/0060-grenze-schatten-sonne-am-renderer.md): Grenze Schatten/Sonne am Renderer 0,35 bis 0,75 statt 0,66 aus 0058; der Look bleibt.
+- [0061](entscheidungen/0061-tablett-im-frontend.md): Tablett und Tisch zeichnet das Frontend aus ebenen Flächen, in zwei Ebenen um die Kacheln; nicht der Renderer, keine Bilder je Perspektive.
 
 ## Messungen
 

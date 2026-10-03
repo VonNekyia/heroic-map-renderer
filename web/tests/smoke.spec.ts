@@ -8,7 +8,8 @@ const DEMO = '/?tiles=/tiles-demo';
  * Höhen für den Demobaum, je 4 × 4 Spalten: eben auf Y 0, dazu eine Säule
  * bis Y 5 in der Zelle der Spalten 32 bis 35 und -16 bis -13, in einer
  * negativen Region. Ein falscher Platz in der Höhenkarte fiele so auf.
- * `saeule` setzt sie in eine andere Datei und Zelle.
+ * `saeule` setzt sie in eine andere Datei und Zelle. Dazu ein Tablett um
+ * die Spalten von -64 bis 63, mit der Oberkante auf Y 0.
  */
 async function welt(
   page: Page,
@@ -19,7 +20,8 @@ async function welt(
     const response = await route.fetch();
     const info = (await response.json()) as object;
     const hoehen = { heights: 'heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319 };
-    await route.fulfill({ response, json: { ...info, ...hoehen, ...mehr } });
+    const tablett = { seaLevel: 0, area: [-64, -64, 64, 64] };
+    await route.fulfill({ response, json: { ...info, ...hoehen, ...tablett, ...mehr } });
   });
   await page.route('**/tiles-demo/heights/*.bin', async (route) => {
     const karte = new Int16Array(128 * 128);
@@ -91,8 +93,45 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
   expect(await tileZooms(page)).not.toEqual([]);
   expect(fehler).toEqual([]);
-  // Ohne Höhen in map.json keine Koordinaten.
+  // Ohne Höhen in map.json keine Koordinaten, ohne seaLevel und area kein Tablett.
   await expect(page.locator('.koordinaten')).toHaveCount(0);
+  await expect(page.locator('canvas.tablett')).toHaveCount(0);
+});
+
+test('Rahmen und Tisch liegen um die Kacheln, blenden beim Zoom aus und fangen keine Klicks ab', async ({
+  page,
+}) => {
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('canvas.tablett')).toHaveCount(2);
+  const stand = () =>
+    page.evaluate(() => {
+      const pane = (name: string) => document.querySelector(`.leaflet-${name}-pane`)!;
+      const kacheln = Number(getComputedStyle(pane('tile')).zIndex);
+      const ebene = (name: string) => {
+        const leinwand = pane(name).querySelector('canvas')!;
+        const { data } = leinwand.getContext('2d')!.getImageData(0, 0, leinwand.width, leinwand.height);
+        return {
+          // Unter oder über den Kacheln.
+          ueber: Number(getComputedStyle(pane(name)).zIndex) > kacheln,
+          deckkraft: Number(getComputedStyle(pane(name)).opacity),
+          klicks: getComputedStyle(leinwand).pointerEvents,
+          gemalt: data.some((wert, i) => i % 4 === 3 && wert > 0),
+        };
+      };
+      return { fern: ebene('tablett-fern'), nah: ebene('tablett-nah') };
+    });
+  expect(await stand()).toEqual({
+    fern: { ueber: false, deckkraft: 1, klicks: 'none', gemalt: true },
+    nah: { ueber: true, deckkraft: 1, klicks: 'none', gemalt: true },
+  });
+
+  // Hineingezoomt blenden sie aus.
+  const hinein = page.locator('.leaflet-control-zoom-in');
+  await zoomClick(page, hinein);
+  await zoomClick(page, hinein);
+  await expect.poll(async () => (await stand()).nah.deckkraft).toBeLessThan(1);
 });
 
 test('map.json, trees.json und Höhen fragt die Seite jedes Mal beim Server nach', async ({

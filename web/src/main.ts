@@ -14,6 +14,7 @@ import {
   type Block,
   type Projektion,
 } from './pick';
+import { tablett, type Flaeche, type Rechteck } from './tablett';
 import './style.css';
 
 /** Was `map.json` aus dem Renderer mitbringt. */
@@ -37,6 +38,10 @@ interface MapInfo {
   direction?: string;
   /** Die Zahlen der Projektion; ohne sie rechnet das Frontend 2:1 aus `scale`. */
   projection?: Projektion;
+  /** Höhe der Wasseroberfläche in Blöcken, die Oberkante des Tabletts. */
+  seaLevel?: number;
+  /** Das Rechteck der Welt in Blöcken, um das das Tablett liegt. */
+  area?: Rechteck;
 }
 
 /** In einer Höhenkarte: keine Zelle mit Block, oder kein fertiger Chunk. */
@@ -186,6 +191,19 @@ function projektion(info: MapInfo): { p: Projektion; k: number } | string {
   const ganz = (n: unknown, min: number) => Number.isInteger(n) && (n as number) >= min;
   if (!ganz(u, 1) || !ganz(v, 1) || !ganz(y, 0)) return 'projection ohne ganze u, v und y';
   return { p: { azimuth, u, v, y }, k };
+}
+
+/** Stehen `seaLevel` und `area` brauchbar da? Ohne sie kein Tablett. */
+function hatTablett(info: MapInfo): info is MapInfo & Required<Pick<MapInfo, 'seaLevel' | 'area'>> {
+  const { seaLevel, area } = info;
+  return (
+    Number.isInteger(seaLevel) &&
+    Array.isArray(area) &&
+    area.length === 4 &&
+    area.every(Number.isInteger) &&
+    area[0] < area[2] &&
+    area[1] < area[3]
+  );
 }
 
 /** Eine Höhenkarte: zlib, darin n × n Zellen, je i16 little-endian. */
@@ -657,6 +675,76 @@ function ganzeKarte(map: L.Map, bounds: L.LatLngBounds): void {
 }
 
 /**
+ * Wie viele Stufen über der, auf der die ganze Karte ins Fenster passt,
+ * Rahmen und Tisch auszublenden beginnen, und ab wann sie weg sind.
+ */
+// ponytail: feste Stufen, bis die Masse des Researchers da sind.
+const AUSBLENDEN = [1, 3] as const;
+
+/** Leaflets Typen führen die Hilfe nicht auf, mit der Leaflet selbst Ebenen beim Zoom animiert. */
+type Animiert = L.Map & {
+  _latLngToNewLayerPoint(latlng: L.LatLng, zoom: number, center: L.LatLng): L.Point;
+};
+
+/**
+ * Rahmen und Tisch auf zwei Leinwänden: unter den Kacheln alle Flächen,
+ * darüber die, die Gelände nie verdecken. Beide fangen keine Klicks ab.
+ * Siehe docs/frontend.md, „Rahmen und Tisch“.
+ */
+function tablettZeigen(map: L.Map, maxZoom: number, fit: number, flaechen: Flaeche[]): void {
+  const ebenen = [
+    { name: 'tablett-fern', z: 150, liste: flaechen },
+    { name: 'tablett-nah', z: 250, liste: flaechen.filter((f) => f.nah) },
+  ].map(({ name, z, liste }) => {
+    const pane = map.createPane(name);
+    pane.style.zIndex = String(z);
+    const leinwand = L.DomUtil.create('canvas', 'tablett leaflet-zoom-animated', pane);
+    return { pane, leinwand, liste };
+  });
+  const zeichne = (): void => {
+    const [ab, bis] = AUSBLENDEN;
+    const deckkraft = Math.min(1, Math.max(0, (fit + bis - map.getZoom()) / (bis - ab)));
+    const { x: breite, y: hoehe } = map.getSize();
+    const dpr = window.devicePixelRatio;
+    // Ein Pixel der feinsten Stufe auf der Leinwand, und wo dort (0, 0) liegt.
+    const s = 2 ** (map.getZoom() - maxZoom) * dpr;
+    const null0 = map.latLngToContainerPoint(point(0, 0)).multiplyBy(dpr);
+    for (const { pane, leinwand, liste } of ebenen) {
+      pane.style.opacity = String(deckkraft);
+      pane.style.display = deckkraft > 0 ? '' : 'none';
+      if (deckkraft === 0) continue;
+      L.DomUtil.setPosition(leinwand, map.containerPointToLayerPoint([0, 0]));
+      if (leinwand.width !== Math.round(breite * dpr) || leinwand.height !== Math.round(hoehe * dpr)) {
+        leinwand.width = Math.round(breite * dpr);
+        leinwand.height = Math.round(hoehe * dpr);
+        leinwand.style.width = `${breite}px`;
+        leinwand.style.height = `${hoehe}px`;
+      }
+      const ctx = leinwand.getContext('2d')!;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, leinwand.width, leinwand.height);
+      for (const { o, a, b, farbe } of liste) {
+        ctx.setTransform(s * a[0], s * a[1], s * b[0], s * b[1], s * o[0] + null0.x, s * o[1] + null0.y);
+        ctx.fillStyle = farbe;
+        ctx.fillRect(0, 0, 1, 1);
+      }
+    }
+  };
+  // Beim Zoom gleiten die Leinwände mit den Kacheln, gezeichnet wird danach.
+  map.on('zoomanim', (event: L.ZoomAnimEvent) => {
+    const ecke = (map as Animiert)._latLngToNewLayerPoint(
+      map.containerPointToLatLng([0, 0]),
+      event.zoom,
+      event.center,
+    );
+    for (const { leinwand } of ebenen) {
+      L.DomUtil.setTransform(leinwand, ecke, map.getZoomScale(event.zoom));
+    }
+  });
+  map.on('move zoom viewreset resize', zeichne);
+}
+
+/**
  * Die feinste Stufe, auf der die ganze Karte in ein Fenster dieser Grösse
  * passt. Ohne Fläche oder ohne Fenster gilt `minZoom` aus `map.json`.
  */
@@ -688,7 +776,8 @@ async function start(): Promise<void> {
   // Ein Baum behält seine Stufen, wenn die Welt wächst, und Zoom 0 passt
   // dann nicht mehr ins Fenster. Darunter verkleinert Leaflet die Kacheln
   // von Zoom 0, bis die ganze Karte zu sehen ist.
-  const minZoom = Math.min(info.minZoom, fitZoom(info, map.getSize()));
+  const fit = fitZoom(info, map.getSize());
+  const minZoom = Math.min(info.minZoom, fit);
   map.setMinZoom(minZoom);
   ganzeKarte(map, bounds);
 
@@ -709,6 +798,10 @@ async function start(): Promise<void> {
 
   const blick = projektion(info);
   if (typeof blick !== 'string') kompass(map, norden(blick.p, blick.k));
+  if (typeof blick !== 'string' && hatTablett(info)) {
+    const { area, seaLevel, minY = -64 } = info;
+    tablettZeigen(map, info.maxZoom, fit, tablett(area, seaLevel, minY, blick.p, blick.k));
+  }
   if (stand) standAnzeigen(map, stand);
   let bei: ((px: number, py: number) => Promise<Block | undefined>) | undefined;
   if (hatHoehen(info)) {

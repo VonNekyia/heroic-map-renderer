@@ -77,8 +77,10 @@ Die Einzelheiten stehen in
 ## Folgen
 
 - Eine Welt aus 26.2 erscheint wie im Client von 26.2. Die Testwelt ist
-  26.2: `eis.webp`, `map-wide.png` und die Kennzahlen des Looks ändern sich
-  an Flächen neben den 23 Blöcken.
+  26.2: Von den Doku-Bildern ändern sich nur `eis.webp`, 513 Pixel um
+  höchstens 23, wie vor #105, und `map-wide.png`, 117 Pixel um höchstens
+  17. Die Kennzahlen des Looks bleiben bis auf dL in der Sonne im Schnee,
+  um 0,001.
 - Wechselt eine Welt auf 26.3, braucht ihr Baum eine neue Wurzel.
 - Je Section eine Ebene mehr im Cache, 512 Byte.
 - Bleibt 26.2 mit der nächsten Version unterstützt, bleibt

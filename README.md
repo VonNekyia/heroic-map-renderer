@@ -74,7 +74,7 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet
   </tr>
 </table>
 
-Alle Bilder zeigen die Testwelt, Stand `39c86fb`. Ausschnitte und Befehle:
+Alle Bilder zeigen die Testwelt, Stand `326b30e`. Ausschnitte und Befehle:
 Skill [`doku-bilder-rendern`](skills/doku-bilder-rendern/SKILL.md).
 
 ## Schnellstart

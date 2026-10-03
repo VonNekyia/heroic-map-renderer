@@ -217,6 +217,15 @@ dazu seine Ecken aus den Nachbarn wie ein Stein, wo vorher ein Licht je
 Block reichte. Für sich gemessen ist das nicht, nur mit dem ganzen Licht
 zusammen, siehe oben.
 
+Die Flächen im Innern aus
+[0064](../entscheidungen/0064-flaechen-im-innern-weich.md) kosten an Stand
+und Fichtenwald der Testwelt mit 24 Threads: die Karte auf der
+Grafikkarte am Stand 4 bis 5 % mehr Zeit, Cinematic am Stand 3 %, die
+Karte auf der CPU und der Fichtenwald nichts über der Streuung. Die
+Kacheln wiegen 0,1 bis 5,7 % mehr, am meisten mit Schnee, die Spitze des
+Speichers 0,3 bis 5,7 %. Gemessen in
+[2026-10-03, Flächen im Innern weich, Kosten](../messungen/2026-10-03-flaechen-im-innern.md).
+
 ## Was noch fehlt
 
 Aus den Regeln des Spiels nichts mehr. Seit

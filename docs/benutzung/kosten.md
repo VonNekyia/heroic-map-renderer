@@ -124,7 +124,10 @@ Die Bits „frei zur Sonne“ aus #106 machen den Lauf am Stand 5 % schneller,
 im Fichtenwald liegt der Unterschied in der Streuung; die Spitze steigt um
 2 bis 3 %, siehe
 [2026-10-03, Bits „frei zur Sonne“ am Renderer](../messungen/2026-10-03-bits-am-renderer.md).
-Die Faktoren oben sind ohne sie gemessen.
+Die Faktoren oben sind ohne sie gemessen. Die Flächen im Innern aus #51
+kosten Cinematic am Stand 3 %, im Fichtenwald nichts über der Streuung,
+siehe
+[2026-10-03, Flächen im Innern weich, Kosten](../messungen/2026-10-03-flaechen-im-innern.md).
 
 ## Die grosse Welt
 

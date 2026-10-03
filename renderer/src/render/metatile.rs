@@ -147,10 +147,16 @@ pub fn render_area_with(
             width: rect.width + 2 * rand,
             height: rect.height + 2 * rand,
         };
+        // Ohne leuchtenden Block bleibt das Leuchten überall 0 und der Bloom
+        // leer: Der Rand trägt nichts bei, innen ist jeder Pixel derselbe.
+        let (rect, rand) = match rand > 0 && chunks.leuchtet_im_band(gross, y_range)? {
+            true => (gross, rand),
+            false => (rect, 0),
+        };
         // Leinwand und Puffer des Bloom bleiben im Cache für die nächste
         // Kachel.
         let mut hdr = std::mem::take(&mut chunks.hdr);
-        render_hdr(chunks, gross, y_range, false, rand, &mut hdr)?;
+        render_hdr(chunks, rect, y_range, false, rand, &mut hdr)?;
         let bild = hdr.bild(kino, scale, rand, &mut chunks.bloom);
         chunks.hdr = hdr;
         return Ok(bild);
@@ -192,8 +198,7 @@ pub fn render_hdr_bezug(
 }
 
 /// Wie [`render_hdr_with`], in `hdr`; `rand` Pixel am Rand zeichnet es nur
-/// für den Bloom, ohne Strahlen zur Sonne, und nur, wenn ein Draw leuchtet.
-/// Siehe docs/renderer/cinematic.md, „Bloom“.
+/// für den Bloom, ohne Strahlen zur Sonne.
 fn render_hdr(
     chunks: &mut ChunkCache,
     rect: ScreenRect,
@@ -217,16 +222,10 @@ fn render_hdr(
     let sichtbar = std::mem::take(&mut chunks.sichtbar);
     let kinodaten = std::mem::take(&mut chunks.kinodaten);
     debug_assert_eq!(sichtbar.len(), kinodaten.len());
-    // Ohne einen Draw, der leuchtet, bleibt das Leuchten überall 0 und der
-    // Bloom leer: Der Rand trägt nichts bei, innen ist jeder Pixel derselbe.
-    let nur_innen = rand > 0 && kinodaten.iter().all(|d| d.leuchten == 0.0);
     for (&(sprite, origin, ref sicht, licht), &daten) in sichtbar.iter().zip(&kinodaten).rev() {
-        if nur_innen && (sicht.y1 <= innen.y || sicht.y0 >= innen.bottom()) {
-            continue;
-        }
         blit_hdr(
             hdr,
-            (kino, sprites.projection(), &umkehrung, (&innen, nur_innen)),
+            (kino, sprites.projection(), &umkehrung, &innen),
             sprite,
             origin,
             licht,
@@ -1058,17 +1057,12 @@ fn blit_sichtbar(
 /// Karte, ungerundet. Die Sonne kommt dazu, so weit sie durchkommt: `sonne`
 /// gibt das für einen Punkt im Blick und den Block des Draws, siehe
 /// [`ChunkCache::sonne`]. Die Tiefe ist die des vordersten gezeichneten
-/// Pixels. Mit `nur_innen` zeichnet es nur die Pixel in `innen`.
+/// Pixels.
 /// Siehe docs/renderer/cinematic.md, „Zeichnen in HDR“.
 #[allow(clippy::too_many_arguments)]
 fn blit_hdr(
     hdr: &mut Hdr,
-    (kino, projection, umkehrung, (innen, nur_innen)): (
-        &Kino,
-        Projection,
-        &Umkehrung,
-        (&ScreenRect, bool),
-    ),
+    (kino, projection, umkehrung, innen): (&Kino, Projection, &Umkehrung, &ScreenRect),
     sprite: &Sprite,
     (ox, oy): (i32, i32),
     (licht, ecken, wasser, farben): Licht,
@@ -1118,9 +1112,6 @@ fn blit_hdr(
                 // Im Rand für den Bloom zählt nur das Leuchten.
                 let drin = (innen.x..innen.right()).contains(&(x as i32))
                     && (innen.y..innen.bottom()).contains(&y);
-                if nur_innen && !drin {
-                    continue;
-                }
                 if let Some(g) = sprite.geometrie.as_deref().map(|g| &g[i]).filter(|_| drin) {
                     sonnenlicht = kino.sonnenlicht(g);
                     if sonnenlicht != [0.0; 3] {
@@ -2352,6 +2343,50 @@ impl<'a> ChunkCache<'a> {
         let mut candidates = self.candidates(rect, y_range, &foreign)?;
         candidates.sort_unstable_by_key(|c| c.key);
         Ok((candidates, foreign))
+    }
+
+    /// Ob im Band von `rect` ein Block leuchtet ([`Masks::quellen`]), ob zu
+    /// sehen oder nicht: grosszügig wie das Band von
+    /// [`ChunkCache::candidates`], samt der Reserve für fremde Teile.
+    /// Siehe docs/renderer/cinematic.md, „Bloom“.
+    fn leuchtet_im_band(&mut self, rect: ScreenRect, y_range: (i32, i32)) -> Result<bool> {
+        let projection = self.sprites.projection();
+        let (u_min, u_max) = u_window(projection, rect);
+        let (v_lo, v_hi) = (
+            v_window(projection, rect, y_range.0).0,
+            v_window(projection, rect, y_range.1).1,
+        );
+        let pad = self
+            .sprites
+            .foreign_cells()
+            .iter()
+            .map(|c| c[0].abs() + c[1].abs() + c[2].abs())
+            .max()
+            .unwrap_or(0);
+        let genordet = projection.kamera().genordet();
+        for key in band_chunks(genordet, u_min - pad, u_max + pad, v_lo - pad, v_hi + pad) {
+            let slot = self.slot(key)?;
+            let Some(loaded) = &self.slots[slot].loaded else {
+                continue;
+            };
+            let (cx, cz) = (loaded.chunk.x * 16, loaded.chunk.z * 16);
+            for (section, masks) in loaded.chunk.sections().iter().zip(&loaded.masks) {
+                for &(i, _) in masks.iter().flat_map(|m| &m.quellen) {
+                    let y = i32::from(section.y) * 16 + i32::from(i >> 8);
+                    let welt = [cx + i32::from(i & 15), cz + i32::from(i >> 4 & 15)];
+                    let [x, z] = self.richtung.in_den_blick(welt);
+                    let (u, v) = projection.uv(x, z);
+                    let (lo, hi) = v_window(projection, rect, y);
+                    if (y_range.0 - pad..=y_range.1 + pad).contains(&y)
+                        && (u_min - pad..=u_max + pad).contains(&u)
+                        && (lo - pad..=hi + pad).contains(&v)
+                    {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false)
     }
 
     /// Erster Durchgang: alle Blöcke im Band, von denen etwas zu sehen

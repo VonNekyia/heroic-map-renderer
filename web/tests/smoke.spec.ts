@@ -459,6 +459,28 @@ test.describe('auf dem Touchscreen', () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/tp 35 6 -15');
   });
 
+  test('für Finger sind Werte und Kopiersymbol gross genug, das Feld hat 16 px', async ({
+    page,
+  }) => {
+    await welt(page);
+    await page.goto(DEMO);
+    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+    // Auch ohne Block, wenn ein Wert nur „–“ zeigt: mindestens 24 px
+    // (WCAG 2.5.8).
+    for (const ziel of [
+      ...(await page.locator('.wert').all()),
+      page.getByRole('button', { name: '/tp kopieren' }),
+    ]) {
+      const { width, height } = (await ziel.boundingBox())!;
+      expect(Math.min(width, height)).toBeGreaterThanOrEqual(24);
+    }
+    // Unter 16 px vergrössert iOS beim Fokus die ganze Seite.
+    await page.locator('.wert').first().click();
+    const feld = page.getByRole('textbox', { name: 'X eingeben' });
+    expect(await feld.evaluate((e) => getComputedStyle(e).fontSize)).toBe('16px');
+  });
+
   test('Tippen auf Z, ein negativer Wert und Enter springt hin', async ({ page }) => {
     await welt(page);
     await page.goto(DEMO);
@@ -490,6 +512,37 @@ test.describe('auf dem Touchscreen', () => {
     await expect(page.locator('.koordinaten')).toHaveText('X 40  Y 0  Z 20');
     await expect(linie).not.toHaveAttribute('d', /M[^M]+M/);
   });
+});
+
+test('der Knopf ⌂ passt die ganze Karte ein, per Maus und Tastatur', async ({ page }) => {
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  const parameter = (name: string) => new URL(page.url()).searchParams.get(name);
+  await expect.poll(() => parameter('at')).not.toBeNull();
+  const [at, zoom] = [parameter('at'), parameter('zoom')];
+  const ganz = page.getByRole('button', { name: 'Ganze Karte' });
+
+  // Hinein und weggezogen, dann zurück; die Adresse folgt.
+  const hinein = page.locator('.leaflet-control-zoom-in');
+  await zoomClick(page, hinein);
+  await zoomClick(page, hinein);
+  const karte = (await page.locator('#map').boundingBox())!;
+  const [x, y] = [karte.x + karte.width / 2, karte.y + karte.height / 2];
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 150, y + 80, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(() => parameter('at')).not.toBe(at);
+  await ganz.click();
+  await expect.poll(() => [parameter('at'), parameter('zoom')]).toEqual([at, zoom]);
+
+  // Per Tastatur ebenso.
+  await zoomClick(page, hinein);
+  await expect.poll(() => parameter('zoom')).not.toBe(zoom);
+  await ganz.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => [parameter('at'), parameter('zoom')]).toEqual([at, zoom]);
 });
 
 test('die Adresse folgt der Karte, ohne Einträge im Verlauf', async ({ page }) => {

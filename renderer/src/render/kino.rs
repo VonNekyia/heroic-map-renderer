@@ -8,8 +8,8 @@ use crate::assets::colors::Tint;
 
 use super::Kamera;
 use super::look::Look;
-use super::pyramid::{LINEAR, to_srgb};
-use super::rasterizer::{BLOCK_FACTOR, Geometrie};
+use super::pyramid::{LINEAR, linear_wert, to_srgb};
+use super::rasterizer::{BLOCK_FACTOR, Geometrie, blocklicht_farbe, get_brightness, roh};
 use super::tint::BiomeTable;
 
 /// Die Werte des Looks, umgerechnet für eine Dimension und ihre Biome.
@@ -21,8 +21,12 @@ pub struct Kino {
     himmel_stufen: [[f32; 3]; 16],
     /// Je Stufe des Blocklichts sein Licht: `getBrightness` mal
     /// `BlockFactor` in der Farbe zwischen `BlockLightTint` und Weiss wie in
-    /// `lightmap.fsh`, mal [`Look::block`].
+    /// `lightmap.fsh`, gemischt wie dort und danach linear, mal
+    /// [`Look::block`].
     block_stufen: [[f32; 3]; 16],
+    /// `AmbientColor` der Dimension, die `lightmap.fsh` jedem Licht
+    /// zugrunde legt, roh wie dort.
+    umgebung: [f32; 3],
     /// Himmel, Nebel und Nebel unter Wasser des Dimensionstyps, für Biome
     /// ohne eigene Farbe.
     vorgabe: [Tint; 3],
@@ -70,11 +74,9 @@ fn linear(farbe: Tint) -> [f32; 3] {
     farbe.map(|c| LINEAR[c as usize])
 }
 
-/// `getBrightness` in `lightmap.fsh`: die Helligkeit einer Stufe von 0 bis
-/// 15, wie [`super::rasterizer::brightness_rgb`] sie rechnet.
+/// `getBrightness` einer Stufe von 0 bis 15.
 fn helligkeit(stufe: usize) -> f32 {
-    let l = stufe as f32 / 15.0;
-    l / (4.0 - 3.0 * l)
+    get_brightness(stufe as f32 / 15.0)
 }
 
 impl Kino {
@@ -82,16 +84,13 @@ impl Kino {
     /// Biome aus `biomes`, aus der Kamera `kamera`.
     pub fn new(look: Look, typ: &DimensionType, biomes: &BiomeTable, kamera: Kamera) -> Kino {
         let himmel_farbe = linear(typ.sky_light_color);
-        let tint = linear(typ.block_light_tint);
         let himmel_stufen = std::array::from_fn(|s| {
             let k = helligkeit(s) * typ.sky_light_factor * look.himmel;
             himmel_farbe.map(|c| c * k)
         });
         let block_stufen = std::array::from_fn(|b| {
-            let l = b as f32 / 15.0;
-            let mix = 0.9 * (2.0 * l - 1.0) * (2.0 * l - 1.0);
             let k = helligkeit(b) * BLOCK_FACTOR * look.block;
-            tint.map(|t| (t + (1.0 - t) * mix) * k)
+            blocklicht_farbe(typ.block_light_tint, b as f32 / 15.0).map(|c| linear_wert(c) * k)
         });
         // Abgeglichen wird immer auf Sonne und Himmel der Oberwelt, siehe
         // `Look::weissabgleich`.
@@ -103,6 +102,7 @@ impl Kino {
             look,
             himmel_stufen,
             block_stufen,
+            umgebung: roh(typ.ambient_light_color),
             vorgabe: [typ.sky_color, typ.fog_color, typ.water_fog_color],
             himmel: Vec::new(),
             ton: weiss.map(|v| v * look.belichtung),
@@ -172,11 +172,12 @@ impl Kino {
         w.map(|c| (-(c / m).max(0.02).ln() + 0.35) / self.look.wasser_dichte)
     }
 
-    /// Das Licht an einem Pixel in HDR je Kanal: `himmel` die Farbe des
-    /// Himmelslichts am Block, `sky` und `block` die Stufen in Sechzehnteln,
-    /// `schatten` der Schatten der weichen Beleuchtung in 255steln. Zwischen
-    /// zwei Stufen linear gemischt, wie das Spiel die Lightmap liest
-    /// ([`super::rasterizer::Lightmap::linear`]).
+    /// Das Licht an einer Ecke oder einem Block in HDR je Kanal: `himmel`
+    /// die Farbe des Himmelslichts am Block, `sky` und `block` die Stufen in
+    /// Sechzehnteln, `schatten` der Schatten der weichen Beleuchtung in
+    /// 255steln. Zwischen zwei Stufen linear gemischt, wie das Spiel die
+    /// Lightmap liest ([`super::rasterizer::Lightmap::linear`]); darunter die
+    /// Umgebungsfarbe.
     /// Siehe docs/renderer/cinematic.md, „Licht in HDR“.
     pub fn licht(&self, himmel: [f32; 3], sky: f32, block: f32, schatten: f32) -> [f32; 3] {
         let stufe = |stufen: &[[f32; 3]; 16], wert: f32| -> [f32; 3] {
@@ -191,7 +192,7 @@ impl Kino {
             stufe(&self.block_stufen, block),
         );
         let k = schatten / 255.0;
-        std::array::from_fn(|c| (himmel[c] * h[c] + b[c]) * k)
+        std::array::from_fn(|c| (self.umgebung[c] + himmel[c] * h[c] + b[c]) * k)
     }
 
     /// Die Richtung zur Sonne im Blick.
@@ -259,24 +260,54 @@ mod tests {
         assert_eq!(im_nether.sonnenlicht(&g([0.0, 1.0, 0.0], true)), [0.0; 3]);
     }
 
-    /// Die Stufen wie in `lightmap.fsh`, getrennt und ohne Begrenzung: In
+    /// Die Stufen wie in `lightmap.fsh`, getrennt und ohne Begrenzung, je
+    /// gegen eine Zahl, in Python aus der Formel des Shaders gerechnet: In
     /// der Oberwelt gibt Himmelslicht 15 in jedem Kanal die Stärke des
-    /// Himmels, Blocklicht 15 im Rot, wo `BlockLightTint` voll ist,
-    /// `BlockFactor` mal die Stärke des Blocklichts; Stufe 0 bleibt dunkel.
-    /// Dazwischen `getBrightness`.
+    /// Himmels, Stufe 8 `getBrightness` davon. Blocklicht mischt
+    /// `BlockLightTint` #ffd88c roh mit Weiss, `0,9 · (2b − 1)²`, und erst
+    /// das Ergebnis wird linear, mal 1,4 und der Stärke 1,5. Stufe 0 bleibt
+    /// dunkel; im Nether und im Ende, `sky_light_factor` 0, jede Stufe des
+    /// Himmels.
     #[test]
     fn stufen_wie_lightmap_fsh() {
+        let nah = |ist: [f32; 3], soll: [f32; 3]| {
+            assert!(
+                (0..3).all(|c| (ist[c] - soll[c]).abs() < 1e-5),
+                "{ist:?} statt {soll:?}"
+            );
+        };
         let kino = kino(&DimensionType::oberwelt());
-        assert_eq!(kino.himmel_stufen[15], [LOOK.himmel; 3]);
-        assert_eq!(kino.himmel_stufen[0], [0.0; 3]);
-        assert_eq!(kino.block_stufen[15][0], 1.4 * LOOK.block);
-        assert_eq!(kino.block_stufen[0], [0.0; 3]);
-        let mitte = 8.0 / 15.0 / (4.0 - 3.0 * 8.0 / 15.0) * LOOK.himmel;
-        assert!((kino.himmel_stufen[8][1] - mitte).abs() < 1e-6);
-        // In der Mitte die Farbe von BlockLightTint #ffd88c, linear.
-        let [r, g, b] = kino.block_stufen[7];
-        let tint = linear([0xff, 0xd8, 0x8c]);
-        assert!((g / r - tint[1]).abs() < 0.01 && (b / r - tint[2]).abs() < 0.01);
+        nah(kino.himmel_stufen[15], [3.0; 3]);
+        nah(kino.himmel_stufen[8], [0.6666667; 3]);
+        nah(kino.himmel_stufen[0], [0.0; 3]);
+        nah(kino.block_stufen[15], [2.1, 2.027_676, 1.890_965]);
+        nah(kino.block_stufen[12], [1.05, 0.819_760_4, 0.463_149_5]);
+        nah(kino.block_stufen[0], [0.0; 3]);
+        for typ in ["minecraft:the_nether", "minecraft:the_end"] {
+            let ohne = super::tests::kino(&DimensionType::des_spiels(typ).unwrap());
+            assert!(ohne.himmel_stufen.iter().all(|s| *s == [0.0; 3]), "{typ}");
+        }
+    }
+
+    /// Die Umgebungsfarbe liegt unter jedem Licht, roh wie in
+    /// `lightmap.fsh`: im Nether #302821 ohne Himmels- und Blocklicht, und
+    /// der Schatten der weichen Beleuchtung dunkelt sie mit.
+    #[test]
+    fn umgebung_im_nether() {
+        let nether = kino(&DimensionType::des_spiels("minecraft:the_nether").unwrap());
+        let soll = [48.0 / 255.0, 40.0 / 255.0, 33.0 / 255.0];
+        assert_eq!(nether.licht([1.0; 3], 0.0, 0.0, 255.0), soll);
+        assert_eq!(nether.licht([1.0; 3], 240.0, 0.0, 0.0), [0.0; 3]);
+    }
+
+    /// Der Weissabgleich ist in jeder Dimension der der Oberwelt.
+    #[test]
+    fn weissabgleich_wie_in_der_oberwelt() {
+        let oberwelt = kino(&DimensionType::oberwelt());
+        for typ in ["minecraft:the_nether", "minecraft:the_end"] {
+            let andere = super::tests::kino(&DimensionType::des_spiels(typ).unwrap());
+            assert_eq!(andere.ton, oberwelt.ton, "{typ}");
+        }
     }
 
     /// Zwischen zwei Stufen linear, wie die Lightmap gelesen wird; ohne
@@ -297,20 +328,25 @@ mod tests {
     }
 
     /// Ohne Farbe im Biom gilt die des Dimensionstyps: in der Oberwelt
-    /// Himmel #78a7ff und Nebel #c0d8ff, gemischt mit dem Anteil aus 0058.
+    /// Himmel #78a7ff und Nebel #c0d8ff, linear zu 0,75 und 0,25 gemischt;
+    /// das Soll in Python gerechnet.
     #[test]
     fn himmel_ohne_biom_vom_dimensionstyp() {
         let kino = kino(&DimensionType::oberwelt());
-        let (himmel, nebel) = (linear([0x78, 0xa7, 0xff]), linear([0xc0, 0xd8, 0xff]));
         let soll = Himmelsfarben {
-            licht: LOOK.himmelslicht(himmel, nebel),
-            himmel,
-            nebel,
+            licht: [0.2726444, 0.4614934, 1.0],
+            himmel: linear([0x78, 0xa7, 0xff]),
+            nebel: linear([0xc0, 0xd8, 0xff]),
             wassernebel: linear([0x05, 0x05, 0x33]),
         };
+        let nah = |a: [f32; 3], b: [f32; 3]| (0..3).all(|c| (a[c] - b[c]).abs() < 1e-5);
         assert!(!kino.himmel.is_empty());
         for h in &kino.himmel {
-            assert_eq!(*h, soll);
+            assert!(nah(h.licht, soll.licht), "{h:?}");
+            assert_eq!(
+                (h.himmel, h.nebel, h.wassernebel),
+                (soll.himmel, soll.nebel, soll.wassernebel)
+            );
         }
     }
 

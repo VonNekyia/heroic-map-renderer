@@ -969,13 +969,14 @@ fn blit_sichtbar(
 
 /// Zeichnet die sichtbaren Pixel eines Draws für Cinematic in HDR, wie
 /// [`blit_sichtbar`] sie für die Karte zeichnet: je Pixel die Farbe in den
-/// Farben des Bioms, linear, mal ihr Licht aus [`Kino::licht`], über den
-/// darunter gelegt wie [`over`], vormultipliziert. Das Licht kommt an einem
-/// Pixel auf einer Seite der AO-Karte aus ihren Ecken, mit denselben
-/// Anteilen wie bei der Karte, ungerundet; sonst aus `licht`. Die Sonne
-/// kommt dazu, so weit sie durchkommt: `sonne` gibt das für einen Punkt im
-/// Blick und den Block des Draws, siehe [`ChunkCache::sonne`]. Die Tiefe ist
-/// die des vordersten gezeichneten Pixels.
+/// Farben des Bioms, linear, mal ihr Licht, über den darunter gelegt wie
+/// [`over`], vormultipliziert. Das Licht rechnet [`Kino::licht`] wie das
+/// Spiel je Ecke ([`EckenLicht`]); an einem Pixel auf einer Seite der
+/// AO-Karte mischen sich die der Ecken mit denselben Anteilen wie bei der
+/// Karte, ungerundet. Die Sonne kommt dazu, so weit sie durchkommt: `sonne`
+/// gibt das für einen Punkt im Blick und den Block des Draws, siehe
+/// [`ChunkCache::sonne`]. Die Tiefe ist die des vordersten gezeichneten
+/// Pixels.
 /// Siehe docs/renderer/cinematic.md, „Zeichnen in HDR“.
 #[allow(clippy::too_many_arguments)]
 fn blit_hdr(
@@ -991,7 +992,12 @@ fn blit_hdr(
 ) -> Result<()> {
     let (w, cw) = (sprite.image.width() as usize, hdr.width as usize);
     let src = sprite.image.as_raw();
-    let karte = karte(sprite, &ecken);
+    // Wasser hat keine Seite in der AO-Karte und liegt vorn im Licht des
+    // Blocks, wie im Spiel ohne weiche Beleuchtung.
+    let stufen = licht.map(|c| c as f32);
+    let licht = EckenLicht::new(kino, himmel.licht, licht, ecken);
+    let karte = sprite.ao.as_deref();
+    let nass = wasser.map(|[s, b, a]| kino.licht(himmel.licht, s as f32, b as f32, a as f32));
     let linear = &*LINEAR;
     let zeilen = vis[sicht.start..].chunks(sicht.nk);
     // Pixel auf demselben Texel beginnen am selben Punkt.
@@ -1035,7 +1041,7 @@ fn blit_hdr(
                         // Bis zum Grund: der vorderste Pixel darunter.
                         let strecke = ((ursprung + g.tiefe - hdr.tiefe[p]) / je_block).max(0.0);
                         let unten = Unten {
-                            licht: kanaele(karte, i, licht),
+                            licht: stufen,
                             wasser,
                             sonne: sonnenlicht,
                         };
@@ -1049,13 +1055,11 @@ fn blit_hdr(
                     }
                     _ => mische_hdr(
                         &mut hdr.farbe[p],
-                        kino,
                         linear,
                         s,
-                        kanaele(karte, i, licht),
-                        wasser,
+                        licht.am(karte, i),
+                        nass,
                         tint,
-                        himmel.licht,
                         sonnenlicht,
                     ),
                 }
@@ -1069,8 +1073,9 @@ fn blit_hdr(
 }
 
 /// Das Licht eines Pixels für [`mische_wasser`]: Himmels-, Blocklicht und
-/// Schatten aus [`kanaele`], das des Wassers, falls es in einem anderen
-/// liegt, wie bei [`mische_hdr`], und die Sonne.
+/// Schatten des Blocks in den Kanälen von [`kino_kanaele`], das des
+/// Wassers, falls es in einem anderen liegt, wie bei [`mische_hdr`], und die
+/// Sonne.
 struct Unten {
     licht: [f32; 3],
     wasser: Option<[u32; 3]>,
@@ -1181,52 +1186,66 @@ fn startpunkt(
     std::array::from_fn(|k| f64::from(anker[k]) + p[k] + f64::from(g.normale[k]) * 1e-3)
 }
 
-/// Himmels-, Blocklicht und Schatten an Pixel `i` eines Sprites für
-/// Cinematic, siehe [`kino_kanaele`]: auf einer Seite der AO-Karte aus ihren
-/// Ecken mit den Anteilen wie [`ecken_faktor`], ungerundet; sonst `licht`.
-#[inline]
-fn kanaele(karte: Option<(&[u32], &Ecken)>, i: usize, licht: [u32; 3]) -> [f32; 3] {
-    match karte {
-        Some((karte, ecken)) if karte[i] >> 24 != 0 => {
-            let word = karte[i];
-            let seite = (word >> 24) as usize - 1;
-            let [w0, w1, w2] = [word & 255, word >> 8 & 255, word >> 16 & 255];
-            let w3 = 255 - w0 - w1 - w2;
-            ecken.map(|kanal| {
-                let c = kanal[seite];
-                (w0 * (c & 255) + w1 * (c >> 8 & 255) + w2 * (c >> 16 & 255) + w3 * (c >> 24))
-                    as f32
-                    / 255.0
-            })
+/// Das Licht eines Draws für Cinematic in HDR, wie das Spiel es je Ecke
+/// aus der Lightmap liest (`terrain.vsh`): das des Blocks und je Seite der
+/// AO-Karte das an ihren vier Ecken, aus den Kanälen von [`kino_kanaele`].
+/// Über eine Seite verläuft dann das fertige Licht, nicht die Stufen.
+/// Siehe docs/renderer/cinematic.md, „Licht in HDR“.
+struct EckenLicht {
+    block: [f32; 3],
+    ecken: Option<[[[f32; 3]; 4]; 3]>,
+}
+
+impl EckenLicht {
+    fn new(kino: &Kino, himmel: [f32; 3], licht: [u32; 3], ecken: Option<Ecken>) -> EckenLicht {
+        let hdr = |[s, b, a]: [u32; 3]| kino.licht(himmel, s as f32, b as f32, a as f32);
+        EckenLicht {
+            block: hdr(licht),
+            ecken: ecken.map(|ecken| {
+                std::array::from_fn(|seite| {
+                    std::array::from_fn(|i| hdr(ecken.map(|kanal| kanal[seite] >> (8 * i) & 255)))
+                })
+            }),
         }
-        _ => licht.map(|l| l as f32),
+    }
+
+    /// Das Licht an Pixel `i` eines Sprites mit der AO-Karte `karte`: auf
+    /// einer ihrer Seiten das der Ecken mit den Anteilen wie
+    /// [`ecken_faktor`], ungerundet; sonst das des Blocks.
+    #[inline]
+    fn am(&self, karte: Option<&[u32]>, i: usize) -> [f32; 3] {
+        match (karte, &self.ecken) {
+            (Some(karte), Some(ecken)) if karte[i] >> 24 != 0 => {
+                let word = karte[i];
+                let seite = &ecken[(word >> 24) as usize - 1];
+                let [w0, w1, w2] = [word & 255, word >> 8 & 255, word >> 16 & 255];
+                let w = [w0, w1, w2, 255 - w0 - w1 - w2].map(|w| w as f32 / 255.0);
+                std::array::from_fn(|c| (0..4).map(|k| w[k] * seite[k][c]).sum())
+            }
+            _ => self.block,
+        }
     }
 }
 
 /// Legt einen Pixel für Cinematic über den darunter, siehe [`blit_hdr`]:
 /// erst die Farbe des Bioms wie bei der Karte ([`tinted`]), dann linear mal
-/// das Licht des Spiels und der Sonne (`sonne`). Hat der Block Wasser in
-/// einem anderen Licht (`wasser`), liegt der Anteil des Wassers an der Farbe
+/// das Licht `licht` und das der Sonne (`sonne`). Hat der Block Wasser in
+/// einem anderen Licht (`nass`), liegt der Anteil des Wassers an der Farbe
 /// in dessen Licht, wie [`tinted_im_licht`] es für die Karte rechnet.
-#[allow(clippy::too_many_arguments)]
 #[inline]
 fn mische_hdr(
     d: &mut [f32; 4],
-    kino: &Kino,
     linear: &[f32; 256],
     s: [u8; 4],
-    [sky, block, schatten]: [f32; 3],
-    wasser: Option<[u32; 3]>,
+    mut licht: [f32; 3],
+    nass: Option<[f32; 3]>,
     tint: Option<([u32; 2], [u32; 2])>,
-    himmel: [f32; 3],
     sonne: [f32; 3],
 ) {
-    let mut licht = kino.licht(himmel, sky, block, schatten);
     let mut farbe = s;
     if let Some((anteile, farben)) = tint {
         farbe = tinted(s, anteile, farben);
-        if let Some([ws, wb, wa]) = wasser {
-            let nass = kino.licht(himmel, ws as f32, wb as f32, wa as f32);
+        if let Some(nass) = nass {
             let ([block, water], [b, w]) = (anteile, farben);
             licht = std::array::from_fn(|c| {
                 let byte = |word: u32| (word >> (8 * c) & 255) as f32;
@@ -2446,16 +2465,12 @@ impl<'a> ChunkCache<'a> {
     /// Licht und ungerundet.
     /// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
     fn himmel_at(&mut self, kino: &Kino, [x, y, z]: [i32; 3]) -> Result<Himmelsfarben> {
-        let r = self.sprites.biomes().radius() as i32;
         let [x, z] = self.richtung.in_die_welt([x, z]);
-        let mut summe = Himmelsfarben::default();
-        for cz in z - r..=z + r {
-            for cx in x - r..=x + r {
-                let h = kino.himmel(self.biome_of([cx, y, cz])?);
-                summe = summe.je_farbe(h, |a, b| a + b);
-            }
+        let (mut summe, mut n) = (Himmelsfarben::default(), 0.0);
+        for block in self.sprites.biomes().quadrat([x, y, z]) {
+            summe = summe.je_farbe(kino.himmel(self.biome_of(block)?), |a, b| a + b);
+            n += 1.0;
         }
-        let n = ((2 * r + 1) * (2 * r + 1)) as f32;
         Ok(summe.je_farbe(summe, |a, _| a / n))
     }
 
@@ -2564,7 +2579,7 @@ impl<'a> ChunkCache<'a> {
         sprite: Option<SpriteId>,
     ) -> Result<Lichter> {
         let lightmap = self.sprites.lightmap();
-        let kino = self.sprites.look().is_some();
+        let kino = self.sprites.kino().is_some();
         // Das Licht einer ganzen Stufe, gepackt wie `Light::packed`.
         let stufe = |licht: u32| match kino {
             true => kino_kanaele(licht, 255),
@@ -2628,7 +2643,7 @@ impl<'a> ChunkCache<'a> {
         innen: Option<Option<[i32; 3]>>,
     ) -> Result<([u32; 3], Option<Ecken>)> {
         let lightmap = self.sprites.lightmap();
-        let kino = self.sprites.look().is_some();
+        let kino = self.sprites.kino().is_some();
         // Das Licht einer ganzen Stufe, gepackt wie `Light::packed`.
         let ganz = |licht: u32| match kino {
             true => kino_kanaele(licht, 255),
@@ -2930,7 +2945,37 @@ fn band_chunks(genordet: bool, u_min: i32, u_max: i32, v_lo: i32, v_hi: i32) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::Kamera;
+    use crate::assets::DimensionType;
+    use crate::assets::colors::Colors;
+    use crate::render::look::LOOK;
+    use crate::render::{BiomeTable, Kamera};
+
+    /// Über eine Seite verläuft das Licht wie im Spiel: Gemischt wird das
+    /// fertige Licht der Ecken, nicht ihre Stufen. Halb zwischen Himmel 15
+    /// im vollen Licht der weichen Beleuchtung und Himmel 13 mit 153 liegt
+    /// so rund 0,686 des Himmels; mit den Stufen gemischt wären es 0,62.
+    /// Ohne Seite der AO-Karte gilt das Licht des Blocks.
+    #[test]
+    fn licht_zwischen_den_ecken_wie_im_spiel() {
+        let kino = Kino::new(
+            LOOK,
+            &DimensionType::oberwelt(),
+            &BiomeTable::new(&Colors::default()),
+            Kamera::ZWEI_ZU_EINS,
+        );
+        let ecke = |a: u32, b: u32| a | a << 8 | b << 16 | b << 24;
+        let ecken: Ecken = [[ecke(240, 208); 3], [0; 3], [ecke(255, 153); 3]];
+        let licht = EckenLicht::new(&kino, [1.0; 3], [240, 0, 255], Some(ecken));
+        // Seite 1, je zur Hälfte Ecke 0 und Ecke 2.
+        let karte = [1 << 24 | 128 | 127 << 16, 0];
+        let mitte = licht.am(Some(&karte), 0);
+        let umgebung = 10.0 / 255.0;
+        // Himmel 13: getBrightness(13/15) · 3 = 1,857143.
+        let soll = (128.0 * (3.0 + umgebung) + 127.0 * (1.857_143 + umgebung) * 0.6) / 255.0;
+        assert!((mitte[0] - soll).abs() < 1e-5, "{mitte:?} statt {soll}");
+        assert!((mitte[0] / 3.0 - 0.686).abs() < 0.02, "{mitte:?}");
+        assert_eq!(licht.am(Some(&karte), 1), licht.am(None, 0));
+    }
 
     fn rect() -> ScreenRect {
         ScreenRect::centered(64, 64)

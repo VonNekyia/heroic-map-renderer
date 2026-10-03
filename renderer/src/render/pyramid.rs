@@ -158,16 +158,17 @@ fn halbiere(image: &RgbaImage, ziel: &mut RgbaImage, x0: u32, y0: u32) {
 
 /// sRGB-Wert nach linearem Licht, als Tabelle: die Pyramide läuft über
 /// jedes Pixel jeder Stufe.
-pub(crate) static LINEAR: LazyLock<[f32; 256]> = LazyLock::new(|| {
-    std::array::from_fn(|i| {
-        let c = i as f32 / 255.0;
-        if c <= 0.04045 {
-            c / 12.92
-        } else {
-            ((c + 0.055) / 1.055).powf(2.4)
-        }
-    })
-});
+pub(crate) static LINEAR: LazyLock<[f32; 256]> =
+    LazyLock::new(|| std::array::from_fn(|i| linear_wert(i as f32 / 255.0)));
+
+/// Ein sRGB-Wert von 0 bis 1 in linearem Licht.
+pub(crate) fn linear_wert(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
 
 /// Lineares Licht zurück nach sRGB: statt `powf` je Aufruf eine Tabelle der
 /// 255 Schwellen, ab denen der gerundete sRGB-Wert um eins steigt. Gezählt

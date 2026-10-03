@@ -30,11 +30,11 @@ Texte.
 | `--direction RICHTUNG` | wo die Kamera steht: diagonal `se`, `sw`, `nw` oder `ne`, genordet `s`, `w`, `n` oder `e`, Vorgabe `se` und `s` | [Kamera](../renderer/kamera.md), „Richtungen“ |
 | `--biome-blend N` | wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, 0 bis 7 Blöcke wie der Biomübergang im Spiel, Vorgabe 2; ein bestehender Kachelbaum behält seinen | [Biomfarben](../renderer/biomfarben.md), [map.json](map-json.md) |
 | `--render DATEI` | einen Weltausschnitt in eine PNG rendern | unten |
-| `--cinematic` | mit `--render` oder `--tiles`: im Licht des Spiels in HDR zeichnen statt als Karte, der Baum liegt in `<kamera>-<richtung>-cinematic`; zeichnet auf der CPU | [Cinematic](../renderer/cinematic.md) |
+| `--cinematic` | mit `--render` oder `--tiles`: im Licht des Spiels in HDR zeichnen statt als Karte, in einen eigenen Baum; zeichnet auf der CPU | [Cinematic](../renderer/cinematic.md) |
 | `--center X Z` | der Punkt der Welt in der Bildmitte, Vorgabe `0 0` | unten |
 | `--size N` | Kantenlänge des Ausschnitts in Pixeln, ab 1; für `--render` Vorgabe 1024, ohne Angabe deckt `--tiles` die ganze Welt | [Kacheln exportieren](kacheln.md) |
 | `--scan` | jeden Chunk dekodieren, auch die nicht fertig erzeugten, mit `--assets` die Blockstates der übrigen auflösen und rastern | unten |
-| `--tiles DIR` | die Welt als WebP-Kacheln exportieren; `DIR` ist die Wurzel, der Baum liegt in `DIR/<kamera>-<richtung>`, mit `--cinematic` in `DIR/<kamera>-<richtung>-cinematic` | [Kacheln exportieren](kacheln.md) |
+| `--tiles DIR` | die Welt als WebP-Kacheln exportieren; `DIR` ist die Wurzel, jeder Baum liegt darunter in seinem Ordner | [Kacheln exportieren](kacheln.md) |
 | `--prune` | mit `--tiles`: Kacheln entfernen, die kein Chunk mehr berührt, und Höhen von Regionen ohne Regionsdatei | [Kacheln exportieren](kacheln.md) |
 | `--native-levels N` | mit `--tiles`: so viele gröbere Stufen aus der Welt rendern, Vorgabe 0 | [Zoomstufen](zoomstufen.md) |
 | `--resume` | mit `--tiles`: einen abgebrochenen Lauf fortsetzen | [Pyramide und Fortsetzen](pyramide-und-resume.md) |

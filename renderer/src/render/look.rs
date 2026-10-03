@@ -43,6 +43,11 @@ pub struct Look {
     pub flach: f32,
 }
 
+/// Der Stand des Verfahrens, mit dem Cinematic zeichnet. Er geht in den
+/// Fingerabdruck ein: Wer das Bild bei gleichen Werten ändert, erhöht ihn.
+/// Siehe docs/benutzung/map-json.md, „Look“.
+pub const VERFAHREN: u32 = 2;
+
 /// Der Look aus 0058.
 pub const LOOK: Look = Look {
     himmel: 3.0,
@@ -67,28 +72,47 @@ impl Look {
     /// steht. Abgeleitete Werte wie die Richtung der Sonne aus Sinus und
     /// Kosinus fehlen: Deren letztes Bit kann je System abweichen.
     fn werte(&self) -> [(&'static str, &[f32]); 15] {
+        // Ganz zerlegt: Ein neues Feld kompiliert erst, wenn es hier steht.
+        let Look {
+            himmel,
+            himmel_anteil,
+            block,
+            sonne,
+            sonne_farbe,
+            sonne_hoehe,
+            sonne_seite,
+            sonne_weite,
+            pflanzen,
+            wasser_spiegel,
+            wasser_textur,
+            wasser_dichte,
+            belichtung,
+            knie,
+            flach,
+        } = self;
         [
-            ("himmel", std::slice::from_ref(&self.himmel)),
-            ("himmel_anteil", std::slice::from_ref(&self.himmel_anteil)),
-            ("block", std::slice::from_ref(&self.block)),
-            ("sonne", std::slice::from_ref(&self.sonne)),
-            ("sonne_farbe", &self.sonne_farbe),
-            ("sonne_hoehe", std::slice::from_ref(&self.sonne_hoehe)),
-            ("sonne_seite", std::slice::from_ref(&self.sonne_seite)),
-            ("sonne_weite", std::slice::from_ref(&self.sonne_weite)),
-            ("pflanzen", std::slice::from_ref(&self.pflanzen)),
-            ("wasser_spiegel", std::slice::from_ref(&self.wasser_spiegel)),
-            ("wasser_textur", std::slice::from_ref(&self.wasser_textur)),
-            ("wasser_dichte", std::slice::from_ref(&self.wasser_dichte)),
-            ("belichtung", std::slice::from_ref(&self.belichtung)),
-            ("knie", std::slice::from_ref(&self.knie)),
-            ("flach", std::slice::from_ref(&self.flach)),
+            ("himmel", std::slice::from_ref(himmel)),
+            ("himmel_anteil", std::slice::from_ref(himmel_anteil)),
+            ("block", std::slice::from_ref(block)),
+            ("sonne", std::slice::from_ref(sonne)),
+            ("sonne_farbe", sonne_farbe.as_slice()),
+            ("sonne_hoehe", std::slice::from_ref(sonne_hoehe)),
+            ("sonne_seite", std::slice::from_ref(sonne_seite)),
+            ("sonne_weite", std::slice::from_ref(sonne_weite)),
+            ("pflanzen", std::slice::from_ref(pflanzen)),
+            ("wasser_spiegel", std::slice::from_ref(wasser_spiegel)),
+            ("wasser_textur", std::slice::from_ref(wasser_textur)),
+            ("wasser_dichte", std::slice::from_ref(wasser_dichte)),
+            ("belichtung", std::slice::from_ref(belichtung)),
+            ("knie", std::slice::from_ref(knie)),
+            ("flach", std::slice::from_ref(flach)),
         ]
     }
 
     /// Der Fingerabdruck der Werte für `lookHash` in `map.json`: FNV-1a mit
     /// 64 Bit über jeden Namen, ein Nullbyte und die Bits jedes Werts in
-    /// Little Endian, als 16 kleine Hexzeichen.
+    /// Little Endian, dann ebenso `verfahren` mit [`VERFAHREN`] als u32, als
+    /// 16 kleine Hexzeichen.
     /// Siehe docs/benutzung/map-json.md, „Look“.
     pub fn fingerabdruck(&self) -> String {
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -104,6 +128,9 @@ impl Look {
                 nimm(&wert.to_bits().to_le_bytes());
             }
         }
+        nimm(b"verfahren");
+        nimm(&[0]);
+        nimm(&VERFAHREN.to_le_bytes());
         format!("{hash:016x}")
     }
 
@@ -174,7 +201,7 @@ mod tests {
     /// zieht den Test nach.
     #[test]
     fn fingerabdruck_der_werte_aus_0058() {
-        assert_eq!(LOOK.fingerabdruck(), "437e2f6710901da0");
+        assert_eq!(LOOK.fingerabdruck(), "f1e3be580968943d");
         let anders = Look {
             belichtung: 0.26,
             ..LOOK
@@ -224,6 +251,22 @@ mod tests {
             );
             assert!((links.hypot(zur_kamera) - waagrecht).abs() < 1e-6);
         }
+    }
+
+    /// Das Himmelslicht ist der Himmel zu `himmel_anteil`, der Nebel zum Rest.
+    #[test]
+    fn himmelslicht_mischt_himmel_und_nebel() {
+        assert_eq!(LOOK.himmelslicht([1.0; 3], [0.0; 3]), [0.75; 3]);
+        assert_eq!(LOOK.himmelslicht([0.0; 3], [1.0; 3]), [0.25; 3]);
+    }
+
+    /// Der Abgleich auf Sonne und Himmel der Oberwelt, je Kanal gegen eine
+    /// Zahl, in Python aus 0058 gerechnet: Rot hebt er, Blau senkt er.
+    #[test]
+    fn weissabgleich_der_oberwelt() {
+        let v = LOOK.weissabgleich([0.2726444, 0.4614934, 1.0]);
+        let soll = [1.1379806, 1.0038583, 0.7167913];
+        assert!((0..3).all(|c| (v[c] - soll[c]).abs() < 1e-5), "{v:?}");
     }
 
     /// Nach dem Abgleich hat eine weisse Fläche nach oben in Sonne und

@@ -22,8 +22,9 @@ Typ (`Assets::set_dimension`, `Assets::dimension_type` in
 [`renderer/src/assets/dimension.rs`](../../renderer/src/assets/dimension.rs)).
 Die Typen des Spiels stehen in `dimensionstypen.txt`, Datenwurzeln liegen
 darüber, siehe [0041](../entscheidungen/0041-dimensionstypen-aus-dem-spiel.md).
-Er nutzt alles davon: `cardinal_light` für die Schattierung nach Richtung,
-`has_skylight` und die Farben für das Licht.
+Er nutzt `cardinal_light` für die Schattierung nach Richtung der Karte,
+`has_skylight` und die Farben für das Licht; `water_fog_color` liest er,
+nutzt sie aber noch nicht.
 
 ## Welcher Typ
 
@@ -84,8 +85,10 @@ Wie `DimensionType.DIRECT_CODEC` in 26.2, so weit er es braucht:
 Die Lightmap aus den vier Attributen bis `block_light_tint` und ob der
 Lauf Himmelslicht ausbreitet, legt `SpriteSet::build_in` aus dem Typ fest,
 siehe [Wasser und Licht](wasser-und-licht.md), „Helligkeit wie im Spiel“.
-Die drei Farben darunter nimmt Cinematic für Biome, die keine eigene
-setzen, siehe [Cinematic](cinematic.md), „Farbe des Himmels“.
+Cinematic rechnet sein Licht aus denselben vier, siehe
+[Cinematic](cinematic.md), „Licht in HDR“, und nimmt `sky_color` und
+`fog_color` für Biome, die keine eigene setzen, siehe dort „Farbe des
+Himmels“.
 
 ## Schattierung nach Richtung
 
@@ -116,6 +119,8 @@ Gezählt wird die Seite in der Welt, aus jeder Richtung der Kamera, siehe
 
 Welche Schattierung ein Lauf nimmt, legt `SpriteSet::build_in` aus dem Typ
 fest. Die Faktoren stecken damit im Sprite, auf der CPU wie auf der Karte.
+Cinematic schattiert nicht nach Richtung, siehe [Cinematic](cinematic.md),
+„Sprites für Cinematic“.
 
 ## Belege
 
@@ -134,8 +139,8 @@ Belegt per javap am Client 26.2 und an den Daten im JAR:
   `data/minecraft/dimension_type/`: Nur `the_nether` setzt
   `cardinal_light` `nether` und `has_skylight` falsch.
 - `EnvironmentAttributes`, statischer Initialisierer: die Vorgaben der
-  sieben Attribute, die Farben als `AttributeTypes.RGB_COLOR`. `EnvironmentAttributeMap`, `AttributeTypes.RGB_COLOR`,
-  `EnvironmentAttributeSystem.addDefaultLayers`.
+  sieben Attribute, die Farben als `AttributeTypes.RGB_COLOR`;
+  `EnvironmentAttributeMap`, `EnvironmentAttributeSystem.addDefaultLayers`.
 - `GameRenderer.setLevel` ruft `Lighting.updateLevel` mit
   `cardinalLightType` des Typs; `Lighting` mit den beiden Lichtpaaren.
 - `BlockModelLighter.prepareQuadFlat`,

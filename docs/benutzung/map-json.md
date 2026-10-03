@@ -190,9 +190,9 @@ die alle Bäume teilen. Entschieden in
   sie auch nach einem gelöschten Baum (`schreibe_baeume` in
   [`renderer/src/cli.rs`](../../renderer/src/cli.rs)). Ein Ordner, dessen
   `map.json` sich nicht lesen lässt oder eine Kamera, eine Richtung oder
-  einen `look` nennt, die es nicht gibt, fehlt in der Liste. Der Lauf meldet ihn als
-  „übergangen“ und scheitert nicht an ihm; das Frontend könnte ihn ohnehin
-  nicht öffnen.
+  einen `look` nennt, die es nicht gibt, fehlt in der Liste. Der Lauf
+  meldet ihn als „übergangen“ und scheitert nicht an ihm; das Frontend
+  könnte ihn ohnehin nicht öffnen.
 - **Eine Wurzel, eine Welt und Dimension:** Die Bäume einer Wurzel teilen
   sich die Höhen. Bevor ein Lauf einen Chunk liest, prüft er deshalb jeden
   Baum daneben mit dessen eigener Kennung, siehe
@@ -328,13 +328,21 @@ vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
   - Darüber je Wert, in der Reihenfolge von `Look::werte`, sein Name in
     UTF-8, ein Nullbyte und die Bits jeder Zahl als f32 in Little Endian,
     bei einer Farbe drei Zahlen.
+  - Zuletzt `verfahren`, ein Nullbyte und `VERFAHREN` als u32 in Little
+    Endian: der Stand des Verfahrens. Ändert sich das Bild bei gleichen
+    Werten, etwa mit der Sonne in #73, steigt er, und mit ihm der
+    Fingerabdruck.
+  - `Look::werte` zerlegt `Look` ganz: Ein neues Feld kompiliert erst, wenn
+    es im Fingerabdruck steht.
   - Nur die Werte, wie sie im Code stehen. Abgeleitete wie der Sinus der
     Höhe der Sonne fehlen, deren letztes Bit kann je System abweichen.
   - Geschrieben als 16 kleine Hexziffern; für die Werte aus
     [0058](../entscheidungen/0058-look-von-cinematic.md)
-    `437e2f6710901da0`.
-- **Ein Baum, ein look:** Ein Lauf mit dem anderen look oder anderen
-  Werten bricht ab, bevor er einen Chunk liest, auch mit `--resume`, siehe
+    `f1e3be580968943d`, mit `VERFAHREN` 2.
+- **Ein Baum, ein look:** Ein Lauf mit dem anderen look schreibt in einen
+  anderen Ordner, siehe „Liste der Bäume“. Er bricht nur ab, wenn in seinem
+  Ordner ein Baum mit dem anderen look oder mit anderen Werten liegt, bevor
+  er einen Chunk liest, auch mit `--resume`, siehe
   [Zoomstufen](zoomstufen.md), „Ein Baum, ein look“.
 - **`--pyramid`** behält beide Felder.
 
@@ -342,6 +350,6 @@ vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
 
 Jeder Export schreibt `map.json` vor seiner ersten Kachel und am Ende,
 danach jeweils `trees.json`; `--pyramid` schreibt `map.json` bei jedem
-Aufruf. Die Datei geht dabei jedes Mal ganz auf die
-Platte, bevor sie die alte ersetzt: Nach einem Stromausfall steht die alte
-oder die neue da, und kein Lauf scheitert an einer halben.
+Aufruf. Die Datei geht dabei jedes Mal ganz auf die Platte, bevor sie die
+alte ersetzt: Nach einem Stromausfall steht die alte oder die neue da, und
+kein Lauf scheitert an einer halben.

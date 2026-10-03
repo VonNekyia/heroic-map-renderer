@@ -204,9 +204,8 @@ fest, siehe [`map.json`](map-json.md), „Kamera und Projektion“.
 Der look gehört zum Baum wie die Kamera: `map.json` hält ihn als `look`
 fest, Cinematic dazu den Fingerabdruck seiner Werte als `lookHash`, siehe
 [`map.json`](map-json.md), „Look“.
-- **Jeder look ein eigener Baum:** Mit `--cinematic` schreibt ein Lauf in
-  den Ordner `<kamera>-<richtung>-cinematic`, ohne in
-  `<kamera>-<richtung>`.
+- **Jeder look ein eigener Baum** in seinem eigenen Ordner, siehe
+  [`map.json`](map-json.md), „Liste der Bäume“.
 - **Ein Baum mit dem anderen look im Ordner,** etwa nach dem Umbenennen,
   bricht ab, bevor der Lauf einen Chunk liest, mit „… gehört zu einem Baum
   mit --cinematic, dieser Lauf zeichnet ohne. Den Ordner nach
@@ -219,8 +218,6 @@ fest, Cinematic dazu den Fingerabdruck seiner Werte als `lookHash`, siehe
   lookHash dort …, hier …. Den Baum löschen und neu rendern oder eine neue
   Wurzel nehmen.“ Sonst lägen alte und neue Kacheln in einem Baum, siehe
   [0058](../entscheidungen/0058-look-von-cinematic.md), „Folgen“.
-- **Ein Baum ohne `look`** zeigt die Karte.
-- **Die Höhen** teilen auch Karte und Cinematic.
 
 ## Native Stufen
 

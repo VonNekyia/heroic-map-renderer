@@ -78,7 +78,7 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `renderer/tests/gpu.rs` | die Karte gegen die CPU, Byte für Byte |
 | `renderer/tests/licht.rs` | die Ausbreitung des Lichts gegen einen Lauf von Vanilla 26.2 und an gebauten Welten |
 | `renderer/tests/common/mod.rs` | gemeinsame Szenen und Helfer |
-| `web/tests/smoke.spec.ts` | das Frontend am Demo-Kachelbaum, die Koordinaten mit Maus und Touch über Höhen, die der Test liefert, mit `projection` aus `map.json`, aus jeder Richtung in Weltkoordinaten, ohne Anzeige bei unbekanntem `azimuth` oder `direction`, den Umriss nur beim Tippen, die Adresse, die der Karte folgt, ohne Einträge im Verlauf, das Kopiersymbol für `/tp` mit Maus, Tastatur und Finger samt Rückmeldung ohne Zwischenablage oder bei einem Fehler, den Sprung über einen editierten Wert mit Y aus der Höhenkarte, abgewiesene Eingaben, Abbruch per Escape und Klick daneben und das Minus auf dem Touchscreen, Kompass und Umschalter zwischen zwei Bäumen aus `trees.json` mit demselben Block in der Mitte, und dass die Karte unter den strengen Headern aus `preview.headers` in `web/vite.config.ts` ohne Verletzung der Content-Security-Policy läuft |
+| `web/tests/smoke.spec.ts` | das Frontend am Demo-Kachelbaum, die Koordinaten mit Maus und Touch über Höhen, die der Test liefert, mit `projection` aus `map.json`, aus jeder Richtung in Weltkoordinaten, ohne Anzeige bei unbekanntem `azimuth` oder `direction`, den Umriss nur beim Tippen, die Adresse, die der Karte folgt, ohne Einträge im Verlauf, den Knopf für die ganze Karte per Maus und Tastatur, das Kopiersymbol für `/tp` mit Maus, Tastatur und Finger samt Rückmeldung ohne Zwischenablage oder bei einem Fehler, den Sprung über einen editierten Wert mit Y aus der Höhenkarte, abgewiesene Eingaben, Abbruch per Escape und Klick daneben und das Minus auf dem Touchscreen, Ziele ab 24 px und 16 px im Feld für Finger, Kompass und Umschalter zwischen zwei Bäumen aus `trees.json` mit demselben Block in der Mitte, und dass die Karte unter den strengen Headern aus `preview.headers` in `web/vite.config.ts` ohne Verletzung der Content-Security-Policy läuft |
 | `web/tests/seite.spec.ts` | den Kopf der Seite und `robots.txt`, ohne `SITE_URL` am ausgelieferten Build und mit `SITE_URL=https://example.org/karte` an einem eigenen Build |
 | `web/tests/pick.spec.ts` | den Strahl: für 2:1, 8:5, 4:3, 1:1, 5:3, `top`, `top-north` und `north-45` jeder Bildpunkt eines kleinen Geländes gegen den Würfel, den das Zeichnen dort in der Reihenfolge (y, v, u) und nach der Füllregel hinterlässt; dazu die Projektion jeder Kamera und die Kantenpixel auf Oberseiten und an Wänden gegen `renderer/tests/fixtures/projektion.json` des Renderers |
 
@@ -168,7 +168,8 @@ das Rechteck um alle Blöcke der Szene, bei jeder Kamera. Je Kamera:
 | `schneller_weg_gleicht_der_referenz` | Kandidaten und Bitmasken gegen die Referenz |
 | `kein_loch_in_deckendem_gelaende` | kein offener Pixel, auch auf Kanten, die Pixelmitten treffen |
 | `hoeher_gesetzt_gleiches_bild` | dieselbe Welt 40 Blöcke höher gibt dasselbe Bild, auch von oben, wo die Referenz dasselbe Band abläuft |
-| `kleine_ausschnitte_gleichen_dem_grossen_bild` | Ausschnitte von 128 Pixeln gleichen dem Bild der ganzen Szene, für 2:1 aus allen vier Richtungen, 4:3, `top`, `top-north` und `north-45` bei 16 und `north-45` bei 7, jede aus der Vorgabe und aus einer anderen Richtung; ein Ausschnitt liest nur die Sections und Chunks seines Bands (`y_span`) |
+| `kleine_ausschnitte_gleichen_dem_grossen_bild` | Ausschnitte von 128 Pixeln gleichen dem Bild der ganzen Szene, für 2:1 aus allen vier Richtungen, 4:3, `top`, `top-north` und `north-45` bei 16 und `north-45` bei 7, jede aus der Vorgabe und aus einer anderen Richtung, als Karte und mit Cinematic; das ganze Bild ist zweimal gleich; ein Ausschnitt liest nur die Sections und Chunks seines Bands (`y_span`) |
+| `cinematic_zeichnet_dieselben_draws_wie_die_karte` | Cinematic zeichnet dieselben Draws wie die Karte, sein Licht ist durch die Lightmap gerechnet ihres, und ein Pixel ist genau da, wo die Karte einen hat; dazu 2:1 bei 4, 16 und 32 |
 | `projektion_als_datei_ist_aktuell` (`renderer/tests/heights.rs`) | die Datei für das Frontend, samt Kantenpixeln |
 
 Dazu einzeln: `von_oben_ragt_der_turm_durch_den_teppich` (`metatile.rs`),
@@ -188,7 +189,15 @@ mit `--direction` prüft `richtung_ist_ein_eigener_baum` aus `nw` und `sw`,
 (`cli.rs`). Die Tabellen der weichen Beleuchtung je Richtung prüfen
 `ecken_im_blick_passen_zu_den_nachbarn` (`metatile.rs`) und
 `ecken_der_seiten_im_blick` (`rasterizer.rs`), aus `nw` und `sw` mit
-festen Zahlen.
+festen Zahlen. Cinematic prüfen ausserdem
+`hdr_haelt_die_tiefe_der_vordersten_flaeche`,
+`hdr_haelt_die_tiefe_des_vorderen_draws` und
+`biom_faerbt_das_himmelslicht` (`metatile.rs`), mit dem Radius 2 aus `nw`,
+und `ein_baum_ein_look` (`cli.rs`): Ordner, `look`, `lookHash`, ein look,
+den es nicht gibt, und `trees.json`. Die Werte des Looks, das Licht je
+Stufe, die Umgebung, den Weissabgleich und den Himmel ohne Biom prüfen die
+Unit-Tests in `look.rs` und `kino.rs` gegen Zahlen, die aus den Formeln
+des Spiels und aus 0058 gerechnet sind.
 
 Dazu Unit-Tests in den Quelldateien: die Achse je Kamera, die Regel
 „ganze Pixel“ und die genordete Projektion (`projection.rs`), Spalten,
@@ -224,11 +233,10 @@ Projektion, Baking, Rasterizer oder Maleralgorithmus fällt damit auf.
 `metatile-top-north.png` und `metatile-north-45.png` die Szene aus
 `common::szene` in 4:3, von oben, genordet von oben und in `north-45`,
 `metatile-nw.png` dieselbe in 2:1 aus `nw` um die Treppe aus Stein,
-`metatile-cinematic.png` sie mit Cinematic in 2:1 um dieselbe Treppe, alle
-bei scale 16. Der Test vergleicht alle, schreibt zu jedem abweichenden das
-Ist-Bild daneben, als `<name>-ist.png`, und fällt erst dann; in CI liegen
-sie als Artefakt am fehlgeschlagenen Lauf.
-Neu erzeugen nach einer gewollten Änderung: Skill
+`metatile-cinematic.png` sie mit Cinematic in 2:1 aus `se` um dieselbe
+Treppe, alle bei scale 16. Der Test vergleicht alle, schreibt zu jedem
+abweichenden das Ist-Bild daneben, als `<name>-ist.png`, und fällt erst
+dann; in CI liegen sie als Artefakt am fehlgeschlagenen Lauf. Neu erzeugen nach einer gewollten Änderung: Skill
 [`goldbild-erneuern`](../../skills/goldbild-erneuern/SKILL.md).
 
 ## GPU-Tests

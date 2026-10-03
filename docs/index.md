@@ -20,7 +20,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt und Kamera.
 - [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md): `--pyramid` während eines Renders und `--resume` nach einem Abbruch.
 - [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt den Richtungen und `projektion.json`, die Liste der Bäume `trees.json` unter einer Wurzel, die Höhen und wann die Dateien entstehen.
-- [Was ein Lauf kostet](benutzung/kosten.md): Platz und Dauer je scale, die grosse Welt gemessen und hochgerechnet.
+- [Was ein Lauf kostet](benutzung/kosten.md): Platz und Dauer je scale, Cinematic gegen die Karte, die grosse Welt gemessen und hochgerechnet.
 - [Grafikkarte](benutzung/grafikkarte.md): `--gpu`, Adapter, Backends, Rückfall auf die CPU.
 - [Echtzeitschutz unter Windows](benutzung/echtzeitschutz.md): die Defender-Ausnahme und `--defender-exclusion`.
 
@@ -152,3 +152,5 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-02, Tests schneller](messungen/2026-10-02-tests-schneller.md): was die schlanke Auswahl in `kameras()` und das Profil `mutation` an Bauen und Testen ändern, lokal im Debug-Build und in der CI, und warum die lokale Messung der Testbauten mit Optimierung nicht zählt.
 - [2026-10-02, Gang zur Sonne in Stufen](messungen/2026-10-02-gang-zur-sonne-in-stufen.md): was ein Strahl zur Sonne am Prototyp mit dem Gang in Stufen kostet, gegen den alten Gang und den schnellsten aus Reihe 4; Bilder aus getrennten Läufen, Zeit aus Durchgängen im Wechsel in einem Prozess.
 - [2026-10-02, Look von Cinematic](messungen/2026-10-02-look-von-cinematic.md): Kennzahlen des Looks aus 0058 am Prototyp über 24 Ansichten der Testwelt gegen die Karte, dazu verworfene Kurven, Dunst, feste Weissabgleiche und die Stufen des Pflanzenschattens an Wiesen.
+- [2026-10-03, Cinematic, Phase 1](messungen/2026-10-03-cinematic-phase-1.md): was Cinematic aus #72 an Stand und Fichtenwald gegen die Karte an Zeit, Spitze und Grösse kostet, und dass die Karte Byte für Byte gleich und gleich schnell bleibt, ohne und mit Grafikkarte.
+- [2026-10-03, Bits „frei zur Sonne“](messungen/2026-10-03-bits-frei-zur-sonne.md): wie viele Strahlen zur Sonne die Bits aus dem Vorschlag zu #73 am Prototyp ohne Gang beantworten, dass jedes Bild gleich bleibt und was ein Strahl mit und ohne sie kostet, im Wechsel in einem Prozess und allein wiederholt.

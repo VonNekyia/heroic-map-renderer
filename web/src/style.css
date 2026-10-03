@@ -77,6 +77,22 @@ body {
   background: none;
 }
 
+/* Für Finger grösser: Ziele mindestens 24 px (WCAG 2.5.8), und Felder mit
+   16 px Schrift, sonst vergrössert iOS beim Fokus die ganze Seite. Nach dem
+   Gerät, nicht nach dem Zeiger wie der Umriss: Die Grösse muss schon vor
+   dem ersten Tippen stimmen. */
+@media (pointer: coarse) {
+  .leiste {
+    font-size: 16px;
+    line-height: 2;
+  }
+
+  .wert,
+  .kopieren {
+    min-width: 2em;
+  }
+}
+
 /* Für Screenreader und Suchmaschinen, nicht für das Auge. */
 .unsichtbar {
   position: absolute;

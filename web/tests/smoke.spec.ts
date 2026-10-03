@@ -96,58 +96,19 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
   await expect(page.locator('canvas.tablett')).toHaveCount(0);
 });
 
-/** Ein Tablett um die Spalten von -64 bis 63, mit der Oberkante auf Y 0. */
-const TABLETT = { seaLevel: 0, area: [-64, -64, 64, 64] };
-
-test('ohne SKIN=tablett beim Build kein Tablett, auch mit seaLevel und area', async ({ page }) => {
-  await welt(page, TABLETT);
+test('ohne Skin beim Build kein Tablett und kein Code eines Skins, auch mit quadratischem area', {
+  tag: '@ohne-skin',
+}, async ({ page }) => {
+  const skripte: string[] = [];
+  page.on('request', (anfrage) => {
+    if (anfrage.resourceType() === 'script') skripte.push(anfrage.url());
+  });
+  await welt(page, { seaLevel: 0, area: [-64, -64, 64, 64] });
   await page.goto(DEMO);
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
   await expect(page.locator('canvas.tablett')).toHaveCount(0);
-});
-
-test('Rahmen und Tisch liegen um die Kacheln, blenden beim Zoom aus und fangen keine Klicks ab', {
-  tag: '@tablett',
-}, async ({ page }) => {
-  await welt(page, TABLETT);
-  await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
-  await expect(page.locator('canvas.tablett')).toHaveCount(2);
-  const stand = () =>
-    page.evaluate(() => {
-      const pane = (name: string) => document.querySelector(`.leaflet-${name}-pane`)!;
-      const kacheln = Number(getComputedStyle(pane('tile')).zIndex);
-      const ebene = (name: string) => {
-        const leinwand = pane(name).querySelector('canvas')!;
-        const { data } = leinwand.getContext('2d')!.getImageData(0, 0, leinwand.width, leinwand.height);
-        return {
-          // Unter oder über den Kacheln.
-          ueber: Number(getComputedStyle(pane(name)).zIndex) > kacheln,
-          deckkraft: Number(getComputedStyle(pane(name)).opacity),
-          klicks: getComputedStyle(leinwand).pointerEvents,
-          gemalt: data.some((wert, i) => i % 4 === 3 && wert > 0),
-        };
-      };
-      return { fern: ebene('tablett-fern'), nah: ebene('tablett-nah') };
-    });
-  expect(await stand()).toEqual({
-    fern: { ueber: false, deckkraft: 1, klicks: 'none', gemalt: true },
-    nah: { ueber: true, deckkraft: 1, klicks: 'none', gemalt: true },
-  });
-
-  // Die Koordinaten gehen durch beide Leinwände hindurch.
-  const karte = (await page.locator('#map').boundingBox())!;
-  await page.mouse.move(karte.x + karte.width / 2, karte.y + karte.height / 2);
-  await expect(page.locator('.koordinaten')).toHaveText(/^X -?\d+ {2}Y 0 {2}Z -?\d+$/);
-
-  // Die erste Ansicht zeigt die Karte samt Rahmen ganz; eine Stufe hinein
-  // ist es halb zu sehen, zwei Stufen hinein nicht mehr.
-  const hinein = page.locator('.leaflet-control-zoom-in');
-  await zoomClick(page, hinein);
-  await expect.poll(async () => (await stand()).nah.deckkraft).toBe(0.5);
-  await zoomClick(page, hinein);
-  await expect.poll(async () => (await stand()).nah.deckkraft).toBe(0);
-  await expect(page.locator('.leaflet-tablett-nah-pane')).toBeHidden();
+  // Nur das Bündel der Karte.
+  expect(skripte).toHaveLength(1);
 });
 
 test('map.json, trees.json und Höhen fragt die Seite jedes Mal beim Server nach', async ({

@@ -131,9 +131,9 @@ kosten Cinematic im Median 3 % am Stand und 5,4 % im Fichtenwald, siehe
 ## Die grosse Welt
 
 Die grosse Welt hat 2,5 Millionen Chunks und bei scale 32 rund 2,5
-Millionen Basiskacheln. Ganz gemessen sind die Vollrender mit #11, mit #21
-und mit #49, alle mit Live-Ansicht nebenher; die übrigen Zahlen sind aus
-Ausschnitten hochgerechnet:
+Millionen Basiskacheln. Ganz gemessen sind die Vollrender mit #11, mit #21,
+mit #49 und mit Cinematic, alle mit Live-Ansicht nebenher; die übrigen
+Zahlen sind aus Ausschnitten hochgerechnet:
 
 | Stand | Grösse | Dauer | | Messung |
 |---|---|---|---|---|
@@ -148,6 +148,7 @@ Ausschnitten hochgerechnet:
 | #49 mit #53, scale 24, eine native Stufe | 110 GB: Basis 82,5, native Stufe 19,4, Pyramide 8,5 | 55 min: Basis 29,6, native Stufe 23,3 | gemessen | [2026-09-29, Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md) |
 | #59, native Stufen in Bändern, drei native Stufen | wie mit #49 | 76 bis 79 min: native Stufen 31 bis 34 statt 50 | hochgerechnet | [2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md) |
 | #73, Cinematic, drei native Stufen | rund 184 bis 198 GB, 2 % weniger bis 5 % mehr | rund 3,0 bis 5,2 h: Basis 2,0 bis 3,4 h, native Stufen 1,1 bis 1,8 h | hochgerechnet | [2026-10-03, Cinematic mit Sonne](../messungen/2026-10-03-cinematic-mit-sonne.md) |
+| `4d1abbc`, Cinematic, 8:5, eine native Stufe, Rechteck aus 1564 × 1564 Chunks | 222,8 GB: Basis 165,5, native Stufe 41,3, Pyramide 16,0 | 5 h 26 min: Basis 3 h 58 min, native Stufe 1 h 26 min; ohne Live-Ansicht Basis rund 7 % kürzer | gemessen | [2026-10-04, Vollrender mit Cinematic](../messungen/2026-10-04-vollrender-cinematic.md) |
 
 Die Grössen sind Summen der Dateigrössen. Belegt ist auf NTFS mit Clustern
 zu 4 KiB mehr: beim Lauf mit #21 rund 194 GB, davon 6,8 GB Verschnitt und
@@ -172,7 +173,10 @@ Messung, den Fichtenwald für das untere Ende, den Stand für das obere: die
 Basis von 43,6 min mit #49 mal 2,69 bis 4,72, die nativen Stufen von 31 bis
 34 min mit #59 mal 2,11 bis 3,18, die Bytes mal 0,98 bis 1,05. 0056 rechnete
 für die Basis mit 2,1 bis 3,8 h. Wie bei #34 kommen die Faktoren aus
-Ausschnitten; ein Vollrender mit Cinematic ist nicht gemessen.
+Ausschnitten. Gemessen ist seitdem ein Vollrender mit Cinematic in 8:5 mit
+einer nativen Stufe, nicht in 2:1 mit dreien: 5 h 26 min für 222,8 GB, in
+der Hochrechnung dafür von 4,3 bis 8,3 h, siehe
+[2026-10-04, Vollrender mit Cinematic](../messungen/2026-10-04-vollrender-cinematic.md).
 
 Die Pyramide brauchte im Vollrender mit #21 26 von 66 min. Seitdem baut
 #38 sie schneller von der Platte und #39 die feinen Stufen schon während
@@ -182,7 +186,9 @@ Was das am Vollrender bringt, ist nicht hochgerechnet.
 
 Die Live-Ansicht kostet: Solange `--pyramid` nebenher läuft, schafft die
 Basis gerechnet nur die Hälfte. Ohne sie wäre der Lauf mit #21 geschätzt
-etwa 50 min lang, siehe dort.
+etwa 50 min lang, siehe dort. Im Vollrender mit Cinematic kostete sie die
+Basis gemessen rund 7 %: 152 statt 231 Kacheln/s während eines Aufrufs,
+siehe [2026-10-04, Vollrender mit Cinematic](../messungen/2026-10-04-vollrender-cinematic.md).
 
 Die Grösse wächst nach libwebp wieder, weil man mit #17 ins Wasser sieht
 und sich die Verläufe der weichen Beleuchtung schlechter packen als ebene

@@ -153,7 +153,8 @@ Kachel stehen wie eine ohne Chunk, siehe unten.
 Eine Basiskachel, in die kein Block mehr reicht und die der Lauf nicht
 zeichnet, etwa weil ein Editor den Chunk zurückgesetzt hat, entfernt der
 Export nur mit `--prune`, dann auf jeder Stufe. Im Gebiet eines Chunks, der
-im Stand stand und jetzt fehlt, gilt das auch für ein Update. Bis zum Ende der Pyramide läuft ein Lauf mit dem Schalter wie einer
+im Stand stand und jetzt fehlt, gilt das auch für ein Update.
+Bis zum Ende der Pyramide läuft ein Lauf mit dem Schalter wie einer
 ohne ihn; erst dann nimmt er diese Kacheln heraus und setzt die Stufen über
 ihnen ohne sie neu zusammen. Ohne den Schalter zählt er sie und lässt sie
 stehen; nur wo der Lauf eine native Elternkachel ohnehin neu rendert, fehlt
@@ -212,5 +213,5 @@ Eltern neu, auch einer, dessen Vorlauf dort nichts mehr findet; einer mit
   den Chunk, die Basis darunter noch mit ihm; rendert sie leer, bleibt sie
   durchsichtig stehen. Die Ausgabe nennt den Schalter.
 - **Ohne Stand bleiben Kacheln stehen, in die ein Chunk nicht mehr reicht,**
-  etwa über einem abgerissenen Turm, bis `--prune`. Ein voller Lauf über
-  einen neuen Baum schreibt den Stand, danach zeichnet jeder Lauf sie.
+  etwa über einem abgerissenen Turm, bis `--prune`. Jeder volle Lauf über
+  die ganze Welt schreibt den Stand, danach zeichnet jeder Lauf sie.

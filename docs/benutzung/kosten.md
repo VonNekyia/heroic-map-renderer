@@ -140,6 +140,7 @@ Ausschnitten hochgerechnet:
 | #49 mit #53, drei native Stufen | 188 GB: Basis 142,2, native Stufen 44,6, Pyramide 1,1 | 95 min: Basis 43,6, native Stufen 50 | gemessen | [2026-09-29, Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md) |
 | #49 mit #53, scale 24, eine native Stufe | 110 GB: Basis 82,5, native Stufe 19,4, Pyramide 8,5 | 55 min: Basis 29,6, native Stufe 23,3 | gemessen | [2026-09-29, Vollrender mit #49](../messungen/2026-09-29-vollrender-mit-49.md) |
 | #59, native Stufen in Bändern, drei native Stufen | wie mit #49 | 76 bis 79 min: native Stufen 31 bis 34 statt 50 | hochgerechnet | [2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md) |
+| #73, Cinematic, drei native Stufen | rund 184 bis 198 GB, 2 % weniger bis 5 % mehr | rund 3,0 bis 5,2 h: Basis 2,0 bis 3,4 h, native Stufen 1,1 bis 1,8 h | hochgerechnet | [2026-10-03, Cinematic mit Sonne](../messungen/2026-10-03-cinematic-mit-sonne.md) |
 
 Die Grössen sind Summen der Dateigrössen. Belegt ist auf NTFS mit Clustern
 zu 4 KiB mehr: beim Lauf mit #21 rund 194 GB, davon 6,8 GB Verschnitt und
@@ -158,6 +159,13 @@ nimmt die 33 bis 38 %, um die die nativen Stufen an den Ausschnitten mit
 Karte und auf einem Thread kürzer wurden; mit 24 Threads ohne Karte waren
 es am Stand 30 %. Eine einzelne native Stufe teilt nichts und bleibt, wie
 sie war.
+
+Die Hochrechnung für Cinematic nimmt die Faktoren gegen die Karte aus der
+Messung, den Fichtenwald für das untere Ende, den Stand für das obere: die
+Basis von 43,6 min mit #49 mal 2,69 bis 4,72, die nativen Stufen von 31 bis
+34 min mit #59 mal 2,11 bis 3,18, die Bytes mal 0,98 bis 1,05. 0056 rechnete
+für die Basis mit 2,1 bis 3,8 h. Wie bei #34 kommen die Faktoren aus
+Ausschnitten; ein Vollrender mit Cinematic ist nicht gemessen.
 
 Die Pyramide brauchte im Vollrender mit #21 26 von 66 min. Seitdem baut
 #38 sie schneller von der Platte und #39 die feinen Stufen schon während

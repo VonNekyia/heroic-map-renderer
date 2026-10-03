@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::palette::{BlockState, PackedIndices, Paletted};
 
@@ -141,7 +141,8 @@ fn zahl(wert: &Option<fastnbt::Value>) -> i32 {
 pub enum Blockdaten {
     /// `patterns`: je Lage das Muster und der Name des Farbstoffs.
     Banner(Vec<(Muster, String)>),
-    /// `sherds`: die Items hinten, links, rechts und vorne, höchstens vier.
+    /// `sherds`: die Items hinten, links, rechts und vorne, höchstens vier;
+    /// eine leere Seite als leerer Text.
     Krug(Vec<String>),
 }
 
@@ -183,8 +184,9 @@ impl BlockEntityNbt {
 
     /// Liest die Daten wie `BannerBlockEntity` und `DecoratedPotBlockEntity`
     /// in 26.2: Ein Eintrag, den der Codec ablehnt, fällt heraus, die
-    /// übrigen rücken auf (`ListCodec`, `TagValueInput.read`). `None` ohne
-    /// Daten, die das Bild ändern.
+    /// übrigen rücken auf (`ListCodec`, `TagValueInput.read`). Die Scherben
+    /// eines Krugs aus 26.3 stehen als Objekt, siehe [`seiten_ab_26_3`].
+    /// `None` ohne Daten, die das Bild ändern.
     fn daten(self, art: Art) -> Option<Blockdaten> {
         // Eine Liste aus Werten verschiedener Art speichert das Spiel als
         // Liste von Compounds, jeden Wert unter dem leeren Namen, und packt
@@ -205,8 +207,9 @@ impl BlockEntityNbt {
             Art::Banner => {
                 Blockdaten::Banner(liste(self.patterns).into_iter().filter_map(lage).collect())
             }
-            Art::Krug => Blockdaten::Krug(
-                liste(self.sherds)
+            Art::Krug => Blockdaten::Krug(match self.sherds {
+                Some(fastnbt::Value::Compound(seiten)) => seiten_ab_26_3(seiten),
+                sherds => liste(sherds)
                     .into_iter()
                     .filter_map(|item| match item {
                         fastnbt::Value::String(item) => Some(item),
@@ -214,7 +217,7 @@ impl BlockEntityNbt {
                     })
                     .take(4)
                     .collect(),
-            ),
+            }),
         };
         match &daten {
             Blockdaten::Banner(v) if v.is_empty() => None,
@@ -222,6 +225,34 @@ impl BlockEntityNbt {
             _ => Some(daten),
         }
     }
+}
+
+/// Die Seiten eines Krugs ab 26.3 (`PotDecorations.CODEC`, nach
+/// `PotDecorationsBlockEntityUnflatteningFix`): `back`, `left`, `right` und
+/// `front`, je optional ein `ItemStackTemplate`, ein Item-Name oder ein
+/// Compound mit `id`. Eine Seite, die fehlt oder sich nicht lesen lässt, ist
+/// leer, die übrigen bleiben: `TagValueInput.read` nimmt das Teilergebnis.
+/// Ein `count` ausserhalb von 1 bis 99 behält das Item, ebenso als
+/// Teilergebnis. Leere Seiten am Ende fallen weg, so gleicht ein Krug dem
+/// aus 26.2.
+/// Siehe docs/renderer/blockentities.md, „Daten aus dem Chunk“.
+fn seiten_ab_26_3(mut seiten: HashMap<String, fastnbt::Value>) -> Vec<String> {
+    use fastnbt::Value;
+    let mut items: Vec<String> = ["back", "left", "right", "front"]
+        .into_iter()
+        .map(|seite| match seiten.remove(seite) {
+            Some(Value::String(item)) => item,
+            Some(Value::Compound(mut vorlage)) => match vorlage.remove("id") {
+                Some(Value::String(item)) => item,
+                _ => String::new(),
+            },
+            _ => String::new(),
+        })
+        .collect();
+    while items.last().is_some_and(String::is_empty) {
+        items.pop();
+    }
+    items
 }
 
 /// Die beiden Blockentities, deren Daten der Renderer liest.
@@ -276,12 +307,15 @@ struct PalettedNbt<T> {
     data: Option<fastnbt::LongArray>,
 }
 
+/// Ein Eintrag der Palette. Ab 26.3 heissen die Felder `id` und
+/// `properties` (`BlockStateFieldNamesFix`, DataVersion 5006); Chunks, die
+/// der Server noch nicht neu gespeichert hat, behalten die alten Namen.
 #[derive(Deserialize)]
 struct PaletteEntry {
-    #[serde(rename = "Name")]
+    #[serde(rename = "Name", alias = "id")]
     name: String,
     /// Sortiert, wie `BlockState` sie will.
-    #[serde(rename = "Properties", default)]
+    #[serde(rename = "Properties", alias = "properties", default)]
     properties: BTreeMap<String, String>,
 }
 
@@ -800,6 +834,146 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    /// Die Scherben eines Krugs aus 26.3 als Objekt, wie
+    /// `PotDecorations.CODEC` sie liest: je Seite ein Item-Name oder ein
+    /// Compound mit `id`, eine fehlende Seite leer. Was sich nicht lesen
+    /// lässt, eine Zahl oder ein Compound ohne `id`, ist leer, die übrigen
+    /// bleiben; ein `count` ausserhalb von 1 bis 99 behält das Item. Ohne
+    /// eine Seite mit Item trägt der Krug nichts bei.
+    #[test]
+    fn krug_ab_26_3() {
+        use fastnbt::Value;
+        let text = |text: &str| Value::String(text.to_string());
+        let compound = |felder: Vec<(&str, Value)>| {
+            Value::Compound(
+                felder
+                    .into_iter()
+                    .map(|(name, wert)| (name.to_string(), wert))
+                    .collect(),
+            )
+        };
+        let krug = |x: i32, seiten| {
+            compound(vec![
+                ("id", text("minecraft:decorated_pot")),
+                ("x", Value::Int(x)),
+                ("y", Value::Int(64)),
+                ("z", Value::Int(0)),
+                ("sherds", seiten),
+            ])
+        };
+        let nbt = nbt_mit(Value::List(vec![
+            krug(
+                0,
+                compound(vec![
+                    ("back", text("minecraft:brick")),
+                    (
+                        "left",
+                        compound(vec![
+                            ("id", text("angler_pottery_sherd")),
+                            ("count", Value::Int(1)),
+                        ]),
+                    ),
+                    ("front", text("minecraft:skull_pottery_sherd")),
+                ]),
+            ),
+            krug(
+                1,
+                compound(vec![
+                    ("right", Value::Int(1)),
+                    ("front", compound(vec![("count", Value::Int(1))])),
+                ]),
+            ),
+            krug(
+                2,
+                compound(vec![
+                    ("back", Value::Int(3)),
+                    (
+                        "left",
+                        compound(vec![
+                            ("id", text("minecraft:heart_pottery_sherd")),
+                            ("count", Value::Int(0)),
+                        ]),
+                    ),
+                ]),
+            ),
+        ]));
+        let chunk = Chunk::decode(&nbt).unwrap();
+        let items = |items: &[&str]| items.iter().map(|item| item.to_string()).collect();
+        assert_eq!(
+            gelesen(&chunk),
+            [
+                (
+                    [0, 64, 0],
+                    Blockdaten::Krug(items(&[
+                        "minecraft:brick",
+                        "angler_pottery_sherd",
+                        "",
+                        "minecraft:skull_pottery_sherd",
+                    ]))
+                ),
+                (
+                    [2, 64, 0],
+                    Blockdaten::Krug(items(&["", "minecraft:heart_pottery_sherd"]))
+                ),
+            ]
+        );
+    }
+
+    /// Die Palette ab 26.3 mit `id` und `properties`, daneben eine Section
+    /// mit den alten Namen, wie in einer Welt, die erst zum Teil neu
+    /// gespeichert ist: Beide lesen dieselben Blöcke.
+    #[test]
+    fn palette_ab_26_3() {
+        use fastnbt::Value;
+        let text = |text: &str| Value::String(text.to_string());
+        let compound = |felder: Vec<(&str, Value)>| {
+            Value::Compound(
+                felder
+                    .into_iter()
+                    .map(|(name, wert)| (name.to_string(), wert))
+                    .collect(),
+            )
+        };
+        let section = |y: i8, name: &str, properties: &str| {
+            let eintrag = compound(vec![
+                (name, text("minecraft:oak_log")),
+                (properties, compound(vec![("axis", text("x"))])),
+            ]);
+            compound(vec![
+                ("Y", Value::Byte(y)),
+                (
+                    "block_states",
+                    compound(vec![("palette", Value::List(vec![eintrag]))]),
+                ),
+                (
+                    "biomes",
+                    compound(vec![(
+                        "palette",
+                        Value::List(vec![text("minecraft:plains")]),
+                    )]),
+                ),
+            ])
+        };
+        let nbt = compound(vec![
+            ("DataVersion", Value::Int(5023)),
+            ("xPos", Value::Int(0)),
+            ("zPos", Value::Int(0)),
+            ("Status", text("minecraft:full")),
+            (
+                "sections",
+                Value::List(vec![
+                    section(0, "id", "properties"),
+                    section(1, "Name", "Properties"),
+                ]),
+            ),
+        ]);
+        let chunk = Chunk::decode(&fastnbt::to_bytes(&nbt).unwrap()).unwrap();
+        let stamm = BlockState::new("minecraft:oak_log", vec![("axis".into(), "x".into())]);
+        for y in [0, 16] {
+            assert_eq!(chunk.block_at(0, y, 0), Some(&stamm), "y = {y}");
+        }
     }
 
     /// Die Blockentities eines Chunks mit Weltkoordinate, nach Stelle.

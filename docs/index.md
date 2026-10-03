@@ -114,6 +114,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0056](entscheidungen/0056-exakter-strahl-zur-sonne.md): Exakter Strahl zur Sonne ohne Ziel von 0,5 µs: rund 0,7 bis 0,9 µs je Strahl angenommen, keine Schattenkarte.
 - [0057](entscheidungen/0057-flaechen-vor-einem-vollen-nachbarn.md): Flächen vor einem vollen Nachbarn nach der Tabelle des Spiels: `seiten.txt` sagt, wo ein Block voll deckt, gefragt wird nur zu Seiten, deren Flächen der Nachbar nicht übermalt.
 - [0058](entscheidungen/0058-look-von-cinematic.md): Look von Cinematic. In der Sonne wie die Karte; Kurve bis zum Knie gerade; Weissabgleich nach der Temperatur des Bioms; Bodenpflanzen dämpfen die Sonne auf die Hälfte; kein Nebel.
+- [0059](entscheidungen/0059-welten-aus-26-2-und-26-3.md): Welten und Packs aus 26.2 und 26.3, Tabellen aus 26.3; die Testwelt bleibt auf 26.2.
 
 ## Messungen
 

@@ -28,6 +28,16 @@ Renderer ihren Seed nicht und manche ihrer Blocknamen nicht, und ein Block
 ohne Asset bricht den Lauf vor der ersten Kachel ab. Warum die Grenze bei
 26.1 liegt: [0015](../entscheidungen/0015-nur-welten-ab-26-1.md).
 
+Welten aus 26.3 liest er ebenso, auch solche, die der Server erst zum Teil
+neu gespeichert hat ([0059](../entscheidungen/0059-welten-aus-26-2-und-26-3.md)):
+- **Palette:** Ab 26.3 heissen ihre Felder `id` und `properties` statt
+  `Name` und `Properties` (`BlockStateFieldNamesFix`, DataVersion 5006).
+  Der Renderer liest beide (`PaletteEntry` in
+  [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs),
+  getestet in `palette_ab_26_3`).
+- **Scherben eines Krugs:** Sie stehen ab 26.3 als Objekt, siehe
+  [Blockentities](../renderer/blockentities.md), „Krug“.
+
 ## Nicht fertig erzeugte Chunks
 
 Am Rand jedes erzeugten Gebiets liegen Chunks, die das Spiel angefangen,

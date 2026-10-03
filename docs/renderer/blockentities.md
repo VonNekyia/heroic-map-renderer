@@ -188,6 +188,20 @@ ein Muster mit `asset_id` und `translation_key` (`BannerPattern.CODEC`),
 `sherds` nennt bis zu vier Items: hinten, links, rechts, vorne
 (`PotDecorations.ordered`).
 
+- **Bis 26.2** ist es eine Liste von Item-Namen, wie oben.
+- **Ab 26.3** ist es ein Objekt mit `back`, `left`, `right` und `front`
+  (`PotDecorationsBlockEntityUnflatteningFix`, DataVersion 4996), je
+  optional ein `ItemStackTemplate`: ein Item-Name oder ein Compound mit
+  `id`, dazu `count` und `components`.
+  - Eine Seite, die fehlt oder sich nicht lesen lässt, etwa eine Zahl oder
+    ein Compound ohne `id`, ist leer; die übrigen bleiben
+    (`OptionalFieldCodec` setzt das Teilergebnis, `TagValueInput.read`
+    nimmt es).
+  - Ein `count` ausserhalb von 1 bis 99 behält das Item, ebenso als
+    Teilergebnis. `components` liest der Renderer nicht; die Scherbe kommt
+    im Spiel vom Item.
+  - Getestet: `krug_ab_26_3` in `chunk.rs`.
+
 - Welche Zeichnung welchen Platz trägt, findet der Generator, indem er
   den Krug mit vier verschiedenen Scherben zeichnen lässt.
 - Die Textur kommt aus `DecoratedPotRenderer.DECORATED_POT_SPRITES`, nach

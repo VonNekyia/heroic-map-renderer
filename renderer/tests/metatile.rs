@@ -11,7 +11,8 @@ use image::RgbaImage;
 use rayon::prelude::*;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
-use terranova_render::render::metatile::STUECK;
+use terranova_render::render::look::LOOK;
+use terranova_render::render::metatile::{STUECK, render_hdr_with};
 use terranova_render::render::rasterizer::{
     Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
 };
@@ -201,35 +202,46 @@ fn kleine_ausschnitte_gleichen_dem_grossen_bild() {
         let survey = survey(&world, projection, y_range, None).unwrap();
         let mut assets = assets();
         assets.load_biomes(&common::biomdaten()).unwrap();
-        let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
-        let ganz = rect_um(projection, [0, -16, 0], [32, 48, 32]);
-        let gross = render_area(&world, &sprites, ganz, y_range).unwrap();
-        let mut ausschnitte = 0;
-        for y in (ganz.y..ganz.bottom()).step_by(128) {
-            for x in (ganz.x..ganz.right()).step_by(128) {
-                let rect = ScreenRect {
-                    x,
-                    y,
-                    width: 128.min((ganz.right() - x) as u32),
-                    height: 128.min((ganz.bottom() - y) as u32),
-                };
-                let klein = render_area(&world, &sprites, rect, y_range).unwrap();
-                let soll = image::imageops::crop_imm(
-                    &gross,
-                    (x - ganz.x) as u32,
-                    (y - ganz.y) as u32,
-                    rect.width,
-                    rect.height,
-                )
-                .to_image();
-                assert!(
-                    klein == soll,
-                    "{kamera} aus {k} bei {scale}: Ausschnitt bei ({x}, {y})"
-                );
-                ausschnitte += 1;
+        // Die Karte und Cinematic.
+        for look in [None, Some(LOOK)] {
+            let sprites =
+                SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, look)
+                    .unwrap();
+            let ganz = rect_um(projection, [0, -16, 0], [32, 48, 32]);
+            let gross = render_area(&world, &sprites, ganz, y_range).unwrap();
+            assert!(
+                gross == render_area(&world, &sprites, ganz, y_range).unwrap(),
+                "{kamera} aus {k} bei {scale}, Cinematic {}: zweimal anders",
+                look.is_some()
+            );
+            let mut ausschnitte = 0;
+            for y in (ganz.y..ganz.bottom()).step_by(128) {
+                for x in (ganz.x..ganz.right()).step_by(128) {
+                    let rect = ScreenRect {
+                        x,
+                        y,
+                        width: 128.min((ganz.right() - x) as u32),
+                        height: 128.min((ganz.bottom() - y) as u32),
+                    };
+                    let klein = render_area(&world, &sprites, rect, y_range).unwrap();
+                    let soll = image::imageops::crop_imm(
+                        &gross,
+                        (x - ganz.x) as u32,
+                        (y - ganz.y) as u32,
+                        rect.width,
+                        rect.height,
+                    )
+                    .to_image();
+                    assert!(
+                        klein == soll,
+                        "{kamera} aus {k} bei {scale}, Cinematic {}: Ausschnitt bei ({x}, {y})",
+                        look.is_some()
+                    );
+                    ausschnitte += 1;
+                }
             }
+            assert!(ausschnitte >= 4, "{kamera}: nur {ausschnitte} Ausschnitte");
         }
-        assert!(ausschnitte >= 4, "{kamera}: nur {ausschnitte} Ausschnitte");
     }
 }
 
@@ -526,6 +538,241 @@ fn schneller_weg_gleicht_der_referenz() {
     });
 }
 
+/// Cinematic zeichnet dieselben Draws wie die Karte, bei jeder Kamera und
+/// Richtung der Invarianten: dieselben Sprite-Teile an denselben Stellen,
+/// mit denselben Pixeln, AO-Karten und Farben des Bioms. Sein Licht trägt
+/// Himmels- und Blocklicht getrennt in Sechzehnteln und den Schatten der
+/// weichen Beleuchtung; durch die Lightmap gerechnet ist es an jeder Ecke
+/// und für das Wasser das Licht der Karte. Im Bild ist genau da ein Pixel,
+/// wo die Karte einen hat; sein Alpha weicht höchstens um eins ab, denn die
+/// Karte rundet nach jeder Schicht, Cinematic erst am Ende.
+/// Siehe docs/renderer/cinematic.md, „Licht an den Ecken“.
+#[test]
+fn cinematic_zeichnet_dieselben_draws_wie_die_karte() {
+    let dir = tempdir();
+    let world = common::write_szene(dir.path());
+    let y_range = common::SZENE_Y;
+    let daten = common::biomdaten();
+    let zwei_zu_eins = [4, 16, 32].map(Projection::new);
+    let projektionen: Vec<Projection> = zwei_zu_eins.into_iter().chain(kameras()).collect();
+    projektionen.into_par_iter().for_each(|projection| {
+        let survey = survey(&world, projection, y_range, None).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&daten).unwrap();
+        let karte = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        let kino =
+            SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+                .unwrap();
+        let rect = rect_um(projection, [0, -16, 0], [32, 41, 32]);
+        let liste =
+            |sprites| draw_list(&mut ChunkCache::new(&world, sprites), rect, y_range).unwrap();
+        let (a, b) = (liste(&karte), liste(&kino));
+        let wo = format!(
+            "{}, scale {}, {:?}",
+            projection.kamera(),
+            projection.scale(),
+            projection.richtung()
+        );
+        assert_eq!(a.len(), b.len(), "{wo}");
+        assert!(a.len() > 100, "{wo}: Szene nicht im Bild");
+        // Die Kanäle von Cinematic durch die Lightmap: was die Karte dort hat.
+        let lightmap = karte.lightmap();
+        let wie_karte =
+            |[s, b, ao]: [u32; 3]| lightmap.linear(s << 16 | b).map(|l| (l * ao + 127) / 255);
+        let ecke = |licht: [u32; 3], ecken: &Option<Ecken>, seite: usize, i: usize| match ecken {
+            Some(e) => std::array::from_fn(|c| e[c][seite] >> (8 * i) & 255),
+            None => licht,
+        };
+        for (k, c) in a.iter().zip(&b) {
+            assert_eq!(
+                (
+                    k.origin,
+                    k.sprite.offset,
+                    k.sprite.image.dimensions(),
+                    k.tint
+                ),
+                (
+                    c.origin,
+                    c.sprite.offset,
+                    c.sprite.image.dimensions(),
+                    c.tint
+                ),
+                "{wo}"
+            );
+            assert_eq!(k.sprite.ao, c.sprite.ao, "{wo}: AO-Karte");
+            let alpha = |p: &image::Rgba<u8>| p.0[3];
+            assert!(
+                k.sprite
+                    .image
+                    .pixels()
+                    .map(alpha)
+                    .eq(c.sprite.image.pixels().map(alpha)),
+                "{wo}: Alpha"
+            );
+            assert!(
+                k.sprite.geometrie.is_none() && c.sprite.geometrie.is_some(),
+                "{wo}"
+            );
+            assert_eq!(k.licht, wie_karte(c.licht), "{wo}: Licht");
+            assert_eq!(
+                k.wasser.unwrap_or(k.licht),
+                wie_karte(c.wasser.unwrap_or(c.licht)),
+                "{wo}: Wasser"
+            );
+            for seite in 0..3 {
+                for i in 0..4 {
+                    assert_eq!(
+                        ecke(k.licht, &k.ecken, seite, i),
+                        wie_karte(ecke(c.licht, &c.ecken, seite, i)),
+                        "{wo}: Seite {seite}, Ecke {i}"
+                    );
+                }
+            }
+        }
+        let bild = |sprites| render_area(&world, sprites, rect, y_range).unwrap();
+        let (a, b) = (bild(&karte), bild(&kino));
+        for (p, q) in a.pixels().zip(b.pixels()) {
+            assert_eq!(p.0[3] > 0, q.0[3] > 0, "{wo}: Pixel offen");
+            assert!(
+                p.0[3].abs_diff(q.0[3]) <= 1,
+                "{wo}: Alpha {} statt {}",
+                q.0[3],
+                p.0[3]
+            );
+        }
+    });
+}
+
+/// Cinematic hält je Pixel die Tiefe der vordersten Fläche entlang der
+/// Blickachse: auf der Oberseite eines Blocks die ihrer Ebene an der Mitte
+/// des Pixels, wo kein Block ist, −∞.
+/// Siehe docs/renderer/cinematic.md, „Zeichnen in HDR“.
+#[test]
+fn hdr_haelt_die_tiefe_der_vordersten_flaeche() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 3, 8) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    let kino =
+        SpriteSet::build_mit_licht(&mut assets(), &states, projection, None, Some(LOOK)).unwrap();
+    let rect = rect_um(projection, [8, 3, 8], [9, 4, 9]);
+    let hdr = render_hdr_with(&mut ChunkCache::new(&world, &kino), rect, Y_RANGE).unwrap();
+    let (sx, sy) = projection.project([8.5, 4.0, 8.5]);
+    let (px, py) = (sx.floor() as i32, sy.floor() as i32);
+    let i = ((py - rect.y) as u32 * hdr.width + (px - rect.x) as u32) as usize;
+    // Auf der Oberseite, y = 4, aus der Mitte des Pixels: u = x − z,
+    // v = x + z.
+    let u = (px as f32 + 0.5) / projection.h() as f32;
+    let v = (py as f32 + 0.5 + 4.0 * projection.b() as f32) / projection.a() as f32;
+    let soll = projection.depth([(v + u) / 2.0, 4.0, (v - u) / 2.0]);
+    assert!(
+        (hdr.tiefe[i] - soll).abs() < 1e-3,
+        "Tiefe {} statt {soll}",
+        hdr.tiefe[i]
+    );
+    assert_eq!(hdr.farbe[i][3], 1.0);
+    assert_eq!((hdr.tiefe[0], hdr.farbe[0][3]), (f32::NEG_INFINITY, 0.0));
+}
+
+/// Zwei Draws auf einem Pixel: Eis vor der Ostseite eines Blocks, beide
+/// gezeichnet, denn Eis deckt nicht ganz. Die Tiefe ist die der Oberseite
+/// des Eises, der vorderen Fläche, und der Pixel deckt ganz.
+#[test]
+fn hdr_haelt_die_tiefe_des_vorderen_draws() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 3, 8) => "minecraft:einfarbig",
+        (9, 3, 9) => "minecraft:ice",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let states = survey(&world, projection, Y_RANGE, None).unwrap().states;
+    let kino =
+        SpriteSet::build_mit_licht(&mut assets(), &states, projection, None, Some(LOOK)).unwrap();
+    let rect = rect_um(projection, [8, 3, 8], [10, 4, 10]);
+    let hdr = render_hdr_with(&mut ChunkCache::new(&world, &kino), rect, Y_RANGE).unwrap();
+    // Auf der Oberseite des Eises, vor der Ostseite von (8, 3, 8) bei y 3,7.
+    let (sx, sy) = projection.project([9.3, 4.0, 9.1]);
+    let (px, py) = (sx.floor() as i32, sy.floor() as i32);
+    let i = ((py - rect.y) as u32 * hdr.width + (px - rect.x) as u32) as usize;
+    let u = (px as f32 + 0.5) / projection.h() as f32;
+    let v = (py as f32 + 0.5 + 4.0 * projection.b() as f32) / projection.a() as f32;
+    let eis = projection.depth([(v + u) / 2.0, 4.0, (v - u) / 2.0]);
+    let (ostseite, z) = (projection.depth([9.0, 3.7, 8.8]), (v - u) / 2.0);
+    assert!((9.0..10.0).contains(&z), "z {z}");
+    assert!(eis > ostseite);
+    assert!(
+        (hdr.tiefe[i] - eis).abs() < 1e-3,
+        "Tiefe {} statt {eis}",
+        hdr.tiefe[i]
+    );
+    assert_eq!(hdr.farbe[i][3], 1.0);
+}
+
+/// Ein Biom mit eigener `sky_color` färbt das Himmelslicht, gemischt über
+/// die Blöcke im Quadrat mit dem Radius 2, auch aus `nw`: Die Oberseite
+/// eines Blocks im vollen Himmelslicht hat in HDR die Textur linear mal dem
+/// Himmelslicht dreifach und der Umgebung. Frozen setzt in der Fixture
+/// `#ffa040`, plains nichts und nimmt den Himmel der Oberwelt. Mitten in
+/// einem Biom gilt seine Farbe, an der Grenze bei x = 16 das Mittel der 25
+/// Blöcke, zwei Spalten plains und drei frozen. Das Soll in Python
+/// gerechnet.
+/// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
+#[test]
+fn biom_faerbt_das_himmelslicht() {
+    let dir = tempdir();
+    let boden = |_: i32, y: i32, _: i32| {
+        if y <= 3 {
+            "minecraft:einfarbig"
+        } else {
+            "minecraft:air"
+        }
+    };
+    let biom = |cx: i32, _: i32| {
+        Some(if cx == 0 {
+            "minecraft:plains"
+        } else {
+            "minecraft:frozen"
+        })
+    };
+    common::write_world_sections(dir.path(), &[(0, 0), (1, 0)], 0..=0, boden, biom);
+    let world = World::open(dir.path()).unwrap();
+    let kamera = Kamera::ZWEI_ZU_EINS;
+    let projection = Projection::new(16).aus(Richtung::parse("nw", kamera).unwrap());
+    let survey = survey(&world, projection, Y_RANGE, None).unwrap();
+    let mut assets = assets();
+    assets.load_biomes(&common::biomdaten()).unwrap();
+    let mut kino =
+        SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+            .unwrap();
+    kino.set_biomes(BiomeTable::new(assets.colors()).with(2, None));
+    let rect = rect_um(projection, [0, 0, 0], [32, 4, 16]);
+    let hdr = render_hdr_with(&mut ChunkCache::new(&world, &kino), rect, Y_RANGE).unwrap();
+    for (x, soll) in [
+        (4, [0.2614195, 0.2219919, 0.1373306]),
+        (28, [0.8187543, 0.2097489, 0.0408742]),
+        (16, [0.5958204, 0.2146461, 0.0794568]),
+    ] {
+        // Die Mitte der Oberseite des Blocks (x, 3, 8), im Blick.
+        let [bx, by, bz] = blick(projection, [x, 3, 8]);
+        let (sx, sy) = projection.project([bx as f32 + 0.5, by as f32 + 1.0, bz as f32 + 0.5]);
+        let i =
+            (sy.floor() as i32 - rect.y) as u32 * rect.width + (sx.floor() as i32 - rect.x) as u32;
+        let ist = hdr.farbe[i as usize];
+        assert!(
+            (0..3).all(|c| (ist[c] - soll[c]).abs() < 1e-4) && ist[3] == 1.0,
+            "x = {x}: {ist:?} statt {soll:?}"
+        );
+    }
+}
+
 /// Ein Ausschnitt, grösser als ein Stück von `render_area`, gleicht Byte
 /// für Byte dem in einem Stück gerenderten: die Szene aus `common::szene`
 /// bei scale 32, 1088 mal 1344 Pixel, also vier Stücke mit Nähten mitten
@@ -703,6 +950,26 @@ fn goldbild_bleibt_gleich() {
             render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
         ));
     }
+    // Cinematic in 2:1 um die Treppe aus Stein, mit Gras, Lava und dem Rand
+    // des Beckens, 10 mal 12 Blöcke wie oben.
+    let projection = Projection::new(16);
+    let survey = survey(&world, projection, common::SZENE_Y, None).unwrap();
+    let mut assets = assets();
+    assets.load_biomes(&common::biomdaten()).unwrap();
+    let sprites =
+        SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+            .unwrap();
+    let (mx, my) = projection.project_block([6, 4, 24]);
+    let rect = ScreenRect {
+        x: mx as i32 - 80,
+        y: my as i32 - 96,
+        width: 160,
+        height: 192,
+    };
+    fehler.extend(goldbild(
+        "metatile-cinematic",
+        render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
+    ));
     assert!(fehler.is_empty(), "{}", fehler.join("\n"));
 }
 

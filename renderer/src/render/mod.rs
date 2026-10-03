@@ -1,6 +1,8 @@
 pub mod gpu;
 pub mod heights;
+pub mod kino;
 pub mod licht;
+pub mod look;
 pub mod metatile;
 pub mod projection;
 pub mod pyramid;

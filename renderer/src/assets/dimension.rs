@@ -65,6 +65,13 @@ pub struct DimensionType {
     pub sky_light_color: Tint,
     /// `visual/block_light_tint`.
     pub block_light_tint: Tint,
+    /// `visual/sky_color`, die Farbe des Himmels, wo ein Biom keine setzt.
+    pub sky_color: Tint,
+    /// `visual/fog_color`, die Farbe des Nebels, wo ein Biom keine setzt.
+    pub fog_color: Tint,
+    /// `visual/water_fog_color`, die Farbe des Nebels unter Wasser, wo ein
+    /// Biom keine setzt.
+    pub water_fog_color: Tint,
 }
 
 impl DimensionType {
@@ -215,7 +222,7 @@ impl Dimensionen {
 /// Liest einen Dimensionstyp wie `DimensionType.DIRECT_CODEC` in 26.2, so
 /// weit der Renderer ihn braucht: `has_skylight` ist Pflicht,
 /// `cardinal_light` darf fehlen (`default`), ebenso `attributes`. Von den
-/// Attributen zählen die vier der Lightmap. Steht bei einem statt des
+/// Attributen zählen die aus [`ATTRIBUTE`]. Steht bei einem statt des
 /// Werts ein Modifikator, bleibt die Vorgabe, und `modifikator` nennt es.
 fn typ(json: &Value, modifikator: &mut Option<String>) -> Result<DimensionType> {
     ensure!(json.is_object(), "kein Objekt");
@@ -244,15 +251,19 @@ fn typ(json: &Value, modifikator: &mut Option<String>) -> Result<DimensionType> 
     Ok(typ)
 }
 
-/// Die Attribute, die der Renderer liest.
-const ATTRIBUTE: [&str; 4] = [
+/// Die Attribute, die der Renderer liest: die vier der Lightmap und die
+/// drei Farben des Himmels für Cinematic.
+const ATTRIBUTE: [&str; 7] = [
     "minecraft:visual/ambient_light_color",
     "minecraft:visual/sky_light_factor",
     "minecraft:visual/sky_light_color",
     "minecraft:visual/block_light_tint",
+    "minecraft:visual/sky_color",
+    "minecraft:visual/fog_color",
+    "minecraft:visual/water_fog_color",
 ];
 
-/// Setzt eines der vier Attribute auf seinen Wert, wie ihn
+/// Setzt eines der Attribute aus [`ATTRIBUTE`] auf seinen Wert, wie ihn
 /// `EnvironmentAttribute.valueCodec` liest: Farben wie
 /// `ExtraCodecs.STRING_RGB_COLOR`, `sky_light_factor` von 0 bis 1
 /// (`AttributeRange.UNIT_FLOAT`). Andere Attribute lässt es aus.
@@ -261,6 +272,9 @@ fn setze(typ: &mut DimensionType, id: &str, wert: &Value) -> Result<()> {
         "minecraft:visual/ambient_light_color" => typ.ambient_light_color = color(wert)?,
         "minecraft:visual/sky_light_color" => typ.sky_light_color = color(wert)?,
         "minecraft:visual/block_light_tint" => typ.block_light_tint = color(wert)?,
+        "minecraft:visual/sky_color" => typ.sky_color = color(wert)?,
+        "minecraft:visual/fog_color" => typ.fog_color = color(wert)?,
+        "minecraft:visual/water_fog_color" => typ.water_fog_color = color(wert)?,
         "minecraft:visual/sky_light_factor" => {
             let faktor = float(wert)?;
             ensure!(
@@ -295,7 +309,7 @@ fn dimension(json: &Value, modifikator: &mut Option<String>) -> Result<Verweis> 
 
 /// Eine ID wie `Identifier.parse`: ohne Namensraum, oder mit leerem vor dem
 /// Doppelpunkt, liegt sie unter `minecraft`.
-fn mit_namensraum(id: &str) -> String {
+pub(super) fn mit_namensraum(id: &str) -> String {
     match id.split_once(':') {
         Some((namensraum, _)) if !namensraum.is_empty() => id.to_string(),
         Some((_, pfad)) => format!("minecraft:{pfad}"),
@@ -322,6 +336,9 @@ fn lesen(text: &str) -> Tabelle {
             sky_light_factor: 0.0,
             sky_light_color: [0; 3],
             block_light_tint: [0; 3],
+            sky_color: [0; 3],
+            fog_color: [0; 3],
+            water_fog_color: [0; 3],
         },
         typen: BTreeMap::new(),
     };
@@ -386,6 +403,14 @@ mod tests {
             ),
             ([0; 3], 1.0, WEISS, GELB)
         );
+        assert_eq!(
+            (
+                vorgabe.sky_color,
+                vorgabe.fog_color,
+                vorgabe.water_fog_color
+            ),
+            ([0; 3], [0; 3], [0x05, 0x05, 0x33])
+        );
         let typ = |id: &str| TABELLE.typen[id];
         assert_eq!(TABELLE.typen.len(), 4);
         assert_eq!(
@@ -397,6 +422,9 @@ mod tests {
                 sky_light_factor: 1.0,
                 sky_light_color: WEISS,
                 block_light_tint: GELB,
+                sky_color: [0x78, 0xa7, 0xff],
+                fog_color: [0xc0, 0xd8, 0xff],
+                water_fog_color: [0x05, 0x05, 0x33],
             }
         );
         assert_eq!(typ("minecraft:overworld_caves"), typ("minecraft:overworld"));
@@ -409,6 +437,9 @@ mod tests {
                 sky_light_factor: 0.0,
                 sky_light_color: [0x7a, 0x7a, 0xff],
                 block_light_tint: GELB,
+                sky_color: [0; 3],
+                fog_color: [0; 3],
+                water_fog_color: [0x05, 0x05, 0x33],
             }
         );
         assert_eq!(
@@ -420,6 +451,9 @@ mod tests {
                 sky_light_factor: 0.0,
                 sky_light_color: [0xac, 0x60, 0xcd],
                 block_light_tint: GELB,
+                sky_color: [0; 3],
+                fog_color: [0x18, 0x13, 0x18],
+                water_fog_color: [0x05, 0x05, 0x33],
             }
         );
     }
@@ -468,10 +502,12 @@ mod tests {
                 "minecraft:visual/sky_light_color": 1056816,
                 "minecraft:visual/block_light_tint": [0.5, 0.25, 1.0],
                 "minecraft:visual/sky_light_factor": 0.25,
-                "minecraft:visual/fog_color": "#ffffff"
+                "minecraft:visual/fog_color": "#ffffff",
+                "minecraft:visual/cloud_color": "kein Wert, den der Renderer liest"
             }}"##,
         )
         .unwrap();
+        assert_eq!(bunt.fog_color, [255; 3]);
         assert_eq!(bunt.ambient_light_color, [0x10, 0x20, 0x30]);
         assert_eq!(bunt.sky_light_color, [0x10, 0x20, 0x30]);
         assert_eq!(bunt.block_light_tint, [127, 63, 255]);

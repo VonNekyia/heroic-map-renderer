@@ -17,6 +17,7 @@ use rayon::prelude::*;
 use tempfile::TempDir;
 use terranova_render::assets::{Assets, DimensionType};
 use terranova_render::render::heights::{self, EMPTY, Heights};
+use terranova_render::render::look::LOOK;
 use terranova_render::render::rasterizer::{Light, Lightmap};
 use terranova_render::render::{
     BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Projection, SpriteSet, TileId, encode_webp,
@@ -59,7 +60,8 @@ fn neuer_baum(name: &str) -> Baum {
 }
 
 /// Der Ordner, den ein Lauf mit diesen Schaltern unter der Wurzel
-/// beschreibt: `<kamera>-<richtung>` mit `x` statt `:`.
+/// beschreibt: `<kamera>-<richtung>` mit `x` statt `:`, mit
+/// `--cinematic` dahinter `-cinematic`.
 fn baum_name(extra: &[&str]) -> String {
     let wert = |schalter: &str| {
         extra
@@ -71,7 +73,12 @@ fn baum_name(extra: &[&str]) -> String {
     let kamera = wert("--camera").map_or(Kamera::ZWEI_ZU_EINS, |k| Kamera::parse(&k).unwrap());
     let richtung = wert("--direction")
         .unwrap_or_else(|| (if kamera.genordet() { "s" } else { "se" }).to_string());
-    format!("{}-{richtung}", kamera.to_string().replace(':', "x"))
+    let look = if extra.contains(&"--cinematic") {
+        "-cinematic"
+    } else {
+        ""
+    };
+    format!("{}-{richtung}{look}", kamera.to_string().replace(':', "x"))
 }
 
 /// Ruft die Binärdatei auf.
@@ -1112,81 +1119,86 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
 /// so viele Stufen, wie `--native-levels` verlangt, und nur solange ein
 /// Block auf ganzen Pixeln liegt, also bis scale 4 — oder genau die
 /// Verkleinerung ihrer vier Kinder. Und keine Kachel darf fehlen.
+/// Über der Karte wie über Cinematic.
 #[test]
 fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    let out = neuer_baum("2x1-se");
-    // scale 8 mit einer nativen Stufe (4), dann Verkleinerungen — beide Wege.
-    gelungen(&tiles(
-        welt.path(),
-        out.path(),
-        &["--scale", "8", "--native-levels", "1"],
-    ));
+    for look in [None, Some(LOOK)] {
+        let (name, mut args) = match look {
+            None => ("2x1-se", vec![]),
+            Some(_) => ("2x1-se-cinematic", vec!["--cinematic"]),
+        };
+        let out = neuer_baum(name);
+        // scale 8 mit einer nativen Stufe (4), dann Verkleinerungen — beide Wege.
+        args.extend(["--scale", "8", "--native-levels", "1"]);
+        gelungen(&tiles(welt.path(), out.path(), &args));
 
-    let basis = max_zoom(out.path());
-    assert!(basis > 1, "kein Stapel zu prüfen");
-    assert!(!kacheln(out.path(), basis).is_empty());
+        let basis = max_zoom(out.path());
+        assert!(basis > 1, "kein Stapel zu prüfen");
+        assert!(!kacheln(out.path(), basis).is_empty());
 
-    let world = World::open(welt.path()).unwrap();
-    let states = survey(&world, Projection::new(8), (0, 15), None)
-        .unwrap()
-        .states;
-    let mut nativ = 0;
-    let mut verkleinert = 0;
+        let world = World::open(welt.path()).unwrap();
+        let states = survey(&world, Projection::new(8), (0, 15), None)
+            .unwrap()
+            .states;
+        let mut nativ = 0;
+        let mut verkleinert = 0;
 
-    for z in (0..basis).rev() {
-        let eltern = kacheln(out.path(), z);
-        let kinder = kacheln(out.path(), z + 1);
-        assert!(!eltern.is_empty(), "Zoom {z} ist leer");
+        for z in (0..basis).rev() {
+            let eltern = kacheln(out.path(), z);
+            let kinder = kacheln(out.path(), z + 1);
+            assert!(!eltern.is_empty(), "Zoom {z} ist leer");
 
-        // Nativ nur, solange ein Block auf ganzen Pixeln liegt: scale 4 ja,
-        // scale 2 nicht mehr.
-        let scale = 8 >> (basis - z);
-        let sprites = (scale >= 4).then(|| {
-            let mut assets = Assets::open(vec![assets()]).unwrap();
-            SpriteSet::build_in(&mut assets, &states, Projection::new(scale)).unwrap()
-        });
+            // Nativ nur, solange ein Block auf ganzen Pixeln liegt: scale 4 ja,
+            // scale 2 nicht mehr.
+            let scale = 8 >> (basis - z);
+            let sprites = (scale >= 4).then(|| {
+                let mut assets = Assets::open(vec![assets()]).unwrap();
+                SpriteSet::build_mit_licht(&mut assets, &states, Projection::new(scale), None, look)
+                    .unwrap()
+            });
 
-        for (parent, pfad) in &eltern {
-            if let Some(sprites) = &sprites {
-                let soll = render_area(&world, sprites, parent.rect(), (0, 15)).unwrap();
+            for (parent, pfad) in &eltern {
+                if let Some(sprites) = &sprites {
+                    let soll = render_area(&world, sprites, parent.rect(), (0, 15)).unwrap();
+                    assert_eq!(
+                        bild(pfad).as_raw(),
+                        soll.as_raw(),
+                        "Zoom {z}, {parent:?} ist nicht nativ bei scale {scale} gerendert"
+                    );
+                    nativ += 1;
+                    continue;
+                }
+                let teile: Vec<(TileId, RgbaImage)> = parent
+                    .children()
+                    .into_iter()
+                    .filter(|kind| kinder.contains_key(kind))
+                    .map(|kind| (kind, bild(&kinder[&kind])))
+                    .collect();
+                assert!(!teile.is_empty(), "Zoom {z}, {parent:?} ohne Kinder");
                 assert_eq!(
                     bild(pfad).as_raw(),
-                    soll.as_raw(),
-                    "Zoom {z}, {parent:?} ist nicht nativ bei scale {scale} gerendert"
+                    pyramid::merge(*parent, &teile).as_raw(),
+                    "Zoom {z}, {parent:?} ist nicht die Verkleinerung seiner Kinder"
                 );
-                nativ += 1;
-                continue;
+                verkleinert += 1;
             }
-            let teile: Vec<(TileId, RgbaImage)> = parent
-                .children()
-                .into_iter()
-                .filter(|kind| kinder.contains_key(kind))
-                .map(|kind| (kind, bild(&kinder[&kind])))
-                .collect();
-            assert!(!teile.is_empty(), "Zoom {z}, {parent:?} ohne Kinder");
-            assert_eq!(
-                bild(pfad).as_raw(),
-                pyramid::merge(*parent, &teile).as_raw(),
-                "Zoom {z}, {parent:?} ist nicht die Verkleinerung seiner Kinder"
-            );
-            verkleinert += 1;
-        }
 
-        // Gegenrichtung: kein Kind ohne Elternkachel.
-        for kind in kinder.keys() {
-            assert!(
-                eltern.contains_key(&kind.parent()),
-                "{kind:?} auf Zoom {} hat keine Elternkachel",
-                z + 1
-            );
+            // Gegenrichtung: kein Kind ohne Elternkachel.
+            for kind in kinder.keys() {
+                assert!(
+                    eltern.contains_key(&kind.parent()),
+                    "{kind:?} auf Zoom {} hat keine Elternkachel",
+                    z + 1
+                );
+            }
         }
+        assert!(
+            nativ > 0 && verkleinert > 0,
+            "{nativ} nativ, {verkleinert} verkleinert"
+        );
     }
-    assert!(
-        nativ > 0 && verkleinert > 0,
-        "{nativ} nativ, {verkleinert} verkleinert"
-    );
 }
 
 /// `--pyramid` über dem Baum in diesem Verzeichnis, ohne Welt und Assets.
@@ -1384,8 +1396,9 @@ fn feine_stufen_im_speicher_wie_von_der_platte() {
 /// `licht_unbekannter_bloecke_haengt_nicht_am_scale` in `tests/licht.rs`.
 /// Bei scale 4 reicht sie für drei Bänder, bei 8 für mehr: Dann fällt auch,
 /// was ein Band nicht mehr braucht, aus dem Vorrat. Eine einzelne Stufe
-/// läuft ohne Bänder, und das Log nennt keine. Die vier Läufe sind eigene
-/// Prozesse und laufen nebeneinander, geprüft wird danach der Reihe nach.
+/// läuft ohne Bänder, und das Log nennt keine. Dazu Cinematic mit zwei
+/// Stufen auf zwei Threads. Die fünf Läufe sind eigene Prozesse und laufen
+/// nebeneinander, geprüft wird danach der Reihe nach.
 #[test]
 fn native_stufen_wie_der_weg_je_stufe() {
     let welt = tempdir();
@@ -1409,48 +1422,53 @@ fn native_stufen_wie_der_weg_je_stufe() {
     let basis = SpriteSet::build_in(&mut assets, &survey.states, Projection::new(32)).unwrap();
     let deckend = basis.licht_deckend(&survey.states);
     let biomes = BiomeTable::new(assets.colors()).with(BLEND_DEFAULT, world.seed().unwrap());
-    let tabellen = BTreeMap::from([16, 8, 4].map(|scale| {
-        let mut sprites = SpriteSet::build_mit_licht(
-            &mut assets,
-            &survey.states,
-            Projection::new(scale),
-            Some(deckend.clone()),
-        )
-        .unwrap();
-        sprites.add_entities(&mut assets, &survey.entities).unwrap();
-        sprites.set_biomes(biomes.clone());
-        (scale, sprites)
-    }));
-    let mut caches: BTreeMap<u32, ChunkCache> = tabellen
-        .iter()
-        .map(|(scale, sprites)| (*scale, ChunkCache::new(&world, sprites)))
+    let tabellen: BTreeMap<(u32, bool), SpriteSet> = [16, 8, 4]
+        .into_iter()
+        .flat_map(|scale| [(scale, false), (scale, true)])
+        .map(|(scale, kino)| {
+            let mut sprites = SpriteSet::build_mit_licht(
+                &mut assets,
+                &survey.states,
+                Projection::new(scale),
+                Some(deckend.clone()),
+                kino.then_some(LOOK),
+            )
+            .unwrap();
+            sprites.add_entities(&mut assets, &survey.entities).unwrap();
+            sprites.set_biomes(biomes.clone());
+            ((scale, kino), sprites)
+        })
         .collect();
-    let mut soll: BTreeMap<(u32, TileId), RgbaImage> = BTreeMap::new();
+    let mut caches: BTreeMap<(u32, bool), ChunkCache> = tabellen
+        .iter()
+        .map(|(art, sprites)| (*art, ChunkCache::new(&world, sprites)))
+        .collect();
+    let mut soll: BTreeMap<(u32, bool, TileId), RgbaImage> = BTreeMap::new();
 
     let faelle = [
-        (1, 32, 3, "off"),
-        (3, 32, 3, "on"),
-        (3, 32, 2, "off"),
-        (1, 8, 1, "off"),
+        (1, 32, 3, "off", false),
+        (3, 32, 3, "on", false),
+        (3, 32, 2, "off", false),
+        (1, 8, 1, "off", false),
+        (2, 32, 2, "off", true),
     ];
     let laeufe: Vec<(Baum, Output)> = faelle
         .par_iter()
-        .map(|&(threads, scale, stufen, gpu)| {
-            let out = neuer_baum("2x1-se");
-            let args = [
-                "--scale",
-                &scale.to_string(),
-                "--native-levels",
-                &stufen.to_string(),
-                "--gpu",
-                gpu,
-            ];
+        .map(|&(threads, scale, stufen, gpu, kino)| {
+            let out = neuer_baum(if kino { "2x1-se-cinematic" } else { "2x1-se" });
+            let (scale, stufen) = (scale.to_string(), stufen.to_string());
+            let mut args = vec!["--scale", &scale, "--native-levels", &stufen, "--gpu", gpu];
+            if kino {
+                args.push("--cinematic");
+            }
             let lauf = export_auf(threads, welt.path(), out.path(), &args);
             (out, lauf)
         })
         .collect();
-    for ((threads, scale, stufen, gpu), (out, lauf)) in faelle.into_iter().zip(laeufe) {
-        let fall = format!("{threads} Threads, scale {scale}, {stufen} Stufen, --gpu {gpu}");
+    for ((threads, scale, stufen, gpu, kino), (out, lauf)) in faelle.into_iter().zip(laeufe) {
+        let fall = format!(
+            "{threads} Threads, scale {scale}, {stufen} Stufen, --gpu {gpu}, Cinematic {kino}"
+        );
         if gpu == "on" {
             if !lauf.status.success()
                 && String::from_utf8_lossy(&lauf.stderr).contains("keine Grafikkarte gefunden")
@@ -1481,8 +1499,9 @@ fn native_stufen_wie_der_weg_je_stufe() {
             let ist = kacheln(out.path(), oben - k);
             assert!(!ist.is_empty(), "{fall}: scale {s} ohne Kacheln");
             for (tile, pfad) in ist {
-                let soll = soll.entry((s, tile)).or_insert_with(|| {
-                    render_area_with(caches.get_mut(&s).unwrap(), tile.rect(), (-64, 319)).unwrap()
+                let soll = soll.entry((s, kino, tile)).or_insert_with(|| {
+                    let cache = caches.get_mut(&(s, kino)).unwrap();
+                    render_area_with(cache, tile.rect(), (-64, 319)).unwrap()
                 });
                 assert!(
                     bild(&pfad).as_raw() == soll.as_raw(),
@@ -4266,6 +4285,160 @@ fn andere_richtung_im_ordner_wird_abgelehnt() {
         "Meldung: {meldung}"
     );
     assert_eq!(schnappschuss(baum.path()), vorher);
+}
+
+/// Ein Baum, ein look: Die Karte schreibt `look` `"map"` ohne Fingerabdruck,
+/// Cinematic in den eigenen Ordner `"cinematic"` mit dem Fingerabdruck der
+/// Werte, und `trees.json` nennt beide. Liegt ein Baum im Ordner des anderen
+/// looks, bricht ein Lauf ab und nennt den Schalter, in beide Richtungen;
+/// ebenso Cinematic mit anderen Werten, auch mit `--resume`. Einen look,
+/// den es nicht gibt, nimmt kein Lauf an, und `trees.json` nennt den Baum
+/// nicht. `--pyramid` behält beide Felder.
+#[test]
+fn ein_baum_ein_look() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let karte = neuer_baum("2x1-se");
+    let wurzel = karte.wurzel();
+    let kino = wurzel.join("2x1-se-cinematic");
+    let info = |baum: &Path| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(baum.join("map.json")).unwrap()).unwrap()
+    };
+    gelungen(&export(welt.path(), karte.path(), &["--scale", "8"]));
+    let lauf = export(
+        welt.path(),
+        &kino,
+        &["--scale", "8", "--cinematic", "--gpu", "on"],
+    );
+    gelungen(&lauf);
+    let log = String::from_utf8_lossy(&lauf.stdout);
+    assert_eq!(log.matches("GPU:").collect::<Vec<_>>(), ["GPU:"], "{log}");
+    assert!(
+        log.contains("GPU:        aus, Cinematic zeichnet die CPU"),
+        "{log}"
+    );
+    assert_eq!(info(karte.path())["look"], "map");
+    assert!(info(karte.path()).get("lookHash").is_none());
+    assert_eq!(info(&kino)["look"], "cinematic");
+    assert_eq!(info(&kino)["lookHash"], LOOK.fingerabdruck().as_str());
+    let liste: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(wurzel.join("trees.json")).unwrap()).unwrap();
+    assert_eq!(
+        liste["trees"],
+        serde_json::json!([
+            {"path": "2x1-se", "camera": "2:1", "direction": "se", "look": "map"},
+            {"path": "2x1-se-cinematic", "camera": "2:1", "direction": "se", "look": "cinematic"}
+        ])
+    );
+
+    // Die Ordner vertauscht: Jeder Lauf schreibt in den Baum des anderen
+    // looks.
+    let zwischen = wurzel.join("zwischen");
+    std::fs::rename(karte.path(), &zwischen).unwrap();
+    std::fs::rename(&kino, karte.path()).unwrap();
+    std::fs::rename(&zwischen, &kino).unwrap();
+    let vorher = [schnappschuss(karte.path()), schnappschuss(&kino)];
+    for (baum, extra, dort, ziel) in [
+        (karte.path(), &["--scale", "8"][..], "mit", &kino),
+        (
+            &kino,
+            &["--scale", "8", "--cinematic"][..],
+            "ohne",
+            &karte.path().to_path_buf(),
+        ),
+    ] {
+        let ausgabe = export(welt.path(), baum, extra);
+        let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(
+            !ausgabe.status.success()
+                && meldung.contains(&format!("gehört zu einem Baum {dort} --cinematic"))
+                && meldung.contains(&format!("Den Ordner nach {} umbenennen", ziel.display())),
+            "{extra:?}: {meldung}"
+        );
+    }
+    assert_eq!([schnappschuss(karte.path()), schnappschuss(&kino)], vorher);
+    std::fs::rename(karte.path(), &zwischen).unwrap();
+    std::fs::rename(&kino, karte.path()).unwrap();
+    std::fs::rename(&zwischen, &kino).unwrap();
+
+    // Andere Werte des Looks, oder keine: kein Lauf schreibt hinein.
+    let pfad = kino.join("map.json");
+    for hash in [Some("0000000000000000"), None] {
+        let mut neu = info(&kino);
+        match hash {
+            Some(hash) => neu["lookHash"] = hash.into(),
+            None => {
+                neu.as_object_mut().unwrap().remove("lookHash");
+            }
+        }
+        std::fs::write(&pfad, serde_json::to_string_pretty(&neu).unwrap()).unwrap();
+        let vorher = schnappschuss(&kino);
+        for extra in [
+            &["--scale", "8", "--cinematic"][..],
+            &["--scale", "8", "--cinematic", "--resume"],
+        ] {
+            let ausgabe = export(welt.path(), &kino, extra);
+            let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+            assert!(
+                !ausgabe.status.success()
+                    && meldung.contains("anderen Werten des Looks")
+                    && meldung.contains(&format!("lookHash dort {}", hash.unwrap_or("keiner"))),
+                "{hash:?} {extra:?}: {meldung}"
+            );
+        }
+        assert_eq!(schnappschuss(&kino), vorher);
+    }
+
+    let mut neu = info(&kino);
+    neu["lookHash"] = LOOK.fingerabdruck().into();
+    std::fs::write(&pfad, serde_json::to_string_pretty(&neu).unwrap()).unwrap();
+    gelungen(&cli(&[OsStr::new("--pyramid"), kino.as_os_str()]));
+    assert_eq!(info(&kino)["look"], "cinematic", "--pyramid");
+    assert_eq!(
+        info(&kino)["lookHash"],
+        LOOK.fingerabdruck().as_str(),
+        "--pyramid"
+    );
+    gelungen(&export(
+        welt.path(),
+        &kino,
+        &["--scale", "8", "--cinematic", "--resume"],
+    ));
+
+    // Ein look, den es nicht gibt: Der Lauf in den Baum bricht ab, und
+    // trees.json nennt ihn nicht mehr, sobald ein Lauf sie neu schreibt.
+    let mut neu = info(&kino);
+    neu["look"] = "foo".into();
+    std::fs::write(&pfad, serde_json::to_string_pretty(&neu).unwrap()).unwrap();
+    let ausgabe = export(welt.path(), &kino, &["--scale", "8", "--cinematic"]);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("look foo gibt es nicht"),
+        "{meldung}"
+    );
+    gelungen(&export(
+        welt.path(),
+        karte.path(),
+        &["--scale", "8", "--resume"],
+    ));
+    let liste: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(wurzel.join("trees.json")).unwrap()).unwrap();
+    assert_eq!(
+        liste["trees"],
+        serde_json::json!([{"path": "2x1-se", "camera": "2:1", "direction": "se", "look": "map"}])
+    );
+
+    let ausgabe = cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--scan"),
+        OsStr::new("--cinematic"),
+    ]);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success() && meldung.contains("--render") && meldung.contains("--tiles"),
+        "{meldung}"
+    );
 }
 
 /// Ein Baum der alten Ablage, `map.json` direkt unter `--tiles`, bricht ab,

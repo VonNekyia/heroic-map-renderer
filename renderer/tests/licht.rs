@@ -325,6 +325,7 @@ fn licht_unbekannter_bloecke_haengt_nicht_am_scale() {
         &states,
         Projection::new(4),
         Some(basis.licht_deckend(&states)),
+        None,
     )
     .unwrap();
     assert_eq!(unter(&grob), (15, 0));

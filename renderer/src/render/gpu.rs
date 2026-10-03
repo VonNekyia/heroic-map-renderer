@@ -589,6 +589,7 @@ mod tests {
             ao: None,
             weich: false,
             tint: None,
+            geometrie: None,
         };
         let liste = vec![Draw {
             sprite: &sprite,

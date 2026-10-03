@@ -1,8 +1,9 @@
 ---
 title: map.json
-description: Die Felder von map.json, Kamera und Projektion samt projektion.json mit Kantenpixeln, die Liste der Bäume trees.json, wann der Export die Dateien schreibt, die Höhen je Region für die Koordinatenanzeige und warum ein Baum seinen Radius der Mischung behält.
+description: Die Felder von map.json, Kamera und Projektion samt projektion.json mit Kantenpixeln, die Liste der Bäume trees.json, wann der Export die Dateien schreibt, die Höhen je Region für die Koordinatenanzeige, warum ein Baum seinen Radius der Mischung behält und wie look und lookHash Karte und Cinematic trennen.
 code:
   - renderer/src/render/pyramid.rs
+  - renderer/src/render/look.rs
   - renderer/src/render/heights.rs
   - renderer/src/world/chunk.rs
   - renderer/src/cli.rs
@@ -15,7 +16,8 @@ code:
 `map.json` liegt im Ordner jedes Kachelbaums und sagt dem Frontend, was
 es vorfindet: Kachelgrösse, scale, Kamera, Zoomstufen, Pfadmuster, den belegten
 Bereich, die Zahl nativer Stufen, den Radius der Mischung der Biomfarben,
-die Kennung der Welt und wo die Höhen liegen. Welche Bäume unter einer
+die Kennung der Welt, wo die Höhen liegen und ob der Baum die Karte oder
+Cinematic zeigt. Welche Bäume unter einer
 Wurzel liegen, sagt `trees.json`, siehe „Liste der Bäume“. Der Typ ist
 `MapInfo` in
 [`renderer/src/render/pyramid.rs`](../../renderer/src/render/pyramid.rs);
@@ -40,7 +42,8 @@ das Frontend liest die Datei in `web/src/main.ts`.
   "heights": "../heights/{x}.{z}.bin",
   "heightsCell": 4,
   "minY": -64,
-  "maxY": 319
+  "maxY": 319,
+  "look": "map"
 }
 ```
 
@@ -60,6 +63,8 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `heights` | Pfadmuster der Höhen je Region, relativ zum Baum; fehlt es, hat der Baum keine | „Höhen“ unten |
 | `heightsCell` | Kantenlänge einer Zelle der Höhen in Blöcken, heute 4; steht mit `heights` | „Höhen“ unten |
 | `minY`, `maxY` | unterster und oberster Block, den der Renderer zeichnet; stehen mit `heights` | „Höhen“ unten |
+| `look` | `"map"` die Karte oder `"cinematic"`; fehlt es, die Karte | „Look“ unten |
+| `lookHash` | Fingerabdruck der Werte von Cinematic, 16 Hexziffern; nur mit `"cinematic"` | „Look“ unten |
 
 ## Kamera und Projektion
 
@@ -165,16 +170,17 @@ die alle Bäume teilen. Entschieden in
 {
   "trees": [
     { "path": "2x1-se", "camera": "2:1", "direction": "se", "look": "map" },
+    { "path": "2x1-se-cinematic", "camera": "2:1", "direction": "se", "look": "cinematic" },
     { "path": "top-north-s", "camera": "top-north", "direction": "s", "look": "map" }
   ]
 }
 ```
 
-- **Felder:** je Baum `path` relativ zu `trees.json`, `camera` und
-  `direction` wie in seiner `map.json`, `look` heute immer `map`. Mit
-  Cinematic aus #72 kommt `cinematic` dazu, im Ordner mit dem Anhang
-  `-cinematic`, etwa `2x1-se-cinematic`, siehe
-  [0054](../entscheidungen/0054-baeume-unter-einer-wurzel.md).
+- **Felder:** je Baum `path` relativ zu `trees.json`, `camera`,
+  `direction` und `look` wie in seiner `map.json`, ohne `look` dort `map`.
+  Ein Baum mit Cinematic liegt im Ordner mit dem Anhang `-cinematic`, etwa
+  `2x1-se-cinematic`, siehe
+  [0054](../entscheidungen/0054-baeume-unter-einer-wurzel.md) und „Look“.
   Projektion, Zoomstufen und Bereich stehen nur in der `map.json` des
   Baums.
 - **Reihenfolge:** `2x1-se` zuerst, wenn es den Baum gibt, sonst nach
@@ -183,10 +189,10 @@ die alle Bäume teilen. Entschieden in
   Wurzel mit `map.json` ein Eintrag, und führt sie nicht fort. So stimmt
   sie auch nach einem gelöschten Baum (`schreibe_baeume` in
   [`renderer/src/cli.rs`](../../renderer/src/cli.rs)). Ein Ordner, dessen
-  `map.json` sich nicht lesen lässt oder eine Kamera oder Richtung nennt,
-  die es nicht gibt, fehlt in der Liste. Der Lauf meldet ihn als
-  „übergangen“ und scheitert nicht an ihm; das Frontend könnte ihn ohnehin
-  nicht öffnen.
+  `map.json` sich nicht lesen lässt oder eine Kamera, eine Richtung oder
+  einen `look` nennt, die es nicht gibt, fehlt in der Liste. Der Lauf
+  meldet ihn als „übergangen“ und scheitert nicht an ihm; das Frontend
+  könnte ihn ohnehin nicht öffnen.
 - **Eine Wurzel, eine Welt und Dimension:** Die Bäume einer Wurzel teilen
   sich die Höhen. Bevor ein Lauf einen Chunk liest, prüft er deshalb jeden
   Baum daneben mit dessen eigener Kennung, siehe
@@ -307,10 +313,43 @@ Baum wie die nativen Stufen, siehe
   Radius ein. Die alten Kacheln bleiben, wie sie sind; einheitlich wird der
   Baum erst, wenn er ganz neu entsteht.
 
+## Look
+
+`look` sagt, wie der Baum zeichnet: `"map"` die Karte, `"cinematic"` mit
+`--cinematic`, siehe [Cinematic](../renderer/cinematic.md). Jeder Export
+schreibt es, auch für die Karte. Fehlt es, stammt der Baum aus einem Stand
+vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
+
+- **`lookHash`** steht nur mit `"cinematic"`: der Fingerabdruck der Werte
+  des Looks (`Look::fingerabdruck` in
+  [`renderer/src/render/look.rs`](../../renderer/src/render/look.rs)).
+  - FNV-1a mit 64 Bit: Startwert `0xcbf29ce484222325`, Faktor
+    `0x100000001b3`.
+  - Darüber je Wert, in der Reihenfolge von `Look::werte`, sein Name in
+    UTF-8, ein Nullbyte und die Bits jeder Zahl als f32 in Little Endian,
+    bei einer Farbe drei Zahlen.
+  - Zuletzt `verfahren`, ein Nullbyte und `VERFAHREN` als u32 in Little
+    Endian: der Stand des Verfahrens. Ändert sich das Bild bei gleichen
+    Werten, etwa mit der Sonne in #73, steigt er, und mit ihm der
+    Fingerabdruck.
+  - `Look::werte` zerlegt `Look` ganz: Ein neues Feld kompiliert erst, wenn
+    es im Fingerabdruck steht.
+  - Nur die Werte, wie sie im Code stehen. Abgeleitete wie der Sinus der
+    Höhe der Sonne fehlen, deren letztes Bit kann je System abweichen.
+  - Geschrieben als 16 kleine Hexziffern; für die Werte aus
+    [0058](../entscheidungen/0058-look-von-cinematic.md)
+    `96f874bcb69961de`.
+- **Ein Baum, ein look:** Ein Lauf mit dem anderen look schreibt in einen
+  anderen Ordner, siehe „Liste der Bäume“. Er bricht nur ab, wenn in seinem
+  Ordner ein Baum mit dem anderen look oder mit anderen Werten liegt, bevor
+  er einen Chunk liest, auch mit `--resume`, siehe
+  [Zoomstufen](zoomstufen.md), „Ein Baum, ein look“.
+- **`--pyramid`** behält beide Felder.
+
 ## Wann sie geschrieben wird
 
 Jeder Export schreibt `map.json` vor seiner ersten Kachel und am Ende,
 danach jeweils `trees.json`; `--pyramid` schreibt `map.json` bei jedem
-Aufruf. Die Datei geht dabei jedes Mal ganz auf die
-Platte, bevor sie die alte ersetzt: Nach einem Stromausfall steht die alte
-oder die neue da, und kein Lauf scheitert an einer halben.
+Aufruf. Die Datei geht dabei jedes Mal ganz auf die Platte, bevor sie die
+alte ersetzt: Nach einem Stromausfall steht die alte oder die neue da, und
+kein Lauf scheitert an einer halben.

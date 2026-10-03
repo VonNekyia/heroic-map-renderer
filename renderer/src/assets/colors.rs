@@ -16,6 +16,7 @@ use image::RgbaImage;
 use serde_json::Value;
 
 use super::blockstate::{boolean, field, float, int_value};
+use super::dimension::mit_namensraum;
 use super::noise;
 use super::pack::{self, Pack};
 use super::{parse_json, read_text, split_id};
@@ -112,9 +113,29 @@ pub struct BiomeColors {
     /// `grass_color_modifier: swamp`: das Gras nach dem Rauschen an der
     /// Stelle.
     swamp: bool,
+    himmel: Himmel,
+}
+
+/// Die Farben des Himmels aus den Attributen eines Bioms: `None`, wo es
+/// keine setzt, dann gilt die des Dimensionstyps
+/// ([`DimensionType`](super::DimensionType)).
+/// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Himmel {
+    /// `visual/sky_color`.
+    pub himmel: Option<Tint>,
+    /// `visual/fog_color`.
+    pub nebel: Option<Tint>,
+    /// `visual/water_fog_color`.
+    pub wassernebel: Option<Tint>,
 }
 
 impl BiomeColors {
+    /// Die Farben des Himmels, die das Biom setzt.
+    pub fn himmel(&self) -> Himmel {
+        self.himmel
+    }
+
     /// Die Farbe an der Blockspalte `(x, z)`; nur Sumpfgras hängt an ihr.
     pub fn get(&self, resolver: Resolver, x: i32, z: i32) -> Tint {
         match resolver {
@@ -149,6 +170,7 @@ struct Biome {
     foliage: Option<Tint>,
     dry_foliage: Option<Tint>,
     modifier: Modifier,
+    himmel: Himmel,
 }
 
 /// Colormaps aus den Assets und Biome aus den Daten.
@@ -162,6 +184,9 @@ pub struct Colors {
     dry_foliage: Option<RgbaImage>,
     biomes: BTreeMap<String, Biome>,
     broken_biomes: BTreeMap<String, String>,
+    /// Biome, die eine Farbe des Himmels mit Modifikator setzen: je Pfad
+    /// das Attribut, siehe [`biome`].
+    biome_modifiers: BTreeMap<String, String>,
     unreadable: BTreeMap<String, String>,
 }
 
@@ -209,7 +234,13 @@ impl Colors {
             else {
                 continue;
             };
-            let biom = read_text(pfad).and_then(|text| biome(&parse_json(&text, true)?));
+            let mut modifikator = None;
+            let biom =
+                read_text(pfad).and_then(|text| biome(&parse_json(&text, true)?, &mut modifikator));
+            if let Some(attribut) = modifikator {
+                self.biome_modifiers
+                    .insert(pfad.display().to_string(), attribut);
+            }
             match biom {
                 Ok(biom) => {
                     self.biomes.insert(format!("{namespace}:{id}"), biom);
@@ -223,6 +254,12 @@ impl Colors {
         }
         self.unreadable.extend(pack.unreadable().clone());
         Ok(count)
+    }
+
+    /// Biome, die eine Farbe des Himmels mit Modifikator setzen, je Pfad mit
+    /// dem Attribut. Für sie gilt die Farbe des Dimensionstyps.
+    pub fn biome_modifiers(&self) -> &BTreeMap<String, String> {
+        &self.biome_modifiers
     }
 
     /// Biomdateien, die der Codec ablehnt, je Pfad mit dem Grund.
@@ -290,6 +327,7 @@ impl Colors {
                 .unwrap_or_else(|| from_map(&self.dry_foliage, DEFAULT_DRY_FOLIAGE)),
             water: biome.and_then(|b| b.water).unwrap_or(DEFAULT_WATER),
             swamp: modifier == Modifier::Swamp,
+            himmel: biome.map_or(Himmel::default(), |b| b.himmel),
         }
     }
 }
@@ -327,10 +365,12 @@ fn dark_forest(tint: Tint) -> Tint {
 
 /// Ein Biom, soweit der Renderer es braucht, gelesen wie
 /// `Biome.DIRECT_CODEC`: `ClimateSettings` ganz, aus `effects` die Farben
-/// und `grass_color_modifier`. Pflicht sind `has_precipitation`,
-/// `temperature`, `downfall`, `effects` und darin `water_color`; `null`
-/// zählt wie im Codec als fehlend.
-fn biome(json: &Value) -> Result<Biome> {
+/// und `grass_color_modifier`, aus `attributes` die Farben des Himmels
+/// ([`Himmel`]). Pflicht sind `has_precipitation`, `temperature`,
+/// `downfall`, `effects` und darin `water_color`; `null` zählt wie im Codec
+/// als fehlend. Steht bei einer Farbe des Himmels statt des Werts ein
+/// Modifikator, gilt die des Dimensionstyps, und `modifikator` nennt sie.
+fn biome(json: &Value, modifikator: &mut Option<String>) -> Result<Biome> {
     ensure!(json.is_object(), "kein Objekt");
     let pflicht = |json: &Value, name: &str| {
         field(json, name)
@@ -361,6 +401,26 @@ fn biome(json: &Value) -> Result<Biome> {
             _ => Modifier::None,
         },
     };
+    let mut himmel = Himmel::default();
+    if let Some(attribute) = field(json, "attributes") {
+        let attribute = attribute
+            .as_object()
+            .ok_or_else(|| anyhow!("attributes ist kein Objekt"))?;
+        for (id, wert) in attribute {
+            let id = mit_namensraum(id);
+            let ziel = match id.as_str() {
+                "minecraft:visual/sky_color" => &mut himmel.himmel,
+                "minecraft:visual/fog_color" => &mut himmel.nebel,
+                "minecraft:visual/water_fog_color" => &mut himmel.wassernebel,
+                _ => continue,
+            };
+            if wert.get("modifier").is_some() {
+                *modifikator = Some(id);
+                continue;
+            }
+            *ziel = Some(color(wert).with_context(|| id.clone())?);
+        }
+    }
     Ok(Biome {
         temperature,
         downfall,
@@ -369,6 +429,7 @@ fn biome(json: &Value) -> Result<Biome> {
         foliage: farbe("foliage_color")?,
         dry_foliage: farbe("dry_foliage_color")?,
         modifier,
+        himmel,
     })
 }
 
@@ -445,7 +506,7 @@ mod tests {
     /// den letzten Wert, `null` zählt als fehlend.
     #[test]
     fn biom_wie_der_codec() {
-        let lies = |json: &str| biome(&parse_json(json, true).unwrap());
+        let lies = |json: &str| biome(&parse_json(json, true).unwrap(), &mut None);
         let gut = r##"{"has_precipitation": true, "temperature": 0.5, "temperature": 0.9, "downfall": 0.4, "effects": {"water_color": [0.2, 0.4, 0.8], "grass_color": "#91bd59", "foliage_color": null, "grass_color_modifier": "swamp"}}"##;
         let biom = lies(gut).unwrap();
         assert_eq!(biom.temperature, 0.9);
@@ -453,6 +514,7 @@ mod tests {
         assert_eq!(biom.grass, Some([0x91, 0xBD, 0x59]));
         assert_eq!(biom.foliage, None);
         assert_eq!(biom.modifier, Modifier::Swamp);
+        assert_eq!(biom.himmel, Himmel::default());
         for json in [
             r#"{"temperature": 0.5, "downfall": 0.4, "effects": {"water_color": 1}}"#,
             r#"{"has_precipitation": true, "temperature": 0.5, "effects": {"water_color": 1}}"#,
@@ -466,6 +528,49 @@ mod tests {
             r#"{"has_precipitation": true, "temperature": 0.5, "temperature_modifier": "warm", "downfall": 0.4, "effects": {"water_color": 1}}"#,
         ] {
             assert!(lies(json).is_err(), "{json}");
+        }
+    }
+
+    /// Die Farben des Himmels liest der Renderer aus `attributes` wie
+    /// `EnvironmentAttributeMap.CODEC`: Werte wie `STRING_RGB_COLOR`, IDs
+    /// ohne Namensraum unter `minecraft`, andere Attribute übergangen. Ein
+    /// Modifikator lässt die Farbe dem Dimensionstyp und wird genannt; ein
+    /// Wert, der keine Farbe ist, macht das Biom kaputt.
+    #[test]
+    fn himmel_aus_den_attributen() {
+        let biom = |attribute: &str| {
+            let json = format!(
+                r#"{{"has_precipitation": true, "temperature": 0.5, "downfall": 0.4, "effects": {{"water_color": 1}}, "attributes": {attribute}}}"#
+            );
+            let mut modifikator = None;
+            let biom = biome(&parse_json(&json, true).unwrap(), &mut modifikator);
+            (biom.map(|b| b.himmel), modifikator)
+        };
+        let (himmel, modifikator) = biom(
+            r##"{"minecraft:visual/sky_color": "#78a7ff", "visual/fog_color": 4159204, "minecraft:visual/water_fog_color": [0.2, 0.4, 0.8], "minecraft:gameplay/increased_fire_burnout": true}"##,
+        );
+        assert_eq!(
+            himmel.unwrap(),
+            Himmel {
+                himmel: Some([0x78, 0xa7, 0xff]),
+                nebel: Some([0x3f, 0x76, 0xe4]),
+                wassernebel: Some([51, 102, 204]),
+            }
+        );
+        assert_eq!(modifikator, None);
+        let (himmel, modifikator) = biom(
+            r##"{"minecraft:visual/sky_color": {"modifier": "multiply", "argument": "#808080"}, "minecraft:visual/fog_color": "#c0d8ff"}"##,
+        );
+        assert_eq!(
+            himmel.unwrap(),
+            Himmel {
+                nebel: Some([0xc0, 0xd8, 0xff]),
+                ..Himmel::default()
+            }
+        );
+        assert_eq!(modifikator.as_deref(), Some("minecraft:visual/sky_color"));
+        for kaputt in [r#"[]"#, r#"{"minecraft:visual/sky_color": "blau"}"#] {
+            assert!(biom(kaputt).0.is_err(), "{kaputt}");
         }
     }
 
@@ -515,6 +620,7 @@ mod tests {
             dry_foliage: DEFAULT_DRY_FOLIAGE,
             water: DEFAULT_WATER,
             swamp: true,
+            himmel: Himmel::default(),
         };
         assert_eq!(sumpf.get(Resolver::Grass, 416, -988), SWAMP_DARK);
         assert_eq!(sumpf.get(Resolver::Grass, 404, 737), SWAMP_LIGHT);

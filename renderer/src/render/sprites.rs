@@ -13,6 +13,8 @@ use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, CardinalLight, Face, Textures, Tints, fluid, models_of};
 use crate::world::{BlockState, Blockdaten};
 
+use super::kino::Kino;
+use super::look::Look;
 use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
 use super::tint::BiomeTable;
 use super::{Kamera, Projection, Richtung, Sprite, render};
@@ -78,6 +80,8 @@ pub struct SpriteSet {
     /// [`SpriteSet::deckt_fuer_licht`]. `None` nur in einer Tabelle der Basis
     /// in 2:1: Dort entscheidet sie selbst.
     licht_deckend: Option<HashSet<BlockState>>,
+    /// Womit Cinematic zeichnet; `None` für die Karte.
+    kino: Option<Kino>,
 }
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
@@ -517,20 +521,24 @@ impl SpriteSet {
         states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
     ) -> Result<SpriteSet> {
-        SpriteSet::build_mit_licht(assets, states, projection, None)
+        SpriteSet::build_mit_licht(assets, states, projection, None, None)
     }
 
     /// Wie [`SpriteSet::build_in`], nur kommt aus `licht_deckend`, welche
     /// Blöcke, die 26.2 nicht kennt, das Licht ganz aufhalten
     /// ([`SpriteSet::licht_deckend`]). Eine native Stufe nimmt so die Antwort
-    /// der Basis, damit ihr Licht nicht am scale hängt.
+    /// der Basis, damit ihr Licht nicht am scale hängt. Mit `look` für
+    /// Cinematic.
     pub fn build_mit_licht<'a>(
         assets: &mut Assets,
         states: impl IntoIterator<Item = &'a BlockState>,
         projection: Projection,
         licht_deckend: Option<HashSet<BlockState>>,
+        look: Option<Look>,
     ) -> Result<SpriteSet> {
         let typ = assets.dimension_type();
+        let biomes = BiomeTable::new(assets.colors());
+        let kino = look.map(|look| Kino::new(look, &typ, &biomes));
         let mut set = SpriteSet {
             sprites: Vec::new(),
             families: Vec::new(),
@@ -545,8 +553,9 @@ impl SpriteSet {
             himmel: typ.has_skylight,
             masks: Masks::new(assets.textures(), projection),
             foreign: BTreeSet::new(),
-            biomes: BiomeTable::new(assets.colors()),
+            biomes,
             licht_deckend: None,
+            kino,
         };
 
         // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
@@ -762,11 +771,19 @@ impl SpriteSet {
     /// Die Farben der Biome für das Zeichnen, mit dem Radius der Mischung
     /// und dem Seed der Welt, siehe [`BiomeTable`].
     pub fn set_biomes(&mut self, biomes: BiomeTable) {
+        if let Some(kino) = &mut self.kino {
+            kino.mit_biomen(&biomes);
+        }
         self.biomes = biomes;
     }
 
     pub fn biomes(&self) -> &BiomeTable {
         &self.biomes
+    }
+
+    /// Womit Cinematic zeichnet; `None` für die Karte.
+    pub fn kino(&self) -> Option<&Kino> {
+        self.kino.as_ref()
     }
 
     /// Hält ein Block, den 26.2 nicht kennt, das Licht ganz auf? Wenn sein
@@ -971,6 +988,7 @@ impl SpriteSet {
                 tints,
                 self.licht,
                 kollision(state),
+                self.kino.is_some(),
             )
         };
         let schwarz = raster(tints(SCHWARZ, SCHWARZ))?;
@@ -1313,6 +1331,10 @@ fn content_hash(sprite: &Sprite) -> u64 {
     sprite.ao.hash(&mut hasher);
     sprite.weich.hash(&mut hasher);
     sprite.tint.hash(&mut hasher);
+    for g in sprite.geometrie.iter().flatten() {
+        g.tiefe.to_bits().hash(&mut hasher);
+        g.normale.map(f32::to_bits).hash(&mut hasher);
+    }
     hasher.finish()
 }
 
@@ -1323,6 +1345,7 @@ fn same_image(a: &Sprite, b: &Sprite) -> bool {
         && a.ao == b.ao
         && a.weich == b.weich
         && a.tint == b.tint
+        && a.geometrie == b.geometrie
 }
 
 /// Die Tönungskarte aus drei Rastern desselben Modells: `schwarz` mit
@@ -2179,6 +2202,7 @@ mod tests {
             ao: None,
             weich: false,
             tint: None,
+            geometrie: None,
         };
         assert!(masks.contains(&sprite));
         let (x, y) = stelle(masks.outline[0]);
@@ -2210,6 +2234,7 @@ mod tests {
                     &projection,
                     Tints::default(),
                     CardinalLight::Default,
+                    false,
                     false,
                 ) else {
                     // Von oben steht Feuer ganz auf der Kante.
@@ -2702,6 +2727,7 @@ mod tests {
                         Tints::default(),
                         CardinalLight::Default,
                         kollision(st),
+                        false,
                     ) else {
                         continue;
                     };

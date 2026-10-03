@@ -203,7 +203,7 @@ impl Reach {
         let d = look.sonne_im_blick(self.projection.kamera());
         // So viele Chunkgrenzen wie `ChunkCache::horizont`.
         let reicht = |c: f32| {
-            let n = (f64::from(look.sonne_weite) * f64::from(c.abs()) / 16.0).ceil() as i32;
+            let n = (f64::from(look.sonne_weite) * f64::from(c.abs()) / 16.0).floor() as i32 + 1;
             if c < 0.0 { -n } else { n }
         };
         let (x, z) = (reicht(d[0]), reicht(d[2]));

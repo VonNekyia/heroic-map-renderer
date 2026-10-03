@@ -254,8 +254,10 @@ hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
 
 ### Der schnelle Gang
 
-`ChunkCache::sonne` geht den Strahl Zelle für Zelle durch das Gitter
-im Blick, springt aber über, was nichts aufhält:
+`ChunkCache::sonne` fragt zuerst die Bits „frei zur Sonne“, siehe unten.
+Beantworten sie den Strahl nicht, geht `ChunkCache::sonne_im_gang` ihn
+Zelle für Zelle durch das Gitter im Blick, springt aber über, was nichts
+aufhält:
 
 - **Je Chunk eine Säule** (`Saeule`), sobald ein Strahl ihn betritt: ihre
   Decke, die oberste Zelle mit Block oder hineinragendem Modell. Darüber
@@ -266,7 +268,10 @@ im Blick, springt aber über, was nichts aufhält:
   die höchste Decke der Chunks, die ein Strahl von dort bis zur Weite
   erreichen kann. In x kommt er um höchstens Weite mal |d_x| weiter, also
   von jedem Punkt im Chunk über höchstens ⌈Weite · |d_x| / 16⌉
-  Chunkgrenzen zur Sonne hin; in z ebenso. Mit `LOOK` sind das je Säule
+  Chunkgrenzen zur Sonne hin; in z ebenso. Gezählt werden
+  ⌊Weite · |d_x| / 16⌋ + 1: Ist der Quotient eine ganze Zahl, kann der Gang
+  in f64 an einer Chunkgrenze sonst einen Chunk zu weit treten. Mit `LOOK`
+  ist er es nicht, und es sind je Säule
   5 × 6 Chunks diagonal und 7 × 2 genordet, samt ihr selbst; jede lädt für
   ihre Decke dazu ihre Nachbarn. Liegt der Strahl über der Decke seines
   Chunks und über dem Horizont, ist er frei: Er steigt und trifft nichts
@@ -293,6 +298,17 @@ im Blick, springt aber über, was nichts aufhält:
   er geprüft wird oder nicht. Das prüft `schneller_gang_gleicht_dem_bezug`
   in `renderer/tests/metatile.rs` Bit für Bit am HDR-Puffer, an Szenen mit
   Wasser, Lava, Laub, Glas und Modellen, die aus ihrem Würfel ragen.
+  - **Ausser in einem Chunk, der fehlt:** Den überspringt der Gang ganz,
+    seine Säule hat keine Decke. Der Bezug prüft dort Modelle, die aus
+    einem geladenen Nachbarn hineinragen. Am Rand der erzeugten Welt können
+    beide sich so unterscheiden; das Bild zeichnet der Gang.
+
+Säule, Horizont, Bits und die Bits „frei zur Sonne“ merkt sich jeder Thread
+in seinem Chunk-Cache, wie Chunks und Licht
+([0025](../entscheidungen/0025-streifen-und-cache-je-thread.md)). Doppelt
+gerechnet wird nur an den Grenzen der Streifen, siehe
+[Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md);
+ein Cache für alle Threads bleibt verworfen.
 
 Getestet: einzelne Strahlen durch Würfel, Laub, Wasser, Glas, Pflanze und
 Überhang (`strahlen_zur_sonne`), die Lage des Schattens eines Würfels im
@@ -306,6 +322,63 @@ leere Section zwischen belegten, ob sie fehlt oder nur Luft hält
 (`strahl_durch_eine_leere_section`); 8000 fest gewürfelte
 Strahlen in einer hohen Welt aus 8 × 8 Chunks, schnell und im Bezug gleich
 (`zufaellige_strahlen_gleichen_dem_bezug`).
+
+### Frei zur Sonne
+
+Vor dem Gang sieht `ChunkCache::frei_zur_sonne` nach, ob von der
+Startzelle aus überhaupt etwas im Weg liegen kann. Wenn nicht, kommt alles
+an, ohne Gang. Die Regel kommt aus dem Vorschlag zu #73, eingebaut in #106;
+am Prototyp gemessen in
+[Bits „frei zur Sonne“](../messungen/2026-10-03-bits-frei-zur-sonne.md),
+am Renderer in
+[Bits „frei zur Sonne“ am Renderer](../messungen/2026-10-03-bits-am-renderer.md):
+Jede Kachel bleibt gleich, ein Strahl kostet 5 bis 21 % weniger, der ganze
+Lauf am Stand 5 %, im Fichtenwald liegt es in der Streuung.
+
+- **Das Prisma einer Zelle:** alle Punkte `p + t·d` mit `p` in der Zelle
+  und `t` von 0 bis zur Weite. In der Lage `k` über ihr liegt `t` zwischen
+  `max(0, k − 1) / d_y` und `(k + 1) / d_y`. Je Achse berührt es dort die
+  Zellen, deren geschlossener Würfel diese Spanne schneidet, nur zur Sonne
+  hin wie der Gang. Jede Zelle, die der Gang von einem Punkt der Zelle aus
+  betritt, liegt also darin; für die Rundung in f64 reicht es 10⁻⁶ weiter.
+- **Die Versätze** (`versaetze` in
+  [`renderer/src/render/metatile/strahl.rs`](../../renderer/src/render/metatile/strahl.rs)):
+  je Spalte daneben die Lagen `k0` bis `k0 + n − 1`, die das Prisma dort
+  berührt, bis zur Lage ⌊Weite · d_y⌋ + 1. Es ist ein Lauf, denn die
+  Spannen wachsen mit `k` zur Sonne hin. Einmal je Look und Kamera
+  gerechnet, in `Kino`. Mit `LOOK`: diagonal 350 Spalten bis 51 Blöcke
+  gegen x und 70 in z, genordet 232 bis 85 gegen x und 14 in z; je bis Lage
+  96.
+- **Die Bits** (`Saeule::frei`): je Spalte ein `u128` für die 128 Lagen bis
+  zum Horizont `H` der Säule. Ein Bit ist gesetzt, wenn keine Zelle im
+  Prisma Arbeit für den Gang hat, also kein Bit `arbeit` aus `Bits`, samt
+  den Zellen, in die Modelle ragen. Gerechnet je Versatz als
+  `gesperrt |= (A | A >> 1 | … | A >> (n − 1)) >> k0`, mit `A` der Arbeit
+  der Spalte daneben ab der untersten Lage.
+- **Über dem Horizont** hat keine Zelle Arbeit, die der Strahl bis zur
+  Weite erreicht. Das Prisma reicht über die Chunks des Horizonts hinaus,
+  aber dort erst hinter der Weite; Arbeit über `H` zählt darum nicht. Unter
+  den 128 Lagen fragt der Strahl den Gang.
+- **Gemerkt** in der Säule, sobald ein Strahl in ihr beginnt, siehe „Der
+  schnelle Gang“. Am Prototyp verteilten sich die Zeilen in jedem Durchgang
+  anders auf die Threads, und jeder rechnete die Spalten neu.
+- **Hinreichend, nicht nötig:** Ein Bit, das fehlt, heisst nur, dass ein
+  Strahl aus der Zelle etwas treffen könnte. Dann entscheidet der Gang.
+- **Gleich dem Gang:** Ein freier Strahl prüft im Gang keine Zelle und
+  gibt 1.
+  - Im Debug-Build schickt `ChunkCache::sonne` jeden Strahl, den die Bits
+    beantworten, auch durch den Gang und prüft, dass er 1 gibt. So prüft
+    jeder Test mit Cinematic jeden solchen Strahl, das Goldbild
+    eingeschlossen.
+  - `frei_zur_sonne_trifft_nichts` schickt von jeder Zelle, die die Bits
+    frei nennen, vom Punkt und von allen acht Ecken einen Strahl durch Gang
+    und Bezug; die Ecken streifen die Ränder des Prismas. Jeder kommt ganz
+    an.
+  - `block_am_ende_der_weite_sperrt_die_bits` legt einen Block in die
+    oberste Lage des Prismas, kurz vor der Weite;
+    `bloecke_an_den_raendern_des_prismas_sperren_die_bits` je einen an den
+    fernen und den nahen Rand einer Lage, den nur ein Strahl aus einer
+    Ecke trifft.
 
 ### Der Vorlauf
 

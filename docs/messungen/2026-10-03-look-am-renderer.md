@@ -2,7 +2,7 @@
 title: Look am Renderer
 description: Die Kennzahlen des Looks aus 0058 am Renderer mit Cinematic aus #73, über dieselben 24 Ansichten der Testwelt wie am Prototyp zu #89; dazu, was die Befunde 1 und 2 aus dem Review von #101 beitragen und warum Schatten heller sind.
 date: 2026-10-03
-commits: [1d60462, 89b667b]
+commits: [1d60462, cacdad5, f69eb14, 89b667b]
 code:
   - renderer/tests/kennzahlen.rs
   - renderer/src/render/kino.rs
@@ -25,9 +25,11 @@ Prototyp waren es 20.
 - **Szenen, Ansichten, Kennzahlen und Grenzen:** wie in
   [Look von Cinematic](2026-10-02-look-von-cinematic.md), „Aufbau“ und
   „Kennzahlen“: vier Szenen, je sechs Ansichten, 1600 × 1600 Pixel.
-- **Renderer:** `issue-73-sonne` am Kopf `1d60462`, Release-Build, mit
-  `LOOK` aus 0058: Sonne, Bodenpflanzen, Wasser, Leuchten, Wärme nach Biom,
-  Bloom. Die Mischung der Biome mit Radius 2.
+- **Renderer:** `issue-73-sonne`, der Code wie am Kopf `1d60462`, der
+  Test aus `cacdad5`, Release-Build, mit `LOOK` aus 0058: Sonne,
+  Bodenpflanzen, Wasser, Leuchten, Wärme nach Biom, Bloom. Die Mischung
+  der Biome mit Radius 2. Nachgerechnet am Kopf `f69eb14`, nach der ersten
+  Runde des Reviews von #104, siehe „Nachgerechnet“.
 - **Prototyp:** die Werte aus derselben Messreihe vom 02.10., am Prototyp zu
   #89 auf `89b667b`.
 - **Der Test** `kennzahlen_der_ansichten` in
@@ -51,9 +53,19 @@ Prototyp waren es 20.
     Pixel zusammen zählen.
   - **Leuchten und Bloom:** wo das Leuchten nicht 0 ist und wo der Bloom
     mal Belichtung über 0,001 liegt.
-  - **Kante:** keine; wie am Prototyp mit einem Strahl je Pixel.
+  - **Kante:** keine Maske, wie am Prototyp.
 - **Auswertung:** mit `kennzahlen` aus der Nachbearbeitung des Prototyps zu
   #89, die nicht im Repository liegt, auf dieselben Masken.
+- **Anders als am Prototyp:**
+  - Biome mit dem Zoom des Spiels und dem Seed der Welt, siehe
+    [Biomfarben](../renderer/biomfarben.md); der Prototyp nahm das Biom
+    der Zelle von 4 × 4 × 4 Blöcken, ohne den Zoom.
+  - Der Strahl zur Sonne beginnt in der Mitte des Texels, siehe
+    [Cinematic](../renderer/cinematic.md), „Schatten“; am Prototyp je
+    Pixel.
+  - Die Karte als Bezug ist die des Renderers am selben Stand; am Prototyp
+    die Karte von `master` auf `666cd46`.
+  - Die Auswertung des Prototyps liegt nicht im Repository.
 
 ## Ablauf
 
@@ -61,7 +73,8 @@ Prototyp waren es 20.
    und `vanilla-data` liegen, und einem Zielordner rufen, rund 40 s:
 
    ```bash
-   KENNZAHLEN_WURZEL=… KENNZAHLEN_AUS=… cargo test --release --test kennzahlen -- --ignored
+   cd renderer
+   KENNZAHLEN_WURZEL=… KENNZAHLEN_AUS=… cargo test --release --test kennzahlen kennzahlen_der_ansichten -- --ignored
    ```
 
 2. Die Kennzahlen aus den Bildern und Masken rechnen, am 03.10.
@@ -149,6 +162,23 @@ Schatten/Sonne je Stand:
 | Schnee | north-45, n | 0,619 | 0,699 | 0,699 | 0,704 |
 | **Mittel** | | **0,593** | **0,632** | **0,633** | **0,639** |
 | **ausserhalb** | | **4** | **8** | **8** | **9** |
+
+### Nachgerechnet
+
+Am Kopf `f69eb14`, nach der ersten Runde des Reviews von #104: Der
+Vorlauf liest die Chunks zur Sonne hin mit, die obere Hälfte über einer
+Bodenpflanze bewirkt nichts, der Strahl rechnet ab dem Eintritt in die
+Hülle, der Startpunkt aus der inversen Matrix. Am 03.10. gleich
+ausgewertet:
+
+- **Alle Werte der Tabellen oben** bleiben auf ihre Stellen gleich, auch
+  „ausserhalb“, 9 von 24.
+- **Im Mittel** dL in der Sonne −1,0695 statt −1,0669, Farbton −0,4499°
+  statt −0,4498°; die übrigen Mittel gleich auf vier Stellen.
+- **Je Ansicht** am meisten bei den vier Ansichten 2:1, 16, se: dL in der
+  Sonne um bis zu 0,019, dL gesamt um bis zu 0,026, Schatten/Sonne um bis
+  zu 0,0008; in den übrigen um höchstens 0,0002. Welche Änderung das
+  macht, ist nicht getrennt gerechnet.
 
 ### Licht im Schatten
 

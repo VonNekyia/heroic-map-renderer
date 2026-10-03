@@ -32,8 +32,8 @@ pub struct Kino {
     vorgabe: [Tint; 3],
     /// Je Biom die Farben seines Himmels.
     himmel: Vec<Himmelsfarben>,
-    /// Weissabgleich mal Belichtung, je Kanal.
-    ton: [f32; 3],
+    /// Der Weissabgleich `v` je Kanal, siehe [`Look::weissabgleich`].
+    weiss: [f32; 3],
     /// Die Richtung zur Sonne im Blick, siehe [`Look::sonne_im_blick`].
     sonne: [f32; 3],
     /// Das Licht der Sonne auf einer Fläche, die genau zu ihr zeigt: ihre
@@ -54,6 +54,8 @@ pub struct Himmelsfarben {
     pub nebel: [f32; 3],
     /// `water_fog_color`, in der Wasser nach der Strecke färbt.
     pub wassernebel: [f32; 3],
+    /// `temperature` des Bioms, für die Wärme aus [`Look::waerme`].
+    pub temperatur: f32,
 }
 
 impl Himmelsfarben {
@@ -65,6 +67,7 @@ impl Himmelsfarben {
             himmel: paar(self.himmel, other.himmel),
             nebel: paar(self.nebel, other.nebel),
             wassernebel: paar(self.wassernebel, other.wassernebel),
+            temperatur: f(self.temperatur, other.temperatur),
         }
     }
 }
@@ -105,7 +108,7 @@ impl Kino {
             umgebung: roh(typ.ambient_light_color),
             vorgabe: [typ.sky_color, typ.fog_color, typ.water_fog_color],
             himmel: Vec::new(),
-            ton: weiss.map(|v| v * look.belichtung),
+            weiss,
             sonne: look.sonne_im_blick(kamera),
             sonne_licht: match typ.sky_light_factor > 0.0 {
                 true => look.sonne_farbe.map(|c| c * look.sonne),
@@ -122,7 +125,7 @@ impl Kino {
         let [himmel, nebel, wassernebel] = self.vorgabe;
         self.himmel = biomes
             .himmel()
-            .map(|h| {
+            .map(|(h, temperatur)| {
                 let (himmel, nebel) = (
                     linear(h.himmel.unwrap_or(himmel)),
                     linear(h.nebel.unwrap_or(nebel)),
@@ -132,6 +135,7 @@ impl Kino {
                     himmel,
                     nebel,
                     wassernebel: linear(h.wassernebel.unwrap_or(wassernebel)),
+                    temperatur,
                 }
             })
             .collect();
@@ -213,10 +217,20 @@ impl Kino {
         self.sonne_licht.map(|c| c * cos)
     }
 
-    /// Eine Farbe aus HDR, linear, nach sRGB: Weissabgleich und Belichtung,
-    /// dann je Kanal die Kurve aus [`Look::kurve`].
-    pub fn ton(&self, farbe: [f32; 3]) -> [u8; 3] {
-        std::array::from_fn(|c| to_srgb(self.look.kurve(farbe[c] * self.ton[c])))
+    /// Die Wärme für ein Biom der Temperatur `t`, siehe [`Look::waerme`].
+    pub fn waerme(&self, t: f32) -> f32 {
+        self.look.waerme(t)
+    }
+
+    /// Eine Farbe aus HDR, linear, nach sRGB: der Weissabgleich je Kanal mit
+    /// der Wärme `w`, `1 + (v − 1) · w` wie in 0058, und die Belichtung, dann
+    /// je Kanal die Kurve aus [`Look::kurve`].
+    /// Siehe docs/renderer/cinematic.md, „Wärme“.
+    pub fn ton(&self, farbe: [f32; 3], w: f32) -> [u8; 3] {
+        std::array::from_fn(|c| {
+            let v = 1.0 + (self.weiss[c] - 1.0) * w;
+            to_srgb(self.look.kurve(farbe[c] * v * self.look.belichtung))
+        })
     }
 }
 
@@ -306,7 +320,7 @@ mod tests {
         let oberwelt = kino(&DimensionType::oberwelt());
         for typ in ["minecraft:the_nether", "minecraft:the_end"] {
             let andere = super::tests::kino(&DimensionType::des_spiels(typ).unwrap());
-            assert_eq!(andere.ton, oberwelt.ton, "{typ}");
+            assert_eq!(andere.weiss, oberwelt.weiss, "{typ}");
         }
     }
 
@@ -329,7 +343,8 @@ mod tests {
 
     /// Ohne Farbe im Biom gilt die des Dimensionstyps: in der Oberwelt
     /// Himmel #78a7ff und Nebel #c0d8ff, linear zu 0,75 und 0,25 gemischt;
-    /// das Soll in Python gerechnet.
+    /// das Soll in Python gerechnet. Ohne Biomdaten gilt die Temperatur von
+    /// plains, 0,8.
     #[test]
     fn himmel_ohne_biom_vom_dimensionstyp() {
         let kino = kino(&DimensionType::oberwelt());
@@ -338,14 +353,15 @@ mod tests {
             himmel: linear([0x78, 0xa7, 0xff]),
             nebel: linear([0xc0, 0xd8, 0xff]),
             wassernebel: linear([0x05, 0x05, 0x33]),
+            temperatur: 0.8,
         };
         let nah = |a: [f32; 3], b: [f32; 3]| (0..3).all(|c| (a[c] - b[c]).abs() < 1e-5);
         assert!(!kino.himmel.is_empty());
         for h in &kino.himmel {
             assert!(nah(h.licht, soll.licht), "{h:?}");
             assert_eq!(
-                (h.himmel, h.nebel, h.wassernebel),
-                (soll.himmel, soll.nebel, soll.wassernebel)
+                (h.himmel, h.nebel, h.wassernebel, h.temperatur),
+                (soll.himmel, soll.nebel, soll.wassernebel, soll.temperatur)
             );
         }
     }
@@ -375,6 +391,17 @@ mod tests {
         assert!((sigma[2] - 0.35 / LOOK.wasser_dichte).abs() < 1e-6);
     }
 
+    /// Der Ton mit Wärme: Weiss in linearem Licht 1, mal Weissabgleich der
+    /// Oberwelt und Belichtung 0,25, ohne Wärme und mit 1,5 wie in einer
+    /// Savanne; das Soll in Python gerechnet. Die Wärme hebt Rot und senkt
+    /// Blau.
+    #[test]
+    fn ton_mit_waerme() {
+        let kino = kino(&DimensionType::oberwelt());
+        assert_eq!(kino.ton([1.0; 3], 1.0), [145, 137, 117]);
+        assert_eq!(kino.ton([1.0; 3], 1.5), [149, 137, 106]);
+    }
+
     /// Eine weisse Fläche nach oben im vollen Himmelslicht der Oberwelt,
     /// ohne Sonne: der Weissabgleich nimmt dem Himmel den Stich nur zum
     /// Teil, Blau bleibt vorn, und nichts läuft über.
@@ -382,8 +409,8 @@ mod tests {
     fn weisse_flaeche_im_himmelslicht() {
         let kino = kino(&DimensionType::oberwelt());
         let licht = kino.licht(kino.himmel(0).licht, 240.0, 0.0, 255.0);
-        let [r, g, b] = kino.ton(licht);
+        let [r, g, b] = kino.ton(licht, 1.0);
         assert!(r < g && g < b && b < 255, "{:?}", [r, g, b]);
-        assert_eq!(kino.ton([0.0; 3]), [0; 3]);
+        assert_eq!(kino.ton([0.0; 3], 1.0), [0; 3]);
     }
 }

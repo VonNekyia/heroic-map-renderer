@@ -30,14 +30,14 @@ scale; anders ist nur das Licht je Pixel, entschieden in
 [0053](../entscheidungen/0053-cinematic-als-schalter-der-karte.md). Es
 zeichnet immer die CPU. Phase 1 (#72) brachte das Licht des Spiels, Phase 2
 (#73) bringt Sonne, Schatten, Wasser, Leuchten, Wärme nach Biom und Bloom;
-bis jetzt davon die Sonne mit hartem Schatten, die Bodenpflanzen und das
-Wasser.
+bis jetzt davon die Sonne mit hartem Schatten, die Bodenpflanzen, das
+Wasser und die Wärme nach Biom.
 
 ## Werte des Looks
 
 Die Werte stehen benannt an einer Stelle, `LOOK` in
 [`renderer/src/render/look.rs`](../../renderer/src/render/look.rs); die für
-Leuchten, Wärme nach Biom und Bloom aus #73 kommen noch dazu:
+Leuchten und Bloom aus #73 kommen noch dazu:
 
 | Wert | in `Look` | genutzt |
 |---|---|---|
@@ -48,6 +48,7 @@ Leuchten, Wärme nach Biom und Bloom aus #73 kommen noch dazu:
 | Wie weit ein Strahl zur Sonne reicht, in Blöcken entlang des Strahls | `sonne_weite`: 128 | ja |
 | So viel Sonne lässt eine Bodenpflanze durch | `pflanzen`: 0,5 | ja |
 | Wasser: F0 der Spiegelung, Anteil der Deckkraft seiner Textur, Dichte | `wasser_spiegel`: 0,04, `wasser_textur`: 0,6, `wasser_dichte`: 8 | ja |
+| Wärme: so viel stärker wird der Weissabgleich höchstens, ab und bis zu welcher Temperatur | `waerme`: 0,5, `waerme_von`: 0,5, `waerme_bis`: 1,0 | ja |
 | Belichtung | `belichtung`: 0,25 | ja |
 | Kurve: gerade bis, flach ab | `knie`: 0,8, `flach`: 1,2 | ja |
 
@@ -308,6 +309,24 @@ je Block, statt ihn zu decken, wie in 0058:
 - Getestet: `bodenpflanze_nach_der_vorlage` in `renderer/tests/assets.rs`
   und die Pflanze in `strahlen_zur_sonne`.
 
+## Wärme
+
+Der Weissabgleich wird je Pixel nach der Temperatur des Bioms stärker, wie
+in 0058 (`Look::waerme`, `Kino::ton`):
+
+- **Je Kanal** `1 + (v − 1) · w`, mit `v` aus „Zeichnen in HDR“, und `w`
+  von 1 bis `waerme_von`, dann gerade bis 1 + `waerme` bei `waerme_bis`.
+  Was das je Biom heisst, steht in 0058, „Weissabgleich im Einzelnen“.
+- **Die Temperatur** ist `temperature` des Bioms
+  (`BiomeColors::temperatur`), ohne Definition die von `plains`, 0,8.
+  Gemischt wird sie wie die Farben des Himmels (`Himmelsfarben`), erst aus
+  dem Mittel kommt `w`.
+- **Je Pixel** gilt die Wärme des vordersten gezeichneten Pixels, aus dem
+  Biom seines Blocks (`Hdr::waerme`).
+- Getestet: `waerme_nach_der_temperatur` in `look.rs`, `ton_mit_waerme` in
+  `kino.rs` und die Wärme je Pixel in `biom_faerbt_das_himmelslicht`, an
+  der Grenze aus dem Mittel der Temperatur.
+
 ## Zeichnen in HDR
 
 Der dritte Durchgang von `render_area_with` zeichnet mit dem Look in HDR
@@ -329,7 +348,7 @@ Karte, siehe [Der Weg einer Kachel](renderpfad.md), „Blit“:
   ohne Block bleibt durchsichtig.
 - **Weissabgleich:** je Kanal `v` aus `Look::weissabgleich`; er macht eine
   weisse Fläche nach oben in Sonne und Himmel der Oberwelt farblos, auch in
-  anderen Dimensionen. Die Wärme nach Biom aus 0058 kommt in #73.
+  anderen Dimensionen. Je Pixel verstärkt ihn die Wärme, siehe „Wärme“.
 - **Alpha:** Cinematic rundet erst am Ende, die Karte nach jeder Schicht.
   Über Durchscheinendem weicht Alpha deshalb um höchstens eins ab; ein Pixel
   ist genau da, wo die Karte einen hat.

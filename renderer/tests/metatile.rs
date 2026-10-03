@@ -725,8 +725,12 @@ fn hdr_haelt_die_tiefe_des_vorderen_draws() {
 /// `#ffa040`, plains nichts und nimmt den Himmel der Oberwelt. Mitten in
 /// einem Biom gilt seine Farbe, an der Grenze bei x = 16 das Mittel der 25
 /// Blöcke, zwei Spalten plains und drei frozen. Das Soll in Python
-/// gerechnet.
+/// gerechnet. Ebenso wärmt das Biom: plains (0,8) mit 1,3, frozen (0) gar
+/// nicht. Gemischt wird die Temperatur, erst daraus die Wärme: bei x = 14
+/// mit vier Spalten plains 0,64, also 1,14, bei x = 15 mit dreien 0,48,
+/// also 1.
 /// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
+/// Siehe docs/renderer/cinematic.md, „Wärme“.
 #[test]
 fn biom_faerbt_das_himmelslicht() {
     let dir = tempdir();
@@ -771,6 +775,17 @@ fn biom_faerbt_das_himmelslicht() {
         assert!(
             (0..3).all(|c| (ist[c] - soll[c]).abs() < 1e-4) && ist[3] == 1.0,
             "x = {x}: {ist:?} statt {soll:?}"
+        );
+    }
+    for (x, soll) in [(4, 1.3), (28, 1.0), (16, 1.0), (14, 1.14), (15, 1.0)] {
+        let [bx, by, bz] = blick(projection, [x, 3, 8]);
+        let (sx, sy) = projection.project([bx as f32 + 0.5, by as f32 + 1.0, bz as f32 + 0.5]);
+        let i =
+            (sy.floor() as i32 - rect.y) as u32 * rect.width + (sx.floor() as i32 - rect.x) as u32;
+        let ist = hdr.waerme[i as usize];
+        assert!(
+            (ist - soll).abs() < 1e-5,
+            "x = {x}: Wärme {ist} statt {soll}"
         );
     }
 }

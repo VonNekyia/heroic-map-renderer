@@ -90,9 +90,9 @@ impl BiomeTable {
     }
 
     /// Je Biom, in der Reihenfolge seiner Nummer, die Farben des Himmels,
-    /// die es setzt.
-    pub fn himmel(&self) -> impl Iterator<Item = Himmel> + '_ {
-        self.colors.iter().map(BiomeColors::himmel)
+    /// die es setzt, und seine Temperatur.
+    pub fn himmel(&self) -> impl Iterator<Item = (Himmel, f32)> + '_ {
+        self.colors.iter().map(|c| (c.himmel(), c.temperatur()))
     }
 
     /// Die Farbe von `resolver` im Biom `biome` an der Spalte `(x, z)`.

@@ -35,6 +35,13 @@ pub struct Look {
     /// Wasser: Dichte, durch die die Farbe nach der Strecke bis zum Grund
     /// geteilt wird.
     pub wasser_dichte: f32,
+    /// Wärme: so viel stärker wird der Weissabgleich höchstens, siehe
+    /// [`Look::waerme`].
+    pub waerme: f32,
+    /// Wärme: ab dieser Temperatur des Bioms wird es wärmer.
+    pub waerme_von: f32,
+    /// Wärme: ab dieser Temperatur ist es ganz warm.
+    pub waerme_bis: f32,
     /// Belichtung vor der Kurve.
     pub belichtung: f32,
     /// Bis hierher ist die Kurve eine Gerade.
@@ -62,6 +69,9 @@ pub const LOOK: Look = Look {
     wasser_spiegel: 0.04,
     wasser_textur: 0.6,
     wasser_dichte: 8.0,
+    waerme: 0.5,
+    waerme_von: 0.5,
+    waerme_bis: 1.0,
     belichtung: 0.25,
     knie: 0.8,
     flach: 1.2,
@@ -71,7 +81,7 @@ impl Look {
     /// Jeder Wert mit seinem Namen, in fester Reihenfolge, wie er im Code
     /// steht. Abgeleitete Werte wie die Richtung der Sonne aus Sinus und
     /// Kosinus fehlen: Deren letztes Bit kann je System abweichen.
-    fn werte(&self) -> [(&'static str, &[f32]); 15] {
+    fn werte(&self) -> [(&'static str, &[f32]); 18] {
         // Ganz zerlegt: Ein neues Feld kompiliert erst, wenn es hier steht.
         let Look {
             himmel,
@@ -86,6 +96,9 @@ impl Look {
             wasser_spiegel,
             wasser_textur,
             wasser_dichte,
+            waerme,
+            waerme_von,
+            waerme_bis,
             belichtung,
             knie,
             flach,
@@ -103,6 +116,9 @@ impl Look {
             ("wasser_spiegel", std::slice::from_ref(wasser_spiegel)),
             ("wasser_textur", std::slice::from_ref(wasser_textur)),
             ("wasser_dichte", std::slice::from_ref(wasser_dichte)),
+            ("waerme", std::slice::from_ref(waerme)),
+            ("waerme_von", std::slice::from_ref(waerme_von)),
+            ("waerme_bis", std::slice::from_ref(waerme_bis)),
             ("belichtung", std::slice::from_ref(belichtung)),
             ("knie", std::slice::from_ref(knie)),
             ("flach", std::slice::from_ref(flach)),
@@ -169,6 +185,15 @@ impl Look {
         x - (x - self.knie) * (x - self.knie) / (2.0 * (self.flach - self.knie))
     }
 
+    /// Wie viel stärker der Weissabgleich in einem Biom der Temperatur `t`
+    /// wirkt, wie in 0058: 1 bis [`Look::waerme_von`], dann gerade bis
+    /// 1 + [`Look::waerme`] bei [`Look::waerme_bis`], darüber gleich.
+    /// Siehe docs/renderer/cinematic.md, „Wärme“.
+    pub fn waerme(&self, t: f32) -> f32 {
+        let f = (t - self.waerme_von) / (self.waerme_bis - self.waerme_von);
+        1.0 + self.waerme * f.clamp(0.0, 1.0)
+    }
+
     /// Das Himmelslicht in den Farben `himmel` und `nebel`, linear, mit der
     /// Stärke 1.
     pub fn himmelslicht(&self, himmel: [f32; 3], nebel: [f32; 3]) -> [f32; 3] {
@@ -201,7 +226,7 @@ mod tests {
     /// zieht den Test nach.
     #[test]
     fn fingerabdruck_der_werte_aus_0058() {
-        assert_eq!(LOOK.fingerabdruck(), "f1e3be580968943d");
+        assert_eq!(LOOK.fingerabdruck(), "07804ad53a5a7cd6");
         let anders = Look {
             belichtung: 0.26,
             ..LOOK
@@ -250,6 +275,23 @@ mod tests {
                 "{kamera}"
             );
             assert!((links.hypot(zur_kamera) - waagrecht).abs() < 1e-6);
+        }
+    }
+
+    /// Die Wärme nach 0058: bis 0,5 klar, ab 1,0 warm mit 1,5, Ebenen und
+    /// Strände (0,8) mit 1,3, Wald (0,7) mit 1,2.
+    #[test]
+    fn waerme_nach_der_temperatur() {
+        for (t, w) in [
+            (-0.5, 1.0),
+            (0.0, 1.0),
+            (0.5, 1.0),
+            (0.7, 1.2),
+            (0.8, 1.3),
+            (1.0, 1.5),
+            (2.0, 1.5),
+        ] {
+            assert!((LOOK.waerme(t) - w).abs() < 1e-6, "{t}: {}", LOOK.waerme(t));
         }
     }
 

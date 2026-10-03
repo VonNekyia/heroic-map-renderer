@@ -66,12 +66,13 @@ New-Item -ItemType Directory -Force vanilla-data\minecraft\worldgen | Out-Null; 
 
 66 Dateien, 352 kB. Ohne `--data` bekommt jeder Block die Farben von
 `plains`; Ozeane und Wälder sehen dann überall gleich aus, aber nicht
-falsch. Cinematic liest aus ihnen auch die Farben des Himmels. Ein Biom
-ohne Definition wird `plains`; ohne `--data` hat auch `plains` keine, und
-Cinematic nimmt die Farben des Dimensionstyps, siehe
-[Cinematic](../renderer/cinematic.md), „Farbe des Himmels“. Datenpakete
-mit eigenen Biomen kommen als weitere Wurzeln dazu, spätere überschreiben
-frühere, auch Vanilla-Biome, die ein Paket umdefiniert:
+falsch. Cinematic liest aus ihnen auch die Farben des Himmels und die
+Temperatur für seine Wärme. Ein Biom ohne Definition wird `plains`; ohne
+`--data` hat auch `plains` keine, und Cinematic nimmt die Farben des
+Dimensionstyps und die Temperatur 0,8, siehe
+[Cinematic](../renderer/cinematic.md), „Farbe des Himmels“ und „Wärme“.
+Datenpakete mit eigenen Biomen kommen als weitere Wurzeln dazu, spätere
+überschreiben frühere, auch Vanilla-Biome, die ein Paket umdefiniert:
 
 ```bash
 --data ./vanilla-data --data ./weitere-daten

@@ -212,6 +212,9 @@ pub struct Hdr {
     pub width: u32,
     pub farbe: Vec<[f32; 4]>,
     pub tiefe: Vec<f32>,
+    /// Die Wärme des vordersten Pixels, aus dem Biom seines Blocks, siehe
+    /// [`Kino::waerme`]; 1 ohne Pixel.
+    pub waerme: Vec<f32>,
 }
 
 impl Hdr {
@@ -221,6 +224,7 @@ impl Hdr {
             width,
             farbe: vec![[0.0; 4]; n],
             tiefe: vec![f32::NEG_INFINITY; n],
+            waerme: vec![1.0; n],
         }
     }
 
@@ -229,11 +233,12 @@ impl Hdr {
     pub fn bild(&self, kino: &Kino) -> RgbaImage {
         let height = (self.farbe.len() / self.width.max(1) as usize) as u32;
         let mut bild = RgbaImage::new(self.width, height);
-        for (pixel, &[r, g, b, a]) in bild.pixels_mut().zip(&self.farbe) {
+        let pixel = bild.pixels_mut().zip(&self.farbe).zip(&self.waerme);
+        for ((pixel, &[r, g, b, a]), &w) in pixel {
             if a <= 0.0 {
                 continue;
             }
-            let [r, g, b] = kino.ton([r / a, g / a, b / a]);
+            let [r, g, b] = kino.ton([r / a, g / a, b / a], w);
             pixel.0 = [r, g, b, (a * 255.0).round() as u8];
         }
         bild
@@ -996,6 +1001,7 @@ fn blit_hdr(
     // Blocks, wie im Spiel ohne weiche Beleuchtung.
     let stufen = licht.map(|c| c as f32);
     let licht = EckenLicht::new(kino, himmel.licht, licht, ecken);
+    let waerme = kino.waerme(himmel.temperatur);
     let karte = sprite.ao.as_deref();
     let nass = wasser.map(|[s, b, a]| kino.licht(himmel.licht, s as f32, b as f32, a as f32));
     let linear = &*LINEAR;
@@ -1066,6 +1072,7 @@ fn blit_hdr(
                 if let Some(geometrie) = &sprite.geometrie {
                     hdr.tiefe[p] = ursprung + geometrie[i].tiefe;
                 }
+                hdr.waerme[p] = waerme;
             }
         }
     }

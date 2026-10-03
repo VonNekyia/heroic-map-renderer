@@ -13,7 +13,9 @@ code:
 
 Mit dem Look aus [0058](../entscheidungen/0058-look-von-cinematic.md)
 halten am Renderer 15 von 24 Ansichten der Testwelt alle Grenzen, am
-Prototyp waren es 20.
+Prototyp waren es 20. Mit der Grenze 0,75 für Schatten/Sonne aus
+[0060](../entscheidungen/0060-grenze-schatten-sonne-am-renderer.md) sind
+es 21, ausserhalb bleiben drei Ansichten Schnee wegen dL und C.
 - Übersteuert, dL in der Sonne, C zur Karte, Farbton und C hell liegen beim
   Prototyp.
 - Schatten/Sonne liegt im Mittel bei 0,639 statt 0,593 und in 9 Ansichten
@@ -215,6 +217,6 @@ mit der Farbe der Textur; am Prototyp Himmel mal 3 plus Blocklicht mal 1,5.
 - **Befunde 1 und 2:** Die Umgebungsfarbe hebt Schatten/Sonne um 0,005 bis
   0,009 und bringt `huegel` north-45 aus `s` über die Grenze. Das fertige
   Licht zwischen den Ecken ändert es um höchstens 0,001.
-- **Offen:** ob die Grenze für Schatten/Sonne am Renderer neu gilt oder der
-  Look sich ändert; das entscheidet der User. Die Werte in 0058 sind
-  unverändert.
+- **Entschieden:** Am Renderer gilt für Schatten/Sonne 0,35 bis 0,75, der
+  Look bleibt, siehe
+  [0060](../entscheidungen/0060-grenze-schatten-sonne-am-renderer.md).

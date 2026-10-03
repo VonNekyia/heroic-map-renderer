@@ -538,7 +538,7 @@ impl ChunkCache<'_> {
         eigen: [i32; 3],
     ) -> Result<Wirkung> {
         let sprites = self.sprites;
-        let weite = sprites.kino().expect("Cinematic").look().sonne_weite;
+        let weite = f64::from(sprites.kino().expect("Cinematic").look().sonne_weite);
         let Some(form) = family.sonne.as_ref().filter(|form| !form.leer) else {
             return Ok(Wirkung::Nichts);
         };
@@ -582,7 +582,7 @@ impl ChunkCache<'_> {
                 }
             }
         }
-        let o = std::array::from_fn(|k| (p0[k] - f64::from(b[k])) as f32);
+        let o = std::array::from_fn(|k| p0[k] - f64::from(b[k]));
         Ok(
             if form.trifft(wahl, voll, weg, sprites.masken(), o, d, weite) {
                 if form.pflanze {

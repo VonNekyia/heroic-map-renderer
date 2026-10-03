@@ -176,13 +176,13 @@ impl Schattenmodell {
     /// Erst gegen die Hülle, dann Dreieck für Dreieck (Möller–Trumbore),
     /// beidseitig; der erste deckende Treffer genügt. `weg`: die Seiten der
     /// Welt, zu denen Flächen aus Lava entfallen.
-    fn trifft(&self, weg: u8, masken: &Masken, o: [f32; 3], d: [f32; 3], weite: f32) -> bool {
-        let (mut t0, mut t1) = (-1e-3f32, weite + 1e-3);
+    fn trifft(&self, weg: u8, masken: &Masken, o: [f64; 3], d: [f32; 3], weite: f64) -> bool {
+        let (mut t0, mut t1) = (-1e-3f64, weite + 1e-3);
         for k in 0..3 {
-            let inv = 1.0 / d[k];
+            let inv = 1.0 / f64::from(d[k]);
             let (a, b) = (
-                (self.lo[k] - 1e-3 - o[k]) * inv,
-                (self.hi[k] + 1e-3 - o[k]) * inv,
+                (f64::from(self.lo[k]) - 1e-3 - o[k]) * inv,
+                (f64::from(self.hi[k]) + 1e-3 - o[k]) * inv,
             );
             t0 = t0.max(a.min(b));
             t1 = t1.min(a.max(b));
@@ -190,6 +190,12 @@ impl Schattenmodell {
         if t0 > t1 {
             return false;
         }
+        // Die Dreiecke ab dem Eintritt in die Hülle, in f32: So liegt der
+        // Anfang nah am Block, auch am Ende der Weite. Vor ihm liegt kein
+        // Dreieck.
+        let vor = t0.max(0.0);
+        let o: [f32; 3] = std::array::from_fn(|k| (o[k] + vor * f64::from(d[k])) as f32);
+        let weite = (weite - vor) as f32;
         self.dreiecke.iter().any(|dr| {
             if dr.lava.is_some_and(|face| weg & seite(face) != 0) {
                 return false;
@@ -339,9 +345,9 @@ impl Sonnenform {
         voll: bool,
         weg: u8,
         masken: &Masken,
-        o: [f32; 3],
+        o: [f64; 3],
         d: [f32; 3],
-        weite: f32,
+        weite: f64,
     ) -> bool {
         let (eigen, hoch) = &self.modelle[wahl];
         let m = match hoch {

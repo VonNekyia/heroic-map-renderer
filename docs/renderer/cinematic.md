@@ -228,7 +228,10 @@ hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
 - **Wie weit:** bis `sonne_weite`, 128 Blöcke entlang des Strahls.
 - **Der Test einer Zelle:** erst gegen die Hülle des Modells, dann Dreieck
   für Dreieck, beidseitig; der erste deckende Treffer genügt. Gerechnet
-  relativ zum Block, also gleich, in welcher Zelle er geprüft wird.
+  relativ zum Block, also gleich, in welcher Zelle er geprüft wird: die
+  Hülle in f64 vom Anfang des Strahls aus, die Dreiecke in f32 ab dem
+  Eintritt in die Hülle. So liegt ihr Anfang nah am Block, auch am Ende
+  der Weite.
 
 ### Der schnelle Gang
 

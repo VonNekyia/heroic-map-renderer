@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -283,6 +283,29 @@ Liste gibt. Es nimmt `history.replaceState`, der Verlauf bekommt also
 keine Einträge. Wer die Adresse kopiert oder die Seite neu lädt, sieht
 denselben Block in der Mitte auf derselben Stufe. Ohne Koordinaten gibt es
 keinen Block für `at`, und die Adresse bleibt, wie sie ist.
+
+## Stand der Karte
+
+Unten rechts steht, wann der letzte Lauf `map.json` geschrieben hat, in
+Ortszeit des Browsers, etwa `Stand: 02.10.2026, 21:40`.
+
+- **Woher:** der Header `Last-Modified` von `map.json`, die das Frontend
+  ohnehin lädt (`load` in [`web/src/main.ts`](../web/src/main.ts)). Vite
+  und übliche Webserver senden ihn von selbst. Fehlt er oder taugt er
+  nicht, fehlt die Anzeige.
+- **Was er bedeutet:** die Zeit, zu der `map.json` zuletzt geschrieben
+  wurde, nicht die der letzten Änderung an der Welt oder an Kacheln:
+  - Ein voller Lauf, ein Ausschnitt, `--resume`, `--pyramid` und
+    `--heights` schreiben `map.json` jedes Mal, auch wenn sich nichts
+    geändert hat. Dann zeigt der Stand die Zeit dieser Prüfung.
+  - Ein `--update` (#100), das nichts zu zeichnen findet, schreibt
+    `map.json` nicht; der Stand bleibt beim letzten Lauf, der etwas
+    geschrieben hat.
+  - Läuft gerade ein Lauf, steht dort sein Beginn: Er schreibt `map.json`
+    vor der ersten Kachel und noch einmal am Ende, siehe
+    [map.json](benutzung/map-json.md), „Wann sie geschrieben wird“.
+- **Aktualisiert** wird die Anzeige beim Laden der Seite, wie die Kacheln,
+  siehe „Ausliefern“, „Cache“.
 
 ## Ausliefern
 

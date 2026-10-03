@@ -110,6 +110,14 @@ body {
   font: 1rem/1.5 system-ui, sans-serif;
 }
 
+/* Unten rechts: wann der letzte Lauf map.json geschrieben hat. */
+.stand {
+  padding: 0 0.5em;
+  background: rgba(255, 255, 255, 0.8);
+  color: #000;
+  font: 12px/1.6 system-ui, sans-serif;
+}
+
 /* Der Pfeil nach Norden; die Drehung setzt main.ts. */
 .kompass {
   width: 30px;

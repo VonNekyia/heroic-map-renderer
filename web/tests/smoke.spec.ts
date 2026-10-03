@@ -660,6 +660,37 @@ test('passt Zoom 0 nicht ins Fenster, geht es weiter heraus', async ({ page }) =
   await expect(page.locator('.leaflet-control-zoom-out')).toHaveClass(/leaflet-disabled/);
 });
 
+test.describe('der Stand der Karte', () => {
+  test.use({ timezoneId: 'Europe/Berlin' });
+
+  test('kommt aus Last-Modified von map.json, in Ortszeit', async ({ page }) => {
+    await page.route('**/tiles-demo/map.json', async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({
+        response,
+        headers: { ...response.headers(), 'last-modified': 'Fri, 02 Oct 2026 19:40:00 GMT' },
+      });
+    });
+    await page.goto(DEMO);
+    await expect(page.locator('.stand')).toHaveText('Stand: 02.10.2026, 21:40');
+  });
+
+  test('fehlt ohne den Header', async ({ page }) => {
+    await page.route('**/tiles-demo/map.json', async (route) => {
+      const response = await route.fetch();
+      await route.fulfill({ status: 200, contentType: 'application/json', body: await response.text() });
+    });
+    await page.goto(DEMO);
+    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await expect(page.locator('.stand')).toHaveCount(0);
+  });
+
+  test('zeigt Vite von selbst, wie übliche Webserver', async ({ page }) => {
+    await page.goto(DEMO);
+    await expect(page.locator('.stand')).toHaveText(/^Stand: \d\d\.\d\d\.\d{4}, \d\d:\d\d$/);
+  });
+});
+
 test('ohne map.json sagt die Seite warum', async ({ page }) => {
   await page.goto('/?tiles=/gibt-es-nicht');
   await expect(page.locator('.error')).toContainText('map.json');

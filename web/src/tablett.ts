@@ -68,9 +68,8 @@ export function imBlick([x0, z0, x1, z1]: Rechteck, k: number): Rechteck {
 }
 
 /**
- * Die Breite der Oberkante als Anteil der mittleren Kante der Welt. In der
- * Vorlage ist sie etwa 2 % der Kartenbreite im Bild, in 2:1 also gut 3 % der
- * Kante. Siehe docs/frontend.md, „Masse“.
+ * Die Breite der Oberkante als Anteil der mittleren Kante der Welt,
+ * vorläufig. Siehe docs/frontend.md, „Masse“.
  */
 const RAND = 0.033;
 

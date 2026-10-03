@@ -346,8 +346,8 @@ Kante ist das Mittel aus Breite und Tiefe von `area`.
 
 | Mass | Wert | Herkunft |
 |---|---|---|
-| Rand w, Breite der Oberkante | 3,3 % der Kante | gemessen an der Vorlage: dort etwa 2 % der Kartenbreite im Bild, in 2:1 gut 3 % der Kante; #112 nennt rund 2,5 % |
-| Tiefe D, vom Wasserspiegel bis zur Platte | 1,5·w | Vorlage: Wand mit Leiste und Sockel etwa 1,6-mal so hoch, wie die Oberkante im Bild breit ist; #112 nennt 1,3 |
+| Rand w, Breite der Oberkante | 3,3 % der Kante | vorläufig, zu breit. Die Vorlage hat 1,6 % von W, der Breite der Welt am Wasserspiegel im Bild (#112, issuecomment-5969026988). Waagrecht im Bild ist Band / W = Breite / Kante; die Schrägen machen das Band in 2:1 1,25-mal, in 8:5 1,2-mal so breit wie w, also w rund 1,3 % der Kante |
+| Tiefe D, vom Wasserspiegel bis zur Platte | 1,5·w | vorläufig, zu flach. Die Wand mit Sockel ist in der Vorlage 2,5 Oberkanten hoch, 4,0 % von W. Senkrecht im Bild ist px / W = Höhe / (2 · Kante), D also rund 8,3 % der Kante |
 | Pfeiler an den Ecken | 1,2·w im Quadrat | etwas breiter als die Wand mit Sockel |
 | Holzkante des Tischs | 0,05 Kanten | |
 

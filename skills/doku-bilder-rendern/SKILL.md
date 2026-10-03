@@ -29,7 +29,7 @@ Testwelt liegt unter `./world`, die Assets wie in
    | `genordet.webp` | dasselbe Dorf in `top-north` und `north-45` nebeneinander, ebenso, `GENORDET` |
    | `web/public/vorschau.jpg`, `favicon.png`, `apple-touch-icon.png` | [`web-bilder.py`](web-bilder.py): die Mitte von `welt.webp` auf 1200 × 630, die Icons aus der Ebene „Insel“ des Banners, siehe Schritt 3 |
    | `sprites.png` | der Befehl in [`docs/benutzung/schalter.md`](../../docs/benutzung/schalter.md), „Sprites rastern: `--sprite`“ |
-   | `cinematic-waerme.webp`, `cinematic-pflanzen.webp` | nicht aus diesem Skript: Der Test `bilder_zu_0058` in [`renderer/tests/kennzahlen.rs`](../../renderer/tests/kennzahlen.rs) schreibt sie, mit Szenen, Ausschnitten und Werten: `KENNZAHLEN_WURZEL="$PWD" cargo test --release --manifest-path renderer/Cargo.toml --test kennzahlen bilder_zu_0058 -- --ignored` |
+   | `cinematic-waerme.webp`, `cinematic-pflanzen.webp` | Cinematic mit Werten des Looks, die kein Schalter bietet: Das Skript ruft den ignorierten Test `bilder_zu_0058` in [`renderer/tests/kennzahlen.rs`](../../renderer/tests/kennzahlen.rs), dort stehen Szenen, Ausschnitte und Werte |
 
    Liegen `world/` und die Assets nicht in der Wurzel, nennt ein zweites
    Argument ihren Ordner.

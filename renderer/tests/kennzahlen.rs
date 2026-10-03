@@ -2,7 +2,7 @@
 //! und als Karte, dazu je Pixel, was die Kennzahlen des Looks brauchen: ob
 //! die Sonne ihn trifft, ob er leuchtet oder im Bloom liegt, ob seine
 //! vorderste Fläche deckt, ihr Block und ihre Seite. Dazu die Bilder zu
-//! 0058 in `docs/bilder`. Braucht die Testwelt und die Assets, deshalb
+//! 0058 als PNG. Braucht die Testwelt und die Assets, deshalb
 //! `#[ignore]`. Aufruf und Auswertung:
 //! docs/messungen/2026-10-03-look-am-renderer.md; die Bilder:
 //! skills/doku-bilder-rendern/SKILL.md.
@@ -18,7 +18,7 @@ use terranova_render::render::look::{LOOK, Look};
 use terranova_render::render::metatile::{Hdr, render_hdr_with};
 use terranova_render::render::{
     BiomeTable, ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, Survey,
-    encode_webp, render_area, shrink, survey,
+    render_area, shrink, survey,
 };
 use terranova_render::world::World;
 
@@ -82,12 +82,14 @@ fn kennzahlen_der_ansichten() {
 /// Die Bilder unter 0058: die Wärme nach Biom an Hügel und Schnee, die
 /// Bodenpflanzen an einer Wiese des Hügels, je 2:1 bei 32 aus `se`, mit
 /// der Mitte der Szene in der Bildmitte; Ausschnitte wie am Prototyp zu
-/// #89, als WebP verlustfrei.
+/// #89. Als PNG nach `BILDER_AUS`; `bilder-rendern.py` ruft den Test und
+/// kodiert sie wie die übrigen Bilder.
 #[test]
 #[ignore]
 fn bilder_zu_0058() {
     let wurzel = wurzel();
-    let ziel = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/bilder");
+    let ziel =
+        PathBuf::from(std::env::var("BILDER_AUS").expect("BILDER_AUS auf den Zielordner setzen"));
     let szene = |name: &str| {
         let &(_, mitte) = SZENEN.iter().find(|(s, _)| *s == name).unwrap();
         Szene::new(&wurzel, "2:1", 32, "se", ansichten(mitte)[0].4)
@@ -110,11 +112,7 @@ fn bilder_zu_0058() {
             replace(&mut waerme, &teil, spalte as i64 * 400, zeile as i64 * 400);
         }
     }
-    std::fs::write(
-        ziel.join("cinematic-waerme.webp"),
-        encode_webp(&waerme).unwrap(),
-    )
-    .unwrap();
+    waerme.save(ziel.join("cinematic-waerme.png")).unwrap();
     // Hart, weich mit 0,5 und ohne Sonnenschatten der Bodenpflanzen, nach
     // Biom gewärmt; 240 Pixel ab (700, 700), zweifach vergrössert ohne
     // Glättung.
@@ -133,11 +131,7 @@ fn bilder_zu_0058() {
         );
         replace(&mut pflanzen, &teil, spalte as i64 * 480, 0);
     }
-    std::fs::write(
-        ziel.join("cinematic-pflanzen.webp"),
-        encode_webp(&pflanzen).unwrap(),
-    )
-    .unwrap();
+    pflanzen.save(ziel.join("cinematic-pflanzen.png")).unwrap();
 }
 
 /// Eine Ansicht: Welt, Assets und Ausschnitt, wie `--render` mit `--center`

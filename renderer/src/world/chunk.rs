@@ -672,7 +672,7 @@ pub struct Abdruck {
 }
 
 /// FNV-1a mit 64 Bit, wie der Fingerabdruck des Looks.
-struct Fnv(u64);
+pub(crate) struct Fnv(pub(crate) u64);
 
 impl Default for Fnv {
     fn default() -> Fnv {
@@ -681,14 +681,14 @@ impl Default for Fnv {
 }
 
 impl Fnv {
-    fn nimm(&mut self, bytes: &[u8]) {
+    pub(crate) fn nimm(&mut self, bytes: &[u8]) {
         for &b in bytes {
             self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
         }
     }
 
     /// Ein Text mit einem Nullbyte dahinter.
-    fn text(&mut self, text: &str) {
+    pub(crate) fn text(&mut self, text: &str) {
         self.nimm(text.as_bytes());
         self.nimm(&[0]);
     }

@@ -252,12 +252,7 @@ impl Kino {
     /// Kastenfilter aus [`unscharf`], wie im Prototyp aus #89 für die
     /// Gaussglocke mit σ = [`Look::bloom_breite`] · scale; 0 ohne Bloom.
     pub fn bloom_radius(&self, scale: u32) -> usize {
-        if self.look.bloom <= 0.0 {
-            return 0;
-        }
-        let sigma = f64::from(self.look.bloom_breite) * f64::from(scale);
-        let b = ((4.0 * sigma * sigma + 1.0).sqrt().round() as usize).max(1);
-        (b | 1) / 2
+        self.look.bloom_radius(scale)
     }
 
     /// Der Bloom eines Bildes der Breite `breite`: das Leuchten `leuchten`,

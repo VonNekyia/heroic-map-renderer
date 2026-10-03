@@ -381,6 +381,18 @@ fn write_region(
     dir.to_path_buf()
 }
 
+/// Setzt im Kopf der Regionsdatei die Zeit eines Chunks, wie das Spiel sie
+/// beim Schreiben setzt (`RegionFile.write`). Die Bauhilfen schreiben 1.
+pub fn setze_stempel(welt: &Path, cx: i32, cz: i32, zeit: u32) {
+    let pfad = welt
+        .join("region")
+        .join(format!("r.{}.{}.mca", cx >> 5, cz >> 5));
+    let mut daten = std::fs::read(&pfad).expect("Regionsdatei lesen");
+    let i = SECTOR + 4 * (cx.rem_euclid(32) + cz.rem_euclid(32) * 32) as usize;
+    daten[i..i + 4].copy_from_slice(&zeit.to_be_bytes());
+    std::fs::write(&pfad, daten).expect("Regionsdatei schreiben");
+}
+
 /// Baut die Section `sy` eines Chunks aus der Blockfunktion.
 fn section(
     cx: i32,

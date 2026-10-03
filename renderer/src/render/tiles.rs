@@ -15,6 +15,7 @@ use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
 use super::heights::{Heights, RegionHeights};
 use super::look::Look;
+use super::stand::{Aenderung, Inhalt};
 use super::{BLEED_BLOCKS, Projection, ScreenRect};
 
 /// Kantenlänge einer Kachel in Pixeln. 256 ist, was Leaflet ohne
@@ -290,6 +291,9 @@ pub struct Survey {
     /// gezeichnet wird nur, was [`crate::world::Region::chunk`] liefert.
     /// Ihre Höhen bleiben leer.
     pub unfinished: usize,
+    /// Mit [`Reach::mit_inhalt`] je gelesenem Chunk, was der Renderer aus
+    /// ihm zeichnet, für den Stand eines vollen Laufs.
+    pub inhalte: Vec<([i32; 2], Inhalt)>,
 }
 
 /// Welche Chunks der Vorlauf liest: die, deren Spalte über die ganze
@@ -304,6 +308,8 @@ pub struct Reach {
     /// Um wie viele Chunks im Blick ein Strahl zur Sonne von einem Chunk
     /// im Ausschnitt aus Blöcke liest: `[von, bis]` je `[x, z]`.
     sonne: Option<[[i32; 2]; 2]>,
+    /// Ob der Vorlauf je Chunk seinen [`Inhalt`] sammelt.
+    inhalt: bool,
 }
 
 impl Reach {
@@ -324,6 +330,16 @@ impl Reach {
             hoehe: (y_range.0, y_range.1 + 1),
             gebiet,
             sonne: None,
+            inhalt: false,
+        }
+    }
+
+    /// Der Vorlauf sammelt je Chunk im Gebiet seinen [`Inhalt`], siehe
+    /// [`Survey::inhalte`].
+    pub fn mit_inhalt(self) -> Reach {
+        Reach {
+            inhalt: true,
+            ..self
         }
     }
 
@@ -337,15 +353,8 @@ impl Reach {
         let (Some(look), Some(_)) = (look, &self.gebiet) else {
             return self;
         };
-        let d = look.sonne_im_blick(self.projection.kamera());
-        // So viele Chunkgrenzen wie `ChunkCache::horizont`.
-        let reicht = |c: f32| {
-            let n = (f64::from(look.sonne_weite) * f64::from(c.abs()) / 16.0).ceil() as i32;
-            if c < 0.0 { -n } else { n }
-        };
-        let (x, z) = (reicht(d[0]), reicht(d[2]));
         Reach {
-            sonne: Some([[x.min(0) - 2, z.min(0) - 2], [x.max(0) + 2, z.max(0) + 2]]),
+            sonne: Some(zur_sonne(self.projection, look)),
             ..self
         }
     }
@@ -418,6 +427,68 @@ impl Reach {
     }
 }
 
+/// Um wie viele Chunks im Blick ein Strahl zur Sonne von einem Chunk aus
+/// Blöcke liest, samt zwei Chunks rundum: `[von, bis]` je `[x, z]`, siehe
+/// [`Reach::mit_sonne`].
+fn zur_sonne(projection: Projection, look: &Look) -> [[i32; 2]; 2] {
+    let d = look.sonne_im_blick(projection.kamera());
+    // So viele Chunkgrenzen wie `ChunkCache::horizont`.
+    let reicht = |c: f32| {
+        let n = (f64::from(look.sonne_weite) * f64::from(c.abs()) / 16.0).ceil() as i32;
+        if c < 0.0 { -n } else { n }
+    };
+    let (x, z) = (reicht(d[0]), reicht(d[2]));
+    [[x.min(0) - 2, z.min(0) - 2], [x.max(0) + 2, z.max(0) + 2]]
+}
+
+/// Wo ein Update zeichnet: die Kacheln der Stufe `stufen`, auf die ein
+/// geänderter Chunk wirken kann. Das sind seine Blöcke und die bis zu
+/// 16 Blöcke daneben, so weit reichen Licht (15) und weiche Beleuchtung (1),
+/// die Mischung der Biome liegt darin; in der Höhe von `unten`, der
+/// Unterkante der Dimension, bis 16 Blöcke über [`Aenderung::oben`], denn
+/// Himmelslicht fällt in einer Spalte beliebig tief. Mit Cinematic dazu
+/// jeder Chunk, dessen Strahlen zur Sonne ihn lesen ([`Reach::mit_sonne`]
+/// umgekehrt), und der Rand des Bloom auf jeder nativen Stufe.
+/// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+pub fn gebiet_der_aenderungen(
+    projection: Projection,
+    stufen: u32,
+    unten: i32,
+    aenderungen: &[Aenderung],
+    look: Option<&Look>,
+) -> Gebiet {
+    let richtung = projection.richtung();
+    let [von, bis] = look.map_or([[-1, -1], [1, 1]], |look| zur_sonne(projection, look));
+    let bloom = look.map_or(0, |look| {
+        (0..=stufen)
+            .map(|k| (3 * look.bloom_radius(projection.scale() >> k) as i32) << k)
+            .max()
+            .unwrap_or(0)
+    });
+    let mut kacheln = BTreeSet::new();
+    for aenderung in aenderungen {
+        // Gelesen wird ein Chunk X von jedem Chunk X − d mit d in [von, bis].
+        let [x, z] = richtung.in_den_blick(aenderung.chunk);
+        let a = richtung.in_die_welt([x - bis[0], z - bis[1]]);
+        let b = richtung.in_die_welt([x - von[0], z - von[1]]);
+        let rect = block_box(
+            projection,
+            [a[0].min(b[0]) * CHUNK, a[1].min(b[1]) * CHUNK],
+            [(a[0].max(b[0]) + 1) * CHUNK, (a[1].max(b[1]) + 1) * CHUNK],
+            // Bis zur Oberkante des obersten Blocks, wie in `Reach::new`.
+            (unten, aenderung.oben + CHUNK + 1),
+        );
+        let rect = ScreenRect {
+            x: rect.x - bloom,
+            y: rect.y - bloom,
+            width: rect.width + 2 * bloom as u32,
+            height: rect.height + 2 * bloom as u32,
+        };
+        kacheln.extend(raster(rect, TILE << stufen));
+    }
+    Gebiet::aus(stufen, kacheln)
+}
+
 /// Was ein Chunk im Ausschnitt eines Laufs zeigt, siehe [`Reach::content`].
 enum Content {
     /// Keine Section, in der etwas steht.
@@ -465,6 +536,7 @@ pub fn survey_in(world: &World, reach: Reach) -> Result<Survey> {
         survey.chunks += teil.chunks;
         survey.heights.extend(teil.heights);
         survey.unfinished += teil.unfinished;
+        survey.inhalte.extend(teil.inhalte);
     }
     survey.tiles = tiles.into_iter().collect();
     Ok(survey)
@@ -498,6 +570,9 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
             let Some(chunk) = region.stored_chunk(cx, cz)? else {
                 continue;
             };
+            if reach.inhalt && im_bild {
+                survey.inhalte.push(([cx, cz], Inhalt::von(Some(&chunk))));
+            }
             if !chunk.is_generated() {
                 survey.unfinished += usize::from(im_bild);
                 continue;
@@ -563,11 +638,21 @@ fn column_box(
     y_range: (i32, i32),
     kante: i32,
 ) -> ScreenRect {
+    block_box(projection, [x, z], [x + kante, z + kante], y_range)
+}
+
+/// Wie [`column_box`] für die Blöcke von `von` bis vor `bis` in x und z.
+fn block_box(
+    projection: Projection,
+    von: [i32; 2],
+    bis: [i32; 2],
+    y_range: (i32, i32),
+) -> ScreenRect {
     let mut min = (i32::MAX, i32::MAX);
     let mut max = (i32::MIN, i32::MIN);
     let richtung = projection.richtung();
-    for &cx in &[x, x + kante] {
-        for &cz in &[z, z + kante] {
+    for &cx in &[von[0], bis[0]] {
+        for &cz in &[von[1], bis[1]] {
             let [bx, _, bz] = richtung.versatz_in_den_blick([cx, 0, cz]);
             for &cy in &[y_range.0, y_range.1] {
                 let (sx, sy) = projection.project_block([bx, cy, bz]);

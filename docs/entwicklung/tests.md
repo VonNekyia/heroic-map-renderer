@@ -75,7 +75,7 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `renderer/tests/richtung.rs` | die Richtungen der Kamera: Modelle gedreht, Seiten nach der Welt schattiert, auch die eines Blockentities, Licht, Alternativen und Biome aus der Welt; gedrehte Szenen je Kamera aus allen vier Richtungen wie aus der Vorgabe: Treppen, Türen, Zäune, Scheiben, Licht unter einem Dach, Teile in fremden Würfeln, Blockentities, einen Spawner vor vollen Blöcken und Wasser, dazu Eis und Wasser in Stufen, siehe [Richtungen](../renderer/richtungen.md) |
 | `renderer/tests/heights.rs` | die Höhen für die Koordinatenanzeige und `projektion.json` für das Frontend |
 | `renderer/tests/tiles.rs` | die Naht: jede Kachel gegen den Ausschnitt eines grossen Renderings |
-| `renderer/tests/cli.rs` | die ganze Exportkette über das echte Binär |
+| `renderer/tests/cli.rs` | die ganze Exportkette über das echte Binär, auch Updates gegen einen vollen Lauf |
 | `renderer/tests/gpu.rs` | die Karte gegen die CPU, Byte für Byte |
 | `renderer/tests/kennzahlen.rs` | nur von Hand, mit der Testwelt: die Kennzahlen des Looks über 24 Ansichten (`kennzahlen_der_ansichten`) und die Bilder des Renderers zu Cinematic (`bilder_zu_cinematic`), siehe unten |
 | `renderer/tests/licht.rs` | die Ausbreitung des Lichts gegen einen Lauf von Vanilla 26.2 und an gebauten Welten |

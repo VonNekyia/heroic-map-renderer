@@ -2923,11 +2923,12 @@ fn gewachsene_welt_behaelt_die_nummerierung() {
     assert!(!kacheln(baum.path(), 0).is_empty(), "Zoom 0 fehlt");
 }
 
-/// Kacheln, Höhen und `map.json` werden getauscht, nicht überschrieben: wer
-/// eine Datei gerade liest, liest sie zu Ende, wie sie war, und ein Abbruch
-/// mitten im Schreiben hinterlässt die alte. Der Test hält die Basis, die
-/// Höhen und `map.json` offen, während ein zweiter Lauf eine veränderte,
-/// grössere Welt schreibt. Daneben bleibt keine eigene Datei übrig.
+/// Kacheln, Höhen, `map.json` und der Stand werden getauscht, nicht
+/// überschrieben: wer eine Datei gerade liest, liest sie zu Ende, wie sie
+/// war, und ein Abbruch mitten im Schreiben hinterlässt die alte. Der Test
+/// hält die Basis, die Höhen, `map.json` und den Stand offen, während ein
+/// zweiter Lauf eine veränderte, grössere Welt schreibt. Daneben bleibt
+/// keine eigene Datei übrig, auch kein angefangener Stand.
 #[test]
 fn schreiben_tauscht_die_datei() {
     let alt = tempdir();
@@ -2946,9 +2947,10 @@ fn schreiben_tauscht_die_datei() {
     let karte = baum.path().join("map.json");
     let region = baum.wurzel().join(heights::path_of(0, 0));
     let liste = baum.wurzel().join("trees.json");
+    let stand = baum.path().join("stand.bin");
     let offen: Vec<(PathBuf, Vec<u8>, std::fs::File)> = kacheln(baum.path(), max_zoom(baum.path()))
         .into_values()
-        .chain([karte.clone(), region.clone(), liste])
+        .chain([karte.clone(), region.clone(), liste, stand.clone()])
         .map(|pfad| {
             let vorher = std::fs::read(&pfad).unwrap();
             let datei = std::fs::File::open(&pfad).unwrap();
@@ -2967,8 +2969,11 @@ fn schreiben_tauscht_die_datei() {
         }
     }
     assert!(
-        geaendert.contains(&karte) && geaendert.contains(&region) && geaendert.len() > 2,
-        "map.json, die Höhen und eine Kachel hätten sich ändern müssen: {geaendert:?}"
+        geaendert.contains(&karte)
+            && geaendert.contains(&region)
+            && geaendert.contains(&stand)
+            && geaendert.len() > 3,
+        "map.json, die Höhen, der Stand und eine Kachel hätten sich ändern müssen: {geaendert:?}"
     );
 
     let mut reste = Vec::new();
@@ -2978,9 +2983,11 @@ fn schreiben_tauscht_die_datei() {
             let name = eintrag.file_name().to_string_lossy().into_owned();
             let hoehen = ordner.ends_with("heights") && name.ends_with(".bin");
             let liste = ordner == baum.wurzel() && name == "trees.json";
+            let stand = ordner == baum.path() && name == "stand.bin";
             if eintrag.path().is_dir() {
                 stapel.push(eintrag.path());
-            } else if !name.ends_with(".webp") && name != "map.json" && !hoehen && !liste {
+            } else if !name.ends_with(".webp") && name != "map.json" && !hoehen && !liste && !stand
+            {
                 reste.push(eintrag.path());
             }
         }
@@ -4682,6 +4689,341 @@ fn versagende_karte_steht_einmal_im_log() {
         "gefangene Panik im Log:\n{fehler}"
     );
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
+}
+
+/// Vergleicht zwei Bäume wie `schnappschuss` und nennt, welche Dateien
+/// fehlen, dazukommen oder sich unterscheiden.
+fn gleiche_baeume(ist: &Path, soll: &Path, was: &str) {
+    let (ist, soll) = (schnappschuss(ist), schnappschuss(soll));
+    let anders: Vec<&String> = ist
+        .keys()
+        .chain(soll.keys())
+        .filter(|k| ist.get(*k) != soll.get(*k))
+        .collect();
+    assert!(anders.is_empty(), "{was}: {anders:?}");
+}
+
+/// Die Welt der Tests zu `--update`: das Gelände in vier Chunks, einer weit
+/// draussen, acht Sections hoch, mit einem Dach bei y = 20 über der Grenze
+/// der Chunks (0, 0) und (1, 0). Die Welt danach hat in (0, 0) und (1, 0)
+/// je einen Turm bis y = 119 und dazu Änderungen, die weit reichen:
+/// - Leuchtstein unter dem Dach in (0, 0): Sein Licht reicht unter dem Dach
+///   in den Chunk (1, 0).
+/// - ein Block bei y = 60 in (0, 0) über offenem Boden: Sein Schatten im
+///   Himmelslicht liegt 55 Blöcke tiefer.
+/// - Leuchtstein bei y = 12 in (0, 1): Er hellt die Seite des Dachs bei
+///   y = 20 auf, über dem höchsten Block seines Chunks.
+///
+/// Die drei Chunks bekommen neue Stempel, dazu der ferne Chunk (28, 0)
+/// ohne Änderung.
+const UPDATE_CHUNKS: [(i32, i32); 4] = [(0, 0), (1, 0), (0, 1), (28, 0)];
+
+/// Die Chunks, die sich ändern.
+const GEAENDERT: [(i32, i32); 3] = [(0, 0), (1, 0), (0, 1)];
+
+fn mit_dach(x: i32, y: i32, z: i32) -> &'static str {
+    if y == 20 && (8..28).contains(&x) && (0..16).contains(&z) {
+        "minecraft:einfarbig"
+    } else {
+        gelaende(x, y, z)
+    }
+}
+
+fn mit_aenderungen(x: i32, y: i32, z: i32) -> &'static str {
+    match (x, y, z) {
+        (5, ..120, 5) | (30, ..120, 12) | (2, 60, 12) => "minecraft:einfarbig",
+        (14, 8, 8) | (8, 12, 17) => "minecraft:glowstone",
+        _ => mit_dach(x, y, z),
+    }
+}
+
+/// Schreibt die Welt mit diesen Blöcken und setzt den Stempel der Chunks
+/// in `neu`.
+fn baue_update_welt(
+    welt: &Path,
+    block: fn(i32, i32, i32) -> &'static str,
+    neu: &[(i32, i32)],
+    zeit: u32,
+) {
+    common::write_world_sections(welt, &UPDATE_CHUNKS, 0..=7, block, |_, _| None);
+    for &(cx, cz) in neu {
+        common::setze_stempel(welt, cx, cz, zeit);
+    }
+}
+
+/// Die Welt vor den Änderungen.
+fn baue_gelaende(welt: &Path) {
+    baue_update_welt(welt, mit_dach, &[], 1);
+}
+
+/// Die Welt nach den Änderungen, mit den neuen Stempeln.
+fn baue_aenderungen(welt: &Path) {
+    baue_update_welt(welt, mit_aenderungen, &UPDATE_CHUNKS, 2);
+}
+
+/// Ein Update gleicht Byte für Byte einem vollen Lauf über dieselbe Welt,
+/// auf jeder Stufe, mit den Höhen und `map.json`. Es schreibt nur Kacheln
+/// im Gebiet der Änderung: Die Basiskacheln des fernen Chunks behalten ihre
+/// alte Zeit. Ein Chunk mit neuem Stempel und gleichem Inhalt ist keine
+/// Änderung, und ein zweites Update ohne Änderung zeichnet nichts. Danach
+/// verschwindet alles wieder, die Türme auch über der Höhe des Geländes.
+/// Bei scale 16 mit nativen Stufen, bei 12 ohne, mit Cinematic dazu die
+/// langen Schatten der Türme.
+#[test]
+fn update_gleicht_einem_vollen_lauf() {
+    for extra in [
+        &["--scale", "16"][..],
+        &["--scale", "12"],
+        &["--scale", "16", "--cinematic"],
+        &["--scale", "12", "--cinematic"],
+    ] {
+        let welt = tempdir();
+        baue_gelaende(welt.path());
+        let name = baum_name(extra);
+        let baum = neuer_baum(&name);
+        gelungen(&tiles(welt.path(), baum.path(), extra));
+        altern(baum.path());
+        let basis = max_zoom(baum.path());
+        let damals = zeit_von(kacheln(baum.path(), basis).values().next().unwrap());
+
+        baue_aenderungen(welt.path());
+        let update: Vec<&str> = extra.iter().copied().chain(["--update"]).collect();
+        let ausgabe = tiles(welt.path(), baum.path(), &update);
+        gelungen(&ausgabe);
+        let log = String::from_utf8_lossy(&ausgabe.stdout);
+        assert!(
+            log.contains("Update:     3 Chunks geändert"),
+            "{extra:?}: {log}"
+        );
+        assert!(log.contains("Stand:      4 Chunks ->"), "{extra:?}: {log}");
+
+        let voll = neuer_baum(&name);
+        gelungen(&tiles(welt.path(), voll.path(), extra));
+        gleiche_baeume(baum.path(), voll.path(), &format!("{extra:?}"));
+
+        if !extra.contains(&"--cinematic") {
+            let fern = tempdir();
+            common::write_world_sections(fern.path(), &[(28, 0)], 0..=7, mit_dach, |_, _| None);
+            let nur_fern = neuer_baum(&name);
+            gelungen(&tiles(fern.path(), nur_fern.path(), extra));
+            let alle = kacheln(baum.path(), basis);
+            let fern_kacheln: Vec<TileId> = kacheln(nur_fern.path(), basis).into_keys().collect();
+            assert!(!fern_kacheln.is_empty(), "{extra:?}");
+            for tile in &fern_kacheln {
+                assert_eq!(
+                    zeit_von(&alle[tile]),
+                    damals,
+                    "{extra:?}: {tile:?} neu geschrieben"
+                );
+            }
+            assert!(
+                alle.values().any(|pfad| zeit_von(pfad) != damals),
+                "{extra:?}: nichts geschrieben"
+            );
+        }
+
+        let ausgabe = tiles(welt.path(), baum.path(), &update);
+        gelungen(&ausgabe);
+        let log = String::from_utf8_lossy(&ausgabe.stdout);
+        assert!(log.contains("nichts zu zeichnen"), "{extra:?}: {log}");
+        gleiche_baeume(baum.path(), voll.path(), &format!("{extra:?}"));
+
+        baue_update_welt(welt.path(), mit_dach, &GEAENDERT, 3);
+        gelungen(&tiles(welt.path(), baum.path(), &update));
+        let ohne = neuer_baum(&name);
+        gelungen(&tiles(welt.path(), ohne.path(), extra));
+        gleiche_baeume(baum.path(), ohne.path(), &format!("{extra:?}: abgerissen"));
+    }
+}
+
+/// Bricht ein Update ab, bleibt der alte Stand stehen, daneben der
+/// angefangene. Ein neues Update findet dieselbe Änderung wieder und kommt
+/// zum selben Ergebnis wie ein voller Lauf; danach ist der angefangene Stand
+/// weg.
+#[test]
+fn abgebrochenes_update_laesst_den_stand_stehen() {
+    for scale in ["16", "12"] {
+        let welt = tempdir();
+        baue_gelaende(welt.path());
+        let baum = neuer_baum("2x1-se");
+        gelungen(&tiles(welt.path(), baum.path(), &["--scale", scale]));
+        let stand = baum.path().join("stand.bin");
+        let vorher = std::fs::read(&stand).unwrap();
+        baue_aenderungen(welt.path());
+        let voll = neuer_baum("2x1-se");
+        gelungen(&tiles(welt.path(), voll.path(), &["--scale", scale]));
+
+        // Eine Basiskachel, die das Update neu schreibt, wird ein Ordner:
+        // dort scheitert es.
+        let basis = max_zoom(baum.path());
+        let neu = kacheln(voll.path(), basis);
+        let (_, pfad) = kacheln(baum.path(), basis)
+            .into_iter()
+            .find(|(tile, pfad)| std::fs::read(pfad).unwrap() != std::fs::read(&neu[tile]).unwrap())
+            .expect("eine Basiskachel ändert sich");
+        std::fs::remove_file(&pfad).unwrap();
+        std::fs::create_dir(&pfad).unwrap();
+        let ausgabe = tiles(welt.path(), baum.path(), &["--scale", scale, "--update"]);
+        assert!(!ausgabe.status.success(), "scale {scale}: kein Abbruch");
+        assert_eq!(
+            std::fs::read(&stand).unwrap(),
+            vorher,
+            "scale {scale}: Stand geändert"
+        );
+        assert!(baum.path().join("stand-neu.bin").is_file(), "scale {scale}");
+
+        std::fs::remove_dir(&pfad).unwrap();
+        gelungen(&tiles(
+            welt.path(),
+            baum.path(),
+            &["--scale", scale, "--update"],
+        ));
+        gleiche_baeume(baum.path(), voll.path(), &format!("scale {scale}"));
+        assert!(!baum.path().join("stand-neu.bin").exists(), "scale {scale}");
+        assert_ne!(std::fs::read(&stand).unwrap(), vorher, "scale {scale}");
+    }
+}
+
+/// `--update --resume` behält nur Basiskacheln, die das abgebrochene Update
+/// schrieb, also jünger als sein angefangener Stand, ohne die frischen.
+/// Ältere im Gebiet zeichnet es neu. Danach gleicht der Baum einem vollen
+/// Lauf. Ohne angefangenen Stand behält es keine und schreibt keinen Stand.
+#[test]
+fn update_setzt_mit_resume_fort() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "12"]));
+    baue_aenderungen(welt.path());
+    let voll = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), voll.path(), &["--scale", "12"]));
+    let basis = max_zoom(baum.path());
+    let neu = kacheln(voll.path(), basis);
+    let anders: Vec<(TileId, PathBuf)> = kacheln(baum.path(), basis)
+        .into_iter()
+        .filter(|(tile, pfad)| std::fs::read(pfad).unwrap() != std::fs::read(&neu[tile]).unwrap())
+        .collect();
+    assert!(
+        anders.len() >= 3,
+        "{} Basiskacheln ändern sich",
+        anders.len()
+    );
+
+    // Das abgebrochene Update, nachgestellt: Es scheitert an einer Kachel,
+    // die es ändert, und hinterlässt den angefangenen Stand.
+    let (_, sperre) = &anders[0];
+    std::fs::remove_file(sperre).unwrap();
+    std::fs::create_dir(sperre).unwrap();
+    assert!(
+        !tiles(welt.path(), baum.path(), &["--scale", "12", "--update"])
+            .status
+            .success()
+    );
+    std::fs::remove_dir(sperre).unwrap();
+    // Alles vor dem angefangenen Stand, bis auf zwei Kacheln, die das
+    // Update schon neu geschrieben hätte: die jüngste ist frisch, die andere
+    // bleibt.
+    let jetzt = SystemTime::now();
+    altern(baum.path());
+    setze_zeit(
+        &baum.path().join("stand-neu.bin"),
+        jetzt - Duration::from_secs(1800),
+    );
+    let schon = |i: usize, vor: u64| {
+        let (tile, pfad) = &anders[i];
+        std::fs::copy(&neu[tile], pfad).unwrap();
+        setze_zeit(pfad, jetzt - Duration::from_secs(vor));
+        pfad.clone()
+    };
+    let bleibt = schon(1, 900);
+    let frisch = schon(2, 600);
+    // Wer `bleibt` neu zeichnete, schriebe dieselben Bytes; die Zeit zeigt es.
+    gelungen(&tiles(
+        welt.path(),
+        baum.path(),
+        &["--scale", "12", "--update", "--resume"],
+    ));
+    gleiche_baeume(baum.path(), voll.path(), "");
+    assert_eq!(
+        zeit_von(&bleibt),
+        jetzt - Duration::from_secs(900),
+        "neu gezeichnet"
+    );
+    assert_ne!(
+        zeit_von(&frisch),
+        jetzt - Duration::from_secs(600),
+        "frisch, aber behalten"
+    );
+    assert!(!baum.path().join("stand-neu.bin").exists());
+
+    // Ohne angefangenen Stand: nichts behalten, keinen Stand schreiben.
+    // Zurück zur Welt ohne Türme, mit den Stempeln der Bauhilfe.
+    let stand = std::fs::read(baum.path().join("stand.bin")).unwrap();
+    baue_gelaende(welt.path());
+    altern(baum.path());
+    let ausgabe = tiles(
+        welt.path(),
+        baum.path(),
+        &["--scale", "12", "--update", "--resume"],
+    );
+    gelungen(&ausgabe);
+    assert!(
+        String::from_utf8_lossy(&ausgabe.stdout).contains("dieser Lauf schreibt keinen"),
+        "{}",
+        String::from_utf8_lossy(&ausgabe.stdout)
+    );
+    assert_eq!(std::fs::read(baum.path().join("stand.bin")).unwrap(), stand);
+    let ohne = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), ohne.path(), &["--scale", "12"]));
+    gleiche_baeume(baum.path(), ohne.path(), "");
+}
+
+/// `--update` braucht den Stand eines vollen Laufs, denselben Build des
+/// Renderers und dieselben Assets; sonst bricht es vor der ersten Kachel ab
+/// und sagt, dass erst ein voller Lauf nötig ist. Ein Ausschnitt schreibt
+/// keinen Stand, und `--update` geht nicht mit `--size`.
+#[test]
+fn update_braucht_den_stand_und_dieselben_assets() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(
+        welt.path(),
+        baum.path(),
+        &["--scale", "12", "--center", "0", "0", "--size", "64"],
+    ));
+    let stand = baum.path().join("stand.bin");
+    assert!(!stand.exists(), "Ausschnitt mit Stand");
+    let fehler = |extra: &[&str]| {
+        let ausgabe = tiles(welt.path(), baum.path(), extra);
+        assert!(!ausgabe.status.success(), "{extra:?}");
+        String::from_utf8_lossy(&ausgabe.stderr).into_owned()
+    };
+    assert!(fehler(&["--scale", "12", "--update"]).contains("voller Lauf"));
+    assert!(fehler(&["--scale", "12", "--update", "--size", "64"]).contains("--size"));
+
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "12"]));
+    let vorher = schnappschuss(baum.path());
+    let leer = tempdir();
+    std::fs::write(leer.path().join("pack.mcmeta"), "{}").unwrap();
+    let mit = |pfad: &Path| {
+        [
+            "--scale",
+            "12",
+            "--update",
+            "--assets",
+            pfad.to_str().unwrap(),
+        ]
+        .map(String::from)
+    };
+    let extra = mit(leer.path());
+    let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
+    assert!(fehler(&extra).contains("anderen Assets"));
+    let mut bytes = std::fs::read(&stand).unwrap();
+    bytes[13] ^= 1;
+    std::fs::write(&stand, bytes).unwrap();
+    assert!(fehler(&["--scale", "12", "--update"]).contains("anderen Build"));
+    assert_eq!(schnappschuss(baum.path()), vorher, "trotzdem geschrieben");
 }
 
 /// Unter Windows trägt das Binär ein Manifest mit dem Segment-Heap, siehe

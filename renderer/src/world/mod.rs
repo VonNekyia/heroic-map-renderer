@@ -3,6 +3,7 @@ pub mod chunk;
 pub mod palette;
 pub mod region;
 
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -145,6 +146,22 @@ impl World {
             .collect();
         regions.sort_unstable();
         Ok(regions)
+    }
+
+    /// Die Stempel aller Regionen, siehe [`Region::stempel`]. Eine Region,
+    /// die zwischen Liste und Lesen verschwindet, fehlt.
+    pub fn stempel(&self) -> Result<BTreeMap<(i32, i32), Vec<Option<Stempel>>>> {
+        use rayon::prelude::*;
+        self.regions()?
+            .into_par_iter()
+            .map(|(rx, rz)| -> Result<_> {
+                let Some(mut region) = self.region(rx, rz)? else {
+                    return Ok(None);
+                };
+                Ok(Some(((rx, rz), region.stempel()?)))
+            })
+            .filter_map(Result::transpose)
+            .collect()
     }
 
     pub fn region(&self, rx: i32, rz: i32) -> Result<Option<Region>> {

@@ -18,11 +18,14 @@ use terranova_render::render::gpu::Worker;
 use terranova_render::render::heights::{self, Heights, RegionHeights};
 use terranova_render::render::look::{LOOK, Look};
 use terranova_render::render::pyramid;
+use terranova_render::render::stand::{
+    Aenderung, Art, Eintrag, Inhalt, Stand, fingerabdruck_der_dateien, fingerabdruck_des_renderers,
+};
 use terranova_render::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Flaeche, Gebiet, Gpu, Kamera, MapInfo,
     Projection, ProjectionInfo, Reach, Richtung, ScreenRect, SpriteSet, Survey, TILE, TileId,
-    corner_tiles, decode_webp, draw_list, encode_webp, render, render_area, render_area_with,
-    streifenbreite, survey, survey_in, world_box,
+    corner_tiles, decode_webp, draw_list, encode_webp, gebiet_der_aenderungen, render, render_area,
+    render_area_with, streifenbreite, survey, survey_in, world_box,
 };
 use terranova_render::world::biomzoom::{obfuscate_seed, zoom};
 use terranova_render::world::{BlockState, Blockdaten, REGION, World};
@@ -146,6 +149,13 @@ pub struct Args {
     /// sprang die Uhr, rendert erst ein Lauf ohne --resume sicher alles neu
     #[arg(long, requires = "tiles")]
     resume: bool,
+
+    /// Mit --tiles nur zeichnen, wo sich die Welt seit dem letzten vollen
+    /// Lauf oder Update des Baums geändert hat. Braucht den Stand, den jeder
+    /// volle Lauf über die ganze Welt schreibt, und denselben Build des
+    /// Renderers und dieselben --assets und --data wie dessen Lauf
+    #[arg(long, requires = "tiles", conflicts_with = "size")]
+    update: bool,
 
     /// Grafikkarte zum Zeichnen der Kacheln: `auto` nimmt sie, wenn eine da
     /// ist, `on` verlangt eine (auch einen Software-Adapter) und bricht
@@ -479,11 +489,18 @@ pub fn run() -> Result<()> {
         }
         if let Some(dir) = &args.tiles {
             let export = oeffne_gpu(args.gpu, args.cinematic).and_then(|karte| {
+                let bereich = match args.size {
+                    _ if args.update => Bereich::Update,
+                    Some(size) => Bereich::Ausschnitt(window(projection, center, size)),
+                    None => Bereich::Welt,
+                };
+                let wurzeln: Vec<PathBuf> = args.assets.iter().chain(&args.data).cloned().collect();
                 let export = write_tiles(
                     world,
                     assets.as_mut().expect("oben geprüft"),
                     projection,
-                    args.size.map(|size| window(projection, center, size)),
+                    bereich,
+                    &wurzeln,
                     dir,
                     args.native_levels,
                     args.prune,
@@ -994,7 +1011,8 @@ fn write_tiles(
     world: &World,
     assets: &mut Assets,
     projection: Projection,
-    bounds: Option<ScreenRect>,
+    bereich: Bereich,
+    wurzeln: &[PathBuf],
     wurzel: &Path,
     native: Option<u32>,
     prune: bool,
@@ -1036,10 +1054,86 @@ fn write_tiles(
     // Stufe braucht.
     let stufen = native_stufen(dir, bestand.as_ref(), native, projection, max_zoom)?;
     let blend = mischung(dir, bestand.as_ref(), blend)?;
-    let gebiet = bounds.map(|rect| Gebiet::rechteck(rect, stufen));
+
+    // Ein voller Lauf und ein Update schreiben den Stand des Baums, mit den
+    // Stempeln vom Beginn, gelesen vor dem Vorlauf. Mit --resume gilt der
+    // Stand vom Beginn des abgebrochenen Laufs.
+    // Siehe docs/benutzung/updates.md, „Der Stand“.
+    let art = match bereich {
+        Bereich::Welt => Some(Art::Voll),
+        Bereich::Update => Some(Art::Update),
+        Bereich::Ausschnitt(_) => None,
+    };
+    let (stempel, abdruecke) = match art {
+        Some(_) => (
+            world.stempel()?,
+            (
+                fingerabdruck_des_renderers()?,
+                fingerabdruck_der_dateien(wurzeln)?,
+            ),
+        ),
+        None => (BTreeMap::new(), (0, 0)),
+    };
+    let fortgesetzt = match art {
+        Some(art) if resume => fortzusetzen(dir, art)?,
+        _ => None,
+    };
+    let (gebiet, stand, aenderungen) = match bereich {
+        Bereich::Welt => (None, None, None),
+        Bereich::Ausschnitt(rect) => (Some(Gebiet::rechteck(rect, stufen)), None, None),
+        Bereich::Update => {
+            let started = Instant::now();
+            let alt = stand_fuer_update(dir, abdruecke)?;
+            let (aenderungen, neu) = alt.vergleiche(&stempel, Y_RANGE.1, |(rx, rz), lagen| {
+                lies_inhalte(world, rx, rz, lagen)
+            })?;
+            let gebiet =
+                gebiet_der_aenderungen(projection, stufen, Y_RANGE.0, &aenderungen, look.as_ref());
+            println!(
+                "\nUpdate:     {} Chunks geändert, {} Kacheln von {TILE}x{TILE} px bei scale {} im Gebiet, in {:.1} s",
+                aenderungen.len(),
+                gebiet.kacheln().len(),
+                projection.scale() >> stufen,
+                started.elapsed().as_secs_f64()
+            );
+            (
+                Some(gebiet),
+                Some(Stand {
+                    art: Art::Update,
+                    ..neu
+                }),
+                Some(aenderungen),
+            )
+        }
+    };
+    // Mit --resume ohne angefangenen Stand weiss der Lauf nicht, was die
+    // Kacheln des abgebrochenen zeigen; einen Stand schreibt er dann nicht.
+    let fortgesetzt_seit = fortgesetzt.as_ref().map(|(_, seit)| *seit);
+    let stand = match (art, resume) {
+        (Some(_), true) => fortgesetzt.map(|(stand, _)| stand).or_else(|| {
+            println!(
+                "Stand:      ohne angefangenen Stand ({STAND_NEU}); dieser Lauf schreibt keinen, \
+                 --update braucht danach einen vollen Lauf"
+            );
+            None
+        }),
+        _ => stand,
+    };
+    if matches!(bereich, Bereich::Update) && gebiet.as_ref().is_some_and(|g| g.kacheln().is_empty())
+    {
+        println!("Update:     nichts zu zeichnen");
+        if let Some(stand) = stand {
+            schreibe_stand(dir, world, stand)?;
+        }
+        return Ok(());
+    }
 
     let started = Instant::now();
-    let reach = Reach::im_gebiet(projection, Y_RANGE, gebiet.clone()).mit_sonne(look.as_ref());
+    let mut reach = Reach::im_gebiet(projection, Y_RANGE, gebiet.clone()).mit_sonne(look.as_ref());
+    let mit_inhalt = matches!(bereich, Bereich::Welt) && !resume;
+    if mit_inhalt {
+        reach = reach.mit_inhalt();
+    }
     let mut survey = survey_in(world, reach)?;
     println!(
         "\nVorlauf:    {} Chunks in {:.1} s, {} Blockstates, {} Kacheln",
@@ -1049,6 +1143,43 @@ fn write_tiles(
         survey.tiles.len()
     );
     melde_unfertige(&survey);
+    // Der Stand eines vollen Laufs: je Chunk aus dem Kopf sein Stempel, aus
+    // dem Vorlauf sein Inhalt.
+    let stand = match stand {
+        None if mit_inhalt => {
+            let (renderer, dateien) = abdruecke;
+            let mut neu = Stand::neu(Art::Voll, renderer, dateien);
+            for (&(rx, rz), chunks) in &stempel {
+                for (i, &stempel) in chunks.iter().enumerate() {
+                    let i = i as i32;
+                    let (cx, cz) = (rx * REGION + i % REGION, rz * REGION + i / REGION);
+                    neu.setze(
+                        cx,
+                        cz,
+                        Eintrag {
+                            stempel,
+                            inhalt: Inhalt::Keiner,
+                        },
+                    );
+                }
+            }
+            for ([cx, cz], inhalt) in std::mem::take(&mut survey.inhalte) {
+                let stempel = neu.eintrag(cx, cz).stempel;
+                neu.setze(cx, cz, Eintrag { stempel, inhalt });
+            }
+            Some(neu)
+        }
+        stand => stand,
+    };
+    // Ein voller Lauf über einen Baum mit Stand weiss wie ein Update, welche
+    // Chunks sich geändert haben.
+    let aenderungen = match (aenderungen, &stand) {
+        (None, Some(neu)) if mit_inhalt => lies_stand(&dir.join(STAND))
+            .ok()
+            .flatten()
+            .map(|alt| neu.aenderungen_seit(&alt, Y_RANGE.1)),
+        (aenderungen, _) => aenderungen,
+    };
 
     // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt; der
     // Vorlauf sieht sie nicht, weg kommen sie nur mit --prune. Gesucht wird,
@@ -1057,7 +1188,7 @@ fn write_tiles(
     // einmal ganz, sie gibt auch die Grenzen in map.json; mit --resume samt
     // Zeiten, aus ihnen folgt, was er neu rendert.
     // Siehe docs/benutzung/kacheln.md, „Kacheln ohne Chunk: `--prune`“.
-    let kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
+    let mut kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
     let flaechen: Option<Vec<Flaeche>> = gebiet
         .as_ref()
         .map(|g| (0..=max_zoom).map(|z| g.flaeche(max_zoom - z)).collect());
@@ -1077,6 +1208,32 @@ fn write_tiles(
         .filter(|tile| in_flaeche(flaeche_auf(max_zoom), tile))
         .copied()
         .collect();
+    // Kacheln, die ein Chunk zeigte, der noch da ist, aber nicht mehr
+    // dorthin reicht, etwa über einem abgerissenen Turm: Der Lauf zeichnet
+    // sie neu, leer verschwinden sie. Die eines Chunks, der ganz fehlt,
+    // bleiben ohne --prune stehen.
+    // Siehe docs/benutzung/kacheln.md, „Leer gewordene Kacheln“.
+    if let Some(aenderungen) = &aenderungen {
+        let (bleiben, fehlen): (Vec<Aenderung>, Vec<Aenderung>) =
+            aenderungen.iter().partition(|a| a.bleibt);
+        let da = gebiet_der_aenderungen(projection, stufen, Y_RANGE.0, &bleiben, look.as_ref());
+        let weg = gebiet_der_aenderungen(projection, stufen, Y_RANGE.0, &fehlen, look.as_ref());
+        let dazu: Vec<TileId> = bestehend
+            .iter()
+            .filter(|tile| {
+                !kandidaten.contains(tile) && da.enthaelt(**tile) && !weg.enthaelt(**tile)
+            })
+            .copied()
+            .collect();
+        if !dazu.is_empty() {
+            println!(
+                "            {} Kacheln, in die geänderte Chunks nicht mehr reichen, neu gezeichnet",
+                dazu.len()
+            );
+            kandidaten.extend(dazu);
+            survey.tiles = kandidaten.iter().copied().collect();
+        }
+    }
     let veraltet: BTreeSet<TileId> = bestehend.difference(&kandidaten).copied().collect();
     // Die Listen der feinen Stufen braucht `ImSpeicher`: so weit über der
     // Stufe, die ihre Viertel abgibt, wie ein Streifen höchstens breit ist.
@@ -1089,7 +1246,7 @@ fn write_tiles(
     // Mit --prune ist auch ein leerer Lauf keiner über dem falschen
     // Ausschnitt: dort ist vielleicht schon aufgeräumt. Und fehlt Kacheln
     // hier die Elternkachel, baut er sie nach.
-    if kandidaten.is_empty() && !prune && waisen.is_empty() {
+    if kandidaten.is_empty() && !prune && waisen.is_empty() && !matches!(bereich, Bereich::Update) {
         if veraltet.is_empty() {
             bail!("keine Kachel enthält etwas — falscher Ausschnitt?");
         }
@@ -1138,6 +1295,14 @@ fn write_tiles(
     )?;
     // Ab jetzt lässt sich der Baum wählen, auch während seines ersten Laufs.
     schreibe_baeume(wurzel)?;
+    // Der angefangene Stand, ebenso vor der ersten Kachel: Bricht der Lauf
+    // ab, setzt --resume mit ihm fort. Ein Fortsetzen behält den alten,
+    // seine Zeit sagt, welche Kacheln aus dem abgebrochenen Lauf stammen.
+    if let Some(stand) = &stand
+        && !resume
+    {
+        lege_stand_ab(&dir.join(STAND_NEU), stand)?;
+    }
     if uebernommen {
         println!(
             "Karte:      {} nannte keine Welt, ein älterer Stand: der Baum gehört ab jetzt zu dieser",
@@ -1179,11 +1344,22 @@ fn write_tiles(
     // Kind, das bleibt, bleibt durchsichtig stehen. Mit --resume bleibt, was
     // in der Liste der Basis steht, ausser den frischen Kacheln (`frische`).
     // Siehe docs/benutzung/kacheln.md, „Wann entfernt wird“.
+    // Ein Update behält nur, was der abgebrochene Lauf schrieb: die Kacheln
+    // seit seinem angefangenen Stand. Ohne den keine.
     let bleiben: BTreeSet<TileId> = match &zeiten {
-        Some(zeiten) => basis
-            .difference(&frische(zeiten, gelistet))
-            .copied()
-            .collect(),
+        Some(zeiten) => {
+            let frisch = frische(zeiten, gelistet);
+            basis
+                .iter()
+                .filter(|tile| !frisch.contains(tile))
+                .filter(|tile| match bereich {
+                    Bereich::Update => fortgesetzt_seit
+                        .is_some_and(|seit| zeiten.get(tile).is_some_and(|&zeit| zeit >= seit)),
+                    _ => true,
+                })
+                .copied()
+                .collect()
+        }
         None => BTreeSet::new(),
     };
     let reihe: Vec<TileId> = survey
@@ -1340,6 +1516,133 @@ fn write_tiles(
     )?;
     schreibe_baeume(wurzel)?;
     melde_karte(&info, anzahl, &path);
+    // Zuletzt: Bricht der Lauf vorher ab, gilt der alte Stand, und das
+    // nächste Update zeichnet dieselben Stellen noch einmal.
+    if let Some(stand) = stand {
+        schreibe_stand(dir, world, stand)?;
+    }
+    Ok(())
+}
+
+/// Was ein Export zeichnet.
+#[derive(Clone, Copy)]
+enum Bereich {
+    /// Die ganze Welt.
+    Welt,
+    /// Ein Ausschnitt, `--center` und `--size`.
+    Ausschnitt(ScreenRect),
+    /// Was sich seit dem Stand des Baums geändert hat, `--update`.
+    Update,
+}
+
+/// Der Stand eines Baums nach seinem letzten vollen Lauf oder Update, und
+/// der eines Laufs, der noch nicht fertig ist.
+/// Siehe docs/benutzung/updates.md, „Der Stand“.
+const STAND: &str = "stand.bin";
+const STAND_NEU: &str = "stand-neu.bin";
+
+/// Legt den Stand ab wie `map.json`, ganz auf der Platte vor dem Tausch.
+fn lege_stand_ab(pfad: &Path, stand: &Stand) -> Result<()> {
+    tausche(pfad, &stand.als_bytes(), None, true)
+        .with_context(|| format!("{} schreiben", pfad.display()))
+}
+
+/// Liest einen Stand, `None`, wenn es die Datei nicht gibt.
+fn lies_stand(pfad: &Path) -> Result<Option<Stand>> {
+    match std::fs::read(pfad) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        gelesen => gelesen
+            .map_err(anyhow::Error::from)
+            .and_then(|daten| Stand::aus_bytes(&daten))
+            .with_context(|| format!("{} lesen", pfad.display()))
+            .map(Some),
+    }
+}
+
+/// Der Stand, mit dem ein Update vergleicht. Er muss vom selben Build des
+/// Renderers stammen, mit denselben Assets und Daten (`abdruecke`), sonst
+/// mischte das Update alte und neue Kacheln.
+/// Siehe docs/benutzung/updates.md, „Anderer Renderer, andere Assets“.
+fn stand_fuer_update(dir: &Path, abdruecke: (u64, u64)) -> Result<Stand> {
+    let pfad = dir.join(STAND);
+    let stand = lies_stand(&pfad)?.with_context(|| {
+        format!(
+            "{} fehlt. --update braucht den Stand, den ein voller Lauf über die ganze Welt schreibt.",
+            pfad.display()
+        )
+    })?;
+    ensure!(
+        stand.renderer == abdruecke.0,
+        "{} stammt von einem anderen Build des Renderers. Erst ein voller Lauf zeichnet alles \
+         mit diesem, danach geht --update wieder.",
+        pfad.display()
+    );
+    ensure!(
+        stand.assets == abdruecke.1,
+        "{} stammt von anderen Assets oder Daten (--assets, --data). Erst ein voller Lauf \
+         zeichnet alles mit diesen, danach geht --update wieder.",
+        pfad.display()
+    );
+    Ok(stand)
+}
+
+/// Der angefangene Stand eines abgebrochenen Laufs derselben Art, mit der
+/// Zeit, zu der er geschrieben wurde: Jede Kachel ab da stammt aus jenem
+/// Lauf.
+fn fortzusetzen(dir: &Path, art: Art) -> Result<Option<(Stand, SystemTime)>> {
+    let pfad = dir.join(STAND_NEU);
+    let Some(stand) = lies_stand(&pfad)? else {
+        return Ok(None);
+    };
+    if stand.art != art {
+        let war = match stand.art {
+            Art::Voll => "ein voller Lauf",
+            Art::Update => "ein Update",
+        };
+        println!(
+            "Stand:      {} stammt von einem anderen Lauf, {war}",
+            pfad.display()
+        );
+        return Ok(None);
+    }
+    let seit = aenderungszeit(&pfad).with_context(|| format!("{} lesen", pfad.display()))?;
+    Ok(Some((stand, seit)))
+}
+
+/// Was der Renderer aus diesen Chunks der Region zeichnet, siehe
+/// [`Inhalt::von`].
+fn lies_inhalte(world: &World, rx: i32, rz: i32, lagen: &[[i32; 2]]) -> Result<Vec<Inhalt>> {
+    let Some(mut region) = world.region(rx, rz)? else {
+        return Ok(vec![Inhalt::Keiner; lagen.len()]);
+    };
+    lagen
+        .iter()
+        .map(|&[cx, cz]| Ok(Inhalt::von(region.stored_chunk(cx, cz)?.as_ref())))
+        .collect()
+}
+
+/// Schreibt den Stand am Ende eines Laufs: Was der Server seit dem Beginn
+/// schrieb, ist darin unbekannt. Der angefangene Stand fällt weg.
+fn schreibe_stand(dir: &Path, world: &World, stand: Stand) -> Result<()> {
+    let stand = stand.am_ende(&world.stempel()?);
+    let eintraege = stand.regionen.values().flatten();
+    let (chunks, unbekannt) = eintraege.fold((0, 0), |(n, u), e| {
+        (
+            n + usize::from(e.stempel.is_some()),
+            u + usize::from(e.inhalt == Inhalt::Unbekannt),
+        )
+    });
+    let pfad = dir.join(STAND);
+    lege_stand_ab(&pfad, &stand)?;
+    entferne(&dir.join(STAND_NEU))?;
+    let waehrend = match unbekannt {
+        0 => String::new(),
+        n => format!(", {n} während des Laufs geschrieben"),
+    };
+    println!(
+        "Stand:      {chunks} Chunks{waehrend} -> {}",
+        pfad.display()
+    );
     Ok(())
 }
 

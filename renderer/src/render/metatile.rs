@@ -1550,8 +1550,9 @@ pub struct ChunkCache<'a> {
 
 /// Was von einem Chunk nicht am scale hängt: er selbst und sein Licht,
 /// denn Blöcke, die `blocks.txt` nicht kennt, halten es nach dem Raster der Basis
-/// auf ([`SpriteSet::deckt_fuer_licht`]). Ein Cache der nativen Stufen
-/// behält beides über [`ChunkCache::wechsle`] und über die Kacheln eines
+/// auf ([`SpriteSet::deckt_fuer_licht`]), mit Cinematic dazu seine Bits
+/// „frei zur Sonne“. Ein Cache der nativen Stufen
+/// behält alles über [`ChunkCache::wechsle`] und über die Kacheln eines
 /// Bands hinweg bis ins nächste; was ein ganzes Band lang niemand
 /// brauchte, geht ([`ChunkCache::neues_band`]).
 /// Siehe docs/entscheidungen/0043-native-stufen-in-baendern.md.
@@ -1566,6 +1567,8 @@ struct Gemerkt {
     /// `None` für einen Chunk, der fehlt oder nicht fertig ist.
     chunk: Option<Rc<Chunk>>,
     licht: Option<Rc<ChunkLicht>>,
+    /// Nur für Cinematic: seine Bits „frei zur Sonne“.
+    frei: Option<Rc<strahl::Frei>>,
     band: u32,
 }
 
@@ -2166,6 +2169,7 @@ impl<'a> ChunkCache<'a> {
                     let gemerkt = Gemerkt {
                         chunk: chunk.clone(),
                         licht: None,
+                        frei: None,
                         band: vorrat.band,
                     };
                     vorrat.chunks.insert(key, gemerkt);

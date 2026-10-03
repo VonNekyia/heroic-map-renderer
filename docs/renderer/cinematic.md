@@ -294,6 +294,13 @@ aufhält:
   in `renderer/tests/metatile.rs` Bit für Bit am HDR-Puffer, an Szenen mit
   Wasser, Lava, Laub, Glas und Modellen, die aus ihrem Würfel ragen.
 
+Säule, Horizont, Bits und die Bits „frei zur Sonne“ merkt sich jeder Thread
+in seinem Chunk-Cache, wie Chunks und Licht
+([0025](../entscheidungen/0025-streifen-und-cache-je-thread.md)). Doppelt
+gerechnet wird nur an den Grenzen der Streifen, siehe
+[Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md);
+ein Cache für alle Threads bleibt verworfen.
+
 Getestet: einzelne Strahlen durch Würfel, Laub, Wasser, Glas, Pflanze und
 Überhang (`strahlen_zur_sonne`), die Lage des Schattens eines Würfels im
 Bild (`wuerfel_wirft_seinen_schatten`), ein Turm im fernsten Chunk, den
@@ -339,13 +346,9 @@ am Prototyp gemessen in
   Weite erreicht. Das Prisma reicht über die Chunks des Horizonts hinaus,
   aber dort erst hinter der Weite; Arbeit über `H` zählt darum nicht. Unter
   den 128 Lagen fragt der Strahl den Gang.
-- **Gemerkt** in der Säule, wie Decke und Horizont, sobald ein Strahl in
-  ihr beginnt: einmal je Chunk und Thread. Ein Thread rendert einen
-  Streifen Zeile für Zeile
-  ([0025](../entscheidungen/0025-streifen-und-cache-je-thread.md)); zwei
-  Threads rechnen einen Chunk nur, wo beide Streifen ihn brauchen. Am
-  Prototyp verteilten sich die Zeilen in jedem Durchgang anders auf die
-  Threads, und jeder rechnete die Spalten neu.
+- **Gemerkt** in der Säule, sobald ein Strahl in ihr beginnt, siehe „Der
+  schnelle Gang“. Am Prototyp verteilten sich die Zeilen in jedem Durchgang
+  anders auf die Threads, und jeder rechnete die Spalten neu.
 - **Hinreichend, nicht nötig:** Ein Bit, das fehlt, heisst nur, dass ein
   Strahl aus der Zelle etwas treffen könnte. Dann entscheidet der Gang.
 - **Gleich dem Gang:** Ein freier Strahl prüft im Gang keine Zelle und

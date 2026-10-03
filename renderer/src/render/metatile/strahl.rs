@@ -48,11 +48,15 @@ pub(super) struct Saeule {
     /// Je Section ihre [`Bits`], sobald ein Strahl sie betritt; `None` ohne
     /// Arbeit.
     sections: Tabelle<i8, Option<Rc<Bits>>>,
-    /// Die Bits „frei zur Sonne“, sobald ein Strahl hier beginnt: die
-    /// unterste Lage und je Spalte `z * 16 + x` im Blick ein Wort, Bit `m`
-    /// für die Lage `unterste + m`. `None` ohne Block in Reichweite.
-    frei: Option<Option<(i32, Box<[u128; 256]>)>>,
+    /// Die Bits „frei zur Sonne“, sobald ein Strahl hier beginnt.
+    frei: Option<Rc<Frei>>,
 }
+
+/// Die Bits „frei zur Sonne“ eines Chunks: die unterste Lage und je Spalte
+/// `z * 16 + x` im Blick ein Wort, Bit `m` für die Lage `unterste + m`.
+/// `None` ohne Block in Reichweite. Sie hängen nicht am scale, ein Cache
+/// der nativen Stufen behält sie im Vorrat.
+pub(super) type Frei = Option<(i32, Box<[u128; 256]>)>;
 
 /// Wie viele Lagen unter dem Horizont die Bits „frei zur Sonne“ einer Spalte
 /// abdecken.
@@ -322,10 +326,17 @@ impl ChunkCache<'_> {
         let Some(loaded) = self.slots[i].loaded.as_ref() else {
             return Ok(None);
         };
+        let wort = |frei: &Frei| frei.as_ref().map(|(unterste, w)| (*unterste, w[col]));
         if let Some(frei) = loaded.sonne.as_ref().and_then(|s| s.frei.as_ref()) {
-            return Ok(frei
-                .as_ref()
-                .map(|(unterste, woerter)| (*unterste, woerter[col])));
+            return Ok(wort(frei));
+        }
+        let gemerkt = self.vorrat.as_ref().and_then(|v| v.chunks.get(&key));
+        if let Some(frei) = gemerkt.and_then(|g| g.frei.clone()) {
+            let antwort = wort(&frei);
+            if let Some(s) = self.slots[i].loaded.as_mut().and_then(|l| l.sonne.as_mut()) {
+                s.frei = Some(frei);
+            }
+            return Ok(antwort);
         }
         let sprites = self.sprites;
         let kino = sprites.kino().expect("Cinematic");
@@ -399,13 +410,15 @@ impl ChunkCache<'_> {
             }
             Some((unterste, woerter))
         };
-        let wort = frei
-            .as_ref()
-            .map(|(unterste, woerter)| (*unterste, woerter[col]));
+        let frei = Rc::new(frei);
+        let antwort = wort(&frei);
+        if let Some(g) = self.vorrat.as_mut().and_then(|v| v.chunks.get_mut(&key)) {
+            g.frei = Some(Rc::clone(&frei));
+        }
         if let Some(s) = self.slots[i].loaded.as_mut().and_then(|l| l.sonne.as_mut()) {
             s.frei = Some(frei);
         }
-        Ok(wort)
+        Ok(antwort)
     }
 
     /// [`ChunkCache::sonne`] ohne die Bits „frei zur Sonne“, als schneller

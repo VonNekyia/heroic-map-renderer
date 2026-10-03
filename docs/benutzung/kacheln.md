@@ -146,7 +146,8 @@ es aus dem Stand, ein voller Lauf, wenn der Baum schon einen Stand hat. Er
 zeichnet dann die vorhandenen Kacheln im Gebiet jedes geänderten Chunks,
 der noch etwas zeichnet, wie ein Update, siehe [Updates](updates.md), „Wo
 ein Update zeichnet“; leer verschwinden sie. Ohne Stand bleibt so eine
-Kachel stehen wie eine ohne Chunk, siehe unten.
+Kachel stehen wie eine ohne Chunk, siehe unten
+(`voller_lauf_mit_stand_raeumt_abgerissenes_weg`).
 
 ## Kacheln ohne Chunk: `--prune`
 

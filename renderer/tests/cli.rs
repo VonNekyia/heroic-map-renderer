@@ -4998,6 +4998,33 @@ fn update_reicht_so_weit_wie_die_aenderung() {
     }
 }
 
+/// Ein voller Lauf über einen Baum mit Stand weiss wie ein Update, wo ein
+/// Turm stand: Die Kacheln über ihm verschwinden, der Baum gleicht einem
+/// neuen. Ohne Stand bleiben sie stehen.
+/// Siehe docs/benutzung/kacheln.md, „Leer gewordene Kacheln“.
+#[test]
+fn voller_lauf_mit_stand_raeumt_abgerissenes_weg() {
+    let extra = ["--scale", "12"];
+    let welt = tempdir();
+    baue_aenderungen(welt.path());
+    let baeume = [neuer_baum("2x1-se"), neuer_baum("2x1-se")];
+    for baum in &baeume {
+        gelungen(&tiles(welt.path(), baum.path(), &extra));
+    }
+    std::fs::remove_file(baeume[1].path().join("stand.bin")).unwrap();
+    baue_update_welt(welt.path(), mit_dach, &GEAENDERT, 3);
+    for baum in &baeume {
+        gelungen(&tiles(welt.path(), baum.path(), &extra));
+    }
+    let neu = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), neu.path(), &extra));
+    gleiche_baeume(baeume[0].path(), neu.path(), "mit Stand");
+    assert!(
+        schnappschuss(baeume[1].path()) != schnappschuss(neu.path()),
+        "ohne Stand bleibt nichts stehen"
+    );
+}
+
 /// Fehlt ein Chunk ganz, bleiben seine Kacheln nach einem Update stehen,
 /// Byte für Byte, wie nach einem vollen Lauf. Mit `--prune` verschwinden
 /// sie, und der Baum gleicht einem neuen über die Welt ohne ihn.

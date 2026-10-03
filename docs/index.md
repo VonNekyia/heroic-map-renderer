@@ -44,7 +44,8 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Frontend
 
-- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Rahmen und Tisch um die Karte mit Massen, Licht und Schatten.
+- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Skins beim Build.
+- [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, einmal für fitZoom gezeichnet, Masse nach der Vorlage, Licht und Schatten, was vor und was hinter der Welt liegt.
 
 ## Entwicklung
 
@@ -117,6 +118,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0059](entscheidungen/0059-welten-aus-26-2-und-26-3.md): Welten und Packs aus 26.2 und 26.3, Tabellen aus 26.3; die Testwelt bleibt auf 26.2.
 - [0060](entscheidungen/0060-grenze-schatten-sonne-am-renderer.md): Grenze Schatten/Sonne am Renderer 0,35 bis 0,75 statt 0,66 aus 0058; der Look bleibt.
 - [0061](entscheidungen/0061-tablett-im-frontend.md): Tablett und Tisch zeichnet das Frontend aus ebenen Flächen, in zwei Ebenen um die Kacheln, mit der Welt wachsend, Licht über Höhenkarten, Schmuck als Sprites; nicht der Renderer, keine Bilder je Perspektive, keine gebrochenen Zoomstufen.
+- [0063](entscheidungen/0063-tablett-als-skin.md): Tablett als optionaler Skin: Schalter `SKIN` beim Build, Schnittstelle `skin-api.ts` mit Version, Grenze per ESLint, Ordner wie ein Paket, nur quadratische Karten, einmal für fitZoom; die Lilie an der nahen Ecke darf ins Bild ragen.
 - [0064](entscheidungen/0064-flaechen-im-innern-weich.md): Flächen im Innern weich wie das Spiel, sechs Plätze in der AO-Karte, die Ecken in der Instanz.
 - [0065](entscheidungen/0065-sicht-in-der-ecke-nach-der-version.md): Die Sicht in der Ecke der weichen Beleuchtung nach der Datenversion der Welt, aus einer Tabelle von 26.2; die Version gehört zum Baum.
 
@@ -162,3 +164,5 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-03, Cinematic mit Sonne](messungen/2026-10-03-cinematic-mit-sonne.md): was Cinematic aus #73 an Stand und Fichtenwald gegen die Karte kostet, dass die Karte gleich bleibt, und was ein Strahl zur Sonne vor und nach dem schnellen Gang kostet, gegen Gang 12 aus 0056.
 - [2026-10-03, Bits „frei zur Sonne“](messungen/2026-10-03-bits-frei-zur-sonne.md): wie viele Strahlen zur Sonne die Bits aus dem Vorschlag zu #73 am Prototyp ohne Gang beantworten, dass jedes Bild gleich bleibt und was ein Strahl mit und ohne sie kostet, im Wechsel in einem Prozess und allein wiederholt.
 - [2026-10-03, Bits „frei zur Sonne“ am Renderer](messungen/2026-10-03-bits-am-renderer.md): dass mit den Bits aus #106 jede Kachel gleich bleibt, wie viele Strahlen sie beantworten, was ein Strahl und ein ganzer Lauf mit Cinematic an Stand und Fichtenwald kostet, vor und nach dem Vorrat für die nativen Stufen.
+- [2026-10-03, Skin Tablett](messungen/2026-10-03-skin-tablett.md): Bündel ohne und mit Skin gegen den Stand vor #112, das einmalige Zeichnen für fitZoom, die Bildzeit beim Ziehen mit CPU 1× und 4× und Lighthouse am Build mit Skin.
+- [2026-10-03, Flächen im Innern weich, Kosten](messungen/2026-10-03-flaechen-im-innern.md): die Karte auf CPU und Grafikkarte und Cinematic mit #51 gegen master, an Stand und Fichtenwald, Zeit, Bytes und Speicher.

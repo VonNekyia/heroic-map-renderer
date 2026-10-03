@@ -5,11 +5,16 @@ status: gilt
 date: 2026-10-03
 issues: [112]
 code:
-  - web/src/tablett.ts
-  - web/src/main.ts
+  - web/skins/tablett/tablett.ts
+  - web/skins/tablett/index.ts
 ---
 
 # 0061: Tablett und Tisch zeichnet das Frontend
+
+In Teilen abgelöst durch [0063](0063-tablett-als-skin.md): Das Tablett ist
+ein optionaler Skin nur für quadratische Karten, einmal für `fitZoom`
+gezeichnet und bis `fitZoom` + 1 ausgeblendet; Sprites gibt es nur für
+`fitZoom`, nicht je Zoomstufe.
 
 ## Anlass
 
@@ -29,7 +34,7 @@ Maintainer am 03.10.:
 - **In zwei Ebenen um die Kacheln:** unter ihnen alles, über ihnen nur, was
   Gelände nie verdecken kann. So deckt das Tablett den Schnitt, und Gelände
   über dem Wasserspiegel bleibt frei, ohne dass das Frontend die Welt kennen
-  muss. Die Regel: [Frontend](../frontend.md), „Vor und hinter der Welt“.
+  muss. Die Regel: [Tablett](../tablett.md), „Vor und hinter der Welt“.
 - **Texturen** werden wie die Blöcke der Karte nach dem nächsten Nachbarn
   abgetastet.
 - **Beim Hineinzoomen** blenden Rahmen und Tisch aus.

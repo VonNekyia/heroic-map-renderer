@@ -132,8 +132,3 @@ body {
 .baeume {
   font: 13px system-ui, sans-serif;
 }
-
-/* Rahmen und Tisch fangen keine Klicks ab. Siehe docs/frontend.md, „Rahmen und Tisch“. */
-.tablett {
-  pointer-events: none;
-}

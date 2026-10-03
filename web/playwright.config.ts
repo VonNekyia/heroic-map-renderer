@@ -2,21 +2,24 @@ import { defineConfig, devices } from '@playwright/test';
 
 const HOST = '127.0.0.1';
 const PORT = 4173;
-/** Der Build mit `SKIN=tablett`, für die Tests mit dem Tag `@tablett`. */
-const PORT_TABLETT = 4174;
+/** Der Build mit dem Skin aus web/skins/tablett. */
+const PORT_SKIN = 4175;
 
 export default defineConfig({
-  testDir: './tests',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'list' : 'html',
   use: { baseURL: `http://${HOST}:${PORT}` },
   projects: [
-    { name: 'chromium', use: devices['Desktop Chrome'], grepInvert: /@tablett/ },
+    // Ohne Skin: die Grundkarte.
+    { name: 'grund', testDir: './tests', use: devices['Desktop Chrome'] },
+    // Mit Skin: die Smoke-Tests noch einmal und die Tests des Skins.
     {
-      name: 'tablett',
-      use: { ...devices['Desktop Chrome'], baseURL: `http://${HOST}:${PORT_TABLETT}` },
-      grep: /@tablett/,
+      name: 'skin',
+      testDir: '.',
+      testMatch: [/[\\/]tests[\\/]smoke\.spec\.ts$/, /[\\/]skins[\\/][^\\/]+[\\/]tests[\\/][^\\/]+\.spec\.ts$/],
+      grepInvert: /@ohne-skin/,
+      use: { ...devices['Desktop Chrome'], baseURL: `http://${HOST}:${PORT_SKIN}` },
     },
   ],
   // Geprueft wird der fertige Build, nicht der Dev-Server: ausgeliefert
@@ -32,10 +35,10 @@ export default defineConfig({
     },
     {
       command:
-        `npx vite build --outDir dist-tablett && ` +
-        `npx vite preview --outDir dist-tablett --host ${HOST} --port ${PORT_TABLETT} --strictPort`,
-      env: { SKIN: 'tablett' },
-      url: `http://${HOST}:${PORT_TABLETT}`,
+        `npx vite build --outDir dist-skin && ` +
+        `npx vite preview --outDir dist-skin --host ${HOST} --port ${PORT_SKIN} --strictPort`,
+      env: { SKIN: './skins/tablett' },
+      url: `http://${HOST}:${PORT_SKIN}`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

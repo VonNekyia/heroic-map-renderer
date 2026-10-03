@@ -31,6 +31,9 @@ die Projektion, die beide rechnen und an
 `renderer/tests/fixtures/projektion.json` prüfen. Wer daran etwas ändert,
 spricht es vorher mit der anderen Seite ab.
 
+Die Schnittstelle zwischen Grundkarte und Skins ist
+[`skin-api.ts`](web/src/skin-api.ts); wer sie ändert, hebt ihre Version.
+
 ## Skills
 
 | Skill | Wann |

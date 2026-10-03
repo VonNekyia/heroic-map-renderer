@@ -2,6 +2,10 @@
 import { readFileSync } from 'node:fs';
 import type { Block, Projektion } from '../src/pick';
 
+// Für die Tests der Skins: die Projektion der Grundkarte, ohne dass sie
+// aus src/ importieren. Siehe docs/frontend.md, „Skins“.
+export { projiziere, RICHTUNGEN } from '../src/pick';
+
 type Punkt = [number, number];
 
 /**

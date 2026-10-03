@@ -50,8 +50,8 @@ Treppe und Falltür.
 
 Um den Ursprung, `--center 0 0 --size 900 --scale 4`, sonst wie das Bild in
 [Schalter und Beispiele](../benutzung/schalter.md), „Einen Ausschnitt
-rendern“. Stand `fccdef5`, mit dem Licht des Spiels und den Übergängen
-zwischen Biomen.
+rendern“. Stand `0e69b6d`, mit dem Licht des Spiels, den Übergängen
+zwischen Biomen und den Tabellen aus 26.3.
 
 ## Flächen zu gleichem Wasser
 

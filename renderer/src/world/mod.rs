@@ -3,10 +3,13 @@ pub mod chunk;
 pub mod palette;
 pub mod region;
 
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use rayon::prelude::*;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
@@ -328,7 +331,7 @@ impl World {
         #[derive(Deserialize)]
         struct Daten {
             #[serde(default)]
-            dimensions: std::collections::HashMap<String, Eintrag>,
+            dimensions: HashMap<String, Eintrag>,
         }
         #[derive(Deserialize)]
         struct GenSettings {
@@ -363,12 +366,16 @@ impl World {
     /// in jedem Lauf dieselbe, auch in einem Ausschnitt.
     /// Siehe docs/benutzung/map-json.md, „Die Welt“.
     pub fn huelle(&self) -> Result<Option<[i32; 4]>> {
-        let mut da = Vec::new();
-        for (rx, rz) in self.regions()? {
-            if let Some(mut region) = self.region(rx, rz)? {
-                da.extend(region.vorhanden()?);
-            }
-        }
+        // Jede Region liegt in ihrer Datei, die Tabellen lesen sich parallel.
+        let da: Vec<(i32, i32)> = self
+            .regions()?
+            .par_iter()
+            .map(|&(rx, rz)| match self.region(rx, rz)? {
+                Some(mut region) => region.vorhanden(),
+                None => Ok(Vec::new()),
+            })
+            .collect::<Result<Vec<_>>>()?
+            .concat();
         let Some(&(x, z)) = da.first() else {
             return Ok(None);
         };
@@ -377,6 +384,24 @@ impl World {
             .fold([x, z, x + 1, z + 1], |[x0, z0, x1, z1], &(x, z)| {
                 [x0.min(x), z0.min(z), x1.max(x + 1), z1.max(z + 1)]
             });
+        // Je Spalte x und je Zeile z die Chunks darauf.
+        let mut linien: [HashMap<i32, Vec<i32>>; 2] = Default::default();
+        for &(cx, cz) in &da {
+            linien[0].entry(cx).or_default().push(cz);
+            linien[1].entry(cz).or_default().push(cx);
+        }
+        let mut offen: HashMap<(i32, i32), Region> = HashMap::new();
+        let mut fertig = |cx: i32, cz: i32| -> Result<bool> {
+            let (rx, rz) = (cx.div_euclid(REGION), cz.div_euclid(REGION));
+            let region = match offen.entry((rx, rz)) {
+                Entry::Occupied(e) => e.into_mut(),
+                Entry::Vacant(e) => e.insert(
+                    self.region(rx, rz)?
+                        .with_context(|| format!("r.{rx}.{rz}.mca ist verschwunden"))?,
+                ),
+            };
+            Ok(region.chunk(cx, cz)?.is_some())
+        };
         // Jede Seite rückt nach innen, bis auf ihr ein fertig erzeugter Chunk
         // liegt. Der bleibt im Rechteck und auf seiner Seite, also reicht ein
         // Durchgang über die vier.
@@ -387,9 +412,13 @@ impl World {
                 }
                 let linie = if seite < 2 { b[seite] } else { b[seite] - 1 };
                 let mut traegt = false;
-                for &(cx, cz) in &da {
-                    let auf = if seite % 2 == 0 { cx } else { cz } == linie;
-                    if auf && im_bereich(b, cx, cz) && self.chunk(cx, cz)?.is_some() {
+                for &quer in linien[seite % 2].get(&linie).into_iter().flatten() {
+                    let (cx, cz) = if seite % 2 == 0 {
+                        (linie, quer)
+                    } else {
+                        (quer, linie)
+                    };
+                    if im_bereich(b, cx, cz) && fertig(cx, cz)? {
                         traegt = true;
                         break;
                     }

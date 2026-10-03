@@ -12,7 +12,7 @@ use serde::de::DeserializeOwned;
 
 pub use chunk::{Blockdaten, Chunk, Muster, Section};
 pub use palette::BlockState;
-pub use region::{REGION, Region};
+pub use region::{REGION, Region, im_bereich};
 
 /// Wo unter `--world` die Regionen liegen: direkt darunter in einer
 /// Dimension, `world/dimensions/<namensraum>/<name>/region`, und für die
@@ -28,11 +28,42 @@ const REGION_DIRS: [&[&str]; 2] = [
 /// `dimensions/<namensraum>/<name>`.
 const SEED_FILE: [&str; 3] = ["data", "minecraft", "world_gen_settings.dat"];
 
+/// Wo die Weltgrenze liegt, seit 26.1 wie der Seed, siehe [`SEED_FILE`].
+const GRENZE_FILE: [&str; 3] = ["data", "minecraft", "world_border.dat"];
+
+/// Woher eine Dimension ihr Gelände hat: der Generator ihres Eintrags in
+/// `world_gen_settings.dat`, `data.dimensions.<dimension>.generator`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Generator {
+    /// `minecraft:noise` mit den Noise Settings dieser ID.
+    Noise(String),
+    /// `minecraft:noise` mit Noise Settings in der Datei, mit ihrem
+    /// `sea_level`.
+    NoiseMit(i32),
+    /// `minecraft:flat`.
+    Flat,
+    /// `minecraft:debug`.
+    Debug,
+    /// Ein anderer, etwa aus einer Mod.
+    Anderer(String),
+}
+
+/// Die Weltgrenze aus `world_border.dat`: Mitte und Kantenlänge in Blöcken.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+pub struct Grenze {
+    pub center_x: f64,
+    pub center_z: f64,
+    pub size: f64,
+}
+
+#[derive(Clone)]
 pub struct World {
     /// Weltwurzel und Dimension, falls das Verzeichnis zu einer Welt
     /// gehört, siehe [`locate`].
     home: Option<(PathBuf, String)>,
     region_dir: PathBuf,
+    /// Nur die Chunks darin gehören zur Welt, siehe [`World::mit_bereich`].
+    bereich: Option<[i32; 4]>,
 }
 
 /// Hängt Pfadkomponenten einzeln an. Ein Schrägstrich in `join` scheitert
@@ -122,6 +153,7 @@ impl World {
                 return Ok(World {
                     home: locate(root),
                     region_dir: dir,
+                    bereich: None,
                 });
             }
         }
@@ -136,12 +168,35 @@ impl World {
         &self.region_dir
     }
 
-    /// Alle vorhandenen Regionen, aufsteigend sortiert.
+    /// Die Welt nur aus den Chunks in `bereich`, einem Rechteck aus Chunks
+    /// `[x0, z0, x1, z1]`, halb offen; die übrigen fehlen wie nie erzeugte,
+    /// für jeden, der liest. Siehe docs/benutzung/kacheln.md, „Ein Rechteck
+    /// der Welt: `--area`“.
+    pub fn mit_bereich(self, bereich: Option<[i32; 4]>) -> World {
+        World { bereich, ..self }
+    }
+
+    /// Das Rechteck aus [`World::mit_bereich`].
+    pub fn bereich(&self) -> Option<[i32; 4]> {
+        self.bereich
+    }
+
+    /// Alle vorhandenen Regionen, aufsteigend sortiert; mit einem Bereich
+    /// nur die, die ihn berühren.
     pub fn regions(&self) -> Result<Vec<(i32, i32)>> {
         let entries = std::fs::read_dir(&self.region_dir)
             .with_context(|| format!("{} lesen", self.region_dir.display()))?;
+        let beruehrt = |&(rx, rz): &(i32, i32)| {
+            self.bereich.is_none_or(|[x0, z0, x1, z1]| {
+                rx * REGION < x1
+                    && x0 < (rx + 1) * REGION
+                    && rz * REGION < z1
+                    && z0 < (rz + 1) * REGION
+            })
+        };
         let mut regions: Vec<(i32, i32)> = entries
             .filter_map(|e| region::coords_from_name(&e.ok()?.path()))
+            .filter(beruehrt)
             .collect();
         regions.sort_unstable();
         Ok(regions)
@@ -152,7 +207,7 @@ impl World {
         if !path.is_file() {
             return Ok(None);
         }
-        Region::open(&path).map(Some)
+        Region::open(&path).map(|region| Some(region.mit_bereich(self.bereich)))
     }
 
     /// Einzelnen Chunk laden, wenn er fertig erzeugt ist, wie
@@ -184,20 +239,155 @@ impl World {
     /// [`World::seed`] sucht: die Datei der Dimension selbst, die an der
     /// Wurzel, die der Paper-Oberwelt.
     pub fn seed_files(&self) -> Vec<PathBuf> {
+        self.orte(&SEED_FILE)
+    }
+
+    /// Die Orte einer Datei in `data/minecraft` relativ zur Weltwurzel, wie
+    /// [`World::seed_files`].
+    fn orte(&self, datei: &[&str]) -> Vec<PathBuf> {
         let dimension = self.dimension().unwrap_or("minecraft:overworld");
         let (namespace, name) = dimension
             .split_once(':')
             .unwrap_or(("minecraft", dimension));
         let dimensionen = Path::new("dimensions");
         let mut out = vec![
-            under(&under(dimensionen, &[namespace, name]), &SEED_FILE),
-            under(Path::new(""), &SEED_FILE),
+            under(&under(dimensionen, &[namespace, name]), datei),
+            under(Path::new(""), datei),
         ];
-        let oberwelt = under(&under(dimensionen, &["minecraft", "overworld"]), &SEED_FILE);
+        let oberwelt = under(&under(dimensionen, &["minecraft", "overworld"]), datei);
         if oberwelt != out[0] {
             out.push(oberwelt);
         }
         out
+    }
+
+    /// Welche der Orte aus [`World::orte`] gilt, wie beim Seed: zuerst die
+    /// Datei der Dimension, sonst die an der Wurzel oder die der
+    /// Paper-Oberwelt, von beiden die jüngere, bei gleichem Alter die von
+    /// Paper. `None` ohne Welt oder ohne eine der Dateien.
+    fn datei(&self, datei: &[&str]) -> Option<PathBuf> {
+        let (root, _) = self.home.as_ref()?;
+        let orte: Vec<PathBuf> = self.orte(datei).iter().map(|ort| root.join(ort)).collect();
+        let [eigene, andere @ ..] = orte.as_slice() else {
+            unreachable!("mindestens die Dimension");
+        };
+        let alter = |pfad: &Path| std::fs::metadata(pfad).and_then(|m| m.modified()).ok();
+        match andere {
+            _ if eigene.is_file() => Some(eigene),
+            [wurzel, oberwelt] if wurzel.is_file() && oberwelt.is_file() => {
+                Some(if alter(wurzel) > alter(oberwelt) {
+                    wurzel
+                } else {
+                    oberwelt
+                })
+            }
+            _ => andere.iter().find(|pfad| pfad.is_file()),
+        }
+        .cloned()
+    }
+
+    /// Der Generator der Dimension aus `world_gen_settings.dat`, gesucht wie
+    /// der Seed; `None`, wenn die Datei fehlt oder die Dimension nicht
+    /// nennt. Siehe docs/benutzung/welten.md, „Wasserspiegel“.
+    pub fn generator(&self) -> Result<Option<Generator>> {
+        #[derive(Deserialize)]
+        struct Eintrag {
+            generator: Roh,
+        }
+        #[derive(Deserialize)]
+        struct Roh {
+            #[serde(rename = "type")]
+            art: String,
+            settings: Option<fastnbt::Value>,
+        }
+        #[derive(Deserialize)]
+        struct Daten {
+            #[serde(default)]
+            dimensions: std::collections::HashMap<String, Eintrag>,
+        }
+        #[derive(Deserialize)]
+        struct GenSettings {
+            data: Daten,
+        }
+
+        let Some(datei) = self.datei(&SEED_FILE) else {
+            return Ok(None);
+        };
+        let dimension = self.dimension().unwrap_or("minecraft:overworld");
+        let mut settings = read_nbt::<GenSettings>(&datei)?;
+        let Some(eintrag) = settings.data.dimensions.remove(dimension) else {
+            return Ok(None);
+        };
+        let Roh { art, settings } = eintrag.generator;
+        Ok(Some(match (art.as_str(), settings) {
+            ("minecraft:noise", Some(fastnbt::Value::String(id))) => Generator::Noise(id),
+            ("minecraft:noise", Some(fastnbt::Value::Compound(werte))) => {
+                match werte.get("sea_level") {
+                    Some(fastnbt::Value::Int(meer)) => Generator::NoiseMit(*meer),
+                    _ => Generator::Anderer(art),
+                }
+            }
+            ("minecraft:flat", _) => Generator::Flat,
+            ("minecraft:debug", _) => Generator::Debug,
+            _ => Generator::Anderer(art),
+        }))
+    }
+
+    /// Die Hülle der fertig erzeugten Chunks, `[x0, z0, x1, z1]` in Chunks,
+    /// halb offen, mit einem Bereich nur darin; `None` ohne einen. So ist sie
+    /// in jedem Lauf dieselbe, auch in einem Ausschnitt.
+    /// Siehe docs/benutzung/map-json.md, „Die Welt“.
+    pub fn huelle(&self) -> Result<Option<[i32; 4]>> {
+        let mut da = Vec::new();
+        for (rx, rz) in self.regions()? {
+            if let Some(mut region) = self.region(rx, rz)? {
+                da.extend(region.vorhanden()?);
+            }
+        }
+        let Some(&(x, z)) = da.first() else {
+            return Ok(None);
+        };
+        let mut b = da
+            .iter()
+            .fold([x, z, x + 1, z + 1], |[x0, z0, x1, z1], &(x, z)| {
+                [x0.min(x), z0.min(z), x1.max(x + 1), z1.max(z + 1)]
+            });
+        // Jede Seite rückt nach innen, bis auf ihr ein fertig erzeugter Chunk
+        // liegt. Der bleibt im Rechteck und auf seiner Seite, also reicht ein
+        // Durchgang über die vier.
+        for seite in 0..4 {
+            loop {
+                if b[0] >= b[2] || b[1] >= b[3] {
+                    return Ok(None);
+                }
+                let linie = if seite < 2 { b[seite] } else { b[seite] - 1 };
+                let mut traegt = false;
+                for &(cx, cz) in &da {
+                    let auf = if seite % 2 == 0 { cx } else { cz } == linie;
+                    if auf && im_bereich(b, cx, cz) && self.chunk(cx, cz)?.is_some() {
+                        traegt = true;
+                        break;
+                    }
+                }
+                if traegt {
+                    break;
+                }
+                b[seite] += if seite < 2 { 1 } else { -1 };
+            }
+        }
+        Ok(Some(b))
+    }
+
+    /// Die Weltgrenze der Dimension aus `world_border.dat`, gesucht wie der
+    /// Seed; `None`, wenn die Datei fehlt.
+    pub fn grenze(&self) -> Result<Option<Grenze>> {
+        #[derive(Deserialize)]
+        struct Datei {
+            data: Grenze,
+        }
+        self.datei(&GRENZE_FILE)
+            .map(|datei| Ok(read_nbt::<Datei>(&datei)?.data))
+            .transpose()
     }
 
     /// Der Seed der Welt, mit der Dimension Grundlage ihrer Kennung im
@@ -219,27 +409,8 @@ impl World {
             data: Seed,
         }
 
-        let Some((root, _)) = &self.home else {
-            return Ok(None);
-        };
-        let orte: Vec<PathBuf> = self.seed_files().iter().map(|ort| root.join(ort)).collect();
-        let [eigene, andere @ ..] = orte.as_slice() else {
-            unreachable!("mindestens die Dimension");
-        };
-        let alter = |pfad: &Path| std::fs::metadata(pfad).and_then(|m| m.modified()).ok();
-        let datei = match andere {
-            _ if eigene.is_file() => Some(eigene),
-            [wurzel, oberwelt] if wurzel.is_file() && oberwelt.is_file() => {
-                Some(if alter(wurzel) > alter(oberwelt) {
-                    wurzel
-                } else {
-                    oberwelt
-                })
-            }
-            _ => andere.iter().find(|pfad| pfad.is_file()),
-        };
-        datei
-            .map(|datei| Ok(read_nbt::<GenSettings>(datei)?.data.seed))
+        self.datei(&SEED_FILE)
+            .map(|datei| Ok(read_nbt::<GenSettings>(&datei)?.data.seed))
             .transpose()
     }
 }

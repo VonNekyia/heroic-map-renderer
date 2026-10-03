@@ -306,6 +306,24 @@ pub struct MapInfo {
     /// [`super::look::Look::fingerabdruck`]; steht nur mit `"cinematic"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub look_hash: Option<String>,
+    /// Der Wasserspiegel der Dimension in Blöcken, `sea_level` des Spiels:
+    /// Wasser füllt die Blöcke unter ihm. `null`, wenn der Lauf ihn nicht
+    /// kennt. Fehlt das Feld, stammt der Baum aus einem älteren Stand.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "vorhanden"
+    )]
+    pub sea_level: Option<Option<i32>>,
+    /// Das Rechteck der Welt, das der Baum zeichnet, in Blöcken,
+    /// `[x0, z0, x1, z1]`, halb offen und auf ganze Chunks: mit `--area`
+    /// dieses, sonst die Hülle der fertig erzeugten Chunks der Welt,
+    /// [`crate::world::World::huelle`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub area: Option<[i32; 4]>,
+    /// `true`, wenn `area` mit `--area` gewählt ist; fehlt sonst.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub area_fixed: Option<bool>,
 }
 
 /// Die Projektion in `map.json`: `azimuth` `"diagonal"` oder `"north"`,
@@ -322,10 +340,10 @@ pub struct ProjectionInfo {
 
 /// Liest ein Feld, das auch `null` sein darf: nur ein fehlendes bleibt
 /// `None`.
-fn vorhanden<'de, D: serde::Deserializer<'de>>(
+fn vorhanden<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     feld: D,
-) -> std::result::Result<Option<Option<String>>, D::Error> {
-    Option::<String>::deserialize(feld).map(Some)
+) -> std::result::Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(feld).map(Some)
 }
 
 impl MapInfo {
@@ -354,6 +372,9 @@ impl MapInfo {
             projection: None,
             look: None,
             look_hash: None,
+            sea_level: None,
+            area: None,
+            area_fixed: None,
         }
     }
 }

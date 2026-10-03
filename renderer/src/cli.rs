@@ -14,7 +14,7 @@ use clap::{Parser, ValueEnum};
 
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
-use terranova_render::assets::{Assets, blockentity, fluid, model_of};
+use terranova_render::assets::{Assets, blockentity, fluid, model_of, wasserspiegel};
 use terranova_render::render::gpu::Worker;
 use terranova_render::render::heights::{self, Heights, RegionHeights};
 use terranova_render::render::look::{LOOK, Look};
@@ -27,7 +27,7 @@ use terranova_render::render::{
     survey, survey_in, world_box,
 };
 use terranova_render::world::biomzoom::{obfuscate_seed, zoom};
-use terranova_render::world::{BlockState, Blockdaten, REGION, World};
+use terranova_render::world::{BlockState, Blockdaten, Generator, REGION, World};
 
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
 /// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
@@ -106,6 +106,13 @@ pub struct Args {
     /// Blockkoordinate, die in der Bildmitte landet: --center X Z
     #[arg(long, num_args = 2, allow_negative_numbers = true, value_names = ["X", "Z"], default_values_t = [0, 0])]
     center: Vec<i32>,
+
+    /// Nur dieses Rechteck der Welt zeichnen: --area X0 Z0 X1 Z1, zwei Ecken
+    /// in Blöcken, beide inklusiv, nach aussen auf ganze Chunks gerundet.
+    /// Chunks ausserhalb liest der Lauf nicht. Ein Kachelbaum behält sein
+    /// Rechteck aus map.json
+    #[arg(long, num_args = 4, allow_negative_numbers = true, value_names = ["X0", "Z0", "X1", "Z1"])]
+    area: Option<Vec<i32>>,
 
     /// Die Welt als WebP-Kacheln unter diese Wurzel schreiben: jeder Baum
     /// in einen Ordner `<kamera>-<richtung>`, etwa `2x1-se`, dazu
@@ -417,10 +424,13 @@ pub fn run() -> Result<()> {
     let world = match &args.world {
         None => None,
         Some(path) => {
-            let world = World::open(path)?;
+            let world = World::open(path)?.mit_bereich(args.area.as_deref().map(bereich_aus));
             let regions = world.regions()?;
             println!("\nWelt:       {}", path.display());
             println!("Regionen:   {}", world.region_dir().display());
+            if let Some(bereich) = world.bereich() {
+                println!("Rechteck:   {}", rechteck_text(bereich));
+            }
             match bounds(&regions) {
                 Some((x0, x1, z0, z1)) => println!(
                     "            {} Dateien, x {x0}..{x1}, z {z0}..{z1}",
@@ -985,6 +995,131 @@ fn warn_unknown_biomes(assets: &Assets, biomes: &BTreeSet<String>) {
     );
 }
 
+/// Das Rechteck aus Chunks zu `--area`: zwei inklusive Ecken in Blöcken in
+/// beliebiger Reihenfolge, nach aussen auf ganze Chunks gerundet,
+/// `[x0, z0, x1, z1]` halb offen.
+fn bereich_aus(ecken: &[i32]) -> [i32; 4] {
+    let [x0, z0, x1, z1] = ecken else {
+        unreachable!("clap verlangt vier Zahlen")
+    };
+    let chunk = |a: i32| a.div_euclid(16);
+    [
+        chunk(*x0.min(x1)),
+        chunk(*z0.min(z1)),
+        chunk(*x0.max(x1)) + 1,
+        chunk(*z0.max(z1)) + 1,
+    ]
+}
+
+/// Ein Rechteck aus Chunks wie `--area` es nimmt, mit inklusiven Ecken in
+/// Blöcken.
+fn rechteck_text([x0, z0, x1, z1]: [i32; 4]) -> String {
+    format!(
+        "--area {} {} {} {}",
+        16 * x0,
+        16 * z0,
+        16 * x1 - 1,
+        16 * z1 - 1
+    )
+}
+
+/// Die Kantenlänge der Weltgrenze, wenn keine gesetzt ist: die von
+/// `WorldBorder.Settings.DEFAULT`, `WorldBorder.MAX_SIZE` in 26.3, per javap.
+const OHNE_GRENZE: f64 = 59_999_968.0;
+
+/// Welches Rechteck dieser Lauf zeichnet, in Chunks. Ein bestehender Baum
+/// behält seins: ohne `--area` nimmt der Lauf es aus `map.json`, mit einem
+/// anderen bricht er ab, bevor er einen Chunk liest, ebenso mit `--area`
+/// auf einem Baum ohne.
+/// Siehe docs/benutzung/kacheln.md, „Ein Rechteck der Welt: `--area`“.
+fn rechteck(
+    dir: &Path,
+    bestand: Option<&MapInfo>,
+    verlangt: Option<[i32; 4]>,
+) -> Result<Option<[i32; 4]>> {
+    let dort = bestand
+        .filter(|alt| alt.area_fixed == Some(true))
+        .and_then(|alt| alt.area)
+        .map(|area| area.map(|b| b.div_euclid(16)));
+    let karte = dir.join("map.json");
+    match (bestand, dort, verlangt) {
+        (_, Some(dort), Some(hier)) if dort != hier => bail!(
+            "{} gehört zu einem Baum mit {}, dieser Lauf hätte {}. Mit {1} weiterrendern oder \
+             eine neue Wurzel nehmen.",
+            karte.display(),
+            rechteck_text(dort),
+            rechteck_text(hier)
+        ),
+        (_, Some(dort), _) => Ok(Some(dort)),
+        (Some(_), None, Some(hier)) => bail!(
+            "{} gehört zu einem Baum ohne --area, dieser Lauf hätte {}. Ohne --area \
+             weiterrendern oder eine neue Wurzel nehmen.",
+            karte.display(),
+            rechteck_text(hier)
+        ),
+        (_, None, hier) => Ok(hier),
+    }
+}
+
+/// Was `map.json` über die Welt sagt, nicht über die Kacheln: Wasserspiegel
+/// und Rechteck, siehe docs/benutzung/map-json.md, „Die Welt“.
+struct Weltdaten {
+    sea_level: Option<i32>,
+    /// In Blöcken, wie [`MapInfo::area`].
+    area: Option<[i32; 4]>,
+    /// Ob `area` mit `--area` gewählt ist.
+    fest: bool,
+}
+
+/// Der Wasserspiegel der Dimension, wie [`wasserspiegel`] ihn aus dem
+/// Generator liest; ohne einen sagt der Lauf, warum.
+fn meer(world: &World) -> Result<Option<i32>> {
+    let generator = world.generator()?;
+    let meer = generator.as_ref().and_then(wasserspiegel);
+    match (&generator, meer) {
+        (_, Some(meer)) => println!("Meer:       Wasserspiegel bei y = {meer}"),
+        (None, _) => println!(
+            "Meer:       kein Wasserspiegel: world_gen_settings.dat fehlt oder nennt die \
+             Dimension nicht, map.json trägt null"
+        ),
+        (Some(Generator::Noise(id)), None) => println!(
+            "Meer:       kein Wasserspiegel: die Noise Settings {id} kennt das Spiel nicht, \
+             etwa aus einem Datenpaket; map.json trägt null"
+        ),
+        (Some(Generator::Anderer(art)), None) => {
+            println!("Meer:       kein Wasserspiegel für den Generator {art}, map.json trägt null")
+        }
+        (Some(_), None) => unreachable!("die übrigen Generatoren haben einen"),
+    }
+    Ok(meer)
+}
+
+/// Nennt die Weltgrenze als fertiges `--area`, wenn eine gesetzt ist; der
+/// Lauf wendet sie nicht an.
+fn melde_grenze(world: &World) -> Result<()> {
+    let Some(grenze) = world.grenze()? else {
+        return Ok(());
+    };
+    if grenze.size >= OHNE_GRENZE {
+        return Ok(());
+    }
+    let halb = grenze.size / 2.0;
+    let ecken = [
+        (grenze.center_x - halb).floor() as i32,
+        (grenze.center_z - halb).floor() as i32,
+        (grenze.center_x + halb).ceil() as i32 - 1,
+        (grenze.center_z + halb).ceil() as i32 - 1,
+    ];
+    println!(
+        "Grenze:     Die Welt hat eine Weltgrenze, {} Blöcke um ({}, {}); nur sie zeichnet {}",
+        grenze.size,
+        grenze.center_x,
+        grenze.center_z,
+        rechteck_text(bereich_aus(&ecken))
+    );
+    Ok(())
+}
+
 /// Schreibt die Welt als WebP-Kacheln: erst der Vorlauf, der sagt, welche
 /// Blockstates vorkommen und welche Kacheln etwas zeigen, dann die
 /// Sprite-Tabelle, dann parallel die Kacheln. Der Baum liegt unter
@@ -1006,12 +1141,25 @@ fn write_tiles(
     look: Option<Look>,
 ) -> Result<()> {
     let dir = &wurzel.join(baum_name(projection, look.is_some()));
+    let bestand = lies_bestand(dir)?;
+    let bereich = rechteck(dir, bestand.as_ref(), world.bereich())?;
+    match (bereich, world.bereich()) {
+        (Some(bereich), None) => println!(
+            "Rechteck:   {} aus {}",
+            rechteck_text(bereich),
+            dir.join("map.json").display()
+        ),
+        (None, _) => melde_grenze(world)?,
+        (Some(_), Some(_)) => {}
+    }
+    let world = &world.clone().mit_bereich(bereich);
     // Die Zoomstufe der Basis hängt an der ganzen Welt, nicht am
     // Ausschnitt. Sonst landete derselbe Weltausschnitt je nach Aufruf auf
     // einer anderen Stufe, und zwei Läufe passten nicht zusammen.
-    let welt =
-        world_box(world, projection, Y_RANGE)?.context("die Welt hat keine Regionsdateien")?;
-    let bestand = lies_bestand(dir)?;
+    let welt = world_box(world, projection, Y_RANGE)?.context(match bereich {
+        Some(_) => "das Rechteck berührt keine Regionsdatei",
+        None => "die Welt hat keine Regionsdateien",
+    })?;
     let kennung = kennung(world, bestand.as_ref())?;
     let warum = ohne_kennung(world);
     let uebernommen = pruefe_bestand(
@@ -1122,6 +1270,15 @@ fn write_tiles(
         Vec::new()
     };
 
+    let area = match bereich {
+        Some(bereich) => Some(bereich),
+        None => world.huelle()?,
+    };
+    let weltdaten = Weltdaten {
+        sea_level: meer(world)?,
+        area: area.map(|area| area.map(|c| 16 * c)),
+        fest: bereich.is_some(),
+    };
     // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
     // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
     // er vorher, legt er für das Verzeichnis nichts fest.
@@ -1133,6 +1290,7 @@ fn write_tiles(
         blend,
         kennung.as_deref(),
         look.as_ref(),
+        &weltdaten,
         &basis,
     )?;
     // Ab jetzt lässt sich der Baum wählen, auch während seines ersten Laufs.
@@ -1335,6 +1493,7 @@ fn write_tiles(
         blend,
         kennung.as_deref(),
         look.as_ref(),
+        &weltdaten,
         &basis,
     )?;
     schreibe_baeume(wurzel)?;
@@ -1652,6 +1811,9 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
         projection: alt.projection,
         look: alt.look,
         look_hash: alt.look_hash,
+        sea_level: alt.sea_level,
+        area: alt.area,
+        area_fixed: alt.area_fixed,
         ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
     let path = schreibe_info(dir, &info, Some(stempel))?;
@@ -1893,11 +2055,15 @@ fn schreibe_map_json(
     blend: u8,
     kennung: Option<&str>,
     look: Option<&Look>,
+    welt: &Weltdaten,
     basis: &BTreeSet<TileId>,
 ) -> Result<(MapInfo, usize, PathBuf)> {
     let info = MapInfo {
         native_levels: Some(stufen),
         biome_blend: Some(blend),
+        sea_level: Some(welt.sea_level),
+        area: welt.area,
+        area_fixed: welt.fest.then_some(true),
         world: Some(kennung.map(str::to_string)),
         look: Some(look_name(look.is_some()).to_string()),
         look_hash: look.map(Look::fingerabdruck),
@@ -3689,6 +3855,18 @@ fn bounds(regions: &[(i32, i32)]) -> Option<(i32, i32, i32, i32)> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    /// `--area` rundet nach aussen auf ganze Chunks, auch mit negativen
+    /// Ecken und in beliebiger Reihenfolge; als Text stehen die inklusiven
+    /// Ecken des gerundeten Rechtecks.
+    #[test]
+    fn rechteck_auf_ganzen_chunks() {
+        assert_eq!(bereich_aus(&[0, 0, 20, 5]), [0, 0, 2, 1]);
+        assert_eq!(bereich_aus(&[20, 5, 0, 0]), [0, 0, 2, 1]);
+        assert_eq!(bereich_aus(&[-1, -17, 16, 15]), [-1, -2, 2, 1]);
+        assert_eq!(bereich_aus(&[0, 0, 0, 0]), [0, 0, 1, 1]);
+        assert_eq!(rechteck_text([-1, -2, 2, 1]), "--area -16 -32 31 15");
+    }
 
     /// Bänder gibt es erst ab zwei nativen Stufen; eine Kachel in der
     /// Einzahl.

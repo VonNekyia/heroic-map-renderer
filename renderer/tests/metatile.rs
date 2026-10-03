@@ -4868,6 +4868,30 @@ fn trampelpfad_zwischen_gras() {
     assert_eq!(platz_am(welt, [8, 0, 8], 3), [153; 4]);
 }
 
+/// Eine untere Platte mit Stein im Osten und im Norden, die Diagonale im
+/// Nordosten ist Luft. Ob sie zählt, prüft das Spiel für eine Fläche im
+/// Innern eine Schicht über dem Block, über den beiden Steinen: Ist dort
+/// Luft, zählt sie, im Nordosten (0,2 + 0,2 + 1 + 1)/4 = 0,6, also 153.
+/// Steht dort Stein, gilt der Wert des ersten Nachbarn, `c[0]`, also
+/// (0,2 + 0,2 + 0,2 + 1)/4 = 0,4, 102. Die übrigen Ecken bleiben 0,8 und 1.
+#[test]
+fn flaeche_im_innern_prueft_die_ecke_eine_schicht_hoeher() {
+    for (zu, nordosten) in [(false, 153), (true, 102)] {
+        let welt = move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (8, 0, 8) => "minecraft:oak_slab[type=bottom,waterlogged=false]",
+            (9, 0, 8) | (8, 0, 7) => "minecraft:stone",
+            (9, 1, 8) | (8, 1, 7) if zu => "minecraft:stone",
+            _ => "minecraft:air",
+        };
+        let (_, ecken) = licht_am(&[(0, 0)], 0..=0, welt, [8, 0, 8], "");
+        assert_eq!(
+            ecken.expect("Ecken")[0][3].to_le_bytes(),
+            [204, 255, 204, nordosten],
+            "Stein darüber: {zu}"
+        );
+    }
+}
+
 /// Eine untere Platte vor einer Mauer aus Stein im Osten, einen Block hoch:
 /// Ihre Oberseite im Innern wird zur Mauer hin dunkler. Die Ecken in der
 /// Reihenfolge Nordwesten, Südwesten, Südosten, Nordosten: im Westen voll

@@ -57,7 +57,9 @@ Platte oder eines Trampelpfads, siehe
   die erste aus `Direction.values()`: unten, oben, Norden, Süden, Westen,
   Osten (`FaceBakery.findClosestDirection`). So zählt auch eine schräge
   Fläche, und die Ebene einer Blume mit der Normalen nach Südosten liegt
-  im Süden.
+  im Süden. Ein Viereck ohne Fläche hat keine Normale, `findClosestDirection`
+  gibt `null`, und `bakeQuad` nimmt oben; der Renderer gibt ihm keinen
+  Platz. Zu sehen ist davon nichts, es hat keine Pixel.
 - Der Block in der Ecke zählt nur, wenn hinter einem der beiden Nachbarn,
   noch eine Schicht weiter von der Seite weg, kein Block steht, der kein
   Licht durchlässt: nicht `isLightPermeable`, also `solidRender` und
@@ -263,9 +265,9 @@ zusammen, siehe oben.
 
 Die Flächen im Innern aus
 [0064](../entscheidungen/0064-flaechen-im-innern-weich.md) kosten an Stand
-und Fichtenwald der Testwelt mit 24 Threads: die Karte auf der
-Grafikkarte am Stand 4 bis 5 % mehr Zeit, Cinematic am Stand 3 %, die
-Karte auf der CPU und der Fichtenwald nichts über der Streuung. Die
+und Fichtenwald der Testwelt mit 24 Threads im Median 3 bis 4 % mehr Zeit
+am Stand, in der Karte wie in Cinematic, im Fichtenwald Cinematic 5,4 %,
+die Karte dort −1,4 bis +1,5 %, in der Streuung. Die
 Kacheln wiegen 0,1 bis 5,7 % mehr, am meisten mit Schnee, die Spitze des
 Speichers 0,3 bis 5,7 %. Gemessen in
 [2026-10-03, Flächen im Innern weich, Kosten](../messungen/2026-10-03-flaechen-im-innern.md).

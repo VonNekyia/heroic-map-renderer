@@ -1214,10 +1214,18 @@ fn frei_zur_sonne_trifft_nichts() {
                 });
                 if cache.frei_zur_sonne(p).unwrap() {
                     frei += 1;
-                    for ecke in ecken {
-                        assert!(cache.frei_zur_sonne(ecke).unwrap(), "{ecke:?}");
-                        let bezug = cache.sonne_bezug(ecke, c).unwrap();
-                        assert_eq!(bezug, 1.0, "{kamera} aus {k}, {ecke:?}");
+                    for q in ecken.chain([p]) {
+                        assert!(cache.frei_zur_sonne(q).unwrap(), "{q:?}");
+                        assert_eq!(
+                            cache.sonne_im_gang(q, c).unwrap(),
+                            1.0,
+                            "{kamera} aus {k}, {q:?}"
+                        );
+                        assert_eq!(
+                            cache.sonne_bezug(q, c).unwrap(),
+                            1.0,
+                            "{kamera} aus {k}, {q:?}"
+                        );
                     }
                 } else if cache.sonne_im_gang(p, c).unwrap() == 1.0 {
                     verschenkt += 1;
@@ -1262,6 +1270,56 @@ fn block_am_ende_der_weite_sperrt_die_bits() {
         assert_eq!(cache.frei_zur_sonne(p).unwrap(), !mit_block, "{block:?}");
         assert_eq!(cache.sonne(p, eigen).unwrap(), soll, "{block:?}");
         assert_eq!(cache.sonne_bezug(p, eigen).unwrap(), soll, "{block:?}");
+    }
+}
+
+/// Ein Block an einem seitlichen Rand des Prismas, den nur ein Strahl aus
+/// einer Ecke der Startzelle trifft, nimmt ihr das Bit „frei zur Sonne“: am
+/// fernen Rand, wo der Strahl aus der Ecke weg von der Sonne die Lage
+/// verlässt, und am nahen, wo der aus der Ecke zur Sonne hin in sie
+/// eintritt. Ohne ihn ist sie frei. Schnell, im Gang und im Bezug gleich.
+/// Siehe docs/renderer/cinematic.md, „Frei zur Sonne“.
+#[test]
+fn bloecke_an_den_raendern_des_prismas_sperren_die_bits() {
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    let (c, k, e) = ([60, 4, 4], 40, 1e-4);
+    let ecke = |zur_sonne: bool, a: usize| {
+        let hin = (s[a] > 0.0) == zur_sonne;
+        f64::from(c[a]) + if hin { 1.0 - e } else { e }
+    };
+    // Fern: unten und weg von der Sonne, kurz vor dem Ende der Lage k.
+    let fern = [ecke(false, 0), f64::from(c[1]) + e, ecke(false, 2)];
+    let t_fern = (f64::from(k) + 1.0) / s[1] - 2.0 * e / s[1];
+    // Nah: oben und zur Sonne hin, kurz nach dem Eintritt in die Lage k.
+    let nah = [ecke(true, 0), f64::from(c[1]) + 1.0 - e, ecke(true, 2)];
+    let t_nah = (f64::from(k) - 1.0) / s[1] + 2.0 * e / s[1];
+    let chunks: Vec<(i32, i32)> = (0..=3).flat_map(|x| (0..=3).map(move |z| (x, z))).collect();
+    for (p, t) in [(fern, t_fern), (nah, t_nah)] {
+        let block: [i32; 3] = std::array::from_fn(|a| (p[a] + t * s[a]).floor() as i32);
+        assert_eq!(block[1] - c[1], k, "{block:?}");
+        for (mit_block, soll) in [(true, 0.0), (false, 1.0)] {
+            let dir = tempdir();
+            common::write_world_sections(
+                dir.path(),
+                &chunks,
+                0..=6,
+                move |x, y, z| match (x, y, z) {
+                    (_, ..=3, _) | (63, ..=110, 0) => "minecraft:einfarbig",
+                    _ if mit_block && [x, y, z] == block => "minecraft:einfarbig",
+                    _ => "minecraft:air",
+                },
+                |_, _| None,
+            );
+            let world = World::open(dir.path()).unwrap();
+            let sprites = kino_tabelle(&world, Projection::new(16), (0, 111), LOOK);
+            let mut cache = ChunkCache::new(&world, &sprites);
+            let eigen = [c[0], c[1] - 1, c[2]];
+            assert_eq!(cache.frei_zur_sonne(p).unwrap(), !mit_block, "{block:?}");
+            assert_eq!(cache.sonne(p, eigen).unwrap(), soll, "{block:?}");
+            assert_eq!(cache.sonne_im_gang(p, eigen).unwrap(), soll, "{block:?}");
+            assert_eq!(cache.sonne_bezug(p, eigen).unwrap(), soll, "{block:?}");
+        }
     }
 }
 

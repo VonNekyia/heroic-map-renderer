@@ -268,7 +268,10 @@ aufhält:
   die höchste Decke der Chunks, die ein Strahl von dort bis zur Weite
   erreichen kann. In x kommt er um höchstens Weite mal |d_x| weiter, also
   von jedem Punkt im Chunk über höchstens ⌈Weite · |d_x| / 16⌉
-  Chunkgrenzen zur Sonne hin; in z ebenso. Mit `LOOK` sind das je Säule
+  Chunkgrenzen zur Sonne hin; in z ebenso. Gezählt werden
+  ⌊Weite · |d_x| / 16⌋ + 1: Ist der Quotient eine ganze Zahl, kann der Gang
+  in f64 an einer Chunkgrenze sonst einen Chunk zu weit treten. Mit `LOOK`
+  ist er es nicht, und es sind je Säule
   5 × 6 Chunks diagonal und 7 × 2 genordet, samt ihr selbst; jede lädt für
   ihre Decke dazu ihre Nachbarn. Liegt der Strahl über der Decke seines
   Chunks und über dem Horizont, ist er frei: Er steigt und trifft nichts
@@ -295,6 +298,10 @@ aufhält:
   er geprüft wird oder nicht. Das prüft `schneller_gang_gleicht_dem_bezug`
   in `renderer/tests/metatile.rs` Bit für Bit am HDR-Puffer, an Szenen mit
   Wasser, Lava, Laub, Glas und Modellen, die aus ihrem Würfel ragen.
+  - **Ausser in einem Chunk, der fehlt:** Den überspringt der Gang ganz,
+    seine Säule hat keine Decke. Der Bezug prüft dort Modelle, die aus
+    einem geladenen Nachbarn hineinragen. Am Rand der erzeugten Welt können
+    beide sich so unterscheiden; das Bild zeichnet der Gang.
 
 Säule, Horizont, Bits und die Bits „frei zur Sonne“ merkt sich jeder Thread
 in seinem Chunk-Cache, wie Chunks und Licht
@@ -354,13 +361,20 @@ am Prototyp gemessen in
 - **Hinreichend, nicht nötig:** Ein Bit, das fehlt, heisst nur, dass ein
   Strahl aus der Zelle etwas treffen könnte. Dann entscheidet der Gang.
 - **Gleich dem Gang:** Ein freier Strahl prüft im Gang keine Zelle und
-  gibt 1. `frei_zur_sonne_trifft_nichts` schickt von jeder Zelle, die die
-  Bits frei nennen, von allen acht Ecken einen Strahl durch den Bezug; die
-  Ecken streifen die Ränder des Prismas. Jeder kommt ganz an.
-  `block_am_ende_der_weite_sperrt_die_bits` legt einen Block in die
-  oberste Lage des Prismas, kurz vor der Weite.
-  `zufaellige_strahlen_gleichen_dem_bezug`,
-  `schneller_gang_gleicht_dem_bezug` und das Goldbild laufen mit den Bits.
+  gibt 1.
+  - Im Debug-Build schickt `ChunkCache::sonne` jeden Strahl, den die Bits
+    beantworten, auch durch den Gang und prüft, dass er 1 gibt. So prüft
+    jeder Test mit Cinematic jeden solchen Strahl, das Goldbild
+    eingeschlossen.
+  - `frei_zur_sonne_trifft_nichts` schickt von jeder Zelle, die die Bits
+    frei nennen, vom Punkt und von allen acht Ecken einen Strahl durch Gang
+    und Bezug; die Ecken streifen die Ränder des Prismas. Jeder kommt ganz
+    an.
+  - `block_am_ende_der_weite_sperrt_die_bits` legt einen Block in die
+    oberste Lage des Prismas, kurz vor der Weite;
+    `bloecke_an_den_raendern_des_prismas_sperren_die_bits` je einen an den
+    fernen und den nahen Rand einer Lage, den nur ein Strahl aus einer
+    Ecke trifft.
 
 ### Der Vorlauf
 

@@ -292,6 +292,8 @@ impl ChunkCache<'_> {
     /// [`Look::pflanzen`]: super::super::look::Look::pflanzen
     pub fn sonne(&mut self, p0: [f64; 3], eigen: [i32; 3]) -> Result<f32> {
         if self.frei_zur_sonne(p0)? {
+            // Jeder Test im Debug-Build schickt den Strahl auch durch den Gang.
+            debug_assert_eq!(self.sonne_im_gang(p0, eigen)?, 1.0, "frei: {p0:?}");
             return Ok(1.0);
         }
         self.sonne_im_gang(p0, eigen)
@@ -606,7 +608,9 @@ impl ChunkCache<'_> {
         if let Some(h) = gemerkt.and_then(|s| s.horizont) {
             return Ok(h);
         }
-        let reicht = |c: f32| (weite * f64::from(c.abs()) / 16.0).ceil() as i32;
+        // ⌊·⌋ + 1 statt ⌈·⌉: auch bei einer ganzen Zahl ein Chunk mehr, für
+        // die Rundung des Gangs in f64 an einer Chunkgrenze.
+        let reicht = |c: f32| (weite * f64::from(c.abs()) / 16.0).floor() as i32 + 1;
         let schritt = |c: f32| if c > 0.0 { 1 } else { -1 };
         let mut h = i32::MIN;
         for j in 0..=reicht(d[2]) {

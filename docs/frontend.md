@@ -313,69 +313,136 @@ Ortszeit des Browsers, etwa `Stand: 02.10.2026, 21:40`.
 Die Welt liegt in einem Tablett aus Holz auf einem Tisch (#112). Das Frontend
 zeichnet beides selbst, aus ebenen Rechtecken, mit derselben Projektion wie
 die Karte. Warum so: [0061](entscheidungen/0061-tablett-im-frontend.md).
-Stand: nur die Geometrie, in Flächenfarben; Texturen und die Gegenstände
-selbst kommen in eigenen PRs.
+Stand: Geometrie mit Profil, Licht und Schatten, in Flächenfarben. Texturen
+mit Höhenkarten und die Gegenstände als Sprites kommen in eigenen PRs.
 
 - **Daten:** `seaLevel` und `area` aus `map.json`, zu ergänzen vom
   Backend (#112, Schritt 1). `area` ist `[x0, z0, x1, z1]` in Blöcken der
   Welt, `x1` und `z1` sind die Kanten hinter dem letzten Block. Fehlt eins
   oder taugt es nicht, gibt es kein Tablett. Ohne `minY` gilt −64.
-- **Masse** (`tablett` in [`web/src/tablett.ts`](../web/src/tablett.ts)):
-  - Rand: 1/64 der längeren Seite von `area`, mindestens 16 Blöcke.
-  - Oberkante auf `seaLevel`, der Tisch 1,5 Ränder darunter.
-  - Der Tisch reicht über den Fensterrand hinaus. Vorn reicht er so weit,
-    dass er den Schnitt der Welt bis `minY` verdeckt.
-  - Die Anteile sind vorläufig, bis die Masse aus #112 feststehen.
-- **Flächen:** Gezeichnet werden nur Seiten, die die Kamera sieht: oben, die
-  Seite nach +z und diagonal die nach +x, jeweils im Blick. Von oben (`y` = 0)
-  gibt es keine Seiten. Schattiert wird wie im Spiel: Nord und Süd mit 0,8,
-  Ost und West mit 0,6.
-- **Platzhalter:**
-  - hinten links drei Bücher, hinten eine Kerze und eine Sphäre;
-  - vorn rechts ein Kompass, vorn links Blumen.
+- **Flächen:** Gezeichnet wird nur, was zur Kamera zeigt. Von oben (`y` = 0)
+  gibt es keine Seiten. Jedes Teil steht in `tablett` in
+  [`web/src/tablett.ts`](../web/src/tablett.ts).
+- **Einpassen:** Mit Tablett heisst die ganze Karte die Welt samt Rahmen
+  (`grenzen`). Darauf passen die erste Ansicht und der Knopf ⌂ ein, und
+  danach richtet sich `fitZoom`, neu bei jeder Grösse des Fensters.
+- **Ausblenden:** Bis `fitZoom` sind Rahmen und Tisch ganz zu sehen, eine
+  Stufe darüber halb, ab zwei Stufen nicht mehr.
+- **Zeichnen:**
+  - Die Leinwände reichen je Seite 15 % über das Fenster. Beim Ziehen zeichnet
+    das Frontend erst neu, wenn dieser Rand aufgebraucht ist, sonst bei jedem
+    Zoom und jeder Grösse des Fensters.
+  - Beim Zoom gleiten sie mit den Kacheln (`zoomanim`).
+  - Beide haben `pointer-events: none` und fangen keine Klicks ab.
 
-  Was über den Wasserspiegel ragt, steht hinten.
-- **Ausblenden:**
-  - Bis eine Stufe über der, auf der die ganze Karte ins Fenster passt,
-    sind Rahmen und Tisch ganz zu sehen.
-  - Bis drei Stufen darüber blenden sie aus, danach fehlen sie.
-  - Die Stufen sind vorläufig (`AUSBLENDEN` in
-    [`web/src/main.ts`](../web/src/main.ts)).
-- **Bedienung:** Beide Leinwände haben `pointer-events: none` und fangen
-  keine Klicks ab.
+### Masse
+
+Alle Masse sind Anteile der Welt; das Tablett wächst mit ihr (#112). Die
+Kante ist das Mittel aus Breite und Tiefe von `area`.
+
+| Mass | Wert | Herkunft |
+|---|---|---|
+| Rand w, Breite der Oberkante | 3,3 % der Kante | gemessen an der Vorlage: dort etwa 2 % der Kartenbreite im Bild, in 2:1 gut 3 % der Kante; #112 nennt rund 2,5 % |
+| Tiefe D, vom Wasserspiegel bis zur Platte | 1,5·w | Vorlage: Wand mit Leiste und Sockel etwa 1,6-mal so hoch, wie die Oberkante im Bild breit ist; #112 nennt 1,3 |
+| Pfeiler an den Ecken | 1,2·w im Quadrat | etwas breiter als die Wand mit Sockel |
+| Holzkante des Tischs | 0,05 Kanten | |
+
+Das Profil des Rahmens im Schnitt, von der Kante der Welt nach aussen, Höhen
+ab dem Wasserspiegel. Jede Stufe ist eine eigene Fläche:
+
+| Stufe | nach aussen | Höhe |
+|---|---|---|
+| Oberkante, flach | 0 bis 0,45·w | 0 |
+| drei Schrägen | bis w | bis −0,25·w |
+| obere Leiste | steht 0,1·w vor | −0,25·w bis −0,6·w |
+| Wand | w | bis 0,4·w über der Platte |
+| Sockel | steht 0,12·w vor | 0,4·w hoch |
+
+Nichts von Rahmen und Pfeilern liegt über dem Wasserspiegel. Die erhabene
+Lippe der Vorlage kommt mit der Höhenkarte der Textur.
+
+Der Tisch:
+- **Hinten und an den Seiten** reicht er weit über das Fenster, auch eine
+  Stufe unter `fitZoom`.
+- **Vorn** liegt seine Kante an der Ansicht der ganzen Karte:
+  - diagonal die vordere Ecke 4 % der Fensterhöhe unter der Mitte des
+    unteren Rands;
+  - genordet die Kante 10 % der Fensterhöhe über ihm.
+
+  So laufen Holzkante und Zarge wie in der Vorlage durch die unteren Ecken.
+  In ganzen Stufen füllt die Karte samt Rahmen die Hälfte bis das Ganze des
+  Fensters; die Kante folgt dem. Nie liegt sie näher als 0,05 Kanten am
+  Rahmen.
+- **Von oben** gibt es keine Zarge zu sehen; dort reicht er überall weit.
+
+Die Platzhalter der Gegenstände stehen an den Plätzen der Vorlage, in 2:1
+von Südost: links oben Bücher, Pergament und Leuchter, rechts oben die Kerze,
+links unten die Sphäre, rechts unten der Kompass auf einem Buch. Was vor der
+Welt über den Wasserspiegel ragt, steht neben ihrem Bild.
+
+### Licht und Schatten
+
+- **Licht:** warm von oben rechts im Bild, fest im Blick, so dass es aus jeder
+  Richtung gleich aussieht: 35° über der Waagrechten nach rechts, 50° hoch.
+  Je Fläche gerechnet beim Bauen:
+  - 0,26 Umgebungslicht;
+  - 0,9 diffus nach der Normalen, warm getönt (1 / 0,86 / 0,66);
+  - 0,18 aus der Kamera.
+- **Schatten auf die Platte:**
+  - Rahmen und Gegenstände werfen ihn, jede Ecke entlang des Lichts auf die
+    Ebene der Platte geworfen. Die konvexen Hüllen werden als ein Pfad
+    gefüllt, so dunkeln Überlappungen nicht doppelt.
+  - Deckkraft 0,55, weich mit 0,35·w, über den Schatten des Canvas.
+  - Vor den Kacheln fällt er nur auf das, was dort schon gemalt ist, die
+    nahen Stücke der Platte (`source-atop`). So glättet seine Kante wie
+    ihre, und an der Grenze zur fernen Platte bleibt keine Linie.
+- **Saum auf der Karte:**
+  - Die Oberkante wirft einen schmalen Schatten auf die Karte, an den Seiten,
+    über die das Licht auf sie fällt.
+  - 0,2·w breit, bis 0,4 Deckkraft, nach innen auslaufend.
+  - Er liegt über den Kacheln und dunkelt dort auch Gelände leicht ab: die
+    einzige Ausnahme von „Vor und hinter der Welt“.
 
 ### Vor und hinter der Welt
 
-Zwei Leinwände liegen um die Kacheln: `tablett-fern` darunter mit allen
-Flächen, `tablett-nah` darüber nur mit den nahen. Eine Fläche ist nah, wenn
-Gelände sie nie verdecken kann:
+Zwei Leinwände liegen um die Kacheln: `tablett-fern` darunter mit allem
+ausser dem Saum, `tablett-nah` darüber nur mit den nahen Teilen. Eine Fläche
+ist nah, wenn Gelände sie nie verdecken kann:
 
 - **Warum das reicht:** Ein Bildpunkt zeigt Gelände vor einem Punkt des
   Tabletts nur, wenn es entlang der Blickachse weiter vorn und höher liegt.
   - Diagonal ist die Achse (b, 2a, b): Das Gelände liegt bei grösserem x
     und z.
   - Genordet ist sie (0, a, b): grösseres z bei gleichem x.
-- **Nah ist** im Blick, was ganz bei x ≥ x1 oder z ≥ z1 liegt, genordet
-  auch, was ganz bei x ≤ x0 liegt. Das sind die Wände zur Kamera, die
-  vorderen Streifen von Oberkante und Tisch und die vorderen Gegenstände.
+- **Nah ist** im Blick jede Fläche, die ganz bei x ≥ x1 oder z ≥ z1 liegt,
+  genordet auch ganz bei x ≤ x0. Das sind die Seiten des Rahmens zur
+  Kamera, die vorderen Stücke von Platte und Zarge und die vorderen
+  Gegenstände.
 - **Kein Pixel** von Gelände über dem Wasserspiegel liegt deshalb unter
-  einer nahen Fläche, in keiner Kamera und Richtung.
-- **Der Schnitt** der Welt zur Kamera liegt ganz unter Wand und Tisch.
-- **Die Reihenfolge:** Die fernen Flächen liegen unter den Kacheln. Was dort
-  über sie hinausragt, deckt sie richtig.
-- **Gemalt** wird in einer festen Reihenfolge:
-  1. der Tisch, dann der Boden des Tabletts;
+  einer nahen Fläche, in keiner Kamera und Richtung: Was nah ist, liegt
+  nicht über dem Wasserspiegel, oder es steht neben dem Bild der Welt.
+- **Der Schnitt** der Welt zur Kamera liegt ganz unter Rahmen, Platte und
+  Zarge.
+- **Die fernen Teile** liegen unter den Kacheln. Was dort über sie
+  hinausragt, deckt sie richtig.
+- **Gemalt** wird in einer festen Reihenfolge, ein späteres Teil deckt ein
+  früheres:
+  1. Zarge und Platte, ihr Schatten, der Boden des Tabletts;
   2. die Gegenstände hinter dem Rahmen;
-  3. die Wände, dann die Oberkante;
-  4. die Gegenstände davor.
+  3. der Rahmen: ferne Ecke, ferne Seiten, seitliche Ecken, nahe Seiten,
+     nahe Ecke; je Seite von aussen unten nach innen oben;
+  4. die Gegenstände davor;
+  5. der Saum.
 
   Gegenstände untereinander sind nach Tiefe sortiert.
-- **Ohne Nähte:** Benachbarte Streifen derselben Ebene überlappen. Was nah
+- **Ohne Nähte:** Benachbarte Stücke derselben Ebene überlappen. Was nah
   ist, liegt auch in der fernen Leinwand. So zeigt keine Kante den
   Hintergrund.
 
 Die Tests in [`web/tests/tablett.spec.ts`](../web/tests/tablett.spec.ts)
-prüfen das an den Einträgen des Renderers und an einem Hügel an jedem Rand.
+prüfen das an den Einträgen des Renderers, an Gelände bis fast an die
+Bauhöhe an jedem Rand zweier Welten, am Schnitt bis `minY` und daran, dass
+der Tisch das Fenster füllt.
 
 ## Ausliefern
 

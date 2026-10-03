@@ -1,6 +1,6 @@
 ---
 title: "0061: Tablett und Tisch zeichnet das Frontend"
-description: Warum das Frontend Rahmen, Tisch und Gegenstände um die Karte selbst aus ebenen Flächen zeichnet, in zwei Ebenen um die Kacheln, und warum weder der Renderer noch Bilder je Perspektive.
+description: Warum das Frontend Rahmen, Tisch und Gegenstände um die Karte selbst aus ebenen Flächen zeichnet, in zwei Ebenen um die Kacheln, mit der Welt wachsend, mit Licht über Höhenkarten und Schmuck als Sprites, und warum weder der Renderer noch Bilder je Perspektive noch gebrochene Zoomstufen.
 status: gilt
 date: 2026-10-03
 issues: [112]
@@ -34,6 +34,26 @@ Maintainer am 03.10.:
   abgetastet.
 - **Beim Hineinzoomen** blenden Rahmen und Tisch aus.
 
+Dazu entschied der Maintainer am 03.10. (#112, issuecomment-5968793257):
+
+- **Grösse:** Das Tablett wächst mit der Welt. Rand, Wand und Tiefe der
+  Platte sind ein fester Anteil von ihr, so wie im Vorbild.
+- **Tiefe über Karten:** Jede Textur bekommt eine Höhenkarte. Aus ihr kommen
+  die Normalen, und mit ihnen ein Licht von oben rechts im Bild, fest im
+  Blick. Das Frontend schattiert jede Fläche einmal je Kamera beim Laden.
+  Mehr Geometrie gibt es nur, wo die Silhouette sie braucht: das Profil des
+  Rahmens, je Stufe eine Fläche.
+- **Schatten:** Rahmen und Gegenstände werfen weiche Schatten auf die Platte,
+  die Oberkante einen schmalen auf die Karte.
+
+Aus den Zahlen des Researchers, festgehalten in der Review zu #114:
+
+- **Schmuck und Gegenstände** sind aufrechte Sprites in Pixeln des
+  Bildschirms, je Zoomstufe eigens gepixelt. Als Textur wären Lilien und
+  Blätter erst auf Stufen erkennbar, auf denen das Tablett schon ausblendet.
+- **Ausblenden:** ganz bis `fitZoom` samt Rahmen, eine Stufe darüber halb,
+  danach nicht mehr.
+
 ## Verworfen
 
 - **Der Renderer zeichnet das Tablett in die Kacheln.** Es bräuchte Zeit des
@@ -44,3 +64,6 @@ Maintainer am 03.10.:
   Jede neue Kamera bräuchte einen weiteren.
 - **Eine Ebene über den Kacheln** mit allem. Sie deckte Gelände am fernen
   Rand, das über die Oberkante ragt.
+- **Gebrochene Zoomstufen,** damit die Karte samt Rahmen das Fenster füllt
+  wie im Vorbild. Die Kacheln verlören die ganzen Pixel. In ganzen Stufen
+  füllt sie die Hälfte bis das Ganze; die Vorderkante des Tischs folgt dem.

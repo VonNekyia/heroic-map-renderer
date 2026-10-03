@@ -14,7 +14,7 @@ import {
   type Block,
   type Projektion,
 } from './pick';
-import { tablett, type Flaeche, type Rechteck } from './tablett';
+import { GRUND, grenzen, tablett, type Grenzen, type Rechteck, type Teil } from './tablett';
 import './style.css';
 
 /** Was `map.json` aus dem Renderer mitbringt. */
@@ -674,66 +674,152 @@ function ganzeKarte(map: L.Map, bounds: L.LatLngBounds): void {
   });
 }
 
-/**
- * Wie viele Stufen über der, auf der die ganze Karte ins Fenster passt,
- * Rahmen und Tisch auszublenden beginnen, und ab wann sie weg sind.
- */
-// ponytail: feste Stufen, bis die Masse des Researchers da sind.
-const AUSBLENDEN = [1, 3] as const;
-
 /** Leaflets Typen führen die Hilfe nicht auf, mit der Leaflet selbst Ebenen beim Zoom animiert. */
 type Animiert = L.Map & {
   _latLngToNewLayerPoint(latlng: L.LatLng, zoom: number, center: L.LatLng): L.Point;
 };
 
 /**
- * Rahmen und Tisch auf zwei Leinwänden: unter den Kacheln alle Flächen,
- * darüber die, die Gelände nie verdecken. Beide fangen keine Klicks ab.
- * Siehe docs/frontend.md, „Rahmen und Tisch“.
+ * Wie weit die Leinwände je Seite über das Fenster reichen, als Anteil des
+ * Fensters. Beim Ziehen zeichnet das Frontend erst neu, wenn der Rand
+ * aufgebraucht ist.
  */
-function tablettZeigen(map: L.Map, maxZoom: number, fit: number, flaechen: Flaeche[]): void {
+const UEBERSTAND = 0.15;
+
+/**
+ * Malt die Teile auf eine Leinwand. `s` ist ein Pixel der feinsten Stufe in
+ * Pixeln der Leinwand, `null0` der Punkt (0, 0) darauf. Vor den Kacheln
+ * (`nah`) fällt der Schatten nur auf das, was schon gemalt ist: die nahen
+ * Stücke der Platte. So glättet seine Kante wie die ihre, und an der Grenze
+ * zur fernen Platte bleibt keine Linie.
+ */
+function male(ctx: CanvasRenderingContext2D, teile: Teil[], s: number, null0: L.Point, nah: boolean): void {
+  const lege = ({ o, a, b }: { o: number[]; a: number[]; b: number[] }) =>
+    ctx.setTransform(s * a[0]!, s * a[1]!, s * b[0]!, s * b[1]!, s * o[0]! + null0.x, s * o[1]! + null0.y);
+  for (const teil of teile) {
+    if (teil.form === 'flaeche') {
+      lege(teil);
+      ctx.fillStyle = teil.farbe;
+      ctx.fillRect(0, 0, 1, 1);
+    } else if (teil.form === 'saum') {
+      lege(teil);
+      const verlauf = ctx.createLinearGradient(0, 0, 0, 1);
+      verlauf.addColorStop(0, `rgb(0 0 0 / ${teil.deckkraft})`);
+      verlauf.addColorStop(1, 'rgb(0 0 0 / 0)');
+      ctx.fillStyle = verlauf;
+      ctx.fillRect(0, 0, 1, 1);
+    } else {
+      ctx.save();
+      if (nah) ctx.globalCompositeOperation = 'source-atop';
+      // Weich über den Schatten des Canvas: Die Vielecke liegen weit
+      // ausserhalb, ihr Schatten fällt zurück an ihren Platz.
+      const unschaerfe = teil.weich * s;
+      const weg = ctx.canvas.width + 4 * unschaerfe + 100;
+      ctx.setTransform(s, 0, 0, s, null0.x + weg, null0.y);
+      ctx.shadowColor = `rgb(0 0 0 / ${teil.deckkraft})`;
+      ctx.shadowBlur = unschaerfe;
+      ctx.shadowOffsetX = -weg;
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      for (const vieleck of teil.vielecke) {
+        vieleck.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+/**
+ * Rahmen und Tisch auf zwei Leinwänden: unter den Kacheln alles, darüber
+ * nur, was Gelände nie verdeckt. Beide fangen keine Klicks ab. Ganz zu sehen
+ * bis zur Stufe, auf der die Karte samt Rahmen ins Fenster passt, eine Stufe
+ * darüber halb, dann nicht mehr. Siehe docs/frontend.md, „Rahmen und Tisch“.
+ */
+function tablettZeigen(
+  map: L.Map,
+  info: MapInfo,
+  rahmen: Grenzen,
+  bauen: (ansicht: Grenzen) => Teil[],
+): void {
   const ebenen = [
-    { name: 'tablett-fern', z: 150, liste: flaechen },
-    { name: 'tablett-nah', z: 250, liste: flaechen.filter((f) => f.nah) },
-  ].map(({ name, z, liste }) => {
+    { name: 'tablett-fern', z: 150, fern: true },
+    { name: 'tablett-nah', z: 250, fern: false },
+  ].map(({ name, z, fern }) => {
     const pane = map.createPane(name);
     pane.style.zIndex = String(z);
     const leinwand = L.DomUtil.create('canvas', 'tablett leaflet-zoom-animated', pane);
-    return { pane, leinwand, liste };
+    return { pane, leinwand, fern, liste: [] as Teil[] };
   });
+  // Gebaut wird neu, wenn sich die Ansicht der ganzen Karte ändert, also
+  // mit der Grösse des Fensters.
+  let gebaut = '';
+  // Was zuletzt gezeichnet ist: die linke obere Ecke der Leinwände als
+  // Punkt der Ebene, ihre Grösse und die Stufe.
+  let ursprung: L.Point | undefined;
+  let groesse = L.point(0, 0);
+  let stufe: number | undefined;
+
   const zeichne = (): void => {
-    const [ab, bis] = AUSBLENDEN;
-    const deckkraft = Math.min(1, Math.max(0, (fit + bis - map.getZoom()) / (bis - ab)));
-    const { x: breite, y: hoehe } = map.getSize();
-    const dpr = window.devicePixelRatio;
-    // Ein Pixel der feinsten Stufe auf der Leinwand, und wo dort (0, 0) liegt.
-    const s = 2 ** (map.getZoom() - maxZoom) * dpr;
-    const null0 = map.latLngToContainerPoint(point(0, 0)).multiplyBy(dpr);
-    for (const { pane, leinwand, liste } of ebenen) {
+    const zoom = map.getZoom();
+    const fit = fitZoom(rahmen, info, map.getSize());
+    const ansicht = ganzeAnsicht(rahmen, info.maxZoom - fit, map.getSize());
+    if (ansicht.join() !== gebaut) {
+      gebaut = ansicht.join();
+      const teile = bauen(ansicht);
+      ebenen[0]!.liste = teile.filter((t) => t.form !== 'saum');
+      ebenen[1]!.liste = teile.filter((t) => t.nah);
+    }
+    const deckkraft = Math.min(1, Math.max(0, (fit + 2 - zoom) / 2));
+    for (const { pane } of ebenen) {
       pane.style.opacity = String(deckkraft);
       pane.style.display = deckkraft > 0 ? '' : 'none';
-      if (deckkraft === 0) continue;
-      L.DomUtil.setPosition(leinwand, map.containerPointToLayerPoint([0, 0]));
-      if (leinwand.width !== Math.round(breite * dpr) || leinwand.height !== Math.round(hoehe * dpr)) {
-        leinwand.width = Math.round(breite * dpr);
-        leinwand.height = Math.round(hoehe * dpr);
-        leinwand.style.width = `${breite}px`;
-        leinwand.style.height = `${hoehe}px`;
+    }
+    stufe = undefined;
+    if (deckkraft === 0) return;
+    const fenster = map.getSize();
+    const rand = fenster.multiplyBy(UEBERSTAND).round();
+    groesse = fenster.add(rand.multiplyBy(2));
+    ursprung = map.containerPointToLayerPoint(rand.multiplyBy(-1));
+    stufe = zoom;
+    const dpr = window.devicePixelRatio;
+    // Ein Pixel der feinsten Stufe auf der Leinwand, und wo dort (0, 0) liegt.
+    const s = 2 ** (zoom - info.maxZoom) * dpr;
+    const null0 = map.latLngToContainerPoint(point(0, 0)).add(rand).multiplyBy(dpr);
+    for (const { leinwand, liste, fern } of ebenen) {
+      L.DomUtil.setPosition(leinwand, ursprung);
+      const [breite, hoehe] = [Math.round(groesse.x * dpr), Math.round(groesse.y * dpr)];
+      if (leinwand.width !== breite || leinwand.height !== hoehe) {
+        leinwand.width = breite;
+        leinwand.height = hoehe;
+        leinwand.style.width = `${groesse.x}px`;
+        leinwand.style.height = `${groesse.y}px`;
       }
       const ctx = leinwand.getContext('2d')!;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, leinwand.width, leinwand.height);
-      for (const { o, a, b, farbe } of liste) {
-        ctx.setTransform(s * a[0], s * a[1], s * b[0], s * b[1], s * o[0] + null0.x, s * o[1] + null0.y);
-        ctx.fillStyle = farbe;
-        ctx.fillRect(0, 0, 1, 1);
+      ctx.clearRect(0, 0, breite, hoehe);
+      if (fern) {
+        ctx.fillStyle = GRUND;
+        ctx.fillRect(0, 0, breite, hoehe);
       }
+      male(ctx, liste, s, null0, !fern);
+    }
+  };
+  // Beim Ziehen erst neu zeichnen, wenn das Fenster den Rand verlässt.
+  const pruefe = (): void => {
+    if (stufe !== map.getZoom() || !ursprung) return zeichne();
+    const ecke = map.containerPointToLayerPoint([0, 0]).subtract(ursprung);
+    const fenster = map.getSize();
+    if (ecke.x < 0 || ecke.y < 0 || ecke.x + fenster.x > groesse.x || ecke.y + fenster.y > groesse.y) {
+      zeichne();
     }
   };
   // Beim Zoom gleiten die Leinwände mit den Kacheln, gezeichnet wird danach.
   map.on('zoomanim', (event: L.ZoomAnimEvent) => {
+    if (!ursprung) return;
     const ecke = (map as Animiert)._latLngToNewLayerPoint(
-      map.containerPointToLatLng([0, 0]),
+      map.layerPointToLatLng(ursprung),
       event.zoom,
       event.center,
     );
@@ -741,15 +827,27 @@ function tablettZeigen(map: L.Map, maxZoom: number, fit: number, flaechen: Flaec
       L.DomUtil.setTransform(leinwand, ecke, map.getZoomScale(event.zoom));
     }
   });
-  map.on('move zoom viewreset resize', zeichne);
+  map.on('move', pruefe);
+  map.on('zoom viewreset resize', zeichne);
 }
 
 /**
- * Die feinste Stufe, auf der die ganze Karte in ein Fenster dieser Grösse
- * passt. Ohne Fläche oder ohne Fenster gilt `minZoom` aus `map.json`.
+ * Das Fenster in Pixeln der feinsten Stufe, wenn es `rahmen` einpasst, `stufen`
+ * Stufen unter der feinsten: um seine Mitte, wie `fitBounds`.
  */
-function fitZoom(info: MapInfo, size: L.Point): number {
-  const [left, top, right, bottom] = info.bounds;
+function ganzeAnsicht(rahmen: Grenzen, stufen: number, size: L.Point): Grenzen {
+  const [links, oben, rechts, unten] = rahmen;
+  const [mx, my] = [(links + rechts) / 2, (oben + unten) / 2];
+  const [b, h] = [(size.x * 2 ** stufen) / 2, (size.y * 2 ** stufen) / 2];
+  return [mx - b, my - h, mx + b, my + h];
+}
+
+/**
+ * Die feinste Stufe, auf der `grenzen` in ein Fenster dieser Grösse passen.
+ * Ohne Fläche oder ohne Fenster gilt `minZoom` aus `map.json`.
+ */
+function fitZoom(grenzen: readonly number[], info: MapInfo, size: L.Point): number {
+  const [left = 0, top = 0, right = 0, bottom = 0] = grenzen;
   const faktor = Math.min(size.x / (right - left), size.y / (bottom - top));
   if (!(faktor > 0 && Number.isFinite(faktor))) return info.minZoom;
   return info.maxZoom + Math.floor(Math.log2(faktor));
@@ -767,6 +865,13 @@ async function start(): Promise<void> {
 
   const [left, top, right, bottom] = info.bounds;
   const bounds = L.latLngBounds(point(left, top), point(right, bottom));
+  const blick = projektion(info);
+  // Mit Tablett passt die Karte samt Rahmen ins Fenster.
+  const mitTablett = typeof blick !== 'string' && hatTablett(info) ? { ...blick, info } : undefined;
+  const rahmen =
+    mitTablett && grenzen(mitTablett.info.area, mitTablett.info.seaLevel, mitTablett.p, mitTablett.k);
+  const ganz = rahmen ?? info.bounds;
+  const einpassen = L.latLngBounds(point(ganz[0], ganz[1]), point(ganz[2], ganz[3]));
 
   const map = L.map('map', {
     crs: crs(info),
@@ -776,10 +881,9 @@ async function start(): Promise<void> {
   // Ein Baum behält seine Stufen, wenn die Welt wächst, und Zoom 0 passt
   // dann nicht mehr ins Fenster. Darunter verkleinert Leaflet die Kacheln
   // von Zoom 0, bis die ganze Karte zu sehen ist.
-  const fit = fitZoom(info, map.getSize());
-  const minZoom = Math.min(info.minZoom, fit);
+  const minZoom = Math.min(info.minZoom, fitZoom(ganz, info, map.getSize()));
   map.setMinZoom(minZoom);
-  ganzeKarte(map, bounds);
+  ganzeKarte(map, einpassen);
 
   L.tileLayer(`${base}/${info.tiles}`, {
     tileSize: info.tileSize,
@@ -796,11 +900,12 @@ async function start(): Promise<void> {
     noWrap: true,
   }).addTo(map);
 
-  const blick = projektion(info);
   if (typeof blick !== 'string') kompass(map, norden(blick.p, blick.k));
-  if (typeof blick !== 'string' && hatTablett(info)) {
-    const { area, seaLevel, minY = -64 } = info;
-    tablettZeigen(map, info.maxZoom, fit, tablett(area, seaLevel, minY, blick.p, blick.k));
+  if (mitTablett && rahmen) {
+    const { p, k, info: mit } = mitTablett;
+    tablettZeigen(map, info, rahmen, (ansicht) =>
+      tablett(mit.area, mit.seaLevel, mit.minY ?? -64, p, k, ansicht),
+    );
   }
   if (stand) standAnzeigen(map, stand);
   let bei: ((px: number, py: number) => Promise<Block | undefined>) | undefined;
@@ -837,7 +942,7 @@ async function start(): Promise<void> {
   if (at?.length === 3 && at.every(Number.isInteger) && typeof blick !== 'string') {
     zentriere(map, blick, at as unknown as Block, info.maxZoom + (Number.isFinite(zoom) ? zoom : 0));
   } else {
-    map.fitBounds(bounds);
+    map.fitBounds(einpassen);
   }
 }
 

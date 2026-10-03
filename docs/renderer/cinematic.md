@@ -239,6 +239,13 @@ im Blick, springt aber über, was nichts aufhält:
   springt der Strahl zum Rand des Chunks. Dafür lädt der Chunk-Cache die
   Chunks rundum, aus denen Modelle hineinragen können; das Band wächst
   nicht im Voraus.
+- **Der Horizont** (`ChunkCache::horizont`), je Säule einmal gerechnet:
+  die höchste Decke der Chunks, die ein Strahl von dort bis zur Weite
+  erreichen kann. In x kommt er um höchstens Weite mal |d_x| weiter, also
+  von jedem Punkt im Chunk über höchstens ⌈Weite · |d_x| / 16⌉
+  Chunkgrenzen zur Sonne hin; in z ebenso. Liegt der Strahl über der Decke
+  seines Chunks und über dem Horizont, ist er frei: Er steigt und trifft
+  nichts mehr.
 - **Je Section Bits** (`Bits`), sobald ein Strahl sie betritt, einmal je
   Section: die Zellen mit Arbeit, die vollen deckenden Würfel und die
   Zellen, in die ein Modell eines Nachbarn ragt; dazu je Würfel aus
@@ -255,7 +262,8 @@ im Blick, springt aber über, was nichts aufhält:
 
 Getestet: einzelne Strahlen durch Würfel, Laub, Wasser, Glas, Pflanze und
 Überhang (`strahlen_zur_sonne`), die Lage des Schattens eines Würfels im
-Bild (`wuerfel_wirft_seinen_schatten`).
+Bild (`wuerfel_wirft_seinen_schatten`), ein Turm im fernsten Chunk, den
+der Horizont noch sieht (`ferner_turm_wirft_seinen_schatten`).
 
 ## Wasser
 

@@ -61,6 +61,10 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
   [Gang zur Sonne in Stufen](../messungen/2026-10-02-gang-zur-sonne-in-stufen.md).
   Mit 0,6 ihrer Deckkraft deckte die Textur des Wassers im Prototyp, in
   allen Bildern, an denen 0058 abgestimmt ist.
+- **Grenzen aus 0058:** Am Renderer halten sie 15 von 24 Ansichten der
+  Testwelt, am Prototyp 20; Schatten sind heller. Zahlen, Ursache und der
+  Test `kennzahlen_der_ansichten` dazu:
+  [Look am Renderer](../messungen/2026-10-03-look-am-renderer.md).
 - **Fingerabdruck:** Jeder Baum mit Cinematic hält die Werte und den Stand
   des Verfahrens als `lookHash` in `map.json`. Wie er gerechnet wird, wann
   er sich ändert und wann ein Lauf deshalb abbricht, steht in

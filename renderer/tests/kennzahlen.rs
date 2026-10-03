@@ -1,0 +1,258 @@
+//! Die Ansichten der Testwelt, an denen 0058 abgestimmt ist, mit Cinematic
+//! und als Karte, dazu je Pixel, was die Kennzahlen des Looks brauchen: ob
+//! die Sonne ihn trifft, ob er leuchtet oder im Bloom liegt, ob seine
+//! vorderste Fläche deckt, ihr Block und ihre Seite. Braucht die Testwelt
+//! und die Assets, deshalb `#[ignore]`. Aufruf und Auswertung:
+//! docs/messungen/2026-10-03-look-am-renderer.md.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use rayon::prelude::*;
+use terranova_render::assets::Assets;
+use terranova_render::render::look::{LOOK, Look};
+use terranova_render::render::metatile::{Hdr, render_hdr_with};
+use terranova_render::render::{
+    BiomeTable, ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, render_area,
+    survey,
+};
+use terranova_render::world::World;
+
+const Y_RANGE: (i32, i32) = (-64, 319);
+const GROESSE: u32 = 1600;
+
+/// Die Mitte jeder Szene, wie am Prototyp aus #89.
+const SZENEN: [(&str, [i32; 3]); 4] = [
+    ("dorf", [-350, 64, 580]),
+    ("huegel", [620, 64, 940]),
+    ("stand", [-71, 64, 409]),
+    ("schnee", [472, 88, -408]),
+];
+
+/// Die sechs Ansichten: Name, Kamera, scale, Richtung und der Punkt auf
+/// y = 0, den `--center` nennt, damit die Mitte der Szene in der Bildmitte
+/// liegt.
+fn ansichten(
+    [x, y, z]: [i32; 3],
+) -> [(&'static str, &'static str, u32, &'static str, [i32; 2]); 6] {
+    [
+        ("2zu1-32-se", "2:1", 32, "se", [x - y, z - y]),
+        ("2zu1-32-nw", "2:1", 32, "nw", [x + y - 1, z + y - 1]),
+        ("2zu1-16-se", "2:1", 16, "se", [x - y, z - y]),
+        ("top-16-s", "top-north", 16, "s", [x, z]),
+        ("n45-16-s", "north-45", 16, "s", [x, z - y]),
+        ("n45-16-n", "north-45", 16, "n", [x - 1, z + y - 1]),
+    ]
+}
+
+#[test]
+#[ignore]
+fn kennzahlen_der_ansichten() {
+    let wurzel = PathBuf::from(
+        std::env::var("KENNZAHLEN_WURZEL")
+            .expect("KENNZAHLEN_WURZEL auf die Wurzel mit world und den Assets setzen"),
+    );
+    let aus = PathBuf::from(
+        std::env::var("KENNZAHLEN_AUS").expect("KENNZAHLEN_AUS auf den Zielordner setzen"),
+    );
+    std::fs::create_dir_all(&aus).unwrap();
+    let alle: Vec<_> = SZENEN
+        .iter()
+        .flat_map(|&(szene, mitte)| ansichten(mitte).map(|a| (szene, a)))
+        .collect();
+    // Je Ansicht vier Bilder in HDR; sechs zugleich halten den Speicher klein.
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(6)
+        .build()
+        .unwrap();
+    pool.install(|| {
+        alle.par_iter()
+            .for_each(|&(szene, ansicht)| schreibe(&wurzel, &aus, szene, ansicht));
+    });
+}
+
+/// Wie `--render` mit `--center` und `--size`.
+fn fenster(projection: Projection, [x, z]: [i32; 2]) -> ScreenRect {
+    let [x, _, z] = projection.richtung().versatz_in_den_blick([x, 0, z]);
+    let (cx, cy) = projection.project_block([x, 0, z]);
+    ScreenRect {
+        x: cx.round() as i32 - GROESSE as i32 / 2,
+        y: cy.round() as i32 - GROESSE as i32 / 2,
+        width: GROESSE,
+        height: GROESSE,
+    }
+}
+
+fn schreibe(
+    wurzel: &Path,
+    aus: &Path,
+    szene: &str,
+    (name, kamera, scale, richtung, mitte): (&str, &str, u32, &str, [i32; 2]),
+) {
+    let world = World::open(&wurzel.join("world")).unwrap();
+    let mut assets =
+        Assets::open(vec![wurzel.join("vanilla-assets"), wurzel.join("assets")]).unwrap();
+    assets.load_data(&wurzel.join("vanilla-data")).unwrap();
+    assets.set_dimension(world.dimension());
+    let kamera = Kamera::parse(kamera).unwrap();
+    let projection =
+        Projection::mit_kamera(scale, kamera).aus(Richtung::parse(richtung, kamera).unwrap());
+    let rect = fenster(projection, mitte);
+    let survey = survey(&world, projection, Y_RANGE, Some(rect)).unwrap();
+    let biome = BiomeTable::new(assets.colors()).with(2, world.seed().unwrap());
+    let mut tabelle = |look: Option<Look>| {
+        let mut sprites =
+            SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, look)
+                .unwrap();
+        sprites.add_entities(&mut assets, &survey.entities).unwrap();
+        sprites.set_biomes(biome.clone());
+        sprites
+    };
+    let datei = |endung: &str| aus.join(format!("{szene}-{name}{endung}"));
+    render_area(&world, &tabelle(None), rect, Y_RANGE)
+        .unwrap()
+        .save(datei("-karte.png"))
+        .unwrap();
+    let kino = tabelle(Some(LOOK));
+    render_area(&world, &kino, rect, Y_RANGE)
+        .unwrap()
+        .save(datei(".png"))
+        .unwrap();
+    let hdr = |sprites: &SpriteSet| {
+        render_hdr_with(&mut ChunkCache::new(&world, sprites), rect, Y_RANGE).unwrap()
+    };
+    let mit = hdr(&kino);
+    let ohne_sonne = hdr(&tabelle(Some(Look { sonne: 0.0, ..LOOK })));
+    let ohne_schatten = hdr(&tabelle(Some(Look {
+        sonne_weite: -1.0,
+        ..LOOK
+    })));
+    let k = kino.kino().unwrap();
+    let bloom = k.bloom(&mit.leuchten, &mit.waerme, GROESSE as usize, scale);
+    let lum = |c: &[f32]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let mut bloeck = Bloecke::new(&world);
+    let mut familien: Vec<String> = Vec::new();
+    let mut index: HashMap<String, u32> = HashMap::new();
+    let (mut sonne, mut seite, mut deckt, mut leuchtet, mut im_bloom, mut familie) = (
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    for i in 0..mit.farbe.len() {
+        let durch = lum(&mit.farbe[i][..3]) - lum(&ohne_sonne.farbe[i][..3]);
+        let frei = lum(&ohne_schatten.farbe[i][..3]) - lum(&ohne_sonne.farbe[i][..3]);
+        // 0 ohne Sonne, 1 ganz in ihr, 2 im Schatten oder hinter Pflanzen,
+        // wie die Bits des Prototyps.
+        sonne.push(match frei > 1e-6 {
+            false => 0u8,
+            true if durch >= 0.999 * frei => 1,
+            true => 2,
+        });
+        leuchtet.push(u8::from(mit.leuchten[i] != [0.0; 3]));
+        let b = bloom.as_ref().map_or(0.0, |b| lum(&b[i]) * LOOK.belichtung);
+        im_bloom.push(u8::from(b > 1e-3));
+        let (block, flaeche) = vorderste(&mit, projection, rect, i);
+        let zustand = block.and_then(|b| bloeck.zustand(projection, b));
+        let deckend =
+            mit.farbe[i][3] == 1.0 && zustand.as_deref().is_some_and(|z| !durchsichtig(z));
+        deckt.push(u8::from(deckend));
+        seite.push(flaeche);
+        let zustand = zustand.unwrap_or_default();
+        let n = *index.entry(zustand.clone()).or_insert_with(|| {
+            familien.push(zustand);
+            familien.len() as u32 - 1
+        });
+        familie.extend(n.to_le_bytes());
+    }
+    std::fs::write(datei("-sonne.u8"), sonne).unwrap();
+    std::fs::write(datei("-seite.u8"), seite).unwrap();
+    std::fs::write(datei("-deckt.u8"), deckt).unwrap();
+    std::fs::write(datei("-leuchtet.u8"), leuchtet).unwrap();
+    std::fs::write(datei("-bloom.u8"), im_bloom).unwrap();
+    std::fs::write(datei("-familie.u32"), familie).unwrap();
+    let meta = serde_json::json!({ "breite": GROESSE, "hoehe": GROESSE, "familien": familien });
+    std::fs::write(datei(".json"), meta.to_string()).unwrap();
+}
+
+/// Was Licht durchlässt: die vorderste Fläche deckt dort nicht.
+fn durchsichtig(zustand: &str) -> bool {
+    zustand.contains("water")
+        || zustand.contains("glass")
+        || (zustand.contains("ice") && !zustand.contains("packed") && !zustand.contains("blue"))
+}
+
+/// Der Block im Blick, auf dem die vorderste Fläche von Pixel `i` liegt,
+/// aus ihrer Tiefe ein Stück in die Szene hinein, und ihre Seite wie im
+/// Prototyp: 0 oben, 2 bis 5 Norden, Süden, Westen, Osten im Blick, 6
+/// schräg; 7 ohne Fläche.
+fn vorderste(
+    hdr: &Hdr,
+    projection: Projection,
+    rect: ScreenRect,
+    i: usize,
+) -> (Option<[i32; 3]>, u8) {
+    let tiefe = hdr.tiefe[i];
+    if !tiefe.is_finite() {
+        return (None, 7);
+    }
+    let (x, y) = (i as u32 % rect.width, i as u32 / rect.width);
+    let p = projection.punkt(
+        (
+            f64::from(rect.x) + f64::from(x) + 0.5,
+            f64::from(rect.y) + f64::from(y) + 0.5,
+        ),
+        tiefe,
+    );
+    let achse = projection.achse().map(f64::from);
+    let laenge = (achse[0] * achse[0] + achse[1] * achse[1] + achse[2] * achse[2]).sqrt();
+    let block = std::array::from_fn(|k| (p[k] - 1e-3 * achse[k] / laenge).floor() as i32);
+    let ganz = |k: usize| (p[k] - p[k].round()).abs() < 1e-4;
+    let seite = if ganz(1) {
+        0
+    } else if ganz(0) {
+        if achse[0] > 0.0 { 5 } else { 4 }
+    } else if ganz(2) {
+        if achse[2] > 0.0 { 3 } else { 2 }
+    } else {
+        6
+    };
+    (Some(block), seite)
+}
+
+/// Die Blöcke der Welt, Chunk für Chunk gelesen.
+struct Bloecke<'a> {
+    world: &'a World,
+    chunks: HashMap<(i32, i32), Option<terranova_render::world::Chunk>>,
+}
+
+impl<'a> Bloecke<'a> {
+    fn new(world: &'a World) -> Bloecke<'a> {
+        Bloecke {
+            world,
+            chunks: HashMap::new(),
+        }
+    }
+
+    /// Der Zustand des Blocks `block` im Blick, als Text.
+    fn zustand(&mut self, projection: Projection, [x, y, z]: [i32; 3]) -> Option<String> {
+        let [x, z] = projection.richtung().in_die_welt([x, z]);
+        let world = self.world;
+        let chunk = self
+            .chunks
+            .entry((x >> 4, z >> 4))
+            .or_insert_with(|| world.chunk(x >> 4, z >> 4).ok().flatten());
+        let state = chunk.as_ref()?.block_at(x, y, z)?;
+        let props: Vec<String> = state
+            .props()
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        Some(match props.is_empty() {
+            true => state.name().to_owned(),
+            false => format!("{}[{}]", state.name(), props.join(",")),
+        })
+    }
+}

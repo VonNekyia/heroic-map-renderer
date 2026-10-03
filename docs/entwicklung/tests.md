@@ -266,3 +266,8 @@ Tönungskarte an allen Blöcken, die gefärbt oder geflutet sein können, mit
 den Wurzeln wie `--assets` als Pfadliste in `ASSETS`. Der Aufruf steht am
 Test, das Ergebnis in [Biomfarben](../renderer/biomfarben.md), „Tönung beim
 Zeichnen“.
+
+`kennzahlen_der_ansichten` in `renderer/tests/kennzahlen.rs` braucht dazu
+die Testwelt: Er rendert die 24 Ansichten, an denen 0058 abgestimmt ist,
+und schreibt je Pixel die Masken für die Kennzahlen des Looks. Aufruf und
+Ergebnis in [Look am Renderer](../messungen/2026-10-03-look-am-renderer.md).

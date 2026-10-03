@@ -427,6 +427,15 @@ impl Projection {
         x * ax + y * ay + z * az
     }
 
+    /// Die Tiefe des Ursprungs von Block `block` wie [`Projection::depth`],
+    /// in f64: genau auch weit draussen.
+    pub fn depth_block(&self, block: [i32; 3]) -> f64 {
+        let achse = self.achse();
+        (0..3)
+            .map(|k| f64::from(block[k]) * f64::from(achse[k]))
+            .sum()
+    }
+
     /// Der Punkt, den [`Projection::project`] auf `(x, y)` abbildet und der
     /// die Tiefe `tiefe` hat ([`Projection::depth`]): die Umkehrung beider
     /// zusammen, nach der Cramerschen Regel.

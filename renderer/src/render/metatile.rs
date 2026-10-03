@@ -229,7 +229,8 @@ fn render_hdr(
 pub struct Hdr {
     pub width: u32,
     pub farbe: Vec<[f32; 4]>,
-    pub tiefe: Vec<f32>,
+    /// In f64: so ist auch die Strecke durch Wasser weit draussen genau.
+    pub tiefe: Vec<f64>,
     /// Die Wärme des vordersten Pixels, aus dem Biom seines Blocks, siehe
     /// [`Kino::waerme`]; 1 ohne Pixel.
     pub waerme: Vec<f32>,
@@ -244,7 +245,7 @@ impl Hdr {
         Hdr {
             width,
             farbe: vec![[0.0; 4]; n],
-            tiefe: vec![f32::NEG_INFINITY; n],
+            tiefe: vec![f64::NEG_INFINITY; n],
             waerme: vec![1.0; n],
             leuchten: vec![[0.0; 3]; n],
         }
@@ -321,7 +322,7 @@ fn von_vorn<'a>(
         // Für Cinematic die Tiefe des Blockursprungs, siehe `Hdr::tiefe`,
         // und der Block, von dem der Strahl zur Sonne ausgeht.
         let tiefe = if kino {
-            projection.depth(anchor.map(|c| c as f32))
+            projection.depth_block(anchor)
         } else {
             0.0
         };
@@ -725,8 +726,8 @@ type Lichter = ([u32; 3], Option<Ecken>, Option<[u32; 3]>);
 struct Kinodaten {
     /// Die Farben des Himmels an seinem Block ([`ChunkCache::himmel_at`]).
     himmel: Himmelsfarben,
-    /// Die Tiefe des Blockursprungs.
-    ursprung: f32,
+    /// Die Tiefe des Blockursprungs, siehe [`Hdr::tiefe`].
+    ursprung: f64,
     /// Der Block, dem das Modell gehört, im Blick.
     anker: [i32; 3],
     /// Wie hell der Block leuchtet, `getLightEmission` / 15.
@@ -1096,11 +1097,12 @@ fn blit_hdr(
                 let tint = anteile(sprite, i, farben);
                 // Über leerem Grund mischt Wasser wie bei der Karte: Ohne Grund
                 // gibt es keine Strecke, und der Pixel bleibt so offen.
-                let grund = hdr.tiefe[p] > f32::NEG_INFINITY;
+                let grund = hdr.tiefe[p] > f64::NEG_INFINITY;
                 match (sprite.geometrie.as_deref().map(|g| &g[i]), tint) {
                     (Some(g), Some(tint)) if g.wasser > 0.0 && grund => {
                         // Bis zum Grund: der vorderste Pixel darunter.
-                        let strecke = ((ursprung + g.tiefe - hdr.tiefe[p]) / je_block).max(0.0);
+                        let dahinter = ursprung + f64::from(g.tiefe) - hdr.tiefe[p];
+                        let strecke = (dahinter as f32 / je_block).max(0.0);
                         let unten = Unten {
                             licht: stufen,
                             wasser,
@@ -1135,7 +1137,7 @@ fn blit_hdr(
                     ),
                 }
                 if let Some(geometrie) = &sprite.geometrie {
-                    hdr.tiefe[p] = ursprung + geometrie[i].tiefe;
+                    hdr.tiefe[p] = ursprung + f64::from(geometrie[i].tiefe);
                 }
                 hdr.waerme[p] = waerme;
             }

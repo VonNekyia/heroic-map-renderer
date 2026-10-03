@@ -387,10 +387,12 @@ Karte, siehe [Der Weg einer Kachel](renderpfad.md), „Blit“:
   Wassers an der Farbe dessen Licht, wie bei der Karte (`tinted_im_licht`).
 - **Mischen:** vormultipliziert über den Pixel darunter, wie `over`.
 - **Tiefe je Pixel** (`Hdr::tiefe`): die des vordersten gezeichneten Pixels,
-  aus der Tiefe des Blockursprungs und der Geometrie des Sprites, ohne
-  Pixel −∞; für das Wasser. Das prüfen
-  `hdr_haelt_die_tiefe_der_vordersten_flaeche` und, mit zwei Draws auf
-  einem Pixel, `hdr_haelt_die_tiefe_des_vorderen_draws`.
+  aus der Tiefe des Blockursprungs (`Projection::depth_block`) und der
+  Geometrie des Sprites, ohne Pixel −∞; für das Wasser. In f64, denn in f32
+  wäre sie eine Million Blöcke draussen nur auf rund 0,06 genau. Das prüfen
+  `hdr_haelt_die_tiefe_der_vordersten_flaeche`, mit zwei Draws auf einem
+  Pixel `hdr_haelt_die_tiefe_des_vorderen_draws` und
+  `wasser_weit_draussen_wie_am_ursprung`.
 - **Ton am Ende** (`Hdr::bild`, `Kino::ton`): die Farbe mal Weissabgleich,
   dazu der Bloom, mal Belichtung, dann je Kanal die Kurve aus 0058, dann
   sRGB. Ein Pixel ohne Block bleibt durchsichtig.

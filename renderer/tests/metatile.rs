@@ -672,12 +672,12 @@ fn hdr_haelt_die_tiefe_der_vordersten_flaeche() {
     let v = (py as f32 + 0.5 + 4.0 * projection.b() as f32) / projection.a() as f32;
     let soll = projection.depth([(v + u) / 2.0, 4.0, (v - u) / 2.0]);
     assert!(
-        (hdr.tiefe[i] - soll).abs() < 1e-3,
+        (hdr.tiefe[i] - f64::from(soll)).abs() < 1e-3,
         "Tiefe {} statt {soll}",
         hdr.tiefe[i]
     );
     assert_eq!(hdr.farbe[i][3], 1.0);
-    assert_eq!((hdr.tiefe[0], hdr.farbe[0][3]), (f32::NEG_INFINITY, 0.0));
+    assert_eq!((hdr.tiefe[0], hdr.farbe[0][3]), (f64::NEG_INFINITY, 0.0));
 }
 
 /// Zwei Draws auf einem Pixel: Eis vor der Ostseite eines Blocks, beide
@@ -710,7 +710,7 @@ fn hdr_haelt_die_tiefe_des_vorderen_draws() {
     assert!((9.0..10.0).contains(&z), "z {z}");
     assert!(eis > ostseite);
     assert!(
-        (hdr.tiefe[i] - eis).abs() < 1e-3,
+        (hdr.tiefe[i] - f64::from(eis)).abs() < 1e-3,
         "Tiefe {} statt {eis}",
         hdr.tiefe[i]
     );
@@ -1067,7 +1067,7 @@ fn wuerfel_wirft_seinen_schatten() {
                 f64::from(rect.x) + f64::from(x) + 0.5,
                 f64::from(rect.y) + f64::from(y) + 0.5,
             ),
-            mit.tiefe[i].into(),
+            mit.tiefe[i],
         )
     };
     let boden: Vec<usize> = (0..mit.tiefe.len())
@@ -1143,6 +1143,38 @@ fn tieferes_wasser_ist_dunkler() {
     );
 }
 
+/// Wasser weit draussen wie am Ursprung: dieselbe Szene wie in
+/// `tieferes_wasser_ist_dunkler`, um 2^20 Blöcke nach Osten verschoben,
+/// gibt im HDR dieselben Farben. Die Strecke durch das Wasser kommt aus der
+/// Tiefe je Pixel, die dort in f32 nur auf rund 0,06 genau wäre.
+/// Siehe docs/renderer/cinematic.md, „Wasser“.
+#[test]
+fn wasser_weit_draussen_wie_am_ursprung() {
+    let hdr = |x0: i32| {
+        let dir = tempdir();
+        let block = move |x: i32, y: i32, _: i32| match (x - x0, y) {
+            (..=7, ..=2) | (8.., ..=7) => "minecraft:einfarbig",
+            (_, ..=8) => "minecraft:water",
+            _ => "minecraft:air",
+        };
+        common::write_world(dir.path(), &[(x0 >> 4, 0)], block);
+        let world = World::open(dir.path()).unwrap();
+        let projection = Projection::new(16);
+        let sprites = kino_tabelle(&world, projection, Y_RANGE, LOOK);
+        let rect = rect_um(projection, [x0, 0, 0], [x0 + 16, 10, 16]);
+        render_hdr_with(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap()
+    };
+    let (nah, weit) = (hdr(0), hdr(1 << 20));
+    assert_eq!(nah.farbe.len(), weit.farbe.len());
+    let mut wasser = 0;
+    for (a, b) in nah.farbe.iter().zip(&weit.farbe) {
+        let gleich = (0..4).all(|c| (a[c] - b[c]).abs() <= 1e-5 * a[c].abs().max(1.0));
+        assert!(gleich, "{a:?} gegen {b:?}");
+        wasser += usize::from(a[3] > 0.0);
+    }
+    assert!(wasser > 1000, "{wasser}");
+}
+
 /// Der schnelle Gang zur Sonne gibt Byte für Byte dasselbe Bild wie der
 /// langsame Bezug, der jede Zelle mit dem Test der Flächen prüft: an der
 /// Szene aus `common::szene` mit Wasser, Lava, Glas aus Eis, Modellen, die
@@ -1177,12 +1209,12 @@ fn schneller_gang_gleicht_dem_bezug() {
         let schnell =
             render_hdr_with(&mut ChunkCache::new(world, &sprites), rect, y_range).unwrap();
         let bezug = render_hdr_bezug(&mut ChunkCache::new(world, &sprites), rect, y_range).unwrap();
-        let bits = |hdr: &Hdr| -> Vec<u32> {
+        let bits = |hdr: &Hdr| -> Vec<u64> {
             hdr.farbe
                 .iter()
                 .flatten()
-                .chain(&hdr.tiefe)
-                .map(|f| f.to_bits())
+                .map(|f| u64::from(f.to_bits()))
+                .chain(hdr.tiefe.iter().map(|f| f.to_bits()))
                 .collect()
         };
         assert!(

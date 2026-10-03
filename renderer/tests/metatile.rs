@@ -1163,6 +1163,47 @@ fn zufaellige_strahlen_gleichen_dem_bezug() {
     );
 }
 
+/// Durch eine leere Section zwischen belegten geht der Strahl hindurch und
+/// trifft den Block darüber, ob die Section fehlt oder nur Luft hält;
+/// daneben ist frei. Schnell und im Bezug gleich.
+/// Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
+#[test]
+fn strahl_durch_eine_leere_section() {
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    let p = [24.5, 4.001, 4.5];
+    let t = (40.5 - p[1]) / s[1];
+    let block: [i32; 3] = std::array::from_fn(|k| (p[k] + t * s[k]).floor() as i32);
+    assert_eq!(block[1] >> 4, 2, "{block:?}");
+    for sections in [vec![0i8, 2], vec![0, 1, 2]] {
+        let dir = tempdir();
+        let chunks: Vec<(i32, i32)> = (0..=1).flat_map(|x| (0..=2).map(move |z| (x, z))).collect();
+        common::write_world_sections(
+            dir.path(),
+            &chunks,
+            sections.clone(),
+            move |x, y, z| match (x, y, z) {
+                (_, ..=3, _) => "minecraft:einfarbig",
+                _ if [x, y, z] == block => "minecraft:einfarbig",
+                _ => "minecraft:air",
+            },
+            |_, _| None,
+        );
+        let world = World::open(dir.path()).unwrap();
+        let sprites = kino_tabelle(&world, Projection::new(16), (0, 47), LOOK);
+        let mut cache = ChunkCache::new(&world, &sprites);
+        for (q, soll) in [(p, 0.0), ([p[0] + 3.0, p[1], p[2]], 1.0)] {
+            let eigen = [q[0].floor() as i32, 3, q[2].floor() as i32];
+            assert_eq!(cache.sonne(q, eigen).unwrap(), soll, "{sections:?} {q:?}");
+            assert_eq!(
+                cache.sonne_bezug(q, eigen).unwrap(),
+                soll,
+                "{sections:?} {q:?}"
+            );
+        }
+    }
+}
+
 /// Ein Modell, das aus dem Chunk dahinter in einen Chunk ragt, hoch über
 /// dessen eigenen Blöcken, hebt dessen Decke: Der Strahl springt nicht über
 /// es hinweg, auch wenn sein eigener Chunk nicht zum Horizont zählt, denn

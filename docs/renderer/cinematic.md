@@ -278,7 +278,9 @@ der Horizont noch sieht (`ferner_turm_wirft_seinen_schatten`), und sein
 Schatten in einem Ausschnitt, der den Turm nicht zeigt
 (`ausschnitt_sieht_den_schatten_von_draussen`); ein Modell, das aus dem
 Chunk dahinter über dessen Decke ragt
-(`ueberhang_aus_dem_chunk_dahinter_hebt_die_decke`); 8000 fest gewürfelte
+(`ueberhang_aus_dem_chunk_dahinter_hebt_die_decke`); ein Strahl durch eine
+leere Section zwischen belegten, ob sie fehlt oder nur Luft hält
+(`strahl_durch_eine_leere_section`); 8000 fest gewürfelte
 Strahlen in einer hohen Welt aus 8 × 8 Chunks, schnell und im Bezug gleich
 (`zufaellige_strahlen_gleichen_dem_bezug`).
 

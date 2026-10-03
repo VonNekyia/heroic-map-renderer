@@ -24,7 +24,7 @@ use terranova_render::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Gpu, Kamera, MapInfo, Projection,
     ProjectionInfo, Reach, Richtung, ScreenRect, SpriteSet, Survey, TILE, TileId, corner_tiles,
     decode_webp, draw_list, encode_webp, render, render_area, render_area_with, streifenbreite,
-    survey, world_box,
+    survey, survey_in, world_box,
 };
 use terranova_render::world::biomzoom::{obfuscate_seed, zoom};
 use terranova_render::world::{BlockState, Blockdaten, REGION, World};
@@ -797,7 +797,10 @@ fn render_world(
 ) -> Result<()> {
     let started = Instant::now();
     // Derselbe Vorlauf wie beim Kachelexport, nur über den Ausschnitt.
-    let survey = survey(world, projection, Y_RANGE, Some(rect))?;
+    let survey = survey_in(
+        world,
+        Reach::new(projection, Y_RANGE, Some(rect)).mit_sonne(look.as_ref()),
+    )?;
     let mut sprites = SpriteSet::build_mit_licht(assets, &survey.states, projection, None, look)?;
     let unbekannt = sprites.add_entities(assets, &survey.entities)?;
     sprites.set_biomes(biomfarben(world, assets, blend)?);
@@ -1038,7 +1041,8 @@ fn write_tiles(
     let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
 
     let started = Instant::now();
-    let mut survey = survey(world, projection, Y_RANGE, bounds)?;
+    let reach = Reach::new(projection, Y_RANGE, bounds).mit_sonne(look.as_ref());
+    let mut survey = survey_in(world, reach)?;
     println!(
         "\nVorlauf:    {} Chunks in {:.1} s, {} Blockstates, {} Kacheln",
         survey.chunks,

@@ -18,8 +18,8 @@ use terranova_render::render::rasterizer::{
 };
 use terranova_render::render::sonne::texel_mitte;
 use terranova_render::render::{
-    BiomeTable, ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, draw_list,
-    render_area, render_area_with, render_area_without_culling, survey,
+    BiomeTable, ChunkCache, Kamera, Projection, Reach, Richtung, ScreenRect, SpriteSet, draw_list,
+    render_area, render_area_with, render_area_without_culling, survey, survey_in,
 };
 use terranova_render::world::{BlockState, World};
 
@@ -960,6 +960,12 @@ fn strahlenwelt(x: i32, y: i32, z: i32) -> &'static str {
         (8, 6, 10) => "minecraft:pflanze",
         (12, 6, 10) => "minecraft:ueberhang",
         (8, 6, 13) => "minecraft:durchsichtig",
+        (14, 4, 1) => "minecraft:sonnenblume[half=lower]",
+        (14, 5, 1) => "minecraft:sonnenblume[half=upper]",
+        (14, 4, 4) => "minecraft:pflanze",
+        (14, 5, 4) => "minecraft:einfarbig",
+        (14, 4, 7) => "minecraft:hohe_pflanze[half=lower]",
+        (14, 5, 7) => "minecraft:hohe_pflanze[half=upper]",
         _ => "minecraft:air",
     }
 }
@@ -969,8 +975,11 @@ fn strahlenwelt(x: i32, y: i32, z: i32) -> &'static str {
 /// Alpha-Test, mal ja, mal nein. Wasser und ein Block ohne deckenden Texel
 /// lassen die Sonne durch. Glas deckt nur mit seinem Rahmen. Eine
 /// Bodenpflanze dämpft auf die Hälfte, die, auf der der Strahl beginnt,
-/// nicht. Das Modell, das in den Würfel westlich ragt, deckt auch dort, wo
-/// der Strahl seinen eigenen Würfel nie betritt.
+/// nicht, und ihre obere Hälfte auch dann nicht, wenn die keine
+/// Bodenpflanze ist. Ein anderer Block über ihr deckt, die obere Hälfte
+/// eines Blocks, der keine Bodenpflanze ist, auch. Das Modell, das in den
+/// Würfel westlich ragt, deckt auch dort, wo der Strahl seinen eigenen
+/// Würfel nie betritt.
 /// Siehe docs/renderer/cinematic.md, „Schatten“.
 #[test]
 fn strahlen_zur_sonne() {
@@ -1020,6 +1029,208 @@ fn strahlen_zur_sonne() {
     );
     // Durch den Teil im Würfel (11, 6, 10), hinaus durch seine Oberseite.
     assert_eq!(strahl([11.2, 6.9, 10.9], fremd), 0.0, "Überhang");
+    // Von unten in die obere Hälfte über dem Block, auf dem er beginnt.
+    let mut von = |p0: [f64; 3], eigen: [i32; 3]| {
+        let schnell = cache.sonne(p0, eigen).unwrap();
+        assert_eq!(schnell, cache.sonne_bezug(p0, eigen).unwrap(), "{p0:?}");
+        schnell
+    };
+    assert_eq!(
+        von([14.5, 4.9, 1.5], [14, 4, 1]),
+        1.0,
+        "Blüte der Sonnenblume"
+    );
+    assert_eq!(
+        von([14.5, 4.9, 4.5], [14, 4, 4]),
+        0.0,
+        "Block über der Pflanze"
+    );
+    assert_eq!(
+        von([14.5, 5.001, 7.5], [14, 4, 7]),
+        0.0,
+        "obere Hälfte ohne Pflanze"
+    );
+}
+
+/// Eine hohe Welt aus 8 × 8 Chunks, weiter als der Horizont reicht: Säulen
+/// bis 100 Blöcke hoch aus Würfeln, Laub, Glas, Wasser, Pflanzen, die in
+/// ihre Nachbarn ragen, Blöcken ohne deckenden Texel und Überhängen nach
+/// allen vier Seiten, auch über Chunkgrenzen; Sonnenblumen am Boden und
+/// einzelne Blöcke in der Luft. Fest gewürfelt aus den Koordinaten.
+fn hohe_welt(x: i32, y: i32, z: i32) -> &'static str {
+    const ARTEN: [&str; 12] = [
+        "minecraft:einfarbig",
+        "minecraft:laub",
+        "minecraft:glas",
+        "minecraft:water",
+        "minecraft:pflanze",
+        "minecraft:ragende_pflanze",
+        "minecraft:durchsichtig",
+        "minecraft:ueberhang",
+        "minecraft:ueberhang_gerichtet[facing=north]",
+        "minecraft:ueberhang_gerichtet[facing=east]",
+        "minecraft:ueberhang_gerichtet[facing=south]",
+        "minecraft:ueberhang_gerichtet[facing=west]",
+    ];
+    let wurf = |a: i32, b: i32, c: i32| -> u64 {
+        let mut v = (a as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            ^ (b as u64).wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
+            ^ (c as u64).wrapping_mul(0x1656_67b1_9e37_79f9);
+        v ^= v >> 29;
+        v = v.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        v ^ (v >> 32)
+    };
+    if y <= 3 {
+        return "minecraft:einfarbig";
+    }
+    let saeule = wurf(x, 0, z);
+    match saeule % 7 {
+        0 if y < 4 + (saeule >> 8) as i32 % 100 => {
+            return ARTEN[(saeule >> 20) as usize % ARTEN.len()];
+        }
+        1 if y == 4 => return "minecraft:sonnenblume[half=lower]",
+        1 if y == 5 => return "minecraft:sonnenblume[half=upper]",
+        _ => {}
+    }
+    let block = wurf(x, y, z);
+    if block % 300 == 0 {
+        return ARTEN[(block >> 20) as usize % ARTEN.len()];
+    }
+    "minecraft:air"
+}
+
+/// Strahlen zur Sonne von fest gewürfelten Punkten in `hohe_welt`, je im
+/// schnellen Gang und im Bezug gleich, diagonal und genordet aus je vier
+/// Richtungen. Andere Kameras derselben Art sehen die Sonne und die Welt im
+/// Blick ebenso. Es kommen Strahlen vor, die frei sind, gedeckt und
+/// gedämpft.
+/// Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
+#[test]
+fn zufaellige_strahlen_gleichen_dem_bezug() {
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..8).flat_map(|x| (0..8).map(move |z| (x, z))).collect();
+    common::write_world_sections(dir.path(), &chunks, 0..=6, hohe_welt, |_, _| None);
+    let world = World::open(dir.path()).unwrap();
+    let y_range = (0, 111);
+    let states = survey(&world, Projection::new(16), y_range, None)
+        .unwrap()
+        .states;
+    let mut zufall = 0x2545_f491_4f6c_dd1du64;
+    let mut wurf = move || {
+        zufall ^= zufall << 13;
+        zufall ^= zufall >> 7;
+        zufall ^= zufall << 17;
+        (zufall >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let (mut frei, mut gedeckt, mut gedaempft) = (0, 0, 0);
+    for kamera in ["2:1", "top-north"] {
+        let kamera = Kamera::parse(kamera).unwrap();
+        for k in 0..4 {
+            let projection = Projection::mit_kamera(16, kamera).aus(richtung(k, kamera));
+            let mut assets = assets();
+            assets.load_biomes(&common::biomdaten()).unwrap();
+            let sprites =
+                SpriteSet::build_mit_licht(&mut assets, &states, projection, None, Some(LOOK))
+                    .unwrap();
+            let mut cache = ChunkCache::new(&world, &sprites);
+            for _ in 0..1000 {
+                let p = [
+                    8.0 + 112.0 * wurf(),
+                    4.0 + 96.0 * wurf(),
+                    8.0 + 112.0 * wurf(),
+                ];
+                let p0 = match projection.richtung().vierteldrehungen() {
+                    0 => p,
+                    1 => [p[2], p[1], -p[0]],
+                    2 => [-p[0], p[1], -p[2]],
+                    _ => [-p[2], p[1], p[0]],
+                };
+                let eigen = p0.map(|c| c.floor() as i32);
+                let schnell = cache.sonne(p0, eigen).unwrap();
+                let bezug = cache.sonne_bezug(p0, eigen).unwrap();
+                assert_eq!(schnell, bezug, "{kamera} aus {k}, {p0:?}");
+                match schnell {
+                    1.0 => frei += 1,
+                    0.0 => gedeckt += 1,
+                    _ => gedaempft += 1,
+                }
+            }
+        }
+    }
+    assert!(
+        frei > 500 && gedeckt > 500 && gedaempft > 50,
+        "{frei} {gedeckt} {gedaempft}"
+    );
+}
+
+/// Durch eine leere Section zwischen belegten geht der Strahl hindurch und
+/// trifft den Block darüber, ob die Section fehlt oder nur Luft hält;
+/// daneben ist frei. Schnell und im Bezug gleich.
+/// Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
+#[test]
+fn strahl_durch_eine_leere_section() {
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    let p = [24.5, 4.001, 4.5];
+    let t = (40.5 - p[1]) / s[1];
+    let block: [i32; 3] = std::array::from_fn(|k| (p[k] + t * s[k]).floor() as i32);
+    assert_eq!(block[1] >> 4, 2, "{block:?}");
+    for sections in [vec![0i8, 2], vec![0, 1, 2]] {
+        let dir = tempdir();
+        let chunks: Vec<(i32, i32)> = (0..=1).flat_map(|x| (0..=2).map(move |z| (x, z))).collect();
+        common::write_world_sections(
+            dir.path(),
+            &chunks,
+            sections.clone(),
+            move |x, y, z| match (x, y, z) {
+                (_, ..=3, _) => "minecraft:einfarbig",
+                _ if [x, y, z] == block => "minecraft:einfarbig",
+                _ => "minecraft:air",
+            },
+            |_, _| None,
+        );
+        let world = World::open(dir.path()).unwrap();
+        let sprites = kino_tabelle(&world, Projection::new(16), (0, 47), LOOK);
+        let mut cache = ChunkCache::new(&world, &sprites);
+        for (q, soll) in [(p, 0.0), ([p[0] + 3.0, p[1], p[2]], 1.0)] {
+            let eigen = [q[0].floor() as i32, 3, q[2].floor() as i32];
+            assert_eq!(cache.sonne(q, eigen).unwrap(), soll, "{sections:?} {q:?}");
+            assert_eq!(
+                cache.sonne_bezug(q, eigen).unwrap(),
+                soll,
+                "{sections:?} {q:?}"
+            );
+        }
+    }
+}
+
+/// Ein Modell, das aus dem Chunk dahinter in einen Chunk ragt, hoch über
+/// dessen eigenen Blöcken, hebt dessen Decke: Der Strahl springt nicht über
+/// es hinweg, auch wenn sein eigener Chunk nicht zum Horizont zählt, denn
+/// er liegt von der Sonne weg.
+/// Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
+#[test]
+fn ueberhang_aus_dem_chunk_dahinter_hebt_die_decke() {
+    let dir = tempdir();
+    // Nach Süden in den Chunk (0, 1), die Sonne steht im Süden.
+    common::write_world_sections(
+        dir.path(),
+        &[(0, 0), (0, 1)],
+        0..=1,
+        |x, y, z| match (x, y, z) {
+            (_, ..=3, _) => "minecraft:einfarbig",
+            (8, 20, 15) => "minecraft:ueberhang_gerichtet[facing=west]",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let world = World::open(dir.path()).unwrap();
+    let sprites = kino_tabelle(&world, Projection::new(16), (0, 31), LOOK);
+    assert!(sprites.kino().unwrap().sonne()[2] > 0.0);
+    let mut cache = ChunkCache::new(&world, &sprites);
+    let p0 = [8.5, 20.5, 16.1];
+    assert_eq!(cache.sonne(p0, [8, 20, 16]).unwrap(), 0.0);
+    assert_eq!(cache.sonne_bezug(p0, [8, 20, 16]).unwrap(), 0.0);
 }
 
 /// Ein Turm fast an der Weite zur Sonne hin wirft seinen Schatten, auch
@@ -1057,6 +1268,68 @@ fn ferner_turm_wirft_seinen_schatten() {
         assert_eq!(cache.sonne(q, [0; 3]).unwrap(), soll, "{q:?}");
         assert_eq!(cache.sonne_bezug(q, [0; 3]).unwrap(), soll, "{q:?}");
     }
+}
+
+/// Ein Ausschnitt zeigt mit Cinematic dieselben Schatten wie das grosse
+/// Bild, auch den eines Turms aus einem Block, der nur weit ausserhalb
+/// steht: Mit [`Reach::mit_sonne`] liest der Vorlauf die Chunks zur Sonne
+/// hin mit. Ohne sie fehlt der Block in der Sprite-Tabelle, der Turm wäre
+/// Luft.
+/// Siehe docs/renderer/cinematic.md, „Der Vorlauf“.
+#[test]
+fn ausschnitt_sieht_den_schatten_von_draussen() {
+    // Die Welt aus `ferner_turm_wirft_seinen_schatten`.
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    let p = [64.5, 4.001, 15.5];
+    let t = 0.97 * f64::from(LOOK.sonne_weite);
+    let turm: [i32; 3] = std::array::from_fn(|k| (p[k] + t * s[k]).floor() as i32);
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..=4).flat_map(|x| (0..=6).map(move |z| (x, z))).collect();
+    common::write_world_sections(
+        dir.path(),
+        &chunks,
+        0..=6,
+        move |x, y, z| match (x, y, z) {
+            (_, ..=3, _) => "minecraft:einfarbig",
+            _ if [x, z] == [turm[0], turm[2]] && y <= turm[1] + 2 => "minecraft:blauwuerfel",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let y_range = (0, 111);
+    let rect = rect_um(projection, [62, 4, 13], [67, 4, 18]);
+    let bild = |reach: Reach| {
+        let survey = survey_in(&world, reach).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&common::biomdaten()).unwrap();
+        let sprites =
+            SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+                .unwrap();
+        let turm = survey
+            .states
+            .iter()
+            .any(|s| s.name() == "minecraft:blauwuerfel");
+        let bild = render_area_with(&mut ChunkCache::new(&world, &sprites), rect, y_range);
+        (turm, bild.unwrap())
+    };
+    let gross = bild(Reach::new(projection, y_range, None));
+    let ausschnitt = Reach::new(projection, y_range, Some(rect));
+    let (ohne, mit) = (bild(ausschnitt), bild(ausschnitt.mit_sonne(Some(&LOOK))));
+    assert!(
+        gross.0 && mit.0 && !ohne.0,
+        "{} {} {}",
+        gross.0,
+        mit.0,
+        ohne.0
+    );
+    assert!(
+        mit.1 == gross.1,
+        "mit der Sonne im Vorlauf wie das grosse Bild"
+    );
+    assert!(ohne.1 != gross.1, "ohne sie fehlt der Schatten des Turms");
 }
 
 /// Wie viel Sonne je Pixel eines Bilds ankommt, bezogen auf die volle: der

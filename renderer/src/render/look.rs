@@ -42,6 +42,18 @@ pub struct Look {
     /// Wasser: Dichte, durch die die Farbe nach der Strecke bis zum Grund
     /// geteilt wird.
     pub wasser_dichte: f32,
+    /// Wasser: Bis zu dieser Höhe der gespiegelten Richtung (y, Länge 1)
+    /// spiegelt es nur den Nebel.
+    pub wasser_horizont: f32,
+    /// Wasser: Über so viel Höhe darüber geht der Nebel weich in den Himmel
+    /// über.
+    pub wasser_horizont_breite: f32,
+    /// Wasser: Mit mindestens diesem Anteil am stärksten Kanal seiner Farbe
+    /// zählt ein Kanal für die Dichte.
+    pub wasser_anteil_min: f32,
+    /// Wasser: so viel Dichte hat jeder Kanal dazu, auch der stärkste, vor
+    /// der Teilung durch [`Look::wasser_dichte`].
+    pub wasser_dichte_grund: f32,
     /// Wärme: so viel stärker wird der Weissabgleich höchstens, siehe
     /// [`Look::waerme`].
     pub waerme: f32,
@@ -84,6 +96,10 @@ pub const LOOK: Look = Look {
     wasser_spiegel: 0.04,
     wasser_textur: 0.6,
     wasser_dichte: 8.0,
+    wasser_horizont: -0.1,
+    wasser_horizont_breite: 0.7,
+    wasser_anteil_min: 0.02,
+    wasser_dichte_grund: 0.35,
     waerme: 0.5,
     waerme_von: 0.5,
     waerme_bis: 1.0,
@@ -98,7 +114,7 @@ impl Look {
     /// Jeder Wert mit seinem Namen, in fester Reihenfolge, wie er im Code
     /// steht. Abgeleitete Werte wie die Richtung der Sonne aus Sinus und
     /// Kosinus fehlen: Deren letztes Bit kann je System abweichen.
-    fn werte(&self) -> [(&'static str, &[f32]); 23] {
+    fn werte(&self) -> [(&'static str, &[f32]); 27] {
         // Ganz zerlegt: Ein neues Feld kompiliert erst, wenn es hier steht.
         let Look {
             himmel,
@@ -116,6 +132,10 @@ impl Look {
             wasser_spiegel,
             wasser_textur,
             wasser_dichte,
+            wasser_horizont,
+            wasser_horizont_breite,
+            wasser_anteil_min,
+            wasser_dichte_grund,
             waerme,
             waerme_von,
             waerme_bis,
@@ -141,6 +161,16 @@ impl Look {
             ("wasser_spiegel", std::slice::from_ref(wasser_spiegel)),
             ("wasser_textur", std::slice::from_ref(wasser_textur)),
             ("wasser_dichte", std::slice::from_ref(wasser_dichte)),
+            ("wasser_horizont", std::slice::from_ref(wasser_horizont)),
+            (
+                "wasser_horizont_breite",
+                std::slice::from_ref(wasser_horizont_breite),
+            ),
+            ("wasser_anteil_min", std::slice::from_ref(wasser_anteil_min)),
+            (
+                "wasser_dichte_grund",
+                std::slice::from_ref(wasser_dichte_grund),
+            ),
             ("waerme", std::slice::from_ref(waerme)),
             ("waerme_von", std::slice::from_ref(waerme_von)),
             ("waerme_bis", std::slice::from_ref(waerme_bis)),
@@ -264,7 +294,7 @@ mod tests {
     /// zieht den Test nach.
     #[test]
     fn fingerabdruck_der_werte_aus_0058() {
-        assert_eq!(LOOK.fingerabdruck(), "25c9f25d0c368856");
+        assert_eq!(LOOK.fingerabdruck(), "7a37818630d6d4d3");
         let anders = Look {
             belichtung: 0.26,
             ..LOOK

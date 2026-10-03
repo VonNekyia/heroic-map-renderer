@@ -136,14 +136,14 @@ def main():
             paar.paste(feld, (i * (FELD[0] + LUECKE), 0))
         webp(paar, "genordet")
         # Cinematic mit Werten des Looks, die kein Schalter bietet: der
-        # ignorierte Test bilder_zu_0058.
+        # ignorierte Test bilder_zu_cinematic, gebaut aus diesem Checkout.
         subprocess.run(
             ["cargo", "test", "--release", "--manifest-path", "renderer/Cargo.toml",
-             "--test", "kennzahlen", "bilder_zu_0058", "--", "--ignored"],
+             "--test", "kennzahlen", "bilder_zu_cinematic", "--", "--ignored"],
             env=dict(os.environ, KENNZAHLEN_WURZEL=str(daten.resolve()), BILDER_AUS=tmp),
             check=True,
         )
-        for name in ("cinematic-waerme", "cinematic-pflanzen"):
+        for name in ("cinematic-renderer-waerme", "cinematic-renderer-pflanzen"):
             webp(Image.open(Path(tmp) / f"{name}.png"), name)
     banner.alpha_composite(Image.open(BILDER / "quellen" / "banner-ebenen.png").convert("RGBA"))
     webp(banner, "banner")

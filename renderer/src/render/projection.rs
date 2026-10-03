@@ -437,9 +437,16 @@ impl Projection {
     }
 
     /// Der Punkt, den [`Projection::project`] auf `(x, y)` abbildet und der
-    /// die Tiefe `tiefe` hat ([`Projection::depth`]): die Umkehrung beider
-    /// zusammen, nach der Cramerschen Regel.
-    pub fn punkt(&self, (x, y): (f64, f64), tiefe: f64) -> [f64; 3] {
+    /// die Tiefe `tiefe` hat ([`Projection::depth`]), siehe
+    /// [`Projection::umkehrung`].
+    pub fn punkt(&self, xy: (f64, f64), tiefe: f64) -> [f64; 3] {
+        self.umkehrung().punkt(xy, tiefe)
+    }
+
+    /// Die Umkehrung von [`Projection::project`] und [`Projection::depth`]
+    /// zusammen: die inverse Matrix, die Adjunkte durch die Determinante.
+    /// Einmal gerechnet für viele Punkte.
+    pub fn umkehrung(&self) -> Umkehrung {
         let (h, a, b) = (self.h(), self.a(), self.b());
         let [ax, ay, az] = self.achse().map(f64::from);
         let m = if self.kamera.genordet() {
@@ -447,20 +454,26 @@ impl Projection {
         } else {
             [[h, 0.0, -h], [a, -b, a], [ax, ay, az]]
         };
-        let det = |m: [[f64; 3]; 3]| {
-            m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-                - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-                + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+        // Mit zyklischen Indizes trägt der Kofaktor sein Vorzeichen schon.
+        let ko = |i: usize, j: usize| {
+            let (i1, i2, j1, j2) = ((i + 1) % 3, (i + 2) % 3, (j + 1) % 3, (j + 2) % 3);
+            m[i1][j1] * m[i2][j2] - m[i1][j2] * m[i2][j1]
         };
-        let rechts = [x, y, tiefe];
-        let d = det(m);
-        std::array::from_fn(|k| {
-            let mut mk = m;
-            for (zeile, &r) in mk.iter_mut().zip(&rechts) {
-                zeile[k] = r;
-            }
-            det(mk) / d
-        })
+        let det: f64 = (0..3).map(|j| m[0][j] * ko(0, j)).sum();
+        Umkehrung(std::array::from_fn(|i| {
+            std::array::from_fn(|j| ko(j, i) / det)
+        }))
+    }
+}
+
+/// Die Umkehrung von Projektion und Tiefe, siehe [`Projection::umkehrung`].
+#[derive(Clone, Copy, Debug)]
+pub struct Umkehrung([[f64; 3]; 3]);
+
+impl Umkehrung {
+    /// Der Punkt auf dem Bildpunkt `(x, y)` mit der Tiefe `tiefe`.
+    pub fn punkt(&self, (x, y): (f64, f64), tiefe: f64) -> [f64; 3] {
+        self.0.map(|z| z[0] * x + z[1] * y + z[2] * tiefe)
     }
 }
 

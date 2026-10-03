@@ -14,6 +14,7 @@ use rayon::prelude::*;
 use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
 use super::heights::{Heights, RegionHeights};
+use super::look::Look;
 use super::{BLEED_BLOCKS, Projection, ScreenRect};
 
 /// Kantenlänge einer Kachel in Pixeln. 256 ist, was Leaflet ohne
@@ -161,12 +162,17 @@ pub struct Survey {
 }
 
 /// Welche Chunks der Vorlauf liest: die, deren Spalte über die ganze
-/// Welthöhe den Ausschnitt berührt; ohne Ausschnitt alle.
+/// Welthöhe den Ausschnitt berührt; ohne Ausschnitt alle. Mit Cinematic
+/// dazu die, aus denen ein Strahl zur Sonne liest, siehe
+/// [`Reach::mit_sonne`].
 #[derive(Clone, Copy)]
 pub struct Reach {
     projection: Projection,
     hoehe: (i32, i32),
     bounds: Option<ScreenRect>,
+    /// Um wie viele Chunks im Blick ein Strahl zur Sonne von einem Chunk
+    /// im Ausschnitt aus Blöcke liest: `[von, bis]` je `[x, z]`.
+    sonne: Option<[[i32; 2]; 2]>,
 }
 
 impl Reach {
@@ -180,13 +186,42 @@ impl Reach {
             // wird: gerendert wird die ganze Kachel, also muss auch der
             // Vorlauf sie ganz abdecken.
             bounds: bounds.map(snap_to_tiles),
+            sonne: None,
+        }
+    }
+
+    /// Mit `look` liest der Vorlauf auch die Chunks, durch die ein Strahl
+    /// zur Sonne aus dem Ausschnitt läuft, samt zwei Chunks rundum: Ein
+    /// Modell am Rand beginnt den Strahl im Chunk daneben, und in jeden
+    /// Chunk auf dem Weg ragen Modelle aus seinen Nachbarn. Ihre
+    /// Blockstates kennt dann die Sprite-Tabelle, sonst wären sie Luft.
+    /// Siehe docs/renderer/cinematic.md, „Der Vorlauf“.
+    pub fn mit_sonne(self, look: Option<&Look>) -> Reach {
+        let (Some(look), Some(_)) = (look, self.bounds) else {
+            return self;
+        };
+        let d = look.sonne_im_blick(self.projection.kamera());
+        // So viele Chunkgrenzen wie `ChunkCache::horizont`.
+        let reicht = |c: f32| {
+            let n = (f64::from(look.sonne_weite) * f64::from(c.abs()) / 16.0).ceil() as i32;
+            if c < 0.0 { -n } else { n }
+        };
+        let (x, z) = (reicht(d[0]), reicht(d[2]));
+        Reach {
+            sonne: Some([[x.min(0) - 2, z.min(0) - 2], [x.max(0) + 2, z.max(0) + 2]]),
+            ..self
         }
     }
 
     /// Ob der Lauf Chunks der Region (rx, rz) liest.
     pub fn region(&self, rx: i32, rz: i32) -> bool {
         let kante = REGION * CHUNK;
-        self.column(rx * kante, rz * kante, kante)
+        // Mit der Sonne rundum so weit, wie ein Strahl Chunks entfernt
+        // liest; welche davon, entscheidet `Reach::zur_sonne`.
+        let rand = self.sonne.map_or(0, |[von, bis]| {
+            CHUNK * von.iter().chain(&bis).map(|c| c.abs()).max().unwrap_or(0)
+        });
+        self.column(rx * kante - rand, rz * kante - rand, kante + 2 * rand)
     }
 
     /// Ob der Lauf den Chunk (cx, cz) liest.
@@ -197,6 +232,22 @@ impl Reach {
     fn column(&self, x: i32, z: i32, kante: i32) -> bool {
         self.bounds
             .is_none_or(|b| overlaps(b, column_box(self.projection, x, z, self.hoehe, kante)))
+    }
+
+    /// Ob ein Strahl zur Sonne aus einem Chunk, den der Lauf liest, Blöcke
+    /// im Chunk (cx, cz) liest; ohne [`Reach::mit_sonne`] nie.
+    fn zur_sonne(&self, cx: i32, cz: i32) -> bool {
+        let Some([von, bis]) = self.sonne else {
+            return false;
+        };
+        let richtung = self.projection.richtung();
+        let [x, z] = richtung.in_den_blick([cx, cz]);
+        (von[1]..=bis[1]).any(|dz| {
+            (von[0]..=bis[0]).any(|dx| {
+                let [cx, cz] = richtung.in_die_welt([x - dx, z - dz]);
+                self.chunk(cx, cz)
+            })
+        })
     }
 
     /// Wo die Blöcke eines gelesenen Chunks landen. Nur von Chunks im
@@ -250,7 +301,11 @@ pub fn survey(
     y_range: (i32, i32),
     bounds: Option<ScreenRect>,
 ) -> Result<Survey> {
-    let reach = Reach::new(projection, y_range, bounds);
+    survey_in(world, Reach::new(projection, y_range, bounds))
+}
+
+/// [`survey`] über die Chunks, die `reach` nennt.
+pub fn survey_in(world: &World, reach: Reach) -> Result<Survey> {
     let regions = world.regions()?;
     let teile: Vec<Survey> = regions
         .par_iter()
@@ -289,31 +344,38 @@ fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey
         for local_x in 0..REGION {
             let (cx, cz) = (rx * REGION + local_x, rz * REGION + local_z);
             // Was den Ausschnitt über die ganze Welthöhe nicht berührt,
-            // wird gar nicht erst dekodiert.
-            if !reach.chunk(cx, cz) {
+            // wird gar nicht erst dekodiert, ausser ein Strahl zur Sonne
+            // liest es.
+            let im_bild = reach.chunk(cx, cz);
+            if !im_bild && !reach.zur_sonne(cx, cz) {
                 continue;
             }
-            gelesen[(local_z * REGION + local_x) as usize] = true;
+            if im_bild {
+                gelesen[(local_z * REGION + local_x) as usize] = true;
+            }
             let Some(chunk) = region.stored_chunk(cx, cz)? else {
                 continue;
             };
             if !chunk.is_generated() {
-                survey.unfinished += 1;
+                survey.unfinished += usize::from(im_bild);
                 continue;
             }
             survey.chunks += 1;
             // Die Höhen hängen nicht an der Sprite-Tabelle: auch ein Chunk,
             // dessen Blöcke ausserhalb landen, bekommt seine.
-            hoehen.record(&chunk);
+            if im_bild {
+                hoehen.record(&chunk);
+            }
 
             // Erst ausschliessen, dann Paletten sammeln. Sonst verlangt ein
             // kleiner Ausschnitt die Assets für jeden Block der Region, und
             // ein einziger unbekannter Block weit draussen bricht den ganzen
             // Export ab.
-            let Content::Inside(rect) = reach.content(&chunk) else {
-                continue;
-            };
-            tiles.extend(covering(rect));
+            match reach.content(&chunk) {
+                Content::Inside(rect) => tiles.extend(covering(rect)),
+                _ if reach.zur_sonne(cx, cz) => {}
+                _ => continue,
+            }
 
             for section in chunk.sections() {
                 for biome in section.biomes().palette() {

@@ -601,7 +601,7 @@ impl SpriteSet {
             for member in &members[1..] {
                 assets.skip_like(member, state);
             }
-            let pflanze = assets.bodenpflanze(state)?;
+            let pflanze = set.kino.is_some() && assets.bodenpflanze(state)?;
             let Some(family) = set.rastere_familie(assets, state, &models, pflanze) else {
                 continue;
             };
@@ -669,13 +669,14 @@ impl SpriteSet {
             }
             unbekannt.extend(blockentity::unbekannt(daten, assets));
             let models = models_of(assets, state, Some(daten))?;
-            let pflanze = assets.bodenpflanze(state)?;
+            let pflanze = self.kino.is_some() && assets.bodenpflanze(state)?;
             let Some(family) = self.rastere_familie(assets, state, &models, pflanze) else {
                 continue;
             };
             // Muster und Scherben liegen auf den Flächen des Modells ohne
             // Daten: Was der Block verdeckt, bleibt gleich, und die Masken
-            // der Sections dürfen weiter nach der Palette gehen.
+            // der Sections und die Bits für die Sonne dürfen weiter nach
+            // der Palette gehen.
             let ohne = self.family(basis);
             debug_assert!(
                 (
@@ -685,6 +686,11 @@ impl SpriteSet {
                     family.foreign
                 ) == (ohne.opaque, ohne.covers_floor, ohne.contained, ohne.foreign),
                 "{state}: Daten ändern die Deckung"
+            );
+            let form = |f: &Family| f.sonne.as_ref().map(|s| (s.wuerfel, s.leer, s.zellen));
+            debug_assert!(
+                form(&family) == form(ohne),
+                "{state}: Daten ändern die Form für die Sonne"
             );
             let index = self.families.len() as u32;
             self.families.push(family);

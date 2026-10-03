@@ -1,7 +1,6 @@
 //! Der Strahl zur Sonne durch die Welt im Chunk-Cache, für Cinematic.
 //! Siehe docs/renderer/cinematic.md, „Schatten“.
 
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::Result;
@@ -19,8 +18,8 @@ pub(super) struct Bits {
     /// Zellen, die er prüft: ein Block mit Dreiecken, oder eine Zelle, in
     /// die das Modell eines Nachbarn ragt.
     arbeit: [u16; 256],
-    /// Volle deckende Würfel ([`Sonnenform::wuerfel`]): Hier endet jeder
-    /// Strahl, ohne Test.
+    /// Volle deckende Würfel ([`Sonnenform::wuerfel`]) ausser oberen
+    /// Hälften: Hier endet jeder Strahl, ohne Test.
     ///
     /// [`Sonnenform::wuerfel`]: super::super::sonne::Sonnenform::wuerfel
     wuerfel: [u16; 256],
@@ -44,7 +43,7 @@ pub(super) struct Saeule {
     /// bis zur Weite erreichen kann, sobald gebraucht: Darüber ist er frei.
     horizont: Option<i32>,
     /// Je Section, in die Modelle aus Nachbarn ragen, diese Zellen.
-    ueber: HashMap<i8, Box<[u16; 256]>>,
+    ueber: Tabelle<i8, Box<[u16; 256]>>,
     /// Je Section ihre [`Bits`], sobald ein Strahl sie betritt; `None` ohne
     /// Arbeit.
     sections: Tabelle<i8, Option<Rc<Bits>>>,
@@ -52,7 +51,7 @@ pub(super) struct Saeule {
 
 /// Die Blöcke eines Chunks, deren Modell für die Sonne aus dem Würfel ragt,
 /// im Blick: für die Zellen [`Bits::ueber`] der Nachbarn.
-pub(super) fn ragende(loaded: &Loaded, sprites: &super::SpriteSet) -> Vec<[i32; 3]> {
+pub(super) fn ragende(loaded: &Loaded, sprites: &super::SpriteSet) -> Rc<[[i32; 3]]> {
     let richtung = sprites.projection().richtung();
     let ragt = |index: &Option<u32>| {
         index.is_some_and(|i| {
@@ -80,7 +79,7 @@ pub(super) fn ragende(loaded: &Loaded, sprites: &super::SpriteSet) -> Vec<[i32; 
             }
         });
     }
-    out
+    out.into()
 }
 
 /// Was ein Block auf dem Strahl zur Sonne bewirkt.
@@ -205,18 +204,15 @@ impl ChunkCache<'_> {
     /// deckenden Stelle, sonst [`Look::pflanzen`] je Bodenpflanze auf dem
     /// Strahl, ausser der, auf der er beginnt (`eigen`, der Block des Draws).
     ///
+    /// Als schneller Gang: über der Decke eines Chunks, durch eine Section
+    /// ohne Arbeit und durch einen Würfel aus 4 × 4 × 4 Zellen ohne Arbeit
+    /// springt er hinaus; in einen vollen deckenden Würfel tritt er ohne
+    /// Test; sonst prüft er die Zelle wie [`ChunkCache::sonne_bezug`].
+    /// Dasselbe Ergebnis, denn ein Block, den der Strahl nicht trifft,
+    /// ändert nichts, gleich ob er geprüft wird.
+    ///
     /// [`Look::pflanzen`]: super::super::look::Look::pflanzen
     pub fn sonne(&mut self, p0: [f64; 3], eigen: [i32; 3]) -> Result<f32> {
-        self.sonne_gang(p0, eigen)
-    }
-
-    /// [`ChunkCache::sonne`] als schneller Gang: über der Decke eines
-    /// Chunks, durch eine Section ohne Arbeit und durch einen Würfel aus
-    /// 4 × 4 × 4 Zellen ohne Arbeit springt er hinaus; in einen vollen
-    /// deckenden Würfel tritt er ohne Test; sonst prüft er die Zelle wie
-    /// [`ChunkCache::sonne_bezug`]. Dasselbe Ergebnis, denn ein Block, den
-    /// der Strahl nicht trifft, ändert nichts, gleich ob er geprüft wird.
-    pub(super) fn sonne_gang(&mut self, p0: [f64; 3], eigen: [i32; 3]) -> Result<f32> {
         let sprites = self.sprites;
         let look = sprites.kino().expect("Cinematic").look();
         let d = ohne_null(sprites.kino().expect("Cinematic").sonne());
@@ -324,7 +320,7 @@ impl ChunkCache<'_> {
         }
         let sprites = self.sprites;
         let [lo, hi] = sprites.sonne_reich();
-        let mut ueber: HashMap<i8, Box<[u16; 256]>> = HashMap::new();
+        let mut ueber: Tabelle<i8, Box<[u16; 256]>> = Tabelle::default();
         let mut decke = i32::MIN;
         if [lo, hi] != [[0; 3]; 2] {
             for dz in -1..=1 {
@@ -336,8 +332,8 @@ impl ChunkCache<'_> {
                     if nachbar.ragende.is_none() {
                         nachbar.ragende = Some(ragende(nachbar, sprites));
                     }
-                    let liste = nachbar.ragende.clone().unwrap_or_default();
-                    for b in liste {
+                    let liste = Rc::clone(nachbar.ragende.as_ref().expect("eben gesetzt"));
+                    for &b in liste.iter() {
                         let Some((family, _)) = self.block_at(b[0], b[1], b[2])? else {
                             continue;
                         };
@@ -386,10 +382,8 @@ impl ChunkCache<'_> {
     }
 
     /// [`Saeule::horizont`] des Chunks `key` im Slot `i`, beim ersten Mal
-    /// gerechnet. Ein Strahl in Richtung `d` kommt bis zur Weite in x um
-    /// höchstens `weite · |d[0]|` weiter, also von jedem Punkt im Chunk über
-    /// höchstens `⌈weite · |d[0]| / 16⌉` Chunkgrenzen, in z ebenso. Ohne Chunk
-    /// gibt es keine Säule, die ihn hält; dann jedes Mal gerechnet.
+    /// gerechnet; ohne Chunk gibt es keine Säule, die ihn hält, dann jedes
+    /// Mal. Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
     fn horizont(&mut self, i: usize, key: (i32, i32), d: [f32; 3], weite: f64) -> Result<i32> {
         let gemerkt = self.slots[i].loaded.as_ref().and_then(|l| l.sonne.as_ref());
         if let Some(h) = gemerkt.and_then(|s| s.horizont) {
@@ -433,16 +427,19 @@ impl ChunkCache<'_> {
         };
         if let Some(s) = loaded.chunk.section_index(sy) {
             let section = &loaded.chunk.sections()[s];
-            // Je Paletteneintrag: Bit 0 Arbeit, Bit 1 voller Würfel.
+            // Je Paletteneintrag: Bit 0 Arbeit, Bit 1 voller Würfel. Eine
+            // obere Hälfte geht durch den Test, auch als voller Würfel: Über
+            // ihrer Bodenpflanze bewirkt sie nichts, siehe `ChunkCache::wirkung`.
             let art: Vec<u8> = loaded.families[s]
                 .iter()
-                .map(
-                    |index| match index.and_then(|i| sprites.family(i).sonne.as_ref()) {
-                        Some(form) if form.wuerfel => 3,
-                        Some(form) if !form.leer => 1,
+                .map(|index| {
+                    let family = index.map(|i| sprites.family(i));
+                    match family.and_then(|f| f.sonne.as_ref().map(|form| (f, form))) {
+                        Some((f, form)) if form.wuerfel && !f.obere_haelfte() => 3,
+                        Some((_, form)) if !form.leer => 1,
                         _ => 0,
-                    },
-                )
+                    }
+                })
                 .collect();
             if art.iter().any(|&a| a != 0) {
                 let blick = spalten_im_blick(sprites.projection().richtung());
@@ -523,8 +520,10 @@ impl ChunkCache<'_> {
     }
 
     /// Was der Block `b` im Blick mit `family` dem Strahl `p0 + t·d` bis zur
-    /// Weite entgegenstellt. Die Bodenpflanze `eigen`, auf der der Strahl
-    /// beginnt, und ihre obere Hälfte bewirken nichts.
+    /// Weite entgegenstellt. Ist der Block `eigen`, auf dem der Strahl
+    /// beginnt, eine Bodenpflanze, bewirken er und seine obere Hälfte
+    /// nichts, auch wenn die selbst keine Bodenpflanze ist, wie die Blüte
+    /// der Sonnenblume.
     pub(super) fn wirkung(
         &mut self,
         b: [i32; 3],
@@ -534,12 +533,17 @@ impl ChunkCache<'_> {
         eigen: [i32; 3],
     ) -> Result<Wirkung> {
         let sprites = self.sprites;
-        let weite = sprites.kino().expect("Cinematic").look().sonne_weite;
+        let weite = f64::from(sprites.kino().expect("Cinematic").look().sonne_weite);
         let Some(form) = family.sonne.as_ref().filter(|form| !form.leer) else {
             return Ok(Wirkung::Nichts);
         };
-        if form.pflanze
-            && (b == eigen || (b == [eigen[0], eigen[1] + 1, eigen[2]] && family.obere_haelfte()))
+        let oben = b == [eigen[0], eigen[1] + 1, eigen[2]] && family.obere_haelfte();
+        if (b == eigen && form.pflanze)
+            || (oben
+                && self
+                    .family_at(eigen[0], eigen[1], eigen[2])?
+                    .and_then(|f| f.sonne.as_ref())
+                    .is_some_and(|f| f.pflanze))
         {
             return Ok(Wirkung::Nichts);
         }
@@ -548,9 +552,7 @@ impl ChunkCache<'_> {
         let Some(wahl) = family.wahl([wx, b[1], wz]) else {
             return Ok(Wirkung::Nichts);
         };
-        // Lava reicht unter derselben bis zur Kante, und ihre Flächen
-        // entfallen zu derselben und vor einer vollen Seite, wie
-        // `LiquidBlockRenderer.shouldRenderFace`.
+        // Lava wie im Spiel, siehe docs/renderer/cinematic.md, „Schatten“.
         let (mut voll, mut weg) = (false, 0u8);
         if let Some((art @ Fluid::Lava, _)) = family.fluid {
             let gleich =
@@ -573,7 +575,7 @@ impl ChunkCache<'_> {
                 }
             }
         }
-        let o = std::array::from_fn(|k| (p0[k] - f64::from(b[k])) as f32);
+        let o = std::array::from_fn(|k| p0[k] - f64::from(b[k]));
         Ok(
             if form.trifft(wahl, voll, weg, sprites.masken(), o, d, weite) {
                 if form.pflanze {

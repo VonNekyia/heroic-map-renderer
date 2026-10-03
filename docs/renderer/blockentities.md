@@ -220,7 +220,10 @@ ein Muster mit `asset_id` und `translation_key` (`BannerPattern.CODEC`),
 - `ChunkCache` sucht beim Zeichnen an der Stelle des Blocks die Familie
   mit seinen Daten. Für die Nachbarn zählt der Block wie ohne Daten: Muster
   und Scherben liegen auf den Flächen des Modells und verdecken nichts
-  anderes, das prüft ein `debug_assert`.
+  anderes, das prüft ein `debug_assert`. Ebenso bleibt seine Form für die
+  Sonne in Cinematic (`Sonnenform`: voller Würfel, leer, die Zellen, in die
+  er ragt), nach der die Bits des schnellen Gangs gehen, siehe
+  [Cinematic](cinematic.md), „Der schnelle Gang“.
 - Was das Lesen kostet:
   [2026-09-28, Blockentities](../messungen/2026-09-28-blockentities.md).
 

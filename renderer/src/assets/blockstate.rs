@@ -352,7 +352,9 @@ pub fn deckt(richtung: usize, von: u8, nach: u8) -> bool {
 pub const DUNKELT: u8 = 1;
 /// Nicht `isLightPermeable`, also `solidRender` und `getLightDampening` > 0:
 /// Hinter ihm zählt die Ecke einer Fläche nicht mehr, siehe
-/// `ChunkCache::ecken_at`.
+/// `ChunkCache::ecken_at`. In 26.3 ist das genau `solidRender`, denn dort
+/// ist `getLightDampening` 15; vor ihm nimmt eine Fläche im Innern die Mitte
+/// aus der eigenen Zelle.
 pub const SICHT: u8 = 2;
 /// `isCollisionShapeFullBlock`: Jede ebene Fläche des Modells liegt im
 /// Licht der Zelle davor, nicht nur die auf dem Rand des Blocks
@@ -1193,6 +1195,32 @@ mod tests {
         assert_eq!(bits("minecraft:oak_slab[type=top,waterlogged=false]"), 0);
         assert_eq!(bits("minecraft:oak_slab[type=bottom,waterlogged=false]"), 0);
         assert_eq!(bits("mod:stein"), 0);
+    }
+
+    /// [`SICHT`] ist in 26.3 genau `solidRender`: Die Form für die Deckung
+    /// ist ein voller Würfel, also auf allen sechs Seiten voll.
+    #[test]
+    fn sicht_ist_solid_render() {
+        let namen: std::collections::BTreeSet<&str> =
+            SCHATTEN.keys().chain(SEITEN.keys()).copied().collect();
+        let mut zustaende = 0;
+        for name in namen {
+            let definition = Definition::of(&format!("minecraft:{name}")).unwrap();
+            for i in 0..definition.states() {
+                let schatten = SCHATTEN.get(name).map_or(b'0', |z| z[i.min(z.len() - 1)]);
+                let seiten = SEITEN.get(name).map_or("00", |z| {
+                    let i = if z.len() == 2 { 0 } else { i };
+                    &z[2 * i..2 * i + 2]
+                });
+                assert_eq!(
+                    (schatten - b'0') & SICHT != 0,
+                    seiten == "3f",
+                    "{name}, Zustand {i}"
+                );
+                zustaende += 1;
+            }
+        }
+        assert!(zustaende > 3000, "{zustaende} Zustände");
     }
 
     /// Jede Zeile aus `seiten.txt` passt zu `blocks.txt`: zwei Hexziffern

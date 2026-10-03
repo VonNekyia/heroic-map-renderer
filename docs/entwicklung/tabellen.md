@@ -53,8 +53,10 @@ Blocklicht, siehe [Wasser und Licht](../renderer/wasser-und-licht.md),
 „Blocklicht“. `licht.txt` sagt, wie die Blöcke das Licht beim Ausbreiten
 aufhalten, siehe [Wasser und Licht](../renderer/wasser-und-licht.md).
 `schatten.txt` sagt, welche Blöcke weich abdunkeln, welche
-die Sicht nehmen und bei welchen jede ebene Fläche im Licht der Zelle davor
-liegt, siehe [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md).
+die Sicht nehmen, vor welchen also auch eine Fläche im Innern in der Mitte
+das Licht ihrer eigenen Zelle nimmt, und bei welchen jede ebene Fläche im
+Licht der Zelle davor liegt, siehe
+[Weiche Beleuchtung](../renderer/weiche-beleuchtung.md).
 Andere Werte als 0,2 und 1 gibt `getShadeBrightness` in 26.3 nicht zurück.
 `nachbarn.txt` sagt, welche Flächen zu gleichen Nachbarn entfallen, siehe
 [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Flächen zu

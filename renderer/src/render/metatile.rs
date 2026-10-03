@@ -17,8 +17,8 @@ use super::licht::{Ausbreitung, ChunkLicht, Eingabe};
 use super::projection::Umkehrung;
 use super::pyramid::LINEAR;
 use super::rasterizer::{
-    AO_FACES, Ecken, Geometrie, Light, VOLL_HELL, darken, ecken_faktor, over, pack, smooth_blend,
-    tinted, tinted_im_licht,
+    AO_FACES, AO_PLAETZE, Ecken, Geometrie, Light, VOLL_HELL, darken, ecken_faktor, over, pack,
+    smooth_blend, tinted, tinted_im_licht,
 };
 use super::sonne::texel_mitte;
 use super::sprites::{Family, Rows, TINT_BLOCK, TINT_WATER, mask_bit};
@@ -1337,7 +1337,7 @@ fn startpunkt(
 /// Siehe docs/renderer/cinematic.md, „Licht in HDR“.
 struct EckenLicht {
     block: [f32; 3],
-    ecken: Option<[[[f32; 3]; 4]; 3]>,
+    ecken: Option<[[[f32; 3]; 4]; AO_PLAETZE]>,
 }
 
 impl EckenLicht {
@@ -2838,7 +2838,8 @@ impl<'a> ChunkCache<'a> {
                 // (`ModelBlockRenderer.tesselateBlock`).
                 let weich = self.sprites.weich(id) && leuchten.stufe() == 0;
                 let innen = self.sprites.innen(id).then_some(family.doppelkiste);
-                self.ecken_at([x, y, z], weich, leuchten.stufe(), innen)?
+                let plaetze = self.sprites.plaetze(id);
+                self.ecken_at([x, y, z], weich, leuchten.stufe(), innen, plaetze)?
             }
             None => {
                 let mut eigen = self.lichtwert([x, y, z])?;
@@ -2860,24 +2861,32 @@ impl<'a> ChunkCache<'a> {
         Ok((licht, ecken, (hell != licht).then_some(hell)))
     }
 
-    /// Das Licht an den Ecken der drei Seiten eines Blocks je Kanal
-    /// ([`Ecken`]), wie das Spiel es in 26.2 setzt, und das Licht für Pixel
-    /// ohne Seite: mit `innen` das der eigenen Zelle, bei einer Doppelkiste
-    /// das hellere ihrer und der Zelle der anderen Hälfte, relativ zum
-    /// Block; ohne `innen` gibt es keine, und es ist das der ersten Seite. `weich`: je Ecke das Licht
-    /// der Zelle vor der Seite, ihrer zwei Nachbarn in dieser Schicht und
-    /// des Blocks in der Ecke, gemischt nach [`smooth_blend`], dazu die
-    /// weiche Beleuchtung aus denselben Blöcken
-    /// (`BlockModelLighter.prepareQuadAmbientOcclusion`); die Lightmap liest
-    /// das Spiel dort linear gefiltert, `Lightmap::linear`. Der Block in der
-    /// Ecke zählt nur, wenn hinter einem der beiden Nachbarn nichts die
-    /// Sicht nimmt, sonst gilt der erste Nachbar aus `AdjacencyInfo.corners`.
-    /// Sonst, wie `prepareQuadFlat` für eine Seite mit `cullface`, das Licht
-    /// der Zelle vor der Seite mit dem eigenen Blocklicht `stufe`. Eine
-    /// Seite, die ihr Nachbar deckt, ist nicht zu sehen und nimmt die Werte
-    /// einer anderen. Haben alle Ecken dasselbe Licht wie die Pixel ohne
-    /// Seite, gilt es für das ganze Sprite, ohne Ecken. Für Cinematic stehen
-    /// statt der Helligkeit die Kanäle aus [`kino_kanaele`].
+    /// Das Licht an den Ecken der Plätze eines Blocks je Kanal ([`Ecken`]),
+    /// wie das Spiel es in 26.2 setzt, und das Licht für Pixel ohne Platz:
+    /// mit `innen` das der eigenen Zelle, bei einer Doppelkiste das hellere
+    /// ihrer und der Zelle der anderen Hälfte, relativ zum Block; ohne
+    /// `innen` gibt es keine, und es ist das der ersten Seite.
+    /// Gerechnet werden nur die Plätze aus `plaetze`.
+    /// - **Auf dem Rand,** Platz 0 bis 2, mit `weich`: je Ecke das Licht der
+    ///   Zelle vor der Seite, ihrer zwei Nachbarn in dieser Schicht und des
+    ///   Blocks in der Ecke, gemischt nach [`smooth_blend`], dazu die weiche
+    ///   Beleuchtung aus denselben Blöcken
+    ///   (`BlockModelLighter.prepareQuadAmbientOcclusion`); die Lightmap liest
+    ///   das Spiel dort linear gefiltert, `Lightmap::linear`. Der Block in
+    ///   der Ecke zählt nur, wenn hinter einem der beiden Nachbarn nichts
+    ///   die Sicht nimmt, sonst gilt der erste Nachbar aus
+    ///   `AdjacencyInfo.corners`. Sonst, wie `prepareQuadFlat` für eine Seite
+    ///   mit `cullface`, das Licht der Zelle vor der Seite mit dem eigenen
+    ///   Blocklicht `stufe`. Eine Seite, die ihr Nachbar deckt, ist nicht zu
+    ///   sehen und nimmt die Werte einer anderen.
+    /// - **Im Innern,** Platz 3 bis 5: dasselbe ab der
+    ///   eigenen Zelle, der Schatten der Mitte vom Block selbst, ihr Licht
+    ///   aus der Zelle vor der Seite, ausser deren Block ist
+    ///   `isSolidRender`; ohne `weich` das Licht der eigenen Zelle.
+    ///
+    /// Haben alle Ecken dasselbe Licht wie die Pixel ohne Platz, gilt es für
+    /// das ganze Sprite, ohne Ecken. Für Cinematic stehen statt der
+    /// Helligkeit die Kanäle aus [`kino_kanaele`].
     /// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
     fn ecken_at(
         &mut self,
@@ -2885,6 +2894,7 @@ impl<'a> ChunkCache<'a> {
         weich: bool,
         stufe: u8,
         innen: Option<Option<[i32; 3]>>,
+        plaetze: u8,
     ) -> Result<([u32; 3], Option<Ecken>)> {
         let lightmap = self.sprites.lightmap();
         let kino = self.sprites.kino().is_some();
@@ -2907,72 +2917,94 @@ impl<'a> ChunkCache<'a> {
             _ => VOLL_HELL,
         };
         let bei = |p: [i32; 3], o: [i32; 3]| [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
-        let mut seiten: [Option<[[u32; 3]; 4]>; 3] = [None; 3];
-        for (seite, s) in self.ao_seiten.iter().enumerate() {
+        // Die vier Werte einer Seite ab der Zelle `start`: auf dem Rand der
+        // vor ihr, im Innern der eigenen. Den Schatten der Mitte gibt der
+        // Block in `start`, ihr Licht kommt aus `mitte`.
+        let weich_ab = |s: &AoSeite, start: [i32; 3], mitte: u32| {
             let (d, nachbarn) = (s.richtung, s.nachbarn);
-            let vor = d;
-            if bit(fest, vor) {
-                continue;
+            let mut dunkel = [false; 4];
+            let mut frei = [false; 4];
+            let mut nah = [0; 4];
+            for (k, &n) in nachbarn.iter().enumerate() {
+                dunkel[k] = bit(dunkelt, bei(start, n));
+                frei[k] = !bit(sicht, bei(bei(start, n), d));
+                nah[k] = licht(bei(start, n));
             }
-            seiten[seite] = Some(if weich {
-                let mut dunkel = [false; 4];
-                let mut frei = [false; 4];
-                let mut nah = [0; 4];
-                for (k, &n) in nachbarn.iter().enumerate() {
-                    dunkel[k] = bit(dunkelt, bei(vor, n));
-                    frei[k] = !bit(sicht, bei(bei(vor, n), d));
-                    nah[k] = licht(bei(vor, n));
+            let ecke = |a: usize, b: usize| {
+                if frei[a] || frei[b] {
+                    let q = bei(bei(start, nachbarn[a]), nachbarn[b]);
+                    (bit(dunkelt, q), licht(q))
+                } else {
+                    (dunkel[0], nah[0])
                 }
-                let ecke = |a: usize, b: usize| {
-                    if frei[a] || frei[b] {
-                        let q = bei(bei(vor, nachbarn[a]), nachbarn[b]);
-                        (bit(dunkelt, q), licht(q))
-                    } else {
-                        (dunkel[0], nah[0])
-                    }
+            };
+            let (e03, e02, e12, e13) = (ecke(0, 3), ecke(0, 2), ecke(1, 2), ecke(1, 3));
+            let davor = bit(dunkelt, start);
+            let je_ecke = [
+                (
+                    [dunkel[3], dunkel[0], e03.0, davor],
+                    [nah[3], nah[0], e03.1],
+                ),
+                (
+                    [dunkel[2], dunkel[0], e02.0, davor],
+                    [nah[2], nah[0], e02.1],
+                ),
+                (
+                    [dunkel[2], dunkel[1], e12.0, davor],
+                    [nah[2], nah[1], e12.1],
+                ),
+                (
+                    [dunkel[3], dunkel[1], e13.0, davor],
+                    [nah[3], nah[1], e13.1],
+                ),
+            ];
+            let mut werte = [[0; 3]; 4];
+            for ((schatten, [a0, a1, a2]), &ziel) in je_ecke.iter().zip(&s.remap) {
+                let ao = AO_WERTE[schatten.iter().filter(|&&d| d).count()];
+                let l = smooth_blend(*a0, *a1, *a2, mitte);
+                werte[ziel] = match kino {
+                    true => kino_kanaele(l, ao),
+                    false => lightmap.linear(l).map(|l| (l * ao + 127) / 255),
                 };
-                let (e03, e02, e12, e13) = (ecke(0, 3), ecke(0, 2), ecke(1, 2), ecke(1, 3));
-                let (davor, mitte) = (bit(dunkelt, vor), licht(vor));
-                let je_ecke = [
-                    (
-                        [dunkel[3], dunkel[0], e03.0, davor],
-                        [nah[3], nah[0], e03.1],
-                    ),
-                    (
-                        [dunkel[2], dunkel[0], e02.0, davor],
-                        [nah[2], nah[0], e02.1],
-                    ),
-                    (
-                        [dunkel[2], dunkel[1], e12.0, davor],
-                        [nah[2], nah[1], e12.1],
-                    ),
-                    (
-                        [dunkel[3], dunkel[1], e13.0, davor],
-                        [nah[3], nah[1], e13.1],
-                    ),
-                ];
-                let mut werte = [[0; 3]; 4];
-                for ((schatten, [a0, a1, a2]), &ziel) in je_ecke.iter().zip(&s.remap) {
-                    let ao = AO_WERTE[schatten.iter().filter(|&&d| d).count()];
-                    let l = smooth_blend(*a0, *a1, *a2, mitte);
-                    werte[ziel] = match kino {
-                        true => kino_kanaele(l, ao),
-                        false => lightmap.linear(l).map(|l| (l * ao + 127) / 255),
+            }
+            werte
+        };
+        let eigen_licht = ganz(licht([0; 3]));
+        let mut seiten: [Option<[[u32; 3]; 4]>; AO_PLAETZE] = [None; AO_PLAETZE];
+        for (seite, s) in self.ao_seiten.iter().enumerate() {
+            let d = s.richtung;
+            if plaetze & 1 << seite != 0 && !bit(fest, d) {
+                seiten[seite] = Some(if weich {
+                    weich_ab(s, d, licht(d))
+                } else {
+                    let Light { sky, block } = Light::from_packed(roh[stelle(d)]);
+                    let eigen = Light {
+                        sky,
+                        block: block.max(stufe),
                     };
-                }
-                werte
-            } else {
-                let Light { sky, block } = Light::from_packed(roh[stelle(vor)]);
-                let eigen = Light {
-                    sky,
-                    block: block.max(stufe),
-                };
-                [ganz(eigen.packed()); 4]
-            });
+                    [ganz(eigen.packed()); 4]
+                });
+            }
+            // Im Innern: ab der eigenen Zelle; das Licht der Mitte aus der
+            // Zelle davor, ausser ihr Block ist `isSolidRender`, in 26.3
+            // genau [`SICHT`]. Flach im Licht der eigenen Zelle
+            // (`prepareQuadFlat`).
+            if plaetze & 1 << (seite + 3) != 0 {
+                seiten[seite + 3] = Some(if weich {
+                    let mitte = if bit(sicht, d) {
+                        licht([0; 3])
+                    } else {
+                        licht(d)
+                    };
+                    weich_ab(s, [0; 3], mitte)
+                } else {
+                    [eigen_licht; 4]
+                });
+            }
         }
-        let eigen = innen.map(|kiste| {
-            let eigen = kiste.map_or(licht([0; 3]), |q| hellstes(licht([0; 3]), licht(q)));
-            ganz(eigen)
+        let eigen = innen.map(|kiste| match kiste {
+            None => eigen_licht,
+            Some(q) => ganz(hellstes(licht([0; 3]), licht(q))),
         });
         let Some(erste) = seiten.iter().flatten().flatten().next().copied() else {
             return Ok((eigen.unwrap_or([255; 3]), None));
@@ -2981,7 +3013,7 @@ impl<'a> ChunkCache<'a> {
         if seiten.iter().flatten().flatten().all(|&w| w == rest) {
             return Ok((rest, None));
         }
-        let mut ecken = [[0; 3]; 3];
+        let mut ecken = [[0; AO_PLAETZE]; 3];
         for (seite, werte) in seiten.iter().enumerate() {
             let werte = werte.unwrap_or([erste; 4]);
             for (c, kanal) in ecken.iter_mut().enumerate() {
@@ -3208,7 +3240,11 @@ mod tests {
             Kamera::ZWEI_ZU_EINS,
         );
         let ecke = |a: u32, b: u32| a | a << 8 | b << 16 | b << 24;
-        let ecken: Ecken = [[ecke(240, 208); 3], [0; 3], [ecke(255, 153); 3]];
+        let ecken: Ecken = [
+            [ecke(240, 208); AO_PLAETZE],
+            [0; AO_PLAETZE],
+            [ecke(255, 153); AO_PLAETZE],
+        ];
         let licht = EckenLicht::new(&kino, [1.0; 3], [240, 0, 255], Some(ecken));
         // Seite 1, je zur Hälfte Ecke 0 und Ecke 2.
         let karte = [1 << 24 | 128 | 127 << 16, 0];

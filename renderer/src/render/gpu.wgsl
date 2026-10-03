@@ -19,17 +19,9 @@ struct Instance {
     // liegt im Licht `water_light`. Hinter den Pixeln steht erst die
     // AO-Karte, dann die Tönungskarte, zwei Wörter je Pixel.
     light: u32,
-    // Das Licht an den Ecken der Seiten oben, Süden und Osten, je Kanal ein
-    // Wort je Seite, ein Byte je Ecke: `rasterizer::Ecken`.
-    r_up: u32,
-    r_south: u32,
-    r_east: u32,
-    g_up: u32,
-    g_south: u32,
-    g_east: u32,
-    b_up: u32,
-    b_south: u32,
-    b_east: u32,
+    // Das Licht an den Ecken der sechs Plätze der AO-Karte, je Kanal ein
+    // Wort je Platz, ein Byte je Ecke: `rasterizer::Ecken`.
+    ecken: array<u32, 18>,
     // Die Farben des Blocks für die Tönungskarte, Block und Wasser, gepackt
     // wie sie: `ChunkCache::tints_at`.
     tint_block: u32,
@@ -84,19 +76,8 @@ fn tinted_im_licht(s: vec4<u32>, block: u32, water: u32, inst: Instance, f: vec3
     return vec4<u32>(min((rest + nass + 32512u) / 65025u, vec3<u32>(255u)), s.w);
 }
 
-// Die Ecken der Seite `face` in einem Kanal.
-fn seite(face: u32, up: u32, south: u32, east: u32) -> u32 {
-    if (face == 2u) {
-        return south;
-    }
-    if (face == 3u) {
-        return east;
-    }
-    return up;
-}
-
 // Die Helligkeit eines Kanals an einem Pixel aus seinem Eintrag der
-// AO-Karte und den Ecken `c` seiner Seite — wie `rasterizer::ecken_faktor`.
+// AO-Karte und den Ecken `c` seines Platzes — wie `rasterizer::ecken_faktor`.
 fn ecken_faktor(word: u32, c: u32) -> u32 {
     let w0 = word & 255u;
     let w1 = (word >> 8u) & 255u;
@@ -131,7 +112,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wg
     let count = lists[cell + 1u];
     var d = vec4<u32>(0u);
     for (var i = 0u; i < count; i++) {
-        let inst = instances[lists[start + i]];
+        let n = lists[start + i];
+        let inst = instances[n];
         let sx = i32(px) - inst.x;
         let sy = i32(py) - inst.y;
         let w = inst.size & 0xffffu;
@@ -151,12 +133,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wg
         var f = vec3<u32>(inst.light & 255u, (inst.light >> 8u) & 255u, (inst.light >> 16u) & 255u);
         if ((flags & 1u) != 0u) {
             let word = sprites[inst.sprite + w * h + i];
-            let face = word >> 24u;
-            if (face != 0u) {
+            let platz = word >> 24u;
+            if (platz != 0u) {
                 f = vec3<u32>(
-                    ecken_faktor(word, seite(face, inst.r_up, inst.r_south, inst.r_east)),
-                    ecken_faktor(word, seite(face, inst.g_up, inst.g_south, inst.g_east)),
-                    ecken_faktor(word, seite(face, inst.b_up, inst.b_south, inst.b_east)),
+                    ecken_faktor(word, instances[n].ecken[platz - 1u]),
+                    ecken_faktor(word, instances[n].ecken[platz + 5u]),
+                    ecken_faktor(word, instances[n].ecken[platz + 11u]),
                 );
             }
         }

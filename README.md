@@ -74,7 +74,7 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet
   </tr>
 </table>
 
-Alle Bilder zeigen die Testwelt, Stand `0e69b6d`. Ausschnitte und Befehle:
+Alle Bilder zeigen die Testwelt, Stand `39c86fb`. Ausschnitte und Befehle:
 Skill [`doku-bilder-rendern`](skills/doku-bilder-rendern/SKILL.md).
 
 ## Schnellstart
@@ -120,8 +120,7 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 - Cinematic mit `--cinematic`: dieselbe Karte im Licht des Spiels in HDR,
   mit Sonne und Schatten, Wasser, Leuchten, Wärme nach Biom und Bloom,
   siehe [Cinematic](docs/renderer/cinematic.md).
-- Noch nicht: Text auf Schildern und Gegenstände in Blöcken, weiche
-  Beleuchtung für Flächen im Innern eines Blocks, etwa auf Schneedecken.
+- Noch nicht: Text auf Schildern und Gegenstände in Blöcken.
 
 ## Doku
 

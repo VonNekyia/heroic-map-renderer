@@ -53,6 +53,30 @@ ihre Seite des Einheitswürfels, dreht sich mit der Variante mit und wird
 auf der Zielseite wieder zur Texturkoordinate. 143 Vanilla-Blockstates
 setzen `uvlock`, fast alle Treppen, Zäune und Falltüren darunter.
 
+## Schattierung
+
+Nach welcher Seite eine Fläche schattiert wird, steht am Element
+(`Element::shade` in
+[`renderer/src/assets/model.rs`](../../renderer/src/assets/model.rs)):
+
+- **Ab 26.3** `shade_direction_override`, der Name einer Richtung wie
+  `"north"` (`CuboidModelElement$Deserializer.getShadeDirectionOverride`).
+  Fehlt es, gilt die Seite der Fläche. Ist es kein Text oder keine
+  Richtung, ist das Modell kaputt.
+- **Bis 26.2** `shade`: `false` heisst wie die Oberseite. 26.3 liest es nicht
+  mehr; der Renderer liest es für Packs aus 26.2, siehe
+  [0059](../entscheidungen/0059-welten-aus-26-2-und-26-3.md). Stehen beide
+  da, gilt `shade_direction_override`.
+- **Nicht gedreht:** Die Richtung gilt in der Welt. Die Drehung der
+  Variante dreht sie nicht mit (`FaceBakery.bakeQuad` reicht sie
+  unverändert in `MaterialInfo`).
+- **Neu in 26.3:** `"north"` an den Stängeln der Blumenbeete und `"down"`
+  an einem inneren Element der dünnsten Schneeschicht. Aus `shade: false`
+  wurde `"up"`, das Bild bleibt gleich.
+- Wie hell eine Seite wird, steht in [Dimensionstypen](dimensionstypen.md),
+  „Schattierung nach Richtung“. Getestet: `elemente_wie_im_client` in
+  `model.rs`, `shade_nennt_die_seite` in `rasterizer.rs`.
+
 ## Drehung der Varianten
 
 Die Blockstate-Datei dreht ein Modell um Vielfache von 90 Grad um x, y und

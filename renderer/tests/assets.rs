@@ -62,7 +62,10 @@ fn erbt_elemente_und_loest_texturen_auf() {
     assert_eq!(model.elements[0].from, [0.0, 0.0, 0.0]);
     assert_eq!(model.elements[0].to, [16.0, 16.0, 16.0]);
     assert_eq!(model.elements[0].faces.len(), 6);
-    assert!(model.elements[0].shade, "shade ist ohne Angabe wahr");
+    assert_eq!(
+        model.elements[0].shade, None,
+        "ohne Angabe nach der eigenen Seite"
+    );
 
     let (side, face) = &model.elements[0].faces[0];
     assert_eq!(*side, Face::Down, "Flächen sind nach Seite sortiert");

@@ -104,7 +104,12 @@ pub struct Element {
     pub from: [f32; 3],
     pub to: [f32; 3],
     pub rotation: Option<Rotation>,
-    pub shade: bool,
+    /// Nach welcher Seite der Welt die Fläche schattiert wird statt nach
+    /// ihrer eigenen: `shade_direction_override` ab 26.3, oben für
+    /// `shade: false` bis 26.2. Die Drehung der Variante dreht sie nicht mit
+    /// (`FaceBakery.bakeQuad`).
+    /// Siehe docs/renderer/modelle-und-texturen.md, „Schattierung“.
+    pub shade: Option<Face>,
     /// Höchstens sechs Einträge, nach Seite sortiert für stabile Ausgabe.
     pub faces: Vec<(Face, ElementFace)>,
 }
@@ -264,7 +269,7 @@ pub(super) struct ElementJson {
     from: [f32; 3],
     to: [f32; 3],
     rotation: Option<Rotation>,
-    shade: bool,
+    shade: Option<Face>,
     /// Eine Seite `null` lässt Gson durch.
     faces: Vec<(Face, Option<FaceJson>)>,
 }
@@ -319,7 +324,7 @@ impl ModelFile {
                 from: [0.0; 3],
                 to: [16.0; 3],
                 rotation: None,
-                shade: true,
+                shade: None,
                 faces: faces.into(),
             })]),
             ambient_occlusion: None,
@@ -410,10 +415,22 @@ fn parse_element(value: &Value) -> Result<Option<ElementJson>> {
             Ok((side, face))
         })
         .collect::<Result<_>>()?;
-    let shade = match element.get("shade") {
-        None => true,
-        Some(Value::Bool(shade)) => *shade,
-        Some(_) => bail!("shade ist kein Wahrheitswert"),
+    // Ab 26.3 `shade_direction_override` wie
+    // `CuboidModelElement$Deserializer.getShadeDirectionOverride`: ein Text
+    // mit dem Namen einer Richtung, sonst scheitert das Modell. Packs für
+    // 26.2 schreiben `shade`; 26.3 liest es nicht mehr.
+    let shade = match (
+        element.get("shade_direction_override"),
+        element.get("shade"),
+    ) {
+        (Some(Value::String(name)), _) => Some(
+            Face::parse(name)
+                .ok_or_else(|| anyhow!("shade_direction_override {name} ist keine Richtung"))?,
+        ),
+        (Some(_), _) => bail!("shade_direction_override ist kein Text"),
+        (None, None | Some(Value::Bool(true))) => None,
+        (None, Some(Value::Bool(false))) => Some(Face::Up),
+        (None, Some(_)) => bail!("shade ist kein Wahrheitswert"),
     };
     if let Some(value) = element.get("light_emission") {
         let light = match value {
@@ -851,7 +868,24 @@ mod tests {
                 r#"{{"from": [0, 0, 0], "to": [16, 16, 16], {seiten}{extra}}}"#
             ))
         };
-        assert!(!kiste(r#", "shade": false"#).unwrap().unwrap().shade);
+        let shade = |extra: &str| kiste(extra).unwrap().unwrap().shade;
+        assert_eq!(shade(""), None);
+        assert_eq!(shade(r#", "shade": true"#), None);
+        assert_eq!(shade(r#", "shade": false"#), Some(Face::Up));
+        // 26.3: die Stängel der Blumenbeete, ein inneres Element der
+        // dünnsten Schneeschicht.
+        assert_eq!(
+            shade(r#", "shade_direction_override": "north""#),
+            Some(Face::North)
+        );
+        assert_eq!(
+            shade(r#", "shade_direction_override": "down""#),
+            Some(Face::Down)
+        );
+        assert_eq!(
+            shade(r#", "shade_direction_override": "down", "shade": false"#),
+            Some(Face::Down)
+        );
         assert!(kiste(r#", "light_emission": 1.5"#).is_ok());
         // `firefly_bush` und `open_eyeblossom` leuchten mit 15.
         assert!(kiste(r#", "light_emission": 15"#).is_ok());
@@ -876,6 +910,10 @@ mod tests {
             [
                 r#", "shade": "true""#,
                 r#", "shade": null"#,
+                r#", "shade_direction_override": "North""#,
+                r#", "shade_direction_override": "oben""#,
+                r#", "shade_direction_override": 1"#,
+                r#", "shade_direction_override": null"#,
                 r#", "light_emission": 16"#,
                 r#", "light_emission": "3""#,
                 r#", "rotation": null"#,

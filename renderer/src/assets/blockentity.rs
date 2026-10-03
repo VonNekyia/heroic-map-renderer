@@ -291,7 +291,7 @@ fn zeichne(model: &mut BakedModel, z: &Zeichnung, texture: TextureId, farbe: [u8
             uvs: flaeche.map(|[_, _, _, u, v]| [u, v]),
             texture,
             tint_index: None,
-            shade: true,
+            shade: None,
             force_translucent: false,
             fluid: None,
             entity,

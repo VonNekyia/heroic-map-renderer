@@ -406,12 +406,18 @@ pub struct Geometrie {
     /// Die Normale der Fläche im Blick, normiert, auf der Seite, die die
     /// Kamera sieht.
     pub normale: [f32; 3],
-    /// Die Fläche wird nach ihrer Richtung schattiert (`shade`); ohne
-    /// bekommt sie in Cinematic das Licht einer Fläche nach oben.
-    pub shade: bool,
+    /// Die Normale im Blick, nach der die Fläche statt ihrer eigenen Licht
+    /// bekommt ([`Quad::shade`], etwa nach oben bei `shade: false`).
+    ///
+    /// [`Quad::shade`]: crate::assets::Quad::shade
+    pub shade: Option<[f32; 3]>,
     /// Ist das vorderste Fragment Wasser, sein Alpha, sonst 0.
     pub wasser: f32,
 }
+
+/// Je Rang einer Fläche für Cinematic: ihre Normale im Blick, die Normale
+/// aus `shade` und ob sie Wasser ist, siehe [`Geometrie`].
+type Normalen = ([f32; 3], Option<[f32; 3]>, bool);
 
 /// Ein Pixel in den Farben seines Blocks: je Kanal der Rest aus dem Bild
 /// und die beiden Anteile der Tönungskarte `[block, water]` mal der Farbe
@@ -496,7 +502,7 @@ pub struct Raster {
     weich: bool,
     /// Für Cinematic je Rang einer Fläche ihre Normale, `shade` und ob sie
     /// Wasser ist, siehe [`Geometrie`].
-    normalen: Option<Vec<([f32; 3], bool, bool)>>,
+    normalen: Option<Vec<Normalen>>,
 }
 
 impl Raster {
@@ -649,7 +655,11 @@ pub fn rastern(
             .iter()
             .map(|q| {
                 let wasser = matches!(q.quad.fluid, Some((fluid::Fluid::Water, _)));
-                (q.normale, q.quad.shade, wasser)
+                let shade = q
+                    .quad
+                    .shade
+                    .map(|seite| richtung.normale_in_den_blick(seite.versatz().map(|c| c as f32)));
+                (q.normale, shade, wasser)
             })
             .collect()
     });
@@ -971,8 +981,9 @@ fn entity_light(n: [f32; 3], licht: CardinalLight) -> f32 {
 }
 
 /// Helligkeit nach der Richtung, in die die Fläche am stärksten zeigt, in
-/// der Schattierung der Dimension (`licht`); ohne `shade` wie die
-/// Oberseite. Eine Fläche aus einem Blockentity-Modell liegt im Licht der
+/// der Schattierung der Dimension (`licht`); mit `shade` wie die Seite der
+/// Welt, die es nennt (`BlockModelLighter.getDirectionalBrightness`), bei
+/// `shade: false` also wie die Oberseite. Eine Fläche aus einem Blockentity-Modell liegt im Licht der
 /// Entities, von hinten mit `PER_FACE_LIGHTING` im Licht der umgekehrten
 /// Normalen. Die Seiten einer Flüssigkeit nehmen die Oberseite mal Norden
 /// oder Westen.
@@ -990,8 +1001,8 @@ fn shade_factor(quad: &Quad, rueckseite: bool, licht: CardinalLight) -> f32 {
             Face::West | Face::East => licht.face(Face::Up) * licht.face(Face::West),
         };
     }
-    if !quad.shade {
-        return licht.face(Face::Up);
+    if let Some(seite) = quad.shade {
+        return licht.face(seite);
     }
     let n = quad.normal();
     let [ax, ay, az] = [n[0].abs(), n[1].abs(), n[2].abs()];
@@ -1247,7 +1258,7 @@ impl Canvas {
     fn mischen(
         &self,
         ao: bool,
-        normalen: Option<&[([f32; 3], bool, bool)]>,
+        normalen: Option<&[Normalen]>,
         nimm: impl Fn(&Fragment) -> bool,
     ) -> (RgbaImage, Option<Vec<u32>>, Option<Vec<Geometrie>>) {
         let pixel = (self.width * self.height) as usize;
@@ -1693,7 +1704,7 @@ mod tests {
                 [1.0, 1.0, 1.0],
                 [1.0, 1.0, 0.0],
             ],
-            true,
+            None,
         );
         deckel.texture = durchsichtig;
         let mit_deckel = BakedModel {
@@ -1717,7 +1728,7 @@ mod tests {
             [1.0, 1.0, 0.0],
             [0.0, 1.0, 0.0],
         ];
-        assert_eq!(ao_face(&quad(schraeg, true), true), None);
+        assert_eq!(ao_face(&quad(schraeg, None), true), None);
     }
 
     /// Mit gleichem Licht für beide Anteile gleicht [`tinted_im_licht`] dem
@@ -1954,7 +1965,7 @@ mod tests {
                 [1.0, 1.0, 1.0],
                 [0.0, 1.0, 1.0],
             ],
-            true,
+            None,
         );
         schmal.uvs = [[0.5, 0.0], [0.5, 0.0], [0.5, 1.0], [0.5, 1.0]];
         let model = BakedModel {
@@ -1991,7 +2002,7 @@ mod tests {
                 [1.0, 1.0, 1.0],
                 [1.0, 1.0, 0.0],
             ],
-            true,
+            None,
         );
         anpassen(&mut oben);
         let model = BakedModel {
@@ -2065,7 +2076,7 @@ mod tests {
                     [1.0, 1.0, 1.0],
                     [1.0, 1.0, 0.0],
                 ],
-                true,
+                None,
             );
             oben.texture = textur;
             let model = BakedModel {
@@ -2104,7 +2115,7 @@ mod tests {
                     [1.0, 1.0, 1.0],
                     [1.0, 1.0, 0.0],
                 ],
-                true,
+                None,
             );
             oben.texture = textur;
             oben.force_translucent = true;
@@ -2240,7 +2251,7 @@ mod tests {
                 [1.0, 0.0, 1.0],
                 [0.0, 0.0, 1.0],
             ],
-            true,
+            None,
         )
     }
 
@@ -2326,7 +2337,7 @@ mod tests {
                 [1.0, 1.0, 1.0],
                 [1.0, 1.0, 0.0],
             ],
-            true,
+            None,
         );
         assert_eq!(
             seite(&aus_entity(oben, schicht(true, true)), &p),
@@ -2360,7 +2371,7 @@ mod tests {
                         [1.0, 1.0, 1.0],
                         [1.0, 1.0, 0.0],
                     ],
-                    true,
+                    None,
                 ),
                 schicht,
             );
@@ -2394,7 +2405,7 @@ mod tests {
         );
     }
 
-    fn quad(corners: [[f32; 3]; 4], shade: bool) -> Quad {
+    fn quad(corners: [[f32; 3]; 4], shade: Option<Face>) -> Quad {
         Quad {
             corners,
             uvs: [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
@@ -2463,7 +2474,7 @@ mod tests {
                 [1.0, 1.0, 1.0],
                 [1.0, 1.0, 0.0],
             ],
-            true,
+            None,
         );
         let (oberwelt, nether) = (CardinalLight::Default, CardinalLight::Nether);
         assert_eq!(shade_factor(&oben, false, oberwelt), 1.0);
@@ -2476,7 +2487,7 @@ mod tests {
                 [1.0, 0.0, 1.0],
                 [0.0, 0.0, 1.0],
             ],
-            true,
+            None,
         );
         assert_eq!(shade_factor(&unten, false, oberwelt), 0.5);
         assert_eq!(shade_factor(&unten, false, nether), 0.9);
@@ -2491,7 +2502,7 @@ mod tests {
                 [1.0, 1.0, 0.0],
                 [0.0, 1.0, 0.0],
             ],
-            true,
+            None,
         );
         for licht in [CardinalLight::Default, CardinalLight::Nether] {
             assert_eq!(shade_factor(&nord, false, licht), 0.8);
@@ -2504,27 +2515,52 @@ mod tests {
                 [1.0, 1.0, 0.0],
                 [1.0, 1.0, 1.0],
             ],
-            true,
+            None,
         );
         for licht in [CardinalLight::Default, CardinalLight::Nether] {
             assert_eq!(shade_factor(&ost, false, licht), 0.6);
         }
     }
 
+    /// Mit `shade` gilt die Seite der Welt, die es nennt, nicht die der
+    /// Fläche (`BlockModelLighter.getDirectionalBrightness`): `shade: false`
+    /// heisst oben und bleibt hell, die Stängel der Blumenbeete aus 26.3
+    /// liegen nach Norden.
     #[test]
-    fn shade_false_bleibt_hell() {
-        let nord = quad(
-            [
-                [0.0, 0.0, 0.0],
-                [1.0, 0.0, 0.0],
-                [1.0, 1.0, 0.0],
-                [0.0, 1.0, 0.0],
-            ],
-            false,
+    fn shade_nennt_die_seite() {
+        let nord = |shade| {
+            quad(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                ],
+                shade,
+            )
+        };
+        assert_eq!(
+            shade_factor(&nord(Some(Face::Up)), false, CardinalLight::Default),
+            1.0
         );
-        assert_eq!(shade_factor(&nord, false, CardinalLight::Default), 1.0);
-        // `BlockModelLighter.prepareQuadFlat` nimmt dann `up()`.
-        assert_eq!(shade_factor(&nord, false, CardinalLight::Nether), 0.9);
+        assert_eq!(
+            shade_factor(&nord(Some(Face::Up)), false, CardinalLight::Nether),
+            0.9
+        );
+        assert_eq!(
+            shade_factor(&nord(Some(Face::Down)), false, CardinalLight::Default),
+            0.5
+        );
+        let oben = quad(
+            [
+                [0.0, 1.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [1.0, 1.0, 1.0],
+                [0.0, 1.0, 1.0],
+            ],
+            Some(Face::North),
+        );
+        assert_eq!(shade_factor(&oben, false, CardinalLight::Default), 0.8);
     }
 
     /// `FluidRenderer` schattiert die Oberseite mit `up()`, die Unterseite
@@ -2541,7 +2577,7 @@ mod tests {
                     [1.0, 1.0, 0.0],
                     [0.0, 1.0, 0.0],
                 ],
-                true,
+                None,
             )
         };
         let (oberwelt, nether) = (CardinalLight::Default, CardinalLight::Nether);
@@ -2594,7 +2630,7 @@ mod tests {
                     [1.0, 1.0, 1.0],
                     [1.0, 1.0, 0.0],
                 ],
-                true,
+                None,
             ),
             quad(
                 [
@@ -2603,7 +2639,7 @@ mod tests {
                     [1.0, 1.0, 1.0],
                     [0.0, 1.0, 1.0],
                 ],
-                true,
+                None,
             ),
             quad(
                 [
@@ -2612,7 +2648,7 @@ mod tests {
                     [1.0, 1.0, 0.0],
                     [1.0, 1.0, 1.0],
                 ],
-                true,
+                None,
             ),
         ];
 
@@ -2647,9 +2683,10 @@ mod tests {
             |from, to| crate::assets::baker::box_quads(from, to, Textures::MISSING, None, None);
         let model = BakedModel {
             quads: kasten([0.0; 3], [16.0, 8.0, 16.0])
-                .chain(
-                    kasten([0.0, 8.0, 0.0], [8.0, 16.0, 8.0]).map(|q| Quad { shade: false, ..q }),
-                )
+                .chain(kasten([0.0, 8.0, 0.0], [8.0, 16.0, 8.0]).map(|q| Quad {
+                    shade: Some(Face::Up),
+                    ..q
+                }))
                 .collect(),
             ambient_occlusion: true,
         };
@@ -2686,7 +2723,10 @@ mod tests {
         let (g, (sx, sy)) = am([0.4, 0.6, 0.5]);
         let x = sx / h + 0.5;
         let y = ((x + 0.5) * a - sy) / b;
-        assert_eq!((g.normale, g.shade), ([0.0, 0.0, 1.0], false));
+        assert_eq!(
+            (g.normale, g.shade),
+            ([0.0, 0.0, 1.0], Some([0.0, 1.0, 0.0]))
+        );
         assert!(
             (g.tiefe - projection.depth([x, y, 0.5])).abs() < 1e-4,
             "{g:?}"
@@ -2694,7 +2734,7 @@ mod tests {
         // Auf der Oberseite der Platte, y = 0,5.
         let (g, (sx, sy)) = am([0.75, 0.5, 0.75]);
         let (u, v) = (sx / h, (sy + 0.5 * b) / a);
-        assert_eq!((g.normale, g.shade), ([0.0, 1.0, 0.0], true));
+        assert_eq!((g.normale, g.shade), ([0.0, 1.0, 0.0], None));
         let soll = projection.depth([(v + u) / 2.0, 0.5, (v - u) / 2.0]);
         assert!((g.tiefe - soll).abs() < 1e-4, "{g:?}");
     }

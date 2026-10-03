@@ -16,7 +16,12 @@ pub struct Quad {
     pub uvs: [[f32; 2]; 4],
     pub texture: TextureId,
     pub tint_index: Option<u32>,
-    pub shade: bool,
+    /// Nach welcher Seite der Welt die Fläche schattiert wird statt nach
+    /// ihrer eigenen: `shade_direction_override` ab 26.3, oben für
+    /// `shade: false` bis 26.2. Die Drehung der Variante dreht sie nicht mit
+    /// (`FaceBakery.bakeQuad`).
+    /// Siehe [`Element::shade`](super::model::Element::shade).
+    pub shade: Option<Face>,
     pub force_translucent: bool,
     /// Gesetzt für die Flächen einer Flüssigkeit, mit ihrer Richtung: die
     /// Fläche entfällt, wenn der Nachbar dort dieselbe Flüssigkeit führt.
@@ -162,7 +167,7 @@ pub fn box_quads(
             uvs: ecken(extent).map(|[u, v]| [u / BLOCK, v / BLOCK]),
             texture,
             tint_index,
-            shade: true,
+            shade: None,
             force_translucent: false,
             fluid: fluid.map(|fluid| (fluid, face)),
             entity: None,

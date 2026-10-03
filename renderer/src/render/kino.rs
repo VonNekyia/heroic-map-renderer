@@ -205,14 +205,12 @@ impl Kino {
     }
 
     /// Das Licht der Sonne auf einem Pixel mit `geometrie`, ohne Schatten:
-    /// nach dem Winkel zwischen Normale und Sonne, eine Fläche ohne `shade`
-    /// wie eine nach oben; abgewandt keines.
+    /// nach dem Winkel zwischen Normale und Sonne, eine Fläche mit `shade`
+    /// wie eine nach der Seite, die es nennt, bei `shade: false` also wie
+    /// eine nach oben; abgewandt keines.
     /// Siehe docs/renderer/cinematic.md, „Sonne“.
     pub fn sonnenlicht(&self, geometrie: &Geometrie) -> [f32; 3] {
-        let [nx, ny, nz] = match geometrie.shade {
-            true => geometrie.normale,
-            false => [0.0, 1.0, 0.0],
-        };
+        let [nx, ny, nz] = geometrie.shade.unwrap_or(geometrie.normale);
         let cos = (nx * self.sonne[0] + ny * self.sonne[1] + nz * self.sonne[2]).max(0.0);
         self.sonne_licht.map(|c| c * cos)
     }
@@ -352,17 +350,19 @@ mod tests {
             shade,
             wasser: 0.0,
         };
-        let oben = kino.sonnenlicht(&g([0.0, 1.0, 0.0], true));
+        let oben = kino.sonnenlicht(&g([0.0, 1.0, 0.0], None));
         let hoch = LOOK.sonne_hoehe.to_radians().sin() * LOOK.sonne;
         for (o, f) in oben.iter().zip(LOOK.sonne_farbe) {
             assert!((o - f * hoch).abs() < 1e-5);
         }
         let weg = kino.sonne().map(|c| -c);
-        assert_eq!(kino.sonnenlicht(&g(weg, true)), [0.0; 3]);
-        assert_eq!(kino.sonnenlicht(&g(weg, false)), oben);
+        assert_eq!(kino.sonnenlicht(&g(weg, None)), [0.0; 3]);
+        assert_eq!(kino.sonnenlicht(&g(weg, Some([0.0, 1.0, 0.0]))), oben);
+        let nord = kino.sonnenlicht(&g(weg, Some([0.0, 0.0, -1.0])));
+        assert_eq!(nord, kino.sonnenlicht(&g([0.0, 0.0, -1.0], None)));
         let nether = DimensionType::des_spiels("minecraft:the_nether").unwrap();
         let im_nether = super::tests::kino(&nether);
-        assert_eq!(im_nether.sonnenlicht(&g([0.0, 1.0, 0.0], true)), [0.0; 3]);
+        assert_eq!(im_nether.sonnenlicht(&g([0.0, 1.0, 0.0], None)), [0.0; 3]);
     }
 
     /// Die Stufen wie in `lightmap.fsh`, getrennt und ohne Begrenzung, je
@@ -578,7 +578,7 @@ mod tests {
         let zur_sonne = Geometrie {
             tiefe: 0.0,
             normale: kino.sonne(),
-            shade: true,
+            shade: None,
             wasser: 0.0,
         };
         let himmel = kino.licht(kino.himmel(0).licht, 240.0, 0.0, 255.0);

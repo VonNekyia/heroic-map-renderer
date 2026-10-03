@@ -330,16 +330,15 @@ vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
     bei einer Farbe drei Zahlen.
   - Zuletzt `verfahren`, ein Nullbyte und `VERFAHREN` als u32 in Little
     Endian: der Stand des Verfahrens. Ändert sich das Bild bei gleichen
-    Werten, etwa in #73 mit der Farbe des Himmels über das Quadrat der
-    Biome, steigt er, und mit ihm der
-    Fingerabdruck.
+    Werten, etwa in #73 mit der Sonne und ihrem Schatten, steigt er, und
+    mit ihm der Fingerabdruck.
   - `Look::werte` zerlegt `Look` ganz: Ein neues Feld kompiliert erst, wenn
     es im Fingerabdruck steht.
   - Nur die Werte, wie sie im Code stehen. Abgeleitete wie der Sinus der
     Höhe der Sonne fehlen, deren letztes Bit kann je System abweichen.
-  - Geschrieben als 16 kleine Hexziffern; für die Werte aus
-    [0058](../entscheidungen/0058-look-von-cinematic.md)
-    `25c9f25d0c368856`, mit `VERFAHREN` 2.
+  - Geschrieben als 16 kleine Hexziffern; für `LOOK`, die Werte aus
+    [0058](../entscheidungen/0058-look-von-cinematic.md) und dem Prototyp
+    dazu, `7a37818630d6d4d3`, mit `VERFAHREN` 2.
 - **Ein Baum, ein look:** Ein Lauf mit dem anderen look schreibt in einen
   anderen Ordner, siehe „Liste der Bäume“. Er bricht nur ab, wenn in seinem
   Ordner ein Baum mit dem anderen look oder mit anderen Werten liegt, bevor

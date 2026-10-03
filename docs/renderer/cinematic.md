@@ -48,20 +48,26 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
 | Wie weit ein Strahl zur Sonne reicht, in Blöcken entlang des Strahls | `sonne_weite`: 128 | ja |
 | So viel Sonne lässt eine Bodenpflanze durch | `pflanzen`: 0,5 | ja |
 | Wasser: F0 der Spiegelung, Anteil der Deckkraft seiner Textur, Dichte | `wasser_spiegel`: 0,04, `wasser_textur`: 0,6, `wasser_dichte`: 8 | ja |
+| Wasser: bis zu welcher Höhe der gespiegelten Richtung nur Nebel, über wie viel Höhe weich zum Himmel | `wasser_horizont`: −0,1, `wasser_horizont_breite`: 0,7 | ja |
+| Wasser: Mindestanteil eines Kanals am stärksten, Dichte jedes Kanals dazu | `wasser_anteil_min`: 0,02, `wasser_dichte_grund`: 0,35 | ja |
 | Wärme: so viel stärker wird der Weissabgleich höchstens, ab und bis zu welcher Temperatur | `waerme`: 0,5, `waerme_von`: 0,5, `waerme_bis`: 1,0 | ja |
 | Belichtung | `belichtung`: 0,25 | ja |
 | Kurve: gerade bis, flach ab | `knie`: 0,8, `flach`: 1,2 | ja |
 | Bloom: Stärke, σ in Blöcken | `bloom`: 1, `bloom_breite`: 0,25 | ja |
 
-- **Herkunft:** alle aus 0058, bis auf `sonne_weite`, `wasser_textur`,
-  `leuchten_ab` und `leuchten_voll`. 0058 sagt „nur die hellen Texel“; ab
+- **Herkunft:** alle aus 0058, bis auf `sonne_weite`, `leuchten_ab`,
+  `leuchten_voll` und die Werte des Wassers ausser `wasser_spiegel` und
+  `wasser_dichte`; die stehen im Prototyp aus #89, an dem 0058 abgestimmt
+  ist. 0058 sagt „nur die hellen Texel“; ab
   0,25 und ganz ab 0,75 im hellsten Kanal leuchteten sie im Prototyp, an
   dem 0058 abgestimmt ist.
   Bis 128 Blöcke weit reichte der Strahl zur Sonne im Prototyp, an dem 0056
   den Preis gemessen hat, siehe
   [Gang zur Sonne in Stufen](../messungen/2026-10-02-gang-zur-sonne-in-stufen.md).
   Mit 0,6 ihrer Deckkraft deckte die Textur des Wassers im Prototyp, in
-  allen Bildern, an denen 0058 abgestimmt ist.
+  allen Bildern, an denen 0058 abgestimmt ist; ebenso stehen dort der
+  Übergang vom Nebel zum Himmel in der Spiegelung und die Dichte je
+  Kanal.
 - **Grenzen aus 0058:** Am Renderer halten sie 15 von 24 Ansichten der
   Testwelt, am Prototyp 20; Schatten sind heller. Zahlen, Ursache und der
   Test `kennzahlen_der_ansichten` dazu:
@@ -294,19 +300,22 @@ Alpha), mischt sich wie im Prototyp aus #89 von vorn nach hinten
 (`mische_wasser` in
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
 
-1. **Spiegelung:** der Anteil nach Fresnel (Schlick, F0 0,04) aus Blick und
-   Normale, mit dem Himmel in der gespiegelten Richtung, zum Horizont hin in
-   der Farbe des Nebels (`Kino::spiegel`). Aus 2:1 sind das von oben rund
-   5 %.
-2. **Textur:** Vom Rest deckt die Textur des Wassers mit 0,6 ihres Alphas,
-   im Licht des Wassers und der Sonne.
+1. **Spiegelung:** der Anteil nach Fresnel (Schlick, F0 `wasser_spiegel`)
+   aus Blick und Normale, mit dem Himmel in der gespiegelten Richtung, zum
+   Horizont hin in der Farbe des Nebels (`Kino::spiegel`, ab
+   `wasser_horizont` über `wasser_horizont_breite` weich). Aus 2:1 sind das
+   von oben rund 5 %.
+2. **Textur:** Vom Rest deckt die Textur des Wassers mit `wasser_textur`
+   ihres Alphas, im Licht des Wassers und der Sonne.
 3. **Im selben Sprite dahinter,** etwa ein gefluteter Block an der
    Oberfläche, folgt ohne Strecke in seinem Licht.
 4. **Darunter** dämpft das Wasser den Pixel darunter je Kanal nach der
    Strecke bis zu ihm, `exp(−σ · Strecke)`, und füllt mit `water_fog_color`
-   im Himmelslicht. σ kommt aus der Farbe des Wassers: Kanäle, die sie
-   schwächer trägt, dämpft es stärker, geteilt durch die Dichte 8
-   (`Kino::wasser_dichte`). Tieferes Wasser ist so dunkler und blauer.
+   im Himmelslicht. σ kommt aus der Farbe des Wassers: je Kanal
+   `−ln(max(Anteil am stärksten, wasser_anteil_min)) + wasser_dichte_grund`,
+   geteilt durch `wasser_dichte` (`Kino::wasser_dichte`). Kanäle, die sie
+   schwächer trägt, dämpft es so stärker; tieferes Wasser ist dunkler und
+   blauer.
 
 - **Die Strecke** kommt aus der Tiefe je Pixel (`Hdr::tiefe`): die des
   Wassers weniger die des vordersten Pixels darunter, geteilt durch die

@@ -153,15 +153,16 @@ impl Kino {
     /// Was eine Wasserfläche mit der Normale `n` spiegelt, gesehen in
     /// Richtung `blick` (vom Auge in die Szene, beide Länge 1): ihr Anteil
     /// nach Fresnel (Schlick, F0 [`Look::wasser_spiegel`]) und der Himmel in
-    /// der gespiegelten Richtung, zum Horizont hin in der Farbe des Nebels,
-    /// wie im Prototyp aus #89.
+    /// der gespiegelten Richtung, zum Horizont hin in der Farbe des Nebels
+    /// ([`Look::wasser_horizont`]), wie im Prototyp aus #89.
     /// Siehe docs/renderer/cinematic.md, „Wasser“.
     pub fn spiegel(&self, farben: &Himmelsfarben, blick: [f32; 3], n: [f32; 3]) -> (f32, [f32; 3]) {
         let dn = blick[0] * n[0] + blick[1] * n[1] + blick[2] * n[2];
         let f0 = self.look.wasser_spiegel;
         let anteil = f0 + (1.0 - f0) * (1.0 + dn).clamp(0.0, 1.0).powi(5);
         let hoch = blick[1] - 2.0 * dn * n[1];
-        let h = ((hoch + 0.1) / 0.7).clamp(0.0, 1.0);
+        let h =
+            ((hoch - self.look.wasser_horizont) / self.look.wasser_horizont_breite).clamp(0.0, 1.0);
         let h = h * h * (3.0 - 2.0 * h);
         let himmel =
             std::array::from_fn(|c| farben.nebel[c] + (farben.himmel[c] - farben.nebel[c]) * h);
@@ -169,11 +170,16 @@ impl Kino {
     }
 
     /// Wie dicht Wasser der Farbe `w`, linear, je Kanal ist, je Block
-    /// Strecke: Kanäle, die die Farbe schwächer trägt, dämpft es stärker,
-    /// geteilt durch [`Look::wasser_dichte`], wie im Prototyp aus #89.
+    /// Strecke: Kanäle, die die Farbe schwächer trägt, dämpft es stärker
+    /// ([`Look::wasser_anteil_min`], [`Look::wasser_dichte_grund`]), geteilt
+    /// durch [`Look::wasser_dichte`], wie im Prototyp aus #89.
     pub fn wasser_dichte(&self, w: [f32; 3]) -> [f32; 3] {
+        let look = &self.look;
         let m = w.iter().fold(1e-4f32, |a, &c| a.max(c));
-        w.map(|c| (-(c / m).max(0.02).ln() + 0.35) / self.look.wasser_dichte)
+        w.map(|c| {
+            (-(c / m).max(look.wasser_anteil_min).ln() + look.wasser_dichte_grund)
+                / look.wasser_dichte
+        })
     }
 
     /// Das Licht an einer Ecke oder einem Block in HDR je Kanal: `himmel`
@@ -477,9 +483,38 @@ mod tests {
         for (n, soll) in nebel.iter().zip(farben.nebel) {
             assert!((n - soll).abs() < 0.05);
         }
-        let sigma = kino.wasser_dichte(linear([0x3f, 0x76, 0xe4]));
+        let w = linear([0x3f, 0x76, 0xe4]);
+        let sigma = kino.wasser_dichte(w);
         assert!(sigma[0] > sigma[1] && sigma[1] > sigma[2], "{sigma:?}");
-        assert!((sigma[2] - 0.35 / LOOK.wasser_dichte).abs() < 1e-6);
+        assert!((sigma[2] - LOOK.wasser_dichte_grund / LOOK.wasser_dichte).abs() < 1e-6);
+        // Rot trägt sie mit rund 6 % des Blaus, über dem Mindestanteil; ohne
+        // Rot zählt der Mindestanteil.
+        let dichte = |anteil: f32| {
+            (-anteil.max(LOOK.wasser_anteil_min).ln() + LOOK.wasser_dichte_grund)
+                / LOOK.wasser_dichte
+        };
+        assert!(w[0] / w[2] > LOOK.wasser_anteil_min);
+        assert!((sigma[0] - dichte(w[0] / w[2])).abs() < 1e-6, "{sigma:?}");
+        let ohne_rot = kino.wasser_dichte([0.0, 0.5, 1.0]);
+        assert!((ohne_rot[0] - dichte(0.0)).abs() < 1e-6, "{ohne_rot:?}");
+        // Bis zur Höhe −0,1 nur Nebel, ab 0,6 nur Himmel, dazwischen weich.
+        let gespiegelt = |hoch: f32| {
+            let blick = [(1.0 - hoch * hoch).sqrt(), -hoch, 0.0];
+            kino.spiegel(&farben, blick, oben).1
+        };
+        for (hoch, anteil) in [
+            (-0.2, 0.0),
+            (-0.1, 0.0),
+            (0.25, 0.5),
+            (0.6, 1.0),
+            (0.9, 1.0),
+        ] {
+            let farbe = gespiegelt(hoch);
+            for c in 0..3 {
+                let soll = farben.nebel[c] + (farben.himmel[c] - farben.nebel[c]) * anteil;
+                assert!((farbe[c] - soll).abs() < 1e-5, "{hoch}: {farbe:?}");
+            }
+        }
     }
 
     /// Der Ton mit Wärme: Weiss in linearem Licht 1, mal Weissabgleich der

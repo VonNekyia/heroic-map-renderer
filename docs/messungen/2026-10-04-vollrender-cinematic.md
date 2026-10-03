@@ -88,21 +88,23 @@ weniger.
   bis 6,9 h, dazu für die Drosselung am Abend rund 20 % mehr, 4,3 bis
   8,3 h. Gemessen sind 5 h 26 min.
 - **Grösse:** hochgerechnet 224 bis 258 GB, gemessen 222,8 GB.
-- **Drosselung:** Am Abend brauchte derselbe Build am Stand der Testwelt
-  37 % (Karte) und 17 % (Cinematic) länger als am Morgen. Ein A/B zeigte
-  die Maschine als Ursache: Unter voller Last fiel die Leistung der CPU in
-  10 s von 105 auf 69 % des Nenntakts, wie bei Wärme. Der Code kostete nur
-  0,7 s im Start je Lauf, mit #117, siehe #123. Mit `--area` rechnet der
-  Lauf diese Hülle nicht.
+- **Drosselung:** Am Abend brauchte master am Stand der Testwelt 37 %
+  (Karte) und 17 % (Cinematic) länger als am Morgen. Ein A/B zeigte die
+  Maschine als Ursache: Dieselbe Binärdatei war abends 20 % langsamer, und
+  unter voller Last fiel die Leistung der CPU in 10 s von 77 auf 69 % des
+  Nenntakts, wie bei Wärme. Der Code kostete nur 0,7 s im Start je Lauf,
+  mit #117, siehe #123. Mit `--area` rechnet der Lauf diese Hülle nicht.
 - **Native Stufe:** 0,36 der Basis. Gerechnet waren 0,33 bis 0,48.
 
 ## Schluss
 
 - Ein Vollrender mit Cinematic über die grosse Welt passt in eine Nacht,
   mit Live-Ansicht in 5 h 26 min.
-- Die Live-Ansicht kostet die Basis rund 7 %, weit weniger als mit #21
-  gerechnet, als sie die Basis halbierte. Vermutlich, weil `--pyramid` seit
-  #38 schneller von der Platte baut und Cinematic je Kachel länger rechnet
-  als die Karte, sodass das Verkleinern weniger ins Gewicht fällt; für sich
-  gemessen ist das nicht.
+- Während eines Aufrufs von `--pyramid` schafft die Basis 34 % weniger,
+  mit #21 war es rund die Hälfte. Über den Lauf kostet die Live-Ansicht
+  rund 7 %; das hängt auch daran, wie oft der Treiber ruft. Vermutlich ist
+  es weniger als mit #21, weil `--pyramid` seit #38 schneller von der
+  Platte baut und Cinematic je Kachel länger rechnet als die Karte, sodass
+  das Verkleinern weniger ins Gewicht fällt; für sich gemessen ist das
+  nicht.
 - Die native Stufe schafft 148 Kacheln/s, gut zwei Drittel der Basis.

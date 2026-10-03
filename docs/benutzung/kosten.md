@@ -186,9 +186,10 @@ Was das am Vollrender bringt, ist nicht hochgerechnet.
 
 Die Live-Ansicht kostet: Solange `--pyramid` nebenher läuft, schafft die
 Basis gerechnet nur die Hälfte. Ohne sie wäre der Lauf mit #21 geschätzt
-etwa 50 min lang, siehe dort. Im Vollrender mit Cinematic kostete sie die
-Basis gemessen rund 7 %: 152 statt 231 Kacheln/s während eines Aufrufs,
-siehe [2026-10-04, Vollrender mit Cinematic](../messungen/2026-10-04-vollrender-cinematic.md).
+etwa 50 min lang, siehe dort. Im Vollrender mit Cinematic schaffte die
+Basis während eines Aufrufs 34 % weniger, 152 statt 231 Kacheln/s; über den
+Lauf kostete die Live-Ansicht rund 7 %, siehe
+[2026-10-04, Vollrender mit Cinematic](../messungen/2026-10-04-vollrender-cinematic.md).
 
 Die Grösse wächst nach libwebp wieder, weil man mit #17 ins Wasser sieht
 und sich die Verläufe der weichen Beleuchtung schlechter packen als ebene

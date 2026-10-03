@@ -50,6 +50,28 @@ impl Region {
         })
     }
 
+    /// Was der Kopf über jeden Chunk der Region sagt, nach z, dann x
+    /// geordnet; `None` für einen leeren Tabelleneintrag. Liest nur die zwei
+    /// Sektoren des Kopfs.
+    /// Siehe docs/benutzung/updates.md, „Was als geändert gilt“.
+    pub fn stempel(&mut self) -> Result<Vec<Option<Stempel>>> {
+        let mut kopf = vec![0u8; (HEADER_SECTORS * SECTOR) as usize];
+        self.file.seek(SeekFrom::Start(0))?;
+        self.file
+            .read_exact(&mut kopf)
+            .with_context(|| format!("Kopf von r.{}.{}.mca lesen", self.x, self.z))?;
+        let wort = |i: usize| u32::from_be_bytes([kopf[i], kopf[i + 1], kopf[i + 2], kopf[i + 3]]);
+        Ok((0..(REGION * REGION) as usize)
+            .map(|i| {
+                let ort = wort(4 * i);
+                (ort != 0).then(|| Stempel {
+                    zeit: wort(SECTOR as usize + 4 * i),
+                    ort,
+                })
+            })
+            .collect())
+    }
+
     /// Chunk an **Welt**-Chunkkoordinaten, wenn er fertig erzeugt ist, siehe
     /// [`Chunk::is_generated`]. `None`, wenn er fehlt oder nicht fertig
     /// erzeugt ist. Darüber liest der Render; der Vorlauf, `--at` und
@@ -169,6 +191,16 @@ impl Region {
     }
 }
 
+/// Was der Kopf einer Regionsdatei über einen Chunk sagt: wann das Spiel
+/// ihn zuletzt geschrieben hat, in Sekunden (`RegionFile.write`), und den
+/// Eintrag der Tabelle, Sektor und Länge. Schreibt das Spiel den Chunk neu,
+/// ändert sich wenigstens die Zeit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stempel {
+    pub zeit: u32,
+    pub ort: u32,
+}
+
 fn decompress(scheme: u8, data: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     match scheme {
@@ -215,6 +247,45 @@ mod tests {
         assert_eq!(name("level.dat"), None);
         assert_eq!(name("r.1.mca"), None);
         assert_eq!(name("r.1.2.3.mca"), None);
+    }
+
+    /// Der Kopf nennt je Chunk den Eintrag der Tabelle und die Zeit; ein
+    /// leerer Eintrag ist kein Chunk, auch mit einer Zeit.
+    #[test]
+    fn stempel_aus_dem_kopf() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("r.-1.2.mca");
+        let mut kopf = vec![0u8; 2 * SECTOR as usize];
+        let setze = |kopf: &mut Vec<u8>, i: usize, ort: u32, zeit: u32| {
+            kopf[4 * i..4 * i + 4].copy_from_slice(&ort.to_be_bytes());
+            kopf[SECTOR as usize + 4 * i..SECTOR as usize + 4 * i + 4]
+                .copy_from_slice(&zeit.to_be_bytes());
+        };
+        setze(&mut kopf, 0, (2 << 8) | 1, 1_700_000_000);
+        setze(&mut kopf, 33, (3 << 8) | 2, 0);
+        setze(&mut kopf, 1023, 0, 5);
+        std::fs::write(&pfad, &kopf).unwrap();
+        let stempel = Region::open(&pfad).unwrap().stempel().unwrap();
+        assert_eq!(stempel.len(), 1024);
+        assert_eq!(
+            stempel[0],
+            Some(Stempel {
+                zeit: 1_700_000_000,
+                ort: (2 << 8) | 1
+            })
+        );
+        assert_eq!(
+            stempel[33],
+            Some(Stempel {
+                zeit: 0,
+                ort: (3 << 8) | 2
+            }),
+            "Zeit 0 schreiben manche Werkzeuge"
+        );
+        assert_eq!(stempel[1023], None, "leerer Eintrag");
+        assert_eq!(stempel.iter().flatten().count(), 2);
+        std::fs::write(&pfad, &kopf[..100]).unwrap();
+        assert!(Region::open(&pfad).unwrap().stempel().is_err(), "zu kurz");
     }
 
     #[test]

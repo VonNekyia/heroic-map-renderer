@@ -568,6 +568,88 @@ impl Chunk {
         None
     }
 
+    /// Der Fingerabdruck dessen, was der Renderer aus dem Chunk zeichnet,
+    /// für Updates: FNV-1a mit 64 Bit über die Blöcke und Biome jeder
+    /// Section, als Läufe gleicher Werte der Reihe nach, und über die
+    /// [`Blockdaten`]. Wie die Palette geordnet ist und wie ihre Felder
+    /// heissen, ändert ihn nicht, ein Chunk aus 26.2 und derselbe aus 26.3
+    /// haben denselben. Ein Chunk, der nicht fertig erzeugt ist, hat immer
+    /// denselben und keinen höchsten Block, der Renderer zeichnet ihn nicht.
+    /// Siehe docs/benutzung/updates.md, „Was als geändert gilt“.
+    pub fn abdruck(&self) -> Abdruck {
+        let mut fnv = Fnv::default();
+        if !self.is_generated() {
+            fnv.nimm(b"unfertig");
+            return Abdruck {
+                hash: fnv.0,
+                oben: None,
+            };
+        }
+        let mut oben = None;
+        for section in &self.sections {
+            fnv.nimm(&section.y.to_le_bytes());
+            let bloecke: Vec<u64> = section
+                .blocks
+                .palette()
+                .iter()
+                .map(wert_von_block)
+                .collect();
+            fnv.laeufe(&section.blocks, BLOCKS_PER_SECTION, &bloecke);
+            let biome: Vec<u64> = section
+                .biomes
+                .palette()
+                .iter()
+                .map(|biom| Fnv::von(&[biom.as_bytes()]))
+                .collect();
+            fnv.laeufe(&section.biomes, BIOMES_PER_SECTION, &biome);
+            if !section.is_empty() {
+                let luft: Vec<bool> = section
+                    .blocks
+                    .palette()
+                    .iter()
+                    .map(BlockState::is_air)
+                    .collect();
+                let mut hoechster = None;
+                section
+                    .blocks
+                    .for_each_index(BLOCKS_PER_SECTION, |i, index| {
+                        if !luft.get(index).copied().unwrap_or(false) {
+                            hoechster = Some(i);
+                        }
+                    });
+                if let Some(i) = hoechster {
+                    oben = Some(section.y as i32 * SECTION + (i / 256) as i32);
+                }
+            }
+        }
+        for ([x, y, z], daten) in &self.blockentities {
+            fnv.nimm(&[*x as u8, *z as u8]);
+            fnv.nimm(&y.to_le_bytes());
+            match daten {
+                Blockdaten::Banner(lagen) => {
+                    fnv.nimm(&[1]);
+                    for (muster, farbe) in lagen {
+                        let (art, name) = match muster {
+                            Muster::Id(id) => (1, id),
+                            Muster::Asset(asset) => (2, asset),
+                        };
+                        fnv.nimm(&[art]);
+                        fnv.text(name);
+                        fnv.text(farbe);
+                    }
+                }
+                Blockdaten::Krug(seiten) => {
+                    fnv.nimm(&[2]);
+                    for seite in seiten {
+                        fnv.text(seite);
+                    }
+                }
+            }
+            fnv.nimm(&[0xff]);
+        }
+        Abdruck { hash: fnv.0, oben }
+    }
+
     fn contains_column(&self, x: i32, z: i32) -> bool {
         x >> 4 == self.x && z >> 4 == self.z
     }
@@ -578,6 +660,85 @@ impl Chunk {
         }
         self.section(i8::try_from(y >> 4).ok()?)
     }
+}
+
+/// Was ein Update über einen Chunk weiss, siehe [`Chunk::abdruck`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Abdruck {
+    /// Der Fingerabdruck seiner Blöcke, Biome und [`Blockdaten`].
+    pub hash: u64,
+    /// Das y seines höchsten Blocks, der nicht Luft ist; `None` ohne einen.
+    pub oben: Option<i32>,
+}
+
+/// FNV-1a mit 64 Bit, wie der Fingerabdruck des Looks.
+struct Fnv(u64);
+
+impl Default for Fnv {
+    fn default() -> Fnv {
+        Fnv(0xcbf2_9ce4_8422_2325)
+    }
+}
+
+impl Fnv {
+    fn nimm(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+
+    /// Ein Text mit einem Nullbyte dahinter.
+    fn text(&mut self, text: &str) {
+        self.nimm(text.as_bytes());
+        self.nimm(&[0]);
+    }
+
+    /// Der Fingerabdruck dieser Texte allein.
+    fn von(texte: &[&[u8]]) -> u64 {
+        let mut fnv = Fnv::default();
+        for text in texte {
+            fnv.nimm(text);
+            fnv.nimm(&[0]);
+        }
+        fnv.0
+    }
+
+    /// Die Werte eines Containers als Läufe: je Lauf der Wert seines
+    /// Paletteneintrags aus `werte` und seine Länge. So hängt der
+    /// Fingerabdruck nur an den Werten der Reihe nach, nicht an der Palette.
+    /// Ein Index ausserhalb der Palette zählt als eigener Wert.
+    fn laeufe<T>(&mut self, container: &Paletted<T>, eintraege: usize, werte: &[u64]) {
+        let wert = |index: usize| werte.get(index).copied().unwrap_or(u64::MAX);
+        let mut lauf: Option<(u64, u32)> = None;
+        container.for_each_index(eintraege, |_, index| {
+            let w = wert(index);
+            match &mut lauf {
+                Some((bisher, n)) if *bisher == w => *n += 1,
+                _ => {
+                    if let Some((bisher, n)) = lauf.replace((w, 1)) {
+                        self.nimm(&bisher.to_le_bytes());
+                        self.nimm(&n.to_le_bytes());
+                    }
+                }
+            }
+        });
+        if let Some((bisher, n)) = lauf {
+            self.nimm(&bisher.to_le_bytes());
+            self.nimm(&n.to_le_bytes());
+        }
+    }
+}
+
+/// Der Wert eines Blockstates für [`Fnv::laeufe`]: Name und Eigenschaften,
+/// die sortiert sind.
+fn wert_von_block(state: &BlockState) -> u64 {
+    let mut fnv = Fnv::default();
+    fnv.text(state.name());
+    for (k, v) in state.props() {
+        fnv.text(k);
+        fnv.text(v);
+    }
+    fnv.0
 }
 
 /// `None` für Sections ohne `block_states` — Minecraft legt ober- und
@@ -978,6 +1139,229 @@ mod tests {
     }
 
     /// Die Blockentities eines Chunks mit Weltkoordinate, nach Stelle.
+    /// Eine Section für [`chunk_aus`]: Palette mit Namen und Eigenschaften,
+    /// Indizes oder keine, ein Biom.
+    struct Probe<'a> {
+        y: i8,
+        palette: Vec<(&'a str, Vec<(&'a str, &'a str)>)>,
+        indizes: Option<Vec<usize>>,
+        biom: &'a str,
+    }
+
+    /// Ein Chunk aus diesen Sections, mit den Feldnamen der Palette aus
+    /// 26.3 oder aus 26.2, und diesen `block_entities`.
+    fn chunk_aus(
+        status: &str,
+        sections: &[Probe],
+        ab_26_3: bool,
+        entities: Vec<fastnbt::Value>,
+    ) -> Chunk {
+        use fastnbt::Value;
+        let text = |t: &str| Value::String(t.to_string());
+        let compound = |felder: Vec<(&str, Value)>| {
+            Value::Compound(
+                felder
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v))
+                    .collect(),
+            )
+        };
+        let (name, eigenschaften) = if ab_26_3 {
+            ("id", "properties")
+        } else {
+            ("Name", "Properties")
+        };
+        let sections = sections
+            .iter()
+            .map(|s| {
+                let palette = s
+                    .palette
+                    .iter()
+                    .map(|(n, props)| {
+                        let mut felder = vec![(name, text(n))];
+                        if !props.is_empty() {
+                            felder.push((
+                                eigenschaften,
+                                compound(props.iter().map(|(k, v)| (*k, text(v))).collect()),
+                            ));
+                        }
+                        compound(felder)
+                    })
+                    .collect();
+                let mut blocks = vec![("palette", Value::List(palette))];
+                if let Some(indizes) = &s.indizes {
+                    let bits = (usize::BITS - (s.palette.len().max(2) - 1).leading_zeros()).max(4);
+                    let je_long = 64 / bits as usize;
+                    let mut longs = vec![0i64; 4096usize.div_ceil(je_long)];
+                    for (i, &v) in indizes.iter().enumerate() {
+                        longs[i / je_long] |=
+                            ((v as u64) << ((i % je_long) * bits as usize)) as i64;
+                    }
+                    blocks.push(("data", Value::LongArray(fastnbt::LongArray::new(longs))));
+                }
+                compound(vec![
+                    ("Y", Value::Byte(s.y)),
+                    ("block_states", compound(blocks)),
+                    (
+                        "biomes",
+                        compound(vec![("palette", Value::List(vec![text(s.biom)]))]),
+                    ),
+                ])
+            })
+            .collect();
+        let nbt = fastnbt::to_bytes(&compound(vec![
+            ("DataVersion", Value::Int(4903)),
+            ("xPos", Value::Int(0)),
+            ("zPos", Value::Int(0)),
+            ("Status", text(status)),
+            ("sections", Value::List(sections)),
+            ("block_entities", Value::List(entities)),
+        ]))
+        .unwrap();
+        Chunk::decode(&nbt).unwrap()
+    }
+
+    /// Der Fingerabdruck hängt an den Blöcken der Reihe nach, an den Biomen
+    /// und an den Blockdaten, nicht an der Ordnung der Palette, an ihren
+    /// Feldnamen oder daran, ob eine einheitliche Section Indizes hat.
+    /// `oben` ist der höchste Block, der nicht Luft ist. Ein Chunk, der
+    /// nicht fertig erzeugt ist, hat immer denselben ohne `oben`.
+    #[test]
+    fn abdruck_haengt_an_den_bloecken_nicht_an_der_palette() {
+        let stein = ("minecraft:stone", vec![]);
+        let luft = ("minecraft:air", vec![]);
+        let treppe = |seite| {
+            (
+                "minecraft:oak_stairs",
+                vec![("half", "bottom"), ("facing", seite)],
+            )
+        };
+        // Stein bei y = 5, x = 3, z = 2, sonst Luft; darüber eine Treppe.
+        let stelle = 5 * 256 + 2 * 16 + 3;
+        let indizes = |ein: usize, aus: usize, wo: usize| {
+            let mut v = vec![aus; 4096];
+            v[wo] = ein;
+            v
+        };
+        let unten = |palette: Vec<_>, ein, aus| Probe {
+            y: 0,
+            palette,
+            indizes: Some(indizes(ein, aus, stelle)),
+            biom: "minecraft:plains",
+        };
+        let oben = |seite, biom| Probe {
+            y: 1,
+            palette: vec![luft.clone(), treppe(seite)],
+            indizes: Some(indizes(1, 0, 3 * 256)),
+            biom,
+        };
+        let chunk = |sections: &[Probe], ab_26_3| {
+            chunk_aus("minecraft:full", sections, ab_26_3, Vec::new())
+        };
+        let a = chunk(
+            &[
+                unten(vec![luft.clone(), stein.clone()], 1, 0),
+                oben("east", "minecraft:plains"),
+            ],
+            false,
+        );
+        let b = chunk(
+            &[
+                unten(vec![stein.clone(), luft.clone()], 0, 1),
+                oben("east", "minecraft:plains"),
+            ],
+            true,
+        );
+        assert_eq!(
+            a.abdruck(),
+            b.abdruck(),
+            "Palette umgestellt, Feldnamen aus 26.3"
+        );
+        assert_eq!(a.abdruck().oben, Some(19), "die Treppe bei 16 + 3");
+
+        let anders = [
+            chunk(
+                &[
+                    unten(vec![luft.clone(), stein.clone()], 1, 0),
+                    oben("west", "minecraft:plains"),
+                ],
+                false,
+            ),
+            chunk(
+                &[
+                    unten(vec![luft.clone(), stein.clone()], 1, 0),
+                    oben("east", "minecraft:desert"),
+                ],
+                false,
+            ),
+            chunk(
+                &[
+                    unten(vec![luft.clone(), stein.clone()], 0, 1),
+                    oben("east", "minecraft:plains"),
+                ],
+                false,
+            ),
+            chunk(&[oben("east", "minecraft:plains")], false),
+            chunk(
+                &[
+                    Probe {
+                        indizes: Some(indizes(1, 0, stelle + 1)),
+                        ..unten(vec![luft.clone(), stein.clone()], 1, 0)
+                    },
+                    oben("east", "minecraft:plains"),
+                ],
+                false,
+            ),
+        ];
+        for (i, c) in anders.iter().enumerate() {
+            assert_ne!(c.abdruck().hash, a.abdruck().hash, "Fall {i}");
+        }
+
+        let einheitlich = |indizes| Probe {
+            y: 0,
+            palette: if indizes {
+                vec![stein.clone(), luft.clone()]
+            } else {
+                vec![stein.clone()]
+            },
+            indizes: indizes.then(|| vec![0; 4096]),
+            biom: "minecraft:plains",
+        };
+        let ohne = chunk(&[einheitlich(false)], false).abdruck();
+        assert_eq!(
+            ohne,
+            chunk(&[einheitlich(true)], false).abdruck(),
+            "einheitlich mit Indizes"
+        );
+        assert_eq!(ohne.oben, Some(15));
+
+        let mit_banner = chunk_aus(
+            "minecraft:full",
+            &[
+                unten(vec![luft.clone(), stein.clone()], 1, 0),
+                oben("east", "minecraft:plains"),
+            ],
+            false,
+            vec![banner(
+                fastnbt::Value::String("minecraft:banner".to_string()),
+                [("x", None), ("y", None), ("z", None)],
+            )],
+        );
+        assert_ne!(
+            mit_banner.abdruck().hash,
+            a.abdruck().hash,
+            "Banner mit Muster"
+        );
+
+        let unfertig = |sections: &[Probe]| {
+            chunk_aus("minecraft:noise", sections, false, Vec::new()).abdruck()
+        };
+        let u = unfertig(&[unten(vec![luft.clone(), stein.clone()], 1, 0)]);
+        assert_eq!(u, unfertig(&[oben("west", "minecraft:desert")]));
+        assert_eq!(u.oben, None);
+        assert_ne!(u.hash, a.abdruck().hash);
+    }
+
     fn gelesen(chunk: &Chunk) -> Vec<([i32; 3], Blockdaten)> {
         chunk
             .blockentities()

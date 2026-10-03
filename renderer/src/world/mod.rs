@@ -10,9 +10,9 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-pub use chunk::{Blockdaten, Chunk, Muster, Section};
+pub use chunk::{Abdruck, Blockdaten, Chunk, Muster, Section};
 pub use palette::BlockState;
-pub use region::{REGION, Region};
+pub use region::{REGION, Region, Stempel};
 
 /// Wo unter `--world` die Regionen liegen: direkt darunter in einer
 /// Dimension, `world/dimensions/<namensraum>/<name>/region`, und für die

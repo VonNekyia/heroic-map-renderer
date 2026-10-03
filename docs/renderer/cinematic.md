@@ -189,7 +189,9 @@ Karte, siehe [Der Weg einer Kachel](renderpfad.md), „Blit“:
 
 Getestet: das Goldbild `metatile-cinematic.png`; jeder Ausschnitt gleicht
 dem grossen Bild, zweimal gleich; Pyramide und native Stufen über einem Baum
-mit Cinematic in `renderer/tests/cli.rs`.
+mit Cinematic in `renderer/tests/cli.rs`. Was ein Baum mit Cinematic
+kostet, steht in [Was ein Lauf kostet](../benutzung/kosten.md),
+„Cinematic“.
 
 ## Was bleibt eine Näherung
 

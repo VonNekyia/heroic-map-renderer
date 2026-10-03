@@ -1,6 +1,6 @@
 ---
 title: Was ein Lauf kostet
-description: Platz und Dauer eines Exports je scale, hochgerechnet auf die ganze Testwelt, und woran die beiden hängen.
+description: Platz und Dauer eines Exports je scale, hochgerechnet auf die ganze Testwelt, und woran die beiden hängen; dazu, was Cinematic gegen die Karte kostet.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/tiles.rs
@@ -108,6 +108,17 @@ Unter Windows hängt die Dauer stark am Echtzeitschutz, siehe
 [Echtzeitschutz](echtzeitschutz.md); gemessen ist in einem Ordner, den er
 auslässt. Mit Grafikkarte zeichnet die Karte, siehe
 [Grafikkarte](grafikkarte.md).
+
+## Cinematic
+
+Ein Baum mit `--cinematic` kostet in Phase 1 (#72), ohne Sonne, an Stand
+und Fichtenwald der Testwelt das 1,11- bis 1,21-Fache der Karte ohne
+Grafikkarte im ganzen Lauf, mit Grafikkarte das 1,15- bis 1,28-Fache. Die
+nativen Stufen brauchen das 1,20- bis 1,29-Fache. Die Kacheln wiegen 7 bis
+9 % weniger, die Spitze des Speichers liegt bis 5 % höher. Gemessen in
+[2026-10-03, Cinematic, Phase 1](../messungen/2026-10-03-cinematic-phase-1.md).
+Was die Sonne aus #73 dazu kostet, ist gerechnet in
+[0056](../entscheidungen/0056-exakter-strahl-zur-sonne.md).
 
 ## Die grosse Welt
 

@@ -1163,6 +1163,166 @@ fn zufaellige_strahlen_gleichen_dem_bezug() {
     );
 }
 
+/// Wo die Bits „frei zur Sonne“ eine Zelle frei nennen, kommt im langsamen
+/// Bezug von jeder ihrer acht Ecken alles an: Die Ecken streifen die Ränder
+/// des Prismas. Nicht leer: Die Bits nennen viele Zellen frei.
+/// Siehe docs/renderer/cinematic.md, „Frei zur Sonne“.
+#[test]
+fn frei_zur_sonne_trifft_nichts() {
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..8).flat_map(|x| (0..8).map(move |z| (x, z))).collect();
+    common::write_world_sections(dir.path(), &chunks, 0..=6, hohe_welt, |_, _| None);
+    let world = World::open(dir.path()).unwrap();
+    let states = survey(&world, Projection::new(16), (0, 111), None)
+        .unwrap()
+        .states;
+    let mut zufall = 0x9e37_79b9_7f4a_7c15u64;
+    let mut wurf = move || {
+        zufall ^= zufall << 13;
+        zufall ^= zufall >> 7;
+        zufall ^= zufall << 17;
+        (zufall >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let (mut frei, mut verschenkt) = (0, 0);
+    for kamera in ["2:1", "top-north"] {
+        let kamera = Kamera::parse(kamera).unwrap();
+        for k in 0..4 {
+            let projection = Projection::mit_kamera(16, kamera).aus(richtung(k, kamera));
+            let mut assets = assets();
+            assets.load_biomes(&common::biomdaten()).unwrap();
+            let sprites =
+                SpriteSet::build_mit_licht(&mut assets, &states, projection, None, Some(LOOK))
+                    .unwrap();
+            let mut cache = ChunkCache::new(&world, &sprites);
+            for _ in 0..300 {
+                let p = [
+                    8.0 + 112.0 * wurf(),
+                    4.0 + 96.0 * wurf(),
+                    8.0 + 112.0 * wurf(),
+                ];
+                let p = match projection.richtung().vierteldrehungen() {
+                    0 => p,
+                    1 => [p[2], p[1], -p[0]],
+                    2 => [-p[0], p[1], -p[2]],
+                    _ => [-p[2], p[1], p[0]],
+                };
+                let c = p.map(|c| c.floor() as i32);
+                let ecken = (0..8).map(|e| {
+                    std::array::from_fn(|a| {
+                        f64::from(c[a]) + if e >> a & 1 == 0 { 1e-9 } else { 1.0 - 1e-9 }
+                    })
+                });
+                if cache.frei_zur_sonne(p).unwrap() {
+                    frei += 1;
+                    for q in ecken.chain([p]) {
+                        assert!(cache.frei_zur_sonne(q).unwrap(), "{q:?}");
+                        assert_eq!(
+                            cache.sonne_im_gang(q, c).unwrap(),
+                            1.0,
+                            "{kamera} aus {k}, {q:?}"
+                        );
+                        assert_eq!(
+                            cache.sonne_bezug(q, c).unwrap(),
+                            1.0,
+                            "{kamera} aus {k}, {q:?}"
+                        );
+                    }
+                } else if cache.sonne_im_gang(p, c).unwrap() == 1.0 {
+                    verschenkt += 1;
+                }
+            }
+        }
+    }
+    assert!(frei > 200, "{frei} frei, {verschenkt} verschenkt");
+}
+
+/// Ein Block, den der Strahl erst in der obersten Lage seines Prismas kurz
+/// vor der Weite trifft, nimmt der Startzelle das Bit „frei zur Sonne“;
+/// ohne ihn ist sie frei. Eine Säule abseits des Prismas hebt den Horizont
+/// über die Startzelle. Schnell und im Bezug gleich.
+/// Siehe docs/renderer/cinematic.md, „Frei zur Sonne“.
+#[test]
+fn block_am_ende_der_weite_sperrt_die_bits() {
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    let weite = f64::from(LOOK.sonne_weite);
+    let p = [60.5, 4.999, 4.5];
+    let block: [i32; 3] = std::array::from_fn(|k| (p[k] + (weite - 0.5) * s[k]).floor() as i32);
+    assert_eq!(block[1] - 4, (weite * s[1]).floor() as i32 + 1, "{block:?}");
+    let chunks: Vec<(i32, i32)> = (0..=3).flat_map(|x| (0..=5).map(move |z| (x, z))).collect();
+    for (mit_block, soll) in [(true, 0.0), (false, 1.0)] {
+        let dir = tempdir();
+        common::write_world_sections(
+            dir.path(),
+            &chunks,
+            0..=6,
+            move |x, y, z| match (x, y, z) {
+                (_, ..=3, _) | (63, ..=110, 0) => "minecraft:einfarbig",
+                _ if mit_block && [x, y, z] == block => "minecraft:einfarbig",
+                _ => "minecraft:air",
+            },
+            |_, _| None,
+        );
+        let world = World::open(dir.path()).unwrap();
+        let sprites = kino_tabelle(&world, Projection::new(16), (0, 111), LOOK);
+        let mut cache = ChunkCache::new(&world, &sprites);
+        let eigen = [60, 3, 4];
+        assert_eq!(cache.frei_zur_sonne(p).unwrap(), !mit_block, "{block:?}");
+        assert_eq!(cache.sonne(p, eigen).unwrap(), soll, "{block:?}");
+        assert_eq!(cache.sonne_bezug(p, eigen).unwrap(), soll, "{block:?}");
+    }
+}
+
+/// Ein Block an einem seitlichen Rand des Prismas, den nur ein Strahl aus
+/// einer Ecke der Startzelle trifft, nimmt ihr das Bit „frei zur Sonne“: am
+/// fernen Rand, wo der Strahl aus der Ecke weg von der Sonne die Lage
+/// verlässt, und am nahen, wo der aus der Ecke zur Sonne hin in sie
+/// eintritt. Ohne ihn ist sie frei. Schnell, im Gang und im Bezug gleich.
+/// Siehe docs/renderer/cinematic.md, „Frei zur Sonne“.
+#[test]
+fn bloecke_an_den_raendern_des_prismas_sperren_die_bits() {
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    let (c, k, e) = ([60, 4, 4], 40, 1e-4);
+    let ecke = |zur_sonne: bool, a: usize| {
+        let hin = (s[a] > 0.0) == zur_sonne;
+        f64::from(c[a]) + if hin { 1.0 - e } else { e }
+    };
+    // Fern: unten und weg von der Sonne, kurz vor dem Ende der Lage k.
+    let fern = [ecke(false, 0), f64::from(c[1]) + e, ecke(false, 2)];
+    let t_fern = (f64::from(k) + 1.0) / s[1] - 2.0 * e / s[1];
+    // Nah: oben und zur Sonne hin, kurz nach dem Eintritt in die Lage k.
+    let nah = [ecke(true, 0), f64::from(c[1]) + 1.0 - e, ecke(true, 2)];
+    let t_nah = (f64::from(k) - 1.0) / s[1] + 2.0 * e / s[1];
+    let chunks: Vec<(i32, i32)> = (0..=3).flat_map(|x| (0..=3).map(move |z| (x, z))).collect();
+    for (p, t) in [(fern, t_fern), (nah, t_nah)] {
+        let block: [i32; 3] = std::array::from_fn(|a| (p[a] + t * s[a]).floor() as i32);
+        assert_eq!(block[1] - c[1], k, "{block:?}");
+        for (mit_block, soll) in [(true, 0.0), (false, 1.0)] {
+            let dir = tempdir();
+            common::write_world_sections(
+                dir.path(),
+                &chunks,
+                0..=6,
+                move |x, y, z| match (x, y, z) {
+                    (_, ..=3, _) | (63, ..=110, 0) => "minecraft:einfarbig",
+                    _ if mit_block && [x, y, z] == block => "minecraft:einfarbig",
+                    _ => "minecraft:air",
+                },
+                |_, _| None,
+            );
+            let world = World::open(dir.path()).unwrap();
+            let sprites = kino_tabelle(&world, Projection::new(16), (0, 111), LOOK);
+            let mut cache = ChunkCache::new(&world, &sprites);
+            let eigen = [c[0], c[1] - 1, c[2]];
+            assert_eq!(cache.frei_zur_sonne(p).unwrap(), !mit_block, "{block:?}");
+            assert_eq!(cache.sonne(p, eigen).unwrap(), soll, "{block:?}");
+            assert_eq!(cache.sonne_im_gang(p, eigen).unwrap(), soll, "{block:?}");
+            assert_eq!(cache.sonne_bezug(p, eigen).unwrap(), soll, "{block:?}");
+        }
+    }
+}
+
 /// Durch eine leere Section zwischen belegten geht der Strahl hindurch und
 /// trifft den Block darüber, ob die Section fehlt oder nur Luft hält;
 /// daneben ist frei. Schnell und im Bezug gleich.

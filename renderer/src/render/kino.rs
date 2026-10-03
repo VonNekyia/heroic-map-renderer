@@ -9,6 +9,7 @@ use crate::assets::colors::Tint;
 
 use super::Kamera;
 use super::look::Look;
+use super::metatile::{Versatz, versaetze};
 use super::pyramid::{LINEAR, linear_wert, to_srgb};
 use super::rasterizer::{BLOCK_FACTOR, Geometrie, blocklicht_farbe, get_brightness, roh};
 use super::tint::BiomeTable;
@@ -37,6 +38,9 @@ pub struct Kino {
     weiss: [f32; 3],
     /// Die Richtung zur Sonne im Blick, siehe [`Look::sonne_im_blick`].
     sonne: [f32; 3],
+    /// Die Versätze des Prismas zur Sonne für die Bits „frei zur Sonne“,
+    /// siehe [`super::metatile::versaetze`].
+    versaetze: Vec<Versatz>,
     /// Das Licht der Sonne auf einer Fläche, die genau zu ihr zeigt: ihre
     /// Farbe mal ihrer Stärke; 0, wo der Dimensionstyp kein Himmelslicht
     /// zeigt (`sky_light_factor` 0).
@@ -111,6 +115,7 @@ impl Kino {
             himmel: Vec::new(),
             weiss,
             sonne: look.sonne_im_blick(kamera),
+            versaetze: versaetze(look.sonne_im_blick(kamera), look.sonne_weite),
             sonne_licht: match typ.sky_light_factor > 0.0 {
                 true => look.sonne_farbe.map(|c| c * look.sonne),
                 false => [0.0; 3],
@@ -210,6 +215,11 @@ impl Kino {
             block: stufe(&self.block_stufen, block),
             schatten: schatten / 255.0,
         }
+    }
+
+    /// Die Versätze des Prismas zur Sonne, siehe [`super::metatile::versaetze`].
+    pub(crate) fn versaetze(&self) -> &[Versatz] {
+        &self.versaetze
     }
 
     /// Die Richtung zur Sonne im Blick.

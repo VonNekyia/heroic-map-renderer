@@ -76,7 +76,7 @@ können.
 | Kennzahl | Grenze |
 |---|---|
 | übersteuert | höchstens 0,1 % |
-| Schatten/Sonne | 0,35 bis 0,66 |
+| Schatten/Sonne | 0,35 bis 0,66 (am Renderer 0,75, siehe [0060](0060-grenze-schatten-sonne-am-renderer.md)) |
 | dL zur Karte in der Sonne | ±3 |
 | C zur Karte in der Sonne | 0,9 bis 1,25 |
 | Farbton | ±5° |

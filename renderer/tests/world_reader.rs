@@ -319,3 +319,39 @@ fn fremde_koordinaten_liefern_none() {
     assert!(chunk.block_at(0, 64, 0).is_none());
     assert!(chunk.highest_block(0, 0).is_none());
 }
+
+/// Die Hülle nennt nur fertig erzeugte Chunks: Unfertige am Rand fallen weg,
+/// auch in einer anderen Region und wenn dadurch eine andere Seite kürzer
+/// wird; mit einem Bereich zählt nur, was darin liegt.
+#[test]
+fn huelle_der_fertig_erzeugten_chunks() {
+    let dir = tempfile::tempdir().unwrap();
+    let fertig = [(0, 0), (5, 5), (2, 3)];
+    let status = move |cx, cz| {
+        if fertig.contains(&(cx, cz)) {
+            common::FULL
+        } else {
+            "minecraft:carvers"
+        }
+    };
+    let stein = |_, _, _| "minecraft:stone";
+    let region_0 = [
+        (0, 0),
+        (5, 5),
+        (2, 3),
+        (7, 0),
+        (0, 8),
+        (5, 0),
+        (0, 5),
+        (7, 7),
+        (31, 31),
+    ];
+    common::write_world_status(dir.path(), &region_0, 0..=0, stein, status);
+    common::write_world_status(dir.path(), &[(-1, 2), (-32, 0)], 0..=0, stein, status);
+    let welt = World::open(dir.path()).unwrap();
+
+    assert_eq!(welt.huelle().unwrap(), Some([0, 0, 6, 6]));
+    let bereich = |b| welt.clone().mit_bereich(Some(b)).huelle().unwrap();
+    assert_eq!(bereich([1, 1, 10, 10]), Some([2, 3, 6, 6]));
+    assert_eq!(bereich([6, 0, 50, 50]), None);
+}

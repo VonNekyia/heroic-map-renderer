@@ -134,8 +134,8 @@ Testwelt in 1,31 statt 1,72 s, Byte für Byte gleich, gemessen in
 ## Nummerierung
 
 Die Nummerierung hängt an der **Welt**, nicht am Ausschnitt: `maxZoom` kommt
-beim ersten Lauf aus der Ausdehnung aller Regionsdateien, und dafür wird
-kein einziger Chunk gelesen (`world_box` in
+beim ersten Lauf aus der Ausdehnung aller Regionsdateien, mit `--area` aus
+dem Rechteck, und dafür wird kein einziger Chunk gelesen (`world_box` in
 [`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs)). Ein
 bestehender Baum behält sie. Zoom 0 hat dabei ohnehin bis zu vier Kacheln:
 das Stapeln endet an den vier Kacheln um den Ursprung, sie sind ihre eigenen

@@ -15,6 +15,7 @@ use super::colors::{Tint, color};
 use super::model::Face;
 use super::pack::{self, Pack};
 use super::{parse_json, read_text};
+use crate::world::Generator;
 
 /// Wie das Spiel die Seiten eines Blocks nach ihrer Richtung abschattiert,
 /// `CardinalLighting.Type` in 26.2.
@@ -323,6 +324,24 @@ struct Tabelle {
     /// `cardinal_light` wie ohne Angabe.
     vorgabe: DimensionType,
     typen: BTreeMap<String, DimensionType>,
+    /// Je Noise Settings des Spiels ihr Wasserspiegel.
+    meere: BTreeMap<String, i32>,
+}
+
+/// Der Wasserspiegel einer Dimension mit diesem Generator in Blöcken, wie
+/// `ChunkGenerator.getSeaLevel` in 26.2 und 26.3: mit Noise Settings ihr
+/// `sea_level`, für die des Spiels aus `dimensionstypen.txt`; flach −63
+/// (`FlatLevelSource`), Debug 63 (`DebugLevelSource`). Für einen fremden
+/// Generator oder Noise Settings aus einem Datenpaket keiner.
+/// Siehe docs/benutzung/welten.md, „Wasserspiegel“.
+pub fn wasserspiegel(generator: &Generator) -> Option<i32> {
+    match generator {
+        Generator::Noise(id) => TABELLE.meere.get(&mit_namensraum(id)).copied(),
+        Generator::NoiseMit(meer) => Some(*meer),
+        Generator::Flat => Some(-63),
+        Generator::Debug => Some(63),
+        Generator::Anderer(_) => None,
+    }
 }
 
 static TABELLE: LazyLock<Tabelle> = LazyLock::new(|| lesen(include_str!("dimensionstypen.txt")));
@@ -341,6 +360,7 @@ fn lesen(text: &str) -> Tabelle {
             water_fog_color: [0; 3],
         },
         typen: BTreeMap::new(),
+        meere: BTreeMap::new(),
     };
     for zeile in text.lines() {
         zeile_lesen(&mut tabelle, zeile)
@@ -377,6 +397,10 @@ fn zeile_lesen(tabelle: &mut Tabelle, zeile: &str) -> Result<()> {
             tabelle.typen.insert(id.to_string(), typ);
             Ok(())
         }
+        ["meer", id, meer] => {
+            tabelle.meere.insert(id.to_string(), meer.parse()?);
+            Ok(())
+        }
         _ => bail!("unbekannte Zeile"),
     }
 }
@@ -387,6 +411,35 @@ mod tests {
 
     const WEISS: Tint = [255; 3];
     const GELB: Tint = [255, 216, 140];
+
+    /// Der Wasserspiegel aus den Noise Settings des Spiels, mit und ohne
+    /// Namensraum, aus der Datei, flach und Debug wie `getSeaLevel` in 26.2
+    /// und 26.3, per javap; für Fremdes keiner.
+    #[test]
+    fn wasserspiegel_wie_im_spiel() {
+        let noise = |id: &str| wasserspiegel(&Generator::Noise(id.to_string()));
+        for (id, meer) in [
+            ("minecraft:overworld", 63),
+            ("minecraft:large_biomes", 63),
+            ("minecraft:amplified", 63),
+            ("minecraft:nether", 32),
+            ("minecraft:end", 0),
+            ("minecraft:caves", 32),
+            ("minecraft:floating_islands", -64),
+        ] {
+            assert_eq!(noise(id), Some(meer), "{id}");
+        }
+        assert_eq!(TABELLE.meere.len(), 7);
+        assert_eq!(noise("overworld"), Some(63));
+        assert_eq!(noise("pack:eigene"), None);
+        assert_eq!(wasserspiegel(&Generator::NoiseMit(40)), Some(40));
+        assert_eq!(wasserspiegel(&Generator::Flat), Some(-63));
+        assert_eq!(wasserspiegel(&Generator::Debug), Some(63));
+        assert_eq!(
+            wasserspiegel(&Generator::Anderer("mod:leer".to_string())),
+            None
+        );
+    }
 
     /// Die Tabelle wie in 26.2 und 26.3: vier Typen, belegt am Client per javap
     /// (`DimensionTypes.bootstrap`, `EnvironmentAttributes`) und an den

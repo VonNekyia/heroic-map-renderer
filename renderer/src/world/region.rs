@@ -30,6 +30,14 @@ pub struct Region {
     /// Verzeichnis der Regionsdatei — dort liegen auch die `.mcc`-Dateien.
     dir: PathBuf,
     file_len: u64,
+    /// Nur die Chunks darin liest die Region, siehe [`World::mit_bereich`].
+    bereich: Option<[i32; 4]>,
+}
+
+/// Liegt der Chunk `(cx, cz)` im Rechteck aus Chunks `[x0, z0, x1, z1]`,
+/// halb offen?
+pub fn im_bereich([x0, z0, x1, z1]: [i32; 4], cx: i32, cz: i32) -> bool {
+    (x0..x1).contains(&cx) && (z0..z1).contains(&cz)
 }
 
 impl Region {
@@ -47,7 +55,13 @@ impl Region {
             file,
             dir: path.parent().unwrap_or(Path::new(".")).to_path_buf(),
             file_len,
+            bereich: None,
         })
+    }
+
+    /// Die Region liest nur Chunks in `bereich`, die übrigen fehlen.
+    pub fn mit_bereich(self, bereich: Option<[i32; 4]>) -> Region {
+        Region { bereich, ..self }
     }
 
     /// Chunk an **Welt**-Chunkkoordinaten, wenn er fertig erzeugt ist, siehe
@@ -61,7 +75,8 @@ impl Region {
     }
 
     /// Chunk an **Welt**-Chunkkoordinaten in jedem Status, wie er in der
-    /// Datei steht. `None` nur für einen leeren Tabelleneintrag.
+    /// Datei steht. `None` für einen leeren Tabelleneintrag und einen Chunk
+    /// ausserhalb des Bereichs.
     ///
     /// Koordinaten aus einer anderen Region sind ein Fehler — ohne die Prüfung
     /// würde die Modulo-Umrechnung still den falschen Chunk liefern.
@@ -78,6 +93,9 @@ impl Region {
                 self.z
             );
         }
+        if self.bereich.is_some_and(|b| !im_bereich(b, cx, cz)) {
+            return Ok(None);
+        }
         let Some(nbt) = self.chunk_nbt(cx, cz)? else {
             return Ok(None);
         };
@@ -87,6 +105,22 @@ impl Region {
                 Some(chunk)
             })
             .with_context(|| format!("Chunk ({cx}, {cz}) aus r.{}.{}.mca", self.x, self.z))
+    }
+
+    /// Die Chunks, die die Tabelle der Datei nennt, in **Welt**-Chunkkoordinaten,
+    /// in jedem Status; mit einem Bereich nur die darin. Gelesen wird nur die
+    /// Tabelle.
+    pub fn vorhanden(&mut self) -> Result<Vec<(i32, i32)>> {
+        let mut tabelle = [0u8; SECTOR as usize];
+        self.file.seek(SeekFrom::Start(0))?;
+        self.file
+            .read_exact(&mut tabelle)
+            .with_context(|| format!("Tabelle von r.{}.{}.mca lesen", self.x, self.z))?;
+        Ok((0..REGION * REGION)
+            .filter(|&i| tabelle[4 * i as usize..][..4] != [0; 4])
+            .map(|i| (self.x * REGION + i % REGION, self.z * REGION + i / REGION))
+            .filter(|&(cx, cz)| self.bereich.is_none_or(|b| im_bereich(b, cx, cz)))
+            .collect())
     }
 
     /// Unkomprimiertes Chunk-NBT, oder `None` für einen leeren Tabelleneintrag.

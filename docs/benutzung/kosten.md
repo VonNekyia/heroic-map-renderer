@@ -111,14 +111,15 @@ auslässt. Mit Grafikkarte zeichnet die Karte, siehe
 
 ## Cinematic
 
-Ein Baum mit `--cinematic` kostet in Phase 1 (#72), ohne Sonne, an Stand
-und Fichtenwald der Testwelt das 1,11- bis 1,21-Fache der Karte ohne
-Grafikkarte im ganzen Lauf, mit Grafikkarte das 1,15- bis 1,28-Fache. Die
-nativen Stufen brauchen das 1,20- bis 1,29-Fache. Die Kacheln wiegen 7 bis
-9 % weniger, die Spitze des Speichers liegt bis 5 % höher. Gemessen in
+Ein Baum mit `--cinematic` kostet mit #73, mit Sonne und Schatten, Wasser,
+Leuchten, Wärme und Bloom, an Stand und Fichtenwald der Testwelt das 2,15-
+bis 3,63-Fache der Karte ohne Grafikkarte im ganzen Lauf. Die Basis braucht
+das 2,69- bis 4,72-Fache, die nativen Stufen das 2,11- bis 3,18-Fache. Die
+Spitze des Speichers liegt 27 bis 35 % höher, die Kacheln wiegen 2 % weniger
+bis 5 % mehr. Cinematic zeichnet immer die CPU. Gemessen in
+[2026-10-03, Cinematic mit Sonne](../messungen/2026-10-03-cinematic-mit-sonne.md).
+In Phase 1 (#72), ohne Sonne, waren es das 1,11- bis 1,21-Fache, siehe
 [2026-10-03, Cinematic, Phase 1](../messungen/2026-10-03-cinematic-phase-1.md).
-Was die Sonne aus #73 dazu kostet, ist gerechnet in
-[0056](../entscheidungen/0056-exakter-strahl-zur-sonne.md).
 
 ## Die grosse Welt
 

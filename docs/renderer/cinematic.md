@@ -58,7 +58,9 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
 - **Herkunft:** alle aus 0058, bis auf `sonne_weite`, `leuchten_ab`,
   `leuchten_voll` und die Werte des Wassers ausser `wasser_spiegel` und
   `wasser_dichte`. Die stehen im Prototyp aus #89, an dem 0058 abgestimmt
-  ist. `sonne_weite` hat 0056 am Prototyp gemessen, siehe
+  ist; welche es dort sind, hält
+  [Cinematic mit Sonne](../messungen/2026-10-03-cinematic-mit-sonne.md),
+  „Aufbau“, fest. `sonne_weite` hat 0056 am Prototyp gemessen, siehe
   [Gang zur Sonne in Stufen](../messungen/2026-10-02-gang-zur-sonne-in-stufen.md).
 - **Grenzen aus 0058:** Am Renderer halten sie 15 von 24 Ansichten der
   Testwelt, am Prototyp 20; Schatten sind heller. Zahlen, Ursache und der
@@ -263,6 +265,12 @@ im Blick, springt aber über, was nichts aufhält:
   ihre Decke dazu ihre Nachbarn. Liegt der Strahl über der Decke seines
   Chunks und über dem Horizont, ist er frei: Er steigt und trifft nichts
   mehr.
+  - **Ein Fix gegen den Prototyp** aus #89: Dessen Horizont nahm nur die
+    Chunks bis zwei weiter zur Sonne hin, 3 × 3. Der Strahl kommt mit
+    `LOOK` diagonal bis vier Chunks weiter in x und fünf in z, genordet bis
+    sechs in x. Ein Turm weiter draussen warf am Prototyp keinen Schatten.
+    Das prüft `ferner_turm_wirft_seinen_schatten` mit einem Turm im
+    fernsten Chunk, den der Strahl erreicht.
 - **Je Section Bits** (`Bits`), sobald ein Strahl sie betritt, einmal je
   Section: die Zellen mit Arbeit, die vollen deckenden Würfel und die
   Zellen, in die ein Modell eines Nachbarn ragt; dazu je Würfel aus

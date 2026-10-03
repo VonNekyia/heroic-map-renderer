@@ -39,8 +39,9 @@ Dazu entschied der Maintainer am 03.10. (#112, issuecomment-5968793257):
 - **Grösse:** Das Tablett wächst mit der Welt. Rand, Wand und Tiefe der
   Platte sind ein fester Anteil von ihr, so wie im Vorbild.
 - **Tiefe über Karten:** Jede Textur bekommt eine Höhenkarte. Aus ihr kommen
-  die Normalen, und mit ihnen ein Licht von oben rechts im Bild, fest im
-  Blick. Das Frontend schattiert jede Fläche einmal je Kamera beim Laden.
+  die Normalen, und mit ihnen ein Licht von oben, fest im Blick. Richtig
+  gestellt nach der Vermessung der Vorlage: leicht von links, 77° über der
+  Tischebene (issuecomment-5969026988), nicht von rechts. Das Frontend schattiert jede Fläche einmal je Kamera beim Laden.
   Mehr Geometrie gibt es nur, wo die Silhouette sie braucht: das Profil des
   Rahmens, je Stufe eine Fläche.
 - **Schatten:** Rahmen und Gegenstände werfen weiche Schatten auf die Platte,

@@ -316,6 +316,10 @@ die Karte. Warum so: [0061](entscheidungen/0061-tablett-im-frontend.md).
 Stand: Geometrie mit Profil, Licht und Schatten, in Flächenfarben. Texturen
 mit Höhenkarten und die Gegenstände als Sprites kommen in eigenen PRs.
 
+- **Schalter:** Rahmen und Tisch gibt es nur im Build mit `SKIN=tablett`,
+  etwa `SKIN=tablett npm run build`. Ohne ihn fällt ihr Code aus dem Bündel,
+  und `seaLevel` und `area` in `map.json` schalten allein nichts ein. Einen
+  anderen Wert weist der Build ab.
 - **Daten:** `seaLevel` und `area` aus `map.json`, zu ergänzen vom
   Backend (#112, Schritt 1). `area` ist `[x0, z0, x1, z1]` in Blöcken der
   Welt, `x1` und `z1` sind die Kanten hinter dem letzten Block. Fehlt eins
@@ -382,12 +386,18 @@ Welt über den Wasserspiegel ragt, steht neben ihrem Bild.
 
 ### Licht und Schatten
 
-- **Licht:** warm von oben rechts im Bild, fest im Blick, so dass es aus jeder
-  Richtung gleich aussieht: 35° über der Waagrechten nach rechts, 50° hoch.
-  Je Fläche gerechnet beim Bauen:
-  - 0,26 Umgebungslicht;
-  - 0,9 diffus nach der Normalen, warm getönt (1 / 0,86 / 0,66);
-  - 0,18 aus der Kamera.
+- **Licht:** von oben, leicht von links im Bild, fest im Blick, so dass es
+  aus jeder Richtung gleich aussieht. So hat es der Researcher an der
+  Vorlage vermessen (#112, issuecomment-5969026988). Je Fläche gerechnet
+  beim Bauen, als Farbe · (0,22 + 0,8 · max(0, n·l)):
+  - l = 0,975 · oben − 0,223 · rechts, 77° über der Tischebene; oben ist die
+    Normale der Platte, rechts die Richtung nach rechts im Bild;
+  - 0,22 Umgebungslicht, 0,8 diffus nach der Normalen;
+  - die Oberkante zeigt so ihre volle Farbe, die linke nahe Wand 0,35 davon,
+    die rechte 0,22: links rund 1,6-mal so hell wie rechts, wie in der
+    Vorlage.
+  - Glanzlichter nach Blinn-Phong auf Messing und Gold kommen mit den
+    Texturen.
 - **Schatten auf die Platte:**
   - Rahmen und Gegenstände werfen ihn, jede Ecke entlang des Lichts auf die
     Ebene der Platte geworfen. Die konvexen Hüllen werden als ein Pfad
@@ -398,7 +408,7 @@ Welt über den Wasserspiegel ragt, steht neben ihrem Bild.
     ihre, und an der Grenze zur fernen Platte bleibt keine Linie.
 - **Saum auf der Karte:**
   - Die Oberkante wirft einen schmalen Schatten auf die Karte, an den Seiten,
-    über die das Licht auf sie fällt.
+    über die das Licht auf sie fällt, also an den beiden linken im Bild.
   - 0,2·w breit, bis 0,4 Deckkraft, nach innen auslaufend.
   - Er liegt über den Kacheln und dunkelt dort auch Gelände leicht ab: die
     einzige Ausnahme von „Vor und hinter der Welt“.

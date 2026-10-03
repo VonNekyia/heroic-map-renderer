@@ -17,6 +17,9 @@ import {
 import { GRUND, grenzen, tablett, type Grenzen, type Rechteck, type Teil } from './tablett';
 import './style.css';
 
+/** Der Schalter `SKIN=tablett` beim Build, gesetzt in vite.config.ts. */
+declare const __TABLETT__: boolean;
+
 /** Was `map.json` aus dem Renderer mitbringt. */
 interface MapInfo {
   tileSize: number;
@@ -867,7 +870,8 @@ async function start(): Promise<void> {
   const bounds = L.latLngBounds(point(left, top), point(right, bottom));
   const blick = projektion(info);
   // Mit Tablett passt die Karte samt Rahmen ins Fenster.
-  const mitTablett = typeof blick !== 'string' && hatTablett(info) ? { ...blick, info } : undefined;
+  const mitTablett =
+    __TABLETT__ && typeof blick !== 'string' && hatTablett(info) ? { ...blick, info } : undefined;
   const rahmen =
     mitTablett && grenzen(mitTablett.info.area, mitTablett.info.seaLevel, mitTablett.p, mitTablett.k);
   const ganz = rahmen ?? info.bounds;

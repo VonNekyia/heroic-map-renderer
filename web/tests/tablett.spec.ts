@@ -219,3 +219,17 @@ test('die Grenzen für das Einpassen umfassen den Rahmen, nicht mehr', () => {
     }
   }
 });
+
+test('das Licht kommt von oben, leicht von links: die linke nahe Wand ist rund 1,6-mal so hell wie die rechte', () => {
+  // Summe der Kanäle, aus `rgb(r g b)`.
+  const hell = (f: Flaeche) => f.farbe.match(/\d+/g)!.reduce((summe, wert) => summe + Number(wert), 0);
+  for (const camera of ['2:1', '8:5']) {
+    const teile = flaechen(stueck(WELTEN[0]!.area, MEER, MIN_Y, kamera(camera, 16), 0));
+    // Nahe Wände zeigen im Blick nach +z, links im Bild, und nach +x, rechts.
+    const wand = (nx: number, nz: number) =>
+      hell(teile.find((f) => f.art === 'wand' && f.n[0] === nx && f.n[2] === nz)!);
+    const verhaeltnis = wand(0, 1) / wand(1, 0);
+    expect(verhaeltnis, camera).toBeGreaterThan(1.4);
+    expect(verhaeltnis, camera).toBeLessThan(1.8);
+  }
+});

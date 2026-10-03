@@ -99,9 +99,16 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
 /** Ein Tablett um die Spalten von -64 bis 63, mit der Oberkante auf Y 0. */
 const TABLETT = { seaLevel: 0, area: [-64, -64, 64, 64] };
 
-test('Rahmen und Tisch liegen um die Kacheln, blenden beim Zoom aus und fangen keine Klicks ab', async ({
-  page,
-}) => {
+test('ohne SKIN=tablett beim Build kein Tablett, auch mit seaLevel und area', async ({ page }) => {
+  await welt(page, TABLETT);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('canvas.tablett')).toHaveCount(0);
+});
+
+test('Rahmen und Tisch liegen um die Kacheln, blenden beim Zoom aus und fangen keine Klicks ab', {
+  tag: '@tablett',
+}, async ({ page }) => {
   await welt(page, TABLETT);
   await page.goto(DEMO);
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();

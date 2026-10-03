@@ -95,15 +95,14 @@ const FARBE = {
 export const GRUND = '#0c0907';
 
 /**
- * Das Licht: warm von oben rechts im Bild, fest im Blick, so dass es aus
- * jeder Richtung gleich aussieht. 35° über der Waagrechten nach rechts, 50°
- * hoch. Dazu wenig Umgebungslicht und ein schwaches Licht aus der Kamera.
+ * Das Licht nach der Vermessung der Vorlage: von oben, leicht von links im
+ * Bild, 77° über der Tischebene, fest im Blick, so dass es aus jeder
+ * Richtung gleich aussieht. `oben` zählt entlang der Normalen der Platte,
+ * `rechts` nach rechts im Bild. Siehe docs/frontend.md, „Licht und Schatten“.
  */
-const LICHT = { azimut: (35 * Math.PI) / 180, hoehe: (50 * Math.PI) / 180 };
-const UMGEBUNG = 0.26;
-const DIFFUS = 0.9;
-const FUELL = 0.18;
-const WARM: Vektor = [1, 0.86, 0.66];
+const LICHT = { oben: 0.975, rechts: -0.223 };
+const UMGEBUNG = 0.22;
+const DIFFUS = 0.8;
 
 const plus = (u: Vektor, v: Vektor): Vektor => [u[0] + v[0], u[1] + v[1], u[2] + v[2]];
 const mal = (s: number, v: Vektor): Vektor => [s * v[0], s * v[1], s * v[2]];
@@ -185,17 +184,14 @@ export function tablett(
   const kante3 = ([x, y, z]: Vektor): Punkt => projiziere(x, y, z, p);
   // Zur Kamera: entlang dieser Achse liegt, was weiter vorn ist.
   const kamera = einheit(genordet ? [0, p.v, p.y] : [p.y, 2 * p.v, p.y]);
+  // Nach rechts im Bild, in der Welt waagrecht.
   const rechts: Vektor = genordet ? [1, 0, 0] : [Math.SQRT1_2, 0, -Math.SQRT1_2];
-  const oben: Vektor = genordet ? [0, 0, -1] : [-Math.SQRT1_2, 0, -Math.SQRT1_2];
-  const waagrecht = plus(mal(Math.cos(LICHT.azimut), rechts), mal(Math.sin(LICHT.azimut), oben));
-  const licht = plus(mal(Math.cos(LICHT.hoehe), waagrecht), [0, Math.sin(LICHT.hoehe), 0]);
+  const licht = plus([0, LICHT.oben, 0], mal(LICHT.rechts, rechts));
 
   const beleuchte = (farbe: string, n: Vektor): string => {
     const zahl = Number.parseInt(farbe.slice(1), 16);
-    const diffus = DIFFUS * Math.max(0, skalar(n, licht));
-    const fuell = FUELL * Math.max(0, skalar(n, kamera));
-    const kanal = (i: number) =>
-      Math.min(255, Math.round(((zahl >> (16 - 8 * i)) & 255) * (UMGEBUNG + diffus * WARM[i]! + fuell)));
+    const hell = UMGEBUNG + DIFFUS * Math.max(0, skalar(n, licht));
+    const kanal = (i: number) => Math.min(255, Math.round(((zahl >> (16 - 8 * i)) & 255) * hell));
     return `rgb(${kanal(0)} ${kanal(1)} ${kanal(2)})`;
   };
 

@@ -41,8 +41,9 @@ also „geschrieben“, nicht „geändert“.
   der nicht Luft ist.
 - **Das Gebiet einer Änderung:** 16 Blöcke rundum; in der Höhe von der
   Unterkante der Dimension bis 16 über dem höheren von altem und neuem
-  höchstem Block; mit Cinematic dazu die Strahlen zur Sonne und der Rand
-  des Bloom. Aufgerundet auf Kacheln der gröbsten nativen Stufe.
+  höchstem Block, mindestens bis 16 über dem höchsten der acht Nachbarn;
+  mit Cinematic dazu die Strahlen zur Sonne und der Rand des Bloom.
+  Aufgerundet auf Kacheln der gröbsten nativen Stufe.
 - **Während des Laufs geschrieben:** Am Ende liest der Lauf die Köpfe noch
   einmal. Ein Chunk mit anderem Stempel ist im Stand unbekannt und gilt
   beim nächsten Mal als geändert, über die volle Höhe.

@@ -3660,7 +3660,7 @@ fn report_missing_textures(assets: &Assets) {
     if !unchecked.is_empty() {
         println!(
             "Blockstates: {} Dateien fragen in multipart, was blocks.txt aus 26.3 nicht kennt; dort \
-             gilt der Text. Der Client von 26.2 gäbe diesen Blöcken kein Modell, einer, der sie \
+             gilt der Text. Der Client von 26.3 gäbe diesen Blöcken kein Modell, einer, der sie \
              kennt, schon. Für neuere Assets blocks.txt neu erzeugen und neu bauen, \
              siehe docs/entwicklung/tabellen.md.",
             unchecked.len()

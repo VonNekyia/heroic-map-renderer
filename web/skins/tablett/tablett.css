@@ -1,14 +1,12 @@
-/* Rahmen und Tisch fangen keine Klicks ab, bleiben beim Vergrössern pixelig
-   und blenden weich aus. Siehe docs/tablett.md, „Zeichnen“. */
+/* Rahmen und Tisch fangen keine Klicks ab und bleiben pixelig, wenn sie mit
+   der Karte wachsen. Siehe docs/tablett.md, „Zeichnen“. */
 .tablett {
   pointer-events: none;
   image-rendering: pixelated;
-  transition: opacity 0.25s;
 }
 
-/* Während des Zooms gleitet die Ebene wie die Kacheln und blendet dabei aus. */
-.leaflet-zoom-anim .tablett.leaflet-zoom-animated {
-  transition:
-    transform 0.25s cubic-bezier(0, 0, 0.25, 1),
-    opacity 0.25s;
+/* Zwischen zwei Stufen verkleinert Leaflet die Kacheln: dann glätten statt
+   Pixel auslassen. Siehe docs/tablett.md, „Zeichnen“. */
+.skin-tablett.tablett-gebrochen .leaflet-tile {
+  image-rendering: auto;
 }

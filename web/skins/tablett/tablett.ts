@@ -6,24 +6,36 @@
  * Siehe docs/tablett.md.
  */
 import type { Grenzen, Kontext, Projektion, Rechteck } from 'heroic-map-renderer/skin-api';
-import type { Rolle } from './stoffe';
+import {
+  bildName,
+  DICHTEN,
+  DIFFUS,
+  einheit,
+  lichtUndBlick,
+  mal,
+  MASS,
+  plus,
+  RAND,
+  type Richtung,
+  UMGEBUNG,
+  type Vektor,
+} from './atlas';
 
 type Punkt = [number, number];
-export type Vektor = [number, number, number];
 
 /** Der Blick, aus dem das Tablett gezeichnet wird, so wie ihn die Grundkarte reicht. */
 export type Blick = Pick<Kontext, 'projektion' | 'k' | 'projiziere'>;
 
-export type Art = 'tisch' | 'zarge' | 'boden' | 'rand' | 'leiste' | 'wand' | 'pfeiler' | 'ding';
+export type Art = 'tisch' | 'zarge' | 'boden' | 'rand' | 'wand' | 'innen' | 'pfeiler' | 'ding';
 
 /**
- * Die Textur einer Fläche: ihre Rolle, ihre Kanten im Blick in Blöcken und
- * deren Längen in w. Siehe docs/tablett.md, „Texturen“.
+ * Die Textur einer Fläche: das Bild im Atlas, an einer Wand dazu das Bild
+ * ihrer Stösse, und die Längen der Kanten a und b in w. Siehe
+ * docs/tablett.md, „Texturen“.
  */
 export interface Textur {
-  rolle: Rolle;
-  a3: Vektor;
-  b3: Vektor;
+  bild: string;
+  stoss?: string;
   la: number;
   lb: number;
 }
@@ -37,7 +49,7 @@ export interface Flaeche {
   /** Die äussere Normale im Blick, Länge 1. */
   n: Vektor;
   art: Art;
-  /** CSS-Farbe, schon im Licht; mit Textur die Farbe, bis sie gerechnet ist. */
+  /** CSS-Farbe, schon im Licht; mit Textur die Farbe, wenn ihr Bild fehlt. */
   farbe: string;
   /** Liegt vor den Kacheln. Siehe docs/tablett.md, „Vor und hinter der Welt“. */
   nah: boolean;
@@ -80,18 +92,10 @@ export function imBlick([x0, z0, x1, z1]: Rechteck, k: number): Rechteck {
   return [x0, z0, x1, z1];
 }
 
-/**
- * Die Breite w der Oberkante als Anteil der Kante der Welt, nach der
- * Vermessung der Vorlage. Siehe docs/tablett.md, „Masse“.
- */
-const RAND = 0.013;
-
 /** Grundfarben, bevor das Licht sie trifft. */
 const FARBE = {
   rand: '#8a542c',
-  leiste: '#784826',
   wand: '#4e2c18',
-  fuge: '#140a04',
   pfeiler: '#6e4224',
   marmor: '#1e2620',
   tischkante: '#5c341a',
@@ -107,39 +111,15 @@ const FARBE = {
 /** Hinter dem Tisch: dunkel. */
 export const GRUND = '#0c0907';
 
-/**
- * Das Licht nach der Vermessung der Vorlage: von oben, leicht von links im
- * Bild, 77° über der Tischebene, fest im Blick, so dass es aus jeder
- * Richtung gleich aussieht. `oben` zählt entlang der Normalen der Platte,
- * `rechts` nach rechts im Bild. Siehe docs/tablett.md, „Licht und Schatten“.
- */
-const LICHT = { oben: 0.975, rechts: -0.223 };
-const UMGEBUNG = 0.22;
-const DIFFUS = 0.8;
-
-const plus = (u: Vektor, v: Vektor): Vektor => [u[0] + v[0], u[1] + v[1], u[2] + v[2]];
-const mal = (s: number, v: Vektor): Vektor => [s * v[0], s * v[1], s * v[2]];
 const skalar = (u: Vektor, v: Vektor) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
 const kreuz = (u: Vektor, v: Vektor): Vektor => [
   u[1] * v[2] - u[2] * v[1],
   u[2] * v[0] - u[0] * v[2],
   u[0] * v[1] - u[1] * v[0],
 ];
-const einheit = (v: Vektor): Vektor => mal(1 / Math.hypot(...v), v);
 
-/**
- * Licht und Blick im Blick: `kamera` zeigt zur Kamera, `halb` liegt zwischen
- * Licht und Kamera, für das Glanzlicht. Siehe docs/tablett.md, „Licht und
- * Schatten“.
- */
-export function lichtUndBlick(p: Projektion) {
-  const genordet = p.azimuth === 'north';
-  const kamera = einheit(genordet ? [0, p.v, p.y] : [p.y, 2 * p.v, p.y]);
-  // Nach rechts im Bild, in der Welt waagrecht.
-  const rechts: Vektor = genordet ? [1, 0, 0] : [Math.SQRT1_2, 0, -Math.SQRT1_2];
-  const licht = plus([0, LICHT.oben, 0], mal(LICHT.rechts, rechts));
-  return { kamera, licht, halb: einheit(plus(licht, kamera)), umgebung: UMGEBUNG, diffus: DIFFUS };
-}
+/** Die Richtung einer waagrechten Achse. */
+const richtung = ([x, , z]: Vektor): Richtung => (x > 0.5 ? '+x' : x < -0.5 ? '-x' : z > 0.5 ? '+z' : '-z');
 
 /** Die konvexe Hülle von Punkten, gegen den Uhrzeigersinn (monotone Kette). */
 function huelle(punkte: Punkt[]): Punkt[] {
@@ -158,15 +138,15 @@ function huelle(punkte: Punkt[]): Punkt[] {
 }
 
 /**
- * Die Masse im Blick, alle als Anteil der Welt: die Kanten der Welt, der Rand
- * w, die Tiefe D vom Wasserspiegel bis zur Platte und die Breite der Pfeiler.
- * Siehe docs/tablett.md, „Masse“.
+ * Die Masse im Blick, in Blöcken: die Kanten der Welt, der Rand w, die Tiefe
+ * D vom Wasserspiegel bis zur Platte und die Breite der Pfeiler. Ohne `w`
+ * gilt der Anteil `RAND` der Kante. Siehe docs/tablett.md, „Masse“.
  */
-function masse(area: Rechteck, k: number) {
+function masse(area: Rechteck, k: number, w?: number) {
   const [x0, z0, x1, z1] = imBlick(area, k);
   const kante = (x1 - x0 + (z1 - z0)) / 2;
-  const w = RAND * kante;
-  return { x0, z0, x1, z1, kante, w, D: 6.4 * w, pfeiler: 2.7 * w };
+  const rand = w ?? RAND * kante;
+  return { x0, z0, x1, z1, kante, w: rand, D: MASS.tiefe * rand, pfeiler: MASS.pfeiler * rand };
 }
 
 /** Die Grenzen des Rahmens im Bild. Auf sie passt die Karte die ganze Ansicht ein. */
@@ -180,13 +160,52 @@ export function grenzen(area: Rechteck, meer: number, { k, projiziere }: Blick):
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
+/** So viel des Fensters soll der Rahmen in der Gesamtansicht füllen, wie in der Vorlage. */
+const FUELLUNG = 0.9;
+
+/**
+ * Die Stufe der Gesamtansicht für ein Fenster von `breite` × `hoehe`: die
+ * Stufe, auf der die Grenzen `FUELLUNG` des Fensters füllen, oder die
+ * nächste, auf der Leaflet die Kacheln nicht vergrössert. Nie tiefer als
+ * die ganze Stufe, auf die Leaflet die Grenzen einpasst.
+ * Siehe docs/entscheidungen/0067-gesamtansicht-zwischen-zwei-stufen.md.
+ */
+export function gesamtstufe([links, oben, rechts, unten]: Grenzen, maxZoom: number, breite: number, hoehe: number): number {
+  const voll = maxZoom + Math.log2(Math.min(breite / (rechts - links), hoehe / (unten - oben)));
+  const ziel = voll + Math.log2(FUELLUNG);
+  // So rundet Leaflet in `getBoundsZoom`, bevor es abrundet.
+  const ganz = Math.floor(Math.round(voll * 100) / 100);
+  // Leaflet nimmt die Kacheln der gerundeten Stufe: Ab einem Bruch von 0,5
+  // verkleinert es die der Stufe darüber, darunter vergrösserte es die der
+  // Stufe darunter. Über der feinsten Stufe vergrösserte es immer.
+  const erlaubt = (z: number) => Number.isInteger(z) || (z - Math.floor(z) >= 0.5 && z < maxZoom);
+  const stufen = [ziel, ganz + 0.5, ganz].filter((z) => z >= ganz && z <= Math.max(voll, ganz) && erlaubt(z));
+  return stufen.reduce((a, b) => (Math.abs(b - ziel) < Math.abs(a - ziel) ? b : a));
+}
+
+/**
+ * Das Raster des Tabletts bei `s` Pixeln des Bildschirms je Pixel der
+ * feinsten Stufe: die Dichte des Atlas, die Pixel, die ein Texel waagrecht
+ * breit ist, und die Breite w in Blöcken, die dazu gehört. Ein Texel ist
+ * 1 px breit, solange es einen Atlas so dicht gibt, sonst ganze Pixel. w
+ * liegt so nahe am Anteil `RAND` der Kante, wie es geht. Siehe
+ * docs/tablett.md, „Ganze Pixel“.
+ */
+export function raster(area: Rechteck, { u }: Projektion, s: number): { dichte: number; pixel: number; w: number } {
+  const band = RAND * (area[2] - area[0]) * u * s;
+  const [duenn, dicht] = [DICHTEN[0], DICHTEN[DICHTEN.length - 1]!];
+  const pixel = Math.max(1, Math.ceil(band / (dicht + 0.5)));
+  const dichte = Math.min(dicht, Math.max(duenn, Math.round(band / pixel)));
+  return { dichte, pixel, w: (dichte * pixel) / (u * s) };
+}
+
 /**
  * Tisch, Tablett und Gegenstände im Blick mit k Vierteldrehungen, in der
  * Reihenfolge, in der sie gemalt werden: Ein späteres Teil deckt ein
  * früheres. `meer` ist `seaLevel`, `minY` die Unterkante der Welt: So weit
  * reicht ihr Schnitt, den die Zarge des Tischs vor ihr verdeckt. `ansicht`
  * ist das Fenster bei der ganzen Karte; an ihm liegt die Vorderkante des
- * Tischs.
+ * Tischs. `rand` ist w in Blöcken, ohne Angabe der Anteil `RAND` der Kante.
  */
 export function tablett(
   area: Rechteck,
@@ -194,15 +213,16 @@ export function tablett(
   minY: number,
   { projektion: p, k, projiziere }: Blick,
   ansicht: Grenzen,
+  rand?: number,
 ): Teil[] {
-  const { x0, z0, x1, z1, kante, w, D, pfeiler } = masse(area, k);
+  const { x0, z0, x1, z1, kante, w, D, pfeiler } = masse(area, k, rand);
   const genordet = p.azimuth === 'north';
   const [al, ao, ar, au] = ansicht;
   // Über die Ansicht hinaus, auch eine Stufe weiter draussen: so weit reicht
   // der Tisch hinten und an den Seiten, so tief die Zarge.
   const weit = 2 * kante + (2 * (ar - al + (au - ao))) / Math.min(p.u, p.v);
   const zarge = Math.max(weit, meer - minY);
-  const B = 0.05 * kante;
+  const B = MASS.tischkante * w;
   const abstand = 0.04 * kante;
 
   // Höhen zählen ab dem Wasserspiegel.
@@ -234,30 +254,19 @@ export function tablett(
   /**
    * Ein Rechteck aus Ecke o und Kanten a und b. `aussen` zeigt grob nach
    * aussen und legt die Normale fest. Was von der Kamera wegzeigt, fällt weg.
-   * Mit `rolle` bekommt es eine Textur; ihre Koordinaten laufen entlang a
-   * und b, in w.
+   * Mit `textur`, dem Namen eines Bilds im Atlas, liegt dieses Bild darauf:
+   * seine Breite entlang a, seine Höhe entlang b, ab der Ecke o.
    */
-  const rechteck = (
-    o: Vektor,
-    a: Vektor,
-    b: Vektor,
-    aussen: Vektor,
-    art: Art,
-    farbe: string,
-    rolle?: Rolle,
-  ): Flaeche[] => {
+  const rechteck = (o: Vektor, a: Vektor, b: Vektor, aussen: Vektor, art: Art, farbe: string, textur?: string): Flaeche[] => {
     let n = einheit(kreuz(a, b));
     if (skalar(n, aussen) < 0) n = mal(-1, n);
     if (skalar(n, kamera) <= 1e-9) return [];
     const nah = fussNah([o, plus(o, a), plus(o, b), plus(plus(o, a), b)]);
     const flaeche: Flaeche = { form: 'flaeche', o: bild(o), a: kante3(a), b: kante3(b), n, art, farbe: beleuchte(farbe, n), nah };
-    if (rolle) flaeche.textur = { rolle, a3: a, b3: b, la: Math.hypot(...a) / w, lb: Math.hypot(...b) / w };
+    if (textur) flaeche.textur = { bild: textur, la: Math.hypot(...a) / w, lb: Math.hypot(...b) / w };
     return [flaeche];
   };
-  /**
-   * Ein Quader von–bis in x, y und z: erst die Seiten, dann oben. Die Kante
-   * b der Seiten zeigt nach oben. `rollen` gibt Seiten und Deckel eine Textur.
-   */
+  /** Ein Quader von–bis in x, y und z: erst die Seiten, dann oben. */
   const quader = (
     [qx0, qx1]: [number, number],
     [qy0, qy1]: [number, number],
@@ -265,16 +274,14 @@ export function tablett(
     art: Art,
     farbe: string,
     mitOben = true,
-    rollen?: [seite: Rolle | undefined, oben: Rolle],
   ): Flaeche[] => {
     const [dx, dy, dz] = [qx1 - qx0, qy1 - qy0, qz1 - qz0];
-    const [seite, oben] = rollen ?? [];
     return [
-      ...rechteck([qx0, qy0, qz1], [dx, 0, 0], [0, dy, 0], [0, 0, 1], art, farbe, seite),
-      ...rechteck([qx0, qy0, qz0], [dx, 0, 0], [0, dy, 0], [0, 0, -1], art, farbe, seite),
-      ...rechteck([qx1, qy0, qz0], [0, 0, dz], [0, dy, 0], [1, 0, 0], art, farbe, seite),
-      ...rechteck([qx0, qy0, qz0], [0, 0, dz], [0, dy, 0], [-1, 0, 0], art, farbe, seite),
-      ...(mitOben ? rechteck([qx0, qy1, qz0], [dx, 0, 0], [0, 0, dz], [0, 1, 0], art, farbe, oben) : []),
+      ...rechteck([qx0, qy0, qz1], [dx, 0, 0], [0, dy, 0], [0, 0, 1], art, farbe),
+      ...rechteck([qx0, qy0, qz0], [dx, 0, 0], [0, dy, 0], [0, 0, -1], art, farbe),
+      ...rechteck([qx1, qy0, qz0], [0, 0, dz], [0, dy, 0], [1, 0, 0], art, farbe),
+      ...rechteck([qx0, qy0, qz0], [0, 0, dz], [0, dy, 0], [-1, 0, 0], art, farbe),
+      ...(mitOben ? rechteck([qx0, qy1, qz0], [dx, 0, 0], [0, 0, dz], [0, 1, 0], art, farbe) : []),
     ];
   };
 
@@ -304,19 +311,21 @@ export function tablett(
 
   // Zarge, dann die Platte aus Marmor in einer Holzkante. Die nahen Stücke
   // liegen noch einmal vor den Kacheln; sie überlappen, damit keine Naht
-  // bleibt.
-  const platte = (qx: [number, number], qz: [number, number], art: Art, farbe: string, rolle?: Rolle) =>
-    quader(qx, [-D, -D], qz, art, farbe, true, rolle && [undefined, rolle]);
+  // bleibt. Die Holzkante trägt ihr Bild entlang, von innen nach aussen.
+  const platte = ([qx0, qx1]: [number, number], [qz0, qz1]: [number, number], art: Art, farbe: string) =>
+    rechteck([qx0, -D, qz0], [qx1 - qx0, 0, 0], [0, 0, qz1 - qz0], [0, 1, 0], art, farbe);
   const marmor = (qx: [number, number], qz: [number, number]) =>
     platte(qx, qz, 'tisch', FARBE.marmor).map((f): Flaeche => ({ ...f, muster: 'marmor' }));
+  const holzkante = (o: Vektor, entlang: Vektor, laenge: number, raus: Vektor) =>
+    rechteck(o, mal(laenge, entlang), mal(B, raus), [0, 1, 0], 'tisch', FARBE.tischkante, bildName(p.azimuth, 'tischkante', richtung(raus)));
   const platten = [
     ...quader([tx0, tx1], [-D - zarge, -D], [tz0, tz1], 'zarge', FARBE.zarge, false),
     ...platte([tx0, tx1], [tz0, tz1], 'tisch', FARBE.tischkante),
     ...marmor([tx0 + B, tx1 - B], [tz0 + B, tz1 - B]),
     ...marmor([tx0 + B, tx1 - B], [z1, tz1 - B]),
     ...marmor([x1, tx1 - B], [tz0 + B, tz1 - B]),
-    ...platte([tx0, tx1], [tz1 - B, tz1], 'tisch', FARBE.tischkante, 'tischkante'),
-    ...platte([tx1 - B, tx1], [tz0, tz1], 'tisch', FARBE.tischkante, 'tischkante'),
+    ...holzkante([tx0, -D, tz1 - B], [1, 0, 0], tx1 - tx0, [0, 0, 1]),
+    ...holzkante([tx1 - B, -D, tz0], [0, 0, 1], tz1 - tz0, [1, 0, 0]),
   ];
   // Wo in area keine Welt liegt, zeigt das Tablett seinen Boden.
   const boden = platte([x0, x1], [z0, z1], 'boden', FARBE.boden);
@@ -350,52 +359,43 @@ export function tablett(
       .flatMap(({ q, farbe }) => quader(q[0], q[1], q[2], 'ding', farbe)),
   ) as [Flaeche[], Flaeche[]];
 
-  // Der Rahmen. Das Profil im Schnitt, von innen oben nach aussen unten: d
-  // ab der Kante der Welt nach aussen, y ab dem Wasserspiegel. Jeder Punkt
-  // gibt Art, Farbe und Rolle der Stufe bis zum nächsten: Oberkante flach,
-  // drei Schrägen, Fries zwischen oberer und unterer Leiste, Fuge, Sockel bis
-  // zur Platte bei −D. Nichts liegt über dem Wasserspiegel.
-  const profil: [d: number, y: number, art: Art, farbe: string, rolle: Rolle][] = [
-    [0, 0, 'rand', FARBE.rand, 'oberkante'],
-    [0.45 * w, 0, 'rand', FARBE.rand, 'schraege'],
-    [0.68 * w, -0.04 * w, 'rand', FARBE.rand, 'schraege'],
-    [0.86 * w, -0.12 * w, 'rand', FARBE.rand, 'schraege'],
-    [w, -0.25 * w, 'leiste', FARBE.leiste, 'leiste'],
-    [1.1 * w, -0.25 * w, 'leiste', FARBE.leiste, 'leiste'],
-    [1.1 * w, -0.6 * w, 'leiste', FARBE.leiste, 'leiste'],
-    [w, -0.6 * w, 'wand', FARBE.wand, 'fries'],
-    [w, -3.28 * w, 'leiste', FARBE.leiste, 'leiste'],
-    [1.1 * w, -3.28 * w, 'leiste', FARBE.leiste, 'leiste'],
-    [1.1 * w, -3.63 * w, 'leiste', FARBE.leiste, 'leiste'],
-    [0.9 * w, -3.63 * w, 'wand', FARBE.fuge, 'fuge'],
-    [0.9 * w, -4.4 * w, 'leiste', FARBE.leiste, 'sockel'],
-    [1.15 * w, -4.4 * w, 'leiste', FARBE.leiste, 'sockel'],
-    [1.15 * w, -D, 'leiste', FARBE.leiste, 'sockel'],
-  ];
+  // Der Rahmen, je Seite drei Flächen: die Innenseite bis zum Boden, das
+  // Band der Oberkante auf dem Wasserspiegel und die Wand von seiner
+  // Aussenkante bis zur Platte. Das Profil dazwischen, Lippe, Schrägen,
+  // Leisten, Fries, Fuge und Sockel, liegt in ihren Bildern. Nichts liegt
+  // über dem Wasserspiegel. Siehe docs/tablett.md, „Masse“.
+  const runter: Vektor = [0, -D, 0];
   /**
    * Eine Seite: Anfang an einer Ecke der Welt, Richtung entlang, Länge,
-   * Richtung nach aussen. Zuerst die Innenseite bis zum Boden: Wo Welt
-   * liegt, deckt sie sie; wo keine liegt, schliesst sie das Tablett.
+   * Richtung nach aussen. Zuerst die Innenseite: Wo Welt liegt, deckt sie
+   * sie; wo keine liegt, schliesst sie das Tablett.
    */
-  const seite = (start: Vektor, entlang: Vektor, laenge: number, raus: Vektor): Flaeche[] => [
-    ...rechteck(start, mal(laenge, entlang), [0, -D, 0], mal(-1, raus), 'wand', FARBE.wand, 'innen'),
-    ...profil.slice(0, -1).flatMap(([d0, y0, art, farbe, rolle], i) => {
-      const [d1, y1] = profil[i + 1]!;
-      const o = plus(plus(start, mal(d0, raus)), [0, y0, 0]);
-      const quer = plus(mal(d1 - d0, raus), [0, y1 - y0, 0]);
-      return rechteck(o, mal(laenge, entlang), quer, plus(mal(y0 - y1, raus), [0, d1 - d0, 0]), art, farbe, rolle);
-    }),
-  ];
-  const ecke = (cx: number, cz: number, sx: number, sz: number) =>
-    quader(
-      sx < 0 ? [cx - pfeiler, cx] : [cx, cx + pfeiler],
-      [-D, 0],
-      sz < 0 ? [cz - pfeiler, cz] : [cz, cz + pfeiler],
-      'pfeiler',
-      FARBE.pfeiler,
-      true,
-      ['pfeiler', 'kappe'],
-    );
+  const seite = (start: Vektor, entlang: Vektor, laenge: number, raus: Vektor): Flaeche[] => {
+    const name = (rolle: 'oben' | 'wand' | 'stoss') => bildName(p.azimuth, rolle, richtung(raus));
+    const a = mal(laenge, entlang);
+    return [
+      ...rechteck(start, a, runter, mal(-1, raus), 'innen', FARBE.wand),
+      ...rechteck(start, a, mal(w, raus), [0, 1, 0], 'rand', FARBE.rand, name('oben')),
+      ...rechteck(plus(start, mal(w, raus)), a, runter, raus, 'wand', FARBE.wand, name('wand')).map(
+        (f): Flaeche => ({ ...f, textur: { ...f.textur!, stoss: name('stoss') } }),
+      ),
+    ];
+  };
+  /** Ein Pfeiler an der Ecke (cx, cz), nach (sx, sz) hinaus: erst die Seiten, dann der Deckel. */
+  const ecke = (cx: number, cz: number, sx: number, sz: number): Flaeche[] => {
+    const [qx0, qx1] = sx < 0 ? [cx - pfeiler, cx] : [cx, cx + pfeiler];
+    const [qz0, qz1] = sz < 0 ? [cz - pfeiler, cz] : [cz, cz + pfeiler];
+    const name = (r?: Richtung) => bildName(p.azimuth, r ? 'pfeiler' : 'kappe', r);
+    const flanke = (o: Vektor, entlang: Vektor, raus: Vektor) =>
+      rechteck(o, mal(pfeiler, entlang), runter, raus, 'pfeiler', FARBE.pfeiler, name(richtung(raus)));
+    return [
+      ...flanke([qx0, 0, qz1], [1, 0, 0], [0, 0, 1]),
+      ...flanke([qx0, 0, qz0], [1, 0, 0], [0, 0, -1]),
+      ...flanke([qx1, 0, qz0], [0, 0, 1], [1, 0, 0]),
+      ...flanke([qx0, 0, qz0], [0, 0, 1], [-1, 0, 0]),
+      ...rechteck([qx0, 0, qz0], [pfeiler, 0, 0], [0, 0, pfeiler], [0, 1, 0], 'pfeiler', FARBE.pfeiler, name()),
+    ];
+  };
   // Die Reihenfolge nach `vorne`, die Ecken mit der Summe ihrer Seiten:
   // ferne Ecke, ferne Seiten, seitliche Ecken, nahe Seiten, nahe Ecke. So
   // deckt das Nähere das Fernere.

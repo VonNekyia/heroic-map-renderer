@@ -7,6 +7,7 @@ code:
   - web/src/skin-api.ts
   - web/src/skin-modul.d.ts
   - web/eslint.config.js
+  - web/tsconfig.json
   - web/playwright.config.ts
   - web/src/style.css
   - web/index.html
@@ -344,16 +345,23 @@ Der einzige Skin bisher: [Tablett](tablett.md).
   - Ein Skin importiert nur aus seinem Ordner, Leaflet und
     `heroic-map-renderer/skin-api`, diese nur mit `import type`; den Namen
     kennt `paths` in `web/tsconfig.json`. Seine Tests dürfen dazu
-    Playwright, Node und `web/tests/kamera.ts`.
+    Playwright, Node und `web/tests/kamera.ts`, seine Skripte in
+    `werkzeug/` Node.
   - Die Grundkarte importiert keinen Skin, und `virtual:skin` nur per
     `import()`.
 - **Ordner** wie ein Paket: `web/skins/<name>/` mit `package.json`,
-  `index.ts`, Stylesheet und Tests. Einen Worker lädt ein Skin mit
-  `new Worker(new URL('./datei.ts', import.meta.url), { type: 'module' })`;
-  Vite baut ihn als eigene Datei, und die Content-Security-Policy erlaubt
-  ihn über `default-src 'self'`. Leaflet nimmt ein Skin aus `web/`
+  `index.ts`, Stylesheet und Tests. Leaflet nimmt ein Skin aus `web/`
   (`resolve.dedupe`), auch wenn er ausserhalb liegt. Den Nachweis führt
   `web/skins/tablett/tests/auslagern.spec.ts`.
+- **Bilder** nimmt ein Skin mit
+  `import.meta.glob('./bilder/*.png', { query: '?url&no-inline', … })`: Vite
+  legt jedes als eigene Datei ab, und die Content-Security-Policy erlaubt
+  sie über `default-src 'self'`. Als `data:`, was Vite bei kleinen Bildern
+  sonst täte, verböte sie sie.
+- **Skripte,** die einem Skin Bilder erzeugen, liegen in seinem Ordner
+  `werkzeug/` und laufen von Hand unter Node, nicht im Build. Node findet
+  ein Modul nur mit seiner Endung; dafür erlaubt `web/tsconfig.json`
+  Importe mit `.ts` (`allowImportingTsExtensions`).
 - **Texte** kommen aus der Build-Konfiguration: `titel` aus `SITE_TITLE`,
   dazu je `SKIN_TEXT_<NAME>` ein Eintrag `<name>`. Was nicht ins Repository
   gehört, etwa eine Domain, erreicht einen Skin nur so.

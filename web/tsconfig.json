@@ -13,6 +13,9 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "noEmit": true,
+    // Die Skripte eines Skins in werkzeug/ laufen unter Node, und Node
+    // findet ein Modul nur mit seiner Endung.
+    "allowImportingTsExtensions": true,
     // Skins nehmen die Schnittstelle unter diesem Namen, nur als Typen.
     "paths": { "heroic-map-renderer/skin-api": ["./src/skin-api.ts"] }
   },

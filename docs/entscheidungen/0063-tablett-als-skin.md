@@ -14,6 +14,14 @@ code:
 
 # 0063: Tablett als optionaler Skin
 
+In Teilen abgelöst durch
+[0067](0067-gesamtansicht-zwischen-zwei-stufen.md): Gezeichnet wird einmal
+für die Gesamtansicht statt für `fitZoom`; sie darf zwischen zwei
+Zoomstufen liegen, und ausgeblendet ist das Tablett ab der nächsten ganzen
+Stufe darüber. Diese Punkte, „Einmal für `fitZoom`“ und „Zoom“, löst
+[0068](0068-tablett-auf-jeder-stufe.md) ab: Das Tablett bleibt auf jeder
+Stufe sichtbar und wird je Ansicht gezeichnet.
+
 ## Anlass
 
 Nach [0061](0061-tablett-im-frontend.md) lag das Tablett fest in der Karte:

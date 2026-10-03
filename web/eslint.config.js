@@ -20,7 +20,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['tests/**', 'skins/*/tests/**', 'playwright.config.ts', 'vite.config.ts', 'lighthouserc.cjs'],
+    files: ['tests/**', 'skins/*/tests/**', 'skins/*/werkzeug/**', 'playwright.config.ts', 'vite.config.ts', 'lighthouserc.cjs'],
     languageOptions: { globals: globals.node },
   },
   {
@@ -61,6 +61,16 @@ export default tseslint.config(
             },
           ],
         },
+      ],
+    },
+  },
+  {
+    // Die Skripte eines Skins, die seine Bilder erzeugen, dazu Node.
+    files: ['skins/*/werkzeug/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [{ regex: '^(?!heroic-map-renderer/skin-api$|\\./|\\.\\./[^.]|node:)', message: GRENZE }] },
       ],
     },
   },

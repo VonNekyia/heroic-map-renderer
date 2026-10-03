@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -295,6 +295,22 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   [`web/vite.config.ts`](../web/vite.config.ts); ein Betreiber setzt sie
   in seinem Server so oder strenger. Liegen die Kacheln auf einer anderen
   Domain als die Seite, brauchen `img-src` und `connect-src` diese Domain.
+- **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
+  Browser danach den neuen Stand zeigt:
+  - **Betreiber** setzen für `tiles/` `Cache-Control: no-cache`, in nginx
+    etwa `location /tiles/ { add_header Cache-Control no-cache; }`. Der
+    Browser fragt dann je Kachel mit `ETag` oder `Last-Modified` nach, und
+    für eine unveränderte kommt ein kurzes 304.
+  - **Ohne den Header** schätzt der Browser die Frische selbst, üblich 10 %
+    der Zeit seit `Last-Modified` (RFC 9111, 4.2.2). Eine Kachel, die 30
+    Tage unverändert war, zeigt er nach einem neuen Lauf bis etwa 3 Tage
+    lang alt.
+  - **Vite** liefert im Dev-Server und mit `npm run preview` schon so aus:
+    `no-cache` mit `ETag`.
+  - **`map.json`, `trees.json` und die Höhen** holt das Frontend selbst mit
+    `cache: 'no-cache'`, gleich welche Header der Server setzt.
+  - **Eine offene Seite** zeigt Kacheln, die sie schon geladen hat, bis zum
+    Neuladen; der Browser fragt ein Bild der Seite nicht noch einmal nach.
 - **Adresse, Titel, Beschreibung, Bild:** Der Betreiber setzt sie beim
   Build, etwa
   `SITE_URL=https://example.org/karte/ SITE_TITLE="Karte von …" npm run build`.

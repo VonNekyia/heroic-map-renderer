@@ -267,7 +267,9 @@ impl ChunkCache<'_> {
                 continue;
             }
             let (col, bit) = ((r[2] * 16 + r[0]) as usize, 1u16 << r[1]);
-            if bits.wuerfel[col] & bit != 0 {
+            // Über dem eigenen Block kann eine obere Hälfte nichts bewirken,
+            // siehe `ChunkCache::wirkung`.
+            if bits.wuerfel[col] & bit != 0 && c != [eigen[0], eigen[1] + 1, eigen[2]] {
                 return Ok(0.0);
             }
             if bits.arbeit[col] & bit != 0 {
@@ -523,8 +525,10 @@ impl ChunkCache<'_> {
     }
 
     /// Was der Block `b` im Blick mit `family` dem Strahl `p0 + t·d` bis zur
-    /// Weite entgegenstellt. Die Bodenpflanze `eigen`, auf der der Strahl
-    /// beginnt, und ihre obere Hälfte bewirken nichts.
+    /// Weite entgegenstellt. Ist der Block `eigen`, auf dem der Strahl
+    /// beginnt, eine Bodenpflanze, bewirken er und seine obere Hälfte
+    /// nichts, auch wenn die selbst keine Bodenpflanze ist, wie die Blüte
+    /// der Sonnenblume.
     pub(super) fn wirkung(
         &mut self,
         b: [i32; 3],
@@ -538,8 +542,13 @@ impl ChunkCache<'_> {
         let Some(form) = family.sonne.as_ref().filter(|form| !form.leer) else {
             return Ok(Wirkung::Nichts);
         };
-        if form.pflanze
-            && (b == eigen || (b == [eigen[0], eigen[1] + 1, eigen[2]] && family.obere_haelfte()))
+        let oben = b == [eigen[0], eigen[1] + 1, eigen[2]] && family.obere_haelfte();
+        if (b == eigen && form.pflanze)
+            || (oben
+                && self
+                    .family_at(eigen[0], eigen[1], eigen[2])?
+                    .and_then(|f| f.sonne.as_ref())
+                    .is_some_and(|f| f.pflanze))
         {
             return Ok(Wirkung::Nichts);
         }

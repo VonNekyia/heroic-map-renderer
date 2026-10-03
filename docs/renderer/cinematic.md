@@ -335,13 +335,16 @@ je Block, statt ihn zu decken, wie in 0058:
   und der Vorlage des Seegrases (`block/template_seagrass`). In 26.2 sind
   das 85 Blöcke, gezählt an den Modellen des Client: 84 ganz, dazu die
   untere Hälfte der Sonnenblume; ihre Blüte oben hat ein eigenes Modell.
-- **Nicht** dämpft die Pflanze, auf der der Strahl beginnt, und von ihr
-  aus der Block darüber, wenn er ihre obere Hälfte ist
-  (`Family::obere_haelfte`).
+- **Nichts bewirken** die Bodenpflanze, auf der der Strahl beginnt, und
+  der Block darüber, wenn er ihre obere Hälfte ist
+  (`Family::obere_haelfte`), auch wenn die selbst keine Bodenpflanze ist:
+  So wirft die Blüte der Sonnenblume keinen Schatten auf ihren Stiel. Über
+  einem Block, der keine Bodenpflanze ist, deckt eine obere Hälfte wie
+  jeder Block.
 - **Licht:** Flächen ohne `shade` bekommen das Licht einer Fläche nach
   oben, siehe „Sonne“.
 - Getestet: `bodenpflanze_nach_der_vorlage` in `renderer/tests/assets.rs`
-  und die Pflanze in `strahlen_zur_sonne`.
+  und Pflanze, Sonnenblume und obere Hälften in `strahlen_zur_sonne`.
 
 ## Leuchten
 

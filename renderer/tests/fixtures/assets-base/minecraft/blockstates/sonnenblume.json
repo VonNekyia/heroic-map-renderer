@@ -1,0 +1,4 @@
+{ "variants": {
+  "half=lower": { "model": "minecraft:block/pflanze" },
+  "half=upper": { "model": "minecraft:block/blauwuerfel" }
+} }

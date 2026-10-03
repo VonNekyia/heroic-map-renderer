@@ -960,6 +960,12 @@ fn strahlenwelt(x: i32, y: i32, z: i32) -> &'static str {
         (8, 6, 10) => "minecraft:pflanze",
         (12, 6, 10) => "minecraft:ueberhang",
         (8, 6, 13) => "minecraft:durchsichtig",
+        (14, 4, 1) => "minecraft:sonnenblume[half=lower]",
+        (14, 5, 1) => "minecraft:sonnenblume[half=upper]",
+        (14, 4, 4) => "minecraft:pflanze",
+        (14, 5, 4) => "minecraft:einfarbig",
+        (14, 4, 7) => "minecraft:hohe_pflanze[half=lower]",
+        (14, 5, 7) => "minecraft:hohe_pflanze[half=upper]",
         _ => "minecraft:air",
     }
 }
@@ -969,8 +975,11 @@ fn strahlenwelt(x: i32, y: i32, z: i32) -> &'static str {
 /// Alpha-Test, mal ja, mal nein. Wasser und ein Block ohne deckenden Texel
 /// lassen die Sonne durch. Glas deckt nur mit seinem Rahmen. Eine
 /// Bodenpflanze dämpft auf die Hälfte, die, auf der der Strahl beginnt,
-/// nicht. Das Modell, das in den Würfel westlich ragt, deckt auch dort, wo
-/// der Strahl seinen eigenen Würfel nie betritt.
+/// nicht, und ihre obere Hälfte auch dann nicht, wenn die keine
+/// Bodenpflanze ist. Ein anderer Block über ihr deckt, die obere Hälfte
+/// eines Blocks, der keine Bodenpflanze ist, auch. Das Modell, das in den
+/// Würfel westlich ragt, deckt auch dort, wo der Strahl seinen eigenen
+/// Würfel nie betritt.
 /// Siehe docs/renderer/cinematic.md, „Schatten“.
 #[test]
 fn strahlen_zur_sonne() {
@@ -1020,6 +1029,27 @@ fn strahlen_zur_sonne() {
     );
     // Durch den Teil im Würfel (11, 6, 10), hinaus durch seine Oberseite.
     assert_eq!(strahl([11.2, 6.9, 10.9], fremd), 0.0, "Überhang");
+    // Von unten in die obere Hälfte über dem Block, auf dem er beginnt.
+    let mut von = |p0: [f64; 3], eigen: [i32; 3]| {
+        let schnell = cache.sonne(p0, eigen).unwrap();
+        assert_eq!(schnell, cache.sonne_bezug(p0, eigen).unwrap(), "{p0:?}");
+        schnell
+    };
+    assert_eq!(
+        von([14.5, 4.9, 1.5], [14, 4, 1]),
+        1.0,
+        "Blüte der Sonnenblume"
+    );
+    assert_eq!(
+        von([14.5, 4.9, 4.5], [14, 4, 4]),
+        0.0,
+        "Block über der Pflanze"
+    );
+    assert_eq!(
+        von([14.5, 5.001, 7.5], [14, 4, 7]),
+        0.0,
+        "obere Hälfte ohne Pflanze"
+    );
 }
 
 /// Ein Turm fast an der Weite zur Sonne hin wirft seinen Schatten, auch

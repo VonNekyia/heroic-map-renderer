@@ -8,8 +8,7 @@ const DEMO = '/?tiles=/tiles-demo';
  * Höhen für den Demobaum, je 4 × 4 Spalten: eben auf Y 0, dazu eine Säule
  * bis Y 5 in der Zelle der Spalten 32 bis 35 und -16 bis -13, in einer
  * negativen Region. Ein falscher Platz in der Höhenkarte fiele so auf.
- * `saeule` setzt sie in eine andere Datei und Zelle. Dazu ein Tablett um
- * die Spalten von -64 bis 63, mit der Oberkante auf Y 0.
+ * `saeule` setzt sie in eine andere Datei und Zelle.
  */
 async function welt(
   page: Page,
@@ -20,8 +19,7 @@ async function welt(
     const response = await route.fetch();
     const info = (await response.json()) as object;
     const hoehen = { heights: 'heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319 };
-    const tablett = { seaLevel: 0, area: [-64, -64, 64, 64] };
-    await route.fulfill({ response, json: { ...info, ...hoehen, ...tablett, ...mehr } });
+    await route.fulfill({ response, json: { ...info, ...hoehen, ...mehr } });
   });
   await page.route('**/tiles-demo/heights/*.bin', async (route) => {
     const karte = new Int16Array(128 * 128);
@@ -98,10 +96,20 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
   await expect(page.locator('canvas.tablett')).toHaveCount(0);
 });
 
-test('Rahmen und Tisch liegen um die Kacheln, blenden beim Zoom aus und fangen keine Klicks ab', async ({
-  page,
-}) => {
-  await welt(page);
+/** Ein Tablett um die Spalten von -64 bis 63, mit der Oberkante auf Y 0. */
+const TABLETT = { seaLevel: 0, area: [-64, -64, 64, 64] };
+
+test('ohne SKIN=tablett beim Build kein Tablett, auch mit seaLevel und area', async ({ page }) => {
+  await welt(page, TABLETT);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('canvas.tablett')).toHaveCount(0);
+});
+
+test('Rahmen und Tisch liegen um die Kacheln, blenden beim Zoom aus und fangen keine Klicks ab', {
+  tag: '@tablett',
+}, async ({ page }) => {
+  await welt(page, TABLETT);
   await page.goto(DEMO);
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
   await expect(page.locator('canvas.tablett')).toHaveCount(2);
@@ -127,11 +135,19 @@ test('Rahmen und Tisch liegen um die Kacheln, blenden beim Zoom aus und fangen k
     nah: { ueber: true, deckkraft: 1, klicks: 'none', gemalt: true },
   });
 
-  // Hineingezoomt blenden sie aus.
+  // Die Koordinaten gehen durch beide Leinwände hindurch.
+  const karte = (await page.locator('#map').boundingBox())!;
+  await page.mouse.move(karte.x + karte.width / 2, karte.y + karte.height / 2);
+  await expect(page.locator('.koordinaten')).toHaveText(/^X -?\d+ {2}Y 0 {2}Z -?\d+$/);
+
+  // Die erste Ansicht zeigt die Karte samt Rahmen ganz; eine Stufe hinein
+  // ist es halb zu sehen, zwei Stufen hinein nicht mehr.
   const hinein = page.locator('.leaflet-control-zoom-in');
   await zoomClick(page, hinein);
+  await expect.poll(async () => (await stand()).nah.deckkraft).toBe(0.5);
   await zoomClick(page, hinein);
-  await expect.poll(async () => (await stand()).nah.deckkraft).toBeLessThan(1);
+  await expect.poll(async () => (await stand()).nah.deckkraft).toBe(0);
+  await expect(page.locator('.leaflet-tablett-nah-pane')).toBeHidden();
 });
 
 test('map.json, trees.json und Höhen fragt die Seite jedes Mal beim Server nach', async ({

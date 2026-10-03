@@ -3,7 +3,7 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', 'public', 'test-results', 'playwright-report', 'lighthouse', '.lighthouseci'] },
+  { ignores: ['dist', 'dist-tablett', 'public','test-results', 'playwright-report', 'lighthouse', '.lighthouseci'] },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {

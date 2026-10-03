@@ -15,6 +15,10 @@ const SEITE = {
   bild: process.env.SITE_IMAGE || 'vorschau.jpg',
 };
 
+/** Rahmen und Tisch nur mit `SKIN=tablett`, siehe docs/frontend.md, „Rahmen und Tisch“. */
+const SKIN = process.env.SKIN || '';
+if (SKIN && SKIN !== 'tablett') throw new Error(`SKIN kennt nur tablett: ${SKIN}`);
+
 /** Die Adresse der Seite, mit `/` am Ende; leer ohne Angabe. */
 function adresse(wert: string | undefined): URL | undefined {
   if (!wert) return undefined;
@@ -39,6 +43,8 @@ export default defineConfig({
   // Der Filter greift, bevor cpSync einen Eintrag ansieht.
   // Siehe docs/entscheidungen/0006-kacheln-unter-web-public.md.
   build: { outDir: 'dist', emptyOutDir: true, copyPublicDir: false },
+  // Ohne Schalter fällt der Code des Tabletts beim Build weg.
+  define: { __TABLETT__: JSON.stringify(SKIN === 'tablett') },
   plugins: [
     {
       // Titel und Beschreibung immer; was eine absolute Adresse braucht,

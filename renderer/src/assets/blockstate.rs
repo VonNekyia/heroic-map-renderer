@@ -1197,18 +1197,10 @@ mod tests {
         assert_eq!(bits("mod:stein"), 0);
     }
 
-    /// Jede Zeile aus `seiten.txt` passt zu `blocks.txt`: zwei Hexziffern
-    /// oder zwei je Zustand. Dazu Werte, die `Seiten.java` aus 26.3 las, und
-    /// für Mangrovenwurzeln, Spawner und Pulverschnee die Antworten von
-    /// `Block.shouldRenderFace`, die eine Probe gegen 26.2 holte: Eine Fläche
-    /// entfällt zu Stein, Schlamm, einer oberen Platte und Schnee mit acht
-    /// Schichten, aber nicht zu einer unteren Platte, einer Treppe,
-    /// Ackerboden, Glas oder Laub. Eine Treppe deckt nie voll, ihre Seiten
-    /// sind im Spiel nie genau `Shapes.block()`.
+    /// [`SICHT`] ist in 26.3 genau `solidRender`: Die Form für die Deckung
+    /// ist ein voller Würfel, also auf allen sechs Seiten voll.
     #[test]
     fn sicht_ist_solid_render() {
-        // `solidRender` heisst: Die Form für die Deckung ist ein voller
-        // Würfel, also auf allen sechs Seiten voll.
         let namen: std::collections::BTreeSet<&str> =
             SCHATTEN.keys().chain(SEITEN.keys()).copied().collect();
         let mut zustaende = 0;
@@ -1231,6 +1223,14 @@ mod tests {
         assert!(zustaende > 3000, "{zustaende} Zustände");
     }
 
+    /// Jede Zeile aus `seiten.txt` passt zu `blocks.txt`: zwei Hexziffern
+    /// oder zwei je Zustand. Dazu Werte, die `Seiten.java` aus 26.3 las, und
+    /// für Mangrovenwurzeln, Spawner und Pulverschnee die Antworten von
+    /// `Block.shouldRenderFace`, die eine Probe gegen 26.2 holte: Eine Fläche
+    /// entfällt zu Stein, Schlamm, einer oberen Platte und Schnee mit acht
+    /// Schichten, aber nicht zu einer unteren Platte, einer Treppe,
+    /// Ackerboden, Glas oder Laub. Eine Treppe deckt nie voll, ihre Seiten
+    /// sind im Spiel nie genau `Shapes.block()`.
     #[test]
     fn seiten_wie_im_spiel() {
         assert_eq!(SEITEN.len(), 518);

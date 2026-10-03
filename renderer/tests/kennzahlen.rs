@@ -1,20 +1,24 @@
 //! Die Ansichten der Testwelt, an denen 0058 abgestimmt ist, mit Cinematic
 //! und als Karte, dazu je Pixel, was die Kennzahlen des Looks brauchen: ob
 //! die Sonne ihn trifft, ob er leuchtet oder im Bloom liegt, ob seine
-//! vorderste Fläche deckt, ihr Block und ihre Seite. Braucht die Testwelt
-//! und die Assets, deshalb `#[ignore]`. Aufruf und Auswertung:
-//! docs/messungen/2026-10-03-look-am-renderer.md.
+//! vorderste Fläche deckt, ihr Block und ihre Seite. Dazu die Bilder zu
+//! 0058 in `docs/bilder`. Braucht die Testwelt und die Assets, deshalb
+//! `#[ignore]`. Aufruf und Auswertung:
+//! docs/messungen/2026-10-03-look-am-renderer.md; die Bilder:
+//! skills/doku-bilder-rendern/SKILL.md.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use image::RgbaImage;
+use image::imageops::{FilterType, crop_imm, replace, resize};
 use rayon::prelude::*;
 use terranova_render::assets::Assets;
 use terranova_render::render::look::{LOOK, Look};
 use terranova_render::render::metatile::{Hdr, render_hdr_with};
 use terranova_render::render::{
-    BiomeTable, ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, render_area,
-    survey,
+    BiomeTable, ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, Survey,
+    encode_webp, render_area, shrink, survey,
 };
 use terranova_render::world::World;
 
@@ -45,13 +49,17 @@ fn ansichten(
     ]
 }
 
+fn wurzel() -> PathBuf {
+    PathBuf::from(
+        std::env::var("KENNZAHLEN_WURZEL")
+            .expect("KENNZAHLEN_WURZEL auf die Wurzel mit world und den Assets setzen"),
+    )
+}
+
 #[test]
 #[ignore]
 fn kennzahlen_der_ansichten() {
-    let wurzel = PathBuf::from(
-        std::env::var("KENNZAHLEN_WURZEL")
-            .expect("KENNZAHLEN_WURZEL auf die Wurzel mit world und den Assets setzen"),
-    );
+    let wurzel = wurzel();
     let aus = PathBuf::from(
         std::env::var("KENNZAHLEN_AUS").expect("KENNZAHLEN_AUS auf den Zielordner setzen"),
     );
@@ -69,6 +77,133 @@ fn kennzahlen_der_ansichten() {
         alle.par_iter()
             .for_each(|&(szene, ansicht)| schreibe(&wurzel, &aus, szene, ansicht));
     });
+}
+
+/// Die Bilder unter 0058: die Wärme nach Biom an Hügel und Schnee, die
+/// Bodenpflanzen an einer Wiese des Hügels, je 2:1 bei 32 aus `se`, mit
+/// der Mitte der Szene in der Bildmitte; Ausschnitte wie am Prototyp zu
+/// #89, als WebP verlustfrei.
+#[test]
+#[ignore]
+fn bilder_zu_0058() {
+    let wurzel = wurzel();
+    let ziel = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/bilder");
+    let szene = |name: &str| {
+        let &(_, mitte) = SZENEN.iter().find(|(s, _)| *s == name).unwrap();
+        Szene::new(&wurzel, "2:1", 32, "se", ansichten(mitte)[0].4)
+    };
+    // Je Zeile die Karte, Weissabgleich 1 und nach Biom; 800 Pixel ab
+    // (400, 400), auf die Hälfte verkleinert wie die Pyramide.
+    let mut waerme = RgbaImage::new(1200, 800);
+    for (zeile, name) in ["huegel", "schnee"].into_iter().enumerate() {
+        let mut s = szene(name);
+        let looks = [
+            None,
+            Some(Look {
+                waerme: 0.0,
+                ..LOOK
+            }),
+            Some(LOOK),
+        ];
+        for (spalte, look) in looks.into_iter().enumerate() {
+            let teil = shrink(&crop_imm(&s.bild(look), 400, 400, 800, 800).to_image());
+            replace(&mut waerme, &teil, spalte as i64 * 400, zeile as i64 * 400);
+        }
+    }
+    std::fs::write(
+        ziel.join("cinematic-waerme.webp"),
+        encode_webp(&waerme).unwrap(),
+    )
+    .unwrap();
+    // Hart, weich mit 0,5 und ohne Sonnenschatten der Bodenpflanzen, nach
+    // Biom gewärmt; 240 Pixel ab (700, 700), zweifach vergrössert ohne
+    // Glättung.
+    let mut pflanzen = RgbaImage::new(1440, 480);
+    let mut s = szene("huegel");
+    for (spalte, p) in [0.0, 0.5, 1.0].into_iter().enumerate() {
+        let bild = s.bild(Some(Look {
+            pflanzen: p,
+            ..LOOK
+        }));
+        let teil = resize(
+            &crop_imm(&bild, 700, 700, 240, 240).to_image(),
+            480,
+            480,
+            FilterType::Nearest,
+        );
+        replace(&mut pflanzen, &teil, spalte as i64 * 480, 0);
+    }
+    std::fs::write(
+        ziel.join("cinematic-pflanzen.webp"),
+        encode_webp(&pflanzen).unwrap(),
+    )
+    .unwrap();
+}
+
+/// Eine Ansicht: Welt, Assets und Ausschnitt, wie `--render` mit `--center`
+/// und `--size`.
+struct Szene {
+    world: World,
+    assets: Assets,
+    projection: Projection,
+    rect: ScreenRect,
+    survey: Survey,
+    biome: BiomeTable,
+}
+
+impl Szene {
+    fn new(wurzel: &Path, kamera: &str, scale: u32, richtung: &str, mitte: [i32; 2]) -> Szene {
+        let world = World::open(&wurzel.join("world")).unwrap();
+        let mut assets =
+            Assets::open(vec![wurzel.join("vanilla-assets"), wurzel.join("assets")]).unwrap();
+        assets.load_data(&wurzel.join("vanilla-data")).unwrap();
+        assets.set_dimension(world.dimension());
+        let kamera = Kamera::parse(kamera).unwrap();
+        let projection =
+            Projection::mit_kamera(scale, kamera).aus(Richtung::parse(richtung, kamera).unwrap());
+        let rect = fenster(projection, mitte);
+        let survey = survey(&world, projection, Y_RANGE, Some(rect)).unwrap();
+        let biome = BiomeTable::new(assets.colors()).with(2, world.seed().unwrap());
+        Szene {
+            world,
+            assets,
+            projection,
+            rect,
+            survey,
+            biome,
+        }
+    }
+
+    /// Die Sprites mit `look`; ohne ist es die Karte.
+    fn tabelle(&mut self, look: Option<Look>) -> SpriteSet {
+        let mut sprites = SpriteSet::build_mit_licht(
+            &mut self.assets,
+            &self.survey.states,
+            self.projection,
+            None,
+            look,
+        )
+        .unwrap();
+        sprites
+            .add_entities(&mut self.assets, &self.survey.entities)
+            .unwrap();
+        sprites.set_biomes(self.biome.clone());
+        sprites
+    }
+
+    fn bild(&mut self, look: Option<Look>) -> RgbaImage {
+        let sprites = self.tabelle(look);
+        render_area(&self.world, &sprites, self.rect, Y_RANGE).unwrap()
+    }
+
+    fn hdr(&self, sprites: &SpriteSet) -> Hdr {
+        render_hdr_with(
+            &mut ChunkCache::new(&self.world, sprites),
+            self.rect,
+            Y_RANGE,
+        )
+        .unwrap()
+    }
 }
 
 /// Wie `--render` mit `--center` und `--size`.
@@ -89,48 +224,27 @@ fn schreibe(
     szene: &str,
     (name, kamera, scale, richtung, mitte): (&str, &str, u32, &str, [i32; 2]),
 ) {
-    let world = World::open(&wurzel.join("world")).unwrap();
-    let mut assets =
-        Assets::open(vec![wurzel.join("vanilla-assets"), wurzel.join("assets")]).unwrap();
-    assets.load_data(&wurzel.join("vanilla-data")).unwrap();
-    assets.set_dimension(world.dimension());
-    let kamera = Kamera::parse(kamera).unwrap();
-    let projection =
-        Projection::mit_kamera(scale, kamera).aus(Richtung::parse(richtung, kamera).unwrap());
-    let rect = fenster(projection, mitte);
-    let survey = survey(&world, projection, Y_RANGE, Some(rect)).unwrap();
-    let biome = BiomeTable::new(assets.colors()).with(2, world.seed().unwrap());
-    let mut tabelle = |look: Option<Look>| {
-        let mut sprites =
-            SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, look)
-                .unwrap();
-        sprites.add_entities(&mut assets, &survey.entities).unwrap();
-        sprites.set_biomes(biome.clone());
-        sprites
-    };
+    let mut s = Szene::new(wurzel, kamera, scale, richtung, mitte);
     let datei = |endung: &str| aus.join(format!("{szene}-{name}{endung}"));
-    render_area(&world, &tabelle(None), rect, Y_RANGE)
-        .unwrap()
-        .save(datei("-karte.png"))
-        .unwrap();
-    let kino = tabelle(Some(LOOK));
-    render_area(&world, &kino, rect, Y_RANGE)
+    s.bild(None).save(datei("-karte.png")).unwrap();
+    let kino = s.tabelle(Some(LOOK));
+    render_area(&s.world, &kino, s.rect, Y_RANGE)
         .unwrap()
         .save(datei(".png"))
         .unwrap();
-    let hdr = |sprites: &SpriteSet| {
-        render_hdr_with(&mut ChunkCache::new(&world, sprites), rect, Y_RANGE).unwrap()
-    };
-    let mit = hdr(&kino);
-    let ohne_sonne = hdr(&tabelle(Some(Look { sonne: 0.0, ..LOOK })));
-    let ohne_schatten = hdr(&tabelle(Some(Look {
+    let mit = s.hdr(&kino);
+    let ohne_sonne = s.tabelle(Some(Look { sonne: 0.0, ..LOOK }));
+    let ohne_sonne = s.hdr(&ohne_sonne);
+    let ohne_schatten = s.tabelle(Some(Look {
         sonne_weite: -1.0,
         ..LOOK
-    })));
+    }));
+    let ohne_schatten = s.hdr(&ohne_schatten);
+    let (projection, rect) = (s.projection, s.rect);
     let k = kino.kino().unwrap();
     let bloom = k.bloom(&mit.leuchten, &mit.waerme, GROESSE as usize, scale);
     let lum = |c: &[f32]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-    let mut bloeck = Bloecke::new(&world);
+    let mut bloeck = Bloecke::new(&s.world);
     let mut familien: Vec<String> = Vec::new();
     let mut index: HashMap<String, u32> = HashMap::new();
     let (mut sonne, mut seite, mut deckt, mut leuchtet, mut im_bloom, mut familie) = (

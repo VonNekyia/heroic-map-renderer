@@ -116,7 +116,8 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 - Truhen, Banner, Köpfe, Krüge und die übrigen Blockentities aus den
   Modellen des Spiels, mit Bannermustern und Scherben.
 - Cinematic mit `--cinematic`: dieselbe Karte im Licht des Spiels in HDR,
-  Phase 1, siehe [Cinematic](docs/renderer/cinematic.md).
+  mit Sonne und Schatten, Wasser, Leuchten, Wärme nach Biom und Bloom,
+  siehe [Cinematic](docs/renderer/cinematic.md).
 - Noch nicht: Text auf Schildern und Gegenstände in Blöcken, weiche
   Beleuchtung für Flächen im Innern eines Blocks, etwa auf Schneedecken.
 

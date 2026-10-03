@@ -330,7 +330,8 @@ vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
     bei einer Farbe drei Zahlen.
   - Zuletzt `verfahren`, ein Nullbyte und `VERFAHREN` als u32 in Little
     Endian: der Stand des Verfahrens. Ändert sich das Bild bei gleichen
-    Werten, etwa mit der Sonne in #73, steigt er, und mit ihm der
+    Werten, etwa in #73 mit der Farbe des Himmels über das Quadrat der
+    Biome, steigt er, und mit ihm der
     Fingerabdruck.
   - `Look::werte` zerlegt `Look` ganz: Ein neues Feld kompiliert erst, wenn
     es im Fingerabdruck steht.

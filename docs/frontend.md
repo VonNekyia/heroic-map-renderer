@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -86,6 +86,11 @@ scharf, statt sie zu verwischen.
 Nach unten geht es unter Zoom 0, wenn die ganze Karte dort nicht ins
 Fenster passt, etwa nachdem die Welt gewachsen ist. Dann verkleinert
 Leaflet die Kacheln von Zoom 0 (`minNativeZoom`), bis alles zu sehen ist.
+
+Unter + und − steht ein dritter Knopf ⌂, `aria-label` „Ganze Karte“: Er
+passt die ganze Karte ins Fenster ein, wie beim Laden ohne `at`. Er ist ein
+Link wie die beiden darüber, also per Tastatur erreichbar. Die Adresse
+folgt wie nach jeder Bewegung, siehe „Ansichten und Kompass“.
 
 `bounds` auf der Kachelebene hält Leaflet davon ab, beim Herumziehen
 Kacheln anzufragen, die es nicht gibt. Innerhalb der Grenzen sind einzelne
@@ -220,6 +225,14 @@ Enter, macht ihn zu einem Eingabefeld; Enter springt dorthin.
 - **Auf dem Handy:** Das Feld ist `type="text"` ohne `inputmode`. Mit
   `inputmode="numeric"` fehlt auf vielen Tastaturen das Minus, auch
   `decimal` bietet es nicht überall.
+- **Für Finger grösser:** Ist der Hauptzeiger grob (`pointer: coarse`),
+  hat die ganze Leiste 16 px Schrift und doppelte Zeilenhöhe. Werte und
+  Kopiersymbol sind dann mindestens 32 px gross, auch ein Wert, der nur „–“
+  zeigt; WCAG 2.5.8 verlangt 24 px. Und iOS vergrössert beim Fokus nicht die
+  Seite, das tut es bei Feldern unter 16 px Schrift. Am Desktop bleibt die
+  Leiste bei 12 px. Gefragt wird nach dem Gerät, nicht nach dem letzten
+  Zeiger wie beim Umriss, denn die Grösse muss vor dem ersten Tippen
+  stimmen.
 - **Mit der Maus** verschiebt ein Klick in die Anzeige die Karte nicht,
   wie überall in der Leiste.
 

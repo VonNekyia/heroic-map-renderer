@@ -201,8 +201,7 @@ impl Reach {
             return self;
         };
         let d = look.sonne_im_blick(self.projection.kamera());
-        // Wie `ChunkCache::horizont`: in x kommt der Strahl über höchstens
-        // `⌈weite · |d[0]| / 16⌉` Chunkgrenzen, in z ebenso.
+        // So viele Chunkgrenzen wie `ChunkCache::horizont`.
         let reicht = |c: f32| {
             let n = (f64::from(look.sonne_weite) * f64::from(c.abs()) / 16.0).ceil() as i32;
             if c < 0.0 { -n } else { n }

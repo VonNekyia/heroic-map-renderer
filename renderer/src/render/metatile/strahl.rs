@@ -384,10 +384,8 @@ impl ChunkCache<'_> {
     }
 
     /// [`Saeule::horizont`] des Chunks `key` im Slot `i`, beim ersten Mal
-    /// gerechnet. Ein Strahl in Richtung `d` kommt bis zur Weite in x um
-    /// höchstens `weite · |d[0]|` weiter, also von jedem Punkt im Chunk über
-    /// höchstens `⌈weite · |d[0]| / 16⌉` Chunkgrenzen, in z ebenso. Ohne Chunk
-    /// gibt es keine Säule, die ihn hält; dann jedes Mal gerechnet.
+    /// gerechnet; ohne Chunk gibt es keine Säule, die ihn hält, dann jedes
+    /// Mal. Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
     fn horizont(&mut self, i: usize, key: (i32, i32), d: [f32; 3], weite: f64) -> Result<i32> {
         let gemerkt = self.slots[i].loaded.as_ref().and_then(|l| l.sonne.as_ref());
         if let Some(h) = gemerkt.and_then(|s| s.horizont) {
@@ -553,9 +551,7 @@ impl ChunkCache<'_> {
         let Some(wahl) = family.wahl([wx, b[1], wz]) else {
             return Ok(Wirkung::Nichts);
         };
-        // Lava reicht unter derselben bis zur Kante, und ihre Flächen
-        // entfallen zu derselben und vor einer vollen Seite, wie
-        // `LiquidBlockRenderer.shouldRenderFace`.
+        // Lava wie im Spiel, siehe docs/renderer/cinematic.md, „Schatten“.
         let (mut voll, mut weg) = (false, 0u8);
         if let Some((art @ Fluid::Lava, _)) = family.fluid {
             let gleich =

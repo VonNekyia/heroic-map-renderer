@@ -1,5 +1,6 @@
 //! Was Cinematic zum Zeichnen braucht: das Licht des Spiels in HDR, je
-//! Stufe der Lightmap und je Biom, und der Ton aus Weissabgleich,
+//! Stufe der Lightmap und je Biom, die Sonne und ihr Licht, Spiegelung und
+//! Dichte des Wassers, Bloom und Wärme, und der Ton aus Weissabgleich,
 //! Belichtung und Kurve.
 //! Siehe docs/renderer/cinematic.md.
 

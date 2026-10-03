@@ -12,7 +12,10 @@ Testwelt liegt unter `./world`, die Assets wie in
 
 ## Ablauf
 
-1. **Release-Build** des Stands, den die Bilder zeigen sollen.
+1. **Release-Build** des Stands, den die Bilder zeigen sollen. Die
+   Bilder zu Cinematic baut das Skript selbst per `cargo test` aus dem
+   Checkout, nicht aus dem übergebenen Binär: Der Checkout muss also der
+   Stand sein, den sie zeigen sollen.
 2. **Rendern** aus der Wurzel des Repositorys, mit Python und Pillow:
 
    ```bash

@@ -1453,9 +1453,8 @@ pub fn streifenbreite(scale: u32) -> usize {
 // Kacheln in Streifen kommen; sonst lädt jede Kachel ihre hundert neu.
 const CACHE_CHUNKS: usize = 256;
 
-/// Hasht die Schlüssel des Chunk-Caches mit einer Multiplikation je Wort
-/// statt SipHash. Die Schlüssel sind Koordinaten aus der Welt; Schutz gegen
-/// gezielte Kollisionen braucht es nicht.
+/// Hasht die Schlüssel des Chunk-Caches mit einer Multiplikation je Wort.
+/// Siehe docs/renderer/renderpfad.md, „Streifen und Cache je Thread“.
 #[derive(Default)]
 pub(super) struct Streuer(u64);
 

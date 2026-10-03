@@ -114,7 +114,9 @@ fn bilder_zu_cinematic() {
             replace(&mut waerme, &teil, spalte as i64 * 400, zeile as i64 * 400);
         }
     }
-    waerme.save(ziel.join("cinematic-renderer-waerme.png")).unwrap();
+    waerme
+        .save(ziel.join("cinematic-renderer-waerme.png"))
+        .unwrap();
     // Hart, weich mit 0,5 und ohne Sonnenschatten der Bodenpflanzen, nach
     // Biom gewärmt; 240 Pixel ab (700, 700), zweifach vergrössert ohne
     // Glättung.
@@ -133,7 +135,9 @@ fn bilder_zu_cinematic() {
         );
         replace(&mut pflanzen, &teil, spalte as i64 * 480, 0);
     }
-    pflanzen.save(ziel.join("cinematic-renderer-pflanzen.png")).unwrap();
+    pflanzen
+        .save(ziel.join("cinematic-renderer-pflanzen.png"))
+        .unwrap();
 }
 
 /// Eine Ansicht: Welt, Assets und Ausschnitt, wie `--render` mit `--center`

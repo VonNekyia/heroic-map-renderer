@@ -1,13 +1,16 @@
 ---
 title: Tablett
-description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, einmal für fitZoom vorgerendert in zwei Bilder um die Kacheln. Mit Massen nach der Vorlage, Profil, Licht und Schatten und der Regel, was vor und was hinter der Welt liegt.
+description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, einmal für fitZoom vorgerendert in zwei Bilder um die Kacheln. Mit Massen nach der Vorlage, Profil, Licht und Schatten, Texturen aus Höhenkarten und Marmor, im Worker gerechnet, und der Regel, was vor und was hinter der Welt liegt.
 code:
   - web/skins/tablett/index.ts
   - web/skins/tablett/tablett.ts
+  - web/skins/tablett/stoffe.ts
+  - web/skins/tablett/werkstatt.ts
   - web/skins/tablett/zeichnen.ts
   - web/skins/tablett/tablett.css
   - web/skins/tablett/package.json
   - web/skins/tablett/tests/tablett.spec.ts
+  - web/skins/tablett/tests/stoffe.spec.ts
   - web/skins/tablett/tests/karte.spec.ts
   - web/skins/tablett/tests/auslagern.spec.ts
 ---
@@ -19,9 +22,10 @@ ein Tablett aus Holz auf einem Tisch (#112). Er zeichnet beides aus ebenen
 Rechtecken, mit derselben Projektion wie die Karte, einmal für `fitZoom`.
 Wie Skins eingebunden werden: [Frontend](frontend.md), „Skins“. Warum so:
 [0061](entscheidungen/0061-tablett-im-frontend.md) und
-[0063](entscheidungen/0063-tablett-als-skin.md). Stand: Geometrie mit
-Profil, Licht und Schatten, in Flächenfarben. Texturen mit Höhenkarten und
-die Gegenstände als Sprites kommen in eigenen PRs.
+[0063](entscheidungen/0063-tablett-als-skin.md), die Texturen
+[0064](entscheidungen/0064-texturen-des-tabletts.md). Stand: Geometrie mit
+Profil, Licht und Schatten, Texturen aus Höhenkarten und Marmor. Der
+gemalte Schmuck und die Gegenstände als Sprites kommen in eigenen PRs.
 
 ## Einschalten
 
@@ -40,16 +44,26 @@ die Gegenstände als Sprites kommen in eigenen PRs.
 
 - **Einmal für `fitZoom`:** beim Laden und bei jeder neuen Grösse des
   Fensters, in Pixeln des Bildschirms, um die Mitte des Rahmens wie
-  `fitBounds`. Je Seite reichen die Bilder ein Viertel des Fensters über
-  das Fenster hinaus; weiter lässt sich auf `fitZoom` nicht ziehen
-  (`maxBounds`). Die linke obere Ecke liegt auf ganzen Pixeln, so trifft
-  jedes Pixel der Leinwand eines des Bildschirms.
+  `fitBounds`. `maxBounds` ist das Fenster auf `fitZoom`: Dort lässt sich
+  nicht ziehen, und tiefer im Zoom bleibt jede Ansicht darin. Die Bilder
+  reichen je Seite 2 % des Fensters darüber, für Rundung und das Federn
+  beim Zoom mit zwei Fingern. Die linke obere Ecke liegt auf ganzen
+  Pixeln, so trifft jedes Pixel der Leinwand eines des Bildschirms.
 - **Zwei Bilder:** `tablett-fern` unter den Kacheln (z-index 150) mit allem
   ausser dem Saum, `tablett-nah` darüber (250) nur mit den nahen Teilen,
   siehe „Vor und hinter der Welt“. Beide sind Leinwände als Bild-Ebenen der
   Karte (`L.svgOverlay`, das jedes Element nimmt). Ein Bild aus der
   Leinwand ginge nur über `data:` oder `blob:`, und das verbietet die
   Content-Security-Policy.
+- **Texturen im Worker:** Zuerst stehen alle Flächen in ihrer Farbe. Ein
+  Worker im Skin ([`werkstatt.ts`](../web/skins/tablett/werkstatt.ts))
+  rechnet die Texturen und malt beide Bilder; der Skin tauscht sie einmal
+  ein. Bewegt sich die Karte gerade, von `movestart` bis `moveend`, wartet
+  der Tausch bis danach. Ohne Worker bleiben die Farben, und die Konsole
+  sagt es.
+- **Nah aus fern:** Mit Texturen ist das nahe Bild das ferne, beschnitten
+  auf die Umrisse der nahen Teile, dazu der Saum. So rechnet jedes Stück
+  nur einmal, und beide Bilder stimmen Pixel für Pixel überein.
 - **Beim Ziehen und Zoomen** zeichnet der Skin nichts. Die Bilder gleiten und
   wachsen mit der Karte, pixelig (`image-rendering: pixelated`).
 - **Ausblenden:** ganz auf `fitZoom`, bis `fitZoom` + 1 linear auf 0, am Ende
@@ -59,7 +73,9 @@ die Gegenstände als Sprites kommen in eigenen PRs.
   ganze Karte. Darauf passen die erste Ansicht und der Knopf ⌂ ein.
 - **Klicks** gehen durch beide Bilder hindurch (`pointer-events: none`).
 - **Gemessen:** einmaliges Zeichnen und Bildzeit beim Ziehen in
-  [Skin Tablett](messungen/2026-10-03-skin-tablett.md).
+  [Skin Tablett](messungen/2026-10-03-skin-tablett.md), mit Texturen und
+  dem kleineren Rand in
+  [Texturen des Tabletts](messungen/2026-10-03-texturen-tablett.md).
 
 ## Masse
 
@@ -84,6 +100,7 @@ ab dem Wasserspiegel. Jede Stufe ist eine eigene Fläche:
 
 | Stufe | nach aussen | Höhe | Vorlage, senkrecht |
 |---|---|---|---|
+| Innenseite, nur zu sehen, wo keine Welt liegt | 0 | 0 bis −D | |
 | Oberkante, flach | 0 bis 0,45·w | 0 | |
 | drei Schrägen | bis w | bis −0,25·w | |
 | obere Leiste | steht 0,1·w vor | bis −0,6·w | Fries mit beiden Leisten 2,2 % von W |
@@ -93,7 +110,8 @@ ab dem Wasserspiegel. Jede Stufe ist eine eigene Fläche:
 | Sockel | steht 0,15·w vor | bis −D = −6,4·w | 1,3 % von W |
 
 Nichts von Rahmen und Pfeilern liegt über dem Wasserspiegel. Die erhabene
-Lippe der Vorlage kommt mit der Höhenkarte der Textur.
+Lippe der Vorlage kommt aus der Höhenkarte der Oberkante, siehe
+„Texturen“.
 
 Der Tisch:
 - **Hinten und an den Seiten** reicht er weit über das Fenster.
@@ -117,16 +135,18 @@ Welt über den Wasserspiegel ragt, steht neben ihrem Bild.
 
 - **Licht:** von oben, leicht von links im Bild, fest im Blick, so dass es
   aus jeder Richtung gleich aussieht. So hat es der Researcher an der
-  Vorlage vermessen (#112, issuecomment-5969026988). Je Fläche gerechnet
-  beim Bauen, als Farbe · (0,22 + 0,8 · max(0, n·l)):
+  Vorlage vermessen (#112, issuecomment-5969026988). Für das erste Bild
+  und Flächen ohne Textur je Fläche gerechnet beim Bauen, als
+  Farbe · (0,22 + 0,8 · max(0, n·l)); mit Textur je Pixel, siehe
+  „Texturen“:
   - l = 0,975 · oben − 0,223 · rechts, 77° über der Tischebene; oben ist die
     Normale der Platte, rechts die Richtung nach rechts im Bild;
   - 0,22 Umgebungslicht, 0,8 diffus nach der Normalen;
   - die Oberkante zeigt so ihre volle Farbe, die linke nahe Wand 0,35 davon,
     die rechte 0,22: links rund 1,6-mal so hell wie rechts, wie in der
     Vorlage.
-  - Glanzlichter nach Blinn-Phong auf Messing und Gold kommen mit den
-    Texturen.
+  - Glanzlichter nach Blinn-Phong mit dem Vektor zwischen Licht und Blick,
+    je Stoff mit eigener Stärke und Schärfe, am stärksten auf Messing.
 - **Schatten auf die Platte:**
   - Rahmen und Gegenstände werfen ihn, jede Ecke entlang des Lichts auf die
     Ebene der Platte geworfen. Die konvexen Hüllen werden als ein Pfad
@@ -141,6 +161,66 @@ Welt über den Wasserspiegel ragt, steht neben ihrem Bild.
   - 0,5·w breit, bis 0,4 Deckkraft, nach innen auslaufend.
   - Er liegt über den Kacheln und dunkelt dort auch Gelände leicht ab: die
     einzige Ausnahme von „Vor und hinter der Welt“.
+
+## Texturen
+
+Jede Fläche mit Textur wird in ihrer Pixelgrösse gerechnet, im Worker
+([`stoffe.ts`](../web/skins/tablett/stoffe.ts), `rechne`). Was nach
+Handwerk aussehen soll, Ranken an der Wand, Rauten, Lilien, Blätter,
+Blüten und Gegenstände, wird gemalt und kommt als Sprite
+([0064](entscheidungen/0064-texturen-des-tabletts.md)).
+
+- **Pixel:** Ein Pixel gehört zur Fläche, wenn seine Mitte darin liegt. Es
+  nimmt ihre Koordinaten u entlang der Kante a und v entlang b, in w.
+- **Höhenkarte:** je Rolle eine Höhe über der Fläche, in w. Ihre Ableitung
+  entlang a und b kippt die Normale der Fläche.
+- **Licht** je Pixel wie unter „Licht und Schatten“: Albedo · Maserung ·
+  (0,22 + 0,8 · max(0, n·l)), dazu Glanz · max(0, n·h)^Schärfe.
+- **Farbe:** die der Rampe des Stoffs, deren Helligkeit im Logarithmus am
+  nächsten liegt. Die Schwellen sind die geometrischen Mittel benachbarter
+  Farben. Es gibt nur Farben der Rampen, nichts wird geglättet. Die Rampen
+  hat der Researcher an der Vorlage gemessen (#112); kein Pixel stammt aus
+  ihr. Sie stehen in `STOFFE` in `stoffe.ts`.
+- **Maserung** läuft entlang u, also längs der Leisten und Wände: wenige,
+  ruhige Linien, die die Albedo um ±10 % ändern. Vertieftes ist dunkler.
+- **Schmale Rollen,** Oberkante und Leisten, mitteln das Licht aus vier
+  Proben je Pixel im gedrehten Gitter. Sonst zerfiele die Lippe auf der
+  Schräge des Bilds in Punkte. Albedo und Stoff nehmen sie aus der Mitte.
+
+| Rolle | Fläche | Höhenkarte | Stoff |
+|---|---|---|---|
+| `oberkante` | flache Oberkante | Lippe zur Karte, 0,07·w hoch, dahinter eine Kehle | Oberholz |
+| `schraege` | die drei Schrägen | eben | Oberholz |
+| `leiste` | obere und untere Leiste | ein Wulst | Oberholz |
+| `fries` | Fries | vertiefte Felder, je Seite ganze um 3,4·w lang, im erhabenen Rahmen; an den Stössen Messingnägel | Wandholz, Nägel Messing |
+| `fuge` | Fuge | eben, halbe Albedo | Wandholz |
+| `sockel` | Sockel | Fase an der oberen Kante | Wandholz |
+| `innen` | Innenseite | eben | Wandholz |
+| `pfeiler` | Seiten der Pfeiler | vertieftes Feld, oben ein Messingnagel | Oberholz, Nagel Messing |
+| `kappe` | Deckel der Pfeiler | flache Pyramide | Oberholz |
+| `tischkante` | Holzkante des Tischs | Nut, dann runder Abschluss nach aussen | Tischholz |
+
+| Stoff | Albedo | Glanz | Schärfe |
+|---|---|---|---|
+| Oberholz | 0,094 | 0,6 | 24 |
+| Wandholz | 0,094 | 0,15 | 24 |
+| Tischholz | 0,027 | 0,25 | 20 |
+| Messing | 0,09 | 0,72 | 12 |
+
+Die Albedo ist die Helligkeit der Mitte der Rampe, wo die Vorlage sie im
+vollen Licht zeigt.
+
+**Marmor** liegt fest im Bild, gestaucht in der Höhe um v/u wie die Platte:
+
+- **Grund:** eine Kachel von 512 px ohne Naht, Wolken aus zwei Lagen
+  Rauschen, geordnet gerastert (Bayer, 4 × 4) aus den sieben Farben der
+  Rampe. So bleiben keine Stufen stehen.
+- **Adern:** Risse über die ganze Leinwand, nicht in der Kachel: Dort
+  wiederholten sie sich alle 512 px. Eine Hauptader je rund 420 × 420 px
+  der Platte, schräg, im Kleinen zackig (Mittelpunktverschiebung), zu den
+  Enden spitz, mit zwei bis vier Ästen, diese mit bis zu zwei. Höchstens
+  1,5 px breit, zusammen rund 1 % der Fläche, in den hellen Farben der
+  Rampe der Adern. Für dieselbe Grösse immer dieselben.
 
 ## Vor und hinter der Welt
 
@@ -168,7 +248,8 @@ verdecken kann:
   1. Zarge und Platte, ihr Schatten, der Boden des Tabletts;
   2. die Gegenstände hinter dem Rahmen;
   3. der Rahmen: ferne Ecke, ferne Seiten, seitliche Ecken, nahe Seiten,
-     nahe Ecke; je Seite von aussen unten nach innen oben;
+     nahe Ecke; je Seite erst die Innenseite, dann das Profil von innen
+     oben nach aussen unten;
   4. die Gegenstände davor;
   5. der Saum.
 
@@ -184,11 +265,18 @@ verdecken kann:
 - [`tests/tablett.spec.ts`](../web/skins/tablett/tests/tablett.spec.ts)
   prüft die Geometrie an den Einträgen des Renderers, an Gelände bis fast an
   die Bauhöhe an jedem Rand zweier Welten, am Schnitt bis `minY`, daran,
-  dass der Tisch das Fenster füllt, und an der Richtung des Lichts.
+  dass der Tisch das Fenster füllt, an der Richtung des Lichts und an den
+  Innenseiten, die nur die fernen Seiten haben.
+- [`tests/stoffe.spec.ts`](../web/skins/tablett/tests/stoffe.spec.ts)
+  prüft in Node die Texturen: die Kachel Marmor ohne Naht, wenige feine
+  Adern, für dieselbe Grösse dieselben, nur Farben der Rampen und die
+  Maserung längs.
 - [`tests/karte.spec.ts`](../web/skins/tablett/tests/karte.spec.ts) prüft
   im Browser die beiden Ebenen, das Ausblenden bis `fitZoom` + 1, `fitZoom`
-  als kleinste Stufe, dass beim Ziehen und Zoomen nichts gezeichnet wird und
-  dass ein `area`, das kein Quadrat ist, kein Tablett zeichnet.
+  als kleinste Stufe, dass beim Ziehen und Zoomen nichts gezeichnet wird,
+  dass die Bilder mit Texturen aus dem Worker erst nach einer Bewegung
+  getauscht werden und dass ein `area`, das kein Quadrat ist, kein Tablett
+  zeichnet.
 - [`tests/auslagern.spec.ts`](../web/skins/tablett/tests/auslagern.spec.ts)
   baut die Karte mit einer Kopie des Skins aus einem Ordner ausserhalb des
   Repositorys.

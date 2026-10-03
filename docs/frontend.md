@@ -348,7 +348,10 @@ Der einzige Skin bisher: [Tablett](tablett.md).
   - Die Grundkarte importiert keinen Skin, und `virtual:skin` nur per
     `import()`.
 - **Ordner** wie ein Paket: `web/skins/<name>/` mit `package.json`,
-  `index.ts`, Stylesheet und Tests. Leaflet nimmt ein Skin aus `web/`
+  `index.ts`, Stylesheet und Tests. Einen Worker lädt ein Skin mit
+  `new Worker(new URL('./datei.ts', import.meta.url), { type: 'module' })`;
+  Vite baut ihn als eigene Datei, und die Content-Security-Policy erlaubt
+  ihn über `default-src 'self'`. Leaflet nimmt ein Skin aus `web/`
   (`resolve.dedupe`), auch wenn er ausserhalb liegt. Den Nachweis führt
   `web/skins/tablett/tests/auslagern.spec.ts`.
 - **Texte** kommen aus der Build-Konfiguration: `titel` aus `SITE_TITLE`,

@@ -29,15 +29,13 @@ Karte, also dasselbe Pixelraster bei jeder Kamera, Richtung und jedem
 scale; anders ist nur das Licht je Pixel, entschieden in
 [0053](../entscheidungen/0053-cinematic-als-schalter-der-karte.md). Es
 zeichnet immer die CPU. Phase 1 (#72) brachte das Licht des Spiels, Phase 2
-(#73) bringt Sonne, Schatten, Wasser, Leuchten, Wärme nach Biom und Bloom;
-bis jetzt davon die Sonne mit hartem Schatten, die Bodenpflanzen, das
-Wasser, das Leuchten und die Wärme nach Biom.
+(#73) Sonne, Schatten, Bodenpflanzen, Wasser, Leuchten, Wärme nach Biom und
+Bloom.
 
 ## Werte des Looks
 
-Die Werte stehen benannt an einer Stelle, `LOOK` in
-[`renderer/src/render/look.rs`](../../renderer/src/render/look.rs); die für
-den Bloom aus #73 kommen noch dazu:
+Alle Werte stehen benannt an einer Stelle, `LOOK` in
+[`renderer/src/render/look.rs`](../../renderer/src/render/look.rs):
 
 | Wert | in `Look` | genutzt |
 |---|---|---|
@@ -52,6 +50,7 @@ den Bloom aus #73 kommen noch dazu:
 | Wärme: so viel stärker wird der Weissabgleich höchstens, ab und bis zu welcher Temperatur | `waerme`: 0,5, `waerme_von`: 0,5, `waerme_bis`: 1,0 | ja |
 | Belichtung | `belichtung`: 0,25 | ja |
 | Kurve: gerade bis, flach ab | `knie`: 0,8, `flach`: 1,2 | ja |
+| Bloom: Stärke, σ in Blöcken | `bloom`: 1, `bloom_breite`: 0,25 | ja |
 
 - **Herkunft:** alle aus 0058, bis auf `sonne_weite`, `wasser_textur`,
   `leuchten_ab` und `leuchten_voll`. 0058 sagt „nur die hellen Texel“; ab
@@ -349,6 +348,33 @@ in 0058 (`Look::waerme`, `Kino::ton`):
   `kino.rs` und die Wärme je Pixel in `biom_faerbt_das_himmelslicht`, an
   der Grenze aus dem Mittel der Temperatur.
 
+## Bloom
+
+Aus dem Leuchten kommt ein Schein, wie in 0058 (`Kino::bloom`, `Hdr::bild`
+in [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
+
+- **Die Quelle** ist das Leuchten je Pixel (`Hdr::leuchten`), linear,
+  vormultipliziert und gemischt wie die Farbe. Wasser dämpft es wie die
+  Farbe darunter. Je Pixel abgeglichen mit dessen Wärme, mal `bloom`.
+- **Unscharf** mit drei Kastenfiltern je Achse, erst senkrecht, dann
+  waagrecht, nahe an einer Gaussglocke mit σ = `bloom_breite` · scale, wie
+  im Prototyp aus #89 (`unscharf` in `kino.rs`): Breite √(4σ² + 1),
+  gerundet und ungerade, Radius r die Hälfte davon, abgerundet. Bei scale
+  32 ist r = 8.
+- **Dazu** vor Belichtung und Kurve, so abgeglichen wie die Farbe. Auf
+  einen Pixel ohne Block fällt kein Schein, er bleibt durchsichtig.
+- **Ohne Nähte:** `render_area_with` rendert um jede Kachel einen Rand von
+  3r Pixeln mit, so weit reichen die drei Filter; bei scale 32 sind das 24
+  Pixel. Im Rand rechnet er keine Strahlen zur Sonne, dort zählt nur das
+  Leuchten. Die Filter rechnen in Festkomma mit 24 Bit nach dem Komma: Die
+  gleitende Summe ist exakt, und ein Ausschnitt gibt dieselben Bits wie das
+  grosse Bild.
+- Getestet: `unscharf_wie_im_prototyp` mit Sollwerten aus der
+  Nachbearbeitung des Prototyps zu #89, `unscharf_im_ausschnitt_gleich` und
+  `bloom_radius_nach_dem_scale` in `kino.rs`; `bloom_um_das_leuchten` und
+  `wasser_daempft_das_leuchten` in `renderer/tests/metatile.rs`, dazu
+  `kleine_ausschnitte_gleichen_dem_grossen_bild`.
+
 ## Zeichnen in HDR
 
 Der dritte Durchgang von `render_area_with` zeichnet mit dem Look in HDR
@@ -365,9 +391,9 @@ Karte, siehe [Der Weg einer Kachel](renderpfad.md), „Blit“:
   Pixel −∞; für das Wasser. Das prüfen
   `hdr_haelt_die_tiefe_der_vordersten_flaeche` und, mit zwei Draws auf
   einem Pixel, `hdr_haelt_die_tiefe_des_vorderen_draws`.
-- **Ton am Ende** (`Hdr::bild`, `Kino::ton`): die Farbe mal Weissabgleich
-  und Belichtung, dann je Kanal die Kurve aus 0058, dann sRGB. Ein Pixel
-  ohne Block bleibt durchsichtig.
+- **Ton am Ende** (`Hdr::bild`, `Kino::ton`): die Farbe mal Weissabgleich,
+  dazu der Bloom, mal Belichtung, dann je Kanal die Kurve aus 0058, dann
+  sRGB. Ein Pixel ohne Block bleibt durchsichtig.
 - **Weissabgleich:** je Kanal `v` aus `Look::weissabgleich`; er macht eine
   weisse Fläche nach oben in Sonne und Himmel der Oberwelt farblos, auch in
   anderen Dimensionen. Je Pixel verstärkt ihn die Wärme, siehe „Wärme“.
@@ -414,6 +440,8 @@ kostet, steht in [Was ein Lauf kostet](../benutzung/kosten.md),
   vordersten Pixel darunter, auch wenn dazwischen Luft liegt, etwa hinter
   einer Wassersäule. Der Prototyp verliess das Wasser an seiner Rückseite;
   die zeichnet der Rasterizer nicht.
+- **Kein Schein über leerem Grund:** Auf Pixel ohne Block, etwa am Rand
+  der Welt, fällt kein Bloom; sie bleiben durchsichtig, wie bei der Karte.
 - **Schatten bis 128 Blöcke:** Ein Block, der weiter entlang des Strahls
   steht, also gut 95 Blöcke höher, wirft keinen Schatten mehr. Das Spiel
   hat keine Schatten der Sonne; der Prototyp, an dem 0056 den Preis

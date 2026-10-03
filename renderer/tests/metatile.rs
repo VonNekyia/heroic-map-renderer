@@ -859,6 +859,93 @@ fn nur_helle_texel_leuchten() {
     );
 }
 
+/// Bloom um ein leuchtendes Pilzlicht auf einem Boden, bei scale 16 mit
+/// Radius 4: Mit ihm wird es heller, nie dunkler, und nur bis 3r = 12
+/// Pixel um einen Pixel, der leuchtet. Ein Ausschnitt, dessen Rand mitten
+/// durch den Schein geht, gleicht dem grossen Bild.
+/// Siehe docs/renderer/cinematic.md, „Bloom“.
+#[test]
+fn bloom_um_das_leuchten() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 3, 8) => "minecraft:shroomlight",
+        (_, 0..=2, _) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let mit = kino_tabelle(&world, projection, Y_RANGE, LOOK);
+    let ohne = kino_tabelle(&world, projection, Y_RANGE, Look { bloom: 0.0, ..LOOK });
+    let rect = rect_um(projection, [4, 0, 4], [13, 4, 13]);
+    let (a, b) = (
+        render_area(&world, &mit, rect, Y_RANGE).unwrap(),
+        render_area(&world, &ohne, rect, Y_RANGE).unwrap(),
+    );
+    let hdr = render_hdr_with(&mut ChunkCache::new(&world, &mit), rect, Y_RANGE).unwrap();
+    let leuchtet = |x: i32, y: i32| {
+        (0..rect.width as i32).contains(&x)
+            && (0..rect.height as i32).contains(&y)
+            && hdr.leuchten[(y as u32 * rect.width + x as u32) as usize] != [0.0; 3]
+    };
+    let mut heller = 0;
+    for (x, y, p) in a.enumerate_pixels() {
+        let q = b.get_pixel(x, y);
+        assert!(
+            (0..4).all(|c| p[c] >= q[c]),
+            "({x}, {y}): {p:?} gegen {q:?}"
+        );
+        if p != q {
+            heller += 1;
+            let (x, y) = (x as i32, y as i32);
+            let nah = (-12..=12).any(|dy| (-12..=12).any(|dx| leuchtet(x + dx, y + dy)));
+            assert!(nah, "({x}, {y}) weiter als 3r vom Leuchten");
+        }
+    }
+    assert!(heller > 200, "{heller}");
+    // Der Rand des Ausschnitts geht durch das Pilzlicht.
+    let (sx, _) = projection.project([8.5, 3.5, 8.5]);
+    let halb = ScreenRect {
+        width: (sx.floor() as i32 - rect.x) as u32,
+        ..rect
+    };
+    let klein = render_area(&world, &mit, halb, Y_RANGE).unwrap();
+    let soll = image::imageops::crop_imm(&a, 0, 0, halb.width, halb.height).to_image();
+    assert!(klein == soll, "Ausschnitt anders");
+}
+
+/// Wasser dämpft das Leuchten darunter wie die Farbe: Ein Pilzlicht mit
+/// einem Block Wasser darüber leuchtet in den Bloom nirgends stärker als
+/// ohne Wasser, unter der Oberfläche schwächer, aber nicht gar nicht.
+/// Siehe docs/renderer/cinematic.md, „Bloom“.
+#[test]
+fn wasser_daempft_das_leuchten() {
+    let hdr = |wasser: bool| {
+        let dir = tempdir();
+        let block = move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (8, 3, 8) => "minecraft:shroomlight",
+            (8, 4, 8) if wasser => "minecraft:water",
+            (_, 0..=2, _) => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        };
+        common::write_world(dir.path(), &[(0, 0)], block);
+        let world = World::open(dir.path()).unwrap();
+        let projection = Projection::new(16);
+        let sprites = kino_tabelle(&world, projection, Y_RANGE, LOOK);
+        let rect = rect_um(projection, [7, 2, 7], [10, 6, 10]);
+        render_hdr_with(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap()
+    };
+    let (mit, ohne) = (hdr(true), hdr(false));
+    let mut gedaempft = 0;
+    for (m, o) in mit.leuchten.iter().zip(&ohne.leuchten) {
+        assert!((0..3).all(|c| m[c] <= o[c] + 1e-6), "{m:?} gegen {o:?}");
+        if m[0] > 0.0 && m[0] < 0.9 * o[0] {
+            gedaempft += 1;
+        }
+    }
+    assert!(gedaempft > 20, "{gedaempft}");
+}
+
 /// Blöcke für die Strahlen zur Sonne, frei in der Luft über einem Boden:
 /// ein voller Würfel, Laub mit Löchern, Wasser, Glas mit deckendem Rahmen,
 /// eine Bodenpflanze, ein Modell, das nach Westen in den Nachbarwürfel ragt,

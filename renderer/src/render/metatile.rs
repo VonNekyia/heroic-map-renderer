@@ -135,7 +135,16 @@ pub fn render_area_with(
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
     if let Some(kino) = chunks.sprites.kino() {
-        return Ok(render_hdr_with(chunks, rect, y_range)?.bild(kino));
+        // Mit einem Rand für den Bloom, siehe `Hdr::bild`.
+        let scale = chunks.sprites.projection().scale();
+        let rand = 3 * kino.bloom_radius(scale) as u32;
+        let gross = ScreenRect {
+            x: rect.x - rand as i32,
+            y: rect.y - rand as i32,
+            width: rect.width + 2 * rand,
+            height: rect.height + 2 * rand,
+        };
+        return Ok(render_hdr(chunks, gross, y_range, false, rand)?.bild(kino, scale, rand));
     }
     let deckung = von_vorn(chunks, rect, y_range)?;
     let mut canvas = RgbaImage::new(rect.width, rect.height);
@@ -155,7 +164,7 @@ pub fn render_hdr_with(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<Hdr> {
-    render_hdr(chunks, rect, y_range, false)
+    render_hdr(chunks, rect, y_range, false, 0)
 }
 
 /// Wie [`render_hdr_with`], nur mit dem langsamen Bezug des Strahls zur
@@ -166,25 +175,34 @@ pub fn render_hdr_bezug(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<Hdr> {
-    render_hdr(chunks, rect, y_range, true)
+    render_hdr(chunks, rect, y_range, true, 0)
 }
 
+/// Wie [`render_hdr_with`]; `rand` Pixel am Rand zeichnet es nur für den
+/// Bloom, ohne Strahlen zur Sonne.
 fn render_hdr(
     chunks: &mut ChunkCache,
     rect: ScreenRect,
     y_range: (i32, i32),
     bezug: bool,
+    rand: u32,
 ) -> Result<Hdr> {
     let sprites = chunks.sprites;
     let kino = sprites.kino().expect("eine Sprite-Tabelle für Cinematic");
     let deckung = von_vorn(chunks, rect, y_range)?;
     let mut hdr = Hdr::new(rect.width, rect.height);
+    let innen = ScreenRect {
+        x: rand as i32,
+        y: rand as i32,
+        width: rect.width - 2 * rand,
+        height: rect.height - 2 * rand,
+    };
     // Die Draws aus dem Cache genommen, denn der Strahl zur Sonne braucht ihn.
     let sichtbar = std::mem::take(&mut chunks.sichtbar);
     for &(sprite, origin, ref sicht, licht, daten) in sichtbar.iter().rev() {
         blit_hdr(
             &mut hdr,
-            (kino, sprites.projection()),
+            (kino, sprites.projection(), &innen),
             sprite,
             origin,
             licht,
@@ -215,6 +233,9 @@ pub struct Hdr {
     /// Die Wärme des vordersten Pixels, aus dem Biom seines Blocks, siehe
     /// [`Kino::waerme`]; 1 ohne Pixel.
     pub waerme: Vec<f32>,
+    /// Das Leuchten je Pixel, linear und vormultipliziert, gemischt wie die
+    /// Farbe: die Quelle des Bloom.
+    pub leuchten: Vec<[f32; 3]>,
 }
 
 impl Hdr {
@@ -225,20 +246,29 @@ impl Hdr {
             farbe: vec![[0.0; 4]; n],
             tiefe: vec![f32::NEG_INFINITY; n],
             waerme: vec![1.0; n],
+            leuchten: vec![[0.0; 3]; n],
         }
     }
 
-    /// Das Bild nach dem Ton aus [`Kino::ton`]; Alpha bleibt, ein Pixel ohne
-    /// Block durchsichtig.
-    pub fn bild(&self, kino: &Kino) -> RgbaImage {
-        let height = (self.farbe.len() / self.width.max(1) as usize) as u32;
-        let mut bild = RgbaImage::new(self.width, height);
-        let pixel = bild.pixels_mut().zip(&self.farbe).zip(&self.waerme);
-        for ((pixel, &[r, g, b, a]), &w) in pixel {
+    /// Das Bild nach dem Ton aus [`Kino::ton`], ohne einen Rand von `rand`
+    /// Pixeln: Der Rand trägt nur sein Leuchten zum Bloom bei
+    /// ([`Kino::bloom`] bei `scale`). Alpha bleibt, ein Pixel ohne Block
+    /// durchsichtig; auf ihn fällt kein Bloom.
+    /// Siehe docs/renderer/cinematic.md, „Bloom“.
+    pub fn bild(&self, kino: &Kino, scale: u32, rand: u32) -> RgbaImage {
+        let w = self.width as usize;
+        let h = self.farbe.len() / w.max(1);
+        let rand = rand as usize;
+        let bloom = kino.bloom(&self.leuchten, &self.waerme, w, scale);
+        let mut bild = RgbaImage::new((w - 2 * rand) as u32, (h - 2 * rand) as u32);
+        for (i, pixel) in bild.pixels_mut().enumerate() {
+            let p = (i / (w - 2 * rand) + rand) * w + i % (w - 2 * rand) + rand;
+            let [r, g, b, a] = self.farbe[p];
             if a <= 0.0 {
                 continue;
             }
-            let [r, g, b] = kino.ton([r / a, g / a, b / a], w);
+            let zusatz = bloom.as_ref().map_or([0.0; 3], |b| b[p]);
+            let [r, g, b] = kino.ton([r / a, g / a, b / a], self.waerme[p], zusatz);
             pixel.0 = [r, g, b, (a * 255.0).round() as u8];
         }
         bild
@@ -1002,7 +1032,7 @@ fn blit_sichtbar(
 #[allow(clippy::too_many_arguments)]
 fn blit_hdr(
     hdr: &mut Hdr,
-    (kino, projection): (&Kino, Projection),
+    (kino, projection, innen): (&Kino, Projection, &ScreenRect),
     sprite: &Sprite,
     (ox, oy): (i32, i32),
     (licht, ecken, wasser, farben): Licht,
@@ -1047,7 +1077,10 @@ fn blit_hdr(
                 let s = &row[sx * 4..][..4];
                 let p = y as usize * cw + x;
                 let mut sonnenlicht = [0.0; 3];
-                if let Some(g) = sprite.geometrie.as_deref().map(|g| &g[i]) {
+                // Im Rand für den Bloom zählt nur das Leuchten.
+                let drin = (innen.x..innen.right()).contains(&(x as i32))
+                    && (innen.y..innen.bottom()).contains(&y);
+                if let Some(g) = sprite.geometrie.as_deref().map(|g| &g[i]).filter(|_| drin) {
                     sonnenlicht = kino.sonnenlicht(g);
                     if sonnenlicht != [0.0; 3] {
                         let p0 = startpunkt(projection, sprite, (sx, (y - oy) as usize), g, anker);
@@ -1080,10 +1113,18 @@ fn blit_hdr(
                             blick,
                             strecke,
                         };
-                        mische_wasser(&mut hdr.farbe[p], kino, s, tint, &himmel, unten, wasser);
+                        mische_wasser(
+                            (&mut hdr.farbe[p], &mut hdr.leuchten[p]),
+                            kino,
+                            s,
+                            tint,
+                            &himmel,
+                            unten,
+                            wasser,
+                        );
                     }
                     _ => mische_hdr(
-                        &mut hdr.farbe[p],
+                        (&mut hdr.farbe[p], &mut hdr.leuchten[p]),
                         kino,
                         linear,
                         s,
@@ -1141,7 +1182,7 @@ struct Wasserpixel {
 ///
 /// [`Look::wasser_textur`]: super::look::Look::wasser_textur
 fn mische_wasser(
-    d: &mut [f32; 4],
+    (d, l): (&mut [f32; 4], &mut [f32; 3]),
     kino: &Kino,
     s: [u8; 4],
     (anteile, farben): ([u32; 2], [u32; 2]),
@@ -1202,6 +1243,8 @@ fn mische_wasser(
         let unter = innen[c] * (licht[c] + unten.sonne[c] + e) + (1.0 - a_m) * grund;
         let wasser = a1 * farbe_w[c] * (nass[c] + unten.sonne[c]) + (1.0 - a1) * unter;
         d[c] = f * spiegel[c] + (1.0 - f) * wasser;
+        // Das Leuchten darunter dämpft das Wasser wie die Farbe.
+        l[c] = (1.0 - f) * (1.0 - a1) * (innen[c] * e + (1.0 - a_m) * durch[c] * l[c]);
     }
     d[3] = a_s + d[3] * (1.0 - a_s);
 }
@@ -1280,7 +1323,7 @@ impl EckenLicht {
 #[inline]
 #[allow(clippy::too_many_arguments)]
 fn mische_hdr(
-    d: &mut [f32; 4],
+    (d, l): (&mut [f32; 4], &mut [f32; 3]),
     kino: &Kino,
     linear: &[f32; 256],
     s: [u8; 4],
@@ -1315,6 +1358,7 @@ fn mische_hdr(
     };
     for c in 0..3 {
         d[c] = lin[c] * (licht[c] + sonne[c] + e) * a + d[c] * (1.0 - a);
+        l[c] = lin[c] * e * a + l[c] * (1.0 - a);
     }
     d[3] = a + d[3] * (1.0 - a);
 }

@@ -222,16 +222,107 @@ impl Kino {
         self.look.waerme(t)
     }
 
-    /// Eine Farbe aus HDR, linear, nach sRGB: der Weissabgleich je Kanal mit
-    /// der Wärme `w`, `1 + (v − 1) · w` wie in 0058, und die Belichtung, dann
-    /// je Kanal die Kurve aus [`Look::kurve`].
+    /// Der Weissabgleich je Kanal mit der Wärme `w`, `1 + (v − 1) · w` wie in
+    /// 0058.
     /// Siehe docs/renderer/cinematic.md, „Wärme“.
-    pub fn ton(&self, farbe: [f32; 3], w: f32) -> [u8; 3] {
+    fn abgleich(&self, w: f32) -> [f32; 3] {
+        self.weiss.map(|v| 1.0 + (v - 1.0) * w)
+    }
+
+    /// Eine Farbe aus HDR, linear, nach sRGB: der Weissabgleich mit der
+    /// Wärme `w` ([`Kino::abgleich`]), dazu `bloom`, schon abgeglichen, dann
+    /// die Belichtung und je Kanal die Kurve aus [`Look::kurve`].
+    pub fn ton(&self, farbe: [f32; 3], w: f32, bloom: [f32; 3]) -> [u8; 3] {
+        let v = self.abgleich(w);
         std::array::from_fn(|c| {
-            let v = 1.0 + (self.weiss[c] - 1.0) * w;
-            to_srgb(self.look.kurve(farbe[c] * v * self.look.belichtung))
+            to_srgb(
+                self.look
+                    .kurve((farbe[c] * v[c] + bloom[c]) * self.look.belichtung),
+            )
         })
     }
+
+    /// Wie weit der Bloom bei `scale` reicht: der Radius `r` eines der
+    /// Kastenfilter aus [`unscharf`], wie im Prototyp aus #89 für die
+    /// Gaussglocke mit σ = [`Look::bloom_breite`] · scale; 0 ohne Bloom.
+    pub fn bloom_radius(&self, scale: u32) -> usize {
+        if self.look.bloom <= 0.0 {
+            return 0;
+        }
+        let sigma = f64::from(self.look.bloom_breite) * f64::from(scale);
+        let b = ((4.0 * sigma * sigma + 1.0).sqrt().round() as usize).max(1);
+        (b | 1) / 2
+    }
+
+    /// Der Bloom eines Bildes der Breite `breite`: das Leuchten `leuchten`,
+    /// vormultipliziert, je Pixel abgeglichen mit dessen Wärme `waerme`, mal
+    /// [`Look::bloom`], unscharf mit dem Radius aus [`Kino::bloom_radius`].
+    /// `None`, wo nichts leuchtet.
+    /// Siehe docs/renderer/cinematic.md, „Bloom“.
+    pub fn bloom(
+        &self,
+        leuchten: &[[f32; 3]],
+        waerme: &[f32],
+        breite: usize,
+        scale: u32,
+    ) -> Option<Vec<[f32; 3]>> {
+        let r = self.bloom_radius(scale);
+        if r == 0 || leuchten.iter().all(|l| *l == [0.0; 3]) {
+            return None;
+        }
+        let quelle: Vec<[f32; 3]> = leuchten
+            .iter()
+            .zip(waerme)
+            .map(|(l, &w)| {
+                let v = self.abgleich(w);
+                std::array::from_fn(|c| l[c] * v[c] * self.look.bloom)
+            })
+            .collect();
+        Some(unscharf(&quelle, breite, r))
+    }
+}
+
+/// Drei Kastenfilter der Breite `2r + 1` je Achse, erst senkrecht, dann
+/// waagrecht, am Rand fortgesetzt: nahe an einer Gaussglocke, wie im
+/// Prototyp aus #89. Gerechnet in Festkomma mit 24 Bit nach dem Komma: Die
+/// gleitende Summe ist so exakt, und jeder Wert hängt nur an seinem
+/// Fenster. Ein Ausschnitt mit Rand gibt dieselben Bits wie das ganze Bild.
+fn unscharf(bild: &[[f32; 3]], breite: usize, r: usize) -> Vec<[f32; 3]> {
+    const EINS: f64 = (1u64 << 24) as f64;
+    let hoehe = bild.len() / breite;
+    let mut q: Vec<[i64; 3]> = bild
+        .iter()
+        .map(|p| p.map(|c| (f64::from(c) * EINS).round() as i64))
+        .collect();
+    let b = 2 * r as i64 + 1;
+    let mut linie = Vec::new();
+    // Je Achse: wie viele Werte eine Linie hat, ihr Abstand, wie viele Linien
+    // und der Abstand der Linien.
+    for (laenge, schritt, linien, versatz) in
+        [(hoehe, breite, breite, 1), (breite, 1, hoehe, breite)]
+    {
+        for _ in 0..3 {
+            for l in 0..linien {
+                let start = l * versatz;
+                linie.clear();
+                linie.extend((0..laenge).map(|i| q[start + i * schritt]));
+                let at = |i: isize| linie[i.clamp(0, laenge as isize - 1) as usize];
+                let mut summe = [0i64; 3];
+                for k in -(r as isize)..=r as isize {
+                    let v = at(k);
+                    summe = std::array::from_fn(|c| summe[c] + v[c]);
+                }
+                for i in 0..laenge {
+                    q[start + i * schritt] = summe.map(|s| (s + b / 2).div_euclid(b));
+                    let (rein, raus) = (at((i + r + 1) as isize), at(i as isize - r as isize));
+                    summe = std::array::from_fn(|c| summe[c] + rein[c] - raus[c]);
+                }
+            }
+        }
+    }
+    q.iter()
+        .map(|p| p.map(|c| (c as f64 / EINS) as f32))
+        .collect()
 }
 
 #[cfg(test)]
@@ -398,8 +489,70 @@ mod tests {
     #[test]
     fn ton_mit_waerme() {
         let kino = kino(&DimensionType::oberwelt());
-        assert_eq!(kino.ton([1.0; 3], 1.0), [145, 137, 117]);
-        assert_eq!(kino.ton([1.0; 3], 1.5), [149, 137, 106]);
+        assert_eq!(kino.ton([1.0; 3], 1.0, [0.0; 3]), [145, 137, 117]);
+        assert_eq!(kino.ton([1.0; 3], 1.5, [0.0; 3]), [149, 137, 106]);
+    }
+
+    /// Der Rand des Bloom aus 0058: σ = scale/4, Kastenfilter wie im
+    /// Prototyp, 3r ist bei scale 32 24 Pixel.
+    #[test]
+    fn bloom_radius_nach_dem_scale() {
+        let kino = kino(&DimensionType::oberwelt());
+        for (scale, r) in [(4, 1), (8, 2), (16, 4), (32, 8), (6, 1), (24, 6)] {
+            assert_eq!(kino.bloom_radius(scale), r, "scale {scale}");
+        }
+    }
+
+    /// Die Unschärfe gleicht der des Prototyps: ein Pixel mit (1, 2, 3) in
+    /// der Mitte, σ = 2 (Radius 2); die Sollwerte rechnet `unscharf` aus
+    /// `look.py` des Prototyps. Die Summe bleibt, nach 3r = 6 ist nichts
+    /// mehr.
+    #[test]
+    fn unscharf_wie_im_prototyp() {
+        let mut bild = vec![[0.0f32; 3]; 31 * 31];
+        bild[15 * 31 + 15] = [1.0, 2.0, 3.0];
+        let aus = unscharf(&bild, 31, 2);
+        for ((x, y), soll) in [
+            ((15, 15), 0.023104),
+            ((18, 15), 0.01216),
+            ((15, 12), 0.01216),
+            ((21, 15), 0.001216),
+            ((22, 15), 0.0),
+        ] {
+            let ist = aus[y * 31 + x];
+            for (c, k) in [1.0, 2.0, 3.0].into_iter().enumerate() {
+                assert!((ist[c] - soll * k).abs() < 1e-6, "({x}, {y}): {ist:?}");
+            }
+        }
+        let summe: f32 = aus.iter().map(|p| p[0]).sum();
+        assert!((summe - 1.0).abs() < 1e-5, "{summe}");
+    }
+
+    /// Ein Ausschnitt mit einem Rand von 3r gibt dieselben Bits wie das
+    /// ganze Bild, auch an den Rändern des Ausschnitts.
+    #[test]
+    fn unscharf_im_ausschnitt_gleich() {
+        let (breite, hoehe, r) = (40, 30, 3);
+        let bild: Vec<[f32; 3]> = (0..breite * hoehe)
+            .map(|i| {
+                let f = ((i * 7919) % 101) as f32 / 37.0;
+                [f, f * 0.5, (i % 13) as f32]
+            })
+            .collect();
+        let ganz = unscharf(&bild, breite, r);
+        let (x0, y0, b, h) = (9, 11, 12, 8);
+        let rand = 3 * r;
+        let teil: Vec<[f32; 3]> = (y0 - rand..y0 + h + rand)
+            .flat_map(|y| (x0 - rand..x0 + b + rand).map(move |x| (x, y)))
+            .map(|(x, y)| bild[y * breite + x])
+            .collect();
+        let klein = unscharf(&teil, b + 2 * rand, r);
+        for y in 0..h {
+            for x in 0..b {
+                let ist = klein[(y + rand) * (b + 2 * rand) + x + rand];
+                assert_eq!(ist, ganz[(y0 + y) * breite + x0 + x], "({x}, {y})");
+            }
+        }
     }
 
     /// Eine weisse Fläche nach oben im vollen Himmelslicht der Oberwelt,
@@ -409,8 +562,8 @@ mod tests {
     fn weisse_flaeche_im_himmelslicht() {
         let kino = kino(&DimensionType::oberwelt());
         let licht = kino.licht(kino.himmel(0).licht, 240.0, 0.0, 255.0);
-        let [r, g, b] = kino.ton(licht, 1.0);
+        let [r, g, b] = kino.ton(licht, 1.0, [0.0; 3]);
         assert!(r < g && g < b && b < 255, "{:?}", [r, g, b]);
-        assert_eq!(kino.ton([0.0; 3], 1.0), [0; 3]);
+        assert_eq!(kino.ton([0.0; 3], 1.0, [0.0; 3]), [0; 3]);
     }
 }

@@ -55,6 +55,11 @@ pub struct Look {
     pub knie: f32,
     /// Ab hier ist die Kurve flach in 1.
     pub flach: f32,
+    /// Stärke des Bloom aus dem Leuchten.
+    pub bloom: f32,
+    /// Breite des Bloom: σ der Gaussglocke in Blöcken, also in Pixeln mal
+    /// scale.
+    pub bloom_breite: f32,
 }
 
 /// Der Stand des Verfahrens, mit dem Cinematic zeichnet. Er geht in den
@@ -85,13 +90,15 @@ pub const LOOK: Look = Look {
     belichtung: 0.25,
     knie: 0.8,
     flach: 1.2,
+    bloom: 1.0,
+    bloom_breite: 0.25,
 };
 
 impl Look {
     /// Jeder Wert mit seinem Namen, in fester Reihenfolge, wie er im Code
     /// steht. Abgeleitete Werte wie die Richtung der Sonne aus Sinus und
     /// Kosinus fehlen: Deren letztes Bit kann je System abweichen.
-    fn werte(&self) -> [(&'static str, &[f32]); 21] {
+    fn werte(&self) -> [(&'static str, &[f32]); 23] {
         // Ganz zerlegt: Ein neues Feld kompiliert erst, wenn es hier steht.
         let Look {
             himmel,
@@ -115,6 +122,8 @@ impl Look {
             belichtung,
             knie,
             flach,
+            bloom,
+            bloom_breite,
         } = self;
         [
             ("himmel", std::slice::from_ref(himmel)),
@@ -138,6 +147,8 @@ impl Look {
             ("belichtung", std::slice::from_ref(belichtung)),
             ("knie", std::slice::from_ref(knie)),
             ("flach", std::slice::from_ref(flach)),
+            ("bloom", std::slice::from_ref(bloom)),
+            ("bloom_breite", std::slice::from_ref(bloom_breite)),
         ]
     }
 
@@ -253,7 +264,7 @@ mod tests {
     /// zieht den Test nach.
     #[test]
     fn fingerabdruck_der_werte_aus_0058() {
-        assert_eq!(LOOK.fingerabdruck(), "8747842880fab7c7");
+        assert_eq!(LOOK.fingerabdruck(), "25c9f25d0c368856");
         let anders = Look {
             belichtung: 0.26,
             ..LOOK

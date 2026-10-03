@@ -226,9 +226,15 @@ pub fn darken(pixel: [u8; 4], factors: [u32; 3]) -> [u8; 4] {
 }
 
 /// Die Seiten, die eine diagonale schräge Kamera sieht, in der Reihenfolge
-/// der Nummern in [`Sprite::ao`]: Seite `i` hat dort die Nummer `i + 1`.
-/// `north-45` sieht Osten nicht, von oben nur die Oberseite.
+/// der Plätze in [`Sprite::ao`]: Eine Fläche auf dem Rand der Seite `i` hat
+/// dort den Platz `i`, eine im Innern mit dieser Richtung den Platz `i + 3`,
+/// siehe [`ao_face`]. `north-45` sieht Osten nicht, von oben nur die
+/// Oberseite.
 pub const AO_FACES: [Face; 3] = [Face::Up, Face::South, Face::East];
+
+/// Wie viele Plätze die AO-Karte hat: je Seite aus [`AO_FACES`] einen für
+/// Flächen auf dem Rand und einen für Flächen im Innern.
+pub const AO_PLAETZE: usize = 6;
 
 /// Die Ecken der Seiten oben und rundum in der Reihenfolge von `FaceInfo`
 /// in 26.2, im Würfel 0..1, per javap am 26.2-Client. Das Spiel zeichnet
@@ -270,19 +276,48 @@ pub(crate) fn ecken_im_blick(richtung: Richtung, seite: usize) -> [[f32; 2]; 4] 
     ecken.map(|ecke| face_coords(seite, richtung.punkt_in_den_blick(ecke)))
 }
 
-/// Die Seite aus [`AO_FACES`], als die das Spiel ein Viereck im Licht der
-/// Zelle davor zeichnet, weich mit den vier Werten je Ecke oder flach
+/// Die Richtung, die das Spiel einem Viereck gibt
+/// (`FaceBakery.findClosestDirection`): die erste in der Reihenfolge von
+/// `Direction.values()`, also von [`Face`], mit dem grössten Skalarprodukt
+/// mit der Normalen; `None`, wenn keines positiv ist.
+fn richtung_des_vierecks(n: [f32; 3]) -> Option<Face> {
+    let mut beste = None;
+    let mut wert = 0.0;
+    for face in [
+        Face::Down,
+        Face::Up,
+        Face::North,
+        Face::South,
+        Face::West,
+        Face::East,
+    ] {
+        let v = face.versatz();
+        let dot = n[0] * v[0] as f32 + n[1] * v[1] as f32 + n[2] * v[2] as f32;
+        if dot >= 0.0 && dot > wert {
+            (beste, wert) = (Some(face), dot);
+        }
+    }
+    beste
+}
+
+/// Der Platz in der AO-Karte, als den das Spiel ein Viereck `quad` im Blick
+/// weich beleuchtet, mit `welt` derselben Fläche in der Welt. Die Seite
+/// ist die Richtung des Vierecks ([`richtung_des_vierecks`], in der Welt
+/// gewählt, dann im Blick), wenn sie eine aus [`AO_FACES`] ist. Platz 0 bis
+/// 2 hat eine Fläche, die das Spiel im Licht der Zelle davor zeichnet
 /// (`faceCubic` in `BlockModelLighter.prepareQuadShape`): eben, bis auf
-/// 1e-4, denn der Baker dreht über sin und cos, und auf dem Rand des
-/// Würfels, mit voller Kollisionsform des Blocks (`kollision`) auch im
-/// Innern. Flüssigkeiten bekommen keine, Flächen aus Blockentity-Modellen
-/// auch nicht: Das Spiel zeichnet sie im Licht der Entities, siehe
-/// [`entity_light`].
+/// 1e-4, und auf dem Rand des Würfels, mit voller Kollisionsform des Blocks
+/// (`kollision`) auch im Innern. Jede andere, auch eine schräge, hat Platz
+/// 3 bis 5: Das Spiel zählt sie ab der eigenen Zelle. Flüssigkeiten
+/// bekommen keinen, Flächen aus Blockentity-Modellen auch nicht: Das Spiel
+/// zeichnet sie im Licht der Entities, siehe [`entity_light`].
 /// Siehe docs/renderer/weiche-beleuchtung.md, „Die Regeln des Spiels“.
-fn ao_face(quad: &Quad, kollision: bool) -> Option<usize> {
+fn ao_face(quad: &Quad, welt: &Quad, kollision: bool, richtung: Richtung) -> Option<usize> {
     if quad.fluid.is_some() || quad.entity.is_some() {
         return None;
     }
+    let seite = richtung.seite_in_den_blick(richtung_des_vierecks(welt.normal())?);
+    let platz = AO_FACES.iter().position(|&f| f == seite)?;
     let min = |axis: usize| {
         quad.corners
             .iter()
@@ -295,14 +330,10 @@ fn ao_face(quad: &Quad, kollision: bool) -> Option<usize> {
             .map(|c| c[axis])
             .fold(f32::MIN, f32::max)
     };
-    let n = quad.normal();
-    // Je Seite die Achse ihrer Normalen.
-    [(0, 1), (1, 2), (2, 0)]
-        .into_iter()
-        .find(|&(_, axis)| {
-            n[axis] > 0.0 && max(axis) - min(axis) < 1e-4 && (kollision || min(axis) > 0.9999)
-        })
-        .map(|(face, _)| face)
+    // Die Achse der Normalen der Seite.
+    let axis = [1, 2, 0][platz];
+    let davor = max(axis) - min(axis) < 1e-4 && (kollision || min(axis) > 0.9999);
+    Some(if davor { platz } else { platz + 3 })
 }
 
 /// Die Koordinaten eines Punkts auf einer Seite aus [`AO_FACES`]: oben
@@ -342,22 +373,22 @@ fn corner_weights(e: [[f32; 2]; 4], p: [f32; 2]) -> [u32; 4] {
 }
 
 /// Ein Eintrag der AO-Karte: die Anteile der Ecken 0 bis 2, der vierten
-/// fehlt auf 255, und die Nummer der Seite aus [`AO_FACES`].
-fn ao_word(face: usize, w: [u32; 4]) -> u32 {
-    w[0] | w[1] << 8 | w[2] << 16 | (face as u32 + 1) << 24
+/// fehlt auf 255, und der Platz aus [`ao_face`] plus 1.
+fn ao_word(platz: usize, w: [u32; 4]) -> u32 {
+    w[0] | w[1] << 8 | w[2] << 16 | (platz as u32 + 1) << 24
 }
 
-/// Das Licht an den Ecken der drei Seiten aus [`AO_FACES`], die weiche
-/// Beleuchtung eingerechnet: je Farbkanal und Seite ein Wort, ein Byte je
-/// Ecke in der Reihenfolge von [`ecken_im_blick`], in 255steln. So liefert es
-/// [`ChunkCache::ecken_at`](super::metatile) je Block.
-pub type Ecken = [[u32; 3]; 3];
+/// Das Licht an den Ecken der [`AO_PLAETZE`], die weiche Beleuchtung
+/// eingerechnet: je Farbkanal und Platz ein Wort, ein Byte je Ecke in der
+/// Reihenfolge von [`ecken_im_blick`] seiner Seite, in 255steln. So liefert
+/// es [`ChunkCache::ecken_at`](super::metatile) je Block.
+pub type Ecken = [[u32; AO_PLAETZE]; 3];
 
 /// Die Helligkeit eines Kanals an einem Pixel in 255steln: der Eintrag der
-/// AO-Karte gegen die Werte der Ecken seiner Seite in diesem Kanal aus
+/// AO-Karte gegen die Werte der Ecken seines Platzes in diesem Kanal aus
 /// [`Ecken`], wie die Grafikkarte die Farbe der Ecken über das Dreieck
-/// verlaufen lässt. 255 ohne Seite. Dieselbe Rechnung steht im Shader.
-pub fn ecken_faktor(word: u32, corners: [u32; 3]) -> u32 {
+/// verlaufen lässt. 255 ohne Platz. Dieselbe Rechnung steht im Shader.
+pub fn ecken_faktor(word: u32, corners: [u32; AO_PLAETZE]) -> u32 {
     let face = word >> 24;
     if face == 0 {
         return 255;
@@ -374,12 +405,11 @@ pub struct Sprite {
     /// Pixelposition der linken oberen Ecke, relativ zum projizierten
     /// Blockursprung.
     pub offset: (i32, i32),
-    /// Die AO-Karte: je Pixel seine Seite und die Anteile ihrer Ecken, siehe
-    /// [`ecken_faktor`], wo eine Fläche im Licht der Zelle davor liegt, siehe
-    /// [`ao_face`]; nur, wenn das an einem Pixel so ist. Mit ihr bekommt
-    /// jede Seite das Licht an ihren Ecken, weich beleuchtet oder nicht,
-    /// siehe [`Sprite::weich`]. Ein Pixel ohne Seite liegt im Licht der
-    /// eigenen Zelle.
+    /// Die AO-Karte: je Pixel sein Platz und die Anteile der Ecken seiner
+    /// Seite, siehe [`ecken_faktor`] und [`ao_face`]; nur, wenn ein Pixel
+    /// einen hat. Mit ihr bekommt jeder Platz das Licht an seinen Ecken,
+    /// weich beleuchtet oder nicht, siehe [`Sprite::weich`]. Ein Pixel ohne
+    /// Platz liegt im Licht der eigenen Zelle.
     pub ao: Option<Vec<u32>>,
     /// Das Modell erlaubt weiche Beleuchtung (`ambientocclusion`).
     pub weich: bool,
@@ -635,7 +665,7 @@ pub fn rastern(
                 quad,
                 projection,
                 shade,
-                kollision,
+                ao_face(quad, welt, kollision, richtung),
                 &ecken,
                 normale(quad, rueckseite),
             ))
@@ -740,21 +770,22 @@ struct ProjectedQuad<'a> {
     /// Tiefe der vordersten Ecke, nur zum Sortieren.
     depth: f32,
     shade: f32,
-    /// Als welche Seite das Viereck weich beleuchtet wird, siehe [`ao_face`],
-    /// mit deren Ecken aus [`ecken_im_blick`].
+    /// Als welcher Platz das Viereck weich beleuchtet wird, siehe
+    /// [`ao_face`], mit den Ecken seiner Seite aus [`ecken_im_blick`].
     ao_face: Option<(usize, [[f32; 2]; 4])>,
     /// Die Normale im Blick, siehe [`normale`].
     normale: [f32; 3],
 }
 
 impl<'a> ProjectedQuad<'a> {
-    /// `quad` im Blick, `shade` aus [`shade_factor`], `ecken` je Seite aus
-    /// [`ecken_im_blick`], `normale` aus [`normale`].
+    /// `quad` im Blick, `shade` aus [`shade_factor`], `platz` aus
+    /// [`ao_face`], `ecken` je Seite aus [`ecken_im_blick`], `normale` aus
+    /// [`normale`].
     fn new(
         quad: &'a Quad,
         projection: &Projection,
         shade: f32,
-        kollision: bool,
+        platz: Option<usize>,
         ecken: &[[[f32; 2]; 4]; 3],
         normale: [f32; 3],
     ) -> ProjectedQuad<'a> {
@@ -767,7 +798,7 @@ impl<'a> ProjectedQuad<'a> {
             screen,
             depth: screen.iter().map(|&(_, _, d)| d).fold(f32::MIN, f32::max),
             shade,
-            ao_face: ao_face(quad, kollision).map(|face| (face, ecken[face])),
+            ao_face: platz.map(|platz| (platz, ecken[platz % 3])),
             normale,
         }
     }
@@ -799,7 +830,8 @@ impl<'a> ProjectedQuad<'a> {
         let ao_face = self.ao_face;
         let vertices: [Vertex; 4] = std::array::from_fn(|i| {
             let (x, y, depth) = self.screen[i];
-            let [s, t] = ao_face.map_or([0.0; 2], |(f, _)| face_coords(f, self.quad.corners[i]));
+            let [s, t] =
+                ao_face.map_or([0.0; 2], |(f, _)| face_coords(f % 3, self.quad.corners[i]));
             Vertex {
                 x: x - min_x as f32,
                 y: y - min_y as f32,
@@ -858,6 +890,7 @@ impl<'a> ProjectedQuad<'a> {
                     tint,
                     order,
                     ao_face,
+                    fluessig: self.quad.fluid.is_some(),
                     deckung,
                 },
                 samples,
@@ -1048,6 +1081,8 @@ struct Shading {
     tint: Option<[f32; 3]>,
     order: u32,
     ao_face: Option<(usize, [[f32; 2]; 4])>,
+    /// Die Fläche gehört einer Flüssigkeit.
+    fluessig: bool,
     deckung: Deckung,
 }
 
@@ -1094,6 +1129,8 @@ struct Fragment {
     color: [u8; 4],
     /// Eintrag der AO-Karte, 0 ohne weiche Beleuchtung.
     ao: u32,
+    /// Von einer Flüssigkeit, siehe [`Canvas::mischen`].
+    fluessig: bool,
     /// Der Würfel, in dem es liegt, relativ zum Block des Modells.
     zelle: Cell,
 }
@@ -1142,6 +1179,7 @@ impl Canvas {
             tint,
             order,
             ao_face,
+            fluessig,
             deckung,
         } = shading;
         let area = edge(v[0], v[1], v[2].x, v[2].y);
@@ -1230,6 +1268,7 @@ impl Canvas {
                     order,
                     color: shaded(texel, shade, tint),
                     ao,
+                    fluessig,
                     zelle,
                 });
             }
@@ -1253,8 +1292,10 @@ impl Canvas {
 
     /// Mischt je Pixel die Fragmente, die `nimm` durchlässt, von hinten nach
     /// vorne, nach [`Canvas::sortieren`]. Mit `ao` dazu die AO-Karte aus dem
-    /// vordersten von ihnen je Pixel, mit `normalen` je Rang einer Fläche
-    /// dessen [`Geometrie`].
+    /// vordersten von ihnen je Pixel, das nicht von einer Flüssigkeit ist:
+    /// Den Anteil des Wassers beleuchtet die Tönungskarte, der Rest ist,
+    /// was durch das Wasser zu sehen ist. Mit `normalen` je Rang einer
+    /// Fläche die [`Geometrie`] des vordersten.
     fn mischen(
         &self,
         ao: bool,
@@ -1267,10 +1308,14 @@ impl Canvas {
         let mut geometrie = normalen.map(|_| vec![Geometrie::default(); pixel]);
         for pixel in self.fragments.chunk_by(|a, b| a.pixel == b.pixel) {
             let mut vorderstes = None;
+            let mut fest = None;
             let mut color = [0u8; 4];
             for fragment in pixel.iter().filter(|f| nimm(f)) {
                 color = over(fragment.color, color);
                 vorderstes = Some(fragment);
+                if !fragment.fluessig {
+                    fest = Some(fragment);
+                }
             }
             let Some(vorderstes) = vorderstes else {
                 continue;
@@ -1278,7 +1323,7 @@ impl Canvas {
             let index = vorderstes.pixel;
             image.put_pixel(index % self.width, index / self.width, Rgba(color));
             if let Some(map) = &mut map {
-                map[index as usize] = vorderstes.ao;
+                map[index as usize] = fest.map_or(0, |f| f.ao);
             }
             if let (Some(geometrie), Some(normalen)) = (&mut geometrie, normalen) {
                 let (normale, shade, wasser) = normalen[vorderstes.order as usize];
@@ -1627,14 +1672,14 @@ mod tests {
         assert_eq!(eigen.factors(l(0, 0)), [0; 3]);
     }
 
-    /// Die AO-Karte trägt je Pixel die Seite, deren Fläche im Licht der
-    /// Zelle davor liegt. Beim vollen Würfel liegt jeder Pixel mit Farbe auf
-    /// einer der drei Seiten, und alle drei kommen vor; ohne
-    /// `ambientocclusion` auch, für das Licht je Seite, nur weich beleuchtet
-    /// wird er dann nicht. Bei der oberen Platte ebenso, ihre Oberseite liegt
-    /// auf dem Rand. Die der unteren liegt im Innern, im Licht der eigenen
-    /// Zelle, ausser der Block hat volle Kollisionsform. Ein Kasten ganz im
-    /// Innern hat keine Karte.
+    /// Die AO-Karte trägt je Pixel seinen Platz plus 1. Beim vollen Würfel
+    /// liegt jeder Pixel mit Farbe auf dem Rand einer der drei Seiten, und
+    /// alle drei kommen vor; ohne `ambientocclusion` auch, für das Licht je
+    /// Seite, nur weich beleuchtet wird er dann nicht. Bei der oberen Platte
+    /// ebenso, ihre Oberseite liegt auf dem Rand. Die der unteren liegt im
+    /// Innern, ausser der Block hat volle Kollisionsform. Ein Kasten ganz im
+    /// Innern hat nur Plätze im Innern. Zeigt keine Fläche mit Platz einen
+    /// Pixel, gibt es keine Karte.
     #[test]
     fn ao_karte_fuer_flaechen_im_licht_davor() {
         let kasten = |from: [f32; 3], to: [f32; 3], ambient_occlusion| BakedModel {
@@ -1683,7 +1728,7 @@ mod tests {
         let unten = wuerfel([16.0, 8.0, 16.0], true);
         assert_eq!(
             seiten(&bild(&unten, false)),
-            [0, 2, 3].into(),
+            [2, 3, 4].into(),
             "untere Platte"
         );
         assert_eq!(
@@ -1692,9 +1737,9 @@ mod tests {
             "mit Kollision"
         );
         let innen = kasten([4.0, 0.0, 4.0], [12.0, 12.0, 12.0], true);
-        assert!(bild(&innen, false).ao.is_none());
-        // Zeigt keine Fläche mit Seite einen Pixel, gibt es keine Karte: hier
-        // ist die Oberseite über dem Kasten ganz durchsichtig.
+        assert_eq!(seiten(&bild(&innen, false)), [4, 5, 6].into(), "innen");
+        // Flächen einer Flüssigkeit haben keinen Platz, die durchsichtige
+        // Oberseite über ihnen zeigt keinen Pixel: keine Karte.
         let mut leer = Textures::new();
         let durchsichtig = leer.einfuegen("leer", RgbaImage::new(16, 16), false);
         let mut deckel = quad(
@@ -1707,8 +1752,12 @@ mod tests {
             None,
         );
         deckel.texture = durchsichtig;
+        let nass = innen.quads.iter().map(|q| Quad {
+            fluid: Some((fluid::Fluid::Water, Face::Up)),
+            ..q.clone()
+        });
         let mit_deckel = BakedModel {
-            quads: innen.quads.iter().cloned().chain([deckel]).collect(),
+            quads: nass.chain([deckel]).collect(),
             ambient_occlusion: true,
         };
         let licht = CardinalLight::Default;
@@ -1721,14 +1770,21 @@ mod tests {
             false,
         );
         assert!(sprite.unwrap().ao.is_none(), "durchsichtiger Deckel");
-        // Schräg liegt eine Fläche auf keiner Seite, auch mit Kollision.
-        let schraeg = [
-            [0.0, 0.0, 1.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 1.0, 0.0],
-            [0.0, 1.0, 0.0],
-        ];
-        assert_eq!(ao_face(&quad(schraeg, None), true), None);
+        // Schräg liegt eine Fläche nicht auf dem Rand, auch mit Kollision:
+        // Ihre Normale (0, 1, 1) nimmt oben vor Süden, Platz 3.
+        let schraeg = quad(
+            [
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 1.0],
+                [1.0, 1.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+            None,
+        );
+        assert_eq!(
+            ao_face(&schraeg, &schraeg, true, Richtung::default()),
+            Some(3)
+        );
     }
 
     /// Mit gleichem Licht für beide Anteile gleicht [`tinted_im_licht`] dem
@@ -1863,7 +1919,8 @@ mod tests {
                 }
             }
         }
-        let innenecke = [u32::from_le_bytes([102, 153, 255, 153]), u32::MAX, u32::MAX];
+        let mut innenecke = [u32::MAX; AO_PLAETZE];
+        innenecke[0] = u32::from_le_bytes([102, 153, 255, 153]);
         let an = |p| ecken_faktor(ao_word(0, corner_weights(oben, p)), innenecke);
         assert_eq!(an([0.0, 0.0]), 102);
         assert_eq!(an([0.5, 0.5]), 178);

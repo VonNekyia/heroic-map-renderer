@@ -132,9 +132,9 @@ zusammen mit denselben Draws.
 Aus den drei Werten rechnet Cinematic das Licht je Kanal (`Kino::licht` in
 [`renderer/src/render/kino.rs`](../../renderer/src/render/kino.rs)), wie
 das Spiel an jeder Ecke einer Seite, einmal je Draw (`EckenLicht` in
-`metatile.rs`). Ein Pixel auf einer Seite der AO-Karte mischt das Licht
-ihrer vier Ecken mit denselben Anteilen wie die Karte, ungerundet; ein
-Pixel ohne Seite bekommt das Licht des Blocks. Über eine Fläche verläuft so
+`metatile.rs`). Ein Pixel auf einem Platz der AO-Karte mischt das Licht
+der vier Ecken seines Platzes mit denselben Anteilen wie die Karte,
+ungerundet; ein Pixel ohne Platz bekommt das Licht des Blocks. Über eine Fläche verläuft so
 das fertige Licht wie im Spiel, denn `terrain.vsh` liest die Lightmap je
 Ecke (`sample_lightmap`). Das prüft `licht_zwischen_den_ecken_wie_im_spiel`
 in `metatile.rs`.

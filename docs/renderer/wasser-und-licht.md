@@ -50,8 +50,8 @@ Treppe und Falltür.
 
 Um den Ursprung, `--center 0 0 --size 900 --scale 4`, sonst wie das Bild in
 [Schalter und Beispiele](../benutzung/schalter.md), „Einen Ausschnitt
-rendern“. Stand `fccdef5`, mit dem Licht des Spiels und den Übergängen
-zwischen Biomen.
+rendern“. Stand `0e69b6d`, mit dem Licht des Spiels, den Übergängen
+zwischen Biomen und den Tabellen aus 26.3.
 
 ## Flächen zu gleichem Wasser
 
@@ -268,7 +268,7 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
   (`ChestBlock.combine`). Es hält beide Hälften über `updateShape`
   stimmig; eine Hälfte ohne die andere gibt es nur in einer Welt, die von
   Hand gebaut ist.
-- **Blöcke, die 26.2 nicht kennt,** fehlen in `licht.txt`. Deckt ihr Modell
+- **Blöcke, die `blocks.txt` nicht kennt,** fehlen in `licht.txt`. Deckt ihr Modell
   den ganzen Umriss, lassen sie wie ein Block mit voller Form kein Licht
   hinein, sonst lassen sie es durch, ohne Flächen und ohne Leuchten
   (`lichtweg` in `metatile.rs`). Ihr Modell kennt der Renderer aber nur für

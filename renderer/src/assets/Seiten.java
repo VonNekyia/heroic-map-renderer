@@ -10,7 +10,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.shapes.Shapes;
 
 /**
- * Schreibt je Block von 26.2 die Seiten, an denen er voll deckt: dort ist
+ * Schreibt je Block von 26.3 die Seiten, an denen er voll deckt: dort ist
  * getFaceOcclusionShape genau Shapes.block(), und Block.shouldRenderFace
  * lässt die Fläche eines Nachbarn mit cullface zu dieser Seite weg. Je
  * Zustand zwei Hexziffern, in der Reihenfolge von getPossibleStates, mit

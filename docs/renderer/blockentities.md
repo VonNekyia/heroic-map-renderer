@@ -22,7 +22,7 @@ Modellen. Ihr Blockmodell hat meist keine Elemente. Der
 Renderer zeichnet sie aus der Tabelle
 [`blockentities.txt`](../../renderer/src/assets/blockentities.txt), die
 [`Blockentities.java`](../../renderer/src/assets/Blockentities.java) aus
-dem Client 26.2 schreibt: je Zustand die Flächen, wie die Renderer des
+dem Client 26.3 schreibt: je Zustand die Flächen, wie die Renderer des
 Spiels sie abgeben, mit Lage, Textur, Schicht und Farbe. Bannermuster und
 Scherben liest er aus `block_entities` im Chunk. Code in
 [`renderer/src/assets/blockentity.rs`](../../renderer/src/assets/blockentity.rs).
@@ -44,11 +44,11 @@ Zustand nach dem anderen zeichnen:
   nach Süden, im Material nach dem Datum. Art und Lage setzt der Generator
   wie im Zweig mit Welt aus dem Zustand, das Material mit
   `getChestMaterial` ohne Weihnachten.
-- Seine eigenen Prüfungen und die Renderer, die für 26.2 ohne Spiel nicht
+- Seine eigenen Prüfungen und die Renderer, die für 26.3 ohne Spiel nicht
   laufen oder nichts zeichnen, führt er als Mengen. Weicht eine ab, endet
   er mit Exit-Code 1 und schreibt keine Tabelle.
 
-Das Format der Zeilen steht im Kopf von `Blockentities.java`. Stand 26.2:
+Das Format der Zeilen steht im Kopf von `Blockentities.java`. Stand 26.3, wie 26.2:
 87 Blöcke, 713 Bilder, 27 Formen mit 544 Flächen, 62 Lagen, 54 Texturen,
 43 Bannermuster.
 Neu erzeugt wird die Tabelle mit dem Skill
@@ -188,6 +188,27 @@ ein Muster mit `asset_id` und `translation_key` (`BannerPattern.CODEC`),
 `sherds` nennt bis zu vier Items: hinten, links, rechts, vorne
 (`PotDecorations.ordered`).
 
+- **Bis 26.2** ist es eine Liste von Item-Namen, wie oben. Der Renderer
+  liest eine Liste immer so: Was kein Text ist, fällt heraus, die übrigen
+  rücken auf. 26.3 liest keine Liste; erst der Fix beim Laden
+  (`PotDecorationsBlockEntityUnflatteningFix.unpackList`) setzt sie nach
+  Platz. Ein Eintrag, der fehlt oder kein Text ist, wird dort
+  `minecraft:brick` an seinem Platz, ein leerer Text bricht den Fix ab,
+  und der Krug ist leer. Eine Liste aus dem Spiel hat immer vier gültige
+  Namen, dort ist das Bild gleich.
+- **Ab 26.3** ist es ein Objekt mit `back`, `left`, `right` und `front`
+  (`PotDecorationsBlockEntityUnflatteningFix`, DataVersion 4996), je
+  optional ein `ItemStackTemplate`: ein Item-Name oder ein Compound mit
+  `id`, dazu `count` und `components`.
+  - Eine Seite, die fehlt oder sich nicht lesen lässt, etwa eine Zahl oder
+    ein Compound ohne `id`, ist leer; die übrigen bleiben
+    (`OptionalFieldCodec` setzt das Teilergebnis, `TagValueInput.read`
+    nimmt es).
+  - Ein `count` ausserhalb von 1 bis 99 behält das Item, ebenso als
+    Teilergebnis. `components` liest der Renderer nicht; die Scherbe kommt
+    im Spiel vom Item.
+  - Getestet: `krug_ab_26_3` in `chunk.rs`.
+
 - Welche Zeichnung welchen Platz trägt, findet der Generator, indem er
   den Krug mit vier verschiedenen Scherben zeichnen lässt.
 - Die Textur kommt aus `DecoratedPotRenderer.DECORATED_POT_SPRITES`, nach
@@ -256,9 +277,10 @@ seinem Blockentity hat, siehe [Schalter](../benutzung/schalter.md).
   zweite Licht von unten (`NETHER_DIFFUSE_LIGHT_1`); der Renderer nimmt in
   jeder Dimension das der Oberwelt. Offen in
   [#45](https://github.com/VonNekyia/heroic-map-renderer/issues/45).
-- **Ein Item, das es nicht gibt, in `sherds`** lässt das Spiel weg, und die
-  übrigen rücken auf. Der Renderer kennt nur die Scherben und lässt es an
-  seinem Platz, als Seite ohne Scherbe. So schreibt nur ein Editor.
+- **Ein Item, das es nicht gibt, in `sherds`** lässt das Spiel bis 26.2
+  weg, und die übrigen rücken auf. Der Renderer kennt nur die Scherben und
+  lässt es an seinem Platz, als Seite ohne Scherbe. Ab 26.3 bleibt es nach
+  dem Fix beim Laden ebenso an seinem Platz. So schreibt nur ein Editor.
 - **Mehrere Einträge mit `keepPacked` an einer Stelle:** Solche legt das
   Spiel ungeprüft beiseite (`ChunkAccess.setBlockEntityNbt`), an einer
   Stelle ohne geladenes Blockentity den letzten, gleich welcher Art. Der

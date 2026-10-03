@@ -76,7 +76,7 @@ pub struct SpriteSet {
     /// Die Farben der Biome, mit denen die Sprites beim Zeichnen getönt
     /// werden.
     biomes: BiomeTable,
-    /// Die Blöcke, die 26.2 nicht kennt und die das Licht ganz aufhalten,
+    /// Die Blöcke, die `blocks.txt` nicht kennt und die das Licht ganz aufhalten,
     /// entschieden im Raster in 2:1 beim scale der Basis, siehe
     /// [`SpriteSet::deckt_fuer_licht`]. `None` nur in einer Tabelle der Basis
     /// in 2:1: Dort entscheidet sie selbst.
@@ -539,7 +539,7 @@ impl SpriteSet {
     }
 
     /// Wie [`SpriteSet::build_in`], nur kommt aus `licht_deckend`, welche
-    /// Blöcke, die 26.2 nicht kennt, das Licht ganz aufhalten
+    /// Blöcke, die `blocks.txt` nicht kennt, das Licht ganz aufhalten
     /// ([`SpriteSet::licht_deckend`]). Eine native Stufe nimmt so die Antwort
     /// der Basis, damit ihr Licht nicht am scale hängt. Mit `look` für
     /// Cinematic.
@@ -619,7 +619,7 @@ impl SpriteSet {
             set.insert_strips(assets, fluid);
         }
 
-        // Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet
+        // Ob ein Block, den `blocks.txt` nicht kennt, das Licht aufhält, entscheidet
         // das Raster in 2:1 aus der Vorgabe-Richtung, damit das Licht nicht
         // an der Kamera hängt: von oben deckte schon eine flache Platte den
         // ganzen Umriss. 2:1 nimmt nur Vielfache von 4; sonst rastert es
@@ -841,7 +841,7 @@ impl SpriteSet {
         self.sonne_reich
     }
 
-    /// Hält ein Block, den 26.2 nicht kennt, das Licht ganz auf? Wenn sein
+    /// Hält ein Block, den `blocks.txt` nicht kennt, das Licht ganz auf? Wenn sein
     /// Sprite den ganzen Umriss deckt, und zwar im Raster in 2:1 beim scale
     /// der Basis: Eine andere Kamera nimmt die Antwort von dort, eine native
     /// Stufe die der Basis ([`SpriteSet::build_mit_licht`]), damit das Licht
@@ -856,7 +856,7 @@ impl SpriteSet {
         }
     }
 
-    /// Die Zustände aus `states`, die 26.2 nicht kennt und die nach dieser
+    /// Die Zustände aus `states`, die `blocks.txt` nicht kennt und die nach dieser
     /// Tabelle das Licht ganz aufhalten, für [`SpriteSet::build_mit_licht`].
     pub fn licht_deckend(&self, states: &BTreeSet<BlockState>) -> HashSet<BlockState> {
         states
@@ -1912,7 +1912,7 @@ mod tests {
         );
     }
 
-    /// Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet bei
+    /// Ob ein Block, den `blocks.txt` nicht kennt, das Licht aufhält, entscheidet bei
     /// jeder Kamera das Raster in 2:1: Von oben deckte schon eine flache
     /// Seerose den ganzen Umriss, und ihr Würfel bliebe dunkel. Bei einem
     /// scale, den 2:1 nicht nimmt, etwa 6 oder ungerade, rastert es beim

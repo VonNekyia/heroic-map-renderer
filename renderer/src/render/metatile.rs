@@ -1547,7 +1547,7 @@ pub struct ChunkCache<'a> {
 }
 
 /// Was von einem Chunk nicht am scale hängt: er selbst und sein Licht,
-/// denn Blöcke, die 26.2 nicht kennt, halten es nach dem Raster der Basis
+/// denn Blöcke, die `blocks.txt` nicht kennt, halten es nach dem Raster der Basis
 /// auf ([`SpriteSet::deckt_fuer_licht`]). Ein Cache der nativen Stufen
 /// behält beides über [`ChunkCache::wechsle`] und über die Kacheln eines
 /// Bands hinweg bis ins nächste; was ein ganzes Band lang niemand
@@ -1709,7 +1709,7 @@ fn flags(family: &Family) -> u16 {
 }
 
 /// Wie ein Zustand das Licht aufhält: aus der Tabelle des Spiels,
-/// [`blockstate::lichtweg`]. Einen Block, den 26.2 nicht kennt, kennt sie
+/// [`blockstate::lichtweg`]. Einen Block, den `blocks.txt` nicht kennt, kennt sie
 /// nicht; deckt sein Modell den ganzen Umriss
 /// ([`SpriteSet::deckt_fuer_licht`]), lässt er wie ein Block mit voller
 /// Form kein Licht hinein, sonst lässt er es durch.

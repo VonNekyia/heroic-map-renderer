@@ -104,8 +104,10 @@ Die Faktoren sind die von `CardinalLighting.DEFAULT` und
 | `nether` | 0,9 | 0,9 | 0,8 | 0,6 |
 
 - **Blöcke:** `BlockModelLighter.prepareQuadFlat` und
-  `prepareQuadAmbientOcclusion` nehmen `byFace` der Richtung der Fläche,
-  eine Fläche ohne `shade` bekommt `up()`, im Nether also 0,9.
+  `prepareQuadAmbientOcclusion` nehmen `byFace` der Richtung der Fläche
+  (`getDirectionalBrightness`). Nennt das Element eine Richtung, gilt
+  diese, bei `shade: false` aus 26.2 also `up()`, im Nether 0,9; siehe
+  [Modelle und Texturen](modelle-und-texturen.md), „Schattierung“.
 - **Flüssigkeiten:** `FluidRenderer` nimmt für die Oberseite `up()`, für die
   Unterseite `down()` und für die Seiten `up()` mal `north()` oder
   `west()`. Im Nether sind die Seiten also 0,72 und 0,54 hell, in der
@@ -140,7 +142,11 @@ Belegt per javap am Client 26.2 und an den Daten im JAR:
   `cardinal_light` `nether` und `has_skylight` falsch.
 - `EnvironmentAttributes`, statischer Initialisierer: die Vorgaben der
   sieben Attribute, die Farben als `AttributeTypes.RGB_COLOR`;
-  `EnvironmentAttributeMap`, `EnvironmentAttributeSystem.addDefaultLayers`.
+  `EnvironmentAttributeMap`, `EnvironmentAttributeSystem.addDefaultLayers`,
+  in 26.3 `addStaticLayers` und `addDynamicLayers`.
+- In 26.3 hält `EnvironmentAttributes` die Farben des Lichts als
+  `Vector3fc`, genau k/255; die Tabelle bleibt gleich. `Dimensionstypen.java`
+  prüft das beim Schreiben.
 - `GameRenderer.setLevel` ruft `Lighting.updateLevel` mit
   `cardinalLightType` des Typs; `Lighting` mit den beiden Lichtpaaren.
 - `BlockModelLighter.prepareQuadFlat`,

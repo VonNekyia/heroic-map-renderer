@@ -12,7 +12,7 @@ code:
 Packs stapeln sich Zustand für Zustand, und eine kaputte Blockstate-Datei
 verwirft der Renderer wie der Client nur für ihr Pack. Kaputt ist, was 26.2
 ablehnt, belegt per javap am Client samt DFU und Gson. Variantenschlüssel
-prüft er gegen die Blockdefinitionen von 26.2 in `blocks.txt`. Der Leser
+prüft er gegen die Blockdefinitionen von 26.3 in `blocks.txt`. Der Leser
 steht in
 [`renderer/src/assets/blockstate.rs`](../../renderer/src/assets/blockstate.rs),
 das Stapeln in `renderer/src/assets/mod.rs`.
@@ -66,8 +66,8 @@ Datei gelesen.
 Den Rest prüft der Client gegen die Definition des Blocks: welche
 Eigenschaften er hat und welche Werte
 (`BlockStateModelDispatcher.instantiate`). Die stehen in
-`renderer/src/assets/blocks.txt`, 1196 Blöcke aus dem Datengenerator von
-26.2, siehe [Erzeugte Tabellen](../entwicklung/tabellen.md). Ein
+`renderer/src/assets/blocks.txt`, 1286 Blöcke aus dem Datengenerator von
+26.3, siehe [Erzeugte Tabellen](../entwicklung/tabellen.md). Ein
 Variantenschlüssel mit unbekannter Eigenschaft oder unbekanntem Wert fällt
 weg, nur dieser Eintrag. Zahlen liest `IntegerProperty` mit `parseInt`,
 `age=07` ist also `age=7`. Überlappen sich zwei Schlüssel, bekommt wie im
@@ -80,10 +80,10 @@ behält der Renderer die Reihenfolge der Datei.
 Eine Multipart-Bedingung mit unbekannter Eigenschaft oder unbekanntem Wert
 verwirft im Client von 26.2 den ganzen Block, über alle Packs. So endet
 etwa eine Mauer aus einem Pack vor 1.16 mit `"north": "true"`. Ob die Assets
-zu 26.2 gehören, weiss der Renderer aber nicht; in einer späteren Version
+zur Version von `blocks.txt` gehören, weiss der Renderer aber nicht; in einer späteren Version
 gibt es die Eigenschaft oder den Wert vielleicht. Er vergleicht dort den
 Text und nennt die Datei unter „Blockstates“ in der Ausgabe. Für Blöcke und
-Zustände, die 26.2 nicht kennt, gibt es kein Vorbild; dort gilt der erste
+Zustände, die `blocks.txt` nicht kennt, gibt es kein Vorbild; dort gilt der erste
 Schlüssel, der als Text passt.
 
 ## Stand
@@ -101,7 +101,7 @@ Block bekommt: [Varianten aus der Position](varianten.md).
 ## Was bleibt eine Näherung
 
 - **Eine Multipart-Bedingung, die `blocks.txt` nicht kennt, gilt als
-  Text.** Der Client von 26.2 gäbe dem Block dann kein Modell, einer mit
+  Text.** Der Client von 26.3 gäbe dem Block dann kein Modell, einer mit
   neueren Blöcken schon. Welche Version die Assets haben, steht nirgends;
   die Ausgabe nennt die Datei und wie man die Tabelle neu erzeugt.
 - **`parseInt` nimmt auch andere Unicode-Ziffern**, der Renderer nur ASCII.

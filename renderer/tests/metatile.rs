@@ -5117,7 +5117,7 @@ fn spawner_ohne_innere_wand_vor_vollem_block() {
 
 /// Ein deckender Block mit Regel ändert kein Pixel: Was er zu einem
 /// gleichen Nachbarn weglässt, übermalt der Nachbar ohnehin. Blaues Eis hat
-/// in den Fixtures das Modell von `blauwuerfel`, den 26.2 nicht kennt.
+/// in den Fixtures das Modell von `blauwuerfel`, den `blocks.txt` nicht kennt.
 #[test]
 fn deckendes_eis_aendert_kein_pixel() {
     let wuerfel = |name: &'static str| {

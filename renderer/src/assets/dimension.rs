@@ -388,7 +388,7 @@ mod tests {
     const WEISS: Tint = [255; 3];
     const GELB: Tint = [255, 216, 140];
 
-    /// Die Tabelle wie in 26.2: vier Typen, belegt am Client per javap
+    /// Die Tabelle wie in 26.2 und 26.3: vier Typen, belegt am Client per javap
     /// (`DimensionTypes.bootstrap`, `EnvironmentAttributes`) und an den
     /// JSON-Dateien unter `data/minecraft/dimension_type` im JAR.
     #[test]

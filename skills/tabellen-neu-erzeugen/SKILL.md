@@ -36,7 +36,7 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    java -cp "$(ls versions/*/server-*.jar):$(find libraries -name '*.jar' | paste -sd:)" Schatten.java > schatten.txt
    ```
 
-   Java in der Version, auf der das Spiel läuft, für 26.2 Java 25.
+   Java in der Version, auf der das Spiel läuft, für 26.3 Java 25.
    `Licht.java` nennt auf stderr, wie viele Zustände und Paare es sind und
    wie viele Teilflächen je Richtung. Gibt eine Version eine andere
    Dämpfung als 0, 1 oder 15 oder mehr Teilflächen, als die Basis 36 fasst,
@@ -51,8 +51,8 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    Er bindet die Tags des Spiels und prüft jede Regel an allen Paaren aus
    Zustand, Nachbarzustand und Richtung, die Tabelle danach an 10 Mio.
    zufälligen Paaren. Auf stderr stehen die Blöcke mit eigenem
-   `skipRendering` je Klasse, für 26.2 72, die Regeln, die Blöcke ohne
-   Wirkung, für 26.2 das Laub, und die Flüssigkeiten. Passt eine Regel
+   `skipRendering` je Klasse, für 26.3 75, die Regeln, die Blöcke ohne
+   Wirkung, für 26.3 das Laub, und die Flüssigkeiten. Passt eine Regel
    nicht, nennt er den Block auf stderr und endet mit Exit-Code 1,
    `nachbarn.txt` bleibt dann leer. Eine neue Regel im Spiel belegen, Skill
    [`spielverhalten-belegen`](../spielverhalten-belegen/SKILL.md), und in
@@ -81,7 +81,7 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    Auf stderr steht, wie viele Blöcke, Bilder, Formen, Lagen und Texturen
    es sind, welcher Renderer nichts aus einem Modell zeichnet, welcher ohne
    Spiel nicht läuft und welcher ohne Daten nichts zeichnet. Diese Mengen
-   führt der Generator für 26.2 selbst. Weicht eine ab oder schlägt eine
+   führt der Generator für 26.3 selbst. Weicht eine ab oder schlägt eine
    seiner Prüfungen fehl, nennt er es auf stderr und endet mit Exit-Code 1,
    `blockentities.txt` bleibt dann leer. Für eine neue Version die
    Abweichung im Spiel belegen, Skill
@@ -95,14 +95,14 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    java -cp "client.jar:$(find libraries -name '*.jar' | paste -sd:)" Dimensionstypen.java > dimensionstypen.txt
    ```
 
-   Auf stderr steht, wie viele Dimensionstypen es sind, für 26.2 vier.
+   Auf stderr steht, wie viele Dimensionstypen es sind, für 26.3 vier.
 8. **Einsetzen:** die acht Dateien nach `renderer/src/assets/` kopieren.
-   Für 26.2 ergeben die Befehle für `blocks.txt`, `leuchten.txt`,
+   Für 26.3 ergeben die Befehle für `blocks.txt`, `leuchten.txt`,
    `licht.txt`, `schatten.txt`, `nachbarn.txt`, `seiten.txt`,
    `blockentities.txt` und `dimensionstypen.txt` genau die Dateien im
    Repository.
 9. **Neu bauen und testen:** Die Tabellen sind einkompiliert, der Renderer
-   muss danach neu gebaut werden. `blocktabelle_aus_26_2` bekommt die Zahlen
+   muss danach neu gebaut werden. `blocktabelle_aus_26_3` bekommt die Zahlen
    der neuen Version, `tabelle_wie_im_spiel` in `blockentity.rs` die Zahl
    der Blöcke mit Blockentity und der Bannermuster, `tabelle_wie_im_spiel`
    in `dimension.rs` die Dimensionstypen, `nachbarn_wie_im_spiel` und

@@ -22,17 +22,28 @@ den Seed sucht `renderer/src/world/mod.rs`.
 ## Welche Welten
 
 Eine ältere Welt, etwa aus 1.21 mit `world/region` und `DIM-1`, vorher mit
-dem Server von Minecraft 26.2 und `--forceUpgrade` hochziehen: er baut
+dem Server von Minecraft 26.2 oder 26.3 und `--forceUpgrade` hochziehen: er baut
 Verzeichnisse, Seed und Chunks um, bevor er startet. Sonst kennt der
 Renderer ihren Seed nicht und manche ihrer Blocknamen nicht, und ein Block
 ohne Asset bricht den Lauf vor der ersten Kachel ab. Warum die Grenze bei
 26.1 liegt: [0015](../entscheidungen/0015-nur-welten-ab-26-1.md).
 
+Welten aus 26.3 liest er ebenso, auch solche, die der Server erst zum Teil
+neu gespeichert hat ([0059](../entscheidungen/0059-welten-aus-26-2-und-26-3.md)):
+- **Palette:** Ab 26.3 heissen ihre Felder `id` und `properties` statt
+  `Name` und `Properties` (`BlockStateFieldNamesFix`, DataVersion 5006).
+  Der Renderer liest beide (`PaletteEntry` in
+  [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs),
+  getestet in `palette_ab_26_3`).
+- **Scherben eines Krugs:** Sie stehen ab 26.3 als Objekt, siehe
+  [Blockentities](../renderer/blockentities.md), „Krug“.
+
 ## Nicht fertig erzeugte Chunks
 
 Am Rand jedes erzeugten Gebiets liegen Chunks, die das Spiel angefangen,
 aber nicht fertig erzeugt hat, von innen nach aussen etwa mit dem Status
-`minecraft:initialize_light`, `carvers`, `biomes` und `structure_starts`.
+`minecraft:initialize_light`, `carvers` (ab 26.3 `terrain`), `biomes` und
+`structure_starts`.
 Ihnen fehlen Bäume, Seen und Schnee ganz oder zum Teil, die äusseren sind
 noch ganz Luft. Das Spiel zeigt sie nie: `ChunkHolder.getChunkToSend` gibt
 dem Client nur fertige Chunks heraus (Client 26.2, per javap).
@@ -42,7 +53,8 @@ Der Renderer liest deshalb nur Chunks ab dem Status `minecraft:light`, also
 (`Chunk::is_generated` in
 [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs)). Ab
 `light` setzt die Erzeugung keinen Block mehr, belegt per javap am Client
-26.2 (`ChunkPyramid.GENERATION_PYRAMID`):
+26.2 (`ChunkPyramid.GENERATION_PYRAMID`). In 26.3 ist es gleich, nur
+heissen `noise`, `surface` und `carvers` dort zusammen `terrain` (#98):
 
 - Der Schritt `light` verlangt die Nachbarn im Radius 1 mindestens in
   `initialize_light`, also hinter `features`.

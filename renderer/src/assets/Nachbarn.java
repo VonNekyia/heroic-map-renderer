@@ -28,7 +28,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
 
 /**
- * Schreibt je Block von 26.2, der Flächen zu bestimmten Nachbarn weglässt,
+ * Schreibt je Block von 26.3, der Flächen zu bestimmten Nachbarn weglässt,
  * seine Regel: das eigene skipRendering, das Block.shouldRenderFace fragt.
  * "gleich": jede Fläche zu einem Nachbarn desselben Blocks. "senkrecht":
  * nur oben und unten. "verbunden": oben und unten zu demselben Block,
@@ -62,7 +62,7 @@ public class Nachbarn {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         try (var resources = new MultiPackResourceManager(
-                PackType.SERVER_DATA, List.of(ServerPacksSource.createVanillaPackSource()))) {
+                PackType.SERVER_DATA, List.of(ServerPacksSource.createVanillaPackSource().fullResources()))) {
             var statisch = RegistryLayer.createRegistryAccess().getLayer(RegistryLayer.STATIC);
             TagLoader.loadTagsForExistingRegistries(resources, statisch).forEach(tags -> tags.apply());
         }

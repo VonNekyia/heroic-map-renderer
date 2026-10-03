@@ -96,7 +96,9 @@ Nur mit dem Schalter backt die Sprite-Tabelle eigene Sprites
   „Schattierung nach Richtung“.
 - **Geometrie je Pixel** (`Sprite::geometrie`): vom vordersten Fragment
   die Tiefe entlang der Blickachse relativ zum Ursprung des Blocks, die
-  Normale der Fläche im Blick und ob sie `shade` hat. Die Sonne rechnet mit
+  Normale der Fläche im Blick und die Normale der Seite, die `shade`
+  nennt, siehe [Modelle und Texturen](modelle-und-texturen.md),
+  „Schattierung“. Die Sonne rechnet mit
   ihnen, siehe „Sonne“. Das prüft `geometrie_der_vorderen_flaeche` in
   `rasterizer.rs` an zwei Flächen eines Modells, die sich decken.
 - **Sonst wie die Karte:** dieselben Fragmente, Füllregel, Alpha-Tests,
@@ -198,8 +200,10 @@ diagonal (−1, 0, 1)/√2, genordet (−1, 0, 0); zur Kamera hin (1, 0, 1)/√2
 und (0, 0, 1). Aus jeder Richtung steht sie also gleich zum Bild.
 
 - **Licht nach dem Winkel** (`Kino::sonnenlicht`): `sonne_farbe` mal
-  `sonne` mal dem Kosinus zwischen Normale und Sonne, abgewandt nichts. Eine Fläche
-  ohne `shade` bekommt das Licht einer Fläche nach oben, wie in 0058.
+  `sonne` mal dem Kosinus zwischen Normale und Sonne, abgewandt nichts.
+  Nennt das Element eine Seite (`shade`), bekommt die Fläche das Licht
+  einer Fläche nach dieser Seite, wie das Spiel sie schattiert: bei
+  `shade: false` aus 26.2 und `"up"` aus 26.3 nach oben, wie in 0058.
 - **Wo:** nur, wo der Dimensionstyp Himmelslicht zeigt, `sky_light_factor`
   über 0; im Nether und im Ende scheint sie nicht.
 - **Ohne Schatten der weichen Beleuchtung:** Der Schatten an den Ecken
@@ -373,6 +377,8 @@ Block, statt ihn zu decken, wie in 0058:
   und der Vorlage des Seegrases (`block/template_seagrass`). In 26.2 sind
   das 85 Blöcke, gezählt an den Modellen des Client: 84 ganz, dazu die
   untere Hälfte der Sonnenblume; ihre Blüte oben hat ein eigenes Modell.
+  In 26.3 kommen der Setzling der Pappel und der rote Strauch über
+  `block/cross` dazu (#98).
 - **Gegen die Liste des Prototyps** zu #89: Mangrovenkeimling,
   Kannenpflanze und ihre Feldfrucht haben eigene Modelle ohne Vorlage und
   bleiben hart. Spinnennetz und die Amethystknospen erben vom Kreuz und
@@ -383,8 +389,8 @@ Block, statt ihn zu decken, wie in 0058:
   So wirft die Blüte der Sonnenblume keinen Schatten auf ihren Stiel. Über
   einem Block, der keine Bodenpflanze ist, deckt eine obere Hälfte wie
   jeder Block.
-- **Licht:** Flächen ohne `shade` bekommen das Licht einer Fläche nach
-  oben, siehe „Sonne“.
+- **Licht:** Flächen mit `shade: false` oder `"up"` bekommen das Licht
+  einer Fläche nach oben, siehe „Sonne“.
 - **Am Renderer:** dieselbe Wiese der Savanne wie das Bild des Prototyps
   unter 0058.
 

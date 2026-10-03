@@ -286,7 +286,7 @@ fn quelle_ohne_familie_leuchtet() {
     assert_eq!(licht, [(15, 15), (15, 12)]);
 }
 
-/// Ein Block, den 26.2 nicht kennt, hält das Licht nach dem Raster der
+/// Ein Block, den `blocks.txt` nicht kennt, hält das Licht nach dem Raster der
 /// Basis auf, auf jeder nativen Stufe gleich. Der Ackerboden der Fixtures
 /// ist 15/16 hoch: Bei scale 32 deckt sein Sprite den Umriss nicht, bei 4
 /// schliesst das Raster die Lücke. Nimmt die Tabelle bei 4 die Antwort der

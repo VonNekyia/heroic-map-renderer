@@ -333,7 +333,7 @@ folgt:
   weiche Beleuchtung und das Himmelslicht.
 - **Keine Haarlinie:** Jede Fläche eines Vanilla-Blocks, die die Kamera
   von oben sieht, steht messbar schräg, weit über dem Rauschen. Über alle
-  32 366 Zustände aus `blocks.txt` sieht sie 96 750 Flächen, die steilste
+  32 366 Zustände aus `blocks.txt` von 26.2 sieht sie 96 750 Flächen, die steilste
   mit n_y = 0,0079: die Fahne eines Banners, im Modell des Spiels um 0,45°
   geneigt. Zwischen dem Rauschen des Bakers, 1e-7 der Länge, und echter
   Neigung liegt also keine Fläche; die Grenze `EDGE_ON` liegt bei 1e-4. Das
@@ -373,7 +373,7 @@ Kamera steht im Süden: u = x, v = z, h = a = scale, im Blick, siehe
   Oberseiten wie `top`.
 - **Keine Haarlinie:** Bei `north-45` steht jede Fläche eines
   Vanilla-Blocks, die die Kamera sieht, messbar schräg zur Achse. Über alle
-  32 366 Zustände aus `blocks.txt` sieht sie 186 616 Flächen, die steilste
+  32 366 Zustände aus `blocks.txt` von 26.2 sieht sie 186 616 Flächen, die steilste
   mit einem Kosinus von 0,0056 zur Achse, wieder die Fahne eines Banners.
   `keine_haarlinie_an_allen_vanilla_bloecken` in
   `renderer/src/render/sprites.rs` prüft das für `top` und `north-45`; er

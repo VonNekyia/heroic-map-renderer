@@ -12,7 +12,7 @@ code:
 # Assets und Biomdaten
 
 Der Renderer braucht einen vollständigen Asset-Baum aus dem Client-JAR der
-unterstützten Version, heute 26.2, und für die Biomfarben die Daten aus
+unterstützten Versionen, heute 26.2 oder 26.3 ([0059](../entscheidungen/0059-welten-aus-26-2-und-26-3.md)), und für die Biomfarben die Daten aus
 demselben JAR. Beides kommt über `--assets` und `--data`,
 jeweils mehrfach; spätere Wurzeln gewinnen. Wie der Renderer eine
 Wurzel liest, steht in [Packs und Wurzeln](../renderer/packs.md).
@@ -21,10 +21,10 @@ Wurzel liest, steht in [Packs und Wurzeln](../renderer/packs.md).
 
 Ein Overlay-Pack allein reicht nicht: das TerraNova-Pack bringt 39 von 1198
 Blockstates mit und keine Colormaps. Die Basis kommt aus dem Client-JAR der
-Version, die der Server fährt (hier 26.2):
+Version, die der Server fährt (hier 26.3):
 
 ```powershell
-$v = "26.2"; $m = Get-Content "$env:APPDATA\.minecraft\versions\$v\$v.json" | ConvertFrom-Json; Invoke-WebRequest $m.downloads.client.url -OutFile "$env:TEMP\mc.zip"; Expand-Archive "$env:TEMP\mc.zip" "$env:TEMP\mc" -Force; Move-Item "$env:TEMP\mc\assets" vanilla-assets
+$v = "26.3"; $m = Get-Content "$env:APPDATA\.minecraft\versions\$v\$v.json" | ConvertFrom-Json; Invoke-WebRequest $m.downloads.client.url -OutFile "$env:TEMP\mc.zip"; Expand-Archive "$env:TEMP\mc.zip" "$env:TEMP\mc" -Force; Move-Item "$env:TEMP\mc\assets" vanilla-assets
 ```
 
 Die SHA1-Prüfsumme steht im selben Manifest unter `downloads.client.sha1`.

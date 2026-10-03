@@ -1,7 +1,7 @@
 //! Was das Spiel für einen Block mit einem Blockentity-Renderer aus einem
 //! Modell zeichnet: Truhen, Shulkerkisten, Banner, Köpfe, Krüge, Glocken,
 //! Bücher und mehr. Die Tabelle `blockentities.txt` schreibt
-//! `Blockentities.java` aus dem Client 26.2: je Zustand die Flächen der
+//! `Blockentities.java` aus dem Client 26.3: je Zustand die Flächen der
 //! Modelle mit ihrer Lage, Textur, Schicht und Farbe, so wie die Renderer
 //! des Spiels sie abgeben.
 //! Siehe docs/renderer/blockentities.md.
@@ -291,7 +291,7 @@ fn zeichne(model: &mut BakedModel, z: &Zeichnung, texture: TextureId, farbe: [u8
             uvs: flaeche.map(|[_, _, _, u, v]| [u, v]),
             texture,
             tint_index: None,
-            shade: true,
+            shade: None,
             force_translucent: false,
             fluid: None,
             entity,

@@ -14,6 +14,9 @@ code:
 
 # 0058: Look von Cinematic
 
+Die Grenze für Schatten/Sonne am Renderer ist abgelöst durch
+[0060](0060-grenze-schatten-sonne-am-renderer.md): 0,35 bis 0,75.
+
 ## Anlass
 
 [0053](0053-cinematic-als-schalter-der-karte.md) legt fest, was ein Pixel

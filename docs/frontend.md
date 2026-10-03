@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -284,6 +284,29 @@ keine Einträge. Wer die Adresse kopiert oder die Seite neu lädt, sieht
 denselben Block in der Mitte auf derselben Stufe. Ohne Koordinaten gibt es
 keinen Block für `at`, und die Adresse bleibt, wie sie ist.
 
+## Stand der Karte
+
+Unten rechts steht, wann der letzte Lauf `map.json` geschrieben hat, in
+Ortszeit des Browsers, etwa `Stand: 02.10.2026, 21:40`.
+
+- **Woher:** der Header `Last-Modified` von `map.json`, die das Frontend
+  ohnehin lädt (`load` in [`web/src/main.ts`](../web/src/main.ts)). Vite
+  und übliche Webserver senden ihn von selbst. Fehlt er oder taugt er
+  nicht, fehlt die Anzeige.
+- **Was er bedeutet:** die Zeit, zu der `map.json` zuletzt geschrieben
+  wurde, nicht die der letzten Änderung an der Welt oder an Kacheln:
+  - Ein voller Lauf, ein Ausschnitt, `--resume`, `--pyramid` und
+    `--heights` schreiben `map.json` jedes Mal, auch wenn sich nichts
+    geändert hat. Dann zeigt der Stand die Zeit dieser Prüfung.
+  - Ein `--update` (#100), das nichts zu zeichnen findet, schreibt
+    `map.json` nicht; der Stand bleibt beim letzten Lauf, der etwas
+    geschrieben hat.
+  - Läuft gerade ein Lauf, steht dort sein Beginn: Er schreibt `map.json`
+    vor der ersten Kachel und noch einmal am Ende, siehe
+    [map.json](benutzung/map-json.md), „Wann sie geschrieben wird“.
+- **Aktualisiert** wird die Anzeige beim Laden der Seite, wie die Kacheln,
+  siehe „Ausliefern“, „Cache“.
+
 ## Ausliefern
 
 `web/dist` ist die ganze Seite; statisch ausliefern reicht. Die Kacheln
@@ -295,6 +318,22 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   [`web/vite.config.ts`](../web/vite.config.ts); ein Betreiber setzt sie
   in seinem Server so oder strenger. Liegen die Kacheln auf einer anderen
   Domain als die Seite, brauchen `img-src` und `connect-src` diese Domain.
+- **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
+  Browser danach den neuen Stand zeigt:
+  - **Betreiber** setzen für `tiles/` `Cache-Control: no-cache`, in nginx
+    etwa `location /tiles/ { add_header Cache-Control no-cache; }`. Der
+    Browser fragt dann je Kachel mit `ETag` oder `Last-Modified` nach, und
+    für eine unveränderte kommt ein kurzes 304.
+  - **Ohne den Header** schätzt der Browser die Frische selbst, üblich 10 %
+    der Zeit seit `Last-Modified` (RFC 9111, 4.2.2). Eine Kachel, die 30
+    Tage unverändert war, zeigt er nach einem neuen Lauf bis etwa 3 Tage
+    lang alt.
+  - **Vite** liefert im Dev-Server und mit `npm run preview` schon so aus:
+    `no-cache` mit `ETag`.
+  - **`map.json`, `trees.json` und die Höhen** holt das Frontend selbst mit
+    `cache: 'no-cache'`, gleich welche Header der Server setzt.
+  - **Eine offene Seite** zeigt Kacheln, die sie schon geladen hat, bis zum
+    Neuladen; der Browser fragt ein Bild der Seite nicht noch einmal nach.
 - **Adresse, Titel, Beschreibung, Bild:** Der Betreiber setzt sie beim
   Build, etwa
   `SITE_URL=https://example.org/karte/ SITE_TITLE="Karte von …" npm run build`.

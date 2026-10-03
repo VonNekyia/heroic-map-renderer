@@ -5,7 +5,10 @@
 //! Ausschnitte wie die Bilder unter 0058, aus dem Renderer, als PNG. Braucht die Testwelt und die Assets, deshalb
 //! `#[ignore]`. Aufruf und Auswertung:
 //! docs/messungen/2026-10-03-look-am-renderer.md; die Bilder:
-//! skills/doku-bilder-rendern/SKILL.md.
+//! skills/doku-bilder-rendern/SKILL.md. Die Grenzen der Kennzahlen stehen
+//! in docs/entscheidungen/0058-look-von-cinematic.md, die für
+//! Schatten/Sonne am Renderer in
+//! docs/entscheidungen/0060-grenze-schatten-sonne-am-renderer.md.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

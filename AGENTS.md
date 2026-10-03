@@ -139,6 +139,11 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
       etwa wie ein Browser oder das Betriebssystem sich verhält, dürfen
       mit ihrer Quelle stehen. Zahlen anderer Werkzeuge gehören nicht
       dazu.
+    - Allgemein bekannte Verfahren dürfen bei ihrem Namen heissen, auch
+      wenn der Name eine Person nennt, etwa FNV-1a oder Möller–Trumbore.
+      Vorher wird geprüft, ob wir das Verfahren nutzen dürfen: kein
+      gültiges Patent, keine Lizenz, die einen Hinweis verlangt. Der Code
+      bleibt eigener Code (Regel 23).
 25. Eine Lizenz schliesst keinen Vorschlag aus. Kann das Übernehmen
     fremden Codes ein Lizenzproblem sein, auch weil eine Lizenz einen
     Hinweis auf die Herkunft verlangt, wird der User direkt gefragt.

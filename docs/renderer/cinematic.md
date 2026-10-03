@@ -63,9 +63,11 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
   „Aufbau“, fest. `sonne_weite` hat 0056 am Prototyp gemessen, siehe
   [Gang zur Sonne in Stufen](../messungen/2026-10-02-gang-zur-sonne-in-stufen.md).
 - **Grenzen aus 0058:** Am Renderer halten sie 15 von 24 Ansichten der
-  Testwelt, am Prototyp 20; Schatten sind heller. Zahlen, Ursache und der
-  Test `kennzahlen_der_ansichten` dazu:
-  [Look am Renderer](../messungen/2026-10-03-look-am-renderer.md).
+  Testwelt, am Prototyp 20; Schatten sind heller. Für Schatten/Sonne gilt
+  am Renderer 0,35 bis 0,75, siehe
+  [0060](../entscheidungen/0060-grenze-schatten-sonne-am-renderer.md);
+  damit halten 21. Zahlen, Ursache und der Test `kennzahlen_der_ansichten`
+  dazu: [Look am Renderer](../messungen/2026-10-03-look-am-renderer.md).
 - **Fingerabdruck:** Jeder Baum mit Cinematic hält die Werte und den Stand
   des Verfahrens als `lookHash` in `map.json`. Wie er gerechnet wird, wann
   er sich ändert und wann ein Lauf deshalb abbricht, steht in

@@ -238,3 +238,22 @@ test('das Licht kommt von oben, leicht von links: die linke nahe Wand ist rund 1
     expect(verhaeltnis, camera).toBeLessThan(1.8);
   }
 });
+
+test('die fernen Seiten haben eine Innenseite bis zum Boden, die nahen nicht', () => {
+  for (const [camera, scale] of KAMERAS) {
+    const p = kamera(camera, scale);
+    for (let k = 0; k < 4; k++) {
+      const innen = flaechen(stueck(WELTEN[0]!.area, MEER, MIN_Y, p, k)).filter((f) => f.textur?.rolle === 'innen');
+      // Von oben stehen die Wände auf der Kante; genordet sieht man eine
+      // ferne Seite, diagonal zwei.
+      const name = `${camera} k=${k}`;
+      expect(innen.length, name).toBe(p.y === 0 ? 0 : p.azimuth === 'north' ? 1 : 2);
+      // Hinter der Welt, nach innen und zur Kamera.
+      for (const f of innen) {
+        expect(f.nah, name).toBe(false);
+        expect(f.n[1], name).toBeCloseTo(0, 9);
+        expect(p.azimuth === 'north' ? f.n[2] : f.n[0] + f.n[2], name).toBeGreaterThan(0);
+      }
+    }
+  }
+});

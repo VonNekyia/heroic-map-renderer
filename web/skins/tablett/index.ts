@@ -6,15 +6,16 @@
  */
 import type { Grenzen, Rechteck, Skin } from 'heroic-map-renderer/skin-api';
 import L from 'leaflet';
-import { grenzen, GRUND, tablett } from './tablett';
-import { male } from './zeichnen';
+import { grenzen, lichtUndBlick, tablett } from './tablett';
+import type { Auftrag, Ergebnis } from './werkstatt';
+import { ebenen as malen } from './zeichnen';
 import './tablett.css';
 
 /** Für diese Version der Schnittstelle ist der Skin geschrieben. */
 const API = 1;
 
 /** Wie weit die Bilder je Seite über das Fenster reichen, als Anteil des Fensters. */
-const UEBERSTAND = 0.25;
+const UEBERSTAND = 0.02;
 
 /** Ein Rechteck aus ganzen Blöcken, nicht leer. */
 function rechteck(area: unknown): area is Rechteck {
@@ -47,11 +48,11 @@ const skin: Skin = (kontext) => {
   container.classList.add('skin-tablett');
   const rahmen = grenzen(area, seaLevel, kontext);
   const ebenen = [
-    { name: 'tablett-fern', z: 150, fern: true },
-    { name: 'tablett-nah', z: 250, fern: false },
-  ].map(({ name, z, fern }) => {
+    { name: 'tablett-fern', z: 150 },
+    { name: 'tablett-nah', z: 250 },
+  ].map(({ name, z }) => {
     karte.createPane(name).style.zIndex = String(z);
-    return { name, fern, leinwand: L.DomUtil.create('canvas', 'tablett'), ebene: undefined as L.SVGOverlay | undefined };
+    return { name, leinwand: L.DomUtil.create('canvas', 'tablett'), ebene: undefined as L.SVGOverlay | undefined };
   });
 
   // Ganz zu sehen auf fitZoom, eine Stufe darüber nicht mehr.
@@ -66,9 +67,18 @@ const skin: Skin = (kontext) => {
     }
   };
 
+  // Die Texturen rechnet und malt ein Worker. Bis seine Bilder da sind,
+  // stehen die Flächen in ihrer Farbe; dann werden sie einmal ausgetauscht,
+  // nicht während die Karte sich bewegt. Siehe docs/tablett.md, „Texturen“.
+  let werkstatt: Worker | undefined;
+  let nummer = 0;
+  let bewegt = false;
+  karte.on('movestart', () => (bewegt = true));
+  karte.on('moveend', () => (bewegt = false));
+
   // Gezeichnet wird beim Laden und bei jeder neuen Grösse des Fensters, für
-  // fitZoom und um die Mitte des Rahmens wie fitBounds, je Seite ein Viertel
-  // des Fensters darüber hinaus. Weiter lässt sich auf fitZoom nicht ziehen.
+  // fitZoom und um die Mitte des Rahmens wie fitBounds. Weiter als dieses
+  // Fenster lässt sich nicht ziehen; die Bilder reichen knapp darüber.
   let gebaut = '';
   const baue = (): void => {
     const groesse = karte.getSize();
@@ -96,26 +106,53 @@ const skin: Skin = (kontext) => {
         karte.unproject([(links + breite) / s, (oben + hoehe) / s], maxZoom),
       );
       const teile = tablett(area, seaLevel, minY, kontext, ansicht);
-      for (const ebene of ebenen) {
-        const { leinwand, fern, name } = ebene;
-        leinwand.width = breite;
-        leinwand.height = hoehe;
-        const ctx = leinwand.getContext('2d')!;
-        if (fern) {
-          ctx.fillStyle = GRUND;
-          ctx.fillRect(0, 0, breite, hoehe);
-        }
-        // Fern alles ausser dem Saum, nah nur, was Gelände nie verdeckt.
-        male(ctx, teile.filter((t) => (fern ? t.form !== 'saum' : t.nah)), s, [-links, -oben], !fern);
+      for (const { leinwand } of ebenen) [leinwand.width, leinwand.height] = [breite, hoehe];
+      const [fern, nah] = ebenen.map(({ leinwand }) => leinwand.getContext('2d')!);
+      malen(fern!, nah!, teile, s, [-links, -oben]);
+      for (const eintrag of ebenen) {
         // Leaflets SVGOverlay legt jedes Element als Bild-Ebene, auch eine
         // Leinwand. Ein Bild aus ihr ginge nur über data: oder blob:, und
         // das verbietet die Content-Security-Policy.
-        ebene.ebene ??= L.svgOverlay(leinwand as unknown as SVGElement, ecken, { pane: name, interactive: false }).addTo(karte);
-        ebene.ebene.setBounds(ecken);
+        const { leinwand, name } = eintrag;
+        eintrag.ebene ??= L.svgOverlay(leinwand as unknown as SVGElement, ecken, { pane: name, interactive: false }).addTo(karte);
+        eintrag.ebene.setBounds(ecken);
       }
       karte.options.maxBoundsViscosity = 1;
-      karte.setMaxBounds(ecken);
+      karte.setMaxBounds(L.latLngBounds(karte.unproject([ansicht[0], ansicht[1]], maxZoom), karte.unproject([ansicht[2], ansicht[3]], maxZoom)));
       performance.measure('tablett: zeichnen', { start: beginn });
+
+      const auftrag = ++nummer;
+      werkstatt ??= new Worker(new URL('./werkstatt.ts', import.meta.url), { type: 'module' });
+      werkstatt.onerror = () => console.warn('Tablett: Texturen nicht gerechnet, die Flächen bleiben einfarbig.');
+      werkstatt.onmessage = ({ data }: MessageEvent<Ergebnis>) => {
+        const tausche = (): void => {
+          if (data.nummer === nummer) {
+            const neu = performance.now();
+            for (const [i, { leinwand }] of ebenen.entries()) {
+              const ctx = leinwand.getContext('2d')!;
+              ctx.setTransform(1, 0, 0, 1, 0, 0);
+              ctx.clearRect(0, 0, breite, hoehe);
+              ctx.drawImage(data.bilder[i]!, 0, 0);
+            }
+            performance.measure('tablett: texturen', {
+              start: beginn,
+              detail: { worker: data.dauer, tauschen: performance.now() - neu },
+            });
+          }
+          for (const bild of data.bilder) bild.close();
+        };
+        if (bewegt) karte.once('moveend', tausche);
+        else tausche();
+      };
+      werkstatt.postMessage({
+        nummer: auftrag,
+        teile,
+        s,
+        versatz: [-links, -oben],
+        leinwand: [breite, hoehe],
+        licht: lichtUndBlick(kontext.projektion),
+        streckung: kontext.projektion.v / kontext.projektion.u,
+      } satisfies Auftrag);
     }
     blende(karte.getZoom(), true);
   };

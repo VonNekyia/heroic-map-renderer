@@ -28,6 +28,24 @@ async function zoome(page: Page, knopf: 'in' | 'out'): Promise<void> {
   await expect(pane).not.toHaveClass(/leaflet-zoom-anim/);
 }
 
+/** Zählt jeden Aufruf, der auf eine Leinwand malt, in `window.zaehler`. */
+function zaehle(): void {
+  const zaehler = { n: 0 };
+  Object.assign(window, { zaehler });
+  const proto = CanvasRenderingContext2D.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
+  for (const name of ['fillRect', 'fill', 'stroke', 'drawImage', 'putImageData', 'clearRect', 'fillText']) {
+    const original = proto[name]!;
+    proto[name] = function (this: unknown, ...argumente: unknown[]) {
+      zaehler.n++;
+      return original.apply(this, argumente);
+    };
+  }
+}
+const gemalt = (page: Page) => page.evaluate(() => (window as unknown as { zaehler: { n: number } }).zaehler.n);
+
+/** Hat der Skin die Bilder mit Texturen schon getauscht? */
+const getauscht = (page: Page) => page.evaluate(() => performance.getEntriesByName('tablett: texturen').length > 0);
+
 /** Beide Ebenen: über den Kacheln, Deckkraft, sichtbar, Klicks, ob gemalt. */
 const stand = (page: Page) =>
   page.evaluate(() => {
@@ -75,25 +93,12 @@ test('Rahmen und Tisch liegen um die Kacheln, fangen keine Klicks ab und blenden
 });
 
 test('beim Ziehen und Zoomen zeichnet der Skin nichts, nur bei einer neuen Fenstergrösse', async ({ page }) => {
-  // Zählt jeden Aufruf, der auf eine Leinwand malt.
-  await page.addInitScript(() => {
-    const zaehler = { n: 0 };
-    Object.assign(window, { zaehler });
-    const proto = CanvasRenderingContext2D.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
-    for (const name of ['fillRect', 'fill', 'stroke', 'drawImage', 'putImageData', 'clearRect', 'fillText']) {
-      const original = proto[name]!;
-      proto[name] = function (this: unknown, ...argumente: unknown[]) {
-        zaehler.n++;
-        return original.apply(this, argumente);
-      };
-    }
-  });
-  const gemalt = () => page.evaluate(() => (window as unknown as { zaehler: { n: number } }).zaehler.n);
+  await page.addInitScript(zaehle);
   await welt(page, QUADRAT);
   await page.goto(DEMO);
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
-  await expect.poll(gemalt).toBeGreaterThan(0);
-  const vorher = await gemalt();
+  await expect.poll(() => getauscht(page)).toBe(true);
+  const vorher = await gemalt(page);
 
   const karte = (await page.locator('#map').boundingBox())!;
   const [mx, my] = [karte.x + karte.width / 2, karte.y + karte.height / 2];
@@ -103,11 +108,47 @@ test('beim Ziehen und Zoomen zeichnet der Skin nichts, nur bei einer neuen Fenst
   await page.mouse.up();
   await zoome(page, 'in');
   await zoome(page, 'out');
-  expect(await gemalt()).toBe(vorher);
+  expect(await gemalt(page)).toBe(vorher);
 
   // Gegenprobe: Eine neue Fenstergrösse zeichnet neu.
   await page.setViewportSize({ width: 900, height: 700 });
-  await expect.poll(gemalt).toBeGreaterThan(vorher);
+  await expect.poll(() => gemalt(page)).toBeGreaterThan(vorher);
+});
+
+test('die Texturen rechnet ein Worker; ihre Bilder kommen erst, wenn die Karte steht', async ({ page }) => {
+  await page.addInitScript(zaehle);
+  // Hält die Antworten des Workers zurück, bis der Test sie freigibt.
+  await page.addInitScript(() => {
+    const zurueck: (() => void)[] = [];
+    const Echt = window.Worker;
+    window.Worker = class extends Echt {
+      set onmessage(antwort: ((ereignis: MessageEvent) => void) | null) {
+        super.onmessage = (ereignis: MessageEvent) => zurueck.push(() => antwort?.(ereignis));
+      }
+    };
+    Object.assign(window, { zurueck });
+  });
+  const zurueck = () => page.evaluate(() => (window as unknown as { zurueck: unknown[] }).zurueck.length);
+  await welt(page, QUADRAT);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect.poll(zurueck).toBe(1);
+  // Bis dahin stehen die Flächen in ihrer Farbe.
+  expect(await stand(page)).toMatchObject({ fern: { gemalt: true }, nah: { gemalt: true } });
+  const vorher = await gemalt(page);
+
+  // Die Antwort kommt, während die Karte gezogen wird: Getauscht wird erst danach.
+  const karte = (await page.locator('#map').boundingBox())!;
+  const [mx, my] = [karte.x + karte.width / 2, karte.y + karte.height / 2];
+  await page.mouse.move(mx, my);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(mx + 15 * i, my + 8 * i);
+  await page.evaluate(() => (window as unknown as { zurueck: (() => void)[] }).zurueck.splice(0).forEach((f) => f()));
+  expect(await gemalt(page)).toBe(vorher);
+  expect(await getauscht(page)).toBe(false);
+  await page.mouse.up();
+  await expect.poll(() => getauscht(page)).toBe(true);
+  expect(await gemalt(page)).toBeGreaterThan(vorher);
 });
 
 test('ein area, das kein Quadrat ist, zeichnet kein Tablett und sagt es in der Konsole', async ({ page }) => {

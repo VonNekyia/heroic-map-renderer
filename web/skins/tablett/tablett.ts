@@ -5,15 +5,28 @@
  * affin aufs Bild. Ohne Leaflet, damit die Tests es in Node laden.
  * Siehe docs/tablett.md.
  */
-import type { Grenzen, Kontext, Rechteck } from 'heroic-map-renderer/skin-api';
+import type { Grenzen, Kontext, Projektion, Rechteck } from 'heroic-map-renderer/skin-api';
+import type { Rolle } from './stoffe';
 
 type Punkt = [number, number];
-type Vektor = [number, number, number];
+export type Vektor = [number, number, number];
 
 /** Der Blick, aus dem das Tablett gezeichnet wird, so wie ihn die Grundkarte reicht. */
 export type Blick = Pick<Kontext, 'projektion' | 'k' | 'projiziere'>;
 
 export type Art = 'tisch' | 'zarge' | 'boden' | 'rand' | 'leiste' | 'wand' | 'pfeiler' | 'ding';
+
+/**
+ * Die Textur einer Fläche: ihre Rolle, ihre Kanten im Blick in Blöcken und
+ * deren Längen in w. Siehe docs/tablett.md, „Texturen“.
+ */
+export interface Textur {
+  rolle: Rolle;
+  a3: Vektor;
+  b3: Vektor;
+  la: number;
+  lb: number;
+}
 
 /** Ein ebenes Rechteck im Bild: Ecke `o`, Kanten `a` und `b`, in Pixeln der feinsten Stufe. */
 export interface Flaeche {
@@ -24,10 +37,13 @@ export interface Flaeche {
   /** Die äussere Normale im Blick, Länge 1. */
   n: Vektor;
   art: Art;
-  /** CSS-Farbe, schon im Licht. */
+  /** CSS-Farbe, schon im Licht; mit Textur die Farbe, bis sie gerechnet ist. */
   farbe: string;
   /** Liegt vor den Kacheln. Siehe docs/tablett.md, „Vor und hinter der Welt“. */
   nah: boolean;
+  textur?: Textur;
+  /** Gefüllt mit einem Muster im Bild statt mit `farbe`. */
+  muster?: 'marmor';
 }
 
 /**
@@ -111,6 +127,20 @@ const kreuz = (u: Vektor, v: Vektor): Vektor => [
 ];
 const einheit = (v: Vektor): Vektor => mal(1 / Math.hypot(...v), v);
 
+/**
+ * Licht und Blick im Blick: `kamera` zeigt zur Kamera, `halb` liegt zwischen
+ * Licht und Kamera, für das Glanzlicht. Siehe docs/tablett.md, „Licht und
+ * Schatten“.
+ */
+export function lichtUndBlick(p: Projektion) {
+  const genordet = p.azimuth === 'north';
+  const kamera = einheit(genordet ? [0, p.v, p.y] : [p.y, 2 * p.v, p.y]);
+  // Nach rechts im Bild, in der Welt waagrecht.
+  const rechts: Vektor = genordet ? [1, 0, 0] : [Math.SQRT1_2, 0, -Math.SQRT1_2];
+  const licht = plus([0, LICHT.oben, 0], mal(LICHT.rechts, rechts));
+  return { kamera, licht, halb: einheit(plus(licht, kamera)), umgebung: UMGEBUNG, diffus: DIFFUS };
+}
+
 /** Die konvexe Hülle von Punkten, gegen den Uhrzeigersinn (monotone Kette). */
 function huelle(punkte: Punkt[]): Punkt[] {
   const p = [...punkte].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -179,10 +209,7 @@ export function tablett(
   const bild = ([x, y, z]: Vektor): Punkt => projiziere(x, y + meer, z);
   const kante3 = ([x, y, z]: Vektor): Punkt => projiziere(x, y, z);
   // Zur Kamera: entlang dieser Achse liegt, was weiter vorn ist.
-  const kamera = einheit(genordet ? [0, p.v, p.y] : [p.y, 2 * p.v, p.y]);
-  // Nach rechts im Bild, in der Welt waagrecht.
-  const rechts: Vektor = genordet ? [1, 0, 0] : [Math.SQRT1_2, 0, -Math.SQRT1_2];
-  const licht = plus([0, LICHT.oben, 0], mal(LICHT.rechts, rechts));
+  const { kamera, licht } = lichtUndBlick(p);
 
   const beleuchte = (farbe: string, n: Vektor): string => {
     const zahl = Number.parseInt(farbe.slice(1), 16);
@@ -207,15 +234,30 @@ export function tablett(
   /**
    * Ein Rechteck aus Ecke o und Kanten a und b. `aussen` zeigt grob nach
    * aussen und legt die Normale fest. Was von der Kamera wegzeigt, fällt weg.
+   * Mit `rolle` bekommt es eine Textur; ihre Koordinaten laufen entlang a
+   * und b, in w.
    */
-  const rechteck = (o: Vektor, a: Vektor, b: Vektor, aussen: Vektor, art: Art, farbe: string): Flaeche[] => {
+  const rechteck = (
+    o: Vektor,
+    a: Vektor,
+    b: Vektor,
+    aussen: Vektor,
+    art: Art,
+    farbe: string,
+    rolle?: Rolle,
+  ): Flaeche[] => {
     let n = einheit(kreuz(a, b));
     if (skalar(n, aussen) < 0) n = mal(-1, n);
     if (skalar(n, kamera) <= 1e-9) return [];
     const nah = fussNah([o, plus(o, a), plus(o, b), plus(plus(o, a), b)]);
-    return [{ form: 'flaeche', o: bild(o), a: kante3(a), b: kante3(b), n, art, farbe: beleuchte(farbe, n), nah }];
+    const flaeche: Flaeche = { form: 'flaeche', o: bild(o), a: kante3(a), b: kante3(b), n, art, farbe: beleuchte(farbe, n), nah };
+    if (rolle) flaeche.textur = { rolle, a3: a, b3: b, la: Math.hypot(...a) / w, lb: Math.hypot(...b) / w };
+    return [flaeche];
   };
-  /** Ein Quader von–bis in x, y und z: erst die Seiten, dann oben. */
+  /**
+   * Ein Quader von–bis in x, y und z: erst die Seiten, dann oben. Die Kante
+   * b der Seiten zeigt nach oben. `rollen` gibt Seiten und Deckel eine Textur.
+   */
   const quader = (
     [qx0, qx1]: [number, number],
     [qy0, qy1]: [number, number],
@@ -223,14 +265,16 @@ export function tablett(
     art: Art,
     farbe: string,
     mitOben = true,
+    rollen?: [seite: Rolle | undefined, oben: Rolle],
   ): Flaeche[] => {
     const [dx, dy, dz] = [qx1 - qx0, qy1 - qy0, qz1 - qz0];
+    const [seite, oben] = rollen ?? [];
     return [
-      ...rechteck([qx0, qy0, qz1], [dx, 0, 0], [0, dy, 0], [0, 0, 1], art, farbe),
-      ...rechteck([qx0, qy0, qz0], [dx, 0, 0], [0, dy, 0], [0, 0, -1], art, farbe),
-      ...rechteck([qx1, qy0, qz0], [0, 0, dz], [0, dy, 0], [1, 0, 0], art, farbe),
-      ...rechteck([qx0, qy0, qz0], [0, 0, dz], [0, dy, 0], [-1, 0, 0], art, farbe),
-      ...(mitOben ? rechteck([qx0, qy1, qz0], [dx, 0, 0], [0, 0, dz], [0, 1, 0], art, farbe) : []),
+      ...rechteck([qx0, qy0, qz1], [dx, 0, 0], [0, dy, 0], [0, 0, 1], art, farbe, seite),
+      ...rechteck([qx0, qy0, qz0], [dx, 0, 0], [0, dy, 0], [0, 0, -1], art, farbe, seite),
+      ...rechteck([qx1, qy0, qz0], [0, 0, dz], [0, dy, 0], [1, 0, 0], art, farbe, seite),
+      ...rechteck([qx0, qy0, qz0], [0, 0, dz], [0, dy, 0], [-1, 0, 0], art, farbe, seite),
+      ...(mitOben ? rechteck([qx0, qy1, qz0], [dx, 0, 0], [0, 0, dz], [0, 1, 0], art, farbe, oben) : []),
     ];
   };
 
@@ -261,16 +305,18 @@ export function tablett(
   // Zarge, dann die Platte aus Marmor in einer Holzkante. Die nahen Stücke
   // liegen noch einmal vor den Kacheln; sie überlappen, damit keine Naht
   // bleibt.
-  const platte = (qx: [number, number], qz: [number, number], art: Art, farbe: string) =>
-    quader(qx, [-D, -D], qz, art, farbe);
+  const platte = (qx: [number, number], qz: [number, number], art: Art, farbe: string, rolle?: Rolle) =>
+    quader(qx, [-D, -D], qz, art, farbe, true, rolle && [undefined, rolle]);
+  const marmor = (qx: [number, number], qz: [number, number]) =>
+    platte(qx, qz, 'tisch', FARBE.marmor).map((f): Flaeche => ({ ...f, muster: 'marmor' }));
   const platten = [
     ...quader([tx0, tx1], [-D - zarge, -D], [tz0, tz1], 'zarge', FARBE.zarge, false),
     ...platte([tx0, tx1], [tz0, tz1], 'tisch', FARBE.tischkante),
-    ...platte([tx0 + B, tx1 - B], [tz0 + B, tz1 - B], 'tisch', FARBE.marmor),
-    ...platte([tx0 + B, tx1 - B], [z1, tz1 - B], 'tisch', FARBE.marmor),
-    ...platte([x1, tx1 - B], [tz0 + B, tz1 - B], 'tisch', FARBE.marmor),
-    ...platte([tx0, tx1], [tz1 - B, tz1], 'tisch', FARBE.tischkante),
-    ...platte([tx1 - B, tx1], [tz0, tz1], 'tisch', FARBE.tischkante),
+    ...marmor([tx0 + B, tx1 - B], [tz0 + B, tz1 - B]),
+    ...marmor([tx0 + B, tx1 - B], [z1, tz1 - B]),
+    ...marmor([x1, tx1 - B], [tz0 + B, tz1 - B]),
+    ...platte([tx0, tx1], [tz1 - B, tz1], 'tisch', FARBE.tischkante, 'tischkante'),
+    ...platte([tx1 - B, tx1], [tz0, tz1], 'tisch', FARBE.tischkante, 'tischkante'),
   ];
   // Wo in area keine Welt liegt, zeigt das Tablett seinen Boden.
   const boden = platte([x0, x1], [z0, z1], 'boden', FARBE.boden);
@@ -306,34 +352,40 @@ export function tablett(
 
   // Der Rahmen. Das Profil im Schnitt, von innen oben nach aussen unten: d
   // ab der Kante der Welt nach aussen, y ab dem Wasserspiegel. Jeder Punkt
-  // gibt Art und Farbe der Stufe bis zum nächsten: Oberkante flach, drei
-  // Schrägen, Fries zwischen oberer und unterer Leiste, Fuge, Sockel bis zur
-  // Platte bei −D. Nichts liegt über dem Wasserspiegel.
-  const profil: [d: number, y: number, art: Art, farbe: string][] = [
-    [0, 0, 'rand', FARBE.rand],
-    [0.45 * w, 0, 'rand', FARBE.rand],
-    [0.68 * w, -0.04 * w, 'rand', FARBE.rand],
-    [0.86 * w, -0.12 * w, 'rand', FARBE.rand],
-    [w, -0.25 * w, 'leiste', FARBE.leiste],
-    [1.1 * w, -0.25 * w, 'leiste', FARBE.leiste],
-    [1.1 * w, -0.6 * w, 'leiste', FARBE.leiste],
-    [w, -0.6 * w, 'wand', FARBE.wand],
-    [w, -3.28 * w, 'leiste', FARBE.leiste],
-    [1.1 * w, -3.28 * w, 'leiste', FARBE.leiste],
-    [1.1 * w, -3.63 * w, 'leiste', FARBE.leiste],
-    [0.9 * w, -3.63 * w, 'wand', FARBE.fuge],
-    [0.9 * w, -4.4 * w, 'leiste', FARBE.leiste],
-    [1.15 * w, -4.4 * w, 'leiste', FARBE.leiste],
-    [1.15 * w, -D, 'leiste', FARBE.leiste],
+  // gibt Art, Farbe und Rolle der Stufe bis zum nächsten: Oberkante flach,
+  // drei Schrägen, Fries zwischen oberer und unterer Leiste, Fuge, Sockel bis
+  // zur Platte bei −D. Nichts liegt über dem Wasserspiegel.
+  const profil: [d: number, y: number, art: Art, farbe: string, rolle: Rolle][] = [
+    [0, 0, 'rand', FARBE.rand, 'oberkante'],
+    [0.45 * w, 0, 'rand', FARBE.rand, 'schraege'],
+    [0.68 * w, -0.04 * w, 'rand', FARBE.rand, 'schraege'],
+    [0.86 * w, -0.12 * w, 'rand', FARBE.rand, 'schraege'],
+    [w, -0.25 * w, 'leiste', FARBE.leiste, 'leiste'],
+    [1.1 * w, -0.25 * w, 'leiste', FARBE.leiste, 'leiste'],
+    [1.1 * w, -0.6 * w, 'leiste', FARBE.leiste, 'leiste'],
+    [w, -0.6 * w, 'wand', FARBE.wand, 'fries'],
+    [w, -3.28 * w, 'leiste', FARBE.leiste, 'leiste'],
+    [1.1 * w, -3.28 * w, 'leiste', FARBE.leiste, 'leiste'],
+    [1.1 * w, -3.63 * w, 'leiste', FARBE.leiste, 'leiste'],
+    [0.9 * w, -3.63 * w, 'wand', FARBE.fuge, 'fuge'],
+    [0.9 * w, -4.4 * w, 'leiste', FARBE.leiste, 'sockel'],
+    [1.15 * w, -4.4 * w, 'leiste', FARBE.leiste, 'sockel'],
+    [1.15 * w, -D, 'leiste', FARBE.leiste, 'sockel'],
   ];
-  /** Eine Seite: Anfang an einer Ecke der Welt, Richtung entlang, Länge, Richtung nach aussen. */
-  const seite = (start: Vektor, entlang: Vektor, laenge: number, raus: Vektor): Flaeche[] =>
-    profil.slice(0, -1).flatMap(([d0, y0, art, farbe], i) => {
+  /**
+   * Eine Seite: Anfang an einer Ecke der Welt, Richtung entlang, Länge,
+   * Richtung nach aussen. Zuerst die Innenseite bis zum Boden: Wo Welt
+   * liegt, deckt sie sie; wo keine liegt, schliesst sie das Tablett.
+   */
+  const seite = (start: Vektor, entlang: Vektor, laenge: number, raus: Vektor): Flaeche[] => [
+    ...rechteck(start, mal(laenge, entlang), [0, -D, 0], mal(-1, raus), 'wand', FARBE.wand, 'innen'),
+    ...profil.slice(0, -1).flatMap(([d0, y0, art, farbe, rolle], i) => {
       const [d1, y1] = profil[i + 1]!;
       const o = plus(plus(start, mal(d0, raus)), [0, y0, 0]);
       const quer = plus(mal(d1 - d0, raus), [0, y1 - y0, 0]);
-      return rechteck(o, mal(laenge, entlang), quer, plus(mal(y0 - y1, raus), [0, d1 - d0, 0]), art, farbe);
-    });
+      return rechteck(o, mal(laenge, entlang), quer, plus(mal(y0 - y1, raus), [0, d1 - d0, 0]), art, farbe, rolle);
+    }),
+  ];
   const ecke = (cx: number, cz: number, sx: number, sz: number) =>
     quader(
       sx < 0 ? [cx - pfeiler, cx] : [cx, cx + pfeiler],
@@ -341,6 +393,8 @@ export function tablett(
       sz < 0 ? [cz - pfeiler, cz] : [cz, cz + pfeiler],
       'pfeiler',
       FARBE.pfeiler,
+      true,
+      ['pfeiler', 'kappe'],
     );
   // Die Reihenfolge nach `vorne`, die Ecken mit der Summe ihrer Seiten:
   // ferne Ecke, ferne Seiten, seitliche Ecken, nahe Seiten, nahe Ecke. So

@@ -329,7 +329,11 @@ Vor dem Gang sieht `ChunkCache::frei_zur_sonne` nach, ob von der
 Startzelle aus überhaupt etwas im Weg liegen kann. Wenn nicht, kommt alles
 an, ohne Gang. Die Regel kommt aus dem Vorschlag zu #73, eingebaut in #106;
 am Prototyp gemessen in
-[Bits „frei zur Sonne“](../messungen/2026-10-03-bits-frei-zur-sonne.md).
+[Bits „frei zur Sonne“](../messungen/2026-10-03-bits-frei-zur-sonne.md),
+am Renderer in
+[Bits „frei zur Sonne“ am Renderer](../messungen/2026-10-03-bits-am-renderer.md):
+Jede Kachel bleibt gleich, ein Strahl kostet 5 bis 21 % weniger, der ganze
+Lauf am Stand 5 %, im Fichtenwald liegt es in der Streuung.
 
 - **Das Prisma einer Zelle:** alle Punkte `p + t·d` mit `p` in der Zelle
   und `t` von 0 bis zur Weite. In der Lage `k` über ihr liegt `t` zwischen

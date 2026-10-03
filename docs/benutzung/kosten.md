@@ -120,6 +120,11 @@ bis 5 % mehr. Cinematic zeichnet immer die CPU. Gemessen in
 [2026-10-03, Cinematic mit Sonne](../messungen/2026-10-03-cinematic-mit-sonne.md).
 In Phase 1 (#72), ohne Sonne, waren es das 1,11- bis 1,21-Fache, siehe
 [2026-10-03, Cinematic, Phase 1](../messungen/2026-10-03-cinematic-phase-1.md).
+Die Bits „frei zur Sonne“ aus #106 machen den Lauf am Stand 5 % schneller,
+im Fichtenwald liegt der Unterschied in der Streuung; die Spitze steigt um
+2 bis 3 %, siehe
+[2026-10-03, Bits „frei zur Sonne“ am Renderer](../messungen/2026-10-03-bits-am-renderer.md).
+Die Faktoren oben sind ohne sie gemessen.
 
 ## Die grosse Welt
 

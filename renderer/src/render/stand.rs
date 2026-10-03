@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 
 use crate::world::chunk::Fnv;
-use crate::world::{Abdruck, Chunk, REGION, Stempel};
+use crate::world::{Abdruck, Chunk, REGION, Stempel, Stempelkarte};
 
 /// Chunks je Region.
 const JE_REGION: usize = (REGION * REGION) as usize;
@@ -119,7 +119,7 @@ impl Stand {
 
     /// Der Stand mit den Stempeln vom Ende eines Laufs: Jeder Chunk, dessen
     /// Stempel sich seit dem Beginn geändert hat, wird unbekannt.
-    pub fn am_ende(mut self, stempel: &BTreeMap<(i32, i32), Vec<Option<Stempel>>>) -> Stand {
+    pub fn am_ende(mut self, stempel: &Stempelkarte) -> Stand {
         let leer = vec![None; JE_REGION];
         for (region, chunks) in &mut self.regionen {
             let jetzt = stempel.get(region).unwrap_or(&leer);
@@ -163,7 +163,7 @@ impl Stand {
     /// einen Chunk, über dessen alten Inhalt der Stand nichts weiss.
     pub fn vergleiche(
         &self,
-        stempel: &BTreeMap<(i32, i32), Vec<Option<Stempel>>>,
+        stempel: &Stempelkarte,
         y_max: i32,
         lies: impl Fn((i32, i32), &[[i32; 2]]) -> Result<Vec<Inhalt>> + Sync,
     ) -> Result<(Vec<Aenderung>, Stand)> {
@@ -177,7 +177,9 @@ impl Stand {
             .collect();
         regionen.sort_unstable();
         regionen.dedup();
-        let je_region: Vec<((i32, i32), Vec<Eintrag>, Vec<Aenderung>)> = regionen
+        // Je Region ihre neuen Einträge und Änderungen.
+        type JeRegion = ((i32, i32), Vec<Eintrag>, Vec<Aenderung>);
+        let je_region: Vec<JeRegion> = regionen
             .par_iter()
             .map(|&(rx, rz)| -> Result<_> {
                 let jetzt = stempel.get(&(rx, rz)).unwrap_or(&leer);

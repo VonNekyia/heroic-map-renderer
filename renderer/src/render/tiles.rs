@@ -928,6 +928,59 @@ mod tests {
         assert_eq!(snap_to_grid(rect, TILE), rect, "schon auf Kacheln gerundet");
     }
 
+    /// Das Gebiet einer Änderung enthält jede Basiskachel, in die ein Block
+    /// bis 16 Blöcke neben dem Chunk und von der Unterkante bis 16 über
+    /// seinem höchsten Block reicht: So weit wirken Licht und weiche
+    /// Beleuchtung. Je Ecke jedes Blocks, aus jeder Richtung dreier Kameras,
+    /// auf der Basis und bei drei Stufen.
+    /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+    #[test]
+    fn gebiet_reicht_16_bloecke_um_die_aenderung() {
+        use crate::render::{Kamera, Richtung};
+        let (unten, oben, chunk) = (-64, 40, [2, -3]);
+        let aenderung = Aenderung {
+            chunk,
+            oben,
+            bleibt: true,
+        };
+        for kamera in ["2:1", "top-north", "north-45"] {
+            let kamera = Kamera::parse(kamera).unwrap();
+            let namen = if kamera.genordet() {
+                ["s", "w", "n", "e"]
+            } else {
+                ["se", "sw", "nw", "ne"]
+            };
+            for name in namen {
+                let projection =
+                    Projection::mit_kamera(16, kamera).aus(Richtung::parse(name, kamera).unwrap());
+                let richtung = projection.richtung();
+                for stufen in [0, 3] {
+                    let gebiet =
+                        gebiet_der_aenderungen(projection, stufen, unten, &[aenderung], None);
+                    for x in chunk[0] * 16 - 16..chunk[0] * 16 + 32 {
+                        for z in chunk[1] * 16 - 16..chunk[1] * 16 + 32 {
+                            for y in [unten, oben + 16] {
+                                for ecke in 0..8 {
+                                    let p = [x + (ecke & 1), y + (ecke >> 1 & 1), z + (ecke >> 2)];
+                                    let (sx, sy) =
+                                        projection.project_block(richtung.versatz_in_den_blick(p));
+                                    let tile = TileId {
+                                        x: (sx / TILE as f64).floor() as i32,
+                                        y: (sy / TILE as f64).floor() as i32,
+                                    };
+                                    assert!(
+                                        gebiet.enthaelt(tile),
+                                        "{kamera:?} {name} {stufen} Stufen, Ecke {p:?}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Ein Gebiet aus einem Rechteck verhält sich wie das Rechteck, auf
     /// sein Raster gerundet: Es berührt dieselben Rechtecke, enthält
     /// dieselben Basiskacheln, und auf jeder Stufe sind seine Fläche und

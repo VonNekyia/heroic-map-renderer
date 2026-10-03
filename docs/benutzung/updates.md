@@ -143,12 +143,19 @@ Um jeden geänderten Chunk ein Gebiet, `gebiet_der_aenderungen` in
   Kacheln der gröbsten nativen Stufe wie bei einem Ausschnitt, siehe
   [Kacheln exportieren](kacheln.md), „Ein Ausschnitt“.
 
+Die Ränder prüft `gebiet_reicht_16_bloecke_um_die_aenderung` in
+`tiles.rs` an jeder Ecke jedes Blocks bis 16 daneben und darüber.
+`update_reicht_so_weit_wie_die_aenderung` zeichnet je eine Änderung allein
+in einem Chunk: Licht im Chunk daneben, Schatten im Himmelslicht weit
+darunter, Licht über dem höchsten Block und mit Cinematic den Schatten
+eines Turms bis vier Chunks weit.
+
 Alle Stücke zusammen sind das Gebiet des Laufs, eine Menge solcher Kacheln
 (`Gebiet` in `tiles.rs`). Der Vorlauf liest nur die Chunks, deren Spalte es
 berührt. Kacheln, in die ein Chunk früher reichte, der noch da ist, zeichnet
 der Lauf neu; leer verschwinden sie. Kacheln eines Chunks, der ganz fehlt,
 bleiben ohne `--prune` stehen, siehe [Kacheln exportieren](kacheln.md),
-„Leer gewordene Kacheln“.
+„Leer gewordene Kacheln“ (`update_laesst_kacheln_fehlender_chunks_stehen`).
 
 ## Abbruch und `--resume`
 

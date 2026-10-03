@@ -4884,6 +4884,170 @@ fn abgebrochenes_update_laesst_den_stand_stehen() {
     }
 }
 
+/// Jede Änderung, die weit reicht, allein in einem Chunk: Das Update gleicht
+/// Byte für Byte einem vollen Lauf, sein Gebiet reicht so weit wie sie. In
+/// `update_gleicht_einem_vollen_lauf` deckt das Gebiet der Türme die übrigen
+/// ab. Bei scale 12 ohne native Stufen, das Gebiet liegt auf Basiskacheln:
+/// - Leuchtstein unter dem Dach in (0, 0): Licht im Chunk daneben;
+/// - ein Block bei y = 60 in (0, 0): Schatten im Himmelslicht 55 Blöcke
+///   tiefer;
+/// - Leuchtstein bei y = 12 in (0, 1): Licht an der Seite des Dachs, über
+///   dem höchsten Block seines Chunks;
+/// - mit Cinematic ein Turm in (0, 4): sein Schatten bis vier Chunks weiter.
+#[test]
+fn update_reicht_so_weit_wie_die_aenderung() {
+    type Welt = fn(i32, i32, i32) -> &'static str;
+    fn leuchte(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (14, 8, 8) => "minecraft:glowstone",
+            _ => mit_dach(x, y, z),
+        }
+    }
+    fn hoch(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (2, 60, 12) => "minecraft:einfarbig",
+            _ => mit_dach(x, y, z),
+        }
+    }
+    fn seite(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (8, 12, 17) => "minecraft:glowstone",
+            _ => mit_dach(x, y, z),
+        }
+    }
+    fn turm(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (5, ..120, 69) => "minecraft:einfarbig",
+            _ => gelaende(x, y, z),
+        }
+    }
+    // Der Schatten fällt nach +x und −z.
+    let schatten: Vec<(i32, i32)> = (0..=3).flat_map(|x| (0..=4).map(move |z| (x, z))).collect();
+    // Name, Chunks der Welt, vorher, nachher, der geänderte Chunk, Schalter.
+    type Fall<'a> = (
+        &'a str,
+        &'a [(i32, i32)],
+        Welt,
+        Welt,
+        (i32, i32),
+        &'a [&'a str],
+    );
+    let faelle: [Fall; 4] = [
+        (
+            "Licht daneben",
+            &UPDATE_CHUNKS,
+            mit_dach,
+            leuchte,
+            (0, 0),
+            &["--scale", "12"],
+        ),
+        (
+            "Schatten tief unten",
+            &UPDATE_CHUNKS,
+            mit_dach,
+            hoch,
+            (0, 0),
+            &["--scale", "12"],
+        ),
+        (
+            "Licht darüber",
+            &UPDATE_CHUNKS,
+            mit_dach,
+            seite,
+            (0, 1),
+            &["--scale", "12"],
+        ),
+        (
+            "Schatten der Sonne",
+            &schatten,
+            gelaende,
+            turm,
+            (0, 4),
+            &["--scale", "12", "--cinematic"],
+        ),
+    ];
+    let bilder = |baum: &Path| -> BTreeMap<String, Vec<u8>> {
+        schnappschuss(baum)
+            .into_iter()
+            .filter(|(rel, _)| rel.ends_with(".webp"))
+            .collect()
+    };
+    for (was, chunks, alt, neu, (cx, cz), extra) in faelle {
+        let welt = tempdir();
+        common::write_world_sections(welt.path(), chunks, 0..=7, alt, |_, _| None);
+        let name = baum_name(extra);
+        let baum = neuer_baum(&name);
+        gelungen(&tiles(welt.path(), baum.path(), extra));
+        let vorher = bilder(baum.path());
+
+        common::write_world_sections(welt.path(), chunks, 0..=7, neu, |_, _| None);
+        common::setze_stempel(welt.path(), cx, cz, 2);
+        let update: Vec<&str> = extra.iter().copied().chain(["--update"]).collect();
+        let ausgabe = tiles(welt.path(), baum.path(), &update);
+        gelungen(&ausgabe);
+        let log = String::from_utf8_lossy(&ausgabe.stdout);
+        assert!(
+            log.contains("Update:     1 Chunks geändert"),
+            "{was}: {log}"
+        );
+
+        let voll = neuer_baum(&name);
+        gelungen(&tiles(welt.path(), voll.path(), extra));
+        assert!(bilder(voll.path()) != vorher, "{was}: ohne Wirkung");
+        gleiche_baeume(baum.path(), voll.path(), was);
+    }
+}
+
+/// Fehlt ein Chunk ganz, bleiben seine Kacheln nach einem Update stehen,
+/// Byte für Byte, wie nach einem vollen Lauf. Mit `--prune` verschwinden
+/// sie, und der Baum gleicht einem neuen über die Welt ohne ihn.
+/// Siehe docs/benutzung/kacheln.md, „Kacheln ohne Chunk: `--prune`“.
+#[test]
+fn update_laesst_kacheln_fehlender_chunks_stehen() {
+    let extra = ["--scale", "12"];
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let fern = tempdir();
+    common::write_world_sections(fern.path(), &[(28, 0)], 0..=7, mit_dach, |_, _| None);
+    let nur_fern = neuer_baum("2x1-se");
+    gelungen(&tiles(fern.path(), nur_fern.path(), &extra));
+    let fern_kacheln: Vec<String> = schnappschuss(nur_fern.path())
+        .into_keys()
+        .filter(|rel| rel.ends_with(".webp"))
+        .collect();
+    assert!(!fern_kacheln.is_empty());
+
+    let baeume = [neuer_baum("2x1-se"), neuer_baum("2x1-se")];
+    for baum in &baeume {
+        gelungen(&tiles(welt.path(), baum.path(), &extra));
+    }
+    let vorher = schnappschuss(baeume[0].path());
+    let ohne_fern = &UPDATE_CHUNKS[..3];
+    common::write_world_sections(welt.path(), ohne_fern, 0..=7, mit_dach, |_, _| None);
+
+    let ausgabe = tiles(
+        welt.path(),
+        baeume[0].path(),
+        &["--scale", "12", "--update"],
+    );
+    gelungen(&ausgabe);
+    let log = String::from_utf8_lossy(&ausgabe.stdout);
+    assert!(log.contains("Update:     1 Chunks geändert"), "{log}");
+    let nachher = schnappschuss(baeume[0].path());
+    for rel in &fern_kacheln {
+        assert_eq!(nachher.get(rel), vorher.get(rel), "{rel}");
+    }
+
+    gelungen(&tiles(
+        welt.path(),
+        baeume[1].path(),
+        &["--scale", "12", "--update", "--prune"],
+    ));
+    let neu = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), neu.path(), &extra));
+    gleiche_baeume(baeume[1].path(), neu.path(), "mit --prune");
+}
+
 /// `--update --resume` behält nur Basiskacheln, die das abgebrochene Update
 /// schrieb, also jünger als sein angefangener Stand, ohne die frischen.
 /// Ältere im Gebiet zeichnet es neu. Danach gleicht der Baum einem vollen
@@ -4904,10 +5068,11 @@ fn update_setzt_mit_resume_fort() {
         .filter(|(tile, pfad)| std::fs::read(pfad).unwrap() != std::fs::read(&neu[tile]).unwrap())
         .collect();
     assert!(
-        anders.len() >= 3,
+        anders.len() >= 4,
         "{} Basiskacheln ändern sich",
         anders.len()
     );
+    let alt = std::fs::read(&anders[3].1).unwrap();
 
     // Das abgebrochene Update, nachgestellt: Es scheitert an einer Kachel,
     // die es ändert, und hinterlässt den angefangenen Stand.
@@ -4937,6 +5102,10 @@ fn update_setzt_mit_resume_fort() {
     };
     let bleibt = schon(1, 900);
     let frisch = schon(2, 600);
+    // Eine Kachel, die das abgebrochene Update nicht mehr erreichte: alt,
+    // vor dem angefangenen Stand. Sie zeichnet es neu.
+    std::fs::write(&anders[3].1, &alt).unwrap();
+    setze_zeit(&anders[3].1, jetzt - Duration::from_secs(3600));
     // Wer `bleibt` neu zeichnete, schriebe dieselben Bytes; die Zeit zeigt es.
     gelungen(&tiles(
         welt.path(),

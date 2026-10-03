@@ -15,6 +15,9 @@ pub use chunk::{Abdruck, Blockdaten, Chunk, Muster, Section};
 pub use palette::BlockState;
 pub use region::{REGION, Region, Stempel};
 
+/// Je Region die Stempel ihrer Chunks, siehe [`Region::stempel`].
+pub type Stempelkarte = BTreeMap<(i32, i32), Vec<Option<Stempel>>>;
+
 /// Wo unter `--world` die Regionen liegen: direkt darunter in einer
 /// Dimension, `world/dimensions/<namensraum>/<name>/region`, und für die
 /// Oberwelt unter der Wurzel in `dimensions/minecraft/overworld/region`,
@@ -150,7 +153,7 @@ impl World {
 
     /// Die Stempel aller Regionen, siehe [`Region::stempel`]. Eine Region,
     /// die zwischen Liste und Lesen verschwindet, fehlt.
-    pub fn stempel(&self) -> Result<BTreeMap<(i32, i32), Vec<Option<Stempel>>>> {
+    pub fn stempel(&self) -> Result<Stempelkarte> {
         use rayon::prelude::*;
         self.regions()?
             .into_par_iter()

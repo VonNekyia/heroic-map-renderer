@@ -94,13 +94,9 @@ Schnee von oben und schräg von Norden und das Dorf aus `n`; siehe
 ![Eine Wiese der Savanne: Bodenpflanzen mit hartem, mit weichem und ohne Sonnenschatten](../bilder/cinematic-pflanzen.webp)
 
 - **Bild darunter:** eine Wiese der Savanne, zweifach vergrössert.
-  Bodenpflanzen mit hartem Schatten (`pflanzen` 0), mit weichem (0,5) und
-  ohne (1).
-- **Herkunft:** Beide Bilder rendert der Renderer mit Cinematic aus #73,
-  der Test `bilder_zu_0058` in
-  [`renderer/tests/kennzahlen.rs`](../../renderer/tests/kennzahlen.rs).
-  Zur Entscheidung lagen dieselben Ausschnitte aus dem Prototyp zu #89
-  vor.
+  Bodenpflanzen mit hartem Schatten, mit weichem (0,5) und ohne.
+- **Herkunft:** Beide Bilder stammen aus dem Prototyp zu #89. Quelle in
+  [`cinematic-look.json`](../bilder/quellen/cinematic-look.json).
 
 ## Verworfene Alternativen
 

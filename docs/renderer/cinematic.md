@@ -360,6 +360,13 @@ je Block, statt ihn zu decken, wie in 0058:
   jeder Block.
 - **Licht:** Flächen ohne `shade` bekommen das Licht einer Fläche nach
   oben, siehe „Sonne“.
+- **Am Renderer:** dieselbe Wiese der Savanne wie das Bild des Prototyps
+  unter 0058.
+
+  ![Eine Wiese der Savanne: Bodenpflanzen mit hartem, mit weichem und ohne Sonnenschatten, aus dem Renderer](../bilder/cinematic-renderer-pflanzen.webp)
+
+  Zweifach vergrössert; Bodenpflanzen mit `pflanzen` 0, mit `LOOK` und
+  mit 1. Gerendert vom Test `bilder_zu_cinematic`.
 - Getestet: `bodenpflanze_nach_der_vorlage` in `renderer/tests/assets.rs`,
   je Vorlage ein Block aus dem Test-Assetbaum, und Pflanze, Sonnenblume und
   obere Hälften in `strahlen_zur_sonne`; eine Pflanze, die in ihre Nachbarn
@@ -397,6 +404,15 @@ in 0058 (`Look::waerme`, `Kino::ton`):
   dem Mittel kommt `w`.
 - **Je Pixel** gilt die Wärme des vordersten gezeichneten Pixels, aus dem
   Biom seines Blocks (`Hdr::waerme`).
+- **Am Renderer:** dieselben Ausschnitte wie die Bilder des Prototyps
+  unter 0058, „Weissabgleich im Einzelnen“.
+
+  ![Savanne und Schnee, je Karte, Cinematic mit Weissabgleich 1 und Cinematic mit Weissabgleich nach Biom, aus dem Renderer](../bilder/cinematic-renderer-waerme.webp)
+
+  Savanne (obere Reihe) und Schnee (untere Reihe), 2:1 bei scale 32 aus
+  `se`, auf die Hälfte verkleinert; je Reihe die Karte, Cinematic mit
+  `waerme` 0 und mit `LOOK`. Gerendert vom Test `bilder_zu_cinematic` in
+  [`renderer/tests/kennzahlen.rs`](../../renderer/tests/kennzahlen.rs).
 - **Wo Rot überläuft:** Eine Fläche, die voll zur Sonne zeigt, im vollen
   Himmelslicht, erreicht ohne Wärme auch in Weiss nicht 255. Mit der vollen
   Wärme 1,5 erreicht Rot bei Weiss 255, also in Wüste, Savanne und

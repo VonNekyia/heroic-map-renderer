@@ -1,8 +1,8 @@
 //! Die Ansichten der Testwelt, an denen 0058 abgestimmt ist, mit Cinematic
 //! und als Karte, dazu je Pixel, was die Kennzahlen des Looks brauchen: ob
 //! die Sonne ihn trifft, ob er leuchtet oder im Bloom liegt, ob seine
-//! vorderste Fläche deckt, ihr Block und ihre Seite. Dazu die Bilder zu
-//! 0058 als PNG. Braucht die Testwelt und die Assets, deshalb
+//! vorderste Fläche deckt, ihr Block und ihre Seite. Dazu dieselben
+//! Ausschnitte wie die Bilder unter 0058, aus dem Renderer, als PNG. Braucht die Testwelt und die Assets, deshalb
 //! `#[ignore]`. Aufruf und Auswertung:
 //! docs/messungen/2026-10-03-look-am-renderer.md; die Bilder:
 //! skills/doku-bilder-rendern/SKILL.md.
@@ -80,14 +80,15 @@ fn kennzahlen_der_ansichten() {
     });
 }
 
-/// Die Bilder unter 0058: die Wärme nach Biom an Hügel und Schnee, die
-/// Bodenpflanzen an einer Wiese des Hügels, je 2:1 bei 32 aus `se`, mit
-/// der Mitte der Szene in der Bildmitte; Ausschnitte wie am Prototyp zu
-/// #89. Als PNG nach `BILDER_AUS`; `bilder-rendern.py` ruft den Test und
-/// kodiert sie wie die übrigen Bilder.
+/// Die Bilder des Renderers in docs/renderer/cinematic.md, dieselben
+/// Ausschnitte wie die Bilder des Prototyps zu #89 unter 0058: die Wärme
+/// nach Biom an Hügel und Schnee, die Bodenpflanzen an einer Wiese des
+/// Hügels, je 2:1 bei 32 aus `se`, mit der Mitte der Szene in der
+/// Bildmitte. Als PNG nach `BILDER_AUS`; `bilder-rendern.py` ruft den Test
+/// und kodiert sie wie die übrigen Bilder.
 #[test]
 #[ignore]
-fn bilder_zu_0058() {
+fn bilder_zu_cinematic() {
     let wurzel = wurzel();
     let ziel =
         PathBuf::from(std::env::var("BILDER_AUS").expect("BILDER_AUS auf den Zielordner setzen"));
@@ -113,7 +114,7 @@ fn bilder_zu_0058() {
             replace(&mut waerme, &teil, spalte as i64 * 400, zeile as i64 * 400);
         }
     }
-    waerme.save(ziel.join("cinematic-waerme.png")).unwrap();
+    waerme.save(ziel.join("cinematic-renderer-waerme.png")).unwrap();
     // Hart, weich mit 0,5 und ohne Sonnenschatten der Bodenpflanzen, nach
     // Biom gewärmt; 240 Pixel ab (700, 700), zweifach vergrössert ohne
     // Glättung.
@@ -132,7 +133,7 @@ fn bilder_zu_0058() {
         );
         replace(&mut pflanzen, &teil, spalte as i64 * 480, 0);
     }
-    pflanzen.save(ziel.join("cinematic-pflanzen.png")).unwrap();
+    pflanzen.save(ziel.join("cinematic-renderer-pflanzen.png")).unwrap();
 }
 
 /// Eine Ansicht: Welt, Assets und Ausschnitt, wie `--render` mit `--center`

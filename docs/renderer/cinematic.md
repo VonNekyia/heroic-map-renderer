@@ -252,8 +252,10 @@ hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
 
 ### Der schnelle Gang
 
-`ChunkCache::sonne` geht den Strahl Zelle für Zelle durch das Gitter
-im Blick, springt aber über, was nichts aufhält:
+`ChunkCache::sonne` fragt zuerst die Bits „frei zur Sonne“, siehe unten.
+Beantworten sie den Strahl nicht, geht `ChunkCache::sonne_im_gang` ihn
+Zelle für Zelle durch das Gitter im Blick, springt aber über, was nichts
+aufhält:
 
 - **Je Chunk eine Säule** (`Saeule`), sobald ein Strahl ihn betritt: ihre
   Decke, die oberste Zelle mit Block oder hineinragendem Modell. Darüber
@@ -304,6 +306,56 @@ leere Section zwischen belegten, ob sie fehlt oder nur Luft hält
 (`strahl_durch_eine_leere_section`); 8000 fest gewürfelte
 Strahlen in einer hohen Welt aus 8 × 8 Chunks, schnell und im Bezug gleich
 (`zufaellige_strahlen_gleichen_dem_bezug`).
+
+### Frei zur Sonne
+
+Vor dem Gang sieht `ChunkCache::frei_zur_sonne` nach, ob von der
+Startzelle aus überhaupt etwas im Weg liegen kann. Wenn nicht, kommt alles
+an, ohne Gang. Die Regel kommt aus dem Vorschlag zu #73, eingebaut in #106;
+am Prototyp gemessen in
+[Bits „frei zur Sonne“](../messungen/2026-10-03-bits-frei-zur-sonne.md).
+
+- **Das Prisma einer Zelle:** alle Punkte `p + t·d` mit `p` in der Zelle
+  und `t` von 0 bis zur Weite. In der Lage `k` über ihr liegt `t` zwischen
+  `max(0, k − 1) / d_y` und `(k + 1) / d_y`. Je Achse berührt es dort die
+  Zellen, deren geschlossener Würfel diese Spanne schneidet, nur zur Sonne
+  hin wie der Gang. Jede Zelle, die der Gang von einem Punkt der Zelle aus
+  betritt, liegt also darin; für die Rundung in f64 reicht es 10⁻⁶ weiter.
+- **Die Versätze** (`versaetze` in
+  [`renderer/src/render/metatile/strahl.rs`](../../renderer/src/render/metatile/strahl.rs)):
+  je Spalte daneben die Lagen `k0` bis `k0 + n − 1`, die das Prisma dort
+  berührt, bis zur Lage ⌊Weite · d_y⌋ + 1. Es ist ein Lauf, denn die
+  Spannen wachsen mit `k` zur Sonne hin. Einmal je Look und Kamera
+  gerechnet, in `Kino`. Mit `LOOK`: diagonal 350 Spalten bis 51 Blöcke
+  gegen x und 70 in z, genordet 232 bis 85 gegen x und 14 in z; je bis Lage
+  96.
+- **Die Bits** (`Saeule::frei`): je Spalte ein `u128` für die 128 Lagen bis
+  zum Horizont `H` der Säule. Ein Bit ist gesetzt, wenn keine Zelle im
+  Prisma Arbeit für den Gang hat, also kein Bit `arbeit` aus `Bits`, samt
+  den Zellen, in die Modelle ragen. Gerechnet je Versatz als
+  `gesperrt |= (A | A >> 1 | … | A >> (n − 1)) >> k0`, mit `A` der Arbeit
+  der Spalte daneben ab der untersten Lage.
+- **Über dem Horizont** hat keine Zelle Arbeit, die der Strahl bis zur
+  Weite erreicht. Das Prisma reicht über die Chunks des Horizonts hinaus,
+  aber dort erst hinter der Weite; Arbeit über `H` zählt darum nicht. Unter
+  den 128 Lagen fragt der Strahl den Gang.
+- **Gemerkt** in der Säule, wie Decke und Horizont, sobald ein Strahl in
+  ihr beginnt: einmal je Chunk und Thread. Ein Thread rendert einen
+  Streifen Zeile für Zeile
+  ([0025](../entscheidungen/0025-streifen-und-cache-je-thread.md)); zwei
+  Threads rechnen einen Chunk nur, wo beide Streifen ihn brauchen. Am
+  Prototyp verteilten sich die Zeilen in jedem Durchgang anders auf die
+  Threads, und jeder rechnete die Spalten neu.
+- **Hinreichend, nicht nötig:** Ein Bit, das fehlt, heisst nur, dass ein
+  Strahl aus der Zelle etwas treffen könnte. Dann entscheidet der Gang.
+- **Gleich dem Gang:** Ein freier Strahl prüft im Gang keine Zelle und
+  gibt 1. `frei_zur_sonne_trifft_nichts` schickt von jeder Zelle, die die
+  Bits frei nennen, von allen acht Ecken einen Strahl durch den Bezug; die
+  Ecken streifen die Ränder des Prismas. Jeder kommt ganz an.
+  `block_am_ende_der_weite_sperrt_die_bits` legt einen Block in die
+  oberste Lage des Prismas, kurz vor der Weite.
+  `zufaellige_strahlen_gleichen_dem_bezug`,
+  `schneller_gang_gleicht_dem_bezug` und das Goldbild laufen mit den Bits.
 
 ### Der Vorlauf
 

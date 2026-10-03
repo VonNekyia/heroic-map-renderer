@@ -804,6 +804,61 @@ fn kino_tabelle(
     SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(look)).unwrap()
 }
 
+/// Nur die hellen Texel eines leuchtenden Blocks leuchten, mit der Stärke
+/// aus dem Look: ein Pilzlicht (Stufe 15) mit halb weisser, halb dunkler
+/// Textur, gezeichnet mit dem Look und mit `leuchten` 0. Auf den weissen
+/// Texeln kommt linear 1 mal 2 dazu, auf den dunklen (40, linear 0,021)
+/// nichts, ebenso auf dem Block daneben, der nicht leuchtet. Ein Pixel, der
+/// helle und dunkle Texel mischt, leuchtet nach seiner Farbe dazwischen.
+/// Siehe docs/renderer/cinematic.md, „Leuchten“.
+#[test]
+fn nur_helle_texel_leuchten() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 3, 8) => "minecraft:shroomlight",
+        (12, 3, 8) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let rect = rect_um(projection, [8, 3, 8], [13, 4, 9]);
+    let hdr = |look| {
+        let sprites = kino_tabelle(&world, projection, Y_RANGE, look);
+        render_hdr_with(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap()
+    };
+    let (mit, ohne) = (
+        hdr(LOOK),
+        hdr(Look {
+            leuchten: 0.0,
+            ..LOOK
+        }),
+    );
+    let (mut hell, mut dunkel, mut gemischt) = (0, 0, 0);
+    for (m, o) in mit.farbe.iter().zip(&ohne.farbe) {
+        assert_eq!(m[3], o[3]);
+        let d: [f32; 3] = std::array::from_fn(|c| m[c] - o[c]);
+        // Grau und höchstens die volle Stärke nach dem Anteil des Pixels.
+        let grau = d.iter().all(|x| (x - d[0]).abs() < 1e-4);
+        assert!(
+            grau && (-1e-5..=2.0 * m[3] + 1e-4).contains(&d[0]),
+            "{d:?} bei Alpha {}",
+            m[3]
+        );
+        match d[0] {
+            x if m[3] == 1.0 && (x - 2.0).abs() < 1e-4 => hell += 1,
+            x if m[3] == 1.0 && x.abs() < 1e-5 => dunkel += 1,
+            x if m[3] > 0.0 || x != 0.0 => gemischt += 1,
+            _ => {}
+        }
+    }
+    // Das Pilzlicht halb hell, halb dunkel, dazu der Block daneben.
+    assert!(
+        hell > 50 && dunkel > hell && gemischt < hell / 2,
+        "{hell} {dunkel} {gemischt}"
+    );
+}
+
 /// Blöcke für die Strahlen zur Sonne, frei in der Luft über einem Boden:
 /// ein voller Würfel, Laub mit Löchern, Wasser, Glas mit deckendem Rahmen,
 /// eine Bodenpflanze, ein Modell, das nach Westen in den Nachbarwürfel ragt,

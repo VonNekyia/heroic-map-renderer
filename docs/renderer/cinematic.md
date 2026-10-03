@@ -31,19 +31,20 @@ scale; anders ist nur das Licht je Pixel, entschieden in
 zeichnet immer die CPU. Phase 1 (#72) brachte das Licht des Spiels, Phase 2
 (#73) bringt Sonne, Schatten, Wasser, Leuchten, Wärme nach Biom und Bloom;
 bis jetzt davon die Sonne mit hartem Schatten, die Bodenpflanzen, das
-Wasser und die Wärme nach Biom.
+Wasser, das Leuchten und die Wärme nach Biom.
 
 ## Werte des Looks
 
 Die Werte stehen benannt an einer Stelle, `LOOK` in
 [`renderer/src/render/look.rs`](../../renderer/src/render/look.rs); die für
-Leuchten und Bloom aus #73 kommen noch dazu:
+den Bloom aus #73 kommen noch dazu:
 
 | Wert | in `Look` | genutzt |
 |---|---|---|
 | Stärke des Himmelslichts | `himmel`: 3 | ja |
 | Anteil der Farbe des Himmels am Himmelslicht, der Rest ist Nebel | `himmel_anteil`: 0,75 | ja |
 | Stärke des Blocklichts | `block`: 1,5 | ja |
+| Leuchten: Stärke, ab und bis zu welcher Helligkeit eines Texels | `leuchten`: 2, `leuchten_ab`: 0,25, `leuchten_voll`: 0,75 | ja |
 | Sonne: Stärke, Farbe linear, Höhe, waagrecht von links zur Kamera hin | `sonne`: 3, `sonne_farbe`: (1; 0,93; 0,83), `sonne_hoehe`: 48,47°, `sonne_seite`: 8,75° | ja |
 | Wie weit ein Strahl zur Sonne reicht, in Blöcken entlang des Strahls | `sonne_weite`: 128 | ja |
 | So viel Sonne lässt eine Bodenpflanze durch | `pflanzen`: 0,5 | ja |
@@ -52,7 +53,10 @@ Leuchten und Bloom aus #73 kommen noch dazu:
 | Belichtung | `belichtung`: 0,25 | ja |
 | Kurve: gerade bis, flach ab | `knie`: 0,8, `flach`: 1,2 | ja |
 
-- **Herkunft:** alle aus 0058, bis auf `sonne_weite` und `wasser_textur`.
+- **Herkunft:** alle aus 0058, bis auf `sonne_weite`, `wasser_textur`,
+  `leuchten_ab` und `leuchten_voll`. 0058 sagt „nur die hellen Texel“; ab
+  0,25 und ganz ab 0,75 im hellsten Kanal leuchteten sie im Prototyp, an
+  dem 0058 abgestimmt ist.
   Bis 128 Blöcke weit reichte der Strahl zur Sonne im Prototyp, an dem 0056
   den Preis gemessen hat, siehe
   [Gang zur Sonne in Stufen](../messungen/2026-10-02-gang-zur-sonne-in-stufen.md).
@@ -308,6 +312,24 @@ je Block, statt ihn zu decken, wie in 0058:
   oben, siehe „Sonne“.
 - Getestet: `bodenpflanze_nach_der_vorlage` in `renderer/tests/assets.rs`
   und die Pflanze in `strahlen_zur_sonne`.
+
+## Leuchten
+
+Ein Block, der selbst leuchtet, bringt sein Leuchten zu jedem Pixel, wie im
+Prototyp aus #89 (`mische_hdr` in
+[`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
+
+- **Wie viel:** die Farbe linear mal `leuchten`, mal seiner Stufe
+  `getLightEmission` / 15 (`leuchten.txt`, siehe
+  [Erzeugte Tabellen](../entwicklung/tabellen.md)), mal wie stark der Texel
+  leuchtet. Es kommt zum Licht dazu, wie Sonne und Himmel.
+- **Nur helle Texel** (`Look::leuchtet`): nach dem hellsten Kanal der
+  Farbe, linear, 0 bis `leuchten_ab`, dann weich bis 1 bei `leuchten_voll`.
+  Eine Laterne leuchtet so in ihrem Licht, nicht in ihrem Gestell.
+- **Unter Wasser** leuchtet ein gefluteter Block im selben Sprite ebenso.
+- Getestet: `leuchten_nach_der_helligkeit` in `look.rs`,
+  `nur_helle_texel_leuchten` in `renderer/tests/metatile.rs` an einem Block
+  mit halb heller, halb dunkler Textur.
 
 ## Wärme
 

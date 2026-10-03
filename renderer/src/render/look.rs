@@ -15,6 +15,13 @@ pub struct Look {
     pub himmel_anteil: f32,
     /// Stärke des Blocklichts.
     pub block: f32,
+    /// Stärke des Leuchtens leuchtender Blöcke, siehe [`Look::leuchtet`].
+    pub leuchten: f32,
+    /// Leuchten: bis zu dieser Helligkeit des hellsten Kanals, linear,
+    /// leuchtet ein Texel nicht.
+    pub leuchten_ab: f32,
+    /// Leuchten: ab dieser Helligkeit leuchtet ein Texel ganz.
+    pub leuchten_voll: f32,
     /// Stärke der Sonne.
     pub sonne: f32,
     /// Farbe der Sonne, linear.
@@ -60,6 +67,9 @@ pub const LOOK: Look = Look {
     himmel: 3.0,
     himmel_anteil: 0.75,
     block: 1.5,
+    leuchten: 2.0,
+    leuchten_ab: 0.25,
+    leuchten_voll: 0.75,
     sonne: 3.0,
     sonne_farbe: [1.0, 0.93, 0.83],
     sonne_hoehe: 48.47,
@@ -81,12 +91,15 @@ impl Look {
     /// Jeder Wert mit seinem Namen, in fester Reihenfolge, wie er im Code
     /// steht. Abgeleitete Werte wie die Richtung der Sonne aus Sinus und
     /// Kosinus fehlen: Deren letztes Bit kann je System abweichen.
-    fn werte(&self) -> [(&'static str, &[f32]); 18] {
+    fn werte(&self) -> [(&'static str, &[f32]); 21] {
         // Ganz zerlegt: Ein neues Feld kompiliert erst, wenn es hier steht.
         let Look {
             himmel,
             himmel_anteil,
             block,
+            leuchten,
+            leuchten_ab,
+            leuchten_voll,
             sonne,
             sonne_farbe,
             sonne_hoehe,
@@ -107,6 +120,9 @@ impl Look {
             ("himmel", std::slice::from_ref(himmel)),
             ("himmel_anteil", std::slice::from_ref(himmel_anteil)),
             ("block", std::slice::from_ref(block)),
+            ("leuchten", std::slice::from_ref(leuchten)),
+            ("leuchten_ab", std::slice::from_ref(leuchten_ab)),
+            ("leuchten_voll", std::slice::from_ref(leuchten_voll)),
             ("sonne", std::slice::from_ref(sonne)),
             ("sonne_farbe", sonne_farbe.as_slice()),
             ("sonne_hoehe", std::slice::from_ref(sonne_hoehe)),
@@ -185,6 +201,17 @@ impl Look {
         x - (x - self.knie) * (x - self.knie) / (2.0 * (self.flach - self.knie))
     }
 
+    /// Wie stark ein Texel der Farbe `farbe`, linear, leuchtet, mit der
+    /// Stärke 1, wie im Prototyp aus #89: nach dem hellsten Kanal 0 bis
+    /// [`Look::leuchten_ab`], dann weich (smoothstep) bis 1 bei
+    /// [`Look::leuchten_voll`]. So leuchten nur die hellen Texel.
+    /// Siehe docs/renderer/cinematic.md, „Leuchten“.
+    pub fn leuchtet(&self, farbe: [f32; 3]) -> f32 {
+        let m = farbe[0].max(farbe[1]).max(farbe[2]);
+        let x = ((m - self.leuchten_ab) / (self.leuchten_voll - self.leuchten_ab)).clamp(0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    }
+
     /// Wie viel stärker der Weissabgleich in einem Biom der Temperatur `t`
     /// wirkt, wie in 0058: 1 bis [`Look::waerme_von`], dann gerade bis
     /// 1 + [`Look::waerme`] bei [`Look::waerme_bis`], darüber gleich.
@@ -226,7 +253,7 @@ mod tests {
     /// zieht den Test nach.
     #[test]
     fn fingerabdruck_der_werte_aus_0058() {
-        assert_eq!(LOOK.fingerabdruck(), "07804ad53a5a7cd6");
+        assert_eq!(LOOK.fingerabdruck(), "8747842880fab7c7");
         let anders = Look {
             belichtung: 0.26,
             ..LOOK
@@ -275,6 +302,22 @@ mod tests {
                 "{kamera}"
             );
             assert!((links.hypot(zur_kamera) - waagrecht).abs() < 1e-6);
+        }
+    }
+
+    /// Nur helle Texel leuchten: bis 0,25 im hellsten Kanal nicht, ab 0,75
+    /// ganz, dazwischen weich; das Soll von smoothstep von Hand gerechnet.
+    #[test]
+    fn leuchten_nach_der_helligkeit() {
+        for (farbe, soll) in [
+            ([0.25, 0.1, 0.0], 0.0),
+            ([0.0, 0.0, 0.1], 0.0),
+            ([0.5, 0.2, 0.1], 0.5),
+            ([0.1, 0.375, 0.2], 0.15625),
+            ([0.3, 0.2, 0.75], 1.0),
+            ([1.0; 3], 1.0),
+        ] {
+            assert!((LOOK.leuchtet(farbe) - soll).abs() < 1e-6, "{farbe:?}");
         }
     }
 

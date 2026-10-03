@@ -338,7 +338,7 @@ vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
     Höhe der Sonne fehlen, deren letztes Bit kann je System abweichen.
   - Geschrieben als 16 kleine Hexziffern; für die Werte aus
     [0058](../entscheidungen/0058-look-von-cinematic.md)
-    `07804ad53a5a7cd6`, mit `VERFAHREN` 2.
+    `8747842880fab7c7`, mit `VERFAHREN` 2.
 - **Ein Baum, ein look:** Ein Lauf mit dem anderen look schreibt in einen
   anderen Ordner, siehe „Liste der Bäume“. Er bricht nur ab, wenn in seinem
   Ordner ein Baum mit dem anderen look oder mit anderen Werten liegt, bevor

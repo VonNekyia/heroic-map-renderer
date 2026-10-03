@@ -86,9 +86,17 @@ function crs(info: MapInfo): Crs {
   };
 }
 
+/**
+ * `map.json`, `trees.json` und Höhen fragt der Browser jedes Mal beim Server
+ * nach, statt sie aus dem Cache zu nehmen; unverändert kommt 304. So zeigt
+ * die Seite nach einem neuen Lauf seinen Stand, gleich welche Header der
+ * Server setzt. Siehe docs/frontend.md, „Ausliefern“.
+ */
+const FRISCH: RequestInit = { cache: 'no-cache' };
+
 async function load(base: string): Promise<MapInfo> {
   const path = `${base}/map.json`;
-  const response = await fetch(path);
+  const response = await fetch(path, FRISCH);
   if (!response.ok) {
     throw new Error(`${path}: ${response.status} ${response.statusText}`);
   }
@@ -164,7 +172,7 @@ function projektion(info: MapInfo): { p: Projektion; k: number } | string {
 
 /** Eine Höhenkarte: zlib, darin n × n Zellen, je i16 little-endian. */
 async function ladeKarte(path: string, n: number): Promise<Int16Array | null> {
-  const response = await fetch(path);
+  const response = await fetch(path, FRISCH);
   // Keine Datei heisst kein Chunk. Ein Server, der auf unbekannte Pfade die
   // index.html ausliefert, meint dasselbe.
   if (response.status === 404 || response.headers.get('content-type')?.startsWith('text/html')) {
@@ -503,7 +511,7 @@ function istBaum(value: unknown): value is Baum {
 /** Die Bäume aus `trees.json`, oder `null` ohne sie: dann ist `wurzel` selbst ein Baum. */
 async function ladeListe(wurzel: string): Promise<Baum[] | null> {
   const path = `${wurzel}/trees.json`;
-  const response = await fetch(path);
+  const response = await fetch(path, FRISCH);
   // Ein Server, der auf unbekannte Pfade die index.html ausliefert, meint
   // dasselbe wie 404.
   if (response.status === 404 || response.headers.get('content-type')?.startsWith('text/html')) {

@@ -95,6 +95,49 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
   await expect(page.locator('.koordinaten')).toHaveCount(0);
 });
 
+test('map.json, trees.json und Höhen fragt die Seite jedes Mal beim Server nach', async ({
+  page,
+}) => {
+  // Mit Routing schaltet Playwright den Cache ab; geprüft wird deshalb, mit
+  // welchem Cache-Modus die Seite `fetch` aufruft.
+  await page.addInitScript(() => {
+    const modi: Record<string, string | undefined> = {};
+    (window as unknown as { modi: typeof modi }).modi = modi;
+    const holen = window.fetch.bind(window);
+    window.fetch = (eingabe, init) => {
+      const url = eingabe instanceof Request ? eingabe.url : eingabe.toString();
+      const datei = /\/(map\.json|trees\.json|[-\d]+\.[-\d]+\.bin)$/.exec(url)?.[1];
+      if (datei) modi[datei.endsWith('.bin') ? 'Höhen' : datei] = init?.cache;
+      return holen(eingabe, init);
+    };
+  });
+  await welt(page);
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await page.mouse.move(...(await bildschirm(page, 400, 36)));
+  await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
+  expect(await page.evaluate(() => (window as unknown as { modi: object }).modi)).toEqual({
+    'trees.json': 'no-cache',
+    'map.json': 'no-cache',
+    Höhen: 'no-cache',
+  });
+});
+
+test('ohne Routing schickt Chromium dafür Cache-Control: max-age=0', async ({ page }) => {
+  // Dieselbe Anfrage, wie sie beim Server ankommt; ohne Routing wirkt der
+  // Cache des Browsers. Der Demobaum hat keine Höhen.
+  const kopf = new Map<string, string | undefined>();
+  page.on('request', (anfrage) => {
+    const datei = /\/(map\.json|trees\.json)$/.exec(anfrage.url())?.[1];
+    if (datei) void anfrage.allHeaders().then((k) => kopf.set(datei, k['cache-control']));
+  });
+  await page.goto(DEMO);
+  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect
+    .poll(() => Object.fromEntries(kopf))
+    .toEqual({ 'trees.json': 'max-age=0', 'map.json': 'max-age=0' });
+});
+
 test('die Karte läuft unter strengen Headern', async ({ page }) => {
   await page.addInitScript(() => {
     const verletzt: string[] = [];

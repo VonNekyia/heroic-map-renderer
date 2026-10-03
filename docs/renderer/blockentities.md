@@ -188,7 +188,14 @@ ein Muster mit `asset_id` und `translation_key` (`BannerPattern.CODEC`),
 `sherds` nennt bis zu vier Items: hinten, links, rechts, vorne
 (`PotDecorations.ordered`).
 
-- **Bis 26.2** ist es eine Liste von Item-Namen, wie oben.
+- **Bis 26.2** ist es eine Liste von Item-Namen, wie oben. Der Renderer
+  liest eine Liste immer so: Was kein Text ist, fällt heraus, die übrigen
+  rücken auf. 26.3 liest keine Liste; erst der Fix beim Laden
+  (`PotDecorationsBlockEntityUnflatteningFix.unpackList`) setzt sie nach
+  Platz. Ein Eintrag, der fehlt oder kein Text ist, wird dort
+  `minecraft:brick` an seinem Platz, ein leerer Text bricht den Fix ab,
+  und der Krug ist leer. Eine Liste aus dem Spiel hat immer vier gültige
+  Namen, dort ist das Bild gleich.
 - **Ab 26.3** ist es ein Objekt mit `back`, `left`, `right` und `front`
   (`PotDecorationsBlockEntityUnflatteningFix`, DataVersion 4996), je
   optional ein `ItemStackTemplate`: ein Item-Name oder ein Compound mit
@@ -270,9 +277,10 @@ seinem Blockentity hat, siehe [Schalter](../benutzung/schalter.md).
   zweite Licht von unten (`NETHER_DIFFUSE_LIGHT_1`); der Renderer nimmt in
   jeder Dimension das der Oberwelt. Offen in
   [#45](https://github.com/VonNekyia/heroic-map-renderer/issues/45).
-- **Ein Item, das es nicht gibt, in `sherds`** lässt das Spiel weg, und die
-  übrigen rücken auf. Der Renderer kennt nur die Scherben und lässt es an
-  seinem Platz, als Seite ohne Scherbe. So schreibt nur ein Editor.
+- **Ein Item, das es nicht gibt, in `sherds`** lässt das Spiel bis 26.2
+  weg, und die übrigen rücken auf. Der Renderer kennt nur die Scherben und
+  lässt es an seinem Platz, als Seite ohne Scherbe. Ab 26.3 bleibt es nach
+  dem Fix beim Laden ebenso an seinem Platz. So schreibt nur ein Editor.
 - **Mehrere Einträge mit `keepPacked` an einer Stelle:** Solche legt das
   Spiel ungeprüft beiseite (`ChunkAccess.setBlockEntityNbt`), an einer
   Stelle ohne geladenes Blockentity den letzten, gleich welcher Art. Der

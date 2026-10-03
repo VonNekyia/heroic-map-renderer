@@ -86,9 +86,21 @@ function crs(info: MapInfo): Crs {
   };
 }
 
-async function load(base: string): Promise<MapInfo> {
+/**
+ * `map.json`, `trees.json` und Höhen fragt der Browser jedes Mal beim Server
+ * nach, statt sie aus dem Cache zu nehmen; unverändert kommt 304. So zeigt
+ * die Seite nach einem neuen Lauf seinen Stand, gleich welche Header der
+ * Server setzt. Siehe docs/frontend.md, „Ausliefern“.
+ */
+const FRISCH: RequestInit = { cache: 'no-cache' };
+
+/**
+ * `map.json` und ihr Stand: `Last-Modified`, die Zeit des letzten Laufs, der
+ * sie geschrieben hat. Ohne brauchbaren Header kein Stand.
+ */
+async function load(base: string): Promise<{ info: MapInfo; stand: Date | undefined }> {
   const path = `${base}/map.json`;
-  const response = await fetch(path);
+  const response = await fetch(path, FRISCH);
   if (!response.ok) {
     throw new Error(`${path}: ${response.status} ${response.statusText}`);
   }
@@ -105,7 +117,21 @@ async function load(base: string): Promise<MapInfo> {
   if (!isMapInfo(info)) {
     throw new Error(`${path}: fehlende oder unbrauchbare Felder`);
   }
-  return info;
+  const stand = new Date(response.headers.get('last-modified') ?? Number.NaN);
+  return { info, stand: Number.isNaN(stand.getTime()) ? undefined : stand };
+}
+
+/**
+ * Unten rechts der Stand der Karte, etwa „Stand: 02.10.2026, 21:40“. Siehe
+ * docs/frontend.md, „Stand der Karte“.
+ */
+function standAnzeigen(map: L.Map, stand: Date): void {
+  const element = L.DomUtil.create('div', 'stand');
+  const zeit = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+  element.textContent = `Stand: ${zeit.format(stand)}`;
+  const control = new L.Control({ position: 'bottomright' });
+  control.onAdd = () => element;
+  control.addTo(map);
 }
 
 function isMapInfo(value: unknown): value is MapInfo {
@@ -164,7 +190,7 @@ function projektion(info: MapInfo): { p: Projektion; k: number } | string {
 
 /** Eine Höhenkarte: zlib, darin n × n Zellen, je i16 little-endian. */
 async function ladeKarte(path: string, n: number): Promise<Int16Array | null> {
-  const response = await fetch(path);
+  const response = await fetch(path, FRISCH);
   // Keine Datei heisst kein Chunk. Ein Server, der auf unbekannte Pfade die
   // index.html ausliefert, meint dasselbe.
   if (response.status === 404 || response.headers.get('content-type')?.startsWith('text/html')) {
@@ -503,7 +529,7 @@ function istBaum(value: unknown): value is Baum {
 /** Die Bäume aus `trees.json`, oder `null` ohne sie: dann ist `wurzel` selbst ein Baum. */
 async function ladeListe(wurzel: string): Promise<Baum[] | null> {
   const path = `${wurzel}/trees.json`;
-  const response = await fetch(path);
+  const response = await fetch(path, FRISCH);
   // Ein Server, der auf unbekannte Pfade die index.html ausliefert, meint
   // dasselbe wie 404.
   if (response.status === 404 || response.headers.get('content-type')?.startsWith('text/html')) {
@@ -649,7 +675,7 @@ async function start(): Promise<void> {
   const liste = await ladeListe(wurzel);
   const baum = liste && (liste.find((b) => b.path === parameter.get('tree')) ?? liste[0]!);
   const base = baum ? `${wurzel}/${baum.path}` : wurzel;
-  const info = await load(base);
+  const { info, stand } = await load(base);
 
   const [left, top, right, bottom] = info.bounds;
   const bounds = L.latLngBounds(point(left, top), point(right, bottom));
@@ -683,6 +709,7 @@ async function start(): Promise<void> {
 
   const blick = projektion(info);
   if (typeof blick !== 'string') kompass(map, norden(blick.p, blick.k));
+  if (stand) standAnzeigen(map, stand);
   let bei: ((px: number, py: number) => Promise<Block | undefined>) | undefined;
   if (hatHoehen(info)) {
     if (typeof blick === 'string') console.warn(`${base}/map.json: keine Koordinaten, ${blick}`);

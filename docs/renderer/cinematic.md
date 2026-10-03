@@ -269,7 +269,10 @@ im Blick, springt aber über, was nichts aufhält:
   4 × 4 × 4 Zellen ein Bit. Durch eine Section und einen Würfel ohne Arbeit
   springt er hinaus.
 - **Ein voller deckender Würfel** (`Sonnenform::wuerfel`: alle sechs Seiten
-  ganz von einer deckenden Fläche belegt) hält ihn ohne Test auf.
+  ganz von einer deckenden Fläche belegt) hält ihn ohne Test auf, ausser er
+  ist eine obere Hälfte: Die geht durch den Test, denn über ihrer
+  Bodenpflanze bewirkt sie nichts (siehe „Bodenpflanzen“). So bleibt die
+  Ausnahme aus der Schleife des Gangs.
 - **Gleich dem Bezug:** `ChunkCache::sonne_bezug` prüft jede Zelle bis zur
   Weite mit jedem Block, dessen Modell hineinragen kann. Beide geben
   dasselbe, denn ein Block, den der Strahl nicht trifft, ändert nichts, ob

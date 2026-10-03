@@ -18,8 +18,8 @@ pub(super) struct Bits {
     /// Zellen, die er prüft: ein Block mit Dreiecken, oder eine Zelle, in
     /// die das Modell eines Nachbarn ragt.
     arbeit: [u16; 256],
-    /// Volle deckende Würfel ([`Sonnenform::wuerfel`]): Hier endet jeder
-    /// Strahl, ohne Test.
+    /// Volle deckende Würfel ([`Sonnenform::wuerfel`]) ausser oberen
+    /// Hälften: Hier endet jeder Strahl, ohne Test.
     ///
     /// [`Sonnenform::wuerfel`]: super::super::sonne::Sonnenform::wuerfel
     wuerfel: [u16; 256],
@@ -263,9 +263,7 @@ impl ChunkCache<'_> {
                 continue;
             }
             let (col, bit) = ((r[2] * 16 + r[0]) as usize, 1u16 << r[1]);
-            // Über dem eigenen Block kann eine obere Hälfte nichts bewirken,
-            // siehe `ChunkCache::wirkung`.
-            if bits.wuerfel[col] & bit != 0 && c != [eigen[0], eigen[1] + 1, eigen[2]] {
+            if bits.wuerfel[col] & bit != 0 {
                 return Ok(0.0);
             }
             if bits.arbeit[col] & bit != 0 {
@@ -429,16 +427,19 @@ impl ChunkCache<'_> {
         };
         if let Some(s) = loaded.chunk.section_index(sy) {
             let section = &loaded.chunk.sections()[s];
-            // Je Paletteneintrag: Bit 0 Arbeit, Bit 1 voller Würfel.
+            // Je Paletteneintrag: Bit 0 Arbeit, Bit 1 voller Würfel. Eine
+            // obere Hälfte geht durch den Test, auch als voller Würfel: Über
+            // ihrer Bodenpflanze bewirkt sie nichts, siehe `ChunkCache::wirkung`.
             let art: Vec<u8> = loaded.families[s]
                 .iter()
-                .map(
-                    |index| match index.and_then(|i| sprites.family(i).sonne.as_ref()) {
-                        Some(form) if form.wuerfel => 3,
-                        Some(form) if !form.leer => 1,
+                .map(|index| {
+                    let family = index.map(|i| sprites.family(i));
+                    match family.and_then(|f| f.sonne.as_ref().map(|form| (f, form))) {
+                        Some((f, form)) if form.wuerfel && !f.obere_haelfte() => 3,
+                        Some((_, form)) if !form.leer => 1,
                         _ => 0,
-                    },
-                )
+                    }
+                })
                 .collect();
             if art.iter().any(|&a| a != 0) {
                 let blick = spalten_im_blick(sprites.projection().richtung());

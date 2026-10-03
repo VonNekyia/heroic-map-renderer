@@ -1,8 +1,10 @@
 ---
 title: Kacheln exportieren
-description: Was ein Lauf mit --tiles tut, wie ein Ausschnitt gerundet wird, wo Kacheln und Höhen liegen und wann der Export Kacheln entfernt, auch mit --prune.
+description: Was ein Lauf mit --tiles tut, wie ein Ausschnitt gerundet wird, wie --area ein Rechteck der Welt wählt, wo Kacheln und Höhen liegen und wann der Export Kacheln entfernt, auch mit --prune.
 code:
   - renderer/src/cli.rs
+  - renderer/src/world/mod.rs
+  - renderer/src/world/region.rs
   - renderer/src/render/tiles.rs
   - renderer/src/render/pyramid.rs
   - renderer/src/render/heights.rs
@@ -109,6 +111,35 @@ der Welt; fehlt eines in seiner Fläche, bricht der Lauf ab, bevor er die
 erste Kachel schreibt. Mit `--cinematic` liest er dazu die Chunks, durch
 die ein Strahl zur Sonne läuft, siehe [Cinematic](../renderer/cinematic.md),
 „Der Vorlauf“.
+
+## Ein Rechteck der Welt: `--area`
+
+`--area X0 Z0 X1 Z1` zeichnet nur ein Rechteck der Welt, etwa ohne
+verirrte Chunks weit draussen. Die zwei Ecken sind Blöcke, beide gehören
+dazu, in beliebiger Reihenfolge. Der Lauf rundet nach aussen auf ganze
+Chunks, `--area 0 0 20 5` zeichnet die Chunks (0, 0) und (1, 0), x von 0
+bis 31 und z von 0 bis 15:
+
+- **Chunks ausserhalb** liest der Lauf nicht, weder im Vorlauf noch beim
+  Zeichnen, noch für das Licht: Sie fehlen wie nie erzeugte, siehe
+  [Welten und Kennung](welten.md), „Nicht fertig erzeugte Chunks“. Der
+  Rand des Rechtecks sieht deshalb aus wie der Rand einer Welt.
+- **Zoomstufen:** Die Nummerierung hängt am Rechteck statt an allen
+  Regionen, siehe [Zoomstufen](zoomstufen.md).
+- **Mit `--center` und `--size`** zeichnet der Lauf, was in beiden liegt.
+- **Es gehört zum Baum** wie der Radius der Mischung, siehe
+  [map.json](map-json.md), „Die Welt“: Ein Lauf ohne `--area` in einen
+  Baum mit Rechteck nimmt es aus `map.json`, auch mit `--resume`. Ein
+  anderes Rechteck bricht ab, bevor der Lauf einen Chunk liest, ebenso
+  `--area` auf einem Baum ohne.
+- **Die Weltgrenze** liest der Lauf aus `data/minecraft/world_border.dat`,
+  gesucht wie der Seed, siehe [Welten und Kennung](welten.md), „Wo der
+  Seed steht“. Ist sie kleiner als die Vorgabe des Spiels, 59 999 968
+  Blöcke, nennt er ohne `--area` das Rechteck um sie als fertiges
+  `--area …`. Er wendet sie nicht an.
+
+`rechteck_gehoert_zum_baum` und `wasserspiegel_und_weltgrenze` in
+`renderer/tests/cli.rs` prüfen das.
 
 ## Wo die Kacheln liegen
 

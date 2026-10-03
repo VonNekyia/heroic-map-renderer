@@ -1,11 +1,12 @@
 ---
 title: map.json
-description: Die Felder von map.json, Kamera und Projektion samt projektion.json mit Kantenpixeln, die Liste der Bäume trees.json, wann der Export die Dateien schreibt, die Höhen je Region für die Koordinatenanzeige, warum ein Baum seinen Radius der Mischung behält und wie look und lookHash Karte und Cinematic trennen.
+description: Die Felder von map.json, Kamera und Projektion samt projektion.json mit Kantenpixeln, die Liste der Bäume trees.json, wann der Export die Dateien schreibt, die Höhen je Region für die Koordinatenanzeige, warum ein Baum seinen Radius der Mischung behält, wie look und lookHash Karte und Cinematic trennen, und Wasserspiegel und Rechteck der Welt.
 code:
   - renderer/src/render/pyramid.rs
   - renderer/src/render/look.rs
   - renderer/src/render/heights.rs
   - renderer/src/world/chunk.rs
+  - renderer/src/world/mod.rs
   - renderer/src/cli.rs
   - renderer/tests/fixtures/projektion.json
   - web/src/main.ts
@@ -16,8 +17,8 @@ code:
 `map.json` liegt im Ordner jedes Kachelbaums und sagt dem Frontend, was
 es vorfindet: Kachelgrösse, scale, Kamera, Zoomstufen, Pfadmuster, den belegten
 Bereich, die Zahl nativer Stufen, den Radius der Mischung der Biomfarben,
-die Kennung der Welt, wo die Höhen liegen und ob der Baum die Karte oder
-Cinematic zeigt. Welche Bäume unter einer
+die Kennung der Welt, wo die Höhen liegen, ob der Baum die Karte oder
+Cinematic zeigt, den Wasserspiegel und das Rechteck der Welt. Welche Bäume unter einer
 Wurzel liegen, sagt `trees.json`, siehe „Liste der Bäume“. Der Typ ist
 `MapInfo` in
 [`renderer/src/render/pyramid.rs`](../../renderer/src/render/pyramid.rs);
@@ -43,7 +44,9 @@ das Frontend liest die Datei in `web/src/main.ts`.
   "heightsCell": 4,
   "minY": -64,
   "maxY": 319,
-  "look": "map"
+  "look": "map",
+  "seaLevel": 63,
+  "area": [-512, -512, 512, 512]
 }
 ```
 
@@ -65,6 +68,9 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `minY`, `maxY` | unterster und oberster Block, den der Renderer zeichnet; stehen mit `heights` | „Höhen“ unten |
 | `look` | `"map"` die Karte oder `"cinematic"`; fehlt es, die Karte | „Look“ unten |
 | `lookHash` | Fingerabdruck der Werte von Cinematic, 16 Hexziffern; nur mit `"cinematic"` | „Look“ unten |
+| `seaLevel` | Wasserspiegel der Dimension in Blöcken, oder `null` | „Die Welt“ unten |
+| `area` | das Rechteck der Welt, das der Baum zeichnet, `[x0, z0, x1, z1]` in Blöcken | „Die Welt“ unten |
+| `areaFixed` | `true`, wenn `area` mit `--area` gewählt ist; fehlt sonst | „Die Welt“ unten |
 
 ## Kamera und Projektion
 
@@ -312,6 +318,33 @@ Baum wie die nativen Stufen, siehe
   in ihn nimmt dann den Schalter oder die Vorgabe, sagt das und trägt den
   Radius ein. Die alten Kacheln bleiben, wie sie sind; einheitlich wird der
   Baum erst, wenn er ganz neu entsteht.
+
+## Die Welt
+
+Drei Felder beschreiben die Welt, nicht die Kacheln. Skins im Frontend,
+etwa das Tablett, nutzen sie; der Renderer weiss nichts von ihnen.
+
+- **`seaLevel`:** der Wasserspiegel der Dimension in Blöcken, `sea_level`
+  des Spiels: Wasser füllt die Blöcke unter ihm, seine Oberfläche liegt bei
+  y = `seaLevel`, in der Oberwelt 63. Woher er kommt, steht in
+  [Welten und Kennung](welten.md), „Wasserspiegel“. `null`, wenn der Lauf
+  ihn nicht kennt; er sagt dann, warum.
+- **`area`:** das Rechteck, das der Baum zeichnet, `[x0, z0, x1, z1]` in
+  Blöcken, halb offen, x0 ≤ x < x1 und z0 ≤ z < z1, auf ganze Chunks, also
+  Vielfache von 16. Mit `--area` dieses Rechteck, siehe
+  [Kacheln exportieren](kacheln.md), „Ein Rechteck der Welt: `--area`“.
+  Ohne ist es die Hülle der fertig erzeugten Chunks der Welt, `huelle` in
+  [`renderer/src/world/mod.rs`](../../renderer/src/world/mod.rs): Sie kommt
+  aus den Tabellen der Regionsdateien, dekodiert werden nur Chunks am Rand,
+  bis jede Seite einen fertig erzeugten trägt. So ist sie in jedem Lauf
+  dieselbe, auch in einem Ausschnitt. Ein fertig erzeugter Chunk nur aus
+  Luft zählt mit. Fehlt das Feld, hat die Welt keinen fertig erzeugten Chunk
+  oder der Baum stammt aus einem älteren Stand.
+- **`areaFixed`:** `true`, wenn `area` mit `--area` gewählt ist, sonst
+  fehlt es. Das Frontend braucht es nicht, der nächste Lauf schon: Er
+  behält das Rechteck wie den Radius der Mischung.
+
+`--pyramid` behält alle drei.
 
 ## Look
 

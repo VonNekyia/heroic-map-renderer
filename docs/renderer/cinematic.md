@@ -276,7 +276,11 @@ Getestet: einzelne Strahlen durch Würfel, Laub, Wasser, Glas, Pflanze und
 Bild (`wuerfel_wirft_seinen_schatten`), ein Turm im fernsten Chunk, den
 der Horizont noch sieht (`ferner_turm_wirft_seinen_schatten`), und sein
 Schatten in einem Ausschnitt, der den Turm nicht zeigt
-(`ausschnitt_sieht_den_schatten_von_draussen`).
+(`ausschnitt_sieht_den_schatten_von_draussen`); ein Modell, das aus dem
+Chunk dahinter über dessen Decke ragt
+(`ueberhang_aus_dem_chunk_dahinter_hebt_die_decke`); 8000 fest gewürfelte
+Strahlen in einer hohen Welt aus 8 × 8 Chunks, schnell und im Bezug gleich
+(`zufaellige_strahlen_gleichen_dem_bezug`).
 
 ### Der Vorlauf
 
@@ -356,8 +360,10 @@ je Block, statt ihn zu decken, wie in 0058:
   jeder Block.
 - **Licht:** Flächen ohne `shade` bekommen das Licht einer Fläche nach
   oben, siehe „Sonne“.
-- Getestet: `bodenpflanze_nach_der_vorlage` in `renderer/tests/assets.rs`
-  und Pflanze, Sonnenblume und obere Hälften in `strahlen_zur_sonne`.
+- Getestet: `bodenpflanze_nach_der_vorlage` in `renderer/tests/assets.rs`,
+  je Vorlage ein Block aus dem Test-Assetbaum, und Pflanze, Sonnenblume und
+  obere Hälften in `strahlen_zur_sonne`; eine Pflanze, die in ihre Nachbarn
+  ragt, dämpft je Strahl einmal (`zufaellige_strahlen_gleichen_dem_bezug`).
 
 ## Leuchten
 
@@ -427,7 +433,8 @@ in [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
   grosse Bild.
 - Getestet: `unscharf_wie_im_prototyp` mit Sollwerten aus der
   Nachbearbeitung des Prototyps zu #89, `unscharf_im_ausschnitt_gleich` und
-  `bloom_radius_nach_dem_scale` in `kino.rs`; `bloom_um_das_leuchten` und
+  `bloom_radius_nach_dem_scale` und `bloom_mit_der_waerme_der_quelle` in
+  `kino.rs`; `bloom_um_das_leuchten` und
   `wasser_daempft_das_leuchten` in `renderer/tests/metatile.rs`, dazu
   `kleine_ausschnitte_gleichen_dem_grossen_bild`.
 

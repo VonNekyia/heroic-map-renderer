@@ -568,6 +568,36 @@ mod tests {
         assert_eq!(kino.ton([1.0; 3], 1.5, [0.0; 3]), [149, 137, 106]);
     }
 
+    /// Die Quelle des Bloom ist je Pixel mit dessen Wärme abgeglichen: Ein
+    /// Leuchten in einem warmen Biom scheint wärmer als dasselbe in einem
+    /// kalten, je Kanal um das Verhältnis des Abgleichs.
+    #[test]
+    fn bloom_mit_der_waerme_der_quelle() {
+        let kino = kino(&DimensionType::oberwelt());
+        let (breite, mitte) = (31, 15 * 31 + 15);
+        let mut leuchten = vec![[0.0; 3]; breite * breite];
+        leuchten[mitte] = [1.0; 3];
+        let schein = |w: f32| {
+            let mut puffer = Bloompuffer::default();
+            let waerme = vec![w; breite * breite];
+            kino.bloom(&leuchten, &waerme, breite, 4, &mut puffer)
+                .unwrap()[mitte]
+        };
+        let (kalt, warm) = (schein(1.0), schein(1.5));
+        let (v_kalt, v_warm) = (kino.abgleich(1.0), kino.abgleich(1.5));
+        for c in 0..3 {
+            let soll = kalt[c] * v_warm[c] / v_kalt[c];
+            assert!(
+                (warm[c] - soll).abs() < 1e-4 * soll,
+                "{warm:?} gegen {kalt:?}"
+            );
+        }
+        assert!(
+            warm[0] > kalt[0] && warm[2] < kalt[2],
+            "{warm:?} gegen {kalt:?}"
+        );
+    }
+
     /// Der Rand des Bloom aus 0058: σ = scale/4, Kastenfilter wie im
     /// Prototyp, 3r ist bei scale 32 24 Pixel.
     #[test]

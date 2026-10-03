@@ -47,11 +47,13 @@ Tests selbst. 0015 gilt weiter: ab 26.1, nur 26.x.
 ## Folgen
 
 - **Gezeichnet wie mit 26.3:** Eine Welt aus 26.2 erscheint mit den
-  Regeln von 26.3. Bei Eis, Brucheis, Schleimblöcken, Shulkerkisten,
-  Leuchtfeuer, Spawner und Barriere lässt die weiche Beleuchtung kein
-  Licht mehr durch die Ecke, siehe [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md).
-- **Belege:** Belege fürs Spiel gelten für 26.3. Wo 26.2 anders liest,
-  steht beides, etwa bei der Palette und bei `sherds`.
+  Regeln von 26.3. Eis, Brucheis, Schleimblöcke, Shulkerkisten,
+  Leuchtfeuer, Spawner und Barriere lassen in der weichen Beleuchtung
+  jetzt Licht durch die Ecke, siehe [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md).
+- **Belege:** Ein Beleg nennt die Version, an der er geholt ist, die
+  meisten 26.2. Was #98 in 26.3 gleich fand, gilt weiter. Wo 26.3 anders
+  ist, nennen die Seiten beide, etwa bei der Palette, bei `sherds`, bei
+  `shade` und bei der weichen Beleuchtung.
 - **Die nächste Version** braucht wieder neue Tabellen nach Skill
   [`tabellen-neu-erzeugen`](../../skills/tabellen-neu-erzeugen/SKILL.md);
   ob 26.2 dann bleibt, entscheidet eine neue Entscheidung.

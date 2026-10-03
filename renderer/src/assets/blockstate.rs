@@ -86,7 +86,7 @@ impl Term {
     }
 }
 
-/// Die Eigenschaften eines Blocks in 26.2, nach Namen sortiert wie in
+/// Die Eigenschaften eines Blocks in 26.3, nach Namen sortiert wie in
 /// `StateDefinition`, die Werte in der Reihenfolge von `getPossibleValues`.
 /// Daraus folgt die Reihenfolge der Zustände: die erste Eigenschaft zählt
 /// am meisten, die letzte wechselt am schnellsten.
@@ -95,7 +95,7 @@ pub struct Definition {
     props: Vec<(&'static str, Vec<&'static str>)>,
 }
 
-/// Alle Blöcke von 26.2 aus dem Datengenerator (`reports/blocks.json`), je
+/// Alle Blöcke von 26.3 aus dem Datengenerator (`reports/blocks.json`), je
 /// Zeile ein Block mit seinen Eigenschaften. Neu erzeugen mit dem Skill
 /// `tabellen-neu-erzeugen`.
 /// Siehe docs/entwicklung/tabellen.md, „Die Tabellen“.
@@ -116,7 +116,7 @@ static BLOCKS: LazyLock<HashMap<&'static str, Definition>> = LazyLock::new(|| {
 });
 
 impl Definition {
-    /// Die Definition eines Blocks, wenn 26.2 ihn kennt.
+    /// Die Definition eines Blocks, wenn `blocks.txt` ihn kennt.
     pub fn of(block: &str) -> Option<&'static Definition> {
         BLOCKS.get(block.strip_prefix("minecraft:")?)
     }
@@ -126,7 +126,7 @@ impl Definition {
     }
 
     /// Der Platz eines Zustands in `getPossibleStates`, oder `None`, wenn
-    /// es ihn in 26.2 nicht gibt.
+    /// es ihn in `blocks.txt` nicht gibt.
     pub fn index(&self, state: &BlockState) -> Option<usize> {
         if state.props().len() != self.props.len() {
             return None;
@@ -181,7 +181,7 @@ impl Definition {
     }
 }
 
-/// Wie hell die Blöcke von 26.2 selbst leuchten, aus dem Spiel gelesen
+/// Wie hell die Blöcke von 26.3 selbst leuchten, aus dem Spiel gelesen
 /// (`Leuchten.java`): je Block ein Zeichen je Zustand, in der Reihenfolge
 /// von `getPossibleStates`, oder eines für alle. `0` bis `f` ist
 /// `getLightEmission`; mit `emissiveRendering` steht dieselbe Stufe als
@@ -218,7 +218,7 @@ impl Leuchten {
     }
 }
 
-/// [`Leuchten`] für einen Zustand. Ein Block, den 26.2 nicht kennt,
+/// [`Leuchten`] für einen Zustand. Ein Block, den `blocks.txt` nicht kennt,
 /// leuchtet nicht.
 pub fn leuchten(state: &BlockState) -> Leuchten {
     let zeichen = state
@@ -261,7 +261,7 @@ struct LichtTabelle {
     paare: [Vec<bool>; 3],
 }
 
-/// Wie die Blöcke von 26.2 das Licht aufhalten, aus dem Spiel gelesen
+/// Wie die Blöcke von 26.3 das Licht aufhalten, aus dem Spiel gelesen
 /// (`Licht.java`): je Block sieben Zeichen je Zustand, in der Reihenfolge
 /// von `getPossibleStates`, oder sieben für alle; das erste ist
 /// `getLightDampening`, die sechs danach die Flächen aus [`Lichtweg`], zur
@@ -298,7 +298,7 @@ static LICHT: LazyLock<LichtTabelle> = LazyLock::new(|| {
     tabelle
 });
 
-/// [`Lichtweg`] für einen Zustand. Ein Block, den 26.2 nicht kennt, hält
+/// [`Lichtweg`] für einen Zustand. Ein Block, den `blocks.txt` nicht kennt, hält
 /// das Licht nicht auf.
 pub fn lichtweg(state: &BlockState) -> Lichtweg {
     let Some(zeichen) = state
@@ -350,15 +350,16 @@ pub fn deckt(richtung: usize, von: u8, nach: u8) -> bool {
 /// Flächen neben ihm ab. Für volle Kollisionsform gilt das, aber Glas
 /// sagt 1 und Seelensand 0,2.
 pub const DUNKELT: u8 = 1;
-/// `isViewBlocking` und `getLightDampening` > 0: Hinter ihm zählt die Ecke
-/// einer Fläche nicht mehr, siehe `ChunkCache::ecken_at`.
+/// Nicht `isLightPermeable`, also `solidRender` und `getLightDampening` > 0:
+/// Hinter ihm zählt die Ecke einer Fläche nicht mehr, siehe
+/// `ChunkCache::ecken_at`.
 pub const SICHT: u8 = 2;
 /// `isCollisionShapeFullBlock`: Jede ebene Fläche des Modells liegt im
 /// Licht der Zelle davor, nicht nur die auf dem Rand des Blocks
 /// (`faceCubic` in `BlockModelLighter.prepareQuadShape`).
 pub const KOLLISION: u8 = 4;
 
-/// Was die weiche Beleuchtung über die Blöcke von 26.2 wissen muss, aus
+/// Was die weiche Beleuchtung über die Blöcke von 26.3 wissen muss, aus
 /// dem Spiel selbst gelesen (`Schatten.java`): je Block eine Ziffer aus
 /// [`DUNKELT`], [`SICHT`] und [`KOLLISION`] je Zustand, in der Reihenfolge von
 /// `getPossibleStates`, oder eine für alle. Blöcke ohne ein Bit fehlen.
@@ -374,7 +375,7 @@ static SCHATTEN: LazyLock<HashMap<&'static str, &'static [u8]>> = LazyLock::new(
         .collect()
 });
 
-/// Die Bits aus [`SCHATTEN`] für einen Zustand. Ein Block, den 26.2 nicht
+/// Die Bits aus [`SCHATTEN`] für einen Zustand. Ein Block, den `blocks.txt` nicht
 /// kennt, hat keines: Er dunkelt nichts ab und wird weich beleuchtet.
 pub fn schatten(state: &BlockState) -> u8 {
     let Some(name) = state.name().strip_prefix("minecraft:") else {
@@ -392,7 +393,7 @@ pub fn schatten(state: &BlockState) -> u8 {
     ziffer.map_or(0, |z| z - b'0')
 }
 
-/// Wann ein Block von 26.2 eine Fläche zu seinem Nachbarn weglässt: sein
+/// Wann ein Block von 26.3 eine Fläche zu seinem Nachbarn weglässt: sein
 /// eigenes `skipRendering`, das `Block.shouldRenderFace` fragt.
 /// Siehe docs/renderer/sprites-und-deckung.md, „Flächen zu gleichen Nachbarn“.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -478,7 +479,7 @@ impl Nachbarregel {
     }
 
     /// Entfällt die Fläche zur Seite `face`, wenn dort `nachbar` steht? Wie
-    /// `skipRendering` in 26.2.
+    /// `skipRendering` in 26.3.
     pub fn verdeckt(&self, nachbar: &Nachbarregel, face: Face) -> bool {
         let gleich = nachbar.block == self.block;
         match self.regel {
@@ -495,7 +496,7 @@ impl Nachbarregel {
 }
 
 /// Die [`Nachbarregel`] eines Zustands, `None` für Blöcke, die keine Fläche
-/// zu einem Nachbarn weglassen, auch für alle, die 26.2 nicht kennt.
+/// zu einem Nachbarn weglassen, auch für alle, die `blocks.txt` nicht kennt.
 pub fn nachbarregel(state: &BlockState) -> Option<Nachbarregel> {
     let regel = *NACHBARN.get(state.name().strip_prefix("minecraft:")?)?;
     let verbunden = match regel.regel {
@@ -523,7 +524,7 @@ static SEITEN: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| 
 /// Die Seiten der Welt, an denen ein Zustand voll deckt
 /// (`getFaceOcclusionShape` ist `Shapes.block()`), als Bits nach [`seite`].
 /// Dorthin lässt jeder Nachbar seine Flächen mit `cullface` weg. Ein Block,
-/// den 26.2 nicht kennt, deckt nirgends.
+/// den `blocks.txt` nicht kennt, deckt nirgends.
 /// Siehe docs/renderer/sprites-und-deckung.md, „Flächen vor einem vollen Nachbarn“.
 pub fn volle_seiten(state: &BlockState) -> u8 {
     let Some(ziffern) = state
@@ -587,7 +588,7 @@ impl BlockStateDef {
     }
 
     /// Löst Variantenschlüssel und Multipart-Bedingungen gegen die Definition
-    /// aus 26.2 auf, wie `BlockStateModelDispatcher.instantiate`: ein
+    /// aus `blocks.txt` auf, wie `BlockStateModelDispatcher.instantiate`: ein
     /// Schlüssel mit unbekannter Eigenschaft oder unbekanntem Wert fällt weg,
     /// bei zwei überlappenden bekommt der erste gemeinsame Zustand den
     /// späteren. Eine Bedingung, die die Definition nicht kennt, vergleicht er
@@ -620,8 +621,8 @@ impl BlockStateDef {
     /// Alle Alternativen mit ihrem Gewicht, oder `None`, wenn die Datei den
     /// Zustand nicht kennt: keine Variante trägt ihn, und Multipart gibt es
     /// nicht. Dann gilt die Datei eines tieferen Packs. `index` ist der
-    /// Platz des Zustands in 26.2; ohne ihn, bei Blöcken und Zuständen, die
-    /// 26.2 nicht kennt, gilt der erste passende Schlüssel. Bei `multipart`
+    /// Platz des Zustands in `blocks.txt`; ohne ihn, bei Blöcken und
+    /// Zuständen, die sie nicht kennt, gilt der erste passende Schlüssel. Bei `multipart`
     /// gilt je Fall der erste Eintrag, und trifft keine Bedingung zu, hat der
     /// Zustand keine Geometrie.
     /// Siehe docs/renderer/varianten.md, „Wie gewürfelt wird“.
@@ -971,18 +972,18 @@ mod tests {
     }
 
     /// Das Modell, das der Client einem Zustand gibt, gegen die Definition
-    /// aus 26.2; `None`, wenn keine Variante ihn trägt.
+    /// aus `blocks.txt`; `None`, wenn keine Variante ihn trägt.
     fn exact(json: &str, text: &str) -> Option<String> {
         let mut d = def(json);
         let s = state(text);
         let definition = Definition::of(s.name()).unwrap();
         assert!(d.instantiate(definition).is_empty());
-        let index = definition.index(&s).expect("Zustand gibt es in 26.2");
+        let index = definition.index(&s).expect("Zustand gibt es in blocks.txt");
         Some(d.alternatives(&s, Some(index))?[0].1[0].model.clone())
     }
 
     /// Jede Zeile aus `leuchten.txt` passt zu `blocks.txt`: ein Zeichen
-    /// oder eines je Zustand. Dazu Werte, die `Leuchten.java` aus 26.2 las:
+    /// oder eines je Zustand. Dazu Werte, die `Leuchten.java` aus 26.3 las:
     /// Seelaterne und Konduit 15, eine geflutete Meeresgurke 3 + 3 je Gurke,
     /// eine trockene keine, der Magmablock voll hell mit Stufe 3, der
     /// auslösende Sculk-Sensor voll hell mit Stufe 1.
@@ -1036,7 +1037,7 @@ mod tests {
     }
 
     /// Jede Zeile aus `licht.txt` passt zu `blocks.txt`: sieben Zeichen oder
-    /// sieben je Zustand. Dazu Werte, die `Licht.java` aus 26.2 las: Stein
+    /// sieben je Zustand. Dazu Werte, die `Licht.java` aus 26.3 las: Stein
     /// dämpft ganz, Wasser und Laub um eine Stufe, Glas gar nicht. Eine
     /// untere Platte schliesst unten ganz und oben nicht, eine obere
     /// umgekehrt, an den Seiten je zur Hälfte; beide Hälften zusammen
@@ -1148,10 +1149,12 @@ mod tests {
     }
 
     /// Jede Zeile aus `schatten.txt` passt zu `blocks.txt`: eine Ziffer
-    /// oder eine je Zustand. Dazu Werte, die `Schatten.java` aus 26.2 las:
+    /// oder eine je Zustand. Dazu Werte, die `Schatten.java` aus 26.3 las:
     /// Wasser hat kein Bit, Glas nur die volle Kollisionsform, Seelensand
     /// dunkelt ab wie Stein, aber ohne sie, der Ofen an wie aus, der Kolben
-    /// nur eingefahren, die Platte nur doppelt.
+    /// nur eingefahren, die Platte nur doppelt. Eis und der Spawner lassen ab
+    /// 26.3 Licht durch die Ecke (`isLightPermeable`: nicht `solidRender`),
+    /// in 26.2 nicht (`isViewBlocking`).
     #[test]
     fn schatten_wie_im_spiel() {
         for (name, ziffern) in SCHATTEN.iter() {
@@ -1174,6 +1177,8 @@ mod tests {
             DUNKELT | KOLLISION
         );
         assert_eq!(bits("minecraft:glass"), KOLLISION);
+        assert_eq!(bits("minecraft:ice"), DUNKELT | KOLLISION);
+        assert_eq!(bits("minecraft:spawner"), DUNKELT | KOLLISION);
         assert_eq!(bits("minecraft:water[level=0]"), 0);
         assert_eq!(bits("minecraft:glowstone"), alle);
         assert_eq!(bits("minecraft:furnace[facing=north,lit=true]"), alle);
@@ -1191,7 +1196,7 @@ mod tests {
     }
 
     /// Jede Zeile aus `seiten.txt` passt zu `blocks.txt`: zwei Hexziffern
-    /// oder zwei je Zustand. Dazu Werte, die `Seiten.java` aus 26.2 las, und
+    /// oder zwei je Zustand. Dazu Werte, die `Seiten.java` aus 26.3 las, und
     /// für Mangrovenwurzeln, Spawner und Pulverschnee die Antworten von
     /// `Block.shouldRenderFace`, die eine Probe gegen 26.2 holte: Eine Fläche
     /// entfällt zu Stein, Schlamm, einer oberen Platte und Schnee mit acht
@@ -1200,7 +1205,7 @@ mod tests {
     /// sind im Spiel nie genau `Shapes.block()`.
     #[test]
     fn seiten_wie_im_spiel() {
-        assert_eq!(SEITEN.len(), 480);
+        assert_eq!(SEITEN.len(), 518);
         for (name, ziffern) in SEITEN.iter() {
             let definition = Definition::of(&format!("minecraft:{name}"))
                 .unwrap_or_else(|| panic!("{name} fehlt in blocks.txt"));
@@ -1848,11 +1853,11 @@ mod tests {
         }
     }
 
-    /// Die Tabelle stimmt mit dem Report von 26.2 überein: 1196 Blöcke,
+    /// Die Tabelle stimmt mit dem Report von 26.3 überein: 1286 Blöcke,
     /// Eichentreppen mit 80 Zuständen, der erste nach Namen sortiert.
     #[test]
-    fn blocktabelle_aus_26_2() {
-        assert_eq!(BLOCKS.len(), 1196);
+    fn blocktabelle_aus_26_3() {
+        assert_eq!(BLOCKS.len(), 1286);
         let stairs = Definition::of("minecraft:oak_stairs").unwrap();
         assert_eq!(stairs.states(), 80);
         let erster =

@@ -1,6 +1,6 @@
 ---
 title: Weiche Beleuchtung
-description: Wie der Renderer Blöcke weich beleuchtet wie das Spiel in der Voreinstellung, nach den Regeln von BlockModelLighter in 26.2, mit dem Licht an jeder Ecke der Flächen auf dem Rand, und was noch fehlt.
+description: Wie der Renderer Blöcke weich beleuchtet wie das Spiel in der Voreinstellung, nach den Regeln von BlockModelLighter in 26.3, mit dem Licht an jeder Ecke der Flächen auf dem Rand, und was noch fehlt.
 code:
   - renderer/src/render/metatile.rs
   - renderer/src/render/rasterizer.rs
@@ -18,7 +18,7 @@ code:
 Das Spiel zeichnet Blöcke in der Voreinstellung weich beleuchtet
 (`options.ao` ist wahr): Wo eine Fläche an einen Nachbarn stösst, wird sie
 zur Kante hin dunkler, in einer Innenecke am meisten.
-`BlockModelLighter.prepareQuadAmbientOcclusion` rechnet dafür in 26.2 je
+`BlockModelLighter.prepareQuadAmbientOcclusion` rechnet dafür in 26.3 je
 Ecke einer Fläche einen Wert, und die Grafikkarte lässt ihn zwischen den
 Ecken verlaufen, mit ihm das Licht an jeder Ecke. Der Renderer tut dasselbe
 für die drei Seiten, die er im Blick zeigt, aus der Vorgabe oben, Süden
@@ -48,8 +48,11 @@ eines Zauns; eine Fläche im Innern liegt im Licht der eigenen Zelle, siehe
   Form ab (`SoulSandBlock`, `MudBlock`). Jede Ecke ist das Mittel ihrer vier
   Werte, und `ARGB.gray` macht daraus 255, 204, 153, 102 oder 51.
 - Der Block in der Ecke zählt nur, wenn hinter einem der beiden Nachbarn,
-  noch eine Schicht weiter von der Seite weg, kein Block steht, der die
-  Sicht nimmt (`isViewBlocking` und `getLightDampening` > 0). Sonst nimmt
+  noch eine Schicht weiter von der Seite weg, kein Block steht, der kein
+  Licht durchlässt: nicht `isLightPermeable`, also `solidRender` und
+  `getLightDampening` > 0. In 26.2 stand `isViewBlocking` statt
+  `solidRender`; seit 26.3 lassen Eis, Brucheis, Schleimblöcke, die
+  Shulkerkisten, Leuchtfeuer, Spawner und Barriere die Ecke durch. Sonst nimmt
   das Spiel an seiner Stelle den Wert des ersten Nachbarn aus
   `AdjacencyInfo.corners`, für alle vier Ecken denselben, auch für eine
   Ecke, die dieser Nachbar gar nicht berührt. Der Renderer auch.

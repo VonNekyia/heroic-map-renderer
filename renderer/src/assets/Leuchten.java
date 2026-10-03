@@ -8,7 +8,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * Schreibt je Block von 26.2, wie hell er selbst leuchtet, so wie
+ * Schreibt je Block von 26.3, wie hell er selbst leuchtet, so wie
  * LightCoordsUtil.getLightCoords es beim Zeichnen und die Lichtausbreitung
  * es als Quelle nimmt: je Zustand eine Ziffer 0 bis f für getLightEmission,
  * in der Reihenfolge von getPossibleStates. Mit emissiveRendering, dann

@@ -39,7 +39,9 @@ import net.minecraft.client.resources.model.sprite.SpriteGetter;
 import net.minecraft.client.resources.model.sprite.SpriteId;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.data.worldgen.BootstrapContext;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -62,7 +64,7 @@ import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
 /**
- * Schreibt für 26.2, was die Blockentity-Renderer des Spiels je Zustand mit
+ * Schreibt für 26.3, was die Blockentity-Renderer des Spiels je Zustand mit
  * einem Modell zeichnen. Jeder Renderer läuft mit seinem eigenen submit
  * gegen einen Collector, der mitschreibt, und der zeichnet wie
  * ModelFeatureRenderer.prepareModel: setupAnim, dann renderToBuffer, ohne
@@ -83,7 +85,8 @@ import org.joml.Vector3f;
  * block name bild...: je Zustand in der Reihenfolge von getPossibleStates
  *     ein Bild oder -, eines, wenn alle gleich sind.
  * farbstoff name rrggbb: getTextureDiffuseColor.
- * scherbe item textur: DecoratedPotRenderer.DECORATED_POT_SPRITES.
+ * scherbe item textur: die Scherbe des Items (provides_pottery_pattern)
+ *     über Sheets.DECORATED_POT_MAPPER, wie DecoratedPotRenderer.getSideSprite.
  * muster präfix n: Sheets.BANNER_MAPPER, davor steht der Namensraum der
  *     asset_id, dahinter ihr Pfad; höchstens n Lagen zeichnet der Renderer.
  * bannermuster id asset_id: die Muster, die BannerPatterns.bootstrap anlegt.
@@ -91,31 +94,27 @@ import org.joml.Vector3f;
  * Zahlen stehen, wie Float.toString sie schreibt, und kommen beim Lesen
  * genau so zurück. Auf stderr steht, welcher Renderer nichts aus einem
  * Modell zeichnet, ohne Spiel nicht läuft oder ohne Daten nichts zeichnet.
- * Weicht das von 26.2 ab oder schlägt eine eigene Prüfung fehl, endet der
+ * Weicht das von 26.3 ab oder schlägt eine eigene Prüfung fehl, endet der
  * Generator mit Exit-Code 1 und schreibt keine Tabelle.
  */
 public class Blockentities {
     /** Ein submitModel: im Raum des Modells, mit der Matrix des Aufrufs. */
     record Zeichnung(RenderType schicht, String textur, int farbe, List<float[]> ecken, Matrix4f lage, Object teil) {}
 
-    /** Was in 26.2 nicht aus einem Modell kommt: je Renderer, was er stattdessen abgibt. */
+    /** Was in 26.3 nicht aus einem Modell kommt: je Renderer, was er stattdessen abgibt. */
     static final Map<String, String> KEIN_MODELL = Map.of("TheEndPortalRenderer", "submitCustomGeometry");
     /**
-     * Was in 26.2 ohne Spiel nicht läuft, weil es Client, Welt oder
+     * Was in 26.3 ohne Spiel nicht läuft, weil es Client, Welt oder
      * Item-Modelle braucht: der Renderer, oder der Block, wenn schon sein
      * Blockentity scheitert.
      */
     static final Set<String> OHNE_SPIEL = Set.of("BeaconRenderer", "BlockEntityWithBoundingBoxRenderer",
             "BrushableBlockRenderer", "CampfireRenderer", "HangingSignRenderer", "StandingSignRenderer",
-            "TestInstanceRenderer", "TheEndGatewayRenderer",
-            // Das Blockentity des Tresors braucht Item-Komponenten, die erst
-            // eine Welt bindet: "Components not bound yet".
-            "vault");
+            "TestInstanceRenderer", "TheEndGatewayRenderer");
     /**
-     * Was in 26.2 läuft, aber für keinen Zustand etwas aus einem Modell
+     * Was in 26.3 läuft, aber für keinen Zustand etwas aus einem Modell
      * zeichnet: den Block, den ein Kolben schiebt, Gegenstände im Regal und
-     * im Tresor, das Wesen im Spawner. Den Tresor zeichnet es hier gar nicht
-     * erst, siehe oben.
+     * im Tresor, das Wesen im Spawner.
      */
     static final Set<String> OHNE_BILD = Set.of("PistonHeadRenderer", "ShelfRenderer", "SpawnerRenderer",
             "TrialSpawnerRenderer", "VaultRenderer");
@@ -125,6 +124,11 @@ public class Blockentities {
         var err = System.err;
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
+        // Die Komponenten der Items binden erst an die Registries einer Welt;
+        // ohne sie scheitern das Blockentity des Tresors ("Components not
+        // bound yet") und die Scherben.
+        BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(VanillaRegistries.createWorldLookup())
+                .forEach(komponenten -> komponenten.apply());
         var out = new PrintStream(System.out, true, StandardCharsets.UTF_8);
 
         // Ein Sprite ohne Bild, das nur für seine SpriteId steht: Die Renderer
@@ -158,13 +162,16 @@ public class Blockentities {
                 return proxy;
             }
             // Hier kommen alle Wege an, die ein Modell zeichnen.
-            if (method.getName().equals("submitModel") && a.length == 10 && a[3] instanceof RenderType schicht) {
+            if (method.getName().equals("submitModel") && a.length == 9 && a[3] instanceof RenderType schicht) {
                 @SuppressWarnings("unchecked")
                 var model = (Model<Object>) a[0];
                 var pose = ((PoseStack) a[2]).last().copy();
                 int light = (int) a[4], overlay = (int) a[5], farbe = (int) a[6];
                 if (overlay != OverlayTexture.NO_OVERLAY) {
                     throw new AssertionError("Zeichnung mit Overlay " + overlay);
+                }
+                if (a[7] != null && !(a[7] instanceof TextureAtlasSprite)) {
+                    throw new AssertionError("UvMapping ohne Sprite: " + a[7]);
                 }
                 var sprite = (TextureAtlasSprite) a[7];
                 String textur = sprite != null ? spriteIds.get(sprite).texture().toString() : sampler0(schicht);
@@ -188,7 +195,17 @@ public class Blockentities {
         var kamera = new CameraRenderState();
         Method material = ChestRenderer.class.getDeclaredMethod("getChestMaterial", BlockEntity.class, boolean.class);
         material.setAccessible(true);
-        Map<ResourceKey<Item>, SpriteId> scherben = privat(DecoratedPotRenderer.class, "DECORATED_POT_SPRITES", Map.of());
+        // Die Scherbe eines Items, wie DecoratedPotRenderer.getSideSprite sie
+        // findet: sein provides_pottery_pattern, dessen asset_id über
+        // Sheets.DECORATED_POT_MAPPER.
+        var scherben = new TreeMap<ResourceKey<Item>, SpriteId>(Comparator.comparing(k -> k.identifier().toString()));
+        for (Item item : BuiltInRegistries.ITEM) {
+            var scherbe = item.components().get(DataComponents.PROVIDES_POTTERY_PATTERN);
+            if (scherbe != null) {
+                scherben.put(BuiltInRegistries.ITEM.getResourceKey(item).orElseThrow(),
+                        Sheets.DECORATED_POT_MAPPER.apply(scherbe.value().assetId()));
+            }
+        }
         SpriteMapper muster = privat(Sheets.class, "BANNER_MAPPER", (SpriteMapper) null);
 
         var tabelle = new Tabelle();
@@ -264,7 +281,7 @@ public class Blockentities {
         }
 
         // Jeder Renderer hat ein Bild gegeben oder steht in einer der Mengen
-        // für 26.2; sonst wäre ein Block ohne Meldung aus der Tabelle gefallen.
+        // für 26.3; sonst wäre ein Block ohne Meldung aus der Tabelle gefallen.
         var ohneBild = new TreeSet<String>();
         for (var r : renderers.values()) {
             String n = r.getClass().getSimpleName();
@@ -278,7 +295,7 @@ public class Blockentities {
         err.println("Ohne Spiel nicht gelaufen: " + fehler);
         err.println("Ohne Bild: " + ohneBild);
         if (!anderes.equals(KEIN_MODELL) || !fehler.keySet().equals(OHNE_SPIEL) || !ohneBild.equals(OHNE_BILD)) {
-            err.println("Anders als in 26.2: erwartet " + KEIN_MODELL + ", " + new TreeSet<>(OHNE_SPIEL) + " und "
+            err.println("Anders als in 26.3: erwartet " + KEIN_MODELL + ", " + new TreeSet<>(OHNE_SPIEL) + " und "
                     + new TreeSet<>(OHNE_BILD) + ". Steht fest, dass es so richtig ist, die Mengen oben anpassen.");
             System.exit(1);
         }
@@ -291,7 +308,7 @@ public class Blockentities {
                     if (m.isDefault()) {
                         return InvocationHandler.invokeDefault(p, m, a);
                     }
-                    if (m.getName().equals("register") && a.length == 3) {
+                    if (m.getName().equals("register") && a.length == 2) {
                         spielmuster.put(((ResourceKey<?>) a[0]).identifier().toString(),
                                 ((BannerPattern) a[1]).assetId().toString());
                         return null;
@@ -371,7 +388,8 @@ public class Blockentities {
             SubmitNodeCollector collector, CameraRenderState kamera, List<Zeichnung> zeichnungen) {
         var items = scherben.keySet().stream().sorted(Comparator.comparing(k -> k.identifier().toString())).limit(4).toList();
         var liste = items.stream().map(k -> k.identifier().toString()).toList();
-        krug.decorations = PotDecorations.CODEC.parse(com.mojang.serialization.JavaOps.INSTANCE, liste).getOrThrow();
+        var seiten = Map.of("back", liste.get(0), "left", liste.get(1), "right", liste.get(2), "front", liste.get(3));
+        krug.decorations = PotDecorations.CODEC.parse(com.mojang.serialization.JavaOps.INSTANCE, seiten).getOrThrow();
         zeichnungen.clear();
         r.submit(krug, new PoseStack(), collector, kamera);
         krug.decorations = PotDecorations.EMPTY;
@@ -485,7 +503,7 @@ public class Blockentities {
         if (pipeline.getShaderDefines().flags().contains("PER_FACE_LIGHTING")) {
             zeile.append(" je_seite");
         }
-        if (pipeline.getColorTargetState().blendFunction().isPresent()) {
+        if (pipeline.getColorTargetStates().get(0).blendFunction().isPresent()) {
             zeile.append(" gemischt");
         }
         return zeile.toString();

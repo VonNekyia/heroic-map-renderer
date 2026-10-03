@@ -3358,7 +3358,7 @@ fn ohne_seed_nennt_jeden_ort() {
                 noch in dimensions/minecraft/overworld/data/minecraft/world_gen_settings.dat";
     assert!(text.contains(orte), "{text}");
     assert!(
-        text.contains("mit Minecraft 26.2 und --forceUpgrade"),
+        text.contains("mit Minecraft 26.2 oder 26.3 und --forceUpgrade"),
         "{text}"
     );
     assert!(text.contains("\"world\": null"), "{text}");
@@ -3634,7 +3634,7 @@ fn unbekannte_bedingung_nennt_blocks_txt() {
     let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
     assert!(text.contains("minecraft:block/blauwuerfel"), "{text}");
     assert!(
-        text.contains("was blocks.txt aus 26.2 nicht kennt"),
+        text.contains("was blocks.txt aus 26.3 nicht kennt"),
         "{text}"
     );
     assert!(

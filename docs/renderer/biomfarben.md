@@ -19,7 +19,8 @@ code:
 Gras, Laub und Wasser haben graue Texturen; die Farbe kommt aus dem Biom.
 Das Spiel gibt jedem Block das Biom einer der Zellen aus 4×4×4 Blöcken um
 ihn, gewürfelt aus dem Seed der Welt, und mischt die Farbe über die Blöcke
-im Quadrat um ihn. Der Renderer macht beides wie der Client von 26.2. Die
+im Quadrat um ihn. Der Renderer macht beides wie der Client von 26.2; in
+26.3 sind Zoom und Mischung gleich (#98). Die
 Sprites tragen dafür statt der Farbe eine Tönungskarte, und die Farbe je
 Block kommt erst beim Zeichnen dazu, auf der CPU wie auf der Karte.
 
@@ -201,7 +202,7 @@ keine Definition haben.
 ## Biome lesen
 
 Was er aus einem Biom braucht, liest der Renderer wie `Biome.DIRECT_CODEC`
-in 26.2: Pflicht sind `has_precipitation`, `temperature`, `downfall`,
+in 26.2 und 26.3: Pflicht sind `has_precipitation`, `temperature`, `downfall`,
 `effects` und darin `water_color`. Eine Farbe darf wie im Client eine ganze
 Zahl sein, `#rrggbb` oder drei Kommazahlen von 0 bis 1 wie
 `[0.2, 0.4, 0.8]`. Aus `attributes` liest er die Farben von Himmel, Nebel

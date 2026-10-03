@@ -88,6 +88,8 @@ black_candle_cake lit=true,false
 black_carpet
 black_concrete
 black_concrete_powder
+black_concrete_slab type=top,bottom,double waterlogged=true,false
+black_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 black_glazed_terracotta facing=north,south,west,east
 black_shulker_box facing=north,east,south,west,up,down
 black_stained_glass
@@ -95,6 +97,8 @@ black_stained_glass_pane east=true,false north=true,false south=true,false water
 black_terracotta
 black_wall_banner facing=north,south,west,east
 black_wool
+black_wool_slab type=top,bottom,double waterlogged=true,false
+black_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 blackstone
 blackstone_slab type=top,bottom,double waterlogged=true,false
 blackstone_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
@@ -107,6 +111,8 @@ blue_candle_cake lit=true,false
 blue_carpet
 blue_concrete
 blue_concrete_powder
+blue_concrete_slab type=top,bottom,double waterlogged=true,false
+blue_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 blue_glazed_terracotta facing=north,south,west,east
 blue_ice
 blue_orchid
@@ -116,6 +122,8 @@ blue_stained_glass_pane east=true,false north=true,false south=true,false waterl
 blue_terracotta
 blue_wall_banner facing=north,south,west,east
 blue_wool
+blue_wool_slab type=top,bottom,double waterlogged=true,false
+blue_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 bone_block axis=x,y,z
 bookshelf
 brain_coral waterlogged=true,false
@@ -134,6 +142,8 @@ brown_candle_cake lit=true,false
 brown_carpet
 brown_concrete
 brown_concrete_powder
+brown_concrete_slab type=top,bottom,double waterlogged=true,false
+brown_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 brown_glazed_terracotta facing=north,south,west,east
 brown_mushroom
 brown_mushroom_block down=true,false east=true,false north=true,false south=true,false up=true,false west=true,false
@@ -143,6 +153,8 @@ brown_stained_glass_pane east=true,false north=true,false south=true,false water
 brown_terracotta
 brown_wall_banner facing=north,south,west,east
 brown_wool
+brown_wool_slab type=top,bottom,double waterlogged=true,false
+brown_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 bubble_column drag=true,false
 bubble_coral waterlogged=true,false
 bubble_coral_block
@@ -287,6 +299,8 @@ cyan_candle_cake lit=true,false
 cyan_carpet
 cyan_concrete
 cyan_concrete_powder
+cyan_concrete_slab type=top,bottom,double waterlogged=true,false
+cyan_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 cyan_glazed_terracotta facing=north,south,west,east
 cyan_shulker_box facing=north,east,south,west,up,down
 cyan_stained_glass
@@ -294,6 +308,8 @@ cyan_stained_glass_pane east=true,false north=true,false south=true,false waterl
 cyan_terracotta
 cyan_wall_banner facing=north,south,west,east
 cyan_wool
+cyan_wool_slab type=top,bottom,double waterlogged=true,false
+cyan_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 damaged_anvil facing=north,south,west,east
 dandelion
 dark_oak_button face=floor,wall,ceiling facing=north,south,west,east powered=true,false
@@ -438,6 +454,8 @@ gray_candle_cake lit=true,false
 gray_carpet
 gray_concrete
 gray_concrete_powder
+gray_concrete_slab type=top,bottom,double waterlogged=true,false
+gray_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 gray_glazed_terracotta facing=north,south,west,east
 gray_shulker_box facing=north,east,south,west,up,down
 gray_stained_glass
@@ -445,6 +463,8 @@ gray_stained_glass_pane east=true,false north=true,false south=true,false waterl
 gray_terracotta
 gray_wall_banner facing=north,south,west,east
 gray_wool
+gray_wool_slab type=top,bottom,double waterlogged=true,false
+gray_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 green_banner rotation=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
 green_bed facing=north,south,west,east occupied=true,false part=head,foot
 green_candle candles=1,2,3,4 lit=true,false waterlogged=true,false
@@ -452,6 +472,8 @@ green_candle_cake lit=true,false
 green_carpet
 green_concrete
 green_concrete_powder
+green_concrete_slab type=top,bottom,double waterlogged=true,false
+green_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 green_glazed_terracotta facing=north,south,west,east
 green_shulker_box facing=north,east,south,west,up,down
 green_stained_glass
@@ -459,6 +481,8 @@ green_stained_glass_pane east=true,false north=true,false south=true,false water
 green_terracotta
 green_wall_banner facing=north,south,west,east
 green_wool
+green_wool_slab type=top,bottom,double waterlogged=true,false
+green_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 grindstone face=floor,wall,ceiling facing=north,south,west,east
 hanging_roots waterlogged=true,false
 hay_block axis=x,y,z
@@ -527,6 +551,8 @@ light_blue_candle_cake lit=true,false
 light_blue_carpet
 light_blue_concrete
 light_blue_concrete_powder
+light_blue_concrete_slab type=top,bottom,double waterlogged=true,false
+light_blue_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 light_blue_glazed_terracotta facing=north,south,west,east
 light_blue_shulker_box facing=north,east,south,west,up,down
 light_blue_stained_glass
@@ -534,6 +560,8 @@ light_blue_stained_glass_pane east=true,false north=true,false south=true,false 
 light_blue_terracotta
 light_blue_wall_banner facing=north,south,west,east
 light_blue_wool
+light_blue_wool_slab type=top,bottom,double waterlogged=true,false
+light_blue_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 light_gray_banner rotation=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
 light_gray_bed facing=north,south,west,east occupied=true,false part=head,foot
 light_gray_candle candles=1,2,3,4 lit=true,false waterlogged=true,false
@@ -541,6 +569,8 @@ light_gray_candle_cake lit=true,false
 light_gray_carpet
 light_gray_concrete
 light_gray_concrete_powder
+light_gray_concrete_slab type=top,bottom,double waterlogged=true,false
+light_gray_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 light_gray_glazed_terracotta facing=north,south,west,east
 light_gray_shulker_box facing=north,east,south,west,up,down
 light_gray_stained_glass
@@ -548,6 +578,8 @@ light_gray_stained_glass_pane east=true,false north=true,false south=true,false 
 light_gray_terracotta
 light_gray_wall_banner facing=north,south,west,east
 light_gray_wool
+light_gray_wool_slab type=top,bottom,double waterlogged=true,false
+light_gray_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 light_weighted_pressure_plate power=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
 lightning_rod facing=north,east,south,west,up,down powered=true,false waterlogged=true,false
 lilac half=upper,lower
@@ -560,6 +592,8 @@ lime_candle_cake lit=true,false
 lime_carpet
 lime_concrete
 lime_concrete_powder
+lime_concrete_slab type=top,bottom,double waterlogged=true,false
+lime_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 lime_glazed_terracotta facing=north,south,west,east
 lime_shulker_box facing=north,east,south,west,up,down
 lime_stained_glass
@@ -567,6 +601,8 @@ lime_stained_glass_pane east=true,false north=true,false south=true,false waterl
 lime_terracotta
 lime_wall_banner facing=north,south,west,east
 lime_wool
+lime_wool_slab type=top,bottom,double waterlogged=true,false
+lime_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 lodestone
 loom facing=north,south,west,east
 magenta_banner rotation=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
@@ -576,6 +612,8 @@ magenta_candle_cake lit=true,false
 magenta_carpet
 magenta_concrete
 magenta_concrete_powder
+magenta_concrete_slab type=top,bottom,double waterlogged=true,false
+magenta_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 magenta_glazed_terracotta facing=north,south,west,east
 magenta_shulker_box facing=north,east,south,west,up,down
 magenta_stained_glass
@@ -583,6 +621,8 @@ magenta_stained_glass_pane east=true,false north=true,false south=true,false wat
 magenta_terracotta
 magenta_wall_banner facing=north,south,west,east
 magenta_wool
+magenta_wool_slab type=top,bottom,double waterlogged=true,false
+magenta_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 magma_block
 mangrove_button face=floor,wall,ceiling facing=north,south,west,east powered=true,false
 mangrove_door facing=north,south,west,east half=upper,lower hinge=left,right open=true,false powered=true,false
@@ -668,7 +708,10 @@ orange_candle_cake lit=true,false
 orange_carpet
 orange_concrete
 orange_concrete_powder
+orange_concrete_slab type=top,bottom,double waterlogged=true,false
+orange_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 orange_glazed_terracotta facing=north,south,west,east
+orange_poplar_leaves distance=1,2,3,4,5,6,7 persistent=true,false waterlogged=true,false
 orange_shulker_box facing=north,east,south,west,up,down
 orange_stained_glass
 orange_stained_glass_pane east=true,false north=true,false south=true,false waterlogged=true,false west=true,false
@@ -676,6 +719,8 @@ orange_terracotta
 orange_tulip
 orange_wall_banner facing=north,south,west,east
 orange_wool
+orange_wool_slab type=top,bottom,double waterlogged=true,false
+orange_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 oxeye_daisy
 oxidized_chiseled_copper
 oxidized_copper
@@ -727,6 +772,8 @@ pink_candle_cake lit=true,false
 pink_carpet
 pink_concrete
 pink_concrete_powder
+pink_concrete_slab type=top,bottom,double waterlogged=true,false
+pink_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 pink_glazed_terracotta facing=north,south,west,east
 pink_petals facing=north,south,west,east flower_amount=1,2,3,4
 pink_shulker_box facing=north,east,south,west,up,down
@@ -736,6 +783,8 @@ pink_terracotta
 pink_tulip
 pink_wall_banner facing=north,south,west,east
 pink_wool
+pink_wool_slab type=top,bottom,double waterlogged=true,false
+pink_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 piston extended=true,false facing=north,east,south,west,up,down
 piston_head type=normal,sticky facing=north,east,south,west,up,down short=true,false
 pitcher_crop age=0,1,2,3,4 half=upper,lower
@@ -780,6 +829,23 @@ polished_tuff
 polished_tuff_slab type=top,bottom,double waterlogged=true,false
 polished_tuff_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 polished_tuff_wall east=none,low,tall north=none,low,tall south=none,low,tall up=true,false waterlogged=true,false west=none,low,tall
+poplar_button face=floor,wall,ceiling facing=north,south,west,east powered=true,false
+poplar_door facing=north,south,west,east half=upper,lower hinge=left,right open=true,false powered=true,false
+poplar_fence east=true,false north=true,false south=true,false waterlogged=true,false west=true,false
+poplar_fence_gate facing=north,south,west,east in_wall=true,false open=true,false powered=true,false
+poplar_hanging_sign attached=true,false rotation=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 waterlogged=true,false
+poplar_log axis=x,y,z
+poplar_planks
+poplar_pressure_plate powered=true,false
+poplar_sapling stage=0,1
+poplar_shelf facing=north,south,west,east powered=true,false side_chain=unconnected,right,center,left waterlogged=true,false
+poplar_sign rotation=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 waterlogged=true,false
+poplar_slab type=top,bottom,double waterlogged=true,false
+poplar_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
+poplar_trapdoor facing=north,south,west,east half=top,bottom open=true,false powered=true,false waterlogged=true,false
+poplar_wall_hanging_sign facing=north,south,west,east waterlogged=true,false
+poplar_wall_sign facing=north,south,west,east waterlogged=true,false
+poplar_wood axis=x,y,z
 poppy
 potatoes age=0,1,2,3,4,5,6,7
 potent_sulfur potent_sulfur_state=dry,wet,dormant,erupting,continuous
@@ -812,6 +878,7 @@ potted_orange_tulip
 potted_oxeye_daisy
 potted_pale_oak_sapling
 potted_pink_tulip
+potted_poplar_sapling
 potted_poppy
 potted_red_mushroom
 potted_red_tulip
@@ -840,6 +907,8 @@ purple_candle_cake lit=true,false
 purple_carpet
 purple_concrete
 purple_concrete_powder
+purple_concrete_slab type=top,bottom,double waterlogged=true,false
+purple_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 purple_glazed_terracotta facing=north,south,west,east
 purple_shulker_box facing=north,east,south,west,up,down
 purple_stained_glass
@@ -847,6 +916,8 @@ purple_stained_glass_pane east=true,false north=true,false south=true,false wate
 purple_terracotta
 purple_wall_banner facing=north,south,west,east
 purple_wool
+purple_wool_slab type=top,bottom,double waterlogged=true,false
+purple_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 purpur_block
 purpur_pillar axis=x,y,z
 purpur_slab type=top,bottom,double waterlogged=true,false
@@ -867,6 +938,8 @@ red_candle_cake lit=true,false
 red_carpet
 red_concrete
 red_concrete_powder
+red_concrete_slab type=top,bottom,double waterlogged=true,false
+red_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 red_glazed_terracotta facing=north,south,west,east
 red_mushroom
 red_mushroom_block down=true,false east=true,false north=true,false south=true,false up=true,false west=true,false
@@ -874,11 +947,13 @@ red_nether_brick_slab type=top,bottom,double waterlogged=true,false
 red_nether_brick_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 red_nether_brick_wall east=none,low,tall north=none,low,tall south=none,low,tall up=true,false waterlogged=true,false west=none,low,tall
 red_nether_bricks
+red_poplar_leaves distance=1,2,3,4,5,6,7 persistent=true,false waterlogged=true,false
 red_sand
 red_sandstone
 red_sandstone_slab type=top,bottom,double waterlogged=true,false
 red_sandstone_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 red_sandstone_wall east=none,low,tall north=none,low,tall south=none,low,tall up=true,false waterlogged=true,false west=none,low,tall
+red_shrub
 red_shulker_box facing=north,east,south,west,up,down
 red_stained_glass
 red_stained_glass_pane east=true,false north=true,false south=true,false waterlogged=true,false west=true,false
@@ -886,6 +961,8 @@ red_terracotta
 red_tulip
 red_wall_banner facing=north,south,west,east
 red_wool
+red_wool_slab type=top,bottom,double waterlogged=true,false
+red_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 redstone_block
 redstone_lamp lit=true,false
 redstone_ore lit=true,false
@@ -918,6 +995,7 @@ sculk_vein down=true,false east=true,false north=true,false south=true,false up=
 sea_lantern
 sea_pickle pickles=1,2,3,4 waterlogged=true,false
 seagrass
+shelf_mushroom age=0,1 facing=north,south,west,east
 short_dry_grass
 short_grass
 shroomlight
@@ -983,6 +1061,7 @@ stone_pressure_plate powered=true,false
 stone_slab type=top,bottom,double waterlogged=true,false
 stone_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 stonecutter facing=north,south,west,east
+straw_bed facing=north,south,west,east occupied=true,false part=head,foot
 stripped_acacia_log axis=x,y,z
 stripped_acacia_wood axis=x,y,z
 stripped_bamboo_block axis=x,y,z
@@ -1002,6 +1081,8 @@ stripped_oak_log axis=x,y,z
 stripped_oak_wood axis=x,y,z
 stripped_pale_oak_log axis=x,y,z
 stripped_pale_oak_wood axis=x,y,z
+stripped_poplar_log axis=x,y,z
+stripped_poplar_wood axis=x,y,z
 stripped_spruce_log axis=x,y,z
 stripped_spruce_wood axis=x,y,z
 stripped_warped_hyphae axis=x,y,z
@@ -1166,6 +1247,8 @@ white_candle_cake lit=true,false
 white_carpet
 white_concrete
 white_concrete_powder
+white_concrete_slab type=top,bottom,double waterlogged=true,false
+white_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 white_glazed_terracotta facing=north,south,west,east
 white_shulker_box facing=north,east,south,west,up,down
 white_stained_glass
@@ -1174,6 +1257,8 @@ white_terracotta
 white_tulip
 white_wall_banner facing=north,south,west,east
 white_wool
+white_wool_slab type=top,bottom,double waterlogged=true,false
+white_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 wildflowers facing=north,south,west,east flower_amount=1,2,3,4
 wither_rose
 wither_skeleton_skull powered=true,false rotation=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
@@ -1185,12 +1270,17 @@ yellow_candle_cake lit=true,false
 yellow_carpet
 yellow_concrete
 yellow_concrete_powder
+yellow_concrete_slab type=top,bottom,double waterlogged=true,false
+yellow_concrete_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 yellow_glazed_terracotta facing=north,south,west,east
+yellow_poplar_leaves distance=1,2,3,4,5,6,7 persistent=true,false waterlogged=true,false
 yellow_shulker_box facing=north,east,south,west,up,down
 yellow_stained_glass
 yellow_stained_glass_pane east=true,false north=true,false south=true,false waterlogged=true,false west=true,false
 yellow_terracotta
 yellow_wall_banner facing=north,south,west,east
 yellow_wool
+yellow_wool_slab type=top,bottom,double waterlogged=true,false
+yellow_wool_stairs facing=north,south,west,east half=top,bottom shape=straight,inner_left,inner_right,outer_left,outer_right waterlogged=true,false
 zombie_head powered=true,false rotation=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
 zombie_wall_head facing=north,south,west,east powered=true,false

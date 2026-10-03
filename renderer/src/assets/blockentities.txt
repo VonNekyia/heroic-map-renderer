@@ -645,9 +645,9 @@ lage 3
 -0 0.99999994 0 0
 -0.99999994 -0 0 1
 lage 4
-0.17364818 -0.98480767 0 0.5
-0.98480767 0.17364818 0 0.85
-0 0 0.99999994 0.5
+0.17364836 -0.9848077 -0 0.5
+0.9848077 0.17364836 0 0.85
+0 0 1 0.5
 lage 5
 -1 0 0 0.5
 -0 -1 -0 0
@@ -825,24 +825,24 @@ lage 48
 0 0.9995 -0 -0.49949998
 0 -0 0.9995 0.5
 lage 49
-1 -0 0 0.5
-0 1 -0 0.5
+1 0 -0 0.5
+0 1 0 0.5
 0 0 1 0.5
 lage 50
-0 0 0.99999994 0.5
-0.92387944 0.38268337 0 1.0146645
--0.38268337 0.92387944 0 0.38451508
+0 0 1 0.5
+0.9238795 0.3826835 0 1.0146645
+-0.3826835 0.9238795 -0 0.38451505
 lage 51
-0 -0 -0.99999994 0.5
-0.92387944 0.38268337 0 1.0146645
-0.38268337 -0.92387944 0 0.61548495
-lage 52
--0.3826834 0.9238795 0 0.38451505
-0.9238795 0.3826834 0 1.0146645
 0 0 -1 0.5
+0.9238795 0.3826835 0 1.0146645
+0.3826835 -0.9238795 0 0.61548495
+lage 52
+-0.3826835 0.9238795 8.742278E-8 0.38451505
+0.9238795 0.3826835 0 1.0146645
+-3.3455255E-8 8.076811E-8 -1 0.5
 lage 53
-0.3826834 -0.9238795 0 0.61548495
-0.9238795 0.3826834 0 1.0146645
+0.3826835 -0.9238795 -0 0.61548495
+0.9238795 0.3826835 0 1.0146645
 0 0 1 0.5
 lage 54
 1 0 0 0
@@ -1697,7 +1697,6 @@ scherbe minecraft:archer_pottery_sherd minecraft:entity/decorated_pot/archer_pot
 scherbe minecraft:arms_up_pottery_sherd minecraft:entity/decorated_pot/arms_up_pottery_pattern
 scherbe minecraft:blade_pottery_sherd minecraft:entity/decorated_pot/blade_pottery_pattern
 scherbe minecraft:brewer_pottery_sherd minecraft:entity/decorated_pot/brewer_pottery_pattern
-scherbe minecraft:brick minecraft:entity/decorated_pot/decorated_pot_side
 scherbe minecraft:burn_pottery_sherd minecraft:entity/decorated_pot/burn_pottery_pattern
 scherbe minecraft:danger_pottery_sherd minecraft:entity/decorated_pot/danger_pottery_pattern
 scherbe minecraft:explorer_pottery_sherd minecraft:entity/decorated_pot/explorer_pottery_pattern

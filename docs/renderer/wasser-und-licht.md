@@ -268,7 +268,7 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
   (`ChestBlock.combine`). Es hält beide Hälften über `updateShape`
   stimmig; eine Hälfte ohne die andere gibt es nur in einer Welt, die von
   Hand gebaut ist.
-- **Blöcke, die 26.2 nicht kennt,** fehlen in `licht.txt`. Deckt ihr Modell
+- **Blöcke, die `blocks.txt` nicht kennt,** fehlen in `licht.txt`. Deckt ihr Modell
   den ganzen Umriss, lassen sie wie ein Block mit voller Form kein Licht
   hinein, sonst lassen sie es durch, ohne Flächen und ohne Leuchten
   (`lichtweg` in `metatile.rs`). Ihr Modell kennt der Renderer aber nur für

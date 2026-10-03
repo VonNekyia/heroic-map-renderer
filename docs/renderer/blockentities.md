@@ -22,7 +22,7 @@ Modellen. Ihr Blockmodell hat meist keine Elemente. Der
 Renderer zeichnet sie aus der Tabelle
 [`blockentities.txt`](../../renderer/src/assets/blockentities.txt), die
 [`Blockentities.java`](../../renderer/src/assets/Blockentities.java) aus
-dem Client 26.2 schreibt: je Zustand die Flächen, wie die Renderer des
+dem Client 26.3 schreibt: je Zustand die Flächen, wie die Renderer des
 Spiels sie abgeben, mit Lage, Textur, Schicht und Farbe. Bannermuster und
 Scherben liest er aus `block_entities` im Chunk. Code in
 [`renderer/src/assets/blockentity.rs`](../../renderer/src/assets/blockentity.rs).
@@ -44,11 +44,11 @@ Zustand nach dem anderen zeichnen:
   nach Süden, im Material nach dem Datum. Art und Lage setzt der Generator
   wie im Zweig mit Welt aus dem Zustand, das Material mit
   `getChestMaterial` ohne Weihnachten.
-- Seine eigenen Prüfungen und die Renderer, die für 26.2 ohne Spiel nicht
+- Seine eigenen Prüfungen und die Renderer, die für 26.3 ohne Spiel nicht
   laufen oder nichts zeichnen, führt er als Mengen. Weicht eine ab, endet
   er mit Exit-Code 1 und schreibt keine Tabelle.
 
-Das Format der Zeilen steht im Kopf von `Blockentities.java`. Stand 26.2:
+Das Format der Zeilen steht im Kopf von `Blockentities.java`. Stand 26.3, wie 26.2:
 87 Blöcke, 713 Bilder, 27 Formen mit 544 Flächen, 62 Lagen, 54 Texturen,
 43 Bannermuster.
 Neu erzeugt wird die Tabelle mit dem Skill

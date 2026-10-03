@@ -236,7 +236,7 @@ fn licht_der_welt_aus_jeder_richtung() {
     }
 }
 
-/// Ob ein Block, den 26.2 nicht kennt, das Licht aufhält, entscheidet aus
+/// Ob ein Block, den `blocks.txt` nicht kennt, das Licht aufhält, entscheidet aus
 /// jeder Richtung das Raster in 2:1 aus der Vorgabe: Die Kerbe, ein Würfel
 /// ohne seine untere Ecke im Nordwesten, deckt aus Südosten ihren Umriss,
 /// aus Nordwesten nicht. Sie liegt über einer Grube aus Brettern; darin ist

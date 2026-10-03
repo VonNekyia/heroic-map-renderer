@@ -128,7 +128,8 @@ Reihenfolge, belegt per javap am Client 26.2:
    der Nachbar dort deckt, übermalt er. Der dritte Fall ändert so kein
    Pixel und fehlt im Renderer.
 
-`skipRendering` überschreiben in 26.2 sechs Klassen mit 72 Blöcken. Ihre
+`skipRendering` überschreiben in 26.2 sechs Klassen mit 72 Blöcken, in
+26.3 mit 75: Dazu kommt das Laub der Pappeln. Ihre
 Regeln stehen in [`nachbarn.txt`](../../renderer/src/assets/nachbarn.txt),
 aus dem Spiel gelesen, siehe [Erzeugte Tabellen](../entwicklung/tabellen.md):
 
@@ -261,7 +262,7 @@ eine Kamera sieht und ein voller Nachbar nicht übermalt:
 
 Was bleibt eine Näherung:
 
-- **Blöcke, die 26.2 nicht kennt,** decken nirgends. Im Spiel kann ein
+- **Blöcke, die `blocks.txt` nicht kennt,** decken nirgends. Im Spiel kann ein
   solcher Block voll decken.
 - **Der dritte Fall** ändert nur für die Modelle aus 26.2 kein Pixel. Ein
   Pack mit einer Fläche mit `cullface` neben ihrer Wand an einem Block mit

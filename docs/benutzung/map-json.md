@@ -247,7 +247,7 @@ Höhe. Die liefert der Renderer:
     Blöcke, die der Renderer nicht zeichnet, wie Barrieren und Licht.
   - Über Wasser nennt die Anzeige deshalb die Oberfläche, nicht den Grund.
 - **Quelle:** die Heightmap `WORLD_SURFACE`, die das Spiel ab dem Status
-  `carvers` in jedem Chunk speichert, je Spalte das y über dem obersten
+  `carvers` (ab 26.3 `terrain`) in jedem Chunk speichert, je Spalte das y über dem obersten
   Block, der nicht Luft ist (Client 26.2, per javap). Der Vorlauf liest sie
   mit, `Chunk::surface` in
   [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs). Fehlt

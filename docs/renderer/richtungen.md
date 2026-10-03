@@ -83,7 +83,7 @@ in [0055](../entscheidungen/0055-welt-beim-zugriff-drehen.md).
   der Welt wie die `cullface`, siehe
   [Sprites und Deckung](sprites-und-deckung.md), „Flächen vor einem vollen
   Nachbarn“.
-- **Licht unbekannter Blöcke:** Ob ein Block, den 26.2 nicht kennt, das
+- **Licht unbekannter Blöcke:** Ob ein Block, den `blocks.txt` nicht kennt, das
   Licht aufhält, entscheidet das Raster in 2:1 aus der Vorgabe-Richtung,
   siehe [Wasser und Licht](wasser-und-licht.md), „Was bleibt eine
   Näherung“.
@@ -169,8 +169,8 @@ In `renderer/tests/richtung.rs`:
   rechnet der Test selbst aus der Tabelle, nicht mit dem Renderer.
 - `licht_der_welt_aus_jeder_richtung`: das Licht jeder Zelle der Szene aus
   `common::szene` und um sie herum, aus allen vier Richtungen.
-- `licht_unbekannter_bloecke_aus_der_vorgabe`: Ein Block, den 26.2 nicht
-  kennt und der nur aus `se` seinen Umriss deckt, hält aus jeder Richtung
+- `licht_unbekannter_bloecke_aus_der_vorgabe`: Ein Block, den `blocks.txt`
+  nicht kennt und der nur aus `se` seinen Umriss deckt, hält aus jeder Richtung
   das Licht auf wie aus der Vorgabe.
 - `alternative_und_biom_aus_der_welt`: die Mitte jeder Oberseite einer
   Schicht aus `zufall` und Gras über zwei Biome, in 2:1 und `top-north`.

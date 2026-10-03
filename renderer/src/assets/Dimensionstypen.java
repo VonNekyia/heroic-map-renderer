@@ -13,10 +13,11 @@ import net.minecraft.world.attribute.EnvironmentAttribute;
 import net.minecraft.world.attribute.EnvironmentAttributeMap;
 import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.level.dimension.DimensionType;
+import org.joml.Vector3fc;
 
 /**
- * Schreibt für 26.2 die Dimensionstypen des Spiels, wie
- * DimensionTypes.bootstrap sie über VanillaRegistries.createLookup anlegt,
+ * Schreibt für 26.3 die Dimensionstypen des Spiels, wie
+ * DimensionTypes.bootstrap sie über VanillaRegistries.createWorldLookup anlegt,
  * mit dem, was der Renderer von ihnen braucht. Die Zeilen der Tabelle:
  *
  * vorgabe attribut wert: der Wert, den EnvironmentAttributes für ein Attribut
@@ -26,7 +27,8 @@ import net.minecraft.world.level.dimension.DimensionType;
  *     angewandt wie der Constant-Layer in EnvironmentAttributeSystem.
  *
  * Farben stehen als #rrggbb, Zahlen wie Float.toString: so, wie ein
- * Datenpaket sie schreiben darf.
+ * Datenpaket sie schreiben darf. Die Farben des Lichts hält 26.3 als
+ * Vector3fc; sie sind genau k/255, sonst bricht der Generator ab.
  */
 public class Dimensionstypen {
     public static void main(String[] args) {
@@ -51,7 +53,7 @@ public class Dimensionstypen {
         for (var attribut : attribute) {
             zeile.accept("vorgabe " + id(attribut) + " " + wert(attribut.defaultValue()));
         }
-        var typen = VanillaRegistries.createLookup().lookupOrThrow(Registries.DIMENSION_TYPE)
+        var typen = VanillaRegistries.createWorldLookup().lookupOrThrow(Registries.DIMENSION_TYPE)
                 .listElements()
                 .sorted(Comparator.comparing(typ -> typ.key().identifier().toString()))
                 .toList();
@@ -73,6 +75,15 @@ public class Dimensionstypen {
         return map.applyModifier(attribut, attribut.defaultValue());
     }
 
+    /** Ein Kanal k/255 als k; ist er es nicht genau, ein Fehler. */
+    static int kanal(float wert) {
+        int k = Math.round(wert * 255);
+        if (k / 255f != wert) {
+            throw new AssertionError("Kanal " + wert + " ist nicht genau k/255");
+        }
+        return k;
+    }
+
     static String id(EnvironmentAttribute<?> attribut) {
         return BuiltInRegistries.ENVIRONMENT_ATTRIBUTE.getKey(attribut).toString();
     }
@@ -80,6 +91,7 @@ public class Dimensionstypen {
     static String wert(Object wert) {
         return switch (wert) {
             case Integer farbe -> String.format("#%06x", farbe & 0xffffff);
+            case Vector3fc farbe -> String.format("#%02x%02x%02x", kanal(farbe.x()), kanal(farbe.y()), kanal(farbe.z()));
             case Float zahl -> Float.toString(zahl);
             default -> throw new AssertionError("unerwarteter Wert " + wert);
         };

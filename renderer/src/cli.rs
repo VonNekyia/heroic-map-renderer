@@ -2551,7 +2551,7 @@ fn ohne_kennung(world: &World) -> String {
 /// in `level.dat` liest er nicht.
 /// Siehe docs/benutzung/welten.md, „Welche Welten“.
 const VOR_26_1: &str =
-    "Eine Welt vor 26.1 vorher mit Minecraft 26.2 und --forceUpgrade hochziehen.";
+    "Eine Welt vor 26.1 vorher mit Minecraft 26.2 oder 26.3 und --forceUpgrade hochziehen.";
 
 /// Prüft, ob der bestehende Baum zu diesem Lauf passt, und sagt, ob er ihn
 /// übernimmt: nur einen Baum derselben Welt und desselben scale. `maxZoom`
@@ -3655,7 +3655,7 @@ fn report_missing_textures(assets: &Assets) {
     let unchecked = assets.unchecked();
     if !unchecked.is_empty() {
         println!(
-            "Blockstates: {} Dateien fragen in multipart, was blocks.txt aus 26.2 nicht kennt; dort \
+            "Blockstates: {} Dateien fragen in multipart, was blocks.txt aus 26.3 nicht kennt; dort \
              gilt der Text. Der Client von 26.2 gäbe diesen Blöcken kein Modell, einer, der sie \
              kennt, schon. Für neuere Assets blocks.txt neu erzeugen und neu bauen, \
              siehe docs/entwicklung/tabellen.md.",

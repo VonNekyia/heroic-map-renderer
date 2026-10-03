@@ -444,7 +444,8 @@ impl Chunk {
 
     /// Je Spalte, zeilenweise nach z, das y des obersten Blocks, der nicht
     /// Luft ist, oder `None` ohne Block. Aus der Heightmap `WORLD_SURFACE`,
-    /// die das Spiel ab dem Status `carvers` speichert; fehlt sie oder passt
+    /// die das Spiel ab dem Status `carvers` speichert, ab 26.3 `terrain`;
+    /// fehlt sie oder passt
     /// sie nicht zum Chunk, aus den Blöcken wie [`Chunk::highest_block`].
     /// Siehe docs/benutzung/map-json.md, „Höhen“.
     pub fn surface(&self) -> [Option<i32>; 256] {

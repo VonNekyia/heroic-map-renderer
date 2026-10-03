@@ -15,7 +15,7 @@ import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
- * Schreibt je Block von 26.2, was die Lichtausbreitung des Spiels
+ * Schreibt je Block von 26.3, was die Lichtausbreitung des Spiels
  * (LightEngine.propagateIncrease, ChunkSkyLightSources) über ihn wissen
  * muss: je Zustand sieben Zeichen, in der Reihenfolge von
  * getPossibleStates. Das erste ist getLightDampening als Ziffer (0, 1 oder

@@ -142,7 +142,11 @@ Belegt per javap am Client 26.2 und an den Daten im JAR:
   `cardinal_light` `nether` und `has_skylight` falsch.
 - `EnvironmentAttributes`, statischer Initialisierer: die Vorgaben der
   sieben Attribute, die Farben als `AttributeTypes.RGB_COLOR`;
-  `EnvironmentAttributeMap`, `EnvironmentAttributeSystem.addDefaultLayers`.
+  `EnvironmentAttributeMap`, `EnvironmentAttributeSystem.addDefaultLayers`,
+  in 26.3 `addStaticLayers` und `addDynamicLayers`.
+- In 26.3 hält `EnvironmentAttributes` die Farben des Lichts als
+  `Vector3fc`, genau k/255; die Tabelle bleibt gleich. `Dimensionstypen.java`
+  prüft das beim Schreiben.
 - `GameRenderer.setLevel` ruft `Lighting.updateLevel` mit
   `cardinalLightType` des Typs; `Lighting` mit den beiden Lichtpaaren.
 - `BlockModelLighter.prepareQuadFlat`,

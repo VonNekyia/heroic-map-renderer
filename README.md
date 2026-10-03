@@ -83,7 +83,7 @@ Gebraucht werden Rust mit einem C-Compiler, unter Windows der von Visual
 Studio, und für das Frontend Node.js; die CI nimmt Version 22.
 
 1. **Assets besorgen:** `vanilla-assets/` und `vanilla-data/` aus dem
-   Client-JAR von Minecraft 26.2, wie in
+   Client-JAR von Minecraft 26.3 oder 26.2, wie in
    [Assets und Biomdaten](docs/benutzung/assets.md) beschrieben. Die Welt
    liegt unter `./world`, ab Minecraft 26.1.
 2. **Bauen:**
@@ -112,7 +112,9 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 
 ## Stand
 
-- Liest Welten ab 26.1 und Resourcepacks wie der Client von 26.2.
+- Liest Welten ab 26.1 und Resourcepacks aus 26.2 und 26.3, mit den
+  Tabellen aus 26.3, siehe
+  [0059](docs/entscheidungen/0059-welten-aus-26-2-und-26-3.md).
 - Truhen, Banner, Köpfe, Krüge und die übrigen Blockentities aus den
   Modellen des Spiels, mit Bannermustern und Scherben.
 - Cinematic mit `--cinematic`: dieselbe Karte im Licht des Spiels in HDR,

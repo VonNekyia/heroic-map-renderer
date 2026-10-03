@@ -102,7 +102,7 @@ pub struct Assets {
 /// zuerst. Eine kaputte steht mit ihrem Fehler da.
 struct BlockStateStack {
     files: Vec<std::result::Result<BlockStateDef, String>>,
-    /// Die Definition aus 26.2, falls es den Block dort gibt.
+    /// Die Definition aus `blocks.txt`, falls es den Block dort gibt.
     definition: Option<&'static Definition>,
 }
 
@@ -148,7 +148,7 @@ impl Assets {
     }
 
     /// Blockstate-Dateien, deren Multipart-Bedingungen etwas fragen, das
-    /// die Definition aus 26.2 nicht kennt, je Pfad mit dem Unbekannten.
+    /// die Definition aus `blocks.txt` nicht kennt, je Pfad mit dem Unbekannten.
     /// Dort vergleicht der Renderer den Text ([`BlockStateDef::instantiate`]).
     pub fn unchecked(&self) -> &BTreeMap<String, String> {
         &self.unchecked
@@ -281,7 +281,7 @@ impl Assets {
 
     /// Die Blockstate-Dateien eines Blocks aus allen Wurzeln, gelesen wie
     /// im Client ([`BlockStateDef::read`]) und gegen die Definition aus
-    /// 26.2 instanziiert, falls es den Block dort gibt. Eine kaputte Datei
+    /// `blocks.txt` instanziiert, falls es den Block dort gibt. Eine kaputte Datei
     /// steht mit ihrem Fehler da und landet in [`Assets::broken`].
     fn blockstate_stack(&mut self, block: &str) -> Result<Arc<BlockStateStack>> {
         if let Some(stack) = self.blockstates.get(block) {

@@ -319,7 +319,8 @@ je Block, statt ihn zu decken, wie in 0058:
   (`block/flowerbed_*`), dem Laub am Boden (`block/template_leaf_litter_*`)
   und der Vorlage des Seegrases (`block/template_seagrass`). In 26.2 sind
   das 85 Blöcke, gezählt an den Modellen des Client: 84 ganz, dazu die
-  untere Hälfte der Sonnenblume; ihre Blüte oben hat ein eigenes Modell.
+  untere Hälfte der Sonnenblume; ihre Blüte oben hat ein eigenes Modell. In 26.3 kommen der Setzling der Pappel und der rote Strauch über
+  `block/cross` dazu (#98).
 - **Nicht** dämpft die Pflanze, auf der der Strahl beginnt, und von ihr
   aus der Block darüber, wenn er ihre obere Hälfte ist
   (`Family::obere_haelfte`).

@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
 use std::io::Write;
-use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -19,12 +18,11 @@ use terranova_render::render::gpu::Worker;
 use terranova_render::render::heights::{self, Heights, RegionHeights};
 use terranova_render::render::look::{LOOK, Look};
 use terranova_render::render::pyramid;
-use terranova_render::render::snap_to_grid;
 use terranova_render::render::{
-    BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Gpu, Kamera, MapInfo, Projection,
-    ProjectionInfo, Reach, Richtung, ScreenRect, SpriteSet, Survey, TILE, TileId, corner_tiles,
-    decode_webp, draw_list, encode_webp, render, render_area, render_area_with, streifenbreite,
-    survey, survey_in, world_box,
+    BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Flaeche, Gebiet, Gpu, Kamera, MapInfo,
+    Projection, ProjectionInfo, Reach, Richtung, ScreenRect, SpriteSet, Survey, TILE, TileId,
+    corner_tiles, decode_webp, draw_list, encode_webp, render, render_area, render_area_with,
+    streifenbreite, survey, survey_in, world_box,
 };
 use terranova_render::world::biomzoom::{obfuscate_seed, zoom};
 use terranova_render::world::{BlockState, Blockdaten, REGION, World};
@@ -1038,10 +1036,10 @@ fn write_tiles(
     // Stufe braucht.
     let stufen = native_stufen(dir, bestand.as_ref(), native, projection, max_zoom)?;
     let blend = mischung(dir, bestand.as_ref(), blend)?;
-    let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
+    let gebiet = bounds.map(|rect| Gebiet::rechteck(rect, stufen));
 
     let started = Instant::now();
-    let reach = Reach::new(projection, Y_RANGE, bounds).mit_sonne(look.as_ref());
+    let reach = Reach::im_gebiet(projection, Y_RANGE, gebiet.clone()).mit_sonne(look.as_ref());
     let mut survey = survey_in(world, reach)?;
     println!(
         "\nVorlauf:    {} Chunks in {:.1} s, {} Blockstates, {} Kacheln",
@@ -1060,7 +1058,10 @@ fn write_tiles(
     // Zeiten, aus ihnen folgt, was er neu rendert.
     // Siehe docs/benutzung/kacheln.md, „Kacheln ohne Chunk: `--prune`“.
     let kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
-    let flaeche_auf = |z: u32| flaeche(bounds, max_zoom, z);
+    let flaechen: Option<Vec<Flaeche>> = gebiet
+        .as_ref()
+        .map(|g| (0..=max_zoom).map(|z| g.flaeche(max_zoom - z)).collect());
+    let flaeche_auf = |z: u32| flaechen.as_ref().map(|f| &f[z as usize]);
     let zeiten = if resume {
         Some(vorhandene_mit_zeit(dir, max_zoom)?)
     } else {
@@ -1073,7 +1074,7 @@ fn write_tiles(
     };
     let bestehend: BTreeSet<TileId> = basis
         .iter()
-        .filter(|tile| in_flaeche(flaeche_auf(max_zoom).as_ref(), tile))
+        .filter(|tile| in_flaeche(flaeche_auf(max_zoom), tile))
         .copied()
         .collect();
     let veraltet: BTreeSet<TileId> = bestehend.difference(&kandidaten).copied().collect();
@@ -1083,7 +1084,7 @@ fn write_tiles(
     let ab = z0.saturating_sub(streifenbreite(projection.scale() >> stufen).ilog2());
     let (waisen, listen) = waisen(dir, max_zoom, &bestehend, flaeche_auf, ab)?;
     let vielleicht_da =
-        |z: u32, tile: &TileId| lag_da(z, tile, max_zoom, &basis, &listen, flaeche_auf(z).as_ref());
+        |z: u32, tile: &TileId| lag_da(z, tile, max_zoom, &basis, &listen, flaeche_auf(z));
     let anteil = format!("{} von {} Basiskacheln", veraltet.len(), bestehend.len());
     // Mit --prune ist auch ein leerer Lauf keiner über dem falschen
     // Ausschnitt: dort ist vielleicht schon aufgeräumt. Und fehlt Kacheln
@@ -1117,7 +1118,7 @@ fn write_tiles(
     // ansieht, findet sie mit der ersten Kachel.
     schreibe_hoehen(std::mem::take(&mut survey.heights), wurzel)?;
     let hoehen_weg = if prune {
-        hoehen_ohne_region(world, Reach::new(projection, Y_RANGE, bounds), wurzel)?
+        hoehen_ohne_region(world, Reach::im_gebiet(projection, Y_RANGE, gebiet), wurzel)?
     } else {
         Vec::new()
     };
@@ -3134,18 +3135,18 @@ fn verblasse(dir: &Path, z: u32, tile: TileId) -> Result<()> {
 /// Ausschnitt nimmt nur, was seine Fläche berührt, und liest dafür nur
 /// deren Spalten. `basis` sind die Basiskacheln in der Fläche. Dazu die
 /// Liste jeder Stufe ab `ab` unter der Basis, wie sie dastand.
-fn waisen(
+fn waisen<'f>(
     dir: &Path,
     max_zoom: u32,
     basis: &BTreeSet<TileId>,
-    flaeche: impl Fn(u32) -> Option<Flaeche>,
+    flaeche: impl Fn(u32) -> Option<&'f Flaeche>,
     ab: u32,
 ) -> Result<(JeStufe, JeStufe)> {
     let mut out = BTreeMap::new();
     let mut listen = BTreeMap::new();
     let mut stufe = basis.clone();
     for z in (1..=max_zoom).rev() {
-        let oben = vorhandene(dir, z - 1, flaeche(z - 1).as_ref())?;
+        let oben = vorhandene(dir, z - 1, flaeche(z - 1))?;
         let ohne: BTreeSet<TileId> = stufe
             .iter()
             .filter(|tile| !oben.contains(&tile.parent()))
@@ -3183,24 +3184,10 @@ fn lag_da(
     listen.get(&z).is_none_or(|liste| liste.contains(tile)) || !in_flaeche(flaeche, tile)
 }
 
-/// Spalten und Zeilen der Kacheln einer Stufe, die ein Ausschnitt berührt.
-type Flaeche = (RangeInclusive<i32>, RangeInclusive<i32>);
-
-/// Die Kacheln der Stufe z, die etwas aus einem Ausschnitt zeigen, `None`
-/// für die ganze Welt. Auf der Basis und den nativen Stufen liegen sie
-/// ganz darin, darüber schneiden sie ihn vielleicht nur an.
-fn flaeche(bounds: Option<ScreenRect>, max_zoom: u32, z: u32) -> Option<Flaeche> {
-    bounds.map(|b| {
-        let stufe = |px: i32| px.div_euclid(TILE as i32) >> (max_zoom - z);
-        (
-            stufe(b.x)..=stufe(b.right() - 1),
-            stufe(b.y)..=stufe(b.bottom() - 1),
-        )
-    })
-}
-
+/// Ob eine Kachel in der Fläche ihrer Stufe liegt; ohne Fläche, über die
+/// ganze Welt, immer.
 fn in_flaeche(flaeche: Option<&Flaeche>, tile: &TileId) -> bool {
-    flaeche.is_none_or(|(spalten, zeilen)| spalten.contains(&tile.x) && zeilen.contains(&tile.y))
+    flaeche.is_none_or(|f| f.enthaelt(tile))
 }
 
 /// Alle Kacheln, die auf dieser Zoomstufe tatsächlich dastehen, unter den
@@ -3246,7 +3233,7 @@ fn je_kachel(
 ) -> Result<()> {
     let stufe = dir.join(z.to_string());
     let spalten: Vec<i32> = match flaeche {
-        Some((spalten, _)) => spalten.clone().collect(),
+        Some(flaeche) => flaeche.spalten(),
         None => {
             let Ok(eintraege) = std::fs::read_dir(&stufe) else {
                 return Ok(());
@@ -4028,12 +4015,14 @@ mod tests {
             width: TILE,
             height: TILE,
         };
+        let gebiet = Gebiet::rechteck(ausschnitt, 0);
+        let flaechen: Vec<Flaeche> = (0..=2).map(|z| gebiet.flaeche(2 - z)).collect();
         let lauf = |ab| {
             waisen(
                 dir.path(),
                 2,
                 &BTreeSet::new(),
-                |z| flaeche(Some(ausschnitt), 2, z),
+                |z| Some(&flaechen[z as usize]),
                 ab,
             )
             .unwrap()
@@ -4088,7 +4077,16 @@ mod tests {
         let t = |x, y| TileId { x, y };
         let basis = BTreeSet::from([t(0, 0)]);
         let listen = BTreeMap::from([(1, BTreeSet::from([t(1, 1)]))]);
-        let flaeche: Flaeche = (0..=1, 0..=1);
+        let flaeche = Gebiet::rechteck(
+            ScreenRect {
+                x: 0,
+                y: 0,
+                width: 2 * TILE,
+                height: 2 * TILE,
+            },
+            0,
+        )
+        .flaeche(0);
         let da = |z, tile| lag_da(z, &tile, 2, &basis, &listen, Some(&flaeche));
         assert!(da(2, t(0, 0)));
         assert!(!da(2, t(5, 5)), "Basis ohne Kachel, auch ausserhalb");

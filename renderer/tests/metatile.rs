@@ -1317,7 +1317,10 @@ fn ausschnitt_sieht_den_schatten_von_draussen() {
     };
     let gross = bild(Reach::new(projection, y_range, None));
     let ausschnitt = Reach::new(projection, y_range, Some(rect));
-    let (ohne, mit) = (bild(ausschnitt), bild(ausschnitt.mit_sonne(Some(&LOOK))));
+    let (ohne, mit) = (
+        bild(ausschnitt.clone()),
+        bild(ausschnitt.mit_sonne(Some(&LOOK))),
+    );
     assert!(
         gross.0 && mit.0 && !ohne.0,
         "{} {} {}",

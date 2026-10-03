@@ -573,18 +573,13 @@ impl Chunk {
     /// Section, als Läufe gleicher Werte der Reihe nach, und über die
     /// [`Blockdaten`]. Wie die Palette geordnet ist und wie ihre Felder
     /// heissen, ändert ihn nicht, ein Chunk aus 26.2 und derselbe aus 26.3
-    /// haben denselben. Ein Chunk, der nicht fertig erzeugt ist, hat immer
-    /// denselben und keinen höchsten Block, der Renderer zeichnet ihn nicht.
+    /// haben denselben. Nur für einen fertig erzeugten Chunk: Einen
+    /// unfertigen zeichnet der Renderer nicht, [`Inhalt::von`] fängt ihn ab.
     /// Siehe docs/benutzung/updates.md, „Was als geändert gilt“.
+    ///
+    /// [`Inhalt::von`]: crate::render::stand::Inhalt::von
     pub fn abdruck(&self) -> Abdruck {
         let mut fnv = Fnv::default();
-        if !self.is_generated() {
-            fnv.nimm(b"unfertig");
-            return Abdruck {
-                hash: fnv.0,
-                oben: None,
-            };
-        }
         let mut oben = None;
         for section in &self.sections {
             fnv.nimm(&section.y.to_le_bytes());
@@ -1312,6 +1307,22 @@ mod tests {
                 ],
                 false,
             ),
+            // Dieselbe Folge der Werte, der letzte Lauf gleich lang: Nur die
+            // Längen davor unterscheiden.
+            chunk(
+                &[
+                    Probe {
+                        indizes: Some({
+                            let mut v = indizes(1, 0, stelle);
+                            v[stelle - 1] = 1;
+                            v
+                        }),
+                        ..unten(vec![luft.clone(), stein.clone()], 1, 0)
+                    },
+                    oben("east", "minecraft:plains"),
+                ],
+                false,
+            ),
         ];
         for (i, c) in anders.iter().enumerate() {
             assert_ne!(c.abdruck().hash, a.abdruck().hash, "Fall {i}");
@@ -1352,14 +1363,6 @@ mod tests {
             a.abdruck().hash,
             "Banner mit Muster"
         );
-
-        let unfertig = |sections: &[Probe]| {
-            chunk_aus("minecraft:noise", sections, false, Vec::new()).abdruck()
-        };
-        let u = unfertig(&[unten(vec![luft.clone(), stein.clone()], 1, 0)]);
-        assert_eq!(u, unfertig(&[oben("west", "minecraft:desert")]));
-        assert_eq!(u.oben, None);
-        assert_ne!(u.hash, a.abdruck().hash);
     }
 
     fn gelesen(chunk: &Chunk) -> Vec<([i32; 3], Blockdaten)> {

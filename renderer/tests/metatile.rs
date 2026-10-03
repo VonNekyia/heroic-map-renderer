@@ -1022,6 +1022,43 @@ fn strahlen_zur_sonne() {
     assert_eq!(strahl([11.2, 6.9, 10.9], fremd), 0.0, "Überhang");
 }
 
+/// Ein Turm fast an der Weite zur Sonne hin wirft seinen Schatten, auch
+/// wenn der Strahl bis dorthin über den Decken aller Chunks läuft und der
+/// Turm im fernsten Chunk steht, den der Strahl erreicht: So weit reicht der
+/// Horizont. Daneben ist frei.
+/// Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
+#[test]
+fn ferner_turm_wirft_seinen_schatten() {
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    // Am Rand des Chunks, von dem aus der Strahl am weitesten kommt.
+    let p = [64.5, 4.001, 15.5];
+    let t = 0.97 * f64::from(LOOK.sonne_weite);
+    let turm: [i32; 3] = std::array::from_fn(|k| (p[k] + t * s[k]).floor() as i32);
+    assert_eq!((turm[0] >> 4, turm[2] >> 4), (0, 5), "{turm:?}");
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..=4).flat_map(|x| (0..=6).map(move |z| (x, z))).collect();
+    common::write_world_sections(
+        dir.path(),
+        &chunks,
+        0..=6,
+        move |x, y, z| match (x, y, z) {
+            (_, ..=3, _) => "minecraft:einfarbig",
+            _ if [x, z] == [turm[0], turm[2]] && y <= turm[1] + 2 => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let world = World::open(dir.path()).unwrap();
+    let sprites = kino_tabelle(&world, Projection::new(16), (0, 111), LOOK);
+    assert_eq!(sprites.kino().unwrap().sonne(), LOOK.sonne_im_blick(kamera));
+    let mut cache = ChunkCache::new(&world, &sprites);
+    for (q, soll) in [(p, 0.0), ([p[0] + 3.0, p[1], p[2]], 1.0)] {
+        assert_eq!(cache.sonne(q, [0; 3]).unwrap(), soll, "{q:?}");
+        assert_eq!(cache.sonne_bezug(q, [0; 3]).unwrap(), soll, "{q:?}");
+    }
+}
+
 /// Wie viel Sonne je Pixel eines Bilds ankommt, bezogen auf die volle: der
 /// Anteil der Sonne am Grün, mit `LOOK` weniger ohne Sonne, geteilt durch
 /// den grössten über den Pixeln von `boden`.

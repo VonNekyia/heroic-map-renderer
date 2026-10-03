@@ -40,6 +40,9 @@ pub(super) struct Saeule {
     /// Über dieser Zelle hält im Chunk nichts den Strahl auf, `i32::MIN`
     /// ohne Block.
     decke: i32,
+    /// Die höchste [`Saeule::decke`] der Chunks, die ein Strahl von hier
+    /// bis zur Weite erreichen kann, sobald gebraucht: Darüber ist er frei.
+    horizont: Option<i32>,
     /// Je Section, in die Modelle aus Nachbarn ragen, diese Zellen.
     ueber: HashMap<i8, Box<[u16; 256]>>,
     /// Je Section ihre [`Bits`], sobald ein Strahl sie betritt; `None` ohne
@@ -237,6 +240,9 @@ impl ChunkCache<'_> {
             };
             let basis = [key.0 * 16, c[1] & !15, key.1 * 16];
             if d64[1] > 0.0 && c[1] > decke {
+                if c[1] > self.horizont(slot, key, d, weite)? {
+                    return Ok(licht);
+                }
                 gang.springe(
                     p0,
                     d64,
@@ -372,10 +378,37 @@ impl ChunkCache<'_> {
         }
         loaded.sonne = Some(Box::new(Saeule {
             decke,
+            horizont: None,
             ueber,
             sections: Tabelle::default(),
         }));
         Ok((i, decke))
+    }
+
+    /// [`Saeule::horizont`] des Chunks `key` im Slot `i`, beim ersten Mal
+    /// gerechnet. Ein Strahl in Richtung `d` kommt bis zur Weite in x um
+    /// höchstens `weite · |d[0]|` weiter, also von jedem Punkt im Chunk über
+    /// höchstens `⌈weite · |d[0]| / 16⌉` Chunkgrenzen, in z ebenso. Ohne Chunk
+    /// gibt es keine Säule, die ihn hält; dann jedes Mal gerechnet.
+    fn horizont(&mut self, i: usize, key: (i32, i32), d: [f32; 3], weite: f64) -> Result<i32> {
+        let gemerkt = self.slots[i].loaded.as_ref().and_then(|l| l.sonne.as_ref());
+        if let Some(h) = gemerkt.and_then(|s| s.horizont) {
+            return Ok(h);
+        }
+        let reicht = |c: f32| (weite * f64::from(c.abs()) / 16.0).ceil() as i32;
+        let schritt = |c: f32| if c > 0.0 { 1 } else { -1 };
+        let mut h = i32::MIN;
+        for j in 0..=reicht(d[2]) {
+            for k in 0..=reicht(d[0]) {
+                let (_, decke) =
+                    self.saeule((key.0 + k * schritt(d[0]), key.1 + j * schritt(d[2])))?;
+                h = h.max(decke);
+            }
+        }
+        if let Some(s) = self.slots[i].loaded.as_mut().and_then(|l| l.sonne.as_mut()) {
+            s.horizont = Some(h);
+        }
+        Ok(h)
     }
 
     /// Die [`Bits`] der Section `sy` im Chunk im Slot `i`, beim ersten Mal

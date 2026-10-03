@@ -420,7 +420,9 @@ in [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
 - **Ohne Nähte:** `render_area_with` rendert um jede Kachel einen Rand von
   3r Pixeln mit, so weit reichen die drei Filter; bei scale 32 sind das 24
   Pixel. Im Rand rechnet er keine Strahlen zur Sonne, dort zählt nur das
-  Leuchten. Die Filter rechnen in Festkomma mit 24 Bit nach dem Komma: Die
+  Leuchten. Leuchtet kein Draw im grossen Rechteck, zeichnet er den Rand
+  gar nicht: Das Leuchten bliebe überall 0, der Bloom leer, und innen ist
+  jeder Pixel derselbe. Die Filter rechnen in Festkomma mit 24 Bit nach dem Komma: Die
   gleitende Summe ist exakt, und ein Ausschnitt gibt dieselben Bits wie das
   grosse Bild.
 - Getestet: `unscharf_wie_im_prototyp` mit Sollwerten aus der

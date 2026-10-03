@@ -192,7 +192,8 @@ pub fn render_hdr_bezug(
 }
 
 /// Wie [`render_hdr_with`], in `hdr`; `rand` Pixel am Rand zeichnet es nur
-/// für den Bloom, ohne Strahlen zur Sonne.
+/// für den Bloom, ohne Strahlen zur Sonne, und nur, wenn ein Draw leuchtet.
+/// Siehe docs/renderer/cinematic.md, „Bloom“.
 fn render_hdr(
     chunks: &mut ChunkCache,
     rect: ScreenRect,
@@ -216,10 +217,16 @@ fn render_hdr(
     let sichtbar = std::mem::take(&mut chunks.sichtbar);
     let kinodaten = std::mem::take(&mut chunks.kinodaten);
     debug_assert_eq!(sichtbar.len(), kinodaten.len());
+    // Ohne einen Draw, der leuchtet, bleibt das Leuchten überall 0 und der
+    // Bloom leer: Der Rand trägt nichts bei, innen ist jeder Pixel derselbe.
+    let nur_innen = rand > 0 && kinodaten.iter().all(|d| d.leuchten == 0.0);
     for (&(sprite, origin, ref sicht, licht), &daten) in sichtbar.iter().zip(&kinodaten).rev() {
+        if nur_innen && (sicht.y1 <= innen.y || sicht.y0 >= innen.bottom()) {
+            continue;
+        }
         blit_hdr(
             hdr,
-            (kino, sprites.projection(), &umkehrung, &innen),
+            (kino, sprites.projection(), &umkehrung, (&innen, nur_innen)),
             sprite,
             origin,
             licht,
@@ -1051,12 +1058,17 @@ fn blit_sichtbar(
 /// Karte, ungerundet. Die Sonne kommt dazu, so weit sie durchkommt: `sonne`
 /// gibt das für einen Punkt im Blick und den Block des Draws, siehe
 /// [`ChunkCache::sonne`]. Die Tiefe ist die des vordersten gezeichneten
-/// Pixels.
+/// Pixels. Mit `nur_innen` zeichnet es nur die Pixel in `innen`.
 /// Siehe docs/renderer/cinematic.md, „Zeichnen in HDR“.
 #[allow(clippy::too_many_arguments)]
 fn blit_hdr(
     hdr: &mut Hdr,
-    (kino, projection, umkehrung, innen): (&Kino, Projection, &Umkehrung, &ScreenRect),
+    (kino, projection, umkehrung, (innen, nur_innen)): (
+        &Kino,
+        Projection,
+        &Umkehrung,
+        (&ScreenRect, bool),
+    ),
     sprite: &Sprite,
     (ox, oy): (i32, i32),
     (licht, ecken, wasser, farben): Licht,
@@ -1106,6 +1118,9 @@ fn blit_hdr(
                 // Im Rand für den Bloom zählt nur das Leuchten.
                 let drin = (innen.x..innen.right()).contains(&(x as i32))
                     && (innen.y..innen.bottom()).contains(&y);
+                if nur_innen && !drin {
+                    continue;
+                }
                 if let Some(g) = sprite.geometrie.as_deref().map(|g| &g[i]).filter(|_| drin) {
                     sonnenlicht = kino.sonnenlicht(g);
                     if sonnenlicht != [0.0; 3] {

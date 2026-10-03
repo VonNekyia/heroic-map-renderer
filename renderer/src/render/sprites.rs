@@ -601,7 +601,7 @@ impl SpriteSet {
             for member in &members[1..] {
                 assets.skip_like(member, state);
             }
-            let pflanze = assets.bodenpflanze(state)?;
+            let pflanze = set.kino.is_some() && assets.bodenpflanze(state)?;
             let Some(family) = set.rastere_familie(assets, state, &models, pflanze) else {
                 continue;
             };
@@ -669,7 +669,7 @@ impl SpriteSet {
             }
             unbekannt.extend(blockentity::unbekannt(daten, assets));
             let models = models_of(assets, state, Some(daten))?;
-            let pflanze = assets.bodenpflanze(state)?;
+            let pflanze = self.kino.is_some() && assets.bodenpflanze(state)?;
             let Some(family) = self.rastere_familie(assets, state, &models, pflanze) else {
                 continue;
             };

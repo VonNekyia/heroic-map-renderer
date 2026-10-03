@@ -213,11 +213,12 @@ hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
 - **Wo er beginnt** (`startpunkt` in
   [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
   am Punkt der vordersten Fläche im Pixel, aus dem Bildpunkt und der Tiefe
-  des Sprites zurückgerechnet (`Projection::punkt`), ein Tausendstel vor
-  der Fläche. Auf einer achsparallelen Fläche liegt er in der Mitte seines
-  Sechzehntels Block (`texel_mitte`): Alle Pixel auf einem Texel bekommen
-  denselben Strahl, er wird einmal gerechnet. Auf schrägen Flächen je
-  Pixel.
+  des Sprites zurückgerechnet (die Matrix aus `Projection::umkehrung`,
+  einmal je Bild), ein Tausendstel vor der Fläche. Auf einer achsparallelen
+  Fläche liegt er in der Mitte seines Sechzehntels Block (`texel_mitte`):
+  Alle Pixel auf einem Texel bekommen denselben Strahl. Gerechnet wird er
+  einmal je Folge von Pixeln eines Draws mit demselben Punkt, also je
+  Zeile des Texels; auf schrägen Flächen je Pixel.
 - **Was deckt** (`Sonnenform` in
   [`renderer/src/render/sonne.rs`](../../renderer/src/render/sonne.rs)):
   je Alternative die Dreiecke ihres Modells im Blick, mit dem Alpha-Test
@@ -431,7 +432,8 @@ in [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
 ## Zeichnen in HDR
 
 Der dritte Durchgang von `render_area_with` zeichnet mit dem Look in HDR
-(`render_hdr_with`, `blit_hdr`), dieselben sichtbaren Pixel wie für die
+(`render_hdr` mit dem Rand für den Bloom, `blit_hdr`; ohne Rand und ohne
+Ton für Tests `render_hdr_with`), dieselben sichtbaren Pixel wie für die
 Karte, siehe [Der Weg einer Kachel](renderpfad.md), „Blit“:
 
 - **Farbe:** erst in den Farben des Bioms wie bei der Karte (`tinted`),
@@ -455,6 +457,11 @@ Karte, siehe [Der Weg einer Kachel](renderpfad.md), „Blit“:
 - **Alpha:** Cinematic rundet erst am Ende, die Karte nach jeder Schicht.
   Über Durchscheinendem weicht Alpha deshalb um höchstens eins ab; ein Pixel
   ist genau da, wo die Karte einen hat.
+- **Speicher:** Die Daten je Draw für Cinematic (`Kinodaten`, mit der
+  Farbe des Himmels) legt der zweite Durchgang nur mit Cinematic an, neben
+  den Draws. Die Leinwand in HDR und die Puffer des Bloom behält der
+  Chunk-Cache über die Kacheln eines Threads; das Licht des Wassers
+  rechnet `Wasserlicht` einmal je Draw.
 - **Native Stufen und Pyramide** laufen wie bei der Karte, ohne eigenen
   Code. Die Pyramide mittelt die fertigen Kacheln, siehe
   [Zoomstufen](../benutzung/zoomstufen.md), „Verkleinern“.

@@ -190,6 +190,12 @@ impl Kino {
     /// Umgebungsfarbe.
     /// Siehe docs/renderer/cinematic.md, „Licht in HDR“.
     pub fn licht(&self, himmel: [f32; 3], sky: f32, block: f32, schatten: f32) -> [f32; 3] {
+        self.lichtstufe(sky, block, schatten).mal(himmel)
+    }
+
+    /// [`Kino::licht`] ohne die Farbe des Himmels, für viele Farben bei
+    /// denselben Stufen.
+    pub fn lichtstufe(&self, sky: f32, block: f32, schatten: f32) -> Lichtstufe {
         let stufe = |stufen: &[[f32; 3]; 16], wert: f32| -> [f32; 3] {
             let s = (wert / 16.0).clamp(0.0, 15.0);
             let unten = s as usize;
@@ -197,12 +203,12 @@ impl Kino {
             let f = s - unten as f32;
             std::array::from_fn(|c| stufen[unten][c] + (stufen[oben][c] - stufen[unten][c]) * f)
         };
-        let (h, b) = (
-            stufe(&self.himmel_stufen, sky),
-            stufe(&self.block_stufen, block),
-        );
-        let k = schatten / 255.0;
-        std::array::from_fn(|c| (self.umgebung[c] + himmel[c] * h[c] + b[c]) * k)
+        Lichtstufe {
+            umgebung: self.umgebung,
+            himmel: stufe(&self.himmel_stufen, sky),
+            block: stufe(&self.block_stufen, block),
+            schatten: schatten / 255.0,
+        }
     }
 
     /// Die Richtung zur Sonne im Blick.
@@ -257,46 +263,76 @@ impl Kino {
 
     /// Der Bloom eines Bildes der Breite `breite`: das Leuchten `leuchten`,
     /// vormultipliziert, je Pixel abgeglichen mit dessen Wärme `waerme`, mal
-    /// [`Look::bloom`], unscharf mit dem Radius aus [`Kino::bloom_radius`].
-    /// `None`, wo nichts leuchtet.
+    /// [`Look::bloom`], unscharf mit dem Radius aus [`Kino::bloom_radius`],
+    /// gerechnet in `puffer`. `None`, wo nichts leuchtet.
     /// Siehe docs/renderer/cinematic.md, „Bloom“.
-    pub fn bloom(
+    pub fn bloom<'p>(
         &self,
         leuchten: &[[f32; 3]],
         waerme: &[f32],
         breite: usize,
         scale: u32,
-    ) -> Option<Vec<[f32; 3]>> {
+        puffer: &'p mut Bloompuffer,
+    ) -> Option<&'p [[f32; 3]]> {
         let r = self.bloom_radius(scale);
         if r == 0 || leuchten.iter().all(|l| *l == [0.0; 3]) {
             return None;
         }
-        let quelle: Vec<[f32; 3]> = leuchten
-            .iter()
-            .zip(waerme)
-            .map(|(l, &w)| {
-                let v = self.abgleich(w);
-                std::array::from_fn(|c| l[c] * v[c] * self.look.bloom)
-            })
-            .collect();
-        Some(unscharf(&quelle, breite, r))
+        puffer.q.clear();
+        puffer.q.extend(leuchten.iter().zip(waerme).map(|(l, &w)| {
+            let v = self.abgleich(w);
+            festkomma(std::array::from_fn(|c| l[c] * v[c] * self.look.bloom))
+        }));
+        unscharf(puffer, breite, r);
+        Some(&puffer.aus)
     }
 }
 
-/// Drei Kastenfilter der Breite `2r + 1` je Achse, erst senkrecht, dann
-/// waagrecht, am Rand fortgesetzt: nahe an einer Gaussglocke, wie im
-/// Prototyp aus #89. Gerechnet in Festkomma mit 24 Bit nach dem Komma: Die
-/// gleitende Summe ist so exakt, und jeder Wert hängt nur an seinem
-/// Fenster. Ein Ausschnitt mit Rand gibt dieselben Bits wie das ganze Bild.
-fn unscharf(bild: &[[f32; 3]], breite: usize, r: usize) -> Vec<[f32; 3]> {
-    const EINS: f64 = (1u64 << 24) as f64;
-    let hoehe = bild.len() / breite;
-    let mut q: Vec<[i64; 3]> = bild
-        .iter()
-        .map(|p| p.map(|c| (f64::from(c) * EINS).round() as i64))
-        .collect();
+/// Das Licht aus [`Kino::lichtstufe`]: je Kanal die Stufen des Himmels-
+/// und des Blocklichts, die Umgebung und der Schatten.
+#[derive(Clone, Copy)]
+pub struct Lichtstufe {
+    umgebung: [f32; 3],
+    himmel: [f32; 3],
+    block: [f32; 3],
+    schatten: f32,
+}
+
+impl Lichtstufe {
+    /// Das Licht in der Farbe `himmel` des Himmelslichts.
+    pub fn mal(&self, himmel: [f32; 3]) -> [f32; 3] {
+        std::array::from_fn(|c| {
+            (self.umgebung[c] + himmel[c] * self.himmel[c] + self.block[c]) * self.schatten
+        })
+    }
+}
+
+/// Die Puffer des Bloom, über Bilder hinweg behalten: das Bild in
+/// Festkomma, eine Linie davon und das Ergebnis.
+#[derive(Default)]
+pub struct Bloompuffer {
+    q: Vec<[i64; 3]>,
+    linie: Vec<[i64; 3]>,
+    aus: Vec<[f32; 3]>,
+}
+
+/// Eins im Festkomma von [`unscharf`]: 24 Bit nach dem Komma.
+const EINS: f64 = (1u64 << 24) as f64;
+
+fn festkomma(p: [f32; 3]) -> [i64; 3] {
+    p.map(|c| (f64::from(c) * EINS).round() as i64)
+}
+
+/// Drei Kastenfilter der Breite `2r + 1` je Achse über das Bild `q` im
+/// Puffer, erst senkrecht, dann waagrecht, am Rand fortgesetzt, nach `aus`:
+/// nahe an einer Gaussglocke, wie im Prototyp aus #89. Gerechnet in
+/// Festkomma ([`EINS`]): Die gleitende Summe ist so exakt, und jeder Wert
+/// hängt nur an seinem Fenster. Ein Ausschnitt mit Rand gibt dieselben Bits
+/// wie das ganze Bild.
+fn unscharf(puffer: &mut Bloompuffer, breite: usize, r: usize) {
+    let Bloompuffer { q, linie, aus } = puffer;
+    let hoehe = q.len() / breite;
     let b = 2 * r as i64 + 1;
-    let mut linie = Vec::new();
     // Je Achse: wie viele Werte eine Linie hat, ihr Abstand, wie viele Linien
     // und der Abstand der Linien.
     for (laenge, schritt, linien, versatz) in
@@ -321,9 +357,8 @@ fn unscharf(bild: &[[f32; 3]], breite: usize, r: usize) -> Vec<[f32; 3]> {
             }
         }
     }
-    q.iter()
-        .map(|p| p.map(|c| (c as f64 / EINS) as f32))
-        .collect()
+    aus.clear();
+    aus.extend(q.iter().map(|p| p.map(|c| (c as f64 / EINS) as f32)));
 }
 
 #[cfg(test)]
@@ -331,6 +366,16 @@ mod tests {
     use super::*;
     use crate::assets::colors::Colors;
     use crate::render::look::LOOK;
+
+    /// [`unscharf`] über ein Bild in f32.
+    fn unscharf_bild(bild: &[[f32; 3]], breite: usize, r: usize) -> Vec<[f32; 3]> {
+        let mut puffer = Bloompuffer {
+            q: bild.iter().copied().map(festkomma).collect(),
+            ..Bloompuffer::default()
+        };
+        unscharf(&mut puffer, breite, r);
+        puffer.aus
+    }
 
     fn kino(typ: &DimensionType) -> Kino {
         Kino::new(
@@ -541,7 +586,7 @@ mod tests {
     fn unscharf_wie_im_prototyp() {
         let mut bild = vec![[0.0f32; 3]; 31 * 31];
         bild[15 * 31 + 15] = [1.0, 2.0, 3.0];
-        let aus = unscharf(&bild, 31, 2);
+        let aus = unscharf_bild(&bild, 31, 2);
         for ((x, y), soll) in [
             ((15, 15), 0.023104),
             ((18, 15), 0.01216),
@@ -569,14 +614,14 @@ mod tests {
                 [f, f * 0.5, (i % 13) as f32]
             })
             .collect();
-        let ganz = unscharf(&bild, breite, r);
+        let ganz = unscharf_bild(&bild, breite, r);
         let (x0, y0, b, h) = (9, 11, 12, 8);
         let rand = 3 * r;
         let teil: Vec<[f32; 3]> = (y0 - rand..y0 + h + rand)
             .flat_map(|y| (x0 - rand..x0 + b + rand).map(move |x| (x, y)))
             .map(|(x, y)| bild[y * breite + x])
             .collect();
-        let klein = unscharf(&teil, b + 2 * rand, r);
+        let klein = unscharf_bild(&teil, b + 2 * rand, r);
         for y in 0..h {
             for x in 0..b {
                 let ist = klein[(y + rand) * (b + 2 * rand) + x + rand];

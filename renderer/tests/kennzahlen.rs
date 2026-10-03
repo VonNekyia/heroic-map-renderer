@@ -14,6 +14,7 @@ use image::RgbaImage;
 use image::imageops::{FilterType, crop_imm, replace, resize};
 use rayon::prelude::*;
 use terranova_render::assets::Assets;
+use terranova_render::render::kino::Bloompuffer;
 use terranova_render::render::look::{LOOK, Look};
 use terranova_render::render::metatile::{Hdr, render_hdr_with};
 use terranova_render::render::{
@@ -239,7 +240,14 @@ fn schreibe(
     let ohne_schatten = s.hdr(&ohne_schatten);
     let (projection, rect) = (s.projection, s.rect);
     let k = kino.kino().unwrap();
-    let bloom = k.bloom(&mit.leuchten, &mit.waerme, GROESSE as usize, scale);
+    let mut puffer = Bloompuffer::default();
+    let bloom = k.bloom(
+        &mit.leuchten,
+        &mit.waerme,
+        GROESSE as usize,
+        scale,
+        &mut puffer,
+    );
     let lum = |c: &[f32]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
     let mut bloeck = Bloecke::new(&s.world);
     let mut familien: Vec<String> = Vec::new();

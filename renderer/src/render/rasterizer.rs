@@ -568,7 +568,7 @@ fn zuschneiden(sprite: &Sprite) -> Option<Sprite> {
     let (x0, y0, x1, y1) = umriss?;
     let (breite, w) = (sprite.image.width(), x1 - x0 + 1);
     let image = image::imageops::crop_imm(&sprite.image, x0, y0, w, y1 - y0 + 1).to_image();
-    fn ausschnitt<T: Copy>(
+    fn zuschnitt<T: Copy>(
         karte: &[T],
         breite: u32,
         (x0, y0, x1, y1): (u32, u32, u32, u32),
@@ -584,13 +584,13 @@ fn zuschneiden(sprite: &Sprite) -> Option<Sprite> {
         ao: sprite
             .ao
             .as_deref()
-            .map(|karte| ausschnitt(karte, breite, umriss)),
+            .map(|karte| zuschnitt(karte, breite, umriss)),
         weich: sprite.weich,
         tint: None,
         geometrie: sprite
             .geometrie
             .as_deref()
-            .map(|karte| ausschnitt(karte, breite, umriss)),
+            .map(|karte| zuschnitt(karte, breite, umriss)),
     })
 }
 

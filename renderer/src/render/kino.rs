@@ -223,11 +223,6 @@ impl Kino {
         self.sonne_licht.map(|c| c * cos)
     }
 
-    /// Die Wärme für ein Biom der Temperatur `t`, siehe [`Look::waerme`].
-    pub fn waerme(&self, t: f32) -> f32 {
-        self.look.waerme(t)
-    }
-
     /// Der Weissabgleich je Kanal mit der Wärme `w`, `1 + (v − 1) · w` wie in
     /// 0058.
     /// Siehe docs/renderer/cinematic.md, „Wärme“.

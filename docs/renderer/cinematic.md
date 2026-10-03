@@ -241,7 +241,7 @@ hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
 
 ### Der schnelle Gang
 
-`ChunkCache::sonne_gang` geht den Strahl Zelle für Zelle durch das Gitter
+`ChunkCache::sonne` geht den Strahl Zelle für Zelle durch das Gitter
 im Blick, springt aber über, was nichts aufhält:
 
 - **Je Chunk eine Säule** (`Saeule`), sobald ein Strahl ihn betritt: ihre
@@ -412,7 +412,8 @@ in [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
   waagrecht, nahe an einer Gaussglocke mit σ = `bloom_breite` · scale, wie
   im Prototyp aus #89 (`unscharf` in `kino.rs`): Breite √(4σ² + 1),
   gerundet und ungerade, Radius r die Hälfte davon, abgerundet. Bei scale
-  32 ist r = 8.
+  32 ist r = 8; die drei Kästen der Breite 2r + 1 = 17 geben zusammen
+  σ = √(3 · (17² − 1) / 12) ≈ 8,49 Pixel statt 8, wie im Prototyp.
 - **Dazu** vor Belichtung und Kurve, so abgeglichen wie die Farbe. Auf
   einen Pixel ohne Block fällt kein Schein, er bleibt durchsichtig.
 - **Ohne Nähte:** `render_area_with` rendert um jede Kachel einen Rand von

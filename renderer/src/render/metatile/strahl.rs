@@ -1,7 +1,6 @@
 //! Der Strahl zur Sonne durch die Welt im Chunk-Cache, für Cinematic.
 //! Siehe docs/renderer/cinematic.md, „Schatten“.
 
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::Result;
@@ -44,7 +43,7 @@ pub(super) struct Saeule {
     /// bis zur Weite erreichen kann, sobald gebraucht: Darüber ist er frei.
     horizont: Option<i32>,
     /// Je Section, in die Modelle aus Nachbarn ragen, diese Zellen.
-    ueber: HashMap<i8, Box<[u16; 256]>>,
+    ueber: Tabelle<i8, Box<[u16; 256]>>,
     /// Je Section ihre [`Bits`], sobald ein Strahl sie betritt; `None` ohne
     /// Arbeit.
     sections: Tabelle<i8, Option<Rc<Bits>>>,
@@ -52,7 +51,7 @@ pub(super) struct Saeule {
 
 /// Die Blöcke eines Chunks, deren Modell für die Sonne aus dem Würfel ragt,
 /// im Blick: für die Zellen [`Bits::ueber`] der Nachbarn.
-pub(super) fn ragende(loaded: &Loaded, sprites: &super::SpriteSet) -> Vec<[i32; 3]> {
+pub(super) fn ragende(loaded: &Loaded, sprites: &super::SpriteSet) -> Rc<[[i32; 3]]> {
     let richtung = sprites.projection().richtung();
     let ragt = |index: &Option<u32>| {
         index.is_some_and(|i| {
@@ -80,7 +79,7 @@ pub(super) fn ragende(loaded: &Loaded, sprites: &super::SpriteSet) -> Vec<[i32; 
             }
         });
     }
-    out
+    out.into()
 }
 
 /// Was ein Block auf dem Strahl zur Sonne bewirkt.
@@ -205,18 +204,15 @@ impl ChunkCache<'_> {
     /// deckenden Stelle, sonst [`Look::pflanzen`] je Bodenpflanze auf dem
     /// Strahl, ausser der, auf der er beginnt (`eigen`, der Block des Draws).
     ///
+    /// Als schneller Gang: über der Decke eines Chunks, durch eine Section
+    /// ohne Arbeit und durch einen Würfel aus 4 × 4 × 4 Zellen ohne Arbeit
+    /// springt er hinaus; in einen vollen deckenden Würfel tritt er ohne
+    /// Test; sonst prüft er die Zelle wie [`ChunkCache::sonne_bezug`].
+    /// Dasselbe Ergebnis, denn ein Block, den der Strahl nicht trifft,
+    /// ändert nichts, gleich ob er geprüft wird.
+    ///
     /// [`Look::pflanzen`]: super::super::look::Look::pflanzen
     pub fn sonne(&mut self, p0: [f64; 3], eigen: [i32; 3]) -> Result<f32> {
-        self.sonne_gang(p0, eigen)
-    }
-
-    /// [`ChunkCache::sonne`] als schneller Gang: über der Decke eines
-    /// Chunks, durch eine Section ohne Arbeit und durch einen Würfel aus
-    /// 4 × 4 × 4 Zellen ohne Arbeit springt er hinaus; in einen vollen
-    /// deckenden Würfel tritt er ohne Test; sonst prüft er die Zelle wie
-    /// [`ChunkCache::sonne_bezug`]. Dasselbe Ergebnis, denn ein Block, den
-    /// der Strahl nicht trifft, ändert nichts, gleich ob er geprüft wird.
-    pub(super) fn sonne_gang(&mut self, p0: [f64; 3], eigen: [i32; 3]) -> Result<f32> {
         let sprites = self.sprites;
         let look = sprites.kino().expect("Cinematic").look();
         let d = ohne_null(sprites.kino().expect("Cinematic").sonne());
@@ -326,7 +322,7 @@ impl ChunkCache<'_> {
         }
         let sprites = self.sprites;
         let [lo, hi] = sprites.sonne_reich();
-        let mut ueber: HashMap<i8, Box<[u16; 256]>> = HashMap::new();
+        let mut ueber: Tabelle<i8, Box<[u16; 256]>> = Tabelle::default();
         let mut decke = i32::MIN;
         if [lo, hi] != [[0; 3]; 2] {
             for dz in -1..=1 {
@@ -338,8 +334,8 @@ impl ChunkCache<'_> {
                     if nachbar.ragende.is_none() {
                         nachbar.ragende = Some(ragende(nachbar, sprites));
                     }
-                    let liste = nachbar.ragende.clone().unwrap_or_default();
-                    for b in liste {
+                    let liste = Rc::clone(nachbar.ragende.as_ref().expect("eben gesetzt"));
+                    for &b in liste.iter() {
                         let Some((family, _)) = self.block_at(b[0], b[1], b[2])? else {
                             continue;
                         };

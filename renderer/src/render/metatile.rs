@@ -1054,7 +1054,7 @@ fn blit_hdr(
     // Blocks, wie im Spiel ohne weiche Beleuchtung.
     let stufen = licht.map(|c| c as f32);
     let licht = EckenLicht::new(kino, himmel.licht, licht, ecken);
-    let waerme = kino.waerme(himmel.temperatur);
+    let waerme = kino.look().waerme(himmel.temperatur);
     let leuchten = leuchten * kino.look().leuchten;
     let karte = sprite.ao.as_deref();
     let nass = wasser.map(|[s, b, a]| kino.licht(himmel.licht, s as f32, b as f32, a as f32));
@@ -1544,7 +1544,7 @@ struct Loaded {
     /// Nur für Cinematic: die Blöcke, deren Modell für die Sonne aus dem
     /// Würfel ragt ([`strahl::ragende`]), und die Säule des schnellen Gangs,
     /// beide sobald gebraucht.
-    ragende: Option<Vec<[i32; 3]>>,
+    ragende: Option<Rc<[[i32; 3]]>>,
     sonne: Option<Box<strahl::Saeule>>,
 }
 

@@ -21,7 +21,9 @@ Wurzel liest, steht in [Packs und Wurzeln](../renderer/packs.md).
 
 Ein Overlay-Pack allein reicht nicht: das TerraNova-Pack bringt 39 von 1198
 Blockstates mit und keine Colormaps. Die Basis kommt aus dem Client-JAR der
-Version, die der Server fährt (hier 26.3):
+Version, die der Server fährt (hier 26.3). Für eine Welt aus 26.2 also die
+aus 26.2: Mit denen aus 26.3 schattiert der Renderer etwa die Stängel der
+Blumenbeete nach Norden, wie 26.3.
 
 ```powershell
 $v = "26.3"; $m = Get-Content "$env:APPDATA\.minecraft\versions\$v\$v.json" | ConvertFrom-Json; Invoke-WebRequest $m.downloads.client.url -OutFile "$env:TEMP\mc.zip"; Expand-Archive "$env:TEMP\mc.zip" "$env:TEMP\mc" -Force; Move-Item "$env:TEMP\mc\assets" vanilla-assets

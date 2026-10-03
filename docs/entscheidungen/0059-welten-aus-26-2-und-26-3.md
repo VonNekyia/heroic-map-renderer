@@ -12,6 +12,10 @@ code:
 
 # 0059: Welten und Packs aus 26.2 und 26.3, Tabellen aus 26.3
 
+Die Sicht in der Ecke wählt der Renderer seit
+[0065](0065-sicht-in-der-ecke-nach-der-version.md) nach der Version der
+Welt; sonst gilt diese Entscheidung weiter.
+
 ## Anlass
 
 26.3 ist erschienen. Ein Server, der darauf wechselt, schreibt Chunks im

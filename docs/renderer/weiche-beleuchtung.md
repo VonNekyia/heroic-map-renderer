@@ -1,6 +1,6 @@
 ---
 title: Weiche Beleuchtung
-description: Wie der Renderer Blöcke weich beleuchtet wie das Spiel in der Voreinstellung, nach den Regeln von BlockModelLighter in 26.3, mit dem Licht an jeder Ecke der Flächen auf dem Rand und im Innern, und was eine Näherung bleibt.
+description: Wie der Renderer Blöcke weich beleuchtet wie das Spiel in der Voreinstellung, nach den Regeln von BlockModelLighter in 26.3, eine Welt aus 26.2 mit der Ecke von 26.2, mit dem Licht an jeder Ecke der Flächen auf dem Rand und im Innern, und was eine Näherung bleibt.
 code:
   - renderer/src/render/metatile.rs
   - renderer/src/render/rasterizer.rs
@@ -11,6 +11,9 @@ code:
   - renderer/src/assets/model.rs
   - renderer/src/assets/schatten.txt
   - renderer/src/assets/Schatten.java
+  - renderer/src/assets/sicht262.txt
+  - renderer/src/assets/Sicht262.java
+  - renderer/src/world/mod.rs
 ---
 
 # Weiche Beleuchtung
@@ -60,7 +63,9 @@ Platte oder eines Trampelpfads, siehe
   Licht durchlässt: nicht `isLightPermeable`, also `solidRender` und
   `getLightDampening` > 0. In 26.2 stand `isViewBlocking` statt
   `solidRender`; seit 26.3 lassen Eis, Brucheis, Schleimblöcke, die
-  Shulkerkisten, Leuchtfeuer, Spawner und Barriere die Ecke durch. Sonst nimmt
+  Shulkerkisten, Leuchtfeuer, Spawner und die geflutete Barriere die Ecke
+  durch. Eine Welt aus 26.2 zeichnet der Renderer mit der Regel von 26.2,
+  siehe „Welten aus 26.2“. Sonst nimmt
   das Spiel an seiner Stelle den Wert des ersten Nachbarn aus
   `AdjacencyInfo.corners`, für alle vier Ecken denselben, auch für eine
   Ecke, die dieser Nachbar gar nicht berührt. Der Renderer auch.
@@ -79,6 +84,45 @@ Platte oder eines Trampelpfads, siehe
   Spiel ohne (`ModelBlockRenderer.tesselateBlock`), Flüssigkeiten ebenso
   (`FluidRenderer`) und die Flächen aus Blockentity-Modellen, siehe
   [Blockentities](blockentities.md), „Licht“.
+
+## Welten aus 26.2
+
+Eine Welt aus 26.2 sehen ihre Spieler im Client von 26.2, und der prüft
+die Ecke anders (`prepareQuadAmbientOcclusion`, per javap an den
+Client-JARs von 26.2 und 26.3). Entschieden in
+[0065](../entscheidungen/0065-sicht-in-der-ecke-nach-der-version.md).
+
+| | 26.2 | 26.3 |
+|---|---|---|
+| Ecke: der Nachbar eine Schicht weiter nimmt die Sicht | `isViewBlocking` und `getLightDampening` > 0, Bit 8 (`SICHT_262`) | nicht `isLightPermeable`, Bit 2 (`SICHT`) |
+| Mitte einer Fläche im Innern: Licht der eigenen Zelle vor | `isSolidRender`, Bit 2 | `isSolidRender`, Bit 2 |
+
+- **Anders** sind 23 Blöcke: Eis, Brucheis, Schleimblock, Leuchtfeuer,
+  Spawner, die geflutete Barriere und die 17 Shulkerkisten. In 26.2 nehmen
+  sie in der Ecke die Sicht, in 26.3 nicht (`sicht_von_26_2_wie_im_spiel`
+  in [`renderer/src/assets/blockstate.rs`](../../renderer/src/assets/blockstate.rs)).
+  Für die Mitte ist `isSolidRender` von 26.2 in allen 32 366 Zuständen
+  gleich Bit 2, geprüft am Server-JAR von 26.2 am 03.10.
+- **Welche Regel gilt**, sagt `Data.DataVersion` aus `level.dat` der
+  Weltwurzel: vor 5023, der Datenversion von 26.3, die von 26.2, sonst die
+  von 26.3, auch ohne `level.dat` oder ohne das Feld (`ecke_wie_26_2` in
+  [`renderer/src/world/mod.rs`](../../renderer/src/world/mod.rs)). Es zählt
+  der Lauf, nicht der Chunk: Eine Welt im Übergang sehen alle schon mit
+  26.3, und ihre `level.dat` nennt 26.3. Der Lauf nennt die Regel in der
+  Zeile `Version:`.
+- **Die Version gehört zum Baum,** `ambientOcclusion` in
+  [map.json](../benutzung/map-json.md): Ein Lauf mit der anderen bricht ab
+  und lässt den Baum, wie er ist; ein Baum aus einem älteren Stand bekommt
+  die der Welt (`ecke` in `renderer/src/cli.rs`,
+  `version_der_weichen_beleuchtung_gehoert_zum_baum`). Wechselt eine Welt
+  auf 26.3, braucht ihr Baum eine neue Wurzel.
+- **Im Cache** sind es zwei Ebenen: `VIEW` für die Ecke nach der Version,
+  `OPAQUE` für die Mitte, immer Bit 2 (`Masks::of` in
+  `renderer/src/render/metatile.rs`). `eis_in_der_ecke_nach_der_version_der_welt`
+  und `fester_block_davor_gibt_der_mitte_das_eigene_licht` zeichnen beide.
+- **Die Modelle** kommen aus `--assets`: Zu einer Welt aus 26.2 gehören
+  die Assets aus dem Client von 26.2, siehe
+  [Assets und Biomdaten](../benutzung/assets.md).
 
 ## Aus jeder Richtung
 

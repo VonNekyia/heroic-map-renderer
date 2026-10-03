@@ -354,12 +354,18 @@ pub const DUNKELT: u8 = 1;
 /// Hinter ihm zählt die Ecke einer Fläche nicht mehr, siehe
 /// `ChunkCache::ecken_at`. In 26.3 ist das genau `solidRender`, denn dort
 /// ist `getLightDampening` 15; vor ihm nimmt eine Fläche im Innern die Mitte
-/// aus der eigenen Zelle.
+/// aus der eigenen Zelle, auch in einer Welt aus 26.2.
 pub const SICHT: u8 = 2;
 /// `isCollisionShapeFullBlock`: Jede ebene Fläche des Modells liegt im
 /// Licht der Zelle davor, nicht nur die auf dem Rand des Blocks
 /// (`faceCubic` in `BlockModelLighter.prepareQuadShape`).
 pub const KOLLISION: u8 = 4;
+/// Wie [`SICHT`] in 26.2: `isViewBlocking` und `getLightDampening` > 0,
+/// aus `sicht262.txt`. Gilt in einer Welt aus 26.2 für die Ecken statt
+/// [`SICHT`]; die Mitte bleibt bei [`SICHT`], denn auch 26.2 fragt dort
+/// `isSolidRender`.
+/// Siehe docs/renderer/weiche-beleuchtung.md, „Welten aus 26.2“.
+pub const SICHT_262: u8 = 8;
 
 /// Was die weiche Beleuchtung über die Blöcke von 26.3 wissen muss, aus
 /// dem Spiel selbst gelesen (`Schatten.java`): je Block eine Ziffer aus
@@ -369,30 +375,39 @@ pub const KOLLISION: u8 = 4;
 /// wird, sagt [`leuchten`]. Neu erzeugen mit dem Skill
 /// `tabellen-neu-erzeugen`.
 /// Siehe docs/entwicklung/tabellen.md, „Die Tabellen“.
-static SCHATTEN: LazyLock<HashMap<&'static str, &'static [u8]>> = LazyLock::new(|| {
-    include_str!("schatten.txt")
-        .lines()
+static SCHATTEN: LazyLock<HashMap<&'static str, &'static [u8]>> =
+    LazyLock::new(|| ziffern_je_block(include_str!("schatten.txt")));
+
+/// Je Block von 26.2, ob er in der Ecke die Sicht nimmt, wie die weiche
+/// Beleuchtung von 26.2 fragt, aus dem Spiel selbst gelesen
+/// (`Sicht262.java`): je Zustand 1 oder 0 wie in [`SCHATTEN`]. Blöcke ohne
+/// eine 1 fehlen.
+/// Siehe docs/entwicklung/tabellen.md, „Die Tabellen“.
+static SICHT262: LazyLock<HashMap<&'static str, &'static [u8]>> =
+    LazyLock::new(|| ziffern_je_block(include_str!("sicht262.txt")));
+
+fn ziffern_je_block(text: &'static str) -> HashMap<&'static str, &'static [u8]> {
+    text.lines()
         .filter_map(|line| line.split_once(' '))
         .map(|(name, ziffern)| (name, ziffern.as_bytes()))
         .collect()
-});
+}
 
-/// Die Bits aus [`SCHATTEN`] für einen Zustand. Ein Block, den `blocks.txt` nicht
-/// kennt, hat keines: Er dunkelt nichts ab und wird weich beleuchtet.
+/// Die Bits aus [`SCHATTEN`] für einen Zustand, dazu [`SICHT_262`] aus
+/// [`SICHT262`]. Ein Block, den `blocks.txt` nicht kennt, hat keines: Er
+/// dunkelt nichts ab und wird weich beleuchtet.
 pub fn schatten(state: &BlockState) -> u8 {
     let Some(name) = state.name().strip_prefix("minecraft:") else {
         return 0;
     };
-    let Some(ziffern) = SCHATTEN.get(name) else {
-        return 0;
+    let ziffer = |tabelle: &HashMap<&str, &[u8]>| {
+        let ziffer = match tabelle.get(name)? {
+            [eine] => *eine,
+            ziffern => *ziffern.get(Definition::of(state.name())?.index(state)?)?,
+        };
+        Some(ziffer - b'0')
     };
-    let ziffer = match ziffern {
-        [eine] => Some(*eine),
-        _ => Definition::of(state.name())
-            .and_then(|d| d.index(state))
-            .and_then(|i| ziffern.get(i).copied()),
-    };
-    ziffer.map_or(0, |z| z - b'0')
+    ziffer(&SCHATTEN).unwrap_or(0) | ziffer(&SICHT262).map_or(0, |z| z * SICHT_262)
 }
 
 /// Wann ein Block von 26.3 eine Fläche zu seinem Nachbarn weglässt: sein
@@ -1170,7 +1185,7 @@ mod tests {
             );
             assert!(ziffern.iter().all(|z| (b'0'..=b'7').contains(z)), "{name}");
         }
-        let bits = |text: &str| schatten(&state(text));
+        let bits = |text: &str| schatten(&state(text)) & !SICHT_262;
         let alle = DUNKELT | SICHT | KOLLISION;
         assert_eq!(bits("minecraft:stone"), alle);
         assert_eq!(bits("minecraft:soul_sand"), DUNKELT | SICHT);
@@ -1195,6 +1210,96 @@ mod tests {
         assert_eq!(bits("minecraft:oak_slab[type=top,waterlogged=false]"), 0);
         assert_eq!(bits("minecraft:oak_slab[type=bottom,waterlogged=false]"), 0);
         assert_eq!(bits("mod:stein"), 0);
+    }
+
+    /// Jede Zeile aus `sicht262.txt` passt zu `blocks.txt`, und die Regel
+    /// von 26.2 weicht von [`SICHT`] nur bei den Blöcken ab, die
+    /// `isViewBlocking` sind, aber Licht durchlassen, und bei denen, die es
+    /// erst in 26.3 gibt.
+    #[test]
+    fn sicht_von_26_2_wie_im_spiel() {
+        assert_eq!(SICHT262.len(), 475);
+        for (name, ziffern) in SICHT262.iter() {
+            let definition = Definition::of(&format!("minecraft:{name}"))
+                .unwrap_or_else(|| panic!("{name} fehlt in blocks.txt"));
+            assert!(
+                ziffern.len() == 1 || ziffern.len() == definition.states(),
+                "{name}"
+            );
+            assert!(ziffern.iter().all(|z| matches!(z, b'0' | b'1')), "{name}");
+        }
+        let ziffer = |tabelle: &HashMap<&str, &[u8]>, name: &str, i: usize| {
+            tabelle
+                .get(name)
+                .map_or(0, |z| z[i.min(z.len() - 1)] - b'0')
+        };
+        let (mut nur_262, mut nur_263) = (BTreeSet::new(), BTreeSet::new());
+        for &name in SCHATTEN.keys().chain(SICHT262.keys()) {
+            let definition = Definition::of(&format!("minecraft:{name}")).unwrap();
+            for i in 0..definition.states() {
+                match (
+                    ziffer(&SICHT262, name, i) != 0,
+                    ziffer(&SCHATTEN, name, i) & SICHT != 0,
+                ) {
+                    (true, false) => nur_262.insert(name),
+                    (false, true) => nur_263.insert(name),
+                    _ => false,
+                };
+            }
+        }
+        let farben = [
+            "white",
+            "orange",
+            "magenta",
+            "light_blue",
+            "yellow",
+            "lime",
+            "pink",
+            "gray",
+            "light_gray",
+            "cyan",
+            "purple",
+            "blue",
+            "brown",
+            "green",
+            "red",
+            "black",
+        ];
+        let kisten = farben.map(|f| format!("{f}_shulker_box"));
+        let andere = [
+            "barrier",
+            "beacon",
+            "frosted_ice",
+            "ice",
+            "shulker_box",
+            "slime_block",
+            "spawner",
+        ];
+        let erwartet: BTreeSet<&str> = andere
+            .into_iter()
+            .chain(kisten.iter().map(String::as_str))
+            .collect();
+        assert_eq!(nur_262, erwartet);
+        assert_eq!(nur_263.len(), 38);
+        assert!(
+            nur_263
+                .iter()
+                .all(|n| ["concrete_slab", "wool_slab", "poplar"]
+                    .iter()
+                    .any(|neu| n.contains(neu))),
+            "{nur_263:?}"
+        );
+        let bits = |text: &str| schatten(&state(text));
+        assert_eq!(bits("minecraft:ice"), DUNKELT | KOLLISION | SICHT_262);
+        assert_eq!(
+            bits("minecraft:stone"),
+            DUNKELT | SICHT | KOLLISION | SICHT_262
+        );
+        assert_eq!(bits("minecraft:glass"), KOLLISION);
+        assert_eq!(
+            bits("minecraft:barrier[waterlogged=true]"),
+            KOLLISION | SICHT_262
+        );
     }
 
     /// [`SICHT`] ist in 26.3 genau `solidRender`: Die Form für die Deckung

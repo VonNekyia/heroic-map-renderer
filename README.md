@@ -38,8 +38,8 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet
 
 - **Wie im Spiel:** Blockstates, Modelle mit Drehung, Gewicht und `uvlock`,
   Varianten aus der Position, Biomfarben samt Übergängen, Wasser und Lava
-  mit ihren Fallstufen, jeder Block im Licht des Spiels, volle Würfel weich
-  beleuchtet. Das Verhalten ist am Code des Spiels belegt, siehe den
+  mit ihren Fallstufen, jeder Block im Licht des Spiels, jede Fläche weich
+  beleuchtet wie im Client der Welt. Das Verhalten ist am Code des Spiels belegt, siehe den
   [Wegweiser](docs/index.md).
 - **Schnell:** Bitmasken statt Blockbesuche, ein Cache je Thread, Zeichnen
   auf der Grafikkarte über Vulkan oder DX12. Ohne Karte zeichnet die CPU
@@ -114,7 +114,9 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 
 - Liest Welten ab 26.1 und Resourcepacks aus 26.2 und 26.3, mit den
   Tabellen aus 26.3, siehe
-  [0059](docs/entscheidungen/0059-welten-aus-26-2-und-26-3.md).
+  [0059](docs/entscheidungen/0059-welten-aus-26-2-und-26-3.md); eine Welt
+  aus 26.2 mit der weichen Beleuchtung von 26.2, siehe
+  [0065](docs/entscheidungen/0065-sicht-in-der-ecke-nach-der-version.md).
 - Truhen, Banner, Köpfe, Krüge und die übrigen Blockentities aus den
   Modellen des Spiels, mit Bannermustern und Scherben.
 - Cinematic mit `--cinematic`: dieselbe Karte im Licht des Spiels in HDR,

@@ -147,7 +147,9 @@ zeichnet dann die vorhandenen Kacheln im Gebiet jedes geänderten Chunks,
 der noch etwas zeichnet, wie ein Update, siehe [Updates](updates.md), „Wo
 ein Update zeichnet“; leer verschwinden sie. Ohne Stand bleibt so eine
 Kachel stehen wie eine ohne Chunk, siehe unten
-(`voller_lauf_mit_stand_raeumt_abgerissenes_weg`).
+(`voller_lauf_mit_stand_raeumt_abgerissenes_weg`). Ebenso bleibt eine
+Kachel stehen, die im Gebiet eines gelöschten Chunks leer wird: Der Lauf
+weiss nicht, ob sie auch ihn zeigte; `--prune` räumt sie weg.
 
 ## Kacheln ohne Chunk: `--prune`
 

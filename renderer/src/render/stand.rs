@@ -252,7 +252,7 @@ impl Stand {
             }
             aenderungen.extend(hier);
         }
-        Ok((aenderungen, neu))
+        Ok((neu.mit_nachbarn(aenderungen, y_max), neu))
     }
 
     /// Die Änderungen seit `alt`, Chunk für Chunk wie in
@@ -281,7 +281,27 @@ impl Stand {
                 }
             }
         }
-        out
+        self.mit_nachbarn(out, y_max)
+    }
+
+    /// Hebt jede Änderung auf den höchsten Block ihrer acht Nachbarn in
+    /// diesem Stand: Wird ein Chunk fertig, fällt er weg oder wechselt sein
+    /// Biom, ändern sich an ihnen Licht und Farbe bis zu ihrem höchsten
+    /// Block. Ein Nachbar, über den der Stand nichts weiss, zählt mit
+    /// `y_max`. Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+    fn mit_nachbarn(&self, mut aenderungen: Vec<Aenderung>, y_max: i32) -> Vec<Aenderung> {
+        for aenderung in &mut aenderungen {
+            let [cx, cz] = aenderung.chunk;
+            for (dx, dz) in (-1..=1).flat_map(|dx| (-1..=1).map(move |dz| (dx, dz))) {
+                let oben = match self.eintrag(cx + dx, cz + dz).inhalt {
+                    Inhalt::Fertig(abdruck) => abdruck.oben,
+                    Inhalt::Unbekannt => Some(y_max),
+                    Inhalt::Keiner | Inhalt::Unfertig => None,
+                };
+                aenderung.oben = aenderung.oben.max(oben.unwrap_or(i32::MIN));
+            }
+        }
+        aenderungen
     }
 
     /// Die Bytes der Datei, siehe docs/benutzung/updates.md, „Der Stand“.
@@ -538,6 +558,56 @@ mod tests {
         assert!(Stand::aus_bytes(&fremd).is_err(), "andere Fassung");
     }
 
+    /// Eine Änderung reicht bis zum höchsten Block ihrer acht Nachbarn, ein
+    /// unbekannter Nachbar bis zur Oberkante; ein ferner, ein unfertiger und
+    /// einer nur aus Luft heben nichts.
+    #[test]
+    fn nachbarn_heben_die_aenderung() {
+        let y_max = 319;
+        let mut alt = Stand::neu(Art::Voll, 0, 0);
+        let eintrag = |inhalt| Eintrag {
+            stempel: stempel(1),
+            inhalt,
+        };
+        alt.setze(0, 0, eintrag(fertig(1, Some(64))));
+        let mut neu = alt.clone();
+        neu.setze(0, 0, eintrag(fertig(2, Some(70))));
+        let oben = |neu: &Stand, alt: &Stand| -> Vec<i32> {
+            neu.aenderungen_seit(alt, y_max)
+                .iter()
+                .map(|a| a.oben)
+                .collect()
+        };
+        assert_eq!(oben(&neu, &alt), [70], "ohne Nachbarn");
+        neu.setze(1, 0, eintrag(fertig(3, Some(200))));
+        neu.setze(5, 5, eintrag(fertig(4, Some(250))));
+        alt.setze(1, 0, eintrag(fertig(3, Some(200))));
+        alt.setze(5, 5, eintrag(fertig(4, Some(250))));
+        assert_eq!(
+            oben(&neu, &alt),
+            [200],
+            "ein hoher Nachbar, ein ferner zählt nicht"
+        );
+        neu.setze(-1, 1, eintrag(Inhalt::Unbekannt));
+        alt.setze(-1, 1, eintrag(Inhalt::Unbekannt));
+        let oben_alle = neu.aenderungen_seit(&alt, y_max);
+        assert!(
+            oben_alle
+                .iter()
+                .any(|a| a.chunk == [0, 0] && a.oben == y_max),
+            "unbekannt: {oben_alle:?}"
+        );
+        neu.setze(-1, 1, eintrag(Inhalt::Unfertig));
+        alt.setze(-1, 1, eintrag(Inhalt::Unfertig));
+        neu.setze(1, 0, eintrag(fertig(3, None)));
+        alt.setze(1, 0, eintrag(fertig(3, None)));
+        assert_eq!(
+            oben(&neu, &alt),
+            [70],
+            "unfertig und ganz aus Luft heben nichts"
+        );
+    }
+
     /// Geändert ist, was neu zeichnet oder nicht mehr, mit der höheren der
     /// beiden Höhen; nicht, was gleich bleibt oder vorher und nachher nichts
     /// zeichnet. Ein unbekannter Chunk ist immer geändert.
@@ -565,6 +635,11 @@ mod tests {
         assert_eq!(
             geaendert(fertig(2, Some(10)), Inhalt::Keiner, y_max),
             Some(10)
+        );
+        assert_eq!(
+            geaendert(Inhalt::Unfertig, fertig(2, Some(10)), y_max),
+            Some(10),
+            "fertig erzeugt"
         );
         assert_eq!(geaendert(Inhalt::Keiner, Inhalt::Unfertig, y_max), None);
         assert_eq!(geaendert(Inhalt::Unfertig, Inhalt::Keiner, y_max), None);

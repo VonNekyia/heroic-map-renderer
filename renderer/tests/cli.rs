@@ -4893,10 +4893,52 @@ fn abgebrochenes_update_laesst_den_stand_stehen() {
 ///   tiefer;
 /// - Leuchtstein bei y = 12 in (0, 1): Licht an der Seite des Dachs, über
 ///   dem höchsten Block seines Chunks;
-/// - mit Cinematic ein Turm in (0, 4): sein Schatten bis vier Chunks weiter.
+/// - (1, 0) wird fertig: Die Ostseite eines Turms in (0, 0) liegt dann bis
+///   oben im Licht, weit über dem höchsten Block von (1, 0);
+/// - nur das Biom von (1, 0) ändert sich: Die Farbe auf einer hohen Säule
+///   aus Gras in (0, 0) ändert sich mit;
+/// - mit Cinematic ein Turm in (0, 4): sein Schatten bis vier Chunks
+///   weiter, auch aus `nw` und aus `north-45`.
 #[test]
 fn update_reicht_so_weit_wie_die_aenderung() {
     type Welt = fn(i32, i32, i32) -> &'static str;
+    type Status = fn(i32, i32) -> &'static str;
+    type Biom = fn(i32, i32) -> Option<&'static str>;
+    fn fertig(_: i32, _: i32) -> &'static str {
+        common::FULL
+    }
+    fn ohne_biom(_: i32, _: i32) -> Option<&'static str> {
+        None
+    }
+    fn ostrand_unfertig(cx: i32, _: i32) -> &'static str {
+        if cx == 1 {
+            "minecraft:carvers"
+        } else {
+            common::FULL
+        }
+    }
+    fn ebene(_: i32, _: i32) -> Option<&'static str> {
+        Some("minecraft:plains")
+    }
+    fn ostrand_frostig(cx: i32, _: i32) -> Option<&'static str> {
+        Some(if cx == 1 {
+            "minecraft:frozen"
+        } else {
+            "minecraft:plains"
+        })
+    }
+    fn turm_am_ostrand(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (15, ..120, 8) => "minecraft:einfarbig",
+            _ => gelaende(x, y, z),
+        }
+    }
+    fn gras_am_ostrand(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (15, ..120, 8) => "minecraft:grass_block",
+            _ => gelaende(x, y, z),
+        }
+    }
     fn leuchte(x: i32, y: i32, z: i32) -> &'static str {
         match (x, y, z) {
             (14, 8, 8) => "minecraft:glowstone",
@@ -4923,47 +4965,91 @@ fn update_reicht_so_weit_wie_die_aenderung() {
     }
     // Der Schatten fällt nach +x und −z.
     let schatten: Vec<(i32, i32)> = (0..=3).flat_map(|x| (0..=4).map(move |z| (x, z))).collect();
-    // Name, Chunks der Welt, vorher, nachher, der geänderte Chunk, Schalter.
+    let daten = common::biomdaten();
+    let daten = daten.to_str().unwrap();
+    let ostrand = [(0, 0), (1, 0)];
+    // Name, Chunks der Welt, vorher und nachher je Blöcke, Status und Biom,
+    // der geänderte Chunk, Schalter.
     type Fall<'a> = (
         &'a str,
         &'a [(i32, i32)],
-        Welt,
-        Welt,
+        (Welt, Status, Biom),
+        (Welt, Status, Biom),
         (i32, i32),
         &'a [&'a str],
     );
-    let faelle: [Fall; 4] = [
+    let faelle: [Fall; 8] = [
         (
             "Licht daneben",
             &UPDATE_CHUNKS,
-            mit_dach,
-            leuchte,
+            (mit_dach, fertig, ohne_biom),
+            (leuchte, fertig, ohne_biom),
             (0, 0),
             &["--scale", "12"],
         ),
         (
             "Schatten tief unten",
             &UPDATE_CHUNKS,
-            mit_dach,
-            hoch,
+            (mit_dach, fertig, ohne_biom),
+            (hoch, fertig, ohne_biom),
             (0, 0),
             &["--scale", "12"],
         ),
         (
             "Licht darüber",
             &UPDATE_CHUNKS,
-            mit_dach,
-            seite,
+            (mit_dach, fertig, ohne_biom),
+            (seite, fertig, ohne_biom),
             (0, 1),
             &["--scale", "12"],
         ),
         (
+            "Turm neben einem Chunk, der fertig wird",
+            &ostrand,
+            (turm_am_ostrand, ostrand_unfertig, ohne_biom),
+            (turm_am_ostrand, fertig, ohne_biom),
+            (1, 0),
+            &["--scale", "12"],
+        ),
+        (
+            "nur das Biom neben einer hohen Säule",
+            &ostrand,
+            (gras_am_ostrand, fertig, ebene),
+            (gras_am_ostrand, fertig, ostrand_frostig),
+            (1, 0),
+            &["--scale", "12", "--data", daten],
+        ),
+        (
             "Schatten der Sonne",
             &schatten,
-            gelaende,
-            turm,
+            (gelaende, fertig, ohne_biom),
+            (turm, fertig, ohne_biom),
             (0, 4),
             &["--scale", "12", "--cinematic"],
+        ),
+        (
+            "Schatten der Sonne aus nw",
+            &schatten,
+            (gelaende, fertig, ohne_biom),
+            (turm, fertig, ohne_biom),
+            (0, 4),
+            &["--scale", "12", "--cinematic", "--direction", "nw"],
+        ),
+        (
+            "Schatten der Sonne aus north-45",
+            &schatten,
+            (gelaende, fertig, ohne_biom),
+            (turm, fertig, ohne_biom),
+            (0, 4),
+            &[
+                "--scale",
+                "12",
+                "--cinematic",
+                "--camera",
+                "north-45",
+                "--direction",
+                "n",
+            ],
         ),
     ];
     let bilder = |baum: &Path| -> BTreeMap<String, Vec<u8>> {
@@ -4974,13 +5060,16 @@ fn update_reicht_so_weit_wie_die_aenderung() {
     };
     for (was, chunks, alt, neu, (cx, cz), extra) in faelle {
         let welt = tempdir();
-        common::write_world_sections(welt.path(), chunks, 0..=7, alt, |_, _| None);
+        let schreibe = |(welt_von, status, biom): (Welt, Status, Biom), pfad: &Path| {
+            common::write_world_status_biome(pfad, chunks, 0..=7, welt_von, status, biom);
+        };
+        schreibe(alt, welt.path());
         let name = baum_name(extra);
         let baum = neuer_baum(&name);
         gelungen(&tiles(welt.path(), baum.path(), extra));
         let vorher = bilder(baum.path());
 
-        common::write_world_sections(welt.path(), chunks, 0..=7, neu, |_, _| None);
+        schreibe(neu, welt.path());
         common::setze_stempel(welt.path(), cx, cz, 2);
         let update: Vec<&str> = extra.iter().copied().chain(["--update"]).collect();
         let ausgabe = tiles(welt.path(), baum.path(), &update);

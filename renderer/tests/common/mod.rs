@@ -327,6 +327,27 @@ pub fn write_world_status(
     )
 }
 
+/// Wie `write_world_status`, dazu das Biom je Chunk wie
+/// `write_world_sections`.
+pub fn write_world_status_biome(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    sections: impl IntoIterator<Item = i8> + Clone,
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    status: impl Fn(i32, i32) -> &'static str,
+    biome: impl Fn(i32, i32) -> Option<&'static str>,
+) -> PathBuf {
+    write_region(
+        dir,
+        chunks,
+        sections,
+        block,
+        |cx, _, cz| biome(cx, cz),
+        status,
+        |_, _| Vec::new(),
+    )
+}
+
 fn write_region(
     dir: &Path,
     chunks: &[(i32, i32)],

@@ -131,10 +131,15 @@ Um jeden geänderten Chunk ein Gebiet, `gebiet_der_aenderungen` in
   und weiche Beleuchtung (1), die Mischung der Biome (höchstens 7) liegt
   darin.
 - **In der Höhe:** von der Unterkante der Dimension bis 16 Blöcke über dem
-  höchsten Block, der alt oder neu dort stand. Nach unten bleibt es die volle
+  höchsten Block der 3 × 3 Chunks um ihn: für ihn selbst der höhere aus
+  altem und neuem Stand, für die Nachbarn der neue; über einen Chunk, von
+  dem der Stand nichts weiss, die Oberkante. Nach unten bleibt es die volle
   Höhe, denn Himmelslicht fällt in einer Spalte beliebig tief. Nach oben
   reicht der höhere der beiden Stände, sonst bliebe die Spitze eines
-  abgerissenen Turms stehen.
+  abgerissenen Turms stehen, und die Nachbarn zählen mit: Wird ein Chunk
+  fertig, fällt er weg oder wechselt er sein Biom, ändern sich an einem
+  Nachbarn Licht und Farbe bis zu dessen höchstem Block (`mit_nachbarn` in
+  `renderer/src/render/stand.rs`).
 - **Mit Cinematic** dazu jeder Chunk, dessen Strahlen zur Sonne den
   geänderten lesen, wie im Vorlauf umgekehrt, siehe
   [Cinematic](../renderer/cinematic.md), „Der Vorlauf“, und der Rand des
@@ -147,8 +152,10 @@ Die Ränder prüft `gebiet_reicht_16_bloecke_um_die_aenderung` in
 `tiles.rs` an jeder Ecke jedes Blocks bis 16 daneben und darüber.
 `update_reicht_so_weit_wie_die_aenderung` zeichnet je eine Änderung allein
 in einem Chunk: Licht im Chunk daneben, Schatten im Himmelslicht weit
-darunter, Licht über dem höchsten Block und mit Cinematic den Schatten
-eines Turms bis vier Chunks weit.
+darunter, Licht über dem höchsten Block, einen Chunk, der fertig wird,
+und einen, der nur sein Biom wechselt, je neben einem hohen Nachbarn, und
+mit Cinematic den Schatten eines Turms bis vier Chunks weit, aus `se`,
+`nw` und `north-45`.
 
 Alle Stücke zusammen sind das Gebiet des Laufs, eine Menge solcher Kacheln
 (`Gebiet` in `tiles.rs`). Der Vorlauf liest nur die Chunks, deren Spalte es

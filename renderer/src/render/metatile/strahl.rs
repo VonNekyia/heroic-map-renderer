@@ -11,7 +11,7 @@ use crate::assets::blockstate::seite;
 use crate::assets::fluid::Fluid;
 
 use super::super::sprites::Family;
-use super::{ChunkCache, Loaded, PRESENT, spalten_im_blick};
+use super::{ChunkCache, Loaded, PRESENT, Tabelle, spalten_im_blick};
 
 /// Was der schnelle Gang von einer Section weiss, je Spalte `z * 16 + x` im
 /// Blick ein Wort, Bit `y`.
@@ -44,7 +44,7 @@ pub(super) struct Saeule {
     ueber: HashMap<i8, Box<[u16; 256]>>,
     /// Je Section ihre [`Bits`], sobald ein Strahl sie betritt; `None` ohne
     /// Arbeit.
-    sections: HashMap<i8, Option<Rc<Bits>>>,
+    sections: Tabelle<i8, Option<Rc<Bits>>>,
 }
 
 /// Die Blöcke eines Chunks, deren Modell für die Sonne aus dem Würfel ragt,
@@ -97,23 +97,34 @@ pub(super) struct Gang {
     schritt: [i32; 3],
     naechste: [f64; 3],
     delta: [f64; 3],
+    /// `1 / d` je Achse.
+    kehr: [f64; 3],
+}
+
+/// `x.floor() as i32` ohne Aufruf der libm, gleich für |x| < 2³¹.
+fn boden(x: f64) -> i32 {
+    let i = x as i32;
+    i - i32::from(f64::from(i) > x)
 }
 
 impl Gang {
     /// Ab `p0` in Richtung `d`, ohne eine Komponente 0.
     pub(super) fn new(p0: [f64; 3], d: [f64; 3]) -> Gang {
-        let zelle = p0.map(|c| c.floor() as i32);
-        let schritt = d.map(|c| if c > 0.0 { 1 } else { -1 });
-        let naechste = std::array::from_fn(|k| {
+        let zelle = [boden(p0[0]), boden(p0[1]), boden(p0[2])];
+        let richtung = |c: f64| if c > 0.0 { 1 } else { -1 };
+        let schritt = [richtung(d[0]), richtung(d[1]), richtung(d[2])];
+        let naechste = |k: usize| {
             let grenze = zelle[k] + i32::from(schritt[k] > 0);
             (f64::from(grenze) - p0[k]) / d[k]
-        });
+        };
+        let kehr = [1.0 / d[0], 1.0 / d[1], 1.0 / d[2]];
         Gang {
             zelle,
             t: 0.0,
             schritt,
-            naechste,
-            delta: d.map(|c| 1.0 / c.abs()),
+            naechste: [naechste(0), naechste(1), naechste(2)],
+            delta: [kehr[0].abs(), kehr[1].abs(), kehr[2].abs()],
+            kehr,
         }
     }
 
@@ -133,7 +144,7 @@ impl Gang {
                 return f64::INFINITY;
             }
             let grenze = if self.schritt[k] > 0 { hi[k] } else { lo[k] };
-            (f64::from(grenze) - p0[k]) / d[k]
+            (f64::from(grenze) - p0[k]) * self.kehr[k]
         };
         let t_aus = [aus(0), aus(1), aus(2)];
         let k = if t_aus[0] <= t_aus[1] && t_aus[0] <= t_aus[2] {
@@ -152,7 +163,7 @@ impl Gang {
                     lo[k] - 1
                 }
             } else {
-                let c = (p0[j] + t * d[j]).floor() as i32;
+                let c = boden(p0[j] + t * d[j]);
                 if achsen[j] {
                     c.clamp(lo[j], hi[j] - 1)
                 } else {
@@ -160,7 +171,7 @@ impl Gang {
                 }
             };
             let grenze = self.zelle[j] + i32::from(self.schritt[j] > 0);
-            self.naechste[j] = (f64::from(grenze) - p0[j]) / d[j];
+            self.naechste[j] = (f64::from(grenze) - p0[j]) * self.kehr[j];
         }
         self.t = t;
     }
@@ -211,17 +222,17 @@ impl ChunkCache<'_> {
         let mut getestet: Vec<[i32; 3]> = Vec::new();
         let mut licht = 1.0;
         let mut gang = Gang::new(p0, d64);
-        let mut chunk: Option<((i32, i32), i32)> = None;
+        let mut chunk: Option<((i32, i32), usize, i32)> = None;
         let mut section: Option<(SectionKey, Option<Rc<Bits>>)> = None;
         while gang.t <= weite {
             let c = gang.zelle;
             let key = (c[0] >> 4, c[2] >> 4);
-            let decke = match chunk {
-                Some((k, decke)) if k == key => decke,
+            let (slot, decke) = match chunk {
+                Some((k, slot, decke)) if k == key => (slot, decke),
                 _ => {
-                    let decke = self.saeule(key)?;
-                    chunk = Some((key, decke));
-                    decke
+                    let (slot, decke) = self.saeule(key)?;
+                    chunk = Some((key, slot, decke));
+                    (slot, decke)
                 }
             };
             let basis = [key.0 * 16, c[1] & !15, key.1 * 16];
@@ -236,15 +247,10 @@ impl ChunkCache<'_> {
                 continue;
             }
             let skey = (key.0, c[1] >> 4, key.1);
-            let bits = match &section {
-                Some((k, bits)) if *k == skey => bits.clone(),
-                _ => {
-                    let bits = self.sonnen_bits(key, c[1] >> 4)?;
-                    section = Some((skey, bits.clone()));
-                    bits
-                }
-            };
-            let Some(bits) = bits else {
+            if !section.as_ref().is_some_and(|(k, _)| *k == skey) {
+                section = Some((skey, self.sonnen_bits(slot, c[1] >> 4)?));
+            }
+            let Some(bits) = section.as_ref().and_then(|(_, bits)| bits.as_deref()) else {
                 gang.springe(p0, d64, basis, basis.map(|b| b + 16), [true; 3]);
                 continue;
             };
@@ -301,13 +307,13 @@ impl ChunkCache<'_> {
     }
 
     /// Die Säule des Chunks `key` im Blick, beim ersten Mal angelegt; gibt
-    /// ihre Decke, `i32::MIN` ohne Chunk. Dafür werden die Chunks rundum
-    /// geladen: Aus ihnen können Modelle hineinragen.
-    fn saeule(&mut self, key: (i32, i32)) -> Result<i32> {
+    /// seinen Slot und ihre Decke, `i32::MIN` ohne Chunk. Dafür werden die
+    /// Chunks rundum geladen: Aus ihnen können Modelle hineinragen.
+    fn saeule(&mut self, key: (i32, i32)) -> Result<(usize, i32)> {
         let i = self.slot(key)?;
         match self.slots[i].loaded.as_ref() {
-            None => return Ok(i32::MIN),
-            Some(Loaded { sonne: Some(s), .. }) => return Ok(s.decke),
+            None => return Ok((i, i32::MIN)),
+            Some(Loaded { sonne: Some(s), .. }) => return Ok((i, s.decke)),
             Some(_) => {}
         }
         let sprites = self.sprites;
@@ -367,16 +373,15 @@ impl ChunkCache<'_> {
         loaded.sonne = Some(Box::new(Saeule {
             decke,
             ueber,
-            sections: HashMap::new(),
+            sections: Tabelle::default(),
         }));
-        Ok(decke)
+        Ok((i, decke))
     }
 
-    /// Die [`Bits`] der Section `sy` im Chunk `key` im Blick, beim ersten Mal
+    /// Die [`Bits`] der Section `sy` im Chunk im Slot `i`, beim ersten Mal
     /// gerechnet; `None` ohne Arbeit. Die Säule muss stehen.
-    fn sonnen_bits(&mut self, key: (i32, i32), sy: i32) -> Result<Option<Rc<Bits>>> {
+    fn sonnen_bits(&mut self, i: usize, sy: i32) -> Result<Option<Rc<Bits>>> {
         let sprites = self.sprites;
-        let i = self.slot(key)?;
         let Some(loaded) = self.slots[i].loaded.as_mut() else {
             return Ok(None);
         };

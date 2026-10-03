@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
 
 use anyhow::Result;
@@ -1395,6 +1396,41 @@ pub fn streifenbreite(scale: u32) -> usize {
 // Kacheln in Streifen kommen; sonst lädt jede Kachel ihre hundert neu.
 const CACHE_CHUNKS: usize = 256;
 
+/// Hasht die Schlüssel des Chunk-Caches mit einer Multiplikation je Wort
+/// statt SipHash. Die Schlüssel sind Koordinaten aus der Welt; Schutz gegen
+/// gezielte Kollisionen braucht es nicht.
+#[derive(Default)]
+pub(super) struct Streuer(u64);
+
+impl Hasher for Streuer {
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.write_u64(u64::from(b));
+        }
+    }
+
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0xf135_7aea_2e62_a9c5);
+    }
+
+    fn write_i32(&mut self, n: i32) {
+        self.write_u64(u64::from(n as u32));
+    }
+
+    fn write_i8(&mut self, n: i8) {
+        self.write_u64(u64::from(n as u8));
+    }
+
+    /// Die oberen Bits der Multiplikation nach unten, wo die Tabelle den
+    /// Eimer wählt.
+    fn finish(&self) -> u64 {
+        self.0.rotate_left(26)
+    }
+}
+
+/// Eine Tabelle mit [`Streuer`].
+pub(super) type Tabelle<K, V> = HashMap<K, V, BuildHasherDefault<Streuer>>;
+
 /// Chunks, die während eines Renderlaufs gebraucht werden.
 ///
 /// Ein Cache gehört zu einer Sprite-Tabelle: er hält je Paletteneintrag
@@ -1409,7 +1445,7 @@ pub struct ChunkCache<'a> {
     /// hundert Öffnungen statt einer Handvoll.
     regions: HashMap<(i32, i32), Option<Region>>,
     slots: Vec<Slot>,
-    index: HashMap<(i32, i32), usize>,
+    index: Tabelle<(i32, i32), usize>,
     /// Der zuletzt benutzte Slot. Benachbarte Blöcke liegen fast immer im
     /// selben Chunk; der Merker spart das Hashen.
     last: usize,
@@ -1913,7 +1949,7 @@ impl<'a> ChunkCache<'a> {
             sprites,
             regions: HashMap::new(),
             slots: Vec::new(),
-            index: HashMap::new(),
+            index: Tabelle::default(),
             last: usize::MAX,
             tile: 0,
             keep: tiles as u32,

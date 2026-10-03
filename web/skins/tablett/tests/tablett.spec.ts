@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { projiziere, RICHTUNGEN, type Projektion } from '../src/pick';
-import { grenzen, imBlick, tablett, type Flaeche, type Grenzen, type Rechteck, type Teil } from '../src/tablett';
-import { eintraege, kamera } from './kamera';
+import type { Grenzen, Projektion, Rechteck } from 'heroic-map-renderer/skin-api';
+import { eintraege, kamera, projiziere, RICHTUNGEN } from '../../../tests/kamera';
+import { grenzen, imBlick, tablett, type Blick, type Flaeche, type Teil } from '../tablett';
 
 type Punkt = [number, number];
 
@@ -19,9 +19,12 @@ function weiter([links, oben, rechts, unten]: Grenzen, faktor: number): Grenzen 
   return [mx - faktor * b, my - faktor * h, mx + faktor * b, my + faktor * h];
 }
 
+/** Der Blick, wie ihn die Grundkarte dem Skin reicht. */
+const blick = (p: Projektion, k: number): Blick => ({ projektion: p, k, projiziere: (x, y, z) => projiziere(x, y, z, p) });
+
 /** Das Tablett in einem Fenster, das die Karte samt Rahmen zu 70 % füllt. */
 function stueck(area: Rechteck, meer: number, minY: number, p: Projektion, k: number): Teil[] {
-  return tablett(area, meer, minY, p, k, weiter(grenzen(area, meer, p, k), 1 / 0.7));
+  return tablett(area, meer, minY, blick(p, k), weiter(grenzen(area, meer, blick(p, k)), 1 / 0.7));
 }
 
 /** Liegt der Punkt in der Fläche? `rand` > 0 schrumpft sie, < 0 dehnt sie, in Teilen der Kanten. */
@@ -47,9 +50,11 @@ test('die Oberkante liegt auf den Ecken von area in Höhe seaLevel, auf das Pixe
     const oben = flaechen(stueck([bx, bz, bx + 1, bz + 1], by, by - 128, p, k)).filter(
       (f) => (f.art === 'rand' || f.art === 'pfeiler') && f.n[1] > 0.99,
     );
-    // Ein Stück daneben: Nur in Richtung der Welt liegt kein Rand.
+    // Ein Stück daneben: Nur in Richtung der Welt liegt kein Rand. Der Rand
+    // einer Welt aus einem Block ist 0,013 Blöcke breit; das Stück liegt
+    // weit innerhalb davon.
     const [dx, dz] = [projiziere(1, 0, 0, p), projiziere(0, 0, 1, p)];
-    const e = 1 / 64;
+    const e = 1 / 1024;
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
         const punkt: Punkt = [
@@ -154,12 +159,12 @@ test('der Tisch füllt das Fenster, auch eine Stufe weiter draussen', () => {
     const p = kamera(camera, scale);
     for (let k = 0; k < 4; k++) {
       const { area } = WELTEN[1]!;
-      const rahmen = grenzen(area, MEER, p, k);
+      const rahmen = grenzen(area, MEER, blick(p, k));
       // Bei der ganzen Karte füllt sie das Fenster zu 70 % oder zur Hälfte;
       // eine Stufe hinaus ist das Fenster doppelt so gross.
       for (const anteil of [0.7, 0.5]) {
         const ansicht = weiter(rahmen, 1 / anteil);
-        const alle = flaechen(tablett(area, MEER, MIN_Y, p, k, ansicht));
+        const alle = flaechen(tablett(area, MEER, MIN_Y, blick(p, k), ansicht));
         const [links, oben, rechts, unten] = weiter(ansicht, 2);
         for (let i = 0; i <= 20; i++) {
           for (let j = 0; j <= 20; j++) {
@@ -180,9 +185,9 @@ test('die Vorderkante des Tischs liegt am unteren Rand des Fensters', () => {
     if (p.y === 0) continue;
     for (let k = 0; k < 4; k++) {
       const { area } = WELTEN[1]!;
-      const ansicht = weiter(grenzen(area, MEER, p, k), 2);
+      const ansicht = weiter(grenzen(area, MEER, blick(p, k)), 2);
       const [, oben, , unten] = ansicht;
-      const zarge = flaechen(tablett(area, MEER, MIN_Y, p, k, ansicht)).filter((f) => f.art === 'zarge');
+      const zarge = flaechen(tablett(area, MEER, MIN_Y, blick(p, k), ansicht)).filter((f) => f.art === 'zarge');
       // Die Oberkante der Zarge ist die Vorderkante des Tischs; b zeigt nach
       // oben. Ihr tiefster Punkt ist diagonal die vordere Ecke, knapp unter
       // dem Fenster; genordet liegt die ganze Kante im unteren Teil.
@@ -199,7 +204,7 @@ test('die Grenzen für das Einpassen umfassen den Rahmen, nicht mehr', () => {
     const p = kamera(camera, scale);
     for (let k = 0; k < 4; k++) {
       const { area } = WELTEN[1]!;
-      const [links, oben, rechts, unten] = grenzen(area, MEER, p, k);
+      const [links, oben, rechts, unten] = grenzen(area, MEER, blick(p, k));
       const rahmen = flaechen(stueck(area, MEER, MIN_Y, p, k)).filter((f) =>
         ['rand', 'leiste', 'wand', 'pfeiler'].includes(f.art),
       );

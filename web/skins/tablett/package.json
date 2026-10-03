@@ -1,0 +1,11 @@
+{
+  "name": "heroic-map-renderer-skin-tablett",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Skin für den Heroic Map Renderer: die Welt in einem Holztablett auf einem Tisch.",
+  "exports": "./index.ts",
+  "peerDependencies": {
+    "leaflet": "^1.9.4"
+  }
+}

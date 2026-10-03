@@ -3,15 +3,15 @@
  * Oberkante auf dem Wasserspiegel liegt, und das Tablett auf einem Tisch.
  * Alles besteht aus ebenen Rechtecken; in der Parallelprojektion geht jedes
  * affin aufs Bild. Ohne Leaflet, damit die Tests es in Node laden.
- * Siehe docs/frontend.md, „Rahmen und Tisch“.
+ * Siehe docs/tablett.md.
  */
-import { projiziere, type Projektion } from './pick';
+import type { Grenzen, Kontext, Rechteck } from 'heroic-map-renderer/skin-api';
 
 type Punkt = [number, number];
 type Vektor = [number, number, number];
 
-/** Ein Rechteck der Welt in Blöcken, `[x0, z0, x1, z1]`; x1 und z1 sind Kanten dahinter. */
-export type Rechteck = [x0: number, z0: number, x1: number, z1: number];
+/** Der Blick, aus dem das Tablett gezeichnet wird, so wie ihn die Grundkarte reicht. */
+export type Blick = Pick<Kontext, 'projektion' | 'k' | 'projiziere'>;
 
 export type Art = 'tisch' | 'zarge' | 'boden' | 'rand' | 'leiste' | 'wand' | 'pfeiler' | 'ding';
 
@@ -26,7 +26,7 @@ export interface Flaeche {
   art: Art;
   /** CSS-Farbe, schon im Licht. */
   farbe: string;
-  /** Liegt vor den Kacheln. Siehe docs/frontend.md, „Vor und hinter der Welt“. */
+  /** Liegt vor den Kacheln. Siehe docs/tablett.md, „Vor und hinter der Welt“. */
   nah: boolean;
 }
 
@@ -58,9 +58,6 @@ export interface Saum {
 
 export type Teil = Flaeche | Schatten | Saum;
 
-/** Ein Rechteck im Bild in Pixeln der feinsten Stufe, `[links, oben, rechts, unten]`. */
-export type Grenzen = [links: number, oben: number, rechts: number, unten: number];
-
 /** Das Rechteck der Welt im Blick mit k Vierteldrehungen; Punkte drehen sich mit (z, −x). */
 export function imBlick([x0, z0, x1, z1]: Rechteck, k: number): Rechteck {
   for (let i = 0; i < k; i++) [x0, z0, x1, z1] = [z0, -x1, z1, -x0];
@@ -68,16 +65,17 @@ export function imBlick([x0, z0, x1, z1]: Rechteck, k: number): Rechteck {
 }
 
 /**
- * Die Breite der Oberkante als Anteil der mittleren Kante der Welt,
- * vorläufig. Siehe docs/frontend.md, „Masse“.
+ * Die Breite w der Oberkante als Anteil der Kante der Welt, nach der
+ * Vermessung der Vorlage. Siehe docs/tablett.md, „Masse“.
  */
-const RAND = 0.033;
+const RAND = 0.013;
 
 /** Grundfarben, bevor das Licht sie trifft. */
 const FARBE = {
   rand: '#8a542c',
   leiste: '#784826',
   wand: '#4e2c18',
+  fuge: '#140a04',
   pfeiler: '#6e4224',
   marmor: '#1e2620',
   tischkante: '#5c341a',
@@ -97,7 +95,7 @@ export const GRUND = '#0c0907';
  * Das Licht nach der Vermessung der Vorlage: von oben, leicht von links im
  * Bild, 77° über der Tischebene, fest im Blick, so dass es aus jeder
  * Richtung gleich aussieht. `oben` zählt entlang der Normalen der Platte,
- * `rechts` nach rechts im Bild. Siehe docs/frontend.md, „Licht und Schatten“.
+ * `rechts` nach rechts im Bild. Siehe docs/tablett.md, „Licht und Schatten“.
  */
 const LICHT = { oben: 0.975, rechts: -0.223 };
 const UMGEBUNG = 0.22;
@@ -132,20 +130,20 @@ function huelle(punkte: Punkt[]): Punkt[] {
 /**
  * Die Masse im Blick, alle als Anteil der Welt: die Kanten der Welt, der Rand
  * w, die Tiefe D vom Wasserspiegel bis zur Platte und die Breite der Pfeiler.
- * Siehe docs/frontend.md, „Masse“.
+ * Siehe docs/tablett.md, „Masse“.
  */
 function masse(area: Rechteck, k: number) {
   const [x0, z0, x1, z1] = imBlick(area, k);
   const kante = (x1 - x0 + (z1 - z0)) / 2;
-  const w = Math.max(1, Math.round(RAND * kante));
-  return { x0, z0, x1, z1, kante, w, D: Math.max(1, Math.round(1.5 * w)), pfeiler: 1.2 * w };
+  const w = RAND * kante;
+  return { x0, z0, x1, z1, kante, w, D: 6.4 * w, pfeiler: 2.7 * w };
 }
 
-/** Die Grenzen des Rahmens im Bild. Auf sie passt das Frontend die ganze Karte ein. */
-export function grenzen(area: Rechteck, meer: number, p: Projektion, k: number): Grenzen {
+/** Die Grenzen des Rahmens im Bild. Auf sie passt die Karte die ganze Ansicht ein. */
+export function grenzen(area: Rechteck, meer: number, { k, projiziere }: Blick): Grenzen {
   const { x0, z0, x1, z1, D, pfeiler } = masse(area, k);
   const ecken = [x0 - pfeiler, x1 + pfeiler].flatMap((x) =>
-    [meer - D, meer].flatMap((y) => [z0 - pfeiler, z1 + pfeiler].map((z) => projiziere(x, y, z, p))),
+    [meer - D, meer].flatMap((y) => [z0 - pfeiler, z1 + pfeiler].map((z) => projiziere(x, y, z))),
   );
   const xs = ecken.map((e) => e[0]);
   const ys = ecken.map((e) => e[1]);
@@ -164,8 +162,7 @@ export function tablett(
   area: Rechteck,
   meer: number,
   minY: number,
-  p: Projektion,
-  k: number,
+  { projektion: p, k, projiziere }: Blick,
   ansicht: Grenzen,
 ): Teil[] {
   const { x0, z0, x1, z1, kante, w, D, pfeiler } = masse(area, k);
@@ -179,8 +176,8 @@ export function tablett(
   const abstand = 0.04 * kante;
 
   // Höhen zählen ab dem Wasserspiegel.
-  const bild = ([x, y, z]: Vektor): Punkt => projiziere(x, y + meer, z, p);
-  const kante3 = ([x, y, z]: Vektor): Punkt => projiziere(x, y, z, p);
+  const bild = ([x, y, z]: Vektor): Punkt => projiziere(x, y + meer, z);
+  const kante3 = ([x, y, z]: Vektor): Punkt => projiziere(x, y, z);
   // Zur Kamera: entlang dieser Achse liegt, was weiter vorn ist.
   const kamera = einheit(genordet ? [0, p.v, p.y] : [p.y, 2 * p.v, p.y]);
   // Nach rechts im Bild, in der Welt waagrecht.
@@ -197,7 +194,7 @@ export function tablett(
   // Nah ist, was Gelände nie verdecken kann. Ein Bildpunkt zeigt Gelände
   // vor einem Punkt nur, wenn dieses entlang der Achse weiter vorn liegt:
   // diagonal bei grösserem x und z, genordet bei grösserem z und gleichem x.
-  // Siehe docs/frontend.md, „Vor und hinter der Welt“.
+  // Siehe docs/tablett.md, „Vor und hinter der Welt“.
   const istNah = (qx0: number, qx1: number, qz0: number) =>
     qx0 >= x1 || qz0 >= z1 || (genordet && qx1 <= x0);
   const fussNah = (ecken: Vektor[]) =>
@@ -308,9 +305,10 @@ export function tablett(
   ) as [Flaeche[], Flaeche[]];
 
   // Der Rahmen. Das Profil im Schnitt, von innen oben nach aussen unten: d
-  // ab der Kante der Welt nach aussen, y ab dem Wasserspiegel. Oberkante
-  // flach, drei Schrägen, die obere Leiste, die Wand, der Sockel. Nichts
-  // liegt über dem Wasserspiegel.
+  // ab der Kante der Welt nach aussen, y ab dem Wasserspiegel. Jeder Punkt
+  // gibt Art und Farbe der Stufe bis zum nächsten: Oberkante flach, drei
+  // Schrägen, Fries zwischen oberer und unterer Leiste, Fuge, Sockel bis zur
+  // Platte bei −D. Nichts liegt über dem Wasserspiegel.
   const profil: [d: number, y: number, art: Art, farbe: string][] = [
     [0, 0, 'rand', FARBE.rand],
     [0.45 * w, 0, 'rand', FARBE.rand],
@@ -320,9 +318,13 @@ export function tablett(
     [1.1 * w, -0.25 * w, 'leiste', FARBE.leiste],
     [1.1 * w, -0.6 * w, 'leiste', FARBE.leiste],
     [w, -0.6 * w, 'wand', FARBE.wand],
-    [w, -D + 0.4 * w, 'leiste', FARBE.leiste],
-    [1.12 * w, -D + 0.4 * w, 'leiste', FARBE.leiste],
-    [1.12 * w, -D, 'leiste', FARBE.leiste],
+    [w, -3.28 * w, 'leiste', FARBE.leiste],
+    [1.1 * w, -3.28 * w, 'leiste', FARBE.leiste],
+    [1.1 * w, -3.63 * w, 'leiste', FARBE.leiste],
+    [0.9 * w, -3.63 * w, 'wand', FARBE.fuge],
+    [0.9 * w, -4.4 * w, 'leiste', FARBE.leiste],
+    [1.15 * w, -4.4 * w, 'leiste', FARBE.leiste],
+    [1.15 * w, -D, 'leiste', FARBE.leiste],
   ];
   /** Eine Seite: Anfang an einer Ecke der Welt, Richtung entlang, Länge, Richtung nach aussen. */
   const seite = (start: Vektor, entlang: Vektor, laenge: number, raus: Vektor): Flaeche[] =>
@@ -375,7 +377,7 @@ export function tablett(
       quaderSchatten([x0 - pfeiler, x1 + pfeiler], [-D, 0], [z0 - pfeiler, z1 + pfeiler]),
       ...dinge.map(({ q }) => quaderSchatten(...q)),
     ],
-    weich: 0.35 * w * p.u,
+    weich: 0.9 * w * p.u,
     deckkraft: 0.55,
     nah: true,
   };
@@ -392,7 +394,7 @@ export function tablett(
   ).flatMap(([o, a, hinein]) => {
     const staerke = -skalar(hinein, lichtWaagrecht);
     if (staerke < 0.25) return [];
-    return [{ form: 'saum', o: bild(o), a: kante3(a), b: kante3(mal(0.2 * w * staerke, hinein)), deckkraft: 0.4 * staerke, nah: true }];
+    return [{ form: 'saum', o: bild(o), a: kante3(a), b: kante3(mal(0.5 * w * staerke, hinein)), deckkraft: 0.4 * staerke, nah: true }];
   });
 
   // Der Schatten folgt gleich auf die Platte: Vor den Kacheln fällt er nur

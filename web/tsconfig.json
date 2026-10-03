@@ -12,7 +12,9 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    // Skins nehmen die Schnittstelle unter diesem Namen, nur als Typen.
+    "paths": { "heroic-map-renderer/skin-api": ["./src/skin-api.ts"] }
   },
-  "include": ["src", "tests", "vite.config.ts", "playwright.config.ts"]
+  "include": ["src", "tests", "skins", "vite.config.ts", "playwright.config.ts"]
 }

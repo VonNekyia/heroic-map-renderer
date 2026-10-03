@@ -10,6 +10,7 @@ code:
   - renderer/src/render/rasterizer.rs
   - renderer/src/render/sonne.rs
   - renderer/src/render/sprites.rs
+  - renderer/src/render/tiles.rs
   - renderer/src/render/tint.rs
   - renderer/src/assets/colors.rs
   - renderer/src/assets/dimension.rs
@@ -263,7 +264,25 @@ im Blick, springt aber über, was nichts aufhält:
 Getestet: einzelne Strahlen durch Würfel, Laub, Wasser, Glas, Pflanze und
 Überhang (`strahlen_zur_sonne`), die Lage des Schattens eines Würfels im
 Bild (`wuerfel_wirft_seinen_schatten`), ein Turm im fernsten Chunk, den
-der Horizont noch sieht (`ferner_turm_wirft_seinen_schatten`).
+der Horizont noch sieht (`ferner_turm_wirft_seinen_schatten`), und sein
+Schatten in einem Ausschnitt, der den Turm nicht zeigt
+(`ausschnitt_sieht_den_schatten_von_draussen`).
+
+### Der Vorlauf
+
+Mit einem Ausschnitt liest der Vorlauf (`Reach::mit_sonne` in
+[`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs))
+auch die Chunks, aus denen ein Strahl Blöcke liest. Sonst fehlten deren
+Blockstates in der Sprite-Tabelle, und der Strahl sähe dort Luft: Ein
+Ausschnitt zeigte weniger Schatten als dasselbe Stück im ganzen Bild.
+
+- **Welche:** von jedem Chunk, den der Vorlauf ohnehin liest, so viele
+  Chunks zur Sonne hin, wie der Strahl Chunkgrenzen kreuzt (siehe „Der
+  Horizont“), und zwei rundum: Ein Modell am Rand beginnt den Strahl im
+  Chunk daneben, und in jeden Chunk auf dem Weg ragen Modelle aus seinen
+  Nachbarn. Mit `LOOK` im Raster in 2:1 sind das je Chunk 9 × 10 Chunks.
+- **Nur die Blockstates:** Kacheln und Höhen bleiben die des Ausschnitts.
+- **Ohne Ausschnitt** liest der Vorlauf ohnehin alle Chunks.
 
 ## Wasser
 

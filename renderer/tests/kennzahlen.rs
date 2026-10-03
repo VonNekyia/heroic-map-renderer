@@ -17,8 +17,8 @@ use terranova_render::assets::Assets;
 use terranova_render::render::look::{LOOK, Look};
 use terranova_render::render::metatile::{Hdr, render_hdr_with};
 use terranova_render::render::{
-    BiomeTable, ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, Survey,
-    render_area, shrink, survey,
+    BiomeTable, ChunkCache, Kamera, Projection, Reach, Richtung, ScreenRect, SpriteSet, Survey,
+    render_area, shrink, survey_in,
 };
 use terranova_render::world::World;
 
@@ -156,7 +156,10 @@ impl Szene {
         let projection =
             Projection::mit_kamera(scale, kamera).aus(Richtung::parse(richtung, kamera).unwrap());
         let rect = fenster(projection, mitte);
-        let survey = survey(&world, projection, Y_RANGE, Some(rect)).unwrap();
+        // Wie `--render` mit Cinematic; der Karte schaden die Blöcke zur
+        // Sonne hin nicht.
+        let reach = Reach::new(projection, Y_RANGE, Some(rect)).mit_sonne(Some(&LOOK));
+        let survey = survey_in(&world, reach).unwrap();
         let biome = BiomeTable::new(assets.colors()).with(2, world.seed().unwrap());
         Szene {
             world,

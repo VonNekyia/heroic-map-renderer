@@ -18,8 +18,8 @@ use terranova_render::render::rasterizer::{
 };
 use terranova_render::render::sonne::texel_mitte;
 use terranova_render::render::{
-    BiomeTable, ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, draw_list,
-    render_area, render_area_with, render_area_without_culling, survey,
+    BiomeTable, ChunkCache, Kamera, Projection, Reach, Richtung, ScreenRect, SpriteSet, draw_list,
+    render_area, render_area_with, render_area_without_culling, survey, survey_in,
 };
 use terranova_render::world::{BlockState, World};
 
@@ -1057,6 +1057,68 @@ fn ferner_turm_wirft_seinen_schatten() {
         assert_eq!(cache.sonne(q, [0; 3]).unwrap(), soll, "{q:?}");
         assert_eq!(cache.sonne_bezug(q, [0; 3]).unwrap(), soll, "{q:?}");
     }
+}
+
+/// Ein Ausschnitt zeigt mit Cinematic dieselben Schatten wie das grosse
+/// Bild, auch den eines Turms aus einem Block, der nur weit ausserhalb
+/// steht: Mit [`Reach::mit_sonne`] liest der Vorlauf die Chunks zur Sonne
+/// hin mit. Ohne sie fehlt der Block in der Sprite-Tabelle, der Turm wäre
+/// Luft.
+/// Siehe docs/renderer/cinematic.md, „Der Vorlauf“.
+#[test]
+fn ausschnitt_sieht_den_schatten_von_draussen() {
+    // Die Welt aus `ferner_turm_wirft_seinen_schatten`.
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    let p = [64.5, 4.001, 15.5];
+    let t = 0.97 * f64::from(LOOK.sonne_weite);
+    let turm: [i32; 3] = std::array::from_fn(|k| (p[k] + t * s[k]).floor() as i32);
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..=4).flat_map(|x| (0..=6).map(move |z| (x, z))).collect();
+    common::write_world_sections(
+        dir.path(),
+        &chunks,
+        0..=6,
+        move |x, y, z| match (x, y, z) {
+            (_, ..=3, _) => "minecraft:einfarbig",
+            _ if [x, z] == [turm[0], turm[2]] && y <= turm[1] + 2 => "minecraft:blauwuerfel",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let y_range = (0, 111);
+    let rect = rect_um(projection, [62, 4, 13], [67, 4, 18]);
+    let bild = |reach: Reach| {
+        let survey = survey_in(&world, reach).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&common::biomdaten()).unwrap();
+        let sprites =
+            SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+                .unwrap();
+        let turm = survey
+            .states
+            .iter()
+            .any(|s| s.name() == "minecraft:blauwuerfel");
+        let bild = render_area_with(&mut ChunkCache::new(&world, &sprites), rect, y_range);
+        (turm, bild.unwrap())
+    };
+    let gross = bild(Reach::new(projection, y_range, None));
+    let ausschnitt = Reach::new(projection, y_range, Some(rect));
+    let (ohne, mit) = (bild(ausschnitt), bild(ausschnitt.mit_sonne(Some(&LOOK))));
+    assert!(
+        gross.0 && mit.0 && !ohne.0,
+        "{} {} {}",
+        gross.0,
+        mit.0,
+        ohne.0
+    );
+    assert!(
+        mit.1 == gross.1,
+        "mit der Sonne im Vorlauf wie das grosse Bild"
+    );
+    assert!(ohne.1 != gross.1, "ohne sie fehlt der Schatten des Turms");
 }
 
 /// Wie viel Sonne je Pixel eines Bilds ankommt, bezogen auf die volle: der

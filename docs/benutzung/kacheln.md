@@ -106,7 +106,9 @@ die gerundete Fläche gar nicht berühren kann, dekodiert er nicht einmal:
 hier 788 Chunks statt der 8192 aller Regionen, die sie schneiden. Ein
 kleiner Ausschnitt braucht deshalb keine Assets für Blöcke am anderen Ende
 der Welt; fehlt eines in seiner Fläche, bricht der Lauf ab, bevor er die
-erste Kachel schreibt.
+erste Kachel schreibt. Mit `--cinematic` liest er dazu die Chunks, durch
+die ein Strahl zur Sonne läuft, siehe [Cinematic](../renderer/cinematic.md),
+„Der Vorlauf“.
 
 ## Wo die Kacheln liegen
 

@@ -1,6 +1,6 @@
 ---
 title: Welten und Kennung
-description: Welche Welten der Renderer liest und welche Chunks darin, wie er Weltwurzel, Dimension, Seed und Wasserspiegel findet und wie daraus die Kennung der Welt im Kachelbaum wird.
+description: Welche Welten der Renderer liest und welche Chunks darin, wie er Weltwurzel, Dimension, Seed, Datenversion und Wasserspiegel findet und wie daraus die Kennung der Welt im Kachelbaum wird.
 code:
   - renderer/src/assets/dimension.rs
   - renderer/src/world/mod.rs
@@ -109,6 +109,16 @@ zu einer Dimension auf einer anderen Platte, oder lässt er sich dort nicht
 auflösen, zählt er so, wie er angegeben ist, auch in seiner Schreibweise:
 `dimensions\Minecraft\the_nether` gibt dann die Kennung von
 `Minecraft:the_nether`.
+
+## Datenversion
+
+Aus `level.dat` der Weltwurzel liest der Renderer nur `Data.DataVersion`,
+die Version des Spiels, das die Welt zuletzt gestartet hat, für 26.2 4903,
+für 26.3 5023. Danach wählt er die Sicht in der Ecke der weichen
+Beleuchtung, siehe [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md),
+„Welten aus 26.2“. Der Lauf nennt sie in der Zeile `Version:`. Ohne
+Weltwurzel gibt es keine, dann gilt 26.3. Eine `level.dat`, die sich nicht
+lesen lässt, bricht den Lauf ab.
 
 ## Wo der Seed steht
 

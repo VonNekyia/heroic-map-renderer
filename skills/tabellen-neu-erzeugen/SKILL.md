@@ -1,6 +1,6 @@
 ---
 name: tabellen-neu-erzeugen
-description: Erzeugt blocks.txt, leuchten.txt, licht.txt, schatten.txt, nachbarn.txt, seiten.txt, blockentities.txt und dimensionstypen.txt unter renderer/src/assets/ aus dem Server- und dem Client-JAR einer Minecraft-Version neu. Nutzen für eine neue Spielversion oder wenn eine der Tabellen nicht mehr zum Spiel passt; die Tabellen nie von Hand ändern.
+description: Erzeugt blocks.txt, leuchten.txt, licht.txt, schatten.txt, nachbarn.txt, seiten.txt, blockentities.txt und dimensionstypen.txt unter renderer/src/assets/ aus dem Server- und dem Client-JAR einer Minecraft-Version neu, sicht262.txt aus dem Server-JAR von 26.2. Nutzen für eine neue Spielversion oder wenn eine der Tabellen nicht mehr zum Spiel passt; die Tabellen nie von Hand ändern.
 ---
 
 # Tabellen neu erzeugen
@@ -37,6 +37,15 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    ```
 
    Java in der Version, auf der das Spiel läuft, für 26.3 Java 25.
+   `sicht262.txt` kommt aus dem Server-JAR von 26.2, nicht aus der neuen
+   Version: `Sicht262.java` mit dem Klassenpfad eines Verzeichnisses, in
+   dem die Schritte 1 und 2 für 26.2 liefen. Auf stderr steht, wie viele
+   Blöcke es sind, für 26.2 475, davon 72 je Zustand verschieden. Neu
+   erzeugt wird sie nur, wenn sie nicht mehr zum Spiel von 26.2 passt:
+
+   ```bash
+   java -cp "$(ls versions/*/server-*.jar):$(find libraries -name '*.jar' | paste -sd:)" Sicht262.java > sicht262.txt
+   ```
    `Licht.java` nennt auf stderr, wie viele Zustände und Paare es sind und
    wie viele Teilflächen je Richtung. Gibt eine Version eine andere
    Dämpfung als 0, 1 oder 15 oder mehr Teilflächen, als die Basis 36 fasst,
@@ -100,7 +109,7 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    Für 26.3 ergeben die Befehle für `blocks.txt`, `leuchten.txt`,
    `licht.txt`, `schatten.txt`, `nachbarn.txt`, `seiten.txt`,
    `blockentities.txt` und `dimensionstypen.txt` genau die Dateien im
-   Repository.
+   Repository, für 26.2 `Sicht262.java` genau `sicht262.txt`.
 9. **Neu bauen und testen:** Die Tabellen sind einkompiliert, der Renderer
    muss danach neu gebaut werden. `blocktabelle_aus_26_3` bekommt die Zahlen
    der neuen Version, `tabelle_wie_im_spiel` in `blockentity.rs` die Zahl

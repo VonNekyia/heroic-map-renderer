@@ -4185,8 +4185,23 @@ fn licht_am(
     block: [i32; 3],
     ohne: &str,
 ) -> ([u32; 3], Option<Ecken>) {
+    licht_am_in(None, chunks, sections, welt, block, ohne)
+}
+
+/// Wie `licht_am`, mit `datenversion` in `level.dat`; ohne gibt es keine.
+fn licht_am_in(
+    datenversion: Option<i32>,
+    chunks: &[(i32, i32)],
+    sections: std::ops::RangeInclusive<i8>,
+    welt: impl Fn(i32, i32, i32) -> &'static str,
+    block: [i32; 3],
+    ohne: &str,
+) -> ([u32; 3], Option<Ecken>) {
     let dir = tempdir();
     common::write_world_sections(dir.path(), chunks, sections, welt, |_, _| None);
+    if let Some(version) = datenversion {
+        common::write_level_dat_mit(dir.path(), version);
+    }
     let world = World::open(dir.path()).unwrap();
     let projection = Projection::new(32);
     let mut states = survey(&world, projection, Y_RANGE, None).unwrap().states;
@@ -4814,6 +4829,30 @@ fn platz_am(
     ecken.map_or([licht[0] as u8; 4], |e| e[0][platz].to_le_bytes())
 }
 
+/// Die Oberseite eines Steins, Stein in der Ecke im Nordwesten darüber,
+/// Eis über den Nachbarn im Westen und im Norden: Dort fragt das Spiel, ob
+/// die Ecke zu sehen ist. In 26.3 lässt Eis Licht durch
+/// (`isLightPermeable`), die Ecke im Nordwesten zählt den Stein. In 26.2
+/// nimmt es die Sicht (`isViewBlocking` und Dämpfung), die Ecke zählt wie
+/// der erste Nachbar, Luft, also heller. Die übrigen drei Ecken bleiben
+/// gleich. Ohne `level.dat` wie 26.3.
+#[test]
+fn eis_in_der_ecke_nach_der_version_der_welt() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 0, 8) | (7, 1, 7) => "minecraft:stone",
+        (7, 2, 8) | (8, 2, 7) => "minecraft:ice",
+        _ => "minecraft:air",
+    };
+    let oben = |version| {
+        let (_, ecken) = licht_am_in(version, &[(0, 0)], 0..=0, welt, [8, 0, 8], "");
+        ecken.expect("Ecken")[0][0].to_le_bytes()
+    };
+    let (alt, neu, ohne) = (oben(Some(4903)), oben(Some(5023)), oben(None));
+    assert_eq!(neu, ohne);
+    assert!(alt[0] > neu[0], "26.2 {alt:?}, 26.3 {neu:?}");
+    assert_eq!(alt[1..], neu[1..]);
+}
+
 /// Ein Trampelpfad, einen Block breit zwischen Gras: Seine Oberseite liegt
 /// im Innern, Platz 3, und zählt ab der eigenen Zelle. An jeder Ecke dunkeln
 /// das Gras daneben und das in der Ecke, der Pfad selbst und die Pfade
@@ -4827,6 +4866,30 @@ fn trampelpfad_zwischen_gras() {
         _ => "minecraft:air",
     };
     assert_eq!(platz_am(welt, [8, 0, 8], 3), [153; 4]);
+}
+
+/// Eine untere Platte mit Stein im Osten und im Norden, die Diagonale im
+/// Nordosten ist Luft. Ob sie zählt, prüft das Spiel für eine Fläche im
+/// Innern eine Schicht über dem Block, über den beiden Steinen: Ist dort
+/// Luft, zählt sie, im Nordosten (0,2 + 0,2 + 1 + 1)/4 = 0,6, also 153.
+/// Steht dort Stein, gilt der Wert des ersten Nachbarn, `c[0]`, also
+/// (0,2 + 0,2 + 0,2 + 1)/4 = 0,4, 102. Die übrigen Ecken bleiben 0,8 und 1.
+#[test]
+fn flaeche_im_innern_prueft_die_ecke_eine_schicht_hoeher() {
+    for (zu, nordosten) in [(false, 153), (true, 102)] {
+        let welt = move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (8, 0, 8) => "minecraft:oak_slab[type=bottom,waterlogged=false]",
+            (9, 0, 8) | (8, 0, 7) => "minecraft:stone",
+            (9, 1, 8) | (8, 1, 7) if zu => "minecraft:stone",
+            _ => "minecraft:air",
+        };
+        let (_, ecken) = licht_am(&[(0, 0)], 0..=0, welt, [8, 0, 8], "");
+        assert_eq!(
+            ecken.expect("Ecken")[0][3].to_le_bytes(),
+            [204, 255, 204, nordosten],
+            "Stein darüber: {zu}"
+        );
+    }
 }
 
 /// Eine untere Platte vor einer Mauer aus Stein im Osten, einen Block hoch:
@@ -4871,17 +4934,37 @@ fn schneedecke_an_einer_stufe() {
 /// deren Block ist `isSolidRender`, dann das der eigenen. Eine geflutete
 /// untere Platte liegt in 14, die Luft ringsum in 15. Unter Stein liegen die
 /// Ecken ihrer Oberseite so in (14 + 15 + 15 + 15)/4 = 14,75, linear 249;
-/// unter einer Scheibe, durch die das Himmelslicht fällt, in 15.
+/// unter einer Scheibe, durch die das Himmelslicht fällt, in 15. Eis ist
+/// nicht `isSolidRender`, auch in 26.2, wo es in der Ecke die Sicht nimmt:
+/// Unter Eis nimmt die Mitte in beiden Versionen das Licht seiner Zelle.
 #[test]
 fn fester_block_davor_gibt_der_mitte_das_eigene_licht() {
-    for (oben, soll) in [("minecraft:stone", 249), ("minecraft:glass_pane", 255)] {
-        let welt = move |x: i32, y: i32, z: i32| match (x, y, z) {
+    let welt = |oben: &'static str| {
+        move |x: i32, y: i32, z: i32| match (x, y, z) {
             (8, 0, 8) => "minecraft:oak_slab[type=bottom,waterlogged=true]",
             (8, 1, 8) => oben,
             _ => "minecraft:air",
-        };
-        assert_eq!(platz_am(welt, [8, 0, 8], 3), [soll; 4], "unter {oben}");
+        }
+    };
+    for (oben, soll) in [("minecraft:stone", 249), ("minecraft:glass_pane", 255)] {
+        assert_eq!(
+            platz_am(welt(oben), [8, 0, 8], 3),
+            [soll; 4],
+            "unter {oben}"
+        );
     }
+    let unter_eis = |version| {
+        let (_, ecken) = licht_am_in(
+            version,
+            &[(0, 0)],
+            0..=1,
+            welt("minecraft:ice"),
+            [8, 0, 8],
+            "",
+        );
+        ecken.expect("Ecken")[0][3].to_le_bytes()
+    };
+    assert_eq!(unter_eis(Some(4903)), unter_eis(None));
 }
 
 /// Was leuchtet, und ein Modell ohne `ambientocclusion` liegen auch im

@@ -125,8 +125,7 @@ im Fichtenwald liegt der Unterschied in der Streuung; die Spitze steigt um
 2 bis 3 %, siehe
 [2026-10-03, Bits „frei zur Sonne“ am Renderer](../messungen/2026-10-03-bits-am-renderer.md).
 Die Faktoren oben sind ohne sie gemessen. Die Flächen im Innern aus #51
-kosten Cinematic am Stand 3 %, im Fichtenwald nichts über der Streuung,
-siehe
+kosten Cinematic im Median 3 % am Stand und 5,4 % im Fichtenwald, siehe
 [2026-10-03, Flächen im Innern weich, Kosten](../messungen/2026-10-03-flaechen-im-innern.md).
 
 ## Die grosse Welt

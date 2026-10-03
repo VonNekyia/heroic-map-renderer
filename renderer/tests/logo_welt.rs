@@ -13,7 +13,7 @@ fn logo_welt() {
     let ziel = std::env::var("LOGO_WELT").expect("LOGO_WELT auf den Zielordner setzen");
     let dir = Path::new(&ziel);
     std::fs::create_dir_all(dir).unwrap();
-    std::fs::write(dir.join("level.dat"), b"").unwrap();
+    common::write_level_dat(dir);
     common::write_world_sections(dir, &[(0, 0)], 0..=1, insel, |_, _| {
         Some("minecraft:plains")
     });

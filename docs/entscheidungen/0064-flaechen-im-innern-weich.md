@@ -70,8 +70,8 @@ Spiels“ und „Licht an den Ecken“:
 ## Folgen
 
 - Mehr Sprites tragen Ecken, und mehr Pixel mischen das Licht ihrer Ecken.
-  Messbar teurer werden die Karte auf der Grafikkarte, 4 bis 5 %, und
-  Cinematic, 3 %, am Stand der Testwelt; die Kacheln wiegen bis 5,7 % mehr,
+  Ein Lauf dauert im Median 3 bis 4 % länger am Stand der Testwelt, mit
+  Cinematic im Fichtenwald 5,4 %; die Kacheln wiegen bis 5,7 % mehr,
   siehe [2026-10-03, Flächen im Innern weich, Kosten](../messungen/2026-10-03-flaechen-im-innern.md).
 - Das Bild ändert sich: Goldbild, Doku-Bilder und die Kennzahlen der
   Ansichten sind neu.

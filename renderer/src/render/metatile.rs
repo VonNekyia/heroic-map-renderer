@@ -6,7 +6,7 @@ use anyhow::Result;
 use image::RgbaImage;
 
 use crate::assets::Face;
-use crate::assets::blockstate::{self, DUNKELT, Leuchten, Lichtweg, SICHT, seite};
+use crate::assets::blockstate::{self, DUNKELT, Leuchten, Lichtweg, SICHT, SICHT_262, seite};
 use crate::assets::colors::Resolver;
 use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
@@ -1632,9 +1632,10 @@ const PURE_LAVA: usize = 6;
 const LOOSE: usize = 7;
 /// Hat Teile in Nachbarwürfeln.
 const FOREIGN: usize = 8;
-/// Dunkelt ab ([`DUNKELT`]), [`VIEW`] nimmt die Sicht ([`SICHT`]): die Bits
-/// aus [`blockstate::schatten`] für [`ChunkCache::ecken_at`], auch für Blöcke
-/// ohne Familie.
+/// Dunkelt ab ([`DUNKELT`]), [`VIEW`] nimmt in der Ecke die Sicht
+/// ([`SICHT`], in einer Welt aus 26.2 [`SICHT_262`]), [`OPAQUE`] ist
+/// `solidRender` ([`SICHT`]): die Bits aus [`blockstate::schatten`] für
+/// [`ChunkCache::ecken_at`], auch für Blöcke ohne Familie.
 const DARK: usize = 9;
 const VIEW: usize = 10;
 /// Dämpft das Licht ([`Lichtweg::daempfung`] nicht 0), [`DICHT`] lässt
@@ -1645,7 +1646,8 @@ const DICHT: usize = 12;
 /// Zeichnet das Spiel voll hell ([`Leuchten::Voll`]), auch als Nachbar in
 /// der weichen Beleuchtung.
 const VOLL: usize = 13;
-const FLAGS: usize = 14;
+const OPAQUE: usize = 14;
+const FLAGS: usize = 15;
 /// Bit im Schlüssel einer Klasse in [`Masks::of`], über den Ebenen: ein
 /// Eintrag mit einer Fläche aus [`Lichtweg::formen`] oder einer Quelle.
 /// Seine Blöcke liest die Ausbreitung aus der Maske seiner Klasse.
@@ -1738,12 +1740,13 @@ impl Masks {
     /// Je Paletteneintrag hat `schatten` die Bits aus
     /// [`blockstate::schatten`], `wege` den [`Lichtweg`] und `leuchten` das
     /// [`Leuchten`]. `blick` nennt je Spalte der Welt die im Blick, aus der
-    /// Vorgabe-Richtung keine, siehe [`spalten_im_blick`].
+    /// Vorgabe-Richtung keine, siehe [`spalten_im_blick`]. `ecke` ist das Bit
+    /// für [`VIEW`].
     fn of(
         section: &Section,
         families: &[Option<u32>],
         (schatten, wege, leuchten): (&[u8], &[Lichtweg], &[Leuchten]),
-        sprites: &SpriteSet,
+        (sprites, ecke): (&SpriteSet, u8),
         blick: Option<&[u8; 256]>,
     ) -> Option<Box<Masks>> {
         let bit = |set: bool, flag: usize| (set as u16) << flag;
@@ -1751,7 +1754,8 @@ impl Masks {
             .map(|p| {
                 families[p].map_or(0, |index| flags(sprites.family(index)))
                     | bit(schatten[p] & DUNKELT != 0, DARK)
-                    | bit(schatten[p] & SICHT != 0, VIEW)
+                    | bit(schatten[p] & ecke != 0, VIEW)
+                    | bit(schatten[p] & SICHT != 0, OPAQUE)
                     | bit(wege[p].daempfung != 0, DAEMPFT)
                     | bit(wege[p].daempfung == 15, DICHT)
                     | bit(matches!(leuchten[p], Leuchten::Voll(_)), VOLL)
@@ -1851,7 +1855,7 @@ impl Masks {
             }
         }
         (m.formen, m.quellen) = (formen, quellen);
-        if [PRESENT, DARK, VIEW, DAEMPFT, DICHT, VOLL]
+        if [PRESENT, DARK, VIEW, DAEMPFT, DICHT, VOLL, OPAQUE]
             .iter()
             .all(|&e| m.bits[e].iter().all(|&w| w == 0))
             && m.formen.is_empty()
@@ -1878,7 +1882,8 @@ fn spalten_im_blick(richtung: Richtung) -> Option<[u8; 256]> {
 }
 
 impl Loaded {
-    fn new(chunk: Rc<Chunk>, sprites: &SpriteSet) -> Loaded {
+    /// `ecke` wie in [`Masks::of`].
+    fn new(chunk: Rc<Chunk>, sprites: &SpriteSet, ecke: u8) -> Loaded {
         let blick = spalten_im_blick(sprites.projection().richtung());
         let families: Vec<Vec<Option<u32>>> = chunk
             .sections()
@@ -1920,7 +1925,7 @@ impl Loaded {
                     section,
                     families,
                     (&schatten, &wege, leuchten),
-                    sprites,
+                    (sprites, ecke),
                     blick.as_ref(),
                 )
             })
@@ -2177,9 +2182,14 @@ impl<'a> ChunkCache<'a> {
                 (chunk, None)
             }
         };
+        let ecke = if self.world.ecke_wie_26_2() {
+            SICHT_262
+        } else {
+            SICHT
+        };
         let loaded = chunk.map(|chunk| Loaded {
             licht,
-            ..Loaded::new(chunk, self.sprites)
+            ..Loaded::new(chunk, self.sprites, ecke)
         });
         self.slots.push(Slot {
             key,
@@ -2903,7 +2913,7 @@ impl<'a> ChunkCache<'a> {
             true => kino_kanaele(licht, 255),
             false => lightmap.factors(Light::from_packed(licht)),
         };
-        let [fest, dunkelt, sicht] = self.umgebung(block)?;
+        let [fest, dunkelt, sicht, opak] = self.umgebung(block)?;
         let (roh, voll) = self.lichter_um(block)?;
         // Alles relativ zum Block, siehe `umgebung` und `lichter_um`.
         let bit = |ebene: u64, [dx, dy, dz]: [i32; 3]| {
@@ -2986,12 +2996,11 @@ impl<'a> ChunkCache<'a> {
                 });
             }
             // Im Innern: ab der eigenen Zelle; das Licht der Mitte aus der
-            // Zelle davor, ausser ihr Block ist `isSolidRender`, in 26.3
-            // genau [`SICHT`]. Flach im Licht der eigenen Zelle
-            // (`prepareQuadFlat`).
+            // Zelle davor, ausser ihr Block ist `isSolidRender`, [`OPAQUE`].
+            // Flach im Licht der eigenen Zelle (`prepareQuadFlat`).
             if plaetze & 1 << (seite + 3) != 0 {
                 seiten[seite + 3] = Some(if weich {
-                    let mitte = if bit(sicht, d) {
+                    let mitte = if bit(opak, d) {
                         licht([0; 3])
                     } else {
                         licht(d)
@@ -3078,15 +3087,15 @@ impl<'a> ChunkCache<'a> {
         Ok(if voll { VOLL_HELL } else { licht })
     }
 
-    /// Die Ebenen [`SOLID`], [`DARK`] und [`VIEW`] um einen Block, so weit
+    /// Die Ebenen [`SOLID`], [`DARK`], [`VIEW`] und [`OPAQUE`] um einen Block, so weit
     /// [`ChunkCache::ecken_at`] fragt: je Ebene ein Bit für jede Zelle
     /// `(x + dx, y + dy, z + dz)` mit `dx`, `dy` und `dz` von -1 bis 2, an
     /// Stelle `dy + 1 + 4 · (dx + 1) + 16 · (dz + 1)`. Die vier Zellen einer
     /// Spalte kommen aus einem Wort je Ebene, an einer Sectionsgrenze aus
     /// zweien. Ausserhalb der Welt und in fehlenden Chunks steht nichts, wie
     /// für Luft.
-    fn umgebung(&mut self, [x, y, z]: [i32; 3]) -> Result<[u64; 3]> {
-        let mut out = [0; 3];
+    fn umgebung(&mut self, [x, y, z]: [i32; 3]) -> Result<[u64; 4]> {
+        let mut out = [0; 4];
         for dz in -1..=2 {
             for dx in -1..=2 {
                 // Diese Spalte fragt keine der drei Seiten.
@@ -3104,8 +3113,8 @@ impl<'a> ChunkCache<'a> {
                         .ok()
                         .and_then(|sy| loaded.chunk.section_index(sy))
                         .and_then(|s| loaded.masks[s].as_deref())
-                        .map_or([0; 3], |m| {
-                            [SOLID, DARK, VIEW].map(|e| u32::from(m.bits[e][col]))
+                        .map_or([0; 4], |m| {
+                            [SOLID, DARK, VIEW, OPAQUE].map(|e| u32::from(m.bits[e][col]))
                         })
                 };
                 let unten = y - 1;
@@ -3114,7 +3123,7 @@ impl<'a> ChunkCache<'a> {
                 let hi = if (y + 2) >> 4 != sy {
                     woerter(sy + 1)
                 } else {
-                    [0; 3]
+                    [0; 4]
                 };
                 let stelle = 4 * (dx + 1) + 16 * (dz + 1);
                 for ((o, l), h) in out.iter_mut().zip(lo).zip(hi) {

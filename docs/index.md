@@ -33,7 +33,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
 - [Wasser und Licht](renderer/wasser-und-licht.md): Flüssigkeiten, Flächen, Streifen, Himmels- und Blocklicht.
 - [Weiche Beleuchtung](renderer/weiche-beleuchtung.md): die Regeln von `BlockModelLighter` für volle Würfel.
-- [Cinematic](renderer/cinematic.md): `--cinematic`, die Werte des Looks, Sprites ohne Schattierung nach Richtung, Licht an den Ecken und in HDR, Farbe des Himmels, Ton.
+- [Cinematic](renderer/cinematic.md): `--cinematic`, die Werte des Looks, Sprites ohne Schattierung nach Richtung, Licht an den Ecken und in HDR, Farbe des Himmels, Sonne und Schatten aus dem Strahl, Bodenpflanzen, Wasser, Leuchten, Wärme, Bloom, Ton.
 - [Biomfarben](renderer/biomfarben.md): Colormaps, gefärbte Blöcke, Biom je Block, Übergänge zwischen Biomen, Sumpfgras, Tönung beim Zeichnen, Biome lesen.
 - [Varianten aus der Position](renderer/varianten.md): die Alternative würfeln wie der Client.
 - [Blockstates](renderer/blockstates.md): lesen und stapeln wie der Client, `blocks.txt`.
@@ -153,4 +153,6 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-02, Gang zur Sonne in Stufen](messungen/2026-10-02-gang-zur-sonne-in-stufen.md): was ein Strahl zur Sonne am Prototyp mit dem Gang in Stufen kostet, gegen den alten Gang und den schnellsten aus Reihe 4; Bilder aus getrennten Läufen, Zeit aus Durchgängen im Wechsel in einem Prozess.
 - [2026-10-02, Look von Cinematic](messungen/2026-10-02-look-von-cinematic.md): Kennzahlen des Looks aus 0058 am Prototyp über 24 Ansichten der Testwelt gegen die Karte, dazu verworfene Kurven, Dunst, feste Weissabgleiche und die Stufen des Pflanzenschattens an Wiesen.
 - [2026-10-03, Cinematic, Phase 1](messungen/2026-10-03-cinematic-phase-1.md): was Cinematic aus #72 an Stand und Fichtenwald gegen die Karte an Zeit, Spitze und Grösse kostet, und dass die Karte Byte für Byte gleich und gleich schnell bleibt, ohne und mit Grafikkarte.
+- [2026-10-03, Look am Renderer](messungen/2026-10-03-look-am-renderer.md): die Kennzahlen des Looks aus 0058 am Renderer mit Cinematic aus #73 über dieselben 24 Ansichten der Testwelt wie am Prototyp, was die Befunde 1 und 2 aus #101 beitragen und warum Schatten heller sind.
+- [2026-10-03, Cinematic mit Sonne](messungen/2026-10-03-cinematic-mit-sonne.md): was Cinematic aus #73 an Stand und Fichtenwald gegen die Karte kostet, dass die Karte gleich bleibt, und was ein Strahl zur Sonne vor und nach dem schnellen Gang kostet, gegen Gang 12 aus 0056.
 - [2026-10-03, Bits „frei zur Sonne“](messungen/2026-10-03-bits-frei-zur-sonne.md): wie viele Strahlen zur Sonne die Bits aus dem Vorschlag zu #73 am Prototyp ohne Gang beantworten, dass jedes Bild gleich bleibt und was ein Strahl mit und ohne sie kostet, im Wechsel in einem Prozess und allein wiederholt.

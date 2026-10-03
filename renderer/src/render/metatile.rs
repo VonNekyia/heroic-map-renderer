@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
 
 use anyhow::Result;
@@ -11,15 +12,19 @@ use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
 use crate::world::{BlockState, Chunk, REGION, Region, Section, World};
 
-use super::kino::Kino;
+use super::kino::{Bloompuffer, Himmelsfarben, Kino, Lichtstufe};
 use super::licht::{Ausbreitung, ChunkLicht, Eingabe};
+use super::projection::Umkehrung;
 use super::pyramid::LINEAR;
 use super::rasterizer::{
-    AO_FACES, Ecken, Light, VOLL_HELL, darken, ecken_faktor, over, pack, smooth_blend, tinted,
-    tinted_im_licht,
+    AO_FACES, Ecken, Geometrie, Light, VOLL_HELL, darken, ecken_faktor, over, pack, smooth_blend,
+    tinted, tinted_im_licht,
 };
+use super::sonne::texel_mitte;
 use super::sprites::{Family, Rows, TINT_BLOCK, TINT_WATER, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Richtung, Sprite, SpriteId, SpriteSet};
+
+mod strahl;
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
 ///
@@ -131,12 +136,34 @@ pub fn render_area_with(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<RgbaImage> {
-    if let Some(kino) = chunks.sprites.kino() {
-        return Ok(render_hdr_with(chunks, rect, y_range)?.bild(kino));
+    let sprites = chunks.sprites;
+    if let Some(kino) = sprites.kino() {
+        // Mit einem Rand für den Bloom, siehe `Hdr::bild`.
+        let scale = sprites.projection().scale();
+        let rand = 3 * kino.bloom_radius(scale) as u32;
+        let gross = ScreenRect {
+            x: rect.x - rand as i32,
+            y: rect.y - rand as i32,
+            width: rect.width + 2 * rand,
+            height: rect.height + 2 * rand,
+        };
+        // Ohne leuchtenden Block bleibt das Leuchten überall 0 und der Bloom
+        // leer: Der Rand trägt nichts bei, innen ist jeder Pixel derselbe.
+        let (rect, rand) = match rand > 0 && chunks.leuchtet_im_band(gross, y_range)? {
+            true => (gross, rand),
+            false => (rect, 0),
+        };
+        // Leinwand und Puffer des Bloom bleiben im Cache für die nächste
+        // Kachel.
+        let mut hdr = std::mem::take(&mut chunks.hdr);
+        render_hdr(chunks, rect, y_range, false, rand, &mut hdr)?;
+        let bild = hdr.bild(kino, scale, rand, &mut chunks.bloom);
+        chunks.hdr = hdr;
+        return Ok(bild);
     }
     let deckung = von_vorn(chunks, rect, y_range)?;
     let mut canvas = RgbaImage::new(rect.width, rect.height);
-    for &(sprite, origin, ref sicht, licht, _) in chunks.sichtbar.iter().rev() {
+    for &(sprite, origin, ref sicht, licht) in chunks.sichtbar.iter().rev() {
         blit_sichtbar(&mut canvas, sprite, origin, licht, sicht, &deckung.vis);
     }
     chunks.vis = deckung.vis;
@@ -152,57 +179,126 @@ pub fn render_hdr_with(
     rect: ScreenRect,
     y_range: (i32, i32),
 ) -> Result<Hdr> {
-    let kino = chunks
-        .sprites
-        .kino()
-        .expect("eine Sprite-Tabelle für Cinematic");
+    let mut hdr = Hdr::default();
+    render_hdr(chunks, rect, y_range, false, 0, &mut hdr)?;
+    Ok(hdr)
+}
+
+/// Wie [`render_hdr_with`], nur mit dem langsamen Bezug des Strahls zur
+/// Sonne ([`ChunkCache::sonne_bezug`]): für Tests, die den schnellen Gang
+/// gegen ihn prüfen.
+pub fn render_hdr_bezug(
+    chunks: &mut ChunkCache,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+) -> Result<Hdr> {
+    let mut hdr = Hdr::default();
+    render_hdr(chunks, rect, y_range, true, 0, &mut hdr)?;
+    Ok(hdr)
+}
+
+/// Wie [`render_hdr_with`], in `hdr`; `rand` Pixel am Rand zeichnet es nur
+/// für den Bloom, ohne Strahlen zur Sonne.
+fn render_hdr(
+    chunks: &mut ChunkCache,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+    bezug: bool,
+    rand: u32,
+    hdr: &mut Hdr,
+) -> Result<()> {
+    let sprites = chunks.sprites;
+    let kino = sprites.kino().expect("eine Sprite-Tabelle für Cinematic");
+    let umkehrung = sprites.projection().umkehrung();
     let deckung = von_vorn(chunks, rect, y_range)?;
-    let mut hdr = Hdr::new(rect.width, rect.height);
-    for &(sprite, origin, ref sicht, licht, daten) in chunks.sichtbar.iter().rev() {
+    hdr.leeren(rect.width, rect.height);
+    let innen = ScreenRect {
+        x: rand as i32,
+        y: rand as i32,
+        width: rect.width - 2 * rand,
+        height: rect.height - 2 * rand,
+    };
+    // Die Draws aus dem Cache genommen, denn der Strahl zur Sonne braucht ihn.
+    let sichtbar = std::mem::take(&mut chunks.sichtbar);
+    let kinodaten = std::mem::take(&mut chunks.kinodaten);
+    debug_assert_eq!(sichtbar.len(), kinodaten.len());
+    for (&(sprite, origin, ref sicht, licht), &daten) in sichtbar.iter().zip(&kinodaten).rev() {
         blit_hdr(
-            &mut hdr,
-            kino,
+            hdr,
+            (kino, sprites.projection(), &umkehrung, &innen),
             sprite,
             origin,
             licht,
             daten,
             sicht,
             &deckung.vis,
-        );
+            &mut |p0, eigen| {
+                if bezug {
+                    chunks.sonne_bezug(p0, eigen)
+                } else {
+                    chunks.sonne(p0, eigen)
+                }
+            },
+        )?;
     }
+    chunks.sichtbar = sichtbar;
+    chunks.kinodaten = kinodaten;
     chunks.vis = deckung.vis;
-    Ok(hdr)
+    Ok(())
 }
 
 /// Die Leinwand von Cinematic: je Pixel die Farbe in linearem Licht,
 /// vormultipliziert, samt Alpha, und die Tiefe des vordersten Pixels darauf
 /// entlang der Blickachse wie [`Projection::depth`], `-∞` ohne Pixel.
+#[derive(Default)]
 pub struct Hdr {
     pub width: u32,
     pub farbe: Vec<[f32; 4]>,
-    pub tiefe: Vec<f32>,
+    /// In f64: so ist auch die Strecke durch Wasser weit draussen genau.
+    pub tiefe: Vec<f64>,
+    /// Die Wärme des vordersten Pixels, aus dem Biom seines Blocks, siehe
+    /// [`Kino::waerme`]; 1 ohne Pixel.
+    pub waerme: Vec<f32>,
+    /// Das Leuchten je Pixel, linear und vormultipliziert, gemischt wie die
+    /// Farbe: die Quelle des Bloom.
+    pub leuchten: Vec<[f32; 3]>,
 }
 
 impl Hdr {
-    fn new(width: u32, height: u32) -> Hdr {
+    /// Leer für ein Bild aus `width` × `height` Pixeln, im Speicher von
+    /// vorher.
+    fn leeren(&mut self, width: u32, height: u32) {
         let n = width as usize * height as usize;
-        Hdr {
-            width,
-            farbe: vec![[0.0; 4]; n],
-            tiefe: vec![f32::NEG_INFINITY; n],
-        }
+        self.width = width;
+        self.farbe.clear();
+        self.farbe.resize(n, [0.0; 4]);
+        self.tiefe.clear();
+        self.tiefe.resize(n, f64::NEG_INFINITY);
+        self.waerme.clear();
+        self.waerme.resize(n, 1.0);
+        self.leuchten.clear();
+        self.leuchten.resize(n, [0.0; 3]);
     }
 
-    /// Das Bild nach dem Ton aus [`Kino::ton`]; Alpha bleibt, ein Pixel ohne
-    /// Block durchsichtig.
-    pub fn bild(&self, kino: &Kino) -> RgbaImage {
-        let height = (self.farbe.len() / self.width.max(1) as usize) as u32;
-        let mut bild = RgbaImage::new(self.width, height);
-        for (pixel, &[r, g, b, a]) in bild.pixels_mut().zip(&self.farbe) {
+    /// Das Bild nach dem Ton aus [`Kino::ton`], ohne einen Rand von `rand`
+    /// Pixeln: Der Rand trägt nur sein Leuchten zum Bloom bei
+    /// ([`Kino::bloom`] bei `scale`, in `puffer`). Alpha bleibt, ein Pixel
+    /// ohne Block durchsichtig; auf ihn fällt kein Bloom.
+    /// Siehe docs/renderer/cinematic.md, „Bloom“.
+    pub fn bild(&self, kino: &Kino, scale: u32, rand: u32, puffer: &mut Bloompuffer) -> RgbaImage {
+        let w = self.width as usize;
+        let h = self.farbe.len() / w.max(1);
+        let rand = rand as usize;
+        let bloom = kino.bloom(&self.leuchten, &self.waerme, w, scale, puffer);
+        let mut bild = RgbaImage::new((w - 2 * rand) as u32, (h - 2 * rand) as u32);
+        for (i, pixel) in bild.pixels_mut().enumerate() {
+            let p = (i / (w - 2 * rand) + rand) * w + i % (w - 2 * rand) + rand;
+            let [r, g, b, a] = self.farbe[p];
             if a <= 0.0 {
                 continue;
             }
-            let [r, g, b] = kino.ton([r / a, g / a, b / a]);
+            let zusatz = bloom.as_ref().map_or([0.0; 3], |b| b[p]);
+            let [r, g, b] = kino.ton([r / a, g / a, b / a], self.waerme[p], zusatz);
             pixel.0 = [r, g, b, (a * 255.0).round() as u8];
         }
         bild
@@ -228,7 +324,9 @@ fn von_vorn<'a>(
     );
     let mut sichtbar = std::mem::take(&mut chunks.sichtbar);
     sichtbar.clear();
-    let kino = sprites.kino().is_some();
+    let mut kinodaten = std::mem::take(&mut chunks.kinodaten);
+    kinodaten.clear();
+    let kino = sprites.kino();
     for c in candidates.iter().rev() {
         let (anchor, cell) = match c.kind {
             0 => ([c.x, c.y, c.z], OWN_CELL),
@@ -252,22 +350,37 @@ fn von_vorn<'a>(
                 ..drawn
             }
         };
-        // Für Cinematic die Tiefe des Blockursprungs, siehe `Hdr::tiefe`.
-        let tiefe = if kino {
-            projection.depth(anchor.map(|c| c as f32))
+        // Für Cinematic die Tiefe des Blockursprungs, siehe `Hdr::tiefe`,
+        // und der Block, von dem der Strahl zur Sonne ausgeht.
+        let tiefe = if kino.is_some() {
+            projection.depth_block(anchor)
         } else {
             0.0
         };
+        let mut himmel = None;
         for id in ids.ids().rev() {
             if let Some((sprite, rows)) = sprites.part_rows(id, cell) {
                 let origin = origin_of(projection, rect, anchor, sprite);
                 if let Some(sicht) = deckung.zeichne(sprite, rows, origin) {
-                    sichtbar.push((sprite, origin, sicht, ids.licht(), (ids.himmel, tiefe)));
+                    sichtbar.push((sprite, origin, sicht, ids.licht()));
+                    if let Some(kino) = kino {
+                        let himmel = match himmel {
+                            Some(h) => h,
+                            None => *himmel.insert(chunks.himmel_at(kino, anchor)?),
+                        };
+                        kinodaten.push(Kinodaten {
+                            himmel,
+                            ursprung: tiefe,
+                            anker: anchor,
+                            leuchten: ids.leuchten,
+                        });
+                    }
                 }
             }
         }
     }
     chunks.sichtbar = sichtbar;
+    chunks.kinodaten = kinodaten;
     Ok(deckung)
 }
 
@@ -323,16 +436,14 @@ pub fn draw_list<'a>(
         .sichtbar
         .iter()
         .rev()
-        .map(
-            |&(sprite, origin, _, (licht, ecken, wasser, tint), _)| Draw {
-                sprite,
-                origin,
-                licht,
-                ecken,
-                wasser,
-                tint,
-            },
-        )
+        .map(|&(sprite, origin, _, (licht, ecken, wasser, tint))| Draw {
+            sprite,
+            origin,
+            licht,
+            ecken,
+            wasser,
+            tint,
+        })
         .collect();
     chunks.vis = deckung.vis;
     Ok(draws)
@@ -507,8 +618,7 @@ const AO_WERTE: [u32; 5] = [255, 204, 153, 102, 51];
 /// Streifen seiner Flüssigkeit über niedrigeren Nachbarn, alles im Licht
 /// des Blocks, siehe [`ChunkCache::licht_fuer`], an den Ecken seiner Seiten
 /// weich beleuchtet, siehe [`ChunkCache::ecken_at`], und in den Farben
-/// seines Bioms, siehe [`ChunkCache::tints_at`]; für Cinematic in der Farbe
-/// des Himmels, siehe [`ChunkCache::himmel_at`].
+/// seines Bioms, siehe [`ChunkCache::tints_at`].
 #[derive(Clone, Copy)]
 struct Drawn {
     sprite: Option<SpriteId>,
@@ -517,7 +627,8 @@ struct Drawn {
     ecken: Option<Ecken>,
     wasser: Option<[u32; 3]>,
     tint: [u32; 2],
-    himmel: [f32; 3],
+    /// `getLightEmission` / 15, für Cinematic.
+    leuchten: f32,
 }
 
 impl Default for Drawn {
@@ -529,7 +640,7 @@ impl Default for Drawn {
             ecken: None,
             wasser: None,
             tint: [0; 2],
-            himmel: [0.0; 3],
+            leuchten: 0.0,
         }
     }
 }
@@ -639,14 +750,23 @@ type Licht = ([u32; 3], Option<Ecken>, Option<[u32; 3]>, [u32; 2]);
 /// [`Licht`] ohne die Farben, wie [`ChunkCache::licht_fuer`] es gibt.
 type Lichter = ([u32; 3], Option<Ecken>, Option<[u32; 3]>);
 
-/// Was ein Draw für Cinematic dazu trägt: das Himmelslicht an seinem Block
-/// ([`ChunkCache::himmel_at`]) und die Tiefe des Blockursprungs.
-type Kinodaten = ([f32; 3], f32);
+/// Was ein Draw für Cinematic dazu trägt.
+#[derive(Clone, Copy)]
+struct Kinodaten {
+    /// Die Farben des Himmels an seinem Block ([`ChunkCache::himmel_at`]).
+    himmel: Himmelsfarben,
+    /// Die Tiefe des Blockursprungs, siehe [`Hdr::tiefe`].
+    ursprung: f64,
+    /// Der Block, dem das Modell gehört, im Blick.
+    anker: [i32; 3],
+    /// Wie hell der Block leuchtet, `getLightEmission` / 15.
+    leuchten: f32,
+}
 
 /// Ein Draw, der bleibt, wie [`von_vorn`] ihn ablegt: der Sprite-Teil,
-/// seine linke obere Ecke auf der Leinwand, seine sichtbaren Pixel, sein
-/// Licht und was Cinematic dazu braucht.
-type Sichtbar<'a> = (&'a Sprite, (i32, i32), Sicht, Licht, Kinodaten);
+/// seine linke obere Ecke auf der Leinwand, seine sichtbaren Pixel und sein
+/// Licht. Was Cinematic dazu braucht, steht daneben in [`Kinodaten`].
+type Sichtbar<'a> = (&'a Sprite, (i32, i32), Sicht, Licht);
 
 /// Was Cinematic statt der Helligkeit in die drei Kanäle von [`Ecken`] und
 /// des Lichts eines Draws legt: Himmels- und Blocklicht getrennt, in
@@ -934,26 +1054,49 @@ fn blit_sichtbar(
 /// [`over`], vormultipliziert. Das Licht rechnet [`Kino::licht`] wie das
 /// Spiel je Ecke ([`EckenLicht`]); an einem Pixel auf einer Seite der
 /// AO-Karte mischen sich die der Ecken mit denselben Anteilen wie bei der
-/// Karte, ungerundet. Die Tiefe ist die des vordersten gezeichneten Pixels.
+/// Karte, ungerundet. Die Sonne kommt dazu, so weit sie durchkommt: `sonne`
+/// gibt das für einen Punkt im Blick und den Block des Draws, siehe
+/// [`ChunkCache::sonne`]. Die Tiefe ist die des vordersten gezeichneten
+/// Pixels.
 /// Siehe docs/renderer/cinematic.md, „Zeichnen in HDR“.
 #[allow(clippy::too_many_arguments)]
 fn blit_hdr(
     hdr: &mut Hdr,
-    kino: &Kino,
+    (kino, projection, umkehrung, innen): (&Kino, Projection, &Umkehrung, &ScreenRect),
     sprite: &Sprite,
     (ox, oy): (i32, i32),
     (licht, ecken, wasser, farben): Licht,
-    (himmel, ursprung): Kinodaten,
+    Kinodaten {
+        himmel,
+        ursprung,
+        anker,
+        leuchten,
+    }: Kinodaten,
     sicht: &Sicht,
     vis: &[u64],
-) {
+    sonne: &mut dyn FnMut([f64; 3], [i32; 3]) -> Result<f32>,
+) -> Result<()> {
     let (w, cw) = (sprite.image.width() as usize, hdr.width as usize);
     let src = sprite.image.as_raw();
-    let licht = EckenLicht::new(kino, himmel, licht, ecken);
+    // Wasser hat keine Seite in der AO-Karte und liegt vorn im Licht des
+    // Blocks, wie im Spiel ohne weiche Beleuchtung.
+    let stufen = licht.map(|c| c as f32);
+    let licht = EckenLicht::new(kino, himmel.licht, licht, ecken);
+    let waerme = kino.look().waerme(himmel.temperatur);
+    let leuchten = leuchten * kino.look().leuchten;
     let karte = sprite.ao.as_deref();
-    let nass = wasser.map(|[s, b, a]| kino.licht(himmel, s as f32, b as f32, a as f32));
+    let nass = wasser.map(|[s, b, a]| kino.licht(himmel.licht, s as f32, b as f32, a as f32));
+    // Das Licht des Wassers, beim ersten Pixel aus Wasser gerechnet.
+    let mut wasserlicht: Option<Wasserlicht> = None;
     let linear = &*LINEAR;
     let zeilen = vis[sicht.start..].chunks(sicht.nk);
+    // Pixel auf demselben Texel beginnen am selben Punkt.
+    let mut letzter: Option<([f64; 3], f32)> = None;
+    // Der Blick vom Auge in die Szene, Länge 1, und wie viel Tiefe ein Block
+    // Strecke entlang des Blicks ist.
+    let achse = projection.achse();
+    let je_block = (achse[0] * achse[0] + achse[1] * achse[1] + achse[2] * achse[2]).sqrt();
+    let blick = achse.map(|c| -c / je_block);
     for (y, woerter) in (sicht.y0..sicht.y1).zip(zeilen) {
         let row = &src[(y - oy) as usize * w * 4..][..w * 4];
         for (j, &bits) in woerter.iter().enumerate() {
@@ -965,20 +1108,224 @@ fn blit_hdr(
                 let i = (y - oy) as usize * w + sx;
                 let s = &row[sx * 4..][..4];
                 let p = y as usize * cw + x;
-                mische_hdr(
-                    &mut hdr.farbe[p],
-                    linear,
-                    [s[0], s[1], s[2], s[3]],
-                    licht.am(karte, i),
-                    nass,
-                    anteile(sprite, i, farben),
-                );
-                if let Some(geometrie) = &sprite.geometrie {
-                    hdr.tiefe[p] = ursprung + geometrie[i].tiefe;
+                let mut sonnenlicht = [0.0; 3];
+                // Im Rand für den Bloom zählt nur das Leuchten.
+                let drin = (innen.x..innen.right()).contains(&(x as i32))
+                    && (innen.y..innen.bottom()).contains(&y);
+                if let Some(g) = sprite.geometrie.as_deref().map(|g| &g[i]).filter(|_| drin) {
+                    sonnenlicht = kino.sonnenlicht(g);
+                    if sonnenlicht != [0.0; 3] {
+                        let p0 = startpunkt(umkehrung, sprite, (sx, (y - oy) as usize), g, anker);
+                        let frei = match letzter {
+                            Some((q, frei)) if q == p0 => frei,
+                            _ => sonne(p0, anker)?,
+                        };
+                        letzter = Some((p0, frei));
+                        sonnenlicht = sonnenlicht.map(|c| c * frei);
+                    }
                 }
+                let s = [s[0], s[1], s[2], s[3]];
+                let tint = anteile(sprite, i, farben);
+                // Über leerem Grund mischt Wasser wie bei der Karte: Ohne Grund
+                // gibt es keine Strecke, und der Pixel bleibt so offen.
+                let grund = hdr.tiefe[p] > f64::NEG_INFINITY;
+                match (sprite.geometrie.as_deref().map(|g| &g[i]), tint) {
+                    (Some(g), Some(tint)) if g.wasser > 0.0 && grund => {
+                        // Bis zum Grund: der vorderste Pixel darunter.
+                        let dahinter = ursprung + f64::from(g.tiefe) - hdr.tiefe[p];
+                        let strecke = (dahinter as f32 / je_block).max(0.0);
+                        let unten = Unten {
+                            licht: wasserlicht.get_or_insert_with(|| {
+                                Wasserlicht::new(kino, &himmel, stufen, wasser)
+                            }),
+                            sonne: sonnenlicht,
+                            leuchten,
+                        };
+                        let wasser = Wasserpixel {
+                            alpha: g.wasser,
+                            normale: g.normale,
+                            blick,
+                            strecke,
+                        };
+                        mische_wasser(
+                            (&mut hdr.farbe[p], &mut hdr.leuchten[p]),
+                            kino,
+                            s,
+                            tint,
+                            &himmel,
+                            unten,
+                            wasser,
+                        );
+                    }
+                    _ => mische_hdr(
+                        (&mut hdr.farbe[p], &mut hdr.leuchten[p]),
+                        kino,
+                        linear,
+                        s,
+                        licht.am(karte, i),
+                        nass,
+                        tint,
+                        (sonnenlicht, leuchten),
+                    ),
+                }
+                if let Some(geometrie) = &sprite.geometrie {
+                    hdr.tiefe[p] = ursprung + f64::from(geometrie[i].tiefe);
+                }
+                hdr.waerme[p] = waerme;
             }
         }
     }
+    Ok(())
+}
+
+/// Das Licht eines Pixels für [`mische_wasser`]: das des Draws, die Sonne
+/// und wie stark der Block leuchtet, mal [`Look::leuchten`].
+///
+/// [`Look::leuchten`]: super::look::Look::leuchten
+struct Unten<'a> {
+    licht: &'a Wasserlicht,
+    sonne: [f32; 3],
+    leuchten: f32,
+}
+
+/// Das Licht eines Draws für [`mische_wasser`], einmal je Draw: das des
+/// Blocks, das des Wassers, das Streulicht und die Stufen, in denen es den
+/// Himmel spiegelt.
+struct Wasserlicht {
+    licht: [f32; 3],
+    nass: [f32; 3],
+    streu: [f32; 3],
+    spiegel: Lichtstufe,
+}
+
+impl Wasserlicht {
+    /// Aus Himmels-, Blocklicht und Schatten des Blocks in den Kanälen von
+    /// [`kino_kanaele`] und dem des Wassers, falls es in einem anderen
+    /// liegt, wie bei [`mische_hdr`].
+    fn new(
+        kino: &Kino,
+        himmel: &Himmelsfarben,
+        [sky, block, schatten]: [f32; 3],
+        wasser: Option<[u32; 3]>,
+    ) -> Wasserlicht {
+        // Das Wasser liegt im Licht seiner Zelle, ein gefluteter Block an der
+        // Oberfläche im helleren darüber.
+        let [ws, wb, wa] = wasser.map_or([sky, block, schatten], |w| w.map(|c| c as f32));
+        Wasserlicht {
+            licht: kino.licht(himmel.licht, sky, block, schatten),
+            nass: kino.licht(himmel.licht, ws, wb, wa),
+            streu: kino.licht(himmel.licht, ws, 0.0, wa),
+            spiegel: kino.lichtstufe(ws, 0.0, wa),
+        }
+    }
+}
+
+/// Was [`mische_wasser`] über die Wasserfläche eines Pixels weiss: ihr
+/// Alpha und ihre Normale aus [`Geometrie`], der Blick vom Auge in die
+/// Szene, Länge 1, und die Strecke bis zum Pixel darunter in Blöcken,
+/// unendlich ohne.
+struct Wasserpixel {
+    alpha: f32,
+    normale: [f32; 3],
+    blick: [f32; 3],
+    strecke: f32,
+}
+
+/// Legt einen Pixel, dessen vorderstes Fragment Wasser ist, für Cinematic
+/// über den darunter, wie der Prototyp aus #89 von vorn nach hinten: Die
+/// Fläche spiegelt den Himmel nach Fresnel ([`Kino::spiegel`]); den Rest
+/// deckt die Textur des Wassers mit [`Look::wasser_textur`] ihres Alphas;
+/// was dahinter im selben Sprite liegt, etwa ein gefluteter Block, folgt
+/// ohne Strecke; darunter dämpft das Wasser den Pixel darunter nach der
+/// Strecke ([`Kino::wasser_dichte`]) und füllt mit `water_fog_color` im
+/// Himmelslicht. Spiegelung und Streulicht liegen im Himmelslicht des
+/// Wassers. Wasser und Rest trennt die Tönungskarte wie in
+/// [`mische_hdr`].
+/// Siehe docs/renderer/cinematic.md, „Wasser“.
+///
+/// [`Look::wasser_textur`]: super::look::Look::wasser_textur
+fn mische_wasser(
+    (d, l): (&mut [f32; 4], &mut [f32; 3]),
+    kino: &Kino,
+    s: [u8; 4],
+    (anteile, farben): ([u32; 2], [u32; 2]),
+    himmel: &Himmelsfarben,
+    unten: Unten,
+    w: Wasserpixel,
+) {
+    let linear = &*LINEAR;
+    let Wasserlicht {
+        licht,
+        nass,
+        streu,
+        spiegel: stufe,
+    } = *unten.licht;
+    let (f, spiegel) = kino.spiegel(himmel, w.blick, w.normale);
+    let spiegel = stufe.mal(spiegel);
+    let farbe = tinted(s, anteile, farben);
+    let a_s = f32::from(s[3]) / 255.0;
+    let ([block_k, water_k], [b, wf]) = (anteile, farben);
+    // Vormultipliziert: was vom Wasser kommt und was dahinter liegt.
+    let mut nass_p = [0.0f32; 3];
+    let mut rest_p = [0.0f32; 3];
+    for c in 0..3 {
+        let byte = |word: u32| (word >> (8 * c) & 255) as f32;
+        let rest = f32::from(s[c]) + byte(block_k) * byte(b) / 255.0;
+        let anteil = byte(water_k) * byte(wf) / 255.0;
+        let summe = rest + anteil;
+        let q = if summe > 0.0 { anteil / summe } else { 0.0 };
+        let p = linear[farbe[c] as usize] * a_s;
+        nass_p[c] = p * q;
+        rest_p[c] = p * (1.0 - q);
+    }
+    let a_w = w.alpha.min(a_s);
+    let farbe_w = nass_p.map(|c| c / a_w);
+    let sigma = kino.wasser_dichte(farbe_w);
+    let a1 = a_w * kino.look().wasser_textur;
+    let (innen, a_m) = if a_w < 1.0 {
+        (
+            rest_p.map(|c| c / (1.0 - a_w)),
+            ((a_s - a_w) / (1.0 - a_w)).clamp(0.0, 1.0),
+        )
+    } else {
+        ([0.0; 3], 0.0)
+    };
+    let durch = sigma.map(|sg| (-sg * w.strecke).exp());
+    // Ein gefluteter Block, der leuchtet, leuchtet auch unter Wasser.
+    let e = match unten.leuchten > 0.0 && a_m > 0.0 {
+        true => unten.leuchten * kino.look().leuchtet(innen.map(|c| c / a_m)),
+        false => 0.0,
+    };
+    // Das Streulicht füllt nur, wo darunter etwas deckt; Alpha wie `over`,
+    // damit der Pixel so offen bleibt wie bei der Karte.
+    for c in 0..3 {
+        let grund = durch[c] * d[c] + (1.0 - durch[c]) * himmel.wassernebel[c] * streu[c] * d[3];
+        let unter = innen[c] * (licht[c] + unten.sonne[c] + e) + (1.0 - a_m) * grund;
+        let wasser = a1 * farbe_w[c] * (nass[c] + unten.sonne[c]) + (1.0 - a1) * unter;
+        d[c] = f * spiegel[c] + (1.0 - f) * wasser;
+        // Das Leuchten darunter dämpft das Wasser wie die Farbe.
+        l[c] = (1.0 - f) * (1.0 - a1) * (innen[c] * e + (1.0 - a_m) * durch[c] * l[c]);
+    }
+    d[3] = a_s + d[3] * (1.0 - a_s);
+}
+
+/// Wo der Strahl zur Sonne für Pixel `(sx, sy)` eines Sprites beginnt, im
+/// Blick: am Punkt der vordersten Fläche dort, auf einer achsparallelen
+/// Fläche in der Mitte seines Sechzehntels, ein Tausendstel davor.
+/// Siehe docs/renderer/cinematic.md, „Schatten“.
+fn startpunkt(
+    umkehrung: &Umkehrung,
+    sprite: &Sprite,
+    (sx, sy): (usize, usize),
+    g: &Geometrie,
+    anker: [i32; 3],
+) -> [f64; 3] {
+    let bildpunkt = (
+        f64::from(sprite.offset.0) + sx as f64 + 0.5,
+        f64::from(sprite.offset.1) + sy as f64 + 0.5,
+    );
+    let p = texel_mitte(umkehrung.punkt(bildpunkt, g.tiefe.into()), g.normale);
+    std::array::from_fn(|k| f64::from(anker[k]) + p[k] + f64::from(g.normale[k]) * 1e-3)
 }
 
 /// Das Licht eines Draws für Cinematic in HDR, wie das Spiel es je Ecke
@@ -1024,17 +1371,26 @@ impl EckenLicht {
 
 /// Legt einen Pixel für Cinematic über den darunter, siehe [`blit_hdr`]:
 /// erst die Farbe des Bioms wie bei der Karte ([`tinted`]), dann linear mal
-/// das Licht `licht`. Hat der Block Wasser in einem anderen Licht (`nass`),
-/// liegt der Anteil des Wassers an der Farbe in dessen Licht, wie
-/// [`tinted_im_licht`] es für die Karte rechnet.
+/// das Licht `licht`, das der Sonne (`sonne`) und das Leuchten: `leuchten`
+/// ist die Stufe des Blocks / 15 mal [`Look::leuchten`], wie stark der Texel
+/// leuchtet, sagt [`Look::leuchtet`]. Hat der Block Wasser in einem anderen
+/// Licht (`nass`), liegt der Anteil des Wassers an der Farbe in dessen
+/// Licht, wie [`tinted_im_licht`] es für die Karte rechnet.
+/// Siehe docs/renderer/cinematic.md, „Leuchten“.
+///
+/// [`Look::leuchten`]: super::look::Look::leuchten
+/// [`Look::leuchtet`]: super::look::Look::leuchtet
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn mische_hdr(
-    d: &mut [f32; 4],
+    (d, l): (&mut [f32; 4], &mut [f32; 3]),
+    kino: &Kino,
     linear: &[f32; 256],
     s: [u8; 4],
     mut licht: [f32; 3],
     nass: Option<[f32; 3]>,
     tint: Option<([u32; 2], [u32; 2])>,
+    (sonne, leuchten): ([f32; 3], f32),
 ) {
     let mut farbe = s;
     if let Some((anteile, farben)) = tint {
@@ -1055,8 +1411,14 @@ fn mische_hdr(
         }
     }
     let a = s[3] as f32 / 255.0;
+    let lin = farbe.map(|c| linear[c as usize]);
+    let e = match leuchten > 0.0 {
+        true => leuchten * kino.look().leuchtet([lin[0], lin[1], lin[2]]),
+        false => 0.0,
+    };
     for c in 0..3 {
-        d[c] = linear[farbe[c] as usize] * licht[c] * a + d[c] * (1.0 - a);
+        d[c] = lin[c] * (licht[c] + sonne[c] + e) * a + d[c] * (1.0 - a);
+        l[c] = lin[c] * e * a + l[c] * (1.0 - a);
     }
     d[3] = a + d[3] * (1.0 - a);
 }
@@ -1091,6 +1453,40 @@ pub fn streifenbreite(scale: u32) -> usize {
 // Kacheln in Streifen kommen; sonst lädt jede Kachel ihre hundert neu.
 const CACHE_CHUNKS: usize = 256;
 
+/// Hasht die Schlüssel des Chunk-Caches mit einer Multiplikation je Wort.
+/// Siehe docs/renderer/renderpfad.md, „Streifen und Cache je Thread“.
+#[derive(Default)]
+pub(super) struct Streuer(u64);
+
+impl Hasher for Streuer {
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.write_u64(u64::from(b));
+        }
+    }
+
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0xf135_7aea_2e62_a9c5);
+    }
+
+    fn write_i32(&mut self, n: i32) {
+        self.write_u64(u64::from(n as u32));
+    }
+
+    fn write_i8(&mut self, n: i8) {
+        self.write_u64(u64::from(n as u8));
+    }
+
+    /// Die oberen Bits der Multiplikation nach unten, wo die Tabelle den
+    /// Eimer wählt.
+    fn finish(&self) -> u64 {
+        self.0.rotate_left(26)
+    }
+}
+
+/// Eine Tabelle mit [`Streuer`].
+pub(super) type Tabelle<K, V> = HashMap<K, V, BuildHasherDefault<Streuer>>;
+
 /// Chunks, die während eines Renderlaufs gebraucht werden.
 ///
 /// Ein Cache gehört zu einer Sprite-Tabelle: er hält je Paletteneintrag
@@ -1105,7 +1501,7 @@ pub struct ChunkCache<'a> {
     /// hundert Öffnungen statt einer Handvoll.
     regions: HashMap<(i32, i32), Option<Region>>,
     slots: Vec<Slot>,
-    index: HashMap<(i32, i32), usize>,
+    index: Tabelle<(i32, i32), usize>,
     /// Der zuletzt benutzte Slot. Benachbarte Blöcke liegen fast immer im
     /// selben Chunk; der Merker spart das Hashen.
     last: usize,
@@ -1121,6 +1517,11 @@ pub struct ChunkCache<'a> {
     /// und die Draws, die bleiben.
     vis: Vec<u64>,
     sichtbar: Vec<Sichtbar<'a>>,
+    /// Nur für Cinematic: je Draw in `sichtbar` seine [`Kinodaten`], die
+    /// Leinwand in HDR und die Puffer des Bloom, über Kacheln hinweg.
+    kinodaten: Vec<Kinodaten>,
+    hdr: Hdr,
+    bloom: Bloompuffer,
     /// Je Chunk und Höhe das Biom jedes Blocks nach [`BiomeTable::quart`],
     /// `u16::MAX`, solange es nicht gerechnet ist; siehe
     /// [`ChunkCache::biome_of`].
@@ -1201,6 +1602,11 @@ struct Loaded {
     /// Je Block, dessen Blockentity mit seinen Daten ein anderes Bild gibt,
     /// die Familie dafür ([`SpriteSet::variante`]), nach Lage sortiert.
     varianten: Vec<([i32; 3], u32)>,
+    /// Nur für Cinematic: die Blöcke, deren Modell für die Sonne aus dem
+    /// Würfel ragt ([`strahl::ragende`]), und die Säule des schnellen Gangs,
+    /// beide sobald gebraucht.
+    ragende: Option<Rc<[[i32; 3]]>>,
+    sonne: Option<Box<strahl::Saeule>>,
 }
 
 /// Die Eigenschaften einer Familie, die über Verdeckung entscheiden, je
@@ -1562,6 +1968,8 @@ impl Loaded {
             licht: None,
             biomes,
             varianten,
+            ragende: None,
+            sonne: None,
         }
     }
 }
@@ -1602,13 +2010,16 @@ impl<'a> ChunkCache<'a> {
             sprites,
             regions: HashMap::new(),
             slots: Vec::new(),
-            index: HashMap::new(),
+            index: Tabelle::default(),
             last: usize::MAX,
             tile: 0,
             keep: tiles as u32,
             grenze: CACHE_CHUNKS,
             vis: Vec::new(),
             sichtbar: Vec::new(),
+            kinodaten: Vec::new(),
+            hdr: Hdr::default(),
+            bloom: Bloompuffer::default(),
             biome_layers: Vec::new(),
             biome_index: HashMap::new(),
             biome_last: usize::MAX,
@@ -1933,6 +2344,50 @@ impl<'a> ChunkCache<'a> {
         Ok((candidates, foreign))
     }
 
+    /// Ob im Band von `rect` ein Block leuchtet ([`Masks::quellen`]), ob zu
+    /// sehen oder nicht: grosszügig wie das Band von
+    /// [`ChunkCache::candidates`], samt der Reserve für fremde Teile.
+    /// Siehe docs/renderer/cinematic.md, „Bloom“.
+    fn leuchtet_im_band(&mut self, rect: ScreenRect, y_range: (i32, i32)) -> Result<bool> {
+        let projection = self.sprites.projection();
+        let (u_min, u_max) = u_window(projection, rect);
+        let (v_lo, v_hi) = (
+            v_window(projection, rect, y_range.0).0,
+            v_window(projection, rect, y_range.1).1,
+        );
+        let pad = self
+            .sprites
+            .foreign_cells()
+            .iter()
+            .map(|c| c[0].abs() + c[1].abs() + c[2].abs())
+            .max()
+            .unwrap_or(0);
+        let genordet = projection.kamera().genordet();
+        for key in band_chunks(genordet, u_min - pad, u_max + pad, v_lo - pad, v_hi + pad) {
+            let slot = self.slot(key)?;
+            let Some(loaded) = &self.slots[slot].loaded else {
+                continue;
+            };
+            let (cx, cz) = (loaded.chunk.x * 16, loaded.chunk.z * 16);
+            for (section, masks) in loaded.chunk.sections().iter().zip(&loaded.masks) {
+                for &(i, _) in masks.iter().flat_map(|m| &m.quellen) {
+                    let y = i32::from(section.y) * 16 + i32::from(i >> 8);
+                    let welt = [cx + i32::from(i & 15), cz + i32::from(i >> 4 & 15)];
+                    let [x, z] = self.richtung.in_den_blick(welt);
+                    let (u, v) = projection.uv(x, z);
+                    let (lo, hi) = v_window(projection, rect, y);
+                    if (y_range.0 - pad..=y_range.1 + pad).contains(&y)
+                        && (u_min - pad..=u_max + pad).contains(&u)
+                        && (lo - pad..=hi + pad).contains(&v)
+                    {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
+
     /// Erster Durchgang: alle Blöcke im Band, von denen etwas zu sehen
     /// sein kann, samt der Würfel, in die fremde Modellteile hineinragen.
     fn candidates(
@@ -2230,10 +2685,6 @@ impl<'a> ChunkCache<'a> {
             .chain(strips.into_iter().flatten())
             .fold(0, |kinds, id| kinds | sprites.tints(id));
         let tint = self.tints_at([x, y, z], family, kinds)?;
-        let himmel = match self.sprites.kino() {
-            Some(kino) => self.himmel_at(kino, [x, y, z])?,
-            None => [0.0; 3],
-        };
         Ok(Drawn {
             sprite,
             strips,
@@ -2241,27 +2692,24 @@ impl<'a> ChunkCache<'a> {
             ecken,
             wasser,
             tint,
-            himmel,
+            leuchten: f32::from(leuchten.stufe()) / 15.0,
         })
     }
 
-    /// Das Himmelslicht am Block `(x, y, z)` im Blick für Cinematic, linear
-    /// mit der Stärke 1: je Biom aus [`Kino::himmel`], gemischt über
+    /// Die Farben des Himmels am Block `(x, y, z)` im Blick für Cinematic,
+    /// linear mit der Stärke 1: je Biom aus [`Kino::himmel`], gemischt über
     /// dasselbe Quadrat um den Block wie die Farben des Bioms
     /// ([`BiomeTable::blend`](super::BiomeTable::blend)), aber in linearem
     /// Licht und ungerundet.
     /// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
-    fn himmel_at(&mut self, kino: &Kino, [x, y, z]: [i32; 3]) -> Result<[f32; 3]> {
+    fn himmel_at(&mut self, kino: &Kino, [x, y, z]: [i32; 3]) -> Result<Himmelsfarben> {
         let [x, z] = self.richtung.in_die_welt([x, z]);
-        let (mut summe, mut n) = ([0.0f32; 3], 0.0);
+        let (mut summe, mut n) = (Himmelsfarben::default(), 0.0);
         for block in self.sprites.biomes().quadrat([x, y, z]) {
-            let h = kino.himmel(self.biome_of(block)?);
-            for (s, h) in summe.iter_mut().zip(h) {
-                *s += h;
-            }
+            summe = summe.je_farbe(kino.himmel(self.biome_of(block)?), |a, b| a + b);
             n += 1.0;
         }
-        Ok(summe.map(|s| s / n))
+        Ok(summe.je_farbe(summe, |a, _| a / n))
     }
 
     /// Die Farben eines Blocks für seine Tönungskarte, gepackt wie sie: die
@@ -2751,6 +3199,7 @@ mod tests {
             LOOK,
             &DimensionType::oberwelt(),
             &BiomeTable::new(&Colors::default()),
+            Kamera::ZWEI_ZU_EINS,
         );
         let ecke = |a: u32, b: u32| a | a << 8 | b << 16 | b << 24;
         let ecken: Ecken = [[ecke(240, 208); 3], [0; 3], [ecke(255, 153); 3]];

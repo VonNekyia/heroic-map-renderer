@@ -426,6 +426,55 @@ impl Projection {
         let [ax, ay, az] = self.achse();
         x * ax + y * ay + z * az
     }
+
+    /// Die Tiefe des Ursprungs von Block `block` wie [`Projection::depth`],
+    /// in f64: genau auch weit draussen.
+    pub fn depth_block(&self, block: [i32; 3]) -> f64 {
+        let achse = self.achse();
+        (0..3)
+            .map(|k| f64::from(block[k]) * f64::from(achse[k]))
+            .sum()
+    }
+
+    /// Der Punkt, den [`Projection::project`] auf `(x, y)` abbildet und der
+    /// die Tiefe `tiefe` hat ([`Projection::depth`]), siehe
+    /// [`Projection::umkehrung`].
+    pub fn punkt(&self, xy: (f64, f64), tiefe: f64) -> [f64; 3] {
+        self.umkehrung().punkt(xy, tiefe)
+    }
+
+    /// Die Umkehrung von [`Projection::project`] und [`Projection::depth`]
+    /// zusammen: die inverse Matrix, die Adjunkte durch die Determinante.
+    /// Einmal gerechnet für viele Punkte.
+    pub fn umkehrung(&self) -> Umkehrung {
+        let (h, a, b) = (self.h(), self.a(), self.b());
+        let [ax, ay, az] = self.achse().map(f64::from);
+        let m = if self.kamera.genordet() {
+            [[h, 0.0, 0.0], [0.0, -b, a], [ax, ay, az]]
+        } else {
+            [[h, 0.0, -h], [a, -b, a], [ax, ay, az]]
+        };
+        // Mit zyklischen Indizes trägt der Kofaktor sein Vorzeichen schon.
+        let ko = |i: usize, j: usize| {
+            let (i1, i2, j1, j2) = ((i + 1) % 3, (i + 2) % 3, (j + 1) % 3, (j + 2) % 3);
+            m[i1][j1] * m[i2][j2] - m[i1][j2] * m[i2][j1]
+        };
+        let det: f64 = (0..3).map(|j| m[0][j] * ko(0, j)).sum();
+        Umkehrung(std::array::from_fn(|i| {
+            std::array::from_fn(|j| ko(j, i) / det)
+        }))
+    }
+}
+
+/// Die Umkehrung von Projektion und Tiefe, siehe [`Projection::umkehrung`].
+#[derive(Clone, Copy, Debug)]
+pub struct Umkehrung([[f64; 3]; 3]);
+
+impl Umkehrung {
+    /// Der Punkt auf dem Bildpunkt `(x, y)` mit der Tiefe `tiefe`.
+    pub fn punkt(&self, (x, y): (f64, f64), tiefe: f64) -> [f64; 3] {
+        self.0.map(|z| z[0] * x + z[1] * y + z[2] * tiefe)
+    }
 }
 
 impl Default for Projection {
@@ -437,6 +486,31 @@ impl Default for Projection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn punkt_kehrt_projektion_und_tiefe_um() {
+        let kameras = [
+            Kamera::ZWEI_ZU_EINS,
+            Kamera::schraeg(4, 3).unwrap(),
+            Kamera::schraeg(1, 1).unwrap(),
+            Kamera::Oben,
+            Kamera::ObenNord,
+            Kamera::Nord45,
+        ];
+        for kamera in kameras {
+            let p = Projection::mit_kamera(32, kamera);
+            for q in [[0.25f32, 0.5, 0.75], [1.0, 0.0, 0.3], [0.9, 1.0, 0.1]] {
+                let (x, y) = p.project(q);
+                let r = p.punkt((x.into(), y.into()), p.depth(q).into());
+                for k in 0..3 {
+                    assert!(
+                        (r[k] - f64::from(q[k])).abs() < 1e-5,
+                        "{kamera}: {q:?} → {r:?}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn wuerfel_belegt_genau_scale_mal_scale() {

@@ -6,9 +6,10 @@ Aus der Wurzel des Repositorys, mit ./world, ./vanilla-assets, ./assets und
     python skills/doku-bilder-rendern/bilder-rendern.py <renderer> [<daten>]
 
 <renderer> ist das Release-Binär, <daten> der Ordner mit world/ und den
-Assets, Vorgabe die Wurzel. Braucht Pillow mit WebP. Die Befehle je Bild
-stehen im Skill daneben.
+Assets, Vorgabe die Wurzel. Braucht Pillow mit WebP, für die Bilder zu 0058
+dazu cargo. Die Befehle je Bild stehen im Skill daneben.
 """
+import os
 import subprocess
 import sys
 import tempfile
@@ -134,6 +135,16 @@ def main():
         for i, feld in enumerate(felder):
             paar.paste(feld, (i * (FELD[0] + LUECKE), 0))
         webp(paar, "genordet")
+        # Cinematic mit Werten des Looks, die kein Schalter bietet: der
+        # ignorierte Test bilder_zu_cinematic, gebaut aus diesem Checkout.
+        subprocess.run(
+            ["cargo", "test", "--release", "--manifest-path", "renderer/Cargo.toml",
+             "--test", "kennzahlen", "bilder_zu_cinematic", "--", "--ignored"],
+            env=dict(os.environ, KENNZAHLEN_WURZEL=str(daten.resolve()), BILDER_AUS=tmp),
+            check=True,
+        )
+        for name in ("cinematic-renderer-waerme", "cinematic-renderer-pflanzen"):
+            webp(Image.open(Path(tmp) / f"{name}.png"), name)
     banner.alpha_composite(Image.open(BILDER / "quellen" / "banner-ebenen.png").convert("RGBA"))
     webp(banner, "banner")
 

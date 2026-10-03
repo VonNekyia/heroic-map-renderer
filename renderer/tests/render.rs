@@ -545,6 +545,7 @@ fn kanten_nehmen_jeden_pixel_genau_einmal() {
                     faces: seiten.to_vec(),
                 }],
                 ambient_occlusion: true,
+                bodenpflanze: false,
             }),
             x: vx,
             y: vy,

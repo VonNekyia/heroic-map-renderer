@@ -11,14 +11,15 @@ use image::RgbaImage;
 use rayon::prelude::*;
 use tempfile::TempDir;
 use terranova_render::assets::Assets;
-use terranova_render::render::look::LOOK;
-use terranova_render::render::metatile::{STUECK, render_hdr_with};
+use terranova_render::render::look::{LOOK, Look};
+use terranova_render::render::metatile::{Hdr, STUECK, render_hdr_bezug, render_hdr_with};
 use terranova_render::render::rasterizer::{
     Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
 };
+use terranova_render::render::sonne::texel_mitte;
 use terranova_render::render::{
-    BiomeTable, ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, draw_list,
-    render_area, render_area_with, render_area_without_culling, survey,
+    BiomeTable, ChunkCache, Kamera, Projection, Reach, Richtung, ScreenRect, SpriteSet, draw_list,
+    render_area, render_area_with, render_area_without_culling, survey, survey_in,
 };
 use terranova_render::world::{BlockState, World};
 
@@ -671,12 +672,12 @@ fn hdr_haelt_die_tiefe_der_vordersten_flaeche() {
     let v = (py as f32 + 0.5 + 4.0 * projection.b() as f32) / projection.a() as f32;
     let soll = projection.depth([(v + u) / 2.0, 4.0, (v - u) / 2.0]);
     assert!(
-        (hdr.tiefe[i] - soll).abs() < 1e-3,
+        (hdr.tiefe[i] - f64::from(soll)).abs() < 1e-3,
         "Tiefe {} statt {soll}",
         hdr.tiefe[i]
     );
     assert_eq!(hdr.farbe[i][3], 1.0);
-    assert_eq!((hdr.tiefe[0], hdr.farbe[0][3]), (f32::NEG_INFINITY, 0.0));
+    assert_eq!((hdr.tiefe[0], hdr.farbe[0][3]), (f64::NEG_INFINITY, 0.0));
 }
 
 /// Zwei Draws auf einem Pixel: Eis vor der Ostseite eines Blocks, beide
@@ -709,7 +710,7 @@ fn hdr_haelt_die_tiefe_des_vorderen_draws() {
     assert!((9.0..10.0).contains(&z), "z {z}");
     assert!(eis > ostseite);
     assert!(
-        (hdr.tiefe[i] - eis).abs() < 1e-3,
+        (hdr.tiefe[i] - f64::from(eis)).abs() < 1e-3,
         "Tiefe {} statt {eis}",
         hdr.tiefe[i]
     );
@@ -719,12 +720,17 @@ fn hdr_haelt_die_tiefe_des_vorderen_draws() {
 /// Ein Biom mit eigener `sky_color` färbt das Himmelslicht, gemischt über
 /// die Blöcke im Quadrat mit dem Radius 2, auch aus `nw`: Die Oberseite
 /// eines Blocks im vollen Himmelslicht hat in HDR die Textur linear mal dem
-/// Himmelslicht dreifach und der Umgebung. Frozen setzt in der Fixture
+/// Himmelslicht dreifach, der Umgebung und der Sonne, frei auf der Ebene.
+/// Frozen setzt in der Fixture
 /// `#ffa040`, plains nichts und nimmt den Himmel der Oberwelt. Mitten in
 /// einem Biom gilt seine Farbe, an der Grenze bei x = 16 das Mittel der 25
 /// Blöcke, zwei Spalten plains und drei frozen. Das Soll in Python
-/// gerechnet.
+/// gerechnet. Ebenso wärmt das Biom: plains (0,8) mit 1,3, frozen (0) gar
+/// nicht. Gemischt wird die Temperatur, erst daraus die Wärme: bei x = 14
+/// mit vier Spalten plains 0,64, also 1,14, bei x = 15 mit dreien 0,48,
+/// also 1.
 /// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
+/// Siehe docs/renderer/cinematic.md, „Wärme“.
 #[test]
 fn biom_faerbt_das_himmelslicht() {
     let dir = tempdir();
@@ -756,9 +762,9 @@ fn biom_faerbt_das_himmelslicht() {
     let rect = rect_um(projection, [0, 0, 0], [32, 4, 16]);
     let hdr = render_hdr_with(&mut ChunkCache::new(&world, &kino), rect, Y_RANGE).unwrap();
     for (x, soll) in [
-        (4, [0.2614195, 0.2219919, 0.1373306]),
-        (28, [0.8187543, 0.2097489, 0.0408742]),
-        (16, [0.5958204, 0.2146461, 0.0794568]),
+        (4, [0.9463679, 0.5476627, 0.2215593]),
+        (28, [1.5037028, 0.5354197, 0.1251029]),
+        (16, [1.2807688, 0.5403169, 0.1636854]),
     ] {
         // Die Mitte der Oberseite des Blocks (x, 3, 8), im Blick.
         let [bx, by, bz] = blick(projection, [x, 3, 8]);
@@ -769,6 +775,761 @@ fn biom_faerbt_das_himmelslicht() {
         assert!(
             (0..3).all(|c| (ist[c] - soll[c]).abs() < 1e-4) && ist[3] == 1.0,
             "x = {x}: {ist:?} statt {soll:?}"
+        );
+    }
+    for (x, soll) in [(4, 1.3), (28, 1.0), (16, 1.0), (14, 1.14), (15, 1.0)] {
+        let [bx, by, bz] = blick(projection, [x, 3, 8]);
+        let (sx, sy) = projection.project([bx as f32 + 0.5, by as f32 + 1.0, bz as f32 + 0.5]);
+        let i =
+            (sy.floor() as i32 - rect.y) as u32 * rect.width + (sx.floor() as i32 - rect.x) as u32;
+        let ist = hdr.waerme[i as usize];
+        assert!(
+            (ist - soll).abs() < 1e-5,
+            "x = {x}: Wärme {ist} statt {soll}"
+        );
+    }
+}
+
+/// Die Sprite-Tabelle für Cinematic mit `look` über den Blockstates von
+/// `world` in `y_range`.
+fn kino_tabelle(
+    world: &World,
+    projection: Projection,
+    y_range: (i32, i32),
+    look: Look,
+) -> SpriteSet {
+    let survey = survey(world, projection, y_range, None).unwrap();
+    let mut assets = assets();
+    assets.load_biomes(&common::biomdaten()).unwrap();
+    SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(look)).unwrap()
+}
+
+/// Nur die hellen Texel eines leuchtenden Blocks leuchten, mit der Stärke
+/// aus dem Look: ein Pilzlicht (Stufe 15) mit halb weisser, halb dunkler
+/// Textur, gezeichnet mit dem Look und mit `leuchten` 0. Auf den weissen
+/// Texeln kommt linear 1 mal 2 dazu, auf den dunklen (40, linear 0,021)
+/// nichts, ebenso auf dem Block daneben, der nicht leuchtet. Ein Pixel, der
+/// helle und dunkle Texel mischt, leuchtet nach seiner Farbe dazwischen.
+/// Siehe docs/renderer/cinematic.md, „Leuchten“.
+#[test]
+fn nur_helle_texel_leuchten() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 3, 8) => "minecraft:shroomlight",
+        (12, 3, 8) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let rect = rect_um(projection, [8, 3, 8], [13, 4, 9]);
+    let hdr = |look| {
+        let sprites = kino_tabelle(&world, projection, Y_RANGE, look);
+        render_hdr_with(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap()
+    };
+    let (mit, ohne) = (
+        hdr(LOOK),
+        hdr(Look {
+            leuchten: 0.0,
+            ..LOOK
+        }),
+    );
+    let (mut hell, mut dunkel, mut gemischt) = (0, 0, 0);
+    for (m, o) in mit.farbe.iter().zip(&ohne.farbe) {
+        assert_eq!(m[3], o[3]);
+        let d: [f32; 3] = std::array::from_fn(|c| m[c] - o[c]);
+        // Grau und höchstens die volle Stärke nach dem Anteil des Pixels.
+        let grau = d.iter().all(|x| (x - d[0]).abs() < 1e-4);
+        assert!(
+            grau && (-1e-5..=2.0 * m[3] + 1e-4).contains(&d[0]),
+            "{d:?} bei Alpha {}",
+            m[3]
+        );
+        match d[0] {
+            x if m[3] == 1.0 && (x - 2.0).abs() < 1e-4 => hell += 1,
+            x if m[3] == 1.0 && x.abs() < 1e-5 => dunkel += 1,
+            x if m[3] > 0.0 || x != 0.0 => gemischt += 1,
+            _ => {}
+        }
+    }
+    // Das Pilzlicht halb hell, halb dunkel, dazu der Block daneben.
+    assert!(
+        hell > 50 && dunkel > hell && gemischt < hell / 2,
+        "{hell} {dunkel} {gemischt}"
+    );
+}
+
+/// Bloom um ein leuchtendes Pilzlicht auf einem Boden, bei scale 16 mit
+/// Radius 4: Mit ihm wird es heller, nie dunkler, und nur bis 3r = 12
+/// Pixel um einen Pixel, der leuchtet. Ein Ausschnitt, dessen Rand mitten
+/// durch den Schein geht, gleicht dem grossen Bild.
+/// Siehe docs/renderer/cinematic.md, „Bloom“.
+#[test]
+fn bloom_um_das_leuchten() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 3, 8) => "minecraft:shroomlight",
+        (_, 0..=2, _) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let mit = kino_tabelle(&world, projection, Y_RANGE, LOOK);
+    let ohne = kino_tabelle(&world, projection, Y_RANGE, Look { bloom: 0.0, ..LOOK });
+    let rect = rect_um(projection, [4, 0, 4], [13, 4, 13]);
+    let (a, b) = (
+        render_area(&world, &mit, rect, Y_RANGE).unwrap(),
+        render_area(&world, &ohne, rect, Y_RANGE).unwrap(),
+    );
+    let hdr = render_hdr_with(&mut ChunkCache::new(&world, &mit), rect, Y_RANGE).unwrap();
+    let leuchtet = |x: i32, y: i32| {
+        (0..rect.width as i32).contains(&x)
+            && (0..rect.height as i32).contains(&y)
+            && hdr.leuchten[(y as u32 * rect.width + x as u32) as usize] != [0.0; 3]
+    };
+    let mut heller = 0;
+    for (x, y, p) in a.enumerate_pixels() {
+        let q = b.get_pixel(x, y);
+        assert!(
+            (0..4).all(|c| p[c] >= q[c]),
+            "({x}, {y}): {p:?} gegen {q:?}"
+        );
+        if p != q {
+            heller += 1;
+            let (x, y) = (x as i32, y as i32);
+            let nah = (-12..=12).any(|dy| (-12..=12).any(|dx| leuchtet(x + dx, y + dy)));
+            assert!(nah, "({x}, {y}) weiter als 3r vom Leuchten");
+        }
+    }
+    assert!(heller > 200, "{heller}");
+    // Der Rand des Ausschnitts geht durch das Pilzlicht.
+    let (sx, _) = projection.project([8.5, 3.5, 8.5]);
+    let halb = ScreenRect {
+        width: (sx.floor() as i32 - rect.x) as u32,
+        ..rect
+    };
+    let klein = render_area(&world, &mit, halb, Y_RANGE).unwrap();
+    let soll = image::imageops::crop_imm(&a, 0, 0, halb.width, halb.height).to_image();
+    assert!(klein == soll, "Ausschnitt anders");
+}
+
+/// Wasser dämpft das Leuchten darunter wie die Farbe: Ein Pilzlicht mit
+/// einem Block Wasser darüber leuchtet in den Bloom nirgends stärker als
+/// ohne Wasser, unter der Oberfläche schwächer, aber nicht gar nicht.
+/// Siehe docs/renderer/cinematic.md, „Bloom“.
+#[test]
+fn wasser_daempft_das_leuchten() {
+    let hdr = |wasser: bool| {
+        let dir = tempdir();
+        let block = move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (8, 3, 8) => "minecraft:shroomlight",
+            (8, 4, 8) if wasser => "minecraft:water",
+            (_, 0..=2, _) => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        };
+        common::write_world(dir.path(), &[(0, 0)], block);
+        let world = World::open(dir.path()).unwrap();
+        let projection = Projection::new(16);
+        let sprites = kino_tabelle(&world, projection, Y_RANGE, LOOK);
+        let rect = rect_um(projection, [7, 2, 7], [10, 6, 10]);
+        render_hdr_with(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap()
+    };
+    let (mit, ohne) = (hdr(true), hdr(false));
+    let mut gedaempft = 0;
+    for (m, o) in mit.leuchten.iter().zip(&ohne.leuchten) {
+        assert!((0..3).all(|c| m[c] <= o[c] + 1e-6), "{m:?} gegen {o:?}");
+        if m[0] > 0.0 && m[0] < 0.9 * o[0] {
+            gedaempft += 1;
+        }
+    }
+    assert!(gedaempft > 20, "{gedaempft}");
+}
+
+/// Blöcke für die Strahlen zur Sonne, frei in der Luft über einem Boden:
+/// ein voller Würfel, Laub mit Löchern, Wasser, Glas mit deckendem Rahmen,
+/// eine Bodenpflanze, ein Modell, das nach Westen in den Nachbarwürfel ragt,
+/// und ein Block ganz ohne deckenden Texel.
+fn strahlenwelt(x: i32, y: i32, z: i32) -> &'static str {
+    match (x, y, z) {
+        (_, ..=3, _) => "minecraft:einfarbig",
+        (4, 6, 4) => "minecraft:einfarbig",
+        (8, 6, 4) => "minecraft:laub",
+        (12, 6, 4) => "minecraft:water",
+        (4, 6, 10) => "minecraft:glas",
+        (8, 6, 10) => "minecraft:pflanze",
+        (12, 6, 10) => "minecraft:ueberhang",
+        (8, 6, 13) => "minecraft:durchsichtig",
+        (14, 4, 1) => "minecraft:sonnenblume[half=lower]",
+        (14, 5, 1) => "minecraft:sonnenblume[half=upper]",
+        (14, 4, 4) => "minecraft:pflanze",
+        (14, 5, 4) => "minecraft:einfarbig",
+        (14, 4, 7) => "minecraft:hohe_pflanze[half=lower]",
+        (14, 5, 7) => "minecraft:hohe_pflanze[half=upper]",
+        _ => "minecraft:air",
+    }
+}
+
+/// Einzelne Strahlen zur Sonne, je im schnellen Gang und im langsamen Bezug
+/// gleich: Der volle Würfel deckt, daneben ist frei. Laub deckt nach seinem
+/// Alpha-Test, mal ja, mal nein. Wasser und ein Block ohne deckenden Texel
+/// lassen die Sonne durch. Glas deckt nur mit seinem Rahmen. Eine
+/// Bodenpflanze dämpft auf die Hälfte, die, auf der der Strahl beginnt,
+/// nicht, und ihre obere Hälfte auch dann nicht, wenn die keine
+/// Bodenpflanze ist. Ein anderer Block über ihr deckt, die obere Hälfte
+/// eines Blocks, der keine Bodenpflanze ist, auch. Das Modell, das in den
+/// Würfel westlich ragt, deckt auch dort, wo der Strahl seinen eigenen
+/// Würfel nie betritt.
+/// Siehe docs/renderer/cinematic.md, „Schatten“.
+#[test]
+fn strahlen_zur_sonne() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], strahlenwelt);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let sprites = kino_tabelle(&world, projection, Y_RANGE, LOOK);
+    let s = sprites.kino().unwrap().sonne().map(f64::from);
+    let mut cache = ChunkCache::new(&world, &sprites);
+    // Der Strahl durch `ziel`, eine Einheit vor ihm begonnen, über dem Boden.
+    let mut strahl = |ziel: [f64; 3], eigen: [i32; 3]| {
+        let p0 = std::array::from_fn(|k| ziel[k] - s[k]);
+        let schnell = cache.sonne(p0, eigen).unwrap();
+        let bezug = cache.sonne_bezug(p0, eigen).unwrap();
+        assert_eq!(schnell, bezug, "{ziel:?}: schneller Gang und Bezug");
+        schnell
+    };
+    let fremd = [0, 0, 0];
+    assert_eq!(strahl([4.5, 6.5, 4.5], fremd), 0.0, "voller Würfel");
+    assert_eq!(strahl([4.5, 6.5, 6.5], fremd), 1.0, "neben dem Würfel");
+    let laub: Vec<f32> = (0..64)
+        .map(|i| {
+            strahl(
+                [
+                    8.03 + (i % 8) as f64 / 8.0,
+                    6.5,
+                    4.03 + (i / 8) as f64 / 8.0,
+                ],
+                fremd,
+            )
+        })
+        .collect();
+    assert!(laub.contains(&0.0) && laub.contains(&1.0), "Laub: {laub:?}");
+    assert!(laub.iter().all(|&l| l == 0.0 || l == 1.0), "Laub: {laub:?}");
+    assert_eq!(strahl([12.5, 6.5, 4.5], fremd), 1.0, "Wasser");
+    assert_eq!(strahl([8.5, 6.5, 13.5], fremd), 1.0, "ohne deckenden Texel");
+    // Durch die Mitte der Unterseite hinein, durch die Mitte der Südseite
+    // hinaus; durch den Rahmen der Unterseite hinein.
+    assert_eq!(strahl([4.5, 6.0, 10.5], fremd), 1.0, "Glas in der Mitte");
+    assert_eq!(strahl([4.03, 6.0, 10.5], fremd), 0.0, "Rahmen des Glases");
+    assert_eq!(strahl([8.5, 6.5, 10.5], fremd), 0.5, "Bodenpflanze");
+    assert_eq!(
+        strahl([8.5, 6.5, 10.5], [8, 6, 10]),
+        1.0,
+        "die eigene Pflanze"
+    );
+    // Durch den Teil im Würfel (11, 6, 10), hinaus durch seine Oberseite.
+    assert_eq!(strahl([11.2, 6.9, 10.9], fremd), 0.0, "Überhang");
+    // Von unten in die obere Hälfte über dem Block, auf dem er beginnt.
+    let mut von = |p0: [f64; 3], eigen: [i32; 3]| {
+        let schnell = cache.sonne(p0, eigen).unwrap();
+        assert_eq!(schnell, cache.sonne_bezug(p0, eigen).unwrap(), "{p0:?}");
+        schnell
+    };
+    assert_eq!(
+        von([14.5, 4.9, 1.5], [14, 4, 1]),
+        1.0,
+        "Blüte der Sonnenblume"
+    );
+    assert_eq!(
+        von([14.5, 4.9, 4.5], [14, 4, 4]),
+        0.0,
+        "Block über der Pflanze"
+    );
+    assert_eq!(
+        von([14.5, 5.001, 7.5], [14, 4, 7]),
+        0.0,
+        "obere Hälfte ohne Pflanze"
+    );
+}
+
+/// Eine hohe Welt aus 8 × 8 Chunks, weiter als der Horizont reicht: Säulen
+/// bis 100 Blöcke hoch aus Würfeln, Laub, Glas, Wasser, Pflanzen, die in
+/// ihre Nachbarn ragen, Blöcken ohne deckenden Texel und Überhängen nach
+/// allen vier Seiten, auch über Chunkgrenzen; Sonnenblumen am Boden und
+/// einzelne Blöcke in der Luft. Fest gewürfelt aus den Koordinaten.
+fn hohe_welt(x: i32, y: i32, z: i32) -> &'static str {
+    const ARTEN: [&str; 12] = [
+        "minecraft:einfarbig",
+        "minecraft:laub",
+        "minecraft:glas",
+        "minecraft:water",
+        "minecraft:pflanze",
+        "minecraft:ragende_pflanze",
+        "minecraft:durchsichtig",
+        "minecraft:ueberhang",
+        "minecraft:ueberhang_gerichtet[facing=north]",
+        "minecraft:ueberhang_gerichtet[facing=east]",
+        "minecraft:ueberhang_gerichtet[facing=south]",
+        "minecraft:ueberhang_gerichtet[facing=west]",
+    ];
+    let wurf = |a: i32, b: i32, c: i32| -> u64 {
+        let mut v = (a as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            ^ (b as u64).wrapping_mul(0xc2b2_ae3d_27d4_eb4f)
+            ^ (c as u64).wrapping_mul(0x1656_67b1_9e37_79f9);
+        v ^= v >> 29;
+        v = v.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        v ^ (v >> 32)
+    };
+    if y <= 3 {
+        return "minecraft:einfarbig";
+    }
+    let saeule = wurf(x, 0, z);
+    match saeule % 7 {
+        0 if y < 4 + (saeule >> 8) as i32 % 100 => {
+            return ARTEN[(saeule >> 20) as usize % ARTEN.len()];
+        }
+        1 if y == 4 => return "minecraft:sonnenblume[half=lower]",
+        1 if y == 5 => return "minecraft:sonnenblume[half=upper]",
+        _ => {}
+    }
+    let block = wurf(x, y, z);
+    if block % 300 == 0 {
+        return ARTEN[(block >> 20) as usize % ARTEN.len()];
+    }
+    "minecraft:air"
+}
+
+/// Strahlen zur Sonne von fest gewürfelten Punkten in `hohe_welt`, je im
+/// schnellen Gang und im Bezug gleich, diagonal und genordet aus je vier
+/// Richtungen. Andere Kameras derselben Art sehen die Sonne und die Welt im
+/// Blick ebenso. Es kommen Strahlen vor, die frei sind, gedeckt und
+/// gedämpft.
+/// Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
+#[test]
+fn zufaellige_strahlen_gleichen_dem_bezug() {
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..8).flat_map(|x| (0..8).map(move |z| (x, z))).collect();
+    common::write_world_sections(dir.path(), &chunks, 0..=6, hohe_welt, |_, _| None);
+    let world = World::open(dir.path()).unwrap();
+    let y_range = (0, 111);
+    let states = survey(&world, Projection::new(16), y_range, None)
+        .unwrap()
+        .states;
+    let mut zufall = 0x2545_f491_4f6c_dd1du64;
+    let mut wurf = move || {
+        zufall ^= zufall << 13;
+        zufall ^= zufall >> 7;
+        zufall ^= zufall << 17;
+        (zufall >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let (mut frei, mut gedeckt, mut gedaempft) = (0, 0, 0);
+    for kamera in ["2:1", "top-north"] {
+        let kamera = Kamera::parse(kamera).unwrap();
+        for k in 0..4 {
+            let projection = Projection::mit_kamera(16, kamera).aus(richtung(k, kamera));
+            let mut assets = assets();
+            assets.load_biomes(&common::biomdaten()).unwrap();
+            let sprites =
+                SpriteSet::build_mit_licht(&mut assets, &states, projection, None, Some(LOOK))
+                    .unwrap();
+            let mut cache = ChunkCache::new(&world, &sprites);
+            for _ in 0..1000 {
+                let p = [
+                    8.0 + 112.0 * wurf(),
+                    4.0 + 96.0 * wurf(),
+                    8.0 + 112.0 * wurf(),
+                ];
+                let p0 = match projection.richtung().vierteldrehungen() {
+                    0 => p,
+                    1 => [p[2], p[1], -p[0]],
+                    2 => [-p[0], p[1], -p[2]],
+                    _ => [-p[2], p[1], p[0]],
+                };
+                let eigen = p0.map(|c| c.floor() as i32);
+                let schnell = cache.sonne(p0, eigen).unwrap();
+                let bezug = cache.sonne_bezug(p0, eigen).unwrap();
+                assert_eq!(schnell, bezug, "{kamera} aus {k}, {p0:?}");
+                match schnell {
+                    1.0 => frei += 1,
+                    0.0 => gedeckt += 1,
+                    _ => gedaempft += 1,
+                }
+            }
+        }
+    }
+    assert!(
+        frei > 500 && gedeckt > 500 && gedaempft > 50,
+        "{frei} {gedeckt} {gedaempft}"
+    );
+}
+
+/// Durch eine leere Section zwischen belegten geht der Strahl hindurch und
+/// trifft den Block darüber, ob die Section fehlt oder nur Luft hält;
+/// daneben ist frei. Schnell und im Bezug gleich.
+/// Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
+#[test]
+fn strahl_durch_eine_leere_section() {
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    let p = [24.5, 4.001, 4.5];
+    let t = (40.5 - p[1]) / s[1];
+    let block: [i32; 3] = std::array::from_fn(|k| (p[k] + t * s[k]).floor() as i32);
+    assert_eq!(block[1] >> 4, 2, "{block:?}");
+    for sections in [vec![0i8, 2], vec![0, 1, 2]] {
+        let dir = tempdir();
+        let chunks: Vec<(i32, i32)> = (0..=1).flat_map(|x| (0..=2).map(move |z| (x, z))).collect();
+        common::write_world_sections(
+            dir.path(),
+            &chunks,
+            sections.clone(),
+            move |x, y, z| match (x, y, z) {
+                (_, ..=3, _) => "minecraft:einfarbig",
+                _ if [x, y, z] == block => "minecraft:einfarbig",
+                _ => "minecraft:air",
+            },
+            |_, _| None,
+        );
+        let world = World::open(dir.path()).unwrap();
+        let sprites = kino_tabelle(&world, Projection::new(16), (0, 47), LOOK);
+        let mut cache = ChunkCache::new(&world, &sprites);
+        for (q, soll) in [(p, 0.0), ([p[0] + 3.0, p[1], p[2]], 1.0)] {
+            let eigen = [q[0].floor() as i32, 3, q[2].floor() as i32];
+            assert_eq!(cache.sonne(q, eigen).unwrap(), soll, "{sections:?} {q:?}");
+            assert_eq!(
+                cache.sonne_bezug(q, eigen).unwrap(),
+                soll,
+                "{sections:?} {q:?}"
+            );
+        }
+    }
+}
+
+/// Ein Modell, das aus dem Chunk dahinter in einen Chunk ragt, hoch über
+/// dessen eigenen Blöcken, hebt dessen Decke: Der Strahl springt nicht über
+/// es hinweg, auch wenn sein eigener Chunk nicht zum Horizont zählt, denn
+/// er liegt von der Sonne weg.
+/// Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
+#[test]
+fn ueberhang_aus_dem_chunk_dahinter_hebt_die_decke() {
+    let dir = tempdir();
+    // Nach Süden in den Chunk (0, 1), die Sonne steht im Süden.
+    common::write_world_sections(
+        dir.path(),
+        &[(0, 0), (0, 1)],
+        0..=1,
+        |x, y, z| match (x, y, z) {
+            (_, ..=3, _) => "minecraft:einfarbig",
+            (8, 20, 15) => "minecraft:ueberhang_gerichtet[facing=west]",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let world = World::open(dir.path()).unwrap();
+    let sprites = kino_tabelle(&world, Projection::new(16), (0, 31), LOOK);
+    assert!(sprites.kino().unwrap().sonne()[2] > 0.0);
+    let mut cache = ChunkCache::new(&world, &sprites);
+    let p0 = [8.5, 20.5, 16.1];
+    assert_eq!(cache.sonne(p0, [8, 20, 16]).unwrap(), 0.0);
+    assert_eq!(cache.sonne_bezug(p0, [8, 20, 16]).unwrap(), 0.0);
+}
+
+/// Ein Turm fast an der Weite zur Sonne hin wirft seinen Schatten, auch
+/// wenn der Strahl bis dorthin über den Decken aller Chunks läuft und der
+/// Turm im fernsten Chunk steht, den der Strahl erreicht: So weit reicht der
+/// Horizont. Daneben ist frei.
+/// Siehe docs/renderer/cinematic.md, „Der schnelle Gang“.
+#[test]
+fn ferner_turm_wirft_seinen_schatten() {
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    // Am Rand des Chunks, von dem aus der Strahl am weitesten kommt.
+    let p = [64.5, 4.001, 15.5];
+    let t = 0.97 * f64::from(LOOK.sonne_weite);
+    let turm: [i32; 3] = std::array::from_fn(|k| (p[k] + t * s[k]).floor() as i32);
+    assert_eq!((turm[0] >> 4, turm[2] >> 4), (0, 5), "{turm:?}");
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..=4).flat_map(|x| (0..=6).map(move |z| (x, z))).collect();
+    common::write_world_sections(
+        dir.path(),
+        &chunks,
+        0..=6,
+        move |x, y, z| match (x, y, z) {
+            (_, ..=3, _) => "minecraft:einfarbig",
+            _ if [x, z] == [turm[0], turm[2]] && y <= turm[1] + 2 => "minecraft:einfarbig",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let world = World::open(dir.path()).unwrap();
+    let sprites = kino_tabelle(&world, Projection::new(16), (0, 111), LOOK);
+    assert_eq!(sprites.kino().unwrap().sonne(), LOOK.sonne_im_blick(kamera));
+    let mut cache = ChunkCache::new(&world, &sprites);
+    for (q, soll) in [(p, 0.0), ([p[0] + 3.0, p[1], p[2]], 1.0)] {
+        assert_eq!(cache.sonne(q, [0; 3]).unwrap(), soll, "{q:?}");
+        assert_eq!(cache.sonne_bezug(q, [0; 3]).unwrap(), soll, "{q:?}");
+    }
+}
+
+/// Ein Ausschnitt zeigt mit Cinematic dieselben Schatten wie das grosse
+/// Bild, auch den eines Turms aus einem Block, der nur weit ausserhalb
+/// steht: Mit [`Reach::mit_sonne`] liest der Vorlauf die Chunks zur Sonne
+/// hin mit. Ohne sie fehlt der Block in der Sprite-Tabelle, der Turm wäre
+/// Luft.
+/// Siehe docs/renderer/cinematic.md, „Der Vorlauf“.
+#[test]
+fn ausschnitt_sieht_den_schatten_von_draussen() {
+    // Die Welt aus `ferner_turm_wirft_seinen_schatten`.
+    let kamera = Kamera::parse("2:1").unwrap();
+    let s = LOOK.sonne_im_blick(kamera).map(f64::from);
+    let p = [64.5, 4.001, 15.5];
+    let t = 0.97 * f64::from(LOOK.sonne_weite);
+    let turm: [i32; 3] = std::array::from_fn(|k| (p[k] + t * s[k]).floor() as i32);
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..=4).flat_map(|x| (0..=6).map(move |z| (x, z))).collect();
+    common::write_world_sections(
+        dir.path(),
+        &chunks,
+        0..=6,
+        move |x, y, z| match (x, y, z) {
+            (_, ..=3, _) => "minecraft:einfarbig",
+            _ if [x, z] == [turm[0], turm[2]] && y <= turm[1] + 2 => "minecraft:blauwuerfel",
+            _ => "minecraft:air",
+        },
+        |_, _| None,
+    );
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let y_range = (0, 111);
+    let rect = rect_um(projection, [62, 4, 13], [67, 4, 18]);
+    let bild = |reach: Reach| {
+        let survey = survey_in(&world, reach).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(&common::biomdaten()).unwrap();
+        let sprites =
+            SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+                .unwrap();
+        let turm = survey
+            .states
+            .iter()
+            .any(|s| s.name() == "minecraft:blauwuerfel");
+        let bild = render_area_with(&mut ChunkCache::new(&world, &sprites), rect, y_range);
+        (turm, bild.unwrap())
+    };
+    let gross = bild(Reach::new(projection, y_range, None));
+    let ausschnitt = Reach::new(projection, y_range, Some(rect));
+    let (ohne, mit) = (bild(ausschnitt), bild(ausschnitt.mit_sonne(Some(&LOOK))));
+    assert!(
+        gross.0 && mit.0 && !ohne.0,
+        "{} {} {}",
+        gross.0,
+        mit.0,
+        ohne.0
+    );
+    assert!(
+        mit.1 == gross.1,
+        "mit der Sonne im Vorlauf wie das grosse Bild"
+    );
+    assert!(ohne.1 != gross.1, "ohne sie fehlt der Schatten des Turms");
+}
+
+/// Wie viel Sonne je Pixel eines Bilds ankommt, bezogen auf die volle: der
+/// Anteil der Sonne am Grün, mit `LOOK` weniger ohne Sonne, geteilt durch
+/// den grössten über den Pixeln von `boden`.
+fn sonne_je_pixel(mit: &Hdr, ohne: &Hdr, boden: &[usize]) -> Vec<f32> {
+    let sonne: Vec<f32> = mit
+        .farbe
+        .iter()
+        .zip(&ohne.farbe)
+        .map(|(m, o)| m[1] - o[1])
+        .collect();
+    let voll = boden.iter().map(|&i| sonne[i]).fold(0.0, f32::max);
+    sonne.iter().map(|s| s / voll).collect()
+}
+
+/// Der Schatten eines Würfels auf dem Boden liegt, wo der Strahl zur Sonne
+/// aus der Mitte des Texels den Würfel trifft: Jedes Pixel der Oberseite
+/// des Bodens bekommt die volle Sonne oder keine, wie ein Strahl gegen den
+/// Kasten des Würfels es sagt. Ausgenommen sind Strahlen, die die Kante auf
+/// ein Tausendstel streifen.
+/// Siehe docs/renderer/cinematic.md, „Schatten“.
+#[test]
+fn wuerfel_wirft_seinen_schatten() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (_, ..=3, _) | (8, 4, 8) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let rect = rect_um(projection, [5, 4, 5], [12, 5, 12]);
+    let hdr = |look: Look| {
+        let sprites = kino_tabelle(&world, projection, Y_RANGE, look);
+        render_hdr_with(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap()
+    };
+    let (mit, ohne) = (hdr(LOOK), hdr(Look { sonne: 0.0, ..LOOK }));
+    let s = LOOK.sonne_im_blick(projection.kamera()).map(f64::from);
+    // Je Pixel der Punkt auf der vordersten Fläche.
+    let punkt = |i: usize| {
+        let (x, y) = (i as u32 % rect.width, i as u32 / rect.width);
+        projection.punkt(
+            (
+                f64::from(rect.x) + f64::from(x) + 0.5,
+                f64::from(rect.y) + f64::from(y) + 0.5,
+            ),
+            mit.tiefe[i],
+        )
+    };
+    let boden: Vec<usize> = (0..mit.tiefe.len())
+        .filter(|&i| mit.tiefe[i].is_finite() && (punkt(i)[1] - 4.0).abs() < 1e-3)
+        .collect();
+    let sonne = sonne_je_pixel(&mit, &ohne, &boden);
+    // Trifft der Strahl ab `p` den Würfel, um `rand` vergrössert?
+    let trifft = |p: [f64; 3], rand: f64| {
+        let (mut t0, mut t1) = (0.0f64, 128.0f64);
+        for k in 0..3 {
+            let lo = if k == 1 { 4.0 } else { 8.0 };
+            let (a, b) = ((lo - rand - p[k]) / s[k], (lo + 1.0 + rand - p[k]) / s[k]);
+            t0 = t0.max(a.min(b));
+            t1 = t1.min(a.max(b));
+        }
+        t0 <= t1
+    };
+    let mut schatten = 0;
+    for &i in &boden {
+        let mitte = texel_mitte(punkt(i), [0.0, 1.0, 0.0]);
+        let start = [mitte[0], mitte[1] + 1e-3, mitte[2]];
+        let (innen, aussen) = (trifft(start, -1e-3), trifft(start, 1e-3));
+        if innen != aussen {
+            continue;
+        }
+        let soll = if innen { 0.0 } else { 1.0 };
+        assert!(
+            (sonne[i] - soll).abs() < 1e-4,
+            "Pixel {i} bei {start:?}: {} statt {soll}",
+            sonne[i]
+        );
+        schatten += usize::from(innen);
+    }
+    assert!(schatten > 50, "nur {schatten} Pixel im Schatten");
+}
+
+/// Tieferes Wasser ist dunkler: Dieselbe Oberfläche über sechs Blöcken
+/// Wasser ist in jedem Kanal dunkler als über einem, und dort scheint der
+/// Grund durch; Rot dämpft es am stärksten.
+/// Siehe docs/renderer/cinematic.md, „Wasser“.
+#[test]
+fn tieferes_wasser_ist_dunkler() {
+    let dir = tempdir();
+    let block = |x: i32, y: i32, _: i32| match (x, y) {
+        (..=7, ..=2) | (8.., ..=7) => "minecraft:einfarbig",
+        (_, ..=8) => "minecraft:water",
+        _ => "minecraft:air",
+    };
+    common::write_world(dir.path(), &[(0, 0)], block);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16);
+    let sprites = kino_tabelle(&world, projection, Y_RANGE, LOOK);
+    let rect = rect_um(projection, [0, 0, 0], [16, 10, 16]);
+    let hdr = render_hdr_with(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap();
+    let oben = 8.0 + 8.0 / 9.0;
+    let pixel = |x: f32| {
+        let (sx, sy) = projection.project([x, oben, 14.5]);
+        let i =
+            (sy.floor() as i32 - rect.y) as u32 * rect.width + (sx.floor() as i32 - rect.x) as u32;
+        hdr.farbe[i as usize]
+    };
+    let (tief, flach) = (pixel(7.5), pixel(12.5));
+    assert_eq!((tief[3], flach[3]), (1.0, 1.0));
+    for c in 0..3 {
+        assert!(
+            tief[c] < flach[c],
+            "Kanal {c}: tief {tief:?}, flach {flach:?}"
+        );
+    }
+    assert!(
+        flach[0] / tief[0] > flach[2] / tief[2],
+        "tief {tief:?}, flach {flach:?}"
+    );
+}
+
+/// Wasser weit draussen wie am Ursprung: dieselbe Szene wie in
+/// `tieferes_wasser_ist_dunkler`, um 2^20 Blöcke nach Osten verschoben,
+/// gibt im HDR dieselben Farben. Die Strecke durch das Wasser kommt aus der
+/// Tiefe je Pixel, die dort in f32 nur auf rund 0,06 genau wäre.
+/// Siehe docs/renderer/cinematic.md, „Wasser“.
+#[test]
+fn wasser_weit_draussen_wie_am_ursprung() {
+    let hdr = |x0: i32| {
+        let dir = tempdir();
+        let block = move |x: i32, y: i32, _: i32| match (x - x0, y) {
+            (..=7, ..=2) | (8.., ..=7) => "minecraft:einfarbig",
+            (_, ..=8) => "minecraft:water",
+            _ => "minecraft:air",
+        };
+        common::write_world(dir.path(), &[(x0 >> 4, 0)], block);
+        let world = World::open(dir.path()).unwrap();
+        let projection = Projection::new(16);
+        let sprites = kino_tabelle(&world, projection, Y_RANGE, LOOK);
+        let rect = rect_um(projection, [x0, 0, 0], [x0 + 16, 10, 16]);
+        render_hdr_with(&mut ChunkCache::new(&world, &sprites), rect, Y_RANGE).unwrap()
+    };
+    let (nah, weit) = (hdr(0), hdr(1 << 20));
+    assert_eq!(nah.farbe.len(), weit.farbe.len());
+    let mut wasser = 0;
+    for (a, b) in nah.farbe.iter().zip(&weit.farbe) {
+        let gleich = (0..4).all(|c| (a[c] - b[c]).abs() <= 1e-5 * a[c].abs().max(1.0));
+        assert!(gleich, "{a:?} gegen {b:?}");
+        wasser += usize::from(a[3] > 0.0);
+    }
+    assert!(wasser > 1000, "{wasser}");
+}
+
+/// Der schnelle Gang zur Sonne gibt Byte für Byte dasselbe Bild wie der
+/// langsame Bezug, der jede Zelle mit dem Test der Flächen prüft: an der
+/// Szene aus `common::szene` mit Wasser, Lava, Glas aus Eis, Modellen, die
+/// aus ihrem Würfel ragen, und an den Blöcken aus `strahlenwelt`, je aus
+/// mehreren Kameras und Richtungen.
+#[test]
+fn schneller_gang_gleicht_dem_bezug() {
+    let szene = tempdir();
+    let szene = (common::write_szene(szene.path()), szene);
+    let strahlen = tempdir();
+    common::write_world(strahlen.path(), &[(0, 0)], strahlenwelt);
+    let strahlen = (World::open(strahlen.path()).unwrap(), strahlen);
+    let faelle = [
+        (&szene.0, common::SZENE_Y, [6, 4, 24], "2:1", 0),
+        (&szene.0, common::SZENE_Y, [3, 4, 20], "2:1", 2),
+        (&szene.0, common::SZENE_Y, [16, 5, 4], "north-45", 1),
+        (&szene.0, common::SZENE_Y, [14, 12, 14], "4:3", 0),
+        (&strahlen.0, Y_RANGE, [8, 6, 8], "2:1", 0),
+        (&strahlen.0, Y_RANGE, [8, 6, 8], "top-north", 3),
+    ];
+    for (world, y_range, mitte, kamera, k) in faelle {
+        let kamera = Kamera::parse(kamera).unwrap();
+        let projection = Projection::mit_kamera(16, kamera).aus(richtung(k, kamera));
+        let sprites = kino_tabelle(world, projection, y_range, LOOK);
+        let (mx, my) = projection.project_block(blick(projection, mitte));
+        let rect = ScreenRect {
+            x: mx as i32 - 64,
+            y: my as i32 - 64,
+            width: 128,
+            height: 128,
+        };
+        let schnell =
+            render_hdr_with(&mut ChunkCache::new(world, &sprites), rect, y_range).unwrap();
+        let bezug = render_hdr_bezug(&mut ChunkCache::new(world, &sprites), rect, y_range).unwrap();
+        let bits = |hdr: &Hdr| -> Vec<u64> {
+            hdr.farbe
+                .iter()
+                .flatten()
+                .map(|f| u64::from(f.to_bits()))
+                .chain(hdr.tiefe.iter().map(|f| f.to_bits()))
+                .collect()
+        };
+        assert!(
+            bits(&schnell) == bits(&bezug),
+            "{kamera} aus {k} um {mitte:?}"
         );
     }
 }

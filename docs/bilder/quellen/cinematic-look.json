@@ -1,5 +1,5 @@
 {
-  "zweck": "Quelle von cinematic-waerme.webp und cinematic-pflanzen.webp aus docs/entscheidungen/0058-look-von-cinematic.md. Gerechnet am Prototyp zu #89, der nicht im Repository liegt; mit #73 entstehen beide aus dem Renderer mit Cinematic neu.",
+  "zweck": "Quelle von cinematic-waerme.webp und cinematic-pflanzen.webp aus docs/entscheidungen/0058-look-von-cinematic.md. Gerechnet am Prototyp zu #89, der nicht im Repository liegt. Sie bleiben, wie sie zur Entscheidung vorlagen; dieselben Ausschnitte aus dem Renderer stehen als cinematic-renderer-waerme.webp und cinematic-renderer-pflanzen.webp in docs/renderer/cinematic.md.",
   "welt": "Testwelt ./world, Assets wie in docs/benutzung/assets.md",
   "ansicht": {
     "kamera": "2:1",

@@ -103,8 +103,8 @@ pub fn tinted_below(block: &str, half: Option<&str>) -> bool {
 }
 
 /// Die Farben eines Bioms, wie die vier [`Resolver`] sie liefern, ohne
-/// Mischung.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Mischung, dazu seine Temperatur.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BiomeColors {
     grass: Tint,
     foliage: Tint,
@@ -114,6 +114,8 @@ pub struct BiomeColors {
     /// Stelle.
     swamp: bool,
     himmel: Himmel,
+    /// `temperature`, für die Wärme von Cinematic.
+    temperatur: f32,
 }
 
 /// Die Farben des Himmels aus den Attributen eines Bioms: `None`, wo es
@@ -134,6 +136,11 @@ impl BiomeColors {
     /// Die Farben des Himmels, die das Biom setzt.
     pub fn himmel(&self) -> Himmel {
         self.himmel
+    }
+
+    /// `temperature` des Bioms, ohne Definition die von `plains`.
+    pub fn temperatur(&self) -> f32 {
+        self.temperatur
     }
 
     /// Die Farbe an der Blockspalte `(x, z)`; nur Sumpfgras hängt an ihr.
@@ -328,6 +335,7 @@ impl Colors {
             water: biome.and_then(|b| b.water).unwrap_or(DEFAULT_WATER),
             swamp: modifier == Modifier::Swamp,
             himmel: biome.map_or(Himmel::default(), |b| b.himmel),
+            temperatur: temperature,
         }
     }
 }
@@ -621,6 +629,7 @@ mod tests {
             water: DEFAULT_WATER,
             swamp: true,
             himmel: Himmel::default(),
+            temperatur: 0.8,
         };
         assert_eq!(sumpf.get(Resolver::Grass, 416, -988), SWAMP_DARK);
         assert_eq!(sumpf.get(Resolver::Grass, 404, 737), SWAMP_LIGHT);

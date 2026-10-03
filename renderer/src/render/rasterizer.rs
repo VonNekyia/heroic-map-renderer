@@ -403,12 +403,14 @@ pub struct Geometrie {
     /// Die Tiefe entlang der Blickachse relativ zum Ursprung des Blocks im
     /// Blick, wie [`Projection::depth`]: grösser heisst näher.
     pub tiefe: f32,
-    /// Die Normale der Fläche in der Welt, normiert, auf der Seite, die die
+    /// Die Normale der Fläche im Blick, normiert, auf der Seite, die die
     /// Kamera sieht.
     pub normale: [f32; 3],
     /// Die Fläche wird nach ihrer Richtung schattiert (`shade`); ohne
     /// bekommt sie in Cinematic das Licht einer Fläche nach oben.
     pub shade: bool,
+    /// Ist das vorderste Fragment Wasser, sein Alpha, sonst 0.
+    pub wasser: f32,
 }
 
 /// Ein Pixel in den Farben seines Blocks: je Kanal der Rest aus dem Bild
@@ -492,9 +494,9 @@ pub struct Raster {
     offset: (i32, i32),
     ao: bool,
     weich: bool,
-    /// Für Cinematic je Rang einer Fläche ihre Normale, siehe
-    /// [`Geometrie::normale`].
-    normalen: Option<Vec<([f32; 3], bool)>>,
+    /// Für Cinematic je Rang einer Fläche ihre Normale, `shade` und ob sie
+    /// Wasser ist, siehe [`Geometrie`].
+    normalen: Option<Vec<([f32; 3], bool, bool)>>,
 }
 
 impl Raster {
@@ -566,7 +568,7 @@ fn zuschneiden(sprite: &Sprite) -> Option<Sprite> {
     let (x0, y0, x1, y1) = umriss?;
     let (breite, w) = (sprite.image.width(), x1 - x0 + 1);
     let image = image::imageops::crop_imm(&sprite.image, x0, y0, w, y1 - y0 + 1).to_image();
-    fn ausschnitt<T: Copy>(
+    fn zuschnitt<T: Copy>(
         karte: &[T],
         breite: u32,
         (x0, y0, x1, y1): (u32, u32, u32, u32),
@@ -582,13 +584,13 @@ fn zuschneiden(sprite: &Sprite) -> Option<Sprite> {
         ao: sprite
             .ao
             .as_deref()
-            .map(|karte| ausschnitt(karte, breite, umriss)),
+            .map(|karte| zuschnitt(karte, breite, umriss)),
         weich: sprite.weich,
         tint: None,
         geometrie: sprite
             .geometrie
             .as_deref()
-            .map(|karte| ausschnitt(karte, breite, umriss)),
+            .map(|karte| zuschnitt(karte, breite, umriss)),
     })
 }
 
@@ -629,7 +631,7 @@ pub fn rastern(
                 shade,
                 kollision,
                 &ecken,
-                normale(welt, rueckseite),
+                normale(quad, rueckseite),
             ))
         })
         .collect();
@@ -645,7 +647,10 @@ pub fn rastern(
     let normalen = kino.then(|| {
         projected
             .iter()
-            .map(|q| (q.normale, q.quad.shade))
+            .map(|q| {
+                let wasser = matches!(q.quad.fluid, Some((fluid::Fluid::Water, _)));
+                (q.normale, q.quad.shade, wasser)
+            })
             .collect()
     });
 
@@ -688,8 +693,8 @@ pub fn rastern(
     })
 }
 
-/// Die Normale von `quad` in der Welt, normiert, auf der Seite, die die
-/// Kamera sieht: mit `rueckseite` umgekehrt.
+/// Die Normale von `quad`, normiert, auf der Seite, die die Kamera sieht:
+/// mit `rueckseite` umgekehrt.
 fn normale(quad: &Quad, rueckseite: bool) -> [f32; 3] {
     let n = quad.normal();
     let laenge = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
@@ -728,7 +733,7 @@ struct ProjectedQuad<'a> {
     /// Als welche Seite das Viereck weich beleuchtet wird, siehe [`ao_face`],
     /// mit deren Ecken aus [`ecken_im_blick`].
     ao_face: Option<(usize, [[f32; 2]; 4])>,
-    /// Die Normale in der Welt, siehe [`normale`].
+    /// Die Normale im Blick, siehe [`normale`].
     normale: [f32; 3],
 }
 
@@ -800,40 +805,8 @@ impl<'a> ProjectedQuad<'a> {
         // am Rand also knapp ausserhalb der Fläche. Dort bleibt sie im
         // Ausschnitt, den die Fläche aus der Textur nimmt — eine Tür soll
         // nicht ihre Rückseite an die Kante mischen.
-        let mut bounds = [[f32::MAX, f32::MAX], [f32::MIN, f32::MIN]];
-        for [u, v] in self.quad.uvs {
-            bounds[0] = [bounds[0][0].min(u), bounds[0][1].min(v)];
-            bounds[1] = [bounds[1][0].max(u), bounds[1][1].max(v)];
-        }
-        // Die Schicht wie im Spiel. Eine Fläche aus einem Blockentity-Modell
-        // bringt ihre mit. Sonst (`FaceBakery.computeMaterialTransparency`
-        // und `ChunkSectionLayer.byTransparency` in 26.2): mit
-        // `force_translucent` durchscheinend, sonst nach dem Ausschnitt der
-        // Textur. Flüssigkeiten gehen dort nicht durch den FaceBakery. Eine
-        // deckende Fläche deckt ausgeschnitten wie gemischt ganz.
-        let deckung = match self.quad.entity {
-            Some(Entity { schicht, .. }) if schicht.gemischt => Deckung::Gemischt {
-                schwelle: schwelle(schicht.alpha),
-            },
-            Some(Entity { schicht, .. }) => Deckung::Ausgeschnitten {
-                fuellung: None,
-                schwelle: schwelle(schicht.alpha),
-            },
-            None if self.quad.force_translucent
-                || self.quad.fluid.is_some()
-                || textures.durchscheinend(self.quad.texture, bounds[0], bounds[1]) =>
-            {
-                Deckung::Gemischt {
-                    schwelle: schwelle(Some(ALPHA_CUTOUT_TRANSLUCENT)),
-                }
-            }
-            None => Deckung::Ausgeschnitten {
-                fuellung: textures
-                    .fuellung(self.quad.texture)
-                    .map(|farbe| farbe.map(|c| LINEAR[c as usize])),
-                schwelle: schwelle(Some(ALPHA_CUTOUT_CUTOUT)),
-            },
-        };
+        let bounds = ausschnitt(self.quad);
+        let deckung = deckung(self.quad, textures, bounds);
 
         // Die Farbe einer Fläche aus einem Blockentity-Modell multipliziert
         // die Textur wie die Farbe des Bioms, bei Bannern die des Farbstoffs.
@@ -880,6 +853,61 @@ impl<'a> ProjectedQuad<'a> {
                 samples,
             );
         }
+    }
+}
+
+/// Der Ausschnitt, den eine Fläche aus ihrer Textur nimmt: die kleinsten
+/// und die grössten Texturkoordinaten ihrer Ecken.
+pub(crate) fn ausschnitt(quad: &Quad) -> [[f32; 2]; 2] {
+    let mut bounds = [[f32::MAX, f32::MAX], [f32::MIN, f32::MIN]];
+    for [u, v] in quad.uvs {
+        bounds[0] = [bounds[0][0].min(u), bounds[0][1].min(v)];
+        bounds[1] = [bounds[1][0].max(u), bounds[1][1].max(v)];
+    }
+    bounds
+}
+
+/// Wie eine Fläche deckt, nach der Schicht wie im Spiel. Eine Fläche aus
+/// einem Blockentity-Modell bringt ihre mit. Sonst
+/// (`FaceBakery.computeMaterialTransparency` und
+/// `ChunkSectionLayer.byTransparency` in 26.2): mit `force_translucent`
+/// durchscheinend, sonst nach dem Ausschnitt `bounds` der Textur.
+/// Flüssigkeiten gehen dort nicht durch den FaceBakery. Eine deckende Fläche
+/// deckt ausgeschnitten wie gemischt ganz.
+fn deckung(quad: &Quad, textures: &Textures, bounds: [[f32; 2]; 2]) -> Deckung {
+    match quad.entity {
+        Some(Entity { schicht, .. }) if schicht.gemischt => Deckung::Gemischt {
+            schwelle: schwelle(schicht.alpha),
+        },
+        Some(Entity { schicht, .. }) => Deckung::Ausgeschnitten {
+            fuellung: None,
+            schwelle: schwelle(schicht.alpha),
+        },
+        None if quad.force_translucent
+            || quad.fluid.is_some()
+            || textures.durchscheinend(quad.texture, bounds[0], bounds[1]) =>
+        {
+            Deckung::Gemischt {
+                schwelle: schwelle(Some(ALPHA_CUTOUT_TRANSLUCENT)),
+            }
+        }
+        None => Deckung::Ausgeschnitten {
+            fuellung: textures
+                .fuellung(quad.texture)
+                .map(|farbe| farbe.map(|c| LINEAR[c as usize])),
+            schwelle: schwelle(Some(ALPHA_CUTOUT_CUTOUT)),
+        },
+    }
+}
+
+/// Ab welchem Alpha ein Texel der Fläche den Strahl zur Sonne aufhält: in
+/// einer gemischten Schicht nur ganz deckend, ausgeschnitten ab der Schwelle
+/// ihres Alpha-Tests, denn was der Test stehen lässt, deckt dort ganz.
+/// Siehe docs/renderer/cinematic.md, „Schatten“.
+pub(crate) fn sonnenschwelle(quad: &Quad, textures: &Textures) -> u8 {
+    match deckung(quad, textures, ausschnitt(quad)) {
+        Deckung::Gemischt { .. } => 255,
+        Deckung::Ausgeschnitten { schwelle, .. } => schwelle,
     }
 }
 
@@ -1219,7 +1247,7 @@ impl Canvas {
     fn mischen(
         &self,
         ao: bool,
-        normalen: Option<&[([f32; 3], bool)]>,
+        normalen: Option<&[([f32; 3], bool, bool)]>,
         nimm: impl Fn(&Fragment) -> bool,
     ) -> (RgbaImage, Option<Vec<u32>>, Option<Vec<Geometrie>>) {
         let pixel = (self.width * self.height) as usize;
@@ -1242,11 +1270,16 @@ impl Canvas {
                 map[index as usize] = vorderstes.ao;
             }
             if let (Some(geometrie), Some(normalen)) = (&mut geometrie, normalen) {
-                let (normale, shade) = normalen[vorderstes.order as usize];
+                let (normale, shade, wasser) = normalen[vorderstes.order as usize];
                 geometrie[index as usize] = Geometrie {
                     tiefe: vorderstes.depth,
                     normale,
                     shade,
+                    wasser: if wasser {
+                        f32::from(vorderstes.color[3]) / 255.0
+                    } else {
+                        0.0
+                    },
                 };
             }
         }

@@ -89,7 +89,11 @@ Chunks neu, einfädig 15 von 64 ms, siehe
 
 Der Cache hält je Section und Paletteneintrag den Familienindex, die
 Blockstate wird einmal je Section gehasht statt einmal je Block, und der
-Nachschlag merkt sich den letzten Chunk, statt je Block zu hashen.
+Nachschlag merkt sich den letzten Chunk, statt je Block zu hashen. Den
+Chunk selbst sucht er mit einer Multiplikation je Wort (`Streuer` in
+[`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs))
+statt mit SipHash: Die Schlüssel sind Koordinaten der Welt, Schutz vor
+gezielten Kollisionen braucht es nicht.
 
 Dazu hält er je Chunk sein ausgebreitetes Licht (`ChunkLicht` in
 [`renderer/src/render/licht.rs`](../../renderer/src/render/licht.rs)), je

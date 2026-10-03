@@ -33,6 +33,39 @@ fn state(text: &str) -> BlockState {
     BlockState::parse(text).unwrap()
 }
 
+/// Eine Bodenpflanze erbt über ihre `parent`-Kette von einer Vorlage: dem
+/// Kreuz, auch mit eigenen Elementen, den Ebenen der Feldfrüchte, einem
+/// Blütenteppich, dem Laub am Boden oder der Vorlage des Seegrases. Ein
+/// Kreuz mit eigenen Elementen ohne diese Vorlage ist keine, ein Würfel
+/// auch nicht, ein Block mit einem Würfel als einer Alternative auch nicht.
+/// Die untere Hälfte der Sonnenblume ist eine, ihre Blüte nicht.
+/// Siehe docs/renderer/cinematic.md, „Bodenpflanzen“.
+#[test]
+fn bodenpflanze_nach_der_vorlage() {
+    let mut assets = base();
+    for name in [
+        "pflanze",
+        "ragende_pflanze",
+        "feldfrucht",
+        "bluetenteppich",
+        "laubstreu",
+        "seegras",
+        "sonnenblume[half=lower]",
+    ] {
+        let state = state(&format!("minecraft:{name}"));
+        assert!(assets.bodenpflanze(&state).unwrap(), "{name}");
+    }
+    for name in [
+        "kreuz",
+        "einfarbig",
+        "halbe_pflanze",
+        "sonnenblume[half=upper]",
+    ] {
+        let state = state(&format!("minecraft:{name}"));
+        assert!(!assets.bodenpflanze(&state).unwrap(), "{name}");
+    }
+}
+
 #[test]
 fn leere_wurzelliste_ist_fehler() {
     assert!(Assets::open(Vec::new()).is_err());

@@ -1,0 +1,4 @@
+{
+  "parent": "minecraft:block/cross",
+  "textures": { "cross": "minecraft:block/planks" }
+}

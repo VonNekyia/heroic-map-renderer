@@ -1,15 +1,20 @@
 ---
 title: Cinematic
-description: Wie --cinematic dieselbe Karte im Licht des Spiels in HDR zeichnet - Sprites ohne Schattierung nach Richtung, das Licht der Lightmap je Ecke aus Umgebung, Himmels- und Blocklicht, die Farbe des Himmels je Biom, Weissabgleich, Belichtung und Kurve aus 0058. Stand Phase 1, ohne Sonne.
+description: Wie --cinematic dieselbe Karte im Licht des Spiels in HDR zeichnet - Sprites ohne Schattierung nach Richtung, das Licht der Lightmap je Ecke aus Umgebung, Himmels- und Blocklicht, die Farbe des Himmels je Biom, die Sonne mit hartem Schatten aus einem exakten Strahl, Bodenpflanzen, die nur dämpfen, Wasser mit Spiegelung und Strecke, Leuchten, Wärme nach Biom, Bloom, Weissabgleich, Belichtung und Kurve aus 0058.
 code:
   - renderer/src/render/look.rs
   - renderer/src/render/kino.rs
   - renderer/src/render/metatile.rs
+  - renderer/src/render/metatile/strahl.rs
+  - renderer/src/render/projection.rs
   - renderer/src/render/rasterizer.rs
+  - renderer/src/render/sonne.rs
   - renderer/src/render/sprites.rs
+  - renderer/src/render/tiles.rs
   - renderer/src/render/tint.rs
   - renderer/src/assets/colors.rs
   - renderer/src/assets/dimension.rs
+  - renderer/src/assets/mod.rs
   - renderer/src/cli.rs
 ---
 
@@ -24,34 +29,59 @@ dieselben Kandidaten, dieselbe Deckungsmaske und dieselben Draws wie die
 Karte, also dasselbe Pixelraster bei jeder Kamera, Richtung und jedem
 scale; anders ist nur das Licht je Pixel, entschieden in
 [0053](../entscheidungen/0053-cinematic-als-schalter-der-karte.md). Es
-zeichnet immer die CPU. Stand ist Phase 1 (#72): ohne Sonne, Wasser,
-Leuchten, Wärme nach Biom und Bloom, die bringt #73. Ohne Sonne und ohne
-Schattierung nach Richtung ist das Bild dunkler als die Karte.
+zeichnet immer die CPU. Phase 1 (#72) brachte das Licht des Spiels, Phase 2
+(#73) Sonne, Schatten, Bodenpflanzen, Wasser, Leuchten, Wärme nach Biom und
+Bloom.
 
 ## Werte des Looks
 
-Die Werte, die Phase 1 braucht, stehen benannt an einer Stelle, `LOOK` in
-[`renderer/src/render/look.rs`](../../renderer/src/render/look.rs); #73
-ergänzt den Rest:
+Alle Werte stehen benannt an einer Stelle, `LOOK` in
+[`renderer/src/render/look.rs`](../../renderer/src/render/look.rs):
 
-| Wert | in `Look` | Phase 1 nutzt ihn |
+| Wert | in `Look` | genutzt |
 |---|---|---|
 | Stärke des Himmelslichts | `himmel`: 3 | ja |
 | Anteil der Farbe des Himmels am Himmelslicht, der Rest ist Nebel | `himmel_anteil`: 0,75 | ja |
 | Stärke des Blocklichts | `block`: 1,5 | ja |
-| Sonne: Stärke, Farbe linear, Höhe | `sonne`: 3, `sonne_farbe`: (1; 0,93; 0,83), `sonne_hoehe`: 48,47° | nur im Weissabgleich |
+| Leuchten: Stärke, ab und bis zu welcher Helligkeit eines Texels | `leuchten`: 2, `leuchten_ab`: 0,25, `leuchten_voll`: 0,75 | ja |
+| Sonne: Stärke, Farbe linear, Höhe, waagrecht von links zur Kamera hin | `sonne`: 3, `sonne_farbe`: (1; 0,93; 0,83), `sonne_hoehe`: 48,47°, `sonne_seite`: 8,75° | ja |
+| Wie weit ein Strahl zur Sonne reicht, in Blöcken entlang des Strahls | `sonne_weite`: 128 | ja |
+| So viel Sonne lässt eine Bodenpflanze durch | `pflanzen`: 0,5 | ja |
+| Wasser: F0 der Spiegelung, Anteil der Deckkraft seiner Textur, Dichte | `wasser_spiegel`: 0,04, `wasser_textur`: 0,6, `wasser_dichte`: 8 | ja |
+| Wasser: bis zu welcher Höhe der gespiegelten Richtung nur Nebel, über wie viel Höhe weich zum Himmel | `wasser_horizont`: −0,1, `wasser_horizont_breite`: 0,7 | ja |
+| Wasser: Mindestanteil eines Kanals am stärksten, Dichte jedes Kanals dazu | `wasser_anteil_min`: 0,02, `wasser_dichte_grund`: 0,35 | ja |
+| Wärme: so viel stärker wird der Weissabgleich höchstens, ab und bis zu welcher Temperatur | `waerme`: 0,5, `waerme_von`: 0,5, `waerme_bis`: 1,0 | ja |
 | Belichtung | `belichtung`: 0,25 | ja |
 | Kurve: gerade bis, flach ab | `knie`: 0,8, `flach`: 1,2 | ja |
+| Bloom: Stärke, σ in Blöcken | `bloom`: 1, `bloom_breite`: 0,25 | ja |
 
-- **Herkunft:** alle aus 0058.
+- **Herkunft:** alle aus 0058, bis auf `sonne_weite`, `leuchten_ab`,
+  `leuchten_voll` und die Werte des Wassers ausser `wasser_spiegel` und
+  `wasser_dichte`. Die stehen im Prototyp aus #89, an dem 0058 abgestimmt
+  ist; welche es dort sind, hält
+  [Cinematic mit Sonne](../messungen/2026-10-03-cinematic-mit-sonne.md),
+  „Aufbau“, fest. `sonne_weite` hat 0056 am Prototyp gemessen, siehe
+  [Gang zur Sonne in Stufen](../messungen/2026-10-02-gang-zur-sonne-in-stufen.md).
+- **Grenzen aus 0058:** Am Renderer halten sie 15 von 24 Ansichten der
+  Testwelt, am Prototyp 20; Schatten sind heller. Zahlen, Ursache und der
+  Test `kennzahlen_der_ansichten` dazu:
+  [Look am Renderer](../messungen/2026-10-03-look-am-renderer.md).
 - **Fingerabdruck:** Jeder Baum mit Cinematic hält die Werte und den Stand
   des Verfahrens als `lookHash` in `map.json`. Wie er gerechnet wird, wann
   er sich ändert und wann ein Lauf deshalb abbricht, steht in
   [`map.json`](../benutzung/map-json.md), „Look“.
-- **Ändern:** die Werte in `LOOK` ändern, den Fingerabdruck im Test
-  `fingerabdruck_der_werte_aus_0058` nachziehen, die Bäume mit Cinematic
-  neu rendern. Die neuen Werte hält eine Entscheidung fest, die 0058
-  ablöst.
+- **Ändern:**
+  - die Werte in `LOOK` ändern;
+  - den Fingerabdruck im Test `fingerabdruck_der_werte_aus_0058` und in
+    [`map.json`](../benutzung/map-json.md), „Look“, nachziehen;
+  - das Goldbild `metatile-cinematic.png` erneuern, Skill
+    [`goldbild-erneuern`](../../skills/goldbild-erneuern/SKILL.md);
+  - die Bilder des Renderers unter „Wärme“ und „Bodenpflanzen“ neu
+    rendern, Skill
+    [`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md);
+  - die Bäume mit Cinematic neu rendern.
+
+  Die neuen Werte hält eine Entscheidung fest, die 0058 ablöst.
 
 ## Sprites für Cinematic
 
@@ -62,12 +92,11 @@ Nur mit dem Schalter backt die Sprite-Tabelle eigene Sprites
   Flächen aus Blockentity-Modellen und die Seiten von Flüssigkeiten. Die
   Faktoren der Karte stehen in [Dimensionstypen](dimensionstypen.md),
   „Schattierung nach Richtung“.
-- **Geometrie je Pixel** (`Sprite::geometrie`): die Tiefe entlang der
-  Blickachse relativ zum Ursprung des Blocks, die Normale der Fläche in der
-  Welt und ob die Fläche `shade` trägt, alle vom vordersten Fragment. Phase
-  1 rechnet noch nicht mit ihnen; die Sonne in #73 braucht sie, `shade`
-  für die Bodenpflanzen aus 0058. Das prüft `geometrie_der_vorderen_flaeche`
-  in `rasterizer.rs` an zwei Flächen eines Modells, die sich decken.
+- **Geometrie je Pixel** (`Sprite::geometrie`): vom vordersten Fragment
+  die Tiefe entlang der Blickachse relativ zum Ursprung des Blocks, die
+  Normale der Fläche im Blick und ob sie `shade` hat. Die Sonne rechnet mit
+  ihnen, siehe „Sonne“. Das prüft `geometrie_der_vorderen_flaeche` in
+  `rasterizer.rs` an zwei Flächen eines Modells, die sich decken.
 - **Sonst wie die Karte:** dieselben Fragmente, Füllregel, Alpha-Tests,
   AO-Karte und Tönungskarte. Ein Sprite deckt also genau die Pixel, die das
   der Karte deckt; das prüft `cinematic_ohne_schattierung_mit_geometrie`.
@@ -155,34 +184,342 @@ und 0058; was das Spiel tut, steht unter „Was bleibt eine Näherung“.
   bekommen keine Nähte. Ein Test färbt mit Biomen aus eigener `sky_color`,
   mit dem Radius 2 aus `nw`, an der Grenze das Mittel der 25 Blöcke
   (`biom_faerbt_das_himmelslicht`).
-- **`water_fog_color`** liest der Renderer schon, Cinematic nutzt sie erst
-  mit dem Wasser in #73.
+- **Für das Wasser** dazu Himmel und Nebel getrennt und
+  `water_fog_color`, ebenso gemischt (`Himmelsfarben`), siehe „Wasser“.
+
+## Sonne
+
+Die Sonne steht fest zur Kamera (`Look::sonne_im_blick`): `sonne_hoehe`
+über dem Horizont, waagrecht von links um `sonne_seite` zur Kamera hin.
+Links heisst im Blick
+diagonal (−1, 0, 1)/√2, genordet (−1, 0, 0); zur Kamera hin (1, 0, 1)/√2
+und (0, 0, 1). Aus jeder Richtung steht sie also gleich zum Bild.
+
+- **Licht nach dem Winkel** (`Kino::sonnenlicht`): `sonne_farbe` mal
+  `sonne` mal dem Kosinus zwischen Normale und Sonne, abgewandt nichts. Eine Fläche
+  ohne `shade` bekommt das Licht einer Fläche nach oben, wie in 0058.
+- **Wo:** nur, wo der Dimensionstyp Himmelslicht zeigt, `sky_light_factor`
+  über 0; im Nether und im Ende scheint sie nicht.
+- **Ohne Schatten der weichen Beleuchtung:** Der Schatten an den Ecken
+  dunkelt das Licht des Spiels, nicht die Sonne.
+- **So weit sie durchkommt:** mal dem, was der Strahl zur Sonne von ihr
+  übrig lässt, siehe „Schatten“.
+
+## Schatten
+
+Je Pixel, auf den die Sonne scheint, geht ein Strahl zur Sonne, entschieden
+in [0056](../entscheidungen/0056-exakter-strahl-zur-sonne.md). Er gibt 0
+hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
+`pflanzen` (`ChunkCache::sonne` in
+[`renderer/src/render/metatile/strahl.rs`](../../renderer/src/render/metatile/strahl.rs)).
+
+- **Wo er beginnt** (`startpunkt` in
+  [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
+  am Punkt der vordersten Fläche im Pixel, aus dem Bildpunkt und der Tiefe
+  des Sprites zurückgerechnet (die Matrix aus `Projection::umkehrung`,
+  einmal je Bild), ein Tausendstel vor der Fläche. Auf einer achsparallelen
+  Fläche liegt er in der Mitte seines Sechzehntels Block (`texel_mitte`):
+  Alle Pixel auf einem Texel bekommen denselben Strahl. Gerechnet wird er
+  einmal je Folge von Pixeln eines Draws mit demselben Punkt, also je
+  Zeile des Texels; auf schrägen Flächen je Pixel.
+- **Was deckt** (`Sonnenform` in
+  [`renderer/src/render/sonne.rs`](../../renderer/src/render/sonne.rs)):
+  je Alternative die Dreiecke ihres Modells im Blick, mit dem Alpha-Test
+  ihrer Schicht. Ausgeschnitten deckt ein Texel ab der Schwelle des
+  Alpha-Tests, gemischt nur mit Alpha 255 (`sonnenschwelle`). Laub deckt
+  also nach seinen Löchern, Glas nur, wo seine Texel ganz decken.
+- **Was durchlässt:** Flächen aus Wasser fehlen ganz, Wasser hält die
+  Sonne nie auf. Ein Block ohne deckenden Texel ebenso.
+- **Lava** reicht unter derselben bis zur Kante, und ihre Flächen entfallen
+  zu derselben und vor einer vollen Seite, wie `FluidRenderer.tesselate`
+  mit `shouldRenderFace` und `isFaceOccludedByNeighbor` (Client 26.2, per
+  javap). Unter einem vollen Block zeichnet das Spiel die Oberseite auf
+  Höhe 8/9; der Strahl lässt sie weg, das ändert nichts, denn steigend
+  trifft er erst den Block darüber.
+- **Modelle, die aus ihrem Würfel ragen,** prüft er in jedem Würfel, in den
+  ihre Hülle reicht (`Sonnenform::zellen`), einmal je Strahl.
+- **Wie weit:** bis `sonne_weite` entlang des Strahls.
+- **Der Test einer Zelle:** erst gegen die Hülle des Modells, dann Dreieck
+  für Dreieck, beidseitig; der erste deckende Treffer genügt. Gerechnet
+  relativ zum Block, also gleich, in welcher Zelle er geprüft wird: die
+  Hülle in f64 vom Anfang des Strahls aus, die Dreiecke in f32 ab dem
+  Eintritt in die Hülle. So liegt ihr Anfang nah am Block, auch am Ende
+  der Weite.
+
+### Der schnelle Gang
+
+`ChunkCache::sonne` geht den Strahl Zelle für Zelle durch das Gitter
+im Blick, springt aber über, was nichts aufhält:
+
+- **Je Chunk eine Säule** (`Saeule`), sobald ein Strahl ihn betritt: ihre
+  Decke, die oberste Zelle mit Block oder hineinragendem Modell. Darüber
+  springt der Strahl zum Rand des Chunks. Dafür lädt der Chunk-Cache die
+  Chunks rundum, aus denen Modelle hineinragen können; das Band wächst
+  nicht im Voraus.
+- **Der Horizont** (`ChunkCache::horizont`), je Säule einmal gerechnet:
+  die höchste Decke der Chunks, die ein Strahl von dort bis zur Weite
+  erreichen kann. In x kommt er um höchstens Weite mal |d_x| weiter, also
+  von jedem Punkt im Chunk über höchstens ⌈Weite · |d_x| / 16⌉
+  Chunkgrenzen zur Sonne hin; in z ebenso. Mit `LOOK` sind das je Säule
+  5 × 6 Chunks diagonal und 7 × 2 genordet, samt ihr selbst; jede lädt für
+  ihre Decke dazu ihre Nachbarn. Liegt der Strahl über der Decke seines
+  Chunks und über dem Horizont, ist er frei: Er steigt und trifft nichts
+  mehr.
+  - **Ein Fix gegen den Prototyp** aus #89: Dessen Horizont nahm nur die
+    Chunks bis zwei weiter zur Sonne hin, 3 × 3. Der Strahl kommt mit
+    `LOOK` diagonal bis vier Chunks weiter in x und fünf in z, genordet bis
+    sechs in x. Ein Turm weiter draussen warf am Prototyp keinen Schatten.
+    Das prüft `ferner_turm_wirft_seinen_schatten` mit einem Turm im
+    fernsten Chunk, den der Strahl erreicht.
+- **Je Section Bits** (`Bits`), sobald ein Strahl sie betritt, einmal je
+  Section: die Zellen mit Arbeit, die vollen deckenden Würfel und die
+  Zellen, in die ein Modell eines Nachbarn ragt; dazu je Würfel aus
+  4 × 4 × 4 Zellen ein Bit. Durch eine Section und einen Würfel ohne Arbeit
+  springt er hinaus.
+- **Ein voller deckender Würfel** (`Sonnenform::wuerfel`: alle sechs Seiten
+  ganz von einer deckenden Fläche belegt) hält ihn ohne Test auf, ausser er
+  ist eine obere Hälfte: Die geht durch den Test, denn über ihrer
+  Bodenpflanze bewirkt sie nichts (siehe „Bodenpflanzen“). So bleibt die
+  Ausnahme aus der Schleife des Gangs.
+- **Gleich dem Bezug:** `ChunkCache::sonne_bezug` prüft jede Zelle bis zur
+  Weite mit jedem Block, dessen Modell hineinragen kann. Beide geben
+  dasselbe, denn ein Block, den der Strahl nicht trifft, ändert nichts, ob
+  er geprüft wird oder nicht. Das prüft `schneller_gang_gleicht_dem_bezug`
+  in `renderer/tests/metatile.rs` Bit für Bit am HDR-Puffer, an Szenen mit
+  Wasser, Lava, Laub, Glas und Modellen, die aus ihrem Würfel ragen.
+
+Getestet: einzelne Strahlen durch Würfel, Laub, Wasser, Glas, Pflanze und
+Überhang (`strahlen_zur_sonne`), die Lage des Schattens eines Würfels im
+Bild (`wuerfel_wirft_seinen_schatten`), ein Turm im fernsten Chunk, den
+der Horizont noch sieht (`ferner_turm_wirft_seinen_schatten`), und sein
+Schatten in einem Ausschnitt, der den Turm nicht zeigt
+(`ausschnitt_sieht_den_schatten_von_draussen`); ein Modell, das aus dem
+Chunk dahinter über dessen Decke ragt
+(`ueberhang_aus_dem_chunk_dahinter_hebt_die_decke`); ein Strahl durch eine
+leere Section zwischen belegten, ob sie fehlt oder nur Luft hält
+(`strahl_durch_eine_leere_section`); 8000 fest gewürfelte
+Strahlen in einer hohen Welt aus 8 × 8 Chunks, schnell und im Bezug gleich
+(`zufaellige_strahlen_gleichen_dem_bezug`).
+
+### Der Vorlauf
+
+Mit einem Ausschnitt liest der Vorlauf (`Reach::mit_sonne` in
+[`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs))
+auch die Chunks, aus denen ein Strahl Blöcke liest. Sonst fehlten deren
+Blockstates in der Sprite-Tabelle, und der Strahl sähe dort Luft: Ein
+Ausschnitt zeigte weniger Schatten als dasselbe Stück im ganzen Bild.
+
+- **Welche:** von jedem Chunk, den der Vorlauf ohnehin liest, so viele
+  Chunks zur Sonne hin, wie der Strahl Chunkgrenzen kreuzt (siehe „Der
+  Horizont“), und zwei rundum: Ein Modell am Rand beginnt den Strahl im
+  Chunk daneben, und in jeden Chunk auf dem Weg ragen Modelle aus seinen
+  Nachbarn. Mit `LOOK` im Raster in 2:1 sind das je Chunk 9 × 10 Chunks.
+- **Nur die Blockstates:** Kacheln und Höhen bleiben die des Ausschnitts.
+- **Ohne Ausschnitt** liest der Vorlauf ohnehin alle Chunks.
+
+## Wasser
+
+Ein Pixel, dessen vorderstes Fragment Wasser ist (`Geometrie::wasser`, sein
+Alpha), mischt sich wie im Prototyp aus #89 von vorn nach hinten
+(`mische_wasser` in
+[`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
+
+1. **Spiegelung:** der Anteil nach Fresnel (Schlick, F0 `wasser_spiegel`)
+   aus Blick und Normale, mit dem Himmel in der gespiegelten Richtung, zum
+   Horizont hin in der Farbe des Nebels (`Kino::spiegel`, ab
+   `wasser_horizont` über `wasser_horizont_breite` weich). Aus 2:1 sind das
+   von oben rund 5 %.
+2. **Textur:** Vom Rest deckt die Textur des Wassers mit `wasser_textur`
+   ihres Alphas, im Licht des Wassers und der Sonne.
+3. **Im selben Sprite dahinter,** etwa ein gefluteter Block an der
+   Oberfläche, folgt ohne Strecke in seinem Licht.
+4. **Darunter** dämpft das Wasser den Pixel darunter je Kanal nach der
+   Strecke bis zu ihm, `exp(−σ · Strecke)`, und füllt mit `water_fog_color`
+   im Himmelslicht. σ kommt aus der Farbe des Wassers: je Kanal
+   `−ln(max(Anteil am stärksten, wasser_anteil_min)) + wasser_dichte_grund`,
+   geteilt durch `wasser_dichte` (`Kino::wasser_dichte`). Kanäle, die sie
+   schwächer trägt, dämpft es so stärker; tieferes Wasser ist dunkler und
+   blauer.
+
+- **Die Strecke** kommt aus der Tiefe je Pixel (`Hdr::tiefe`): die des
+  Wassers weniger die des vordersten Pixels darunter, geteilt durch die
+  Länge der Blickachse.
+- **Wasser und Rest** trennt die Tönungskarte, wie für das Licht des
+  Wassers unter „Zeichnen in HDR“.
+- **Spiegelung und Streulicht** liegen im Himmelslicht des Wassers: In
+  einer Höhle spiegelt Wasser keinen hellen Himmel.
+- **Im Licht des Blocks,** ohne die Ecken der weichen Beleuchtung: Wasser
+  hat keine Seite in der AO-Karte, denn das Spiel zeichnet Flüssigkeiten
+  ohne sie, siehe [Weiche Beleuchtung](weiche-beleuchtung.md).
+- **Alpha** wie bei der Karte; das Streulicht füllt nur, wo darunter etwas
+  deckt. Über leerem Grund, etwa am Rand der geladenen Chunks, gibt es
+  keine Strecke: Dort mischt Wasser wie jede andere Fläche.
+- Getestet: `tieferes_wasser_ist_dunkler` in `renderer/tests/metatile.rs`,
+  `wasser_spiegelt_und_dampft` in `renderer/src/render/kino.rs`.
+
+## Bodenpflanzen
+
+Eine Bodenpflanze dämpft den Strahl zur Sonne auf `pflanzen`, einmal je
+Block, statt ihn zu decken, wie in 0058:
+
+- **Welche:** wessen Modelle jeder Alternative über ihre `parent`-Kette von
+  einer Vorlage des Spiels erben (`Assets::bodenpflanze` in
+  [`renderer/src/assets/mod.rs`](../../renderer/src/assets/mod.rs)): dem
+  Kreuz (`block/cross`, `block/tinted_cross`, `block/cross_emissive`), den
+  Ebenen der Feldfrüchte (`block/crop`), den Blütenteppichen
+  (`block/flowerbed_*`), dem Laub am Boden (`block/template_leaf_litter_*`)
+  und der Vorlage des Seegrases (`block/template_seagrass`). In 26.2 sind
+  das 85 Blöcke, gezählt an den Modellen des Client: 84 ganz, dazu die
+  untere Hälfte der Sonnenblume; ihre Blüte oben hat ein eigenes Modell.
+- **Gegen die Liste des Prototyps** zu #89: Mangrovenkeimling,
+  Kannenpflanze und ihre Feldfrucht haben eigene Modelle ohne Vorlage und
+  bleiben hart. Spinnennetz und die Amethystknospen erben vom Kreuz und
+  dämpfen.
+- **Nichts bewirken** die Bodenpflanze, auf der der Strahl beginnt, und
+  der Block darüber, wenn er ihre obere Hälfte ist
+  (`Family::obere_haelfte`), auch wenn die selbst keine Bodenpflanze ist:
+  So wirft die Blüte der Sonnenblume keinen Schatten auf ihren Stiel. Über
+  einem Block, der keine Bodenpflanze ist, deckt eine obere Hälfte wie
+  jeder Block.
+- **Licht:** Flächen ohne `shade` bekommen das Licht einer Fläche nach
+  oben, siehe „Sonne“.
+- **Am Renderer:** dieselbe Wiese der Savanne wie das Bild des Prototyps
+  unter 0058.
+
+  ![Eine Wiese der Savanne: Bodenpflanzen mit hartem, mit weichem und ohne Sonnenschatten, aus dem Renderer](../bilder/cinematic-renderer-pflanzen.webp)
+
+  Zweifach vergrössert; Bodenpflanzen mit `pflanzen` 0, mit `LOOK` und
+  mit 1. Gerendert vom Test `bilder_zu_cinematic`.
+- Getestet: `bodenpflanze_nach_der_vorlage` in `renderer/tests/assets.rs`,
+  je Vorlage ein Block aus dem Test-Assetbaum, und Pflanze, Sonnenblume und
+  obere Hälften in `strahlen_zur_sonne`; eine Pflanze, die in ihre Nachbarn
+  ragt, dämpft je Strahl einmal (`zufaellige_strahlen_gleichen_dem_bezug`).
+
+## Leuchten
+
+Ein Block, der selbst leuchtet, bringt sein Leuchten zu jedem Pixel, wie im
+Prototyp aus #89 (`mische_hdr` in
+[`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
+
+- **Wie viel:** die Farbe linear mal `leuchten`, mal seiner Stufe
+  `getLightEmission` / 15 (`leuchten.txt`, siehe
+  [Erzeugte Tabellen](../entwicklung/tabellen.md)), mal wie stark der Texel
+  leuchtet. Es kommt zum Licht dazu, wie Sonne und Himmel.
+- **Nur helle Texel** (`Look::leuchtet`): nach dem hellsten Kanal der
+  Farbe, linear, 0 bis `leuchten_ab`, dann weich bis 1 bei `leuchten_voll`.
+  Eine Laterne leuchtet so in ihrem Licht, nicht in ihrem Gestell.
+- **Unter Wasser** leuchtet ein gefluteter Block im selben Sprite ebenso.
+- **Nur nach der Stufe des Blocks:** Elemente mit `light_emission` im Modell
+  leuchten nicht, siehe [Wasser und Licht](wasser-und-licht.md), „Was
+  bleibt eine Näherung“. Das Auge der offenen Augenblüte hat deshalb keinen
+  Bloom, der Glühwürmchenbusch leuchtet nur mit seiner Stufe 2/15.
+- Getestet: `leuchten_nach_der_helligkeit` in `look.rs`,
+  `nur_helle_texel_leuchten` in `renderer/tests/metatile.rs` an einem Block
+  mit halb heller, halb dunkler Textur.
+
+## Wärme
+
+Der Weissabgleich wird je Pixel nach der Temperatur des Bioms stärker, wie
+in 0058 (`Look::waerme`, `Kino::ton`):
+
+- **Je Kanal** `1 + (v − 1) · w`, mit `v` aus „Zeichnen in HDR“, und `w`
+  von 1 bis `waerme_von`, dann gerade bis 1 + `waerme` bei `waerme_bis`.
+  Was das je Biom heisst, steht in 0058, „Weissabgleich im Einzelnen“.
+- **Die Temperatur** ist `temperature` des Bioms roh
+  (`BiomeColors::temperatur`), wie bei den Biomfarben: ohne die Abnahme mit
+  der Höhe und ohne `temperature_modifier` `frozen`, die das Spiel für
+  Schnee rechnet (`Biome.getHeightAdjustedTemperature`, Client 26.2, per
+  javap). Ohne Definition gilt die von `plains`, siehe
+  [Assets](../benutzung/assets.md). Gemischt wird sie wie die Farben des
+  Himmels (`Himmelsfarben`), erst aus dem Mittel kommt `w`.
+- **Je Pixel** gilt die Wärme des vordersten gezeichneten Pixels, aus dem
+  Biom seines Blocks (`Hdr::waerme`).
+- **Am Renderer:** dieselben Ausschnitte wie die Bilder des Prototyps
+  unter 0058, „Weissabgleich im Einzelnen“.
+
+  ![Savanne und Schnee, je Karte, Cinematic mit Weissabgleich 1 und Cinematic mit Weissabgleich nach Biom, aus dem Renderer](../bilder/cinematic-renderer-waerme.webp)
+
+  Savanne (obere Reihe) und Schnee (untere Reihe), 2:1 bei scale 32 aus
+  `se`, auf die Hälfte verkleinert; je Reihe die Karte, Cinematic mit
+  `waerme` 0 und mit `LOOK`. Gerendert vom Test `bilder_zu_cinematic` in
+  [`renderer/tests/kennzahlen.rs`](../../renderer/tests/kennzahlen.rs).
+- **Wo Rot überläuft:** Eine Fläche, die voll zur Sonne zeigt, im vollen
+  Himmelslicht, erreicht ohne Wärme auch in Weiss nicht 255. Mit der vollen
+  Wärme 1,5 erreicht Rot bei Weiss 255, also in Wüste, Savanne und
+  Badlands bei fast weissen Texeln, und auf den steinigen Gipfeln
+  (`stony_peaks`, Temperatur 1,0). Ein Texel mit sRGB 240 bleibt darunter,
+  [250, 244, 217]. Die Netherbiome haben 2,0 und volle Wärme, aber keine
+  Sonne. Die Werte aus 0058 bleiben, wie sie sind.
+- Getestet: `waerme_nach_der_temperatur` in `look.rs`, `ton_mit_waerme` und
+  `weisse_flaeche_in_voller_sonne` in `kino.rs` und die Wärme je Pixel in
+  `biom_faerbt_das_himmelslicht`, an der Grenze aus dem Mittel der
+  Temperatur.
+
+## Bloom
+
+Aus dem Leuchten kommt ein Schein, wie in 0058 (`Kino::bloom`, `Hdr::bild`
+in [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):
+
+- **Die Quelle** ist das Leuchten je Pixel (`Hdr::leuchten`), linear,
+  vormultipliziert und gemischt wie die Farbe. Wasser dämpft es wie die
+  Farbe darunter. Je Pixel abgeglichen mit dessen Wärme, mal `bloom`.
+- **Unscharf** mit drei Kastenfiltern je Achse, erst senkrecht, dann
+  waagrecht, nahe an einer Gaussglocke mit σ = `bloom_breite` · scale, wie
+  im Prototyp aus #89 (`unscharf` in `kino.rs`): Breite √(4σ² + 1),
+  gerundet und ungerade, Radius r die Hälfte davon, abgerundet. Bei scale
+  32 ist r = 8; die drei Kästen der Breite 2r + 1 = 17 geben zusammen
+  σ = √(3 · (17² − 1) / 12) ≈ 8,49 Pixel statt 8, wie im Prototyp.
+- **Dazu** vor Belichtung und Kurve, so abgeglichen wie die Farbe. Auf
+  einen Pixel ohne Block fällt kein Schein, er bleibt durchsichtig.
+- **Ohne Nähte:** `render_area_with` rendert um jede Kachel einen Rand von
+  3r Pixeln mit, so weit reichen die drei Filter; bei scale 32 sind das 24
+  Pixel. Im Rand rechnet er keine Strahlen zur Sonne, dort zählt nur das
+  Leuchten. Leuchtet im Band des grossen Rechtecks kein Block, ob zu
+  sehen oder nicht (`ChunkCache::leuchtet_im_band`), rendert er die Kachel
+  ohne Rand: Das Leuchten bliebe überall 0, der Bloom leer, und innen ist
+  jeder Pixel derselbe. Die Filter rechnen in Festkomma mit 24 Bit nach dem Komma: Die
+  gleitende Summe ist exakt, und ein Ausschnitt gibt dieselben Bits wie das
+  grosse Bild.
+- Getestet: `unscharf_wie_im_prototyp` mit Sollwerten aus der
+  Nachbearbeitung des Prototyps zu #89, `unscharf_im_ausschnitt_gleich` und
+  `bloom_radius_nach_dem_scale` und `bloom_mit_der_waerme_der_quelle` in
+  `kino.rs`; `bloom_um_das_leuchten` und
+  `wasser_daempft_das_leuchten` in `renderer/tests/metatile.rs`, dazu
+  `kleine_ausschnitte_gleichen_dem_grossen_bild`.
 
 ## Zeichnen in HDR
 
 Der dritte Durchgang von `render_area_with` zeichnet mit dem Look in HDR
-(`render_hdr_with`, `blit_hdr`), dieselben sichtbaren Pixel wie für die
+(`render_hdr` mit dem Rand für den Bloom, `blit_hdr`; ohne Rand und ohne
+Ton für Tests `render_hdr_with`), dieselben sichtbaren Pixel wie für die
 Karte, siehe [Der Weg einer Kachel](renderpfad.md), „Blit“:
 
 - **Farbe:** erst in den Farben des Bioms wie bei der Karte (`tinted`),
-  dann linear mal ihr Licht. Liegt das Wasser eines Blocks in einem anderen
-  Licht als der Block, bekommt der Anteil des Wassers an der Farbe dessen
-  Licht, wie bei der Karte (`tinted_im_licht`).
+  dann linear mal ihr Licht, dem des Spiels und der Sonne. Liegt das Wasser
+  eines Blocks in einem anderen Licht als der Block, bekommt der Anteil des
+  Wassers an der Farbe dessen Licht, wie bei der Karte (`tinted_im_licht`).
 - **Mischen:** vormultipliziert über den Pixel darunter, wie `over`.
 - **Tiefe je Pixel** (`Hdr::tiefe`): die des vordersten gezeichneten Pixels,
-  aus der Tiefe des Blockursprungs und der Geometrie des Sprites, ohne
-  Pixel −∞; für #73. Das prüfen `hdr_haelt_die_tiefe_der_vordersten_flaeche`
-  und, mit zwei Draws auf einem Pixel,
-  `hdr_haelt_die_tiefe_des_vorderen_draws`.
-- **Ton am Ende** (`Hdr::bild`, `Kino::ton`): die Farbe mal Weissabgleich
-  und Belichtung, dann je Kanal die Kurve aus 0058, dann sRGB. Ein Pixel
-  ohne Block bleibt durchsichtig.
+  aus der Tiefe des Blockursprungs (`Projection::depth_block`) und der
+  Geometrie des Sprites, ohne Pixel −∞; für das Wasser. In f64, denn in f32
+  wäre sie eine Million Blöcke draussen nur auf rund 0,06 genau. Das prüfen
+  `hdr_haelt_die_tiefe_der_vordersten_flaeche`, mit zwei Draws auf einem
+  Pixel `hdr_haelt_die_tiefe_des_vorderen_draws` und
+  `wasser_weit_draussen_wie_am_ursprung`.
+- **Ton am Ende** (`Hdr::bild`, `Kino::ton`): die Farbe mal Weissabgleich,
+  dazu der Bloom, mal Belichtung, dann je Kanal die Kurve aus 0058, dann
+  sRGB. Ein Pixel ohne Block bleibt durchsichtig.
 - **Weissabgleich:** je Kanal `v` aus `Look::weissabgleich`; er macht eine
   weisse Fläche nach oben in Sonne und Himmel der Oberwelt farblos, auch in
-  anderen Dimensionen. Die Wärme nach Biom aus 0058 kommt in #73.
+  anderen Dimensionen. Je Pixel verstärkt ihn die Wärme, siehe „Wärme“.
 - **Alpha:** Cinematic rundet erst am Ende, die Karte nach jeder Schicht.
   Über Durchscheinendem weicht Alpha deshalb um höchstens eins ab; ein Pixel
   ist genau da, wo die Karte einen hat.
+- **Speicher:** Die Daten je Draw für Cinematic (`Kinodaten`, mit der
+  Farbe des Himmels) legt der zweite Durchgang nur mit Cinematic an, neben
+  den Draws. Die Leinwand in HDR und die Puffer des Bloom behält der
+  Chunk-Cache über die Kacheln eines Threads; das Licht des Wassers
+  rechnet `Wasserlicht` einmal je Draw.
 - **Native Stufen und Pyramide** laufen wie bei der Karte, ohne eigenen
   Code. Die Pyramide mittelt die fertigen Kacheln, siehe
   [Zoomstufen](../benutzung/zoomstufen.md), „Verkleinern“.
@@ -219,3 +556,13 @@ kostet, steht in [Was ein Lauf kostet](../benutzung/kosten.md),
 - **Wasser im eigenen Licht nach seinem Anteil an der Farbe:** Der Anteil
   kommt aus der Tönungskarte in sRGB, wie bei der Karte. Das Spiel mischt
   das Wasser als eigene Fläche über das Modell.
+- **Wasser nur bis zum nächsten Pixel:** Die Strecke reicht bis zum
+  vordersten Pixel darunter, auch wenn dazwischen Luft liegt, etwa hinter
+  einer Wassersäule. Der Prototyp verliess das Wasser an seiner Rückseite;
+  die zeichnet der Rasterizer nicht.
+- **Kein Schein über leerem Grund:** Auf Pixel ohne Block, etwa am Rand
+  der Welt, fällt kein Bloom; sie bleiben durchsichtig, wie bei der Karte.
+- **Schatten bis `sonne_weite`:** Ein Block, der weiter entlang des Strahls
+  steht, also gut 95 Blöcke höher, wirft keinen Schatten mehr. Das Spiel
+  hat keine Schatten der Sonne; der Prototyp, an dem 0056 den Preis
+  gemessen hat, reichte so weit.

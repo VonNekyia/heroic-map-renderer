@@ -7,6 +7,7 @@ code:
   - renderer/tests/common/mod.rs
   - renderer/tests/gpu.rs
   - renderer/tests/heights.rs
+  - renderer/tests/kennzahlen.rs
   - renderer/tests/licht.rs
   - renderer/tests/metatile.rs
   - renderer/tests/region_format.rs
@@ -76,6 +77,7 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `renderer/tests/tiles.rs` | die Naht: jede Kachel gegen den Ausschnitt eines grossen Renderings |
 | `renderer/tests/cli.rs` | die ganze Exportkette über das echte Binär |
 | `renderer/tests/gpu.rs` | die Karte gegen die CPU, Byte für Byte |
+| `renderer/tests/kennzahlen.rs` | nur von Hand, mit der Testwelt: die Kennzahlen des Looks über 24 Ansichten (`kennzahlen_der_ansichten`) und die Bilder des Renderers zu Cinematic (`bilder_zu_cinematic`), siehe unten |
 | `renderer/tests/licht.rs` | die Ausbreitung des Lichts gegen einen Lauf von Vanilla 26.2 und an gebauten Welten |
 | `renderer/tests/common/mod.rs` | gemeinsame Szenen und Helfer |
 | `web/tests/smoke.spec.ts` | das Frontend am Demo-Kachelbaum, die Koordinaten mit Maus und Touch über Höhen, die der Test liefert, mit `projection` aus `map.json`, aus jeder Richtung in Weltkoordinaten, ohne Anzeige bei unbekanntem `azimuth` oder `direction`, den Umriss nur beim Tippen, die Adresse, die der Karte folgt, ohne Einträge im Verlauf, den Knopf für die ganze Karte per Maus und Tastatur, das Kopiersymbol für `/tp` mit Maus, Tastatur und Finger samt Rückmeldung ohne Zwischenablage oder bei einem Fehler, den Sprung über einen editierten Wert mit Y aus der Höhenkarte, abgewiesene Eingaben, Abbruch per Escape und Klick daneben und das Minus auf dem Touchscreen, Ziele ab 24 px und 16 px im Feld für Finger, Kompass und Umschalter zwischen zwei Bäumen aus `trees.json` mit demselben Block in der Mitte, und dass die Karte unter den strengen Headern aus `preview.headers` in `web/vite.config.ts` ohne Verletzung der Content-Security-Policy läuft |
@@ -266,3 +268,11 @@ Tönungskarte an allen Blöcken, die gefärbt oder geflutet sein können, mit
 den Wurzeln wie `--assets` als Pfadliste in `ASSETS`. Der Aufruf steht am
 Test, das Ergebnis in [Biomfarben](../renderer/biomfarben.md), „Tönung beim
 Zeichnen“.
+
+`kennzahlen_der_ansichten` in `renderer/tests/kennzahlen.rs` braucht dazu
+die Testwelt: Er rendert die 24 Ansichten, an denen 0058 abgestimmt ist,
+und schreibt je Pixel die Masken für die Kennzahlen des Looks. Aufruf und
+Ergebnis in [Look am Renderer](../messungen/2026-10-03-look-am-renderer.md).
+`bilder_zu_cinematic` in derselben Datei rendert die Bilder des Renderers
+in [Cinematic](../renderer/cinematic.md) nach `BILDER_AUS`; es ruft der
+Skill [`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md).

@@ -1163,6 +1163,71 @@ fn zufaellige_strahlen_gleichen_dem_bezug() {
     );
 }
 
+/// Wo die Bits „frei zur Sonne“ eine Zelle frei nennen, kommt im langsamen
+/// Bezug von jeder ihrer acht Ecken alles an: Die Ecken streifen die Ränder
+/// des Prismas. Nicht leer: Die Bits nennen viele Zellen frei.
+/// Siehe docs/renderer/cinematic.md, „Frei zur Sonne“.
+#[test]
+fn frei_zur_sonne_trifft_nichts() {
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..8).flat_map(|x| (0..8).map(move |z| (x, z))).collect();
+    common::write_world_sections(dir.path(), &chunks, 0..=6, hohe_welt, |_, _| None);
+    let world = World::open(dir.path()).unwrap();
+    let states = survey(&world, Projection::new(16), (0, 111), None)
+        .unwrap()
+        .states;
+    let mut zufall = 0x9e37_79b9_7f4a_7c15u64;
+    let mut wurf = move || {
+        zufall ^= zufall << 13;
+        zufall ^= zufall >> 7;
+        zufall ^= zufall << 17;
+        (zufall >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let (mut frei, mut verschenkt) = (0, 0);
+    for kamera in ["2:1", "top-north"] {
+        let kamera = Kamera::parse(kamera).unwrap();
+        for k in 0..4 {
+            let projection = Projection::mit_kamera(16, kamera).aus(richtung(k, kamera));
+            let mut assets = assets();
+            assets.load_biomes(&common::biomdaten()).unwrap();
+            let sprites =
+                SpriteSet::build_mit_licht(&mut assets, &states, projection, None, Some(LOOK))
+                    .unwrap();
+            let mut cache = ChunkCache::new(&world, &sprites);
+            for _ in 0..300 {
+                let p = [
+                    8.0 + 112.0 * wurf(),
+                    4.0 + 96.0 * wurf(),
+                    8.0 + 112.0 * wurf(),
+                ];
+                let p = match projection.richtung().vierteldrehungen() {
+                    0 => p,
+                    1 => [p[2], p[1], -p[0]],
+                    2 => [-p[0], p[1], -p[2]],
+                    _ => [-p[2], p[1], p[0]],
+                };
+                let c = p.map(|c| c.floor() as i32);
+                let ecken = (0..8).map(|e| {
+                    std::array::from_fn(|a| {
+                        f64::from(c[a]) + if e >> a & 1 == 0 { 1e-9 } else { 1.0 - 1e-9 }
+                    })
+                });
+                if cache.frei_zur_sonne(p).unwrap() {
+                    frei += 1;
+                    for ecke in ecken {
+                        assert!(cache.frei_zur_sonne(ecke).unwrap(), "{ecke:?}");
+                        let bezug = cache.sonne_bezug(ecke, c).unwrap();
+                        assert_eq!(bezug, 1.0, "{kamera} aus {k}, {ecke:?}");
+                    }
+                } else if cache.sonne_im_gang(p, c).unwrap() == 1.0 {
+                    verschenkt += 1;
+                }
+            }
+        }
+    }
+    assert!(frei > 200, "{frei} frei, {verschenkt} verschenkt");
+}
+
 /// Durch eine leere Section zwischen belegten geht der Strahl hindurch und
 /// trifft den Block darüber, ob die Section fehlt oder nur Luft hält;
 /// daneben ist frei. Schnell und im Bezug gleich.

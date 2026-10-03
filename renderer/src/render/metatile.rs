@@ -26,6 +26,8 @@ use super::{Cell, OWN_CELL, Projection, Richtung, Sprite, SpriteId, SpriteSet};
 
 mod strahl;
 
+pub(crate) use strahl::{Versatz, versaetze};
+
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
 ///
 /// Sprites dürfen über den Blockumriss hinausragen — Feuer ist höher als

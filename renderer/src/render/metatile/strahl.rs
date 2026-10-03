@@ -1,6 +1,7 @@
 //! Der Strahl zur Sonne durch die Welt im Chunk-Cache, für Cinematic.
 //! Siehe docs/renderer/cinematic.md, „Schatten“.
 
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use anyhow::Result;
@@ -47,6 +48,82 @@ pub(super) struct Saeule {
     /// Je Section ihre [`Bits`], sobald ein Strahl sie betritt; `None` ohne
     /// Arbeit.
     sections: Tabelle<i8, Option<Rc<Bits>>>,
+    /// Die Bits „frei zur Sonne“, sobald ein Strahl hier beginnt: die
+    /// unterste Lage und je Spalte `z * 16 + x` im Blick ein Wort, Bit `m`
+    /// für die Lage `unterste + m`. `None` ohne Block in Reichweite.
+    frei: Option<Option<(i32, Box<[u128; 256]>)>>,
+}
+
+/// Wie viele Lagen unter dem Horizont die Bits „frei zur Sonne“ einer Spalte
+/// abdecken.
+const LAGEN: i32 = 128;
+
+/// Ein Versatz zu einer Spalte, deren Zellen das Prisma zur Sonne einer
+/// Startzelle in den Lagen `k0 .. k0 + n` über ihr berühren kann, siehe
+/// [`versaetze`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Versatz {
+    pub i: i32,
+    pub j: i32,
+    pub k0: u32,
+    pub n: u32,
+}
+
+/// Die Versätze des Prismas zur Sonne `d` im Blick für die Bits „frei zur
+/// Sonne“: Das Prisma einer Zelle sind alle Punkte `p + t·d` mit `p` in ihr,
+/// `t ≥ 0` und `t` höchstens `weite`. In der Lage `k` über ihr ist `t` von
+/// `max(0, k − 1) / d_y` bis `(k + 1) / d_y`; je Achse berührt es die
+/// Zellen, deren geschlossener Würfel diese Spanne schneidet, nur vorwärts
+/// wie der Gang. Um 10⁻⁶ weiter, so liegt jede Zelle, die der Gang in f64
+/// betritt, darin. Bis [`LAGEN`] Lagen über der Zelle.
+/// Siehe docs/renderer/cinematic.md, „Frei zur Sonne“.
+pub(crate) fn versaetze(d: [f32; 3], weite: f32) -> Vec<Versatz> {
+    const EPS: f64 = 1e-6;
+    let d = ohne_null(d).map(f64::from);
+    if d[1] <= 0.0 {
+        return Vec::new();
+    }
+    let k_max = ((f64::from(weite) * d[1]).floor() as i32 + 1).min(LAGEN - 1);
+    let spanne = |c: f64, k: i32| -> (i32, i32) {
+        let a = c.abs() / d[1];
+        let (nah, fern) = (a * f64::from((k - 1).max(0)), a * f64::from(k + 1));
+        if c > 0.0 {
+            (
+                ((nah - EPS).ceil() as i32 - 1).max(0),
+                (1.0 + fern + EPS).floor() as i32,
+            )
+        } else {
+            (
+                (-fern - EPS).ceil() as i32 - 1,
+                ((1.0 - nah + EPS).floor() as i32).min(0),
+            )
+        }
+    };
+    // Je Spalte die Lagen, kleinste, grösste und wie viele.
+    let mut je: BTreeMap<(i32, i32), (i32, i32, i32)> = BTreeMap::new();
+    for k in 0..=k_max {
+        let (x0, x1) = spanne(d[0], k);
+        let (z0, z1) = spanne(d[2], k);
+        for j in z0..=z1 {
+            for i in x0..=x1 {
+                let e = je.entry((i, j)).or_insert((k, k, 0));
+                (e.0, e.1, e.2) = (e.0.min(k), e.1.max(k), e.2 + 1);
+            }
+        }
+    }
+    je.into_iter()
+        .map(|((i, j), (von, bis, anzahl))| {
+            // Die Spannen wachsen mit k in Richtung der Sonne, also sind die
+            // Lagen jeder Spalte ein Lauf.
+            debug_assert_eq!(anzahl, bis - von + 1, "Lagen von ({i}, {j}) mit Lücke");
+            Versatz {
+                i,
+                j,
+                k0: von as u32,
+                n: (bis - von + 1) as u32,
+            }
+        })
+        .collect()
 }
 
 /// Die Blöcke eines Chunks, deren Modell für die Sonne aus dem Würfel ragt,
@@ -204,15 +281,141 @@ impl ChunkCache<'_> {
     /// deckenden Stelle, sonst [`Look::pflanzen`] je Bodenpflanze auf dem
     /// Strahl, ausser der, auf der er beginnt (`eigen`, der Block des Draws).
     ///
-    /// Als schneller Gang: über der Decke eines Chunks, durch eine Section
-    /// ohne Arbeit und durch einen Würfel aus 4 × 4 × 4 Zellen ohne Arbeit
-    /// springt er hinaus; in einen vollen deckenden Würfel tritt er ohne
-    /// Test; sonst prüft er die Zelle wie [`ChunkCache::sonne_bezug`].
-    /// Dasselbe Ergebnis, denn ein Block, den der Strahl nicht trifft,
-    /// ändert nichts, gleich ob er geprüft wird.
+    /// Ist die Startzelle frei zur Sonne ([`ChunkCache::frei_zur_sonne`]),
+    /// kommt alles an, ohne Gang. Sonst geht der schnelle Gang
+    /// ([`ChunkCache::sonne_im_gang`]).
     ///
     /// [`Look::pflanzen`]: super::super::look::Look::pflanzen
     pub fn sonne(&mut self, p0: [f64; 3], eigen: [i32; 3]) -> Result<f32> {
+        if self.frei_zur_sonne(p0)? {
+            return Ok(1.0);
+        }
+        self.sonne_im_gang(p0, eigen)
+    }
+
+    /// Ob ein Strahl von `p0` nach den Bits „frei zur Sonne“ nichts trifft:
+    /// Keine Zelle, die das Prisma seiner Startzelle unter dem Horizont
+    /// berühren kann, hat Arbeit für den Gang. Hinreichend, nicht nötig;
+    /// wo es `false` sagt, entscheidet der Gang.
+    /// Siehe docs/renderer/cinematic.md, „Frei zur Sonne“.
+    pub fn frei_zur_sonne(&mut self, p0: [f64; 3]) -> Result<bool> {
+        let kino = self.sprites.kino().expect("Cinematic");
+        if kino.versaetze().is_empty() {
+            return Ok(false);
+        }
+        let c = [boden(p0[0]), boden(p0[1]), boden(p0[2])];
+        let key = (c[0] >> 4, c[2] >> 4);
+        let (slot, _) = self.saeule(key)?;
+        let Some((unterste, wort)) =
+            self.frei_bits(slot, key, ((c[2] & 15) * 16 + (c[0] & 15)) as usize)?
+        else {
+            return Ok(false);
+        };
+        let m = c[1] - unterste;
+        Ok((0..LAGEN).contains(&m) && wort >> m & 1 != 0)
+    }
+
+    /// Das Wort der Bits „frei zur Sonne“ der Spalte `col` im Chunk `key`
+    /// im Slot `i`, mit seiner untersten Lage; beim ersten Mal für den
+    /// ganzen Chunk gerechnet. `None` ohne Block in Reichweite.
+    fn frei_bits(&mut self, i: usize, key: (i32, i32), col: usize) -> Result<Option<(i32, u128)>> {
+        let Some(loaded) = self.slots[i].loaded.as_ref() else {
+            return Ok(None);
+        };
+        if let Some(frei) = loaded.sonne.as_ref().and_then(|s| s.frei.as_ref()) {
+            return Ok(frei
+                .as_ref()
+                .map(|(unterste, woerter)| (*unterste, woerter[col])));
+        }
+        let sprites = self.sprites;
+        let kino = sprites.kino().expect("Cinematic");
+        let d = ohne_null(kino.sonne());
+        let weite = f64::from(kino.look().sonne_weite);
+        let horizont = self.horizont(i, key, d, weite)?;
+        let frei = if horizont == i32::MIN {
+            None
+        } else {
+            let unterste = horizont + 1 - LAGEN;
+            let versaetze = kino.versaetze();
+            let (i0, i1) = versaetze
+                .iter()
+                .fold((0, 0), |(a, b), v| (a.min(v.i), b.max(v.i)));
+            let (j0, j1) = versaetze
+                .iter()
+                .fold((0, 0), |(a, b), v| (a.min(v.j), b.max(v.j)));
+            // Die Arbeit jeder Spalte, die ein Versatz erreicht, in den
+            // Lagen ab `unterste`; darüber hat keine Zelle in Reichweite
+            // Arbeit.
+            let (x0, z0) = (key.0 * 16 + i0, key.1 * 16 + j0);
+            let breite = (16 + i1 - i0) as usize;
+            let mut arbeit = vec![0u128; breite * (16 + j1 - j0) as usize];
+            for cz in z0 >> 4..=(key.1 * 16 + 15 + j1) >> 4 {
+                for cx in x0 >> 4..=(key.0 * 16 + 15 + i1) >> 4 {
+                    let (slot, decke) = self.saeule((cx, cz))?;
+                    if decke < unterste {
+                        continue;
+                    }
+                    for sy in unterste >> 4..=decke.min(horizont) >> 4 {
+                        let Some(bits) = self.sonnen_bits(slot, sy)? else {
+                            continue;
+                        };
+                        let versatz = sy * 16 - unterste;
+                        for col in 0..256 {
+                            let (x, z) = (cx * 16 + (col & 15) as i32, cz * 16 + (col >> 4) as i32);
+                            if x < x0
+                                || z < z0
+                                || x >= x0 + breite as i32
+                                || z > key.1 * 16 + 15 + j1
+                            {
+                                continue;
+                            }
+                            let w = u128::from(bits.arbeit[col]);
+                            let w = if versatz >= 0 {
+                                w << versatz
+                            } else {
+                                w >> -versatz
+                            };
+                            arbeit[(z - z0) as usize * breite + (x - x0) as usize] |= w;
+                        }
+                    }
+                }
+            }
+            let mut woerter = Box::new([0u128; 256]);
+            for (col, wort) in woerter.iter_mut().enumerate() {
+                let (x, z) = (
+                    key.0 * 16 + (col & 15) as i32,
+                    key.1 * 16 + (col >> 4) as i32,
+                );
+                let mut gesperrt = 0u128;
+                for v in versaetze {
+                    let w = arbeit[(z + v.j - z0) as usize * breite + (x + v.i - x0) as usize];
+                    let mut breit = w;
+                    for s in 1..v.n {
+                        breit |= w >> s;
+                    }
+                    gesperrt |= breit >> v.k0;
+                }
+                *wort = !gesperrt;
+            }
+            Some((unterste, woerter))
+        };
+        let wort = frei
+            .as_ref()
+            .map(|(unterste, woerter)| (*unterste, woerter[col]));
+        if let Some(s) = self.slots[i].loaded.as_mut().and_then(|l| l.sonne.as_mut()) {
+            s.frei = Some(frei);
+        }
+        Ok(wort)
+    }
+
+    /// [`ChunkCache::sonne`] ohne die Bits „frei zur Sonne“, als schneller
+    /// Gang: über der Decke eines Chunks, durch eine Section ohne Arbeit und
+    /// durch einen Würfel aus 4 × 4 × 4 Zellen ohne Arbeit springt er
+    /// hinaus; in einen vollen deckenden Würfel tritt er ohne Test; sonst
+    /// prüft er die Zelle wie [`ChunkCache::sonne_bezug`]. Dasselbe
+    /// Ergebnis, denn ein Block, den der Strahl nicht trifft, ändert nichts,
+    /// gleich ob er geprüft wird.
+    pub fn sonne_im_gang(&mut self, p0: [f64; 3], eigen: [i32; 3]) -> Result<f32> {
         let sprites = self.sprites;
         let look = sprites.kino().expect("Cinematic").look();
         let d = ohne_null(sprites.kino().expect("Cinematic").sonne());
@@ -377,6 +580,7 @@ impl ChunkCache<'_> {
             horizont: None,
             ueber,
             sections: Tabelle::default(),
+            frei: None,
         }));
         Ok((i, decke))
     }

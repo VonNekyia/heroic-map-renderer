@@ -15,6 +15,7 @@ use crate::world::{BlockState, Blockdaten};
 
 use super::kino::Kino;
 use super::look::Look;
+use super::metatile::ohne_null;
 use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
 use super::sonne::{Masken, Sonnenform};
 use super::tint::BiomeTable;
@@ -781,6 +782,7 @@ impl SpriteSet {
                 assets.textures(),
                 &mut self.masken,
                 pflanze,
+                ohne_null(self.kino.as_ref().expect("Cinematic").sonne()),
             );
             for k in 0..3 {
                 self.sonne_reich[0][k] = self.sonne_reich[0][k].min(form.zellen[0][k]);

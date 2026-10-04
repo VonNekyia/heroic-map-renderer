@@ -26,7 +26,7 @@ use super::{Cell, OWN_CELL, Projection, Richtung, Sprite, SpriteId, SpriteSet};
 
 mod strahl;
 
-pub(crate) use strahl::{Versatz, versaetze};
+pub(crate) use strahl::{Versatz, ohne_null, versaetze};
 
 /// Reserve um das Zielrechteck herum, in Blockbreiten.
 ///

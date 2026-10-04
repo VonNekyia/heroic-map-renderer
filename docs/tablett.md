@@ -34,6 +34,8 @@ Gegenstände im Bezugsrahmen
 Bilder nach den Kacheln
 [0073](entscheidungen/0073-bilder-nach-den-kacheln.md) und der Marmor als
 Pixelkunst [0075](entscheidungen/0075-marmor-als-pixelkunst.md).
+Sobald die Szene geliefert ist, kommen Rahmen, Tisch und Gegenstände als
+gerenderte Bilder aus Blender: [Tablett aus Blender](tablett-gerendert.md).
 
 ## Einschalten
 
@@ -62,12 +64,17 @@ Pixelkunst [0075](entscheidungen/0075-marmor-als-pixelkunst.md).
     Fenster passt. Dann füllt er 71 bis 100 %.
   - Nie tiefer als die ganze Stufe, auf die Leaflet die Grenzen einpasst:
     Dort landen die erste Ansicht und der Knopf ⌂.
+  - Mit gerenderten Bildern nimmt er unter diesen Stufen eine, auf der ein
+    Pixel des Bilds ganze Pixel des Geräts deckt, wo es geht: [Tablett aus
+    Blender](tablett-gerendert.md), „Im Skin“.
 - **Mitte der Gesamtansicht** wie in der Vorlage: 5,8 % der Breite der
   Karte unter ihrer Mitte und 0,3 % links davon, denn vor dem Tablett liegt
   mehr Tisch als dahinter (`gesamtmitte`). Ragte der Rahmen so aus dem
   Fenster, rückt sie zurück, bis er ganz darin liegt.
 - **Kleinste Stufe** ist die Gesamtansicht, neu bei jeder Grösse des
-  Fensters. Der Skin setzt die Untergrenze selbst und die Gesamtansicht
+  Fensters und bei jedem neuen `devicePixelRatio`. Das ändert sich auch ohne
+  `resize`, etwa beim Wechsel auf einen Monitor mit anderer Skalierung; der
+  Skin hört darauf mit `matchMedia('(resolution: …dppx)')`. Der Skin setzt die Untergrenze selbst und die Gesamtansicht
   sofort, ohne Animation: Schöbe Leaflet sie animiert an ihren Platz,
   endete das mitten in einem Zug, und der Skin malte dabei. Ohne Animation
   rundet Leaflet jede Stufe auf eine ganze; mit `zoomSnap` 0 bleibt sie
@@ -85,11 +92,26 @@ Pixelkunst [0075](entscheidungen/0075-marmor-als-pixelkunst.md).
   Die Teile hängen weder an der Stufe noch an der Grösse des Fensters; beim
   Zoomen wird das Tablett nur grösser.
 - **Je Ansicht gezeichnet,** auf jeder Stufe bis zur feinsten, in Pixeln
-  des Bildschirms: beim Laden, bei jeder neuen Grösse des Fensters, nach
-  jedem Zoom und nach einem Zug über den Überstand hinaus. Die Bilder sind
-  so gross wie das Fenster und reichen je Seite ein Viertel darüber, auf
-  jeder Stufe gleich. Die linke obere Ecke liegt auf ganzen Pixeln, so
-  trifft jedes Pixel der Leinwand eines des Bildschirms.
+  des Geräts: beim Laden, bei jeder neuen Grösse des Fensters, nach jedem
+  Zoom und nach einem Zug über den Überstand hinaus. Die Bilder sind so
+  gross wie das Fenster und reichen je Seite ein Viertel darüber, auf jeder
+  Stufe gleich.
+  - **Gerätepixel:** Die Leinwände haben `devicePixelRatio` mal so viele
+    Pixel, sonst zöge der Browser sie geglättet auf.
+  - **Deckel:** höchstens 4096² Pixel je Leinwand (`DECKEL` und
+    `leinwandMass` in [`tablett.ts`](../web/skins/tablett/tablett.ts)).
+    Darüber malt der Skin in einem ganzen Teil der Pixel des Geräts, und der
+    Browser zieht die Leinwand um diesen ganzen Faktor auf; bei 2560 × 1440
+    und `devicePixelRatio` 2 ist es ein Pixel je Pixel des Fensters. Nie
+    weniger als eines: Ist schon das Fenster zu gross, etwa 4K bei
+    `devicePixelRatio` 1, bleibt es dabei.
+  - **Ecke:** Die linke obere Ecke liegt auf ganzen Pixeln des Fensters, so
+    trifft bei `devicePixelRatio` 1 und 2 jedes Pixel der Leinwand eines
+    des Bildschirms. Bei 1,25 oder 1,5 liegt sie oft zwischen zwei Pixeln
+    des Geräts; dort nimmt der Browser je Pixel das nächste der Leinwand
+    (`image-rendering: pixelated` in
+    [`tablett.css`](../web/skins/tablett/tablett.css)), statt zu glätten.
+  - **Kosten:** [2026-10-04, Leinwände in Gerätepixeln](messungen/2026-10-04-geraetepixel.md).
 - **Während einer Bewegung** zeichnet der Skin nichts. Die Bilder gleiten
   und wachsen mit der Karte; beim Hinauszoomen fehlt am Rand das Tablett,
   bis neu gezeichnet ist.
@@ -487,12 +509,9 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   112 px ohne Holz und Gegenstände.
 - **Zwei Stile:** Am Rand der Vorlage läuft der gemalte, geglättete Tisch
   in den Marmor als Pixelkunst aus, bis die Szene kommt.
-- **`devicePixelRatio` über 1:** Die Leinwände haben die Grösse des
-  Fensters in CSS-Pixeln. Bei einem Verhältnis über 1, auch bei 1,25 oder
-  1,5 unter Windows, zieht der Browser sie geglättet auf Gerätepixel hoch.
-  Die Blöcke des Marmors kommen dort mit weichen Kanten an, obwohl die
-  Leinwand sie scharf malt. Leinwände in Gerätepixeln kommen mit der
-  gerenderten Szene.
+- **Krummes `devicePixelRatio`,** etwa 1,25 oder 1,5 unter Windows: Liegt
+  eine Leinwand zwischen zwei Pixeln des Geräts, zeigt der Browser sie bis
+  ein halbes Pixel des Geräts versetzt, scharf, nicht geglättet.
 
 ## Tests
 
@@ -507,8 +526,10 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   haben, dass die Gesamtansicht 71 bis
   100 % füllt, wo es geht 92,5 %, und gebrochen nur dort liegt, wo Leaflet
   die Kacheln verkleinert, und dass ihre Mitte wie in der Vorlage unter der
-  Mitte der Karte liegt, ohne dass der Rahmen aus dem Fenster ragt; dass im
-  Bezugsrahmen jeder Gegenstand höchstens 3 px neben seinem Fuss in der
+  Mitte der Karte liegt, ohne dass der Rahmen aus dem Fenster ragt; dass
+  eine Leinwand die Pixel des Geräts hat, über 4096² Pixel einen ganzen Teil
+  davon, nie weniger als die des Fensters; dass im Bezugsrahmen jeder
+  Gegenstand höchstens 3 px neben seinem Fuss in der
   Vorlage steht und der Tisch auf 1 px über ihr liegt, mit seinem Auslauf
   rundum; dass jenseits der Vorlage nur Marmor liegt, in jeder Kamera fern
   und nah erst der Marmor, wiederholt und im Mass des Tischs, gleich danach
@@ -533,7 +554,9 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   und, wenn sie beim Ziehen kommen, erst danach gemalt werden; dass der
   Marmor auf jeder Stufe von der Gesamtansicht in einem kleinen Fenster bis
   ganz hinein ohne Glättung liegt, solange ein Block ein Pixel deckt, sonst
-  geglättet; dass keine Anfrage für ein Bild
+  geglättet; dass der Bildschirm bei `devicePixelRatio` 1,25 und 1,5 die
+  Leinwände zwischen zwei Pixeln des Geräts Pixel für Pixel zeigt, um
+  höchstens zwei Pixel versetzt; dass keine Anfrage für ein Bild
   des Skins vor dem Ende der ersten Kachel startet und
   die Leinwände einblenden; die
   Gesamtansicht zwischen zwei Stufen mit 92,5 %, Leinwand Pixel auf Pixel

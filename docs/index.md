@@ -47,6 +47,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 - [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Skins beim Build.
 - [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet, mit einer Gesamtansicht wie in der Vorlage, Masse nach der Vorlage, Rahmen, Tisch, Lilien und Gegenstände als Bilder aus der Vorlage, geglättet gelegt, Licht, was vor und was hinter der Welt liegt, die UI aus Pergament, Holz und Messing, was eine Näherung bleibt.
+- [Tablett aus Blender](tablett-gerendert.md): das Brett des Skins Tablett als gerenderte Bilder einer Blender-Szene, je Kamera und Richtung fern und nah: rendern, teilen und prüfen mit `werkzeug/brett.py`, `brett.json`, wie der Skin sie lädt, legt und ohne Glättung auf Pixel des Geräts malt, Grösse, Tests.
 
 ## Entwicklung
 
@@ -131,6 +132,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md): Tisch und Gegenstände kommen mit der Umkehrung der Projektion im Bezugsrahmen, 8:5 in der Gesamtansicht im Fenster der Vorlage, auf die Platte und liegen dort wie in ihr; jenseits der Vorlage nur Marmor, in den sie 24 px ausläuft; löst in 0070 die Homographie für den Tisch und den dunklen Rand ab.
 - [0072](entscheidungen/0072-ui-in-farben-der-vorlage.md): UI des Tabletts auf Pergament, Holz und Messing in Farben aus der Vorlage, über die CSS-Variablen der Grundkarte, der Rand aus Messing ein Verlauf, ohne Bilddatei, in der Gesamtansicht neben den Gegenständen; kein erzeugtes Bild, kein Ausschnitt der Vorlage, nicht alles auf Holz.
 - [0073](entscheidungen/0073-bilder-nach-den-kacheln.md): Die Bilder des Tabletts laden erst, wenn die Ebene der Kacheln zum ersten Mal fertig ist, mit niedriger Priorität, und blenden dann ein; ein Atlas nur, wenn Lighthouse danach noch warnt.
+- [0074](entscheidungen/0074-tablett-aus-blender.md): Das Brett des Tabletts wird aus einer Blender-Szene gerendert, je Kamera und Richtung fern und nah aus einem Render, als feste Bilder im Repository, ohne Glättung auf Pixel des Geräts gelegt; nicht je Karte; löst mit der Lieferung 0070 und den Bildteil von 0071 ab.
 - [0075](entscheidungen/0075-marmor-als-pixelkunst.md): Der Marmor jenseits der Vorlage ist bis zur gerenderten Szene Pixelkunst aus Blöcken von 2 × 2 Pixeln in 20 Farben, ohne Glättung, solange ein Block ein Pixel deckt; löst in 0070 das Glätten des Marmors und in 0071 den Marmor aus Flicken ab.
 
 ## Messungen
@@ -181,6 +183,8 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-04, Vollrender 4:3](messungen/2026-10-04-vollrender-4x3.md): die grosse Welt mit Cinematic, 4:3 bei scale 24 ohne native Stufe, Dauer, Kacheln und Grösse je Stufe, die Pyramide ohne native Stufe gegen den Lauf in 8:5, und die Schätzung gegen das Ergebnis.
 - [2026-10-04, Hülle der Welt schneller](messungen/2026-10-04-huelle-der-welt.md): ein kleiner Lauf an der Testwelt ohne `--area` vor und nach #123, im Wechsel unter der Sperre, mit demselben Rechteck.
 - [2026-10-04, Bilder des Skins nach den Kacheln](messungen/2026-10-04-skin-bilder-nach-kacheln.md): Lighthouse mit dem Skin Tablett, wenn seine Bilder beim Start, nach `load` der Kacheln oder nach dem gemalten Bild laden; LCP 5,5 gegen 1,6 s, mit der UI aus #135 1,8 s.
+- [2026-10-04, Grösse des gerenderten Bretts](messungen/2026-10-04-brett-groesse.md): die Bilder des gerenderten Bretts, am Platzhalter gemessen und mit der Vorlage als Massstab hochgerechnet: alle 64 Bilder 41 bis 66 MB, ein Blick in 8:5 1,2 bis 2,0 MB; was der Ausschnitt je Fenster kostet.
+- [2026-10-04, Leinwände in Gerätepixeln](messungen/2026-10-04-geraetepixel.md): was die Leinwände des Tabletts in Pixeln des Geräts beim Zeichnen und Ziehen kosten, beide Wege, `devicePixelRatio` 1 bis 3 in Telefon, Notebook und 2560 × 1440, gegen master und mit dem Deckel von 4096² Pixeln.
 - [2026-10-04, Updates, Kosten](messungen/2026-10-04-updates.md): was der Stand einen vollen Lauf an der Testwelt kostet und was ein Update ohne Änderung, mit neuen Stempeln und mit 16 gelöschten Chunks braucht.
 - [2026-10-04, Cinematic schneller, Hebel 1 und 2](messungen/2026-10-04-hebel-1-und-2.md): was die Hebel 1 und 2 aus #118 an Cinematic bringen, je für sich gegen master, an Stand und Fichtenwald, und dass jede Kachel gleich bleibt, auch über die ganze Testwelt.
 - [2026-10-04, Cinematic schneller, Hebel 3 und 4 und zusammen](messungen/2026-10-04-hebel-3-und-4.md): was die Hebel 3 und 4 aus #118 je für sich und alle Hebel zusammen an Cinematic bringen, an Stand und Fichtenwald, und dass jede Kachel gleich bleibt, auch über die ganze Testwelt; warum Hebel 3 nicht übernommen ist und was `Sprite::start` höchstens hielte.

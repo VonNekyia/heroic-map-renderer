@@ -68,5 +68,6 @@ verwischte geglättet beim Hineinzoomen.
 - Bei krummen Faktoren sind Blöcke um 1 px ungleich breit.
 - Bei `devicePixelRatio` über 1 zieht der Browser die Leinwand geglättet
   auf Gerätepixel hoch; dort kommen die Blöcke mit weichen Kanten an, bis
-  die Leinwände in Gerätepixeln malen.
+  die Leinwände in Gerätepixeln malen. Das tun sie seit
+  [0074](0074-tablett-aus-blender.md).
 - Wer die Bilder neu schneidet, ändert den Marmor nicht.

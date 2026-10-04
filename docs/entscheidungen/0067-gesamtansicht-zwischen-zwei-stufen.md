@@ -22,6 +22,11 @@ nicht mehr; der Rand rastet nicht mehr ein. Der Rahmen füllt 92,5 % wie in
 der Vorlage statt rund 90 %. Die Gesamtansicht zwischen zwei Stufen, nur wo
 Leaflet die Kacheln verkleinert, bleibt.
 
+In Teilen abgelöst durch [0074](0074-tablett-aus-blender.md), nur mit
+gerenderten Bildern: Unter den erlaubten Stufen nimmt die Gesamtansicht eine,
+auf der ein Pixel des Bilds ganze Pixel des Geräts deckt, wo eine 71 bis
+100 % füllt.
+
 ## Anlass
 
 In ganzen Stufen füllt das Tablett die Hälfte bis das Ganze des Fensters,

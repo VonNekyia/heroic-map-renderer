@@ -215,14 +215,26 @@ export function grenzen(area: Rechteck, meer: number, { k, projiziere }: Blick):
 const FUELLUNG = 0.925;
 
 /**
+ * So wenig des Fensters füllt der Rahmen mindestens auf einer Stufe, die die
+ * Gesamtansicht für ein ganzes n nimmt. Siehe
+ * docs/entscheidungen/0074-tablett-aus-blender.md.
+ */
+const MINDESTENS = 0.71;
+
+/**
  * Die Stufe der Gesamtansicht für ein Fenster von `breite` × `hoehe`: die
  * Stufe, auf der die Grenzen `FUELLUNG` des Fensters füllen, oder die
  * nächste, auf der Leaflet die Kacheln nicht vergrössert. Nie tiefer als
  * die ganze Stufe, auf die Leaflet die Grenzen einpasst. Ein Fenster ohne
  * Fläche, etwa ein verborgener Tab, hat keine: `NaN`.
  * Siehe docs/entscheidungen/0067-gesamtansicht-zwischen-zwei-stufen.md.
+ *
+ * `kunst` sind Pixel der Leinwand je Pixel eines gerenderten Bilds auf der
+ * feinsten Stufe. Deckt ein Pixel des Bilds auf einer solchen Stufe, die
+ * `MINDESTENS` bis 100 % füllt, ganze n ≥ 1 Pixel, nimmt sie von diesen die
+ * nächste an `FUELLUNG`. Siehe docs/entscheidungen/0074-tablett-aus-blender.md.
  */
-export function gesamtstufe([links, oben, rechts, unten]: Grenzen, maxZoom: number, breite: number, hoehe: number): number {
+export function gesamtstufe([links, oben, rechts, unten]: Grenzen, maxZoom: number, breite: number, hoehe: number, kunst?: number): number {
   const voll = maxZoom + Math.log2(Math.min(breite / (rechts - links), hoehe / (unten - oben)));
   if (!Number.isFinite(voll)) return Number.NaN;
   const ziel = voll + Math.log2(FUELLUNG);
@@ -231,10 +243,42 @@ export function gesamtstufe([links, oben, rechts, unten]: Grenzen, maxZoom: numb
   // Leaflet nimmt die Kacheln der gerundeten Stufe: Ab einem Bruch von 0,5
   // verkleinert es die der Stufe darüber, darunter vergrösserte es die der
   // Stufe darunter. Über der feinsten Stufe vergrösserte es immer.
-  const erlaubt = (z: number) => Number.isInteger(z) || (z - Math.floor(z) >= 0.5 && z < maxZoom);
-  const stufen = [ziel, ganz + 0.5, ganz].filter((z) => z >= ganz && z <= Math.max(voll, ganz) && erlaubt(z));
+  const erlaubt = (z: number) =>
+    z >= ganz && z <= Math.max(voll, ganz) && (Number.isInteger(z) || (z - Math.floor(z) >= 0.5 && z < maxZoom));
+  const naechste = (stufen: number[]) => stufen.reduce((a, b) => (Math.abs(b - ziel) < Math.abs(a - ziel) ? b : a));
+  if (kunst !== undefined) {
+    // Je ganzes n die Stufe, auf der ein Pixel des Bilds n Pixel deckt; auf
+    // 1e-9 genau ganz ist sie ganz.
+    const scharf: number[] = [];
+    const bis = kunst * 2 ** (Math.max(voll, ganz) - maxZoom);
+    for (let n = Math.ceil(kunst * 2 ** (voll - maxZoom) * MINDESTENS - 1e-9); n <= bis + 1e-9; n++) {
+      const z = maxZoom + Math.log2(n / kunst);
+      const gerundet = Math.abs(z - Math.round(z)) < 1e-9 ? Math.round(z) : z;
+      if (erlaubt(gerundet)) scharf.push(gerundet);
+    }
+    if (scharf.length > 0) return naechste(scharf);
+  }
   // `ganz` ist immer dabei, die Liste also nie leer.
-  return stufen.reduce((a, b) => (Math.abs(b - ziel) < Math.abs(a - ziel) ? b : a));
+  return naechste([ziel, ganz + 0.5, ganz].filter(erlaubt));
+}
+
+/**
+ * So viele Pixel hat eine Leinwand des Skins höchstens, 4096²: Mehr nimmt
+ * Safari auf dem iPhone nicht, und das Rastern wächst mit der Fläche. Siehe
+ * docs/messungen/2026-10-04-geraetepixel.md.
+ */
+export const DECKEL = 4096 * 4096;
+
+/**
+ * Pixel der Leinwand je Pixel des Fensters für eine Leinwand von `pixel`
+ * Pixeln des Fensters: `dpr`, über `DECKEL` ein ganzer Teil davon, den der
+ * Browser um diesen ganzen Faktor aufzieht. Nie weniger als ein Pixel je
+ * Pixel des Fensters: Ist schon das Fenster grösser als `DECKEL`, etwa 4K bei
+ * `devicePixelRatio` 1, bleibt es bei einem.
+ */
+export function leinwandMass(pixel: number, dpr: number): number {
+  for (let teil = 1; dpr / teil >= 1; teil++) if (pixel * (dpr / teil) ** 2 <= DECKEL) return dpr / teil;
+  return Math.min(dpr, 1);
 }
 
 /**

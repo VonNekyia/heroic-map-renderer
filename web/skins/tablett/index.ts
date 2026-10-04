@@ -2,15 +2,17 @@
  * Der Skin „Tablett“: die Welt in einem Holztablett auf einem Tisch, auf
  * jeder Stufe. Er zeichnet je Ansicht zwei Bilder, fern unter den Kacheln
  * und nah darüber, so gross wie das Fenster mit Überstand, und legt sie als
- * Bild-Ebenen auf die Karte. Rahmen, Tisch, Lilien und Gegenstände sind
- * Bilder aus der Vorlage in bilder/. Während einer Bewegung gleiten die
- * Bilder mit der Karte. Siehe docs/tablett.md.
+ * Bild-Ebenen auf die Karte. Hat der Skin gerenderte Bilder in brett/,
+ * malt er die seiner Kamera; sonst Rahmen, Tisch, Lilien und Gegenstände aus
+ * Bildern der Vorlage in bilder/. Während einer Bewegung gleiten die Bilder
+ * mit der Karte. Siehe docs/tablett.md.
  */
 import type { Grenzen, Rechteck, Skin } from 'heroic-map-renderer/skin-api';
 import L from 'leaflet';
 import { PERGAMENT } from './bilder';
-import { type Figur, gesamtmitte, gesamtstufe, grenzen, tablett, type Teil, vorlageImBild } from './tablett';
-import { type Bilder, ebenen as malen } from './zeichnen';
+import { type Brett, type Brettbild, kameraName, lage, maleBild } from './brett';
+import { type Figur, gesamtmitte, gesamtstufe, grenzen, GRUND, leinwandMass, tablett, type Teil, vorlageImBild } from './tablett';
+import { ebenen as malen } from './zeichnen';
 import './tablett.css';
 
 /** Für diese Version der Schnittstelle ist der Skin geschrieben. */
@@ -18,6 +20,9 @@ const API = 2;
 
 /** Wie weit die Bilder je Seite über das Fenster reichen, als Anteil des Fensters. */
 const UEBERSTAND = 0.25;
+
+/** Die Leinwände für ein Fenster dieser Grösse, in Pixeln des Fensters. */
+const leinwandGroesse = ({ x, y }: L.Point): [number, number] => [Math.round(x * (1 + 2 * UEBERSTAND)), Math.round(y * (1 + 2 * UEBERSTAND))];
 
 /**
  * Die Ecken der UI und wohin jede ausweicht, deckte sie in der
@@ -39,6 +44,19 @@ const ABSTAND = 8;
  * als `data:` verböte es die Content-Security-Policy.
  */
 const ADRESSEN = import.meta.glob<string>('./bilder/*.webp', { query: '?url&no-inline', import: 'default', eager: true });
+
+/**
+ * Die gerenderten Bilder, sobald der Skin sie in brett/ hat; bis dahin malt
+ * er aus den Bildern der Vorlage. Siehe docs/tablett-gerendert.md, „Im Skin“.
+ */
+const BRETT = Object.values(import.meta.glob<Brett>('./brett/brett.json', { import: 'default', eager: true }))[0];
+const BRETT_ADRESSEN = import.meta.glob<string>('./brett/*.webp', { query: '?url&no-inline', import: 'default', eager: true });
+
+/**
+ * Malt beide Ebenen. `s` ist ein Pixel der feinsten Stufe in Pixeln der
+ * Leinwand, `versatz` der Punkt (0, 0) darauf.
+ */
+type Maler = (fern: CanvasRenderingContext2D, nah: CanvasRenderingContext2D, s: number, versatz: [number, number]) => void;
 
 /** So lange wartet der Skin nach den Kacheln höchstens auf die Meldung, dass eine gemalt ist, in ms. */
 const FRIST = 1000;
@@ -79,7 +97,7 @@ async function lade(adresse: string): Promise<ImageBitmap> {
 }
 
 /** Alle Bilder, nach Namen. Was nicht lädt, fehlt, und die Konsole sagt es. */
-async function ladeAlle(): Promise<Bilder> {
+async function ladeAlle(): Promise<Map<string, ImageBitmap>> {
   const eintraege = Object.entries(ADRESSEN).map(([pfad, adresse]) => [pfad.slice('./bilder/'.length, -'.webp'.length), adresse] as const);
   const geladen = await Promise.allSettled(eintraege.map(([, adresse]) => lade(adresse)));
   const bilder = new Map<string, ImageBitmap>();
@@ -89,6 +107,21 @@ async function ladeAlle(): Promise<Bilder> {
     else console.warn(`Tablett: bilder/${name}.webp nicht geladen, die Fläche bleibt einfarbig.`, ergebnis.reason);
   });
   return bilder;
+}
+
+/** Die beiden gerenderten Bilder einer Kamera. Fehlt eins, keins, und die Konsole sagt es. */
+async function ladeBrett({ fern, nah }: Brettbild): Promise<ImageBitmap[] | undefined> {
+  try {
+    return await Promise.all(
+      [fern, nah].map((datei) => {
+        const adresse = BRETT_ADRESSEN[`./brett/${datei}`];
+        return adresse ? lade(adresse) : Promise.reject(new Error(`brett/${datei} fehlt`));
+      }),
+    );
+  } catch (fehler) {
+    console.warn('Tablett: die Bilder aus brett/ nicht geladen, das Tablett bleibt aus.', fehler);
+    return undefined;
+  }
 }
 
 /** Ein Rechteck aus ganzen Blöcken, nicht leer. */
@@ -118,6 +151,13 @@ const skin: Skin = (kontext) => {
     console.warn('Tablett: area ist kein Quadrat, das Tablett bleibt aus.');
     return undefined;
   }
+  const kamera = kameraName(kontext.projektion, kontext.k);
+  const brett = BRETT?.[kamera];
+  if (BRETT && !brett) {
+    console.warn(`Tablett: kein Bild für ${kamera} in brett/, das Tablett bleibt aus.`);
+    return undefined;
+  }
+  const brettLage = brett && lage(area, seaLevel, kontext, brett);
 
   container.classList.add('skin-tablett');
   const rahmen = grenzen(area, seaLevel, kontext);
@@ -137,7 +177,26 @@ const skin: Skin = (kontext) => {
       if (layer instanceof L.TileLayer) void nachDenKacheln(layer).then(fertig);
     });
   });
-  let bilder: Promise<Bilder> | undefined;
+  /** Die Teile; sie hängen an keiner Stufe, das Tablett wird beim Zoomen nur grösser. */
+  const teile: Teil[] = tablett(area, seaLevel, minY, kontext, kontext.texte);
+  /** Lädt nach den Kacheln, was die Ebenen brauchen, und gibt zurück, wie sie gemalt werden. */
+  const laden = async (): Promise<Maler> => {
+    await kacheln;
+    if (!brett) {
+      const bilder = await ladeAlle();
+      return (fern, nah, s, versatz) => malen(fern, nah, teile, s, versatz, bilder);
+    }
+    const bilder = await ladeBrett(brett);
+    const { links, oben, mass } = brettLage!;
+    return (fern, nah, s, [x0, y0]) => {
+      if (!bilder) return;
+      fern.setTransform(1, 0, 0, 1, 0, 0);
+      fern.fillStyle = GRUND;
+      fern.fillRect(0, 0, fern.canvas.width, fern.canvas.height);
+      bilder.forEach((bild, i) => maleBild(i === 0 ? fern : nah, bild, s * mass, x0 + s * links, y0 + s * oben));
+    };
+  };
+  let maler: Promise<Maler> | undefined;
 
   // Zwischen zwei Stufen verkleinert Leaflet die Kacheln; dann glättet der
   // Browser sie, statt Pixel auszulassen. Siehe
@@ -153,8 +212,6 @@ const skin: Skin = (kontext) => {
   karte.on('movestart', () => (bewegt = true));
   karte.on('moveend', () => (bewegt = false));
 
-  /** Die Teile; sie hängen an keiner Stufe, das Tablett wird beim Zoomen nur grösser. */
-  const teile: Teil[] = tablett(area, seaLevel, minY, kontext, kontext.texte);
   /** Was die Leinwände zeigen: die Stufe und ihr Ausschnitt in Pixeln dieser Stufe. */
   let gezeichnet: { zoom: number; links: number; oben: number; rechts: number; unten: number } | undefined;
 
@@ -166,8 +223,8 @@ const skin: Skin = (kontext) => {
   const zeichne = async (): Promise<void> => {
     const auftrag = ++nummer;
     const beginn = performance.now();
-    bilder ??= kacheln.then(ladeAlle);
-    const geladen = await bilder;
+    maler ??= laden();
+    const maleEbenen = await maler;
     const male = (): void => {
       // Eine neuere Ansicht ist schon unterwegs.
       if (auftrag !== nummer) return;
@@ -179,16 +236,18 @@ const skin: Skin = (kontext) => {
       const mitte = karte.project(karte.getCenter(), zoom);
       // Die linke obere Ecke auf ganzen Pixeln: So trifft jedes Pixel der
       // Leinwand eines des Bildschirms.
-      const breite = Math.round(groesse.x * (1 + 2 * UEBERSTAND));
-      const hoehe = Math.round(groesse.y * (1 + 2 * UEBERSTAND));
+      const [breite, hoehe] = leinwandGroesse(groesse);
       const [links, oben] = [Math.round(mitte.x - breite / 2), Math.round(mitte.y - hoehe / 2)];
       const ecken = L.latLngBounds(
         karte.unproject([links / s, oben / s], maxZoom),
         karte.unproject([(links + breite) / s, (oben + hoehe) / s], maxZoom),
       );
-      for (const { leinwand } of ebenen) [leinwand.width, leinwand.height] = [breite, hoehe];
+      // Die Leinwände in Pixeln des Geräts, sonst zöge der Browser sie
+      // geglättet auf; über DECKEL in einem ganzen Teil davon.
+      const q = leinwandMass(breite * hoehe, devicePixelRatio);
+      for (const { leinwand } of ebenen) [leinwand.width, leinwand.height] = [Math.round(breite * q), Math.round(hoehe * q)];
       const [fern, nah] = ebenen.map(({ leinwand }) => leinwand.getContext('2d')!);
-      malen(fern!, nah!, teile, s, [-links, -oben], geladen);
+      maleEbenen(fern!, nah!, s * q, [-links * q, -oben * q]);
       for (const eintrag of ebenen) {
         // Leaflets SVGOverlay legt jedes Element als Bild-Ebene, auch eine
         // Leinwand. Ein Bild aus ihr ginge nur über data: oder blob:, und
@@ -258,7 +317,9 @@ const skin: Skin = (kontext) => {
   // und auf jeder Stufe bleibt die Ansicht darin.
   const baue = (): void => {
     const groesse = karte.getSize();
-    const fit = gesamtstufe(rahmen, maxZoom, groesse.x, groesse.y);
+    // Gerendert: ein ganzes n, wo es geht, in Pixeln der Leinwand.
+    const q = leinwandMass(leinwandGroesse(groesse).reduce((a, b) => a * b), devicePixelRatio);
+    const fit = gesamtstufe(rahmen, maxZoom, groesse.x, groesse.y, brettLage && brettLage.mass * q);
     // Ein Fenster ohne Fläche, etwa ein verborgener Tab: Die Gesamtansicht
     // kommt mit der ersten Grösse, beim nächsten `resize`.
     if (Number.isNaN(fit)) return;
@@ -309,6 +370,20 @@ const skin: Skin = (kontext) => {
   karte.on('resize', baue);
   karte.on('moveend', pruefe);
   karte.on('zoomend', gebrochen);
+  // Ändert sich `devicePixelRatio` ohne `resize`, etwa beim Wechsel auf
+  // einen Monitor mit anderer Skalierung, gelten Gesamtstufe und Leinwände
+  // nicht mehr. Die Anfrage gilt für ein Verhältnis; danach eine neue.
+  const aufDpr = (): void => {
+    matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener(
+      'change',
+      () => {
+        baue();
+        aufDpr();
+      },
+      { once: true },
+    );
+  };
+  aufDpr();
 
   return { ganzeKarte: rahmen };
 };

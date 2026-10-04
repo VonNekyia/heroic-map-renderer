@@ -1,9 +1,11 @@
 /* Rahmen und Tisch fangen keine Klicks ab. Die Leinwände kommen mit dem
-   ersten Bild auf die Karte, wenn die Bilder da sind, und blenden ein. Siehe
-   docs/tablett.md, „Zeichnen“. */
+   ersten Bild auf die Karte, wenn die Bilder da sind, und blenden ein. Liegt
+   eine Leinwand zwischen zwei Pixeln des Geräts, nimmt der Browser je Pixel
+   das nächste, statt zu glätten. Siehe docs/tablett.md, „Zeichnen“. */
 .tablett {
   pointer-events: none;
   animation: tablett-einblenden 0.4s ease-out;
+  image-rendering: pixelated;
 }
 
 @keyframes tablett-einblenden {

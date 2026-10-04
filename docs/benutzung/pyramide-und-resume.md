@@ -152,6 +152,12 @@ beide noch einmal. Die Höhen schreibt er vor der
 ersten Kachel neu wie jeder Export, aus seinem Vorlauf, siehe
 [map.json](map-json.md), „Höhen“.
 
+Den Stand für Updates nimmt er vom Beginn des abgebrochenen Laufs, aus dessen
+angefangenem Stand `stand-neu.bin`, wenn der von einem vollen Lauf mit
+demselben Build und denselben Assets stammt; sonst schreibt er keinen. Wie
+`--resume` ein abgebrochenes Update fortsetzt, steht in
+[Updates](updates.md), „Abbruch und `--resume`“.
+
 ## Wann `--resume` nicht reicht
 
 Zweierlei setzen die zwei Minuten voraus: dass das System jede Kachel so

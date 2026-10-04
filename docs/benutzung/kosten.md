@@ -134,7 +134,10 @@ kosten Cinematic im Median 3 % am Stand und 5,4 % im Fichtenwald, siehe
 [2026-10-03, Flächen im Innern weich, Kosten](../messungen/2026-10-03-flaechen-im-innern.md).
 Der Gang zur Sonne, der in der ersten freien Zelle endet (Hebel 1 aus
 #118), macht den ganzen Lauf mit Cinematic im Median 11,4 % schneller am
-Stand und 8,0 % im Fichtenwald, bei gleichen Kacheln, siehe
+Stand und 8,0 % im Fichtenwald, bei gleichen Kacheln. Der Flächentest mit
+den Konstanten der Sonne (Hebel 2) macht ihn 0,9 % schneller am Stand und
+4,3 % im Fichtenwald, bei 2 bis 3 % mehr Speicher an der Spitze. Beide
+siehe
 [2026-10-04, Cinematic schneller, Hebel 1 und 2](../messungen/2026-10-04-hebel-1-und-2.md).
 
 ## Die grosse Welt

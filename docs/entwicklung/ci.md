@@ -106,13 +106,21 @@ Anker hinter `#` prüft sie nicht; auf eine Überschrift zeigt ein Link mit
 
 Jeder Fehler steht als Zeile `::error file=…::…` da, die GitHub an die
 Datei heftet. Danach verbiegt die CI in einer Probe je einen Verweis, eine
-Überschrift, einen Link und einen Pfad unter `code:`, nimmt einer Seite den
-`title` und verlangt genau fünf Meldungen; so fällt auf, wenn die Prüfung
-nichts mehr findet. Lokal aus der Wurzel des Repositorys:
+Überschrift, einen Link, die Überschrift hinter einem Link, diese mit „…“,
+und einen Pfad unter `code:`, nimmt einer Seite den `title` und verlangt
+genau sechs Meldungen; so fällt auf, wenn die Prüfung nichts mehr findet.
+Lokal aus der Wurzel des Repositorys, unter Linux wie unter Git Bash auf
+Windows:
 
 ```bash
 bash .github/pruefe-doku.sh
 ```
+
+Die Überschrift hinter einem Link liest die Prüfung ohne Klammerausdruck
+mit Nicht-ASCII-Zeichen. Unter Git Bash passt `[^“]` im Locale `C.UTF-8`
+auf kein Zeichen ausser `“`, im Locale `C` nicht auf `…` oder `–`; so blieb
+lokal jede Überschrift hinter einem Link ungeprüft. Unter Linux tritt das
+nicht auf, die CI sah es darum nicht.
 
 Die Prüfung sieht nur, was Git verfolgt: eine neue Seite erst nach
 `git add`.

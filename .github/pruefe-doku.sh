@@ -47,11 +47,17 @@ done < <(git grep -n -I -E '[Ss]iehe docs/[^ ,]+\.md' -- . ':!*.md' ':!.github/p
 while IFS= read -r datei; do
   ordner=$(dirname "$datei")
   while IFS=$'\t' read -r nummer text; do
-    while [[ $text =~ \]\(([^\)\ ]+)\)(,\ „([^“]*)“)? ]]; do
+    while [[ $text =~ \]\(([^\)\ ]+)\) ]]; do
       ziel=${BASH_REMATCH[1]}
-      titel=${BASH_REMATCH[3]}
       text=${text#*"${BASH_REMATCH[0]}"}
       case $ziel in http://* | https://* | mailto:* | \#*) continue ;; esac
+      # Die Überschrift ohne Klammerausdruck, [^“] geht unter Git Bash nicht:
+      # docs/entwicklung/ci.md, „Die Doku-Prüfung“.
+      titel=
+      if [[ $text == ', „'*'“'* ]]; then
+        titel=${text#, „}
+        titel=${titel%%“*}
+      fi
       pfad="$ordner/${ziel%%#*}"
       if [[ ! -e $pfad ]]; then
         melde "$datei,line=$nummer" "Link auf $ziel: die Datei gibt es nicht"

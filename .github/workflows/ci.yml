@@ -192,10 +192,11 @@ jobs:
         timeout-minutes: 5
         run: bash .github/pruefe-doku.sh
 
-      # Die Probe verbiegt je einen Verweis, eine Überschrift, einen Link und
-      # einen Pfad unter code: und nimmt einer Seite den title. Die Prüfung
-      # muss alle fünf melden. Ihre Meldungen stehen mit Präfix im Log, sonst
-      # heftete GitHub sie als Fehler an die PR.
+      # Die Probe verbiegt je einen Verweis, eine Überschrift, einen Link, die
+      # Überschrift hinter einem Link, diese mit …, und einen Pfad unter code:
+      # und nimmt einer Seite den title. Die Prüfung muss alle sechs melden.
+      # Ihre Meldungen stehen mit Präfix im Log, sonst heftete GitHub sie als
+      # Fehler an die PR.
       - name: Probe, dass die Prüfung anschlägt
         timeout-minutes: 5
         run: |
@@ -204,13 +205,14 @@ jobs:
           sed -i '0,/](docs\/index\.md)/s//](docs\/gibt-es-nicht.md)/' README.md
           sed -i '0,/^  - renderer\/src\/render\/gpu\.rs$/s//  - renderer\/src\/render\/gibt-es-nicht.rs/' docs/benutzung/grafikkarte.md
           sed -i '0,/^title: /{//d}' docs/benutzung/zoomstufen.md
-          test "$(git diff --name-only | wc -l)" -eq 5
+          sed -i '0,/„Banner“/s//„Gibt … nicht“/' docs/benutzung/assets.md
+          test "$(git diff --name-only | wc -l)" -eq 6
           if bash .github/pruefe-doku.sh > probe.txt; then
             echo "Die Prüfung hat nichts gemeldet."
             exit 1
           fi
           sed 's/^::error /Probe: /' probe.txt
-          test "$(grep -c '^::error ' probe.txt)" -eq 5
+          test "$(grep -c '^::error ' probe.txt)" -eq 6
 
   deny:
     name: Dependencies

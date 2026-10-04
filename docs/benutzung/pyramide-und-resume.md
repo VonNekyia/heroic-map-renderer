@@ -32,11 +32,20 @@ nicht, es verkleinert auch dort. Ein laufender Render ersetzt sie am Ende
 durch native. Die Höhen fasst es nicht an und behält ihre Felder in
 `map.json`, siehe [map.json](map-json.md), „Höhen“.
 
+Wer einem Render zusieht, ruft `--pyramid` wiederholt, solange er läuft,
+und nach seinem Ende noch einmal. Der letzte Aufruf kostet Sekunden und
+baut nach, was ein Aufruf daneben nicht mehr gesehen hat: einer, den
+Strg+C abbrach, oder einer, der noch lief, als der Render endete. Am
+Vollrender aus #126 brauchte er 7,6 s für 3,07 Mio. Basiskacheln.
+
 ## Was neu gebaut wird
 
 Neu gebaut wird nur, was sich geändert hat: eine Kachel, unter der ein Kind
 jünger ist als sie oder in diesem Aufruf neu gebaut oder entfernt wurde, und
-eine, die fehlt. Eine Kachel ohne Kinder verschwindet. Verglichen wird auf
+eine, die fehlt. Eine Kachel ohne Kinder verschwindet, aber nur, wenn auch
+auf der Platte keins liegt: Ein Kind, das nach der Liste seiner Stufe
+entstand, hält seine Elternkachel, siehe „Zeiten und fremde Kacheln“.
+Verglichen wird auf
 jeder Stufe, ein Aufruf, den Strg+C abbricht, heilt also im nächsten; nach
 einem Stromausfall nicht, siehe unten. Die Zeiten kommen aus der Liste jeder
 Stufe: unter Windows stehen sie im Verzeichnis, unter Linux kostet jede
@@ -78,6 +87,13 @@ geändert hat; das prüft der Aufruf erst direkt vor dem Tausch und vor dem
 Entfernen. Eine verkleinerte Kachel hängt dagegen nur an ihren Kindern; die
 baut der Aufruf neu, sobald sich darunter etwas geändert hat, auch wenn ein
 Export sie eben erst geschrieben hat.
+
+Entfernt wird eine Kachel nur, wenn auch auf der Platte kein Kind liegt.
+Ein Export schreibt die feinen Stufen aus dem Speicher, Kinder vor ihren
+Eltern. Fällt das zwischen die Listen zweier Stufen, hat die neue
+Elternkachel in der Liste kein Kind, auf der Platte aber schon. Nach der
+Liste allein fehlten so im Vollrender aus #126 drei Kacheln auf Zoom 8.
+Das prüft `kachel_mit_kind_nach_der_liste_bleibt` in `cli.rs`.
 
 Eine Zeit weiter in der Zukunft kommt von einer Uhr, die vorging, und zählt
 nicht als fremd; eine verkleinerte Kachel mit so einer Zeit baut der Aufruf

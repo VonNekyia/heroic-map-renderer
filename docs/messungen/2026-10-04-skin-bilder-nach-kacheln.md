@@ -2,7 +2,7 @@
 title: Bilder des Skins nach den Kacheln
 description: Lighthouse mit dem Skin Tablett, wenn seine Bilder beim Start laden, nach `load` der Kacheln, zwei Bilder danach oder nach der Meldung, dass eine Kachel als grösstes Element gemalt ist; dazu die Grösse der Bilder.
 date: 2026-10-04
-commits: [d7a8362]
+commits: [d7a8362, 87411af]
 code:
   - web/skins/tablett/index.ts
   - web/lighthouserc.cjs
@@ -12,9 +12,10 @@ code:
 
 Laden die Bilder des Skins erst, wenn der Browser eine Kachel als grösstes
 Element gemalt meldet, sinkt der LCP mit Skin von 5,5 s auf 1,61 bis
-1,69 s, Performance von 0,79 auf 0,99. Nach `load` der Kacheln allein bleibt
-er bei 5,5 s. Zwei Bilder nach `load` reichen nur, wenn das Malen früh
-kommt: am Zweig von #120 ja, mit der UI aus #135 nicht.
+1,69 s, mit der UI aus #135 auf 1,79 s, Performance von 0,80 auf 0,99.
+Nach `load` der Kacheln allein bleibt er bei 5,5 s. Zwei Bilder nach
+`load` reichen nur, wenn das Malen früh kommt: am Zweig von #120 ja, mit
+der UI aus #135 nicht.
 
 ## Aufbau
 
@@ -34,7 +35,8 @@ kommt: am Zweig von #120 ja, mit der UI aus #135 nicht.
   - **zwei Bilder danach:** dazu zwei `requestAnimationFrame`, einmal am
     Zweig von #120 und einmal mit der UI aus #135 darüber;
   - **nach der Meldung:** statt der zwei Bilder ein `PerformanceObserver`
-    für `largest-contentful-paint`, bis eine Kachel gemeldet ist.
+    für `largest-contentful-paint`, bis eine Kachel gemeldet ist, wieder
+    am Zweig von #120 und mit der UI aus #135, dort `87411af`.
 - 23 Bilder, zusammen 638 282 Byte, gezählt in `web/dist-skin/assets`.
 
 ## Ablauf
@@ -58,6 +60,7 @@ kommt: am Zweig von #120 ja, mit der UI aus #135 nicht.
 | zwei Bilder danach, #120 | 1,61 · 1,68 · 1,69 s | 0,99 · 0,99 · 0,99 | 95 · 101 · 102 ms | 0 bis 1 ms nach dem LCP |
 | zwei Bilder danach, mit #135 | 5,72 · 5,72 · 5,80 s | 0,76 · 0,77 · 0,77 | 157 · 165 · 182 ms | 100 ms vor dem LCP |
 | nach der Meldung, #120 | 1,61 · 1,61 · 1,69 s | 0,99 · 0,99 · 0,99 | 80 · 85 · 105 ms | 101 bis 102 ms nach dem LCP |
+| nach der Meldung, mit #135 | 1,79 · 1,79 · 1,79 s | 0,99 · 0,99 · 0,99 | 78 · 80 · 83 ms | 101 bis 102 ms nach dem LCP |
 
 In allen Läufen: Barrierefreiheit 1, Best Practices 0,96, SEO 1, CLS 0.
 Nach der Meldung hält jede Schwelle aus `web/lighthouserc.cjs`, auch die

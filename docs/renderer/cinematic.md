@@ -1,6 +1,6 @@
 ---
 title: Cinematic
-description: Wie --cinematic dieselbe Karte im Licht des Spiels in HDR zeichnet - Sprites ohne Schattierung nach Richtung, das Licht der Lightmap je Ecke aus Umgebung, Himmels- und Blocklicht, die Farbe des Himmels je Biom, die Sonne mit hartem Schatten aus einem exakten Strahl, Bodenpflanzen, die nur dämpfen, Wasser mit Spiegelung und Strecke, Leuchten, Wärme nach Biom, Bloom, Weissabgleich, Belichtung und Kurve aus 0058.
+description: Wie --cinematic dieselbe Karte im Licht des Spiels in HDR zeichnet - Sprites ohne Schattierung nach Richtung, das Licht der Lightmap je Ecke aus Umgebung, Himmels- und Blocklicht, das Himmelslicht der Oberwelt in jedem Biom, die Sonne mit hartem Schatten aus einem exakten Strahl, Bodenpflanzen, die nur dämpfen, Wasser mit Spiegelung und Strecke im Himmel seines Bioms, Leuchten, Wärme und Kälte nach Biom, Bloom, Weissabgleich, Belichtung und Kurve aus 0058 und 0069.
 code:
   - renderer/src/render/look.rs
   - renderer/src/render/kino.rs
@@ -22,7 +22,8 @@ code:
 
 `--cinematic` zeichnet mit `--tiles` oder `--render` dieselbe Karte im
 Licht des Spiels in HDR, mit Weissabgleich, Belichtung und Kurve nach
-[0058](../entscheidungen/0058-look-von-cinematic.md). Kacheln landen in
+[0058](../entscheidungen/0058-look-von-cinematic.md) und
+[0069](../entscheidungen/0069-ein-himmelslicht-und-kaelte.md). Kacheln landen in
 einem eigenen Baum samt nativen Stufen und Pyramide, siehe
 [`map.json`](../benutzung/map-json.md), „Liste der Bäume“. Cinematic nimmt
 dieselben Kandidaten, dieselbe Deckungsmaske und dieselben Draws wie die
@@ -50,14 +51,16 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
 | Wasser: F0 der Spiegelung, Anteil der Deckkraft seiner Textur, Dichte | `wasser_spiegel`: 0,04, `wasser_textur`: 0,6, `wasser_dichte`: 8 | ja |
 | Wasser: bis zu welcher Höhe der gespiegelten Richtung nur Nebel, über wie viel Höhe weich zum Himmel | `wasser_horizont`: −0,1, `wasser_horizont_breite`: 0,7 | ja |
 | Wasser: Mindestanteil eines Kanals am stärksten, Dichte jedes Kanals dazu | `wasser_anteil_min`: 0,02, `wasser_dichte_grund`: 0,35 | ja |
-| Wärme: so viel stärker wird der Weissabgleich höchstens, ab und bis zu welcher Temperatur | `waerme`: 0,5, `waerme_von`: 0,5, `waerme_bis`: 1,0 | ja |
+| Wärme: so viel stärker wird der Weissabgleich höchstens, ab und bis zu welcher Temperatur | `waerme`: 0,25, `waerme_von`: 0,5, `waerme_bis`: 1,0 | ja |
+| Kälte: so viel schwächer wird der Weissabgleich höchstens, unter und bis zu welcher Temperatur | `kaelte`: 0,15, `kaelte_von`: 0,15, `kaelte_bis`: 0 | ja |
 | Belichtung | `belichtung`: 0,25 | ja |
 | Kurve: gerade bis, flach ab | `knie`: 0,8, `flach`: 1,2 | ja |
 | Bloom: Stärke, σ in Blöcken | `bloom`: 1, `bloom_breite`: 0,25 | ja |
 
-- **Herkunft:** alle aus 0058, bis auf `sonne_weite`, `leuchten_ab`,
-  `leuchten_voll` und die Werte des Wassers ausser `wasser_spiegel` und
-  `wasser_dichte`. Die stehen im Prototyp aus #89, an dem 0058 abgestimmt
+- **Herkunft:** Wärme und Kälte aus 0069, alle anderen aus 0058, bis auf
+  `sonne_weite`, `leuchten_ab`, `leuchten_voll` und die Werte des Wassers
+  ausser `wasser_spiegel` und `wasser_dichte`. Die stehen im Prototyp aus
+  #89, an dem 0058 abgestimmt
   ist; welche es dort sind, hält
   [Cinematic mit Sonne](../messungen/2026-10-03-cinematic-mit-sonne.md),
   „Aufbau“, fest. `sonne_weite` hat 0056 am Prototyp gemessen, siehe
@@ -74,7 +77,7 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
   [`map.json`](../benutzung/map-json.md), „Look“.
 - **Ändern:**
   - die Werte in `LOOK` ändern;
-  - den Fingerabdruck im Test `fingerabdruck_der_werte_aus_0058` und in
+  - den Fingerabdruck im Test `fingerabdruck_der_werte` und in
     [`map.json`](../benutzung/map-json.md), „Look“, nachziehen;
   - das Goldbild `metatile-cinematic.png` erneuern, Skill
     [`goldbild-erneuern`](../../skills/goldbild-erneuern/SKILL.md);
@@ -83,7 +86,8 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
     [`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md);
   - die Bäume mit Cinematic neu rendern.
 
-  Die neuen Werte hält eine Entscheidung fest, die 0058 ablöst.
+  Die neuen Werte hält eine Entscheidung fest, die 0058 oder 0069 in
+  diesen Werten ablöst.
 
 ## Sprites für Cinematic
 
@@ -139,12 +143,14 @@ das fertige Licht wie im Spiel, denn `terrain.vsh` liest die Lightmap je
 Ecke (`sample_lightmap`). Das prüft `licht_zwischen_den_ecken_wie_im_spiel`
 in `metatile.rs`.
 
-`Licht = Schatten / 255 · (Umgebung + Himmelslicht des Bioms · H(Himmel) + B(Block))`
+`Licht = Schatten / 255 · (Umgebung + Himmelslicht · H(Himmel) + B(Block))`
 
 - **Umgebung:** `ambient_light_color` des Dimensionstyps, die
   `lightmap.fsh` unter jedes Licht legt, roh wie dort und ohne Stärke aus
   dem Look. Im Nether und im Ende ist `sky_light_factor` 0; ohne Blocklicht
   ist sie dort das ganze Licht.
+- **Himmelslicht:** die Farbe aus „Farbe des Himmels“, in jedem Biom
+  dieselbe.
 - **H:** je Stufe `getBrightness` mal `sky_light_factor` und
   `sky_light_color` der Dimension, mal `himmel`.
 - **B:** je Stufe `getBrightness` mit `BlockFactor` in der Farbe
@@ -168,28 +174,35 @@ in `metatile.rs`.
 
 ## Farbe des Himmels
 
-Das Himmelslicht hat die Farbe des Himmels am Block, eine Wahl aus 0053
-und 0058; was das Spiel tut, steht unter „Was bleibt eine Näherung“.
+Das Himmelslicht hat in jedem Biom und jeder Dimension die Farbe aus
+Himmel und Nebel der Oberwelt, wie in [0069](../entscheidungen/0069-ein-himmelslicht-und-kaelte.md): genau das Licht, auf
+das der Weissabgleich gerechnet ist (`Kino::himmelslicht`). Die Farben des
+Himmels je Biom nimmt Cinematic nur für das Wasser. Was das Spiel tut,
+steht unter „Was bleibt eine Näherung“.
 
-- **Je Biom** aus seinen `attributes`, `minecraft:visual/sky_color` und
-  `fog_color`, gelesen wie `EnvironmentAttributeMap.CODEC` in 26.2,
-  belegt per javap. Wie ein Biom gelesen wird: [Biomfarben](biomfarben.md),
-  „Biome lesen“.
+- **Himmelslicht:** `sky_color` #78a7ff und `fog_color` #c0d8ff der
+  Oberwelt linear gemischt, der Himmel zum Anteil `himmel_anteil`, siehe
+  „Werte des Looks“. Ein Test gibt Biomen mit eigener `sky_color` dasselbe
+  Licht wie plains, auch an der Grenze, mit dem Radius 2 aus `nw`
+  (`himmelslicht_der_oberwelt_in_jedem_biom`).
+- **Für das Wasser je Biom** aus seinen `attributes`,
+  `minecraft:visual/sky_color`, `fog_color` und `water_fog_color`, gelesen
+  wie `EnvironmentAttributeMap.CODEC` in 26.2, belegt per javap. Wie ein
+  Biom gelesen wird: [Biomfarben](biomfarben.md), „Biome lesen“. Wofür das
+  Wasser sie nimmt, steht unter „Wasser“.
 - **Ohne Angabe im Biom** gilt die des Dimensionstyps, ohne Angabe dort die
   Vorgabe aus `EnvironmentAttributes`; die Werte stehen in
   [Dimensionstypen](dimensionstypen.md), „Was der Renderer liest“.
 - **Ein Modifikator** statt einer Farbe lässt die des Dimensionstyps. Ein
   Lauf mit `--cinematic` nennt das Biom beim Start.
-- **Himmelslicht:** Nebel und Himmel linear gemischt, der Himmel zum Anteil
-  `himmel_anteil`, siehe „Werte des Looks“.
 - **Gemischt** wie die Biomfarben über die Blöcke im Quadrat mit dem Radius
-  aus `--biome-blend`, auf der Höhe des Blocks (`ChunkCache::himmel_at`),
-  aber linear und ungerundet. So mischt 0058 auch die Wärme; Kacheln
-  bekommen keine Nähte. Ein Test färbt mit Biomen aus eigener `sky_color`,
-  mit dem Radius 2 aus `nw`, an der Grenze das Mittel der 25 Blöcke
-  (`biom_faerbt_das_himmelslicht`).
-- **Für das Wasser** dazu Himmel und Nebel getrennt und
-  `water_fog_color`, ebenso gemischt (`Himmelsfarben`), siehe „Wasser“.
+  aus `--biome-blend`, auf der Höhe des Blocks (`ChunkCache::himmel_at`,
+  `Himmelsfarben`), aber linear und ungerundet, zusammen mit der
+  Temperatur für die Wärme. Kacheln bekommen so keine Nähte. Ein Test
+  spiegelt im Wasser über der Grenze von plains zu einem Biom mit eigener
+  `sky_color`, mit dem Radius 2 aus `nw`: mitten darin dessen Himmel, an
+  der Grenze das Mittel der 25 Blöcke
+  (`wasser_spiegelt_den_himmel_des_bioms`).
 
 ## Sonne
 
@@ -500,12 +513,15 @@ Prototyp aus #89 (`mische_hdr` in
 
 ## Wärme
 
-Der Weissabgleich wird je Pixel nach der Temperatur des Bioms stärker, wie
-in 0058 (`Look::waerme`, `Kino::ton`):
+Der Weissabgleich wird je Pixel nach der Temperatur des Bioms stärker oder
+schwächer, wie in [0069](../entscheidungen/0069-ein-himmelslicht-und-kaelte.md) (`Look::waerme`, `Kino::ton`):
 
-- **Je Kanal** `1 + (v − 1) · w`, mit `v` aus „Zeichnen in HDR“, und `w`
-  von 1 bis `waerme_von`, dann gerade bis 1 + `waerme` bei `waerme_bis`.
-  Was das je Biom heisst, steht in 0058, „Weissabgleich im Einzelnen“.
+- **Je Kanal** `1 + (v − 1) · w`, mit `v` aus „Zeichnen in HDR“. `w` ist 1
+  zwischen `kaelte_von` und `waerme_von`; darüber gerade bis 1 + `waerme`
+  bei `waerme_bis`, darunter gerade bis 1 − `kaelte` bei `kaelte_bis`;
+  jenseits gleich. Was das je Biom heisst, steht in 0069, „Entscheidung“.
+- **Kühler unter 1:** Mit `w` unter 1 nimmt der Abgleich dem Himmelslicht
+  weniger Blau, das Bild wird kühler.
 - **Die Temperatur** ist `temperature` des Bioms roh
   (`BiomeColors::temperatur`), wie bei den Biomfarben: ohne die Abnahme mit
   der Höhe und ohne `temperature_modifier` `frozen`, die das Spiel für
@@ -522,19 +538,18 @@ in 0058 (`Look::waerme`, `Kino::ton`):
 
   Savanne (obere Reihe) und Schnee (untere Reihe), 2:1 bei scale 32 aus
   `se`, auf die Hälfte verkleinert; je Reihe die Karte, Cinematic mit
-  `waerme` 0 und mit `LOOK`. Gerendert vom Test `bilder_zu_cinematic` in
+  `waerme` und `kaelte` 0 und mit `LOOK`. Gerendert vom Test
+  `bilder_zu_cinematic` in
   [`renderer/tests/kennzahlen.rs`](../../renderer/tests/kennzahlen.rs).
-- **Wo Rot überläuft:** Eine Fläche, die voll zur Sonne zeigt, im vollen
-  Himmelslicht, erreicht ohne Wärme auch in Weiss nicht 255. Mit der vollen
-  Wärme 1,5 erreicht Rot bei Weiss 255, also in Wüste, Savanne und
-  Badlands bei fast weissen Texeln, und auf den steinigen Gipfeln
-  (`stony_peaks`, Temperatur 1,0). Ein Texel mit sRGB 240 bleibt darunter,
-  [250, 244, 217]. Die Netherbiome haben 2,0 und volle Wärme, aber keine
-  Sonne. Die Werte aus 0058 bleiben, wie sie sind.
+- **Kein Überlaufen:** Eine Fläche, die voll zur Sonne zeigt, im vollen
+  Himmelslicht, erreicht in Weiss mit keiner Wärme und keiner Kälte aus
+  0069 255, mit der vollen Wärme 1,25 [254, 252, 241]. Mit 1,5 aus 0058
+  erreichte Rot bei fast weissen Texeln 255, in Wüste, Savanne und Badlands
+  und auf den steinigen Gipfeln (`stony_peaks`, Temperatur 1,0).
 - Getestet: `waerme_nach_der_temperatur` in `look.rs`, `ton_mit_waerme` und
   `weisse_flaeche_in_voller_sonne` in `kino.rs` und die Wärme je Pixel in
-  `biom_faerbt_das_himmelslicht`, an der Grenze aus dem Mittel der
-  Temperatur.
+  `himmelslicht_der_oberwelt_in_jedem_biom`, an der Grenze aus dem Mittel
+  der Temperatur.
 
 ## Bloom
 
@@ -591,13 +606,14 @@ Karte, siehe [Der Weg einer Kachel](renderpfad.md), „Blit“:
   dazu der Bloom, mal Belichtung, dann je Kanal die Kurve aus 0058, dann
   sRGB. Ein Pixel ohne Block bleibt durchsichtig.
 - **Weissabgleich:** je Kanal `v` aus `Look::weissabgleich`; er macht eine
-  weisse Fläche nach oben in Sonne und Himmel der Oberwelt farblos, auch in
-  anderen Dimensionen. Je Pixel verstärkt ihn die Wärme, siehe „Wärme“.
+  weisse Fläche nach oben in Sonne und Himmel der Oberwelt farblos, in
+  jedem Biom und jeder Dimension. Je Pixel verstärkt ihn die Wärme oder
+  schwächt ihn die Kälte, siehe „Wärme“.
 - **Alpha:** Cinematic rundet erst am Ende, die Karte nach jeder Schicht.
   Über Durchscheinendem weicht Alpha deshalb um höchstens eins ab; ein Pixel
   ist genau da, wo die Karte einen hat.
-- **Speicher:** Die Daten je Draw für Cinematic (`Kinodaten`, mit der
-  Farbe des Himmels) legt der zweite Durchgang nur mit Cinematic an, neben
+- **Speicher:** Die Daten je Draw für Cinematic (`Kinodaten`, mit den
+  Farben des Himmels für das Wasser) legt der zweite Durchgang nur mit Cinematic an, neben
   den Draws. Die Leinwand in HDR und die Puffer des Bloom behält der
   Chunk-Cache über die Kacheln eines Threads; das Licht des Wassers
   rechnet `Wasserlicht` einmal je Draw.
@@ -616,9 +632,9 @@ kostet, steht in [Was ein Lauf kostet](../benutzung/kosten.md),
 - **Die Farbe des Himmels:** Das Spiel beleuchtet Blöcke nie in ihr. Die
   Lightmap nimmt `sky_light_color`; `sky_color` und `fog_color` nimmt das
   Spiel nur für die Kuppel des Himmels und den Nebel, gemischt um die
-  Kamera. Cinematic färbt das Himmelslicht mit ihnen, eine Wahl aus 0053
-  und 0058, und nimmt sie am Block, denn eine Karte hat keine Kamera in der
-  Welt.
+  Kamera. Cinematic färbt das Himmelslicht mit denen der Oberwelt, eine
+  Wahl aus 0053, 0058 und 0069. Das Wasser spiegelt die des Bioms am
+  Block, denn eine Karte hat keine Kamera in der Welt.
 - **Die Umgebung roh:** Jede andere Farbe des Lichts rechnet Cinematic
   linear, `ambient_light_color` nimmt es roh, wie `lightmap.fsh` sie
   addiert. Linear wäre sie im Nether rund ein Siebtel so hell, und Nether

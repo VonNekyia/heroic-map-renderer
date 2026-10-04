@@ -264,6 +264,12 @@ hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
   Hülle in f64 vom Anfang des Strahls aus, die Dreiecke in f32 ab dem
   Eintritt in die Hülle. So liegt ihr Anfang nah am Block, auch am Ende
   der Weite.
+- **Vorab gerechnet (#118):** Was nur an der festen Richtung zur Sonne
+  hängt, rechnet die Sonnenform beim Bauen: `1 / d` je Achse für die Hülle,
+  je Dreieck `d × e2`, `det` und `1 / det` für Möller–Trumbore. Es sind
+  dieselben Rechnungen in derselben Reihenfolge wie vorher je Strahl,
+  also dieselben Bits. Gemessen in
+  [2026-10-04, Cinematic schneller, Hebel 1 und 2](../messungen/2026-10-04-hebel-1-und-2.md).
 
 ### Der schnelle Gang
 

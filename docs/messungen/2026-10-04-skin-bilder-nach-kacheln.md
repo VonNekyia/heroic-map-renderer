@@ -19,7 +19,7 @@ der UI aus #135 nicht.
 
 ## Aufbau
 
-- Wie in [Skin Tablett](2026-10-03-skin-tablett.md), „Lighthouse“: Lighthouse
+- Wie in [Skin Tablett](2026-10-03-skin-tablett.md), „Ablauf“: Lighthouse
   12.6.1 wie in [CI](../entwicklung/ci.md), „Lighthouse“, gegen
   `web/dist-skin` mit dem Demobaum als `tiles/` und `seaLevel` 0 und `area`
   `[-64, -64, 64, 64]` in seiner `map.json`, drei Läufe je Stand, Chromium

@@ -382,6 +382,27 @@ pub fn write_world_status(
     )
 }
 
+/// Wie `write_world_status`, dazu das Biom je Chunk wie
+/// `write_world_sections`.
+pub fn write_world_status_biome(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    sections: impl IntoIterator<Item = i8> + Clone,
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    status: impl Fn(i32, i32) -> &'static str,
+    biome: impl Fn(i32, i32) -> Option<&'static str>,
+) -> PathBuf {
+    write_region(
+        dir,
+        chunks,
+        sections,
+        block,
+        |cx, _, cz| biome(cx, cz),
+        status,
+        |_, _| Vec::new(),
+    )
+}
+
 fn write_region(
     dir: &Path,
     chunks: &[(i32, i32)],
@@ -434,6 +455,18 @@ fn write_region(
     std::fs::write(region_dir.join(format!("r.{rx}.{rz}.mca")), header)
         .expect("Regionsdatei schreiben");
     dir.to_path_buf()
+}
+
+/// Setzt im Kopf der Regionsdatei die Zeit eines Chunks, wie das Spiel sie
+/// beim Schreiben setzt (`RegionFile.write`). Die Bauhilfen schreiben 1.
+pub fn setze_stempel(welt: &Path, cx: i32, cz: i32, zeit: u32) {
+    let pfad = welt
+        .join("region")
+        .join(format!("r.{}.{}.mca", cx >> 5, cz >> 5));
+    let mut daten = std::fs::read(&pfad).expect("Regionsdatei lesen");
+    let i = SECTOR + 4 * (cx.rem_euclid(32) + cz.rem_euclid(32) * 32) as usize;
+    daten[i..i + 4].copy_from_slice(&zeit.to_be_bytes());
+    std::fs::write(&pfad, daten).expect("Regionsdatei schreiben");
 }
 
 /// Baut die Section `sy` eines Chunks aus der Blockfunktion.

@@ -162,10 +162,7 @@ const skin: Skin = (kontext) => {
     { name: 'tablett-nah', z: 250 },
   ].map(({ name, z }) => {
     karte.createPane(name).style.zIndex = String(z);
-    // Gerendert sind es Pixel: Rundet der Browser die Leinwand auf das
-    // Fenster, dann ohne Glättung.
-    const leinwand = L.DomUtil.create('canvas', brett ? 'tablett tablett-pixel' : 'tablett');
-    return { name, leinwand, ebene: undefined as L.SVGOverlay | undefined };
+    return { name, leinwand: L.DomUtil.create('canvas', 'tablett'), ebene: undefined as L.SVGOverlay | undefined };
   });
 
   // Die Karte ist der Inhalt, das Tablett Schmuck: Seine Bilder laden

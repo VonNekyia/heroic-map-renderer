@@ -121,9 +121,9 @@ Je Kamera und Richtung ein Eintrag, benannt wie `--camera` und
     Bilds als Rechteck. Bei ganzem Faktor sind alle gleich breit, sonst
     weichen sie ±1 px ab. Unter 1 glättet er.
   - Gemalt wird nur, was auf der Leinwand liegt.
-  - Die Leinwände tragen `image-rendering: pixelated` (`tablett-pixel` in
-    [`tablett.css`](../web/skins/tablett/tablett.css)): Rundet der Browser
-    sie aufs Raster des Geräts, dann ohne Glättung.
+  - Liegt eine Leinwand zwischen zwei Pixeln des Geräts, nimmt der Browser
+    je Pixel das nächste, statt zu glätten, wie bei den Bildern aus der
+    Vorlage: [Tablett](tablett.md), „Zeichnen“.
 - **Grund:** `fern` füllt zuerst Grund. Wo das Bild endet, zeigt es Grund.
 - **Wie bei den Bildern aus der Vorlage** bleiben Gesamtstufe und ihre
   Mitte, `maxBounds`, das Neuzeichnen und das Einblenden.

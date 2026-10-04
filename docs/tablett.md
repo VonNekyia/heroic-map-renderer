@@ -93,7 +93,10 @@ gerenderte Bilder aus Blender: [Tablett aus Blender](tablett-gerendert.md).
   Stufe gleich. Die Leinwände haben `devicePixelRatio` mal so viele Pixel,
   sonst zöge der Browser sie geglättet auf. Die linke obere Ecke liegt auf
   ganzen Pixeln des Fensters, so trifft bei `devicePixelRatio` 1 und 2
-  jedes Pixel der Leinwand eines des Bildschirms.
+  jedes Pixel der Leinwand eines des Bildschirms. Bei 1,25 oder 1,5 liegt
+  sie oft zwischen zwei Pixeln des Geräts; dort nimmt der Browser je Pixel
+  das nächste der Leinwand (`image-rendering: pixelated` in
+  [`tablett.css`](../web/skins/tablett/tablett.css)), statt zu glätten.
 - **Während einer Bewegung** zeichnet der Skin nichts. Die Bilder gleiten
   und wachsen mit der Karte; beim Hinauszoomen fehlt am Rand das Tablett,
   bis neu gezeichnet ist.
@@ -491,12 +494,9 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   112 px ohne Holz und Gegenstände.
 - **Zwei Stile:** Am Rand der Vorlage läuft der gemalte, geglättete Tisch
   in den Marmor als Pixelkunst aus, bis die Szene kommt.
-- **`devicePixelRatio` über 1:** Die Leinwände haben die Grösse des
-  Fensters in CSS-Pixeln. Bei einem Verhältnis über 1, auch bei 1,25 oder
-  1,5 unter Windows, zieht der Browser sie geglättet auf Gerätepixel hoch.
-  Die Blöcke des Marmors kommen dort mit weichen Kanten an, obwohl die
-  Leinwand sie scharf malt. Leinwände in Gerätepixeln kommen mit der
-  gerenderten Szene.
+- **Krummes `devicePixelRatio`,** etwa 1,25 oder 1,5 unter Windows: Liegt
+  eine Leinwand zwischen zwei Pixeln des Geräts, zeigt der Browser sie bis
+  ein halbes Pixel des Geräts versetzt, scharf, nicht geglättet.
 
 ## Tests
 
@@ -537,7 +537,9 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   und, wenn sie beim Ziehen kommen, erst danach gemalt werden; dass der
   Marmor auf jeder Stufe von der Gesamtansicht in einem kleinen Fenster bis
   ganz hinein ohne Glättung liegt, solange ein Block ein Pixel deckt, sonst
-  geglättet; dass keine Anfrage für ein Bild
+  geglättet; dass der Bildschirm bei `devicePixelRatio` 1,25 und 1,5 die
+  Leinwände zwischen zwei Pixeln des Geräts Pixel für Pixel zeigt, um
+  höchstens zwei Pixel versetzt; dass keine Anfrage für ein Bild
   des Skins vor dem Ende der ersten Kachel startet und
   die Leinwände einblenden; die
   Gesamtansicht zwischen zwei Stufen mit 92,5 %, Leinwand Pixel auf Pixel

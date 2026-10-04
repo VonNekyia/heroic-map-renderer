@@ -279,6 +279,60 @@ test('der Marmor liegt ohne Glättung, solange ein Block ein Pixel deckt, kleine
   for (const { block, glatt } of marmor) expect(glatt, `Block von ${block.toFixed(2)} px`).toBe(block < 1);
 });
 
+for (const dpr of [1.25, 1.5]) {
+  test.describe(`devicePixelRatio ${dpr}`, () => {
+    test.use({ deviceScaleFactor: dpr });
+
+    test('liegen die Leinwände zwischen zwei Pixeln des Geräts, zeigt der Bildschirm sie Pixel für Pixel, ohne zu glätten', async ({ page }) => {
+      // 1101 × 701: Die Leinwände beginnen 275 px links und 175 px über dem
+      // Fenster, bei 1,25 und 1,5 zwischen zwei Pixeln des Geräts.
+      await page.setViewportSize({ width: 1101, height: 701 });
+      await welt(page, QUADRAT);
+      await page.goto(DEMO);
+      await expect.poll(() => gezeichnet(page)).toBe(true);
+      await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+      // Oben rechts unter dem Kompass liegt nur ferner Tisch.
+      const clip = { x: 1001, y: 60, width: 90, height: 60 };
+      const foto = (await page.screenshot({ clip })).toString('base64');
+      const v = await page.evaluate(
+        async ({ foto, clip }) => {
+          const d = devicePixelRatio;
+          const bild = await createImageBitmap(new Blob([Uint8Array.from(atob(foto), (z) => z.charCodeAt(0))], { type: 'image/png' }));
+          const kopie = new OffscreenCanvas(bild.width, bild.height).getContext('2d')!;
+          kopie.drawImage(bild, 0, 0);
+          const ist = kopie.getImageData(0, 0, bild.width, bild.height).data;
+          const [fern, nah] = ['fern', 'nah'].map((n) => document.querySelector<HTMLCanvasElement>(`.leaflet-tablett-${n}-pane canvas`)!);
+          const r = fern!.getBoundingClientRect();
+          const [x0, y0] = [Math.round((clip.x - r.left) * d), Math.round((clip.y - r.top) * d)];
+          const lies = (c: HTMLCanvasElement) => c.getContext('2d')!.getImageData(x0 - 2, y0 - 2, bild.width + 4, bild.height + 4).data;
+          const [f, n] = [lies(fern!), lies(nah!)];
+          const breite = bild.width + 4;
+          // Der beste ganze Versatz bis 2 Pixel: wie viele Pixel des Fotos dort der fernen Leinwand gleichen.
+          let beste = { gleich: -1, dx: 0, dy: 0 };
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              let gleich = 0;
+              for (let y = 0; y < bild.height; y++) {
+                for (let x = 0; x < bild.width; x++) {
+                  const [i, j] = [4 * (y * bild.width + x), 4 * ((y + 2 + dy) * breite + x + 2 + dx)];
+                  if (ist[i] === f[j] && ist[i + 1] === f[j + 1] && ist[i + 2] === f[j + 2]) gleich++;
+                }
+              }
+              if (gleich > beste.gleich) beste = { gleich, dx, dy };
+            }
+          }
+          return { ...beste, pixel: bild.width * bild.height, nah: n.some((wert, i) => i % 4 === 3 && wert > 0), versatz: Math.abs(r.left * d - Math.round(r.left * d)) };
+        },
+        { foto, clip },
+      );
+      // Wirklich zwischen zwei Pixeln, und nah deckt hier nichts.
+      expect(v.versatz).toBeGreaterThan(0.2);
+      expect(v.nah).toBe(false);
+      expect(v.gleich, JSON.stringify(v)).toBe(v.pixel);
+    });
+  });
+}
+
 test('die Bilder des Skins laden erst, wenn die erste Kachel da und gemalt ist, und das Tablett blendet ein', async ({ page }) => {
   await welt(page, QUADRAT);
   await page.goto(DEMO);

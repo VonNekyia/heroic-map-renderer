@@ -66,7 +66,7 @@ Vom Maintainer am 04.10. nach dem Vorschlag des Frontends, über den Reviewer:
    [0067](0067-gesamtansicht-zwischen-zwei-stufen.md): 92,5 % und die Regel
    für Kacheln, nie unter der ganzen Stufe, auf die Leaflet einpasst.
 2. **Ganzes n:** Deckt ein Pixel des Bilds auf einer dieser erlaubten
-   Stufen, die 71 bis 100 % füllt, ganze n ≥ 1 Pixel des Geräts, gilt sie;
+   Stufen, die 71 bis 100 % füllt, ganze n ≥ 1 Pixel der Leinwand, gilt sie;
    von mehreren die nächste an 92,5 %.
 3. **Sonst** gilt der krumme Faktor, nach dem nächsten Nachbarn.
 4. **Unter Faktor 1** wird geglättet, ohne zweiten Render.
@@ -81,6 +81,11 @@ Dazu vom Frontend:
 - **Fehlt eine Kamera** in `brett.json`, bleibt das Tablett aus, und die
   Konsole sagt es. Die Bilder aus der Vorlage nimmt der Skin dann nicht.
 - **Nur die Bilder der eigenen Kamera** lädt der Skin, zwei Dateien.
+- **Deckel** nach Befund 1 des Reviews: höchstens 4096² Pixel je Leinwand.
+  Darüber malt der Skin in einem ganzen Teil der Pixel des Geräts, nie
+  weniger als einem je Pixel des Fensters, und der Browser zieht die
+  Leinwand um diesen ganzen Faktor auf. Gemessen in
+  [Leinwände in Gerätepixeln](../messungen/2026-10-04-geraetepixel.md).
 - **Zwischen zwei Pixeln des Geräts,** bei `devicePixelRatio` 1,25 oder 1,5,
   nimmt der Browser je Pixel das nächste der Leinwand
   (`image-rendering: pixelated`). Ohne das glättete er dort, auch den

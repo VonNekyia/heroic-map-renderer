@@ -116,7 +116,11 @@ Je Kamera und Richtung ein Eintrag, benannt wie `--camera` und
     y/u sind dieselben.
 - **Malen** (`maleBild`):
   - Die Leinwände haben Pixel des Geräts: `devicePixelRatio` mal das
-    Fenster mit Überstand. Das gilt auch für die Bilder aus der Vorlage.
+    Fenster mit Überstand, unter dem Deckel von 4096² Pixeln. Das gilt auch
+    für die Bilder aus der Vorlage, siehe [Tablett](tablett.md), „Zeichnen“.
+    Ein ganzes n zählt Pixel der Leinwand; über dem Deckel zieht der Browser
+    sie um einen ganzen Faktor auf, und jedes Pixel des Bilds bleibt gleich
+    breit.
   - Die Ecke des Bilds liegt auf ganzen Pixeln des Geräts.
   - Ab einem Faktor von 1 malt der Browser ohne Glättung, jedes Pixel des
     Bilds als Rechteck. Bei ganzem Faktor sind alle gleich breit, sonst
@@ -178,10 +182,11 @@ Gemessen und hochgerechnet in
   [`tests/fixtures/brett`](../web/skins/tablett/tests/fixtures/brett/) wie
   einen Skin von aussen. Die Seite kommt aus dem Build, ohne Server. Es
   prüft:
-  - bei `devicePixelRatio` 1 ohne ganzes n, bei 2 mit n = 3 und bei 1,5
-    mit n = 2, in der Gesamtansicht und eine Stufe tiefer: dass die Stufe
-    die aus `gesamtstufe` ist und jedes Pixel beider Leinwände eine Farbe
-    des Bilds hat, ohne Mischfarben;
+  - bei `devicePixelRatio` 1 ohne ganzes n, bei 2 mit n = 3, bei 1,5 mit
+    n = 2 und bei 2 in 1920 × 1080 unter dem Deckel, in der Gesamtansicht
+    und eine Stufe tiefer: dass die Leinwand das Mass aus `leinwandMass`
+    hat, die Stufe die aus `gesamtstufe` ist und jedes Pixel beider
+    Leinwände eine Farbe des Bilds hat, ohne Mischfarben;
   - dass 99,9 % der Stichproben genau ihr Pixel im Bild zeigen;
   - dass das Bild höchstens 1 px neben der Lage aus der Projektion liegt;
   - dass Gesamtstufe und Auflösung der Leinwände einem neuen

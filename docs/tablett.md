@@ -95,13 +95,23 @@ gerenderte Bilder aus Blender: [Tablett aus Blender](tablett-gerendert.md).
   des Geräts: beim Laden, bei jeder neuen Grösse des Fensters, nach jedem
   Zoom und nach einem Zug über den Überstand hinaus. Die Bilder sind so
   gross wie das Fenster und reichen je Seite ein Viertel darüber, auf jeder
-  Stufe gleich. Die Leinwände haben `devicePixelRatio` mal so viele Pixel,
-  sonst zöge der Browser sie geglättet auf. Die linke obere Ecke liegt auf
-  ganzen Pixeln des Fensters, so trifft bei `devicePixelRatio` 1 und 2
-  jedes Pixel der Leinwand eines des Bildschirms. Bei 1,25 oder 1,5 liegt
-  sie oft zwischen zwei Pixeln des Geräts; dort nimmt der Browser je Pixel
-  das nächste der Leinwand (`image-rendering: pixelated` in
-  [`tablett.css`](../web/skins/tablett/tablett.css)), statt zu glätten.
+  Stufe gleich.
+  - **Gerätepixel:** Die Leinwände haben `devicePixelRatio` mal so viele
+    Pixel, sonst zöge der Browser sie geglättet auf.
+  - **Deckel:** höchstens 4096² Pixel je Leinwand (`DECKEL` und
+    `leinwandMass` in [`tablett.ts`](../web/skins/tablett/tablett.ts)).
+    Darüber malt der Skin in einem ganzen Teil der Pixel des Geräts, und der
+    Browser zieht die Leinwand um diesen ganzen Faktor auf; bei 2560 × 1440
+    und `devicePixelRatio` 2 ist es ein Pixel je Pixel des Fensters. Nie
+    weniger als eines: Ist schon das Fenster zu gross, etwa 4K bei
+    `devicePixelRatio` 1, bleibt es dabei.
+  - **Ecke:** Die linke obere Ecke liegt auf ganzen Pixeln des Fensters, so
+    trifft bei `devicePixelRatio` 1 und 2 jedes Pixel der Leinwand eines
+    des Bildschirms. Bei 1,25 oder 1,5 liegt sie oft zwischen zwei Pixeln
+    des Geräts; dort nimmt der Browser je Pixel das nächste der Leinwand
+    (`image-rendering: pixelated` in
+    [`tablett.css`](../web/skins/tablett/tablett.css)), statt zu glätten.
+  - **Kosten:** [2026-10-04, Leinwände in Gerätepixeln](messungen/2026-10-04-geraetepixel.md).
 - **Während einer Bewegung** zeichnet der Skin nichts. Die Bilder gleiten
   und wachsen mit der Karte; beim Hinauszoomen fehlt am Rand das Tablett,
   bis neu gezeichnet ist.
@@ -516,8 +526,10 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   haben, dass die Gesamtansicht 71 bis
   100 % füllt, wo es geht 92,5 %, und gebrochen nur dort liegt, wo Leaflet
   die Kacheln verkleinert, und dass ihre Mitte wie in der Vorlage unter der
-  Mitte der Karte liegt, ohne dass der Rahmen aus dem Fenster ragt; dass im
-  Bezugsrahmen jeder Gegenstand höchstens 3 px neben seinem Fuss in der
+  Mitte der Karte liegt, ohne dass der Rahmen aus dem Fenster ragt; dass
+  eine Leinwand die Pixel des Geräts hat, über 4096² Pixel einen ganzen Teil
+  davon, nie weniger als die des Fensters; dass im Bezugsrahmen jeder
+  Gegenstand höchstens 3 px neben seinem Fuss in der
   Vorlage steht und der Tisch auf 1 px über ihr liegt, mit seinem Auslauf
   rundum; dass jenseits der Vorlage nur Marmor liegt, in jeder Kamera fern
   und nah erst der Marmor, wiederholt und im Mass des Tischs, gleich danach

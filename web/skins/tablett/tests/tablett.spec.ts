@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { Grenzen, Projektion, Rechteck } from 'heroic-map-renderer/skin-api';
+import { readdirSync } from 'node:fs';
 import { eintraege, kamera, projiziere, RICHTUNGEN } from '../../../tests/kamera';
-import { grenzen, imBlick, tablett, type Blick, type Flaeche, type Teil } from '../tablett';
+import { BREITE_VORLAGE, ECKSTUECKE, LILIEN, MASS, RAND } from '../bilder';
+import { gesamtmitte, gesamtstufe, grenzen, imBlick, tablett, type Blick, type Figur, type Flaeche, type Teil } from '../tablett';
 
 type Punkt = [number, number];
 
@@ -10,25 +12,14 @@ const paare = eintraege.filter((e) => e.eben === undefined && e.wand === undefin
 /** Jede Kamera aus den Einträgen des Renderers mit einem ihrer scales. */
 const KAMERAS = [...new Map(paare.map((e) => [e.camera, e.scale])).entries()];
 
-/** Die deckenden Flächen; Schatten und Saum lassen durchscheinen, was darunter liegt. */
+/** Die Flächen; der Saum lässt durchscheinen, was darunter liegt. */
 const flaechen = (teile: Teil[]) => teile.filter((t): t is Flaeche => t.form === 'flaeche');
-
-/** Grenzen um ihre Mitte vergrössert, mit `faktor`. */
-function weiter([links, oben, rechts, unten]: Grenzen, faktor: number): Grenzen {
-  const [mx, my, b, h] = [(links + rechts) / 2, (oben + unten) / 2, (rechts - links) / 2, (unten - oben) / 2];
-  return [mx - faktor * b, my - faktor * h, mx + faktor * b, my + faktor * h];
-}
 
 /** Der Blick, wie ihn die Grundkarte dem Skin reicht. */
 const blick = (p: Projektion, k: number): Blick => ({ projektion: p, k, projiziere: (x, y, z) => projiziere(x, y, z, p) });
 
-/** Das Tablett in einem Fenster, das die Karte samt Rahmen zu 70 % füllt. */
-function stueck(area: Rechteck, meer: number, minY: number, p: Projektion, k: number): Teil[] {
-  return tablett(area, meer, minY, blick(p, k), weiter(grenzen(area, meer, blick(p, k)), 1 / 0.7));
-}
-
-/** Liegt der Punkt in der Fläche? `rand` > 0 schrumpft sie, < 0 dehnt sie, in Teilen der Kanten. */
-function deckt({ o, a, b }: Flaeche, [px, py]: Punkt, rand = 0): boolean {
+/** Liegt der Punkt im Parallelogramm? `rand` > 0 schrumpft es, < 0 dehnt es, in Teilen der Kanten. */
+function imParallelogramm({ o, a, b }: { o: Punkt; a: Punkt; b: Punkt }, [px, py]: Punkt, rand = 0): boolean {
   const det = a[0] * b[1] - a[1] * b[0];
   if (det === 0) return false;
   const [dx, dy] = [px - o[0], py - o[1]];
@@ -36,6 +27,21 @@ function deckt({ o, a, b }: Flaeche, [px, py]: Punkt, rand = 0): boolean {
   const t = (a[0] * dy - a[1] * dx) / det;
   return [s, t].every((w) => w > rand && w < 1 - rand);
 }
+
+/** Liegt der Punkt in einem der Vielecke? Gerade-ungerade-Regel. */
+function imVieleck(vielecke: Punkt[][], [px, py]: Punkt): boolean {
+  return vielecke.some((vieleck) => {
+    let drin = false;
+    for (let i = 0, j = vieleck.length - 1; i < vieleck.length; j = i++) {
+      const [[xi, yi], [xj, yj]] = [vieleck[i]!, vieleck[j]!];
+      if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) drin = !drin;
+    }
+    return drin;
+  });
+}
+
+/** Deckt die Fläche den Punkt? Eine Kopie vor den Kacheln deckt ihre Vielecke ganz, mit Grund. */
+const deckt = (f: Flaeche, punkt: Punkt, rand = 0) => (f.nurIn ? imVieleck(f.nurIn, punkt) : imParallelogramm(f, punkt, rand));
 
 test('die Oberkante liegt auf den Ecken von area in Höhe seaLevel, auf das Pixel', () => {
   expect(new Set(paare.map((e) => e.camera)).size).toBeGreaterThan(5);
@@ -45,22 +51,17 @@ test('die Oberkante liegt auf den Ecken von area in Höhe seaLevel, auf das Pixe
     // Eine Welt aus einem Block: Die Ecke vorn links oben im Blick ist das
     // Pixel des Renderers für diesen Block.
     const [bx, by, bz] = block;
-    // Waagrecht auf dem Wasserspiegel liegen nur die Oberkante und die
-    // Pfeiler; die Schrägen fallen nach aussen ab.
-    const oben = flaechen(stueck([bx, bz, bx + 1, bz + 1], by, by - 128, p, k)).filter(
+    const oben = flaechen(tablett([bx, bz, bx + 1, bz + 1], by, by - 128, blick(p, k))).filter(
       (f) => (f.art === 'rand' || f.art === 'pfeiler') && f.n[1] > 0.99,
     );
     // Ein Stück daneben: Nur in Richtung der Welt liegt kein Rand. Der Rand
-    // einer Welt aus einem Block ist 0,013 Blöcke breit; das Stück liegt
+    // einer Welt aus einem Block ist 0,016 Blöcke breit; das Stück liegt
     // weit innerhalb davon.
     const [dx, dz] = [projiziere(1, 0, 0, p), projiziere(0, 0, 1, p)];
     const e = 1 / 1024;
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
-        const punkt: Punkt = [
-          pixel[0] + e * (sx * dx[0] + sz * dz[0]),
-          pixel[1] + e * (sx * dx[1] + sz * dz[1]),
-        ];
+        const punkt: Punkt = [pixel[0] + e * (sx * dx[0] + sz * dz[0]), pixel[1] + e * (sx * dx[1] + sz * dz[1])];
         const name = `${camera} ${direction}, scale ${scale}, Block ${String(block)}, ${sx} ${sz}`;
         expect(oben.some((f) => deckt(f, punkt)), name).toBe(sx < 0 || sz < 0);
       }
@@ -88,21 +89,23 @@ const MIN_Y = -64;
 
 /**
  * Zwei Welten: eine kleine, in der jede Spalte am Rand geprüft wird, und eine
- * grosse, in der Rahmen und Gegenstände so gross sind wie in einer echten.
+ * grosse, in der der Rahmen so gross ist wie in einer echten.
  */
 const WELTEN: { area: Rechteck; schritt: number }[] = [
   { area: [-40, -24, 40, 56], schritt: 1 },
-  { area: [-1000, -800, 1200, 1500], schritt: 37 },
+  { area: [-1000, -800, 1200, 1400], schritt: 37 },
 ];
 
-test('was vor den Kacheln liegt, deckt kein Gelände über dem Wasserspiegel, an keinem Rand', () => {
+test('was vor den Kacheln liegt, deckt kein Gelände über dem Wasserspiegel, an keinem Rand, ausser an den Ecken', () => {
   // Gesammelt statt je Punkt geprüft: Es sind Hunderttausende.
   const gedeckt: string[] = [];
   for (const { area, schritt } of WELTEN) {
     for (const [camera, scale] of KAMERAS) {
       const p = kamera(camera, scale);
       for (let k = 0; k < 4; k++) {
-        const nah = flaechen(stueck(area, MEER, MIN_Y, p, k)).filter((f) => f.nah);
+        // Die Eckstücke decken die Ecken der Welt mit Absicht, wie in der
+        // Vorlage; sie prüft der Test der Eckstücke.
+        const nah = flaechen(tablett(area, MEER, MIN_Y, blick(p, k))).filter((f) => f.nah && f.art !== 'eck');
         expect(nah.length).toBeGreaterThan(0);
         const [x0, z0, x1, z1] = imBlick(area, k);
         // Gelände über dem Wasser an jedem Rand, vom Wasserspiegel bis
@@ -127,17 +130,17 @@ test('was vor den Kacheln liegt, deckt kein Gelände über dem Wasserspiegel, an
   expect(gedeckt.slice(0, 10)).toEqual([]);
 });
 
-/** Eine schmale Welt: Hier reicht der Tisch nur über den Schnitt, weil er es muss. */
+/** Eine schmale Welt: Ihr Schnitt reicht tiefer, als der Rahmen hoch ist. */
 const SCHMAL: Rechteck = [-12, -4, 12, 20];
 
-test('der Schnitt der Welt zur Kamera liegt ganz unter Rahmen, Tisch und Zarge', () => {
+test('der Schnitt der Welt zur Kamera liegt ganz unter Rahmen und Tisch', () => {
   const offen: string[] = [];
   for (const [camera, scale] of KAMERAS) {
     const p = kamera(camera, scale);
     // Von oben zeigt die Welt keinen Schnitt.
     if (p.y === 0) continue;
     for (let k = 0; k < 4; k++) {
-      const nah = flaechen(stueck(SCHMAL, MEER, MIN_Y, p, k)).filter((f) => f.nah);
+      const nah = flaechen(tablett(SCHMAL, MEER, MIN_Y, blick(p, k))).filter((f) => f.nah);
       const [x0, z0, x1, z1] = imBlick(SCHMAL, k);
       const punkte: [number, number, number][] = [];
       for (let y = MIN_Y + 0.5; y < MEER; y += 4) {
@@ -153,88 +156,223 @@ test('der Schnitt der Welt zur Kamera liegt ganz unter Rahmen, Tisch und Zarge',
   expect(offen.slice(0, 10)).toEqual([]);
 });
 
-test('der Tisch füllt das Fenster, auch eine Stufe weiter draussen', () => {
-  const offen: string[] = [];
-  for (const [camera, scale] of KAMERAS) {
-    const p = kamera(camera, scale);
-    for (let k = 0; k < 4; k++) {
-      const { area } = WELTEN[1]!;
-      const rahmen = grenzen(area, MEER, blick(p, k));
-      // Bei der ganzen Karte füllt sie das Fenster zu 70 % oder zur Hälfte;
-      // eine Stufe hinaus ist das Fenster doppelt so gross.
-      for (const anteil of [0.7, 0.5]) {
-        const ansicht = weiter(rahmen, 1 / anteil);
-        const alle = flaechen(tablett(area, MEER, MIN_Y, blick(p, k), ansicht));
-        const [links, oben, rechts, unten] = weiter(ansicht, 2);
-        for (let i = 0; i <= 20; i++) {
-          for (let j = 0; j <= 20; j++) {
-            const punkt: Punkt = [links + ((rechts - links) * i) / 20, oben + ((unten - oben) * j) / 20];
-            if (!alle.some((f) => deckt(f, punkt, -1e-9))) offen.push(`${camera} k=${k} ${anteil}: ${String(punkt)}`);
-          }
-        }
-      }
-    }
-  }
-  expect(offen.slice(0, 10)).toEqual([]);
-});
+/** Das Rechteck einer Figur im Bild: links, oben, rechts, unten. */
+function rechteckDer({ fuss, anker, mass, groesse }: Figur): Grenzen {
+  const [x, y] = [fuss[0] - mass * anker[0], fuss[1] - mass * anker[1]];
+  return [x, y, x + mass * groesse[0], y + mass * groesse[1]];
+}
 
-test('die Vorderkante des Tischs liegt am unteren Rand des Fensters', () => {
-  for (const [camera, scale] of KAMERAS) {
-    const p = kamera(camera, scale);
-    // Von oben gibt es keine Zarge zu sehen.
-    if (p.y === 0) continue;
-    for (let k = 0; k < 4; k++) {
-      const { area } = WELTEN[1]!;
-      const ansicht = weiter(grenzen(area, MEER, blick(p, k)), 2);
-      const [, oben, , unten] = ansicht;
-      const zarge = flaechen(tablett(area, MEER, MIN_Y, blick(p, k), ansicht)).filter((f) => f.art === 'zarge');
-      // Die Oberkante der Zarge ist die Vorderkante des Tischs; b zeigt nach
-      // oben. Ihr tiefster Punkt ist diagonal die vordere Ecke, knapp unter
-      // dem Fenster; genordet liegt die ganze Kante im unteren Teil.
-      const vorn = Math.max(...zarge.flatMap(({ o, a, b }) => [o[1] + b[1], o[1] + a[1] + b[1]]));
-      const name = `${camera} k=${k}`;
-      expect(vorn, name).toBeGreaterThan(unten - 0.15 * (unten - oben));
-      expect(vorn, name).toBeLessThan(unten + 0.1 * (unten - oben));
-    }
-  }
-});
+/** Die Lilien unter den Teilen. */
+const lilienIn = (teile: Teil[]) => teile.filter((t): t is Figur => t.form === 'figur' && t.bild.startsWith('lilie-'));
 
-test('die Grenzen für das Einpassen umfassen den Rahmen, nicht mehr', () => {
+test('die Grenzen für das Einpassen umfassen Rahmen und Lilien, nicht mehr', () => {
   for (const [camera, scale] of KAMERAS) {
     const p = kamera(camera, scale);
     for (let k = 0; k < 4; k++) {
       const { area } = WELTEN[1]!;
       const [links, oben, rechts, unten] = grenzen(area, MEER, blick(p, k));
-      const rahmen = flaechen(stueck(area, MEER, MIN_Y, p, k)).filter((f) =>
-        ['rand', 'leiste', 'wand', 'pfeiler'].includes(f.art),
-      );
-      const ecken = rahmen.flatMap(({ o, a, b }): Punkt[] => [
-        o,
-        [o[0] + a[0], o[1] + a[1]],
-        [o[0] + b[0], o[1] + b[1]],
-        [o[0] + a[0] + b[0], o[1] + a[1] + b[1]],
-      ]);
-      const xs = ecken.map((e) => e[0]);
-      const ys = ecken.map((e) => e[1]);
+      const teile = tablett(area, MEER, MIN_Y, blick(p, k));
+      const rahmen = flaechen(teile).filter((f) => ['rand', 'wand', 'pfeiler'].includes(f.art));
+      const punkte = [
+        ...rahmen.flatMap(({ o, a, b }): Punkt[] => [o, [o[0] + a[0], o[1] + a[1]], [o[0] + b[0], o[1] + b[1]], [o[0] + a[0] + b[0], o[1] + a[1] + b[1]]]),
+        ...lilienIn(teile).flatMap((f): Punkt[] => {
+          const [l, o, r, u] = rechteckDer(f);
+          return [
+            [l, o],
+            [r, u],
+          ];
+        }),
+      ];
+      const xs = punkte.map((e) => e[0]);
+      const ys = punkte.map((e) => e[1]);
       const name = `${camera} k=${k}`;
       expect(Math.min(...xs), name).toBeCloseTo(links, 6);
       expect(Math.max(...xs), name).toBeCloseTo(rechts, 6);
       expect(Math.min(...ys), name).toBeCloseTo(oben, 6);
-      expect(Math.max(...ys), name).toBeLessThanOrEqual(unten + 1e-6);
+      expect(Math.max(...ys), name).toBeCloseTo(unten, 6);
     }
   }
 });
 
-test('das Licht kommt von oben, leicht von links: die linke nahe Wand ist rund 1,6-mal so hell wie die rechte', () => {
+test('auf jedem Pfeiler steht eine Lilie so gross wie in der Vorlage, nach dem Rahmen gemalt, vor den Kacheln', () => {
+  for (const [camera, scale] of KAMERAS) {
+    const p = kamera(camera, scale);
+    for (let k = 0; k < 4; k++) {
+      const { area } = WELTEN[1]!;
+      const teile = tablett(area, MEER, MIN_Y, blick(p, k));
+      const lilien = lilienIn(teile);
+      const name = `${camera} k=${k}`;
+      expect(lilien.map((l) => l.bild).sort(), name).toEqual(Object.values(LILIEN).map((l) => l.bild).sort());
+      // So viele Pixel der feinsten Stufe je Pixel der Vorlage, wie die Karte
+      // im Bild breiter ist als in ihr.
+      const [x0, z0, x1, z1] = imBlick(area, k);
+      const xs = [projiziere(x0, MEER, z0, p), projiziere(x1, MEER, z0, p), projiziere(x0, MEER, z1, p), projiziere(x1, MEER, z1, p)].map((e) => e[0]);
+      for (const l of lilien) expect(l.mass, name).toBeCloseTo((Math.max(...xs) - Math.min(...xs)) / BREITE_VORLAGE, 9);
+      // Nach allem Holz.
+      const holz = teile.map((t) => t.form === 'flaeche' && ['rand', 'wand', 'pfeiler'].includes(t.art));
+      expect(teile.indexOf(lilien[0]!), name).toBeGreaterThan(holz.lastIndexOf(true));
+      // Alle vor den Kacheln, auch die ferne: Sie steht über ihrem Eckstück.
+      expect(lilien.every((l) => l.nah), name).toBe(true);
+    }
+  }
+});
+
+test('an jeder Ecke deckt ein Eckstück die Ecke der Welt, MASS.eck w nach innen, vor den Kacheln, zwischen Holz und Lilien', () => {
+  for (const [camera, scale] of KAMERAS) {
+    const p = kamera(camera, scale);
+    for (let k = 0; k < 4; k++) {
+      const { area } = WELTEN[1]!;
+      const teile = tablett(area, MEER, MIN_Y, blick(p, k));
+      const ecken = flaechen(teile).filter((f) => f.art === 'eck');
+      const name = `${camera} k=${k}`;
+      expect(ecken.map((f) => f.bild).sort(), name).toEqual(Object.values(ECKSTUECKE).sort());
+      expect(ecken.every((f) => f.nah && f.n[1] > 0.99), name).toBe(true);
+      // Je Ecke der Welt auf dem Wasserspiegel: ein Stück innen gedeckt, eines
+      // über MASS.eck hinaus nicht.
+      const [x0, z0, x1, z1] = imBlick(area, k);
+      const w = (RAND * (x1 - x0 + (z1 - z0))) / 2;
+      for (const [x, sx] of [
+        [x0, 1],
+        [x1, -1],
+      ] as const) {
+        for (const [z, sz] of [
+          [z0, 1],
+          [z1, -1],
+        ] as const) {
+          const bei = (d: number) => projiziere(x + sx * d * w, MEER, z + sz * d * w, p);
+          expect(ecken.some((f) => deckt(f, bei(0.5))), `${name} ${x} ${z}`).toBe(true);
+          expect(ecken.some((f) => deckt(f, bei(MASS.eck + 0.5))), `${name} ${x} ${z}`).toBe(false);
+        }
+      }
+      // Über allem Holz, unter allen Lilien.
+      const holz = teile.map((t) => t.form === 'flaeche' && ['rand', 'wand', 'pfeiler'].includes(t.art)).lastIndexOf(true);
+      const eck = teile.map((t) => t.form === 'flaeche' && t.art === 'eck');
+      expect(eck.indexOf(true), name).toBeGreaterThan(holz);
+      expect(teile.indexOf(lilienIn(teile)[0]!), name).toBeGreaterThan(eck.lastIndexOf(true));
+    }
+  }
+});
+
+test('das Licht für Flächen ohne Bild kommt von oben, leicht von links: die linke nahe Wand ist rund 1,6-mal so hell wie die rechte', () => {
   // Summe der Kanäle, aus `rgb(r g b)`.
   const hell = (f: Flaeche) => f.farbe.match(/\d+/g)!.reduce((summe, wert) => summe + Number(wert), 0);
   for (const camera of ['2:1', '8:5']) {
-    const teile = flaechen(stueck(WELTEN[0]!.area, MEER, MIN_Y, kamera(camera, 16), 0));
+    const teile = flaechen(tablett(WELTEN[0]!.area, MEER, MIN_Y, blick(kamera(camera, 16), 0)));
     // Nahe Wände zeigen im Blick nach +z, links im Bild, und nach +x, rechts.
-    const wand = (nx: number, nz: number) =>
-      hell(teile.find((f) => f.art === 'wand' && f.n[0] === nx && f.n[2] === nz)!);
+    const wand = (nx: number, nz: number) => hell(teile.find((f) => f.art === 'wand' && f.n[0] === nx && f.n[2] === nz)!);
     const verhaeltnis = wand(0, 1) / wand(1, 0);
     expect(verhaeltnis, camera).toBeGreaterThan(1.4);
     expect(verhaeltnis, camera).toBeLessThan(1.8);
   }
+});
+
+test('die fernen Seiten haben eine Innenseite bis zum Boden, die nahen nicht', () => {
+  for (const [camera, scale] of KAMERAS) {
+    const p = kamera(camera, scale);
+    for (let k = 0; k < 4; k++) {
+      const innen = flaechen(tablett(WELTEN[0]!.area, MEER, MIN_Y, blick(p, k))).filter((f) => f.art === 'innen');
+      // Von oben stehen die Wände auf der Kante; genordet sieht man eine
+      // ferne Seite, diagonal zwei.
+      const name = `${camera} k=${k}`;
+      expect(innen.length, name).toBe(p.y === 0 ? 0 : p.azimuth === 'north' ? 1 : 2);
+      // Hinter der Welt, nach innen und zur Kamera.
+      for (const f of innen) {
+        expect(f.nah, name).toBe(false);
+        expect(f.n[1], name).toBeCloseTo(0, 9);
+        expect(p.azimuth === 'north' ? f.n[2] : f.n[0] + f.n[2], name).toBeGreaterThan(0);
+      }
+    }
+  }
+});
+
+test('Band, Wand, Eckstücke, die Seiten der Pfeiler zur Kamera und der Tisch haben ihr Bild in bilder/', () => {
+  const da = new Set(readdirSync(new URL('../bilder/', import.meta.url)).map((datei) => datei.replace(/\.webp$/, '')));
+  for (const [camera, scale] of KAMERAS) {
+    const p = kamera(camera, scale);
+    for (let k = 0; k < 4; k++) {
+      const teile = tablett(WELTEN[0]!.area, MEER, MIN_Y, blick(p, k));
+      const name = `${camera} k=${k}`;
+      for (const f of flaechen(teile)) {
+        const zeigt = p.azimuth === 'north' ? f.n[2] > 0.5 : f.n[0] > 0.5 || f.n[2] > 0.5;
+        const braucht = ['rand', 'eck', 'tisch'].includes(f.art) || (['wand', 'pfeiler'].includes(f.art) && zeigt);
+        if (braucht) expect(f.bild && da.has(f.bild), `${name}: ${f.art} ${String(f.n)}`).toBe(true);
+        if (f.bild) expect(da.has(f.bild), `${name}: ${f.bild}`).toBe(true);
+      }
+      for (const f of teile.filter((t): t is Figur => t.form === 'figur')) expect(da.has(f.bild), `${name}: ${f.bild}`).toBe(true);
+    }
+  }
+});
+
+/** Eine quadratische Welt, so gross wie eine echte. */
+const GROSS: Rechteck = [-4096, -4096, 4096, 4096];
+
+/** Fenster von Telefonen, hoch und quer, bis 4K, dazu das der Vorlage. */
+const FENSTER = [
+  [390, 844],
+  [844, 390],
+  [1280, 720],
+  [1491, 1055],
+  [1920, 1080],
+  [2560, 1440],
+  [3840, 2160],
+] as const;
+
+test('die Gesamtansicht füllt das Fenster zu 71 bis 100 %, zwischen zwei Stufen nur, wo Leaflet die Kacheln verkleinert', () => {
+  for (const [camera, scale] of KAMERAS) {
+    const p = kamera(camera, scale);
+    for (let k = 0; k < 4; k++) {
+      const rahmen = grenzen(GROSS, MEER, blick(p, k));
+      const [links, oben, rechts, unten] = rahmen;
+      for (let breite = 640; breite <= 2560; breite += 37) {
+        const hoehe = Math.round(breite * 0.62);
+        const z = gesamtstufe(rahmen, 11, breite, hoehe);
+        // Auf dieser Stufe füllt der Rahmen das Fenster ganz.
+        const voll = 11 + Math.log2(Math.min(breite / (rechts - links), hoehe / (unten - oben)));
+        const name = `${camera} k=${k} ${breite} × ${hoehe}`;
+        expect(2 ** (z - voll), name).toBeLessThanOrEqual(1.01);
+        expect(2 ** (z - voll), name).toBeGreaterThan(0.7);
+        // So passt Leaflet die ganze Karte ein. Darunter landete der Knopf ⌂
+        // neben der Gesamtansicht.
+        const einpassen = Math.floor(Math.round(voll * 100) / 100);
+        expect(z, name).toBeGreaterThanOrEqual(einpassen);
+        // Gebrochen nur, wo Leaflet aufrundet und die Kacheln so verkleinert.
+        if (!Number.isInteger(z)) {
+          expect(z - Math.floor(z), name).toBeGreaterThanOrEqual(0.5);
+          expect(z, name).toBeLessThan(11);
+        }
+        // Wo es geht, genau wie in der Vorlage.
+        const ziel = voll + Math.log2(0.925);
+        if (ziel - Math.floor(ziel) >= 0.5 && ziel >= einpassen) expect(2 ** (z - voll), name).toBeCloseTo(0.925, 9);
+      }
+    }
+  }
+});
+
+test('die Gesamtansicht liegt wie in der Vorlage unter der Mitte der Karte, und der Rahmen ragt nie aus dem Fenster', () => {
+  for (const [camera, scale] of KAMERAS) {
+    const p = kamera(camera, scale);
+    for (let k = 0; k < 4; k++) {
+      const rahmen = grenzen(GROSS, MEER, blick(p, k));
+      for (const [breite, hoehe] of FENSTER) {
+        const f = 2 ** (11 - gesamtstufe(rahmen, 11, breite, hoehe));
+        const [mx, my] = gesamtmitte(GROSS, MEER, blick(p, k), breite * f, hoehe * f);
+        const name = `${camera} k=${k} ${breite} × ${hoehe}`;
+        const [links, oben, rechts, unten] = rahmen;
+        expect(links, name).toBeGreaterThanOrEqual(mx - (breite * f) / 2 - 1e-6);
+        expect(rechts, name).toBeLessThanOrEqual(mx + (breite * f) / 2 + 1e-6);
+        expect(oben, name).toBeGreaterThanOrEqual(my - (hoehe * f) / 2 - 1e-6);
+        expect(unten, name).toBeLessThanOrEqual(my + (hoehe * f) / 2 + 1e-6);
+      }
+    }
+  }
+  // Im Fenster der Vorlage, in ihrer Kamera, liegt die Mitte wie dort:
+  // 5,8 % der Breite der Karte unter ihrer Mitte.
+  const p = kamera('8:5', 16);
+  const rahmen = grenzen(GROSS, MEER, blick(p, 0));
+  const f = 2 ** (11 - gesamtstufe(rahmen, 11, 1491, 1055));
+  const [mx, my] = gesamtmitte(GROSS, MEER, blick(p, 0), 1491 * f, 1055 * f);
+  const [cx, cy] = projiziere(0, MEER, 0, p);
+  const karte = 2 * 4096 * 2 * p.u;
+  expect((mx - cx) / karte).toBeCloseTo(-0.0033, 6);
+  expect((my - cy) / karte).toBeCloseTo(0.058, 6);
 });

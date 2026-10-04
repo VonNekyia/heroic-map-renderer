@@ -14,7 +14,12 @@ code:
 In Teilen abgelöst durch [0063](0063-tablett-als-skin.md): Das Tablett ist
 ein optionaler Skin nur für quadratische Karten, einmal für `fitZoom`
 gezeichnet und bis `fitZoom` + 1 ausgeblendet; Sprites gibt es nur für
-`fitZoom`, nicht je Zoomstufe.
+`fitZoom`, nicht je Zoomstufe. Durch
+[0066](0066-texturen-des-tabletts.md): Licht und Tiefe sind in feste Bilder
+eingebacken, statt dass das Frontend jede Fläche beim Laden schattiert, und
+das Profil liegt in diesen Bildern statt in einer Fläche je Stufe. Durch
+[0067](0067-gesamtansicht-zwischen-zwei-stufen.md): Die Gesamtansicht mit
+dem Skin darf zwischen zwei Zoomstufen liegen.
 
 ## Anlass
 

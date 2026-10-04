@@ -293,8 +293,7 @@ impl Look {
     pub fn waerme(&self, t: f32) -> f32 {
         let warm = (t - self.waerme_von) / (self.waerme_bis - self.waerme_von);
         let kalt = (self.kaelte_von - t) / (self.kaelte_von - self.kaelte_bis);
-        self.waerme_grund + self.waerme * warm.clamp(0.0, 1.0)
-            - self.kaelte * kalt.clamp(0.0, 1.0)
+        self.waerme_grund + self.waerme * warm.clamp(0.0, 1.0) - self.kaelte * kalt.clamp(0.0, 1.0)
     }
 
     /// Das Himmelslicht in den Farben `himmel` und `nebel`, linear, mit der

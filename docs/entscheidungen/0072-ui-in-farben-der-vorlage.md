@@ -1,6 +1,6 @@
 ---
 title: "0072: UI des Tabletts in Farben der Vorlage"
-description: Warum die UI mit dem Skin Tablett auf Pergament, Holz und Messing liegt, in Farben, die in der Vorlage gemessen sind, über die CSS-Variablen der Grundkarte und einen Verlauf als Rand aus Messing, ohne Bilddatei; verworfen sind ein erzeugtes Bild als Rahmen der Knöpfe, ein Ausschnitt der Vorlage und alles auf Holz.
+description: Warum die UI mit dem Skin Tablett auf Pergament, Holz und Messing liegt, in Farben, die in der Vorlage gemessen sind, über die CSS-Variablen der Grundkarte und einen Verlauf als Rand aus Messing, ohne Bilddatei, und in der Gesamtansicht den Gegenständen ausweicht; verworfen sind ein erzeugtes Bild als Rahmen der Knöpfe, ein Ausschnitt der Vorlage, alles auf Holz und feste Plätze nach der Vorlage.
 status: gilt
 date: 2026-10-04
 issues: [112]
@@ -8,6 +8,7 @@ code:
   - web/src/style.css
   - web/src/skin-api.ts
   - web/skins/tablett/tablett.css
+  - web/skins/tablett/index.ts
 ---
 
 # 0072: UI des Tabletts in Farben der Vorlage
@@ -36,6 +37,10 @@ Festgelegt am 04.10. mit der PR zur UI (#112):
   für Knöpfe und Umschalter, mit Schrift in hellem Messing.
 - **Ohne Bilddatei:** Den Rand aus Messing zeichnet ein Verlauf als
   `border-image`, hell oben links, dunkel unten rechts.
+- **Neben den Gegenständen,** nach Befund 4 des Reviews zu #120
+  (issuecomment-5976163815): In der Gesamtansicht weicht jede Ecke der UI
+  Gegenständen und Lilien entlang ihres Rands aus, gerechnet aus der Lage
+  ihrer Bilder.
 
 ## Verworfene Alternativen
 
@@ -52,6 +57,10 @@ Festgelegt am 04.10. mit der PR zur UI (#112):
   Licht drehte mit.
 - **Der Fokus in den Farben des Skins auch an der Karte selbst.** Tinte sähe
   man auf dem dunklen Tisch nicht; die Karte behält den Fokus des Browsers.
+- **Feste Plätze nach der Vorlage,** etwa in Prozent des Fensters. In der
+  Vorlage stehen die Gegenstände in den Ecken; in breiteren Fenstern liegt
+  sie mit Rand in der Mitte, und Plätze, die dort frei sind, decken in
+  anderen etwas.
 
 ## Folgen
 

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type { Rechteck } from 'heroic-map-renderer/skin-api';
 import { deflateSync } from 'node:zlib';
 import { kamera, projiziere } from '../../../tests/kamera';
-import { gesamtstufe, grenzen, GRUND } from '../tablett';
+import { type Figur, gesamtmitte, gesamtstufe, grenzen, GRUND, tablett } from '../tablett';
 
 /** Der Demobaum der Grundkarte: 2:1, scale 16, feinste Stufe 2. */
 const DEMO = '/?tiles=/tiles-demo';
@@ -477,5 +477,50 @@ test('per Tastatur liegt der Fokus innen: Messing auf Holz, Tinte auf Pergament'
     expect(await Promise.all(rand.map((name) => stil(page, selector, name)))).toEqual(['solid', '2px', '-2px']);
     const [farbe, grund] = [await stil(page, selector, 'outline-color'), await stil(page, selector, 'background-color')];
     expect(kontrast(kanaele(farbe), kanaele(grund)), `${selector}: ${farbe} auf ${grund}`).toBeGreaterThanOrEqual(3);
+  }
+});
+
+test('in der Gesamtansicht deckt die UI keinen Gegenstand und keine Lilie, in 8:5 von Telefonen bis 4K', async ({ page }) => {
+  const p = kamera('8:5', 16);
+  const blick = { projektion: p, k: 0, projiziere: (x: number, y: number, z: number) => projiziere(x, y, z, p) };
+  await welt(page, { ...QUADRAT, projection: p, direction: 'se' });
+  for (const [breite, hoehe] of [
+    [1491, 1055],
+    [1680, 1050],
+    [1920, 1080],
+    [1280, 720],
+    [3840, 2160],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width: breite, height: hoehe });
+    await page.goto(DEMO);
+    await expect.poll(() => gezeichnet(page)).toBe(true);
+    // Mit Koordinaten ist die Leiste so breit wie im Gebrauch.
+    await page.mouse.move(breite / 2, hoehe / 2);
+    await expect(page.locator('.koordinaten')).toContainText('X');
+    // Gegenstände und Lilien, wie der Skin sie in der Gesamtansicht legt.
+    const fit = gesamtstufe(grenzen(QUADRAT.area, QUADRAT.seaLevel, blick), 2, breite, hoehe);
+    const s = 2 ** (fit - 2);
+    const [mx, my] = gesamtmitte(QUADRAT.area, QUADRAT.seaLevel, blick, breite / s, hoehe / s);
+    const imFenster = (px: number, py: number) => [(px - mx) * s + breite / 2, (py - my) * s + hoehe / 2];
+    const dinge = tablett(QUADRAT.area, QUADRAT.seaLevel, -64, blick)
+      .filter((t): t is Figur => t.form === 'figur')
+      .map(({ bild, fuss, anker, mass, groesse }) => {
+        const [l, o] = imFenster(fuss[0] - mass * anker[0], fuss[1] - mass * anker[1]);
+        return { bild, l: l!, o: o!, r: l! + mass * groesse[0] * s, u: o! + mass * groesse[1] * s };
+      });
+    const ui = await page.locator('.leaflet-control').evaluateAll((elemente: HTMLElement[]) =>
+      elemente.map((e) => {
+        const { left, top, right, bottom } = e.getBoundingClientRect();
+        return { name: e.className, left, top, right, bottom };
+      }),
+    );
+    expect(ui.length).toBeGreaterThanOrEqual(4);
+    for (const { name, left, top, right, bottom } of ui) {
+      for (const d of dinge) {
+        const deckt = left < d.r && right > d.l && top < d.u && bottom > d.o;
+        expect(deckt, `${breite} × ${hoehe}: ${name} über ${d.bild}`).toBe(false);
+      }
+    }
   }
 });

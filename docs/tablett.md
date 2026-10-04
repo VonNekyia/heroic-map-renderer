@@ -374,6 +374,19 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   Pergament 6,4:1, Messing auf Holz 8,2:1, unter Zeiger oder Fokus 5,9:1.
   Der Rand um eine Eingabe, die nicht taugt, 4,2:1 gegen das Pergament.
   Gesperrte Knöpfe nimmt WCAG aus; ihr Messing hat 2,2:1.
+- **Platz:** In der Gesamtansicht deckt die UI keinen Gegenstand und keine
+  Lilie (#120, issuecomment-5976163815, Befund 4). Jede der vier Ecken von
+  Leaflet weicht dazu entlang ihres Rands aus, mit 8 px Abstand (`weiche`
+  in [`index.ts`](../web/skins/tablett/index.ts)):
+  - die Knöpfe oben links nach unten, unter die Bücher;
+  - Kompass und Umschalter oben rechts nach links, neben die Kerze;
+  - Leiste und Stand unten zur Mitte hin, neben Sphäre und Kompass.
+  - Gerechnet wird beim Laden und bei jeder neuen Fenstergrösse, aus der
+    Lage der Bilder in der Gesamtansicht, und wenn eine Ecke wächst, etwa
+    die Leiste mit den Koordinaten. Wo nichts deckt, bleibt eine Ecke, wo
+    Leaflet sie hinlegt; passte sie verschoben nicht ins Fenster, auch.
+  - Hineingezoomt bleibt die UI, wo sie ist; die Gegenstände wandern mit
+    dem Tisch.
 - **Ohne Tablett,** etwa bei einem `area`, das kein Quadrat ist, bleibt auch
   die UI, wie sie ohne Skin ist: Die Klasse am Container fehlt dann.
 

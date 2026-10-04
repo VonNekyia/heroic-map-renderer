@@ -8,7 +8,7 @@
  */
 import type { Grenzen, Rechteck, Skin } from 'heroic-map-renderer/skin-api';
 import L from 'leaflet';
-import { gesamtmitte, gesamtstufe, grenzen, tablett, type Teil } from './tablett';
+import { type Figur, gesamtmitte, gesamtstufe, grenzen, tablett, type Teil } from './tablett';
 import { type Bilder, ebenen as malen } from './zeichnen';
 import './tablett.css';
 
@@ -17,6 +17,21 @@ const API = 2;
 
 /** Wie weit die Bilder je Seite über das Fenster reichen, als Anteil des Fensters. */
 const UEBERSTAND = 0.25;
+
+/**
+ * Die Ecken der UI und wohin jede ausweicht, deckte sie in der
+ * Gesamtansicht einen Gegenstand oder eine Lilie: entlang ihres Rands, zur
+ * Mitte hin. Siehe docs/tablett.md, „UI“.
+ */
+const AUSWEICHEN = [
+  { ecke: '.leaflet-top.leaflet-left', x: 0, y: 1 },
+  { ecke: '.leaflet-top.leaflet-right', x: -1, y: 0 },
+  { ecke: '.leaflet-bottom.leaflet-left', x: 1, y: 0 },
+  { ecke: '.leaflet-bottom.leaflet-right', x: -1, y: 0 },
+] as const;
+
+/** So viel Platz bleibt zwischen der UI und einem Gegenstand, in Pixeln. */
+const ABSTAND = 8;
 
 /**
  * Die Bilder aus bilder/ als Adressen. Vite legt jedes als eigene Datei ab;
@@ -159,6 +174,38 @@ const skin: Skin = (kontext) => {
     if (!g || g.zoom !== karte.getZoom() || !drin) void zeichne();
   };
 
+  // Gegenstände und Lilien in der Gesamtansicht, in Pixeln des Fensters.
+  let dinge: Grenzen[] = [];
+  /**
+   * Schiebt jede Ecke der UI so weit entlang ihres Rands, dass sie in der
+   * Gesamtansicht nichts davon deckt; passt sie dann nicht mehr ins Fenster,
+   * bleibt sie, wo sie ist.
+   */
+  const weiche = (): void => {
+    const da = container.getBoundingClientRect();
+    for (const { ecke, x, y } of AUSWEICHEN) {
+      const element = container.querySelector<HTMLElement>(ecke);
+      if (!element) continue;
+      element.style.transform = '';
+      const r = element.getBoundingClientRect();
+      const [links, oben, rechts, unten] = [r.left - da.left, r.top - da.top, r.right - da.left, r.bottom - da.top];
+      const trifft = (d: number) =>
+        dinge.find(([l, o, re, u]) => l - ABSTAND < rechts + d * x && re + ABSTAND > links + d * x && o - ABSTAND < unten + d * y && u + ABSTAND > oben + d * y);
+      let d = 0;
+      for (let i = 0, ding = trifft(0); ding && i < dinge.length; i++, ding = trifft(d)) {
+        d = x > 0 ? ding[2] + ABSTAND - links : x < 0 ? rechts - ding[0] + ABSTAND : ding[3] + ABSTAND - oben;
+      }
+      const passt = links + d * x >= 0 && rechts + d * x <= da.width && unten + d * y <= da.height;
+      if (d > 0 && passt) element.style.transform = `translate(${d * x}px, ${d * y}px)`;
+    }
+  };
+  // Die Ecken wachsen, wenn ihre UI kommt oder mehr zeigt.
+  const beobachter = new ResizeObserver(weiche);
+  for (const { ecke } of AUSWEICHEN) {
+    const element = container.querySelector(ecke);
+    if (element) beobachter.observe(element);
+  }
+
   // Bei jeder neuen Grösse des Fensters: die Gesamtansicht wie in der
   // Vorlage, ihre Mitte unter der Mitte der Karte. Weiter heraus geht es
   // nicht, und `maxBounds` ist dieses Fenster: Es zeigt den ganzen Tisch,
@@ -192,6 +239,15 @@ const skin: Skin = (kontext) => {
     gezeichnet = undefined;
     pruefe();
     gebrochen();
+    const s = 2 ** (fit - maxZoom);
+    const imFenster = ([px, py]: [number, number]): [number, number] => [(px - mx) * s + groesse.x / 2, (py - my) * s + groesse.y / 2];
+    dinge = teile
+      .filter((t): t is Figur => t.form === 'figur')
+      .map(({ fuss, anker, mass, groesse: g }) => {
+        const ecke: [number, number] = [fuss[0] - mass * anker[0], fuss[1] - mass * anker[1]];
+        return [...imFenster(ecke), ...imFenster([ecke[0] + mass * g[0], ecke[1] + mass * g[1]])] as Grenzen;
+      });
+    weiche();
   };
   karte.whenReady(baue);
   karte.on('resize', baue);

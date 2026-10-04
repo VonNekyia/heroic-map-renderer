@@ -2,7 +2,7 @@
 title: Grösse des gerenderten Bretts
 description: Wie gross die gerenderten Bilder des Skins Tablett sind, je Kamera und Richtung fern und nah, gemessen am Platzhalter und mit der Vorlage als Massstab für die Szene hochgerechnet; dazu, was der Ausschnitt je Fenster kostet.
 date: 2026-10-04
-commits: [2833e1d]
+commits: [af99833, 190ce09]
 code:
   - web/skins/tablett/werkzeug/brett.py
   - web/skins/tablett/werkzeug/brett_blender.py
@@ -18,7 +18,7 @@ Ausschnitt: Er deckt Fenster von 9:20 hochkant bis 21:9 quer.
 ## Aufbau
 
 - Gerendert mit `werkzeug/brett.py` ohne Szene, also der Platzhalter, alle
-  8 Kameras in je 4 Richtungen, Blender 5.2, Stand `2833e1d`.
+  8 Kameras in je 4 Richtungen, Blender 5.2, Stand `af99833`.
 - Ausschnitt je Bild wie in [Tablett aus Blender](../tablett-gerendert.md),
   „Rendern“: jedes Fenster von 9:20 bis 21:9, in dem der Rahmen 71 %
   füllt.
@@ -31,7 +31,7 @@ Ausschnitt: Er deckt Fenster von 9:20 hochkant bis 21:9 quer.
 ## Ablauf
 
 - Platzhalter: Dateigrössen der WebP nach dem Lauf, mit und ohne die
-  nahen Pixel in fern. Ohne sie schreibt `brett.py` seit dieser Messung.
+  nahen Pixel in fern. Ohne sie schreibt `brett.py` seit `190ce09`.
 - Vorlage: Bytes je Pixel aus der Grösse des WebP, Skript vom 04.10.
 - Hochrechnung: Fläche aller Bilder mal Bytes je Pixel. Die Szene füllt
   ihr Bild ganz, anders als der Tisch des Platzhalters; fern und nah

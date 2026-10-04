@@ -4,6 +4,7 @@ description: Wie der Skin Tablett Rahmen, Tisch und Gegenstände als gerenderte 
 code:
   - web/skins/tablett/werkzeug/brett.py
   - web/skins/tablett/werkzeug/brett_blender.py
+  - web/skins/tablett/werkzeug/ganzer_faktor.py
   - web/skins/tablett/brett.ts
   - web/skins/tablett/index.ts
   - web/skins/tablett/tablett.css
@@ -125,8 +126,21 @@ Je Kamera und Richtung ein Eintrag, benannt wie `--camera` und
     je Pixel das nächste, statt zu glätten, wie bei den Bildern aus der
     Vorlage: [Tablett](tablett.md), „Zeichnen“.
 - **Grund:** `fern` füllt zuerst Grund. Wo das Bild endet, zeigt es Grund.
-- **Wie bei den Bildern aus der Vorlage** bleiben Gesamtstufe und ihre
-  Mitte, `maxBounds`, das Neuzeichnen und das Einblenden.
+- **Gesamtansicht** (`gesamtstufe` in
+  [`tablett.ts`](../web/skins/tablett/tablett.ts), mit Pixeln des Geräts je
+  Pixel des Bilds):
+  - Sie wählt unter denselben Stufen wie mit den Bildern aus der Vorlage,
+    siehe [Tablett](tablett.md), „Zeichnen“.
+  - Deckt ein Pixel des Bilds auf einer davon, die 71 bis 100 % füllt,
+    ganze n ≥ 1 Pixel, nimmt sie diese; von mehreren die nächste an
+    92,5 %.
+  - Sonst bleibt der Faktor krumm, und Pixel des Bilds sind um 1 px
+    ungleich breit; unter 1 glättet der Browser.
+  - Ein ganzes n gibt es in 24 % der Fälle, siehe
+    [0074](entscheidungen/0074-tablett-aus-blender.md), „Wie oft ein ganzes
+    n kommt“.
+- **Wie bei den Bildern aus der Vorlage** bleiben die Mitte der
+  Gesamtansicht, `maxBounds`, das Neuzeichnen und das Einblenden.
 - **Noch aus der Vorlage** kommen die Kästen, denen die UI ausweicht. Text
   auf den Buchrücken gibt es gerendert noch nicht.
 
@@ -144,18 +158,30 @@ Gemessen und hochgerechnet in
 ## Tests
 
 - [`tests/brett.spec.ts`](../web/skins/tablett/tests/brett.spec.ts) prüft
-  in Node für alle 32 Blicke:
-  - dass der Name einer Kamera dem von `--camera` und `--direction` folgt;
+  in Node:
+  - für alle 32 Blicke, dass der Name einer Kamera dem von `--camera` und
+    `--direction` folgt;
   - dass Ecken, Mitte und ein Punkt über der Karte, über `lage` gelegt,
-    auf 10⁻⁶ px ihren Bildpunkt der Projektion treffen.
+    auf 10⁻⁶ px ihren Bildpunkt der Projektion treffen;
+  - dass jedes Bild die Gesamtansicht deckt, in allen 32 Blicken, in
+    Fenstern von 360 × 800 bis zu Monitoren in 21:9 und 4K, bei
+    `devicePixelRatio` 1 bis 3, mit Grösse und Mitte aus
+    [`tests/fixtures/brett-alle.json`](../web/skins/tablett/tests/fixtures/brett-alle.json);
+  - dass die Gesamtansicht ein ganzes n nimmt, wo eine erlaubte Stufe
+    zwischen 71 und 100 % eines hat, die nächste an 92,5 %, sonst die
+    Stufe nach 0067, an vier Welten, 14 Fenstern und fünf Werten für
+    `devicePixelRatio`;
+  - dass sie unter 71 % kein ganzes n nimmt, auch nicht auf der ganzen
+    Stufe, auf die Leaflet einpasst.
 - [`tests/gerendert.spec.ts`](../web/skins/tablett/tests/gerendert.spec.ts)
   baut den Skin mit dem Platzhalter für 2:1 aus
   [`tests/fixtures/brett`](../web/skins/tablett/tests/fixtures/brett/) wie
   einen Skin von aussen. Die Seite kommt aus dem Build, ohne Server. Es
   prüft:
-  - bei `devicePixelRatio` 1, 2 und 1,5, in der Gesamtansicht und eine
-    Stufe tiefer: dass jedes Pixel beider Leinwände eine Farbe des Bilds
-    hat, ohne Mischfarben;
+  - bei `devicePixelRatio` 1 ohne ganzes n, bei 2 mit n = 3 und bei 1,5
+    mit n = 2, in der Gesamtansicht und eine Stufe tiefer: dass die Stufe
+    die aus `gesamtstufe` ist und jedes Pixel beider Leinwände eine Farbe
+    des Bilds hat, ohne Mischfarben;
   - dass 99,9 % der Stichproben genau ihr Pixel im Bild zeigen;
   - dass das Bild höchstens 1 px neben der Lage aus der Projektion liegt;
   - dass das Tablett ausbleibt und die Konsole es sagt, wenn die Kamera in

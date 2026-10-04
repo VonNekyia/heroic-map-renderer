@@ -64,6 +64,9 @@ gerenderte Bilder aus Blender: [Tablett aus Blender](tablett-gerendert.md).
     Fenster passt. Dann füllt er 71 bis 100 %.
   - Nie tiefer als die ganze Stufe, auf die Leaflet die Grenzen einpasst:
     Dort landen die erste Ansicht und der Knopf ⌂.
+  - Mit gerenderten Bildern nimmt er unter diesen Stufen eine, auf der ein
+    Pixel des Bilds ganze Pixel des Geräts deckt, wo es geht: [Tablett aus
+    Blender](tablett-gerendert.md), „Im Skin“.
 - **Mitte der Gesamtansicht** wie in der Vorlage: 5,8 % der Breite der
   Karte unter ihrer Mitte und 0,3 % links davon, denn vor dem Tablett liegt
   mehr Tisch als dahinter (`gesamtmitte`). Ragte der Rahmen so aus dem

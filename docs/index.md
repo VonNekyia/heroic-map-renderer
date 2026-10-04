@@ -34,7 +34,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Rastern ohne Nähte](renderer/naehte.md): Pixelmittelpunkt, Füllregel, Fragmente je Pixel, Textur in linearem Licht.
 - [Wasser und Licht](renderer/wasser-und-licht.md): Flüssigkeiten, Flächen, Streifen, Himmels- und Blocklicht.
 - [Weiche Beleuchtung](renderer/weiche-beleuchtung.md): die Regeln von `BlockModelLighter` für Flächen auf dem Rand und im Innern, Welten aus 26.2.
-- [Cinematic](renderer/cinematic.md): `--cinematic`, die Werte des Looks, Sprites ohne Schattierung nach Richtung, Licht an den Ecken und in HDR, Farbe des Himmels, Sonne und Schatten aus dem Strahl, Bodenpflanzen, Wasser, Leuchten, Wärme, Bloom, Ton.
+- [Cinematic](renderer/cinematic.md): `--cinematic`, die Werte des Looks, Sprites ohne Schattierung nach Richtung, Licht an den Ecken und in HDR, Farbe des Himmels, Sonne und Schatten aus dem Strahl, Bodenpflanzen, Wasser, Leuchten, Wärme und Kälte, Bloom, Ton.
 - [Biomfarben](renderer/biomfarben.md): Colormaps, gefärbte Blöcke, Biom je Block, Übergänge zwischen Biomen, Sumpfgras, Tönung beim Zeichnen, Biome lesen.
 - [Varianten aus der Position](renderer/varianten.md): die Alternative würfeln wie der Client.
 - [Blockstates](renderer/blockstates.md): lesen und stapeln wie der Client, `blocks.txt`.
@@ -123,6 +123,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0063](entscheidungen/0063-tablett-als-skin.md): Tablett als optionaler Skin: Schalter `SKIN` beim Build, Schnittstelle `skin-api.ts` mit Version, Grenze per ESLint, Ordner wie ein Paket, nur quadratische Karten, einmal für fitZoom; die Lilie an der nahen Ecke darf ins Bild ragen.
 - [0064](entscheidungen/0064-flaechen-im-innern-weich.md): Flächen im Innern weich wie das Spiel, sechs Plätze in der AO-Karte, die Ecken in der Instanz.
 - [0065](entscheidungen/0065-sicht-in-der-ecke-nach-der-version.md): Die Sicht in der Ecke der weichen Beleuchtung nach der Datenversion der Welt, aus einer Tabelle von 26.2; die Version gehört zum Baum.
+- [0069](entscheidungen/0069-ein-himmelslicht-und-kaelte.md): Cinematic beleuchtet in jedem Biom mit dem Himmelslicht der Oberwelt, die Farben des Himmels je Biom bleiben dem Wasser; die Wärme enger und mit einer kalten Seite; löst 0058 darin ab.
 
 ## Messungen
 

@@ -154,6 +154,7 @@ const skin: Skin = (kontext) => {
     console.warn(`Tablett: kein Bild für ${kamera} in brett/, das Tablett bleibt aus.`);
     return undefined;
   }
+  const brettLage = brett && lage(area, seaLevel, kontext, brett);
 
   container.classList.add('skin-tablett');
   const rahmen = grenzen(area, seaLevel, kontext);
@@ -183,7 +184,7 @@ const skin: Skin = (kontext) => {
       return (fern, nah, s, versatz) => malen(fern, nah, teile, s, versatz, bilder);
     }
     const bilder = await ladeBrett(brett);
-    const { links, oben, mass } = lage(area, seaLevel, kontext, brett);
+    const { links, oben, mass } = brettLage!;
     return (fern, nah, s, [x0, y0]) => {
       if (!bilder) return;
       fern.setTransform(1, 0, 0, 1, 0, 0);
@@ -314,7 +315,8 @@ const skin: Skin = (kontext) => {
   // und auf jeder Stufe bleibt die Ansicht darin.
   const baue = (): void => {
     const groesse = karte.getSize();
-    const fit = gesamtstufe(rahmen, maxZoom, groesse.x, groesse.y);
+    // Gerendert: ein ganzes n, wo es geht, in Pixeln des Geräts.
+    const fit = gesamtstufe(rahmen, maxZoom, groesse.x, groesse.y, brettLage && brettLage.mass * devicePixelRatio);
     // Ein Fenster ohne Fläche, etwa ein verborgener Tab: Die Gesamtansicht
     // kommt mit der ersten Grösse, beim nächsten `resize`.
     if (Number.isNaN(fit)) return;

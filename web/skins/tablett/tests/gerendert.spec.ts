@@ -113,9 +113,15 @@ function vergleiche(page: Page, ebene: 'fern' | 'nah', datei: string, x: number,
   );
 }
 
-for (const dpr of [1, 2, 1.5]) {
+// Je Gerät ein Fenster: bei 1 ohne ganzes n in der Gesamtansicht, bei 2 und
+// 1,5 mit n = 3 und n = 2.
+for (const [dpr, breite, hoehe, ganz] of [
+  [1, 1280, 720, false],
+  [2, 1060, 596, true],
+  [1.5, 1000, 563, true],
+] as const) {
   test.describe(`devicePixelRatio ${dpr}`, () => {
-    test.use({ deviceScaleFactor: dpr });
+    test.use({ deviceScaleFactor: dpr, viewport: { width: breite, height: hoehe } });
 
     test('gerendert liegt das Brett Pixel für Pixel auf der Karte, ohne Mischfarben, in der Gesamtansicht und eine Stufe tiefer', async ({ page }) => {
       await welt(page, { ...QUADRAT, projection: kamera('2:1', 16), direction: 'se' });
@@ -124,10 +130,12 @@ for (const dpr of [1, 2, 1.5]) {
       const p = kamera('2:1', 16);
       const blick: Blick = { projektion: p, k: 0, projiziere: (x, y, z) => projiziere(x, y, z, p) };
       const karte = (await page.locator('#map').boundingBox())!;
-      const fit = gesamtstufe(grenzen(QUADRAT.area, QUADRAT.seaLevel, blick), 2, karte.width, karte.height);
-      const [mx, my] = gesamtmitte(QUADRAT.area, QUADRAT.seaLevel, blick, karte.width * 2 ** (2 - fit), karte.height * 2 ** (2 - fit));
       const bild = INDEX['2:1 se']!;
       const { links, oben, mass } = lage(QUADRAT.area, QUADRAT.seaLevel, blick, bild);
+      const fit = gesamtstufe(grenzen(QUADRAT.area, QUADRAT.seaLevel, blick), 2, karte.width, karte.height, mass * dpr);
+      const n = mass * dpr * 2 ** (fit - 2);
+      expect(Math.abs(n - Math.round(n)) < 1e-9, `n = ${n}`).toBe(ganz);
+      const [mx, my] = gesamtmitte(QUADRAT.area, QUADRAT.seaLevel, blick, karte.width * 2 ** (2 - fit), karte.height * 2 ** (2 - fit));
       for (const tiefer of [false, true]) {
         if (tiefer) {
           await page.locator('.leaflet-control-zoom-in').click();

@@ -7,6 +7,7 @@ code:
   - web/src/skin-api.ts
   - web/src/skin-modul.d.ts
   - web/eslint.config.js
+  - web/tsconfig.json
   - web/playwright.config.ts
   - web/src/style.css
   - web/index.html
@@ -356,6 +357,14 @@ Der einzige Skin bisher: [Tablett](tablett.md).
   `index.ts`, Stylesheet und Tests. Leaflet nimmt ein Skin aus `web/`
   (`resolve.dedupe`), auch wenn er ausserhalb liegt. Den Nachweis führt
   `web/skins/tablett/tests/auslagern.spec.ts`.
+- **Bilder** nimmt ein Skin mit
+  `import.meta.glob('./bilder/*.webp', { query: '?url&no-inline', … })`:
+  Vite legt jedes als eigene Datei ab, und die Content-Security-Policy
+  erlaubt sie über `default-src 'self'`. Als `data:`, was Vite bei kleinen
+  Bildern sonst täte, verböte sie sie.
+- **Skripte,** die einem Skin Bilder machen, liegen in seinem Ordner
+  `werkzeug/` und laufen von Hand, nicht im Build; beim Tablett Python mit
+  numpy und Pillow, siehe [Tablett](tablett.md), „Bilder aus der Vorlage“.
 - **Texte** kommen aus der Build-Konfiguration: `titel` aus `SITE_TITLE`,
   dazu je `SKIN_TEXT_<NAME>` ein Eintrag `<name>`. Was nicht ins Repository
   gehört, etwa eine Domain, erreicht einen Skin nur so.

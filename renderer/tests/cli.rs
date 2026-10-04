@@ -5419,6 +5419,10 @@ fn voller_lauf_mit_resume_raeumt_abgerissenes_weg() {
 /// wieder ausgeht, gleicht sein Inhalt wieder dem Stand. Trotzdem zeichnet
 /// ihn das nächste Update: Der Stand nennt ihn seit dem Lauf unbekannt, und
 /// der Baum gleicht einem vollen Lauf über die Welt von jetzt.
+///
+/// Welche Kacheln das Update vor dem Abbruch schreibt, hängt an der
+/// Reihenfolge der Threads. Eine geänderte Kachel setzt der Test darum
+/// selbst, aus einem vollen Lauf über die geänderte Welt.
 /// Siehe docs/benutzung/updates.md, „Der Stand“.
 #[test]
 fn zurueckgewechselter_chunk_wird_gezeichnet() {
@@ -5443,18 +5447,23 @@ fn zurueckgewechselter_chunk_wird_gezeichnet() {
             gelungen(&tiles(welt.path(), voll.path(), &extra));
             let basis = max_zoom(baum.path());
             let neu = kacheln(voll.path(), basis);
-            let (_, sperre) = kacheln(baum.path(), basis)
+            let anders: Vec<(PathBuf, PathBuf)> = kacheln(baum.path(), basis)
                 .into_iter()
-                .find(|(tile, pfad)| {
-                    neu.get(tile)
-                        .is_some_and(|n| std::fs::read(pfad).unwrap() != std::fs::read(n).unwrap())
+                .filter_map(|(tile, pfad)| {
+                    let n = neu.get(&tile)?;
+                    (std::fs::read(&pfad).unwrap() != std::fs::read(n).unwrap())
+                        .then(|| (pfad, n.clone()))
                 })
-                .expect("eine Basiskachel ändert sich");
-            std::fs::remove_file(&sperre).unwrap();
-            std::fs::create_dir(&sperre).unwrap();
+                .collect();
+            let [(sperre, _), (geschrieben, von), ..] = &anders[..] else {
+                panic!("nur {} Basiskacheln ändern sich", anders.len());
+            };
+            std::fs::remove_file(sperre).unwrap();
+            std::fs::create_dir(sperre).unwrap();
             let ausgabe = tiles(welt.path(), baum.path(), &["--scale", "12", "--update"]);
             assert!(!ausgabe.status.success(), "{fall}: kein Abbruch");
-            std::fs::remove_dir(&sperre).unwrap();
+            std::fs::remove_dir(sperre).unwrap();
+            std::fs::copy(von, geschrieben).unwrap();
         }
         // Kacheln zeigen jetzt Inhalt, den der Stand nicht kennt.
         let soll = schnappschuss(jetzt.path());

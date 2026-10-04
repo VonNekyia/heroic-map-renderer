@@ -98,8 +98,9 @@ die Bilder nach den Kacheln
   Element nimmt). Ein Bild aus der Leinwand ginge nur über `data:` oder
   `blob:`, und das verbietet die Content-Security-Policy.
 - **Bilder laden:** Der Skin lädt alle Bilder aus `bilder/` einmal, erst
-  wenn die Ebene der Kacheln zum ersten Mal `load` meldet und das Bild
-  danach gemalt ist, und mit `priority: 'low'`: Die Karte ist der Inhalt
+  wenn die Ebene der Kacheln zum ersten Mal `load` meldet und der Browser
+  eine Kachel als grösstes Element gemalt meldet (`nachDenKacheln`), und
+  mit `priority: 'low'`: Die Karte ist der Inhalt
   ([0073](entscheidungen/0073-bilder-nach-den-kacheln.md)).
   - Gezeichnet wird, sobald sie da sind; bewegt sich die Karte gerade, von
     `movestart` bis `moveend`, erst danach.

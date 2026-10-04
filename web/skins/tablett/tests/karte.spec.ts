@@ -242,7 +242,7 @@ test('die Bilder kommen aus bilder/ und liegen geglättet; kommen sie beim Ziehe
   expect(glatt).toBe(bilder);
 });
 
-test('die Bilder des Skins laden erst, wenn die erste Kachel da ist, und das Tablett blendet ein', async ({ page }) => {
+test('die Bilder des Skins laden erst, wenn die erste Kachel da und gemalt ist, und das Tablett blendet ein', async ({ page }) => {
   await welt(page, QUADRAT);
   await page.goto(DEMO);
   await expect.poll(() => gezeichnet(page)).toBe(true);
@@ -254,7 +254,21 @@ test('die Bilder des Skins laden erst, wenn die erste Kachel da ist, und das Tab
   expect(kacheln.length).toBeGreaterThan(0);
   expect(bilder.length).toBe(readdirSync(new URL('../bilder/', import.meta.url)).length);
   const ersteKachel = Math.min(...kacheln.map((a) => a.ende));
-  for (const { pfad, start } of bilder) expect(start, pfad).toBeGreaterThanOrEqual(ersteKachel);
+  // Gemalt: Die Kachel ist das grösste Element, sobald sie zu sehen ist.
+  // Begänne ein Bild davor, zählte Lighthouse es zum LCP.
+  const gemalt = await page.evaluate(
+    () =>
+      new Promise<number>((fertig) => {
+        new PerformanceObserver((liste) => {
+          const kachel = liste.getEntries().find((e) => (e as LargestContentfulPaint).url.includes('/tiles-demo/'));
+          if (kachel) fertig(kachel.startTime);
+        }).observe({ type: 'largest-contentful-paint', buffered: true });
+      }),
+  );
+  for (const { pfad, start } of bilder) {
+    expect(start, pfad).toBeGreaterThanOrEqual(ersteKachel);
+    expect(start, pfad).toBeGreaterThanOrEqual(gemalt);
+  }
   await expect(page.locator('canvas.tablett').first()).toHaveCSS('animation-name', 'tablett-einblenden');
 });
 

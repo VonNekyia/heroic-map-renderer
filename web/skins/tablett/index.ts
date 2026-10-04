@@ -256,11 +256,15 @@ const skin: Skin = (kontext) => {
   // Vorlage, ihre Mitte unter der Mitte der Karte. Weiter heraus geht es
   // nicht, und `maxBounds` ist dieses Fenster: Es zeigt den ganzen Tisch,
   // und auf jeder Stufe bleibt die Ansicht darin.
-  let fit = Number.NaN;
   const baue = (): void => {
     const groesse = karte.getSize();
-    const [alt, vorher] = [fit, karte.getZoom()];
-    fit = gesamtstufe(rahmen, maxZoom, groesse.x, groesse.y);
+    const fit = gesamtstufe(rahmen, maxZoom, groesse.x, groesse.y);
+    // Ein Fenster ohne Fläche, etwa ein verborgener Tab: Die Gesamtansicht
+    // kommt mit der ersten Grösse, beim nächsten `resize`.
+    if (Number.isNaN(fit)) return;
+    // Die kleinste Stufe bis jetzt: die letzte Gesamtansicht, vor der ersten
+    // die der Grundkarte.
+    const [alt, vorher] = [karte.getMinZoom(), karte.getZoom()];
     // Ein Pixel des Bildschirms in Pixeln der feinsten Stufe in der Gesamtansicht.
     const f = 2 ** (maxZoom - fit);
     const [mx, my] = gesamtmitte(area, seaLevel, kontext, groesse.x * f, groesse.y * f);

@@ -487,6 +487,12 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   112 px ohne Holz und Gegenstände.
 - **Zwei Stile:** Am Rand der Vorlage läuft der gemalte, geglättete Tisch
   in den Marmor als Pixelkunst aus, bis die Szene kommt.
+- **`devicePixelRatio` über 1:** Die Leinwände haben die Grösse des
+  Fensters in CSS-Pixeln. Bei einem Verhältnis über 1, auch bei 1,25 oder
+  1,5 unter Windows, zieht der Browser sie geglättet auf Gerätepixel hoch.
+  Die Blöcke des Marmors kommen dort mit weichen Kanten an, obwohl die
+  Leinwand sie scharf malt. Leinwände in Gerätepixeln kommen mit der
+  gerenderten Szene.
 
 ## Tests
 

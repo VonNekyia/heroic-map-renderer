@@ -66,4 +66,7 @@ verwischte geglättet beim Hineinzoomen.
 - Am Rand der Vorlage läuft der gemalte, geglättete Tisch in Pixelkunst
   aus: zwei Stile nebeneinander, bis die Szene kommt.
 - Bei krummen Faktoren sind Blöcke um 1 px ungleich breit.
+- Bei `devicePixelRatio` über 1 zieht der Browser die Leinwand geglättet
+  auf Gerätepixel hoch; dort kommen die Blöcke mit weichen Kanten an, bis
+  die Leinwände in Gerätepixeln malen.
 - Wer die Bilder neu schneidet, ändert den Marmor nicht.

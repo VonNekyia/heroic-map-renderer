@@ -104,6 +104,11 @@ der ganzen Testwelt höchstens 20 Familien dazu, auf der grossen Welt mit
 Obergrenze braucht es damit nicht. Gemessen in
 [2026-09-28, Blockentities](../messungen/2026-09-28-blockentities.md).
 
+Ein voller Lauf über die ganze Welt legt den Stand für `--update` ab; das
+kostet an der Testwelt 5,5 % mehr, fast alles im Vorlauf. Ein Update ohne
+Änderung braucht dort eine halbe Sekunde, siehe [Updates](updates.md),
+„Kosten“.
+
 Unter Windows hängt die Dauer stark am Echtzeitschutz, siehe
 [Echtzeitschutz](echtzeitschutz.md); gemessen ist in einem Ordner, den er
 auslässt. Mit Grafikkarte zeichnet die Karte, siehe

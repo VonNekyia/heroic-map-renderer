@@ -9,6 +9,7 @@ pub mod pyramid;
 pub mod rasterizer;
 pub mod sonne;
 pub mod sprites;
+pub mod stand;
 pub mod tiles;
 pub mod tint;
 
@@ -22,7 +23,7 @@ pub use pyramid::{MapInfo, ProjectionInfo, depth, merge, parents, shrink};
 pub use rasterizer::{Sprite, render};
 pub use sprites::{Cell, OWN_CELL, SpriteId, SpriteSet};
 pub use tiles::{
-    Reach, Survey, TILE, TileId, corner_tiles, covering, decode_webp, encode_webp, snap_to_grid,
-    snap_to_tiles, survey, survey_in, world_box,
+    Flaeche, Gebiet, Reach, Survey, TILE, TileId, corner_tiles, covering, decode_webp, encode_webp,
+    gebiet_der_aenderungen, snap_to_grid, snap_to_tiles, survey, survey_in, world_box,
 };
 pub use tint::{BLEND_DEFAULT, BLEND_MAX, BiomeTable};

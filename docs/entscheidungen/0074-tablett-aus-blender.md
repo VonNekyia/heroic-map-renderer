@@ -60,7 +60,7 @@ Vom Maintainer: feste Bilder im Repository. Vom Reviewer festgelegt:
 - **Mit der Lieferung** gelten die gerenderten Bilder in allen Kameras
   zugleich; gemischt je Kamera wird nicht.
 
-Vom User am 04.10. nach dem Vorschlag des Frontends, über den Reviewer:
+Vom Maintainer am 04.10. nach dem Vorschlag des Frontends, über den Reviewer:
 
 1. **Die Stufe der Gesamtansicht** bleibt nach
    [0067](0067-gesamtansicht-zwischen-zwei-stufen.md): 92,5 % und die Regel
@@ -116,7 +116,7 @@ Das sind 260 Fälle. So oft hat eine Stufe ein ganzes n:
 - **Unter Faktor 1** liegt die Gesamtansicht etwa auf Telefonen mit
   `devicePixelRatio` 1 bis 1,5.
 
-Die Zahlen „33 %“ und „58 %“ im Vorschlag an den User rechneten ohne die
+Die Zahlen „33 %“ und „58 %“ im Vorschlag an den Maintainer rechneten ohne die
 Bedingung, nie unter der Stufe zu liegen, auf die Leaflet einpasst. Mit ihr
 sind es 24 %.
 

@@ -5368,9 +5368,10 @@ fn resume_mit_anderen_assets_schreibt_keinen_stand() {
 
 /// Ein voller Lauf über einen Baum mit Stand bricht ab und geht mit
 /// `--resume` weiter: Auch dann verschwinden die Kacheln über dem
-/// abgerissenen Turm, und der Baum gleicht einem neuen. Die Kacheln vor dem
-/// Abbruch sind gealtert; ältere als der angefangene Stand zeichnet das
-/// Fortsetzen neu.
+/// abgerissenen Turm, und der Baum gleicht einem neuen. Eine Kachel, die
+/// der abgebrochene Lauf nicht mehr schrieb, ist älter als sein
+/// angefangener Stand und zeigt noch den Turm; das Fortsetzen zeichnet sie
+/// neu.
 #[test]
 fn voller_lauf_mit_resume_raeumt_abgerissenes_weg() {
     let extra = ["--scale", "12"];
@@ -5378,26 +5379,33 @@ fn voller_lauf_mit_resume_raeumt_abgerissenes_weg() {
     baue_aenderungen(welt.path());
     let baum = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), baum.path(), &extra));
-    altern(baum.path());
     baue_update_welt(welt.path(), mit_dach, &GEAENDERT, 3);
     let neu = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), neu.path(), &extra));
     assert!(schnappschuss(baum.path()) != schnappschuss(neu.path()));
 
-    // Der volle Lauf scheitert an einer Basiskachel, die er neu schreibt.
+    // Der volle Lauf scheitert an einer Basiskachel, die er neu schreibt;
+    // eine zweite steht danach wieder so da wie vor ihm.
     let basis = max_zoom(baum.path());
     let soll = kacheln(neu.path(), basis);
-    let (_, sperre) = kacheln(baum.path(), basis)
+    let anders: Vec<PathBuf> = kacheln(baum.path(), basis)
         .into_iter()
-        .find(|(tile, pfad)| {
+        .filter(|(tile, pfad)| {
             soll.get(tile)
                 .is_some_and(|s| std::fs::read(pfad).unwrap() != std::fs::read(s).unwrap())
         })
-        .expect("eine Basiskachel ändert sich");
-    std::fs::remove_file(&sperre).unwrap();
-    std::fs::create_dir(&sperre).unwrap();
+        .map(|(_, pfad)| pfad)
+        .collect();
+    let [sperre, alt, ..] = &anders[..] else {
+        panic!("nur {} Basiskacheln ändern sich", anders.len());
+    };
+    let vorher = std::fs::read(alt).unwrap();
+    std::fs::remove_file(sperre).unwrap();
+    std::fs::create_dir(sperre).unwrap();
     assert!(!tiles(welt.path(), baum.path(), &extra).status.success());
-    std::fs::remove_dir(&sperre).unwrap();
+    std::fs::remove_dir(sperre).unwrap();
+    std::fs::write(alt, vorher).unwrap();
+    setze_zeit(alt, SystemTime::now() - Duration::from_secs(3600));
     gelungen(&tiles(
         welt.path(),
         baum.path(),

@@ -243,7 +243,11 @@ hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
   Zeile des Texels; auf schrägen Flächen je Pixel.
 - **Je Sprite vorab (#118):** Der Punkt ohne den Block hängt nur am Sprite
   und am Pixel. `startpunkte` rechnet ihn beim ersten Draw eines Sprites für
-  alle Pixel (`Sprite::start`), 24 Byte je Pixel. Je Draw kommen nur der
+  alle Pixel (`Sprite::start`), 24 Byte je Pixel. Zeichnet ein Lauf jedes
+  Sprite, sind das an der Testwelt bis 60 MB, an der grossen Welt in 8:5 bis
+  221 MB bei scale 32 und 57 MB bei scale 16, siehe
+  [Hebel 3 und 4](../messungen/2026-10-04-hebel-3-und-4.md), „Obergrenze
+  für `Sprite::start`“. Je Draw kommen nur der
   Block und das Tausendstel dazu, in derselben Reihenfolge wie vorher:
   `anker + p + normale · 10⁻³`, sonst rundete f64 anders. Der Debug-Build
   rechnet je Draw nach. Gemessen in

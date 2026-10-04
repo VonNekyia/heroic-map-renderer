@@ -8,7 +8,8 @@
  */
 import type { Grenzen, Rechteck, Skin } from 'heroic-map-renderer/skin-api';
 import L from 'leaflet';
-import { type Figur, gesamtmitte, gesamtstufe, grenzen, tablett, type Teil } from './tablett';
+import { PERGAMENT } from './bilder';
+import { type Figur, gesamtmitte, gesamtstufe, grenzen, tablett, type Teil, vorlageImBild } from './tablett';
 import { type Bilder, ebenen as malen } from './zeichnen';
 import './tablett.css';
 
@@ -20,8 +21,8 @@ const UEBERSTAND = 0.25;
 
 /**
  * Die Ecken der UI und wohin jede ausweicht, deckte sie in der
- * Gesamtansicht einen Gegenstand oder eine Lilie: entlang ihres Rands, zur
- * Mitte hin. Siehe docs/tablett.md, „UI“.
+ * Gesamtansicht einen Gegenstand, eine Lilie oder das Pergament: entlang
+ * ihres Rands, zur Mitte hin. Siehe docs/tablett.md, „UI“.
  */
 const AUSWEICHEN = [
   { ecke: '.leaflet-top.leaflet-left', x: 0, y: 1 },
@@ -183,12 +184,13 @@ const skin: Skin = (kontext) => {
     if (!g || g.zoom !== karte.getZoom() || !drin) void zeichne();
   };
 
-  // Gegenstände und Lilien in der Gesamtansicht, in Pixeln des Fensters.
+  // Gegenstände, Lilien und das Pergament in der Gesamtansicht, in Pixeln des Fensters.
   let dinge: Grenzen[] = [];
   /**
    * Schiebt jede Ecke der UI so weit entlang ihres Rands, dass sie in der
    * Gesamtansicht nichts davon deckt; passt sie dann nicht mehr ins Fenster,
-   * bleibt sie, wo sie ist.
+   * bleibt sie, wo sie ist. Es zählt, was man sieht, ohne den Abstand der
+   * Ecke zum Rand des Fensters.
    */
   const weiche = (): void => {
     const da = container.getBoundingClientRect();
@@ -196,8 +198,14 @@ const skin: Skin = (kontext) => {
       const element = container.querySelector<HTMLElement>(ecke);
       if (!element) continue;
       element.style.transform = '';
-      const r = element.getBoundingClientRect();
-      const [links, oben, rechts, unten] = [r.left - da.left, r.top - da.top, r.right - da.left, r.bottom - da.top];
+      const sichtbar = [...element.children].map((kind) => kind.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
+      if (sichtbar.length === 0) continue;
+      const [links, oben, rechts, unten] = [
+        Math.min(...sichtbar.map((r) => r.left)) - da.left,
+        Math.min(...sichtbar.map((r) => r.top)) - da.top,
+        Math.max(...sichtbar.map((r) => r.right)) - da.left,
+        Math.max(...sichtbar.map((r) => r.bottom)) - da.top,
+      ];
       const trifft = (d: number) =>
         dinge.find(([l, o, re, u]) => l - ABSTAND < rechts + d * x && re + ABSTAND > links + d * x && o - ABSTAND < unten + d * y && u + ABSTAND > oben + d * y);
       let d = 0;
@@ -256,6 +264,12 @@ const skin: Skin = (kontext) => {
         const ecke: [number, number] = [fuss[0] - mass * anker[0], fuss[1] - mass * anker[1]];
         return [...imFenster(ecke), ...imFenster([ecke[0] + mass * g[0], ecke[1] + mass * g[1]])] as Grenzen;
       });
+    // Dazu das Pergament, flach im Tisch.
+    const [l, o, r, u] = PERGAMENT;
+    const pergament = ([[l, o], [r, o], [l, u], [r, u]] as const).map((p) => imFenster(vorlageImBild(area, seaLevel, kontext, [...p])));
+    const xs = pergament.map((p) => p[0]);
+    const ys = pergament.map((p) => p[1]);
+    dinge.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
     weiche();
   };
   karte.whenReady(baue);

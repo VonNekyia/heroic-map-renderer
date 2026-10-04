@@ -408,17 +408,24 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   Pergament 6,4:1, Messing auf Holz 8,2:1, unter Zeiger oder Fokus 5,9:1.
   Der Rand um eine Eingabe, die nicht taugt, 4,2:1 gegen das Pergament.
   Gesperrte Knöpfe nimmt WCAG aus; ihr Messing hat 2,2:1.
-- **Platz:** In der Gesamtansicht deckt die UI keinen Gegenstand und keine
-  Lilie (#120, issuecomment-5976163815, Befund 4). Jede der vier Ecken von
-  Leaflet weicht dazu entlang ihres Rands aus, mit 8 px Abstand (`weiche`
-  in [`index.ts`](../web/skins/tablett/index.ts)):
-  - die Knöpfe oben links nach unten, unter die Bücher;
+- **Platz:** In der Gesamtansicht deckt die UI keinen Gegenstand, keine
+  Lilie und nicht das Pergament (#120, issuecomment-5976163815, Befund 4;
+  #135, issuecomment-5976899037, Befund 1). Jede der vier Ecken von Leaflet
+  weicht dazu entlang ihres Rands aus, mit 8 px Abstand (`weiche` in
+  [`index.ts`](../web/skins/tablett/index.ts)):
+  - die Knöpfe oben links nach unten, unter Bücher und Pergament; im
+    Bezugsrahmen liegen sie auf dem Marmor zwischen Pergament und
+    Holzrand, links der linken Ecke des Tabletts;
   - Kompass und Umschalter oben rechts nach links, neben die Kerze;
   - Leiste und Stand unten zur Mitte hin, neben Sphäre und Kompass.
   - Gerechnet wird beim Laden und bei jeder neuen Fenstergrösse, aus der
     Lage der Bilder in der Gesamtansicht, und wenn eine Ecke wächst, etwa
-    die Leiste mit den Koordinaten. Wo nichts deckt, bleibt eine Ecke, wo
-    Leaflet sie hinlegt; passte sie verschoben nicht ins Fenster, auch.
+    die Leiste mit den Koordinaten. Das Pergament liegt flach im Bild des
+    Tischs; sein Rechteck nennt `PERGAMENT` in
+    [`bilder.ts`](../web/skins/tablett/bilder.ts), `vorlageImBild` bringt
+    es ins Bild. Es zählt die sichtbare UI, ohne den Abstand der Ecke zum
+    Rand des Fensters. Wo nichts deckt, bleibt eine Ecke, wo Leaflet sie
+    hinlegt; passte sie verschoben nicht ins Fenster, auch.
   - Hineingezoomt bleibt die UI, wo sie ist; die Gegenstände wandern mit
     dem Tisch.
 - **Ohne Tablett,** etwa bei einem `area`, das kein Quadrat ist, bleibt auch
@@ -506,7 +513,9 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   Umschalter; der gesperrte Knopf aus Holz; der Rand aus Messing als
   Verlauf, eckig; per Tastatur der Fokus innen, 2 px, mit 3:1 gegen den
   eigenen Grund, an einem Knopf und an der Leiste; in der Gesamtansicht
-  deckt die UI keinen Gegenstand, in Fenstern von Telefonen bis 4K.
+  deckt die UI keinen Gegenstand und nicht das Pergament, in Fenstern von
+  Telefonen bis 4K; im Bezugsrahmen liegt der Zoom auf dem Marmor zwischen
+  Pergament und Holzrand.
 - [`tests/auslagern.spec.ts`](../web/skins/tablett/tests/auslagern.spec.ts)
   baut die Karte mit einer Kopie des Skins aus einem Ordner ausserhalb des
   Repositorys.

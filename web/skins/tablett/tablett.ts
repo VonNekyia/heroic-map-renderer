@@ -141,6 +141,11 @@ function masse(area: Rechteck, k: number) {
   return { x0, z0, x1, z1, kante, w, D: MASS.tiefe * w, pfeiler: MASS.pfeiler * w };
 }
 
+/** Ein Punkt (s, t) der Platte, wie `aufDiePlatte` ihn gibt, im Blick; Höhen ab dem Wasserspiegel. */
+function aufDerPlatte({ x0, z0, x1, z1, kante, D }: ReturnType<typeof masse>, [s, t]: Punkt): Vektor {
+  return [(x0 + x1) / 2 + ((s + t) / 2) * kante, -D, (z0 + z1) / 2 + ((t - s) / 2) * kante];
+}
+
 /**
  * Pixel der feinsten Stufe je Pixel der Vorlage: die Breite der Karte im
  * Bild zu ihrer Breite in der Vorlage. So gross stehen Lilien und
@@ -251,6 +256,12 @@ export function aufDiePlatte([px, py]: Punkt): Punkt {
   return [(2 * (px - mx)) / BREITE_VORLAGE, ((2 * u * (py - my)) / BREITE_VORLAGE - MASS.tiefe * RAND * y) / v];
 }
 
+/** Ein Pixel der Vorlage auf der Platte im Bild, in Pixeln der feinsten Stufe, in jeder Kamera. */
+export function vorlageImBild(area: Rechteck, meer: number, { k, projiziere }: Blick, punkt: Punkt): Punkt {
+  const [x, y, z] = aufDerPlatte(masse(area, k), aufDiePlatte(punkt));
+  return projiziere(x, y + meer, z);
+}
+
 /**
  * Die Mitte der Gesamtansicht in Pixeln der feinsten Stufe für ein Fenster,
  * das `breite` × `hoehe` Pixel der feinsten Stufe zeigt: wie in der Vorlage
@@ -284,7 +295,8 @@ export function tablett(
   { projektion: p, k, projiziere }: Blick,
   texte: Readonly<Record<string, string>> = {},
 ): Teil[] {
-  const { x0, z0, x1, z1, kante, w, D, pfeiler } = masse(area, k);
+  const m = masse(area, k);
+  const { x0, z0, x1, z1, kante, w, D, pfeiler } = m;
   const genordet = p.azimuth === 'north';
   const mass = vorlageMass([x0, z0, x1, z1], meer, projiziere);
 
@@ -340,8 +352,7 @@ export function tablett(
   // beiden, das Gelände nie verdecken kann: So deckt es den Schnitt der
   // Welt, wie tief er auch reicht. Siehe docs/tablett.md, „Bilder aus der
   // Vorlage“ und „Vor und hinter der Welt“.
-  const [cx, cz] = [(x0 + x1) / 2, (z0 + z1) / 2];
-  const ort = ([s, t]: Punkt): Vektor => [cx + ((s + t) / 2) * kante, -D, cz + ((t - s) / 2) * kante];
+  const ort = (punkt: Punkt): Vektor => aufDerPlatte(m, punkt);
   /** Das Rechteck der Platte unter dem Rechteck der Vorlage von `von` bis `bis`, mit diesem Bild. */
   const platte = (von: Punkt, bis: Punkt, name: string): Flaeche[] => {
     const [[s0, t0], [s1, t1]] = [aufDiePlatte(von), aufDiePlatte(bis)];

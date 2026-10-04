@@ -40,7 +40,10 @@ Festgelegt am 04.10. mit der PR zur UI (#112):
 - **Neben den Gegenständen,** nach Befund 4 des Reviews zu #120
   (issuecomment-5976163815): In der Gesamtansicht weicht jede Ecke der UI
   Gegenständen und Lilien entlang ihres Rands aus, gerechnet aus der Lage
-  ihrer Bilder.
+  ihrer Bilder. Nach Befund 1 des Reviews zu #135 (issuecomment-5976899037)
+  auch dem Pergament: Es liegt flach im Tisch, ist aber ein Gegenstand der
+  Vorlage. Der Zoom liegt so im Bezugsrahmen auf dem Marmor zwischen
+  Pergament und Holzrand.
 
 ## Verworfene Alternativen
 

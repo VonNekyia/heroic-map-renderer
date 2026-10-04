@@ -3,7 +3,8 @@ import type { Rechteck } from 'heroic-map-renderer/skin-api';
 import { readdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { kamera, projiziere } from '../../../tests/kamera';
-import { type Figur, gesamtmitte, gesamtstufe, grenzen, GRUND, tablett } from '../tablett';
+import { PERGAMENT, TISCH_RAND, VORLAGE } from '../bilder';
+import { type Figur, type Flaeche, gesamtmitte, gesamtstufe, grenzen, GRUND, tablett } from '../tablett';
 
 /** Der Demobaum der Grundkarte: 2:1, scale 16, feinste Stufe 2. */
 const DEMO = '/?tiles=/tiles-demo';
@@ -520,12 +521,21 @@ test('in der Gesamtansicht deckt die UI keinen Gegenstand und keine Lilie, in 8:
     const s = 2 ** (fit - 2);
     const [mx, my] = gesamtmitte(QUADRAT.area, QUADRAT.seaLevel, blick, breite / s, hoehe / s);
     const imFenster = (px: number, py: number) => [(px - mx) * s + breite / 2, (py - my) * s + hoehe / 2];
-    const dinge = tablett(QUADRAT.area, QUADRAT.seaLevel, -64, blick)
+    const teile = tablett(QUADRAT.area, QUADRAT.seaLevel, -64, blick);
+    const dinge = teile
       .filter((t): t is Figur => t.form === 'figur')
       .map(({ bild, fuss, anker, mass, groesse }) => {
         const [l, o] = imFenster(fuss[0] - mass * anker[0], fuss[1] - mass * anker[1]);
         return { bild, l: l!, o: o!, r: l! + mass * groesse[0] * s, u: o! + mass * groesse[1] * s };
       });
+    // Das Pergament liegt flach im Bild des Tischs, dort, wo dieses es zeigt.
+    const tisch = teile.find((t): t is Flaeche => t.form === 'flaeche' && t.bild === 'tisch')!;
+    const imTisch = (px: number, py: number) => {
+      const [u, v] = [(px + TISCH_RAND) / (VORLAGE[0] + 2 * TISCH_RAND), (py + TISCH_RAND) / (VORLAGE[1] + 2 * TISCH_RAND)];
+      return imFenster(tisch.o[0] + u * tisch.a[0] + v * tisch.b[0], tisch.o[1] + u * tisch.a[1] + v * tisch.b[1]);
+    };
+    const [[pl, po], [pr, pu]] = [imTisch(PERGAMENT[0], PERGAMENT[1]), imTisch(PERGAMENT[2], PERGAMENT[3])];
+    dinge.push({ bild: 'pergament', l: pl!, o: po!, r: pr!, u: pu! });
     const ui = await page.locator('.leaflet-control').evaluateAll((elemente: HTMLElement[]) =>
       elemente.map((e) => {
         const { left, top, right, bottom } = e.getBoundingClientRect();
@@ -540,4 +550,22 @@ test('in der Gesamtansicht deckt die UI keinen Gegenstand und keine Lilie, in 8:
       }
     }
   }
+});
+
+test('im Bezugsrahmen liegt der Zoom links auf dem Marmor zwischen Pergament und Holzrand', async ({ page }) => {
+  // 8:5 aus se im Fenster der Vorlage, mit einer Welt, deren Rahmen es zu
+  // 92,5 % füllt: Dort ist ein Pixel der Vorlage ein Pixel des Fensters,
+  // siehe den Test zum Bezugsrahmen in tablett.spec.ts. Kacheln gibt es für
+  // diese Welt nicht; ihre Ebene meldet trotzdem `load`.
+  const weit = 1e6;
+  await welt(page, { seaLevel: 0, area: [-3200, -3200, 3200, 3200], maxZoom: 11, bounds: [-weit, -weit, weit, weit], projection: kamera('8:5', 16), direction: 'se' });
+  await page.setViewportSize({ width: VORLAGE[0], height: VORLAGE[1] });
+  await page.goto(DEMO);
+  await expect.poll(() => gezeichnet(page)).toBe(true);
+  const zoom = (await page.locator('.leaflet-control-zoom').boundingBox())!;
+  // Das Pergament endet bei y = 428; der Holzrand des Tischs beginnt am
+  // linken Rand bei y = 533 und fällt nach rechts um 0,67 px je Pixel,
+  // gemessen in der Vorlage.
+  expect(zoom.y).toBeGreaterThanOrEqual(PERGAMENT[3]);
+  expect(zoom.y + zoom.height).toBeLessThanOrEqual(533 + 0.67 * zoom.x);
 });

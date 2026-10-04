@@ -150,8 +150,8 @@ Hebel 3 ist nicht übernommen. Beides siehe
 
 Die grosse Welt hat 2,5 Millionen Chunks und bei scale 32 rund 2,5
 Millionen Basiskacheln. Ganz gemessen sind die Vollrender mit #11, mit #21,
-mit #49 und mit Cinematic, alle mit Live-Ansicht nebenher; die übrigen
-Zahlen sind aus Ausschnitten hochgerechnet:
+mit #49 und zweimal mit Cinematic, alle mit Live-Ansicht nebenher; die
+übrigen Zahlen sind aus Ausschnitten hochgerechnet:
 
 | Stand | Grösse | Dauer | | Messung |
 |---|---|---|---|---|
@@ -167,6 +167,7 @@ Zahlen sind aus Ausschnitten hochgerechnet:
 | #59, native Stufen in Bändern, drei native Stufen | wie mit #49 | 76 bis 79 min: native Stufen 31 bis 34 statt 50 | hochgerechnet | [2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md) |
 | #73, Cinematic, drei native Stufen | rund 184 bis 198 GB, 2 % weniger bis 5 % mehr | rund 3,0 bis 5,2 h: Basis 2,0 bis 3,4 h, native Stufen 1,1 bis 1,8 h | hochgerechnet | [2026-10-03, Cinematic mit Sonne](../messungen/2026-10-03-cinematic-mit-sonne.md) |
 | `4d1abbc`, Cinematic, 8:5, eine native Stufe, Rechteck aus 1564 × 1564 Chunks | 222,8 GB: Basis 165,5, native Stufe 41,3, Pyramide 16,0 | 5 h 26 min: Basis 3 h 58 min, native Stufe 1 h 26 min; ohne Live-Ansicht Basis rund 7 % kürzer | gemessen | [2026-10-04, Vollrender mit Cinematic](../messungen/2026-10-04-vollrender-cinematic.md) |
+| `f7b9ba3`, Cinematic, 4:3, scale 24, ohne native Stufe, dasselbe Rechteck | 160,2 GB: Basis 117,0, Pyramide 43,3 | 2 h 43 min: Basis 2 h 40 min, Pyramide 74 s; das Frontend baute nebenher | gemessen | [2026-10-04, Vollrender 4:3](../messungen/2026-10-04-vollrender-4x3.md) |
 
 Die Grössen sind Summen der Dateigrössen. Belegt ist auf NTFS mit Clustern
 zu 4 KiB mehr: beim Lauf mit #21 rund 194 GB, davon 6,8 GB Verschnitt und

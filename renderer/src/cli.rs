@@ -1261,13 +1261,13 @@ fn write_tiles(
             world.stempel()?,
             (
                 fingerabdruck_des_renderers()?,
-                fingerabdruck_der_dateien(wurzeln)?,
+                fingerabdruck_der_dateien(wurzeln),
             ),
         ),
         None => (BTreeMap::new(), (0, 0)),
     };
     let fortgesetzt = match art {
-        Some(art) if resume => fortzusetzen(dir, art)?,
+        Some(art) if resume => fortzusetzen(dir, art, abdruecke)?,
         _ => None,
     };
     let (gebiet, stand, aenderungen) = match bereich {
@@ -1305,7 +1305,7 @@ fn write_tiles(
         (Some(_), true) => fortgesetzt.map(|(stand, _)| stand).or_else(|| {
             println!(
                 "Stand:      ohne angefangenen Stand ({STAND_NEU}); dieser Lauf schreibt keinen, \
-                 --update braucht danach einen vollen Lauf"
+                 das nächste --update zeichnet sein Gebiet noch einmal"
             );
             None
         }),
@@ -1326,7 +1326,7 @@ fn write_tiles(
     if mit_inhalt {
         reach = reach.mit_inhalt();
     }
-    let mut survey = survey_in(world, reach)?;
+    let mut survey = survey_in(world, reach.clone())?;
     println!(
         "\nVorlauf:    {} Chunks in {:.1} s, {} Blockstates, {} Kacheln",
         survey.chunks,
@@ -1364,9 +1364,9 @@ fn write_tiles(
         stand => stand,
     };
     // Ein voller Lauf über einen Baum mit Stand weiss wie ein Update, welche
-    // Chunks sich geändert haben.
+    // Chunks sich geändert haben, auch mit --resume.
     let aenderungen = match (aenderungen, &stand) {
-        (None, Some(neu)) if mit_inhalt => lies_stand(&dir.join(STAND))
+        (None, Some(neu)) if matches!(bereich, Bereich::Welt) => lies_stand(&dir.join(STAND))
             .ok()
             .flatten()
             .map(|alt| neu.aenderungen_seit(&alt, Y_RANGE.1)),
@@ -1498,6 +1498,18 @@ fn write_tiles(
     )?;
     // Ab jetzt lässt sich der Baum wählen, auch während seines ersten Laufs.
     schreibe_baeume(wurzel)?;
+    // Was dieser Lauf zeichnen kann, nennt der alte Stand ab jetzt
+    // unbekannt: Bricht er ab, zeigen Kacheln vielleicht, was der Stand
+    // nicht kennt. Ein voller Lauf liest alles.
+    // Siehe docs/benutzung/updates.md, „Der Stand“.
+    if let Some(alt) = lies_stand(&dir.join(STAND)).ok().flatten() {
+        let alt = alt.unbekannt_wo(
+            &world.stempel()?,
+            |cx, cz| reach.liest(cx, cz),
+            |rx, rz| reach.region(rx, rz),
+        );
+        lege_stand_ab(&dir.join(STAND), &alt)?;
+    }
     // Der angefangene Stand, ebenso vor der ersten Kachel: Bricht der Lauf
     // ab, setzt --resume mit ihm fort. Ein Fortsetzen behält den alten,
     // seine Zeit sagt, welche Kacheln aus dem abgebrochenen Lauf stammen.
@@ -1548,16 +1560,21 @@ fn write_tiles(
     // in der Liste der Basis steht, ausser den frischen Kacheln (`frische`).
     // Siehe docs/benutzung/kacheln.md, „Wann entfernt wird“.
     // Ein Update behält nur, was der abgebrochene Lauf schrieb: die Kacheln
-    // seit seinem angefangenen Stand. Ohne den keine.
+    // seit seinem angefangenen Stand, ohne den keine. Ebenso ein voller Lauf
+    // mit angefangenem Stand: Ältere Kacheln zeigen einen älteren Stand.
     let bleiben: BTreeSet<TileId> = match &zeiten {
         Some(zeiten) => {
             let frisch = frische(zeiten, gelistet);
+            let seit_dem_stand = |tile: &TileId| {
+                fortgesetzt_seit
+                    .is_some_and(|seit| zeiten.get(tile).is_some_and(|&zeit| zeit >= seit))
+            };
             basis
                 .iter()
                 .filter(|tile| !frisch.contains(tile))
                 .filter(|tile| match bereich {
-                    Bereich::Update => fortgesetzt_seit
-                        .is_some_and(|seit| zeiten.get(tile).is_some_and(|&zeit| zeit >= seit)),
+                    Bereich::Update => seit_dem_stand(tile),
+                    Bereich::Welt if fortgesetzt_seit.is_some() => seit_dem_stand(tile),
                     _ => true,
                 })
                 .copied()
@@ -1790,14 +1807,25 @@ fn stand_fuer_update(dir: &Path, abdruecke: (u64, u64)) -> Result<Stand> {
     Ok(stand)
 }
 
-/// Der angefangene Stand eines abgebrochenen Laufs derselben Art, mit der
-/// Zeit, zu der er geschrieben wurde: Jede Kachel ab da stammt aus jenem
-/// Lauf.
-fn fortzusetzen(dir: &Path, art: Art) -> Result<Option<(Stand, SystemTime)>> {
+/// Der angefangene Stand eines abgebrochenen Laufs derselben Art, desselben
+/// Builds und derselben Assets (`abdruecke`), mit der Zeit, zu der er
+/// geschrieben wurde: Jede Kachel ab da stammt aus jenem Lauf.
+fn fortzusetzen(
+    dir: &Path,
+    art: Art,
+    abdruecke: (u64, u64),
+) -> Result<Option<(Stand, SystemTime)>> {
     let pfad = dir.join(STAND_NEU);
     let Some(stand) = lies_stand(&pfad)? else {
         return Ok(None);
     };
+    if (stand.renderer, stand.assets) != abdruecke {
+        println!(
+            "Stand:      {} stammt von einem anderen Build des Renderers oder anderen Assets",
+            pfad.display()
+        );
+        return Ok(None);
+    }
     if stand.art != art {
         let war = match stand.art {
             Art::Voll => "ein voller Lauf",

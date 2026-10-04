@@ -62,8 +62,19 @@ Jeder Baum hat seinen Stand in `stand.bin` neben `map.json`. Ihn schreibt
 nur ein voller Lauf über die ganze Welt oder ein Update, und zwar ganz am
 Ende, nach `map.json`; getauscht wie jede Datei, siehe
 [0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md).
-Ein Ausschnitt schreibt keinen. Bricht ein Lauf vorher ab, gilt der alte
-Stand, und das nächste Update zeichnet dieselben Stellen noch einmal.
+Ein Ausschnitt schreibt keinen.
+
+Kacheln ohne neuen Stand zeichnen ein Ausschnitt, ein Lauf, der abbricht,
+und einer mit `--resume`, der keinen Stand schreibt. Damit `stand.bin` nie
+einen Inhalt nennt, den eine Kachel vielleicht nicht zeigt, macht jeder
+Lauf vor der ersten Kachel im alten Stand unbekannt, was er zeichnen kann:
+jeden Chunk, den er liest, auch für einen Strahl zur Sonne, samt seinen
+acht Nachbarn; ein voller Lauf also alle (`Stand::unbekannt_wo`). Das gilt
+für jeden Chunk, den der Stand kennt oder der jetzt in der Welt steht. Das
+nächste Update zeichnet dieses Gebiet über die volle Höhe noch einmal, auch
+wenn ein Chunk darin wieder seinen alten Inhalt hat, wie ein Ofen, der
+wieder ausgeht (`zurueckgewechselter_chunk_wird_gezeichnet`, nach einem
+abgebrochenen Update und nach einem Ausschnitt).
 
 Der Stand enthält die Stempel, wie sie zu Beginn des Laufs waren, vor dem
 Vorlauf gelesen. Schreibt der Server einen Chunk während des Laufs, liest
@@ -92,7 +103,9 @@ Zwei Stufen, damit ein Update nicht jeden Chunk dekodiert:
 1. **Der Stempel** aus dem Kopf der Regionsdatei, `Region::stempel` in
    [`renderer/src/world/region.rs`](../../renderer/src/world/region.rs): die
    Zeit in Sekunden und der Eintrag der Tabelle mit Sektor und Länge. Der
-   Lauf liest nur die zwei Sektoren des Kopfs je Region. Gleicht der Stempel
+   Lauf liest nur die zwei Sektoren des Kopfs je Region; ist die Datei
+   kürzer, etwa weil der Server sie eben anlegt, gilt der Rest als leer.
+   Gleicht der Stempel
    dem im Stand, gilt der Chunk als gleich, ohne dass er gelesen wird.
    Verglichen wird auf Gleichheit, nicht auf später; die Uhren von Server und
    Renderer spielen so keine Rolle, und eine kopierte Welt behält ihre
@@ -112,10 +125,20 @@ ihm und keinem Chunk ändert sich darum nichts.
 
 Belegt per javap an `RegionFile` aus dem Client 26.2 und aus Paper 26.3:
 
-- **`write`** legt den Chunk in neue Sektoren, setzt danach den Eintrag der
-  Tabelle und die Zeit (`getTimestamp`: `Util.getEpochMillis` durch 1000)
-  und schreibt dann den Kopf. Wer den Kopf liest, findet zu einem neuen
-  Eintrag also schon die neuen Daten.
+- **Der Konstruktor** liest den Kopf in einen Puffer von 8192 Byte voller
+  Nullen (`ByteBuffer.allocateDirect`). Ist die Datei kürzer, warnt er
+  „Region file {} has truncated header“ und nimmt den Rest als leer.
+  `Region::stempel` tut dasselbe.
+- **`write`** legt einen Chunk in der Regionsdatei in neue Sektoren, setzt
+  danach den Eintrag der Tabelle und die Zeit (`getTimestamp`:
+  `Util.getEpochMillis` durch 1000) und schreibt dann den Kopf. Wer den Kopf
+  liest, findet zu einem neuen Eintrag also schon die neuen Daten.
+- **Ausgelagerte Chunks,** ab 256 Sektoren: `write` schreibt die Daten
+  zuerst in eine temporäre Datei, dann einen Stummel in die Regionsdatei
+  und den Kopf. Erst danach verschiebt der `CommitOp` die temporäre Datei
+  nach `c.<x>.<z>.mcc` (`Files.move`). Zwischen Kopf und Verschieben steht
+  der neue Stempel also neben dem alten Inhalt, siehe „Was ein Update nicht
+  bemerkt“.
 - **`clear`** setzt den Eintrag auf 0 und die Zeit auf jetzt.
 - **Paper** setzt beim Reparieren einer kaputten Regionsdatei
   (`recalculateHeader`) die Zeit jedes Chunks darin auf jetzt; das Update
@@ -169,10 +192,11 @@ bleiben ohne `--prune` stehen, siehe [Kacheln exportieren](kacheln.md),
 
 ## Abbruch und `--resume`
 
-Bricht ein Update ab, bleibt der Stand der alte. Ein neues Update findet
-dieselben Änderungen wieder, dazu neuere, und zeichnet sie noch einmal
-(`abgebrochenes_update_laesst_den_stand_stehen`). Wer zusieht, sieht während
-des Laufs alte neben neuen Kacheln, jede ganz, wie bei einem vollen Lauf.
+Bricht ein Update ab, bleibt der alte Stand, sein Gebiet darin unbekannt,
+siehe „Der Stand“. Ein neues Update zeichnet das Gebiet noch einmal, dazu
+neuere Änderungen (`abgebrochenes_update_macht_sein_gebiet_unbekannt`). Wer
+zusieht, sieht während des Laufs alte neben neuen Kacheln, jede ganz, wie
+bei einem vollen Lauf.
 
 `--update --resume` setzt ein abgebrochenes Update fort. Es behält nur
 Basiskacheln, die jünger sind als dessen angefangener Stand, ohne die
@@ -182,9 +206,17 @@ Gebiet zeichnet es neu (`update_setzt_mit_resume_fort`). Am Ende gilt der
 angefangene Stand, mit allem als unbekannt, was der Server seitdem schrieb.
 
 Ein voller Lauf mit `--resume` nimmt ebenso den angefangenen Stand des
-abgebrochenen Laufs, siehe [Pyramide und Fortsetzen](pyramide-und-resume.md).
-Fehlt er oder stammt er von einem Lauf der anderen Art, schreibt der Lauf
-keinen Stand und sagt es; `--update` braucht dann einen vollen Lauf.
+abgebrochenen Laufs und behält nur Basiskacheln, die jünger sind als er,
+siehe [Pyramide und Fortsetzen](pyramide-und-resume.md). Wie ohne
+`--resume` sucht er die Änderungen gegen `stand.bin` und zeichnet Kacheln
+neu, in die ein Chunk nicht mehr reicht
+(`voller_lauf_mit_resume_raeumt_abgerissenes_weg`).
+
+Fehlt der angefangene Stand, stammt er von einem Lauf der anderen Art oder
+von einem anderen Build oder anderen Assets, schreibt der Lauf keinen Stand
+und sagt es. In `stand.bin` ist sein Gebiet dann unbekannt: Das nächste
+`--update` zeichnet es noch einmal, nach einem vollen Lauf also alles. Ohne
+`stand.bin` braucht `--update` einen vollen Lauf.
 
 ## Anderer Renderer, andere Assets
 
@@ -206,6 +238,12 @@ Danach zeichnet ein voller Lauf alles neu, und `--update` geht wieder.
 - **Ein Werkzeug, das einen Chunk ohne neue Zeit an derselben Stelle
   überschreibt.** Das Spiel tut das nicht, siehe oben.
 - **Ein Stand aus einem anderen Baum,** von Hand kopiert.
+- **Ein ausgelagerter Chunk, gelesen zwischen Kopf und Verschieben,** siehe
+  oben: Liest der Lauf den neuen Stempel und noch vor dem Verschieben den
+  Inhalt aus der alten `.mcc`, nennt der Stand den neuen Stempel mit dem
+  alten Inhalt. Bis der Server den Chunk wieder schreibt, sieht kein Update
+  den neuen. Das Fenster ist klein: Das Spiel verschiebt gleich nach dem
+  Kopf, und der Lauf liest den Inhalt nach den Köpfen aller Regionen.
 
 ## Kosten
 
@@ -222,6 +260,11 @@ An der Testwelt bei scale 8, gemessen in
 
 - **Neue Stempel** kosten Lesen und Fingerabdruck der Chunks, je Region in
   einem Thread, die Regionen parallel.
+- **Unbekannte Chunks** zeichnet ein Update über die volle Höhe mit ihren
+  Nachbarn. Das erste Update nach einem langen vollen Lauf auf einem Server
+  mit Spielern ist darum grösser: Jeder Chunk, den der Server während des
+  Laufs schrieb, ist unbekannt. Ebenso das erste nach einem Ausschnitt oder
+  einem Abbruch, über dessen Gebiet.
 - **Ein Gebiet** kostet, was ein Ausschnitt dieser Grösse kostet, dazu rund
   2 s für Assets und Sprites.
 - **`stand.bin`** hat rund 24 Bytes je Chunk, an der Testwelt 7,5 MB.

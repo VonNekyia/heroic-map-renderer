@@ -47,10 +47,16 @@ also „geschrieben“, nicht „geändert“.
 - **Während des Laufs geschrieben:** Am Ende liest der Lauf die Köpfe noch
   einmal. Ein Chunk mit anderem Stempel ist im Stand unbekannt und gilt
   beim nächsten Mal als geändert, über die volle Höhe.
+- **Kacheln ohne neuen Stand:** Jeder Lauf, der Kacheln zeichnet, macht vor
+  der ersten Kachel im alten Stand unbekannt, was er liest, samt den acht
+  Nachbarn; ein voller Lauf alles. Der Stand nennt so nie einen Inhalt, den
+  eine Kachel vielleicht nicht zeigt, auch nach einem Abbruch oder einem
+  Ausschnitt.
 - **Anderer Renderer, andere Assets:** Der Stand trägt einen Fingerabdruck
   der ausführbaren Datei und einen der Dateien unter `--assets` und
   `--data` (Pfad, Grösse, Zeit). Passt einer nicht, bricht `--update` vor
-  der ersten Kachel ab und verlangt einen vollen Lauf.
+  der ersten Kachel ab und verlangt einen vollen Lauf. `--resume` übernimmt
+  den angefangenen Stand nur mit denselben Fingerabdrücken.
 
 Die Einzelheiten stehen in [Updates](../benutzung/updates.md).
 
@@ -73,6 +79,14 @@ Die Einzelheiten stehen in [Updates](../benutzung/updates.md).
 - **Vergleich auf später statt auf gleich.** Dann zählte die Uhr des
   Servers gegen die des Renderers, und eine Sicherung mit älteren Stempeln
   würde übersehen.
+- **Nach einem Abbruch den alten Stand stehen lassen.** Wechselt ein Chunk
+  danach zurück, etwa ein Ofen, der wieder ausgeht, gleicht er dem Stand,
+  und kein Update zeichnet die Kachel mit dem brennenden Ofen mehr.
+- **Nur die geänderten Chunks unbekannt machen.** Was der Server während
+  des Laufs schreibt, zeichnet der Lauf vielleicht schon; vorher weiss das
+  niemand.
+- **Den Stand vor einem vollen Lauf entfernen.** Dann wüsste ein Lauf mit
+  `--resume` nicht mehr, in welche Kacheln ein Chunk früher reichte.
 - **Ein Stand je Welt, für alle Bäume.** Jeder Baum hat seine eigene Zeit,
   ein Update eines Baums machte den Stand eines anderen falsch.
 - **Bei anderem Renderer nur warnen,** wie `--resume` es dokumentiert.

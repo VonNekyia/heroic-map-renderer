@@ -154,6 +154,48 @@ impl Stand {
         self
     }
 
+    /// Der Stand, in dem jeder Chunk unbekannt ist, den ein Lauf liest
+    /// (`liest`), samt seinen acht Nachbarn, deren Licht und Modelle in ihn
+    /// reichen: für den alten Stand, bevor ein Lauf Kacheln zeichnet. Das
+    /// gilt für jeden Chunk, den der Stand kennt oder der jetzt einen
+    /// Stempel hat (`jetzt`). Regionen, für die `region` weder bei ihnen
+    /// noch bei einem Nachbarn gilt, bleiben, wie sie sind.
+    /// Siehe docs/benutzung/updates.md, „Der Stand“.
+    pub fn unbekannt_wo(
+        mut self,
+        jetzt: &Stempelkarte,
+        liest: impl Fn(i32, i32) -> bool,
+        region: impl Fn(i32, i32) -> bool,
+    ) -> Stand {
+        let rundum = |x: i32, z: i32, f: &dyn Fn(i32, i32) -> bool| {
+            (-1..=1).any(|dx| (-1..=1).any(|dz| f(x + dx, z + dz)))
+        };
+        let mut regionen: Vec<(i32, i32)> =
+            self.regionen.keys().chain(jetzt.keys()).copied().collect();
+        regionen.sort_unstable();
+        regionen.dedup();
+        for (rx, rz) in regionen {
+            if !rundum(rx, rz, &region) {
+                continue;
+            }
+            let stempel = jetzt.get(&(rx, rz));
+            for i in 0..JE_REGION {
+                let (cx, cz) = (
+                    rx * REGION + i as i32 % REGION,
+                    rz * REGION + i as i32 / REGION,
+                );
+                let mut eintrag = self.eintrag(cx, cz);
+                let da =
+                    eintrag.inhalt != Inhalt::Keiner || stempel.is_some_and(|s| s[i].is_some());
+                if da && rundum(cx, cz, &liest) {
+                    eintrag.inhalt = Inhalt::Unbekannt;
+                    self.setze(cx, cz, eintrag);
+                }
+            }
+        }
+        self
+    }
+
     /// Vergleicht den Stand mit der Welt: `stempel` sind die Stempel aller
     /// Regionen jetzt, `lies` liest in einer Region den Inhalt der Chunks,
     /// deren Stempel sich geändert hat. Liefert die Änderungen und den neuen
@@ -418,12 +460,12 @@ pub fn fingerabdruck_des_renderers() -> Result<u64> {
 /// die Grösse und die Zeit der letzten Änderung, nach Pfad geordnet. Den
 /// Inhalt liest er nicht; eine kopierte Datei hat eine neue Zeit und zählt
 /// als anders.
-pub fn fingerabdruck_der_dateien(wurzeln: &[PathBuf]) -> Result<u64> {
+pub fn fingerabdruck_der_dateien(wurzeln: &[PathBuf]) -> u64 {
     let mut fnv = Fnv::default();
     for (nummer, wurzel) in wurzeln.iter().enumerate() {
         fnv.nimm(&(nummer as u32).to_le_bytes());
         let mut dateien = Vec::new();
-        sammle(wurzel, "", &mut dateien)?;
+        sammle(wurzel, "", &mut dateien);
         dateien.sort_unstable();
         for (pfad, groesse, zeit) in dateien {
             fnv.text(&pfad);
@@ -431,13 +473,19 @@ pub fn fingerabdruck_der_dateien(wurzeln: &[PathBuf]) -> Result<u64> {
             fnv.nimm(&zeit.to_le_bytes());
         }
     }
-    Ok(fnv.0)
+    fnv.0
 }
 
 /// Jede Datei unter `pfad` mit ihrem Pfad unter der Wurzel, Grösse und Zeit
-/// in Nanosekunden seit 1970; `pfad` selbst, wenn es eine Datei ist.
-fn sammle(pfad: &Path, name: &str, out: &mut Vec<(String, u64, u128)>) -> Result<()> {
-    let info = std::fs::metadata(pfad).with_context(|| format!("{} lesen", pfad.display()))?;
+/// in Nanosekunden seit 1970; `pfad` selbst, wenn es eine Datei ist. Was
+/// sich nicht lesen lässt, geht mit einer Marke ein, statt den Lauf
+/// abzubrechen: Die Assets melden es nur.
+fn sammle(pfad: &Path, name: &str, out: &mut Vec<(String, u64, u128)>) {
+    let unlesbar =
+        |out: &mut Vec<(String, u64, u128)>| out.push((format!("{name}\0unlesbar"), 0, 0));
+    let Ok(info) = std::fs::metadata(pfad) else {
+        return unlesbar(out);
+    };
     if !info.is_dir() {
         let zeit = info
             .modified()
@@ -445,19 +493,24 @@ fn sammle(pfad: &Path, name: &str, out: &mut Vec<(String, u64, u128)>) -> Result
             .and_then(|z| z.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |d| d.as_nanos());
         out.push((name.to_string(), info.len(), zeit));
-        return Ok(());
+        return;
     }
-    for eintrag in std::fs::read_dir(pfad).with_context(|| format!("{} lesen", pfad.display()))? {
-        let eintrag = eintrag.with_context(|| format!("{} lesen", pfad.display()))?;
+    let Ok(eintraege) = std::fs::read_dir(pfad) else {
+        return unlesbar(out);
+    };
+    for eintrag in eintraege {
+        let Ok(eintrag) = eintrag else {
+            unlesbar(out);
+            continue;
+        };
         let teil = eintrag.file_name().to_string_lossy().into_owned();
         let name = if name.is_empty() {
             teil
         } else {
             format!("{name}/{teil}")
         };
-        sammle(&eintrag.path(), &name, out)?;
+        sammle(&eintrag.path(), &name, out);
     }
-    Ok(())
 }
 
 /// Lage eines Chunks in seiner Region, nach z, dann x.
@@ -773,5 +826,58 @@ mod tests {
             Inhalt::Unbekannt,
             "neue Region"
         );
+    }
+
+    /// Unbekannt wird, was der Lauf liest, und jeder Nachbar davon, auch
+    /// über die Grenze der Region; ebenso ein Chunk, den nur die Welt kennt.
+    /// Ein Chunk ohne Inhalt und ohne Stempel bleibt, wie er ist, ebenso was
+    /// weiter weg liegt und jede Region, die der Lauf nicht berührt.
+    #[test]
+    fn unbekannt_wo_der_lauf_liest() {
+        let eintrag = |inhalt| Eintrag {
+            stempel: stempel(1),
+            inhalt,
+        };
+        let mut alt = Stand::neu(Art::Voll, 1, 1);
+        for (cx, cz) in [(0, 0), (1, 1), (2, 0), (-1, -1), (31, 0), (32, 0), (100, 0)] {
+            alt.setze(cx, cz, eintrag(fertig(1, Some(60))));
+        }
+        let mut jetzt = BTreeMap::new();
+        let mut region = vec![None; JE_REGION];
+        region[index(0, 1)] = stempel(1);
+        jetzt.insert((0, 0), region);
+        let neu = alt.clone().unbekannt_wo(
+            &jetzt,
+            |cx, cz| (cx, cz) == (0, 0) || (cx, cz) == (31, 0) || cx == 100,
+            |rx, rz| (rx, rz) == (0, 0),
+        );
+        for (cx, cz) in [(0, 0), (1, 1), (-1, -1), (0, 1), (31, 0), (32, 0)] {
+            assert_eq!(
+                neu.eintrag(cx, cz).inhalt,
+                Inhalt::Unbekannt,
+                "({cx}, {cz})"
+            );
+            assert_eq!(neu.eintrag(cx, cz).stempel, alt.eintrag(cx, cz).stempel);
+        }
+        assert_eq!(neu.eintrag(2, 0), alt.eintrag(2, 0), "zwei weiter");
+        assert_eq!(neu.eintrag(1, 0).inhalt, Inhalt::Keiner, "ohne Stempel");
+        assert_eq!(neu.eintrag(100, 0), alt.eintrag(100, 0), "Region fern");
+    }
+
+    /// Eine Wurzel, die es nicht gibt, bricht nichts ab und gibt einen
+    /// anderen Fingerabdruck als eine leere.
+    #[test]
+    fn fingerabdruck_ohne_wurzel() {
+        let ordner = tempfile::tempdir().unwrap();
+        let fehlt = [ordner.path().join("fehlt")];
+        let wurzel = [ordner.path().to_path_buf()];
+        let leer = fingerabdruck_der_dateien(&wurzel);
+        assert_ne!(fingerabdruck_der_dateien(&fehlt), leer);
+        assert_eq!(
+            fingerabdruck_der_dateien(&fehlt),
+            fingerabdruck_der_dateien(&fehlt)
+        );
+        std::fs::write(ordner.path().join("a.json"), "{}").unwrap();
+        assert_ne!(fingerabdruck_der_dateien(&wurzel), leer);
     }
 }

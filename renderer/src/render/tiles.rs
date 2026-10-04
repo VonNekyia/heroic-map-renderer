@@ -392,6 +392,12 @@ impl Reach {
         self.column(cx * CHUNK, cz * CHUNK, CHUNK)
     }
 
+    /// Ob der Lauf Blöcke des Chunks (cx, cz) liest, auch für einen Strahl
+    /// zur Sonne.
+    pub fn liest(&self, cx: i32, cz: i32) -> bool {
+        self.chunk(cx, cz) || self.zur_sonne(cx, cz)
+    }
+
     fn column(&self, x: i32, z: i32, kante: i32) -> bool {
         self.gebiet
             .as_ref()

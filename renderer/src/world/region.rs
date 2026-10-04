@@ -69,11 +69,15 @@ impl Region {
     /// ausserhalb des Bereichs. Liest nur die zwei Sektoren des Kopfs.
     /// Siehe docs/benutzung/updates.md, „Was als geändert gilt“.
     pub fn stempel(&mut self) -> Result<Vec<Option<Stempel>>> {
-        let mut kopf = vec![0u8; (HEADER_SECTORS * SECTOR) as usize];
+        let mut kopf = Vec::with_capacity((HEADER_SECTORS * SECTOR) as usize);
         self.file.seek(SeekFrom::Start(0))?;
-        self.file
-            .read_exact(&mut kopf)
+        (&mut self.file)
+            .take(HEADER_SECTORS * SECTOR)
+            .read_to_end(&mut kopf)
             .with_context(|| format!("Kopf von r.{}.{}.mca lesen", self.x, self.z))?;
+        // Was am Kopf fehlt, etwa bei einer Datei, die der Server eben
+        // anlegt, ist leer, wie im Spiel.
+        kopf.resize((HEADER_SECTORS * SECTOR) as usize, 0);
         let wort = |i: usize| u32::from_be_bytes([kopf[i], kopf[i + 1], kopf[i + 2], kopf[i + 3]]);
         Ok((0..REGION * REGION)
             .map(|i| {
@@ -315,8 +319,25 @@ mod tests {
         );
         assert_eq!(stempel[1023], None, "leerer Eintrag");
         assert_eq!(stempel.iter().flatten().count(), 2);
+        // Ein kurzer Kopf, etwa einer Datei, die der Server eben anlegt: Was
+        // fehlt, ist leer.
         std::fs::write(&pfad, &kopf[..100]).unwrap();
-        assert!(Region::open(&pfad).unwrap().stempel().is_err(), "zu kurz");
+        let kurz = Region::open(&pfad).unwrap().stempel().unwrap();
+        assert_eq!(
+            kurz[0],
+            Some(Stempel {
+                zeit: 0,
+                ort: (2 << 8) | 1
+            })
+        );
+        assert_eq!(kurz.iter().flatten().count(), 1);
+        assert_eq!(
+            Region::open(&pfad).unwrap().vorhanden().unwrap(),
+            [(-32, 64)]
+        );
+        std::fs::write(&pfad, b"").unwrap();
+        let leer = Region::open(&pfad).unwrap().stempel().unwrap();
+        assert!(leer.iter().all(Option::is_none));
     }
 
     #[test]

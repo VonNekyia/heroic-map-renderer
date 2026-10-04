@@ -40,6 +40,37 @@ const ABSTAND = 8;
  */
 const ADRESSEN = import.meta.glob<string>('./bilder/*.webp', { query: '?url&no-inline', import: 'default', eager: true });
 
+/** So lange wartet der Skin nach den Kacheln höchstens auf die Meldung, dass eine gemalt ist, in ms. */
+const FRIST = 1000;
+
+/**
+ * Wartet, bis die Ebene der Kacheln zum ersten Mal fertig ist und der
+ * Browser eine Kachel als grösstes Element gemalt meldet: Erst dann zählt
+ * Lighthouse keine Anfrage mehr zum LCP. Ohne diese Meldung im Browser zwei
+ * Bilder nach `load`; wird keine Kachel das grösste Element, nach FRIST.
+ * Siehe docs/entscheidungen/0073-bilder-nach-den-kacheln.md.
+ */
+function nachDenKacheln(ebene: L.TileLayer): Promise<void> {
+  return new Promise((fertig) => {
+    ebene.once('load', () => {
+      if (!PerformanceObserver.supportedEntryTypes.includes('largest-contentful-paint')) {
+        requestAnimationFrame(() => requestAnimationFrame(() => fertig()));
+        return;
+      }
+      const beobachter = new PerformanceObserver((liste) => {
+        if (liste.getEntries().some((e) => (e as LargestContentfulPaint).element?.classList.contains('leaflet-tile'))) los();
+      });
+      const frist = setTimeout(() => los(), FRIST);
+      const los = (): void => {
+        beobachter.disconnect();
+        clearTimeout(frist);
+        fertig();
+      };
+      beobachter.observe({ type: 'largest-contentful-paint', buffered: true });
+    });
+  });
+}
+
 /** Ein Bild aus bilder/, hinter allem anderen. */
 async function lade(adresse: string): Promise<ImageBitmap> {
   const antwort = await fetch(adresse, { priority: 'low' });
@@ -99,13 +130,11 @@ const skin: Skin = (kontext) => {
   });
 
   // Die Karte ist der Inhalt, das Tablett Schmuck: Seine Bilder laden
-  // einmal, und erst, wenn die Ebene der Kacheln zum ersten Mal fertig ist
-  // und das Bild danach gemalt: Leaflet blendet die Kacheln erst im nächsten
-  // Bild ein. Die Grundkarte legt die Ebene nach dem Skin an. Siehe
-  // docs/entscheidungen/0073-bilder-nach-den-kacheln.md.
+  // einmal, nach den Kacheln. Die Grundkarte legt deren Ebene nach dem Skin
+  // an.
   const kacheln = new Promise<void>((fertig) => {
     karte.on('layeradd', ({ layer }: L.LayerEvent) => {
-      if (layer instanceof L.TileLayer) layer.once('load', () => requestAnimationFrame(() => requestAnimationFrame(() => fertig())));
+      if (layer instanceof L.TileLayer) void nachDenKacheln(layer).then(fertig);
     });
   });
   let bilder: Promise<Bilder> | undefined;

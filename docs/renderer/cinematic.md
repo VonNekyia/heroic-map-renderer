@@ -402,6 +402,7 @@ Lauf am Stand 5 %, im Fichtenwald liegt es in der Streuung.
   - Gilt in einer Mutation jede Zelle nach dem Start als frei, fallen
     unter anderem das Goldbild, `schneller_gang_gleicht_dem_bezug` und
     `frei_zur_sonne_trifft_nichts`.
+  - Gemessen in [2026-10-04, Cinematic schneller, Hebel 1 und 2](../messungen/2026-10-04-hebel-1-und-2.md).
 
 ### Der Vorlauf
 

@@ -127,6 +127,10 @@ im Fichtenwald liegt der Unterschied in der Streuung; die Spitze steigt um
 Die Faktoren oben sind ohne sie gemessen. Die Flächen im Innern aus #51
 kosten Cinematic im Median 3 % am Stand und 5,4 % im Fichtenwald, siehe
 [2026-10-03, Flächen im Innern weich, Kosten](../messungen/2026-10-03-flaechen-im-innern.md).
+Der Gang zur Sonne, der in der ersten freien Zelle endet (Hebel 1 aus
+#118), macht den ganzen Lauf mit Cinematic im Median 11,4 % schneller am
+Stand und 8,0 % im Fichtenwald, bei gleichen Kacheln, siehe
+[2026-10-04, Cinematic schneller, Hebel 1 und 2](../messungen/2026-10-04-hebel-1-und-2.md).
 
 ## Die grosse Welt
 

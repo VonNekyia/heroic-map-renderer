@@ -288,13 +288,14 @@ impl ChunkCache<'_> {
     ///
     /// Ist die Startzelle frei zur Sonne ([`ChunkCache::frei_zur_sonne`]),
     /// kommt alles an, ohne Gang. Sonst geht der schnelle Gang
-    /// ([`ChunkCache::sonne_im_gang`]).
+    /// ([`ChunkCache::sonne_im_gang`]) bis zur ersten freien Zelle.
     ///
     /// [`Look::pflanzen`]: super::super::look::Look::pflanzen
     pub fn sonne(&mut self, p0: [f64; 3], eigen: [i32; 3]) -> Result<f32> {
         if self.frei_zur_sonne(p0)? {
-            // Jeder Test im Debug-Build schickt den Strahl auch durch den Gang.
-            debug_assert_eq!(self.sonne_im_gang(p0, eigen)?, 1.0, "frei: {p0:?}");
+            // Jeder Test im Debug-Build schickt den Strahl auch durch den
+            // vollen Gang.
+            debug_assert_eq!(self.gang(p0, eigen, false)?, 1.0, "frei: {p0:?}");
             return Ok(1.0);
         }
         self.sonne_im_gang(p0, eigen)
@@ -306,13 +307,33 @@ impl ChunkCache<'_> {
     /// wo es `false` sagt, entscheidet der Gang.
     /// Siehe docs/renderer/cinematic.md, „Frei zur Sonne“.
     pub fn frei_zur_sonne(&mut self, p0: [f64; 3]) -> Result<bool> {
-        let kino = self.sprites.kino().expect("Cinematic");
-        if kino.versaetze().is_empty() {
+        if self
+            .sprites
+            .kino()
+            .expect("Cinematic")
+            .versaetze()
+            .is_empty()
+        {
             return Ok(false);
         }
         let c = [boden(p0[0]), boden(p0[1]), boden(p0[2])];
         let key = (c[0] >> 4, c[2] >> 4);
         let (slot, _) = self.saeule(key)?;
+        self.frei_in(slot, key, c)
+    }
+
+    /// Ob die Zelle `c` im Chunk `key` im Slot `slot` frei zur Sonne ist,
+    /// wie [`ChunkCache::frei_zur_sonne`]; die Säule muss stehen.
+    fn frei_in(&mut self, slot: usize, key: (i32, i32), c: [i32; 3]) -> Result<bool> {
+        if self
+            .sprites
+            .kino()
+            .expect("Cinematic")
+            .versaetze()
+            .is_empty()
+        {
+            return Ok(false);
+        }
         let Some((unterste, wort)) =
             self.frei_bits(slot, key, ((c[2] & 15) * 16 + (c[0] & 15)) as usize)?
         else {
@@ -424,14 +445,23 @@ impl ChunkCache<'_> {
         Ok(antwort)
     }
 
-    /// [`ChunkCache::sonne`] ohne die Bits „frei zur Sonne“, als schneller
-    /// Gang: über der Decke eines Chunks, durch eine Section ohne Arbeit und
-    /// durch einen Würfel aus 4 × 4 × 4 Zellen ohne Arbeit springt er
-    /// hinaus; in einen vollen deckenden Würfel tritt er ohne Test; sonst
-    /// prüft er die Zelle wie [`ChunkCache::sonne_bezug`]. Dasselbe
-    /// Ergebnis, denn ein Block, den der Strahl nicht trifft, ändert nichts,
-    /// gleich ob er geprüft wird.
+    /// [`ChunkCache::sonne`] ohne die Bits „frei zur Sonne“ der Startzelle,
+    /// als schneller Gang: über der Decke eines Chunks, durch eine Section
+    /// ohne Arbeit und durch einen Würfel aus 4 × 4 × 4 Zellen ohne Arbeit
+    /// springt er hinaus; in einen vollen deckenden Würfel tritt er ohne
+    /// Test; sonst prüft er die Zelle wie [`ChunkCache::sonne_bezug`].
+    /// Dasselbe Ergebnis, denn ein Block, den der Strahl nicht trifft,
+    /// ändert nichts, gleich ob er geprüft wird. In der ersten Zelle nach
+    /// dem Start, die frei zur Sonne ist, endet er mit dem Licht, das er bis
+    /// dahin hat: Der Rest des Strahls liegt in ihrem Prisma.
+    /// Siehe docs/renderer/cinematic.md, „Frei zur Sonne“.
     pub fn sonne_im_gang(&mut self, p0: [f64; 3], eigen: [i32; 3]) -> Result<f32> {
+        self.gang(p0, eigen, true)
+    }
+
+    /// [`ChunkCache::sonne_im_gang`], mit `frueh` bis zur ersten freien
+    /// Zelle, ohne bis zur Weite.
+    fn gang(&mut self, p0: [f64; 3], eigen: [i32; 3], frueh: bool) -> Result<f32> {
         let sprites = self.sprites;
         let look = sprites.kino().expect("Cinematic").look();
         let d = ohne_null(sprites.kino().expect("Cinematic").sonne());
@@ -442,6 +472,7 @@ impl ChunkCache<'_> {
         let mut gang = Gang::new(p0, d64);
         let mut chunk: Option<((i32, i32), usize, i32)> = None;
         let mut section: Option<(SectionKey, Option<Rc<Bits>>)> = None;
+        let mut start = true;
         while gang.t <= weite {
             let c = gang.zelle;
             let key = (c[0] >> 4, c[2] >> 4);
@@ -453,6 +484,13 @@ impl ChunkCache<'_> {
                     (slot, decke)
                 }
             };
+            if frueh && !start && self.frei_in(slot, key, c)? {
+                // Jeder Test im Debug-Build schickt den Strahl auch durch den
+                // vollen Gang.
+                debug_assert_eq!(self.gang(p0, eigen, false)?, licht, "frei ab {c:?}: {p0:?}");
+                return Ok(licht);
+            }
+            start = false;
             let basis = [key.0 * 16, c[1] & !15, key.1 * 16];
             if d64[1] > 0.0 && c[1] > decke {
                 if c[1] > self.horizont(slot, key, d, weite)? {

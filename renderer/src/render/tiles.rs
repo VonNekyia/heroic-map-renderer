@@ -4,7 +4,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use std::ffi::c_int;
-use std::sync::Once;
+use std::sync::{Arc, Once};
 
 use anyhow::{Result, anyhow, ensure};
 use image::RgbaImage;
@@ -15,6 +15,7 @@ use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
 use super::heights::{Heights, RegionHeights};
 use super::look::Look;
+use super::stand::{Aenderung, Inhalt};
 use super::{BLEED_BLOCKS, Projection, ScreenRect};
 
 /// Kantenlänge einer Kachel in Pixeln. 256 ist, was Leaflet ohne
@@ -47,12 +48,143 @@ impl TileId {
 
 /// Alle Kacheln, die ein Bildrechteck berühren.
 pub fn covering(rect: ScreenRect) -> impl Iterator<Item = TileId> {
-    let tile = TILE as i32;
-    let x0 = rect.x.div_euclid(tile);
-    let x1 = (rect.right() - 1).div_euclid(tile);
-    let y0 = rect.y.div_euclid(tile);
-    let y1 = (rect.bottom() - 1).div_euclid(tile);
+    raster(rect, TILE)
+}
+
+/// Alle Quadrate der Kantenlänge `kante` in Pixeln, die ein Bildrechteck
+/// berühren, in ihren eigenen Koordinaten.
+fn raster(rect: ScreenRect, kante: u32) -> impl Iterator<Item = TileId> {
+    let kante = kante as i32;
+    let x0 = rect.x.div_euclid(kante);
+    let x1 = (rect.right() - 1).div_euclid(kante);
+    let y0 = rect.y.div_euclid(kante);
+    let y1 = (rect.bottom() - 1).div_euclid(kante);
     (y0..=y1).flat_map(move |y| (x0..=x1).map(move |x| TileId { x, y }))
+}
+
+/// Die Fläche eines Laufs: ganze Kacheln der Stufe, die `stufen` Stufen
+/// über der Basis liegt, Quadrate von `TILE << stufen` Pixeln der Basis.
+/// Ein Ausschnitt ist ein Rechteck daraus, ein Update viele Stücke.
+/// Siehe docs/benutzung/kacheln.md, „Ein Ausschnitt“.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Gebiet {
+    stufen: u32,
+    /// Auf der Stufe `stufen`, nach Spalte, dann Zeile sortiert.
+    kacheln: Arc<BTreeSet<TileId>>,
+}
+
+impl Gebiet {
+    /// Die Kacheln der Stufe `stufen`, die das Rechteck berühren: das
+    /// Rechteck aufgerundet auf ihr Raster.
+    pub fn rechteck(rect: ScreenRect, stufen: u32) -> Gebiet {
+        let kacheln = if rect.width == 0 || rect.height == 0 {
+            BTreeSet::new()
+        } else {
+            raster(rect, TILE << stufen).collect()
+        };
+        Gebiet::aus(stufen, kacheln)
+    }
+
+    /// Diese Kacheln der Stufe `stufen`.
+    pub fn aus(stufen: u32, kacheln: BTreeSet<TileId>) -> Gebiet {
+        Gebiet {
+            stufen,
+            kacheln: Arc::new(kacheln),
+        }
+    }
+
+    pub fn stufen(&self) -> u32 {
+        self.stufen
+    }
+
+    /// Die Kacheln auf der Stufe [`Gebiet::stufen`].
+    pub fn kacheln(&self) -> &BTreeSet<TileId> {
+        &self.kacheln
+    }
+
+    /// Ob ein Rechteck in Pixeln der Basis eine Kachel des Gebiets schneidet.
+    pub fn beruehrt(&self, rect: ScreenRect) -> bool {
+        let (Some(erste), Some(letzte)) = (self.kacheln.first(), self.kacheln.last()) else {
+            return false;
+        };
+        if rect.width == 0 || rect.height == 0 {
+            return false;
+        }
+        let kante = (TILE << self.stufen) as i32;
+        let x0 = rect.x.div_euclid(kante).max(erste.x);
+        let x1 = (rect.right() - 1).div_euclid(kante).min(letzte.x);
+        let y0 = rect.y.div_euclid(kante);
+        let y1 = (rect.bottom() - 1).div_euclid(kante);
+        (x0..=x1).any(|x| {
+            self.kacheln
+                .range(TileId { x, y: y0 }..=TileId { x, y: y1 })
+                .next()
+                .is_some()
+        })
+    }
+
+    /// Ob eine Basiskachel im Gebiet liegt.
+    pub fn enthaelt(&self, tile: TileId) -> bool {
+        self.flaeche_fein(self.stufen).enthaelt(&tile)
+    }
+
+    /// Die Kacheln der Stufe `hoch` Stufen über der Basis, die etwas aus dem
+    /// Gebiet zeigen. Bis zur Stufe des Gebiets liegen sie ganz darin,
+    /// darüber schneiden sie es vielleicht nur an.
+    pub fn flaeche(&self, hoch: u32) -> Flaeche {
+        match hoch.checked_sub(self.stufen) {
+            Some(d) if d > 0 => Flaeche {
+                shift: 0,
+                kacheln: Arc::new(
+                    self.kacheln
+                        .iter()
+                        .map(|t| TileId {
+                            x: t.x >> d,
+                            y: t.y >> d,
+                        })
+                        .collect(),
+                ),
+            },
+            _ => self.flaeche_fein(self.stufen - hoch),
+        }
+    }
+
+    /// Die Fläche `shift` Stufen unter der des Gebiets.
+    fn flaeche_fein(&self, shift: u32) -> Flaeche {
+        Flaeche {
+            shift,
+            kacheln: Arc::clone(&self.kacheln),
+        }
+    }
+}
+
+/// Die Kacheln einer Stufe, die ein [`Gebiet`] berührt, siehe
+/// [`Gebiet::flaeche`].
+#[derive(Clone, Debug)]
+pub struct Flaeche {
+    /// Um so viele Stufen ist die Stufe feiner als `kacheln`.
+    shift: u32,
+    kacheln: Arc<BTreeSet<TileId>>,
+}
+
+impl Flaeche {
+    pub fn enthaelt(&self, tile: &TileId) -> bool {
+        self.kacheln.contains(&TileId {
+            x: tile.x >> self.shift,
+            y: tile.y >> self.shift,
+        })
+    }
+
+    /// Die Spalten der Stufe, in denen eine Kachel der Fläche liegen kann,
+    /// aufsteigend.
+    pub fn spalten(&self) -> Vec<i32> {
+        let mut grob: Vec<i32> = self.kacheln.iter().map(|t| t.x).collect();
+        grob.dedup();
+        let breite = 1i32 << self.shift;
+        grob.into_iter()
+            .flat_map(|x| (x << self.shift)..(x << self.shift) + breite)
+            .collect()
+    }
 }
 
 /// Rundet ein Rechteck auf ganze Kacheln auf.
@@ -176,34 +308,55 @@ pub struct Survey {
     /// gezeichnet wird nur, was [`crate::world::Region::chunk`] liefert.
     /// Ihre Höhen bleiben leer.
     pub unfinished: usize,
+    /// Mit [`Reach::mit_inhalt`] je gelesenem Chunk, was der Renderer aus
+    /// ihm zeichnet, für den Stand eines vollen Laufs.
+    pub inhalte: Vec<([i32; 2], Inhalt)>,
 }
 
 /// Welche Chunks der Vorlauf liest: die, deren Spalte über die ganze
-/// Welthöhe den Ausschnitt berührt; ohne Ausschnitt alle. Mit Cinematic
+/// Welthöhe das Gebiet berührt; ohne Gebiet alle. Mit Cinematic
 /// dazu die, aus denen ein Strahl zur Sonne liest, siehe
 /// [`Reach::mit_sonne`].
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Reach {
     projection: Projection,
     hoehe: (i32, i32),
-    bounds: Option<ScreenRect>,
+    gebiet: Option<Gebiet>,
     /// Um wie viele Chunks im Blick ein Strahl zur Sonne von einem Chunk
     /// im Ausschnitt aus Blöcke liest: `[von, bis]` je `[x, z]`.
     sonne: Option<[[i32; 2]; 2]>,
+    /// Ob der Vorlauf je Chunk seinen [`Inhalt`] sammelt.
+    inhalt: bool,
 }
 
 impl Reach {
+    /// Über die Basiskacheln, die `bounds` berührt; ohne alle.
     pub fn new(projection: Projection, y_range: (i32, i32), bounds: Option<ScreenRect>) -> Reach {
+        // Auf ganze Kacheln runden, bevor irgendetwas ausgeschlossen wird:
+        // gerendert wird die ganze Kachel, also muss auch der Vorlauf sie
+        // ganz abdecken.
+        Reach::im_gebiet(projection, y_range, bounds.map(|b| Gebiet::rechteck(b, 0)))
+    }
+
+    /// Über die Kacheln des Gebiets; ohne alle.
+    pub fn im_gebiet(projection: Projection, y_range: (i32, i32), gebiet: Option<Gebiet>) -> Reach {
         Reach {
             projection,
             // Bis zur Oberkante des obersten Blocks, wie der genaue Kasten
             // je Chunk im Vorlauf.
             hoehe: (y_range.0, y_range.1 + 1),
-            // Auf ganze Kacheln runden, bevor irgendetwas ausgeschlossen
-            // wird: gerendert wird die ganze Kachel, also muss auch der
-            // Vorlauf sie ganz abdecken.
-            bounds: bounds.map(snap_to_tiles),
+            gebiet,
             sonne: None,
+            inhalt: false,
+        }
+    }
+
+    /// Der Vorlauf sammelt je Chunk im Gebiet seinen [`Inhalt`], siehe
+    /// [`Survey::inhalte`].
+    pub fn mit_inhalt(self) -> Reach {
+        Reach {
+            inhalt: true,
+            ..self
         }
     }
 
@@ -214,18 +367,11 @@ impl Reach {
     /// Blockstates kennt dann die Sprite-Tabelle, sonst wären sie Luft.
     /// Siehe docs/renderer/cinematic.md, „Der Vorlauf“.
     pub fn mit_sonne(self, look: Option<&Look>) -> Reach {
-        let (Some(look), Some(_)) = (look, self.bounds) else {
+        let (Some(look), Some(_)) = (look, &self.gebiet) else {
             return self;
         };
-        let d = look.sonne_im_blick(self.projection.kamera());
-        // So viele Chunkgrenzen wie `ChunkCache::horizont`.
-        let reicht = |c: f32| {
-            let n = (f64::from(look.sonne_weite) * f64::from(c.abs()) / 16.0).floor() as i32 + 1;
-            if c < 0.0 { -n } else { n }
-        };
-        let (x, z) = (reicht(d[0]), reicht(d[2]));
         Reach {
-            sonne: Some([[x.min(0) - 2, z.min(0) - 2], [x.max(0) + 2, z.max(0) + 2]]),
+            sonne: Some(zur_sonne(self.projection, look)),
             ..self
         }
     }
@@ -246,9 +392,21 @@ impl Reach {
         self.column(cx * CHUNK, cz * CHUNK, CHUNK)
     }
 
+    /// Ob der Lauf Blöcke des Chunks (cx, cz) liest, auch für einen Strahl
+    /// zur Sonne.
+    pub fn liest(&self, cx: i32, cz: i32) -> bool {
+        self.chunk(cx, cz) || self.zur_sonne(cx, cz)
+    }
+
     fn column(&self, x: i32, z: i32, kante: i32) -> bool {
-        self.bounds
-            .is_none_or(|b| overlaps(b, column_box(self.projection, x, z, self.hoehe, kante)))
+        self.gebiet
+            .as_ref()
+            .is_none_or(|g| g.beruehrt(column_box(self.projection, x, z, self.hoehe, kante)))
+    }
+
+    /// Ob der Lauf diese Basiskachel ausgibt.
+    fn zeigt(&self, tile: TileId) -> bool {
+        self.gebiet.as_ref().is_none_or(|g| g.enthaelt(tile))
     }
 
     /// Ob ein Strahl zur Sonne aus einem Chunk, den der Lauf liest, Blöcke
@@ -285,12 +443,73 @@ impl Reach {
         let oben = belegt.next_back().unwrap_or(unten) + CHUNK;
         let (x, z) = (chunk.x * CHUNK, chunk.z * CHUNK);
         let rect = column_box(self.projection, x, z, (unten, oben), CHUNK);
-        match self.bounds {
-            Some(bounds) if !overlaps(bounds, rect) => Content::Outside,
-            Some(bounds) => Content::Inside(clip(rect, bounds)),
-            None => Content::Inside(rect),
+        match &self.gebiet {
+            Some(gebiet) if !gebiet.beruehrt(rect) => Content::Outside,
+            _ => Content::Inside(rect),
         }
     }
+}
+
+/// Um wie viele Chunks im Blick ein Strahl zur Sonne von einem Chunk aus
+/// Blöcke liest, samt zwei Chunks rundum: `[von, bis]` je `[x, z]`, siehe
+/// [`Reach::mit_sonne`].
+fn zur_sonne(projection: Projection, look: &Look) -> [[i32; 2]; 2] {
+    let d = look.sonne_im_blick(projection.kamera());
+    // So viele Chunkgrenzen wie `ChunkCache::horizont`.
+    let reicht = |c: f32| {
+        let n = (f64::from(look.sonne_weite) * f64::from(c.abs()) / 16.0).floor() as i32 + 1;
+        if c < 0.0 { -n } else { n }
+    };
+    let (x, z) = (reicht(d[0]), reicht(d[2]));
+    [[x.min(0) - 2, z.min(0) - 2], [x.max(0) + 2, z.max(0) + 2]]
+}
+
+/// Wo ein Update zeichnet: die Kacheln der Stufe `stufen`, auf die ein
+/// geänderter Chunk wirken kann. Das sind seine Blöcke und die bis zu
+/// 16 Blöcke daneben, so weit reichen Licht (15) und weiche Beleuchtung (1),
+/// die Mischung der Biome liegt darin; in der Höhe von `unten`, der
+/// Unterkante der Dimension, bis 16 Blöcke über [`Aenderung::oben`], denn
+/// Himmelslicht fällt in einer Spalte beliebig tief. Mit Cinematic dazu
+/// jeder Chunk, dessen Strahlen zur Sonne ihn lesen ([`Reach::mit_sonne`]
+/// umgekehrt), und der Rand des Bloom auf jeder nativen Stufe.
+/// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+pub fn gebiet_der_aenderungen(
+    projection: Projection,
+    stufen: u32,
+    unten: i32,
+    aenderungen: &[Aenderung],
+    look: Option<&Look>,
+) -> Gebiet {
+    let richtung = projection.richtung();
+    let [von, bis] = look.map_or([[-1, -1], [1, 1]], |look| zur_sonne(projection, look));
+    let bloom = look.map_or(0, |look| {
+        (0..=stufen)
+            .map(|k| (3 * look.bloom_radius(projection.scale() >> k) as i32) << k)
+            .max()
+            .unwrap_or(0)
+    });
+    let mut kacheln = BTreeSet::new();
+    for aenderung in aenderungen {
+        // Gelesen wird ein Chunk X von jedem Chunk X − d mit d in [von, bis].
+        let [x, z] = richtung.in_den_blick(aenderung.chunk);
+        let a = richtung.in_die_welt([x - bis[0], z - bis[1]]);
+        let b = richtung.in_die_welt([x - von[0], z - von[1]]);
+        let rect = block_box(
+            projection,
+            [a[0].min(b[0]) * CHUNK, a[1].min(b[1]) * CHUNK],
+            [(a[0].max(b[0]) + 1) * CHUNK, (a[1].max(b[1]) + 1) * CHUNK],
+            // Bis zur Oberkante des obersten Blocks, wie in `Reach::new`.
+            (unten, aenderung.oben + CHUNK + 1),
+        );
+        let rect = ScreenRect {
+            x: rect.x - bloom,
+            y: rect.y - bloom,
+            width: rect.width + 2 * bloom as u32,
+            height: rect.height + 2 * bloom as u32,
+        };
+        kacheln.extend(raster(rect, TILE << stufen));
+    }
+    Gebiet::aus(stufen, kacheln)
 }
 
 /// Was ein Chunk im Ausschnitt eines Laufs zeigt, siehe [`Reach::content`].
@@ -299,8 +518,8 @@ enum Content {
     Empty,
     /// Seine Blöcke landen ausserhalb des Ausschnitts.
     Outside,
-    /// Seine Blöcke können in diesem Rechteck landen, auf den Ausschnitt
-    /// beschnitten, samt der Reserve für überstehende Sprites.
+    /// Seine Blöcke können in diesem Rechteck landen, samt der Reserve für
+    /// überstehende Sprites; es berührt das Gebiet.
     Inside(ScreenRect),
 }
 
@@ -327,7 +546,7 @@ pub fn survey_in(world: &World, reach: Reach) -> Result<Survey> {
     let teile: Vec<Survey> = regions
         .par_iter()
         .filter(|&&(rx, rz)| reach.region(rx, rz))
-        .map(|&(rx, rz)| survey_region(world, reach, rx, rz))
+        .map(|&(rx, rz)| survey_region(world, &reach, rx, rz))
         .collect::<Result<_>>()?;
 
     let mut tiles: BTreeSet<TileId> = BTreeSet::new();
@@ -340,12 +559,13 @@ pub fn survey_in(world: &World, reach: Reach) -> Result<Survey> {
         survey.chunks += teil.chunks;
         survey.heights.extend(teil.heights);
         survey.unfinished += teil.unfinished;
+        survey.inhalte.extend(teil.inhalte);
     }
     survey.tiles = tiles.into_iter().collect();
     Ok(survey)
 }
 
-fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey> {
+fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Survey> {
     let mut survey = Survey::default();
     let Some(mut region) = world.region(rx, rz)? else {
         return Ok(survey);
@@ -373,6 +593,9 @@ fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey
             let Some(chunk) = region.stored_chunk(cx, cz)? else {
                 continue;
             };
+            if reach.inhalt && im_bild {
+                survey.inhalte.push(([cx, cz], Inhalt::von(Some(&chunk))));
+            }
             if !chunk.is_generated() {
                 survey.unfinished += usize::from(im_bild);
                 continue;
@@ -389,7 +612,7 @@ fn survey_region(world: &World, reach: Reach, rx: i32, rz: i32) -> Result<Survey
             // ein einziger unbekannter Block weit draussen bricht den ganzen
             // Export ab.
             match reach.content(&chunk) {
-                Content::Inside(rect) => tiles.extend(covering(rect)),
+                Content::Inside(rect) => tiles.extend(covering(rect).filter(|t| reach.zeigt(*t))),
                 _ if reach.zur_sonne(cx, cz) => {}
                 _ => continue,
             }
@@ -438,11 +661,21 @@ fn column_box(
     y_range: (i32, i32),
     kante: i32,
 ) -> ScreenRect {
+    block_box(projection, [x, z], [x + kante, z + kante], y_range)
+}
+
+/// Wie [`column_box`] für die Blöcke von `von` bis vor `bis` in x und z.
+fn block_box(
+    projection: Projection,
+    von: [i32; 2],
+    bis: [i32; 2],
+    y_range: (i32, i32),
+) -> ScreenRect {
     let mut min = (i32::MAX, i32::MAX);
     let mut max = (i32::MIN, i32::MIN);
     let richtung = projection.richtung();
-    for &cx in &[x, x + kante] {
-        for &cz in &[z, z + kante] {
+    for &cx in &[von[0], bis[0]] {
+        for &cz in &[von[1], bis[1]] {
             let [bx, _, bz] = richtung.versatz_in_den_blick([cx, 0, cz]);
             for &cy in &[y_range.0, y_range.1] {
                 let (sx, sy) = projection.project_block([bx, cy, bz]);
@@ -460,19 +693,9 @@ fn column_box(
     }
 }
 
+#[cfg(test)]
 fn overlaps(a: ScreenRect, b: ScreenRect) -> bool {
     a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
-}
-
-fn clip(rect: ScreenRect, bounds: ScreenRect) -> ScreenRect {
-    let x = rect.x.max(bounds.x);
-    let y = rect.y.max(bounds.y);
-    ScreenRect {
-        x,
-        y,
-        width: (rect.right().min(bounds.right()) - x).max(0) as u32,
-        height: (rect.bottom().min(bounds.bottom()) - y).max(0) as u32,
-    }
 }
 
 /// Kodiert ein Bild als verlustfreies WebP, mit libwebp auf Stufe 0.
@@ -726,6 +949,176 @@ mod tests {
             }
         );
         assert_eq!(snap_to_grid(rect, TILE), rect, "schon auf Kacheln gerundet");
+    }
+
+    /// Das Gebiet einer Änderung enthält jede Basiskachel, in die ein Block
+    /// bis 16 Blöcke neben dem Chunk und von der Unterkante bis 16 über
+    /// seinem höchsten Block reicht: So weit wirken Licht und weiche
+    /// Beleuchtung. Je Ecke jedes Blocks, aus jeder Richtung dreier Kameras,
+    /// auf der Basis und bei drei Stufen.
+    /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+    #[test]
+    fn gebiet_reicht_16_bloecke_um_die_aenderung() {
+        use crate::render::{Kamera, Richtung};
+        let (unten, oben, chunk) = (-64, 40, [2, -3]);
+        let aenderung = Aenderung {
+            chunk,
+            oben,
+            bleibt: true,
+        };
+        for kamera in ["2:1", "top-north", "north-45"] {
+            let kamera = Kamera::parse(kamera).unwrap();
+            let namen = if kamera.genordet() {
+                ["s", "w", "n", "e"]
+            } else {
+                ["se", "sw", "nw", "ne"]
+            };
+            for name in namen {
+                let projection =
+                    Projection::mit_kamera(16, kamera).aus(Richtung::parse(name, kamera).unwrap());
+                let richtung = projection.richtung();
+                for stufen in [0, 3] {
+                    let gebiet =
+                        gebiet_der_aenderungen(projection, stufen, unten, &[aenderung], None);
+                    for x in chunk[0] * 16 - 16..chunk[0] * 16 + 32 {
+                        for z in chunk[1] * 16 - 16..chunk[1] * 16 + 32 {
+                            for y in [unten, oben + 16] {
+                                for ecke in 0..8 {
+                                    let p = [x + (ecke & 1), y + (ecke >> 1 & 1), z + (ecke >> 2)];
+                                    let (sx, sy) =
+                                        projection.project_block(richtung.versatz_in_den_blick(p));
+                                    let tile = TileId {
+                                        x: (sx / TILE as f64).floor() as i32,
+                                        y: (sy / TILE as f64).floor() as i32,
+                                    };
+                                    assert!(
+                                        gebiet.enthaelt(tile),
+                                        "{kamera:?} {name} {stufen} Stufen, Ecke {p:?}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Ein Gebiet aus einem Rechteck verhält sich wie das Rechteck, auf
+    /// sein Raster gerundet: Es berührt dieselben Rechtecke, enthält
+    /// dieselben Basiskacheln, und auf jeder Stufe sind seine Fläche und
+    /// ihre Spalten die Bereiche, die der gerundete Ausschnitt dort trifft.
+    /// Auch links oben vom Ursprung.
+    #[test]
+    fn gebiet_aus_rechteck_gleicht_dem_gerundeten_rechteck() {
+        let mut zufall = 0x2545_f491_4f6c_dd1du64;
+        let mut zahl = |bis: i32| {
+            zufall = zufall
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (zufall >> 33) as i32 % (2 * bis) - bis
+        };
+        let mut rechteck = |weit: i32, gross: i32| ScreenRect {
+            x: zahl(weit),
+            y: zahl(weit),
+            width: zahl(gross).unsigned_abs() + 1,
+            height: zahl(gross).unsigned_abs() + 1,
+        };
+        let ausschnitte: Vec<ScreenRect> = (0..20).map(|_| rechteck(3000, 2000)).collect();
+        let proben: Vec<ScreenRect> = (0..200).map(|_| rechteck(6000, 900)).collect();
+        for stufen in 0..3 {
+            for &ausschnitt in &ausschnitte {
+                let gebiet = Gebiet::rechteck(ausschnitt, stufen);
+                let gerundet = snap_to_grid(ausschnitt, TILE << stufen);
+                for &probe in &proben {
+                    assert_eq!(
+                        gebiet.beruehrt(probe),
+                        overlaps(gerundet, probe),
+                        "{ausschnitt:?} bei {stufen} Stufen, {probe:?}"
+                    );
+                }
+                let rand = ScreenRect {
+                    x: gerundet.x - TILE as i32,
+                    y: gerundet.y - TILE as i32,
+                    width: gerundet.width + 2 * TILE,
+                    height: gerundet.height + 2 * TILE,
+                };
+                for tile in covering(rand) {
+                    let r = tile.rect();
+                    let innen = r.x >= gerundet.x
+                        && r.right() <= gerundet.right()
+                        && r.y >= gerundet.y
+                        && r.bottom() <= gerundet.bottom();
+                    assert_eq!(gebiet.enthaelt(tile), innen, "{tile:?}");
+                }
+                for hoch in 0..6 {
+                    let stufe = |px: i32| px.div_euclid(TILE as i32) >> hoch;
+                    let spalten = stufe(gerundet.x)..=stufe(gerundet.right() - 1);
+                    let zeilen = stufe(gerundet.y)..=stufe(gerundet.bottom() - 1);
+                    let flaeche = gebiet.flaeche(hoch);
+                    assert_eq!(
+                        flaeche.spalten(),
+                        spalten.clone().collect::<Vec<_>>(),
+                        "{ausschnitt:?} bei {stufen} Stufen, {hoch} über der Basis"
+                    );
+                    for y in zeilen.start() - 1..=zeilen.end() + 1 {
+                        for x in spalten.start() - 1..=spalten.end() + 1 {
+                            assert_eq!(
+                                flaeche.enthaelt(&TileId { x, y }),
+                                spalten.contains(&x) && zeilen.contains(&y),
+                                "({x}, {y}) {hoch} über der Basis"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Ein Gebiet aus verstreuten Stücken berührt nur, was eines von ihnen
+    /// trifft, auch zwischen ihnen nichts.
+    #[test]
+    fn gebiet_aus_stuecken_beruehrt_nur_sie() {
+        let kante = TILE as i32 * 2;
+        let gebiet = Gebiet::aus(
+            1,
+            BTreeSet::from([TileId { x: -3, y: 2 }, TileId { x: 4, y: -1 }]),
+        );
+        let quadrat = |x: i32, y: i32| ScreenRect {
+            x: x * kante + 10,
+            y: y * kante + 10,
+            width: 5,
+            height: 5,
+        };
+        assert!(gebiet.beruehrt(quadrat(-3, 2)));
+        assert!(gebiet.beruehrt(quadrat(4, -1)));
+        assert!(!gebiet.beruehrt(quadrat(0, 0)), "dazwischen");
+        assert!(
+            !gebiet.beruehrt(quadrat(-3, -1)),
+            "Spalte des einen, Zeile des anderen"
+        );
+        let quer = ScreenRect {
+            x: -3 * kante,
+            y: 0,
+            width: (8 * kante) as u32,
+            height: kante as u32,
+        };
+        assert!(
+            !gebiet.beruehrt(quer),
+            "über beide Spalten, in keiner Zeile"
+        );
+        assert_eq!(
+            gebiet.flaeche(0).spalten(),
+            vec![-6, -5, 8, 9],
+            "Basis: je Stück zwei Spalten"
+        );
+        assert_eq!(
+            gebiet.flaeche(3).spalten(),
+            vec![-1, 1],
+            "zwei Stufen darüber"
+        );
+        assert!(gebiet.enthaelt(TileId { x: -5, y: 5 }));
+        assert!(!gebiet.enthaelt(TileId { x: -5, y: 6 }));
     }
 
     #[test]

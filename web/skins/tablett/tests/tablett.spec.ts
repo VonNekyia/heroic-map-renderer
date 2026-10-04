@@ -348,6 +348,14 @@ test('die Gesamtansicht füllt das Fenster zu 71 bis 100 %, zwischen zwei Stufen
   }
 });
 
+test('ein Fenster ohne Fläche hat keine Gesamtansicht, statt dass sie abbricht', () => {
+  const [camera, scale] = KAMERAS[0]!;
+  const rahmen = grenzen(GROSS, MEER, blick(kamera(camera, scale), 0));
+  for (const [breite, hoehe] of [[0, 0], [1491, 0], [0, 1055]] as const) {
+    expect(gesamtstufe(rahmen, 11, breite, hoehe), `${breite} × ${hoehe}`).toBeNaN();
+  }
+});
+
 test('die Gesamtansicht liegt wie in der Vorlage unter der Mitte der Karte, und der Rahmen ragt nie aus dem Fenster', () => {
   for (const [camera, scale] of KAMERAS) {
     const p = kamera(camera, scale);

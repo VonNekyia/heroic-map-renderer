@@ -96,6 +96,9 @@ scharf, statt sie zu verwischen.
 Nach unten geht es unter Zoom 0, wenn die ganze Karte dort nicht ins
 Fenster passt, etwa nachdem die Welt gewachsen ist. Dann verkleinert
 Leaflet die Kacheln von Zoom 0 (`minNativeZoom`), bis alles zu sehen ist.
+Die Untergrenze setzt die Karte; die Ebene der Kacheln hat keine eigene
+(`minZoom` −∞). So zeigt sie auch Kacheln, wenn ein Skin die Untergrenze
+senkt, weil das Fenster kleiner wird.
 
 Unter + und − steht ein dritter Knopf ⌂, `aria-label` „Ganze Karte“: Er
 passt die ganze Karte ins Fenster ein, wie beim Laden ohne `at`. Er ist ein

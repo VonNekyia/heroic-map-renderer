@@ -71,7 +71,10 @@ die Bilder nach den Kacheln
   endete das mitten in einem Zug, und der Skin malte dabei. Ohne Animation
   rundet Leaflet jede Stufe auf eine ganze; mit `zoomSnap` 0 bleibt sie
   gebrochen. Wer vor einer neuen Grösse die ganze Karte sah oder auf der
-  kleinsten Stufe war, sieht danach wieder die Gesamtansicht.
+  kleinsten Stufe war, sieht danach wieder die Gesamtansicht. Hat das
+  Fenster keine Fläche, etwa ein Tab, der verborgen aufgeht, gibt es keine
+  Gesamtansicht (`gesamtstufe` ist `NaN`); der Skin setzt sie mit der
+  ersten Grösse.
 - **Zwischen zwei Stufen** glättet der Browser die verkleinerten Kacheln
   (`image-rendering: auto` mit der Klasse `tablett-gebrochen`), statt Pixel
   auszulassen.

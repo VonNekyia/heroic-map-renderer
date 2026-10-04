@@ -218,11 +218,13 @@ const FUELLUNG = 0.925;
  * Die Stufe der Gesamtansicht für ein Fenster von `breite` × `hoehe`: die
  * Stufe, auf der die Grenzen `FUELLUNG` des Fensters füllen, oder die
  * nächste, auf der Leaflet die Kacheln nicht vergrössert. Nie tiefer als
- * die ganze Stufe, auf die Leaflet die Grenzen einpasst.
+ * die ganze Stufe, auf die Leaflet die Grenzen einpasst. Ein Fenster ohne
+ * Fläche, etwa ein verborgener Tab, hat keine: `NaN`.
  * Siehe docs/entscheidungen/0067-gesamtansicht-zwischen-zwei-stufen.md.
  */
 export function gesamtstufe([links, oben, rechts, unten]: Grenzen, maxZoom: number, breite: number, hoehe: number): number {
   const voll = maxZoom + Math.log2(Math.min(breite / (rechts - links), hoehe / (unten - oben)));
+  if (!Number.isFinite(voll)) return Number.NaN;
   const ziel = voll + Math.log2(FUELLUNG);
   // So rundet Leaflet in `getBoundsZoom`, bevor es abrundet.
   const ganz = Math.floor(Math.round(voll * 100) / 100);
@@ -231,6 +233,7 @@ export function gesamtstufe([links, oben, rechts, unten]: Grenzen, maxZoom: numb
   // Stufe darunter. Über der feinsten Stufe vergrösserte es immer.
   const erlaubt = (z: number) => Number.isInteger(z) || (z - Math.floor(z) >= 0.5 && z < maxZoom);
   const stufen = [ziel, ganz + 0.5, ganz].filter((z) => z >= ganz && z <= Math.max(voll, ganz) && erlaubt(z));
+  // `ganz` ist immer dabei, die Liste also nie leer.
   return stufen.reduce((a, b) => (Math.abs(b - ziel) < Math.abs(a - ziel) ? b : a));
 }
 

@@ -725,7 +725,9 @@ async function start(): Promise<void> {
 
   L.tileLayer(`${base}/${info.tiles}`, {
     tileSize: info.tileSize,
-    minZoom,
+    // Die Untergrenze setzt die Karte, und ein Skin senkt sie, wird das
+    // Fenster kleiner. Die Ebene zeigt auf jeder Stufe Kacheln.
+    minZoom: -Infinity,
     maxZoom: info.maxZoom + EXTRA_ZOOM,
     // Über die gerenderte Stufe hinaus gibt es keine Kacheln mehr; Leaflet
     // soll dann die vorhandenen vergrössern statt ins Leere zu laden.

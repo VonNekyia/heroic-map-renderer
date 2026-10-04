@@ -317,6 +317,51 @@ test('in der Gesamtansicht füllt das Tablett 92,5 % des Fensters wie in der Vor
   await expect.poll(() => stand(page)).toEqual({ fern: { ueber: false, ...da, gemalt: true }, nah: { ueber: true, ...da, gemalt: true } });
 });
 
+// Bei 300 × 200 liegt die Gesamtansicht unter Zoom 0, der kleinsten Stufe aus map.json.
+for (const [breite, hoehe] of [[800, 600], [300, 200]] as const) {
+  test(`in einem Fenster der Grösse 0 lädt die Karte, und mit der ersten Grösse, ${breite} × ${hoehe}, kommt die Gesamtansicht mit Kacheln`, async ({ page }) => {
+    // Ein iframe der Grösse 0 ist ein Fenster der Grösse 0, wie ein Tab, der
+    // verborgen aufgeht.
+    await welt(page, QUADRAT);
+    await page.route('**/leer.html', (route) =>
+      route.fulfill({ contentType: 'text/html', body: `<iframe src="${DEMO}" width="0" height="0" style="border: 0"></iframe>` }),
+    );
+    await page.goto('/leer.html');
+    const fenster = page.locator('iframe');
+    const karte = (await (await fenster.elementHandle()).contentFrame())!;
+    // Die Karte steht, sobald die Adresse ihre Stufe nennt; bricht sie ab,
+    // steht statt ihrer der Fehler im Fenster.
+    const zustand = () =>
+      karte.evaluate(() => document.querySelector('#map .error')?.textContent ?? (new URL(location.href).searchParams.has('zoom') ? 'steht' : 'lädt'));
+    await expect.poll(zustand).toBe('steht');
+
+    await fenster.evaluate((e: HTMLIFrameElement, [b, h]) => Object.assign(e, { width: String(b), height: String(h) }), [breite, hoehe]);
+    await expect.poll(() => karte.evaluate(() => performance.getEntriesByName('tablett: zeichnen').length)).toBeGreaterThan(0);
+    const p = kamera('2:1', 16);
+    const rahmen = grenzen(QUADRAT.area, QUADRAT.seaLevel, { projektion: p, k: 0, projiziere: (x, y, z) => projiziere(x, y, z, p) });
+    const groesse = (await karte.locator('#map').boundingBox())!;
+    const fit = gesamtstufe(rahmen, 2, groesse.width, groesse.height);
+    await expect.poll(() => karte.evaluate(() => Number(new URL(location.href).searchParams.get('zoom')))).toBeCloseTo(fit - 2, 9);
+    await expect.poll(() => karte.locator('img.leaflet-tile-loaded').count()).toBeGreaterThan(0);
+    expect(await zustand()).toBe('steht');
+  });
+}
+
+test('wird das Fenster kleiner, zeigt die Gesamtansicht Kacheln, auch unter der kleinsten Stufe aus map.json', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await welt(page, QUADRAT);
+  await page.goto(DEMO);
+  await expect.poll(() => gezeichnet(page)).toBe(true);
+  await page.setViewportSize({ width: 300, height: 200 });
+  const p = kamera('2:1', 16);
+  const rahmen = grenzen(QUADRAT.area, QUADRAT.seaLevel, { projektion: p, k: 0, projiziere: (x, y, z) => projiziere(x, y, z, p) });
+  const groesse = (await page.locator('#map').boundingBox())!;
+  const fit = gesamtstufe(rahmen, 2, groesse.width, groesse.height);
+  expect(fit).toBeLessThan(0);
+  await expect.poll(() => Number(new URL(page.url()).searchParams.get('zoom'))).toBeCloseTo(fit - 2, 9);
+  await expect.poll(() => page.locator('img.leaflet-tile-loaded').count()).toBeGreaterThan(0);
+});
+
 test('hineingezoomt lässt sich die Karte bis über jede Ecke von area ziehen', async ({ page }) => {
   await welt(page, QUADRAT);
   await page.goto(DEMO);

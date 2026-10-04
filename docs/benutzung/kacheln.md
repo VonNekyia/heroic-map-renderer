@@ -1,6 +1,6 @@
 ---
 title: Kacheln exportieren
-description: Was ein Lauf mit --tiles tut, wie ein Ausschnitt gerundet wird, wie --area ein Rechteck der Welt wählt, wo Kacheln und Höhen liegen und wann der Export Kacheln entfernt, auch mit --prune.
+description: Was ein Lauf mit --tiles tut, wie ein Ausschnitt gerundet wird, wie --area ein Rechteck der Welt wählt, wo Kacheln, Höhen und der Stand liegen und wann der Export Kacheln entfernt, auch mit --prune.
 code:
   - renderer/src/cli.rs
   - renderer/src/world/mod.rs
@@ -18,7 +18,8 @@ Pixeln, stapelt die gröberen Zoomstufen darüber und schreibt `map.json`.
 siehe „Wo die Kacheln liegen“.
 Ein Vorlauf liest dafür jeden Chunk einmal, dann rendern alle Threads die
 Basis in Streifen. `--center` und `--size` schränken auf einen Ausschnitt
-ein, der in einen bestehenden Baum passt. Der Ablauf steht in `write_tiles` in
+ein, der in einen bestehenden Baum passt; `--update` auf die Stellen, die
+sich geändert haben, siehe [Updates](updates.md). Der Ablauf steht in `write_tiles` in
 [`renderer/src/cli.rs`](../../renderer/src/cli.rs), der Vorlauf in `survey` in
 [`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs). Was
 ein Lauf kostet: [Was ein Lauf kostet](kosten.md).
@@ -98,7 +99,8 @@ Stufen mit der Grösse der Bänder, siehe
 Bändern“.
 
 Der Ausschnitt wird aufgerundet, bevor der Vorlauf irgendetwas
-ausschliesst, und zwar auf ganze Kacheln der gröbsten nativen Stufe: mit
+ausschliesst, und zwar auf ganze Kacheln der gröbsten nativen Stufe
+(`Gebiet` in [`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs)): mit
 drei Stufen bei scale 32 auf 2048 Pixel, aus 2048 mal 2048 werden hier 4096
 mal 4096. Die nativen Stufen zeigen ganze Elternkacheln, und alle Stufen
 sollen denselben Stand der Welt zeigen: sonst stünde ein Neubau neben dem
@@ -148,9 +150,11 @@ daneben `trees.json` und die Höhen, die alle Bäume teilen. Wie die Ordner
 heissen, auch mit `--cinematic`, steht in [map.json](map-json.md), „Liste
 der Bäume“, die Höhen unter „Höhen“. In einem Baum liegen die Kacheln als
 `<z>/<x>/<y>.webp`; x und y dürfen negativ sein, weil der Blockursprung
-mitten in der Welt liegt. Jede Kachel, jede Datei der Höhen, `map.json`
-und `trees.json` entstehen erst als eigene Datei daneben und werden dann
-getauscht: Ein Leser sieht nie eine halbe Datei, siehe
+mitten in der Welt liegt. Neben `map.json` liegt der Stand für Updates,
+`stand.bin`, siehe [Updates](updates.md), „Der Stand“. Jede Kachel, jede
+Datei der Höhen, `map.json`, der Stand und `trees.json` entstehen erst als
+eigene Datei daneben und werden dann getauscht: Ein Leser sieht nie eine
+halbe Datei, siehe
 [0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md).
 
 Eine Kachel muss Pixel für Pixel dem entsprechenden Ausschnitt eines
@@ -166,11 +170,25 @@ Datei, auf jeder Stufe, sonst zeigte die Karte weiter, was inzwischen
 abgerissen wurde. Nur eine native Elternkachel, unter der eine Kachel
 stehen bleibt, bleibt durchsichtig stehen, siehe unten.
 
+Das gilt für jede Kachel, die der Lauf zeichnet. Eine Kachel, in die kein
+Block mehr reicht, etwa über einem abgerissenen Turm, zeichnet er nur, wenn
+er weiss, dass ein Chunk dorthin reichte, der noch da ist: Ein Update weiss
+es aus dem Stand, ein voller Lauf, wenn der Baum schon einen Stand hat. Er
+zeichnet dann die vorhandenen Kacheln im Gebiet jedes geänderten Chunks,
+der noch etwas zeichnet, wie ein Update, siehe [Updates](updates.md), „Wo
+ein Update zeichnet“; leer verschwinden sie. Ohne Stand bleibt so eine
+Kachel stehen wie eine ohne Chunk, siehe unten
+(`voller_lauf_mit_stand_raeumt_abgerissenes_weg`). Ebenso bleibt eine
+Kachel stehen, die im Gebiet eines gelöschten Chunks leer wird: Der Lauf
+weiss nicht, ob sie auch ihn zeigte; `--prune` räumt sie weg.
+
 ## Kacheln ohne Chunk: `--prune`
 
-Eine Basiskachel, die gar kein Chunk mehr berührt, weil ein Editor ihn
-zurückgesetzt hat, entfernt der Export nur mit `--prune`, dann auf jeder
-Stufe. Bis zum Ende der Pyramide läuft ein Lauf mit dem Schalter wie einer
+Eine Basiskachel, in die kein Block mehr reicht und die der Lauf nicht
+zeichnet, etwa weil ein Editor den Chunk zurückgesetzt hat, entfernt der
+Export nur mit `--prune`, dann auf jeder Stufe. Im Gebiet eines Chunks, der
+im Stand stand und jetzt fehlt, gilt das auch für ein Update.
+Bis zum Ende der Pyramide läuft ein Lauf mit dem Schalter wie einer
 ohne ihn; erst dann nimmt er diese Kacheln heraus und setzt die Stufen über
 ihnen ohne sie neu zusammen. Ohne den Schalter zählt er sie und lässt sie
 stehen; nur wo der Lauf eine native Elternkachel ohnehin neu rendert, fehlt
@@ -218,6 +236,7 @@ Eltern neu, auch einer, dessen Vorlauf dort nichts mehr findet; einer mit
 
 - `--native-levels`: [Zoomstufen](zoomstufen.md)
 - `--resume`: [Pyramide und Fortsetzen](pyramide-und-resume.md)
+- `--update`: [Updates](updates.md)
 - `--gpu`: [Grafikkarte](grafikkarte.md)
 - `--defender-exclusion`: [Echtzeitschutz](echtzeitschutz.md)
 
@@ -227,3 +246,6 @@ Eltern neu, auch einer, dessen Vorlauf dort nichts mehr findet; einer mit
   der Lauf eine native Elternkachel ohnehin neu, zeigt sie die Welt ohne
   den Chunk, die Basis darunter noch mit ihm; rendert sie leer, bleibt sie
   durchsichtig stehen. Die Ausgabe nennt den Schalter.
+- **Ohne Stand bleiben Kacheln stehen, in die ein Chunk nicht mehr reicht,**
+  etwa über einem abgerissenen Turm, bis `--prune`. Jeder volle Lauf über
+  die ganze Welt schreibt den Stand, danach zeichnet jeder Lauf sie.

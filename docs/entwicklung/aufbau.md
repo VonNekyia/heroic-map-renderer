@@ -30,8 +30,8 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | Datei | Inhalt |
 |---|---|
 | `mod.rs` | `World`: Weltwurzel, Dimension, Regionen, Seed, siehe [Welten und Kennung](../benutzung/welten.md) |
-| `region.rs` | Regionsdateien: Chunk-Tabelle, Sektoren, ausgelagerte `.mcc`-Chunks |
-| `chunk.rs` | ein Chunk aus NBT: Sections, Blöcke, Biome, Blockentities mit Daten |
+| `region.rs` | Regionsdateien: Chunk-Tabelle, Stempel für Updates, Sektoren, ausgelagerte `.mcc`-Chunks |
+| `chunk.rs` | ein Chunk aus NBT: Sections, Blöcke, Biome, Blockentities mit Daten, sein Fingerabdruck für Updates |
 | `palette.rs` | `BlockState` und die gepackten Paletten-Indizes einer Section |
 | `biomzoom.rs`, `Biomwerte.java` | das Biom je Block wie `BiomeManager.getBiome` und die Sollwerte dafür aus dem Spiel, siehe [Biomfarben](../renderer/biomfarben.md) |
 
@@ -66,7 +66,8 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `metatile/strahl.rs` | der Strahl zur Sonne durch den Chunk-Cache: schneller Gang und langsamer Bezug, siehe [Cinematic](../renderer/cinematic.md), „Der schnelle Gang“ |
 | `licht.rs` | Himmels- und Blocklicht ausbreiten wie das Spiel, siehe [Wasser und Licht](../renderer/wasser-und-licht.md), „Licht ausbreiten“ |
 | `tint.rs` | die Farben der Biome und ihre Mischung über Biomgrenzen, siehe [Biomfarben](../renderer/biomfarben.md) |
-| `tiles.rs` | Kachelraster, Vorlauf (`survey`), WebP (`encode_webp`) |
+| `tiles.rs` | Kachelraster, das Gebiet eines Laufs (`Gebiet`), Vorlauf (`survey`), das Gebiet eines Updates, WebP (`encode_webp`) |
+| `stand.rs` | der Stand eines Baums für Updates und sein Vergleich mit der Welt, siehe [Updates](../benutzung/updates.md) |
 | `pyramid.rs` | Zoomstufen verkleinern, `map.json`, Kennung der Welt |
 | `gpu.rs`, `gpu.wgsl` | Zeichnen auf der Grafikkarte, siehe [Grafikkarte](../benutzung/grafikkarte.md) |
 

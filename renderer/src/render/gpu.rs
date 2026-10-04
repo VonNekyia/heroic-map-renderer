@@ -585,6 +585,7 @@ mod tests {
             return;
         };
         let sprite = Sprite {
+            start: Default::default(),
             image: RgbaImage::from_pixel(4, 4, image::Rgba([200, 10, 10, 255])),
             offset: (0, 0),
             ao: None,

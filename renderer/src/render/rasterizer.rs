@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 
 use image::{Rgba, RgbaImage};
 
@@ -423,6 +423,10 @@ pub struct Sprite {
     /// Nur in Sprites für Cinematic: je Pixel Tiefe und Normale seines
     /// vordersten Fragments, siehe [`Geometrie`].
     pub geometrie: Option<Vec<Geometrie>>,
+    /// Für Cinematic je Pixel, wo der Strahl zur Sonne beginnt, ohne den
+    /// Block: beim ersten Draw aus der Geometrie gerechnet, siehe
+    /// `metatile::startpunkte`.
+    pub start: OnceLock<Box<[[f64; 3]]>>,
 }
 
 /// Was ein Sprite für Cinematic an einem Pixel über die vorderste Fläche
@@ -542,6 +546,7 @@ impl Raster {
             .canvas
             .mischen(self.ao, self.normalen.as_deref(), |_| true);
         Sprite {
+            start: Default::default(),
             image,
             offset: self.offset,
             ao: ao.filter(|karte| karte.iter().any(|&w| w >> 24 != 0)),
@@ -575,6 +580,7 @@ impl Raster {
                     self.canvas
                         .mischen(mit_ao, self.normalen.as_deref(), |f| f.zelle == zelle);
                 let sprite = Sprite {
+                    start: Default::default(),
                     image,
                     offset: self.offset,
                     ao,
@@ -615,6 +621,7 @@ fn zuschneiden(sprite: &Sprite) -> Option<Sprite> {
     }
     let umriss = (x0, y0, x1, y1);
     Some(Sprite {
+        start: Default::default(),
         image,
         offset: (sprite.offset.0 + x0 as i32, sprite.offset.1 + y0 as i32),
         ao: sprite

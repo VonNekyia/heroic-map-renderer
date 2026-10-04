@@ -2280,6 +2280,7 @@ mod tests {
             image.put_pixel(x, y, Rgba([9, 9, 9, 255]));
         }
         let mut sprite = Sprite {
+            start: Default::default(),
             image,
             offset,
             ao: None,

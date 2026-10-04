@@ -1094,6 +1094,22 @@ fn blit_hdr(
     let zeilen = vis[sicht.start..].chunks(sicht.nk);
     // Pixel auf demselben Texel beginnen am selben Punkt.
     let mut letzter: Option<([f64; 3], f32)> = None;
+    // Wo die Strahlen zur Sonne beginnen, je Sprite einmal gerechnet; der
+    // Debug-Build rechnet je Draw nach.
+    let start: &[[f64; 3]] = match sprite.geometrie.as_deref() {
+        Some(geometrie) => {
+            let start = sprite
+                .start
+                .get_or_init(|| startpunkte(umkehrung, sprite, geometrie));
+            debug_assert_eq!(
+                start[..],
+                startpunkte(umkehrung, sprite, geometrie)[..],
+                "andere Umkehrung"
+            );
+            start
+        }
+        None => &[],
+    };
     // Der Blick vom Auge in die Szene, Länge 1, und wie viel Tiefe ein Block
     // Strecke entlang des Blicks ist.
     let achse = projection.achse();
@@ -1117,7 +1133,7 @@ fn blit_hdr(
                 if let Some(g) = sprite.geometrie.as_deref().map(|g| &g[i]).filter(|_| drin) {
                     sonnenlicht = kino.sonnenlicht(g);
                     if sonnenlicht != [0.0; 3] {
-                        let p0 = startpunkt(umkehrung, sprite, (sx, (y - oy) as usize), g, anker);
+                        let p0 = startpunkt(start[i], g, anker);
                         let frei = match letzter {
                             Some((q, frei)) if q == p0 => frei,
                             _ => sonne(p0, anker)?,
@@ -1305,22 +1321,31 @@ fn mische_wasser(
     d[3] = a_s + d[3] * (1.0 - a_s);
 }
 
-/// Wo der Strahl zur Sonne für Pixel `(sx, sy)` eines Sprites beginnt, im
-/// Blick: am Punkt der vordersten Fläche dort, auf einer achsparallelen
-/// Fläche in der Mitte seines Sechzehntels, ein Tausendstel davor.
+/// Wo der Strahl zur Sonne für jeden Pixel eines Sprites beginnt, im Blick
+/// und ohne den Block: am Punkt der vordersten Fläche dort, auf einer
+/// achsparallelen Fläche in der Mitte seines Sechzehntels. Hängt nur am
+/// Sprite und am Pixel; je Sprite einmal gerechnet ([`Sprite::start`]).
 /// Siehe docs/renderer/cinematic.md, „Schatten“.
-fn startpunkt(
-    umkehrung: &Umkehrung,
-    sprite: &Sprite,
-    (sx, sy): (usize, usize),
-    g: &Geometrie,
-    anker: [i32; 3],
-) -> [f64; 3] {
-    let bildpunkt = (
-        f64::from(sprite.offset.0) + sx as f64 + 0.5,
-        f64::from(sprite.offset.1) + sy as f64 + 0.5,
-    );
-    let p = texel_mitte(umkehrung.punkt(bildpunkt, g.tiefe.into()), g.normale);
+fn startpunkte(umkehrung: &Umkehrung, sprite: &Sprite, geometrie: &[Geometrie]) -> Box<[[f64; 3]]> {
+    let w = sprite.image.width() as usize;
+    geometrie
+        .iter()
+        .enumerate()
+        .map(|(i, g)| {
+            let bildpunkt = (
+                f64::from(sprite.offset.0) + (i % w) as f64 + 0.5,
+                f64::from(sprite.offset.1) + (i / w) as f64 + 0.5,
+            );
+            texel_mitte(umkehrung.punkt(bildpunkt, g.tiefe.into()), g.normale)
+        })
+        .collect()
+}
+
+/// Wo der Strahl zur Sonne für einen Pixel beginnt: der Punkt `p` aus
+/// [`startpunkte`] im Block `anker`, ein Tausendstel vor der Fläche. Die
+/// Reihenfolge der Summe bleibt, sonst rundet f64 anders.
+/// Siehe docs/renderer/cinematic.md, „Schatten“.
+fn startpunkt(p: [f64; 3], g: &Geometrie, anker: [i32; 3]) -> [f64; 3] {
     std::array::from_fn(|k| f64::from(anker[k]) + p[k] + f64::from(g.normale[k]) * 1e-3)
 }
 
@@ -3503,6 +3528,7 @@ mod tests {
             height: 10,
         };
         let sprite = |alpha| Sprite {
+            start: Default::default(),
             image: RgbaImage::from_pixel(8, 4, image::Rgba([1, 2, 3, alpha])),
             offset: (0, 0),
             ao: None,

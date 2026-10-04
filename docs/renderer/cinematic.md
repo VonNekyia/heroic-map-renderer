@@ -241,6 +241,12 @@ hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
   Alle Pixel auf einem Texel bekommen denselben Strahl. Gerechnet wird er
   einmal je Folge von Pixeln eines Draws mit demselben Punkt, also je
   Zeile des Texels; auf schrägen Flächen je Pixel.
+- **Je Sprite vorab (#118):** Der Punkt ohne den Block hängt nur am Sprite
+  und am Pixel. `startpunkte` rechnet ihn beim ersten Draw eines Sprites für
+  alle Pixel (`Sprite::start`), 24 Byte je Pixel. Je Draw kommen nur der
+  Block und das Tausendstel dazu, in derselben Reihenfolge wie vorher:
+  `anker + p + normale · 10⁻³`, sonst rundete f64 anders. Der Debug-Build
+  rechnet je Draw nach.
 - **Was deckt** (`Sonnenform` in
   [`renderer/src/render/sonne.rs`](../../renderer/src/render/sonne.rs)):
   je Alternative die Dreiecke ihres Modells im Blick, mit dem Alpha-Test

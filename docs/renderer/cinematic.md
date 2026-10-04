@@ -451,7 +451,8 @@ Alpha), mischt sich wie im Prototyp aus #89 von vorn nach hinten
   `Wassergedaechtnis` in `metatile.rs` merkt beide je Draw nach den Bits
   dieser Eingaben: den Spiegel der letzten Normale, die Dichte in 16
   Plätzen. Gemerkt ist dasselbe Ergebnis wie gerechnet; der Debug-Build
-  rechnet jedes nach.
+  rechnet jedes nach. Gemessen in
+  [2026-10-04, Cinematic schneller, Hebel 3 und 4 und zusammen](../messungen/2026-10-04-hebel-3-und-4.md).
 - Getestet: `tieferes_wasser_ist_dunkler` in `renderer/tests/metatile.rs`,
   `wasser_spiegelt_und_dampft` in `renderer/src/render/kino.rs`,
   `gemerktes_wasser_wie_gerechnet` in `metatile.rs`.

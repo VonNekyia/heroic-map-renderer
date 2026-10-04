@@ -184,5 +184,9 @@ Gemessen und hochgerechnet in
     des Bilds hat, ohne Mischfarben;
   - dass 99,9 % der Stichproben genau ihr Pixel im Bild zeigen;
   - dass das Bild höchstens 1 px neben der Lage aus der Projektion liegt;
+  - dass Gesamtstufe und Auflösung der Leinwände einem neuen
+    `devicePixelRatio` ohne `resize` folgen, per CDP von 1 auf 2. Kopflos
+    meldet Chromium dabei kein `change` der Anfrage nach der Auflösung; der
+    Test schickt es wie der Browser beim Wechsel des Monitors;
   - dass das Tablett ausbleibt und die Konsole es sagt, wenn die Kamera in
     `brett.json` fehlt.

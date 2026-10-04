@@ -59,7 +59,8 @@ async function welt(page: Page, mehr: object): Promise<void> {
   });
 }
 
-const gezeichnet = (page: Page) => page.evaluate(() => performance.getEntriesByName('tablett: zeichnen').length > 0);
+const zeichnungen = (page: Page) => page.evaluate(() => performance.getEntriesByName('tablett: zeichnen').length);
+const gezeichnet = async (page: Page) => (await zeichnungen(page)) > 0;
 
 /**
  * Vergleicht eine Leinwand mit ihrem Bild. `x`, `y` ist die erwartete linke
@@ -164,6 +165,51 @@ for (const [dpr, breite, hoehe, ganz] of [
     });
   });
 }
+
+test('ändert sich devicePixelRatio ohne neue Grösse des Fensters, folgen Gesamtstufe und Leinwände', async ({ page }) => {
+  // Die Anfragen des Skins nach der Auflösung: Kopflos meldet Chromium ihr
+  // change nicht, wenn CDP nur deviceScaleFactor ändert. Der Test schickt es
+  // wie der Browser beim Wechsel des Monitors.
+  await page.addInitScript(() => {
+    const echt = window.matchMedia.bind(window);
+    const anfragen: MediaQueryList[] = [];
+    window.matchMedia = (frage: string) => {
+      const anfrage = echt(frage);
+      if (frage.includes('resolution')) anfragen.push(anfrage);
+      return anfrage;
+    };
+    Object.assign(window, { anfragen });
+  });
+  // 1060 × 596: Bei 1 liegt die Gesamtansicht nach 0067, bei 2 deckt ein
+  // Pixel des Bilds 3 Pixel, auf einer anderen Stufe.
+  await page.setViewportSize({ width: 1060, height: 596 });
+  await welt(page, { ...QUADRAT, projection: kamera('2:1', 16), direction: 'se' });
+  await page.goto(DEMO);
+  await expect.poll(() => gezeichnet(page)).toBe(true);
+  const p = kamera('2:1', 16);
+  const blick: Blick = { projektion: p, k: 0, projiziere: (x, y, z) => projiziere(x, y, z, p) };
+  const { mass } = lage(QUADRAT.area, QUADRAT.seaLevel, blick, INDEX['2:1 se']!);
+  const rahmen = grenzen(QUADRAT.area, QUADRAT.seaLevel, blick);
+  const [bei1, bei2] = [gesamtstufe(rahmen, 2, 1060, 596, mass), gesamtstufe(rahmen, 2, 1060, 596, 2 * mass)];
+  expect(bei2).not.toBeCloseTo(bei1, 3);
+  const stufe = () => page.evaluate(() => 2 + Number(new URL(location.href).searchParams.get('zoom')));
+  expect(await stufe()).toBeCloseTo(bei1, 9);
+  const anfragen = () => page.evaluate(() => (window as unknown as { anfragen: MediaQueryList[] }).anfragen.map((a) => a.media));
+  expect(await anfragen()).toEqual(['(resolution: 1dppx)']);
+  await page.evaluate(() => addEventListener('resize', () => Object.assign(window, { groesse: true })));
+  const vorher = await zeichnungen(page);
+  // Nur das Verhältnis ändert sich, wie beim Wechsel des Monitors.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1060, height: 596, deviceScaleFactor: 2, mobile: false });
+  await page.evaluate(() => (window as unknown as { anfragen: MediaQueryList[] }).anfragen.at(-1)!.dispatchEvent(new Event('change')));
+  await expect.poll(stufe).toBeCloseTo(bei2, 9);
+  await expect.poll(() => zeichnungen(page)).toBeGreaterThan(vorher);
+  const leinwand = page.locator('.leaflet-tablett-fern-pane canvas');
+  await expect.poll(() => leinwand.evaluate((c: HTMLCanvasElement) => [c.width, c.height])).toEqual([3180, 1788]);
+  // Kein resize, und die nächste Anfrage gilt dem neuen Verhältnis.
+  expect(await page.evaluate(() => 'groesse' in window)).toBe(false);
+  expect(await anfragen()).toEqual(['(resolution: 1dppx)', '(resolution: 2dppx)']);
+});
 
 test('fehlt die Kamera in brett.json, bleibt das Tablett aus, und die Konsole sagt es', async ({ page }) => {
   const meldungen: string[] = [];

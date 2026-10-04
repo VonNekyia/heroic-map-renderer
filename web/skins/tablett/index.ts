@@ -367,6 +367,20 @@ const skin: Skin = (kontext) => {
   karte.on('resize', baue);
   karte.on('moveend', pruefe);
   karte.on('zoomend', gebrochen);
+  // Ändert sich `devicePixelRatio` ohne `resize`, etwa beim Wechsel auf
+  // einen Monitor mit anderer Skalierung, gelten Gesamtstufe und Leinwände
+  // nicht mehr. Die Anfrage gilt für ein Verhältnis; danach eine neue.
+  const aufDpr = (): void => {
+    matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener(
+      'change',
+      () => {
+        baue();
+        aufDpr();
+      },
+      { once: true },
+    );
+  };
+  aufDpr();
 
   return { ganzeKarte: rahmen };
 };

@@ -72,7 +72,9 @@ gerenderte Bilder aus Blender: [Tablett aus Blender](tablett-gerendert.md).
   mehr Tisch als dahinter (`gesamtmitte`). Ragte der Rahmen so aus dem
   Fenster, rückt sie zurück, bis er ganz darin liegt.
 - **Kleinste Stufe** ist die Gesamtansicht, neu bei jeder Grösse des
-  Fensters. Der Skin setzt die Untergrenze selbst und die Gesamtansicht
+  Fensters und bei jedem neuen `devicePixelRatio`. Das ändert sich auch ohne
+  `resize`, etwa beim Wechsel auf einen Monitor mit anderer Skalierung; der
+  Skin hört darauf mit `matchMedia('(resolution: …dppx)')`. Der Skin setzt die Untergrenze selbst und die Gesamtansicht
   sofort, ohne Animation: Schöbe Leaflet sie animiert an ihren Platz,
   endete das mitten in einem Zug, und der Skin malte dabei. Ohne Animation
   rundet Leaflet jede Stufe auf eine ganze; mit `zoomSnap` 0 bleibt sie

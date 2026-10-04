@@ -93,6 +93,11 @@ struct Dreieck {
     a: [f32; 3],
     e1: [f32; 3],
     e2: [f32; 3],
+    /// `d × e2` mit der Richtung zur Sonne `d`, für Möller–Trumbore.
+    p: [f32; 3],
+    /// `1 / det` mit `det = e1 · p`; `None`, wenn der Strahl parallel zum
+    /// Dreieck läuft.
+    inv: Option<f32>,
     /// Die Texturkoordinaten an `a` und ihre Änderung entlang `e1` und `e2`.
     uv: [f32; 2],
     du: [f32; 2],
@@ -107,8 +112,13 @@ struct Dreieck {
 }
 
 /// Die Dreiecke eines Modells für den Strahl zur Sonne und ihre Hülle.
+/// Was nur an der festen Richtung zur Sonne hängt, rechnet es beim Bauen.
 struct Schattenmodell {
     dreiecke: Vec<Dreieck>,
+    /// Die Richtung zur Sonne im Blick, ohne Komponente 0.
+    d: [f32; 3],
+    /// `1 / d` je Achse, in f64, für die Hülle.
+    kehr: [f64; 3],
     lo: [f32; 3],
     hi: [f32; 3],
     /// Die Seiten des Würfels, die eine Fläche ganz und deckend belegt, Bits
@@ -117,17 +127,20 @@ struct Schattenmodell {
 }
 
 impl Schattenmodell {
-    /// Das Modell im Blick aus `richtung`. Flächen aus Wasser halten die
-    /// Sonne nie auf und fehlen, ebenso Flächen ohne Textur, die auch das
-    /// Zeichnen auslässt.
+    /// Das Modell im Blick aus `richtung`, für Strahlen in Richtung `d`.
+    /// Flächen aus Wasser halten die Sonne nie auf und fehlen, ebenso
+    /// Flächen ohne Textur, die auch das Zeichnen auslässt.
     fn new(
         model: &BakedModel,
         richtung: Richtung,
         textures: &Textures,
         masken: &mut Masken,
+        d: [f32; 3],
     ) -> Schattenmodell {
         let mut m = Schattenmodell {
             dreiecke: Vec::new(),
+            d,
+            kehr: d.map(|c| 1.0 / f64::from(c)),
             lo: [f32::MAX; 3],
             hi: [f32::MIN; 3],
             ganze_seiten: 0,
@@ -145,10 +158,15 @@ impl Schattenmodell {
                 m.ganze_seiten |= ganze_seite(&c);
             }
             for [i, j, k] in [[0, 1, 2], [0, 2, 3]] {
+                let (e1, e2) = (sub(c[j], c[i]), sub(c[k], c[i]));
+                let p = cross(d, e2);
+                let det = dot(e1, p);
                 m.dreiecke.push(Dreieck {
                     a: c[i],
-                    e1: sub(c[j], c[i]),
-                    e2: sub(c[k], c[i]),
+                    e1,
+                    e2,
+                    p,
+                    inv: (det.abs() >= 1e-12).then(|| 1.0 / det),
                     uv: quad.uvs[i],
                     du: [
                         quad.uvs[j][0] - quad.uvs[i][0],
@@ -176,10 +194,10 @@ impl Schattenmodell {
     /// Erst gegen die Hülle, dann Dreieck für Dreieck (Möller–Trumbore),
     /// beidseitig; der erste deckende Treffer genügt. `weg`: die Seiten der
     /// Welt, zu denen Flächen aus Lava entfallen.
-    fn trifft(&self, weg: u8, masken: &Masken, o: [f64; 3], d: [f32; 3], weite: f64) -> bool {
+    fn trifft(&self, weg: u8, masken: &Masken, o: [f64; 3], weite: f64) -> bool {
+        let d = self.d;
         let (mut t0, mut t1) = (-1e-3f64, weite + 1e-3);
-        for k in 0..3 {
-            let inv = 1.0 / f64::from(d[k]);
+        for (k, inv) in self.kehr.into_iter().enumerate() {
             let (a, b) = (
                 (f64::from(self.lo[k]) - 1e-3 - o[k]) * inv,
                 (f64::from(self.hi[k]) + 1e-3 - o[k]) * inv,
@@ -200,12 +218,10 @@ impl Schattenmodell {
             if dr.lava.is_some_and(|face| weg & seite(face) != 0) {
                 return false;
             }
-            let p = cross(d, dr.e2);
-            let det = dot(dr.e1, p);
-            if det.abs() < 1e-12 {
+            let Some(inv) = dr.inv else {
                 return false;
-            }
-            let inv = 1.0 / det;
+            };
+            let p = dr.p;
             let s = sub(o, dr.a);
             let u = dot(s, p) * inv;
             if !(0.0..=1.0).contains(&u) {
@@ -286,8 +302,9 @@ pub struct Sonnenform {
 }
 
 impl Sonnenform {
-    /// Die Form aus den Modellen der Alternativen; `voll` gibt zu einem
-    /// Modell das mit seiner Flüssigkeit auf voller Höhe.
+    /// Die Form aus den Modellen der Alternativen für Strahlen in Richtung
+    /// `d`, ohne Komponente 0; `voll` gibt zu einem Modell das mit seiner
+    /// Flüssigkeit auf voller Höhe.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         models: &[(u32, BakedModel)],
@@ -297,13 +314,14 @@ impl Sonnenform {
         textures: &Textures,
         masken: &mut Masken,
         pflanze: bool,
+        d: [f32; 3],
     ) -> Sonnenform {
         let modelle: Vec<(Schattenmodell, Option<Schattenmodell>)> = models
             .iter()
             .map(|(_, model)| {
-                let eigen = Schattenmodell::new(model, richtung, textures, masken);
+                let eigen = Schattenmodell::new(model, richtung, textures, masken, d);
                 let hoch =
-                    lava.then(|| Schattenmodell::new(&voll(model), richtung, textures, masken));
+                    lava.then(|| Schattenmodell::new(&voll(model), richtung, textures, masken, d));
                 (eigen, hoch)
             })
             .collect();
@@ -334,11 +352,11 @@ impl Sonnenform {
         }
     }
 
-    /// Trifft der Strahl `o + t·d` mit `0 ≤ t ≤ weite` eine deckende Stelle
-    /// der Alternative `wahl`? `o` liegt relativ zum Ursprung des Blocks im
-    /// Blick. `voll`: Dieselbe Flüssigkeit steht darüber. `weg`: die Seiten
-    /// der Welt, zu denen Flächen aus Lava entfallen, Bits nach [`seite`].
-    #[allow(clippy::too_many_arguments)]
+    /// Trifft der Strahl `o + t·d` mit `0 ≤ t ≤ weite`, `d` aus
+    /// [`Sonnenform::new`], eine deckende Stelle der Alternative `wahl`? `o`
+    /// liegt relativ zum Ursprung des Blocks im Blick. `voll`: Dieselbe
+    /// Flüssigkeit steht darüber. `weg`: die Seiten der Welt, zu denen
+    /// Flächen aus Lava entfallen, Bits nach [`seite`].
     pub fn trifft(
         &self,
         wahl: usize,
@@ -346,7 +364,6 @@ impl Sonnenform {
         weg: u8,
         masken: &Masken,
         o: [f64; 3],
-        d: [f32; 3],
         weite: f64,
     ) -> bool {
         let (eigen, hoch) = &self.modelle[wahl];
@@ -354,7 +371,7 @@ impl Sonnenform {
             Some(hoch) if voll => hoch,
             _ => eigen,
         };
-        m.trifft(weg, masken, o, d, weite)
+        m.trifft(weg, masken, o, weite)
     }
 }
 

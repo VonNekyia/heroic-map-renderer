@@ -1,6 +1,21 @@
-/* Rahmen und Tisch fangen keine Klicks ab. Siehe docs/tablett.md, „Zeichnen“. */
+/* Rahmen und Tisch fangen keine Klicks ab. Die Leinwände kommen mit dem
+   ersten Bild auf die Karte, wenn die Bilder da sind, und blenden ein. Siehe
+   docs/tablett.md, „Zeichnen“. */
 .tablett {
   pointer-events: none;
+  animation: tablett-einblenden 0.4s ease-out;
+}
+
+@keyframes tablett-einblenden {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tablett {
+    animation: none;
+  }
 }
 
 /* Zwischen zwei Stufen verkleinert Leaflet die Kacheln: dann glätten statt

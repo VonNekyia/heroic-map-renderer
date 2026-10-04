@@ -28,8 +28,17 @@ export const MASS = {
 /** Die Breite der Karte in der Vorlage, in ihren Pixeln. Daran messen sich die Ausschnitte. */
 export const BREITE_VORLAGE = 1288.3;
 
-/** Die Grösse der Vorlage in Pixeln; so gross ist auch das Bild des Tischs. */
+/** Die Grösse der Vorlage in Pixeln. */
 export const VORLAGE: [number, number] = [1491, 1055];
+
+/**
+ * So viele Pixel reicht das Bild des Tischs rundum über die Vorlage hinaus;
+ * darin laufen ihre Farben in den Marmor aus.
+ */
+export const TISCH_RAND = 24;
+
+/** Die Seite des Marmors in Pixeln der Vorlage: Er wiederholt sich nahtlos über die ganze Ebene. */
+export const MARMOR = 768;
 
 /**
  * Die Kamera des Bezugsrahmens, 8:5, als Verhältnis von u, v und y. Darin
@@ -115,8 +124,8 @@ export interface Gegenstand extends Ausschnitt {
 export const GEGENSTAENDE: Gegenstand[] = [
   {
     bild: 'buecher',
-    groesse: [501, 290],
-    fuss: [233, 209],
+    groesse: [506, 295],
+    fuss: [238, 214],
     vorlage: [230, 206],
     schrift: {
       buch1: { o: [-150, 8], a: [64, -38.4], b: [1.2, -25] },
@@ -124,9 +133,9 @@ export const GEGENSTAENDE: Gegenstand[] = [
     },
   },
   { bild: 'kerze', groesse: [126, 263], fuss: [61, 255], vorlage: [1417, 263] },
-  { bild: 'kaestchen', groesse: [55, 140], fuss: [22, 132], vorlage: [1462, 626] },
-  { bild: 'kompass', groesse: [240, 363], fuss: [25, 142], vorlage: [1280, 838] },
-  { bild: 'sphaere', groesse: [337, 422], fuss: [133, 413], vorlage: [130, 1050] },
+  { bild: 'kaestchen', groesse: [59, 140], fuss: [22, 132], vorlage: [1462, 626] },
+  { bild: 'kompass', groesse: [244, 367], fuss: [25, 142], vorlage: [1280, 838] },
+  { bild: 'sphaere', groesse: [342, 426], fuss: [138, 413], vorlage: [130, 1050] },
 ];
 
 /**

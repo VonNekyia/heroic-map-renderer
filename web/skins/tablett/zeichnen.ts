@@ -22,33 +22,22 @@ const SCHRIFT = { gold: '#db9e63', schatten: 'rgb(22 10 5 / 0.85)', licht: 'rgb(
 
 /**
  * Legt das Bild einer Fläche affin auf sie: seine Breite entlang a, seine
- * Höhe entlang b. Ist sie gespiegelt, setzt es sich fort, so weit die
- * Leinwand reicht: Jede Kachel ist an der Kante zu ihrer Nachbarin
- * gespiegelt, so passt jede Kante.
+ * Höhe entlang b. Wiederholt es sich, füllt es die ganze Leinwand.
  */
-function lege(ctx: CanvasRenderingContext2D, { o, a, b, gespiegelt }: Flaeche, bild: ImageBitmap, s: number, [x0, y0]: [number, number]): void {
+function lege(ctx: CanvasRenderingContext2D, { o, a, b, wiederholt }: Flaeche, bild: ImageBitmap, s: number, [x0, y0]: [number, number]): void {
+  if (wiederholt) {
+    const muster = ctx.createPattern(bild, 'repeat')!;
+    const [w, h] = [bild.width, bild.height];
+    muster.setTransform(new DOMMatrix([(s * a[0]) / w, (s * a[1]) / w, (s * b[0]) / h, (s * b[1]) / h, s * o[0] + x0, s * o[1] + y0]));
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = muster;
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    return;
+  }
   const [la, lb] = [Math.hypot(...a) * s, Math.hypot(...b) * s];
   const [da, db] = [Math.min(0.25, UEBERLAPP / la), Math.min(0.25, UEBERLAPP / lb)];
-  const m = [s * a[0], s * a[1], s * b[0], s * b[1], s * o[0] + x0, s * o[1] + y0] as const;
-  // Die Ecken der Leinwand in Einheiten der Fläche: welche Kacheln sie zeigt.
-  const det = m[0] * m[3] - m[1] * m[2];
-  const { width, height } = ctx.canvas;
-  const ecken = gespiegelt
-    ? [[0, 0], [width, 0], [0, height], [width, height]].map(([px, py]) => {
-        const [dx, dy] = [px! - m[4], py! - m[5]];
-        return [(m[3] * dx - m[2] * dy) / det, (m[0] * dy - m[1] * dx) / det] as const;
-      })
-    : [[0.5, 0.5] as const];
-  const bereich = (i: 0 | 1) => [Math.floor(Math.min(...ecken.map((e) => e[i]))), Math.floor(Math.max(...ecken.map((e) => e[i])))];
-  const [[i0, i1], [j0, j1]] = [bereich(0), bereich(1)];
-  for (let i = i0!; i <= i1!; i++) {
-    for (let j = j0!; j <= j1!; j++) {
-      ctx.setTransform(...m);
-      // Ungerade Kacheln gespiegelt: Ihr Bild läuft von ihrer fernen Kante zurück.
-      ctx.transform(i % 2 ? -1 : 1, 0, 0, j % 2 ? -1 : 1, i % 2 ? i + 1 : i, j % 2 ? j + 1 : j);
-      ctx.drawImage(bild, -da, -db, 1 + 2 * da, 1 + 2 * db);
-    }
-  }
+  ctx.setTransform(s * a[0], s * a[1], s * b[0], s * b[1], s * o[0] + x0, s * o[1] + y0);
+  ctx.drawImage(bild, -da, -db, 1 + 2 * da, 1 + 2 * db);
 }
 
 /**
@@ -90,7 +79,8 @@ function stelle(ctx: CanvasRenderingContext2D, { fuss, anker, mass }: Figur, bil
 /**
  * Malt die Teile auf eine Leinwand. `s` ist ein Pixel der feinsten Stufe in
  * Pixeln der Leinwand, (`x0`, `y0`) der Punkt (0, 0) darauf. Fehlt das Bild
- * einer Fläche, malt es sie in ihrer Farbe; fehlt das einer Figur, nichts.
+ * einer Fläche, malt es sie in ihrer Farbe, eine, die sich wiederholt, über
+ * die ganze Leinwand; fehlt das einer Figur, nichts.
  */
 function male(ctx: CanvasRenderingContext2D, teile: Teil[], s: number, [x0, y0]: [number, number], bilder: Bilder): void {
   const richte = ({ o, a, b }: { o: number[]; a: number[]; b: number[] }) =>
@@ -114,16 +104,19 @@ function male(ctx: CanvasRenderingContext2D, teile: Teil[], s: number, [x0, y0]:
         ctx.closePath();
       }
       ctx.clip();
-      ctx.fillStyle = GRUND;
-      ctx.fill();
     }
     const bild = teil.form === 'flaeche' && teil.bild !== undefined ? bilder.get(teil.bild) : undefined;
     if (teil.form === 'flaeche' && bild) {
       lege(ctx, teil, bild, s, [x0, y0]);
     } else if (teil.form === 'flaeche') {
-      richte(teil);
       ctx.fillStyle = teil.farbe;
-      ctx.fillRect(0, 0, 1, 1);
+      if (teil.wiederholt) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      } else {
+        richte(teil);
+        ctx.fillRect(0, 0, 1, 1);
+      }
     } else {
       richte(teil);
       const verlauf = ctx.createLinearGradient(0, 0, 0, 1);

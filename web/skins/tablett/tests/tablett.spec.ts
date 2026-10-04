@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Grenzen, Projektion, Rechteck } from 'heroic-map-renderer/skin-api';
 import { readdirSync } from 'node:fs';
 import { eintraege, kamera, projiziere, RICHTUNGEN } from '../../../tests/kamera';
-import { BREITE_VORLAGE, ECKSTUECKE, GEGENSTAENDE, LILIEN, MASS, RAND, VORLAGE } from '../bilder';
+import { BREITE_VORLAGE, ECKSTUECKE, GEGENSTAENDE, LILIEN, MARMOR, MASS, RAND, TISCH_RAND, VORLAGE } from '../bilder';
 import { gesamtmitte, gesamtstufe, grenzen, imBlick, tablett, type Blick, type Figur, type Flaeche, type Schrift, type Teil } from '../tablett';
 
 type Punkt = [number, number];
@@ -395,16 +395,41 @@ test('im Bezugsrahmen stehen die Gegenstände auf 3 px, wo die Vorlage sie hat, 
     const [x, y] = imFenster(figur.fuss);
     expect(Math.hypot(x - vorlage[0], y - vorlage[1]), `${bild}: ${x.toFixed(1)}, ${y.toFixed(1)}`).toBeLessThanOrEqual(3);
   }
-  // Das Bild des Tischs von Ecke zu Ecke des Fensters, gespiegelt fortgesetzt.
-  const tisch = flaechen(teile).filter((t) => t.art === 'tisch');
-  expect(tisch.map((t) => t.gespiegelt)).toEqual([true, true]);
-  const { o, a, b } = tisch[0]!;
+  // Das Bild des Tischs von Ecke zu Ecke des Fensters, dazu sein Rand rundum.
+  const { o, a, b } = flaechen(teile).find((t) => t.bild === 'tisch')!;
   for (const [ecke, soll] of [
-    [o, [0, 0]],
-    [[o[0] + a[0] + b[0], o[1] + a[1] + b[1]], VORLAGE],
+    [o, [-TISCH_RAND, -TISCH_RAND]],
+    [
+      [o[0] + a[0] + b[0], o[1] + a[1] + b[1]],
+      [VORLAGE[0] + TISCH_RAND, VORLAGE[1] + TISCH_RAND],
+    ],
   ] as [Punkt, Punkt][]) {
     const [x, y] = imFenster(ecke);
     expect(Math.hypot(x - soll[0], y - soll[1]), `${x.toFixed(1)}, ${y.toFixed(1)}`).toBeLessThanOrEqual(1);
+  }
+});
+
+test('jenseits der Vorlage liegt nur Marmor: Er wiederholt sich unter dem Tisch über die ganze Ebene, das Bild des Tischs liegt einmal', () => {
+  for (const [camera, scale] of KAMERAS) {
+    const p = kamera(camera, scale);
+    for (let k = 0; k < 4; k++) {
+      const teile = flaechen(tablett(WELTEN[1]!.area, MEER, MIN_Y, blick(p, k)));
+      const name = `${camera} k=${k}`;
+      // Fern und vor den Kacheln je erst der Marmor, gleich danach der Tisch.
+      for (const nah of [false, true]) {
+        const tisch = teile.filter((f) => f.art === 'tisch' && !!f.nurIn === nah);
+        expect(tisch.map((f) => [f.bild, f.wiederholt]), name).toEqual([
+          ['marmor', true],
+          ['tisch', undefined],
+        ]);
+        expect(teile.indexOf(tisch[1]!) - teile.indexOf(tisch[0]!), name).toBe(1);
+      }
+      // Der Marmor im Mass des Tischs: MARMOR Pixel der Vorlage je Seite.
+      const [marmor, tisch] = [teile.find((f) => f.bild === 'marmor')!, teile.find((f) => f.bild === 'tisch')!];
+      const laenge = (v: Punkt) => Math.hypot(...v);
+      expect(laenge(marmor.a) / laenge(tisch.a), name).toBeCloseTo(MARMOR / (VORLAGE[0] + 2 * TISCH_RAND), 9);
+      expect(laenge(marmor.b) / laenge(tisch.b), name).toBeCloseTo(MARMOR / (VORLAGE[1] + 2 * TISCH_RAND), 9);
+    }
   }
 });
 

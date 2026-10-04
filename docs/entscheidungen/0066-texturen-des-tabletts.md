@@ -69,7 +69,8 @@ Dazu, vom Frontend:
 - **Licht über die ganze Platte** bleibt ein Verlauf zur Laufzeit, wie
   Schatten und Saum. Die Kachel wiederholt sich, dieses Licht nicht.
 
-Wie es gebaut ist: [Tablett](../tablett.md), „Texturen“ und „Zeichnen“.
+Wie es seit [0070](0070-bilder-aus-der-vorlage.md) gebaut ist:
+[Tablett](../tablett.md), „Bilder aus der Vorlage“ und „Zeichnen“.
 
 ## Verworfene Alternativen
 

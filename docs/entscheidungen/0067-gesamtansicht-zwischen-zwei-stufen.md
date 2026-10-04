@@ -75,7 +75,8 @@ Gebaut so:
   bleiben, wo sie sind, so entsteht keine Naht; was am Rand frei bliebe,
   deckt ein Texel Anschnitt.
 
-Die Regel im Einzelnen: [Tablett](../tablett.md), „Ganze Pixel“.
+Ein Texelgitter gibt es seit [0070](0070-bilder-aus-der-vorlage.md) nicht
+mehr; die Gesamtansicht beschreibt [Tablett](../tablett.md), „Zeichnen“.
 - **Geglättet:** Zwischen zwei Stufen glättet der Browser die verkleinerten
   Kacheln, statt Pixel auszulassen.
 - **Nur die Gesamtansicht:** Jede Stufe darüber bleibt ganz.

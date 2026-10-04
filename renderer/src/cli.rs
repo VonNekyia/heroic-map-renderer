@@ -384,7 +384,7 @@ pub fn run() -> Result<()> {
             let modifikatoren = assets.colors().biome_modifiers();
             if args.cinematic && !modifikatoren.is_empty() {
                 println!(
-                    "            {} Biome setzen eine Farbe des Himmels mit Modifikator; Cinematic nimmt die des Dimensionstyps:",
+                    "            {} Biome setzen eine Farbe des Himmels mit Modifikator; Cinematic nimmt für das Wasser die des Dimensionstyps:",
                     modifikatoren.len()
                 );
                 print_list(
@@ -466,6 +466,15 @@ pub fn run() -> Result<()> {
                 "Dimension:  {}",
                 world.dimension().unwrap_or("minecraft:overworld")
             );
+            match world.datenversion() {
+                Some(v) => println!(
+                    "Version:    Datenversion {v} aus level.dat, weiche Beleuchtung wie {}",
+                    ecke_text(world)
+                ),
+                None => println!(
+                    "Version:    keine Datenversion aus level.dat, weiche Beleuchtung wie 26.3"
+                ),
+            }
             if let Some(rueckfall) = rueckfall {
                 println!("            {rueckfall}");
             }
@@ -534,7 +543,7 @@ pub fn run() -> Result<()> {
     }
 
     if let Some(dir) = &args.pyramid {
-        rebuild_pyramid(dir, SystemTime::now())?;
+        rebuild_pyramid(dir, SystemTime::now(), vorhandene_mit_zeit)?;
     }
 
     if let Some(assets) = &assets {
@@ -1069,6 +1078,40 @@ struct Weltdaten {
     area: Option<[i32; 4]>,
     /// Ob `area` mit `--area` gewählt ist.
     fest: bool,
+    /// Wie [`MapInfo::ambient_occlusion`].
+    ecke: &'static str,
+}
+
+/// Wie welche Version die weiche Beleuchtung in `world` die Sicht in der
+/// Ecke prüft.
+fn ecke_text(world: &World) -> &'static str {
+    if world.ecke_wie_26_2() {
+        "26.2"
+    } else {
+        "26.3"
+    }
+}
+
+/// Die Version der weichen Beleuchtung gehört zum Baum: Ein Lauf mit der
+/// anderen bricht ab, seine Kacheln zeigten die Ecken anders. Ein Baum aus
+/// einem älteren Stand bekommt die der Welt.
+/// Siehe docs/renderer/weiche-beleuchtung.md, „Welten aus 26.2“.
+fn ecke(dir: &Path, bestand: Option<&MapInfo>, world: &World) -> Result<&'static str> {
+    let hier = ecke_text(world);
+    match bestand.map(|alt| alt.ambient_occlusion.as_deref()) {
+        Some(Some(dort)) if dort != hier => bail!(
+            "{} gehört zu einem Baum mit der weichen Beleuchtung von {dort}, die Welt ist \
+             {hier}. Eine neue Wurzel nehmen.",
+            dir.join("map.json").display()
+        ),
+        Some(None) => println!(
+            "Licht:      {} nennt keine Version der weichen Beleuchtung, ein älterer Stand. \
+             Dieser Lauf zeichnet wie {hier} und trägt sie ein.",
+            dir.join("map.json").display()
+        ),
+        _ => {}
+    }
+    Ok(hier)
 }
 
 /// Der Wasserspiegel der Dimension, wie [`wasserspiegel`] ihn aus dem
@@ -1186,6 +1229,7 @@ fn write_tiles(
     // Stufe braucht.
     let stufen = native_stufen(dir, bestand.as_ref(), native, projection, max_zoom)?;
     let blend = mischung(dir, bestand.as_ref(), blend)?;
+    let ecke = ecke(dir, bestand.as_ref(), world)?;
     let bounds = bounds.map(|rect| snap_to_grid(rect, TILE << stufen));
 
     let started = Instant::now();
@@ -1278,6 +1322,7 @@ fn write_tiles(
         sea_level: meer(world)?,
         area: area.map(|area| area.map(|c| 16 * c)),
         fest: bereich.is_some(),
+        ecke,
     };
     // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
     // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
@@ -1662,8 +1707,9 @@ fn schreibe_baeume(wurzel: &Path) -> Result<()> {
 ///
 /// Neu gebaut wird eine Kachel, wenn ein Kind jünger ist als sie, wenn
 /// dieser Aufruf ein Kind neu gebaut oder entfernt hat, oder wenn sie
-/// fehlt; eine ohne Kinder verschwindet. Die Zeiten kommen aus der Liste
-/// jeder Stufe ([`vorhandene_mit_zeit`]). Was der Aufruf schreibt, trägt
+/// fehlt; eine ohne Kinder in der Liste und auf der Platte verschwindet.
+/// Die Zeiten kommen aus der Liste jeder Stufe, die `liste` gibt
+/// ([`vorhandene_mit_zeit`]; ein Test schreibt dazwischen wie ein Export). Was der Aufruf schreibt, trägt
 /// als Zeit seinen Beginn, zwei Sekunden früher. Was danach und vor der
 /// Liste entstand, hat jemand anders geschrieben ([`fremd`]) und bleibt,
 /// ausser einer verkleinerten Kachel; geprüft wird direkt vor dem Tausch
@@ -1671,7 +1717,11 @@ fn schreibe_baeume(wurzel: &Path) -> Result<()> {
 /// und die Elternkachel bekommt eine Zeit vor seiner.
 /// Siehe docs/benutzung/pyramide-und-resume.md, „Was neu gebaut wird“.
 /// Siehe docs/benutzung/pyramide-und-resume.md, „Zeiten und fremde Kacheln“.
-fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
+fn rebuild_pyramid(
+    dir: &Path,
+    beginn: SystemTime,
+    mut liste: impl FnMut(&Path, u32) -> Result<BTreeMap<TileId, SystemTime>>,
+) -> Result<()> {
     let started = Instant::now();
     let stempel = beginn - Duration::from_secs(2);
     let karte = dir.join("map.json");
@@ -1692,7 +1742,7 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
             0
         }
     });
-    let mut kinder = vorhandene_mit_zeit(dir, max_zoom)?;
+    let mut kinder = liste(dir, max_zoom)?;
     if kinder.is_empty() {
         bail!(
             "{} nennt Zoom {max_zoom} als Basis, dort liegt aber keine Kachel",
@@ -1711,7 +1761,7 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
     let (mut gebaut, mut entfernt, mut bytes) = (0usize, 0usize, 0usize);
     let mut unlesbar = Vec::new();
     for z in (0..max_zoom).rev() {
-        let mut eltern = vorhandene_mit_zeit(dir, z)?;
+        let mut eltern = liste(dir, z)?;
         let gelistet = SystemTime::now();
         let schuetzen = z + nativ >= max_zoom;
         let mut kandidaten: BTreeSet<TileId> = eltern.keys().copied().collect();
@@ -1730,7 +1780,14 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
                 .filter(|kind| kinder.contains_key(kind))
                 .collect();
             if teile.is_empty() {
-                if entferne_wie_gelistet(&tile_path(dir, z, parent), zeit)? {
+                // Ein Kind, das nach der Liste seiner Stufe entstand, etwa
+                // aus dem Speicher eines Exports, hält die Kachel: Der Export
+                // schreibt Kinder vor ihren Eltern.
+                let kind_da = parent
+                    .children()
+                    .iter()
+                    .any(|kind| tile_path(dir, z + 1, *kind).exists());
+                if !kind_da && entferne_wie_gelistet(&tile_path(dir, z, parent), zeit)? {
                     eltern.remove(&parent);
                     naechste.insert(parent);
                     weg += 1;
@@ -1814,6 +1871,7 @@ fn rebuild_pyramid(dir: &Path, beginn: SystemTime) -> Result<()> {
         sea_level: alt.sea_level,
         area: alt.area,
         area_fixed: alt.area_fixed,
+        ambient_occlusion: alt.ambient_occlusion,
         ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
     let path = schreibe_info(dir, &info, Some(stempel))?;
@@ -2064,6 +2122,7 @@ fn schreibe_map_json(
         sea_level: Some(welt.sea_level),
         area: welt.area,
         area_fixed: welt.fest.then_some(true),
+        ambient_occlusion: Some(welt.ecke.to_string()),
         world: Some(kennung.map(str::to_string)),
         look: Some(look_name(look.is_some()).to_string()),
         look_hash: look.map(Look::fingerabdruck),
@@ -3963,7 +4022,7 @@ mod tests {
         falsch(None, Some(None), spaeter);
         let vorher = [std::fs::read(&n).unwrap(), std::fs::read(&p).unwrap()];
 
-        rebuild_pyramid(dir, beginn).unwrap();
+        rebuild_pyramid(dir, beginn, vorhandene_mit_zeit).unwrap();
         let zeit = |pfad: &Path| std::fs::metadata(pfad).unwrap().modified().unwrap();
         let stempel = beginn - Duration::from_secs(2);
         let nachher = [std::fs::read(&n).unwrap(), std::fs::read(&p).unwrap()];
@@ -3979,13 +4038,13 @@ mod tests {
         let vorher = std::fs::read(&karte).unwrap();
         setze_zeit(&m, mitte);
         setze_zeit(&b, mitte + minute);
-        rebuild_pyramid(dir, beginn).unwrap();
+        rebuild_pyramid(dir, beginn, vorhandene_mit_zeit).unwrap();
         assert_eq!(std::fs::read(&karte).unwrap(), vorher, "fremde map.json");
         assert_eq!(zeit(&m), stempel, "M ist fremd, aber nicht mehr nativ");
 
         falsch(None, None, mitte);
         setze_zeit(&n, mitte);
-        rebuild_pyramid(dir, beginn).unwrap();
+        rebuild_pyramid(dir, beginn, vorhandene_mit_zeit).unwrap();
         assert_eq!(
             zeit(&n),
             stempel,
@@ -4006,6 +4065,46 @@ mod tests {
         assert!(fremd(Some(bis + 2 * sekunde), beginn, bis));
         assert!(!fremd(Some(bis + 3 * sekunde), beginn, bis));
         assert!(!fremd(None, beginn, bis));
+    }
+
+    /// Ein Export schreibt aus dem Speicher ein Kind und danach seine
+    /// Elternkachel, nachdem `--pyramid` die Stufe des Kinds gelistet hat und
+    /// bevor es die der Elternkachel listet, auf einer verkleinerten Stufe.
+    /// In der Liste hat die Elternkachel dann kein Kind, auf der Platte
+    /// schon: Sie bleibt, und die Stufe darüber bekommt ihre Kachel. So
+    /// fehlten im Vollrender aus #126 drei Kacheln auf Zoom 8. Ein Kind, das
+    /// auch auf der Platte fehlt, nimmt seine Elternkachel weiter mit.
+    #[test]
+    fn kachel_mit_kind_nach_der_liste_bleibt() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
+        let grau = RgbaImage::from_pixel(TILE, TILE, Rgba([90, 90, 90, 255]));
+        let (alt, neu, weg) = (
+            TileId { x: 0, y: 0 },
+            TileId { x: 4, y: 0 },
+            TileId { x: 8, y: 0 },
+        );
+        schreibe(dir, 2, alt, &grau).unwrap();
+        schreibe(dir, 1, weg.parent(), &grau).unwrap();
+        schreibe_info(dir, &MapInfo::new(16, 2, &BTreeSet::from([alt])), None).unwrap();
+        let export = |d: &Path, z: u32| {
+            if z == 1 {
+                // Zwischen den Listen von Zoom 2 und Zoom 1.
+                schreibe(d, 2, neu, &grau).unwrap();
+                schreibe(d, 1, neu.parent(), &grau).unwrap();
+            }
+            vorhandene_mit_zeit(d, z)
+        };
+        rebuild_pyramid(dir, SystemTime::now(), export).unwrap();
+        assert!(
+            tile_path(dir, 1, neu.parent()).exists(),
+            "Elternkachel entfernt"
+        );
+        assert!(tile_path(dir, 0, neu.parent().parent()).exists());
+        assert!(
+            !tile_path(dir, 1, weg.parent()).exists(),
+            "ohne Kind bleibt sie"
+        );
     }
 
     /// Ist beim Lesen keines der Kinder mehr da, schreibt `--pyramid` die

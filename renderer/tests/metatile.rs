@@ -14,7 +14,7 @@ use terranova_render::assets::Assets;
 use terranova_render::render::look::{LOOK, Look};
 use terranova_render::render::metatile::{Hdr, STUECK, render_hdr_bezug, render_hdr_with};
 use terranova_render::render::rasterizer::{
-    Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
+    AO_PLAETZE, Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
 };
 use terranova_render::render::sonne::texel_mitte;
 use terranova_render::render::{
@@ -717,22 +717,20 @@ fn hdr_haelt_die_tiefe_des_vorderen_draws() {
     assert_eq!(hdr.farbe[i][3], 1.0);
 }
 
-/// Ein Biom mit eigener `sky_color` färbt das Himmelslicht, gemischt über
-/// die Blöcke im Quadrat mit dem Radius 2, auch aus `nw`: Die Oberseite
-/// eines Blocks im vollen Himmelslicht hat in HDR die Textur linear mal dem
-/// Himmelslicht dreifach, der Umgebung und der Sonne, frei auf der Ebene.
-/// Frozen setzt in der Fixture
-/// `#ffa040`, plains nichts und nimmt den Himmel der Oberwelt. Mitten in
-/// einem Biom gilt seine Farbe, an der Grenze bei x = 16 das Mittel der 25
-/// Blöcke, zwei Spalten plains und drei frozen. Das Soll in Python
-/// gerechnet. Ebenso wärmt das Biom: plains (0,8) mit 1,3, frozen (0) gar
-/// nicht. Gemischt wird die Temperatur, erst daraus die Wärme: bei x = 14
-/// mit vier Spalten plains 0,64, also 1,14, bei x = 15 mit dreien 0,48,
-/// also 1.
+/// Ein Biom mit eigener `sky_color` färbt das Himmelslicht nicht, auch aus
+/// `nw`: Die Oberseite eines Blocks im vollen Himmelslicht hat in HDR die
+/// Textur linear mal dem Himmelslicht der Oberwelt dreifach, der Umgebung
+/// und der Sonne, frei auf der Ebene. Frozen setzt in der Fixture
+/// `#ffa040`, plains nichts. In beiden Biomen und an der Grenze bei x = 16
+/// gilt dasselbe Licht, das Soll in Python gerechnet. Das Biom wärmt über
+/// seine Temperatur, gemischt über die Blöcke im Quadrat mit dem Radius 2:
+/// plains (0,8) warm, frozen (0) kühl. Gemischt wird die Temperatur, erst
+/// daraus die Wärme: bei x = 16 mit zwei Spalten plains 0,32, bei x = 14 mit
+/// vier 0,64, bei x = 15 mit dreien 0,48.
 /// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
 /// Siehe docs/renderer/cinematic.md, „Wärme“.
 #[test]
-fn biom_faerbt_das_himmelslicht() {
+fn himmelslicht_der_oberwelt_in_jedem_biom() {
     let dir = tempdir();
     let boden = |_: i32, y: i32, _: i32| {
         if y <= 3 {
@@ -761,32 +759,104 @@ fn biom_faerbt_das_himmelslicht() {
     kino.set_biomes(BiomeTable::new(assets.colors()).with(2, None));
     let rect = rect_um(projection, [0, 0, 0], [32, 4, 16]);
     let hdr = render_hdr_with(&mut ChunkCache::new(&world, &kino), rect, Y_RANGE).unwrap();
-    for (x, soll) in [
-        (4, [0.9463679, 0.5476627, 0.2215593]),
-        (28, [1.5037028, 0.5354197, 0.1251029]),
-        (16, [1.2807688, 0.5403169, 0.1636854]),
-    ] {
-        // Die Mitte der Oberseite des Blocks (x, 3, 8), im Blick.
+    // Die Mitte der Oberseite des Blocks (x, 3, 8), im Blick.
+    let pixel = |x: i32| {
         let [bx, by, bz] = blick(projection, [x, 3, 8]);
         let (sx, sy) = projection.project([bx as f32 + 0.5, by as f32 + 1.0, bz as f32 + 0.5]);
-        let i =
-            (sy.floor() as i32 - rect.y) as u32 * rect.width + (sx.floor() as i32 - rect.x) as u32;
-        let ist = hdr.farbe[i as usize];
+        ((sy.floor() as i32 - rect.y) as u32 * rect.width + (sx.floor() as i32 - rect.x) as u32)
+            as usize
+    };
+    let soll = [0.9463679, 0.5476627, 0.2215593];
+    for x in [4, 28, 16] {
+        let ist = hdr.farbe[pixel(x)];
         assert!(
             (0..3).all(|c| (ist[c] - soll[c]).abs() < 1e-4) && ist[3] == 1.0,
             "x = {x}: {ist:?} statt {soll:?}"
         );
     }
-    for (x, soll) in [(4, 1.3), (28, 1.0), (16, 1.0), (14, 1.14), (15, 1.0)] {
-        let [bx, by, bz] = blick(projection, [x, 3, 8]);
-        let (sx, sy) = projection.project([bx as f32 + 0.5, by as f32 + 1.0, bz as f32 + 0.5]);
-        let i =
-            (sy.floor() as i32 - rect.y) as u32 * rect.width + (sx.floor() as i32 - rect.x) as u32;
-        let ist = hdr.waerme[i as usize];
+    assert!(LOOK.waerme(0.8) > 1.0 && LOOK.waerme(0.0) < 1.0);
+    for (x, t) in [(4, 0.8), (28, 0.0), (16, 0.32), (14, 0.64), (15, 0.48)] {
+        let (ist, soll) = (hdr.waerme[pixel(x)], LOOK.waerme(t));
         assert!(
             (ist - soll).abs() < 1e-5,
             "x = {x}: Wärme {ist} statt {soll}"
         );
+    }
+}
+
+/// Das Wasser spiegelt den Himmel seines Bioms, gemischt über die Blöcke im
+/// Quadrat mit dem Radius 2, auch aus `nw`. Dieselbe Wasserfläche über
+/// plains und frozen zweimal: einmal mit `sky_color` #ffa040 in frozen,
+/// einmal ohne, dann gilt #78a7ff der Oberwelt. Der Unterschied in HDR ist
+/// allein der Spiegel, Fresnel mal Himmelslicht mal dem Unterschied der
+/// Himmel. Über plains ist er 0. Mitten in frozen stehen die Kanäle im
+/// Verhältnis von #ffa040 weniger #78a7ff, linear, das Soll in Python
+/// gerechnet. An der Grenze bei x = 16 mit drei Spalten frozen sind es drei
+/// Fünftel davon.
+/// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
+#[test]
+fn wasser_spiegelt_den_himmel_des_bioms() {
+    let dir = tempdir();
+    let boden = |_: i32, y: i32, _: i32| match y {
+        ..=2 => "minecraft:einfarbig",
+        3 => "minecraft:water",
+        _ => "minecraft:air",
+    };
+    let biom = |cx: i32, _: i32| {
+        Some(if cx == 0 {
+            "minecraft:plains"
+        } else {
+            "minecraft:frozen"
+        })
+    };
+    common::write_world_sections(dir.path(), &[(0, 0), (1, 0)], 0..=0, boden, biom);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16).aus(Richtung::parse("nw", Kamera::ZWEI_ZU_EINS).unwrap());
+    let survey = survey(&world, projection, Y_RANGE, None).unwrap();
+    let rect = rect_um(projection, [0, 0, 0], [32, 4, 16]);
+    let hdr = |attribute: &str| {
+        let daten = tempdir();
+        let biome = daten.path().join("minecraft/worldgen/biome");
+        std::fs::create_dir_all(&biome).unwrap();
+        let plains = r##"{"has_precipitation": true, "temperature": 0.8, "downfall": 0.4, "effects": {"water_color": "#3f76e4"}}"##;
+        std::fs::write(biome.join("plains.json"), plains).unwrap();
+        let frozen = format!(
+            r##"{{"has_precipitation": true, "temperature": 0.0, "downfall": 0.5, "effects": {{"water_color": "#3938c9"}}, "attributes": {{{attribute}}}}}"##
+        );
+        std::fs::write(biome.join("frozen.json"), frozen).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(daten.path()).unwrap();
+        let mut kino =
+            SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+                .unwrap();
+        kino.set_biomes(BiomeTable::new(assets.colors()).with(2, None));
+        render_hdr_with(&mut ChunkCache::new(&world, &kino), rect, Y_RANGE).unwrap()
+    };
+    let mit = hdr(r##""minecraft:visual/sky_color": "#ffa040""##);
+    let ohne = hdr("");
+    // Die Mitte der Wasserfläche über (x, 3, 8), im Blick.
+    let unterschied = |x: i32| {
+        let [bx, by, bz] = blick(projection, [x, 3, 8]);
+        let (sx, sy) =
+            projection.project([bx as f32 + 0.5, by as f32 + 8.0 / 9.0, bz as f32 + 0.5]);
+        let i = ((sy.floor() as i32 - rect.y) as u32 * rect.width
+            + (sx.floor() as i32 - rect.x) as u32) as usize;
+        let [a, b] = [mit.farbe[i], ohne.farbe[i]];
+        [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+    };
+    // (#ffa040 − #78a7ff) linear, geteilt durch Blau, in Python gerechnet.
+    const VERHAELTNIS: [f32; 3] = [-0.856_069_4, 0.036_782_66, 1.0];
+    assert_eq!(unterschied(4), [0.0; 3], "über plains");
+    let frozen = unterschied(28);
+    assert!(frozen[2] < 0.0, "{frozen:?}");
+    for (c, soll) in VERHAELTNIS.into_iter().enumerate() {
+        let ist = frozen[c] / frozen[2];
+        assert!((ist - soll).abs() < 1e-3, "Kanal {c}: {ist} statt {soll}");
+    }
+    let grenze = unterschied(16);
+    for c in 0..3 {
+        let ist = grenze[c] / frozen[c];
+        assert!((ist - 0.6).abs() < 1e-3, "Kanal {c}: {ist} statt 0,6");
     }
 }
 
@@ -3529,14 +3599,16 @@ fn pfosten_unter_der_oberflaeche_liegt_heller_als_der_grund() {
 /// ändert nichts an ihm: Die Seite eines Zaunpfostens knapp unter der
 /// Oberfläche sieht in einem tiefen See genauso aus wie in einem flachen,
 /// denn zwischen Kamera und Pfosten liegt in beiden Fällen dasselbe Wasser,
-/// und der Pfosten steht im Licht direkt darunter.
+/// und der Pfosten steht im Licht direkt darunter. Unter dem Zaun liegt in
+/// beiden Wasser: Seine Seiten im Innern dunkelt ab, was neben und unter
+/// ihm liegt.
 #[test]
 fn tiefe_blendet_eigene_geometrie_nicht_aus() {
     let projection = Projection::new(16);
     let rect = ScreenRect::centered(256, 256);
     let zaun = "minecraft:oak_fence[north=true,waterlogged=true]";
 
-    // Flach: ein See aus einer Schicht, der Zaun darin. Tief: vier
+    // Flach: ein See aus zwei Schichten, der Zaun in der oberen. Tief: vier
     // Schichten, der Zaun in der obersten.
     let dir = tempdir();
     let flach = render_chunks(
@@ -3544,8 +3616,8 @@ fn tiefe_blendet_eigene_geometrie_nicht_aus() {
         &[(0, 0)],
         move |x, y, z| match (x, y, z) {
             (_, 0, _) => "minecraft:einfarbig",
-            (8, 1, 8) => zaun,
-            (_, 1, _) => "minecraft:water",
+            (8, 2, 8) => zaun,
+            (_, 1..=2, _) => "minecraft:water",
             _ => "minecraft:air",
         },
         projection,
@@ -3569,14 +3641,14 @@ fn tiefe_blendet_eigene_geometrie_nicht_aus() {
     // die Wasserfläche des Zauns selbst, und der Pfosten steht im Licht
     // direkt unter ihr.
     let seite = |y: f64| [8.5, y + 0.8, 8.625];
-    let pfosten_flach = punkt(&flach, projection, rect, seite(1.0));
+    let pfosten_flach = punkt(&flach, projection, rect, seite(2.0));
     let pfosten_tief = punkt(&tief, projection, rect, seite(4.0));
     assert_eq!(pfosten_flach, pfosten_tief, "Pfosten im tiefen See");
 
-    // Daneben liegt der Grund in seinem Licht: flach im Licht 14, tief im
+    // Daneben liegt der Grund in seinem Licht: flach im Licht 13, tief im
     // Licht 11.
     let offen = |y: f64| [8.1, y + 8.0 / 9.0, 8.9];
-    let offen_flach = punkt(&flach, projection, rect, offen(1.0));
+    let offen_flach = punkt(&flach, projection, rect, offen(2.0));
     let offen_tief = punkt(&tief, projection, rect, offen(4.0));
     assert_ne!(offen_flach, offen_tief, "Tiefe wirkt neben dem Pfosten");
 }
@@ -4169,7 +4241,9 @@ fn ecken_ohne(
 ) -> [[u8; 4]; 3] {
     let (licht, ecken) = licht_am(chunks, sections, welt, block, ohne);
     // Sind alle Ecken gleich, trägt der Draw ihr Licht für das ganze Sprite.
-    ecken.map_or([[licht[0] as u8; 4]; 3], |e| e[0].map(u32::to_le_bytes))
+    ecken.map_or([[licht[0] as u8; 4]; 3], |e| {
+        std::array::from_fn(|seite| e[0][seite].to_le_bytes())
+    })
 }
 
 /// Das Licht des Draws mit AO-Karte am Block `block`, wie `ecken_ohne` ihn
@@ -4181,8 +4255,23 @@ fn licht_am(
     block: [i32; 3],
     ohne: &str,
 ) -> ([u32; 3], Option<Ecken>) {
+    licht_am_in(None, chunks, sections, welt, block, ohne)
+}
+
+/// Wie `licht_am`, mit `datenversion` in `level.dat`; ohne gibt es keine.
+fn licht_am_in(
+    datenversion: Option<i32>,
+    chunks: &[(i32, i32)],
+    sections: std::ops::RangeInclusive<i8>,
+    welt: impl Fn(i32, i32, i32) -> &'static str,
+    block: [i32; 3],
+    ohne: &str,
+) -> ([u32; 3], Option<Ecken>) {
     let dir = tempdir();
     common::write_world_sections(dir.path(), chunks, sections, welt, |_, _| None);
+    if let Some(version) = datenversion {
+        common::write_level_dat_mit(dir.path(), version);
+    }
     let world = World::open(dir.path()).unwrap();
     let projection = Projection::new(32);
     let mut states = survey(&world, projection, Y_RANGE, None).unwrap().states;
@@ -4624,7 +4713,8 @@ fn ohne_ambientocclusion_nicht_weich() {
 /// (`BlockModelLighter.prepareQuadFlat`). Leuchtendes Redstone-Erz hat 9:
 /// Vor der Ostseite liegt eine Zelle, die Stein ringsum einschliesst, ohne
 /// Himmelslicht, vor den anderen beiden freier Himmel. Die Steine an der
-/// Ostkante dunkeln nichts ab.
+/// Ostkante dunkeln nichts ab. Die Plätze im Innern zeigt der Würfel nicht,
+/// sie nehmen die Werte der ersten Seite.
 #[test]
 fn leuchtende_bloecke_liegen_im_licht_vor_jeder_seite() {
     let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
@@ -4638,7 +4728,10 @@ fn leuchtende_bloecke_liegen_im_licht_vor_jeder_seite() {
     assert_ne!(frei, unter);
     assert_eq!(licht, frei, "Pixel ohne Seite");
     let wort = |f: u32| u32::from_le_bytes([f as u8; 4]);
-    let soll: Ecken = std::array::from_fn(|c| [wort(frei[c]), wort(frei[c]), wort(unter[c])]);
+    let soll: Ecken = std::array::from_fn(|c| {
+        let [f, u] = [wort(frei[c]), wort(unter[c])];
+        [f, f, u, f, f, f]
+    });
     assert_eq!(ecken, Some(soll));
 }
 
@@ -4708,7 +4801,10 @@ fn gefluteter_zaun_unter_dem_ueberhang() {
 /// und Seiten dasselbe Licht, gleich was darüber steht. Ein gefluteter Zaun
 /// einen Block unter der Oberfläche liegt im Licht 13, sein Wasser in 14,
 /// die Oberseite seines Pfostens im Licht des Wassers darüber, 14, an
-/// jeder Ecke.
+/// jeder Ecke. Seine Seiten im Innern dunkelt der Stein darunter an den
+/// unteren Ecken ab. Ohne Seite ist kein Pixel zu sehen: Das Wasser
+/// ringsum deckt das des Zauns, und das Licht ohne Ecken ist nur das der
+/// ersten Seite.
 #[test]
 fn gefluteter_zaun_unter_wasser() {
     let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
@@ -4720,21 +4816,31 @@ fn gefluteter_zaun_unter_wasser() {
         _ => "minecraft:air",
     };
     let lichter = licht_mit_ecken(&[(0, 0)], 0..=0, welt, [8, 1, 8]);
-    let (licht, wasser) = (Light::sky(13).factors(), Light::sky(14).factors());
+    let wasser = Light::sky(14).factors();
     let oben = wasser.map(|f| u32::from_le_bytes([f as u8; 4]));
+    // Die Seiten im Innern, Süden und Osten: die oberen Ecken heller als
+    // die unteren.
+    let abgedunkelt = |e: Ecken| {
+        (4..6).all(|platz| {
+            let [a, b, c, d] = e[0][platz].to_le_bytes();
+            a.min(d) > b.max(c) || b.min(c) > a.max(d)
+        })
+    };
     assert!(
         (lichter.iter()).any(|&(l, e, w)| {
-            (l, w) == (licht, Some(wasser)) && e.is_some_and(|e| e.map(|k| k[0]) == oben)
+            (l, w) == (wasser, None) && e.is_some_and(|e| e.map(|k| k[0]) == oben && abgedunkelt(e))
         }),
-        "{lichter:?}, erwartet {licht:?} und {wasser:?}"
+        "{lichter:?}, erwartet {wasser:?}"
     );
 }
 
-/// Pixel ohne Seite liegen im Licht der eigenen Zelle, auch wenn alle Ecken
+/// Pixel ohne Platz liegen im Licht der eigenen Zelle, auch wenn alle Ecken
 /// dasselbe Licht haben: Eine geflutete untere Platte in der Luft dämpft das
 /// Himmelslicht ihrer Zelle um eine Stufe, auf 14, ringsum liegt 15. Ihre
-/// Oberseite im Innern liegt in 14, ihre Seiten auf dem Rand an jeder Ecke
-/// in 15, ihr Wasser im helleren Licht, 15.
+/// Seiten auf dem Rand liegen an jeder Ecke in 15, ihre Oberseite im Innern
+/// ebenso: In der Mitte nimmt sie das Licht der Luft darüber, an den Ecken
+/// das der Nachbarn in ihrer Schicht. Ihr Wasser liegt im helleren Licht,
+/// 15, die Pixel ohne Platz in 14.
 #[test]
 fn geflutete_platte_in_der_luft() {
     let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
@@ -4745,17 +4851,24 @@ fn geflutete_platte_in_der_luft() {
     let lichter = licht_mit_ecken(&[(0, 0)], 0..=0, welt, [8, 2, 8]);
     let soll = (
         Light::sky(14).factors(),
-        Some([[u32::MAX; 3]; 3]),
+        Some([[u32::MAX; AO_PLAETZE]; 3]),
         Some(Light::sky(15).factors()),
     );
     assert!(lichter.contains(&soll), "{lichter:?}, erwartet {soll:?}");
 }
 
 /// Decken Nachbarn alle drei Seiten eines Blocks zu, bleibt von ihm nur, was
-/// aus seinem Würfel ragt, und das liegt im Licht seiner Zelle: Eine flache
+/// aus seinem Würfel ragt, und das liegt im Innern seiner Zelle: Eine flache
 /// Platte ragt nach Westen, Stein deckt sie nach Osten, Süden und oben. Ihre
-/// Oberseite im Innern liegt im Licht der Zelle, 14, von Westen und Norden
-/// her.
+/// Oberseite, Platz 3, nimmt in der Mitte das Licht der Zelle, 14, denn der
+/// Stein darüber ist `isSolidRender`. Licht kommt von Westen und Norden,
+/// Himmel 15. Die Ecken in der Reihenfolge Nordwesten, Südwesten, Südosten,
+/// Nordosten:
+/// - Nordwesten (14 + 15 + 15 + 15)/4 = 14,75, linear 249, nichts dunkelt;
+/// - Südwesten und Nordosten: Der Stein zählt mit der Mitte, (14 + 14 + 15
+///   + 15)/4 = 14,5, linear 244, ein Stein dunkelt auf 0,8, 195;
+/// - Südosten (14 + 14 + 15 + 14)/4 = 14,25, linear 238, zwei Steine
+///   dunkeln auf 0,6, 143.
 #[test]
 fn zugedeckter_block_zeigt_seinen_ueberhang_im_licht_seiner_zelle() {
     let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
@@ -4764,8 +4877,200 @@ fn zugedeckter_block_zeigt_seinen_ueberhang_im_licht_seiner_zelle() {
         _ => "minecraft:air",
     };
     let lichter = licht_mit_ecken(&[(0, 0)], 0..=0, welt, [8, 1, 8]);
-    let soll = (Light::sky(14).factors(), None, None);
-    assert!(lichter.contains(&soll), "{lichter:?}, erwartet {soll:?}");
+    let [(_, Some(ecken), None)] = lichter[..] else {
+        panic!("{lichter:?}, erwartet einen Draw mit Ecken");
+    };
+    for kanal in ecken {
+        assert_eq!(kanal[3].to_le_bytes(), [249, 195, 143, 195]);
+    }
+}
+
+/// Die Ecken des Platzes `platz` im roten Kanal am Draw mit AO-Karte bei
+/// `block`, wie `licht_am` ihn findet; ohne Ecken das Licht des Draws an
+/// jeder. `licht_am` nimmt den ersten Draw an dieser Stelle des Bildes, in
+/// 2:1 liegen dort auch die Blöcke um (1, 1, 1) davor und dahinter: Die
+/// Szenen stehen deshalb bei y = 0 ohne Boden.
+fn platz_am(
+    welt: impl Fn(i32, i32, i32) -> &'static str,
+    block: [i32; 3],
+    platz: usize,
+) -> [u8; 4] {
+    let (licht, ecken) = licht_am(&[(0, 0)], 0..=0, welt, block, "");
+    ecken.map_or([licht[0] as u8; 4], |e| e[0][platz].to_le_bytes())
+}
+
+/// Die Oberseite eines Steins, Stein in der Ecke im Nordwesten darüber,
+/// Eis über den Nachbarn im Westen und im Norden: Dort fragt das Spiel, ob
+/// die Ecke zu sehen ist. In 26.3 lässt Eis Licht durch
+/// (`isLightPermeable`), die Ecke im Nordwesten zählt den Stein. In 26.2
+/// nimmt es die Sicht (`isViewBlocking` und Dämpfung), die Ecke zählt wie
+/// der erste Nachbar, Luft, also heller. Die übrigen drei Ecken bleiben
+/// gleich. Ohne `level.dat` wie 26.3.
+#[test]
+fn eis_in_der_ecke_nach_der_version_der_welt() {
+    let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
+        (8, 0, 8) | (7, 1, 7) => "minecraft:stone",
+        (7, 2, 8) | (8, 2, 7) => "minecraft:ice",
+        _ => "minecraft:air",
+    };
+    let oben = |version| {
+        let (_, ecken) = licht_am_in(version, &[(0, 0)], 0..=0, welt, [8, 0, 8], "");
+        ecken.expect("Ecken")[0][0].to_le_bytes()
+    };
+    let (alt, neu, ohne) = (oben(Some(4903)), oben(Some(5023)), oben(None));
+    assert_eq!(neu, ohne);
+    assert!(alt[0] > neu[0], "26.2 {alt:?}, 26.3 {neu:?}");
+    assert_eq!(alt[1..], neu[1..]);
+}
+
+/// Ein Trampelpfad, einen Block breit zwischen Gras: Seine Oberseite liegt
+/// im Innern, Platz 3, und zählt ab der eigenen Zelle. An jeder Ecke dunkeln
+/// das Gras daneben und das in der Ecke, der Pfad selbst und die Pfade
+/// davor und dahinter nicht: (1 + 0,2 + 0,2 + 1)/4 = 0,6, im vollen
+/// Himmelslicht 153.
+#[test]
+fn trampelpfad_zwischen_gras() {
+    let welt = |x: i32, y: i32, _: i32| match (x, y) {
+        (8, 0) => "minecraft:dirt_path",
+        (_, 0) => "minecraft:grass_block",
+        _ => "minecraft:air",
+    };
+    assert_eq!(platz_am(welt, [8, 0, 8], 3), [153; 4]);
+}
+
+/// Eine untere Platte mit Stein im Osten und im Norden, die Diagonale im
+/// Nordosten ist Luft. Ob sie zählt, prüft das Spiel für eine Fläche im
+/// Innern eine Schicht über dem Block, über den beiden Steinen: Ist dort
+/// Luft, zählt sie, im Nordosten (0,2 + 0,2 + 1 + 1)/4 = 0,6, also 153.
+/// Steht dort Stein, gilt der Wert des ersten Nachbarn, `c[0]`, also
+/// (0,2 + 0,2 + 0,2 + 1)/4 = 0,4, 102. Die übrigen Ecken bleiben 0,8 und 1.
+#[test]
+fn flaeche_im_innern_prueft_die_ecke_eine_schicht_hoeher() {
+    for (zu, nordosten) in [(false, 153), (true, 102)] {
+        let welt = move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (8, 0, 8) => "minecraft:oak_slab[type=bottom,waterlogged=false]",
+            (9, 0, 8) | (8, 0, 7) => "minecraft:stone",
+            (9, 1, 8) | (8, 1, 7) if zu => "minecraft:stone",
+            _ => "minecraft:air",
+        };
+        let (_, ecken) = licht_am(&[(0, 0)], 0..=0, welt, [8, 0, 8], "");
+        assert_eq!(
+            ecken.expect("Ecken")[0][3].to_le_bytes(),
+            [204, 255, 204, nordosten],
+            "Stein darüber: {zu}"
+        );
+    }
+}
+
+/// Eine untere Platte vor einer Mauer aus Stein im Osten, einen Block hoch:
+/// Ihre Oberseite im Innern wird zur Mauer hin dunkler. Die Ecken in der
+/// Reihenfolge Nordwesten, Südwesten, Südosten, Nordosten: im Westen voll
+/// hell, im Osten dunkeln die Mauer daneben und die in der Ecke auf 0,6.
+/// Vor einem einzelnen Stein zählt in der Ecke Luft: (0,2 + 1 + 1 + 1)/4 =
+/// 0,8, 204.
+#[test]
+fn untere_platte_wird_zur_mauer_dunkler() {
+    for (lang, soll) in [(true, 153), (false, 204)] {
+        let welt = move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (8, 0, 8) => "minecraft:oak_slab[type=bottom,waterlogged=false]",
+            (9, 0, 8) => "minecraft:stone",
+            (9, 0, _) if lang => "minecraft:stone",
+            _ => "minecraft:air",
+        };
+        assert_eq!(
+            platz_am(welt, [8, 0, 8], 3),
+            [255, 255, soll, soll],
+            "Mauer: {lang}"
+        );
+    }
+}
+
+/// Eine Schneedecke an einer Stufe im Gelände: Die Reihe im Norden liegt
+/// einen Block höher, auf der Höhe der Decke steht dort Gras, darüber
+/// wieder Schnee. Die Oberseite der Decke im Innern dunkelt zur Stufe hin
+/// ab, 0,6 an den Ecken im Nordwesten und Nordosten, gegenüber bleibt sie
+/// 1,0. Das Licht bleibt flach, das Gras nimmt das der Mitte.
+#[test]
+fn schneedecke_an_einer_stufe() {
+    let welt = |_: i32, y: i32, z: i32| match (y, z) {
+        (0, ..=7) => "minecraft:grass_block",
+        (0, _) | (1, ..=7) => "minecraft:snow[layers=1]",
+        _ => "minecraft:air",
+    };
+    assert_eq!(platz_am(welt, [8, 0, 8], 3), [153, 255, 255, 153]);
+}
+
+/// Die Mitte einer Fläche im Innern nimmt das Licht der Zelle davor, ausser
+/// deren Block ist `isSolidRender`, dann das der eigenen. Eine geflutete
+/// untere Platte liegt in 14, die Luft ringsum in 15. Unter Stein liegen die
+/// Ecken ihrer Oberseite so in (14 + 15 + 15 + 15)/4 = 14,75, linear 249;
+/// unter einer Scheibe, durch die das Himmelslicht fällt, in 15. Eis ist
+/// nicht `isSolidRender`, auch in 26.2, wo es in der Ecke die Sicht nimmt:
+/// Unter Eis nimmt die Mitte in beiden Versionen das Licht seiner Zelle.
+#[test]
+fn fester_block_davor_gibt_der_mitte_das_eigene_licht() {
+    let welt = |oben: &'static str| {
+        move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (8, 0, 8) => "minecraft:oak_slab[type=bottom,waterlogged=true]",
+            (8, 1, 8) => oben,
+            _ => "minecraft:air",
+        }
+    };
+    for (oben, soll) in [("minecraft:stone", 249), ("minecraft:glass_pane", 255)] {
+        assert_eq!(
+            platz_am(welt(oben), [8, 0, 8], 3),
+            [soll; 4],
+            "unter {oben}"
+        );
+    }
+    let unter_eis = |version| {
+        let (_, ecken) = licht_am_in(
+            version,
+            &[(0, 0)],
+            0..=1,
+            welt("minecraft:ice"),
+            [8, 0, 8],
+            "",
+        );
+        ecken.expect("Ecken")[0][3].to_le_bytes()
+    };
+    assert_eq!(unter_eis(Some(4903)), unter_eis(None));
+}
+
+/// Was leuchtet, und ein Modell ohne `ambientocclusion` liegen auch im
+/// Innern flach im Licht der eigenen Zelle (`prepareQuadFlat`): eine
+/// leuchtende geflutete Seegurke, Himmel 14 und Blocklicht 6, und eine
+/// Glasscheibe ohne Arme, Himmel 15, mit Stein im Westen und Norden. Weich
+/// dunkelte er die Ecken ihrer Seiten im Innern auf einer Seite ab.
+#[test]
+fn leuchtendes_und_ohne_ambientocclusion_im_innern_flach() {
+    let blöcke = [
+        (
+            "minecraft:sea_pickle[pickles=1,waterlogged=true]",
+            Light { sky: 14, block: 6 },
+        ),
+        (
+            "minecraft:glass_pane[east=false,north=false,south=false,waterlogged=false,west=false]",
+            Light::sky(15),
+        ),
+    ];
+    for (block, eigen) in blöcke {
+        let welt = move |x: i32, y: i32, z: i32| match (x, y, z) {
+            (8, 0, 8) => block,
+            (7, 0, 8) | (8, 0, 7) => "minecraft:stone",
+            _ => "minecraft:air",
+        };
+        let (licht, ecken) = licht_am(&[(0, 0)], 0..=0, welt, [8, 0, 8], "");
+        let eigen = eigen.factors();
+        match ecken {
+            None => assert_eq!(licht, eigen, "{block}"),
+            Some(ecken) => {
+                for (kanal, f) in ecken.iter().zip(eigen) {
+                    assert_eq!(kanal[4..], [u32::from_le_bytes([f as u8; 4]); 2], "{block}");
+                }
+            }
+        }
+    }
 }
 
 /// Eine Doppelkiste liegt in beiden Hälften im helleren Licht ihrer zwei
@@ -4804,16 +5109,17 @@ fn doppelkiste_im_helleren_licht_beider_haelften() {
 }
 
 /// Hat das Modell einer Doppelkiste auch Flächen auf dem Rand, liegen die
-/// Pixel ohne Seite, das Bild aus dem Blockentity, ebenso im helleren
+/// Pixel ohne Platz, das Bild aus dem Blockentity, ebenso im helleren
 /// Licht beider Hälften, in der dunkleren wie in der helleren: Die Falle
-/// der Fixtures trägt eine Deckelplatte auf ihrer Oberseite. Auf der Linie
-/// zur Kamera fehlt der Boden hinter beiden Hälften, sonst fände
-/// `licht_mit_ecken` auch ihn.
+/// der Fixtures trägt eine Deckelplatte auf ihrer Oberseite. Der Stein über
+/// der linken Hälfte liegt eine Zelle höher, sonst deckte er ihre Platte,
+/// und sie hätte keine Ecken. Auf der Linie zur Kamera fehlt der Boden
+/// hinter beiden Hälften, sonst fände `licht_mit_ecken` auch ihn.
 #[test]
 fn doppelkiste_mit_randflaechen_im_helleren_licht() {
     let welt = |x: i32, y: i32, z: i32| match (x, y, z) {
         (7..=8, 0, 7) => "minecraft:air",
-        (_, 0, _) | (8, 2, 8) => "minecraft:stone",
+        (_, 0, _) | (8, 3, 8) => "minecraft:stone",
         (8, 1, 8) => "minecraft:trapped_chest[facing=north,type=left,waterlogged=false]",
         (9, 1, 8) => "minecraft:trapped_chest[facing=north,type=right,waterlogged=false]",
         _ => "minecraft:air",

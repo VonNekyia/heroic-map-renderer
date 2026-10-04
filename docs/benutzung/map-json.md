@@ -46,7 +46,8 @@ das Frontend liest die Datei in `web/src/main.ts`.
   "maxY": 319,
   "look": "map",
   "seaLevel": 63,
-  "area": [-512, -512, 512, 512]
+  "area": [-512, -512, 512, 512],
+  "ambientOcclusion": "26.2"
 }
 ```
 
@@ -71,6 +72,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `seaLevel` | Wasserspiegel der Dimension in Blöcken, oder `null` | „Die Welt“ unten |
 | `area` | das Rechteck der Welt, das der Baum zeichnet, `[x0, z0, x1, z1]` in Blöcken | „Die Welt“ unten |
 | `areaFixed` | `true`, wenn `area` mit `--area` gewählt ist; fehlt sonst | „Die Welt“ unten |
+| `ambientOcclusion` | `"26.2"` oder `"26.3"`: wie welche Version die weiche Beleuchtung die Sicht in der Ecke prüft, nach der Datenversion der Welt; ein Lauf mit der anderen bricht ab | [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md), „Welten aus 26.2“ |
 
 ## Kamera und Projektion
 
@@ -363,15 +365,17 @@ vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
     bei einer Farbe drei Zahlen.
   - Zuletzt `verfahren`, ein Nullbyte und `VERFAHREN` als u32 in Little
     Endian: der Stand des Verfahrens. Ändert sich das Bild bei gleichen
-    Werten, etwa in #73 mit der Sonne und ihrem Schatten, steigt er, und
-    mit ihm der Fingerabdruck.
+    Werten, etwa in #73 mit der Sonne und ihrem Schatten oder in #124 mit
+    einem Himmelslicht für alle Biome, steigt er, und mit ihm der
+    Fingerabdruck.
   - `Look::werte` zerlegt `Look` ganz: Ein neues Feld kompiliert erst, wenn
     es im Fingerabdruck steht.
   - Nur die Werte, wie sie im Code stehen. Abgeleitete wie der Sinus der
     Höhe der Sonne fehlen, deren letztes Bit kann je System abweichen.
   - Geschrieben als 16 kleine Hexziffern; für `LOOK`, die Werte aus
-    [0058](../entscheidungen/0058-look-von-cinematic.md) und dem Prototyp
-    dazu, `7a37818630d6d4d3`, mit `VERFAHREN` 2.
+    [0058](../entscheidungen/0058-look-von-cinematic.md), dem Prototyp
+    dazu und [0069](../entscheidungen/0069-ein-himmelslicht-und-kaelte.md),
+    `2db0327fdea14e6e`, mit `VERFAHREN` 3.
 - **Ein Baum, ein look:** Ein Lauf mit dem anderen look schreibt in einen
   anderen Ordner, siehe „Liste der Bäume“. Er bricht nur ab, wenn in seinem
   Ordner ein Baum mit dem anderen look oder mit anderen Werten liegt, bevor

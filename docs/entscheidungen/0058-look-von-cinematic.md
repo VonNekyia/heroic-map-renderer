@@ -16,6 +16,9 @@ code:
 
 Die Grenze für Schatten/Sonne am Renderer ist abgelöst durch
 [0060](0060-grenze-schatten-sonne-am-renderer.md): 0,35 bis 0,75.
+Die Farbe des Himmelslichts und der Weissabgleich nach der Temperatur sind
+abgelöst durch [0069](0069-ein-himmelslicht-und-kaelte.md): ein
+Himmelslicht für alle Biome, die Wärme enger und mit einer kalten Seite.
 
 ## Anlass
 

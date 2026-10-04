@@ -32,8 +32,11 @@ pub struct Kino {
     /// Himmel, Nebel und Nebel unter Wasser des Dimensionstyps, für Biome
     /// ohne eigene Farbe.
     vorgabe: [Tint; 3],
-    /// Je Biom die Farben seines Himmels.
+    /// Je Biom die Farben seines Himmels für das Wasser.
     himmel: Vec<Himmelsfarben>,
+    /// Die Farbe des Himmelslichts in jedem Biom: die der Oberwelt aus
+    /// [`Look::himmelslicht`], wie in 0069.
+    himmelslicht: [f32; 3],
     /// Der Weissabgleich `v` je Kanal, siehe [`Look::weissabgleich`].
     weiss: [f32; 3],
     /// Die Richtung zur Sonne im Blick, siehe [`Look::sonne_im_blick`].
@@ -47,13 +50,11 @@ pub struct Kino {
     sonne_licht: [f32; 3],
 }
 
-/// Die Farben des Himmels an einem Block, linear, mit der Stärke 1.
+/// Die Farben des Himmels an einem Block für das Wasser, linear, mit der
+/// Stärke 1, und die Temperatur für die Wärme.
 /// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Himmelsfarben {
-    /// Das Himmelslicht auf einer Fläche, aus Himmel und Nebel nach
-    /// [`Look::himmelslicht`].
-    pub licht: [f32; 3],
     /// `sky_color` und `fog_color`, die das Wasser spiegelt.
     pub himmel: [f32; 3],
     pub nebel: [f32; 3],
@@ -68,7 +69,6 @@ impl Himmelsfarben {
     pub fn je_farbe(self, other: Himmelsfarben, f: impl Fn(f32, f32) -> f32) -> Himmelsfarben {
         let paar = |a: [f32; 3], b: [f32; 3]| std::array::from_fn(|c| f(a[c], b[c]));
         Himmelsfarben {
-            licht: paar(self.licht, other.licht),
             himmel: paar(self.himmel, other.himmel),
             nebel: paar(self.nebel, other.nebel),
             wassernebel: paar(self.wassernebel, other.wassernebel),
@@ -100,12 +100,12 @@ impl Kino {
             let k = helligkeit(b) * BLOCK_FACTOR * look.block;
             blocklicht_farbe(typ.block_light_tint, b as f32 / 15.0).map(|c| linear_wert(c) * k)
         });
-        // Abgeglichen wird immer auf Sonne und Himmel der Oberwelt, siehe
-        // `Look::weissabgleich`.
+        // Das Himmelslicht ist überall das der Oberwelt, und auf Sonne und
+        // dieses Himmelslicht wird abgeglichen, siehe `Look::weissabgleich`.
         let oberwelt = DimensionType::oberwelt();
-        let weiss = look.weissabgleich(
-            look.himmelslicht(linear(oberwelt.sky_color), linear(oberwelt.fog_color)),
-        );
+        let himmelslicht =
+            look.himmelslicht(linear(oberwelt.sky_color), linear(oberwelt.fog_color));
+        let weiss = look.weissabgleich(himmelslicht);
         let mut kino = Kino {
             look,
             himmel_stufen,
@@ -113,6 +113,7 @@ impl Kino {
             umgebung: roh(typ.ambient_light_color),
             vorgabe: [typ.sky_color, typ.fog_color, typ.water_fog_color],
             himmel: Vec::new(),
+            himmelslicht,
             weiss,
             sonne: look.sonne_im_blick(kamera),
             versaetze: versaetze(look.sonne_im_blick(kamera), look.sonne_weite),
@@ -131,18 +132,11 @@ impl Kino {
         let [himmel, nebel, wassernebel] = self.vorgabe;
         self.himmel = biomes
             .himmel()
-            .map(|(h, temperatur)| {
-                let (himmel, nebel) = (
-                    linear(h.himmel.unwrap_or(himmel)),
-                    linear(h.nebel.unwrap_or(nebel)),
-                );
-                Himmelsfarben {
-                    licht: self.look.himmelslicht(himmel, nebel),
-                    himmel,
-                    nebel,
-                    wassernebel: linear(h.wassernebel.unwrap_or(wassernebel)),
-                    temperatur,
-                }
+            .map(|(h, temperatur)| Himmelsfarben {
+                himmel: linear(h.himmel.unwrap_or(himmel)),
+                nebel: linear(h.nebel.unwrap_or(nebel)),
+                wassernebel: linear(h.wassernebel.unwrap_or(wassernebel)),
+                temperatur,
             })
             .collect();
     }
@@ -188,19 +182,19 @@ impl Kino {
         })
     }
 
-    /// Das Licht an einer Ecke oder einem Block in HDR je Kanal: `himmel`
-    /// die Farbe des Himmelslichts am Block, `sky` und `block` die Stufen in
+    /// Das Licht an einer Ecke oder einem Block in HDR je Kanal, in der
+    /// Farbe des Himmelslichts der Oberwelt: `sky` und `block` die Stufen in
     /// Sechzehnteln, `schatten` der Schatten der weichen Beleuchtung in
     /// 255steln. Zwischen zwei Stufen linear gemischt, wie das Spiel die
     /// Lightmap liest ([`super::rasterizer::Lightmap::linear`]); darunter die
     /// Umgebungsfarbe.
     /// Siehe docs/renderer/cinematic.md, „Licht in HDR“.
-    pub fn licht(&self, himmel: [f32; 3], sky: f32, block: f32, schatten: f32) -> [f32; 3] {
-        self.lichtstufe(sky, block, schatten).mal(himmel)
+    pub fn licht(&self, sky: f32, block: f32, schatten: f32) -> [f32; 3] {
+        self.lichtstufe(sky, block, schatten).mal(self.himmelslicht)
     }
 
-    /// [`Kino::licht`] ohne die Farbe des Himmels, für viele Farben bei
-    /// denselben Stufen.
+    /// [`Kino::licht`] ohne die Farbe des Himmels, für die Spiegelung im
+    /// Wasser.
     pub fn lichtstufe(&self, sky: f32, block: f32, schatten: f32) -> Lichtstufe {
         let stufe = |stufen: &[[f32; 3]; 16], wert: f32| -> [f32; 3] {
             let s = (wert / 16.0).clamp(0.0, 15.0);
@@ -458,8 +452,8 @@ mod tests {
     fn umgebung_im_nether() {
         let nether = kino(&DimensionType::des_spiels("minecraft:the_nether").unwrap());
         let soll = [48.0 / 255.0, 40.0 / 255.0, 33.0 / 255.0];
-        assert_eq!(nether.licht([1.0; 3], 0.0, 0.0, 255.0), soll);
-        assert_eq!(nether.licht([1.0; 3], 240.0, 0.0, 0.0), [0.0; 3]);
+        assert_eq!(nether.licht(0.0, 0.0, 255.0), soll);
+        assert_eq!(nether.licht(240.0, 0.0, 0.0), [0.0; 3]);
     }
 
     /// Der Weissabgleich ist in jeder Dimension der der Oberwelt.
@@ -477,39 +471,39 @@ mod tests {
     #[test]
     fn licht_zwischen_den_stufen() {
         let kino = kino(&DimensionType::oberwelt());
-        let weiss = [1.0; 3];
-        let stufe = |s: f32| kino.licht(weiss, s * 16.0, 0.0, 255.0)[0];
+        let stufe = |s: f32| kino.licht(s * 16.0, 0.0, 255.0)[0];
         assert!(
-            (kino.licht(weiss, 7.5 * 16.0, 0.0, 255.0)[0] - (stufe(7.0) + stufe(8.0)) / 2.0).abs()
-                < 1e-6
+            (kino.licht(7.5 * 16.0, 0.0, 255.0)[0] - (stufe(7.0) + stufe(8.0)) / 2.0).abs() < 1e-6
         );
         assert_eq!(stufe(15.0), stufe(16.0));
-        assert_eq!(kino.licht(weiss, 240.0, 240.0, 0.0), [0.0; 3]);
-        let halb = kino.licht(weiss, 240.0, 0.0, 127.5);
+        assert_eq!(kino.licht(240.0, 240.0, 0.0), [0.0; 3]);
+        let halb = kino.licht(240.0, 0.0, 127.5);
         assert!((halb[0] - stufe(15.0) / 2.0).abs() < 1e-6);
     }
 
-    /// Ohne Farbe im Biom gilt die des Dimensionstyps: in der Oberwelt
-    /// Himmel #78a7ff und Nebel #c0d8ff, linear zu 0,75 und 0,25 gemischt;
-    /// das Soll in Python gerechnet. Ohne Biomdaten gilt die Temperatur von
-    /// plains, 0,8.
+    /// Ohne Farbe im Biom gilt die des Dimensionstyps, in der Oberwelt
+    /// Himmel #78a7ff und Nebel #c0d8ff. Ohne Biomdaten gilt die Temperatur
+    /// von plains, 0,8. Das Himmelslicht ist in jeder Dimension das der
+    /// Oberwelt, beide Farben linear zu 0,75 und 0,25 gemischt; das Soll in
+    /// Python gerechnet.
     #[test]
     fn himmel_ohne_biom_vom_dimensionstyp() {
         let kino = kino(&DimensionType::oberwelt());
         let soll = Himmelsfarben {
-            licht: [0.2726444, 0.4614934, 1.0],
             himmel: linear([0x78, 0xa7, 0xff]),
             nebel: linear([0xc0, 0xd8, 0xff]),
             wassernebel: linear([0x05, 0x05, 0x33]),
             temperatur: 0.8,
         };
-        let nah = |a: [f32; 3], b: [f32; 3]| (0..3).all(|c| (a[c] - b[c]).abs() < 1e-5);
         assert!(!kino.himmel.is_empty());
-        for h in &kino.himmel {
-            assert!(nah(h.licht, soll.licht), "{h:?}");
-            assert_eq!(
-                (h.himmel, h.nebel, h.wassernebel, h.temperatur),
-                (soll.himmel, soll.nebel, soll.wassernebel, soll.temperatur)
+        assert!(kino.himmel.iter().all(|h| *h == soll));
+        let licht = [0.2726444, 0.4614934, 1.0];
+        for typ in ["minecraft:overworld", "minecraft:the_nether"] {
+            let k = super::tests::kino(&DimensionType::des_spiels(typ).unwrap());
+            assert!(
+                (0..3).all(|c| (k.himmelslicht[c] - licht[c]).abs() < 1e-5),
+                "{typ}: {:?}",
+                k.himmelslicht
             );
         }
     }
@@ -569,14 +563,18 @@ mod tests {
     }
 
     /// Der Ton mit Wärme: Weiss in linearem Licht 1, mal Weissabgleich der
-    /// Oberwelt und Belichtung 0,25, ohne Wärme und mit 1,5 wie in einer
-    /// Savanne; das Soll in Python gerechnet. Die Wärme hebt Rot und senkt
-    /// Blau.
+    /// Oberwelt und Belichtung 0,25, ohne Wärme, mit 1,5, mit der vollen
+    /// Wärme aus 0069 wie in einer Savanne (1,25) und mit der vollen Kälte
+    /// wie im Schnee (0,85); das Soll in Python gerechnet. Die Wärme hebt Rot
+    /// und senkt Blau, die Kälte hebt Blau.
     #[test]
     fn ton_mit_waerme() {
         let kino = kino(&DimensionType::oberwelt());
         assert_eq!(kino.ton([1.0; 3], 1.0, [0.0; 3]), [145, 137, 117]);
         assert_eq!(kino.ton([1.0; 3], 1.5, [0.0; 3]), [149, 137, 106]);
+        let (savanne, schnee) = (LOOK.waerme(1.0), LOOK.waerme(0.0));
+        assert_eq!(kino.ton([1.0; 3], savanne, [0.0; 3]), [147, 137, 112]);
+        assert_eq!(kino.ton([1.0; 3], schnee, [0.0; 3]), [144, 137, 121]);
     }
 
     /// Die Quelle des Bloom ist je Pixel mit dessen Wärme abgeglichen: Ein
@@ -677,16 +675,16 @@ mod tests {
     #[test]
     fn weisse_flaeche_im_himmelslicht() {
         let kino = kino(&DimensionType::oberwelt());
-        let licht = kino.licht(kino.himmel(0).licht, 240.0, 0.0, 255.0);
+        let licht = kino.licht(240.0, 0.0, 255.0);
         let [r, g, b] = kino.ton(licht, 1.0, [0.0; 3]);
         assert!(r < g && g < b && b < 255, "{:?}", [r, g, b]);
         assert_eq!(kino.ton([0.0; 3], 1.0, [0.0; 3]), [0; 3]);
     }
 
     /// Eine Fläche, der Sonne der Oberwelt zugewandt, im vollen
-    /// Himmelslicht dazu: Weiss läuft ohne Wärme nicht über. Mit der vollen
-    /// Wärme 1,5 erreicht Rot bei Weiss 255; ein Texel mit sRGB 240 bleibt
-    /// darunter.
+    /// Himmelslicht dazu: Weiss läuft nicht über, auch nicht mit der vollen
+    /// Wärme oder Kälte aus 0069. Erst mit 1,5 wie in 0058 erreicht Rot bei
+    /// Weiss 255; ein Texel mit sRGB 240 bleibt darunter.
     /// Siehe docs/renderer/cinematic.md, „Wärme“.
     #[test]
     fn weisse_flaeche_in_voller_sonne() {
@@ -697,18 +695,21 @@ mod tests {
             shade: None,
             wasser: 0.0,
         };
-        let himmel = kino.licht(kino.himmel(0).licht, 240.0, 0.0, 255.0);
+        let himmel = kino.licht(240.0, 0.0, 255.0);
         let sonne = kino.sonnenlicht(&zur_sonne);
         let licht: [f32; 3] = std::array::from_fn(|c| himmel[c] + sonne[c]);
         let ton = |srgb: f32, w: f32| {
             let a = super::super::pyramid::linear_wert(srgb / 255.0);
             kino.ton(licht.map(|c| c * a), w, [0.0; 3])
         };
-        assert!(
-            ton(255.0, 1.0).iter().all(|&c| c < 255),
-            "{:?}",
-            ton(255.0, 1.0)
-        );
+        for w in [1.0, LOOK.waerme(2.0), LOOK.waerme(-1.0)] {
+            assert!(
+                ton(255.0, w).iter().all(|&c| c < 255),
+                "{w}: {:?}",
+                ton(255.0, w)
+            );
+        }
+        assert_eq!(ton(255.0, LOOK.waerme(2.0)), [254, 252, 241]);
         assert_eq!(ton(255.0, 1.5)[0], 255);
         assert!(
             ton(240.0, 1.5).iter().all(|&c| c < 255),

@@ -19,6 +19,9 @@ code:
 
 # 0040: Licht selbst ausbreiten, je Chunk mit Rand
 
+Den Satz, dass der Renderer Flächen im Innern noch nicht weich beleuchtet,
+löst [0064](0064-flaechen-im-innern-weich.md) ab.
+
 ## Anlass
 
 #34: Höhleneingänge, Überhänge und der Boden unter dichtem Laub lagen so

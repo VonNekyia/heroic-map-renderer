@@ -50,7 +50,7 @@ Treppe und Falltür.
 
 Um den Ursprung, `--center 0 0 --size 900 --scale 4`, sonst wie das Bild in
 [Schalter und Beispiele](../benutzung/schalter.md), „Einen Ausschnitt
-rendern“. Stand `0e69b6d`, mit dem Licht des Spiels, den Übergängen
+rendern“. Stand `326b30e`, mit dem Licht des Spiels, den Übergängen
 zwischen Biomen und den Tabellen aus 26.3.
 
 ## Flächen zu gleichem Wasser
@@ -204,6 +204,12 @@ Spiel in 26.2 (`LightCoordsUtil.getLightCoords`), belegt per javap:
   unter Wasser im Licht des Wassers davor, ein Dach aus oberen Platten unter
   freiem Himmel voll hell, obwohl in seine Zellen Licht nur von der Seite
   kommt.
+- **Flächen im Innern des Blocks** bekommen das Licht an ihren Ecken
+  ebenso, gezählt ab der eigenen Zelle, die Mitte aus der Zelle davor,
+  ausser deren Block ist `isSolidRender`, siehe
+  [Weiche Beleuchtung](weiche-beleuchtung.md), „Licht an den Ecken“: die
+  Oberseite einer unteren Platte, eines Trampelpfads oder einer
+  Schneedecke, die Seiten eines Zaunpfostens.
 - **Flüssigkeiten** liegen im helleren Licht ihrer Zelle und der darüber,
   je Licht für sich (`FluidRenderer`, `LightCoordsUtil.max`): Der oberste
   Block Wasser zeigt das Licht der Luft über ihm, unter freiem Himmel 15,
@@ -215,12 +221,12 @@ Spiel in 26.2 (`LightCoordsUtil.getLightCoords`), belegt per javap:
   `FluidRenderer.tesselate` fragt für Oberseite und Seiten dasselbe Licht,
   gleich was über der Zelle steht. Ein Bild aus dem Blockentity liegt im
   Licht der Zelle (`BlockEntityRenderState.extractBase`).
-- **Alles andere** liegt im Licht seiner Zelle: Flächen, die auf keiner
-  Seite liegen, wie die gekreuzten einer Blume, und Flächen im Innern des
-  Blocks, etwa die Oberseite einer unteren Platte. So zeichnet das Spiel
-  sie flach (`prepareQuadFlat`); weich rechnet es die im Innern anders,
-  das ist eine Näherung, siehe unten. Das eigene Blocklicht steckt darin,
-  denn als Quelle beginnt die Zelle mit ihm.
+- **Alles andere** liegt im Licht seiner Zelle: ohne weiche Beleuchtung
+  jede Fläche, die nicht auf dem Rand liegt, die gekreuzten einer Blume
+  etwa (`prepareQuadFlat`), und Flächen, deren Seite der Blick nicht zeigt,
+  siehe [Weiche Beleuchtung](weiche-beleuchtung.md), „Was bleibt eine
+  Näherung“. Das eigene Blocklicht steckt darin, denn als Quelle beginnt
+  die Zelle mit ihm.
 - **Eine Doppelkiste** liegt mit ihrem Bild aus dem Blockentity in beiden
   Hälften im helleren Licht ihrer zwei Zellen (`ChestRenderer` mit
   `BrightnessCombiner`, `LightCoordsUtil.max`), jeder `ChestBlock`, also
@@ -240,11 +246,9 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
 
 ## Was bleibt eine Näherung
 
-- **Flächen im Innern** liegen flach im Licht der eigenen Zelle. Das
-  Spiel beleuchtet auch sie weich: die Ecken aus der Schicht des Blocks
-  selbst, die Mitte aus der Zelle davor, wenn die nicht deckt, siehe
-  [Weiche Beleuchtung](weiche-beleuchtung.md), „Was noch fehlt“. Wie
-  Teilflächen auf dem Rand verlaufen, steht dort unter „Was bleibt eine
+- **Teilflächen** verlaufen über die ganze Seite und Flächen, deren Seite
+  der Blick nicht zeigt, liegen flach, siehe
+  [Weiche Beleuchtung](weiche-beleuchtung.md), „Was bleibt eine
   Näherung“.
 - **Zustände ohne alle Eigenschaften.** Fehlen einem Blockzustand
   Eigenschaften, findet er in `licht.txt` und `leuchten.txt` keinen Platz

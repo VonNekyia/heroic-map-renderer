@@ -64,6 +64,11 @@ nächsten Neustart. Neue Dateien meldet ihm sonst sein Watcher, und den hat
 `vite.config.ts` von den Kacheln abgekoppelt: er beobachtete jede der
 Millionen Dateien und verbrannte Kerne, die der Render braucht.
 
+Die gröberen Stufen baut dabei `--pyramid` nach, wiederholt und nach dem
+Ende des Renders ein letztes Mal, siehe
+[Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md), „Pyramide
+nachbauen, Karte während des Renders ansehen“.
+
 ## Das Koordinatensystem
 
 Das Frontend liest `map.json` und baut daraus ein Koordinatensystem, in dem

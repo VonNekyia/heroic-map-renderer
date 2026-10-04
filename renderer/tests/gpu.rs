@@ -206,6 +206,18 @@ fn gpu_zeichnet_die_szene_wie_die_cpu() {
             mit_ecken().any(|e| e[0] != e[1] || e[1] != e[2]),
             "scale {scale}: keine Ecken im Blocklicht"
         );
+        // Und Flächen im Innern, Plätze 4 bis 6: die untere Stufe der
+        // Treppe. Sonst prüfte der Test die Indizes `platz + 5` und
+        // `platz + 11` im Shader nicht.
+        assert!(
+            listen
+                .iter()
+                .flatten()
+                .filter(|d| d.ecken.is_some())
+                .filter_map(|d| d.sprite.ao.as_ref())
+                .any(|ao| ao.iter().any(|&w| (4..=6).contains(&(w >> 24)))),
+            "scale {scale}: kein Draw mit einer Fläche im Innern"
+        );
         // Und Gras und Wasser über die Biomgrenze: Draws mit Tönungskarte
         // in beiden Farben, das Gras in mehr als den Farben der zwei Biome.
         let farben = |k: usize| -> std::collections::BTreeSet<u32> {

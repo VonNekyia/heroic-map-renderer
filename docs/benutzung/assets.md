@@ -21,7 +21,9 @@ Wurzel liest, steht in [Packs und Wurzeln](../renderer/packs.md).
 
 Ein Overlay-Pack allein reicht nicht: das TerraNova-Pack bringt 39 von 1198
 Blockstates mit und keine Colormaps. Die Basis kommt aus dem Client-JAR der
-Version, die der Server fährt (hier 26.3):
+Version, die der Server fährt (hier 26.3). Für eine Welt aus 26.2 also die
+aus 26.2: Mit denen aus 26.3 schattiert der Renderer etwa die Stängel der
+Blumenbeete nach Norden, wie 26.3.
 
 ```powershell
 $v = "26.3"; $m = Get-Content "$env:APPDATA\.minecraft\versions\$v\$v.json" | ConvertFrom-Json; Invoke-WebRequest $m.downloads.client.url -OutFile "$env:TEMP\mc.zip"; Expand-Archive "$env:TEMP\mc.zip" "$env:TEMP\mc" -Force; Move-Item "$env:TEMP\mc\assets" vanilla-assets
@@ -66,8 +68,8 @@ New-Item -ItemType Directory -Force vanilla-data\minecraft\worldgen | Out-Null; 
 
 66 Dateien, 352 kB. Ohne `--data` bekommt jeder Block die Farben von
 `plains`; Ozeane und Wälder sehen dann überall gleich aus, aber nicht
-falsch. Cinematic liest aus ihnen auch die Farben des Himmels und die
-Temperatur für seine Wärme. Ein Biom ohne Definition wird `plains`; ohne
+falsch. Cinematic liest aus ihnen auch die Farben des Himmels für das
+Wasser und die Temperatur für seine Wärme. Ein Biom ohne Definition wird `plains`; ohne
 `--data` hat auch `plains` keine, und Cinematic nimmt die Farben des
 Dimensionstyps und die Temperatur 0,8, siehe
 [Cinematic](../renderer/cinematic.md), „Farbe des Himmels“ und „Wärme“.

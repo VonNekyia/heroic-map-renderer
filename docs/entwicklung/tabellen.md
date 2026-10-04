@@ -1,11 +1,12 @@
 ---
 title: Erzeugte Tabellen
-description: Die Tabellen aus dem Spiel, blocks.txt, leuchten.txt, licht.txt, schatten.txt, nachbarn.txt, seiten.txt, blockentities.txt und dimensionstypen.txt - was darin steht, gegen welche Version, welche Tests sie festhalten und wie man sie neu erzeugt.
+description: Die Tabellen aus dem Spiel, blocks.txt, leuchten.txt, licht.txt, schatten.txt, sicht262.txt, nachbarn.txt, seiten.txt, blockentities.txt und dimensionstypen.txt - was darin steht, gegen welche Version, welche Tests sie festhalten und wie man sie neu erzeugt.
 code:
   - renderer/src/assets/blocks.txt
   - renderer/src/assets/leuchten.txt
   - renderer/src/assets/licht.txt
   - renderer/src/assets/schatten.txt
+  - renderer/src/assets/sicht262.txt
   - renderer/src/assets/nachbarn.txt
   - renderer/src/assets/seiten.txt
   - renderer/src/assets/blockentities.txt
@@ -13,6 +14,7 @@ code:
   - renderer/src/assets/Leuchten.java
   - renderer/src/assets/Licht.java
   - renderer/src/assets/Schatten.java
+  - renderer/src/assets/Sicht262.java
   - renderer/src/assets/Nachbarn.java
   - renderer/src/assets/Seiten.java
   - renderer/src/assets/Blockentities.java
@@ -24,9 +26,10 @@ code:
 
 # Erzeugte Tabellen
 
-Was Minecraft im Code verdrahtet und der Renderer braucht, steht in acht
+Was Minecraft im Code verdrahtet und der Renderer braucht, steht in neun
 Tabellen unter `renderer/src/assets/`, sechs aus dem Server-JAR von 26.3,
-zwei aus dem Client-JAR, und ins Binär einkompiliert (`blockstate.rs`,
+zwei aus dem Client-JAR, eine aus dem Server-JAR von 26.2, und ins Binär
+einkompiliert (`blockstate.rs`,
 `blockentity.rs`, `dimension.rs`). Von Hand werden sie nie geändert; für
 eine andere Version erzeugt sie der Skill
 [`tabellen-neu-erzeugen`](../../skills/tabellen-neu-erzeugen/SKILL.md) neu,
@@ -42,6 +45,7 @@ Haben alle Zustände eines Blocks dasselbe Zeichen, steht es einmal.
 | [`leuchten.txt`](../../renderer/src/assets/leuchten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer 0 bis f für `getLightEmission`, mit `emissiveRendering` dieselbe Stufe als Buchstabe g bis v; Blöcke, die nie leuchten, fehlen | `Leuchten.java` | 109 Blöcke aus 26.3 |
 | [`licht.txt`](../../renderer/src/assets/licht.txt) | je Zustand in der Reihenfolge von `getPossibleStates` sieben Zeichen: `getLightDampening` (0, 1 oder f), dann je Richtung von `Direction.values()` die Fläche, mit der er das Licht an dieser Seite aufhält, zur Basis 36: 0 keine, 1 die ganze Seite, ab 2 eine Teilfläche. Am Ende je Achse die Paare aus Teilflächen, die zusammen eine Seite decken, als `paar <achse> <a> <b>`; Blöcke, die das Licht nirgends aufhalten, fehlen | `Licht.java` | 933 Blöcke mit 21 426 Zuständen und 288 Paare aus 26.3 |
 | [`schatten.txt`](../../renderer/src/assets/schatten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer, Bit 1 für `getShadeBrightness` 0,2, Bit 2 für nicht `isLightPermeable`, Bit 4 für `isCollisionShapeFullBlock`; Blöcke ohne Bit fehlen | `Schatten.java` | 558 Blöcke aus 26.3 |
+| [`sicht262.txt`](../../renderer/src/assets/sicht262.txt) | je Zustand in der Reihenfolge von `getPossibleStates` 1, wenn er in der weichen Beleuchtung von 26.2 in der Ecke die Sicht nimmt, `isViewBlocking` und `getLightDampening` > 0, sonst 0; Blöcke ohne 1 fehlen | `Sicht262.java` mit dem Server-JAR von 26.2 | 475 Blöcke aus 26.2, 72 davon je Zustand verschieden |
 | [`nachbarn.txt`](../../renderer/src/assets/nachbarn.txt) | je Block mit eigenem `skipRendering` eine Zeile: der Name, die Regel `gleich`, `senkrecht` oder `verbunden` und bei `verbunden` womöglich der Tag seiner Gruppe. Wasser und Lava fehlen, Laub mit den Vorgaben des Spiels auch | `Nachbarn.java`, mit den Tags des Spiels | 59 Blöcke aus 26.3 |
 | [`seiten.txt`](../../renderer/src/assets/seiten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` zwei Hexziffern: die Seiten, an denen `getFaceOcclusionShape` genau `Shapes.block()` ist, ein Bit je Richtung von `Direction.values()`, 1 unten bis 20 Osten; Blöcke, die nirgends voll decken, fehlen | `Seiten.java` | 518 Blöcke aus 26.3, 3920 Zustände mit mindestens einer vollen Seite, 2862 mit allen sechs |
 | [`dimensionstypen.txt`](../../renderer/src/assets/dimensionstypen.txt) | die Vorgaben der vier Attribute der Lightmap und der drei Farben des Himmels aus `EnvironmentAttributes`; je Dimensionstyp des Spiels `has_skylight`, `cardinal_light` und die Attribute, die er setzt; je Noise Settings des Spiels ihr `sea_level`. Das Format steht im Kopf von `Dimensionstypen.java` | `Dimensionstypen.java` mit dem Client-JAR, über `VanillaRegistries.createWorldLookup` | 4 Typen und 7 Noise Settings aus 26.3 |
@@ -53,9 +57,17 @@ Blocklicht, siehe [Wasser und Licht](../renderer/wasser-und-licht.md),
 „Blocklicht“. `licht.txt` sagt, wie die Blöcke das Licht beim Ausbreiten
 aufhalten, siehe [Wasser und Licht](../renderer/wasser-und-licht.md).
 `schatten.txt` sagt, welche Blöcke weich abdunkeln, welche
-die Sicht nehmen und bei welchen jede ebene Fläche im Licht der Zelle davor
-liegt, siehe [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md).
+die Sicht nehmen, vor welchen also auch eine Fläche im Innern in der Mitte
+das Licht ihrer eigenen Zelle nimmt, und bei welchen jede ebene Fläche im
+Licht der Zelle davor liegt, siehe
+[Weiche Beleuchtung](../renderer/weiche-beleuchtung.md).
 Andere Werte als 0,2 und 1 gibt `getShadeBrightness` in 26.3 nicht zurück.
+`sicht262.txt` gibt die Sicht in der Ecke für eine Welt aus 26.2, siehe
+[Weiche Beleuchtung](../renderer/weiche-beleuchtung.md), „Welten aus
+26.2“. Ihre Ziffern zählen die Zustände nach `blocks.txt` aus 26.3: Die
+475 Blöcke haben in 26.2 und 26.3 dieselben Eigenschaften und Werte,
+verglichen mit `blocks.json` des Datengenerators von 26.2 am 03.10. Sie
+bleibt, wenn neue Versionen dazukommen.
 `nachbarn.txt` sagt, welche Flächen zu gleichen Nachbarn entfallen, siehe
 [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Flächen zu
 gleichen Nachbarn“. `seiten.txt` sagt, vor welchen Seiten die Flächen jedes

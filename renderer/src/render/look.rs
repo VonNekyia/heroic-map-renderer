@@ -198,6 +198,16 @@ impl Look {
         ]
     }
 
+    /// Wie weit der Bloom bei `scale` reicht, siehe [`super::kino::Kino::bloom_radius`].
+    pub fn bloom_radius(&self, scale: u32) -> usize {
+        if self.bloom <= 0.0 {
+            return 0;
+        }
+        let sigma = f64::from(self.bloom_breite) * f64::from(scale);
+        let b = ((4.0 * sigma * sigma + 1.0).sqrt().round() as usize).max(1);
+        (b | 1) / 2
+    }
+
     /// Der Fingerabdruck der Werte für `lookHash` in `map.json`: FNV-1a mit
     /// 64 Bit über jeden Namen, ein Nullbyte und die Bits jedes Werts in
     /// Little Endian, dann ebenso `verfahren` mit [`VERFAHREN`] als u32, als

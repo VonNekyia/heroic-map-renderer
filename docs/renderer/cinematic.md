@@ -264,13 +264,19 @@ hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
   Hülle in f64 vom Anfang des Strahls aus, die Dreiecke in f32 ab dem
   Eintritt in die Hülle. So liegt ihr Anfang nah am Block, auch am Ende
   der Weite.
+- **Vorab gerechnet (#118):** Was nur an der festen Richtung zur Sonne
+  hängt, rechnet die Sonnenform beim Bauen: `1 / d` je Achse für die Hülle,
+  je Dreieck `d × e2`, `det` und `1 / det` für Möller–Trumbore. Es sind
+  dieselben Rechnungen in derselben Reihenfolge wie vorher je Strahl,
+  also dieselben Bits. Gemessen in
+  [2026-10-04, Cinematic schneller, Hebel 1 und 2](../messungen/2026-10-04-hebel-1-und-2.md).
 
 ### Der schnelle Gang
 
 `ChunkCache::sonne` fragt zuerst die Bits „frei zur Sonne“, siehe unten.
 Beantworten sie den Strahl nicht, geht `ChunkCache::sonne_im_gang` ihn
 Zelle für Zelle durch das Gitter im Blick, springt aber über, was nichts
-aufhält:
+aufhält, und endet in der ersten Zelle, die frei zur Sonne ist:
 
 - **Je Chunk eine Säule** (`Saeule`), sobald ein Strahl ihn betritt: ihre
   Decke, die oberste Zelle mit Block oder hineinragendem Modell. Darüber
@@ -372,16 +378,16 @@ Lauf am Stand 5 %, im Fichtenwald liegt es in der Streuung.
   Weite erreicht. Das Prisma reicht über die Chunks des Horizonts hinaus,
   aber dort erst hinter der Weite; Arbeit über `H` zählt darum nicht. Unter
   den 128 Lagen fragt der Strahl den Gang.
-- **Gemerkt** in der Säule, sobald ein Strahl in ihr beginnt, siehe „Der
-  schnelle Gang“. Am Prototyp verteilten sich die Zeilen in jedem Durchgang
+- **Gemerkt** in der Säule, sobald ein Strahl in ihr beginnt oder sie
+  durchquert, siehe „Der schnelle Gang“. Am Prototyp verteilten sich die Zeilen in jedem Durchgang
   anders auf die Threads, und jeder rechnete die Spalten neu.
 - **Hinreichend, nicht nötig:** Ein Bit, das fehlt, heisst nur, dass ein
   Strahl aus der Zelle etwas treffen könnte. Dann entscheidet der Gang.
 - **Gleich dem Gang:** Ein freier Strahl prüft im Gang keine Zelle und
   gibt 1.
   - Im Debug-Build schickt `ChunkCache::sonne` jeden Strahl, den die Bits
-    beantworten, auch durch den Gang und prüft, dass er 1 gibt. So prüft
-    jeder Test mit Cinematic jeden solchen Strahl, das Goldbild
+    beantworten, auch durch den vollen Gang und prüft, dass er 1 gibt. So
+    prüft jeder Test mit Cinematic jeden solchen Strahl, das Goldbild
     eingeschlossen.
   - `frei_zur_sonne_trifft_nichts` schickt von jeder Zelle, die die Bits
     frei nennen, vom Punkt und von allen acht Ecken einen Strahl durch Gang
@@ -392,6 +398,17 @@ Lauf am Stand 5 %, im Fichtenwald liegt es in der Streuung.
     `bloecke_an_den_raendern_des_prismas_sperren_die_bits` je einen an den
     fernen und den nahen Rand einer Lage, den nur ein Strahl aus einer
     Ecke trifft.
+- **Unterwegs (#118):** Der Gang fragt die Bits auch in jeder Zelle nach
+  dem Start. Ist sie frei, endet er mit dem Licht, das er bis dahin hat,
+  samt der Dämpfung durch Bodenpflanzen davor. Das Bild bleibt gleich: Der
+  Rest des Strahls beginnt in der Zelle, liegt also in ihrem Prisma, und
+  dort hat keine Zelle Arbeit.
+  - Im Debug-Build geht jeder Strahl, der so endet, auch durch den vollen
+    Gang bis zur Weite, und beide müssen dasselbe Licht geben.
+  - Gilt in einer Mutation jede Zelle nach dem Start als frei, fallen
+    unter anderem das Goldbild, `schneller_gang_gleicht_dem_bezug` und
+    `frei_zur_sonne_trifft_nichts`.
+  - Gemessen in [2026-10-04, Cinematic schneller, Hebel 1 und 2](../messungen/2026-10-04-hebel-1-und-2.md).
 
 ### Der Vorlauf
 

@@ -3,7 +3,7 @@ import type { Rechteck } from 'heroic-map-renderer/skin-api';
 import { readdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { kamera, projiziere } from '../../../tests/kamera';
-import { PERGAMENT, TISCH_RAND, VORLAGE } from '../bilder';
+import { MARMOR_PIXEL, PERGAMENT, TISCH_RAND, VORLAGE } from '../bilder';
 import { type Figur, type Flaeche, gesamtmitte, gesamtstufe, grenzen, GRUND, tablett } from '../tablett';
 
 /** Der Demobaum der Grundkarte: 2:1, scale 16, feinste Stufe 2. */
@@ -36,11 +36,20 @@ async function zoome(page: Page, knopf: 'in' | 'out'): Promise<void> {
 /**
  * Zählt jeden Aufruf, der auf eine Leinwand malt, in `window.zaehler`: alle;
  * auf den Leinwänden des Tabletts die Bilder aus bilder/ und wie viele davon
- * geglättet in hoher Güte gemalt werden.
+ * geglättet in hoher Güte gemalt werden; dazu je Muster, also je Marmor, wie
+ * viele Pixel der Leinwand ein Pixel des Bilds mindestens deckt und ob es
+ * geglättet liegt.
  */
 function zaehle(): void {
-  const zaehler = { n: 0, bilder: 0, glatt: 0 };
+  const zaehler = { n: 0, bilder: 0, glatt: 0, muster: [] as { texel: number; glatt: boolean }[] };
   Object.assign(window, { zaehler });
+  const muster = CanvasPattern.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
+  const setze = muster.setTransform!;
+  muster.setTransform = function (this: CanvasPattern & { texel?: number }, ...argumente: unknown[]) {
+    const m = argumente[0] as DOMMatrix2DInit | undefined;
+    if (m) this.texel = Math.min(Math.hypot(m.a!, m.b!), Math.hypot(m.c!, m.d!));
+    return setze.apply(this, argumente);
+  };
   const proto = CanvasRenderingContext2D.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
   for (const name of ['fillRect', 'fill', 'stroke', 'drawImage', 'putImageData', 'clearRect', 'fillText']) {
     const original = proto[name]!;
@@ -50,11 +59,14 @@ function zaehle(): void {
         zaehler.bilder++;
         if (this.imageSmoothingEnabled && this.imageSmoothingQuality === 'high') zaehler.glatt++;
       }
+      if (this.canvas.classList.contains('tablett') && name === 'fillRect' && this.fillStyle instanceof CanvasPattern) {
+        zaehler.muster.push({ texel: (this.fillStyle as CanvasPattern & { texel: number }).texel, glatt: this.imageSmoothingEnabled });
+      }
       return original.apply(this, argumente);
     };
   }
 }
-type Zaehler = { zaehler: { n: number; bilder: number; glatt: number } };
+type Zaehler = { zaehler: { n: number; bilder: number; glatt: number; muster: { texel: number; glatt: boolean }[] } };
 const gemalt = (page: Page) => page.evaluate(() => (window as unknown as Zaehler).zaehler.n);
 
 /** Wie oft der Skin gezeichnet hat. */
@@ -206,7 +218,7 @@ test('der Skin zeichnet nach jedem Zoom und nach einem Zug über den Überstand 
   await expect.poll(() => zeichnungen(page)).toBeGreaterThan(vorher);
 });
 
-test('die Bilder kommen aus bilder/ und liegen geglättet; kommen sie beim Ziehen, malt der Skin erst danach', async ({ page }) => {
+test('die Bilder kommen aus bilder/ und liegen geglättet, der Marmor als Muster; kommen sie beim Ziehen, malt der Skin erst danach', async ({ page }) => {
   await page.addInitScript(zaehle);
   // Hält das Bild des Tischs zurück, bis der Test es freigibt.
   let freigeben = () => {};
@@ -237,10 +249,34 @@ test('die Bilder kommen aus bilder/ und liegen geglättet; kommen sie beim Ziehe
   await page.mouse.up();
   await expect.poll(() => gezeichnet(page)).toBe(true);
   expect(await gemalt(page)).toBeGreaterThan(vorher);
-  // Bilder aus der Vorlage, jedes geglättet in hoher Güte.
-  const { bilder, glatt } = await page.evaluate(() => (window as unknown as Zaehler).zaehler);
+  // Bilder aus der Vorlage, jedes geglättet in hoher Güte; der Marmor als
+  // Muster, wie scharf, prüft der nächste Test.
+  const { bilder, glatt, muster } = await page.evaluate(() => (window as unknown as Zaehler).zaehler);
   expect(bilder).toBeGreaterThan(0);
   expect(glatt).toBe(bilder);
+  expect(muster.length).toBeGreaterThan(0);
+});
+
+test('der Marmor liegt ohne Glättung, solange ein Block ein Pixel deckt, kleiner geglättet, auf jeder Stufe', async ({ page }) => {
+  await page.addInitScript(zaehle);
+  // Von der Gesamtansicht in einem Fenster, in dem ein Block unter ein Pixel
+  // fällt, Stufe um Stufe bis ganz hinein.
+  await page.setViewportSize({ width: 400, height: 300 });
+  await welt(page, QUADRAT);
+  await page.goto(DEMO);
+  await expect.poll(() => gezeichnet(page)).toBe(true);
+  const rein = page.locator('.leaflet-control-zoom-in');
+  while (!(await rein.getAttribute('class'))!.includes('leaflet-disabled')) {
+    const vorher = await zeichnungen(page);
+    await zoome(page, 'in');
+    await expect.poll(() => zeichnungen(page)).toBeGreaterThan(vorher);
+  }
+  const { muster } = await page.evaluate(() => (window as unknown as Zaehler).zaehler);
+  const marmor = muster.map(({ texel, glatt }) => ({ block: MARMOR_PIXEL * texel, glatt }));
+  // Beide Seiten der Schwelle kommen vor, auch Blöcke von wenigen Pixeln.
+  expect(marmor.some(({ block }) => block < 1)).toBe(true);
+  expect(marmor.some(({ block }) => block >= 1 && block < 4)).toBe(true);
+  for (const { block, glatt } of marmor) expect(glatt, `Block von ${block.toFixed(2)} px`).toBe(block < 1);
 });
 
 test('die Bilder des Skins laden erst, wenn die erste Kachel da und gemalt ist, und das Tablett blendet ein', async ({ page }) => {

@@ -16,6 +16,10 @@ code:
 Löst in [0070](0070-bilder-aus-der-vorlage.md) ab, wie Tisch und Gegenstände
 auf die Platte kommen und was jenseits der Vorlage liegt.
 
+In Teilen abgelöst durch [0075](0075-marmor-als-pixelkunst.md): Der Marmor
+jenseits der Vorlage ist nicht mehr das Quadrat aus Flicken, sondern
+Pixelkunst daraus.
+
 ## Anlass
 
 Im Review zu #120 (issuecomment-5976163815) lagen Gegenstände und Tisch in

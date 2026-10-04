@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readdirSync, readFileSync } from 'node:fs';
-import { ECKSTUECKE, GEGENSTAENDE, LILIEN, MARMOR, MASS, PFEILER, RAND, SEITEN, TISCH_RAND, VORLAGE } from '../bilder';
+import { ECKSTUECKE, GEGENSTAENDE, LILIEN, MARMOR, MARMOR_PIXEL, MASS, PFEILER, RAND, SEITEN, TISCH_RAND, VORLAGE } from '../bilder';
 
 const ORDNER = new URL('../bilder/', import.meta.url);
 
@@ -99,6 +99,35 @@ async function lies(page: Page, datei: string, innen = 0) {
  * 1,47.
  */
 const holz = ({ rot, gruen, deckt }: { rot: number; gruen: number; deckt: number }) => deckt > 250 && rot >= 1.6 * gruen && rot >= 40;
+
+test('der Marmor ist Pixelkunst: einfarbige Blöcke von MARMOR_PIXEL im Quadrat, 20 Farben', async ({ page }) => {
+  const { abweichend, farben } = await page.evaluate(
+    async ({ b64, n }) => {
+      const bild = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (z) => z.charCodeAt(0))]));
+      const { width: w, height: h } = bild;
+      const ctx = new OffscreenCanvas(w, h).getContext('2d')!;
+      ctx.drawImage(bild, 0, 0);
+      const { data } = ctx.getImageData(0, 0, w, h);
+      const farbe = (x: number, y: number) => {
+        const i = 4 * (y * w + x);
+        return (data[i]! << 16) | (data[i + 1]! << 8) | data[i + 2]!;
+      };
+      // Jedes Pixel hat die Farbe der linken oberen Ecke seines Blocks.
+      const farben = new Set<number>();
+      let abweichend = 0;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          farben.add(farbe(x, y));
+          if (farbe(x, y) !== farbe(x - (x % n), y - (y % n))) abweichend++;
+        }
+      }
+      return { abweichend, farben: farben.size };
+    },
+    { b64: readFileSync(new URL('marmor.webp', ORDNER)).toString('base64'), n: MARMOR_PIXEL },
+  );
+  expect(abweichend).toBe(0);
+  expect(farben).toBe(20);
+});
 
 test('jenseits der Vorlage liegt nur Marmor ohne die Farbe des Holzes, und der Tisch läuft über ihren Rand hinaus bis auf nichts aus', async ({ page }) => {
   const marmor = await lies(page, 'marmor.webp');

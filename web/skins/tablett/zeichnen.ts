@@ -1,8 +1,10 @@
 /**
  * Die Teile des Tabletts auf einer Leinwand: Flächen mit ihrem Bild aus der
- * Vorlage, affin gelegt und geglättet; Lilien und Gegenstände aufrecht;
- * alles andere in seiner Farbe. Siehe docs/tablett.md, „Zeichnen“.
+ * Vorlage, affin gelegt und geglättet, den Marmor als Pixelkunst; Lilien und
+ * Gegenstände aufrecht; alles andere in seiner Farbe. Siehe
+ * docs/tablett.md, „Zeichnen“.
  */
+import { MARMOR_PIXEL } from './bilder';
 import { type Figur, type Flaeche, GRUND, type Schrift, type Teil } from './tablett';
 
 /** Die Bilder aus dem Ordner bilder/, geladen, nach Namen. */
@@ -22,13 +24,18 @@ const SCHRIFT = { gold: '#db9e63', schatten: 'rgb(22 10 5 / 0.85)', licht: 'rgb(
 
 /**
  * Legt das Bild einer Fläche affin auf sie: seine Breite entlang a, seine
- * Höhe entlang b. Wiederholt es sich, füllt es die ganze Leinwand.
+ * Höhe entlang b. Wiederholt es sich, füllt es die ganze Leinwand; das ist
+ * nur der Marmor.
  */
 function lege(ctx: CanvasRenderingContext2D, { o, a, b, wiederholt }: Flaeche, bild: ImageBitmap, s: number, [x0, y0]: [number, number]): void {
   if (wiederholt) {
     const muster = ctx.createPattern(bild, 'repeat')!;
     const [w, h] = [bild.width, bild.height];
     muster.setTransform(new DOMMatrix([(s * a[0]) / w, (s * a[1]) / w, (s * b[0]) / h, (s * b[1]) / h, s * o[0] + x0, s * o[1] + y0]));
+    // Pixelkunst: ohne Glättung, solange ein Block mindestens ein Pixel der
+    // Leinwand deckt; kleiner geglättet, sonst fielen Blöcke aus.
+    const block = MARMOR_PIXEL * s * Math.min(Math.hypot(...a) / w, Math.hypot(...b) / h);
+    ctx.imageSmoothingEnabled = block < 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = muster;
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -134,7 +141,8 @@ function male(ctx: CanvasRenderingContext2D, teile: Teil[], s: number, [x0, y0]:
  * Kopien vor den Kacheln, nah, was Gelände nie verdeckt, den Saum und, wie
  * in der Vorlage über den Ecken der Karte, Eckstücke und Lilien.
  * `s` ist ein Pixel der feinsten Stufe in Pixeln der Leinwand, `versatz` der
- * Punkt (0, 0) darauf. Die Bilder werden geglättet gelegt. Siehe
+ * Punkt (0, 0) darauf. Die Bilder werden geglättet gelegt, der Marmor nur,
+ * wenn ein Block kleiner als ein Pixel ist. Siehe
  * docs/tablett.md, „Vor und hinter der Welt“.
  */
 export function ebenen(

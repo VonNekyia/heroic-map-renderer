@@ -131,6 +131,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md): Tisch und Gegenstände kommen mit der Umkehrung der Projektion im Bezugsrahmen, 8:5 in der Gesamtansicht im Fenster der Vorlage, auf die Platte und liegen dort wie in ihr; jenseits der Vorlage nur Marmor, in den sie 24 px ausläuft; löst in 0070 die Homographie für den Tisch und den dunklen Rand ab.
 - [0072](entscheidungen/0072-ui-in-farben-der-vorlage.md): UI des Tabletts auf Pergament, Holz und Messing in Farben aus der Vorlage, über die CSS-Variablen der Grundkarte, der Rand aus Messing ein Verlauf, ohne Bilddatei, in der Gesamtansicht neben den Gegenständen; kein erzeugtes Bild, kein Ausschnitt der Vorlage, nicht alles auf Holz.
 - [0073](entscheidungen/0073-bilder-nach-den-kacheln.md): Die Bilder des Tabletts laden erst, wenn die Ebene der Kacheln zum ersten Mal fertig ist, mit niedriger Priorität, und blenden dann ein; ein Atlas nur, wenn Lighthouse danach noch warnt.
+- [0075](entscheidungen/0075-marmor-als-pixelkunst.md): Der Marmor jenseits der Vorlage ist bis zur gerenderten Szene Pixelkunst aus Blöcken von 2 × 2 Pixeln in 20 Farben, ohne Glättung, solange ein Block ein Pixel deckt; löst in 0070 das Glätten des Marmors und in 0071 den Marmor aus Flicken ab.
 
 ## Messungen
 

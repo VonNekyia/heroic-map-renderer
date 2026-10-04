@@ -109,7 +109,12 @@ async function ladeAlle(): Promise<Map<string, ImageBitmap>> {
 /** Die beiden gerenderten Bilder einer Kamera. Fehlt eins, keins, und die Konsole sagt es. */
 async function ladeBrett({ fern, nah }: Brettbild): Promise<ImageBitmap[] | undefined> {
   try {
-    return await Promise.all([fern, nah].map((datei) => lade(BRETT_ADRESSEN[`./brett/${datei}`] ?? `brett/${datei}`)));
+    return await Promise.all(
+      [fern, nah].map((datei) => {
+        const adresse = BRETT_ADRESSEN[`./brett/${datei}`];
+        return adresse ? lade(adresse) : Promise.reject(new Error(`brett/${datei} fehlt`));
+      }),
+    );
   } catch (fehler) {
     console.warn('Tablett: die Bilder aus brett/ nicht geladen, das Tablett bleibt aus.', fehler);
     return undefined;
@@ -173,6 +178,7 @@ const skin: Skin = (kontext) => {
   });
   /** Die Teile; sie hängen an keiner Stufe, das Tablett wird beim Zoomen nur grösser. */
   const teile: Teil[] = tablett(area, seaLevel, minY, kontext, kontext.texte);
+  /** Lädt nach den Kacheln, was die Ebenen brauchen, und gibt zurück, wie sie gemalt werden. */
   const laden = async (): Promise<Maler> => {
     await kacheln;
     if (!brett) {

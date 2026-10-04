@@ -7,7 +7,6 @@ issues: [112]
 code:
   - web/skins/tablett/tablett.ts
   - web/skins/tablett/zeichnen.ts
-  - web/skins/tablett/atlas.ts
   - web/skins/tablett/index.ts
   - web/skins/tablett/tablett.css
 ---
@@ -16,6 +15,12 @@ code:
 
 Löst [0061](0061-tablett-im-frontend.md) im Punkt „Gebrochene Zoomstufen“
 ab, nur für die Gesamtansicht mit dem Skin.
+
+In Teilen abgelöst durch [0070](0070-bilder-aus-der-vorlage.md): Die
+Bilder sind gemalt und werden geglättet gelegt, ein Texelgitter gibt es
+nicht mehr; der Rand rastet nicht mehr ein. Der Rahmen füllt 92,5 % wie in
+der Vorlage statt rund 90 %. Die Gesamtansicht zwischen zwei Stufen, nur wo
+Leaflet die Kacheln verkleinert, bleibt.
 
 ## Anlass
 
@@ -107,8 +112,8 @@ Wie es gebaut ist: [Tablett](../tablett.md), „Zeichnen“.
 
 - Von einer gebrochenen Gesamtansicht führt + über die nächste ganze Stufe
   hinweg: Leaflet rundet z + 1 auf. − kommt über sie zurück.
-- Leaflet rundet jede gewünschte Stufe, bevor es sie auf die Untergrenze
-  hebt. Der Skin setzt die Untergrenze deshalb selbst und zoomt einmal von
-  darunter hinein.
+- Ohne Animation rundet Leaflet jede Stufe auf eine ganze. Der Skin setzt
+  die Untergrenze deshalb selbst und die Gesamtansicht mit `zoomSnap` 0,
+  sofort; siehe [Tablett](../tablett.md), „Zeichnen“.
 - Der Rand ist je Fenster ein wenig breiter oder schmaler, bei Dichte 8 bis
   6 %, auf Telefonen bis 25 %.

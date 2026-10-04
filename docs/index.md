@@ -45,7 +45,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 ## Frontend
 
 - [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Skins beim Build.
-- [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet, mit einer Gesamtansicht auch zwischen zwei Stufen, Masse nach der Vorlage, Licht und Schatten, feste Bilder aus einem Skript, auf ganze Pixel gelegt, was vor und was hinter der Welt liegt, was eine Näherung bleibt.
+- [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet, mit einer Gesamtansicht wie in der Vorlage, Masse nach der Vorlage, Rahmen, Tisch, Lilien und Gegenstände als Bilder aus der Vorlage, geglättet gelegt, Licht, was vor und was hinter der Welt liegt, was eine Näherung bleibt.
 
 ## Entwicklung
 
@@ -122,6 +122,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0066](entscheidungen/0066-texturen-des-tabletts.md): Texturen des Tabletts als feste PNG-Bilder, einmal von einem Skript mit eingebackenem Licht erzeugt, ein Atlas je Dichte, das Profil im Bild; zur Laufzeit nur gelegt, je Fläche mit `setTransform` und `drawImage` nach dem nächsten Nachbarn; Schmuck gemalt; nicht zur Laufzeit erzeugt, keine Schleife je Pixel, keine Bilder je Kamera.
 - [0067](entscheidungen/0067-gesamtansicht-zwischen-zwei-stufen.md): Gesamtansicht des Tabletts zwischen zwei Stufen, damit der Rahmen rund 90 % füllt, nur wo Leaflet die Kacheln verkleinert; ein Texel ist dort 1 px breit, der Rand rastet darauf ein, nicht die Stufe; die Ecken des Texelgitters liegen so, dass jedes Texel ein Pixel bekommt und keine Pixelmitte auf einer Kante liegt.
 - [0068](entscheidungen/0068-tablett-auf-jeder-stufe.md): Tablett auf jeder Stufe bis zur feinsten sichtbar, je Ansicht gezeichnet in Leinwänden so gross wie das Fenster mit Überstand, neu nach jedem Zoom und nach einem Zug über den Überstand hinaus; `maxBounds` ist die Gesamtansicht; löst in 0063 „Einmal für fitZoom“ und „Zoom“ ab.
+- [0070](entscheidungen/0070-bilder-aus-der-vorlage.md): Rahmen, Tisch, Lilien und Gegenstände des Tabletts als Ausschnitte der Vorlage, entzerrt oder freigestellt, geglättet gelegt; je Seite ein Streifen über die ganze Länge, der Tisch ein Bild der ganzen Platte statt Kacheln; löst in 0066 das Erzeugen und in 0067 das Texelgitter ab.
 
 ## Messungen
 

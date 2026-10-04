@@ -1,8 +1,6 @@
-/* Rahmen und Tisch fangen keine Klicks ab und bleiben pixelig, wenn sie mit
-   der Karte wachsen. Siehe docs/tablett.md, „Zeichnen“. */
+/* Rahmen und Tisch fangen keine Klicks ab. Siehe docs/tablett.md, „Zeichnen“. */
 .tablett {
   pointer-events: none;
-  image-rendering: pixelated;
 }
 
 /* Zwischen zwei Stufen verkleinert Leaflet die Kacheln: dann glätten statt

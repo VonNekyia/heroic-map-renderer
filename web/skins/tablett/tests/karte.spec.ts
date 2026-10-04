@@ -33,9 +33,8 @@ async function zoome(page: Page, knopf: 'in' | 'out'): Promise<void> {
 
 /**
  * Zählt jeden Aufruf, der auf eine Leinwand malt, in `window.zaehler`: alle;
- * auf den Leinwänden des Tabletts die Bilder aus dem Atlas und was davon
- * und von den Mustern geglättet gemalt wird. Den weichen Schatten darf der
- * Skin geglättet vergrössern.
+ * auf den Leinwänden des Tabletts die Bilder aus bilder/ und wie viele davon
+ * geglättet in hoher Güte gemalt werden.
  */
 function zaehle(): void {
   const zaehler = { n: 0, bilder: 0, glatt: 0 };
@@ -45,11 +44,9 @@ function zaehle(): void {
     const original = proto[name]!;
     proto[name] = function (this: CanvasRenderingContext2D, ...argumente: unknown[]) {
       zaehler.n++;
-      if (this.canvas.classList.contains('tablett')) {
-        const bild = name === 'drawImage' && argumente[0] instanceof ImageBitmap;
-        const muster = (name === 'fill' || name === 'fillRect') && this.fillStyle instanceof CanvasPattern;
-        if (bild) zaehler.bilder++;
-        if ((bild || muster) && this.imageSmoothingEnabled) zaehler.glatt++;
+      if (this.canvas.classList.contains('tablett') && name === 'drawImage' && argumente[0] instanceof ImageBitmap) {
+        zaehler.bilder++;
+        if (this.imageSmoothingEnabled && this.imageSmoothingQuality === 'high') zaehler.glatt++;
       }
       return original.apply(this, argumente);
     };
@@ -207,12 +204,12 @@ test('der Skin zeichnet nach jedem Zoom und nach einem Zug über den Überstand 
   await expect.poll(() => zeichnungen(page)).toBeGreaterThan(vorher);
 });
 
-test('die Bilder kommen aus bilder/ und liegen ungeglättet; kommen sie beim Ziehen, malt der Skin erst danach', async ({ page }) => {
+test('die Bilder kommen aus bilder/ und liegen geglättet; kommen sie beim Ziehen, malt der Skin erst danach', async ({ page }) => {
   await page.addInitScript(zaehle);
-  // Hält den Atlas zurück, bis der Test ihn freigibt.
+  // Hält das Bild des Tischs zurück, bis der Test es freigibt.
   let freigeben = () => {};
   const frei = new Promise<void>((los) => (freigeben = los));
-  await page.route('**/atlas-*.png', async (route) => {
+  await page.route('**/tisch-*.webp', async (route) => {
     await frei;
     await route.continue();
   });
@@ -222,15 +219,15 @@ test('die Bilder kommen aus bilder/ und liegen ungeglättet; kommen sie beim Zie
   expect(await gezeichnet(page)).toBe(false);
   const vorher = await gemalt(page);
 
-  // Der Atlas kommt, während die Karte gezogen wird: Gemalt wird erst danach.
+  // Das Bild kommt, während die Karte gezogen wird: Gemalt wird erst danach.
   const karte = (await page.locator('#map').boundingBox())!;
   const [mx, my] = [karte.x + karte.width / 2, karte.y + karte.height / 2];
   await page.mouse.move(mx, my);
   await page.mouse.down();
   for (let i = 1; i <= 5; i++) await page.mouse.move(mx + 15 * i, my + 8 * i);
-  const atlas = page.waitForResponse('**/atlas-*.png');
+  const tisch = page.waitForResponse('**/tisch-*.webp');
   freigeben();
-  expect((await atlas).ok()).toBe(true);
+  expect((await tisch).ok()).toBe(true);
   // Zeit, das Bild zu lesen.
   await page.waitForTimeout(500);
   expect(await gemalt(page)).toBe(vorher);
@@ -238,13 +235,13 @@ test('die Bilder kommen aus bilder/ und liegen ungeglättet; kommen sie beim Zie
   await page.mouse.up();
   await expect.poll(() => gezeichnet(page)).toBe(true);
   expect(await gemalt(page)).toBeGreaterThan(vorher);
-  // Bilder aus dem Atlas, nach dem nächsten Nachbarn, nichts geglättet.
+  // Bilder aus der Vorlage, jedes geglättet in hoher Güte.
   const { bilder, glatt } = await page.evaluate(() => (window as unknown as Zaehler).zaehler);
   expect(bilder).toBeGreaterThan(0);
-  expect(glatt).toBe(0);
+  expect(glatt).toBe(bilder);
 });
 
-test('in der Gesamtansicht füllt das Tablett 90 % des Fensters, auch zwischen zwei Stufen', async ({ page }) => {
+test('in der Gesamtansicht füllt das Tablett 92,5 % des Fensters wie in der Vorlage, auch zwischen zwei Stufen', async ({ page }) => {
   // In diesem Fenster füllte es auf der ganzen Stufe darunter 61 %.
   await page.setViewportSize({ width: 1790, height: 1000 });
   await welt(page, QUADRAT);
@@ -255,7 +252,7 @@ test('in der Gesamtansicht füllt das Tablett 90 % des Fensters, auch zwischen z
   const groesse = (await page.locator('#map').boundingBox())!;
   const fit = gesamtstufe(rahmen, 2, groesse.width, groesse.height);
   const fuellung = Math.max(((rahmen[2] - rahmen[0]) * 2 ** (fit - 2)) / groesse.width, ((rahmen[3] - rahmen[1]) * 2 ** (fit - 2)) / groesse.height);
-  expect(fuellung).toBeCloseTo(0.9, 9);
+  expect(fuellung).toBeCloseTo(0.925, 9);
   expect(fit - Math.floor(fit)).toBeGreaterThanOrEqual(0.5);
   // Die Adresse zählt die Stufe ab der feinsten.
   await expect.poll(() => Number(new URL(page.url()).searchParams.get('zoom'))).toBeCloseTo(fit - 2, 9);

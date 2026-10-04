@@ -2,14 +2,13 @@
  * Der Skin „Tablett“: die Welt in einem Holztablett auf einem Tisch, auf
  * jeder Stufe. Er zeichnet je Ansicht zwei Bilder, fern unter den Kacheln
  * und nah darüber, so gross wie das Fenster mit Überstand, und legt sie als
- * Bild-Ebenen auf die Karte. Die Texturen sind feste Bilder aus bilder/.
- * Während einer Bewegung gleiten die Bilder mit der Karte. Siehe
- * docs/tablett.md.
+ * Bild-Ebenen auf die Karte. Rahmen, Tisch, Lilien und Gegenstände sind
+ * Bilder aus der Vorlage in bilder/. Während einer Bewegung gleiten die
+ * Bilder mit der Karte. Siehe docs/tablett.md.
  */
 import type { Grenzen, Rechteck, Skin } from 'heroic-map-renderer/skin-api';
 import L from 'leaflet';
-import { atlas } from './atlas';
-import { gesamtstufe, grenzen, raster, tablett, type Teil } from './tablett';
+import { gesamtmitte, gesamtstufe, grenzen, tablett, type Teil } from './tablett';
 import { type Bilder, ebenen as malen } from './zeichnen';
 import './tablett.css';
 
@@ -23,33 +22,26 @@ const UEBERSTAND = 0.25;
  * Die Bilder aus bilder/ als Adressen. Vite legt jedes als eigene Datei ab;
  * als `data:` verböte es die Content-Security-Policy.
  */
-const ADRESSEN = import.meta.glob<string>('./bilder/*.png', { query: '?url&no-inline', import: 'default', eager: true });
+const ADRESSEN = import.meta.glob<string>('./bilder/*.webp', { query: '?url&no-inline', import: 'default', eager: true });
 
-/** Ein Bild aus bilder/, ohne Umrechnung der Farben. */
-async function lade(name: string): Promise<ImageBitmap> {
-  const adresse = ADRESSEN[`./bilder/${name}.png`];
-  if (!adresse) throw new Error(`bilder/${name}.png fehlt`);
+/** Ein Bild aus bilder/. */
+async function lade(adresse: string): Promise<ImageBitmap> {
   const antwort = await fetch(adresse);
-  if (!antwort.ok) throw new Error(`bilder/${name}.png: ${antwort.status}`);
-  return createImageBitmap(await antwort.blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+  if (!antwort.ok) throw new Error(`${adresse}: ${antwort.status}`);
+  return createImageBitmap(await antwort.blob());
 }
 
-/**
- * Der Atlas einer Dichte, so gross, wie `atlas` ihn plant. Jedes Bild, das
- * sich wiederholt, kommt dazu für sich: Ein Muster nimmt nur ganze Bilder.
- */
-async function ladeAtlas(dichte: number): Promise<Bilder['atlas']> {
-  const bild = await lade(`atlas-${dichte}`);
-  const { breite, hoehe, bereiche } = atlas(dichte);
-  if (bild.width !== breite || bild.height !== hoehe) throw new Error(`bilder/atlas-${dichte}.png passt nicht zum Atlas`);
-  const einzeln = new Map(
-    await Promise.all(
-      [...bereiche]
-        .filter(([, bereich]) => bereich.periodisch)
-        .map(async ([name, { x, y, breite: b, hoehe: h }]) => [name, await createImageBitmap(bild, x, y, b, h)] as const),
-    ),
-  );
-  return { dichte, bild, bereiche, einzeln };
+/** Alle Bilder, nach Namen. Was nicht lädt, fehlt, und die Konsole sagt es. */
+async function ladeAlle(): Promise<Bilder> {
+  const eintraege = Object.entries(ADRESSEN).map(([pfad, adresse]) => [pfad.slice('./bilder/'.length, -'.webp'.length), adresse] as const);
+  const geladen = await Promise.allSettled(eintraege.map(([, adresse]) => lade(adresse)));
+  const bilder = new Map<string, ImageBitmap>();
+  geladen.forEach((ergebnis, i) => {
+    const name = eintraege[i]![0];
+    if (ergebnis.status === 'fulfilled') bilder.set(name, ergebnis.value);
+    else console.warn(`Tablett: bilder/${name}.webp nicht geladen, die Fläche bleibt einfarbig.`, ergebnis.reason);
+  });
+  return bilder;
 }
 
 /** Ein Rechteck aus ganzen Blöcken, nicht leer. */
@@ -90,21 +82,8 @@ const skin: Skin = (kontext) => {
     return { name, leinwand: L.DomUtil.create('canvas', 'tablett'), ebene: undefined as L.SVGOverlay | undefined };
   });
 
-  // Jedes Bild wird einmal geladen. Fehlt eines, bleiben die Flächen in
-  // ihrer Farbe.
-  const atlanten = new Map<number, Promise<Bilder['atlas']>>();
-  let kachel: Promise<ImageBitmap> | undefined;
-  const bilder = async (dichte: number): Promise<Bilder | undefined> => {
-    if (!atlanten.has(dichte)) atlanten.set(dichte, ladeAtlas(dichte));
-    kachel ??= lade('marmor');
-    try {
-      const [holz, marmor] = await Promise.all([atlanten.get(dichte)!, kachel]);
-      return { atlas: holz, marmor };
-    } catch (fehler) {
-      console.warn('Tablett: Bilder nicht geladen, die Flächen bleiben einfarbig.', fehler);
-      return undefined;
-    }
-  };
+  // Die Bilder werden einmal geladen.
+  let bilder: Promise<Bilder> | undefined;
 
   // Zwischen zwei Stufen verkleinert Leaflet die Kacheln; dann glättet der
   // Browser sie, statt Pixel auszulassen. Siehe
@@ -120,12 +99,8 @@ const skin: Skin = (kontext) => {
   karte.on('movestart', () => (bewegt = true));
   karte.on('moveend', () => (bewegt = false));
 
-  /**
-   * Was je Fenstergrösse fest ist: die Gesamtansicht, das Raster und die
-   * Teile. Sie hängen an der Gesamtansicht, nicht an der Stufe; so bleibt das
-   * Tablett beim Zoomen, wie es ist, und wird nur grösser.
-   */
-  let fest: { sGesamt: number; ansicht: Grenzen; dichte: number; teile: Teil[] } | undefined;
+  /** Die Teile; sie hängen an keiner Stufe, das Tablett wird beim Zoomen nur grösser. */
+  const teile: Teil[] = tablett(area, seaLevel, minY, kontext);
   /** Was die Leinwände zeigen: die Stufe und ihr Ausschnitt in Pixeln dieser Stufe. */
   let gezeichnet: { zoom: number; links: number; oben: number; rechts: number; unten: number } | undefined;
 
@@ -137,10 +112,11 @@ const skin: Skin = (kontext) => {
   const zeichne = async (): Promise<void> => {
     const auftrag = ++nummer;
     const beginn = performance.now();
-    const geladen = await bilder(fest!.dichte);
+    bilder ??= ladeAlle();
+    const geladen = await bilder;
     const male = (): void => {
       // Eine neuere Ansicht ist schon unterwegs.
-      if (auftrag !== nummer || !fest) return;
+      if (auftrag !== nummer) return;
       const start = performance.now();
       const zoom = karte.getZoom();
       // Ein Pixel der feinsten Stufe in Pixeln des Bildschirms.
@@ -158,7 +134,7 @@ const skin: Skin = (kontext) => {
       );
       for (const { leinwand } of ebenen) [leinwand.width, leinwand.height] = [breite, hoehe];
       const [fern, nah] = ebenen.map(({ leinwand }) => leinwand.getContext('2d')!);
-      malen(fern!, nah!, fest.teile, s, [-links, -oben], fest, geladen);
+      malen(fern!, nah!, teile, s, [-links, -oben], geladen);
       for (const eintrag of ebenen) {
         // Leaflets SVGOverlay legt jedes Element als Bild-Ebene, auch eine
         // Leinwand. Ein Bild aus ihr ginge nur über data: oder blob:, und
@@ -178,45 +154,42 @@ const skin: Skin = (kontext) => {
   // Neu gezeichnet wird nach jedem Zoom und wenn das Fenster über den
   // Überstand hinaus gezogen ist. Bis dahin gleiten die Bilder mit der Karte.
   const pruefe = (): void => {
-    if (!fest) return;
     const g = gezeichnet;
     const drin = g && L.bounds([g.links, g.oben], [g.rechts, g.unten]).contains(karte.getPixelBounds());
     if (!g || g.zoom !== karte.getZoom() || !drin) void zeichne();
   };
 
-  // Bei jeder neuen Grösse des Fensters: die Gesamtansicht um die Mitte des
-  // Rahmens wie fitBounds. Weiter heraus geht es nicht, und `maxBounds` ist
-  // dieses Fenster: Es zeigt den ganzen Tisch, und auf jeder Stufe bleibt
-  // die Ansicht darin.
+  // Bei jeder neuen Grösse des Fensters: die Gesamtansicht wie in der
+  // Vorlage, ihre Mitte unter der Mitte der Karte. Weiter heraus geht es
+  // nicht, und `maxBounds` ist dieses Fenster: Es zeigt den ganzen Tisch,
+  // und auf jeder Stufe bleibt die Ansicht darin.
   let fit = Number.NaN;
-  let gebaut = '';
   const baue = (): void => {
     const groesse = karte.getSize();
     const [alt, vorher] = [fit, karte.getZoom()];
     fit = gesamtstufe(rahmen, maxZoom, groesse.x, groesse.y);
-    // Ein Pixel der feinsten Stufe in Pixeln des Bildschirms in der Gesamtansicht.
-    const s = 2 ** (fit - maxZoom);
-    const mitte: [number, number] = [((rahmen[0] + rahmen[2]) / 2) * s, ((rahmen[1] + rahmen[3]) / 2) * s];
-    const ansicht: Grenzen = [
-      (mitte[0] - groesse.x / 2) / s,
-      (mitte[1] - groesse.y / 2) / s,
-      (mitte[0] + groesse.x / 2) / s,
-      (mitte[1] + groesse.y / 2) / s,
-    ];
+    // Ein Pixel des Bildschirms in Pixeln der feinsten Stufe in der Gesamtansicht.
+    const f = 2 ** (maxZoom - fit);
+    const [mx, my] = gesamtmitte(area, seaLevel, kontext, groesse.x * f, groesse.y * f);
+    const ansicht: Grenzen = [mx - (groesse.x * f) / 2, my - (groesse.y * f) / 2, mx + (groesse.x * f) / 2, my + (groesse.y * f) / 2];
+    const fenster = L.latLngBounds(karte.unproject([ansicht[0], ansicht[1]], maxZoom), karte.unproject([ansicht[2], ansicht[3]], maxZoom));
     karte.options.maxBoundsViscosity = 1;
-    karte.setMaxBounds(L.latLngBounds(karte.unproject([ansicht[0], ansicht[1]], maxZoom), karte.unproject([ansicht[2], ansicht[3]], maxZoom)));
-    // Leaflet rundet jede gewünschte Stufe, bevor es sie auf die Untergrenze
-    // hebt: Eine gebrochene erreicht es nur von darunter. Wer die ganze
-    // Karte sah, sieht sie auch im neuen Fenster ganz.
     karte.options.minZoom = fit;
     karte.fire('zoomlevelschange');
-    if (vorher < fit || vorher === alt) karte.setZoom(Math.floor(fit), { animate: false });
-    if (`${groesse.x} ${groesse.y}` !== gebaut) {
-      gebaut = `${groesse.x} ${groesse.y}`;
-      const { dichte, w } = raster(area, kontext.projektion, s);
-      fest = { sGesamt: s, ansicht, dichte, teile: tablett(area, seaLevel, minY, kontext, ansicht, w) };
-      gezeichnet = undefined;
+    // Wer die ganze Karte sah, sieht sie auch im neuen Fenster ganz, und zwar
+    // sofort: Schöbe Leaflet die Ansicht animiert hinein, endete das mitten
+    // in einem Zug. Auf der kleinsten Stufe gibt es nur diese Mitte. Ohne
+    // Animation rundet Leaflet jede Stufe auf eine ganze; mit zoomSnap 0
+    // bleibt sie gebrochen. Die neuen Grenzen gelten schon dabei.
+    karte.options.maxBounds = fenster;
+    if (vorher <= fit || vorher === alt) {
+      const snap = karte.options.zoomSnap;
+      karte.options.zoomSnap = 0;
+      karte.setView(karte.unproject([mx, my], maxZoom), fit, { animate: false });
+      karte.options.zoomSnap = snap;
     }
+    karte.setMaxBounds(fenster);
+    gezeichnet = undefined;
     pruefe();
     gebrochen();
   };

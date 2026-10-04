@@ -5,14 +5,19 @@ status: gilt
 date: 2026-10-03
 issues: [112]
 code:
-  - web/skins/tablett/atlas.ts
-  - web/skins/tablett/werkzeug/texturen.ts
-  - web/skins/tablett/werkzeug/stoffe.ts
+  - web/skins/tablett/bilder
   - web/skins/tablett/zeichnen.ts
   - web/skins/tablett/index.ts
 ---
 
 # 0066: Texturen des Tabletts als feste Bilder
+
+In Teilen abgelöst durch [0070](0070-bilder-aus-der-vorlage.md): Die
+Bilder sind Ausschnitte der Vorlage statt aus Höhenkarten, Licht und Rampen
+erzeugt, je Fläche eines statt eines Atlas je Dichte, auch Lilien und
+Gegenstände, und sie werden geglättet gelegt statt nach dem nächsten
+Nachbarn. Es bleiben feste Bilder, die der Skin je Fläche mit
+`setTransform` und `drawImage` legt.
 
 ## Anlass
 

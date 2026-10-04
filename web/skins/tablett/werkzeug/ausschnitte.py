@@ -7,9 +7,10 @@ Einmal von Hand, nicht im Build, aus web/:
 Die Vorlage selbst liegt nicht im Repository, nur was das Skript aus ihr
 schneidet. Es entzerrt die Seiten des Rahmens und die Flächen der Pfeiler
 auf gerade Streifen und die runden Ecken innen auf ihre Ebene, stellt
-Lilien und Gegenstände frei, füllt im Tisch auf, was sie und das Tablett
-decken, und setzt aus Flicken der Platte den Marmor zusammen, der jenseits
-der Vorlage liegt. Alles landet in bilder/. Was es von der Vorlage weiss,
+Lilien und Gegenstände frei und füllt im Tisch auf, was sie und das
+Tablett decken, mit Marmor aus Flicken der Platte. Alles landet in bilder/,
+nur den Marmor jenseits der Vorlage schreibt es nicht: Er ist Pixelkunst
+und entsteht anders. Was es von der Vorlage weiss,
 Kanten, Ecken und Umrisse, steht hier in Pixeln der Vorlage; zuletzt nennt
 es, was der Skin davon in bilder.ts braucht.
 Siehe docs/tablett.md, „Bilder aus der Vorlage“.
@@ -499,7 +500,7 @@ def tisch(vorlage, dinge, tablett, stein):
     return Image.fromarray(rgba.round().clip(0, 255).astype(np.uint8), 'RGBA')
 
 
-# Der Marmor jenseits der Vorlage: ein Quadrat von MARMOR_KACHEL Pixeln, das
+# Marmor für die Löcher im Tisch: ein Quadrat von MARMOR_KACHEL Pixeln, das
 # sich nahtlos wiederholt, aus Flicken der sauberen Platte. Die Flicken
 # liegen im Raster von MARMOR_SCHRITT und gehen über die Überlappung
 # ineinander über.
@@ -566,13 +567,12 @@ def main():
     bilder.update(dinge)
     tablett = Image.new('L', vorlage.size, 0)
     ImageDraw.Draw(tablett).polygon(TABLETT, fill=255)
-    bilder['marmor'] = marmor(vorlage)
-    bilder['tisch'] = tisch(vorlage, loecher, tablett, bilder['marmor'])
+    bilder['tisch'] = tisch(vorlage, loecher, tablett, marmor(vorlage))
     for name, im in bilder.items():
         im.save(AUS / f'{name}.webp', quality=92, method=6)
     # Was bilder.ts braucht.
     print(f'BREITE_VORLAGE = {INNENECKE["rechts"][0] - INNENECKE["links"][0]:.1f}')
-    print(f'VORLAGE = {list(vorlage.size)}, TISCH_RAND = {TISCH_RAND}, MARMOR = {MARMOR_KACHEL}')
+    print(f'VORLAGE = {list(vorlage.size)}, TISCH_RAND = {TISCH_RAND}')
     for name, fuss in anker.items():
         print(f'{name}: groesse {list(bilder[name].size)}, fuss {list(fuss)}')
     for name, (fuss, vorlage_fuss) in lage.items():

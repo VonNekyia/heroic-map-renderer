@@ -1,6 +1,6 @@
 ---
 title: Tablett
-description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet in zwei Bilder um die Kacheln, mit einer Gesamtansicht wie in der Vorlage. Rahmen mit runden Ecken, Tisch, Lilien und Gegenstände sind Bilder aus der Vorlage, entzerrt oder freigestellt und geglättet gelegt; Tisch und Gegenstände liegen im Bezugsrahmen wie in der Vorlage, jenseits von ihr liegt Marmor, und auf zwei Buchrücken steht Text aus dem Build; die Bilder laden nach den Kacheln; dazu Masse, Licht, die Regel, was vor und was hinter der Welt liegt, und die UI aus Pergament, Holz und Messing neben den Gegenständen.
+description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet in zwei Bilder um die Kacheln, mit einer Gesamtansicht wie in der Vorlage. Rahmen mit runden Ecken, Tisch, Lilien und Gegenstände sind Bilder aus der Vorlage, entzerrt oder freigestellt und geglättet gelegt; Tisch und Gegenstände liegen im Bezugsrahmen wie in der Vorlage, jenseits von ihr liegt Marmor als Pixelkunst, und auf zwei Buchrücken steht Text aus dem Build; die Bilder laden nach den Kacheln; dazu Masse, Licht, die Regel, was vor und was hinter der Welt liegt, und die UI aus Pergament, Holz und Messing neben den Gegenständen.
 code:
   - web/skins/tablett/index.ts
   - web/skins/tablett/tablett.ts
@@ -30,9 +30,10 @@ eingebunden werden: [Frontend](frontend.md), „Skins“. Warum so:
 Stufe [0068](entscheidungen/0068-tablett-auf-jeder-stufe.md), die Bilder
 [0070](entscheidungen/0070-bilder-aus-der-vorlage.md), Tisch und
 Gegenstände im Bezugsrahmen
-[0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md) und
-die Bilder nach den Kacheln
-[0073](entscheidungen/0073-bilder-nach-den-kacheln.md).
+[0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md), die
+Bilder nach den Kacheln
+[0073](entscheidungen/0073-bilder-nach-den-kacheln.md) und der Marmor als
+Pixelkunst [0075](entscheidungen/0075-marmor-als-pixelkunst.md).
 
 ## Einschalten
 
@@ -125,6 +126,10 @@ die Bilder nach den Kacheln
   Karte im Bild breiter ist als dort.
 - **Geglättet:** `imageSmoothingQuality = 'high'`. Die Vorlage ist gemalt,
   keine Pixelkunst ([0070](entscheidungen/0070-bilder-aus-der-vorlage.md)).
+  Ausser dem Marmor: Er ist Pixelkunst und liegt ohne Glättung, solange ein
+  Block von `MARMOR_PIXEL` Pixeln im Quadrat mindestens ein Pixel der
+  Leinwand deckt; kleiner geglättet, sonst fielen Blöcke aus
+  ([0075](entscheidungen/0075-marmor-als-pixelkunst.md)).
   Kein Code läuft je Pixel; der Browser legt die Bilder. Fern und nah legen
   eine Fläche mit derselben Abbildung, so stimmen sie Pixel für Pixel
   überein.
@@ -203,10 +208,11 @@ issuecomment-5974570397). Die Bilder liegen als WebP in
   ```
 
   Das Skript ([`werkzeug/ausschnitte.py`](../web/skins/tablett/werkzeug/ausschnitte.py),
-  Python mit numpy und Pillow) schreibt alle Bilder neu und nennt die Zahlen,
-  die `bilder.ts` braucht. Wer daran etwas ändert, schneidet neu und legt die
-  Bilder mit in den Commit. Weder Build noch CI rufen das Skript;
-  `tests/bilder.spec.ts` prüft nur die Bilder im Repository.
+  Python mit numpy und Pillow) schreibt alle Bilder ausser dem Marmor neu
+  und nennt die Zahlen, die `bilder.ts` braucht. Wer daran etwas ändert,
+  schneidet neu und legt die Bilder mit in den Commit. Weder Build noch CI
+  rufen das Skript; `tests/bilder.spec.ts` prüft nur die Bilder im
+  Repository.
 - **Kanten der Vorlage:** je Seite drei Geraden, gemessen an den
   Übergängen Karte → Holz, am Glanz der Aussenkante oder Holz → Marmor und
   am Fuss der nahen Wände, im Mittel 0,3 bis 1,1 px daneben. Ihre Schnitte
@@ -250,21 +256,31 @@ issuecomment-5974570397). Die Bilder liegen als WebP in
   ihr, dazu rundum `TISCH_RAND` = 24 px, in denen die Farben an ihrem Rand,
   entlang des Rands weich, bis auf nichts auslaufen.
   - Unter dem Tablett die Farbe des Marmors ringsum, über eine Pyramide in
-    das Loch gemittelt, darauf die Adern des Marmors; an seinem Rand das
-    Spiegelbild des Marmors daneben.
+    das Loch gemittelt, darauf die Adern des Marmors aus Flicken; an seinem
+    Rand das Spiegelbild des Marmors daneben.
   - Unter den Gegenständen alles, was sie decken, mit einem Pixel mehr: So
     bleibt kein Stück von ihnen im Tisch, auch kein Saum. Dort liegt die
     Farbe ringsum ab 6 px Abstand, Holz wie Marmor, mit den Adern, so weit
     ringsum Marmor liegt; ohne Spiegelbild, denn es zöge den Saum des
     Gegenstands als Umriss ins Loch.
-- **Der Marmor:** ein Quadrat von `MARMOR` = 768 px, das sich nahtlos
-  wiederholt. Es entsteht aus Flicken von 112 px im Raster von 80 px, je
-  von einer zufälligen Stelle der Platte ohne Holz, Tablett und Gegenstände,
-  gespiegelt oder nicht, nicht gedreht, so hell wie der Marmor der Vorlage
-  im Mittel. Was über den Rand des Quadrats reicht, liegt auf der anderen
-  Seite. Der Skin legt ihn unter den Tisch über die ganze Ebene: Jenseits
-  der Vorlage sieht man nur ihn
+- **Der Marmor:** Pixelkunst, ein Quadrat von `MARMOR` = 768 px, das sich
+  nahtlos wiederholt, aus einfarbigen Blöcken von `MARMOR_PIXEL` = 2 px im
+  Quadrat in 20 Farben, verlustfrei. Der Skin legt ihn unter den Tisch über
+  die ganze Ebene: Jenseits der Vorlage sieht man nur ihn
   ([0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md)).
+  Eine Übergangslösung, bis die gerenderte Szene den Tisch bringt
+  ([0075](entscheidungen/0075-marmor-als-pixelkunst.md)).
+  - Grundlage ist ein Marmor aus Flicken von 112 px im Raster von 80 px, je
+    von einer zufälligen Stelle der Platte ohne Holz, Tablett und
+    Gegenstände, gespiegelt oder nicht, nicht gedreht, so hell wie der
+    Marmor der Vorlage im Mittel. Was über den Rand des Quadrats reicht,
+    liegt auf der anderen Seite. Ihn setzt das Skript nur noch für die
+    Löcher im Tisch.
+  - Daraus gilt je Block das Mittel seiner Pixel, läuft eine Ader hindurch,
+    ihr goldenstes Pixel. Dann nimmt jeder Block die nächste von 20 Farben,
+    ohne Dithering: 14 Töne des Grunds, 6 der Adern, beide aus dem Marmor
+    selbst. Im Einzelnen:
+    [0075](entscheidungen/0075-marmor-als-pixelkunst.md), „Entscheidung“.
 
 | Bild | Fläche | Grösse |
 |---|---|---|
@@ -275,14 +291,14 @@ issuecomment-5974570397). Die Bilder liegen als WebP in
 | `lilie-hinten`, `lilie-rechts`, `lilie-vorn`, `lilie-links` | Lilie je Ecke | 57 bis 63 × 52 bis 58 |
 | `buecher`, `kerze`, `kaestchen`, `kompass`, `sphaere` | Gegenstände, siehe „Gegenstände“ | 59 bis 506 × 140 bis 426 |
 | `tisch` | die Platte mit Holzrand, Pergament und Licht, dazu der Auslauf | 1539 × 1103 |
-| `marmor` | Marmor, wiederholt über die ganze Ebene | 768 × 768 |
+| `marmor` | Marmor als Pixelkunst, Blöcke von 2 × 2, 20 Farben, verlustfrei, wiederholt über die ganze Ebene | 768 × 768 |
 
 Die Lage jedes Bilds nennt `bilder.ts`: die Seiten in `SEITEN`, die Pfeiler
 in `PFEILER`, die Eckstücke in `ECKSTUECKE`, je Lilie ihren Fuss in
 `LILIEN`, je Gegenstand seinen Fuss im Bild und in der Vorlage in
 `GEGENSTAENDE`, den Tisch über die Grösse der Vorlage in `VORLAGE` und
-seinen Auslauf in `TISCH_RAND`, die Seite des Marmors in `MARMOR` und die
-Kamera des Bezugsrahmens in `BEZUG`.
+seinen Auslauf in `TISCH_RAND`, die Seite des Marmors in `MARMOR`, seine
+Blöcke in `MARMOR_PIXEL` und die Kamera des Bezugsrahmens in `BEZUG`.
 
 ## Gegenstände
 
@@ -449,7 +465,9 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   dort auch Gelände, das vor ihnen höher ragt.
 - **Tiefer Zoom:** Die Bilder haben die Auflösung der Vorlage. Ab etwa der
   Gesamtansicht + 2 werden sie weich
-  ([0070](entscheidungen/0070-bilder-aus-der-vorlage.md)).
+  ([0070](entscheidungen/0070-bilder-aus-der-vorlage.md)). Der Marmor wird
+  dort grob; bei krummen Faktoren sind seine Blöcke um 1 px ungleich breit
+  ([0075](entscheidungen/0075-marmor-als-pixelkunst.md)).
 - **Andere Kameras** nehmen dieselben Bilder. Rahmen und Tisch folgen ihrer
   Geometrie; Lilien und Gegenstände stehen aufrecht im Licht von 8:5. Von
   oben stehen sie wie von der Seite gesehen.
@@ -467,6 +485,14 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   etwas kräftiger als die des Marmors am linken Rand der Vorlage, denn die
   Flicken kommen aus der Platte vorn rechts: Nur dort liegen Stellen von
   112 px ohne Holz und Gegenstände.
+- **Zwei Stile:** Am Rand der Vorlage läuft der gemalte, geglättete Tisch
+  in den Marmor als Pixelkunst aus, bis die Szene kommt.
+- **`devicePixelRatio` über 1:** Die Leinwände haben die Grösse des
+  Fensters in CSS-Pixeln. Bei einem Verhältnis über 1, auch bei 1,25 oder
+  1,5 unter Windows, zieht der Browser sie geglättet auf Gerätepixel hoch.
+  Die Blöcke des Marmors kommen dort mit weichen Kanten an, obwohl die
+  Leinwand sie scharf malt. Leinwände in Gerätepixeln kommen mit der
+  gerenderten Szene.
 
 ## Tests
 
@@ -492,10 +518,11 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   prüft die Bilder im Repository, ohne das Skript: dass jedes Bild genommen
   wird und jedes genommene da ist, dass Streifen und Eckstücke das
   Seitenverhältnis ihrer Flächen haben, Lilien, Gegenstände, Tisch und
-  Marmor ihre Grösse; im Browser, dass kein Block von 8 × 8 Pixeln des
-  Marmors die Farbe des Holzes hat, die im Tisch über 1000 Blöcke finden,
-  und dass der Tisch über der Vorlage ganz deckt und bis zur Kante seines
-  Bilds auf nichts ausläuft.
+  Marmor ihre Grösse; im Browser, dass der Marmor aus einfarbigen Blöcken
+  von `MARMOR_PIXEL` im Quadrat in 20 Farben besteht, dass kein Block von
+  8 × 8 Pixeln des Marmors die Farbe des Holzes hat, die im Tisch über 1000
+  Blöcke finden, und dass der Tisch über der Vorlage ganz deckt und bis zur
+  Kante seines Bilds auf nichts ausläuft.
 - [`tests/karte.spec.ts`](../web/skins/tablett/tests/karte.spec.ts) prüft
   im Browser die beiden Ebenen, sichtbar und voll deckend auf der Stufe
   über der Gesamtansicht und auf der feinsten, auch an der nahen Ecke; die
@@ -503,8 +530,11 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   Überstand, auf der feinsten Stufe so gross wie in der Gesamtansicht; dass
   der Skin nach einem Zoom und einem Zug über den Überstand hinaus neu
   zeichnet, nach einem kurzen Zug nicht; dass die Bilder geglättet liegen
-  und, wenn sie beim Ziehen kommen, erst danach gemalt werden; dass keine
-  Anfrage für ein Bild des Skins vor dem Ende der ersten Kachel startet und
+  und, wenn sie beim Ziehen kommen, erst danach gemalt werden; dass der
+  Marmor auf jeder Stufe von der Gesamtansicht in einem kleinen Fenster bis
+  ganz hinein ohne Glättung liegt, solange ein Block ein Pixel deckt, sonst
+  geglättet; dass keine Anfrage für ein Bild
+  des Skins vor dem Ende der ersten Kachel startet und
   die Leinwände einblenden; die
   Gesamtansicht zwischen zwei Stufen mit 92,5 %, Leinwand Pixel auf Pixel
   und geglätteten Kacheln; dass sich die Karte hineingezoomt bis über jede

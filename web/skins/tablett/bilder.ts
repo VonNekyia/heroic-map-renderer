@@ -41,6 +41,12 @@ export const TISCH_RAND = 24;
 export const MARMOR = 768;
 
 /**
+ * Der Marmor ist Pixelkunst aus einfarbigen Blöcken von so vielen Pixeln im
+ * Quadrat. Siehe docs/tablett.md, „Bilder aus der Vorlage“.
+ */
+export const MARMOR_PIXEL = 2;
+
+/**
  * Die Kamera des Bezugsrahmens, 8:5, als Verhältnis von u, v und y. Darin
  * liegen Tisch und Gegenstände in der Gesamtansicht wie in der Vorlage.
  * Siehe docs/tablett.md, „Bilder aus der Vorlage“.

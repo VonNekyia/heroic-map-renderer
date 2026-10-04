@@ -6,10 +6,11 @@ Einmal von Hand, nicht im Build, aus web/:
 
 Die Vorlage selbst liegt nicht im Repository, nur was das Skript aus ihr
 schneidet. Es entzerrt die Seiten des Rahmens und die Flächen der Pfeiler
-auf gerade Streifen, die runden Ecken innen und den Tisch auf ihre Ebene,
-und stellt Lilien und Gegenstände frei. Alles landet in bilder/. Was es von der Vorlage weiss,
-Kanten, Ecken und Umrisse, steht hier in Pixeln der Vorlage; zuletzt nennt
-es, was der Skin davon in bilder.ts braucht.
+auf gerade Streifen und die runden Ecken innen auf ihre Ebene, stellt
+Lilien und Gegenstände frei und füllt im Tisch auf, was sie und das Tablett
+decken. Alles landet in bilder/. Was es von der Vorlage weiss, Kanten,
+Ecken und Umrisse, steht hier in Pixeln der Vorlage; zuletzt nennt es, was
+der Skin davon in bilder.ts braucht.
 Siehe docs/tablett.md, „Bilder aus der Vorlage“.
 """
 import sys
@@ -74,25 +75,6 @@ INNENECKE = {e: schnitt(INNEN[a], INNEN[b]) for e, (a, b) in ECKE.items()}
 AUSSENECKE = {e: schnitt(AUSSEN[a], AUSSEN[b]) for e, (a, b) in ECKE.items()}
 # Die Ebene des Wasserspiegels: Welt (x, z) in Kanten → Vorlage.
 WASSER = homographie([WELT[e] for e in WELT], [INNENECKE[e] for e in WELT])
-
-
-def senkrechte():
-    """Die Tiefe D als Versatz q, so dass P(x, D, z) = (WASSER·(x, z, 1) + q·(1, 1, 0)) / w
-    auf dem Fuss der nahen Wände liegt; kleinste Quadrate."""
-    zeilen, rechts = [], []
-    a = 0.5 + RAND
-    for punkte, (m, c) in [([(t, a) for t in np.linspace(-a, a, 21)], FUSS['vl']), ([(a, t) for t in np.linspace(-a, a, 21)], FUSS['vr'])]:
-        for p in punkte:
-            v = WASSER @ np.array([p[0], p[1], 1.0])
-            zeilen.append([-m / v[2], 1 / v[2]])
-            rechts.append(c - v[1] / v[2] + m * v[0] / v[2])
-    return np.linalg.lstsq(np.array(zeilen), np.array(rechts), rcond=None)[0]
-
-
-Q = senkrechte()
-TISCH = WASSER.copy()
-TISCH[0, 2] += Q[0]
-TISCH[1, 2] += Q[1]
 
 
 def entzerre(vorlage, m, breite, hoehe):
@@ -327,13 +309,12 @@ def auslauf(vorlage):
 
 
 def gegenstaende(vorlage, rand):
-    """Die Gegenstände, freigestellt, zum Rand der Vorlage auslaufend wie der
-    Tisch. Gibt die Bilder, je Bild den Fuss im Bild und auf der Platte, und
-    die Löcher im Tisch: was sie decken, um 2 px geschrumpft, damit ihr
-    weicher Rand auf dem Tisch der Vorlage liegt."""
+    """Die Gegenstände, freigestellt, zum Rand der Vorlage auslaufend. Gibt
+    die Bilder, je Bild den Fuss im Bild und in der Vorlage, und die Löcher
+    im Tisch: was sie decken, um 2 px geschrumpft, damit ihr weicher Rand
+    auf dem Tisch der Vorlage liegt."""
     bilder, lage = {}, {}
     loecher = Image.new('L', vorlage.size, 0)
-    zurueck = np.linalg.inv(TISCH)
     for name, (umriss, fuss) in GEGENSTAENDE.items():
         # Neben den Gegenständen liegt keine Karte, nur Marmor; so bleibt die
         # weisse Flamme.
@@ -343,16 +324,12 @@ def gegenstaende(vorlage, rand):
         bilder[name] = stueck
         deckt = alpha.point(lambda a: 255 if a > 250 else 0).filter(ImageFilter.MinFilter(5))
         loecher.paste(255, (x0, y0), deckt)
-        lage[name] = ((round(fuss[0] - x0, 1), round(fuss[1] - y0, 1)), tuple(round(float(v), 4) for v in bild(zurueck, fuss)))
+        lage[name] = ((round(fuss[0] - x0, 1), round(fuss[1] - y0, 1)), fuss)
     return bilder, lage, loecher
 
 
-# Der Tisch in s = x − z und t = x + z, in Kanten um die Mitte der Welt: So
-# liegt er wie im Bild aus Südost, nur ohne die Perspektive der Vorlage. Je
-# Kante entlang s und t so viele Pixel, rund eines der Vorlage.
-TISCH_PX = (644, 379)
-# Zum Rand der Vorlage läuft der Tisch über so viele ihrer Pixel aus;
-# dahinter zeigt sie nichts.
+# Gegenstände, die der Rand der Vorlage schneidet, laufen dort über so viele
+# ihrer Pixel aus.
 AUSLAUF = 8
 # Der Umriss des Tabletts in der Vorlage, mit Pfeilern, Lilien und dem Glanz
 # der fernen Aussenkanten. Darunter zeigt das Bild des Tischs Marmor.
@@ -361,30 +338,13 @@ TABLETT = [
     (1426, 531), (1100, 691), (760, 888), (757, 899), (731, 915), (705, 900), (700, 887), (400, 683),
     (90, 476), (86, 485), (63, 477), (60, 424), (96, 377), (118, 404), (130, 386), (400, 241), (712, 57),
 ]
-# Ein Stück Marmor ohne Gegenstände im Bild des Tischs, Pixel x0, y0, x1, y1:
+# Ein Stück Marmor ohne Gegenstände in der Vorlage, Pixel x0, y0, x1, y1:
 # seine Adern füllen die Löcher.
-MARMOR = (880, 870, 1060, 960)
+MARMOR = (940, 800, 1100, 865)
 # So tief spiegelt sich der Marmor am Rand eines Lochs hinein. Dort zeigt der
 # Skin den Tisch, wo seine Kamera um Rahmen und Gegenstände herum anders
 # sieht als die Vorlage, bis rund 15 px in der Gesamtansicht.
 SPIEGEL = 24
-
-
-def tischbild(vorlage):
-    """Die Abbildung von Pixeln des Tischbilds auf die Vorlage, seine Grösse
-    und seine Ecke (s0, t0)."""
-    zurueck = np.linalg.inv(TISCH)
-    st = []
-    for x, y in [(0, 0), (vorlage.width, 0), (vorlage.width, vorlage.height), (0, vorlage.height)]:
-        wx, wz = bild(zurueck, (x, y))
-        st.append((wx - wz, wx + wz))
-    s0, t0 = min(p[0] for p in st), min(p[1] for p in st)
-    s1, t1 = max(p[0] for p in st), max(p[1] for p in st)
-    rs, rt = TISCH_PX
-    groesse = (int(np.ceil((s1 - s0) * rs)), int(np.ceil((t1 - t0) * rt)))
-    pixel = np.array([[1 / rs, 0, s0], [0, 1 / rt, t0], [0, 0, 1]])
-    st_xz = np.array([[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]])
-    return TISCH @ st_xz @ pixel, groesse, (s0, t0)
 
 
 def zumitteln(rgb, bekannt, unschaerfe=8):
@@ -447,29 +407,27 @@ def spiegeln(rgb, drin, bekannt, tief=SPIEGEL):
     return bild, gewicht
 
 
-def tisch(vorlage, rand, loecher):
-    """Der Tisch, entzerrt auf seine Ebene. Wo die Vorlage das Tablett oder
-    einen Gegenstand zeigt (`loecher`, Maske in Pixeln der Vorlage), liegt
-    Marmor; zum Rand der Vorlage läuft er aus wie `rand`."""
-    m, groesse, ecke = tischbild(vorlage)
-    rgb = np.asarray(entzerre(vorlage, m, *groesse), float)
-    alpha = np.asarray(entzerre(rand, m, *groesse), float) / 255
-    loch = np.asarray(entzerre(loecher.filter(ImageFilter.GaussianBlur(1.5)), m, *groesse), float) / 255
+def tisch(vorlage, loecher):
+    """Der Tisch: die Vorlage selbst, so gross wie sie. Der Skin legt ihn so
+    auf die Platte, dass er im Bezugsrahmen Pixel auf Pixel über der Vorlage
+    liegt. Wo sie das Tablett oder einen Gegenstand zeigt (`loecher`), liegt
+    Marmor."""
+    rgb = np.asarray(vorlage, float)
+    loch = np.asarray(loecher.filter(ImageFilter.GaussianBlur(1.5)), float) / 255
     # Tief in den Löchern die Farbe der Umgebung, darauf die Adern des
     # sauberen Stücks, wiederholt. Nur der Grund des Marmors zählt: Holz und
     # Gegenstände färbten sonst die Mitte grosser Löcher. Am Rand das
     # Spiegelbild des Marmors daneben, mit seinen Adern und seinem Licht.
-    umgebung = zumitteln(rgb, (1 - loch) * (alpha > 0.99) * ist_marmor(rgb), 16)
+    umgebung = zumitteln(rgb, (1 - loch) * ist_marmor(rgb), 16)
     x0, y0, x1, y1 = MARMOR
     stueck = rgb[y0:y1, x0:x1]
     muster = stueck / np.maximum(zumitteln(stueck, np.ones(stueck.shape[:2]), 16), 1)
-    ny, nx = -(-groesse[1] // muster.shape[0]), -(-groesse[0] // muster.shape[1])
-    muster = np.tile(muster, (ny, nx, 1))[: groesse[1], : groesse[0]]
-    spiegel, gewicht = spiegeln(rgb, loch > 0.02, (loch < 0.02) & (alpha > 0.99))
+    h, w = loch.shape
+    muster = np.tile(muster, (-(-h // muster.shape[0]), -(-w // muster.shape[1]), 1))[:h, :w]
+    spiegel, gewicht = spiegeln(rgb, loch > 0.02, loch < 0.02)
     fuellung = (umgebung * muster).clip(0, 255) * (1 - gewicht[..., None]) + spiegel * gewicht[..., None]
     rgb = rgb * (1 - loch[..., None]) + fuellung * loch[..., None]
-    rgba = np.dstack([rgb, alpha * 255]).round().clip(0, 255).astype(np.uint8)
-    return Image.fromarray(rgba, 'RGBA'), groesse, ecke
+    return Image.fromarray(rgb.round().clip(0, 255).astype(np.uint8), 'RGB')
 
 
 def main():
@@ -478,20 +436,19 @@ def main():
     bilder = {**streifen(vorlage), **pfeiler(vorlage), **eckstuecke(vorlage)}
     sprites, anker = lilien(vorlage)
     bilder.update(sprites)
-    rand = auslauf(vorlage)
-    dinge, lage, loecher = gegenstaende(vorlage, rand)
+    dinge, lage, loecher = gegenstaende(vorlage, auslauf(vorlage))
     bilder.update(dinge)
     ImageDraw.Draw(loecher).polygon(TABLETT, fill=255)
-    bilder['tisch'], (tb, th), (s0, t0) = tisch(vorlage, rand, loecher)
+    bilder['tisch'] = tisch(vorlage, loecher)
     for name, im in bilder.items():
         im.save(AUS / f'{name}.webp', quality=92, method=6)
     # Was bilder.ts braucht.
     print(f'BREITE_VORLAGE = {INNENECKE["rechts"][0] - INNENECKE["links"][0]:.1f}')
-    print(f'TISCH: s [{s0:.4f}, {s0 + tb / TISCH_PX[0]:.4f}], t [{t0:.4f}, {t0 + th / TISCH_PX[1]:.4f}]')
+    print(f'VORLAGE = {list(vorlage.size)}')
     for name, fuss in anker.items():
         print(f'{name}: groesse {list(bilder[name].size)}, fuss {list(fuss)}')
-    for name, (fuss, ort) in lage.items():
-        print(f'{name}: groesse {list(bilder[name].size)}, fuss {list(fuss)}, ort {list(ort)}')
+    for name, (fuss, vorlage_fuss) in lage.items():
+        print(f'{name}: groesse {list(bilder[name].size)}, fuss {list(fuss)}, vorlage {list(vorlage_fuss)}')
     for name in sorted(bilder):
         print(f'{name}.webp: {(AUS / f"{name}.webp").stat().st_size / 1024:.1f} KB')
 

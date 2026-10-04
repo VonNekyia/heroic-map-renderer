@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { readdirSync, readFileSync } from 'node:fs';
-import { ECKSTUECKE, GEGENSTAENDE, LILIEN, MASS, PFEILER, RAND, SEITEN } from '../bilder';
+import { ECKSTUECKE, GEGENSTAENDE, LILIEN, MASS, PFEILER, RAND, SEITEN, VORLAGE } from '../bilder';
 
 const ORDNER = new URL('../bilder/', import.meta.url);
 
@@ -31,7 +31,8 @@ test('jedes Bild in bilder/ nimmt der Skin, und jedes, das er nimmt, liegt dort'
   expect(da).toEqual([...new Set(genommen)].sort());
 });
 
-test('Streifen und Eckstücke haben das Seitenverhältnis ihrer Flächen, Lilien und Gegenstände die Grösse aus bilder.ts', () => {
+test('Streifen und Eckstücke haben das Seitenverhältnis ihrer Flächen, Lilien, Gegenstände und der Tisch die Grösse aus bilder.ts', () => {
+  expect(groesse('tisch.webp')).toEqual(VORLAGE);
   // Breite durch Höhe gegen die Fläche in w, wo eine Seite 1 / RAND lang ist;
   // auf ganze Pixel gerundet weicht es um unter 1 % ab.
   const passt = (datei: string, soll: number) => {

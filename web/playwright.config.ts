@@ -37,7 +37,8 @@ export default defineConfig({
       command:
         `npx vite build --outDir dist-skin && ` +
         `npx vite preview --outDir dist-skin --host ${HOST} --port ${PORT_SKIN} --strictPort`,
-      env: { SKIN: './skins/tablett' },
+      // Texte für die Buchrücken, nur zum Prüfen; echte setzt der Betreiber.
+      env: { SKIN: './skins/tablett', SKIN_TEXT_BUCH1: 'Probe Eins', SKIN_TEXT_BUCH2: 'Probe Zwei' },
       url: `http://${HOST}:${PORT_SKIN}`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

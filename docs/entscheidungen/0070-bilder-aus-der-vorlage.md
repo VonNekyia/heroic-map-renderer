@@ -22,6 +22,13 @@ nächsten Nachbarn und das Malen des Schmucks in Aseprite. Löst in
 1 px je Texel und das Einrasten des Rands; die Gesamtansicht zwischen zwei
 Stufen bleibt.
 
+In Teilen abgelöst durch
+[0071](0071-tisch-und-gegenstaende-im-bezugsrahmen.md): Tisch und Füsse der
+Gegenstände kommen nicht mehr über die Homographie der Vorlage auf die
+Platte, sondern über die Umkehrung der Projektion im Bezugsrahmen; der Tisch
+läuft am Rand der Vorlage nicht dunkel aus, sondern setzt sich gespiegelt
+fort.
+
 ## Anlass
 
 Der Maintainer will das Tablett genau so, wie die Vorlage es zeigt, und gibt

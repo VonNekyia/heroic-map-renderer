@@ -28,12 +28,15 @@ export const MASS = {
 /** Die Breite der Karte in der Vorlage, in ihren Pixeln. Daran messen sich die Ausschnitte. */
 export const BREITE_VORLAGE = 1288.3;
 
+/** Die Grösse der Vorlage in Pixeln; so gross ist auch das Bild des Tischs. */
+export const VORLAGE: [number, number] = [1491, 1055];
+
 /**
- * Das Bild des Tischs liegt auf der Platte, in s = x − z und t = x + z, in
- * Kanten um die Mitte der Welt: von s0 bis s1 entlang seiner Breite, von t0
- * bis t1 entlang seiner Höhe.
+ * Die Kamera des Bezugsrahmens, 8:5, als Verhältnis von u, v und y. Darin
+ * liegen Tisch und Gegenstände in der Gesamtansicht wie in der Vorlage.
+ * Siehe docs/tablett.md, „Bilder aus der Vorlage“.
  */
-export const TISCH = { s: [-1.2347, 1.197], t: [-1.3922, 1.4917] } as const;
+export const BEZUG = { u: 8, v: 5, y: 8 };
 
 /** Eine Richtung im Blick, waagrecht. */
 export type Richtung = '+x' | '-x' | '+z' | '-z';
@@ -81,24 +84,49 @@ export interface Ausschnitt {
 }
 
 /**
- * Ein Gegenstand auf dem Tisch: sein Bild, aufrecht, und wo sein Fuss auf
- * der Platte steht, in Kanten um die Mitte der Welt im Blick.
+ * Ein Feld für Text auf einem Bild: Ecke `o` unten links, `a` entlang der
+ * Zeile, `b` nach oben, in Pixeln der Vorlage vom Fuss des Bilds aus.
+ */
+export interface Feld {
+  o: [number, number];
+  a: [number, number];
+  b: [number, number];
+}
+
+/**
+ * Ein Gegenstand auf dem Tisch: sein Bild, aufrecht, und wo sein Fuss in
+ * der Vorlage steht, in ihren Pixeln. Der Skin stellt ihn dorthin auf die
+ * Platte, wo er im Bezugsrahmen über diesem Punkt liegt. `schrift` nennt
+ * Felder für Texte aus der Konfiguration des Builds, nach ihrem Namen in
+ * `Kontext.texte`.
  */
 export interface Gegenstand extends Ausschnitt {
-  ort: [number, number];
+  vorlage: [number, number];
+  schrift?: Record<string, Feld>;
 }
 
 /**
  * Die Gegenstände der Vorlage: Bücher mit Messingsäule und Gänseblümchen,
  * die Kerze im Leuchter, das Kästchen, der Kompass auf dem grossen Buch mit
- * dem roten Tuch und die Armillarsphäre mit Gänseblümchen.
+ * dem roten Tuch und die Armillarsphäre mit Gänseblümchen. Auf den Rücken
+ * zweier Bücher steht Text aus `SKIN_TEXT_BUCH1` und `SKIN_TEXT_BUCH2`;
+ * siehe docs/tablett.md, „Gegenstände“.
  */
 export const GEGENSTAENDE: Gegenstand[] = [
-  { bild: 'buecher', groesse: [501, 290], fuss: [233, 209], ort: [-0.7823, 0.0411] },
-  { bild: 'kerze', groesse: [126, 263], fuss: [61, 255], ort: [0.1995, -0.8591] },
-  { bild: 'kaestchen', groesse: [55, 140], fuss: [22, 132], ort: [0.6898, -0.4061] },
-  { bild: 'kompass', groesse: [240, 363], fuss: [25, 142], ort: [0.8198, 0.0053] },
-  { bild: 'sphaere', groesse: [337, 422], fuss: [133, 413], ort: [0.2844, 1.1776] },
+  {
+    bild: 'buecher',
+    groesse: [501, 290],
+    fuss: [233, 209],
+    vorlage: [230, 206],
+    schrift: {
+      buch1: { o: [-150, 8], a: [64, -38.4], b: [1.2, -25] },
+      buch2: { o: [-160, -124], a: [80, -48], b: [1, -20] },
+    },
+  },
+  { bild: 'kerze', groesse: [126, 263], fuss: [61, 255], vorlage: [1417, 263] },
+  { bild: 'kaestchen', groesse: [55, 140], fuss: [22, 132], vorlage: [1462, 626] },
+  { bild: 'kompass', groesse: [240, 363], fuss: [25, 142], vorlage: [1280, 838] },
+  { bild: 'sphaere', groesse: [337, 422], fuss: [133, 413], vorlage: [130, 1050] },
 ];
 
 /**

@@ -3,7 +3,7 @@
  * Vorlage, affin gelegt und geglättet; Lilien und Gegenstände aufrecht;
  * alles andere in seiner Farbe. Siehe docs/tablett.md, „Zeichnen“.
  */
-import { type Figur, type Flaeche, GRUND, type Teil } from './tablett';
+import { type Figur, type Flaeche, GRUND, type Schrift, type Teil } from './tablett';
 
 /** Die Bilder aus dem Ordner bilder/, geladen, nach Namen. */
 export type Bilder = ReadonlyMap<string, ImageBitmap>;
@@ -14,12 +14,70 @@ export type Bilder = ReadonlyMap<string, ImageBitmap>;
  */
 const UEBERLAPP = 0.75;
 
-/** Legt das Bild einer Fläche affin auf sie: seine Breite entlang a, seine Höhe entlang b. */
-function lege(ctx: CanvasRenderingContext2D, { o, a, b }: Flaeche, bild: ImageBitmap, s: number, [x0, y0]: [number, number]): void {
+/**
+ * Die Farben der Schrift auf den Büchern, aus der Vorlage: das helle Gold
+ * ihres Schmucks, der Schatten im Leder und ein Glanz darüber.
+ */
+const SCHRIFT = { gold: '#db9e63', schatten: 'rgb(22 10 5 / 0.85)', licht: 'rgb(240 200 144 / 0.5)' };
+
+/**
+ * Legt das Bild einer Fläche affin auf sie: seine Breite entlang a, seine
+ * Höhe entlang b. Ist sie gespiegelt, setzt es sich fort, so weit die
+ * Leinwand reicht: Jede Kachel ist an der Kante zu ihrer Nachbarin
+ * gespiegelt, so passt jede Kante.
+ */
+function lege(ctx: CanvasRenderingContext2D, { o, a, b, gespiegelt }: Flaeche, bild: ImageBitmap, s: number, [x0, y0]: [number, number]): void {
   const [la, lb] = [Math.hypot(...a) * s, Math.hypot(...b) * s];
   const [da, db] = [Math.min(0.25, UEBERLAPP / la), Math.min(0.25, UEBERLAPP / lb)];
-  ctx.setTransform(s * a[0], s * a[1], s * b[0], s * b[1], s * o[0] + x0, s * o[1] + y0);
-  ctx.drawImage(bild, -da, -db, 1 + 2 * da, 1 + 2 * db);
+  const m = [s * a[0], s * a[1], s * b[0], s * b[1], s * o[0] + x0, s * o[1] + y0] as const;
+  // Die Ecken der Leinwand in Einheiten der Fläche: welche Kacheln sie zeigt.
+  const det = m[0] * m[3] - m[1] * m[2];
+  const { width, height } = ctx.canvas;
+  const ecken = gespiegelt
+    ? [[0, 0], [width, 0], [0, height], [width, height]].map(([px, py]) => {
+        const [dx, dy] = [px! - m[4], py! - m[5]];
+        return [(m[3] * dx - m[2] * dy) / det, (m[0] * dy - m[1] * dx) / det] as const;
+      })
+    : [[0.5, 0.5] as const];
+  const bereich = (i: 0 | 1) => [Math.floor(Math.min(...ecken.map((e) => e[i]))), Math.floor(Math.max(...ecken.map((e) => e[i])))];
+  const [[i0, i1], [j0, j1]] = [bereich(0), bereich(1)];
+  for (let i = i0!; i <= i1!; i++) {
+    for (let j = j0!; j <= j1!; j++) {
+      ctx.setTransform(...m);
+      // Ungerade Kacheln gespiegelt: Ihr Bild läuft von ihrer fernen Kante zurück.
+      ctx.transform(i % 2 ? -1 : 1, 0, 0, j % 2 ? -1 : 1, i % 2 ? i + 1 : i, j % 2 ? j + 1 : j);
+      ctx.drawImage(bild, -da, -db, 1 + 2 * da, 1 + 2 * db);
+    }
+  }
+}
+
+/**
+ * Schreibt Text in Gold auf sein Feld, eingeprägt: Die Kante oben links
+ * liegt im Schatten, die unten rechts im Licht. So gross, wie das Feld hoch
+ * ist, schmaler, wenn er sonst nicht hineinpasst.
+ */
+function schreibe(ctx: CanvasRenderingContext2D, { text, o, a, b }: Schrift, s: number, [x0, y0]: [number, number]): void {
+  const [la, lb] = [Math.hypot(...a) * s, Math.hypot(...b) * s];
+  const schrift = (px: number) => `bold ${px}px Georgia, 'Times New Roman', serif`;
+  let groesse = 0.62 * lb;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.font = schrift(groesse);
+  const breite = ctx.measureText(text).width;
+  if (breite > 0.9 * la) groesse *= (0.9 * la) / breite;
+  // Zeile entlang a, aufrecht gegen b, von der Mitte des Felds aus.
+  ctx.setTransform(a[0] / Math.hypot(...a), a[1] / Math.hypot(...a), -b[0] / Math.hypot(...b), -b[1] / Math.hypot(...b), s * (o[0] + (a[0] + b[0]) / 2) + x0, s * (o[1] + (a[1] + b[1]) / 2) + y0);
+  ctx.font = schrift(groesse);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const d = Math.max(0.5, 0.07 * groesse);
+  for (const [farbe, dx] of [
+    [SCHRIFT.schatten, -d],
+    [SCHRIFT.licht, d],
+    [SCHRIFT.gold, 0],
+  ] as const) {
+    ctx.fillStyle = farbe;
+    ctx.fillText(text, dx, dx);
+  }
 }
 
 /** Stellt ein freigestelltes Bild aufrecht auf seinen Fuss. */
@@ -41,6 +99,10 @@ function male(ctx: CanvasRenderingContext2D, teile: Teil[], s: number, [x0, y0]:
     if (teil.form === 'figur') {
       const bild = bilder.get(teil.bild);
       if (bild) stelle(ctx, teil, bild, s, [x0, y0]);
+      continue;
+    }
+    if (teil.form === 'schrift') {
+      schreibe(ctx, teil, s, [x0, y0]);
       continue;
     }
     ctx.save();

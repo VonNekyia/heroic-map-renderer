@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import type { Grenzen, Projektion, Rechteck } from 'heroic-map-renderer/skin-api';
 import { readdirSync } from 'node:fs';
 import { eintraege, kamera, projiziere, RICHTUNGEN } from '../../../tests/kamera';
-import { BREITE_VORLAGE, ECKSTUECKE, LILIEN, MASS, RAND } from '../bilder';
-import { gesamtmitte, gesamtstufe, grenzen, imBlick, tablett, type Blick, type Figur, type Flaeche, type Teil } from '../tablett';
+import { BREITE_VORLAGE, ECKSTUECKE, GEGENSTAENDE, LILIEN, MASS, RAND, VORLAGE } from '../bilder';
+import { gesamtmitte, gesamtstufe, grenzen, imBlick, tablett, type Blick, type Figur, type Flaeche, type Schrift, type Teil } from '../tablett';
 
 type Punkt = [number, number];
 
@@ -375,4 +375,60 @@ test('die Gesamtansicht liegt wie in der Vorlage unter der Mitte der Karte, und 
   const karte = 2 * 4096 * 2 * p.u;
   expect((mx - cx) / karte).toBeCloseTo(-0.0033, 6);
   expect((my - cy) / karte).toBeCloseTo(0.058, 6);
+});
+
+test('im Bezugsrahmen stehen die Gegenstände auf 3 px, wo die Vorlage sie hat, und der Tisch liegt über ihr', () => {
+  // Der Bezugsrahmen: 8:5 aus se, die Gesamtansicht im Fenster der Vorlage,
+  // mit einer Welt, deren Rahmen es genau zu 92,5 % füllt.
+  const p = kamera('8:5', 16);
+  const area: Rechteck = [-3200, -3200, 3200, 3200];
+  const rahmen = grenzen(area, MEER, blick(p, 0));
+  const z = gesamtstufe(rahmen, 11, ...VORLAGE);
+  const voll = 11 + Math.log2(Math.min(VORLAGE[0] / (rahmen[2] - rahmen[0]), VORLAGE[1] / (rahmen[3] - rahmen[1])));
+  expect(2 ** (z - voll)).toBeCloseTo(0.925, 9);
+  const f = 2 ** (11 - z);
+  const [mx, my] = gesamtmitte(area, MEER, blick(p, 0), VORLAGE[0] * f, VORLAGE[1] * f);
+  const imFenster = ([x, y]: Punkt): Punkt => [(x - mx) / f + VORLAGE[0] / 2, (y - my) / f + VORLAGE[1] / 2];
+  const teile = tablett(area, MEER, MIN_Y, blick(p, 0));
+  for (const { bild, vorlage } of GEGENSTAENDE) {
+    const figur = teile.find((t): t is Figur => t.form === 'figur' && t.bild === bild)!;
+    const [x, y] = imFenster(figur.fuss);
+    expect(Math.hypot(x - vorlage[0], y - vorlage[1]), `${bild}: ${x.toFixed(1)}, ${y.toFixed(1)}`).toBeLessThanOrEqual(3);
+  }
+  // Das Bild des Tischs von Ecke zu Ecke des Fensters, gespiegelt fortgesetzt.
+  const tisch = flaechen(teile).filter((t) => t.art === 'tisch');
+  expect(tisch.map((t) => t.gespiegelt)).toEqual([true, true]);
+  const { o, a, b } = tisch[0]!;
+  for (const [ecke, soll] of [
+    [o, [0, 0]],
+    [[o[0] + a[0] + b[0], o[1] + a[1] + b[1]], VORLAGE],
+  ] as [Punkt, Punkt][]) {
+    const [x, y] = imFenster(ecke);
+    expect(Math.hypot(x - soll[0], y - soll[1]), `${x.toFixed(1)}, ${y.toFixed(1)}`).toBeLessThanOrEqual(1);
+  }
+});
+
+test('auf zwei Buchrücken steht Text aus SKIN_TEXT_BUCH1 und SKIN_TEXT_BUCH2 gleich nach ihrem Bild, ohne die Texte keiner', () => {
+  const texte = { titel: 'Karte', buch1: 'Probe Eins', buch2: 'Probe Zwei' };
+  for (const [camera, scale] of KAMERAS) {
+    const p = kamera(camera, scale);
+    for (let k = 0; k < 4; k++) {
+      const name = `${camera} k=${k}`;
+      expect(tablett(WELTEN[0]!.area, MEER, MIN_Y, blick(p, k), { titel: 'Karte' }).some((t) => t.form === 'schrift'), name).toBe(false);
+      const teile = tablett(WELTEN[0]!.area, MEER, MIN_Y, blick(p, k), texte);
+      const i = teile.findIndex((t) => t.form === 'figur' && t.bild === 'buecher');
+      const buecher = teile[i] as Figur;
+      const schriften = teile.filter((t): t is Schrift => t.form === 'schrift');
+      expect(teile.slice(i + 1, i + 3), name).toEqual(schriften);
+      expect(schriften.map((s) => s.text), name).toEqual(['Probe Eins', 'Probe Zwei']);
+      // Jedes Feld liegt im Bild der Bücher, auf derselben Ebene.
+      const [links, oben, rechts, unten] = rechteckDer(buecher);
+      for (const { o, a, b, nah } of schriften) {
+        for (const [x, y] of [o, [o[0] + a[0] + b[0], o[1] + a[1] + b[1]]]) {
+          expect(x! > links && x! < rechts && y! > oben && y! < unten, name).toBe(true);
+        }
+        expect(nah, name).toBe(buecher.nah);
+      }
+    }
+  }
 });

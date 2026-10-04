@@ -1,6 +1,6 @@
 ---
 title: Tablett
-description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet in zwei Bilder um die Kacheln, mit einer Gesamtansicht wie in der Vorlage. Rahmen mit runden Ecken, Tisch, Lilien und Gegenstände sind Bilder aus der Vorlage, entzerrt oder freigestellt und geglättet gelegt; dazu Masse, Licht und die Regel, was vor und was hinter der Welt liegt.
+description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet in zwei Bilder um die Kacheln, mit einer Gesamtansicht wie in der Vorlage. Rahmen mit runden Ecken, Tisch, Lilien und Gegenstände sind Bilder aus der Vorlage, entzerrt oder freigestellt und geglättet gelegt; Tisch und Gegenstände liegen im Bezugsrahmen wie in der Vorlage, der Tisch setzt sich gespiegelt fort, und auf zwei Buchrücken steht Text aus dem Build; dazu Masse, Licht und die Regel, was vor und was hinter der Welt liegt.
 code:
   - web/skins/tablett/index.ts
   - web/skins/tablett/tablett.ts
@@ -27,8 +27,10 @@ eingebunden werden: [Frontend](frontend.md), „Skins“. Warum so:
 [0061](entscheidungen/0061-tablett-im-frontend.md),
 [0063](entscheidungen/0063-tablett-als-skin.md), die Gesamtansicht
 [0067](entscheidungen/0067-gesamtansicht-zwischen-zwei-stufen.md), jede
-Stufe [0068](entscheidungen/0068-tablett-auf-jeder-stufe.md) und die Bilder
-[0070](entscheidungen/0070-bilder-aus-der-vorlage.md).
+Stufe [0068](entscheidungen/0068-tablett-auf-jeder-stufe.md), die Bilder
+[0070](entscheidungen/0070-bilder-aus-der-vorlage.md) und Tisch und
+Gegenstände im Bezugsrahmen
+[0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md).
 
 ## Einschalten
 
@@ -193,8 +195,17 @@ issuecomment-5974570397). Die Bilder liegen als WebP in
   am Fuss der nahen Wände, im Mittel 0,3 bis 1,1 px daneben. Ihre Schnitte
   sind die Ecken der Karte und des Bands.
 - **Kamera der Vorlage:** Die Ebene des Wasserspiegels bildet eine
-  Homographie aus den Ecken der Karte ab; die Platte liegt um einen Versatz
-  tiefer, gefittet an den Fuss der nahen Wände, im Mittel 2,5 px daneben.
+  Homographie aus den Ecken der Karte ab. Nach ihr schneidet das Skript
+  Streifen, Eckstücke und den Fuss der Lilien.
+- **Bezugsrahmen:** 8:5 aus se, die Gesamtansicht im Fenster der Vorlage,
+  1491 × 1055 px. Darin liegen Tisch und Gegenstände Pixel auf Pixel wie in
+  der Vorlage: `aufDiePlatte` in [`tablett.ts`](../web/skins/tablett/tablett.ts)
+  bringt einen Punkt der Vorlage mit der Umkehrung dieser Projektion auf die
+  Platte, in s = x − z und t = x + z um die Mitte der Welt. Die Mitte der
+  Karte liegt dort um `BLICKPUNKT` über der Mitte des Fensters, die Karte ist
+  `BREITE_VORLAGE` breit, die Platte liegt die Tiefe des Tabletts unter dem
+  Wasserspiegel. Der Rahmen folgt dagegen der Karte; seine Ecken liegen bis
+  2,5 % W anders als in der Vorlage, siehe „Was bleibt eine Näherung“.
 - **Streifen:** je Seite das Band der Oberkante über ihre ganze Länge, an
   den nahen Seiten dazu die Wand bis zum Fuss, entzerrt per Homographie aus
   den vier Ecken der Fläche, 16 px je w. Gekachelt wird nichts: Jede Seite
@@ -210,12 +221,15 @@ issuecomment-5974570397). Die Bilder liegen als WebP in
 - **Freigestellt:** Lilien und Gegenstände in einem Umriss, darin ohne
   Karte und Marmor, am Rand über 1 bis 2 px weich. Lücken im Schmuck bleiben
   offen; Glanzlichter auf Messing sind warm, Schnee auf der Karte kalt.
-- **Der Tisch:** die Platte von oben, in s = x − z und t = x + z um die
-  Mitte der Welt, so wie im Bild aus Südost, rund ein Pixel der Vorlage je
-  Pixel. Unter dem Tablett und den Gegenständen füllt das Skript Marmor auf:
+- **Der Tisch:** die Vorlage selbst, so gross wie sie, im Bezugsrahmen über
+  ihr. Unter dem Tablett und den Gegenständen füllt das Skript Marmor auf:
   die Farbe des Marmors ringsum, über eine Pyramide in die Löcher gemittelt,
-  darauf die Adern eines Stücks ohne Gegenstände. Zum Rand der Vorlage läuft
-  das Bild über 8 ihrer Pixel aus.
+  darauf die Adern eines Stücks ohne Gegenstände. Über die Vorlage hinaus
+  setzt der Skin das Bild fort, an jeder Kante gespiegelt, so weit die
+  Leinwand reicht (`lege` in [`zeichnen.ts`](../web/skins/tablett/zeichnen.ts)):
+  So endet der Tisch in keiner Kamera und keinem Fenster.
+- **Am Rand der Vorlage** laufen Gegenstände, die er schneidet, über 8 ihrer
+  Pixel aus.
 
 | Bild | Fläche | Grösse |
 |---|---|---|
@@ -225,12 +239,13 @@ issuecomment-5974570397). Die Bilder liegen als WebP in
 | `eck-hinten`, `eck-rechts`, `eck-vorn`, `eck-links` | Eckstück je Ecke auf dem Wasserspiegel, x entlang der Breite, z entlang der Höhe | 72 × 72 |
 | `lilie-hinten`, `lilie-rechts`, `lilie-vorn`, `lilie-links` | Lilie je Ecke | 57 bis 63 × 52 bis 58 |
 | `buecher`, `kerze`, `kaestchen`, `kompass`, `sphaere` | Gegenstände, siehe „Gegenstände“ | 55 bis 501 × 140 bis 422 |
-| `tisch` | die Platte mit Holzrand, Pergament und Licht | 1566 × 1093 |
+| `tisch` | die Platte mit Holzrand, Pergament und Licht | 1491 × 1055 |
 
 Die Lage jedes Bilds nennt `bilder.ts`: die Seiten in `SEITEN`, die Pfeiler
 in `PFEILER`, die Eckstücke in `ECKSTUECKE`, je Lilie ihren Fuss in
-`LILIEN`, je Gegenstand Fuss und Ort in `GEGENSTAENDE`, den Tisch als
-Rechteck in s und t in `TISCH`.
+`LILIEN`, je Gegenstand seinen Fuss im Bild und in der Vorlage in
+`GEGENSTAENDE`, den Tisch über die Grösse der Vorlage in `VORLAGE` und die
+Kamera des Bezugsrahmens in `BEZUG`.
 
 ## Gegenstände
 
@@ -238,14 +253,22 @@ Rechteck in s und t in `TISCH`.
   Gänseblümchen hinten links, die Kerze im Leuchter auf dem Holzrand hinten
   rechts, das Kästchen rechts, der Kompass auf dem grossen Buch mit rotem
   Tuch vorn rechts und die Armillarsphäre mit Gänseblümchen vorn links.
-- **Aufrecht** auf ihrem Fuss auf der Platte, an ihrem Ort in Kanten um die
-  Mitte der Welt, so viel grösser als in der Vorlage wie die Karte. Ein Bild
-  für alle Kameras, nie gespiegelt.
+- **Aufrecht** auf ihrem Fuss auf der Platte, dort, wo er im Bezugsrahmen
+  über seinem Punkt der Vorlage liegt, so viel grösser als in der Vorlage
+  wie die Karte. Ein Bild für alle Kameras, nie gespiegelt.
 - **Vor den Kacheln** die, deren Fuss ganz bei x ≥ x1 oder z ≥ z1 liegt,
   genordet auch bei x ≤ x0; die übrigen darunter, vor dem Rahmen gemalt.
-- **Ohne Schrift:** Die Rücken der Bücher tragen nur Ornamente. Text käme
-  nur aus der Konfiguration des Builds (`SKIN_TEXT_<NAME>`, siehe
-  [Frontend](frontend.md)); der Skin setzt noch keinen.
+- **Text auf den Buchrücken:** auf dem grossen roten Buch `SKIN_TEXT_BUCH1`,
+  auf dem roten Buch über dem grünen `SKIN_TEXT_BUCH2`, aus der
+  Konfiguration des Builds (siehe [Frontend](frontend.md), „Skins“). Fehlt
+  eine, bleibt ihr Rücken leer; im Repository steht kein Text.
+  - Je Rücken ein Feld in `schrift` am Gegenstand in `bilder.ts`, gemessen in
+    der Vorlage: entlang des Rückens, mit Steigung −0,6 wie die Seite vorn
+    rechts, und aufrecht.
+  - Gold aus dem Schmuck der Rücken (`#db9e63`), fett in Georgia,
+    eingeprägt: oben links Schatten im Leder, unten rechts ein Glanz.
+  - So hoch wie 62 % des Felds, schmaler, wenn der Text sonst mehr als 90 %
+    seiner Länge braucht.
 
 ## Licht
 
@@ -298,16 +321,18 @@ verdecken kann:
   hinausragt, deckt sie richtig.
 - **Gemalt** wird in einer festen Reihenfolge, ein späteres Teil deckt ein
   früheres:
-  1. der Tisch, vor den Kacheln seine Kopie auf Grund;
+  1. der Tisch, gespiegelt fortgesetzt, vor den Kacheln seine Kopie auf
+     Grund;
   2. der Boden des Tabletts;
-  3. die fernen Gegenstände, von hinten nach vorn;
+  3. die fernen Gegenstände, von hinten nach vorn, jeder gleich mit seinem
+     Text;
   4. der Rahmen: ferne Ecke, ferne Seiten, seitliche Ecken, nahe Seiten,
      nahe Ecke; je Seite erst die Innenseite, dann das Band der Oberkante,
      dann die Wand;
   5. der Saum;
   6. die Eckstücke;
   7. die Lilien, von hinten nach vorn;
-  8. die nahen Gegenstände, von hinten nach vorn.
+  8. die nahen Gegenstände, von hinten nach vorn, ebenso.
 - **Ohne Nähte:** Jedes Bild reicht 0,75 px über seine Fläche. Was nah ist,
   liegt auch im fernen Bild, ausser der Kopie des Tischs.
 
@@ -318,18 +343,21 @@ verdecken kann:
   Kanten sind steiler als die fernen, und die rechte Ecke liegt 39 px tiefer
   als die linke. Die Ecken der Karte weichen deshalb im Fenster der Vorlage
   bis 2,5 % der Breite der Karte von denen der Vorlage ab: links 2,5 %,
-  vorn 2,3 %, hinten 2,0 %, rechts 0,4 %. Die Bilder folgen der Geometrie
-  der Karte, nicht der Vorlage.
+  vorn 2,3 %, hinten 2,0 %, rechts 0,4 %. Die Bilder des Rahmens folgen der
+  Geometrie der Karte, nicht der Vorlage; Tisch und Gegenstände liegen im
+  Bezugsrahmen wie in der Vorlage, Versatz 0 px nach Phasenkorrelation.
 - **Die ferne Ecke:** Eckstück und Lilie liegen vor den Kacheln und decken
   dort auch Gelände, das vor ihnen höher ragt.
 - **Tiefer Zoom:** Die Bilder haben die Auflösung der Vorlage. Ab etwa der
   Gesamtansicht + 2 werden sie weich
   ([0070](entscheidungen/0070-bilder-aus-der-vorlage.md)).
 - **Andere Kameras** nehmen dieselben Bilder. Rahmen und Tisch folgen ihrer
-  Geometrie; Lilien stehen aufrecht im Licht von 8:5. Von oben stehen sie
-  wie von der Seite gesehen.
-- **Über die Vorlage hinaus** zeigt der Tisch nichts: In Fenstern, die
-  breiter oder höher sind als die Vorlage, wird es dort dunkel.
+  Geometrie; Lilien und Gegenstände stehen aufrecht im Licht von 8:5. Von
+  oben stehen sie wie von der Seite gesehen.
+- **Über die Vorlage hinaus** ist der Tisch ihr Spiegelbild. Wo eine Kamera
+  oder ein Fenster mehr zeigt als sie, treffen sich gespiegelte Holzränder
+  zu Ecken, und Gegenstände, die der Rand der Vorlage schneidet, laufen
+  dort aus.
 - **Unter dem Tablett** liegt aufgefüllter Marmor. Nur wo die Kamera um die
   Pfeiler oder Wände herum auf die Platte sieht, anders als in der Vorlage,
   zeigt er sich.
@@ -347,12 +375,16 @@ verdecken kann:
   haben, dass die Gesamtansicht 71 bis
   100 % füllt, wo es geht 92,5 %, und gebrochen nur dort liegt, wo Leaflet
   die Kacheln verkleinert, und dass ihre Mitte wie in der Vorlage unter der
-  Mitte der Karte liegt, ohne dass der Rahmen aus dem Fenster ragt.
+  Mitte der Karte liegt, ohne dass der Rahmen aus dem Fenster ragt; dass im
+  Bezugsrahmen jeder Gegenstand höchstens 3 px neben seinem Fuss in der
+  Vorlage steht und der Tisch auf 1 px über ihr liegt, gespiegelt
+  fortgesetzt; dass Text aus `SKIN_TEXT_BUCH1` und `SKIN_TEXT_BUCH2` gleich
+  nach dem Bild der Bücher in ihm steht und ohne die Texte keiner.
 - [`tests/bilder.spec.ts`](../web/skins/tablett/tests/bilder.spec.ts)
   prüft in Node die Bilder im Repository, ohne das Skript: dass jedes Bild
   genommen wird und jedes genommene da ist, dass Streifen und Eckstücke das
-  Seitenverhältnis ihrer Flächen haben und Lilien und Gegenstände ihre
-  Grösse.
+  Seitenverhältnis ihrer Flächen haben, Lilien und Gegenstände ihre Grösse
+  und der Tisch die der Vorlage.
 - [`tests/karte.spec.ts`](../web/skins/tablett/tests/karte.spec.ts) prüft
   im Browser die beiden Ebenen, sichtbar und voll deckend auf der Stufe
   über der Gesamtansicht und auf der feinsten, auch an der nahen Ecke; die
@@ -363,8 +395,11 @@ verdecken kann:
   und, wenn sie beim Ziehen kommen, erst danach gemalt werden; die
   Gesamtansicht zwischen zwei Stufen mit 92,5 %, Leinwand Pixel auf Pixel
   und geglätteten Kacheln; dass sich die Karte hineingezoomt bis über jede
-  Ecke von `area` ziehen lässt und dass ein `area`, das kein Quadrat ist,
-  kein Tablett zeichnet.
+  Ecke von `area` ziehen lässt; dass in sieben Kameras, in der Gesamtansicht
+  und hineingezoomt an zwei Ecken von `maxBounds`, keine Stelle von
+  3 × 3 Pixeln neben der Karte Grund zeigt oder durchsichtig ist; dass auf
+  den Buchrücken der Text aus dem Build steht, den `playwright.config.ts`
+  setzt; und dass ein `area`, das kein Quadrat ist, kein Tablett zeichnet.
 - [`tests/auslagern.spec.ts`](../web/skins/tablett/tests/auslagern.spec.ts)
   baut die Karte mit einer Kopie des Skins aus einem Ordner ausserhalb des
   Repositorys.

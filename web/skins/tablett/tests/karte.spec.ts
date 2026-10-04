@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type { Rechteck } from 'heroic-map-renderer/skin-api';
 import { deflateSync } from 'node:zlib';
 import { kamera, projiziere } from '../../../tests/kamera';
-import { gesamtstufe, grenzen } from '../tablett';
+import { gesamtstufe, grenzen, GRUND } from '../tablett';
 
 /** Der Demobaum der Grundkarte: 2:1, scale 16, feinste Stufe 2. */
 const DEMO = '/?tiles=/tiles-demo';
@@ -322,6 +322,93 @@ test('hineingezoomt lässt sich die Karte bis über jede Ecke von area ziehen', 
     const am = await block(x, y);
     expect(pruefe(am), JSON.stringify(am)).toBe(true);
   }
+});
+
+/** Die sieben Kameras der Vergleichsbilder, wie map.json sie nennt. */
+const SIEBEN = [
+  ['8:5', 'se'],
+  ['2:1', 'se'],
+  ['2:1', 'nw'],
+  ['1:1', 'ne'],
+  ['top', 'sw'],
+  ['north-45', 's'],
+  ['top-north', 'e'],
+] as const;
+
+/**
+ * Wie viele Stellen von 3 × 3 Pixeln der fernen Leinwand im Fenster nur
+ * Grund zeigen oder durchsichtig sind: Dort endete der Tisch. Einzelne
+ * Pixel in der Farbe des Grunds kann auch das Bild haben.
+ */
+const loecher = (page: Page) =>
+  page.locator('.leaflet-tablett-fern-pane canvas').evaluate((leinwand: HTMLCanvasElement, grund: number[]) => {
+    const r = leinwand.getBoundingClientRect();
+    const [sx, sy] = [leinwand.width / r.width, leinwand.height / r.height];
+    const [x0, y0] = [Math.max(0, Math.ceil(-r.left * sx)), Math.max(0, Math.ceil(-r.top * sy))];
+    const [x1, y1] = [Math.min(leinwand.width, Math.floor((innerWidth - r.left) * sx)), Math.min(leinwand.height, Math.floor((innerHeight - r.top) * sy))];
+    const [w, h] = [x1 - x0, y1 - y0];
+    const { data } = leinwand.getContext('2d')!.getImageData(x0, y0, w, h);
+    const leer = (x: number, y: number) => {
+      const i = 4 * (y * w + x);
+      return data[i + 3]! < 255 || (data[i] === grund[0] && data[i + 1] === grund[1] && data[i + 2] === grund[2]);
+    };
+    let n = 0;
+    for (let y = 1; y < h - 1; y += 3) {
+      for (let x = 1; x < w - 1; x += 3) {
+        let alle = true;
+        for (let dy = -1; dy <= 1 && alle; dy++) for (let dx = -1; dx <= 1 && alle; dx++) alle = leer(x + dx, y + dy);
+        if (alle) n++;
+      }
+    }
+    return n;
+  }, [1, 3, 5].map((i) => Number.parseInt(GRUND.slice(i, i + 2), 16)));
+
+test('in jeder Kamera endet der Tisch nirgends, in der Gesamtansicht und hineingezoomt an den Rändern von maxBounds', async ({ page }) => {
+  // Sieben Kameras nacheinander, je mit zwei Wegen an den Rand.
+  test.setTimeout(120_000);
+  for (const [camera, direction] of SIEBEN) {
+    await page.unrouteAll();
+    await welt(page, { ...QUADRAT, projection: kamera(camera, 16), direction });
+    await page.goto(DEMO);
+    await expect.poll(() => gezeichnet(page)).toBe(true);
+    expect(await loecher(page), `${camera} ${direction}, Gesamtansicht`).toBe(0);
+    await zoome(page, 'in');
+    // Bis an die Grenzen, oben links und unten rechts; dort zeichnet der Skin neu.
+    const karte = (await page.locator('#map').boundingBox())!;
+    const [mx, my] = [karte.x + karte.width / 2, karte.y + karte.height / 2];
+    for (const richtung of [1, -1]) {
+      const vorher = await zeichnungen(page);
+      for (let i = 0; i < 6; i++) {
+        await page.mouse.move(mx, my);
+        await page.mouse.down();
+        await page.mouse.move(mx + 400 * richtung, my + 300 * richtung, { steps: 8 });
+        await page.evaluate(() => new Promise((fertig) => void requestAnimationFrame(fertig)));
+        await page.mouse.up();
+      }
+      await steht(page);
+      await expect.poll(() => zeichnungen(page)).toBeGreaterThan(vorher);
+      expect(await loecher(page), `${camera} ${direction}, am Rand ${richtung}`).toBe(0);
+    }
+  }
+});
+
+test('auf den Rücken zweier Bücher steht der Text aus SKIN_TEXT_BUCH1 und SKIN_TEXT_BUCH2', async ({ page }) => {
+  await page.addInitScript(() => {
+    const texte: string[] = [];
+    Object.assign(window, { texte });
+    const proto = CanvasRenderingContext2D.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
+    const original = proto.fillText!;
+    proto.fillText = function (this: CanvasRenderingContext2D, ...argumente: unknown[]) {
+      if (this.canvas.classList.contains('tablett')) texte.push(String(argumente[0]));
+      return original.apply(this, argumente);
+    };
+  });
+  await welt(page, QUADRAT);
+  await page.goto(DEMO);
+  await expect.poll(() => gezeichnet(page)).toBe(true);
+  // Die Werte setzt playwright.config.ts beim Build mit dem Skin.
+  const texte = await page.evaluate(() => (window as unknown as { texte: string[] }).texte);
+  expect([...new Set(texte)].sort()).toEqual(['Probe Eins', 'Probe Zwei']);
 });
 
 test('ein area, das kein Quadrat ist, zeichnet kein Tablett und sagt es in der Konsole', async ({ page }) => {

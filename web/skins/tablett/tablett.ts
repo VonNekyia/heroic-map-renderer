@@ -8,6 +8,7 @@
  */
 import type { Grenzen, Kontext, Rechteck } from 'heroic-map-renderer/skin-api';
 import {
+  BEZUG,
   BREITE_VORLAGE,
   DIFFUS,
   type Ecke,
@@ -23,9 +24,9 @@ import {
   RAND,
   type Richtung,
   SEITEN,
-  TISCH,
   UMGEBUNG,
   type Vektor,
+  VORLAGE,
 } from './bilder';
 
 type Punkt = [number, number];
@@ -55,6 +56,8 @@ export interface Flaeche {
    * die das ferne Bild nicht braucht.
    */
   nurIn?: Punkt[][];
+  /** Das Bild setzt sich über die ganze Ebene fort, an jeder Kante gespiegelt. */
+  gespiegelt?: true;
 }
 
 /** Ein freigestelltes Bild, aufrecht: sein Punkt `anker` liegt auf `fuss`. */
@@ -84,7 +87,20 @@ export interface Saum {
   nah: true;
 }
 
-export type Teil = Flaeche | Figur | Saum;
+/**
+ * Text auf einem Feld im Bild, in Gold eingeprägt: entlang `a`, aufrecht
+ * entlang `b`, von der Ecke `o` unten links, in Pixeln der feinsten Stufe.
+ */
+export interface Schrift {
+  form: 'schrift';
+  text: string;
+  o: Punkt;
+  a: Punkt;
+  b: Punkt;
+  nah: boolean;
+}
+
+export type Teil = Flaeche | Figur | Saum | Schrift;
 
 /** Das Rechteck der Welt im Blick mit k Vierteldrehungen; Punkte drehen sich mit (z, −x). */
 export function imBlick([x0, z0, x1, z1]: Rechteck, k: number): Rechteck {
@@ -222,6 +238,21 @@ export function gesamtstufe([links, oben, rechts, unten]: Grenzen, maxZoom: numb
 const BLICKPUNKT: Punkt = [-0.0033, 0.058];
 
 /**
+ * Ein Pixel der Vorlage auf der Platte, in s = x − z und t = x + z in
+ * Kanten um die Mitte der Welt im Blick: dort, wo der Skin ihn im
+ * Bezugsrahmen zeigt, 8:5 in der Gesamtansicht im Fenster der Vorlage. Dort
+ * liegt die Mitte der Karte um BLICKPUNKT über der Mitte des Fensters, die
+ * Karte ist BREITE_VORLAGE breit, also 2 Kanten, und die Platte liegt die
+ * Tiefe des Tabletts unter dem Wasserspiegel. Siehe docs/tablett.md, „Bilder
+ * aus der Vorlage“.
+ */
+export function aufDiePlatte([px, py]: Punkt): Punkt {
+  const { u, v, y } = BEZUG;
+  const [mx, my] = [VORLAGE[0] / 2 - BLICKPUNKT[0] * BREITE_VORLAGE, VORLAGE[1] / 2 - BLICKPUNKT[1] * BREITE_VORLAGE];
+  return [(2 * (px - mx)) / BREITE_VORLAGE, ((2 * u * (py - my)) / BREITE_VORLAGE - MASS.tiefe * RAND * y) / v];
+}
+
+/**
  * Die Mitte der Gesamtansicht in Pixeln der feinsten Stufe für ein Fenster,
  * das `breite` × `hoehe` Pixel der feinsten Stufe zeigt: wie in der Vorlage
  * unter der Mitte der Karte, aber nie so, dass der Rahmen aus dem Fenster
@@ -245,9 +276,15 @@ export function gesamtmitte(area: Rechteck, meer: number, blick: Blick, breite: 
  * Vierteldrehungen, in der Reihenfolge, in der sie gemalt werden: Ein
  * späteres Teil deckt ein früheres. `meer` ist `seaLevel`, `minY` die
  * Unterkante der Welt: So weit reicht ihr Schnitt, den der Tisch vor ihr
- * deckt.
+ * deckt. `texte` sind die aus der Konfiguration des Builds.
  */
-export function tablett(area: Rechteck, meer: number, minY: number, { projektion: p, k, projiziere }: Blick): Teil[] {
+export function tablett(
+  area: Rechteck,
+  meer: number,
+  minY: number,
+  { projektion: p, k, projiziere }: Blick,
+  texte: Readonly<Record<string, string>> = {},
+): Teil[] {
   const { x0, z0, x1, z1, kante, w, D, pfeiler } = masse(area, k);
   const genordet = p.azimuth === 'north';
   const mass = vorlageMass([x0, z0, x1, z1], meer, projiziere);
@@ -298,17 +335,18 @@ export function tablett(area: Rechteck, meer: number, minY: number, { projektion
   // genordet nur +z.
   const vorne = (nx: number, nz: number) => (genordet ? nz : nx + nz);
 
-  // Der Tisch: ein Bild auf der Platte, so gross, wie die Vorlage den Tisch
-  // zeigt; dahinter Grund. Vor den Kacheln liegt noch einmal sein Stück, das
-  // Gelände nie verdecken kann, auf Grund: So deckt es den Schnitt der Welt,
-  // wie tief er auch reicht. Siehe docs/tablett.md, „Vor und hinter der Welt“.
+  // Der Tisch: die Vorlage auf der Platte, im Bezugsrahmen Pixel auf Pixel
+  // über ihr, darüber hinaus an jeder Kante gespiegelt. Vor den Kacheln liegt
+  // noch einmal sein Stück, das Gelände nie verdecken kann, auf Grund: So
+  // deckt es den Schnitt der Welt, wie tief er auch reicht. Siehe
+  // docs/tablett.md, „Bilder aus der Vorlage“ und „Vor und hinter der Welt“.
   const [cx, cz] = [(x0 + x1) / 2, (z0 + z1) / 2];
-  const [[s0, s1], [t0, t1]] = [TISCH.s, TISCH.t];
-  const ort = (s: number, t: number): Vektor => [cx + ((s + t) / 2) * kante, -D, cz + ((t - s) / 2) * kante];
+  const [[s0, t0], [s1, t1]] = [aufDiePlatte([0, 0]), aufDiePlatte(VORLAGE)];
+  const ort = ([s, t]: Punkt): Vektor => [cx + ((s + t) / 2) * kante, -D, cz + ((t - s) / 2) * kante];
   const entlangS: Vektor = [((s1 - s0) / 2) * kante, 0, (-(s1 - s0) / 2) * kante];
   const entlangT: Vektor = [((t1 - t0) / 2) * kante, 0, ((t1 - t0) / 2) * kante];
-  const tisch = rechteck(ort(s0, t0), entlangS, entlangT, [0, 1, 0], 'tisch', FARBE.marmor, 'tisch').map(
-    (f): Flaeche => ({ ...f, nah: false }),
+  const tisch = rechteck(ort([s0, t0]), entlangS, entlangT, [0, 1, 0], 'tisch', FARBE.marmor, 'tisch').map(
+    (f): Flaeche => ({ ...f, nah: false, gespiegelt: true }),
   );
   // Vor den Kacheln: diagonal ab x1 und ab z1, genordet dazu bis x0. So weit
   // hinaus, dass auch der tiefste Schnitt einer kleinen Welt darunter liegt:
@@ -406,26 +444,34 @@ export function tablett(area: Rechteck, meer: number, minY: number, { projektion
     return [{ form: 'saum', o: bild(o), a: kante3(a), b: kante3(mal(0.5 * w * staerke, hinein)), deckkraft: 0.4 * staerke, nah: true }];
   });
 
-  // Die Gegenstände stehen aufrecht auf ihrem Fuss auf der Platte, nach
-  // Tiefe: die fernen vor dem Rahmen, die nahen zuletzt.
+  // Die Gegenstände stehen aufrecht auf ihrem Fuss auf der Platte, dort, wo
+  // er im Bezugsrahmen über seinem Punkt der Vorlage liegt, nach Tiefe: die
+  // fernen vor dem Rahmen, die nahen zuletzt. Text steht auf ihnen, wo es
+  // ihn gibt, gleich nach ihrem Bild.
   const tiefe = (x: number, z: number) => (genordet ? z : x + z);
-  const dinge = GEGENSTAENDE.map(({ bild: name, fuss, groesse, ort: [ox, oz] }) => {
-    const [x, z] = [cx + ox * kante, cz + oz * kante];
-    const figur: Figur = { form: 'figur', bild: name, fuss: bild([x, -D, z]), anker: fuss, groesse, mass, nah: istNah(x, x, z) };
-    return { figur, tiefe: tiefe(x, z) };
-  })
-    .sort((a, b) => a.tiefe - b.tiefe)
-    .map(({ figur }) => figur);
+  const dinge = GEGENSTAENDE.map(({ bild: name, fuss, groesse, vorlage, schrift = {} }) => {
+    const [x, , z] = ort(aufDiePlatte(vorlage));
+    const nah = istNah(x, x, z);
+    const unten = bild([x, -D, z]);
+    const figur: Figur = { form: 'figur', bild: name, fuss: unten, anker: fuss, groesse, mass, nah };
+    // Ein Punkt der Vorlage, vom Fuss aus, im Bild.
+    const dort = ([dx, dy]: Punkt): Punkt => [unten[0] + mass * dx, unten[1] + mass * dy];
+    const schriften = Object.entries(schrift).flatMap(([feld, { o, a, b }]): Schrift[] => {
+      const text = texte[feld];
+      return text ? [{ form: 'schrift', text, o: dort(o), a: [mass * a[0], mass * a[1]], b: [mass * b[0], mass * b[1]], nah }] : [];
+    });
+    return { teile: [figur, ...schriften], tiefe: tiefe(x, z), nah };
+  }).sort((a, b) => a.tiefe - b.tiefe);
 
   return [
     ...tisch,
     ...tischNah,
     ...boden,
-    ...dinge.filter((d) => !d.nah),
+    ...dinge.filter((d) => !d.nah).flatMap((d) => d.teile),
     ...rahmen,
     ...saeume,
     ...eckstuecke,
     ...lilien,
-    ...dinge.filter((d) => d.nah),
+    ...dinge.filter((d) => d.nah).flatMap((d) => d.teile),
   ];
 }

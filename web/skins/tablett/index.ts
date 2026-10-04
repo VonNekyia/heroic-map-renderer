@@ -100,7 +100,7 @@ const skin: Skin = (kontext) => {
   karte.on('moveend', () => (bewegt = false));
 
   /** Die Teile; sie hängen an keiner Stufe, das Tablett wird beim Zoomen nur grösser. */
-  const teile: Teil[] = tablett(area, seaLevel, minY, kontext);
+  const teile: Teil[] = tablett(area, seaLevel, minY, kontext, kontext.texte);
   /** Was die Leinwände zeigen: die Stufe und ihr Ausschnitt in Pixeln dieser Stufe. */
   let gezeichnet: { zoom: number; links: number; oben: number; rechts: number; unten: number } | undefined;
 

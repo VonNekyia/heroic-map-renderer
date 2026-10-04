@@ -39,6 +39,7 @@ Texte.
 | `--prune` | mit `--tiles`: Kacheln entfernen, die kein Chunk mehr berührt, und Höhen von Regionen ohne Regionsdatei | [Kacheln exportieren](kacheln.md) |
 | `--native-levels N` | mit `--tiles`: so viele gröbere Stufen aus der Welt rendern, Vorgabe 0 | [Zoomstufen](zoomstufen.md) |
 | `--resume` | mit `--tiles`: einen abgebrochenen Lauf fortsetzen | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
+| `--update` | mit `--tiles`, ohne `--size`: nur zeichnen, wo sich die Welt seit dem letzten vollen Lauf oder Update geändert hat | [Updates](updates.md) |
 | `--gpu auto\|on\|off` | mit `--tiles`: die Grafikkarte zeichnet, Vorgabe `auto`; mit `--cinematic` immer die CPU | [Grafikkarte](grafikkarte.md) |
 | `--defender-exclusion` | mit `--tiles`, nur unter Windows: eine Ausnahme im Echtzeitschutz setzen | [Echtzeitschutz](echtzeitschutz.md) |
 | `--pyramid DIR` | Zoomstufen und `map.json` aus den Basiskacheln nachbauen, ohne Welt und Assets | [Pyramide und Fortsetzen](pyramide-und-resume.md) |

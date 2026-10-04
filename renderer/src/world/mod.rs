@@ -3,8 +3,8 @@ pub mod chunk;
 pub mod palette;
 pub mod region;
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -13,9 +13,12 @@ use rayon::prelude::*;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-pub use chunk::{Blockdaten, Chunk, Muster, Section};
+pub use chunk::{Abdruck, Blockdaten, Chunk, Muster, Section};
 pub use palette::BlockState;
-pub use region::{REGION, Region, im_bereich};
+pub use region::{REGION, Region, Stempel, im_bereich};
+
+/// Je Region die Stempel ihrer Chunks, siehe [`Region::stempel`].
+pub type Stempelkarte = BTreeMap<(i32, i32), Vec<Option<Stempel>>>;
 
 /// Wo unter `--world` die Regionen liegen: direkt darunter in einer
 /// Dimension, `world/dimensions/<namensraum>/<name>/region`, und für die
@@ -228,6 +231,21 @@ impl World {
             .collect();
         regions.sort_unstable();
         Ok(regions)
+    }
+
+    /// Die Stempel aller Regionen, siehe [`Region::stempel`]. Eine Region,
+    /// die zwischen Liste und Lesen verschwindet, fehlt.
+    pub fn stempel(&self) -> Result<Stempelkarte> {
+        self.regions()?
+            .into_par_iter()
+            .map(|(rx, rz)| -> Result<_> {
+                let Some(mut region) = self.region(rx, rz)? else {
+                    return Ok(None);
+                };
+                Ok(Some(((rx, rz), region.stempel()?)))
+            })
+            .filter_map(Result::transpose)
+            .collect()
     }
 
     pub fn region(&self, rx: i32, rz: i32) -> Result<Option<Region>> {

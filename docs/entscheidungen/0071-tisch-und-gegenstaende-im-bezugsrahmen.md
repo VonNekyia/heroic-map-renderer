@@ -20,6 +20,10 @@ In Teilen abgelöst durch [0075](0075-marmor-als-pixelkunst.md): Der Marmor
 jenseits der Vorlage ist nicht mehr das Quadrat aus Flicken, sondern
 Pixelkunst daraus.
 
+Mit der Lieferung der Szene in Teilen abgelöst durch
+[0074](0074-tablett-aus-blender.md): Tisch und Gegenstände kommen dann als
+gerenderte Bilder aus Blender ins Bild. Bis dahin gilt sie.
+
 ## Anlass
 
 Im Review zu #120 (issuecomment-5976163815) lagen Gegenstände und Tisch in

@@ -1,0 +1,54 @@
+{
+ "2:1 se": {
+  "fern": "2x1-se-fern.webp",
+  "nah": "2x1-se-nah.webp",
+  "groesse": [
+   1382,
+   2254
+  ],
+  "mitte": [
+   693,
+   1090
+  ],
+  "u": 322.075
+ },
+ "2:1 sw": {
+  "fern": "2x1-sw-fern.webp",
+  "nah": "2x1-sw-nah.webp",
+  "groesse": [
+   1382,
+   2254
+  ],
+  "mitte": [
+   693,
+   1090
+  ],
+  "u": 322.075
+ },
+ "2:1 nw": {
+  "fern": "2x1-nw-fern.webp",
+  "nah": "2x1-nw-nah.webp",
+  "groesse": [
+   1382,
+   2254
+  ],
+  "mitte": [
+   693,
+   1090
+  ],
+  "u": 322.075
+ },
+ "2:1 ne": {
+  "fern": "2x1-ne-fern.webp",
+  "nah": "2x1-ne-nah.webp",
+  "groesse": [
+   1382,
+   2254
+  ],
+  "mitte": [
+   693,
+   1090
+  ],
+  "u": 322.075
+ }
+}

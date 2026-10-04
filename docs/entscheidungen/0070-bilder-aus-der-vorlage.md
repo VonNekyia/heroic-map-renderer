@@ -32,6 +32,10 @@ fort.
 In Teilen abgelöst durch [0075](0075-marmor-als-pixelkunst.md): Der Marmor
 liegt nicht mehr geglättet.
 
+Mit der Lieferung der Szene abgelöst durch
+[0074](0074-tablett-aus-blender.md): Dann kommen Rahmen, Tisch, Lilien und
+Gegenstände als gerenderte Bilder aus Blender. Bis dahin gilt sie.
+
 ## Anlass
 
 Der Maintainer will das Tablett genau so, wie die Vorlage es zeigt, und gibt

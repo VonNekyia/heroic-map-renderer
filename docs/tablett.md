@@ -34,6 +34,8 @@ Gegenstände im Bezugsrahmen
 Bilder nach den Kacheln
 [0073](entscheidungen/0073-bilder-nach-den-kacheln.md) und der Marmor als
 Pixelkunst [0075](entscheidungen/0075-marmor-als-pixelkunst.md).
+Sobald die Szene geliefert ist, kommen Rahmen, Tisch und Gegenstände als
+gerenderte Bilder aus Blender: [Tablett aus Blender](tablett-gerendert.md).
 
 ## Einschalten
 
@@ -85,11 +87,13 @@ Pixelkunst [0075](entscheidungen/0075-marmor-als-pixelkunst.md).
   Die Teile hängen weder an der Stufe noch an der Grösse des Fensters; beim
   Zoomen wird das Tablett nur grösser.
 - **Je Ansicht gezeichnet,** auf jeder Stufe bis zur feinsten, in Pixeln
-  des Bildschirms: beim Laden, bei jeder neuen Grösse des Fensters, nach
-  jedem Zoom und nach einem Zug über den Überstand hinaus. Die Bilder sind
-  so gross wie das Fenster und reichen je Seite ein Viertel darüber, auf
-  jeder Stufe gleich. Die linke obere Ecke liegt auf ganzen Pixeln, so
-  trifft jedes Pixel der Leinwand eines des Bildschirms.
+  des Geräts: beim Laden, bei jeder neuen Grösse des Fensters, nach jedem
+  Zoom und nach einem Zug über den Überstand hinaus. Die Bilder sind so
+  gross wie das Fenster und reichen je Seite ein Viertel darüber, auf jeder
+  Stufe gleich. Die Leinwände haben `devicePixelRatio` mal so viele Pixel,
+  sonst zöge der Browser sie geglättet auf. Die linke obere Ecke liegt auf
+  ganzen Pixeln des Fensters, so trifft bei `devicePixelRatio` 1 und 2
+  jedes Pixel der Leinwand eines des Bildschirms.
 - **Während einer Bewegung** zeichnet der Skin nichts. Die Bilder gleiten
   und wachsen mit der Karte; beim Hinauszoomen fehlt am Rand das Tablett,
   bis neu gezeichnet ist.

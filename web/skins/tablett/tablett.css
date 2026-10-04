@@ -88,3 +88,10 @@
   outline: 2px solid var(--ui-markiert);
   outline-offset: -2px;
 }
+
+/* Gerenderte Bilder sind Pixel: Weicht die Leinwand vom Raster des Geräts
+   ab, rundet der Browser sie, statt zu glätten. Siehe
+   docs/tablett-gerendert.md, „Im Skin“. */
+.tablett-pixel {
+  image-rendering: pixelated;
+}

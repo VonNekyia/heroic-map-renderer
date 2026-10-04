@@ -558,18 +558,20 @@ mod tests {
     }
 
     /// Der Ton mit Wärme: Weiss in linearem Licht 1, mal Weissabgleich der
-    /// Oberwelt und Belichtung 0,25, ohne Wärme, mit 1,5, mit der vollen
-    /// Wärme aus 0069 wie in einer Savanne (1,25) und mit der vollen Kälte
-    /// wie im Schnee (0,85); das Soll in Python gerechnet. Die Wärme hebt Rot
-    /// und senkt Blau, die Kälte hebt Blau.
+    /// Oberwelt und Belichtung 0,25, ohne Wärme, mit 1,5, und mit der Wärme
+    /// aus 0076: neutral wie in der Taiga (1,05), voll wie in einer Savanne
+    /// (1,3) und mit der vollen Kälte wie im Schnee (0,9); das Soll in
+    /// Python gerechnet. Die Wärme hebt Rot und senkt Blau, die Kälte hebt
+    /// Blau.
     #[test]
     fn ton_mit_waerme() {
         let kino = kino(&DimensionType::oberwelt());
         assert_eq!(kino.ton([1.0; 3], 1.0, [0.0; 3]), [145, 137, 117]);
         assert_eq!(kino.ton([1.0; 3], 1.5, [0.0; 3]), [149, 137, 106]);
-        let (savanne, schnee) = (LOOK.waerme(1.0), LOOK.waerme(0.0));
-        assert_eq!(kino.ton([1.0; 3], savanne, [0.0; 3]), [147, 137, 112]);
-        assert_eq!(kino.ton([1.0; 3], schnee, [0.0; 3]), [144, 137, 121]);
+        let (taiga, savanne, schnee) = (LOOK.waerme(0.25), LOOK.waerme(1.0), LOOK.waerme(0.0));
+        assert_eq!(kino.ton([1.0; 3], taiga, [0.0; 3]), [146, 137, 116]);
+        assert_eq!(kino.ton([1.0; 3], savanne, [0.0; 3]), [148, 137, 111]);
+        assert_eq!(kino.ton([1.0; 3], schnee, [0.0; 3]), [145, 137, 120]);
     }
 
     /// Die Quelle des Bloom ist je Pixel mit dessen Wärme abgeglichen: Ein
@@ -677,9 +679,9 @@ mod tests {
     }
 
     /// Eine Fläche, der Sonne der Oberwelt zugewandt, im vollen
-    /// Himmelslicht dazu: Weiss läuft nicht über, auch nicht mit der vollen
-    /// Wärme oder Kälte aus 0069. Erst mit 1,5 wie in 0058 erreicht Rot bei
-    /// Weiss 255; ein Texel mit sRGB 240 bleibt darunter.
+    /// Himmelslicht dazu: Weiss läuft nicht über, auch nicht mit der Wärme
+    /// oder Kälte aus 0076. Erst mit 1,5 wie in 0058 erreicht Rot bei Weiss
+    /// 255; ein Texel mit sRGB 240 bleibt darunter.
     /// Siehe docs/renderer/cinematic.md, „Wärme“.
     #[test]
     fn weisse_flaeche_in_voller_sonne() {
@@ -697,14 +699,14 @@ mod tests {
             let a = super::super::pyramid::linear_wert(srgb / 255.0);
             kino.ton(licht.map(|c| c * a), w, [0.0; 3])
         };
-        for w in [1.0, LOOK.waerme(2.0), LOOK.waerme(-1.0)] {
+        for w in [1.0, LOOK.waerme(0.25), LOOK.waerme(2.0), LOOK.waerme(-1.0)] {
             assert!(
                 ton(255.0, w).iter().all(|&c| c < 255),
                 "{w}: {:?}",
                 ton(255.0, w)
             );
         }
-        assert_eq!(ton(255.0, LOOK.waerme(2.0)), [254, 252, 241]);
+        assert_eq!(ton(255.0, LOOK.waerme(2.0)), [254, 252, 239]);
         assert_eq!(ton(255.0, 1.5)[0], 255);
         assert!(
             ton(240.0, 1.5).iter().all(|&c| c < 255),

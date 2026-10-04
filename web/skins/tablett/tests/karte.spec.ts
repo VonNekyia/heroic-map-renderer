@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Rechteck } from 'heroic-map-renderer/skin-api';
+import { readdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { kamera, projiziere } from '../../../tests/kamera';
 import { type Figur, gesamtmitte, gesamtstufe, grenzen, GRUND, tablett } from '../tablett';
@@ -239,6 +240,22 @@ test('die Bilder kommen aus bilder/ und liegen geglättet; kommen sie beim Ziehe
   const { bilder, glatt } = await page.evaluate(() => (window as unknown as Zaehler).zaehler);
   expect(bilder).toBeGreaterThan(0);
   expect(glatt).toBe(bilder);
+});
+
+test('die Bilder des Skins laden erst, wenn die erste Kachel da ist, und das Tablett blendet ein', async ({ page }) => {
+  await welt(page, QUADRAT);
+  await page.goto(DEMO);
+  await expect.poll(() => gezeichnet(page)).toBe(true);
+  const anfragen = await page.evaluate(() =>
+    performance.getEntriesByType('resource').map((e) => ({ pfad: new URL(e.name).pathname, start: e.startTime, ende: (e as PerformanceResourceTiming).responseEnd })),
+  );
+  const kacheln = anfragen.filter((a) => /^\/tiles-demo\/\d+\/\d+\/\d+\.webp$/.test(a.pfad));
+  const bilder = anfragen.filter((a) => /^\/assets\/[^/]+\.webp$/.test(a.pfad));
+  expect(kacheln.length).toBeGreaterThan(0);
+  expect(bilder.length).toBe(readdirSync(new URL('../bilder/', import.meta.url)).length);
+  const ersteKachel = Math.min(...kacheln.map((a) => a.ende));
+  for (const { pfad, start } of bilder) expect(start, pfad).toBeGreaterThanOrEqual(ersteKachel);
+  await expect(page.locator('canvas.tablett').first()).toHaveCSS('animation-name', 'tablett-einblenden');
 });
 
 test('in der Gesamtansicht füllt das Tablett 92,5 % des Fensters wie in der Vorlage, auch zwischen zwei Stufen', async ({ page }) => {

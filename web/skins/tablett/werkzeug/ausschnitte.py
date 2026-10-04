@@ -7,10 +7,11 @@ Einmal von Hand, nicht im Build, aus web/:
 Die Vorlage selbst liegt nicht im Repository, nur was das Skript aus ihr
 schneidet. Es entzerrt die Seiten des Rahmens und die Flächen der Pfeiler
 auf gerade Streifen und die runden Ecken innen auf ihre Ebene, stellt
-Lilien und Gegenstände frei und füllt im Tisch auf, was sie und das Tablett
-decken. Alles landet in bilder/. Was es von der Vorlage weiss, Kanten,
-Ecken und Umrisse, steht hier in Pixeln der Vorlage; zuletzt nennt es, was
-der Skin davon in bilder.ts braucht.
+Lilien und Gegenstände frei, füllt im Tisch auf, was sie und das Tablett
+decken, und setzt aus Flicken der Platte den Marmor zusammen, der jenseits
+der Vorlage liegt. Alles landet in bilder/. Was es von der Vorlage weiss,
+Kanten, Ecken und Umrisse, steht hier in Pixeln der Vorlage; zuletzt nennt
+es, was der Skin davon in bilder.ts braucht.
 Siehe docs/tablett.md, „Bilder aus der Vorlage“.
 """
 import sys
@@ -154,18 +155,40 @@ def ist_hintergrund(rgb):
     return ist_karte(rgb) | ist_marmor(rgb)
 
 
-def freistellen(vorlage, umriss, hintergrund=ist_hintergrund, weich=0.8):
+def verbunden(maske, saat):
+    """Was in `maske` über Nachbarn in vier Richtungen mit `saat` zusammenhängt."""
+    neu = saat & maske
+    while True:
+        alt = neu
+        neu = alt.copy()
+        neu[1:] |= alt[:-1]
+        neu[:-1] |= alt[1:]
+        neu[:, 1:] |= alt[:, :-1]
+        neu[:, :-1] |= alt[:, 1:]
+        neu &= maske
+        if (neu == alt).all():
+            return neu
+
+
+def freistellen(vorlage, umriss, hintergrund=ist_hintergrund, weich=0.8, zusammen=False):
     """RGBA im Rechteck um den Umriss: deckend im Umriss, ohne das, was
-    `hintergrund` erkennt, am Rand über ein, zwei Pixel weich. Gibt Bild und
-    linke obere Ecke."""
+    `hintergrund` erkennt, am Rand über ein, zwei Pixel weich. Mit `zusammen`
+    zählt Hintergrund nur, wo er mit dem ausserhalb des Umrisses zusammenhängt:
+    Dunkle Teile eines Gegenstands, etwa Buchdeckel, bleiben an ihm. Gibt Bild
+    und linke obere Ecke."""
     xs, ys = [p[0] for p in umriss], [p[1] for p in umriss]
     x0, y0 = int(min(xs)) - 3, int(min(ys)) - 3
     x1, y1 = int(max(xs)) + 4, int(max(ys)) + 4
     stueck = vorlage.crop((x0, y0, x1, y1))
     maske = Image.new('L', stueck.size, 0)
     ImageDraw.Draw(maske).polygon([(x - x0, y - y0) for x, y in umriss], fill=255)
-    frei = ~hintergrund(np.asarray(stueck))
-    maske = ImageChops.multiply(maske, Image.fromarray((frei * 255).astype(np.uint8)))
+    grund = hintergrund(np.asarray(stueck))
+    if zusammen:
+        # Ausserhalb der Vorlage schliesst nichts an.
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        drin = (xx >= 0) & (yy >= 0) & (xx < vorlage.width) & (yy < vorlage.height)
+        grund = verbunden(grund & drin, (np.asarray(maske) == 0) & drin)
+    maske = ImageChops.multiply(maske, Image.fromarray((~grund * 255).astype(np.uint8)))
     # Inseln im Hintergrund weg; Lücken im Schmuck bleiben offen.
     maske = maske.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
     maske = maske.filter(ImageFilter.GaussianBlur(weich))
@@ -299,38 +322,56 @@ GEGENSTAENDE = {
 }
 
 
-def auslauf(vorlage):
-    """Je Pixel der Vorlage, wie weit es deckt: 1 im Innern, zum Rand hin
-    über AUSLAUF Pixel bis 0. Dahinter zeigt die Vorlage nichts."""
-    w, h = vorlage.size
-    xs, ys = np.meshgrid(np.arange(w) + 0.5, np.arange(h) + 0.5)
-    rand = np.minimum(np.minimum(xs, w - xs), np.minimum(ys, h - ys))
-    return Image.fromarray((np.clip(rand / AUSLAUF, 0, 1) * 255).astype(np.uint8))
+# Gegenstände, deren Umriss nur sie selbst umfasst: In ihnen ist nichts
+# Hintergrund, auch wo sie so dunkel sind wie Marmor.
+GANZ = {'kaestchen'}
+# Wo der Rand der Vorlage einen Gegenstand schneidet, setzt er sich so viele
+# Pixel über ihn hinaus fort und läuft dort aus.
+AUSLAUF = 8
 
 
-def gegenstaende(vorlage, rand):
-    """Die Gegenstände, freigestellt, zum Rand der Vorlage auslaufend. Gibt
-    die Bilder, je Bild den Fuss im Bild und in der Vorlage, und die Löcher
-    im Tisch: was sie decken, um 2 px geschrumpft, damit ihr weicher Rand
-    auf dem Tisch der Vorlage liegt."""
+def auslaufen(stueck, ecke, groesse):
+    """Der Gegenstand, auf die Vorlage beschnitten; wo ihr Rand ihn schneidet,
+    setzt sich sein letzter Pixel AUSLAUF Pixel nach aussen fort und läuft
+    dort aus. So deckt er im Bezugsrahmen bis an den Rand und endet in anderen
+    Kameras nicht hart. Gibt Bild und Ecke."""
+    (x0, y0), (w, h) = ecke, groesse
+    links, oben = max(0, -x0), max(0, -y0)
+    a = np.asarray(stueck, float)[oben : h - y0, links : w - x0]
+    x0, y0 = x0 + links, y0 + oben
+    hoch, breit = a.shape[:2]
+    rand = ((AUSLAUF * (y0 == 0), AUSLAUF * (y0 + hoch == h)), (AUSLAUF * (x0 == 0), AUSLAUF * (x0 + breit == w)))
+    a = np.pad(a, (*rand, (0, 0)), mode='edge')
+
+    def draussen(n, vor, innen):
+        i = np.arange(n)
+        return np.maximum(vor - i, i - (vor + innen - 1)).clip(0)
+
+    d = np.maximum(draussen(a.shape[0], rand[0][0], hoch)[:, None], draussen(a.shape[1], rand[1][0], breit)[None, :])
+    a[..., 3] *= np.clip(1 - (d - 0.5) / AUSLAUF, 0, 1)
+    return Image.fromarray(a.round().astype(np.uint8), 'RGBA'), (x0 - rand[1][0], y0 - rand[0][0])
+
+
+def gegenstaende(vorlage):
+    """Die Gegenstände, freigestellt, über den Rand der Vorlage auslaufend.
+    Gibt die Bilder, je Bild den Fuss im Bild und in der Vorlage, und die
+    Löcher im Tisch: alles, was sie decken, mit einem Pixel mehr. So bleibt
+    im Tisch kein Stück von ihnen, auch kein Saum."""
     bilder, lage = {}, {}
     loecher = Image.new('L', vorlage.size, 0)
     for name, (umriss, fuss) in GEGENSTAENDE.items():
         # Neben den Gegenständen liegt keine Karte, nur Marmor; so bleibt die
         # weisse Flamme.
-        stueck, (x0, y0) = freistellen(vorlage, umriss, ist_marmor)
-        alpha = ImageChops.multiply(stueck.getchannel('A'), rand.crop((x0, y0, x0 + stueck.width, y0 + stueck.height)))
-        stueck.putalpha(alpha)
-        bilder[name] = stueck
-        deckt = alpha.point(lambda a: 255 if a > 250 else 0).filter(ImageFilter.MinFilter(5))
+        grund = (lambda rgb: np.zeros(rgb.shape[:2], bool)) if name in GANZ else ist_marmor
+        stueck, (x0, y0) = freistellen(vorlage, umriss, grund, zusammen=True)
+        deckt = stueck.getchannel('A').point(lambda a: 255 if a > 0 else 0).filter(ImageFilter.MaxFilter(3))
         loecher.paste(255, (x0, y0), deckt)
+        stueck, (x0, y0) = auslaufen(stueck, (x0, y0), vorlage.size)
+        bilder[name] = stueck
         lage[name] = ((round(fuss[0] - x0, 1), round(fuss[1] - y0, 1)), fuss)
     return bilder, lage, loecher
 
 
-# Gegenstände, die der Rand der Vorlage schneidet, laufen dort über so viele
-# ihrer Pixel aus.
-AUSLAUF = 8
 # Der Umriss des Tabletts in der Vorlage, mit Pfeilern, Lilien und dem Glanz
 # der fernen Aussenkanten. Darunter zeigt das Bild des Tischs Marmor.
 TABLETT = [
@@ -338,9 +379,6 @@ TABLETT = [
     (1426, 531), (1100, 691), (760, 888), (757, 899), (731, 915), (705, 900), (700, 887), (400, 683),
     (90, 476), (86, 485), (63, 477), (60, 424), (96, 377), (118, 404), (130, 386), (400, 241), (712, 57),
 ]
-# Ein Stück Marmor ohne Gegenstände in der Vorlage, Pixel x0, y0, x1, y1:
-# seine Adern füllen die Löcher.
-MARMOR = (940, 800, 1100, 865)
 # So tief spiegelt sich der Marmor am Rand eines Lochs hinein. Dort zeigt der
 # Skin den Tisch, wo seine Kamera um Rahmen und Gegenstände herum anders
 # sieht als die Vorlage, bis rund 15 px in der Gesamtansicht.
@@ -407,27 +445,115 @@ def spiegeln(rgb, drin, bekannt, tief=SPIEGEL):
     return bild, gewicht
 
 
-def tisch(vorlage, loecher):
-    """Der Tisch: die Vorlage selbst, so gross wie sie. Der Skin legt ihn so
-    auf die Platte, dass er im Bezugsrahmen Pixel auf Pixel über der Vorlage
-    liegt. Wo sie das Tablett oder einen Gegenstand zeigt (`loecher`), liegt
-    Marmor."""
+# So viele Pixel läuft das Bild des Tischs rundum über die Vorlage hinaus in
+# den Marmor aus, wie TISCH_RAND in bilder.ts.
+TISCH_RAND = 24
+
+
+def tisch(vorlage, dinge, tablett, stein):
+    """Der Tisch: die Vorlage selbst und rundum TISCH_RAND Pixel, in denen
+    die Farben an ihrem Rand auslaufen. Der Skin legt ihn so auf die Platte,
+    dass er im Bezugsrahmen Pixel auf Pixel über der Vorlage liegt, und
+    darunter den Marmor `stein`. Wo die Vorlage einen Gegenstand (`dinge`)
+    oder das Tablett (`tablett`) zeigt, füllt das Bild, was dort liegen
+    könnte, mit den Adern von `stein`."""
     rgb = np.asarray(vorlage, float)
-    loch = np.asarray(loecher.filter(ImageFilter.GaussianBlur(1.5)), float) / 255
-    # Tief in den Löchern die Farbe der Umgebung, darauf die Adern des
-    # sauberen Stücks, wiederholt. Nur der Grund des Marmors zählt: Holz und
-    # Gegenstände färbten sonst die Mitte grosser Löcher. Am Rand das
-    # Spiegelbild des Marmors daneben, mit seinen Adern und seinem Licht.
-    umgebung = zumitteln(rgb, (1 - loch) * ist_marmor(rgb), 16)
-    x0, y0, x1, y1 = MARMOR
-    stueck = rgb[y0:y1, x0:x1]
-    muster = stueck / np.maximum(zumitteln(stueck, np.ones(stueck.shape[:2]), 16), 1)
+    unter_dingen, unter_tablett = (np.asarray(m.filter(ImageFilter.GaussianBlur(1.5)), float) / 255 for m in (dinge, tablett))
+    loch = np.maximum(unter_dingen, unter_tablett)
+    bekannt = loch < 0.02
+    marmor = ist_marmor(rgb)
+    stein = np.asarray(stein, float)
+    muster = stein / np.maximum(zumitteln(stein, np.ones(stein.shape[:2]), 16), 1)
     h, w = loch.shape
     muster = np.tile(muster, (-(-h // muster.shape[0]), -(-w // muster.shape[1]), 1))[:h, :w]
-    spiegel, gewicht = spiegeln(rgb, loch > 0.02, loch < 0.02)
+    # Unter dem Tablett tief drin die Farbe des Marmors ringsum, darauf die
+    # Adern von `stein`. Nur der Grund des Marmors zählt:
+    # Holz und Gegenstände färbten sonst die Mitte. Am Rand das Spiegelbild
+    # des Marmors daneben, mit seinen Adern und seinem Licht.
+    umgebung = zumitteln(rgb, bekannt * marmor, 16)
+    spiegel, gewicht = spiegeln(rgb, unter_tablett > 0.02, bekannt)
     fuellung = (umgebung * muster).clip(0, 255) * (1 - gewicht[..., None]) + spiegel * gewicht[..., None]
-    rgb = rgb * (1 - loch[..., None]) + fuellung * loch[..., None]
-    return Image.fromarray(rgb.round().clip(0, 255).astype(np.uint8), 'RGB')
+    # Unter einem Gegenstand die Farbe ringsum, Holz wie Marmor, mit den
+    # Adern nur, so weit ringsum Marmor liegt. Ohne Spiegelbild: Es zöge den
+    # Saum des Gegenstands in sein Loch, als Umriss. Die Farbe kommt erst ab
+    # 6 px vom Loch: Daneben liegt noch sein Glanz, etwa der Schein der Kerze.
+    fern = np.asarray(Image.fromarray(((~bekannt) * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(13))) == 0
+    ringsum = zumitteln(rgb, fern, 32)
+    anteil = zumitteln(np.repeat(marmor[..., None], 3, -1).astype(float), fern, 32)[..., :1]
+    fuellung = np.where(unter_dingen[..., None] > unter_tablett[..., None], ringsum * (1 + anteil * (muster - 1)), fuellung)
+    rgb = rgb * (1 - loch[..., None]) + fuellung.clip(0, 255) * loch[..., None]
+    # Über den Rand hinaus die Farben am Rand, entlang des Rands weich, nach
+    # aussen bis TISCH_RAND durchsichtig.
+    r = TISCH_RAND
+    weich = np.asarray(Image.fromarray(rgb.round().clip(0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(4)), float)
+    gross = np.pad(weich, ((r, r), (r, r), (0, 0)), mode='edge')
+    gross[r:-r, r:-r] = rgb
+
+    def draussen(n, innen):
+        i = np.arange(n)
+        return np.maximum(r - i, i - (r + innen - 1)).clip(0)
+
+    d = np.maximum(draussen(h + 2 * r, h)[:, None], draussen(w + 2 * r, w)[None, :])
+    deckt = np.clip(1 - (d - 0.5) / r, 0, 1) ** 2
+    rgba = np.dstack([gross, 255 * deckt])
+    return Image.fromarray(rgba.round().clip(0, 255).astype(np.uint8), 'RGBA')
+
+
+# Der Marmor jenseits der Vorlage: ein Quadrat von MARMOR_KACHEL Pixeln, das
+# sich nahtlos wiederholt, aus Flicken der sauberen Platte. Die Flicken
+# liegen im Raster von MARMOR_SCHRITT und gehen über die Überlappung
+# ineinander über.
+MARMOR_KACHEL = 768
+MARMOR_FLICKEN = 112
+MARMOR_SCHRITT = 80
+
+
+def sauberer_marmor(vorlage):
+    """Wo die Vorlage nur Marmor zeigt, mit seinen Adern, fern von Tablett und
+    Gegenständen."""
+    rgb = np.asarray(vorlage)
+    grund = Image.fromarray((ist_marmor(rgb) * 255).astype(np.uint8))
+    # Adern und helle Flecken schliessen: Sie gehören zum Marmor.
+    grund = grund.filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.MinFilter(9))
+    weg = Image.new('L', vorlage.size, 0)
+    zeichne = ImageDraw.Draw(weg)
+    zeichne.polygon(TABLETT, fill=255)
+    for umriss, _ in GEGENSTAENDE.values():
+        zeichne.polygon(umriss, fill=255)
+    weg = weg.filter(ImageFilter.MaxFilter(9))
+    return (np.asarray(grund) > 127) & (np.asarray(weg) == 0)
+
+
+def marmor(vorlage):
+    """Das Quadrat aus Flicken: je Rasterpunkt ein Flicken von einer zufälligen
+    sauberen Stelle, gespiegelt oder nicht, so hell wie der Marmor im Mittel. Über den Rand des Quadrats geht es auf der anderen Seite weiter,
+    so passt jede Kante. Nur gespiegelt, nicht gedreht: Die Adern der Vorlage
+    sind von schräg oben gesehen gestaucht."""
+    rgb = np.asarray(vorlage, float)
+    sauber = sauberer_marmor(vorlage)
+    n, f, s = MARMOR_KACHEL, MARMOR_FLICKEN, MARMOR_SCHRITT
+    flaeche = np.pad(sauber.astype(np.int64).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    anteil = flaeche[f:, f:] - flaeche[:-f, f:] - flaeche[f:, :-f] + flaeche[:-f, :-f]
+    stellen = np.argwhere(anteil >= 0.97 * f * f)
+    # So hell wie der Marmor der ganzen Vorlage; der Farbton bleibt der des Flickens.
+    hell = rgb[sauber].mean()
+    rampe = np.minimum(1, (np.minimum(np.arange(f), f - 1 - np.arange(f)) + 1) / (f - s + 1))
+    gewicht = rampe[:, None] * rampe[None, :]
+    summe, gewichte = np.zeros((n, n, 3)), np.zeros((n, n))
+    zufall = np.random.default_rng(112)
+    for gy in range(0, n, s):
+        for gx in range(0, n, s):
+            y, x = stellen[zufall.integers(len(stellen))]
+            flicken = rgb[y : y + f, x : x + f]
+            flicken = flicken * (hell / flicken.mean())
+            if zufall.integers(2):
+                flicken = flicken[:, ::-1]
+            if zufall.integers(2):
+                flicken = flicken[::-1]
+            ys, xs = np.ix_((gy + np.arange(f)) % n, (gx + np.arange(f)) % n)
+            summe[ys, xs] += flicken * gewicht[..., None]
+            gewichte[ys, xs] += gewicht
+    return Image.fromarray((summe / gewichte[..., None]).round().clip(0, 255).astype(np.uint8), 'RGB')
 
 
 def main():
@@ -436,15 +562,17 @@ def main():
     bilder = {**streifen(vorlage), **pfeiler(vorlage), **eckstuecke(vorlage)}
     sprites, anker = lilien(vorlage)
     bilder.update(sprites)
-    dinge, lage, loecher = gegenstaende(vorlage, auslauf(vorlage))
+    dinge, lage, loecher = gegenstaende(vorlage)
     bilder.update(dinge)
-    ImageDraw.Draw(loecher).polygon(TABLETT, fill=255)
-    bilder['tisch'] = tisch(vorlage, loecher)
+    tablett = Image.new('L', vorlage.size, 0)
+    ImageDraw.Draw(tablett).polygon(TABLETT, fill=255)
+    bilder['marmor'] = marmor(vorlage)
+    bilder['tisch'] = tisch(vorlage, loecher, tablett, bilder['marmor'])
     for name, im in bilder.items():
         im.save(AUS / f'{name}.webp', quality=92, method=6)
     # Was bilder.ts braucht.
     print(f'BREITE_VORLAGE = {INNENECKE["rechts"][0] - INNENECKE["links"][0]:.1f}')
-    print(f'VORLAGE = {list(vorlage.size)}')
+    print(f'VORLAGE = {list(vorlage.size)}, TISCH_RAND = {TISCH_RAND}, MARMOR = {MARMOR_KACHEL}')
     for name, fuss in anker.items():
         print(f'{name}: groesse {list(bilder[name].size)}, fuss {list(fuss)}')
     for name, (fuss, vorlage_fuss) in lage.items():

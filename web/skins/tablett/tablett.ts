@@ -18,12 +18,14 @@ import {
   LILIEN,
   lichtUndBlick,
   mal,
+  MARMOR,
   MASS,
   PFEILER,
   plus,
   RAND,
   type Richtung,
   SEITEN,
+  TISCH_RAND,
   UMGEBUNG,
   type Vektor,
   VORLAGE,
@@ -51,13 +53,10 @@ export interface Flaeche {
   nah: boolean;
   /** Das Bild aus bilder/, das die Fläche deckt: seine Breite entlang a, seine Höhe entlang b. */
   bild?: string;
-  /**
-   * Nur in diesen Vielecken im Bild, auf Grund: eine Kopie vor den Kacheln,
-   * die das ferne Bild nicht braucht.
-   */
+  /** Nur in diesen Vielecken im Bild: eine Kopie vor den Kacheln, die das ferne Bild nicht braucht. */
   nurIn?: Punkt[][];
-  /** Das Bild setzt sich über die ganze Ebene fort, an jeder Kante gespiegelt. */
-  gespiegelt?: true;
+  /** Das Bild wiederholt sich über die ganze Ebene, so weit die Leinwand reicht. */
+  wiederholt?: true;
 }
 
 /** Ein freigestelltes Bild, aufrecht: sein Punkt `anker` liegt auf `fuss`. */
@@ -335,19 +334,25 @@ export function tablett(
   // genordet nur +z.
   const vorne = (nx: number, nz: number) => (genordet ? nz : nx + nz);
 
-  // Der Tisch: die Vorlage auf der Platte, im Bezugsrahmen Pixel auf Pixel
-  // über ihr, darüber hinaus an jeder Kante gespiegelt. Vor den Kacheln liegt
-  // noch einmal sein Stück, das Gelände nie verdecken kann, auf Grund: So
-  // deckt es den Schnitt der Welt, wie tief er auch reicht. Siehe
-  // docs/tablett.md, „Bilder aus der Vorlage“ und „Vor und hinter der Welt“.
+  // Der Tisch: Marmor über die ganze Platte, darauf die Vorlage, im
+  // Bezugsrahmen Pixel auf Pixel über ihr; über ihren Rand hinaus läuft sie
+  // in den Marmor aus. Vor den Kacheln liegt noch einmal das Stück von
+  // beiden, das Gelände nie verdecken kann: So deckt es den Schnitt der
+  // Welt, wie tief er auch reicht. Siehe docs/tablett.md, „Bilder aus der
+  // Vorlage“ und „Vor und hinter der Welt“.
   const [cx, cz] = [(x0 + x1) / 2, (z0 + z1) / 2];
-  const [[s0, t0], [s1, t1]] = [aufDiePlatte([0, 0]), aufDiePlatte(VORLAGE)];
   const ort = ([s, t]: Punkt): Vektor => [cx + ((s + t) / 2) * kante, -D, cz + ((t - s) / 2) * kante];
-  const entlangS: Vektor = [((s1 - s0) / 2) * kante, 0, (-(s1 - s0) / 2) * kante];
-  const entlangT: Vektor = [((t1 - t0) / 2) * kante, 0, ((t1 - t0) / 2) * kante];
-  const tisch = rechteck(ort([s0, t0]), entlangS, entlangT, [0, 1, 0], 'tisch', FARBE.marmor, 'tisch').map(
-    (f): Flaeche => ({ ...f, nah: false, gespiegelt: true }),
-  );
+  /** Das Rechteck der Platte unter dem Rechteck der Vorlage von `von` bis `bis`, mit diesem Bild. */
+  const platte = (von: Punkt, bis: Punkt, name: string): Flaeche[] => {
+    const [[s0, t0], [s1, t1]] = [aufDiePlatte(von), aufDiePlatte(bis)];
+    const entlangS: Vektor = [((s1 - s0) / 2) * kante, 0, (-(s1 - s0) / 2) * kante];
+    const entlangT: Vektor = [((t1 - t0) / 2) * kante, 0, ((t1 - t0) / 2) * kante];
+    return rechteck(ort([s0, t0]), entlangS, entlangT, [0, 1, 0], 'tisch', FARBE.marmor, name).map((f): Flaeche => ({ ...f, nah: false }));
+  };
+  const tisch = [
+    ...platte([0, 0], [MARMOR, MARMOR], 'marmor').map((f): Flaeche => ({ ...f, wiederholt: true })),
+    ...platte([-TISCH_RAND, -TISCH_RAND], [VORLAGE[0] + TISCH_RAND, VORLAGE[1] + TISCH_RAND], 'tisch'),
+  ];
   // Vor den Kacheln: diagonal ab x1 und ab z1, genordet dazu bis x0. So weit
   // hinaus, dass auch der tiefste Schnitt einer kleinen Welt darunter liegt:
   // Ein Block tiefer rückt im Bild so weit wie y/v Blöcke auf der Platte.

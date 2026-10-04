@@ -39,9 +39,9 @@ const ABSTAND = 8;
  */
 const ADRESSEN = import.meta.glob<string>('./bilder/*.webp', { query: '?url&no-inline', import: 'default', eager: true });
 
-/** Ein Bild aus bilder/. */
+/** Ein Bild aus bilder/, hinter allem anderen. */
 async function lade(adresse: string): Promise<ImageBitmap> {
-  const antwort = await fetch(adresse);
+  const antwort = await fetch(adresse, { priority: 'low' });
   if (!antwort.ok) throw new Error(`${adresse}: ${antwort.status}`);
   return createImageBitmap(await antwort.blob());
 }
@@ -97,7 +97,16 @@ const skin: Skin = (kontext) => {
     return { name, leinwand: L.DomUtil.create('canvas', 'tablett'), ebene: undefined as L.SVGOverlay | undefined };
   });
 
-  // Die Bilder werden einmal geladen.
+  // Die Karte ist der Inhalt, das Tablett Schmuck: Seine Bilder laden
+  // einmal, und erst, wenn die Ebene der Kacheln zum ersten Mal fertig ist
+  // und das Bild danach gemalt: Leaflet blendet die Kacheln erst im nächsten
+  // Bild ein. Die Grundkarte legt die Ebene nach dem Skin an. Siehe
+  // docs/entscheidungen/0073-bilder-nach-den-kacheln.md.
+  const kacheln = new Promise<void>((fertig) => {
+    karte.on('layeradd', ({ layer }: L.LayerEvent) => {
+      if (layer instanceof L.TileLayer) layer.once('load', () => requestAnimationFrame(() => requestAnimationFrame(() => fertig())));
+    });
+  });
   let bilder: Promise<Bilder> | undefined;
 
   // Zwischen zwei Stufen verkleinert Leaflet die Kacheln; dann glättet der
@@ -127,7 +136,7 @@ const skin: Skin = (kontext) => {
   const zeichne = async (): Promise<void> => {
     const auftrag = ++nummer;
     const beginn = performance.now();
-    bilder ??= ladeAlle();
+    bilder ??= kacheln.then(ladeAlle);
     const geladen = await bilder;
     const male = (): void => {
       // Eine neuere Ansicht ist schon unterwegs.

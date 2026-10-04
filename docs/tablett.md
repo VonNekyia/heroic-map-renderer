@@ -1,6 +1,6 @@
 ---
 title: Tablett
-description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet in zwei Bilder um die Kacheln, mit einer Gesamtansicht wie in der Vorlage. Rahmen mit runden Ecken, Tisch, Lilien und Gegenstände sind Bilder aus der Vorlage, entzerrt oder freigestellt und geglättet gelegt; Tisch und Gegenstände liegen im Bezugsrahmen wie in der Vorlage, der Tisch setzt sich gespiegelt fort, und auf zwei Buchrücken steht Text aus dem Build; dazu Masse, Licht, die Regel, was vor und was hinter der Welt liegt, und die UI aus Pergament, Holz und Messing neben den Gegenständen.
+description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet in zwei Bilder um die Kacheln, mit einer Gesamtansicht wie in der Vorlage. Rahmen mit runden Ecken, Tisch, Lilien und Gegenstände sind Bilder aus der Vorlage, entzerrt oder freigestellt und geglättet gelegt; Tisch und Gegenstände liegen im Bezugsrahmen wie in der Vorlage, jenseits von ihr liegt Marmor, und auf zwei Buchrücken steht Text aus dem Build; die Bilder laden nach den Kacheln; dazu Masse, Licht, die Regel, was vor und was hinter der Welt liegt, und die UI aus Pergament, Holz und Messing neben den Gegenständen.
 code:
   - web/skins/tablett/index.ts
   - web/skins/tablett/tablett.ts
@@ -28,9 +28,11 @@ eingebunden werden: [Frontend](frontend.md), „Skins“. Warum so:
 [0063](entscheidungen/0063-tablett-als-skin.md), die Gesamtansicht
 [0067](entscheidungen/0067-gesamtansicht-zwischen-zwei-stufen.md), jede
 Stufe [0068](entscheidungen/0068-tablett-auf-jeder-stufe.md), die Bilder
-[0070](entscheidungen/0070-bilder-aus-der-vorlage.md) und Tisch und
+[0070](entscheidungen/0070-bilder-aus-der-vorlage.md), Tisch und
 Gegenstände im Bezugsrahmen
-[0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md).
+[0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md) und
+die Bilder nach den Kacheln
+[0073](entscheidungen/0073-bilder-nach-den-kacheln.md).
 
 ## Einschalten
 
@@ -87,25 +89,36 @@ Gegenstände im Bezugsrahmen
 - **Während einer Bewegung** zeichnet der Skin nichts. Die Bilder gleiten
   und wachsen mit der Karte; beim Hinauszoomen fehlt am Rand das Tablett,
   bis neu gezeichnet ist.
-- **Sichtbar** auf jeder Stufe und voll deckend, nie ausgeblendet.
+- **Sichtbar** auf jeder Stufe und voll deckend, nie ausgeblendet. Nur zu
+  Beginn blendet es über 0,4 s ein, siehe „Bilder laden“.
 - **Zwei Bilder:** `tablett-fern` unter den Kacheln (z-index 150) mit allem
   ausser dem Saum und der Kopie des Tischs vor den Kacheln, `tablett-nah`
   darüber (250) nur mit den nahen Teilen, siehe „Vor und hinter der Welt“.
   Beide sind Leinwände als Bild-Ebenen der Karte (`L.svgOverlay`, das jedes
   Element nimmt). Ein Bild aus der Leinwand ginge nur über `data:` oder
   `blob:`, und das verbietet die Content-Security-Policy.
-- **Bilder laden:** Der Skin lädt alle Bilder aus `bilder/` einmal.
-  Gezeichnet wird, sobald sie da sind; bewegt sich die Karte gerade, von
-  `movestart` bis `moveend`, erst danach. Fehlt ein Bild, bleibt seine
-  Fläche in ihrer Farbe, und die Konsole sagt es; eine Lilie oder ein
-  Gegenstand fehlt dann. Vite legt jedes Bild als eigene Datei ab
-  (`?url&no-inline`); als `data:` verböte es die Content-Security-Policy.
+- **Bilder laden:** Der Skin lädt alle Bilder aus `bilder/` einmal, erst
+  wenn die Ebene der Kacheln zum ersten Mal `load` meldet und das Bild
+  danach gemalt ist, und mit `priority: 'low'`: Die Karte ist der Inhalt
+  ([0073](entscheidungen/0073-bilder-nach-den-kacheln.md)).
+  - Gezeichnet wird, sobald sie da sind; bewegt sich die Karte gerade, von
+    `movestart` bis `moveend`, erst danach.
+  - Mit dem ersten Bild kommen die Leinwände auf die Karte und blenden über
+    0,4 s ein (`tablett-einblenden` in
+    [`tablett.css`](../web/skins/tablett/tablett.css)), ohne bei
+    `prefers-reduced-motion: reduce`.
+  - Fehlt ein Bild, bleibt seine Fläche in ihrer Farbe, und die Konsole
+    sagt es; eine Lilie oder ein Gegenstand fehlt dann.
+  - Vite legt jedes Bild als eigene Datei ab (`?url&no-inline`); als
+    `data:` verböte es die Content-Security-Policy.
 - **Legen:** je Fläche eine affine Abbildung des ganzen Bilds auf die
   Fläche (`setTransform`, dann `drawImage`), seine Breite entlang der Kante
   a, seine Höhe entlang b. Es reicht 0,75 px über die Fläche hinaus; so
-  überlappen Nachbarn, und an ihrer Kante scheint nichts durch. Lilien und
-  Gegenstände stehen aufrecht auf ihrem Fuss, so viel grösser als in der
-  Vorlage, wie die Karte im Bild breiter ist als dort.
+  überlappen Nachbarn, und an ihrer Kante scheint nichts durch. Der Marmor
+  wiederholt sich als Muster der Leinwand (`createPattern` mit derselben
+  Abbildung) über die ganze Leinwand. Lilien und Gegenstände stehen
+  aufrecht auf ihrem Fuss, so viel grösser als in der Vorlage, wie die
+  Karte im Bild breiter ist als dort.
 - **Geglättet:** `imageSmoothingQuality = 'high'`. Die Vorlage ist gemalt,
   keine Pixelkunst ([0070](entscheidungen/0070-bilder-aus-der-vorlage.md)).
   Kein Code läuft je Pixel; der Browser legt die Bilder. Fern und nah legen
@@ -145,10 +158,10 @@ Seite, nicht in der Geometrie. Nichts von Rahmen und Pfeilern liegt über
 dem Wasserspiegel ausser den Lilien. Innen an den Ecken liegt je ein
 Eckstück auf dem Wasserspiegel, siehe „Die Ecken“.
 
-Der Tisch liegt so weit, wie die Vorlage ihn zeigt, um das Tablett herum;
-dahinter ist Grund. Die Vorlage zeigt das Tablett nicht in der Mitte des
-Tischs: Bis zum Holzrand sind es links vorn 0,13 Kanten von der Wand,
-rechts vorn 0,28.
+Der Tisch ist die Vorlage um das Tablett herum; jenseits von ihr liegt
+Marmor, siehe „Bilder aus der Vorlage“. Die Vorlage zeigt das Tablett nicht
+in der Mitte des Tischs: Bis zum Holzrand sind es links vorn 0,13 Kanten
+von der Wand, rechts vorn 0,28.
 
 ## Die Ecken
 
@@ -221,15 +234,33 @@ issuecomment-5974570397). Die Bilder liegen als WebP in
 - **Freigestellt:** Lilien und Gegenstände in einem Umriss, darin ohne
   Karte und Marmor, am Rand über 1 bis 2 px weich. Lücken im Schmuck bleiben
   offen; Glanzlichter auf Messing sind warm, Schnee auf der Karte kalt.
-- **Der Tisch:** die Vorlage selbst, so gross wie sie, im Bezugsrahmen über
-  ihr. Unter dem Tablett und den Gegenständen füllt das Skript Marmor auf:
-  die Farbe des Marmors ringsum, über eine Pyramide in die Löcher gemittelt,
-  darauf die Adern eines Stücks ohne Gegenstände. Über die Vorlage hinaus
-  setzt der Skin das Bild fort, an jeder Kante gespiegelt, so weit die
-  Leinwand reicht (`lege` in [`zeichnen.ts`](../web/skins/tablett/zeichnen.ts)):
-  So endet der Tisch in keiner Kamera und keinem Fenster.
-- **Am Rand der Vorlage** laufen Gegenstände, die er schneidet, über 8 ihrer
-  Pixel aus.
+  - Bei Gegenständen zählt Marmor nur, wo er mit dem Marmor ausserhalb des
+    Umrisses zusammenhängt (`verbunden`): Dunkle Buchdeckel bleiben am
+    Buch.
+  - Das Kästchen ist so dunkel wie Marmor; sein Umriss umfasst nur es
+    selbst und gilt ganz (`GANZ`).
+  - Wo der Rand der Vorlage einen Gegenstand schneidet, deckt er bis an den
+    Rand und setzt sich mit seinem letzten Pixel 8 px darüber hinaus fort,
+    auslaufend (`auslaufen`).
+- **Der Tisch:** die Vorlage selbst, im Bezugsrahmen Pixel auf Pixel über
+  ihr, dazu rundum `TISCH_RAND` = 24 px, in denen die Farben an ihrem Rand,
+  entlang des Rands weich, bis auf nichts auslaufen.
+  - Unter dem Tablett die Farbe des Marmors ringsum, über eine Pyramide in
+    das Loch gemittelt, darauf die Adern des Marmors; an seinem Rand das
+    Spiegelbild des Marmors daneben.
+  - Unter den Gegenständen alles, was sie decken, mit einem Pixel mehr: So
+    bleibt kein Stück von ihnen im Tisch, auch kein Saum. Dort liegt die
+    Farbe ringsum ab 6 px Abstand, Holz wie Marmor, mit den Adern, so weit
+    ringsum Marmor liegt; ohne Spiegelbild, denn es zöge den Saum des
+    Gegenstands als Umriss ins Loch.
+- **Der Marmor:** ein Quadrat von `MARMOR` = 768 px, das sich nahtlos
+  wiederholt. Es entsteht aus Flicken von 112 px im Raster von 80 px, je
+  von einer zufälligen Stelle der Platte ohne Holz, Tablett und Gegenstände,
+  gespiegelt oder nicht, nicht gedreht, so hell wie der Marmor der Vorlage
+  im Mittel. Was über den Rand des Quadrats reicht, liegt auf der anderen
+  Seite. Der Skin legt ihn unter den Tisch über die ganze Ebene: Jenseits
+  der Vorlage sieht man nur ihn
+  ([0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md)).
 
 | Bild | Fläche | Grösse |
 |---|---|---|
@@ -238,13 +269,15 @@ issuecomment-5974570397). Die Bilder liegen als WebP in
 | `pfeiler-links`, `pfeiler-rechts` | Seiten der Pfeiler nach +z und +x | 35 × 86 |
 | `eck-hinten`, `eck-rechts`, `eck-vorn`, `eck-links` | Eckstück je Ecke auf dem Wasserspiegel, x entlang der Breite, z entlang der Höhe | 72 × 72 |
 | `lilie-hinten`, `lilie-rechts`, `lilie-vorn`, `lilie-links` | Lilie je Ecke | 57 bis 63 × 52 bis 58 |
-| `buecher`, `kerze`, `kaestchen`, `kompass`, `sphaere` | Gegenstände, siehe „Gegenstände“ | 55 bis 501 × 140 bis 422 |
-| `tisch` | die Platte mit Holzrand, Pergament und Licht | 1491 × 1055 |
+| `buecher`, `kerze`, `kaestchen`, `kompass`, `sphaere` | Gegenstände, siehe „Gegenstände“ | 59 bis 506 × 140 bis 426 |
+| `tisch` | die Platte mit Holzrand, Pergament und Licht, dazu der Auslauf | 1539 × 1103 |
+| `marmor` | Marmor, wiederholt über die ganze Ebene | 768 × 768 |
 
 Die Lage jedes Bilds nennt `bilder.ts`: die Seiten in `SEITEN`, die Pfeiler
 in `PFEILER`, die Eckstücke in `ECKSTUECKE`, je Lilie ihren Fuss in
 `LILIEN`, je Gegenstand seinen Fuss im Bild und in der Vorlage in
-`GEGENSTAENDE`, den Tisch über die Grösse der Vorlage in `VORLAGE` und die
+`GEGENSTAENDE`, den Tisch über die Grösse der Vorlage in `VORLAGE` und
+seinen Auslauf in `TISCH_RAND`, die Seite des Marmors in `MARMOR` und die
 Kamera des Bezugsrahmens in `BEZUG`.
 
 ## Gegenstände
@@ -255,7 +288,8 @@ Kamera des Bezugsrahmens in `BEZUG`.
   Tuch vorn rechts und die Armillarsphäre mit Gänseblümchen vorn links.
 - **Aufrecht** auf ihrem Fuss auf der Platte, dort, wo er im Bezugsrahmen
   über seinem Punkt der Vorlage liegt, so viel grösser als in der Vorlage
-  wie die Karte. Ein Bild für alle Kameras, nie gespiegelt.
+  wie die Karte. Ein Bild für alle Kameras, nie gespiegelt. Im Bild des
+  Tischs bleibt kein Stück von ihnen, siehe „Bilder aus der Vorlage“.
 - **Vor den Kacheln** die, deren Fuss ganz bei x ≥ x1 oder z ≥ z1 liegt,
   genordet auch bei x ≤ x0; die übrigen darunter, vor dem Rahmen gemalt.
 - **Text auf den Buchrücken:** auf dem grossen roten Buch `SKIN_TEXT_BUCH1`,
@@ -302,10 +336,10 @@ verdecken kann:
 - **Nah ist** im Blick jede Fläche, die ganz bei x ≥ x1 oder z ≥ z1 liegt,
   genordet auch ganz bei x ≤ x0. Das sind die Seiten des Rahmens zur
   Kamera und ihre Pfeiler.
-- **Der Tisch** liegt fern ganz und nah noch einmal, aber nur in diesen
-  Bereichen der Platte, auf Grund: So deckt er den Schnitt der Welt zur
-  Kamera, wie tief er auch reicht, und kein Gelände, denn das liegt im Bild
-  immer über ihnen.
+- **Der Tisch** liegt mit dem Marmor darunter fern ganz und nah noch
+  einmal, aber nur in diesen Bereichen der Platte: So deckt er den Schnitt
+  der Welt zur Kamera, wie tief er auch reicht, und kein Gelände, denn das
+  liegt im Bild immer über ihnen. Der Marmor deckt dort voll.
 - **Kein Pixel** von Gelände über dem Wasserspiegel liegt deshalb unter
   einer nahen Fläche, in keiner Kamera und Richtung, ausser unter den
   Eckstücken.
@@ -321,8 +355,8 @@ verdecken kann:
   hinausragt, deckt sie richtig.
 - **Gemalt** wird in einer festen Reihenfolge, ein späteres Teil deckt ein
   früheres:
-  1. der Tisch, gespiegelt fortgesetzt, vor den Kacheln seine Kopie auf
-     Grund;
+  1. der Marmor über die ganze Leinwand, darauf der Tisch, vor den Kacheln
+     ihre Kopie;
   2. der Boden des Tabletts;
   3. die fernen Gegenstände, von hinten nach vorn, jeder gleich mit seinem
      Text;
@@ -334,7 +368,7 @@ verdecken kann:
   7. die Lilien, von hinten nach vorn;
   8. die nahen Gegenstände, von hinten nach vorn, ebenso.
 - **Ohne Nähte:** Jedes Bild reicht 0,75 px über seine Fläche. Was nah ist,
-  liegt auch im fernen Bild, ausser der Kopie des Tischs.
+  liegt auch im fernen Bild, ausser der Kopie von Marmor und Tisch.
 
 ## UI
 
@@ -408,13 +442,20 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
 - **Andere Kameras** nehmen dieselben Bilder. Rahmen und Tisch folgen ihrer
   Geometrie; Lilien und Gegenstände stehen aufrecht im Licht von 8:5. Von
   oben stehen sie wie von der Seite gesehen.
-- **Über die Vorlage hinaus** ist der Tisch ihr Spiegelbild. Wo eine Kamera
-  oder ein Fenster mehr zeigt als sie, treffen sich gespiegelte Holzränder
-  zu Ecken, und Gegenstände, die der Rand der Vorlage schneidet, laufen
-  dort aus.
+- **Jenseits der Vorlage** liegt nur Marmor. Wo eine Kamera oder ein
+  Fenster mehr zeigt als sie, endet die Vorlage dort mit geradem Rand, über
+  24 px weich, und Gegenstände, die ihr Rand schneidet, enden dort, über
+  8 px weich.
+- **Unter den Gegenständen** liegt im Bild des Tischs ein glatter Fleck in
+  der Farbe ringsum. In anderen Kameras sieht man ihn neben dem Gegenstand,
+  am deutlichsten hinter der Kerze, als hellen Schatten ihrer Form.
 - **Unter dem Tablett** liegt aufgefüllter Marmor. Nur wo die Kamera um die
   Pfeiler oder Wände herum auf die Platte sieht, anders als in der Vorlage,
   zeigt er sich.
+- **Der Marmor** wiederholt sich alle 768 px der Vorlage; seine Adern sind
+  etwas kräftiger als die des Marmors am linken Rand der Vorlage, denn die
+  Flicken kommen aus der Platte vorn rechts: Nur dort liegen Stellen von
+  112 px ohne Holz und Gegenstände.
 
 ## Tests
 
@@ -431,14 +472,19 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   die Kacheln verkleinert, und dass ihre Mitte wie in der Vorlage unter der
   Mitte der Karte liegt, ohne dass der Rahmen aus dem Fenster ragt; dass im
   Bezugsrahmen jeder Gegenstand höchstens 3 px neben seinem Fuss in der
-  Vorlage steht und der Tisch auf 1 px über ihr liegt, gespiegelt
-  fortgesetzt; dass Text aus `SKIN_TEXT_BUCH1` und `SKIN_TEXT_BUCH2` gleich
-  nach dem Bild der Bücher in ihm steht und ohne die Texte keiner.
+  Vorlage steht und der Tisch auf 1 px über ihr liegt, mit seinem Auslauf
+  rundum; dass jenseits der Vorlage nur Marmor liegt, in jeder Kamera fern
+  und nah erst der Marmor, wiederholt und im Mass des Tischs, gleich danach
+  der Tisch, einmal; dass Text aus `SKIN_TEXT_BUCH1` und `SKIN_TEXT_BUCH2`
+  gleich nach dem Bild der Bücher in ihm steht und ohne die Texte keiner.
 - [`tests/bilder.spec.ts`](../web/skins/tablett/tests/bilder.spec.ts)
-  prüft in Node die Bilder im Repository, ohne das Skript: dass jedes Bild
-  genommen wird und jedes genommene da ist, dass Streifen und Eckstücke das
-  Seitenverhältnis ihrer Flächen haben, Lilien und Gegenstände ihre Grösse
-  und der Tisch die der Vorlage.
+  prüft die Bilder im Repository, ohne das Skript: dass jedes Bild genommen
+  wird und jedes genommene da ist, dass Streifen und Eckstücke das
+  Seitenverhältnis ihrer Flächen haben, Lilien, Gegenstände, Tisch und
+  Marmor ihre Grösse; im Browser, dass kein Block von 8 × 8 Pixeln des
+  Marmors die Farbe des Holzes hat, die im Tisch über 1000 Blöcke finden,
+  und dass der Tisch über der Vorlage ganz deckt und bis zur Kante seines
+  Bilds auf nichts ausläuft.
 - [`tests/karte.spec.ts`](../web/skins/tablett/tests/karte.spec.ts) prüft
   im Browser die beiden Ebenen, sichtbar und voll deckend auf der Stufe
   über der Gesamtansicht und auf der feinsten, auch an der nahen Ecke; die
@@ -446,7 +492,9 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   Überstand, auf der feinsten Stufe so gross wie in der Gesamtansicht; dass
   der Skin nach einem Zoom und einem Zug über den Überstand hinaus neu
   zeichnet, nach einem kurzen Zug nicht; dass die Bilder geglättet liegen
-  und, wenn sie beim Ziehen kommen, erst danach gemalt werden; die
+  und, wenn sie beim Ziehen kommen, erst danach gemalt werden; dass keine
+  Anfrage für ein Bild des Skins vor dem Ende der ersten Kachel startet und
+  die Leinwände einblenden; die
   Gesamtansicht zwischen zwei Stufen mit 92,5 %, Leinwand Pixel auf Pixel
   und geglätteten Kacheln; dass sich die Karte hineingezoomt bis über jede
   Ecke von `area` ziehen lässt; dass in sieben Kameras, in der Gesamtansicht

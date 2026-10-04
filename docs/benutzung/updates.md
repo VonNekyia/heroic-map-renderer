@@ -209,4 +209,19 @@ Danach zeichnet ein voller Lauf alles neu, und `--update` geht wieder.
 
 ## Kosten
 
-Noch nicht gemessen.
+An der Testwelt bei scale 8, gemessen in
+[2026-10-04, Updates, Kosten](../messungen/2026-10-04-updates.md):
+
+| | Dauer |
+|---|---|
+| voller Lauf ohne Stand, master | 84,9 s |
+| voller Lauf mit Stand | 89,6 s, davon 4,4 s mehr im Vorlauf für den Fingerabdruck |
+| Update ohne Änderung | 0,44 s |
+| Update, 10 240 Chunks mit neuem Stempel, gleicher Inhalt | 1,3 s |
+| Update, 16 verteilte Chunks gelöscht, 130 Kacheln im Gebiet | 3,0 s |
+
+- **Neue Stempel** kosten Lesen und Fingerabdruck der Chunks, je Region in
+  einem Thread, die Regionen parallel.
+- **Ein Gebiet** kostet, was ein Ausschnitt dieser Grösse kostet, dazu rund
+  2 s für Assets und Sprites.
+- **`stand.bin`** hat rund 24 Bytes je Chunk, an der Testwelt 7,5 MB.

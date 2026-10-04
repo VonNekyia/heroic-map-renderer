@@ -275,8 +275,9 @@ impl Gang {
     }
 }
 
-/// Die Richtung zur Sonne ohne eine Komponente 0, für [`Gang`].
-pub(super) fn ohne_null(d: [f32; 3]) -> [f32; 3] {
+/// Die Richtung zur Sonne ohne eine Komponente 0, für [`Gang`] und
+/// [`super::super::sonne::Sonnenform`].
+pub(crate) fn ohne_null(d: [f32; 3]) -> [f32; 3] {
     d.map(|c| if c.abs() < 1e-9 { 1e-9 } else { c })
 }
 
@@ -503,7 +504,7 @@ impl ChunkCache<'_> {
                         }
                         getestet.push(b);
                     }
-                    cache.wirkung(b, family, p0, d, eigen)
+                    cache.wirkung(b, family, p0, eigen)
                 };
                 let [lo, hi] = match bits.ueber[col] & bit {
                     0 => [[0; 3]; 2],
@@ -727,7 +728,7 @@ impl ChunkCache<'_> {
                             continue;
                         }
                         getestet.push(b);
-                        match self.wirkung(b, family, p0, d, eigen)? {
+                        match self.wirkung(b, family, p0, eigen)? {
                             Wirkung::Deckt => return Ok(0.0),
                             Wirkung::Daempft => licht *= look.pflanzen,
                             Wirkung::Nichts => {}
@@ -750,7 +751,6 @@ impl ChunkCache<'_> {
         b: [i32; 3],
         family: &Family,
         p0: [f64; 3],
-        d: [f32; 3],
         eigen: [i32; 3],
     ) -> Result<Wirkung> {
         let sprites = self.sprites;
@@ -798,7 +798,7 @@ impl ChunkCache<'_> {
         }
         let o = std::array::from_fn(|k| p0[k] - f64::from(b[k]));
         Ok(
-            if form.trifft(wahl, voll, weg, sprites.masken(), o, d, weite) {
+            if form.trifft(wahl, voll, weg, sprites.masken(), o, weite) {
                 if form.pflanze {
                     Wirkung::Daempft
                 } else {

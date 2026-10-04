@@ -446,8 +446,15 @@ Alpha), mischt sich wie im Prototyp aus #89 von vorn nach hinten
 - **Alpha** wie bei der Karte; das Streulicht füllt nur, wo darunter etwas
   deckt. Über leerem Grund, etwa am Rand der geladenen Chunks, gibt es
   keine Strecke: Dort mischt Wasser wie jede andere Fläche.
+- **Gemerkt (#118):** In einem Draw hängt der Spiegel nur an der Normale,
+  die Dichte nur an der Farbe des Wassers; Blick und Himmel sind fest.
+  `Wassergedaechtnis` in `metatile.rs` merkt beide je Draw nach den Bits
+  dieser Eingaben: den Spiegel der letzten Normale, die Dichte in 16
+  Plätzen. Gemerkt ist dasselbe Ergebnis wie gerechnet; der Debug-Build
+  rechnet jedes nach.
 - Getestet: `tieferes_wasser_ist_dunkler` in `renderer/tests/metatile.rs`,
-  `wasser_spiegelt_und_dampft` in `renderer/src/render/kino.rs`.
+  `wasser_spiegelt_und_dampft` in `renderer/src/render/kino.rs`,
+  `gemerktes_wasser_wie_gerechnet` in `metatile.rs`.
 
 ## Bodenpflanzen
 

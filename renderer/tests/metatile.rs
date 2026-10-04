@@ -784,6 +784,82 @@ fn himmelslicht_der_oberwelt_in_jedem_biom() {
     }
 }
 
+/// Das Wasser spiegelt den Himmel seines Bioms, gemischt über die Blöcke im
+/// Quadrat mit dem Radius 2, auch aus `nw`. Dieselbe Wasserfläche über
+/// plains und frozen zweimal: einmal mit `sky_color` #ffa040 in frozen,
+/// einmal ohne, dann gilt #78a7ff der Oberwelt. Der Unterschied in HDR ist
+/// allein der Spiegel, Fresnel mal Himmelslicht mal dem Unterschied der
+/// Himmel. Über plains ist er 0. Mitten in frozen stehen die Kanäle im
+/// Verhältnis von #ffa040 weniger #78a7ff, linear, das Soll in Python
+/// gerechnet. An der Grenze bei x = 16 mit drei Spalten frozen sind es drei
+/// Fünftel davon.
+/// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
+#[test]
+fn wasser_spiegelt_den_himmel_des_bioms() {
+    let dir = tempdir();
+    let boden = |_: i32, y: i32, _: i32| match y {
+        ..=2 => "minecraft:einfarbig",
+        3 => "minecraft:water",
+        _ => "minecraft:air",
+    };
+    let biom = |cx: i32, _: i32| {
+        Some(if cx == 0 {
+            "minecraft:plains"
+        } else {
+            "minecraft:frozen"
+        })
+    };
+    common::write_world_sections(dir.path(), &[(0, 0), (1, 0)], 0..=0, boden, biom);
+    let world = World::open(dir.path()).unwrap();
+    let projection = Projection::new(16).aus(Richtung::parse("nw", Kamera::ZWEI_ZU_EINS).unwrap());
+    let survey = survey(&world, projection, Y_RANGE, None).unwrap();
+    let rect = rect_um(projection, [0, 0, 0], [32, 4, 16]);
+    let hdr = |attribute: &str| {
+        let daten = tempdir();
+        let biome = daten.path().join("minecraft/worldgen/biome");
+        std::fs::create_dir_all(&biome).unwrap();
+        let plains = r##"{"has_precipitation": true, "temperature": 0.8, "downfall": 0.4, "effects": {"water_color": "#3f76e4"}}"##;
+        std::fs::write(biome.join("plains.json"), plains).unwrap();
+        let frozen = format!(
+            r##"{{"has_precipitation": true, "temperature": 0.0, "downfall": 0.5, "effects": {{"water_color": "#3938c9"}}, "attributes": {{{attribute}}}}}"##
+        );
+        std::fs::write(biome.join("frozen.json"), frozen).unwrap();
+        let mut assets = assets();
+        assets.load_biomes(daten.path()).unwrap();
+        let mut kino =
+            SpriteSet::build_mit_licht(&mut assets, &survey.states, projection, None, Some(LOOK))
+                .unwrap();
+        kino.set_biomes(BiomeTable::new(assets.colors()).with(2, None));
+        render_hdr_with(&mut ChunkCache::new(&world, &kino), rect, Y_RANGE).unwrap()
+    };
+    let mit = hdr(r##""minecraft:visual/sky_color": "#ffa040""##);
+    let ohne = hdr("");
+    // Die Mitte der Wasserfläche über (x, 3, 8), im Blick.
+    let unterschied = |x: i32| {
+        let [bx, by, bz] = blick(projection, [x, 3, 8]);
+        let (sx, sy) =
+            projection.project([bx as f32 + 0.5, by as f32 + 8.0 / 9.0, bz as f32 + 0.5]);
+        let i = ((sy.floor() as i32 - rect.y) as u32 * rect.width
+            + (sx.floor() as i32 - rect.x) as u32) as usize;
+        let [a, b] = [mit.farbe[i], ohne.farbe[i]];
+        [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+    };
+    // (#ffa040 − #78a7ff) linear, geteilt durch Blau, in Python gerechnet.
+    const VERHAELTNIS: [f32; 3] = [-0.856_069_4, 0.036_782_66, 1.0];
+    assert_eq!(unterschied(4), [0.0; 3], "über plains");
+    let frozen = unterschied(28);
+    assert!(frozen[2] < 0.0, "{frozen:?}");
+    for (c, soll) in VERHAELTNIS.into_iter().enumerate() {
+        let ist = frozen[c] / frozen[2];
+        assert!((ist - soll).abs() < 1e-3, "Kanal {c}: {ist} statt {soll}");
+    }
+    let grenze = unterschied(16);
+    for c in 0..3 {
+        let ist = grenze[c] / frozen[c];
+        assert!((ist - 0.6).abs() < 1e-3, "Kanal {c}: {ist} statt 0,6");
+    }
+}
+
 /// Die Sprite-Tabelle für Cinematic mit `look` über den Blockstates von
 /// `world` in `y_range`.
 fn kino_tabelle(

@@ -61,10 +61,12 @@ noch ändern (#124, issuecomment-5974735230).
 
 **Wirkung je Biom:**
 - **Kühl, `w` 0,85:** ab 0 abwärts, also die verschneiten Ebenen, Hänge
-  und Gipfel, Eisspitzen, gefrorene Flüsse und Meere. Ein verschneiter
-  Strand (0,05) bekommt 0,9.
+  und Gipfel, Eisspitzen, der gefrorene Fluss und das gefrorene Meer. Ein
+  verschneiter Strand (0,05) bekommt 0,9.
 - **Klar, `w` 1:** von 0,15 bis 0,5, also windige Hügel, Taiga, Meer,
-  Flüsse und Wiesen.
+  Flüsse und Wiesen. Dazu das tiefe gefrorene Meer: `temperature` 0,5 mit
+  `temperature_modifier` `frozen`. Cinematic nimmt die rohe Temperatur,
+  siehe [Cinematic](../renderer/cinematic.md), „Wärme“.
 - **Warm:** Wald (0,7) 1,1, Ebenen und Strände (0,8) 1,15; ab 1,0 1,25,
   also Savanne, Wüste und Badlands.
 - **Kühler unter 1:** Mit `w` unter 1 nimmt der Abgleich dem Himmelslicht

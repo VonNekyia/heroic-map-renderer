@@ -201,9 +201,10 @@ mit `--direction` prüft `richtung_ist_ein_eigener_baum` aus `nw` und `sw`,
 `ecken_der_seiten_im_blick` (`rasterizer.rs`), aus `nw` und `sw` mit
 festen Zahlen. Cinematic prüfen ausserdem
 `hdr_haelt_die_tiefe_der_vordersten_flaeche`,
-`hdr_haelt_die_tiefe_des_vorderen_draws` und
-`himmelslicht_der_oberwelt_in_jedem_biom` (`metatile.rs`), mit dem
-Radius 2 aus `nw`, und `ein_baum_ein_look` (`cli.rs`): Ordner, `look`, `lookHash`, ein look,
+`hdr_haelt_die_tiefe_des_vorderen_draws`,
+`himmelslicht_der_oberwelt_in_jedem_biom` und
+`wasser_spiegelt_den_himmel_des_bioms` (`metatile.rs`), mit dem Radius 2
+aus `nw`, und `ein_baum_ein_look` (`cli.rs`): Ordner, `look`, `lookHash`, ein look,
 den es nicht gibt, und `trees.json`. Die Werte des Looks, das Licht je
 Stufe, die Umgebung, den Weissabgleich und den Himmel ohne Biom prüfen die
 Unit-Tests in `look.rs` und `kino.rs` gegen Zahlen, die aus den Formeln

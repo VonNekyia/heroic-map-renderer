@@ -198,7 +198,11 @@ steht unter „Was bleibt eine Näherung“.
 - **Gemischt** wie die Biomfarben über die Blöcke im Quadrat mit dem Radius
   aus `--biome-blend`, auf der Höhe des Blocks (`ChunkCache::himmel_at`,
   `Himmelsfarben`), aber linear und ungerundet, zusammen mit der
-  Temperatur für die Wärme. Kacheln bekommen so keine Nähte.
+  Temperatur für die Wärme. Kacheln bekommen so keine Nähte. Ein Test
+  spiegelt im Wasser über der Grenze von plains zu einem Biom mit eigener
+  `sky_color`, mit dem Radius 2 aus `nw`: mitten darin dessen Himmel, an
+  der Grenze das Mittel der 25 Blöcke
+  (`wasser_spiegelt_den_himmel_des_bioms`).
 
 ## Sonne
 

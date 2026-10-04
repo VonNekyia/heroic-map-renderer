@@ -1083,11 +1083,11 @@ fn blit_hdr(
     // Wasser hat keine Seite in der AO-Karte und liegt vorn im Licht des
     // Blocks, wie im Spiel ohne weiche Beleuchtung.
     let stufen = licht.map(|c| c as f32);
-    let licht = EckenLicht::new(kino, himmel.licht, licht, ecken);
+    let licht = EckenLicht::new(kino, licht, ecken);
     let waerme = kino.look().waerme(himmel.temperatur);
     let leuchten = leuchten * kino.look().leuchten;
     let karte = sprite.ao.as_deref();
-    let nass = wasser.map(|[s, b, a]| kino.licht(himmel.licht, s as f32, b as f32, a as f32));
+    let nass = wasser.map(|[s, b, a]| kino.licht(s as f32, b as f32, a as f32));
     // Das Licht des Wassers, beim ersten Pixel aus Wasser gerechnet.
     let mut wasserlicht: Option<Wasserlicht> = None;
     let linear = &*LINEAR;
@@ -1137,9 +1137,8 @@ fn blit_hdr(
                         let dahinter = ursprung + f64::from(g.tiefe) - hdr.tiefe[p];
                         let strecke = (dahinter as f32 / je_block).max(0.0);
                         let unten = Unten {
-                            licht: wasserlicht.get_or_insert_with(|| {
-                                Wasserlicht::new(kino, &himmel, stufen, wasser)
-                            }),
+                            licht: wasserlicht
+                                .get_or_insert_with(|| Wasserlicht::new(kino, stufen, wasser)),
                             sonne: sonnenlicht,
                             leuchten,
                         };
@@ -1204,19 +1203,14 @@ impl Wasserlicht {
     /// Aus Himmels-, Blocklicht und Schatten des Blocks in den Kanälen von
     /// [`kino_kanaele`] und dem des Wassers, falls es in einem anderen
     /// liegt, wie bei [`mische_hdr`].
-    fn new(
-        kino: &Kino,
-        himmel: &Himmelsfarben,
-        [sky, block, schatten]: [f32; 3],
-        wasser: Option<[u32; 3]>,
-    ) -> Wasserlicht {
+    fn new(kino: &Kino, [sky, block, schatten]: [f32; 3], wasser: Option<[u32; 3]>) -> Wasserlicht {
         // Das Wasser liegt im Licht seiner Zelle, ein gefluteter Block an der
         // Oberfläche im helleren darüber.
         let [ws, wb, wa] = wasser.map_or([sky, block, schatten], |w| w.map(|c| c as f32));
         Wasserlicht {
-            licht: kino.licht(himmel.licht, sky, block, schatten),
-            nass: kino.licht(himmel.licht, ws, wb, wa),
-            streu: kino.licht(himmel.licht, ws, 0.0, wa),
+            licht: kino.licht(sky, block, schatten),
+            nass: kino.licht(ws, wb, wa),
+            streu: kino.licht(ws, 0.0, wa),
             spiegel: kino.lichtstufe(ws, 0.0, wa),
         }
     }
@@ -1341,8 +1335,8 @@ struct EckenLicht {
 }
 
 impl EckenLicht {
-    fn new(kino: &Kino, himmel: [f32; 3], licht: [u32; 3], ecken: Option<Ecken>) -> EckenLicht {
-        let hdr = |[s, b, a]: [u32; 3]| kino.licht(himmel, s as f32, b as f32, a as f32);
+    fn new(kino: &Kino, licht: [u32; 3], ecken: Option<Ecken>) -> EckenLicht {
+        let hdr = |[s, b, a]: [u32; 3]| kino.licht(s as f32, b as f32, a as f32);
         EckenLicht {
             block: hdr(licht),
             ecken: ecken.map(|ecken| {
@@ -2712,9 +2706,10 @@ impl<'a> ChunkCache<'a> {
         })
     }
 
-    /// Die Farben des Himmels am Block `(x, y, z)` im Blick für Cinematic,
-    /// linear mit der Stärke 1: je Biom aus [`Kino::himmel`], gemischt über
-    /// dasselbe Quadrat um den Block wie die Farben des Bioms
+    /// Die Farben des Himmels für das Wasser und die Temperatur am Block
+    /// `(x, y, z)` im Blick für Cinematic, die Farben linear mit der Stärke
+    /// 1: je Biom aus [`Kino::himmel`], gemischt über dasselbe Quadrat um
+    /// den Block wie die Farben des Bioms
     /// ([`BiomeTable::blend`](super::BiomeTable::blend)), aber in linearem
     /// Licht und ungerundet.
     /// Siehe docs/renderer/cinematic.md, „Farbe des Himmels“.
@@ -3254,15 +3249,16 @@ mod tests {
             [0; AO_PLAETZE],
             [ecke(255, 153); AO_PLAETZE],
         ];
-        let licht = EckenLicht::new(&kino, [1.0; 3], [240, 0, 255], Some(ecken));
+        let licht = EckenLicht::new(&kino, [240, 0, 255], Some(ecken));
         // Seite 1, je zur Hälfte Ecke 0 und Ecke 2.
         let karte = [1 << 24 | 128 | 127 << 16, 0];
         let mitte = licht.am(Some(&karte), 0);
         let umgebung = 10.0 / 255.0;
-        // Himmel 13: getBrightness(13/15) · 3 = 1,857143.
+        // Im Blau ist das Himmelslicht der Oberwelt 1. Himmel 13:
+        // getBrightness(13/15) · 3 = 1,857143.
         let soll = (128.0 * (3.0 + umgebung) + 127.0 * (1.857_143 + umgebung) * 0.6) / 255.0;
-        assert!((mitte[0] - soll).abs() < 1e-5, "{mitte:?} statt {soll}");
-        assert!((mitte[0] / 3.0 - 0.686).abs() < 0.02, "{mitte:?}");
+        assert!((mitte[2] - soll).abs() < 1e-5, "{mitte:?} statt {soll}");
+        assert!((mitte[2] / 3.0 - 0.686).abs() < 0.02, "{mitte:?}");
         assert_eq!(licht.am(Some(&karte), 1), licht.am(None, 0));
     }
 

@@ -108,6 +108,7 @@ fn bilder_zu_cinematic() {
             None,
             Some(Look {
                 waerme: 0.0,
+                kaelte: 0.0,
                 ..LOOK
             }),
             Some(LOOK),

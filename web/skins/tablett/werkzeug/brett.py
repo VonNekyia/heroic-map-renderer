@@ -7,9 +7,10 @@ Einmal von Hand, nicht im Build, aus web/, mit Blender 5.2:
 Ohne Szene rendert es den Platzhalter, nur für Tests. Blender rendert je
 Kamera ein Bild und je Pixel, ob es nah ist (brett_blender.py). Dieses
 Skript teilt es in `<name>-fern.webp` unter den Kacheln und
-`<name>-nah.webp` darüber, verlustfrei und ohne Metadaten, prüft beide und
-schreibt `brett.json` mit Grösse und Mitte der Karte je Bild.
-Siehe docs/tablett.md, „Gerenderte Bilder“.
+`<name>-nah.webp` darüber, kein Pixel in beiden, verlustfrei und ohne
+Metadaten, prüft beide und schreibt `brett.json` mit Grösse, Mitte der
+Karte und u je Bild.
+Siehe docs/tablett-gerendert.md.
 """
 import argparse
 import json
@@ -168,17 +169,18 @@ def main():
             for name, n in fehler.items():
                 print(f'{name}: {n} Pixel verschieden')
             return 1 if any(fehler.values()) else 0
-        index = {'pxJeKante': PX, 'bilder': {}}
+        index = {}
         for spec in liste:
             name, lage = spec['name'], fertig[spec['name']]
             farbe = np.asarray(Image.open(Path(tmp) / f'{name}-farbe.png').convert('RGBA'))
             nah = np.asarray(Image.open(Path(tmp) / f'{name}-nah.png')) > 127
             pruefe(spec, lage, farbe, nah)
-            vorn = farbe.copy()
+            fern, vorn = farbe.copy(), farbe.copy()
+            fern[nah] = 0
             vorn[~nah] = 0
-            webp(farbe, args.ziel / f'{name}-fern.webp')
+            webp(fern, args.ziel / f'{name}-fern.webp')
             webp(vorn, args.ziel / f'{name}-nah.webp')
-            index['bilder'][f'{spec["kamera"]} {spec["richtung"]}'] = {
+            index[f'{spec["kamera"]} {spec["richtung"]}'] = {
                 'fern': f'{name}-fern.webp', 'nah': f'{name}-nah.webp', **lage}
             farben = len(np.unique(farbe[farbe[..., 3] == 255][:, :3], axis=0))
             groesse = sum((args.ziel / f'{name}-{e}.webp').stat().st_size for e in ('fern', 'nah'))

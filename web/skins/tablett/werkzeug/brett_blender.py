@@ -10,7 +10,7 @@ Ecken, Tisch und Kugel. Eine Szene bringt das Gelenk `Blick`, die Kamera
 Quadrat von 1 BU auf Z = 0 um den Ursprung, X Osten, Y Norden. Je Kamera
 schreibt es `<name>-farbe.png` und die Masken `<name>-nah.png` und
 `<name>-vorn.png`, am Ende `fertig.json` mit Grösse und Mitte der Karte je
-Bild. Siehe docs/tablett.md, „Gerenderte Bilder“.
+Bild. Siehe docs/tablett-gerendert.md, „Rendern“.
 """
 import json
 import math
@@ -68,7 +68,8 @@ def bild(p, x, y, z):
 
 def stelle_kamera(spec):
     """Stellt Gelenk und Kamera für eine Kamera und Richtung. Gibt die Grösse
-    des Bilds und die Mitte der Karte darin zurück, auf einer Pixelecke."""
+    des Bilds, die Mitte der Karte darin, auf einer Pixelecke, und h zurück,
+    wie u der Projektion in Pixeln je BU."""
     p = projektion(spec['art'], spec.get('w', 0), spec.get('h', 0))
     h, a, b, genordet = p
     # Pixel je BU senkrecht im Bild, quer zur Blickachse.
@@ -118,7 +119,7 @@ def stelle_kamera(spec):
         sz.render.pixel_aspect_x, sz.render.pixel_aspect_y = 1.0, PX / senkrecht
     else:
         sz.render.pixel_aspect_x, sz.render.pixel_aspect_y = senkrecht / PX, 1.0
-    return {'groesse': [breite, hoehe], 'mitte': [breite // 2 - dx, hoehe // 2 - dy]}
+    return {'groesse': [breite, hoehe], 'mitte': [breite // 2 - dx, hoehe // 2 - dy], 'u': h}
 
 
 def einstellungen(sz):

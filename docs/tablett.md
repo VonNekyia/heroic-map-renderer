@@ -1,6 +1,6 @@
 ---
 title: Tablett
-description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet in zwei Bilder um die Kacheln, mit einer Gesamtansicht wie in der Vorlage. Rahmen mit runden Ecken, Tisch, Lilien und Gegenstände sind Bilder aus der Vorlage, entzerrt oder freigestellt und geglättet gelegt; Tisch und Gegenstände liegen im Bezugsrahmen wie in der Vorlage, der Tisch setzt sich gespiegelt fort, und auf zwei Buchrücken steht Text aus dem Build; dazu Masse, Licht und die Regel, was vor und was hinter der Welt liegt.
+description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet in zwei Bilder um die Kacheln, mit einer Gesamtansicht wie in der Vorlage. Rahmen mit runden Ecken, Tisch, Lilien und Gegenstände sind Bilder aus der Vorlage, entzerrt oder freigestellt und geglättet gelegt; Tisch und Gegenstände liegen im Bezugsrahmen wie in der Vorlage, der Tisch setzt sich gespiegelt fort, und auf zwei Buchrücken steht Text aus dem Build; dazu Masse, Licht, die Regel, was vor und was hinter der Welt liegt, und die UI aus Pergament, Holz und Messing neben den Gegenständen.
 code:
   - web/skins/tablett/index.ts
   - web/skins/tablett/tablett.ts
@@ -42,7 +42,7 @@ Gegenstände im Bezugsrahmen
   die Konsole sagt `Tablett: area ist kein Quadrat, das Tablett bleibt aus.`
   Ebenso bei unbrauchbaren Werten. Fehlen `seaLevel` oder `area`, bleibt es
   ohne Meldung aus.
-- **Schnittstelle:** geschrieben für `VERSION` 1; bei einer anderen bleibt
+- **Schnittstelle:** geschrieben für `VERSION` 2; bei einer anderen bleibt
   es aus und sagt es in der Konsole.
 
 ## Zeichnen
@@ -336,6 +336,47 @@ verdecken kann:
 - **Ohne Nähte:** Jedes Bild reicht 0,75 px über seine Fläche. Was nah ist,
   liegt auch im fernen Bild, ausser der Kopie des Tischs.
 
+## UI
+
+Mit dem Skin liegt die UI auf Pergament, Holz und Messing, nach dem
+Nachtrag des Maintainers (#112, issuecomment-5969255392). Der Skin setzt
+nur die Variablen der Grundkarte und ergänzt Regeln an ihren Klassen, in
+[`tablett.css`](../web/skins/tablett/tablett.css), ohne Bilddatei; wie das
+geht: [Frontend](frontend.md), „Skins“. Warum so:
+[0072](entscheidungen/0072-ui-in-farben-der-vorlage.md).
+
+- **Farben aus der Vorlage,** je Stelle der Median, gemessen am 04.10.:
+
+  | Wofür | Farbe | Stelle in der Vorlage |
+  |---|---|---|
+  | Grund von Leiste, Stand und Kompass | `#cc8d51` | Pergament im Licht |
+  | Schrift darauf, Rand um den gehaltenen Block und die Eingabe | `#21150b` | Tinte der Skizze |
+  | Knöpfe und Umschalter, unter Zeiger oder Fokus | `#3a2112`, `#55371c` | Holz der Wand, Median und oberes Viertel |
+  | Schrift darauf | `#ebb682` | Messing, das hellste Zehntel des Bands |
+  | Linien, Ringe, Schrift gesperrter Knöpfe | `#894b2b` | Messing des Bands |
+  | Rand einer Eingabe, die nicht taugt | `#5e2713` | Rot der Bücher |
+  | hinter Tisch und Karte | `#25140b` | Rand der Vorlage |
+
+- **Knöpfe und Umschalter:** Holz in einem Rand aus Messing, 3 px, als
+  `border-image` ein Verlauf von hellem `#ebb682` über `#894b2b` zu dunklem
+  Messing `#4f210b`, im Licht von oben links. Eckig: Leaflet rundet den
+  ersten und letzten Knopf sonst selbst. Ein gesperrter Knopf, etwa − in der
+  Gesamtansicht, bleibt Holz.
+- **Kompass:** Pergament mit dem Pfeil in Tinte, in einem Ring aus Messing.
+  Der Ring ist einfarbig, denn der Kompass dreht sich mit Norden.
+- **Leiste und Stand:** Pergament mit einer Linie aus Messing, auch zwischen
+  den Stücken der Leiste. Schrift sonst Georgia; die Koordinaten bleiben in
+  fester Breite.
+- **Fokus** per Tastatur: 2 px innen auf dem eigenen Grund, Messing auf
+  Holz, Tinte auf Pergament. Nur an der UI; die Karte selbst behält den
+  Fokus des Browsers, auf dem dunklen Tisch sähe man Tinte nicht.
+- **Kontrast** nach WCAG AA, geprüft in `tests/karte.spec.ts`: Tinte auf
+  Pergament 6,4:1, Messing auf Holz 8,2:1, unter Zeiger oder Fokus 5,9:1.
+  Der Rand um eine Eingabe, die nicht taugt, 4,2:1 gegen das Pergament.
+  Gesperrte Knöpfe nimmt WCAG aus; ihr Messing hat 2,2:1.
+- **Ohne Tablett,** etwa bei einem `area`, das kein Quadrat ist, bleibt auch
+  die UI, wie sie ohne Skin ist: Die Klasse am Container fehlt dann.
+
 ## Was bleibt eine Näherung
 
 - **Die Kamera der Vorlage** ist nicht 8:5: Ihre Karte hat das
@@ -400,6 +441,11 @@ verdecken kann:
   3 × 3 Pixeln neben der Karte Grund zeigt oder durchsichtig ist; dass auf
   den Buchrücken der Text aus dem Build steht, den `playwright.config.ts`
   setzt; und dass ein `area`, das kein Quadrat ist, kein Tablett zeichnet.
+  Zur UI: Kontrast nach WCAG AA für Stand, Koordinaten, Kompass, Knöpfe und
+  Umschalter; der gesperrte Knopf aus Holz; der Rand aus Messing als
+  Verlauf, eckig; per Tastatur der Fokus innen, 2 px, mit 3:1 gegen den
+  eigenen Grund, an einem Knopf und an der Leiste; in der Gesamtansicht
+  deckt die UI keinen Gegenstand, in Fenstern von Telefonen bis 4K.
 - [`tests/auslagern.spec.ts`](../web/skins/tablett/tests/auslagern.spec.ts)
   baut die Karte mit einer Kopie des Skins aus einem Ordner ausserhalb des
   Repositorys.

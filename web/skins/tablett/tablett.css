@@ -8,3 +8,68 @@
 .skin-tablett.tablett-gebrochen .leaflet-tile {
   image-rendering: auto;
 }
+
+/* Die UI über die Variablen der Grundkarte, in Farben aus der Vorlage:
+   Leiste, Stand und Kompass auf Pergament mit Tinte, Knöpfe und Umschalter
+   aus Holz in Messing. Siehe docs/tablett.md, „UI“. */
+.skin-tablett {
+  --karte-grund: #25140b;
+  --ui-grund: #cc8d51;
+  --ui-schrift: #21150b;
+  --ui-knopf: #3a2112;
+  --ui-knopf-darueber: #55371c;
+  --ui-knopf-aus: #3a2112;
+  --ui-schrift-aus: #894b2b;
+  --ui-trenner: #894b2b;
+  --ui-rand: #894b2b;
+  --ui-radius: 0;
+  --ui-markiert: #21150b;
+  --ui-falsch: #5e2713;
+  --ui-schrift-text: Georgia, 'Times New Roman', serif;
+}
+
+/* Auf Holz schreibt und markiert helles Messing. Der Rand ist ein Verlauf
+   von hellem zu dunklem Messing, im Licht von oben links. */
+.skin-tablett .leaflet-bar,
+.skin-tablett .baeume {
+  --ui-schrift: #ebb682;
+  --ui-markiert: #ebb682;
+  border: 3px solid var(--ui-rand);
+  border-image: linear-gradient(135deg, #ebb682, #894b2b 50%, #4f210b) 1;
+}
+
+/* Leaflet rundet den ersten und letzten Knopf selbst; im eckigen Rand bliebe
+   dort eine Lücke. */
+.skin-tablett .leaflet-bar a:first-child,
+.skin-tablett .leaflet-bar a:last-child {
+  border-radius: 0;
+}
+
+.skin-tablett .baeume option {
+  background: var(--ui-knopf);
+  color: var(--ui-schrift);
+}
+
+/* Der Kompass: Pergament in einem Ring aus Messing. Einfarbig, denn er dreht
+   sich mit Norden. */
+.skin-tablett .kompass {
+  border: 3px solid var(--ui-rand);
+}
+
+/* Zwischen und um die Stücke der Leiste eine Linie aus Messing. */
+.skin-tablett .leiste {
+  background: var(--ui-trenner);
+}
+
+.skin-tablett .leiste,
+.skin-tablett .stand {
+  border: 1px solid var(--ui-trenner);
+}
+
+/* Der Fokus innen auf dem eigenen Grund: Tinte auf Pergament, Messing auf
+   Holz. Nur an der UI; die Karte selbst behält den Fokus des Browsers. */
+.skin-tablett .leaflet-control:focus-visible,
+.skin-tablett .leaflet-control :focus-visible {
+  outline: 2px solid var(--ui-markiert);
+  outline-offset: -2px;
+}

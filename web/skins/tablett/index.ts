@@ -13,7 +13,7 @@ import { type Bilder, ebenen as malen } from './zeichnen';
 import './tablett.css';
 
 /** Für diese Version der Schnittstelle ist der Skin geschrieben. */
-const API = 1;
+const API = 2;
 
 /** Wie weit die Bilder je Seite über das Fenster reichen, als Anteil des Fensters. */
 const UEBERSTAND = 0.25;

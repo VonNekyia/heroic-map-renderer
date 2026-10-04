@@ -1,3 +1,32 @@
+/* Die UI der Karte in Variablen: Ein Skin setzt sie am Container der Karte,
+   hier stehen die Vorgaben. Welche es gibt, nennt `UiVariable` in
+   skin-api.ts. Siehe docs/frontend.md, „Skins“. */
+:root {
+  --karte-grund: #12161c;
+  /* Leiste, Stand und Kompass. */
+  --ui-grund: rgb(255 255 255 / 0.8);
+  --ui-schrift: #000;
+  /* Die Knöpfe für Zoom und ganze Karte, unter Zeiger oder Fokus, gesperrt
+     mit ihrer Schrift, die Linie zwischen ihnen, ihr Rand und Radius. Den
+     Rand hat Leaflet auf Touch-Geräten, und dazu zählt es jeden Browser mit
+     Pointer Events; einen Schatten hat es dort nicht. */
+  --ui-knopf: #fff;
+  --ui-knopf-darueber: #f4f4f4;
+  --ui-knopf-aus: #f4f4f4;
+  --ui-schrift-aus: #bbb;
+  --ui-trenner: #ccc;
+  --ui-rand: rgb(0 0 0 / 0.2);
+  --ui-radius: 4px;
+  /* Der Rahmen um einen gehaltenen Block, eine Eingabe, die nicht taugt. */
+  --ui-markiert: #000;
+  --ui-falsch: #c00;
+  --ui-falsch-grund: #fdd;
+  /* Schrift der Koordinaten, Schrift sonst, Abstand innen. */
+  --ui-schrift-zahlen: ui-monospace, monospace;
+  --ui-schrift-text: system-ui, sans-serif;
+  --ui-abstand: 0.5em;
+}
+
 html,
 body {
   margin: 0;
@@ -6,7 +35,33 @@ body {
 
 #map {
   height: 100%;
-  background: #12161c;
+  background: var(--karte-grund);
+}
+
+/* Die Knöpfe von Leaflet in den Farben der UI. */
+.leaflet-bar {
+  border-radius: var(--ui-radius);
+}
+
+.leaflet-bar a {
+  background-color: var(--ui-knopf);
+  border-bottom-color: var(--ui-trenner);
+  color: var(--ui-schrift);
+}
+
+.leaflet-bar a:hover,
+.leaflet-bar a:focus {
+  background-color: var(--ui-knopf-darueber);
+}
+
+/* Nach dem Zeiger, damit ein gesperrter Knopf gesperrt aussieht. */
+.leaflet-bar a.leaflet-disabled {
+  background-color: var(--ui-knopf-aus);
+  color: var(--ui-schrift-aus);
+}
+
+.leaflet-touch .leaflet-bar {
+  border-color: var(--ui-rand);
 }
 
 /* Die Kacheln sind Pixelkunst. Jenseits der feinsten gerenderten Stufe
@@ -22,15 +77,15 @@ body {
   display: flex;
   align-items: stretch;
   gap: 2px;
-  font: 12px/1.6 ui-monospace, monospace;
+  font: 12px/1.6 var(--ui-schrift-zahlen);
 }
 
 .koordinaten,
 .kopieren,
 .meldung {
-  padding: 0 0.5em;
-  background: rgba(255, 255, 255, 0.8);
-  color: #000;
+  padding: 0 var(--ui-abstand);
+  background: var(--ui-grund);
+  color: var(--ui-schrift);
 }
 
 .koordinaten {
@@ -39,7 +94,7 @@ body {
 
 /* Ein Klick hält den Block fest; die Anzeige folgt dann nicht der Maus. */
 .koordinaten.gehalten {
-  outline: 2px solid #000;
+  outline: 2px solid var(--ui-markiert);
 }
 
 /* Ein Wert der Anzeige; ein Klick macht ihn editierbar. */
@@ -55,14 +110,14 @@ body {
 
 .feld {
   padding: 0;
-  border: 1px solid #000;
+  border: 1px solid var(--ui-markiert);
   font: inherit;
 }
 
 /* Eine Eingabe, die nicht taugt. */
 .feld.falsch {
-  outline: 2px solid #c00;
-  background: #fdd;
+  outline: 2px solid var(--ui-falsch);
+  background: var(--ui-falsch-grund);
 }
 
 .kopieren {
@@ -112,10 +167,10 @@ body {
 
 /* Unten rechts: wann der letzte Lauf map.json geschrieben hat. */
 .stand {
-  padding: 0 0.5em;
-  background: rgba(255, 255, 255, 0.8);
-  color: #000;
-  font: 12px/1.6 system-ui, sans-serif;
+  padding: 0 var(--ui-abstand);
+  background: var(--ui-grund);
+  color: var(--ui-schrift);
+  font: 12px/1.6 var(--ui-schrift-text);
 }
 
 /* Der Pfeil nach Norden; die Drehung setzt main.ts. */
@@ -123,12 +178,15 @@ body {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.8);
-  font: bold 18px/30px system-ui, sans-serif;
+  background: var(--ui-grund);
+  color: var(--ui-schrift);
+  font: bold 18px/30px var(--ui-schrift-text);
   text-align: center;
 }
 
 /* Der Umschalter zwischen den Bäumen aus trees.json. */
 .baeume {
-  font: 13px system-ui, sans-serif;
+  background: var(--ui-knopf);
+  color: var(--ui-schrift);
+  font: 13px var(--ui-schrift-text);
 }

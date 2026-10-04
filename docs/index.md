@@ -45,7 +45,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 ## Frontend
 
 - [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Skins beim Build.
-- [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet, mit einer Gesamtansicht wie in der Vorlage, Masse nach der Vorlage, Rahmen, Tisch, Lilien und Gegenstände als Bilder aus der Vorlage, geglättet gelegt, Licht, was vor und was hinter der Welt liegt, was eine Näherung bleibt.
+- [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet, mit einer Gesamtansicht wie in der Vorlage, Masse nach der Vorlage, Rahmen, Tisch, Lilien und Gegenstände als Bilder aus der Vorlage, geglättet gelegt, Licht, was vor und was hinter der Welt liegt, die UI aus Pergament, Holz und Messing, was eine Näherung bleibt.
 
 ## Entwicklung
 
@@ -127,6 +127,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0069](entscheidungen/0069-ein-himmelslicht-und-kaelte.md): Cinematic beleuchtet in jedem Biom mit dem Himmelslicht der Oberwelt, die Farben des Himmels je Biom bleiben dem Wasser; die Wärme enger und mit einer kalten Seite; löst 0058 darin ab.
 - [0070](entscheidungen/0070-bilder-aus-der-vorlage.md): Rahmen, Tisch, Lilien und Gegenstände des Tabletts als Ausschnitte der Vorlage, entzerrt oder freigestellt, geglättet gelegt; je Seite ein Streifen über die ganze Länge, der Tisch ein Bild der ganzen Platte statt Kacheln; löst in 0066 das Erzeugen und in 0067 das Texelgitter ab.
 - [0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md): Tisch und Gegenstände kommen mit der Umkehrung der Projektion im Bezugsrahmen, 8:5 in der Gesamtansicht im Fenster der Vorlage, auf die Platte und liegen dort wie in ihr; der Tisch setzt sich gespiegelt fort; löst in 0070 die Homographie für den Tisch und den dunklen Rand ab.
+- [0072](entscheidungen/0072-ui-in-farben-der-vorlage.md): UI des Tabletts auf Pergament, Holz und Messing in Farben aus der Vorlage, über die CSS-Variablen der Grundkarte, der Rand aus Messing ein Verlauf, ohne Bilddatei, in der Gesamtansicht neben den Gegenständen; kein erzeugtes Bild, kein Ausschnitt der Vorlage, nicht alles auf Holz.
 
 ## Messungen
 

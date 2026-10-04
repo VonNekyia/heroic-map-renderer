@@ -319,11 +319,11 @@ Ortszeit des Browsers, etwa `Stand: 02.10.2026, 21:40`.
 
 ## Skins
 
-Ein Skin gestaltet um die Karte, ohne ihre Logik zu kennen: heute Rahmen und
-Tisch, später auch die UI. Er ist optional; der Betreiber wählt ihn beim
-Build. Koordinaten, Kopieren, Sprung, Kompass, Umschalter und Stand wissen
-nichts von ihm. Warum so: [0063](entscheidungen/0063-tablett-als-skin.md).
-Der einzige Skin bisher: [Tablett](tablett.md).
+Ein Skin gestaltet um die Karte und ihre UI, ohne ihre Logik zu kennen. Er
+ist optional; der Betreiber wählt ihn beim Build. Koordinaten, Kopieren,
+Sprung, Kompass, Umschalter und Stand wissen nichts von ihm. Warum so:
+[0063](entscheidungen/0063-tablett-als-skin.md). Der einzige Skin bisher:
+[Tablett](tablett.md).
 
 - **Schalter:** `SKIN` nennt das Modul des Skins, einen Pfad ab `web/` oder
   ein Paket, etwa `SKIN=./skins/tablett npm run build`. Das Plugin `skin` in
@@ -343,8 +343,20 @@ Der einzige Skin bisher: [Tablett](tablett.md).
     Grenzen, auf die die erste Ansicht und der Knopf ⌂ einpassen und nach
     denen sich die kleinste Stufe der Kacheln richtet.
   - Wer die Schnittstelle ändert, hebt `VERSION`. Ein Skin vergleicht sie
-    mit `kontext.version` und bleibt bei einer anderen aus.
-  - Die CSS-Variablen der UI kommen mit der PR für die UI dazu (#112).
+    mit `kontext.version` und bleibt bei einer anderen aus. Seit den
+    Variablen der UI ist sie 2.
+- **UI:** Farben, Rahmen, Hintergründe, Schrift und Abstände der UI stehen
+  in CSS-Variablen; ihre Namen nennt `UiVariable` in `skin-api.ts`, ihre
+  Vorgaben `:root` in [`web/src/style.css`](../web/src/style.css), mit den
+  Werten von vor den Variablen. Auch die Knöpfe von Leaflet nehmen sie,
+  gesperrt wie offen.
+  - Ein Skin setzt sie in seinem Stylesheet unter seiner Klasse am
+    Container. Was Variablen nicht fassen, etwa Rand und Bilder, hängt er an
+    die Klassen der UI: `leaflet-bar` mit den Knöpfen für Zoom und ganze
+    Karte, `kompass`, `baeume`, `leiste` mit den Koordinaten und `stand`.
+  - Abnahme: Kontrast nach WCAG AA, Ziele für Finger ab 24 px, sichtbarer
+    Fokus, Tastatur wie ohne Skin. Die Smoke-Tests laufen mit und ohne
+    Skin; ohne prüfen sie die Vorgaben.
 - **Grenze,** geprüft von ESLint (`no-restricted-imports` in
   [`web/eslint.config.js`](../web/eslint.config.js)):
   - Ein Skin importiert nur aus seinem Ordner, Leaflet und

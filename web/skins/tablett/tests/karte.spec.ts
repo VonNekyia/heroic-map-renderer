@@ -421,3 +421,61 @@ test('ein area, das kein Quadrat ist, zeichnet kein Tablett und sagt es in der K
   expect(meldungen).toContain('Tablett: area ist kein Quadrat, das Tablett bleibt aus.');
   await expect(page.locator('.leaflet-control-zoom-out')).not.toHaveClass(/leaflet-disabled/);
 });
+
+/** Die relative Helligkeit einer Farbe nach WCAG 2. */
+function helligkeit([r, g, b]: number[]): number {
+  const linear = (c: number) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * linear(r!) + 0.7152 * linear(g!) + 0.0722 * linear(b!);
+}
+
+/** Der Kontrast zweier Farben nach WCAG 2, von 1 bis 21. */
+function kontrast(a: number[], b: number[]): number {
+  const [hell, dunkel] = [helligkeit(a), helligkeit(b)].sort((x, y) => y - x);
+  return (hell! + 0.05) / (dunkel! + 0.05);
+}
+
+/** Die Kanäle einer Farbe aus `getComputedStyle`. */
+const kanaele = (farbe: string) => farbe.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+
+/** Ein Wert aus `getComputedStyle` des ersten Elements. */
+const stil = (page: Page, selector: string, eigenschaft: string) =>
+  page.locator(selector).first().evaluate((element, name) => getComputedStyle(element).getPropertyValue(name), eigenschaft);
+
+test('die UI auf Pergament und Holz hält den Kontrast nach WCAG AA, auch der Umschalter; gesperrt bleibt ein Knopf aus Holz', async ({
+  page,
+}) => {
+  await welt(page, QUADRAT);
+  await page.goto(DEMO);
+  await expect(page.locator('#map')).toHaveClass(/skin-tablett/);
+  await expect(page.locator('.stand')).toBeVisible();
+  // Den Umschalter gibt es nur mit zwei Bäumen; seine Regeln hängen an der Klasse.
+  await page.locator('#map').evaluate((karte) => karte.append(Object.assign(document.createElement('select'), { className: 'baeume' })));
+  const karte = (await page.locator('#map').boundingBox())!;
+  await page.mouse.move(karte.x + karte.width / 2, karte.y + karte.height / 2);
+  await expect(page.locator('.koordinaten')).toContainText('X');
+  for (const selector of ['.stand', '.koordinaten', '.kompass', '.leaflet-control-zoom-in', '.baeume']) {
+    const [vorn, grund] = [await stil(page, selector, 'color'), await stil(page, selector, 'background-color')];
+    expect(kontrast(kanaele(vorn), kanaele(grund)), `${selector}: ${vorn} auf ${grund}`).toBeGreaterThanOrEqual(4.5);
+  }
+  // In der Gesamtansicht ist − gesperrt: Holz wie die anderen, nicht das Grau von Leaflet.
+  await expect(page.locator('.leaflet-control-zoom-out')).toHaveClass(/leaflet-disabled/);
+  expect(await stil(page, '.leaflet-control-zoom-out', 'background-color')).toBe(await stil(page, '.leaflet-control-zoom-in', 'background-color'));
+  // Der Rand aus Messing ist ein Verlauf, eckig wie die Knöpfe darin.
+  expect(await stil(page, '.leaflet-bar', 'border-image-source')).toMatch(/^linear-gradient\(/);
+  expect(await stil(page, '.leaflet-control-zoom-in', 'border-top-left-radius')).toBe('0px');
+});
+
+test('per Tastatur liegt der Fokus innen: Messing auf Holz, Tinte auf Pergament', async ({ page }) => {
+  await welt(page, QUADRAT);
+  await page.goto(DEMO);
+  await expect(page.locator('#map')).toHaveClass(/skin-tablett/);
+  for (const selector of ['.leaflet-control-zoom-in', '.kopieren']) {
+    const ziel = page.locator(selector);
+    for (let i = 0; i < 20 && !(await ziel.evaluate((e) => e === document.activeElement)); i++) await page.keyboard.press('Tab');
+    await expect(ziel).toBeFocused();
+    const rand = ['outline-style', 'outline-width', 'outline-offset'];
+    expect(await Promise.all(rand.map((name) => stil(page, selector, name)))).toEqual(['solid', '2px', '-2px']);
+    const [farbe, grund] = [await stil(page, selector, 'outline-color'), await stil(page, selector, 'background-color')];
+    expect(kontrast(kanaele(farbe), kanaele(grund)), `${selector}: ${farbe} auf ${grund}`).toBeGreaterThanOrEqual(3);
+  }
+});

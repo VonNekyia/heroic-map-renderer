@@ -139,6 +139,12 @@ export const GEGENSTAENDE: Gegenstand[] = [
 ];
 
 /**
+ * Das Pergament mit der Skizze links, flach im Bild des Tischs: links,
+ * oben, rechts und unten in Pixeln der Vorlage. Die UI deckt es nicht.
+ */
+export const PERGAMENT: [number, number, number, number] = [0, 258, 172, 428];
+
+/**
  * Die Lilien, je Ecke ihre aus der Vorlage mit dem Deckel ihres Pfeilers;
  * ihr Fuss ist die Mitte des Deckels.
  */

@@ -7,7 +7,32 @@
 import type L from 'leaflet';
 
 /** Die Version dieser Schnittstelle; ein Skin vergleicht sie mit `Kontext.version`. */
-export const VERSION = 1;
+export const VERSION = 2;
+
+/**
+ * Die CSS-Variablen der UI, die ein Skin in seinem Stylesheet am Container
+ * setzt; ihre Vorgaben und was sie färben, stehen in `web/src/style.css`.
+ * Bilder hängt er an die Klassen der UI: `leaflet-bar` mit den Knöpfen für
+ * Zoom und ganze Karte, `kompass`, `baeume`, `leiste` mit den Koordinaten
+ * und `stand`.
+ */
+export type UiVariable =
+  | '--karte-grund'
+  | '--ui-grund'
+  | '--ui-schrift'
+  | '--ui-knopf'
+  | '--ui-knopf-darueber'
+  | '--ui-knopf-aus'
+  | '--ui-schrift-aus'
+  | '--ui-trenner'
+  | '--ui-rand'
+  | '--ui-radius'
+  | '--ui-markiert'
+  | '--ui-falsch'
+  | '--ui-falsch-grund'
+  | '--ui-schrift-zahlen'
+  | '--ui-schrift-text'
+  | '--ui-abstand';
 
 /**
  * Die Zahlen der Projektion in Pixeln der feinsten Stufe, wie `projection`

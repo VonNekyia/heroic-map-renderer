@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 
 /** Ein kleiner Kachelbaum, der mit im Repository liegt. */
@@ -94,6 +95,27 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
   // Ohne Höhen in map.json keine Koordinaten, ohne seaLevel und area kein Tablett.
   await expect(page.locator('.koordinaten')).toHaveCount(0);
   await expect(page.locator('canvas.tablett')).toHaveCount(0);
+});
+
+test('ohne Skin hat die UI die Farben von heute, aus den Variablen der Grundkarte', { tag: '@ohne-skin' }, async ({ page }) => {
+  await page.goto(DEMO);
+  await expect(page.locator('.stand')).toBeVisible();
+  const stil = (selector: string, eigenschaft: string) =>
+    page.locator(selector).first().evaluate((element, name) => getComputedStyle(element).getPropertyValue(name), eigenschaft);
+  expect(await stil('#map', 'background-color')).toBe('rgb(18, 22, 28)');
+  expect(await stil('.leaflet-control-zoom-in', 'background-color')).toBe('rgb(255, 255, 255)');
+  expect(await stil('.leaflet-control-zoom-in', 'color')).toBe('rgb(0, 0, 0)');
+  expect(await stil('.leaflet-bar', 'border-top-color')).toBe('rgba(0, 0, 0, 0.2)');
+  expect(await stil('.stand', 'background-color')).toBe('rgba(255, 255, 255, 0.8)');
+  expect(await stil('.kompass', 'background-color')).toBe('rgba(255, 255, 255, 0.8)');
+});
+
+test('die Variablen der UI in skin-api.ts sind die aus style.css', { tag: '@ohne-skin' }, () => {
+  const text = (datei: string) => readFileSync(new URL(`../src/${datei}`, import.meta.url), 'utf8');
+  const namen = (quelle: string | undefined, muster: RegExp) => [...(quelle ?? '').matchAll(muster)].map((m) => m[1]).sort();
+  const css = namen(/:root\s*\{([^}]*)\}/.exec(text('style.css'))?.[1], /(--[\w-]+):/g);
+  expect(css.length).toBeGreaterThan(10);
+  expect(namen(/type UiVariable =([^;]*);/.exec(text('skin-api.ts'))?.[1], /'(--[\w-]+)'/g)).toEqual(css);
 });
 
 test('ohne Skin beim Build kein Tablett und kein Code eines Skins, auch mit quadratischem area', {

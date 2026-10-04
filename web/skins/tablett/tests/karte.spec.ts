@@ -3,7 +3,8 @@ import type { Rechteck } from 'heroic-map-renderer/skin-api';
 import { readdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { kamera, projiziere } from '../../../tests/kamera';
-import { gesamtstufe, grenzen, GRUND } from '../tablett';
+import { PERGAMENT, TISCH_RAND, VORLAGE } from '../bilder';
+import { type Figur, type Flaeche, gesamtmitte, gesamtstufe, grenzen, GRUND, tablett } from '../tablett';
 
 /** Der Demobaum der Grundkarte: 2:1, scale 16, feinste Stufe 2. */
 const DEMO = '/?tiles=/tiles-demo';
@@ -451,4 +452,134 @@ test('ein area, das kein Quadrat ist, zeichnet kein Tablett und sagt es in der K
   await expect(page.locator('canvas.tablett')).toHaveCount(0);
   expect(meldungen).toContain('Tablett: area ist kein Quadrat, das Tablett bleibt aus.');
   await expect(page.locator('.leaflet-control-zoom-out')).not.toHaveClass(/leaflet-disabled/);
+});
+
+/** Die relative Helligkeit einer Farbe nach WCAG 2. */
+function helligkeit([r, g, b]: number[]): number {
+  const linear = (c: number) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * linear(r!) + 0.7152 * linear(g!) + 0.0722 * linear(b!);
+}
+
+/** Der Kontrast zweier Farben nach WCAG 2, von 1 bis 21. */
+function kontrast(a: number[], b: number[]): number {
+  const [hell, dunkel] = [helligkeit(a), helligkeit(b)].sort((x, y) => y - x);
+  return (hell! + 0.05) / (dunkel! + 0.05);
+}
+
+/** Die Kanäle einer Farbe aus `getComputedStyle`. */
+const kanaele = (farbe: string) => farbe.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+
+/** Ein Wert aus `getComputedStyle` des ersten Elements. */
+const stil = (page: Page, selector: string, eigenschaft: string) =>
+  page.locator(selector).first().evaluate((element, name) => getComputedStyle(element).getPropertyValue(name), eigenschaft);
+
+test('die UI auf Pergament und Holz hält den Kontrast nach WCAG AA, auch der Umschalter; gesperrt bleibt ein Knopf aus Holz', async ({
+  page,
+}) => {
+  await welt(page, QUADRAT);
+  await page.goto(DEMO);
+  await expect(page.locator('#map')).toHaveClass(/skin-tablett/);
+  await expect(page.locator('.stand')).toBeVisible();
+  // Den Umschalter gibt es nur mit zwei Bäumen; seine Regeln hängen an der Klasse.
+  await page.locator('#map').evaluate((karte) => karte.append(Object.assign(document.createElement('select'), { className: 'baeume' })));
+  const karte = (await page.locator('#map').boundingBox())!;
+  await page.mouse.move(karte.x + karte.width / 2, karte.y + karte.height / 2);
+  await expect(page.locator('.koordinaten')).toContainText('X');
+  for (const selector of ['.stand', '.koordinaten', '.kompass', '.leaflet-control-zoom-in', '.baeume']) {
+    const [vorn, grund] = [await stil(page, selector, 'color'), await stil(page, selector, 'background-color')];
+    expect(kontrast(kanaele(vorn), kanaele(grund)), `${selector}: ${vorn} auf ${grund}`).toBeGreaterThanOrEqual(4.5);
+  }
+  // In der Gesamtansicht ist − gesperrt: Holz wie die anderen, nicht das Grau von Leaflet.
+  await expect(page.locator('.leaflet-control-zoom-out')).toHaveClass(/leaflet-disabled/);
+  expect(await stil(page, '.leaflet-control-zoom-out', 'background-color')).toBe(await stil(page, '.leaflet-control-zoom-in', 'background-color'));
+  // Der Rand aus Messing ist ein Verlauf, eckig wie die Knöpfe darin.
+  expect(await stil(page, '.leaflet-bar', 'border-image-source')).toMatch(/^linear-gradient\(/);
+  expect(await stil(page, '.leaflet-control-zoom-in', 'border-top-left-radius')).toBe('0px');
+});
+
+test('per Tastatur liegt der Fokus innen: Messing auf Holz, Tinte auf Pergament', async ({ page }) => {
+  await welt(page, QUADRAT);
+  await page.goto(DEMO);
+  await expect(page.locator('#map')).toHaveClass(/skin-tablett/);
+  for (const selector of ['.leaflet-control-zoom-in', '.kopieren']) {
+    const ziel = page.locator(selector);
+    for (let i = 0; i < 20 && !(await ziel.evaluate((e) => e === document.activeElement)); i++) await page.keyboard.press('Tab');
+    await expect(ziel).toBeFocused();
+    const rand = ['outline-style', 'outline-width', 'outline-offset'];
+    expect(await Promise.all(rand.map((name) => stil(page, selector, name)))).toEqual(['solid', '2px', '-2px']);
+    const [farbe, grund] = [await stil(page, selector, 'outline-color'), await stil(page, selector, 'background-color')];
+    expect(kontrast(kanaele(farbe), kanaele(grund)), `${selector}: ${farbe} auf ${grund}`).toBeGreaterThanOrEqual(3);
+  }
+});
+
+test('in der Gesamtansicht deckt die UI keinen Gegenstand und keine Lilie, in 8:5 von Telefonen bis 4K', async ({ page }) => {
+  const p = kamera('8:5', 16);
+  const blick = { projektion: p, k: 0, projiziere: (x: number, y: number, z: number) => projiziere(x, y, z, p) };
+  await welt(page, { ...QUADRAT, projection: p, direction: 'se' });
+  for (const [breite, hoehe] of [
+    [1491, 1055],
+    [1680, 1050],
+    [1920, 1080],
+    [1280, 720],
+    [3840, 2160],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width: breite, height: hoehe });
+    await page.goto(DEMO);
+    await expect.poll(() => gezeichnet(page)).toBe(true);
+    // Mit Koordinaten ist die Leiste so breit wie im Gebrauch.
+    await page.mouse.move(breite / 2, hoehe / 2);
+    await expect(page.locator('.koordinaten')).toContainText('X');
+    // Gegenstände und Lilien, wie der Skin sie in der Gesamtansicht legt.
+    const fit = gesamtstufe(grenzen(QUADRAT.area, QUADRAT.seaLevel, blick), 2, breite, hoehe);
+    const s = 2 ** (fit - 2);
+    const [mx, my] = gesamtmitte(QUADRAT.area, QUADRAT.seaLevel, blick, breite / s, hoehe / s);
+    const imFenster = (px: number, py: number) => [(px - mx) * s + breite / 2, (py - my) * s + hoehe / 2];
+    const teile = tablett(QUADRAT.area, QUADRAT.seaLevel, -64, blick);
+    const dinge = teile
+      .filter((t): t is Figur => t.form === 'figur')
+      .map(({ bild, fuss, anker, mass, groesse }) => {
+        const [l, o] = imFenster(fuss[0] - mass * anker[0], fuss[1] - mass * anker[1]);
+        return { bild, l: l!, o: o!, r: l! + mass * groesse[0] * s, u: o! + mass * groesse[1] * s };
+      });
+    // Das Pergament liegt flach im Bild des Tischs, dort, wo dieses es zeigt.
+    const tisch = teile.find((t): t is Flaeche => t.form === 'flaeche' && t.bild === 'tisch')!;
+    const imTisch = (px: number, py: number) => {
+      const [u, v] = [(px + TISCH_RAND) / (VORLAGE[0] + 2 * TISCH_RAND), (py + TISCH_RAND) / (VORLAGE[1] + 2 * TISCH_RAND)];
+      return imFenster(tisch.o[0] + u * tisch.a[0] + v * tisch.b[0], tisch.o[1] + u * tisch.a[1] + v * tisch.b[1]);
+    };
+    const [[pl, po], [pr, pu]] = [imTisch(PERGAMENT[0], PERGAMENT[1]), imTisch(PERGAMENT[2], PERGAMENT[3])];
+    dinge.push({ bild: 'pergament', l: pl!, o: po!, r: pr!, u: pu! });
+    const ui = await page.locator('.leaflet-control').evaluateAll((elemente: HTMLElement[]) =>
+      elemente.map((e) => {
+        const { left, top, right, bottom } = e.getBoundingClientRect();
+        return { name: e.className, left, top, right, bottom };
+      }),
+    );
+    expect(ui.length).toBeGreaterThanOrEqual(4);
+    for (const { name, left, top, right, bottom } of ui) {
+      for (const d of dinge) {
+        const deckt = left < d.r && right > d.l && top < d.u && bottom > d.o;
+        expect(deckt, `${breite} × ${hoehe}: ${name} über ${d.bild}`).toBe(false);
+      }
+    }
+  }
+});
+
+test('im Bezugsrahmen liegt der Zoom links auf dem Marmor zwischen Pergament und Holzrand', async ({ page }) => {
+  // 8:5 aus se im Fenster der Vorlage, mit einer Welt, deren Rahmen es zu
+  // 92,5 % füllt: Dort ist ein Pixel der Vorlage ein Pixel des Fensters,
+  // siehe den Test zum Bezugsrahmen in tablett.spec.ts. Kacheln gibt es für
+  // diese Welt nicht; ihre Ebene meldet trotzdem `load`.
+  const weit = 1e6;
+  await welt(page, { seaLevel: 0, area: [-3200, -3200, 3200, 3200], maxZoom: 11, bounds: [-weit, -weit, weit, weit], projection: kamera('8:5', 16), direction: 'se' });
+  await page.setViewportSize({ width: VORLAGE[0], height: VORLAGE[1] });
+  await page.goto(DEMO);
+  await expect.poll(() => gezeichnet(page)).toBe(true);
+  const zoom = (await page.locator('.leaflet-control-zoom').boundingBox())!;
+  // Das Pergament endet bei y = 428; der Holzrand des Tischs beginnt am
+  // linken Rand bei y = 533 und fällt nach rechts um 0,67 px je Pixel,
+  // gemessen in der Vorlage.
+  expect(zoom.y).toBeGreaterThanOrEqual(PERGAMENT[3]);
+  expect(zoom.y + zoom.height).toBeLessThanOrEqual(533 + 0.67 * zoom.x);
 });

@@ -46,7 +46,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 ## Frontend
 
 - [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Skins beim Build.
-- [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet, mit einer Gesamtansicht wie in der Vorlage, Masse nach der Vorlage, Rahmen, Tisch, Lilien und Gegenstände als Bilder aus der Vorlage, geglättet gelegt, Licht, was vor und was hinter der Welt liegt, was eine Näherung bleibt.
+- [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet, mit einer Gesamtansicht wie in der Vorlage, Masse nach der Vorlage, Rahmen, Tisch, Lilien und Gegenstände als Bilder aus der Vorlage, geglättet gelegt, Licht, was vor und was hinter der Welt liegt, die UI aus Pergament, Holz und Messing, was eine Näherung bleibt.
 
 ## Entwicklung
 
@@ -129,6 +129,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0069](entscheidungen/0069-ein-himmelslicht-und-kaelte.md): Cinematic beleuchtet in jedem Biom mit dem Himmelslicht der Oberwelt, die Farben des Himmels je Biom bleiben dem Wasser; die Wärme enger und mit einer kalten Seite; löst 0058 darin ab.
 - [0070](entscheidungen/0070-bilder-aus-der-vorlage.md): Rahmen, Tisch, Lilien und Gegenstände des Tabletts als Ausschnitte der Vorlage, entzerrt oder freigestellt, geglättet gelegt; je Seite ein Streifen über die ganze Länge, der Tisch ein Bild der ganzen Platte statt Kacheln; löst in 0066 das Erzeugen und in 0067 das Texelgitter ab.
 - [0071](entscheidungen/0071-tisch-und-gegenstaende-im-bezugsrahmen.md): Tisch und Gegenstände kommen mit der Umkehrung der Projektion im Bezugsrahmen, 8:5 in der Gesamtansicht im Fenster der Vorlage, auf die Platte und liegen dort wie in ihr; jenseits der Vorlage nur Marmor, in den sie 24 px ausläuft; löst in 0070 die Homographie für den Tisch und den dunklen Rand ab.
+- [0072](entscheidungen/0072-ui-in-farben-der-vorlage.md): UI des Tabletts auf Pergament, Holz und Messing in Farben aus der Vorlage, über die CSS-Variablen der Grundkarte, der Rand aus Messing ein Verlauf, ohne Bilddatei, in der Gesamtansicht neben den Gegenständen; kein erzeugtes Bild, kein Ausschnitt der Vorlage, nicht alles auf Holz.
 - [0073](entscheidungen/0073-bilder-nach-den-kacheln.md): Die Bilder des Tabletts laden erst, wenn die Ebene der Kacheln zum ersten Mal fertig ist, mit niedriger Priorität, und blenden dann ein; ein Atlas nur, wenn Lighthouse danach noch warnt.
 
 ## Messungen
@@ -177,6 +178,6 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-03, Flächen im Innern weich, Kosten](messungen/2026-10-03-flaechen-im-innern.md): die Karte auf CPU und Grafikkarte und Cinematic mit #51 gegen master, an Stand und Fichtenwald, Zeit, Bytes und Speicher.
 - [2026-10-04, Vollrender mit Cinematic](messungen/2026-10-04-vollrender-cinematic.md): die grosse Welt mit Cinematic, 8:5 bei scale 32 mit einer nativen Stufe, Dauer je Stufe, Grösse, was die Live-Ansicht kostete, und die Drosselung der Maschine.
 - [2026-10-04, Hülle der Welt schneller](messungen/2026-10-04-huelle-der-welt.md): ein kleiner Lauf an der Testwelt ohne `--area` vor und nach #123, im Wechsel unter der Sperre, mit demselben Rechteck.
-- [2026-10-04, Bilder des Skins nach den Kacheln](messungen/2026-10-04-skin-bilder-nach-kacheln.md): Lighthouse mit dem Skin Tablett, wenn seine Bilder beim Start, nach `load` der Kacheln oder nach dem gemalten Bild laden; LCP 5,5 gegen 1,6 s.
+- [2026-10-04, Bilder des Skins nach den Kacheln](messungen/2026-10-04-skin-bilder-nach-kacheln.md): Lighthouse mit dem Skin Tablett, wenn seine Bilder beim Start, nach `load` der Kacheln oder nach dem gemalten Bild laden; LCP 5,5 gegen 1,6 s, mit der UI aus #135 1,8 s.
 - [2026-10-04, Updates, Kosten](messungen/2026-10-04-updates.md): was der Stand einen vollen Lauf an der Testwelt kostet und was ein Update ohne Änderung, mit neuen Stempeln und mit 16 gelöschten Chunks braucht.
 - [2026-10-04, Cinematic schneller, Hebel 1 und 2](messungen/2026-10-04-hebel-1-und-2.md): was die Hebel 1 und 2 aus #118 an Cinematic bringen, je für sich gegen master, an Stand und Fichtenwald, und dass jede Kachel gleich bleibt, auch über die ganze Testwelt.

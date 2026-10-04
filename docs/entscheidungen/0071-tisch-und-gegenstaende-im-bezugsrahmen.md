@@ -80,5 +80,5 @@ Befund 7 in der Nacht von ihm gewählt:
   Gegenstand, etwa hinter der Kerze.
 - In anderen Kameras ist der Marmor so verzerrt wie die Platte im Bild,
   in 2:1 etwa in t gestaucht; man merkt es nicht.
-- Zwei Bilder statt einem: Der Marmor kommt mit 122 KB dazu, das Bild des
-  Tischs wird mit 296 KB kleiner als vorher mit 380 KB.
+- Zwei Bilder statt einem: Der Marmor kommt mit 125 KB dazu, das Bild des
+  Tischs wird mit 303 KB kleiner als vorher mit 390 KB.

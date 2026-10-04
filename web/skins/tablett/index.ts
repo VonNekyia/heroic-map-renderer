@@ -11,7 +11,7 @@ import type { Grenzen, Rechteck, Skin } from 'heroic-map-renderer/skin-api';
 import L from 'leaflet';
 import { PERGAMENT } from './bilder';
 import { type Brett, type Brettbild, kameraName, lage, maleBild } from './brett';
-import { type Figur, gesamtmitte, gesamtstufe, grenzen, GRUND, tablett, type Teil, vorlageImBild } from './tablett';
+import { type Figur, gesamtmitte, gesamtstufe, grenzen, GRUND, leinwandMass, tablett, type Teil, vorlageImBild } from './tablett';
 import { ebenen as malen } from './zeichnen';
 import './tablett.css';
 
@@ -20,6 +20,9 @@ const API = 2;
 
 /** Wie weit die Bilder je Seite über das Fenster reichen, als Anteil des Fensters. */
 const UEBERSTAND = 0.25;
+
+/** Die Leinwände für ein Fenster dieser Grösse, in Pixeln des Fensters. */
+const leinwandGroesse = ({ x, y }: L.Point): [number, number] => [Math.round(x * (1 + 2 * UEBERSTAND)), Math.round(y * (1 + 2 * UEBERSTAND))];
 
 /**
  * Die Ecken der UI und wohin jede ausweicht, deckte sie in der
@@ -233,19 +236,18 @@ const skin: Skin = (kontext) => {
       const mitte = karte.project(karte.getCenter(), zoom);
       // Die linke obere Ecke auf ganzen Pixeln: So trifft jedes Pixel der
       // Leinwand eines des Bildschirms.
-      const breite = Math.round(groesse.x * (1 + 2 * UEBERSTAND));
-      const hoehe = Math.round(groesse.y * (1 + 2 * UEBERSTAND));
+      const [breite, hoehe] = leinwandGroesse(groesse);
       const [links, oben] = [Math.round(mitte.x - breite / 2), Math.round(mitte.y - hoehe / 2)];
       const ecken = L.latLngBounds(
         karte.unproject([links / s, oben / s], maxZoom),
         karte.unproject([(links + breite) / s, (oben + hoehe) / s], maxZoom),
       );
-      // Die Leinwände in Pixeln des Geräts: Sonst zöge der Browser sie
-      // geglättet auf, bei `devicePixelRatio` über 1.
-      const dpr = devicePixelRatio;
-      for (const { leinwand } of ebenen) [leinwand.width, leinwand.height] = [Math.round(breite * dpr), Math.round(hoehe * dpr)];
+      // Die Leinwände in Pixeln des Geräts, sonst zöge der Browser sie
+      // geglättet auf; über DECKEL in einem ganzen Teil davon.
+      const q = leinwandMass(breite * hoehe, devicePixelRatio);
+      for (const { leinwand } of ebenen) [leinwand.width, leinwand.height] = [Math.round(breite * q), Math.round(hoehe * q)];
       const [fern, nah] = ebenen.map(({ leinwand }) => leinwand.getContext('2d')!);
-      maleEbenen(fern!, nah!, s * dpr, [-links * dpr, -oben * dpr]);
+      maleEbenen(fern!, nah!, s * q, [-links * q, -oben * q]);
       for (const eintrag of ebenen) {
         // Leaflets SVGOverlay legt jedes Element als Bild-Ebene, auch eine
         // Leinwand. Ein Bild aus ihr ginge nur über data: oder blob:, und
@@ -315,8 +317,9 @@ const skin: Skin = (kontext) => {
   // und auf jeder Stufe bleibt die Ansicht darin.
   const baue = (): void => {
     const groesse = karte.getSize();
-    // Gerendert: ein ganzes n, wo es geht, in Pixeln des Geräts.
-    const fit = gesamtstufe(rahmen, maxZoom, groesse.x, groesse.y, brettLage && brettLage.mass * devicePixelRatio);
+    // Gerendert: ein ganzes n, wo es geht, in Pixeln der Leinwand.
+    const q = leinwandMass(leinwandGroesse(groesse).reduce((a, b) => a * b), devicePixelRatio);
+    const fit = gesamtstufe(rahmen, maxZoom, groesse.x, groesse.y, brettLage && brettLage.mass * q);
     // Ein Fenster ohne Fläche, etwa ein verborgener Tab: Die Gesamtansicht
     // kommt mit der ersten Grösse, beim nächsten `resize`.
     if (Number.isNaN(fit)) return;

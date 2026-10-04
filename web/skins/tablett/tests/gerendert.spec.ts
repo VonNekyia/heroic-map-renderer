@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 import { kamera, projiziere } from '../../../tests/kamera';
 import { type Brett, lage } from '../brett';
-import { type Blick, gesamtmitte, gesamtstufe, grenzen, GRUND } from '../tablett';
+import { type Blick, gesamtmitte, gesamtstufe, grenzen, GRUND, leinwandMass } from '../tablett';
 
 // Der Skin mit gerenderten Bildern: der Platzhalter aus werkzeug/brett.py für
 // 2:1 in fixtures/brett, gebaut wie ein Skin von aussen, mit brett/. Die
@@ -88,8 +88,9 @@ function vergleiche(page: Page, ebene: 'fern' | 'nah', datei: string, x: number,
       for (let i = 0; i < soll.length; i += 4) farben.add(farbe(soll, i));
       let fremd = 0;
       for (let i = 0; i < ist.length; i += 4) if (!farben.has(farbe(ist, i))) fremd++;
-      const dpr = devicePixelRatio;
-      const [ex, ey, fd] = [(x - r.left) * dpr, (y - r.top) * dpr, f * dpr];
+      // Pixel der Leinwand je Pixel des Fensters: devicePixelRatio oder unter dem Deckel weniger.
+      const q = leinwand.width / r.width;
+      const [ex, ey, fd] = [(x - r.left) * q, (y - r.top) * q, f * q];
       let beste = { anteil: -1, dx: 0, dy: 0 };
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) {
@@ -108,20 +109,23 @@ function vergleiche(page: Page, ebene: 'fern' | 'nah', datei: string, x: number,
           if (treffer / proben > beste.anteil) beste = { anteil: treffer / proben, dx: x0 - ex, dy: y0 - ey };
         }
       }
-      return { ...beste, fremd, dpr, f: fd };
+      return { ...beste, fremd, q, f: fd };
     },
     { ebene, datei, x, y, f, grund },
   );
 }
 
 // Je Gerät ein Fenster: bei 1 ohne ganzes n in der Gesamtansicht, bei 2 und
-// 1,5 mit n = 3 und n = 2.
+// 1,5 mit n = 3 und n = 2; bei 2 in 1920 × 1080 unter dem Deckel mit einem
+// Pixel der Leinwand je Pixel des Fensters. Dort hätte erst die Leinwand mit
+// 2 ein ganzes n, auf einer anderen Stufe.
 for (const [dpr, breite, hoehe, ganz] of [
   [1, 1280, 720, false],
   [2, 1060, 596, true],
   [1.5, 1000, 563, true],
+  [2, 1920, 1080, false],
 ] as const) {
-  test.describe(`devicePixelRatio ${dpr}`, () => {
+  test.describe(`devicePixelRatio ${dpr}, ${breite} × ${hoehe}`, () => {
     test.use({ deviceScaleFactor: dpr, viewport: { width: breite, height: hoehe } });
 
     test('gerendert liegt das Brett Pixel für Pixel auf der Karte, ohne Mischfarben, in der Gesamtansicht und eine Stufe tiefer', async ({ page }) => {
@@ -133,8 +137,9 @@ for (const [dpr, breite, hoehe, ganz] of [
       const karte = (await page.locator('#map').boundingBox())!;
       const bild = INDEX['2:1 se']!;
       const { links, oben, mass } = lage(QUADRAT.area, QUADRAT.seaLevel, blick, bild);
-      const fit = gesamtstufe(grenzen(QUADRAT.area, QUADRAT.seaLevel, blick), 2, karte.width, karte.height, mass * dpr);
-      const n = mass * dpr * 2 ** (fit - 2);
+      const q = leinwandMass(Math.round(breite * 1.5) * Math.round(hoehe * 1.5), dpr);
+      const fit = gesamtstufe(grenzen(QUADRAT.area, QUADRAT.seaLevel, blick), 2, karte.width, karte.height, mass * q);
+      const n = mass * q * 2 ** (fit - 2);
       expect(Math.abs(n - Math.round(n)) < 1e-9, `n = ${n}`).toBe(ganz);
       const [mx, my] = gesamtmitte(QUADRAT.area, QUADRAT.seaLevel, blick, karte.width * 2 ** (2 - fit), karte.height * 2 ** (2 - fit));
       for (const tiefer of [false, true]) {
@@ -148,7 +153,7 @@ for (const [dpr, breite, hoehe, ganz] of [
         // Die Mitte der Gesamtansicht bleibt beim Zoomen in der Mitte des Fensters.
         const s = 2 ** (stufe - 2);
         const [x, y] = [karte.x + karte.width / 2 + (links - mx) * s, karte.y + karte.height / 2 + (oben - my) * s];
-        expect(mass * s * dpr).toBeGreaterThan(1);
+        expect(mass * s * q).toBeGreaterThan(1);
         for (const [ebene, datei] of [
           ['fern', bild.fern],
           ['nah', bild.nah],
@@ -157,9 +162,11 @@ for (const [dpr, breite, hoehe, ganz] of [
           const was = `${ebene}, Stufe ${stufe}: ${JSON.stringify(v)}`;
           expect(v.fremd, was).toBe(0);
           expect(v.anteil, was).toBeGreaterThan(0.999);
-          // Auf ein Pixel des Fensters, so genau rundet Leaflet die Mitte.
-          expect(Math.abs(v.dx), was).toBeLessThanOrEqual(dpr);
-          expect(Math.abs(v.dy), was).toBeLessThanOrEqual(dpr);
+          // Die Leinwand hat das Mass aus leinwandMass. Auf ein Pixel des
+          // Fensters, so genau rundet Leaflet die Mitte.
+          expect(v.q, was).toBeCloseTo(q, 2);
+          expect(Math.abs(v.dx), was).toBeLessThanOrEqual(q);
+          expect(Math.abs(v.dy), was).toBeLessThanOrEqual(q);
         }
       }
     });

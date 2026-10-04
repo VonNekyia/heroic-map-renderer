@@ -3,7 +3,7 @@ import type { Grenzen, Projektion, Rechteck } from 'heroic-map-renderer/skin-api
 import { readdirSync } from 'node:fs';
 import { eintraege, kamera, projiziere, RICHTUNGEN } from '../../../tests/kamera';
 import { BREITE_VORLAGE, ECKSTUECKE, GEGENSTAENDE, LILIEN, MARMOR, MASS, RAND, TISCH_RAND, VORLAGE } from '../bilder';
-import { gesamtmitte, gesamtstufe, grenzen, imBlick, tablett, type Blick, type Figur, type Flaeche, type Schrift, type Teil } from '../tablett';
+import { DECKEL, gesamtmitte, gesamtstufe, grenzen, imBlick, leinwandMass, tablett, type Blick, type Figur, type Flaeche, type Schrift, type Teil } from '../tablett';
 
 type Punkt = [number, number];
 
@@ -345,6 +345,31 @@ test('die Gesamtansicht füllt das Fenster zu 71 bis 100 %, zwischen zwei Stufen
         if (ziel - Math.floor(ziel) >= 0.5 && ziel >= einpassen) expect(2 ** (z - voll), name).toBeCloseTo(0.925, 9);
       }
     }
+  }
+});
+
+test('eine Leinwand hat die Pixel des Geräts, über DECKEL einen ganzen Teil davon, nie weniger als die des Fensters', () => {
+  // Fenster, devicePixelRatio und Pixel der Leinwand je Pixel des Fensters.
+  for (const [breite, hoehe, dpr, mass] of [
+    [390, 844, 3, 3],
+    [1512, 982, 2, 2],
+    [1512, 982, 3, 1.5],
+    [1920, 1080, 1.5, 1.5],
+    [1920, 1080, 2, 1],
+    [2560, 1440, 1, 1],
+    [2560, 1440, 2, 1],
+    [2560, 1440, 3, 1],
+    [2560, 1440, 1.5, 1],
+    [3840, 2160, 1, 1],
+    [800, 600, 0.8, 0.8],
+  ]) {
+    const pixel = Math.round(breite! * 1.5) * Math.round(hoehe! * 1.5);
+    const q = leinwandMass(pixel, dpr!);
+    const was = `${breite} × ${hoehe}, devicePixelRatio ${dpr}`;
+    expect(q, was).toBe(mass);
+    // Unter dem Deckel oder schon bei einem Pixel je Pixel des Fensters; der Browser zieht um einen ganzen Faktor auf.
+    expect(pixel * q * q <= DECKEL || q <= 1, was).toBe(true);
+    if (q < dpr! && q > 1) expect(Number.isInteger(dpr! / q), was).toBe(true);
   }
 });
 

@@ -229,7 +229,7 @@ const MINDESTENS = 0.71;
  * Fläche, etwa ein verborgener Tab, hat keine: `NaN`.
  * Siehe docs/entscheidungen/0067-gesamtansicht-zwischen-zwei-stufen.md.
  *
- * `kunst` sind Pixel des Geräts je Pixel eines gerenderten Bilds auf der
+ * `kunst` sind Pixel der Leinwand je Pixel eines gerenderten Bilds auf der
  * feinsten Stufe. Deckt ein Pixel des Bilds auf einer solchen Stufe, die
  * `MINDESTENS` bis 100 % füllt, ganze n ≥ 1 Pixel, nimmt sie von diesen die
  * nächste an `FUELLUNG`. Siehe docs/entscheidungen/0074-tablett-aus-blender.md.
@@ -260,6 +260,25 @@ export function gesamtstufe([links, oben, rechts, unten]: Grenzen, maxZoom: numb
   }
   // `ganz` ist immer dabei, die Liste also nie leer.
   return naechste([ziel, ganz + 0.5, ganz].filter(erlaubt));
+}
+
+/**
+ * So viele Pixel hat eine Leinwand des Skins höchstens, 4096²: Mehr nimmt
+ * Safari auf dem iPhone nicht, und das Rastern wächst mit der Fläche. Siehe
+ * docs/messungen/2026-10-04-geraetepixel.md.
+ */
+export const DECKEL = 4096 * 4096;
+
+/**
+ * Pixel der Leinwand je Pixel des Fensters für eine Leinwand von `pixel`
+ * Pixeln des Fensters: `dpr`, über `DECKEL` ein ganzer Teil davon, den der
+ * Browser um diesen ganzen Faktor aufzieht. Nie weniger als ein Pixel je
+ * Pixel des Fensters: Ist schon das Fenster grösser als `DECKEL`, etwa 4K bei
+ * `devicePixelRatio` 1, bleibt es bei einem.
+ */
+export function leinwandMass(pixel: number, dpr: number): number {
+  for (let teil = 1; dpr / teil >= 1; teil++) if (pixel * (dpr / teil) ** 2 <= DECKEL) return dpr / teil;
+  return Math.min(dpr, 1);
 }
 
 /**

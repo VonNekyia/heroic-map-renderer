@@ -12,6 +12,10 @@ code:
 
 # 0069: Ein Himmelslicht und Kälte in Cinematic
 
+Die Werte der Wärme sind abgelöst durch
+[0076](0076-waermer-in-cinematic.md): jede Stufe 0,05 höher, neutral
+1,05, ganz warm 1,3, ganz kühl 0,9.
+
 ## Anlass
 
 #124: Am Vollrender der grossen Welt vom 03.10. wirkte Schnee oft warm.

@@ -132,6 +132,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0072](entscheidungen/0072-ui-in-farben-der-vorlage.md): UI des Tabletts auf Pergament, Holz und Messing in Farben aus der Vorlage, über die CSS-Variablen der Grundkarte, der Rand aus Messing ein Verlauf, ohne Bilddatei, in der Gesamtansicht neben den Gegenständen; kein erzeugtes Bild, kein Ausschnitt der Vorlage, nicht alles auf Holz.
 - [0073](entscheidungen/0073-bilder-nach-den-kacheln.md): Die Bilder des Tabletts laden erst, wenn die Ebene der Kacheln zum ersten Mal fertig ist, mit niedriger Priorität, und blenden dann ein; ein Atlas nur, wenn Lighthouse danach noch warnt.
 - [0075](entscheidungen/0075-marmor-als-pixelkunst.md): Der Marmor jenseits der Vorlage ist bis zur gerenderten Szene Pixelkunst aus Blöcken von 2 × 2 Pixeln in 20 Farben, ohne Glättung, solange ein Block ein Pixel deckt; löst in 0070 das Glätten des Marmors und in 0071 den Marmor aus Flicken ab.
+- [0076](entscheidungen/0076-waermer-in-cinematic.md): Cinematic gleicht überall etwas wärmer ab, kalte Biome bleiben kühl: jede Stufe aus 0069 um 0,05 höher über den neuen Wert `waerme_grund`, neutral 1,05, ganz warm 1,3, ganz kühl 0,9; nicht 1,35, weil Weiss in der Sonne dann überläuft; löst 0069 in den Werten der Wärme ab.
 
 ## Messungen
 

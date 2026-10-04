@@ -1,6 +1,6 @@
 ---
 title: Cinematic
-description: Wie --cinematic dieselbe Karte im Licht des Spiels in HDR zeichnet - Sprites ohne Schattierung nach Richtung, das Licht der Lightmap je Ecke aus Umgebung, Himmels- und Blocklicht, das Himmelslicht der Oberwelt in jedem Biom, die Sonne mit hartem Schatten aus einem exakten Strahl, Bodenpflanzen, die nur dämpfen, Wasser mit Spiegelung und Strecke im Himmel seines Bioms, Leuchten, Wärme und Kälte nach Biom, Bloom, Weissabgleich, Belichtung und Kurve aus 0058 und 0069.
+description: Wie --cinematic dieselbe Karte im Licht des Spiels in HDR zeichnet - Sprites ohne Schattierung nach Richtung, das Licht der Lightmap je Ecke aus Umgebung, Himmels- und Blocklicht, das Himmelslicht der Oberwelt in jedem Biom, die Sonne mit hartem Schatten aus einem exakten Strahl, Bodenpflanzen, die nur dämpfen, Wasser mit Spiegelung und Strecke im Himmel seines Bioms, Leuchten, Wärme und Kälte nach Biom, Bloom, Weissabgleich, Belichtung und Kurve aus 0058, 0069 und 0076.
 code:
   - renderer/src/render/look.rs
   - renderer/src/render/kino.rs
@@ -22,8 +22,9 @@ code:
 
 `--cinematic` zeichnet mit `--tiles` oder `--render` dieselbe Karte im
 Licht des Spiels in HDR, mit Weissabgleich, Belichtung und Kurve nach
-[0058](../entscheidungen/0058-look-von-cinematic.md) und
-[0069](../entscheidungen/0069-ein-himmelslicht-und-kaelte.md). Kacheln landen in
+[0058](../entscheidungen/0058-look-von-cinematic.md),
+[0069](../entscheidungen/0069-ein-himmelslicht-und-kaelte.md) und
+[0076](../entscheidungen/0076-waermer-in-cinematic.md). Kacheln landen in
 einem eigenen Baum samt nativen Stufen und Pyramide, siehe
 [`map.json`](../benutzung/map-json.md), „Liste der Bäume“. Cinematic nimmt
 dieselben Kandidaten, dieselbe Deckungsmaske und dieselben Draws wie die
@@ -51,13 +52,13 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
 | Wasser: F0 der Spiegelung, Anteil der Deckkraft seiner Textur, Dichte | `wasser_spiegel`: 0,04, `wasser_textur`: 0,6, `wasser_dichte`: 8 | ja |
 | Wasser: bis zu welcher Höhe der gespiegelten Richtung nur Nebel, über wie viel Höhe weich zum Himmel | `wasser_horizont`: −0,1, `wasser_horizont_breite`: 0,7 | ja |
 | Wasser: Mindestanteil eines Kanals am stärksten, Dichte jedes Kanals dazu | `wasser_anteil_min`: 0,02, `wasser_dichte_grund`: 0,35 | ja |
-| Wärme: so viel stärker wird der Weissabgleich höchstens, ab und bis zu welcher Temperatur | `waerme`: 0,25, `waerme_von`: 0,5, `waerme_bis`: 1,0 | ja |
-| Kälte: so viel schwächer wird der Weissabgleich höchstens, unter und bis zu welcher Temperatur | `kaelte`: 0,15, `kaelte_von`: 0,15, `kaelte_bis`: 0 | ja |
+| Wärme: so stark wirkt der Weissabgleich zwischen Kälte und Wärme, so viel stärker darüber höchstens, ab und bis zu welcher Temperatur | `waerme_grund`: 1,05, `waerme`: 0,25, `waerme_von`: 0,5, `waerme_bis`: 1,0 | ja |
+| Kälte: so viel schwächer wird der Weissabgleich darunter höchstens, unter und bis zu welcher Temperatur | `kaelte`: 0,15, `kaelte_von`: 0,15, `kaelte_bis`: 0 | ja |
 | Belichtung | `belichtung`: 0,25 | ja |
 | Kurve: gerade bis, flach ab | `knie`: 0,8, `flach`: 1,2 | ja |
 | Bloom: Stärke, σ in Blöcken | `bloom`: 1, `bloom_breite`: 0,25 | ja |
 
-- **Herkunft:** Wärme und Kälte aus 0069, alle anderen aus 0058, bis auf
+- **Herkunft:** Wärme und Kälte aus 0076, alle anderen aus 0058, bis auf
   `sonne_weite`, `leuchten_ab`, `leuchten_voll` und die Werte des Wassers
   ausser `wasser_spiegel` und `wasser_dichte`. Die stehen im Prototyp aus
   #89, an dem 0058 abgestimmt
@@ -86,7 +87,7 @@ Alle Werte stehen benannt an einer Stelle, `LOOK` in
     [`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md);
   - die Bäume mit Cinematic neu rendern.
 
-  Die neuen Werte hält eine Entscheidung fest, die 0058 oder 0069 in
+  Die neuen Werte hält eine Entscheidung fest, die 0058 oder 0076 in
   diesen Werten ablöst.
 
 ## Sprites für Cinematic
@@ -539,12 +540,13 @@ Prototyp aus #89 (`mische_hdr` in
 ## Wärme
 
 Der Weissabgleich wird je Pixel nach der Temperatur des Bioms stärker oder
-schwächer, wie in [0069](../entscheidungen/0069-ein-himmelslicht-und-kaelte.md) (`Look::waerme`, `Kino::ton`):
+schwächer, wie in [0076](../entscheidungen/0076-waermer-in-cinematic.md) (`Look::waerme`, `Kino::ton`):
 
-- **Je Kanal** `1 + (v − 1) · w`, mit `v` aus „Zeichnen in HDR“. `w` ist 1
-  zwischen `kaelte_von` und `waerme_von`; darüber gerade bis 1 + `waerme`
-  bei `waerme_bis`, darunter gerade bis 1 − `kaelte` bei `kaelte_bis`;
-  jenseits gleich. Was das je Biom heisst, steht in 0069, „Entscheidung“.
+- **Je Kanal** `1 + (v − 1) · w`, mit `v` aus „Zeichnen in HDR“. `w` ist
+  `waerme_grund` zwischen `kaelte_von` und `waerme_von`; darüber gerade um
+  bis zu `waerme` mehr bei `waerme_bis`, darunter gerade um bis zu
+  `kaelte` weniger bei `kaelte_bis`; jenseits gleich. Was das je Biom
+  heisst, steht in 0076, „Entscheidung“.
 - **Kühler unter 1:** Mit `w` unter 1 nimmt der Abgleich dem Himmelslicht
   weniger Blau, das Bild wird kühler.
 - **Die Temperatur** ist `temperature` des Bioms roh
@@ -563,12 +565,13 @@ schwächer, wie in [0069](../entscheidungen/0069-ein-himmelslicht-und-kaelte.md)
 
   Savanne (obere Reihe) und Schnee (untere Reihe), 2:1 bei scale 32 aus
   `se`, auf die Hälfte verkleinert; je Reihe die Karte, Cinematic mit
-  `waerme` und `kaelte` 0 und mit `LOOK`. Gerendert vom Test
+  `waerme_grund` 1, `waerme` und `kaelte` 0 und mit `LOOK`. Gerendert vom Test
   `bilder_zu_cinematic` in
   [`renderer/tests/kennzahlen.rs`](../../renderer/tests/kennzahlen.rs).
 - **Kein Überlaufen:** Eine Fläche, die voll zur Sonne zeigt, im vollen
   Himmelslicht, erreicht in Weiss mit keiner Wärme und keiner Kälte aus
-  0069 255, mit der vollen Wärme 1,25 [254, 252, 241]. Mit 1,5 aus 0058
+  0076 255, mit der vollen Wärme 1,3 [254, 252, 239]. Mit 1,35 erreicht
+  Rot 255 [255, 252, 237], mit 1,5 aus 0058
   erreichte Rot bei fast weissen Texeln 255, in Wüste, Savanne und Badlands
   und auf den steinigen Gipfeln (`stony_peaks`, Temperatur 1,0).
 - Getestet: `waerme_nach_der_temperatur` in `look.rs`, `ton_mit_waerme` und

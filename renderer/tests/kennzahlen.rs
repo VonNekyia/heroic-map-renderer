@@ -107,6 +107,7 @@ fn bilder_zu_cinematic() {
         let looks = [
             None,
             Some(Look {
+                waerme_grund: 1.0,
                 waerme: 0.0,
                 kaelte: 0.0,
                 ..LOOK

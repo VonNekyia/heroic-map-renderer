@@ -54,15 +54,17 @@ pub struct Look {
     /// Wasser: so viel Dichte hat jeder Kanal dazu, auch der stärkste, vor
     /// der Teilung durch [`Look::wasser_dichte`].
     pub wasser_dichte_grund: f32,
-    /// Wärme: so viel stärker wird der Weissabgleich höchstens, siehe
-    /// [`Look::waerme`].
+    /// Wärme: so stark wirkt der Weissabgleich zwischen Kälte und Wärme,
+    /// siehe [`Look::waerme`].
+    pub waerme_grund: f32,
+    /// Wärme: so viel stärker wird der Weissabgleich darüber höchstens.
     pub waerme: f32,
     /// Wärme: ab dieser Temperatur des Bioms wird es wärmer.
     pub waerme_von: f32,
     /// Wärme: ab dieser Temperatur ist es ganz warm.
     pub waerme_bis: f32,
-    /// Kälte: so viel schwächer wird der Weissabgleich höchstens, siehe
-    /// [`Look::waerme`].
+    /// Kälte: so viel schwächer wird der Weissabgleich darunter höchstens,
+    /// siehe [`Look::waerme`].
     pub kaelte: f32,
     /// Kälte: unter dieser Temperatur des Bioms wird es kühler.
     pub kaelte_von: f32,
@@ -86,7 +88,7 @@ pub struct Look {
 /// Siehe docs/benutzung/map-json.md, „Look“.
 pub const VERFAHREN: u32 = 3;
 
-/// Der Look aus 0058, Wärme und Kälte aus 0069.
+/// Der Look aus 0058, Wärme und Kälte aus 0076.
 pub const LOOK: Look = Look {
     himmel: 3.0,
     himmel_anteil: 0.75,
@@ -107,6 +109,7 @@ pub const LOOK: Look = Look {
     wasser_horizont_breite: 0.7,
     wasser_anteil_min: 0.02,
     wasser_dichte_grund: 0.35,
+    waerme_grund: 1.05,
     waerme: 0.25,
     waerme_von: 0.5,
     waerme_bis: 1.0,
@@ -124,7 +127,7 @@ impl Look {
     /// Jeder Wert mit seinem Namen, in fester Reihenfolge, wie er im Code
     /// steht. Abgeleitete Werte wie die Richtung der Sonne aus Sinus und
     /// Kosinus fehlen: Deren letztes Bit kann je System abweichen.
-    fn werte(&self) -> [(&'static str, &[f32]); 30] {
+    fn werte(&self) -> [(&'static str, &[f32]); 31] {
         // Ganz zerlegt: Ein neues Feld kompiliert erst, wenn es hier steht.
         let Look {
             himmel,
@@ -146,6 +149,7 @@ impl Look {
             wasser_horizont_breite,
             wasser_anteil_min,
             wasser_dichte_grund,
+            waerme_grund,
             waerme,
             waerme_von,
             waerme_bis,
@@ -184,6 +188,7 @@ impl Look {
                 "wasser_dichte_grund",
                 std::slice::from_ref(wasser_dichte_grund),
             ),
+            ("waerme_grund", std::slice::from_ref(waerme_grund)),
             ("waerme", std::slice::from_ref(waerme)),
             ("waerme_von", std::slice::from_ref(waerme_von)),
             ("waerme_bis", std::slice::from_ref(waerme_bis)),
@@ -280,15 +285,16 @@ impl Look {
     }
 
     /// Wie stark der Weissabgleich in einem Biom der Temperatur `t` wirkt,
-    /// wie in 0069: 1 zwischen [`Look::kaelte_von`] und
-    /// [`Look::waerme_von`]; darüber gerade bis 1 + [`Look::waerme`] bei
-    /// [`Look::waerme_bis`], darunter gerade bis 1 − [`Look::kaelte`] bei
-    /// [`Look::kaelte_bis`]; jenseits gleich.
+    /// wie in 0076: [`Look::waerme_grund`] zwischen [`Look::kaelte_von`] und
+    /// [`Look::waerme_von`]; darüber gerade um bis zu [`Look::waerme`]
+    /// stärker bei [`Look::waerme_bis`], darunter gerade um bis zu
+    /// [`Look::kaelte`] schwächer bei [`Look::kaelte_bis`]; jenseits gleich.
     /// Siehe docs/renderer/cinematic.md, „Wärme“.
     pub fn waerme(&self, t: f32) -> f32 {
         let warm = (t - self.waerme_von) / (self.waerme_bis - self.waerme_von);
         let kalt = (self.kaelte_von - t) / (self.kaelte_von - self.kaelte_bis);
-        1.0 + self.waerme * warm.clamp(0.0, 1.0) - self.kaelte * kalt.clamp(0.0, 1.0)
+        self.waerme_grund + self.waerme * warm.clamp(0.0, 1.0)
+            - self.kaelte * kalt.clamp(0.0, 1.0)
     }
 
     /// Das Himmelslicht in den Farben `himmel` und `nebel`, linear, mit der
@@ -318,13 +324,13 @@ impl Look {
 mod tests {
     use super::*;
 
-    /// Der Fingerabdruck der Werte aus 0058 und 0069, nachgerechnet mit
+    /// Der Fingerabdruck der Werte aus 0058 und 0076, nachgerechnet mit
     /// FNV-1a in Python über dieselben Bytes. Ändert sich ein Wert oder die
     /// Reihenfolge versehentlich, fällt es hier auf; eine gewollte Änderung
     /// zieht den Test nach.
     #[test]
     fn fingerabdruck_der_werte() {
-        assert_eq!(LOOK.fingerabdruck(), "2db0327fdea14e6e");
+        assert_eq!(LOOK.fingerabdruck(), "e2aedb37513c7e91");
         let anders = Look {
             belichtung: 0.26,
             ..LOOK
@@ -392,22 +398,22 @@ mod tests {
         }
     }
 
-    /// Die Wärme nach 0069: von 0,15 bis 0,5 klar, ab 1,0 warm mit 1,25,
-    /// Ebenen und Strände (0,8) mit 1,15, Wald (0,7) mit 1,1; ab 0 kühl mit
-    /// 0,85, ein verschneiter Strand (0,05) mit 0,9. Unter 0,15 lässt das
-    /// Spiel Schnee fallen (`Biome.warmEnoughToRain`, Client 26.2).
+    /// Die Wärme nach 0076: von 0,15 bis 0,5 neutral mit 1,05, ab 1,0 warm
+    /// mit 1,3, Ebenen und Strände (0,8) mit 1,2, Wald (0,7) mit 1,15; ab 0
+    /// kühl mit 0,9, ein verschneiter Strand (0,05) mit 0,95. Unter 0,15 lässt
+    /// das Spiel Schnee fallen (`Biome.warmEnoughToRain`, Client 26.2).
     #[test]
     fn waerme_nach_der_temperatur() {
         for (t, w) in [
-            (-0.5, 0.85),
-            (0.0, 0.85),
-            (0.05, 0.9),
-            (0.15, 1.0),
-            (0.5, 1.0),
-            (0.7, 1.1),
-            (0.8, 1.15),
-            (1.0, 1.25),
-            (2.0, 1.25),
+            (-0.5, 0.9),
+            (0.0, 0.9),
+            (0.05, 0.95),
+            (0.15, 1.05),
+            (0.5, 1.05),
+            (0.7, 1.15),
+            (0.8, 1.2),
+            (1.0, 1.3),
+            (2.0, 1.3),
         ] {
             assert!((LOOK.waerme(t) - w).abs() < 1e-6, "{t}: {}", LOOK.waerme(t));
         }

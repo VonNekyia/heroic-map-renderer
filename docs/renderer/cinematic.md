@@ -246,7 +246,8 @@ hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
   alle Pixel (`Sprite::start`), 24 Byte je Pixel. Je Draw kommen nur der
   Block und das Tausendstel dazu, in derselben Reihenfolge wie vorher:
   `anker + p + normale · 10⁻³`, sonst rundete f64 anders. Der Debug-Build
-  rechnet je Draw nach.
+  rechnet je Draw nach. Gemessen in
+  [2026-10-04, Cinematic schneller, Hebel 3 und 4 und zusammen](../messungen/2026-10-04-hebel-3-und-4.md).
 - **Was deckt** (`Sonnenform` in
   [`renderer/src/render/sonne.rs`](../../renderer/src/render/sonne.rs)):
   je Alternative die Dreiecke ihres Modells im Blick, mit dem Alpha-Test

@@ -1090,6 +1090,7 @@ fn blit_hdr(
     let nass = wasser.map(|[s, b, a]| kino.licht(s as f32, b as f32, a as f32));
     // Das Licht des Wassers, beim ersten Pixel aus Wasser gerechnet.
     let mut wasserlicht: Option<Wasserlicht> = None;
+    let mut gemerkt: Option<Wassergedaechtnis> = None;
     let linear = &*LINEAR;
     let zeilen = vis[sicht.start..].chunks(sicht.nk);
     // Pixel auf demselben Texel beginnen am selben Punkt.
@@ -1139,6 +1140,7 @@ fn blit_hdr(
                         let unten = Unten {
                             licht: wasserlicht
                                 .get_or_insert_with(|| Wasserlicht::new(kino, stufen, wasser)),
+                            gemerkt: gemerkt.get_or_insert_with(Default::default),
                             sonne: sonnenlicht,
                             leuchten,
                         };
@@ -1185,8 +1187,68 @@ fn blit_hdr(
 /// [`Look::leuchten`]: super::look::Look::leuchten
 struct Unten<'a> {
     licht: &'a Wasserlicht,
+    gemerkt: &'a mut Wassergedaechtnis,
     sonne: [f32; 3],
     leuchten: f32,
+}
+
+/// Plätze für die Dichte in [`Wassergedaechtnis`]: Das Wasser eines Draws
+/// hat die Farben einer Textur in einer Tönung.
+const DICHTEN: usize = 16;
+
+/// Was [`mische_wasser`] in einem Draw schon gerechnet hat, nach den Bits
+/// seiner Eingaben: den Spiegel je Normale, die Dichte je Farbe des
+/// Wassers. Blick und Himmel sind im Draw fest. Gemerkt ist dasselbe Ergebnis
+/// wie gerechnet; der Debug-Build rechnet jedes nach.
+/// Siehe docs/renderer/cinematic.md, „Wasser“.
+#[derive(Default)]
+struct Wassergedaechtnis {
+    spiegel: MitSchluessel<(f32, [f32; 3])>,
+    dichte: [MitSchluessel<[f32; 3]>; DICHTEN],
+}
+
+/// Ein Ergebnis mit den Bits seiner Eingabe.
+type MitSchluessel<T> = Option<([u32; 3], T)>;
+
+impl Wassergedaechtnis {
+    /// [`Kino::spiegel`] für die Normale `n`, mit Himmel und Blick des Draws.
+    fn spiegel(
+        &mut self,
+        kino: &Kino,
+        himmel: &Himmelsfarben,
+        blick: [f32; 3],
+        n: [f32; 3],
+    ) -> (f32, [f32; 3]) {
+        let schluessel = n.map(f32::to_bits);
+        let wert = match self.spiegel {
+            Some((k, wert)) if k == schluessel => wert,
+            _ => {
+                let wert = kino.spiegel(himmel, blick, n);
+                self.spiegel = Some((schluessel, wert));
+                wert
+            }
+        };
+        debug_assert_eq!(wert, kino.spiegel(himmel, blick, n), "Spiegel für {n:?}");
+        wert
+    }
+
+    /// [`Kino::wasser_dichte`] für die Farbe `w`.
+    fn dichte(&mut self, kino: &Kino, w: [f32; 3]) -> [f32; 3] {
+        let schluessel = w.map(f32::to_bits);
+        let [a, b, c] = schluessel;
+        let streu = (a ^ b.rotate_left(10) ^ c.rotate_left(20)).wrapping_mul(0x9e37_79b1);
+        let platz = &mut self.dichte[(streu >> (32 - DICHTEN.ilog2())) as usize];
+        let wert = match *platz {
+            Some((k, wert)) if k == schluessel => wert,
+            _ => {
+                let wert = kino.wasser_dichte(w);
+                *platz = Some((schluessel, wert));
+                wert
+            }
+        };
+        debug_assert_eq!(wert, kino.wasser_dichte(w), "Dichte für {w:?}");
+        wert
+    }
 }
 
 /// Das Licht eines Draws für [`mische_wasser`], einmal je Draw: das des
@@ -1249,14 +1311,20 @@ fn mische_wasser(
     unten: Unten,
     w: Wasserpixel,
 ) {
+    let Unten {
+        licht: wasserlicht,
+        gemerkt,
+        sonne,
+        leuchten,
+    } = unten;
     let linear = &*LINEAR;
     let Wasserlicht {
         licht,
         nass,
         streu,
         spiegel: stufe,
-    } = *unten.licht;
-    let (f, spiegel) = kino.spiegel(himmel, w.blick, w.normale);
+    } = *wasserlicht;
+    let (f, spiegel) = gemerkt.spiegel(kino, himmel, w.blick, w.normale);
     let spiegel = stufe.mal(spiegel);
     let farbe = tinted(s, anteile, farben);
     let a_s = f32::from(s[3]) / 255.0;
@@ -1276,7 +1344,7 @@ fn mische_wasser(
     }
     let a_w = w.alpha.min(a_s);
     let farbe_w = nass_p.map(|c| c / a_w);
-    let sigma = kino.wasser_dichte(farbe_w);
+    let sigma = gemerkt.dichte(kino, farbe_w);
     let a1 = a_w * kino.look().wasser_textur;
     let (innen, a_m) = if a_w < 1.0 {
         (
@@ -1288,16 +1356,16 @@ fn mische_wasser(
     };
     let durch = sigma.map(|sg| (-sg * w.strecke).exp());
     // Ein gefluteter Block, der leuchtet, leuchtet auch unter Wasser.
-    let e = match unten.leuchten > 0.0 && a_m > 0.0 {
-        true => unten.leuchten * kino.look().leuchtet(innen.map(|c| c / a_m)),
+    let e = match leuchten > 0.0 && a_m > 0.0 {
+        true => leuchten * kino.look().leuchtet(innen.map(|c| c / a_m)),
         false => 0.0,
     };
     // Das Streulicht füllt nur, wo darunter etwas deckt; Alpha wie `over`,
     // damit der Pixel so offen bleibt wie bei der Karte.
     for c in 0..3 {
         let grund = durch[c] * d[c] + (1.0 - durch[c]) * himmel.wassernebel[c] * streu[c] * d[3];
-        let unter = innen[c] * (licht[c] + unten.sonne[c] + e) + (1.0 - a_m) * grund;
-        let wasser = a1 * farbe_w[c] * (nass[c] + unten.sonne[c]) + (1.0 - a1) * unter;
+        let unter = innen[c] * (licht[c] + sonne[c] + e) + (1.0 - a_m) * grund;
+        let wasser = a1 * farbe_w[c] * (nass[c] + sonne[c]) + (1.0 - a1) * unter;
         d[c] = f * spiegel[c] + (1.0 - f) * wasser;
         // Das Leuchten darunter dämpft das Wasser wie die Farbe.
         l[c] = (1.0 - f) * (1.0 - a1) * (innen[c] * e + (1.0 - a_m) * durch[c] * l[c]);
@@ -3546,5 +3614,38 @@ mod tests {
     #[test]
     fn auf_leerem_grund_bleibt_die_quelle() {
         assert_eq!(over([10, 20, 30, 128], [0, 0, 0, 0]), [10, 20, 30, 128]);
+    }
+
+    /// Gemerkt gibt Bit für Bit, was `Kino` rechnet: im Wechsel der
+    /// Normalen und mit mehr Farben als Plätzen, die einander verdrängen.
+    #[test]
+    fn gemerktes_wasser_wie_gerechnet() {
+        let kino = Kino::new(
+            LOOK,
+            &DimensionType::oberwelt(),
+            &BiomeTable::new(&Colors::default()),
+            Kamera::ZWEI_ZU_EINS,
+        );
+        let himmel = kino.himmel(0);
+        let blick = [-1.0 / 3f32.sqrt(); 3];
+        let mut gemerkt = Wassergedaechtnis::default();
+        let bits = |(f, h): (f32, [f32; 3])| (f.to_bits(), h.map(f32::to_bits));
+        for runde in 0..3 {
+            for n in [[0.0, 1.0, 0.0], [0.6, 0.8, 0.0], [0.0, 1.0, 0.0]] {
+                assert_eq!(
+                    bits(gemerkt.spiegel(&kino, &himmel, blick, n)),
+                    bits(kino.spiegel(&himmel, blick, n)),
+                    "Runde {runde}, {n:?}"
+                );
+            }
+            for k in 0..3 * DICHTEN {
+                let w = [k as f32 / 50.0, 0.3, 0.8];
+                assert_eq!(
+                    gemerkt.dichte(&kino, w).map(f32::to_bits),
+                    kino.wasser_dichte(w).map(f32::to_bits),
+                    "Runde {runde}, {w:?}"
+                );
+            }
+        }
     }
 }

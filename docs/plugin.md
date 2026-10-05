@@ -23,7 +23,8 @@ Wer daran etwas ändert, spricht es vorher mit dem Plugin-Programmierer ab.
   `--gpu`, `--update` und `--resume`, siehe
   [Schalter und Beispiele](benutzung/schalter.md).
 - **Den Ordner eines Baums,** `baum_name` in `cli.rs`. Das Plugin rechnet ihn
-  nach, um `stand.bin` und `stand-neu.bin` zu finden, siehe
+  nach, um `stand.bin` und `stand-neu.bin` zu finden; daneben liegt
+  `stand-neu-liegen.bin`, das nur `--resume` liest. Siehe
   [map.json](benutzung/map-json.md), „Liste der Bäume“.
 - **Den Kopf von `stand-neu.bin`:** Magie, Fassung und Art aus
   `Stand::als_bytes` in

@@ -1,9 +1,10 @@
 ---
 title: Was ein Lauf kostet
-description: Platz und Dauer eines Exports je scale, hochgerechnet auf die ganze Testwelt, und woran die beiden hängen; dazu, was Cinematic gegen die Karte kostet und was ein Lauf neben einem Server trotz niedriger Priorität kostet.
+description: Platz und Dauer eines Exports je scale, hochgerechnet auf die ganze Testwelt, und woran die beiden hängen; dazu, was Cinematic gegen die Karte kostet, was ein Lauf neben einem Server trotz niedriger Priorität kostet und wie --estimate einen Lauf vorher schätzt.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/tiles.rs
+  - renderer/src/cli/schaetzung.rs
 ---
 
 # Was ein Lauf kostet
@@ -145,6 +146,58 @@ und 1,0 % im Fichtenwald, bei gleichen Kacheln. Die Hebel 1, 2 und 4
 zusammen machen ihn 13,8 % schneller am Stand und 8,8 % im Fichtenwald;
 Hebel 3 ist nicht übernommen. Beides siehe
 [2026-10-04, Cinematic schneller, Hebel 3 und 4 und zusammen](../messungen/2026-10-04-hebel-3-und-4.md).
+
+## Schätzen: `--estimate`
+
+`--estimate` nimmt dieselben Schalter wie ein Lauf mit `--tiles` und sagt
+vorher, wie viele Basiskacheln er schreibt, wie viel Platz er braucht, wie
+lange er dauert und ob der Platz unter `--tiles` reicht. Unter `--tiles`
+schreibt es nichts. Der Code steht in
+[`renderer/src/cli/schaetzung.rs`](../../renderer/src/cli/schaetzung.rs).
+
+1. **Chunks:** aus den Köpfen der Regionsdateien, ohne zu dekodieren. Darin
+   stehen auch die nicht fertig erzeugten.
+2. **Fertig erzeugt:** Eine gleichmässige Stichprobe von höchstens 2000
+   dieser Chunks wird dekodiert. Die unfertigen liegen meist am Rand der
+   Welt.
+3. **Kacheln:** je fertigem Chunk `256 · Oberseite / 256²`, die Fläche der
+   Oberseite eines Blocks in Pixeln aus der Kamera, mal 1,0 bis 1,2.
+   - Das ergibt 2:1 = 1, 8:5 = 1,25, 4:3 = 1,5 und 1:1 = 2 bei scale 32,
+     genordet bei scale 16 dasselbe wie 2:1 bei 32.
+   - Den Faktor legen Ränder und Höhe der Welt darauf. Gemessen an der
+     grossen Welt 1,013 bis 1,018, an der Testwelt 1,13 bei scale 32 und
+     1,17 bei scale 8.
+4. **Probelauf:** vier Ausschnitte aus ganzen Kacheln, je um einen fertigen
+   Chunk der Stichprobe, mit denselben Schaltern und `--threads`. Jeder hat
+   etwa 16 Kacheln je Thread, Kante `⌈√(16 · Threads)⌉`, 2 bis 64 Kacheln.
+   Sie laufen als eigene Prozesse mit `--progress json` in einen Ordner
+   unter dem Temp-Verzeichnis des Systems, der danach wegfällt.
+5. **Platz:** Kacheln mal Bytes je Basiskachel des Probelaufs, dazu 30 bis
+   47 % für native Stufen und Pyramide. Gemessen sind 32 bis 37 % an der
+   grossen Welt und 45 % an der Testwelt bei scale 8. Dateien: Kacheln mal
+   4/3.
+6. **Dauer:** Vorlauf je Chunk und Basis je Kachel aus dem Probelauf, die
+   nativen Stufen im Verhältnis, das der Probelauf zwischen ihnen und der
+   Basis misst. Dazu 0 bis 3 % für die Pyramide und die festen Kosten eines
+   Laufs, alles mal 0,8 bis 1,3, wie die Dauer von Tag zu Tag schwankt.
+7. **Frei:** der freie Platz unter `--tiles` oder dem nächsten Ordner
+   darüber, den es gibt. „Reicht“ heisst: mehr als der obere Rand der
+   Spanne.
+
+An der Testwelt bei scale 8, 2:1, 24 Threads, ohne Grafikkarte:
+
+```
+Schätzung:  316223 Chunks in den Köpfen der Regionen, in 0.0 s
+            79 % fertig erzeugt in 1989 Chunks der Stichprobe; Probelauf: 4 Ausschnitte zu 20 x 20 Kacheln, zusammen in 10.8 s
+            Basis 15600 bis 18700 Kacheln
+            Platz 1.4 GB bis 1.9 GB, rund 25000 Dateien
+            Dauer 63 s bis 2 min mit 24 Threads
+            Frei <frei> GB, reicht
+```
+
+Ob die Spannen die gemessenen Läufe treffen, steht in der Messung zu #149.
+Mit `--progress json` kommt dieselbe Schätzung als eine JSON-Zeile, siehe
+[Plugin](../plugin.md), „Schätzung als JSON“.
 
 ## Neben einem Server
 

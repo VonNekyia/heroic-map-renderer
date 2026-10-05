@@ -6014,3 +6014,56 @@ fn mit_threads_kein_software_adapter() {
         );
     }
 }
+
+/// `--estimate` schreibt nichts unter `--tiles` und meldet mit
+/// `--progress json` eine Zeile `estimate`: die Chunks aus den Köpfen, alle
+/// fertig erzeugt, und für Kacheln, Bytes und Dauer je eine Spanne.
+#[test]
+fn schaetzung_schreibt_nichts() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2), (5, 1)], gelaende);
+    let wurzel = tempdir();
+    let ziel = wurzel.path().join("ziel");
+    let ausgabe = gelungen(&cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--tiles"),
+        ziel.as_os_str(),
+        OsStr::new("--scale"),
+        OsStr::new("16"),
+        OsStr::new("--estimate"),
+        OsStr::new("--progress"),
+        OsStr::new("json"),
+    ]))
+    .stdout
+    .clone();
+    let aus = String::from_utf8(ausgabe).unwrap();
+    assert!(!ziel.exists(), "--estimate hat unter --tiles geschrieben");
+    let zeilen: Vec<serde_json::Value> = aus
+        .lines()
+        .filter(|z| z.starts_with('{'))
+        .map(|z| serde_json::from_str(z).unwrap())
+        .collect();
+    let [schaetzung] = &zeilen[..] else {
+        panic!("nicht genau eine JSON-Zeile:\n{aus}");
+    };
+    assert_eq!(schaetzung["phase"], "estimate", "{schaetzung}");
+    assert_eq!(schaetzung["chunks"], 3, "{schaetzung}");
+    assert_eq!(schaetzung["finished"], 1.0, "{schaetzung}");
+    for feld in ["tiles", "bytes", "s"] {
+        let [unten, oben] = [0, 1].map(|i| schaetzung[feld][i].as_u64().unwrap());
+        // Die Dauer einer so kleinen Welt rundet auf 0 s.
+        assert!(
+            unten <= oben && (feld == "s" || unten > 0),
+            "{feld}: {schaetzung}"
+        );
+    }
+    assert!(schaetzung["files"].as_u64().unwrap() > 0, "{schaetzung}");
+    assert!(
+        schaetzung["free_bytes"].as_u64().unwrap() > 0,
+        "{schaetzung}"
+    );
+    assert_eq!(schaetzung["enough"], true, "{schaetzung}");
+}

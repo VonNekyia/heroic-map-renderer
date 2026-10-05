@@ -1,6 +1,6 @@
 ---
 title: Plugin
-description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt als JSON, und das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft.
+description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt und die Schätzung als JSON, und das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/stand.rs
@@ -93,6 +93,28 @@ Ein Ausschnitt der Testwelt mit `--center -64 416 --size 4096 --scale 16
 {"phase":"pyramid","level":0,"tiles":2}
 {"phase":"done","tiles":324,"s":2.6}
 ```
+
+## Schätzung als JSON
+
+Mit `--estimate --progress json` kommt die Schätzung als eine JSON-Zeile
+`estimate`, wie die übrigen am `{` zu erkennen. Was die Zahlen bedeuten und
+wie sie entstehen, steht in [Was ein Lauf kostet](benutzung/kosten.md),
+„Schätzen: `--estimate`“.
+
+| Feld | Inhalt |
+|---|---|
+| `chunks` | Chunks in den Köpfen der Regionen, auch nicht fertig erzeugte |
+| `finished` | Anteil der fertig erzeugten aus der Stichprobe, 0 bis 1 |
+| `tiles` | Basiskacheln, `[unten, oben]` |
+| `bytes` | Platz des ganzen Baums in Byte, `[unten, oben]` |
+| `files` | Dateien des Baums, oben gerechnet |
+| `s` | Dauer des Laufs in ganzen Sekunden, `[unten, oben]` |
+| `free_bytes` | freier Platz unter `--tiles`, `null`, wenn unbekannt |
+| `enough` | ob `free_bytes` über dem oberen Rand von `bytes` liegt, `null`, wenn unbekannt |
+| `probe_s` | wie lange die Schätzung selbst brauchte |
+
+Ohne Chunk steht nur `chunks` da, ohne fertig erzeugten Chunk nur
+`chunks` und `finished`.
 
 ## Token
 

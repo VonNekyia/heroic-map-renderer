@@ -348,6 +348,16 @@ impl Projection {
         }
     }
 
+    /// Pixel, die die Oberseite eines Blocks bedeckt: die Fläche zwischen den
+    /// Schritten nach +x und nach +z, diagonal die Raute, genordet das
+    /// Quadrat.
+    pub fn oberseite(&self) -> f64 {
+        let o = self.project_block([0, 0, 0]);
+        let x = self.project_block([1, 0, 0]);
+        let z = self.project_block([0, 0, 1]);
+        ((x.0 - o.0) * (z.1 - o.1) - (x.1 - o.1) * (z.0 - o.0)).abs()
+    }
+
     /// Welche Nachbarn beim Verdecken ihren ganzen Umriss decken müssen,
     /// nach +x und nach +z: die, deren Umriss den eigenen überlappt.
     /// Diagonal schräg beide, genordet schräg nur der nach +z, von oben
@@ -625,6 +635,18 @@ mod tests {
     /// Oberseite; Ost- und Westwand haben keine Breite.
     #[test]
     fn genordet_sind_oberseite_und_suedwand_quadrate() {
+        // Die Oberseite: 2:1 bei 32 so gross wie genordet bei 16, die
+        // übrigen Rauten im Verhältnis ihrer Höhe.
+        let flaeche = |scale, kamera: &str| {
+            Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap()).oberseite()
+        };
+        assert_eq!(flaeche(32, "2:1"), 256.0);
+        assert_eq!(flaeche(32, "8:5"), 320.0);
+        assert_eq!(flaeche(32, "4:3"), 384.0);
+        assert_eq!(flaeche(32, "1:1"), 512.0);
+        assert_eq!(flaeche(32, "top"), 512.0);
+        assert_eq!(flaeche(16, "top-north"), 256.0);
+        assert_eq!(flaeche(16, "north-45"), 256.0);
         for (kamera, b) in [(Kamera::Nord45, 16.0), (Kamera::ObenNord, 0.0)] {
             let p = Projection::mit_kamera(16, kamera);
             let bild = |e: [i32; 3]| p.project_block(e);

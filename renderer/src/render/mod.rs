@@ -24,6 +24,7 @@ pub use rasterizer::{Sprite, render};
 pub use sprites::{Cell, OWN_CELL, SpriteId, SpriteSet};
 pub use tiles::{
     Flaeche, Gebiet, Reach, Survey, TILE, TileId, corner_tiles, covering, decode_webp, encode_webp,
-    gebiet_der_aenderungen, snap_to_grid, snap_to_tiles, survey, survey_in, world_box,
+    gebiet_der_aenderungen, snap_to_grid, snap_to_tiles, survey, survey_in, survey_mit_fortschritt,
+    world_box,
 };
 pub use tint::{BLEND_DEFAULT, BLEND_MAX, BiomeTable};

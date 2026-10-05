@@ -5904,22 +5904,27 @@ fn fortschritt_als_json() {
             .as_u64()
             .unwrap_or_else(|| panic!("{feld} fehlt: {z}"))
     };
-    for phase in ["prepass", "done"] {
-        let [zeile] = von(phase)[..] else {
-            panic!("nicht genau eine Zeile {phase}:\n{aus}");
-        };
-        assert!(zahl(zeile, "tiles") > 0, "{zeile}");
-    }
-    let ende = |zeilen: &[&serde_json::Value]| {
+    let ende = |zeilen: &[&serde_json::Value], einheit: &str| {
         let letzte = zeilen.last().expect("keine Zeile");
         assert!(zahl(letzte, "of") > 0, "{letzte}");
         assert_eq!(
-            letzte["tiles"], letzte["of"],
+            letzte[einheit], letzte["of"],
             "endet nicht bei of: {letzte}"
         );
-        assert_eq!(letzte["eta_s"], 0.0, "{letzte}");
+        assert_eq!(letzte["eta_s"], 0, "{letzte}");
     };
-    ende(&von("base"));
+    // Der Vorlauf meldet je Region und am Ende einmal, was er fand.
+    let (regionen, vorlauf): (Vec<_>, Vec<_>) = von("prepass")
+        .into_iter()
+        .partition(|z| z.get("regions").is_some());
+    ende(&regionen, "regions");
+    for phase_zeilen in [vorlauf, von("done")] {
+        let [zeile] = phase_zeilen[..] else {
+            panic!("nicht genau eine Zeile:\n{aus}");
+        };
+        assert!(zahl(zeile, "tiles") > 0, "{zeile}");
+    }
+    ende(&von("base"), "tiles");
     let stufen = von("level");
     let mut je_stufe: BTreeMap<u64, Vec<&serde_json::Value>> = BTreeMap::new();
     for zeile in stufen {
@@ -5930,7 +5935,7 @@ fn fortschritt_als_json() {
     }
     assert_eq!(je_stufe.len(), 2, "scale 16 hat zwei native Stufen:\n{aus}");
     for zeilen in je_stufe.values() {
-        ende(zeilen);
+        ende(zeilen, "tiles");
     }
     let pyramide: Vec<u64> = von("pyramid").iter().map(|z| zahl(z, "level")).collect();
     let grob = *je_stufe.keys().next().unwrap();

@@ -23,7 +23,7 @@ use heroic_map_renderer::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Flaeche, Gebiet, Gpu, Kamera, MapInfo,
     Projection, ProjectionInfo, Reach, Richtung, ScreenRect, SpriteSet, Survey, TILE, TileId,
     corner_tiles, decode_webp, draw_list, encode_webp, gebiet_der_aenderungen, render, render_area,
-    render_area_with, streifenbreite, survey, survey_in, world_box,
+    render_area_with, streifenbreite, survey, survey_in, survey_mit_fortschritt, world_box,
 };
 use heroic_map_renderer::world::biomzoom::{obfuscate_seed, zoom};
 use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, World};
@@ -308,16 +308,35 @@ fn sekunden(seit: Instant) -> f64 {
 }
 
 /// `fertig` von `gesamt` Kacheln einer Phase seit `seit`, mit Rate je
-/// Sekunde und geschätzter Restzeit; mit `stufe` die Zoomstufe dazu.
+/// Sekunde und geschätzter Restzeit in ganzen Sekunden; mit `stufe` die
+/// Zoomstufe dazu.
 fn fortschritt(phase: &str, stufe: Option<u32>, fertig: usize, gesamt: usize, seit: Instant) {
+    fortschritt_in(phase, stufe, "tiles", fertig, gesamt, seit);
+}
+
+/// Ob `fertig` von `gesamt` ein neues ganzes Prozent erreicht: höchstens
+/// 100 Meldungen, und die letzte immer.
+fn neues_prozent(fertig: usize, gesamt: usize) -> bool {
+    (fertig - 1) * 100 / gesamt != fertig * 100 / gesamt
+}
+
+/// Wie [`fortschritt`], gezählt in `einheit`, etwa Regionen im Vorlauf.
+fn fortschritt_in(
+    phase: &str,
+    stufe: Option<u32>,
+    einheit: &str,
+    fertig: usize,
+    gesamt: usize,
+    seit: Instant,
+) {
     let rate = fertig as f64 / seit.elapsed().as_secs_f64().max(1e-3);
-    let rest = (rate > 0.0).then(|| (gesamt.saturating_sub(fertig) as f64 / rate).round());
+    let rest = (rate > 0.0).then(|| (gesamt.saturating_sub(fertig) as f64 / rate).round() as u64);
     let mut zeile = serde_json::Map::new();
     zeile.insert("phase".into(), phase.into());
     if let Some(z) = stufe {
         zeile.insert("level".into(), z.into());
     }
-    zeile.insert("tiles".into(), fertig.into());
+    zeile.insert(einheit.into(), fertig.into());
     zeile.insert("of".into(), gesamt.into());
     zeile.insert("rate".into(), ((rate * 10.0).round() / 10.0).into());
     zeile.insert("eta_s".into(), rest.into());
@@ -1380,7 +1399,11 @@ fn write_tiles(
     if mit_inhalt {
         reach = reach.mit_inhalt();
     }
-    let mut survey = survey_in(world, reach.clone())?;
+    let mut survey = survey_mit_fortschritt(world, reach.clone(), |fertig, gesamt| {
+        if neues_prozent(fertig, gesamt) {
+            fortschritt_in("prepass", None, "regions", fertig, gesamt, started);
+        }
+    })?;
     println!(
         "\nVorlauf:    {} Chunks in {:.1} s, {} Blockstates, {} Kacheln",
         survey.chunks,
@@ -5137,6 +5160,20 @@ mod tests {
         assert!(!geht(&["--pyramid", "d", "--gpu", "off"]));
         assert!(geht(&["--pyramid", "d"]));
         assert!(geht(&["--world", "w", "--tiles", "t", "--gpu", "on"]));
+    }
+
+    /// Der Vorlauf meldet je neuem Prozent der Regionen: höchstens 100 Mal,
+    /// bei wenigen Regionen jede, und die letzte immer.
+    #[test]
+    fn vorlauf_meldet_je_prozent() {
+        for gesamt in [1, 7, 99, 100, 101, 383, 2500] {
+            let meldungen: Vec<usize> = (1..=gesamt)
+                .filter(|&fertig| neues_prozent(fertig, gesamt))
+                .collect();
+            assert!(meldungen.len() <= 100, "{gesamt}: {}", meldungen.len());
+            assert_eq!(meldungen.len(), gesamt.min(100), "{gesamt}");
+            assert_eq!(meldungen.last(), Some(&gesamt), "{gesamt}");
+        }
     }
 
     /// Versagt die Karte mit einem Fehler oder einer Panik, kommen die

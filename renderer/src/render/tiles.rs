@@ -4,6 +4,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use std::ffi::c_int;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Once};
 
 use anyhow::{Result, anyhow, ensure};
@@ -542,11 +543,29 @@ pub fn survey(
 
 /// [`survey`] über die Chunks, die `reach` nennt.
 pub fn survey_in(world: &World, reach: Reach) -> Result<Survey> {
-    let regions = world.regions()?;
+    survey_mit_fortschritt(world, reach, |_, _| {})
+}
+
+/// Wie [`survey_in`]; nach jeder Region bekommt `melden`, wie viele der
+/// Regionen fertig sind und wie viele der Vorlauf liest.
+pub fn survey_mit_fortschritt(
+    world: &World,
+    reach: Reach,
+    melden: impl Fn(usize, usize) + Sync,
+) -> Result<Survey> {
+    let regions: Vec<(i32, i32)> = world
+        .regions()?
+        .into_iter()
+        .filter(|&(rx, rz)| reach.region(rx, rz))
+        .collect();
+    let fertig = AtomicUsize::new(0);
     let teile: Vec<Survey> = regions
         .par_iter()
-        .filter(|&&(rx, rz)| reach.region(rx, rz))
-        .map(|&(rx, rz)| survey_region(world, &reach, rx, rz))
+        .map(|&(rx, rz)| {
+            let teil = survey_region(world, &reach, rx, rz);
+            melden(fertig.fetch_add(1, Ordering::Relaxed) + 1, regions.len());
+            teil
+        })
         .collect::<Result<_>>()?;
 
     let mut tiles: BTreeSet<TileId> = BTreeSet::new();

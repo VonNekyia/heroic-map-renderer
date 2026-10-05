@@ -55,19 +55,22 @@ Geschrieben werden die Zeilen von `melde_json` und `fortschritt` in
 
 | `phase` | wann | Felder |
 |---|---|---|
+| `prepass` | je neuem Prozent der Regionen des Vorlaufs, höchstens 100 Mal, und bei der letzten | `regions`, `of`, `rate`, `eta_s` |
 | `prepass` | einmal, nach dem Vorlauf | `chunks` gelesen, `tiles` zu zeichnen, `s` |
 | `base` | alle 200 Basiskacheln und bei der letzten | `tiles`, `of`, `rate`, `eta_s` |
 | `level` | je native Stufe alle 200 Kacheln und bei ihrer letzten | `level`, `tiles`, `of`, `rate`, `eta_s` |
 | `pyramid` | je verkleinerte Zoomstufe, von fein nach grob bis 0 | `level`, `tiles` dieser Stufe |
 | `done` | einmal, am Ende des Exports | `tiles` als Basiskacheln der Karte, `s` |
 
-- **`tiles` und `of`:** fertige Kacheln der Phase und wie viele sie hat.
+- **`tiles` und `of`:** fertige Kacheln der Phase und wie viele sie hat; im
+  Vorlauf `regions` und `of` für Regionen. Regionen am Rand der Welt
+  halten weniger Chunks, die Restzeit des Vorlaufs ist deshalb grob.
 - **`level`:** die Zoomstufe. Die nativen Stufen laufen in Bändern
   zugleich; ihre Zeilen kommen gemischt.
-- **`rate`:** Kacheln je Sekunde seit Beginn der Phase, eine
+- **`rate`:** Kacheln oder Regionen je Sekunde seit Beginn der Phase, eine
   Nachkommastelle.
-- **`eta_s`:** Sekunden, bis `tiles` bei dieser Rate `of` erreicht,
-  gerundet; `null`, solange `tiles` 0 ist.
+- **`eta_s`:** ganze Sekunden, bis `tiles` oder `regions` bei dieser Rate
+  `of` erreicht, gerundet; `null`, solange nichts fertig ist.
 - **`s`:** Sekunden seit Beginn des Vorlaufs bei `prepass`, des Exports bei
   `done`, eine Nachkommastelle.
 - **Fehlen** kann `level` ohne native Stufen und `pyramid` ohne Zoomstufen
@@ -78,13 +81,15 @@ Ein Ausschnitt der Testwelt mit `--center -64 416 --size 4096 --scale 16
 --native-levels 1 --gpu off --progress json`, am 06.10., gekürzt:
 
 ```json
+{"phase":"prepass","regions":1,"of":9,"rate":403.2,"eta_s":0}
+{"phase":"prepass","regions":9,"of":9,"rate":51.7,"eta_s":0}
 {"phase":"prepass","chunks":2398,"tiles":324,"s":0.2}
-{"phase":"base","tiles":200,"of":324,"rate":283.7,"eta_s":0.0}
-{"phase":"base","tiles":324,"of":324,"rate":285.8,"eta_s":0.0}
-{"phase":"level","level":8,"tiles":81,"of":81,"rate":80.4,"eta_s":0.0}
+{"phase":"base","tiles":200,"of":324,"rate":311.3,"eta_s":0}
+{"phase":"base","tiles":324,"of":324,"rate":316.9,"eta_s":0}
+{"phase":"level","level":8,"tiles":81,"of":81,"rate":96.5,"eta_s":0}
 {"phase":"pyramid","level":7,"tiles":25}
 {"phase":"pyramid","level":0,"tiles":2}
-{"phase":"done","tiles":324,"s":2.9}
+{"phase":"done","tiles":324,"s":2.6}
 ```
 
 ## Token

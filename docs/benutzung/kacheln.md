@@ -273,8 +273,8 @@ bestehenden Baum, etwa mit einem neuen Binär, jede Kachel ein neues ETag.
 ## Fortschritt als JSON: `--progress`
 
 Mit `--progress json` meldet ein Export seinen Fortschritt als JSON-Zeilen
-auf stdout, für Programme wie das Plugin, auch für jede native Stufe und
-die Pyramide. Die Zeilen `n/N Kacheln` fallen dann weg, alle übrigen bleiben
+auf stdout, für Programme wie das Plugin, auch im Vorlauf, für jede
+native Stufe und die Pyramide. Die Zeilen `n/N Kacheln` fallen dann weg, alle übrigen bleiben
 Text. Mit Text melden die nativen Stufen erst, wenn sie fertig sind. Welche
 Zeilen kommen und was in ihnen steht:
 [Plugin](../plugin.md), „Fortschritt als JSON“.

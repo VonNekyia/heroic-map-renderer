@@ -85,17 +85,15 @@ jobs:
           strip -o "$RUNNER_TEMP/ohne-symbole" $exe
           echo "ohne Symbole roh $(stat -c %s "$RUNNER_TEMP/ohne-symbole") Byte, gepackt $(gzip -6 -c "$RUNNER_TEMP/ohne-symbole" | wc -c) Byte"
 
-      # Unter Windows mit statischer CRT aus .cargo/config.toml: Hängt das
-      # Binär doch an der VC++-Laufzeit, fällt der Schritt.
-      - name: Binär für die Weitergabe (Windows)
+      # Unter Windows mit statischer CRT aus .cargo/config.toml. Sie gilt
+      # auch für das Debug-Binär der Tests; hängt es doch an der Laufzeit,
+      # nennt es vcruntime140d und ucrtbased, und der Schritt fällt.
+      - name: Binär ohne VC++-Laufzeit (Windows)
         if: matrix.os == 'windows-latest'
-        timeout-minutes: 30
+        timeout-minutes: 5
         shell: bash
         run: |
-          cargo build --release
-          exe=target/release/heroic-map-renderer.exe
-          echo "roh $(stat -c %s $exe) Byte, gepackt $(gzip -6 -c $exe | wc -c) Byte"
-          python -c "import sys; d = open(sys.argv[1], 'rb').read().lower(); sys.exit(b'vcruntime140' in d or b'api-ms-win-crt-' in d)" $exe \
+          python -c "import sys; d = open(sys.argv[1], 'rb').read().lower(); sys.exit(any(n in d for n in (b'vcruntime140', b'ucrtbase', b'api-ms-win-crt-')))" target/debug/heroic-map-renderer.exe \
             || { echo "::error::Das Binär importiert die VC++-Laufzeit"; exit 1; }
 
   web:

@@ -52,6 +52,13 @@ setzt für `x86_64-pc-windows-msvc` `-C target-feature=+crt-static`.
   Verzeichnis, in dem es läuft, nach oben. So gilt sie für
   `cargo build` in `renderer/` wie für `--manifest-path renderer/Cargo.toml`
   aus der Wurzel.
+- **Nicht mit `RUSTFLAGS`:** Ist die Umgebungsvariable gesetzt, nimmt cargo
+  nur sie und lässt `target.<triple>.rustflags` aus `.cargo/config.toml`
+  ganz weg, statt beides zu verbinden. Wer etwa mit
+  `RUSTFLAGS=-Ctarget-cpu=native` baut, bekommt still wieder die
+  VC++-Laufzeit. Dann `-C target-feature=+crt-static` mit in `RUSTFLAGS`
+  schreiben. Die Prüfung in der CI deckt nur ihren eigenen Build; ein
+  Release prüft sein Binär selbst (#150).
 
 ## Linux
 
@@ -67,6 +74,9 @@ Im Job „Rust“, siehe [CI](ci.md):
 - **Ubuntu,** nach den Tests in Release: Grösse des Binärs roh und gepackt,
   die höchste glibc-Version unter seinen Symbolen und die Grösse nach
   `strip`. Der Schritt meldet nur, er fällt nicht.
-- **Windows:** ein Release-Build, seine Grösse roh und gepackt. Der Schritt
-  fällt, wenn das Binär `vcruntime140` oder `api-ms-win-crt-` nennt, also
-  doch an der VC++-Laufzeit hängt.
+- **Windows,** nach den Tests: das Debug-Binär, das `nextest` ohnehin baut.
+  Die statische CRT gilt für alle Profile. Der Schritt fällt, wenn das
+  Binär `vcruntime140`, `ucrtbase` oder `api-ms-win-crt-` nennt, also doch
+  an der VC++-Laufzeit hängt; die Debug-Laufzeit heisst `vcruntime140d` und
+  `ucrtbased`. Ein eigener Release-Build dafür kostete einen zweiten Build
+  je Lauf; die Grösse unter Windows misst der Release-Workflow (#150).

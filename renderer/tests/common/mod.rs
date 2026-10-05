@@ -9,8 +9,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use heroic_map_renderer::world::World;
 use serde::Serialize;
-use terranova_render::world::World;
 
 pub const SECTOR: usize = 4096;
 /// Blöcke je Section-Kante.
@@ -511,13 +511,13 @@ fn section(
 // ------------------------------------------------------------ Grafikkarte
 
 /// Ohne Grafikkarte, auch ohne Software-Adapter, übergehen sich die
-/// GPU-Tests und sagen es. In der CI steht `TERRANOVA_GPU_PFLICHT`: dort
+/// GPU-Tests und sagen es. In der CI steht `HEROIC_GPU_PFLICHT`: dort
 /// ist ein fehlender Adapter ein Fehler, sonst bestünde jeder GPU-Test
 /// still.
 pub fn ohne_gpu() {
     assert!(
-        std::env::var_os("TERRANOVA_GPU_PFLICHT").is_none(),
-        "kein GPU-Adapter, aber TERRANOVA_GPU_PFLICHT ist gesetzt"
+        std::env::var_os("HEROIC_GPU_PFLICHT").is_none(),
+        "kein GPU-Adapter, aber HEROIC_GPU_PFLICHT ist gesetzt"
     );
     eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
 }

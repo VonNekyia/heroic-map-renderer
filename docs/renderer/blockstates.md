@@ -89,7 +89,7 @@ Schlüssel, der als Text passt.
 ## Stand
 
 Alle 1198 Blockstate-Dateien von Vanilla 26.2 und die 39 des
-TerraNova-Packs lesen sich so ohne Fehler und ohne verworfenen Eintrag, und
+Packs der grossen Welt lesen sich so ohne Fehler und ohne verworfenen Eintrag, und
 für jeden Zustand jedes Blocks wählt der Renderer damit dasselbe wie mit
 dem ersten passenden Schlüssel.
 

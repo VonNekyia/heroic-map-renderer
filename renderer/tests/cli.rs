@@ -12,19 +12,19 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, SystemTime};
 
-use image::RgbaImage;
-use rayon::prelude::*;
-use tempfile::TempDir;
-use terranova_render::assets::{Assets, DimensionType};
-use terranova_render::render::heights::{self, EMPTY, Heights};
-use terranova_render::render::look::LOOK;
-use terranova_render::render::rasterizer::{Light, Lightmap};
-use terranova_render::render::stand::{Inhalt, Stand};
-use terranova_render::render::{
+use heroic_map_renderer::assets::{Assets, DimensionType};
+use heroic_map_renderer::render::heights::{self, EMPTY, Heights};
+use heroic_map_renderer::render::look::LOOK;
+use heroic_map_renderer::render::rasterizer::{Light, Lightmap};
+use heroic_map_renderer::render::stand::{Inhalt, Stand};
+use heroic_map_renderer::render::{
     BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Projection, SpriteSet, TileId, encode_webp,
     pyramid, render_area, render_area_with, streifenbreite, survey,
 };
-use terranova_render::world::World;
+use heroic_map_renderer::world::World;
+use image::RgbaImage;
+use rayon::prelude::*;
+use tempfile::TempDir;
 
 fn assets() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base")
@@ -84,10 +84,10 @@ fn baum_name(extra: &[&str]) -> String {
 
 /// Ruft die Binärdatei auf.
 fn cli(args: &[&OsStr]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+    Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
         .args(args)
         .output()
-        .expect("terranova-render starten")
+        .expect("heroic-map-renderer starten")
 }
 
 /// Kachelexport über die Binärdatei, genau mit diesen Schaltern, in den
@@ -292,7 +292,7 @@ fn render(anker: i32) -> Vec<u8> {
 
     let bild = dir.path().join("karte.png");
     let mitte = (anker + 8).to_string();
-    let ausgabe = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+    let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
         .arg("--world")
         .arg(dir.path())
         .arg("--assets")
@@ -304,7 +304,7 @@ fn render(anker: i32) -> Vec<u8> {
         .arg(&mitte)
         .args(["--size", "128", "--scale", "32"])
         .output()
-        .expect("terranova-render starten");
+        .expect("heroic-map-renderer starten");
     assert!(
         ausgabe.status.success(),
         "Renderlauf fehlgeschlagen:\n{}",
@@ -1284,7 +1284,7 @@ fn von_der_platte(dir: &Path, ab: u32) -> BTreeMap<String, Vec<u8>> {
 
 /// Wie [`export`], auf so vielen Threads.
 fn export_auf(threads: usize, welt: &Path, out: &Path, extra: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+    Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
         .arg("--world")
         .arg(welt)
         .arg("--assets")
@@ -1294,7 +1294,7 @@ fn export_auf(threads: usize, welt: &Path, out: &Path, extra: &[&str]) -> Output
         .args(extra)
         .env("RAYON_NUM_THREADS", threads.to_string())
         .output()
-        .expect("terranova-render starten")
+        .expect("heroic-map-renderer starten")
 }
 
 /// Eine Welt mit so vielen Basiskacheln bei scale 32, dass ein Thread sie
@@ -2408,7 +2408,7 @@ fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
     }
 
     let fortsetzen = [&args[..], &["--resume"]].concat();
-    let mut erstes = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+    let mut erstes = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
         .arg("--world")
         .arg(welt.path())
         .arg("--assets")
@@ -2419,7 +2419,7 @@ fn abgebrochenes_fortsetzen_laesst_nichts_zerrissen() {
         .env("RAYON_NUM_THREADS", "1")
         .stdout(Stdio::null())
         .spawn()
-        .expect("terranova-render starten");
+        .expect("heroic-map-renderer starten");
     loop {
         // Erst fragen, ob es geendet hat, dann nach Kacheln sehen: endete es
         // dazwischen, hat der Test seine Kacheln trotzdem gesehen.
@@ -2455,7 +2455,7 @@ fn hinweis_auf_den_echtzeitschutz_nur_beim_ersten_export() {
     common::write_world(welt.path(), &[(0, 0)], gelaende);
     let eltern = tempdir();
     let lauf = |ordner: &str| {
-        let ausgabe = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+        let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
             .current_dir(eltern.path())
             .arg("--world")
             .arg(welt.path())
@@ -2463,7 +2463,7 @@ fn hinweis_auf_den_echtzeitschutz_nur_beim_ersten_export() {
             .arg(assets())
             .args(["--tiles", ordner, "--scale", "8", "--native-levels", "0"])
             .output()
-            .expect("terranova-render starten");
+            .expect("heroic-map-renderer starten");
         String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned()
     };
     let (erster, zweiter) = (lauf("karte"), lauf("karte"));
@@ -2724,13 +2724,13 @@ fn heights_traegt_hoehen_nach() {
 
     // Auch mit `.` im Ordner des Baums landen die Höhen unter der Wurzel.
     ohne_hoehen(out.path());
-    let ausgabe = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+    let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
         .current_dir(out.path())
         .arg("--world")
         .arg(welt.path())
         .args(["--heights", "."])
         .output()
-        .expect("terranova-render starten");
+        .expect("heroic-map-renderer starten");
     gelungen(&ausgabe);
     assert!(!out.path().join("heights").exists(), "Höhen im Baum");
     assert_eq!(schnappschuss(out.path()), soll, "mit .");
@@ -3579,7 +3579,7 @@ fn punkt_als_welt_hat_dieselbe_kennung() {
     gelungen(&tiles(&nether, baum.path(), &["--scale", "16"]));
     let karte = || std::fs::read_to_string(baum.path().join("map.json")).unwrap();
     let vorher = kennung_in(&karte());
-    let ausgabe = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+    let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
         .current_dir(&nether)
         .args(["--world", ".", "--assets"])
         .arg(assets())
@@ -3587,7 +3587,7 @@ fn punkt_als_welt_hat_dieselbe_kennung() {
         .arg(baum.wurzel())
         .args(["--scale", "16"])
         .output()
-        .expect("terranova-render starten");
+        .expect("heroic-map-renderer starten");
     gelungen(&ausgabe);
     assert_eq!(kennung_in(&karte()), vorher);
 }
@@ -4811,7 +4811,7 @@ fn unbekannter_adaptername_ist_keine_panik() {
     common::write_world(welt.path(), &[(0, 0)], gelaende);
     for (modus, gelingt) in [("auto", true), ("on", false)] {
         let out = tempdir();
-        let lauf = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+        let lauf = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
             .arg("--world")
             .arg(welt.path())
             .arg("--assets")
@@ -4821,7 +4821,7 @@ fn unbekannter_adaptername_ist_keine_panik() {
             .args(["--gpu", modus])
             .env("WGPU_ADAPTER_NAME", "Gibt es nicht 4711")
             .output()
-            .expect("terranova-render starten");
+            .expect("heroic-map-renderer starten");
         let text = format!(
             "{}{}",
             String::from_utf8_lossy(&lauf.stdout),
@@ -4840,7 +4840,7 @@ fn unbekannter_adaptername_ist_keine_panik() {
 }
 
 /// Scheitert die Karte, hier schon beim Anlegen des Zeichners an einer
-/// Grenze von 1 kB (`TERRANOVA_GPU_GRENZE`), zeichnet die CPU alles, und
+/// Grenze von 1 kB (`HEROIC_GPU_GRENZE`), zeichnet die CPU alles, und
 /// das Log sagt es genau einmal. Auf stderr steht keine Panik, obwohl wgpu
 /// jeden solchen Fehler mit einer meldet. Die Kacheln sind dieselben wie
 /// mit `--gpu off`.
@@ -4855,7 +4855,7 @@ fn versagende_karte_steht_einmal_im_log() {
         &["--scale", "16", "--gpu", "off"],
     ));
     let gpu = neuer_baum("2x1-se");
-    let lauf = Command::new(env!("CARGO_BIN_EXE_terranova-render"))
+    let lauf = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
         .arg("--world")
         .arg(welt.path())
         .arg("--assets")
@@ -4863,9 +4863,9 @@ fn versagende_karte_steht_einmal_im_log() {
         .arg("--tiles")
         .arg(gpu.wurzel())
         .args(["--native-levels", "9", "--scale", "16", "--gpu", "on"])
-        .env("TERRANOVA_GPU_GRENZE", "1024")
+        .env("HEROIC_GPU_GRENZE", "1024")
         .output()
-        .expect("terranova-render starten");
+        .expect("heroic-map-renderer starten");
     let fehler = String::from_utf8_lossy(&lauf.stderr);
     if !lauf.status.success() && fehler.contains("keine Grafikkarte gefunden") {
         common::ohne_gpu();
@@ -5694,7 +5694,7 @@ fn update_braucht_den_stand_und_dieselben_assets() {
 #[cfg(all(windows, target_env = "msvc"))]
 #[test]
 fn binaer_bekommt_den_segment_heap() {
-    let binaer = std::fs::read(env!("CARGO_BIN_EXE_terranova-render")).expect("Binär lesen");
+    let binaer = std::fs::read(env!("CARGO_BIN_EXE_heroic-map-renderer")).expect("Binär lesen");
     let eintrag = br#"<heapType xmlns="http://schemas.microsoft.com/SMI/2020/WindowsSettings">SegmentHeap</heapType>"#;
     assert!(
         binaer

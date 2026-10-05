@@ -13,18 +13,18 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use image::RgbaImage;
-use image::imageops::{FilterType, crop_imm, replace, resize};
-use rayon::prelude::*;
-use terranova_render::assets::Assets;
-use terranova_render::render::kino::Bloompuffer;
-use terranova_render::render::look::{LOOK, Look};
-use terranova_render::render::metatile::{Hdr, render_hdr_with};
-use terranova_render::render::{
+use heroic_map_renderer::assets::Assets;
+use heroic_map_renderer::render::kino::Bloompuffer;
+use heroic_map_renderer::render::look::{LOOK, Look};
+use heroic_map_renderer::render::metatile::{Hdr, render_hdr_with};
+use heroic_map_renderer::render::{
     BiomeTable, ChunkCache, Kamera, Projection, Reach, Richtung, ScreenRect, SpriteSet, Survey,
     render_area, shrink, survey_in,
 };
-use terranova_render::world::World;
+use heroic_map_renderer::world::World;
+use image::RgbaImage;
+use image::imageops::{FilterType, crop_imm, replace, resize};
+use rayon::prelude::*;
 
 const Y_RANGE: (i32, i32) = (-64, 319);
 const GROESSE: u32 = 1600;
@@ -354,7 +354,7 @@ fn vorderste(
 /// Die Blöcke der Welt, Chunk für Chunk gelesen.
 struct Bloecke<'a> {
     world: &'a World,
-    chunks: HashMap<(i32, i32), Option<terranova_render::world::Chunk>>,
+    chunks: HashMap<(i32, i32), Option<heroic_map_renderer::world::Chunk>>,
 }
 
 impl<'a> Bloecke<'a> {

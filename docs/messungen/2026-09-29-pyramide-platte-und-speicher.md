@@ -61,8 +61,8 @@ Die Befehle, aus der Wurzel des Repositorys, für den Stand mit Karte ohne
 native Stufen und für `--pyramid`:
 
 ```bash
-renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -64 416 --size 18432 --scale 32 --native-levels 0 --gpu on
-renderer/target/release/terranova-render --pyramid <ordner>
+renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -64 416 --size 18432 --scale 32 --native-levels 0 --gpu on
+renderer/target/release/heroic-map-renderer --pyramid <ordner>
 ```
 
 ## Ablauf

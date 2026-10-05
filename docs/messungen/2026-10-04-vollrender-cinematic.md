@@ -46,7 +46,7 @@ von 224 bis 258 GB.
 Der Befehl, aus der Wurzel des Repositorys:
 
 ```bash
-renderer/target/release/terranova-render --world <grosse Welt> --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --data <ihre Biomdaten> --tiles <ordner> --camera 8:5 --direction se --scale 32 --native-levels 1 --cinematic --gpu off --area <Rechteck>
+renderer/target/release/heroic-map-renderer --world <grosse Welt> --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --data <ihre Biomdaten> --tiles <ordner> --camera 8:5 --direction se --scale 32 --native-levels 1 --cinematic --gpu off --area <Rechteck>
 ```
 
 ## Ablauf

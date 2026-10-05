@@ -58,9 +58,9 @@ Sprite-Tabelle höchstens dazu.
 Die Befehle, aus der Wurzel des Repositorys, für die Testwelt:
 
 ```bash
-renderer/target/release/terranova-render --world ./world --scan
-renderer/target/release/terranova-render --world ./world --heights <ordner>
-renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets <entity-texturen> --assets ./assets --data ./vanilla-data --tiles <ordner> --center -64 416 --size 8192 --scale 32 --native-levels 3 --gpu off
+renderer/target/release/heroic-map-renderer --world ./world --scan
+renderer/target/release/heroic-map-renderer --world ./world --heights <ordner>
+renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets <entity-texturen> --assets ./assets --data ./vanilla-data --tiles <ordner> --center -64 416 --size 8192 --scale 32 --native-levels 3 --gpu off
 ```
 
 ## Ablauf

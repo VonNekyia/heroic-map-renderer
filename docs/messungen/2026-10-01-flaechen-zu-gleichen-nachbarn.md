@@ -49,7 +49,7 @@ Kacheln, an der Eisszene 1112 von 2125.
 Der Befehl, aus der Wurzel des Repositorys, für die Eisszene ohne Karte:
 
 ```bash
-renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -229 -232 --size 8192 --scale 32 --native-levels 3 --gpu off
+renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -229 -232 --size 8192 --scale 32 --native-levels 3 --gpu off
 ```
 
 ## Ablauf

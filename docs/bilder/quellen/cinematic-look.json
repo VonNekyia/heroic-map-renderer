@@ -17,7 +17,7 @@
       "center": [384, -496]
     }
   },
-  "karte": "master 666cd46: terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --size 1600 --scale 32 --center <center> --render <datei>",
+  "karte": "master 666cd46: heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --size 1600 --scale 32 --center <center> --render <datei>",
   "cinematic": {
     "stand": "master 89b667b mit dem Prototyp zu #89 darauf, nicht eingecheckt",
     "strahlen": "ein Strahl je Pixel in der Pixelmitte; je Fläche zur Sonne ein exakter Strahl zur Sonne mit Alpha-Test, ohne Bias",

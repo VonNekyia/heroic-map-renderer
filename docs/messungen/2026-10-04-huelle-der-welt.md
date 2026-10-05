@@ -23,7 +23,7 @@ zehn Läufen dasselbe. Die Hülle (`World::huelle`) rechnet jeder Lauf ohne
   Start den Lauf bestimmt:
 
   ```bash
-  terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <leer> --center -64 416 --size 2048 --scale 32 --gpu off
+  heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <leer> --center -64 416 --size 2048 --scale 32 --gpu off
   ```
 
 - **Reihe:** fünf Runden, je Runde beide Stände, in Runde 3 umgekehrt. Jeder

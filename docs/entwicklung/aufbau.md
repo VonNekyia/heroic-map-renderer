@@ -14,7 +14,7 @@ code:
 
 # Aufbau des Codes
 
-Ein Rust-Crate unter `renderer/` mit einer Bibliothek (`terranova_render`)
+Ein Rust-Crate unter `renderer/` mit einer Bibliothek (`heroic_map_renderer`)
 und einem Binär, dazu das Frontend unter `web/`. Die Daten laufen in einer
 Richtung: Welt und Assets lesen, Sprites vorab rastern, Kacheln rendern und
 kodieren, Zoomstufen stapeln, im Browser anzeigen. Die Bibliothek hat drei

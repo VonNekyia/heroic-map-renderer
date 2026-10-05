@@ -5,12 +5,12 @@ mod common;
 
 use std::path::PathBuf;
 
-use terranova_render::assets::Assets;
-use terranova_render::render::heights::{EMPTY, RegionHeights};
-use terranova_render::render::{
+use heroic_map_renderer::assets::Assets;
+use heroic_map_renderer::render::heights::{EMPTY, RegionHeights};
+use heroic_map_renderer::render::{
     Kamera, Projection, Richtung, ScreenRect, SpriteSet, render_area, survey,
 };
-use terranova_render::world::{REGION, World};
+use heroic_map_renderer::world::{REGION, World};
 
 /// Die gebaute Welt reicht von y=0 bis y=47.
 const Y_RANGE: (i32, i32) = (0, 47);

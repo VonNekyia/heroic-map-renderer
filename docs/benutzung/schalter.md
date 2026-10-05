@@ -1,6 +1,6 @@
 ---
 title: Schalter und Beispiele
-description: Alle Schalter von terranova-render mit einer Zeile und die Aufrufe, die keine Kacheln schreiben, mit Beispielausgabe.
+description: Alle Schalter von heroic-map-renderer mit einer Zeile und die Aufrufe, die keine Kacheln schreiben, mit Beispielausgabe.
 code:
   - renderer/src/cli.rs
   - renderer/src/main.rs
@@ -8,7 +8,7 @@ code:
 
 # Schalter und Beispiele
 
-`terranova-render` ist ein einziges Binär; welche Arbeit es tut, entscheiden
+`heroic-map-renderer` ist ein einziges Binär; welche Arbeit es tut, entscheiden
 die Schalter. `--tiles` exportiert Kacheln, `--pyramid` baut nur Zoomstufen
 nach, `--heights` trägt nur die Höhen nach, `--render`, `--sprite`,
 `--block`, `--at` und `--scan` helfen beim Ansehen und Prüfen. Die Schalter stehen in `Args` in

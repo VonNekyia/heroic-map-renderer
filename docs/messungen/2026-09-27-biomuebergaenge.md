@@ -39,13 +39,13 @@ Die Befehle, aus der Wurzel des Repositorys, je Lauf ein leerer Ordner:
 
 ```bash
 # Testwelt, ein Thread
-RAYON_NUM_THREADS=1 renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --center -64 416 --scale 32 --size 6656 --native-levels 0 --gpu off --tiles <ordner>
+RAYON_NUM_THREADS=1 renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --center -64 416 --scale 32 --size 6656 --native-levels 0 --gpu off --tiles <ordner>
 # Testwelt, 24 Threads, einmal mit --gpu off, einmal mit --gpu on
-RAYON_NUM_THREADS=24 renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --center -64 416 --scale 32 --size 26624 --native-levels 0 --gpu off --tiles <ordner>
+RAYON_NUM_THREADS=24 renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --center -64 416 --scale 32 --size 26624 --native-levels 0 --gpu off --tiles <ordner>
 # grosse Welt, derselbe feste Ausschnitt wie in der Vormessung
-RAYON_NUM_THREADS=24 renderer/target/release/terranova-render --world <grosse Welt> --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --data <ihre Biomdaten> --center <Ausschnitt> --size 65536 --gpu off --tiles <ordner>
+RAYON_NUM_THREADS=24 renderer/target/release/heroic-map-renderer --world <grosse Welt> --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --data <ihre Biomdaten> --center <Ausschnitt> --size 65536 --gpu off --tiles <ordner>
 # Sprite-Tabelle: ohne --center und --size, abgebrochen nach der Zeile mit den Sprites
-RAYON_NUM_THREADS=24 renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --gpu off --tiles <ordner>
+RAYON_NUM_THREADS=24 renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --gpu off --tiles <ordner>
 ```
 
 ## Ablauf

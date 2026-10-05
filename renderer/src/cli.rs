@@ -11,24 +11,24 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, ValueEnum};
 
-use image::{Rgba, RgbaImage};
-use rayon::prelude::*;
-use terranova_render::assets::{Assets, blockentity, fluid, model_of, wasserspiegel};
-use terranova_render::render::gpu::Worker;
-use terranova_render::render::heights::{self, Heights, RegionHeights};
-use terranova_render::render::look::{LOOK, Look};
-use terranova_render::render::pyramid;
-use terranova_render::render::stand::{
+use heroic_map_renderer::assets::{Assets, blockentity, fluid, model_of, wasserspiegel};
+use heroic_map_renderer::render::gpu::Worker;
+use heroic_map_renderer::render::heights::{self, Heights, RegionHeights};
+use heroic_map_renderer::render::look::{LOOK, Look};
+use heroic_map_renderer::render::pyramid;
+use heroic_map_renderer::render::stand::{
     Aenderung, Art, Eintrag, Inhalt, Stand, fingerabdruck_der_dateien, fingerabdruck_des_renderers,
 };
-use terranova_render::render::{
+use heroic_map_renderer::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Flaeche, Gebiet, Gpu, Kamera, MapInfo,
     Projection, ProjectionInfo, Reach, Richtung, ScreenRect, SpriteSet, Survey, TILE, TileId,
     corner_tiles, decode_webp, draw_list, encode_webp, gebiet_der_aenderungen, render, render_area,
     render_area_with, streifenbreite, survey, survey_in, world_box,
 };
-use terranova_render::world::biomzoom::{obfuscate_seed, zoom};
-use terranova_render::world::{BlockState, Blockdaten, Generator, REGION, World};
+use heroic_map_renderer::world::biomzoom::{obfuscate_seed, zoom};
+use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, World};
+use image::{Rgba, RgbaImage};
+use rayon::prelude::*;
 
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
 /// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
@@ -36,7 +36,7 @@ use terranova_render::world::{BlockState, Blockdaten, Generator, REGION, World};
 const Y_RANGE: (i32, i32) = (-64, 319);
 
 #[derive(Parser)]
-#[command(name = "terranova-render", version, about)]
+#[command(name = "heroic-map-renderer", version, about)]
 #[command(group(clap::ArgGroup::new("bild").args(["render", "tiles"]).multiple(true)))]
 pub struct Args {
     /// Weltverzeichnis: die Wurzel mit level.dat oder eine Dimension darin
@@ -4992,8 +4992,8 @@ mod tests {
         let Some(gpu) = Gpu::new(true).unwrap() else {
             // Wie `common::ohne_gpu` in den Integrationstests.
             assert!(
-                std::env::var_os("TERRANOVA_GPU_PFLICHT").is_none(),
-                "kein GPU-Adapter, aber TERRANOVA_GPU_PFLICHT ist gesetzt"
+                std::env::var_os("HEROIC_GPU_PFLICHT").is_none(),
+                "kein GPU-Adapter, aber HEROIC_GPU_PFLICHT ist gesetzt"
             );
             eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
             return;

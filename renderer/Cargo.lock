@@ -478,6 +478,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "heroic-map-renderer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "fastnbt",
+ "flate2",
+ "image",
+ "libwebp-sys",
+ "lz4-java-wrc",
+ "mimalloc",
+ "pollster",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "wgpu",
+ "windows-sys",
+]
+
+[[package]]
 name = "image"
 version = "0.25.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1167,27 +1188,6 @@ dependencies = [
  "getrandom",
  "once_cell",
  "rustix",
- "windows-sys",
-]
-
-[[package]]
-name = "terranova-render"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "fastnbt",
- "flate2",
- "image",
- "libwebp-sys",
- "lz4-java-wrc",
- "mimalloc",
- "pollster",
- "rayon",
- "serde",
- "serde_json",
- "tempfile",
- "wgpu",
  "windows-sys",
 ]
 

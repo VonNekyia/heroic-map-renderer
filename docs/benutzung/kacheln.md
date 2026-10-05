@@ -1,6 +1,6 @@
 ---
 title: Kacheln exportieren
-description: Was ein Lauf mit --tiles tut, wie ein Ausschnitt gerundet wird, wie --area ein Rechteck der Welt wählt, wo Kacheln, Höhen und der Stand liegen und wann der Export Kacheln entfernt, auch mit --prune.
+description: Was ein Lauf mit --tiles tut, wie ein Ausschnitt gerundet wird, wie --area ein Rechteck der Welt wählt, wo Kacheln, Höhen und der Stand liegen, wann der Export Kacheln entfernt, auch mit --prune, und dass er Dateien mit gleichen Bytes liegen lässt.
 code:
   - renderer/src/cli.rs
   - renderer/src/world/mod.rs
@@ -231,6 +231,44 @@ Bricht er beim Entfernen ab, fehlen feineren Kacheln die Eltern. Jeder Lauf
 sucht solche Kacheln, soweit sie seine Fläche berühren, und baut ihnen die
 Eltern neu, auch einer, dessen Vorlauf dort nichts mehr findet; einer mit
 `--prune` räumt dann auch die Kacheln ohne Chunk weg.
+
+## Gleiche Bytes bleiben liegen
+
+Hat eine Datei schon dieselben Bytes, schreibt der Export sie nicht neu
+(`lege_ab` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)). Sie
+behält ihre Zeit und damit das ETag aus Grösse und Zeit, das ein Server
+ausliefert (#151, #154): Ein Browser bekommt `304`, und ein Abgleich lädt
+sie nicht noch einmal. Ohne das bekäme nach einem vollen Lauf über einen
+bestehenden Baum, etwa mit einem neuen Binär, jede Kachel ein neues ETag.
+
+- **Wie:** erst die Grösse aus den Metadaten, nur bei gleicher Grösse die
+  Bytes. Ändert sich viel, reicht meist die Grösse.
+- **Kosten:** keine. Ein voller Lauf über einen bestehenden Baum der
+  Testwelt, in dem sich nichts geändert hat, brauchte in der Basis 2 bis 3 %
+  weniger als mit Neuschreiben, siehe
+  [Gleiche Bytes liegen lassen](../messungen/2026-10-05-gleiche-bytes.md).
+- **Die Ausgabe** nennt, was liegen blieb:
+  `Kacheln:    0 geschrieben, 17820 gleich geblieben, 344 leer, …`.
+- **Was:** Kacheln jeder Stufe, die Basis, die nativen Stufen und die
+  Pyramide, dazu die Höhen. `map.json`, `stand.bin` und `trees.json`
+  schreibt der Renderer immer neu.
+- **Mit vorgegebener Zeit,** wie `--pyramid` seine Kacheln stempelt
+  ([0017](../entscheidungen/0017-pyramide-vergleicht-zeiten.md)), bekommt
+  eine gleiche Datei nur diese Zeit, ihre Bytes bleiben.
+- **`--pyramid` danach:** Hat ein Kind neue Bytes, die Elternkachel aber
+  trotzdem dieselben, bleibt sie mit ihrer alten Zeit liegen und ist älter
+  als ihr Kind. Der nächste `--pyramid` baut sie einmal nach und stempelt
+  sie; danach nicht wieder, siehe
+  [Pyramide und Fortsetzen](pyramide-und-resume.md), „Was neu gebaut wird“.
+- **`--resume`** erkennt eine liegen gelassene Basiskachel nicht an ihrer
+  Zeit. Ein Lauf mit angefangenem Stand trägt sie deshalb in ein Protokoll
+  ein, siehe [Pyramide und Fortsetzen](pyramide-und-resume.md),
+  „Fortsetzen: `--resume`“.
+- Getestet: `voller_lauf_laesst_gleiche_dateien_liegen` in
+  `renderer/tests/cli.rs`. Ein voller Lauf über einen bestehenden Baum, in
+  dem sich ein Chunk geändert hat: Jede Datei mit gleichen Bytes behält ihre
+  Zeit, jede andere bekommt eine neue, und am Ende stehen dieselben Bytes da
+  wie nach einem Lauf in einen leeren Baum.
 
 ## Weitere Schalter beim Export
 

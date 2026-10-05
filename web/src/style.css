@@ -166,13 +166,31 @@ body {
 }
 
 /* Unten rechts: wann der letzte Lauf map.json geschrieben hat, darunter der
-   Link auf die Lizenzen. Gegen `.leaflet-container a` braucht er zwei Klassen. */
+   Hinweis von Mojang und der Link auf die Lizenzen. */
 .stand,
-.leaflet-control.lizenzen {
+.lizenzen {
   padding: 0 var(--ui-abstand);
   background: var(--ui-grund);
   color: var(--ui-schrift);
   font: 12px/1.6 var(--ui-schrift-text);
+}
+
+/* Der Hinweis von Mojang gut sichtbar, so gross wie der Stand; er bricht um.
+   Der Link in der Farbe der Schrift, gegen `.leaflet-container a`. */
+.lizenzen {
+  max-width: 22em;
+}
+
+/* In schmalen Fenstern hätte der Hinweis neben der Leiste unten links keinen
+   Platz: Die Ecke unten rechts steht dann über ihr. */
+@media (max-width: 600px) {
+  .leaflet-bottom.leaflet-right {
+    bottom: 32px;
+  }
+}
+
+.leaflet-container .lizenzen a {
+  color: inherit;
 }
 
 /* Der Pfeil nach Norden; die Drehung setzt main.ts. */

@@ -692,10 +692,15 @@ test('in der Gesamtansicht deckt die UI keinen Gegenstand und keine Lilie, in 8:
       }),
     );
     expect(ui.length).toBeGreaterThanOrEqual(4);
-    for (const { name, left, top, right, bottom } of ui) {
+    for (const [i, { name, left, top, right, bottom }] of ui.entries()) {
       for (const d of dinge) {
         const deckt = left < d.r && right > d.l && top < d.u && bottom > d.o;
         expect(deckt, `${breite} × ${hoehe}: ${name} über ${d.bild}`).toBe(false);
+      }
+      // Auch kein Control über einem anderen: `weiche` sieht die anderen Ecken nicht.
+      for (const b of ui.slice(i + 1)) {
+        const deckt = left < b.right && right > b.left && top < b.bottom && bottom > b.top;
+        expect(deckt, `${breite} × ${hoehe}: ${name} über ${b.name}`).toBe(false);
       }
     }
   }

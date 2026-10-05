@@ -1,4 +1,4 @@
-import { cpSync } from 'node:fs';
+import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
@@ -125,6 +125,20 @@ export default defineConfig({
             '',
           ].join('\n'),
         });
+      },
+    },
+    {
+      // Vor die Lizenzen der Pakete NOTICE und LICENSE des Projekts: Apache-2.0
+      // verlangt beide bei jeder Weitergabe. Vorn ein BOM: Server senden .txt
+      // meist ohne charset, und der Browser läse UTF-8 sonst als Latin-1.
+      // Siehe docs/frontend.md, „Lizenzen“.
+      name: 'notice',
+      apply: 'build',
+      writeBundle({ dir }) {
+        if (!dir) return;
+        const datei = join(dir, 'lizenzen.txt');
+        const eigen = ['NOTICE', 'LICENSE'].map((name) => readFileSync(join(WEB, '..', name), 'utf8').trimEnd());
+        writeFileSync(datei, '﻿' + [...eigen, readFileSync(datei, 'utf8')].join('\n\n---\n\n'));
       },
     },
     {

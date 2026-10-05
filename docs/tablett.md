@@ -1,8 +1,9 @@
 ---
 title: Tablett
-description: Der Skin Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet in zwei Bilder um die Kacheln, mit einer Gesamtansicht wie in der Vorlage. Rahmen mit runden Ecken, Tisch, Lilien und Gegenstände sind Bilder aus der Vorlage, entzerrt oder freigestellt und geglättet gelegt; Tisch und Gegenstände liegen im Bezugsrahmen wie in der Vorlage, jenseits von ihr liegt Marmor als Pixelkunst, und auf zwei Buchrücken steht Text aus dem Build; die Bilder laden nach den Kacheln; dazu Masse, Licht, die Regel, was vor und was hinter der Welt liegt, und die UI aus Pergament, Holz und Messing neben den Gegenständen.
+description: Der Skin Tablett legt vorerst nur Marmor um die Karte, das Tablett ist vertagt (0079). Das ganze Tablett legt die Welt in ein Holztablett auf einem Tisch, nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet in zwei Bilder um die Kacheln, mit einer Gesamtansicht wie in der Vorlage. Rahmen mit runden Ecken, Tisch, Lilien und Gegenstände sind Bilder aus der Vorlage, entzerrt oder freigestellt und geglättet gelegt; Tisch und Gegenstände liegen im Bezugsrahmen wie in der Vorlage, jenseits von ihr liegt Marmor als Pixelkunst, und auf zwei Buchrücken steht Text aus dem Build; die Bilder laden nach den Kacheln; dazu Masse, Licht, die Regel, was vor und was hinter der Welt liegt, und die UI aus Pergament, Holz und Messing neben den Gegenständen.
 code:
   - web/skins/tablett/index.ts
+  - web/skins/tablett/voll.ts
   - web/skins/tablett/tablett.ts
   - web/skins/tablett/bilder.ts
   - web/skins/tablett/zeichnen.ts
@@ -13,10 +14,42 @@ code:
   - web/skins/tablett/tests/tablett.spec.ts
   - web/skins/tablett/tests/bilder.spec.ts
   - web/skins/tablett/tests/karte.spec.ts
+  - web/skins/tablett/tests/marmor.spec.ts
   - web/skins/tablett/tests/auslagern.spec.ts
 ---
 
 # Tablett
+
+## Vorerst nur Marmor
+
+Das Tablett ist vertagt ([0079](entscheidungen/0079-tablett-vertagt-nur-marmor.md),
+#167). `SKIN=./skins/tablett` legt vorerst nur den Marmor um die Karte:
+
+![Der Skin Tablett, vorerst nur Marmor, an der Testwelt mit scale 8: links die Gesamtansicht, rechts eine Stufe hinein](bilder/marmor.webp)
+
+*Die Testwelt in 2:1, scale 8, im Fenster 960 × 600. Links die Gesamtansicht
+der Grundkarte, ein Block des Marmors deckt dort weniger als ein Pixel und
+liegt geglättet; rechts eine Stufe hinein, Pixelkunst. Stand des Commits zu
+#167; das Bild macht
+[`marmor-bild.mjs`](../skills/doku-bilder-rendern/marmor-bild.mjs).*
+
+- **Wie jenseits der Vorlage:** an der Welt verankert, Pixelkunst ohne
+  Glättung, solange ein Block ein Pixel deckt, geladen nach den Kacheln,
+  nur `marmor.webp`. Gemalt wie im ganzen Tablett, siehe „Zeichnen“.
+- **Ohne Tablett:** kein Rahmen, kein Tisch, keine Lilien, Gegenstände oder
+  Buchrücken, keine nahe Ebene. Gesamtansicht und Grenzen sind die der
+  Grundkarte.
+- **Kein Quadrat nötig:** `area` und `seaLevel` reichen.
+- **Die UI** aus Pergament, Holz und Messing bleibt; ausweichen muss sie
+  nichts.
+- **Das ganze Tablett,** wie es der Rest dieser Seite beschreibt, wählt
+  `SKIN=./skins/tablett/voll` ([`voll.ts`](../web/skins/tablett/voll.ts)).
+  Beide Einstiege rufen `skinTablett` aus `index.ts`.
+- **Tests:** [`tests/marmor.spec.ts`](../web/skins/tablett/tests/marmor.spec.ts)
+  prüft den Marmor allein; die Tests des ganzen Tabletts laufen weiter an
+  einem eigenen Build, siehe [Tests](entwicklung/tests.md).
+
+## Das ganze Tablett
 
 Der Skin in [`web/skins/tablett/`](../web/skins/tablett/) legt die Welt in
 ein Tablett aus Holz auf einem Tisch (#112). Rahmen und Tisch sind ebene
@@ -39,7 +72,8 @@ gerenderte Bilder aus Blender: [Tablett aus Blender](tablett-gerendert.md).
 
 ## Einschalten
 
-- **Build:** `SKIN=./skins/tablett npm run build`.
+- **Build:** `SKIN=./skins/tablett/voll npm run build`; `./skins/tablett`
+  allein legt vorerst nur den Marmor, siehe „Vorerst nur Marmor“.
 - **Daten:** `seaLevel` und `area` aus `map.json`, geschrieben vom Backend
   (#112, #115). `area` ist `[x0, z0, x1, z1]` in Blöcken der Welt, `x1` und
   `z1` sind die Kanten hinter dem letzten Block.
@@ -460,6 +494,9 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
     Holzrand, links der linken Ecke des Tabletts;
   - Kompass und Umschalter oben rechts nach links, neben die Kerze;
   - Leiste, Stand und Lizenzen unten zur Mitte hin, neben Sphäre und Kompass.
+  - Die anderen Ecken sieht `weiche` nicht. Dass keine Ecke eine andere
+    deckt, prüft der Test in allen sechs Fenstergrössen; bisher reicht der
+    Platz.
   - Gerechnet wird beim Laden und bei jeder neuen Fenstergrösse, aus der
     Lage der Bilder in der Gesamtansicht, und wenn eine Ecke wächst, etwa
     die Leiste mit den Koordinaten. Das Pergament liegt flach im Bild des
@@ -570,7 +607,8 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   Knöpfe und Umschalter; der gesperrte Knopf aus Holz; der Rand aus Messing als
   Verlauf, eckig; per Tastatur der Fokus innen, 2 px, mit 3:1 gegen den
   eigenen Grund, an einem Knopf und an der Leiste; in der Gesamtansicht
-  deckt die UI keinen Gegenstand und nicht das Pergament, in Fenstern von
+  deckt die UI keinen Gegenstand und nicht das Pergament und kein Control
+  ein anderes, in Fenstern von
   Telefonen bis 4K; im Bezugsrahmen liegt der Zoom auf dem Marmor zwischen
   Pergament und Holzrand.
 - [`tests/auslagern.spec.ts`](../web/skins/tablett/tests/auslagern.spec.ts)

@@ -2300,8 +2300,9 @@ fn resume_rendert_nur_was_fehlt() {
 /// Ohne native Stufen baut `--resume` die ganze Pyramide neu, wie jeder
 /// Lauf: auch über Basiskacheln, die es nicht neu rendert, und auch eine
 /// Elternkachel, die ein Stromausfall zerrissen hat und dieselbe Zeit trägt
-/// wie alle anderen. Am Ende steht derselbe Baum da wie nach einem Lauf in
-/// einem Stück.
+/// wie alle anderen. Die zerrissene schreibt es neu; jede andere hat schon
+/// dieselben Bytes und bleibt mit ihrer Zeit liegen. Am Ende steht derselbe
+/// Baum da wie nach einem Lauf in einem Stück.
 #[test]
 fn resume_ohne_native_stufen_baut_die_pyramide_neu() {
     let welt = tempdir();
@@ -2353,14 +2354,169 @@ fn resume_ohne_native_stufen_baut_die_pyramide_neu() {
         "frische Basiskachel nicht neu gerendert"
     );
     for pfad in &oben {
-        assert_ne!(
+        if pfad == zerrissen {
+            assert_ne!(
+                zeit_von(pfad),
+                damals,
+                "zerrissene Elternkachel nicht neu geschrieben"
+            );
+        } else {
+            assert_eq!(
+                zeit_von(pfad),
+                damals,
+                "{} trotz gleicher Bytes neu geschrieben",
+                pfad.display()
+            );
+        }
+    }
+    assert_eq!(schnappschuss(out.path()), soll);
+}
+
+/// Ein voller Lauf über einen bestehenden Baum lässt jede Kachel und jede
+/// Datei der Höhen liegen, die schon dieselben Bytes hat, mit ihrer Zeit,
+/// und schreibt jede geänderte neu. Am Ende stehen dieselben Bytes da wie
+/// nach einem Lauf in einen leeren Baum, und das Protokoll für `--resume`
+/// ist weg.
+#[test]
+fn voller_lauf_laesst_gleiche_dateien_liegen() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = neuer_baum("2x1-se");
+    let args = ["--scale", "8", "--native-levels", "0"];
+    gelungen(&tiles(welt.path(), out.path(), &args));
+    let vorher = schnappschuss(out.path());
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for rel in vorher.keys() {
+        setze_zeit(&out.path().join(rel), damals);
+    }
+
+    // Im Chunk (0, 0) wird der Boden zu Stein.
+    common::write_world(welt.path(), &chunks, |x, y, z| match (x, y, z) {
+        (0..16, 2, 0..16) => "minecraft:stone",
+        _ => gelaende(x, y, z),
+    });
+    let ausgabe = tiles(welt.path(), out.path(), &args);
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    let nachher = schnappschuss(out.path());
+    let leer = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), leer.path(), &args));
+    let ohne_karte = |mut dateien: BTreeMap<String, Vec<u8>>| {
+        // Das Salz der Kennung ist je Baum ein anderes.
+        dateien.remove("map.json");
+        dateien
+    };
+    assert_eq!(
+        ohne_karte(nachher.clone()),
+        ohne_karte(schnappschuss(leer.path()))
+    );
+
+    let basis = format!("{}/", max_zoom(out.path()));
+    let (mut gleich, mut anders, mut gleich_in_der_basis) = (0, 0, 0);
+    for (rel, bytes) in ohne_karte(nachher) {
+        let zeit = zeit_von(&out.path().join(&rel));
+        if vorher.get(&rel) == Some(&bytes) {
+            assert_eq!(zeit, damals, "{rel} trotz gleicher Bytes neu geschrieben");
+            gleich += 1;
+            gleich_in_der_basis += usize::from(rel.starts_with(&basis));
+        } else {
+            assert_ne!(zeit, damals, "{rel} geändert, aber nicht neu geschrieben");
+            anders += 1;
+        }
+    }
+    assert!(gleich > 0 && anders > 0, "{gleich} gleich, {anders} anders");
+    let zeile = format!(", {gleich_in_der_basis} gleich geblieben,");
+    assert!(meldung.contains(&zeile), "{zeile} fehlt in: {meldung}");
+    assert!(!out.path().join("stand-neu-liegen.bin").exists());
+}
+
+/// Bricht ein voller Lauf über einen bestehenden Baum ab, nimmt `--resume`
+/// die Kacheln, die er liegen liess, als fertig, obwohl ihre Zeit alt ist:
+/// Er rendert sie nicht noch einmal. Nur die jüngste Kachel des Baums zählt
+/// als frisch und kommt wieder. Die Zeiten der Kacheln liegen je 10 min
+/// auseinander, damit keine andere in ihre zwei Minuten fällt. Der erste
+/// Lauf rendert auf einem Thread und endet hart, sobald er drei Kacheln
+/// liegen liess. Am Ende steht derselbe Baum da wie vorher.
+#[test]
+fn resume_nimmt_liegen_gelassene_als_fertig() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let out = neuer_baum("2x1-se");
+    let args = ["--scale", "8", "--native-levels", "0"];
+    gelungen(&tiles(welt.path(), out.path(), &args));
+    let soll = schnappschuss(out.path());
+    let basis = kacheln(out.path(), max_zoom(out.path()));
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for (i, pfad) in basis.values().enumerate() {
+        setze_zeit(pfad, damals - Duration::from_secs(600 * i as u64));
+    }
+    let zeiten: BTreeMap<&PathBuf, SystemTime> =
+        basis.values().map(|pfad| (pfad, zeit_von(pfad))).collect();
+
+    let protokoll = out.path().join("stand-neu-liegen.bin");
+    let mut erstes = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+        .arg("--world")
+        .arg(welt.path())
+        .arg("--assets")
+        .arg(assets())
+        .arg("--tiles")
+        .arg(out.wurzel())
+        .args(args)
+        .env("RAYON_NUM_THREADS", "1")
+        .stdout(Stdio::null())
+        .spawn()
+        .expect("heroic-map-renderer starten");
+    let laenge = |pfad: &Path| std::fs::metadata(pfad).map_or(0, |m| m.len());
+    loop {
+        let geendet = erstes.try_wait().unwrap().is_some();
+        if laenge(&protokoll) >= 3 * 12 {
+            break;
+        }
+        assert!(
+            !geendet,
+            "der Lauf endete, bevor er drei Kacheln liegen liess"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    erstes.kill().unwrap();
+    erstes.wait().unwrap();
+    let liegen = (laenge(&protokoll) / 12) as usize;
+    assert!(
+        liegen < basis.len(),
+        "der Lauf liess alle liegen, bevor er endete"
+    );
+    for (pfad, zeit) in &zeiten {
+        assert_eq!(
             zeit_von(pfad),
-            damals,
-            "{} nicht neu gebaut",
+            *zeit,
+            "{} vom Abbruch neu geschrieben",
             pfad.display()
         );
     }
+
+    let fortsetzen = [&args[..], &["--resume"]].concat();
+    let ausgabe = tiles(welt.path(), out.path(), &fortsetzen);
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    let uebersprungen: usize = meldung
+        .lines()
+        .find_map(|zeile| {
+            zeile
+                .trim()
+                .strip_suffix(" vorhandene Kacheln übersprungen (--resume)")
+        })
+        .and_then(|zahl| zahl.parse().ok())
+        .unwrap_or_else(|| panic!("keine Zahl übersprungener Kacheln in: {meldung}"));
+    assert!(
+        (liegen - 1..=liegen).contains(&uebersprungen),
+        "{uebersprungen} übersprungen, {liegen} lagen"
+    );
     assert_eq!(schnappschuss(out.path()), soll);
+    assert!(!protokoll.exists(), "das Protokoll blieb nach dem Ende");
 }
 
 /// Ein Fortsetzen, das selbst abbricht, lässt keine zerrissene Kachel

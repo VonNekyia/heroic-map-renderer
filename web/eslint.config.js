@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint';
 const GRENZE = 'Ein Skin importiert nur aus seinem Ordner, Leaflet und heroic-map-renderer/skin-api.';
 
 export default tseslint.config(
-  { ignores: ['dist', 'dist-skin', 'public', 'test-results', 'playwright-report', 'lighthouse', '.lighthouseci'] },
+  { ignores: ['dist', 'dist-skin', 'dist-tablett', 'public', 'test-results', 'playwright-report', 'lighthouse', '.lighthouseci'] },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {

@@ -1,11 +1,16 @@
 /**
- * Der Skin „Tablett“: die Welt in einem Holztablett auf einem Tisch, auf
+ * Der Skin „Tablett“. Vorerst legt er nur den Marmor um die Karte, an der
+ * Welt verankert; das ganze Tablett ist vertagt und liegt in `voll.ts`.
+ * Siehe docs/entscheidungen/0079-tablett-vertagt-nur-marmor.md.
+ *
+ * Das ganze Tablett: die Welt in einem Holztablett auf einem Tisch, auf
  * jeder Stufe. Er zeichnet je Ansicht zwei Bilder, fern unter den Kacheln
  * und nah darüber, so gross wie das Fenster mit Überstand, und legt sie als
  * Bild-Ebenen auf die Karte. Hat der Skin gerenderte Bilder in brett/,
  * malt er die seiner Kamera; sonst Rahmen, Tisch, Lilien und Gegenstände aus
- * Bildern der Vorlage in bilder/. Während einer Bewegung gleiten die Bilder
- * mit der Karte. Siehe docs/tablett.md.
+ * Bildern der Vorlage in bilder/. Nur der Marmor ist davon das ferne Bild
+ * mit dem Marmor allein. Während einer Bewegung gleiten die Bilder mit der
+ * Karte. Siehe docs/tablett.md.
  */
 import type { Grenzen, Rechteck, Skin } from 'heroic-map-renderer/skin-api';
 import L from 'leaflet';
@@ -56,7 +61,7 @@ const BRETT_ADRESSEN = import.meta.glob<string>('./brett/*.webp', { query: '?url
  * Malt beide Ebenen. `s` ist ein Pixel der feinsten Stufe in Pixeln der
  * Leinwand, `versatz` der Punkt (0, 0) darauf.
  */
-type Maler = (fern: CanvasRenderingContext2D, nah: CanvasRenderingContext2D, s: number, versatz: [number, number]) => void;
+type Maler = (fern: CanvasRenderingContext2D, nah: CanvasRenderingContext2D | undefined, s: number, versatz: [number, number]) => void;
 
 /** So lange wartet der Skin nach den Kacheln höchstens auf die Meldung, dass eine gemalt ist, in ms. */
 const FRIST = 1000;
@@ -96,9 +101,11 @@ async function lade(adresse: string): Promise<ImageBitmap> {
   return createImageBitmap(await antwort.blob());
 }
 
-/** Alle Bilder, nach Namen. Was nicht lädt, fehlt, und die Konsole sagt es. */
-async function ladeAlle(): Promise<Map<string, ImageBitmap>> {
-  const eintraege = Object.entries(ADRESSEN).map(([pfad, adresse]) => [pfad.slice('./bilder/'.length, -'.webp'.length), adresse] as const);
+/** Die Bilder, nach Namen; ohne `nur` alle. Was nicht lädt, fehlt, und die Konsole sagt es. */
+async function ladeAlle(nur?: ReadonlySet<string>): Promise<Map<string, ImageBitmap>> {
+  const eintraege = Object.entries(ADRESSEN)
+    .map(([pfad, adresse]) => [pfad.slice('./bilder/'.length, -'.webp'.length), adresse] as const)
+    .filter(([name]) => !nur || nur.has(name));
   const geladen = await Promise.allSettled(eintraege.map(([, adresse]) => lade(adresse)));
   const bilder = new Map<string, ImageBitmap>();
   geladen.forEach((ergebnis, i) => {
@@ -135,7 +142,12 @@ function rechteck(area: unknown): area is Rechteck {
   );
 }
 
-const skin: Skin = (kontext) => {
+/**
+ * Der Skin, mit `nurMarmor` vorerst nur der Marmor: kein Rahmen, kein Tisch,
+ * keine nahe Ebene, kein Quadrat nötig; die Gesamtansicht ist die der
+ * Grundkarte. Gemalt wird der Marmor wie im ganzen Tablett.
+ */
+export const skinTablett = (nurMarmor: boolean): Skin => (kontext) => {
   const { version, karte, container, maxZoom, area, seaLevel, minY } = kontext;
   if (version !== API) {
     console.warn(`Tablett: geschrieben für die Schnittstelle ${API}, die Karte hat ${version}.`);
@@ -147,13 +159,14 @@ const skin: Skin = (kontext) => {
     console.warn('Tablett: seaLevel oder area in map.json taugen nicht, das Tablett bleibt aus.');
     return undefined;
   }
-  if (area[2] - area[0] !== area[3] - area[1]) {
+  // Der Marmor allein braucht kein Quadrat.
+  if (!nurMarmor && area[2] - area[0] !== area[3] - area[1]) {
     console.warn('Tablett: area ist kein Quadrat, das Tablett bleibt aus.');
     return undefined;
   }
   const kamera = kameraName(kontext.projektion, kontext.k);
-  const brett = BRETT?.[kamera];
-  if (BRETT && !brett) {
+  const brett = nurMarmor ? undefined : BRETT?.[kamera];
+  if (!nurMarmor && BRETT && !brett) {
     console.warn(`Tablett: kein Bild für ${kamera} in brett/, das Tablett bleibt aus.`);
     return undefined;
   }
@@ -163,7 +176,7 @@ const skin: Skin = (kontext) => {
   const rahmen = grenzen(area, seaLevel, kontext);
   const ebenen = [
     { name: 'tablett-fern', z: 150 },
-    { name: 'tablett-nah', z: 250 },
+    ...(nurMarmor ? [] : [{ name: 'tablett-nah', z: 250 }]),
   ].map(({ name, z }) => {
     karte.createPane(name).style.zIndex = String(z);
     return { name, leinwand: L.DomUtil.create('canvas', 'tablett'), ebene: undefined as L.SVGOverlay | undefined };
@@ -178,12 +191,14 @@ const skin: Skin = (kontext) => {
     });
   });
   /** Die Teile; sie hängen an keiner Stufe, das Tablett wird beim Zoomen nur grösser. */
-  const teile: Teil[] = tablett(area, seaLevel, minY, kontext, kontext.texte);
+  // Nur Marmor: die eine Fläche, die sich wiederholt.
+  const alle = tablett(area, seaLevel, minY, kontext, kontext.texte);
+  const teile: Teil[] = nurMarmor ? alle.filter((t) => t.form === 'flaeche' && t.wiederholt) : alle;
   /** Lädt nach den Kacheln, was die Ebenen brauchen, und gibt zurück, wie sie gemalt werden. */
   const laden = async (): Promise<Maler> => {
     await kacheln;
     if (!brett) {
-      const bilder = await ladeAlle();
+      const bilder = await ladeAlle(nurMarmor ? new Set(teile.flatMap((t) => (t.form === 'flaeche' && t.bild ? [t.bild] : []))) : undefined);
       return (fern, nah, s, versatz) => malen(fern, nah, teile, s, versatz, bilder);
     }
     const bilder = await ladeBrett(brett);
@@ -193,7 +208,7 @@ const skin: Skin = (kontext) => {
       fern.setTransform(1, 0, 0, 1, 0, 0);
       fern.fillStyle = GRUND;
       fern.fillRect(0, 0, fern.canvas.width, fern.canvas.height);
-      bilder.forEach((bild, i) => maleBild(i === 0 ? fern : nah, bild, s * mass, x0 + s * links, y0 + s * oben));
+      bilder.forEach((bild, i) => maleBild(i === 0 ? fern : nah!, bild, s * mass, x0 + s * links, y0 + s * oben));
     };
   };
   let maler: Promise<Maler> | undefined;
@@ -247,7 +262,7 @@ const skin: Skin = (kontext) => {
       const q = leinwandMass(breite * hoehe, devicePixelRatio);
       for (const { leinwand } of ebenen) [leinwand.width, leinwand.height] = [Math.round(breite * q), Math.round(hoehe * q)];
       const [fern, nah] = ebenen.map(({ leinwand }) => leinwand.getContext('2d')!);
-      maleEbenen(fern!, nah!, s * q, [-links * q, -oben * q]);
+      maleEbenen(fern!, nah, s * q, [-links * q, -oben * q]);
       for (const eintrag of ebenen) {
         // Leaflets SVGOverlay legt jedes Element als Bild-Ebene, auch eine
         // Leinwand. Ein Bild aus ihr ginge nur über data: oder blob:, und
@@ -304,11 +319,14 @@ const skin: Skin = (kontext) => {
       if (d > 0 && passt) element.style.transform = `translate(${d * x}px, ${d * y}px)`;
     }
   };
-  // Die Ecken wachsen, wenn ihre UI kommt oder mehr zeigt.
-  const beobachter = new ResizeObserver(weiche);
-  for (const { ecke } of AUSWEICHEN) {
-    const element = container.querySelector(ecke);
-    if (element) beobachter.observe(element);
+  // Die Ecken wachsen, wenn ihre UI kommt oder mehr zeigt. Ohne Gegenstände,
+  // nur Marmor, haben sie nichts auszuweichen.
+  if (!nurMarmor) {
+    const beobachter = new ResizeObserver(weiche);
+    for (const { ecke } of AUSWEICHEN) {
+      const element = container.querySelector(ecke);
+      if (element) beobachter.observe(element);
+    }
   }
 
   // Bei jeder neuen Grösse des Fensters: die Gesamtansicht wie in der
@@ -366,8 +384,17 @@ const skin: Skin = (kontext) => {
     dinge.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
     weiche();
   };
-  karte.whenReady(baue);
-  karte.on('resize', baue);
+  // Nur Marmor: Gesamtansicht und Grenzen sind die der Grundkarte; der Skin
+  // zeichnet nur neu.
+  const neu = nurMarmor
+    ? (): void => {
+        gezeichnet = undefined;
+        pruefe();
+        gebrochen();
+      }
+    : baue;
+  karte.whenReady(neu);
+  karte.on('resize', neu);
   karte.on('moveend', pruefe);
   karte.on('zoomend', gebrochen);
   // Ändert sich `devicePixelRatio` ohne `resize`, etwa beim Wechsel auf
@@ -377,7 +404,7 @@ const skin: Skin = (kontext) => {
     matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener(
       'change',
       () => {
-        baue();
+        neu();
         aufDpr();
       },
       { once: true },
@@ -385,7 +412,7 @@ const skin: Skin = (kontext) => {
   };
   aufDpr();
 
-  return { ganzeKarte: rahmen };
+  return nurMarmor ? undefined : { ganzeKarte: rahmen };
 };
 
-export default skin;
+export default skinTablett(true);

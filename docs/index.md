@@ -142,6 +142,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0076](entscheidungen/0076-waermer-in-cinematic.md): Cinematic gleicht überall etwas wärmer ab, kalte Biome bleiben kühl: jede Stufe aus 0069 um 0,05 höher über den neuen Wert `waerme_grund`, neutral 1,05, ganz warm 1,3, ganz kühl 0,9; nicht 1,35, weil Weiss in der Sonne dann überläuft; löst 0069 in den Werten der Wärme ab.
 - [0077](entscheidungen/0077-weiche-sonnenschatten-verworfen.md): Cinematic bleibt beim harten Sonnenschatten aus 0056. Weiche Schatten über eine Scheibe von 0,53° (kaum sichtbar, das 2,2- bis 4,3-Fache) und 3° (deutlich, das 3,7- bis 5,2-Fache) sind verworfen, weil Schattenkanten auf Ebene der Texel überall liegen; Weichzeichnen mit Radius aus dem Abstand als nicht gemessene Möglichkeit.
 - [0078](entscheidungen/0078-apache-2-0.md): Apache-2.0 statt der eigenen Lizenz aus 0034, Credits über `NOTICE`, der Hinweis auf Mojang, was jeder Weitergabe beiliegt und welche Lizenzen Abhängigkeiten haben dürfen; löst 0034 ab.
+- [0079](entscheidungen/0079-tablett-vertagt-nur-marmor.md): Das Tablett ist vertagt; `skins/tablett` legt vorerst nur den Marmor um die Karte, auch um Welten, die kein Quadrat sind. Das ganze Tablett bleibt als `voll.ts` und wird weiter getestet; ergänzt 0061 und 0063.
 
 ## Messungen
 

@@ -362,7 +362,8 @@ Ein Skin gestaltet um die Karte und ihre UI, ohne ihre Logik zu kennen. Er
 ist optional; der Betreiber wählt ihn beim Build. Koordinaten, Kopieren,
 Sprung, Kompass, Umschalter und Stand wissen nichts von ihm. Warum so:
 [0063](entscheidungen/0063-tablett-als-skin.md). Der einzige Skin bisher:
-[Tablett](tablett.md).
+[Tablett](tablett.md), vorerst nur mit dem Marmor
+([0079](entscheidungen/0079-tablett-vertagt-nur-marmor.md)).
 
 - **Schalter:** `SKIN` nennt das Modul des Skins, einen Pfad ab `web/` oder
   ein Paket, etwa `SKIN=./skins/tablett npm run build`. Das Plugin `skin` in
@@ -419,10 +420,14 @@ Sprung, Kompass, Umschalter und Stand wissen nichts von ihm. Warum so:
 - **Texte** kommen aus der Build-Konfiguration: `titel` aus `SITE_TITLE`,
   dazu je `SKIN_TEXT_<NAME>` ein Eintrag `<name>`. Was nicht ins Repository
   gehört, etwa eine Domain, erreicht einen Skin nur so.
-- **Tests:** Playwright baut zweimal, ohne Skin für das Projekt `grund` auf
-  Port 4173 und mit `SKIN=./skins/tablett` nach `web/dist-skin` für das
-  Projekt `skin` auf 4175. Die Smoke-Tests laufen in beiden, die Tests eines
-  Skins nur mit ihm, Tests mit dem Tag `@ohne-skin` nur ohne.
+- **Tests:** Playwright baut dreimal: ohne Skin für das Projekt `grund` auf
+  Port 4173, mit `SKIN=./skins/tablett` nach `web/dist-skin` für das
+  Projekt `skin` auf 4175 und mit `SKIN=./skins/tablett/voll` nach
+  `web/dist-tablett` für das Projekt `tablett` auf 4176, das ganze, vertagte
+  Tablett ([0079](entscheidungen/0079-tablett-vertagt-nur-marmor.md)). Die
+  Smoke-Tests laufen ohne Skin und mit `skins/tablett`, die Tests eines
+  Skins nur mit ihm, `karte.spec.ts` nur mit dem ganzen Tablett, Tests mit
+  dem Tag `@ohne-skin` nur ohne.
 
 ## Ausliefern
 

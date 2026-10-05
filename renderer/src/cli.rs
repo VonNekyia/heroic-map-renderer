@@ -1791,16 +1791,18 @@ struct Liegen(Mutex<File>);
 
 impl Liegen {
     /// Leer für einen Lauf, der seinen Stand neu anfängt; ein Fortsetzen
-    /// hängt an.
+    /// hängt an. Vorher kürzt es auf ganze Einträge: Hinter einem halben
+    /// vom Abbruch stünde sonst jeder neue versetzt.
     fn oeffne(pfad: &Path, fortsetzen: bool) -> Result<Liegen> {
-        let mut optionen = std::fs::OpenOptions::new();
-        match fortsetzen {
-            true => optionen.append(true).create(true),
-            false => optionen.write(true).truncate(true).create(true),
-        };
-        let datei = optionen
+        let mut datei = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(!fortsetzen)
             .open(pfad)
             .with_context(|| format!("{} öffnen", pfad.display()))?;
+        let ganz = datei.metadata()?.len() / 12 * 12;
+        datei.set_len(ganz)?;
+        std::io::Seek::seek(&mut datei, std::io::SeekFrom::End(0))?;
         Ok(Liegen(Mutex::new(datei)))
     }
 
@@ -4348,6 +4350,7 @@ mod tests {
     /// Das Protokoll liegen gelassener Kacheln nennt, was `Liegen` schrieb,
     /// auch über ein Fortsetzen hinweg; ein Eintrag aus Nullen, wie ein
     /// Stromausfall ihn hinterlassen kann, und ein halber am Ende fallen weg.
+    /// Ein Fortsetzen hinter dem halben hängt wieder an ganze Einträge an.
     /// Die Kachel (0, 0) bleibt dabei erkennbar, ihr Prüfwort ist nicht 0.
     #[test]
     fn protokoll_der_liegen_gelassenen() {
@@ -4368,6 +4371,14 @@ mod tests {
         assert_eq!(
             lies_liegen(&pfad).unwrap(),
             BTreeSet::from([tile(-3, 7), tile(2, -1)])
+        );
+        Liegen::oeffne(&pfad, true)
+            .unwrap()
+            .liegt(tile(4, 4))
+            .unwrap();
+        assert_eq!(
+            lies_liegen(&pfad).unwrap(),
+            BTreeSet::from([tile(-3, 7), tile(2, -1), tile(4, 4)])
         );
         // Ein neuer Lauf fängt leer an; ein echter Eintrag für (0, 0) zählt.
         Liegen::oeffne(&pfad, false)

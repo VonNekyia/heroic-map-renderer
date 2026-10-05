@@ -41,6 +41,7 @@ Texte.
 | `--resume` | mit `--tiles`: einen abgebrochenen Lauf fortsetzen | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--update` | mit `--tiles`, ohne `--size`: nur zeichnen, wo sich die Welt seit dem letzten vollen Lauf oder Update geändert hat | [Updates](updates.md) |
 | `--gpu auto\|on\|off` | mit `--tiles`: die Grafikkarte zeichnet, Vorgabe `auto`; mit `--cinematic` immer die CPU; mit `--threads` nie ein Software-Adapter | [Grafikkarte](grafikkarte.md) |
+| `--progress text\|json` | mit `--tiles`: den Fortschritt als `n/N Kacheln` oder als JSON-Zeilen melden, Vorgabe `text` | [Kacheln exportieren](kacheln.md), „Fortschritt als JSON: `--progress`“; Vertrag in [Plugin](../plugin.md), „Fortschritt als JSON“ |
 | `--threads N` | so viele Threads für jede Phase, ab 1; geht `RAYON_NUM_THREADS` vor; ohne Angabe so viele, wie es logische CPUs gibt | unten, „Threads und Priorität“ |
 | `--low-priority` | mit niedrigster Priorität laufen, damit etwa ein Server daneben vorgeht | unten, „Threads und Priorität“ |
 | `--defender-exclusion` | mit `--tiles`, nur unter Windows: eine Ausnahme im Echtzeitschutz setzen | [Echtzeitschutz](echtzeitschutz.md) |

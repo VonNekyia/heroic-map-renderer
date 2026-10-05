@@ -1,6 +1,6 @@
 ---
 title: Was ein Lauf kostet
-description: Platz und Dauer eines Exports je scale, hochgerechnet auf die ganze Testwelt, und woran die beiden hängen; dazu, was Cinematic gegen die Karte kostet.
+description: Platz und Dauer eines Exports je scale, hochgerechnet auf die ganze Testwelt, und woran die beiden hängen; dazu, was Cinematic gegen die Karte kostet und was ein Lauf neben einem Server trotz niedriger Priorität kostet.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/tiles.rs
@@ -145,6 +145,32 @@ und 1,0 % im Fichtenwald, bei gleichen Kacheln. Die Hebel 1, 2 und 4
 zusammen machen ihn 13,8 % schneller am Stand und 8,8 % im Fichtenwald;
 Hebel 3 ist nicht übernommen. Beides siehe
 [2026-10-04, Cinematic schneller, Hebel 3 und 4 und zusammen](../messungen/2026-10-04-hebel-3-und-4.md).
+
+## Neben einem Server
+
+Mit `--threads 1 --low-priority` rechnet der Renderer auf einem Thread, und
+auf einem logischen Prozessor geht der Server vor, siehe
+[Schalter](schalter.md), „Threads und Priorität“. Auf den zwei logischen
+Prozessoren eines Kerns kostete ein Renderer mit einem Thread einen
+Testserver trotzdem rund 1,4 ms je Tick, 6,58 bis 6,90 statt 5,15 ms, mit
+wie ohne niedrige Priorität. Gemessen in
+[2026-10-06, Tickzeit neben dem Renderer](../messungen/2026-10-06-tickzeit-neben-dem-renderer.md).
+Drei Dinge schirmt die Priorität nicht ab:
+
+- **Container mit `cpu.max`:** Das Kontingent einer cgroup zählt die
+  Rechenzeit aller Prozesse darin, gleich mit welcher Priorität. Läuft der
+  Renderer im Container des Servers, verbraucht er davon. Ist es
+  aufgebraucht, wartet auch der Server bis zur nächsten Periode.
+- **SMT:** Zwei logische Prozessoren desselben Kerns teilen sich Rechenwerke
+  und Caches. Die Priorität ordnet nur die Threads auf einem logischen
+  Prozessor. Läuft der Renderer auf dem zweiten, wird der Server auf dem
+  ersten trotzdem langsamer. Das ist der Fall der Messung oben.
+- **Echtzeitschutz:** Ohne Ausnahme prüft Defender unter Windows jede
+  Kachel, die der Renderer schreibt, in seinem eigenen Prozess und auf
+  weiteren Kernen. Die Priorität des Renderers senkt das nicht. Die
+  Ausnahme setzt nur, wer den Server betreibt, siehe
+  [Echtzeitschutz](echtzeitschutz.md) und
+  [0022](../entscheidungen/0022-defender-ausnahme-nur-mit-zustimmung.md).
 
 ## Die grosse Welt
 

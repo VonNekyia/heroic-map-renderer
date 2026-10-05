@@ -79,7 +79,8 @@ GL-Treiber zeichnet auf der CPU, dasselbe Bild.
 | `HEROIC_GPU_PFLICHT` | in der CI: ein fehlender Adapter ist ein Fehler, kein übergangener Test |
 
 Einen Software-Adapter nimmt nur `--gpu on`, etwa WARP mit
-`WGPU_ADAPTER_NAME="Basic Render"`. Ohne Karte läuft alles wie vorher auf
+`WGPU_ADAPTER_NAME="Basic Render"`, und nur ohne `--threads`: Er verteilt
+sich auf alle Kerne. Mit `--threads` bricht `--gpu on` ohne echte Karte ab. Ohne Karte läuft alles wie vorher auf
 der CPU; die Tests, die eine Karte brauchen, überspringen sich dann und
 sagen es. In CI laufen sie auf Software-Adaptern, lavapipe (Vulkan) auf
 Ubuntu und WARP (DX12) auf Windows: derselbe Shader-Weg wie auf einer

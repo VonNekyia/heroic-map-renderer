@@ -134,6 +134,22 @@ function standAnzeigen(map: L.Map, stand: Date): void {
   const element = L.DomUtil.create('div', 'stand');
   const zeit = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
   element.textContent = `Stand: ${zeit.format(stand)}`;
+  untenRechts(map, element);
+}
+
+/**
+ * Unten rechts der Link auf die Lizenzen der gebündelten Abhängigkeiten,
+ * `lizenzen.txt` aus dem Build. Siehe docs/frontend.md, „Lizenzen“.
+ */
+function lizenzenAnzeigen(map: L.Map): void {
+  const link = L.DomUtil.create('a', 'lizenzen');
+  link.href = 'lizenzen.txt';
+  link.textContent = 'Lizenzen';
+  untenRechts(map, link);
+}
+
+/** Ein Element als Control unten rechts, über den schon vorhandenen. */
+function untenRechts(map: L.Map, element: HTMLElement): void {
   const control = new L.Control({ position: 'bottomright' });
   control.onAdd = () => element;
   control.addTo(map);
@@ -741,6 +757,7 @@ async function start(): Promise<void> {
   }).addTo(map);
 
   if (typeof blick !== 'string') kompass(map, norden(blick.p, blick.k));
+  lizenzenAnzeigen(map);
   if (stand) standAnzeigen(map, stand);
   let bei: ((px: number, py: number) => Promise<Block | undefined>) | undefined;
   if (hatHoehen(info)) {

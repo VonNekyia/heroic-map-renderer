@@ -52,7 +52,9 @@ export default defineConfig({
   // dem Bundle, damit dessen Dateien gewinnen, und Links mit ihrem Inhalt.
   // Der Filter greift, bevor cpSync einen Eintrag ansieht.
   // Siehe docs/entscheidungen/0006-kacheln-unter-web-public.md.
-  build: { outDir: 'dist', emptyOutDir: true, copyPublicDir: false },
+  // `license`: die Lizenzen aller gebündelten Abhängigkeiten, etwa Leaflet
+  // (BSD-2-Clause), als Datei im Build. Die Karte verlinkt sie.
+  build: { outDir: 'dist', emptyOutDir: true, copyPublicDir: false, license: { fileName: 'lizenzen.txt' } },
   // Ohne Skin fällt sein Import beim Build weg.
   define: {
     __SKIN__: JSON.stringify(Boolean(SKIN)),

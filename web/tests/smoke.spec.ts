@@ -729,6 +729,23 @@ test.describe('der Stand der Karte', () => {
   });
 });
 
+test('die Karte verlinkt unten rechts unter dem Stand die Lizenzen aus dem Build, mit jeder Abhängigkeit, darin Leaflet', async ({ page }) => {
+  await page.goto(DEMO);
+  const link = page.locator('a.lizenzen');
+  await expect(link).toHaveText('Lizenzen');
+  const [stand, unten] = [(await page.locator('.stand').boundingBox())!, (await link.boundingBox())!];
+  expect(unten.y).toBeGreaterThanOrEqual(stand.y + stand.height);
+  expect(Math.round(unten.x + unten.width)).toBe(Math.round(stand.x + stand.width));
+  await link.click();
+  await expect(page).toHaveURL(/\/lizenzen\.txt$/);
+  const text = await page.locator('body').innerText();
+  const paket = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { dependencies: Record<string, string> };
+  for (const name of Object.keys(paket.dependencies)) expect(text).toMatch(new RegExp(`^## ${name} - `, 'm'));
+  // BSD-2-Clause, Klausel 2: der Copyright-Hinweis in jeder Weitergabe des Bündels.
+  expect(text).toMatch(/^## leaflet - [\d.]+ \(BSD-2-Clause\)$/m);
+  expect(text).toMatch(/^Copyright \(c\) [\d-]+, \S+ Agafonkin$/m);
+});
+
 test('ohne map.json sagt die Seite warum', async ({ page }) => {
   await page.goto('/?tiles=/gibt-es-nicht');
   await expect(page.locator('.error')).toContainText('map.json');

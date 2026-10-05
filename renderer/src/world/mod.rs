@@ -142,8 +142,21 @@ fn gewohnt(pfad: PathBuf) -> PathBuf {
     pfad
 }
 
+/// Liegt in `dir` die `level.dat` einer Weltwurzel? Fehlt sie und liegt
+/// `level.dat_old` da, ersetzt der Server sie vielleicht eben: dann nach
+/// `warte` noch einmal.
+/// Siehe docs/benutzung/welten.md, „Während der Server schreibt“.
+fn ist_wurzel(dir: &Path, warte: impl FnOnce()) -> bool {
+    let level = dir.join("level.dat");
+    level.is_file()
+        || (dir.join("level.dat_old").is_file() && {
+            warte();
+            level.is_file()
+        })
+}
+
 fn locate_in(dir: &Path) -> Option<(PathBuf, String)> {
-    let is_root = |dir: &Path| dir.join("level.dat").is_file();
+    let is_root = |dir: &Path| ist_wurzel(dir, || std::thread::sleep(region::PAUSE));
     let dimension = || {
         let name = dir.file_name()?.to_str()?;
         let parent = dir.parent()?;
@@ -502,13 +515,30 @@ fn datenversion(level: &Path) -> Result<Option<i32>> {
     Ok(read_nbt::<Level>(level)?.daten.version)
 }
 
-/// Eine gzip-gepackte NBT-Datei, wie `world_gen_settings.dat`.
+/// Eine gzip-gepackte NBT-Datei, wie `world_gen_settings.dat`. Der Server
+/// schreibt sie an Ort und Stelle neu: Nach einem Fehler liest der Renderer
+/// sie bis zu [`region::VERSUCHE`]-mal, mit [`region::PAUSE`] dazwischen.
+/// Siehe docs/benutzung/welten.md, „Während der Server schreibt“.
 fn read_nbt<T: DeserializeOwned>(path: &Path) -> Result<T> {
-    let mut nbt = Vec::new();
-    std::fs::File::open(path)
-        .and_then(|file| flate2::read::GzDecoder::new(file).read_to_end(&mut nbt))
-        .with_context(|| format!("{} lesen", path.display()))?;
-    fastnbt::from_bytes(&nbt).with_context(|| format!("{} auswerten", path.display()))
+    read_nbt_mit(path, || std::thread::sleep(region::PAUSE))
+}
+
+/// [`read_nbt`], mit `warte` vor jedem weiteren Versuch.
+fn read_nbt_mit<T: DeserializeOwned>(path: &Path, mut warte: impl FnMut()) -> Result<T> {
+    for versuch in 1..=region::VERSUCHE {
+        let mut nbt = Vec::new();
+        let gelesen = std::fs::File::open(path)
+            .and_then(|file| flate2::read::GzDecoder::new(file).read_to_end(&mut nbt))
+            .with_context(|| format!("{} lesen", path.display()))
+            .and_then(|_| {
+                fastnbt::from_bytes(&nbt).with_context(|| format!("{} auswerten", path.display()))
+            });
+        match gelesen {
+            Err(_) if versuch < region::VERSUCHE => warte(),
+            gelesen => return gelesen,
+        }
+    }
+    unreachable!("der letzte Versuch kehrt immer zurück")
 }
 
 #[cfg(test)]
@@ -532,5 +562,78 @@ mod tests {
         let aussen = Some(draussen.path().to_path_buf());
         assert_eq!(locate_erst(aussen, Some(dim.clone())), nether);
         assert_eq!(locate_erst(Some(dim), None), nether);
+    }
+
+    /// Fall 4 aus #143: Der Server schreibt `world_gen_settings.dat` an Ort
+    /// und Stelle neu (`NbtIo.writeCompressed` mit `TRUNCATE_EXISTING`,
+    /// Client 26.2). Liest der Renderer die halbe Datei, liest er sie nach
+    /// der Pause neu.
+    #[test]
+    fn halbe_datei_der_welt_neu_gelesen() {
+        use std::io::Write;
+        #[derive(serde::Serialize, Deserialize)]
+        struct Daten {
+            seed: i64,
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("world_gen_settings.dat");
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&fastnbt::to_bytes(&Daten { seed: 42 }).unwrap())
+            .unwrap();
+        let ganz = gz.finish().unwrap();
+        std::fs::write(&pfad, &ganz[..ganz.len() / 2]).unwrap();
+        let mut pausen = 0;
+        let daten: Daten = read_nbt_mit(&pfad, || {
+            pausen += 1;
+            std::fs::write(&pfad, &ganz).unwrap();
+        })
+        .unwrap();
+        assert_eq!((daten.seed, pausen), (42, 1));
+        // Bleibt sie halb, gilt der Fehler nach dem letzten Versuch.
+        std::fs::write(&pfad, &ganz[..ganz.len() / 2]).unwrap();
+        let mut pausen = 0;
+        assert!(read_nbt_mit::<Daten>(&pfad, || pausen += 1).is_err());
+        assert_eq!(pausen, region::VERSUCHE - 1);
+    }
+
+    /// Zwischen den zwei Umbenennungen von `Util.safeReplaceFile` (Client
+    /// 26.2) liegt nur `level.dat_old` da. Nach der Pause ist `level.dat`
+    /// zurück; ohne sie bleibt das Verzeichnis keine Wurzel, wie zuvor.
+    #[test]
+    fn wurzel_waehrend_level_dat_ersetzt_wird() {
+        let welt = tempfile::tempdir().unwrap();
+        let level = welt.path().join("level.dat");
+        assert!(!ist_wurzel(welt.path(), || panic!(
+            "ohne level.dat_old keine Pause"
+        )));
+        std::fs::write(welt.path().join("level.dat_old"), b"").unwrap();
+        assert!(!ist_wurzel(welt.path(), || {}));
+        assert!(ist_wurzel(welt.path(), || std::fs::write(&level, b"").unwrap()));
+        assert!(ist_wurzel(welt.path(), || panic!(
+            "mit level.dat keine Pause"
+        )));
+    }
+
+    /// Die Pausen im echten Lesen: Eine kaputte Datei der Welt liest
+    /// `read_nbt` nach zwei Pausen ein drittes Mal; liegt nur
+    /// `level.dat_old` da, sieht die Suche nach der Wurzel nach einer Pause
+    /// noch einmal nach.
+    #[test]
+    fn pausen_beim_lesen_der_welt() {
+        let welt = tempfile::tempdir().unwrap();
+        let level = welt.path().join("level.dat");
+        std::fs::write(&level, b"kein gzip").unwrap();
+        let start = std::time::Instant::now();
+        assert!(read_nbt::<fastnbt::Value>(&level).is_err());
+        assert!(
+            start.elapsed() >= 2 * region::PAUSE,
+            "{:?}",
+            start.elapsed()
+        );
+        std::fs::remove_file(&level).unwrap();
+        std::fs::write(welt.path().join("level.dat_old"), b"").unwrap();
+        let start = std::time::Instant::now();
+        assert_eq!(locate_in(welt.path()), None);
+        assert!(start.elapsed() >= region::PAUSE, "{:?}", start.elapsed());
     }
 }

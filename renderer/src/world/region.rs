@@ -17,6 +17,11 @@ const ENTRY_HEADER: u64 = 5;
 /// Bit im Kompressionsbyte: die Chunkdaten liegen in einer eigenen
 /// `c.<x>.<z>.mcc`-Datei, weil sie nicht in 255 Sektoren passen.
 const EXTERNAL: u8 = 0x80;
+/// So oft liest der Renderer einen Chunk oder eine Datei der Welt, die der
+/// Server eben schreiben könnte, siehe [`Region::stored_chunk`].
+pub(crate) const VERSUCHE: u32 = 3;
+/// So lange wartet er nach einem Fehler vor dem nächsten Versuch.
+pub(crate) const PAUSE: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// Eine `.mca`-Datei.
 ///
@@ -113,7 +118,28 @@ impl Region {
     /// kopierten Regionsdatei, steht er trotzdem an seinem Platz: so zeigt
     /// ihn das Spiel (`SerializableChunkData.read` in 26.2: "in the wrong
     /// location; relocating"), und so sehen ihn Vorlauf und Render.
+    ///
+    /// Ein Fehler oder eine andere Position kann auch heissen, dass der
+    /// Server die Datei eben schreibt. Dann liest die Region Länge, Eintrag
+    /// und Daten neu, bis zu [`VERSUCHE`]-mal; [`PAUSE`] dazwischen nur nach
+    /// einem Fehler vor dem Dekodieren bei unveränderter Länge.
+    /// Siehe docs/benutzung/welten.md, „Während der Server schreibt“.
     pub fn stored_chunk(&mut self, cx: i32, cz: i32) -> Result<Option<Chunk>> {
+        self.stored_chunk_mit(cx, cz, |fehler| {
+            if fehler {
+                std::thread::sleep(PAUSE);
+            }
+        })
+    }
+
+    /// [`Region::stored_chunk`], mit `warte` vor jedem weiteren Versuch;
+    /// `warte` erfährt, ob ein Fehler vorausging.
+    fn stored_chunk_mit(
+        &mut self,
+        cx: i32,
+        cz: i32,
+        mut warte: impl FnMut(bool),
+    ) -> Result<Option<Chunk>> {
         if cx.div_euclid(REGION) != self.x || cz.div_euclid(REGION) != self.z {
             bail!(
                 "Chunk ({cx}, {cz}) liegt nicht in r.{}.{}.mca",
@@ -124,15 +150,51 @@ impl Region {
         if self.bereich.is_some_and(|b| !im_bereich(b, cx, cz)) {
             return Ok(None);
         }
-        let Some(nbt) = self.chunk_nbt(cx, cz)? else {
-            return Ok(None);
-        };
-        Chunk::decode(&nbt)
-            .map(|mut chunk| {
-                (chunk.x, chunk.z) = (cx, cz);
-                Some(chunk)
-            })
-            .with_context(|| format!("Chunk ({cx}, {cz}) aus r.{}.{}.mca", self.x, self.z))
+        let (lx, lz) = (cx.rem_euclid(REGION), cz.rem_euclid(REGION));
+        let (rx, rz) = (self.x, self.z);
+        let wo = move || format!("Chunk ({cx}, {cz}) aus r.{rx}.{rz}.mca");
+        // Eintrag und Position des Chunks, als er zuletzt anderswo stand.
+        let mut verlegt = None;
+        // Das NBT, an dem das Dekodieren zuletzt scheiterte.
+        let mut unlesbar: Option<Vec<u8>> = None;
+        for versuch in 1..=VERSUCHE {
+            let letzter = versuch == VERSUCHE;
+            let nbt = match self.chunk_nbt(cx, cz).with_context(wo) {
+                Ok(None) => return Ok(None),
+                Ok(Some(nbt)) => nbt,
+                Err(fehler) if letzter => return Err(fehler),
+                Err(_) => {
+                    // Hat der Server die Datei verlängert, geht es ohne
+                    // Pause weiter; sonst schreibt er vielleicht eben.
+                    let laenge = self.file.metadata()?.len();
+                    warte(laenge == self.file_len);
+                    self.file_len = laenge;
+                    continue;
+                }
+            };
+            match Chunk::decode(&nbt).with_context(wo) {
+                // Zweimal dieselben Bytes: Kein Schreiben ist schuld, der
+                // Decoder kann den Chunk nicht lesen.
+                Err(fehler) if letzter || unlesbar.as_ref() == Some(&nbt) => return Err(fehler),
+                Err(_) => {
+                    unlesbar = Some(nbt);
+                    warte(false);
+                }
+                Ok(mut chunk) if (chunk.x, chunk.z) != (cx, cz) => {
+                    // Zweimal mit demselben Eintrag gilt sie: Der Server hat
+                    // den Chunk nicht eben verlegt.
+                    let jetzt = (self.eintrag(lx, lz)?, chunk.x, chunk.z);
+                    if letzter || verlegt == Some(jetzt) {
+                        (chunk.x, chunk.z) = (cx, cz);
+                        return Ok(Some(chunk));
+                    }
+                    verlegt = Some(jetzt);
+                    warte(false);
+                }
+                Ok(chunk) => return Ok(Some(chunk)),
+            }
+        }
+        unreachable!("der letzte Versuch kehrt immer zurück")
     }
 
     /// Die Chunks, die die Tabelle der Datei nennt, in **Welt**-Chunkkoordinaten,
@@ -201,15 +263,21 @@ impl Region {
             .with_context(|| format!("Chunk ({cx}, {cz}) entpacken"))
     }
 
-    /// Tabelleneintrag: Sektor-Offset und Sektor-Anzahl, beide geprüft.
-    fn entry(&mut self, lx: i32, lz: i32) -> Result<Option<(u64, u64)>> {
+    /// Tabelleneintrag, roh: Sektor-Offset in den oberen drei Bytes,
+    /// Sektor-Anzahl im unteren.
+    fn eintrag(&mut self, lx: i32, lz: i32) -> Result<u32> {
         self.file
             .seek(SeekFrom::Start(4 * (lx + lz * REGION) as u64))?;
         let mut buf = [0u8; 4];
         self.file.read_exact(&mut buf)?;
+        Ok(u32::from_be_bytes(buf))
+    }
 
-        let offset = u64::from(u32::from_be_bytes([0, buf[0], buf[1], buf[2]]));
-        let sectors = u64::from(buf[3]);
+    /// Tabelleneintrag: Sektor-Offset und Sektor-Anzahl, beide geprüft.
+    fn entry(&mut self, lx: i32, lz: i32) -> Result<Option<(u64, u64)>> {
+        let roh = self.eintrag(lx, lz)?;
+        let offset = u64::from(roh >> 8);
+        let sectors = u64::from(roh & 0xff);
         if offset == 0 && sectors == 0 {
             return Ok(None);
         }
@@ -350,5 +418,191 @@ mod tests {
     #[test]
     fn unkomprimiert_wird_durchgereicht() {
         assert_eq!(decompress(3, b"rohdaten").unwrap(), b"rohdaten");
+    }
+
+    /// Ein Chunk an `(x, z)` mit `status`, als NBT mit den Feldern, die
+    /// [`Chunk::decode`] mindestens braucht.
+    fn nbt(x: i32, z: i32, status: &str) -> Vec<u8> {
+        use fastnbt::Value;
+        let felder = [
+            ("DataVersion", Value::Int(4903)),
+            ("xPos", Value::Int(x)),
+            ("zPos", Value::Int(z)),
+            ("Status", Value::String(status.into())),
+        ];
+        let felder = felder.into_iter().map(|(k, v)| (k.to_string(), v));
+        fastnbt::to_bytes(&Value::Compound(felder.collect())).unwrap()
+    }
+
+    /// Ein Datensatz: Länge, Verfahren, Daten, auf ganze Sektoren aufgefüllt.
+    fn datensatz(verfahren: u8, daten: &[u8]) -> Vec<u8> {
+        let mut satz = (daten.len() as u32 + 1).to_be_bytes().to_vec();
+        satz.push(verfahren);
+        satz.extend_from_slice(daten);
+        satz.resize(satz.len().next_multiple_of(SECTOR as usize), 0);
+        satz
+    }
+
+    /// Setzt im Kopf von `datei` den Eintrag des lokalen Chunks `i` auf
+    /// einen Sektor ab `sektor`.
+    fn trage_ein(datei: &mut [u8], i: usize, sektor: u32) {
+        datei[4 * i..4 * i + 4].copy_from_slice(&((sektor << 8) | 1).to_be_bytes());
+    }
+
+    /// Fall 1 aus #143: Der Server hängt den Chunk (1, 0) an, nachdem die
+    /// Region geöffnet ist. Sein Eintrag zeigt hinter die gemerkte Länge; die
+    /// Region liest sie neu und, weil sie sich geändert hat, ohne Pause.
+    #[test]
+    fn laenge_nach_dem_anhaengen_neu_gelesen() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("r.0.0.mca");
+        let mut datei = vec![0u8; 2 * SECTOR as usize];
+        trage_ein(&mut datei, 0, 2);
+        datei.extend(datensatz(3, &nbt(0, 0, "minecraft:full")));
+        std::fs::write(&pfad, &datei).unwrap();
+        let mut region = Region::open(&pfad).unwrap();
+        trage_ein(&mut datei, 1, 3);
+        datei.extend(datensatz(3, &nbt(1, 0, "minecraft:full")));
+        std::fs::write(&pfad, &datei).unwrap();
+        let mut pausen = 0;
+        let chunk = region
+            .stored_chunk_mit(1, 0, |fehler| pausen += u32::from(fehler))
+            .unwrap()
+            .unwrap();
+        assert_eq!((chunk.x, chunk.z), (1, 0));
+        assert_eq!(pausen, 0);
+    }
+
+    /// Fall 2: Der Kopf nennt einen ausgelagerten Chunk, bevor der Server
+    /// die `.mcc` an ihren Platz verschiebt (`RegionFile.write`, Client
+    /// 26.2). Nach der Pause liegt sie da.
+    #[test]
+    fn ausgelagerter_chunk_nach_dem_verschieben() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("r.0.0.mca");
+        let mut datei = vec![0u8; 2 * SECTOR as usize];
+        trage_ein(&mut datei, 0, 2);
+        datei.extend(datensatz(EXTERNAL | 3, &[]));
+        std::fs::write(&pfad, &datei).unwrap();
+        let mut region = Region::open(&pfad).unwrap();
+        let mcc = dir.path().join("c.0.0.mcc");
+        let chunk = region
+            .stored_chunk_mit(0, 0, |fehler| {
+                assert!(fehler);
+                std::fs::write(&mcc, nbt(0, 0, "minecraft:full")).unwrap();
+            })
+            .unwrap()
+            .unwrap();
+        assert!(chunk.is_generated());
+    }
+
+    /// Fall 3: Zwischen Eintrag und Daten hat der Server den Chunk (0, 0)
+    /// nach Sektor 3 verlegt und Sektor 2 dem Chunk (1, 0) gegeben. Die
+    /// Region liest den Eintrag neu, statt (1, 0) an den Platz zu legen.
+    #[test]
+    fn wiederverwendete_sektoren_neu_gelesen() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("r.0.0.mca");
+        let mut datei = vec![0u8; 2 * SECTOR as usize];
+        // Der Kopf, wie der Renderer ihn las: (0, 0) noch in Sektor 2.
+        trage_ein(&mut datei, 0, 2);
+        trage_ein(&mut datei, 1, 2);
+        datei.extend(datensatz(3, &nbt(1, 0, "minecraft:carvers")));
+        datei.extend(datensatz(3, &nbt(0, 0, "minecraft:full")));
+        std::fs::write(&pfad, &datei).unwrap();
+        let mut region = Region::open(&pfad).unwrap();
+        let chunk = region
+            .stored_chunk_mit(0, 0, |fehler| {
+                assert!(!fehler, "ohne Pause");
+                trage_ein(&mut datei, 0, 3);
+                std::fs::write(&pfad, &datei).unwrap();
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!((chunk.x, chunk.z), (0, 0));
+        assert!(chunk.is_generated(), "der Chunk (0, 0), nicht (1, 0)");
+    }
+
+    /// Steht ein Chunk zweimal mit demselben Eintrag anderswo, etwa aus einer
+    /// von Hand kopierten Datei, liegt er an seinem Platz, wie im Spiel.
+    #[test]
+    fn verlegter_chunk_bleibt_verlegt() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("r.0.0.mca");
+        let mut datei = vec![0u8; 2 * SECTOR as usize];
+        trage_ein(&mut datei, 0, 2);
+        datei.extend(datensatz(3, &nbt(5, 7, "minecraft:full")));
+        std::fs::write(&pfad, &datei).unwrap();
+        let mut versuche = 1;
+        let chunk = Region::open(&pfad)
+            .unwrap()
+            .stored_chunk_mit(0, 0, |_| versuche += 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!((chunk.x, chunk.z), (0, 0));
+        assert_eq!(versuche, 2);
+    }
+
+    /// Bleibt ein Fehler, gilt er nach dem letzten Versuch, wie bisher.
+    #[test]
+    fn bleibender_fehler_nach_dem_letzten_versuch() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("r.0.0.mca");
+        let mut datei = vec![0u8; 2 * SECTOR as usize];
+        trage_ein(&mut datei, 0, 2);
+        datei.extend(datensatz(2, b"kein zlib"));
+        std::fs::write(&pfad, &datei).unwrap();
+        let mut pausen = 0;
+        let fehler = Region::open(&pfad)
+            .unwrap()
+            .stored_chunk_mit(0, 0, |fehler| pausen += u32::from(fehler))
+            .unwrap_err();
+        assert!(format!("{fehler:#}").contains("entpacken"), "{fehler:#}");
+        assert_eq!(pausen, VERSUCHE - 1);
+    }
+
+    /// Scheitert erst das Dekodieren und liefert das zweite Lesen dieselben
+    /// Bytes, gilt der Fehler sofort, ohne Pause: Das ist kein Schreiben,
+    /// sondern ein Chunk, den der Decoder nicht lesen kann.
+    #[test]
+    fn unlesbarer_chunk_ohne_pause() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("r.0.0.mca");
+        let mut datei = vec![0u8; 2 * SECTOR as usize];
+        trage_ein(&mut datei, 0, 2);
+        datei.extend(datensatz(3, b"kein nbt"));
+        std::fs::write(&pfad, &datei).unwrap();
+        let mut aufrufe = Vec::new();
+        assert!(
+            Region::open(&pfad)
+                .unwrap()
+                .stored_chunk_mit(0, 0, |fehler| aufrufe.push(fehler))
+                .is_err()
+        );
+        assert_eq!(aufrufe, [false], "einmal neu gelesen, ohne Pause");
+    }
+
+    /// Die Pause im echten Lesen: nach einem Fehler vor dem Dekodieren
+    /// zweimal, für einen verlegten oder unlesbaren Chunk nie.
+    #[test]
+    fn pausen_im_echten_lesen() {
+        let dir = tempfile::tempdir().unwrap();
+        let lese = |daten: &[u8], name: &str| {
+            let pfad = dir.path().join(name);
+            let mut datei = vec![0u8; 2 * SECTOR as usize];
+            trage_ein(&mut datei, 0, 2);
+            datei.extend_from_slice(daten);
+            std::fs::write(&pfad, &datei).unwrap();
+            let mut region = Region::open(&pfad).unwrap();
+            let start = std::time::Instant::now();
+            let gelesen = region.stored_chunk(region.x * REGION, region.z * REGION);
+            (gelesen.is_ok(), start.elapsed())
+        };
+        let (ok, dauer) = lese(&datensatz(2, b"kein zlib"), "r.0.0.mca");
+        assert!(!ok && dauer >= 2 * PAUSE, "{dauer:?}");
+        let (ok, dauer) = lese(&datensatz(3, &nbt(5, 7, "minecraft:full")), "r.1.0.mca");
+        assert!(ok && dauer < PAUSE, "verlegt: {dauer:?}");
+        let (ok, dauer) = lese(&datensatz(3, b"kein nbt"), "r.2.0.mca");
+        assert!(!ok && dauer < PAUSE, "unlesbar: {dauer:?}");
     }
 }

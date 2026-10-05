@@ -243,7 +243,10 @@ Danach zeichnet ein voller Lauf alles neu, und `--update` geht wieder.
   Inhalt aus der alten `.mcc`, nennt der Stand den neuen Stempel mit dem
   alten Inhalt. Bis der Server den Chunk wieder schreibt, sieht kein Update
   den neuen. Das Fenster ist klein: Das Spiel verschiebt gleich nach dem
-  Kopf, und der Lauf liest den Inhalt nach den Köpfen aller Regionen.
+  Kopf, und der Lauf liest den Inhalt nach den Köpfen aller Regionen. Gibt
+  es noch keine `.mcc`, liest der Lauf nach einer Pause neu, siehe
+  [Welten und Kennung](welten.md), „Während der Server schreibt“; dort steht
+  auch, was er sonst halb geschrieben sehen kann.
 
 ## Kosten
 

@@ -1,7 +1,7 @@
 ---
 title: "0034: Eigene Lizenz: nutzen ja, verkaufen und übernehmen nein"
 description: Warum der Renderer unter einer eigenen Lizenz steht statt unter MIT oder einer fertigen Lizenz, und was sie für fremden Code heisst.
-status: gilt
+status: abgelöst durch 0078
 date: 2026-09-28
 issues: []
 code:
@@ -11,6 +11,9 @@ code:
 ---
 
 # 0034: Eigene Lizenz: nutzen ja, verkaufen und übernehmen nein
+
+Abgelöst durch [0078](0078-apache-2-0.md): Seit dem 05.10. steht der
+Renderer unter Apache-2.0.
 
 ## Anlass
 

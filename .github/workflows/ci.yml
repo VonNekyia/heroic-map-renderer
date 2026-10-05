@@ -222,6 +222,11 @@ jobs:
         with:
           manifest-path: renderer/Cargo.toml
 
+      # Bricht ab, wenn zu einer Crate im Binär der Lizenztext fehlt.
+      - name: Hinweise auf Drittlizenzen
+        timeout-minutes: 10
+        run: python3 drittlizenzen.py hinweise
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

@@ -1,0 +1,62 @@
+---
+title: Drittlizenzen
+description: Was jeder Weitergabe des Binärs beiliegt - LICENSE, NOTICE, THIRD-PARTY-NOTICES und COPYRIGHT-library.html -, wie renderer/drittlizenzen.py die Hinweise auf die Lizenzen der 110 Crates aus Cargo.lock erzeugt, welche Lizenz es bei einer Wahl nimmt und was die CI daran prüft.
+code:
+  - renderer/drittlizenzen.py
+  - renderer/deny.toml
+  - LICENSE
+  - NOTICE
+---
+
+# Drittlizenzen
+
+Jede Weitergabe des Binärs, etwa ein Release oder das Plugin, legt vier
+Dateien bei: `LICENSE` und `NOTICE` aus dem Repo, `THIRD-PARTY-NOTICES` und
+`COPYRIGHT-library.html`. Die letzten zwei erzeugt
+[`renderer/drittlizenzen.py`](../../renderer/drittlizenzen.py) für genau den
+Stand, der gebaut wird. Warum Apache-2.0 und welche Lizenzen Abhängigkeiten
+haben dürfen: [0078](../entscheidungen/0078-apache-2-0.md).
+
+## Erzeugen
+
+```bash
+python renderer/drittlizenzen.py <zielordner>
+```
+
+- **Mit demselben `rustc` wie der Build:** `COPYRIGHT-library.html` kommt
+  aus seiner Toolchain (`rustc --print sysroot`, `share/doc/rust`). Sie
+  nennt die Lizenzen der Standardbibliothek und ihrer Abhängigkeiten und
+  ändert sich mit der Rust-Version. Deshalb liegt keine der zwei Dateien im
+  Repo.
+- **Reproduzierbar:** Gleiches `Cargo.lock` und gleiche Toolchain geben
+  dieselben Bytes.
+- **Die Crates:** jede normale Abhängigkeit ab der eigenen Crate, für
+  `x86_64-pc-windows-msvc` und `x86_64-unknown-linux-gnu` zusammen (`ZIELE`),
+  aus `cargo metadata`. Build- und Dev-Abhängigkeiten und proc-macro-Crates
+  landen nicht im Binär und fehlen. Stand 05.10.: 110 Crates.
+
+## Welche Lizenz gilt
+
+- **Bei einer Wahl** („OR“, auch die alte Schreibweise mit „/“) nimmt das
+  Skript die erste nach `VORZUG`: Apache-2.0, sonst MIT, Zlib, ISC, BSD
+  und die übrigen. Bei „AND“ gelten alle. Stand 05.10. gilt für 93 Crates
+  Apache-2.0, dafür reicht ein gemeinsamer Text.
+- **Je übrige Lizenz** der Text aus der Crate, mit ihrem Copyright: die
+  Datei, deren Name die Lizenz nennt (`LICENSE-MIT`), sonst die einzige
+  Lizenzdatei. Dazu jede `NOTICE` und `PATENTS` der Crate.
+- **Mitgelieferte C-Quellen** (`MITGELIEFERT`): libwebp in `libwebp-sys`
+  (`vendor/COPYING`, BSD-3-Clause, und `vendor/PATENTS`), mimalloc in
+  `libmimalloc-sys` (`c_src/mimalloc/*/LICENSE`, MIT).
+- **Ohne Text:** `libwebp-sys` nennt MIT, liefert aber keinen Text mit. Das
+  Skript nimmt den Mustertext der MIT-Lizenz aus der Toolchain mit den
+  Autoren aus `Cargo.toml`. Fehlt der Text einer anderen Lizenz, bricht es
+  ab.
+- **Gleiche Texte** stehen einmal, mit allen Crates, für die sie gelten.
+
+## In der CI
+
+Der Job „Dependencies“ prüft mit `cargo deny check` die Lizenzen aller
+Crates gegen `renderer/deny.toml`, die eigene eingeschlossen. Danach lässt
+er das Skript laufen: Bringt eine neue Crate keinen Text mit, fällt der
+Job, siehe [CI](ci.md). `selbsttest` prüft dabei die Wahl aus einem
+SPDX-Ausdruck an fünf Fällen.

@@ -134,9 +134,11 @@ CI: [Tests](docs/entwicklung/tests.md), [CI](docs/entwicklung/ci.md).
 
 ## Lizenz
 
-Nutzen ja, auch für einen Minecraft-Server mit Einnahmen; verkaufen und
-übernehmen nein. Die Bedingungen stehen in [`LICENSE`](LICENSE), der
-Grund in [0034](docs/entscheidungen/0034-eigene-lizenz.md).
+[Apache-2.0](LICENSE): nutzen, ändern, weitergeben und verkaufen, auch
+übernommen in andere Projekte, solange der Hinweis aus [`NOTICE`](NOTICE)
+mitgeht. Der Grund steht in
+[0078](docs/entscheidungen/0078-apache-2-0.md).
 
-Kein offizielles Minecraft-Produkt. Nicht von Mojang oder Microsoft
-genehmigt und nicht mit ihnen verbunden.
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH
+MOJANG OR MICROSOFT. Die Texturen in den Bildern gehören Mojang und
+Microsoft; für sie gilt die Lizenz nicht.

@@ -1,0 +1,17 @@
+Heroic Map Renderer
+Copyright 2026 VonNekyia
+https://github.com/VonNekyia/heroic-map-renderer
+
+Lizenziert unter der Apache-Lizenz 2.0, siehe LICENSE. Wer den Renderer
+oder Teile davon weitergibt, auch geändert, gibt diesen Hinweis mit, wie
+Abschnitt 4 (d) der Lizenz es verlangt.
+
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH
+MOJANG OR MICROSOFT.
+
+Minecraft, seine Texturen, Modelle und Daten gehören Mojang und Microsoft.
+Die Apache-Lizenz gilt nicht für sie, auch nicht für die Texturen in den
+gerenderten Bildern unter docs/bilder und im README.
+
+Die Lizenzen der Abhängigkeiten im Binär stehen in THIRD-PARTY-NOTICES und
+COPYRIGHT-library.html; beide liegen jeder Weitergabe des Binärs bei.

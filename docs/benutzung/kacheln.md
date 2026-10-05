@@ -1,6 +1,6 @@
 ---
 title: Kacheln exportieren
-description: Was ein Lauf mit --tiles tut, wie ein Ausschnitt gerundet wird, wie --area ein Rechteck der Welt wählt, wo Kacheln, Höhen und der Stand liegen, wann der Export Kacheln entfernt, auch mit --prune, und dass er Dateien mit gleichen Bytes liegen lässt.
+description: Was ein Lauf mit --tiles tut, wie ein Ausschnitt gerundet wird, wie --area ein Rechteck der Welt wählt, wo Kacheln, Höhen und der Stand liegen, wann der Export Kacheln entfernt, auch mit --prune, dass er Dateien mit gleichen Bytes liegen lässt, und wie --progress json den Fortschritt meldet.
 code:
   - renderer/src/cli.rs
   - renderer/src/world/mod.rs
@@ -269,6 +269,15 @@ bestehenden Baum, etwa mit einem neuen Binär, jede Kachel ein neues ETag.
   dem sich ein Chunk geändert hat: Jede Datei mit gleichen Bytes behält ihre
   Zeit, jede andere bekommt eine neue, und am Ende stehen dieselben Bytes da
   wie nach einem Lauf in einen leeren Baum.
+
+## Fortschritt als JSON: `--progress`
+
+Mit `--progress json` meldet ein Export seinen Fortschritt als JSON-Zeilen
+auf stdout, für Programme wie das Plugin, auch für jede native Stufe und
+die Pyramide. Die Zeilen `n/N Kacheln` fallen dann weg, alle übrigen bleiben
+Text. Mit Text melden die nativen Stufen erst, wenn sie fertig sind. Welche
+Zeilen kommen und was in ihnen steht:
+[Plugin](../plugin.md), „Fortschritt als JSON“.
 
 ## Weitere Schalter beim Export
 

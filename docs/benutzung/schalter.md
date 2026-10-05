@@ -41,6 +41,7 @@ Texte.
 | `--resume` | mit `--tiles`: einen abgebrochenen Lauf fortsetzen | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--update` | mit `--tiles`, ohne `--size`: nur zeichnen, wo sich die Welt seit dem letzten vollen Lauf oder Update geändert hat | [Updates](updates.md) |
 | `--gpu auto\|on\|off` | mit `--tiles`: die Grafikkarte zeichnet, Vorgabe `auto`; mit `--cinematic` immer die CPU | [Grafikkarte](grafikkarte.md) |
+| `--progress text\|json` | mit `--tiles`: den Fortschritt als `n/N Kacheln` oder als JSON-Zeilen melden, Vorgabe `text` | [Kacheln exportieren](kacheln.md), „Fortschritt als JSON: `--progress`“; Vertrag in [Plugin](../plugin.md), „Fortschritt als JSON“ |
 | `--defender-exclusion` | mit `--tiles`, nur unter Windows: eine Ausnahme im Echtzeitschutz setzen | [Echtzeitschutz](echtzeitschutz.md) |
 | `--pyramid DIR` | Zoomstufen und `map.json` aus den Basiskacheln nachbauen, ohne Welt und Assets | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--heights DIR` | die Höhen für die Koordinatenanzeige in einen bestehenden Baum schreiben, ohne zu rendern; `DIR` ist der Ordner des Baums; braucht nur `--world` | [map.json](map-json.md), „Höhen“ |

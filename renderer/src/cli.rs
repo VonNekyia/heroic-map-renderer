@@ -170,6 +170,12 @@ pub struct Args {
     #[arg(long, value_enum, default_value_t = GpuMode::Auto, requires = "tiles")]
     gpu: GpuMode,
 
+    /// Wie ein Export seinen Fortschritt meldet: `text` als `n/N Kacheln`,
+    /// `json` als JSON-Zeilen für Programme, die ihn lesen, auch für die
+    /// nativen Stufen und die Pyramide
+    #[arg(long, value_enum, default_value_t = ProgressMode::Text, requires = "tiles")]
+    progress: ProgressMode,
+
     /// Nur unter Windows: vor dem Export eine Ausnahme im Echtzeitschutz von
     /// Microsoft Defender für das Verzeichnis von --tiles setzen, wenn es neu,
     /// leer oder schon eine Wurzel mit Kachelbäumen ist, nie für die Wurzel
@@ -278,6 +284,46 @@ enum GpuMode {
     On,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ProgressMode {
+    Text,
+    Json,
+}
+
+/// Ob der Fortschritt als JSON-Zeilen kommt, aus `--progress`; gilt für den
+/// ganzen Prozess.
+static ALS_JSON: AtomicBool = AtomicBool::new(false);
+
+/// Eine JSON-Zeile des Fortschritts, nur mit `--progress json`. Der
+/// Vertrag steht in docs/plugin.md, „Fortschritt als JSON“.
+fn melde_json(zeile: serde_json::Value) {
+    if ALS_JSON.load(Ordering::Relaxed) {
+        println!("{zeile}");
+    }
+}
+
+/// Sekunden seit `seit`, auf eine Nachkommastelle.
+fn sekunden(seit: Instant) -> f64 {
+    (seit.elapsed().as_secs_f64() * 10.0).round() / 10.0
+}
+
+/// `fertig` von `gesamt` Kacheln einer Phase seit `seit`, mit Rate je
+/// Sekunde und geschätzter Restzeit; mit `stufe` die Zoomstufe dazu.
+fn fortschritt(phase: &str, stufe: Option<u32>, fertig: usize, gesamt: usize, seit: Instant) {
+    let rate = fertig as f64 / seit.elapsed().as_secs_f64().max(1e-3);
+    let rest = (rate > 0.0).then(|| (gesamt.saturating_sub(fertig) as f64 / rate).round());
+    let mut zeile = serde_json::Map::new();
+    zeile.insert("phase".into(), phase.into());
+    if let Some(z) = stufe {
+        zeile.insert("level".into(), z.into());
+    }
+    zeile.insert("tiles".into(), fertig.into());
+    zeile.insert("of".into(), gesamt.into());
+    zeile.insert("rate".into(), ((rate * 10.0).round() / 10.0).into());
+    zeile.insert("eta_s".into(), rest.into());
+    melde_json(zeile.into());
+}
+
 /// Kacheln je Durchgang auf der Grafikkarte. Mehr spart Wartezeiten je
 /// Absenden, kostet aber je Thread Puffer — 16 Kacheln sind 8 MB.
 const GPU_TILES: u32 = 16;
@@ -292,6 +338,7 @@ struct Karte {
 pub fn run() -> Result<()> {
     std::panic::set_hook(still_beim_fangen(std::panic::take_hook()));
     let args = Args::parse();
+    ALS_JSON.store(args.progress == ProgressMode::Json, Ordering::Relaxed);
     // Vor allem anderen: Ohne ganze Pixel geht keine Kachel.
     let scale = args.scale.unwrap_or(args.camera.vorgabe_scale());
     let richtung = match &args.direction {
@@ -1199,6 +1246,7 @@ fn write_tiles(
     blend: Option<u8>,
     look: Option<Look>,
 ) -> Result<()> {
+    let beginn = Instant::now();
     let dir = &wurzel.join(baum_name(projection, look.is_some()));
     let bestand = lies_bestand(dir)?;
     let fest = rechteck(dir, bestand.as_ref(), world.bereich())?;
@@ -1322,6 +1370,7 @@ fn write_tiles(
         if let Some(stand) = stand {
             schreibe_stand(dir, world, stand)?;
         }
+        melde_json(serde_json::json!({"phase": "done", "tiles": 0, "s": sekunden(beginn)}));
         return Ok(());
     }
 
@@ -1339,6 +1388,12 @@ fn write_tiles(
         survey.states.len(),
         survey.tiles.len()
     );
+    melde_json(serde_json::json!({
+        "phase": "prepass",
+        "chunks": survey.chunks,
+        "tiles": survey.tiles.len(),
+        "s": sekunden(started),
+    }));
     melde_unfertige(&survey);
     // Der Stand eines vollen Laufs: je Chunk aus dem Kopf sein Stempel, aus
     // dem Vorlauf sein Inhalt.
@@ -1766,6 +1821,7 @@ fn write_tiles(
     if let Some(stand) = stand {
         schreibe_stand(dir, world, stand)?;
     }
+    melde_json(serde_json::json!({"phase": "done", "tiles": anzahl, "s": sekunden(beginn)}));
     Ok(())
 }
 
@@ -2813,6 +2869,7 @@ fn build_pyramid(
         bytes += geschrieben.iter().sum::<usize>();
         gesamt += geschrieben.len();
         println!("Zoom {z:>2}:     {} Kacheln", geschrieben.len());
+        melde_json(serde_json::json!({"phase": "pyramid", "level": z, "tiles": geschrieben.len()}));
     }
 
     if max_zoom > 0 {
@@ -3453,6 +3510,16 @@ fn render_coarser(
     };
     let auf_der_karte: Vec<AtomicUsize> = je_stufe.iter().map(|_| AtomicUsize::new(0)).collect();
     let bisher = &*weg;
+    // Je Stufe, wie viele ihrer Kandidaten fertig sind; die Bänder füllen
+    // alle Stufen zugleich.
+    let fertig: Vec<AtomicUsize> = je_stufe.iter().map(|_| AtomicUsize::new(0)).collect();
+    let zaehle = |i: usize, n: usize| {
+        let (z, _, kandidaten) = &je_stufe[i];
+        let erledigt = fertig[i].fetch_add(n, Ordering::Relaxed) + n;
+        if (erledigt - n) / 200 != erledigt / 200 || erledigt == kandidaten.len() {
+            fortschritt("level", Some(*z), erledigt, kandidaten.len(), started);
+        }
+    };
     let kacheln = verteile(
         &reihe,
         band,
@@ -3470,7 +3537,9 @@ fn render_coarser(
             chunks.neues_band();
             let mut out = Vec::new();
             let mut weg_hier = HashSet::new();
-            for ((z, sprites, kandidaten), auf_der_karte) in je_stufe.iter().zip(&auf_der_karte) {
+            for (i, ((z, sprites, kandidaten), auf_der_karte)) in
+                je_stufe.iter().zip(&auf_der_karte).enumerate()
+            {
                 let tiefe = z - grob;
                 let zeile = breite << tiefe;
                 let mut stufe: Vec<TileId> = band
@@ -3508,6 +3577,7 @@ fn render_coarser(
                         }
                         out.push(((*z, tile), (zeigt, true, bytes)));
                     }
+                    zaehle(i, gruppe.len());
                 }
             }
             Ok(out)
@@ -3588,6 +3658,7 @@ fn rendere<T: Send>(
     karte: Option<&Karte>,
     ablegen: impl Fn(TileId, RgbaImage) -> Result<T> + Sync,
 ) -> Result<(Vec<(TileId, T)>, usize)> {
+    let seit = Instant::now();
     let fertig = AtomicUsize::new(0);
     let auf_der_karte = AtomicUsize::new(0);
     let gesamt = tiles.len();
@@ -3617,7 +3688,11 @@ fn rendere<T: Send>(
                 // wenn keine mehr läuft.
                 let erledigt = fertig.fetch_add(1, Ordering::Relaxed) + 1;
                 if melden && (erledigt.is_multiple_of(200) || erledigt == gesamt) {
-                    println!("            {erledigt}/{gesamt} Kacheln");
+                    if ALS_JSON.load(Ordering::Relaxed) {
+                        fortschritt("base", None, erledigt, gesamt, seit);
+                    } else {
+                        println!("            {erledigt}/{gesamt} Kacheln");
+                    }
                 }
             }
             Ok(out)

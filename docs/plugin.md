@@ -1,6 +1,6 @@
 ---
 title: Plugin
-description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, und das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft.
+description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt als JSON, und das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/stand.rs
@@ -38,11 +38,54 @@ dem Plugin-Programmierer ab.
 - **Ausgabe und Code:** Zeilen auf stdout und stderr landen im Log des
   Servers. Die Zeile des Fortschritts, `n/N Kacheln` aus `rendere` in
   `cli.rs`, zeigt das Plugin nur im Status; ändert sich ihre Form, landet
-  sie wieder im Log. Code 0 heisst fertig.
+  sie wieder im Log. Code 0 heisst fertig. Als JSON kommt der Fortschritt
+  mit `--progress json`, siehe unten, „Fortschritt als JSON“.
 - **Ein Update ohne Änderung:** die Zeile `Update:     nichts zu zeichnen`
   aus `write_tiles` in `cli.rs`. Das Plugin startet alle 2 min ein Update.
   Endet eins mit dieser Zeile und Code 0, schreibt es nichts ins Log. Ändert
   sich ihre Form, landet jedes solche Update wieder im Log.
+
+## Fortschritt als JSON
+
+Mit `--progress json` ist jede Zeile des Fortschritts ein JSON-Objekt auf
+stdout, eine Zeile je Objekt. Alle übrigen Zeilen bleiben Text. Ein Leser
+nimmt die Zeilen, die mit `{` beginnen. Ob der Lauf gelang, sagt der Code.
+Geschrieben werden die Zeilen von `melde_json` und `fortschritt` in
+[`renderer/src/cli.rs`](../renderer/src/cli.rs).
+
+| `phase` | wann | Felder |
+|---|---|---|
+| `prepass` | einmal, nach dem Vorlauf | `chunks` gelesen, `tiles` zu zeichnen, `s` |
+| `base` | alle 200 Basiskacheln und bei der letzten | `tiles`, `of`, `rate`, `eta_s` |
+| `level` | je native Stufe alle 200 Kacheln und bei ihrer letzten | `level`, `tiles`, `of`, `rate`, `eta_s` |
+| `pyramid` | je verkleinerte Zoomstufe, von fein nach grob bis 0 | `level`, `tiles` dieser Stufe |
+| `done` | einmal, am Ende des Exports | `tiles` als Basiskacheln der Karte, `s` |
+
+- **`tiles` und `of`:** fertige Kacheln der Phase und wie viele sie hat.
+- **`level`:** die Zoomstufe. Die nativen Stufen laufen in Bändern
+  zugleich; ihre Zeilen kommen gemischt.
+- **`rate`:** Kacheln je Sekunde seit Beginn der Phase, eine
+  Nachkommastelle.
+- **`eta_s`:** Sekunden, bis `tiles` bei dieser Rate `of` erreicht,
+  gerundet; `null`, solange `tiles` 0 ist.
+- **`s`:** Sekunden seit Beginn des Vorlaufs bei `prepass`, des Exports bei
+  `done`, eine Nachkommastelle.
+- **Fehlen** kann `level` ohne native Stufen und `pyramid` ohne Zoomstufen
+  darüber. Ein `--update` ohne Änderung meldet nur `done` mit `tiles` 0.
+- Neue Felder können dazukommen. Ein Leser übergeht, was er nicht kennt.
+
+Ein Ausschnitt der Testwelt mit `--center -64 416 --size 4096 --scale 16
+--native-levels 1 --gpu off --progress json`, am 06.10., gekürzt:
+
+```json
+{"phase":"prepass","chunks":2398,"tiles":324,"s":0.2}
+{"phase":"base","tiles":200,"of":324,"rate":283.7,"eta_s":0.0}
+{"phase":"base","tiles":324,"of":324,"rate":285.8,"eta_s":0.0}
+{"phase":"level","level":8,"tiles":81,"of":81,"rate":80.4,"eta_s":0.0}
+{"phase":"pyramid","level":7,"tiles":25}
+{"phase":"pyramid","level":0,"tiles":2}
+{"phase":"done","tiles":324,"s":2.9}
+```
 
 ## Token
 

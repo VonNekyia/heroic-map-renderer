@@ -5859,3 +5859,85 @@ fn binaer_bekommt_den_segment_heap() {
         "kein Segment-Heap im Manifest des Binärs"
     );
 }
+
+/// Mit `--progress json` meldet ein Export Vorlauf, Basis, jede native Stufe,
+/// die Pyramide und das Ende als JSON-Zeilen statt `n/N Kacheln`. Basis und
+/// Stufen enden bei `tiles == of`, die Pyramide zählt bis Stufe 0 herunter.
+/// Die Kacheln sind dieselben wie mit Text. Der Vertrag steht in
+/// docs/plugin.md, „Fortschritt als JSON“.
+#[test]
+fn fortschritt_als_json() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
+    let text = neuer_baum("2x1-se");
+    let json = neuer_baum("2x1-se");
+    let aus_text = gelungen(&tiles(welt.path(), text.path(), &["--scale", "16"]))
+        .stdout
+        .clone();
+    let aus = gelungen(&tiles(
+        welt.path(),
+        json.path(),
+        &["--scale", "16", "--progress", "json"],
+    ))
+    .stdout
+    .clone();
+    let zeile_mit_text = |z: &str| z.trim_start().ends_with("Kacheln") && z.contains('/');
+    let text_aus = String::from_utf8_lossy(&aus_text);
+    assert!(text_aus.lines().any(zeile_mit_text));
+    assert!(
+        !text_aus.lines().any(|z| z.starts_with('{')),
+        "JSON ohne --progress json"
+    );
+    let aus = String::from_utf8(aus).unwrap();
+    assert!(!aus.lines().any(zeile_mit_text), "n/N Kacheln neben JSON");
+
+    let zeilen: Vec<serde_json::Value> = aus
+        .lines()
+        .filter(|z| z.starts_with('{'))
+        .map(|z| serde_json::from_str(z).unwrap_or_else(|e| panic!("{z}: {e}")))
+        .collect();
+    let von = |phase: &str| -> Vec<&serde_json::Value> {
+        zeilen.iter().filter(|z| z["phase"] == phase).collect()
+    };
+    let zahl = |z: &serde_json::Value, feld: &str| {
+        z[feld]
+            .as_u64()
+            .unwrap_or_else(|| panic!("{feld} fehlt: {z}"))
+    };
+    for phase in ["prepass", "done"] {
+        let [zeile] = von(phase)[..] else {
+            panic!("nicht genau eine Zeile {phase}:\n{aus}");
+        };
+        assert!(zahl(zeile, "tiles") > 0, "{zeile}");
+    }
+    let ende = |zeilen: &[&serde_json::Value]| {
+        let letzte = zeilen.last().expect("keine Zeile");
+        assert!(zahl(letzte, "of") > 0, "{letzte}");
+        assert_eq!(
+            letzte["tiles"], letzte["of"],
+            "endet nicht bei of: {letzte}"
+        );
+        assert_eq!(letzte["eta_s"], 0.0, "{letzte}");
+    };
+    ende(&von("base"));
+    let stufen = von("level");
+    let mut je_stufe: BTreeMap<u64, Vec<&serde_json::Value>> = BTreeMap::new();
+    for zeile in stufen {
+        je_stufe
+            .entry(zahl(zeile, "level"))
+            .or_default()
+            .push(zeile);
+    }
+    assert_eq!(je_stufe.len(), 2, "scale 16 hat zwei native Stufen:\n{aus}");
+    for zeilen in je_stufe.values() {
+        ende(zeilen);
+    }
+    let pyramide: Vec<u64> = von("pyramid").iter().map(|z| zahl(z, "level")).collect();
+    let grob = *je_stufe.keys().next().unwrap();
+    assert_eq!(
+        pyramide,
+        (0..grob).rev().collect::<Vec<_>>(),
+        "Pyramide:\n{aus}"
+    );
+    assert_eq!(schnappschuss(json.path()), schnappschuss(text.path()));
+}

@@ -1395,6 +1395,11 @@ fn write_tiles(
     // Mit --resume ohne angefangenen Stand weiss der Lauf nicht, was die
     // Kacheln des abgebrochenen zeigen; einen Stand schreibt er dann nicht.
     let fortgesetzt_seit = fortgesetzt.as_ref().map(|(_, seit)| *seit);
+    // Was der abgebrochene Lauf liegen liess, zählt wie geschrieben.
+    let liegen_geblieben = match fortgesetzt_seit {
+        Some(_) => lies_liegen(&dir.join(LIEGEN_NEU))?,
+        None => BTreeSet::new(),
+    };
     let stand = match (art, resume) {
         (Some(_), true) => fortgesetzt.map(|(stand, _)| stand).or_else(|| {
             println!(
@@ -1612,6 +1617,11 @@ fn write_tiles(
     {
         lege_stand_ab(&dir.join(STAND_NEU), stand)?;
     }
+    // Daneben, was liegen bleibt: Dessen Zeit sagt es nicht.
+    let liegen = stand
+        .as_ref()
+        .map(|_| Liegen::oeffne(&dir.join(LIEGEN_NEU), resume))
+        .transpose()?;
     if uebernommen {
         println!(
             "Karte:      {} nannte keine Welt, ein älterer Stand: der Baum gehört ab jetzt zu dieser",
@@ -1656,12 +1666,14 @@ fn write_tiles(
     // Ein Update behält nur, was der abgebrochene Lauf schrieb: die Kacheln
     // seit seinem angefangenen Stand, ohne den keine. Ebenso ein voller Lauf
     // mit angefangenem Stand: Ältere Kacheln zeigen einen älteren Stand.
+    // Dazu, was er liegen liess, weil es schon dieselben Bytes hatte.
     let bleiben: BTreeSet<TileId> = match &zeiten {
         Some(zeiten) => {
             let frisch = frische(zeiten, gelistet);
             let seit_dem_stand = |tile: &TileId| {
                 fortgesetzt_seit
                     .is_some_and(|seit| zeiten.get(tile).is_some_and(|&zeit| zeit >= seit))
+                    || liegen_geblieben.contains(tile)
             };
             basis
                 .iter()
@@ -1711,7 +1723,7 @@ fn write_tiles(
         &reihe,
         true,
         karte,
-        |tile, image| -> Result<Option<usize>> {
+        |tile, image| -> Result<Option<(usize, bool)>> {
             // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
             // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
             if image.pixels().all(|p| p.0[3] == 0) {
@@ -1721,23 +1733,30 @@ fn write_tiles(
                 }
                 return Ok(None);
             }
-            let bytes = schreibe(dir, max_zoom, tile, &image)?;
+            let (bytes, liegt) = schreibe_oder_lass(dir, max_zoom, tile, &image)?;
+            if liegt && let Some(liegen) = &liegen {
+                liegen.liegt(tile)?;
+            }
             if let Some(speicher) = &speicher {
                 speicher.abgeben(max_zoom, tile, Some(image))?;
             }
-            Ok(Some(bytes))
+            Ok(Some((bytes, liegt)))
         },
     )?;
+    drop(liegen);
     let mut im_speicher = match speicher {
         Some(speicher) => speicher.ende()?,
         None => Speicherstand::new(),
     };
     let mut leer = Vec::new();
-    let mut bytes = 0usize;
+    let (mut bytes, mut gleich) = (0usize, 0usize);
     for (tile, ergebnis) in stufe {
         match ergebnis {
             None => leer.push(tile),
-            Some(n) => bytes += n,
+            Some((n, liegt)) => {
+                bytes += n;
+                gleich += usize::from(liegt);
+            }
         }
     }
     let gerendert = reihe.len();
@@ -1746,8 +1765,13 @@ fn write_tiles(
     let mut weg: BTreeSet<(u32, TileId)> = leer.iter().map(|tile| (max_zoom, *tile)).collect();
 
     let seconds = started.elapsed().as_secs_f64();
+    let gleich_geblieben = match gleich {
+        0 => String::new(),
+        n => format!(", {n} gleich geblieben"),
+    };
     println!(
-        "Kacheln:    {geschrieben} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads{}",
+        "Kacheln:    {} geschrieben{gleich_geblieben}, {} leer, {TILE}x{TILE} px, {} Threads{}",
+        geschrieben - gleich,
         leer.len(),
         rayon::current_num_threads(),
         im_log(auf_der_karte, gerendert)
@@ -1856,6 +1880,75 @@ enum Bereich {
 const STAND: &str = "stand.bin";
 const STAND_NEU: &str = "stand-neu.bin";
 
+/// Neben dem angefangenen Stand: die Basiskacheln, die der Lauf liegen liess,
+/// weil sie schon dieselben Bytes hatten. Ihre Zeit ist alt, `--resume`
+/// erkennt sie hieran. Je Kachel 12 Byte in Little Endian: x und y als i32,
+/// dazu ihr [`pruefwort`].
+/// Siehe docs/benutzung/pyramide-und-resume.md, „Fortsetzen: `--resume`“.
+const LIEGEN_NEU: &str = "stand-neu-liegen.bin";
+
+/// Hängt liegen gelassene Basiskacheln an [`LIEGEN_NEU`] an, jede gleich,
+/// ohne Puffer: Ein Abbruch verliert so keinen Eintrag.
+struct Liegen(Mutex<File>);
+
+impl Liegen {
+    /// Leer für einen Lauf, der seinen Stand neu anfängt; ein Fortsetzen
+    /// hängt an. Vorher kürzt es auf ganze Einträge: Hinter einem halben
+    /// vom Abbruch stünde sonst jeder neue versetzt.
+    fn oeffne(pfad: &Path, fortsetzen: bool) -> Result<Liegen> {
+        let mut datei = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(!fortsetzen)
+            .open(pfad)
+            .with_context(|| format!("{} öffnen", pfad.display()))?;
+        let ganz = datei.metadata()?.len() / 12 * 12;
+        datei.set_len(ganz)?;
+        std::io::Seek::seek(&mut datei, std::io::SeekFrom::End(0))?;
+        Ok(Liegen(Mutex::new(datei)))
+    }
+
+    fn liegt(&self, tile: TileId) -> Result<()> {
+        let mut eintrag = [0u8; 12];
+        eintrag[..4].copy_from_slice(&tile.x.to_le_bytes());
+        eintrag[4..8].copy_from_slice(&tile.y.to_le_bytes());
+        eintrag[8..].copy_from_slice(&pruefwort(tile).to_le_bytes());
+        let mut datei = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        datei
+            .write_all(&eintrag)
+            .with_context(|| format!("{LIEGEN_NEU} schreiben"))
+    }
+}
+
+/// Das Prüfwort eines Eintrags in [`LIEGEN_NEU`]. Ein Eintrag aus Nullen,
+/// wie ihn ein Stromausfall am Ende einer Datei hinterlassen kann, passt
+/// nicht dazu und nennt keine Kachel.
+fn pruefwort(tile: TileId) -> u32 {
+    (tile.x as u32) ^ (tile.y as u32).rotate_left(16) ^ 0x4c49_4547
+}
+
+/// Die Basiskacheln aus [`LIEGEN_NEU`]. Ein halber Eintrag am Ende, nach
+/// einem Abbruch, fällt weg, ebenso einer mit falschem Prüfwort.
+fn lies_liegen(pfad: &Path) -> Result<BTreeSet<TileId>> {
+    let daten = match std::fs::read(pfad) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+        gelesen => gelesen.with_context(|| format!("{} lesen", pfad.display()))?,
+    };
+    let zahl = |b: &[u8]| u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+    Ok(daten
+        .as_chunks::<12>()
+        .0
+        .iter()
+        .filter_map(|e| {
+            let tile = TileId {
+                x: zahl(&e[..4]) as i32,
+                y: zahl(&e[4..8]) as i32,
+            };
+            (pruefwort(tile) == zahl(&e[8..])).then_some(tile)
+        })
+        .collect())
+}
+
 /// Legt den Stand ab wie `map.json`, ganz auf der Platte vor dem Tausch.
 fn lege_stand_ab(pfad: &Path, stand: &Stand) -> Result<()> {
     tausche(pfad, &stand.als_bytes(), None, true)
@@ -1961,6 +2054,7 @@ fn schreibe_stand(dir: &Path, world: &World, stand: Stand) -> Result<()> {
     let pfad = dir.join(STAND);
     lege_stand_ab(&pfad, &stand)?;
     entferne(&dir.join(STAND_NEU))?;
+    entferne(&dir.join(LIEGEN_NEU))?;
     let waehrend = match unbekannt {
         0 => String::new(),
         n => format!(", {n} während des Laufs geschrieben"),
@@ -3931,14 +4025,41 @@ fn je_kachel(
 
 /// Schreibt eine Kachel und liefert ihre Grösse in Bytes.
 fn schreibe(dir: &Path, z: u32, tile: TileId, image: &RgbaImage) -> Result<usize> {
+    Ok(schreibe_oder_lass(dir, z, tile, image)?.0)
+}
+
+/// Wie [`schreibe`], dazu, ob die Kachel schon dieselben Bytes hatte und
+/// liegen blieb.
+fn schreibe_oder_lass(
+    dir: &Path,
+    z: u32,
+    tile: TileId,
+    image: &RgbaImage,
+) -> Result<(usize, bool)> {
     let data = encode_webp(image)?;
-    lege_ab(&tile_path(dir, z, tile), &data, None)?;
-    Ok(data.len())
+    let geschrieben = lege_ab(&tile_path(dir, z, tile), &data, None)?;
+    Ok((data.len(), !geschrieben))
 }
 
 /// Legt kodierte Bytes als Kachel ab, mit dieser Zeit als letzter Änderung
-/// statt der Uhr. Den Ordner legt es erst an, wenn es ihn nicht gibt.
-fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<()> {
+/// statt der Uhr. Den Ordner legt es erst an, wenn es ihn nicht gibt. Hat die
+/// Datei schon dieselben Bytes, bleibt sie liegen, mit ihrer Zeit; nur eine
+/// vorgegebene Zeit bekommt sie dann. `false`, wenn sie liegen blieb.
+/// Siehe docs/benutzung/kacheln.md, „Gleiche Bytes bleiben liegen“.
+fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<bool> {
+    // Erst die Grösse, nur bei gleicher Grösse die Bytes.
+    if std::fs::metadata(path).is_ok_and(|m| m.len() == data.len() as u64)
+        && std::fs::read(path).is_ok_and(|alt| alt == data)
+    {
+        if let Some(zeit) = zeit {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(path)
+                .and_then(|f| f.set_modified(zeit))
+                .with_context(|| format!("{} stempeln", path.display()))?;
+        }
+        return Ok(false);
+    }
     let mut geschrieben = tausche(path, data, zeit, false);
     if let Err(e) = &geschrieben
         && e.kind() == std::io::ErrorKind::NotFound
@@ -3947,7 +4068,8 @@ fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<()> {
         std::fs::create_dir_all(parent).with_context(|| format!("{} anlegen", parent.display()))?;
         geschrieben = tausche(path, data, zeit, false);
     }
-    geschrieben.with_context(|| format!("{} schreiben", path.display()))
+    geschrieben.with_context(|| format!("{} schreiben", path.display()))?;
+    Ok(true)
 }
 
 /// Ersetzt eine Datei, ohne dass jemand eine halbe sieht: erst eine eigene
@@ -4326,6 +4448,48 @@ fn bounds(regions: &[(i32, i32)]) -> Option<(i32, i32, i32, i32)> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    /// Das Protokoll liegen gelassener Kacheln nennt, was `Liegen` schrieb,
+    /// auch über ein Fortsetzen hinweg; ein Eintrag aus Nullen, wie ein
+    /// Stromausfall ihn hinterlassen kann, und ein halber am Ende fallen weg.
+    /// Ein Fortsetzen hinter dem halben hängt wieder an ganze Einträge an.
+    /// Die Kachel (0, 0) bleibt dabei erkennbar, ihr Prüfwort ist nicht 0.
+    #[test]
+    fn protokoll_der_liegen_gelassenen() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join(LIEGEN_NEU);
+        let tile = |x, y| TileId { x, y };
+        Liegen::oeffne(&pfad, false)
+            .unwrap()
+            .liegt(tile(-3, 7))
+            .unwrap();
+        let fortgesetzt = Liegen::oeffne(&pfad, true).unwrap();
+        fortgesetzt.liegt(tile(2, -1)).unwrap();
+        drop(fortgesetzt);
+        let mut daten = std::fs::read(&pfad).unwrap();
+        daten.extend([0u8; 12]);
+        daten.extend([1u8; 5]);
+        std::fs::write(&pfad, &daten).unwrap();
+        assert_eq!(
+            lies_liegen(&pfad).unwrap(),
+            BTreeSet::from([tile(-3, 7), tile(2, -1)])
+        );
+        Liegen::oeffne(&pfad, true)
+            .unwrap()
+            .liegt(tile(4, 4))
+            .unwrap();
+        assert_eq!(
+            lies_liegen(&pfad).unwrap(),
+            BTreeSet::from([tile(-3, 7), tile(2, -1), tile(4, 4)])
+        );
+        // Ein neuer Lauf fängt leer an; ein echter Eintrag für (0, 0) zählt.
+        Liegen::oeffne(&pfad, false)
+            .unwrap()
+            .liegt(tile(0, 0))
+            .unwrap();
+        assert_eq!(lies_liegen(&pfad).unwrap(), BTreeSet::from([tile(0, 0)]));
+        assert!(lies_liegen(&dir.path().join("fehlt")).unwrap().is_empty());
+    }
 
     /// `--area` rundet nach aussen auf ganze Chunks, auch mit negativen
     /// Ecken und in beliebiger Reihenfolge; als Text stehen die inklusiven

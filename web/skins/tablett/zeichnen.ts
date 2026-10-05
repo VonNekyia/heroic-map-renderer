@@ -142,18 +142,19 @@ function male(ctx: CanvasRenderingContext2D, teile: Teil[], s: number, [x0, y0]:
  * in der Vorlage über den Ecken der Karte, Eckstücke und Lilien.
  * `s` ist ein Pixel der feinsten Stufe in Pixeln der Leinwand, `versatz` der
  * Punkt (0, 0) darauf. Die Bilder werden geglättet gelegt, der Marmor nur,
- * wenn ein Block kleiner als ein Pixel ist. Siehe
- * docs/tablett.md, „Vor und hinter der Welt“.
+ * wenn ein Block kleiner als ein Pixel ist. Ohne `nah`, nur Marmor, nur
+ * die ferne. Siehe docs/tablett.md, „Vor und hinter der Welt“.
  */
 export function ebenen(
   fern: CanvasRenderingContext2D,
-  nah: CanvasRenderingContext2D,
+  nah: CanvasRenderingContext2D | undefined,
   teile: Teil[],
   s: number,
   versatz: [number, number],
   bilder: Bilder = new Map(),
 ): void {
   for (const ctx of [fern, nah]) {
+    if (!ctx) continue;
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
   }
@@ -161,5 +162,5 @@ export function ebenen(
   fern.fillStyle = GRUND;
   fern.fillRect(0, 0, fern.canvas.width, fern.canvas.height);
   male(fern, teile.filter((t) => t.form !== 'saum' && !(t.form === 'flaeche' && t.nurIn)), s, versatz, bilder);
-  male(nah, teile.filter((t) => t.nah), s, versatz, bilder);
+  if (nah) male(nah, teile.filter((t) => t.nah), s, versatz, bilder);
 }

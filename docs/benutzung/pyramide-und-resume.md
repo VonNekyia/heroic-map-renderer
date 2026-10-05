@@ -53,6 +53,11 @@ Kachel einen `statx`, aber kein Öffnen. Der Aufruf lässt sich deshalb
 wiederholen, während ein Vollrender noch Stunden läuft: die Karte im Browser
 zeigt, was fertig ist, und wächst mit jedem Aufruf. Warum Zeiten und nicht
 Inhalte: [0017](../entscheidungen/0017-pyramide-vergleicht-zeiten.md).
+Eine Elternkachel, die ein Export liegen liess, weil sie trotz eines Kinds
+mit neuen Bytes dieselben hatte, ist älter als dieses Kind. Der nächste
+Aufruf baut sie einmal nach; sie bleibt liegen und bekommt seinen Stempel,
+danach baut keiner sie wieder, siehe [Kacheln exportieren](kacheln.md),
+„Gleiche Bytes bleiben liegen“.
 
 Die Basis und die gröbste native Stufe rendern in Streifen, deren Breite
 eine Zweierpotenz ist. Ab zwei Spalten, also ab scale 8 und ab rund 20
@@ -70,7 +75,8 @@ sind, und der Export überschreibt sie, sobald alle fertig sind.
 ## Zeiten und fremde Kacheln
 
 Jede Kachel, die `--pyramid` schreibt, und `map.json` tragen als Zeit den
-Beginn des Aufrufs, zwei Sekunden früher. Ein Kind, das der Render
+Beginn des Aufrufs, zwei Sekunden früher; eine mit schon denselben Bytes
+bleibt liegen und bekommt nur diese Zeit. Ein Kind, das der Render
 währenddessen fertigstellt, ist so jünger als seine Elternkachel, und der
 nächste Aufruf holt es. Zwei Sekunden, weil keine gängige Uhr eines
 Dateisystems gröber zählt: FAT legt Schreibzeiten in Schritten von zwei
@@ -134,12 +140,40 @@ Sekunden nach der Liste liegt: die stammt von einer Uhr, die vorging, und
 neben ihr wäre keine andere frisch. Warum zwei Minuten:
 [0019](../entscheidungen/0019-resume-behaelt-die-basiskacheln.md).
 
+Eine Basiskachel, die der abgebrochene Lauf liegen liess, weil sie schon
+dieselben Bytes hatte, trägt ihre alte Zeit, siehe
+[Kacheln exportieren](kacheln.md), „Gleiche Bytes bleiben liegen“. An der
+Zeit erkennt ein Fortsetzen sie also nicht. Ein Lauf mit angefangenem
+Stand, ein voller Lauf oder ein Update, schreibt sie darum in ein Protokoll
+neben `stand-neu.bin`, `stand-neu-liegen.bin` (`Liegen` in
+[`renderer/src/cli.rs`](../../renderer/src/cli.rs)):
+
+- **Je Kachel 12 Byte** in Little Endian: x und y als i32 und ein Prüfwort.
+  Der Lauf hängt jeden Eintrag gleich an, ohne Puffer; ein Abbruch verliert
+  so keinen.
+- **Beim Fortsetzen** zählt jede Kachel aus dem Protokoll wie eine
+  geschriebene, auch ohne die zwei Minuten: Liegen gelassen heisst, es
+  wurde nichts geschrieben, was ein Stromausfall zerreissen könnte. Frisch
+  bleibt sie nur, wenn ihre alte Zeit selbst in die zwei Minuten fällt.
+- **Ein halber Eintrag** am Ende und einer mit falschem Prüfwort fallen
+  weg. Ein Stromausfall kann eine Datei unter NTFS am Ende mit Nullen
+  hinterlassen; ein Eintrag aus Nullen nennt so keine Kachel, auch nicht
+  (0, 0).
+- **Ein Fortsetzen** hängt an das Protokoll an, ein neuer Lauf fängt es leer
+  an. Am Ende des Laufs fällt es mit `stand-neu.bin` weg.
+- Getestet: `resume_nimmt_liegen_gelassene_als_fertig` in
+  `renderer/tests/cli.rs` bricht einen vollen Lauf über einen bestehenden
+  Baum ab, nachdem er drei Kacheln liegen liess. Das Fortsetzen überspringt
+  sie, rendert nur die jüngste als frische noch einmal, und am Ende steht
+  derselbe Baum da. Das Protokoll selbst prüft
+  `protokoll_der_liegen_gelassenen` in `cli.rs`.
+
 Die nativen Stufen rendert er ganz neu, denn dort kann `--pyramid`
 verkleinerte Kacheln abgelegt haben, womöglich bevor die Basis darunter
 fertig war. Die Pyramide darüber baut er ganz neu wie jeder Lauf: Einer
 Elternkachel sieht man nicht an, ob sie zu ihren Kindern passt, und ihre
 Zeit kann von einer anderen Uhr stammen oder von `--pyramid` gestempelt
-sein. Die feinen Stufen über neu gerenderten Kindern entstehen dabei im
+sein. Was dabei dieselben Bytes hat, bleibt liegen. Die feinen Stufen über neu gerenderten Kindern entstehen dabei im
 Speicher, die über stehen gebliebenen von der Platte, siehe
 [Zoomstufen](zoomstufen.md), „Feine Stufen im Speicher“. Das kostete ohne native Stufen bei der Testwelt rund 2 von 8
 Minuten, gemessen für #10, bei 2,5 Millionen Basiskacheln hochgerechnet

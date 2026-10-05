@@ -743,17 +743,25 @@ fn senke_prioritaet() -> Result<&'static str> {
     #[cfg(windows)]
     {
         use windows_sys::Win32::System::Threading::{
-            GetCurrentProcess, IDLE_PRIORITY_CLASS, PROCESS_MODE_BACKGROUND_BEGIN, SetPriorityClass,
+            GetCurrentProcess, GetPriorityClass, IDLE_PRIORITY_CLASS,
+            PROCESS_MODE_BACKGROUND_BEGIN, SetPriorityClass,
         };
         // SAFETY: GetCurrentProcess liefert einen Pseudo-Handle, der immer
         // gilt; SetPriorityClass nimmt nur ihn und eine Zahl.
         let gesetzt = |klasse| unsafe { SetPriorityClass(GetCurrentProcess(), klasse) } != 0;
+        // Senkt I/O und Speicher; geht nur für den eigenen Prozess. Zuerst:
+        // Der Hintergrundmodus setzt die Klasse auf normal zurück, IDLE
+        // danach lässt ihn stehen.
+        if !gesetzt(PROCESS_MODE_BACKGROUND_BEGIN) {
+            bail!("Hintergrundmodus: {}", std::io::Error::last_os_error());
+        }
         if !gesetzt(IDLE_PRIORITY_CLASS) {
             bail!("Priorität senken: {}", std::io::Error::last_os_error());
         }
-        // Senkt dazu I/O und Speicher; geht nur für den eigenen Prozess.
-        if !gesetzt(PROCESS_MODE_BACKGROUND_BEGIN) {
-            bail!("Hintergrundmodus: {}", std::io::Error::last_os_error());
+        // SAFETY: wie oben.
+        let klasse = unsafe { GetPriorityClass(GetCurrentProcess()) };
+        if klasse != IDLE_PRIORITY_CLASS {
+            bail!("Priorität senken: Klasse ist {klasse:#x}, nicht IDLE");
         }
         Ok("niedrigste, im Hintergrundmodus für I/O und Speicher")
     }
@@ -5007,6 +5015,32 @@ mod tests {
         ]));
         assert!(!geht(&["--pyramid", "d", "--world", "w"]));
         assert!(!geht(&["--pyramid", "d", "--scale", "8"]));
+    }
+
+    /// `--pyramid` lehnt jeden Schalter ausser `--threads` und
+    /// `--low-priority` ab, auch einen, der später dazukommt.
+    #[test]
+    fn pyramid_lehnt_jeden_anderen_schalter_ab() {
+        let cmd = Args::command();
+        let pyramid = cmd
+            .get_arguments()
+            .find(|a| a.get_id() == "pyramid")
+            .unwrap();
+        let abgelehnt: Vec<&str> = cmd
+            .get_arg_conflicts_with(pyramid)
+            .iter()
+            .map(|a| a.get_id().as_str())
+            .collect();
+        for arg in cmd.get_arguments() {
+            let id = arg.get_id().as_str();
+            if !["pyramid", "threads", "low_priority", "help", "version"].contains(&id) {
+                assert!(
+                    abgelehnt.contains(&id),
+                    "--pyramid duldet --{}",
+                    arg.get_long().unwrap_or(id)
+                );
+            }
+        }
     }
 
     /// Versagt die Karte mit einem Fehler oder einer Panik, kommen die

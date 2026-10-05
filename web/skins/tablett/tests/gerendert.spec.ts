@@ -36,7 +36,8 @@ test.beforeAll(() => {
   execFileSync(
     process.execPath,
     [join(WEB, 'node_modules', 'vite', 'bin', 'vite.js'), 'build', '--outDir', dist, '--emptyOutDir', '--logLevel', 'error'],
-    { cwd: WEB, env: { ...process.env, SKIN: ordner }, stdio: 'pipe' },
+    // Das gerenderte Brett gehört zum ganzen Tablett, vertagt in voll.ts.
+    { cwd: WEB, env: { ...process.env, SKIN: join(ordner, 'voll') }, stdio: 'pipe' },
   );
 });
 

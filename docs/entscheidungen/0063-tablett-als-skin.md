@@ -22,6 +22,10 @@ Stufe darüber. Diese Punkte, „Einmal für `fitZoom`“ und „Zoom“, löst
 [0068](0068-tablett-auf-jeder-stufe.md) ab: Das Tablett bleibt auf jeder
 Stufe sichtbar und wird je Ansicht gezeichnet.
 
+Ergänzt durch [0079](0079-tablett-vertagt-nur-marmor.md): `skins/tablett`
+legt vorerst nur den Marmor um die Karte, auch um Welten, die kein Quadrat
+sind; das ganze Tablett wählt `SKIN=./skins/tablett/voll`.
+
 ## Anlass
 
 Nach [0061](0061-tablett-im-frontend.md) lag das Tablett fest in der Karte:

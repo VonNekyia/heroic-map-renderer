@@ -21,6 +21,9 @@ das Profil liegt in diesen Bildern statt in einer Fläche je Stufe. Durch
 [0067](0067-gesamtansicht-zwischen-zwei-stufen.md): Die Gesamtansicht mit
 dem Skin darf zwischen zwei Zoomstufen liegen.
 
+Ergänzt durch [0079](0079-tablett-vertagt-nur-marmor.md): Das Tablett ist
+vertagt, vorerst liegt um die Karte nur der Marmor.
+
 ## Anlass
 
 Am Rand der Welt zeigt die Karte ihren Schnitt, dunklen Stein bis `minY`.

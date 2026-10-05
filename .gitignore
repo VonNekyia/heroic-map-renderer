@@ -16,6 +16,7 @@ target/
 node_modules/
 web/dist/
 web/dist-skin/
+web/dist-tablett/
 
 # Ist-Bild eines gefallenen Goldbild-Tests
 metatile*-ist.png

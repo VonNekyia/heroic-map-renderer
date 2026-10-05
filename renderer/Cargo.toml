@@ -35,6 +35,9 @@ tempfile = "3"
 [profile.release]
 opt-level = 3
 codegen-units = 1
+# Unter Linux liegen die Symbole im Binär; ohne sie passt es ins Budget
+# des Jars. Siehe docs/entwicklung/weitergabe.md.
+strip = "symbols"
 
 # Der GPU-Stapel und clap auf Grösse statt Tempo: kleiner um rund ein Zehntel
 # gepackt, ohne messbare Kosten. Siehe docs/entwicklung/weitergabe.md.

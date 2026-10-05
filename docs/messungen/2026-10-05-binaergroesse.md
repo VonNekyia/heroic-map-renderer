@@ -116,10 +116,28 @@ Basis in Kacheln/s, Runde 1, 2 und 3:
   1,6 % beieinander, ohne Richtung.
 - **Ein Lauf** dauerte 5,9 bis 8,0 s, die Basis 3,9 bis 5,2 s.
 
+## Linux, aus der CI
+
+Aus dem Job „Rust (ubuntu-latest)“, Lauf 37368976075 an `d727994`, also mit
+statischer CRT, die unter Linux nicht gilt, und dem GPU-Stapel auf `"s"`.
+Gepackt mit `gzip -6`; das ist Deflate 6 wie im Jar, ohne dessen Kopf.
+
+| | roh | gepackt |
+|---|---|---|
+| Release-Binär | 11 010 648 Byte | 3 899 492 Byte |
+| nach `strip` | 8 391 576 Byte | 3 493 515 Byte |
+
+- **glibc:** höchstens `GLIBC_2.34` unter den Symbolen.
+- **Die Symbole** machen unter Linux 2,6 MB roh aus, 0,41 MB gepackt. Unter
+  Windows liegen sie in der PDB, darum wirkte `strip` dort nicht.
+- **Windows** im Lauf 37366712158 an `9533a32`, mit `gzip -6`: 9 177 600
+  Byte roh, 3 587 903 Byte gepackt, aus dem zweiten Release-Build, den die PR
+  danach strich. Die Quellen waren dieselben.
+
 ## Schluss
 
 - Statische CRT und `opt-level = "s"` für den GPU-Stapel und clap kommen
   ins Release-Profil, siehe [Weitergabe](../entwicklung/weitergabe.md).
 - `opt-level = "z"` spart weitere 0,19 MB gepackt. Gemessen ist es nicht;
   es kommt nur, wenn das Linux-Binär sonst nicht passt.
-- Das Linux-Binär misst die CI, siehe [Weitergabe](../entwicklung/weitergabe.md).
+- Unter Linux kommt `strip = "symbols"` dazu, siehe „Linux, aus der CI“.

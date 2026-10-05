@@ -74,16 +74,21 @@ jobs:
         run: cargo nextest run --all-targets --release
 
       # Grösse und glibc des Binärs für die Weitergabe, gepackt wie im Jar.
-      # Siehe docs/entwicklung/weitergabe.md.
+      # Über der Grenze fällt der Schritt: Das Jar trägt zwei Binärs unter
+      # 10 MB, siehe docs/entwicklung/weitergabe.md, „Grenze“.
       - name: Binär für die Weitergabe (Linux)
         if: matrix.os == 'ubuntu-latest'
         timeout-minutes: 5
         run: |
           exe=target/release/heroic-map-renderer
-          echo "roh $(stat -c %s $exe) Byte, gepackt $(gzip -6 -c $exe | wc -c) Byte"
+          grenze=3730000
+          gepackt=$(gzip -6 -c $exe | wc -c)
+          echo "roh $(stat -c %s $exe) Byte, gepackt $gepackt Byte, Grenze $grenze Byte"
           echo "glibc höchstens $(objdump -T $exe | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
-          strip -o "$RUNNER_TEMP/ohne-symbole" $exe
-          echo "ohne Symbole roh $(stat -c %s "$RUNNER_TEMP/ohne-symbole") Byte, gepackt $(gzip -6 -c "$RUNNER_TEMP/ohne-symbole" | wc -c) Byte"
+          if [ "$gepackt" -gt "$grenze" ]; then
+            echo "::error::Das Binär hat gepackt $gepackt Byte, mehr als die Grenze von $grenze"
+            exit 1
+          fi
 
       # Unter Windows mit statischer CRT aus .cargo/config.toml. Sie gilt
       # auch für das Debug-Binär der Tests; hängt es doch an der Laufzeit,

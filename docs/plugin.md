@@ -30,9 +30,10 @@ Wer daran etwas ändert, spricht es vorher mit dem Plugin-Programmierer ab.
   [`renderer/src/render/stand.rs`](../renderer/src/render/stand.rs). Aus der
   Art entscheidet das Plugin, ob es mit `--resume` fortsetzt, siehe
   [Updates](benutzung/updates.md), „Der Stand“.
-- **Threads und Priorität:** Das Plugin gibt dem Renderer mit `--threads 1`
-  einen Thread und lässt ihn mit `--low-priority` hinter dem Server laufen,
-  siehe [Schalter](benutzung/schalter.md), „Threads und Priorität“.
+- **Threads und Priorität:** Das Plugin gibt dem Renderer mit `--threads`
+  so viele Threads wie eingestellt, Vorgabe 1, und lässt ihn mit
+  `--low-priority` hinter dem Server laufen, siehe
+  [Schalter](benutzung/schalter.md), „Threads und Priorität“.
 - **Ausgabe und Code:** Zeilen auf stdout und stderr landen im Log des
   Servers. Die Zeile des Fortschritts, `n/N Kacheln` aus `rendere` in
   `cli.rs`, zeigt das Plugin nur im Status; ändert sich ihre Form, landet

@@ -73,6 +73,31 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo nextest run --all-targets --release
 
+      # Grösse und glibc des Binärs für die Weitergabe, gepackt wie im Jar.
+      # Siehe docs/entwicklung/weitergabe.md.
+      - name: Binär für die Weitergabe (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 5
+        run: |
+          exe=target/release/heroic-map-renderer
+          echo "roh $(stat -c %s $exe) Byte, gepackt $(gzip -6 -c $exe | wc -c) Byte"
+          echo "glibc höchstens $(objdump -T $exe | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
+          strip -o "$RUNNER_TEMP/ohne-symbole" $exe
+          echo "ohne Symbole roh $(stat -c %s "$RUNNER_TEMP/ohne-symbole") Byte, gepackt $(gzip -6 -c "$RUNNER_TEMP/ohne-symbole" | wc -c) Byte"
+
+      # Unter Windows mit statischer CRT aus .cargo/config.toml: Hängt das
+      # Binär doch an der VC++-Laufzeit, fällt der Schritt.
+      - name: Binär für die Weitergabe (Windows)
+        if: matrix.os == 'windows-latest'
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          cargo build --release
+          exe=target/release/heroic-map-renderer.exe
+          echo "roh $(stat -c %s $exe) Byte, gepackt $(gzip -6 -c $exe | wc -c) Byte"
+          python -c "import sys; d = open(sys.argv[1], 'rb').read().lower(); sys.exit(b'vcruntime140' in d or b'api-ms-win-crt-' in d)" $exe \
+            || { echo "::error::Das Binär importiert die VC++-Laufzeit"; exit 1; }
+
   web:
     name: Frontend
     runs-on: ubuntu-latest

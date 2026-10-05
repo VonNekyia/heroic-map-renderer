@@ -1,0 +1,4 @@
+# Unter Windows die statische CRT: Das Binär braucht so keine
+# VC++-Laufzeit. Siehe docs/entwicklung/weitergabe.md.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

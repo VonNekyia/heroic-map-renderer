@@ -33,4 +33,6 @@ Wer daran etwas ändert, spricht es vorher mit dem Plugin-Programmierer ab.
 - **`RAYON_NUM_THREADS`:** Das Plugin gibt dem Renderer so einen Thread, bis
   #148 einen Schalter bringt.
 - **Ausgabe und Code:** Zeilen auf stdout und stderr landen im Log des
-  Servers, Code 0 heisst fertig.
+  Servers. Die Zeile des Fortschritts, `n/N Kacheln` aus `rendere` in
+  `cli.rs`, zeigt das Plugin nur im Status; ändert sich ihre Form, landet
+  sie wieder im Log. Code 0 heisst fertig.

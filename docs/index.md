@@ -58,6 +58,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Aufbau des Codes](entwicklung/aufbau.md): welche Datei was tut.
 - [Tests](entwicklung/tests.md): laufen lassen, Fixtures, Kameras, Goldbilder, GPU-Tests.
 - [CI](entwicklung/ci.md): die Jobs und die Doku-Prüfung.
+- [Weitergabe](entwicklung/weitergabe.md): wie das Release-Binär für eine Weitergabe gebaut ist, Release-Profil, statische CRT unter Windows, Grösse roh und gepackt, Linux und glibc, und was die CI daran prüft.
 - [Drittlizenzen](entwicklung/drittlizenzen.md): was jeder Weitergabe des Binärs beiliegt, wie `renderer/drittlizenzen.py` die Hinweise auf die Lizenzen der Crates erzeugt und was die CI daran prüft.
 - [Eingabedaten](entwicklung/eingabedaten.md): was nicht im Repository liegt und was für Tests mitkommt.
 - [Erzeugte Tabellen](entwicklung/tabellen.md): die Tabellen aus dem Spiel unter `renderer/src/assets/`, was darin steht und wie man sie neu erzeugt.
@@ -198,4 +199,5 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-04, Cinematic schneller, Hebel 1 und 2](messungen/2026-10-04-hebel-1-und-2.md): was die Hebel 1 und 2 aus #118 an Cinematic bringen, je für sich gegen master, an Stand und Fichtenwald, und dass jede Kachel gleich bleibt, auch über die ganze Testwelt.
 - [2026-10-04, Cinematic schneller, Hebel 3 und 4 und zusammen](messungen/2026-10-04-hebel-3-und-4.md): was die Hebel 3 und 4 aus #118 je für sich und alle Hebel zusammen an Cinematic bringen, an Stand und Fichtenwald, und dass jede Kachel gleich bleibt, auch über die ganze Testwelt; warum Hebel 3 nicht übernommen ist und was `Sprite::start` höchstens hielte.
 - [2026-10-04, Weiche Sonnenschatten am Prototyp](messungen/2026-10-04-weiche-sonnenschatten.md): Scheibe 0,53° und 3° mit 16 festen Richtungen an einem Ausschnitt der Testwelt; Zeit gegen den harten Schatten mit Strahlen überall, im Halbschatten und mit einem Detektor; Breite des Halbschattens und Grösse der Kacheln.
+- [2026-10-05, Grösse des Binärs](messungen/2026-10-05-binaergroesse.md): woraus das Release-Binär unter Windows besteht, Grösse roh und gepackt je Variante des Profils, die statische CRT und was sie und opt-level "s" für den GPU-Stapel an Laufzeit kosten.
 - [2026-10-05, Gleiche Bytes liegen lassen](messungen/2026-10-05-gleiche-bytes.md): ein voller Lauf über einen bestehenden Baum der Testwelt, master gegen #171, was das Vergleichen und Liegenlassen in der Basis kostet und welche Runden fremde Last störte.

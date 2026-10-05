@@ -24,12 +24,17 @@ Bilder, Schnellstart, Stand. Ausführlich steht alles in `docs/`.
 | Frontend-Programmierer | die Karte im Browser, `web/` |
 | Reviewer | prüft jede PR |
 | Researcher | sucht bessere Verfahren und Alternativen, Skill [`alternativen-recherchieren`](skills/alternativen-recherchieren/SKILL.md) |
+| Plugin-Programmierer | das Paper-Plugin im eigenen Repo [`heroic-map-renderer-plugin`](https://github.com/VonNekyia/heroic-map-renderer-plugin) |
 
 Die Schnittstelle zwischen Backend und Frontend sind
 [`map.json`](docs/benutzung/map-json.md) samt den Höhen, die es nennt, und
 die Projektion, die beide rechnen und an
 `renderer/tests/fixtures/projektion.json` prüfen. Wer daran etwas ändert,
 spricht es vorher mit der anderen Seite ab.
+
+Das Plugin startet den Renderer als Kindprozess. Was es vom Renderer
+nutzt, steht in [`docs/plugin.md`](docs/plugin.md); wer daran etwas ändert,
+spricht es vorher mit dem Plugin-Programmierer ab.
 
 Die Schnittstelle zwischen Grundkarte und Skins ist
 [`skin-api.ts`](web/src/skin-api.ts); wer sie ändert, hebt ihre Version.
@@ -159,6 +164,7 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 | `docs/benutzung/` | Schalter, Assets, Welten, Kacheln und Zoomstufen, Pyramide und `--resume`, `map.json`, Kosten, Grafikkarte, Echtzeitschutz |
 | `docs/renderer/` | wie der Renderer das Spiel nachbaut: Kamera, der Weg einer Kachel, Sprites und Deckung, Nähte, Wasser und Licht, weiche Beleuchtung, Biomfarben, Varianten, Blockstates, Packs, Modelle, Blockentities |
 | `docs/frontend.md` | das Frontend |
+| `docs/plugin.md` | was das Plugin vom Renderer nutzt; das Plugin selbst lebt im eigenen Repo |
 | `docs/entwicklung/` | Aufbau des Codes, Tests, CI, Eingabedaten, erzeugte Tabellen |
 | `docs/entscheidungen/` | `NNNN-titel.md`, eine Datei je Entscheidung |
 | `docs/messungen/` | `JJJJ-MM-TT-titel.md`, eine Datei je Messreihe |

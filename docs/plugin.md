@@ -38,10 +38,10 @@ dem Plugin-Programmierer ab.
   `--low-priority` hinter dem Server laufen, siehe
   [Schalter](benutzung/schalter.md), „Threads und Priorität“.
 - **Ausgabe und Code:** Zeilen auf stdout und stderr landen im Log des
-  Servers. Die Zeile des Fortschritts, `n/N Kacheln` aus `rendere` in
-  `cli.rs`, zeigt das Plugin nur im Status; ändert sich ihre Form, landet
-  sie wieder im Log. Code 0 heisst fertig. Als JSON kommt der Fortschritt
-  mit `--progress json`, siehe unten, „Fortschritt als JSON“.
+  Servers. Den Fortschritt holt das Plugin mit `--progress json` und zeigt
+  ihn nur im Status, siehe unten, „Fortschritt als JSON“. Eine Zeile mit
+  `{`, die kein JSON-Objekt mit `phase` ist, landet im Log. Code 0 heisst
+  fertig.
 - **Ein Update ohne Änderung:** die Zeile `Update:     nichts zu zeichnen`
   aus `write_tiles` in `cli.rs`. Das Plugin startet alle 2 min ein Update.
   Endet eins mit dieser Zeile und Code 0, schreibt es nichts ins Log. Ändert

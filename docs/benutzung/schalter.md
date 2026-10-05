@@ -1,6 +1,6 @@
 ---
 title: Schalter und Beispiele
-description: Alle Schalter von heroic-map-renderer mit einer Zeile und die Aufrufe, die keine Kacheln schreiben, mit Beispielausgabe.
+description: Alle Schalter von heroic-map-renderer mit einer Zeile, die Aufrufe, die keine Kacheln schreiben, mit Beispielausgabe, und was Threads und niedrige Priorität am Betriebssystem setzen.
 code:
   - renderer/src/cli.rs
   - renderer/src/main.rs
@@ -40,9 +40,11 @@ Texte.
 | `--native-levels N` | mit `--tiles`: so viele gröbere Stufen aus der Welt rendern, Vorgabe 0 | [Zoomstufen](zoomstufen.md) |
 | `--resume` | mit `--tiles`: einen abgebrochenen Lauf fortsetzen | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--update` | mit `--tiles`, ohne `--size`: nur zeichnen, wo sich die Welt seit dem letzten vollen Lauf oder Update geändert hat | [Updates](updates.md) |
-| `--gpu auto\|on\|off` | mit `--tiles`: die Grafikkarte zeichnet, Vorgabe `auto`; mit `--cinematic` immer die CPU | [Grafikkarte](grafikkarte.md) |
+| `--gpu auto\|on\|off` | mit `--tiles`: die Grafikkarte zeichnet, Vorgabe `auto`; mit `--cinematic` immer die CPU; mit `--threads` nie ein Software-Adapter | [Grafikkarte](grafikkarte.md) |
+| `--threads N` | so viele Threads für jede Phase, ab 1; geht `RAYON_NUM_THREADS` vor; ohne Angabe so viele, wie es logische CPUs gibt | unten, „Threads und Priorität“ |
+| `--low-priority` | mit niedrigster Priorität laufen, damit etwa ein Server daneben vorgeht | unten, „Threads und Priorität“ |
 | `--defender-exclusion` | mit `--tiles`, nur unter Windows: eine Ausnahme im Echtzeitschutz setzen | [Echtzeitschutz](echtzeitschutz.md) |
-| `--pyramid DIR` | Zoomstufen und `map.json` aus den Basiskacheln nachbauen, ohne Welt und Assets | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
+| `--pyramid DIR` | Zoomstufen und `map.json` aus den Basiskacheln nachbauen, ohne Welt und Assets; daneben nur `--threads` und `--low-priority` | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--heights DIR` | die Höhen für die Koordinatenanzeige in einen bestehenden Baum schreiben, ohne zu rendern; `DIR` ist der Ordner des Baums; braucht nur `--world` | [map.json](map-json.md), „Höhen“ |
 
 ## Einen Block ansehen: `--at`
@@ -195,3 +197,33 @@ MB zählt die Ausgabe binär, 2^20 Byte.
   Wasser fehlt, weil der Renderer es im Code baut. Beides steht in
   [Modelle und Texturen](../renderer/modelle-und-texturen.md),
   „Was kein Blockmodell hat“.
+
+## Threads und Priorität
+
+`--threads` und `--low-priority` gelten für jeden Aufruf, auch für
+`--pyramid`. Beides setzt der Renderer am Anfang, vor dem ersten Thread:
+Neue Threads erben die Priorität, und rayon legt seinen Pool beim ersten
+Gebrauch an.
+
+- **`--threads N`:** Der Pool von rayon hat `N` Threads. Er trägt jede
+  Phase, Vorlauf, Basis, native Stufen und Pyramide; libwebp startet keine
+  eigenen. Die Zeile „Kacheln:“ nennt die Zahl. Die Kacheln sind mit einem
+  Thread bytegleich zu denen mit allen, das prüft
+  `ein_thread_mit_niedriger_prioritaet_gleicht_dem_vollen_lauf` in
+  [`renderer/tests/cli.rs`](../../renderer/tests/cli.rs).
+- **`--low-priority`:** Die Zeile „Priorität:“ sagt, was gesetzt ist.
+
+| System | Rechenzeit | I/O und Speicher |
+|---|---|---|
+| Windows | `IDLE_PRIORITY_CLASS` | `PROCESS_MODE_BACKGROUND_BEGIN` |
+| Linux | `SCHED_IDLE`, wenn das nicht geht `nice 19` | I/O-Klasse idle über `ioprio_set` |
+| andere Unix | `nice 19` | nichts |
+
+Was der Schalter nicht abschirmt, steht in [Was ein Lauf kostet](kosten.md),
+„Neben einem Server“.
+
+Ein Software-Adapter wie WARP oder lavapipe verteilt sich auf alle Kerne,
+gleich wie viele Threads der Renderer hat. Mit `--threads` nimmt ihn
+deshalb auch `--gpu on` nicht, siehe [Grafikkarte](grafikkarte.md),
+„Adapter und Backends“. Der Treiber einer echten Karte startet eigene
+Threads; sie erben die Priorität.

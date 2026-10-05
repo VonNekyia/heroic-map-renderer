@@ -165,8 +165,10 @@ body {
   font: 1rem/1.5 system-ui, sans-serif;
 }
 
-/* Unten rechts: wann der letzte Lauf map.json geschrieben hat. */
-.stand {
+/* Unten rechts: wann der letzte Lauf map.json geschrieben hat, darunter der
+   Link auf die Lizenzen. Gegen `.leaflet-container a` braucht er zwei Klassen. */
+.stand,
+.leaflet-control.lizenzen {
   padding: 0 var(--ui-abstand);
   background: var(--ui-grund);
   color: var(--ui-schrift);

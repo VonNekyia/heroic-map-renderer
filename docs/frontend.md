@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, die Lizenzen der gebündelten Abhängigkeiten verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -319,6 +319,27 @@ Ortszeit des Browsers, etwa `Stand: 02.10.2026, 21:40`.
     [map.json](benutzung/map-json.md), „Wann sie geschrieben wird“.
 - **Aktualisiert** wird die Anzeige beim Laden der Seite, wie die Kacheln,
   siehe „Ausliefern“, „Cache“.
+
+## Lizenzen
+
+Unten rechts, unter dem Stand, verlinkt die Karte `lizenzen.txt`: die
+Lizenzen aller Abhängigkeiten, die im Bündel stecken, heute nur Leaflet
+(BSD-2-Clause).
+
+- **Warum:** BSD-2-Clause verlangt den Copyright-Hinweis in jeder
+  Weitergabe in Binärform, also auch im gebündelten JavaScript. Der Build
+  lässt die Kommentare aus der Quelle von Leaflet weg, der Hinweis stand
+  deshalb nirgends (#144).
+- **Woher:** `build.license` in [`web/vite.config.ts`](../web/vite.config.ts).
+  Vite schreibt beim Build je gebündeltem Paket Name, Version, Lizenz und
+  den Text seiner Lizenzdatei. Ein Skin wird mitgebündelt; seine Pakete
+  stehen also mit darin.
+- **`.txt`:** So zeigt jeder Browser und Server die Datei als Text, statt
+  sie herunterzuladen. Der Inhalt ist Markdown.
+- **Nur im Build:** Im Dev-Server gibt es die Datei nicht; der Link führt
+  dort ins Leere.
+- **Mit #145** kommen der Hinweis auf die eigene Lizenz (`NOTICE`) und der
+  Pflichthinweis von Mojang dazu.
 
 ## Skins
 

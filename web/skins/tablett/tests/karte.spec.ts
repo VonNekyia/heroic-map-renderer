@@ -620,7 +620,7 @@ test('die UI auf Pergament und Holz hält den Kontrast nach WCAG AA, auch der Um
   const karte = (await page.locator('#map').boundingBox())!;
   await page.mouse.move(karte.x + karte.width / 2, karte.y + karte.height / 2);
   await expect(page.locator('.koordinaten')).toContainText('X');
-  for (const selector of ['.stand', '.koordinaten', '.kompass', '.leaflet-control-zoom-in', '.baeume']) {
+  for (const selector of ['.stand', '.lizenzen', '.koordinaten', '.kompass', '.leaflet-control-zoom-in', '.baeume']) {
     const [vorn, grund] = [await stil(page, selector, 'color'), await stil(page, selector, 'background-color')];
     expect(kontrast(kanaele(vorn), kanaele(grund)), `${selector}: ${vorn} auf ${grund}`).toBeGreaterThanOrEqual(4.5);
   }

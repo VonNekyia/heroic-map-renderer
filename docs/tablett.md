@@ -425,7 +425,7 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
 
   | Wofür | Farbe | Stelle in der Vorlage |
   |---|---|---|
-  | Grund von Leiste, Stand und Kompass | `#cc8d51` | Pergament im Licht |
+  | Grund von Leiste, Stand, Lizenzen und Kompass | `#cc8d51` | Pergament im Licht |
   | Schrift darauf, Rand um den gehaltenen Block und die Eingabe | `#21150b` | Tinte der Skizze |
   | Knöpfe und Umschalter, unter Zeiger oder Fokus | `#3a2112`, `#55371c` | Holz der Wand, Median und oberes Viertel |
   | Schrift darauf | `#ebb682` | Messing, das hellste Zehntel des Bands |
@@ -440,7 +440,7 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   Gesamtansicht, bleibt Holz.
 - **Kompass:** Pergament mit dem Pfeil in Tinte, in einem Ring aus Messing.
   Der Ring ist einfarbig, denn der Kompass dreht sich mit Norden.
-- **Leiste und Stand:** Pergament mit einer Linie aus Messing, auch zwischen
+- **Leiste, Stand und Lizenzen:** Pergament mit einer Linie aus Messing, auch zwischen
   den Stücken der Leiste. Schrift sonst Georgia; die Koordinaten bleiben in
   fester Breite.
 - **Fokus** per Tastatur: 2 px innen auf dem eigenen Grund, Messing auf
@@ -459,7 +459,7 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
     Bezugsrahmen liegen sie auf dem Marmor zwischen Pergament und
     Holzrand, links der linken Ecke des Tabletts;
   - Kompass und Umschalter oben rechts nach links, neben die Kerze;
-  - Leiste und Stand unten zur Mitte hin, neben Sphäre und Kompass.
+  - Leiste, Stand und Lizenzen unten zur Mitte hin, neben Sphäre und Kompass.
   - Gerechnet wird beim Laden und bei jeder neuen Fenstergrösse, aus der
     Lage der Bilder in der Gesamtansicht, und wenn eine Ecke wächst, etwa
     die Leiste mit den Koordinaten. Das Pergament liegt flach im Bild des
@@ -566,8 +566,8 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   3 × 3 Pixeln neben der Karte Grund zeigt oder durchsichtig ist; dass auf
   den Buchrücken der Text aus dem Build steht, den `playwright.config.ts`
   setzt; und dass ein `area`, das kein Quadrat ist, kein Tablett zeichnet.
-  Zur UI: Kontrast nach WCAG AA für Stand, Koordinaten, Kompass, Knöpfe und
-  Umschalter; der gesperrte Knopf aus Holz; der Rand aus Messing als
+  Zur UI: Kontrast nach WCAG AA für Stand, Lizenzen, Koordinaten, Kompass,
+  Knöpfe und Umschalter; der gesperrte Knopf aus Holz; der Rand aus Messing als
   Verlauf, eckig; per Tastatur der Fokus innen, 2 px, mit 3:1 gegen den
   eigenen Grund, an einem Knopf und an der Leiste; in der Gesamtansicht
   deckt die UI keinen Gegenstand und nicht das Pergament, in Fenstern von

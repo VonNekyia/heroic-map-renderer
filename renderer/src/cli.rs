@@ -177,8 +177,8 @@ pub struct Args {
     threads: Option<u16>,
 
     /// Mit niedrigster Priorität laufen, damit etwa ein Server daneben
-    /// vorgeht: unter Windows auch für I/O und Speicher, unter Linux
-    /// SCHED_IDLE und I/O idle, sonst nice 19
+    /// vorgeht: unter Windows IDLE, unter Linux SCHED_IDLE und I/O idle,
+    /// sonst nice 19
     #[arg(long)]
     low_priority: bool,
 
@@ -743,27 +743,16 @@ fn senke_prioritaet() -> Result<&'static str> {
     #[cfg(windows)]
     {
         use windows_sys::Win32::System::Threading::{
-            GetCurrentProcess, GetPriorityClass, IDLE_PRIORITY_CLASS,
-            PROCESS_MODE_BACKGROUND_BEGIN, SetPriorityClass,
+            GetCurrentProcess, IDLE_PRIORITY_CLASS, SetPriorityClass,
         };
+        // Ohne den Hintergrundmodus für I/O und Speicher, siehe
+        // docs/entscheidungen/0080-ohne-hintergrundmodus.md.
         // SAFETY: GetCurrentProcess liefert einen Pseudo-Handle, der immer
         // gilt; SetPriorityClass nimmt nur ihn und eine Zahl.
-        let gesetzt = |klasse| unsafe { SetPriorityClass(GetCurrentProcess(), klasse) } != 0;
-        // Senkt I/O und Speicher; geht nur für den eigenen Prozess. Zuerst:
-        // Der Hintergrundmodus setzt die Klasse auf normal zurück, IDLE
-        // danach lässt ihn stehen.
-        if !gesetzt(PROCESS_MODE_BACKGROUND_BEGIN) {
-            bail!("Hintergrundmodus: {}", std::io::Error::last_os_error());
-        }
-        if !gesetzt(IDLE_PRIORITY_CLASS) {
+        if unsafe { SetPriorityClass(GetCurrentProcess(), IDLE_PRIORITY_CLASS) } == 0 {
             bail!("Priorität senken: {}", std::io::Error::last_os_error());
         }
-        // SAFETY: wie oben.
-        let klasse = unsafe { GetPriorityClass(GetCurrentProcess()) };
-        if klasse != IDLE_PRIORITY_CLASS {
-            bail!("Priorität senken: Klasse ist {klasse:#x}, nicht IDLE");
-        }
-        Ok("niedrigste, im Hintergrundmodus für I/O und Speicher")
+        Ok("niedrigste")
     }
     #[cfg(unix)]
     {

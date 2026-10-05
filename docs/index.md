@@ -143,6 +143,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0077](entscheidungen/0077-weiche-sonnenschatten-verworfen.md): Cinematic bleibt beim harten Sonnenschatten aus 0056. Weiche Schatten über eine Scheibe von 0,53° (kaum sichtbar, das 2,2- bis 4,3-Fache) und 3° (deutlich, das 3,7- bis 5,2-Fache) sind verworfen, weil Schattenkanten auf Ebene der Texel überall liegen; Weichzeichnen mit Radius aus dem Abstand als nicht gemessene Möglichkeit.
 - [0078](entscheidungen/0078-apache-2-0.md): Apache-2.0 statt der eigenen Lizenz aus 0034, Credits über `NOTICE`, der Hinweis auf Mojang, was jeder Weitergabe beiliegt und welche Lizenzen Abhängigkeiten haben dürfen; löst 0034 ab.
 - [0079](entscheidungen/0079-tablett-vertagt-nur-marmor.md): Das Tablett ist vertagt; `skins/tablett` legt vorerst nur den Marmor um die Karte, auch um Welten, die kein Quadrat sind. Das ganze Tablett bleibt als `voll.ts` und wird weiter getestet; ergänzt 0061 und 0063.
+- [0080](entscheidungen/0080-ohne-hintergrundmodus.md): `--low-priority` setzt unter Windows nur `IDLE_PRIORITY_CLASS`, nicht den Hintergrundmodus für I/O und Speicher: Er kostete Läufe 9 bis 35 % und schützte die Tickzeit nicht besser.
 
 ## Messungen
 
@@ -200,3 +201,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-04, Weiche Sonnenschatten am Prototyp](messungen/2026-10-04-weiche-sonnenschatten.md): Scheibe 0,53° und 3° mit 16 festen Richtungen an einem Ausschnitt der Testwelt; Zeit gegen den harten Schatten mit Strahlen überall, im Halbschatten und mit einem Detektor; Breite des Halbschattens und Grösse der Kacheln.
 - [2026-10-05, Gleiche Bytes liegen lassen](messungen/2026-10-05-gleiche-bytes.md): ein voller Lauf über einen bestehenden Baum der Testwelt, master gegen #171, was das Vergleichen und Liegenlassen in der Basis kostet und welche Runden fremde Last störte.
 - [2026-10-05, Hintergrundmodus gegen nur IDLE](messungen/2026-10-05-hintergrundmodus.md): ein Lauf mit `--threads 1 --low-priority` an einem Ausschnitt der Testwelt, mit und ohne Hintergrundmodus unter Windows, und in welcher Reihenfolge Windows IDLE und den Hintergrundmodus beide hält.
+- [2026-10-06, Tickzeit neben dem Renderer](messungen/2026-10-06-tickzeit-neben-dem-renderer.md): die Tickzeit eines Testservers ohne Renderer und mit einem Renderer auf einem Thread, normal, mit IDLE und mit IDLE samt Hintergrundmodus, beide auf den zwei logischen Prozessoren eines Kerns.

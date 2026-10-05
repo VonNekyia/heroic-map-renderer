@@ -215,16 +215,14 @@ Gebrauch an.
 
 | System | Rechenzeit | I/O und Speicher |
 |---|---|---|
-| Windows | `IDLE_PRIORITY_CLASS` | `PROCESS_MODE_BACKGROUND_BEGIN` |
+| Windows | `IDLE_PRIORITY_CLASS` | nichts |
 | Linux | `SCHED_IDLE`, wenn das nicht geht `nice 19` | I/O-Klasse idle über `ioprio_set` |
 | andere Unix | `nice 19` | nichts |
 
-Unter Windows kommt der Hintergrundmodus zuerst: Er setzt die Klasse auf
-normal zurück, IDLE danach lässt ihn stehen. Danach prüft der Renderer, dass
-die Klasse IDLE ist. Der Hintergrundmodus hält den Arbeitsspeicher klein und
-kostet einen Lauf mit einem Thread an einem Ausschnitt der Testwelt 9 bis
-35 %, fast nur in der Basis, siehe
-[2026-10-05, Hintergrundmodus gegen nur IDLE](../messungen/2026-10-05-hintergrundmodus.md).
+Den Hintergrundmodus von Windows, der auch I/O und Speicher senkt, setzt
+der Renderer nicht. Er kostete einen Lauf mit einem Thread 9 bis 35 % und
+schützte die Tickzeit eines Servers nicht besser als IDLE allein, siehe
+[0080](../entscheidungen/0080-ohne-hintergrundmodus.md).
 
 Was der Schalter nicht abschirmt, steht in [Was ein Lauf kostet](kosten.md),
 „Neben einem Server“.

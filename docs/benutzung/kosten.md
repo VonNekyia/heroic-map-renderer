@@ -148,10 +148,14 @@ Hebel 3 ist nicht übernommen. Beides siehe
 
 ## Neben einem Server
 
-Mit `--threads 1 --low-priority` rechnet der Renderer auf einem Thread und
-nur, wenn der Server den Prozessor nicht braucht, siehe
-[Schalter](schalter.md), „Threads und Priorität“. Drei Dinge schirmt das
-nicht ab:
+Mit `--threads 1 --low-priority` rechnet der Renderer auf einem Thread, und
+auf einem logischen Prozessor geht der Server vor, siehe
+[Schalter](schalter.md), „Threads und Priorität“. Auf den zwei logischen
+Prozessoren eines Kerns kostete ein Renderer mit einem Thread einen
+Testserver trotzdem rund 1,4 ms je Tick, 6,58 bis 6,90 statt 5,15 ms, mit
+wie ohne niedrige Priorität. Gemessen in
+[2026-10-06, Tickzeit neben dem Renderer](../messungen/2026-10-06-tickzeit-neben-dem-renderer.md).
+Drei Dinge schirmt die Priorität nicht ab:
 
 - **Container mit `cpu.max`:** Das Kontingent einer cgroup zählt die
   Rechenzeit aller Prozesse darin, gleich mit welcher Priorität. Läuft der
@@ -160,7 +164,7 @@ nicht ab:
 - **SMT:** Zwei logische Prozessoren desselben Kerns teilen sich Rechenwerke
   und Caches. Die Priorität ordnet nur die Threads auf einem logischen
   Prozessor. Läuft der Renderer auf dem zweiten, wird der Server auf dem
-  ersten trotzdem langsamer.
+  ersten trotzdem langsamer. Das ist der Fall der Messung oben.
 - **Echtzeitschutz:** Ohne Ausnahme prüft Defender unter Windows jede
   Kachel, die der Renderer schreibt, in seinem eigenen Prozess und auf
   weiteren Kernen. Die Priorität des Renderers senkt das nicht. Die

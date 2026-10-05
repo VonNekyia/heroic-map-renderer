@@ -85,8 +85,9 @@ niedrig:
 
 Der Hintergrundmodus setzt also die Klasse auf normal zurück, IDLE danach
 lässt ihn stehen. Der Stand „Hintergrund“ lief deshalb mit normaler
-Priorität. Seit dem Fix kommt der Hintergrundmodus zuerst, und der
-Renderer prüft danach die Klasse.
+Priorität. In `5d08547` kam der Hintergrundmodus zuerst. Seit
+[0080](../entscheidungen/0080-ohne-hintergrundmodus.md) setzt der Renderer
+ihn nicht mehr.
 
 ## Schluss
 
@@ -94,4 +95,5 @@ Renderer prüft danach die Klasse.
   fast nur in der Basis. Am Vorlauf ändert er nichts Messbares.
 - Gemessen ist der Stand mit normaler Priorität. Mit IDLE dazu bekommt er
   höchstens weniger Rechenzeit, nicht mehr.
-- Ob der Server dafür ruhiger läuft, misst erst die Tickzeit.
+- Ruhiger lief ein Server daneben mit ihm nicht, siehe
+  [2026-10-06, Tickzeit neben dem Renderer](2026-10-06-tickzeit-neben-dem-renderer.md).

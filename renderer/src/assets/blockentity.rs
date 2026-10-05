@@ -630,8 +630,8 @@ mod tests {
             Err("Muster minecraft:gibt_es_nicht".to_string())
         );
         assert_eq!(
-            lage(&assets, &id("terranova:welle"), "lime"),
-            Err("Muster terranova:welle".to_string())
+            lage(&assets, &id("beispiel:welle"), "lime"),
+            Err("Muster beispiel:welle".to_string())
         );
         assert_eq!(
             lage(&assets, &id("stripe_top"), "lila"),
@@ -661,8 +661,8 @@ mod tests {
             Err("Muster kaputt".to_string())
         );
         assert_eq!(
-            lage(&assets, &id("terranova:welle"), "black"),
-            ok("terranova:entity/banner/wellen", "black")
+            lage(&assets, &id("beispiel:welle"), "black"),
+            ok("beispiel:entity/banner/wellen", "black")
         );
         assert_eq!(
             lage(&assets, &id("minecraft:cross"), "lime"),

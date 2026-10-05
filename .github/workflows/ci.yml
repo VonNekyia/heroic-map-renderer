@@ -20,7 +20,7 @@ jobs:
     # Hier gibt es immer einen Software-Adapter (unten); fehlt er, ist das
     # ein Fehler und kein übersprungener GPU-Test.
     env:
-      TERRANOVA_GPU_PFLICHT: "1"
+      HEROIC_GPU_PFLICHT: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -227,7 +227,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      TERRANOVA_GPU_PFLICHT: "1"
+      HEROIC_GPU_PFLICHT: "1"
     steps:
       - uses: actions/checkout@v4
 

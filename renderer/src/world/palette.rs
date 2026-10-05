@@ -354,7 +354,7 @@ mod tests {
             p("minecraft:oak_stairs[half=bottom,facing=east]"),
             "minecraft:oak_stairs[facing=east,half=bottom]"
         );
-        assert_eq!(p("terranova:x[a=1]"), "terranova:x[a=1]");
+        assert_eq!(p("beispiel:x[a=1]"), "beispiel:x[a=1]");
         // Leerzeichen und ein überzähliges Komma stören nicht
         assert_eq!(p("stone[ a = 1 ,]"), "minecraft:stone[a=1]");
 

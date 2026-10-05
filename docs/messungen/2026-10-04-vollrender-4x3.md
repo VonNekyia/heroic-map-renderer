@@ -53,7 +53,7 @@ traf, die Grösse lag 14 % über der oberen Ansage. Fortsetzung von
 Der Befehl, aus der Wurzel des Repositorys:
 
 ```bash
-renderer/target/release/terranova-render --world <grosse Welt> --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --data <ihre Biomdaten> --tiles <ordner> --camera 4:3 --direction se --scale 24 --native-levels 0 --cinematic --gpu off --area <Rechteck>
+renderer/target/release/heroic-map-renderer --world <grosse Welt> --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --data <ihre Biomdaten> --tiles <ordner> --camera 4:3 --direction se --scale 24 --native-levels 0 --cinematic --gpu off --area <Rechteck>
 ```
 
 ## Ablauf

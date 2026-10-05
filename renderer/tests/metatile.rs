@@ -7,21 +7,21 @@ mod common;
 
 use std::path::PathBuf;
 
-use image::RgbaImage;
-use rayon::prelude::*;
-use tempfile::TempDir;
-use terranova_render::assets::Assets;
-use terranova_render::render::look::{LOOK, Look};
-use terranova_render::render::metatile::{Hdr, STUECK, render_hdr_bezug, render_hdr_with};
-use terranova_render::render::rasterizer::{
+use heroic_map_renderer::assets::Assets;
+use heroic_map_renderer::render::look::{LOOK, Look};
+use heroic_map_renderer::render::metatile::{Hdr, STUECK, render_hdr_bezug, render_hdr_with};
+use heroic_map_renderer::render::rasterizer::{
     AO_PLAETZE, Ecken, Light, Lightmap, VOLL_HELL, darken, smooth_blend,
 };
-use terranova_render::render::sonne::texel_mitte;
-use terranova_render::render::{
+use heroic_map_renderer::render::sonne::texel_mitte;
+use heroic_map_renderer::render::{
     BiomeTable, ChunkCache, Kamera, Projection, Reach, Richtung, ScreenRect, SpriteSet, draw_list,
     render_area, render_area_with, render_area_without_culling, survey, survey_in,
 };
-use terranova_render::world::{BlockState, World};
+use heroic_map_renderer::world::{BlockState, World};
+use image::RgbaImage;
+use rayon::prelude::*;
+use tempfile::TempDir;
 
 /// Die gebaute Welt reicht von y=0 bis y=15.
 const Y_RANGE: (i32, i32) = (0, 15);

@@ -7,13 +7,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use terranova_render::assets::baker::box_quads;
-use terranova_render::assets::{
+use heroic_map_renderer::assets::baker::box_quads;
+use heroic_map_renderer::assets::{
     Assets, BakedModel, Element, ElementFace, Face, Quad, ResolvedModel, ResolvedVariant, Rotation,
     TextureId, Tints, bake, model_of,
 };
-use terranova_render::render::{Projection, render};
-use terranova_render::world::BlockState;
+use heroic_map_renderer::render::{Projection, render};
+use heroic_map_renderer::world::BlockState;
 
 fn assets() -> Assets {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
@@ -25,7 +25,11 @@ fn state(text: &str) -> BlockState {
 }
 
 /// Rastert eine Blockstate des Fixtures.
-fn sprite(assets: &mut Assets, text: &str, scale: u32) -> Option<terranova_render::render::Sprite> {
+fn sprite(
+    assets: &mut Assets,
+    text: &str,
+    scale: u32,
+) -> Option<heroic_map_renderer::render::Sprite> {
     let state = state(text);
     let model = model_of(assets, &state).unwrap();
     let tints = assets.colors().tints(state.name(), None);
@@ -33,7 +37,7 @@ fn sprite(assets: &mut Assets, text: &str, scale: u32) -> Option<terranova_rende
 }
 
 /// Pixel an einer Bildschirmkoordinate relativ zum Blockursprung.
-fn pixel(sprite: &terranova_render::render::Sprite, sx: i32, sy: i32) -> [u8; 4] {
+fn pixel(sprite: &heroic_map_renderer::render::Sprite, sx: i32, sy: i32) -> [u8; 4] {
     sprite
         .image
         .get_pixel((sx - sprite.offset.0) as u32, (sy - sprite.offset.1) as u32)
@@ -227,8 +231,8 @@ fn deckungsgleiche_auflage_wird_sichtbar() {
 /// anfordern, sondern nur diesen einen Block auslassen.
 #[test]
 fn unsinnig_grosse_modelle_werden_uebersprungen() {
-    use terranova_render::assets::Textures;
-    use terranova_render::assets::baker::{BakedModel, Quad};
+    use heroic_map_renderer::assets::Textures;
+    use heroic_map_renderer::assets::baker::{BakedModel, Quad};
 
     let riesig = BakedModel {
         quads: vec![Quad {

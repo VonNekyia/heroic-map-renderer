@@ -57,10 +57,10 @@ impl Gpu {
     /// Öffnet die beste Grafikkarte; `None`, wenn keine da ist. Mit
     /// `software` gilt auch ein Software-Adapter (WARP, lavapipe) — für
     /// Tests auf Rechnern ohne Karte; zum Rendern ist er langsamer als
-    /// der CPU-Pfad. `TERRANOVA_GPU_GRENZE` setzt für die CLI-Tests eine
+    /// der CPU-Pfad. `HEROIC_GPU_GRENZE` setzt für die CLI-Tests eine
     /// kleinere Grenze ([`Gpu::mit_grenze`]).
     pub fn new(software: bool) -> Result<Option<Gpu>> {
-        let grenze = std::env::var("TERRANOVA_GPU_GRENZE")
+        let grenze = std::env::var("HEROIC_GPU_GRENZE")
             .ok()
             .and_then(|grenze| grenze.parse().ok());
         Gpu::mit_grenze(software, grenze.unwrap_or(PUFFER_MAX))
@@ -86,7 +86,7 @@ impl Gpu {
             ..wgpu::Limits::downlevel_defaults()
         };
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("terranova"),
+            label: Some("heroic-map-renderer"),
             required_features: wgpu::Features::empty(),
             required_limits,
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
@@ -578,8 +578,8 @@ mod tests {
         let Some(gpu) = Gpu::new(true).unwrap() else {
             // Wie `common::ohne_gpu` in den Integrationstests.
             assert!(
-                std::env::var_os("TERRANOVA_GPU_PFLICHT").is_none(),
-                "kein GPU-Adapter, aber TERRANOVA_GPU_PFLICHT ist gesetzt"
+                std::env::var_os("HEROIC_GPU_PFLICHT").is_none(),
+                "kein GPU-Adapter, aber HEROIC_GPU_PFLICHT ist gesetzt"
             );
             eprintln!("kein GPU-Adapter, auch kein Software-Adapter — Test übersprungen");
             return;

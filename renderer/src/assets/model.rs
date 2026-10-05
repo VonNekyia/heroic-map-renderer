@@ -760,7 +760,7 @@ mod tests {
     }
 
     /// Vanilla 26.2 nutzt das in block/template_hanging_sign_rot_3 und das
-    /// TerraNova-Pack in bvb_template_sign_rot_3.
+    /// Pack der grossen Welt in bvb_template_sign_rot_3.
     #[test]
     fn mehrachsen_rotation() {
         let r = rotation(r#"{"x": 180, "y": -67.5, "z": -180, "origin": [8, 0, 8]}"#).unwrap();

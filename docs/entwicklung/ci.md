@@ -49,7 +49,7 @@ lassen“. Fällt ein Goldbild, liegt das Ist-Bild als Artefakt am Lauf, siehe
 Die GPU-Tests brauchen einen Adapter. Auf Windows ist WARP dabei, auf
 Ubuntu liefert Mesa mit lavapipe eine Vulkan-Implementierung in Software:
 langsam, aber derselbe Shader-Weg wie auf einer Karte. Rust und Coverage
-setzen `TERRANOVA_GPU_PFLICHT`; fehlt der Adapter, ist das ein Fehler.
+setzen `HEROIC_GPU_PFLICHT`; fehlt der Adapter, ist das ein Fehler.
 
 ## Lighthouse
 

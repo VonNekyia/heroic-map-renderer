@@ -83,8 +83,10 @@ steht als unbekannt im Stand und gilt beim nächsten Update als geändert,
 über die volle Höhe.
 
 Vor der ersten Kachel legt der Lauf den angefangenen Stand als
-`stand-neu.bin` ab, wie `map.json`. Ihn braucht nur `--resume`, siehe unten;
-am Ende fällt er weg.
+`stand-neu.bin` ab, wie `map.json`, und daneben das Protokoll der Kacheln,
+die er liegen lässt, siehe [Pyramide und Fortsetzen](pyramide-und-resume.md),
+„Fortsetzen: `--resume`“. Beides braucht nur `--resume`, siehe unten;
+am Ende fällt beides weg.
 
 | Teil | Bytes |
 |---|---|

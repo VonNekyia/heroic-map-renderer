@@ -232,6 +232,9 @@ in [0056](../entscheidungen/0056-exakter-strahl-zur-sonne.md). Er gibt 0
 hinter einer deckenden Stelle, sonst 1, je Bodenpflanze auf dem Weg mal
 `pflanzen` (`ChunkCache::sonne` in
 [`renderer/src/render/metatile/strahl.rs`](../../renderer/src/render/metatile/strahl.rs)).
+Der Schatten bleibt hart: Weiche Schatten über eine Sonnenscheibe sind
+geprüft und verworfen, siehe
+[0077](../entscheidungen/0077-weiche-sonnenschatten-verworfen.md).
 
 - **Wo er beginnt** (`startpunkt` in
   [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)):

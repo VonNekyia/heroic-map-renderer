@@ -246,7 +246,7 @@ nichts. Was er dabei halb geschrieben sehen kann, liest er neu (#143,
   [Updates](updates.md), „Was als geändert gilt“.
 - Getestet in `region.rs`: `laenge_nach_dem_anhaengen_neu_gelesen`,
   `ausgelagerter_chunk_nach_dem_verschieben`,
-  `wiederverwendete_sektoren_neu_gelesen`, `verlegter_chunk_bleibt_verlegt`
+  `wiederverwendete_sektoren_neu_gelesen`, `verlegter_chunk_bleibt_verlegt`,
   `bleibender_fehler_nach_dem_letzten_versuch` und
   `unlesbarer_chunk_ohne_pause`; in `mod.rs`
   `halbe_datei_der_welt_neu_gelesen` und

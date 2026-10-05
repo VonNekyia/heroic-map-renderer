@@ -36,3 +36,7 @@ Wer daran etwas ändert, spricht es vorher mit dem Plugin-Programmierer ab.
   Servers. Die Zeile des Fortschritts, `n/N Kacheln` aus `rendere` in
   `cli.rs`, zeigt das Plugin nur im Status; ändert sich ihre Form, landet
   sie wieder im Log. Code 0 heisst fertig.
+- **Ein Update ohne Änderung:** die Zeile `Update:     nichts zu zeichnen`
+  aus `write_tiles` in `cli.rs`. Das Plugin startet alle 2 min ein Update.
+  Endet eins mit dieser Zeile und Code 0, schreibt es nichts ins Log. Ändert
+  sich ihre Form, landet jedes solche Update wieder im Log.

@@ -142,3 +142,6 @@ mitgeht. Der Grund steht in
 NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH
 MOJANG OR MICROSOFT. Die Texturen in den Bildern gehören Mojang und
 Microsoft; für sie gilt die Lizenz nicht.
+
+Herausgeber und verantwortlich: VonNekyia. Kontakt:
+`contact@mcterranova.com`.

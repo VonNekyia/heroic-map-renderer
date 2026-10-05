@@ -119,7 +119,9 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
     Pfade vom eigenen Rechner, Seeds, Hardware oder Koordinaten der grossen
     Welt. Messungen nennen die Welt allgemein („die grosse Welt“, „die
     Testwelt“). Bilder zeigen nur die Testwelt oder Szenen, die ein
-    Test baut.
+    Test baut. Einzige Ausnahme: die Kontaktadresse
+    `contact@mcterranova.com` mit dem Herausgeber in `README.md` und
+    `NOTICE`, weil die Usage Guidelines von Mojang einen Kontakt verlangen.
 21. Deutsch, kurze Sätze. Frontmatter-Schlüssel englisch, wie in Agent
     Skills.
 

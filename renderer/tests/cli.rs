@@ -5703,3 +5703,71 @@ fn binaer_bekommt_den_segment_heap() {
         "kein Segment-Heap im Manifest des Binärs"
     );
 }
+
+/// Mit einem Thread und niedrigster Priorität entsteht derselbe Baum wie
+/// mit allen Threads, Byte für Byte, und die Ausgabe nennt beides.
+#[test]
+fn ein_thread_mit_niedriger_prioritaet_gleicht_dem_vollen_lauf() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..3)
+        .flat_map(|x| (0..3).map(move |z| (x * 2, z * 2)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let args = ["--scale", "8", "--native-levels", "0", "--gpu", "off"];
+    let voll = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), voll.path(), &args));
+    let einer = neuer_baum("2x1-se");
+    let ausgabe = tiles(
+        welt.path(),
+        einer.path(),
+        &[&args[..], &["--threads", "1", "--low-priority"]].concat(),
+    );
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(meldung.contains(", 1 Threads"), "{meldung}");
+    assert!(meldung.contains("Priorität:  "), "{meldung}");
+    // Das Salz der Kennung ist je Baum ein anderes.
+    let ohne_karte = |dir: &Path| {
+        let mut dateien = schnappschuss(dir);
+        dateien.remove("map.json");
+        dateien
+    };
+    assert_eq!(ohne_karte(einer.path()), ohne_karte(voll.path()));
+}
+
+/// Mit `--threads` nimmt auch `--gpu on` keinen Software-Adapter wie WARP
+/// oder lavapipe: Der verteilt sich auf alle Kerne. Gibt es nur einen
+/// solchen, wie in der CI, bricht der Lauf ab und sagt warum; mit einer
+/// echten Karte zeichnet sie.
+#[test]
+fn mit_threads_kein_software_adapter() {
+    use heroic_map_renderer::render::Gpu;
+    if Gpu::new(true).ok().flatten().is_none() {
+        common::ohne_gpu();
+        return;
+    }
+    let echte_karte = Gpu::new(false).ok().flatten().is_some();
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let out = neuer_baum("2x1-se");
+    let args = [
+        "--scale",
+        "8",
+        "--native-levels",
+        "0",
+        "--gpu",
+        "on",
+        "--threads",
+        "1",
+    ];
+    let ausgabe = tiles(welt.path(), out.path(), &args);
+    if echte_karte {
+        gelungen(&ausgabe);
+    } else {
+        assert!(!ausgabe.status.success(), "lief mit einem Software-Adapter");
+        let fehler = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(
+            fehler.contains("mit --threads zählt kein Software-Adapter"),
+            "{fehler}"
+        );
+    }
+}

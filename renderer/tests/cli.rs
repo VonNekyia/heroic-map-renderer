@@ -2398,7 +2398,8 @@ fn voller_lauf_laesst_gleiche_dateien_liegen() {
         (0..16, 2, 0..16) => "minecraft:stone",
         _ => gelaende(x, y, z),
     });
-    gelungen(&tiles(welt.path(), out.path(), &args));
+    let ausgabe = tiles(welt.path(), out.path(), &args);
+    let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
     let nachher = schnappschuss(out.path());
     let leer = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), leer.path(), &args));
@@ -2412,18 +2413,22 @@ fn voller_lauf_laesst_gleiche_dateien_liegen() {
         ohne_karte(schnappschuss(leer.path()))
     );
 
-    let (mut gleich, mut anders) = (0, 0);
+    let basis = format!("{}/", max_zoom(out.path()));
+    let (mut gleich, mut anders, mut gleich_in_der_basis) = (0, 0, 0);
     for (rel, bytes) in ohne_karte(nachher) {
         let zeit = zeit_von(&out.path().join(&rel));
         if vorher.get(&rel) == Some(&bytes) {
             assert_eq!(zeit, damals, "{rel} trotz gleicher Bytes neu geschrieben");
             gleich += 1;
+            gleich_in_der_basis += usize::from(rel.starts_with(&basis));
         } else {
             assert_ne!(zeit, damals, "{rel} geändert, aber nicht neu geschrieben");
             anders += 1;
         }
     }
     assert!(gleich > 0 && anders > 0, "{gleich} gleich, {anders} anders");
+    let zeile = format!(", {gleich_in_der_basis} gleich geblieben,");
+    assert!(meldung.contains(&zeile), "{zeile} fehlt in: {meldung}");
     assert!(!out.path().join("stand-neu-liegen.bin").exists());
 }
 

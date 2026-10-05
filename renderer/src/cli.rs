@@ -1629,7 +1629,7 @@ fn write_tiles(
         &reihe,
         true,
         karte,
-        |tile, image| -> Result<Option<usize>> {
+        |tile, image| -> Result<Option<(usize, bool)>> {
             // Der Vorlauf kennt nur die Hüllkästen der Blockspalten; ob eine
             // Kachel wirklich etwas zeigt, weiss erst der Renderlauf.
             if image.pixels().all(|p| p.0[3] == 0) {
@@ -1646,7 +1646,7 @@ fn write_tiles(
             if let Some(speicher) = &speicher {
                 speicher.abgeben(max_zoom, tile, Some(image))?;
             }
-            Ok(Some(bytes))
+            Ok(Some((bytes, liegt)))
         },
     )?;
     drop(liegen);
@@ -1655,11 +1655,14 @@ fn write_tiles(
         None => Speicherstand::new(),
     };
     let mut leer = Vec::new();
-    let mut bytes = 0usize;
+    let (mut bytes, mut gleich) = (0usize, 0usize);
     for (tile, ergebnis) in stufe {
         match ergebnis {
             None => leer.push(tile),
-            Some(n) => bytes += n,
+            Some((n, liegt)) => {
+                bytes += n;
+                gleich += usize::from(liegt);
+            }
         }
     }
     let gerendert = reihe.len();
@@ -1668,8 +1671,13 @@ fn write_tiles(
     let mut weg: BTreeSet<(u32, TileId)> = leer.iter().map(|tile| (max_zoom, *tile)).collect();
 
     let seconds = started.elapsed().as_secs_f64();
+    let gleich_geblieben = match gleich {
+        0 => String::new(),
+        n => format!(", {n} gleich geblieben"),
+    };
     println!(
-        "Kacheln:    {geschrieben} geschrieben, {} leer, {TILE}x{TILE} px, {} Threads{}",
+        "Kacheln:    {} geschrieben{gleich_geblieben}, {} leer, {TILE}x{TILE} px, {} Threads{}",
+        geschrieben - gleich,
         leer.len(),
         rayon::current_num_threads(),
         im_log(auf_der_karte, gerendert)

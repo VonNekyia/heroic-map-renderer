@@ -243,6 +243,12 @@ bestehenden Baum, etwa mit einem neuen Binär, jede Kachel ein neues ETag.
 
 - **Wie:** erst die Grösse aus den Metadaten, nur bei gleicher Grösse die
   Bytes. Ändert sich viel, reicht meist die Grösse.
+- **Kosten:** keine. Ein voller Lauf über einen bestehenden Baum der
+  Testwelt, in dem sich nichts geändert hat, brauchte in der Basis 2 bis 3 %
+  weniger als mit Neuschreiben, siehe
+  [Gleiche Bytes liegen lassen](../messungen/2026-10-05-gleiche-bytes.md).
+- **Die Ausgabe** nennt, was liegen blieb:
+  `Kacheln:    0 geschrieben, 17820 gleich geblieben, 344 leer, …`.
 - **Was:** Kacheln jeder Stufe, die Basis, die nativen Stufen und die
   Pyramide, dazu die Höhen. `map.json`, `stand.bin` und `trees.json`
   schreibt der Renderer immer neu.

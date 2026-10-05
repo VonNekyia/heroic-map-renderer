@@ -729,21 +729,50 @@ test.describe('der Stand der Karte', () => {
   });
 });
 
-test('die Karte verlinkt unten rechts unter dem Stand die Lizenzen aus dem Build, mit jeder Abhängigkeit, darin Leaflet', async ({ page }) => {
+test('unten rechts unter dem Stand stehen der Hinweis von Mojang und der Link auf die Lizenzen aus dem Build: NOTICE, LICENSE und jede Abhängigkeit, darin Leaflet', async ({ page }) => {
   await page.goto(DEMO);
-  const link = page.locator('a.lizenzen');
-  await expect(link).toHaveText('Lizenzen');
-  const [stand, unten] = [(await page.locator('.stand').boundingBox())!, (await link.boundingBox())!];
+  const fuss = page.locator('.lizenzen');
+  await expect(fuss).toHaveText(
+    'NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. · Lizenzen',
+  );
+  const [stand, unten] = [(await page.locator('.stand').boundingBox())!, (await fuss.boundingBox())!];
   expect(unten.y).toBeGreaterThanOrEqual(stand.y + stand.height);
   expect(Math.round(unten.x + unten.width)).toBe(Math.round(stand.x + stand.width));
-  await link.click();
+  // Gut sichtbar, wie die Usage Guidelines von Mojang es verlangen: so gross wie der Stand.
+  const schrift = (ort: string) => page.locator(ort).evaluate((e) => getComputedStyle(e).fontSize);
+  expect(await schrift('.lizenzen')).toBe(await schrift('.stand'));
+  await fuss.getByRole('link', { name: 'Lizenzen' }).click();
   await expect(page).toHaveURL(/\/lizenzen\.txt$/);
-  const text = await page.locator('body').innerText();
+  const text = (await page.locator('body').innerText()).replace(/\r\n/g, '\n');
+  // Apache-2.0, Abschnitt 4 (a) und (d): Lizenz und NOTICE bei jeder Weitergabe, NOTICE vorn.
+  const eigen = (name: string) => readFileSync(new URL(`../../${name}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n').trimEnd();
+  expect(text.startsWith(eigen('NOTICE'))).toBe(true);
+  expect(text).toContain(eigen('LICENSE'));
   const paket = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { dependencies: Record<string, string> };
   for (const name of Object.keys(paket.dependencies)) expect(text).toMatch(new RegExp(`^## ${name} - `, 'm'));
   // BSD-2-Clause, Klausel 2: der Copyright-Hinweis in jeder Weitergabe des Bündels.
   expect(text).toMatch(/^## leaflet - [\d.]+ \(BSD-2-Clause\)$/m);
   expect(text).toMatch(/^Copyright \(c\) [\d-]+, \S+ Agafonkin$/m);
+});
+
+test('auf einem Telefon und knapp über 600 px Breite deckt kein Control ein anderes, auch nicht mit Koordinaten', async ({ page }) => {
+  await welt(page);
+  for (const breite of [360, 601]) {
+    await page.setViewportSize({ width: breite, height: 740 });
+    await page.goto(DEMO);
+    await page.mouse.move(breite / 2, 370);
+    await expect(page.locator('.koordinaten')).toContainText('X');
+    const kaesten = await page.locator('.leaflet-control').evaluateAll((elemente: HTMLElement[]) =>
+      elemente.map((e) => ({ name: e.className, ...e.getBoundingClientRect().toJSON() }) as { name: string } & DOMRect),
+    );
+    for (const [i, a] of kaesten.entries()) {
+      expect(a.right, `${breite}: ${a.name}`).toBeLessThanOrEqual(breite);
+      for (const b of kaesten.slice(i + 1)) {
+        const deckt = a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        expect(deckt, `${breite}: ${a.name} über ${b.name}`).toBe(false);
+      }
+    }
+  }
 });
 
 test('ohne map.json sagt die Seite warum', async ({ page }) => {

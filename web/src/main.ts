@@ -137,15 +137,21 @@ function standAnzeigen(map: L.Map, stand: Date): void {
   untenRechts(map, element);
 }
 
+/** Der Pflichthinweis von Mojang, wörtlich. Siehe NOTICE. */
+const MOJANG = 'NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.';
+
 /**
- * Unten rechts der Link auf die Lizenzen der gebündelten Abhängigkeiten,
- * `lizenzen.txt` aus dem Build. Siehe docs/frontend.md, „Lizenzen“.
+ * Unten rechts der Hinweis von Mojang und der Link auf `lizenzen.txt` aus
+ * dem Build: NOTICE, LICENSE und die Lizenzen der gebündelten
+ * Abhängigkeiten. Siehe docs/frontend.md, „Lizenzen“.
  */
 function lizenzenAnzeigen(map: L.Map): void {
-  const link = L.DomUtil.create('a', 'lizenzen');
+  const fuss = L.DomUtil.create('div', 'lizenzen');
+  L.DomUtil.create('span', '', fuss).textContent = `${MOJANG} · `;
+  const link = L.DomUtil.create('a', '', fuss);
   link.href = 'lizenzen.txt';
   link.textContent = 'Lizenzen';
-  untenRechts(map, link);
+  untenRechts(map, fuss);
 }
 
 /** Ein Element als Control unten rechts, über den schon vorhandenen. */

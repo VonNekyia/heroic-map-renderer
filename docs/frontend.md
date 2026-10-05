@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, die Lizenzen der gebündelten Abhängigkeiten verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/pick.ts
@@ -322,24 +322,39 @@ Ortszeit des Browsers, etwa `Stand: 02.10.2026, 21:40`.
 
 ## Lizenzen
 
-Unten rechts, unter dem Stand, verlinkt die Karte `lizenzen.txt`: die
-Lizenzen aller Abhängigkeiten, die im Bündel stecken, heute nur Leaflet
-(BSD-2-Clause).
+Unten rechts, unter dem Stand, steht der Pflichthinweis von Mojang, wörtlich
+wie in [`NOTICE`](../NOTICE), und dahinter der Link „Lizenzen“ auf
+`lizenzen.txt`. Die Datei hat drei Teile, getrennt durch `---`:
 
-- **Warum:** BSD-2-Clause verlangt den Copyright-Hinweis in jeder
+1. `NOTICE` des Projekts;
+2. `LICENSE`, die Apache-Lizenz 2.0;
+3. die Lizenzen aller Abhängigkeiten, die im Bündel stecken, heute nur
+   Leaflet (BSD-2-Clause).
+
+- **Warum:** Apache-2.0 verlangt bei jeder Weitergabe die Lizenz und
+  `NOTICE` (Abschnitt 4 (a) und (d)); die Seite gibt den Renderer im Bündel
+  weiter. BSD-2-Clause verlangt den Copyright-Hinweis in jeder
   Weitergabe in Binärform, also auch im gebündelten JavaScript. Der Build
   lässt die Kommentare aus der Quelle von Leaflet weg, der Hinweis stand
   deshalb nirgends (#144).
 - **Woher:** `build.license` in [`web/vite.config.ts`](../web/vite.config.ts).
   Vite schreibt beim Build je gebündeltem Paket Name, Version, Lizenz und
   den Text seiner Lizenzdatei. Ein Skin wird mitgebündelt; seine Pakete
-  stehen also mit darin.
+  stehen also mit darin. `NOTICE` und `LICENSE` setzt das Plugin `notice`
+  in derselben Datei davor, aus dem Wurzelverzeichnis des Repositorys.
+- **Der Hinweis auf der Karte** ist Pflicht: Die Usage Guidelines von
+  Mojang verlangen ihn gut sichtbar auf jeder Webseite. Auf die Karte
+  gehört er nach #145.
+  - Er steht so gross wie der Stand und bricht nach höchstens 22em um.
+    Grösse und Breite hat #144 so festgelegt.
+  - In Fenstern bis 600 px Breite steht die Ecke unten rechts 32 px höher,
+    über der Leiste mit den Koordinaten; daneben hätte er keinen Platz.
 - **`.txt`:** So zeigt jeder Browser und Server die Datei als Text, statt
-  sie herunterzuladen. Der Inhalt ist Markdown.
+  sie herunterzuladen. Der Inhalt ist Markdown. Vorn steht ein BOM:
+  Server senden `.txt` meist ohne `charset`, und der Browser läse die
+  Umlaute in `NOTICE` sonst als Latin-1.
 - **Nur im Build:** Im Dev-Server gibt es die Datei nicht; der Link führt
   dort ins Leere.
-- **Mit #145** kommen der Hinweis auf die eigene Lizenz (`NOTICE`) und der
-  Pflichthinweis von Mojang dazu.
 
 ## Skins
 

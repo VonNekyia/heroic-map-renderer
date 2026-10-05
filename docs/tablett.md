@@ -460,6 +460,9 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
     Holzrand, links der linken Ecke des Tabletts;
   - Kompass und Umschalter oben rechts nach links, neben die Kerze;
   - Leiste, Stand und Lizenzen unten zur Mitte hin, neben Sphäre und Kompass.
+  - Die anderen Ecken sieht `weiche` nicht. Dass keine Ecke eine andere
+    deckt, prüft der Test in allen sechs Fenstergrössen; bisher reicht der
+    Platz.
   - Gerechnet wird beim Laden und bei jeder neuen Fenstergrösse, aus der
     Lage der Bilder in der Gesamtansicht, und wenn eine Ecke wächst, etwa
     die Leiste mit den Koordinaten. Das Pergament liegt flach im Bild des
@@ -570,7 +573,8 @@ geht: [Frontend](frontend.md), „Skins“. Warum so:
   Knöpfe und Umschalter; der gesperrte Knopf aus Holz; der Rand aus Messing als
   Verlauf, eckig; per Tastatur der Fokus innen, 2 px, mit 3:1 gegen den
   eigenen Grund, an einem Knopf und an der Leiste; in der Gesamtansicht
-  deckt die UI keinen Gegenstand und nicht das Pergament, in Fenstern von
+  deckt die UI keinen Gegenstand und nicht das Pergament und kein Control
+  ein anderes, in Fenstern von
   Telefonen bis 4K; im Bezugsrahmen liegt der Zoom auf dem Marmor zwischen
   Pergament und Holzrand.
 - [`tests/auslagern.spec.ts`](../web/skins/tablett/tests/auslagern.spec.ts)

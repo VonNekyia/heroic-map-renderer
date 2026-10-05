@@ -121,8 +121,8 @@ impl Region {
     ///
     /// Ein Fehler oder eine andere Position kann auch heissen, dass der
     /// Server die Datei eben schreibt. Dann liest die Region Länge, Eintrag
-    /// und Daten neu, bis zu [`VERSUCHE`]-mal, nach einem Fehler mit
-    /// [`PAUSE`] dazwischen.
+    /// und Daten neu, bis zu [`VERSUCHE`]-mal; [`PAUSE`] dazwischen nur nach
+    /// einem Fehler vor dem Dekodieren bei unveränderter Länge.
     /// Siehe docs/benutzung/welten.md, „Während der Server schreibt“.
     pub fn stored_chunk(&mut self, cx: i32, cz: i32) -> Result<Option<Chunk>> {
         self.stored_chunk_mit(cx, cz, |fehler| {
@@ -151,32 +151,47 @@ impl Region {
             return Ok(None);
         }
         let (lx, lz) = (cx.rem_euclid(REGION), cz.rem_euclid(REGION));
+        let (rx, rz) = (self.x, self.z);
+        let wo = move || format!("Chunk ({cx}, {cz}) aus r.{rx}.{rz}.mca");
         // Eintrag und Position des Chunks, als er zuletzt anderswo stand.
         let mut verlegt = None;
+        // Das NBT, an dem das Dekodieren zuletzt scheiterte.
+        let mut unlesbar: Option<Vec<u8>> = None;
         for versuch in 1..=VERSUCHE {
-            if versuch > 1 {
-                // Der Server kann die Datei seit dem Öffnen verlängert haben.
-                self.file_len = self.file.metadata()?.len();
-            }
-            let gelesen = self
-                .chunk_nbt(cx, cz)
-                .and_then(|nbt| nbt.map(|nbt| Chunk::decode(&nbt)).transpose())
-                .with_context(|| format!("Chunk ({cx}, {cz}) aus r.{}.{}.mca", self.x, self.z));
-            match gelesen {
-                Ok(Some(mut chunk)) if (chunk.x, chunk.z) != (cx, cz) => {
+            let letzter = versuch == VERSUCHE;
+            let nbt = match self.chunk_nbt(cx, cz).with_context(wo) {
+                Ok(None) => return Ok(None),
+                Ok(Some(nbt)) => nbt,
+                Err(fehler) if letzter => return Err(fehler),
+                Err(_) => {
+                    // Hat der Server die Datei verlängert, geht es ohne
+                    // Pause weiter; sonst schreibt er vielleicht eben.
+                    let laenge = self.file.metadata()?.len();
+                    warte(laenge == self.file_len);
+                    self.file_len = laenge;
+                    continue;
+                }
+            };
+            match Chunk::decode(&nbt).with_context(wo) {
+                // Zweimal dieselben Bytes: Kein Schreiben ist schuld, der
+                // Decoder kann den Chunk nicht lesen.
+                Err(fehler) if letzter || unlesbar.as_ref() == Some(&nbt) => return Err(fehler),
+                Err(_) => {
+                    unlesbar = Some(nbt);
+                    warte(false);
+                }
+                Ok(mut chunk) if (chunk.x, chunk.z) != (cx, cz) => {
                     // Zweimal mit demselben Eintrag gilt sie: Der Server hat
                     // den Chunk nicht eben verlegt.
                     let jetzt = (self.eintrag(lx, lz)?, chunk.x, chunk.z);
-                    if versuch == VERSUCHE || verlegt == Some(jetzt) {
+                    if letzter || verlegt == Some(jetzt) {
                         (chunk.x, chunk.z) = (cx, cz);
                         return Ok(Some(chunk));
                     }
                     verlegt = Some(jetzt);
                     warte(false);
                 }
-                Err(fehler) if versuch == VERSUCHE => return Err(fehler),
-                Err(_) => warte(true),
-                gelesen => return gelesen,
+                Ok(chunk) => return Ok(Some(chunk)),
             }
         }
         unreachable!("der letzte Versuch kehrt immer zurück")
@@ -436,7 +451,7 @@ mod tests {
 
     /// Fall 1 aus #143: Der Server hängt den Chunk (1, 0) an, nachdem die
     /// Region geöffnet ist. Sein Eintrag zeigt hinter die gemerkte Länge; die
-    /// Region liest sie nach der Pause neu.
+    /// Region liest sie neu und, weil sie sich geändert hat, ohne Pause.
     #[test]
     fn laenge_nach_dem_anhaengen_neu_gelesen() {
         let dir = tempfile::tempdir().unwrap();
@@ -455,7 +470,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!((chunk.x, chunk.z), (1, 0));
-        assert_eq!(pausen, 1);
+        assert_eq!(pausen, 0);
     }
 
     /// Fall 2: Der Kopf nennt einen ausgelagerten Chunk, bevor der Server
@@ -544,5 +559,50 @@ mod tests {
             .unwrap_err();
         assert!(format!("{fehler:#}").contains("entpacken"), "{fehler:#}");
         assert_eq!(pausen, VERSUCHE - 1);
+    }
+
+    /// Scheitert erst das Dekodieren und liefert das zweite Lesen dieselben
+    /// Bytes, gilt der Fehler sofort, ohne Pause: Das ist kein Schreiben,
+    /// sondern ein Chunk, den der Decoder nicht lesen kann.
+    #[test]
+    fn unlesbarer_chunk_ohne_pause() {
+        let dir = tempfile::tempdir().unwrap();
+        let pfad = dir.path().join("r.0.0.mca");
+        let mut datei = vec![0u8; 2 * SECTOR as usize];
+        trage_ein(&mut datei, 0, 2);
+        datei.extend(datensatz(3, b"kein nbt"));
+        std::fs::write(&pfad, &datei).unwrap();
+        let mut aufrufe = Vec::new();
+        assert!(
+            Region::open(&pfad)
+                .unwrap()
+                .stored_chunk_mit(0, 0, |fehler| aufrufe.push(fehler))
+                .is_err()
+        );
+        assert_eq!(aufrufe, [false], "einmal neu gelesen, ohne Pause");
+    }
+
+    /// Die Pause im echten Lesen: nach einem Fehler vor dem Dekodieren
+    /// zweimal, für einen verlegten oder unlesbaren Chunk nie.
+    #[test]
+    fn pausen_im_echten_lesen() {
+        let dir = tempfile::tempdir().unwrap();
+        let lese = |daten: &[u8], name: &str| {
+            let pfad = dir.path().join(name);
+            let mut datei = vec![0u8; 2 * SECTOR as usize];
+            trage_ein(&mut datei, 0, 2);
+            datei.extend_from_slice(daten);
+            std::fs::write(&pfad, &datei).unwrap();
+            let mut region = Region::open(&pfad).unwrap();
+            let start = std::time::Instant::now();
+            let gelesen = region.stored_chunk(region.x * REGION, region.z * REGION);
+            (gelesen.is_ok(), start.elapsed())
+        };
+        let (ok, dauer) = lese(&datensatz(2, b"kein zlib"), "r.0.0.mca");
+        assert!(!ok && dauer >= 2 * PAUSE, "{dauer:?}");
+        let (ok, dauer) = lese(&datensatz(3, &nbt(5, 7, "minecraft:full")), "r.1.0.mca");
+        assert!(ok && dauer < PAUSE, "verlegt: {dauer:?}");
+        let (ok, dauer) = lese(&datensatz(3, b"kein nbt"), "r.2.0.mca");
+        assert!(!ok && dauer < PAUSE, "unlesbar: {dauer:?}");
     }
 }

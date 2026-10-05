@@ -1,6 +1,6 @@
 ---
 title: Welten und Kennung
-description: Welche Welten der Renderer liest und welche Chunks darin, wie er Weltwurzel, Dimension, Seed, Datenversion und Wasserspiegel findet und wie daraus die Kennung der Welt im Kachelbaum wird.
+description: Welche Welten der Renderer liest und welche Chunks darin, wie er Weltwurzel, Dimension, Seed, Datenversion und Wasserspiegel findet, wie daraus die Kennung der Welt im Kachelbaum wird und wie er liest, während der Server schreibt.
 code:
   - renderer/src/assets/dimension.rs
   - renderer/src/world/mod.rs
@@ -195,15 +195,23 @@ nichts. Was er dabei halb geschrieben sehen kann, liest er neu (#143,
 
 | Fall | Woran der Renderer es merkt | Was er tut |
 |---|---|---|
-| Der Server hat die Regionsdatei verlängert, seit der Renderer sie geöffnet hat | Ein Eintrag zeigt hinter die gemerkte Länge | liest die Länge neu |
+| Der Server hat die Regionsdatei verlängert, seit der Renderer sie geöffnet hat | Ein Eintrag zeigt hinter die gemerkte Länge | liest die Länge neu und, weil sie sich geändert hat, ohne Pause den Chunk |
 | Ein ausgelagerter Chunk: der Kopf ist neu, die `.mcc` noch nicht verschoben | Die `.mcc` fehlt | liest nach der Pause neu |
-| Der Server hat den Chunk zwischen Eintrag und Daten verlegt und die Sektoren neu vergeben | Fehler beim Entpacken oder Dekodieren, oder eine andere Position im NBT | liest Eintrag und Daten neu, nach einem Fehler nach der Pause |
+| Der Server hat den Chunk zwischen Eintrag und Daten verlegt und die Sektoren neu vergeben | Fehler beim Lesen oder Entpacken, Fehler beim Dekodieren oder eine andere Position im NBT | liest Eintrag und Daten neu; nach einem Fehler vor dem Dekodieren nach der Pause, sonst ohne |
 | `world_gen_settings.dat`, `world_border.dat` oder `level.dat` halb geschrieben oder eben ersetzt | Fehler beim Lesen | liest nach der Pause neu |
 
-- **Höchstens dreimal,** nach einem Fehler mit 100 ms Pause (`VERSUCHE`,
-  `PAUSE`). Bleibt der Fehler, bricht der Lauf ab wie zuvor. `--scan`
-  zählt ihn wie zuvor; dort kostet jeder kaputte Chunk die zwei Pausen,
-  0,2 s.
+- **Höchstens dreimal** (`VERSUCHE`). 100 ms Pause (`PAUSE`) nur nach
+  einem Fehler vor dem Dekodieren, also beim Lesen, Entpacken oder bei
+  fehlender `.mcc`, und nur, wenn die Länge der Datei gleich geblieben ist.
+  Bleibt der Fehler, bricht der Lauf ab wie zuvor.
+- **Ein Fehler beim Dekodieren** nach sauberem Entpacken kommt aus einem
+  Schreiben nur, wenn der Server die Sektoren eben neu vergeben hat; dann
+  liefert ein zweites Lesen andere Bytes. Der Renderer liest deshalb einmal
+  ohne Pause neu; sind die Bytes gleich, gilt der Fehler sofort. Kann der Decoder ein neues
+  Format nicht lesen, kostet das so nur einen zweiten Lesevorgang.
+- **`--scan`** zählt kaputte Chunks wie zuvor. Ein Fehler vor dem
+  Dekodieren kostet dort die zwei Pausen, 0,2 s, einer beim Dekodieren
+  nichts davon.
 - **Eine andere Position, zweimal mit demselben Eintrag,** gilt: Dann ist
   der Chunk nicht eben verlegt, sondern steht so in der Datei, etwa in einer
   von Hand kopierten. Er liegt dann an seinem Platz, wie im Spiel. So ein
@@ -219,8 +227,12 @@ nichts. Was er dabei halb geschrieben sehen kann, liest er neu (#143,
     `Files.newOutputStream` mit `SYNC`, `WRITE`, `CREATE` und
     `TRUNCATE_EXISTING`.
   - `level.dat` schreibt `LevelStorageAccess.saveLevelData` in eine
-    temporäre Datei und ersetzt sie dann mit `Util.safeReplaceFile`: erst
-    die alte nach `level.dat_old`, dann die neue an ihren Platz.
+    temporäre Datei und ersetzt sie dann mit `Util.safeReplaceFile`, in
+    `safeReplaceOrMoveFile` vier Schritte ohne Pause dazwischen:
+    `level.dat_old` löschen, `level.dat` nach `level.dat_old` umbenennen,
+    `level.dat` löschen, die neue Datei nach `level.dat` umbenennen.
+    `runWithRetries` wiederholt einen Schritt nur, wenn er scheitert, und
+    wartet dabei nicht. Das Fenster ist also kurz, 100 ms reichen.
 - **Zwischen den zwei Umbenennungen** fehlt `level.dat`, und
   `level.dat_old` liegt schon da. Findet die Suche nach der Weltwurzel nur
   `level.dat_old`, sieht sie nach der Pause noch einmal nach `level.dat`
@@ -230,15 +242,17 @@ nichts. Was er dabei halb geschrieben sehen kann, liest er neu (#143,
 - **Vorlauf und Render** lesen jeden Chunk für sich, bei einem Vollrender
   bis Stunden auseinander. Schreibt der Server einen Chunk dazwischen,
   zeichnet der Render den neueren. Was danach noch veraltet ist, holt das
-  nächste Update nach, siehe [Updates](updates.md), „Was ein Update nicht
-  bemerkt“.
+  nächste Update nach: Der Stempel des Chunks hat sich geändert, siehe
+  [Updates](updates.md), „Was als geändert gilt“.
 - Getestet in `region.rs`: `laenge_nach_dem_anhaengen_neu_gelesen`,
   `ausgelagerter_chunk_nach_dem_verschieben`,
   `wiederverwendete_sektoren_neu_gelesen`, `verlegter_chunk_bleibt_verlegt`
-  und `bleibender_fehler_nach_dem_letzten_versuch`; in `mod.rs`
+  `bleibender_fehler_nach_dem_letzten_versuch` und
+  `unlesbarer_chunk_ohne_pause`; in `mod.rs`
   `halbe_datei_der_welt_neu_gelesen` und
   `wurzel_waehrend_level_dat_ersetzt_wird`. Die Tests ändern die Datei
-  zwischen zwei Versuchen, wie der Server es täte.
+  zwischen zwei Versuchen, wie der Server es täte. Die echten Pausen messen
+  `pausen_im_echten_lesen` und `pausen_beim_lesen_der_welt`.
 
 ## Was bleibt eine Näherung
 

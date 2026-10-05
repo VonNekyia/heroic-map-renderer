@@ -613,4 +613,27 @@ mod tests {
             "mit level.dat keine Pause"
         )));
     }
+
+    /// Die Pausen im echten Lesen: Eine kaputte Datei der Welt liest
+    /// `read_nbt` nach zwei Pausen ein drittes Mal; liegt nur
+    /// `level.dat_old` da, sieht die Suche nach der Wurzel nach einer Pause
+    /// noch einmal nach.
+    #[test]
+    fn pausen_beim_lesen_der_welt() {
+        let welt = tempfile::tempdir().unwrap();
+        let level = welt.path().join("level.dat");
+        std::fs::write(&level, b"kein gzip").unwrap();
+        let start = std::time::Instant::now();
+        assert!(read_nbt::<fastnbt::Value>(&level).is_err());
+        assert!(
+            start.elapsed() >= 2 * region::PAUSE,
+            "{:?}",
+            start.elapsed()
+        );
+        std::fs::remove_file(&level).unwrap();
+        std::fs::write(welt.path().join("level.dat_old"), b"").unwrap();
+        let start = std::time::Instant::now();
+        assert_eq!(locate_in(welt.path()), None);
+        assert!(start.elapsed() >= region::PAUSE, "{:?}", start.elapsed());
+    }
 }

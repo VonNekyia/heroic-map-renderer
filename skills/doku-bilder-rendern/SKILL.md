@@ -19,7 +19,7 @@ Testwelt liegt unter `./world`, die Assets wie in
 2. **Rendern** aus der Wurzel des Repositorys, mit Python und Pillow:
 
    ```bash
-   python skills/doku-bilder-rendern/bilder-rendern.py renderer/target/release/terranova-render
+   python skills/doku-bilder-rendern/bilder-rendern.py renderer/target/release/heroic-map-renderer
    ```
 
    | Bild | Herkunft |

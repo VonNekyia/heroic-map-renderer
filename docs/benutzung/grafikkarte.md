@@ -76,7 +76,7 @@ GL-Treiber zeichnet auf der CPU, dasselbe Bild.
 |---|---|
 | `WGPU_BACKEND` | wählt die Backends |
 | `WGPU_ADAPTER_NAME` | wählt einen Adapter nach einem Teil seines Namens; passt keiner, zeichnet `--gpu auto` auf der CPU und sagt warum, `--gpu on` bricht ab |
-| `TERRANOVA_GPU_PFLICHT` | in der CI: ein fehlender Adapter ist ein Fehler, kein übergangener Test |
+| `HEROIC_GPU_PFLICHT` | in der CI: ein fehlender Adapter ist ein Fehler, kein übergangener Test |
 
 Einen Software-Adapter nimmt nur `--gpu on`, etwa WARP mit
 `WGPU_ADAPTER_NAME="Basic Render"`. Ohne Karte läuft alles wie vorher auf

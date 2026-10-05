@@ -1,6 +1,6 @@
 //! Prüft den Asset-Layer gegen einen kleinen, von Hand geschriebenen
 //! Assetbaum. Die Dateien sind synthetisch, spiegeln aber die Formen wider,
-//! die die Bestandsaufnahme über Vanilla 26.2 und das TerraNova-Pack ergeben
+//! die die Bestandsaufnahme über Vanilla 26.2 und das Pack der grossen Welt ergeben
 //! hat: Variantenlisten, Multipart mit Bedingungen, parent-Ketten,
 //! `#ref`-Texturen, Modelle ohne Elemente, animierte Streifen.
 
@@ -8,10 +8,10 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use terranova_render::assets::{
+use heroic_map_renderer::assets::{
     Assets, Face, MISSING_MODEL, ResolvedVariant, Textures, bake, model_of,
 };
-use terranova_render::world::BlockState;
+use heroic_map_renderer::world::BlockState;
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1144,7 +1144,7 @@ fn fehlende_texturen_werden_zum_platzhalter() {
     assert_eq!(assets.textures().missing().len(), 2);
 }
 
-/// Im TerraNova-Pack liegen zwei aneinandergehängte Blockbench-Exporte in
+/// Im Pack der grossen Welt liegen zwei aneinandergehängte Blockbench-Exporte in
 /// einer Datei. Minecrafts Gson-Leser nimmt das erste Dokument.
 #[test]
 fn zweites_json_dokument_wird_ignoriert() {
@@ -1199,7 +1199,7 @@ fn blockstate_namen_werden_aufgelistet() {
 }
 
 /// Vanilla 26.2 schreibt in `block/template_hanging_sign_rot_3` Rotationen um
-/// drei Achsen gleichzeitig, das TerraNova-Pack in
+/// drei Achsen gleichzeitig, das Pack der grossen Welt in
 /// `bvb_template_sign_rot_3`. Wer nur `axis`/`angle` liest, verliert sie
 /// stillschweigend.
 #[test]
@@ -1351,23 +1351,23 @@ fn biome_aus_den_daten() {
     assert_eq!(
         colors.biomes().collect::<Vec<_>>(),
         [
+            "beispiel:heide",
+            "beispiel:hoehle/pilzwald",
             "minecraft:frozen",
             "minecraft:plains",
-            "minecraft:swamp",
-            "terranova:heide",
-            "terranova:hoehle/pilzwald"
+            "minecraft:swamp"
         ]
     );
     // Datenpakete legen Biome in Unterordner; der Pfad gehört zur ID.
     assert_eq!(
         colors
-            .tints("water", Some("terranova:hoehle/pilzwald"))
+            .tints("water", Some("beispiel:hoehle/pilzwald"))
             .water,
         Some([0x44, 0x55, 0x66])
     );
     assert_eq!(
         colors
-            .tints("oak_leaves", Some("terranova:hoehle/pilzwald"))
+            .tints("oak_leaves", Some("beispiel:hoehle/pilzwald"))
             .block,
         Some([0x00, 0xFF, 0x00])
     );
@@ -1379,7 +1379,7 @@ fn biome_aus_den_daten() {
     );
     // heide: 0.5 / 0.5 -> x = 127, y = (1 - 0.25) * 255 = 191
     assert_eq!(
-        colors.tints("fern", Some("terranova:heide")).block,
+        colors.tints("fern", Some("beispiel:heide")).block,
         Some([127, 191, 0])
     );
     // Sumpf: fester Grasmodifikator, Laubfarbe als Zahl, Wasser als Zahl
@@ -1401,7 +1401,7 @@ fn biome_aus_den_daten() {
         Some([0x12, 0x34, 0x56])
     );
     assert_eq!(
-        colors.tints("kelp", Some("terranova:heide")).water,
+        colors.tints("kelp", Some("beispiel:heide")).water,
         Some([0x11, 0x22, 0x33])
     );
     // Feste Farben bleiben fest

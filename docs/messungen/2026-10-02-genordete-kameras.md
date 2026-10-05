@@ -91,7 +91,7 @@ Der Befehl, aus der Wurzel des Repositorys, für den Fichtenwald in
 `north-45` ohne Karte:
 
 ```bash
-renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -2712 -3297 --size 8192 --scale 16 --native-levels 3 --gpu off --camera north-45
+renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -2712 -3297 --size 8192 --scale 16 --native-levels 3 --gpu off --camera north-45
 ```
 
 ## Ablauf

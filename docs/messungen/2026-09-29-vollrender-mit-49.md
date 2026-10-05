@@ -40,7 +40,7 @@ Basis. Bei scale 24 mit einer nativen Stufe waren es 55 min für 110 GB.
 Der Befehl für den ersten Lauf, aus der Wurzel des Repositorys:
 
 ```bash
-renderer/target/release/terranova-render --world <grosse Welt> --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --data <ihre Biomdaten> --tiles <ordner> --native-levels 3
+renderer/target/release/heroic-map-renderer --world <grosse Welt> --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --data <ihre Biomdaten> --tiles <ordner> --native-levels 3
 ```
 
 ## Ablauf

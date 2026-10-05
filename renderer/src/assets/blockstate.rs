@@ -2018,7 +2018,7 @@ mod tests {
         let s = state("minecraft:chest[facing=south,type=left,waterlogged=false]");
         assert_eq!(chest.index(&s), Some(9));
         assert!(Definition::of("minecraft:einfarbig").is_none());
-        assert!(Definition::of("terranova:stone").is_none());
+        assert!(Definition::of("beispiel:stone").is_none());
     }
 
     /// Die Tabelle aus Gson 2.14.0, gegengeprüft mit dem echten

@@ -729,6 +729,6 @@ mod tests {
         );
         assert_eq!(split_id("block/stone"), ("minecraft", "block/stone"));
         assert_eq!(split_id(":block/stone"), ("minecraft", "block/stone"));
-        assert_eq!(split_id("terranova:block/x"), ("terranova", "block/x"));
+        assert_eq!(split_id("beispiel:block/x"), ("beispiel", "block/x"));
     }
 }

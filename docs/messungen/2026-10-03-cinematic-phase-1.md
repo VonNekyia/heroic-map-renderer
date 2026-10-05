@@ -59,7 +59,7 @@ lagen in allen drei Runden 0,1 bis 0,3 s über master.
 Der Befehl, aus der Wurzel des Repositorys, für den Stand mit Cinematic:
 
 ```bash
-renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <wurzel> --center -64 416 --size 18432 --scale 32 --native-levels 3 --gpu off --cinematic
+renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <wurzel> --center -64 416 --size 18432 --scale 32 --native-levels 3 --gpu off --cinematic
 ```
 
 ## Ablauf

@@ -1,5 +1,5 @@
 [package]
-name = "terranova-render"
+name = "heroic-map-renderer"
 version = "0.1.0"
 edition = "2024"
 description = "Isometrischer Offline-Renderer für Minecraft-Java-Welten"
@@ -7,7 +7,7 @@ license = "Apache-2.0"
 publish = false
 
 [[bin]]
-name = "terranova-render"
+name = "heroic-map-renderer"
 path = "src/main.rs"
 
 [dependencies]

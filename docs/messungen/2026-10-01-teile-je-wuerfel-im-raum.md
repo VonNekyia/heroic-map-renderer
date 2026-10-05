@@ -70,7 +70,7 @@ liegt am Stand in 27 gerenderten Kacheln, an der Feuerszene in 14.
 Der Befehl, aus der Wurzel des Repositorys, für die Feuerszene ohne Karte:
 
 ```bash
-renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -168 -5960 --size 8192 --scale 32 --native-levels 3 --gpu off
+renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -168 -5960 --size 8192 --scale 32 --native-levels 3 --gpu off
 ```
 
 ## Ablauf

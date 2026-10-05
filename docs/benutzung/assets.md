@@ -19,7 +19,7 @@ Wurzel liest, steht in [Packs und Wurzeln](../renderer/packs.md).
 
 ## Assets aus dem Client-JAR
 
-Ein Overlay-Pack allein reicht nicht: das TerraNova-Pack bringt 39 von 1198
+Ein Overlay-Pack allein reicht nicht: das Pack der grossen Welt bringt 39 von 1198
 Blockstates mit und keine Colormaps. Die Basis kommt aus dem Client-JAR der
 Version, die der Server fährt (hier 26.3). Für eine Welt aus 26.2 also die
 aus 26.2: Mit denen aus 26.3 schattiert der Renderer etwa die Stängel der
@@ -81,8 +81,8 @@ Datenpakete mit eigenen Biomen kommen als weitere Wurzeln dazu, spätere
 ```
 
 Erwartet wird `<DIR>/<namespace>/worldgen/biome/**/*.json`; Unterordner
-gehören zur ID: `terranova:hoehle/pilzwald` liegt unter
-`terranova/worldgen/biome/hoehle/pilzwald.json`. Kommt in der Welt ein Biom
+gehören zur ID: `beispiel:hoehle/pilzwald` liegt unter
+`beispiel/worldgen/biome/hoehle/pilzwald.json`. Kommt in der Welt ein Biom
 vor, für das keine Definition geladen ist, sagt der Renderer es beim Start
 und färbt es wie `plains`.
 

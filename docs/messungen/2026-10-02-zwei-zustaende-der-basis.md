@@ -47,7 +47,7 @@ keinem von 20 mit Warten. Am heutigen master ist es ebenso, 4 von 12 gegen
 - Befehl aus der Wurzel des Repositorys, mit `--gpu on` und `--gpu off`:
 
 ```bash
-renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -64 416 --size 18432 --scale 32 --native-levels 0 --gpu on
+renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -64 416 --size 18432 --scale 32 --native-levels 0 --gpu on
 ```
 
 ## Ablauf

@@ -50,7 +50,7 @@ kostet eine Kachel 22 % mehr. Auf 24 Threads steigt die Speicherspitze um
 Der Befehl, aus der Wurzel des Repositorys, für den Stand ohne Karte:
 
 ```bash
-renderer/target/release/terranova-render --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -64 416 --size 18432 --scale 32 --native-levels 3 --gpu off
+renderer/target/release/heroic-map-renderer --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles <ordner> --center -64 416 --size 18432 --scale 32 --native-levels 3 --gpu off
 ```
 
 ## Ablauf

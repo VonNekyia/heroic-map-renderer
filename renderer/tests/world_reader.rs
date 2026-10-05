@@ -8,7 +8,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
-use terranova_render::world::World;
+use heroic_map_renderer::world::World;
 
 /// Chunk (577, 416) der Fixture-Region deckt x 9232..9247, z 6656..6671 ab.
 const CX: i32 = 577;

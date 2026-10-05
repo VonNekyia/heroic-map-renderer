@@ -8,12 +8,12 @@ mod common;
 
 use std::path::PathBuf;
 
-use image::{Rgba, RgbaImage};
-use terranova_render::assets::Assets;
-use terranova_render::render::{
+use heroic_map_renderer::assets::Assets;
+use heroic_map_renderer::render::{
     ChunkCache, Kamera, Projection, Richtung, ScreenRect, SpriteSet, render_area, survey,
 };
-use terranova_render::world::World;
+use heroic_map_renderer::world::World;
+use image::{Rgba, RgbaImage};
 
 const Y_RANGE: (i32, i32) = (0, 15);
 

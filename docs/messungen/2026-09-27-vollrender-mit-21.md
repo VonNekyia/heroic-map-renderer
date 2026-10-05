@@ -40,9 +40,9 @@ Die Befehle, aus der Wurzel des Repositorys, der Export in ein leeres
 Verzeichnis:
 
 ```bash
-renderer/target/release/terranova-render --world <grosse Welt> --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --data <ihre Biomdaten> --tiles <ordner>
+renderer/target/release/heroic-map-renderer --world <grosse Welt> --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --data <ihre Biomdaten> --tiles <ordner>
 # daneben, wie oben beschrieben wiederholt
-renderer/target/release/terranova-render --pyramid <ordner>
+renderer/target/release/heroic-map-renderer --pyramid <ordner>
 ```
 
 ## Ablauf

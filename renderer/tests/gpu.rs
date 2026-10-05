@@ -8,14 +8,14 @@ mod common;
 
 use std::path::PathBuf;
 
-use image::RgbaImage;
-use tempfile::TempDir;
-use terranova_render::assets::Assets;
-use terranova_render::render::{
+use heroic_map_renderer::assets::Assets;
+use heroic_map_renderer::render::{
     ChunkCache, Draw, Gpu, Projection, ScreenRect, SpriteSet, TILE, TileId, covering, draw_all,
     draw_list, render_area, survey,
 };
-use terranova_render::world::World;
+use heroic_map_renderer::world::World;
+use image::RgbaImage;
+use tempfile::TempDir;
 
 /// Die gebaute Welt reicht von y=0 bis y=15.
 const Y_RANGE: (i32, i32) = (0, 15);

@@ -17,11 +17,11 @@ use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::PathBuf;
 
+use heroic_map_renderer::assets::Assets;
+use heroic_map_renderer::render::{ChunkCache, Projection, SpriteSet};
+use heroic_map_renderer::world::{BlockState, Chunk, World};
 use serde::Deserialize;
 use tempfile::TempDir;
-use terranova_render::assets::Assets;
-use terranova_render::render::{ChunkCache, Projection, SpriteSet};
-use terranova_render::world::{BlockState, Chunk, World};
 
 fn fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/licht")

@@ -5,9 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
+use heroic_map_renderer::world::Region;
 use serde::Serialize;
 use tempfile::TempDir;
-use terranova_render::world::Region;
 
 const SECTOR: usize = 4096;
 

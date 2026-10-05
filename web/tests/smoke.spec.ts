@@ -738,6 +738,9 @@ test('unten rechts unter dem Stand stehen der Hinweis von Mojang und der Link au
   const [stand, unten] = [(await page.locator('.stand').boundingBox())!, (await fuss.boundingBox())!];
   expect(unten.y).toBeGreaterThanOrEqual(stand.y + stand.height);
   expect(Math.round(unten.x + unten.width)).toBe(Math.round(stand.x + stand.width));
+  // Gut sichtbar, wie die Usage Guidelines von Mojang es verlangen: so gross wie der Stand.
+  const schrift = (ort: string) => page.locator(ort).evaluate((e) => getComputedStyle(e).fontSize);
+  expect(await schrift('.lizenzen')).toBe(await schrift('.stand'));
   await fuss.getByRole('link', { name: 'Lizenzen' }).click();
   await expect(page).toHaveURL(/\/lizenzen\.txt$/);
   const text = (await page.locator('body').innerText()).replace(/\r\n/g, '\n');
@@ -752,20 +755,22 @@ test('unten rechts unter dem Stand stehen der Hinweis von Mojang und der Link au
   expect(text).toMatch(/^Copyright \(c\) [\d-]+, \S+ Agafonkin$/m);
 });
 
-test('auf einem Telefon deckt kein Control ein anderes, auch nicht mit Koordinaten', async ({ page }) => {
+test('auf einem Telefon und knapp über 600 px Breite deckt kein Control ein anderes, auch nicht mit Koordinaten', async ({ page }) => {
   await welt(page);
-  await page.setViewportSize({ width: 360, height: 740 });
-  await page.goto(DEMO);
-  await page.mouse.move(180, 370);
-  await expect(page.locator('.koordinaten')).toContainText('X');
-  const kaesten = await page.locator('.leaflet-control').evaluateAll((elemente: HTMLElement[]) =>
-    elemente.map((e) => ({ name: e.className, ...e.getBoundingClientRect().toJSON() }) as { name: string } & DOMRect),
-  );
-  for (const [i, a] of kaesten.entries()) {
-    expect(a.right, a.name).toBeLessThanOrEqual(360);
-    for (const b of kaesten.slice(i + 1)) {
-      const deckt = a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-      expect(deckt, `${a.name} über ${b.name}`).toBe(false);
+  for (const breite of [360, 601]) {
+    await page.setViewportSize({ width: breite, height: 740 });
+    await page.goto(DEMO);
+    await page.mouse.move(breite / 2, 370);
+    await expect(page.locator('.koordinaten')).toContainText('X');
+    const kaesten = await page.locator('.leaflet-control').evaluateAll((elemente: HTMLElement[]) =>
+      elemente.map((e) => ({ name: e.className, ...e.getBoundingClientRect().toJSON() }) as { name: string } & DOMRect),
+    );
+    for (const [i, a] of kaesten.entries()) {
+      expect(a.right, `${breite}: ${a.name}`).toBeLessThanOrEqual(breite);
+      for (const b of kaesten.slice(i + 1)) {
+        const deckt = a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        expect(deckt, `${breite}: ${a.name} über ${b.name}`).toBe(false);
+      }
     }
   }
 });

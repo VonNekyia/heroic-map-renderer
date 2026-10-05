@@ -342,9 +342,13 @@ wie in [`NOTICE`](../NOTICE), und dahinter der Link „Lizenzen“ auf
   den Text seiner Lizenzdatei. Ein Skin wird mitgebündelt; seine Pakete
   stehen also mit darin. `NOTICE` und `LICENSE` setzt das Plugin `notice`
   in derselben Datei davor, aus dem Wurzelverzeichnis des Repositorys.
-- **Der Hinweis auf der Karte** steht klein und so schmal wie der Stand.
-  So hat er auch auf einem Telefon neben der Leiste mit den Koordinaten
-  Platz. Gewünscht vom Maintainer in #145.
+- **Der Hinweis auf der Karte** ist Pflicht: Die Usage Guidelines von
+  Mojang verlangen ihn gut sichtbar auf jeder Webseite. Auf die Karte
+  gehört er nach #145.
+  - Er steht so gross wie der Stand und bricht nach höchstens 22em um.
+    Grösse und Breite hat #144 so festgelegt.
+  - In Fenstern bis 600 px Breite steht die Ecke unten rechts 32 px höher,
+    über der Leiste mit den Koordinaten; daneben hätte er keinen Platz.
 - **`.txt`:** So zeigt jeder Browser und Server die Datei als Text, statt
   sie herunterzuladen. Der Inhalt ist Markdown. Vorn steht ein BOM:
   Server senden `.txt` meist ohne `charset`, und der Browser läse die

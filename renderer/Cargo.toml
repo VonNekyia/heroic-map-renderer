@@ -26,7 +26,10 @@ serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "dx12", "metal"] }  # ohne GL: lief nirgends in der CI
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }  # Junction oder Symlink, wie Java sie unterscheidet
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }  # Junction oder Symlink, wie Java sie unterscheidet; Priorität für --low-priority
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"                         # Priorität für --low-priority; steckt schon über wgpu im Baum
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "webp"] }  # WebP unabhängig von libwebp prüfen
@@ -35,6 +38,26 @@ tempfile = "3"
 [profile.release]
 opt-level = 3
 codegen-units = 1
+# Unter Linux liegen die Symbole im Binär; ohne sie passt es ins Budget
+# des Jars. Siehe docs/entwicklung/weitergabe.md.
+strip = "symbols"
+
+# Der GPU-Stapel und clap auf Grösse statt Tempo: kleiner um rund ein Zehntel
+# gepackt, ohne messbare Kosten. Siehe docs/entwicklung/weitergabe.md.
+[profile.release.package.naga]
+opt-level = "s"
+[profile.release.package.wgpu-core]
+opt-level = "s"
+[profile.release.package.wgpu-hal]
+opt-level = "s"
+[profile.release.package.wgpu]
+opt-level = "s"
+[profile.release.package.ash]
+opt-level = "s"
+[profile.release.package.gpu-allocator]
+opt-level = "s"
+[profile.release.package.clap_builder]
+opt-level = "s"
 
 # Für Mutationen: rechnet wie release, baut nach einer Änderung schneller.
 # Gemessen wird weiter mit release. Siehe docs/entwicklung/tests.md.

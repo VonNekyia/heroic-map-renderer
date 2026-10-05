@@ -20,7 +20,7 @@ Dieselben Befehle lokal: [Tests](tests.md), „Laufen lassen“.
 
 | Job | Läuft auf | Was |
 |---|---|---|
-| Rust | Ubuntu und Windows | `cargo fmt --all --check` (nur Ubuntu), `cargo clippy --all-targets -- -D warnings`, `cargo nextest run --all-targets`, unter Ubuntu auch in Release |
+| Rust | Ubuntu und Windows | `cargo fmt --all --check` (nur Ubuntu), `cargo clippy --all-targets -- -D warnings`, `cargo nextest run --all-targets`, unter Ubuntu auch in Release; dazu das Binär für die Weitergabe: unter Linux Grösse und glibc, unter Windows das Debug-Binär ohne VC++-Laufzeit, siehe [Weitergabe](weitergabe.md) |
 | Frontend | Ubuntu | `npm run check`, `npm run lint`, der Build mit einer Attrappe unter `public/tiles`, der Smoke-Test mit Playwright |
 | Lighthouse | Ubuntu | Lighthouse gegen den Build, mit Schwellen, siehe unten |
 | Dependencies | Ubuntu | `cargo deny check` mit [`renderer/deny.toml`](../../renderer/deny.toml), die Lizenzen der Abhängigkeiten und der eigenen Crate, siehe [0078](../entscheidungen/0078-apache-2-0.md); dazu `renderer/drittlizenzen.py`, siehe [Drittlizenzen](drittlizenzen.md) |

@@ -486,6 +486,7 @@ dependencies = [
  "fastnbt",
  "flate2",
  "image",
+ "libc",
  "libwebp-sys",
  "lz4-java-wrc",
  "mimalloc",

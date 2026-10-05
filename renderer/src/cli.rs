@@ -165,8 +165,9 @@ pub struct Args {
     update: bool,
 
     /// Grafikkarte zum Zeichnen der Kacheln: `auto` nimmt sie, wenn eine da
-    /// ist, `on` verlangt eine (auch einen Software-Adapter) und bricht
-    /// sonst ab.
+    /// ist, `on` verlangt eine und bricht sonst ab. Einen Software-Adapter
+    /// wie WARP oder lavapipe nimmt nur `on`, und nur ohne --threads: Er
+    /// verteilt sich auf alle Kerne
     #[arg(long, value_enum, default_value_t = GpuMode::Auto, requires = "tiles")]
     gpu: GpuMode,
 
@@ -175,6 +176,17 @@ pub struct Args {
     /// nativen Stufen und die Pyramide
     #[arg(long, value_enum, default_value_t = ProgressMode::Text, requires = "tiles")]
     progress: ProgressMode,
+
+    /// So viele Threads für jede Phase, auch für Vorlauf und Pyramide; geht
+    /// RAYON_NUM_THREADS vor. Ohne Angabe so viele, wie es logische CPUs gibt
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u16).range(1..))]
+    threads: Option<u16>,
+
+    /// Mit niedrigster Priorität laufen, damit etwa ein Server daneben
+    /// vorgeht: unter Windows IDLE, unter Linux SCHED_IDLE und I/O idle,
+    /// sonst nice 19
+    #[arg(long)]
+    low_priority: bool,
 
     /// Nur unter Windows: vor dem Export eine Ausnahme im Echtzeitschutz von
     /// Microsoft Defender für das Verzeichnis von --tiles setzen, wenn es neu,
@@ -196,7 +208,11 @@ pub struct Args {
     /// Die Zoomstufen und map.json dieses Kachelbaums aus seinen
     /// Basiskacheln nachbauen, ohne Welt und ohne Assets. Baut nur, was
     /// sich seit dem letzten Mal geändert hat, auch während ein Render läuft
-    #[arg(long, value_name = "VERZEICHNIS", exclusive = true)]
+    #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = [
+        "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
+        "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
+        "native_levels", "resume", "update", "gpu", "progress", "defender_exclusion", "heights",
+    ])]
     pyramid: Option<PathBuf>,
 }
 
@@ -358,6 +374,17 @@ pub fn run() -> Result<()> {
     std::panic::set_hook(still_beim_fangen(std::panic::take_hook()));
     let args = Args::parse();
     ALS_JSON.store(args.progress == ProgressMode::Json, Ordering::Relaxed);
+    // Vor dem ersten Thread: Threads erben die Priorität, und rayon legt
+    // seinen Pool beim ersten Gebrauch an.
+    if args.low_priority {
+        println!("Priorität:  {}", senke_prioritaet()?);
+    }
+    if let Some(threads) = args.threads {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads.into())
+            .build_global()
+            .context("Threads anlegen")?;
+    }
     // Vor allem anderen: Ohne ganze Pixel geht keine Kachel.
     let scale = args.scale.unwrap_or(args.camera.vorgabe_scale());
     let richtung = match &args.direction {
@@ -573,38 +600,40 @@ pub fn run() -> Result<()> {
             )?;
         }
         if let Some(dir) = &args.tiles {
-            let export = oeffne_gpu(args.gpu, args.cinematic).and_then(|karte| {
-                let bereich = match args.size {
-                    _ if args.update => Bereich::Update,
-                    Some(size) => Bereich::Ausschnitt(window(projection, center, size)),
-                    None => Bereich::Welt,
-                };
-                let wurzeln: Vec<PathBuf> = args.assets.iter().chain(&args.data).cloned().collect();
-                let export = write_tiles(
-                    world,
-                    assets.as_mut().expect("oben geprüft"),
-                    projection,
-                    bereich,
-                    &wurzeln,
-                    dir,
-                    args.native_levels,
-                    args.prune,
-                    args.resume,
-                    karte.as_ref(),
-                    args.biome_blend,
-                    args.cinematic.then_some(LOOK),
-                );
-                // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
-                // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
-                // endete nie. Sie aufzuräumen bleibt dem System.
-                if karte
-                    .as_ref()
-                    .is_some_and(|karte| karte.aus.load(Ordering::Relaxed))
-                {
-                    std::mem::forget(karte);
-                }
-                export
-            });
+            let export =
+                oeffne_gpu(args.gpu, args.cinematic, args.threads.is_none()).and_then(|karte| {
+                    let bereich = match args.size {
+                        _ if args.update => Bereich::Update,
+                        Some(size) => Bereich::Ausschnitt(window(projection, center, size)),
+                        None => Bereich::Welt,
+                    };
+                    let wurzeln: Vec<PathBuf> =
+                        args.assets.iter().chain(&args.data).cloned().collect();
+                    let export = write_tiles(
+                        world,
+                        assets.as_mut().expect("oben geprüft"),
+                        projection,
+                        bereich,
+                        &wurzeln,
+                        dir,
+                        args.native_levels,
+                        args.prune,
+                        args.resume,
+                        karte.as_ref(),
+                        args.biome_blend,
+                        args.cinematic.then_some(LOOK),
+                    );
+                    // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
+                    // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
+                    // endete nie. Sie aufzuräumen bleibt dem System.
+                    if karte
+                        .as_ref()
+                        .is_some_and(|karte| karte.aus.load(Ordering::Relaxed))
+                    {
+                        std::mem::forget(karte);
+                    }
+                    export
+                });
             // Auch nach einem Fehler: Der Befehl vom Anfang steht nach
             // Stunden weit oben.
             if ausnahme {
@@ -772,7 +801,58 @@ fn describe(assets: &mut Assets, state: &BlockState) -> Result<()> {
 /// Öffnen kein Grund abzubrechen — dann zeichnet die CPU. Auch eine Panik
 /// aus wgpu nicht, etwa wenn ein Treiber den Shader nicht übersetzt. Mit
 /// `--cinematic` zeichnet immer die CPU, und das Log sagt es.
-fn oeffne_gpu(mode: GpuMode, cinematic: bool) -> Result<Option<Karte>> {
+/// Senkt die Priorität des ganzen Prozesses auf die niedrigste. Vor dem
+/// ersten Thread aufrufen: Unter Linux gilt sie je Thread, und neue erben
+/// sie. Liefert, was gilt, für die Ausgabe.
+/// Siehe docs/benutzung/schalter.md, „Threads und Priorität“.
+fn senke_prioritaet() -> Result<&'static str> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Threading::{
+            GetCurrentProcess, IDLE_PRIORITY_CLASS, SetPriorityClass,
+        };
+        // Ohne den Hintergrundmodus für I/O und Speicher, siehe
+        // docs/entscheidungen/0080-ohne-hintergrundmodus.md.
+        // SAFETY: GetCurrentProcess liefert einen Pseudo-Handle, der immer
+        // gilt; SetPriorityClass nimmt nur ihn und eine Zahl.
+        if unsafe { SetPriorityClass(GetCurrentProcess(), IDLE_PRIORITY_CLASS) } == 0 {
+            bail!("Priorität senken: {}", std::io::Error::last_os_error());
+        }
+        Ok("niedrigste")
+    }
+    #[cfg(unix)]
+    {
+        #[cfg(target_os = "linux")]
+        let idle = {
+            let param = libc::sched_param { sched_priority: 0 };
+            // SAFETY: `param` lebt über den Aufruf; 0 ist der eigene Thread.
+            unsafe { libc::sched_setscheduler(0, libc::SCHED_IDLE, &param) == 0 }
+        };
+        #[cfg(not(target_os = "linux"))]
+        let idle = false;
+        // SAFETY: setpriority nimmt nur Zahlen; 0 ist der eigene Prozess.
+        if !idle && unsafe { libc::setpriority(libc::PRIO_PROCESS as _, 0, 19) } != 0 {
+            bail!("Priorität senken: {}", std::io::Error::last_os_error());
+        }
+        // I/O-Klasse idle: IOPRIO_CLASS_IDLE (3) über IOPRIO_CLASS_SHIFT
+        // (13), für den eigenen Thread (IOPRIO_WHO_PROCESS, 1, mit 0).
+        #[cfg(target_os = "linux")]
+        // SAFETY: ioprio_set nimmt nur Zahlen.
+        let io = unsafe { libc::syscall(libc::SYS_ioprio_set, 1, 0, 3 << 13) } == 0;
+        #[cfg(not(target_os = "linux"))]
+        let io = false;
+        Ok(match (idle, io) {
+            (true, true) => "SCHED_IDLE, I/O idle",
+            (true, false) => "SCHED_IDLE",
+            (false, true) => "nice 19, I/O idle",
+            (false, false) => "nice 19",
+        })
+    }
+}
+
+/// Die Grafikkarte nach `--gpu`; einen Software-Adapter nur mit `on` und
+/// `software`, also ohne `--threads`.
+fn oeffne_gpu(mode: GpuMode, cinematic: bool, software: bool) -> Result<Option<Karte>> {
     let gpu = match mode {
         _ if cinematic => {
             println!("GPU:        aus, Cinematic zeichnet die CPU");
@@ -789,9 +869,12 @@ fn oeffne_gpu(mode: GpuMode, cinematic: bool) -> Result<Option<Karte>> {
                 return Ok(None);
             }
         },
-        GpuMode::On => {
-            Some(ohne_panik(|| Gpu::new(true))?.context("keine Grafikkarte gefunden (--gpu on)")?)
-        }
+        GpuMode::On => Some(ohne_panik(|| Gpu::new(software))?.context(match software {
+            true => "keine Grafikkarte gefunden (--gpu on)",
+            false => {
+                "keine Grafikkarte gefunden (--gpu on); mit --threads zählt kein Software-Adapter"
+            }
+        })?),
     };
     match &gpu {
         Some(gpu) => println!("GPU:        {}", gpu.name),
@@ -5150,8 +5233,8 @@ mod tests {
 
     /// `--gpu` wirkt nur auf den Kachelexport; ohne `--tiles` lehnt die CLI
     /// den Schalter ab, statt ihn stillschweigend zu nehmen. Die Vorgabe
-    /// `auto` zählt dabei nicht, auch nicht neben `--pyramid`, das keinen
-    /// anderen Schalter duldet.
+    /// `auto` zählt dabei nicht, auch nicht neben `--pyramid`, das nur
+    /// `--threads` und `--low-priority` neben sich duldet.
     #[test]
     fn gpu_nur_mit_tiles() {
         let geht = |args: &[&str]| Args::try_parse_from([&["x"], args].concat()).is_ok();
@@ -5173,6 +5256,55 @@ mod tests {
             assert!(meldungen.len() <= 100, "{gesamt}: {}", meldungen.len());
             assert_eq!(meldungen.len(), gesamt.min(100), "{gesamt}");
             assert_eq!(meldungen.last(), Some(&gesamt), "{gesamt}");
+        }
+    }
+
+    /// `--threads` nimmt nur eine Zahl ab 1. Mit `--threads` und
+    /// `--low-priority` läuft auch `--pyramid`; jeden anderen Schalter lehnt
+    /// es weiter ab.
+    #[test]
+    fn threads_und_prioritaet() {
+        let geht = |args: &[&str]| Args::try_parse_from([&["x"], args].concat()).is_ok();
+        let tiles = ["--world", "w", "--tiles", "t"];
+        assert!(geht(
+            &[&tiles[..], &["--threads", "1", "--low-priority"]].concat()
+        ));
+        assert!(!geht(&[&tiles[..], &["--threads", "0"]].concat()));
+        assert!(!geht(&[&tiles[..], &["--threads", "x"]].concat()));
+        assert!(geht(&[
+            "--pyramid",
+            "d",
+            "--threads",
+            "2",
+            "--low-priority"
+        ]));
+        assert!(!geht(&["--pyramid", "d", "--world", "w"]));
+        assert!(!geht(&["--pyramid", "d", "--scale", "8"]));
+    }
+
+    /// `--pyramid` lehnt jeden Schalter ausser `--threads` und
+    /// `--low-priority` ab, auch einen, der später dazukommt.
+    #[test]
+    fn pyramid_lehnt_jeden_anderen_schalter_ab() {
+        let cmd = Args::command();
+        let pyramid = cmd
+            .get_arguments()
+            .find(|a| a.get_id() == "pyramid")
+            .unwrap();
+        let abgelehnt: Vec<&str> = cmd
+            .get_arg_conflicts_with(pyramid)
+            .iter()
+            .map(|a| a.get_id().as_str())
+            .collect();
+        for arg in cmd.get_arguments() {
+            let id = arg.get_id().as_str();
+            if !["pyramid", "threads", "low_priority", "help", "version"].contains(&id) {
+                assert!(
+                    abgelehnt.contains(&id),
+                    "--pyramid duldet --{}",
+                    arg.get_long().unwrap_or(id)
+                );
+            }
         }
     }
 

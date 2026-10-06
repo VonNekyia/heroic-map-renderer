@@ -230,7 +230,9 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 - Server, Plugin und Mod sind gebaut und getestet. Veröffentlicht ist noch
   nichts: keine Pakete, kein Plugin, kein Mod. Eine EXE mit Assistent für
   Windows ist in Arbeit (#152).
-- Noch nicht: Text auf Schildern und Gegenstände in Blöcken.
+- Noch nicht: Text auf Schildern und Gegenstände in Blöcken. Chunks, die
+  ein Server von 26.3 schreibt, liest der Renderer noch nicht, siehe
+  #194; Welten aus 26.2 gehen.
 
 ## AI driven development, human driven design
 

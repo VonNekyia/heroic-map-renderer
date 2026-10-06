@@ -156,6 +156,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0082](entscheidungen/0082-versionen-und-releases.md): Versionen nach SemVer aus `Cargo.toml`, ein Tag `vX.Y.Z` legt einen Release-Entwurf an, Linux gegen glibc 2.28 ohne musl.
 - [0083](entscheidungen/0083-manifest-je-baum.md): Mit `--manifest` schreibt der Renderer am Ende jedes Laufs mit Kacheln ein Manifest mit Grösse und ETag jeder Kachel; ein voller Lauf liest dafür den ganzen Baum, jeder andere zieht nach; eine Marke je Lauf erkennt abgebrochene und gleichzeitige Läufe.
 - [0084](entscheidungen/0084-server-im-renderer.md): Karte und Kacheln liefert ein Server im Renderer aus, `--serve` mit hyper und tokio, mit Grenzen am offenen Netz und Ende mit stdin; Seite und Kacheln in getrennten Ordnern, Pfade über erlaubte Zeichen, bedingte Anfragen auf Gleichheit; löst 0047 in einem Punkt ab.
+- [0085](entscheidungen/0085-seitenangaben-zur-laufzeit.md): Alle Tags der Seite stehen mit den Markern `%TITEL%`, `%BESCHREIBUNG%`, `%URL%`, `%BILD%` und den Blöcken `mit-url` und `mit-bild` in `index.html`; der Build füllt sie und legt `seite.html` und `robots.vorlage.txt` ab, der Server des Renderers füllt sie zur Laufzeit; löst 0048 in Teilen ab.
 
 ## Messungen
 

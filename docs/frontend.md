@@ -476,7 +476,8 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   Leere Werte zählen wie keine. Ohne `SITE_URL` fehlen `canonical`,
   `og:url` und das Vorschaubild; Titel,
   Beschreibung und Icon bleiben. Die Adresse steht nie im Repository. Warum
-  beim Build: [0048](entscheidungen/0048-seite-beim-build.md).
+  beim Build: [0048](entscheidungen/0048-seite-beim-build.md). Wie die
+  Werte in die Seite kommen, auch zur Laufzeit: „Seitenangaben“.
 - **Vorschaubild:** `public/vorschau.jpg`, 1200 × 630, ist ein Ausschnitt
   aus `docs/bilder/welt.webp`, der Testwelt; wie es entsteht, steht im
   Skill [`doku-bilder-rendern`](../skills/doku-bilder-rendern/SKILL.md). Wer seine Welt zeigen will,
@@ -493,6 +494,34 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   Wurzelverzeichnis einer Domain; der Pfad zählt deshalb ab dort, mit
   `SITE_URL=https://example.org/karte/` also etwa
   `Allow: /karte/tiles/trees.json` und `Disallow: /karte/tiles/`.
+
+## Seitenangaben
+
+Alle Tags der Seite stehen in [`web/index.html`](../web/index.html), mit
+Markern. Der Build füllt sie aus `SITE_*` (siehe „Ausliefern“), der Server
+des Renderers zur Laufzeit aus `--site-*`
+([0085](entscheidungen/0085-seitenangaben-zur-laufzeit.md), #151).
+
+- **Marker:** `%TITEL%`, `%BESCHREIBUNG%`, `%URL%` (absolut, mit `/` am
+  Ende) und `%BILD%` (absolut). Ersetzt wird in einem Gang, die Werte
+  HTML-maskiert; ein Marker in einem Wert bleibt stehen.
+- **Blöcke:** `<!--mit-url-->…<!--/mit-url-->` mit `canonical` und
+  `og:url`, darin `<!--mit-bild-->…<!--/mit-bild-->` mit `og:image`,
+  `og:image:alt` und `twitter:card`. Ohne Wert fällt ein Block ganz weg, mit
+  Wert nur seine beiden Kommentare.
+- **Was der Build ablegt:** `index.html` gefüllt; `seite.html`, dieselbe
+  Seite ungefüllt, mit den Namen der Dateien unter `assets/`; `robots.txt`
+  und `robots.vorlage.txt` mit `%PFAD%`, dem Pfad von `%URL%`, ohne
+  Adresse `/`. Das Plugin `seite` in
+  [`web/vite.config.ts`](../web/vite.config.ts) füllt mit `fuelle`, im
+  Devserver ebenso.
+- **Der Server** füllt `seite.html` nur mit `--site-url`, `--site-title`
+  und `--site-description` zusammen; `--site-image` ist frei, ohne fällt
+  bei ihm der Bild-Block weg. Der Build nimmt ohne `SITE_IMAGE`
+  `vorschau.jpg`.
+- **Test:** `web/tests/seite.spec.ts` baut die Regel unabhängig vom Build
+  nach und prüft, dass die gefüllte Vorlage `index.html` und `robots.txt`
+  Byte für Byte gleicht, ohne und mit `SITE_URL`.
 
 ## Prüfen
 

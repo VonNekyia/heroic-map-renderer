@@ -12,6 +12,11 @@ code:
 
 # 0048: Adresse und Angaben der Seite beim Build
 
+In Teilen abgelöst durch [0085](0085-seitenangaben-zur-laufzeit.md): Die
+Tags stehen mit Markern in `index.html` statt im Plugin `seite`, und der
+Server des Renderers setzt die Angaben auch zur Laufzeit ein. Beim Build
+gilt weiter, was hier steht.
+
 ## Anlass
 
 Die Seite hatte nur einen festen Titel. Wer ihren Link teilte, sah keine

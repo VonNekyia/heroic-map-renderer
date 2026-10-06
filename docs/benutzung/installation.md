@@ -1,6 +1,6 @@
 ---
 title: Installation und Releases
-description: Wo die fertigen Binärs für Windows x64 und Linux x64 liegen, was in jedem Paket steckt, wie man es prüft, was es auf dem Rechner braucht und wie die Versionen heissen.
+description: Wo die fertigen Binärs für Windows x64 und Linux x64 liegen, was in jedem Paket steckt, samt der gebauten Karte, wie man es prüft, was es auf dem Rechner braucht, wie unter Windows der Assistent startet und wie die Versionen heissen.
 code:
   - .github/workflows/release.yml
   - renderer/Cargo.toml
@@ -17,13 +17,20 @@ steht in [CI](../entwicklung/ci.md), „Release“.
 
 | Datei | Inhalt |
 |---|---|
-| `heroic-map-renderer-windows-x64.zip` | `heroic-map-renderer.exe` |
-| `heroic-map-renderer-linux-x64.tar.gz` | `heroic-map-renderer` |
+| `heroic-map-renderer-windows-x64.zip` | `heroic-map-renderer.exe` und `web/` |
+| `heroic-map-renderer-linux-x64.tar.gz` | `heroic-map-renderer` und `web/` |
 | `SHA256SUMS` | die SHA-256 beider Pakete |
 
 Jedes Paket hat einen Ordner gleichen Namens mit dem Binär, `LICENSE`,
 `NOTICE`, `THIRD-PARTY-NOTICES` und `COPYRIGHT-library.html`, siehe
-[Drittlizenzen](../entwicklung/drittlizenzen.md).
+[Drittlizenzen](../entwicklung/drittlizenzen.md), dazu `web/` mit der
+gebauten Karte samt ihrem `lizenzen.txt`, für `--serve --web web`, siehe
+[Server](server.md). Gebaut wird sie im Release-Workflow, siehe
+[CI](../entwicklung/ci.md), „Release“.
+
+**Unter Windows** startet ein Doppelklick auf `heroic-map-renderer.exe`
+den Assistenten, der bis zur offenen Karte fragt, siehe
+[Assistent der EXE](assistent.md).
 
 ## Prüfen
 

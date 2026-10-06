@@ -13,7 +13,8 @@ die Schalter. `--tiles` exportiert Kacheln, `--pyramid` baut nur Zoomstufen
 nach, `--heights` trägt nur die Höhen nach, `--render`, `--sprite`,
 `--block`, `--at` und `--scan` helfen beim Ansehen und Prüfen. Die Schalter stehen in `Args` in
 [`renderer/src/cli.rs`](../../renderer/src/cli.rs); `--help` nennt dieselben
-Texte.
+Texte. Ohne Schalter startet unter Windows an einer Konsole der
+[Assistent](assistent.md).
 
 ## Alle Schalter
 

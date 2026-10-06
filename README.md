@@ -59,6 +59,9 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet 
   Client-JAR selbst und nimmt Texturen, Modelle und Biome daraus, nur mit
   deiner Zustimmung, siehe [Assets](docs/benutzung/assets.md), „Von Mojang
   laden“.
+- **Eigene Laubfarben:** Ein Plugin kann Laub über die Chunk-Daten
+  einfärben, so wie im Spiel, siehe
+  [Eigene Laubfarben](docs/benutzung/laubfarben.md).
 - **Server:** `--serve` liefert Karte und Kacheln selbst aus, mit HTTPS,
   Grenzen für das offene Netz und Titel, Beschreibung und Vorschaubild zur
   Laufzeit, siehe [Server](docs/benutzung/server.md).
@@ -227,12 +230,10 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
   [0065](docs/entscheidungen/0065-sicht-in-der-ecke-nach-der-version.md).
 - Truhen, Banner, Köpfe, Krüge und die übrigen Blockentities aus den
   Modellen des Spiels, mit Bannermustern und Scherben.
-- Server, Plugin und Mod sind gebaut und getestet. Veröffentlicht ist noch
-  nichts: keine Pakete, kein Plugin, kein Mod. Eine EXE mit Assistent für
-  Windows ist in Arbeit (#152).
-- Noch nicht: Text auf Schildern und Gegenstände in Blöcken. Chunks, die
-  ein Server von 26.3 schreibt, liest der Renderer noch nicht, siehe
-  #194; Welten aus 26.2 gehen.
+- Server, Plugin und Mod sind gebaut und getestet, dazu eine EXE mit
+  Assistent für Windows, siehe [Assistent](docs/benutzung/assistent.md).
+  Veröffentlicht ist noch nichts: keine Pakete, kein Plugin, kein Mod.
+- Noch nicht: Text auf Schildern und Gegenstände in Blöcken.
 
 ## AI driven development, human driven design
 

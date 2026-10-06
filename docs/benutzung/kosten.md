@@ -208,9 +208,9 @@ Die Faktoren der Eichung, gemessen in
 
 | Faktor | Wert | Herkunft |
 |---|---|---|
-| Kacheln je Fläche der Oberseite | 1,0 bis 1,2 | Ränder und Höhe der Welt: gemessen 1,013 bis 1,018 an der grossen Welt, 1,13 bei scale 32 und 1,17 bei scale 8 an der Testwelt |
+| Kacheln je Fläche der Oberseite | 1,0 bis 1,2, unter scale 8 bis 1,3 | Ränder und Höhe der Welt: gemessen 1,013 bis 1,018 an der grossen Welt, an der Testwelt 1,13 bei scale 32, 1,17 bei scale 8 und 1,23 bei scale 4. Je kleiner der scale, desto mehr Kacheln am Rand werden nur angeschnitten |
 | Bytes je Kachel gegen die Proben | 0,8 bis 1,0 | Die Proben liegen in vollen Kacheln mitten in der Welt. Je geplanter Basiskachel lagen sie an der Testwelt 7 % (scale 32) bis 18 % (scale 8) über der echten Basis, an der grossen Welt 8 bis 21 % über Vollrendern mit älterem Code |
-| native Stufen und Pyramide in Bytes | 30 bis 47 % der Basis | gemessen 32 bis 37 % an der grossen Welt, 35 % bei scale 32 und 45 % bei scale 8 an der Testwelt |
+| native Stufen und Pyramide in Bytes | 30 bis 47 % der Basis | gemessen 32 bis 37 % an der grossen Welt, an der Testwelt 35 % bei scale 32 und 45 % bei scale 4 und 8 |
 | Vorlauf gegen das Dekodieren der Stichprobe | 1,1 bis 1,6 | Der Vorlauf sammelt dazu Blockstates, Höhen und den Stand; an der Testwelt 1,10 bis 1,55 |
 | Pyramide in der Zeit | 0 bis 3 % der Basis | gemessen 0,2 bis 2,7 % |
 | Dauer insgesamt | 0,8 bis 1,5 | Von Tag zu Tag schwankt die Dauer um ein Viertel, siehe oben; nach oben weiter, denn ein voller Lauf dekodiert an Streifengrenzen doppelt, siehe [2026-09-29, Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md) |

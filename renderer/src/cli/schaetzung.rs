@@ -21,8 +21,10 @@ use super::{
 // Die Faktoren der Eichung, je `(unten, oben)`. Woher jeder kommt, steht in
 // docs/benutzung/kosten.md, „Schätzen: `--estimate`“.
 
-/// Kacheln je fertigem Chunk über `256 · oberseite / TILE²`.
+/// Kacheln je fertigem Chunk über `256 · oberseite / TILE²`; unter scale 8
+/// nach oben weiter, dort runden die Ränder der Welt auf mehr Kacheln.
 const KACHELN_JE_FLAECHE: (f64, f64) = (1.0, 1.2);
+const KACHELN_JE_FLAECHE_UNTER_8: (f64, f64) = (1.0, 1.3);
 /// Native Stufen und Pyramide zusammen gegen die Basis, in Bytes.
 const DARUEBER_BYTES: (f64, f64) = (0.30, 0.47);
 /// Bytes je Basiskachel gegen den Schnitt der Proben.
@@ -176,9 +178,14 @@ pub(super) fn schaetze(
         let gebiet = Gebiet::rechteck(rect, einstellung.stufen);
         (gebiet.kacheln().len() << (2 * einstellung.stufen)) as f64
     });
+    let faktor = if projection.scale() < 8 {
+        KACHELN_JE_FLAECHE_UNTER_8
+    } else {
+        KACHELN_JE_FLAECHE
+    };
     let flaeche = (
-        n_fertig * je_chunk * KACHELN_JE_FLAECHE.0,
-        n_fertig * je_chunk * KACHELN_JE_FLAECHE.1,
+        n_fertig * je_chunk * faktor.0,
+        n_fertig * je_chunk * faktor.1,
     );
     // Das Fenster ist die genaue obere Grenze; mehr plant kein Lauf.
     let kacheln = match fenster {

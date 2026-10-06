@@ -57,7 +57,9 @@ Wasser des Bioms. Alles andere mit `tintindex` bleibt ungefärbt: Kirsch-
 und Blasseichenlaub tragen ihre Farbe in der Textur, Redstone und die
 Stiele von Kürbis und Melone färben im Spiel nach ihren Eigenschaften und
 machen auf einer Karte keine Fläche. Feste Farben rastert der Renderer
-gleich ins Sprite.
+gleich ins Sprite. Eigene Laubfarben eines Plugins ersetzen die Farbe auf
+tönbarem Laub, auch auf Fichte und Birke, siehe
+[Eigene Laubfarben](../benutzung/laubfarben.md).
 
 Zwei Ausnahmen aus `BlockTintSources`:
 

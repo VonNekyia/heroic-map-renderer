@@ -3,3 +3,5 @@
 *.png binary
 # Shell-Skripte laufen in der CI unter Linux
 *.sh text eol=lf
+# Header der Karte, gelesen von Vite und vom Renderer per include_str!
+web/headers.json text eol=lf

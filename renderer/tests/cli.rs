@@ -6238,6 +6238,142 @@ fn mit_threads_kein_software_adapter() {
     }
 }
 
+/// Eigene Laubfarben aus `ChunkBukkitValues` färben das Laub an ihrer Lage,
+/// Dschungellaub mit Biomfarbe wie Fichte mit fester Farbe, auf der Basis
+/// wie auf einer nativen Stufe. Ohne Schlüssel und mit einer Vorgabe auf
+/// Stein bleibt jede Kachel bytegleich. Nur die Vorgabe auf Fichte verlangt
+/// eine Familie mit Tönungskarte. Wo genau die Pixel liegen, prüft
+/// `eigene_laubfarbe_faerbt_genau_ihren_block` in `tests/metatile.rs`.
+#[test]
+fn eigene_laubfarben_faerben_genau_das_laub() {
+    fn szene(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (_, 0, _) => "minecraft:stone",
+            (2..=5, 1, 2..=5) => "minecraft:jungle_leaves",
+            (9..=12, 1, 9..=12) => "minecraft:spruce_leaves",
+            _ => "minecraft:air",
+        }
+    }
+    let rot = 0xff_2020;
+    let baum = |lage: Option<[i32; 3]>| {
+        let welt = tempdir();
+        common::write_world_bukkit(welt.path(), &[(0, 0)], szene, |_, _| {
+            lage.map(|lage| common::laubfarben(&[(rot, &[lage])]))
+        });
+        let ziel = neuer_baum("2x1-se");
+        gelungen(&tiles(
+            welt.path(),
+            ziel.path(),
+            &["--scale", "16", "--native-levels", "1", "--gpu", "off"],
+        ));
+        let z = max_zoom(ziel.path());
+        // Die Basis bei scale 16 und die native Stufe darunter bei 8.
+        let bilder = [z, z - 1].map(|z| -> BTreeMap<TileId, RgbaImage> {
+            kacheln(ziel.path(), z)
+                .into_iter()
+                .map(|(tile, pfad)| (tile, bild(&pfad)))
+                .collect()
+        });
+        (welt, ziel, bilder)
+    };
+    // Je Kachel die Pixel, die um mehr als `toleranz` je Kanal abweichen.
+    let abweichend =
+        |a: &BTreeMap<TileId, RgbaImage>, b: &BTreeMap<TileId, RgbaImage>, toleranz: u8| {
+            assert_eq!(a.keys().collect::<Vec<_>>(), b.keys().collect::<Vec<_>>());
+            a.iter()
+                .map(|(tile, bild)| {
+                    bild.pixels()
+                        .zip(b[tile].pixels())
+                        .filter(|(p, q)| p.0.iter().zip(q.0).any(|(x, y)| x.abs_diff(y) > toleranz))
+                        .count()
+                })
+                .sum::<usize>()
+        };
+    let ohne = baum(None);
+    let stein = baum(Some([0, 0, 0]));
+    for stufe in 0..2 {
+        assert_eq!(
+            abweichend(&ohne.2[stufe], &stein.2[stufe], 0),
+            0,
+            "Stufe {stufe}: eine Vorgabe auf Stein färbte"
+        );
+    }
+
+    // Ein Laubblock deckt bei scale 16 höchstens 16 × 24 Pixel, bei 8
+    // höchstens 8 × 12.
+    let dschungel = baum(Some([3, 1, 4]));
+    let fichte = baum(Some([10, 1, 12]));
+    for (was, mit) in [("Dschungel", &dschungel), ("Fichte", &fichte)] {
+        for (stufe, deckel) in [(0, 16 * 24), (1, 8 * 12)] {
+            let gefaerbt = abweichend(&ohne.2[stufe], &mit.2[stufe], 0);
+            assert!(
+                0 < gefaerbt && gefaerbt <= deckel,
+                "{was}, Stufe {stufe}: {gefaerbt} Pixel"
+            );
+        }
+    }
+
+    let fest = |welt: &TempDir| {
+        let world = World::open(welt.path()).unwrap();
+        let laub = survey(&world, Projection::new(16), (-64, 319), None)
+            .unwrap()
+            .festes_laub;
+        laub.iter()
+            .map(|state| state.name().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        [&ohne.0, &stein.0, &dschungel.0, &fichte.0].map(fest),
+        [
+            vec![],
+            vec![],
+            vec![],
+            vec!["minecraft:spruce_leaves".to_string()]
+        ]
+    );
+}
+
+/// Ein Update gleicht Byte für Byte einem vollen Lauf, auch mit einer
+/// eigenen Laubfarbe auf Fichte ausserhalb seines Gebiets: Die Fichte im
+/// Gebiet behält ihr Bild mit fester Farbe, ob der Lauf die Vorgabe sieht
+/// oder nicht.
+#[test]
+fn update_mit_laubfarbe_ausserhalb_gleicht_einem_vollen_lauf() {
+    fn szene(x: i32, y: i32, z: i32) -> &'static str {
+        match (x.rem_euclid(16), y, z.rem_euclid(16)) {
+            (_, 0, _) => "minecraft:stone",
+            (4..=7, 1, 4..=7) => "minecraft:spruce_leaves",
+            _ => "minecraft:air",
+        }
+    }
+    fn geaendert(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (12, 1, 12) => "minecraft:stone",
+            _ => szene(x, y, z),
+        }
+    }
+    let chunks = [(0, 0), (20, 0)];
+    let fern =
+        |cx: i32, _: i32| (cx == 20).then(|| common::laubfarben(&[(0xff_2020, &[[5, 1, 6]])]));
+    let args = ["--scale", "16", "--gpu", "off"];
+    let welt = tempdir();
+    common::write_world_bukkit(welt.path(), &chunks, szene, fern);
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &args));
+
+    common::write_world_bukkit(welt.path(), &chunks, geaendert, fern);
+    common::setze_stempel(welt.path(), 0, 0, 2);
+    let update: Vec<&str> = args.iter().copied().chain(["--update"]).collect();
+    let ausgabe = tiles(welt.path(), baum.path(), &update);
+    gelungen(&ausgabe);
+    let log = String::from_utf8_lossy(&ausgabe.stdout);
+    assert!(log.contains("Update:     1 Chunks geändert"), "{log}");
+
+    let voll = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), voll.path(), &args));
+    gleiche_baeume(baum.path(), voll.path(), "Laub");
+}
+
 /// `--estimate` schreibt nichts unter `--tiles` und meldet mit
 /// `--progress json` eine Zeile `estimate`: die Chunks aus den Köpfen, alle
 /// fertig erzeugt, und für Kacheln, Bytes und Dauer je eine Spanne.

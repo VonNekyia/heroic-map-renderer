@@ -12,6 +12,7 @@ code:
   - web/src/style.css
   - web/index.html
   - web/vite.config.ts
+  - web/headers.json
   - web/package.json
   - web/public/tiles-demo
   - web/public/vorschau.jpg
@@ -436,9 +437,11 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
 
 - **Header:** Die Karte läuft unter einer strengen Content-Security-Policy
   ohne Ausnahmen für Inline-Skripte, Inline-Styles oder fremde Quellen. Die
-  Header, unter denen die Tests das prüfen, stehen in `preview.headers` in
-  [`web/vite.config.ts`](../web/vite.config.ts); ein Betreiber setzt sie
-  in seinem Server so oder strenger. Liegen die Kacheln auf einer anderen
+  Header stehen an einer Stelle, in [`web/headers.json`](../web/headers.json),
+  einem flachen JSON-Objekt Name → Wert. `preview.headers` in
+  [`web/vite.config.ts`](../web/vite.config.ts) liest die Datei, und die
+  Tests prüfen den Build darunter; der Server des Renderers (#151) nimmt sie
+  per `include_str!`. Ein anderer Server setzt sie so oder strenger. Liegen die Kacheln auf einer anderen
   Domain als die Seite, brauchen `img-src` und `connect-src` diese Domain.
 - **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
   Browser danach den neuen Stand zeigt:

@@ -259,11 +259,13 @@ fn lade(kette: &Path, schluessel: &Path) -> Result<CertifiedKey> {
         Ok(()) | Err(rustls::Error::InconsistentKeys(rustls::InconsistentKeys::Unknown)) => {
             Ok(geladen)
         }
-        Err(_) => bail!(
+        Err(rustls::Error::InconsistentKeys(rustls::InconsistentKeys::KeyMismatch)) => bail!(
             "{} passt nicht zu {}",
             schluessel.display(),
             kette.display()
         ),
+        Err(fehler) => Err(fehler)
+            .with_context(|| format!("{}: erstes Zertifikat nicht lesbar", kette.display())),
     }
 }
 

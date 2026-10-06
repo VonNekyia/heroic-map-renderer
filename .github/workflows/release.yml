@@ -1,13 +1,14 @@
 name: Release
 
 # Auf einem Tag vX.Y.Z bauen und als Entwurf eines GitHub-Releases ablegen.
-# Ändert eine PR diese Datei, baut sie die Pakete ohne zu veröffentlichen.
+# Ändert eine PR diese Datei oder die Abhängigkeiten, baut sie die Pakete
+# ohne zu veröffentlichen.
 # Siehe docs/entwicklung/ci.md, „Release“.
 on:
   push:
     tags: ["v*"]
   pull_request:
-    paths: [".github/workflows/release.yml"]
+    paths: [".github/workflows/release.yml", "renderer/Cargo.toml", "renderer/Cargo.lock"]
 
 # Nur der Job, der den Entwurf anlegt, darf schreiben.
 permissions:

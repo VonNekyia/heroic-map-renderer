@@ -177,8 +177,10 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --listen 0.0.0.0:8443 --tls
   stderr, bis sich die Dateien wieder ändern. Wer erst die Kette und dann
   den Schlüssel tauscht, sieht für einen Augenblick eine Zeile über einen
   Schlüssel, der nicht passt; mit dem zweiten Tausch stimmt es.
-  Nachsehen und Laden laufen beim Handschlag; liegen die Dateien auf einem
-  Netzlaufwerk, hält das Handschläge in dieser Sekunde kurz auf.
+  Nachsehen und Laden laufen beim Handschlag, auf einem Thread für
+  Verbindungen; liegen die Dateien auf einem Netzlaufwerk, hält das
+  Handschläge in dieser Sekunde kurz auf. Mit `--threads 1`, wie das Plugin
+  den Server startet, stehen solange alle Verbindungen.
 - **Der Handschlag** muss in `--header-timeout` Sekunden fertig sein, sonst
   schliesst der Server die Verbindung.
 - **Nur TLS 1.3:** Browser und Java ab 11 sprechen es; TLS 1.2 brächte mehr

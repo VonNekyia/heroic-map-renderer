@@ -831,6 +831,8 @@ fn ohne_gueltiges_zertifikat_kein_start() {
     let (a_kette, _, _) = zertifikat(dir.path(), "a");
     let (_, b_schluessel, _) = zertifikat(dir.path(), "b");
     let fehlt = dir.path().join("fehlt.pem");
+    let kaputt = dir.path().join("kaputt.pem");
+    std::fs::write(&kaputt, pem("CERTIFICATE", b"kein DER")).unwrap();
     let verschluesselt = dir.path().join("verschluesselt.pem");
     std::fs::write(
         &verschluesselt,
@@ -842,6 +844,7 @@ fn ohne_gueltiges_zertifikat_kein_start() {
         (&a_kette, &fehlt, "lesen"),
         (&a_kette, &verschluesselt, "verschlüsselt"),
         (&a_kette, &b_schluessel, "passt nicht"),
+        (&kaputt, &b_schluessel, "nicht lesbar"),
     ] {
         let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
             .arg("--serve")

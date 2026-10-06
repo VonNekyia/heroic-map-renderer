@@ -183,8 +183,9 @@ fn seite_in(s: &Path) {
 }
 
 /// Liegen die Kacheln als `tiles` unter der Seite, wie die Karte sie
-/// erwartet, bleibt die Positivliste dicht: auch `//tiles/` und `/TILES/`
-/// führen nicht über `--web` an ihr vorbei. Liegt eine Wurzel anders in der
+/// erwartet, bleibt die Positivliste dicht: auch `//tiles/`, `/TILES/` und
+/// `/tiles./`, das Windows wie `/tiles/` öffnet, führen nicht über `--web` an
+/// ihr vorbei. Liegt eine Wurzel anders in der
 /// anderen, startet der Server nicht.
 #[test]
 fn kacheln_unter_der_seite() {
@@ -200,6 +201,11 @@ fn kacheln_unter_der_seite() {
         "//tiles/t/stand.bin",
         "//tiles/t/map.json",
         "/TILES/t/stand.bin",
+        "/tiles./t/stand.bin",
+        "/tiles../t/map.json",
+        "/tiles%20/t/stand.bin",
+        "/tiles%2e/t/stand.bin",
+        "/index.html.",
         "/Tiles/t/manifest-offen-1-2",
         "/tiles//t/stand.bin",
         "/assets//index-Ab12.js",

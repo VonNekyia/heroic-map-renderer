@@ -30,9 +30,10 @@ die der Renderer währenddessen tauscht. Entschieden hat der Maintainer am
 - **`--serve` im Renderer,** mit hyper und tokio, HTTP/1.1. Die EXE startet
   ihn selbst, das Plugin als Kindprozess wie den Renderer. Die Regeln
   stehen so einmal im Code und werden einmal getestet.
-- **TLS** mit rustls und ring, solange beide Binärs mit Server gepackt
-  höchstens 4 550 000 Byte wiegen. Sonst bliebe der Server ohne TLS, und
-  HTTPS beendete ein Proxy mit dem JDK im Plugin.
+- **TLS** mit rustls und ring, solange beide Binärs mit Server in die
+  Grenzen aus [Weitergabe](../entwicklung/weitergabe.md), „Grenze“, passen.
+  Sonst bliebe der Server ohne TLS, und HTTPS beendete ein Proxy mit dem JDK
+  im Plugin.
 - **Nur TLS 1.3,** aus PEM mit `--tls-cert` und `--tls-key`. Höchstens einmal
   je Sekunde prüft der Server beim Handschlag, ob sich eine der Dateien
   geändert hat, und lädt neu; ein Neues, das sich nicht laden lässt, lässt
@@ -58,9 +59,9 @@ die der Renderer währenddessen tauscht. Entschieden hat der Maintainer am
   Plugin entpackt die Seite aus dem Jar, die Bäume liegen woanders; die
   Karte findet die Kacheln wie bisher unter `tiles/` neben sich.
 - **Pfade unter `--web`:** Je Teil nur Buchstaben, Ziffern, `-`, `_` und
-  `.`, nicht am Anfang, und kein Gerät von Windows. Alles andere gibt
-  `404`, ohne dass der Server den Pfad öffnet. Eine Prüfung über Zeichen ist
-  kürzer und sicherer als jede über aufgelöste Pfade.
+  `.`, nicht am Anfang und nicht am Ende, und kein Gerät von Windows. Alles
+  andere gibt `404`, ohne dass der Server den Pfad öffnet. Eine Prüfung
+  über Zeichen ist kürzer und sicherer als jede über aufgelöste Pfade.
 - **Cache:** `no-cache` mit ETag für alles, ausser den gehashten Dateien der
   Seite unter `/assets/`: Die tragen `max-age=31536000, immutable`.
 - **Bedingte Anfragen auf Gleichheit:** `If-None-Match` gegen das ETag aus
@@ -94,7 +95,7 @@ Wie der Server sich verhält, steht in [Server](../benutzung/server.md).
 
 - **Grösse:** hyper und tokio bringen gepackt rund 0,25 MB je Binär, TLS
   rund 0,57 MB dazu, geschätzt am Prototyp unter Windows (#151). Die
-  Grenze in der CI steht mit TLS auf 4 550 000 Byte; den Stand nennt
+  Grenzen und der Stand stehen in
   [Weitergabe](../entwicklung/weitergabe.md), „Grenze“.
 - **Lizenzen:** ring, rustls-webpki und untrusted stehen unter ISC, `subtle`
   unter BSD-3-Clause. Beide Lizenzen erlaubt der Maintainer; `deny.toml`

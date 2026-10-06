@@ -76,9 +76,11 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   Länge ohne Körper.
 - **`404`** für alles, was fehlt, keine Datei ist oder sich nicht öffnen
   oder lesen lässt, ohne Zeile im Log. Unter `--web` dazu für jeden Pfad,
-  dessen Teil mit `.` beginnt, ein anderes Zeichen als Buchstaben, Ziffern,
-  `-`, `_` und `.` trägt oder ein Gerät von Windows nennt, etwa `nul` oder
-  `com1.txt`. So führt kein Pfad aus einer Wurzel hinaus. Fehlt
+  dessen Teil mit `.` beginnt oder endet, ein anderes Zeichen als
+  Buchstaben, Ziffern, `-`, `_` und `.` trägt oder ein Gerät von Windows
+  nennt, etwa `nul` oder `com1.txt`. Den Punkt am Ende streicht Windows,
+  `/tiles./` öffnete dort `tiles`. So führt kein Pfad aus einer Wurzel
+  hinaus. Fehlt
   `trees.json` oder eine Datei der Höhen, sieht die Karte `404` und lädt
   trotzdem.
 - **Links** unter den Wurzeln folgt er, etwa einem Baum als Junction.

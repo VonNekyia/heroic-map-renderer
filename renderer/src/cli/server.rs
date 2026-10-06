@@ -513,10 +513,11 @@ fn kachelpfad(wurzel: &Path, rest: &str) -> Option<PathBuf> {
 
 /// Der Pfad unter `wurzel` für den Pfad einer URL unter `--web`; `None` für
 /// jeden, der hinausführen könnte. Erlaubt sind je Teil nur Buchstaben,
-/// Ziffern, `-`, `_` und `.`, nicht am Anfang, kein leerer Teil und kein
-/// Gerät von Windows wie `nul`. Ein erster Teil `tiles` in jeder Schreibung
-/// gehört unter `/tiles/`: Liegen die Kacheln unter der Seite, käme man
-/// sonst mit `//tiles/` oder `/TILES/` an der Positivliste vorbei.
+/// Ziffern, `-`, `_` und `.`, nicht am Anfang und nicht am Ende, kein
+/// leerer Teil und kein Gerät von Windows wie `nul`. Ein erster Teil `tiles`
+/// in jeder Schreibung gehört unter `/tiles/`: Liegen die Kacheln unter der
+/// Seite, käme man sonst mit `//tiles/`, `/TILES/` oder `/tiles./` an der
+/// Positivliste vorbei; Windows streicht Punkte am Ende eines Teils.
 fn unter(wurzel: &Path, url: &str) -> Option<PathBuf> {
     let rest = url.strip_prefix('/')?;
     let mut pfad = wurzel.to_path_buf();
@@ -527,6 +528,7 @@ fn unter(wurzel: &Path, url: &str) -> Option<PathBuf> {
         let erlaubt = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
         if teil.is_empty()
             || teil.starts_with('.')
+            || teil.ends_with('.')
             || !teil.chars().all(erlaubt)
             || geraet(teil)
             || (i == 0 && teil.eq_ignore_ascii_case("tiles"))
@@ -726,6 +728,11 @@ mod tests {
             "/a//b",
             "//tiles/t/stand.bin",
             "/TILES/t/stand.bin",
+            "/tiles./t/stand.bin",
+            "/tiles../t/stand.bin",
+            "/tiles%20/t/stand.bin",
+            "/a./b",
+            "/index.html.",
             "/Tiles",
             "/tiles",
             "/assets/",

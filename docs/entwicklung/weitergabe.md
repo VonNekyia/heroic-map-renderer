@@ -98,16 +98,20 @@ verlangt. Ohne musl, siehe
   auf 0,25 MB gepackt, TLS auf 0,57 MB dazu, siehe
   [0084](../entscheidungen/0084-server-im-renderer.md). Mit ihm und dem
   Download der Assets aus #147, je Binär rund 0,08 MB, passt die Summe.
-- **Stand** mit `--serve`, am Kopf `f17d78e` von #181, gepackt:
+- **Stand** mit `--serve` und HTTPS, gepackt, die Releases am Kopf
+  `2cb14c2` von #183, der Job „Rust“ am Kopf `b4153f0`:
 
-  | Binär | gepackt |
-  |---|---|
-  | Linux, Release gegen glibc 2.28 | 3 724 777 Byte |
-  | Linux, Job „Rust“ gegen glibc 2.39 | 3 850 626 Byte |
-  | Windows, Release | 3 974 591 Byte |
-  | beide Releases zusammen | 7 699 368 Byte, 1,6 MB unter 9 300 000 |
+  | Binär | gepackt | Luft |
+  |---|---|---|
+  | Linux, Release gegen glibc 2.28 | 4 318 910 Byte | 431 090 unter 4 750 000 |
+  | Linux, Job „Rust“ gegen glibc 2.39 | 4 441 878 Byte | 108 122 unter 4 550 000 |
+  | Windows, Release | 4 522 955 Byte | 227 045 unter 4 750 000 |
+  | beide Releases zusammen | 8 841 865 Byte | 458 135 unter 9 300 000 |
 
-  Vorher waren es unter Linux 3,49 MB und unter Windows 3,57 MB. Dazu kamen
+  Ohne TLS, am Kopf `f17d78e` von #181, waren es unter Linux 3 724 777 Byte,
+  im Job „Rust“ 3 850 626 und unter Windows 3 974 591. TLS mit rustls und
+  ring brachte so unter Linux 0,59 MB, unter Windows 0,55 MB. Vor dem
+  Server waren es unter Linux 3,49 MB und unter Windows 3,57 MB. Dazu kamen
   `--estimate`, die eigenen Laubfarben, das Manifest und der Server, unter
   Linux 0,36 MB, unter Windows 0,40 MB; getrennt gemessen ist der Server
   nicht.

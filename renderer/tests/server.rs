@@ -183,8 +183,9 @@ fn seite_in(s: &Path) {
 }
 
 /// Liegen die Kacheln als `tiles` unter der Seite, wie die Karte sie
-/// erwartet, bleibt die Positivliste dicht: auch `//tiles/` und `/TILES/`
-/// führen nicht über `--web` an ihr vorbei. Liegt eine Wurzel anders in der
+/// erwartet, bleibt die Positivliste dicht: auch `//tiles/`, `/TILES/` und
+/// `/tiles./`, das Windows wie `/tiles/` öffnet, führen nicht über `--web` an
+/// ihr vorbei. Liegt eine Wurzel anders in der
 /// anderen, startet der Server nicht.
 #[test]
 fn kacheln_unter_der_seite() {
@@ -200,6 +201,11 @@ fn kacheln_unter_der_seite() {
         "//tiles/t/stand.bin",
         "//tiles/t/map.json",
         "/TILES/t/stand.bin",
+        "/tiles./t/stand.bin",
+        "/tiles../t/map.json",
+        "/tiles%20/t/stand.bin",
+        "/tiles%2e/t/stand.bin",
+        "/index.html.",
         "/Tiles/t/manifest-offen-1-2",
         "/tiles//t/stand.bin",
         "/assets//index-Ab12.js",
@@ -825,6 +831,8 @@ fn ohne_gueltiges_zertifikat_kein_start() {
     let (a_kette, _, _) = zertifikat(dir.path(), "a");
     let (_, b_schluessel, _) = zertifikat(dir.path(), "b");
     let fehlt = dir.path().join("fehlt.pem");
+    let kaputt = dir.path().join("kaputt.pem");
+    std::fs::write(&kaputt, pem("CERTIFICATE", b"kein DER")).unwrap();
     let verschluesselt = dir.path().join("verschluesselt.pem");
     std::fs::write(
         &verschluesselt,
@@ -836,6 +844,7 @@ fn ohne_gueltiges_zertifikat_kein_start() {
         (&a_kette, &fehlt, "lesen"),
         (&a_kette, &verschluesselt, "verschlüsselt"),
         (&a_kette, &b_schluessel, "passt nicht"),
+        (&kaputt, &b_schluessel, "nicht lesbar"),
     ] {
         let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
             .arg("--serve")

@@ -1,13 +1,14 @@
 name: Release
 
 # Auf einem Tag vX.Y.Z bauen und als Entwurf eines GitHub-Releases ablegen.
-# Ändert eine PR diese Datei, baut sie die Pakete ohne zu veröffentlichen.
+# Ändert eine PR diese Datei oder die Abhängigkeiten, baut sie die Pakete
+# ohne zu veröffentlichen.
 # Siehe docs/entwicklung/ci.md, „Release“.
 on:
   push:
     tags: ["v*"]
   pull_request:
-    paths: [".github/workflows/release.yml"]
+    paths: [".github/workflows/release.yml", "renderer/Cargo.toml", "renderer/Cargo.lock"]
 
 # Nur der Job, der den Entwurf anlegt, darf schreiben.
 permissions:
@@ -154,6 +155,9 @@ jobs:
           LINUX: ${{ needs.linux.outputs.gepackt }}
           WINDOWS: ${{ needs.windows.outputs.gepackt }}
         run: |
+          # Leer, etwa wenn ein Job die Ausgabe nicht setzt, wäre die Summe 0.
+          test -n "$LINUX" && test -n "$WINDOWS" \
+            || { echo "::error::Die Grösse eines Binärs fehlt: Linux '$LINUX', Windows '$WINDOWS'"; exit 1; }
           summe=$((LINUX + WINDOWS))
           echo "Linux $LINUX Byte, Windows $WINDOWS Byte, zusammen $summe Byte, Grenze $SUMME Byte"
           test "$summe" -le "$SUMME" \

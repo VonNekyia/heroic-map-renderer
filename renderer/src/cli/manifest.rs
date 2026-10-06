@@ -13,6 +13,7 @@ use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use heroic_map_renderer::render::{TileId, pyramid};
+use rayon::prelude::*;
 
 use super::{entferne, je_kachel, tausche, tile_path};
 
@@ -193,8 +194,20 @@ fn ganz(dir: &Path) -> Result<(Vec<u8>, usize)> {
             Ok(())
         })?;
         stufe.sort_unstable();
-        for tile in stufe {
-            kacheln += usize::from(zeile(&mut aus, dir, z, tile)?);
+        // Je Kachel ein `metadata`, über die Threads verteilt; in Stücken,
+        // damit nur die Zeilen eines Stücks im Speicher liegen.
+        for stueck in stufe.chunks(1 << 16) {
+            let zeilen = stueck
+                .par_iter()
+                .map(|&tile| {
+                    let mut text = Vec::new();
+                    Ok(zeile(&mut text, dir, z, tile)?.then_some(text))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            for text in zeilen.into_iter().flatten() {
+                aus.write_all(&text)?;
+                kacheln += 1;
+            }
         }
     }
     Ok((aus.finish()?, kacheln))

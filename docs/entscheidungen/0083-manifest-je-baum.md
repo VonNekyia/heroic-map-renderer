@@ -55,9 +55,8 @@ einer Stelle, `manifest::etag` in
 - **Das Plugin schreibt das Manifest:** Es müsste die Formel des ETags
   nachbauen, und zwei Stellen hielten dieselbe Tatsache (Regel 7).
 - **Jeder Lauf liest den ganzen Baum:** An der grossen Welt sind das rund
-  3 Mio. Kacheln. Das Plugin startet alle 1 bis 2 min ein Update mit einem
-  Thread; das kostete je Update Sekunden bis Minuten, für eine Handvoll
-  Kacheln.
+  3,3 Mio. Kacheln. Das Plugin startet alle 1 bis 2 min ein Update mit einem
+  Thread; das kostete je Update knapp 4 min, für eine Handvoll Kacheln.
 - **Ein voller Lauf zieht auch nur nach:** Er fasst jede Kachel an, also
   fragte er ohnehin jede Datei. Dazu stimmte das Manifest nach einem Baum
   ohne Manifest nicht.
@@ -70,8 +69,11 @@ einer Stelle, `manifest::etag` in
 
 ## Folgen
 
-- **Am Ende eines vollen Laufs** kommt ein `metadata` je Kachel dazu. Gegen
-  die Stunden eines vollen Laufs fällt das nicht ins Gewicht.
+- **Am Ende eines vollen Laufs** kommt ein `metadata` je Kachel dazu, über
+  die Threads verteilt. An der Testwelt sind das 0,3 s mit 24 Threads und
+  1,6 bis 1,7 s mit einem, an der grossen Welt hochgerechnet um 40 s und
+  knapp 4 min, rund 1 % eines vollen Laufs, siehe
+  [Manifest, den ganzen Baum lesen](../messungen/2026-10-06-manifest.md).
 - **Ein Update** liest das alte Manifest einmal entpackt, an der grossen
   Welt geschätzt rund 7 MB, und schreibt es neu gepackt, rund 2 MB (#154).
   Im Speicher hält es nur die Kacheln, die es anfassen kann.

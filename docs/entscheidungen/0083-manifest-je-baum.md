@@ -30,11 +30,16 @@ einer Stelle, `manifest::etag` in
 - **Nur mit `--manifest`:** Das Manifest braucht nur, wer den Baum zum
   Download anbietet. Das Plugin gibt den Schalter für Bäume mit
   `download: true`. Ohne ihn kostet es nichts; ein Lauf, der Kacheln
-  schreibt, entfernt dann ein altes, denn danach stimmte es nicht mehr.
+  schreibt, entfernt dann am Ende ein altes, denn danach stimmte es nicht
+  mehr.
 - **Wann:** am Ende jedes Laufs mit `--manifest`, der Kacheln schreiben
   kann: ein voller Lauf, ein Ausschnitt, ein Update, das zeichnet, und
-  `--pyramid`. Ein Update ohne Änderung lässt es liegen. Getauscht wird es
-  wie `map.json`.
+  `--pyramid`. Getauscht wird es wie `map.json`.
+- **Ein Update ohne Änderung** lässt das Manifest liegen, Byte für Byte.
+  Nur wenn es fehlt, etwa weil ein Baum neu zum Download angeboten wird,
+  sich nicht lesen lässt oder die Marke eines Prozesses liegt, der nicht
+  mehr läuft, schreibt es mit `--manifest` das Manifest aus dem ganzen
+  Baum.
 - **Ein voller Lauf und `--pyramid` lesen den ganzen Baum,** Grösse und
   Zeit aus dem Verzeichnis, im selben Durchgang. Ein voller Lauf fasst
   ohnehin jede Kachel an, und so stimmt das Manifest auch nach `--prune`,
@@ -48,9 +53,9 @@ einer Stelle, `manifest::etag` in
   (`manifest::mit_eltern`). Was er leert oder entfernt, liegt darin. Für
   jede davon fragt er die Datei; was fehlt, fällt weg. Kein Lauf liest
   dafür den Inhalt einer Kachel.
-- **Eine Marke je Lauf:** Solange ein Lauf schreibt, liegt
-  `manifest-offen-<pid>-<ns>` daneben. Findet ein Lauf eine fremde Marke
-  vor, läuft der andere noch, etwa ein `--pyramid` neben einem Export
+- **Eine Marke je Lauf, auch ohne `--manifest`:** Solange ein Lauf
+  schreibt, liegt `manifest-offen-<pid>-<ns>` daneben. Findet ein Lauf eine
+  fremde Marke vor, läuft der andere noch, etwa ein `--pyramid` neben einem Export
   ([0017](0017-pyramide-vergleicht-zeiten.md)), oder er brach ab. Dann kennt
   das Manifest vielleicht nicht jede Kachel, und er liest den Baum ganz.
   Jeder Lauf entfernt seine eigene Marke und die eines Prozesses, der beim
@@ -104,8 +109,15 @@ einer Stelle, `manifest::etag` in
   der Mod lädt bei jedem Abgleich alles. Nach dem Kopieren deshalb einmal
   `--pyramid --manifest` aufrufen oder `manifest` löschen.
 - **Eine wiederverwendete Prozessnummer** lässt eine verwaiste Marke als
-  laufend gelten. Dann liest jeder Lauf ganz, bis der Prozess mit dieser
-  Nummer endet.
+  laufend gelten. Dann liest jeder Lauf mit `--manifest` ganz, bis der
+  Prozess mit dieser Nummer endet: für einen Satz zum Download rund 1,5 s
+  je Lauf. Den Beginn des Prozesses zu vergleichen, hielte das auf, kostete
+  aber je System eigenen Code.
+- **Zwei Läufe, die zugleich enden:** Liest der eine ganz und tauscht, und
+  tauscht der andere Sekunden später sein nachgezogenes, das noch auf dem
+  alten Manifest beruht, fehlen darin die Kacheln des ersten. Das Fenster
+  ist so lang wie das Schreiben eines Manifests; der nächste Lauf, der die
+  Kacheln anfasst, zieht sie nach.
 - **Während eines Laufs** kann eine Kachel neuer sein als das Manifest. Der
   Mod speichert deshalb das ETag aus der Antwort, nicht das aus dem
   Manifest (#154).

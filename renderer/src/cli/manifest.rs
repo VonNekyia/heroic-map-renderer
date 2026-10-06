@@ -57,35 +57,38 @@ pub(super) fn mit_eltern(
     out
 }
 
-/// Ein Lauf, der Kacheln eines Baums schreibt, mit `--manifest`.
+/// Die Marken anderer Läufe neben dem Manifest, mit ihrer Prozessnummer.
+fn marken(dir: &Path) -> Result<Vec<(PathBuf, u32)>> {
+    Ok(std::fs::read_dir(dir)
+        .with_context(|| format!("{} lesen", dir.display()))?
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().into_string().ok()?;
+            let pid = name.strip_prefix(OFFEN)?.split('-').next()?.parse().ok()?;
+            Some((e.path(), pid))
+        })
+        .collect())
+}
+
+/// Ein Lauf, der Kacheln eines Baums schreibt, mit oder ohne `--manifest`.
 pub(super) struct Lauf<'a> {
     dir: &'a Path,
+    /// Mit `--manifest`: am Ende schreiben, sonst entfernen.
+    schreiben: bool,
     /// Ob das Manifest beim Beginn schon nicht mehr zum Baum passen kann.
     ganz: bool,
     /// Die eigene Marke und die verwaisten von Prozessen, die beim Beginn
-    /// nicht mehr liefen; nach dem Schreiben gehen sie weg.
+    /// nicht mehr liefen; am Ende gehen sie weg.
     eigene: PathBuf,
     verwaist: Vec<PathBuf>,
 }
 
 impl<'a> Lauf<'a> {
-    /// Vor der ersten Kachel. Ohne `--manifest` (`schreiben`) entfernt es ein
-    /// altes Manifest, denn nach diesem Lauf stimmte es nicht mehr, und gibt
-    /// keinen Lauf.
-    pub(super) fn beginne(dir: &'a Path, schreiben: bool) -> Result<Option<Lauf<'a>>> {
-        if !schreiben {
-            entferne(&dir.join(MANIFEST))?;
-            return Ok(None);
-        }
-        let fremde: Vec<(PathBuf, u32)> = std::fs::read_dir(dir)
-            .with_context(|| format!("{} lesen", dir.display()))?
-            .flatten()
-            .filter_map(|e| {
-                let name = e.file_name().into_string().ok()?;
-                let pid = name.strip_prefix(OFFEN)?.split('-').next()?.parse().ok()?;
-                Some((e.path(), pid))
-            })
-            .collect();
+    /// Vor der ersten Kachel, mit oder ohne `--manifest` (`schreiben`): Auch
+    /// ein Lauf ohne den Schalter legt seine Marke, damit ein gleichzeitiger
+    /// mit dem Schalter ganz liest.
+    pub(super) fn beginne(dir: &'a Path, schreiben: bool) -> Result<Lauf<'a>> {
+        let fremde = marken(dir)?;
         let ganz = !fremde.is_empty() || !dir.join(MANIFEST).is_file();
         let verwaist = fremde
             .into_iter()
@@ -97,21 +100,32 @@ impl<'a> Lauf<'a> {
             .map_or(0, |d| d.as_nanos());
         let eigene = dir.join(format!("{OFFEN}{}-{ns}", std::process::id()));
         File::create(&eigene).with_context(|| format!("{} anlegen", eigene.display()))?;
-        Ok(Some(Lauf {
+        Ok(Lauf {
             dir,
+            schreiben,
             ganz,
             eigene,
             verwaist,
-        }))
+        })
     }
 
-    /// Schreibt das Manifest neu, nach der letzten Kachel. `angefasst`: was
-    /// der Lauf geschrieben, liegen gelassen oder entfernt haben kann, auch
-    /// mehr; dann zieht es nur diese Kacheln im alten Manifest nach. Ohne
-    /// liest es den ganzen Baum.
+    /// Ob dieser Lauf das Manifest schreibt.
+    pub(super) fn schreibt(&self) -> bool {
+        self.schreiben
+    }
+
+    /// Nach der letzten Kachel: Mit `--manifest` schreibt es das Manifest
+    /// neu, sonst entfernt es ein Manifest, das ein gleichzeitiger Lauf
+    /// inzwischen schrieb. `angefasst`: was der Lauf geschrieben, liegen
+    /// gelassen oder entfernt haben kann, auch mehr; dann zieht es nur diese
+    /// Kacheln im alten Manifest nach. Ohne liest es den ganzen Baum.
     pub(super) fn schliesse(self, angefasst: Option<&BTreeSet<(u32, TileId)>>) -> Result<()> {
-        let started = Instant::now();
         let pfad = self.dir.join(MANIFEST);
+        if !self.schreiben {
+            entferne(&pfad)?;
+            return self.ohne_marken();
+        }
+        let started = Instant::now();
         let nachgezogen = match angefasst {
             Some(angefasst) if !self.ganz => nachgezogen(self.dir, &pfad, angefasst)?,
             _ => None,
@@ -122,16 +136,34 @@ impl<'a> Lauf<'a> {
         };
         tausche(&pfad, &daten, None, true)
             .with_context(|| format!("{} schreiben", pfad.display()))?;
-        for marke in self.verwaist.iter().chain([&self.eigene]) {
-            entferne(marke)?;
-        }
         println!(
             "Manifest:   {kacheln} Kacheln, {:.1} MB gepackt, in {:.1} s",
             daten.len() as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
+        self.ohne_marken()
+    }
+
+    /// Entfernt die eigene Marke und die verwaisten.
+    fn ohne_marken(self) -> Result<()> {
+        for marke in self.verwaist.iter().chain([&self.eigene]) {
+            entferne(marke)?;
+        }
         Ok(())
     }
+}
+
+/// Für ein Update mit `--manifest`, das nichts zeichnet: Fehlt das
+/// Manifest, lässt es sich nicht lesen oder liegt die Marke eines
+/// Prozesses, der nicht mehr läuft, schreibt es das Manifest aus dem ganzen
+/// Baum. Sonst lässt es alles, wie es ist.
+pub(super) fn ohne_aenderung(dir: &Path) -> Result<()> {
+    let tot = marken(dir)?.iter().any(|&(_, pid)| !laeuft(pid));
+    let pfad = dir.join(MANIFEST);
+    if !tot && nachgezogen(dir, &pfad, &BTreeSet::new())?.is_some() {
+        return Ok(());
+    }
+    Lauf::beginne(dir, true)?.schliesse(None)
 }
 
 /// Schreibt die Zeile einer Kachel, falls sie dasteht; `true` dann.
@@ -425,6 +457,39 @@ mod tests {
         pid
     }
 
+    /// Ein Update ohne Änderung schreibt das Manifest nur, wenn es fehlt,
+    /// kaputt ist oder eine tote Marke liegt; sonst bleibt es Byte für Byte
+    /// und mit seiner Zeit.
+    #[test]
+    fn ohne_aenderung_nur_wenn_noetig() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = TileId { x: 0, y: 0 };
+        lege(dir.path(), 0, t, 10, 1_759_708_800_000_000_000);
+        let pfad = dir.path().join(MANIFEST);
+        let soll = || entpackt(&ganz(dir.path()).unwrap().0);
+
+        ohne_aenderung(dir.path()).unwrap();
+        assert_eq!(entpackt(&std::fs::read(&pfad).unwrap()), soll(), "fehlte");
+        let zeit = std::fs::metadata(&pfad).unwrap().modified().unwrap();
+        ohne_aenderung(dir.path()).unwrap();
+        assert_eq!(std::fs::metadata(&pfad).unwrap().modified().unwrap(), zeit);
+
+        std::fs::write(&pfad, b"kaputt").unwrap();
+        ohne_aenderung(dir.path()).unwrap();
+        assert_eq!(entpackt(&std::fs::read(&pfad).unwrap()), soll(), "kaputt");
+
+        lege(dir.path(), 1, t, 10, 1_759_708_900_000_000_000);
+        let tot = dir.path().join(format!("{OFFEN}{}-1", beendeter_prozess()));
+        std::fs::write(&tot, b"").unwrap();
+        ohne_aenderung(dir.path()).unwrap();
+        assert_eq!(
+            entpackt(&std::fs::read(&pfad).unwrap()),
+            soll(),
+            "tote Marke"
+        );
+        assert!(!tot.exists());
+    }
+
     /// Dieser Prozess läuft, einer, der endete, nicht.
     #[test]
     fn laeuft_nur_wer_laeuft() {
@@ -469,7 +534,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let t = TileId { x: 0, y: 0 };
         lege(dir.path(), 0, t, 10, 1_759_708_800_000_000_000);
-        let lauf = || Lauf::beginne(dir.path(), true).unwrap().unwrap();
+        let lauf = || Lauf::beginne(dir.path(), true).unwrap();
         let marken = || {
             let mut namen: Vec<String> = std::fs::read_dir(dir.path())
                 .unwrap()
@@ -512,8 +577,15 @@ mod tests {
         lauf().schliesse(Some(&BTreeSet::new())).unwrap();
         assert_eq!(entpackt(&std::fs::read(&pfad).unwrap()).lines().count(), 3);
 
-        // Ohne --manifest verschwindet es, und es gibt keinen Lauf.
-        assert!(Lauf::beginne(dir.path(), false).unwrap().is_none());
+        // Ohne --manifest legt auch ein Lauf seine Marke: Ein gleichzeitiger
+        // mit dem Schalter liest ganz, und am Ende ist das Manifest weg.
+        let ohne = Lauf::beginne(dir.path(), false).unwrap();
+        assert_eq!(marken().len(), 1);
+        let mit = lauf();
+        assert!(mit.ganz);
+        mit.schliesse(Some(&BTreeSet::new())).unwrap();
+        assert!(pfad.exists());
+        ohne.schliesse(None).unwrap();
         assert!(!pfad.exists());
         assert!(marken().is_empty());
     }

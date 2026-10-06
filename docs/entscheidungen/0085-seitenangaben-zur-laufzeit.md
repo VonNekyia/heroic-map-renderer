@@ -8,6 +8,7 @@ code:
   - web/index.html
   - web/vite.config.ts
   - web/tests/seite.spec.ts
+  - renderer/src/cli/server.rs
 ---
 
 # 0085: Seitenangaben auch zur Laufzeit

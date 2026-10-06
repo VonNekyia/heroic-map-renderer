@@ -225,7 +225,8 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
-        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "site_url",
+        "site_title", "site_description", "site_image",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -292,6 +293,23 @@ pub struct Args {
     /// Token, die das Plugin mit diesem Geheimnis unterschreibt: genau 32 Byte
     #[arg(long, value_name = "DATEI", requires = "serve")]
     secret_file: Option<PathBuf>,
+
+    /// Mit --web die Adresse der Seite, für canonical, og:url und robots.txt;
+    /// nur zusammen mit --site-title und --site-description
+    #[arg(long, value_name = "URL", requires_all = ["web", "site_title", "site_description"])]
+    site_url: Option<String>,
+
+    /// Mit --site-url der Titel der Seite
+    #[arg(long, value_name = "TEXT", requires = "site_url")]
+    site_title: Option<String>,
+
+    /// Mit --site-url die Beschreibung der Seite
+    #[arg(long, value_name = "TEXT", requires = "site_url")]
+    site_description: Option<String>,
+
+    /// Mit --site-url das Vorschaubild, relativ zur Adresse oder absolut
+    #[arg(long, value_name = "PFAD", requires = "site_url")]
+    site_image: Option<String>,
 
     /// Mit --serve enden, sobald stdin schliesst, etwa wenn der Prozess
     /// endet, der den Server startete
@@ -484,6 +502,15 @@ pub fn run() -> Result<()> {
             ende_mit_stdin: args.exit_with_stdin,
             tls: args.tls_cert.zip(args.tls_key),
             geheimnis: args.secret_file,
+            angaben: match &args.site_url {
+                Some(url) => Some(server::Angaben::neu(
+                    url,
+                    args.site_title.as_deref().unwrap_or_default(),
+                    args.site_description.as_deref().unwrap_or_default(),
+                    args.site_image.as_deref(),
+                )?),
+                None => None,
+            },
         });
     }
     if let Some(threads) = args.threads {
@@ -5442,6 +5469,32 @@ mod tests {
         assert!(!geht(&["--pyramid", "d", "--scale", "8"]));
     }
 
+    /// `--site-url` nur mit `--web`, Titel und Beschreibung; die anderen
+    /// `--site-*` nur mit ihr.
+    #[test]
+    fn angaben_der_seite_nur_zusammen() {
+        let geht = |extra: &[&str]| {
+            Args::try_parse_from(["x", "--serve", "k"].iter().chain(extra)).is_ok()
+        };
+        let alle = [
+            "--web",
+            "w",
+            "--site-url",
+            "https://example.org/",
+            "--site-title",
+            "t",
+            "--site-description",
+            "b",
+        ];
+        assert!(geht(&alle));
+        assert!(geht(&[&alle[..], &["--site-image", "v.jpg"]].concat()));
+        for fehlt in (0..alle.len()).step_by(2) {
+            let ohne = [&alle[..fehlt], &alle[fehlt + 2..]].concat();
+            assert!(!geht(&ohne), "ohne {}", alle[fehlt]);
+        }
+        assert!(!geht(&["--web", "w", "--site-image", "v.jpg"]));
+    }
+
     /// `--pyramid` lehnt jeden Schalter ausser `--threads`, `--low-priority`
     /// und `--manifest` ab, `--serve` jeden ausser diesen beiden und seinen
     /// eigenen, auch einen, der später dazukommt.
@@ -5460,6 +5513,10 @@ mod tests {
             "tls_cert",
             "tls_key",
             "secret_file",
+            "site_url",
+            "site_title",
+            "site_description",
+            "site_image",
         ];
         for (modus, eigene) in [
             ("pyramid", &["manifest"][..]),

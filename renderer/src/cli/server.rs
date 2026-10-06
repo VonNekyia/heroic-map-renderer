@@ -1,6 +1,7 @@
 //! Der Server für Karte und Kacheln, `--serve`: GET und HEAD, die Header der
 //! Karte, ETag und 304, Grenzen für das offene Netz, mit PEM auch HTTPS,
-//! mit einem Geheimnis der Download der Karte gegen ein Token.
+//! mit einem Geheimnis der Download der Karte gegen ein Token, mit
+//! `--site-*` die Angaben der Seite zur Laufzeit.
 //! Siehe docs/benutzung/server.md.
 
 use std::collections::HashMap;
@@ -62,6 +63,142 @@ pub(super) struct Einstellung {
     /// Die Datei mit den 32 Byte, mit denen das Plugin Token unterschreibt;
     /// ohne gibt es keinen Download.
     pub geheimnis: Option<PathBuf>,
+    /// Adresse, Titel, Beschreibung und Bild für die Seite; ohne liefert der
+    /// Server sie, wie der Build sie schrieb.
+    pub angaben: Option<Angaben>,
+}
+
+/// Die Vorlage der Seite und von `robots.txt`, die der Build neben
+/// `index.html` legt.
+const VORLAGE_SEITE: &str = "seite.html";
+const VORLAGE_ROBOTS: &str = "robots.vorlage.txt";
+
+/// Die Angaben der Seite aus `--site-*`, fertig zum Einsetzen.
+/// Siehe docs/benutzung/server.md, „Angaben der Seite“.
+pub(super) struct Angaben {
+    /// Je Marker der Wert; Text maskiert, Adressen nur aus sicheren Zeichen.
+    werte: Vec<(&'static str, String)>,
+    mit_bild: bool,
+}
+
+impl Angaben {
+    /// Prüft Adresse und Bild: nur `http://` oder `https://` und Zeichen,
+    /// die in einem Attribut nichts maskieren müssen. Die Adresse endet mit
+    /// `/`, ein relatives Bild hängt an ihr.
+    pub(super) fn neu(
+        url: &str,
+        titel: &str,
+        beschreibung: &str,
+        bild: Option<&str>,
+    ) -> Result<Angaben> {
+        ensure!(!titel.trim().is_empty(), "--site-title ist leer");
+        ensure!(
+            !beschreibung.trim().is_empty(),
+            "--site-description ist leer"
+        );
+        let sicher = |text: &str| {
+            text.bytes().all(|b| {
+                b.is_ascii_graphic()
+                    && !matches!(b, b'"' | b'\'' | b'<' | b'>' | b'&' | b'\\' | b'?' | b'#')
+            })
+        };
+        let absolut = |text: &str| {
+            let rest = text
+                .strip_prefix("https://")
+                .or_else(|| text.strip_prefix("http://"));
+            rest.is_some_and(|rest| !rest.is_empty() && !rest.starts_with('/')) && sicher(text)
+        };
+        ensure!(
+            absolut(url),
+            "--site-url {url}: nur http:// oder https:// mit Host, ohne Leerzeichen, Anführungszeichen, ? und #"
+        );
+        let mut url = url.to_string();
+        if !url.ends_with('/') {
+            url.push('/');
+        }
+        let host_und_pfad = &url[url.find("://").map_or(0, |i| i + 3)..];
+        let pfad = host_und_pfad[host_und_pfad.find('/').unwrap_or(0)..].to_string();
+        let bild = match bild {
+            None => None,
+            Some(bild) if bild.starts_with("https://") || bild.starts_with("http://") => {
+                ensure!(absolut(bild), "--site-image {bild}: keine gültige Adresse");
+                Some(bild.to_string())
+            }
+            Some(bild) => {
+                let relativ = bild.strip_prefix("./").unwrap_or(bild);
+                ensure!(
+                    sicher(relativ)
+                        && !relativ.is_empty()
+                        && !relativ.starts_with('/')
+                        && !relativ.contains(':')
+                        && !relativ.split('/').any(|teil| teil == ".." || teil == "."),
+                    "--site-image {bild}: relativ zur Adresse, ohne .. und ohne / am Anfang, oder absolut"
+                );
+                Some(format!("{url}{relativ}"))
+            }
+        };
+        let mit_bild = bild.is_some();
+        Ok(Angaben {
+            werte: vec![
+                ("%TITEL%", html(titel)),
+                ("%BESCHREIBUNG%", html(beschreibung)),
+                ("%URL%", url),
+                ("%BILD%", bild.unwrap_or_default()),
+                ("%PFAD%", pfad),
+            ],
+            mit_bild,
+        })
+    }
+
+    /// Setzt die Werte für die Marker ein, in einem Gang, so dass kein Wert
+    /// selbst wieder ersetzt wird. Ohne Bild fällt der Block
+    /// `<!--mit-bild-->…<!--/mit-bild-->` samt Inhalt weg; die Kommentare der
+    /// Blöcke, die bleiben, fallen weg. Jeder Block steht höchstens einmal in
+    /// der Vorlage.
+    fn fuelle(&self, vorlage: &str) -> String {
+        const AUF: &str = "<!--mit-bild-->";
+        const ZU: &str = "<!--/mit-bild-->";
+        let mut text = vorlage.to_string();
+        if !self.mit_bild
+            && let Some(anfang) = text.find(AUF)
+            && let Some(ende) = text[anfang..].find(ZU)
+        {
+            text.replace_range(anfang..anfang + ende + ZU.len(), "");
+        }
+        for kommentar in ["<!--mit-url-->", "<!--/mit-url-->", AUF, ZU] {
+            text = text.replace(kommentar, "");
+        }
+        let mut gefuellt = String::with_capacity(text.len());
+        let mut rest = text.as_str();
+        while let Some(i) = rest.find('%') {
+            gefuellt.push_str(&rest[..i]);
+            rest = &rest[i..];
+            match self
+                .werte
+                .iter()
+                .find(|(marker, _)| rest.starts_with(marker))
+            {
+                Some((marker, wert)) => {
+                    gefuellt.push_str(wert);
+                    rest = &rest[marker.len()..];
+                }
+                None => {
+                    gefuellt.push('%');
+                    rest = &rest[1..];
+                }
+            }
+        }
+        gefuellt.push_str(rest);
+        gefuellt
+    }
+}
+
+/// Maskiert Text für HTML, auch in Attributen.
+fn html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// Die Header der Karte, an jeder Antwort: dieselbe Datei, aus der
@@ -103,6 +240,15 @@ pub(super) fn serve(e: Einstellung) -> Result<()> {
     }
     if let Some(seite) = &e.seite {
         pruefe_ineinander(&e.kacheln, seite)?;
+        // Ohne robots.vorlage.txt gäbe /robots.txt 404, und Crawler nähmen
+        // alles für erlaubt, auch /tiles/.
+        for vorlage in [VORLAGE_SEITE, VORLAGE_ROBOTS] {
+            ensure!(
+                e.angaben.is_none() || seite.join(vorlage).is_file(),
+                "{} hat keine {vorlage}; --site-* braucht einen Build, der sie ablegt",
+                seite.display()
+            );
+        }
     }
     let laufzeit = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(e.threads)
@@ -174,6 +320,7 @@ async fn lausche(
         seite: e.seite,
         header: header_der_karte()?,
         freigabe,
+        angaben: e.angaben,
         liste: Mutex::default(),
     });
     let plaetze = Arc::new(Semaphore::new(e.verbindungen));
@@ -426,6 +573,7 @@ struct Zustand {
     seite: Option<PathBuf>,
     header: Vec<(HeaderName, HeaderValue)>,
     freigabe: Option<Freigabe>,
+    angaben: Option<Angaben>,
     liste: Mutex<Liste>,
 }
 
@@ -570,6 +718,35 @@ async fn antwort(
     let pfad = anfrage.uri().path();
     if let Some(rest) = pfad.strip_prefix(DOWNLOAD) {
         return Ok(download(&z, anfrage.headers(), rest, kopf).await);
+    }
+    // Die Vorlagen selbst nie, auch nicht in anderer Schreibung.
+    if [VORLAGE_SEITE, VORLAGE_ROBOTS].iter().any(|v| {
+        pfad.strip_prefix('/')
+            .is_some_and(|p| p.eq_ignore_ascii_case(v))
+    }) {
+        return Ok(leer(&z, StatusCode::NOT_FOUND));
+    }
+    if let (Some(_), Some(seite)) = (&z.angaben, &z.seite) {
+        // Ohne Rücksicht auf die Schreibung: Windows öffnete sonst mit
+        // `/INDEX.HTML` die Seite des Builds.
+        let vorlage = if pfad == "/" || pfad.eq_ignore_ascii_case("/index.html") {
+            Some((VORLAGE_SEITE, "index.html"))
+        } else if pfad.eq_ignore_ascii_case("/robots.txt") {
+            Some((VORLAGE_ROBOTS, "robots.txt"))
+        } else {
+            None
+        };
+        if let Some((vorlage, name)) = vorlage {
+            let vorlage = seite.join(vorlage);
+            let bei = Arc::clone(&z);
+            let gelesen =
+                tokio::task::spawn_blocking(move || gefuellt(&bei, &vorlage, name, kopf)).await;
+            return Ok(match gelesen {
+                Ok(Some(antwort)) => antwort,
+                Ok(None) => leer(&z, StatusCode::NOT_FOUND),
+                Err(_) => leer(&z, StatusCode::INTERNAL_SERVER_ERROR),
+            });
+        }
     }
     let ziel = match pfad.strip_prefix(KACHELN) {
         Some(rest) => kachelpfad(&z.kacheln, rest).map(|(pfad, baum)| Ziel {
@@ -862,6 +1039,31 @@ fn lies(
     Some(antwort)
 }
 
+/// Eine Vorlage des Builds, gefüllt mit den Angaben, ausgeliefert als
+/// `name`. Ohne ETag: Derselbe Build gibt mit anderen Angaben eine andere
+/// Seite, und die Seite ist klein.
+fn gefuellt(z: &Zustand, vorlage: &Path, name: &str, kopf: bool) -> Option<Response<Full<Bytes>>> {
+    let text = z
+        .angaben
+        .as_ref()?
+        .fuelle(&std::fs::read_to_string(vorlage).ok()?);
+    let laenge = text.len();
+    let koerper = match kopf {
+        true => Bytes::new(),
+        false => Bytes::from(text),
+    };
+    let mut antwort = Response::new(Full::new(koerper));
+    let h = antwort.headers_mut();
+    karte(z, h);
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(art(Path::new(name))),
+    );
+    h.insert(header::CONTENT_LENGTH, HeaderValue::from(laenge));
+    Some(antwort)
+}
+
 /// Der MIME-Typ nach der Endung. Die Höhen (`.bin`) gehen ohne
 /// `Content-Encoding`: Der Browser entpackt sie selbst.
 fn art(pfad: &Path) -> &'static str {
@@ -1099,6 +1301,124 @@ mod tests {
                 .any(|(name, _)| name == header::CONTENT_SECURITY_POLICY)
         );
         assert!(header.len() >= 6, "{header:?}");
+    }
+
+    /// Die Marker in einem Gang: Ein Wert, der selbst wie ein Marker
+    /// aussieht, bleibt stehen. Text maskiert, die Adresse endet mit `/`, ein
+    /// relatives Bild hängt an ihr. Ohne Bild fällt jeder Block mit Bild weg.
+    #[test]
+    fn angaben_fuellen_die_vorlage() {
+        let a = Angaben::neu(
+            "https://example.org/karte",
+            "A & \"B\" %URL%",
+            "<b>",
+            Some("./bild.jpg"),
+        )
+        .unwrap();
+        assert_eq!(
+            a.fuelle(
+                "%TITEL%|%BESCHREIBUNG%|<!--mit-url-->%URL%|<!--mit-bild-->%BILD%<!--/mit-bild--><!--/mit-url-->|%PFAD%|100%|%X%"
+            ),
+            "A &amp; &quot;B&quot; %URL%|&lt;b&gt;|https://example.org/karte/|https://example.org/karte/bild.jpg|/karte/|100%|%X%"
+        );
+        let ohne = Angaben::neu("http://example.org", "t", "b", None).unwrap();
+        assert_eq!(
+            ohne.fuelle(
+                "<!--mit-url-->a<!--mit-bild-->%BILD%<!--/mit-bild-->b<!--/mit-url-->%PFAD%"
+            ),
+            "ab/"
+        );
+        // Ein Ende vor dem Anfang ist kein Block; nur die Kommentare fallen.
+        assert_eq!(ohne.fuelle("<!--/mit-bild-->x<!--mit-bild-->"), "x");
+        let fern = Angaben::neu(
+            "https://example.org/",
+            "t",
+            "b",
+            Some("https://cdn.example.org/v.jpg"),
+        );
+        assert_eq!(
+            fern.unwrap().fuelle("%BILD%"),
+            "https://cdn.example.org/v.jpg"
+        );
+    }
+
+    /// Die Vorlage des Frontends mit ihren Markern und Blöcken: Gefüllt
+    /// bleibt kein Marker und kein Kommentar eines Blocks; ohne Bild fehlen
+    /// dessen Tags, die Adresse bleibt.
+    #[test]
+    fn fuellt_die_seite_des_frontends() {
+        let vorlage = include_str!("../../../web/index.html");
+        let mit = Angaben::neu(
+            "https://example.org/karte",
+            "Welt",
+            "Karte",
+            Some("vorschau.jpg"),
+        )
+        .unwrap()
+        .fuelle(vorlage);
+        for teil in [
+            "<title>Welt</title>",
+            r#"<meta name="description" content="Karte" />"#,
+            r#"<link rel="canonical" href="https://example.org/karte/" />"#,
+            r#"<meta property="og:url" content="https://example.org/karte/" />"#,
+            r#"<meta property="og:image" content="https://example.org/karte/vorschau.jpg" />"#,
+            "Ausschnitt der Karte: Welt",
+            "twitter:card",
+        ] {
+            assert!(mit.contains(teil), "{teil}\n{mit}");
+        }
+        let ohne = Angaben::neu("https://example.org/", "Welt", "Karte", None)
+            .unwrap()
+            .fuelle(vorlage);
+        assert!(ohne.contains(r#"<link rel="canonical" href="https://example.org/" />"#));
+        assert!(!ohne.contains("og:image") && !ohne.contains("twitter:card"));
+        for gefuellt in [&mit, &ohne] {
+            assert!(!gefuellt.contains("<!--mit-") && !gefuellt.contains("<!--/mit-"));
+            for marker in ["%TITEL%", "%BESCHREIBUNG%", "%URL%", "%BILD%"] {
+                assert!(!gefuellt.contains(marker), "{marker}");
+            }
+        }
+    }
+
+    /// Nur `http://` und `https://` mit Host und nur Zeichen, die im Attribut
+    /// nichts maskieren müssen; ein relatives Bild ohne `..`, `/` am Anfang
+    /// und `:`.
+    #[test]
+    fn angaben_pruefen_adressen() {
+        for url in [
+            "example.org",
+            "ftp://example.org/",
+            "javascript:alert(1)",
+            "https://",
+            "https:///x",
+            "https://example.org/a b",
+            "https://example.org/\"",
+            "https://example.org/a'b",
+            "https://example.org/<",
+            "https://example.org/?q",
+            "https://example.org/#x",
+        ] {
+            assert!(Angaben::neu(url, "t", "b", None).is_err(), "{url}");
+        }
+        for (titel, beschreibung) in [("", "b"), ("t", ""), (" ", "b"), ("t", "\t")] {
+            let angaben = Angaben::neu("https://example.org/", titel, beschreibung, None);
+            assert!(angaben.is_err(), "{titel:?} {beschreibung:?}");
+        }
+        for bild in [
+            "../x.jpg",
+            "/x.jpg",
+            "a/../x.jpg",
+            "./",
+            "",
+            "x\".jpg",
+            "data:x",
+            "https://",
+        ] {
+            assert!(
+                Angaben::neu("https://example.org/", "t", "b", Some(bild)).is_err(),
+                "{bild}"
+            );
+        }
     }
 
     /// Je Zufall bis genau zum Deckel; darüber bucht es nichts. Ein neuer

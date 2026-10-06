@@ -1,6 +1,6 @@
 //! Prüft `--serve` gegen einen echten Prozess auf einem freien Port, mit
 //! Anfragen von Hand: Header, ETag und 304, MIME, 404, Methoden, Grenzen und
-//! das Ende mit stdin, HTTPS und den Download mit Token.
+//! das Ende mit stdin, HTTPS, den Download mit Token und die Angaben der Seite.
 //! Siehe docs/benutzung/server.md.
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -1119,6 +1119,136 @@ fn geheimnis_aus_genau_32_byte() {
         assert!(!ausgabe.status.success(), "{grund}");
         assert!(fehler.contains(grund), "{grund}: {fehler}");
     }
+}
+
+/// Mit `--site-*` füllt der Server die Vorlagen des Builds: `/` und
+/// `/index.html` aus `seite.html`, `robots.txt` aus `robots.vorlage.txt`,
+/// ohne ETag und mit den Headern der Karte; alles andere unter `--web`
+/// bleibt, wie es ist; die Vorlagen selbst geben `404`. Ohne Bild fällt sein
+/// Block weg, ohne `--site-*` gilt die Seite des Builds. Ohne `seite.html`
+/// oder mit einer Adresse, die nicht geht, startet er nicht.
+#[test]
+fn angaben_zur_laufzeit() {
+    let (kacheln, seite) = wurzel();
+    let s = seite.path().to_str().unwrap();
+    std::fs::write(
+        seite.path().join("seite.html"),
+        "<title>%TITEL%</title><!--mit-url--><link rel=\"canonical\" href=\"%URL%\">\
+         <!--mit-bild--><meta property=\"og:image\" content=\"%BILD%\"><!--/mit-bild--><!--/mit-url-->",
+    )
+    .unwrap();
+    std::fs::write(
+        seite.path().join("robots.vorlage.txt"),
+        "Disallow: %PFAD%tiles/\n",
+    )
+    .unwrap();
+    let angaben = |url: &str| {
+        vec![
+            "--web".to_string(),
+            s.to_string(),
+            "--site-url".to_string(),
+            url.to_string(),
+            "--site-title".to_string(),
+            "Welt & Co".to_string(),
+            "--site-description".to_string(),
+            "Eine Karte".to_string(),
+        ]
+    };
+    let mit_bild = [
+        angaben("https://example.org/karte"),
+        vec!["--site-image".into(), "vorschau.jpg".into()],
+    ]
+    .concat();
+    let server = starte(
+        kacheln.path(),
+        &mit_bild.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    let erwartet = "<title>Welt &amp; Co</title><link rel=\"canonical\" href=\"https://example.org/karte/\">\
+         <meta property=\"og:image\" content=\"https://example.org/karte/vorschau.jpg\">";
+    for pfad in ["/", "/index.html", "/INDEX.HTML", "/Index.html"] {
+        let a = hole(server.adresse, pfad);
+        assert_eq!(a.status, 200, "{pfad}");
+        assert_eq!(
+            String::from_utf8(a.koerper.clone()).unwrap(),
+            erwartet,
+            "{pfad}"
+        );
+        assert_eq!(a.header("content-type"), Some("text/html; charset=utf-8"));
+        assert_eq!(
+            a.header("content-length"),
+            Some(erwartet.len().to_string().as_str())
+        );
+        assert_eq!(a.header("cache-control"), Some("no-cache"));
+        assert_eq!(a.header("etag"), None);
+        assert!(a.header("content-security-policy").is_some());
+    }
+    let robots = hole(server.adresse, "/robots.txt");
+    assert_eq!(robots.status, 200);
+    assert_eq!(robots.koerper, b"Disallow: /karte/tiles/\n");
+    assert_eq!(hole(server.adresse, "/Robots.TXT").koerper, robots.koerper);
+    assert_eq!(
+        robots.header("content-type"),
+        Some("text/plain; charset=utf-8")
+    );
+    let kopf = frage(server.adresse, "HEAD", "/", &[]);
+    assert_eq!((kopf.status, kopf.koerper.len()), (200, 0));
+    assert_eq!(
+        kopf.header("content-length"),
+        Some(erwartet.len().to_string().as_str())
+    );
+    assert_eq!(
+        hole(server.adresse, "/assets/index-Ab12.js").koerper,
+        b"export {}"
+    );
+    for pfad in ["/seite.html", "/robots.vorlage.txt", "/SEITE.HTML"] {
+        assert_eq!(hole(server.adresse, pfad).status, 404, "{pfad}");
+    }
+    drop(server);
+
+    let ohne_bild = angaben("https://example.org/");
+    let server = starte(
+        kacheln.path(),
+        &ohne_bild.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        String::from_utf8(hole(server.adresse, "/").koerper).unwrap(),
+        "<title>Welt &amp; Co</title><link rel=\"canonical\" href=\"https://example.org/\">"
+    );
+    assert_eq!(
+        hole(server.adresse, "/robots.txt").koerper,
+        b"Disallow: /tiles/\n"
+    );
+    drop(server);
+    let server = starte(kacheln.path(), &["--web", s]);
+    assert_eq!(hole(server.adresse, "/").koerper, b"<!doctype html>");
+    assert_eq!(hole(server.adresse, "/seite.html").status, 404);
+    drop(server);
+
+    let falsch = angaben("ftp://example.org/");
+    let leer = [
+        &angaben("https://example.org/")[..6],
+        &["--site-description".into(), String::new()],
+    ]
+    .concat();
+    let starte_nicht = |extra: &[String], grund: &str| {
+        let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+            .arg("--serve")
+            .arg(kacheln.path())
+            .args(["--listen", "127.0.0.1:0", "--exit-with-stdin"])
+            .args(extra)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let fehler = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(!ausgabe.status.success(), "{grund}");
+        assert!(fehler.contains(grund), "{grund}: {fehler}");
+    };
+    starte_nicht(&falsch, "--site-url");
+    starte_nicht(&leer, "--site-description ist leer");
+    std::fs::remove_file(seite.path().join("robots.vorlage.txt")).unwrap();
+    starte_nicht(&ohne_bild, "robots.vorlage.txt");
+    std::fs::remove_file(seite.path().join("seite.html")).unwrap();
+    starte_nicht(&ohne_bild, "seite.html");
 }
 
 /// Unter `/tiles/` nur Bäume, die `trees.json` der Wurzel nennt: Ein Baum,

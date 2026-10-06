@@ -146,11 +146,22 @@ einzigen grossen Baum, der noch lag: der grossen Welt genordet mit
 Cinematic bei scale 6, früh abgebrochen.
 
 - **Bestand:** 1,7 GB in 44 300 Dateien.
-- **Gezählt** in 8 und 9 ms, rund 5 Mio. Dateien je Sekunde, mit 24 Threads.
-  Die Ordner waren in allen vier Läufen im Dateicache, auch im ersten; ohne
-  Cache ist es langsamer, gemessen ist das nicht.
+- **Gezählt** in 8 und 9 ms, rund 5 Mio. Dateien je Sekunde, mit 24 Threads
+  unter Windows. Die Ordner waren in allen vier Läufen im Dateicache, auch
+  im ersten. Unter Windows liefert das Lesen eines Ordners die Grösse jeder
+  Datei mit; unter Linux kostet jede Datei einen eigenen Aufruf von `statx`
+  (`DirEntry::metadata` in der Standardbibliothek von Rust).
 - **Hochgerechnet** auf einen ganzen Baum der grossen Welt mit rund 3 Mio.
-  Dateien sind das unter einer Sekunde, mit kaltem Cache einige Sekunden.
+  Dateien, grob und nicht gemessen:
+
+  | Bedingungen | Dauer |
+  |---|---|
+  | wie gemessen: 24 Threads, warmer Cache, Windows | unter einer Sekunde |
+  | 1 Thread, wie das Plugin mit `--threads 1`, warmer Cache | rund 24-mal so lang, um 15 s |
+  | 1 Thread, kalter Cache oder Linux | eine bis wenige Minuten |
+
+  Neben einem vollen Lauf, der Tage dauern kann, fällt das nicht ins
+  Gewicht.
 - Der Ordner liegt unter einer Ausnahme des Echtzeitschutzes. Das Zählen
   liest nur die Einträge der Ordner und öffnet keine Datei.
 

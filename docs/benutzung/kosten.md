@@ -197,8 +197,10 @@ Spanne. Unter `--tiles` schreibt es nichts. Der Code steht in
    ihn; frei sein muss nur, was über den Bestand hinausgeht. „Reicht“
    heisst: Frei und Bestand zusammen erreichen mindestens den oberen Rand.
    Eine Warnung vor dem Lauf nimmt den oberen Rand. Den Bestand zu zählen
-   dauerte über 44 300 Dateien 9 ms mit warmem Dateicache, hochgerechnet auf
-   einen ganzen Baum der grossen Welt unter einer Sekunde, siehe
+   dauerte über 44 300 Dateien 9 ms, mit 24 Threads, warmem Dateicache und
+   unter Windows. Für einen ganzen Baum der grossen Welt sind das grob unter
+   einer Sekunde, mit einem Thread und kaltem Cache oder unter Linux eher
+   eine bis wenige Minuten, siehe
    [2026-10-06, Schätzung gegen gemessene Läufe](../messungen/2026-10-06-schaetzung.md),
    „Den Bestand zählen“.
 

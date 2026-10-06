@@ -9,10 +9,14 @@ use std::ffi::OsString;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use heroic_map_renderer::world::World;
 
 use super::client;
+
+// Nur der Teil unter Windows braucht es; unter Linux baut das Modul nur für die Tests.
+#[cfg(windows)]
+use anyhow::Context;
 
 /// Was der Assistent ausserhalb von Ein- und Ausgabe braucht.
 pub(super) trait Umgebung {

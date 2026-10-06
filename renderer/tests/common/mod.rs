@@ -53,6 +53,8 @@ pub struct ChunkNbt {
     pub sections: Vec<SectionNbt>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub block_entities: Vec<fastnbt::Value>,
+    #[serde(rename = "ChunkBukkitValues", skip_serializing_if = "Option::is_none")]
+    pub bukkit: Option<fastnbt::Value>,
 }
 
 #[derive(Serialize)]
@@ -130,6 +132,18 @@ pub fn chunk_nbt_mit(
     sections: Vec<SectionNbt>,
     block_entities: Vec<fastnbt::Value>,
 ) -> Vec<u8> {
+    chunk_nbt_ganz(cx, cz, status, sections, block_entities, None)
+}
+
+/// Wie `chunk_nbt_mit`, dazu `ChunkBukkitValues`.
+pub fn chunk_nbt_ganz(
+    cx: i32,
+    cz: i32,
+    status: &str,
+    sections: Vec<SectionNbt>,
+    block_entities: Vec<fastnbt::Value>,
+    bukkit: Option<fastnbt::Value>,
+) -> Vec<u8> {
     fastnbt::to_bytes(&ChunkNbt {
         data_version: 4903,
         x_pos: cx,
@@ -137,8 +151,30 @@ pub fn chunk_nbt_mit(
         status: status.to_string(),
         sections,
         block_entities,
+        bukkit,
     })
     .expect("NBT serialisieren")
+}
+
+/// Eigene Laubfarben nach Fassung 1 des Vertrags, unter dem Schlüssel in
+/// `ChunkBukkitValues`: je Gruppe Farbe und Lagen im Chunk.
+/// Siehe docs/benutzung/laubfarben.md.
+pub fn laubfarben(gruppen: &[(u32, &[[i32; 3]])]) -> fastnbt::Value {
+    use fastnbt::Value;
+    let mut bytes: Vec<u8> = vec![1];
+    bytes.extend((gruppen.len() as i32).to_be_bytes());
+    for (farbe, lagen) in gruppen {
+        bytes.extend(farbe.to_be_bytes());
+        bytes.extend((lagen.len() as i32).to_be_bytes());
+        for [x, y, z] in *lagen {
+            bytes.extend((x | z << 4 | (y + 2048) << 8).to_be_bytes());
+        }
+    }
+    let array = fastnbt::ByteArray::new(bytes.into_iter().map(|b| b as i8).collect());
+    Value::Compound(HashMap::from([(
+        "heroicmap:leaf_colors".to_string(),
+        Value::ByteArray(array),
+    )]))
 }
 
 /// Ein Eintrag in `block_entities` mit Kennung, Lage und einem Feld.
@@ -296,6 +332,27 @@ pub fn write_world_in(
         |cx, _, cz| biome(cx, cz),
         |_, _| FULL,
         |_, _| Vec::new(),
+        |_, _| None,
+    )
+}
+
+/// Wie `write_world`, dazu je Chunk `ChunkBukkitValues`, etwa
+/// [`laubfarben`].
+pub fn write_world_bukkit(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    bukkit: impl Fn(i32, i32) -> Option<fastnbt::Value>,
+) -> PathBuf {
+    write_region(
+        dir,
+        chunks,
+        0..=0,
+        block,
+        |_, _, _| None,
+        |_, _| FULL,
+        |_, _| Vec::new(),
+        bukkit,
     )
 }
 
@@ -315,6 +372,7 @@ pub fn write_world_entities(
         |_, _, _| None,
         |_, _| FULL,
         entities,
+        |_, _| None,
     )
 }
 
@@ -335,6 +393,7 @@ pub fn write_world_sections(
         |cx, _, cz| biome(cx, cz),
         |_, _| FULL,
         |_, _| Vec::new(),
+        |_, _| None,
     )
 }
 
@@ -355,6 +414,7 @@ pub fn write_world_biomes(
         biome,
         |_, _| FULL,
         |_, _| Vec::new(),
+        |_, _| None,
     )
 }
 
@@ -379,6 +439,7 @@ pub fn write_world_status(
         |_, _, _| None,
         status,
         |_, _| Vec::new(),
+        |_, _| None,
     )
 }
 
@@ -400,9 +461,11 @@ pub fn write_world_status_biome(
         |cx, _, cz| biome(cx, cz),
         status,
         |_, _| Vec::new(),
+        |_, _| None,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_region(
     dir: &Path,
     chunks: &[(i32, i32)],
@@ -411,6 +474,7 @@ fn write_region(
     biome: impl Fn(i32, i8, i32) -> Option<&'static str>,
     status: impl Fn(i32, i32) -> &'static str,
     entities: impl Fn(i32, i32) -> Vec<fastnbt::Value>,
+    bukkit: impl Fn(i32, i32) -> Option<fastnbt::Value>,
 ) -> PathBuf {
     let region_dir = dir.join("region");
     std::fs::create_dir_all(&region_dir).expect("region-Verzeichnis");
@@ -426,7 +490,7 @@ fn write_region(
             "Chunk ({cx}, {cz}) liegt nicht in Region ({rx}, {rz})"
         );
 
-        let payload = chunk_nbt_mit(
+        let payload = chunk_nbt_ganz(
             cx,
             cz,
             status(cx, cz),
@@ -436,6 +500,7 @@ fn write_region(
                 .map(|sy| section(cx, cz, sy, &block, biome(cx, sy, cz)))
                 .collect(),
             entities(cx, cz),
+            bukkit(cx, cz),
         );
         let mut record = Vec::new();
         record.extend_from_slice(&(payload.len() as u32 + 1).to_be_bytes());

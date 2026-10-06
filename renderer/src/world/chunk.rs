@@ -33,6 +33,124 @@ struct ChunkNbt {
     sections: Vec<SectionNbt>,
     #[serde(default, deserialize_with = "eintraege")]
     block_entities: Vec<BlockEntityNbt>,
+    /// Was Plugins am Chunk ablegen (PersistentDataContainer). Gelesen wird
+    /// nur [`LAUBFARBEN`], der Rest übersprungen.
+    #[serde(
+        rename = "ChunkBukkitValues",
+        default,
+        deserialize_with = "nur_laubfarben"
+    )]
+    laubfarben: Option<fastnbt::Value>,
+}
+
+/// Liest aus `ChunkBukkitValues` nur den Wert unter [`LAUBFARBEN`]; die
+/// Werte anderer Plugins überspringt es, ohne sie zu bauen. Ist es kein
+/// Compound, gibt es keinen.
+fn nur_laubfarben<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<fastnbt::Value>, D::Error> {
+    use serde::de::{Error, IgnoredAny, MapAccess, SeqAccess, Visitor};
+    use std::fmt;
+
+    struct Werte;
+    impl<'de> Visitor<'de> for Werte {
+        type Value = Option<fastnbt::Value>;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("ChunkBukkitValues")
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut gefunden = None;
+            while let Some(schluessel) = map.next_key::<String>()? {
+                if schluessel == LAUBFARBEN {
+                    gefunden = Some(map.next_value::<fastnbt::Value>()?);
+                } else {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+            Ok(gefunden)
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut liste: A) -> Result<Self::Value, A::Error> {
+            while liste.next_element::<IgnoredAny>()?.is_some() {}
+            Ok(None)
+        }
+        fn visit_i64<E: Error>(self, _: i64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+        fn visit_u64<E: Error>(self, _: u64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+        fn visit_f64<E: Error>(self, _: f64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+        fn visit_str<E: Error>(self, _: &str) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+        fn visit_bytes<E: Error>(self, _: &[u8]) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+    }
+    d.deserialize_any(Werte)
+}
+
+/// Der Schlüssel für eigene Laubfarben in `ChunkBukkitValues`.
+/// Siehe docs/benutzung/laubfarben.md.
+pub const LAUBFARBEN: &str = "heroicmap:leaf_colors";
+
+/// Bit 24 einer Laubfarbe: Das Spiel nimmt eine hellere Blatttextur.
+pub const LAUB_HELL: u32 = 1 << 24;
+
+/// Die Laubfarben eines Chunks nach Fassung 1 des Vertrags: je Stelle, als
+/// Schlüssel des Vertrags, ihre Farbe, nach dem Schlüssel sortiert, bei
+/// doppelter Stelle die letzte. Stellen ausserhalb der Höhe jeder Dimension,
+/// y von −2032 bis 2031, fallen weg. `Err` nennt, warum die Bytes dem
+/// Vertrag nicht folgen.
+/// Siehe docs/benutzung/laubfarben.md, „Format“.
+fn laubfarben(bytes: &[u8]) -> Result<Vec<(u32, u32)>, String> {
+    let Some((&fassung, mut rest)) = bytes.split_first() else {
+        return Err("leer".into());
+    };
+    if fassung != 1 {
+        return Err(format!("Fassung {fassung}"));
+    }
+    let mut zahl = || -> Result<i32, String> {
+        let (kopf, weiter) = rest.split_first_chunk::<4>().ok_or("zu kurz")?;
+        rest = weiter;
+        Ok(i32::from_be_bytes(*kopf))
+    };
+    let mut je_stelle = BTreeMap::new();
+    let gruppen = zahl()?;
+    if gruppen < 0 {
+        return Err(format!("{gruppen} Gruppen"));
+    }
+    for _ in 0..gruppen {
+        let farbe = zahl()? as u32;
+        if farbe >> 25 != 0 {
+            return Err(format!("Farbe {farbe:#x}"));
+        }
+        let anzahl = zahl()?;
+        if anzahl < 0 {
+            return Err(format!("{anzahl} Stellen"));
+        }
+        for _ in 0..anzahl {
+            let stelle = zahl()?;
+            if stelle >> 20 != 0 {
+                return Err(format!("Stelle {stelle:#x}"));
+            }
+            if (16..=4079).contains(&(stelle >> 8)) {
+                je_stelle.insert(stelle as u32, farbe);
+            }
+        }
+    }
+    if !rest.is_empty() {
+        return Err(format!("{} Bytes nach dem Ende", rest.len()));
+    }
+    Ok(je_stelle.into_iter().collect())
+}
+
+/// Die Lage im Chunk zu einem Schlüssel des Vertrags.
+fn lage_der_stelle(stelle: u32) -> [i32; 3] {
+    let stelle = stelle as i32;
+    [stelle & 15, (stelle >> 8) - 2048, (stelle >> 4) & 15]
 }
 
 /// Ein Eintrag in `block_entities`, nur mit den Feldern, aus denen
@@ -379,6 +497,12 @@ pub struct Chunk {
     /// Je Blockentity mit [`Blockdaten`] seine Lage im Chunk, siehe
     /// [`Chunk::blockentities`].
     blockentities: Vec<([i32; 3], Blockdaten)>,
+    /// Eigene Laubfarben je Stelle, als Schlüssel des Vertrags, nach ihm
+    /// sortiert, siehe [`Chunk::laubfarbe`].
+    laubfarben: Vec<(u32, u32)>,
+    /// Warum die Laubfarben des Chunks nicht dem Vertrag folgen; dann gilt
+    /// keine.
+    laubfarben_fehler: Option<String>,
 }
 
 impl Chunk {
@@ -411,6 +535,20 @@ impl Chunk {
             .filter_map(|((stelle, _), daten)| Some((stelle, daten?)))
             .collect();
 
+        // Ein anderer Typ unter dem Schlüssel oder Bytes gegen den Vertrag
+        // sind ein Fehler des Schreibers: Der Chunk zeichnet dann ohne.
+        let (laubfarben, laubfarben_fehler) = match raw.laubfarben {
+            None => (Vec::new(), None),
+            Some(fastnbt::Value::ByteArray(bytes)) => {
+                let bytes: Vec<u8> = bytes.iter().map(|&b| b as u8).collect();
+                match laubfarben(&bytes) {
+                    Ok(farben) => (farben, None),
+                    Err(grund) => (Vec::new(), Some(grund)),
+                }
+            }
+            Some(_) => (Vec::new(), Some("kein Byte-Array".into())),
+        };
+
         Ok(Chunk {
             x: raw.x_pos,
             z: raw.z_pos,
@@ -423,7 +561,41 @@ impl Chunk {
                 .world_surface
                 .map(fastnbt::LongArray::into_inner),
             blockentities,
+            laubfarben,
+            laubfarben_fehler,
         })
+    }
+
+    /// Die eigenen Laubfarben mit Weltkoordinate, wie
+    /// [`Chunk::blockentities`]. Bit 0 bis 23 sind RGB, Bit 24 ist
+    /// [`LAUB_HELL`].
+    pub fn laubfarben(&self) -> impl Iterator<Item = ([i32; 3], u32)> + '_ {
+        let ursprung = self.x.checked_mul(SECTION).zip(self.z.checked_mul(SECTION));
+        self.laubfarben.iter().filter_map(move |&(stelle, farbe)| {
+            let (x0, z0) = ursprung?;
+            let [x, y, z] = lage_der_stelle(stelle);
+            Some(([x0 + x, y, z0 + z], farbe))
+        })
+    }
+
+    /// Die eigene Laubfarbe an einer Weltkoordinate, `None` ohne.
+    pub fn laubfarbe(&self, x: i32, y: i32, z: i32) -> Option<u32> {
+        if self.laubfarben.is_empty() || !self.contains_column(x, z) || !(-2032..=2031).contains(&y)
+        {
+            return None;
+        }
+        let stelle = ((x & 15) | (z & 15) << 4 | (y + 2048) << 8) as u32;
+        let i = self
+            .laubfarben
+            .binary_search_by_key(&stelle, |&(s, _)| s)
+            .ok()?;
+        Some(self.laubfarben[i].1)
+    }
+
+    /// Warum die Laubfarben des Chunks nicht galten, `None`, wenn es keine
+    /// gab oder sie dem Vertrag folgten.
+    pub fn laubfarben_fehler(&self) -> Option<&str> {
+        self.laubfarben_fehler.as_deref()
     }
 
     /// Die Blockentities, deren Daten das Bild ändern, mit Weltkoordinate.
@@ -641,6 +813,14 @@ impl Chunk {
                 }
             }
             fnv.nimm(&[0xff]);
+        }
+        // Nur wenn es welche gibt: Ein Chunk ohne behält seinen Abdruck.
+        if !self.laubfarben.is_empty() {
+            fnv.nimm(&[3]);
+            for (stelle, farbe) in &self.laubfarben {
+                fnv.nimm(&stelle.to_le_bytes());
+                fnv.nimm(&farbe.to_le_bytes());
+            }
         }
         Abdruck { hash: fnv.0, oben }
     }
@@ -862,6 +1042,8 @@ mod tests {
             y_pos: Some(-4),
             world_surface: Some(longs),
             blockentities: Vec::new(),
+            laubfarben: Vec::new(),
+            laubfarben_fehler: None,
         };
         let oben = chunk(longs.clone()).surface();
         assert_eq!(oben[0], Some(20));
@@ -1363,6 +1545,159 @@ mod tests {
             a.abdruck().hash,
             "Banner mit Muster"
         );
+    }
+
+    /// Bytes nach Fassung 1 des Vertrags: je Gruppe Farbe und Lagen im Chunk.
+    fn laub_bytes(gruppen: &[(u32, &[[i32; 3]])]) -> Vec<u8> {
+        let mut bytes = vec![1];
+        bytes.extend((gruppen.len() as i32).to_be_bytes());
+        for (farbe, lagen) in gruppen {
+            bytes.extend(farbe.to_be_bytes());
+            bytes.extend((lagen.len() as i32).to_be_bytes());
+            for [x, y, z] in *lagen {
+                bytes.extend((x | z << 4 | (y + 2048) << 8).to_be_bytes());
+            }
+        }
+        bytes
+    }
+
+    /// Ein Chunk mit diesem Wert unter `ChunkBukkitValues`.
+    fn mit_bukkit(wert: fastnbt::Value) -> Chunk {
+        use fastnbt::Value;
+        let nbt = fastnbt::to_bytes(&Value::Compound(
+            [
+                ("DataVersion", Value::Int(4903)),
+                ("xPos", Value::Int(2)),
+                ("zPos", Value::Int(-1)),
+                ("Status", Value::String("minecraft:full".to_string())),
+                ("ChunkBukkitValues", wert),
+            ]
+            .into_iter()
+            .map(|(name, wert)| (name.to_string(), wert))
+            .collect(),
+        ))
+        .unwrap();
+        Chunk::decode(&nbt).unwrap()
+    }
+
+    fn laub(bytes: Vec<u8>) -> Chunk {
+        use fastnbt::Value;
+        let array = fastnbt::ByteArray::new(bytes.into_iter().map(|b| b as i8).collect());
+        mit_bukkit(Value::Compound(
+            [(LAUBFARBEN.to_string(), Value::ByteArray(array))].into(),
+        ))
+    }
+
+    /// Fassung 1: Gruppen aus Farbe und Lagen, Big Endian, Lage
+    /// `x | z<<4 | (y+2048)<<8`, auch unter y = 0. Steht eine Lage doppelt,
+    /// gilt die letzte. Lagen über 2031 und unter −2032 fallen weg. Die
+    /// Lagen kommen in Weltkoordinaten, sortiert nach y, z, x.
+    #[test]
+    fn laubfarben_nach_fassung_1() {
+        let rot = 0xff_0000;
+        let hell = LAUB_HELL | 0x00_ff00;
+        let chunk = laub(laub_bytes(&[
+            (rot, &[[1, 70, 2], [15, -64, 14], [3, 2032, 3]]),
+            (
+                hell,
+                &[[1, 70, 2], [0, 2031, 0], [3, -2033, 3], [2, -2032, 5]],
+            ),
+        ]));
+        assert_eq!(chunk.laubfarben_fehler(), None);
+        let farben: Vec<_> = chunk.laubfarben().collect();
+        assert_eq!(
+            farben,
+            vec![
+                ([34, -2032, -11], hell),
+                ([47, -64, -2], rot),
+                ([33, 70, -14], hell),
+                ([32, 2031, -16], hell),
+            ]
+        );
+        assert_eq!(chunk.laubfarbe(33, 70, -14), Some(hell));
+        assert_eq!(chunk.laubfarbe(47, -64, -2), Some(rot));
+        for [x, y, z] in [[33, 71, -14], [47, -64, -1], [35, 2032, -13], [1, 70, 2]] {
+            assert_eq!(chunk.laubfarbe(x, y, z), None, "({x}, {y}, {z})");
+        }
+    }
+
+    /// Was dem Vertrag nicht folgt, gilt ganz nicht, und der Grund steht
+    /// da; der Chunk selbst liest sich weiter. Ohne Schlüssel gibt es weder
+    /// Farben noch Grund.
+    #[test]
+    fn ungueltige_laubfarben_gelten_nicht() {
+        use fastnbt::Value;
+        let gut = laub_bytes(&[(0x123456, &[[0, 0, 0]])]);
+        let mut fassung = gut.clone();
+        fassung[0] = 2;
+        let mut farbe = gut.clone();
+        farbe[5] = 0x02;
+        let mut lage = gut.clone();
+        let ende = lage.len();
+        lage[ende - 3] = 0x10;
+        let mut gruppen = gut.clone();
+        gruppen[1..5].copy_from_slice(&(-1i32).to_be_bytes());
+        let mut stellen = gut.clone();
+        stellen[9..13].copy_from_slice(&i32::MIN.to_be_bytes());
+        let falle: [(Vec<u8>, &str); 8] = [
+            (gruppen, "-1 Gruppen"),
+            (stellen, "-2147483648 Stellen"),
+            (Vec::new(), "leer"),
+            (fassung, "Fassung 2"),
+            (gut[..gut.len() - 1].to_vec(), "zu kurz"),
+            ([gut.clone(), vec![0]].concat(), "1 Bytes nach dem Ende"),
+            (farbe, "Farbe"),
+            (lage, "Stelle"),
+        ];
+        for (bytes, grund) in falle {
+            let chunk = laub(bytes);
+            assert_eq!(chunk.laubfarben().count(), 0, "{grund}");
+            let fehler = chunk.laubfarben_fehler().unwrap_or_default();
+            assert!(fehler.starts_with(grund), "{fehler} statt {grund}");
+        }
+        let int = mit_bukkit(Value::Compound(
+            [(LAUBFARBEN.to_string(), Value::Int(7))].into(),
+        ));
+        assert_eq!(int.laubfarben_fehler(), Some("kein Byte-Array"));
+        let fremd = mit_bukkit(Value::Compound(
+            [
+                ("anderes:plugin".to_string(), Value::Int(7)),
+                (
+                    "anderes:feld".to_string(),
+                    Value::ByteArray(fastnbt::ByteArray::new(vec![1, 2, 3])),
+                ),
+                (
+                    "anderes:liste".to_string(),
+                    Value::List(vec![Value::String("a".to_string())]),
+                ),
+            ]
+            .into(),
+        ));
+        assert_eq!(
+            (fremd.laubfarben().count(), fremd.laubfarben_fehler()),
+            (0, None)
+        );
+        let kein_compound = mit_bukkit(Value::Int(1));
+        assert_eq!(kein_compound.laubfarben_fehler(), None);
+    }
+
+    /// Der Abdruck ändert sich mit jeder Farbe und Lage; ohne Schlüssel
+    /// bleibt er, wie er ohne die Felder war.
+    #[test]
+    fn abdruck_haengt_an_den_laubfarben() {
+        use fastnbt::Value;
+        let leer = mit_bukkit(Value::Compound(Default::default())).abdruck();
+        let fremd = mit_bukkit(Value::Compound(
+            [("anderes:plugin".to_string(), Value::Int(7))].into(),
+        ))
+        .abdruck();
+        assert_eq!(leer, fremd);
+        let rot = laub(laub_bytes(&[(0xff_0000, &[[1, 70, 2]])])).abdruck();
+        let gruen = laub(laub_bytes(&[(0x00_ff00, &[[1, 70, 2]])])).abdruck();
+        let woanders = laub(laub_bytes(&[(0xff_0000, &[[1, 71, 2]])])).abdruck();
+        assert_ne!(leer, rot);
+        assert_ne!(rot, gruen);
+        assert_ne!(rot, woanders);
     }
 
     fn gelesen(chunk: &Chunk) -> Vec<([i32; 3], Blockdaten)> {

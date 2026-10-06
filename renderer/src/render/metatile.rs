@@ -7,7 +7,7 @@ use image::RgbaImage;
 
 use crate::assets::Face;
 use crate::assets::blockstate::{self, DUNKELT, Leuchten, Lichtweg, SICHT, SICHT_262, seite};
-use crate::assets::colors::Resolver;
+use crate::assets::colors::{Resolver, laubton};
 use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
 use crate::world::{BlockState, Chunk, REGION, Region, Section, World};
@@ -1667,7 +1667,9 @@ struct Loaded {
     /// [`BiomeTable`](super::BiomeTable).
     biomes: Vec<Vec<u16>>,
     /// Je Block, dessen Blockentity mit seinen Daten ein anderes Bild gibt,
-    /// die Familie dafür ([`SpriteSet::variante`]), nach Lage sortiert.
+    /// die Familie dafür ([`SpriteSet::variante`]), ebenso Laub mit fester
+    /// Farbe unter einer eigenen ([`SpriteSet::laub_variante`]), nach Lage
+    /// sortiert.
     varianten: Vec<([i32; 3], u32)>,
     /// Nur für Cinematic: die Blöcke, deren Modell für die Sonne aus dem
     /// Würfel ragt ([`strahl::ragende`]), und die Säule des schnellen Gangs,
@@ -2030,6 +2032,10 @@ impl Loaded {
                 Some(([x, y, z], sprites.variante(family, daten)?))
             })
             .collect();
+        varianten.extend(chunk.laubfarben().filter_map(|([x, y, z], _)| {
+            let (s, slot) = chunk.slot(x, y, z)?;
+            Some(([x, y, z], sprites.laub_variante(families[s][slot]?)?))
+        }));
         varianten.sort_unstable_by_key(|&(pos, _)| pos);
         Loaded {
             chunk,
@@ -2798,17 +2804,24 @@ impl<'a> ChunkCache<'a> {
     /// ([`BiomeTable::blend`](super::BiomeTable::blend)). 0, wo keine Karte
     /// sie braucht. `(x, y, z)` liegt im Blick, gemischt wird in der Welt.
     fn tints_at(&mut self, [x, y, z]: [i32; 3], family: &Family, kinds: u8) -> Result<[u32; 2]> {
+        // Eine eigene Laubfarbe gilt statt der Biomfarbe; Fichte und Birke
+        // tragen dort eine Tönungskarte aus [`SpriteSet::laub_variante`].
+        // Siehe docs/benutzung/laubfarben.md, „Wirkung“.
+        let eigene = match family.laub && kinds & TINT_BLOCK != 0 {
+            true => self.laubfarbe([x, y, z])?,
+            false => None,
+        };
         let table = self.sprites.biomes();
         let [x, z] = self.richtung.in_die_welt([x, z]);
         let mut farbe = |resolver, block| {
             Ok::<_, anyhow::Error>(pack(table.blend(resolver, block, |p| self.biome_of(p))?))
         };
         Ok([
-            match family.resolver {
-                Some(resolver) if kinds & TINT_BLOCK != 0 => {
-                    farbe(resolver, [x, y - family.tint_below as i32, z])?
-                }
-                _ => 0,
+            match (eigene, family.resolver) {
+                _ if kinds & TINT_BLOCK == 0 => 0,
+                (Some(eigene), _) => pack(laubton(eigene)),
+                (None, Some(resolver)) => farbe(resolver, [x, y - family.tint_below as i32, z])?,
+                (None, None) => 0,
             },
             if kinds & TINT_WATER != 0 {
                 farbe(Resolver::Water, [x, y, z])?
@@ -2816,6 +2829,16 @@ impl<'a> ChunkCache<'a> {
                 0
             },
         ])
+    }
+
+    /// Die eigene Laubfarbe an einer Stelle im Blick, `None` ohne.
+    fn laubfarbe(&mut self, [x, y, z]: [i32; 3]) -> Result<Option<u32>> {
+        let i = self.slot((x >> 4, z >> 4))?;
+        let Some(loaded) = self.slots[i].loaded.as_ref() else {
+            return Ok(None);
+        };
+        let [x, z] = self.richtung.in_die_welt([x, z]);
+        Ok(loaded.chunk.laubfarbe(x, y, z))
     }
 
     /// Das Biom eines Blocks der Welt als Nummer der [`BiomeTable`](super::BiomeTable):

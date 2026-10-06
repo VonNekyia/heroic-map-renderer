@@ -95,6 +95,20 @@ pub fn source_of(block: &str) -> Option<Source> {
     })
 }
 
+/// Ob eigene Laubfarben aus den Chunk-Daten auf einem Block wirken: auf
+/// tönbarem Laub, auch auf Fichte und Birke mit fester Farbe.
+/// Siehe docs/benutzung/laubfarben.md.
+pub fn eigene_laubfarbe(block: &str) -> bool {
+    split_id(block).1.ends_with("_leaves") && source_of(block).is_some()
+}
+
+/// Die Tönung einer eigenen Laubfarbe: Bit 16 bis 23 rot, 8 bis 15 grün,
+/// 0 bis 7 blau. Das Bit für „hell“ bleibt unbeachtet.
+/// Siehe docs/entscheidungen/0081-eigene-laubfarben.md.
+pub fn laubton(farbe: u32) -> Tint {
+    [(farbe >> 16) as u8, (farbe >> 8) as u8, farbe as u8]
+}
+
 /// Ob ein Block seine Farbe am Block darunter nimmt: die obere Hälfte von
 /// hohem Gras und grossem Farn, wie `BlockTintSources.doubleTallGrass`.
 /// Siehe docs/renderer/biomfarben.md, „Welche Blöcke“.

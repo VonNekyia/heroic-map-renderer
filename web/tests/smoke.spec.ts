@@ -186,7 +186,10 @@ test('die Karte läuft unter strengen Headern', async ({ page }) => {
   });
   await welt(page);
   const antwort = await page.goto(DEMO);
-  expect(antwort?.headers()['content-security-policy']).toContain("default-src 'self'");
+  // Jeder Header aus web/headers.json, wörtlich; dieselbe Datei nimmt der Server des Renderers.
+  const header = JSON.parse(readFileSync(new URL('../headers.json', import.meta.url), 'utf8')) as Record<string, string>;
+  expect(Object.keys(header)).toContain('Content-Security-Policy');
+  for (const [name, wert] of Object.entries(header)) expect(antwort?.headers()[name.toLowerCase()], name).toBe(wert);
 
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
   // Koordinaten holen Höhen und entpacken sie; auch das muss erlaubt sein.

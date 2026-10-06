@@ -78,7 +78,7 @@ setzen `HEROIC_GPU_PFLICHT`; fehlt der Adapter, ist das ein Fehler.
 
 Der Job prüft die Karte so, wie ein Betreiber sie ausliefert: `npm run
 build`, die Kacheln aus `public/tiles-demo` als `dist/tiles` daneben,
-ausgeliefert mit `vite preview` unter den Headern aus `preview.headers` in
+ausgeliefert mit `vite preview` unter den Headern aus `web/headers.json`, gelesen von `preview.headers` in
 [`web/vite.config.ts`](../../web/vite.config.ts). Lighthouse lädt die Seite
 dreimal; gewertet wird der Median.
 

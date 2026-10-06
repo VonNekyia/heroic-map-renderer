@@ -161,17 +161,7 @@ export default defineConfig({
   // Siehe docs/frontend.md, „Einem Render zusehen“.
   server: { watch: { ignored: ['**/public/tiles/**'] } },
   // Die Header, unter denen die Tests den Build prüfen, streng wie in
-  // Produktion. Siehe docs/frontend.md, „Ausliefern“.
-  preview: {
-    headers: {
-      'Content-Security-Policy':
-        "default-src 'self'; object-src 'none'; " +
-        "base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Permissions-Policy': 'camera=(), geolocation=(), microphone=()',
-      'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'X-Content-Type-Options': 'nosniff',
-      'X-Frame-Options': 'SAMEORIGIN',
-    },
-  },
+  // Produktion; dieselben setzt der Server des Renderers. Siehe
+  // docs/frontend.md, „Ausliefern“.
+  preview: { headers: JSON.parse(readFileSync(join(WEB, 'headers.json'), 'utf8')) as Record<string, string> },
 });

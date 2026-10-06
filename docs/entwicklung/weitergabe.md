@@ -98,17 +98,24 @@ verlangt. Ohne musl, siehe
   auf 0,25 MB gepackt, TLS auf 0,57 MB dazu, siehe
   [0084](../entscheidungen/0084-server-im-renderer.md). Mit ihm und dem
   Download der Assets aus #147, je Binär rund 0,08 MB, passt die Summe.
-- **Stand** mit `--serve` und HTTPS, gepackt, die Releases am Kopf
-  `2cb14c2` von #183, der Job „Rust“ am Kopf `b4153f0`:
+- **Stand** mit Server, HTTPS, Download mit Token, Client-Jar (#147) und dem
+  Assistenten (#152), gepackt, die Releases am Kopf `9ba4907` von #192, der
+  Job „Rust“ auf master am Kopf `a1d6cef`:
 
   | Binär | gepackt | Luft |
   |---|---|---|
-  | Linux, Release gegen glibc 2.28 | 4 318 910 Byte | 431 090 unter 4 750 000 |
-  | Linux, Job „Rust“ gegen glibc 2.39 | 4 441 878 Byte | 108 122 unter 4 550 000 |
-  | Windows, Release | 4 522 955 Byte | 227 045 unter 4 750 000 |
-  | beide Releases zusammen | 8 841 865 Byte | 458 135 unter 9 300 000 |
+  | Linux, Release gegen glibc 2.28 | 4 425 048 Byte | 324 952 unter 4 750 000 |
+  | Linux, Job „Rust“ gegen glibc 2.39 | 4 547 199 Byte | 2 801 unter 4 550 000 |
+  | Windows, Release | 4 656 462 Byte | 93 538 unter 4 750 000 |
+  | beide Releases zusammen | 9 081 510 Byte | 218 490 unter 9 300 000 |
 
-  Ohne TLS, am Kopf `f17d78e` von #181, waren es unter Linux 3 724 777 Byte,
+  Die Pakete mit `web/`: das Zip für Windows 4 874 377 Byte, das tar.gz für
+  Linux 4 760 513 Byte. Die gebaute Karte allein misst gepackt rund 0,27 MB.
+- **Davor,** am Kopf `2cb14c2` von #183, mit Server und HTTPS: Linux
+  4 318 910 Byte, im Job „Rust“ am Kopf `b4153f0` 4 441 878, Windows
+  4 522 955. Seitdem kamen unter Linux 0,11 MB dazu, unter Windows 0,13 MB,
+  davon rfd nur unter Windows.
+- Ohne TLS, am Kopf `f17d78e` von #181, waren es unter Linux 3 724 777 Byte,
   im Job „Rust“ 3 850 626 und unter Windows 3 974 591. TLS mit rustls und
   ring brachte so unter Linux 0,59 MB, unter Windows 0,55 MB. Vor dem
   Server waren es unter Linux 3,49 MB und unter Windows 3,57 MB. Dazu kamen

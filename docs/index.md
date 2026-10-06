@@ -20,6 +20,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Kacheln exportieren](benutzung/kacheln.md): `--tiles`, Ausschnitte, ein Rechteck der Welt mit `--area`, Ablage, leere Kacheln und `--prune`.
 - [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt und Kamera.
 - [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md): `--pyramid` während eines Renders und `--resume` nach einem Abbruch.
+- [Assistent der EXE](benutzung/assistent.md): unter Windows ohne Schalter, etwa per Doppelklick, ein Assistent von der Welt bis zur offenen Karte; Fragen, Vorgaben, Schalter und das Warten auf Enter.
 - [Server](benutzung/server.md): `--serve` liefert Karte und Kacheln selbst aus; Schalter, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, das Ende mit stdin, HTTPS, der Download mit Token und die Angaben der Seite zur Laufzeit.
 - [Updates](benutzung/updates.md): `--update` zeichnet nur, wo sich die Welt geändert hat; der Stand je Baum, Stempel und Fingerabdruck je Chunk, das Gebiet einer Änderung.
 - [Eigene Laubfarben](benutzung/laubfarben.md): der Vertrag für Laubfarben im PersistentDataContainer des Chunks, `heroicmap:leaf_colors`, Format, Wirkung, falsche Daten und Updates.
@@ -158,6 +159,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0084](entscheidungen/0084-server-im-renderer.md): Karte und Kacheln liefert ein Server im Renderer aus, `--serve` mit hyper und tokio, mit Grenzen am offenen Netz und Ende mit stdin; Seite und Kacheln in getrennten Ordnern, Pfade über erlaubte Zeichen, bedingte Anfragen auf Gleichheit; löst 0047 in einem Punkt ab.
 - [0085](entscheidungen/0085-seitenangaben-zur-laufzeit.md): Alle Tags der Seite stehen mit den Markern `%TITEL%`, `%BESCHREIBUNG%`, `%URL%`, `%BILD%` und den Blöcken `mit-url` und `mit-bild` in `index.html`; der Build füllt sie und legt `seite.html` und `robots.vorlage.txt` ab, der Server des Renderers füllt sie zur Laufzeit; löst 0048 in Teilen ab.
 - [0086](entscheidungen/0086-client-jar-von-mojang.md): Das Client-Jar von Mojang nur mit Zustimmung über `--download-client-jar`, SHA-1 und Grösse je Version im Binär, über HTTP geladen, mit eigenem ZIP-Leser einmal in einen Cache ausgepackt, jede Datei mit der Bauzeit des Jars; die Basis steht vor allen `--assets` und `--data`.
+- [0087](entscheidungen/0087-assistent-auf-der-konsole.md): Die EXE ist ein Assistent auf der Konsole im selben Binär, mit dem Ordnerdialog von Windows nur dort; jeder Schritt ruft dasselbe Binär als Kindprozess, jeder Ausgang wartet nach einem Doppelklick auf Enter, und die gebaute Karte liegt als `web/` in beiden Paketen.
 
 ## Messungen
 

@@ -22,6 +22,7 @@ code:
   - renderer/src/assets/blockstate.rs
   - renderer/src/assets/blockentity.rs
   - renderer/src/assets/dimension.rs
+  - renderer/src/cli/client.rs
 ---
 
 # Erzeugte Tabellen
@@ -98,6 +99,20 @@ Bild, siehe [Blockentities](../renderer/blockentities.md).
   Zustände.
 - `tabelle_wie_im_spiel` in `dimension.rs` hält jeden der vier
   Dimensionstypen und die Vorgaben fest.
+
+## Client-Jars
+
+Für `--download-client-jar` kennt der Renderer je Version das Client-Jar:
+`JARS` in [`renderer/src/cli/client.rs`](../../renderer/src/cli/client.rs),
+heute 26.2 und 26.3, aufsteigend nach DataVersion.
+
+- **SHA-1 und Grösse** aus dem Versions-JSON von Mojang,
+  `downloads.client.sha1` und `downloads.client.size`; das Versions-JSON
+  nennt das Manifest `piston-meta.mojang.com/mc/game/version_manifest_v2.json`.
+- **DataVersion** aus `version.json` im Jar, `world_version`.
+- **Geprüft** am 06.10. am Manifest, für 26.2 auch am Jar selbst.
+- **Ein falscher Eintrag** fällt beim Laden auf: Der SHA-1 passt nicht, und
+  der Lauf bricht ab, ohne etwas auszupacken.
 
 ## Eine neue Version
 

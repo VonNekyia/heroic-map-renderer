@@ -17,7 +17,7 @@ fastnbt = "2"                       # NBT; simdnbt 0.10 ist nightly-only
 flate2 = "1"                        # gzip/zlib der Chunkdaten
 http-body-util = "0.1"              # Körper der Antworten von --serve
 httpdate = "1"                      # Last-Modified für --serve; steckt schon über hyper im Baum
-hyper = { version = "1", features = ["server", "http1"] }  # HTTP für --serve, siehe docs/entscheidungen/0084-server-im-renderer.md
+hyper = { version = "1", features = ["server", "client", "http1"] }  # HTTP für --serve und das Client-Jar, siehe docs/entscheidungen/0084-server-im-renderer.md und 0086
 hyper-util = { version = "0.1", features = ["tokio"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 libwebp-sys = "0.14"                # WebP kodieren und dekodieren, libwebp aus dem mitgelieferten C-Quelltext

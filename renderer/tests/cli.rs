@@ -6535,3 +6535,103 @@ fn schaetzung_ueber_bestand_und_fenster() {
         .unwrap();
     assert!(geplant <= oben, "geplant {geplant}, geschätzt {geschaetzt}");
 }
+
+/// Kopiert einen Ordner samt Unterordnern.
+fn kopiere_ordner(von: &Path, nach: &Path) {
+    std::fs::create_dir_all(nach).unwrap();
+    for eintrag in std::fs::read_dir(von).unwrap().flatten() {
+        let ziel = nach.join(eintrag.file_name());
+        if eintrag.file_type().unwrap().is_dir() {
+            kopiere_ordner(&eintrag.path(), &ziel);
+        } else {
+            std::fs::copy(eintrag.path(), &ziel).unwrap();
+        }
+    }
+}
+
+/// Ohne `--assets` nur mit Zustimmung: Die Meldung nennt den Text mit
+/// Version und Grösse und den Schalter. Mit `--download-client-jar` und
+/// einem Cache, in dem das Jar schon ausgepackt liegt, geht der Lauf nicht
+/// ins Netz und nimmt Assets und Daten von dort, vor weiteren `--assets`.
+/// Ein Cache unter `--tiles` bricht ab, bevor etwas geladen wird.
+#[test]
+fn client_jar_nur_mit_zustimmung() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    // DataVersion 4903: ohne --client-version gilt 26.2.
+    common::write_level_dat(welt.path());
+    let baum = neuer_baum("2x1-se");
+    let lauf = |extra: &[&OsStr]| {
+        let mut args: Vec<&OsStr> = vec![
+            OsStr::new("--world"),
+            welt.path().as_os_str(),
+            OsStr::new("--tiles"),
+            baum.wurzel().as_os_str(),
+            OsStr::new("--scale"),
+            OsStr::new("8"),
+            OsStr::new("--native-levels"),
+            OsStr::new("9"),
+        ];
+        args.extend_from_slice(extra);
+        cli(&args)
+    };
+
+    let ohne = lauf(&[]);
+    assert!(!ohne.status.success());
+    let fehler = String::from_utf8_lossy(&ohne.stderr);
+    for teil in [
+        "--download-client-jar",
+        "Java Edition",
+        "Minecraft 26.2 (39,2 MB)",
+    ] {
+        assert!(fehler.contains(teil), "{teil}: {fehler}");
+    }
+    assert!(
+        !baum.path().exists(),
+        "ohne Zustimmung schreibt der Lauf nichts"
+    );
+
+    let cache = tempdir();
+    let jar = cache
+        .path()
+        .join("client-26.3-e877b6a07acd633fb3bb475002175cec036e7b87");
+    kopiere_ordner(&assets(), &jar.join("assets"));
+    kopiere_ordner(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/data-base"),
+        &jar.join("data"),
+    );
+    let zustimmung = [
+        OsStr::new("--download-client-jar"),
+        OsStr::new("--client-version"),
+        OsStr::new("26.3"),
+        OsStr::new("--cache-dir"),
+    ];
+    let eigene = [OsStr::new("--assets"), assets_ref()];
+    let mit = lauf(&[&zustimmung[..], &[cache.path().as_os_str()], &eigene[..]].concat());
+    let ausgabe = String::from_utf8_lossy(&gelungen(&mit).stdout).into_owned();
+    assert!(!ausgabe.contains("lade von"), "{ausgabe}");
+    assert!(ausgabe.contains("Assets:     2 Wurzeln"), "{ausgabe}");
+    let basis = ausgabe.find(&jar.join("assets").display().to_string());
+    let eigen = ausgabe.find(&assets().display().to_string());
+    assert!(basis.is_some() && basis < eigen, "{ausgabe}");
+    assert!(baum.path().join("map.json").is_file());
+
+    // Auch dort liegt das Jar schon: Kein Test darf ins Netz, auch nicht,
+    // wenn die Prüfung fehlte.
+    // Ebenso über `..` und unter Windows in anderer Schreibung.
+    let mut unter = vec![
+        baum.wurzel().join("cache"),
+        baum.wurzel().join("x").join("..").join("cache2"),
+    ];
+    if cfg!(windows) {
+        let gross = baum.wurzel().display().to_string().to_uppercase();
+        unter.push(PathBuf::from(gross).join("cache3"));
+    }
+    for unter in unter {
+        kopiere_ordner(cache.path(), &unter);
+        let falsch = lauf(&[&zustimmung[..], &[unter.as_os_str()]].concat());
+        assert!(!falsch.status.success(), "{}", unter.display());
+        let fehler = String::from_utf8_lossy(&falsch.stderr);
+        assert!(fehler.contains("liegt unter --tiles"), "{fehler}");
+    }
+}

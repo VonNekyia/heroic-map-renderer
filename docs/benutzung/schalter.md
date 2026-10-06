@@ -22,6 +22,8 @@ Texte.
 | `--world DIR` | Weltwurzel mit `level.dat` oder eine Dimension darin | [Welten und Kennung](welten.md) |
 | `--assets DIR` | Asset-Wurzel, mehrfach, spätere überschreiben frühere | [Assets und Biomdaten](assets.md) |
 | `--data DIR` | Datenwurzel mit Biomdefinitionen und Bannermustern, mehrfach | [Assets und Biomdaten](assets.md) |
+| `--download-client-jar` | Assets und Daten aus dem Client-Jar von Mojang, vor allen `--assets` und `--data`; lädt es einmal in den Cache. Der Schalter ist die Zustimmung | [Assets und Biomdaten](assets.md), „Von Mojang laden“ |
+| `--client-version VERSION`, `--cache-dir DIR` | nur mit `--download-client-jar`: die Version statt der aus `level.dat`, der Ordner des Caches | [Assets und Biomdaten](assets.md), „Von Mojang laden“ |
 | `--at X Y Z` | die Blockstate an dieser Weltkoordinate ausgeben | unten |
 | `--block BLOCKSTATE` | eine Blockstate auflösen, mehrfach | unten |
 | `--sprite DATEI` | die Blockstates aus `--block` als Sprites in eine PNG rastern | unten |

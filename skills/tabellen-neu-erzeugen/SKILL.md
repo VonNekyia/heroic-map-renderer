@@ -127,3 +127,9 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    [`docs/renderer/blockentities.md`](../../docs/renderer/blockentities.md)
    und jede Seite, die die Version nennt: `git grep -n "26\.2" docs/`.
    Skill [`doku-pflegen`](../doku-pflegen/SKILL.md).
+11. **Client-Jar:** in `JARS` in `renderer/src/cli/client.rs` ein Eintrag,
+   aufsteigend nach DataVersion: die Version, `world_version` aus
+   `version.json` im Client-JAR, `downloads.client.sha1` und
+   `downloads.client.size` aus dem Versions-JSON, siehe
+   [`docs/entwicklung/tabellen.md`](../../docs/entwicklung/tabellen.md),
+   „Client-Jars“. Die Tests in `client.rs` nennen die Versionen.

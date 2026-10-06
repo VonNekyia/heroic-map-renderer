@@ -131,9 +131,9 @@ fn verdecken_aendert_kein_pixel() {
 
 /// Eine eigene Laubfarbe färbt genau ihren Block, Dschungellaub mit
 /// Biomfarbe wie Fichte mit fester Farbe: Jeder Pixel, der sich ändert,
-/// liegt im Rechteck um diesen Block, und in jedem ändert sich einer, auch
-/// aus der Gegenrichtung. Die Lagen sind in x und z verschieden, sonst
-/// fiele ein Tausch nicht auf.
+/// liegt im Rechteck um diesen Block und ist rot wie die Farbe, und in
+/// jedem Rechteck ändert sich einer, auch aus der Gegenrichtung. Die Lagen
+/// sind in x und z verschieden, sonst fiele ein Tausch nicht auf.
 /// Siehe docs/benutzung/laubfarben.md, „Wirkung“.
 #[test]
 fn eigene_laubfarbe_faerbt_genau_ihren_block() {
@@ -182,6 +182,13 @@ fn eigene_laubfarbe_faerbt_genau_ihren_block() {
                 panic!("{name}: Pixel ({x}, {y}) ausserhalb der Blöcke");
             };
             je_block[i] += 1;
+            // Getönt mit 0xff2020: Rot überwiegt.
+            let [r, g, blau, _] = b.get_pixel(px, py).0;
+            assert!(
+                r > g && r > blau,
+                "{name}: Pixel ({x}, {y}) ist {:?}, nicht rot",
+                b.get_pixel(px, py).0
+            );
         }
         assert!(je_block.iter().all(|&n| n > 0), "{name}: {je_block:?}");
     }

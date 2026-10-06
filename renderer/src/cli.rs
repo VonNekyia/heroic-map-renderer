@@ -31,6 +31,8 @@ use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, Worl
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 
+#[cfg(any(windows, test))]
+mod assistent;
 mod client;
 mod manifest;
 mod schaetzung;
@@ -502,6 +504,12 @@ struct Karte {
 
 pub fn run() -> Result<()> {
     std::panic::set_hook(still_beim_fangen(std::panic::take_hook()));
+    // Ohne Argumente an einer Konsole unter Windows, etwa per Doppelklick:
+    // der Assistent. Siehe docs/benutzung/assistent.md.
+    #[cfg(windows)]
+    if std::env::args_os().len() == 1 && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return assistent::starte();
+    }
     let args = Args::parse();
     ALS_JSON.store(args.progress == ProgressMode::Json, Ordering::Relaxed);
     // Vor dem ersten Thread: Threads erben die Priorität, und rayon legt

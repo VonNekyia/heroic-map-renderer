@@ -35,7 +35,8 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring"]
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "dx12", "metal"] }  # ohne GL: lief nirgends in der CI
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }  # Junction oder Symlink, wie Java sie unterscheidet; Priorität für --low-priority
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_Console"] }  # Junction oder Symlink, wie Java sie unterscheidet; Priorität für --low-priority; die Konsole des Assistenten
+rfd = { version = "0.17", default-features = false }  # Ordnerdialog des Assistenten, nur Windows, siehe docs/entscheidungen/0087-assistent-auf-der-konsole.md
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"                         # Priorität für --low-priority; steckt schon über wgpu im Baum

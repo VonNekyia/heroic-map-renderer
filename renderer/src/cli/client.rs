@@ -124,8 +124,13 @@ pub(super) fn basis(jar: &Jar, cache: &Path) -> Result<[PathBuf; 2]> {
     basis_von(jar, cache, HOST, 80)
 }
 
+/// Der Ordner des ausgepackten Jars im Cache.
+pub(super) fn ordner_im_cache(jar: &Jar, cache: &Path) -> PathBuf {
+    cache.join(format!("client-{}-{}", jar.version, jar.sha1))
+}
+
 fn basis_von(jar: &Jar, cache: &Path, host: &str, port: u16) -> Result<[PathBuf; 2]> {
-    let ordner = cache.join(format!("client-{}-{}", jar.version, jar.sha1));
+    let ordner = ordner_im_cache(jar, cache);
     if !ordner.is_dir() {
         println!("Client:     {}", zustimmung(jar));
         println!("            lade von {host}, zugestimmt mit --download-client-jar");

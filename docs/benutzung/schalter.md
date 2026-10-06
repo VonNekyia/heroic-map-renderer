@@ -44,6 +44,7 @@ Texte.
 | `--progress text\|json` | mit `--tiles`: den Fortschritt als `n/N Kacheln` oder als JSON-Zeilen melden, Vorgabe `text` | [Kacheln exportieren](kacheln.md), „Fortschritt als JSON: `--progress`“; Vertrag in [Plugin](../plugin.md), „Fortschritt als JSON“ |
 | `--threads N` | so viele Threads für jede Phase, ab 1; geht `RAYON_NUM_THREADS` vor; ohne Angabe so viele, wie es logische CPUs gibt | unten, „Threads und Priorität“ |
 | `--low-priority` | mit niedrigster Priorität laufen, damit etwa ein Server daneben vorgeht | unten, „Threads und Priorität“ |
+| `--estimate` | mit `--tiles`: nur schätzen, wie viele Kacheln, wie viel Platz und wie lange der Lauf braucht und ob der Platz reicht; schreibt unter `--tiles` nichts | [Was ein Lauf kostet](kosten.md), „Schätzen: `--estimate`“ |
 | `--defender-exclusion` | mit `--tiles`, nur unter Windows: eine Ausnahme im Echtzeitschutz setzen | [Echtzeitschutz](echtzeitschutz.md) |
 | `--pyramid DIR` | Zoomstufen und `map.json` aus den Basiskacheln nachbauen, ohne Welt und Assets; daneben nur `--threads` und `--low-priority` | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--heights DIR` | die Höhen für die Koordinatenanzeige in einen bestehenden Baum schreiben, ohne zu rendern; `DIR` ist der Ordner des Baums; braucht nur `--world` | [map.json](map-json.md), „Höhen“ |

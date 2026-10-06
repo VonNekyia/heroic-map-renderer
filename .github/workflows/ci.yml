@@ -101,6 +101,14 @@ jobs:
           python -c "import sys; d = open(sys.argv[1], 'rb').read().lower(); sys.exit(any(n in d for n in (b'vcruntime140', b'ucrtbase', b'api-ms-win-crt-')))" target/debug/heroic-map-renderer.exe \
             || { echo "::error::Das Binär importiert die VC++-Laufzeit"; exit 1; }
 
+      # Unter Windows liest Python Text sonst als cp1252; das Skript bricht
+      # ab, wenn die Autoren aus cargo metadata nicht wörtlich in Cargo.toml
+      # stehen.
+      - name: Hinweise auf Drittlizenzen (Windows)
+        if: matrix.os == 'windows-latest'
+        timeout-minutes: 10
+        run: python drittlizenzen.py hinweise
+
   web:
     name: Frontend
     runs-on: ubuntu-latest

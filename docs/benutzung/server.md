@@ -186,7 +186,9 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --site-url https://example.
 
 - **Zusammen:** `--site-url`, `--site-title` und `--site-description` nur
   alle drei und nur mit `--web`; `--site-image` nur mit ihnen. Ohne
-  liefert der Server die Seite, wie der Build sie schrieb.
+  liefert der Server die Seite, wie der Build sie schrieb. Ein leerer Titel
+  oder eine leere Beschreibung beendet den Start: Anders als der Build hat
+  der Server keine Vorgabe, auf die er zurückfiele.
 - **Adresse:** nur `http://` oder `https://` mit Host, ohne Leerzeichen,
   Anführungszeichen, `<`, `>`, `&`, `\`, `?` und `#`; ohne `/` am Ende
   hängt der Server eins an. Sonst startet er nicht.
@@ -195,14 +197,16 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --site-url https://example.
   ohne `:`. Ohne `--site-image` fällt der Bild-Block weg.
 - **Was er liefert:** für `/` und `/index.html` die gefüllte `seite.html`
   aus `--web`, für `/robots.txt` die gefüllte `robots.vorlage.txt` mit dem
-  Pfad der Adresse. Beide mit den Headern der Karte und `no-cache`, ohne
+  Pfad der Adresse, beide in jeder Schreibung. Beide mit den Headern der Karte und `no-cache`, ohne
   ETag: Derselbe Build gibt mit anderen Angaben eine andere Seite. Er liest
   die Vorlagen bei jeder Anfrage, so passt die Seite auch nach einem neuen
   Build zu dessen Dateien unter `assets/`.
 - **Die Vorlagen selbst** geben `404`, `seite.html` und
   `robots.vorlage.txt` in jeder Schreibung, auch ohne `--site-*`.
-- **Ohne `seite.html`** in `--web`, etwa bei einem Build von vor #151,
-  startet er mit `--site-*` nicht.
+- **Ohne `seite.html` oder `robots.vorlage.txt`** in `--web`, etwa bei
+  einem Build von vor #151 oder einer halb ausgepackten Seite, startet er
+  mit `--site-*` nicht. Ohne die Vorlage gäbe `/robots.txt` `404`, und
+  Crawler nähmen alles für erlaubt, auch `/tiles/`.
 
 ## HTTPS
 

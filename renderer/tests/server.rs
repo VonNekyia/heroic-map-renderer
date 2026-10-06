@@ -1165,7 +1165,7 @@ fn angaben_zur_laufzeit() {
     );
     let erwartet = "<title>Welt &amp; Co</title><link rel=\"canonical\" href=\"https://example.org/karte/\">\
          <meta property=\"og:image\" content=\"https://example.org/karte/vorschau.jpg\">";
-    for pfad in ["/", "/index.html"] {
+    for pfad in ["/", "/index.html", "/INDEX.HTML", "/Index.html"] {
         let a = hole(server.adresse, pfad);
         assert_eq!(a.status, 200, "{pfad}");
         assert_eq!(
@@ -1185,6 +1185,7 @@ fn angaben_zur_laufzeit() {
     let robots = hole(server.adresse, "/robots.txt");
     assert_eq!(robots.status, 200);
     assert_eq!(robots.koerper, b"Disallow: /karte/tiles/\n");
+    assert_eq!(hole(server.adresse, "/Robots.TXT").koerper, robots.koerper);
     assert_eq!(
         robots.header("content-type"),
         Some("text/plain; charset=utf-8")
@@ -1224,8 +1225,12 @@ fn angaben_zur_laufzeit() {
     drop(server);
 
     let falsch = angaben("ftp://example.org/");
-    std::fs::remove_file(seite.path().join("seite.html")).unwrap();
-    for (extra, grund) in [(&falsch, "--site-url"), (&ohne_bild, "seite.html")] {
+    let leer = [
+        &angaben("https://example.org/")[..6],
+        &["--site-description".into(), String::new()],
+    ]
+    .concat();
+    let starte_nicht = |extra: &[String], grund: &str| {
         let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
             .arg("--serve")
             .arg(kacheln.path())
@@ -1237,7 +1242,13 @@ fn angaben_zur_laufzeit() {
         let fehler = String::from_utf8_lossy(&ausgabe.stderr);
         assert!(!ausgabe.status.success(), "{grund}");
         assert!(fehler.contains(grund), "{grund}: {fehler}");
-    }
+    };
+    starte_nicht(&falsch, "--site-url");
+    starte_nicht(&leer, "--site-description ist leer");
+    std::fs::remove_file(seite.path().join("robots.vorlage.txt")).unwrap();
+    starte_nicht(&ohne_bild, "robots.vorlage.txt");
+    std::fs::remove_file(seite.path().join("seite.html")).unwrap();
+    starte_nicht(&ohne_bild, "seite.html");
 }
 
 /// Unter `/tiles/` nur Bäume, die `trees.json` der Wurzel nennt: Ein Baum,

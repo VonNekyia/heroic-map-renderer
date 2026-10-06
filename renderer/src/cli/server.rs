@@ -91,6 +91,11 @@ impl Angaben {
         beschreibung: &str,
         bild: Option<&str>,
     ) -> Result<Angaben> {
+        ensure!(!titel.trim().is_empty(), "--site-title ist leer");
+        ensure!(
+            !beschreibung.trim().is_empty(),
+            "--site-description ist leer"
+        );
         let sicher = |text: &str| {
             text.bytes().all(|b| {
                 b.is_ascii_graphic()
@@ -235,11 +240,15 @@ pub(super) fn serve(e: Einstellung) -> Result<()> {
     }
     if let Some(seite) = &e.seite {
         pruefe_ineinander(&e.kacheln, seite)?;
-        ensure!(
-            e.angaben.is_none() || seite.join(VORLAGE_SEITE).is_file(),
-            "{} hat keine {VORLAGE_SEITE}; --site-* braucht einen Build, der sie ablegt",
-            seite.display()
-        );
+        // Ohne robots.vorlage.txt gäbe /robots.txt 404, und Crawler nähmen
+        // alles für erlaubt, auch /tiles/.
+        for vorlage in [VORLAGE_SEITE, VORLAGE_ROBOTS] {
+            ensure!(
+                e.angaben.is_none() || seite.join(vorlage).is_file(),
+                "{} hat keine {vorlage}; --site-* braucht einen Build, der sie ablegt",
+                seite.display()
+            );
+        }
     }
     let laufzeit = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(e.threads)
@@ -718,10 +727,14 @@ async fn antwort(
         return Ok(leer(&z, StatusCode::NOT_FOUND));
     }
     if let (Some(_), Some(seite)) = (&z.angaben, &z.seite) {
-        let vorlage = match pfad {
-            "/" | "/index.html" => Some((VORLAGE_SEITE, "index.html")),
-            "/robots.txt" => Some((VORLAGE_ROBOTS, "robots.txt")),
-            _ => None,
+        // Ohne Rücksicht auf die Schreibung: Windows öffnete sonst mit
+        // `/INDEX.HTML` die Seite des Builds.
+        let vorlage = if pfad == "/" || pfad.eq_ignore_ascii_case("/index.html") {
+            Some((VORLAGE_SEITE, "index.html"))
+        } else if pfad.eq_ignore_ascii_case("/robots.txt") {
+            Some((VORLAGE_ROBOTS, "robots.txt"))
+        } else {
+            None
         };
         if let Some((vorlage, name)) = vorlage {
             let vorlage = seite.join(vorlage);
@@ -1386,6 +1399,10 @@ mod tests {
             "https://example.org/#x",
         ] {
             assert!(Angaben::neu(url, "t", "b", None).is_err(), "{url}");
+        }
+        for (titel, beschreibung) in [("", "b"), ("t", ""), (" ", "b"), ("t", "\t")] {
+            let angaben = Angaben::neu("https://example.org/", titel, beschreibung, None);
+            assert!(angaben.is_err(), "{titel:?} {beschreibung:?}");
         }
         for bild in [
             "../x.jpg",

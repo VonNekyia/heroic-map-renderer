@@ -675,6 +675,17 @@ fn melde_unfertige(survey: &Survey) {
     }
 }
 
+/// Wie viele Chunks eigene Laubfarben trugen, die dem Vertrag nicht folgen;
+/// sie zeichnen ohne. Siehe docs/benutzung/laubfarben.md.
+fn melde_laubfarben(survey: &Survey) {
+    if let Some(([cx, cz], grund)) = &survey.laubfarben_grund {
+        println!(
+            "            {} Chunks mit ungültigen Laubfarben, ohne gezeichnet; zuerst Chunk {cx} {cz}: {grund}",
+            survey.laubfarben_ungueltig
+        );
+    }
+}
+
 fn at_coordinate(world: &World, assets: Option<&mut Assets>, x: i32, y: i32, z: i32) -> Result<()> {
     let chunk = world
         .stored_chunk(x >> 4, z >> 4)
@@ -986,6 +997,9 @@ fn render_world(
     )?;
     let mut sprites = SpriteSet::build_mit_licht(assets, &survey.states, projection, None, look)?;
     let unbekannt = sprites.add_entities(assets, &survey.entities)?;
+    if survey.festes_laub {
+        sprites.toenbares_festes_laub(assets, &survey.states)?;
+    }
     sprites.set_biomes(biomfarben(world, assets, blend)?);
     warn_unknown_biomes(assets, &survey.biomes);
     melde_unbekannte_daten(&unbekannt);
@@ -997,6 +1011,7 @@ fn render_world(
         sprites.len()
     );
     melde_unfertige(&survey);
+    melde_laubfarben(&survey);
     melde_ueberhang(&sprites);
 
     let image = render_area(world, &sprites, rect, Y_RANGE)?;
@@ -1501,6 +1516,7 @@ fn write_tiles(
         "s": sekunden(started),
     }));
     melde_unfertige(&survey);
+    melde_laubfarben(&survey);
     // Der Stand eines vollen Laufs: je Chunk aus dem Kopf sein Stempel, aus
     // dem Vorlauf sein Inhalt.
     let stand = match stand {
@@ -1617,6 +1633,9 @@ fn write_tiles(
     let biomes = biomfarben(world, assets, blend)?;
     let mut sprites = SpriteSet::build_mit_licht(assets, &survey.states, projection, None, look)?;
     let unbekannt = sprites.add_entities(assets, &survey.entities)?;
+    if survey.festes_laub {
+        sprites.toenbares_festes_laub(assets, &survey.states)?;
+    }
     sprites.set_biomes(biomes.clone());
     println!(
         "            {} Sprites bei scale {}, davon {} Fassungen",
@@ -1876,6 +1895,7 @@ fn write_tiles(
         &mut weg,
         karte,
         look,
+        survey.festes_laub,
     )?;
     im_speicher.extend(nativ_im_speicher);
     build_pyramid(dir, z, kandidaten, &waisen, &mut weg, &im_speicher)?;
@@ -2872,6 +2892,7 @@ fn fill_heights(world: &World, dir: &Path) -> Result<()> {
         started.elapsed().as_secs_f64()
     );
     melde_unfertige(&survey);
+    melde_laubfarben(&survey);
     let (ziel, muster) = match wurzel {
         Some(wurzel) => (wurzel, heights::PATTERN_WURZEL),
         None => (dir, heights::PATTERN),
@@ -3558,6 +3579,7 @@ fn render_coarser(
     weg: &mut BTreeSet<(u32, TileId)>,
     karte: Option<&Karte>,
     look: Option<Look>,
+    festes_laub: bool,
 ) -> Result<(u32, BTreeSet<TileId>, Kacheln, Speicherstand)> {
     if stufen == 0 {
         return Ok((max_zoom, kandidaten, Kacheln::new(), Speicherstand::new()));
@@ -3579,6 +3601,9 @@ fn render_coarser(
         )?;
         // Was unbekannt ist, hat die Basis schon gemeldet.
         sprites.add_entities(assets, entities)?;
+        if festes_laub {
+            sprites.toenbares_festes_laub(assets, states)?;
+        }
         sprites.set_biomes(biomes.clone());
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);

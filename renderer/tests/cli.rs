@@ -6014,3 +6014,86 @@ fn mit_threads_kein_software_adapter() {
         );
     }
 }
+
+/// Eigene Laubfarben aus `ChunkBukkitValues` färben genau das Laub an ihrer
+/// Lage, Dschungellaub mit Biomfarbe wie Fichte mit fester Farbe. Ohne Schlüssel und
+/// mit einer Vorgabe auf Stein bleibt jede Kachel bytegleich. Mit einer
+/// Vorgabe auf Fichte bekommt alles Fichtenlaub eine Tönungskarte und weicht
+/// um höchstens 1 je Kanal ab.
+#[test]
+fn eigene_laubfarben_faerben_genau_das_laub() {
+    fn szene(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (_, 0, _) => "minecraft:stone",
+            (2..=5, 1, 2..=5) => "minecraft:jungle_leaves",
+            (9..=12, 1, 9..=12) => "minecraft:spruce_leaves",
+            _ => "minecraft:air",
+        }
+    }
+    let rot = 0xff_2020;
+    let baum = |lage: Option<[i32; 3]>| {
+        let welt = tempdir();
+        common::write_world_bukkit(welt.path(), &[(0, 0)], szene, |_, _| {
+            lage.map(|lage| common::laubfarben(&[(rot, &[lage])]))
+        });
+        let ziel = neuer_baum("2x1-se");
+        gelungen(&tiles(
+            welt.path(),
+            ziel.path(),
+            &["--scale", "16", "--native-levels", "0", "--gpu", "off"],
+        ));
+        let z = max_zoom(ziel.path());
+        let bilder: BTreeMap<TileId, RgbaImage> = kacheln(ziel.path(), z)
+            .into_iter()
+            .map(|(tile, pfad)| (tile, bild(&pfad)))
+            .collect();
+        (welt, ziel, bilder)
+    };
+    // Je Kachel die Pixel, die um mehr als `toleranz` je Kanal abweichen.
+    let abweichend =
+        |a: &BTreeMap<TileId, RgbaImage>, b: &BTreeMap<TileId, RgbaImage>, toleranz: u8| {
+            assert_eq!(a.keys().collect::<Vec<_>>(), b.keys().collect::<Vec<_>>());
+            a.iter()
+                .map(|(tile, bild)| {
+                    bild.pixels()
+                        .zip(b[tile].pixels())
+                        .filter(|(p, q)| p.0.iter().zip(q.0).any(|(x, y)| x.abs_diff(y) > toleranz))
+                        .count()
+                })
+                .sum::<usize>()
+        };
+    let ohne = baum(None);
+    let stein = baum(Some([0, 0, 0]));
+    assert_eq!(
+        abweichend(&ohne.2, &stein.2, 0),
+        0,
+        "eine Vorgabe auf Stein färbte"
+    );
+
+    // Ein Laubblock bei scale 16 deckt höchstens 16 × 24 Pixel.
+    let dschungel = baum(Some([3, 1, 3]));
+    let gefaerbt = abweichend(&ohne.2, &dschungel.2, 0);
+    assert!(
+        0 < gefaerbt && gefaerbt <= 16 * 24,
+        "Dschungel: {gefaerbt} Pixel"
+    );
+
+    let fichte = baum(Some([10, 1, 10]));
+    let gefaerbt = abweichend(&ohne.2, &fichte.2, 1);
+    assert!(
+        0 < gefaerbt && gefaerbt <= 16 * 24,
+        "Fichte: {gefaerbt} Pixel"
+    );
+
+    // Nur die Vorgabe auf Fichte verlangt die Tönungskarte.
+    let fest = |welt: &TempDir| {
+        let world = World::open(welt.path()).unwrap();
+        survey(&world, Projection::new(16), (-64, 319), None)
+            .unwrap()
+            .festes_laub
+    };
+    assert_eq!(
+        [&ohne.0, &stein.0, &dschungel.0, &fichte.0].map(fest),
+        [false, false, false, true]
+    );
+}

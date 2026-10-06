@@ -12,6 +12,7 @@ use image::RgbaImage;
 use libwebp_sys as webp;
 use rayon::prelude::*;
 
+use crate::assets::colors::{Source, eigene_laubfarbe, source_of};
 use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
 use super::heights::{Heights, RegionHeights};
@@ -312,6 +313,14 @@ pub struct Survey {
     /// Mit [`Reach::mit_inhalt`] je gelesenem Chunk, was der Renderer aus
     /// ihm zeichnet, für den Stand eines vollen Laufs.
     pub inhalte: Vec<([i32; 2], Inhalt)>,
+    /// Ob eine eigene Laubfarbe auf Laub mit fester Farbe liegt, Fichte oder
+    /// Birke: Dann braucht es eine Tönungskarte, siehe
+    /// [`super::SpriteSet::toenbares_festes_laub`].
+    pub festes_laub: bool,
+    /// Chunks, deren Laubfarben nicht dem Vertrag folgen, und für den ersten
+    /// seine Lage und der Grund.
+    pub laubfarben_ungueltig: usize,
+    pub laubfarben_grund: Option<([i32; 2], String)>,
 }
 
 /// Welche Chunks der Vorlauf liest: die, deren Spalte über die ganze
@@ -579,6 +588,11 @@ pub fn survey_mit_fortschritt(
         survey.heights.extend(teil.heights);
         survey.unfinished += teil.unfinished;
         survey.inhalte.extend(teil.inhalte);
+        survey.festes_laub |= teil.festes_laub;
+        survey.laubfarben_ungueltig += teil.laubfarben_ungueltig;
+        if survey.laubfarben_grund.is_none() {
+            survey.laubfarben_grund = teil.laubfarben_grund;
+        }
     }
     survey.tiles = tiles.into_iter().collect();
     Ok(survey)
@@ -620,6 +634,20 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
                 continue;
             }
             survey.chunks += 1;
+            if im_bild {
+                if let Some(grund) = chunk.laubfarben_fehler() {
+                    survey.laubfarben_ungueltig += 1;
+                    survey
+                        .laubfarben_grund
+                        .get_or_insert(([cx, cz], grund.to_string()));
+                }
+                survey.festes_laub |= chunk.laubfarben().any(|([x, y, z], _)| {
+                    chunk.block_at(x, y, z).is_some_and(|block| {
+                        matches!(source_of(block.name()), Some(Source::Fixed(_)))
+                            && eigene_laubfarbe(block.name())
+                    })
+                });
+            }
             // Die Höhen hängen nicht an der Sprite-Tabelle: auch ein Chunk,
             // dessen Blöcke ausserhalb landen, bekommt seine.
             if im_bild {

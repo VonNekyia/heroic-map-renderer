@@ -7,7 +7,7 @@ use anyhow::Result;
 use crate::assets::baker::{BakedModel, Quad, box_quads};
 use crate::assets::blockentity;
 use crate::assets::blockstate::{self, KOLLISION, ModelRef, Nachbarregel, seite};
-use crate::assets::colors::{Resolver, Source, Tint, source_of, tinted_below};
+use crate::assets::colors::{Resolver, Source, Tint, eigene_laubfarbe, source_of, tinted_below};
 use crate::assets::fluid::Fluid;
 use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, CardinalLight, Face, Textures, Tints, fluid, models_of};
@@ -88,6 +88,9 @@ pub struct SpriteSet {
     /// Würfel um einen Block, in die irgendein Modell ragt, von und bis.
     masken: Masken,
     sonne_reich: [[i32; 3]; 2],
+    /// Ob Fichten- und Birkenlaub mit Tönungskarte gerastert wird, siehe
+    /// [`SpriteSet::toenbares_festes_laub`].
+    festes_laub: bool,
 }
 
 /// Die Pixel eines vollen Wuerfels relativ zum Blockursprung, gerastert wie
@@ -206,6 +209,12 @@ pub struct Family {
     /// Nimmt der Block diese Farbe am Block darunter, siehe
     /// [`tinted_below`]?
     pub tint_below: bool,
+    /// Wirken eigene Laubfarben auf dem Block, siehe [`eigene_laubfarbe`]?
+    pub laub: bool,
+    /// Die feste Farbe, wenn die gefärbten Flächen sie nicht im Bild tragen,
+    /// sondern über die Tönungskarte, siehe
+    /// [`SpriteSet::toenbares_festes_laub`].
+    pub fest: Option<Tint>,
     /// Wo die andere Hälfte einer Doppelkiste steht, relativ zum Block, im
     /// Blick, siehe [`doppelkiste`].
     pub doppelkiste: Option<[i32; 3]>,
@@ -576,6 +585,7 @@ impl SpriteSet {
             kino,
             masken: Masken::default(),
             sonne_reich: [[0; 3]; 2],
+            festes_laub: false,
         };
 
         // Erst gruppieren: Blockstates, die sich nur in Eigenschaften ohne
@@ -712,6 +722,35 @@ impl SpriteSet {
         self.by_entity.get(&family)?.get(daten).copied()
     }
 
+    /// Rastert die Familien von Laub mit fester Farbe aus `states`, Fichte
+    /// und Birke, neu mit Tönungskarte, damit eigene Laubfarben auf ihnen
+    /// wirken. Nur, wenn der Vorlauf welche auf ihnen fand: Über die Karte
+    /// gemischt weicht ihre Farbe um bis zu 1 je Kanal vom Bild ab.
+    /// Siehe docs/entscheidungen/0081-eigene-laubfarben.md.
+    pub fn toenbares_festes_laub<'a>(
+        &mut self,
+        assets: &mut Assets,
+        states: impl IntoIterator<Item = &'a BlockState>,
+    ) -> Result<()> {
+        self.festes_laub = true;
+        let mut neu = HashSet::new();
+        for state in states {
+            let fest = matches!(source_of(state.name()), Some(Source::Fixed(_)));
+            let Some(index) = self.family_index(state) else {
+                continue;
+            };
+            if !fest || !eigene_laubfarbe(state.name()) || !neu.insert(index) {
+                continue;
+            }
+            let models = models_of(assets, state, None)?;
+            let pflanze = self.kino.is_some() && assets.bodenpflanze(state)?;
+            if let Some(family) = self.rastere_familie(assets, state, &models, pflanze) {
+                self.families[index as usize] = family;
+            }
+        }
+        Ok(())
+    }
+
     /// Rastert die Alternativen einer Blockstate zu einer Familie, `None`,
     /// wenn keine etwas zeichnet. `pflanze`: Der Block ist eine Bodenpflanze
     /// ([`Assets::bodenpflanze`]).
@@ -807,6 +846,13 @@ impl SpriteSet {
                 _ => None,
             },
             tint_below: tinted_below(state.name(), state.prop("half")),
+            laub: eigene_laubfarbe(state.name()),
+            fest: match source_of(state.name()) {
+                Some(Source::Fixed(tint)) if self.festes_laub && eigene_laubfarbe(state.name()) => {
+                    Some(tint)
+                }
+                _ => None,
+            },
             doppelkiste: doppelkiste(state).map(|d| projection.richtung().versatz_in_den_blick(d)),
             nachbarn,
             voll: blockstate::volle_seiten(state),
@@ -1027,7 +1073,14 @@ impl SpriteSet {
                 Some(fluid::TINT_INDEX) => (block, true),
                 Some(_) => (true, water),
             });
-        let source = source_of(state.name()).filter(|_| block);
+        // Fichte und Birke tragen ihre feste Farbe sonst im Bild; mit
+        // eigenen Laubfarben bekommen sie eine Tönungskarte wie Eiche.
+        let source = match source_of(state.name()).filter(|_| block) {
+            Some(Source::Fixed(_)) if self.festes_laub && eigene_laubfarbe(state.name()) => {
+                Some(Source::Biome(Resolver::Foliage))
+            }
+            source => source,
+        };
         let biome = matches!(source, Some(Source::Biome(_)));
         let fixed = match source {
             Some(Source::Fixed(tint)) => Some(tint),
@@ -1540,6 +1593,8 @@ mod tests {
             seed_offset: [0, 0, 0],
             resolver: None,
             tint_below: false,
+            laub: false,
+            fest: None,
             doppelkiste: None,
             nachbarn: None,
             voll: 0,

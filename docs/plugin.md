@@ -107,14 +107,15 @@ wie sie entstehen, steht in [Was ein Lauf kostet](benutzung/kosten.md),
 | `finished` | Anteil der fertig erzeugten aus der Stichprobe, 0 bis 1 |
 | `tiles` | Basiskacheln, `[unten, oben]` |
 | `bytes` | Platz des ganzen Baums in Byte, `[unten, oben]` |
-| `files` | Dateien des Baums, oben gerechnet |
+| `files` | Dateien des Baums, `[unten, oben]` |
 | `s` | Dauer des Laufs in ganzen Sekunden, `[unten, oben]` |
 | `free_bytes` | freier Platz unter `--tiles`, `null`, wenn unbekannt |
 | `enough` | ob `free_bytes` über dem oberen Rand von `bytes` liegt, `null`, wenn unbekannt |
 | `probe_s` | wie lange die Schätzung selbst brauchte |
 
-Ohne Chunk steht nur `chunks` da, ohne fertig erzeugten Chunk nur
-`chunks` und `finished`.
+Jede Zahl ist eine Spanne, nie ein Punkt. Eine Warnung vor dem Lauf nimmt
+den oberen Rand. Ohne Chunk steht nur `chunks` da, ohne fertig erzeugten
+Chunk nur `chunks` und `finished`.
 
 ## Token
 

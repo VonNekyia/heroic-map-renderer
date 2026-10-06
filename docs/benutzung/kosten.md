@@ -151,65 +151,76 @@ Hebel 3 ist nicht übernommen. Beides siehe
 
 `--estimate` nimmt dieselben Schalter wie ein Lauf mit `--tiles` und sagt
 vorher, wie viele Basiskacheln er schreibt, wie viel Platz er braucht, wie
-lange er dauert und ob der Platz unter `--tiles` reicht. Unter `--tiles`
-schreibt es nichts. Der Code steht in
+lange er dauert und ob der Platz unter `--tiles` reicht. Jede Zahl ist eine
+Spanne. Unter `--tiles` schreibt es nichts. Der Code steht in
 [`renderer/src/cli/schaetzung.rs`](../../renderer/src/cli/schaetzung.rs).
 
 1. **Chunks:** aus den Köpfen der Regionsdateien, ohne zu dekodieren. Darin
    stehen auch die nicht fertig erzeugten.
-2. **Fertig erzeugt:** Eine gleichmässige Stichprobe von höchstens 2000
-   dieser Chunks wird dekodiert. Die unfertigen liegen meist am Rand der
-   Welt.
-3. **Kacheln:** je fertigem Chunk `256 · Oberseite / 256²`, die Fläche der
-   Oberseite eines Blocks in Pixeln aus der Kamera, mal 1,0 bis 1,2.
-   - Das ergibt 2:1 = 1, 8:5 = 1,25, 4:3 = 1,5 und 1:1 = 2 bei scale 32,
-     genordet bei scale 16 dasselbe wie 2:1 bei 32.
-   - Den Faktor legen Ränder und Höhe der Welt darauf. Gemessen an der
-     grossen Welt 1,013 bis 1,018, an der Testwelt 1,13 bei scale 32 und
-     1,17 bei scale 8.
-4. **Probelauf:** acht Ausschnitte aus ganzen Kacheln, je zwei um vier
-   fertige Chunks der Stichprobe, mit denselben Schaltern und `--threads`.
-   Der kleine hat die Kante k = `⌈√(4 · Threads)⌉`, 4 bis 32 Kacheln, der
-   grosse 2k. Sie laufen als eigene Prozesse mit `--progress json` in einen
-   Ordner unter dem Temp-Verzeichnis des Systems, der danach wegfällt.
-5. **Platz:** Kacheln mal Bytes je Basiskachel des Probelaufs mal 0,8 bis
-   1,0, dazu 30 bis 47 % für native Stufen und Pyramide. Die Proben lagen
-   an der Testwelt 4 bis 16 % über dem Schnitt der Basis. Gemessen sind 32 bis 37 % an der
-   grossen Welt und 45 % an der Testwelt bei scale 8. Dateien: Kacheln mal
-   4/3.
-6. **Dauer:** aus dem Probelauf, je Mitte ein Ausschnitt mit Kante k und
-   einer mit 2k.
+2. **Fertig erzeugt:** Jeder k-te dieser Chunks, höchstens 2000, wird
+   dekodiert. Die Liste ist nach Regionen geordnet; so trägt jede Region im
+   Verhältnis ihrer Chunks bei, auch die am Rand, wo die unfertigen liegen.
+3. **Kacheln:** je fertigem Chunk `256 · Oberseite / 256²`, mit der Fläche
+   der Oberseite eines Blocks in Pixeln aus der Kamera. Das ergibt bei
+   scale 32 für 2:1 = 1, 8:5 = 1,25, 4:3 = 1,5 und 1:1 = 2; genordet bei
+   scale 16 dasselbe wie 2:1 bei 32.
+4. **Probelauf:** je zwei Ausschnitte aus ganzen Kacheln um vier fertige
+   Chunks der Stichprobe, mit denselben Schaltern und `--threads`.
+   - Der kleine hat die Kante k = `⌈√(4 · Threads)⌉`, 4 bis 32 Kacheln, der
+     grosse 2k.
+   - Sie laufen als eigene Prozesse mit `--progress json` in einen Ordner
+     unter dem Temp-Verzeichnis des Systems, der danach wegfällt.
+   - Ganze Kacheln, weil ein Rechteck mit `--area` halb leere Randkacheln
+     hat. Zwei Grössen, weil ein kleiner Ausschnitt mehr Chunks je Kachel
+     liest als die Welt: Unter ihm ragen Säulen hinein, die er dekodiert und
+     beleuchtet.
+5. **Platz:** Kacheln mal Bytes je Basiskachel des Probelaufs, dazu native
+   Stufen und Pyramide. Dateien: Kacheln mal 4/3.
+6. **Dauer:**
    - **Vorlauf:** alle Chunks aus den Köpfen mal die Zeit, die das
-     Dekodieren der Stichprobe je Chunk brauchte, mal 1,1 bis 1,6. Der
+     Dekodieren der Stichprobe je Chunk mit denselben Threads brauchte. Der
      Vorlauf eines Ausschnitts taugt dafür nicht: Er berührt nur wenige
      Regionen und läuft kaum parallel.
-   - **Basis:** je Kachel und je gelesenem Chunk, getrennt über beide
-     Grössen. Ein kleiner Ausschnitt liest mehr Chunks je Kachel als die
-     Welt, denn unter ihm ragen Säulen hinein. Bei scale 32 waren das fast
-     doppelt so viele, und je Kachel allein lag die Schätzung um ein Drittel
-     zu hoch.
+   - **Basis:** ein Anteil je Kachel und einer je gelesenem Chunk, aus den
+     beiden Grössen der Ausschnitte mit kleinsten Quadraten getrennt, mal
+     Kacheln und Chunks der Welt.
    - **Native Stufen:** im Verhältnis, das der Probelauf zwischen ihnen und
      der Basis misst.
-   - **Rest:** 0 bis 3 % für die Pyramide und die festen Kosten eines
-     Laufs. Alles mal 0,8 bis 1,5: Die Dauer schwankt von Tag zu Tag, und
-     ein voller Lauf dekodiert an Streifengrenzen doppelt, ein kleiner
-     Ausschnitt kaum.
+   - **Dazu** die Pyramide und die festen Kosten eines Laufs, die der
+     Probelauf misst.
 7. **Frei:** der freie Platz unter `--tiles` oder dem nächsten Ordner
    darüber, den es gibt. „Reicht“ heisst: mehr als der obere Rand der
-   Spanne.
+   Spanne. Eine Warnung vor dem Lauf nimmt den oberen Rand.
 
-An der Testwelt bei scale 8, 2:1, 24 Threads, ohne Grafikkarte:
+Die Faktoren der Eichung, gemessen in
+[2026-10-06, Schätzung gegen gemessene Läufe](../messungen/2026-10-06-schaetzung.md):
+
+| Faktor | Wert | Herkunft |
+|---|---|---|
+| Kacheln je Fläche der Oberseite | 1,0 bis 1,2 | Ränder und Höhe der Welt: gemessen 1,013 bis 1,018 an der grossen Welt, 1,13 bei scale 32 und 1,17 bei scale 8 an der Testwelt |
+| Bytes je Kachel gegen die Proben | 0,8 bis 1,0 | Die Proben liegen in vollen Kacheln mitten in der Welt. Sie lagen an der Testwelt 4 % (scale 32) bis 16 % (scale 8) über dem Schnitt der echten Basis, an der grossen Welt 8 bis 21 % über Vollrendern mit älterem Code |
+| native Stufen und Pyramide in Bytes | 30 bis 47 % der Basis | gemessen 32 bis 37 % an der grossen Welt, 35 % bei scale 32 und 45 % bei scale 8 an der Testwelt |
+| Vorlauf gegen das Dekodieren der Stichprobe | 1,1 bis 1,6 | Der Vorlauf sammelt dazu Blockstates, Höhen und den Stand; an der Testwelt 1,10 bis 1,55 |
+| Pyramide in der Zeit | 0 bis 3 % der Basis | gemessen 0,2 bis 2,7 % |
+| Dauer insgesamt | 0,8 bis 1,5 | Von Tag zu Tag schwankt die Dauer um ein Viertel, siehe oben; nach oben weiter, denn ein voller Lauf dekodiert an Streifengrenzen doppelt, siehe [2026-09-29, Doppelte Arbeit an Streifengrenzen](../messungen/2026-09-29-streifengrenzen.md) |
+
+An der Testwelt bei scale 8, 2:1, 24 Threads, ohne Grafikkarte; der echte
+Lauf brauchte 89,2 s für 18 164 Kacheln, 1,56 GB und 24 353 Dateien:
 
 ```
 Schätzung:  316223 Chunks in den Köpfen der Regionen, in 0.0 s
-            79 % fertig erzeugt in 1989 Chunks der Stichprobe; Probelauf: 4 Ausschnitte zu 20 x 20 Kacheln, zusammen in 10.8 s
+            79 % fertig erzeugt in 1989 Chunks der Stichprobe; Probelauf: 4 Ausschnitte zu 10 x 10 und 4 zu 20 x 20 Kacheln, zusammen in 19.6 s
             Basis 15600 bis 18700 Kacheln
-            Platz 1.4 GB bis 1.9 GB, rund 25000 Dateien
-            Dauer 63 s bis 2 min mit 24 Threads
+            Platz 1.1 GB bis 1.9 GB, 20800 bis 25000 Dateien
+            Dauer 70 s bis 2 min mit 24 Threads
             Frei <frei> GB, reicht
 ```
 
-Ob die Spannen die gemessenen Läufe treffen, steht in der Messung zu #149.
+Der Probelauf kostet an der Testwelt 10 bis 20 s, an der grossen Welt mit
+Cinematic rund 30 s. Bei vielen Threads dauert die Basis eines Ausschnitts
+nur Zehntelsekunden, und kurze fremde Last verschiebt die Spanne: bei
+scale 32 lag der untere Rand je nach Lauf zwischen rund 165 und 254 s.
+
 Mit `--progress json` kommt dieselbe Schätzung als eine JSON-Zeile, siehe
 [Plugin](../plugin.md), „Schätzung als JSON“.
 

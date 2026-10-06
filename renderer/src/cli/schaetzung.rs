@@ -14,24 +14,20 @@ use rayon::prelude::*;
 
 use super::{Args, Y_RANGE, baum_name, melde_json, sekunden};
 
-/// Kacheln je fertigem Chunk über `256 · oberseite / TILE²`: an den
-/// gemessenen Vollrendern 1,013 bis 1,167.
+// Die Faktoren der Eichung, je `(unten, oben)`. Woher jeder kommt, steht in
+// docs/benutzung/kosten.md, „Schätzen: `--estimate`“.
+
+/// Kacheln je fertigem Chunk über `256 · oberseite / TILE²`.
 const KACHELN_JE_FLAECHE: (f64, f64) = (1.0, 1.2);
-/// Was native Stufen und Pyramide zusammen gegen die Basis wiegen: an den
-/// gemessenen Läufen 32 bis 45 %.
+/// Native Stufen und Pyramide zusammen gegen die Basis, in Bytes.
 const DARUEBER_BYTES: (f64, f64) = (0.30, 0.47);
-/// Bytes je Basiskachel gegen den Schnitt der Proben: Die Proben lagen an
-/// der Testwelt 4 bis 16 % darüber, an der grossen Welt 8 bis 21 %, dort
-/// gegen Vollrender mit älterem Code.
+/// Bytes je Basiskachel gegen den Schnitt der Proben.
 const BYTES_JE_KACHEL: (f64, f64) = (0.8, 1.0);
-/// Der Vorlauf je Chunk gegen das Dekodieren der Stichprobe mit denselben
-/// Threads: an der Testwelt das 1,10- bis 1,55-Fache.
+/// Der Vorlauf je Chunk gegen das Dekodieren der Stichprobe.
 const VORLAUF_JE_DEKODIERTEM: (f64, f64) = (1.1, 1.6);
-/// Die Pyramide gegen die Zeit der Basis: gemessen 0,2 bis 2,7 %.
+/// Die Pyramide gegen die Zeit der Basis.
 const PYRAMIDE_ZEIT: (f64, f64) = (0.0, 0.03);
-/// Um so viel schwankt die Dauer von Tag zu Tag und mit der Last; nach
-/// oben weiter, denn ein voller Lauf dekodiert an Streifengrenzen doppelt,
-/// ein kleiner Ausschnitt kaum.
+/// Die ganze Dauer.
 const DAUER_SPANNE: (f64, f64) = (0.8, 1.5);
 /// Um so viele Mitten rendert der Probelauf, über die Welt verteilt, je
 /// einen kleinen und einen doppelt so breiten Ausschnitt.
@@ -160,7 +156,8 @@ pub(super) fn schaetze(
         kacheln.0 * je_kachel * BYTES_JE_KACHEL.0 * (1.0 + DARUEBER_BYTES.0),
         kacheln.1 * je_kachel * BYTES_JE_KACHEL.1 * (1.0 + DARUEBER_BYTES.1),
     );
-    let dateien = kacheln.1 * 4.0 / 3.0;
+    // Jede Stufe darüber hat ein Viertel der Kacheln: zusammen ein Drittel.
+    let dateien = (kacheln.0 * 4.0 / 3.0, kacheln.1 * 4.0 / 3.0);
 
     // Der Vorlauf liest jeden Chunk aus den Köpfen, auch die unfertigen, über
     // alle Regionen verteilt. Der eines Ausschnitts berührt nur wenige
@@ -204,10 +201,11 @@ pub(super) fn schaetze(
         rund(kacheln.1)
     );
     println!(
-        "            Platz {} bis {}, rund {} Dateien",
+        "            Platz {} bis {}, {} bis {} Dateien",
         groesse(bytes.0),
         groesse(bytes.1),
-        rund(dateien)
+        rund(dateien.0),
+        rund(dateien.1)
     );
     println!(
         "            Dauer {} bis {} mit {} Threads",
@@ -226,7 +224,7 @@ pub(super) fn schaetze(
         "finished": (fertig * 1000.0).round() / 1000.0,
         "tiles": [kacheln.0.round() as u64, kacheln.1.round() as u64],
         "bytes": [bytes.0.round() as u64, bytes.1.round() as u64],
-        "files": dateien.round() as u64,
+        "files": [dateien.0.round() as u64, dateien.1.round() as u64],
         "s": [sekunden_spanne.0.round() as u64, sekunden_spanne.1.round() as u64],
         "free_bytes": frei,
         "enough": reicht,

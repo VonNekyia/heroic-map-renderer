@@ -6052,7 +6052,7 @@ fn schaetzung_schreibt_nichts() {
     assert_eq!(schaetzung["phase"], "estimate", "{schaetzung}");
     assert_eq!(schaetzung["chunks"], 3, "{schaetzung}");
     assert_eq!(schaetzung["finished"], 1.0, "{schaetzung}");
-    for feld in ["tiles", "bytes", "s"] {
+    for feld in ["tiles", "bytes", "files", "s"] {
         let [unten, oben] = [0, 1].map(|i| schaetzung[feld][i].as_u64().unwrap());
         // Die Dauer einer so kleinen Welt rundet auf 0 s.
         assert!(
@@ -6060,7 +6060,6 @@ fn schaetzung_schreibt_nichts() {
             "{feld}: {schaetzung}"
         );
     }
-    assert!(schaetzung["files"].as_u64().unwrap() > 0, "{schaetzung}");
     assert!(
         schaetzung["free_bytes"].as_u64().unwrap() > 0,
         "{schaetzung}"

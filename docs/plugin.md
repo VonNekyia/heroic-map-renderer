@@ -58,7 +58,7 @@ Geschrieben werden die Zeilen von `melde_json` und `fortschritt` in
 | `phase` | wann | Felder |
 |---|---|---|
 | `prepass` | je neuem Prozent der Regionen des Vorlaufs, höchstens 100 Mal, und bei der letzten | `regions`, `of`, `rate`, `eta_s` |
-| `prepass` | einmal, nach dem Vorlauf | `chunks` gelesen, `tiles` zu zeichnen, `s` |
+| `prepass` | einmal, nach dem Vorlauf | `chunks` gelesen und fertig erzeugt, `unfinished` gelesen und nicht fertig erzeugt, `tiles` zu zeichnen, `s` |
 | `base` | alle 200 Basiskacheln und bei der letzten | `tiles`, `of`, `rate`, `eta_s` |
 | `level` | je native Stufe alle 200 Kacheln und bei ihrer letzten | `level`, `tiles`, `of`, `rate`, `eta_s` |
 | `pyramid` | je verkleinerte Zoomstufe, von fein nach grob bis 0 | `level`, `tiles` dieser Stufe |

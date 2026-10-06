@@ -22,13 +22,16 @@ const KACHELN_JE_FLAECHE: (f64, f64) = (1.0, 1.2);
 const DARUEBER_BYTES: (f64, f64) = (0.30, 0.47);
 /// Die Pyramide gegen die Zeit der Basis: gemessen 0,2 bis 2,3 %.
 const PYRAMIDE_ZEIT: (f64, f64) = (0.0, 0.03);
-/// Um so viel schwankt die Dauer von Tag zu Tag und mit der Last.
-const DAUER_SPANNE: (f64, f64) = (0.8, 1.3);
-/// So viele Ausschnitte rendert der Probelauf, über die Welt verteilt.
+/// Um so viel schwankt die Dauer von Tag zu Tag und mit der Last; nach
+/// oben weiter, denn ein voller Lauf dekodiert an Streifengrenzen doppelt,
+/// ein kleiner Ausschnitt kaum.
+const DAUER_SPANNE: (f64, f64) = (0.8, 1.5);
+/// Um so viele Mitten rendert der Probelauf, über die Welt verteilt, je
+/// einen kleinen und einen doppelt so breiten Ausschnitt.
 const PROBEN: usize = 4;
-/// So viele Basiskacheln je Thread hat jeder Ausschnitt, damit alle Threads
-/// zu tun haben wie im Lauf.
-const KACHELN_JE_THREAD: f64 = 16.0;
+/// So viele Basiskacheln je Thread hat der kleine Ausschnitt, der grosse
+/// das Vierfache.
+const KACHELN_JE_THREAD: f64 = 4.0;
 /// So viele Chunks aus den Köpfen dekodiert die Schätzung höchstens, um den
 /// Anteil der fertig erzeugten zu zählen.
 const STICHPROBE: usize = 2000;
@@ -37,6 +40,8 @@ const STICHPROBE: usize = 2000;
 #[derive(Default, Debug)]
 struct Probe {
     chunks: f64,
+    /// Chunks, die der Vorlauf las, auch die nicht fertig erzeugten.
+    gelesen: f64,
     vorlauf_s: f64,
     kacheln: f64,
     basis_s: f64,
@@ -111,17 +116,19 @@ pub(super) fn schaetze(
     }
 
     // Kacheln je Chunk über die Fläche der Oberseite. Jeder Ausschnitt des
-    // Probelaufs ist ein Quadrat aus ganzen Kacheln um einen fertigen Chunk,
-    // mit einigen Kacheln für jeden Thread: Seine Kacheln sind voll wie im
-    // Innern der Welt, nicht halb leer wie am Rand eines Rechtecks.
+    // Probelaufs ist ein Quadrat aus ganzen Kacheln um einen fertigen Chunk:
+    // Seine Kacheln sind voll wie im Innern der Welt, nicht halb leer wie am
+    // Rand eines Rechtecks. Je Mitte ein Ausschnitt mit Kante k und einer mit
+    // 2k, siehe `basis_je_kachel_und_chunk`.
     let je_chunk = 256.0 * projection.oberseite() / f64::from(TILE * TILE);
     let threads = rayon::current_num_threads() as f64;
-    let kante = ((KACHELN_JE_THREAD * threads).sqrt().ceil() as u32).clamp(2, 64);
+    let kante = ((KACHELN_JE_THREAD * threads).sqrt().ceil() as u32).clamp(4, 32);
     let wurzel = std::env::temp_dir().join(format!("heroic-estimate-{}", std::process::id()));
-    let proben = (0..PROBEN)
+    let proben = (0..2 * PROBEN)
         .map(|i| {
-            let (cx, cz) = starts[(2 * i + 1) * starts.len() / (2 * PROBEN)];
-            let ausschnitt = ([cx * 16 + 8, cz * 16 + 8], kante * TILE);
+            let (cx, cz) = starts[(2 * (i / 2) + 1) * starts.len() / (2 * PROBEN)];
+            let groesse = (1 + i as u32 % 2) * kante * TILE;
+            let ausschnitt = ([cx * 16 + 8, cz * 16 + 8], groesse);
             let probe = probe(args, projection, &wurzel.join(i.to_string()), ausschnitt);
             let _ = std::fs::remove_dir_all(wurzel.join(i.to_string()));
             probe
@@ -148,10 +155,14 @@ pub(super) fn schaetze(
     );
     let dateien = kacheln.1 * 4.0 / 3.0;
 
-    let vorlauf = n_fertig * summe(|p| p.vorlauf_s) / summe(|p| p.chunks).max(1.0);
+    // Der Vorlauf liest jeden Chunk aus den Köpfen, auch die unfertigen.
+    let vorlauf = n as f64 * summe(|p| p.vorlauf_s) / summe(|p| p.gelesen).max(1.0);
     let basis_s = summe(|p| p.basis_s);
-    let je_kachel_s = basis_s / summe(|p| p.kacheln).max(1.0);
-    let basis = (kacheln.0 * je_kachel_s, kacheln.1 * je_kachel_s);
+    let (je_kachel_s, je_chunk_s) = basis_je_kachel_und_chunk(&proben);
+    let basis = (
+        kacheln.0 * je_kachel_s + n_fertig * je_chunk_s,
+        kacheln.1 * je_kachel_s + n_fertig * je_chunk_s,
+    );
     let stufen = summe(|p| p.stufen_s) / basis_s.max(1e-9);
     let fest = proben
         .iter()
@@ -168,9 +179,11 @@ pub(super) fn schaetze(
     let reicht = frei.map(|frei| frei as f64 >= bytes.1);
 
     println!(
-        "            {:.0} % fertig erzeugt in {} Chunks der Stichprobe; Probelauf: {PROBEN} Ausschnitte zu {kante} x {kante} Kacheln, zusammen in {:.1} s",
+        "            {:.0} % fertig erzeugt in {} Chunks der Stichprobe; Probelauf: {PROBEN} Ausschnitte zu {kante} x {kante} und {PROBEN} zu {} x {} Kacheln, zusammen in {:.1} s",
         fertig * 100.0,
         stichprobe.len(),
+        2 * kante,
+        2 * kante,
         started.elapsed().as_secs_f64()
     );
     println!(
@@ -208,6 +221,33 @@ pub(super) fn schaetze(
         "probe_s": sekunden(started),
     }));
     Ok(())
+}
+
+/// Die Zeit der Basis je Kachel und je gelesenem Chunk, kleinste Quadrate
+/// über die Ausschnitte. Ein kleiner Ausschnitt liest mehr Chunks je Kachel
+/// als die Welt: Unter ihm ragen Säulen hinein, die er dekodiert und
+/// beleuchtet. Ein Ausschnitt doppelter Kante hat davon halb so viele je
+/// Kachel; aus beiden trennt sich, was an der Kachel und was am Chunk hängt.
+/// Fällt ein Anteil negativ aus, trägt der andere alles.
+fn basis_je_kachel_und_chunk(proben: &[Probe]) -> (f64, f64) {
+    let s = |f: &dyn Fn(&Probe) -> f64| proben.iter().map(f).sum::<f64>();
+    let (tt, tc, cc) = (
+        s(&|p| p.kacheln * p.kacheln),
+        s(&|p| p.kacheln * p.chunks),
+        s(&|p| p.chunks * p.chunks),
+    );
+    let (tb, cb) = (s(&|p| p.kacheln * p.basis_s), s(&|p| p.chunks * p.basis_s));
+    let det = tt * cc - tc * tc;
+    let (je_kachel, je_chunk) = if det > 0.0 {
+        ((tb * cc - cb * tc) / det, (cb * tt - tb * tc) / det)
+    } else {
+        (-1.0, -1.0)
+    };
+    match (je_kachel >= 0.0, je_chunk >= 0.0) {
+        (true, true) => (je_kachel, je_chunk),
+        (false, true) if cc > 0.0 => (0.0, cb / cc),
+        _ => (tb / tt.max(1e-9), 0.0),
+    }
 }
 
 /// Ein Ausschnitt des Probelaufs: Mitte in Blöcken und Kantenlänge in
@@ -248,6 +288,7 @@ fn probe(
         match z["phase"].as_str() {
             Some("prepass") if z.get("chunks").is_some() => {
                 probe.chunks = zahl(&z, "chunks");
+                probe.gelesen = probe.chunks + zahl(&z, "unfinished");
                 probe.vorlauf_s = zahl(&z, "s");
             }
             Some("base") => {
@@ -394,5 +435,42 @@ fn zeit(s: f64) -> String {
         s if s >= 5400.0 => format!("{:.1} h", s / 3600.0),
         s if s >= 90.0 => format!("{:.0} min", s / 60.0),
         s => format!("{s:.0} s"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Aus Ausschnitten, deren Zeit genau `0,002 s` je Kachel und `0,001 s`
+    /// je Chunk ist, kommen beide Anteile zurück; mit nur einem Anteil trägt
+    /// er alles.
+    #[test]
+    fn basis_trennt_kachel_und_chunk() {
+        let probe = |kacheln: f64, chunks: f64, je: (f64, f64)| Probe {
+            kacheln,
+            chunks,
+            basis_s: kacheln * je.0 + chunks * je.1,
+            ..Probe::default()
+        };
+        let beide = [
+            (100.0, 260.0),
+            (400.0, 720.0),
+            (90.0, 250.0),
+            (360.0, 700.0),
+        ];
+        let proben: Vec<Probe> = beide
+            .iter()
+            .map(|&(t, c)| probe(t, c, (0.002, 0.001)))
+            .collect();
+        let (je_kachel, je_chunk) = basis_je_kachel_und_chunk(&proben);
+        assert!((je_kachel - 0.002).abs() < 1e-9 && (je_chunk - 0.001).abs() < 1e-9);
+
+        let nur_kachel: Vec<Probe> = beide
+            .iter()
+            .map(|&(t, c)| probe(t, c, (0.003, 0.0)))
+            .collect();
+        let (je_kachel, je_chunk) = basis_je_kachel_und_chunk(&nur_kachel);
+        assert!((je_kachel - 0.003).abs() < 1e-9 && je_chunk.abs() < 1e-9);
     }
 }

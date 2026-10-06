@@ -1511,7 +1511,6 @@ fn write_tiles(
     melde_json(serde_json::json!({
         "phase": "prepass",
         "chunks": survey.chunks,
-        "unfinished": survey.unfinished,
         "tiles": survey.tiles.len(),
         "s": sekunden(started),
     }));

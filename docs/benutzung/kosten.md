@@ -172,13 +172,17 @@ schreibt es nichts. Der Code steht in
    Der kleine hat die Kante k = `⌈√(4 · Threads)⌉`, 4 bis 32 Kacheln, der
    grosse 2k. Sie laufen als eigene Prozesse mit `--progress json` in einen
    Ordner unter dem Temp-Verzeichnis des Systems, der danach wegfällt.
-5. **Platz:** Kacheln mal Bytes je Basiskachel des Probelaufs, dazu 30 bis
-   47 % für native Stufen und Pyramide. Gemessen sind 32 bis 37 % an der
+5. **Platz:** Kacheln mal Bytes je Basiskachel des Probelaufs mal 0,8 bis
+   1,0, dazu 30 bis 47 % für native Stufen und Pyramide. Die Proben lagen
+   an der Testwelt 4 bis 16 % über dem Schnitt der Basis. Gemessen sind 32 bis 37 % an der
    grossen Welt und 45 % an der Testwelt bei scale 8. Dateien: Kacheln mal
    4/3.
 6. **Dauer:** aus dem Probelauf, je Mitte ein Ausschnitt mit Kante k und
    einer mit 2k.
-   - **Vorlauf:** je gelesenem Chunk, mal alle Chunks aus den Köpfen.
+   - **Vorlauf:** alle Chunks aus den Köpfen mal die Zeit, die das
+     Dekodieren der Stichprobe je Chunk brauchte, mal 1,1 bis 1,6. Der
+     Vorlauf eines Ausschnitts taugt dafür nicht: Er berührt nur wenige
+     Regionen und läuft kaum parallel.
    - **Basis:** je Kachel und je gelesenem Chunk, getrennt über beide
      Grössen. Ein kleiner Ausschnitt liest mehr Chunks je Kachel als die
      Welt, denn unter ihm ragen Säulen hinein. Bei scale 32 waren das fast

@@ -20,7 +20,14 @@ const KACHELN_JE_FLAECHE: (f64, f64) = (1.0, 1.2);
 /// Was native Stufen und Pyramide zusammen gegen die Basis wiegen: an den
 /// gemessenen Läufen 32 bis 45 %.
 const DARUEBER_BYTES: (f64, f64) = (0.30, 0.47);
-/// Die Pyramide gegen die Zeit der Basis: gemessen 0,2 bis 2,3 %.
+/// Bytes je Basiskachel gegen den Schnitt der Proben: Die Proben lagen an
+/// der Testwelt 4 bis 16 % darüber, an der grossen Welt 8 bis 21 %, dort
+/// gegen Vollrender mit älterem Code.
+const BYTES_JE_KACHEL: (f64, f64) = (0.8, 1.0);
+/// Der Vorlauf je Chunk gegen das Dekodieren der Stichprobe mit denselben
+/// Threads: an der Testwelt das 1,10- bis 1,55-Fache.
+const VORLAUF_JE_DEKODIERTEM: (f64, f64) = (1.1, 1.6);
+/// Die Pyramide gegen die Zeit der Basis: gemessen 0,2 bis 2,7 %.
 const PYRAMIDE_ZEIT: (f64, f64) = (0.0, 0.03);
 /// Um so viel schwankt die Dauer von Tag zu Tag und mit der Last; nach
 /// oben weiter, denn ein voller Lauf dekodiert an Streifengrenzen doppelt,
@@ -40,8 +47,6 @@ const STICHPROBE: usize = 2000;
 #[derive(Default, Debug)]
 struct Probe {
     chunks: f64,
-    /// Chunks, die der Vorlauf las, auch die nicht fertig erzeugten.
-    gelesen: f64,
     vorlauf_s: f64,
     kacheln: f64,
     basis_s: f64,
@@ -92,6 +97,7 @@ pub(super) fn schaetze(
     // Ausschnitte des Probelaufs kaum.
     let schritt = n.div_ceil(STICHPROBE);
     let stichprobe: Vec<(i32, i32)> = chunks.iter().copied().step_by(schritt).collect();
+    let dekodiert = Instant::now();
     let erzeugt = stichprobe
         .par_iter()
         .map(|&(cx, cz)| {
@@ -100,6 +106,7 @@ pub(super) fn schaetze(
                 .is_some_and(|c| c.is_generated()))
         })
         .collect::<Result<Vec<bool>>>()?;
+    let je_chunk_dekodiert = dekodiert.elapsed().as_secs_f64() / stichprobe.len() as f64;
     // Die Ausschnitte beginnen an fertigen Chunks: Einer nur aus unfertigen
     // hätte keine Kachel.
     let starts: Vec<(i32, i32)> = stichprobe
@@ -150,13 +157,18 @@ pub(super) fn schaetze(
         0.0
     };
     let bytes = (
-        kacheln.0 * je_kachel * (1.0 + DARUEBER_BYTES.0),
-        kacheln.1 * je_kachel * (1.0 + DARUEBER_BYTES.1),
+        kacheln.0 * je_kachel * BYTES_JE_KACHEL.0 * (1.0 + DARUEBER_BYTES.0),
+        kacheln.1 * je_kachel * BYTES_JE_KACHEL.1 * (1.0 + DARUEBER_BYTES.1),
     );
     let dateien = kacheln.1 * 4.0 / 3.0;
 
-    // Der Vorlauf liest jeden Chunk aus den Köpfen, auch die unfertigen.
-    let vorlauf = n as f64 * summe(|p| p.vorlauf_s) / summe(|p| p.gelesen).max(1.0);
+    // Der Vorlauf liest jeden Chunk aus den Köpfen, auch die unfertigen, über
+    // alle Regionen verteilt. Der eines Ausschnitts berührt nur wenige
+    // Regionen und läuft kaum parallel; darum zählt die Stichprobe.
+    let vorlauf = (
+        n as f64 * je_chunk_dekodiert * VORLAUF_JE_DEKODIERTEM.0,
+        n as f64 * je_chunk_dekodiert * VORLAUF_JE_DEKODIERTEM.1,
+    );
     let basis_s = summe(|p| p.basis_s);
     let (je_kachel_s, je_chunk_s) = basis_je_kachel_und_chunk(&proben);
     let basis = (
@@ -168,12 +180,12 @@ pub(super) fn schaetze(
         .iter()
         .map(|p| (p.ganz_s - p.vorlauf_s - p.basis_s - p.stufen_s).max(0.0))
         .fold(0.0, f64::max);
-    let dauer = |basis: f64, pyramide: f64, faktor: f64| {
+    let dauer = |vorlauf: f64, basis: f64, pyramide: f64, faktor: f64| {
         (fest + vorlauf + basis * (1.0 + stufen + pyramide)) * faktor
     };
     let sekunden_spanne = (
-        dauer(basis.0, PYRAMIDE_ZEIT.0, DAUER_SPANNE.0),
-        dauer(basis.1, PYRAMIDE_ZEIT.1, DAUER_SPANNE.1),
+        dauer(vorlauf.0, basis.0, PYRAMIDE_ZEIT.0, DAUER_SPANNE.0),
+        dauer(vorlauf.1, basis.1, PYRAMIDE_ZEIT.1, DAUER_SPANNE.1),
     );
     let frei = freier_platz(dir);
     let reicht = frei.map(|frei| frei as f64 >= bytes.1);
@@ -288,7 +300,6 @@ fn probe(
         match z["phase"].as_str() {
             Some("prepass") if z.get("chunks").is_some() => {
                 probe.chunks = zahl(&z, "chunks");
-                probe.gelesen = probe.chunks + zahl(&z, "unfinished");
                 probe.vorlauf_s = zahl(&z, "s");
             }
             Some("base") => {

@@ -47,6 +47,8 @@ Texte.
 | `--estimate` | mit `--tiles`: nur schätzen, wie viele Kacheln, wie viel Platz und wie lange der Lauf braucht und ob der Platz reicht; schreibt unter `--tiles` nichts | [Was ein Lauf kostet](kosten.md), „Schätzen: `--estimate`“ |
 | `--defender-exclusion` | mit `--tiles`, nur unter Windows: eine Ausnahme im Echtzeitschutz setzen | [Echtzeitschutz](echtzeitschutz.md) |
 | `--pyramid DIR` | Zoomstufen und `map.json` aus den Basiskacheln nachbauen, ohne Welt und Assets; daneben nur `--threads` und `--low-priority` | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
+| `--serve DIR` | die Wurzel von `--tiles` unter `/tiles/` ausliefern, mit `--web` die Karte dazu; daneben nur `--threads`, `--low-priority` und seine eigenen Schalter | [Server](server.md) |
+| `--web DIR`, `--listen ADRESSE:PORT`, `--max-connections N`, `--header-timeout S`, `--max-header-bytes N`, `--max-headers N`, `--exit-with-stdin` | nur mit `--serve`: Seite, Adresse, Grenzen am offenen Netz, Ende mit stdin | [Server](server.md), „Aufruf“ |
 | `--heights DIR` | die Höhen für die Koordinatenanzeige in einen bestehenden Baum schreiben, ohne zu rendern; `DIR` ist der Ordner des Baums; braucht nur `--world` | [map.json](map-json.md), „Höhen“ |
 
 ## Einen Block ansehen: `--at`

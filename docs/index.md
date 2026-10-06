@@ -20,6 +20,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Kacheln exportieren](benutzung/kacheln.md): `--tiles`, Ausschnitte, ein Rechteck der Welt mit `--area`, Ablage, leere Kacheln und `--prune`.
 - [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt und Kamera.
 - [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md): `--pyramid` während eines Renders und `--resume` nach einem Abbruch.
+- [Server](benutzung/server.md): `--serve` liefert Karte und Kacheln selbst aus; Schalter, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz und das Ende mit stdin.
 - [Updates](benutzung/updates.md): `--update` zeichnet nur, wo sich die Welt geändert hat; der Stand je Baum, Stempel und Fingerabdruck je Chunk, das Gebiet einer Änderung.
 - [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt den Richtungen und `projektion.json`, die Liste der Bäume `trees.json` unter einer Wurzel, die Höhen, Wasserspiegel und Rechteck der Welt und wann die Dateien entstehen.
 - [Was ein Lauf kostet](benutzung/kosten.md): Platz und Dauer je scale, Cinematic gegen die Karte, die grosse Welt gemessen und hochgerechnet.
@@ -152,6 +153,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0080](entscheidungen/0080-ohne-hintergrundmodus.md): `--low-priority` setzt unter Windows nur `IDLE_PRIORITY_CLASS`, nicht den Hintergrundmodus für I/O und Speicher: Er kostete Läufe 9 bis 35 % und schützte die Tickzeit nicht besser.
 - [0082](entscheidungen/0082-versionen-und-releases.md): Versionen nach SemVer aus `Cargo.toml`, ein Tag `vX.Y.Z` legt einen Release-Entwurf an, Linux gegen glibc 2.28 ohne musl.
 - [0083](entscheidungen/0083-manifest-je-baum.md): Der Renderer schreibt am Ende jedes Laufs mit Kacheln ein Manifest mit Grösse und ETag jeder Kachel; ein voller Lauf liest dafür den ganzen Baum, jeder andere zieht nach, nach einem Abbruch liest er ganz.
+- [0084](entscheidungen/0084-server-im-renderer.md): Karte und Kacheln liefert ein Server im Renderer aus, `--serve` mit hyper und tokio, mit Grenzen am offenen Netz und Ende mit stdin; Seite und Kacheln in getrennten Ordnern, Pfade über erlaubte Zeichen, bedingte Anfragen auf Gleichheit; löst 0047 in einem Punkt ab.
 
 ## Messungen
 

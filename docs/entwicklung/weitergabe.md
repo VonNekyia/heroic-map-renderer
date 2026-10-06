@@ -82,10 +82,11 @@ verlangt. Ohne musl, siehe
 - **Das Budget:** Hangar nimmt höchstens 10 000 000 Byte je Datei an (#153),
   und das Jar trägt die Binärs für Windows und Linux, dazu das Plugin. Je
   Binär bleiben so gepackt rund 4,55 MB.
-- **Der Server aus #151** bringt geschätzt 0,82 MB gepackt dazu. Bis er
-  kommt, darf der Renderer darum gepackt höchstens 3 730 000 Byte haben.
-- **In der CI** fällt der Schritt für Linux über dieser Grenze. #151 hebt sie
-  auf 4 550 000 Byte, wenn es den Server einbaut.
+- **Der Server aus #151** bringt geschätzt 0,82 MB gepackt dazu, HTTP rund
+  0,25 MB und TLS rund 0,57 MB. Seit `--serve` darf der Renderer darum
+  gepackt höchstens 4 550 000 Byte haben, siehe
+  [0084](../entscheidungen/0084-server-im-renderer.md).
+- **In der CI** fällt der Schritt für Linux über dieser Grenze.
 - **Stand:** Linux 3,49 MB, Windows 3,57 MB gepackt. Unter Linux bleiben
   rund 0,24 MB Luft. Windows prüft die CI nicht; der Release-Workflow prüft
   beide, siehe [CI](ci.md), „Release“.

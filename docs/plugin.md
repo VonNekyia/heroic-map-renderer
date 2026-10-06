@@ -50,6 +50,9 @@ dem Plugin-Programmierer ab.
   sich ihre Form, landet jedes solche Update wieder im Log.
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
   eines Tokens, siehe unten, „Manifest“.
+- **Den Server,** `--serve` mit `--web`, `--listen`, `--threads 1`,
+  `--low-priority` und `--exit-with-stdin`, als eigener Kindprozess neben
+  dem Renderer, siehe [Server](benutzung/server.md).
 
 ## Fortschritt als JSON
 

@@ -31,8 +31,9 @@ die der Renderer währenddessen tauscht. Entschieden hat der Maintainer am
   ihn selbst, das Plugin als Kindprozess wie den Renderer. Die Regeln
   stehen so einmal im Code und werden einmal getestet.
 - **TLS** kommt mit rustls in einer eigenen PR, solange beide Binärs mit
-  Server gepackt höchstens 4 550 000 Byte wiegen. Sonst bleibt der Server
-  ohne TLS, und HTTPS beendet ein Proxy mit dem JDK im Plugin.
+  Server in die Grenzen aus [Weitergabe](../entwicklung/weitergabe.md),
+  „Grenze“, passen. Sonst bleibt der Server ohne TLS, und HTTPS beendet ein
+  Proxy mit dem JDK im Plugin.
 - **Grenzen am offenen Netz,** einstellbar: Kopf der Anfrage in 10 s, auch
   im Leerlauf zwischen zwei Anfragen; Kopf höchstens 16 KiB und 64 Header;
   höchstens 256 Verbindungen zugleich; 30 s ohne Fortschritt beim
@@ -54,9 +55,9 @@ die der Renderer währenddessen tauscht. Entschieden hat der Maintainer am
   Plugin entpackt die Seite aus dem Jar, die Bäume liegen woanders; die
   Karte findet die Kacheln wie bisher unter `tiles/` neben sich.
 - **Pfade unter `--web`:** Je Teil nur Buchstaben, Ziffern, `-`, `_` und
-  `.`, nicht am Anfang, und kein Gerät von Windows. Alles andere gibt
-  `404`, ohne dass der Server den Pfad öffnet. Eine Prüfung über Zeichen ist
-  kürzer und sicherer als jede über aufgelöste Pfade.
+  `.`, nicht am Anfang und nicht am Ende, und kein Gerät von Windows. Alles
+  andere gibt `404`, ohne dass der Server den Pfad öffnet. Eine Prüfung
+  über Zeichen ist kürzer und sicherer als jede über aufgelöste Pfade.
 - **Cache:** `no-cache` mit ETag für alles, ausser den gehashten Dateien der
   Seite unter `/assets/`: Die tragen `max-age=31536000, immutable`.
 - **Bedingte Anfragen auf Gleichheit:** `If-None-Match` gegen das ETag aus
@@ -85,8 +86,8 @@ Wie der Server sich verhält, steht in [Server](../benutzung/server.md).
 
 - **Grösse:** hyper und tokio bringen gepackt rund 0,25 MB je Binär, TLS
   später rund 0,57 MB dazu, gemessen am Prototyp unter Windows (#151). Die
-  Grenze in der CI steht bis TLS auf 3 980 000 Byte, danach auf 4 550 000,
-  siehe [Weitergabe](../entwicklung/weitergabe.md), „Grenze“.
+  Grenzen und der Stand stehen in
+  [Weitergabe](../entwicklung/weitergabe.md), „Grenze“.
 - **Ohne HTTPS** geht ein Token aus #154 im Klartext. Die Doku rät
   öffentlichen Servern zu HTTPS, sobald es kommt.
 - **Die Header der Karte** stehen an einer Stelle, `web/headers.json`

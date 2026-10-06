@@ -35,9 +35,11 @@ einer Stelle, `manifest::etag` in
   Manifest.
 - **Jeder andere Lauf zieht nach:** Er liest das alte Manifest Zeile für
   Zeile und ersetzt nur die Kacheln, die er anfassen kann: seine
-  Basiskacheln, ihre Eltern bis Zoom 0, die Eltern der Waisen und was er
-  entfernt (`manifest::mit_eltern`). Für jede davon fragt er die Datei; was
-  fehlt, fällt weg. Kein Lauf liest dafür den Inhalt einer Kachel.
+  Basiskacheln und die ohne Chunk, deren Vorfahren `--prune` neu
+  zusammensetzt, ihre Eltern bis Zoom 0 und die Eltern der Waisen
+  (`manifest::mit_eltern`). Was er leert oder entfernt, liegt darin. Für
+  jede davon fragt er die Datei; was fehlt, fällt weg. Kein Lauf liest
+  dafür den Inhalt einer Kachel.
 - **Abbruch:** Solange ein Lauf schreibt, liegt `manifest-offen` daneben.
   Findet ein Lauf die Marke vor, brach der vorige ab, und das Manifest kennt
   vielleicht nicht jede Kachel: Er liest den Baum dann ganz. Ebenso, wenn

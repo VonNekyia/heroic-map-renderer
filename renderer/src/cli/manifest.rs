@@ -35,8 +35,10 @@ pub(super) fn etag(meta: &Metadata) -> std::io::Result<String> {
 }
 
 /// Die Kacheln, die ein Lauf über diesen Basiskacheln schreiben, liegen
-/// lassen oder leeren kann: sie selbst und ihre Eltern bis Zoom 0, dazu die
-/// Eltern der Waisen, wie `build_pyramid` sie baut.
+/// lassen, leeren oder entfernen kann: sie selbst und ihre Eltern bis
+/// Zoom 0, dazu die Eltern der Waisen, wie `build_pyramid` sie baut. Zur
+/// Basis gehören auch die Kacheln ohne Chunk, deren Vorfahren
+/// `ohne_veraltete` neu zusammensetzt.
 pub(super) fn mit_eltern(
     max_zoom: u32,
     basis: &BTreeSet<TileId>,

@@ -3269,12 +3269,13 @@ fn gewachsene_welt_behaelt_die_nummerierung() {
     assert!(!kacheln(baum.path(), 0).is_empty(), "Zoom 0 fehlt");
 }
 
-/// Kacheln, Höhen, `map.json` und der Stand werden getauscht, nicht
-/// überschrieben: wer eine Datei gerade liest, liest sie zu Ende, wie sie
-/// war, und ein Abbruch mitten im Schreiben hinterlässt die alte. Der Test
-/// hält die Basis, die Höhen, `map.json` und den Stand offen, während ein
-/// zweiter Lauf eine veränderte, grössere Welt schreibt. Daneben bleibt
-/// keine eigene Datei übrig, auch kein angefangener Stand.
+/// Kacheln, Höhen, `map.json`, der Stand und das Manifest werden
+/// getauscht, nicht überschrieben: wer eine Datei gerade liest, liest sie
+/// zu Ende, wie sie war, und ein Abbruch mitten im Schreiben hinterlässt die
+/// alte. Der Test hält die Basis, die Höhen, `map.json`, den Stand und das
+/// Manifest offen, während ein zweiter Lauf eine veränderte, grössere Welt
+/// schreibt. Daneben bleibt keine eigene Datei übrig, auch kein
+/// angefangener Stand und keine Marke des Manifests.
 #[test]
 fn schreiben_tauscht_die_datei() {
     let alt = tempdir();
@@ -3294,9 +3295,16 @@ fn schreiben_tauscht_die_datei() {
     let region = baum.wurzel().join(heights::path_of(0, 0));
     let liste = baum.wurzel().join("trees.json");
     let stand = baum.path().join("stand.bin");
+    let manifest = baum.path().join("manifest");
     let offen: Vec<(PathBuf, Vec<u8>, std::fs::File)> = kacheln(baum.path(), max_zoom(baum.path()))
         .into_values()
-        .chain([karte.clone(), region.clone(), liste, stand.clone()])
+        .chain([
+            karte.clone(),
+            region.clone(),
+            liste,
+            stand.clone(),
+            manifest.clone(),
+        ])
         .map(|pfad| {
             let vorher = std::fs::read(&pfad).unwrap();
             let datei = std::fs::File::open(&pfad).unwrap();
@@ -3318,8 +3326,9 @@ fn schreiben_tauscht_die_datei() {
         geaendert.contains(&karte)
             && geaendert.contains(&region)
             && geaendert.contains(&stand)
-            && geaendert.len() > 3,
-        "map.json, die Höhen, der Stand und eine Kachel hätten sich ändern müssen: {geaendert:?}"
+            && geaendert.contains(&manifest)
+            && geaendert.len() > 4,
+        "map.json, die Höhen, der Stand, das Manifest und eine Kachel hätten sich ändern müssen: {geaendert:?}"
     );
 
     let mut reste = Vec::new();
@@ -3329,7 +3338,7 @@ fn schreiben_tauscht_die_datei() {
             let name = eintrag.file_name().to_string_lossy().into_owned();
             let hoehen = ordner.ends_with("heights") && name.ends_with(".bin");
             let liste = ordner == baum.wurzel() && name == "trees.json";
-            let stand = ordner == baum.path() && name == "stand.bin";
+            let stand = ordner == baum.path() && (name == "stand.bin" || name == "manifest");
             if eintrag.path().is_dir() {
                 stapel.push(eintrag.path());
             } else if !name.ends_with(".webp") && name != "map.json" && !hoehen && !liste && !stand
@@ -5231,8 +5240,8 @@ fn manifest_soll(baum: &Path) -> String {
 }
 
 /// Das Manifest gleicht nach jedem Lauf den Kacheln des Baums: nach einem
-/// vollen Lauf, nach Updates, die zeichnen und entfernen, und nach
-/// `--pyramid`. Ein Update ohne Änderung lässt es, wie es ist. Ein Update
+/// vollen Lauf, nach Updates, die zeichnen und entfernen, auch mit
+/// `--prune`, und nach `--pyramid`. Ein Update ohne Änderung lässt es, wie es ist. Ein Update
 /// zieht nur nach, was es anfasst; nach einem Abbruch liest es den Baum
 /// ganz.
 /// Siehe docs/plugin.md, „Manifest“.
@@ -5249,7 +5258,6 @@ fn manifest_gleicht_dem_baum() {
     assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "voll");
     assert!(!baum.path().join("manifest-offen").exists());
 
-    altern(baum.path());
     baue_aenderungen(welt.path());
     gelungen(&tiles(welt.path(), baum.path(), &update));
     assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "Update");
@@ -5304,6 +5312,24 @@ fn manifest_gleicht_dem_baum() {
     );
     assert!(!baum.path().join("manifest-offen").exists());
 
+    // Ohne den fernen Chunk entfernt ein Update mit --prune seine Kacheln,
+    // auch die, die es sonst nicht anfasst.
+    common::write_world_sections(welt.path(), &GEAENDERT, 0..=7, mit_aenderungen, |_, _| None);
+    let lage = format!("{} ", fern.split_once(' ').unwrap().0);
+    gelungen(&tiles(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--update", "--prune"],
+    ));
+    let soll = manifest_soll(baum.path());
+    assert!(
+        !soll.lines().any(|zeile| zeile.starts_with(&lage)),
+        "die ferne Kachel steht noch da"
+    );
+    assert_eq!(manifest(baum.path()), soll, "--prune");
+
+    // Zeiten, die jemand am Renderer vorbei ändert, sieht erst ein Lauf,
+    // der den Baum ganz liest.
     altern(baum.path());
     gelungen(&cli(&[OsStr::new("--pyramid"), baum.path().as_os_str()]));
     assert_eq!(

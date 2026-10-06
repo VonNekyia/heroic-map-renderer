@@ -30,14 +30,13 @@ use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, Worl
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 
+mod manifest;
 mod schaetzung;
 
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
 /// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
 /// einem Datapack schnitte der Renderer hier ab.
 const Y_RANGE: (i32, i32) = (-64, 319);
-
-mod manifest;
 
 #[derive(Parser)]
 #[command(name = "heroic-map-renderer", version, about)]
@@ -1879,9 +1878,12 @@ fn write_tiles(
     let licht_deckend = sprites.licht_deckend(&survey.states);
     drop(sprites);
     // Ein voller Lauf liest für das Manifest den ganzen Baum, jeder andere
-    // zieht nur nach, was er anfassen kann.
-    let angefasst = (!matches!(bereich, Bereich::Welt))
-        .then(|| manifest::mit_eltern(max_zoom, &kandidaten, &waisen));
+    // zieht nur nach, was er anfassen kann: auch die Vorfahren der Kacheln
+    // ohne Chunk, die --prune neu zusammensetzt.
+    let angefasst = (!matches!(bereich, Bereich::Welt)).then(|| {
+        let basis: BTreeSet<TileId> = kandidaten.union(&veraltet).copied().collect();
+        manifest::mit_eltern(max_zoom, &basis, &waisen)
+    });
     let (z, kandidaten, gezeigt, nativ_im_speicher) = render_coarser(
         world,
         assets,
@@ -1945,10 +1947,6 @@ fn write_tiles(
     )?;
     schreibe_baeume(wurzel)?;
     melde_karte(&info, anzahl, &path);
-    let angefasst = angefasst.map(|mut angefasst| {
-        angefasst.extend(&weg);
-        angefasst
-    });
     manifest.schliesse(angefasst.as_ref())?;
     // Zuletzt: Bricht der Lauf vorher ab, gilt der alte Stand, und das
     // nächste Update zeichnet dieselben Stellen noch einmal.

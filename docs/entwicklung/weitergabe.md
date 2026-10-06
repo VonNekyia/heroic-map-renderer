@@ -83,13 +83,20 @@ verlangt. Ohne musl, siehe
   Das Jar trägt beide Binärs, dazu Plugin, Seite und Hinweise, zusammen
   rund 0,7 MB. Für die Binärs bleiben so gepackt
   10 000 000 − 700 000 = 9 300 000 Byte zusammen.
-- **Die Grenzen,** entschieden am 06.10. im Review zu #181:
+- **Die Grenzen,** entschieden am 06.10. im Review zu #181, die Warnung in
+  der CI angehoben im Review zu #192:
 
   | Wo | Grenze, gepackt | Warum |
   |---|---|---|
   | Release-Workflow, beide Binärs zusammen | 9 300 000 Byte | das Jar |
   | Release-Workflow, je Binär | 4 750 000 Byte | Linux ist kleiner als Windows; keins soll allein das Budget tragen |
-  | CI, Job „Rust“ unter Ubuntu | 4 550 000 Byte | eine frühe Warnung an jeder PR, gegen glibc 2.39 gebaut |
+  | CI, Job „Rust“ unter Ubuntu | 4 750 000 Byte | eine frühe Warnung an jeder PR, gegen glibc 2.39 gebaut; dieselbe Grenze je Binär wie im Release |
+
+  Die eigentliche Grenze ist die Summe. Die Warnung lag zuerst bei 4 550 000
+  Byte, aus der Zeit, als jedes Binär für sich gemessen wurde, vor dem
+  Budget als Summe. Mit Client-Jar und Assistent stand der Job „Rust“ auf
+  master bei 4 547 199 Byte, und jede weitere Zeile hätte ihn fallen lassen,
+  obwohl die Summe 0,22 MB Luft hatte.
 
   Die Summe prüft der Job „Budget beider Binärs“ in
   [`.github/workflows/release.yml`](../../.github/workflows/release.yml),
@@ -104,7 +111,7 @@ verlangt. Ohne musl, siehe
   | Binär | gepackt | Luft |
   |---|---|---|
   | Linux, Release gegen glibc 2.28 | 4 318 910 Byte | 431 090 unter 4 750 000 |
-  | Linux, Job „Rust“ gegen glibc 2.39 | 4 441 878 Byte | 108 122 unter 4 550 000 |
+  | Linux, Job „Rust“ gegen glibc 2.39 | 4 441 878 Byte | 308 122 unter 4 750 000 |
   | Windows, Release | 4 522 955 Byte | 227 045 unter 4 750 000 |
   | beide Releases zusammen | 8 841 865 Byte | 458 135 unter 9 300 000 |
 

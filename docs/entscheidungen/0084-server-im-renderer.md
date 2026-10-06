@@ -96,9 +96,10 @@ Wie der Server sich verhält, steht in [Server](../benutzung/server.md).
   rund 0,57 MB dazu, geschätzt am Prototyp unter Windows (#151). Die
   Grenze in der CI steht mit TLS auf 4 550 000 Byte; den Stand nennt
   [Weitergabe](../entwicklung/weitergabe.md), „Grenze“.
-- **Lizenzen:** ring, rustls-webpki und untrusted stehen unter ISC, das darum in
-  `deny.toml` allgemein erlaubt ist; `subtle` unter BSD-3-Clause, als
-  Ausnahme wie libwebp. Beides ergänzt [0078](0078-apache-2-0.md).
+- **Lizenzen:** ring, rustls-webpki und untrusted stehen unter ISC, `subtle`
+  unter BSD-3-Clause. Beide Lizenzen erlaubt der Maintainer; `deny.toml`
+  nimmt sie darum allgemein auf statt je Crate, entschieden am 06.10. im
+  Review zu #183. Das ergänzt [0078](0078-apache-2-0.md).
 - **Ohne HTTPS** geht ein Token aus #154 im Klartext. Die Doku rät
   öffentlichen Servern zu HTTPS.
 - **Die Header der Karte** stehen an einer Stelle, `web/headers.json`

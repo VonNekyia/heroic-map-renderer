@@ -32,7 +32,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `mod.rs` | `World`: Weltwurzel, Dimension, Regionen, Seed, siehe [Welten und Kennung](../benutzung/welten.md) |
 | `region.rs` | Regionsdateien: Chunk-Tabelle, Stempel für Updates, Sektoren, ausgelagerte `.mcc`-Chunks |
 | `chunk.rs` | ein Chunk aus NBT: Sections, Blöcke, Biome, Blockentities mit Daten, sein Fingerabdruck für Updates |
-| `palette.rs` | `BlockState` und die gepackten Paletten-Indizes einer Section |
+| `palette.rs` | `BlockState` mit den Vorgaben aus `blocks.txt` und die gepackten Paletten-Indizes einer Section |
 | `biomzoom.rs`, `Biomwerte.java` | das Biom je Block wie `BiomeManager.getBiome` und die Sollwerte dafür aus dem Spiel, siehe [Biomfarben](../renderer/biomfarben.md) |
 
 ## `renderer/src/assets/`: das Resourcepack

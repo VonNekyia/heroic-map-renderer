@@ -3269,12 +3269,13 @@ fn gewachsene_welt_behaelt_die_nummerierung() {
     assert!(!kacheln(baum.path(), 0).is_empty(), "Zoom 0 fehlt");
 }
 
-/// Kacheln, Höhen, `map.json` und der Stand werden getauscht, nicht
-/// überschrieben: wer eine Datei gerade liest, liest sie zu Ende, wie sie
-/// war, und ein Abbruch mitten im Schreiben hinterlässt die alte. Der Test
-/// hält die Basis, die Höhen, `map.json` und den Stand offen, während ein
-/// zweiter Lauf eine veränderte, grössere Welt schreibt. Daneben bleibt
-/// keine eigene Datei übrig, auch kein angefangener Stand.
+/// Kacheln, Höhen, `map.json`, der Stand und das Manifest werden
+/// getauscht, nicht überschrieben: wer eine Datei gerade liest, liest sie
+/// zu Ende, wie sie war, und ein Abbruch mitten im Schreiben hinterlässt die
+/// alte. Der Test hält die Basis, die Höhen, `map.json`, den Stand und das
+/// Manifest offen, während ein zweiter Lauf eine veränderte, grössere Welt
+/// schreibt. Daneben bleibt keine eigene Datei übrig, auch kein
+/// angefangener Stand und keine Marke des Manifests.
 #[test]
 fn schreiben_tauscht_die_datei() {
     let alt = tempdir();
@@ -3289,14 +3290,25 @@ fn schreiben_tauscht_die_datei() {
         },
     );
     let baum = neuer_baum("2x1-se");
-    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    gelungen(&tiles(
+        alt.path(),
+        baum.path(),
+        &["--scale", "16", "--manifest"],
+    ));
     let karte = baum.path().join("map.json");
     let region = baum.wurzel().join(heights::path_of(0, 0));
     let liste = baum.wurzel().join("trees.json");
     let stand = baum.path().join("stand.bin");
+    let manifest = baum.path().join("manifest");
     let offen: Vec<(PathBuf, Vec<u8>, std::fs::File)> = kacheln(baum.path(), max_zoom(baum.path()))
         .into_values()
-        .chain([karte.clone(), region.clone(), liste, stand.clone()])
+        .chain([
+            karte.clone(),
+            region.clone(),
+            liste,
+            stand.clone(),
+            manifest.clone(),
+        ])
         .map(|pfad| {
             let vorher = std::fs::read(&pfad).unwrap();
             let datei = std::fs::File::open(&pfad).unwrap();
@@ -3304,7 +3316,11 @@ fn schreiben_tauscht_die_datei() {
         })
         .collect();
 
-    gelungen(&tiles(neu.path(), baum.path(), &["--scale", "16"]));
+    gelungen(&tiles(
+        neu.path(),
+        baum.path(),
+        &["--scale", "16", "--manifest"],
+    ));
     let mut geaendert = Vec::new();
     for (pfad, vorher, mut datei) in offen {
         let mut gelesen = Vec::new();
@@ -3318,8 +3334,9 @@ fn schreiben_tauscht_die_datei() {
         geaendert.contains(&karte)
             && geaendert.contains(&region)
             && geaendert.contains(&stand)
-            && geaendert.len() > 3,
-        "map.json, die Höhen, der Stand und eine Kachel hätten sich ändern müssen: {geaendert:?}"
+            && geaendert.contains(&manifest)
+            && geaendert.len() > 4,
+        "map.json, die Höhen, der Stand, das Manifest und eine Kachel hätten sich ändern müssen: {geaendert:?}"
     );
 
     let mut reste = Vec::new();
@@ -3329,7 +3346,7 @@ fn schreiben_tauscht_die_datei() {
             let name = eintrag.file_name().to_string_lossy().into_owned();
             let hoehen = ordner.ends_with("heights") && name.ends_with(".bin");
             let liste = ordner == baum.wurzel() && name == "trees.json";
-            let stand = ordner == baum.path() && name == "stand.bin";
+            let stand = ordner == baum.path() && (name == "stand.bin" || name == "manifest");
             if eintrag.path().is_dir() {
                 stapel.push(eintrag.path());
             } else if !name.ends_with(".webp") && name != "map.json" && !hoehen && !liste && !stand
@@ -5183,6 +5200,238 @@ fn update_gleicht_einem_vollen_lauf() {
         gelungen(&tiles(welt.path(), ohne.path(), extra));
         gleiche_baeume(baum.path(), ohne.path(), &format!("{extra:?}: abgerissen"));
     }
+}
+
+/// Das Manifest eines Baums, entpackt.
+fn manifest(baum: &Path) -> String {
+    let datei = std::fs::File::open(baum.join("manifest")).unwrap();
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(datei)
+        .read_to_string(&mut text)
+        .unwrap();
+    text
+}
+
+/// Was das Manifest nach den Dateien des Baums sein muss: je Kachel
+/// `z/x/y grösse etag`, nach z, x und y aufsteigend, das ETag aus Grösse
+/// und letzter Änderung in ns, hexadezimal.
+/// Siehe docs/plugin.md, „Manifest“.
+fn manifest_soll(baum: &Path) -> String {
+    let zahlen = |ordner: &Path| -> Vec<(i32, PathBuf)> {
+        std::fs::read_dir(ordner)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| Some((e.file_name().to_str()?.parse().ok()?, e.path())))
+            .collect()
+    };
+    let mut zeilen = Vec::new();
+    for (z, stufe) in zahlen(baum) {
+        for (x, spalte) in zahlen(&stufe) {
+            for datei in std::fs::read_dir(&spalte).unwrap().flatten() {
+                let name = datei.file_name().into_string().unwrap();
+                let y: i32 = name.strip_suffix(".webp").unwrap().parse().unwrap();
+                let meta = std::fs::metadata(datei.path()).unwrap();
+                let ns = meta
+                    .modified()
+                    .unwrap()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos();
+                let zeile = format!("{z}/{x}/{y} {} \"{:x}-{ns:x}\"\n", meta.len(), meta.len());
+                zeilen.push(((z, x, y), zeile));
+            }
+        }
+    }
+    zeilen.sort();
+    zeilen.into_iter().map(|(_, zeile)| zeile).collect()
+}
+
+/// Die Marken laufender oder abgebrochener Läufe neben dem Manifest.
+fn marken(baum: &Path) -> Vec<String> {
+    std::fs::read_dir(baum)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().into_string().unwrap())
+        .filter(|name| name.starts_with("manifest-offen-"))
+        .collect()
+}
+
+/// Die Marke eines Laufs, dessen Prozess endete, ohne sie zu entfernen.
+fn verwaiste_marke(baum: &Path) {
+    let mut kind = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+        .arg("--version")
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = kind.id();
+    kind.wait().unwrap();
+    std::fs::write(baum.join(format!("manifest-offen-{pid}-1")), b"").unwrap();
+}
+
+/// Das Manifest gleicht nach jedem Lauf mit `--manifest` den Kacheln des
+/// Baums: nach einem vollen Lauf, nach Updates, die zeichnen und entfernen,
+/// auch mit `--prune`, und nach `--pyramid`. Ein Update ohne Änderung lässt
+/// es, wie es ist. Ein Update zieht nur nach, was es anfasst; nach einem
+/// Abbruch liest es den Baum ganz und räumt die verwaiste Marke weg. Ein
+/// Lauf ohne `--manifest`, der zeichnet, entfernt es.
+/// Siehe docs/plugin.md, „Manifest“.
+#[test]
+fn manifest_gleicht_dem_baum() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    let voll = ["--scale", "16", "--manifest"];
+    let update = ["--scale", "16", "--update", "--manifest"];
+    let ausgabe = tiles(welt.path(), baum.path(), &voll);
+    gelungen(&ausgabe);
+    assert!(String::from_utf8_lossy(&ausgabe.stdout).contains("Manifest:"));
+    assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "voll");
+    assert!(marken(baum.path()).is_empty());
+
+    baue_aenderungen(welt.path());
+    gelungen(&tiles(welt.path(), baum.path(), &update));
+    assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "Update");
+
+    let vorher = std::fs::read(baum.path().join("manifest")).unwrap();
+    let ausgabe = tiles(welt.path(), baum.path(), &update);
+    let log = String::from_utf8_lossy(&ausgabe.stdout);
+    assert!(
+        log.contains("nichts zu zeichnen") && !log.contains("Manifest:"),
+        "{log}"
+    );
+    assert_eq!(std::fs::read(baum.path().join("manifest")).unwrap(), vorher);
+
+    // Die Kachel ganz rechts auf der Basis zeigt den fernen Chunk, den kein
+    // Update anfasst. Ein falsches ETag dort bleibt stehen, nach einem
+    // Abbruch nicht mehr.
+    let soll = manifest_soll(baum.path());
+    let basis = max_zoom(baum.path());
+    let fern = soll
+        .lines()
+        .filter(|zeile| zeile.starts_with(&format!("{basis}/")))
+        .max_by_key(|zeile| zeile.split('/').nth(1).unwrap().parse::<i32>().unwrap())
+        .unwrap()
+        .to_string();
+    let falsch = format!("{} \"0-0\"", fern.rsplit_once(' ').unwrap().0);
+    let schreibe_manifest = |text: &str| {
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, text.as_bytes()).unwrap();
+        std::fs::write(baum.path().join("manifest"), gz.finish().unwrap()).unwrap();
+    };
+    schreibe_manifest(&soll.replace(&fern, &falsch));
+    baue_update_welt(welt.path(), mit_dach, &GEAENDERT, 3);
+    gelungen(&tiles(welt.path(), baum.path(), &update));
+    let nachgezogen = manifest(baum.path());
+    assert!(
+        nachgezogen.contains(&falsch),
+        "die ferne Kachel wurde angefasst"
+    );
+    assert_eq!(
+        nachgezogen.replace(&falsch, &fern),
+        manifest_soll(baum.path()),
+        "abgerissen"
+    );
+
+    verwaiste_marke(baum.path());
+    baue_update_welt(welt.path(), mit_aenderungen, &GEAENDERT, 4);
+    gelungen(&tiles(welt.path(), baum.path(), &update));
+    assert_eq!(
+        manifest(baum.path()),
+        manifest_soll(baum.path()),
+        "nach Abbruch"
+    );
+    assert!(marken(baum.path()).is_empty());
+
+    // Ohne den fernen Chunk entfernt ein Update mit --prune seine Kacheln,
+    // auch die, die es sonst nicht anfasst.
+    common::write_world_sections(welt.path(), &GEAENDERT, 0..=7, mit_aenderungen, |_, _| None);
+    let lage = format!("{} ", fern.split_once(' ').unwrap().0);
+    gelungen(&tiles(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--update", "--prune", "--manifest"],
+    ));
+    let soll = manifest_soll(baum.path());
+    assert!(
+        !soll.lines().any(|zeile| zeile.starts_with(&lage)),
+        "die ferne Kachel steht noch da"
+    );
+    assert_eq!(manifest(baum.path()), soll, "--prune");
+
+    // Zeiten, die jemand am Renderer vorbei ändert, sieht erst ein Lauf,
+    // der den Baum ganz liest.
+    altern(baum.path());
+    gelungen(&cli(&[
+        OsStr::new("--pyramid"),
+        baum.path().as_os_str(),
+        OsStr::new("--manifest"),
+    ]));
+    assert_eq!(
+        manifest(baum.path()),
+        manifest_soll(baum.path()),
+        "--pyramid"
+    );
+
+    // Ein Lauf ohne --manifest, der zeichnet, nimmt es weg.
+    baue_update_welt(welt.path(), mit_dach, &GEAENDERT, 5);
+    gelungen(&tiles(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--update"],
+    ));
+    assert!(!baum.path().join("manifest").exists());
+    assert!(marken(baum.path()).is_empty());
+}
+
+/// Ein Update ohne Änderung schreibt mit `--manifest` das Manifest, wenn es
+/// fehlt, etwa weil der Baum neu zum Download angeboten wird, oder wenn es
+/// sich nicht lesen lässt.
+/// Siehe docs/plugin.md, „Manifest“.
+#[test]
+fn update_ohne_aenderung_schreibt_fehlendes_manifest() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
+    assert!(!baum.path().join("manifest").exists());
+    let update = ["--scale", "16", "--update", "--manifest"];
+    for fall in ["fehlt", "kaputt"] {
+        let ausgabe = tiles(welt.path(), baum.path(), &update);
+        gelungen(&ausgabe);
+        let log = String::from_utf8_lossy(&ausgabe.stdout);
+        assert!(
+            log.contains("nichts zu zeichnen") && log.contains("Manifest:"),
+            "{fall}: {log}"
+        );
+        assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "{fall}");
+        assert!(marken(baum.path()).is_empty(), "{fall}");
+        std::fs::write(baum.path().join("manifest"), b"kaputt").unwrap();
+    }
+}
+
+/// Auch mit einer nativen Stufe und über einen Ausschnitt, der nur
+/// nachzieht, gleicht das Manifest dem Baum.
+/// Siehe docs/plugin.md, „Manifest“.
+#[test]
+fn manifest_mit_nativer_stufe_und_ausschnitt() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    let schalter = ["--scale", "16", "--native-levels", "1", "--manifest"];
+    gelungen(&tiles(welt.path(), baum.path(), &schalter));
+    assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "nativ");
+
+    baue_aenderungen(welt.path());
+    let ausschnitt = [&schalter[..], &["--center", "8", "8", "--size", "256"]].concat();
+    let ausgabe = tiles(welt.path(), baum.path(), &ausschnitt);
+    gelungen(&ausgabe);
+    assert!(String::from_utf8_lossy(&ausgabe.stdout).contains("Manifest:"));
+    assert_eq!(
+        manifest(baum.path()),
+        manifest_soll(baum.path()),
+        "Ausschnitt"
+    );
 }
 
 /// Was der Stand des Baums `baum` über den Chunk (cx, cz) sagt.

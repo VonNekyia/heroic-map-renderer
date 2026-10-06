@@ -1,10 +1,12 @@
 ---
 title: Plugin
-description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt und die Schätzung als JSON, und das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft.
+description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt und die Schätzung als JSON, das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft, und das Manifest eines Baums mit Grösse und ETag jeder Kachel.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/stand.rs
   - renderer/tests/fixtures/token.json
+  - renderer/src/cli/manifest.rs
+  - renderer/tests/fixtures/manifest.json
 ---
 
 # Plugin
@@ -46,6 +48,9 @@ dem Plugin-Programmierer ab.
   aus `write_tiles` in `cli.rs`. Das Plugin startet alle 2 min ein Update.
   Endet eins mit dieser Zeile und Code 0, schreibt es nichts ins Log. Ändert
   sich ihre Form, landet jedes solche Update wieder im Log.
+- **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
+  eines Tokens: `--manifest` bei jedem Lauf und `--pyramid` eines Baums mit
+  `download: true`, siehe unten, „Manifest“.
 
 ## Fortschritt als JSON
 
@@ -191,3 +196,72 @@ Die Testvektoren nennen zu jedem ungültigen Token einen Grund: `form`,
 `kodierung`, `unterschrift`, `inhalt` oder `abgelaufen`. Ungültige mit
 falschem Inhalt sind richtig unterschrieben, damit ein Test die Prüfung des
 Inhalts trifft und nicht schon an der Unterschrift endet.
+
+## Manifest
+
+Je Baum schreibt der Renderer `manifest` neben `map.json`: je Kachel ihre
+Grösse und ihr ETag. Der Mod gleicht damit seine Kacheln ab, ohne jede
+einzeln zu fragen (#154). Das Plugin liest daraus die Summen je Stufe und
+die Prüfsumme. Warum der Renderer es schreibt und wann er den ganzen Baum
+liest: [0083](entscheidungen/0083-manifest-je-baum.md). Ein Testvektor,
+gegen den Renderer und Plugin prüfen, steht in
+[`renderer/tests/fixtures/manifest.json`](../renderer/tests/fixtures/manifest.json).
+
+### Format
+
+- **Datei:** gzip, darin UTF-8 ohne BOM, jede Zeile mit `\n` am Ende.
+- **Zeile:** `z/x/y grösse etag`, getrennt durch je ein Leerzeichen:
+  - `z`, `x`, `y`: ganze Zahlen in Dezimal, wie im Pfad
+    `<z>/<x>/<y>.webp`; x und y dürfen negativ sein;
+  - `grösse`: die Bytes der Datei, Dezimal;
+  - `etag`: wörtlich wie im Header `ETag` des Servers, samt
+    Anführungszeichen.
+- **Reihenfolge:** aufsteigend nach z, dann x, dann y, als Zahlen.
+- **Inhalt:** jede Kachel `<z>/<x>/<y>.webp` des Baums, über alle Stufen.
+  Keine Höhen, kein `map.json`.
+- **Das ETag** ist für Plugin und Mod undurchsichtig; verglichen wird nur
+  auf Gleichheit. Heute sind es Grösse und letzte Änderung in ns seit
+  1970, beide hexadezimal, etwa `"bbfb-186bbdd53ef15d9c"`.
+
+Ein Beispiel aus dem Testvektor, entpackt:
+
+```
+0/0/0 5 "5-186bbdd48c210000"
+1/-1/0 12 "c-186bbdd4937cccbc"
+1/0/-1 300 "12c-186bbdd4c7bbca64"
+1/0/0 48123 "bbfb-186bbdd53ef15d9c"
+2/-2/1 7 "7-186bbdd53ef15e00"
+2/-1/9 4096 "1000-186bbdd598598d00"
+2/-1/10 65536 "10000-186bbdd598598d00"
+10/3/-4 1 "1-186bbdd5b626f200"
+```
+
+### Wann
+
+- **Nur mit `--manifest`,** am Ende jedes Laufs, der Kacheln schreiben
+  kann: voller Lauf, Ausschnitt, Update und `--pyramid`, vor dem Stand, mit
+  der Zeile `Manifest:   <n> Kacheln, <MB> gepackt, in <s> s`.
+- **Ohne `--manifest`** entfernt ein Lauf, der Kacheln schreibt, am Ende ein
+  altes Manifest: Danach stimmte es nicht mehr. Das Plugin gibt den Schalter
+  darum bei jedem Lauf eines Baums, den es anbietet.
+- **Ein Update ohne Änderung** lässt es liegen, Byte für Byte. Fehlt es,
+  etwa weil `download: true` neu ist, oder lässt es sich nicht lesen,
+  schreibt ein solches Update mit `--manifest` es aus dem ganzen Baum.
+- **Getauscht** wie `map.json`: Niemand sieht ein halbes.
+- **Während eines Laufs** gilt noch das alte. Eine Kachel kann dann neuer
+  sein als ihre Zeile; der Mod speichert deshalb das ETag aus der Antwort
+  (#154).
+- **`manifest-offen-<pid>-<ns>`** liegt daneben, je Lauf, solange er
+  schreibt, auch ohne `--manifest`. Das Plugin braucht es nicht.
+- **Nach dem Kopieren** eines Baums ohne genaue Zeiten einmal
+  `--pyramid --manifest` aufrufen oder `manifest` löschen. Sonst stimmt jedes
+  ETag nicht mehr, das kein Update anfasst, und der Mod lädt bei jedem
+  Abgleich alles, siehe
+  [0083](entscheidungen/0083-manifest-je-baum.md), „Folgen“.
+
+### Was das Plugin daraus nimmt
+
+- **`manifest_sha256`:** SHA-256 über die Datei, wie sie auf der Platte
+  liegt, also über das gzip.
+- **Je Stufe** die Zahl der Kacheln und die Summe der Grössen, `stufen` im
+  Testvektor.

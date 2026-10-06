@@ -53,7 +53,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Plugin
 
-- [Plugin](plugin.md): das Paper-Plugin im eigenen Repo, und was es vom Renderer nutzt: Schalter, Ordner der Bäume, den Kopf von `stand-neu.bin`, Ausgabe und Code.
+- [Plugin](plugin.md): das Paper-Plugin im eigenen Repo, und was es vom Renderer nutzt: Schalter, Ordner der Bäume, den Kopf von `stand-neu.bin`, Ausgabe und Code, Token und Manifest.
 
 ## Mod
 
@@ -153,6 +153,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0080](entscheidungen/0080-ohne-hintergrundmodus.md): `--low-priority` setzt unter Windows nur `IDLE_PRIORITY_CLASS`, nicht den Hintergrundmodus für I/O und Speicher: Er kostete Läufe 9 bis 35 % und schützte die Tickzeit nicht besser.
 - [0081](entscheidungen/0081-eigene-laubfarben.md): Eigene Laubfarben als Tönung aus dem PDC statt der Biomfarbe; Fichte und Birke bekommen eine eigene Familie mit Tönungskarte nur an Stellen mit eigener Farbe; „hell“ ändert vorerst nichts, #179.
 - [0082](entscheidungen/0082-versionen-und-releases.md): Versionen nach SemVer aus `Cargo.toml`, ein Tag `vX.Y.Z` legt einen Release-Entwurf an, Linux gegen glibc 2.28 ohne musl.
+- [0083](entscheidungen/0083-manifest-je-baum.md): Mit `--manifest` schreibt der Renderer am Ende jedes Laufs mit Kacheln ein Manifest mit Grösse und ETag jeder Kachel; ein voller Lauf liest dafür den ganzen Baum, jeder andere zieht nach; eine Marke je Lauf erkennt abgebrochene und gleichzeitige Läufe.
 
 ## Messungen
 
@@ -213,3 +214,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-05, Hintergrundmodus gegen nur IDLE](messungen/2026-10-05-hintergrundmodus.md): ein Lauf mit `--threads 1 --low-priority` an einem Ausschnitt der Testwelt, mit und ohne Hintergrundmodus unter Windows, und in welcher Reihenfolge Windows IDLE und den Hintergrundmodus beide hält.
 - [2026-10-06, Tickzeit neben dem Renderer](messungen/2026-10-06-tickzeit-neben-dem-renderer.md): die Tickzeit eines Testservers ohne Renderer und mit einem Renderer auf einem Thread, normal, mit IDLE und mit IDLE samt Hintergrundmodus, beide auf den zwei logischen Prozessoren eines Kerns.
 - [2026-10-06, Schätzung gegen gemessene Läufe](messungen/2026-10-06-schaetzung.md): `--estimate` gegen echte Läufe an der Testwelt und gegen die Vollrender der grossen Welt, über drei Stände des Codes, woher jeder Faktor der Eichung kommt und wie stark die Schätzung streut.
+- [2026-10-06, Manifest, den ganzen Baum lesen](messungen/2026-10-06-manifest.md): was das Manifest aus dem ganzen Baum kostet, an der Testwelt mit einem Thread und mit allen, über den Pfad, verteilt und aus dem Verzeichnis, hochgerechnet auf einen Satz zum Download.

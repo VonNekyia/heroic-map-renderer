@@ -151,8 +151,10 @@ heissen, auch mit `--cinematic`, steht in [map.json](map-json.md), „Liste
 der Bäume“, die Höhen unter „Höhen“. In einem Baum liegen die Kacheln als
 `<z>/<x>/<y>.webp`; x und y dürfen negativ sein, weil der Blockursprung
 mitten in der Welt liegt. Neben `map.json` liegt der Stand für Updates,
-`stand.bin`, siehe [Updates](updates.md), „Der Stand“. Jede Kachel, jede
-Datei der Höhen, `map.json`, der Stand und `trees.json` entstehen erst als
+`stand.bin`, siehe [Updates](updates.md), „Der Stand“, und mit
+`--manifest` das Manifest mit Grösse und ETag jeder Kachel, `manifest`,
+siehe [Plugin](../plugin.md), „Manifest“. Jede Kachel, jede
+Datei der Höhen, `map.json`, der Stand, das Manifest und `trees.json` entstehen erst als
 eigene Datei daneben und werden dann getauscht: Ein Leser sieht nie eine
 halbe Datei, siehe
 [0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md).

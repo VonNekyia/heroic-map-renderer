@@ -311,6 +311,7 @@ async fn lausche(
         header: header_der_karte()?,
         freigabe,
         angaben: e.angaben,
+        liste: Mutex::default(),
     });
     let plaetze = Arc::new(Semaphore::new(e.verbindungen));
     loop {
@@ -563,6 +564,50 @@ struct Zustand {
     header: Vec<(HeaderName, HeaderValue)>,
     freigabe: Option<Freigabe>,
     angaben: Option<Angaben>,
+    liste: Mutex<Liste>,
+}
+
+/// Die Bäume, die `trees.json` der Wurzel nennt, also was die Webkarte zeigt.
+#[derive(Default)]
+struct Liste {
+    geprueft: Option<Instant>,
+    stempel: Option<(u64, SystemTime)>,
+    baeume: Vec<String>,
+}
+
+impl Zustand {
+    /// Ob `trees.json` der Wurzel den Baum nennt; ohne lesbare Liste keinen.
+    /// Höchstens einmal je Sekunde sieht der Server nach, ob sich Grösse oder
+    /// Zeit der Datei geändert haben, und liest sie dann neu.
+    fn genannt(&self, baum: &str) -> bool {
+        let mut liste = self.liste.lock().unwrap_or_else(PoisonError::into_inner);
+        if liste
+            .geprueft
+            .is_none_or(|zeit| zeit.elapsed() >= Duration::from_secs(1))
+        {
+            liste.geprueft = Some(Instant::now());
+            let pfad = self.kacheln.join("trees.json");
+            let stempel = std::fs::metadata(&pfad)
+                .ok()
+                .and_then(|meta| Some((meta.len(), meta.modified().ok()?)));
+            if stempel != liste.stempel {
+                liste.stempel = stempel;
+                liste.baeume = std::fs::read(&pfad)
+                    .ok()
+                    .and_then(|daten| serde_json::from_slice::<serde_json::Value>(&daten).ok())
+                    .and_then(|wert| {
+                        let baeume = wert["trees"].as_array()?.iter();
+                        Some(
+                            baeume
+                                .filter_map(|b| Some(b["path"].as_str()?.to_string()))
+                                .collect(),
+                        )
+                    })
+                    .unwrap_or_default();
+            }
+        }
+        liste.baeume.iter().any(|b| b == baum)
+    }
 }
 
 /// Das Geheimnis der Token und je Zufall eines Tokens sein Ablauf und die
@@ -596,7 +641,9 @@ impl Freigabe {
         if !bytes.contains_key(&token.zufall) {
             bytes.retain(|_, (ablauf, _)| *ablauf > jetzt);
         }
-        let (_, gezaehlt) = bytes.entry(token.zufall).or_insert((token.ablauf, 0));
+        let (ablauf, gezaehlt) = bytes.entry(token.zufall).or_insert((token.ablauf, 0));
+        // Ein späteres Token mit demselben Zufall hält den Eintrag länger.
+        *ablauf = (*ablauf).max(token.ablauf);
         match gezaehlt.checked_add(n) {
             Some(neu) if neu <= token.deckel => {
                 *gezaehlt = neu;
@@ -614,6 +661,9 @@ struct Ziel {
     index: bool,
     /// Gehasht und nie neu unter demselben Namen: `/assets/` unter `--web`.
     dauerhaft: bool,
+    /// Der Baum unter der Wurzel, den `trees.json` nennen muss; nur unter
+    /// `/tiles/`.
+    baum: Option<String>,
 }
 
 /// Eine Antwort ohne Körper.
@@ -673,10 +723,11 @@ async fn antwort(
         }
     }
     let ziel = match pfad.strip_prefix(KACHELN) {
-        Some(rest) => kachelpfad(&z.kacheln, rest).map(|pfad| Ziel {
+        Some(rest) => kachelpfad(&z.kacheln, rest).map(|(pfad, baum)| Ziel {
             pfad,
             index: false,
             dauerhaft: false,
+            baum: baum.map(str::to_string),
         }),
         None => z
             .seite
@@ -686,6 +737,7 @@ async fn antwort(
                 pfad: datei,
                 index: true,
                 dauerhaft: pfad.starts_with("/assets/"),
+                baum: None,
             }),
     };
     let Some(ziel) = ziel else {
@@ -717,9 +769,10 @@ async fn download(
     let Some(freigabe) = &z.freigabe else {
         return leer(z, StatusCode::NOT_FOUND);
     };
+    // Steht die Uhr vor 1970, gilt jedes Token als abgelaufen.
     let jetzt = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
+        .map_or(u64::MAX, |d| d.as_secs());
     let token = felder
         .get(header::AUTHORIZATION)
         .and_then(|wert| wert.to_str().ok())
@@ -732,7 +785,7 @@ async fn download(
             .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
         return antwort;
     };
-    let Some(pfad) = kachelpfad(&z.kacheln, rest) else {
+    let Some((pfad, _)) = kachelpfad(&z.kacheln, rest) else {
         return leer(z, StatusCode::NOT_FOUND);
     };
     let teile: Vec<&str> = rest.split('/').collect();
@@ -746,10 +799,12 @@ async fn download(
     if !frei {
         return leer(z, StatusCode::FORBIDDEN);
     }
+    // Ein Baum nur zum Download steht nicht in `trees.json`.
     let ziel = Ziel {
         pfad,
         index: false,
         dauerhaft: false,
+        baum: None,
     };
     let bedingung = Bedingung::aus(felder);
     let bei = Arc::clone(z);
@@ -776,8 +831,8 @@ async fn download(
 /// seine Höhen und `z/x/y.webp`, dasselbe für einen einzelnen Baum als
 /// Wurzel. Ein Baum heisst nur `a–z 0–9 -`, die Zahlen stehen, wie der
 /// Renderer sie schreibt. Alles andere, etwa `stand.bin` oder eine halb
-/// geschriebene Datei, gibt `None`.
-fn kachelpfad(wurzel: &Path, rest: &str) -> Option<PathBuf> {
+/// geschriebene Datei, gibt `None`. Dazu der Baum, in dem der Pfad liegt.
+fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a str>)> {
     let teile: Vec<&str> = rest.split('/').collect();
     let baum = |name: &str| {
         (1..=64).contains(&name.len())
@@ -795,16 +850,21 @@ fn kachelpfad(wurzel: &Path, rest: &str) -> Option<PathBuf> {
             .is_some_and(|(x, z)| heights::path_of(x, z) == format!("heights/{name}"))
     };
     // Die festen Namen zuerst: `[z, x, y]` nähme jeden Pfad aus drei Teilen.
-    let erlaubt = match teile.as_slice() {
-        ["trees.json" | "map.json" | MANIFEST] => true,
-        ["heights", name] => hoehe(name),
-        [b, "map.json" | MANIFEST] => baum(b),
-        [b, "heights", name] => baum(b) && hoehe(name),
-        [z, x, y] => kachel(z, x, y),
-        [b, z, x, y] => baum(b) && kachel(z, x, y),
-        _ => false,
+    let (erlaubt, im_baum) = match teile.as_slice() {
+        ["trees.json" | "map.json" | MANIFEST] => (true, None),
+        ["heights", name] => (hoehe(name), None),
+        [b, "map.json" | MANIFEST] => (baum(b), Some(*b)),
+        [b, "heights", name] => (baum(b) && hoehe(name), Some(*b)),
+        [z, x, y] => (kachel(z, x, y), None),
+        [b, z, x, y] => (baum(b) && kachel(z, x, y), Some(*b)),
+        _ => (false, None),
     };
-    erlaubt.then(|| teile.iter().fold(wurzel.to_path_buf(), |p, t| p.join(t)))
+    erlaubt.then(|| {
+        (
+            teile.iter().fold(wurzel.to_path_buf(), |p, t| p.join(t)),
+            im_baum,
+        )
+    })
 }
 
 /// Der Pfad unter `wurzel` für den Pfad einer URL unter `--web`; `None` für
@@ -898,6 +958,11 @@ fn lies(
     kopf: bool,
     bedingung: &Bedingung,
 ) -> Option<Response<Full<Bytes>>> {
+    if let Some(baum) = &ziel.baum
+        && !z.genannt(baum)
+    {
+        return None;
+    }
     let pfad = match ziel.index && ziel.pfad.is_dir() {
         true => ziel.pfad.join("index.html"),
         false => ziel.pfad.clone(),
@@ -1085,8 +1150,22 @@ mod tests {
         }
         assert_eq!(
             kachelpfad(wurzel, "t/1/-2/3.webp"),
-            Some(wurzel.join("t").join("1").join("-2").join("3.webp"))
+            Some((
+                wurzel.join("t").join("1").join("-2").join("3.webp"),
+                Some("t")
+            ))
         );
+        for (pfad, baum) in [
+            ("trees.json", None),
+            ("heights/0.0.bin", None),
+            ("map.json", None),
+            ("3/-1/2.webp", None),
+            ("2x1-se/map.json", Some("2x1-se")),
+            ("2x1-se/manifest", Some("2x1-se")),
+            ("2x1-se/heights/1.-2.bin", Some("2x1-se")),
+        ] {
+            assert_eq!(kachelpfad(wurzel, pfad).unwrap().1, baum, "{pfad}");
+        }
         for verboten in [
             "",
             "stand.bin",
@@ -1300,5 +1379,13 @@ mod tests {
         let bytes = freigabe.bytes.lock().unwrap();
         assert_eq!(bytes.get(&[1; 16]), None);
         assert_eq!(bytes.get(&[2; 16]), Some(&(300, 10)));
+        drop(bytes);
+        // Ein späteres Token mit demselben Zufall hält den Eintrag länger.
+        assert!(freigabe.buche(&token(4, 400), 1, 100));
+        assert!(freigabe.buche(&token(4, 500), 1, 100));
+        assert!(freigabe.buche(&token(5, 600), 1, 450));
+        let bytes = freigabe.bytes.lock().unwrap();
+        assert_eq!(bytes.get(&[4; 16]), Some(&(500, 2)));
+        assert_eq!(bytes.get(&[2; 16]), None);
     }
 }

@@ -39,11 +39,14 @@ pub(super) enum Grund {
 /// Prüft ein Token gegen das Geheimnis zur Zeit `jetzt` in Epoch s. Die
 /// Unterschrift vergleicht `ring` in konstanter Zeit.
 pub(super) fn pruefe(text: &str, geheimnis: &hmac::Key, jetzt: u64) -> Result<Token, Grund> {
-    let teile: Vec<&str> = text.split('.').collect();
-    let [inhalt, unterschrift] = teile.as_slice() else {
+    // Die Länge zuerst: Ein langer Text belegte sonst beim Teilen Speicher.
+    if text.len() > 256 {
+        return Err(Grund::Form);
+    }
+    let Some((inhalt, unterschrift)) = text.split_once('.') else {
         return Err(Grund::Form);
     };
-    if text.len() > 256 || inhalt.is_empty() || unterschrift.is_empty() {
+    if inhalt.is_empty() || unterschrift.is_empty() || unterschrift.contains('.') {
         return Err(Grund::Form);
     }
     let inhalt = base64url(inhalt).ok_or(Grund::Kodierung)?;

@@ -10,6 +10,7 @@ use crate::assets::blockstate::{self, DUNKELT, Leuchten, Lichtweg, SICHT, SICHT_
 use crate::assets::colors::{Resolver, laubton};
 use crate::assets::fluid;
 use crate::assets::fluid::Fluid;
+use crate::world::chunk::LAUB_HELL;
 use crate::world::{BlockState, Chunk, REGION, Region, Section, World};
 
 use super::kino::{Bloompuffer, Himmelsfarben, Kino, Lichtstufe};
@@ -2032,9 +2033,15 @@ impl Loaded {
                 Some(([x, y, z], sprites.variante(family, daten)?))
             })
             .collect();
-        varianten.extend(chunk.laubfarben().filter_map(|([x, y, z], _)| {
+        varianten.extend(chunk.laubfarben().filter_map(|([x, y, z], farbe)| {
             let (s, slot) = chunk.slot(x, y, z)?;
-            Some(([x, y, z], sprites.laub_variante(families[s][slot]?)?))
+            let family = families[s][slot]?;
+            // Mit Bit 24 die hellere Textur, sonst für Fichte und Birke die
+            // Tönungskarte.
+            let hell = (farbe & LAUB_HELL != 0)
+                .then(|| sprites.hell_variante(family))
+                .flatten();
+            Some(([x, y, z], hell.or_else(|| sprites.laub_variante(family))?))
         }));
         varianten.sort_unstable_by_key(|&(pos, _)| pos);
         Loaded {

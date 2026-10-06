@@ -13,6 +13,7 @@ use libwebp_sys as webp;
 use rayon::prelude::*;
 
 use crate::assets::colors::{Source, eigene_laubfarbe, source_of};
+use crate::world::chunk::LAUB_HELL;
 use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
 use super::heights::{Heights, RegionHeights};
@@ -317,6 +318,9 @@ pub struct Survey {
     /// Laubfarbe liegt: Es braucht eine Familie mit Tönungskarte, siehe
     /// [`super::SpriteSet::add_laub`].
     pub festes_laub: BTreeSet<BlockState>,
+    /// Laub, auf dem eine eigene Laubfarbe mit Bit 24 liegt: Es braucht eine
+    /// Familie mit der helleren Textur, siehe [`super::SpriteSet::add_laub`].
+    pub helles_laub: BTreeSet<BlockState>,
     /// Chunks, deren Laubfarben nicht dem Vertrag folgen, und für den ersten
     /// seine Lage und der Grund.
     pub laubfarben_ungueltig: usize,
@@ -589,6 +593,7 @@ pub fn survey_mit_fortschritt(
         survey.unfinished += teil.unfinished;
         survey.inhalte.extend(teil.inhalte);
         survey.festes_laub.extend(teil.festes_laub);
+        survey.helles_laub.extend(teil.helles_laub);
         survey.laubfarben_ungueltig += teil.laubfarben_ungueltig;
         if survey.laubfarben_grund.is_none() {
             survey.laubfarben_grund = teil.laubfarben_grund;
@@ -673,7 +678,7 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
                     survey.entities.insert((state.clone(), daten.clone()));
                 }
             }
-            for ([x, y, z], _) in chunk.laubfarben() {
+            for ([x, y, z], farbe) in chunk.laubfarben() {
                 let Some(state) = chunk.block_at(x, y, z) else {
                     continue;
                 };
@@ -681,6 +686,9 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
                     && eigene_laubfarbe(state.name())
                 {
                     survey.festes_laub.insert(state.clone());
+                }
+                if farbe & LAUB_HELL != 0 && eigene_laubfarbe(state.name()) {
+                    survey.helles_laub.insert(state.clone());
                 }
             }
         }

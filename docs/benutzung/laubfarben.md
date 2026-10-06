@@ -7,6 +7,7 @@ code:
   - renderer/src/render/sprites.rs
   - renderer/src/render/tiles.rs
   - renderer/src/assets/colors.rs
+  - renderer/src/assets/hell.rs
 ---
 
 # Eigene Laubfarben aus den Chunk-Daten
@@ -58,9 +59,16 @@ Big Endian, wie `DataOutputStream` es schreibt:
   Familie mit Tönungskarte, `SpriteSet::add_laub` in
   [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs).
   Jede andere Stelle zeichnet Byte für Byte wie ohne eigene Farben.
-- **„Hell“:** Im Spiel nimmt der Client dann eine hellere Blatttextur, die
-  der Renderer nicht hat. Er zeichnet die Farbe vorerst wie ohne das Bit;
-  die Näherung kommt mit #179.
+- **„Hell“, Bit 24:** Wie im Client tauscht der Renderer dann in der
+  Blatttextur Farben nach einer festen Tabelle, je Texel mit Deckung, und
+  tönt danach mit der eigenen Farbe. Die Tabelle steht in `hell.txt`, für
+  Eiche, Fichte, Birke, Dschungel, Akazie, Schwarzeiche und Mangrove, siehe
+  [Erzeugte Tabellen](../entwicklung/tabellen.md). Je Laub mit dem Bit
+  gibt es eine eigene Familie mit der hellen Textur, ohne `dark_cutout`,
+  Fichte und Birke mit Tönungskarte (`SpriteSet::hell_variante`). Eine
+  Farbe, die nicht in der Tabelle steht, etwa aus einem Resourcepack,
+  bleibt; kommt keine vor, zeichnet das Bit wie ohne. Warum so:
+  [0088](../entscheidungen/0088-helles-laub-aus-dem-spiel.md).
 
 ## Falsche Daten
 

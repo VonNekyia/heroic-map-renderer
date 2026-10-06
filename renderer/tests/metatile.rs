@@ -163,7 +163,9 @@ fn eigene_laubfarbe_faerbt_genau_ihren_block() {
             let survey = survey(&world, projection, Y_RANGE, None).unwrap();
             let mut assets = assets();
             let mut sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
-            sprites.add_laub(&mut assets, &survey.festes_laub).unwrap();
+            sprites
+                .add_laub(&mut assets, &survey.festes_laub, &survey.helles_laub)
+                .unwrap();
             render_area(&world, &sprites, rect, Y_RANGE).unwrap()
         };
         let (a, b) = (bild(&ohne), bild(&mit));
@@ -192,6 +194,91 @@ fn eigene_laubfarbe_faerbt_genau_ihren_block() {
         }
         assert!(je_block.iter().all(|&n| n > 0), "{name}: {je_block:?}");
     }
+}
+
+/// Bit 24 tauscht die Farben der Blatttextur nach der Tabelle, nur am
+/// Block mit dem Bit, hier Fichte, die dort eine Tönungskarte trägt: Jeder
+/// Pixel, der sich ändert, liegt im Rechteck um ihn und wird heller, und
+/// einer ändert sich. Die Textur trägt Farben aus der Tabelle für
+/// Dschungellaub; getönt wird weiss, so bleibt der Tausch sichtbar.
+/// Siehe docs/benutzung/laubfarben.md, „Wirkung“.
+#[test]
+fn helles_laub_nur_mit_bit_24() {
+    fn szene(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (2..=5, 1, 2..=5) => "minecraft:jungle_leaves",
+            (9..=12, 1, 9..=12) => "minecraft:spruce_leaves",
+            _ => "minecraft:air",
+        }
+    }
+    let ueber = tempdir();
+    let modelle = ueber.path().join("minecraft/models/block");
+    let texturen = ueber.path().join("minecraft/textures/block");
+    std::fs::create_dir_all(&modelle).unwrap();
+    std::fs::create_dir_all(&texturen).unwrap();
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
+    let kreuz = std::fs::read_to_string(base.join("minecraft/models/block/getoent_kreuz.json"))
+        .unwrap()
+        .replace("minecraft:block/gitter", "minecraft:block/jungle_leaves");
+    std::fs::write(modelle.join("getoent_kreuz.json"), kreuz).unwrap();
+    let farben = [[0x70, 0x6d, 0x70], [0x88, 0x87, 0x87], [0x98, 0x99, 0x98]];
+    RgbaImage::from_fn(16, 16, |x, y| {
+        let [r, g, b] = farben[((x + y) % 3) as usize];
+        image::Rgba([r, g, b, 255])
+    })
+    .save(texturen.join("jungle_leaves.png"))
+    .unwrap();
+
+    let (normal, hell) = ([3, 1, 4], [10, 1, 12]);
+    let welt = |bit: u32| {
+        let dir = tempdir();
+        common::write_world_bukkit(dir.path(), &[(0, 0)], szene, |_, _| {
+            Some(common::laubfarben(&[
+                (0xff_ffff, &[normal]),
+                (0xff_ffff | bit, &[hell]),
+            ]))
+        });
+        dir
+    };
+    let (ohne, mit) = (welt(0), welt(1 << 24));
+    let projection = Projection::new(16);
+    let rect = rect_um(projection, [0, 0, 0], [16, 2, 16]);
+    let bild = |dir: &TempDir| {
+        let world = World::open(dir.path()).unwrap();
+        let survey = survey(&world, projection, Y_RANGE, None).unwrap();
+        let mut assets = Assets::open(vec![base.clone(), ueber.path().to_path_buf()]).unwrap();
+        let mut sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        sprites
+            .add_laub(&mut assets, &survey.festes_laub, &survey.helles_laub)
+            .unwrap();
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+    };
+    let (a, b) = (bild(&ohne), bild(&mit));
+    let [x, y, z] = hell;
+    let um = rect_um(projection, hell, [x + 1, y + 1, z + 1]);
+    let mut anders = 0;
+    for (px, py, p) in a.enumerate_pixels() {
+        let q = b.get_pixel(px, py);
+        if p == q {
+            continue;
+        }
+        let (x, y) = (rect.x + px as i32, rect.y + py as i32);
+        assert!(
+            (um.x..um.x + um.width as i32).contains(&x)
+                && (um.y..um.y + um.height as i32).contains(&y),
+            "Pixel ({x}, {y}) ausserhalb des hellen Blocks"
+        );
+        let summe = |p: &image::Rgba<u8>| p.0[..3].iter().map(|&c| u32::from(c)).sum::<u32>();
+        assert!(
+            summe(q) > summe(p),
+            "Pixel ({x}, {y}): {:?} nicht heller als {:?}",
+            q.0,
+            p.0
+        );
+        anders += 1;
+    }
+    assert!(anders > 0);
 }
 
 /// Das Rechteck in Pixeln um die Ecken des Quaders von `min` bis `max`.

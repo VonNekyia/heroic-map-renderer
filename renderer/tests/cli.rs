@@ -6370,10 +6370,11 @@ fn eigene_laubfarben_faerben_genau_das_laub() {
     );
 }
 
-/// Ein Update gleicht Byte für Byte einem vollen Lauf, auch mit einer
-/// eigenen Laubfarbe auf Fichte ausserhalb seines Gebiets: Die Fichte im
-/// Gebiet behält ihr Bild mit fester Farbe, ob der Lauf die Vorgabe sieht
-/// oder nicht.
+/// Ein Update gleicht Byte für Byte einem vollen Lauf, auch mit eigenen
+/// Laubfarben auf Fichte ausserhalb seines Gebiets, eine davon mit Bit 24:
+/// Die Fichte im Gebiet behält ihr Bild mit fester Farbe, ob der Lauf die
+/// Vorgaben sieht oder nicht. Die Textur der Fichte trägt Farben aus der
+/// Tabelle für „hell“, so zeichnet das Bit wirklich anders.
 #[test]
 fn update_mit_laubfarbe_ausserhalb_gleicht_einem_vollen_lauf() {
     fn szene(x: i32, y: i32, z: i32) -> &'static str {
@@ -6390,9 +6391,35 @@ fn update_mit_laubfarbe_ausserhalb_gleicht_einem_vollen_lauf() {
         }
     }
     let chunks = [(0, 0), (20, 0)];
-    let fern =
-        |cx: i32, _: i32| (cx == 20).then(|| common::laubfarben(&[(0xff_2020, &[[5, 1, 6]])]));
-    let args = ["--scale", "16", "--gpu", "off"];
+    let fern = |cx: i32, _: i32| {
+        (cx == 20).then(|| {
+            common::laubfarben(&[
+                (0xff_2020, &[[5, 1, 6]]),
+                (0xff_2020 | 1 << 24, &[[6, 1, 5]]),
+            ])
+        })
+    };
+    let ueber = tempdir();
+    let modelle = ueber.path().join("minecraft/models/block");
+    std::fs::create_dir_all(&modelle).unwrap();
+    std::fs::create_dir_all(ueber.path().join("minecraft/textures/block")).unwrap();
+    let kreuz = std::fs::read_to_string(assets().join("minecraft/models/block/getoent_kreuz.json"))
+        .unwrap()
+        .replace("minecraft:block/gitter", "minecraft:block/spruce_leaves");
+    std::fs::write(modelle.join("getoent_kreuz.json"), kreuz).unwrap();
+    let farben = [[0x42, 0x42, 0x42], [0x8a, 0x8a, 0x8a]];
+    RgbaImage::from_fn(16, 16, |x, y| {
+        let [r, g, b] = farben[((x + y) % 2) as usize];
+        image::Rgba([r, g, b, 255])
+    })
+    .save(
+        ueber
+            .path()
+            .join("minecraft/textures/block/spruce_leaves.png"),
+    )
+    .unwrap();
+    let ueber_text = ueber.path().to_str().unwrap();
+    let args = ["--scale", "16", "--gpu", "off", "--assets", ueber_text];
     let welt = tempdir();
     common::write_world_bukkit(welt.path(), &chunks, szene, fern);
     let baum = neuer_baum("2x1-se");

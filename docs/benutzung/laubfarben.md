@@ -37,7 +37,9 @@ Big Endian, wie `DataOutputStream` es schreibt:
 | je Stelle | i32 | `x \| z<<4 \| (y+2048)<<8`, x und z von 0 bis 15 im Chunk |
 
 - **y** liegt in jeder Dimension von −2032 bis 2031; y+2048 passt in 12 Bit.
-  Die Bits ab 20 sind 0.
+  Die Bits ab 20 sind 0. Eine Stelle mit y ausserhalb davon gilt nicht, die
+  übrigen gelten weiter.
+- **Zahlen** der Gruppen und Stellen sind nicht negativ.
 - **Doppelt** genannte Stellen: Die letzte gilt.
 
 ## Wirkung
@@ -52,9 +54,10 @@ Big Endian, wie `DataOutputStream` es schreibt:
   (`eigene_laubfarbe` in
   [`renderer/src/assets/colors.rs`](../../renderer/src/assets/colors.rs)).
   Steht an der Stelle kein solches Laub, gilt die Farbe nicht.
-- **Fichte und Birke** bekommen eine Tönungskarte nur, wenn der Vorlauf eine
-  eigene Farbe auf ihnen findet. Dann weicht ihr übriges Laub um bis zu 1
-  je Kanal von der festen Farbe im Bild ab.
+- **Fichte und Birke** bekommen an Stellen mit eigener Farbe eine eigene
+  Familie mit Tönungskarte, `SpriteSet::add_laub` in
+  [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs).
+  Jede andere Stelle zeichnet Byte für Byte wie ohne eigene Farben.
 - **„Hell“:** Im Spiel nimmt der Client dann eine hellere Blatttextur, die
   der Renderer nicht hat. Er zeichnet die Farbe wie ohne das Bit.
 
@@ -69,8 +72,8 @@ ersten den Grund:
             <n> Chunks mit ungültigen Laubfarben, ohne gezeichnet; zuerst Chunk <x> <z>: <Grund>
 ```
 
-Der Grund ist etwa `Fassung 2`, `zu kurz`, `kein Byte-Array` oder die erste
-Farbe oder Stelle mit gesetzten Bits, die 0 sein müssen.
+Der Grund ist etwa `Fassung 2`, `zu kurz`, `kein Byte-Array`, `-1 Gruppen`
+oder die erste Farbe oder Stelle mit gesetzten Bits, die 0 sein müssen.
 
 ## Update
 

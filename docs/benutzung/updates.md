@@ -115,8 +115,10 @@ Zwei Stufen, damit ein Update nicht jeden Chunk dekodiert:
 2. **Der Fingerabdruck,** `Chunk::abdruck` in
    [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs), nur
    für Chunks mit neuem Stempel: FNV-1a mit 64 Bit über die Blöcke und Biome
-   jeder Section, als Läufe gleicher Werte der Reihe nach, und über die
-   Daten der Blockentities, die das Bild ändern. Die Ordnung der Palette und
+   jeder Section, als Läufe gleicher Werte der Reihe nach, über die Daten
+   der Blockentities, die das Bild ändern, und über die eigenen
+   Laubfarben, siehe [Eigene Laubfarben](laubfarben.md), „Update“. Die
+   Ordnung der Palette und
    die Namen ihrer Felder zählen nicht: Ein Chunk, den der Server nur von
    26.2 auf 26.3 umschreibt, bleibt gleich. Dazu kommt das y seines höchsten
    Blocks, der nicht Luft ist.

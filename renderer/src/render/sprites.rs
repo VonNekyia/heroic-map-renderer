@@ -52,6 +52,9 @@ pub struct SpriteSet {
     /// Je Familie und Daten eines Blockentity, die ihr Bild ändern, die
     /// Familie mit diesen Daten, siehe [`SpriteSet::add_entities`].
     by_entity: HashMap<u32, HashMap<Blockdaten, u32>>,
+    /// Je Familie von Laub mit fester Farbe, auf dem eine eigene Laubfarbe
+    /// liegt, die Familie mit Tönungskarte, siehe [`SpriteSet::add_laub`].
+    by_laub: HashMap<u32, u32>,
     /// Fassungen einer Fluessigkeit: je Maske aus verdeckten Flaechen
     /// (`mask_bit`) eine, Index `mask`. Eintrag 0 ist das Sprite selbst.
     by_mask: HashMap<SpriteId, Vec<Option<SpriteId>>>,
@@ -88,8 +91,8 @@ pub struct SpriteSet {
     /// Würfel um einen Block, in die irgendein Modell ragt, von und bis.
     masken: Masken,
     sonne_reich: [[i32; 3]; 2],
-    /// Ob Fichten- und Birkenlaub mit Tönungskarte gerastert wird, siehe
-    /// [`SpriteSet::toenbares_festes_laub`].
+    /// Nur während [`SpriteSet::add_laub`]: Fichten- und Birkenlaub mit
+    /// Tönungskarte rastern statt mit fester Farbe.
     festes_laub: bool,
 }
 
@@ -211,10 +214,6 @@ pub struct Family {
     pub tint_below: bool,
     /// Wirken eigene Laubfarben auf dem Block, siehe [`eigene_laubfarbe`]?
     pub laub: bool,
-    /// Die feste Farbe, wenn die gefärbten Flächen sie nicht im Bild tragen,
-    /// sondern über die Tönungskarte, siehe
-    /// [`SpriteSet::toenbares_festes_laub`].
-    pub fest: Option<Tint>,
     /// Wo die andere Hälfte einer Doppelkiste steht, relativ zum Block, im
     /// Blick, siehe [`doppelkiste`].
     pub doppelkiste: Option<[i32; 3]>,
@@ -571,6 +570,7 @@ impl SpriteSet {
             families: Vec::new(),
             by_state: HashMap::new(),
             by_entity: HashMap::new(),
+            by_laub: HashMap::new(),
             by_mask: HashMap::new(),
             by_content: HashMap::new(),
             strips: HashMap::new(),
@@ -722,33 +722,42 @@ impl SpriteSet {
         self.by_entity.get(&family)?.get(daten).copied()
     }
 
-    /// Rastert die Familien von Laub mit fester Farbe aus `states`, Fichte
-    /// und Birke, neu mit Tönungskarte, damit eigene Laubfarben auf ihnen
-    /// wirken. Nur, wenn der Vorlauf welche auf ihnen fand: Über die Karte
-    /// gemischt weicht ihre Farbe um bis zu 1 je Kanal vom Bild ab.
+    /// Nimmt Laub mit fester Farbe auf, Fichte und Birke, auf dem eine
+    /// eigene Laubfarbe liegt: je Familie eine zweite mit Tönungskarte, die
+    /// der Renderpfad nur an Stellen mit eigener Farbe nimmt, siehe
+    /// [`SpriteSet::laub_variante`]. Jede andere Stelle behält das Bild mit
+    /// der festen Farbe. Nach [`SpriteSet::build_in`] mit denselben
+    /// Blockstates.
     /// Siehe docs/entscheidungen/0081-eigene-laubfarben.md.
-    pub fn toenbares_festes_laub<'a>(
+    pub fn add_laub<'a>(
         &mut self,
         assets: &mut Assets,
         states: impl IntoIterator<Item = &'a BlockState>,
     ) -> Result<()> {
-        self.festes_laub = true;
-        let mut neu = HashSet::new();
         for state in states {
-            let fest = matches!(source_of(state.name()), Some(Source::Fixed(_)));
-            let Some(index) = self.family_index(state) else {
+            let Some(basis) = self.family_index(state) else {
                 continue;
             };
-            if !fest || !eigene_laubfarbe(state.name()) || !neu.insert(index) {
+            if self.by_laub.contains_key(&basis) {
                 continue;
             }
             let models = models_of(assets, state, None)?;
             let pflanze = self.kino.is_some() && assets.bodenpflanze(state)?;
-            if let Some(family) = self.rastere_familie(assets, state, &models, pflanze) {
-                self.families[index as usize] = family;
+            self.festes_laub = true;
+            let family = self.rastere_familie(assets, state, &models, pflanze);
+            self.festes_laub = false;
+            if let Some(family) = family {
+                self.by_laub.insert(basis, self.families.len() as u32);
+                self.families.push(family);
             }
         }
         Ok(())
+    }
+
+    /// Die Familie mit Tönungskarte zu Laub mit fester Farbe, falls
+    /// [`SpriteSet::add_laub`] sie angelegt hat.
+    pub fn laub_variante(&self, family: u32) -> Option<u32> {
+        self.by_laub.get(&family).copied()
     }
 
     /// Rastert die Alternativen einer Blockstate zu einer Familie, `None`,
@@ -847,12 +856,6 @@ impl SpriteSet {
             },
             tint_below: tinted_below(state.name(), state.prop("half")),
             laub: eigene_laubfarbe(state.name()),
-            fest: match source_of(state.name()) {
-                Some(Source::Fixed(tint)) if self.festes_laub && eigene_laubfarbe(state.name()) => {
-                    Some(tint)
-                }
-                _ => None,
-            },
             doppelkiste: doppelkiste(state).map(|d| projection.richtung().versatz_in_den_blick(d)),
             nachbarn,
             voll: blockstate::volle_seiten(state),
@@ -1594,7 +1597,6 @@ mod tests {
             resolver: None,
             tint_below: false,
             laub: false,
-            fest: None,
             doppelkiste: None,
             nachbarn: None,
             voll: 0,

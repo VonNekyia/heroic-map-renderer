@@ -313,10 +313,10 @@ pub struct Survey {
     /// Mit [`Reach::mit_inhalt`] je gelesenem Chunk, was der Renderer aus
     /// ihm zeichnet, für den Stand eines vollen Laufs.
     pub inhalte: Vec<([i32; 2], Inhalt)>,
-    /// Ob eine eigene Laubfarbe auf Laub mit fester Farbe liegt, Fichte oder
-    /// Birke: Dann braucht es eine Tönungskarte, siehe
-    /// [`super::SpriteSet::toenbares_festes_laub`].
-    pub festes_laub: bool,
+    /// Laub mit fester Farbe, Fichte oder Birke, auf dem eine eigene
+    /// Laubfarbe liegt: Es braucht eine Familie mit Tönungskarte, siehe
+    /// [`super::SpriteSet::add_laub`].
+    pub festes_laub: BTreeSet<BlockState>,
     /// Chunks, deren Laubfarben nicht dem Vertrag folgen, und für den ersten
     /// seine Lage und der Grund.
     pub laubfarben_ungueltig: usize,
@@ -588,7 +588,7 @@ pub fn survey_mit_fortschritt(
         survey.heights.extend(teil.heights);
         survey.unfinished += teil.unfinished;
         survey.inhalte.extend(teil.inhalte);
-        survey.festes_laub |= teil.festes_laub;
+        survey.festes_laub.extend(teil.festes_laub);
         survey.laubfarben_ungueltig += teil.laubfarben_ungueltig;
         if survey.laubfarben_grund.is_none() {
             survey.laubfarben_grund = teil.laubfarben_grund;
@@ -634,19 +634,11 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
                 continue;
             }
             survey.chunks += 1;
-            if im_bild {
-                if let Some(grund) = chunk.laubfarben_fehler() {
-                    survey.laubfarben_ungueltig += 1;
-                    survey
-                        .laubfarben_grund
-                        .get_or_insert(([cx, cz], grund.to_string()));
-                }
-                survey.festes_laub |= chunk.laubfarben().any(|([x, y, z], _)| {
-                    chunk.block_at(x, y, z).is_some_and(|block| {
-                        matches!(source_of(block.name()), Some(Source::Fixed(_)))
-                            && eigene_laubfarbe(block.name())
-                    })
-                });
+            if im_bild && let Some(grund) = chunk.laubfarben_fehler() {
+                survey.laubfarben_ungueltig += 1;
+                survey
+                    .laubfarben_grund
+                    .get_or_insert(([cx, cz], grund.to_string()));
             }
             // Die Höhen hängen nicht an der Sprite-Tabelle: auch ein Chunk,
             // dessen Blöcke ausserhalb landen, bekommt seine.
@@ -679,6 +671,16 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
             for ([x, y, z], daten) in chunk.blockentities() {
                 if let Some(state) = chunk.block_at(x, y, z) {
                     survey.entities.insert((state.clone(), daten.clone()));
+                }
+            }
+            for ([x, y, z], _) in chunk.laubfarben() {
+                let Some(state) = chunk.block_at(x, y, z) else {
+                    continue;
+                };
+                if matches!(source_of(state.name()), Some(Source::Fixed(_)))
+                    && eigene_laubfarbe(state.name())
+                {
+                    survey.festes_laub.insert(state.clone());
                 }
             }
         }

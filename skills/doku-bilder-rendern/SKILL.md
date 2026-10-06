@@ -30,6 +30,7 @@ Testwelt liegt unter `./world`, die Assets wie in
    | `biomgrenze-savanne.webp`, `biomgrenze-ozean.webp` | je zweimal gerendert, links `--biome-blend 0`, rechts `2`, zugeschnitten und nebeneinander, Tabelle `GRENZEN` |
    | `kameras.webp` | dasselbe Dorf in 2:1, 4:3, 1:1 und `top`, zwei mal zwei, je mit `--camera` und einem `--center`, das den Punkt `ZIEL` in die Mitte legt, `KAMERAS` mit `ZIEL` und `FELD` |
    | `genordet.webp` | dasselbe Dorf in `top-north` und `north-45` nebeneinander, ebenso, `GENORDET` |
+   | `karte-cinematic.webp` | das Dorf aus dem README zweimal gerendert, links die Karte, rechts mit `--cinematic`, zugeschnitten und nebeneinander, `KINO`; Cinematic hier mit den Werten, die der Schalter setzt |
    | `web/public/vorschau.jpg`, `favicon.png`, `apple-touch-icon.png` | [`web-bilder.py`](web-bilder.py): die Mitte von `welt.webp` auf 1200 × 630, die Icons aus der Ebene „Insel“ des Banners, siehe Schritt 3 |
    | `marmor.webp` | der Skin Tablett, vorerst nur Marmor, an einem Kachelbaum der Testwelt in 2:1 mit `--scale 8`: in `web/` erst `SKIN=./skins/tablett npx vite build --outDir dist-skin`, dann `node ../skills/doku-bilder-rendern/marmor-bild.mjs <kachelwurzel> ../docs/bilder/marmor.webp` ([`marmor-bild.mjs`](marmor-bild.mjs)) |
    | `sprites.png` | der Befehl in [`docs/benutzung/schalter.md`](../../docs/benutzung/schalter.md), „Sprites rastern: `--sprite`“ |

@@ -96,7 +96,7 @@ def crates():
     for ziel in ZIELE:
         meta = json.loads(subprocess.run(
             ["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", ziel],
-            cwd=RENDERER, capture_output=True, text=True, check=True).stdout)
+            cwd=RENDERER, capture_output=True, encoding="utf-8", check=True).stdout)
         pakete = {p["id"]: p for p in meta["packages"]}
         knoten = {k["id"]: k for k in meta["resolve"]["nodes"]}
         stapel, hier = [meta["resolve"]["root"]], set()
@@ -139,7 +139,7 @@ def main():
     selbsttest()
     ziel = Path(sys.argv[1])
     ziel.mkdir(parents=True, exist_ok=True)
-    wurzel = Path(subprocess.run(["rustc", "--print", "sysroot"], capture_output=True, text=True,
+    wurzel = Path(subprocess.run(["rustc", "--print", "sysroot"], capture_output=True, encoding="utf-8",
                                  check=True).stdout.strip()) / "share" / "doc" / "rust"
     mit = text(wurzel / "licenses" / "MIT.txt")
     gruppen = {}  # Text -> Crates
@@ -153,6 +153,11 @@ def main():
             apache.append(name)
         for t in texte_der_crate(p, gewaehlt):
             if t is None:
+                # Die Autoren kommen aus cargo metadata; stehen sie nicht wörtlich in
+                # Cargo.toml, ist die Ausgabe falsch gelesen worden.
+                cargo_toml = text(Path(p["manifest_path"]))
+                if fremd := [a for a in p["authors"] if a not in cargo_toml]:
+                    sys.exit(f"{name}: Autoren {fremd} stehen so nicht in Cargo.toml")
                 autoren = ", ".join(re.sub(r"\s*<[^>]*>", "", a) for a in p["authors"])
                 inhalt = mit.replace("<year> <copyright holders>", f"the {p['name']} authors: {autoren}")
                 quelle = "MIT, Mustertext: die Crate liefert keinen Text mit"

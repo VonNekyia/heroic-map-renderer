@@ -56,6 +56,11 @@ python renderer/drittlizenzen.py <zielordner>
   Skript nimmt den Mustertext der MIT-Lizenz aus der Toolchain mit den
   Autoren aus `Cargo.toml`. Fehlt der Text einer anderen Lizenz, bricht es
   ab.
+- **Kodierung:** Die Ausgabe von `cargo metadata` und `rustc` liest das
+  Skript als UTF-8. Unter Windows nähme Python sonst cp1252, und Namen
+  ausserhalb von ASCII kämen verdorben ins Paket (#200). Steht ein Autor aus
+  `cargo metadata` nicht wörtlich in der `Cargo.toml` der Crate, bricht es
+  ab.
 - **Gleiche Texte** stehen einmal, mit allen Crates, für die sie gelten.
 
 ## In der CI
@@ -63,5 +68,6 @@ python renderer/drittlizenzen.py <zielordner>
 Der Job „Dependencies“ prüft mit `cargo deny check` die Lizenzen aller
 Crates gegen `renderer/deny.toml`, die eigene eingeschlossen. Danach lässt
 er das Skript laufen: Bringt eine neue Crate keinen Text mit, fällt der
-Job, siehe [CI](ci.md). `selbsttest` prüft dabei die Wahl aus einem
+Job, siehe [CI](ci.md). Der Job „Rust“ lässt es zusätzlich unter Windows
+laufen, wo das Windows-Paket entsteht und die Kodierung zählt. `selbsttest` prüft dabei die Wahl aus einem
 SPDX-Ausdruck an fünf Fällen.

@@ -7,7 +7,7 @@ code:
   - renderer/src/render/sprites.rs
   - renderer/src/render/tiles.rs
   - renderer/src/assets/colors.rs
-  - renderer/src/assets/hell.rs
+  - renderer/src/assets/laubkopie.rs
 ---
 
 # Eigene Laubfarben aus den Chunk-Daten
@@ -50,24 +50,34 @@ Big Endian, wie `DataOutputStream` es schreibt:
   `ChunkCache::tints_at` in
   [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)
   statt der Biomfarbe ein.
-- **Nur auf tönbarem Laub:** Eiche, Dschungel, Akazie, Schwarzeiche,
-  Mangrove, dazu Fichte und Birke, die sonst eine feste Farbe tragen
-  (`eigene_laubfarbe` in
+- **Nur auf Laub:** Eiche, Dschungel, Akazie, Schwarzeiche, Mangrove, dazu
+  Fichte und Birke, die sonst eine feste Farbe tragen, und die sieben
+  Sorten, die das Spiel nicht tönt: Azalee, blühende Azalee, Kirsche, Blasse
+  Eiche und die drei Pappeln aus 26.3 (`eigene_laubfarbe` in
   [`renderer/src/assets/colors.rs`](../../renderer/src/assets/colors.rs)).
   Steht an der Stelle kein solches Laub, gilt die Farbe nicht.
 - **Fichte und Birke** bekommen an Stellen mit eigener Farbe eine eigene
   Familie mit Tönungskarte, `SpriteSet::add_laub` in
   [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs).
   Jede andere Stelle zeichnet Byte für Byte wie ohne eigene Farben.
+- **Laub, das das Spiel nicht tönt,** bekommt an Stellen mit eigener Farbe
+  eine graue Kopie der Textur und wird getönt, auf jeder Fläche mit der
+  Blatttextur. Wie für hell tauscht die Kopie Farben nach einer festen
+  Tabelle, `grau.txt`; eine Farbe, die dort nicht steht, bleibt und wird
+  getönt. Die Blüten der blühenden Azalee, die Farben in `blueten.txt`,
+  bleiben ungetönt: Die Kopie nimmt sie heraus, und eine zweite Fläche
+  trägt sie darüber. Warum so:
+  [0089](../entscheidungen/0089-ungetoentes-laub-mit-eigener-farbe.md).
 - **„Hell“, Bit 24:** Wie im Client tauscht der Renderer dann in der
   Blatttextur Farben nach einer festen Tabelle, je Texel mit Deckung, und
   tönt danach mit der eigenen Farbe. Die Tabelle steht in `hell.txt`, für
-  Eiche, Fichte, Birke, Dschungel, Akazie, Schwarzeiche und Mangrove, siehe
+  jede Sorte oben; für Laub, das das Spiel nicht tönt, statt der grauen
+  Kopie, mit den Blüten darüber, siehe
   [Erzeugte Tabellen](../entwicklung/tabellen.md). Je Laub mit dem Bit
   gibt es eine eigene Familie mit der hellen Textur, ohne `dark_cutout`,
   Fichte und Birke mit Tönungskarte (`SpriteSet::hell_variante`). Eine
   Farbe, die nicht in der Tabelle steht, etwa aus einem Resourcepack,
-  bleibt; kommt keine vor, zeichnet das Bit wie ohne. Warum so:
+  bleibt; kommt auf getöntem Laub keine vor, zeichnet das Bit wie ohne. Warum so:
   [0088](../entscheidungen/0088-helles-laub-aus-dem-spiel.md).
 
 ## Falsche Daten
@@ -97,8 +107,8 @@ ungespeichert und gibt ihm beim Speichern einen neuen Stempel.
 - **Nur schreiben, wenn sich die Bytes ändern.** Sonst gilt jeder geladene
   Chunk als ungespeichert, bekommt einen neuen Stempel, und jedes Update
   liest ihn umsonst.
-- **Stellen gegen den Block prüfen:** Eine Stelle ohne tönbares Laub kostet
-  nur Bytes.
+- **Stellen gegen den Block prüfen:** Eine Stelle ohne Laub aus „Wirkung“
+  kostet nur Bytes.
 - **Grösse:** je Stelle 4 Byte, je Gruppe 8 Byte dazu. Das sind typisch
   einige kB je Chunk, rechnerisch höchstens rund 400 kB; das liest der
   Renderer ohne Mühe.

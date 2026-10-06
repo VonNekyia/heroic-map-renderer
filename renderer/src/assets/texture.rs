@@ -137,7 +137,8 @@ impl Textures {
     }
 
     /// Eine Kopie einer Blatttextur für eigene Laubfarben, je Art einmal
-    /// angelegt, ohne `dark_cutout`: Das Spiel legt sie ohne `.mcmeta` an.
+    /// angelegt, ohne `dark_cutout` wie die helle, die das Spiel ohne
+    /// `.mcmeta` anlegt.
     /// `None` für eine Textur ohne Tabelle dieser Art. Sonst die Kopie, `id`
     /// selbst, wenn sich nichts ändert, etwa in einem Resourcepack, und die
     /// Blüten allein, falls es welche gibt.

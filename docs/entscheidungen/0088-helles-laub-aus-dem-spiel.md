@@ -5,9 +5,9 @@ status: gilt
 date: 2026-10-06
 issues: [179, 156]
 code:
-  - renderer/src/assets/hell.rs
+  - renderer/src/assets/laubkopie.rs
   - renderer/src/assets/hell.txt
-  - renderer/src/assets/hell.py
+  - renderer/src/assets/laubtabellen.py
   - renderer/src/assets/texture.rs
   - renderer/src/render/sprites.rs
   - renderer/src/render/metatile.rs
@@ -37,7 +37,7 @@ genähert (#179).
   Farbe durch 255. Die neuen Farben sind ganz deckend. Getönt wird danach
   wie jede Laubfarbe.
 - **Die Tabelle** steht in `hell.txt`, je Blatttextur der sieben Sorten
-  die Farben alt zu hell. `hell.py` erzeugt sie aus den Texturen des
+  die Farben alt zu hell. `laubtabellen.py` erzeugt sie aus den Texturen des
   Client-JARs: je Kanal `60 + ch / top · 195`, `top` der höchste Kanal über
   alle deckenden Farben der Textur, halbe Werte zur geraden Zahl. Aus den
   Texturen von 26.2 ergibt das Farbe für Farbe die Tabelle, die das Spiel

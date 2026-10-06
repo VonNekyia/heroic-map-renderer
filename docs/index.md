@@ -161,6 +161,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0086](entscheidungen/0086-client-jar-von-mojang.md): Das Client-Jar von Mojang nur mit Zustimmung über `--download-client-jar`, SHA-1 und Grösse je Version im Binär, über HTTP geladen, mit eigenem ZIP-Leser einmal in einen Cache ausgepackt, jede Datei mit der Bauzeit des Jars; die Basis steht vor allen `--assets` und `--data`.
 - [0087](entscheidungen/0087-assistent-auf-der-konsole.md): Die EXE ist ein Assistent auf der Konsole im selben Binär, mit dem Ordnerdialog von Windows nur dort; jeder Schritt ruft dasselbe Binär als Kindprozess, jeder Ausgang wartet nach einem Doppelklick auf Enter, und die gebaute Karte liegt als `web/` in beiden Paketen.
 - [0088](entscheidungen/0088-helles-laub-aus-dem-spiel.md): Laub mit Bit 24 einer eigenen Laubfarbe tauscht die Farben seiner Textur nach `hell.txt`, wie der Client, in einer eigenen Familie ohne `dark_cutout`; löst 0081 im Punkt „hell“ ab.
+- [0089](entscheidungen/0089-ungetoentes-laub-mit-eigener-farbe.md): Eigene Laubfarben tönen auch Azalee, blühende Azalee, Kirsche, Blasse Eiche und die drei Pappeln, über eine graue Kopie nach `grau.txt` und mit Bit 24 eine helle nach `hell.txt`; die Blüten der blühenden Azalee bleiben ungetönt als eigene Fläche darüber; löst 0081 im Punkt „nur tönbares Laub“ ab.
 
 ## Messungen
 

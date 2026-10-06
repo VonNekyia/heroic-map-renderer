@@ -228,6 +228,12 @@ pub struct Args {
     ])]
     pyramid: Option<PathBuf>,
 
+    /// Mit --tiles oder --pyramid am Ende das Manifest des Baums schreiben,
+    /// je Kachel Grösse und ETag, für den Download. Ohne den Schalter
+    /// entfernt ein Lauf, der Kacheln schreibt, ein altes
+    #[arg(long)]
+    manifest: bool,
+
     /// Diese Wurzel von --tiles ausliefern, die Kacheln unter /tiles/, mit
     /// den Headern der Karte, ETag und 304. Liest nur und läuft, bis der
     /// Prozess endet
@@ -235,7 +241,7 @@ pub struct Args {
         "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
-        "pyramid",
+        "pyramid", "manifest",
     ])]
     serve: Option<PathBuf>,
 
@@ -486,6 +492,9 @@ pub fn run() -> Result<()> {
     if args.tiles.is_some() && (args.world.is_none() || args.assets.is_empty()) {
         bail!("--tiles braucht --world und --assets");
     }
+    if args.manifest && args.tiles.is_none() && args.pyramid.is_none() {
+        bail!("--manifest braucht --tiles oder --pyramid");
+    }
     if args.heights.is_some() && args.world.is_none() {
         bail!("--heights braucht --world");
     }
@@ -706,6 +715,7 @@ pub fn run() -> Result<()> {
                         karte.as_ref(),
                         args.biome_blend,
                         args.cinematic.then_some(LOOK),
+                        args.manifest,
                     );
                     // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
                     // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
@@ -737,7 +747,7 @@ pub fn run() -> Result<()> {
     }
 
     if let Some(dir) = &args.pyramid {
-        rebuild_pyramid(dir, SystemTime::now(), vorhandene_mit_zeit)?;
+        rebuild_pyramid(dir, args.manifest, SystemTime::now(), vorhandene_mit_zeit)?;
     }
 
     if let Some(assets) = &assets {
@@ -1431,6 +1441,7 @@ fn write_tiles(
     karte: Option<&Karte>,
     blend: Option<u8>,
     look: Option<Look>,
+    mit_manifest: bool,
 ) -> Result<()> {
     let beginn = Instant::now();
     let dir = &wurzel.join(baum_name(projection, look.is_some()));
@@ -1748,7 +1759,7 @@ fn write_tiles(
     )?;
     // Ab jetzt lässt sich der Baum wählen, auch während seines ersten Laufs.
     schreibe_baeume(wurzel)?;
-    let manifest = manifest::Lauf::beginne(dir)?;
+    let manifest = manifest::Lauf::beginne(dir, mit_manifest)?;
     // Was dieser Lauf zeichnen kann, nennt der alte Stand ab jetzt
     // unbekannt: Bricht er ab, zeigen Kacheln vielleicht, was der Stand
     // nicht kennt. Ein voller Lauf liest alles.
@@ -1947,7 +1958,7 @@ fn write_tiles(
     // Ein voller Lauf liest für das Manifest den ganzen Baum, jeder andere
     // zieht nur nach, was er anfassen kann: auch die Vorfahren der Kacheln
     // ohne Chunk, die --prune neu zusammensetzt.
-    let angefasst = (!matches!(bereich, Bereich::Welt)).then(|| {
+    let angefasst = (manifest.is_some() && !matches!(bereich, Bereich::Welt)).then(|| {
         let basis: BTreeSet<TileId> = kandidaten.union(&veraltet).copied().collect();
         manifest::mit_eltern(max_zoom, &basis, &waisen)
     });
@@ -2014,7 +2025,9 @@ fn write_tiles(
     )?;
     schreibe_baeume(wurzel)?;
     melde_karte(&info, anzahl, &path);
-    manifest.schliesse(angefasst.as_ref())?;
+    if let Some(manifest) = manifest {
+        manifest.schliesse(angefasst.as_ref())?;
+    }
     // Zuletzt: Bricht der Lauf vorher ab, gilt der alte Stand, und das
     // nächste Update zeichnet dieselben Stellen noch einmal.
     if let Some(stand) = stand {
@@ -2400,6 +2413,7 @@ fn schreibe_baeume(wurzel: &Path) -> Result<()> {
 /// Siehe docs/benutzung/pyramide-und-resume.md, „Zeiten und fremde Kacheln“.
 fn rebuild_pyramid(
     dir: &Path,
+    mit_manifest: bool,
     beginn: SystemTime,
     mut liste: impl FnMut(&Path, u32) -> Result<BTreeMap<TileId, SystemTime>>,
 ) -> Result<()> {
@@ -2431,7 +2445,7 @@ fn rebuild_pyramid(
         );
     }
     let basis: BTreeSet<TileId> = kinder.keys().copied().collect();
-    let manifest = manifest::Lauf::beginne(dir)?;
+    let manifest = manifest::Lauf::beginne(dir, mit_manifest)?;
     println!(
         "\nPyramide:   {} Basiskacheln auf Zoom {max_zoom}",
         basis.len()
@@ -2529,7 +2543,9 @@ fn rebuild_pyramid(
         );
         print_list(unlesbar.iter());
     }
-    manifest.schliesse(None)?;
+    if let Some(manifest) = manifest {
+        manifest.schliesse(None)?;
+    }
 
     if fremd(aenderungszeit(&karte), beginn, SystemTime::now()) {
         println!(
@@ -4256,8 +4272,8 @@ fn lege_ab(path: &Path, data: &[u8], zeit: Option<SystemTime>) -> Result<bool> {
 
 /// Ersetzt eine Datei, ohne dass jemand eine halbe sieht: erst eine eigene
 /// daneben, `<name>.<pid>.tmp`, dann umbenennen. Mit `sicher` bringt es die
-/// Datei vor dem Umbenennen auf die Platte; das brauchen nur `map.json` und
-/// `trees.json`.
+/// Datei vor dem Umbenennen auf die Platte; das brauchen nur `map.json`,
+/// `trees.json` und das Manifest.
 /// Siehe docs/entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md.
 fn tausche(
     path: &Path,
@@ -4780,7 +4796,7 @@ mod tests {
         falsch(None, Some(None), spaeter);
         let vorher = [std::fs::read(&n).unwrap(), std::fs::read(&p).unwrap()];
 
-        rebuild_pyramid(dir, beginn, vorhandene_mit_zeit).unwrap();
+        rebuild_pyramid(dir, false, beginn, vorhandene_mit_zeit).unwrap();
         let zeit = |pfad: &Path| std::fs::metadata(pfad).unwrap().modified().unwrap();
         let stempel = beginn - Duration::from_secs(2);
         let nachher = [std::fs::read(&n).unwrap(), std::fs::read(&p).unwrap()];
@@ -4796,13 +4812,13 @@ mod tests {
         let vorher = std::fs::read(&karte).unwrap();
         setze_zeit(&m, mitte);
         setze_zeit(&b, mitte + minute);
-        rebuild_pyramid(dir, beginn, vorhandene_mit_zeit).unwrap();
+        rebuild_pyramid(dir, false, beginn, vorhandene_mit_zeit).unwrap();
         assert_eq!(std::fs::read(&karte).unwrap(), vorher, "fremde map.json");
         assert_eq!(zeit(&m), stempel, "M ist fremd, aber nicht mehr nativ");
 
         falsch(None, None, mitte);
         setze_zeit(&n, mitte);
-        rebuild_pyramid(dir, beginn, vorhandene_mit_zeit).unwrap();
+        rebuild_pyramid(dir, false, beginn, vorhandene_mit_zeit).unwrap();
         assert_eq!(
             zeit(&n),
             stempel,
@@ -4853,7 +4869,7 @@ mod tests {
             }
             vorhandene_mit_zeit(d, z)
         };
-        rebuild_pyramid(dir, SystemTime::now(), export).unwrap();
+        rebuild_pyramid(dir, false, SystemTime::now(), export).unwrap();
         assert!(
             tile_path(dir, 1, neu.parent()).exists(),
             "Elternkachel entfernt"
@@ -5377,9 +5393,9 @@ mod tests {
         assert!(!geht(&["--pyramid", "d", "--scale", "8"]));
     }
 
-    /// `--pyramid` lehnt jeden Schalter ausser `--threads` und
-    /// `--low-priority` ab, `--serve` dazu nur seine eigenen nicht, auch
-    /// einen, der später dazukommt.
+    /// `--pyramid` lehnt jeden Schalter ausser `--threads`, `--low-priority`
+    /// und `--manifest` ab, `--serve` jeden ausser diesen beiden und seinen
+    /// eigenen, auch einen, der später dazukommt.
     #[test]
     fn pyramid_und_serve_lehnen_jeden_anderen_schalter_ab() {
         let cmd = Args::command();
@@ -5392,7 +5408,7 @@ mod tests {
             "max_headers",
             "exit_with_stdin",
         ];
-        for (modus, eigene) in [("pyramid", &[][..]), ("serve", &eigene_von_serve[..])] {
+        for (modus, eigene) in [("pyramid", &["manifest"][..]), ("serve", &eigene_von_serve[..])] {
             let arg = cmd.get_arguments().find(|a| a.get_id() == modus).unwrap();
             let abgelehnt: Vec<&str> = cmd
                 .get_arg_conflicts_with(arg)

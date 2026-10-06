@@ -5,25 +5,27 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, Metadata};
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
-use std::time::{Instant, UNIX_EPOCH};
+use std::path::{Path, PathBuf};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use heroic_map_renderer::render::{TileId, pyramid};
-use rayon::prelude::*;
 
 use super::{entferne, je_kachel, tausche, tile_path};
 
 /// Das Manifest neben `map.json`.
 pub(super) const MANIFEST: &str = "manifest";
 
-/// Liegt, solange ein Lauf Kacheln schreibt. Findet ein Lauf es vor, brach
-/// der vorige ab, und das Manifest kennt vielleicht nicht jede Kachel: Er
-/// liest den Baum dann ganz.
-pub(super) const OFFEN: &str = "manifest-offen";
+/// Je Lauf eine Marke, solange er Kacheln schreibt:
+/// `manifest-offen-<pid>-<ns>`. Findet ein Lauf eine fremde vor, läuft der
+/// andere noch, etwa ein `--pyramid` neben einem Export, oder er brach ab.
+/// Dann kennt das Manifest vielleicht nicht jede Kachel, und er liest den
+/// Baum ganz. Jeder Lauf entfernt seine eigene Marke und die eines
+/// Prozesses, der beim Beginn schon nicht mehr lief.
+pub(super) const OFFEN: &str = "manifest-offen-";
 
 /// Das ETag einer Datei: Grösse und letzte Änderung in ns seit 1970, beide
 /// hexadezimal, in Anführungszeichen. Dasselbe sendet der Server im Header.
@@ -55,20 +57,52 @@ pub(super) fn mit_eltern(
     out
 }
 
-/// Ein Lauf, der Kacheln eines Baums schreibt.
+/// Ein Lauf, der Kacheln eines Baums schreibt, mit `--manifest`.
 pub(super) struct Lauf<'a> {
     dir: &'a Path,
     /// Ob das Manifest beim Beginn schon nicht mehr zum Baum passen kann.
     ganz: bool,
+    /// Die eigene Marke und die verwaisten von Prozessen, die beim Beginn
+    /// nicht mehr liefen; nach dem Schreiben gehen sie weg.
+    eigene: PathBuf,
+    verwaist: Vec<PathBuf>,
 }
 
 impl<'a> Lauf<'a> {
-    /// Vor der ersten Kachel.
-    pub(super) fn beginne(dir: &'a Path) -> Result<Lauf<'a>> {
-        let offen = dir.join(OFFEN);
-        let ganz = offen.exists() || !dir.join(MANIFEST).is_file();
-        File::create(&offen).with_context(|| format!("{} anlegen", offen.display()))?;
-        Ok(Lauf { dir, ganz })
+    /// Vor der ersten Kachel. Ohne `--manifest` (`schreiben`) entfernt es ein
+    /// altes Manifest, denn nach diesem Lauf stimmte es nicht mehr, und gibt
+    /// keinen Lauf.
+    pub(super) fn beginne(dir: &'a Path, schreiben: bool) -> Result<Option<Lauf<'a>>> {
+        if !schreiben {
+            entferne(&dir.join(MANIFEST))?;
+            return Ok(None);
+        }
+        let fremde: Vec<(PathBuf, u32)> = std::fs::read_dir(dir)
+            .with_context(|| format!("{} lesen", dir.display()))?
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().into_string().ok()?;
+                let pid = name.strip_prefix(OFFEN)?.split('-').next()?.parse().ok()?;
+                Some((e.path(), pid))
+            })
+            .collect();
+        let ganz = !fremde.is_empty() || !dir.join(MANIFEST).is_file();
+        let verwaist = fremde
+            .into_iter()
+            .filter(|&(_, pid)| !laeuft(pid))
+            .map(|(pfad, _)| pfad)
+            .collect();
+        let ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let eigene = dir.join(format!("{OFFEN}{}-{ns}", std::process::id()));
+        File::create(&eigene).with_context(|| format!("{} anlegen", eigene.display()))?;
+        Ok(Some(Lauf {
+            dir,
+            ganz,
+            eigene,
+            verwaist,
+        }))
     }
 
     /// Schreibt das Manifest neu, nach der letzten Kachel. `angefasst`: was
@@ -88,7 +122,9 @@ impl<'a> Lauf<'a> {
         };
         tausche(&pfad, &daten, None, true)
             .with_context(|| format!("{} schreiben", pfad.display()))?;
-        entferne(&self.dir.join(OFFEN))?;
+        for marke in self.verwaist.iter().chain([&self.eigene]) {
+            entferne(marke)?;
+        }
         println!(
             "Manifest:   {kacheln} Kacheln, {:.1} MB gepackt, in {:.1} s",
             daten.len() as f64 / 1_048_576.0,
@@ -168,6 +204,45 @@ fn nachgezogen(
     Ok(Some((aus.finish()?, kacheln)))
 }
 
+/// Ob ein Prozess mit dieser Nummer läuft. Im Zweifel ja: Dann bleibt seine
+/// Marke, und jeder Lauf liest ganz, bis sie weg ist.
+#[cfg(windows)]
+fn laeuft(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_ACCESS_DENIED, GetLastError, STILL_ACTIVE,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    // SAFETY: Der Griff stammt aus OpenProcess und wird genau einmal
+    // geschlossen; `code` lebt über den Aufruf.
+    unsafe {
+        let griff = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if griff.is_null() {
+            return GetLastError() == ERROR_ACCESS_DENIED;
+        }
+        let mut code = 0u32;
+        let gelesen = GetExitCodeProcess(griff, &mut code) != 0;
+        CloseHandle(griff);
+        !gelesen || code == STILL_ACTIVE as u32
+    }
+}
+
+#[cfg(unix)]
+fn laeuft(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return true;
+    };
+    // SAFETY: Signal 0 prüft nur, ob es den Prozess gibt.
+    unsafe { libc::kill(pid, 0) == 0 }
+    || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(any(windows, unix)))]
+fn laeuft(_: u32) -> bool {
+    true
+}
+
 /// Das Manifest aus dem ganzen Baum, gepackt, und die Zahl der Kacheln.
 fn ganz(dir: &Path) -> Result<(Vec<u8>, usize)> {
     let mut stufen: Vec<u32> = match std::fs::read_dir(dir) {
@@ -185,29 +260,25 @@ fn ganz(dir: &Path) -> Result<(Vec<u8>, usize)> {
     let mut aus = GzEncoder::new(Vec::new(), Compression::default());
     let mut kacheln = 0;
     for z in stufen {
-        // ponytail: hält die Kacheln einer Stufe zum Sortieren, 8 Byte je
-        // Kachel, an der grossen Welt rund 18 MB; spaltenweise sortieren,
-        // wenn das stört.
+        // Grösse und Zeit aus dem Verzeichnis, im selben Durchgang: Unter
+        // Windows kostet das nichts, unter Linux einen `statx` je Datei.
+        // ponytail: hält die Zeilen einer Stufe zum Sortieren, für einen
+        // Satz zum Download rund 7 MB; spaltenweise sortieren, wenn das stört.
         let mut stufe = Vec::new();
-        je_kachel(dir, z, None, |tile, _| {
-            stufe.push(tile);
+        je_kachel(dir, z, None, |tile, eintrag| {
+            match eintrag.metadata() {
+                Ok(meta) => stufe.push((tile, meta.len(), etag(&meta)?)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(e).with_context(|| format!("{} lesen", eintrag.path().display()));
+                }
+            }
             Ok(())
         })?;
-        stufe.sort_unstable();
-        // Je Kachel ein `metadata`, über die Threads verteilt; in Stücken,
-        // damit nur die Zeilen eines Stücks im Speicher liegen.
-        for stueck in stufe.chunks(1 << 16) {
-            let zeilen = stueck
-                .par_iter()
-                .map(|&tile| {
-                    let mut text = Vec::new();
-                    Ok(zeile(&mut text, dir, z, tile)?.then_some(text))
-                })
-                .collect::<Result<Vec<_>>>()?;
-            for text in zeilen.into_iter().flatten() {
-                aus.write_all(&text)?;
-                kacheln += 1;
-            }
+        stufe.sort_unstable_by_key(|(tile, ..)| *tile);
+        for (tile, groesse, etag) in stufe {
+            writeln!(aus, "{z}/{}/{} {groesse} {etag}", tile.x, tile.y)?;
+            kacheln += 1;
         }
     }
     Ok((aus.finish()?, kacheln))
@@ -341,43 +412,110 @@ mod tests {
         );
     }
 
-    /// Ein Lauf ohne Manifest oder nach einem abgebrochenen liest den Baum
-    /// ganz, auch wenn er nur wenig angefasst hat; danach liegt die Marke
-    /// nicht mehr.
+    /// Die Nummer eines Prozesses, der eben endete.
+    fn beendeter_prozess() -> u32 {
+        let mut kind = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--list")
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = kind.id();
+        kind.wait().unwrap();
+        assert!(!laeuft(pid), "{pid} läuft noch");
+        pid
+    }
+
+    /// Dieser Prozess läuft, einer, der endete, nicht.
+    #[test]
+    fn laeuft_nur_wer_laeuft() {
+        assert!(laeuft(std::process::id()));
+        beendeter_prozess();
+    }
+
+    /// Grösse und Zeit aus dem Verzeichnis geben dasselbe ETag wie aus der
+    /// offenen Datei, mit der der Server sendet, auch mit gesetzter Zeit.
+    #[test]
+    fn etag_aus_dem_verzeichnis_wie_aus_der_datei() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = TileId { x: 0, y: 0 };
+        std::fs::create_dir_all(dir.path().join("0/0")).unwrap();
+        std::fs::write(tile_path(dir.path(), 0, t), b"frisch").unwrap();
+        lege(
+            dir.path(),
+            0,
+            TileId { x: 0, y: 1 },
+            7,
+            1_759_708_800_123_456_700,
+        );
+        let mut gesehen = 0;
+        je_kachel(dir.path(), 0, None, |tile, eintrag| {
+            let offen = File::open(tile_path(dir.path(), 0, tile)).unwrap();
+            assert_eq!(
+                etag(&eintrag.metadata().unwrap()).unwrap(),
+                etag(&offen.metadata().unwrap()).unwrap()
+            );
+            gesehen += 1;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(gesehen, 2);
+    }
+
+    /// Ein Lauf ohne Manifest, nach einem abgebrochenen oder neben einem
+    /// laufenden liest den Baum ganz, auch wenn er nur wenig angefasst hat.
+    /// Danach liegt seine Marke nicht mehr, und die eines laufenden bleibt.
     #[test]
     fn nach_einem_abbruch_ganz_gelesen() {
         let dir = tempfile::tempdir().unwrap();
         let t = TileId { x: 0, y: 0 };
         lege(dir.path(), 0, t, 10, 1_759_708_800_000_000_000);
-        Lauf::beginne(dir.path())
-            .unwrap()
-            .schliesse(Some(&BTreeSet::new()))
-            .unwrap();
+        let lauf = || Lauf::beginne(dir.path(), true).unwrap().unwrap();
+        let marken = || {
+            let mut namen: Vec<String> = std::fs::read_dir(dir.path())
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name().into_string().unwrap())
+                .filter(|name| name.starts_with(OFFEN))
+                .collect();
+            namen.sort();
+            namen
+        };
+        lauf().schliesse(Some(&BTreeSet::new())).unwrap();
         let pfad = dir.path().join(MANIFEST);
         let eins = entpackt(&std::fs::read(&pfad).unwrap());
         assert_eq!(eins.lines().count(), 1);
-        assert!(!dir.path().join(OFFEN).exists());
+        assert!(marken().is_empty());
 
         // Ein Lauf schreibt eine Kachel und bricht ab, der nächste fasst
-        // sie nicht an.
-        Lauf::beginne(dir.path()).unwrap();
+        // sie nicht an: Er liest ganz und räumt die verwaiste Marke weg.
+        let abgebrochen = format!("{OFFEN}{}-1", beendeter_prozess());
+        std::fs::write(dir.path().join(&abgebrochen), b"").unwrap();
         lege(dir.path(), 1, t, 10, 1_759_708_900_000_000_000);
-        Lauf::beginne(dir.path())
-            .unwrap()
-            .schliesse(Some(&BTreeSet::new()))
-            .unwrap();
+        lauf().schliesse(Some(&BTreeSet::new())).unwrap();
         assert_eq!(
             entpackt(&std::fs::read(&pfad).unwrap()),
             entpackt(&ganz(dir.path()).unwrap().0)
         );
-        assert!(!dir.path().join(OFFEN).exists());
-        // Ohne Abbruch zieht er nur nach.
+        assert!(marken().is_empty());
+
+        // Neben einem, der noch läuft, liest er ganz und lässt dessen Marke.
+        let laufend = format!("{OFFEN}{}-1", std::process::id());
+        std::fs::write(dir.path().join(&laufend), b"").unwrap();
         lege(dir.path(), 2, t, 10, 1_759_709_000_000_000_000);
-        Lauf::beginne(dir.path())
-            .unwrap()
-            .schliesse(Some(&BTreeSet::new()))
-            .unwrap();
-        assert_eq!(entpackt(&std::fs::read(&pfad).unwrap()).lines().count(), 2);
+        lauf().schliesse(Some(&BTreeSet::new())).unwrap();
+        assert_eq!(entpackt(&std::fs::read(&pfad).unwrap()).lines().count(), 3);
+        assert_eq!(marken(), std::slice::from_ref(&laufend));
+        std::fs::remove_file(dir.path().join(&laufend)).unwrap();
+
+        // Ohne fremde Marke zieht er nur nach.
+        lege(dir.path(), 3, t, 10, 1_759_709_100_000_000_000);
+        lauf().schliesse(Some(&BTreeSet::new())).unwrap();
+        assert_eq!(entpackt(&std::fs::read(&pfad).unwrap()).lines().count(), 3);
+
+        // Ohne --manifest verschwindet es, und es gibt keinen Lauf.
+        assert!(Lauf::beginne(dir.path(), false).unwrap().is_none());
+        assert!(!pfad.exists());
+        assert!(marken().is_empty());
     }
 
     /// Die Eltern reichen bis Zoom 0, die der Waisen ab ihrer Stufe.

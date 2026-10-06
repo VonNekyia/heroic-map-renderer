@@ -198,15 +198,17 @@ fn liefert_kacheln_mit_den_headern() {
             .is_some_and(|w| w.ends_with(" GMT"))
     );
     assert_eq!(a.header("cache-control"), Some("no-cache"));
-    for name in [
-        "content-security-policy",
-        "cross-origin-opener-policy",
-        "permissions-policy",
-        "referrer-policy",
-        "x-content-type-options",
-        "x-frame-options",
-    ] {
-        assert!(a.header(name).is_some(), "{name} fehlt");
+    // Die Header der Karte Wert für Wert wie in web/headers.json, auch an
+    // einer 404.
+    let pfad = Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/headers.json");
+    let karte: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&std::fs::read_to_string(pfad).unwrap()).unwrap();
+    assert_eq!(karte.len(), 6, "{karte:?}");
+    let fehlt = hole(server.adresse, "/tiles/fehlt.json");
+    for (name, wert) in &karte {
+        let name = name.to_ascii_lowercase();
+        assert_eq!(a.header(&name), wert.as_str(), "{name}");
+        assert_eq!(fehlt.header(&name), wert.as_str(), "404, {name}");
     }
     assert_eq!(
         hole(server.adresse, "/tiles/t/0/-1/2.webp").koerper,

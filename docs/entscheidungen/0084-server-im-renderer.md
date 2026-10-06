@@ -8,6 +8,7 @@ code:
   - renderer/src/cli/server.rs
   - renderer/src/cli.rs
   - renderer/Cargo.toml
+  - web/headers.json
 ---
 
 # 0084: Der Server sitzt im Renderer
@@ -88,11 +89,10 @@ Wie der Server sich verhält, steht in [Server](../benutzung/server.md).
   siehe [Weitergabe](../entwicklung/weitergabe.md), „Grenze“.
 - **Ohne HTTPS** geht ein Token aus #154 im Klartext. Die Doku rät
   öffentlichen Servern zu HTTPS, sobald es kommt.
-- **Die Header der Karte** stehen bis auf Weiteres an zwei Stellen, in
-  `web/vite.config.ts` und im Renderer; ein Test vergleicht die Werte
-  Zeichen für Zeichen. Entschieden ist an #151 `web/headers.json` als eine
-  Stelle für beide; liegt die Datei auf master, liest der Renderer sie per
-  `include_str!`.
+- **Die Header der Karte** stehen an einer Stelle, `web/headers.json`
+  (#182). `vite preview` liest sie, der Renderer bindet sie per
+  `include_str!` ein, entschieden an #151. Ändert das Frontend sie, kommt
+  das mit dem nächsten Build in den Server.
 - **Speicher:** Weil er jede Datei ganz liest, hält er höchstens
   Verbindungen × grösste Datei, mit 256 Verbindungen und Kacheln bis 4 MiB
   also bis rund 1 GiB.

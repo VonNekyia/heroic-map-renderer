@@ -77,12 +77,12 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
 
 ## Header
 
-- **An jeder Antwort** die Header der Karte: Content-Security-Policy,
+- **An jeder Antwort** die Header der Karte aus
+  [`web/headers.json`](../../web/headers.json), derselben Datei, aus der
+  `vite preview` sie nimmt: Content-Security-Policy,
   Cross-Origin-Opener-Policy, Permissions-Policy, Referrer-Policy,
-  X-Content-Type-Options, X-Frame-Options, mit denselben Werten wie
-  `preview.headers` in [`web/vite.config.ts`](../../web/vite.config.ts); das
-  prüft `header_wie_in_der_vorschau_der_karte` in
-  [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs).
+  X-Content-Type-Options, X-Frame-Options. Der Renderer bindet die Datei
+  beim Bauen ein.
 - **`ETag`** aus Grösse und letzter Änderung in ns, wörtlich wie im
   Manifest, siehe [Plugin](../plugin.md), „Manifest“. Weil gleiche Kacheln
   liegen bleiben, behält eine Kachel ihr ETag über volle Läufe, siehe
@@ -160,5 +160,5 @@ Anfragen, MIME, Cache und die Seite, `404`, die Positivliste und die Wege
 hinaus, Methoden und HEAD, die Grenzen am Kopf und im Leerlauf, das
 Schreiben ohne Fortschritt, die Zahl der Verbindungen und das Ende mit
 stdin. In [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
-prüfen Tests das Tauschen, die Pfade, die Zeit und die Header gegen
-`web/vite.config.ts`.
+prüfen Tests das Tauschen, die Pfade, die Zeit, das Schreiben ohne
+Fortschritt und dass sich `web/headers.json` lesen lässt.

@@ -17,7 +17,7 @@ use anyhow::{Context, Result, ensure};
 use heroic_map_renderer::render::heights;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{self, HeaderMap, HeaderValue};
+use hyper::header::{self, HeaderMap, HeaderName, HeaderValue};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
@@ -47,23 +47,28 @@ pub(super) struct Einstellung {
     pub ende_mit_stdin: bool,
 }
 
-/// Die Header der Karte, an jeder Antwort, dieselben wie `preview.headers`
-/// in `web/vite.config.ts`; das prüft ein Test.
+/// Die Header der Karte, an jeder Antwort: dieselbe Datei, aus der
+/// `vite preview` sie nimmt, ein flaches Objekt aus Name und Wert.
 /// Siehe docs/frontend.md, „Ausliefern“.
-const HEADER: [(&str, &str); 6] = [
-    (
-        "content-security-policy",
-        "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
-    ),
-    ("cross-origin-opener-policy", "same-origin"),
-    (
-        "permissions-policy",
-        "camera=(), geolocation=(), microphone=()",
-    ),
-    ("referrer-policy", "strict-origin-when-cross-origin"),
-    ("x-content-type-options", "nosniff"),
-    ("x-frame-options", "SAMEORIGIN"),
-];
+const HEADER: &str = include_str!("../../../web/headers.json");
+
+/// Die Header aus [`HEADER`], geprüft.
+fn header_der_karte() -> Result<Vec<(HeaderName, HeaderValue)>> {
+    let werte: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(HEADER).context("web/headers.json lesen")?;
+    werte
+        .into_iter()
+        .map(|(name, wert)| {
+            let wert = wert
+                .as_str()
+                .context("web/headers.json: ein Wert ist kein Text")?;
+            Ok((
+                HeaderName::from_bytes(name.as_bytes())?,
+                HeaderValue::from_str(wert)?,
+            ))
+        })
+        .collect()
+}
 
 /// Startet den Server und kehrt nur mit einem Fehler zurück, oder gar
 /// nicht: Mit `ende_mit_stdin` endet der Prozess, sobald stdin schliesst.
@@ -115,6 +120,7 @@ async fn lausche(e: Einstellung) -> Result<()> {
     let zustand = Arc::new(Zustand {
         kacheln: e.kacheln,
         seite: e.seite,
+        header: header_der_karte()?,
     });
     let plaetze = Arc::new(Semaphore::new(e.verbindungen));
     loop {
@@ -223,6 +229,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for OhneFortschritt<S> {
 struct Zustand {
     kacheln: PathBuf,
     seite: Option<PathBuf>,
+    header: Vec<(HeaderName, HeaderValue)>,
 }
 
 /// Wohin eine Anfrage zeigt und wie lange der Browser sie behalten darf.
@@ -235,17 +242,17 @@ struct Ziel {
 }
 
 /// Eine Antwort ohne Körper.
-fn leer(status: StatusCode) -> Response<Full<Bytes>> {
+fn leer(z: &Zustand, status: StatusCode) -> Response<Full<Bytes>> {
     let mut antwort = Response::new(Full::new(Bytes::new()));
     *antwort.status_mut() = status;
-    karte(antwort.headers_mut());
+    karte(z, antwort.headers_mut());
     antwort
 }
 
 /// Setzt die Header der Karte.
-fn karte(h: &mut HeaderMap) {
-    for (name, wert) in HEADER {
-        h.insert(name, HeaderValue::from_static(wert));
+fn karte(z: &Zustand, h: &mut HeaderMap) {
+    for (name, wert) in &z.header {
+        h.insert(name, wert.clone());
     }
 }
 
@@ -255,7 +262,7 @@ async fn antwort(
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let kopf = anfrage.method() == Method::HEAD;
     if anfrage.method() != Method::GET && !kopf {
-        let mut antwort = leer(StatusCode::METHOD_NOT_ALLOWED);
+        let mut antwort = leer(&z, StatusCode::METHOD_NOT_ALLOWED);
         antwort
             .headers_mut()
             .insert(header::ALLOW, HeaderValue::from_static("GET, HEAD"));
@@ -279,16 +286,17 @@ async fn antwort(
             }),
     };
     let Some(ziel) = ziel else {
-        return Ok(leer(StatusCode::NOT_FOUND));
+        return Ok(leer(&z, StatusCode::NOT_FOUND));
     };
     let bedingung = Bedingung::aus(anfrage.headers());
     // Lesen blockiert; dafür hält die Laufzeit eigene Threads, gedeckelt.
     // Jeder Fehler wird 404 ohne Zeile im Log, sonst füllte jemand das Log.
-    let gelesen = tokio::task::spawn_blocking(move || lies(&ziel, kopf, &bedingung)).await;
+    let bei = Arc::clone(&z);
+    let gelesen = tokio::task::spawn_blocking(move || lies(&bei, &ziel, kopf, &bedingung)).await;
     Ok(match gelesen {
         Ok(Some(antwort)) => antwort,
-        Ok(None) => leer(StatusCode::NOT_FOUND),
-        Err(_) => leer(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(None) => leer(&z, StatusCode::NOT_FOUND),
+        Err(_) => leer(&z, StatusCode::INTERNAL_SERVER_ERROR),
     })
 }
 
@@ -399,7 +407,12 @@ fn http_zeit(zeit: SystemTime) -> String {
 /// oder sie sich nicht lesen lässt. Grösse, Zeit und Bytes kommen aus
 /// demselben Öffnen: Tauscht der Renderer die Datei dazwischen, passen sie
 /// trotzdem zusammen.
-fn lies(ziel: &Ziel, kopf: bool, bedingung: &Bedingung) -> Option<Response<Full<Bytes>>> {
+fn lies(
+    z: &Zustand,
+    ziel: &Ziel,
+    kopf: bool,
+    bedingung: &Bedingung,
+) -> Option<Response<Full<Bytes>>> {
     let pfad = match ziel.index && ziel.pfad.is_dir() {
         true => ziel.pfad.join("index.html"),
         false => ziel.pfad.clone(),
@@ -425,7 +438,7 @@ fn lies(ziel: &Ziel, kopf: bool, bedingung: &Bedingung) -> Option<Response<Full<
     let mut antwort = Response::new(Full::new(Bytes::from(koerper)));
     *antwort.status_mut() = status;
     let h = antwort.headers_mut();
-    karte(h);
+    karte(z, h);
     h.insert(header::ETAG, HeaderValue::from_str(&etag).ok()?);
     h.insert(
         header::LAST_MODIFIED,
@@ -636,38 +649,16 @@ mod tests {
         );
     }
 
-    /// Die Header gleichen Zeichen für Zeichen `preview.headers` in
-    /// `web/vite.config.ts`, mit denen die Tests der Karte laufen.
+    /// `web/headers.json` lässt sich lesen, und jeder Name und Wert taugt als
+    /// Header; sonst startete der Server nicht.
     #[test]
-    fn header_wie_in_der_vorschau_der_karte() {
-        let pfad = Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/vite.config.ts");
-        let text = std::fs::read_to_string(pfad).unwrap();
-        let block = &text[text.find("headers: {").unwrap()..];
-        let block = &block[..block.find('}').unwrap()];
-        // Schlüssel in Anführungszeichen vor `:`, Werte als Literale, mit `+`
-        // verkettet.
-        let mut paare = Vec::new();
-        let (mut name, mut wert) = (None, String::new());
-        let mut zeichen = block.chars().peekable();
-        while let Some(c) = zeichen.next() {
-            if c != '\'' && c != '"' {
-                continue;
-            }
-            let literal: String = zeichen.by_ref().take_while(|&d| d != c).collect();
-            let danach = zeichen.clone().find(|d| !d.is_whitespace());
-            match danach {
-                Some(':') if name.is_none() => name = Some(literal.to_ascii_lowercase()),
-                Some('+') => wert.push_str(&literal),
-                _ => {
-                    wert.push_str(&literal);
-                    paare.push((name.take().unwrap(), std::mem::take(&mut wert)));
-                }
-            }
-        }
-        let erwartet: Vec<(String, String)> = HEADER
-            .iter()
-            .map(|(n, w)| (n.to_string(), w.to_string()))
-            .collect();
-        assert_eq!(paare, erwartet);
+    fn header_aus_der_datei() {
+        let header = header_der_karte().unwrap();
+        assert!(
+            header
+                .iter()
+                .any(|(name, _)| name == header::CONTENT_SECURITY_POLICY)
+        );
+        assert!(header.len() >= 6, "{header:?}");
     }
 }

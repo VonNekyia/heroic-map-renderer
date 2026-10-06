@@ -1,8 +1,9 @@
 ---
 title: "Server: --serve"
-description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM und das Ende mit stdin.
+description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin und den Download mit Token für den Mod.
 code:
   - renderer/src/cli/server.rs
+  - renderer/src/cli/token.rs
   - renderer/src/cli.rs
   - renderer/tests/server.rs
 ---
@@ -14,7 +15,7 @@ gebaute Karte selbst aus, ohne nginx oder `vite preview`. Plugin und EXE
 starten ihn so (#151, #152, #153). Er liest nur und schreibt nichts; ein
 Export darf gleichzeitig in dieselbe Wurzel schreiben. Warum der Server im
 Renderer sitzt: [0084](../entscheidungen/0084-server-im-renderer.md).
-Der Download mit Token kommt mit einer eigenen PR.
+Den Download mit Token für den Mod beschreibt „Download“.
 
 ## Aufruf
 
@@ -37,6 +38,7 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --listen 0.0.0.0:8080
 | `--exit-with-stdin` | aus | enden, sobald stdin schliesst |
 | `--tls-cert DATEI` | ohne: HTTP | HTTPS: die Kette der Zertifikate als PEM, das eigene zuerst |
 | `--tls-key DATEI` | – | der Schlüssel dazu als PEM, PKCS#8, PKCS#1 oder SEC1 |
+| `--secret-file DATEI` | ohne: kein Download | das Geheimnis der Token, genau 32 Byte; der Download unter `/download/` |
 
 Daneben nimmt `--serve` keinen Schalter des Exports an. Die erste Zeile der
 Ausgabe nennt die Adresse, auch den Port, den das System bei `0` wählt:
@@ -182,6 +184,51 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --listen 0.0.0.0:8443 --tls
 - **Nur TLS 1.3:** Browser und Java ab 11 sprechen es; TLS 1.2 brächte mehr
   Code ins Binär, siehe [0084](../entscheidungen/0084-server-im-renderer.md).
 
+## Download
+
+Mit `--secret-file` liefert der Server die Bäume auch unter `/download/`
+aus, für den Mod aus #155, nur gegen ein Token, das das Plugin ausstellt
+(#154). Ohne den Schalter gibt `/download/` `404`.
+
+```bash
+heroic-map-renderer --serve ./tiles --listen 0.0.0.0:8080 --secret-file geheimnis.bin
+```
+
+- **Das Geheimnis:** genau 32 Byte, roh, wie das Plugin es beim ersten
+  Start erzeugt. Hat die Datei eine andere Länge oder lässt sie sich nicht
+  lesen, startet der Server nicht. Wer sie lesen kann, kann Token
+  ausstellen; sie gehört darum nur dem Benutzer, unter dem Plugin und
+  Server laufen.
+- **Das Token** steht im Header `Authorization: Bearer <token>`, nie in der
+  URL. Der Server prüft es nach [Plugin](../plugin.md), „Token“, gegen seine
+  eigene Uhr, ohne Rückfrage beim Plugin.
+- **Pfade,** je Baum unter `/download/<baum>`, der `url` aus #154:
+
+  | Pfad | Inhalt |
+  |---|---|
+  | `/download/<baum>/map.json` | die Angaben des Baums |
+  | `/download/<baum>/manifest` | das Manifest, siehe [Plugin](../plugin.md), „Manifest“ |
+  | `/download/<baum>/<z>/<x>/<y>.webp` | eine Kachel bis zur Stufe des Tokens |
+
+  Baum und Kachel heissen wie unter `/tiles/`. Die Wurzel muss Bäume
+  tragen; ein einzelner Baum als Wurzel hat keinen Download.
+- **Antworten:**
+
+  | Status | wann |
+  |---|---|
+  | `401` mit `WWW-Authenticate: Bearer` | kein Token oder ein ungültiges, vor jedem Blick auf den Pfad |
+  | `403` | ein anderer Baum als im Token, eine Stufe über seiner, oder sonst ein Pfad der Positivliste, etwa `trees.json` oder Höhen |
+  | `404` | was unter `/tiles/` `404` gäbe: fehlt oder ist nicht öffentlich |
+  | `429` | die Antwort brächte die Bytes des Zufalls über den Deckel |
+  | `200`, `304` | wie unter `/tiles/`, mit ETag und `Last-Modified`, aber `Cache-Control: private, no-cache` |
+
+- **Bytes je Zufall:** Der Server zählt je Zufall des Tokens die Bytes der
+  Körper, die er mit `200` auf GET ausliefert; `304` und HEAD zählen nicht.
+  Brächte eine Antwort die Summe über den Deckel, gibt er `429` und zählt
+  sie nicht. Gibt das Plugin beim Fortsetzen dasselbe Token zurück, zählt es
+  weiter. Die Summen liegen nur im Speicher, ein Neustart des Servers setzt
+  sie zurück. Abgelaufene fallen weg, sobald ein neuer Zufall dazukommt.
+
 ## HTTP und das Token
 
 Ohne HTTPS gehen die Anfragen im Klartext. Das Token für den Download aus
@@ -198,6 +245,11 @@ hinaus, Methoden und HEAD, die Grenzen am Kopf und im Leerlauf, das
 Schreiben ohne Fortschritt, die Zahl der Verbindungen und das Ende mit
 stdin, dazu HTTPS mit Zertifikaten, die `rcgen` nur für die Tests erzeugt:
 der Handschlag, der Tausch ohne Neustart, ein kaputtes Neues und ein Start
-ohne gültiges Zertifikat. In [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
+ohne gültiges Zertifikat; dazu der Download mit Token, die der Test selbst
+unterschreibt: jeder Status, Baum und Stufe, der Deckel je Zufall und das
+Geheimnis. In [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
 prüfen Tests das Tauschen, die Pfade, die Zeit, das Schreiben ohne
-Fortschritt und dass sich `web/headers.json` lesen lässt.
+Fortschritt, das Zählen bis zum Deckel und dass sich `web/headers.json`
+lesen lässt. In [`renderer/src/cli/token.rs`](../../renderer/src/cli/token.rs)
+prüft ein Test jedes Token aus
+[`token.json`](../../renderer/tests/fixtures/token.json).

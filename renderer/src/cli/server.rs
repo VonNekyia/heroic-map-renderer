@@ -1,7 +1,9 @@
 //! Der Server für Karte und Kacheln, `--serve`: GET und HEAD, die Header der
-//! Karte, ETag und 304, Grenzen für das offene Netz, mit PEM auch HTTPS.
+//! Karte, ETag und 304, Grenzen für das offene Netz, mit PEM auch HTTPS,
+//! mit einem Geheimnis der Download der Karte gegen ein Token.
 //! Siehe docs/benutzung/server.md.
 
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fs::File;
 use std::future::Future;
@@ -16,7 +18,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail, ensure};
 use heroic_map_renderer::render::heights;
 use http_body_util::Full;
-use hyper::body::{Bytes, Incoming};
+use hyper::body::{Body, Bytes, Incoming};
 use hyper::header::{self, HeaderMap, HeaderName, HeaderValue};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -32,9 +34,13 @@ use tokio::sync::Semaphore;
 use tokio_rustls::TlsAcceptor;
 
 use super::manifest::{MANIFEST, etag};
+use super::token::{self, Token};
 
 /// Unter diesem Pfad liegen die Kacheln, wie die Karte sie neben sich sucht.
 const KACHELN: &str = "/tiles/";
+
+/// Unter diesem Pfad lädt der Mod die Karte, mit Token.
+const DOWNLOAD: &str = "/download/";
 
 /// Was `--serve` ausliefert und mit welchen Grenzen.
 pub(super) struct Einstellung {
@@ -52,6 +58,9 @@ pub(super) struct Einstellung {
     pub ende_mit_stdin: bool,
     /// Für HTTPS die Kette der Zertifikate und der Schlüssel, je als PEM.
     pub tls: Option<(PathBuf, PathBuf)>,
+    /// Die Datei mit den 32 Byte, mit denen das Plugin Token unterschreibt;
+    /// ohne gibt es keinen Download.
+    pub geheimnis: Option<PathBuf>,
 }
 
 /// Die Header der Karte, an jeder Antwort: dieselbe Datei, aus der
@@ -106,7 +115,9 @@ pub(super) fn serve(e: Einstellung) -> Result<()> {
         Some((kette, schluessel)) => Some(annehmer(kette, schluessel)?),
         None => None,
     };
-    laufzeit.block_on(lausche(e, tls))
+    // Ebenso ein Geheimnis, das sich nicht lesen lässt.
+    let freigabe = e.geheimnis.as_deref().map(Freigabe::aus).transpose()?;
+    laufzeit.block_on(lausche(e, tls, freigabe))
 }
 
 /// Liegt eine Wurzel in der anderen, geht das nur als `<seite>/tiles`, wie
@@ -129,7 +140,11 @@ fn pruefe_ineinander(kacheln: &Path, seite: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn lausche(e: Einstellung, tls: Option<TlsAcceptor>) -> Result<()> {
+async fn lausche(
+    e: Einstellung,
+    tls: Option<TlsAcceptor>,
+    freigabe: Option<Freigabe>,
+) -> Result<()> {
     let lauscher = TcpListener::bind(e.adresse)
         .await
         .with_context(|| format!("{} belegen", e.adresse))?;
@@ -157,6 +172,7 @@ async fn lausche(e: Einstellung, tls: Option<TlsAcceptor>) -> Result<()> {
         kacheln: e.kacheln,
         seite: e.seite,
         header: header_der_karte()?,
+        freigabe,
     });
     let plaetze = Arc::new(Semaphore::new(e.verbindungen));
     loop {
@@ -405,6 +421,49 @@ struct Zustand {
     kacheln: PathBuf,
     seite: Option<PathBuf>,
     header: Vec<(HeaderName, HeaderValue)>,
+    freigabe: Option<Freigabe>,
+}
+
+/// Das Geheimnis der Token und je Zufall eines Tokens sein Ablauf und die
+/// Bytes, die es schon bekam.
+struct Freigabe {
+    geheimnis: ring::hmac::Key,
+    bytes: Mutex<HashMap<[u8; 16], (u64, u64)>>,
+}
+
+impl Freigabe {
+    /// Liest das Geheimnis, genau 32 Byte, wie das Plugin es erzeugt.
+    fn aus(pfad: &Path) -> Result<Freigabe> {
+        let roh = std::fs::read(pfad).with_context(|| format!("{} lesen", pfad.display()))?;
+        ensure!(
+            roh.len() == 32,
+            "{} hat {} Byte, das Geheimnis hat genau 32",
+            pfad.display(),
+            roh.len()
+        );
+        Ok(Freigabe {
+            geheimnis: ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &roh),
+            bytes: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// Bucht `n` Bytes auf den Zufall des Tokens; `false`, wenn das seinen
+    /// Deckel überschritte, dann bucht es nichts. Kommt ein neuer Zufall
+    /// dazu, fallen abgelaufene weg.
+    fn buche(&self, token: &Token, n: u64, jetzt: u64) -> bool {
+        let mut bytes = self.bytes.lock().unwrap_or_else(PoisonError::into_inner);
+        if !bytes.contains_key(&token.zufall) {
+            bytes.retain(|_, (ablauf, _)| *ablauf > jetzt);
+        }
+        let (_, gezaehlt) = bytes.entry(token.zufall).or_insert((token.ablauf, 0));
+        match gezaehlt.checked_add(n) {
+            Some(neu) if neu <= token.deckel => {
+                *gezaehlt = neu;
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Wohin eine Anfrage zeigt und wie lange der Browser sie behalten darf.
@@ -444,6 +503,9 @@ async fn antwort(
         return Ok(antwort);
     }
     let pfad = anfrage.uri().path();
+    if let Some(rest) = pfad.strip_prefix(DOWNLOAD) {
+        return Ok(download(&z, anfrage.headers(), rest, kopf).await);
+    }
     let ziel = match pfad.strip_prefix(KACHELN) {
         Some(rest) => kachelpfad(&z.kacheln, rest).map(|pfad| Ziel {
             pfad,
@@ -473,6 +535,74 @@ async fn antwort(
         Ok(None) => leer(&z, StatusCode::NOT_FOUND),
         Err(_) => leer(&z, StatusCode::INTERNAL_SERVER_ERROR),
     })
+}
+
+/// Unter `/download/` nur mit gültigem Token: aus seinem Baum `map.json`,
+/// `manifest` und Kacheln bis zu seiner Stufe, je Zufall höchstens sein
+/// Deckel an Bytes. Ohne Token oder mit einem ungültigen `401`, was es nicht
+/// freigibt `403`, über dem Deckel `429`.
+/// Siehe docs/benutzung/server.md, „Download“.
+async fn download(
+    z: &Arc<Zustand>,
+    felder: &HeaderMap,
+    rest: &str,
+    kopf: bool,
+) -> Response<Full<Bytes>> {
+    let Some(freigabe) = &z.freigabe else {
+        return leer(z, StatusCode::NOT_FOUND);
+    };
+    let jetzt = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let token = felder
+        .get(header::AUTHORIZATION)
+        .and_then(|wert| wert.to_str().ok())
+        .and_then(|wert| wert.strip_prefix("Bearer "))
+        .and_then(|text| token::pruefe(text, &freigabe.geheimnis, jetzt).ok());
+    let Some(token) = token else {
+        let mut antwort = leer(z, StatusCode::UNAUTHORIZED);
+        antwort
+            .headers_mut()
+            .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+        return antwort;
+    };
+    let Some(pfad) = kachelpfad(&z.kacheln, rest) else {
+        return leer(z, StatusCode::NOT_FOUND);
+    };
+    let teile: Vec<&str> = rest.split('/').collect();
+    let frei = match teile.as_slice() {
+        [baum, "map.json" | MANIFEST] => *baum == token.baum,
+        [baum, stufe, _, _] => {
+            *baum == token.baum && stufe.parse::<u8>().is_ok_and(|stufe| stufe <= token.stufe)
+        }
+        _ => false,
+    };
+    if !frei {
+        return leer(z, StatusCode::FORBIDDEN);
+    }
+    let ziel = Ziel {
+        pfad,
+        index: false,
+        dauerhaft: false,
+    };
+    let bedingung = Bedingung::aus(felder);
+    let bei = Arc::clone(z);
+    let gelesen = tokio::task::spawn_blocking(move || lies(&bei, &ziel, kopf, &bedingung)).await;
+    let mut antwort = match gelesen {
+        Ok(Some(antwort)) => antwort,
+        Ok(None) => return leer(z, StatusCode::NOT_FOUND),
+        Err(_) => return leer(z, StatusCode::INTERNAL_SERVER_ERROR),
+    };
+    // Gezählt wird der Körper; 304 und HEAD haben keinen.
+    let n = antwort.body().size_hint().exact().unwrap_or(0);
+    if !freigabe.buche(&token, n, jetzt) {
+        return leer(z, StatusCode::TOO_MANY_REQUESTS);
+    }
+    antwort.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
+    antwort
 }
 
 /// Der Pfad unter `/tiles/`, nur für das, was Karte und Mod brauchen:
@@ -868,5 +998,33 @@ mod tests {
                 .any(|(name, _)| name == header::CONTENT_SECURITY_POLICY)
         );
         assert!(header.len() >= 6, "{header:?}");
+    }
+
+    /// Je Zufall bis genau zum Deckel; darüber bucht es nichts. Ein neuer
+    /// Zufall räumt abgelaufene weg, sonst wüchse die Tabelle mit jedem Token.
+    #[test]
+    fn buchen_bis_zum_deckel() {
+        let freigabe = Freigabe {
+            geheimnis: ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &[0; 32]),
+            bytes: Mutex::new(HashMap::new()),
+        };
+        let token = |zufall, ablauf| Token {
+            spieler: [0; 16],
+            ablauf,
+            deckel: 10,
+            stufe: 0,
+            zufall: [zufall; 16],
+            baum: "t".to_string(),
+        };
+        assert!(freigabe.buche(&token(1, 100), 4, 50));
+        assert!(freigabe.buche(&token(1, 100), 6, 50));
+        assert!(!freigabe.buche(&token(1, 100), 1, 50));
+        assert!(!freigabe.buche(&token(1, 100), u64::MAX, 50));
+        assert!(freigabe.buche(&token(2, 300), 10, 99));
+        assert_eq!(freigabe.bytes.lock().unwrap().len(), 2);
+        assert!(freigabe.buche(&token(3, 300), 1, 100));
+        let bytes = freigabe.bytes.lock().unwrap();
+        assert_eq!(bytes.get(&[1; 16]), None);
+        assert_eq!(bytes.get(&[2; 16]), Some(&(300, 10)));
     }
 }

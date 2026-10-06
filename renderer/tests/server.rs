@@ -1,6 +1,6 @@
 //! Prüft `--serve` gegen einen echten Prozess auf einem freien Port, mit
 //! Anfragen von Hand: Header, ETag und 304, MIME, 404, Methoden, Grenzen und
-//! das Ende mit stdin.
+//! das Ende mit stdin, HTTPS und den Download mit Token.
 //! Siehe docs/benutzung/server.md.
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -884,4 +884,227 @@ fn sec1_und_freier_platz_nach_dem_handschlag() {
     std::thread::sleep(Duration::from_millis(2000));
     let (a, gezeigt) = tls_hole(server.adresse, &der, "/tiles/trees.json");
     assert_eq!((a.status, gezeigt), (200, der));
+}
+
+fn jetzt() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+/// Ein Geheimnis aus 32 Byte in `dir/geheimnis`.
+fn geheimnis_in(dir: &Path) -> (PathBuf, Vec<u8>) {
+    let geheimnis: Vec<u8> = (0..32).map(|i| i * 7).collect();
+    let pfad = dir.join("geheimnis");
+    std::fs::write(&pfad, &geheimnis).unwrap();
+    (pfad, geheimnis)
+}
+
+/// base64url ohne Polsterung, wie das Plugin kodiert.
+fn base64url(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut text = String::new();
+    for stueck in bytes.chunks(3) {
+        let n = stueck
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+        for i in 0..=stueck.len() {
+            text.push(char::from(ALPHABET[(n >> (18 - 6 * i) & 63) as usize]));
+        }
+    }
+    text
+}
+
+/// Ein Token nach docs/plugin.md, „Token“, mit 16 Byte `zufall`.
+fn token(geheimnis: &[u8], baum: &str, stufe: u8, deckel: u64, ablauf: u64, zufall: u8) -> String {
+    let mut inhalt = vec![1];
+    inhalt.extend([7; 16]);
+    inhalt.extend(ablauf.to_be_bytes());
+    inhalt.extend(deckel.to_be_bytes());
+    inhalt.push(stufe);
+    inhalt.extend([zufall; 16]);
+    inhalt.push(u8::try_from(baum.len()).unwrap());
+    inhalt.extend(baum.as_bytes());
+    let schluessel = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, geheimnis);
+    let unterschrift = ring::hmac::sign(&schluessel, &inhalt);
+    format!(
+        "{}.{}",
+        base64url(&inhalt),
+        base64url(unterschrift.as_ref())
+    )
+}
+
+fn mit_token(
+    adresse: SocketAddr,
+    methode: &str,
+    pfad: &str,
+    token: &str,
+    extra: &[(&str, &str)],
+) -> Antwort {
+    let bearer = format!("Bearer {token}");
+    let mut header = vec![("Authorization", bearer.as_str())];
+    header.extend_from_slice(extra);
+    frage(adresse, methode, pfad, &header)
+}
+
+/// Unter `/download/` nur mit gültigem Token: ohne oder ungültig `401` mit
+/// `WWW-Authenticate`, vor jedem Blick auf den Pfad; aus einem anderen Baum,
+/// über der Stufe oder ausser `map.json`, `manifest` und Kacheln `403`; was
+/// nicht öffentlich ist oder fehlt, `404`. Was es freigibt, kommt wie unter
+/// `/tiles/`, nur `private`.
+#[test]
+fn download_nur_mit_token() {
+    let (kacheln, _seite) = wurzel();
+    std::fs::create_dir_all(kacheln.path().join("t/1/0")).unwrap();
+    std::fs::write(kacheln.path().join("t/1/0/0.webp"), b"feiner").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (datei, geheimnis) = geheimnis_in(dir.path());
+    let server = starte(kacheln.path(), &["--secret-file", datei.to_str().unwrap()]);
+    let gut = token(&geheimnis, "t", 0, 1 << 20, jetzt() + 600, 1);
+    let mit = |pfad: &str, t: &str| mit_token(server.adresse, "GET", pfad, t, &[]);
+
+    for datei in ["t/map.json", "t/manifest", "t/0/0/0.webp"] {
+        let a = mit(&format!("/download/{datei}"), &gut);
+        assert_eq!(a.status, 200, "{datei}");
+        assert_eq!(
+            a.koerper,
+            std::fs::read(kacheln.path().join(datei)).unwrap(),
+            "{datei}"
+        );
+        let offen = hole(server.adresse, &format!("/tiles/{datei}"));
+        for name in ["etag", "last-modified", "content-type", "content-length"] {
+            assert_eq!(a.header(name), offen.header(name), "{datei}, {name}");
+        }
+        assert_eq!(
+            a.header("cache-control"),
+            Some("private, no-cache"),
+            "{datei}"
+        );
+    }
+
+    for pfad in [
+        "/download/t/map.json",
+        "/download/t/stand.bin",
+        "/download/u/map.json",
+    ] {
+        let ohne = hole(server.adresse, pfad);
+        assert_eq!(
+            (ohne.status, ohne.header("www-authenticate")),
+            (401, Some("Bearer")),
+            "{pfad}"
+        );
+    }
+    let fremd = token(&[9; 32], "t", 0, 1 << 20, jetzt() + 600, 1);
+    let abgelaufen = token(&geheimnis, "t", 0, 1 << 20, jetzt() - 1, 1);
+    for t in [fremd.as_str(), abgelaufen.as_str(), "kein.token", &gut[1..]] {
+        assert_eq!(mit("/download/t/map.json", t).status, 401, "{t}");
+    }
+    let basic = frage(
+        server.adresse,
+        "GET",
+        "/download/t/map.json",
+        &[("Authorization", &format!("Basic {gut}"))],
+    );
+    assert_eq!(basic.status, 401);
+
+    for pfad in [
+        "/download/t/1/0/0.webp",
+        "/download/u/map.json",
+        "/download/t/heights/1.-2.bin",
+        "/download/trees.json",
+        "/download/heights/0.0.bin",
+    ] {
+        assert_eq!(mit(pfad, &gut).status, 403, "{pfad}");
+    }
+    for pfad in [
+        "/download/t/stand.bin",
+        "/download/t/manifest-offen-1-2",
+        "/download/t/0/0/9.webp",
+        "/download/../t/map.json",
+        "/download/",
+    ] {
+        assert_eq!(mit(pfad, &gut).status, 404, "{pfad}");
+    }
+    let feiner = token(&geheimnis, "t", 1, 1 << 20, jetzt() + 600, 2);
+    assert_eq!(mit("/download/t/1/0/0.webp", &feiner).koerper, b"feiner");
+    assert_eq!(mit("/download/t/0/0/0.webp", &feiner).status, 200);
+}
+
+/// Je Zufall höchstens der Deckel an Bytes, gezählt am Körper: Was ihn
+/// überschritte, gibt `429`. `304` und HEAD zählen nicht. Ein Token mit
+/// demselben Zufall zählt weiter, eines mit anderem neu.
+#[test]
+fn deckel_je_zufall() {
+    let (kacheln, _seite) = wurzel();
+    let dir = tempfile::tempdir().unwrap();
+    let (datei, geheimnis) = geheimnis_in(dir.path());
+    let server = starte(kacheln.path(), &["--secret-file", datei.to_str().unwrap()]);
+    let groesse = |datei: &str| std::fs::metadata(kacheln.path().join(datei)).unwrap().len();
+    let deckel = groesse("t/map.json") + groesse("t/0/0/0.webp");
+    let t = token(&geheimnis, "t", 0, deckel, jetzt() + 600, 1);
+    let kachel = "/download/t/0/0/0.webp";
+    let mit = |methode: &str, pfad: &str, t: &str, extra: &[(&str, &str)]| {
+        mit_token(server.adresse, methode, pfad, t, extra).status
+    };
+
+    assert_eq!(mit("HEAD", kachel, &t, &[]), 200);
+    assert_eq!(mit("GET", "/download/t/map.json", &t, &[]), 200);
+    let erst = mit_token(server.adresse, "GET", kachel, &t, &[]);
+    assert_eq!(erst.status, 200);
+    let etag = erst.header("etag").unwrap();
+    assert_eq!(mit("GET", kachel, &t, &[]), 429);
+    assert_eq!(mit("GET", kachel, &t, &[("If-None-Match", etag)]), 304);
+    assert_eq!(mit("HEAD", kachel, &t, &[]), 200);
+
+    let gleich = token(&geheimnis, "t", 0, deckel, jetzt() + 900, 1);
+    assert_eq!(mit("GET", "/download/t/manifest", &gleich, &[]), 429);
+    let neu = token(&geheimnis, "t", 0, deckel, jetzt() + 600, 2);
+    assert_eq!(mit("GET", kachel, &neu, &[]), 200);
+}
+
+/// Ohne `--secret-file` gibt es `/download/` nicht: `404`, auch mit Token.
+/// Hat die Datei nicht genau 32 Byte oder fehlt sie, startet der Server
+/// nicht.
+#[test]
+fn geheimnis_aus_genau_32_byte() {
+    let (kacheln, _seite) = wurzel();
+    let dir = tempfile::tempdir().unwrap();
+    let (_, geheimnis) = geheimnis_in(dir.path());
+    let server = starte(kacheln.path(), &[]);
+    let t = token(&geheimnis, "t", 0, 1 << 20, jetzt() + 600, 1);
+    assert_eq!(
+        mit_token(server.adresse, "GET", "/download/t/map.json", &t, &[]).status,
+        404
+    );
+
+    let falsch = dir.path().join("falsch");
+    for (inhalt, grund) in [
+        (&[0u8; 31][..], "genau 32"),
+        (&[0; 33], "genau 32"),
+        (&[], "lesen"),
+    ] {
+        if inhalt.is_empty() {
+            std::fs::remove_file(&falsch).unwrap();
+        } else {
+            std::fs::write(&falsch, inhalt).unwrap();
+        }
+        let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+            .arg("--serve")
+            .arg(kacheln.path())
+            .args([
+                "--listen",
+                "127.0.0.1:0",
+                "--exit-with-stdin",
+                "--secret-file",
+            ])
+            .arg(&falsch)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let fehler = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(!ausgabe.status.success(), "{grund}");
+        assert!(fehler.contains(grund), "{grund}: {fehler}");
+    }
 }

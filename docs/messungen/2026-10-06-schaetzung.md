@@ -55,6 +55,7 @@ Zwischen den Reihen blieb die Sperre mindestens 10 min frei.
 | B1 | 02:29:06 bis 02:33:45 | `d46e983` | nur Schätzungen, Testwelt und grosse Welt |
 | B2 | 02:43:47 bis 02:48:24 | `16903e4` | wie B1 |
 | C | 03:24:43 bis 03:28:21 | `db96dfc` | Schätzungen an der Testwelt, dazu scale 4 mit echtem Lauf |
+| D | 04:42:28 bis 04:44:38 und 04:45:43 bis 04:47:51 | nach `5975b61` | je zwei Schätzungen über einem bestehenden Baum der grossen Welt, nur lesend |
 
 - **Last:** vor den Läufen 1 bis 17 %, kein Spiel, kein Server.
   Hintergrundprogramme brauchten rund 1,5 Kerne.
@@ -136,6 +137,22 @@ Schätzung mit `16903e4` gegen die gemessenen Vollrender:
   - native Stufen und Pyramide in Bytes: 32 %, 34 %, 35 % und 37 % der
     Basis;
   - Pyramide in der Zeit: 0,6 %, 2,3 %, 0,2 % und 0,8 % der Basis.
+
+## Den Bestand zählen
+
+Über einem bestehenden Baum zählt die Schätzung dessen Bytes und Dateien,
+damit vom Platz nur abgeht, was dazukommt. Gemessen in Reihe D über dem
+einzigen grossen Baum, der noch lag: der grossen Welt genordet mit
+Cinematic bei scale 6, früh abgebrochen.
+
+- **Bestand:** 1,7 GB in 44 300 Dateien.
+- **Gezählt** in 8 und 9 ms, rund 5 Mio. Dateien je Sekunde, mit 24 Threads.
+  Die Ordner waren in allen vier Läufen im Dateicache, auch im ersten; ohne
+  Cache ist es langsamer, gemessen ist das nicht.
+- **Hochgerechnet** auf einen ganzen Baum der grossen Welt mit rund 3 Mio.
+  Dateien sind das unter einer Sekunde, mit kaltem Cache einige Sekunden.
+- Der Ordner liegt unter einer Ausnahme des Echtzeitschutzes. Das Zählen
+  liest nur die Einträge der Ordner und öffnet keine Datei.
 
 ## Die drei Fehler
 

@@ -196,7 +196,11 @@ Spanne. Unter `--tiles` schreibt es nichts. Der Code steht in
    darüber, den es gibt. Ein Lauf über einen bestehenden Baum überschreibt
    ihn; frei sein muss nur, was über den Bestand hinausgeht. „Reicht“
    heisst: Frei und Bestand zusammen erreichen mindestens den oberen Rand.
-   Eine Warnung vor dem Lauf nimmt den oberen Rand.
+   Eine Warnung vor dem Lauf nimmt den oberen Rand. Den Bestand zu zählen
+   dauerte über 44 300 Dateien 9 ms mit warmem Dateicache, hochgerechnet auf
+   einen ganzen Baum der grossen Welt unter einer Sekunde, siehe
+   [2026-10-06, Schätzung gegen gemessene Läufe](../messungen/2026-10-06-schaetzung.md),
+   „Den Bestand zählen“.
 
 Wie der Lauf nimmt die Schätzung native Stufen, Mischung und Rechteck aus
 einem bestehenden Baum und bricht ab, wo der Aufruf davon abweicht. Mit

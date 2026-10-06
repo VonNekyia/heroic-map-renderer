@@ -262,7 +262,13 @@ pub(super) fn schaetze(
 
     // Ein Lauf über einen bestehenden Baum überschreibt ihn: Frei sein muss
     // nur, was dazukommt.
-    let bestand_bytes = if baum.is_dir() { bytes_unter(&baum) } else { 0 };
+    let gezaehlt = Instant::now();
+    let (bestand_bytes, bestand_dateien) = if baum.is_dir() {
+        bytes_unter(&baum)
+    } else {
+        (0, 0)
+    };
+    let gezaehlt = gezaehlt.elapsed().as_secs_f64();
     let frei = freier_platz(&baum);
     let reicht = frei
         .zip(bytes)
@@ -292,10 +298,11 @@ pub(super) fn schaetze(
         ),
         None => println!("            Platz unbekannt, der Probelauf zeichnete nichts"),
     }
-    if bestand_bytes > 0 {
+    if bestand_dateien > 0 {
         println!(
-            "            Bestand {}, den der Lauf überschreibt",
-            groesse(bestand_bytes as f64)
+            "            Bestand {} in {} Dateien, den der Lauf überschreibt, gezählt in {gezaehlt:.3} s",
+            groesse(bestand_bytes as f64),
+            rund(bestand_dateien as f64)
         );
     }
     match sekunden_spanne {
@@ -496,21 +503,21 @@ fn basis_bytes(baum: &Path) -> Result<(u64, u64)> {
     Ok((bytes, anzahl))
 }
 
-/// Bytes aller Dateien unter `ordner`, über die Threads verteilt. Einem
-/// Link folgt es nicht.
-fn bytes_unter(ordner: &Path) -> u64 {
+/// Bytes und Zahl aller Dateien unter `ordner`, über die Threads verteilt.
+/// Einem Link folgt es nicht.
+fn bytes_unter(ordner: &Path) -> (u64, u64) {
     let Ok(eintraege) = std::fs::read_dir(ordner) else {
-        return 0;
+        return (0, 0);
     };
     let eintraege: Vec<_> = eintraege.flatten().collect();
     eintraege
         .par_iter()
         .map(|e| match e.file_type() {
             Ok(art) if art.is_dir() => bytes_unter(&e.path()),
-            Ok(art) if art.is_file() => e.metadata().map_or(0, |m| m.len()),
-            _ => 0,
+            Ok(art) if art.is_file() => (e.metadata().map_or(0, |m| m.len()), 1),
+            _ => (0, 0),
         })
-        .sum()
+        .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
 }
 
 /// Freier Platz für den Benutzer unter `pfad` oder dem nächsten Ordner

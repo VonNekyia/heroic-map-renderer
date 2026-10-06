@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Prüft, dass die Doku auf Bestehendes zeigt. Aus der Wurzel des Repositorys:
 #
-#   bash .github/pruefe-doku.sh
+#   bash .github/pruefe-doku.sh [pfadangabe…]
+#
+# Weitere Pfadangaben gehen an die Suche nach Verweisen im Code, etwa
+# ':!src/test/resources/*.json' für wörtliche Kopien aus einem anderen Repo.
 #
 # - Verweise im Code, "Siehe docs/" mit Seite und Überschrift in „“, in jeder
 #   Datei ausser Markdown: die Seite und, falls genannt, die Überschrift gibt es;
@@ -41,7 +44,7 @@ while IFS= read -r zeile; do
       melde "$datei,line=$nummer" "Verweis auf $seite: keine Überschrift „$titel“"
     fi
   fi
-done < <(git grep -n -I -E '[Ss]iehe docs/[^ ,]+\.md' -- . ':!*.md' ':!.github/pruefe-doku.sh')
+done < <(git grep -n -I -E '[Ss]iehe docs/[^ ,]+\.md' -- . ':!*.md' ':!.github/pruefe-doku.sh' "$@")
 
 # Relative Links, ohne Codeblöcke.
 while IFS= read -r datei; do

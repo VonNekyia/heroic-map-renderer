@@ -107,7 +107,14 @@ static BLOCKS: LazyLock<HashMap<&'static str, Definition>> = LazyLock::new(|| {
             let name = parts.next().unwrap_or_default();
             let mut props: Vec<_> = parts
                 .filter_map(|part| part.split_once('='))
-                .map(|(prop, values)| (prop, values.split(',').collect()))
+                // `*` markiert die Vorgabe; die liest `BlockState::mit_vorgaben`.
+                .map(|(prop, values)| {
+                    let values = values.split(',');
+                    (
+                        prop,
+                        values.map(|v| v.strip_prefix('*').unwrap_or(v)).collect(),
+                    )
+                })
                 .collect();
             props.sort_unstable_by_key(|&(prop, _)| prop);
             (name, Definition { props })
@@ -1984,6 +1991,36 @@ mod tests {
                 "{oder}"
             );
         }
+    }
+
+    /// Jede Eigenschaft jedes Blocks hat in `blocks.txt` genau eine Vorgabe,
+    /// einen ihrer Werte; so findet `BlockState::mit_vorgaben` für jede, die
+    /// in der Palette fehlt, ihren Wert. Stichproben gegen den Report von 26.3.
+    #[test]
+    fn vorgaben_wie_die_definition() {
+        let roh = include_str!("blocks.txt");
+        for zeile in roh.lines() {
+            for teil in zeile.split(' ').skip(1) {
+                let (prop, werte) = teil.split_once('=').unwrap();
+                let markiert = werte.split(',').filter(|w| w.starts_with('*')).count();
+                assert_eq!(markiert, 1, "{zeile}: {prop}");
+            }
+        }
+        for (name, definition) in BLOCKS.iter() {
+            for (prop, werte) in &definition.props {
+                let vorgabe = crate::world::palette::vorgabe(name, prop);
+                assert!(
+                    vorgabe.is_some_and(|v| werte.contains(&v)),
+                    "{name}: {prop}"
+                );
+            }
+        }
+        let vorgabe = crate::world::palette::vorgabe;
+        assert_eq!(vorgabe("deepslate", "axis"), Some("y"));
+        assert_eq!(vorgabe("oak_stairs", "facing"), Some("north"));
+        assert_eq!(vorgabe("oak_stairs", "half"), Some("bottom"));
+        assert_eq!(vorgabe("water", "level"), Some("0"));
+        assert_eq!(vorgabe("deepslate", "facing"), None);
     }
 
     /// Die Tabelle stimmt mit dem Report von 26.3 überein: 1286 Blöcke,

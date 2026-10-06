@@ -425,16 +425,56 @@ struct PalettedNbt<T> {
     data: Option<fastnbt::LongArray>,
 }
 
-/// Ein Eintrag der Palette. Ab 26.3 heissen die Felder `id` und
-/// `properties` (`BlockStateFieldNamesFix`, DataVersion 5006); Chunks, die
-/// der Server noch nicht neu gespeichert hat, behalten die alten Namen.
-#[derive(Deserialize)]
+/// Ein Eintrag der Palette, in jeder Form, die der Server schreibt: bis 26.2
+/// `{Name, Properties}`; ab 26.3 `{id, properties}`
+/// (`BlockStateFieldNamesFix`, DataVersion 5006), für den Zustand nach
+/// `defaultBlockState` nur der Name, und in einer Liste aus beiden Formen
+/// der Name als `{"": name}`, weil eine Liste in NBT nur einen Typ hat.
+/// Chunks, die der Server noch nicht neu gespeichert hat, behalten die alte
+/// Form. Siehe docs/benutzung/welten.md, „Welche Welten“.
 struct PaletteEntry {
-    #[serde(rename = "Name", alias = "id")]
     name: String,
     /// Sortiert, wie `BlockState` sie will.
-    #[serde(rename = "Properties", alias = "properties", default)]
     properties: BTreeMap<String, String>,
+}
+
+impl<'de> Deserialize<'de> for PaletteEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(eingabe: D) -> Result<Self, D::Error> {
+        use serde::de::{Error, IgnoredAny, MapAccess, Visitor};
+        use std::borrow::Cow;
+        use std::fmt;
+        struct Besucher;
+        impl<'de> Visitor<'de> for Besucher {
+            type Value = PaletteEntry;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("einen Blocknamen oder ein Compound mit Name oder id")
+            }
+
+            fn visit_str<E: Error>(self, name: &str) -> Result<PaletteEntry, E> {
+                Ok(PaletteEntry {
+                    name: name.to_string(),
+                    properties: BTreeMap::new(),
+                })
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut felder: A) -> Result<PaletteEntry, A::Error> {
+                let (mut name, mut properties) = (None, BTreeMap::new());
+                while let Some(schluessel) = felder.next_key::<Cow<'de, str>>()? {
+                    match &*schluessel {
+                        "Name" | "id" | "" => name = Some(felder.next_value()?),
+                        "Properties" | "properties" => properties = felder.next_value()?,
+                        _ => {
+                            felder.next_value::<IgnoredAny>()?;
+                        }
+                    }
+                }
+                let name = name.ok_or_else(|| Error::missing_field("id"))?;
+                Ok(PaletteEntry { name, properties })
+            }
+        }
+        eingabe.deserialize_any(Besucher)
+    }
 }
 
 /// Eine 16×16×16-Section eines Chunks.
@@ -927,7 +967,7 @@ fn decode_section(nbt: SectionNbt) -> Result<Option<Section>> {
     let palette = block_states
         .palette
         .into_iter()
-        .map(|entry| BlockState::new(entry.name, entry.properties.into_iter().collect()))
+        .map(|entry| BlockState::mit_vorgaben(entry.name, entry.properties))
         .collect();
 
     let blocks = paletted(
@@ -1258,6 +1298,112 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    /// Ab 26.3 steht der Zustand nach `defaultBlockState` nur als Name, in
+    /// einer reinen Liste als Text, in einer gemischten als `{"": name}`;
+    /// die übrigen Eigenschaften nimmt der Renderer aus den Vorgaben.
+    #[test]
+    fn palette_ab_26_3_als_namen() {
+        use fastnbt::Value;
+        let text = |text: &str| Value::String(text.to_string());
+        let compound = |felder: Vec<(&str, Value)>| {
+            Value::Compound(
+                felder
+                    .into_iter()
+                    .map(|(name, wert)| (name.to_string(), wert))
+                    .collect(),
+            )
+        };
+        let section = |y: i8, palette: Vec<Value>| {
+            // Zwei Einträge, vier Bit je Block: Block 0 nimmt den ersten,
+            // Block 1 den zweiten, der Rest wieder den ersten.
+            let mut daten = vec![0i64; 256];
+            daten[0] = 1 << 4;
+            compound(vec![
+                ("Y", Value::Byte(y)),
+                (
+                    "block_states",
+                    compound(vec![
+                        ("palette", Value::List(palette)),
+                        ("data", Value::LongArray(fastnbt::LongArray::new(daten))),
+                    ]),
+                ),
+                (
+                    "biomes",
+                    compound(vec![(
+                        "palette",
+                        Value::List(vec![text("minecraft:plains")]),
+                    )]),
+                ),
+            ])
+        };
+        let gemischt = vec![
+            compound(vec![("", text("minecraft:water"))]),
+            compound(vec![
+                ("id", text("minecraft:water")),
+                ("properties", compound(vec![("level", text("4"))])),
+            ]),
+        ];
+        let nbt = compound(vec![
+            ("DataVersion", Value::Int(5023)),
+            ("xPos", Value::Int(0)),
+            ("zPos", Value::Int(0)),
+            ("Status", text("minecraft:full")),
+            (
+                "sections",
+                Value::List(vec![
+                    section(
+                        0,
+                        vec![text("minecraft:deepslate"), text("minecraft:stone")],
+                    ),
+                    section(1, gemischt),
+                ]),
+            ),
+        ]);
+        let chunk = Chunk::decode(&fastnbt::to_bytes(&nbt).unwrap()).unwrap();
+        let block = |x, y| chunk.block_at(x, y, 0).map(ToString::to_string);
+        assert_eq!(block(0, 0).as_deref(), Some("minecraft:deepslate[axis=y]"));
+        assert_eq!(block(1, 0).as_deref(), Some("minecraft:stone"));
+        assert_eq!(block(0, 16).as_deref(), Some("minecraft:water[level=0]"));
+        assert_eq!(block(1, 16).as_deref(), Some("minecraft:water[level=4]"));
+    }
+
+    /// Ein echter Chunk, den Paper 26.3 geschrieben hat, aus dem Testserver
+    /// des Plugins: alle drei Formen der Palette. Jeder Zustand eines Blocks
+    /// aus `blocks.txt` ist danach vollständig, also hat er einen Platz in
+    /// `getPossibleStates`.
+    #[test]
+    fn echter_chunk_aus_paper_26_3() {
+        use std::io::Read;
+        let pfad =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/chunk-263.zlib");
+        let mut nbt = Vec::new();
+        flate2::read::ZlibDecoder::new(std::fs::File::open(pfad).unwrap())
+            .read_to_end(&mut nbt)
+            .unwrap();
+        let chunk = Chunk::decode(&nbt).unwrap();
+        let mut zustaende = std::collections::BTreeSet::new();
+        for section in chunk.sections() {
+            zustaende.extend(section.blocks().palette().iter().map(ToString::to_string));
+            for state in section.blocks().palette() {
+                if let Some(definition) = crate::assets::blockstate::Definition::of(state.name()) {
+                    assert!(definition.index(state).is_some(), "{state}");
+                }
+            }
+        }
+        for erwartet in [
+            "minecraft:bedrock",
+            "minecraft:deepslate[axis=y]",
+            "minecraft:water[level=0]",
+            "minecraft:tall_seagrass[half=upper]",
+            "minecraft:glow_lichen[down=false,east=false,north=false,south=false,up=false,waterlogged=true,west=true]",
+        ] {
+            assert!(
+                zustaende.contains(erwartet),
+                "{erwartet} fehlt in {zustaende:?}"
+            );
+        }
     }
 
     /// Die Palette ab 26.3 mit `id` und `properties`, daneben eine Section

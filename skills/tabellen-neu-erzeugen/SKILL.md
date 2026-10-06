@@ -16,11 +16,12 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    JAR in ein leeres Verzeichnis legen, dort laufen alle Befehle.
 2. **`blocks.txt`:** der Datengenerator schreibt
    `generated/reports/blocks.json`, daraus wird je Block eine Zeile mit
-   seinen Eigenschaften und Werten:
+   seinen Eigenschaften und Werten, der Wert des `defaultBlockState` mit `*`
+   davor:
 
    ```bash
    java -DbundlerMainClass=net.minecraft.data.Main -jar server.jar --reports
-   python -c "import json; d = json.load(open('generated/reports/blocks.json')); open('blocks.txt', 'w', newline='\n').writelines(' '.join([n.removeprefix('minecraft:')] + [p + '=' + ','.join(v) for p, v in b.get('properties', {}).items()]) + '\n' for n, b in d.items())"
+   python -c "import json; d = json.load(open('generated/reports/blocks.json')); v = lambda b: next(s.get('properties', {}) for s in b['states'] if s.get('default')); open('blocks.txt', 'w', newline='\n').writelines(' '.join([n.removeprefix('minecraft:')] + [p + '=' + ','.join(('*' if v(b)[p] == w else '') + w for w in ws) for p, ws in b.get('properties', {}).items()]) + '\n' for n, b in d.items())"
    ```
 
    Danach liegen im Verzeichnis auch das entpackte Spiel unter `versions/`

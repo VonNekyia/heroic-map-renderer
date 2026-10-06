@@ -18,7 +18,8 @@ und Biomdaten kommen: [Assets und Biomdaten](../benutzung/assets.md).
 
 - Kleine Fixtures für die Tests unter `renderer/tests/fixtures/`: eine
   Region mit 2×2 Chunks, 4×4 Chunks mit dem Licht aus einem Lauf von
-  Vanilla, ein synthetischer Assetbaum, Biome und das Goldbild, siehe
+  Vanilla, ein Chunk, den Paper 26.3 in einem Testserver geschrieben hat
+  (`chunk-263.zlib`), ein synthetischer Assetbaum, Biome und das Goldbild, siehe
   [Tests](tests.md), „Fixtures“.
 - Ein kleiner Kachelbaum unter `web/public/tiles-demo/`, Fixture des
   Smoke-Tests, siehe [Frontend](../frontend.md).

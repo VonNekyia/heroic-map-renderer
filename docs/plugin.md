@@ -52,6 +52,13 @@ dem Plugin-Programmierer ab.
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
   eines Tokens: `--manifest` bei jedem Lauf und `--pyramid` eines Baums mit
   `download: true`, siehe unten, „Manifest“.
+- **Das Client-Jar:** `--download-client-jar` nur, wenn der Betreiber in
+  `config.yml` zugestimmt hat, Vorgabe `false`; `eula=true` des Servers
+  zählt nicht (#147, [0086](entscheidungen/0086-client-jar-von-mojang.md)).
+  Dazu `--cache-dir` mit dem Datenordner des Plugins, nie unter einer
+  Wurzel von `--tiles` und nie unter der Seite von `--web`. Den Text der Zustimmung zeigt das Plugin
+  sinngemäss wie [Assets](benutzung/assets.md), „Von Mojang laden“; ohne
+  Zustimmung bricht ein Lauf ohne `--assets` mit diesem Text ab.
 - **Die Marke `nur-download`** im Ordner eines Baums, den die Webkarte
   nicht zeigen soll, angelegt vor seinem ersten Lauf: Er fehlt dann in
   `trees.json` und ist nur über den Download zu haben. Fehlt die Marke, ist

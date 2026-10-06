@@ -31,10 +31,14 @@ use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, Worl
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 
+#[cfg(any(windows, test))]
+mod assistent;
+mod client;
 mod manifest;
 mod schaetzung;
 mod server;
 mod token;
+mod zip;
 
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
 /// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
@@ -59,6 +63,22 @@ pub struct Args {
     /// frühere
     #[arg(long = "data", value_name = "DIR")]
     data: Vec<PathBuf>,
+
+    /// Assets und Daten aus dem Client-Jar von Mojang, vor allen --assets
+    /// und --data; fehlt es im Cache, lädt der Renderer es einmal. Mit dem
+    /// Schalter bestätigst du, dass du Minecraft: Java Edition besitzt, und
+    /// nimmst die Minecraft-EULA an
+    #[arg(long)]
+    download_client_jar: bool,
+
+    /// Mit --download-client-jar diese Version statt der aus level.dat
+    #[arg(long, value_name = "VERSION", requires = "download_client_jar")]
+    client_version: Option<String>,
+
+    /// Mit --download-client-jar der Ordner für das ausgepackte Jar, sonst
+    /// der Cache des Systems; nie unter --tiles
+    #[arg(long, value_name = "DIR", requires = "download_client_jar")]
+    cache_dir: Option<PathBuf>,
 
     /// Blockstate an dieser Weltkoordinate ausgeben: --at X Y Z
     #[arg(long, num_args = 3, allow_negative_numbers = true, value_names = ["X", "Y", "Z"])]
@@ -226,7 +246,8 @@ pub struct Args {
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "site_url",
-        "site_title", "site_description", "site_image",
+        "site_title", "site_description", "site_image", "download_client_jar", "client_version",
+        "cache_dir",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -243,7 +264,7 @@ pub struct Args {
         "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
-        "pyramid", "manifest",
+        "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir",
     ])]
     serve: Option<PathBuf>,
 
@@ -419,6 +440,14 @@ fn melde_json(zeile: serde_json::Value) {
     }
 }
 
+/// `Data.DataVersion` der Welt aus `--world`, für die Wahl des Client-Jars.
+fn datenversion(welt: &Option<PathBuf>) -> Result<Option<i32>> {
+    Ok(match welt {
+        Some(pfad) => World::open(pfad)?.datenversion(),
+        None => None,
+    })
+}
+
 /// Sekunden seit `seit`, auf eine Nachkommastelle.
 fn sekunden(seit: Instant) -> f64 {
     (seit.elapsed().as_secs_f64() * 10.0).round() / 10.0
@@ -475,6 +504,12 @@ struct Karte {
 
 pub fn run() -> Result<()> {
     std::panic::set_hook(still_beim_fangen(std::panic::take_hook()));
+    // Ohne Argumente an einer Konsole unter Windows, etwa per Doppelklick:
+    // der Assistent. Siehe docs/benutzung/assistent.md.
+    #[cfg(windows)]
+    if std::env::args_os().len() == 1 && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return assistent::starte();
+    }
     let args = Args::parse();
     ALS_JSON.store(args.progress == ProgressMode::Json, Ordering::Relaxed);
     // Vor dem ersten Thread: Threads erben die Priorität, und rayon legt
@@ -530,17 +565,25 @@ pub fn run() -> Result<()> {
     if args.world.is_none() && (args.at.is_some() || args.scan) {
         bail!("--at und --scan brauchen --world");
     }
-    if args.assets.is_empty() && !args.block.is_empty() {
-        bail!("--block braucht --assets");
+    // Ohne eigene Assets nur mit Zustimmung zum Client-Jar; sonst nennt die
+    // Meldung den Text und den Weg von Hand.
+    let ohne_assets = args.assets.is_empty() && !args.download_client_jar;
+    if ohne_assets && (args.render.is_some() || args.tiles.is_some() || !args.block.is_empty()) {
+        let jar = client::waehle(args.client_version.as_deref(), datenversion(&args.world)?)?;
+        bail!(
+            "ohne --assets braucht der Lauf das Client-Jar von Mojang. {}\n\
+             Zustimmen mit --download-client-jar; die Assets von Hand: docs/benutzung/assets.md",
+            client::zustimmung(jar)
+        );
     }
     if args.sprite.is_some() && args.block.is_empty() {
         bail!("--sprite braucht mindestens ein --block");
     }
-    if args.render.is_some() && (args.world.is_none() || args.assets.is_empty()) {
-        bail!("--render braucht --world und --assets");
+    if args.render.is_some() && args.world.is_none() {
+        bail!("--render braucht --world");
     }
-    if args.tiles.is_some() && (args.world.is_none() || args.assets.is_empty()) {
-        bail!("--tiles braucht --world und --assets");
+    if args.tiles.is_some() && args.world.is_none() {
+        bail!("--tiles braucht --world");
     }
     if args.manifest && args.tiles.is_none() && args.pyramid.is_none() {
         bail!("--manifest braucht --tiles oder --pyramid");
@@ -576,7 +619,42 @@ pub fn run() -> Result<()> {
         }
     }
 
-    let mut assets = match args.assets.as_slice() {
+    // Die Basis aus dem Client-Jar steht vor allen --assets und --data.
+    // Siehe docs/benutzung/assets.md, „Von Mojang laden“.
+    let basis = match args.download_client_jar {
+        true => {
+            let jar = client::waehle(args.client_version.as_deref(), datenversion(&args.world)?)?;
+            let cache = client::cache(args.cache_dir.as_deref())?;
+            if let Some(tiles) = &args.tiles {
+                // Kanonisch, wie die Platte sie sieht: mit `..` und unter
+                // Windows in jeder Schreibung.
+                let kanonisch = |ordner: &Path| {
+                    std::fs::create_dir_all(ordner)
+                        .and_then(|()| std::fs::canonicalize(ordner))
+                        .with_context(|| format!("{} anlegen", ordner.display()))
+                };
+                ensure!(
+                    !kanonisch(&cache)?.starts_with(kanonisch(tiles)?),
+                    "der Cache {} liegt unter --tiles {}; Mojangs Dateien dürfen nicht mit den Kacheln hinaus",
+                    cache.display(),
+                    tiles.display()
+                );
+            }
+            Some(client::basis(jar, &cache)?)
+        }
+        false => None,
+    };
+    let asset_wurzeln: Vec<PathBuf> = basis
+        .iter()
+        .map(|[assets, _]| assets.clone())
+        .chain(args.assets.iter().cloned())
+        .collect();
+    let daten_wurzeln: Vec<PathBuf> = basis
+        .iter()
+        .map(|[_, daten]| daten.clone())
+        .chain(args.data.iter().cloned())
+        .collect();
+    let mut assets = match asset_wurzeln.as_slice() {
         [] => None,
         roots => {
             let mut assets = Assets::open(roots.to_vec())?;
@@ -589,7 +667,7 @@ pub fn run() -> Result<()> {
                 assets.block_names()?.len(),
                 assets.colors().maps()
             );
-            for dir in &args.data {
+            for dir in &daten_wurzeln {
                 let [biomes, muster, dimensionen] = assets.load_data(dir)?;
                 println!(
                     "            {biomes} Biome, {muster} Bannermuster, {dimensionen} Dimensionen und Typen aus {}",
@@ -750,8 +828,11 @@ pub fn run() -> Result<()> {
                         Some(size) => Bereich::Ausschnitt(window(projection, center, size)),
                         None => Bereich::Welt,
                     };
-                    let wurzeln: Vec<PathBuf> =
-                        args.assets.iter().chain(&args.data).cloned().collect();
+                    let wurzeln: Vec<PathBuf> = asset_wurzeln
+                        .iter()
+                        .chain(&daten_wurzeln)
+                        .cloned()
+                        .collect();
                     let export = write_tiles(
                         world,
                         assets.as_mut().expect("oben geprüft"),

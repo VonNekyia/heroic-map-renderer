@@ -16,11 +16,12 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    JAR in ein leeres Verzeichnis legen, dort laufen alle Befehle.
 2. **`blocks.txt`:** der Datengenerator schreibt
    `generated/reports/blocks.json`, daraus wird je Block eine Zeile mit
-   seinen Eigenschaften und Werten:
+   seinen Eigenschaften und Werten, der Wert des `defaultBlockState` mit `*`
+   davor:
 
    ```bash
    java -DbundlerMainClass=net.minecraft.data.Main -jar server.jar --reports
-   python -c "import json; d = json.load(open('generated/reports/blocks.json')); open('blocks.txt', 'w', newline='\n').writelines(' '.join([n.removeprefix('minecraft:')] + [p + '=' + ','.join(v) for p, v in b.get('properties', {}).items()]) + '\n' for n, b in d.items())"
+   python -c "import json; d = json.load(open('generated/reports/blocks.json')); v = lambda b: next(s.get('properties', {}) for s in b['states'] if s.get('default')); open('blocks.txt', 'w', newline='\n').writelines(' '.join([n.removeprefix('minecraft:')] + [p + '=' + ','.join(('*' if v(b)[p] == w else '') + w for w in ws) for p, ws in b.get('properties', {}).items()]) + '\n' for n, b in d.items())"
    ```
 
    Danach liegen im Verzeichnis auch das entpackte Spiel unter `versions/`
@@ -127,3 +128,9 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    [`docs/renderer/blockentities.md`](../../docs/renderer/blockentities.md)
    und jede Seite, die die Version nennt: `git grep -n "26\.2" docs/`.
    Skill [`doku-pflegen`](../doku-pflegen/SKILL.md).
+11. **Client-Jar:** in `JARS` in `renderer/src/cli/client.rs` ein Eintrag,
+   aufsteigend nach DataVersion: die Version, `world_version` aus
+   `version.json` im Client-JAR, `downloads.client.sha1` und
+   `downloads.client.size` aus dem Versions-JSON, siehe
+   [`docs/entwicklung/tabellen.md`](../../docs/entwicklung/tabellen.md),
+   „Client-Jars“. Die Tests in `client.rs` nennen die Versionen.

@@ -5185,6 +5185,134 @@ fn update_gleicht_einem_vollen_lauf() {
     }
 }
 
+/// Das Manifest eines Baums, entpackt.
+fn manifest(baum: &Path) -> String {
+    let datei = std::fs::File::open(baum.join("manifest")).unwrap();
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(datei)
+        .read_to_string(&mut text)
+        .unwrap();
+    text
+}
+
+/// Was das Manifest nach den Dateien des Baums sein muss: je Kachel
+/// `z/x/y grösse etag`, nach z, x und y aufsteigend, das ETag aus Grösse
+/// und letzter Änderung in ns, hexadezimal.
+/// Siehe docs/plugin.md, „Manifest“.
+fn manifest_soll(baum: &Path) -> String {
+    let zahlen = |ordner: &Path| -> Vec<(i32, PathBuf)> {
+        std::fs::read_dir(ordner)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| Some((e.file_name().to_str()?.parse().ok()?, e.path())))
+            .collect()
+    };
+    let mut zeilen = Vec::new();
+    for (z, stufe) in zahlen(baum) {
+        for (x, spalte) in zahlen(&stufe) {
+            for datei in std::fs::read_dir(&spalte).unwrap().flatten() {
+                let name = datei.file_name().into_string().unwrap();
+                let y: i32 = name.strip_suffix(".webp").unwrap().parse().unwrap();
+                let meta = std::fs::metadata(datei.path()).unwrap();
+                let ns = meta
+                    .modified()
+                    .unwrap()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos();
+                let zeile = format!("{z}/{x}/{y} {} \"{:x}-{ns:x}\"\n", meta.len(), meta.len());
+                zeilen.push(((z, x, y), zeile));
+            }
+        }
+    }
+    zeilen.sort();
+    zeilen.into_iter().map(|(_, zeile)| zeile).collect()
+}
+
+/// Das Manifest gleicht nach jedem Lauf den Kacheln des Baums: nach einem
+/// vollen Lauf, nach Updates, die zeichnen und entfernen, und nach
+/// `--pyramid`. Ein Update ohne Änderung lässt es, wie es ist. Ein Update
+/// zieht nur nach, was es anfasst; nach einem Abbruch liest es den Baum
+/// ganz.
+/// Siehe docs/plugin.md, „Manifest“.
+#[test]
+fn manifest_gleicht_dem_baum() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    let voll = ["--scale", "16"];
+    let update = ["--scale", "16", "--update"];
+    let ausgabe = tiles(welt.path(), baum.path(), &voll);
+    gelungen(&ausgabe);
+    assert!(String::from_utf8_lossy(&ausgabe.stdout).contains("Manifest:"));
+    assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "voll");
+    assert!(!baum.path().join("manifest-offen").exists());
+
+    altern(baum.path());
+    baue_aenderungen(welt.path());
+    gelungen(&tiles(welt.path(), baum.path(), &update));
+    assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "Update");
+
+    let vorher = std::fs::read(baum.path().join("manifest")).unwrap();
+    let ausgabe = tiles(welt.path(), baum.path(), &update);
+    let log = String::from_utf8_lossy(&ausgabe.stdout);
+    assert!(
+        log.contains("nichts zu zeichnen") && !log.contains("Manifest:"),
+        "{log}"
+    );
+    assert_eq!(std::fs::read(baum.path().join("manifest")).unwrap(), vorher);
+
+    // Die Kachel ganz rechts auf der Basis zeigt den fernen Chunk, den kein
+    // Update anfasst. Ein falsches ETag dort bleibt stehen, nach einem
+    // Abbruch nicht mehr.
+    let soll = manifest_soll(baum.path());
+    let basis = max_zoom(baum.path());
+    let fern = soll
+        .lines()
+        .filter(|zeile| zeile.starts_with(&format!("{basis}/")))
+        .max_by_key(|zeile| zeile.split('/').nth(1).unwrap().parse::<i32>().unwrap())
+        .unwrap()
+        .to_string();
+    let falsch = format!("{} \"0-0\"", fern.rsplit_once(' ').unwrap().0);
+    let schreibe_manifest = |text: &str| {
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, text.as_bytes()).unwrap();
+        std::fs::write(baum.path().join("manifest"), gz.finish().unwrap()).unwrap();
+    };
+    schreibe_manifest(&soll.replace(&fern, &falsch));
+    baue_update_welt(welt.path(), mit_dach, &GEAENDERT, 3);
+    gelungen(&tiles(welt.path(), baum.path(), &update));
+    let nachgezogen = manifest(baum.path());
+    assert!(
+        nachgezogen.contains(&falsch),
+        "die ferne Kachel wurde angefasst"
+    );
+    assert_eq!(
+        nachgezogen.replace(&falsch, &fern),
+        manifest_soll(baum.path()),
+        "abgerissen"
+    );
+
+    std::fs::write(baum.path().join("manifest-offen"), b"").unwrap();
+    baue_update_welt(welt.path(), mit_aenderungen, &GEAENDERT, 4);
+    gelungen(&tiles(welt.path(), baum.path(), &update));
+    assert_eq!(
+        manifest(baum.path()),
+        manifest_soll(baum.path()),
+        "nach Abbruch"
+    );
+    assert!(!baum.path().join("manifest-offen").exists());
+
+    altern(baum.path());
+    gelungen(&cli(&[OsStr::new("--pyramid"), baum.path().as_os_str()]));
+    assert_eq!(
+        manifest(baum.path()),
+        manifest_soll(baum.path()),
+        "--pyramid"
+    );
+}
+
 /// Was der Stand des Baums `baum` über den Chunk (cx, cz) sagt.
 fn im_stand(baum: &Path, cx: i32, cz: i32) -> Inhalt {
     let daten = std::fs::read(baum.join("stand.bin")).unwrap();

@@ -35,6 +35,8 @@ use rayon::prelude::*;
 /// einem Datapack schnitte der Renderer hier ab.
 const Y_RANGE: (i32, i32) = (-64, 319);
 
+mod manifest;
+
 #[derive(Parser)]
 #[command(name = "heroic-map-renderer", version, about)]
 #[command(group(clap::ArgGroup::new("bild").args(["render", "tiles"]).multiple(true)))]
@@ -1664,6 +1666,7 @@ fn write_tiles(
     )?;
     // Ab jetzt lässt sich der Baum wählen, auch während seines ersten Laufs.
     schreibe_baeume(wurzel)?;
+    let manifest = manifest::Lauf::beginne(dir)?;
     // Was dieser Lauf zeichnen kann, nennt der alte Stand ab jetzt
     // unbekannt: Bricht er ab, zeigen Kacheln vielleicht, was der Stand
     // nicht kennt. Ein voller Lauf liest alles.
@@ -1859,6 +1862,10 @@ fn write_tiles(
     // nehmen sie nur, welche Blöcke das Licht aufhalten.
     let licht_deckend = sprites.licht_deckend(&survey.states);
     drop(sprites);
+    // Ein voller Lauf liest für das Manifest den ganzen Baum, jeder andere
+    // zieht nur nach, was er anfassen kann.
+    let angefasst = (!matches!(bereich, Bereich::Welt))
+        .then(|| manifest::mit_eltern(max_zoom, &kandidaten, &waisen));
     let (z, kandidaten, gezeigt, nativ_im_speicher) = render_coarser(
         world,
         assets,
@@ -1922,6 +1929,11 @@ fn write_tiles(
     )?;
     schreibe_baeume(wurzel)?;
     melde_karte(&info, anzahl, &path);
+    let angefasst = angefasst.map(|mut angefasst| {
+        angefasst.extend(&weg);
+        angefasst
+    });
+    manifest.schliesse(angefasst.as_ref())?;
     // Zuletzt: Bricht der Lauf vorher ab, gilt der alte Stand, und das
     // nächste Update zeichnet dieselben Stellen noch einmal.
     if let Some(stand) = stand {
@@ -2338,6 +2350,7 @@ fn rebuild_pyramid(
         );
     }
     let basis: BTreeSet<TileId> = kinder.keys().copied().collect();
+    let manifest = manifest::Lauf::beginne(dir)?;
     println!(
         "\nPyramide:   {} Basiskacheln auf Zoom {max_zoom}",
         basis.len()
@@ -2435,6 +2448,7 @@ fn rebuild_pyramid(
         );
         print_list(unlesbar.iter());
     }
+    manifest.schliesse(None)?;
 
     if fremd(aenderungszeit(&karte), beginn, SystemTime::now()) {
         println!(

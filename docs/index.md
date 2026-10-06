@@ -52,7 +52,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Plugin
 
-- [Plugin](plugin.md): das Paper-Plugin im eigenen Repo, und was es vom Renderer nutzt: Schalter, Ordner der Bäume, den Kopf von `stand-neu.bin`, Ausgabe und Code.
+- [Plugin](plugin.md): das Paper-Plugin im eigenen Repo, und was es vom Renderer nutzt: Schalter, Ordner der Bäume, den Kopf von `stand-neu.bin`, Ausgabe und Code, Token und Manifest.
 
 ## Mod
 
@@ -151,6 +151,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0079](entscheidungen/0079-tablett-vertagt-nur-marmor.md): Das Tablett ist vertagt; `skins/tablett` legt vorerst nur den Marmor um die Karte, auch um Welten, die kein Quadrat sind. Das ganze Tablett bleibt als `voll.ts` und wird weiter getestet; ergänzt 0061 und 0063.
 - [0080](entscheidungen/0080-ohne-hintergrundmodus.md): `--low-priority` setzt unter Windows nur `IDLE_PRIORITY_CLASS`, nicht den Hintergrundmodus für I/O und Speicher: Er kostete Läufe 9 bis 35 % und schützte die Tickzeit nicht besser.
 - [0082](entscheidungen/0082-versionen-und-releases.md): Versionen nach SemVer aus `Cargo.toml`, ein Tag `vX.Y.Z` legt einen Release-Entwurf an, Linux gegen glibc 2.28 ohne musl.
+- [0083](entscheidungen/0083-manifest-je-baum.md): Der Renderer schreibt am Ende jedes Laufs mit Kacheln ein Manifest mit Grösse und ETag jeder Kachel; ein voller Lauf liest dafür den ganzen Baum, jeder andere zieht nach, nach einem Abbruch liest er ganz.
 
 ## Messungen
 

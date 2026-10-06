@@ -30,6 +30,8 @@ use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, Worl
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 
+mod schaetzung;
+
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
 /// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
 /// einem Datapack schnitte der Renderer hier ab.
@@ -177,6 +179,12 @@ pub struct Args {
     #[arg(long, value_enum, default_value_t = ProgressMode::Text, requires = "tiles")]
     progress: ProgressMode,
 
+    /// Mit --tiles nur schätzen, was der Lauf kosten wird: Kacheln, Platz,
+    /// Dauer und ob der Platz reicht. Rendert dafür einige kleine
+    /// Ausschnitte in einen Wegwerf-Ordner, unter --tiles nichts
+    #[arg(long, requires = "tiles", conflicts_with_all = ["resume", "update", "prune", "defender_exclusion"])]
+    estimate: bool,
+
     /// So viele Threads für jede Phase, auch für Vorlauf und Pyramide; geht
     /// RAYON_NUM_THREADS vor. Ohne Angabe so viele, wie es logische CPUs gibt
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u16).range(1..))]
@@ -211,7 +219,7 @@ pub struct Args {
     #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = [
         "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
-        "native_levels", "resume", "update", "gpu", "progress", "defender_exclusion", "heights",
+        "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
     ])]
     pyramid: Option<PathBuf>,
 }
@@ -356,6 +364,8 @@ fn fortschritt_in(
     zeile.insert("of".into(), gesamt.into());
     zeile.insert("rate".into(), ((rate * 10.0).round() / 10.0).into());
     zeile.insert("eta_s".into(), rest.into());
+    let s = seit.elapsed().as_secs_f64();
+    zeile.insert("s".into(), ((s * 1000.0).round() / 1000.0).into());
     melde_json(zeile.into());
 }
 
@@ -426,6 +436,7 @@ pub fn run() -> Result<()> {
     let mut ausnahme = false;
     if let Some(dir) = &args.tiles
         && cfg!(windows)
+        && !args.estimate
     {
         match warum_keine_ausnahme(dir) {
             Some(grund) if args.defender_exclusion => println!(
@@ -599,7 +610,12 @@ pub fn run() -> Result<()> {
                 args.cinematic.then_some(LOOK),
             )?;
         }
-        if let Some(dir) = &args.tiles {
+        if let Some(dir) = &args.tiles
+            && args.estimate
+        {
+            let bounds = args.size.map(|size| window(projection, center, size));
+            schaetzung::schaetze(world, projection, &args, bounds, dir)?;
+        } else if let Some(dir) = &args.tiles {
             let export =
                 oeffne_gpu(args.gpu, args.cinematic, args.threads.is_none()).and_then(|karte| {
                     let bereich = match args.size {

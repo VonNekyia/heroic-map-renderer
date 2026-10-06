@@ -5,29 +5,21 @@ yanked = "deny"
 [licenses]
 version = 2
 # Genau die Lizenzen, die der aktuelle Abhängigkeitsbaum mitbringt. Eine neue
-# Lizenz lässt cargo-deny fehlschlagen — das ist der Sinn der Sache.
+# Lizenz lässt cargo-deny fehlschlagen — das ist der Sinn der Sache. ISC und
+# BSD-3-Clause allgemein seit HTTPS (#151): ring, rustls-webpki, untrusted,
+# libloading, subtle und der Quelltext von libwebp stehen darunter.
 allow = [
     "MIT",
     "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
     "Unicode-3.0",
     "Zlib",
 ]
 
-# ISC nur für libloading: wgpu lädt damit Vulkan und DX12 zur Laufzeit.
-# Eine andere Crate unter ISC fällt so auf.
-[[licenses.exceptions]]
-crate = "libloading"
-allow = ["ISC"]
-
-# BSD-3-Clause nur für libwebp-sys. Die Crate nennt nur MIT, bringt aber den
-# Quelltext von libwebp mit, und der steht unter BSD-3-Clause; das sagt
-# cargo-deny die Klarstellung. Ihr Hash ist xxHash32 der Datei. Ändert sie
-# sich, gilt die Klarstellung nicht mehr, und cargo-deny meldet die Ausnahme
-# als unbenutzt.
-[[licenses.exceptions]]
-crate = "libwebp-sys"
-allow = ["BSD-3-Clause"]
-
+# libwebp-sys nennt nur MIT, bringt aber den Quelltext von libwebp mit, und
+# der steht unter BSD-3-Clause; das sagt cargo-deny die Klarstellung. Ihr
+# Hash ist xxHash32 der Datei.
 [[licenses.clarify]]
 crate = "libwebp-sys"
 expression = "MIT AND BSD-3-Clause"

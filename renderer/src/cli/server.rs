@@ -1,5 +1,5 @@
 //! Der Server für Karte und Kacheln, `--serve`: GET und HEAD, die Header der
-//! Karte, ETag und 304, Grenzen für das offene Netz.
+//! Karte, ETag und 304, Grenzen für das offene Netz, mit PEM auch HTTPS.
 //! Siehe docs/benutzung/server.md.
 
 use std::convert::Infallible;
@@ -9,11 +9,11 @@ use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::task::Poll;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use heroic_map_renderer::render::heights;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -22,9 +22,14 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
+use rustls::server::{ClientHello, ResolvesServerCert};
+use rustls::sign::CertifiedKey;
+use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
+use tokio_rustls::TlsAcceptor;
 
 use super::manifest::{MANIFEST, etag};
 
@@ -45,6 +50,8 @@ pub(super) struct Einstellung {
     pub kopf_zeilen: usize,
     pub schreib_zeit: Duration,
     pub ende_mit_stdin: bool,
+    /// Für HTTPS die Kette der Zertifikate und der Schlüssel, je als PEM.
+    pub tls: Option<(PathBuf, PathBuf)>,
 }
 
 /// Die Header der Karte, an jeder Antwort: dieselbe Datei, aus der
@@ -94,7 +101,12 @@ pub(super) fn serve(e: Einstellung) -> Result<()> {
         .enable_all()
         .build()
         .context("Laufzeit anlegen")?;
-    laufzeit.block_on(lausche(e))
+    // Ein Zertifikat, das sich nicht laden lässt, beendet den Start.
+    let tls = match &e.tls {
+        Some((kette, schluessel)) => Some(annehmer(kette, schluessel)?),
+        None => None,
+    };
+    laufzeit.block_on(lausche(e, tls))
 }
 
 /// Liegt eine Wurzel in der anderen, geht das nur als `<seite>/tiles`, wie
@@ -117,12 +129,13 @@ fn pruefe_ineinander(kacheln: &Path, seite: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn lausche(e: Einstellung) -> Result<()> {
+async fn lausche(e: Einstellung, tls: Option<TlsAcceptor>) -> Result<()> {
     let lauscher = TcpListener::bind(e.adresse)
         .await
         .with_context(|| format!("{} belegen", e.adresse))?;
     println!(
-        "Server:     http://{} mit {}{}, {} Threads",
+        "Server:     {}://{} mit {}{}, {} Threads",
+        if tls.is_some() { "https" } else { "http" },
         lauscher.local_addr()?,
         e.kacheln.display(),
         e.seite
@@ -168,11 +181,152 @@ async fn lausche(e: Einstellung) -> Result<()> {
             zeit: e.schreib_zeit,
             uhr: None,
         };
+        let dienst = service_fn(move |anfrage| antwort(Arc::clone(&zustand), anfrage));
+        let tls = tls.clone();
+        let kopf_zeit = e.kopf_zeit;
         tokio::spawn(async move {
-            let dienst = service_fn(move |anfrage| antwort(Arc::clone(&zustand), anfrage));
-            let _ = http.serve_connection(TokioIo::new(strom), dienst).await;
+            match tls {
+                // Der Handschlag hat dieselbe Zeit wie der Kopf einer Anfrage.
+                Some(tls) => {
+                    if let Ok(Ok(strom)) = tokio::time::timeout(kopf_zeit, tls.accept(strom)).await
+                    {
+                        let _ = http.serve_connection(TokioIo::new(strom), dienst).await;
+                    }
+                }
+                None => {
+                    let _ = http.serve_connection(TokioIo::new(strom), dienst).await;
+                }
+            }
             drop(platz);
         });
+    }
+}
+
+/// Nimmt Verbindungen mit TLS 1.3 an, mit dem Zertifikat aus [`Wechsel`].
+fn annehmer(kette: &Path, schluessel: &Path) -> Result<TlsAcceptor> {
+    // Erst der Stempel, dann das Laden: Fällt ein Tausch dazwischen, sieht
+    // die nächste Prüfung ihn noch.
+    let vorher = stempel(kette, schluessel);
+    let geladen = lade(kette, schluessel)?;
+    let wechsel = Wechsel {
+        kette: kette.to_path_buf(),
+        schluessel: schluessel.to_path_buf(),
+        stand: Mutex::new(Stand {
+            stempel: vorher,
+            geprueft: Instant::now(),
+            aktuell: Arc::new(geladen),
+        }),
+    };
+    let mut config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_protocol_versions(&[&rustls::version::TLS13])?
+    .with_no_client_auth()
+    .with_cert_resolver(Arc::new(wechsel));
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(TlsAcceptor::from(Arc::new(config)))
+}
+
+/// Liest Kette und Schlüssel aus PEM, PKCS#8, PKCS#1 oder SEC1, und prüft,
+/// dass der Schlüssel zum ersten Zertifikat passt.
+fn lade(kette: &Path, schluessel: &Path) -> Result<CertifiedKey> {
+    let zertifikate = CertificateDer::pem_file_iter(kette)
+        .and_then(|alle| alle.collect::<Result<Vec<_>, _>>())
+        .with_context(|| format!("{} lesen", kette.display()))?;
+    ensure!(
+        !zertifikate.is_empty(),
+        "{} enthält kein Zertifikat",
+        kette.display()
+    );
+    let geheim = match PrivateKeyDer::from_pem_file(schluessel) {
+        Ok(geheim) => geheim,
+        Err(fehler) => {
+            let text = std::fs::read_to_string(schluessel).unwrap_or_default();
+            ensure!(
+                !text.contains("ENCRYPTED"),
+                "{} ist verschlüsselt; der Server braucht den Schlüssel ohne Passwort",
+                schluessel.display()
+            );
+            return Err(fehler).with_context(|| format!("{} lesen", schluessel.display()));
+        }
+    };
+    let signer = rustls::crypto::ring::default_provider()
+        .key_provider
+        .load_private_key(geheim)
+        .with_context(|| format!("{}: Schlüssel nicht nutzbar", schluessel.display()))?;
+    let geladen = CertifiedKey::new(zertifikate, signer);
+    match geladen.keys_match() {
+        Ok(()) | Err(rustls::Error::InconsistentKeys(rustls::InconsistentKeys::Unknown)) => {
+            Ok(geladen)
+        }
+        Err(rustls::Error::InconsistentKeys(rustls::InconsistentKeys::KeyMismatch)) => bail!(
+            "{} passt nicht zu {}",
+            schluessel.display(),
+            kette.display()
+        ),
+        Err(fehler) => Err(fehler)
+            .with_context(|| format!("{}: erstes Zertifikat nicht lesbar", kette.display())),
+    }
+}
+
+/// Grösse und Zeit beider Dateien, um eine Änderung zu sehen.
+type Stempel = [Option<(u64, SystemTime)>; 2];
+
+fn stempel(kette: &Path, schluessel: &Path) -> Stempel {
+    [kette, schluessel].map(|pfad| {
+        let meta = std::fs::metadata(pfad).ok()?;
+        Some((meta.len(), meta.modified().ok()?))
+    })
+}
+
+/// Das Zertifikat für neue Verbindungen. Höchstens einmal je Sekunde prüft
+/// es beim Handschlag, ob sich eine der Dateien geändert hat, und lädt dann
+/// neu; lässt sich das Neue nicht laden, bleibt das Alte, bis sich die
+/// Dateien wieder ändern. So tauscht ein Betreiber das Zertifikat ohne
+/// Neustart.
+struct Wechsel {
+    kette: PathBuf,
+    schluessel: PathBuf,
+    stand: Mutex<Stand>,
+}
+
+struct Stand {
+    stempel: Stempel,
+    geprueft: Instant,
+    aktuell: Arc<CertifiedKey>,
+}
+
+impl std::fmt::Debug for Wechsel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Wechsel")
+            .field("kette", &self.kette)
+            .finish()
+    }
+}
+
+impl ResolvesServerCert for Wechsel {
+    fn resolve(&self, _: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        let mut stand = self.stand.lock().unwrap_or_else(PoisonError::into_inner);
+        if stand.geprueft.elapsed() >= Duration::from_secs(1) {
+            stand.geprueft = Instant::now();
+            let jetzt = stempel(&self.kette, &self.schluessel);
+            if jetzt != stand.stempel {
+                stand.stempel = jetzt;
+                match lade(&self.kette, &self.schluessel) {
+                    Ok(neu) => {
+                        stand.aktuell = Arc::new(neu);
+                        let _ = writeln!(std::io::stdout(), "Server:     Zertifikat neu geladen");
+                    }
+                    Err(fehler) => {
+                        let _ = writeln!(
+                            std::io::stderr(),
+                            "Server:     Zertifikat nicht neu geladen, das alte bleibt: {fehler:#}"
+                        );
+                    }
+                }
+            }
+        }
+        Some(Arc::clone(&stand.aktuell))
     }
 }
 

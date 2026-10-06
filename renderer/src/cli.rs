@@ -224,7 +224,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
-        "write_timeout", "exit_with_stdin",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -277,6 +277,15 @@ pub struct Args {
     /// Antwort, dann schliesst er die Verbindung, Vorgabe 30
     #[arg(long, value_name = "S", requires = "serve", value_parser = clap::value_parser!(u64).range(1..))]
     write_timeout: Option<u64>,
+
+    /// Mit --serve über HTTPS: die Kette der Zertifikate als PEM, das eigene
+    /// zuerst. Ändert sich die Datei, nimmt der Server sie ohne Neustart
+    #[arg(long, value_name = "DATEI", requires_all = ["serve", "tls_key"])]
+    tls_cert: Option<PathBuf>,
+
+    /// Mit --tls-cert: der Schlüssel dazu als PEM, PKCS#8, PKCS#1 oder SEC1
+    #[arg(long, value_name = "DATEI", requires_all = ["serve", "tls_cert"])]
+    tls_key: Option<PathBuf>,
 
     /// Mit --serve enden, sobald stdin schliesst, etwa wenn der Prozess
     /// endet, der den Server startete
@@ -467,6 +476,7 @@ pub fn run() -> Result<()> {
             kopf_zeilen: args.max_headers.unwrap_or(64) as usize,
             schreib_zeit: Duration::from_secs(args.write_timeout.unwrap_or(30)),
             ende_mit_stdin: args.exit_with_stdin,
+            tls: args.tls_cert.zip(args.tls_key),
         });
     }
     if let Some(threads) = args.threads {
@@ -5432,6 +5442,8 @@ mod tests {
             "max_headers",
             "write_timeout",
             "exit_with_stdin",
+            "tls_cert",
+            "tls_key",
         ];
         for (modus, eigene) in [
             ("pyramid", &["manifest"][..]),

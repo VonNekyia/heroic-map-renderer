@@ -60,8 +60,12 @@ Warum so: [0082](../entscheidungen/0082-versionen-und-releases.md).
 
 - **Auslöser:** ein Tag `v*`. Auf einem Tag prüfen beide Builds, dass die
   Version in `renderer/Cargo.toml` dem Tag gleicht.
-- **Ohne Tag:** Ändert eine PR `release.yml`, laufen die beiden Builds samt
-  Paketen, aber kein Entwurf. Die Pakete liegen als Artefakte am Lauf.
+- **Ohne Tag:** Ändert eine PR `release.yml`, `renderer/Cargo.toml` oder
+  `renderer/Cargo.lock`, laufen die beiden Builds samt Paketen und das
+  Budget, aber kein Entwurf. Neue Abhängigkeiten lassen die Grösse
+  springen; so sieht die PR die Summe und das Windows-Binär vor dem ersten
+  Tag, entschieden am 06.10. im Review zu #183. Die Pakete liegen als
+  Artefakte am Lauf.
 - **Veröffentlichen** ist Sache des Maintainers, aus dem Entwurf heraus.
 - **Rechte:** Der Workflow liest nur; allein der Job für den Entwurf darf
   schreiben.

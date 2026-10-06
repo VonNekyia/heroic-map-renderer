@@ -234,6 +234,10 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
   dann je Datei darunter der Pfad, die Grösse und die Zeit der letzten
   Änderung. Den Inhalt liest er nicht; eine kopierte Datei hat eine neue
   Zeit und zählt als anders.
+- **Der Cache des Client-Jars** aus `--download-client-jar` trägt je Datei
+  die Bauzeit des Jars: Neu ausgepackt bleibt der Fingerabdruck gleich. Wer
+  von eigenen Wurzeln auf den Cache wechselt, bekommt einen neuen und
+  einmal einen vollen Lauf, siehe [Assets](assets.md), „Von Mojang laden“.
 
 Danach zeichnet ein voller Lauf alles neu, und `--update` geht wieder.
 

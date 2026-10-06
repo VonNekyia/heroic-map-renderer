@@ -1,8 +1,10 @@
 ---
 title: Assets und Biomdaten
-description: Welche Asset- und Datenwurzeln der Renderer braucht, wie man sie aus dem Client-JAR holt und in welcher Reihenfolge er sie stapelt, samt Biomen und Bannermustern.
+description: Welche Asset- und Datenwurzeln der Renderer braucht, wie er sie mit Zustimmung selbst aus dem Client-JAR von Mojang nimmt oder man sie von Hand holt, und in welcher Reihenfolge er sie stapelt, samt Biomen und Bannermustern.
 code:
   - renderer/src/cli.rs
+  - renderer/src/cli/client.rs
+  - renderer/src/cli/zip.rs
   - renderer/src/assets/pack.rs
   - renderer/src/assets/colors.rs
   - renderer/src/assets/blockentity.rs
@@ -13,11 +15,65 @@ code:
 
 Der Renderer braucht einen vollständigen Asset-Baum aus dem Client-JAR der
 unterstützten Versionen, heute 26.2 oder 26.3 ([0059](../entscheidungen/0059-welten-aus-26-2-und-26-3.md)), und für die Biomfarben die Daten aus
-demselben JAR. Beides kommt über `--assets` und `--data`,
-jeweils mehrfach; spätere Wurzeln gewinnen. Wie der Renderer eine
+demselben JAR. Beides nimmt der Renderer mit `--download-client-jar` selbst
+aus dem Jar, siehe „Von Mojang laden“, oder es kommt von Hand über
+`--assets` und `--data`, jeweils mehrfach; spätere Wurzeln gewinnen. Wie der Renderer eine
 Wurzel liest, steht in [Packs und Wurzeln](../renderer/packs.md).
 
+## Von Mojang laden
+
+Mit `--download-client-jar` nimmt der Renderer Assets und Daten selbst aus
+dem Client-Jar, ohne `--assets` und `--data` von Hand. Ohne den Schalter
+lädt er nichts. Warum so: [0086](../entscheidungen/0086-client-jar-von-mojang.md).
+
+```bash
+heroic-map-renderer --world ./world --tiles ./tiles --download-client-jar
+```
+
+- **Zustimmung:** Der Schalter ist sie. Ohne ihn und ohne `--assets` bricht
+  ein Lauf mit `--tiles`, `--render` oder `--block` ab und nennt den Text,
+  für eine Welt aus 26.3 etwa:
+
+  > Der Renderer lädt das Client-Jar von Minecraft 26.3 (41,5 MB) von
+  > Mojangs Servern und nutzt daraus Texturen, Modelle und Biome. Das Jar
+  > gehört Mojang und darf nicht weitergegeben werden. Mit der Zustimmung
+  > bestätigst du, dass du Minecraft: Java Edition besitzt, und nimmst die
+  > Minecraft-EULA an: https://www.minecraft.net/eula
+
+  `eula=true` eines Servers zählt nicht: Es gilt dem Server-Programm, nicht
+  dem gekauften Spiel.
+- **Version:** die neueste, die der Renderer kennt und deren DataVersion
+  höchstens die aus `level.dat` ist, also 26.2 bis DataVersion 5022 und 26.3
+  ab 5023; ohne `level.dat` 26.3. `--client-version 26.2` oder `26.3` wählt
+  selbst.
+- **Laden:** über HTTP von `piston-data.mojang.com`. Die Adresse folgt aus
+  dem SHA-1, den das Binär je Version kennt; geprüft werden SHA-1 und
+  Grösse, eine Umleitung bricht ab, nach 10 min ebenso. Wo nur HTTPS
+  hinausgeht, scheitert der Download; dann bleibt der Weg von Hand, die
+  Meldung nennt ihn.
+- **Cache:** einmal ausgepackt nach `client-<version>-<sha1>` unter
+  `--cache-dir`, ohne den Schalter unter Windows in
+  `%LOCALAPPDATA%\heroic-map-renderer`, sonst in
+  `$XDG_CACHE_HOME/heroic-map-renderer` oder `~/.cache/heroic-map-renderer`.
+  Nur `assets/` und aus `data/` Biome, Bannermuster und Dimensionen, für
+  26.2 11 081 Dateien. Liegt der Ordner da, geht der Lauf nicht ins Netz.
+  Jede Datei trägt die Bauzeit des Jars, so gibt ein neu ausgepackter Cache
+  denselben Fingerabdruck, siehe [Updates](updates.md), „Anderer Renderer,
+  andere Assets“. Ausgepackt wird erst in einen Ordner des Prozesses, dann
+  umbenannt; zwei Läufe zugleich stören sich nicht.
+- **Nie weitergeben:** Der Cache darf nicht unter `--tiles` liegen, sonst
+  bricht der Lauf ab, bevor er etwas lädt; so liefert `--serve` ihn nicht
+  aus. In ein Paket für andere gehört er ebenso wenig.
+- **Stapeln:** Die Basis aus dem Jar steht vor allen `--assets` und
+  `--data`. Overlay-Packs und Datenpakete kommen dazu wie unten:
+
+  ```bash
+  heroic-map-renderer --world ./world --tiles ./tiles --download-client-jar --assets ./assets --data ./weitere-daten
+  ```
+
 ## Assets aus dem Client-JAR
+
+Von Hand, ohne `--download-client-jar`:
 
 Ein Overlay-Pack allein reicht nicht: das Pack der grossen Welt bringt 39 von 1198
 Blockstates mit und keine Colormaps. Die Basis kommt aus dem Client-JAR der

@@ -15,7 +15,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 - [Installation und Releases](benutzung/installation.md): die Pakete für Windows x64 und Linux x64, Prüfsummen, was das Binär braucht, die Versionen.
 - [Schalter und Beispiele](benutzung/schalter.md): jeder Schalter mit einer Zeile, `--at`, `--block`, `--sprite`, `--render`, `--scan`.
-- [Assets und Biomdaten](benutzung/assets.md): Asset- und Datenwurzeln aus dem Client-JAR, gestapelt.
+- [Assets und Biomdaten](benutzung/assets.md): Asset- und Datenwurzeln aus dem Client-JAR, gestapelt, von Hand oder mit Zustimmung über `--download-client-jar`.
 - [Welten und Kennung](benutzung/welten.md): Welten ab 26.1, nicht fertig erzeugte Chunks, Weltwurzel, Dimension, Datenversion, Seed, Wasserspiegel, die Kennung im Baum und das Lesen, während der Server schreibt.
 - [Kacheln exportieren](benutzung/kacheln.md): `--tiles`, Ausschnitte, ein Rechteck der Welt mit `--area`, Ablage, leere Kacheln und `--prune`.
 - [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt und Kamera.
@@ -157,6 +157,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0083](entscheidungen/0083-manifest-je-baum.md): Mit `--manifest` schreibt der Renderer am Ende jedes Laufs mit Kacheln ein Manifest mit Grösse und ETag jeder Kachel; ein voller Lauf liest dafür den ganzen Baum, jeder andere zieht nach; eine Marke je Lauf erkennt abgebrochene und gleichzeitige Läufe.
 - [0084](entscheidungen/0084-server-im-renderer.md): Karte und Kacheln liefert ein Server im Renderer aus, `--serve` mit hyper und tokio, mit Grenzen am offenen Netz und Ende mit stdin; Seite und Kacheln in getrennten Ordnern, Pfade über erlaubte Zeichen, bedingte Anfragen auf Gleichheit; löst 0047 in einem Punkt ab.
 - [0085](entscheidungen/0085-seitenangaben-zur-laufzeit.md): Alle Tags der Seite stehen mit den Markern `%TITEL%`, `%BESCHREIBUNG%`, `%URL%`, `%BILD%` und den Blöcken `mit-url` und `mit-bild` in `index.html`; der Build füllt sie und legt `seite.html` und `robots.vorlage.txt` ab, der Server des Renderers füllt sie zur Laufzeit; löst 0048 in Teilen ab.
+- [0086](entscheidungen/0086-client-jar-von-mojang.md): Das Client-Jar von Mojang nur mit Zustimmung über `--download-client-jar`, SHA-1 und Grösse je Version im Binär, über HTTP geladen, mit eigenem ZIP-Leser einmal in einen Cache ausgepackt, jede Datei mit der Bauzeit des Jars; die Basis steht vor allen `--assets` und `--data`.
 
 ## Messungen
 

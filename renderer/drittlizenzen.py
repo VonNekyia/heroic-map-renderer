@@ -25,6 +25,14 @@ VORZUG = ["Apache-2.0", "MIT", "Zlib", "ISC", "BSD-3-Clause", "BSD-2-Clause", "U
 MITGELIEFERT = {
     "libwebp-sys": ["vendor/COPYING", "vendor/PATENTS"],
     "libmimalloc-sys": ["c_src/mimalloc/v2/LICENSE", "c_src/mimalloc/v3/LICENSE"],
+    # Die Übersicht, welche Teile unter welcher Lizenz stehen, und der Code
+    # aus once_cell unter MIT.
+    "ring": ["LICENSE", "src/polyfill/once_cell/LICENSE-MIT"],
+}
+# Wo eine Crate den Text einer Lizenz unter einem Namen ablegt, der sie nicht
+# verrät, neben weiteren Lizenzdateien.
+TEXT_DER_LIZENZ = {
+    ("ring", "ISC"): "LICENSE-other-bits",
 }
 DATEI = re.compile(r"^(licen[cs]e|copying|copyright|notice|patents)", re.I)
 # Woran ein Dateiname seine Lizenz verrät.
@@ -114,6 +122,8 @@ def texte_der_crate(p, gewaehlt):
     lizenzdateien = [d for d in dateien if not re.match(r"notice|patents", d.name, re.I)]
     for lizenz in sorted(gewaehlt - {"Apache-2.0"}):
         passend = [d for d in lizenzdateien if STICHWORT.get(lizenz, "?") in d.name.lower()]
+        if not passend and (p["name"], lizenz) in TEXT_DER_LIZENZ:
+            passend = [wurzel / TEXT_DER_LIZENZ[(p["name"], lizenz)]]
         if not passend and len(lizenzdateien) == 1:
             passend = lizenzdateien
         if passend:

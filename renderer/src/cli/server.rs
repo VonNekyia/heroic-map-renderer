@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::task::Poll;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use heroic_map_renderer::render::heights;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -204,12 +204,15 @@ async fn lausche(e: Einstellung, tls: Option<TlsAcceptor>) -> Result<()> {
 
 /// Nimmt Verbindungen mit TLS 1.3 an, mit dem Zertifikat aus [`Wechsel`].
 fn annehmer(kette: &Path, schluessel: &Path) -> Result<TlsAcceptor> {
+    // Erst der Stempel, dann das Laden: Fällt ein Tausch dazwischen, sieht
+    // die nächste Prüfung ihn noch.
+    let vorher = stempel(kette, schluessel);
     let geladen = lade(kette, schluessel)?;
     let wechsel = Wechsel {
         kette: kette.to_path_buf(),
         schluessel: schluessel.to_path_buf(),
         stand: Mutex::new(Stand {
-            stempel: stempel(kette, schluessel),
+            stempel: vorher,
             geprueft: Instant::now(),
             aktuell: Arc::new(geladen),
         }),
@@ -235,20 +238,33 @@ fn lade(kette: &Path, schluessel: &Path) -> Result<CertifiedKey> {
         "{} enthält kein Zertifikat",
         kette.display()
     );
-    let geheim = PrivateKeyDer::from_pem_file(schluessel)
-        .with_context(|| format!("{} lesen", schluessel.display()))?;
-    CertifiedKey::from_der(
-        zertifikate,
-        geheim,
-        &rustls::crypto::ring::default_provider(),
-    )
-    .with_context(|| {
-        format!(
+    let geheim = match PrivateKeyDer::from_pem_file(schluessel) {
+        Ok(geheim) => geheim,
+        Err(fehler) => {
+            let text = std::fs::read_to_string(schluessel).unwrap_or_default();
+            ensure!(
+                !text.contains("ENCRYPTED"),
+                "{} ist verschlüsselt; der Server braucht den Schlüssel ohne Passwort",
+                schluessel.display()
+            );
+            return Err(fehler).with_context(|| format!("{} lesen", schluessel.display()));
+        }
+    };
+    let signer = rustls::crypto::ring::default_provider()
+        .key_provider
+        .load_private_key(geheim)
+        .with_context(|| format!("{}: Schlüssel nicht nutzbar", schluessel.display()))?;
+    let geladen = CertifiedKey::new(zertifikate, signer);
+    match geladen.keys_match() {
+        Ok(()) | Err(rustls::Error::InconsistentKeys(rustls::InconsistentKeys::Unknown)) => {
+            Ok(geladen)
+        }
+        Err(_) => bail!(
             "{} passt nicht zu {}",
             schluessel.display(),
             kette.display()
-        )
-    })
+        ),
+    }
 }
 
 /// Grösse und Zeit beider Dateien, um eine Änderung zu sehen.

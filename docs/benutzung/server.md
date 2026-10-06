@@ -175,6 +175,8 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --listen 0.0.0.0:8443 --tls
   stderr, bis sich die Dateien wieder ändern. Wer erst die Kette und dann
   den Schlüssel tauscht, sieht für einen Augenblick eine Zeile über einen
   Schlüssel, der nicht passt; mit dem zweiten Tausch stimmt es.
+  Nachsehen und Laden laufen beim Handschlag; liegen die Dateien auf einem
+  Netzlaufwerk, hält das Handschläge in dieser Sekunde kurz auf.
 - **Der Handschlag** muss in `--header-timeout` Sekunden fertig sein, sonst
   schliesst der Server die Verbindung.
 - **Nur TLS 1.3:** Browser und Java ab 11 sprechen es; TLS 1.2 brächte mehr

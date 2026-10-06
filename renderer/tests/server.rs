@@ -602,9 +602,20 @@ fn zertifikat(dir: &Path, name: &str) -> (PathBuf, PathBuf, Vec<u8>) {
     (kette, schluessel, neu.cert.der().to_vec())
 }
 
-/// Eine Anfrage über TLS 1.3, die nur dem Zertifikat `vertraut` vertraut:
-/// die Antwort und das Zertifikat, das der Server zeigte.
+/// Eine Anfrage über TLS 1.3, die nur dem Zertifikat `vertraut` vertraut
+/// und `h2` vor `http/1.1` anbietet: die Antwort und das Zertifikat, das der
+/// Server zeigte.
 fn tls_hole(adresse: SocketAddr, vertraut: &[u8], pfad: &str) -> (Antwort, Vec<u8>) {
+    let (antwort, gezeigt, _) = tls_hole_mit_alpn(adresse, vertraut, pfad);
+    (antwort, gezeigt)
+}
+
+/// Wie [`tls_hole`], dazu das ausgehandelte Protokoll.
+fn tls_hole_mit_alpn(
+    adresse: SocketAddr,
+    vertraut: &[u8],
+    pfad: &str,
+) -> (Antwort, Vec<u8>, Option<Vec<u8>>) {
     let mut wurzeln = rustls::RootCertStore::empty();
     wurzeln
         .add(rustls_pki_types::CertificateDer::from(vertraut.to_vec()))
@@ -616,6 +627,8 @@ fn tls_hole(adresse: SocketAddr, vertraut: &[u8], pfad: &str) -> (Antwort, Vec<u
     .unwrap()
     .with_root_certificates(wurzeln)
     .with_no_client_auth();
+    let mut config = config;
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     let name = rustls_pki_types::ServerName::try_from("localhost").unwrap();
     let verbindung = rustls::ClientConnection::new(Arc::new(config), name).unwrap();
     let tcp = TcpStream::connect(adresse).unwrap();
@@ -627,7 +640,59 @@ fn tls_hole(adresse: SocketAddr, vertraut: &[u8], pfad: &str) -> (Antwort, Vec<u
     // Ohne close_notify endet das Lesen mit einem Fehler; was kam, gilt.
     let _ = strom.read_to_end(&mut daten);
     let gezeigt = strom.conn.peer_certificates().unwrap()[0].to_vec();
-    (zerlege(&daten), gezeigt)
+    let alpn = strom.conn.alpn_protocol().map(<[u8]>::to_vec);
+    (zerlege(&daten), gezeigt, alpn)
+}
+
+/// PEM zu einem DER, mit Zeilen zu 64 Zeichen.
+fn pem(etikett: &str, der: &[u8]) -> String {
+    const ZEICHEN: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut b64 = String::new();
+    for stueck in der.chunks(3) {
+        let n = stueck.iter().fold(0u32, |n, &b| n << 8 | u32::from(b)) << (8 * (3 - stueck.len()));
+        for k in 0..4 {
+            b64.push(match k <= stueck.len() {
+                true => ZEICHEN[(n >> (18 - 6 * k) & 63) as usize] as char,
+                false => '=',
+            });
+        }
+    }
+    let zeilen: Vec<&str> = b64
+        .as_bytes()
+        .chunks(64)
+        .map(|z| std::str::from_utf8(z).unwrap())
+        .collect();
+    format!(
+        "-----BEGIN {etikett}-----\n{}\n-----END {etikett}-----\n",
+        zeilen.join("\n")
+    )
+}
+
+/// Der Schlüssel in SEC1 (`ECPrivateKey`) aus einem PKCS#8 von rcgen: Das
+/// dritte Feld der äusseren `SEQUENCE` ist ein `OCTET STRING` mit ihm.
+fn sec1_aus_pkcs8(der: &[u8]) -> Vec<u8> {
+    // Ein Element ab `i`: Tag, Länge und wo der Inhalt beginnt.
+    let element = |i: usize| {
+        let (laenge, beginn) = match der[i + 1] {
+            n if n < 0x80 => (usize::from(n), i + 2),
+            n => {
+                let bytes = usize::from(n & 0x7f);
+                let laenge = der[i + 2..i + 2 + bytes]
+                    .iter()
+                    .fold(0, |l, &b| l << 8 | usize::from(b));
+                (laenge, i + 2 + bytes)
+            }
+        };
+        (der[i], laenge, beginn)
+    };
+    let (_, _, mut i) = element(0);
+    for _ in 0..2 {
+        let (_, laenge, beginn) = element(i);
+        i = beginn + laenge;
+    }
+    let (tag, laenge, beginn) = element(i);
+    assert_eq!(tag, 0x04, "kein OCTET STRING");
+    der[beginn..beginn + laenge].to_vec()
 }
 
 /// Mit `--tls-cert` und `--tls-key` spricht der Server HTTPS mit TLS 1.3 und
@@ -650,9 +715,33 @@ fn https_aus_pem() {
             "1",
         ],
     );
-    let (a, gezeigt) = tls_hole(server.adresse, &der, "/tiles/trees.json");
+    let (a, gezeigt, alpn) = tls_hole_mit_alpn(server.adresse, &der, "/tiles/trees.json");
     assert_eq!((a.status, a.koerper.as_slice()), (200, &b"[]"[..]));
     assert_eq!(gezeigt, der);
+    assert_eq!(alpn.as_deref(), Some(&b"http/1.1"[..]), "ALPN");
+
+    // Ein Client, der nur TLS 1.2 anbietet, ohne `supported_versions`,
+    // bekommt die Warnung `protocol_version` (70) statt eines ServerHello.
+    // Er nennt `signature_algorithms`, sonst scheiterte er schon an der Wahl
+    // des Zertifikats.
+    let mut hallo = vec![0x03, 0x03];
+    hallo.extend([7u8; 32]);
+    hallo.push(0);
+    hallo.extend([0x00, 0x02, 0xc0, 0x2b, 0x01, 0x00]);
+    hallo.extend([0x00, 0x08, 0x00, 0x0d, 0x00, 0x04, 0x00, 0x02, 0x04, 0x03]);
+    let mut handschlag = vec![0x01];
+    handschlag.extend(&(hallo.len() as u32).to_be_bytes()[1..]);
+    handschlag.extend(&hallo);
+    let mut satz = vec![0x16, 0x03, 0x01];
+    satz.extend((handschlag.len() as u16).to_be_bytes());
+    satz.extend(&handschlag);
+    let mut alt = TcpStream::connect(server.adresse).unwrap();
+    alt.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    alt.write_all(&satz).unwrap();
+    let mut zurueck = Vec::new();
+    let _ = alt.read_to_end(&mut zurueck);
+    assert_eq!(zurueck.first(), Some(&0x15), "keine Warnung: {zurueck:?}");
+    assert_eq!(zurueck.get(6), Some(&70), "{zurueck:?}");
     assert_eq!(
         tls_hole(server.adresse, &der, "/tiles/stand.bin").0.status,
         404
@@ -695,8 +784,12 @@ fn neues_zertifikat_ohne_neustart() {
     let (b_kette, b_schluessel, b) = zertifikat(dir.path(), "b");
     let kette = dir.path().join("kette.pem");
     let schluessel = dir.path().join("schluessel.pem");
-    std::fs::copy(&a_kette, &kette).unwrap();
-    std::fs::copy(&a_schluessel, &schluessel).unwrap();
+    // Schreiben statt kopieren: `copy` übernähme unter Windows die Zeit der
+    // Quelle.
+    let schreibe =
+        |von: &Path, nach: &Path| std::fs::write(nach, std::fs::read(von).unwrap()).unwrap();
+    schreibe(&a_kette, &kette);
+    schreibe(&a_schluessel, &schluessel);
     let server = starte(
         kacheln.path(),
         &[
@@ -708,8 +801,8 @@ fn neues_zertifikat_ohne_neustart() {
     );
     assert_eq!(tls_hole(server.adresse, &a, "/tiles/trees.json").1, a);
 
-    std::fs::copy(&b_kette, &kette).unwrap();
-    std::fs::copy(&b_schluessel, &schluessel).unwrap();
+    schreibe(&b_kette, &kette);
+    schreibe(&b_schluessel, &schluessel);
     std::thread::sleep(Duration::from_millis(1500));
     assert_eq!(tls_hole(server.adresse, &b, "/tiles/trees.json").1, b);
 
@@ -721,8 +814,8 @@ fn neues_zertifikat_ohne_neustart() {
     assert!(fehler.contains("das alte bleibt"), "{fehler}");
 }
 
-/// Ohne lesbares Zertifikat oder mit einem Schlüssel, der nicht passt,
-/// startet der Server nicht. Mit `--exit-with-stdin` und leerem stdin
+/// Ohne lesbares Zertifikat, ohne Schlüssel, mit einem verschlüsselten oder
+/// mit einem, der nicht passt, startet der Server nicht, mit Grund. Mit `--exit-with-stdin` und leerem stdin
 /// endete ein Server, der doch startet, sofort mit Code 0; so hängt der Test
 /// nicht.
 #[test]
@@ -732,8 +825,16 @@ fn ohne_gueltiges_zertifikat_kein_start() {
     let (a_kette, _, _) = zertifikat(dir.path(), "a");
     let (_, b_schluessel, _) = zertifikat(dir.path(), "b");
     let fehlt = dir.path().join("fehlt.pem");
+    let verschluesselt = dir.path().join("verschluesselt.pem");
+    std::fs::write(
+        &verschluesselt,
+        "-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n-----END ENCRYPTED PRIVATE KEY-----\n",
+    )
+    .unwrap();
     for (kette, schluessel, grund) in [
         (&fehlt, &b_schluessel, "lesen"),
+        (&a_kette, &fehlt, "lesen"),
+        (&a_kette, &verschluesselt, "verschlüsselt"),
         (&a_kette, &b_schluessel, "passt nicht"),
     ] {
         let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
@@ -750,4 +851,37 @@ fn ohne_gueltiges_zertifikat_kein_start() {
         assert!(!ausgabe.status.success(), "{grund}");
         assert!(fehler.contains(grund), "{grund}: {fehler}");
     }
+}
+
+/// Einen Schlüssel in SEC1 (`EC PRIVATE KEY`) nimmt der Server wie PKCS#8.
+/// Und ein stummer Handschlag gibt nach `--header-timeout` seinen Platz frei:
+/// Mit `--max-connections 1` kommt die nächste Anfrage durch.
+#[test]
+fn sec1_und_freier_platz_nach_dem_handschlag() {
+    let (kacheln, _seite) = wurzel();
+    let dir = tempfile::tempdir().unwrap();
+    let neu = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+    let kette = dir.path().join("kette.pem");
+    let schluessel = dir.path().join("sec1.pem");
+    std::fs::write(&kette, neu.cert.pem()).unwrap();
+    let sec1 = sec1_aus_pkcs8(&neu.key_pair.serialize_der());
+    std::fs::write(&schluessel, pem("EC PRIVATE KEY", &sec1)).unwrap();
+    let server = starte(
+        kacheln.path(),
+        &[
+            "--tls-cert",
+            kette.to_str().unwrap(),
+            "--tls-key",
+            schluessel.to_str().unwrap(),
+            "--header-timeout",
+            "1",
+            "--max-connections",
+            "1",
+        ],
+    );
+    let der = neu.cert.der().to_vec();
+    let _stumm = TcpStream::connect(server.adresse).unwrap();
+    std::thread::sleep(Duration::from_millis(2000));
+    let (a, gezeigt) = tls_hole(server.adresse, &der, "/tiles/trees.json");
+    assert_eq!((a.status, gezeigt), (200, der));
 }

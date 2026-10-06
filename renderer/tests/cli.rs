@@ -6142,3 +6142,128 @@ fn mit_threads_kein_software_adapter() {
         );
     }
 }
+
+/// `--estimate` schreibt nichts unter `--tiles` und meldet mit
+/// `--progress json` eine Zeile `estimate`: die Chunks aus den Köpfen, alle
+/// fertig erzeugt, und für Kacheln, Bytes und Dauer je eine Spanne.
+#[test]
+fn schaetzung_schreibt_nichts() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2), (5, 1)], gelaende);
+    let wurzel = tempdir();
+    let ziel = wurzel.path().join("ziel");
+    let ausgabe = gelungen(&cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--tiles"),
+        ziel.as_os_str(),
+        OsStr::new("--scale"),
+        OsStr::new("16"),
+        OsStr::new("--estimate"),
+        OsStr::new("--progress"),
+        OsStr::new("json"),
+    ]))
+    .stdout
+    .clone();
+    let aus = String::from_utf8(ausgabe).unwrap();
+    assert!(!ziel.exists(), "--estimate hat unter --tiles geschrieben");
+    let liegen: Vec<_> = std::fs::read_dir(wurzel.path())
+        .unwrap()
+        .flatten()
+        .collect();
+    assert!(liegen.is_empty(), "liegen geblieben: {liegen:?}");
+    let zeilen: Vec<serde_json::Value> = aus
+        .lines()
+        .filter(|z| z.starts_with('{'))
+        .map(|z| serde_json::from_str(z).unwrap())
+        .collect();
+    let [schaetzung] = &zeilen[..] else {
+        panic!("nicht genau eine JSON-Zeile:\n{aus}");
+    };
+    assert_eq!(schaetzung["phase"], "estimate", "{schaetzung}");
+    assert_eq!(schaetzung["chunks"], 3, "{schaetzung}");
+    assert_eq!(schaetzung["finished"], 1.0, "{schaetzung}");
+    for feld in ["tiles", "bytes", "files", "s"] {
+        let [unten, oben] = [0, 1].map(|i| schaetzung[feld][i].as_u64().unwrap());
+        // Die Dauer einer so kleinen Welt rundet auf 0 s.
+        assert!(
+            unten <= oben && (feld == "s" || unten > 0),
+            "{feld}: {schaetzung}"
+        );
+    }
+    assert!(
+        schaetzung["free_bytes"].as_u64().unwrap() > 0,
+        "{schaetzung}"
+    );
+    assert_eq!(schaetzung["enough"], true, "{schaetzung}");
+}
+
+/// Über einem bestehenden Baum schätzt `--estimate` mit dessen nativen
+/// Stufen, auch wenn der Aufruf keine nennt, und nennt seine Bytes als
+/// Bestand. Mit `--size` zählt es höchstens die Kacheln des Fensters, und
+/// der echte Lauf über dasselbe Fenster plant nicht mehr.
+#[test]
+fn schaetzung_ueber_bestand_und_fenster() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0), (2, 2), (5, 1)], gelaende);
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--native-levels", "1"],
+    ));
+    let wurzel = baum.path().parent().unwrap();
+    let json = |ausgabe: &Output, phase: &str| -> serde_json::Value {
+        let aus = String::from_utf8_lossy(&ausgabe.stdout);
+        let zeile = aus
+            .lines()
+            .filter(|z| z.starts_with('{'))
+            .map(|z| serde_json::from_str::<serde_json::Value>(z).unwrap())
+            .rfind(|z| z["phase"] == phase && (phase != "prepass" || z.get("chunks").is_some()));
+        zeile.unwrap_or_else(|| panic!("keine Zeile {phase}:\n{aus}"))
+    };
+    let lauf = |ziel: &Path, extra: &[&str]| {
+        let mut args: Vec<&OsStr> = vec![
+            OsStr::new("--world"),
+            welt.path().as_os_str(),
+            OsStr::new("--assets"),
+            assets_ref(),
+            OsStr::new("--tiles"),
+            ziel.as_os_str(),
+            OsStr::new("--scale"),
+            OsStr::new("16"),
+            OsStr::new("--progress"),
+            OsStr::new("json"),
+        ];
+        args.extend(extra.iter().map(OsStr::new));
+        gelungen(&cli(&args)).clone()
+    };
+
+    let ueber = json(&lauf(wurzel, &["--estimate"]), "estimate");
+    assert_eq!(ueber["levels"], 1, "{ueber}");
+    assert!(ueber["existing_bytes"].as_u64().unwrap() > 0, "{ueber}");
+
+    // Ein Fenster aus einer Kachel, gerundet auf die gröbste native Stufe.
+    let fenster = [
+        "--center",
+        "8",
+        "8",
+        "--size",
+        "256",
+        "--native-levels",
+        "1",
+    ];
+    let neu = tempdir();
+    let geschaetzt = json(
+        &lauf(neu.path(), &[&fenster[..], &["--estimate"]].concat()),
+        "estimate",
+    );
+    let [unten, oben] = [0, 1].map(|i| geschaetzt["tiles"][i].as_u64().unwrap());
+    assert!(unten <= oben && oben <= 4 * 4, "{geschaetzt}");
+    let geplant = json(&lauf(neu.path(), &fenster), "prepass")["tiles"]
+        .as_u64()
+        .unwrap();
+    assert!(geplant <= oben, "geplant {geplant}, geschätzt {geschaetzt}");
+}

@@ -1,6 +1,6 @@
 ---
 title: Plugin
-description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt als JSON, das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft, und das Manifest eines Baums mit Grösse und ETag jeder Kachel.
+description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt und die Schätzung als JSON, das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft, und das Manifest eines Baums mit Grösse und ETag jeder Kachel.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/stand.rs
@@ -61,10 +61,10 @@ Geschrieben werden die Zeilen von `melde_json` und `fortschritt` in
 
 | `phase` | wann | Felder |
 |---|---|---|
-| `prepass` | je neuem Prozent der Regionen des Vorlaufs, höchstens 100 Mal, und bei der letzten | `regions`, `of`, `rate`, `eta_s` |
+| `prepass` | je neuem Prozent der Regionen des Vorlaufs, höchstens 100 Mal, und bei der letzten | `regions`, `of`, `rate`, `eta_s`, `s` |
 | `prepass` | einmal, nach dem Vorlauf | `chunks` gelesen, `tiles` zu zeichnen, `s` |
-| `base` | alle 200 Basiskacheln und bei der letzten | `tiles`, `of`, `rate`, `eta_s` |
-| `level` | je native Stufe alle 200 Kacheln und bei ihrer letzten | `level`, `tiles`, `of`, `rate`, `eta_s` |
+| `base` | alle 200 Basiskacheln und bei der letzten | `tiles`, `of`, `rate`, `eta_s`, `s` |
+| `level` | je native Stufe alle 200 Kacheln und bei ihrer letzten | `level`, `tiles`, `of`, `rate`, `eta_s`, `s` |
 | `pyramid` | je verkleinerte Zoomstufe, von fein nach grob bis 0 | `level`, `tiles` dieser Stufe |
 | `done` | einmal, am Ende des Exports | `tiles` als Basiskacheln der Karte, `s` |
 
@@ -77,8 +77,9 @@ Geschrieben werden die Zeilen von `melde_json` und `fortschritt` in
   Nachkommastelle.
 - **`eta_s`:** ganze Sekunden, bis `tiles` oder `regions` bei dieser Rate
   `of` erreicht, gerundet; `null`, solange nichts fertig ist.
-- **`s`:** Sekunden seit Beginn des Vorlaufs bei `prepass`, des Exports bei
-  `done`, eine Nachkommastelle.
+- **`s`:** Sekunden seit Beginn der Phase, auf Millisekunden; in der
+  letzten Zeile `prepass` und bei `done` seit Beginn des Vorlaufs und des
+  Exports, auf eine Nachkommastelle. Die nativen Stufen beginnen zugleich.
 - **Fehlen** kann `level` ohne native Stufen und `pyramid` ohne Zoomstufen
   darüber. Ein `--update` ohne Änderung meldet nur `done` mit `tiles` 0.
 - Neue Felder können dazukommen. Ein Leser übergeht, was er nicht kennt.
@@ -97,6 +98,31 @@ Ein Ausschnitt der Testwelt mit `--center -64 416 --size 4096 --scale 16
 {"phase":"pyramid","level":0,"tiles":2}
 {"phase":"done","tiles":324,"s":2.6}
 ```
+
+## Schätzung als JSON
+
+Mit `--estimate --progress json` kommt die Schätzung als eine JSON-Zeile
+`estimate`, wie die übrigen am `{` zu erkennen. Was die Zahlen bedeuten und
+wie sie entstehen, steht in [Was ein Lauf kostet](benutzung/kosten.md),
+„Schätzen: `--estimate`“.
+
+| Feld | Inhalt |
+|---|---|
+| `chunks` | Chunks in den Köpfen der Regionen, auch nicht fertig erzeugte |
+| `finished` | Anteil der fertig erzeugten aus der Stichprobe, 0 bis 1 |
+| `levels` | native Stufen, wie der Lauf sie nähme, auch aus einem bestehenden Baum |
+| `tiles` | Basiskacheln, `[unten, oben]` |
+| `bytes` | Platz des ganzen Baums in Byte, `[unten, oben]`; `null`, wenn der Probelauf nichts zeichnete |
+| `files` | Dateien des Baums, `[unten, oben]` |
+| `s` | Dauer des Laufs in ganzen Sekunden, `[unten, oben]`; `null` wie `bytes` |
+| `existing_bytes` | Bytes des bestehenden Baums, den der Lauf überschreibt, sonst 0 |
+| `free_bytes` | freier Platz unter dem Baum, `null`, wenn unbekannt |
+| `enough` | ob `free_bytes` und `existing_bytes` zusammen mindestens den oberen Rand von `bytes` erreichen, `null`, wenn eins davon unbekannt ist |
+| `probe_s` | wie lange die Schätzung selbst brauchte |
+
+`tiles`, `bytes`, `files` und `s` sind Spannen, nie ein Punkt. Eine Warnung
+vor dem Lauf nimmt den oberen Rand. Ohne Chunk steht nur `chunks` da, ohne
+fertig erzeugten Chunk nur `chunks` und `finished`.
 
 ## Token
 

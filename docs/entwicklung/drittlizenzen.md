@@ -69,5 +69,5 @@ Der Job „Dependencies“ prüft mit `cargo deny check` die Lizenzen aller
 Crates gegen `renderer/deny.toml`, die eigene eingeschlossen. Danach lässt
 er das Skript laufen: Bringt eine neue Crate keinen Text mit, fällt der
 Job, siehe [CI](ci.md). Der Job „Rust“ lässt es zusätzlich unter Windows
-laufen, wo das Windows-Paket entsteht und die Kodierung zählt. `selbsttest` prüft dabei die Wahl aus einem
-SPDX-Ausdruck an fünf Fällen.
+laufen, wo das Windows-Paket entsteht und die Kodierung zählt.
+`selbsttest` prüft dabei die Wahl aus einem SPDX-Ausdruck an fünf Fällen.

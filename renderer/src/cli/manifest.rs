@@ -234,8 +234,8 @@ fn laeuft(pid: u32) -> bool {
         return true;
     };
     // SAFETY: Signal 0 prüft nur, ob es den Prozess gibt.
-    unsafe { libc::kill(pid, 0) == 0 }
-    || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    let da = unsafe { libc::kill(pid, 0) } == 0;
+    da || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 #[cfg(not(any(windows, unix)))]

@@ -34,6 +34,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tokio_rustls::TlsAcceptor;
 
+use super::NUR_DOWNLOAD;
 use super::manifest::{MANIFEST, etag};
 use super::token::{self, Token};
 
@@ -572,13 +573,17 @@ struct Zustand {
 struct Liste {
     geprueft: Option<Instant>,
     stempel: Option<(u64, SystemTime)>,
+    /// Wie in der Datei.
+    alle: Vec<String>,
+    /// Davon die ohne Marke [`NUR_DOWNLOAD`].
     baeume: Vec<String>,
 }
 
 impl Zustand {
-    /// Ob `trees.json` der Wurzel den Baum nennt; ohne lesbare Liste keinen.
-    /// Höchstens einmal je Sekunde sieht der Server nach, ob sich Grösse oder
-    /// Zeit der Datei geändert haben, und liest sie dann neu.
+    /// Ob `trees.json` der Wurzel den Baum nennt und er keine Marke
+    /// [`NUR_DOWNLOAD`] trägt; ohne lesbare Liste keinen. Höchstens einmal je
+    /// Sekunde sieht der Server nach, ob sich Grösse oder Zeit der Datei
+    /// geändert haben, liest sie dann neu und sieht nach den Marken.
     fn genannt(&self, baum: &str) -> bool {
         let mut liste = self.liste.lock().unwrap_or_else(PoisonError::into_inner);
         if liste
@@ -592,7 +597,7 @@ impl Zustand {
                 .and_then(|meta| Some((meta.len(), meta.modified().ok()?)));
             if stempel != liste.stempel {
                 liste.stempel = stempel;
-                liste.baeume = std::fs::read(&pfad)
+                liste.alle = std::fs::read(&pfad)
                     .ok()
                     .and_then(|daten| serde_json::from_slice::<serde_json::Value>(&daten).ok())
                     .and_then(|wert| {
@@ -605,6 +610,14 @@ impl Zustand {
                     })
                     .unwrap_or_default();
             }
+            // Eine Marke schliesst den Baum auch bei veralteter Liste.
+            let offen = liste
+                .alle
+                .iter()
+                .filter(|b| !self.kacheln.join(b).join(NUR_DOWNLOAD).exists())
+                .cloned()
+                .collect();
+            liste.baeume = offen;
         }
         liste.baeume.iter().any(|b| b == baum)
     }

@@ -1309,3 +1309,32 @@ fn einzelner_baum_ohne_download() {
         );
     }
 }
+
+/// Die Marke `nur-download` im Ordner schliesst einen Baum unter `/tiles/`
+/// nach höchstens einer Sekunde, auch wenn `trees.json` ihn noch nennt;
+/// unter `/download/` bleibt er. Ohne Marke ist er wieder offen.
+#[test]
+fn marke_schliesst_den_baum_auch_bei_alter_liste() {
+    let (kacheln, _seite) = wurzel();
+    let k = kacheln.path();
+    let dir = tempfile::tempdir().unwrap();
+    let (datei, geheimnis) = geheimnis_in(dir.path());
+    let server = starte(k, &["--secret-file", datei.to_str().unwrap()]);
+    assert_eq!(hole(server.adresse, "/tiles/t/0/0/0.webp").status, 200);
+    std::fs::write(k.join("t/nur-download"), b"").unwrap();
+    std::thread::sleep(Duration::from_millis(1100));
+    for pfad in [
+        "/tiles/t/0/0/0.webp",
+        "/tiles/t/map.json",
+        "/tiles/t/nur-download",
+    ] {
+        assert_eq!(hole(server.adresse, pfad).status, 404, "{pfad}");
+    }
+    assert_eq!(hole(server.adresse, "/tiles/trees.json").koerper, BAEUME);
+    let t = token(&geheimnis, "t", 0, 1 << 20, jetzt() + 600, 1);
+    let geladen = mit_token(server.adresse, "GET", "/download/t/0/0/0.webp", &t, &[]);
+    assert_eq!(geladen.status, 200);
+    std::fs::remove_file(k.join("t/nur-download")).unwrap();
+    std::thread::sleep(Duration::from_millis(1100));
+    assert_eq!(hole(server.adresse, "/tiles/t/0/0/0.webp").status, 200);
+}

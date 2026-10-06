@@ -52,6 +52,11 @@ dem Plugin-Programmierer ab.
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
   eines Tokens: `--manifest` bei jedem Lauf und `--pyramid` eines Baums mit
   `download: true`, siehe unten, „Manifest“.
+- **Die Marke `nur-download`** im Ordner eines Baums, den die Webkarte
+  nicht zeigen soll, angelegt vor seinem ersten Lauf: Er fehlt dann in
+  `trees.json` und ist nur über den Download zu haben. Fehlt die Marke, ist
+  der Baum öffentlich, siehe [`map.json`](benutzung/map-json.md), „Liste
+  der Bäume“.
 - **Den Server,** `--serve` mit `--web`, `--listen`, `--threads 1`,
   `--low-priority` und `--exit-with-stdin`, für HTTPS mit `--tls-cert` und
   `--tls-key`, für den Download mit `--secret-file`, für Adresse, Titel,

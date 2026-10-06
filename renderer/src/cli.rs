@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
 use std::io::Write;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -32,6 +33,7 @@ use rayon::prelude::*;
 
 mod manifest;
 mod schaetzung;
+mod server;
 
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
 /// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
@@ -221,6 +223,8 @@ pub struct Args {
         "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
+        "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
+        "write_timeout", "exit_with_stdin",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -229,6 +233,55 @@ pub struct Args {
     /// entfernt ein Lauf, der Kacheln schreibt, ein altes
     #[arg(long)]
     manifest: bool,
+
+    /// Diese Wurzel von --tiles ausliefern, die Kacheln unter /tiles/, mit
+    /// den Headern der Karte, ETag und 304. Liest nur und läuft, bis der
+    /// Prozess endet
+    #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = [
+        "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
+        "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
+        "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
+        "pyramid", "manifest",
+    ])]
+    serve: Option<PathBuf>,
+
+    /// Mit --serve die gebaute Seite, web/dist, unter / ausliefern
+    #[arg(long, value_name = "VERZEICHNIS", requires = "serve")]
+    web: Option<PathBuf>,
+
+    /// Mit --serve: wo der Server lauscht, Vorgabe 127.0.0.1:8080
+    #[arg(long, value_name = "ADRESSE:PORT", requires = "serve")]
+    listen: Option<SocketAddr>,
+
+    /// Mit --serve: höchstens so viele Verbindungen zugleich, Vorgabe 256;
+    /// darüber wartet die nächste, bis eine endet
+    #[arg(long, value_name = "N", requires = "serve", value_parser = clap::value_parser!(u32).range(1..))]
+    max_connections: Option<u32>,
+
+    /// Mit --serve: so viele Sekunden für den Kopf einer Anfrage, auch für
+    /// den Leerlauf zwischen zweien, Vorgabe 10
+    #[arg(long, value_name = "S", requires = "serve", value_parser = clap::value_parser!(u64).range(1..))]
+    header_timeout: Option<u64>,
+
+    /// Mit --serve: höchstens so viele Bytes im Kopf einer Anfrage, mindestens
+    /// 8192, Vorgabe 16384
+    #[arg(long, value_name = "BYTES", requires = "serve", value_parser = clap::value_parser!(u64).range(8192..))]
+    max_header_bytes: Option<u64>,
+
+    /// Mit --serve: höchstens so viele Header je Anfrage, Vorgabe 64;
+    /// darüber antwortet er mit 431
+    #[arg(long, value_name = "N", requires = "serve", value_parser = clap::value_parser!(u32).range(1..))]
+    max_headers: Option<u32>,
+
+    /// Mit --serve: so viele Sekunden ohne Fortschritt beim Schreiben einer
+    /// Antwort, dann schliesst er die Verbindung, Vorgabe 30
+    #[arg(long, value_name = "S", requires = "serve", value_parser = clap::value_parser!(u64).range(1..))]
+    write_timeout: Option<u64>,
+
+    /// Mit --serve enden, sobald stdin schliesst, etwa wenn der Prozess
+    /// endet, der den Server startete
+    #[arg(long, requires = "serve")]
+    exit_with_stdin: bool,
 }
 
 /// Mindestens [`NATIVE_MIN_SCALE`]. Ob der scale zur Kamera passt, prüft
@@ -395,6 +448,26 @@ pub fn run() -> Result<()> {
     // seinen Pool beim ersten Gebrauch an.
     if args.low_priority {
         println!("Priorität:  {}", senke_prioritaet()?);
+    }
+    // Vor dem Pool von rayon: Der Server braucht ihn nicht.
+    if let Some(kacheln) = args.serve {
+        return server::serve(server::Einstellung {
+            kacheln,
+            seite: args.web,
+            adresse: args
+                .listen
+                .unwrap_or(SocketAddr::from(([127, 0, 0, 1], 8080))),
+            threads: args.threads.map_or_else(
+                || std::thread::available_parallelism().map_or(1, |n| n.get()),
+                usize::from,
+            ),
+            verbindungen: args.max_connections.unwrap_or(256) as usize,
+            kopf_zeit: Duration::from_secs(args.header_timeout.unwrap_or(10)),
+            kopf_bytes: args.max_header_bytes.unwrap_or(16384) as usize,
+            kopf_zeilen: args.max_headers.unwrap_or(64) as usize,
+            schreib_zeit: Duration::from_secs(args.write_timeout.unwrap_or(30)),
+            ende_mit_stdin: args.exit_with_stdin,
+        });
     }
     if let Some(threads) = args.threads {
         rayon::ThreadPoolBuilder::new()
@@ -5345,35 +5418,41 @@ mod tests {
     }
 
     /// `--pyramid` lehnt jeden Schalter ausser `--threads`, `--low-priority`
-    /// und `--manifest` ab, auch einen, der später dazukommt.
+    /// und `--manifest` ab, `--serve` jeden ausser diesen beiden und seinen
+    /// eigenen, auch einen, der später dazukommt.
     #[test]
-    fn pyramid_lehnt_jeden_anderen_schalter_ab() {
+    fn pyramid_und_serve_lehnen_jeden_anderen_schalter_ab() {
         let cmd = Args::command();
-        let pyramid = cmd
-            .get_arguments()
-            .find(|a| a.get_id() == "pyramid")
-            .unwrap();
-        let abgelehnt: Vec<&str> = cmd
-            .get_arg_conflicts_with(pyramid)
-            .iter()
-            .map(|a| a.get_id().as_str())
-            .collect();
-        for arg in cmd.get_arguments() {
-            let id = arg.get_id().as_str();
-            let geduldet = [
-                "pyramid",
-                "threads",
-                "low_priority",
-                "manifest",
-                "help",
-                "version",
-            ];
-            if !geduldet.contains(&id) {
-                assert!(
-                    abgelehnt.contains(&id),
-                    "--pyramid duldet --{}",
-                    arg.get_long().unwrap_or(id)
-                );
+        let eigene_von_serve = [
+            "web",
+            "listen",
+            "max_connections",
+            "header_timeout",
+            "max_header_bytes",
+            "max_headers",
+            "write_timeout",
+            "exit_with_stdin",
+        ];
+        for (modus, eigene) in [
+            ("pyramid", &["manifest"][..]),
+            ("serve", &eigene_von_serve[..]),
+        ] {
+            let arg = cmd.get_arguments().find(|a| a.get_id() == modus).unwrap();
+            let abgelehnt: Vec<&str> = cmd
+                .get_arg_conflicts_with(arg)
+                .iter()
+                .map(|a| a.get_id().as_str())
+                .collect();
+            for arg in cmd.get_arguments() {
+                let id = arg.get_id().as_str();
+                let geduldet = [modus, "threads", "low_priority", "help", "version"];
+                if !geduldet.contains(&id) && !eigene.contains(&id) {
+                    assert!(
+                        abgelehnt.contains(&id),
+                        "--{modus} duldet --{}",
+                        arg.get_long().unwrap_or(id)
+                    );
+                }
             }
         }
     }

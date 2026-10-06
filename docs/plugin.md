@@ -51,6 +51,9 @@ dem Plugin-Programmierer ab.
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
   eines Tokens: `--manifest` bei jedem Lauf und `--pyramid` eines Baums mit
   `download: true`, siehe unten, „Manifest“.
+- **Den Server,** `--serve` mit `--web`, `--listen`, `--threads 1`,
+  `--low-priority` und `--exit-with-stdin`, als eigener Kindprozess neben
+  dem Renderer, siehe [Server](benutzung/server.md).
 
 ## Fortschritt als JSON
 

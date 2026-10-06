@@ -48,6 +48,8 @@ Texte.
 | `--defender-exclusion` | mit `--tiles`, nur unter Windows: eine Ausnahme im Echtzeitschutz setzen | [Echtzeitschutz](echtzeitschutz.md) |
 | `--pyramid DIR` | Zoomstufen und `map.json` aus den Basiskacheln nachbauen, ohne Welt und Assets; daneben nur `--threads`, `--low-priority` und `--manifest` | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--manifest` | mit `--tiles` oder `--pyramid`: am Ende das Manifest des Baums schreiben, je Kachel Grösse und ETag, für den Download; ohne entfernt ein Lauf, der Kacheln schreibt, ein altes | [Plugin](../plugin.md), „Manifest“ |
+| `--serve DIR` | die Wurzel von `--tiles` unter `/tiles/` ausliefern, mit `--web` die Karte dazu; daneben nur `--threads`, `--low-priority` und seine eigenen Schalter | [Server](server.md) |
+| `--web DIR`, `--listen ADRESSE:PORT`, `--max-connections N`, `--header-timeout S`, `--max-header-bytes N`, `--max-headers N`, `--write-timeout S`, `--exit-with-stdin` | nur mit `--serve`: Seite, Adresse, Grenzen am offenen Netz, Ende mit stdin | [Server](server.md), „Aufruf“ |
 | `--heights DIR` | die Höhen für die Koordinatenanzeige in einen bestehenden Baum schreiben, ohne zu rendern; `DIR` ist der Ordner des Baums; braucht nur `--world` | [map.json](map-json.md), „Höhen“ |
 
 ## Einen Block ansehen: `--at`

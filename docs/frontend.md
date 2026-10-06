@@ -435,6 +435,9 @@ Sprung, Kompass, Umschalter und Stand wissen nichts von ihm. Warum so:
 `web/dist` ist die ganze Seite; statisch ausliefern reicht. Die Kacheln
 liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
 
+- **Selbst ausliefern** kann der Renderer: `--serve` mit der Wurzel der
+  Kacheln und `--web` mit `web/dist`, samt den Headern unten, siehe
+  [Server](benutzung/server.md).
 - **Header:** Die Karte läuft unter einer strengen Content-Security-Policy
   ohne Ausnahmen für Inline-Skripte, Inline-Styles oder fremde Quellen. Die
   Header stehen an einer Stelle, in [`web/headers.json`](../web/headers.json),

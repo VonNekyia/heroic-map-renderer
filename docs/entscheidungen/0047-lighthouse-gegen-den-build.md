@@ -13,6 +13,10 @@ code:
 
 # 0047: Lighthouse gegen den Build, mit festen Schwellen
 
+In einem Punkt abgelöst durch [0084](0084-server-im-renderer.md): Die Header
+setzt seitdem auch der Server im Renderer, `--serve`, nicht nur der Server
+des Betreibers.
+
 ## Anlass
 
 Der Job „Frontend“ prüft Typen, Lint, den Build und mit Playwright, ob die

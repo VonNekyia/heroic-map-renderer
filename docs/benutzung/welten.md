@@ -33,9 +33,25 @@ Welten aus 26.3 liest er ebenso, auch solche, die der Server erst zum Teil
 neu gespeichert hat ([0059](../entscheidungen/0059-welten-aus-26-2-und-26-3.md)):
 - **Palette:** Ab 26.3 heissen ihre Felder `id` und `properties` statt
   `Name` und `Properties` (`BlockStateFieldNamesFix`, DataVersion 5006).
-  Der Renderer liest beide (`PaletteEntry` in
-  [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs),
-  getestet in `palette_ab_26_3`).
+  Den Zustand nach `defaultBlockState` schreibt der Server nur als Namen:
+  `BlockState.CODEC` ist ein `Codec.either` aus dem Namen des Blocks und
+  dem vollen Codec und nimmt den Namen genau für diesen Zustand. Eine
+  Palette nur aus Namen ist eine Liste von Texten. Mischt sie beide Formen,
+  steht jeder Name als `{"": name}`: Eine Liste in NBT hat nur einen Typ,
+  und `ListTag` wickelt die übrigen in ein Compound mit dem Schlüssel `""`.
+  Fehlt beim Lesen eine Eigenschaft, nimmt `StateDefinition` die des
+  `defaultBlockState`. Belegt am Server-JAR von 26.3 per javap
+  (`BlockState`, `StateHolder.codec`, `StateDefinition.appendPropertyCodec`,
+  `ListTag.wrapIfNeeded`); so schreibt auch Paper 26.3.
+- **Was der Renderer liest:** alle vier Formen (`PaletteEntry` in
+  [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs)). Jede
+  fehlende Eigenschaft eines Blocks aus `blocks.txt` bekommt die Vorgabe,
+  die dort mit `*` steht (`BlockState::mit_vorgaben` in
+  [`renderer/src/world/palette.rs`](../../renderer/src/world/palette.rs)).
+  Ein Block ausserhalb von `blocks.txt` bleibt, wie er in der Palette
+  steht. Getestet in `palette_ab_26_3`, `palette_ab_26_3_als_namen` und
+  `echter_chunk_aus_paper_26_3`, dieser an einem Chunk, den Paper 26.3
+  geschrieben hat.
 - **Scherben eines Krugs:** Sie stehen ab 26.3 als Objekt, siehe
   [Blockentities](../renderer/blockentities.md), „Krug“.
 

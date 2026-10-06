@@ -651,7 +651,8 @@ fn schneller_weg_gleicht_der_referenz() {
         let mut assets = assets();
         assets.load_biomes(&daten).unwrap();
         let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
-        let gras = BlockState::parse("minecraft:grass_block").unwrap();
+        // Mit der Vorgabe, wie der Renderer ihn aus der Palette liest.
+        let gras = BlockState::parse("minecraft:grass_block[snowy=false]").unwrap();
         assert!(
             sprites.tints(sprites.id(&gras).unwrap()) != 0,
             "Gras ohne Tönungskarte"

@@ -1,4 +1,6 @@
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::sync::LazyLock;
 
 /// Ein Minecraft-Blockstate aus der Chunk-Palette: Name plus Properties.
 ///
@@ -17,6 +19,25 @@ impl BlockState {
             name: name.into(),
             props,
         }
+    }
+
+    /// Mit der Vorgabe des Spiels für jede Eigenschaft, die fehlt, wie
+    /// `StateDefinition` sie beim Lesen nimmt: Ab 26.3 steht der Zustand nach
+    /// `defaultBlockState` in der Palette nur als Name. Blöcke ausserhalb von
+    /// `blocks.txt` bleiben, wie sie sind.
+    /// Siehe docs/benutzung/welten.md, „Welche Welten“.
+    pub fn mit_vorgaben(name: String, mut props: BTreeMap<String, String>) -> Self {
+        if let Some(vorgaben) = name
+            .strip_prefix("minecraft:")
+            .and_then(|n| VORGABEN.get(n))
+        {
+            for &(prop, wert) in vorgaben {
+                props
+                    .entry(prop.to_string())
+                    .or_insert_with(|| wert.to_string());
+            }
+        }
+        Self::new(name, props.into_iter().collect())
     }
 
     /// Liest die Schreibweise, die [`Display`](fmt::Display) erzeugt:
@@ -233,6 +254,69 @@ impl<T> Paletted<T> {
             None => (0..entries).for_each(|i| f(i, 0)),
             Some(idx) => idx.for_each(entries, f),
         }
+    }
+}
+
+/// Je Block von 26.3 die Werte seines `defaultBlockState`, in `blocks.txt`
+/// mit `*` markiert. Dieselbe Datei liest `Definition` in
+/// `assets/blockstate.rs` für die Eigenschaften und Werte;
+/// `vorgaben_wie_die_definition` dort hält beide zusammen.
+static VORGABEN: LazyLock<HashMap<&'static str, Vec<(&'static str, &'static str)>>> =
+    LazyLock::new(|| {
+        include_str!("../assets/blocks.txt")
+            .lines()
+            .filter_map(|zeile| {
+                let mut teile = zeile.split(' ');
+                let name = teile.next()?;
+                let vorgaben = teile
+                    .filter_map(|teil| {
+                        let (prop, werte) = teil.split_once('=')?;
+                        Some((prop, werte.split(',').find_map(|w| w.strip_prefix('*'))?))
+                    })
+                    .collect();
+                Some((name, vorgaben))
+            })
+            .collect()
+    });
+
+/// Die Vorgabe des Spiels für eine Eigenschaft eines Blocks aus 26.3.
+#[cfg(test)]
+pub(crate) fn vorgabe(block: &str, prop: &str) -> Option<&'static str> {
+    VORGABEN
+        .get(block)?
+        .iter()
+        .find_map(|&(p, wert)| (p == prop).then_some(wert))
+}
+
+#[cfg(test)]
+mod tests_vorgaben {
+    use super::*;
+
+    /// Fehlende Eigenschaften bekommen die Vorgabe, gegebene bleiben; ein
+    /// Block ausserhalb von `blocks.txt` bleibt, wie er ist.
+    #[test]
+    fn fehlende_eigenschaften_mit_vorgabe() {
+        let zustand = |name: &str, props: &[(&str, &str)]| {
+            let props = props
+                .iter()
+                .map(|(p, w)| (p.to_string(), w.to_string()))
+                .collect();
+            BlockState::mit_vorgaben(name.to_string(), props).to_string()
+        };
+        assert_eq!(
+            zustand("minecraft:deepslate", &[]),
+            "minecraft:deepslate[axis=y]"
+        );
+        assert_eq!(
+            zustand("minecraft:oak_stairs", &[("facing", "east")]),
+            "minecraft:oak_stairs[facing=east,half=bottom,shape=straight,waterlogged=false]"
+        );
+        assert_eq!(zustand("minecraft:stone", &[]), "minecraft:stone");
+        assert_eq!(zustand("beispiel:stein", &[]), "beispiel:stein");
+        assert_eq!(
+            zustand("beispiel:stein", &[("art", "rau")]),
+            "beispiel:stein[art=rau]"
+        );
     }
 }
 

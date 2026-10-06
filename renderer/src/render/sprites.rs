@@ -2667,7 +2667,8 @@ mod tests {
             let Some(name) = teile.next() else { continue };
             let props: Vec<(&str, Vec<&str>)> = teile
                 .filter_map(|t| t.split_once('='))
-                .map(|(k, v)| (k, v.split(',').collect()))
+                // `*` markiert die Vorgabe.
+                .map(|(k, v)| (k, v.split(',').map(|w| w.trim_start_matches('*')).collect()))
                 .collect();
             if !props.iter().any(|(k, _)| *k == "waterlogged") && source_of(name).is_none() {
                 continue;
@@ -2850,7 +2851,8 @@ mod tests {
             let Some(name) = teile.next() else { continue };
             let props: Vec<(&str, Vec<&str>)> = teile
                 .filter_map(|t| t.split_once('='))
-                .map(|(k, v)| (k, v.split(',').collect()))
+                // `*` markiert die Vorgabe.
+                .map(|(k, v)| (k, v.split(',').map(|w| w.trim_start_matches('*')).collect()))
                 .collect();
             let mut index = vec![0usize; props.len()];
             'zustand: loop {
@@ -3013,7 +3015,7 @@ mod tests {
         for zeile in include_str!("../assets/blocks.txt").lines() {
             let Some((name, _)) = zeile
                 .split_once(' ')
-                .filter(|_| zeile.contains(" type=single,left,right "))
+                .filter(|_| zeile.contains(" type=*single,left,right "))
             else {
                 continue;
             };

@@ -45,7 +45,7 @@ Haben alle Zustände eines Blocks dasselbe Zeichen, steht es einmal.
 
 | Datei | Inhalt | Quelle | Stand |
 |---|---|---|---|
-| [`blocks.txt`](../../renderer/src/assets/blocks.txt) | jeder Block mit seinen Eigenschaften und Werten | `generated/reports/blocks.json` des Datengenerators | 1286 Blöcke aus 26.3 |
+| [`blocks.txt`](../../renderer/src/assets/blocks.txt) | jeder Block mit seinen Eigenschaften und Werten, die Werte in der Reihenfolge von `getPossibleValues`, der des `defaultBlockState` mit `*` davor | `generated/reports/blocks.json` des Datengenerators | 1286 Blöcke aus 26.3 |
 | [`leuchten.txt`](../../renderer/src/assets/leuchten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer 0 bis f für `getLightEmission`, mit `emissiveRendering` dieselbe Stufe als Buchstabe g bis v; Blöcke, die nie leuchten, fehlen | `Leuchten.java` | 109 Blöcke aus 26.3 |
 | [`licht.txt`](../../renderer/src/assets/licht.txt) | je Zustand in der Reihenfolge von `getPossibleStates` sieben Zeichen: `getLightDampening` (0, 1 oder f), dann je Richtung von `Direction.values()` die Fläche, mit der er das Licht an dieser Seite aufhält, zur Basis 36: 0 keine, 1 die ganze Seite, ab 2 eine Teilfläche. Am Ende je Achse die Paare aus Teilflächen, die zusammen eine Seite decken, als `paar <achse> <a> <b>`; Blöcke, die das Licht nirgends aufhalten, fehlen | `Licht.java` | 933 Blöcke mit 21 426 Zuständen und 288 Paare aus 26.3 |
 | [`schatten.txt`](../../renderer/src/assets/schatten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` eine Ziffer, Bit 1 für `getShadeBrightness` 0,2, Bit 2 für nicht `isLightPermeable`, Bit 4 für `isCollisionShapeFullBlock`; Blöcke ohne Bit fehlen | `Schatten.java` | 558 Blöcke aus 26.3 |
@@ -88,6 +88,9 @@ Bild, siehe [Blockentities](../renderer/blockentities.md).
 
 - `blocktabelle_aus_26_3` hält die Zahlen von `blocks.txt` fest und bekommt
   mit einer neuen Version deren Zahlen.
+- `vorgaben_wie_die_definition` prüft, dass jede Eigenschaft jedes Blocks
+  in `blocks.txt` genau eine Vorgabe hat, einen ihrer Werte, und einige
+  Vorgaben gegen den Report.
 - `leuchten_wie_im_spiel`, `licht_wie_im_spiel` und `schatten_wie_im_spiel`
   prüfen Stufen, Flächen und Bits einzelner Blöcke aus den Tabellen und
   die Zahl der Paare.

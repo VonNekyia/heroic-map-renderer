@@ -5,6 +5,7 @@ code:
   - renderer/src/cli.rs
   - renderer/src/render/stand.rs
   - renderer/tests/fixtures/token.json
+  - renderer/src/cli/token.rs
   - renderer/src/cli/manifest.rs
   - renderer/tests/fixtures/manifest.json
 ---
@@ -53,8 +54,8 @@ dem Plugin-Programmierer ab.
   `download: true`, siehe unten, „Manifest“.
 - **Den Server,** `--serve` mit `--web`, `--listen`, `--threads 1`,
   `--low-priority` und `--exit-with-stdin`, für HTTPS mit `--tls-cert` und
-  `--tls-key`, als eigener Kindprozess neben dem Renderer, siehe
-  [Server](benutzung/server.md).
+  `--tls-key`, für den Download mit `--secret-file`, als eigener
+  Kindprozess neben dem Renderer, siehe [Server](benutzung/server.md).
 
 ## Fortschritt als JSON
 
@@ -152,7 +153,8 @@ token = base64url(inhalt) "." base64url(HMAC-SHA256(geheimnis, inhalt))
 - **Die Unterschrift** ist HMAC-SHA256 über die rohen Bytes von `inhalt`, nicht
   über deren Kodierung, also 32 Byte und 43 Zeichen.
 - **Das Geheimnis** hat genau 32 Byte. Das Plugin erzeugt es beim ersten Start
-  und gibt es dem Server des Renderers. Wie, legt #151 fest.
+  und gibt es dem Server des Renderers als Datei mit `--secret-file`, siehe
+  [Server](benutzung/server.md), „Download“.
 - **Länge:** höchstens 256 Zeichen. Mit dem längsten Baum sind es 198.
 
 ### Inhalt
@@ -194,7 +196,8 @@ frei, die Unterschrift wird in konstanter Zeit verglichen.
 
 Gilt das Token, liefert der Server nur aus dem genannten Baum, nur Stufen
 bis zur genannten, und je Zufall höchstens den Deckel. Was er dabei
-ausliefert, legt #151 fest.
+ausliefert und mit welchem Status er ablehnt, steht in
+[Server](benutzung/server.md), „Download“.
 
 Die Testvektoren nennen zu jedem ungültigen Token einen Grund: `form`,
 `kodierung`, `unterschrift`, `inhalt` oder `abgelaufen`. Ungültige mit

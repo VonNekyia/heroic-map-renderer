@@ -34,6 +34,7 @@ use rayon::prelude::*;
 mod manifest;
 mod schaetzung;
 mod server;
+mod token;
 
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
 /// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
@@ -224,7 +225,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
-        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -286,6 +287,11 @@ pub struct Args {
     /// Mit --tls-cert: der Schlüssel dazu als PEM, PKCS#8, PKCS#1 oder SEC1
     #[arg(long, value_name = "DATEI", requires_all = ["serve", "tls_cert"])]
     tls_key: Option<PathBuf>,
+
+    /// Mit --serve den Download der Karte unter /download/ anbieten, gegen
+    /// Token, die das Plugin mit diesem Geheimnis unterschreibt: genau 32 Byte
+    #[arg(long, value_name = "DATEI", requires = "serve")]
+    secret_file: Option<PathBuf>,
 
     /// Mit --serve enden, sobald stdin schliesst, etwa wenn der Prozess
     /// endet, der den Server startete
@@ -477,6 +483,7 @@ pub fn run() -> Result<()> {
             schreib_zeit: Duration::from_secs(args.write_timeout.unwrap_or(30)),
             ende_mit_stdin: args.exit_with_stdin,
             tls: args.tls_cert.zip(args.tls_key),
+            geheimnis: args.secret_file,
         });
     }
     if let Some(threads) = args.threads {
@@ -5444,6 +5451,7 @@ mod tests {
             "exit_with_stdin",
             "tls_cert",
             "tls_key",
+            "secret_file",
         ];
         for (modus, eigene) in [
             ("pyramid", &["manifest"][..]),

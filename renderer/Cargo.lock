@@ -541,6 +541,7 @@ dependencies = [
  "pollster",
  "rayon",
  "rcgen",
+ "ring",
  "rustls",
  "rustls-pki-types",
  "serde",

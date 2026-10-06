@@ -20,7 +20,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Kacheln exportieren](benutzung/kacheln.md): `--tiles`, Ausschnitte, ein Rechteck der Welt mit `--area`, Ablage, leere Kacheln und `--prune`.
 - [Zoomstufen](benutzung/zoomstufen.md): Verkleinern, Nummerierung, native Stufen, ein Baum je Welt und Kamera.
 - [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md): `--pyramid` während eines Renders und `--resume` nach einem Abbruch.
-- [Server](benutzung/server.md): `--serve` liefert Karte und Kacheln selbst aus; Schalter, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz und das Ende mit stdin.
+- [Server](benutzung/server.md): `--serve` liefert Karte und Kacheln selbst aus; Schalter, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, das Ende mit stdin, HTTPS und der Download mit Token.
 - [Updates](benutzung/updates.md): `--update` zeichnet nur, wo sich die Welt geändert hat; der Stand je Baum, Stempel und Fingerabdruck je Chunk, das Gebiet einer Änderung.
 - [Eigene Laubfarben](benutzung/laubfarben.md): der Vertrag für Laubfarben im PersistentDataContainer des Chunks, `heroicmap:leaf_colors`, Format, Wirkung, falsche Daten und Updates.
 - [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt den Richtungen und `projektion.json`, die Liste der Bäume `trees.json` unter einer Wurzel, die Höhen, Wasserspiegel und Rechteck der Welt und wann die Dateien entstehen.

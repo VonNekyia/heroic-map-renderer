@@ -1,11 +1,12 @@
 ---
 title: "0084: Der Server sitzt im Renderer"
-description: Warum Karte und Kacheln ein Server im Renderer ausliefert, mit hyper und tokio, den Grenzen am offenen Netz und dem Ende mit stdin, warum Seite und Kacheln getrennte Ordner haben und wie Pfade und bedingte Anfragen geprüft werden.
+description: Warum Karte und Kacheln ein Server im Renderer ausliefert, mit hyper und tokio, den Grenzen am offenen Netz, dem Ende mit stdin und dem Download mit Token, warum Seite und Kacheln getrennte Ordner haben und wie Pfade und bedingte Anfragen geprüft werden.
 status: gilt
 date: 2026-10-06
 issues: [151, 152, 153, 154]
 code:
   - renderer/src/cli/server.rs
+  - renderer/src/cli/token.rs
   - renderer/src/cli.rs
   - renderer/Cargo.toml
   - web/headers.json
@@ -62,6 +63,12 @@ die der Renderer währenddessen tauscht. Entschieden hat der Maintainer am
   `.`, nicht am Anfang und nicht am Ende, und kein Gerät von Windows. Alles
   andere gibt `404`, ohne dass der Server den Pfad öffnet. Eine Prüfung
   über Zeichen ist kürzer und sicherer als jede über aufgelöste Pfade.
+- **Download** für den Mod unter `/download/<baum>/`, nur mit
+  `--secret-file` und dem Token aus #154: `map.json`, `manifest` und
+  Kacheln bis zur Stufe des Tokens, mit `private, no-cache`. Die Bytes je
+  Zufall zählt der Server im Speicher, wie #154 es vorsieht; ein Neustart
+  setzt sie zurück. So braucht er weder eine Rückfrage beim Plugin noch
+  eine Datei für den Zustand.
 - **Cache:** `no-cache` mit ETag für alles, ausser den gehashten Dateien der
   Seite unter `/assets/`: Die tragen `max-age=31536000, immutable`.
 - **Bedingte Anfragen auf Gleichheit:** `If-None-Match` gegen das ETag aus

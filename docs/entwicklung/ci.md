@@ -44,6 +44,27 @@ greifen. Ein Test läuft nur dort, siehe [Tests](tests.md), „Laufen
 lassen“. Fällt ein Goldbild, liegt das Ist-Bild als Artefakt am Lauf, siehe
 [Tests](tests.md), „Goldbild“.
 
+## Release
+
+Ein zweiter Workflow,
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml), baut
+die Pakete für [Installation und Releases](../benutzung/installation.md).
+Warum so: [0082](../entscheidungen/0082-versionen-und-releases.md).
+
+| Job | Läuft auf | Was |
+|---|---|---|
+| Linux x64 | Container `quay.io/pypa/manylinux_2_28_x86_64` auf Ubuntu | Release-Build, glibc höchstens 2.28, gepackt unter der Grenze, `--version`, Paket als `.tar.gz` |
+| Windows x64 | Windows | Release-Build, ohne VC++-Laufzeit, gepackt unter der Grenze, `--version`, Paket als `.zip` |
+| Release-Entwurf | Ubuntu | nur auf einem Tag: `SHA256SUMS` und ein Entwurf des Releases mit beiden Paketen |
+
+- **Auslöser:** ein Tag `v*`. Auf einem Tag prüfen beide Builds, dass die
+  Version in `renderer/Cargo.toml` dem Tag gleicht.
+- **Ohne Tag:** Ändert eine PR `release.yml`, laufen die beiden Builds samt
+  Paketen, aber kein Entwurf. Die Pakete liegen als Artefakte am Lauf.
+- **Veröffentlichen** ist Sache des Maintainers, aus dem Entwurf heraus.
+- Die Grenze und die Prüfungen sind dieselben wie in
+  [Weitergabe](weitergabe.md), dort aber am Release-Binär beider Systeme.
+
 ## GPU-Tests in der CI
 
 Die GPU-Tests brauchen einen Adapter. Auf Windows ist WARP dabei, auf

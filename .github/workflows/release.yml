@@ -1,0 +1,155 @@
+name: Release
+
+# Auf einem Tag vX.Y.Z bauen und als Entwurf eines GitHub-Releases ablegen.
+# Ändert eine PR diese Datei, baut sie die Pakete ohne zu veröffentlichen.
+# Siehe docs/entwicklung/ci.md, „Release“.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/release.yml"]
+
+env:
+  CARGO_TERM_COLOR: always
+  # Gepackt höchstens so viele Byte je Binär, siehe
+  # docs/entwicklung/weitergabe.md, „Grenze“.
+  GRENZE: "3730000"
+
+defaults:
+  run:
+    working-directory: renderer
+    shell: bash
+
+jobs:
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # glibc 2.28, AlmaLinux 8: Das Binär läuft ab glibc 2.28, siehe
+    # docs/entwicklung/weitergabe.md, „Linux“.
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    env:
+      PAKET: heroic-map-renderer-linux-x64
+      PYTHON: /opt/python/cp312-cp312/bin/python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Version gegen den Tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: test "v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" = "$GITHUB_REF_NAME"
+
+      - name: Bauen
+        timeout-minutes: 30
+        run: cargo build --release --locked
+
+      - name: glibc und Grösse
+        run: |
+          exe=target/release/heroic-map-renderer
+          glibc=$(objdump -T $exe | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
+          gepackt=$(gzip -6 -c $exe | wc -c)
+          echo "roh $(stat -c %s $exe) Byte, gepackt $gepackt Byte, glibc höchstens $glibc"
+          test "$(printf '%s\n' "$glibc" GLIBC_2.28 | sort -V | tail -1)" = GLIBC_2.28 \
+            || { echo "::error::Das Binär braucht $glibc, mehr als GLIBC_2.28"; exit 1; }
+          test "$gepackt" -le "$GRENZE" \
+            || { echo "::error::Gepackt $gepackt Byte, mehr als die Grenze von $GRENZE"; exit 1; }
+
+      - name: Läuft
+        timeout-minutes: 5
+        run: target/release/heroic-map-renderer --version
+
+      - name: Paket
+        run: |
+          ziel=../dist/$PAKET
+          mkdir -p $ziel
+          cp target/release/heroic-map-renderer ../LICENSE ../NOTICE $ziel/
+          $PYTHON drittlizenzen.py $ziel
+          tar -C ../dist -czf ../dist/$PAKET.tar.gz $PAKET
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      PAKET: heroic-map-renderer-windows-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Version gegen den Tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: test "v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" = "$GITHUB_REF_NAME"
+
+      - name: Bauen
+        timeout-minutes: 30
+        run: cargo build --release --locked
+
+      # Statische CRT aus .cargo/config.toml, siehe
+      # docs/entwicklung/weitergabe.md, „Windows: statische CRT“.
+      - name: Ohne VC++-Laufzeit und Grösse
+        run: |
+          exe=target/release/heroic-map-renderer.exe
+          python -c "import sys; d = open(sys.argv[1], 'rb').read().lower(); sys.exit(any(n in d for n in (b'vcruntime140', b'ucrtbase', b'api-ms-win-crt-')))" $exe \
+            || { echo "::error::Das Binär importiert die VC++-Laufzeit"; exit 1; }
+          gepackt=$(python -c "import sys, zlib; print(len(zlib.compress(open(sys.argv[1], 'rb').read(), 6)))" $exe)
+          echo "roh $(stat -c %s $exe) Byte, gepackt $gepackt Byte"
+          test "$gepackt" -le "$GRENZE" \
+            || { echo "::error::Gepackt $gepackt Byte, mehr als die Grenze von $GRENZE"; exit 1; }
+
+      - name: Läuft
+        timeout-minutes: 5
+        run: target/release/heroic-map-renderer.exe --version
+
+      - name: Paket
+        run: |
+          ziel=../dist/$PAKET
+          mkdir -p $ziel
+          cp target/release/heroic-map-renderer.exe ../LICENSE ../NOTICE $ziel/
+          python drittlizenzen.py $ziel
+          cd ../dist && 7z a -tzip $PAKET.zip $PAKET > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Release-Entwurf
+    needs: [linux, windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Prüfsummen
+        run: cd dist && sha256sum *.tar.gz *.zip > SHA256SUMS && cat SHA256SUMS
+
+      # Nur ein Entwurf: Veröffentlichen ist Sache des Maintainers.
+      - name: Entwurf anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
+            --title "$GITHUB_REF_NAME" --notes "Siehe docs/benutzung/installation.md." \
+            dist/*.tar.gz dist/*.zip dist/SHA256SUMS

@@ -13,6 +13,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Benutzung
 
+- [Installation und Releases](benutzung/installation.md): die Pakete für Windows x64 und Linux x64, Prüfsummen, was das Binär braucht, die Versionen.
 - [Schalter und Beispiele](benutzung/schalter.md): jeder Schalter mit einer Zeile, `--at`, `--block`, `--sprite`, `--render`, `--scan`.
 - [Assets und Biomdaten](benutzung/assets.md): Asset- und Datenwurzeln aus dem Client-JAR, gestapelt.
 - [Welten und Kennung](benutzung/welten.md): Welten ab 26.1, nicht fertig erzeugte Chunks, Weltwurzel, Dimension, Datenversion, Seed, Wasserspiegel, die Kennung im Baum und das Lesen, während der Server schreibt.
@@ -149,6 +150,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0078](entscheidungen/0078-apache-2-0.md): Apache-2.0 statt der eigenen Lizenz aus 0034, Credits über `NOTICE`, der Hinweis auf Mojang, was jeder Weitergabe beiliegt und welche Lizenzen Abhängigkeiten haben dürfen; löst 0034 ab.
 - [0079](entscheidungen/0079-tablett-vertagt-nur-marmor.md): Das Tablett ist vertagt; `skins/tablett` legt vorerst nur den Marmor um die Karte, auch um Welten, die kein Quadrat sind. Das ganze Tablett bleibt als `voll.ts` und wird weiter getestet; ergänzt 0061 und 0063.
 - [0080](entscheidungen/0080-ohne-hintergrundmodus.md): `--low-priority` setzt unter Windows nur `IDLE_PRIORITY_CLASS`, nicht den Hintergrundmodus für I/O und Speicher: Er kostete Läufe 9 bis 35 % und schützte die Tickzeit nicht besser.
+- [0082](entscheidungen/0082-versionen-und-releases.md): Versionen nach SemVer aus `Cargo.toml`, ein Tag `vX.Y.Z` legt einen Release-Entwurf an, Linux gegen glibc 2.28 ohne musl.
 
 ## Messungen
 

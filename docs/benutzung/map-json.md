@@ -201,6 +201,12 @@ die alle Bäume teilen. Entschieden in
   einen `look` nennt, die es nicht gibt, fehlt in der Liste. Der Lauf
   meldet ihn als „übergangen“ und scheitert nicht an ihm; das Frontend
   könnte ihn ohnehin nicht öffnen.
+- **Nur zum Download:** Ein Ordner mit der leeren Datei `nur-download`
+  fehlt in der Liste; der Lauf lässt die Datei stehen. Das Plugin legt sie
+  vor dem ersten Lauf eines Baums an, den die Webkarte nicht zeigen soll.
+  Fehlt sie, ist der Baum öffentlich. Der Server liefert einen markierten
+  Baum nur unter `/download/`, siehe [Server](server.md), „Download“.
+  Entschieden am 06.10. im Review zu #184.
 - **Eine Wurzel, eine Welt und Dimension:** Die Bäume einer Wurzel teilen
   sich die Höhen. Bevor ein Lauf einen Chunk liest, prüft er deshalb jeden
   Baum daneben mit dessen eigener Kennung, siehe

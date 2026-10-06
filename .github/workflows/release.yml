@@ -9,6 +9,10 @@ on:
   pull_request:
     paths: [".github/workflows/release.yml"]
 
+# Nur der Job, der den Entwurf anlegt, darf schreiben.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   # Gepackt höchstens so viele Byte je Binär, siehe
@@ -137,6 +141,8 @@ jobs:
       run:
         working-directory: .
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -145,11 +151,17 @@ jobs:
       - name: Prüfsummen
         run: cd dist && sha256sum *.tar.gz *.zip > SHA256SUMS && cat SHA256SUMS
 
-      # Nur ein Entwurf: Veröffentlichen ist Sache des Maintainers.
+      # Nur ein Entwurf: Veröffentlichen ist Sache des Maintainers. Die
+      # Notizen nennen die Installation und, aus NOTICE, den Hinweis von
+      # Mojang und den Herausgeber; der Text steht nur dort.
       - name: Entwurf anlegen
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          installation="https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/docs/benutzung/installation.md"
+          hinweis=$(sed -n '/^NOT AN OFFICIAL/,/^Herausgeber/p' NOTICE)
+          test -n "$hinweis"
+          printf 'Installation und Prüfsummen: %s\n\n%s\n' "$installation" "$hinweis" > notizen.md
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
-            --title "$GITHUB_REF_NAME" --notes "Siehe docs/benutzung/installation.md." \
+            --title "$GITHUB_REF_NAME" --notes-file notizen.md \
             dist/*.tar.gz dist/*.zip dist/SHA256SUMS

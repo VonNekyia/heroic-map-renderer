@@ -53,6 +53,10 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 - [Plugin](plugin.md): das Paper-Plugin im eigenen Repo, und was es vom Renderer nutzt: Schalter, Ordner der Bäume, den Kopf von `stand-neu.bin`, Ausgabe und Code.
 
+## Mod
+
+- [Mod](https://github.com/VonNekyia/heroic-map-renderer-mod/blob/main/docs/index.md): der Fabric-Mod im eigenen Repo mit Minimap und Vollbildkarte; die Minimap zeichnet er selbst wie `top-north`, die Vollbildkarte lädt er vom Plugin. Sein Wissen steht dort.
+
 ## Entwicklung
 
 - [Aufbau des Codes](entwicklung/aufbau.md): welche Datei was tut.

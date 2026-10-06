@@ -43,6 +43,29 @@ function adresse(wert: string | undefined): URL | undefined {
 const html = (text: string): string =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/**
+ * Füllt die Marker in index.html aus SEITE, maskiert. Ein Block
+ * `<!--mit-X-->…<!--/mit-X-->` fällt ohne seinen Wert ganz weg, mit ihm nur
+ * seine beiden Kommentare. Die Marker ersetzt ein Gang: Steht „%URL%“ im
+ * Titel, bleibt es stehen. Dieselbe Regel hat der Server des Renderers.
+ * Siehe docs/frontend.md, „Seitenangaben“.
+ */
+function fuelle(text: string): string {
+  const { url, titel, beschreibung } = SEITE;
+  const werte: Record<string, string> = {
+    TITEL: titel,
+    BESCHREIBUNG: beschreibung,
+    URL: url?.href ?? '',
+    BILD: url ? new URL(SEITE.bild, url).href : '',
+  };
+  const block = (t: string, name: string, an: boolean) =>
+    t.replace(new RegExp(`<!--${name}-->([\\s\\S]*?)<!--/${name}-->`), (_, inhalt: string) => (an ? inhalt : ''));
+  return block(block(text, 'mit-bild', Boolean(url)), 'mit-url', Boolean(url)).replace(
+    /%(TITEL|BESCHREIBUNG|URL|BILD)%/g,
+    (_, name: string) => html(werte[name]!),
+  );
+}
+
 export default defineConfig({
   // Relative Pfade: die fertige Karte soll auch unter einem Unterpfad
   // liegen koennen, ohne neu gebaut zu werden.
@@ -78,53 +101,26 @@ export default defineConfig({
       },
     },
     {
-      // Titel und Beschreibung immer; was eine absolute Adresse braucht,
-      // nur mit SITE_URL.
+      // Die Tags stehen alle in index.html, mit Markern. Der Devserver füllt
+      // sie; der Build legt die Seite ungefüllt als seite.html ab, für den
+      // Server des Renderers, und füllt index.html. Siehe docs/frontend.md,
+      // „Seitenangaben“.
       name: 'seite',
-      transformIndexHtml(text) {
-        const kopf = text
-          .replaceAll('%TITEL%', html(SEITE.titel))
-          .replaceAll('%BESCHREIBUNG%', html(SEITE.beschreibung));
-        const { url } = SEITE;
-        if (!url) return kopf;
-        const bild = new URL(SEITE.bild, url).href;
-        const meta = (property: string, content: string) => ({
-          tag: 'meta',
-          attrs: { property, content },
-          injectTo: 'head' as const,
-        });
-        return {
-          html: kopf,
-          tags: [
-            { tag: 'link', attrs: { rel: 'canonical', href: url.href }, injectTo: 'head' },
-            meta('og:url', url.href),
-            meta('og:image', bild),
-            meta('og:image:alt', `Ausschnitt der Karte: ${SEITE.titel}`),
-            {
-              tag: 'meta',
-              attrs: { name: 'twitter:card', content: 'summary_large_image' },
-              injectTo: 'head',
-            },
-          ],
-        };
-      },
+      transformIndexHtml: { order: 'post', handler: (text, { server }) => (server ? fuelle(text) : text) },
       // Suchmaschinen finden die Seite, rufen aber nicht jede Kachel ab;
       // trees.json und die map.json der Bäume brauchen sie, um die Seite zu
       // rendern; `tiles/map.json` für einen Baum ohne Liste. Der Pfad zählt
       // ab der Wurzel der Domain.
       generateBundle() {
-        const pfad = SEITE.url?.pathname ?? '/';
-        const erlaubt = ['trees.json', '*/map.json', 'map.json'];
-        this.emitFile({
-          type: 'asset',
-          fileName: 'robots.txt',
-          source: [
-            'User-agent: *',
-            ...erlaubt.map((datei) => `Allow: ${pfad}tiles/${datei}`),
-            `Disallow: ${pfad}tiles/`,
-            '',
-          ].join('\n'),
-        });
+        const vorlage = ['User-agent: *', ...['trees.json', '*/map.json', 'map.json'].map((d) => `Allow: %PFAD%tiles/${d}`), 'Disallow: %PFAD%tiles/', ''].join('\n');
+        this.emitFile({ type: 'asset', fileName: 'robots.vorlage.txt', source: vorlage });
+        this.emitFile({ type: 'asset', fileName: 'robots.txt', source: vorlage.replaceAll('%PFAD%', SEITE.url?.pathname ?? '/') });
+      },
+      writeBundle({ dir }) {
+        if (!dir) return;
+        const vorlage = readFileSync(join(dir, 'index.html'), 'utf8');
+        writeFileSync(join(dir, 'seite.html'), vorlage);
+        writeFileSync(join(dir, 'index.html'), fuelle(vorlage));
       },
     },
     {

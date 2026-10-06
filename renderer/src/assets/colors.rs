@@ -96,10 +96,31 @@ pub fn source_of(block: &str) -> Option<Source> {
 }
 
 /// Ob eigene Laubfarben aus den Chunk-Daten auf einem Block wirken: auf
-/// tönbarem Laub, auch auf Fichte und Birke mit fester Farbe.
+/// tönbarem Laub, auch auf Fichte und Birke mit fester Farbe, und auf dem
+/// Laub aus [`ungetoentes_laub`].
 /// Siehe docs/benutzung/laubfarben.md.
 pub fn eigene_laubfarbe(block: &str) -> bool {
-    split_id(block).1.ends_with("_leaves") && source_of(block).is_some()
+    (split_id(block).1.ends_with("_leaves") && source_of(block).is_some())
+        || ungetoentes_laub(block)
+}
+
+/// Laub, das das Spiel nicht tönt, das mit einer eigenen Laubfarbe aber eine
+/// graue Kopie bekommt, getönt: Azalee, blühende Azalee, Kirsche, Blasse
+/// Eiche und die drei Pappeln aus 26.3.
+/// Siehe docs/benutzung/laubfarben.md, „Wirkung“.
+pub fn ungetoentes_laub(block: &str) -> bool {
+    matches!(
+        block.strip_prefix("minecraft:"),
+        Some(
+            "azalea_leaves"
+                | "flowering_azalea_leaves"
+                | "cherry_leaves"
+                | "pale_oak_leaves"
+                | "red_poplar_leaves"
+                | "orange_poplar_leaves"
+                | "yellow_poplar_leaves"
+        )
+    )
 }
 
 /// Die Tönung einer eigenen Laubfarbe: Bit 16 bis 23 rot, 8 bis 15 grün,

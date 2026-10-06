@@ -66,8 +66,10 @@ dem Plugin-Programmierer ab.
   der Bäume“.
 - **Den Server,** `--serve` mit `--web`, `--listen`, `--threads 1`,
   `--low-priority` und `--exit-with-stdin`, für HTTPS mit `--tls-cert` und
-  `--tls-key`, für den Download mit `--secret-file`, als eigener
-  Kindprozess neben dem Renderer, siehe [Server](benutzung/server.md).
+  `--tls-key`, für den Download mit `--secret-file`, für Adresse, Titel,
+  Beschreibung und Bild der Seite mit `--site-*` aus seiner Konfiguration,
+  als eigener Kindprozess neben dem Renderer, siehe
+  [Server](benutzung/server.md).
 
 ## Fortschritt als JSON
 

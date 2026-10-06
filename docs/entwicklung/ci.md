@@ -142,5 +142,10 @@ nichts mehr findet. Lokal aus der Wurzel des Repositorys:
 bash .github/pruefe-doku.sh
 ```
 
+Weitere Argumente sind Pfadangaben von Git für die Suche nach Verweisen im
+Code. Das Plugin nimmt so seine wörtlichen Kopien der Testvektoren aus,
+deren Beschreibung auf `docs/plugin.md` hier zeigt:
+`bash .github/pruefe-doku.sh ':!src/test/resources/*.json'`.
+
 Die Prüfung sieht nur, was Git verfolgt: eine neue Seite erst nach
 `git add`.

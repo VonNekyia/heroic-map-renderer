@@ -51,7 +51,7 @@ Texte.
 | `--pyramid DIR` | Zoomstufen und `map.json` aus den Basiskacheln nachbauen, ohne Welt und Assets; daneben nur `--threads`, `--low-priority` und `--manifest` | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--manifest` | mit `--tiles` oder `--pyramid`: am Ende das Manifest des Baums schreiben, je Kachel Grösse und ETag, für den Download; ohne entfernt ein Lauf, der Kacheln schreibt, ein altes | [Plugin](../plugin.md), „Manifest“ |
 | `--serve DIR` | die Wurzel von `--tiles` unter `/tiles/` ausliefern, mit `--web` die Karte dazu; daneben nur `--threads`, `--low-priority` und seine eigenen Schalter | [Server](server.md) |
-| `--web DIR`, `--listen ADRESSE:PORT`, `--max-connections N`, `--header-timeout S`, `--max-header-bytes N`, `--max-headers N`, `--write-timeout S`, `--exit-with-stdin`, `--tls-cert DATEI`, `--tls-key DATEI`, `--secret-file DATEI` | nur mit `--serve`: Seite, Adresse, Grenzen am offenen Netz, Ende mit stdin, HTTPS, Download | [Server](server.md), „Aufruf“ |
+| `--web DIR`, `--listen ADRESSE:PORT`, `--max-connections N`, `--header-timeout S`, `--max-header-bytes N`, `--max-headers N`, `--write-timeout S`, `--exit-with-stdin`, `--tls-cert DATEI`, `--tls-key DATEI`, `--secret-file DATEI`, `--site-url URL`, `--site-title TEXT`, `--site-description TEXT`, `--site-image PFAD` | nur mit `--serve`: Seite, Adresse, Grenzen am offenen Netz, Ende mit stdin, HTTPS, Download, Angaben der Seite | [Server](server.md), „Aufruf“ |
 | `--heights DIR` | die Höhen für die Koordinatenanzeige in einen bestehenden Baum schreiben, ohne zu rendern; `DIR` ist der Ordner des Baums; braucht nur `--world` | [map.json](map-json.md), „Höhen“ |
 
 ## Einen Block ansehen: `--at`

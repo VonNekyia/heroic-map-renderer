@@ -1,6 +1,6 @@
 ---
 title: "Server: --serve"
-description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin und den Download mit Token für den Mod.
+description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin, den Download mit Token für den Mod und die Angaben der Seite zur Laufzeit.
 code:
   - renderer/src/cli/server.rs
   - renderer/src/cli/token.rs
@@ -39,6 +39,8 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --listen 0.0.0.0:8080
 | `--tls-cert DATEI` | ohne: HTTP | HTTPS: die Kette der Zertifikate als PEM, das eigene zuerst |
 | `--tls-key DATEI` | – | der Schlüssel dazu als PEM, PKCS#8, PKCS#1 oder SEC1 |
 | `--secret-file DATEI` | ohne: kein Download | das Geheimnis der Token, genau 32 Byte; der Download unter `/download/` |
+| `--site-url URL`, `--site-title TEXT`, `--site-description TEXT` | ohne: die Seite des Builds | Adresse, Titel und Beschreibung der Seite, nur zusammen, siehe „Angaben der Seite“ |
+| `--site-image PFAD` | ohne: kein Vorschaubild | das Vorschaubild, relativ zur Adresse oder absolut |
 
 Daneben nimmt `--serve` keinen Schalter des Exports an. Die erste Zeile der
 Ausgabe nennt die Adresse, auch den Port, den das System bei `0` wählt:
@@ -169,6 +171,43 @@ Stirbt die JVM, auch hart, schliesst das System die Pipe, und der Server
 endet mit ihr; er hält den Port nicht als Waise fest. Ohne den Schalter
 läuft er weiter, auch mit stdin aus `/dev/null`.
 
+## Angaben der Seite
+
+Mit `--site-url`, `--site-title` und `--site-description` setzt der Server
+Adresse, Titel und Beschreibung zur Laufzeit in die gebaute Seite, dazu mit
+`--site-image` das Vorschaubild. So braucht ein Betreiber von Plugin oder
+EXE keinen eigenen Build. Die Regel für Marker und Blöcke steht in
+[Frontend](../frontend.md), „Seitenangaben“, warum es sie gibt, in
+[0085](../entscheidungen/0085-seitenangaben-zur-laufzeit.md).
+
+```bash
+heroic-map-renderer --serve ./tiles --web ./web/dist --site-url https://example.org/karte/ --site-title "Unsere Welt" --site-description "Die Karte unseres Servers." --site-image vorschau.jpg
+```
+
+- **Zusammen:** `--site-url`, `--site-title` und `--site-description` nur
+  alle drei und nur mit `--web`; `--site-image` nur mit ihnen. Ohne
+  liefert der Server die Seite, wie der Build sie schrieb. Ein leerer Titel
+  oder eine leere Beschreibung beendet den Start: Anders als der Build hat
+  der Server keine Vorgabe, auf die er zurückfiele.
+- **Adresse:** nur `http://` oder `https://` mit Host, ohne Leerzeichen,
+  Anführungszeichen, `<`, `>`, `&`, `\`, `?` und `#`; ohne `/` am Ende
+  hängt der Server eins an. Sonst startet er nicht.
+- **Bild:** eine Adresse wie oben, oder ein Pfad relativ zur Adresse, ein
+  `./` vorn gestrichen, ohne `/` am Anfang, ohne `.` und `..` als Teil und
+  ohne `:`. Ohne `--site-image` fällt der Bild-Block weg.
+- **Was er liefert:** für `/` und `/index.html` die gefüllte `seite.html`
+  aus `--web`, für `/robots.txt` die gefüllte `robots.vorlage.txt` mit dem
+  Pfad der Adresse, beide in jeder Schreibung. Beide mit den Headern der Karte und `no-cache`, ohne
+  ETag: Derselbe Build gibt mit anderen Angaben eine andere Seite. Er liest
+  die Vorlagen bei jeder Anfrage, so passt die Seite auch nach einem neuen
+  Build zu dessen Dateien unter `assets/`.
+- **Die Vorlagen selbst** geben `404`, `seite.html` und
+  `robots.vorlage.txt` in jeder Schreibung, auch ohne `--site-*`.
+- **Ohne `seite.html` oder `robots.vorlage.txt`** in `--web`, etwa bei
+  einem Build von vor #151 oder einer halb ausgepackten Seite, startet er
+  mit `--site-*` nicht. Ohne die Vorlage gäbe `/robots.txt` `404`, und
+  Crawler nähmen alles für erlaubt, auch `/tiles/`.
+
 ## HTTPS
 
 Mit `--tls-cert` und `--tls-key` spricht der Server nur HTTPS, TLS 1.3, auf
@@ -266,9 +305,11 @@ der Handschlag, der Tausch ohne Neustart, ein kaputtes Neues und ein Start
 ohne gültiges Zertifikat; dazu der Download mit Token, die der Test selbst
 unterschreibt: jeder Status, Baum und Stufe, der Deckel je Zufall, das
 Geheimnis, ein einzelner Baum als Wurzel und dass `/tiles/` nur Bäume aus
-`trees.json` liefert. In [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
+`trees.json` liefert; dazu die Angaben der Seite mit Vorlagen von Hand. In
+[`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
 prüfen Tests das Tauschen, die Pfade, die Zeit, das Schreiben ohne
-Fortschritt, das Zählen bis zum Deckel und dass sich `web/headers.json`
-lesen lässt. In [`renderer/src/cli/token.rs`](../../renderer/src/cli/token.rs)
+Fortschritt, das Zählen bis zum Deckel, dass sich `web/headers.json`
+lesen lässt, das Füllen und Prüfen der Angaben und das Füllen der echten
+`web/index.html`. In [`renderer/src/cli/token.rs`](../../renderer/src/cli/token.rs)
 prüft ein Test jedes Token aus
 [`token.json`](../../renderer/tests/fixtures/token.json).

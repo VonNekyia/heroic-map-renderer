@@ -13,6 +13,10 @@ code:
 
 # 0081: Eigene Laubfarben als Tönung aus dem PDC
 
+Im Punkt „hell“ abgelöst durch
+[0088](0088-helles-laub-aus-dem-spiel.md): Bit 24 tauscht die Farben der
+Blatttextur wie der Client, statt der Näherung unten.
+
 ## Anlass
 
 Bäume eines Plugins tragen eigene Farben (#156). Der Maintainer entschied

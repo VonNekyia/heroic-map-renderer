@@ -55,6 +55,9 @@ pub struct SpriteSet {
     /// Je Familie von Laub mit fester Farbe, auf dem eine eigene Laubfarbe
     /// liegt, die Familie mit Tönungskarte, siehe [`SpriteSet::add_laub`].
     by_laub: HashMap<u32, u32>,
+    /// Je Familie von Laub, auf dem eine eigene Laubfarbe mit Bit 24 liegt,
+    /// die Familie mit der helleren Textur, siehe [`SpriteSet::add_laub`].
+    by_hell: HashMap<u32, u32>,
     /// Fassungen einer Fluessigkeit: je Maske aus verdeckten Flaechen
     /// (`mask_bit`) eine, Index `mask`. Eintrag 0 ist das Sprite selbst.
     by_mask: HashMap<SpriteId, Vec<Option<SpriteId>>>,
@@ -571,6 +574,7 @@ impl SpriteSet {
             by_state: HashMap::new(),
             by_entity: HashMap::new(),
             by_laub: HashMap::new(),
+            by_hell: HashMap::new(),
             by_mask: HashMap::new(),
             by_content: HashMap::new(),
             strips: HashMap::new(),
@@ -725,15 +729,45 @@ impl SpriteSet {
     /// Nimmt Laub mit fester Farbe auf, Fichte und Birke, auf dem eine
     /// eigene Laubfarbe liegt: je Familie eine zweite mit Tönungskarte, die
     /// der Renderpfad nur an Stellen mit eigener Farbe nimmt, siehe
-    /// [`SpriteSet::laub_variante`]. Jede andere Stelle behält das Bild mit
-    /// der festen Farbe. Nach [`SpriteSet::build_in`] mit denselben
-    /// Blockstates.
-    /// Siehe docs/entscheidungen/0081-eigene-laubfarben.md.
+    /// [`SpriteSet::laub_variante`]. Dazu `hell`, Laub mit Bit 24: je Familie
+    /// eine mit der helleren Textur, Fichte und Birke mit Tönungskarte, siehe
+    /// [`SpriteSet::hell_variante`]. Jede andere Stelle behält ihr Bild.
+    /// Nach [`SpriteSet::build_in`] mit denselben Blockstates.
+    /// Siehe docs/entscheidungen/0081-eigene-laubfarben.md und
+    /// docs/entscheidungen/0088-helles-laub-aus-dem-spiel.md.
     pub fn add_laub<'a>(
         &mut self,
         assets: &mut Assets,
         states: impl IntoIterator<Item = &'a BlockState>,
+        hell: impl IntoIterator<Item = &'a BlockState>,
     ) -> Result<()> {
+        for state in hell {
+            let Some(basis) = self.family_index(state) else {
+                continue;
+            };
+            if self.by_hell.contains_key(&basis) {
+                continue;
+            }
+            let mut models = models_of(assets, state, None)?;
+            let mut getauscht = false;
+            for quad in models.iter_mut().flat_map(|(_, model)| &mut model.quads) {
+                let neu = assets.hell_textur(quad.texture);
+                getauscht |= neu != quad.texture;
+                quad.texture = neu;
+            }
+            // Ohne Farbe aus der Tabelle sieht „hell“ aus wie ohne Bit 24.
+            if !getauscht {
+                continue;
+            }
+            let pflanze = self.kino.is_some() && assets.bodenpflanze(state)?;
+            self.festes_laub = true;
+            let family = self.rastere_familie(assets, state, &models, pflanze);
+            self.festes_laub = false;
+            if let Some(family) = family {
+                self.by_hell.insert(basis, self.families.len() as u32);
+                self.families.push(family);
+            }
+        }
         for state in states {
             let Some(basis) = self.family_index(state) else {
                 continue;
@@ -758,6 +792,12 @@ impl SpriteSet {
     /// [`SpriteSet::add_laub`] sie angelegt hat.
     pub fn laub_variante(&self, family: u32) -> Option<u32> {
         self.by_laub.get(&family).copied()
+    }
+
+    /// Die Familie mit der helleren Textur zu Laub mit Bit 24, falls
+    /// [`SpriteSet::add_laub`] sie angelegt hat.
+    pub fn hell_variante(&self, family: u32) -> Option<u32> {
+        self.by_hell.get(&family).copied()
     }
 
     /// Rastert die Alternativen einer Blockstate zu einer Familie, `None`,

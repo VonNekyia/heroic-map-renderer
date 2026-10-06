@@ -4,6 +4,7 @@ pub mod blockstate;
 pub mod colors;
 pub mod dimension;
 pub mod fluid;
+pub mod hell;
 pub mod model;
 pub mod noise;
 pub mod pack;
@@ -256,6 +257,12 @@ impl Assets {
 
     pub fn textures(&self) -> &Textures {
         &self.textures
+    }
+
+    /// Die hellere Fassung einer Blatttextur für Bit 24 einer eigenen
+    /// Laubfarbe, siehe [`Textures::hell`].
+    pub fn hell_textur(&mut self, id: TextureId) -> TextureId {
+        self.textures.hell(id)
     }
 
     fn find(&self, namespace: &str, kind: &str, path: &str, extension: &str) -> Option<&Path> {

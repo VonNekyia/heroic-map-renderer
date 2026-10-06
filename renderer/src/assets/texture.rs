@@ -135,6 +135,36 @@ impl Textures {
         self.eigenschaften.get(id.0 as usize)?.fuellung
     }
 
+    /// Die hellere Fassung einer Blatttextur für Bit 24 einer eigenen
+    /// Laubfarbe, einmal angelegt, ohne `dark_cutout`: Das Spiel legt sie ohne
+    /// `.mcmeta` an. `id` selbst für eine Textur ohne Tabelle und für eine,
+    /// in der keine Farbe der Tabelle vorkommt, etwa aus einem Resourcepack.
+    /// Siehe docs/benutzung/laubfarben.md, „Wirkung“.
+    pub fn hell(&mut self, id: TextureId) -> TextureId {
+        let name = self.name(id).to_string();
+        let Some(tausch) = super::hell::tausch(&name) else {
+            return id;
+        };
+        let schluessel = format!("{name}#hell");
+        if let Some(&da) = self.ids.get(&schluessel) {
+            return da;
+        }
+        let bild = super::hell::hell(self.image(id), tausch);
+        let neu = match bild != *self.image(id) {
+            true => {
+                let groesse = (bild.width(), bild.height());
+                self.eigenschaften
+                    .push(eigenschaften(&bild, groesse, &[(0, 0)], false));
+                self.images.push(bild);
+                self.names.push(schluessel.clone());
+                TextureId(self.images.len() as u32 - 1)
+            }
+            false => id,
+        };
+        self.ids.insert(schluessel, neu);
+        neu
+    }
+
     /// Nimmt ein Bild als Textur auf, statisch und ohne Datei.
     #[cfg(test)]
     pub(crate) fn einfuegen(&mut self, name: &str, image: RgbaImage, dunkel: bool) -> TextureId {
@@ -488,6 +518,35 @@ fn placeholder() -> RgbaImage {
 
 #[cfg(test)]
 mod tests {
+    /// Die helle Fassung tauscht die Farben der Tabelle, hat kein
+    /// `dark_cutout` und entsteht einmal; ohne Farbe aus der Tabelle und für
+    /// eine Textur ohne Tabelle bleibt es dieselbe Textur.
+    #[test]
+    fn helle_fassung_ohne_dark_cutout() {
+        use super::{RgbaImage, Textures};
+        let mut textures = Textures::new();
+        let bild = |rgb: [u8; 3]| {
+            RgbaImage::from_fn(2, 1, |x, _| {
+                image::Rgba([rgb[0], rgb[1], rgb[2], [255, 0][x as usize]])
+            })
+        };
+        let eiche =
+            textures.einfuegen("minecraft:block/oak_leaves", bild([0x68, 0x64, 0x68]), true);
+        assert!(textures.fuellung(eiche).is_some());
+        let hell = textures.hell(eiche);
+        assert_ne!(hell, eiche);
+        assert_eq!(
+            textures.image(hell).get_pixel(0, 0).0,
+            [0xa8, 0xa4, 0xa8, 255]
+        );
+        assert_eq!(textures.fuellung(hell), None);
+        assert_eq!(textures.hell(eiche), hell);
+        let fremd = textures.einfuegen("minecraft:block/birch_leaves", bild([1, 2, 3]), false);
+        assert_eq!(textures.hell(fremd), fremd);
+        let stein = textures.einfuegen("minecraft:block/stone", bild([0x68, 0x64, 0x68]), false);
+        assert_eq!(textures.hell(stein), stein);
+    }
+
     use super::*;
 
     /// Jede 16 Pixel hohe Zeile bekommt ihre Nummer als Rotwert.

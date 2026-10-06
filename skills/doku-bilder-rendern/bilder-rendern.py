@@ -45,6 +45,9 @@ KAMERAS = ("2:1", "4:3", "1:1", "top")
 GENORDET = ("top-north", "north-45")
 ZIEL = (-352, 64, 578)
 FELD = (640, 480)
+# Das Dorf aus README als Karte und mit --cinematic nebeneinander, für das
+# README: --center X Z, --scale, --size, Zuschnitt.
+KINO = ((-416, 514), 32, 1400, (250, 440, 1050, 1040))
 # Der Banner: dieser Ausschnitt von "welt" vor dem Zuschnitt, darüber die
 # Ebenen aus docs/bilder/quellen/banner.aseprite.
 BANNER = (520, 690, 1800, 1090)
@@ -91,6 +94,15 @@ def webp(bild, name):
     bild.convert("RGB").save(BILDER / f"{name}.webp", lossless=True, quality=100, method=6)
 
 
+def nebeneinander(felder):
+    """Gleich grosse Felder in einer Reihe, LUECKE Pixel weiss dazwischen."""
+    breite, hoehe = felder[0].size
+    reihe = Image.new("RGBA", (len(felder) * (breite + LUECKE) - LUECKE, hoehe), (255, 255, 255, 255))
+    for i, feld in enumerate(felder):
+        reihe.paste(feld, (i * (breite + LUECKE), 0))
+    return reihe
+
+
 def main():
     renderer = sys.argv[1]
     daten = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".")
@@ -110,11 +122,7 @@ def main():
                 png = Path(tmp) / f"{name}-{blend}.png"
                 rendern(renderer, daten, png, center, scale, size, ["--biome-blend", blend])
                 felder.append(Image.open(png).convert("RGBA").crop(box))
-            breite, hoehe = felder[0].size
-            paar = Image.new("RGBA", (2 * breite + LUECKE, hoehe), (255, 255, 255, 255))
-            for i, feld in enumerate(felder):
-                paar.paste(feld, (i * (breite + LUECKE), 0))
-            webp(paar, name)
+            webp(nebeneinander(felder), name)
         felder = []
         for kamera in KAMERAS:
             png = Path(tmp) / f"kamera-{kamera.replace(':', 'x')}.png"
@@ -131,10 +139,14 @@ def main():
             rendern(renderer, daten, png, mitte(kamera, ZIEL), 16, FELD[0], ["--camera", kamera])
             oben = (FELD[0] - FELD[1]) // 2
             felder.append(Image.open(png).convert("RGBA").crop((0, oben, FELD[0], oben + FELD[1])))
-        paar = Image.new("RGBA", (2 * FELD[0] + LUECKE, FELD[1]), (255, 255, 255, 255))
-        for i, feld in enumerate(felder):
-            paar.paste(feld, (i * (FELD[0] + LUECKE), 0))
-        webp(paar, "genordet")
+        webp(nebeneinander(felder), "genordet")
+        center, scale, size, box = KINO
+        felder = []
+        for name, extra in (("karte", []), ("cinematic", ["--cinematic"])):
+            png = Path(tmp) / f"kino-{name}.png"
+            rendern(renderer, daten, png, center, scale, size, extra)
+            felder.append(Image.open(png).convert("RGBA").crop(box))
+        webp(nebeneinander(felder), "karte-cinematic")
         # Cinematic mit Werten des Looks, die kein Schalter bietet: der
         # ignorierte Test bilder_zu_cinematic, gebaut aus diesem Checkout.
         subprocess.run(

@@ -8,16 +8,20 @@
   <img alt="Renderer in Rust" src="https://img.shields.io/badge/Renderer-Rust-b7410e">
   <img alt="Grafikkarte über Vulkan oder DX12" src="https://img.shields.io/badge/GPU-Vulkan_%C2%B7_DX12-4a6fa5">
   <img alt="Frontend mit Leaflet" src="https://img.shields.io/badge/Frontend-Leaflet-199900">
+  <a href="#ai-driven-development-human-driven-design"><img alt="AI driven development, human driven design" src="https://img.shields.io/badge/AI_driven_development-human_driven_design-6e4aa5"></a>
 </p>
 
 **Heroic Map Renderer** zeichnet Minecraft-Java-Welten als isometrische
 Karte. Jeder Block kommt mit seinem Modell, seiner Textur, seiner Biomfarbe
 und seinem Licht aufs Bild, so wie der Client ihn zeichnet. Heraus kommen
 WebP-Kacheln, die ein schlankes Leaflet-Frontend zeigt. Der Browser rendert
-keine Geometrie, nur fertige Bilder.
+keine Geometrie, nur fertige Bilder. Dazu gehören ein Server, ein
+Paper-Plugin und ein Fabric-Mod mit Minimap.
 
 ```
-Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet
+Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet im Browser
+                                         ^                    |
+                          Paper-Plugin startet ihn             +->  Mod: Karte im Spiel
 ```
 
 <p align="center">
@@ -28,11 +32,11 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet
 
 | | |
 |---|---|
-| **1 700 bis 1 800 Kacheln/s** | Basis der grossen Welt auf 24 Threads mit Grafikkarte, gemessen an einem Ausschnitt von 65 536 Kacheln, siehe [Biomübergänge](docs/messungen/2026-09-27-biomuebergaenge.md) |
-| **66 Minuten** | für eine Welt mit 2,5 Millionen Basiskacheln, ganz gemessen mit #21, mit Live-Ansicht nebenher, siehe [Vollrender mit #21](docs/messungen/2026-09-27-vollrender-mit-21.md) |
+| **rund 950 Kacheln/s** | Basis der grossen Welt bei scale 32 auf 24 Threads mit Grafikkarte, im ganzen Lauf gemessen, mit Live-Ansicht nebenher, siehe [Vollrender mit #49](docs/messungen/2026-09-29-vollrender-mit-49.md) |
+| **95 Minuten** | für die grosse Welt mit 2,5 Millionen Basiskacheln bei scale 32, samt drei nativen Stufen, 188 GB, ebenda |
 | **Byte für Byte** | dasselbe Bild auf der CPU und auf der Grafikkarte, von der CI geprüft, siehe [Grafikkarte](docs/benutzung/grafikkarte.md) |
-| **verlustfrei** | WebP über libwebp, Pixel für Pixel; die grosse Welt gemessen 184 GB an Dateien, auf der Platte rund 194 GB |
-| **7 Minuten** | für die ganze Testwelt bei scale 32 mit allen Stufen, hochgerechnet, rund 26 GB |
+| **verlustfrei** | WebP über libwebp, Pixel für Pixel |
+| **vorher geschätzt** | `--estimate` nennt Dauer und Platz als Spanne, bevor ein Lauf beginnt, siehe [Was ein Lauf kostet](docs/benutzung/kosten.md) |
 
 ## Was drin ist
 
@@ -41,17 +45,115 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet
   mit ihren Fallstufen, jeder Block im Licht des Spiels, jede Fläche weich
   beleuchtet wie im Client der Welt. Das Verhalten ist am Code des Spiels belegt, siehe den
   [Wegweiser](docs/index.md).
+- **Cinematic:** dieselbe Karte im Licht des Spiels in HDR, mit Sonne und
+  Schatten, siehe [Karte und Cinematic](#karte-und-cinematic).
 - **Schnell:** Bitmasken statt Blockbesuche, ein Cache je Thread, Zeichnen
   auf der Grafikkarte über Vulkan oder DX12. Ohne Karte zeichnet die CPU
   dasselbe Bild.
-- **Kameras:** 2:1 als Vorgabe, mit `--camera` jede Raute bis 1:1 oder
-  die Draufsicht, dazu genordet von oben oder schräg, jede aus vier
-  Richtungen mit `--direction`, siehe
-  [Die Kamera](docs/renderer/kamera.md).
+- **Kameras:** schräg in jeder Raute von 2:1 bis 1:1, von oben über Eck
+  oder genordet, jede aus vier Richtungen, siehe [Kameras](#kameras).
 - **Für grosse Welten:** Zoomstufen darüber, native Stufen auf Wunsch,
-  `--resume` nach einem Abbruch, Zusehen während eines Renders.
+  `--resume` nach einem Abbruch, `--update` zeichnet nur, wo sich die Welt
+  geändert hat, Zusehen während eines Renders.
+- **Assets von Mojang:** Mit `--download-client-jar` lädt der Renderer das
+  Client-JAR selbst und nimmt Texturen, Modelle und Biome daraus, nur mit
+  deiner Zustimmung, siehe [Assets](docs/benutzung/assets.md), „Von Mojang
+  laden“.
+- **Eigene Laubfarben:** Ein Plugin kann Laub über die Chunk-Daten
+  einfärben, so wie im Spiel, siehe
+  [Eigene Laubfarben](docs/benutzung/laubfarben.md).
+- **Server:** `--serve` liefert Karte und Kacheln selbst aus, mit HTTPS,
+  Grenzen für das offene Netz und Titel, Beschreibung und Vorschaubild zur
+  Laufzeit, siehe [Server](docs/benutzung/server.md).
 - **Schlankes Frontend:** Leaflet mit Vite und TypeScript. Es lädt nur
-  Kacheln und `map.json`.
+  Kacheln, `map.json` und die Höhen für die Koordinaten.
+
+## Plugin und Mod
+
+| | |
+|---|---|
+| **Paper-Plugin**<br>[heroic-map-renderer-plugin](https://github.com/VonNekyia/heroic-map-renderer-plugin) | rendert die Welt neben dem Spielserver, als Vorgabe mit einem Kern und niedrigster Priorität, hält die Karte mit Updates aktuell und startet den Webserver. Spielern mit dem Mod bietet es die Karte zum Download an, mit Token und Grenzen gegen Missbrauch. Was es vom Renderer nutzt: [Plugin](docs/plugin.md) |
+| **Fabric-Mod**<br>[heroic-map-renderer-mod](https://github.com/VonNekyia/heroic-map-renderer-mod) | eine Minimap, die er selbst zeichnet wie `top-north`; eine Vollbildkarte aus den Kacheln, die er vom Plugin lädt; darüber eine Live-Ebene mit allem, was sich seit dem letzten Lauf geändert hat |
+
+<table>
+  <tr>
+    <td width="33%"><img src="https://raw.githubusercontent.com/VonNekyia/heroic-map-renderer-mod/main/docs/bilder/minimap-4px.png" alt="Die Minimap des Mods mit 4 Pixeln je Block"></td>
+    <td width="67%"><img src="https://raw.githubusercontent.com/VonNekyia/heroic-map-renderer-mod/main/docs/bilder/live.png" alt="Die Vollbildkarte des Mods mit der Live-Ebene über den Kacheln"></td>
+  </tr>
+  <tr>
+    <td>Die Minimap, 4 Pixel je Block</td>
+    <td>Die Vollbildkarte; das Stück in der Mitte ist die Live-Ebene</td>
+  </tr>
+</table>
+
+Beide Bilder stammen aus Gametests des Mods.
+
+## Karte und Cinematic
+
+<p align="center">
+  <img src="docs/bilder/karte-cinematic.webp" alt="Dasselbe Dorf links als Karte, rechts mit Cinematic: Häuser werfen Schatten, das Wasser ist tiefer und spiegelt">
+</p>
+
+Links die Karte, rechts dasselbe Dorf mit `--cinematic`. Cinematic zeichnet
+im Licht des Spiels in HDR: Die Sonne wirft harte Schatten aus einem
+exakten Strahl, Wasser spiegelt den Himmel seines Bioms, Leuchtendes
+leuchtet, Wärme und Kälte folgen dem Biom, dazu Bloom. Ein Lauf braucht das
+2,15- bis 3,63-Fache der Karte und zeichnet immer auf der CPU. Mehr unter
+[Cinematic](docs/renderer/cinematic.md). Das Dorf aus der Testwelt bei
+scale 32, Stand `524990e`.
+
+## Kameras
+
+| Kamera | Blick | Fläche gegen 2:1 |
+|---|---|---|
+| `2:1`, die Vorgabe | schräg, 35,3° | 1 |
+| `16:9` | schräg, 38,5° | 1,13 |
+| `8:5` | schräg, 41,5° | 1,25 |
+| `4:3` | schräg, 46,7° | 1,5 |
+| `1:1` | schräg, 54,7° | 2 |
+| `top` | von oben, über Eck | 2 |
+| `top-north` | von oben, genordet | 4 |
+| `north-45` | genordet, unter 45° | 4 |
+
+- **Jede Raute** zwischen 2:1 und 1:1 geht mit `--camera W:H`, die Tabelle
+  nennt die üblichen.
+- **Jede Kamera** blickt mit `--direction` aus vier Richtungen.
+- **Fläche gegen 2:1** heisst: so viele Kacheln, so viel Platz und etwa so
+  viel Zeit beim selben scale.
+
+<p align="center">
+  <img src="docs/bilder/kameras.webp" alt="Dasselbe Dorf in 2:1, 4:3, 1:1 und von oben">
+</p>
+<p align="center">
+  <img src="docs/bilder/genordet.webp" alt="Dasselbe Dorf in top-north und north-45">
+</p>
+
+Oben 2:1, 4:3, 1:1 und `top`, darunter `top-north` und `north-45`, je
+scale 16. Wie die Kameras rechnen: [Die Kamera](docs/renderer/kamera.md).
+
+## Wie gross, wie lange
+
+| Welt | Kamera und scale | Grösse | Dauer | Messung |
+|---|---|---|---|---|
+| Testwelt | 2:1, scale 8, alle Stufen | ~1,8 GB | | hochgerechnet, [Was ein Lauf kostet](docs/benutzung/kosten.md) |
+| Testwelt | 2:1, scale 16, alle Stufen | ~6,8 GB | | ebenda |
+| Testwelt | 2:1, scale 32, alle Stufen | ~26 GB | | ebenda |
+| grosse Welt | 2:1, scale 24, eine native Stufe | 110 GB | 55 min | [29.09.](docs/messungen/2026-09-29-vollrender-mit-49.md) |
+| grosse Welt | 2:1, scale 32, drei native Stufen | 188 GB | 95 min | [29.09.](docs/messungen/2026-09-29-vollrender-mit-49.md) |
+| grosse Welt | Cinematic, 4:3, scale 24 | 160,2 GB | 2 h 43 min | [04.10.](docs/messungen/2026-10-04-vollrender-4x3.md) |
+| grosse Welt | Cinematic, 8:5, scale 32, eine native Stufe | 222,8 GB | 5 h 26 min | [04.10.](docs/messungen/2026-10-04-vollrender-cinematic.md) |
+
+- **Die grosse Welt** hat rund 2,5 Millionen Basiskacheln bei 2:1 und
+  scale 32, die Testwelt rund 280 000.
+- **Der Platz** hängt fast nur an der Zahl der Kacheln, also an scale und
+  Kamera: Ein halber scale braucht ein Viertel.
+- **Die Dauer** hängt auch an den nativen Stufen und an Cinematic. Seit
+  den Messungen vom 29.09. sind die nativen Stufen an Ausschnitten der
+  Testwelt 30 bis 38 % kürzer, siehe
+  [Native Stufen in Bändern](docs/messungen/2026-10-01-native-stufen-in-baendern.md).
+- **Für die eigene Welt** sagt `--estimate` beides vorher.
+
+Grössen sind dezimal, 1 GB = 10^9 Byte.
 
 ## Galerie
 
@@ -80,26 +182,27 @@ Skill [`doku-bilder-rendern`](skills/doku-bilder-rendern/SKILL.md).
 ## Schnellstart
 
 Gebraucht werden Rust mit einem C-Compiler, unter Windows der von Visual
-Studio, und für das Frontend Node.js; die CI nimmt Version 22.
+Studio, und für das Frontend Node.js; die CI nimmt Version 22. Die Welt
+liegt unter `./world`, ab Minecraft 26.1.
 
-1. **Assets besorgen:** `vanilla-assets/` und `vanilla-data/` aus dem
-   Client-JAR von Minecraft 26.3 oder 26.2, wie in
-   [Assets und Biomdaten](docs/benutzung/assets.md) beschrieben. Die Welt
-   liegt unter `./world`, ab Minecraft 26.1.
-2. **Bauen:**
+1. **Bauen:**
 
    ```bash
    cargo build --release --manifest-path renderer/Cargo.toml
    ```
 
-3. **Die Welt als Kacheln rendern**, direkt dorthin, wo das Frontend sie
-   findet:
+2. **Die Welt als Kacheln rendern**, direkt dorthin, wo das Frontend sie
+   findet. `--download-client-jar` lädt dafür einmal das Client-JAR von
+   Mojang. Der Schalter ist deine Zustimmung: Du besitzt Minecraft: Java
+   Edition und nimmst die [Minecraft-EULA](https://www.minecraft.net/eula)
+   an. Ohne ihn geht es von Hand, siehe
+   [Assets und Biomdaten](docs/benutzung/assets.md).
 
    ```bash
-   cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --assets ./vanilla-assets --assets ./assets --data ./vanilla-data --tiles web/public/tiles
+   cargo run --release --manifest-path renderer/Cargo.toml -- --world ./world --download-client-jar --tiles web/public/tiles
    ```
 
-4. **Ansehen:**
+3. **Ansehen:**
 
    ```bash
    cd web && npm install && npm run dev
@@ -107,6 +210,14 @@ Studio, und für das Frontend Node.js; die CI nimmt Version 22.
 
    Ohne eigene Kacheln zeigt `http://localhost:5173/?tiles=/tiles-demo`
    einen kleinen Kachelbaum aus dem Repository.
+
+4. **Oder mit dem Server des Renderers**, ohne Devserver: erst die Seite
+   bauen, dann `http://127.0.0.1:8080` öffnen.
+
+   ```bash
+   cd web && npm run build && cd ..
+   cargo run --release --manifest-path renderer/Cargo.toml -- --serve web/public/tiles --web web/dist
+   ```
 
 Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 
@@ -119,18 +230,36 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
   [0065](docs/entscheidungen/0065-sicht-in-der-ecke-nach-der-version.md).
 - Truhen, Banner, Köpfe, Krüge und die übrigen Blockentities aus den
   Modellen des Spiels, mit Bannermustern und Scherben.
-- Cinematic mit `--cinematic`: dieselbe Karte im Licht des Spiels in HDR,
-  mit Sonne und Schatten, Wasser, Leuchten, Wärme nach Biom und Bloom,
-  siehe [Cinematic](docs/renderer/cinematic.md).
+- Server, Plugin und Mod sind gebaut und getestet, dazu eine EXE mit
+  Assistent für Windows, siehe [Assistent](docs/benutzung/assistent.md).
+  Veröffentlicht ist noch nichts: keine Pakete, kein Plugin, kein Mod.
 - Noch nicht: Text auf Schildern und Gegenstände in Blöcken.
+
+## AI driven development, human driven design
+
+Heroic Map Renderer bauen KI-Agenten, gestaltet hat ihn ein Mensch.
+
+- **Die Agenten** sind Sitzungen von Claude Code, je Rolle eine: Renderer,
+  Frontend, Plugin, Mod, Recherche und Review. Sie schreiben Code, Tests
+  und Doku, messen und prüfen jede PR, bevor sie gemergt wird.
+- **Der Mensch** ist der Maintainer. Er entscheidet, was gebaut wird und wie
+  es aussieht: Look und Kameras, was ein Spieler darf, die Lizenz und was
+  öffentlich wird. Fragen, die nur er beantworten kann, sammeln die Agenten
+  für ihn, mit einer Empfehlung.
+- **Belegt statt geraten:** Wie das Spiel etwas zeichnet, ist am Code des
+  Spiels belegt, und jede Zahl ist gemessen. Über 80 Entscheidungen stehen
+  in [`docs/entscheidungen/`](docs/entscheidungen/), fast 60 Messreihen in
+  [`docs/messungen/`](docs/messungen/).
+- **AI first dokumentiert:** Die Doku ist zuerst für Agenten geschrieben
+  und für Menschen lesbar. Die Regeln stehen in [`AGENTS.md`](AGENTS.md),
+  die Abläufe in [`skills/`](skills/).
 
 ## Doku
 
 Die Doku liegt in [`docs/`](docs/index.md), jede Seite im
 [Wegweiser](docs/index.md): Benutzung, wie der Renderer das Spiel nachbaut,
-Entscheidungen und Messungen. Regeln für alle, die hier arbeiten, stehen in
-[`AGENTS.md`](AGENTS.md), die Workflows in [`skills/`](skills/). Tests und
-CI: [Tests](docs/entwicklung/tests.md), [CI](docs/entwicklung/ci.md).
+Entscheidungen und Messungen. Tests und CI:
+[Tests](docs/entwicklung/tests.md), [CI](docs/entwicklung/ci.md).
 
 ## Lizenz
 

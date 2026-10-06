@@ -1124,9 +1124,9 @@ fn geheimnis_aus_genau_32_byte() {
 /// Mit `--site-*` füllt der Server die Vorlagen des Builds: `/` und
 /// `/index.html` aus `seite.html`, `robots.txt` aus `robots.vorlage.txt`,
 /// ohne ETag und mit den Headern der Karte; alles andere unter `--web`
-/// bleibt, wie es ist. Ohne Bild fällt sein Block weg, ohne `--site-*` gilt
-/// die Seite des Builds. Ohne `seite.html` oder mit einer Adresse, die nicht
-/// geht, startet er nicht.
+/// bleibt, wie es ist; die Vorlagen selbst geben `404`. Ohne Bild fällt sein
+/// Block weg, ohne `--site-*` gilt die Seite des Builds. Ohne `seite.html`
+/// oder mit einer Adresse, die nicht geht, startet er nicht.
 #[test]
 fn angaben_zur_laufzeit() {
     let (kacheln, seite) = wurzel();

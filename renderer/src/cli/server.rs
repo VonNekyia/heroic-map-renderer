@@ -1316,6 +1316,44 @@ mod tests {
         );
     }
 
+    /// Die Vorlage des Frontends mit ihren Markern und Blöcken: Gefüllt
+    /// bleibt kein Marker und kein Kommentar eines Blocks; ohne Bild fehlen
+    /// dessen Tags, die Adresse bleibt.
+    #[test]
+    fn fuellt_die_seite_des_frontends() {
+        let vorlage = include_str!("../../../web/index.html");
+        let mit = Angaben::neu(
+            "https://example.org/karte",
+            "Welt",
+            "Karte",
+            Some("vorschau.jpg"),
+        )
+        .unwrap()
+        .fuelle(vorlage);
+        for teil in [
+            "<title>Welt</title>",
+            r#"<meta name="description" content="Karte" />"#,
+            r#"<link rel="canonical" href="https://example.org/karte/" />"#,
+            r#"<meta property="og:url" content="https://example.org/karte/" />"#,
+            r#"<meta property="og:image" content="https://example.org/karte/vorschau.jpg" />"#,
+            "Ausschnitt der Karte: Welt",
+            "twitter:card",
+        ] {
+            assert!(mit.contains(teil), "{teil}\n{mit}");
+        }
+        let ohne = Angaben::neu("https://example.org/", "Welt", "Karte", None)
+            .unwrap()
+            .fuelle(vorlage);
+        assert!(ohne.contains(r#"<link rel="canonical" href="https://example.org/" />"#));
+        assert!(!ohne.contains("og:image") && !ohne.contains("twitter:card"));
+        for gefuellt in [&mit, &ohne] {
+            assert!(!gefuellt.contains("<!--mit-") && !gefuellt.contains("<!--/mit-"));
+            for marker in ["%TITEL%", "%BESCHREIBUNG%", "%URL%", "%BILD%"] {
+                assert!(!gefuellt.contains(marker), "{marker}");
+            }
+        }
+    }
+
     /// Nur `http://` und `https://` mit Host und nur Zeichen, die im Attribut
     /// nichts maskieren müssen; ein relatives Bild ohne `..`, `/` am Anfang
     /// und `:`.

@@ -59,7 +59,8 @@ Big Endian, wie `DataOutputStream` es schreibt:
   [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs).
   Jede andere Stelle zeichnet Byte für Byte wie ohne eigene Farben.
 - **„Hell“:** Im Spiel nimmt der Client dann eine hellere Blatttextur, die
-  der Renderer nicht hat. Er zeichnet die Farbe wie ohne das Bit.
+  der Renderer nicht hat. Er zeichnet die Farbe vorerst wie ohne das Bit;
+  die Näherung kommt mit #179.
 
 ## Falsche Daten
 

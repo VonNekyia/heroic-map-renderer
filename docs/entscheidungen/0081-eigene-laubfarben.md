@@ -3,7 +3,7 @@ title: "0081: Eigene Laubfarben als Tönung aus dem PDC"
 description: Warum eigene Laubfarben im PersistentDataContainer des Chunks liegen und als Tönung statt der Biomfarbe wirken, warum Fichte und Birke an solchen Stellen eine eigene Familie mit Tönungskarte bekommen und warum „hell“ vorerst nichts ändert.
 status: gilt
 date: 2026-10-06
-issues: [156]
+issues: [156, 179]
 code:
   - renderer/src/world/chunk.rs
   - renderer/src/render/metatile.rs
@@ -34,11 +34,12 @@ nicht über eine API im Code. Der Vertrag steht in
   zweite mit Tönungskarte an, wie die Varianten der Blockentities. Der
   Renderpfad nimmt sie nur an Stellen mit eigener Farbe; jede andere Stelle
   zeichnet Byte für Byte wie ohne eigene Farben.
-- **„Hell“** ändert vorerst nichts. Über die Tönungskarte geht es nicht:
-  Die Karte trägt je Pixel nur den Anteil der Farbe, keine andere Textur.
-  Der Weg wäre derselbe wie für Fichte und Birke, eine eigene Familie mit
-  hellerer Textur. Am 06.10. auf mehr als einen halben Tag geschätzt;
-  darum vorerst ohne Wirkung, mit eigenem Issue.
+- **„Hell“** ändert vorerst nichts. Entschieden ist an #156 eine Näherung:
+  den Grauwert jedes Texels linear von 100…190 auf 160…255 abbilden,
+  klemmen und danach wie sonst tönen. Der Weg ist derselbe wie für Fichte
+  und Birke, eine eigene Familie mit aufgehellter Textur. Am 06.10. auf 4
+  bis 6 h geschätzt, mehr als einen halben Tag; darum vorerst ohne Wirkung.
+  Gebaut wird es mit #179, sobald ein Plugin das Bit schreibt.
 - **Update:** Die Farben gehen in den Abdruck des Chunks ein, nur wenn es
   welche gibt; ein Chunk ohne behält seinen Abdruck.
 
@@ -54,13 +55,14 @@ nicht über eine API im Code. Der Vertrag steht in
   Farbe auf ihnen findet:** Dann wiche alles Fichten- und Birkenlaub ab,
   und ob, hinge daran, welche Chunks der Lauf liest. Ein Update, dessen
   Gebiet die Vorgabe nicht enthält, zeichnete anders als ein voller Lauf.
-- **„Hell“ schätzen,** etwa die Tönung zu Weiss hin aufhellen: Ohne die
-  Textur wäre jeder Wert geraten.
+- **„Hell“ in `tints_at`,** etwa die Tönung aufhellen: Die Tönungskarte
+  trägt schon Grauwert mal Seitenschatten, die Abbildung wirkt aber auf den
+  Texel davor.
 
 ## Folgen
 
 - Je Familie von Fichten- oder Birkenlaub mit eigener Farbe rastert jede
   Stufe eine Familie mehr.
-- Laub mit „hell“ zeichnet dunkler als im Spiel.
+- Laub mit „hell“ zeichnet dunkler als im Spiel, bis #179.
 - Ein Plugin, das die Bytes bei jedem Laden neu schreibt, macht jeden Chunk
   ungespeichert; das Update liest ihn dann umsonst. Das steht im Vertrag.

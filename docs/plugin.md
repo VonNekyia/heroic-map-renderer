@@ -244,16 +244,18 @@ Ein Beispiel aus dem Testvektor, entpackt:
 - **Nur mit `--manifest`,** am Ende jedes Laufs, der Kacheln schreiben
   kann: voller Lauf, Ausschnitt, Update und `--pyramid`, vor dem Stand, mit
   der Zeile `Manifest:   <n> Kacheln, <MB> gepackt, in <s> s`.
-- **Ohne `--manifest`** entfernt ein Lauf, der Kacheln schreibt, ein altes
-  Manifest: Danach stimmte es nicht mehr. Das Plugin gibt den Schalter darum
-  bei jedem Lauf eines Baums, den es anbietet.
-- **Ein Update ohne Änderung** lässt es liegen, Byte für Byte.
+- **Ohne `--manifest`** entfernt ein Lauf, der Kacheln schreibt, am Ende ein
+  altes Manifest: Danach stimmte es nicht mehr. Das Plugin gibt den Schalter
+  darum bei jedem Lauf eines Baums, den es anbietet.
+- **Ein Update ohne Änderung** lässt es liegen, Byte für Byte. Fehlt es,
+  etwa weil `download: true` neu ist, oder lässt es sich nicht lesen,
+  schreibt ein solches Update mit `--manifest` es aus dem ganzen Baum.
 - **Getauscht** wie `map.json`: Niemand sieht ein halbes.
 - **Während eines Laufs** gilt noch das alte. Eine Kachel kann dann neuer
   sein als ihre Zeile; der Mod speichert deshalb das ETag aus der Antwort
   (#154).
 - **`manifest-offen-<pid>-<ns>`** liegt daneben, je Lauf, solange er
-  schreibt. Das Plugin braucht es nicht.
+  schreibt, auch ohne `--manifest`. Das Plugin braucht es nicht.
 - **Nach dem Kopieren** eines Baums ohne genaue Zeiten einmal
   `--pyramid --manifest` aufrufen oder `manifest` löschen. Sonst stimmt jedes
   ETag nicht mehr, das kein Update anfasst, und der Mod lädt bei jedem

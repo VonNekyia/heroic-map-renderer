@@ -1583,6 +1583,9 @@ fn write_tiles(
     if matches!(bereich, Bereich::Update) && gebiet.as_ref().is_some_and(|g| g.kacheln().is_empty())
     {
         println!("Update:     nichts zu zeichnen");
+        if mit_manifest {
+            manifest::ohne_aenderung(dir)?;
+        }
         if let Some(stand) = stand {
             schreibe_stand(dir, world, stand)?;
         }
@@ -1979,7 +1982,7 @@ fn write_tiles(
     // Ein voller Lauf liest für das Manifest den ganzen Baum, jeder andere
     // zieht nur nach, was er anfassen kann: auch die Vorfahren der Kacheln
     // ohne Chunk, die --prune neu zusammensetzt.
-    let angefasst = (manifest.is_some() && !matches!(bereich, Bereich::Welt)).then(|| {
+    let angefasst = (manifest.schreibt() && !matches!(bereich, Bereich::Welt)).then(|| {
         let basis: BTreeSet<TileId> = kandidaten.union(&veraltet).copied().collect();
         manifest::mit_eltern(max_zoom, &basis, &waisen)
     });
@@ -2047,9 +2050,7 @@ fn write_tiles(
     )?;
     schreibe_baeume(wurzel)?;
     melde_karte(&info, anzahl, &path);
-    if let Some(manifest) = manifest {
-        manifest.schliesse(angefasst.as_ref())?;
-    }
+    manifest.schliesse(angefasst.as_ref())?;
     // Zuletzt: Bricht der Lauf vorher ab, gilt der alte Stand, und das
     // nächste Update zeichnet dieselben Stellen noch einmal.
     if let Some(stand) = stand {
@@ -2565,9 +2566,7 @@ fn rebuild_pyramid(
         );
         print_list(unlesbar.iter());
     }
-    if let Some(manifest) = manifest {
-        manifest.schliesse(None)?;
-    }
+    manifest.schliesse(None)?;
 
     if fremd(aenderungszeit(&karte), beginn, SystemTime::now()) {
         println!(

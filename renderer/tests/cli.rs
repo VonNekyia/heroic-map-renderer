@@ -5384,6 +5384,32 @@ fn manifest_gleicht_dem_baum() {
     assert!(marken(baum.path()).is_empty());
 }
 
+/// Ein Update ohne Änderung schreibt mit `--manifest` das Manifest, wenn es
+/// fehlt, etwa weil der Baum neu zum Download angeboten wird, oder wenn es
+/// sich nicht lesen lässt.
+/// Siehe docs/plugin.md, „Manifest“.
+#[test]
+fn update_ohne_aenderung_schreibt_fehlendes_manifest() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "16"]));
+    assert!(!baum.path().join("manifest").exists());
+    let update = ["--scale", "16", "--update", "--manifest"];
+    for fall in ["fehlt", "kaputt"] {
+        let ausgabe = tiles(welt.path(), baum.path(), &update);
+        gelungen(&ausgabe);
+        let log = String::from_utf8_lossy(&ausgabe.stdout);
+        assert!(
+            log.contains("nichts zu zeichnen") && log.contains("Manifest:"),
+            "{fall}: {log}"
+        );
+        assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "{fall}");
+        assert!(marken(baum.path()).is_empty(), "{fall}");
+        std::fs::write(baum.path().join("manifest"), b"kaputt").unwrap();
+    }
+}
+
 /// Auch mit einer nativen Stufe und über einen Ausschnitt, der nur
 /// nachzieht, gleicht das Manifest dem Baum.
 /// Siehe docs/plugin.md, „Manifest“.

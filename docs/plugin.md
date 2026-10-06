@@ -52,8 +52,9 @@ dem Plugin-Programmierer ab.
   eines Tokens: `--manifest` bei jedem Lauf und `--pyramid` eines Baums mit
   `download: true`, siehe unten, „Manifest“.
 - **Den Server,** `--serve` mit `--web`, `--listen`, `--threads 1`,
-  `--low-priority` und `--exit-with-stdin`, als eigener Kindprozess neben
-  dem Renderer, siehe [Server](benutzung/server.md).
+  `--low-priority` und `--exit-with-stdin`, für HTTPS mit `--tls-cert` und
+  `--tls-key`, als eigener Kindprozess neben dem Renderer, siehe
+  [Server](benutzung/server.md).
 
 ## Fortschritt als JSON
 

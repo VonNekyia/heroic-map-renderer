@@ -85,8 +85,8 @@ verlangt. Ohne musl, siehe
 - **Der Server aus #151:** HTTP mit hyper und tokio schätzt die Recherche
   auf 0,25 MB gepackt, TLS auf 0,57 MB dazu, siehe
   [0084](../entscheidungen/0084-server-im-renderer.md).
-- **Die Grenze** steht darum bis TLS auf 3 980 000 Byte gepackt, danach auf
-  4 550 000. So bewacht die CI auch die Luft, die TLS braucht.
+- **Die Grenze** stand darum bis TLS auf 3 980 000 Byte gepackt, seit HTTPS
+  auf 4 550 000.
 - **In der CI** fällt der Schritt für Linux über dieser Grenze; der
   Release-Workflow prüft beide, siehe [CI](ci.md), „Release“.
 - **Stand** mit `--serve`, am Kopf `b38fae7` von #181, gepackt:

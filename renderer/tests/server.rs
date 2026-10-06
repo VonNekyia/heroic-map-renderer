@@ -5,8 +5,9 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use tempfile::TempDir;
@@ -55,7 +56,7 @@ fn starte(kacheln: &Path, extra: &[&str]) -> Server {
     let mut ausgabe = BufReader::new(kind.stdout.take().unwrap());
     ausgabe.read_line(&mut zeile).unwrap();
     let adresse = zeile
-        .split("http://")
+        .split("://")
         .nth(1)
         .and_then(|rest| rest.split(' ').next())
         .unwrap_or_else(|| panic!("keine Adresse in {zeile:?}"))
@@ -94,10 +95,15 @@ fn roh(adresse: SocketAddr, anfrage: &[u8]) -> Antwort {
     strom.write_all(anfrage).unwrap();
     let mut daten = Vec::new();
     strom.read_to_end(&mut daten).unwrap();
+    zerlege(&daten)
+}
+
+/// Status, Header und Körper einer Antwort, wie sie ankam.
+fn zerlege(daten: &[u8]) -> Antwort {
     let ende = daten
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
-        .unwrap_or_else(|| panic!("kein Kopf in {:?}", String::from_utf8_lossy(&daten)));
+        .unwrap_or_else(|| panic!("kein Kopf in {:?}", String::from_utf8_lossy(daten)));
     let kopf = String::from_utf8(daten[..ende].to_vec()).unwrap();
     let mut zeilen = kopf.split("\r\n");
     let status = zeilen
@@ -525,5 +531,166 @@ fn endet_mit_stdin() {
         } else {
             assert_eq!(hole(server.adresse, "/tiles/trees.json").status, 200);
         }
+    }
+}
+
+/// Ein selbst signiertes Zertifikat für `localhost` als PEM in `dir`, dazu
+/// sein DER. Nur für die Tests.
+fn zertifikat(dir: &Path, name: &str) -> (PathBuf, PathBuf, Vec<u8>) {
+    let neu = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+    let kette = dir.join(format!("{name}.pem"));
+    let schluessel = dir.join(format!("{name}.key"));
+    std::fs::write(&kette, neu.cert.pem()).unwrap();
+    std::fs::write(&schluessel, neu.key_pair.serialize_pem()).unwrap();
+    (kette, schluessel, neu.cert.der().to_vec())
+}
+
+/// Eine Anfrage über TLS 1.3, die nur dem Zertifikat `vertraut` vertraut:
+/// die Antwort und das Zertifikat, das der Server zeigte.
+fn tls_hole(adresse: SocketAddr, vertraut: &[u8], pfad: &str) -> (Antwort, Vec<u8>) {
+    let mut wurzeln = rustls::RootCertStore::empty();
+    wurzeln
+        .add(rustls_pki_types::CertificateDer::from(vertraut.to_vec()))
+        .unwrap();
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .unwrap()
+    .with_root_certificates(wurzeln)
+    .with_no_client_auth();
+    let name = rustls_pki_types::ServerName::try_from("localhost").unwrap();
+    let verbindung = rustls::ClientConnection::new(Arc::new(config), name).unwrap();
+    let tcp = TcpStream::connect(adresse).unwrap();
+    tcp.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut strom = rustls::StreamOwned::new(verbindung, tcp);
+    let anfrage = format!("GET {pfad} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    strom.write_all(anfrage.as_bytes()).unwrap();
+    let mut daten = Vec::new();
+    // Ohne close_notify endet das Lesen mit einem Fehler; was kam, gilt.
+    let _ = strom.read_to_end(&mut daten);
+    let gezeigt = strom.conn.peer_certificates().unwrap()[0].to_vec();
+    (zerlege(&daten), gezeigt)
+}
+
+/// Mit `--tls-cert` und `--tls-key` spricht der Server HTTPS mit TLS 1.3 und
+/// zeigt das Zertifikat aus der Datei. HTTP ohne TLS bekommt auf demselben
+/// Port keine Antwort, und ein Handschlag, der nicht kommt, endet nach
+/// `--header-timeout`.
+#[test]
+fn https_aus_pem() {
+    let (kacheln, _seite) = wurzel();
+    let dir = tempfile::tempdir().unwrap();
+    let (kette, schluessel, der) = zertifikat(dir.path(), "a");
+    let server = starte(
+        kacheln.path(),
+        &[
+            "--tls-cert",
+            kette.to_str().unwrap(),
+            "--tls-key",
+            schluessel.to_str().unwrap(),
+            "--header-timeout",
+            "1",
+        ],
+    );
+    let (a, gezeigt) = tls_hole(server.adresse, &der, "/tiles/trees.json");
+    assert_eq!((a.status, a.koerper.as_slice()), (200, &b"[]"[..]));
+    assert_eq!(gezeigt, der);
+    assert_eq!(
+        tls_hole(server.adresse, &der, "/tiles/stand.bin").0.status,
+        404
+    );
+
+    let mut klar = TcpStream::connect(server.adresse).unwrap();
+    klar.set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    klar.write_all(b"GET /tiles/trees.json HTTP/1.1\r\nHost: test\r\n\r\n")
+        .unwrap();
+    let mut daten = Vec::new();
+    let _ = klar.read_to_end(&mut daten);
+    assert!(
+        !daten.starts_with(b"HTTP/"),
+        "{}",
+        String::from_utf8_lossy(&daten)
+    );
+
+    let mut stumm = TcpStream::connect(server.adresse).unwrap();
+    stumm
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let beginn = Instant::now();
+    let _ = stumm.read_to_end(&mut Vec::new());
+    assert!(
+        beginn.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        beginn.elapsed()
+    );
+}
+
+/// Tauscht der Betreiber Zertifikat und Schlüssel, zeigt der Server ohne
+/// Neustart das neue, sobald eine Sekunde seit der letzten Prüfung vorbei
+/// ist. Lässt sich das neue nicht laden, bleibt das alte.
+#[test]
+fn neues_zertifikat_ohne_neustart() {
+    let (kacheln, _seite) = wurzel();
+    let dir = tempfile::tempdir().unwrap();
+    let (a_kette, a_schluessel, a) = zertifikat(dir.path(), "a");
+    let (b_kette, b_schluessel, b) = zertifikat(dir.path(), "b");
+    let kette = dir.path().join("kette.pem");
+    let schluessel = dir.path().join("schluessel.pem");
+    std::fs::copy(&a_kette, &kette).unwrap();
+    std::fs::copy(&a_schluessel, &schluessel).unwrap();
+    let server = starte(
+        kacheln.path(),
+        &[
+            "--tls-cert",
+            kette.to_str().unwrap(),
+            "--tls-key",
+            schluessel.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(tls_hole(server.adresse, &a, "/tiles/trees.json").1, a);
+
+    std::fs::copy(&b_kette, &kette).unwrap();
+    std::fs::copy(&b_schluessel, &schluessel).unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(tls_hole(server.adresse, &b, "/tiles/trees.json").1, b);
+
+    std::fs::write(&kette, b"kein Zertifikat").unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    let (antwort, gezeigt) = tls_hole(server.adresse, &b, "/tiles/trees.json");
+    assert_eq!((antwort.status, gezeigt), (200, b));
+    let fehler = server.fehlerausgabe();
+    assert!(fehler.contains("das alte bleibt"), "{fehler}");
+}
+
+/// Ohne lesbares Zertifikat oder mit einem Schlüssel, der nicht passt,
+/// startet der Server nicht. Mit `--exit-with-stdin` und leerem stdin
+/// endete ein Server, der doch startet, sofort mit Code 0; so hängt der Test
+/// nicht.
+#[test]
+fn ohne_gueltiges_zertifikat_kein_start() {
+    let (kacheln, _seite) = wurzel();
+    let dir = tempfile::tempdir().unwrap();
+    let (a_kette, _, _) = zertifikat(dir.path(), "a");
+    let (_, b_schluessel, _) = zertifikat(dir.path(), "b");
+    let fehlt = dir.path().join("fehlt.pem");
+    for (kette, schluessel, grund) in [
+        (&fehlt, &b_schluessel, "lesen"),
+        (&a_kette, &b_schluessel, "passt nicht"),
+    ] {
+        let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+            .arg("--serve")
+            .arg(kacheln.path())
+            .args(["--listen", "127.0.0.1:0", "--exit-with-stdin", "--tls-cert"])
+            .arg(kette)
+            .arg("--tls-key")
+            .arg(schluessel)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let fehler = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(!ausgabe.status.success(), "{grund}");
+        assert!(fehler.contains(grund), "{grund}: {fehler}");
     }
 }

@@ -17,7 +17,7 @@ env:
   CARGO_TERM_COLOR: always
   # Gepackt höchstens so viele Byte je Binär, siehe
   # docs/entwicklung/weitergabe.md, „Grenze“.
-  GRENZE: "3980000"
+  GRENZE: "4550000"
 
 defaults:
   run:

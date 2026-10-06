@@ -1,6 +1,6 @@
 ---
 title: "Server: --serve"
-description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz und das Ende mit stdin.
+description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM und das Ende mit stdin.
 code:
   - renderer/src/cli/server.rs
   - renderer/src/cli.rs
@@ -14,7 +14,7 @@ gebaute Karte selbst aus, ohne nginx oder `vite preview`. Plugin und EXE
 starten ihn so (#151, #152, #153). Er liest nur und schreibt nichts; ein
 Export darf gleichzeitig in dieselbe Wurzel schreiben. Warum der Server im
 Renderer sitzt: [0084](../entscheidungen/0084-server-im-renderer.md).
-HTTPS und der Download mit Token kommen mit eigenen PRs.
+Der Download mit Token kommt mit einer eigenen PR.
 
 ## Aufruf
 
@@ -35,6 +35,8 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --listen 0.0.0.0:8080
 | `--max-headers N` | 64 | Header je Anfrage; darüber `431` |
 | `--write-timeout S` | 30 | Sekunden ohne Fortschritt beim Schreiben einer Antwort, dann schliesst er |
 | `--exit-with-stdin` | aus | enden, sobald stdin schliesst |
+| `--tls-cert DATEI` | ohne: HTTP | HTTPS: die Kette der Zertifikate als PEM, das eigene zuerst |
+| `--tls-key DATEI` | – | der Schlüssel dazu als PEM, PKCS#8, PKCS#1 oder SEC1 |
 
 Daneben nimmt `--serve` keinen Schalter des Exports an. Die erste Zeile der
 Ausgabe nennt die Adresse, auch den Port, den das System bei `0` wählt:
@@ -145,12 +147,38 @@ Stirbt die JVM, auch hart, schliesst das System die Pipe, und der Server
 endet mit ihr; er hält den Port nicht als Waise fest. Ohne den Schalter
 läuft er weiter, auch mit stdin aus `/dev/null`.
 
+## HTTPS
+
+Mit `--tls-cert` und `--tls-key` spricht der Server nur HTTPS, TLS 1.3, auf
+demselben Port; HTTP ohne TLS bekommt dort keine Antwort. Die erste Zeile
+der Ausgabe nennt `https://`.
+
+```bash
+heroic-map-renderer --serve ./tiles --web ./web/dist --listen 0.0.0.0:8443 --tls-cert kette.pem --tls-key schluessel.pem
+```
+
+- **Das Zertifikat** stammt vom Betreiber, etwa von seinem Hoster oder aus
+  einem eigenen Lauf eines ACME-Clients. Der Renderer holt keins (#151).
+- **Prüfen beim Start:** Lässt sich eine Datei nicht lesen oder passt der
+  Schlüssel nicht zum ersten Zertifikat, startet der Server nicht.
+- **Tauschen ohne Neustart:** Höchstens einmal je Sekunde sieht der Server
+  beim Handschlag nach, ob sich Grösse oder Zeit einer der beiden Dateien
+  geändert hat, und lädt dann neu: `Server:     Zertifikat neu geladen`.
+  Lässt sich das Neue nicht laden, bleibt das Alte, mit einer Zeile auf
+  stderr, bis sich die Dateien wieder ändern. Wer erst die Kette und dann
+  den Schlüssel tauscht, sieht für einen Augenblick eine Zeile über einen
+  Schlüssel, der nicht passt; mit dem zweiten Tausch stimmt es.
+- **Der Handschlag** muss in `--header-timeout` Sekunden fertig sein, sonst
+  schliesst der Server die Verbindung.
+- **Nur TLS 1.3:** Browser und Java ab 11 sprechen es; TLS 1.2 brächte mehr
+  Code ins Binär, siehe [0084](../entscheidungen/0084-server-im-renderer.md).
+
 ## HTTP und das Token
 
 Ohne HTTPS gehen die Anfragen im Klartext. Das Token für den Download aus
 #154 könnte dann jemand mitlesen und bis zu seinem Ablauf und Deckel
 nutzen. Für einen Server im offenen Netz ist HTTPS mit einem Zertifikat des
-Betreibers deshalb die bessere Wahl, sobald es kommt (#151).
+Betreibers deshalb die bessere Wahl.
 
 ## Getestet
 
@@ -159,6 +187,8 @@ echten Prozess mit Anfragen von Hand: Header und ETag, die bedingten
 Anfragen, MIME, Cache und die Seite, `404`, die Positivliste und die Wege
 hinaus, Methoden und HEAD, die Grenzen am Kopf und im Leerlauf, das
 Schreiben ohne Fortschritt, die Zahl der Verbindungen und das Ende mit
-stdin. In [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
+stdin, dazu HTTPS mit Zertifikaten, die `rcgen` nur für die Tests erzeugt:
+der Handschlag, der Tausch ohne Neustart, ein kaputtes Neues und ein Start
+ohne gültiges Zertifikat. In [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
 prüfen Tests das Tauschen, die Pfade, die Zeit, das Schreiben ohne
 Fortschritt und dass sich `web/headers.json` lesen lässt.

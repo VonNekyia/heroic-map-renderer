@@ -30,9 +30,13 @@ die der Renderer währenddessen tauscht. Entschieden hat der Maintainer am
 - **`--serve` im Renderer,** mit hyper und tokio, HTTP/1.1. Die EXE startet
   ihn selbst, das Plugin als Kindprozess wie den Renderer. Die Regeln
   stehen so einmal im Code und werden einmal getestet.
-- **TLS** kommt mit rustls in einer eigenen PR, solange beide Binärs mit
-  Server gepackt höchstens 4 550 000 Byte wiegen. Sonst bleibt der Server
-  ohne TLS, und HTTPS beendet ein Proxy mit dem JDK im Plugin.
+- **TLS** mit rustls und ring, solange beide Binärs mit Server gepackt
+  höchstens 4 550 000 Byte wiegen. Sonst bliebe der Server ohne TLS, und
+  HTTPS beendete ein Proxy mit dem JDK im Plugin.
+- **Nur TLS 1.3,** aus PEM mit `--tls-cert` und `--tls-key`. Höchstens einmal
+  je Sekunde prüft der Server beim Handschlag, ob sich eine der Dateien
+  geändert hat, und lädt neu; ein Neues, das sich nicht laden lässt, lässt
+  das Alte stehen. Der Handschlag hat die Zeit des Kopfs einer Anfrage.
 - **Grenzen am offenen Netz,** einstellbar: Kopf der Anfrage in 10 s, auch
   im Leerlauf zwischen zwei Anfragen; Kopf höchstens 16 KiB und 64 Header;
   höchstens 256 Verbindungen zugleich; 30 s ohne Fortschritt beim
@@ -80,15 +84,23 @@ Wie der Server sich verhält, steht in [Server](../benutzung/server.md).
   jede Wurzel kopieren oder die Bäume unter die Seite legen.
 - **`If-Modified-Since` als „nicht älter als“:** übersähe eine getauschte
   Kachel mit älterer Zeit.
+- **TLS 1.2 dazu:** mehr Code ins knappe Binär. Browser und `HttpClient` aus
+  Java 11 und später, den der Mod nimmt, sprechen 1.3.
+- **Neu laden nach einer Uhr, alle 10 s:** eine eigene Aufgabe und eine
+  Wartezeit nach dem Tausch. Beim Handschlag nachzusehen, kostet höchstens
+  zwei `metadata` je Sekunde.
 
 ## Folgen
 
 - **Grösse:** hyper und tokio bringen gepackt rund 0,25 MB je Binär, TLS
-  später rund 0,57 MB dazu, gemessen am Prototyp unter Windows (#151). Die
-  Grenze in der CI steht bis TLS auf 3 980 000 Byte, danach auf 4 550 000,
-  siehe [Weitergabe](../entwicklung/weitergabe.md), „Grenze“.
+  rund 0,57 MB dazu, geschätzt am Prototyp unter Windows (#151). Die
+  Grenze in der CI steht mit TLS auf 4 550 000 Byte; den Stand nennt
+  [Weitergabe](../entwicklung/weitergabe.md), „Grenze“.
+- **Lizenzen:** ring, rustls-webpki und untrusted stehen unter ISC, das darum in
+  `deny.toml` allgemein erlaubt ist; `subtle` unter BSD-3-Clause, als
+  Ausnahme wie libwebp. Beides ergänzt [0078](0078-apache-2-0.md).
 - **Ohne HTTPS** geht ein Token aus #154 im Klartext. Die Doku rät
-  öffentlichen Servern zu HTTPS, sobald es kommt.
+  öffentlichen Servern zu HTTPS.
 - **Die Header der Karte** stehen an einer Stelle, `web/headers.json`
   (#182). `vite preview` liest sie, der Renderer bindet sie per
   `include_str!` ein, entschieden an #151. Ändert das Frontend sie, kommt

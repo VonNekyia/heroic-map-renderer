@@ -25,9 +25,12 @@ lz4-java-wrc = "0.2"                # Kompressionsverfahren 4 (Paper)
 mimalloc = "0.1"                    # Windows-Heap serialisiert 24 Threads beim Chunk-Dekodieren
 pollster = "1"
 rayon = "1"                          # Parallelisierung ueber Kacheln
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }  # HTTPS für --serve, nur TLS 1.3, siehe docs/entscheidungen/0084-server-im-renderer.md
+rustls-pki-types = { version = "1", features = ["std"] }  # PEM für --tls-cert und --tls-key
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }  # Reihenfolge und Zahlen wie Gson
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync"] }  # Laufzeit für --serve
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "dx12", "metal"] }  # ohne GL: lief nirgends in der CI
 
 [target.'cfg(windows)'.dependencies]
@@ -39,6 +42,7 @@ libc = "0.2"                         # Priorität für --low-priority; steckt sc
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "webp"] }  # WebP unabhängig von libwebp prüfen
 tempfile = "3"
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }  # Zertifikate für die Tests von HTTPS
 
 [profile.release]
 opt-level = 3

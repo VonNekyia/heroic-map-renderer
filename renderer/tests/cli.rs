@@ -4426,7 +4426,8 @@ fn center_in_der_welt_aus_jeder_richtung() {
 /// `trees.json` unter der Wurzel nennt jeden Baum mit Ordner, Kamera,
 /// Richtung und `look`, `2x1-se` zuerst, auch vor `1x1-se`, sonst nach
 /// Ordner. Sie kommt aus der Platte: Ein gelöschter Baum fällt beim nächsten
-/// Lauf heraus. Die Höhen liegen einmal unter der Wurzel, kein Baum hat
+/// Lauf heraus, ebenso einer mit der Marke `nur-download`, die der Lauf
+/// stehen lässt. Die Höhen liegen einmal unter der Wurzel, kein Baum hat
 /// eigene.
 #[test]
 fn liste_der_baeume_unter_der_wurzel() {
@@ -4480,6 +4481,16 @@ fn liste_der_baeume_unter_der_wurzel() {
     std::fs::remove_dir_all(&vier).unwrap();
     gelungen(&tiles(welt.path(), &schraeg, &["--scale", "8"]));
     assert_eq!(ordner(), ["2x1-se", "1x1-se", "top-north-s"]);
+
+    std::fs::write(oben.path().join("nur-download"), b"").unwrap();
+    gelungen(&tiles(
+        welt.path(),
+        oben.path(),
+        &["--scale", "8", "--camera", "top-north"],
+    ));
+    assert_eq!(ordner(), ["2x1-se", "1x1-se"]);
+    assert!(oben.path().join("nur-download").is_file());
+    assert!(oben.path().join("map.json").is_file());
 }
 
 /// Eine Wurzel, eine Welt: Ihre Bäume teilen sich die Höhen. Ein Lauf einer

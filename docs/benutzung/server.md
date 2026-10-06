@@ -69,10 +69,14 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   `<name>.<pid>.tmp`.
 - **Nur Bäume der Webkarte:** Pfade unter `<baum>/` liefert er nur für
   Bäume, die `trees.json` der Wurzel unter `path` nennt, sonst `404`; ohne
-  lesbare `trees.json` für keinen. Höchstens einmal je Sekunde sieht er
-  nach, ob sich die Datei geändert hat. Ein Baum, der dort fehlt, ist nur
-  über „Download“ zu haben. Die Kacheln der Webkarte sind öffentlich: Die
-  Grenzen aus #154 begrenzen Downloads über den Mod, nicht wer die
+  lesbare `trees.json` für keinen. Ein Baum mit der leeren Datei
+  `nur-download` in seinem Ordner fehlt in der Liste, siehe
+  [`map.json`](map-json.md), „Liste der Bäume“, und ist nur über
+  „Download“ zu haben. Höchstens einmal je Sekunde sieht der Server nach,
+  ob sich `trees.json` geändert hat, und nach den Marken; eine neue Marke
+  schliesst den Baum so auch, solange die Liste ihn noch nennt. Fehlt die
+  Marke, ist der Baum öffentlich. Die Kacheln der Webkarte sind öffentlich:
+  Die Grenzen aus #154 begrenzen Downloads über den Mod, nicht wer die
   Webkarte abgrast. Entschieden am 06.10. im Review zu #184.
 - **Ein Ordner unter `--web`** gibt seine `index.html`, auch `/`. Ein leerer
   Teil wie in `//` und ein erster Teil `tiles` in jeder Schreibung geben

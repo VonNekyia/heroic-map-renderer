@@ -2284,6 +2284,11 @@ fn schreibe_stand(dir: &Path, world: &World, stand: Stand) -> Result<()> {
 /// Siehe docs/benutzung/map-json.md, „Liste der Bäume“.
 const BAEUME: &str = "trees.json";
 
+/// Die leere Datei im Ordner eines Baums, der nur zum Download da ist: Er
+/// fehlt in `trees.json`, und der Server liefert ihn nicht unter `/tiles/`.
+/// Siehe docs/benutzung/map-json.md, „Liste der Bäume“.
+const NUR_DOWNLOAD: &str = "nur-download";
+
 /// Der Ordner eines Baums unter der Wurzel: `<kamera>-<richtung>`, die
 /// Kamera mit `x` statt `:`, den Windows im Pfad nicht erlaubt, mit
 /// `--cinematic` dahinter `-cinematic`.
@@ -2418,6 +2423,9 @@ fn schreibe_baeume(wurzel: &Path) -> Result<()> {
         let Some(name) = ordner.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
+        if ordner.join(NUR_DOWNLOAD).exists() {
+            continue;
+        }
         let kamera = projection.kamera();
         baeume.push(serde_json::json!({
             "path": name,

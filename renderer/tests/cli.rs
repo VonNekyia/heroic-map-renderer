@@ -3290,7 +3290,11 @@ fn schreiben_tauscht_die_datei() {
         },
     );
     let baum = neuer_baum("2x1-se");
-    gelungen(&tiles(alt.path(), baum.path(), &["--scale", "16"]));
+    gelungen(&tiles(
+        alt.path(),
+        baum.path(),
+        &["--scale", "16", "--manifest"],
+    ));
     let karte = baum.path().join("map.json");
     let region = baum.wurzel().join(heights::path_of(0, 0));
     let liste = baum.wurzel().join("trees.json");
@@ -3312,7 +3316,11 @@ fn schreiben_tauscht_die_datei() {
         })
         .collect();
 
-    gelungen(&tiles(neu.path(), baum.path(), &["--scale", "16"]));
+    gelungen(&tiles(
+        neu.path(),
+        baum.path(),
+        &["--scale", "16", "--manifest"],
+    ));
     let mut geaendert = Vec::new();
     for (pfad, vorher, mut datei) in offen {
         let mut gelesen = Vec::new();
@@ -5239,24 +5247,47 @@ fn manifest_soll(baum: &Path) -> String {
     zeilen.into_iter().map(|(_, zeile)| zeile).collect()
 }
 
-/// Das Manifest gleicht nach jedem Lauf den Kacheln des Baums: nach einem
-/// vollen Lauf, nach Updates, die zeichnen und entfernen, auch mit
-/// `--prune`, und nach `--pyramid`. Ein Update ohne Änderung lässt es, wie es ist. Ein Update
-/// zieht nur nach, was es anfasst; nach einem Abbruch liest es den Baum
-/// ganz.
+/// Die Marken laufender oder abgebrochener Läufe neben dem Manifest.
+fn marken(baum: &Path) -> Vec<String> {
+    std::fs::read_dir(baum)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().into_string().unwrap())
+        .filter(|name| name.starts_with("manifest-offen-"))
+        .collect()
+}
+
+/// Die Marke eines Laufs, dessen Prozess endete, ohne sie zu entfernen.
+fn verwaiste_marke(baum: &Path) {
+    let mut kind = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+        .arg("--version")
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = kind.id();
+    kind.wait().unwrap();
+    std::fs::write(baum.join(format!("manifest-offen-{pid}-1")), b"").unwrap();
+}
+
+/// Das Manifest gleicht nach jedem Lauf mit `--manifest` den Kacheln des
+/// Baums: nach einem vollen Lauf, nach Updates, die zeichnen und entfernen,
+/// auch mit `--prune`, und nach `--pyramid`. Ein Update ohne Änderung lässt
+/// es, wie es ist. Ein Update zieht nur nach, was es anfasst; nach einem
+/// Abbruch liest es den Baum ganz und räumt die verwaiste Marke weg. Ein
+/// Lauf ohne `--manifest`, der zeichnet, entfernt es.
 /// Siehe docs/plugin.md, „Manifest“.
 #[test]
 fn manifest_gleicht_dem_baum() {
     let welt = tempdir();
     baue_gelaende(welt.path());
     let baum = neuer_baum("2x1-se");
-    let voll = ["--scale", "16"];
-    let update = ["--scale", "16", "--update"];
+    let voll = ["--scale", "16", "--manifest"];
+    let update = ["--scale", "16", "--update", "--manifest"];
     let ausgabe = tiles(welt.path(), baum.path(), &voll);
     gelungen(&ausgabe);
     assert!(String::from_utf8_lossy(&ausgabe.stdout).contains("Manifest:"));
     assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "voll");
-    assert!(!baum.path().join("manifest-offen").exists());
+    assert!(marken(baum.path()).is_empty());
 
     baue_aenderungen(welt.path());
     gelungen(&tiles(welt.path(), baum.path(), &update));
@@ -5302,7 +5333,7 @@ fn manifest_gleicht_dem_baum() {
         "abgerissen"
     );
 
-    std::fs::write(baum.path().join("manifest-offen"), b"").unwrap();
+    verwaiste_marke(baum.path());
     baue_update_welt(welt.path(), mit_aenderungen, &GEAENDERT, 4);
     gelungen(&tiles(welt.path(), baum.path(), &update));
     assert_eq!(
@@ -5310,7 +5341,7 @@ fn manifest_gleicht_dem_baum() {
         manifest_soll(baum.path()),
         "nach Abbruch"
     );
-    assert!(!baum.path().join("manifest-offen").exists());
+    assert!(marken(baum.path()).is_empty());
 
     // Ohne den fernen Chunk entfernt ein Update mit --prune seine Kacheln,
     // auch die, die es sonst nicht anfasst.
@@ -5319,7 +5350,7 @@ fn manifest_gleicht_dem_baum() {
     gelungen(&tiles(
         welt.path(),
         baum.path(),
-        &["--scale", "16", "--update", "--prune"],
+        &["--scale", "16", "--update", "--prune", "--manifest"],
     ));
     let soll = manifest_soll(baum.path());
     assert!(
@@ -5331,11 +5362,49 @@ fn manifest_gleicht_dem_baum() {
     // Zeiten, die jemand am Renderer vorbei ändert, sieht erst ein Lauf,
     // der den Baum ganz liest.
     altern(baum.path());
-    gelungen(&cli(&[OsStr::new("--pyramid"), baum.path().as_os_str()]));
+    gelungen(&cli(&[
+        OsStr::new("--pyramid"),
+        baum.path().as_os_str(),
+        OsStr::new("--manifest"),
+    ]));
     assert_eq!(
         manifest(baum.path()),
         manifest_soll(baum.path()),
         "--pyramid"
+    );
+
+    // Ein Lauf ohne --manifest, der zeichnet, nimmt es weg.
+    baue_update_welt(welt.path(), mit_dach, &GEAENDERT, 5);
+    gelungen(&tiles(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--update"],
+    ));
+    assert!(!baum.path().join("manifest").exists());
+    assert!(marken(baum.path()).is_empty());
+}
+
+/// Auch mit einer nativen Stufe und über einen Ausschnitt, der nur
+/// nachzieht, gleicht das Manifest dem Baum.
+/// Siehe docs/plugin.md, „Manifest“.
+#[test]
+fn manifest_mit_nativer_stufe_und_ausschnitt() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    let schalter = ["--scale", "16", "--native-levels", "1", "--manifest"];
+    gelungen(&tiles(welt.path(), baum.path(), &schalter));
+    assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "nativ");
+
+    baue_aenderungen(welt.path());
+    let ausschnitt = [&schalter[..], &["--center", "8", "8", "--size", "256"]].concat();
+    let ausgabe = tiles(welt.path(), baum.path(), &ausschnitt);
+    gelungen(&ausgabe);
+    assert!(String::from_utf8_lossy(&ausgabe.stdout).contains("Manifest:"));
+    assert_eq!(
+        manifest(baum.path()),
+        manifest_soll(baum.path()),
+        "Ausschnitt"
     );
 }
 

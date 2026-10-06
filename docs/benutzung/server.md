@@ -33,6 +33,7 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --listen 0.0.0.0:8080
 | `--header-timeout S` | 10 | Sekunden für den Kopf einer Anfrage, auch für den Leerlauf zwischen zweien |
 | `--max-header-bytes N` | 16384 | Bytes im Kopf einer Anfrage, ab 8192 |
 | `--max-headers N` | 64 | Header je Anfrage; darüber `431` |
+| `--write-timeout S` | 30 | Sekunden ohne Fortschritt beim Schreiben einer Antwort, dann schliesst er |
 | `--exit-with-stdin` | aus | enden, sobald stdin schliesst |
 
 Daneben nimmt `--serve` keinen Schalter des Exports an. Die erste Zeile der
@@ -47,14 +48,31 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
 - **`/tiles/…`** aus `--serve`, alles andere aus `--web`. Die Karte sucht
   die Kacheln unter `tiles/` neben sich, siehe [Frontend](../frontend.md),
   „Ausliefern“.
-- **Ein Ordner** gibt seine `index.html`, auch `/`.
+- **Unter `/tiles/` nur eine Positivliste,** was Karte und Mod brauchen:
+
+  | Pfad | Inhalt |
+  |---|---|
+  | `trees.json` | die Liste der Bäume |
+  | `heights/<x>.<z>.bin` | die Höhen der Wurzel |
+  | `<baum>/map.json`, `<baum>/manifest` | Angaben und Manifest eines Baums |
+  | `<baum>/heights/<x>.<z>.bin` | die Höhen eines Baums ohne Wurzel |
+  | `<baum>/<z>/<x>/<y>.webp` | eine Kachel |
+  | `map.json`, `manifest`, `<z>/<x>/<y>.webp` | dasselbe für einen einzelnen Baum als Wurzel |
+
+  Ein Baum heisst nur `a–z 0–9 -`, die Zahlen stehen, wie der Renderer sie
+  schreibt, ohne `+` und führende Nullen. Alles andere gibt `404`, auch
+  `stand.bin`, die Marken des Manifests und halb geschriebene Dateien
+  `<name>.<pid>.tmp`.
+- **Ein Ordner unter `--web`** gibt seine `index.html`, auch `/`.
 - **Nur GET und HEAD,** sonst `405` mit `Allow: GET, HEAD`. HEAD nennt die
   Länge ohne Körper.
-- **`404`** für alles, was fehlt oder keine Datei ist, und für jeden Pfad,
+- **`404`** für alles, was fehlt, keine Datei ist oder sich nicht öffnen
+  oder lesen lässt, ohne Zeile im Log. Unter `--web` dazu für jeden Pfad,
   dessen Teil mit `.` beginnt, ein anderes Zeichen als Buchstaben, Ziffern,
   `-`, `_` und `.` trägt oder ein Gerät von Windows nennt, etwa `nul` oder
-  `com1.txt`. So führt kein Pfad aus der Wurzel hinaus. Fehlt `trees.json`
-  oder eine Datei der Höhen, sieht die Karte `404` und lädt trotzdem.
+  `com1.txt`. So führt kein Pfad aus einer Wurzel hinaus. Fehlt
+  `trees.json` oder eine Datei der Höhen, sieht die Karte `404` und lädt
+  trotzdem.
 - **Links** unter den Wurzeln folgt er, etwa einem Baum als Junction.
 
 ## Header
@@ -62,15 +80,18 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
 - **An jeder Antwort** die Header der Karte: Content-Security-Policy,
   Cross-Origin-Opener-Policy, Permissions-Policy, Referrer-Policy,
   X-Content-Type-Options, X-Frame-Options, mit denselben Werten wie
-  `preview.headers` in [`web/vite.config.ts`](../../web/vite.config.ts).
+  `preview.headers` in [`web/vite.config.ts`](../../web/vite.config.ts); das
+  prüft `header_wie_in_der_vorschau_der_karte` in
+  [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs).
 - **`ETag`** aus Grösse und letzter Änderung in ns, wörtlich wie im
   Manifest, siehe [Plugin](../plugin.md), „Manifest“. Weil gleiche Kacheln
   liegen bleiben, behält eine Kachel ihr ETag über volle Läufe, siehe
   [Kacheln](kacheln.md), „Gleiche Bytes bleiben liegen“.
 - **`Last-Modified`** an jeder Datei; die Karte zeigt daraus den Stand von
-  `map.json`.
+  `map.json`. Eine Zeit vor 1970 oder nach 9999 geht geklemmt hinaus.
 - **`Cache-Control: no-cache`:** Der Browser fragt jedes Mal nach und bekommt
-  für Unverändertes ein kurzes `304`.
+  für Unverändertes ein kurzes `304`. Nur die gehashten Dateien der Seite
+  unter `/assets/` tragen `max-age=31536000, immutable`.
 - **`304`** bei gleichem `If-None-Match`, auch in einer Liste, mit `W/` oder
   `*`. Steht `If-None-Match` da, zählt `If-Modified-Since` nicht; sonst gibt
   `If-Modified-Since` nur bei gleichem Wert `304`. Verglichen wird auf
@@ -100,8 +121,12 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   `431`, über `--max-header-bytes` mit `431` oder er schliesst.
 - **Verbindungen:** Sind `--max-connections` offen, nimmt er die nächste
   erst an, wenn eine endet.
+- **Schreiben:** Kommt eine Antwort `--write-timeout` Sekunden lang nicht
+  voran, etwa weil der Client nie liest, schliesst er die Verbindung, und
+  ihr Platz wird frei.
 - **Dateien** liest er ganz und schickt sie dann. Kacheln, `map.json` und das
-  Manifest sind klein.
+  Manifest sind klein; im Speicher liegen so höchstens Verbindungen ×
+  grösste Datei, mit 256 Verbindungen und Kacheln bis 4 MiB rund 1 GiB.
 
 ## Tauschen während des Lesens
 
@@ -131,7 +156,9 @@ Betreibers deshalb die bessere Wahl, sobald es kommt (#151).
 
 In [`renderer/tests/server.rs`](../../renderer/tests/server.rs) gegen einen
 echten Prozess mit Anfragen von Hand: Header und ETag, die bedingten
-Anfragen, MIME und die Seite, `404` und die Wege hinaus, Methoden und HEAD,
-die Grenzen am Kopf, die Zahl der Verbindungen und das Ende mit stdin. Das
-Tauschen prüft `tauschen_waehrend_die_datei_offen_ist` in
-[`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs).
+Anfragen, MIME, Cache und die Seite, `404`, die Positivliste und die Wege
+hinaus, Methoden und HEAD, die Grenzen am Kopf und im Leerlauf, das
+Schreiben ohne Fortschritt, die Zahl der Verbindungen und das Ende mit
+stdin. In [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
+prüfen Tests das Tauschen, die Pfade, die Zeit und die Header gegen
+`web/vite.config.ts`.

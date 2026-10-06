@@ -82,14 +82,25 @@ verlangt. Ohne musl, siehe
 - **Das Budget:** Hangar nimmt höchstens 10 000 000 Byte je Datei an (#153),
   und das Jar trägt die Binärs für Windows und Linux, dazu das Plugin. Je
   Binär bleiben so gepackt rund 4,55 MB.
-- **Der Server aus #151** bringt geschätzt 0,82 MB gepackt dazu, HTTP rund
-  0,25 MB und TLS rund 0,57 MB. Seit `--serve` darf der Renderer darum
-  gepackt höchstens 4 550 000 Byte haben, siehe
+- **Der Server aus #151:** HTTP mit hyper und tokio schätzt die Recherche
+  auf 0,25 MB gepackt, TLS auf 0,57 MB dazu, siehe
   [0084](../entscheidungen/0084-server-im-renderer.md).
-- **In der CI** fällt der Schritt für Linux über dieser Grenze.
-- **Stand:** Linux 3,49 MB, Windows 3,57 MB gepackt. Unter Linux bleiben
-  rund 0,24 MB Luft. Windows prüft die CI nicht; der Release-Workflow prüft
-  beide, siehe [CI](ci.md), „Release“.
+- **Die Grenze** steht darum bis TLS auf 3 980 000 Byte gepackt, danach auf
+  4 550 000. So bewacht die CI auch die Luft, die TLS braucht.
+- **In der CI** fällt der Schritt für Linux über dieser Grenze; der
+  Release-Workflow prüft beide, siehe [CI](ci.md), „Release“.
+- **Stand** mit `--serve`, am Kopf `b38fae7` von #181, gepackt:
+
+  | Binär | gepackt | Luft bis 3 980 000 |
+  |---|---|---|
+  | Linux, Release gegen glibc 2.28 | 3 715 141 Byte | 0,26 MB |
+  | Linux, Job „Rust“ gegen glibc 2.39 | 3 841 725 Byte | 0,14 MB |
+  | Windows, Release | 3 963 841 Byte | 0,02 MB |
+
+  Vorher waren es unter Linux 3,49 MB und unter Windows 3,57 MB. Dazu kamen
+  `--estimate`, die eigenen Laubfarben, das Manifest und der Server, unter
+  Linux 0,35 MB, unter Windows 0,39 MB; getrennt gemessen ist der Server
+  nicht.
 
 ## In der CI
 

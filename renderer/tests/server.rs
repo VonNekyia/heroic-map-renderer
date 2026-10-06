@@ -19,6 +19,18 @@ struct Server {
     _ausgabe: BufReader<std::process::ChildStdout>,
 }
 
+impl Server {
+    /// Beendet den Server und gibt, was er auf stderr schrieb.
+    fn fehlerausgabe(mut self) -> String {
+        let mut fehler = self.kind.stderr.take().unwrap();
+        let _ = self.kind.kill();
+        let _ = self.kind.wait();
+        let mut text = String::new();
+        fehler.read_to_string(&mut text).unwrap();
+        text
+    }
+}
+
 impl Drop for Server {
     fn drop(&mut self) {
         let _ = self.kind.kill();
@@ -36,7 +48,7 @@ fn starte(kacheln: &Path, extra: &[&str]) -> Server {
         .args(extra)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     let mut zeile = String::new();
@@ -133,9 +145,15 @@ fn wurzel() -> (TempDir, TempDir) {
         ("t/0/-1/2.webp", b"andere"),
         ("t/map.json", b"{\"tileSize\":256}"),
         ("t/manifest", b"\x1f\x8b-gzip"),
-        ("heights/r.0.0.bin", b"hoehen"),
+        ("t/heights/1.-2.bin", b"eigene hoehen"),
+        ("heights/0.0.bin", b"hoehen"),
         ("trees.json", b"[]"),
         (".geheim", b"nein"),
+        ("geheim.txt", b"nein"),
+        ("t/stand.bin", b"nein"),
+        ("t/stand-neu.bin", b"nein"),
+        ("t/0/0/0.webp.123.tmp", b"halb"),
+        ("t/manifest-offen-1-2", b""),
     ] {
         std::fs::create_dir_all(k.join(pfad).parent().unwrap()).unwrap();
         std::fs::write(k.join(pfad), inhalt).unwrap();
@@ -242,7 +260,8 @@ fn mime_und_seite() {
     for (pfad, art) in [
         ("/tiles/t/map.json", "application/json"),
         ("/tiles/t/manifest", "application/gzip"),
-        ("/tiles/heights/r.0.0.bin", "application/octet-stream"),
+        ("/tiles/heights/0.0.bin", "application/octet-stream"),
+        ("/tiles/t/heights/1.-2.bin", "application/octet-stream"),
         ("/tiles/trees.json", "application/json"),
         ("/", "text/html; charset=utf-8"),
         ("/index.html", "text/html; charset=utf-8"),
@@ -258,10 +277,22 @@ fn mime_und_seite() {
         assert!(a.header("content-encoding").is_none(), "{pfad}");
     }
     assert_eq!(hole(server.adresse, "/").koerper, b"<!doctype html>");
+    // Gehashte Dateien der Seite darf der Browser behalten, alles andere
+    // fragt er nach.
+    for (pfad, cache) in [
+        ("/assets/index-Ab12.js", "max-age=31536000, immutable"),
+        ("/", "no-cache"),
+        ("/tiles/t/map.json", "no-cache"),
+    ] {
+        let a = hole(server.adresse, pfad);
+        assert_eq!(a.header("cache-control"), Some(cache), "{pfad}");
+    }
 }
 
 /// Was fehlt, und jeder Weg hinaus gibt 404; ohne `--web` auch `/`. Einen
-/// Backslash im Pfad lehnt schon hyper mit 400 ab.
+/// Backslash im Pfad lehnt schon hyper mit 400 ab. Unter `/tiles/` gibt es
+/// nur die Positivliste, also weder den Stand noch eine halb geschriebene
+/// Datei. Was sich nicht öffnen lässt, gibt 404 ohne Zeile auf stderr.
 #[test]
 fn nicht_gefunden_und_wege_hinaus() {
     let (kacheln, _seite) = wurzel();
@@ -278,11 +309,29 @@ fn nicht_gefunden_und_wege_hinaus() {
         "/tiles/nul",
         "/tiles/con",
         "/tiles/t/0/0",
+        "/tiles/geheim.txt",
+        "/tiles/t/stand.bin",
+        "/tiles/t/stand-neu.bin",
+        "/tiles/t/0/0/0.webp.123.tmp",
+        "/tiles/t/manifest-offen-1-2",
+        "/tiles/trees.json/x",
+        "/tiles/t/00/0/0.webp",
     ] {
         assert_eq!(hole(server.adresse, pfad).status, 404, "{pfad}");
     }
     let schraeg = hole(server.adresse, "/tiles/t\\map.json").status;
     assert!(matches!(schraeg, 400 | 404), "{schraeg}");
+
+    let (_, seite) = wurzel();
+    let mit_seite = starte(kacheln.path(), &["--web", seite.path().to_str().unwrap()]);
+    let lang = format!("/{}", "a".repeat(300));
+    for pfad in ["/index.html/x", "/assets/index-Ab12.js/x", lang.as_str()] {
+        assert_eq!(hole(mit_seite.adresse, pfad).status, 404, "{pfad}");
+    }
+    for server in [server, mit_seite] {
+        let fehler = server.fehlerausgabe();
+        assert!(fehler.is_empty(), "{fehler}");
+    }
 }
 
 /// Nur GET und HEAD; HEAD nennt die Länge ohne Körper.
@@ -336,6 +385,31 @@ fn grenzen_am_kopf() {
         "{text}"
     );
 
+    // Nach einer Antwort mit Keep-Alive endet der Leerlauf ebenso.
+    let mut strom = TcpStream::connect(server.adresse).unwrap();
+    strom
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    strom
+        .write_all(b"GET /tiles/trees.json HTTP/1.1\r\nHost: test\r\n\r\n")
+        .unwrap();
+    let mut daten = Vec::new();
+    let mut puffer = [0u8; 4096];
+    while !daten.ends_with(b"\r\n\r\n[]") {
+        let n = strom.read(&mut puffer).unwrap();
+        assert!(n > 0, "{}", String::from_utf8_lossy(&daten));
+        daten.extend_from_slice(&puffer[..n]);
+    }
+    let beginn = Instant::now();
+    let mut rest = Vec::new();
+    let _ = strom.read_to_end(&mut rest);
+    assert!(rest.is_empty(), "{}", String::from_utf8_lossy(&rest));
+    let dauer = beginn.elapsed();
+    assert!(
+        dauer < Duration::from_secs(5),
+        "Leerlauf erst nach {dauer:?} beendet"
+    );
+
     for anfang in [&b"GET /tiles/t/map.json HTTP/1.1\r\nHost:"[..], b""] {
         let mut strom = TcpStream::connect(server.adresse).unwrap();
         strom
@@ -385,6 +459,44 @@ fn hoechstens_so_viele_verbindungen() {
         daten.starts_with(b"HTTP/1.1 200"),
         "{}",
         String::from_utf8_lossy(&daten)
+    );
+}
+
+/// Liest ein Client eine grosse Antwort nie, schliesst der Server die
+/// Verbindung nach `--write-timeout` ohne Fortschritt, und ihr Platz wird
+/// frei. Nur unter Unix: Unter Windows nimmt localhost die 64 MiB auf, ohne
+/// dass der Client liest, und das Schreiben stockt nie. Die Zeit selbst
+/// prüft `ohne_fortschritt_endet_das_schreiben` in `src/cli/server.rs`.
+#[cfg(unix)]
+#[test]
+fn schreiben_ohne_fortschritt_endet() {
+    let (kacheln, _seite) = wurzel();
+    let gross = kacheln.path().join("t/0/0/1.webp");
+    std::fs::File::create(&gross)
+        .unwrap()
+        .set_len(64 << 20)
+        .unwrap();
+    let server = starte(
+        kacheln.path(),
+        &["--write-timeout", "1", "--max-connections", "1"],
+    );
+    let mut faul = TcpStream::connect(server.adresse).unwrap();
+    faul.write_all(b"GET /tiles/t/0/0/1.webp HTTP/1.1\r\nHost: test\r\n\r\n")
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(3500));
+
+    // Der Platz ist frei: Eine zweite Verbindung bekommt ihre Antwort.
+    let a = hole(server.adresse, "/tiles/t/map.json");
+    assert_eq!(a.status, 200);
+
+    faul.set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut angekommen = Vec::new();
+    let _ = faul.read_to_end(&mut angekommen);
+    assert!(
+        angekommen.len() < 64 << 20,
+        "alles angekommen: {} Bytes",
+        angekommen.len()
     );
 }
 

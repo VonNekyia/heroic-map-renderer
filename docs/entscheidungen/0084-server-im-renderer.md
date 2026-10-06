@@ -34,8 +34,16 @@ die der Renderer währenddessen tauscht. Entschieden hat der Maintainer am
   ohne TLS, und HTTPS beendet ein Proxy mit dem JDK im Plugin.
 - **Grenzen am offenen Netz,** einstellbar: Kopf der Anfrage in 10 s, auch
   im Leerlauf zwischen zwei Anfragen; Kopf höchstens 16 KiB und 64 Header;
-  höchstens 256 Verbindungen zugleich; nur GET und HEAD. Dateien lesen
-  höchstens so viele Threads, wie der Server hat.
+  höchstens 256 Verbindungen zugleich; 30 s ohne Fortschritt beim
+  Schreiben einer Antwort, dann schliesst er; nur GET und HEAD. Dateien
+  lesen höchstens so viele Threads, wie der Server hat.
+- **Unter `/tiles/` eine Positivliste:** nur, was Karte und Mod brauchen,
+  `trees.json`, `map.json`, `manifest`, die Höhen und `z/x/y.webp`.
+  `stand.bin`, Marken, halb geschriebene Dateien und was ein Betreiber dort
+  ablegt, bleiben unsichtbar. Entschieden am 06.10. im Review zu #181.
+- **Jeder Fehler beim Öffnen oder Lesen gibt `404`,** ohne Zeile im Log:
+  Sonst füllte ein Angreifer mit Pfaden wie `trees.json/x` das Log, und mit
+  einem Thread hinge der Server an einer vollen Pipe.
 - **Keine Waise:** Mit `--exit-with-stdin` endet der Server, sobald stdin
   schliesst. Das Plugin hält die Pipe offen; stirbt die JVM hart, endet der
   Server mit ihr. Ein Schalter, weil ein Server mit stdin aus `/dev/null`
@@ -44,16 +52,18 @@ die der Renderer währenddessen tauscht. Entschieden hat der Maintainer am
   `--tiles` unter `/tiles/`, `--web` für die gebaute Seite unter `/`. Das
   Plugin entpackt die Seite aus dem Jar, die Bäume liegen woanders; die
   Karte findet die Kacheln wie bisher unter `tiles/` neben sich.
-- **Pfade:** Je Teil nur Buchstaben, Ziffern, `-`, `_` und `.`, nicht am
-  Anfang, und kein Gerät von Windows. Alles andere gibt `404`, ohne dass
-  der Server den Pfad öffnet. Eine Prüfung über Zeichen ist kürzer und
-  sicherer als jede über aufgelöste Pfade.
+- **Pfade unter `--web`:** Je Teil nur Buchstaben, Ziffern, `-`, `_` und
+  `.`, nicht am Anfang, und kein Gerät von Windows. Alles andere gibt
+  `404`, ohne dass der Server den Pfad öffnet. Eine Prüfung über Zeichen ist
+  kürzer und sicherer als jede über aufgelöste Pfade.
+- **Cache:** `no-cache` mit ETag für alles, ausser den gehashten Dateien der
+  Seite unter `/assets/`: Die tragen `max-age=31536000, immutable`.
 - **Bedingte Anfragen auf Gleichheit:** `If-None-Match` gegen das ETag aus
   dem Manifest; ohne gilt `If-Modified-Since` nur bei gleichem Wert. Eine
   getauschte Datei kann eine ältere Zeit tragen
   ([0018](0018-dateien-tauschen-statt-ueberschreiben.md)).
-- **Schalter englisch** wie die aus #149; `--ende-mit-stdin` aus #151 heisst
-  `--exit-with-stdin`.
+- **Schalter englisch** wie die aus #149, festgelegt an #151 am 06.10.;
+  `--ende-mit-stdin` heisst `--exit-with-stdin`.
 
 Wie der Server sich verhält, steht in [Server](../benutzung/server.md).
 
@@ -74,12 +84,17 @@ Wie der Server sich verhält, steht in [Server](../benutzung/server.md).
 
 - **Grösse:** hyper und tokio bringen gepackt rund 0,25 MB je Binär, TLS
   später rund 0,57 MB dazu, gemessen am Prototyp unter Windows (#151). Die
-  Grenze in der CI steigt auf 4 550 000 Byte, siehe
-  [Weitergabe](../entwicklung/weitergabe.md), „Grenze“.
+  Grenze in der CI steht bis TLS auf 3 980 000 Byte, danach auf 4 550 000,
+  siehe [Weitergabe](../entwicklung/weitergabe.md), „Grenze“.
 - **Ohne HTTPS** geht ein Token aus #154 im Klartext. Die Doku rät
   öffentlichen Servern zu HTTPS, sobald es kommt.
-- **Die Header der Karte** stehen an zwei Stellen, in
-  `web/vite.config.ts` für die Tests des Frontends und im Renderer. Ob sie
-  an eine Stelle wandern, ist an #151 offen.
+- **Die Header der Karte** stehen bis auf Weiteres an zwei Stellen, in
+  `web/vite.config.ts` und im Renderer; ein Test vergleicht die Werte
+  Zeichen für Zeichen. Entschieden ist an #151 `web/headers.json` als eine
+  Stelle für beide; liegt die Datei auf master, liest der Renderer sie per
+  `include_str!`.
+- **Speicher:** Weil er jede Datei ganz liest, hält er höchstens
+  Verbindungen × grösste Datei, mit 256 Verbindungen und Kacheln bis 4 MiB
+  also bis rund 1 GiB.
 - **Dateien liest er ganz** in den Speicher und schickt sie dann; für
   grosse Dateien müsste er streamen.

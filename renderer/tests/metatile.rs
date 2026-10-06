@@ -129,6 +129,71 @@ fn verdecken_aendert_kein_pixel() {
     }
 }
 
+/// Eine eigene Laubfarbe färbt genau ihren Block, Dschungellaub mit
+/// Biomfarbe wie Fichte mit fester Farbe: Jeder Pixel, der sich ändert,
+/// liegt im Rechteck um diesen Block und ist rot wie die Farbe, und in
+/// jedem Rechteck ändert sich einer, auch aus der Gegenrichtung. Die Lagen
+/// sind in x und z verschieden, sonst fiele ein Tausch nicht auf.
+/// Siehe docs/benutzung/laubfarben.md, „Wirkung“.
+#[test]
+fn eigene_laubfarbe_faerbt_genau_ihren_block() {
+    fn szene(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (2..=5, 1, 2..=5) => "minecraft:jungle_leaves",
+            (9..=12, 1, 9..=12) => "minecraft:spruce_leaves",
+            _ => "minecraft:air",
+        }
+    }
+    let lagen = [[3, 1, 4], [10, 1, 12]];
+    let welt = |mit: bool| {
+        let dir = tempdir();
+        common::write_world_bukkit(dir.path(), &[(0, 0)], szene, |_, _| {
+            mit.then(|| common::laubfarben(&[(0xff_2020, &lagen)]))
+        });
+        dir
+    };
+    let (ohne, mit) = (welt(false), welt(true));
+    for name in ["se", "nw"] {
+        let richtung = Richtung::parse(name, Kamera::ZWEI_ZU_EINS).unwrap();
+        let projection = Projection::new(16).aus(richtung);
+        let rect = rect_um(projection, [0, 0, 0], [16, 2, 16]);
+        let bild = |dir: &TempDir| {
+            let world = World::open(dir.path()).unwrap();
+            let survey = survey(&world, projection, Y_RANGE, None).unwrap();
+            let mut assets = assets();
+            let mut sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+            sprites.add_laub(&mut assets, &survey.festes_laub).unwrap();
+            render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+        };
+        let (a, b) = (bild(&ohne), bild(&mit));
+        let um = lagen.map(|[x, y, z]| rect_um(projection, [x, y, z], [x + 1, y + 1, z + 1]));
+        let mut je_block = [0; 2];
+        for (px, py, p) in a.enumerate_pixels() {
+            if p == b.get_pixel(px, py) {
+                continue;
+            }
+            let (x, y) = (rect.x + px as i32, rect.y + py as i32);
+            let i = um.iter().position(|r| {
+                (r.x..r.x + r.width as i32).contains(&x)
+                    && (r.y..r.y + r.height as i32).contains(&y)
+            });
+            let Some(i) = i else {
+                panic!("{name}: Pixel ({x}, {y}) ausserhalb der Blöcke");
+            };
+            je_block[i] += 1;
+            // Getönt mit 0xff2020: Rot überwiegt.
+            let [r, g, blau, _] = b.get_pixel(px, py).0;
+            assert!(
+                r > g && r > blau,
+                "{name}: Pixel ({x}, {y}) ist {:?}, nicht rot",
+                b.get_pixel(px, py).0
+            );
+        }
+        assert!(je_block.iter().all(|&n| n > 0), "{name}: {je_block:?}");
+    }
+}
+
 /// Das Rechteck in Pixeln um die Ecken des Quaders von `min` bis `max`.
 fn rect_um(projection: Projection, min: [i32; 3], max: [i32; 3]) -> ScreenRect {
     let ecken: Vec<(f64, f64)> = (0..8)

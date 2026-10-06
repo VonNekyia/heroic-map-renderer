@@ -22,6 +22,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Pyramide und Fortsetzen](benutzung/pyramide-und-resume.md): `--pyramid` während eines Renders und `--resume` nach einem Abbruch.
 - [Server](benutzung/server.md): `--serve` liefert Karte und Kacheln selbst aus; Schalter, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz und das Ende mit stdin.
 - [Updates](benutzung/updates.md): `--update` zeichnet nur, wo sich die Welt geändert hat; der Stand je Baum, Stempel und Fingerabdruck je Chunk, das Gebiet einer Änderung.
+- [Eigene Laubfarben](benutzung/laubfarben.md): der Vertrag für Laubfarben im PersistentDataContainer des Chunks, `heroicmap:leaf_colors`, Format, Wirkung, falsche Daten und Updates.
 - [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt den Richtungen und `projektion.json`, die Liste der Bäume `trees.json` unter einer Wurzel, die Höhen, Wasserspiegel und Rechteck der Welt und wann die Dateien entstehen.
 - [Was ein Lauf kostet](benutzung/kosten.md): Platz und Dauer je scale, Cinematic gegen die Karte, die grosse Welt gemessen und hochgerechnet.
 - [Grafikkarte](benutzung/grafikkarte.md): `--gpu`, Adapter, Backends, Rückfall auf die CPU.
@@ -151,6 +152,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0078](entscheidungen/0078-apache-2-0.md): Apache-2.0 statt der eigenen Lizenz aus 0034, Credits über `NOTICE`, der Hinweis auf Mojang, was jeder Weitergabe beiliegt und welche Lizenzen Abhängigkeiten haben dürfen; löst 0034 ab.
 - [0079](entscheidungen/0079-tablett-vertagt-nur-marmor.md): Das Tablett ist vertagt; `skins/tablett` legt vorerst nur den Marmor um die Karte, auch um Welten, die kein Quadrat sind. Das ganze Tablett bleibt als `voll.ts` und wird weiter getestet; ergänzt 0061 und 0063.
 - [0080](entscheidungen/0080-ohne-hintergrundmodus.md): `--low-priority` setzt unter Windows nur `IDLE_PRIORITY_CLASS`, nicht den Hintergrundmodus für I/O und Speicher: Er kostete Läufe 9 bis 35 % und schützte die Tickzeit nicht besser.
+- [0081](entscheidungen/0081-eigene-laubfarben.md): Eigene Laubfarben als Tönung aus dem PDC statt der Biomfarbe; Fichte und Birke bekommen eine eigene Familie mit Tönungskarte nur an Stellen mit eigener Farbe; „hell“ ändert vorerst nichts, #179.
 - [0082](entscheidungen/0082-versionen-und-releases.md): Versionen nach SemVer aus `Cargo.toml`, ein Tag `vX.Y.Z` legt einen Release-Entwurf an, Linux gegen glibc 2.28 ohne musl.
 - [0083](entscheidungen/0083-manifest-je-baum.md): Mit `--manifest` schreibt der Renderer am Ende jedes Laufs mit Kacheln ein Manifest mit Grösse und ETag jeder Kachel; ein voller Lauf liest dafür den ganzen Baum, jeder andere zieht nach; eine Marke je Lauf erkennt abgebrochene und gleichzeitige Läufe.
 - [0084](entscheidungen/0084-server-im-renderer.md): Karte und Kacheln liefert ein Server im Renderer aus, `--serve` mit hyper und tokio, mit Grenzen am offenen Netz und Ende mit stdin; Seite und Kacheln in getrennten Ordnern, Pfade über erlaubte Zeichen, bedingte Anfragen auf Gleichheit; löst 0047 in einem Punkt ab.

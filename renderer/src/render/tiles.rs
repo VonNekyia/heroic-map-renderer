@@ -12,6 +12,7 @@ use image::RgbaImage;
 use libwebp_sys as webp;
 use rayon::prelude::*;
 
+use crate::assets::colors::{Source, eigene_laubfarbe, source_of};
 use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
 use super::heights::{Heights, RegionHeights};
@@ -312,6 +313,14 @@ pub struct Survey {
     /// Mit [`Reach::mit_inhalt`] je gelesenem Chunk, was der Renderer aus
     /// ihm zeichnet, für den Stand eines vollen Laufs.
     pub inhalte: Vec<([i32; 2], Inhalt)>,
+    /// Laub mit fester Farbe, Fichte oder Birke, auf dem eine eigene
+    /// Laubfarbe liegt: Es braucht eine Familie mit Tönungskarte, siehe
+    /// [`super::SpriteSet::add_laub`].
+    pub festes_laub: BTreeSet<BlockState>,
+    /// Chunks, deren Laubfarben nicht dem Vertrag folgen, und für den ersten
+    /// seine Lage und der Grund.
+    pub laubfarben_ungueltig: usize,
+    pub laubfarben_grund: Option<([i32; 2], String)>,
 }
 
 /// Welche Chunks der Vorlauf liest: die, deren Spalte über die ganze
@@ -579,6 +588,11 @@ pub fn survey_mit_fortschritt(
         survey.heights.extend(teil.heights);
         survey.unfinished += teil.unfinished;
         survey.inhalte.extend(teil.inhalte);
+        survey.festes_laub.extend(teil.festes_laub);
+        survey.laubfarben_ungueltig += teil.laubfarben_ungueltig;
+        if survey.laubfarben_grund.is_none() {
+            survey.laubfarben_grund = teil.laubfarben_grund;
+        }
     }
     survey.tiles = tiles.into_iter().collect();
     Ok(survey)
@@ -620,6 +634,12 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
                 continue;
             }
             survey.chunks += 1;
+            if im_bild && let Some(grund) = chunk.laubfarben_fehler() {
+                survey.laubfarben_ungueltig += 1;
+                survey
+                    .laubfarben_grund
+                    .get_or_insert(([cx, cz], grund.to_string()));
+            }
             // Die Höhen hängen nicht an der Sprite-Tabelle: auch ein Chunk,
             // dessen Blöcke ausserhalb landen, bekommt seine.
             if im_bild {
@@ -651,6 +671,16 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
             for ([x, y, z], daten) in chunk.blockentities() {
                 if let Some(state) = chunk.block_at(x, y, z) {
                     survey.entities.insert((state.clone(), daten.clone()));
+                }
+            }
+            for ([x, y, z], _) in chunk.laubfarben() {
+                let Some(state) = chunk.block_at(x, y, z) else {
+                    continue;
+                };
+                if matches!(source_of(state.name()), Some(Source::Fixed(_)))
+                    && eigene_laubfarbe(state.name())
+                {
+                    survey.festes_laub.insert(state.clone());
                 }
             }
         }

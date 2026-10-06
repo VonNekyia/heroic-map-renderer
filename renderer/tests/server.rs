@@ -151,6 +151,9 @@ fn wurzel() -> (TempDir, TempDir) {
     (kacheln, seite)
 }
 
+/// `trees.json` einer Wurzel mit dem Baum `t`.
+const BAEUME: &[u8] = br#"{"trees":[{"path":"t"}]}"#;
+
 /// Die Dateien einer Wurzel wie nach einem Export, dazu solche, die nicht
 /// öffentlich sind.
 fn kacheln_in(k: &Path) {
@@ -161,7 +164,7 @@ fn kacheln_in(k: &Path) {
         ("t/manifest", b"\x1f\x8b-gzip"),
         ("t/heights/1.-2.bin", b"eigene hoehen"),
         ("heights/0.0.bin", b"hoehen"),
-        ("trees.json", b"[]"),
+        ("trees.json", BAEUME),
         (".geheim", b"nein"),
         ("geheim.txt", b"nein"),
         ("t/stand.bin", b"nein"),
@@ -466,7 +469,7 @@ fn grenzen_am_kopf() {
         .unwrap();
     let mut daten = Vec::new();
     let mut puffer = [0u8; 4096];
-    while !daten.ends_with(b"\r\n\r\n[]") {
+    while !daten.ends_with(BAEUME) {
         let n = strom.read(&mut puffer).unwrap();
         assert!(n > 0, "{}", String::from_utf8_lossy(&daten));
         daten.extend_from_slice(&puffer[..n]);
@@ -722,7 +725,7 @@ fn https_aus_pem() {
         ],
     );
     let (a, gezeigt, alpn) = tls_hole_mit_alpn(server.adresse, &der, "/tiles/trees.json");
-    assert_eq!((a.status, a.koerper.as_slice()), (200, &b"[]"[..]));
+    assert_eq!((a.status, a.koerper.as_slice()), (200, BAEUME));
     assert_eq!(gezeigt, der);
     assert_eq!(alpn.as_deref(), Some(&b"http/1.1"[..]), "ALPN");
 
@@ -1115,5 +1118,75 @@ fn geheimnis_aus_genau_32_byte() {
         let fehler = String::from_utf8_lossy(&ausgabe.stderr);
         assert!(!ausgabe.status.success(), "{grund}");
         assert!(fehler.contains(grund), "{grund}: {fehler}");
+    }
+}
+
+/// Unter `/tiles/` nur Bäume, die `trees.json` der Wurzel nennt: Ein Baum,
+/// der dort fehlt, gibt `404`, unter `/download/` mit Token `200`. Nennt die
+/// Liste ihn später, liefert der Server ihn nach höchstens einer Sekunde
+/// auch unter `/tiles/`; ohne lesbare Liste keinen Baum, die Dateien der
+/// Wurzel aber weiter.
+#[test]
+fn tiles_nur_fuer_baeume_der_liste() {
+    let (kacheln, _seite) = wurzel();
+    let k = kacheln.path();
+    std::fs::create_dir_all(k.join("d/0/0")).unwrap();
+    std::fs::write(k.join("d/map.json"), b"{}").unwrap();
+    std::fs::write(k.join("d/0/0/0.webp"), b"nur zum download").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (datei, geheimnis) = geheimnis_in(dir.path());
+    let server = starte(k, &["--secret-file", datei.to_str().unwrap()]);
+    assert_eq!(hole(server.adresse, "/tiles/t/0/0/0.webp").status, 200);
+    for pfad in ["/tiles/d/map.json", "/tiles/d/0/0/0.webp"] {
+        assert_eq!(hole(server.adresse, pfad).status, 404, "{pfad}");
+    }
+    let t = token(&geheimnis, "d", 0, 1 << 20, jetzt() + 600, 1);
+    let geladen = mit_token(server.adresse, "GET", "/download/d/0/0/0.webp", &t, &[]);
+    assert_eq!(geladen.koerper, b"nur zum download");
+
+    std::fs::write(
+        k.join("trees.json"),
+        br#"{"trees":[{"path":"t"},{"path":"d"}]}"#,
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(1100));
+    assert_eq!(hole(server.adresse, "/tiles/d/0/0/0.webp").status, 200);
+    std::fs::write(k.join("trees.json"), b"kaputt").unwrap();
+    std::thread::sleep(Duration::from_millis(1100));
+    assert_eq!(hole(server.adresse, "/tiles/t/0/0/0.webp").status, 404);
+    assert_eq!(hole(server.adresse, "/tiles/heights/0.0.bin").status, 200);
+}
+
+/// Ein einzelner Baum als Wurzel hat keinen Download: Seine Pfade liegen
+/// unter keinem Baum, `403`, und einen Ordner mit dem Baum des Tokens gibt
+/// es nicht, `404`. Unter `/tiles/` liefert er ihn wie immer.
+#[test]
+fn einzelner_baum_ohne_download() {
+    let k = tempfile::tempdir().unwrap();
+    for (pfad, inhalt) in [
+        ("map.json", &b"{}"[..]),
+        ("manifest", b"\x1f\x8b-gzip"),
+        ("0/0/0.webp", b"kachel"),
+    ] {
+        std::fs::create_dir_all(k.path().join(pfad).parent().unwrap()).unwrap();
+        std::fs::write(k.path().join(pfad), inhalt).unwrap();
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (datei, geheimnis) = geheimnis_in(dir.path());
+    let server = starte(k.path(), &["--secret-file", datei.to_str().unwrap()]);
+    assert_eq!(hole(server.adresse, "/tiles/0/0/0.webp").koerper, b"kachel");
+    let t = token(&geheimnis, "t", 0, 1 << 20, jetzt() + 600, 1);
+    for (pfad, status) in [
+        ("/download/map.json", 403),
+        ("/download/manifest", 403),
+        ("/download/0/0/0.webp", 403),
+        ("/download/t/map.json", 404),
+        ("/download/t/0/0/0.webp", 404),
+    ] {
+        assert_eq!(
+            mit_token(server.adresse, "GET", pfad, &t, &[]).status,
+            status,
+            "{pfad}"
+        );
     }
 }

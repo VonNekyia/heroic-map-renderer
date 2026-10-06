@@ -67,6 +67,13 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   schreibt, ohne `+` und führende Nullen. Alles andere gibt `404`, auch
   `stand.bin`, die Marken des Manifests und halb geschriebene Dateien
   `<name>.<pid>.tmp`.
+- **Nur Bäume der Webkarte:** Pfade unter `<baum>/` liefert er nur für
+  Bäume, die `trees.json` der Wurzel unter `path` nennt, sonst `404`; ohne
+  lesbare `trees.json` für keinen. Höchstens einmal je Sekunde sieht er
+  nach, ob sich die Datei geändert hat. Ein Baum, der dort fehlt, ist nur
+  über „Download“ zu haben. Die Kacheln der Webkarte sind öffentlich: Die
+  Grenzen aus #154 begrenzen Downloads über den Mod, nicht wer die
+  Webkarte abgrast. Entschieden am 06.10. im Review zu #184.
 - **Ein Ordner unter `--web`** gibt seine `index.html`, auch `/`. Ein leerer
   Teil wie in `//` und ein erster Teil `tiles` in jeder Schreibung geben
   dort `404`: Liegen die Kacheln unter der Seite, käme man sonst über
@@ -205,7 +212,8 @@ heroic-map-renderer --serve ./tiles --listen 0.0.0.0:8080 --secret-file geheimni
   Server laufen.
 - **Das Token** steht im Header `Authorization: Bearer <token>`, nie in der
   URL. Der Server prüft es nach [Plugin](../plugin.md), „Token“, gegen seine
-  eigene Uhr, ohne Rückfrage beim Plugin.
+  eigene Uhr, ohne Rückfrage beim Plugin. Steht die Uhr vor 1970, gilt
+  jedes Token als abgelaufen.
 - **Pfade,** je Baum unter `/download/<baum>`, der `url` aus #154:
 
   | Pfad | Inhalt |
@@ -214,8 +222,9 @@ heroic-map-renderer --serve ./tiles --listen 0.0.0.0:8080 --secret-file geheimni
   | `/download/<baum>/manifest` | das Manifest, siehe [Plugin](../plugin.md), „Manifest“ |
   | `/download/<baum>/<z>/<x>/<y>.webp` | eine Kachel bis zur Stufe des Tokens |
 
-  Baum und Kachel heissen wie unter `/tiles/`. Die Wurzel muss Bäume
-  tragen; ein einzelner Baum als Wurzel hat keinen Download.
+  Baum und Kachel heissen wie unter `/tiles/`, nur muss `trees.json` den
+  Baum nicht nennen. Die Wurzel muss Bäume tragen; ein einzelner Baum als
+  Wurzel hat keinen Download.
 - **Antworten:**
 
   | Status | wann |
@@ -228,8 +237,9 @@ heroic-map-renderer --serve ./tiles --listen 0.0.0.0:8080 --secret-file geheimni
 
 - **Bytes je Zufall:** Der Server zählt je Zufall des Tokens die Bytes der
   Körper, die er mit `200` auf GET ausliefert; `304` und HEAD zählen nicht.
-  Brächte eine Antwort die Summe über den Deckel, gibt er `429` und zählt
-  sie nicht. Gibt das Plugin beim Fortsetzen dasselbe Token zurück, zählt es
+  Er bucht beim Antworten, vor dem Senden: Bricht die Übertragung ab, zählt
+  die Antwort trotzdem ganz. Brächte eine Antwort die Summe über den
+  Deckel, gibt er `429` und zählt sie nicht. Gibt das Plugin beim Fortsetzen dasselbe Token zurück, zählt es
   weiter. Die Summen liegen nur im Speicher, ein Neustart des Servers setzt
   sie zurück. Abgelaufene fallen weg, sobald ein neuer Zufall dazukommt.
 
@@ -250,8 +260,9 @@ Schreiben ohne Fortschritt, die Zahl der Verbindungen und das Ende mit
 stdin, dazu HTTPS mit Zertifikaten, die `rcgen` nur für die Tests erzeugt:
 der Handschlag, der Tausch ohne Neustart, ein kaputtes Neues und ein Start
 ohne gültiges Zertifikat; dazu der Download mit Token, die der Test selbst
-unterschreibt: jeder Status, Baum und Stufe, der Deckel je Zufall und das
-Geheimnis. In [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
+unterschreibt: jeder Status, Baum und Stufe, der Deckel je Zufall, das
+Geheimnis, ein einzelner Baum als Wurzel und dass `/tiles/` nur Bäume aus
+`trees.json` liefert. In [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
 prüfen Tests das Tauschen, die Pfade, die Zeit, das Schreiben ohne
 Fortschritt, das Zählen bis zum Deckel und dass sich `web/headers.json`
 lesen lässt. In [`renderer/src/cli/token.rs`](../../renderer/src/cli/token.rs)

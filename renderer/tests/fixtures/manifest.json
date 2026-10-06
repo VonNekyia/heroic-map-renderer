@@ -1,5 +1,5 @@
 {
-  "beschreibung": "Testvektor für das Manifest eines Baums, siehe docs/plugin.md, „Manifest“. `kacheln` nennt je Kachel ihre Grösse und ihre letzte Änderung in ns seit 1970. `manifest` ist der Text, den der Renderer daraus schreibt, vor dem Packen mit gzip. `stufen` sind die Summen je Zoomstufe, wie das Plugin sie liest. Die Zeiten sind Vielfache von 100 ns, so viel hält NTFS.",
+  "beschreibung": "Testvektor für das Manifest eines Baums. Das Format steht in docs/plugin.md des Renderers, Abschnitt Manifest. `kacheln` nennt je Kachel ihre Grösse und ihre letzte Änderung in ns seit 1970. `manifest` ist der Text, den der Renderer daraus schreibt, vor dem Packen mit gzip. `stufen` sind die Summen je Zoomstufe, wie das Plugin sie liest. Die Zeiten sind Vielfache von 100 ns, so viel hält NTFS.",
   "kacheln": [
     {
       "z": 0,

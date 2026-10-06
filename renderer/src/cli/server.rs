@@ -84,6 +84,9 @@ pub(super) fn serve(e: Einstellung) -> Result<()> {
     for ordner in std::iter::once(&e.kacheln).chain(&e.seite) {
         ensure!(ordner.is_dir(), "{} ist kein Verzeichnis", ordner.display());
     }
+    if let Some(seite) = &e.seite {
+        pruefe_ineinander(&e.kacheln, seite)?;
+    }
     let laufzeit = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(e.threads)
         // Dateien lesen höchstens so viele Threads, wie der Server hat.
@@ -92,6 +95,26 @@ pub(super) fn serve(e: Einstellung) -> Result<()> {
         .build()
         .context("Laufzeit anlegen")?;
     laufzeit.block_on(lausche(e))
+}
+
+/// Liegt eine Wurzel in der anderen, geht das nur als `<seite>/tiles`, wie
+/// die Karte die Kacheln neben sich sucht. Sonst läge, was unter `/tiles/`
+/// nicht öffentlich ist, unter `--web` offen, oder die Seite unter den
+/// Kacheln.
+fn pruefe_ineinander(kacheln: &Path, seite: &Path) -> Result<()> {
+    let k =
+        std::fs::canonicalize(kacheln).with_context(|| format!("{} lesen", kacheln.display()))?;
+    let s = std::fs::canonicalize(seite).with_context(|| format!("{} lesen", seite.display()))?;
+    let wie_die_karte = k.parent() == Some(s.as_path())
+        && k.file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("tiles"));
+    ensure!(
+        wie_die_karte || !(k.starts_with(&s) || s.starts_with(&k)),
+        "{} und {} liegen ineinander; erlaubt ist nur die Wurzel der Kacheln als tiles direkt unter der Seite",
+        kacheln.display(),
+        seite.display()
+    );
+    Ok(())
 }
 
 async fn lausche(e: Einstellung) -> Result<()> {
@@ -336,14 +359,26 @@ fn kachelpfad(wurzel: &Path, rest: &str) -> Option<PathBuf> {
     erlaubt.then(|| teile.iter().fold(wurzel.to_path_buf(), |p, t| p.join(t)))
 }
 
-/// Der Pfad unter `wurzel` für den Rest einer URL; `None` für jeden, der
-/// hinausführen könnte. Erlaubt sind je Teil nur Buchstaben, Ziffern, `-`,
-/// `_` und `.`, nicht am Anfang, und kein Gerät von Windows wie `nul`.
-fn unter(wurzel: &Path, rest: &str) -> Option<PathBuf> {
+/// Der Pfad unter `wurzel` für den Pfad einer URL unter `--web`; `None` für
+/// jeden, der hinausführen könnte. Erlaubt sind je Teil nur Buchstaben,
+/// Ziffern, `-`, `_` und `.`, nicht am Anfang, kein leerer Teil und kein
+/// Gerät von Windows wie `nul`. Ein erster Teil `tiles` in jeder Schreibung
+/// gehört unter `/tiles/`: Liegen die Kacheln unter der Seite, käme man
+/// sonst mit `//tiles/` oder `/TILES/` an der Positivliste vorbei.
+fn unter(wurzel: &Path, url: &str) -> Option<PathBuf> {
+    let rest = url.strip_prefix('/')?;
     let mut pfad = wurzel.to_path_buf();
-    for teil in rest.split('/').filter(|teil| !teil.is_empty()) {
+    if rest.is_empty() {
+        return Some(pfad);
+    }
+    for (i, teil) in rest.split('/').enumerate() {
         let erlaubt = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
-        if teil.starts_with('.') || !teil.chars().all(erlaubt) || geraet(teil) {
+        if teil.is_empty()
+            || teil.starts_with('.')
+            || !teil.chars().all(erlaubt)
+            || geraet(teil)
+            || (i == 0 && teil.eq_ignore_ascii_case("tiles"))
+        {
             return None;
         }
         pfad.push(teil);
@@ -435,6 +470,13 @@ fn lies(
         datei.read_to_end(&mut daten).ok()?;
         (StatusCode::OK, daten)
     };
+    // Die Länge aus dem Gelesenen; wird die Datei an Ort und Stelle
+    // beschrieben statt getauscht, passt sie so zum Körper. HEAD nennt die
+    // Grösse aus den Metadaten.
+    let laenge = match kopf {
+        true => meta.len(),
+        false => koerper.len() as u64,
+    };
     let mut antwort = Response::new(Full::new(Bytes::from(koerper)));
     *antwort.status_mut() = status;
     let h = antwort.headers_mut();
@@ -451,7 +493,7 @@ fn lies(
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     if status == StatusCode::OK {
         h.insert(header::CONTENT_TYPE, HeaderValue::from_static(art(&pfad)));
-        h.insert(header::CONTENT_LENGTH, HeaderValue::from(meta.len()));
+        h.insert(header::CONTENT_LENGTH, HeaderValue::from(laenge));
     }
     Some(antwort)
 }
@@ -504,10 +546,17 @@ mod tests {
     fn nur_pfade_unter_der_wurzel() {
         let wurzel = Path::new("w");
         assert_eq!(
-            unter(wurzel, "/a//b-1_c.webp"),
+            unter(wurzel, "/a/b-1_c.webp"),
             Some(wurzel.join("a").join("b-1_c.webp"))
         );
-        for erlaubt in ["/console.css", "/com.webp", "/comx", "/nul-1.js"] {
+        assert_eq!(unter(wurzel, "/"), Some(wurzel.to_path_buf()));
+        for erlaubt in [
+            "/console.css",
+            "/com.webp",
+            "/comx",
+            "/nul-1.js",
+            "/tilesx/a",
+        ] {
             assert!(unter(wurzel, erlaubt).is_some(), "{erlaubt}");
         }
         for hinaus in [
@@ -522,6 +571,13 @@ mod tests {
             "/a/con.txt",
             "/com1",
             "/lpt9.webp",
+            "/a//b",
+            "//tiles/t/stand.bin",
+            "/TILES/t/stand.bin",
+            "/Tiles",
+            "/tiles",
+            "/assets/",
+            "",
         ] {
             assert_eq!(unter(wurzel, hinaus), None, "{hinaus}");
         }

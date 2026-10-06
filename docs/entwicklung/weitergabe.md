@@ -79,27 +79,37 @@ verlangt. Ohne musl, siehe
 
 ## Grenze
 
-- **Das Budget:** Hangar nimmt höchstens 10 000 000 Byte je Datei an (#153),
-  und das Jar trägt die Binärs für Windows und Linux, dazu das Plugin. Je
-  Binär bleiben so gepackt rund 4,55 MB.
+- **Das Budget:** Hangar nimmt höchstens 10 000 000 Byte je Datei an (#153).
+  Das Jar trägt beide Binärs, dazu Plugin, Seite und Hinweise, zusammen
+  rund 0,7 MB. Für die Binärs bleiben so gepackt
+  10 000 000 − 700 000 = 9 300 000 Byte zusammen.
+- **Die Grenzen,** entschieden am 06.10. im Review zu #181:
+
+  | Wo | Grenze, gepackt | Warum |
+  |---|---|---|
+  | Release-Workflow, beide Binärs zusammen | 9 300 000 Byte | das Jar |
+  | Release-Workflow, je Binär | 4 750 000 Byte | Linux ist kleiner als Windows; keins soll allein das Budget tragen |
+  | CI, Job „Rust“ unter Ubuntu | 4 550 000 Byte | eine frühe Warnung an jeder PR, gegen glibc 2.39 gebaut |
+
+  Die Summe prüft der Job „Budget beider Binärs“ in
+  [`.github/workflows/release.yml`](../../.github/workflows/release.yml),
+  siehe [CI](ci.md), „Release“.
 - **Der Server aus #151:** HTTP mit hyper und tokio schätzt die Recherche
   auf 0,25 MB gepackt, TLS auf 0,57 MB dazu, siehe
-  [0084](../entscheidungen/0084-server-im-renderer.md).
-- **Die Grenze** steht darum bis TLS auf 3 980 000 Byte gepackt, danach auf
-  4 550 000. So bewacht die CI auch die Luft, die TLS braucht.
-- **In der CI** fällt der Schritt für Linux über dieser Grenze; der
-  Release-Workflow prüft beide, siehe [CI](ci.md), „Release“.
-- **Stand** mit `--serve`, am Kopf `b38fae7` von #181, gepackt:
+  [0084](../entscheidungen/0084-server-im-renderer.md). Mit ihm und dem
+  Download der Assets aus #147, je Binär rund 0,08 MB, passt die Summe.
+- **Stand** mit `--serve`, am Kopf `f17d78e` von #181, gepackt:
 
-  | Binär | gepackt | Luft bis 3 980 000 |
-  |---|---|---|
-  | Linux, Release gegen glibc 2.28 | 3 715 141 Byte | 0,26 MB |
-  | Linux, Job „Rust“ gegen glibc 2.39 | 3 841 725 Byte | 0,14 MB |
-  | Windows, Release | 3 963 841 Byte | 0,02 MB |
+  | Binär | gepackt |
+  |---|---|
+  | Linux, Release gegen glibc 2.28 | 3 724 777 Byte |
+  | Linux, Job „Rust“ gegen glibc 2.39 | 3 850 626 Byte |
+  | Windows, Release | 3 974 591 Byte |
+  | beide Releases zusammen | 7 699 368 Byte, 1,6 MB unter 9 300 000 |
 
   Vorher waren es unter Linux 3,49 MB und unter Windows 3,57 MB. Dazu kamen
   `--estimate`, die eigenen Laubfarben, das Manifest und der Server, unter
-  Linux 0,35 MB, unter Windows 0,39 MB; getrennt gemessen ist der Server
+  Linux 0,36 MB, unter Windows 0,40 MB; getrennt gemessen ist der Server
   nicht.
 
 ## In der CI

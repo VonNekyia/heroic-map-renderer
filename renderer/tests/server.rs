@@ -139,7 +139,15 @@ fn hole(adresse: SocketAddr, pfad: &str) -> Antwort {
 /// Manifest, dazu Höhen; daneben eine Seite.
 fn wurzel() -> (TempDir, TempDir) {
     let kacheln = tempfile::tempdir().unwrap();
-    let k = kacheln.path();
+    kacheln_in(kacheln.path());
+    let seite = tempfile::tempdir().unwrap();
+    seite_in(seite.path());
+    (kacheln, seite)
+}
+
+/// Die Dateien einer Wurzel wie nach einem Export, dazu solche, die nicht
+/// öffentlich sind.
+fn kacheln_in(k: &Path) {
     for (pfad, inhalt) in [
         ("t/0/0/0.webp", &b"RIFF-kachel"[..]),
         ("t/0/-1/2.webp", b"andere"),
@@ -158,12 +166,61 @@ fn wurzel() -> (TempDir, TempDir) {
         std::fs::create_dir_all(k.join(pfad).parent().unwrap()).unwrap();
         std::fs::write(k.join(pfad), inhalt).unwrap();
     }
+}
+
+/// Eine gebaute Seite mit gehashten Dateien unter `assets/`.
+fn seite_in(s: &Path) {
+    std::fs::create_dir_all(s.join("assets")).unwrap();
+    std::fs::write(s.join("index.html"), b"<!doctype html>").unwrap();
+    std::fs::write(s.join("assets/index-Ab12.js"), b"export {}").unwrap();
+    std::fs::write(s.join("assets/index-Ab12.css"), b"body{}").unwrap();
+}
+
+/// Liegen die Kacheln als `tiles` unter der Seite, wie die Karte sie
+/// erwartet, bleibt die Positivliste dicht: auch `//tiles/` und `/TILES/`
+/// führen nicht über `--web` an ihr vorbei. Liegt eine Wurzel anders in der
+/// anderen, startet der Server nicht.
+#[test]
+fn kacheln_unter_der_seite() {
     let seite = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(seite.path().join("assets")).unwrap();
-    std::fs::write(seite.path().join("index.html"), b"<!doctype html>").unwrap();
-    std::fs::write(seite.path().join("assets/index-Ab12.js"), b"export {}").unwrap();
-    std::fs::write(seite.path().join("assets/index-Ab12.css"), b"body{}").unwrap();
-    (kacheln, seite)
+    seite_in(seite.path());
+    let kacheln = seite.path().join("tiles");
+    kacheln_in(&kacheln);
+    let server = starte(&kacheln, &["--web", seite.path().to_str().unwrap()]);
+    assert_eq!(hole(server.adresse, "/tiles/t/map.json").status, 200);
+    assert_eq!(hole(server.adresse, "/").status, 200);
+    for pfad in [
+        "/tiles/t/stand.bin",
+        "//tiles/t/stand.bin",
+        "//tiles/t/map.json",
+        "/TILES/t/stand.bin",
+        "/Tiles/t/manifest-offen-1-2",
+        "/tiles//t/stand.bin",
+        "/assets//index-Ab12.js",
+    ] {
+        assert_eq!(hole(server.adresse, pfad).status, 404, "{pfad}");
+    }
+
+    let anders = seite.path().join("anders");
+    std::fs::create_dir_all(&anders).unwrap();
+    for (k, s) in [
+        (anders.as_path(), seite.path()),
+        (seite.path(), seite.path()),
+        (seite.path(), anders.as_path()),
+    ] {
+        let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+            .arg("--serve")
+            .arg(k)
+            .arg("--web")
+            .arg(s)
+            .args(["--listen", "127.0.0.1:0", "--exit-with-stdin"])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let fehler = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(!ausgabe.status.success(), "{k:?} in {s:?}");
+        assert!(fehler.contains("liegen ineinander"), "{fehler}");
+    }
 }
 
 /// Das ETag nach docs/plugin.md, „Manifest“: Grösse und Zeit in ns, hex.

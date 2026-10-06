@@ -63,7 +63,13 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   schreibt, ohne `+` und führende Nullen. Alles andere gibt `404`, auch
   `stand.bin`, die Marken des Manifests und halb geschriebene Dateien
   `<name>.<pid>.tmp`.
-- **Ein Ordner unter `--web`** gibt seine `index.html`, auch `/`.
+- **Ein Ordner unter `--web`** gibt seine `index.html`, auch `/`. Ein leerer
+  Teil wie in `//` und ein erster Teil `tiles` in jeder Schreibung geben
+  dort `404`: Liegen die Kacheln unter der Seite, käme man sonst über
+  `--web` an der Positivliste vorbei.
+- **Ineinander** dürfen die Wurzeln nur so liegen, wie die Karte es
+  erwartet: die Kacheln als `tiles` direkt unter der Seite. Jede andere
+  Lage lehnt der Server beim Start ab.
 - **Nur GET und HEAD,** sonst `405` mit `Allow: GET, HEAD`. HEAD nennt die
   Länge ohne Körper.
 - **`404`** für alles, was fehlt, keine Datei ist oder sich nicht öffnen
@@ -123,7 +129,8 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   erst an, wenn eine endet.
 - **Schreiben:** Kommt eine Antwort `--write-timeout` Sekunden lang nicht
   voran, etwa weil der Client nie liest, schliesst er die Verbindung, und
-  ihr Platz wird frei.
+  ihr Platz wird frei. Wer langsam, aber stetig liest, hält seinen Platz,
+  solange die Datei reicht.
 - **Dateien** liest er ganz und schickt sie dann. Kacheln, `map.json` und das
   Manifest sind klein; im Speicher liegen so höchstens Verbindungen ×
   grösste Datei, mit 256 Verbindungen und Kacheln bis 4 MiB rund 1 GiB.

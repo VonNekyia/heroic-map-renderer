@@ -15,9 +15,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # Gepackt höchstens so viele Byte je Binär, siehe
+  # Gepackt höchstens so viele Byte je Binär und für beide zusammen, siehe
   # docs/entwicklung/weitergabe.md, „Grenze“.
-  GRENZE: "3980000"
+  GRENZE: "4750000"
+  SUMME: "9300000"
 
 defaults:
   run:
@@ -35,6 +36,8 @@ jobs:
     env:
       PAKET: heroic-map-renderer-linux-x64
       PYTHON: /opt/python/cp312-cp312/bin/python
+    outputs:
+      gepackt: ${{ steps.groesse.outputs.gepackt }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,10 +55,12 @@ jobs:
         run: cargo build --release --locked
 
       - name: glibc und Grösse
+        id: groesse
         run: |
           exe=target/release/heroic-map-renderer
           glibc=$(objdump -T $exe | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
           gepackt=$(gzip -6 -c $exe | wc -c)
+          echo "gepackt=$gepackt" >> "$GITHUB_OUTPUT"
           echo "roh $(stat -c %s $exe) Byte, gepackt $gepackt Byte, glibc höchstens $glibc"
           test "$(printf '%s\n' "$glibc" GLIBC_2.28 | sort -V | tail -1)" = GLIBC_2.28 \
             || { echo "::error::Das Binär braucht $glibc, mehr als GLIBC_2.28"; exit 1; }
@@ -86,6 +91,8 @@ jobs:
     timeout-minutes: 120
     env:
       PAKET: heroic-map-renderer-windows-x64
+    outputs:
+      gepackt: ${{ steps.groesse.outputs.gepackt }}
     steps:
       - uses: actions/checkout@v4
 
@@ -102,11 +109,13 @@ jobs:
       # Statische CRT aus .cargo/config.toml, siehe
       # docs/entwicklung/weitergabe.md, „Windows: statische CRT“.
       - name: Ohne VC++-Laufzeit und Grösse
+        id: groesse
         run: |
           exe=target/release/heroic-map-renderer.exe
           python -c "import sys; d = open(sys.argv[1], 'rb').read().lower(); sys.exit(any(n in d for n in (b'vcruntime140', b'ucrtbase', b'api-ms-win-crt-')))" $exe \
             || { echo "::error::Das Binär importiert die VC++-Laufzeit"; exit 1; }
           gepackt=$(python -c "import sys, zlib; print(len(zlib.compress(open(sys.argv[1], 'rb').read(), 6)))" $exe)
+          echo "gepackt=$gepackt" >> "$GITHUB_OUTPUT"
           echo "roh $(stat -c %s $exe) Byte, gepackt $gepackt Byte"
           test "$gepackt" -le "$GRENZE" \
             || { echo "::error::Gepackt $gepackt Byte, mehr als die Grenze von $GRENZE"; exit 1; }
@@ -129,9 +138,30 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
+  # Beide Binärs zusammen gegen das Jar, siehe
+  # docs/entwicklung/weitergabe.md, „Grenze“.
+  budget:
+    name: Budget beider Binärs
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Summe gegen das Jar
+        env:
+          LINUX: ${{ needs.linux.outputs.gepackt }}
+          WINDOWS: ${{ needs.windows.outputs.gepackt }}
+        run: |
+          summe=$((LINUX + WINDOWS))
+          echo "Linux $LINUX Byte, Windows $WINDOWS Byte, zusammen $summe Byte, Grenze $SUMME Byte"
+          test "$summe" -le "$SUMME" \
+            || { echo "::error::Beide Binärs haben gepackt $summe Byte, mehr als $SUMME"; exit 1; }
+
   release:
     name: Release-Entwurf
-    needs: [linux, windows]
+    needs: [linux, windows, budget]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 120

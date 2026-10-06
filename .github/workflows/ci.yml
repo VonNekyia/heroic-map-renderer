@@ -81,7 +81,7 @@ jobs:
         timeout-minutes: 5
         run: |
           exe=target/release/heroic-map-renderer
-          grenze=3980000
+          grenze=4550000
           gepackt=$(gzip -6 -c $exe | wc -c)
           echo "roh $(stat -c %s $exe) Byte, gepackt $gepackt Byte, Grenze $grenze Byte"
           echo "glibc höchstens $(objdump -T $exe | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"

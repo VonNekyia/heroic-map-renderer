@@ -281,6 +281,100 @@ fn helles_laub_nur_mit_bit_24() {
     assert!(anders > 0);
 }
 
+/// Laub, das das Spiel nicht tönt, hier blühende Azalee: Mit eigener Farbe
+/// bekommt es die graue Kopie der Textur, getönt, und die Blüten bleiben
+/// darüber, ungetönt. Jeder Pixel, der sich ändert, liegt am Block mit der
+/// Farbe und verliert Grün, gleich deckend, denn rot getönt wird das Blatt,
+/// auch wo ein Pixel Blatt und Blüte mischt; ein Pixel nur mit Blüte bleibt,
+/// wie er war. Ohne Farbe ändert sich nichts.
+/// Siehe docs/benutzung/laubfarben.md, „Wirkung“.
+#[test]
+fn ungetoentes_laub_grau_getoent_mit_blueten() {
+    fn szene(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (_, 0, _) => "minecraft:einfarbig",
+            (3, 1, 4) | (10, 1, 12) => "minecraft:flowering_azalea_leaves",
+            _ => "minecraft:air",
+        }
+    }
+    let ueber = tempdir();
+    let ordner = |teil: &str| {
+        let pfad = ueber.path().join("minecraft").join(teil);
+        std::fs::create_dir_all(&pfad).unwrap();
+        pfad
+    };
+    std::fs::write(
+        ordner("blockstates").join("flowering_azalea_leaves.json"),
+        r#"{ "variants": { "": { "model": "minecraft:block/azalee_test" } } }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        ordner("models/block").join("azalee_test.json"),
+        r#"{ "parent": "minecraft:block/cube_all", "textures": { "all": "minecraft:block/flowering_azalea_leaves" } }"#,
+    )
+    .unwrap();
+    // Blätter 70922d und Blüten ba62ce im Schachbrett aus vier Feldern.
+    RgbaImage::from_fn(16, 16, |x, y| match (x / 8 + y / 8) % 2 {
+        0 => image::Rgba([0x70, 0x92, 0x2d, 255]),
+        _ => image::Rgba([0xba, 0x62, 0xce, 255]),
+    })
+    .save(ordner("textures/block").join("flowering_azalea_leaves.png"))
+    .unwrap();
+
+    let farbig = [3, 1, 4];
+    let welt = |mit: bool| {
+        let dir = tempdir();
+        common::write_world_bukkit(dir.path(), &[(0, 0)], szene, |_, _| {
+            mit.then(|| common::laubfarben(&[(0xff_2020, &[farbig])]))
+        });
+        dir
+    };
+    let (ohne, mit) = (welt(false), welt(true));
+    let projection = Projection::new(16);
+    let rect = rect_um(projection, [0, 0, 0], [16, 2, 16]);
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/assets-base");
+    let bild = |dir: &TempDir| {
+        let world = World::open(dir.path()).unwrap();
+        let survey = survey(&world, projection, Y_RANGE, None).unwrap();
+        let mut assets = Assets::open(vec![base.clone(), ueber.path().to_path_buf()]).unwrap();
+        let mut sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+        sprites
+            .add_laub(&mut assets, &survey.festes_laub, &survey.helles_laub)
+            .unwrap();
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+    };
+    let (a, b) = (bild(&ohne), bild(&mit));
+    let [x, y, z] = farbig;
+    let um = rect_um(projection, farbig, [x + 1, y + 1, z + 1]);
+    let im_block = |x: i32, y: i32| {
+        (um.x..um.x + um.width as i32).contains(&x) && (um.y..um.y + um.height as i32).contains(&y)
+    };
+    let (mut rot, mut bluete) = (0, 0);
+    for (px, py, p) in a.enumerate_pixels() {
+        let q = b.get_pixel(px, py);
+        let (x, y) = (rect.x + px as i32, rect.y + py as i32);
+        if p == q {
+            // Eine Blüte am Block mit Farbe: lila, also blau vor grün.
+            if im_block(x, y) && p.0[3] == 255 && p.0[2] > p.0[1] {
+                bluete += 1;
+            }
+            continue;
+        }
+        assert!(
+            im_block(x, y),
+            "Pixel ({x}, {y}) ausserhalb des Blocks mit Farbe"
+        );
+        assert!(
+            q.0[1] < p.0[1] && q.0[3] == p.0[3],
+            "Pixel ({x}, {y}) ist {:?} statt {:?}, nicht rot getönt",
+            q.0,
+            p.0
+        );
+        rot += 1;
+    }
+    assert!(rot > 0 && bluete > 0, "rot {rot}, Blüten {bluete}");
+}
+
 /// Das Rechteck in Pixeln um die Ecken des Quaders von `min` bis `max`.
 fn rect_um(projection: Projection, min: [i32; 3], max: [i32; 3]) -> ScreenRect {
     let ecken: Vec<(f64, f64)> = (0..8)

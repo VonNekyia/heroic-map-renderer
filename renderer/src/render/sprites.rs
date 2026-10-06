@@ -7,8 +7,11 @@ use anyhow::Result;
 use crate::assets::baker::{BakedModel, Quad, box_quads};
 use crate::assets::blockentity;
 use crate::assets::blockstate::{self, KOLLISION, ModelRef, Nachbarregel, seite};
-use crate::assets::colors::{Resolver, Source, Tint, eigene_laubfarbe, source_of, tinted_below};
+use crate::assets::colors::{
+    Resolver, Source, Tint, eigene_laubfarbe, source_of, tinted_below, ungetoentes_laub,
+};
 use crate::assets::fluid::Fluid;
+use crate::assets::laubkopie::Kopie;
 use crate::assets::noise::JavaRandom;
 use crate::assets::{Assets, CardinalLight, Face, Textures, Tints, fluid, models_of};
 use crate::world::{BlockState, Blockdaten};
@@ -726,15 +729,17 @@ impl SpriteSet {
         self.by_entity.get(&family)?.get(daten).copied()
     }
 
-    /// Nimmt Laub mit fester Farbe auf, Fichte und Birke, auf dem eine
-    /// eigene Laubfarbe liegt: je Familie eine zweite mit Tönungskarte, die
-    /// der Renderpfad nur an Stellen mit eigener Farbe nimmt, siehe
+    /// Nimmt Laub auf, auf dem eine eigene Laubfarbe liegt: Fichte und Birke,
+    /// je Familie eine zweite mit Tönungskarte, und das Laub aus
+    /// [`ungetoentes_laub`] mit grauer Kopie der Textur, getönt; beide nimmt
+    /// der Renderpfad nur an Stellen mit eigener Farbe, siehe
     /// [`SpriteSet::laub_variante`]. Dazu `hell`, Laub mit Bit 24: je Familie
-    /// eine mit der helleren Textur, Fichte und Birke mit Tönungskarte, siehe
-    /// [`SpriteSet::hell_variante`]. Jede andere Stelle behält ihr Bild.
-    /// Nach [`SpriteSet::build_in`] mit denselben Blockstates.
-    /// Siehe docs/entscheidungen/0081-eigene-laubfarben.md und
-    /// docs/entscheidungen/0088-helles-laub-aus-dem-spiel.md.
+    /// eine mit der hellen Kopie, siehe [`SpriteSet::hell_variante`]. Jede
+    /// andere Stelle behält ihr Bild. Nach [`SpriteSet::build_in`] mit
+    /// denselben Blockstates.
+    /// Siehe docs/entscheidungen/0081-eigene-laubfarben.md,
+    /// docs/entscheidungen/0088-helles-laub-aus-dem-spiel.md und
+    /// docs/entscheidungen/0089-ungetoentes-laub-mit-eigener-farbe.md.
     pub fn add_laub<'a>(
         &mut self,
         assets: &mut Assets,
@@ -745,25 +750,9 @@ impl SpriteSet {
             let Some(basis) = self.family_index(state) else {
                 continue;
             };
-            if self.by_hell.contains_key(&basis) {
-                continue;
-            }
-            let mut models = models_of(assets, state, None)?;
-            let mut getauscht = false;
-            for quad in models.iter_mut().flat_map(|(_, model)| &mut model.quads) {
-                let neu = assets.hell_textur(quad.texture);
-                getauscht |= neu != quad.texture;
-                quad.texture = neu;
-            }
-            // Ohne Farbe aus der Tabelle sieht „hell“ aus wie ohne Bit 24.
-            if !getauscht {
-                continue;
-            }
-            let pflanze = self.kino.is_some() && assets.bodenpflanze(state)?;
-            self.festes_laub = true;
-            let family = self.rastere_familie(assets, state, &models, pflanze);
-            self.festes_laub = false;
-            if let Some(family) = family {
+            if !self.by_hell.contains_key(&basis)
+                && let Some(family) = self.laub_familie(assets, state, Some(Kopie::Hell))?
+            {
                 self.by_hell.insert(basis, self.families.len() as u32);
                 self.families.push(family);
             }
@@ -772,20 +761,63 @@ impl SpriteSet {
             let Some(basis) = self.family_index(state) else {
                 continue;
             };
-            if self.by_laub.contains_key(&basis) {
-                continue;
-            }
-            let models = models_of(assets, state, None)?;
-            let pflanze = self.kino.is_some() && assets.bodenpflanze(state)?;
-            self.festes_laub = true;
-            let family = self.rastere_familie(assets, state, &models, pflanze);
-            self.festes_laub = false;
-            if let Some(family) = family {
+            let kopie = ungetoentes_laub(state.name()).then_some(Kopie::Grau);
+            if !self.by_laub.contains_key(&basis)
+                && let Some(family) = self.laub_familie(assets, state, kopie)?
+            {
                 self.by_laub.insert(basis, self.families.len() as u32);
                 self.families.push(family);
             }
         }
         Ok(())
+    }
+
+    /// Die Familie eines Laubs unter einer eigenen Farbe, mit Tönungskarte,
+    /// mit `kopie` auf dieser Kopie der Textur. Laub aus [`ungetoentes_laub`]
+    /// wird auf jeder Fläche mit Blatttextur getönt, auch ohne `tintindex`;
+    /// seine Blüten liegen als zweite Fläche darüber, ungetönt. `None`, wenn
+    /// nichts zeichnet, oder für getöntes Laub, wenn keine Farbe der Kopie
+    /// vorkommt: Dann sieht es aus wie ohne Kopie.
+    fn laub_familie(
+        &mut self,
+        assets: &mut Assets,
+        state: &BlockState,
+        kopie: Option<Kopie>,
+    ) -> Result<Option<Family>> {
+        let mut models = models_of(assets, state, None)?;
+        if let Some(kopie) = kopie {
+            let ungetoent = ungetoentes_laub(state.name());
+            let mut getauscht = false;
+            for (_, model) in &mut models {
+                let mut blueten = Vec::new();
+                for quad in &mut model.quads {
+                    let Some((neu, nur_blueten)) = assets.laub_kopie(quad.texture, kopie) else {
+                        continue;
+                    };
+                    getauscht |= neu != quad.texture || ungetoent;
+                    quad.texture = neu;
+                    if ungetoent {
+                        quad.tint_index = Some(0);
+                    }
+                    if let Some(textur) = nur_blueten {
+                        blueten.push(Quad {
+                            texture: textur,
+                            tint_index: None,
+                            ..quad.clone()
+                        });
+                    }
+                }
+                model.quads.extend(blueten);
+            }
+            if !getauscht {
+                return Ok(None);
+            }
+        }
+        let pflanze = self.kino.is_some() && assets.bodenpflanze(state)?;
+        self.festes_laub = true;
+        let family = self.rastere_familie(assets, state, &models, pflanze);
+        self.festes_laub = false;
+        Ok(family)
     }
 
     /// Die Familie mit Tönungskarte zu Laub mit fester Farbe, falls
@@ -1119,7 +1151,7 @@ impl SpriteSet {
         // Fichte und Birke tragen ihre feste Farbe sonst im Bild; mit
         // eigenen Laubfarben bekommen sie eine Tönungskarte wie Eiche.
         let source = match source_of(state.name()).filter(|_| block) {
-            Some(Source::Fixed(_)) if self.festes_laub && eigene_laubfarbe(state.name()) => {
+            _ if block && self.festes_laub && eigene_laubfarbe(state.name()) => {
                 Some(Source::Biome(Resolver::Foliage))
             }
             source => source,

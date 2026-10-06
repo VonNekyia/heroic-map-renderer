@@ -1,0 +1,7 @@
+minecraft:block/azalea_leaves 3a4c26>646464 50692c>898989 6c8031>ababab 70922d>bcbcbc
+minecraft:block/flowering_azalea_leaves 3a4c26>646464 50692c>898989 6c8031>ababab 70922d>bcbcbc
+minecraft:block/cherry_leaves 607620>545454 738726>616161 84992d>6f6f6f e25692>6f6f6f e2aabf>9c9c9c e67db5>868686 e96aa9>7c7c7c eb92c1>929292 efa7cd>9f9f9f f396cd>979797 f5daef>bcbcbc f6a1d4>9e9e9e f7b9dc>ababab fccbe7>b6b6b6
+minecraft:block/pale_oak_leaves 3d403d>484848 585d57>696969 696e67>7c7c7c 838880>9a9a9a a0a69c>bcbcbc
+minecraft:block/red_poplar_leaves 691f23>616161 8a2929>7f7f7f ac3021>979797 d43c2f>bcbcbc
+minecraft:block/orange_poplar_leaves 8b3d1b>676767 b34914>7e7e7e d45b15>989898 ed7d1a>bcbcbc
+minecraft:block/yellow_poplar_leaves ab5925>686868 d17229>818181 ed8f32>9a9a9a ffc424>bcbcbc

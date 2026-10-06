@@ -1,6 +1,6 @@
 ---
 title: Erzeugte Tabellen
-description: Die Tabellen aus dem Spiel, blocks.txt, leuchten.txt, licht.txt, schatten.txt, sicht262.txt, nachbarn.txt, seiten.txt, blockentities.txt, dimensionstypen.txt und hell.txt - was darin steht, gegen welche Version, welche Tests sie festhalten und wie man sie neu erzeugt.
+description: Die Tabellen aus dem Spiel, blocks.txt, leuchten.txt, licht.txt, schatten.txt, sicht262.txt, nachbarn.txt, seiten.txt, blockentities.txt, dimensionstypen.txt, hell.txt, grau.txt und blueten.txt - was darin steht, gegen welche Version, welche Tests sie festhalten und wie man sie neu erzeugt.
 code:
   - renderer/src/assets/blocks.txt
   - renderer/src/assets/leuchten.txt
@@ -23,18 +23,20 @@ code:
   - renderer/src/assets/blockentity.rs
   - renderer/src/assets/dimension.rs
   - renderer/src/assets/hell.txt
-  - renderer/src/assets/hell.py
-  - renderer/src/assets/hell.rs
+  - renderer/src/assets/grau.txt
+  - renderer/src/assets/blueten.txt
+  - renderer/src/assets/laubtabellen.py
+  - renderer/src/assets/laubkopie.rs
   - renderer/src/cli/client.rs
 ---
 
 # Erzeugte Tabellen
 
-Was Minecraft im Code verdrahtet und der Renderer braucht, steht in neun
+Was Minecraft im Code verdrahtet und der Renderer braucht, steht in zwölf
 Tabellen unter `renderer/src/assets/`, sechs aus dem Server-JAR von 26.3,
-zwei aus dem Client-JAR, eine aus dem Server-JAR von 26.2, und ins Binär
+fünf aus dem Client-JAR, eine aus dem Server-JAR von 26.2, und ins Binär
 einkompiliert (`blockstate.rs`,
-`blockentity.rs`, `dimension.rs`). Von Hand werden sie nie geändert; für
+`blockentity.rs`, `dimension.rs`, `laubkopie.rs`). Von Hand werden sie nie geändert; für
 eine andere Version erzeugt sie der Skill
 [`tabellen-neu-erzeugen`](../../skills/tabellen-neu-erzeugen/SKILL.md) neu,
 danach muss der Renderer neu gebaut werden.
@@ -52,7 +54,9 @@ Haben alle Zustände eines Blocks dasselbe Zeichen, steht es einmal.
 | [`sicht262.txt`](../../renderer/src/assets/sicht262.txt) | je Zustand in der Reihenfolge von `getPossibleStates` 1, wenn er in der weichen Beleuchtung von 26.2 in der Ecke die Sicht nimmt, `isViewBlocking` und `getLightDampening` > 0, sonst 0; Blöcke ohne 1 fehlen | `Sicht262.java` mit dem Server-JAR von 26.2 | 475 Blöcke aus 26.2, 72 davon je Zustand verschieden |
 | [`nachbarn.txt`](../../renderer/src/assets/nachbarn.txt) | je Block mit eigenem `skipRendering` eine Zeile: der Name, die Regel `gleich`, `senkrecht` oder `verbunden` und bei `verbunden` womöglich der Tag seiner Gruppe. Wasser und Lava fehlen, Laub mit den Vorgaben des Spiels auch | `Nachbarn.java`, mit den Tags des Spiels | 59 Blöcke aus 26.3 |
 | [`seiten.txt`](../../renderer/src/assets/seiten.txt) | je Zustand in der Reihenfolge von `getPossibleStates` zwei Hexziffern: die Seiten, an denen `getFaceOcclusionShape` genau `Shapes.block()` ist, ein Bit je Richtung von `Direction.values()`, 1 unten bis 20 Osten; Blöcke, die nirgends voll decken, fehlen | `Seiten.java` | 518 Blöcke aus 26.3, 3920 Zustände mit mindestens einer vollen Seite, 2862 mit allen sechs |
-| [`hell.txt`](../../renderer/src/assets/hell.txt) | je Blatttextur die Farben `alt>hell`, die das Spiel bei Bit 24 einer eigenen Laubfarbe tauscht, siehe [0088](../entscheidungen/0088-helles-laub-aus-dem-spiel.md) | `hell.py` mit dem Client-JAR, aus den Blatttexturen | 7 Texturen aus 26.2, gleich denen von 26.3 |
+| [`hell.txt`](../../renderer/src/assets/hell.txt) | je Blatttextur die Farben `alt>hell`, die das Spiel bei Bit 24 einer eigenen Laubfarbe tauscht, siehe [0088](../entscheidungen/0088-helles-laub-aus-dem-spiel.md); für Laub, das das Spiel nicht tönt, hell aus dem Grau, siehe [0089](../entscheidungen/0089-ungetoentes-laub-mit-eigener-farbe.md) | `laubtabellen.py` mit dem Client-JAR, aus den Blatttexturen | 14 Texturen aus 26.3, die 7 getönten gleich denen von 26.2 |
+| [`grau.txt`](../../renderer/src/assets/grau.txt) | je Blatttextur einer Sorte, die das Spiel nicht tönt, die Farben `alt>grau` für eine eigene Laubfarbe ohne Bit 24, siehe [0089](../entscheidungen/0089-ungetoentes-laub-mit-eigener-farbe.md) | `laubtabellen.py` mit dem Client-JAR | 7 Texturen aus 26.3 |
+| [`blueten.txt`](../../renderer/src/assets/blueten.txt) | je Blatttextur die Farben, die mit eigener Laubfarbe ungetönt über der Kopie bleiben: was die blühende Azalee mehr hat als die Azalee | `laubtabellen.py` mit dem Client-JAR | 1 Textur mit 3 Farben aus 26.3 |
 | [`dimensionstypen.txt`](../../renderer/src/assets/dimensionstypen.txt) | die Vorgaben der vier Attribute der Lightmap und der drei Farben des Himmels aus `EnvironmentAttributes`; je Dimensionstyp des Spiels `has_skylight`, `cardinal_light` und die Attribute, die er setzt; je Noise Settings des Spiels ihr `sea_level`. Das Format steht im Kopf von `Dimensionstypen.java` | `Dimensionstypen.java` mit dem Client-JAR, über `VanillaRegistries.createWorldLookup` | 4 Typen und 7 Noise Settings aus 26.3 |
 | [`blockentities.txt`](../../renderer/src/assets/blockentities.txt) | je Zustand eines Blocks mit Blockentity-Renderer, was das Spiel aus Modellen zeichnet: Flächen, Lage, Textur, Schicht, Farbe; dazu die Farbstoffe, die Scherben, die Regel und die Muster des Spiels für Banner. Das Format steht im Kopf von `Blockentities.java` | `Blockentities.java` mit dem Client-JAR | 26.3, Zahlen in [Blockentities](../renderer/blockentities.md), „Die Tabelle“ |
 
@@ -106,8 +110,9 @@ Bild, siehe [Blockentities](../renderer/blockentities.md).
   Zustände.
 - `tabelle_wie_im_spiel` in `dimension.rs` hält jeden der vier
   Dimensionstypen und die Vorgaben fest.
-- `tabelle_fuer_sieben_blattsorten` in `hell.rs` hält die Zahl der
-  Texturen in `hell.txt` und einige Farben fest.
+- `tabellen_fuer_vierzehn_blattsorten` in `laubkopie.rs` hält die Zahl
+  der Texturen in `hell.txt`, `grau.txt` und `blueten.txt` und einige
+  Farben fest.
 
 ## Client-Jars
 

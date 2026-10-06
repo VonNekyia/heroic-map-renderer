@@ -15,7 +15,10 @@ code:
 
 Im Punkt „hell“ abgelöst durch
 [0088](0088-helles-laub-aus-dem-spiel.md): Bit 24 tauscht die Farben der
-Blatttextur wie der Client, statt der Näherung unten.
+Blatttextur wie der Client, statt der Näherung unten. Im Punkt „nur
+tönbares Laub“ abgelöst durch
+[0089](0089-ungetoentes-laub-mit-eigener-farbe.md): Die eigene Farbe tönt
+auch die sieben Sorten, die das Spiel nicht tönt, über eine graue Kopie.
 
 ## Anlass
 

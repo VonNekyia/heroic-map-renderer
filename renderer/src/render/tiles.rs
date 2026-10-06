@@ -12,7 +12,7 @@ use image::RgbaImage;
 use libwebp_sys as webp;
 use rayon::prelude::*;
 
-use crate::assets::colors::{Source, eigene_laubfarbe, source_of};
+use crate::assets::colors::{Source, eigene_laubfarbe, source_of, ungetoentes_laub};
 use crate::world::chunk::LAUB_HELL;
 use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
@@ -314,9 +314,9 @@ pub struct Survey {
     /// Mit [`Reach::mit_inhalt`] je gelesenem Chunk, was der Renderer aus
     /// ihm zeichnet, für den Stand eines vollen Laufs.
     pub inhalte: Vec<([i32; 2], Inhalt)>,
-    /// Laub mit fester Farbe, Fichte oder Birke, auf dem eine eigene
-    /// Laubfarbe liegt: Es braucht eine Familie mit Tönungskarte, siehe
-    /// [`super::SpriteSet::add_laub`].
+    /// Laub mit fester Farbe, Fichte oder Birke, und Laub, das das Spiel
+    /// nicht tönt, auf dem eine eigene Laubfarbe liegt: Es braucht eine
+    /// Familie mit Tönungskarte, siehe [`super::SpriteSet::add_laub`].
     pub festes_laub: BTreeSet<BlockState>,
     /// Laub, auf dem eine eigene Laubfarbe mit Bit 24 liegt: Es braucht eine
     /// Familie mit der helleren Textur, siehe [`super::SpriteSet::add_laub`].
@@ -682,8 +682,9 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
                 let Some(state) = chunk.block_at(x, y, z) else {
                     continue;
                 };
-                if matches!(source_of(state.name()), Some(Source::Fixed(_)))
-                    && eigene_laubfarbe(state.name())
+                if (matches!(source_of(state.name()), Some(Source::Fixed(_)))
+                    && eigene_laubfarbe(state.name()))
+                    || ungetoentes_laub(state.name())
                 {
                     survey.festes_laub.insert(state.clone());
                 }

@@ -6,6 +6,7 @@ use image::RgbaImage;
 use serde_json::Value;
 
 use super::blockstate::{boolean, field, float, int};
+use super::laubkopie::{self, Kopie};
 use super::pack::ASSETS;
 use super::{Pack, find_file, parse_json, read_text, split_id};
 
@@ -135,34 +136,43 @@ impl Textures {
         self.eigenschaften.get(id.0 as usize)?.fuellung
     }
 
-    /// Die hellere Fassung einer Blatttextur für Bit 24 einer eigenen
-    /// Laubfarbe, einmal angelegt, ohne `dark_cutout`: Das Spiel legt sie ohne
-    /// `.mcmeta` an. `id` selbst für eine Textur ohne Tabelle und für eine,
-    /// in der keine Farbe der Tabelle vorkommt, etwa aus einem Resourcepack.
+    /// Eine Kopie einer Blatttextur für eigene Laubfarben, je Art einmal
+    /// angelegt, ohne `dark_cutout` wie die helle, die das Spiel ohne
+    /// `.mcmeta` anlegt.
+    /// `None` für eine Textur ohne Tabelle dieser Art. Sonst die Kopie, `id`
+    /// selbst, wenn sich nichts ändert, etwa in einem Resourcepack, und die
+    /// Blüten allein, falls es welche gibt.
     /// Siehe docs/benutzung/laubfarben.md, „Wirkung“.
-    pub fn hell(&mut self, id: TextureId) -> TextureId {
+    pub fn kopie(&mut self, id: TextureId, art: Kopie) -> Option<(TextureId, Option<TextureId>)> {
         let name = self.name(id).to_string();
-        let Some(tausch) = super::hell::tausch(&name) else {
-            return id;
-        };
-        let schluessel = format!("{name}#hell");
-        if let Some(&da) = self.ids.get(&schluessel) {
-            return da;
+        let tausch = laubkopie::tausch(art, &name)?;
+        let (kopie_name, blueten_name) = (format!("{name}#{art:?}"), format!("{name}#Blueten"));
+        if let Some(&kopie) = self.ids.get(&kopie_name) {
+            return Some((kopie, self.ids.get(&blueten_name).copied()));
         }
-        let bild = super::hell::hell(self.image(id), tausch);
-        let neu = match bild != *self.image(id) {
-            true => {
-                let groesse = (bild.width(), bild.height());
-                self.eigenschaften
-                    .push(eigenschaften(&bild, groesse, &[(0, 0)], false));
-                self.images.push(bild);
-                self.names.push(schluessel.clone());
-                TextureId(self.images.len() as u32 - 1)
-            }
+        let (bild, blueten) = laubkopie::kopie(self.image(id), tausch, laubkopie::blueten(&name));
+        let kopie = match bild != *self.image(id) {
+            true => self.ohne_datei(&kopie_name, bild),
             false => id,
         };
-        self.ids.insert(schluessel, neu);
-        neu
+        self.ids.insert(kopie_name, kopie);
+        if let Some(blueten) = blueten
+            && !self.ids.contains_key(&blueten_name)
+        {
+            let id = self.ohne_datei(&blueten_name, blueten);
+            self.ids.insert(blueten_name.clone(), id);
+        }
+        Some((kopie, self.ids.get(&blueten_name).copied()))
+    }
+
+    /// Nimmt ein Bild ohne Datei auf, statisch und ohne `dark_cutout`.
+    fn ohne_datei(&mut self, name: &str, bild: RgbaImage) -> TextureId {
+        let groesse = (bild.width(), bild.height());
+        self.eigenschaften
+            .push(eigenschaften(&bild, groesse, &[(0, 0)], false));
+        self.images.push(bild);
+        self.names.push(name.to_string());
+        TextureId(self.images.len() as u32 - 1)
     }
 
     /// Nimmt ein Bild als Textur auf, statisch und ohne Datei.
@@ -533,18 +543,41 @@ mod tests {
         let eiche =
             textures.einfuegen("minecraft:block/oak_leaves", bild([0x68, 0x64, 0x68]), true);
         assert!(textures.fuellung(eiche).is_some());
-        let hell = textures.hell(eiche);
+        let (hell, blueten) = textures.kopie(eiche, Kopie::Hell).unwrap();
         assert_ne!(hell, eiche);
+        assert!(blueten.is_none());
         assert_eq!(
             textures.image(hell).get_pixel(0, 0).0,
             [0xa8, 0xa4, 0xa8, 255]
         );
         assert_eq!(textures.fuellung(hell), None);
-        assert_eq!(textures.hell(eiche), hell);
+        assert_eq!(textures.kopie(eiche, Kopie::Hell), Some((hell, None)));
+        assert_eq!(textures.kopie(eiche, Kopie::Grau), None);
         let fremd = textures.einfuegen("minecraft:block/birch_leaves", bild([1, 2, 3]), false);
-        assert_eq!(textures.hell(fremd), fremd);
+        assert_eq!(textures.kopie(fremd, Kopie::Hell), Some((fremd, None)));
         let stein = textures.einfuegen("minecraft:block/stone", bild([0x68, 0x64, 0x68]), false);
-        assert_eq!(textures.hell(stein), stein);
+        assert_eq!(textures.kopie(stein, Kopie::Hell), None);
+        // Die blühende Azalee: grau ohne Blüten, die Blüten für sich, einmal.
+        let azalee =
+            RgbaImage::from_raw(2, 1, vec![0x70, 0x92, 0x2d, 255, 0xba, 0x62, 0xce, 255]).unwrap();
+        let azalee = textures.einfuegen("minecraft:block/flowering_azalea_leaves", azalee, true);
+        let (grau, blueten) = textures.kopie(azalee, Kopie::Grau).unwrap();
+        let blueten = blueten.unwrap();
+        assert_eq!(
+            textures.image(grau).get_pixel(0, 0).0,
+            [0xbc, 0xbc, 0xbc, 255]
+        );
+        assert_eq!(
+            textures.image(blueten).get_pixel(1, 0).0,
+            [0xba, 0x62, 0xce, 255]
+        );
+        assert_eq!(
+            (textures.fuellung(grau), textures.fuellung(blueten)),
+            (None, None)
+        );
+        let (hell, blueten_hell) = textures.kopie(azalee, Kopie::Hell).unwrap();
+        assert_ne!(hell, grau);
+        assert_eq!(blueten_hell, Some(blueten));
     }
 
     use super::*;

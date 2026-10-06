@@ -1,6 +1,6 @@
 ---
 name: tabellen-neu-erzeugen
-description: Erzeugt blocks.txt, leuchten.txt, licht.txt, schatten.txt, nachbarn.txt, seiten.txt, blockentities.txt, dimensionstypen.txt und hell.txt unter renderer/src/assets/ aus dem Server- und dem Client-JAR einer Minecraft-Version neu, sicht262.txt aus dem Server-JAR von 26.2. Nutzen für eine neue Spielversion oder wenn eine der Tabellen nicht mehr zum Spiel passt; die Tabellen nie von Hand ändern.
+description: Erzeugt blocks.txt, leuchten.txt, licht.txt, schatten.txt, nachbarn.txt, seiten.txt, blockentities.txt, dimensionstypen.txt, hell.txt, grau.txt und blueten.txt unter renderer/src/assets/ aus dem Server- und dem Client-JAR einer Minecraft-Version neu, sicht262.txt aus dem Server-JAR von 26.2. Nutzen für eine neue Spielversion oder wenn eine der Tabellen nicht mehr zum Spiel passt; die Tabellen nie von Hand ändern.
 ---
 
 # Tabellen neu erzeugen
@@ -134,12 +134,15 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    `downloads.client.size` aus dem Versions-JSON, siehe
    [`docs/entwicklung/tabellen.md`](../../docs/entwicklung/tabellen.md),
    „Client-Jars“. Die Tests in `client.rs` nennen die Versionen.
-12. **`hell.txt`:** mit dem Client-JAR derselben Version, Python mit Pillow:
+12. **`hell.txt`, `grau.txt`, `blueten.txt`:** mit dem Client-JAR derselben
+   Version, Python mit Pillow; das Skript schreibt alle drei neben sich:
 
    ```bash
-   python renderer/src/assets/hell.py client.jar > renderer/src/assets/hell.txt
+   python renderer/src/assets/laubtabellen.py client.jar
    ```
 
-   Für 26.2 und 26.3 ergibt das die Datei im Repository. Kommt eine
-   Blattsorte dazu, steht sie in `SORTEN` in `hell.py`, mit der Tabelle,
-   die das Spiel für sie tauscht.
+   Für 26.3 ergibt das die Dateien im Repository. Kommt eine Blattsorte
+   dazu, steht sie in `GETOENT` oder `UNGETOENT` in `laubtabellen.py`, eine
+   ungetönte auch in `ungetoentes_laub` in `renderer/src/assets/colors.rs`,
+   siehe
+   [0089](../../docs/entscheidungen/0089-ungetoentes-laub-mit-eigener-farbe.md).

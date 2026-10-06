@@ -58,7 +58,8 @@ und Blasseichenlaub tragen ihre Farbe in der Textur, Redstone und die
 Stiele von Kürbis und Melone färben im Spiel nach ihren Eigenschaften und
 machen auf einer Karte keine Fläche. Feste Farben rastert der Renderer
 gleich ins Sprite. Eigene Laubfarben eines Plugins ersetzen die Farbe auf
-tönbarem Laub, auch auf Fichte und Birke, siehe
+tönbarem Laub, auch auf Fichte und Birke, und tönen auch Kirsch-,
+Blasseichen-, Azaleen- und Pappellaub, siehe
 [Eigene Laubfarben](../benutzung/laubfarben.md).
 
 Zwei Ausnahmen aus `BlockTintSources`:

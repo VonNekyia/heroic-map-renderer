@@ -70,8 +70,12 @@ setzt für `x86_64-pc-windows-msvc` `-C target-feature=+crt-static`.
 Gebaut gegen glibc. Welche Version das Binär mindestens braucht, hängt an
 der glibc des Rechners, auf dem es gebaut wird, und an den Funktionen, die
 es nutzt. Auf `ubuntu-latest` braucht es höchstens `GLIBC_2.34`, läuft also
-ab glibc 2.34. Die CI meldet das bei jedem Lauf, siehe „In der CI“. Ob
-Releases auf einem älteren System oder mit musl bauen, entscheidet #150.
+ab glibc 2.34. Die CI meldet das bei jedem Lauf, siehe „In der CI“.
+
+Releases bauen deshalb im Container `manylinux_2_28` gegen glibc 2.28 und
+laufen ab glibc 2.28. Der Release-Workflow fällt, wenn das Binär mehr
+verlangt. Ohne musl, siehe
+[0082](../entscheidungen/0082-versionen-und-releases.md).
 
 ## Grenze
 
@@ -83,8 +87,8 @@ Releases auf einem älteren System oder mit musl bauen, entscheidet #150.
 - **In der CI** fällt der Schritt für Linux über dieser Grenze. #151 hebt sie
   auf 4 550 000 Byte, wenn es den Server einbaut.
 - **Stand:** Linux 3,49 MB, Windows 3,57 MB gepackt. Unter Linux bleiben
-  rund 0,24 MB Luft. Windows prüft die CI nicht, das misst der
-  Release-Workflow aus #150.
+  rund 0,24 MB Luft. Windows prüft die CI nicht; der Release-Workflow prüft
+  beide, siehe [CI](ci.md), „Release“.
 
 ## In der CI
 

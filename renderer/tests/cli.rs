@@ -6618,10 +6618,20 @@ fn client_jar_nur_mit_zustimmung() {
 
     // Auch dort liegt das Jar schon: Kein Test darf ins Netz, auch nicht,
     // wenn die Prüfung fehlte.
-    let unter = baum.wurzel().join("cache");
-    kopiere_ordner(cache.path(), &unter);
-    let falsch = lauf(&[&zustimmung[..], &[unter.as_os_str()]].concat());
-    assert!(!falsch.status.success());
-    let fehler = String::from_utf8_lossy(&falsch.stderr);
-    assert!(fehler.contains("liegt unter --tiles"), "{fehler}");
+    // Ebenso über `..` und unter Windows in anderer Schreibung.
+    let mut unter = vec![
+        baum.wurzel().join("cache"),
+        baum.wurzel().join("x").join("..").join("cache2"),
+    ];
+    if cfg!(windows) {
+        let gross = baum.wurzel().display().to_string().to_uppercase();
+        unter.push(PathBuf::from(gross).join("cache3"));
+    }
+    for unter in unter {
+        kopiere_ordner(cache.path(), &unter);
+        let falsch = lauf(&[&zustimmung[..], &[unter.as_os_str()]].concat());
+        assert!(!falsch.status.success(), "{}", unter.display());
+        let fehler = String::from_utf8_lossy(&falsch.stderr);
+        assert!(fehler.contains("liegt unter --tiles"), "{fehler}");
+    }
 }

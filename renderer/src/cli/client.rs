@@ -225,17 +225,38 @@ fn auspacken(jar: &[u8], ordner: &Path) -> Result<usize> {
         },
     )?;
     ensure!(anzahl > 0, "keine Assets im Jar");
-    match std::fs::rename(&tmp, ordner) {
-        Ok(()) => {}
-        // Ein anderer Lauf war schneller; sein Ordner gilt.
-        Err(_) if ordner.is_dir() => {
-            let _ = std::fs::remove_dir_all(&tmp);
-        }
-        Err(fehler) => {
-            return Err(fehler).with_context(|| format!("{} umbenennen", tmp.display()));
+    benenne_um(&tmp, ordner)?;
+    Ok(anzahl)
+}
+
+/// Höchstens so lange versucht es das Umbenennen unter Windows erneut.
+const UMBENENNEN: Duration = Duration::from_secs(10);
+
+/// Benennt den ausgepackten Ordner um. War ein anderer Lauf schneller, gilt
+/// sein Ordner. Unter Windows hält ein Echtzeitschutz frische Dateien kurz
+/// offen, dann heisst es „Zugriff verweigert“: Das versucht es bis zu
+/// [`UMBENENNEN`] lang erneut.
+fn benenne_um(tmp: &Path, ordner: &Path) -> Result<()> {
+    let start = std::time::Instant::now();
+    loop {
+        match std::fs::rename(tmp, ordner) {
+            Ok(()) => return Ok(()),
+            Err(_) if ordner.is_dir() => {
+                let _ = std::fs::remove_dir_all(tmp);
+                return Ok(());
+            }
+            Err(fehler)
+                if cfg!(windows)
+                    && fehler.kind() == std::io::ErrorKind::PermissionDenied
+                    && start.elapsed() < UMBENENNEN =>
+            {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(fehler) => {
+                return Err(fehler).with_context(|| format!("{} umbenennen", tmp.display()));
+            }
         }
     }
-    Ok(anzahl)
 }
 
 #[cfg(test)]
@@ -408,5 +429,32 @@ mod tests {
             (assets, daten),
             (fertig.join("assets"), fertig.join("data"))
         );
+    }
+
+    /// Hält jemand eine Datei im Ordner offen, wie ein Echtzeitschutz, wartet
+    /// das Umbenennen, bis sie zu ist.
+    #[cfg(windows)]
+    #[test]
+    fn umbenennen_wartet_auf_offene_dateien() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("x.1.tmp");
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("a.json"), b"{}").unwrap();
+        // Nur Lesen geteilt: So lässt Windows den Ordner nicht umbenennen.
+        let offen = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(tmp.join("a.json"))
+            .unwrap();
+        assert!(std::fs::rename(&tmp, dir.path().join("probe")).is_err());
+        let faden = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(500));
+            drop(offen);
+        });
+        let ordner = dir.path().join("x");
+        benenne_um(&tmp, &ordner).unwrap();
+        faden.join().unwrap();
+        assert!(ordner.join("a.json").is_file() && !tmp.exists());
     }
 }

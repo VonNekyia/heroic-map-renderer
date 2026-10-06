@@ -618,9 +618,15 @@ pub fn run() -> Result<()> {
             let jar = client::waehle(args.client_version.as_deref(), datenversion(&args.world)?)?;
             let cache = client::cache(args.cache_dir.as_deref())?;
             if let Some(tiles) = &args.tiles {
-                let unter = std::path::absolute(&cache)?.starts_with(std::path::absolute(tiles)?);
+                // Kanonisch, wie die Platte sie sieht: mit `..` und unter
+                // Windows in jeder Schreibung.
+                let kanonisch = |ordner: &Path| {
+                    std::fs::create_dir_all(ordner)
+                        .and_then(|()| std::fs::canonicalize(ordner))
+                        .with_context(|| format!("{} anlegen", ordner.display()))
+                };
                 ensure!(
-                    !unter,
+                    !kanonisch(&cache)?.starts_with(kanonisch(tiles)?),
                     "der Cache {} liegt unter --tiles {}; Mojangs Dateien dürfen nicht mit den Kacheln hinaus",
                     cache.display(),
                     tiles.display()

@@ -56,7 +56,7 @@ dem Plugin-Programmierer ab.
   `config.yml` zugestimmt hat, Vorgabe `false`; `eula=true` des Servers
   zählt nicht (#147, [0086](entscheidungen/0086-client-jar-von-mojang.md)).
   Dazu `--cache-dir` mit dem Datenordner des Plugins, nie unter einer
-  Wurzel von `--tiles`. Den Text der Zustimmung zeigt das Plugin
+  Wurzel von `--tiles` und nie unter der Seite von `--web`. Den Text der Zustimmung zeigt das Plugin
   sinngemäss wie [Assets](benutzung/assets.md), „Von Mojang laden“; ohne
   Zustimmung bricht ein Lauf ohne `--assets` mit diesem Text ab.
 - **Die Marke `nur-download`** im Ordner eines Baums, den die Webkarte

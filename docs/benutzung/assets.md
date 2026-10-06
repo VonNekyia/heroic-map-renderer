@@ -60,10 +60,15 @@ heroic-map-renderer --world ./world --tiles ./tiles --download-client-jar
   Jede Datei trägt die Bauzeit des Jars, so gibt ein neu ausgepackter Cache
   denselben Fingerabdruck, siehe [Updates](updates.md), „Anderer Renderer,
   andere Assets“. Ausgepackt wird erst in einen Ordner des Prozesses, dann
-  umbenannt; zwei Läufe zugleich stören sich nicht.
+  umbenannt; zwei Läufe zugleich stören sich nicht. Hält unter Windows ein
+  Echtzeitschutz frische Dateien noch offen, versucht der Lauf das
+  Umbenennen bis zu 10 s lang erneut.
 - **Nie weitergeben:** Der Cache darf nicht unter `--tiles` liegen, sonst
-  bricht der Lauf ab, bevor er etwas lädt; so liefert `--serve` ihn nicht
-  aus. In ein Paket für andere gehört er ebenso wenig.
+  bricht der Lauf ab, bevor er etwas lädt; verglichen werden die Ordner,
+  wie die Platte sie sieht, mit `..` und unter Windows in jeder Schreibung.
+  Ebenso wenig gehört er unter die Seite von `--serve --web`: Auch von dort
+  lieferte der Server ihn aus, und das prüft der Lauf nicht. In ein Paket
+  für andere gehört er auch nicht.
 - **Stapeln:** Die Basis aus dem Jar steht vor allen `--assets` und
   `--data`. Overlay-Packs und Datenpakete kommen dazu wie unten:
 

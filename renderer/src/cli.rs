@@ -30,11 +30,11 @@ use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, Worl
 use image::{Rgba, RgbaImage};
 use rayon::prelude::*;
 
+mod schaetzung;
+
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
 /// auch Sections darüber und darunter; eine Dimension mit anderer Höhe aus
 /// einem Datapack schnitte der Renderer hier ab.
-mod schaetzung;
-
 const Y_RANGE: (i32, i32) = (-64, 319);
 
 #[derive(Parser)]
@@ -364,6 +364,8 @@ fn fortschritt_in(
     zeile.insert("of".into(), gesamt.into());
     zeile.insert("rate".into(), ((rate * 10.0).round() / 10.0).into());
     zeile.insert("eta_s".into(), rest.into());
+    let s = seit.elapsed().as_secs_f64();
+    zeile.insert("s".into(), ((s * 1000.0).round() / 1000.0).into());
     melde_json(zeile.into());
 }
 

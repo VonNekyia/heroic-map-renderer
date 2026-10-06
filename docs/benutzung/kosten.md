@@ -165,11 +165,14 @@ Spanne. Unter `--tiles` schreibt es nichts. Der Code steht in
    scale 32 für 2:1 = 1, 8:5 = 1,25, 4:3 = 1,5 und 1:1 = 2; genordet bei
    scale 16 dasselbe wie 2:1 bei 32.
 4. **Probelauf:** je zwei Ausschnitte aus ganzen Kacheln um vier fertige
-   Chunks der Stichprobe, mit denselben Schaltern und `--threads`.
-   - Der kleine hat die Kante k = `⌈√(4 · Threads)⌉`, 4 bis 32 Kacheln, der
-     grosse 2k.
+   Chunks der Stichprobe, mit denselben Schaltern, `--threads` und den
+   Werten eines bestehenden Baums.
+   - Der kleine hat die Kante k = `⌈√(16 · Threads)⌉`, 4 bis 32 Kacheln, der
+     grosse 2k. Zusammen sind es höchstens ein Zwanzigstel der Kacheln der
+     Welt.
    - Sie laufen als eigene Prozesse mit `--progress json` in einen Ordner
-     unter dem Temp-Verzeichnis des Systems, der danach wegfällt.
+     neben `--tiles`, auf demselben Laufwerk und mit demselben
+     Echtzeitschutz. Der Ordner fällt danach weg, auch nach einem Fehler.
    - Ganze Kacheln, weil ein Rechteck mit `--area` halb leere Randkacheln
      hat. Zwei Grössen, weil ein kleiner Ausschnitt mehr Chunks je Kachel
      liest als die Welt: Unter ihm ragen Säulen hinein, die er dekodiert und
@@ -185,12 +188,20 @@ Spanne. Unter `--tiles` schreibt es nichts. Der Code steht in
      beiden Grössen der Ausschnitte mit kleinsten Quadraten getrennt, mal
      Kacheln und Chunks der Welt.
    - **Native Stufen:** im Verhältnis, das der Probelauf zwischen ihnen und
-     der Basis misst.
-   - **Dazu** die Pyramide und die festen Kosten eines Laufs, die der
-     Probelauf misst.
-7. **Frei:** der freie Platz unter `--tiles` oder dem nächsten Ordner
-   darüber, den es gibt. „Reicht“ heisst: mehr als der obere Rand der
-   Spanne. Eine Warnung vor dem Lauf nimmt den oberen Rand.
+     der Basis misst. Sie laufen in Bändern zugleich; ihre Phase zählt
+     einmal, so lange wie die längste Stufe.
+   - **Dazu** 0 bis 3 % der Basis für die Pyramide und die festen Kosten
+     eines Laufs, die der Probelauf misst.
+7. **Frei:** der freie Platz unter dem Baum oder dem nächsten Ordner
+   darüber, den es gibt. Ein Lauf über einen bestehenden Baum überschreibt
+   ihn; frei sein muss nur, was über den Bestand hinausgeht. „Reicht“
+   heisst: Frei und Bestand zusammen erreichen mindestens den oberen Rand.
+   Eine Warnung vor dem Lauf nimmt den oberen Rand.
+
+Wie der Lauf nimmt die Schätzung native Stufen, Mischung und Rechteck aus
+einem bestehenden Baum und bricht ab, wo der Aufruf davon abweicht. Mit
+`--size` zählt sie höchstens die Kacheln des Fensters, gerundet wie im Lauf;
+das ist die genaue obere Grenze.
 
 Die Faktoren der Eichung, gemessen in
 [2026-10-06, Schätzung gegen gemessene Läufe](../messungen/2026-10-06-schaetzung.md):
@@ -198,7 +209,7 @@ Die Faktoren der Eichung, gemessen in
 | Faktor | Wert | Herkunft |
 |---|---|---|
 | Kacheln je Fläche der Oberseite | 1,0 bis 1,2 | Ränder und Höhe der Welt: gemessen 1,013 bis 1,018 an der grossen Welt, 1,13 bei scale 32 und 1,17 bei scale 8 an der Testwelt |
-| Bytes je Kachel gegen die Proben | 0,8 bis 1,0 | Die Proben liegen in vollen Kacheln mitten in der Welt. Sie lagen an der Testwelt 4 % (scale 32) bis 16 % (scale 8) über dem Schnitt der echten Basis, an der grossen Welt 8 bis 21 % über Vollrendern mit älterem Code |
+| Bytes je Kachel gegen die Proben | 0,8 bis 1,0 | Die Proben liegen in vollen Kacheln mitten in der Welt. Je geplanter Basiskachel lagen sie an der Testwelt 7 % (scale 32) bis 18 % (scale 8) über der echten Basis, an der grossen Welt 8 bis 21 % über Vollrendern mit älterem Code |
 | native Stufen und Pyramide in Bytes | 30 bis 47 % der Basis | gemessen 32 bis 37 % an der grossen Welt, 35 % bei scale 32 und 45 % bei scale 8 an der Testwelt |
 | Vorlauf gegen das Dekodieren der Stichprobe | 1,1 bis 1,6 | Der Vorlauf sammelt dazu Blockstates, Höhen und den Stand; an der Testwelt 1,10 bis 1,55 |
 | Pyramide in der Zeit | 0 bis 3 % der Basis | gemessen 0,2 bis 2,7 % |

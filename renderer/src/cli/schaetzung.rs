@@ -447,6 +447,14 @@ fn probe_schalter(
     for pfad in &args.data {
         paar("--data", pfad.into());
     }
+    // Version und Cache des Client-Jars; die Zustimmung folgt unten. Ohne sie
+    // bräche der Probelauf ohne `--assets` ab (#202).
+    if let Some(version) = &args.client_version {
+        paar("--client-version", version.into());
+    }
+    if let Some(cache) = &args.cache_dir {
+        paar("--cache-dir", cache.into());
+    }
     paar("--tiles", wurzel.into());
     paar("--camera", args.camera.to_string().into());
     if let Some(richtung) = &args.direction {
@@ -471,6 +479,9 @@ fn probe_schalter(
     }
     if args.low_priority {
         s.push("--low-priority".into());
+    }
+    if args.download_client_jar {
+        s.push("--download-client-jar".into());
     }
     // Das Rechteck in Chunks, `--area` nimmt zwei inklusive Ecken in Blöcken.
     if let Some([x0, z0, x1, z1]) = einstellung.bereich {
@@ -641,5 +652,41 @@ mod tests {
         assert_eq!((probe.vorlauf_s, probe.basis_s), (0.3, 2.0));
         assert_eq!(probe.stufen_s, 2.7);
         assert_eq!(probe.ganz_s, 6.0);
+    }
+
+    /// Der Probelauf bekommt die Zustimmung zum Client-Jar, seine Version und
+    /// den Cache, wenn der Lauf sie hat, und sonst nichts davon (#202).
+    #[test]
+    fn probelauf_mit_client_jar() {
+        use clap::Parser;
+        let einstellung = Einstellung {
+            stufen: 0,
+            blend: 2,
+            bereich: None,
+        };
+        let schalter = |extra: &[&str]| -> Vec<String> {
+            let args =
+                Args::try_parse_from([&["x", "--world", "w", "--tiles", "t"], extra].concat())
+                    .unwrap();
+            probe_schalter(&args, &einstellung, Path::new("p"), ([0, 0], 512))
+                .into_iter()
+                .map(|s| s.into_string().unwrap())
+                .collect()
+        };
+        let mit = schalter(&[
+            "--download-client-jar",
+            "--client-version",
+            "26.3",
+            "--cache-dir",
+            "c",
+        ]);
+        assert!(mit.iter().any(|s| s == "--download-client-jar"), "{mit:?}");
+        for paar in [["--client-version", "26.3"], ["--cache-dir", "c"]] {
+            assert!(mit.windows(2).any(|w| w == paar), "{mit:?}");
+        }
+        let ohne = schalter(&["--assets", "a"]);
+        for schalter in ["--download-client-jar", "--client-version", "--cache-dir"] {
+            assert!(!ohne.iter().any(|s| s == schalter), "{ohne:?}");
+        }
     }
 }

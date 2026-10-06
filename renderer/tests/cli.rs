@@ -6580,7 +6580,9 @@ fn kopiere_ordner(von: &Path, nach: &Path) {
 /// Version und Grösse und den Schalter. Mit `--download-client-jar` und
 /// einem Cache, in dem das Jar schon ausgepackt liegt, geht der Lauf nicht
 /// ins Netz und nimmt Assets und Daten von dort, vor weiteren `--assets`.
-/// Ein Cache unter `--tiles` bricht ab, bevor etwas geladen wird.
+/// Ein Cache unter `--tiles` bricht ab, bevor etwas geladen wird. Die
+/// Schätzung geht mit der Zustimmung und dem Cache allein durch, wie aus
+/// dem Assistenten.
 #[test]
 fn client_jar_nur_mit_zustimmung() {
     let welt = tempdir();
@@ -6642,6 +6644,40 @@ fn client_jar_nur_mit_zustimmung() {
     let eigen = ausgabe.find(&assets().display().to_string());
     assert!(basis.is_some() && basis < eigen, "{ausgabe}");
     assert!(baum.path().join("map.json").is_file());
+
+    // Wie der Assistent: nur die Zustimmung und der Cache, ohne `--assets`
+    // und ohne `--client-version`, also 26.2 aus level.dat. Die Schätzung
+    // reicht beides an ihren Probelauf weiter (#202). Ohne Ordner für einen
+    // Cache in der Umgebung, damit auch ein Probelauf ohne `--cache-dir`
+    // nicht ins Netz geht.
+    kopiere_ordner(
+        &jar,
+        &cache
+            .path()
+            .join("client-26.2-2dc72797acbc1b63fc16a11c4ac393605f453754"),
+    );
+    let schaetzung = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+        .args([
+            OsStr::new("--world"),
+            welt.path().as_os_str(),
+            OsStr::new("--tiles"),
+            baum.wurzel().as_os_str(),
+            OsStr::new("--scale"),
+            OsStr::new("8"),
+            OsStr::new("--gpu"),
+            OsStr::new("off"),
+            OsStr::new("--download-client-jar"),
+            OsStr::new("--cache-dir"),
+            cache.path().as_os_str(),
+            OsStr::new("--estimate"),
+        ])
+        .env_remove("LOCALAPPDATA")
+        .env_remove("XDG_CACHE_HOME")
+        .env_remove("HOME")
+        .output()
+        .unwrap();
+    let ausgabe = String::from_utf8_lossy(&gelungen(&schaetzung).stdout).into_owned();
+    assert!(!ausgabe.contains("lade von"), "{ausgabe}");
 
     // Auch dort liegt das Jar schon: Kein Test darf ins Netz, auch nicht,
     // wenn die Prüfung fehlte.

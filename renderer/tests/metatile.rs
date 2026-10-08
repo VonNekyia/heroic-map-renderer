@@ -5863,7 +5863,9 @@ fn deckendes_eis_aendert_kein_pixel() {
 #[test]
 fn vorrat_gilt_nur_bei_gleicher_tabelle() {
     let dir = tempdir();
-    let chunks: Vec<(i32, i32)> = (-1..=1).flat_map(|x| (-1..=1).map(move |z| (x, z))).collect();
+    let chunks: Vec<(i32, i32)> = (-1..=1)
+        .flat_map(|x| (-1..=1).map(move |z| (x, z)))
+        .collect();
     common::write_world(dir.path(), &chunks, |x, y, z| match (x, y, z) {
         (_, 0..=3, _) | (8, 4, 8) | (4, 4, 8) => "minecraft:einfarbig",
         (9, 4, 8) | (8, 4, 9) | (8, 5, 8) | (5, 4, 8) => "minecraft:ackerboden",
@@ -5871,7 +5873,9 @@ fn vorrat_gilt_nur_bei_gleicher_tabelle() {
     });
     let world = World::open(dir.path()).unwrap();
     let mut assets = assets();
-    let states = survey(&world, Projection::new(4), Y_RANGE, None).unwrap().states;
+    let states = survey(&world, Projection::new(4), Y_RANGE, None)
+        .unwrap()
+        .states;
     let deckend = SpriteSet::build_in(&mut assets, &states, Projection::new(4))
         .unwrap()
         .licht_deckend(&states);

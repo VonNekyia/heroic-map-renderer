@@ -86,3 +86,6 @@ Nachverdichten eines fertigen Baums (Weg 3).
   Lauf ohnehin nicht, siehe 0091.
 - Einen bestehenden Baum macht `--compact-tree` kompakt, siehe
   [0093](0093-nachverdichten.md).
+- Glatte Verläufe ohne Palette packen ohne Vorhersage grösser. An der
+  Testwelt traf das 9 von 3086 Kacheln, zusammen 13,6 kB, mit Cinematic 4
+  von 2203.

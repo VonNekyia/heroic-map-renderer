@@ -301,8 +301,10 @@ Verdichtet: 3086 Kacheln, 108.4 MB statt 154.0 MB, 0 schon kompakt, 0 übergange
   - tauschen, mit der alten Zeit der letzten Änderung. Die Pixel bleiben,
     und `--pyramid` und `--resume` vergleichen Zeiten.
 - **Was ein anderer Lauf seit dem Beginn schrieb,** lässt er aus. Er prüft
-  das beim Auflisten und unmittelbar vor dem Tausch. Ein Export oder Update
-  darf daneben laufen.
+  das beim Auflisten und unmittelbar vor dem Tausch. Neben einem Lauf auf
+  demselben Baum soll der Aufruf trotzdem nicht laufen: Zwischen Prüfung und
+  Tausch bleibt ein kurzes Fenster, siehe
+  [0093](../entscheidungen/0093-nachverdichten.md).
 - **Fortsetzen:** Nach jedem Block aus 32 × 32 Kacheln legt der Aufruf
   deren Hashes ab, siehe [Updates](updates.md), „Gleiche Pixel“. Ein neuer
   Aufruf nach einem Abbruch dekodiert jede Kachel, kodiert aber nur, was

@@ -39,6 +39,12 @@ Hintergrund verdichten. Der Maintainer entschied das am 08.10. mit Weg 2.
 - **Neueres bleibt:** Eine Kachel, die ein anderer Lauf seit dem Beginn
   schrieb, lässt der Aufruf aus. Er prüft das beim Auflisten und noch einmal
   unmittelbar vor dem Tausch.
+- **Nicht neben einem Lauf auf demselben Baum:** Zwischen der letzten
+  Prüfung und dem Tausch bleibt ein kurzes Fenster. Schreibt genau dann ein
+  Export oder Update dieselbe Kachel, legt der Tausch den alten Inhalt mit
+  der alten Zeit zurück, und der Stand hält sie für fertig. Ganz schliessen
+  liesse sich das nur mit einer Sperre. Das Plugin reiht den Aufruf deshalb
+  wie seine Läufe ein.
 - **Fortsetzen über die Hashes** aus
   [0091](0091-gleiche-pixel-nicht-kodieren.md): Je Kachel merkt sich der
   Aufruf ihren Hash mit der kompakten Packung. Nach jedem Block legt er die
@@ -77,7 +83,8 @@ Hintergrund verdichten. Der Maintainer entschied das am 08.10. mit Weg 2.
 
 - Jede Kachel bekommt einmal neue Bytes und damit ein neues ETag: Der Mod
   lädt danach einmal alles, aber nur noch rund 70 % der Bytes.
-- Ein Export, ein Update oder `--pyramid` darf daneben laufen. Was sie
-  schreiben, packen sie schon kompakt; der Aufruf lässt es aus.
+- Ein Export, ein Update oder `--pyramid`, der trotzdem daneben läuft,
+  packt schon kompakt, und der Aufruf lässt aus, was er schreibt, bis auf
+  das kurze Fenster oben.
 - Bricht der Aufruf ab, ist der Baum gemischt, beide Packungen dekodieren zu
   denselben Pixeln. Ein neuer Aufruf macht weiter.

@@ -36,14 +36,27 @@ Nachverdichten eines fertigen Baums (Weg 3).
   und Bildern ohne Palette nur „subtract green“ nehmen. Bilder mit Palette
   bleiben, wie sie waren. Dafür liegt `libwebp-sys` als Kopie im
   Repository, siehe [libwebp mit Patch](../entwicklung/libwebp-mit-patch.md).
-- **Ein Übergang:** Nimmt libwebp eine solche Einstellung selbst auf, fällt
-  die Kopie weg. Den Patch schlägt der Maintainer libwebp vor, sobald er
-  hier abgenommen ist.
+- **Die Kopie bleibt:** Der Patch geht nicht an libwebp, das stellte der
+  User am 08.10. klar. Bei jedem Update von `libwebp-sys` geht der Patch
+  mit, siehe „Folgen“.
 - **Lizenzen der Kopie:** `COPYING` und `PATENTS` von libwebp bleiben in
   ihr. Dazu kommt `LICENSE-MIT` mit dem Text von MIT und den Autoren von
   `libwebp-sys`, denn die Kiste nennt MIT, bringt den Text aber nicht mit.
-  Der User entschied am 08.10. für eine Übergangslösung ohne Eintrag in
-  `NOTICE`.
+  Im Binär stehen alle drei in `THIRD-PARTY-NOTICES`, siehe
+  [Drittlizenzen](../entwicklung/drittlizenzen.md).
+- **Kein Eintrag in `NOTICE`,** auch für eine Kopie, die bleibt:
+  - BSD-3-Clause (`vendor/COPYING`) verlangt im Quelltext den Hinweis, die
+    Bedingungen und den Haftungsausschluss, im Binär dieselben in der
+    Dokumentation. MIT (`LICENSE-MIT`) verlangt den Hinweis und den Text
+    in jeder Kopie. Beides steht in der Kopie und in
+    `THIRD-PARTY-NOTICES`.
+  - Keine der beiden Lizenzen kennt eine `NOTICE`-Datei. Abschnitt 4 (d)
+    der Apache-Lizenz gilt für die `NOTICE` des Renderers selbst, nicht für
+    Teile unter anderen Lizenzen; libwebp und `libwebp-sys` bringen auch
+    keine mit.
+  - Geänderte Dateien zu kennzeichnen verlangt keine der beiden. Der Patch
+    trägt trotzdem den Kommentar `heroic-map-renderer:`.
+  - `NOTICE` verweist schon auf `THIRD-PARTY-NOTICES`.
 - **Der Baum merkt es sich** in `map.json` als `"compact": true`, wie die
   nativen Stufen und den Radius der Mischung. Jeder Lauf auf dem Baum packt
   so, auch ohne den Schalter: voll, `--update`, `--resume`, `--pyramid`.
@@ -84,5 +97,8 @@ Nachverdichten eines fertigen Baums (Weg 3).
 - Ein kompakter Baum braucht rund 8 bis 10 ms mehr je neu kodierter
   Kachel, auch in jedem Update. Kacheln mit gleichen Pixeln kodiert ein
   Lauf ohnehin nicht, siehe 0091.
-- Einen bestehenden Baum kompakt zu machen, geht erst mit dem
-  Nachverdichten (#205, Weg 3).
+- Einen bestehenden Baum macht `--compact-tree` kompakt, siehe
+  [0093](0093-nachverdichten.md).
+- Glatte Verläufe ohne Palette packen ohne Vorhersage grösser. An der
+  Testwelt traf das 9 von 3086 Kacheln, zusammen 13,6 kB, mit Cinematic 4
+  von 2203.

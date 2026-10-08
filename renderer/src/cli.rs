@@ -40,6 +40,7 @@ mod pixel;
 mod schaetzung;
 mod server;
 mod token;
+mod verdichten;
 mod zip;
 
 /// Höhenbereich der Vanilla-Dimensionen seit 1.18. Der Welt-Reader liefert
@@ -256,11 +257,26 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact",
+        "cache_dir", "compact", "compact_tree",
     ])]
     pyramid: Option<PathBuf>,
 
-    /// Mit --tiles oder --pyramid am Ende das Manifest des Baums schreiben,
+    /// Diesen fertigen Kachelbaum kompakt nachpacken, wie mit --compact,
+    /// ohne Welt und ohne Assets. Die Pixel bleiben, jede Kachel behält ihre
+    /// Zeit, und zuerst trägt map.json die Packung ein. Lässt aus, was ein
+    /// anderer Lauf seit dem Beginn schrieb, und setzt nach einem Abbruch fort
+    #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = [
+        "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
+        "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
+        "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
+        "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "site_url",
+        "site_title", "site_description", "site_image", "download_client_jar", "client_version",
+        "cache_dir", "compact", "pyramid",
+    ])]
+    compact_tree: Option<PathBuf>,
+
+    /// Mit --tiles, --pyramid oder --compact-tree am Ende das Manifest des Baums schreiben,
     /// je Kachel Grösse und ETag, für den Download. Ohne den Schalter
     /// entfernt ein Lauf, der Kacheln schreibt, ein altes
     #[arg(long)]
@@ -274,6 +290,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact",
+        "compact_tree",
     ])]
     serve: Option<PathBuf>,
 
@@ -594,8 +611,12 @@ pub fn run() -> Result<()> {
     if args.tiles.is_some() && args.world.is_none() {
         bail!("--tiles braucht --world");
     }
-    if args.manifest && args.tiles.is_none() && args.pyramid.is_none() {
-        bail!("--manifest braucht --tiles oder --pyramid");
+    if args.manifest
+        && args.tiles.is_none()
+        && args.pyramid.is_none()
+        && args.compact_tree.is_none()
+    {
+        bail!("--manifest braucht --tiles, --pyramid oder --compact-tree");
     }
     if args.heights.is_some() && args.world.is_none() {
         bail!("--heights braucht --world");
@@ -889,6 +910,10 @@ pub fn run() -> Result<()> {
 
     if let Some(dir) = &args.pyramid {
         rebuild_pyramid(dir, args.manifest, SystemTime::now(), vorhandene_mit_zeit)?;
+    }
+
+    if let Some(dir) = &args.compact_tree {
+        verdichten::verdichte(dir, args.manifest)?;
     }
 
     if let Some(assets) = &assets {
@@ -5707,6 +5732,7 @@ mod tests {
         ];
         for (modus, eigene) in [
             ("pyramid", &["manifest"][..]),
+            ("compact_tree", &["manifest"][..]),
             ("serve", &eigene_von_serve[..]),
         ] {
             let arg = cmd.get_arguments().find(|a| a.get_id() == modus).unwrap();

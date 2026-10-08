@@ -3,6 +3,7 @@ title: Updates
 description: Wie --update nur zeichnet, wo sich die Welt seit dem letzten vollen Lauf geändert hat, mit dem Stand je Baum, Zeitstempeln und Fingerabdrücken je Chunk, dem Gebiet einer Änderung, Abbruch und --resume, und wann ein voller Lauf nötig ist.
 code:
   - renderer/src/cli.rs
+  - renderer/src/cli/pixel.rs
   - renderer/src/render/stand.rs
   - renderer/src/render/tiles.rs
   - renderer/src/world/region.rs
@@ -194,6 +195,56 @@ der Lauf neu; leer verschwinden sie. Kacheln eines Chunks, der ganz fehlt,
 bleiben ohne `--prune` stehen, siehe [Kacheln exportieren](kacheln.md),
 „Leer gewordene Kacheln“ (`update_laesst_kacheln_fehlender_chunks_stehen`).
 
+## Gleiche Pixel
+
+Die meisten Kacheln im Gebiet eines Updates zeigen danach dieselben Pixel
+wie vorher. Jeder Lauf hält deshalb je Kachel jeder Stufe einen Hash ihrer
+Pixel fest und kodiert keine Kachel, die schon dieselben Pixel zeigt
+(`schreibe_oder_lass` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs),
+`Pixel` in [`renderer/src/cli/pixel.rs`](../../renderer/src/cli/pixel.rs)).
+Sie bleibt liegen wie eine mit gleichen Bytes, mit ihrer Zeit und ihrem
+ETag, siehe [Kacheln exportieren](kacheln.md), „Gleiche Bytes bleiben
+liegen“. Entschieden in
+[0091](../entscheidungen/0091-gleiche-pixel-nicht-kodieren.md).
+
+- **Der Hash:** SHA-256 über die RGBA-Bytes der Kachel, davon die ersten 16
+  Bytes.
+- **Wann er gilt:**
+  - nur für die Datei, wie ein Lauf sie hinterliess, mit derselben Grösse
+    und derselben Zeit der letzten Änderung auf die Nanosekunde;
+  - nur für denselben Build des Renderers.
+
+  Schrieb jemand anders die Datei, kodiert der nächste Lauf sie wie ohne
+  Hash und merkt sich den neuen. Das gilt für einen abgebrochenen Lauf,
+  `--pyramid` und ein Werkzeug, und ebenso, wenn sie nur eine andere Zeit
+  bekam.
+- **Jeder Lauf** liest und schreibt die Hashes der Kacheln, die er ablegt,
+  auch ein Ausschnitt und `--resume`. Geschrieben wird am Ende. Bricht ein
+  Lauf ab, fehlen nur seine Hashes.
+- **Ein neuer Build** kodiert einmal alles neu. Ein Update nimmt er
+  ohnehin erst nach einem vollen Lauf an, siehe „Anderer Renderer, andere
+  Assets“.
+- **Die Ausgabe** nennt am Ende, wie viele Kacheln der Lauf nicht kodiert
+  hat:
+
+  ```
+  Pixel:      113 Kacheln mit gleichen Pixeln nicht kodiert, 4 Blöcke -> ./tiles/2x1-se/pixel
+  ```
+
+- **Wo:** `pixel/` im Baum, je Stufe ein Ordner `<z>`, je Block aus 32 × 32
+  Kacheln eine Datei `<bx>.<by>.bin`, mit `bx` = x div 32 und `by` =
+  y div 32. Ein Lauf liest einen Block erst, wenn er eine Kachel darin
+  ablegt, und schreibt nur geänderte. Ein Update berührt so nur die Blöcke
+  um sein Gebiet. Eine Blockdatei, die sich nicht lesen lässt oder von
+  einem anderen Build stammt, gilt als leer.
+
+| Teil einer Blockdatei | Bytes |
+|---|---|
+| Kopf: `HMRPIXEL`, Fassung 1, Fingerabdruck des Renderers, Zahl der Einträge | 24 |
+| je Kachel: Platz `y · 32 + x` im Block, Hash, Grösse, Zeit in ns | 30 |
+
+Alles in Little Endian, nach Platz geordnet.
+
 ## Abbruch und `--resume`
 
 Bricht ein Update ab, bleibt der alte Stand, sein Gebiet darin unbekannt,
@@ -245,6 +296,9 @@ Danach zeichnet ein voller Lauf alles neu, und `--update` geht wieder.
 
 - **Ein Werkzeug, das einen Chunk ohne neue Zeit an derselben Stelle
   überschreibt.** Das Spiel tut das nicht, siehe oben.
+- **Eine Kachel, die ein Werkzeug mit anderen Bytes, aber derselben Grösse
+  und derselben Zeit auf die Nanosekunde zurücklegt.** Sie bleibt stehen,
+  bis sich ihre Pixel ändern, siehe „Gleiche Pixel“.
 - **Ein Stand aus einem anderen Baum,** von Hand kopiert.
 - **Ein ausgelagerter Chunk, gelesen zwischen Kopf und Verschieben,** siehe
   oben: Liest der Lauf den neuen Stempel und noch vor dem Verschieben den
@@ -279,3 +333,8 @@ An der Testwelt bei scale 8, gemessen in
 - **Ein Gebiet** kostet, was ein Ausschnitt dieser Grösse kostet, dazu rund
   2 s für Assets und Sprites.
 - **`stand.bin`** hat rund 24 Bytes je Chunk, an der Testwelt 7,5 MB.
+- **Mit einem Thread,** wie das Plugin es startet, brauchte das Update mit
+  16 gelöschten Chunks 14,3 s. Mit den Hashes der Pixel waren es 13,9 s;
+  198 von 388 Kacheln im Gebiet kodierte es nicht. Die Hashes haben rund
+  30 Byte je Kachel, an der Testwelt 0,73 MB. Gemessen in
+  [2026-10-08, Gleiche Pixel nicht kodieren](../messungen/2026-10-08-gleiche-pixel.md).

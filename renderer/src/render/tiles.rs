@@ -756,10 +756,11 @@ fn overlaps(a: ScreenRect, b: ScreenRect) -> bool {
     a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
 }
 
-/// Kodiert ein Bild als verlustfreies WebP, mit libwebp auf Stufe 0.
-/// `exact` behält die Farbe voll durchsichtiger Pixel, sonst setzt libwebp
-/// sie auf 0. Eigene Threads braucht libwebp nicht, die Kacheln verteilt
-/// schon `rendere`.
+/// Kodiert ein Bild als verlustfreies WebP, mit libwebp auf method 0 und
+/// quality 75. `exact` behält die Farbe voll durchsichtiger Pixel, sonst
+/// setzt libwebp sie auf 0. Eigene Threads braucht libwebp nicht, die
+/// Kacheln verteilt schon `rendere`.
+/// Siehe docs/entscheidungen/0090-webp-mit-quality-75.md.
 pub fn encode_webp(image: &RgbaImage) -> Result<Vec<u8>> {
     richte_libwebp_ein();
     kodiere(image)
@@ -831,14 +832,19 @@ fn kodiere(image: &RgbaImage) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     bild.writer = Some(anhaengen);
     bild.custom_ptr = (&raw mut out).cast();
+    // SAFETY: `config` hat libwebp angelegt.
+    let voreinstellung = unsafe { webp::WebPConfigLosslessPreset(&mut config, 0) != 0 };
+    // Ab quality 51 sucht libwebp Rückverweise in den letzten 256 statt
+    // 16 Zeilen, in einer Kachel also überall.
+    config.quality = 75.0;
     // SAFETY: `config` und `bild` hat libwebp angelegt, `image` hat
     // `4 * width` Bytes je Zeile, und `custom_ptr` zeigt auf `out`, das
     // bis nach `WebPPictureFree` an seinem Platz bleibt.
-    let gelungen = unsafe {
-        webp::WebPConfigLosslessPreset(&mut config, 0) != 0
-            && webp::WebPPictureImportRGBA(&mut bild, image.as_raw().as_ptr(), 4 * bild.width) != 0
-            && webp::WebPEncode(&config, &mut bild) != 0
-    };
+    let gelungen = voreinstellung
+        && unsafe {
+            webp::WebPPictureImportRGBA(&mut bild, image.as_raw().as_ptr(), 4 * bild.width) != 0
+                && webp::WebPEncode(&config, &mut bild) != 0
+        };
     let fehler = bild.error_code;
     // SAFETY: gibt frei, was der Import angelegt hat; danach wird `bild`
     // nicht mehr benutzt.

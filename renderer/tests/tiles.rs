@@ -458,6 +458,30 @@ fn webp_packt_dichter_als_der_einfache_encoder() {
     );
 }
 
+/// libwebp sucht Rückverweise in der ganzen Kachel: Wiederholt sich die
+/// obere Hälfte 128 Zeilen tiefer, kostet die Kachel kaum mehr als die
+/// Hälfte allein. Mit quality 0 sähe libwebp nur 16 Zeilen zurück und
+/// packte beide Hälften einzeln.
+/// Siehe docs/entscheidungen/0090-webp-mit-quality-75.md.
+#[test]
+fn webp_findet_wiederholungen_in_der_ganzen_kachel() {
+    let mut zufall = 0x2545_f491_u32;
+    let haelfte = RgbaImage::from_fn(TILE, TILE / 2, |_, _| {
+        zufall = zufall.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let [_, r, g, b] = zufall.to_le_bytes();
+        image::Rgba([r, g, b, 255])
+    });
+    let ganz = RgbaImage::from_fn(TILE, TILE, |x, y| *haelfte.get_pixel(x, y % (TILE / 2)));
+    let (allein, doppelt) = (
+        encode_webp(&haelfte).unwrap().len(),
+        encode_webp(&ganz).unwrap().len(),
+    );
+    assert!(
+        10 * doppelt < 13 * allein,
+        "zwei gleiche Hälften {doppelt} Bytes, eine allein {allein}"
+    );
+}
+
 /// Zweimal dasselbe rendern muss zweimal dasselbe ergeben — sonst wären
 /// die Kacheln eines parallelen Laufs nicht reproduzierbar.
 #[test]

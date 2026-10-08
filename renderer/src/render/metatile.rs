@@ -753,6 +753,22 @@ type Licht = ([u32; 3], Option<Ecken>, Option<[u32; 3]>, [u32; 2]);
 /// [`Licht`] ohne die Farben, wie [`ChunkCache::licht_fuer`] es gibt.
 type Lichter = ([u32; 3], Option<Ecken>, Option<[u32; 3]>);
 
+/// Was [`ChunkCache::licht_fuer`] und [`ChunkCache::tints_at`] für einen
+/// Block aus der Sprite-Tabelle einer Stufe nehmen. Alles andere, was sie
+/// lesen, hängt nicht am scale: das Licht, die Biome, die Bits der Masken
+/// ausser [`SOLID`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct AusDerTabelle {
+    /// Voll hell, Flüssigkeit, nur Flüssigkeit, die Stufe des Leuchtens,
+    /// AO-Karte, weich, Pixel ohne Seite, je Seite aus [`ao_seiten`] ein
+    /// deckender Nachbar, Farbe vom Block darunter, eigene Laubfarbe.
+    bits: u16,
+    plaetze: u8,
+    kinds: u8,
+    resolver: Option<Resolver>,
+    kiste: Option<[i32; 3]>,
+}
+
 /// Was ein Draw für Cinematic dazu trägt.
 #[derive(Clone, Copy)]
 struct Kinodaten {
@@ -1624,6 +1640,10 @@ struct Vorrat {
     chunks: HashMap<(i32, i32), Gemerkt>,
     /// Laufende Nummer des Bands, das Verfallsdatum der Einträge.
     band: u32,
+    /// Je Block im Blick Licht und Farben aus [`ChunkCache::sprite_at`],
+    /// mit dem, was sie aus der Tabelle nahmen. Gilt für ein Band: Dessen
+    /// Stufen zeichnen dieselben Blöcke.
+    je_block: Tabelle<[i32; 3], (AusDerTabelle, Licht)>,
 }
 
 struct Gemerkt {
@@ -2159,6 +2179,7 @@ impl<'a> ChunkCache<'a> {
             vorrat.band += 1;
             let band = vorrat.band;
             vorrat.chunks.retain(|_, gemerkt| gemerkt.band + 1 >= band);
+            vorrat.je_block.clear();
         }
     }
 
@@ -2768,14 +2789,14 @@ impl<'a> ChunkCache<'a> {
             return Ok(Drawn::default());
         }
 
-        let (licht, ecken, wasser) = self.licht_fuer([x, y, z], family, leuchten, sprite)?;
         // Gemischt wird nur für Sprites mit Tönungskarte, und nur die
         // Farben, die sie trägt.
         let kinds = sprite
             .into_iter()
             .chain(strips.into_iter().flatten())
             .fold(0, |kinds, id| kinds | sprites.tints(id));
-        let tint = self.tints_at([x, y, z], family, kinds)?;
+        let (licht, ecken, wasser, tint) =
+            self.licht_gemerkt([x, y, z], family, leuchten, sprite, kinds)?;
         Ok(Drawn {
             sprite,
             strips,
@@ -2784,6 +2805,79 @@ impl<'a> ChunkCache<'a> {
             wasser,
             tint,
             leuchten: f32::from(leuchten.stufe()) / 15.0,
+        })
+    }
+
+    /// Licht und Farben eines Blocks aus [`ChunkCache::licht_fuer`] und
+    /// [`ChunkCache::tints_at`]. Mit dem Vorrat der nativen Stufen einmal je
+    /// Block und Band: Eine Stufe nimmt sie von der vorigen, wenn ihre
+    /// Tabelle dasselbe [`AusDerTabelle`] gibt.
+    fn licht_gemerkt(
+        &mut self,
+        p: [i32; 3],
+        family: &Family,
+        leuchten: Leuchten,
+        sprite: Option<SpriteId>,
+        kinds: u8,
+    ) -> Result<Licht> {
+        let rechne = |cache: &mut Self| -> Result<Licht> {
+            let (licht, ecken, wasser) = cache.licht_fuer(p, family, leuchten, sprite)?;
+            Ok((licht, ecken, wasser, cache.tints_at(p, family, kinds)?))
+        };
+        if self.vorrat.is_none() {
+            return rechne(self);
+        }
+        let aus = self.aus_der_tabelle(p, family, leuchten, sprite, kinds)?;
+        let vorrat = self.vorrat.as_ref().expect("eben geprüft");
+        if let Some(&(alt, werte)) = vorrat.je_block.get(&p)
+            && alt == aus
+        {
+            return Ok(werte);
+        }
+        let werte = rechne(self)?;
+        let vorrat = self.vorrat.as_mut().expect("eben geprüft");
+        vorrat.je_block.insert(p, (aus, werte));
+        Ok(werte)
+    }
+
+    /// Was der Block an `p` im Blick für [`ChunkCache::licht_gemerkt`] aus
+    /// der Tabelle nimmt.
+    fn aus_der_tabelle(
+        &mut self,
+        [x, y, z]: [i32; 3],
+        family: &Family,
+        leuchten: Leuchten,
+        sprite: Option<SpriteId>,
+        kinds: u8,
+    ) -> Result<AusDerTabelle> {
+        let bit = |set: bool, k: u32| u16::from(set) << k;
+        let mut bits = bit(matches!(leuchten, Leuchten::Voll(_)), 0)
+            | bit(family.fluid.is_some(), 1)
+            | bit(family.pure_fluid, 2)
+            | u16::from(leuchten.stufe() & 15) << 3
+            | bit(family.tint_below, 13)
+            | bit(family.laub, 14);
+        let mut plaetze = 0;
+        if let Some(id) = sprite.filter(|&id| self.sprites.has_ao(id)) {
+            bits |= bit(true, 7) | bit(self.sprites.weich(id), 8) | bit(self.sprites.innen(id), 9);
+            plaetze = self.sprites.plaetze(id);
+            // Ob vor einer Seite ein deckender Nachbar steht, [`SOLID`] in
+            // `ecken_at`, hängt am Raster der Stufe.
+            let seiten = self.ao_seiten;
+            for (k, s) in seiten.iter().enumerate() {
+                let [dx, dy, dz] = s.richtung;
+                let fest = self
+                    .family_at(x + dx, y + dy, z + dz)?
+                    .is_some_and(|f| f.opaque);
+                bits |= bit(fest, 10 + k as u32);
+            }
+        }
+        Ok(AusDerTabelle {
+            bits,
+            plaetze,
+            kinds,
+            resolver: family.resolver,
+            kiste: family.doppelkiste,
         })
     }
 

@@ -320,6 +320,17 @@ Schon auf Stufe 0 wurden die Kacheln ein Drittel so gross wie mit dem
 einfachen Encoder aus `image`, auf dichtem Land halb so gross, über Ozean
 ein Viertel bis ein Achtel, Pixel für Pixel gleich.
 
+Mit `--compact` packt libwebp mit method 1 und quality 75 und lässt bei
+Kacheln ohne Palette die räumliche Vorhersage weg. Eine Kachel besteht aus
+wenigen Texturen, die sich Pixel für Pixel wiederholen. Ohne Vorhersage
+findet LZ77 diese Wiederholungen als lange Rückverweise; mit ihr hängt
+jeder Rest an den Nachbarpixeln, und dieselbe Textur an anderer Stelle gibt
+andere Reste. Dafür braucht libwebp einen Patch, siehe
+[libwebp mit Patch](../entwicklung/libwebp-mit-patch.md) und
+[0092](../entscheidungen/0092-kompakt-ohne-vorhersage.md). Was es spart
+und kostet, steht in
+[2026-10-08, Kompakt packen](../messungen/2026-10-08-kompakt.md).
+
 `exact` behält die Farbe voll durchsichtiger Pixel, sonst setzt libwebp sie
 auf 0 und die Kachel käme nur fast zurück. `libwebp-sys` baut libwebp aus
 dem mitgelieferten C-Quelltext. Dafür braucht es einen C-Compiler, unter

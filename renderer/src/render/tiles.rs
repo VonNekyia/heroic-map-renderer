@@ -756,14 +756,27 @@ fn overlaps(a: ScreenRect, b: ScreenRect) -> bool {
     a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()
 }
 
-/// Kodiert ein Bild als verlustfreies WebP, mit libwebp auf method 0 und
-/// quality 75. `exact` behält die Farbe voll durchsichtiger Pixel, sonst
+/// Wie libwebp eine Kachel packt. Ein Baum merkt es sich in `map.json`,
+/// und jeder Lauf auf ihm packt so.
+/// Siehe docs/entscheidungen/0092-kompakt-ohne-vorhersage.md.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Packen {
+    /// method 0 und quality 75, siehe
+    /// docs/entscheidungen/0090-webp-mit-quality-75.md.
+    #[default]
+    Schnell,
+    /// method 1 und quality 75, bei Bildern ohne Palette ohne räumliche
+    /// Vorhersage: rund die Hälfte der Bytes für ein Mehrfaches der Zeit.
+    Kompakt,
+}
+
+/// Kodiert ein Bild als verlustfreies WebP mit libwebp, so gepackt wie
+/// `packen` sagt. `exact` behält die Farbe voll durchsichtiger Pixel, sonst
 /// setzt libwebp sie auf 0. Eigene Threads braucht libwebp nicht, die
 /// Kacheln verteilt schon `rendere`.
-/// Siehe docs/entscheidungen/0090-webp-mit-quality-75.md.
-pub fn encode_webp(image: &RgbaImage) -> Result<Vec<u8>> {
+pub fn encode_webp(image: &RgbaImage, packen: Packen) -> Result<Vec<u8>> {
     richte_libwebp_ein();
-    kodiere(image)
+    kodiere(image, packen)
 }
 
 /// Dekodiert ein WebP mit libwebp nach RGBA. Nennt sein Kopf eine andere
@@ -783,7 +796,7 @@ fn richte_libwebp_ein() {
     static EINGERICHTET: Once = Once::new();
     // Scheitert es, scheitert das Bild danach mit demselben Fehler.
     EINGERICHTET.call_once(|| {
-        if let Ok(daten) = kodiere(&RgbaImage::new(16, 16)) {
+        if let Ok(daten) = kodiere(&RgbaImage::new(16, 16), Packen::Schnell) {
             drop(dekodiere(&daten, (16, 16)));
         }
     });
@@ -820,7 +833,7 @@ fn dekodiere(daten: &[u8], groesse: (u32, u32)) -> Result<RgbaImage> {
 }
 
 /// [`encode_webp`] ohne das Warten beim ersten Mal.
-fn kodiere(image: &RgbaImage) -> Result<Vec<u8>> {
+fn kodiere(image: &RgbaImage, packen: Packen) -> Result<Vec<u8>> {
     let passt_nicht = |()| anyhow!("libwebp passt nicht zu seinen Headern");
     let mut config = webp::WebPConfig::new().map_err(passt_nicht)?;
     let mut bild = webp::WebPPicture::new().map_err(passt_nicht)?;
@@ -832,11 +845,20 @@ fn kodiere(image: &RgbaImage) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     bild.writer = Some(anhaengen);
     bild.custom_ptr = (&raw mut out).cast();
+    let stufe = match packen {
+        Packen::Schnell => 0,
+        Packen::Kompakt => 1,
+    };
     // SAFETY: `config` hat libwebp angelegt.
-    let voreinstellung = unsafe { webp::WebPConfigLosslessPreset(&mut config, 0) != 0 };
+    let voreinstellung = unsafe { webp::WebPConfigLosslessPreset(&mut config, stufe) != 0 };
     // Ab quality 51 sucht libwebp Rückverweise in den letzten 256 statt
     // 16 Zeilen, in einer Kachel also überall.
     config.quality = 75.0;
+    if packen == Packen::Kompakt {
+        // Mit dem Patch in vendor/libwebp-sys: ohne Palette nur „subtract
+        // green“, ohne räumliche Vorhersage.
+        config.image_hint = webp::WebPImageHint::WEBP_HINT_GRAPH;
+    }
     // SAFETY: `config` und `bild` hat libwebp angelegt, `image` hat
     // `4 * width` Bytes je Zeile, und `custom_ptr` zeigt auf `out`, das
     // bis nach `WebPPictureFree` an seinem Platz bleibt.

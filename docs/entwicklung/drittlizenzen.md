@@ -44,7 +44,10 @@ python renderer/drittlizenzen.py <zielordner>
 - **Je übrige Lizenz** der Text aus der Crate, mit ihrem Copyright: die
   Datei, deren Name die Lizenz nennt (`LICENSE-MIT`), sonst die einzige
   Lizenzdatei. Dazu jede `NOTICE` und `PATENTS` der Crate.
-- **Mitgelieferte C-Quellen** (`MITGELIEFERT`): libwebp in `libwebp-sys`
+- **Mitgelieferte C-Quellen** (`MITGELIEFERT`): libwebp in `libwebp-sys`,
+  seit [0092](../entscheidungen/0092-kompakt-ohne-vorhersage.md) aus der Kopie
+  unter `renderer/vendor/libwebp-sys`, siehe
+  [libwebp mit Patch](libwebp-mit-patch.md)
   (`vendor/COPYING`, BSD-3-Clause, und `vendor/PATENTS`), mimalloc in
   `libmimalloc-sys` (`c_src/mimalloc/*/LICENSE`, MIT). Dazu bei `ring` die
   Übersicht `LICENSE` und der Code aus once_cell
@@ -52,9 +55,10 @@ python renderer/drittlizenzen.py <zielordner>
 - **Texte unter fremdem Namen** (`TEXT_DER_LIZENZ`): `ring` legt seinen
   ISC-Text als `LICENSE-other-bits` ab, neben weiteren Lizenzdateien; der
   Name verrät die Lizenz nicht.
-- **Ohne Text:** `libwebp-sys` nennt MIT, liefert aber keinen Text mit. Das
-  Skript nimmt den Mustertext der MIT-Lizenz aus der Toolchain mit den
-  Autoren aus `Cargo.toml`. Fehlt der Text einer anderen Lizenz, bricht es
+- **Ohne Text:** Bringt eine Kiste mit MIT keinen Text mit, nimmt das
+  Skript den Mustertext der MIT-Lizenz aus der Toolchain mit den Autoren aus
+  `Cargo.toml`. So war es bei `libwebp-sys` von crates.io; die Kopie unter
+  `renderer/vendor` bringt seit 0092 `LICENSE-MIT` mit. Fehlt der Text einer anderen Lizenz, bricht es
   ab.
 - **Kodierung:** Die Ausgabe von `cargo metadata` und `rustc` liest das
   Skript als UTF-8. Unter Windows nähme Python sonst cp1252, und Namen

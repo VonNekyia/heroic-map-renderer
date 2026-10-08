@@ -1652,8 +1652,14 @@ struct Gemerkt {
     licht: Option<Rc<ChunkLicht>>,
     /// Nur für Cinematic: seine Bits „frei zur Sonne“.
     frei: Option<Rc<strahl::Frei>>,
+    /// Die Masken der Stufe, die ihn zuletzt lud.
+    masken: Option<Masken>,
     band: u32,
 }
+
+/// Die Masken eines Chunks mit ihrer [`Loaded::kennung`], für die nächste
+/// Stufe im [`Vorrat`].
+type Masken = (Rc<[u16]>, Rc<[Option<Box<Masks>>]>);
 
 /// Chunk und Höhe, dazu das Biom je Block der Schicht.
 type BiomeLayer = ((i32, i32, i32), Box<[u16; 256]>);
@@ -1677,7 +1683,11 @@ struct Loaded {
     /// Je Section ihre Bitmasken, `None` für eine Section ohne Familie und
     /// ohne Block, der abdunkelt, die Sicht nimmt, das Licht aufhält oder
     /// leuchtet, siehe [`Masks::of`].
-    masks: Vec<Option<Box<Masks>>>,
+    masks: Rc<[Option<Box<Masks>>]>,
+    /// Je Paletteneintrag aller Sections die Bits seiner Familie aus
+    /// [`flags`]: Nur sie machen die Masken einer Stufe anders als die
+    /// einer anderen. Nur mit dem [`Vorrat`].
+    kennung: Option<Rc<[u16]>>,
     /// Je Section die Kandidaten, sobald einmal berechnet — dafür müssen
     /// die Nachbarchunks da sein, deshalb nicht beim Laden.
     exposed: Vec<Option<Box<Exposed>>>,
@@ -1967,9 +1977,16 @@ fn spalten_im_blick(richtung: Richtung) -> Option<[u8; 256]> {
 }
 
 impl Loaded {
-    /// `ecke` wie in [`Masks::of`].
-    fn new(chunk: Rc<Chunk>, sprites: &SpriteSet, ecke: u8) -> Loaded {
-        let blick = spalten_im_blick(sprites.projection().richtung());
+    /// `ecke` wie in [`Masks::of`]. Mit `vorrat` rechnet er die
+    /// [`Loaded::kennung`]; `Some(alt)` sind die [`Masken`] desselben
+    /// Chunks von einer anderen Stufe, und sind die Bits der Familien
+    /// gleich, gelten sie auch hier.
+    fn new(
+        chunk: Rc<Chunk>,
+        sprites: &SpriteSet,
+        ecke: u8,
+        vorrat: Option<Option<&Masken>>,
+    ) -> Loaded {
         let families: Vec<Vec<Option<u32>>> = chunk
             .sections()
             .iter()
@@ -1994,44 +2011,17 @@ impl Loaded {
                     .collect()
             })
             .collect();
-        let mut masks: Vec<Option<Box<Masks>>> = chunk
-            .sections()
-            .iter()
-            .zip(&families)
-            .zip(&leuchten)
-            .map(|((section, families), leuchten)| {
-                let palette = section.blocks().palette();
-                let schatten: Vec<u8> = palette.iter().map(blockstate::schatten).collect();
-                let wege: Vec<Lichtweg> = palette
-                    .iter()
-                    .map(|state| lichtweg(state, sprites))
-                    .collect();
-                Masks::of(
-                    section,
-                    families,
-                    (&schatten, &wege, leuchten),
-                    (sprites, ecke),
-                    blick.as_ref(),
-                )
-            })
-            .collect();
-        // Flüssigkeit über dem obersten Block einer Section steht in der
-        // Section darüber, im selben Chunk.
-        for s in 0..masks.len() {
-            let above = chunk.sections()[s]
-                .y
-                .checked_add(1)
-                .and_then(|y| chunk.section_index(y))
-                .and_then(|i| masks[i].as_ref().map(|a| [a.bits[WATER], a.bits[LAVA]]));
-            if let Some(m) = &mut masks[s] {
-                for (f, &(bit, _)) in FLUIDS.iter().enumerate() {
-                    for col in 0..256 {
-                        let top = above.map_or(0, |a| a[f][col] & 1);
-                        m.up[f][col] = (m.bits[bit][col] >> 1) | (top << 15);
-                    }
-                }
-            }
-        }
+        let kennung: Option<Rc<[u16]>> = vorrat.map(|_| {
+            families
+                .iter()
+                .flatten()
+                .map(|f| f.map_or(0, |index| flags(sprites.family(index))))
+                .collect()
+        });
+        let masks = match (vorrat.flatten(), &kennung) {
+            (Some((alt, masks)), Some(kennung)) if alt == kennung => Rc::clone(masks),
+            _ => Loaded::masken(&chunk, &families, &leuchten, sprites, ecke),
+        };
         let exposed = chunk.sections().iter().map(|_| None).collect();
         let biomes = chunk
             .sections()
@@ -2069,6 +2059,7 @@ impl Loaded {
             families,
             leuchten,
             masks,
+            kennung,
             exposed,
             licht: None,
             biomes,
@@ -2076,6 +2067,56 @@ impl Loaded {
             ragende: None,
             sonne: None,
         }
+    }
+
+    /// Die Bitmasken je Section, siehe [`Masks::of`].
+    fn masken(
+        chunk: &Chunk,
+        families: &[Vec<Option<u32>>],
+        leuchten: &[Vec<Leuchten>],
+        sprites: &SpriteSet,
+        ecke: u8,
+    ) -> Rc<[Option<Box<Masks>>]> {
+        let blick = spalten_im_blick(sprites.projection().richtung());
+        let mut masks: Vec<Option<Box<Masks>>> = chunk
+            .sections()
+            .iter()
+            .zip(families)
+            .zip(leuchten)
+            .map(|((section, families), leuchten)| {
+                let palette = section.blocks().palette();
+                let schatten: Vec<u8> = palette.iter().map(blockstate::schatten).collect();
+                let wege: Vec<Lichtweg> = palette
+                    .iter()
+                    .map(|state| lichtweg(state, sprites))
+                    .collect();
+                Masks::of(
+                    section,
+                    families,
+                    (&schatten, &wege, leuchten),
+                    (sprites, ecke),
+                    blick.as_ref(),
+                )
+            })
+            .collect();
+        // Flüssigkeit über dem obersten Block einer Section steht in der
+        // Section darüber, im selben Chunk.
+        for s in 0..masks.len() {
+            let above = chunk.sections()[s]
+                .y
+                .checked_add(1)
+                .and_then(|y| chunk.section_index(y))
+                .and_then(|i| masks[i].as_ref().map(|a| [a.bits[WATER], a.bits[LAVA]]));
+            if let Some(m) = &mut masks[s] {
+                for (f, &(bit, _)) in FLUIDS.iter().enumerate() {
+                    for col in 0..256 {
+                        let top = above.map_or(0, |a| a[f][col] & 1);
+                        m.up[f][col] = (m.bits[bit][col] >> 1) | (top << 15);
+                    }
+                }
+            }
+        }
+        masks.into()
     }
 }
 
@@ -2086,7 +2127,7 @@ impl Loaded {
         self.chunk
             .sections()
             .iter()
-            .zip(&self.masks)
+            .zip(self.masks.iter())
             .filter_map(|(section, m)| {
                 let m = m.as_deref()?;
                 Some(Eingabe {
@@ -2250,11 +2291,15 @@ impl<'a> ChunkCache<'a> {
             let band = vorrat.band;
             vorrat.chunks.get_mut(&key).map(|gemerkt| {
                 gemerkt.band = band;
-                (gemerkt.chunk.clone(), gemerkt.licht.clone())
+                (
+                    gemerkt.chunk.clone(),
+                    gemerkt.licht.clone(),
+                    gemerkt.masken.clone(),
+                )
             })
         });
-        let (chunk, licht) = match gemerkt {
-            Some(paar) => paar,
+        let (chunk, licht, masken) = match gemerkt {
+            Some(gemerkt) => gemerkt,
             None => {
                 let welt = self.in_die_welt(key);
                 let region_key = region_of(welt);
@@ -2271,11 +2316,12 @@ impl<'a> ChunkCache<'a> {
                         chunk: chunk.clone(),
                         licht: None,
                         frei: None,
+                        masken: None,
                         band: vorrat.band,
                     };
                     vorrat.chunks.insert(key, gemerkt);
                 }
-                (chunk, None)
+                (chunk, None, None)
             }
         };
         let ecke = if self.world.ecke_wie_26_2() {
@@ -2285,8 +2331,19 @@ impl<'a> ChunkCache<'a> {
         };
         let loaded = chunk.map(|chunk| Loaded {
             licht,
-            ..Loaded::new(chunk, self.sprites, ecke)
+            ..Loaded::new(
+                chunk,
+                self.sprites,
+                ecke,
+                self.vorrat.is_some().then_some(masken.as_ref()),
+            )
         });
+        if let Some(loaded) = &loaded
+            && let Some(kennung) = &loaded.kennung
+            && let Some(gemerkt) = self.vorrat.as_mut().and_then(|v| v.chunks.get_mut(&key))
+        {
+            gemerkt.masken = Some((Rc::clone(kennung), Rc::clone(&loaded.masks)));
+        }
         self.slots.push(Slot {
             key,
             loaded,
@@ -2481,7 +2538,7 @@ impl<'a> ChunkCache<'a> {
                 continue;
             };
             let (cx, cz) = (loaded.chunk.x * 16, loaded.chunk.z * 16);
-            for (section, masks) in loaded.chunk.sections().iter().zip(&loaded.masks) {
+            for (section, masks) in loaded.chunk.sections().iter().zip(loaded.masks.iter()) {
                 for &(i, _) in masks.iter().flat_map(|m| &m.quellen) {
                     let y = i32::from(section.y) * 16 + i32::from(i >> 8);
                     let welt = [cx + i32::from(i & 15), cz + i32::from(i >> 4 & 15)];

@@ -5850,3 +5850,58 @@ fn deckendes_eis_aendert_kein_pixel() {
     assert!(eis.pixels().any(|p| p.0[3] > 0));
     assert!(eis == blau, "blaues Eis anders als der blaue Würfel");
 }
+
+/// Ein Cache mit Vorrat zeichnet nach jedem Wechsel der Stufe dasselbe wie
+/// ein frischer Cache dieser Stufe, in beiden Richtungen. Ackerboden deckt
+/// seinen Umriss bei scale 4, bei 32 nicht. Masken und Licht je Block aus
+/// der einen Stufe gelten dann in der anderen nicht:
+/// - Stein, den Ackerboden nach +x, +z und oben umgibt, ist bei 4 verdeckt,
+///   bei 32 zeigt er schmale Streifen;
+/// - Stein mit Ackerboden nur nach +x hat bei 4 vor dieser Seite einen
+///   deckenden Nachbarn, bei 32 nicht, und die Seite bekommt ihr eigenes
+///   Licht. Ackerboden hält hier das Licht auf wie bei scale 4.
+#[test]
+fn vorrat_gilt_nur_bei_gleicher_tabelle() {
+    let dir = tempdir();
+    let chunks: Vec<(i32, i32)> = (-1..=1).flat_map(|x| (-1..=1).map(move |z| (x, z))).collect();
+    common::write_world(dir.path(), &chunks, |x, y, z| match (x, y, z) {
+        (_, 0..=3, _) | (8, 4, 8) | (4, 4, 8) => "minecraft:einfarbig",
+        (9, 4, 8) | (8, 4, 9) | (8, 5, 8) | (5, 4, 8) => "minecraft:ackerboden",
+        _ => "minecraft:air",
+    });
+    let world = World::open(dir.path()).unwrap();
+    let mut assets = assets();
+    let states = survey(&world, Projection::new(4), Y_RANGE, None).unwrap().states;
+    let deckend = SpriteSet::build_in(&mut assets, &states, Projection::new(4))
+        .unwrap()
+        .licht_deckend(&states);
+    let tabellen = [4, 32].map(|scale| {
+        SpriteSet::build_mit_licht(
+            &mut assets,
+            &states,
+            Projection::new(scale),
+            Some(deckend.clone()),
+            None,
+        )
+        .unwrap()
+    });
+    let acker = BlockState::parse("minecraft:ackerboden").unwrap();
+    let deckt = |sprites: &SpriteSet| sprites.family_of(&acker).unwrap().opaque;
+    assert!(deckt(&tabellen[0]) && !deckt(&tabellen[1]));
+    for folge in [[0, 1], [1, 0]] {
+        let mut vorrat = ChunkCache::mit_vorrat(&world, &tabellen[folge[0]], 1);
+        vorrat.neues_band();
+        for i in folge {
+            let sprites = &tabellen[i];
+            let rect = rect_um(sprites.projection(), [0, 0, 0], [16, 16, 16]);
+            vorrat.wechsle(sprites, 1);
+            let mit = render_area_with(&mut vorrat, rect, Y_RANGE).unwrap();
+            let frisch = render_area_with(&mut ChunkCache::new(&world, sprites), rect, Y_RANGE);
+            assert!(
+                mit == frisch.unwrap(),
+                "scale {} in der Folge {folge:?}",
+                sprites.projection().scale()
+            );
+        }
+    }
+}

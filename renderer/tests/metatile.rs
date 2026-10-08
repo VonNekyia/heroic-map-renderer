@@ -5863,12 +5863,10 @@ fn deckendes_eis_aendert_kein_pixel() {
 #[test]
 fn vorrat_gilt_nur_bei_gleicher_tabelle() {
     let dir = tempdir();
-    let chunks: Vec<(i32, i32)> = (-1..=1)
-        .flat_map(|x| (-1..=1).map(move |z| (x, z)))
-        .collect();
+    let chunks: Vec<(i32, i32)> = (0..=2).flat_map(|x| (0..=2).map(move |z| (x, z))).collect();
     common::write_world(dir.path(), &chunks, |x, y, z| match (x, y, z) {
-        (_, 0..=3, _) | (8, 4, 8) | (4, 4, 8) => "minecraft:einfarbig",
-        (9, 4, 8) | (8, 4, 9) | (8, 5, 8) | (5, 4, 8) => "minecraft:ackerboden",
+        (_, 0..=3, _) | (24, 4, 24) | (20, 4, 24) => "minecraft:einfarbig",
+        (25, 4, 24) | (24, 4, 25) | (24, 5, 24) | (21, 4, 24) => "minecraft:ackerboden",
         _ => "minecraft:air",
     });
     let world = World::open(dir.path()).unwrap();
@@ -5897,7 +5895,7 @@ fn vorrat_gilt_nur_bei_gleicher_tabelle() {
         vorrat.neues_band();
         for i in folge {
             let sprites = &tabellen[i];
-            let rect = rect_um(sprites.projection(), [0, 0, 0], [16, 16, 16]);
+            let rect = rect_um(sprites.projection(), [16, 0, 16], [32, 16, 32]);
             vorrat.wechsle(sprites, 1);
             let mit = render_area_with(&mut vorrat, rect, Y_RANGE).unwrap();
             let frisch = render_area_with(&mut ChunkCache::new(&world, sprites), rect, Y_RANGE);

@@ -151,7 +151,8 @@ heissen, auch mit `--cinematic`, steht in [map.json](map-json.md), „Liste
 der Bäume“, die Höhen unter „Höhen“. In einem Baum liegen die Kacheln als
 `<z>/<x>/<y>.webp`; x und y dürfen negativ sein, weil der Blockursprung
 mitten in der Welt liegt. Neben `map.json` liegt der Stand für Updates,
-`stand.bin`, siehe [Updates](updates.md), „Der Stand“, und mit
+`stand.bin`, siehe [Updates](updates.md), „Der Stand“, die Hashes der
+Pixel unter `pixel/`, siehe [Updates](updates.md), „Gleiche Pixel“, und mit
 `--manifest` das Manifest mit Grösse und ETag jeder Kachel, `manifest`,
 siehe [Plugin](../plugin.md), „Manifest“. Jede Kachel, jede
 Datei der Höhen, `map.json`, der Stand, das Manifest und `trees.json` entstehen erst als
@@ -245,6 +246,9 @@ bestehenden Baum, etwa mit einem neuen Binär, jede Kachel ein neues ETag.
 
 - **Wie:** erst die Grösse aus den Metadaten, nur bei gleicher Grösse die
   Bytes. Ändert sich viel, reicht meist die Grösse.
+- **Gleiche Pixel:** Zeigt eine Kachel schon dieselben Pixel, kodiert der
+  Lauf sie gar nicht erst, siehe [Updates](updates.md), „Gleiche Pixel“.
+  Sie zählt als gleich geblieben.
 - **Kosten:** keine. Ein voller Lauf über einen bestehenden Baum der
   Testwelt, in dem sich nichts geändert hat, brauchte in der Basis 2 bis 3 %
   weniger als mit Neuschreiben, siehe

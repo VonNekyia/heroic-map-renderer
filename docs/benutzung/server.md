@@ -67,8 +67,8 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
 
   Ein Baum heisst nur `a–z 0–9 -`, die Zahlen stehen, wie der Renderer sie
   schreibt, ohne `+` und führende Nullen. Alles andere gibt `404`, auch
-  `stand.bin`, die Marken des Manifests und halb geschriebene Dateien
-  `<name>.<pid>.tmp`.
+  `stand.bin`, die Hashes unter `pixel/`, die Marken des Manifests und
+  halb geschriebene Dateien `<name>.<pid>.tmp`.
 - **Nur Bäume der Webkarte:** Pfade unter `<baum>/` liefert er nur für
   Bäume, die `trees.json` der Wurzel unter `path` nennt, sonst `404`; ohne
   lesbare `trees.json` für keinen. Ein Baum mit der leeren Datei

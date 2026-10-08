@@ -2607,6 +2607,81 @@ fn kompakt_bleibt_beim_baum() {
     assert_eq!(ohne_karte(schnappschuss(schnell.path())), vorher);
 }
 
+/// `--compact-tree` macht einen schnellen Baum mit einer nativen Stufe
+/// kompakt. Danach hat jede Kachel dieselben Bytes wie nach einem Lauf mit
+/// `--compact` in einen leeren Baum und dieselbe Zeit wie vorher, und
+/// `map.json` trägt `"compact": true`. Mit `--manifest` passt das Manifest
+/// zu den neuen Grössen. Ein zweiter Aufruf packt nichts neu, auch ohne die
+/// Hashes, und ein Lauf danach packt kompakt.
+/// Siehe docs/entscheidungen/0093-nachverdichten.md.
+#[test]
+fn nachverdichten_wie_kompakt() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let args = ["--scale", "8", "--native-levels", "1"];
+    let ohne_karte = |mut dateien: BTreeMap<String, Vec<u8>>| {
+        dateien.remove("map.json");
+        dateien
+    };
+    let zeiten = |dir: &Path| -> BTreeMap<String, SystemTime> {
+        dateien(dir)
+            .into_iter()
+            .map(|rel| {
+                let zeit = zeit_von(&dir.join(&rel));
+                (rel, zeit)
+            })
+            .collect()
+    };
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &args));
+    let damals = zeiten(baum.path());
+    let verdichte = |extra: &[&str]| -> String {
+        let mut schalter = vec![OsStr::new("--compact-tree"), baum.path().as_os_str()];
+        schalter.extend(extra.iter().map(OsStr::new));
+        String::from_utf8_lossy(&gelungen(&cli(&schalter)).stdout).into_owned()
+    };
+
+    let erster = verdichte(&["--manifest"]);
+    assert!(
+        erster.contains(&format!("Verdichtet: {} Kacheln", damals.len())),
+        "{erster}"
+    );
+    let soll = neuer_baum("2x1-se");
+    let mit: Vec<&str> = args.iter().copied().chain(["--compact"]).collect();
+    gelungen(&tiles(welt.path(), soll.path(), &mit));
+    assert_eq!(
+        ohne_karte(schnappschuss(baum.path())),
+        ohne_karte(schnappschuss(soll.path()))
+    );
+    assert_eq!(zeiten(baum.path()), damals);
+    let karte: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(baum.path().join("map.json")).unwrap())
+            .unwrap();
+    assert_eq!(karte["compact"], true);
+    assert_eq!(manifest(baum.path()), manifest_soll(baum.path()));
+
+    let zweiter = verdichte(&[]);
+    assert!(zweiter.contains("Verdichtet: 0 Kacheln"), "{zweiter}");
+    std::fs::remove_dir_all(baum.path().join("pixel")).unwrap();
+    let dritter = verdichte(&[]);
+    assert!(dritter.contains("Verdichtet: 0 Kacheln"), "{dritter}");
+
+    let basis = max_zoom(baum.path());
+    let weg = damals
+        .keys()
+        .find(|rel| rel.starts_with(&format!("{basis}/")))
+        .unwrap();
+    std::fs::remove_file(baum.path().join(weg)).unwrap();
+    gelungen(&tiles(welt.path(), baum.path(), &args));
+    assert_eq!(
+        ohne_karte(schnappschuss(baum.path())),
+        ohne_karte(schnappschuss(soll.path()))
+    );
+}
+
 /// Auch die Eltern, die im Speicher entstehen, kodiert ein zweiter Lauf
 /// nicht, wenn sie schon dieselben Pixel zeigen. Auf einem Thread, damit
 /// die Streifen breit genug für sie sind.

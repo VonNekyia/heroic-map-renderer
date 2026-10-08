@@ -51,8 +51,9 @@ Zeilen im Bauskript. Warum:
   `wrap.h`, `README.md`, `src/` und unter `vendor/` den Quelltext von
   libwebp mit `COPYING` und `PATENTS`. Dazu `LICENSE-MIT`: Die Kiste nennt
   MIT, bringt den Text aber nicht mit.
-- **Ein Übergang:** Bietet libwebp die Einstellung selbst an, fällt die
-  Kopie weg, und `[patch.crates-io]` mit ihr.
+- **Dauerhaft:** Die Kopie bleibt, und `[patch.crates-io]` mit ihr. Der
+  Patch geht nicht an libwebp; bei jedem neuen `libwebp-sys` geht er mit,
+  siehe unten.
 - **`build.rs`** meldet Cargo `vendor/src` und `vendor/sharpyuv` zum
   Neubau, ebenfalls mit `heroic-map-renderer:` markiert. Sonst baute Cargo
   libwebp nach einer Änderung am C-Quelltext nicht neu: `cc` meldet

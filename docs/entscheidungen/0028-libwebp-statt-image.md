@@ -12,6 +12,10 @@ code:
 
 # 0028: libwebp statt des Encoders aus image
 
+In der Einstellung abgelöst durch
+[0090](0090-webp-mit-quality-75.md): libwebp packt mit method 0 und
+quality 75 statt auf Stufe 0.
+
 ## Anlass
 
 #13: Der Vollrender der grossen Welt mit #11 war 354 GB gross. Der

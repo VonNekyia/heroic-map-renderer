@@ -304,16 +304,21 @@ festgehalten.
 
 ## Kodieren
 
-WebP wird **verlustfrei** geschrieben, mit libwebp auf Stufe 0 (`encode_webp`
-in `tiles.rs`), siehe [0004](../entscheidungen/0004-webp-verlustfrei.md) und
-[0028](../entscheidungen/0028-libwebp-statt-image.md). Minecraft-Texturen
+WebP wird **verlustfrei** geschrieben, mit libwebp auf method 0 und quality
+75 (`encode_webp` in `tiles.rs`), siehe
+[0004](../entscheidungen/0004-webp-verlustfrei.md),
+[0028](../entscheidungen/0028-libwebp-statt-image.md) und
+[0090](../entscheidungen/0090-webp-mit-quality-75.md). Minecraft-Texturen
 sind Pixelkunst mit wenigen flachen Farben; verlustbehaftet würde daraus
 Matsch, und an den Kachelrändern sähe man die Artefakte im Raster. libwebp
-nutzt Palette, Farbcache und Rückverweise; Stufe 0 ist die schnellste,
-höhere sparen wenig und kosten ein Vielfaches. Die Kacheln werden ein
-Drittel so gross wie mit dem einfachen Encoder aus `image`, auf dichtem Land
-halb so gross, über Ozean ein Viertel bis ein Achtel, Pixel für Pixel
-gleich.
+nutzt Palette, Farbcache und Rückverweise; method 0 ist die schnellste,
+höhere sparen wenig und kosten ein Vielfaches. Mit quality 75 sucht es
+Rückverweise in der ganzen Kachel statt in den letzten 16 Zeilen: Die Basis
+wird ×0,79 so gross für rund 0,35 ms mehr je Kachel, siehe
+[2026-10-08, WebP mit quality 75](../messungen/2026-10-08-webp-quality-75.md).
+Schon auf Stufe 0 wurden die Kacheln ein Drittel so gross wie mit dem
+einfachen Encoder aus `image`, auf dichtem Land halb so gross, über Ozean
+ein Viertel bis ein Achtel, Pixel für Pixel gleich.
 
 `exact` behält die Farbe voll durchsichtiger Pixel, sonst setzt libwebp sie
 auf 0 und die Kachel käme nur fast zurück. `libwebp-sys` baut libwebp aus

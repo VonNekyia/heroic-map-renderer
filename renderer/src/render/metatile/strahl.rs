@@ -620,7 +620,13 @@ impl ChunkCache<'_> {
         }
         let i = self.slot(key)?;
         let loaded = self.slots[i].loaded.as_mut().expect("eben geladen");
-        for (section, masks) in loaded.chunk.sections().iter().zip(loaded.masks.iter()).rev() {
+        for (section, masks) in loaded
+            .chunk
+            .sections()
+            .iter()
+            .zip(loaded.masks.iter())
+            .rev()
+        {
             let oder = masks
                 .as_ref()
                 .map_or(0, |m| m.bits[PRESENT].iter().fold(0, |a, &w| a | w));

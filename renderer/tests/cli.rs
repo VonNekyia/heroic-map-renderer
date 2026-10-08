@@ -2432,6 +2432,119 @@ fn voller_lauf_laesst_gleiche_dateien_liegen() {
     assert!(!out.path().join("stand-neu-liegen.bin").exists());
 }
 
+/// Ein Lauf über einen bestehenden Baum desselben Renderers kodiert keine
+/// Kachel, die schon dieselben Pixel zeigt, auf keiner Stufe; jede bleibt
+/// mit ihrer Zeit liegen. Eine Kachel, die jemand anders schrieb, kodiert
+/// er neu, auch wenn ihre Pixel im Hash stehen. Ein Update nach einem
+/// geänderten Block kodiert im Gebiet nur, was neue Pixel hat. Am Ende
+/// stehen jedes Mal dieselben Bytes da wie nach einem Lauf in einen leeren
+/// Baum. Ohne native Stufen entstehen die Eltern im Speicher, mit einer von
+/// der Platte.
+/// Siehe docs/benutzung/updates.md, „Gleiche Pixel“.
+#[test]
+fn gleiche_pixel_werden_nicht_kodiert() {
+    let ohne_karte = |mut dateien: BTreeMap<String, Vec<u8>>| {
+        // Das Salz der Kennung ist je Baum ein anderes.
+        dateien.remove("map.json");
+        dateien
+    };
+    let zeiten = |dir: &Path| -> BTreeMap<String, SystemTime> {
+        dateien(dir)
+            .into_iter()
+            .map(|rel| {
+                let zeit = zeit_von(&dir.join(&rel));
+                (rel, zeit)
+            })
+            .collect()
+    };
+    let nicht_kodiert = |ausgabe: &Output| -> usize {
+        let log = String::from_utf8_lossy(&gelungen(ausgabe).stdout).into_owned();
+        log.lines()
+            .find_map(|zeile| {
+                zeile
+                    .strip_prefix("Pixel:")?
+                    .split_whitespace()
+                    .next()?
+                    .parse()
+                    .ok()
+            })
+            .unwrap_or_else(|| panic!("keine Zeile Pixel: {log}"))
+    };
+    for stufen in ["0", "1"] {
+        let welt = tempdir();
+        let chunks: Vec<(i32, i32)> = (0..4)
+            .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+            .collect();
+        common::write_world(welt.path(), &chunks, gelaende);
+        let args = ["--scale", "8", "--native-levels", stufen];
+        let out = neuer_baum("2x1-se");
+        gelungen(&tiles(welt.path(), out.path(), &args));
+        let vorher = ohne_karte(schnappschuss(out.path()));
+        let damals = zeiten(out.path());
+
+        let noch_einmal = tiles(welt.path(), out.path(), &args);
+        assert_eq!(nicht_kodiert(&noch_einmal), damals.len(), "{stufen}");
+        assert_eq!(zeiten(out.path()), damals, "{stufen}");
+        assert_eq!(ohne_karte(schnappschuss(out.path())), vorher, "{stufen}");
+
+        // Jemand anders legt die Bytes einer anderen Kachel an ihre Stelle.
+        let basis = kacheln(out.path(), max_zoom(out.path()));
+        let mut pfade = basis.values();
+        let (fremd, quelle) = (pfade.next().unwrap(), pfade.next().unwrap());
+        std::fs::write(fremd, std::fs::read(quelle).unwrap()).unwrap();
+        let danach = tiles(welt.path(), out.path(), &args);
+        assert_eq!(nicht_kodiert(&danach), damals.len() - 1, "{stufen}");
+        assert_eq!(
+            ohne_karte(schnappschuss(out.path())),
+            vorher,
+            "{stufen}: fremde Kachel"
+        );
+
+        // Ein Block an der Oberfläche bekommt eine andere Farbe.
+        common::write_world(welt.path(), &chunks, |x, y, z| match (x, y, z) {
+            (1, 2, 1) => "minecraft:blauwuerfel",
+            _ => gelaende(x, y, z),
+        });
+        common::setze_stempel(welt.path(), 0, 0, 2);
+        let update: Vec<&str> = args.iter().copied().chain(["--update"]).collect();
+        let gespart = nicht_kodiert(&tiles(welt.path(), out.path(), &update));
+        let leer = neuer_baum("2x1-se");
+        gelungen(&tiles(welt.path(), leer.path(), &args));
+        let soll = ohne_karte(schnappschuss(leer.path()));
+        assert_eq!(
+            ohne_karte(schnappschuss(out.path())),
+            soll,
+            "{stufen}: Update"
+        );
+        let neu = soll
+            .iter()
+            .filter(|(rel, bytes)| vorher.get(*rel) != Some(*bytes))
+            .count();
+        assert!(
+            gespart > 0 && neu > 0,
+            "{stufen}: {gespart} nicht kodiert, {neu} neu"
+        );
+    }
+}
+
+/// Auch die Eltern, die im Speicher entstehen, kodiert ein zweiter Lauf
+/// nicht, wenn sie schon dieselben Pixel zeigen. Auf einem Thread, damit
+/// die Streifen breit genug für sie sind.
+#[test]
+fn gleiche_pixel_auch_im_speicher() {
+    let welt = weite_welt();
+    let args = ["--scale", "32", "--native-levels", "0"];
+    let out = neuer_baum("2x1-se");
+    let erster = export_auf(1, welt.path(), out.path(), &args);
+    let meldung = String::from_utf8_lossy(&gelungen(&erster).stdout).into_owned();
+    assert!(meldung.contains(IM_SPEICHER), "{meldung}");
+    let alle = dateien(out.path()).len();
+    let zweiter = export_auf(1, welt.path(), out.path(), &args);
+    let meldung = String::from_utf8_lossy(&gelungen(&zweiter).stdout).into_owned();
+    let zeile = format!("Pixel:      {alle} Kacheln mit gleichen Pixeln nicht kodiert");
+    assert!(meldung.contains(&zeile), "{zeile} fehlt in: {meldung}");
+}
+
 /// Bricht ein voller Lauf über einen bestehenden Baum ab, nimmt `--resume`
 /// die Kacheln, die er liegen liess, als fertig, obwohl ihre Zeit alt ist:
 /// Er rendert sie nicht noch einmal. Nur die jüngste Kachel des Baums zählt
@@ -3269,12 +3382,12 @@ fn gewachsene_welt_behaelt_die_nummerierung() {
     assert!(!kacheln(baum.path(), 0).is_empty(), "Zoom 0 fehlt");
 }
 
-/// Kacheln, Höhen, `map.json`, der Stand und das Manifest werden
-/// getauscht, nicht überschrieben: wer eine Datei gerade liest, liest sie
-/// zu Ende, wie sie war, und ein Abbruch mitten im Schreiben hinterlässt die
-/// alte. Der Test hält die Basis, die Höhen, `map.json`, den Stand und das
-/// Manifest offen, während ein zweiter Lauf eine veränderte, grössere Welt
-/// schreibt. Daneben bleibt keine eigene Datei übrig, auch kein
+/// Kacheln, Höhen, `map.json`, der Stand, das Manifest und die Hashes der
+/// Pixel werden getauscht, nicht überschrieben: wer eine Datei gerade
+/// liest, liest sie zu Ende, wie sie war, und ein Abbruch mitten im
+/// Schreiben hinterlässt die alte. Der Test hält die Basis, die Höhen,
+/// `map.json`, den Stand, das Manifest und die Hashes der Basis offen,
+/// während ein zweiter Lauf eine veränderte, grössere Welt schreibt. Daneben bleibt keine eigene Datei übrig, auch kein
 /// angefangener Stand und keine Marke des Manifests.
 #[test]
 fn schreiben_tauscht_die_datei() {
@@ -3300,6 +3413,16 @@ fn schreiben_tauscht_die_datei() {
     let liste = baum.wurzel().join("trees.json");
     let stand = baum.path().join("stand.bin");
     let manifest = baum.path().join("manifest");
+    let bloecke: Vec<PathBuf> = std::fs::read_dir(
+        baum.path()
+            .join("pixel")
+            .join(max_zoom(baum.path()).to_string()),
+    )
+    .unwrap()
+    .flatten()
+    .map(|eintrag| eintrag.path())
+    .collect();
+    assert!(!bloecke.is_empty(), "keine Hashes der Pixel");
     let offen: Vec<(PathBuf, Vec<u8>, std::fs::File)> = kacheln(baum.path(), max_zoom(baum.path()))
         .into_values()
         .chain([
@@ -3309,6 +3432,7 @@ fn schreiben_tauscht_die_datei() {
             stand.clone(),
             manifest.clone(),
         ])
+        .chain(bloecke.iter().cloned())
         .map(|pfad| {
             let vorher = std::fs::read(&pfad).unwrap();
             let datei = std::fs::File::open(&pfad).unwrap();
@@ -3335,8 +3459,9 @@ fn schreiben_tauscht_die_datei() {
             && geaendert.contains(&region)
             && geaendert.contains(&stand)
             && geaendert.contains(&manifest)
-            && geaendert.len() > 4,
-        "map.json, die Höhen, der Stand, das Manifest und eine Kachel hätten sich ändern müssen: {geaendert:?}"
+            && bloecke.iter().any(|block| geaendert.contains(block))
+            && geaendert.len() > 5,
+        "map.json, die Höhen, der Stand, das Manifest, die Hashes und eine Kachel hätten sich ändern müssen: {geaendert:?}"
     );
 
     let mut reste = Vec::new();
@@ -3347,9 +3472,15 @@ fn schreiben_tauscht_die_datei() {
             let hoehen = ordner.ends_with("heights") && name.ends_with(".bin");
             let liste = ordner == baum.wurzel() && name == "trees.json";
             let stand = ordner == baum.path() && (name == "stand.bin" || name == "manifest");
+            let hashes = ordner.starts_with(baum.path().join("pixel")) && name.ends_with(".bin");
             if eintrag.path().is_dir() {
                 stapel.push(eintrag.path());
-            } else if !name.ends_with(".webp") && name != "map.json" && !hoehen && !liste && !stand
+            } else if !name.ends_with(".webp")
+                && name != "map.json"
+                && !hoehen
+                && !liste
+                && !stand
+                && !hashes
             {
                 reste.push(eintrag.path());
             }

@@ -25,8 +25,21 @@ dem Plugin-Programmierer ab.
 - **Schalter** aus `Args` in
   [`renderer/src/cli.rs`](../renderer/src/cli.rs): `--world`, `--assets`,
   `--data`, `--tiles`, `--camera`, `--direction`, `--scale`, `--cinematic`,
-  `--gpu`, `--update` und `--resume`, siehe
+  `--gpu`, `--update`, `--resume` und `--compact`, siehe
   [Schalter und Beispiele](benutzung/schalter.md).
+- **Kompakt packen, für Plugin und CLI gleich** (Maintainer, 08.10.):
+  - `--compact` bei jedem vollen Lauf, wenn `renderer.compact` in der
+    `config.yml` des Plugins `true` ist; Updates bekommen ihn nicht, sie
+    packen wie der Baum, siehe [map.json](benutzung/map-json.md), „Packen“.
+  - `--compact-tree` mit dem Ordner eines Baums für `/heroicmap compact`,
+    daneben `--threads`, `--low-priority` und bei einem Baum zum Download
+    `--manifest`, siehe [Kacheln exportieren](benutzung/kacheln.md),
+    „Nachverdichten“. Das Plugin reiht den Aufruf wie seine Läufe ein, also
+    nie neben einem anderen Lauf auf demselben Baum, wie
+    [0093](entscheidungen/0093-nachverdichten.md) verlangt. Es gibt keinen
+    Fortschritt als JSON; das Plugin zeigt die letzte Zeile.
+  - **Die Packung eines Baums,** das Feld `compact` in `map.json`, liest
+    das Plugin für seinen Status: `true` heisst kompakt, sonst schnell.
 - **Den Ordner eines Baums,** `baum_name` in `cli.rs`. Das Plugin rechnet ihn
   nach, um `stand.bin` und `stand-neu.bin` zu finden; daneben liegt
   `stand-neu-liegen.bin`, das nur `--resume` liest. Siehe
@@ -50,8 +63,9 @@ dem Plugin-Programmierer ab.
   Endet eins mit dieser Zeile und Code 0, schreibt es nichts ins Log. Ändert
   sich ihre Form, landet jedes solche Update wieder im Log.
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
-  eines Tokens: `--manifest` bei jedem Lauf und `--pyramid` eines Baums mit
-  `download: true`, siehe unten, „Manifest“.
+  eines Tokens: `--manifest` bei jedem Lauf, `--pyramid` und
+  `--compact-tree` eines Baums mit `download: true`, siehe unten,
+  „Manifest“.
 - **Das Client-Jar:** `--download-client-jar` nur, wenn der Betreiber in
   `config.yml` zugestimmt hat, Vorgabe `false`; `eula=true` des Servers
   zählt nicht (#147, [0086](entscheidungen/0086-client-jar-von-mojang.md)).

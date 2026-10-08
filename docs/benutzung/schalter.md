@@ -41,6 +41,7 @@ Texte. Ohne Schalter startet unter Windows an einer Konsole der
 | `--tiles DIR` | die Welt als WebP-Kacheln exportieren; `DIR` ist die Wurzel, jeder Baum liegt darunter in seinem Ordner | [Kacheln exportieren](kacheln.md) |
 | `--prune` | mit `--tiles`: Kacheln entfernen, die kein Chunk mehr berührt, und Höhen von Regionen ohne Regionsdatei | [Kacheln exportieren](kacheln.md) |
 | `--native-levels N` | mit `--tiles`: so viele gröbere Stufen aus der Welt rendern, Vorgabe 0 | [Zoomstufen](zoomstufen.md) |
+| `--compact` | mit `--tiles`: kompakt packen, rund die Hälfte der Bytes für ein Mehrfaches der Zeit beim Kodieren; ein neuer Baum merkt es sich, ein bestehender behält seine Packung | [map.json](map-json.md), „Packen“ |
 | `--resume` | mit `--tiles`: einen abgebrochenen Lauf fortsetzen | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--update` | mit `--tiles`, ohne `--size`: nur zeichnen, wo sich die Welt seit dem letzten vollen Lauf oder Update geändert hat | [Updates](updates.md) |
 | `--gpu auto\|on\|off` | mit `--tiles`: die Grafikkarte zeichnet, Vorgabe `auto`; mit `--cinematic` immer die CPU; mit `--threads` nie ein Software-Adapter | [Grafikkarte](grafikkarte.md) |

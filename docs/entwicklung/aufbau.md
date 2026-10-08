@@ -80,6 +80,7 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `lib.rs` | die drei Module der Bibliothek |
 | `build.rs`, `segmentheap.manifest` | unter Windows das Manifest mit dem Segment-Heap |
 | `Cargo.toml`, `deny.toml` | Abhängigkeiten und ihre Lizenzen |
+| `vendor/libwebp-sys/` | `libwebp-sys` mit einem Patch an libwebp für `--compact`, siehe [libwebp mit Patch](libwebp-mit-patch.md) |
 
 ## `web/`: das Frontend
 

@@ -68,6 +68,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [CI](entwicklung/ci.md): die Jobs und die Doku-Prüfung.
 - [Weitergabe](entwicklung/weitergabe.md): wie das Release-Binär für eine Weitergabe gebaut ist, Release-Profil, statische CRT unter Windows, Grösse roh und gepackt, Linux und glibc, und was die CI daran prüft.
 - [Drittlizenzen](entwicklung/drittlizenzen.md): was jeder Weitergabe des Binärs beiliegt, wie `renderer/drittlizenzen.py` die Hinweise auf die Lizenzen der Crates erzeugt und was die CI daran prüft.
+- [libwebp mit Patch](entwicklung/libwebp-mit-patch.md): warum `libwebp-sys` als Kopie mit einem Patch an libwebp für `--compact` im Repository liegt, was der Patch ändert und was bei einem neuen `libwebp-sys` zu tun ist.
 - [Eingabedaten](entwicklung/eingabedaten.md): was nicht im Repository liegt und was für Tests mitkommt.
 - [Erzeugte Tabellen](entwicklung/tabellen.md): die Tabellen aus dem Spiel unter `renderer/src/assets/`, was darin steht und wie man sie neu erzeugt.
 
@@ -164,6 +165,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0089](entscheidungen/0089-ungetoentes-laub-mit-eigener-farbe.md): Eigene Laubfarben tönen auch Azalee, blühende Azalee, Kirsche, Blasse Eiche und die drei Pappeln, über eine graue Kopie nach `grau.txt` und mit Bit 24 eine helle nach `hell.txt`; die Blüten der blühenden Azalee bleiben ungetönt als eigene Fläche darüber; löst 0081 im Punkt „nur tönbares Laub“ ab.
 - [0090](entscheidungen/0090-webp-mit-quality-75.md): libwebp packt die Kacheln mit method 0 und quality 75 statt auf Stufe 0 und findet so Rückverweise in der ganzen Kachel: Basis ×0,79, Pixel für Pixel gleich, rund 0,35 ms mehr je Kachel; löst 0028 in der Einstellung ab.
 - [0091](entscheidungen/0091-gleiche-pixel-nicht-kodieren.md): Jeder Lauf hält je Kachel einen Hash ihrer Pixel fest und kodiert keine Kachel, die schon dieselben Pixel zeigt; der Hash gilt nur bei gleicher Grösse und Zeit der Datei und gleichem Build, liegt in Blöcken unter `pixel/` und nicht in `stand.bin`.
+- [0092](entscheidungen/0092-kompakt-ohne-vorhersage.md): `--compact` packt mit method 1 und, über einen Patch an libwebp in einer Kopie von `libwebp-sys`, ohne räumliche Vorhersage: Basis ×0,71, rund 8 bis 10 ms mehr je Kachel; ein Baum merkt es sich in `map.json`, der Hash der Pixel nimmt die Packung mit.
 
 ## Messungen
 
@@ -226,4 +228,5 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-06, Schätzung gegen gemessene Läufe](messungen/2026-10-06-schaetzung.md): `--estimate` gegen echte Läufe an der Testwelt und gegen die Vollrender der grossen Welt, über drei Stände des Codes, woher jeder Faktor der Eichung kommt und wie stark die Schätzung streut.
 - [2026-10-06, Manifest, den ganzen Baum lesen](messungen/2026-10-06-manifest.md): was das Manifest aus dem ganzen Baum kostet, an der Testwelt mit einem Thread und mit allen, über den Pfad, verteilt und aus dem Verzeichnis, hochgerechnet auf einen Satz zum Download.
 - [2026-10-08, WebP mit quality 75](messungen/2026-10-08-webp-quality-75.md): Grösse und Dauer mit method 0 und quality 75 gegen Stufe 0, an der Testwelt mit nativen Stufen, mit Cinematic und auf einem Thread, dazu die Hochrechnung für die grosse Welt.
+- [2026-10-08, Kompakt packen](messungen/2026-10-08-kompakt.md): Grösse und Dauer mit `--compact` gegen die schnelle Packung an der Testwelt, die Prüfung, dass libwebp mit und ohne SIMD dieselben Bytes gibt, und die Hochrechnung für die grosse Welt.
 - [2026-10-08, Gleiche Pixel nicht kodieren](messungen/2026-10-08-gleiche-pixel.md): was der Hash der Pixel vor dem Kodieren an einem Update mit einem Thread spart und einen Lauf in einen leeren Baum kostet, wie gross die Hashes werden, und dass das Bild in fünf Fällen und nach einem Update gleich bleibt.

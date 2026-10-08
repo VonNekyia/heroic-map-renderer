@@ -63,6 +63,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `bounds` | belegter Bereich auf der feinsten Stufe in Pixeln, `[links, oben, rechts, unten]` | |
 | `nativeLevels` | Zahl der nativen Stufen | [Zoomstufen](zoomstufen.md), „Native Stufen“ |
 | `biomeBlend` | Radius der Mischung der Biomfarben, `--biome-blend` | „Radius der Mischung“ unten |
+| `compact` | `true`, wenn der Baum kompakt packt, `--compact`; fehlt sonst | „Packen“ unten |
 | `world` | Kennung der Welt und Dimension, oder `null` | [Welten und Kennung](welten.md) |
 | `heights` | Pfadmuster der Höhen je Region, relativ zum Baum; fehlt es, hat der Baum keine | „Höhen“ unten |
 | `heightsCell` | Kantenlänge einer Zelle der Höhen in Blöcken, heute 4; steht mit `heights` | „Höhen“ unten |
@@ -326,6 +327,21 @@ Baum wie die nativen Stufen, siehe
   in ihn nimmt dann den Schalter oder die Vorgabe, sagt das und trägt den
   Radius ein. Die alten Kacheln bleiben, wie sie sind; einheitlich wird der
   Baum erst, wenn er ganz neu entsteht.
+
+## Packen
+
+`--compact` ändert die Bytes jeder Kachel, nicht ihre Pixel. Die Packung
+gehört deshalb zum Baum, siehe
+[0092](../entscheidungen/0092-kompakt-ohne-vorhersage.md):
+
+- Ein neuer Baum mit `--compact` trägt `"compact": true` ein. Ohne den
+  Schalter fehlt das Feld, und der Baum packt schnell.
+- Jeder spätere Lauf auf dem Baum packt wie er, auch ohne den Schalter:
+  ein voller Lauf, `--update`, `--resume` und `--pyramid`. So bekommt
+  keine Kachel nur deshalb neue Bytes und ein neues ETag.
+- `--compact` auf einem bestehenden schnellen Baum ändert nichts und sagt
+  es. Kompakt wird er heute nur als neuer Baum.
+- Das Frontend liest das Feld nicht; es dekodiert beide Packungen gleich.
 
 ## Die Welt
 

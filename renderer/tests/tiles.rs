@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use heroic_map_renderer::assets::Assets;
 use heroic_map_renderer::render::{
-    Projection, ScreenRect, SpriteSet, TILE, TileId, covering, decode_webp, encode_webp,
+    Packen, Projection, ScreenRect, SpriteSet, TILE, TileId, covering, decode_webp, encode_webp,
     render_area, survey,
 };
 use heroic_map_renderer::world::World;
@@ -321,7 +321,7 @@ fn webp_ist_verlustfrei() {
     )
     .unwrap();
 
-    let kodiert = encode_webp(&bild).unwrap();
+    let kodiert = encode_webp(&bild, Packen::Schnell).unwrap();
     assert_eq!(&kodiert[..4], b"RIFF");
     assert_eq!(&kodiert[8..12], b"WEBP");
 
@@ -336,7 +336,7 @@ fn webp_ist_verlustfrei() {
 fn webp_behaelt_den_alphakanal() {
     let mut bild = RgbaImage::new(8, 8);
     bild.put_pixel(3, 3, image::Rgba([10, 200, 30, 128]));
-    let zurueck = image::load_from_memory(&encode_webp(&bild).unwrap())
+    let zurueck = image::load_from_memory(&encode_webp(&bild, Packen::Schnell).unwrap())
         .unwrap()
         .into_rgba8();
     assert_eq!(zurueck.as_raw(), bild.as_raw());
@@ -350,7 +350,7 @@ fn webp_behaelt_die_farbe_durchsichtiger_pixel() {
         let alpha = if (x + y) % 3 == 0 { 255 } else { 0 };
         image::Rgba([16 * x as u8, 16 * y as u8, 77, alpha])
     });
-    let zurueck = image::load_from_memory(&encode_webp(&bild).unwrap())
+    let zurueck = image::load_from_memory(&encode_webp(&bild, Packen::Schnell).unwrap())
         .unwrap()
         .into_rgba8();
     assert_eq!(zurueck.as_raw(), bild.as_raw());
@@ -369,7 +369,7 @@ fn webp_ohne_palette_ist_verlustfrei() {
     });
     let farben: std::collections::HashSet<_> = bild.pixels().collect();
     assert!(farben.len() > 256, "{} Farben", farben.len());
-    let zurueck = image::load_from_memory(&encode_webp(&bild).unwrap())
+    let zurueck = image::load_from_memory(&encode_webp(&bild, Packen::Schnell).unwrap())
         .unwrap()
         .into_rgba8();
     assert_eq!(zurueck.as_raw(), bild.as_raw());
@@ -396,7 +396,7 @@ fn libwebp_dekodiert_wie_image() {
         image::Rgba([x, y, x ^ y, alpha])
     });
     for bild in [kachel, ohne_palette] {
-        let kodiert = encode_webp(&bild).unwrap();
+        let kodiert = encode_webp(&bild, Packen::Schnell).unwrap();
         let libwebp = decode_webp(&kodiert, bild.dimensions()).unwrap();
         let image = image::load_from_memory(&kodiert).unwrap().into_rgba8();
         assert_eq!(libwebp.dimensions(), bild.dimensions());
@@ -413,7 +413,7 @@ fn libwebp_dekodiert_wie_image() {
 /// Daten eines Bildes von 16 × 16 Pixeln.
 #[test]
 fn falsche_groesse_legt_kein_bild_an() {
-    let mut daten = encode_webp(&RgbaImage::new(16, 16)).unwrap();
+    let mut daten = encode_webp(&RgbaImage::new(16, 16), Packen::Schnell).unwrap();
     // Verlustfrei: nach „RIFF“, Länge, „WEBP“, „VP8L“ und Länge das Zeichen
     // 0x2f, dann je 14 Bit Breite − 1 und Höhe − 1.
     assert_eq!((&daten[12..16], daten[20]), (&b"VP8L"[..], 0x2f));
@@ -450,7 +450,7 @@ fn webp_packt_dichter_als_der_einfache_encoder() {
             image::ExtendedColorType::Rgba8,
         )
         .unwrap();
-    let libwebp = encode_webp(&bild).unwrap().len();
+    let libwebp = encode_webp(&bild, Packen::Schnell).unwrap().len();
     assert!(
         2 * libwebp <= einfach.len(),
         "libwebp {libwebp} Bytes, der einfache Encoder {}",
@@ -473,13 +473,56 @@ fn webp_findet_wiederholungen_in_der_ganzen_kachel() {
     });
     let ganz = RgbaImage::from_fn(TILE, TILE, |x, y| *haelfte.get_pixel(x, y % (TILE / 2)));
     let (allein, doppelt) = (
-        encode_webp(&haelfte).unwrap().len(),
-        encode_webp(&ganz).unwrap().len(),
+        encode_webp(&haelfte, Packen::Schnell).unwrap().len(),
+        encode_webp(&ganz, Packen::Schnell).unwrap().len(),
     );
     assert!(
         10 * doppelt < 13 * allein,
         "zwei gleiche Hälften {doppelt} Bytes, eine allein {allein}"
     );
+}
+
+/// Die Transformationen am Anfang eines verlustfreien WebP, bis zur ersten
+/// mit eigenen Daten: 0 räumliche Vorhersage, 1 Farbe quer, 2 „subtract
+/// green“, 3 Palette. Die Bits stehen ab Byte 21, nach dem Kopf von RIFF und
+/// VP8L, der Signatur und 32 Bit für Grösse, Alpha und Fassung.
+fn transformationen(webp: &[u8]) -> Vec<u8> {
+    assert_eq!(&webp[12..16], b"VP8L", "kein verlustfreies WebP");
+    let daten = &webp[21..];
+    let mut pos = 32;
+    let mut bit = || {
+        let b = (daten[pos / 8] >> (pos % 8)) & 1;
+        pos += 1;
+        b
+    };
+    let mut out = Vec::new();
+    while bit() == 1 {
+        let art = bit() | (bit() << 1);
+        out.push(art);
+        if art != 2 {
+            break;
+        }
+    }
+    out
+}
+
+/// Kompakt packt ein Bild ohne Palette nur mit „subtract green“, ohne
+/// räumliche Vorhersage, auch wo sie hier lohnte: ein Verlauf mit mehr als
+/// 256 Farben. Schnell nimmt die Vorhersage dazu. Beide geben dieselben
+/// Pixel zurück.
+/// Siehe docs/entscheidungen/0092-kompakt-ohne-vorhersage.md.
+#[test]
+fn kompakt_ohne_vorhersage() {
+    let bild = RgbaImage::from_fn(TILE, TILE, |x, y| {
+        image::Rgba([x as u8, y as u8, ((x + y) / 2) as u8, 255])
+    });
+    let schnell = encode_webp(&bild, Packen::Schnell).unwrap();
+    let kompakt = encode_webp(&bild, Packen::Kompakt).unwrap();
+    assert_eq!(transformationen(&kompakt), [2]);
+    assert_eq!(transformationen(&schnell)[..2], [2, 0]);
+    for daten in [&schnell, &kompakt] {
+        assert_eq!(decode_webp(daten, (TILE, TILE)).unwrap(), bild);
+    }
 }
 
 /// Zweimal dasselbe rendern muss zweimal dasselbe ergeben — sonst wären
@@ -493,5 +536,8 @@ fn kacheln_sind_reproduzierbar() {
     let a = render_area(&welt.world, &welt.sprites, tile.rect(), Y_RANGE).unwrap();
     let b = render_area(&welt.world, &welt.sprites, tile.rect(), Y_RANGE).unwrap();
     assert_eq!(a.as_raw(), b.as_raw());
-    assert_eq!(encode_webp(&a).unwrap(), encode_webp(&b).unwrap());
+    assert_eq!(
+        encode_webp(&a, Packen::Schnell).unwrap(),
+        encode_webp(&b, Packen::Schnell).unwrap()
+    );
 }

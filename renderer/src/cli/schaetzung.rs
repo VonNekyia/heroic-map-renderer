@@ -9,13 +9,14 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
 use heroic_map_renderer::render::{
-    Gebiet, Projection, Reach, ScreenRect, TILE, corner_tiles, pyramid, world_box,
+    Gebiet, Packen, Projection, Reach, ScreenRect, TILE, corner_tiles, pyramid, world_box,
 };
 use heroic_map_renderer::world::World;
 use rayon::prelude::*;
 
 use super::{
-    Args, Y_RANGE, baum_name, lies_bestand, melde_json, mischung, native_stufen, rechteck, sekunden,
+    Args, Y_RANGE, baum_name, lies_bestand, melde_json, mischung, native_stufen, packen, rechteck,
+    sekunden,
 };
 
 // Die Faktoren der Eichung, je `(unten, oben)`. Woher jeder kommt, steht in
@@ -63,6 +64,7 @@ struct Probe {
 struct Einstellung {
     stufen: u32,
     blend: u8,
+    packen: Packen,
     /// Das Rechteck der Welt in Chunks, wie [`World::bereich`].
     bereich: Option<[i32; 4]>,
 }
@@ -110,6 +112,7 @@ pub(super) fn schaetze(
             max_zoom,
         )?,
         blend: mischung(&baum, bestand.as_ref(), args.biome_blend)?,
+        packen: packen(&baum, bestand.as_ref(), args.compact),
         bereich: fest,
     };
 
@@ -483,6 +486,9 @@ fn probe_schalter(
     if args.download_client_jar {
         s.push("--download-client-jar".into());
     }
+    if einstellung.packen == Packen::Kompakt {
+        s.push("--compact".into());
+    }
     // Das Rechteck in Chunks, `--area` nimmt zwei inklusive Ecken in Blöcken.
     if let Some([x0, z0, x1, z1]) = einstellung.bereich {
         s.push("--area".into());
@@ -662,6 +668,7 @@ mod tests {
         let einstellung = Einstellung {
             stufen: 0,
             blend: 2,
+            packen: Packen::Schnell,
             bereich: None,
         };
         let schalter = |extra: &[&str]| -> Vec<String> {
@@ -687,6 +694,28 @@ mod tests {
         let ohne = schalter(&["--assets", "a"]);
         for schalter in ["--download-client-jar", "--client-version", "--cache-dir"] {
             assert!(!ohne.iter().any(|s| s == schalter), "{ohne:?}");
+        }
+    }
+
+    /// Der Probelauf packt wie der Baum: kompakt mit `--compact`, sonst
+    /// ohne den Schalter. Kompakt kostet ein Mehrfaches beim Kodieren.
+    #[test]
+    fn probelauf_packt_wie_der_baum() {
+        use clap::Parser;
+        let args = Args::try_parse_from(["x", "--world", "w", "--tiles", "t"]).unwrap();
+        for (packen, soll) in [(Packen::Schnell, false), (Packen::Kompakt, true)] {
+            let einstellung = Einstellung {
+                stufen: 0,
+                blend: 2,
+                packen,
+                bereich: None,
+            };
+            let schalter = probe_schalter(&args, &einstellung, Path::new("p"), ([0, 0], 512));
+            assert_eq!(
+                schalter.iter().any(|s| s == "--compact"),
+                soll,
+                "{packen:?}"
+            );
         }
     }
 }

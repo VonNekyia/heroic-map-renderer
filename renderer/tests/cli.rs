@@ -18,8 +18,8 @@ use heroic_map_renderer::render::look::LOOK;
 use heroic_map_renderer::render::rasterizer::{Light, Lightmap};
 use heroic_map_renderer::render::stand::{Inhalt, Stand};
 use heroic_map_renderer::render::{
-    BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Projection, SpriteSet, TileId, encode_webp,
-    pyramid, render_area, render_area_with, streifenbreite, survey,
+    BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Packen, Projection, SpriteSet, TileId,
+    encode_webp, pyramid, render_area, render_area_with, streifenbreite, survey,
 };
 use heroic_map_renderer::world::World;
 use image::RgbaImage;
@@ -1246,7 +1246,7 @@ fn kachel_pfad(dir: &Path, z: u32, tile: TileId) -> PathBuf {
 fn setze(dir: &Path, z: u32, tile: TileId, bild: &RgbaImage) {
     let pfad = kachel_pfad(dir, z, tile);
     std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
-    std::fs::write(pfad, encode_webp(bild).unwrap()).unwrap();
+    std::fs::write(pfad, encode_webp(bild, Packen::Schnell).unwrap()).unwrap();
 }
 
 /// Was `--pyramid` aus der Basis dieses Baums, seiner `map.json` und
@@ -1734,7 +1734,7 @@ fn pyramide_holt_jede_aenderung_nach() {
 
     // Die Elternkachel trägt eine Zeit vor der Kachel. Kommt sie heil
     // zurück, mit derselben Zeit, holt der nächste Aufruf sie ein.
-    std::fs::write(kaputt, encode_webp(&vorlage).unwrap()).unwrap();
+    std::fs::write(kaputt, encode_webp(&vorlage, Packen::Schnell).unwrap()).unwrap();
     setze_zeit(kaputt, geschrieben);
     let meldung = pruefe("heile Kachel mit alter Zeit");
     assert!(!meldung.contains("nicht lesbar"), "{meldung}");
@@ -2525,6 +2525,86 @@ fn gleiche_pixel_werden_nicht_kodiert() {
             "{stufen}: {gespart} nicht kodiert, {neu} neu"
         );
     }
+}
+
+/// Mit `--compact` packt ein neuer Baum kompakt und merkt es sich in
+/// `map.json`. Jeder spätere Lauf auf ihm packt so, auch ohne den Schalter,
+/// und `--pyramid` baut seine Eltern ebenso. Die Pixel sind dieselben wie
+/// schnell gepackt, die Bytes weniger. Ein bestehender schneller Baum
+/// bleibt mit `--compact` schnell und sagt es.
+/// Siehe docs/entscheidungen/0092-kompakt-ohne-vorhersage.md.
+#[test]
+fn kompakt_bleibt_beim_baum() {
+    let welt = tempdir();
+    let chunks: Vec<(i32, i32)> = (0..4)
+        .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
+        .collect();
+    common::write_world(welt.path(), &chunks, gelaende);
+    let args = ["--scale", "8", "--native-levels", "0"];
+    let mit: Vec<&str> = args.iter().copied().chain(["--compact"]).collect();
+    let ohne_karte = |mut dateien: BTreeMap<String, Vec<u8>>| {
+        dateien.remove("map.json");
+        dateien
+    };
+    let karte = |dir: &Path| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join("map.json")).unwrap()).unwrap()
+    };
+    let meldung =
+        |ausgabe: &Output| String::from_utf8_lossy(&gelungen(ausgabe).stdout).into_owned();
+
+    let schnell = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), schnell.path(), &args));
+    assert_eq!(karte(schnell.path()).get("compact"), None);
+    let kompakt = neuer_baum("2x1-se");
+    let erster = meldung(&tiles(welt.path(), kompakt.path(), &mit));
+    assert!(erster.contains("Packen:     kompakt"), "{erster}");
+    assert_eq!(karte(kompakt.path())["compact"], true);
+
+    // Dieselben Pixel, weniger Bytes.
+    let kacheln = dateien(schnell.path());
+    assert_eq!(kacheln, dateien(kompakt.path()));
+    let (mut a, mut b) = (0, 0);
+    for rel in &kacheln {
+        let (pa, pb) = (schnell.path().join(rel), kompakt.path().join(rel));
+        assert_eq!(bild(&pa), bild(&pb), "{rel}");
+        a += std::fs::metadata(&pa).unwrap().len();
+        b += std::fs::metadata(&pb).unwrap().len();
+    }
+    assert!(b < a, "kompakt {b} Bytes, schnell {a}");
+
+    // Ohne den Schalter packt ein Lauf weiter kompakt.
+    let vorher = ohne_karte(schnappschuss(kompakt.path()));
+    let basis = max_zoom(kompakt.path());
+    let weg = kacheln
+        .iter()
+        .find(|rel| rel.starts_with(&format!("{basis}/")))
+        .unwrap();
+    std::fs::remove_file(kompakt.path().join(weg)).unwrap();
+    gelungen(&tiles(welt.path(), kompakt.path(), &args));
+    assert_eq!(ohne_karte(schnappschuss(kompakt.path())), vorher);
+    assert_eq!(karte(kompakt.path())["compact"], true);
+
+    // `--pyramid` baut eine Elternkachel kompakt nach.
+    let eltern = kacheln
+        .iter()
+        .find(|rel| rel.starts_with(&format!("{}/", basis - 1)))
+        .unwrap();
+    std::fs::remove_file(kompakt.path().join(eltern)).unwrap();
+    gelungen(&pyramide(kompakt.path()));
+    assert_eq!(
+        std::fs::read(kompakt.path().join(eltern)).unwrap(),
+        vorher[eltern]
+    );
+
+    // Ein bestehender schneller Baum bleibt schnell.
+    let vorher = ohne_karte(schnappschuss(schnell.path()));
+    let zweiter = meldung(&tiles(welt.path(), schnell.path(), &mit));
+    assert!(
+        zweiter.contains("--compact gilt nur für einen neuen Baum"),
+        "{zweiter}"
+    );
+    assert_eq!(karte(schnell.path()).get("compact"), None);
+    assert_eq!(ohne_karte(schnappschuss(schnell.path())), vorher);
 }
 
 /// Auch die Eltern, die im Speicher entstehen, kodiert ein zweiter Lauf

@@ -12,7 +12,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, Result};
-use heroic_map_renderer::render::TileId;
+use heroic_map_renderer::render::{Packen, TileId};
 use image::RgbaImage;
 use rayon::prelude::*;
 
@@ -54,9 +54,13 @@ pub(super) struct Pixel {
     gespart: AtomicUsize,
 }
 
-/// SHA-256 über die RGBA-Bytes, die ersten 16 Bytes.
-pub(super) fn hash(bild: &RgbaImage) -> [u8; 16] {
-    let voll = ring::digest::digest(&ring::digest::SHA256, bild.as_raw());
+/// SHA-256 über die Packung und die RGBA-Bytes, die ersten 16 Bytes: Kompakt
+/// gepackt hat dasselbe Bild andere Bytes.
+pub(super) fn hash(bild: &RgbaImage, packen: Packen) -> [u8; 16] {
+    let mut sha = ring::digest::Context::new(&ring::digest::SHA256);
+    sha.update(&[packen as u8]);
+    sha.update(bild.as_raw());
+    let voll = sha.finish();
     voll.as_ref()[..16]
         .try_into()
         .expect("SHA-256 hat 32 Bytes")
@@ -233,8 +237,12 @@ mod tests {
         let tile = TileId { x: -33, y: 5 };
         let kachel = dir.path().join("k.webp");
         std::fs::write(&kachel, b"alt").unwrap();
-        let (rot, gruen) = (hash(&bild(1)), hash(&bild(2)));
+        let (rot, gruen) = (
+            hash(&bild(1), Packen::Schnell),
+            hash(&bild(2), Packen::Schnell),
+        );
         assert_ne!(rot, gruen);
+        assert_ne!(rot, hash(&bild(1), Packen::Kompakt));
 
         let pixel = Pixel::neu(dir.path(), 7);
         assert_eq!(pixel.gleich(3, tile, &rot, &kachel), None);

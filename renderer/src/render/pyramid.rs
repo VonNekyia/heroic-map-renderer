@@ -262,6 +262,10 @@ pub struct MapInfo {
     /// Stand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub biome_blend: Option<u8>,
+    /// `true`, wenn der Baum kompakt packt, siehe `--compact`. Fehlt das
+    /// Feld, packt er schnell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact: Option<bool>,
     /// Zu welcher Welt der Baum gehört, siehe [`world_id`]; `null` bei einer
     /// Welt ohne Kennung. Fehlt das Feld, stammt der Baum aus einem älteren
     /// Stand.
@@ -367,6 +371,7 @@ impl MapInfo {
             bounds: [links, oben, rechts, unten],
             native_levels: None,
             biome_blend: None,
+            compact: None,
             world: None,
             heights: None,
             heights_cell: None,

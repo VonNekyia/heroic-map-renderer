@@ -146,7 +146,10 @@ scale 16. Wie die Kameras rechnen: [Die Kamera](docs/renderer/kamera.md).
 - **Die grosse Welt** hat rund 2,5 Millionen Basiskacheln bei 2:1 und
   scale 32, die Testwelt rund 280 000.
 - **Der Platz** hängt fast nur an der Zahl der Kacheln, also an scale und
-  Kamera: Ein halber scale braucht ein Viertel.
+  Kamera: Ein halber scale braucht ein Viertel. Seit den Messungen oben
+  packt libwebp dichter, an einem Ausschnitt der Testwelt ×0,81 über alle
+  Stufen, siehe
+  [WebP mit quality 75](docs/messungen/2026-10-08-webp-quality-75.md).
 - **Die Dauer** hängt auch an den nativen Stufen und an Cinematic. Seit
   den Messungen vom 29.09. sind die nativen Stufen an Ausschnitten der
   Testwelt 30 bis 38 % kürzer, siehe

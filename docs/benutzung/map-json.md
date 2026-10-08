@@ -340,7 +340,9 @@ gehört deshalb zum Baum, siehe
   ein voller Lauf, `--update`, `--resume` und `--pyramid`. So bekommt
   keine Kachel nur deshalb neue Bytes und ein neues ETag.
 - `--compact` auf einem bestehenden schnellen Baum ändert nichts und sagt
-  es. Kompakt wird er heute nur als neuer Baum.
+  es. Einen bestehenden Baum packt `--compact-tree` nach und trägt das Feld
+  dabei als Erstes ein, siehe [Kacheln exportieren](kacheln.md),
+  „Nachverdichten“.
 - Das Frontend liest das Feld nicht; es dekodiert beide Packungen gleich.
 
 ## Die Welt

@@ -166,6 +166,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0090](entscheidungen/0090-webp-mit-quality-75.md): libwebp packt die Kacheln mit method 0 und quality 75 statt auf Stufe 0 und findet so Rückverweise in der ganzen Kachel: Basis ×0,79, Pixel für Pixel gleich, rund 0,35 ms mehr je Kachel; löst 0028 in der Einstellung ab.
 - [0091](entscheidungen/0091-gleiche-pixel-nicht-kodieren.md): Jeder Lauf hält je Kachel einen Hash ihrer Pixel fest und kodiert keine Kachel, die schon dieselben Pixel zeigt; der Hash gilt nur bei gleicher Grösse und Zeit der Datei und gleichem Build, liegt in Blöcken unter `pixel/` und nicht in `stand.bin`.
 - [0092](entscheidungen/0092-kompakt-ohne-vorhersage.md): `--compact` packt mit method 1 und, über einen Patch an libwebp in einer Kopie von `libwebp-sys`, ohne räumliche Vorhersage: Basis ×0,71, rund 8 bis 10 ms mehr je Kachel; ein Baum merkt es sich in `map.json`, der Hash der Pixel nimmt die Packung mit.
+- [0093](entscheidungen/0093-nachverdichten.md): `--compact-tree` packt einen fertigen Baum kompakt nach, ohne Welt und Assets: zuerst `map.json`, jede Kachel mit ihrer alten Zeit, ohne was ein anderer Lauf seit dem Beginn schrieb, fortgesetzt über die Hashes der Pixel.
 
 ## Messungen
 
@@ -229,4 +230,5 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-06, Manifest, den ganzen Baum lesen](messungen/2026-10-06-manifest.md): was das Manifest aus dem ganzen Baum kostet, an der Testwelt mit einem Thread und mit allen, über den Pfad, verteilt und aus dem Verzeichnis, hochgerechnet auf einen Satz zum Download.
 - [2026-10-08, WebP mit quality 75](messungen/2026-10-08-webp-quality-75.md): Grösse und Dauer mit method 0 und quality 75 gegen Stufe 0, an der Testwelt mit nativen Stufen, mit Cinematic und auf einem Thread, dazu die Hochrechnung für die grosse Welt.
 - [2026-10-08, Kompakt packen](messungen/2026-10-08-kompakt.md): Grösse und Dauer mit `--compact` gegen die schnelle Packung an der Testwelt, die Prüfung, dass libwebp mit und ohne SIMD dieselben Bytes gibt, und die Hochrechnung für die grosse Welt.
+- [2026-10-08, Nachverdichten](messungen/2026-10-08-nachverdichten.md): was `--compact-tree` an einem schnellen Baum der Testwelt mit einem und vier Threads kostet, was ein zweiter Aufruf kostet, und dass danach jede Kachel dem kompakten Export gleicht.
 - [2026-10-08, Gleiche Pixel nicht kodieren](messungen/2026-10-08-gleiche-pixel.md): was der Hash der Pixel vor dem Kodieren an einem Update mit einem Thread spart und einen Lauf in einen leeren Baum kostet, wie gross die Hashes werden, und dass das Bild in fünf Fällen und nach einem Update gleich bleibt.

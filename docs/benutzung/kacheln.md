@@ -276,6 +276,43 @@ bestehenden Baum, etwa mit einem neuen Binär, jede Kachel ein neues ETag.
   Zeit, jede andere bekommt eine neue, und am Ende stehen dieselben Bytes da
   wie nach einem Lauf in einen leeren Baum.
 
+## Nachverdichten
+
+`--compact-tree` packt einen fertigen Baum kompakt nach, wie mit
+`--compact`, ohne Welt und ohne Assets (`verdichte` in
+[`renderer/src/cli/verdichten.rs`](../../renderer/src/cli/verdichten.rs)).
+Entschieden in [0093](../entscheidungen/0093-nachverdichten.md).
+
+```bash
+cargo run --release --manifest-path renderer/Cargo.toml -- --compact-tree ./tiles/2x1-se --threads 1 --low-priority
+```
+
+```
+Zoom 10:     2304 neu, 0 schon kompakt, 0 übergangen, 0 nicht lesbar
+…
+Verdichtet: 3086 Kacheln, 108.4 MB statt 154.0 MB, 0 schon kompakt, 0 übergangen, 0 nicht lesbar, in 41.7 s
+```
+
+- **Zuerst `map.json`:** Der Aufruf trägt `"compact": true` ein, bevor er
+  eine Kachel anfasst; jeder Lauf danach packt kompakt, siehe
+  [map.json](map-json.md), „Packen“.
+- **Je Kachel,** von der Basis bis zur gröbsten Stufe:
+  - dekodieren und kompakt neu packen;
+  - tauschen, mit der alten Zeit der letzten Änderung. Die Pixel bleiben,
+    und `--pyramid` und `--resume` vergleichen Zeiten.
+- **Was ein anderer Lauf seit dem Beginn schrieb,** lässt er aus. Er prüft
+  das beim Auflisten und unmittelbar vor dem Tausch. Ein Export oder Update
+  darf daneben laufen.
+- **Fortsetzen:** Nach jedem Block aus 32 × 32 Kacheln legt der Aufruf
+  deren Hashes ab, siehe [Updates](updates.md), „Gleiche Pixel“. Ein neuer
+  Aufruf nach einem Abbruch dekodiert jede Kachel, kodiert aber nur, was
+  noch nicht kompakt ist.
+- **Manifest:** Mit `--manifest` schreibt er es am Ende neu; jede Kachel hat
+  ein neues ETag.
+- **Kosten:** rund 13,5 ms je Kachel auf einem Thread, ein zweiter Aufruf
+  rund 1 ms; der Speicher bleibt unter 0,05 GiB. Gemessen in
+  [2026-10-08, Nachverdichten](../messungen/2026-10-08-nachverdichten.md).
+
 ## Fortschritt als JSON: `--progress`
 
 Mit `--progress json` meldet ein Export seinen Fortschritt als JSON-Zeilen

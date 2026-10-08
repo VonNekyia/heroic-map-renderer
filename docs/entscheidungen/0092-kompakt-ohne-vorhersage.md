@@ -84,5 +84,5 @@ Nachverdichten eines fertigen Baums (Weg 3).
 - Ein kompakter Baum braucht rund 8 bis 10 ms mehr je neu kodierter
   Kachel, auch in jedem Update. Kacheln mit gleichen Pixeln kodiert ein
   Lauf ohnehin nicht, siehe 0091.
-- Einen bestehenden Baum kompakt zu machen, geht erst mit dem
-  Nachverdichten (#205, Weg 3).
+- Einen bestehenden Baum macht `--compact-tree` kompakt, siehe
+  [0093](0093-nachverdichten.md).

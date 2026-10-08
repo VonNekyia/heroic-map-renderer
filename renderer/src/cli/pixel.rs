@@ -76,6 +76,11 @@ fn datei(pfad: &Path) -> Option<(u32, u64)> {
     ))
 }
 
+/// In welchem Block eine Kachel liegt, `(bx, by)` je Stufe.
+pub(super) fn block(tile: TileId) -> (i32, i32) {
+    (tile.x.div_euclid(KANTE), tile.y.div_euclid(KANTE))
+}
+
 fn block_von(z: u32, tile: TileId) -> (BlockId, u16) {
     let platz = tile.y.rem_euclid(KANTE) * KANTE + tile.x.rem_euclid(KANTE);
     (
@@ -148,6 +153,21 @@ impl Pixel {
                 block.geaendert = true;
             }
         });
+        Ok(())
+    }
+
+    /// Schreibt diesen Block, falls er sich geändert hat, und gibt ihn aus
+    /// dem Speicher frei: für einen Lauf, der danach keine Kachel darin mehr
+    /// ablegt. Ein Abbruch verliert so nur die Blöcke in Arbeit.
+    pub(super) fn schliesse_block(&self, z: u32, (bx, by): (i32, i32)) -> Result<()> {
+        let id = (z, bx, by);
+        let mut bloecke = self.bloecke.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(block) = bloecke.remove(&id)
+            && block.geaendert
+        {
+            let daten = als_bytes(self.renderer, &block.eintraege);
+            super::lege_ab(&Self::pfad(&self.ordner, id), &daten, None)?;
+        }
         Ok(())
     }
 

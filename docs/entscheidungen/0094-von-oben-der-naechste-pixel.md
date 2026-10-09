@@ -47,8 +47,8 @@ rechts, aber nur für die Ansicht von oben.
 Gemessen an der ganzen Testwelt in `top-north` bei scale 4, siehe die
 Messung oben:
 
-- **Live-Rendern:** Jede Elternkachel kostet auf einem Thread rund 10,6
-  statt 12,3 ms, rund −14 %. Ein Update baut nur die Eltern seiner
+- **Live-Rendern:** Jede Elternkachel kostet auf einem Thread 12 bis 14 %
+  weniger, rund 10 statt 11,5 ms. Ein Update baut nur die Eltern seiner
   Kacheln. Es wird etwas billiger, und die CPU neben dem Server ebenso.
 - **Erster Render:** Die Basis bleibt gleich. Die Pyramide ist ein kleiner
   Teil des Laufs und wird ebenso etwas billiger.

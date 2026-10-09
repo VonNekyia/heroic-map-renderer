@@ -11,9 +11,10 @@ code:
 # Pyramide von oben
 
 Mit dem nächsten Pixel baut `--pyramid` die 5910 Kacheln der Pyramide über
-der ganzen Testwelt in `top-north` bei scale 4 auf einem Thread in
-MEDIAN_PIXEL s statt MEDIAN_MASTER s, rund 10,6 statt 12,3 ms je Kachel. Die
-Pyramide wird 0,9 % kleiner, die Basis bleibt gleich. Der einmalige Umbau
+der ganzen Testwelt in `top-north` bei scale 4 auf einem Thread um 12 bis
+14 % schneller als gemittelt, je nach Sitzung rund 10,5 statt 12,3 ms oder
+9,9 statt 11,3 ms je Kachel. Die Pyramide wird 0,9 % kleiner, die Basis
+bleibt gleich. Der einmalige Umbau
 eines Baums der grossen Welt dauert hochgerechnet rund 9 min auf einem
 Thread.
 
@@ -48,10 +49,19 @@ Thread.
 
 ### Zeit und Speicher
 
-| Stand | Wanduhr | CPU | Spitze |
-|---|---|---|---|
-| `master` | LAEUFE_MASTER | | 0,021 GiB |
-| `pixel` | LAEUFE_PIXEL | | 0,020 GiB |
+Zwei Sitzungen, die Maschine lief in der zweiten schneller. Verglichen wird
+nur innerhalb einer.
+
+| Sitzung | Stand | Wanduhr | CPU | je Kachel | Spitze |
+|---|---|---|---|---|---|
+| 1, 13:04 | `master` | 72,46 s | 71,0 s | 12,3 ms | 0,021 GiB |
+| 1, 13:04 | `pixel` | 62,72 s, 62,07 s | 61,3 s, 60,5 s | 10,5 ms | 0,020 GiB |
+| 2, 13:44 | `master` | 66,74 s, 66,61 s | 65,3 s, 65,2 s | 11,3 ms | 0,021 GiB |
+| 2, 13:44 | `pixel` | 58,29 s | 56,9 s | 9,9 ms | 0,019 GiB |
+
+- **Unterschied:** −14 % in der ersten Sitzung, −12,5 % in der zweiten;
+  die Spannen der Stände trennen sich in beiden.
+- **Grössen** sind in jedem Lauf eines Stands Byte für Byte gleich.
 
 ### Grösse je Stufe
 
@@ -79,12 +89,12 @@ Bytes dezimal, aus den Dateien.
 ## Schluss
 
 - **Live-Rendern:** Ein Update baut die Eltern seiner Kacheln. Mit dem
-  nächsten Pixel kostet jede rund 1,7 ms weniger auf einem Thread, rund
-  −14 %: Lesen und Kodieren bleiben, das Mittel in linearem Licht fällt
-  weg.
+  nächsten Pixel kostet jede rund 1,4 bis 1,8 ms weniger auf einem Thread,
+  12 bis 14 %: Lesen und Kodieren bleiben, das Mittel in linearem Licht
+  fällt weg.
 - **Arbeitsspeicher:** gleich.
 - **Platz:** 0,3 % weniger am ganzen Baum, also gleich.
 - **Einmaliger Umbau:** Die grosse Welt hat in `top-north` bei scale 4
   rund 51 000 Kacheln der Pyramide, gezählt am Vollrender vom 04.10. Zu
-  10,6 ms sind das rund 9 min auf einem Thread, einmal.
+  10 bis 10,5 ms sind das rund 9 min auf einem Thread, einmal.
 - **Entscheidung:** [0094](../entscheidungen/0094-von-oben-der-naechste-pixel.md).

@@ -453,8 +453,7 @@ Eingaben.
     `area` mit einem riesigen Kreis, liegt die ganze Ebene mit Meldung auf
     `seaLevel`, auch ihre kleinen Formen. Eine Region kostet
     (512 / `heightsCell`)² · 2 Byte, bei `heightsCell` 4 also 32 KiB, 1024
-    Regionen 32 MiB. Das ist eine Grenze der Webkarte, nicht des Formats;
-    Plugin und Mod haben eigene;
+    Regionen 32 MiB. Die Grenze gilt nur für die Webkarte;
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
     vorher beschnitten;
   - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,

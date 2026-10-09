@@ -231,17 +231,16 @@ test('Höhen lädt die Karte nur innerhalb von area, jede Region einmal, auch f�
     { id: 'l', type: 'line', points: [[-200, -30], [300, -30]], stroke: { color: '#333333' } },
   ];
   await welt(page, { ...staedte(objekte, { mehr: { area: [-512, -512, 0, 0] }, hoehe: () => 5 }), liste: () => [{ ...STAEDTE, visible: false }] });
-  await page.goto(`${DEMO}&at=-60,5,-60`);
+  // Der Blick weit weg, so holt die Karte selbst keine dieser Regionen; die Ebene erst nach dem Laden.
+  await page.goto(`${DEMO}&at=-1500,5,-1500`);
   await page.waitForLoadState('networkidle');
-  // Erst jetzt die Ebene: Was die Karte selbst an Höhen holt, zählt nicht.
   anfragen.length = 0;
   await page.locator('.ebenen summary').click();
   await page.locator('.ebenen input').check();
   await expect(page.locator('path[fill="#222222FF"]')).toHaveCount(1);
   await expect(page.locator('path[stroke="#333333"]')).toHaveCount(1);
-  // Höchstens die eine Region in area, und sie nur einmal; hat die Karte sie schon, keine.
-  expect(anfragen.filter((a) => a !== '-1.-1.bin')).toEqual([]);
-  expect(anfragen.length).toBeLessThanOrEqual(1);
+  // Genau die eine Region in area, genau einmal.
+  expect(anfragen).toEqual(['-1.-1.bin']);
 });
 
 test('eine Linie, die eine Region nur an der Ecke streift, lädt auch deren Höhen', async ({ page }) => {

@@ -185,25 +185,20 @@ export function sichtbareFelder(g: Gelaende, blick: Blick, pa: number, qa: numbe
   const drin = (p: number, q: number) => p >= ea && p <= eb && q >= fa && q <= fb;
   // t wächst je Schritt von der Kamera weg um 1.
   const t = (p: number, q: number) => -(p * wx + q * wz) / (wx * wx + wz * wz);
-  // Je Mitte einmal gerechnet: H dort, und ihr Wert fürs Maximum samt der halben Zelle davor.
+  // Von der Kamera weg, so steht das Feld davor schon fest. Je Mitte einmal
+  // H, gemerkt; mit der halben Zelle davor geht sie ins laufende Maximum.
   const mitte = new Float64Array((eb - ea + 1) * ez);
-  const wert = new Float64Array(mitte.length);
-  for (let p = ea; p <= eb; p++) {
-    for (let q = fa; q <= fb; q++) {
-      const [x, z] = [(p + 1) * c, (q + 1) * c];
-      const h = oberflaeche(g, x, z);
-      const halb = oberflaeche(g, x + (wx * c) / 2, z + (wz * c) / 2);
-      mitte[index(p, q)] = h;
-      wert[index(p, q)] = Math.max(h + schritt * t(p, q), halb + schritt * (t(p, q) - 0.5));
-    }
-  }
   const maximum = new Float64Array(mitte.length);
   const reihe = (a: number, b: number, w: number) => (w > 0 ? { von: b, bis: a - 1, d: -1 } : { von: a, bis: b + 1, d: 1 });
   const [rp, rq] = [reihe(ea, eb, wx), reihe(fa, fb, wz)];
   for (let p = rp.von; p !== rp.bis; p += rp.d) {
     for (let q = rq.von; q !== rq.bis; q += rq.d) {
+      const [x, z] = [(p + 1) * c, (q + 1) * c];
+      const h = oberflaeche(g, x, z);
+      const halb = oberflaeche(g, x + (wx * c) / 2, z + (wz * c) / 2);
+      mitte[index(p, q)] = h;
       const davor = drin(p + wx, q + wz) ? maximum[index(p + wx, q + wz)]! : -Infinity;
-      maximum[index(p, q)] = Math.max(wert[index(p, q)]!, davor);
+      maximum[index(p, q)] = Math.max(h + schritt * t(p, q), halb + schritt * (t(p, q) - 0.5), davor);
     }
   }
   for (let i = 0; i < sicht.length; i++) {

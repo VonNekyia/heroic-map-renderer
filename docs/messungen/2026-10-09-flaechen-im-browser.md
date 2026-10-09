@@ -76,6 +76,32 @@ Je drei Läufe. Heap als Zuwachs gegen vor dem Lauf, in MiB.
 | iso 2:1 | gefüllt | 678, 661, 635 | 11,1, 11,1, 11,1 | 12,5, 20,9, 25,9 | 73 886 |
 | iso 2:1 | gefüllt, Tafel, Schrift | 672, 689, 697 | 11,2, 11,2, 11,2 | 25,7, 21,7, 12,1 | 74 389 |
 
+### Nach B1, zwei Arrays statt drei
+
+Derselbe Aufbau, Stand nach `a1a94b8` mit zwei statt drei `Float64Array` in
+`sichtbareFelder`, gemessen am 09.10.2026, 20:39 bis 20:40.
+
+| Ansicht | Form | Zeit in ms | Heap danach | Spitze beim Laden | Punkte |
+|---|---|---|---|---|---|
+| von oben | Rand | 11, 15, 17 | −0,1, 0,4, 0,4 | 0,0, 0,1, 0,1 | 57 |
+| von oben | gefüllt | 20, 20, 22 | 0,8, 0,1, 0,8 | 0,1, 0,0, 0,1 | 2 175 |
+| von oben | gefüllt, Tafel, Schrift | 23, 20, 21 | 0,8, 0,8, 0,8 | 0,1, 0,1, 0,1 | 2 177 |
+| iso 2:1 | Rand | 186, 183, 181 | 1,6, 1,6, 1,6 | 6,3, 7,9, 5,1 | 400 |
+| iso 2:1 | gefüllt | 747, 731, 733 | 11,1, 11,1, 11,1 | 25,7, 25,6, 25,6 | 73 886 |
+| iso 2:1 | gefüllt, Tafel, Schrift | 752, 750, 771 | 11,2, 11,2, 11,2 | 27,3, 26,5, 11,7 | 74 389 |
+
+- Die Zeiten liegen 10 % über der ersten Reihe, auch von oben, wo
+  `sichtbareFelder` nicht läuft. Das ist Streuung zwischen zwei Reihen, kein
+  Unterschied des Codes; verglichen wird nur innerhalb einer Reihe.
+- Die Spitze sinkt nicht messbar: Sie streut mit der Speicherbereinigung um
+  mehr als die 8 bis 9 MB des dritten Arrays.
+- **Höhenkarten zählen,** wie im Review vorgeschlagen, ging nicht:
+  `Runtime.queryObjects` fand in diesem Chromium weder `Int16Array` noch
+  `ArrayBuffer`, auch nicht zwei Proben, die der Test selbst anlegte. Ob die
+  Höhen wegfallen, zeigt darum der Heap: Hielte die Ebene sie fest, lägen
+  die 17 Regionen über den 64 des Caches mit rund 0,5 MiB mehr im Heap. Mit
+  Tafel und Schrift sind es in beiden Reihen 0,1 MiB.
+
 ## Schluss
 
 - **Tragbar:** Eine Fläche dieser Grösse kostet im iso einmal je

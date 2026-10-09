@@ -649,8 +649,9 @@ Karte, siehe [Der Weg einer Kachel](renderpfad.md), „Blit“:
   Chunk-Cache über die Kacheln eines Threads; das Licht des Wassers
   rechnet `Wasserlicht` einmal je Draw.
 - **Native Stufen und Pyramide** laufen wie bei der Karte, ohne eigenen
-  Code. Die Pyramide mittelt die fertigen Kacheln, siehe
-  [Zoomstufen](../benutzung/zoomstufen.md), „Verkleinern“.
+  Code. Die Pyramide mittelt die fertigen Kacheln, bei `top-north` nimmt
+  sie den nächsten Pixel, siehe [Zoomstufen](../benutzung/zoomstufen.md),
+  „Verkleinern“.
 
 Getestet: das Goldbild `metatile-cinematic.png`; jeder Ausschnitt gleicht
 dem grossen Bild, zweimal gleich; Pyramide und native Stufen über einem Baum

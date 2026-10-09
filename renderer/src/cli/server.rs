@@ -855,9 +855,12 @@ async fn download(
 /// Der Pfad unter `/tiles/`, nur für das, was Karte und Mod brauchen:
 /// `trees.json` und die Höhen der Wurzel, je Baum `map.json`, `manifest`,
 /// seine Höhen und `z/x/y.webp`, dasselbe für einen einzelnen Baum als
-/// Wurzel. Ein Baum heisst nur `a–z 0–9 -`, die Zahlen stehen, wie der
-/// Renderer sie schreibt. Alles andere, etwa `stand.bin` oder eine halb
-/// geschriebene Datei, gibt `None`. Dazu der Baum, in dem der Pfad liegt.
+/// Wurzel, dazu die Ebenen: `layers.json`, `layers/<modname>/<ebene>.json`
+/// und ihre Bilder unter `layers/<modname>/images/`. Ein Baum heisst nur
+/// `a–z 0–9 -`, die Zahlen stehen, wie der Renderer sie schreibt. Alles
+/// andere, etwa `stand.bin` oder eine halb geschriebene Datei, gibt `None`.
+/// Dazu der Baum, in dem der Pfad liegt.
+/// Siehe docs/benutzung/server.md, „Was er ausliefert“.
 fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a str>)> {
     let teile: Vec<&str> = rest.split('/').collect();
     let baum = |name: &str| {
@@ -875,10 +878,33 @@ fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a s
         heights::region_of(name)
             .is_some_and(|(x, z)| heights::path_of(x, z) == format!("heights/{name}"))
     };
+    // Ein Teil der Kennung einer Ebene oder der Name eines Bilds, siehe
+    // docs/benutzung/ebenen.md, „Kennung“. Kein Punkt vorn, wo das Plugin
+    // halbe Dateien schreibt, keiner hinten, den Windows streicht, und kein
+    // Gerät von Windows.
+    let teil = |name: &str| {
+        (1..=64).contains(&name.len())
+            && !name.starts_with('.')
+            && !name.ends_with('.')
+            && !geraet(name)
+            && name.bytes().all(|b| {
+                b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-' | b'.')
+            })
+    };
+    // Der Stamm ohne Endung ist ein Teil, bis 64 Zeichen wie im Format.
+    let mit = |name: &str, endungen: &[&str]| {
+        endungen
+            .iter()
+            .any(|e| name.strip_suffix(e).is_some_and(teil))
+    };
     // Die festen Namen zuerst: `[z, x, y]` nähme jeden Pfad aus drei Teilen.
     let (erlaubt, im_baum) = match teile.as_slice() {
-        ["trees.json" | "map.json" | MANIFEST] => (true, None),
+        ["trees.json" | "map.json" | MANIFEST | "layers.json"] => (true, None),
         ["heights", name] => (hoehe(name), None),
+        ["layers", modname, ebene] if teil(modname) && mit(ebene, &[".json"]) => (true, None),
+        ["layers", modname, "images", bild] if teil(modname) && mit(bild, &[".png", ".webp"]) => {
+            (true, None)
+        }
         [b, "map.json" | MANIFEST] => (baum(b), Some(*b)),
         [b, "heights", name] => (baum(b) && hoehe(name), Some(*b)),
         [z, x, y] => (kachel(z, x, y), None),
@@ -1171,6 +1197,11 @@ mod tests {
             "map.json",
             "manifest",
             "3/-1/2.webp",
+            "layers.json",
+            "layers/beispiel/staedte.json",
+            "layers/mein-plugin_2/wasser.karte.json",
+            "layers/beispiel/images/burg_16.png",
+            "layers/beispiel/images/banner.webp",
         ] {
             assert!(kachelpfad(wurzel, erlaubt).is_some(), "{erlaubt}");
         }
@@ -1189,8 +1220,26 @@ mod tests {
             ("2x1-se/map.json", Some("2x1-se")),
             ("2x1-se/manifest", Some("2x1-se")),
             ("2x1-se/heights/1.-2.bin", Some("2x1-se")),
+            ("layers.json", None),
+            ("layers/beispiel/staedte.json", None),
+            ("layers/beispiel/images/burg_16.png", None),
         ] {
             assert_eq!(kachelpfad(wurzel, pfad).unwrap().1, baum, "{pfad}");
+        }
+        let lang = |n: usize, endung: &str| "a".repeat(n) + endung;
+        for erlaubt in [
+            format!("layers/beispiel/{}", lang(64, ".json")),
+            format!("layers/{}/staedte.json", lang(64, "")),
+            format!("layers/beispiel/images/{}", lang(64, ".png")),
+        ] {
+            assert!(kachelpfad(wurzel, &erlaubt).is_some(), "{erlaubt}");
+        }
+        for verboten in [
+            format!("layers/beispiel/{}", lang(65, ".json")),
+            format!("layers/{}/staedte.json", lang(65, "")),
+            format!("layers/beispiel/images/{}", lang(65, ".webp")),
+        ] {
+            assert_eq!(kachelpfad(wurzel, &verboten), None, "{verboten}");
         }
         for verboten in [
             "",
@@ -1214,6 +1263,33 @@ mod tests {
             "t/0/0",
             "t/",
             "geheim.txt",
+            // Die Ebenen: halbe Dateien mit Punkt vorn, `..`, Grossbuchstaben,
+            // fremde Endungen, Unterordner und Geräte von Windows nicht.
+            "layers",
+            "layers/",
+            "layers/beispiel",
+            "layers/beispiel/.staedte.json",
+            "layers/.beispiel/staedte.json",
+            "layers/../trees.json",
+            "layers/beispiel/../staedte.json",
+            "layers/beispiel/..",
+            "layers/beispiel/staedte.json.",
+            "layers/beispiel./staedte.json",
+            "layers/Beispiel/staedte.json",
+            "layers/beispiel/Staedte.json",
+            "layers/beispiel/staedte.txt",
+            "layers/beispiel/.json",
+            "layers/beispiel/nul.json",
+            "layers/nul/staedte.json",
+            "layers/beispiel/images/burg.gif",
+            "layers/beispiel/images/.burg.png",
+            "layers/beispiel/images/..",
+            "layers/beispiel/images/a/burg.png",
+            "layers/beispiel/images/com1.png",
+            "layers/beispiel/bilder/burg.png",
+            "layers/beispiel/staedte.json/x",
+            "layers.json/x",
+            "layers/beispiel/images/burg.png.tmp",
         ] {
             assert_eq!(kachelpfad(wurzel, verboten), None, "{verboten}");
         }

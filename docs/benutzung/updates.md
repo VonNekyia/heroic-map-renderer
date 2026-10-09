@@ -45,7 +45,10 @@ Stand:      4 Chunks -> ./tiles/2x1-se/stand.bin
 ```
 
 Hat sich nichts geändert, schreibt der Lauf nur den Stand mit den neuen
-Stempeln und sagt `Update:     nichts zu zeichnen`.
+Stempeln und sagt `Update:     nichts zu zeichnen`. Ausgenommen ist ein
+Baum aus `top-north`, dessen Pyramide noch mittelt: Dann baut das Update
+sie ganz neu und sagt es mit `Verkleinern:`, siehe
+[map.json](map-json.md), „Verkleinern“.
 
 - **Gleiche Einstellungen:** Kamera, Richtung, scale, native Stufen, Radius
   der Mischung und `look` kommen aus dem Baum wie bei jedem Lauf in einen

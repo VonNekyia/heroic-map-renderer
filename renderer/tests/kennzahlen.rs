@@ -19,7 +19,7 @@ use heroic_map_renderer::render::look::{LOOK, Look};
 use heroic_map_renderer::render::metatile::{Hdr, render_hdr_with};
 use heroic_map_renderer::render::{
     BiomeTable, ChunkCache, Kamera, Projection, Reach, Richtung, ScreenRect, SpriteSet, Survey,
-    render_area, shrink, survey_in,
+    Verkleinern, render_area, shrink, survey_in,
 };
 use heroic_map_renderer::world::World;
 use image::RgbaImage;
@@ -115,7 +115,11 @@ fn bilder_zu_cinematic() {
             Some(LOOK),
         ];
         for (spalte, look) in looks.into_iter().enumerate() {
-            let teil = shrink(&crop_imm(&s.bild(look), 400, 400, 800, 800).to_image());
+            let teil = shrink(
+                &crop_imm(&s.bild(look), 400, 400, 800, 800).to_image(),
+                Verkleinern::Mitteln,
+                1,
+            );
             replace(&mut waerme, &teil, spalte as i64 * 400, zeile as i64 * 400);
         }
     }

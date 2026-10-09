@@ -19,7 +19,7 @@ use heroic_map_renderer::render::rasterizer::{Light, Lightmap};
 use heroic_map_renderer::render::stand::{Inhalt, Stand};
 use heroic_map_renderer::render::{
     BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Packen, Projection, SpriteSet, TileId,
-    encode_webp, pyramid, render_area, render_area_with, streifenbreite, survey,
+    Verkleinern, encode_webp, pyramid, render_area, render_area_with, streifenbreite, survey,
 };
 use heroic_map_renderer::world::World;
 use image::RgbaImage;
@@ -1120,27 +1120,54 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
 /// so viele Stufen, wie `--native-levels` verlangt, und nur solange ein
 /// Block auf ganzen Pixeln liegt, also bis scale 4 — oder genau die
 /// Verkleinerung ihrer vier Kinder. Und keine Kachel darf fehlen.
-/// Über der Karte wie über Cinematic.
+/// Über der Karte, über Cinematic und von oben schräg (`top`) gemittelt, bei
+/// `top-north` je 2 × 2 der nächste Pixel, und `map.json` nennt das.
 #[test]
 fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
     let welt = tempdir();
     common::write_world(welt.path(), &[(0, 0), (2, 2)], gelaende);
-    for look in [None, Some(LOOK)] {
-        let (name, mut args) = match look {
-            None => ("2x1-se", vec![]),
-            Some(_) => ("2x1-se-cinematic", vec!["--cinematic"]),
-        };
+    let faelle = [
+        ("2x1-se", None, Kamera::ZWEI_ZU_EINS, Verkleinern::Mitteln),
+        (
+            "2x1-se-cinematic",
+            Some(LOOK),
+            Kamera::ZWEI_ZU_EINS,
+            Verkleinern::Mitteln,
+        ),
+        ("top-north-s", None, Kamera::ObenNord, Verkleinern::Pixel),
+        ("top-se", None, Kamera::Oben, Verkleinern::Mitteln),
+    ];
+    for (name, look, kamera, verkleinern) in faelle {
         let out = neuer_baum(name);
         // scale 8 mit einer nativen Stufe (4), dann Verkleinerungen — beide Wege.
-        args.extend(["--scale", "8", "--native-levels", "1"]);
+        let kamera_text = kamera.to_string();
+        let mut args = vec![
+            "--scale",
+            "8",
+            "--native-levels",
+            "1",
+            "--camera",
+            &kamera_text,
+        ];
+        if look.is_some() {
+            args.push("--cinematic");
+        }
         gelungen(&tiles(welt.path(), out.path(), &args));
 
         let basis = max_zoom(out.path());
         assert!(basis > 1, "kein Stapel zu prüfen");
         assert!(!kacheln(out.path(), basis).is_empty());
+        let text = std::fs::read_to_string(out.path().join("map.json")).unwrap();
+        let info: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let pixel = verkleinern == Verkleinern::Pixel;
+        assert_eq!(
+            info.get("downscale").and_then(|d| d.as_str()),
+            pixel.then_some("nearest"),
+            "{name}"
+        );
 
         let world = World::open(welt.path()).unwrap();
-        let states = survey(&world, Projection::new(8), (0, 15), None)
+        let states = survey(&world, Projection::mit_kamera(8, kamera), (0, 15), None)
             .unwrap()
             .states;
         let mut nativ = 0;
@@ -1156,8 +1183,8 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
             let scale = 8 >> (basis - z);
             let sprites = (scale >= 4).then(|| {
                 let mut assets = Assets::open(vec![assets()]).unwrap();
-                SpriteSet::build_mit_licht(&mut assets, &states, Projection::new(scale), None, look)
-                    .unwrap()
+                let projection = Projection::mit_kamera(scale, kamera);
+                SpriteSet::build_mit_licht(&mut assets, &states, projection, None, look).unwrap()
             });
 
             for (parent, pfad) in &eltern {
@@ -1178,10 +1205,12 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
                     .map(|kind| (kind, bild(&kinder[&kind])))
                     .collect();
                 assert!(!teile.is_empty(), "Zoom {z}, {parent:?} ohne Kinder");
+                // Tiefe über der gröbsten nativen Stufe, eine unter der Basis.
+                let tiefe = basis - 1 - z;
                 assert_eq!(
                     bild(pfad).as_raw(),
-                    pyramid::merge(*parent, &teile).as_raw(),
-                    "Zoom {z}, {parent:?} ist nicht die Verkleinerung seiner Kinder"
+                    pyramid::merge(*parent, &teile, verkleinern, tiefe).as_raw(),
+                    "{name}: Zoom {z}, {parent:?} ist nicht die Verkleinerung seiner Kinder"
                 );
                 verkleinert += 1;
             }
@@ -1703,7 +1732,12 @@ fn pyramide_holt_jede_aenderung_nach() {
         .filter(|(kind, _)| kind.parent() == oben)
         .map(|(kind, pfad)| (kind, bild(&pfad)))
         .collect();
-    setze(out.path(), basis - 1, oben, &pyramid::merge(oben, &kinder));
+    setze(
+        out.path(),
+        basis - 1,
+        oben,
+        &pyramid::merge(oben, &kinder, Verkleinern::Mitteln, 1),
+    );
     pruefe("abgebrochener Aufruf");
 
     // Alle Kinder einer Kachel verschwinden, und mit ihnen die Kachel.
@@ -5354,6 +5388,196 @@ fn versagende_karte_steht_einmal_im_log() {
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 }
 
+/// Ein Baum aus `top-north` aus einem älteren Stand: Seine Pyramide ist
+/// gemittelt, und `map.json` nennt kein `downscale`. Ein Update ohne und mit
+/// Änderung und `--pyramid` bauen dann jede Kachel der Pyramide mit dem
+/// nächsten Pixel neu und tragen das Feld ein. Danach gleicht der Baum einem
+/// neuen, keine Kachel bleibt gemittelt, und das Manifest kennt jede neue
+/// Kachel. Gesagt wird es einmal, und ein Update ohne Änderung sagt nicht
+/// „nichts zu zeichnen“: Für das Plugin hiesse das, dass nichts geschah.
+#[test]
+fn gemittelter_baum_von_oben_wird_ganz_umgebaut() {
+    let args = ["--scale", "8", "--camera", "top-north", "--manifest"];
+    let update: Vec<&str> = args
+        .iter()
+        .copied()
+        .chain(["--update", "--progress", "json"])
+        .collect();
+    for weg in ["Update ohne Änderung", "Update mit Änderung", "--pyramid"] {
+        let welt = tempdir();
+        baue_gelaende(welt.path());
+        let baum = neuer_baum("top-north-s");
+        gelungen(&tiles(welt.path(), baum.path(), &args));
+        wie_frueher_gemittelt(baum.path());
+        let ausgabe = match weg {
+            "--pyramid" => cli(&[
+                OsStr::new("--pyramid"),
+                baum.path().as_ref(),
+                OsStr::new("--manifest"),
+            ]),
+            "Update mit Änderung" => {
+                baue_aenderungen(welt.path());
+                tiles(welt.path(), baum.path(), &update)
+            }
+            _ => tiles(welt.path(), baum.path(), &update),
+        };
+        gelungen(&ausgabe);
+        let log = String::from_utf8_lossy(&ausgabe.stdout);
+        assert_eq!(log.matches("Verkleinern:").count(), 1, "{weg}: {log}");
+        assert!(!log.contains("nichts zu zeichnen"), "{weg}: {log}");
+        if weg == "Update ohne Änderung" {
+            // Das Plugin sieht den Umbau: je Stufe eine Zeile, am Ende die
+            // neuen Kacheln.
+            let json: Vec<serde_json::Value> = log
+                .lines()
+                .filter_map(|z| serde_json::from_str(z).ok())
+                .collect();
+            let stufen = json.iter().filter(|j| j["phase"] == "pyramid").count();
+            assert_eq!(stufen as u32, max_zoom(baum.path()), "{log}");
+            let fertig = json.iter().find(|j| j["phase"] == "done").unwrap();
+            assert!(fertig["tiles"].as_u64().unwrap() > 0, "{log}");
+        }
+        assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "{weg}");
+        let neu = neuer_baum("top-north-s");
+        gelungen(&tiles(welt.path(), neu.path(), &args));
+        gleiche_baeume(baum.path(), neu.path(), weg);
+    }
+}
+
+/// Streifen in x aus zwei Farben: Welchen Platz aus 2 × 2 eine Stufe nimmt,
+/// ändert ab der dritten Stufe über der gerenderten das Bild.
+fn streifen(x: i32, y: i32, _z: i32) -> &'static str {
+    match (y, x.rem_euclid(2)) {
+        (0..=2, 0) => "minecraft:einfarbig",
+        (0..=2, _) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    }
+}
+
+/// Umstellen wie in `gemittelter_baum_von_oben_wird_ganz_umgebaut`, mit
+/// einer nativen Stufe und mit `--prune`, über Streifen, an denen jeder
+/// Platz in 2 × 2 zählt. `--pyramid` baut nur die Stufen über der nativen um;
+/// die native behält ihre Kacheln samt Zeit. Ein Lauf mit `--prune` über die
+/// Welt ohne den fernen Chunk baut auch die Vorfahren seiner Kacheln mit dem
+/// nächsten Pixel. Beide Bäume gleichen danach einem neuen.
+#[test]
+fn umstellen_mit_nativer_stufe_und_prune() {
+    let nah: Vec<(i32, i32)> = (0..=2).flat_map(|x| (0..=2).map(move |z| (x, z))).collect();
+    let mit_fern: Vec<(i32, i32)> = nah.iter().copied().chain([(6, 6)]).collect();
+    let (alt, neu) = (tempdir(), tempdir());
+    common::write_world(alt.path(), &mit_fern, streifen);
+    common::write_world(neu.path(), &nah, streifen);
+    let args = [
+        "--scale",
+        "8",
+        "--camera",
+        "top-north",
+        "--native-levels",
+        "1",
+    ];
+
+    let baum = neuer_baum("top-north-s");
+    gelungen(&tiles(alt.path(), baum.path(), &args));
+    wie_frueher_gemittelt(baum.path());
+    let nativ = max_zoom(baum.path()) - 1;
+    let zeiten = |b: &Path| -> BTreeMap<TileId, SystemTime> {
+        kacheln(b, nativ)
+            .into_iter()
+            .map(|(tile, pfad)| (tile, zeit_von(&pfad)))
+            .collect()
+    };
+    let vorher = zeiten(baum.path());
+    assert!(!vorher.is_empty());
+    gelungen(&pyramide(baum.path()));
+    assert_eq!(zeiten(baum.path()), vorher, "native Stufe neu geschrieben");
+    let soll = neuer_baum("top-north-s");
+    gelungen(&tiles(alt.path(), soll.path(), &args));
+    gleiche_baeume(baum.path(), soll.path(), "--pyramid mit nativer Stufe");
+
+    let baum = neuer_baum("top-north-s");
+    gelungen(&tiles(alt.path(), baum.path(), &args));
+    wie_frueher_gemittelt(baum.path());
+    let mit_prune: Vec<&str> = args.iter().copied().chain(["--prune"]).collect();
+    gelungen(&tiles(neu.path(), baum.path(), &mit_prune));
+    let soll = neuer_baum("top-north-s");
+    gelungen(&tiles(neu.path(), soll.path(), &args));
+    gleiche_baeume(baum.path(), soll.path(), "--prune");
+}
+
+/// Umstellen in einem Teillauf mit nativer Stufe: Das Update ändert nur den
+/// fernen Chunk (20, 20), und doch baut es jede Kachel der Pyramide über der
+/// nativen Stufe neu, auch über dem Chunk (0, 0), der blieb. Dafür hebt es
+/// die Basis auf die gröbste native Stufe. Danach gleicht der Baum einem
+/// neuen.
+#[test]
+fn umstellen_im_update_mit_nativer_stufe() {
+    let welt = tempdir();
+    let chunks = [(0, 0), (20, 20)];
+    let schreibe = |block: fn(i32, i32, i32) -> &'static str, fern: u32| {
+        common::write_world(welt.path(), &chunks, block);
+        common::setze_stempel(welt.path(), 0, 0, 1);
+        common::setze_stempel(welt.path(), 20, 20, fern);
+    };
+    schreibe(streifen, 1);
+    let args = [
+        "--scale",
+        "8",
+        "--camera",
+        "top-north",
+        "--native-levels",
+        "1",
+    ];
+    let baum = neuer_baum("top-north-s");
+    gelungen(&tiles(welt.path(), baum.path(), &args));
+    wie_frueher_gemittelt(baum.path());
+    schreibe(streifen_mit_platte, 2);
+    let update: Vec<&str> = args.iter().copied().chain(["--update"]).collect();
+    let ausgabe = tiles(welt.path(), baum.path(), &update);
+    let log = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(log.contains("Update:     1 Chunks geändert"), "{log}");
+    let neu = neuer_baum("top-north-s");
+    gelungen(&tiles(welt.path(), neu.path(), &args));
+    gleiche_baeume(baum.path(), neu.path(), "Update mit nativer Stufe");
+}
+
+/// [`streifen`] mit einer Platte im Chunk (20, 20).
+fn streifen_mit_platte(x: i32, y: i32, z: i32) -> &'static str {
+    match (x, y, z) {
+        (320..=335, 3, 320..=335) => "minecraft:einfarbig",
+        _ => streifen(x, y, z),
+    }
+}
+
+/// Macht aus einem Baum aus `top-north` einen wie aus einem älteren Stand: jede
+/// Stufe der Pyramide gemittelt, über den nativen, ohne `downscale` in
+/// `map.json`.
+fn wie_frueher_gemittelt(dir: &Path) {
+    let karte = dir.join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    let unten = max_zoom(dir) - info["nativeLevels"].as_u64().unwrap() as u32;
+    let vorher = schnappschuss(dir);
+    for z in (0..unten).rev() {
+        let kinder = kacheln(dir, z + 1);
+        for parent in kacheln(dir, z).into_keys() {
+            let teile: Vec<(TileId, RgbaImage)> = parent
+                .children()
+                .into_iter()
+                .filter_map(|kind| Some((kind, bild(kinder.get(&kind)?))))
+                .collect();
+            let gemittelt = pyramid::merge(parent, &teile, Verkleinern::Mitteln, 1);
+            setze(dir, z, parent, &gemittelt);
+        }
+    }
+    assert_eq!(info["downscale"], "nearest");
+    info.as_object_mut().unwrap().remove("downscale");
+    std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();
+    assert!(
+        schnappschuss(dir) != vorher,
+        "gemittelt gleich dem nächsten Pixel"
+    );
+}
+
 /// Vergleicht zwei Bäume wie `schnappschuss` und nennt, welche Dateien
 /// fehlen, dazukommen oder sich unterscheiden.
 fn gleiche_baeume(ist: &Path, soll: &Path, was: &str) {
@@ -5431,7 +5655,7 @@ fn baue_aenderungen(welt: &Path) {
 /// Änderung, und ein zweites Update ohne Änderung zeichnet nichts. Danach
 /// verschwindet alles wieder, die Türme auch über der Höhe des Geländes.
 /// Bei scale 16 mit nativen Stufen, bei 12 ohne, mit Cinematic dazu die
-/// langen Schatten der Türme.
+/// langen Schatten der Türme, und von oben mit dem nächsten Pixel.
 #[test]
 fn update_gleicht_einem_vollen_lauf() {
     for extra in [
@@ -5439,6 +5663,7 @@ fn update_gleicht_einem_vollen_lauf() {
         &["--scale", "12"],
         &["--scale", "16", "--cinematic"],
         &["--scale", "12", "--cinematic"],
+        &["--scale", "8", "--camera", "top-north"],
     ] {
         let welt = tempdir();
         baue_gelaende(welt.path());

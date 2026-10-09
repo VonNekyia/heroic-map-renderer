@@ -19,7 +19,7 @@ pub use metatile::{
     render_area_without_culling, streifenbreite,
 };
 pub use projection::{Kamera, Projection, Richtung};
-pub use pyramid::{MapInfo, ProjectionInfo, depth, merge, parents, shrink};
+pub use pyramid::{MapInfo, ProjectionInfo, Verkleinern, depth, merge, parents, shrink};
 pub use rasterizer::{Sprite, render};
 pub use sprites::{Cell, OWN_CELL, SpriteId, SpriteSet};
 pub use tiles::{

@@ -23,9 +23,9 @@ use heroic_map_renderer::render::stand::{
 use heroic_map_renderer::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Flaeche, Gebiet, Gpu, Kamera, MapInfo,
     Packen, Projection, ProjectionInfo, Reach, Richtung, ScreenRect, SpriteSet, Survey, TILE,
-    TileId, corner_tiles, decode_webp, draw_list, encode_webp, gebiet_der_aenderungen, render,
-    render_area, render_area_with, streifenbreite, survey, survey_in, survey_mit_fortschritt,
-    world_box,
+    TileId, Verkleinern, corner_tiles, decode_webp, draw_list, encode_webp, gebiet_der_aenderungen,
+    render, render_area, render_area_with, streifenbreite, survey, survey_in,
+    survey_mit_fortschritt, world_box,
 };
 use heroic_map_renderer::world::biomzoom::{obfuscate_seed, zoom};
 use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, World};
@@ -1671,6 +1671,8 @@ fn write_tiles(
     let stufen = native_stufen(dir, bestand.as_ref(), native, projection, max_zoom)?;
     let blend = mischung(dir, bestand.as_ref(), blend)?;
     let packen = packen(dir, bestand.as_ref(), kompakt);
+    let (verkleinern, umstellen) =
+        verkleinern(bestand.as_ref(), projection.kamera() == Kamera::ObenNord);
 
     let ecke = ecke(dir, bestand.as_ref(), world)?;
     // Ein voller Lauf und ein Update schreiben den Stand des Baums, mit den
@@ -1742,17 +1744,27 @@ fn write_tiles(
     };
     if matches!(bereich, Bereich::Update) && gebiet.as_ref().is_some_and(|g| g.kacheln().is_empty())
     {
-        println!("Update:     nichts zu zeichnen");
-        if mit_manifest {
-            manifest::ohne_aenderung(dir)?;
-        }
+        // Ein Baum, der umstellt, hat trotzdem etwas zu tun: Die Zeile hiesse
+        // für das Plugin, dass nichts geschah.
+        let neu = if umstellen {
+            rebuild_pyramid(dir, mit_manifest, SystemTime::now(), vorhandene_mit_zeit)?
+        } else {
+            println!("Update:     nichts zu zeichnen");
+            if mit_manifest {
+                manifest::ohne_aenderung(dir)?;
+            }
+            0
+        };
         if let Some(stand) = stand {
             schreibe_stand(dir, world, stand)?;
         }
-        melde_json(serde_json::json!({"phase": "done", "tiles": 0, "s": sekunden(beginn)}));
+        melde_json(serde_json::json!({"phase": "done", "tiles": neu, "s": sekunden(beginn)}));
         return Ok(());
     }
 
+    if umstellen {
+        melde_umstellen(dir);
+    }
     let started = Instant::now();
     let mut reach = Reach::im_gebiet(projection, Y_RANGE, gebiet.clone()).mit_sonne(look.as_ref());
     let mit_inhalt = matches!(bereich, Bereich::Welt) && !resume;
@@ -1936,7 +1948,14 @@ fn write_tiles(
         max_zoom,
         stufen,
         blend,
-        packen,
+        (
+            packen,
+            if umstellen {
+                Verkleinern::Mitteln
+            } else {
+                verkleinern
+            },
+        ),
         kennung.as_deref(),
         look.as_ref(),
         &weltdaten,
@@ -2058,6 +2077,7 @@ fn write_tiles(
     let ablage = Ablage {
         packen,
         hashes: Some(&hashes),
+        verkleinern,
     };
     // Ohne native Stufen gibt die Basis die Viertel für die feinen Stufen
     // ab.
@@ -2151,10 +2171,13 @@ fn write_tiles(
     // Ein voller Lauf liest für das Manifest den ganzen Baum, jeder andere
     // zieht nur nach, was er anfassen kann: auch die Vorfahren der Kacheln
     // ohne Chunk, die --prune neu zusammensetzt.
-    let angefasst = (manifest.schreibt() && !matches!(bereich, Bereich::Welt)).then(|| {
-        let basis: BTreeSet<TileId> = kandidaten.union(&veraltet).copied().collect();
-        manifest::mit_eltern(max_zoom, &basis, &waisen)
-    });
+    // Wer umstellt, ändert jede Kachel der Pyramide: Das Manifest liest den
+    // ganzen Baum.
+    let angefasst =
+        (manifest.schreibt() && !matches!(bereich, Bereich::Welt) && !umstellen).then(|| {
+            let basis: BTreeSet<TileId> = kandidaten.union(&veraltet).copied().collect();
+            manifest::mit_eltern(max_zoom, &basis, &waisen)
+        });
     let (z, kandidaten, gezeigt, nativ_im_speicher) = render_coarser(
         world,
         assets,
@@ -2177,6 +2200,16 @@ fn write_tiles(
         ablage,
     )?;
     im_speicher.extend(nativ_im_speicher);
+    // Ein Baum, der umstellt, baut jede Kachel der Pyramide neu: über allen
+    // Kacheln der gröbsten gerenderten Stufe, den Vorfahren der Basis.
+    let mut kandidaten = kandidaten;
+    if umstellen {
+        let mut unten: BTreeSet<TileId> = basis.iter().chain(&survey.tiles).copied().collect();
+        for _ in 0..stufen {
+            unten = pyramid::parents(&unten);
+        }
+        kandidaten.extend(unten);
+    }
     build_pyramid(dir, z, kandidaten, &waisen, &mut weg, &im_speicher, ablage)?;
     if prune && !veraltet.is_empty() {
         ohne_veraltete(dir, max_zoom, stufen, &veraltet, &gezeigt, &mut weg, ablage)?;
@@ -2219,7 +2252,7 @@ fn write_tiles(
         max_zoom,
         stufen,
         blend,
-        packen,
+        (packen, verkleinern),
         kennung.as_deref(),
         look.as_ref(),
         &weltdaten,
@@ -2602,7 +2635,8 @@ fn schreibe_baeume(wurzel: &Path) -> Result<()> {
 }
 
 /// Baut die Zoomstufen über den Basiskacheln eines Kachelbaums nach und
-/// schreibt `map.json`, ohne Welt und ohne Assets. Basisstufe, scale und
+/// schreibt `map.json`, ohne Welt und ohne Assets. Liefert, wie viele
+/// Kacheln es neu gebaut hat. Basisstufe, scale und
 /// Welt nennt `map.json`, das jeder Export vor seiner ersten Kachel
 /// schreibt; ohne diese Datei oder ohne Kachel auf ihrer Basisstufe ändert
 /// der Aufruf nichts.
@@ -2624,7 +2658,7 @@ fn rebuild_pyramid(
     mit_manifest: bool,
     beginn: SystemTime,
     mut liste: impl FnMut(&Path, u32) -> Result<BTreeMap<TileId, SystemTime>>,
-) -> Result<()> {
+) -> Result<usize> {
     let started = Instant::now();
     let stempel = beginn - Duration::from_secs(2);
     let karte = dir.join("map.json");
@@ -2639,6 +2673,11 @@ fn rebuild_pyramid(
         Some(true) => Packen::Kompakt,
         _ => Packen::Schnell,
     };
+    let nord = projektion_des_baums(dir, &alt)?.kamera() == Kamera::ObenNord;
+    let (verkleinern, umstellen) = verkleinern(Some(&alt), nord);
+    if umstellen {
+        melde_umstellen(dir);
+    }
     // Ohne das Feld stammt der Baum aus einem älteren Stand. Nennt er eine
     // Welt, rendert der alle nativen Stufen, die der scale hergibt; ohne
     // Welt ist er älter als die nativen Stufen und hat keine.
@@ -2700,10 +2739,11 @@ fn rebuild_pyramid(
                     naechste.insert(parent);
                     weg += 1;
                 }
-            } else if parent
-                .children()
-                .iter()
-                .any(|kind| geaendert.contains(kind))
+            } else if (umstellen && !schuetzen)
+                || parent
+                    .children()
+                    .iter()
+                    .any(|kind| geaendert.contains(kind))
                 || zeit.is_none_or(|zeit| {
                     teile.iter().any(|kind| kinder[kind] > zeit)
                         // Gegen eine Zeit nach der Liste wäre kein Kind je
@@ -2721,7 +2761,15 @@ fn rebuild_pyramid(
             .par_iter()
             .map(|(parent, teile)| {
                 let zeit = eltern.get(parent).copied();
-                baue_neu(dir, z, *parent, teile, &kinder, zeit, stempel, packen)
+                // Über den nativen Stufen ab der gröbsten, auf ihnen ab der
+                // Basis verkleinert.
+                let tiefe = if schuetzen {
+                    max_zoom - z
+                } else {
+                    max_zoom - nativ - z
+                };
+                let art = (packen, verkleinern, tiefe);
+                baue_neu(dir, z, *parent, teile, &kinder, zeit, stempel, art)
             })
             .collect::<Result<Vec<_>>>()?;
         let mut neu = 0;
@@ -2738,6 +2786,7 @@ fn rebuild_pyramid(
             unlesbar.extend(kaputt);
         }
         println!("Zoom {z:>2}:     {neu} neu, {weg} entfernt");
+        melde_json(serde_json::json!({"phase": "pyramid", "level": z, "tiles": neu}));
         gebaut += neu;
         entfernt += weg;
         kinder = eltern;
@@ -2762,12 +2811,13 @@ fn rebuild_pyramid(
             "Karte:      {} ist seit dem Beginn neu geschrieben, etwa vom Render, und bleibt",
             karte.display()
         );
-        return Ok(());
+        return Ok(gebaut);
     }
     let info = MapInfo {
         native_levels: alt.native_levels,
         biome_blend: alt.biome_blend,
         compact: alt.compact,
+        downscale: downscale(verkleinern),
         world: alt.world,
         heights: alt.heights,
         heights_cell: alt.heights_cell,
@@ -2786,7 +2836,7 @@ fn rebuild_pyramid(
     };
     let path = schreibe_info(dir, &info, Some(stempel))?;
     melde_karte(&info, basis.len(), &path);
-    Ok(())
+    Ok(gebaut)
 }
 
 /// Baut eine Elternkachel für `--pyramid` aus ihren Kindern auf der Platte
@@ -2808,7 +2858,7 @@ fn baue_neu(
     kinder: &BTreeMap<TileId, SystemTime>,
     gelistet: Option<SystemTime>,
     stempel: SystemTime,
-    packen: Packen,
+    (packen, verkleinern, tiefe): (Packen, Verkleinern, u32),
 ) -> Result<Option<Neubau>> {
     let mut bilder = Vec::new();
     let mut kaputt = Vec::new();
@@ -2826,7 +2876,8 @@ fn baue_neu(
     if bilder.is_empty() && kaputt.is_empty() {
         return Ok(None);
     }
-    let data = encode_webp(&pyramid::merge(parent, &bilder), packen)?;
+    let bild = pyramid::merge(parent, &bilder, verkleinern, tiefe);
+    let data = encode_webp(&bild, packen)?;
     // Erst jetzt, direkt vor dem Tausch: offen bleibt nur das Schreiben der
     // Nebendatei.
     let pfad = tile_path(dir, z, parent);
@@ -3023,7 +3074,7 @@ fn schreibe_map_json(
     max_zoom: u32,
     stufen: u32,
     blend: u8,
-    packen: Packen,
+    (packen, verkleinern): (Packen, Verkleinern),
     kennung: Option<&str>,
     look: Option<&Look>,
     welt: &Weltdaten,
@@ -3033,6 +3084,7 @@ fn schreibe_map_json(
         native_levels: Some(stufen),
         biome_blend: Some(blend),
         compact: (packen == Packen::Kompakt).then_some(true),
+        downscale: downscale(verkleinern),
         sea_level: Some(welt.sea_level),
         area: welt.area,
         area_fixed: welt.fest.then_some(true),
@@ -3290,7 +3342,7 @@ fn build_pyramid(
             .filter(|tile| !im_speicher.contains_key(&(z, **tile)))
             .copied()
             .collect();
-        let (mut geschrieben, leer) = setze_zusammen(dir, z, &rest, weg, ablage)?;
+        let (mut geschrieben, leer) = setze_zusammen(dir, z, &rest, weg, ablage, max_zoom - z)?;
         leer.par_iter()
             .try_for_each(|parent| verblasse(dir, z, *parent))?;
         weg.extend(leer.into_iter().map(|parent| (z, parent)));
@@ -3340,6 +3392,8 @@ type JeStufe = BTreeMap<u32, BTreeSet<TileId>>;
 /// Siehe docs/benutzung/zoomstufen.md, „Feine Stufen im Speicher“.
 struct ImSpeicher<'a> {
     dir: &'a Path,
+    /// Die Stufe, deren Kacheln die Viertel abgeben.
+    z0: u32,
     /// Wie es die Elternkacheln ablegt.
     ablage: Ablage<'a>,
     /// Je Elternkachel, die hier entsteht, wie viele Kinder sie bekommt.
@@ -3408,6 +3462,7 @@ impl<'a> ImSpeicher<'a> {
         }
         ImSpeicher {
             dir,
+            z0,
             ablage,
             erwartet,
             offen: Mutex::default(),
@@ -3425,7 +3480,10 @@ impl<'a> ImSpeicher<'a> {
             let Some(&soll) = self.erwartet.get(&eltern) else {
                 return Ok(());
             };
-            let viertel = bild.as_ref().map(pyramid::shrink);
+            let tiefe = self.z0 + 1 - z;
+            let viertel = bild
+                .as_ref()
+                .map(|bild| pyramid::shrink(bild, self.ablage.verkleinern, tiefe));
             let teile = {
                 let mut offen = self.offen.lock().unwrap_or_else(PoisonError::into_inner);
                 let teile = offen.entry(eltern).or_default();
@@ -3475,16 +3533,17 @@ impl<'a> ImSpeicher<'a> {
     }
 }
 
-/// Setzt jede dieser Elternkacheln der Stufe z aus ihren Kindern auf der
-/// Platte zusammen, ohne die aus `weg`, und schreibt sie. Liefert die
-/// Bytes je geschriebener Kachel und die Eltern, die nichts mehr zeigen;
-/// die schreibt es nicht.
+/// Setzt jede dieser Elternkacheln der Stufe z, `tiefe` Stufen über der
+/// gerenderten, aus ihren Kindern auf der Platte zusammen, ohne die aus
+/// `weg`, und schreibt sie. Liefert die Bytes je geschriebener Kachel und
+/// die Eltern, die nichts mehr zeigen; die schreibt es nicht.
 fn setze_zusammen(
     dir: &Path,
     z: u32,
     eltern: &BTreeSet<TileId>,
     weg: &BTreeSet<(u32, TileId)>,
     ablage: Ablage<'_>,
+    tiefe: u32,
 ) -> Result<(Vec<usize>, Vec<TileId>)> {
     let stufe: Vec<(TileId, Option<usize>)> = eltern
         .par_iter()
@@ -3501,7 +3560,7 @@ fn setze_zusammen(
             if teile.is_empty() {
                 return Ok((*parent, None));
             }
-            let bild = pyramid::merge(*parent, &teile);
+            let bild = pyramid::merge(*parent, &teile, ablage.verkleinern, tiefe);
             Ok((*parent, Some(schreibe(dir, z, *parent, &bild, ablage)?)))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -3547,7 +3606,8 @@ fn ohne_veraltete(
                 .collect();
             weg.extend(geaendert.iter().map(|tile| (z, *tile)));
         } else {
-            let (_, leer) = setze_zusammen(dir, z, &eltern, weg, ablage)?;
+            let tiefe = max_zoom - stufen - z;
+            let (_, leer) = setze_zusammen(dir, z, &eltern, weg, ablage, tiefe)?;
             weg.extend(leer.into_iter().map(|tile| (z, tile)));
             geaendert = eltern;
         }
@@ -3645,6 +3705,37 @@ fn packen(dir: &Path, bestand: Option<&MapInfo>, kompakt: bool) -> Packen {
         println!("Packen:     kompakt, ohne räumliche Vorhersage");
     }
     packen
+}
+
+/// Wie die Pyramide eines Baums verkleinert, siehe [`Verkleinern`]: bei
+/// `top-north` (`nord`) je 2 × 2 ein Pixel, sonst gemittelt; ein bestehender
+/// Baum nach seinem Feld `downscale`. Fehlt es einem Baum aus `top-north`,
+/// mittelt seine Pyramide noch: Dann stellt dieser Lauf um (`true`), baut
+/// sie ganz neu und trägt das Feld erst am Ende ein.
+/// Siehe docs/benutzung/zoomstufen.md, „Verkleinern“.
+fn verkleinern(bestand: Option<&MapInfo>, nord: bool) -> (Verkleinern, bool) {
+    let pixel = |alt: &MapInfo| alt.downscale.as_deref() == Some(NAECHSTER_PIXEL);
+    let umstellen = nord && bestand.is_some_and(|alt| !pixel(alt));
+    match nord || bestand.is_some_and(pixel) {
+        true => (Verkleinern::Pixel, umstellen),
+        false => (Verkleinern::Mitteln, false),
+    }
+}
+
+/// Sagt, dass dieser Lauf die Pyramide umstellt, siehe [`verkleinern`].
+fn melde_umstellen(dir: &Path) {
+    println!(
+        "Verkleinern: {} mittelt noch; dieser Lauf baut die Pyramide einmal ganz neu, je 2 × 2 ein Pixel",
+        dir.join("map.json").display()
+    );
+}
+
+/// Der Wert von `downscale` in `map.json` für [`Verkleinern::Pixel`].
+const NAECHSTER_PIXEL: &str = "nearest";
+
+/// Das Feld `downscale` in `map.json`: nur für [`Verkleinern::Pixel`].
+fn downscale(verkleinern: Verkleinern) -> Option<String> {
+    (verkleinern == Verkleinern::Pixel).then(|| NAECHSTER_PIXEL.to_string())
 }
 
 /// Wie viele Stufen über der Basis nativ gerendert werden können: solange
@@ -4473,12 +4564,13 @@ fn je_kachel(
     Ok(())
 }
 
-/// Wie ein Lauf Kacheln ablegt: so gepackt wie sein Baum, und mit den
-/// Hashes der Pixel, falls er sie führt.
+/// Wie ein Lauf Kacheln ablegt: so gepackt wie sein Baum, mit den Hashes
+/// der Pixel, falls er sie führt, und Eltern so verkleinert wie sein Baum.
 #[derive(Clone, Copy, Default)]
 struct Ablage<'a> {
     packen: Packen,
     hashes: Option<&'a pixel::Pixel>,
+    verkleinern: Verkleinern,
 }
 
 /// Schreibt eine Kachel und liefert ihre Grösse in Bytes, siehe
@@ -5180,7 +5272,7 @@ mod tests {
             &kinder,
             None,
             SystemTime::now(),
-            Packen::Schnell,
+            (Packen::Schnell, Verkleinern::Mitteln, 1),
         );
         assert!(neu.unwrap().is_none());
         assert!(!tile_path(dir, 0, kind.parent()).exists());
@@ -5569,12 +5661,12 @@ mod tests {
         speicher.abgeben(2, t(0, 1), None).unwrap();
         let stand = speicher.ende().unwrap();
 
-        let eltern = pyramid::merge(t(0, 0), &[(t(0, 0), bild(1)), (t(1, 0), bild(2))]);
+        let mitteln = |kinder: &[(TileId, RgbaImage)]| {
+            pyramid::merge(t(0, 0), kinder, Verkleinern::Mitteln, 1)
+        };
+        let eltern = mitteln(&[(t(0, 0), bild(1)), (t(1, 0), bild(2))]);
         assert_eq!(lies(1, t(0, 0)), eltern);
-        assert_eq!(
-            lies(0, t(0, 0)),
-            pyramid::merge(t(0, 0), &[(t(0, 0), eltern)])
-        );
+        assert_eq!(lies(0, t(0, 0)), mitteln(&[(t(0, 0), eltern)]));
         let bytes = |z, tile| {
             std::fs::metadata(tile_path(dir.path(), z, tile))
                 .unwrap()

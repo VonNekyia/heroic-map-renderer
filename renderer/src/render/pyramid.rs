@@ -66,11 +66,30 @@ pub fn parents(tiles: &BTreeSet<TileId>) -> BTreeSet<TileId> {
     tiles.iter().map(TileId::parent).collect()
 }
 
-/// Setzt Kacheln zu ihrer Elternkachel zusammen.
+/// Wie eine Stufe aus der feineren entsteht: gemittelt, oder bei Kameras
+/// von oben je 2 × 2 ein Pixel.
+/// Siehe docs/benutzung/zoomstufen.md, „Verkleinern“.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Verkleinern {
+    #[default]
+    Mitteln,
+    /// Auf Stufen in ungerader Tiefe über der gerenderten der Pixel rechts
+    /// unten, in gerader links oben: So liegt er von der gerenderten Stufe
+    /// aus nie auf dem Rand eines Blocks aus 4 Pixeln.
+    Pixel,
+}
+
+/// Setzt Kacheln zu ihrer Elternkachel zusammen, `tiefe` Stufen über der
+/// gerenderten.
 ///
 /// Jedes Kind wird auf die halbe Kantenlänge gestaucht und in seinen
 /// Viertelbereich gesetzt. Fehlende Kinder bleiben durchsichtig.
-pub fn merge(parent: TileId, children: &[(TileId, RgbaImage)]) -> RgbaImage {
+pub fn merge(
+    parent: TileId,
+    children: &[(TileId, RgbaImage)],
+    art: Verkleinern,
+    tiefe: u32,
+) -> RgbaImage {
     let mut out = RgbaImage::new(TILE, TILE);
     let half = TILE / 2;
     for (child, image) in children {
@@ -81,17 +100,17 @@ pub fn merge(parent: TileId, children: &[(TileId, RgbaImage)]) -> RgbaImage {
         );
         assert_eq!(image.dimensions(), (TILE, TILE), "{child:?}");
         let (qx, qy) = child.quadrant();
-        halbiere(image, &mut out, qx * half, qy * half);
+        halbiere(image, &mut out, (qx * half, qy * half), art, tiefe);
     }
     out
 }
 
-/// Halbiert die Kantenlänge eines Bildes, gemittelt mit vormultipliziertem
-/// Alpha und in linearem Licht.
+/// Halbiert die Kantenlänge eines Bildes für eine Stufe `tiefe` Stufen über
+/// der gerenderten, siehe [`Verkleinern`].
 /// Siehe docs/benutzung/zoomstufen.md, „Verkleinern“.
-pub fn shrink(image: &RgbaImage) -> RgbaImage {
+pub fn shrink(image: &RgbaImage, art: Verkleinern, tiefe: u32) -> RgbaImage {
     let mut out = RgbaImage::new(image.width() / 2, image.height() / 2);
-    halbiere(image, &mut out, 0, 0);
+    halbiere(image, &mut out, (0, 0), art, tiefe);
     out
 }
 
@@ -116,11 +135,31 @@ pub fn aus_vierteln(parent: TileId, viertel: &[(TileId, RgbaImage)]) -> RgbaImag
 
 /// Schreibt `image` auf die halbe Kantenlänge verkleinert nach `ziel`, die
 /// linke obere Ecke auf (`x0`, `y0`), direkt über die Bytes.
-fn halbiere(image: &RgbaImage, ziel: &mut RgbaImage, x0: u32, y0: u32) {
+fn halbiere(
+    image: &RgbaImage,
+    ziel: &mut RgbaImage,
+    (x0, y0): (u32, u32),
+    art: Verkleinern,
+    tiefe: u32,
+) {
     let (breite, hoehe) = (image.width() as usize / 2, image.height() as usize / 2);
     let (zeile, ziel_zeile) = (4 * image.width() as usize, 4 * ziel.width() as usize);
     let quelle = image.as_raw();
     let ziel: &mut [u8] = ziel;
+    if art == Verkleinern::Pixel {
+        let d = (tiefe % 2) as usize;
+        for y in 0..hoehe {
+            let (zeile, _) = quelle[(2 * y + d) * zeile..][..8 * breite].as_chunks::<4>();
+            let anfang = (y0 as usize + y) * ziel_zeile + 4 * x0 as usize;
+            let (raus, _) = ziel[anfang..][..4 * breite].as_chunks_mut::<4>();
+            for (x, raus) in raus.iter_mut().enumerate() {
+                let pixel = zeile[2 * x + d];
+                // Durchsichtig ohne Farbe, wie beim Mitteln.
+                *raus = if pixel[3] == 0 { [0; 4] } else { pixel };
+            }
+        }
+        return;
+    }
     let linear = &*LINEAR;
     for y in 0..hoehe {
         let (oben, _) = quelle[2 * y * zeile..][..8 * breite].as_chunks::<4>();
@@ -266,6 +305,10 @@ pub struct MapInfo {
     /// Feld, packt er schnell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact: Option<bool>,
+    /// `"nearest"`, wenn die Pyramide je 2 × 2 einen Pixel nimmt, siehe
+    /// [`Verkleinern::Pixel`]. Fehlt das Feld, mittelt sie.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub downscale: Option<String>,
     /// Zu welcher Welt der Baum gehört, siehe [`world_id`]; `null` bei einer
     /// Welt ohne Kennung. Fehlt das Feld, stammt der Baum aus einem älteren
     /// Stand.
@@ -372,6 +415,7 @@ impl MapInfo {
             native_levels: None,
             biome_blend: None,
             compact: None,
+            downscale: None,
             world: None,
             heights: None,
             heights_cell: None,
@@ -465,6 +509,31 @@ fn siphash24(key: [u64; 2], message: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Von oben nimmt jede Stufe je 2 × 2 einen Pixel: in ungerader Tiefe
+    /// rechts unten, in gerader links oben, mit seinem Alpha. Ein
+    /// durchsichtiger hat keine Farbe.
+    #[test]
+    fn naechster_pixel_je_tiefe() {
+        let bild = RgbaImage::from_fn(4, 4, |x, y| {
+            let alpha = if (x, y) == (3, 3) {
+                0
+            } else {
+                100 + (x + 4 * y) as u8
+            };
+            image::Rgba([x as u8, y as u8, 7, alpha])
+        });
+        let ungerade = shrink(&bild, Verkleinern::Pixel, 1);
+        assert_eq!(ungerade.get_pixel(0, 0).0, [1, 1, 7, 105]);
+        assert_eq!(
+            ungerade.get_pixel(1, 1).0,
+            [0; 4],
+            "durchsichtig ohne Farbe"
+        );
+        let gerade = shrink(&bild, Verkleinern::Pixel, 2);
+        assert_eq!(gerade.get_pixel(1, 0).0, [2, 0, 7, 102]);
+        assert_eq!(gerade.get_pixel(1, 1).0, [2, 2, 7, 110]);
+    }
     use image::Rgba;
     use rayon::prelude::*;
 
@@ -533,7 +602,7 @@ mod tests {
 
     #[test]
     fn verkleinern_haelt_eine_flaeche_farbe() {
-        let klein = shrink(&voll([10, 200, 30, 255], 8));
+        let klein = shrink(&voll([10, 200, 30, 255], 8), Verkleinern::Mitteln, 1);
         assert_eq!(klein.dimensions(), (4, 4));
         assert!(klein.pixels().all(|p| p.0 == [10, 200, 30, 255]));
     }
@@ -545,7 +614,7 @@ mod tests {
         bild.put_pixel(0, 0, Rgba([255, 0, 0, 255]));
         // Drei durchsichtige Pixel mit Schwarz darunter: geradeaus
         // gemittelt käme ein dunkles Rot heraus.
-        let klein = shrink(&bild);
+        let klein = shrink(&bild, Verkleinern::Mitteln, 1);
         assert_eq!(klein.dimensions(), (1, 1));
         let p = klein.get_pixel(0, 0).0;
         assert_eq!(&p[..3], &[255, 0, 0], "Farbe verwässert: {p:?}");
@@ -662,12 +731,16 @@ mod tests {
             })
             .collect();
 
-        let bild = merge(eltern, &kinder);
+        let bild = merge(eltern, &kinder, Verkleinern::Mitteln, 1);
         let half = TILE / 2;
         for (kind, kinderbild) in &kinder {
             let (qx, qy) = kind.quadrant();
             let klein = wie_frueher(kinderbild);
-            assert_eq!(shrink(kinderbild), klein, "{kind:?}");
+            assert_eq!(
+                shrink(kinderbild, Verkleinern::Mitteln, 1),
+                klein,
+                "{kind:?}"
+            );
             for (x, y, pixel) in klein.enumerate_pixels() {
                 assert_eq!(
                     bild.get_pixel(qx * half + x, qy * half + y),
@@ -678,18 +751,22 @@ mod tests {
         }
         let ungerade =
             RgbaImage::from_fn(7, 5, |_, _| Rgba([zufall(), zufall(), zufall(), zufall()]));
-        assert_eq!(shrink(&ungerade), wie_frueher(&ungerade), "ungerade Kanten");
+        assert_eq!(
+            shrink(&ungerade, Verkleinern::Mitteln, 1),
+            wie_frueher(&ungerade),
+            "ungerade Kanten"
+        );
 
         // Aus den Vierteln wie aus den ganzen Kindern, auch mit Lücken.
         let viertel: Vec<(TileId, RgbaImage)> = kinder
             .iter()
-            .map(|(kind, bild)| (*kind, shrink(bild)))
+            .map(|(kind, bild)| (*kind, shrink(bild, Verkleinern::Mitteln, 1)))
             .collect();
         assert_eq!(aus_vierteln(eltern, &viertel), bild, "alle vier");
         let (kinder, viertel) = ([&kinder[1], &kinder[2]], [&viertel[1], &viertel[2]]);
         assert_eq!(
             aus_vierteln(eltern, &viertel.map(Clone::clone)),
-            merge(eltern, &kinder.map(Clone::clone)),
+            merge(eltern, &kinder.map(Clone::clone), Verkleinern::Mitteln, 1),
             "zwei von vier"
         );
     }
@@ -701,7 +778,7 @@ mod tests {
         let mut bild = RgbaImage::from_pixel(2, 2, Rgba([0, 0, 0, 255]));
         bild.put_pixel(0, 0, Rgba([255, 255, 255, 255]));
         bild.put_pixel(1, 1, Rgba([255, 255, 255, 255]));
-        let p = shrink(&bild).get_pixel(0, 0).0;
+        let p = shrink(&bild, Verkleinern::Mitteln, 1).get_pixel(0, 0).0;
         assert_eq!(p, [188, 188, 188, 255]);
     }
 
@@ -717,12 +794,15 @@ mod tests {
         bild.put_pixel(1, 0, Rgba([76, 22, 14, 255]));
         bild.put_pixel(0, 1, Rgba([96, 25, 202, 255]));
         bild.put_pixel(1, 1, Rgba([82, 213, 225, 255]));
-        assert_eq!(shrink(&bild).get_pixel(0, 0).0, [95, 123, 165, 255]);
+        assert_eq!(
+            shrink(&bild, Verkleinern::Mitteln, 1).get_pixel(0, 0).0,
+            [95, 123, 165, 255]
+        );
     }
 
     #[test]
     fn verkleinern_haelt_durchsichtig_durchsichtig() {
-        let klein = shrink(&RgbaImage::new(4, 4));
+        let klein = shrink(&RgbaImage::new(4, 4), Verkleinern::Mitteln, 1);
         assert!(klein.pixels().all(|p| p.0[3] == 0));
     }
 
@@ -742,7 +822,7 @@ mod tests {
             .map(|(kind, farbe)| (kind, voll(farbe, TILE)))
             .collect();
 
-        let bild = merge(eltern, &kinder);
+        let bild = merge(eltern, &kinder, Verkleinern::Mitteln, 1);
         let half = TILE / 2;
         for ((kind, _), farbe) in kinder.iter().zip(farben) {
             let (qx, qy) = kind.quadrant();
@@ -755,7 +835,12 @@ mod tests {
     fn zusammensetzen_laesst_fehlende_kinder_durchsichtig() {
         let eltern = TileId { x: 0, y: 0 };
         let kind = eltern.children()[3];
-        let bild = merge(eltern, &[(kind, voll([1, 2, 3, 255], TILE))]);
+        let bild = merge(
+            eltern,
+            &[(kind, voll([1, 2, 3, 255], TILE))],
+            Verkleinern::Mitteln,
+            1,
+        );
 
         assert_eq!(bild.get_pixel(TILE / 2 + 1, TILE / 2 + 1).0[3], 255);
         assert_eq!(bild.get_pixel(1, 1).0[3], 0, "leeres Viertel");

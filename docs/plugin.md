@@ -70,6 +70,13 @@ dem Plugin-Programmierer ab.
   aus `write_tiles` in `cli.rs`. Das Plugin startet alle 2 min ein Update.
   Endet eins mit dieser Zeile und Code 0, schreibt es nichts ins Log. Ändert
   sich ihre Form, landet jedes solche Update wieder im Log.
+- **Ein Update auf dem Stand eines anderen Builds:** die Zeile `Error:`
+  aus `stand_fuer_update` in `cli.rs` mit dem Wortlaut „stammt von einem
+  anderen Build des Renderers“. Auf genau diesen Wortlaut stützt sich das
+  Plugin: Dann nennt `/heroicmap status` „neuer Renderer: erst
+  /heroicmap render“ statt des ganzen Texts, der weiter im Log steht.
+  Ändert sich der Wortlaut, etwa mit #232, zeigt der Status wieder den
+  ganzen Text, und das Plugin zieht nach.
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
   eines Tokens: `--manifest` bei jedem Lauf, `--pyramid` und
   `--compact-tree` eines Baums mit `download: true`, siehe unten,

@@ -106,7 +106,8 @@ selbst, die Webkarte im Browser.
 - **Nur beim Plugin:**
   - `web`, Vorgabe `true`: ob die Ebene auf die Webkarte kommt;
   - `permission`: wer sie im Mod sieht. Eine Ebene mit `permission` kommt
-    nie auf die öffentliche Webkarte; `web: true` dazu ist ein Fehler.
+    nie auf die öffentliche Webkarte. Ohne `web` gilt für sie `web: false`;
+    nur ein ausdrückliches `web: true` dazu ist ein Fehler.
     Sie hat vorerst keine Bilder: `symbol` und Bilder in der Tafel sind
     dort ein Fehler, denn alles unter `layers/` ist öffentlich. Der Mod
     zeichnet ihre Nadeln als Nadel der Karte in `color`.
@@ -242,7 +243,7 @@ Eine Fläche mit Rand, aus einem oder mehreren Polygonen, jedes mit Löchern.
 
 | Feld | Inhalt | Vorgabe |
 |---|---|---|
-| `polygons` | je Polygon `outer` mit mindestens 3 Punkten und `holes`, eine Liste von Ringen; Ringe schliessen sich selbst, Drehsinn beliebig | Pflicht |
+| `polygons` | je Polygon `outer` mit mindestens 3 Punkten und `holes`, eine Liste von Ringen; fehlt `holes`, hat das Polygon keine Löcher; Ringe schliessen sich selbst, Drehsinn beliebig | Pflicht |
 | `name` | erscheint beim Zeigen auf die Fläche | ohne |
 | `fill` | Füllung | ohne |
 | `stroke` | Rand, auch um die Löcher | `{ "width": 2 }` in der Farbe von `fill` ohne Alpha |
@@ -361,6 +362,11 @@ Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
   Token, erst wenn eine Nadel auf dem Schirm liegt oder die Tafel offen ist.
 - **Bilder einer Ebene mit `permission`** gibt es vorerst nicht, siehe
   „Datei einer Ebene“.
+- **Öffentlich, auch bei `web: false`:** Das Plugin legt die Bilder jeder
+  Ebene nach `layers/<modname>/images/`, auch wenn die Ebene selbst nicht
+  auf die Webkarte kommt, damit der Mod sie holen kann. Der Server liefert
+  alles unter `layers/` ohne Token aus. Wer ein Bild nicht zeigen will,
+  legt es nicht ab.
 
 ## Ändern und Neuladen
 
@@ -402,18 +408,24 @@ es und nennt es in der Konsole oder im Log.
 | Bilder je Ebene | 200 |
 | Symbol | 16 × 16 oder 9 × 9 Pixel |
 | Bild der Tafel | 512 × 512 Pixel, 256 KiB |
-| Nachricht an den Mod | 64 KiB; eine Ebene in Teilen |
+| Nachricht an den Mod | 64 KiB je Teil; ein grösseres Objekt allein, höchstens 1 MiB |
 
 ## An den Mod
 
-Vorerst schickt das Plugin dem Mod nur die Nadeln, über seinen Kanal.
+Das Plugin schickt dem Mod Nadeln, Regionen und Kreise, über seinen Kanal.
+Regionen braucht der Mod zum Anheften (heroic-map-renderer-mod#36).
+Kartenschrift und Linien schickt es vorerst nicht.
 
-- **Nadeln:** dieselben Felder wie hier, ohne `panel`.
-- **In Teilen:** 1000 Nadeln sind als JSON 150 bis 500 KB, eine Nachricht
-  darf 64 KiB haben. Eine Ebene geht deshalb in Teilen, jeder mit ihrer
-  `version`. Der Mod ersetzt die Ebene erst, wenn alle Teile einer
-  `version` da sind; unvollständige verwirft er bei einer neuen `version`
-  und beim Trennen. Die Felder der Teile nennt die Doku des Plugins.
+- **Objekte:** dieselben Felder wie hier, ohne `panel`, in derselben
+  Reihenfolge.
+- **In Teilen:** 1000 Nadeln sind als JSON 150 bis 500 KB. Eine Ebene geht
+  deshalb in Teilen, jeder mit ihrer `version`, die Objekte der Reihe nach.
+  Ein Teil hat höchstens 64 KiB. Ein Objekt, das allein grösser ist, etwa
+  eine Region mit 10 000 Punkten, geht allein in einem Teil, höchstens
+  1 MiB wie eine Nachricht bei Paper. Der Mod ersetzt die Ebene erst, wenn
+  alle Teile einer `version` da sind; unvollständige verwirft er bei einer
+  neuen `version` und beim Trennen. Die Felder der Teile nennt die Doku des
+  Plugins.
 - **Liste:** dieselben Felder wie `layers.json`; dazu nennt sie die Adresse
   des Servers, von dem der Mod die Bilder holt.
 - **Einzelheiten:** Nachrichten und Rechte beschreibt das Plugin in seiner

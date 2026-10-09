@@ -211,8 +211,10 @@ Banner.
 ### Banner
 
 Ein Ort der Karte als Bild, etwa eine Stadt mit dem Banner ihrer Nation.
-Das Bild bringt das Plugin mit; für eine Stadt ohne Nation schickt es ein
-weisses.
+Das Bild bringt der Besitzer der Ebene mit, etwa ein Plugin für Städte über
+die API; für eine Stadt ohne Nation schickt er ein weisses. Mehrere Banner
+dürfen sich ein Bild teilen, etwa alle Städte einer Nation; so reichen die
+200 Bilder je Ebene auch für 1000 Banner.
 
 ```json
 {

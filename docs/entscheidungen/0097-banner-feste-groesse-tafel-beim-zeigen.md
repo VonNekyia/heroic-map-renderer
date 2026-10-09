@@ -31,8 +31,10 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
   `dimension` wie bei der Nadel. Das Bild liegt wie jedes Bild der Ebene
   unter `images/`, PNG oder WebP `VP8L`, höchstens 32 × 64 Pixel. Die
   Ansicht zeichnet es Pixel auf Pixel, nie skaliert, unten mittig auf dem
-  Ort. Jedes Banner bringt sein Bild mit; für eine Stadt ohne Nation
-  schickt das Plugin ein weisses.
+  Ort. Jedes Banner bringt sein Bild mit, vom Besitzer der Ebene, etwa
+  einem Plugin für Städte über die API; für eine Stadt ohne Nation schickt
+  er ein weisses. Banner dürfen sich ein Bild teilen, etwa alle Städte
+  einer Nation.
 - **Feste Grösse:** Nadeln und Banner stehen auf jeder Stufe in der Grösse
   ihres Bilds, in Pixeln der Ansicht. Die Stufen nach der Breite eines
   Blocks fallen weg. `size` bleibt die feste Wahl der Nadel zwischen
@@ -55,8 +57,9 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
   einheitlicher aus, aber jedes Bild würde unscharf oder verlöre Zeilen.
   Pixel auf Pixel bleibt die Regel wie bei Symbolen und Bildern der Tafel.
 - **Ein weisses Banner aus der Ansicht, wenn das Bild fehlt:** Jede Ansicht
-  bräuchte dasselbe Ersatzbild, und es wiche vom Stil des Plugins ab. Das
-  Plugin kennt die Nation und schickt das passende Bild, auch das weisse.
+  bräuchte dasselbe Ersatzbild, und es wiche vom Stil des Besitzers der
+  Ebene ab. Er kennt die Nation und schickt das passende Bild, auch das
+  weisse.
 - **Die Stufen behalten:** Sie halten die Gesamtansicht einer grossen Welt
   frei; das war der Grund in 0095. Der User will trotzdem feste Grössen.
 - **Die Tafel sofort beim Zeigen:** Fährt die Maus über viele Nadeln, blitzt
@@ -72,7 +75,8 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
 - **Volle Karte:** In der Gesamtansicht einer grossen Welt können Nadeln und
   Banner die Karte decken. Abhilfe ist, Ebenen auszuschalten.
 - **Grenzen:** Ein Banner ist höchstens 32 × 64 Pixel. Nadeln und Banner
-  zählen zusammen gegen die 1000 einer Ebene. Ein Banner ohne gültiges Bild
+  zählen zusammen gegen die 1000 einer Ebene. Die 200 Bilder je Ebene
+  reichen, weil sich Banner ein Bild teilen dürfen. Ein Banner ohne gültiges Bild
   übergeht jede Ansicht mit Meldung, wie jede Verletzung einer Grenze.
 - **Plugin und Mod:**
   - Das Plugin prüft Format und Grösse des Bilds beim Aufruf.

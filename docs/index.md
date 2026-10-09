@@ -25,6 +25,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Updates](benutzung/updates.md): `--update` zeichnet nur, wo sich die Welt geändert hat; der Stand je Baum, Stempel und Fingerabdruck je Chunk, das Gebiet einer Änderung.
 - [Eigene Laubfarben](benutzung/laubfarben.md): der Vertrag für Laubfarben im PersistentDataContainer des Chunks, `heroicmap:leaf_colors`, Format, Wirkung, falsche Daten und Updates.
 - [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt den Richtungen und `projektion.json`, die Liste der Bäume `trees.json` unter einer Wurzel, die Höhen, Wasserspiegel und Rechteck der Welt und wann die Dateien entstehen.
+- [Ebenen](benutzung/ebenen.md): das Format der Ebenen für Webkarte und Mod, mit Nadeln, Kartenschrift, Regionen, Kreisen, Linien und einer Infotafel ohne HTML, wo die Dateien neben `trees.json` liegen, wie sie sich ändern, ihre Grenzen und wie 2D und iso sie auf das Gelände legen.
 - [Was ein Lauf kostet](benutzung/kosten.md): Platz und Dauer je scale, Cinematic gegen die Karte, die grosse Welt gemessen und hochgerechnet.
 - [Grafikkarte](benutzung/grafikkarte.md): `--gpu`, Adapter, Backends, Rückfall auf die CPU.
 - [Echtzeitschutz unter Windows](benutzung/echtzeitschutz.md): die Defender-Ausnahme und `--defender-exclusion`.
@@ -167,6 +168,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0091](entscheidungen/0091-gleiche-pixel-nicht-kodieren.md): Jeder Lauf hält je Kachel einen Hash ihrer Pixel fest und kodiert keine Kachel, die schon dieselben Pixel zeigt; der Hash gilt nur bei gleicher Grösse und Zeit der Datei und gleichem Build, liegt in Blöcken unter `pixel/` und nicht in `stand.bin`.
 - [0092](entscheidungen/0092-kompakt-ohne-vorhersage.md): `--compact` packt mit method 1 und, über einen Patch an libwebp in einer Kopie von `libwebp-sys`, ohne räumliche Vorhersage: Basis ×0,71, rund 8 bis 10 ms mehr je Kachel; ein Baum merkt es sich in `map.json`, der Hash der Pixel nimmt die Packung mit.
 - [0093](entscheidungen/0093-nachverdichten.md): `--compact-tree` packt einen fertigen Baum kompakt nach, ohne Welt und Assets: zuerst `map.json`, jede Kachel mit ihrer alten Zeit, ohne was ein anderer Lauf seit dem Beginn schrieb, fortgesetzt über die Hashes der Pixel.
+- [0095](entscheidungen/0095-ebenen.md): Ebenen als eigene Dateien neben den Kacheln, im iso auf dem Gelände statt flach, mit einer Infotafel aus Bausteinen statt HTML, Bildern als Dateien und englischen Schlüsseln; dazu die Kosten nach Regel 26.
 
 ## Versuche
 

@@ -382,6 +382,12 @@ und Linien, [`schrift.ts`](../web/src/schrift.ts) für die Kartenschrift,
 ist, ohne Leaflet, und [`pruefen.ts`](../web/src/pruefen.ts) für die
 Eingaben.
 
+Noch nicht umgesetzt ist
+[0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md):
+Banner, feste Grösse und die Tafel beim Zeigen. Bis dahin stuft die Karte
+Nadeln nach dem Zoom, wie unten beschrieben, und öffnet die Tafel beim
+Klick.
+
 - **Liste:** oben rechts ein aufklappbares „Ebenen“ mit einem Kästchen je
   Ebene, nach `order`. Die Namen folgen der Sprache des Browsers, Deutsch
   oder Englisch. Die Wahl merkt sich der Browser je Wurzel in

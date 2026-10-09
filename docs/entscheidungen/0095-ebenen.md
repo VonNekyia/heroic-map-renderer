@@ -12,7 +12,8 @@ code:
 # 0095: Ebenen auf dem Gelände, mit strukturierter Infotafel
 
 Zum Teil abgelöst durch [0097](0097-banner-feste-groesse-tafel-beim-zeigen.md):
-die Stufen der Nadel beim Hinauszoomen und die Tafel nur beim Anklicken.
+die Stufen der Nadel beim Hinauszoomen, die Tafel nur beim Anklicken und
+„an den Mod vorerst nur Nadeln“.
 
 ## Anlass
 

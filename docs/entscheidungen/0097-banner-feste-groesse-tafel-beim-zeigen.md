@@ -46,7 +46,17 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
   - Ein Klick hält sie offen, bis zum Schliessknopf, Escape oder einem
     Klick daneben.
   - Ohne Zeiger, auf dem Telefon, öffnet Tippen sie wie bisher. Per Tastatur
-    öffnet Enter sie wie bisher.
+    öffnet Enter sie wie bisher, nur auf der Webkarte; im Mod sind Nadeln,
+    Banner und Flächen keine Ziele für die Tastatur.
+  - Escape und ein Klick daneben schliessen zuerst nur die Tafel, erst der
+    nächste Druck wirkt auf die Karte.
+  - Im Mod gibt es die Tafel nur auf der Vollbildkarte, nicht auf der
+    Minimap.
+- **Bilder der Tafel** breiter als ihr Inhalt, 320 Pixel, werden mit
+  gleichem Seitenverhältnis verkleinert, nie vergrössert, in Webkarte und
+  Mod.
+- **An den Mod** gehen auch Kartenschrift und Linien, denn der User will
+  beides im Mod; die Grenzen je Teil gelten wie für die anderen Objekte.
 
 ## Verworfene Alternativen
 
@@ -70,8 +80,9 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
 
 ## Folgen
 
-- **Abgelöst in 0095:** die Stufen der Nadel beim Hinauszoomen und die Tafel
-  nur beim Anklicken. Der Rest von 0095 gilt.
+- **Abgelöst in 0095:** die Stufen der Nadel beim Hinauszoomen, die Tafel
+  nur beim Anklicken und „an den Mod vorerst nur Nadeln“. Der Rest von 0095
+  gilt.
 - **Volle Karte:** In der Gesamtansicht einer grossen Welt können Nadeln und
   Banner die Karte decken. Abhilfe ist, Ebenen auszuschalten.
 - **Grenzen:** Ein Banner ist höchstens 32 × 64 Pixel. Nadeln und Banner

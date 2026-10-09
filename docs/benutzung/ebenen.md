@@ -347,10 +347,16 @@ Webkarte wäre eine Lücke für Skripte.
   kann er in die Tafel wandern, etwa zum Scrollen.
 - **Ein Klick** hält sie offen, bis zum Schliessknopf, zu Escape oder zu
   einem Klick daneben.
+- **Escape und ein Klick daneben** schliessen zuerst nur die Tafel. Erst
+  der nächste Druck wirkt auf die Karte, im Mod etwa schliesst er die
+  Vollbildkarte.
 - **Ohne Zeiger,** auf Telefon und Tablett, öffnet Tippen die Tafel, Tippen
   daneben schliesst sie.
-- **Per Tastatur** öffnet Enter die Tafel des Ziels im Fokus, Escape
-  schliesst sie.
+- **Per Tastatur,** nur auf der Webkarte: Nadeln, Banner und Flächen mit
+  Tafel sind Ziele für Tab, Enter öffnet die Tafel des Ziels im Fokus,
+  Escape schliesst sie. Im Mod sind sie keine Ziele für die Tastatur.
+- **Im Mod** gibt es die Tafel nur auf der Vollbildkarte, nicht auf der
+  Minimap.
 
 ```json
 "panel": {
@@ -385,13 +391,13 @@ Webkarte wäre eine Lücke für Skripte.
 |---|---|---|
 | `title` | `text`, höchstens 64 Zeichen; `color`, Vorgabe die Schrift der Tafel | 20 px, fett |
 | `lines` | `lines`, je Zeile höchstens 120 Zeichen | 13 px, Zeilenhöhe 1,4 |
-| `image` | `image`, `width` und `height` in Pixeln der Tafel, `align` `left`, `center` oder `right`, Vorgabe `left` | in dieser Grösse, Pixelkunst ohne Glättung |
+| `image` | `image`, `width` und `height` in Pixeln der Tafel, `align` `left`, `center` oder `right`, Vorgabe `left` | in dieser Grösse, Pixelkunst ohne Glättung; breiter als der Inhalt der Tafel, 320 Pixel, verkleinert mit gleichem Seitenverhältnis, nie vergrössert |
 | `section` | `heading`: Bild mit `image`, `width`, `height` und `alt`, oder Text mit `text`; `blocks` darin | Überschrift über ihrem Inhalt, 8 px Abstand davor |
 | `rating` | `rows`: je Reihe `label`, `value` und `max` als ganze Zahlen, `color` | `max` Punkte von 10 px, `value` davon in `color`, die übrigen in `color` mit 25 % Deckkraft; das Label links, 100 px breit |
 | `columns` | `columns`: zwei Listen von Bausteinen | nebeneinander, oben bündig, die zweite so breit wie ihr Inhalt |
 
-- **Breite:** höchstens 320 Pixel, Innenabstand 8 Pixel, 4 Pixel zwischen
-  Bausteinen. Farben von Grund und Schrift kommen aus der Ansicht: auf der
+- **Breite:** Der Inhalt ist höchstens 320 Pixel breit, um ihn 8 Pixel
+  Innenabstand, 4 Pixel zwischen Bausteinen. Farben von Grund und Schrift kommen aus der Ansicht: auf der
   Webkarte aus der UI, siehe [Frontend](../frontend.md), im Mod aus seiner.
 - **Schrift:** eine schlichte, gut lesbare Schrift der Oberfläche, nie die
   Kartenschrift: auf der Webkarte die der UI, im Mod die des Spiels. Die
@@ -489,10 +495,9 @@ es und nennt es in der Konsole oder im Log.
 
 ## An den Mod
 
-Das Plugin schickt dem Mod Nadeln, Banner, Regionen und Kreise, über seinen
-Kanal.
-Regionen braucht der Mod zum Anheften (heroic-map-renderer-mod#36).
-Kartenschrift und Linien schickt es vorerst nicht.
+Das Plugin schickt dem Mod Nadeln, Banner, Kartenschrift, Regionen, Kreise
+und Linien, über seinen Kanal. Regionen braucht der Mod auch zum Anheften
+(heroic-map-renderer-mod#36).
 
 - **Objekte:** dieselben Felder wie hier, ohne `panel`, in derselben
   Reihenfolge.

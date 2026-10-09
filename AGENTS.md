@@ -119,9 +119,14 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
     Pfade vom eigenen Rechner, Seeds, Hardware oder Koordinaten der grossen
     Welt. Messungen nennen die Welt allgemein („die grosse Welt“, „die
     Testwelt“). Bilder zeigen nur die Testwelt oder Szenen, die ein
-    Test baut. Einzige Ausnahme: die Kontaktadresse
-    `contact@mcterranova.com` mit dem Herausgeber in `README.md` und
-    `NOTICE`, weil die Usage Guidelines von Mojang einen Kontakt verlangen.
+    Test baut. Ausnahmen:
+    - die Kontaktadresse `contact@mcterranova.com` mit dem Herausgeber in
+      `README.md` und `NOTICE`, weil die Usage Guidelines von Mojang einen
+      Kontakt verlangen;
+    - eine Benchmark-Seite in `docs/messungen/` darf den Messrechner
+      nennen: CPU-Modell, Kerne, RAM, Platte, Betriebssystem und
+      Java/Paper. Ebenso ihr Diagramm in `docs/bilder/` und im README, mit
+      dem Messrechner als Fussnote. Sonst gilt alles in dieser Regel weiter.
 21. Deutsch, kurze Sätze. Frontmatter-Schlüssel englisch, wie in Agent
     Skills.
 
@@ -154,6 +159,10 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
       Vorher wird geprüft, ob wir das Verfahren nutzen dürfen: kein
       gültiges Patent, keine Lizenz, die einen Hinweis verlangt. Der Code
       bleibt eigener Code (Regel 23).
+    - Ausnahme Benchmark: Eine Benchmark-Seite und ihr Diagramm, siehe
+      Regel 20, dürfen andere Werkzeuge, etwa Dynmap, Pl3xMap oder
+      squaremap, mit unseren eigenen Messungen nennen. Nie als Vorbild oder Quelle einer Idee, und keine Zahlen, die
+      andere gemessen haben.
 25. Eine Lizenz schliesst keinen Vorschlag aus. Kann das Übernehmen
     fremden Codes ein Lizenzproblem sein, auch weil eine Lizenz einen
     Hinweis auf die Herkunft verlangt, wird der User direkt gefragt.

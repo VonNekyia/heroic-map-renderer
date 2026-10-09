@@ -1746,7 +1746,7 @@ fn write_tiles(
     {
         println!("Update:     nichts zu zeichnen");
         if umstellen {
-            rebuild_pyramid(dir, mit_manifest, beginn, vorhandene_mit_zeit)?;
+            rebuild_pyramid(dir, mit_manifest, SystemTime::now(), vorhandene_mit_zeit)?;
         } else if mit_manifest {
             manifest::ohne_aenderung(dir)?;
         }
@@ -5259,7 +5259,7 @@ mod tests {
             &kinder,
             None,
             SystemTime::now(),
-            Packen::Schnell,
+            (Packen::Schnell, Verkleinern::Mitteln, 1),
         );
         assert!(neu.unwrap().is_none());
         assert!(!tile_path(dir, 0, kind.parent()).exists());

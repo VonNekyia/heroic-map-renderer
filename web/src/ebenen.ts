@@ -1,7 +1,8 @@
 /**
  * Ebenen über den Kacheln: die Liste zum Umschalten, Nadeln als Wappenschild
- * und ihre Infotafel. Das Format steht in docs/benutzung/ebenen.md, wie die
- * Karte es zeigt in docs/frontend.md, „Ebenen“.
+ * und ihre Infotafel, Regionen, Kreise, Linien und Kartenschrift. Das Format
+ * steht in docs/benutzung/ebenen.md, wie die Karte es zeigt in
+ * docs/frontend.md, „Ebenen“.
  */
 import L from 'leaflet';
 import feldGross from './ebenen/schild_gross.png?url&no-inline';
@@ -10,8 +11,12 @@ import feldKlein from './ebenen/schild_klein.png?url&no-inline';
 import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
-import { FRISCH, type Hoehenkarten } from './hoehen';
-import { projiziere, type Projektion } from './pick';
+import { form, versetze, zeichne, type Form, type Strich } from './formen';
+import { bildpunkt, oberflaeche as hoeheAuf, schriftPfad, type Blick, type Gelaende } from './gelaende';
+import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
+import { REGION } from './pick';
+import { FARBE, istObjekt, istText, istZahl } from './pruefen';
+import { Schrift, schriftzug, type Schriftzug } from './schrift';
 
 /** Ein Eintrag in `layers.json`. */
 interface Eintrag {
@@ -41,13 +46,16 @@ export interface Umgebung {
   map: L.Map;
   /** Die Wurzel mit `trees.json`, ohne `/` am Ende. */
   wurzel: string;
-  blick: { p: Projektion; k: number };
+  blick: Blick;
   scale: number;
   maxZoom: number;
   /** Die Höhen; ohne sie liegt im iso alles auf `seaLevel`. */
   karten?: Hoehenkarten;
   heightsCell?: number;
   seaLevel?: number;
+  /** Die Bauhöhe aus `map.json`; sie begrenzt, wie weit Gelände eine Form verdecken kann. */
+  minY?: number;
+  maxY?: number;
 }
 
 /**
@@ -66,12 +74,19 @@ const GROESSEN: Groesse[] = ['large', 'medium', 'small'];
 const TAKT = 30_000;
 
 /** Grenzen aus docs/benutzung/ebenen.md, „Grenzen“. */
-const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20 };
+const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20 };
 
-/** Die Panes der Ebenen, 510 bis 573: über `shadowPane` (500), unter `markerPane` (600), `tooltipPane` und Tafel. */
+/**
+ * Die Panes der Nadeln, 510 bis 573: über `shadowPane` (500), unter
+ * `markerPane` (600), `tooltipPane` und Tafel. Darunter die Panes der Formen
+ * und Schrift, 410 bis 473: So liegen die Nadeln aller Ebenen über allem
+ * anderen.
+ */
 const PANE_GRUND = 510;
+const FORM_GRUND = 410;
 
-const FARBE = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
+/** Die Tafel als Popup, für Nadeln und Flächen gleich. */
+const TAFEL: L.PopupOptions = { className: 'tafel', maxWidth: 320, minWidth: 120, autoPanPadding: [8, 8] };
 
 /**
  * Ein Teil der Kennung oder der Name eines Bilds ohne Endung, nach
@@ -94,10 +109,6 @@ function bildGilt(pfad: string): boolean {
   return name !== undefined && teilGilt(name);
 }
 
-const istText = (wert: unknown, max: number): wert is string => typeof wert === 'string' && wert.length > 0 && wert.length <= max;
-const istZahl = (wert: unknown): wert is number => typeof wert === 'number' && Number.isFinite(wert);
-const istObjekt = (wert: unknown): wert is Record<string, unknown> => typeof wert === 'object' && wert !== null && !Array.isArray(wert);
-
 /**
  * Wie viele Grössen kleiner die Nadel beim Hinauszoomen wird, nach der
  * Breite eines Blocks auf dem Schirm in Pixeln. Siehe
@@ -113,13 +124,6 @@ export function kleiner(blockPixel: number): number {
 /** Die Grösse, in der eine Nadel steht, oder `undefined`, wenn sie aus ist. */
 export function gezeigt(grund: Groesse, blockPixel: number): Groesse | undefined {
   return GROESSEN[GROESSEN.indexOf(grund) + kleiner(blockPixel)];
-}
-
-/** Ein Punkt der Welt im Blick, k Vierteldrehungen; ohne −1 wie bei Blöcken. */
-export function punktImBlick(x: number, z: number, k: number): [number, number] {
-  let [a, b] = [x, z];
-  for (let i = 0; i < k; i++) [a, b] = [b, -a];
-  return [a, b];
 }
 
 function eintrag(wert: unknown): Eintrag | undefined {
@@ -371,7 +375,7 @@ async function json(pfad: string, max: number): Promise<unknown> {
 
 /**
  * Die Ebenen der Karte: liest `layers.json` neben `trees.json`, zeigt die
- * Liste zum Umschalten und die Nadeln der Ebenen, die an sind, und fragt
+ * Liste zum Umschalten und die Objekte der Ebenen, die an sind, und fragt
  * alle 30 Sekunden nach Änderungen. Fehlt `layers.json` beim Laden, geschieht
  * bis zum Neuladen nichts.
  */
@@ -380,6 +384,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const sprache = navigator.language.startsWith('de') ? 'de' : 'en';
   const wahl = gemerkt(wurzel);
   const iso = blick.p.y > 0;
+  const grund = seaLevel ?? 64;
+  const c = heightsCell ?? 4;
+  /** Ohne Höhen: eben auf `grund`. */
+  const eben: Gelaende = { c, grund, zelle: () => undefined, max: grund + 1 };
 
   /** Die Oberseite des Geländes je Punkt, einmal gerechnet; siehe ebenen.md, „Die Oberfläche im iso“. */
   const oberflaechen = new Map<string, Promise<number>>();
@@ -388,33 +396,64 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     let wert = oberflaechen.get(schluessel);
     if (!wert) {
       wert = (async () => {
-        const grund = seaLevel ?? 64;
         if (!iso || !karten || !heightsCell) return grund + 1;
-        const c = heightsCell;
         // Vier Zellen um den Punkt und für den Ersatz zwei weitere in jede Richtung.
         await karten.lade([-3 * c, 3 * c].flatMap((dx) => [-3 * c, 3 * c].map((dz) => [Math.floor(x + dx), 0, Math.floor(z + dz)] as [number, number, number])));
-        const zelle = (i: number, j: number): number => {
-          const eigen = karten.hoehe(i * c, j * c);
-          if (eigen !== undefined) return eigen;
-          const nachbarn: number[] = [];
-          for (let di = -2; di <= 2; di++) {
-            for (let dj = -2; dj <= 2; dj++) {
-              const n = karten.hoehe((i + di) * c, (j + dj) * c);
-              if (n !== undefined) nachbarn.push(n);
-            }
-          }
-          return nachbarn.length ? nachbarn.reduce((a, b) => a + b, 0) / nachbarn.length : grund;
-        };
-        const [fx, fz] = [x / c - 0.5, z / c - 0.5];
-        const [i, j] = [Math.floor(fx), Math.floor(fz)];
-        const [tx, tz] = [fx - i, fz - j];
-        const oben = zelle(i, j) * (1 - tx) + zelle(i + 1, j) * tx;
-        const unten = zelle(i, j + 1) * (1 - tx) + zelle(i + 1, j + 1) * tx;
-        return oben * (1 - tz) + unten * tz + 1;
+        return hoeheAuf({ ...eben, zelle: (i, j) => karten.hoehe(i * c, j * c) }, x, z);
       })();
       oberflaechen.set(schluessel, wert);
     }
     return wert;
+  };
+
+  /** Die höchste Oberseite einer Höhenkarte, einmal je Karte gerechnet. */
+  const maxima = new WeakMap<Int16Array, number>();
+  const hoechste = (karte: Int16Array): number => {
+    let max = maxima.get(karte);
+    if (max === undefined) {
+      max = -Infinity;
+      for (const v of karte) if (v !== LEER && v + 1 > max) max = v + 1;
+      maxima.set(karte, max);
+    }
+    return max;
+  };
+
+  /**
+   * Die Höhen im Rechteck [x0, z0, x1, z1] der Welt, dazu, wie weit Gelände
+   * zur Kamera hin verdecken kann, und zwei Zellen für den Ersatz leerer.
+   * Die Karten der Regionen hält das Ergebnis selbst, so verdrängt der Cache
+   * keine, solange eine Form sie braucht.
+   */
+  const gelaende = async ([x0, z0, x1, z1]: [number, number, number, number]): Promise<Gelaende> => {
+    if (!iso || !karten || !heightsCell) return eben;
+    const genordet = blick.p.azimuth === 'north';
+    let [wx, wz] = genordet ? [0, 1] : [1, 1];
+    for (let i = 0; i < blick.k; i++) [wx, wz] = [-wz, wx];
+    const weit = ((umgebung.maxY ?? 319) - (umgebung.minY ?? -64)) * (blick.p.y / ((genordet ? 1 : 2) * blick.p.v));
+    const rand = 3 * c;
+    const [ax, bx] = [Math.min(x0, x0 + wx * weit) - rand, Math.max(x1, x1 + wx * weit) + rand];
+    const [az, bz] = [Math.min(z0, z0 + wz * weit) - rand, Math.max(z1, z1 + wz * weit) + rand];
+    const regionen = new Map<string, Int16Array | null>();
+    const auftraege: Promise<void>[] = [];
+    for (let rx = Math.floor(ax / REGION); rx <= Math.floor(bx / REGION); rx++) {
+      for (let rz = Math.floor(az / REGION); rz <= Math.floor(bz / REGION); rz++) {
+        auftraege.push(karten.karte(rx, rz).then((k) => void regionen.set(`${rx}.${rz}`, k)));
+      }
+    }
+    await Promise.all(auftraege);
+    let max = grund + 1;
+    for (const k of regionen.values()) if (k) max = Math.max(max, hoechste(k));
+    const n = REGION / c;
+    return {
+      c,
+      grund,
+      max,
+      zelle: (i, j) => {
+        const [rx, rz] = [Math.floor(i / n), Math.floor(j / n)];
+        const v = regionen.get(`${rx}.${rz}`)?.[(j - rz * n) * n + (i - rx * n)];
+        return v === undefined || v === LEER ? undefined : v;
+      },
+    };
   };
 
   /** Breite eines Blocks auf dem Schirm, in Pixeln. */
@@ -425,6 +464,9 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     version: string;
     gruppe: L.LayerGroup;
     marker: { nadel: Nadel; marker: L.Marker; groesse?: Groesse }[];
+    /** Flächen, Ränder, Linien und Schrift, in dieser Reihenfolge. */
+    formen: L.LayerGroup;
+    striche: Strich[];
     /** Icons und Symbole dieser `version`; sie fallen mit ihr weg. */
     icons: Map<string, Promise<HTMLCanvasElement>>;
     symbole: Map<string, Promise<HTMLImageElement>>;
@@ -487,22 +529,39 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
   };
 
-  /** Je Ebene ein Pane; die Namen zählen hoch, so kollidieren keine zwei Kennungen. */
-  const panes = new Map<string, string>();
-  const pane = (id: string): string => {
-    let name = panes.get(id);
-    if (!name) {
-      name = `ebene-${panes.size}`;
-      panes.set(id, name);
+  /**
+   * Je Ebene ein Pane für die Nadeln und eines für Formen und Schrift, mit
+   * eigenem SVG; die Namen zählen hoch, so kollidieren keine zwei Kennungen.
+   * Klicks gehen durch das SVG zu tieferen Panes; nur Flächen mit Namen oder
+   * Tafel fangen sie.
+   */
+  const panes = new Map<string, { nadeln: string; formen: string; renderer: L.Renderer }>();
+  const pane = (id: string) => {
+    let eintrag = panes.get(id);
+    if (!eintrag) {
+      const name = `ebene-${panes.size}`;
       map.createPane(name);
+      map.createPane(`${name}-formen`);
+      eintrag = { nadeln: name, formen: `${name}-formen`, renderer: L.svg({ pane: `${name}-formen` }) };
+      panes.set(id, eintrag);
     }
-    return name;
+    return eintrag;
   };
   /** Ordnet die Panes: über allen mit niedrigerer `order`, bei Gleichstand nach `id`. */
   const stapeln = (): void => {
     eintraege.forEach((e, i) => {
-      map.getPane(pane(e.id))!.style.zIndex = String(PANE_GRUND + eintraege.length - 1 - i);
+      const rang = eintraege.length - 1 - i;
+      map.getPane(pane(e.id).nadeln)!.style.zIndex = String(PANE_GRUND + rang);
+      map.getPane(pane(e.id).formen)!.style.zIndex = String(FORM_GRUND + rang);
     });
+  };
+
+  /** Nimmt eine geladene Ebene von der Karte. */
+  const weg = (id: string): void => {
+    const g = geladen.get(id);
+    g?.gruppe.remove();
+    g?.formen.remove();
+    geladen.delete(id);
   };
 
   const an = (e: Eintrag): boolean => wahl.lies()[e.id] ?? e.visible;
@@ -524,25 +583,42 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       console.warn(`${ordner}/${name}.json: Ebene mit permission oder web: false, übergangen`);
       abgewiesen.set(e.id, e.version);
       // Eine ältere version, die schon steht, weicht.
-      geladen.get(e.id)?.gruppe.remove();
-      geladen.delete(e.id);
+      weg(e.id);
       return;
     }
-    const objekte = istObjekt(datei) && Array.isArray(datei.objects) ? datei.objects : [];
+    let objekte = istObjekt(datei) && Array.isArray(datei.objects) ? datei.objects : [];
+    if (objekte.length > GRENZEN.objekte) {
+      console.warn(`${e.id}: ${objekte.length} Objekte, gezeigt die ersten ${GRENZEN.objekte}`);
+      objekte = objekte.slice(0, GRENZEN.objekte);
+    }
+    const warne = (text: string) => console.warn(`${e.id}: ${text}`);
+    const formen = objekte.map((o) => (istObjekt(o) ? form(o, warne) : undefined)).filter((f): f is Form => f !== undefined);
+    const schriften = objekte.map((o) => (istObjekt(o) ? schriftzug(o) : undefined)).filter((s): s is Schriftzug => s !== undefined);
     let nadeln = objekte.map(nadel).filter((n): n is Nadel => n !== undefined);
     if (nadeln.length > GRENZEN.nadeln) {
       console.warn(`${e.id}: ${nadeln.length} Nadeln, gezeigt die ersten ${GRENZEN.nadeln}`);
       nadeln = nadeln.slice(0, GRENZEN.nadeln);
     }
+    const tafelDerEbene = (bausteine: unknown[]) => tafel(bausteine, ordner, e.version);
+    const { renderer, formen: formPane } = pane(e.id);
+    // Formen und Schrift rechnen einmal je version, hier vor dem Tausch.
+    const gezeichnet = await zeichne(formen, { renderer, blick, gelaende, tafel: tafelDerEbene, tafelOptionen: TAFEL });
+    const schriftLagen = await Promise.all(
+      schriften.map(async (s) => {
+        let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
+        for (const [x, z] of s.pfad) [x0, z0, x1, z1] = [Math.min(x0, x), Math.min(z0, z), Math.max(x1, x), Math.max(z1, z)];
+        const pfad = schriftPfad(s.pfad, await gelaende([x0 - 16, z0 - 16, x1 + 16, z1 + 16]), blick);
+        return new Schrift(s, pfad, () => 2 ** (map.getZoom() - maxZoom), scale, formPane);
+      }),
+    );
     const marker = await Promise.all(
       nadeln.map(async (n, index) => {
-        const [vx, vz] = punktImBlick(n.at[0], n.at[1], blick.k);
         const y = n.y !== undefined ? n.y + 1 : await oberflaeche(n.at[0], n.at[1]);
-        const [px, py] = projiziere(vx, iso ? y : 0, vz, blick.p);
+        const [px, py] = bildpunkt(n.at[0], iso ? y : 0, n.at[1], blick);
         // In der Ebene liegt die spätere oben, gleich wo auf dem Schirm.
         const m = L.marker(L.latLng(py, px), {
           icon: L.divIcon({ html: '' }),
-          pane: pane(e.id),
+          pane: pane(e.id).nadeln,
           zIndexOffset: index * 100_000,
           interactive: n.panel !== undefined,
           keyboard: n.panel !== undefined,
@@ -558,7 +634,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
           m.on('click', () => {
             perTastatur = false;
           });
-          m.bindPopup(() => tafel(n.panel!, ordner, e.version), { className: 'tafel', maxWidth: 320, minWidth: 120, autoPanPadding: [8, 8] });
+          m.bindPopup(() => tafelDerEbene(n.panel!), TAFEL);
           m.on('popupopen', ({ popup }: L.PopupEvent) => {
             offen = m;
             const inhalt = popup.getElement()?.querySelector<HTMLElement>('.leaflet-popup-content');
@@ -576,15 +652,26 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     );
     // Hat jemand inzwischen umgeschaltet, gilt sein Auftrag; erst jetzt die alte Gruppe ersetzen.
     if (!gilt()) return;
-    geladen.get(e.id)?.gruppe.remove();
-    geladen.set(e.id, { ordner, version: e.version, gruppe: L.layerGroup().addTo(map), marker, icons: new Map(), symbole: new Map() });
+    weg(e.id);
+    // Erst Flächen, dann Ränder und Linien, zuletzt Schrift.
+    const formGruppe = L.layerGroup([...gezeichnet.flaechen, ...gezeichnet.striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
+    versetze(gezeichnet.striche, 2 ** (map.getZoom() - maxZoom));
+    geladen.set(e.id, {
+      ordner,
+      version: e.version,
+      gruppe: L.layerGroup().addTo(map),
+      marker,
+      formen: formGruppe,
+      striche: gezeichnet.striche,
+      icons: new Map(),
+      symbole: new Map(),
+    });
     await groessen();
   };
 
   const entferne = (id: string): void => {
     auftrag.set(id, (auftrag.get(id) ?? 0) + 1);
-    geladen.get(id)?.gruppe.remove();
-    geladen.delete(id);
+    weg(id);
   };
 
   // Die Liste zum Umschalten, oben rechts unter Kompass und Umschalter.
@@ -656,7 +743,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   if (iso && !karten) console.warn(`${wurzel}: Ebenen ohne Höhen, im iso auf seaLevel`);
   // Erst anmelden, dann abgleichen: Ein Fehler beim ersten Abgleich hält das
   // Nachfragen nicht auf.
-  map.on('zoomend', () => void groessen());
+  map.on('zoomend', () => {
+    for (const g of geladen.values()) versetze(g.striche, 2 ** (map.getZoom() - maxZoom));
+    void groessen();
+  });
   setInterval(() => {
     if (document.visibilityState === 'visible') void nachfragen();
   }, TAKT);

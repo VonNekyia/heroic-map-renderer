@@ -732,7 +732,7 @@ test.describe('der Stand der Karte', () => {
   });
 });
 
-test('unten rechts unter dem Stand stehen der Hinweis von Mojang und der Link auf die Lizenzen aus dem Build: NOTICE, LICENSE und jede Abhängigkeit, darin Leaflet', async ({ page }) => {
+test('unten rechts unter dem Stand stehen der Hinweis von Mojang und der Link auf die Lizenzen aus dem Build: NOTICE, LICENSE, die Lizenz der Kartenschrift und jede Abhängigkeit, darin Leaflet', async ({ page }) => {
   await page.goto(DEMO);
   const fuss = page.locator('.lizenzen');
   await expect(fuss).toHaveText(
@@ -751,6 +751,8 @@ test('unten rechts unter dem Stand stehen der Hinweis von Mojang und der Link au
   const eigen = (name: string) => readFileSync(new URL(`../../${name}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n').trimEnd();
   expect(text.startsWith(eigen('NOTICE'))).toBe(true);
   expect(text).toContain(eigen('LICENSE'));
+  // OFL 1.1, Bedingung 2: Copyright und Lizenz bei jeder Kopie der Schrift.
+  expect(text).toContain(eigen('web/src/ebenen/schrift/OFL.txt'));
   const paket = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { dependencies: Record<string, string> };
   for (const name of Object.keys(paket.dependencies)) expect(text).toMatch(new RegExp(`^## ${name} - `, 'm'));
   // BSD-2-Clause, Klausel 2: der Copyright-Hinweis in jeder Weitergabe des Bündels.

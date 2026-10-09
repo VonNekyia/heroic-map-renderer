@@ -170,6 +170,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0093](entscheidungen/0093-nachverdichten.md): `--compact-tree` packt einen fertigen Baum kompakt nach, ohne Welt und Assets: zuerst `map.json`, jede Kachel mit ihrer alten Zeit, ohne was ein anderer Lauf seit dem Beginn schrieb, fortgesetzt über die Hashes der Pixel.
 - [0094](entscheidungen/0094-von-oben-der-naechste-pixel.md): Bei `top-north` nimmt die Pyramide je 2 × 2 einen Pixel statt zu mitteln, im Wechsel rechts unten und links oben nach der Tiefe, `top` mittelt weiter; der Baum merkt es sich als `downscale` in `map.json`, ein älterer Baum aus `top-north` wird einmal ganz umgebaut.
 - [0095](entscheidungen/0095-ebenen.md): Ebenen als eigene Dateien neben den Kacheln, im iso auf dem Gelände statt flach, mit einer Infotafel aus Bausteinen statt HTML, Bildern als Dateien und englischen Schlüsseln; dazu die Kosten nach Regel 26.
+- [0096](entscheidungen/0096-formen-und-schrift-im-browser.md): Formen der Ebenen als SVG je Ebene, Flächen als Streifen je Reihe statt Dreiecken mit Maske, Kartenschrift als SVG-Text in der unveränderten TTF.
 
 ## Versuche
 

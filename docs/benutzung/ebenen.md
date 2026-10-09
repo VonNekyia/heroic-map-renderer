@@ -143,9 +143,10 @@ selbst, die Webkarte im Browser.
   { "color": "#8640E6DD", "width": 2, "style": "dashed", "dash": [8, 6] }
   ```
 
-  `width` in Pixeln des Bildschirms, Vorgabe 2. `style` ist `solid` oder
-  `dashed`, Vorgabe `solid`. `dash` sind Strich und Lücke in Pixeln,
-  Vorgabe `[8, 6]`.
+  `width` in Pixeln des Bildschirms, Vorgabe 2; 0 heisst ohne Rand.
+  `color` ist bei Region und Kreis als Vorgabe die Farbe von `fill` ohne
+  Alpha, sonst `#2B2B2B`. `style` ist `solid` oder `dashed`, Vorgabe
+  `solid`. `dash` sind Strich und Lücke in Pixeln, Vorgabe `[8, 6]`.
 - **Eine Füllung** (`fill`) ist eine Farbe; das Alpha macht sie
   halbdurchsichtig.
 - **Texte** sind schlichter Text in UTF-8, nie HTML. Jede Ansicht setzt
@@ -510,24 +511,28 @@ wie bei den Koordinaten.
 
 ### Flächen
 
-1. **Als Netz:** Das Polygon samt Löchern wird an den Grenzen der Zellen
-   zerschnitten. Jedes Stück wird in Dreiecke zerlegt, jede Ecke mit ihrer
-   Höhe projiziert.
-2. **In einem Zug gefüllt:** Die Dreiecke kommen erst deckend in eine
-   Maske, dann die Maske einmal in der Farbe von `fill`. So doppelt sich
-   das Alpha nicht an den Kanten zweier Dreiecke.
+1. **Als Netz:** Das Polygon samt Löchern wird an den Linien durch die
+   Mitten der Zellen zerschnitten, denn dazwischen mischt `H` bilinear.
+   Jedes Stück wird gezeichnet, als Dreiecke oder als Vieleck, jede Ecke
+   mit ihrer Höhe projiziert. Die Webkarte fasst die Stücke ganz drinnen je
+   Reihe zusammen, siehe
+   [0096](../entscheidungen/0096-formen-und-schrift-im-browser.md).
+2. **In einem Zug gefüllt:** Die Stücke kommen erst deckend in eine Maske,
+   dann die Maske einmal in der Farbe von `fill`; die Webkarte füllt sie
+   als einen Pfad. So doppelt sich das Alpha nicht an den Kanten zweier
+   Stücke.
 
 ### Was verdeckt ist
 
 Im iso kann Gelände vor einer Fläche liegen, etwa ein Berg vor einem Tal.
 
-- **Prüfen:** Für jeden Punkt eines Rands und die Mitte jedes Dreiecks geht
+- **Prüfen:** Für jeden Punkt eines Rands und die Mitte jedes Stücks geht
   die Ansicht den Strahl durch seinen Bildpunkt ab, wie die Koordinaten,
   siehe [Frontend](../frontend.md), „Koordinaten“. Trifft der Strahl eine
   Spalte, die mehr als eine Zelle vor dem Punkt liegt, ist er verdeckt.
 - **Verdeckte Ränder** zeichnet die Ansicht dünn, gestrichelt und mit
   40 % Deckkraft, so bleibt die Form lesbar.
-- **Verdeckte Dreiecke** füllt sie nicht.
+- **Verdeckte Stücke** füllt sie nicht.
 - **Nadeln und Schrift** liegen immer obenauf, auch hinter einem Berg.
 
 ### Kartenschrift

@@ -15,5 +15,10 @@ Minecraft, seine Texturen, Modelle und Daten gehören Mojang und Microsoft.
 Die Apache-Lizenz gilt nicht für sie, auch nicht für die Texturen in den
 gerenderten Bildern unter docs/bilder und im README.
 
+Die Webkarte liefert die Schrift IM FELL English SC von Igino Marini
+unverändert mit, web/src/ebenen/schrift/IMFeENsc28P.ttf. Sie steht unter der
+SIL Open Font License 1.1, nicht unter der Apache-Lizenz; ihr Text liegt
+daneben in OFL.txt und steht in lizenzen.txt der Webkarte.
+
 Die Lizenzen der Abhängigkeiten im Binär stehen in THIRD-PARTY-NOTICES und
 COPYRIGHT-library.html; beide liegen jeder Weitergabe des Binärs bei.

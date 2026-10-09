@@ -252,6 +252,33 @@ body {
   white-space: nowrap;
 }
 
+/* Der Name einer Region beim Zeigen, wie der Name einer Nadel. */
+.leaflet-tooltip.ebene-name {
+  padding: 0 3px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--ui-grund);
+  color: var(--ui-schrift);
+  font: 12px/1.4 var(--ui-schrift-text);
+}
+
+.leaflet-tooltip.ebene-name::before {
+  display: none;
+}
+
+/* Kartenschrift: ein SVG je Schriftzug, nicht anklickbar. */
+.ebene-schrift {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.ebene-schrift text {
+  font-family: Kartenschrift, serif;
+  text-anchor: middle;
+}
+
 /* Die Infotafel in den Farben und der Schrift der UI, nie der Kartenschrift;
    zu hoch, scrollt sie. Rechts Platz für den Knopf zum Schliessen. */
 .tafel .leaflet-popup-content-wrapper,

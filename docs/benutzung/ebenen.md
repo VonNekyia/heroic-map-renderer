@@ -517,7 +517,8 @@ wie bei den Koordinaten.
    Jedes Stück wird gezeichnet, als Dreiecke oder als Vieleck, jede Ecke
    mit ihrer Höhe projiziert, auf jeder Kante dazu ihre Mitte. Die
    Webkarte zeichnet statt der Felder ganz drinnen den Umriss der
-   sichtbaren unter ihnen; das gibt dasselbe Bild, siehe
+   sichtbaren unter ihnen; das gibt dasselbe Bild, ausser am Rand des
+   Verdeckten, siehe
    [0096](../entscheidungen/0096-formen-und-schrift-im-browser.md).
 2. **In einem Zug gefüllt:** Die Stücke kommen erst deckend in eine Maske,
    dann die Maske einmal in der Farbe von `fill`; die Webkarte füllt sie
@@ -533,10 +534,9 @@ Steigung `2a/b`, genordet `a/b`. Gelände zählt erst ab mehr als einer Zelle
 vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 übernächsten.
 
-- **Ein Feld** ist verdeckt, wenn `H` in der Mitte eines Felds auf dieser
-  Linie über dem Strahl liegt. Die Mitten liegen eine Zelle auseinander.
-- **Ein Punkt eines Rands** ist verdeckt, wenn `H` über dem Strahl liegt,
-  abgetastet in Schritten einer halben Zelle.
+- **Ein Punkt** ist verdeckt, wenn `H` auf dieser Linie über dem Strahl
+  liegt, abgetastet in Schritten einer halben Zelle.
+- **Ein Feld** ist verdeckt, wenn seine Mitte es ist.
 - **Verdeckte Ränder** zeichnet die Ansicht dünn, gestrichelt und mit
   40 % Deckkraft, so bleibt die Form lesbar.
 - **Verdeckte Felder** füllt sie nicht.

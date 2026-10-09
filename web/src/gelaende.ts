@@ -159,43 +159,59 @@ export function verdeckt(g: Gelaende, x: number, y: number, z: number, blick: Bl
 /**
  * Welche Felder sichtbar sind, in einem Durchgang je Linie zur Kamera. Ein
  * Feld ist das Quadrat zwischen vier Mitten von Zellen; Feld (p, q) hat
- * seine Mitte bei ((p + 1)·c, (q + 1)·c). Es ist verdeckt, wenn die Mitte
- * eines Felds mindestens `kmin` Schritte davor höher liegt als der Strahl:
- * `H(t) + steigung·c·t` mit t der Schritte von der Kamera weg, laufend als
- * Maximum gehalten. Gibt je Feld des Rechtecks [pa, qa] + [nx, nz] 1 für
+ * seine Mitte bei ((p + 1)·c, (q + 1)·c). Sichtbar heisst: `verdeckt` gibt
+ * an seiner Mitte `false`. Dieselben Punkte wie dort, die Mitten der Felder
+ * auf der Linie und je die halbe Zelle davor, gehen mit
+ * `H + steigung·c·t` in ein laufendes Maximum, t die Schritte von der
+ * Kamera weg. Gibt je Feld des Rechtecks [pa, qa] + [nx, nz] 1 für
  * sichtbar; `gefragt` wählt die Felder, die zählen.
  */
 export function sichtbareFelder(g: Gelaende, blick: Blick, pa: number, qa: number, nx: number, nz: number, gefragt: (i: number) => boolean): Uint8Array {
   const sicht = new Uint8Array(nx * nz);
-  const mitte = (p: number, q: number) => oberflaeche(g, (p + 1) * g.c, (q + 1) * g.c);
+  const { c } = g;
   let tiefste = Infinity;
-  for (let i = 0; i < sicht.length; i++) if (gefragt(i)) tiefste = Math.min(tiefste, mitte(pa + Math.floor(i / nz), qa + (i % nz)));
+  for (let i = 0; i < sicht.length; i++) {
+    if (gefragt(i)) tiefste = Math.min(tiefste, oberflaeche(g, (pa + Math.floor(i / nz) + 1) * c, (qa + (i % nz) + 1) * c));
+  }
   if (tiefste === Infinity) return sicht;
   const { wx, wz, steigung, kmin } = zurKamera(blick);
-  const schritt = steigung * g.c;
+  const schritt = steigung * c;
   // So viele Schritte zur Kamera, bis der Strahl über dem höchsten Gelände liegt.
   const weit = Math.max(kmin, Math.ceil((g.max - tiefste) / schritt) + 1);
   const [ea, eb] = [pa + Math.min(0, wx * weit), pa + nx - 1 + Math.max(0, wx * weit)];
   const [fa, fb] = [qa + Math.min(0, wz * weit), qa + nz - 1 + Math.max(0, wz * weit)];
-  const [ex, ez] = [eb - ea + 1, fb - fa + 1];
+  const ez = fb - fa + 1;
+  const index = (p: number, q: number) => (p - ea) * ez + (q - fa);
+  const drin = (p: number, q: number) => p >= ea && p <= eb && q >= fa && q <= fb;
   // t wächst je Schritt von der Kamera weg um 1.
   const t = (p: number, q: number) => -(p * wx + q * wz) / (wx * wx + wz * wz);
-  const maximum = new Float64Array(ex * ez);
+  // Je Mitte einmal gerechnet: H dort, und ihr Wert fürs Maximum samt der halben Zelle davor.
+  const mitte = new Float64Array((eb - ea + 1) * ez);
+  const wert = new Float64Array(mitte.length);
+  for (let p = ea; p <= eb; p++) {
+    for (let q = fa; q <= fb; q++) {
+      const [x, z] = [(p + 1) * c, (q + 1) * c];
+      const h = oberflaeche(g, x, z);
+      const halb = oberflaeche(g, x + (wx * c) / 2, z + (wz * c) / 2);
+      mitte[index(p, q)] = h;
+      wert[index(p, q)] = Math.max(h + schritt * t(p, q), halb + schritt * (t(p, q) - 0.5));
+    }
+  }
+  const maximum = new Float64Array(mitte.length);
   const reihe = (a: number, b: number, w: number) => (w > 0 ? { von: b, bis: a - 1, d: -1 } : { von: a, bis: b + 1, d: 1 });
   const [rp, rq] = [reihe(ea, eb, wx), reihe(fa, fb, wz)];
   for (let p = rp.von; p !== rp.bis; p += rp.d) {
     for (let q = rq.von; q !== rq.bis; q += rq.d) {
-      const [vp, vq] = [p + wx, q + wz];
-      const davor = vp >= ea && vp <= eb && vq >= fa && vq <= fb ? maximum[(vp - ea) * ez + (vq - fa)]! : -Infinity;
-      maximum[(p - ea) * ez + (q - fa)] = Math.max(mitte(p, q) + schritt * t(p, q), davor);
+      const davor = drin(p + wx, q + wz) ? maximum[index(p + wx, q + wz)]! : -Infinity;
+      maximum[index(p, q)] = Math.max(wert[index(p, q)]!, davor);
     }
   }
   for (let i = 0; i < sicht.length; i++) {
     if (!gefragt(i)) continue;
     const [p, q] = [pa + Math.floor(i / nz), qa + (i % nz)];
     const [vp, vq] = [p + kmin * wx, q + kmin * wz];
-    const vorn = vp >= ea && vp <= eb && vq >= fa && vq <= fb ? maximum[(vp - ea) * ez + (vq - fa)]! : -Infinity;
-    sicht[i] = vorn > mitte(p, q) + schritt * t(p, q) ? 0 : 1;
+    const vorn = drin(vp, vq) ? maximum[index(vp, vq)]! : -Infinity;
+    sicht[i] = vorn > mitte[index(p, q)]! + schritt * t(p, q) ? 0 : 1;
   }
   return sicht;
 }

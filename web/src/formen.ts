@@ -157,8 +157,8 @@ function laeufe(z: Zug, r: Rand, renderer: L.Renderer): Strich[] {
       const [a, b] = [z.punkte[i - 1]!, z.punkte[i]!];
       weg += Math.hypot(b[0] - a[0], b[1] - a[1]);
     }
-    // Ein gestrichelter Lauf bleibt ungeschnitten; schnitte Leaflet ihn am Rand des Renderers, verschöben sich seine Striche.
-    const linie = L.polyline(z.punkte.slice(von, i).map(latLng), { ...(verdeckt ? verdecktStil : stil), noClip: !verdeckt && r.strich !== undefined });
+    // Ein gestrichelter Lauf bleibt ungeschnitten, auch ein verdeckter; schnitte Leaflet ihn am Rand des Renderers, verschöben sich seine Striche.
+    const linie = L.polyline(z.punkte.slice(von, i).map(latLng), { ...(verdeckt ? verdecktStil : stil), noClip: verdeckt || r.strich !== undefined });
     aus.push({ linie, versatz: verdeckt ? 0 : versatz });
   }
   return aus;
@@ -203,37 +203,44 @@ export function zuege(f: Form, c: number, area: Rechteck | undefined): Punkt[][]
  * `area` liegt, fällt vorher weg.
  */
 export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Layer[]; striche: Strich[] } {
+  // Ausgepackt, und keine Closure greift auf z oder das Gelände: Sonst hielte
+  // die Tafel einer Fläche die Höhen am Leben.
+  const { renderer, blick, gelaende: g, area, tafel, tafelOptionen, bediene } = z;
   const flaechen: L.Layer[] = [];
   const striche: Strich[] = [];
-  const g = z.gelaende;
   for (const f of formen) {
     if (hatFlaeche(f)) {
       const beschnitten = polygone(f, g.c).map((p) => {
-        const im = (r: Punkt[]) => (z.area ? ringImRechteck(r, z.area) : r);
+        const im = (r: Punkt[]) => (area ? ringImRechteck(r, area) : r);
         return { aussen: im(p.aussen), loecher: p.loecher.map(im) };
       });
-      // Ohne Vereinfachen durch Leaflet: Es nähme jeden Ring für sich, gemeinsame Kanten liefen auseinander.
-      const flaeche = L.polygon(netz(beschnitten, g, z.blick).map((r) => r.map(latLng)), {
-        renderer: z.renderer,
-        stroke: false,
-        fillColor: f.fuellung ?? '#000000',
-        fillOpacity: f.fuellung ? 1 : 0,
-        interactive: f.name !== undefined || f.panel !== undefined,
-        smoothFactor: 0,
-      });
-      if (f.name) {
-        const name = document.createElement('span');
-        name.textContent = f.name;
-        flaeche.bindTooltip(name, { sticky: true, className: 'ebene-name' });
+      const ringe = netz(beschnitten, g, blick);
+      // Ganz verdeckt oder ausserhalb von area: keine Fläche, also auch kein Ziel.
+      if (ringe.length) {
+        // Ohne Vereinfachen durch Leaflet: Es nähme jeden Ring für sich, gemeinsame Kanten liefen auseinander.
+        const flaeche = L.polygon(ringe.map((r) => r.map(latLng)), {
+          renderer,
+          stroke: false,
+          fillColor: f.fuellung ?? '#000000',
+          fillOpacity: f.fuellung ? 1 : 0,
+          interactive: f.name !== undefined || f.panel !== undefined,
+          smoothFactor: 0,
+        });
+        if (f.name) {
+          const name = document.createElement('span');
+          name.textContent = f.name;
+          flaeche.bindTooltip(name, { sticky: true, className: 'ebene-name' });
+        }
+        const panel = f.panel;
+        if (panel) {
+          flaeche.bindPopup(() => tafel(panel), tafelOptionen);
+          bediene(flaeche, f.name);
+        }
+        flaechen.push(flaeche);
       }
-      if (f.panel) {
-        flaeche.bindPopup(() => z.tafel(f.panel!), z.tafelOptionen);
-        z.bediene(flaeche, f.name);
-      }
-      flaechen.push(flaeche);
     }
     if (f.rand.breite === 0) continue;
-    for (const stueck of zuege(f, g.c, z.area)) striche.push(...laeufe(zug(stueck, false, g, z.blick), f.rand, z.renderer));
+    for (const stueck of zuege(f, g.c, area)) striche.push(...laeufe(zug(stueck, false, g, blick), f.rand, renderer));
   }
   return { flaechen, striche };
 }

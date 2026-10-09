@@ -438,7 +438,8 @@ Eingaben.
   nach [Ebenen](benutzung/ebenen.md), „Zeichnen“:
   - übereinander: je Ebene ein Pane, `z-index` 410 + Rang, unter den Panes
     der Nadeln; darin erst Flächen, dann Ränder und Linien, zuletzt Schrift.
-    Das Pane lässt Klicks durch;
+    Das Pane lässt Klicks durch. Der Umriss beim Tippen liegt im
+    `shadowPane` (500), über allen Formen und unter den Nadeln;
   - eine Fläche mit `name` zeigt ihn beim Zeigen als Text, eine mit `panel`
     öffnet beim Klick die Tafel; nur diese fangen Klicks, auch ohne
     Füllung. Eine Fläche mit `panel` erreicht Tab, Enter oder Leertaste
@@ -448,9 +449,12 @@ Eingaben.
     und Schriften in einem: für eine Fläche ihr Rechteck, für Ränder und
     Linien die Regionen entlang des Zugs, je samt dem Streifen zur Kamera,
     aus dem Gelände verdecken kann, und nur innerhalb von `area`. Danach
-    fallen sie weg. Bräuchte eine Ebene mehr als 1024 Regionen (32 MiB),
-    etwa ohne `area` mit einem riesigen Kreis, liegt sie mit Meldung auf
-    `seaLevel`;
+    fallen sie weg. Bräuchte eine Ebene mehr als 1024 Regionen, etwa ohne
+    `area` mit einem riesigen Kreis, liegt die ganze Ebene mit Meldung auf
+    `seaLevel`, auch ihre kleinen Formen. Eine Region kostet
+    (512 / `heightsCell`)² · 2 Byte, bei `heightsCell` 4 also 32 KiB, 1024
+    Regionen 32 MiB. Das ist eine Grenze der Webkarte, nicht des Formats;
+    Plugin und Mod haben eigene;
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
     vorher beschnitten;
   - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,

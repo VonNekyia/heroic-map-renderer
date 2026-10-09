@@ -108,13 +108,14 @@ test('von oben liegt eine Region eben, ein Kreis bleibt rund', async ({ page }) 
 
 test('hinter einem Wall füllt die Karte nichts und zeichnet den Rand dünn, gestrichelt und blass; davor alles', async ({ page }) => {
   // Ein Wall quer über die Welt, wo i + j = 10; aus se liegt vorn, wo x + z gross ist.
-  const hinten = rechteck('hinten', 8, 8, 16, 16, { fill: '#FF000080' });
+  // Die hintere hat eine Tafel: Ganz verdeckt ist sie trotzdem kein Ziel für Tab.
+  const hinten = rechteck('hinten', 8, 8, 16, 16, { fill: '#FF000080', panel: { blocks: [{ type: 'title', text: 'Hinten' }] } });
   const vorn = rechteck('vorn', 60, 60, 68, 68, { fill: '#0000FF80' });
   await welt(page, staedte([hinten, vorn], { hoehe: (i, j) => (i + j === 10 ? 150 : 0) }));
   await page.goto(`${DEMO}&at=40,0,40`);
   await expect(page.locator('path[fill="#0000FF80"]')).toHaveCount(1);
-  const verdeckt = await page.locator('path[fill="#FF000080"]').boundingBox();
-  expect(verdeckt === null || verdeckt.width * verdeckt.height < 1).toBe(true);
+  await expect(page.locator('path[fill="#FF000080"]')).toHaveCount(0);
+  await expect(page.locator('path[tabindex]')).toHaveCount(0);
   expect((await page.locator('path[fill="#0000FF80"]').boundingBox())!.width).toBeGreaterThan(50);
   const stile = (farbe: string) =>
     page.locator(`path[stroke="${farbe}"]`).evaluateAll((l) => l.map((p) => [p.getAttribute('stroke-opacity'), p.getAttribute('stroke-dasharray'), p.getAttribute('stroke-width')]));
@@ -216,6 +217,67 @@ test('bräuchte eine Ebene mehr als 1024 Regionen Höhen, liegt sie mit Meldung 
   expect(meldungen.some((m) => m.includes('mehr als 1024'))).toBe(true);
   // Höhen holt nur die Koordinatenanzeige für ihre Umgebung, nicht die Ebene.
   expect(hoehen).toBeLessThan(50);
+});
+
+test('Höhen lädt die Karte nur innerhalb von area, jede Region einmal, auch für zwei Formen und eine Linie darin', async ({ page }) => {
+  const anfragen: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/heights/')) anfragen.push(new URL(r.url()).pathname.split('/').pop()!);
+  });
+  // area deckt nur die Region (−1, −1); der Streifen zur Kamera und die Linie reichen darüber hinaus.
+  const objekte = [
+    rechteck('a', -100, -100, -60, -60, { fill: '#111111FF' }),
+    rechteck('b', -50, -50, -20, -20, { fill: '#222222FF' }),
+    { id: 'l', type: 'line', points: [[-200, -30], [300, -30]], stroke: { color: '#333333' } },
+  ];
+  await welt(page, { ...staedte(objekte, { mehr: { area: [-512, -512, 0, 0] }, hoehe: () => 5 }), liste: () => [{ ...STAEDTE, visible: false }] });
+  await page.goto(`${DEMO}&at=-60,5,-60`);
+  await page.waitForLoadState('networkidle');
+  // Erst jetzt die Ebene: Was die Karte selbst an Höhen holt, zählt nicht.
+  anfragen.length = 0;
+  await page.locator('.ebenen summary').click();
+  await page.locator('.ebenen input').check();
+  await expect(page.locator('path[fill="#222222FF"]')).toHaveCount(1);
+  await expect(page.locator('path[stroke="#333333"]')).toHaveCount(1);
+  // Höchstens die eine Region in area, und sie nur einmal; hat die Karte sie schon, keine.
+  expect(anfragen.filter((a) => a !== '-1.-1.bin')).toEqual([]);
+  expect(anfragen.length).toBeLessThanOrEqual(1);
+});
+
+test('eine Linie, die eine Region nur an der Ecke streift, lädt auch deren Höhen', async ({ page }) => {
+  const anfragen: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/heights/')) anfragen.push(new URL(r.url()).pathname.split('/').pop()!);
+  });
+  // Von (400, 600) nach (600, 400): rund 34 Blöcke um (500, 500) liegen in der Region (0, 0).
+  const ecke = { id: 'ecke', type: 'line', points: [[400, 600], [600, 400]], stroke: { color: '#444444' } };
+  await welt(page, { ...staedte([ecke]), liste: () => [{ ...STAEDTE, visible: false }] });
+  // Der Blick weit weg, so holt die Karte selbst die Region (0, 0) nicht; die Ebene erst nach dem Laden.
+  await page.goto(`${DEMO}&at=-1500,0,-1500`);
+  await page.waitForLoadState('networkidle');
+  anfragen.length = 0;
+  await page.locator('.ebenen summary').click();
+  await page.locator('.ebenen input').check();
+  await expect(page.locator('path[stroke="#444444"]')).toHaveCount(1);
+  expect(anfragen).toContain('0.0.bin');
+});
+
+test.describe('auf dem Touchscreen', () => {
+  test.use({ hasTouch: true });
+
+  test('der Umriss beim Tippen liegt über den Flächen der Ebenen und unter ihren Nadeln', async ({ page }) => {
+    await welt(page, staedte([{ ...GEBIET, fill: '#40E53FFF' }]));
+    await page.goto(DEMO);
+    const flaeche = page.locator('path[fill="#40E53FFF"]');
+    await expect(flaeche).toHaveCount(1);
+    const [x, y] = await aufDemSchirm(page, ...projiziere(32, 1, -16, zweiZuEins(16)));
+    await page.touchscreen.tap(x!, y!);
+    const umriss = page.locator('.leaflet-shadow-pane path');
+    await expect(umriss).toHaveAttribute('d', /M/);
+    const z = (l: Locator) => l.evaluate((e) => Number(getComputedStyle(e.closest('.leaflet-pane')!).zIndex));
+    expect(await z(umriss)).toBeGreaterThan(await z(flaeche));
+    expect(await z(umriss)).toBeLessThan(510);
+  });
 });
 
 test('was über die Grenzen geht, übergeht die Karte mit Meldung', async ({ page }) => {

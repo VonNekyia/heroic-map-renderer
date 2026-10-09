@@ -76,7 +76,14 @@ const GROESSEN: Groesse[] = ['large', 'medium', 'small'];
 const TAKT = 30_000;
 
 /** Grenzen aus docs/benutzung/ebenen.md, „Grenzen“. */
-const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20, regionen: 1024 };
+const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20 };
+
+/**
+ * So viele Regionen Höhen lädt die Webkarte höchstens je Ebene; darüber liegt
+ * die ganze Ebene auf `seaLevel`. Eine Grenze der Webkarte, nicht des
+ * Formats. Siehe docs/frontend.md, „Ebenen“.
+ */
+const HOEHEN_REGIONEN = 1024;
 
 /**
  * Die Panes der Nadeln, 510 bis 573: über `shadowPane` (500), unter
@@ -426,21 +433,24 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       let [bx, bz] = [Math.max(x1, x1 + wx * weit) + 3 * c, Math.max(z1, z1 + wz * weit) + 3 * c];
       const area = umgebung.area;
       if (area) [ax, az, bx, bz] = [Math.max(ax, area[0]), Math.max(az, area[1]), Math.min(bx, area[2]), Math.min(bz, area[3])];
-      for (let rx = Math.floor(ax / REGION); rx <= Math.floor(bx / REGION); rx++) {
-        for (let rz = Math.floor(az / REGION); rz <= Math.floor(bz / REGION); rz++) menge.add(schluessel(rx, rz));
+      // Die obere Kante zählt nicht mit: area endet vor ihr.
+      for (let rx = Math.floor(ax / REGION); rx < Math.ceil(bx / REGION); rx++) {
+        for (let rz = Math.floor(az / REGION); rz < Math.ceil(bz / REGION); rz++) menge.add(schluessel(rx, rz));
       }
     };
     for (const f of formen) {
       if (hatFlaeche(f)) nimm(bereich(f));
       if (hatFlaeche(f) || f.rand.breite === 0) continue;
-      // Entlang des Zugs alle 128 Blöcke ein Punkt; eine Region ist 512 breit.
+      // Entlang des Zugs höchstens alle 64 Blöcke ein Punkt, je mit dem halben
+      // Schritt als Rand: So decken die Rechtecke den ganzen Zug, auch wo er
+      // eine Region nur an der Ecke streift.
       for (const stueck of zuege(f, c, umgebung.area)) {
         for (let i = 1; i < stueck.length; i++) {
           const [a, b] = [stueck[i - 1]!, stueck[i]!];
-          const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 128);
+          const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 64));
           for (let t = 0; t <= n; t++) {
             const [x, z] = [a[0] + ((b[0] - a[0]) * t) / n, a[1] + ((b[1] - a[1]) * t) / n];
-            nimm([x, z, x, z]);
+            nimm([x - 32, z - 32, x + 32, z + 32]);
           }
         }
       }
@@ -459,9 +469,9 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    */
   const ladeGelaende = async (menge: ReadonlySet<number>): Promise<Gelaende> => {
     if (!karten || menge.size === 0) return eben;
-    // Gegen eine Ebene ohne area mit riesigem Kreis: je Region 32 KiB.
-    if (menge.size > GRENZEN.regionen) {
-      console.warn(`${wurzel}: Ebene bräuchte ${menge.size} Regionen Höhen, mehr als ${GRENZEN.regionen}; sie liegt auf seaLevel`);
+    // Gegen eine Ebene ohne area mit riesigem Kreis.
+    if (menge.size > HOEHEN_REGIONEN) {
+      console.warn(`${wurzel}: Ebene bräuchte ${menge.size} Regionen Höhen, mehr als ${HOEHEN_REGIONEN}; sie liegt ganz auf seaLevel`);
       return eben;
     }
     const regionen = new Map<number, Int16Array>();
@@ -641,6 +651,29 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
 
   const an = (e: Eintrag): boolean => wahl.lies()[e.id] ?? e.visible;
 
+  /** Pixel des Schirms je Pixel der feinsten Stufe. */
+  const faktor = () => 2 ** (map.getZoom() - maxZoom);
+
+  /**
+   * Formen und Schrift einer Ebene, mit einmal geladenen Höhen. Eine eigene
+   * Funktion, die keine Closure zurücklässt: So leben die Höhen nur in ihrem
+   * Aufruf und fallen nach dem Zeichnen weg. In `ladeEbene` hielten die
+   * Closures der Tafeln den gemeinsamen Kontext und damit die Höhen fest.
+   */
+  const formenUndSchrift = async (
+    formen: readonly Form[],
+    schriften: readonly Schriftzug[],
+    renderer: L.Renderer,
+    formPane: string,
+    tafelDerEbene: (bausteine: unknown[]) => HTMLElement,
+  ): Promise<{ flaechen: L.Layer[]; striche: Strich[]; schriftLagen: Schrift[] }> => {
+    const gelaende = await ladeGelaende(regionenFuer(formen, schriften));
+    const { flaechen, striche } = zeichne(formen, { renderer, blick, gelaende, area: umgebung.area, tafel: tafelDerEbene, tafelOptionen: TAFEL, bediene });
+    const schriftLagen: Schrift[] = [];
+    for (const s of schriften) schriftLagen.push(new Schrift(s, schriftPfad(s.pfad, gelaende, blick), faktor, scale, formPane));
+    return { flaechen, striche, schriftLagen };
+  };
+
   const ladeEbene = async (e: Eintrag): Promise<void> => {
     if (abgewiesen.get(e.id) === e.version) return;
     const nummer = (auftrag.get(e.id) ?? 0) + 1;
@@ -676,12 +709,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
     const tafelDerEbene = (bausteine: unknown[]) => tafel(bausteine, ordner, e.version);
     const { renderer, formen: formPane } = pane(e.id);
-    // Formen und Schrift rechnen einmal je version, hier vor dem Tausch, mit
-    // einmal geladenen Höhen; danach fallen sie weg.
-    const gelaende = await ladeGelaende(regionenFuer(formen, schriften));
-    const gezeichnet = zeichne(formen, { renderer, blick, gelaende, area: umgebung.area, tafel: tafelDerEbene, tafelOptionen: TAFEL, bediene });
-    const faktor = () => 2 ** (map.getZoom() - maxZoom);
-    const schriftLagen = schriften.map((s) => new Schrift(s, schriftPfad(s.pfad, gelaende, blick), faktor, scale, formPane));
+    // Formen und Schrift rechnen einmal je version, hier vor dem Tausch.
+    const { flaechen, striche, schriftLagen } = await formenUndSchrift(formen, schriften, renderer, formPane, tafelDerEbene);
     const marker = await Promise.all(
       nadeln.map(async (n, index) => {
         const y = n.y !== undefined ? n.y + 1 : await oberflaeche(n.at[0], n.at[1]);
@@ -715,15 +744,15 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     if (!gilt()) return;
     weg(e.id);
     // Erst Flächen, dann Ränder und Linien, zuletzt Schrift.
-    const formGruppe = L.layerGroup([...gezeichnet.flaechen, ...gezeichnet.striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
-    versetze(gezeichnet.striche, faktor());
+    const formGruppe = L.layerGroup([...flaechen, ...striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
+    versetze(striche, faktor());
     geladen.set(e.id, {
       ordner,
       version: e.version,
       gruppe: L.layerGroup().addTo(map),
       marker,
       formen: formGruppe,
-      striche: gezeichnet.striche,
+      striche,
       icons: new Map(),
       symbole: new Map(),
     });

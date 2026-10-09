@@ -4,6 +4,8 @@ import {
   netz,
   oberflaeche,
   punktImBlick,
+  rechteck,
+  ringImRechteck,
   schriftPfad,
   sichtbareFelder,
   verdeckt,
@@ -111,33 +113,34 @@ test('verdeckt: erst Gelände mehr als eine Zelle vor dem Punkt zählt, diagonal
   expect(verdeckt(sanft, 50, oberflaeche(sanft, 50, 50), 50, SE)).toBe(false);
   expect(verdeckt(steil, 50, oberflaeche(steil, 50, 50), 50, SE)).toBe(true);
   // Eine fehlende Region auf dem Strahl liegt auf grund: hoch verdeckt sie, tief nicht.
-  const fehlt = (grund: number) => gelaende((i) => (i >= 12 ? undefined : 0), grund + 1, grund);
+  // max bleibt 64: So läuft die Schleife auch bei tiefem grund, und erst die Höhe entscheidet.
+  const fehlt = (grund: number) => gelaende((i) => (i >= 12 ? undefined : 0), 64, grund);
   expect(verdeckt(fehlt(63), 42, 1, 42, SE)).toBe(true);
   expect(verdeckt(fehlt(-10), 42, 1, 42, SE)).toBe(false);
   expect(verdeckt(turm(11, 11), x, 1, z, OBEN)).toBe(false);
 });
 
-test('sichtbareFelder: ein Durchgang mit laufendem Maximum gibt dasselbe wie jedes Feld einzeln abgegangen, in jeder Richtung', () => {
-  // Hügeliges Gelände, unabhängig vom Code nachgeprüft: Ein Feld ist verdeckt, wenn eine Mitte kmin oder mehr Schritte davor über dem Strahl liegt.
+test('sichtbareFelder: ein Durchgang mit laufendem Maximum gibt an jeder Mitte eines Felds dasselbe wie verdeckt, in jeder Richtung', () => {
   const g = gelaende((i, j) => Math.round(20 * Math.sin(i / 2.3) * Math.cos(j / 3.1) + 10 * Math.sin((i + j) / 1.7)), 31);
   const [pa, qa, nx, nz] = [-6, -4, 14, 11];
-  for (const [p, kmin, steigung] of [[ZWEI, 1, 1], [GENORDET, 2, 1]] as const) {
+  for (const p of [ZWEI, GENORDET]) {
     for (let k = 0; k < 4; k++) {
       const blick: Blick = { p, k };
       const sicht = sichtbareFelder(g, blick, pa, qa, nx, nz, () => true);
-      const [wx, wz] = p.azimuth === 'north' ? punktImBlick(0, 1, (4 - k) % 4) : punktImBlick(1, 1, (4 - k) % 4);
-      const mitte = (fp: number, fq: number) => oberflaeche(g, (fp + 1) * 4, (fq + 1) * 4);
       let verdeckte = 0;
       for (let i = 0; i < nx * nz; i++) {
-        const [fp, fq] = [pa + Math.floor(i / nz), qa + (i % nz)];
-        let soll = 1;
-        for (let t = kmin; t < 40; t++) if (mitte(fp + t * wx, fq + t * wz) > mitte(fp, fq) + steigung * 4 * t) soll = 0;
-        expect(sicht[i], `${p.azimuth} k=${k}, Feld ${fp},${fq}`).toBe(soll);
+        const [x, z] = [(pa + Math.floor(i / nz) + 1) * 4, (qa + (i % nz) + 1) * 4];
+        const soll = verdeckt(g, x, oberflaeche(g, x, z), z, blick) ? 0 : 1;
+        expect(sicht[i], `${p.azimuth} k=${k}, Mitte ${x},${z}`).toBe(soll);
         verdeckte += 1 - soll;
       }
       expect(verdeckte, `${p.azimuth} k=${k}: das Gelände verdeckt etwas`).toBeGreaterThan(5);
     }
   }
+  // Ein schmaler Turm: eine Zelle von 10 Blöcken, deren Mitte zwischen zwei Mitten von Feldern liegt.
+  const turm = gelaende((i, j) => (i === 5 && j === 5 ? 10 : 0), 11);
+  expect(verdeckt(turm, 16, 1, 16, SE)).toBe(true);
+  expect(sichtbareFelder(turm, SE, 3, 3, 1, 1, () => true)[0]).toBe(0);
 });
 
 test('netz: auf ebenem Grund so gross wie die Fläche mal der Projektion, mit Loch; von oben die Ringe selbst', () => {
@@ -206,6 +209,13 @@ test('zug: im iso auf dem Gelände, jeder Punkt auf seiner Höhe auf einem Grat;
   expect(iso.verdeckt[0]).toBe(true);
   expect(iso.verdeckt.at(-1)).toBe(false);
   expect(zug([[0, 0], [10, 0]], false, mauer, OBEN)).toEqual({ punkte: [[0, 0], [160, 0]], verdeckt: [false, false] });
+});
+
+test('ringImRechteck: eine Fläche, beschnitten auf das Rechteck', () => {
+  const ring = ringImRechteck([[-10, -10], [10, -10], [10, 10], [-10, 10]], [0, 0, 5, 5]);
+  expect(rechteck(ring)).toEqual([0, 0, 5, 5]);
+  expect(schnuer(ring)).toBe(25);
+  expect(ringImRechteck([[20, 20], [30, 20], [30, 30]], [0, 0, 5, 5])).toEqual([]);
 });
 
 test('zugImRechteck: nur die Stücke im Rechteck, ein Ring ganz drinnen bleibt ganz', () => {

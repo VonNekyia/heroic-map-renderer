@@ -39,8 +39,11 @@ Ein Kreis mit 2000 Blöcken Radius hat rund 785 000 Felder von 4 × 4 Blöcken.
     dazu ihre Mitte.
   - Die Punkte wachsen mit dem Umfang, nicht mit der Fläche.
 - **Sichtbarkeit in einem Durchgang:** je Linie zur Kamera, mit laufendem
-  Maximum von `H + Steigung · Abstand` über die Mitten der Felder davor.
-  Das kostet einmal je Feld, nicht je Feld und Schritt.
+  Maximum von `H + Steigung · Abstand` über die Mitten der Felder davor und
+  je die halbe Zelle vor ihnen. Das sind dieselben Punkte, die ein einzelner
+  Punkt in Schritten einer halben Zelle abtastet; das Ergebnis gleicht
+  `verdeckt` an jeder Mitte. Es kostet einmal je Feld, nicht je Feld und
+  Schritt.
 - **Höhen einmal je Ebene:** Die Regionen aller Formen und Schriften einer
   Ebene laden zusammen, nur innerhalb von `area`. Für eine Fläche ihr
   Rechteck, für Ränder und Linien nur die Regionen entlang des Zugs, je

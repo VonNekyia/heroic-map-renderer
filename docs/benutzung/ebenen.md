@@ -52,9 +52,11 @@ Jede Ebene heisst `modname:ebene`, etwa `beispiel:wasserkarte`.
   - kein Gerät von Windows: Der Teil vor dem ersten `.` ist nicht `con`,
     `prn`, `aux`, `nul`, `com0` bis `com9` oder `lpt0` bis `lpt9`.
 
-  Dieselbe Regel gilt für die Dateinamen der Bilder, siehe „Bilder“. Was
-  sie verletzt, liefert der Server nicht aus, siehe [Server](server.md),
-  „Was er ausliefert“.
+  Dieselbe Regel gilt für den Namen der Datei einer Ebene und eines Bilds
+  ohne die Endung, siehe „Bilder“: Eine Ebene mit einem Teil von 64
+  Zeichen liegt in einer Datei mit 64 Zeichen vor `.json`. Was die Regel
+  verletzt, liefert der Server nicht aus, siehe [Server](server.md), „Was
+  er ausliefert“.
 - **Ein Besitzer schreibt nur seine Ebenen.**
 
 ## Liste der Ebenen
@@ -358,9 +360,11 @@ Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
   ihrem Ordner, etwa `images/burg.png`. Nur dieser Ordner, ohne
   Unterordner; `..`, absolute Pfade und Adressen anderer Server weist jede
   Ansicht ab.
-- **Dateinamen** wie ein Teil der Kennung, mit `.png` oder `.webp`, etwa
-  `burg_16.png`. Andere liefert der Server nicht aus, siehe
-  [Server](server.md), „Was er ausliefert“.
+- **Dateinamen:** der Name ohne die Endung `.png` oder `.webp` wie ein
+  Teil der Kennung, also 1 bis 64 Zeichen, nur kleine `a`–`z`, `0`–`9`,
+  `_`, `-` und `.`, etwa `burg_16.png`; die Regel steht unter „Kennung“.
+  Andere liefert der Server nicht aus, siehe [Server](server.md), „Was er
+  ausliefert“.
 - **Formate:** PNG, oder WebP verlustfrei als einfaches `VP8L`: nur der
   Chunk `VP8L` im `RIFF`, ohne `VP8X` und ohne verlustbehaftetes `VP8`. Mehr
   liest der Mod nicht.

@@ -891,11 +891,11 @@ fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a s
                 b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-' | b'.')
             })
     };
+    // Der Stamm ohne Endung ist ein Teil, bis 64 Zeichen wie im Format.
     let mit = |name: &str, endungen: &[&str]| {
-        teil(name)
-            && endungen
-                .iter()
-                .any(|e| name.strip_suffix(e).is_some_and(teil))
+        endungen
+            .iter()
+            .any(|e| name.strip_suffix(e).is_some_and(teil))
     };
     // Die festen Namen zuerst: `[z, x, y]` nähme jeden Pfad aus drei Teilen.
     let (erlaubt, im_baum) = match teile.as_slice() {
@@ -1225,6 +1225,21 @@ mod tests {
             ("layers/beispiel/images/burg_16.png", None),
         ] {
             assert_eq!(kachelpfad(wurzel, pfad).unwrap().1, baum, "{pfad}");
+        }
+        let lang = |n: usize, endung: &str| "a".repeat(n) + endung;
+        for erlaubt in [
+            format!("layers/beispiel/{}", lang(64, ".json")),
+            format!("layers/{}/staedte.json", lang(64, "")),
+            format!("layers/beispiel/images/{}", lang(64, ".png")),
+        ] {
+            assert!(kachelpfad(wurzel, &erlaubt).is_some(), "{erlaubt}");
+        }
+        for verboten in [
+            format!("layers/beispiel/{}", lang(65, ".json")),
+            format!("layers/{}/staedte.json", lang(65, "")),
+            format!("layers/beispiel/images/{}", lang(65, ".webp")),
+        ] {
+            assert_eq!(kachelpfad(wurzel, &verboten), None, "{verboten}");
         }
         for verboten in [
             "",

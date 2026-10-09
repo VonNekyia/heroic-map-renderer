@@ -383,10 +383,10 @@ Vorerst schickt das Plugin dem Mod nur die Nadeln, über seinen Kanal.
 
 - **Nadeln:** dieselben Felder wie hier, ohne `panel`.
 - **In Teilen:** 1000 Nadeln sind als JSON 150 bis 500 KB, eine Nachricht
-  darf 64 KiB haben. Eine Ebene geht deshalb in Teilen, mit `version`,
-  `part` und `parts`. Der Mod ersetzt die Ebene erst, wenn alle Teile einer
+  darf 64 KiB haben. Eine Ebene geht deshalb in Teilen, jeder mit ihrer
+  `version`. Der Mod ersetzt die Ebene erst, wenn alle Teile einer
   `version` da sind; unvollständige verwirft er bei einer neuen `version`
-  und beim Trennen.
+  und beim Trennen. Die Felder der Teile nennt die Doku des Plugins.
 - **Liste:** dieselben Felder wie `layers.json`; dazu nennt sie die Adresse
   des Servers, von dem der Mod die Bilder holt.
 - **Einzelheiten:** Nachrichten und Rechte beschreibt das Plugin in seiner

@@ -14,7 +14,8 @@ sich einzeln an- und abschalten. Ebenen sind kein Teil der Kacheln: Der
 Renderer zeichnet sie nicht, das Plugin schreibt sie als JSON, und jede
 Ansicht zeichnet sie selbst. Diese Seite ist die Schnittstelle zwischen
 Plugin, Webkarte und Mod (#219). Warum so:
-[0095](../entscheidungen/0095-ebenen.md).
+[0095](../entscheidungen/0095-ebenen.md). Was die Webkarte davon schon zeigt:
+[Frontend](../frontend.md), „Ebenen“.
 
 ## Überblick
 

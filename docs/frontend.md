@@ -3,6 +3,9 @@ title: Frontend
 description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
+  - web/src/ebenen.ts
+  - web/src/ebenen
+  - web/src/hoehen.ts
   - web/src/pick.ts
   - web/src/skin-api.ts
   - web/src/skin-modul.d.ts
@@ -356,6 +359,40 @@ wie in [`NOTICE`](../NOTICE), und dahinter der Link „Lizenzen“ auf
   Umlaute in `NOTICE` sonst als Latin-1.
 - **Nur im Build:** Im Dev-Server gibt es die Datei nicht; der Link führt
   dort ins Leere.
+
+## Ebenen
+
+Liegt neben `trees.json` eine `layers.json`, zeigt die Karte deren Ebenen.
+Das Format steht in [Ebenen](benutzung/ebenen.md), die Gründe in
+[0095](entscheidungen/0095-ebenen.md). Gebaut in
+[`web/src/ebenen.ts`](../web/src/ebenen.ts); bisher Liste, Nadeln und
+Infotafel, Regionen, Kreise, Linien und Kartenschrift folgen (#219, Teil 4).
+
+- **Liste:** oben rechts ein aufklappbares „Ebenen“ mit einem Kästchen je
+  Ebene, nach `order`. Die Namen folgen der Sprache des Browsers, Deutsch
+  oder Englisch. Die Wahl merkt sich der Browser je Wurzel in
+  `localStorage`; ohne Speicher gilt sie bis zum Neuladen. Ohne
+  `layers.json` gibt es keine Liste.
+- **Laden:** Eine Ebene lädt erst, wenn sie an ist. Alle 30 Sekunden und
+  beim Zurückkehren auf den Tab fragt die Karte `layers.json` mit
+  `cache: 'no-cache'` nach und lädt neu, was an ist und eine neue `version`
+  hat.
+- **Nadeln:** Leaflet-Marker mit dem Wappenschild auf einer Leinwand:
+  - das Feld aus `web/src/ebenen/schild_*.png` mal `color`, je Kanal
+    ganzzahlig abgeschnitten wie im Mod, darüber Rahmen und Nadel, das
+    Symbol mittig 3 Pixel unter der Oberkante; die Bilder stammen vom
+    Designer;
+  - die Spitze auf `P(x, y + 1, z)`; ohne `y` auf der Oberfläche aus den
+    Höhen, bilinear zwischen den Zellen. Koordinaten und Ebenen teilen sich
+    einen Cache der Höhen ([`web/src/hoehen.ts`](../web/src/hoehen.ts));
+  - Grösse und Ausblenden nach der Breite eines Blocks auf dem Schirm,
+    `scale · 2^(Zoom − maxZoom)`, neu bei jedem Zoom; der Name nur in der
+    Grundgrösse.
+- **Infotafel:** ein Popup von Leaflet, gebaut nur aus Elementen mit
+  `textContent` und Bildern unter `images/` der Ebene. Höchstens 320 Pixel
+  breit und 70 % des Fensters hoch, darüber scrollt sie.
+- **Im Skin Tablett** tragen Liste, Namen und Tafel die Farben der UI;
+  Kontrast und Platz prüft `skins/tablett/tests/marmor.spec.ts`.
 
 ## Skins
 

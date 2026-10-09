@@ -1,0 +1,454 @@
+/**
+ * Ebenen über den Kacheln: die Liste zum Umschalten, Nadeln als Wappenschild
+ * und ihre Infotafel. Das Format steht in docs/benutzung/ebenen.md, wie die
+ * Karte es zeigt in docs/frontend.md, „Ebenen“.
+ */
+import L from 'leaflet';
+import feldGross from './ebenen/schild_gross.png?url&no-inline';
+import rahmenGross from './ebenen/schild_gross_rahmen.png?url&no-inline';
+import feldKlein from './ebenen/schild_klein.png?url&no-inline';
+import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
+import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
+import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
+import { FRISCH, type Hoehenkarten } from './hoehen';
+import { projiziere, type Projektion } from './pick';
+
+/** Ein Eintrag in `layers.json`. */
+interface Eintrag {
+  id: string;
+  name: { de?: string; en?: string };
+  visible: boolean;
+  order: number;
+  version: string;
+}
+
+type Groesse = 'large' | 'medium' | 'small';
+
+/** Eine Nadel, wie die Ansicht sie braucht; Unbekanntes ist schon weg. */
+interface Nadel {
+  id: string;
+  at: [number, number];
+  y?: number;
+  name?: string;
+  size: Groesse;
+  symbol: { large?: string; medium?: string };
+  color: string;
+  panel?: unknown[];
+}
+
+/** Was die Ebenen von der Karte brauchen. */
+export interface Umgebung {
+  map: L.Map;
+  /** Die Wurzel mit `trees.json`, ohne `/` am Ende. */
+  wurzel: string;
+  blick: { p: Projektion; k: number };
+  scale: number;
+  maxZoom: number;
+  /** Die Höhen; ohne sie liegt im iso alles auf `seaLevel`. */
+  karten?: Hoehenkarten;
+  heightsCell?: number;
+  seaLevel?: number;
+}
+
+/**
+ * Die Nadel der Karte in ihren drei Grössen: Feld in Graustufen, Rahmen mit
+ * Nadel, Breite und Höhe samt Nadel, Seite des Symbols. Die Bilder stammen
+ * vom Designer (#219, Teil 6). Siehe docs/benutzung/ebenen.md, „Nadel“.
+ */
+const SCHILDE: Record<Groesse, { feld: string; rahmen: string; b: number; h: number; symbol: number }> = {
+  large: { feld: feldGross, rahmen: rahmenGross, b: 23, h: 33, symbol: 16 },
+  medium: { feld: feldMittel, rahmen: rahmenMittel, b: 15, h: 23, symbol: 9 },
+  small: { feld: feldKlein, rahmen: rahmenKlein, b: 9, h: 15, symbol: 0 },
+};
+const GROESSEN: Groesse[] = ['large', 'medium', 'small'];
+
+/** So oft fragt die Karte `layers.json` nach, in ms. */
+const TAKT = 30_000;
+
+const KENNUNG = /^([a-z0-9_-][a-z0-9_.-]{0,63}):([a-z0-9_-][a-z0-9_.-]{0,63})$/;
+const FARBE = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
+/** Ein Bild der Ebene: nur unter `images/`, ohne `..` und ohne Teil mit `.` vorn. */
+const BILD = /^images\/[a-z0-9_-][a-z0-9_.-]*$/i;
+
+const istText = (wert: unknown, max: number): wert is string => typeof wert === 'string' && wert.length > 0 && wert.length <= max;
+const istZahl = (wert: unknown): wert is number => typeof wert === 'number' && Number.isFinite(wert);
+const istObjekt = (wert: unknown): wert is Record<string, unknown> => typeof wert === 'object' && wert !== null && !Array.isArray(wert);
+
+/**
+ * Wie viele Grössen kleiner die Nadel beim Hinauszoomen wird, nach der
+ * Breite eines Blocks auf dem Schirm in Pixeln. Siehe
+ * docs/benutzung/ebenen.md, „Nadeln“.
+ */
+export function kleiner(blockPixel: number): number {
+  if (blockPixel >= 1 / 2) return 0;
+  if (blockPixel >= 1 / 8) return 1;
+  if (blockPixel >= 1 / 32) return 2;
+  return 3;
+}
+
+/** Die Grösse, in der eine Nadel steht, oder `undefined`, wenn sie aus ist. */
+export function gezeigt(grund: Groesse, blockPixel: number): Groesse | undefined {
+  return GROESSEN[GROESSEN.indexOf(grund) + kleiner(blockPixel)];
+}
+
+/** Ein Punkt der Welt im Blick, k Vierteldrehungen; ohne −1 wie bei Blöcken. */
+export function punktImBlick(x: number, z: number, k: number): [number, number] {
+  let [a, b] = [x, z];
+  for (let i = 0; i < k; i++) [a, b] = [b, -a];
+  return [a, b];
+}
+
+function eintrag(wert: unknown): Eintrag | undefined {
+  if (!istObjekt(wert) || typeof wert.id !== 'string' || !KENNUNG.test(wert.id) || !istText(wert.version, 256)) return undefined;
+  const name = istObjekt(wert.name) ? wert.name : {};
+  const de = istText(name.de, 64) ? name.de : undefined;
+  const en = istText(name.en, 64) ? name.en : undefined;
+  if (!de && !en) return undefined;
+  return {
+    id: wert.id,
+    name: { de, en },
+    visible: wert.visible !== false,
+    order: Number.isInteger(wert.order) ? (wert.order as number) : 0,
+    version: wert.version,
+  };
+}
+
+function nadel(wert: unknown): Nadel | undefined {
+  if (!istObjekt(wert) || wert.type !== 'pin' || !istText(wert.id, 64)) return undefined;
+  const at = wert.at;
+  if (!Array.isArray(at) || at.length !== 2 || !at.every(istZahl)) return undefined;
+  const symbol = istObjekt(wert.symbol) ? wert.symbol : {};
+  const bild = (pfad: unknown) => (typeof pfad === 'string' && BILD.test(pfad) ? pfad : undefined);
+  return {
+    id: wert.id,
+    at: [at[0] as number, at[1] as number],
+    y: Number.isInteger(wert.y) ? (wert.y as number) : undefined,
+    name: istText(wert.name, 64) ? wert.name : undefined,
+    size: GROESSEN.includes(wert.size as Groesse) ? (wert.size as Groesse) : 'medium',
+    symbol: { large: bild(symbol.large), medium: bild(symbol.medium) },
+    color: typeof wert.color === 'string' && FARBE.test(wert.color) ? wert.color : '#D9443A',
+    panel: istObjekt(wert.panel) && Array.isArray(wert.panel.blocks) ? wert.panel.blocks : undefined,
+  };
+}
+
+/** Ein Bild vom eigenen Server, einmal je Adresse. */
+const bilder = new Map<string, Promise<HTMLImageElement>>();
+function bild(adresse: string): Promise<HTMLImageElement> {
+  let laden = bilder.get(adresse);
+  if (!laden) {
+    laden = new Promise((fertig, fehler) => {
+      const element = new Image();
+      element.onload = () => fertig(element);
+      element.onerror = () => fehler(new Error(`${adresse} lässt sich nicht laden`));
+      element.src = adresse;
+    });
+    bilder.set(adresse, laden);
+  }
+  return laden;
+}
+
+/**
+ * Zeichnet die Nadel: das Feld mal `color` je Kanal, ganzzahlig wie im Mod,
+ * darüber Rahmen und Nadel, das Symbol mittig 3 Pixel unter der Oberkante.
+ */
+async function zeichneNadel(groesse: Groesse, farbe: string, symbol: string | undefined): Promise<HTMLCanvasElement> {
+  const { feld, rahmen, b, h } = SCHILDE[groesse];
+  const leinwand = document.createElement('canvas');
+  [leinwand.width, leinwand.height] = [b, h];
+  const ctx = leinwand.getContext('2d')!;
+  const [f, r, s] = await Promise.all([bild(feld), bild(rahmen), symbol ? bild(symbol).catch(() => undefined) : undefined]);
+  ctx.drawImage(f, 0, 0);
+  const daten = ctx.getImageData(0, 0, b, h);
+  const kanal = [1, 3, 5].map((i) => Number.parseInt(farbe.slice(i, i + 2), 16));
+  for (let i = 0; i < daten.data.length; i += 4) {
+    for (let c = 0; c < 3; c++) daten.data[i + c] = Math.floor((daten.data[i + c]! * kanal[c]!) / 255);
+  }
+  ctx.putImageData(daten, 0, 0);
+  ctx.drawImage(r, 0, 0);
+  if (s) ctx.drawImage(s, Math.floor((b - s.width) / 2), 3);
+  return leinwand;
+}
+
+/**
+ * Baut die Infotafel aus ihren Bausteinen, nur als Text und Bilder vom
+ * eigenen Server, nie als Markup. Unbekannte Bausteine übergeht sie.
+ * Siehe docs/benutzung/ebenen.md, „Infotafel“.
+ */
+export function tafel(bausteine: unknown[], ordner: string, tiefe = 0): HTMLElement {
+  const teil = document.createElement('div');
+  for (const baustein of bausteine.slice(0, 64)) {
+    if (!istObjekt(baustein)) continue;
+    const element = ((): HTMLElement | undefined => {
+      const farbe = (wert: unknown) => (typeof wert === 'string' && FARBE.test(wert) ? wert : undefined);
+      const bildElement = (b: Record<string, unknown>) => {
+        if (typeof b.image !== 'string' || !BILD.test(b.image)) return undefined;
+        const img = document.createElement('img');
+        img.src = `${ordner}/${b.image}`;
+        img.alt = typeof b.alt === 'string' ? b.alt : '';
+        if (istZahl(b.width)) img.width = b.width;
+        if (istZahl(b.height)) img.height = b.height;
+        return img;
+      };
+      switch (baustein.type) {
+        case 'title': {
+          if (!istText(baustein.text, 64)) return undefined;
+          const titel = L.DomUtil.create('div', 'tafel-titel');
+          titel.textContent = baustein.text;
+          const f = farbe(baustein.color);
+          if (f) titel.style.color = f;
+          return titel;
+        }
+        case 'lines': {
+          if (!Array.isArray(baustein.lines)) return undefined;
+          const zeilen = L.DomUtil.create('div', 'tafel-zeilen');
+          for (const zeile of baustein.lines) if (istText(zeile, 120)) L.DomUtil.create('div', '', zeilen).textContent = zeile;
+          return zeilen;
+        }
+        case 'image': {
+          const img = bildElement(baustein);
+          if (img) img.className = `tafel-bild tafel-${['center', 'right'].includes(baustein.align as string) ? (baustein.align as string) : 'left'}`;
+          return img;
+        }
+        case 'section': {
+          if (tiefe > 0 || !istObjekt(baustein.heading) || !Array.isArray(baustein.blocks)) return undefined;
+          const abschnitt = L.DomUtil.create('div', 'tafel-abschnitt');
+          const kopf = bildElement(baustein.heading);
+          if (kopf) abschnitt.append(kopf);
+          else if (istText(baustein.heading.text, 64)) L.DomUtil.create('div', 'tafel-ueberschrift', abschnitt).textContent = baustein.heading.text;
+          abschnitt.append(tafel(baustein.blocks, ordner, tiefe + 1));
+          return abschnitt;
+        }
+        case 'rating': {
+          if (!Array.isArray(baustein.rows)) return undefined;
+          const wertung = L.DomUtil.create('div', 'tafel-wertung');
+          for (const reihe of baustein.rows) {
+            if (!istObjekt(reihe) || !istText(reihe.label, 64) || !Number.isInteger(reihe.value) || !Number.isInteger(reihe.max)) continue;
+            const zeile = L.DomUtil.create('div', 'tafel-reihe', wertung);
+            L.DomUtil.create('span', 'tafel-label', zeile).textContent = reihe.label;
+            const f = farbe(reihe.color) ?? '#888888';
+            for (let i = 0; i < Math.min(reihe.max as number, 20); i++) {
+              const punkt = L.DomUtil.create('span', 'tafel-punkt', zeile);
+              punkt.style.background = f;
+              if (i >= (reihe.value as number)) punkt.style.opacity = '0.25';
+            }
+          }
+          return wertung;
+        }
+        case 'columns': {
+          if (tiefe > 0 || !Array.isArray(baustein.columns)) return undefined;
+          const spalten = L.DomUtil.create('div', 'tafel-spalten');
+          for (const spalte of baustein.columns.slice(0, 2)) if (Array.isArray(spalte)) spalten.append(tafel(spalte, ordner, tiefe + 1));
+          return spalten;
+        }
+        default:
+          return undefined;
+      }
+    })();
+    if (element) teil.append(element);
+  }
+  return teil;
+}
+
+/** Die Wahl des Betrachters, welche Ebene an ist, je Wurzel im Browser. */
+function gemerkt(wurzel: string): { lies: () => Record<string, boolean>; schreib: (wahl: Record<string, boolean>) => void } {
+  const schluessel = `ebenen:${wurzel}`;
+  return {
+    lies: () => {
+      try {
+        const wert: unknown = JSON.parse(localStorage.getItem(schluessel) ?? '{}');
+        return istObjekt(wert) ? (wert as Record<string, boolean>) : {};
+      } catch {
+        return {};
+      }
+    },
+    schreib: (wahl) => {
+      try {
+        localStorage.setItem(schluessel, JSON.stringify(wahl));
+      } catch {
+        // Ohne Speicher gilt die Wahl bis zum Neuladen.
+      }
+    },
+  };
+}
+
+/** Holt JSON vom Server; `undefined` für fehlend, eine HTML-Seite oder kaputt. */
+async function json(pfad: string): Promise<unknown> {
+  const antwort = await fetch(pfad, FRISCH);
+  if (!antwort.ok || antwort.headers.get('content-type')?.startsWith('text/html')) return undefined;
+  try {
+    return (await antwort.json()) as unknown;
+  } catch {
+    console.warn(`${pfad}: keine gültige JSON-Datei`);
+    return undefined;
+  }
+}
+
+/**
+ * Die Ebenen der Karte: liest `layers.json` neben `trees.json`, zeigt die
+ * Liste zum Umschalten und die Nadeln der Ebenen, die an sind, und fragt
+ * alle 30 Sekunden nach Änderungen. Ohne `layers.json` geschieht nichts.
+ */
+export async function ebenen(umgebung: Umgebung): Promise<void> {
+  const { map, wurzel, blick, scale, maxZoom, karten, heightsCell, seaLevel } = umgebung;
+  const liste = await json(`${wurzel}/layers.json`);
+  if (!istObjekt(liste) || !Array.isArray(liste.layers)) return;
+
+  const sprache = navigator.language.startsWith('de') ? 'de' : 'en';
+  const wahl = gemerkt(wurzel);
+  const iso = blick.p.y > 0;
+  if (iso && !karten) console.warn(`${wurzel}: Ebenen ohne Höhen, im iso auf seaLevel`);
+
+  /** Die Oberseite des Geländes an einer Spalte, aus den Höhen; Pixel siehe ebenen.md, „Die Oberfläche im iso“. */
+  const oberflaeche = async (x: number, z: number): Promise<number> => {
+    const grund = seaLevel ?? 64;
+    if (!iso || !karten || !heightsCell) return grund + 1;
+    const c = heightsCell;
+    await karten.lade([-2 * c, 2 * c].flatMap((dx) => [-2 * c, 2 * c].map((dz) => [Math.floor(x + dx), 0, Math.floor(z + dz)] as [number, number, number])));
+    const zelle = (i: number, j: number): number => {
+      const wert = karten.hoehe(i * c, j * c);
+      if (wert !== undefined) return wert;
+      const nachbarn: number[] = [];
+      for (let di = -2; di <= 2; di++) for (let dj = -2; dj <= 2; dj++) {
+        const n = karten.hoehe((i + di) * c, (j + dj) * c);
+        if (n !== undefined) nachbarn.push(n);
+      }
+      return nachbarn.length ? nachbarn.reduce((a, b) => a + b, 0) / nachbarn.length : grund;
+    };
+    const [fx, fz] = [x / c - 0.5, z / c - 0.5];
+    const [i, j] = [Math.floor(fx), Math.floor(fz)];
+    const [tx, tz] = [fx - i, fz - j];
+    const oben = zelle(i, j) * (1 - tx) + zelle(i + 1, j) * tx;
+    const unten = zelle(i, j + 1) * (1 - tx) + zelle(i + 1, j + 1) * tx;
+    return oben * (1 - tz) + unten * tz + 1;
+  };
+
+  /** Breite eines Blocks auf dem Schirm, in Pixeln. */
+  const blockPixel = () => scale * 2 ** (map.getZoom() - maxZoom);
+
+  interface Geladen {
+    ordner: string;
+    gruppe: L.LayerGroup;
+    marker: { nadel: Nadel; marker: L.Marker; groesse?: Groesse }[];
+  }
+  const geladen = new Map<string, Geladen>();
+  let eintraege: Eintrag[] = [];
+
+  const icons = new Map<string, Promise<HTMLCanvasElement>>();
+  const icon = async (n: Nadel, groesse: Groesse, ordner: string): Promise<L.DivIcon> => {
+    const symbol = groesse === 'small' ? undefined : n.symbol[groesse] && `${ordner}/${n.symbol[groesse]}`;
+    const schluessel = `${groesse} ${n.color} ${symbol ?? ''}`;
+    let leinwand = icons.get(schluessel);
+    if (!leinwand) icons.set(schluessel, (leinwand = zeichneNadel(groesse, n.color, symbol)));
+    const { b, h } = SCHILDE[groesse];
+    const html = L.DomUtil.create('div', 'nadel');
+    const kopie = document.createElement('canvas');
+    [kopie.width, kopie.height] = [b, h];
+    kopie.getContext('2d')!.drawImage(await leinwand, 0, 0);
+    html.append(kopie);
+    if (n.name && groesse === n.size) L.DomUtil.create('span', 'nadel-name', html).textContent = n.name;
+    return L.divIcon({ html, className: 'nadel-icon', iconSize: [b, h], iconAnchor: [Math.floor(b / 2), h] });
+  };
+
+  /** Setzt jede Nadel in die Grösse der Stufe, oder nimmt sie weg. */
+  const groessen = async (): Promise<void> => {
+    const p = blockPixel();
+    for (const { ordner, gruppe, marker } of geladen.values()) {
+      for (const eintrag of marker) {
+        const groesse = gezeigt(eintrag.nadel.size, p);
+        if (!groesse) {
+          gruppe.removeLayer(eintrag.marker);
+          continue;
+        }
+        if (eintrag.groesse !== groesse) {
+          eintrag.marker.setIcon(await icon(eintrag.nadel, groesse, ordner));
+          eintrag.groesse = groesse;
+        }
+        gruppe.addLayer(eintrag.marker);
+      }
+    }
+  };
+
+  const ladeEbene = async (e: Eintrag): Promise<void> => {
+    const [mod, name] = e.id.split(':') as [string, string];
+    const ordner = `${wurzel}/layers/${mod}`;
+    const datei = await json(`${ordner}/${name}.json`);
+    const objekte = istObjekt(datei) && Array.isArray(datei.objects) ? datei.objects : [];
+    const nadeln = objekte.map(nadel).filter((n): n is Nadel => n !== undefined).slice(0, 1000);
+    geladen.get(e.id)?.gruppe.remove();
+    const gruppe = L.layerGroup().addTo(map);
+    const marker = await Promise.all(
+      nadeln.map(async (n) => {
+        const [vx, vz] = punktImBlick(n.at[0], n.at[1], blick.k);
+        const y = n.y !== undefined ? n.y + 1 : await oberflaeche(n.at[0], n.at[1]);
+        const [px, py] = projiziere(vx, iso ? y : 0, vz, blick.p);
+        const m = L.marker(L.latLng(py, px), { icon: L.divIcon({ html: '' }), keyboard: true, title: n.name ?? '', zIndexOffset: e.order, alt: n.name ?? '' });
+        if (n.panel) {
+          m.bindPopup(() => tafel(n.panel!, ordner), { className: 'tafel', maxWidth: 320, minWidth: 120, autoPanPadding: [8, 8] });
+        }
+        return { nadel: n, marker: m };
+      }),
+    );
+    geladen.set(e.id, { ordner, gruppe, marker });
+    await groessen();
+  };
+
+  const entferne = (id: string): void => {
+    geladen.get(id)?.gruppe.remove();
+    geladen.delete(id);
+  };
+
+  // Die Liste zum Umschalten, oben rechts unter Kompass und Umschalter.
+  const control = new L.Control({ position: 'topright' });
+  const kasten = L.DomUtil.create('details', 'ebenen');
+  // Deutsch wie die übrige UI; die Namen der Ebenen folgen der Sprache des Browsers.
+  L.DomUtil.create('summary', '', kasten).textContent = 'Ebenen';
+  const inhalt = L.DomUtil.create('div', 'ebenen-liste', kasten);
+  L.DomEvent.disableClickPropagation(kasten);
+  L.DomEvent.disableScrollPropagation(kasten);
+  control.onAdd = () => kasten;
+
+  const an = (e: Eintrag): boolean => wahl.lies()[e.id] ?? e.visible;
+  const zeigeListe = (): void => {
+    inhalt.replaceChildren();
+    for (const e of eintraege) {
+      const zeile = L.DomUtil.create('label', '', inhalt);
+      const box = L.DomUtil.create('input', '', zeile);
+      box.type = 'checkbox';
+      box.checked = an(e);
+      box.dataset.id = e.id;
+      zeile.append(` ${e.name[sprache] ?? e.name.de ?? e.name.en}`);
+      box.addEventListener('change', () => {
+        wahl.schreib({ ...wahl.lies(), [e.id]: box.checked });
+        if (box.checked) void ladeEbene(e);
+        else entferne(e.id);
+      });
+    }
+  };
+
+  /** Liest die Liste; lädt neu, was an ist und sich geändert hat. */
+  const abgleichen = async (neu: unknown[]): Promise<void> => {
+    const vorher = new Map(eintraege.map((e) => [e.id, e.version]));
+    eintraege = neu
+      .slice(0, 64)
+      .map(eintrag)
+      .filter((e): e is Eintrag => e !== undefined)
+      .sort((a, b) => b.order - a.order || a.id.localeCompare(b.id));
+    if (eintraege.length > 0 && !control.getContainer()) control.addTo(map);
+    zeigeListe();
+    for (const id of geladen.keys()) if (!eintraege.some((e) => e.id === id)) entferne(id);
+    await Promise.all(eintraege.filter((e) => an(e) && (vorher.get(e.id) !== e.version || !geladen.has(e.id))).map(ladeEbene));
+  };
+
+  await abgleichen(liste.layers);
+  map.on('zoomend', () => void groessen());
+  const nachfragen = async (): Promise<void> => {
+    const neu = await json(`${wurzel}/layers.json`).catch(() => undefined);
+    if (istObjekt(neu) && Array.isArray(neu.layers)) await abgleichen(neu.layers);
+  };
+  setInterval(() => {
+    if (document.visibilityState === 'visible') void nachfragen();
+  }, TAKT);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void nachfragen();
+  });
+}

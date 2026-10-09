@@ -210,3 +210,103 @@ body {
   color: var(--ui-schrift);
   font: 13px var(--ui-schrift-text);
 }
+
+/* Oben rechts die Liste der Ebenen zum Umschalten. Siehe docs/frontend.md,
+   „Ebenen“. */
+.ebenen {
+  padding: 2px var(--ui-abstand);
+  border-radius: var(--ui-radius);
+  background: var(--ui-grund);
+  color: var(--ui-schrift);
+  font: 13px/1.6 var(--ui-schrift-text);
+}
+
+.ebenen summary {
+  cursor: pointer;
+}
+
+.ebenen-liste label {
+  display: block;
+  white-space: nowrap;
+}
+
+/* Eine Nadel: das Schild Pixel auf Pixel, der Name darunter. */
+.nadel-icon {
+  overflow: visible;
+}
+
+.nadel canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.nadel-name {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 3px;
+  background: var(--ui-grund);
+  color: var(--ui-schrift);
+  font: 12px/1.4 var(--ui-schrift-text);
+  white-space: nowrap;
+}
+
+/* Die Infotafel: Schrift der UI, nie die Kartenschrift; zu hoch, scrollt sie. */
+.tafel .leaflet-popup-content {
+  max-height: 70vh;
+  margin: 8px;
+  overflow-y: auto;
+  font: 13px/1.4 var(--ui-schrift-text);
+}
+
+.tafel .leaflet-popup-content > div > * + * {
+  margin-top: 4px;
+}
+
+.tafel-titel {
+  font-weight: bold;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.tafel img {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.tafel-center {
+  margin: 0 auto;
+}
+
+.tafel-right {
+  margin-left: auto;
+}
+
+.tafel-abschnitt {
+  margin-top: 8px;
+}
+
+.tafel-spalten {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.tafel-reihe {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tafel-label {
+  width: 100px;
+}
+
+.tafel-punkt {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}

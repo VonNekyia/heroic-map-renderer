@@ -7,13 +7,14 @@ import {
   projiziere,
   REGION,
   RICHTUNGEN,
-  region,
   strahl,
   umriss,
   zweiZuEins,
   type Block,
   type Projektion,
 } from './pick';
+import { ebenen } from './ebenen';
+import { FRISCH, hoehen, type Hoehenkarten } from './hoehen';
 import { VERSION, type Grenzen, type Rechteck } from './skin-api';
 import './style.css';
 
@@ -43,9 +44,6 @@ interface MapInfo {
   /** Das Rechteck der Welt in Blöcken; für einen Skin. */
   area?: Rechteck;
 }
-
-/** In einer Höhenkarte: keine Zelle mit Block, oder kein fertiger Chunk. */
-const LEER = -32768;
 
 /**
  * Wie viele Stufen über die feinste gerenderte hinaus gezoomt werden darf.
@@ -90,14 +88,6 @@ function crs(info: MapInfo): Crs {
     zoom: (scale: number) => Math.log2(scale) + info.maxZoom,
   };
 }
-
-/**
- * `map.json`, `trees.json` und Höhen fragt der Browser jedes Mal beim Server
- * nach, statt sie aus dem Cache zu nehmen; unverändert kommt 304. So zeigt
- * die Seite nach einem neuen Lauf seinen Stand, gleich welche Header der
- * Server setzt. Siehe docs/frontend.md, „Ausliefern“.
- */
-const FRISCH: RequestInit = { cache: 'no-cache' };
 
 /**
  * `map.json` und ihr Stand: `Last-Modified`, die Zeit des letzten Laufs, der
@@ -215,78 +205,6 @@ function projektion(info: MapInfo): { p: Projektion; k: number } | string {
   return { p: { azimuth, u, v, y }, k };
 }
 
-/** Eine Höhenkarte: zlib, darin n × n Zellen, je i16 little-endian. */
-async function ladeKarte(path: string, n: number): Promise<Int16Array | null> {
-  const response = await fetch(path, FRISCH);
-  // Keine Datei heisst kein Chunk. Ein Server, der auf unbekannte Pfade die
-  // index.html ausliefert, meint dasselbe.
-  if (response.status === 404 || response.headers.get('content-type')?.startsWith('text/html')) {
-    return null;
-  }
-  if (!response.ok || response.body === null) {
-    throw new Error(`${path}: ${response.status} ${response.statusText}`);
-  }
-  const daten = await new Response(
-    response.body.pipeThrough(new DecompressionStream('deflate')),
-  ).arrayBuffer();
-  if (daten.byteLength !== n * n * 2) {
-    throw new Error(`${path}: ${daten.byteLength} Byte statt ${n * n * 2}`);
-  }
-  // ponytail: liest in der Byte-Reihenfolge der Maschine, also nur auf
-  // little-endian richtig; auf big-endian bräuchte es eine DataView.
-  return new Int16Array(daten);
-}
-
-/**
- * Die Höhenkarten der Regionen, je Zelle aus `zelle` × `zelle` Spalten die
- * Höhe dessen, was man sieht. Siehe docs/benutzung/map-json.md.
- */
-function hoehen(base: string, muster: string, zelle: number) {
-  const karten = new Map<string, Int16Array | null>();
-  const unterwegs = new Map<string, Promise<void>>();
-
-  const ladeRegion = (rx: number, rz: number): Promise<void> => {
-    const name = `${rx}.${rz}`;
-    if (karten.has(name)) return Promise.resolve();
-    let laden = unterwegs.get(name);
-    if (laden === undefined) {
-      const path = `${base}/${muster.replace('{x}', String(rx)).replace('{z}', String(rz))}`;
-      laden = ladeKarte(path, REGION / zelle)
-        .catch((error: unknown) => {
-          console.error(error);
-          return null;
-        })
-        .then((karte) => {
-          unterwegs.delete(name);
-          karten.set(name, karte);
-          // ponytail: verdrängt die älteste statt der am längsten
-          // ungenutzten; eine verdrängte kommt aus dem HTTP-Cache wieder.
-          if (karten.size > 64) karten.delete(karten.keys().next().value!);
-        });
-      unterwegs.set(name, laden);
-    }
-    return laden;
-  };
-
-  return {
-    /** Lädt die Karten aller Regionen, durch deren Spalten die Würfel gehen. */
-    lade: async (bloecke: readonly Block[]): Promise<void> => {
-      const regionen = new Map<string, [number, number]>();
-      for (const [x, , z] of bloecke) {
-        const { rx, rz } = region(x, z, zelle);
-        regionen.set(`${rx}.${rz}`, [rx, rz]);
-      }
-      await Promise.all([...regionen.values()].map(([rx, rz]) => ladeRegion(rx, rz)));
-    },
-    /** Die Höhe der Zelle einer Spalte, `undefined` für leer oder nicht geladen. */
-    hoehe: (x: number, z: number): number | undefined => {
-      const { rx, rz, i } = region(x, z, zelle);
-      const wert = karten.get(`${rx}.${rz}`)?.[i];
-      return wert === undefined || wert === LEER ? undefined : wert;
-    },
-  };
-}
-
 /** Setzt die Mitte der Oberseite eines Blocks der Welt in die Mitte der Karte. */
 function zentriere(
   map: L.Map,
@@ -308,11 +226,10 @@ const WELTGRENZE = 30_000_000;
  */
 function koordinaten(
   map: L.Map,
-  base: string,
+  karten: Hoehenkarten,
   { p, k }: { p: Projektion; k: number },
-  { heights, heightsCell, minY, maxY }: Hoehen,
+  { minY, maxY }: Hoehen,
 ): (px: number, py: number) => Promise<Block | undefined> {
-  const karten = hoehen(base, heights, heightsCell);
   // Der Strahl läuft im Blick, Höhen und Anzeige sind in der Welt.
   const hoehe = (x: number, z: number) => {
     const [wx, , wz] = inDieWelt([x, 0, z], k);
@@ -766,11 +683,19 @@ async function start(): Promise<void> {
   lizenzenAnzeigen(map);
   if (stand) standAnzeigen(map, stand);
   let bei: ((px: number, py: number) => Promise<Block | undefined>) | undefined;
-  if (hatHoehen(info)) {
+  // Koordinaten und Ebenen teilen sich die Höhen.
+  const karten = hatHoehen(info) ? hoehen(base, info.heights, info.heightsCell) : undefined;
+  if (karten && hatHoehen(info)) {
     if (typeof blick === 'string') console.warn(`${base}/map.json: keine Koordinaten, ${blick}`);
-    else bei = koordinaten(map, base, blick, info);
+    else bei = koordinaten(map, karten, blick, info);
   } else if (info.heights !== undefined) {
     console.warn(`${base}/map.json: heights ohne brauchbare heightsCell, minY und maxY`);
+  }
+  // Ebenen neben trees.json; ohne layers.json keine. Siehe docs/frontend.md, „Ebenen“.
+  if (typeof blick !== 'string') {
+    void ebenen({ map, wurzel, blick, scale: info.scale, maxZoom: info.maxZoom, karten, heightsCell: info.heightsCell, seaLevel: info.seaLevel }).catch(
+      (error: unknown) => console.error(error),
+    );
   }
   const mitte = () => {
     const { lat, lng } = map.getCenter();

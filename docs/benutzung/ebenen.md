@@ -182,10 +182,13 @@ der Typ des Orts, und beim Hinauszoomen wird die Nadel kleiner.
   | `small` | 9 × 11 | 4 | ohne |
 
 - **Farbe:** Das Feld des Schilds steht in Graustufen und wird mit `color`
-  multipliziert; Rahmen und Nadel bleiben, wie sie sind. `color` wirkt
-  also auch mit Symbol.
-- **Symbol:** mittig im Feld, Pixel auf Pixel, nie skaliert. Die Bilder
-  von Schild und Nadel liefert jede Ansicht selbst.
+  multipliziert, je Kanal `⌊Feld · Farbe / 255⌋`, abgeschnitten; Rahmen und
+  Nadel bleiben, wie sie sind. `color` wirkt also auch mit Symbol. Das
+  Alpha von `#RRGGBBAA` hat am Schild keine Wirkung, es bleibt deckend.
+- **Symbol:** mittig im Feld, 3 Pixel unter der Oberkante, Pixel auf
+  Pixel, nie skaliert, über dem gefärbten Feld und unter dem Rahmen. Hat es
+  nicht genau seine Grösse, bleibt das Schild leer. Die Bilder von Schild
+  und Nadel liefert jede Ansicht selbst.
 - **Fuss:** die Spitze der Nadel, in der Mitte der Unterkante.
 
 ### Kartenschrift
@@ -401,6 +404,7 @@ es und nennt es in der Konsole oder im Log.
 | Punkte je Objekt, über alle Ringe | 10 000 |
 | Löcher je Polygon | 100 |
 | Bilder je Ebene | 200 |
+| Punkte je Reihe einer Wertung | 20 |
 | Symbol | 16 × 16 oder 9 × 9 Pixel |
 | Bild der Tafel | 512 × 512 Pixel, 256 KiB |
 | Nachricht an den Mod | 64 KiB; eine Ebene in Teilen |

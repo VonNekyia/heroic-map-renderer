@@ -252,16 +252,31 @@ body {
   white-space: nowrap;
 }
 
-/* Die Infotafel: Schrift der UI, nie die Kartenschrift; zu hoch, scrollt sie. */
+/* Die Infotafel in den Farben und der Schrift der UI, nie der Kartenschrift;
+   zu hoch, scrollt sie. Rechts Platz für den Knopf zum Schliessen. */
+.tafel .leaflet-popup-content-wrapper,
+.tafel .leaflet-popup-tip {
+  background: var(--ui-grund);
+  color: var(--ui-schrift);
+}
+
+.tafel a.leaflet-popup-close-button {
+  color: var(--ui-schrift);
+}
+
 .tafel .leaflet-popup-content {
   max-height: 70vh;
-  margin: 8px;
+  margin: 8px 24px 8px 8px;
   overflow-y: auto;
   font: 13px/1.4 var(--ui-schrift-text);
 }
 
-.tafel .leaflet-popup-content > div > * + * {
+.tafel-teil > * + * {
   margin-top: 4px;
+}
+
+.tafel-teil > .tafel-abschnitt {
+  margin-top: 8px;
 }
 
 .tafel-titel {
@@ -281,10 +296,6 @@ body {
 
 .tafel-right {
   margin-left: auto;
-}
-
-.tafel-abschnitt {
-  margin-top: 8px;
 }
 
 .tafel-spalten {

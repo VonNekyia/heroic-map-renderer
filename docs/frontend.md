@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, Ebenen mit Nadeln und Infotafel zeigt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/ebenen.ts
@@ -28,9 +28,10 @@ code:
 Das Frontend ist eine Seite mit Vite, TypeScript und Leaflet
 ([`web/src/main.ts`](../web/src/main.ts)). Es liest `map.json`, baut daraus
 ein Koordinatensystem, in dem eine Karteneinheit ein Pixel der feinsten
-Stufe ist, und zeigt die fertigen Kacheln: keine Marker, keine Spieler, kein
-Zustand. Der Browser bekommt fertige Bilder und ein Koordinatensystem, dazu
-die Höhen, aus denen er die Koordinaten unter Maus und Finger rechnet.
+Stufe ist, und zeigt die fertigen Kacheln, dazu Ebenen, wenn das Plugin
+sie schreibt, siehe „Ebenen“; keine Spieler. Der Browser bekommt fertige
+Bilder und ein Koordinatensystem, dazu die Höhen, aus denen er die
+Koordinaten unter Maus und Finger und die Lage der Nadeln rechnet.
 
 ![Frontend](bilder/frontend.png)
 
@@ -162,8 +163,9 @@ Mitte des Pixels ab, wo auch der Renderer abtastet:
 3. Die Höhe steht je Zelle aus `heightsCell` × `heightsCell` Spalten, heute
    4 × 4, in den Höhenkarten des Renderers, eine Datei je Region, siehe
    [map.json](benutzung/map-json.md), „Höhen“. Das Frontend lädt nur die
-   Regionen, durch die ein Strahl geht, und hält höchstens 64 davon, bei
-   4 × 4 zusammen 2 MiB.
+   Regionen, durch die ein Strahl geht oder unter denen eine Nadel steht,
+   und hält höchstens 64 davon, bei 4 × 4 zusammen 2 MiB
+   ([`web/src/hoehen.ts`](../web/src/hoehen.ts)).
 
 Aus einer anderen Richtung als `se` oder `s` rechnet `strahl` im Blick:
 Die Welt ist dort k Vierteldrehungen gedreht, k aus der Reihenfolge
@@ -376,21 +378,34 @@ Infotafel, Regionen, Kreise, Linien und Kartenschrift folgen (#219, Teil 4).
 - **Laden:** Eine Ebene lädt erst, wenn sie an ist. Alle 30 Sekunden und
   beim Zurückkehren auf den Tab fragt die Karte `layers.json` mit
   `cache: 'no-cache'` nach und lädt neu, was an ist und eine neue `version`
-  hat.
+  hat. Die Liste baut sie dabei nur neu, wenn sich Ebenen, Namen oder
+  Reihenfolge ändern; der Fokus bleibt.
+  - Ein Zähler je Ebene: Wer während des Ladens umschaltet, gewinnt; die
+    alte Gruppe weicht erst der fertig geladenen neuen.
+  - An jeder Bildadresse hängt `?v=<version>`, so kommt ein neues Bild
+    unter gleichem Namen an; ein Fehlschlag bleibt nicht im Cache.
+  - Was über die Grenzen aus [Ebenen](benutzung/ebenen.md) geht, übergeht
+    sie und sagt es in der Konsole, ebenso eine Datei mit `permission` oder
+    `web: false`, die auf die Webkarte nicht gehört.
 - **Nadeln:** Leaflet-Marker mit dem Wappenschild auf einer Leinwand:
-  - das Feld aus `web/src/ebenen/schild_*.png` mal `color`, je Kanal
-    ganzzahlig abgeschnitten wie im Mod, darüber Rahmen und Nadel, das
-    Symbol mittig 3 Pixel unter der Oberkante; die Bilder stammen vom
+  - Feld, Symbol und Rahmen aus `web/src/ebenen/schild_*.png` nach
+    [Ebenen](benutzung/ebenen.md), „Nadel“; die Bilder stammen vom
     Designer;
   - die Spitze auf `P(x, y + 1, z)`; ohne `y` auf der Oberfläche aus den
-    Höhen, bilinear zwischen den Zellen. Koordinaten und Ebenen teilen sich
-    einen Cache der Höhen ([`web/src/hoehen.ts`](../web/src/hoehen.ts));
+    Höhen, bilinear zwischen den Zellen, einmal je Punkt gerechnet.
+    Koordinaten und Ebenen teilen sich einen Cache der Höhen
+    ([`web/src/hoehen.ts`](../web/src/hoehen.ts));
   - Grösse und Ausblenden nach der Breite eines Blocks auf dem Schirm,
     `scale · 2^(Zoom − maxZoom)`, neu bei jedem Zoom; der Name nur in der
-    Grundgrösse.
+    Grundgrösse;
+  - übereinander: je Ebene ein Pane über den Kacheln und unter der Tafel,
+    nach `order`; in einer Ebene liegt die spätere Nadel oben;
+  - eine Nadel ohne Tafel ist kein Ziel für Maus und Tastatur.
 - **Infotafel:** ein Popup von Leaflet, gebaut nur aus Elementen mit
-  `textContent` und Bildern unter `images/` der Ebene. Höchstens 320 Pixel
-  breit und 70 % des Fensters hoch, darüber scrollt sie.
+  `textContent` und Bildern unter `images/` der Ebene, in Grund und Schrift
+  der UI. Höchstens 320 Pixel breit und 70 % des Fensters hoch, darüber
+  scrollt sie. Per Tastatur: Enter auf der Nadel öffnet sie mit dem Fokus
+  darin, Escape schliesst sie und gibt den Fokus der Nadel zurück.
 - **Im Skin Tablett** tragen Liste, Namen und Tafel die Farben der UI;
   Kontrast und Platz prüft `skins/tablett/tests/marmor.spec.ts`.
 
@@ -431,7 +446,9 @@ Sprung, Kompass, Umschalter und Stand wissen nichts von ihm. Warum so:
   - Ein Skin setzt sie in seinem Stylesheet unter seiner Klasse am
     Container. Was Variablen nicht fassen, etwa Rand und Bilder, hängt er an
     die Klassen der UI: `leaflet-bar` mit den Knöpfen für Zoom und ganze
-    Karte, `kompass`, `baeume`, `leiste` mit den Koordinaten und `stand`.
+    Karte, `kompass`, `baeume`, `leiste` mit den Koordinaten, `stand`,
+    `lizenzen`, `ebenen` mit der Liste der Ebenen, `nadel-name` und
+    `tafel` mit der Infotafel.
   - Abnahme: Kontrast nach WCAG AA, Ziele für Finger ab 24 px, sichtbarer
     Fokus, Tastatur wie ohne Skin. Die Smoke-Tests laufen mit und ohne
     Skin; ohne prüfen sie die Vorgaben.

@@ -195,8 +195,11 @@ der Typ des Orts, und beim Hinauszoomen wird die Nadel kleiner.
   multipliziert, je Kanal `⌊Feld · Farbe / 255⌋`, abgeschnitten; Rahmen und
   Nadel bleiben, wie sie sind. `color` wirkt also auch mit Symbol. Das
   Alpha von `#RRGGBBAA` hat am Schild keine Wirkung, es bleibt deckend.
-- **Symbol:** mittig im Feld, 3 Pixel unter der Oberkante, Pixel auf
-  Pixel, nie skaliert, über dem gefärbten Feld und unter dem Rahmen. Hat es
+- **Symbol:** Pixel auf Pixel, nie skaliert, über dem gefärbten Feld und
+  unter dem Rahmen. Seine linke obere Ecke liegt bei
+  (⌊(Breite − Seite) / 2⌋, 3), in Pixeln des Schildbilds, von links oben
+  ab 0 gezählt; Breite ist die des Schilds, Seite die des Symbols. Bei
+  `large` und `medium` also (3, 3); ihr Feld beginnt in Zeile 2. Hat es
   nicht genau seine Grösse, bleibt das Schild leer. Die Bilder von Schild
   und Nadel liefert jede Ansicht selbst.
 - **Fuss:** die Spitze der Nadel, in der Mitte der Unterkante.
@@ -410,6 +413,8 @@ Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
   sich geändert hat und die an ist, lädt sie neu; eine verborgene erst beim
   Einschalten.
 - **Ohne `layers.json`** hat die Karte keine Ebenen und zeigt keine Liste.
+  Fehlt sie beim Laden der Seite oder ist sie kaputt, fragt die Webkarte bis
+  zum Neuladen nicht nach; eine später angelegte zeigt sie erst danach.
 
 ## Grenzen
 

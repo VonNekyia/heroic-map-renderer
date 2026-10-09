@@ -68,13 +68,13 @@ const TAKT = 30_000;
 /** Grenzen aus docs/benutzung/ebenen.md, „Grenzen“. */
 const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20 };
 
-/** Die Panes der Ebenen liegen über den Kacheln und unter dem Popup (700). */
-const PANE_GRUND = 610;
+/** Die Panes der Ebenen, 510 bis 573: über `shadowPane` (500), unter `markerPane` (600), `tooltipPane` und Tafel. */
+const PANE_GRUND = 510;
 
 const KENNUNG = /^([a-z0-9_-][a-z0-9_.-]{0,63}):([a-z0-9_-][a-z0-9_.-]{0,63})$/;
 const FARBE = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
-/** Ein Bild der Ebene: nur unter `images/`, ohne `..` und ohne Teil mit `.` vorn. */
-const BILD = /^images\/[a-z0-9_-][a-z0-9_.-]*$/i;
+/** Ein Bild der Ebene, siehe docs/benutzung/ebenen.md, „Bilder“: nur unter `images/`, der Name wie ein Teil der Kennung. */
+const BILD = /^images\/[a-z0-9_-][a-z0-9_.-]{0,63}\.(png|webp)$/;
 
 const istText = (wert: unknown, max: number): wert is string => typeof wert === 'string' && wert.length > 0 && wert.length <= max;
 const istZahl = (wert: unknown): wert is number => typeof wert === 'number' && Number.isFinite(wert);
@@ -137,9 +137,11 @@ function nadel(wert: unknown): Nadel | undefined {
   };
 }
 
-/** Ein Bild vom eigenen Server, einmal je Adresse; ein Fehlschlag bleibt nicht im Cache. */
-const bilder = new Map<string, Promise<HTMLImageElement>>();
-function bild(adresse: string): Promise<HTMLImageElement> {
+/** Die Bilder des Schilds; die Symbole hält jede geladene Ebene selbst. */
+const schildBilder = new Map<string, Promise<HTMLImageElement>>();
+
+/** Ein Bild vom eigenen Server, einmal je Adresse und Cache; ein Fehlschlag bleibt nicht im Cache. */
+function bild(adresse: string, bilder: Map<string, Promise<HTMLImageElement>>): Promise<HTMLImageElement> {
   let laden = bilder.get(adresse);
   if (!laden) {
     laden = new Promise((fertig, fehler) => {
@@ -156,16 +158,25 @@ function bild(adresse: string): Promise<HTMLImageElement> {
 
 /**
  * Zeichnet die Nadel: das Feld mal `color` je Kanal, abgeschnitten, dann das
- * Symbol mittig 3 Pixel unter der Oberkante, zuletzt Rahmen und Nadel. Ein
- * Symbol in falscher Grösse bleibt weg. Siehe docs/benutzung/ebenen.md,
- * „Nadel“.
+ * Symbol mit der linken oberen Ecke bei (⌊(b − Seite) / 2⌋, 3), zuletzt
+ * Rahmen und Nadel. Ein Symbol in falscher Grösse bleibt weg. Siehe
+ * docs/benutzung/ebenen.md, „Nadel“.
  */
-async function zeichneNadel(groesse: Groesse, farbe: string, symbol: string | undefined): Promise<HTMLCanvasElement> {
+async function zeichneNadel(
+  groesse: Groesse,
+  farbe: string,
+  symbol: string | undefined,
+  symbole: Map<string, Promise<HTMLImageElement>>,
+): Promise<HTMLCanvasElement> {
   const { feld, rahmen, b, h, symbol: seite } = SCHILDE[groesse];
   const leinwand = document.createElement('canvas');
   [leinwand.width, leinwand.height] = [b, h];
   const ctx = leinwand.getContext('2d')!;
-  const [f, r, s] = await Promise.all([bild(feld), bild(rahmen), symbol ? bild(symbol).catch(() => undefined) : undefined]);
+  const [f, r, s] = await Promise.all([
+    bild(feld, schildBilder),
+    bild(rahmen, schildBilder),
+    symbol ? bild(symbol, symbole).catch(() => undefined) : undefined,
+  ]);
   ctx.drawImage(f, 0, 0);
   const daten = ctx.getImageData(0, 0, b, h);
   const kanal = [1, 3, 5].map((i) => Number.parseInt(farbe.slice(i, i + 2), 16));
@@ -311,11 +322,14 @@ function gemerkt(wurzel: string): { lies: () => Readonly<Record<string, boolean>
 async function json(pfad: string, max: number): Promise<unknown> {
   const antwort = await fetch(pfad, FRISCH);
   if (!antwort.ok || antwort.headers.get('content-type')?.startsWith('text/html')) return undefined;
-  const text = await antwort.text();
-  if (new TextEncoder().encode(text).length > max) {
-    console.warn(`${pfad}: grösser als ${max} Byte, übergangen`);
-    return undefined;
+  const zuGross = () => console.warn(`${pfad}: grösser als ${max} Byte, übergangen`);
+  // Erst die angesagte Länge, ohne Download; ohne sie oder gepackt zählt der gelesene Text.
+  if (Number(antwort.headers.get('content-length')) > max) {
+    void antwort.body?.cancel();
+    return zuGross();
   }
+  const text = await antwort.text();
+  if (new TextEncoder().encode(text).length > max) return zuGross();
   try {
     return JSON.parse(text) as unknown;
   } catch {
@@ -327,7 +341,8 @@ async function json(pfad: string, max: number): Promise<unknown> {
 /**
  * Die Ebenen der Karte: liest `layers.json` neben `trees.json`, zeigt die
  * Liste zum Umschalten und die Nadeln der Ebenen, die an sind, und fragt
- * alle 30 Sekunden nach Änderungen. Ohne `layers.json` geschieht nichts.
+ * alle 30 Sekunden nach Änderungen. Fehlt `layers.json` beim Laden, geschieht
+ * bis zum Neuladen nichts.
  */
 export async function ebenen(umgebung: Umgebung): Promise<void> {
   const { map, wurzel, blick, scale, maxZoom, karten, heightsCell, seaLevel } = umgebung;
@@ -379,19 +394,25 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     version: string;
     gruppe: L.LayerGroup;
     marker: { nadel: Nadel; marker: L.Marker; groesse?: Groesse }[];
+    /** Icons und Symbole dieser `version`; sie fallen mit ihr weg. */
+    icons: Map<string, Promise<HTMLCanvasElement>>;
+    symbole: Map<string, Promise<HTMLImageElement>>;
   }
   const geladen = new Map<string, Geladen>();
   /** Je Ebene ein Zähler: Ein Laden, das ein späteres Umschalten überholt, verwirft sich selbst. */
   const auftrag = new Map<string, number>();
+  /** Je Ebene die `version` mit `permission` oder `web: false`; die holt die Karte nicht noch einmal. */
+  const abgewiesen = new Map<string, string>();
   let eintraege: Eintrag[] = [];
+  /** Die Nadel, deren Tafel offen ist. */
+  let offen: L.Marker | undefined;
 
-  const icons = new Map<string, Promise<HTMLCanvasElement>>();
-  const icon = async (n: Nadel, groesse: Groesse, ordner: string, v: string): Promise<L.DivIcon> => {
+  const icon = async (n: Nadel, groesse: Groesse, g: Geladen): Promise<L.DivIcon> => {
     const pfad = groesse === 'small' ? undefined : n.symbol[groesse];
-    const symbol = pfad && `${ordner}/${pfad}?v=${encodeURIComponent(v)}`;
+    const symbol = pfad && `${g.ordner}/${pfad}?v=${encodeURIComponent(g.version)}`;
     const schluessel = `${groesse} ${n.color} ${symbol ?? ''}`;
-    let leinwand = icons.get(schluessel);
-    if (!leinwand) icons.set(schluessel, (leinwand = zeichneNadel(groesse, n.color, symbol)));
+    let leinwand = g.icons.get(schluessel);
+    if (!leinwand) g.icons.set(schluessel, (leinwand = zeichneNadel(groesse, n.color, symbol, g.symbole)));
     const { b, h } = SCHILDE[groesse];
     const html = L.DomUtil.create('div', 'nadel');
     const kopie = document.createElement('canvas');
@@ -410,18 +431,19 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const groessen = async (): Promise<void> => {
     const p = blockPixel();
     const neu = await Promise.all(
-      [...geladen.values()].flatMap(({ ordner, version, gruppe, marker }) =>
-        marker.map(async (eintrag) => {
+      [...geladen.values()].flatMap((g) =>
+        g.marker.map(async (eintrag) => {
           const groesse = gezeigt(eintrag.nadel.size, p);
-          const fertig = groesse && groesse !== eintrag.groesse ? await icon(eintrag.nadel, groesse, ordner, version) : undefined;
-          return { gruppe, eintrag, groesse, fertig };
+          const fertig = groesse && groesse !== eintrag.groesse ? await icon(eintrag.nadel, groesse, g) : undefined;
+          return { gruppe: g.gruppe, eintrag, groesse, fertig };
         }),
       ),
     );
     if (blockPixel() !== p) return;
+    // Eine Ebene, die inzwischen aus oder ersetzt ist, bleibt, wie sie ist.
+    const lebend = new Set([...geladen.values()].map((g) => g.gruppe));
     for (const { gruppe, eintrag, groesse, fertig } of neu) {
-      // Eine Ebene, die inzwischen aus oder ersetzt ist, bleibt, wie sie ist.
-      if (![...geladen.values()].some((g) => g.gruppe === gruppe)) continue;
+      if (!lebend.has(gruppe)) continue;
       if (!groesse) {
         gruppe.removeLayer(eintrag.marker);
         continue;
@@ -434,12 +456,18 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
   };
 
-  /** Das Pane einer Ebene: über allen mit niedrigerer `order`, bei Gleichstand nach `id`. */
+  /** Je Ebene ein Pane; die Namen zählen hoch, so kollidieren keine zwei Kennungen. */
+  const panes = new Map<string, string>();
   const pane = (id: string): string => {
-    const name = `ebene-${id.replace(/[^a-z0-9_-]/g, '_')}`;
-    if (!map.getPane(name)) map.createPane(name);
+    let name = panes.get(id);
+    if (!name) {
+      name = `ebene-${panes.size}`;
+      panes.set(id, name);
+      map.createPane(name);
+    }
     return name;
   };
+  /** Ordnet die Panes: über allen mit niedrigerer `order`, bei Gleichstand nach `id`. */
   const stapeln = (): void => {
     eintraege.forEach((e, i) => {
       map.getPane(pane(e.id))!.style.zIndex = String(PANE_GRUND + eintraege.length - 1 - i);
@@ -449,14 +477,24 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const an = (e: Eintrag): boolean => wahl.lies()[e.id] ?? e.visible;
 
   const ladeEbene = async (e: Eintrag): Promise<void> => {
+    if (abgewiesen.get(e.id) === e.version) return;
     const nummer = (auftrag.get(e.id) ?? 0) + 1;
     auftrag.set(e.id, nummer);
-    const gilt = () => auftrag.get(e.id) === nummer && an(e);
+    // Gilt, solange niemand umgeschaltet hat und die Ebene noch in der Liste steht und an ist.
+    const gilt = () => {
+      const jetzt = eintraege.find((x) => x.id === e.id);
+      return auftrag.get(e.id) === nummer && jetzt !== undefined && an(jetzt);
+    };
     const [mod, name] = e.id.split(':') as [string, string];
     const ordner = `${wurzel}/layers/${mod}`;
     const datei = await json(`${ordner}/${name}.json`, GRENZEN.datei);
     if (istObjekt(datei) && (datei.permission !== undefined || datei.web === false)) {
+      if (!gilt()) return;
       console.warn(`${ordner}/${name}.json: Ebene mit permission oder web: false, übergangen`);
+      abgewiesen.set(e.id, e.version);
+      // Eine ältere version, die schon steht, weicht.
+      geladen.get(e.id)?.gruppe.remove();
+      geladen.delete(e.id);
       return;
     }
     const objekte = istObjekt(datei) && Array.isArray(datei.objects) ? datei.objects : [];
@@ -481,7 +519,26 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
           alt: n.name ?? '',
         });
         if (n.panel) {
+          // Vor bindPopup angemeldet, damit es vor dem Öffnen läuft: Fokus in die Tafel nur nach Enter.
+          let perTastatur = false;
+          m.on('keypress', (ereignis) => {
+            perTastatur = ereignis.originalEvent.key === 'Enter';
+          });
+          m.on('click', () => {
+            perTastatur = false;
+          });
           m.bindPopup(() => tafel(n.panel!, ordner, e.version), { className: 'tafel', maxWidth: 320, minWidth: 120, autoPanPadding: [8, 8] });
+          m.on('popupopen', ({ popup }: L.PopupEvent) => {
+            offen = m;
+            const inhalt = popup.getElement()?.querySelector<HTMLElement>('.leaflet-popup-content');
+            if (!inhalt) return;
+            inhalt.tabIndex = -1;
+            // Ohne preventScroll dürfte der Browser den Container scrollen, um die Tafel zu zeigen.
+            if (perTastatur) inhalt.focus({ preventScroll: true });
+          });
+          m.on('popupclose', () => {
+            if (offen === m) offen = undefined;
+          });
         }
         return { nadel: n, marker: m };
       }),
@@ -489,9 +546,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Hat jemand inzwischen umgeschaltet, gilt sein Auftrag; erst jetzt die alte Gruppe ersetzen.
     if (!gilt()) return;
     geladen.get(e.id)?.gruppe.remove();
-    geladen.set(e.id, { ordner, version: e.version, gruppe: L.layerGroup().addTo(map), marker });
-    // Bilder und Icons einer alten version dieser Ebene fallen weg.
-    for (const schluessel of [...icons.keys()]) if (schluessel.includes(`${ordner}/`) && !schluessel.includes(`v=${encodeURIComponent(e.version)}`)) icons.delete(schluessel);
+    geladen.set(e.id, { ordner, version: e.version, gruppe: L.layerGroup().addTo(map), marker, icons: new Map(), symbole: new Map() });
     await groessen();
   };
 
@@ -537,7 +592,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
   };
 
-  /** Liest die Liste; lädt neu, was an ist und sich geändert hat. */
+  /** Liest die Liste; nimmt weg, was nicht mehr an ist, und lädt neu, was an ist und sich geändert hat. */
   const abgleichen = async (neu: unknown[]): Promise<void> => {
     if (neu.length > GRENZEN.ebenen) console.warn(`${wurzel}/layers.json: ${neu.length} Ebenen, gezeigt die ersten ${GRENZEN.ebenen}`);
     eintraege = neu
@@ -548,17 +603,27 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     if (eintraege.length > 0 && !control.getContainer()) control.addTo(map);
     zeigeListe();
     stapeln();
-    for (const id of [...geladen.keys()]) if (!eintraege.some((e) => e.id === id)) entferne(id);
+    // Auch, wenn der Betreiber `visible` ändert und der Betrachter nie gewählt hat.
+    for (const id of [...geladen.keys()]) if (!eintraege.some((e) => e.id === id && an(e))) entferne(id);
     const zuLaden = eintraege.filter((e) => an(e) && geladen.get(e.id)?.version !== e.version);
     await Promise.all(zuLaden.map((e) => ladeEbene(e).catch((fehler: unknown) => console.error(e.id, fehler))));
   };
 
-  const nachfragen = async (): Promise<void> => {
+  /** Die Ebenen aus `layers.json`, oder `undefined`, wenn sie fehlt oder kaputt ist. */
+  const holeListe = async (): Promise<unknown[] | undefined> => {
     const liste = await json(`${wurzel}/layers.json`, GRENZEN.liste).catch(() => undefined);
-    if (istObjekt(liste) && Array.isArray(liste.layers)) await abgleichen(liste.layers);
+    return istObjekt(liste) && Array.isArray(liste.layers) ? liste.layers : undefined;
+  };
+  const nachfragen = async (): Promise<void> => {
+    const liste = await holeListe();
+    if (liste) await abgleichen(liste);
   };
 
-  // Erst anmelden, dann laden: Ein Fehler beim ersten Abgleich hält das
+  // Ohne layers.json beim Laden fragt die Karte bis zum Neuladen nicht nach.
+  const erste = await holeListe();
+  if (!erste) return;
+  if (iso && !karten) console.warn(`${wurzel}: Ebenen ohne Höhen, im iso auf seaLevel`);
+  // Erst anmelden, dann abgleichen: Ein Fehler beim ersten Abgleich hält das
   // Nachfragen nicht auf.
   map.on('zoomend', () => void groessen());
   setInterval(() => {
@@ -567,20 +632,13 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void nachfragen();
   });
-  // Die Tafel per Tastatur: Fokus hinein beim Öffnen, Escape schliesst und
-  // gibt ihn der Nadel zurück.
-  map.on('popupopen', ({ popup }: L.PopupEvent) => {
-    const element = popup.getElement()?.querySelector<HTMLElement>('.leaflet-popup-content');
-    if (!element) return;
-    element.tabIndex = -1;
-    element.focus();
-    element.addEventListener('keydown', (ereignis) => {
-      if (ereignis.key !== 'Escape') return;
-      const quelle = (popup as unknown as { _source?: L.Marker })._source;
-      map.closePopup(popup);
-      quelle?.getElement()?.focus();
-    });
+  // Escape in der Tafel, auch auf ihrem Schliessknopf, schliesst sie und gibt
+  // den Fokus der Nadel zurück.
+  map.getContainer().addEventListener('keydown', (ereignis) => {
+    const nadel = offen;
+    if (ereignis.key !== 'Escape' || !nadel?.getPopup()?.getElement()?.contains(ereignis.target as Node)) return;
+    nadel.closePopup();
+    nadel.getElement()?.focus({ preventScroll: true });
   });
-  if (iso && !karten) console.warn(`${wurzel}: Ebenen ohne Höhen, im iso auf seaLevel`);
-  await nachfragen();
+  await abgleichen(erste);
 }

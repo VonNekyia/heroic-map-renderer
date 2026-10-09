@@ -104,10 +104,24 @@ const aufDemSchirm = (page: Page, px: number, py: number) =>
     return [kachel.left + px, kachel.top + py];
   }, [px, py] as [number, number]);
 
-test('ohne layers.json gibt es keine Liste der Ebenen', async ({ page }) => {
+test('ohne layers.json gibt es keine Liste der Ebenen, und die Karte fragt bis zum Neuladen nicht nach', async ({ page }) => {
+  const meldungen: string[] = [];
+  page.on('console', (m) => meldungen.push(m.text()));
+  let anfragen = 0;
+  await page.route('**/tiles-demo/layers.json', (route) => {
+    anfragen++;
+    return route.fulfill({ status: 404 });
+  });
+  await page.clock.install();
   await page.goto(DEMO);
   await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect.poll(() => anfragen).toBe(1);
+  await page.clock.runFor(61_000);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.waitForTimeout(300);
+  expect(anfragen).toBe(1);
   await expect(page.locator('.ebenen')).toHaveCount(0);
+  expect(meldungen.filter((m) => m.includes('Ebenen ohne Höhen'))).toEqual([]);
 });
 
 test('die Liste nennt die Ebenen nach order, bei Gleichstand nach id, an oder aus nach visible; die Wahl bleibt nach dem Neuladen', async ({ page }) => {
@@ -160,8 +174,9 @@ for (const [richtung, drehe] of [
 }
 
 test('ohne y steht die Nadel auf der Oberfläche: bilinear zwischen den Zellen, eine leere Zelle aus ihren Nachbarn, ohne Höhen auf seaLevel', async ({ page }) => {
-  // Gefälle in x und z, eine leere Zelle unter den vier um die Nadel.
-  const hoehe = (i: number, j: number) => (i === 9 && j === -4 ? LEER : 10 + i + 3 * j);
+  // Gefälle in x und z, eine leere Zelle unter den vier um die Nadel. Gekrümmt in x,
+  // damit der Mittelwert der Nachbarn vom Umkreis abhängt.
+  const hoehe = (i: number, j: number) => (i === 9 && j === -4 ? LEER : 10 + 2 * i * i + 3 * j);
   const zwischen = { ...HAFEN, id: 'zwischen', name: 'Zwischen', at: [35.5, -14.5] };
   const ohne = { ...HAFEN, id: 'ohne', name: 'Ohne', at: [600.5, -14.5] };
   await welt(page, staedte([zwischen, ohne], { mehr: { seaLevel: 40 }, hoehe }));
@@ -274,8 +289,8 @@ test('beim Hinauszoomen wird eine Nadel kleiner und verschwindet zuletzt, Städt
 });
 
 test('Ebenen liegen nach order übereinander, in einer Ebene die spätere oben, gleich wo auf dem Schirm', async ({ page }) => {
-  // Je zwei Nadeln fast am selben Ort; die untere liegt 2 px tiefer auf dem Schirm.
-  const oben = { ...STAEDTE, id: 'beispiel:oben', name: { de: 'Oben' }, order: 5 };
+  // Je zwei Nadeln fast am selben Ort; die untere liegt einige Pixel tiefer auf dem Schirm.
+  const oben = { ...STAEDTE, id: 'beispiel:oben', name: { de: 'Oben' }, order: 2 };
   const unten = { ...STAEDTE, id: 'beispiel:unten', name: { de: 'Unten' }, order: 1 };
   let liste = [unten, oben];
   await welt(page, {
@@ -283,7 +298,7 @@ test('Ebenen liegen nach order übereinander, in einer Ebene die spätere oben, 
     datei: (name) =>
       ({
         oben: { objects: [{ ...HAFEN, id: 'o', name: 'O', at: [35.5, -14.5] }] },
-        unten: { objects: [{ ...HAFEN, id: 'u', name: 'U', at: [35.5, -14] }] },
+        unten: { objects: [{ ...HAFEN, id: 'u', name: 'U', at: [35.5, -13.5] }] },
         staedte: { objects: [{ ...HAFEN, id: 'a', name: 'A', at: [20.5, -30] }, { ...HAFEN, id: 'b', name: 'B', at: [20.5, -30.5] }] },
       })[name],
   });
@@ -340,6 +355,74 @@ test('wird eine Ebene ausgeschaltet, während die Höhen für ihre Nadeln laden,
   freigeben();
   await page.waitForTimeout(800);
   await expect(page.locator('.leaflet-marker-icon')).toHaveCount(0);
+});
+
+test('an, aus, an: es steht genau eine Gruppe, die des letzten Einschaltens, auch wenn das erste Laden zuletzt fertig wird', async ({ page }) => {
+  let freigeben = () => {};
+  const frei = new Promise<void>((los) => (freigeben = los));
+  let anfrage = 0;
+  await welt(page, { liste: () => [KREISE], datei: () => undefined });
+  await page.route('**/tiles-demo/layers/beispiel/stadtinfos.json', async (route) => {
+    // Die erste Anfrage wartet, bis die zweite steht.
+    const name = ++anfrage === 1 ? 'Alt' : 'Neu';
+    if (name === 'Alt') await frei;
+    await route.fulfill({ json: { objects: [{ ...HAFEN, name }] } });
+  });
+  await page.goto(DEMO);
+  await page.locator('.ebenen summary').click();
+  const box = page.locator('.ebenen input[data-id="beispiel:stadtinfos"]');
+  await box.check();
+  await box.uncheck();
+  await box.check();
+  await expect(page.locator('.nadel-icon[title="Neu"]')).toHaveCount(1);
+  freigeben();
+  await page.waitForTimeout(800);
+  await expect(page.locator('.nadel-icon')).toHaveCount(1);
+  await expect(page.locator('.nadel-icon[title="Neu"]')).toHaveCount(1);
+});
+
+test('ändert der Betreiber visible und der Betrachter hat nie gewählt, folgen die Nadeln', async ({ page }) => {
+  await page.clock.install();
+  let sichtbar = false;
+  await welt(page, { liste: () => [{ ...KREISE, visible: sichtbar }], datei: () => ({ objects: [HAFEN] }) });
+  await page.goto(DEMO);
+  await expect(page.locator('.ebenen')).toHaveCount(1);
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+  sichtbar = true;
+  await page.clock.runFor(31_000);
+  await expect(page.locator('.nadel-icon')).toHaveCount(1);
+  sichtbar = false;
+  await page.clock.runFor(31_000);
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+});
+
+test('bekommt eine gezeigte Ebene permission, weicht sie, und die Karte holt diese version nicht noch einmal', async ({ page }) => {
+  const meldungen: string[] = [];
+  page.on('console', (m) => meldungen.push(m.text()));
+  await page.clock.install();
+  let version = 'a';
+  const anfragen = await welt(page, {
+    liste: () => [{ ...STAEDTE, version }],
+    datei: () => (version === 'a' ? { objects: [HAFEN] } : { permission: 'stadt.geheim', objects: [HAFEN] }),
+  });
+  await page.goto(DEMO);
+  await expect(page.locator('.nadel-icon')).toHaveCount(1);
+  version = 'b';
+  await page.clock.runFor(31_000);
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+  await page.clock.runFor(62_000);
+  await page.waitForTimeout(300);
+  expect(anfragen.filter((a) => a === 'beispiel/staedte.json')).toHaveLength(2);
+  expect(meldungen.filter((m) => m.includes('permission'))).toHaveLength(1);
+});
+
+test('ein Klick auf eine Nadel öffnet die Tafel, ohne den Fokus hineinzuziehen', async ({ page }) => {
+  await welt(page, staedte([HAFEN]));
+  await page.goto(DEMO);
+  await page.locator('.nadel-icon[title="Hafenstadt"]').click();
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('✪ Hafenstadt');
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => document.activeElement?.closest('.tafel') !== null)).toBe(false);
 });
 
 test('die Tafel zeigt Bausteine als Text und Bilder vom eigenen Server, nie Markup, in den Farben der UI; zu hoch, scrollt sie; keine Verletzung der Content-Security-Policy', async ({ page }) => {
@@ -402,6 +485,13 @@ test('per Tastatur: eine Nadel mit Tafel ist ein Ziel, Enter öffnet sie mit dem
   await page.keyboard.press('Escape');
   await expect(page.locator('.tafel')).toHaveCount(0);
   await expect(mit).toBeFocused();
+  // Auch mit dem Fokus auf dem Schliessknopf.
+  await page.keyboard.press('Enter');
+  await expect(tafel).toBeFocused();
+  await page.locator('.tafel .leaflet-popup-close-button').focus();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.tafel')).toHaveCount(0);
+  await expect(mit).toBeFocused();
 });
 
 test('alle 30 Sekunden und beim Zurückkehren auf den Tab fragt die Karte layers.json mit no-cache nach; neu lädt nur eine Ebene mit neuer version, samt neuem Bild unter gleichem Namen; der Fokus in der Liste bleibt', async ({ page }) => {
@@ -449,16 +539,18 @@ test('alle 30 Sekunden und beim Zurückkehren auf den Tab fragt die Karte layers
   expect(new Set(await modi())).toEqual(new Set(['no-cache']));
 });
 
-test('ein Symbol ausserhalb von images/ holt die Karte nicht, und unbekannte Objekte übergeht sie', async ({ page }) => {
+test('ein Symbol ausserhalb von images/ oder mit einem Namen gegen „Dateinamen“ holt die Karte nicht, und unbekannte Objekte übergeht sie', async ({ page }) => {
   const anfragen = await welt(page, staedte([
     { ...HAFEN, symbol: { large: '../geheim.png', medium: 'images/../x.png' } },
+    { ...HAFEN, id: 'gross', at: [20.5, -30.5], symbol: { large: 'images/Burg_16.png', medium: 'images/burg_9.gif' } },
+    { ...HAFEN, id: 'lang', at: [40.5, -10.5], symbol: { large: `images/${'b'.repeat(65)}.png`, medium: 'images/.burg_9.png' } },
     { id: 'neu', type: 'hologram', at: [1, 1] },
     { ...HAFEN, id: 'ohne-at', at: 'hier' },
   ]));
   await page.goto(DEMO);
-  await expect(page.locator('.nadel-icon')).toHaveCount(1);
+  await expect(page.locator('.nadel-icon')).toHaveCount(3);
   await page.waitForTimeout(300);
-  expect(anfragen.filter((a) => a.endsWith('.png'))).toEqual([]);
+  expect(anfragen.filter((a) => a.includes('images/'))).toEqual([]);
 });
 
 test('was über die Grenzen geht oder nicht auf die Webkarte gehört, übergeht die Karte und sagt es in der Konsole', async ({ page }) => {

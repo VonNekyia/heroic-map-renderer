@@ -379,14 +379,24 @@ Infotafel, Regionen, Kreise, Linien und Kartenschrift folgen (#219, Teil 4).
   beim Zurückkehren auf den Tab fragt die Karte `layers.json` mit
   `cache: 'no-cache'` nach und lädt neu, was an ist und eine neue `version`
   hat. Die Liste baut sie dabei nur neu, wenn sich Ebenen, Namen oder
-  Reihenfolge ändern; der Fokus bleibt.
+  Reihenfolge ändern; der Fokus bleibt. Fehlt `layers.json` beim Laden,
+  fragt sie nicht nach, siehe [Ebenen](benutzung/ebenen.md), „Ändern und
+  Neuladen“.
+  - Was nicht mehr in der Liste steht oder nicht mehr an ist, nimmt sie
+    weg, auch wenn der Betreiber `visible` ändert und der Betrachter nie
+    gewählt hat.
   - Ein Zähler je Ebene: Wer während des Ladens umschaltet, gewinnt; die
-    alte Gruppe weicht erst der fertig geladenen neuen.
+    alte Gruppe weicht erst der fertig geladenen neuen, und nur, wenn die
+    Ebene noch in der Liste steht und an ist.
   - An jeder Bildadresse hängt `?v=<version>`, so kommt ein neues Bild
-    unter gleichem Namen an; ein Fehlschlag bleibt nicht im Cache.
+    unter gleichem Namen an; ein Fehlschlag bleibt nicht im Cache. Icons
+    und Symbole hält jede geladene `version` selbst, sie fallen mit ihr weg.
+  - `json()` prüft erst `Content-Length`, dann den gelesenen Text gegen die
+    Grenze.
   - Was über die Grenzen aus [Ebenen](benutzung/ebenen.md) geht, übergeht
     sie und sagt es in der Konsole, ebenso eine Datei mit `permission` oder
-    `web: false`, die auf die Webkarte nicht gehört.
+    `web: false`, die auf die Webkarte nicht gehört. Eine ältere `version`
+    dieser Ebene weicht dann; die abgewiesene holt sie nicht noch einmal.
 - **Nadeln:** Leaflet-Marker mit dem Wappenschild auf einer Leinwand:
   - Feld, Symbol und Rahmen aus `web/src/ebenen/schild_*.png` nach
     [Ebenen](benutzung/ebenen.md), „Nadel“; die Bilder stammen vom
@@ -398,14 +408,18 @@ Infotafel, Regionen, Kreise, Linien und Kartenschrift folgen (#219, Teil 4).
   - Grösse und Ausblenden nach der Breite eines Blocks auf dem Schirm,
     `scale · 2^(Zoom − maxZoom)`, neu bei jedem Zoom; der Name nur in der
     Grundgrösse;
-  - übereinander: je Ebene ein Pane über den Kacheln und unter der Tafel,
-    nach `order`; in einer Ebene liegt die spätere Nadel oben;
+  - übereinander: je Ebene ein Pane, `z-index` 510 + Rang nach `order`,
+    über `shadowPane` (500) und unter `markerPane` (600), `tooltipPane`
+    und der Tafel; in einer Ebene liegt die spätere Nadel oben;
   - eine Nadel ohne Tafel ist kein Ziel für Maus und Tastatur.
 - **Infotafel:** ein Popup von Leaflet, gebaut nur aus Elementen mit
   `textContent` und Bildern unter `images/` der Ebene, in Grund und Schrift
   der UI. Höchstens 320 Pixel breit und 70 % des Fensters hoch, darüber
   scrollt sie. Per Tastatur: Enter auf der Nadel öffnet sie mit dem Fokus
-  darin, Escape schliesst sie und gibt den Fokus der Nadel zurück.
+  darin, Escape schliesst sie, auch auf dem Schliessknopf, und gibt den
+  Fokus der Nadel zurück. Nach einem Klick bleibt der Fokus, wo er ist.
+  Der Fokus scrollt nie (`preventScroll`): Ein Scrollen des Containers
+  setzt Leaflet zwar zurück, aber erst nach dem Sprung.
 - **Im Skin Tablett** tragen Liste, Namen und Tafel die Farben der UI;
   Kontrast und Platz prüft `skins/tablett/tests/marmor.spec.ts`.
 

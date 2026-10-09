@@ -62,7 +62,7 @@ Get-FileHash heroic-map-renderer-windows-x64.zip -Algorithm SHA256
 
 Die Versionen folgen SemVer und heissen wie `version` in
 [`renderer/Cargo.toml`](../../renderer/Cargo.toml); ein Release trägt sie
-als Tag mit `v` davor, etwa `v0.4.0`. Welche ein Binär hat, sagt:
+als Tag mit `v` davor, etwa `v0.5.0`. Welche ein Binär hat, sagt:
 
 ```bash
 heroic-map-renderer --version

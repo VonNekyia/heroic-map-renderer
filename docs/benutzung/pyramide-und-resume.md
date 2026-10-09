@@ -59,6 +59,12 @@ Aufruf baut sie einmal nach; sie bleibt liegen und bekommt seinen Stempel,
 danach baut keiner sie wieder, siehe [Kacheln exportieren](kacheln.md),
 „Gleiche Bytes bleiben liegen“.
 
+Einmal baut ein Aufruf alles: bei einem Baum von oben, dessen `map.json`
+noch kein `downscale` nennt. Dessen Pyramide ist gemittelt. Der Aufruf
+baut jede Kachel über der gröbsten gerenderten Stufe mit dem nächsten
+Pixel neu und trägt das Feld am Ende ein, siehe [map.json](map-json.md),
+„Verkleinern“.
+
 Die Basis und die gröbste native Stufe rendern in Streifen, deren Breite
 eine Zweierpotenz ist. Ab zwei Spalten, also ab scale 8 und ab rund 20
 Kacheln je Thread, liegen Geschwister im selben Streifen, werden kurz

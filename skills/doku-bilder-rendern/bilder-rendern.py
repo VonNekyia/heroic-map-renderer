@@ -6,9 +6,10 @@ Aus der Wurzel des Repositorys, mit ./world, ./vanilla-assets, ./assets und
     python skills/doku-bilder-rendern/bilder-rendern.py <renderer> [<daten>]
 
 <renderer> ist das Release-Binär, <daten> der Ordner mit world/ und den
-Assets, Vorgabe die Wurzel. Braucht Pillow mit WebP, für die Bilder zu 0058
-dazu cargo. Die Befehle je Bild stehen im Skill daneben.
+Assets, Vorgabe die Wurzel. Braucht Pillow mit WebP und numpy, für die
+Bilder zu 0058 dazu cargo. Die Befehle je Bild stehen im Skill daneben.
 """
+import json
 import os
 import subprocess
 import sys
@@ -16,6 +17,7 @@ import tempfile
 from fractions import Fraction
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 # Name: --center X Z, --scale, --size, Zuschnitt (links, oben, rechts, unten)
@@ -51,6 +53,12 @@ KINO = ((-416, 514), 32, 1400, (250, 440, 1050, 1040))
 # Der Banner: dieser Ausschnitt von "welt" vor dem Zuschnitt, darüber die
 # Ebenen aus docs/bilder/quellen/banner.aseprite.
 BANNER = (520, 690, 1800, 1090)
+# Die Pyramide von oben für 0094: ein Ausschnitt in top-north bei scale 4 als
+# Kacheln, STUFEN Stufen über der Basis. Links aus der Basis gemittelt wie bei
+# den anderen Kameras, in der Mitte je 2 × 2 der feste Platz rechts unten,
+# rechts die Kacheln des Renderers. --center X Z, --size, Stufen, Zuschnitt
+# auf der Stufe ab der linken oberen Ecke der Basis, Vergrösserung.
+VERKLEINERN = ((-64, 416), 4096, 3, (150, 175, 310, 295), 4)
 BILDER = Path("docs/bilder")
 
 
@@ -62,6 +70,52 @@ def rendern(renderer, daten, ziel, center, scale, size, extra=()):
          *extra],
         check=True,
     )
+
+
+def kacheln(renderer, daten, ziel, center, scale, size, extra=()):
+    subprocess.run(
+        [renderer, "--world", daten / "world", "--assets", daten / "vanilla-assets",
+         "--assets", daten / "assets", "--data", daten / "vanilla-data", "--tiles", ziel,
+         "--center", str(center[0]), str(center[1]), "--size", str(size), "--scale", str(scale),
+         "--gpu", "off", *extra],
+        check=True,
+    )
+
+
+def stufe(baum, z):
+    """Die Kacheln einer Stufe als ein Bild, dazu die linke obere Kachel."""
+    teile = {(int(p.parent.name), int(p.stem)): p for p in (baum / str(z)).glob("*/*.webp")}
+    x0, y0 = min(x for x, _ in teile), min(y for _, y in teile)
+    x1, y1 = max(x for x, _ in teile), max(y for _, y in teile)
+    bild = np.zeros(((y1 - y0 + 1) * 256, (x1 - x0 + 1) * 256, 4), np.uint8)
+    for (x, y), pfad in teile.items():
+        bild[(y - y0) * 256:(y - y0 + 1) * 256, (x - x0) * 256:(x - x0 + 1) * 256] = \
+            np.asarray(Image.open(pfad).convert("RGBA"))
+    return bild, (x0, y0)
+
+
+def gemittelt(bild):
+    """Halbiert wie die Pyramide der anderen Kameras: vormultipliziertes Alpha
+    in linearem Licht, siehe docs/benutzung/zoomstufen.md, „Verkleinern“."""
+    farbe = bild[..., :3] / 255.0
+    linear = np.where(farbe <= 0.04045, farbe / 12.92, ((farbe + 0.055) / 1.055) ** 2.4)
+    alpha = bild[..., 3:4].astype(np.float64)
+    vier = lambda a: a[0::2, 0::2] + a[0::2, 1::2] + a[1::2, 0::2] + a[1::2, 1::2]
+    summe = vier(alpha)
+    licht = np.clip(vier(linear * alpha) / np.maximum(summe, 1), 0, 1)
+    srgb = np.where(licht <= 0.0031308, licht * 12.92, 1.055 * licht ** (1 / 2.4) - 0.055)
+    out = np.zeros((*summe.shape[:2], 4), np.uint8)
+    out[..., :3] = np.round(srgb * 255)
+    out[..., 3] = np.ceil(summe[..., 0] / 4)
+    out[summe[..., 0] == 0] = 0
+    return out
+
+
+def naechster(bild, d):
+    """Je 2 × 2 der Pixel (d, d), durchsichtig ohne Farbe."""
+    out = bild[d::2, d::2].copy()
+    out[out[..., 3] == 0] = 0
+    return out
 
 
 def drehe(x, z, vierteln):
@@ -157,6 +211,29 @@ def main():
         )
         for name in ("cinematic-renderer-waerme", "cinematic-renderer-pflanzen"):
             webp(Image.open(Path(tmp) / f"{name}.png"), name)
+        center, size, n, (links, oben, rechts, unten), mal = VERKLEINERN
+        wurzel = Path(tmp) / "oben"
+        kacheln(renderer, daten, wurzel, center, 4, size, ["--camera", "top-north"])
+        baum = wurzel / "top-north-s"
+        basis_z = json.loads((baum / "map.json").read_text(encoding="utf-8"))["maxZoom"]
+        basis, (bx, by) = stufe(baum, basis_z)
+        arten = {"gemittelt": basis, "fest": basis, "wechsel": basis}
+        for tiefe in range(1, n + 1):
+            arten = {
+                "gemittelt": gemittelt(arten["gemittelt"]),
+                "fest": naechster(arten["fest"], 1),
+                "wechsel": naechster(arten["wechsel"], tiefe % 2),
+            }
+        # Die Kacheln des Renderers an derselben Stelle: Sie müssen dem
+        # Wechsel aus der Basis Pixel für Pixel gleichen.
+        grob, (gx, gy) = stufe(baum, basis_z - n)
+        dx, dy = bx * 256 // 2 ** n - gx * 256, by * 256 // 2 ** n - gy * 256
+        renderer_bild = grob[oben + dy:unten + dy, links + dx:rechts + dx]
+        felder = [arten[a][oben:unten, links:rechts] for a in ("gemittelt", "fest", "wechsel")]
+        assert (felder[2] == renderer_bild).all(), "der Renderer nimmt nicht den Pixel des Wechsels"
+        gross = [Image.fromarray(renderer_bild if i == 2 else f).resize(
+            ((rechts - links) * mal, (unten - oben) * mal), Image.NEAREST) for i, f in enumerate(felder)]
+        webp(nebeneinander(gross), "verkleinern-von-oben")
     banner.alpha_composite(Image.open(BILDER / "quellen" / "banner-ebenen.png").convert("RGBA"))
     webp(banner, "banner")
 

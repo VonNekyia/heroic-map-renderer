@@ -5425,11 +5425,15 @@ fn gemittelter_baum_von_oben_wird_ganz_umgebaut() {
 }
 
 /// Macht aus einem Baum von oben einen wie aus einem älteren Stand: jede
-/// Stufe über der Basis gemittelt, ohne `downscale` in `map.json`.
+/// Stufe der Pyramide gemittelt, über den nativen, ohne `downscale` in
+/// `map.json`.
 fn wie_frueher_gemittelt(dir: &Path) {
-    let basis = max_zoom(dir);
+    let karte = dir.join("map.json");
+    let mut info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
+    let unten = max_zoom(dir) - info["nativeLevels"].as_u64().unwrap() as u32;
     let vorher = schnappschuss(dir);
-    for z in (0..basis).rev() {
+    for z in (0..unten).rev() {
         let kinder = kacheln(dir, z + 1);
         for parent in kacheln(dir, z).into_keys() {
             let teile: Vec<(TileId, RgbaImage)> = parent
@@ -5441,9 +5445,6 @@ fn wie_frueher_gemittelt(dir: &Path) {
             setze(dir, z, parent, &gemittelt);
         }
     }
-    let karte = dir.join("map.json");
-    let mut info: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&karte).unwrap()).unwrap();
     assert_eq!(info["downscale"], "nearest");
     info.as_object_mut().unwrap().remove("downscale");
     std::fs::write(&karte, serde_json::to_string_pretty(&info).unwrap()).unwrap();

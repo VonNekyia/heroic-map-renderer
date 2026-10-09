@@ -24,7 +24,33 @@ die übrigen am Ende aus den Dateien.
 
 ## Verkleinern
 
-Gemittelt wird mit vormultipliziertem Alpha. Geradeaus gemittelt zögen
+Bei Kameras von oben, `top` und `top-north`, nimmt jede Stufe je 2 × 2
+einen Pixel, statt zu mitteln (`Verkleinern::Pixel` in
+[`renderer/src/render/pyramid.rs`](../../renderer/src/render/pyramid.rs)).
+Alle anderen Kameras mitteln wie unten. Von oben liegt jeder Block auf
+ganzen Pixeln. Gemittelt wurden seine Kanten von Stufe zu Stufe weicher,
+und beim Herauszoomen wirkte die Karte verwaschen.
+
+- **Welcher Pixel:**
+  - in ungerader Tiefe über der gröbsten gerenderten Stufe, der Basis oder
+    der gröbsten nativen, der rechts unten;
+  - in gerader Tiefe der links oben.
+
+  Von der gerenderten Stufe aus liegt er so nie auf dem Rand eines Blocks
+  aus vier Pixeln. Ein fester Platz läge ab der zweiten Stufe auf einer
+  Ecke jedes Blocks, wo Kanten und Schatten liegen.
+- **Alpha** geht mit. Ein durchsichtiger Pixel hat keine Farbe.
+- **Der Baum merkt es sich,** siehe [map.json](map-json.md), „Verkleinern“.
+
+![Drei Stufen über der Basis von oben: gemittelt, fester Platz und Wechsel](../bilder/verkleinern-von-oben.webp)
+
+*Testwelt, `top-north` bei scale 4, drei Stufen über der Basis, vierfach
+vergrössert. Links gemittelt, in der Mitte je 2 × 2 der feste Platz rechts
+unten, rechts der Wechsel, wie der Renderer ihn nimmt.*
+
+Entschieden in [0094](../entscheidungen/0094-von-oben-der-naechste-pixel.md).
+
+Die anderen Kameras mitteln mit vormultipliziertem Alpha. Geradeaus gemittelt zögen
 durchsichtige Pixel ihre Farbe in die Nachbarn, und jede Kante gegen Luft
 bekäme einen dunklen Saum; auf einer Karte voller Blattwerk wäre das
 überall zu sehen.

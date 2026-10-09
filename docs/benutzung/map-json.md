@@ -64,6 +64,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `nativeLevels` | Zahl der nativen Stufen | [Zoomstufen](zoomstufen.md), „Native Stufen“ |
 | `biomeBlend` | Radius der Mischung der Biomfarben, `--biome-blend` | „Radius der Mischung“ unten |
 | `compact` | `true`, wenn der Baum kompakt packt, `--compact`; fehlt sonst | „Packen“ unten |
+| `downscale` | `"nearest"`, wenn die Pyramide je 2 × 2 einen Pixel nimmt, bei Kameras von oben; fehlt sonst, dann mittelt sie | „Verkleinern“ unten |
 | `world` | Kennung der Welt und Dimension, oder `null` | [Welten und Kennung](welten.md) |
 | `heights` | Pfadmuster der Höhen je Region, relativ zum Baum; fehlt es, hat der Baum keine | „Höhen“ unten |
 | `heightsCell` | Kantenlänge einer Zelle der Höhen in Blöcken, heute 4; steht mit `heights` | „Höhen“ unten |
@@ -344,6 +345,31 @@ gehört deshalb zum Baum, siehe
   dabei als Erstes ein, siehe [Kacheln exportieren](kacheln.md),
   „Nachverdichten“.
 - Das Frontend liest das Feld nicht; es dekodiert beide Packungen gleich.
+
+## Verkleinern
+
+Bei Kameras von oben nimmt die Pyramide je 2 × 2 einen Pixel, sonst mittelt
+sie, siehe [Zoomstufen](zoomstufen.md), „Verkleinern“. Wie sie
+verkleinert, gehört zum Baum, siehe
+[0094](../entscheidungen/0094-von-oben-der-naechste-pixel.md):
+
+- **Ein neuer Baum von oben** trägt `"downscale": "nearest"` ein. Fehlt das
+  Feld, mittelt die Pyramide.
+- **Jeder Lauf auf dem Baum** verkleinert wie er: ein voller Lauf,
+  `--update`, `--resume` und `--pyramid`. `--compact-tree` ändert keine
+  Pixel und lässt das Feld, wie es ist.
+- **Ein Baum von oben aus einem älteren Stand** hat kein Feld und eine
+  gemittelte Pyramide. Der nächste Lauf auf ihm baut jede Kachel der
+  Pyramide einmal neu und trägt das Feld erst danach ein; das gilt auch
+  für ein Update ohne Änderung. Bricht er ab, fehlt das Feld noch, und der
+  nächste Lauf baut wieder alles. Er sagt es vorher:
+
+  ```
+  Verkleinern: ./tiles/top-north-s/map.json mittelt noch; dieser Lauf baut die Pyramide einmal ganz neu, je 2 × 2 ein Pixel
+  ```
+
+- **Das Frontend** liest das Feld nicht; es zeigt die Kacheln, wie sie
+  sind.
 
 ## Die Welt
 

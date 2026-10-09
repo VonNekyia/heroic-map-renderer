@@ -47,8 +47,52 @@ for (const hoehe of [10, 40]) {
     await expect(raender).toHaveCount(1);
     await expect(raender).toHaveAttribute('stroke-width', '2');
     await expect(raender).toHaveAttribute('fill', 'none');
+    // Der Rand liegt auf derselben Höhe wie die Fläche.
+    nah(await rahmen(raender), await sollRahmen(page, GEBIET.polygons[0]!.outer, hoehe + 1));
   });
 }
+
+test('eine Linie über unebenem Grund liegt auf ihm: ihr Pfad reicht so weit, wie die Projektion ihre Punkte auf ihre Höhe legt', async ({ page }) => {
+  // Ein Grat quer zur Linie, sanft genug, dass nichts verdeckt ist.
+  const f = (i: number) => 2 * Math.abs(i - 5);
+  const linie = { id: 'grat', type: 'line', points: [[0, -20], [40, -20]], stroke: { color: '#123456', width: 2 } };
+  await welt(page, staedte([linie], { hoehe: (i) => f(i) }));
+  await page.goto(`${DEMO}&at=20,5,-20`);
+  const pfad = page.locator('path[stroke="#123456"]');
+  await expect(pfad).toHaveCount(1);
+  // Unabhängig nachgerechnet: H linear zwischen den Mitten der Zellen, + 1; Punkte an jeder Mitte und dazwischen.
+  const H = (x: number) => {
+    const fx = x / 4 - 0.5;
+    const i = Math.floor(fx);
+    return f(i) * (1 - (fx - i)) + f(i + 1) * (fx - i) + 1;
+  };
+  const xs = [0, 1, 2, ...Array.from({ length: 9 }, (_, k) => [4 + 4 * k, 6 + 4 * k]).flat(), 39, 40];
+  const auf = await Promise.all(xs.map((x) => aufDemSchirm(page, ...projiziere(x, H(x), -20, zweiZuEins(16)))));
+  nah(await rahmen(pfad), [Math.min(...auf.map((p) => p[0]!)), Math.min(...auf.map((p) => p[1]!)), Math.max(...auf.map((p) => p[0]!)), Math.max(...auf.map((p) => p[1]!))]);
+});
+
+test('eine gestrichelte Linie wird nicht am Rand des Renderers geschnitten, so springen ihre Striche beim Verschieben nicht', async ({ page }) => {
+  const lang = { id: 'lang', type: 'line', points: [[-400, 4], [400, 4]], stroke: { color: '#654321', width: 2, style: 'dashed' } };
+  await welt(page, staedte([lang]));
+  await page.goto(`${DEMO}&at=0,0,4`);
+  const pfad = page.locator('path[stroke="#654321"]');
+  await expect(pfad).toHaveCount(1);
+  // 800 Blöcke, je Block 8 Pixel nach rechts und 4 nach unten: weit über das Fenster hinaus.
+  expect(laenge((await pfad.getAttribute('d'))!)).toBeCloseTo(800 * Math.hypot(8, 4), -1);
+});
+
+test('Leaflet vereinfacht eine Fläche nicht: auf jeder Stufe dieselben Punkte', async ({ page }) => {
+  const f = (i: number, j: number) => Math.round(6 * Math.sin(i / 2) + 4 * Math.cos(j / 3));
+  await welt(page, staedte([rechteck('rau', 17, -31, 47, -1, { fill: '#ABCDEFFF' })], { hoehe: f, mehr: { minZoom: -6 } }));
+  const punkte = async (zoom: number) => {
+    await page.goto(`${DEMO}&at=32,5,-16&zoom=${zoom}`);
+    await expect(page.locator('path[fill="#ABCDEFFF"]')).toHaveCount(1);
+    return (await page.locator('path[fill="#ABCDEFFF"]').getAttribute('d'))!.match(/[ML]/g)!.length;
+  };
+  const fein = await punkte(0);
+  expect(fein).toBeGreaterThan(50);
+  expect(await punkte(-4)).toBe(fein);
+});
 
 test('von oben liegt eine Region eben, ein Kreis bleibt rund', async ({ page }) => {
   const kreis = { id: 'kreis', type: 'circle', center: [60, 60], radius: 60, fill: '#2040E0AA' };
@@ -118,6 +162,22 @@ test('eine Fläche nennt beim Zeigen ihren Namen als Text und öffnet beim Klick
   await expect(page.locator('.tafel .tafel-titel', { hasText: 'Gebietstafel' })).toHaveCount(0);
 });
 
+test('eine Fläche mit Tafel erreicht die Tastatur: Enter öffnet die Tafel mit dem Fokus darin, Escape gibt ihn der Fläche zurück', async ({ page }) => {
+  const gebiet = { ...GEBIET, name: 'Gebiet', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
+  await welt(page, staedte([gebiet]));
+  await page.goto(DEMO);
+  const ziel = page.locator('path[tabindex="0"]');
+  await expect(ziel).toHaveAttribute('role', 'button');
+  await expect(ziel).toHaveAttribute('aria-label', 'Gebiet');
+  await ziel.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.tafel .leaflet-popup-content')).toBeFocused();
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.tafel')).toHaveCount(0);
+  await expect(ziel).toBeFocused();
+});
+
 test('Flächen liegen nach order übereinander; eine ohne Namen und Tafel lässt Klicks zu den Flächen darunter durch', async ({ page }) => {
   const oben = { ...STAEDTE, id: 'beispiel:oben', name: { de: 'Oben' }, order: 2 };
   const mitte = { ...STAEDTE, id: 'beispiel:mitte', name: { de: 'Mitte' }, order: 1 };
@@ -140,6 +200,22 @@ test('Flächen liegen nach order übereinander; eine ohne Namen und Tafel lässt
   expect(await z('#00FF00FF')).toBeGreaterThan(await z('#0000FFFF'));
   expect(await z('#FF0000FF')).toBeLessThan(510);
   expect(await page.evaluate(([x, y]) => document.elementFromPoint(x!, y!)?.getAttribute('fill'), [x, y])).toBe('#00FF00FF');
+});
+
+test('bräuchte eine Ebene mehr als 1024 Regionen Höhen, liegt sie mit Meldung auf seaLevel und erscheint trotzdem', async ({ page }) => {
+  const meldungen: string[] = [];
+  page.on('console', (m) => meldungen.push(m.text()));
+  let hoehen = 0;
+  // Der Demobaum hat kein area: Ein Kreis mit 50 000 Blöcken Radius streift Tausende Regionen.
+  await welt(page, staedte([{ id: 'riesig', type: 'circle', center: [0, 0], radius: 50_000, stroke: { color: '#0F0F0F', width: 1 } }]));
+  page.on('request', (r) => {
+    if (r.url().includes('/heights/')) hoehen++;
+  });
+  await page.goto(DEMO);
+  await expect(page.locator('path[stroke="#0F0F0F"]')).toHaveCount(1);
+  expect(meldungen.some((m) => m.includes('mehr als 1024'))).toBe(true);
+  // Höhen holt nur die Koordinatenanzeige für ihre Umgebung, nicht die Ebene.
+  expect(hoehen).toBeLessThan(50);
 });
 
 test('was über die Grenzen geht, übergeht die Karte mit Meldung', async ({ page }) => {
@@ -252,4 +328,24 @@ test('die Kartenschrift liegt auf ihrem Pfad im iso über dem Gelände; nach lin
   expect(p.n).toBeGreaterThanOrEqual(p.text);
   const mitte = await aufDemSchirm(page, ...projiziere(30, 11, -50, zweiZuEins(16)));
   nah([(p.a[0]! + p.b[0]!) / 2, p.a[1]!], mitte);
+  // Mittig auf dem Pfad: die Grundlinie eine halbe Höhe der Grossbuchstaben, 64 / 2 Pixel, darunter.
+  const grundlinie = await schrift(page, 'punkt').evaluate((svg: SVGSVGElement) => {
+    const text = svg.querySelector('text')!;
+    return text.getStartPositionOfChar(0).y - svg.querySelector('path')!.getPointAtLength(0).y;
+  });
+  expect(grundlinie).toBeCloseTo(32, 0);
+});
+
+test('die Kartenschrift liegt im Pane ihrer Ebene, über deren Flächen', async ({ page }) => {
+  await welt(page, staedte([{ ...GEBIET, fill: '#40E53FFF' }, { ...WESTMEER, path: [[16, -16], [48, -16]] }]));
+  await page.goto(`${DEMO}&at=32,0,-16`);
+  await expect(schrift(page, 'meer')).toHaveCount(1);
+  await expect(page.locator('path[fill="#40E53FFF"]')).toHaveCount(1);
+  const [gleich, danach] = await page.evaluate(() => {
+    const s = document.querySelector('svg.ebene-schrift')!;
+    const f = document.querySelector('path[fill="#40E53FFF"]')!;
+    return [s.closest('.leaflet-pane') === f.closest('.leaflet-pane'), Boolean(f.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING)];
+  });
+  expect(gleich).toBe(true);
+  expect(danach).toBe(true);
 });

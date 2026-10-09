@@ -79,7 +79,9 @@ export class Schrift extends L.Layer {
     private readonly scale: number,
     pane: string,
   ) {
-    super({ pane });
+    super();
+    // L.Layer hat kein initialize, das Optionen nimmt; ohne setOptions läge die Schrift im overlayPane.
+    L.setOptions(this, { pane });
   }
 
   override onAdd(map: L.Map): this {
@@ -95,7 +97,10 @@ export class Schrift extends L.Layer {
     const entlang = document.createElementNS(SVG, 'textPath');
     entlang.setAttribute('href', `#${id}`);
     entlang.setAttribute('startOffset', '50%');
-    entlang.textContent = this.zug.text;
+    // `dy` wirkt an <tspan>, nicht an <textPath>.
+    const zeile = document.createElementNS(SVG, 'tspan');
+    zeile.textContent = this.zug.text;
+    entlang.append(zeile);
     text.append(entlang);
     svg.append(linie, text);
     map.getPane(this.options.pane!)!.append(svg);
@@ -135,7 +140,7 @@ export class Schrift extends L.Layer {
     text.setAttribute('letter-spacing', String(this.zug.sperrung * hoehe));
     text.setAttribute('fill', this.zug.farbe);
     // Die Grundlinie eine halbe Höhe der Grossbuchstaben unter dem Pfad: Die Schrift steht mittig auf ihm.
-    entlang.setAttribute('dy', String(hoehe / 2));
+    svg.querySelector('tspan')!.setAttribute('dy', String(hoehe / 2));
     if (this.zug.kontur) {
       // Die Kontur liegt unter den Zeichen; sichtbar bleibt ihre äussere Hälfte.
       text.setAttribute('stroke', this.zug.kontur.farbe);
@@ -144,7 +149,9 @@ export class Schrift extends L.Layer {
       text.setAttribute('paint-order', 'stroke');
     }
 
-    let punkte = this.pfad.map(([x, y]) => map.latLngToLayerPoint(L.latLng(y, x)));
+    // Ungerundet: latLngToLayerPoint rundet auf ganze Pixel, kleine Schrift wackelte dann.
+    const ursprung = map.getPixelOrigin();
+    let punkte = this.pfad.map(([x, y]) => map.project(L.latLng(y, x)).subtract(ursprung));
     if (punkte.at(-1)!.x < punkte[0]!.x) punkte = punkte.reverse();
     const laenge = punkte.reduce((s, p, i) => (i ? s + p.distanceTo(punkte[i - 1]!) : 0), 0);
     const noetig = entlang.getComputedTextLength() + hoehe;

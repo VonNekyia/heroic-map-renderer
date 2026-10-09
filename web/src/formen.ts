@@ -4,7 +4,20 @@
  * und „Linie“; wie die Karte sie zeichnet in docs/frontend.md, „Ebenen“.
  */
 import L from 'leaflet';
-import { netz, vieleck, zug, type Blick, type Gelaende, type Polygon, type Punkt, type Zug } from './gelaende';
+import {
+  netz,
+  rechteck,
+  ringImRechteck,
+  vieleck,
+  zug,
+  zugImRechteck,
+  type Blick,
+  type Gelaende,
+  type Polygon,
+  type Punkt,
+  type Rechteck,
+  type Zug,
+} from './gelaende';
 import { farbe, istObjekt, istText, istZahl, punkt, punkte } from './pruefen';
 
 /** Ein Rand: Farbe, Breite in Pixeln des Schirms, Strich und Lücke, wenn gestrichelt. */
@@ -108,10 +121,14 @@ export interface Strich {
 export interface Zeichnen {
   renderer: L.Renderer;
   blick: Blick;
-  /** Die Höhen im Rechteck [x0, z0, x1, z1] der Welt. */
-  gelaende: (bereich: [number, number, number, number]) => Promise<Gelaende>;
+  /** Die Höhen aller Formen der Ebene, einmal geladen. */
+  gelaende: Gelaende;
+  /** `area` aus map.json: Ausserhalb gibt es weder Kacheln noch Höhen. */
+  area?: Rechteck;
   tafel: (bausteine: unknown[]) => HTMLElement;
   tafelOptionen: L.PopupOptions;
+  /** Macht eine Fläche mit Tafel per Tastatur bedienbar. */
+  bediene: (flaeche: L.Polygon, name: string | undefined) => void;
 }
 
 const latLng = ([x, y]: Punkt) => L.latLng(y, x);
@@ -140,7 +157,8 @@ function laeufe(z: Zug, r: Rand, renderer: L.Renderer): Strich[] {
       const [a, b] = [z.punkte[i - 1]!, z.punkte[i]!];
       weg += Math.hypot(b[0] - a[0], b[1] - a[1]);
     }
-    const linie = L.polyline(z.punkte.slice(von, i).map(latLng), verdeckt ? verdecktStil : stil);
+    // Ein gestrichelter Lauf bleibt ungeschnitten; schnitte Leaflet ihn am Rand des Renderers, verschöben sich seine Striche.
+    const linie = L.polyline(z.punkte.slice(von, i).map(latLng), { ...(verdeckt ? verdecktStil : stil), noClip: !verdeckt && r.strich !== undefined });
     aus.push({ linie, versatz: verdeckt ? 0 : versatz });
   }
   return aus;
@@ -155,49 +173,67 @@ export function versetze(striche: readonly Strich[], faktor: number): void {
   for (const { linie, versatz } of striche) if (versatz && linie.options.dashArray) linie.setStyle({ dashOffset: String(versatz * faktor) });
 }
 
+/** Ob eine Form eine Fläche zeichnet: mit Füllung, oder als Ziel für Namen und Tafel. */
+export const hatFlaeche = (f: Form): boolean => !f.linie && (f.fuellung !== undefined || f.name !== undefined || f.panel !== undefined);
+
 /** Das Rechteck der Welt um eine Form. */
-function bereich(f: Form): [number, number, number, number] {
+export function bereich(f: Form): Rechteck {
   if (f.kreis) {
     const { mitte, radius } = f.kreis;
     return [mitte[0] - radius, mitte[1] - radius, mitte[0] + radius, mitte[1] + radius];
   }
-  let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (const p of f.linie ?? f.polygone.flatMap((q) => q.aussen)) [x0, z0, x1, z1] = [Math.min(x0, p[0]), Math.min(z0, p[1]), Math.max(x1, p[0]), Math.max(z1, p[1])];
-  return [x0, z0, x1, z1];
+  return rechteck(f.linie ?? f.polygone.flatMap((q) => q.aussen));
+}
+
+/** Die Polygone einer Region oder eines Kreises; ein Kreis ist ein Vieleck mit Seiten von höchstens `c` Blöcken. */
+export const polygone = (f: Form, c: number): Polygon[] => (f.kreis ? [{ aussen: vieleck(f.kreis.mitte, f.kreis.radius, c), loecher: [] }] : f.polygone);
+
+/** Die Linienzüge eines Rands oder einer Linie, in `area` beschnitten; jedes Stück offen. */
+export function zuege(f: Form, c: number, area: Rechteck | undefined): Punkt[][] {
+  const ganz: [Punkt[], boolean][] = f.linie ? [[f.linie, false]] : polygone(f, c).flatMap((p) => [p.aussen, ...p.loecher].map((r): [Punkt[], boolean] => [r, true]));
+  return ganz.flatMap(([punkte, geschlossen]) =>
+    area ? zugImRechteck(punkte, geschlossen, area) : [geschlossen ? [...punkte, punkte[0]!] : punkte],
+  );
 }
 
 /**
  * Zeichnet die Formen einer Ebene: erst alle Flächen, dann alle Ränder und
  * Linien, so liegt kein Rand unter einer Fläche derselben Ebene. Eine Fläche
- * mit Namen oder Tafel ist ein Ziel, auch ohne Füllung.
+ * mit Namen oder Tafel ist ein Ziel, auch ohne Füllung. Was ausserhalb von
+ * `area` liegt, fällt vorher weg.
  */
-export async function zeichne(formen: readonly Form[], z: Zeichnen): Promise<{ flaechen: L.Layer[]; striche: Strich[] }> {
+export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Layer[]; striche: Strich[] } {
   const flaechen: L.Layer[] = [];
   const striche: Strich[] = [];
+  const g = z.gelaende;
   for (const f of formen) {
-    const g = await z.gelaende(bereich(f));
-    const polygone = f.kreis ? [{ aussen: vieleck(f.kreis.mitte, f.kreis.radius, g.c), loecher: [] }] : f.polygone;
-    const ziel = f.name !== undefined || f.panel !== undefined;
-    if (polygone.length && (f.fuellung || ziel)) {
-      const ringe = netz(polygone, g, z.blick, 0.25);
-      const flaeche = L.polygon(ringe.map((r) => r.map(latLng)), {
+    if (hatFlaeche(f)) {
+      const beschnitten = polygone(f, g.c).map((p) => {
+        const im = (r: Punkt[]) => (z.area ? ringImRechteck(r, z.area) : r);
+        return { aussen: im(p.aussen), loecher: p.loecher.map(im) };
+      });
+      // Ohne Vereinfachen durch Leaflet: Es nähme jeden Ring für sich, gemeinsame Kanten liefen auseinander.
+      const flaeche = L.polygon(netz(beschnitten, g, z.blick).map((r) => r.map(latLng)), {
         renderer: z.renderer,
         stroke: false,
         fillColor: f.fuellung ?? '#000000',
         fillOpacity: f.fuellung ? 1 : 0,
-        interactive: ziel,
+        interactive: f.name !== undefined || f.panel !== undefined,
+        smoothFactor: 0,
       });
       if (f.name) {
         const name = document.createElement('span');
         name.textContent = f.name;
         flaeche.bindTooltip(name, { sticky: true, className: 'ebene-name' });
       }
-      if (f.panel) flaeche.bindPopup(() => z.tafel(f.panel!), z.tafelOptionen);
+      if (f.panel) {
+        flaeche.bindPopup(() => z.tafel(f.panel!), z.tafelOptionen);
+        z.bediene(flaeche, f.name);
+      }
       flaechen.push(flaeche);
     }
     if (f.rand.breite === 0) continue;
-    if (f.linie) striche.push(...laeufe(zug(f.linie, false, g, z.blick), f.rand, z.renderer));
-    for (const p of polygone) for (const ring of [p.aussen, ...p.loecher]) striche.push(...laeufe(zug(ring, true, g, z.blick), f.rand, z.renderer));
+    for (const stueck of zuege(f, g.c, z.area)) striche.push(...laeufe(zug(stueck, false, g, z.blick), f.rand, z.renderer));
   }
   return { flaechen, striche };
 }

@@ -441,16 +441,30 @@ Eingaben.
     Das Pane lässt Klicks durch;
   - eine Fläche mit `name` zeigt ihn beim Zeigen als Text, eine mit `panel`
     öffnet beim Klick die Tafel; nur diese fangen Klicks, auch ohne
-    Füllung;
-  - die Höhen: je Form ein Ausschnitt der Höhenkarten, den sie selbst hält,
-    samt dem Streifen zur Kamera, aus dem Gelände sie verdecken kann;
-  - Flächen: Felder zwischen den Mitten der Zellen; die ganz drinnen fassen
-    sich je Reihe zu einem Streifen, die mit Rand geben ihre Stücke; alles
-    ein Pfad, gerade/ungerade, einmal gefüllt, vereinfacht auf 0,25 Pixel
-    der feinsten Stufe. Ein Feld mit verdeckter Mitte fehlt;
+    Füllung. Eine Fläche mit `panel` erreicht Tab, Enter oder Leertaste
+    öffnet die Tafel mit dem Fokus darin, Escape gibt ihn zurück, wie bei
+    den Nadeln;
+  - die Höhen: je Laden einer Ebene einmal, die Regionen aller ihrer Formen
+    und Schriften in einem: für eine Fläche ihr Rechteck, für Ränder und
+    Linien die Regionen entlang des Zugs, je samt dem Streifen zur Kamera,
+    aus dem Gelände verdecken kann, und nur innerhalb von `area`. Danach
+    fallen sie weg. Bräuchte eine Ebene mehr als 1024 Regionen (32 MiB),
+    etwa ohne `area` mit einem riesigen Kreis, liegt sie mit Meldung auf
+    `seaLevel`;
+  - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
+    vorher beschnitten;
+  - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,
+    rechnet ein Durchgang je Linie zur Kamera mit laufendem Maximum. Die
+    sichtbaren ganz drinnen ergeben einen Umriss, die mit Rand geben ihre
+    Stücke; alles ein Pfad, gerade/ungerade, einmal gefüllt, ohne
+    Vereinfachen durch Leaflet (`smoothFactor: 0`), so treffen sich
+    gemeinsame Kanten genau. Die Punkte wachsen mit dem Umfang, siehe
+    [0096](entscheidungen/0096-formen-und-schrift-im-browser.md);
   - Ränder und Linien abgetastet an den Zellen; je Punkt geprüft, ob er
     verdeckt ist, und in Läufe geteilt. Ein sichtbarer Lauf setzt die
-    Striche des Zugs fort (`dashOffset`, neu bei jedem Zoom);
+    Striche des Zugs fort (`dashOffset`, neu bei jedem Zoom); ein
+    gestrichelter wird nicht am Rand des Renderers geschnitten
+    (`noClip`), sonst sprängen seine Striche beim Verschieben;
   - verdeckte Läufe: halb so breit, mindestens 1 Pixel, Striche 3 und 4
     Pixel, Deckkraft 0,4;
   - von oben (b = 0) liegt alles eben, ohne Abtasten und ohne Verdecktes.
@@ -466,6 +480,10 @@ Eingaben.
   - Sperrung `spacing` mal diese Höhe; die Kontur als Strich unter den
     Zeichen (`paint-order: stroke`), doppelt so breit wie `width`, sichtbar
     bleibt die äussere Hälfte;
+  - mittig auf dem Pfad: die Grundlinie eine halbe Höhe der Grossbuchstaben
+    darunter, als `dy` an einem `<tspan>` im `<textPath>`;
+  - die Punkte ungerundet aus `map.project`, so springt kleine Schrift nicht
+    zwischen ganzen Pixeln;
   - der Pfad: abgetastet wie ein Rand, die Höhen über 32 Blöcke gemittelt.
     Läuft er auf dem Schirm nach links, kehrt er um; ist er kürzer als der
     Text, geht er an beiden Enden weiter; ein einzelner Punkt heisst

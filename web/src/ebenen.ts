@@ -11,11 +11,11 @@ import feldKlein from './ebenen/schild_klein.png?url&no-inline';
 import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
-import { form, versetze, zeichne, type Form, type Strich } from './formen';
-import { bildpunkt, oberflaeche as hoeheAuf, schriftPfad, type Blick, type Gelaende } from './gelaende';
+import { bereich, form, hatFlaeche, versetze, zeichne, zuege, type Form, type Strich } from './formen';
+import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, zurKamera, type Blick, type Gelaende, type Rechteck } from './gelaende';
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
-import { FARBE, istObjekt, istText, istZahl } from './pruefen';
+import { farbe, istObjekt, istText, punkt } from './pruefen';
 import { Schrift, schriftzug, type Schriftzug } from './schrift';
 
 /** Ein Eintrag in `layers.json`. */
@@ -56,6 +56,8 @@ export interface Umgebung {
   /** Die Bauhöhe aus `map.json`; sie begrenzt, wie weit Gelände eine Form verdecken kann. */
   minY?: number;
   maxY?: number;
+  /** `area` aus `map.json`; Höhen gibt es nur darin. */
+  area?: Rechteck;
 }
 
 /**
@@ -74,7 +76,7 @@ const GROESSEN: Groesse[] = ['large', 'medium', 'small'];
 const TAKT = 30_000;
 
 /** Grenzen aus docs/benutzung/ebenen.md, „Grenzen“. */
-const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20 };
+const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20, regionen: 1024 };
 
 /**
  * Die Panes der Nadeln, 510 bis 573: über `shadowPane` (500), unter
@@ -147,8 +149,8 @@ function eintrag(wert: unknown): Eintrag | undefined {
 
 function nadel(wert: unknown): Nadel | undefined {
   if (!istObjekt(wert) || wert.type !== 'pin' || !istText(wert.id, 64)) return undefined;
-  const at = wert.at;
-  if (!Array.isArray(at) || at.length !== 2 || !at.every(istZahl)) return undefined;
+  const at = punkt(wert.at);
+  if (!at) return undefined;
   const symbol = istObjekt(wert.symbol) ? wert.symbol : {};
   const bild = (pfad: unknown) => {
     if (typeof pfad !== 'string') return undefined;
@@ -158,12 +160,12 @@ function nadel(wert: unknown): Nadel | undefined {
   };
   return {
     id: wert.id,
-    at: [at[0] as number, at[1] as number],
+    at,
     y: Number.isInteger(wert.y) ? (wert.y as number) : undefined,
     name: istText(wert.name, 64) ? wert.name : undefined,
     size: GROESSEN.includes(wert.size as Groesse) ? (wert.size as Groesse) : 'medium',
     symbol: { large: bild(symbol.large), medium: bild(symbol.medium) },
-    color: typeof wert.color === 'string' && FARBE.test(wert.color) ? wert.color : '#D9443A',
+    color: farbe(wert.color) ?? '#D9443A',
     panel: istObjekt(wert.panel) && Array.isArray(wert.panel.blocks) ? wert.panel.blocks : undefined,
   };
 }
@@ -233,7 +235,6 @@ async function zeichneNadel(
  */
 export function tafel(bausteine: unknown[], ordner: string, v: string): HTMLElement {
   let anzahl = 0;
-  const farbe = (wert: unknown) => (typeof wert === 'string' && FARBE.test(wert) ? wert : undefined);
   const groesse = (wert: unknown) => Number.isInteger(wert) && (wert as number) >= 1 && (wert as number) <= GRENZEN.bild;
   const bildElement = (b: Record<string, unknown>) => {
     if (typeof b.image !== 'string') return undefined;
@@ -406,51 +407,85 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     return wert;
   };
 
-  /** Die höchste Oberseite einer Höhenkarte, einmal je Karte gerechnet. */
-  const maxima = new WeakMap<Int16Array, number>();
-  const hoechste = (karte: Int16Array): number => {
-    let max = maxima.get(karte);
-    if (max === undefined) {
-      max = -Infinity;
-      for (const v of karte) if (v !== LEER && v + 1 > max) max = v + 1;
-      maxima.set(karte, max);
+  /** Eine Region als Zahl: Ein Schlüssel aus Text kostete je Zugriff. */
+  const schluessel = (rx: number, rz: number) => (rx + 65536) * 131072 + (rz + 65536);
+
+  /**
+   * Die Regionen, deren Höhen Formen und Schrift einer Ebene brauchen, nur
+   * innerhalb von `area`: für eine Fläche ihr Rechteck, für Ränder und Linien
+   * nur die Punkte entlang des Zugs; je samt dem Streifen zur Kamera, aus dem
+   * Gelände sie verdecken kann, und drei Zellen für Mischen und Ersatz.
+   */
+  const regionenFuer = (formen: readonly Form[], schriften: readonly Schriftzug[]): Set<number> => {
+    const menge = new Set<number>();
+    if (!iso || !karten || !heightsCell) return menge;
+    const { wx, wz, steigung } = zurKamera(blick);
+    const weit = ((umgebung.maxY ?? 319) - (umgebung.minY ?? -64)) / steigung;
+    const nimm = ([x0, z0, x1, z1]: Rechteck): void => {
+      let [ax, az] = [Math.min(x0, x0 + wx * weit) - 3 * c, Math.min(z0, z0 + wz * weit) - 3 * c];
+      let [bx, bz] = [Math.max(x1, x1 + wx * weit) + 3 * c, Math.max(z1, z1 + wz * weit) + 3 * c];
+      const area = umgebung.area;
+      if (area) [ax, az, bx, bz] = [Math.max(ax, area[0]), Math.max(az, area[1]), Math.min(bx, area[2]), Math.min(bz, area[3])];
+      for (let rx = Math.floor(ax / REGION); rx <= Math.floor(bx / REGION); rx++) {
+        for (let rz = Math.floor(az / REGION); rz <= Math.floor(bz / REGION); rz++) menge.add(schluessel(rx, rz));
+      }
+    };
+    for (const f of formen) {
+      if (hatFlaeche(f)) nimm(bereich(f));
+      if (hatFlaeche(f) || f.rand.breite === 0) continue;
+      // Entlang des Zugs alle 128 Blöcke ein Punkt; eine Region ist 512 breit.
+      for (const stueck of zuege(f, c, umgebung.area)) {
+        for (let i = 1; i < stueck.length; i++) {
+          const [a, b] = [stueck[i - 1]!, stueck[i]!];
+          const n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 128);
+          for (let t = 0; t <= n; t++) {
+            const [x, z] = [a[0] + ((b[0] - a[0]) * t) / n, a[1] + ((b[1] - a[1]) * t) / n];
+            nimm([x, z, x, z]);
+          }
+        }
+      }
     }
-    return max;
+    for (const s of schriften) {
+      const [x0, z0, x1, z1] = rechteck(s.pfad);
+      nimm([x0 - 16, z0 - 16, x1 + 16, z1 + 16]);
+    }
+    return menge;
   };
 
   /**
-   * Die Höhen im Rechteck [x0, z0, x1, z1] der Welt, dazu, wie weit Gelände
-   * zur Kamera hin verdecken kann, und zwei Zellen für den Ersatz leerer.
-   * Die Karten der Regionen hält das Ergebnis selbst, so verdrängt der Cache
-   * keine, solange eine Form sie braucht.
+   * Die Höhen dieser Regionen, einmal geladen für alle Formen und Schriften
+   * einer Ebene. Die Karten hält das Ergebnis selbst, so verdrängt der Cache
+   * keine, solange es lebt.
    */
-  const gelaende = async ([x0, z0, x1, z1]: [number, number, number, number]): Promise<Gelaende> => {
-    if (!iso || !karten || !heightsCell) return eben;
-    const genordet = blick.p.azimuth === 'north';
-    let [wx, wz] = genordet ? [0, 1] : [1, 1];
-    for (let i = 0; i < blick.k; i++) [wx, wz] = [-wz, wx];
-    const weit = ((umgebung.maxY ?? 319) - (umgebung.minY ?? -64)) * (blick.p.y / ((genordet ? 1 : 2) * blick.p.v));
-    const rand = 3 * c;
-    const [ax, bx] = [Math.min(x0, x0 + wx * weit) - rand, Math.max(x1, x1 + wx * weit) + rand];
-    const [az, bz] = [Math.min(z0, z0 + wz * weit) - rand, Math.max(z1, z1 + wz * weit) + rand];
-    const regionen = new Map<string, Int16Array | null>();
-    const auftraege: Promise<void>[] = [];
-    for (let rx = Math.floor(ax / REGION); rx <= Math.floor(bx / REGION); rx++) {
-      for (let rz = Math.floor(az / REGION); rz <= Math.floor(bz / REGION); rz++) {
-        auftraege.push(karten.karte(rx, rz).then((k) => void regionen.set(`${rx}.${rz}`, k)));
-      }
+  const ladeGelaende = async (menge: ReadonlySet<number>): Promise<Gelaende> => {
+    if (!karten || menge.size === 0) return eben;
+    // Gegen eine Ebene ohne area mit riesigem Kreis: je Region 32 KiB.
+    if (menge.size > GRENZEN.regionen) {
+      console.warn(`${wurzel}: Ebene bräuchte ${menge.size} Regionen Höhen, mehr als ${GRENZEN.regionen}; sie liegt auf seaLevel`);
+      return eben;
     }
-    await Promise.all(auftraege);
+    const regionen = new Map<number, Int16Array>();
     let max = grund + 1;
-    for (const k of regionen.values()) if (k) max = Math.max(max, hoechste(k));
+    await Promise.all(
+      [...menge].map(async (s) => {
+        const karte = await karten.karte(Math.floor(s / 131072) - 65536, (s % 131072) - 65536);
+        if (!karte) return;
+        regionen.set(s, karte);
+        for (const v of karte) if (v !== LEER && v + 1 > max) max = v + 1;
+      }),
+    );
     const n = REGION / c;
+    // Die zuletzt gefragte Region: Nachbarn liegen meist in derselben.
+    let [letzte, karte]: [number, Int16Array | undefined] = [Number.NaN, undefined];
     return {
       c,
       grund,
       max,
       zelle: (i, j) => {
         const [rx, rz] = [Math.floor(i / n), Math.floor(j / n)];
-        const v = regionen.get(`${rx}.${rz}`)?.[(j - rz * n) * n + (i - rx * n)];
+        const s = schluessel(rx, rz);
+        if (s !== letzte) [letzte, karte] = [s, regionen.get(s)];
+        const v = karte?.[(j - rz * n) * n + (i - rx * n)];
         return v === undefined || v === LEER ? undefined : v;
       },
     };
@@ -477,8 +512,48 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   /** Je Ebene die `version` mit `permission` oder `web: false`; die holt die Karte nicht noch einmal. */
   const abgewiesen = new Map<string, string>();
   let eintraege: Eintrag[] = [];
-  /** Die Nadel, deren Tafel offen ist. */
-  let offen: L.Marker | undefined;
+  /** Was gerade seine Tafel offen hat, und sein Element, das den Fokus zurückbekommt. */
+  let offen: { quelle: L.Layer; element: () => Element | undefined } | undefined;
+
+  /**
+   * Die Tafel einer Nadel oder Fläche per Tastatur: Fokus hinein nur, wenn
+   * die Tastatur sie geöffnet hat; Escape gibt ihn zurück, siehe unten.
+   */
+  const bedienbar = (quelle: L.Layer, element: () => Element | undefined, perTastatur: () => boolean): void => {
+    quelle.on('popupopen', ({ popup }: L.PopupEvent) => {
+      offen = { quelle, element };
+      const inhalt = popup.getElement()?.querySelector<HTMLElement>('.leaflet-popup-content');
+      if (!inhalt) return;
+      inhalt.tabIndex = -1;
+      // Ohne preventScroll dürfte der Browser den Container scrollen, um die Tafel zu zeigen.
+      if (perTastatur()) inhalt.focus({ preventScroll: true });
+    });
+    quelle.on('popupclose', () => {
+      if (offen?.quelle === quelle) offen = undefined;
+    });
+  };
+
+  /** Eine Fläche mit Tafel wird ein Ziel für die Tastatur: Tab erreicht sie, Enter oder Leertaste öffnet die Tafel. */
+  const bediene = (flaeche: L.Polygon, name: string | undefined): void => {
+    let perTastatur = false;
+    flaeche.on('click', () => {
+      perTastatur = false;
+    });
+    flaeche.on('add', () => {
+      const element = flaeche.getElement();
+      if (!element) return;
+      element.setAttribute('tabindex', '0');
+      element.setAttribute('role', 'button');
+      element.setAttribute('aria-label', name ?? 'Tafel');
+      element.addEventListener('keydown', (ereignis) => {
+        if ((ereignis as KeyboardEvent).key !== 'Enter' && (ereignis as KeyboardEvent).key !== ' ') return;
+        ereignis.preventDefault();
+        perTastatur = true;
+        flaeche.openPopup(flaeche.getBounds().getCenter());
+      });
+    });
+    bedienbar(flaeche, () => flaeche.getElement(), () => perTastatur);
+  };
 
   const icon = async (n: Nadel, groesse: Groesse, g: Geladen): Promise<L.DivIcon> => {
     const pfad = groesse === 'small' ? undefined : n.symbol[groesse];
@@ -601,16 +676,12 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
     const tafelDerEbene = (bausteine: unknown[]) => tafel(bausteine, ordner, e.version);
     const { renderer, formen: formPane } = pane(e.id);
-    // Formen und Schrift rechnen einmal je version, hier vor dem Tausch.
-    const gezeichnet = await zeichne(formen, { renderer, blick, gelaende, tafel: tafelDerEbene, tafelOptionen: TAFEL });
-    const schriftLagen = await Promise.all(
-      schriften.map(async (s) => {
-        let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
-        for (const [x, z] of s.pfad) [x0, z0, x1, z1] = [Math.min(x0, x), Math.min(z0, z), Math.max(x1, x), Math.max(z1, z)];
-        const pfad = schriftPfad(s.pfad, await gelaende([x0 - 16, z0 - 16, x1 + 16, z1 + 16]), blick);
-        return new Schrift(s, pfad, () => 2 ** (map.getZoom() - maxZoom), scale, formPane);
-      }),
-    );
+    // Formen und Schrift rechnen einmal je version, hier vor dem Tausch, mit
+    // einmal geladenen Höhen; danach fallen sie weg.
+    const gelaende = await ladeGelaende(regionenFuer(formen, schriften));
+    const gezeichnet = zeichne(formen, { renderer, blick, gelaende, area: umgebung.area, tafel: tafelDerEbene, tafelOptionen: TAFEL, bediene });
+    const faktor = () => 2 ** (map.getZoom() - maxZoom);
+    const schriftLagen = schriften.map((s) => new Schrift(s, schriftPfad(s.pfad, gelaende, blick), faktor, scale, formPane));
     const marker = await Promise.all(
       nadeln.map(async (n, index) => {
         const y = n.y !== undefined ? n.y + 1 : await oberflaeche(n.at[0], n.at[1]);
@@ -635,17 +706,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
             perTastatur = false;
           });
           m.bindPopup(() => tafelDerEbene(n.panel!), TAFEL);
-          m.on('popupopen', ({ popup }: L.PopupEvent) => {
-            offen = m;
-            const inhalt = popup.getElement()?.querySelector<HTMLElement>('.leaflet-popup-content');
-            if (!inhalt) return;
-            inhalt.tabIndex = -1;
-            // Ohne preventScroll dürfte der Browser den Container scrollen, um die Tafel zu zeigen.
-            if (perTastatur) inhalt.focus({ preventScroll: true });
-          });
-          m.on('popupclose', () => {
-            if (offen === m) offen = undefined;
-          });
+          bedienbar(m, () => m.getElement(), () => perTastatur);
         }
         return { nadel: n, marker: m };
       }),
@@ -655,7 +716,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     weg(e.id);
     // Erst Flächen, dann Ränder und Linien, zuletzt Schrift.
     const formGruppe = L.layerGroup([...gezeichnet.flaechen, ...gezeichnet.striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
-    versetze(gezeichnet.striche, 2 ** (map.getZoom() - maxZoom));
+    versetze(gezeichnet.striche, faktor());
     geladen.set(e.id, {
       ordner,
       version: e.version,
@@ -754,12 +815,12 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     if (document.visibilityState === 'visible') void nachfragen();
   });
   // Escape in der Tafel, auch auf ihrem Schliessknopf, schliesst sie und gibt
-  // den Fokus der Nadel zurück.
+  // den Fokus der Nadel oder Fläche zurück.
   map.getContainer().addEventListener('keydown', (ereignis) => {
-    const nadel = offen;
-    if (ereignis.key !== 'Escape' || !nadel?.getPopup()?.getElement()?.contains(ereignis.target as Node)) return;
-    nadel.closePopup();
-    nadel.getElement()?.focus({ preventScroll: true });
+    const jetzt = offen;
+    if (ereignis.key !== 'Escape' || !jetzt?.quelle.getPopup()?.getElement()?.contains(ereignis.target as Node)) return;
+    jetzt.quelle.closePopup();
+    (jetzt.element() as HTMLElement | SVGElement | undefined)?.focus({ preventScroll: true });
   });
   await abgleichen(erste);
 }

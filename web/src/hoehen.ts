@@ -60,7 +60,8 @@ export function hoehen(base: string, muster: string, zelle: number) {
           unterwegs.delete(name);
           karten.set(name, karte);
           // ponytail: verdrängt die älteste statt der am längsten
-          // ungenutzten; eine verdrängte kommt aus dem HTTP-Cache wieder.
+          // ungenutzten; eine verdrängte lädt neu, mit Nachfrage beim Server
+          // (no-cache, meist 304) und neuem Entpacken.
           if (karten.size > 64) karten.delete(karten.keys().next().value!);
           return karte;
         });

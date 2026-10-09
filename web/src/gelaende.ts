@@ -9,6 +9,9 @@ import { projiziere, type Projektion } from './pick';
 /** Ein Punkt `[x, z]` in Blöcken, oder `[px, py]` in Pixeln der feinsten Stufe. */
 export type Punkt = [number, number];
 
+/** Ein Rechteck `[x0, z0, x1, z1]` der Welt in Blöcken. */
+export type Rechteck = [number, number, number, number];
+
 /** Ein Polygon der Welt; Ringe schliessen sich selbst. */
 export interface Polygon {
   aussen: Punkt[];
@@ -45,6 +48,28 @@ export function punktImBlick(x: number, z: number, k: number): Punkt {
 export function bildpunkt(x: number, y: number, z: number, { p, k }: Blick): Punkt {
   const [vx, vz] = punktImBlick(x, z, k);
   return projiziere(vx, y, vz, p);
+}
+
+/** Das Rechteck um Punkte. */
+export function rechteck(punkte: Iterable<Punkt>): Rechteck {
+  let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const [x, z] of punkte) [x0, z0, x1, z1] = [Math.min(x0, x), Math.min(z0, z), Math.max(x1, x), Math.max(z1, z)];
+  return [x0, z0, x1, z1];
+}
+
+/**
+ * Zur Kamera in der Welt: je Schritt (wx, wz), dabei steigt der Strahl um
+ * `steigung` je Block in x oder z, so dass der Bildpunkt bleibt. `kmin`
+ * Schritte vor dem Punkt liegt die erste Mitte, die mehr als eine Zelle
+ * entfernt ist: diagonal schon die nächste, genordet die übernächste. Nur im
+ * iso (b > 0). Siehe docs/benutzung/ebenen.md, „Was verdeckt ist“.
+ */
+export function zurKamera({ p, k }: Blick): { wx: number; wz: number; steigung: number; kmin: number } {
+  const genordet = p.azimuth === 'north';
+  // Im Blick (1, 1) oder genordet (0, 1); zurück in die Welt mit (x, z) ← (−z, x).
+  let [wx, wz] = genordet ? [0, 1] : [1, 1];
+  for (let i = 0; i < k; i++) [wx, wz] = [-wz, wx];
+  return { wx, wz, steigung: ((genordet ? 1 : 2) * p.v) / p.y, kmin: genordet ? 2 : 1 };
 }
 
 /**
@@ -117,54 +142,62 @@ export function abtasten(punkte: readonly Punkt[], geschlossen: boolean, c: numb
 }
 
 /**
- * Liegt Gelände vor dem Punkt (x, y, z)? Geht den Strahl zur Kamera ab,
- * ab mehr als einer Zelle vor dem Punkt, bis über das höchste Gelände.
- * Von oben verdeckt nichts. Siehe docs/benutzung/ebenen.md, „Was verdeckt ist“.
+ * Liegt Gelände vor dem Punkt (x, y, z)? Tastet `H` entlang des Strahls zur
+ * Kamera in Schritten einer halben Zelle ab, ab der ersten Mitte, die mehr
+ * als eine Zelle vor dem Punkt liegt, bis über das höchste Gelände. Von oben
+ * verdeckt nichts. Siehe docs/benutzung/ebenen.md, „Was verdeckt ist“.
  */
-export function verdeckt(g: Gelaende, x: number, y: number, z: number, { p, k }: Blick): boolean {
-  if (p.y === 0) return false;
-  const genordet = p.azimuth === 'north';
-  // Zur Kamera: im Blick (1, 1) oder genordet (0, 1); y steigt dabei so,
-  // dass der Bildpunkt bleibt. Zurück in die Welt mit (x, z) ← (−z, x).
-  let [wx, wz] = genordet ? [0, 1] : [1, 1];
-  for (let i = 0; i < k; i++) [wx, wz] = [-wz, wx];
-  const steigung = ((genordet ? 1 : 2) * p.v) / p.y;
-  const schritt = g.c / 2;
-  // Mehr als eine Zelle vor dem Punkt, in Blöcken auf dem Boden gemessen.
-  const anfang = g.c / Math.hypot(wx, wz) + 1e-6;
-  for (let d = anfang; y + steigung * d <= g.max; d += schritt) {
+export function verdeckt(g: Gelaende, x: number, y: number, z: number, blick: Blick): boolean {
+  if (blick.p.y === 0) return false;
+  const { wx, wz, steigung, kmin } = zurKamera(blick);
+  for (let d = kmin * g.c; y + steigung * d <= g.max; d += g.c / 2) {
     if (oberflaeche(g, x + wx * d, z + wz * d) > y + steigung * d) return true;
   }
   return false;
 }
 
 /**
- * Vereinfacht einen Linienzug nach Douglas–Peucker: Kein weggelassener
- * Punkt liegt weiter als `toleranz` vom Zug. Anfang und Ende bleiben.
+ * Welche Felder sichtbar sind, in einem Durchgang je Linie zur Kamera. Ein
+ * Feld ist das Quadrat zwischen vier Mitten von Zellen; Feld (p, q) hat
+ * seine Mitte bei ((p + 1)·c, (q + 1)·c). Es ist verdeckt, wenn die Mitte
+ * eines Felds mindestens `kmin` Schritte davor höher liegt als der Strahl:
+ * `H(t) + steigung·c·t` mit t der Schritte von der Kamera weg, laufend als
+ * Maximum gehalten. Gibt je Feld des Rechtecks [pa, qa] + [nx, nz] 1 für
+ * sichtbar; `gefragt` wählt die Felder, die zählen.
  */
-export function vereinfache(punkte: readonly Punkt[], toleranz: number): Punkt[] {
-  const n = punkte.length;
-  if (n < 3) return [...punkte];
-  const behalten = new Uint8Array(n);
-  behalten[0] = behalten[n - 1] = 1;
-  const offen: [number, number][] = [[0, n - 1]];
-  while (offen.length) {
-    const [von, bis] = offen.pop()!;
-    const [a, b] = [punkte[von]!, punkte[bis]!];
-    const [dx, dz] = [b[0] - a[0], b[1] - a[1]];
-    const laenge = Math.hypot(dx, dz);
-    let weitester = -1;
-    let abstand = toleranz;
-    for (let i = von + 1; i < bis; i++) {
-      const [px, pz] = [punkte[i]![0] - a[0], punkte[i]![1] - a[1]];
-      const d = laenge ? Math.abs(px * dz - pz * dx) / laenge : Math.hypot(px, pz);
-      if (d > abstand) [weitester, abstand] = [i, d];
+export function sichtbareFelder(g: Gelaende, blick: Blick, pa: number, qa: number, nx: number, nz: number, gefragt: (i: number) => boolean): Uint8Array {
+  const sicht = new Uint8Array(nx * nz);
+  const mitte = (p: number, q: number) => oberflaeche(g, (p + 1) * g.c, (q + 1) * g.c);
+  let tiefste = Infinity;
+  for (let i = 0; i < sicht.length; i++) if (gefragt(i)) tiefste = Math.min(tiefste, mitte(pa + Math.floor(i / nz), qa + (i % nz)));
+  if (tiefste === Infinity) return sicht;
+  const { wx, wz, steigung, kmin } = zurKamera(blick);
+  const schritt = steigung * g.c;
+  // So viele Schritte zur Kamera, bis der Strahl über dem höchsten Gelände liegt.
+  const weit = Math.max(kmin, Math.ceil((g.max - tiefste) / schritt) + 1);
+  const [ea, eb] = [pa + Math.min(0, wx * weit), pa + nx - 1 + Math.max(0, wx * weit)];
+  const [fa, fb] = [qa + Math.min(0, wz * weit), qa + nz - 1 + Math.max(0, wz * weit)];
+  const [ex, ez] = [eb - ea + 1, fb - fa + 1];
+  // t wächst je Schritt von der Kamera weg um 1.
+  const t = (p: number, q: number) => -(p * wx + q * wz) / (wx * wx + wz * wz);
+  const maximum = new Float64Array(ex * ez);
+  const reihe = (a: number, b: number, w: number) => (w > 0 ? { von: b, bis: a - 1, d: -1 } : { von: a, bis: b + 1, d: 1 });
+  const [rp, rq] = [reihe(ea, eb, wx), reihe(fa, fb, wz)];
+  for (let p = rp.von; p !== rp.bis; p += rp.d) {
+    for (let q = rq.von; q !== rq.bis; q += rq.d) {
+      const [vp, vq] = [p + wx, q + wz];
+      const davor = vp >= ea && vp <= eb && vq >= fa && vq <= fb ? maximum[(vp - ea) * ez + (vq - fa)]! : -Infinity;
+      maximum[(p - ea) * ez + (q - fa)] = Math.max(mitte(p, q) + schritt * t(p, q), davor);
     }
-    if (weitester < 0) continue;
-    behalten[weitester] = 1;
-    offen.push([von, weitester], [weitester, bis]);
   }
-  return punkte.filter((_, i) => behalten[i]);
+  for (let i = 0; i < sicht.length; i++) {
+    if (!gefragt(i)) continue;
+    const [p, q] = [pa + Math.floor(i / nz), qa + (i % nz)];
+    const [vp, vq] = [p + kmin * wx, q + kmin * wz];
+    const vorn = vp >= ea && vp <= eb && vq >= fa && vq <= fb ? maximum[(vp - ea) * ez + (vq - fa)]! : -Infinity;
+    sicht[i] = vorn > mitte(p, q) + schritt * t(p, q) ? 0 : 1;
+  }
+  return sicht;
 }
 
 /** Behält vom Ring, was auf der Seite `seite` der Grenze liegt (Sutherland–Hodgman). */
@@ -189,6 +222,44 @@ function zwischen(ring: readonly Punkt[], achse: 0 | 1, lo: number, hi: number):
   return halbe(halbe(ring, achse, lo, 1), achse, hi, -1);
 }
 
+/** Ein Ring, beschnitten auf ein Rechteck. Für Flächen; ein Rand bekäme so falsche Kanten, dafür `zugImRechteck`. */
+export function ringImRechteck(ring: readonly Punkt[], [x0, z0, x1, z1]: Rechteck): Punkt[] {
+  return zwischen(zwischen(ring, 0, x0, x1), 1, z0, z1);
+}
+
+/** Die Stücke eines Linienzugs innerhalb eines Rechtecks (Liang–Barsky je Strecke). */
+export function zugImRechteck(punkte: readonly Punkt[], geschlossen: boolean, [x0, z0, x1, z1]: Rechteck): Punkt[][] {
+  const aus: Punkt[][] = [];
+  let lauf: Punkt[] | undefined;
+  const n = punkte.length;
+  for (let i = 0; i < (geschlossen ? n : n - 1); i++) {
+    const [a, b] = [punkte[i]!, punkte[(i + 1) % n]!];
+    const [dx, dz] = [b[0] - a[0], b[1] - a[1]];
+    let [t0, t1] = [0, 1];
+    for (const [p, q] of [[-dx, a[0] - x0], [dx, x1 - a[0]], [-dz, a[1] - z0], [dz, z1 - a[1]]] as const) {
+      if (p === 0) {
+        if (q < 0) t0 = 2;
+        continue;
+      }
+      const r = q / p;
+      if (p < 0) t0 = Math.max(t0, r);
+      else t1 = Math.min(t1, r);
+    }
+    if (t0 > t1) {
+      lauf = undefined;
+      continue;
+    }
+    const anfang: Punkt = [a[0] + dx * t0, a[1] + dz * t0];
+    if (!lauf || t0 > 0) {
+      lauf = [anfang];
+      aus.push(lauf);
+    }
+    lauf.push([a[0] + dx * t1, a[1] + dz * t1]);
+    if (t1 < 1) lauf = undefined;
+  }
+  return aus.filter((l) => l.length >= 2);
+}
+
 /** Ein Ring mit je einem Punkt in der Mitte jeder Kante. */
 function mitMitten(ring: readonly Punkt[]): Punkt[] {
   return ring.flatMap((a, i): Punkt[] => {
@@ -202,47 +273,43 @@ function mitMitten(ring: readonly Punkt[]): Punkt[] {
  * ungerade gefüllt die Fläche auf dem Gelände ergeben, ohne das Verdeckte.
  *
  * Geschnitten wird an den Linien durch die Mitten der Zellen, denn
- * dazwischen mischt `H` bilinear. Ein Feld, durch das kein Rand geht, liegt
- * ganz drinnen oder draussen; die drinnen fassen sich je Reihe zu einem
- * Streifen zusammen, dessen Umriss jede Ecke der Felder trägt. Ein Feld mit
- * Rand gibt seine Stücke einzeln. Verdeckt ist ein Feld, wenn seine Mitte es
- * ist. Zuletzt fällt weg, was weniger als `toleranz` Pixel beiträgt.
- * Siehe docs/benutzung/ebenen.md, „Flächen“.
+ * dazwischen mischt `H` bilinear. Ein Feld ohne Rand der Fläche liegt ganz
+ * drinnen oder draussen. Die sichtbaren Felder ganz drinnen ergeben
+ * zusammen einen Umriss: Was sichtbar ist, deckt auf dem Schirm genau einen
+ * Punkt des Geländes, also umschliesst der projizierte Umriss ihr Bild.
+ * Ein Feld mit Rand gibt seine Stücke einzeln, jede Kante mit ihrer Mitte.
+ * Kosten wachsen mit dem Umfang, nicht mit der Fläche. Siehe
+ * docs/entscheidungen/0096-formen-und-schrift-im-browser.md.
  */
-export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick, toleranz: number): Punkt[][] {
+export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick): Punkt[][] {
   const ringe = polygone.flatMap((p) => [p.aussen, ...p.loecher]).filter((r) => r.length >= 3);
-  const aus: Punkt[][] = [];
-  const projiziert = (ring: readonly Punkt[]): void => {
-    const punkte = ring.map(([x, z]) => bildpunkt(x, oberflaeche(g, x, z), z, blick));
-    // Geschlossen vereinfachen: Der erste Punkt steht am Ende noch einmal.
-    const zu = vereinfache([...punkte, punkte[0]!], toleranz);
-    zu.pop();
-    if (zu.length >= 3) aus.push(zu);
-  };
-  if (ringe.length === 0) return aus;
+  const projiziert = (ring: readonly Punkt[]): Punkt[] => ring.map(([x, z]) => bildpunkt(x, oberflaeche(g, x, z), z, blick));
+  if (ringe.length === 0) return [];
   // Von oben liegt alles eben: die Ringe selbst.
   if (blick.p.y === 0) return ringe.map((r) => r.map(([x, z]) => bildpunkt(x, 0, z, blick)));
   const { c } = g;
   const o = c / 2;
-  let [xmin, xmax, zmin, zmax] = [Infinity, -Infinity, Infinity, -Infinity];
-  for (const r of ringe) {
-    for (const [x, z] of r) [xmin, xmax, zmin, zmax] = [Math.min(xmin, x), Math.max(xmax, x), Math.min(zmin, z), Math.max(zmax, z)];
-  }
-  const [pa, pb] = [Math.floor((xmin - o) / c), Math.floor((xmax - o) / c)];
-  const sichtbar = (mx: number, mz: number) => !verdeckt(g, mx, oberflaeche(g, mx, mz), mz, blick);
-
-  for (let q = Math.floor((zmin - o) / c); q <= Math.floor((zmax - o) / c); q++) {
+  const [xmin, zmin, xmax, zmax] = rechteck(ringe.flat());
+  const [pa, qa] = [Math.floor((xmin - o) / c), Math.floor((zmin - o) / c)];
+  const [nx, nz] = [Math.floor((xmax - o) / c) - pa + 1, Math.floor((zmax - o) / c) - qa + 1];
+  // Je Feld: 0 draussen, 1 ganz drinnen, 2 mit Rand; dazu die Stücke der Felder mit Rand.
+  const art = new Uint8Array(nx * nz);
+  const stuecke = new Map<number, Punkt[][]>();
+  for (let q = qa; q < qa + nz; q++) {
     const [z0, z1] = [q * c + o, (q + 1) * c + o];
     const streifen = ringe.map((r) => zwischen(r, 1, z0, z1)).filter((r) => r.length >= 3);
     if (streifen.length === 0) continue;
-    // Felder mit Rand: Kanten auf dem Rand des Streifens kommen vom Schneiden.
-    const rand = new Uint8Array(pb - pa + 1);
+    // Felder mit Rand: deren Inneres eine Kante berührt. Kanten auf dem Rand
+    // des Streifens kommen vom Schneiden; eine Kante genau auf der Grenze
+    // zweier Felder berührt keines von innen.
+    const rand = new Uint8Array(nx);
     for (const r of streifen) {
       for (let i = 0; i < r.length; i++) {
         const [a, b] = [r[i]!, r[(i + 1) % r.length]!];
         if (a[1] === b[1] && (a[1] === z0 || a[1] === z1)) continue;
-        const von = Math.max(pa, Math.floor((Math.min(a[0], b[0]) - o) / c));
-        const bis = Math.min(pb, Math.floor((Math.max(a[0], b[0]) - o) / c));
+        const [lo, hi] = [Math.min(a[0], b[0]), Math.max(a[0], b[0])];
+        const von = Math.max(pa, Math.floor((lo - o) / c));
+        const bis = Math.min(pa + nx - 1, lo === hi && (lo - o) % c === 0 ? von - 1 : Math.ceil((hi - o) / c) - 1);
         for (let p = von; p <= bis; p++) rand[p - pa] = 1;
       }
     }
@@ -257,35 +324,55 @@ export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick, to
     }
     kreuzungen.sort((s, t) => s - t);
     let gezaehlt = 0;
-    let lauf: number | undefined;
-    const schliesse = (bis: number): void => {
-      if (lauf === undefined) return;
-      const [xa, xb] = [lauf * c + o, bis * c + o];
-      const ring: Punkt[] = [];
-      for (let x = xa; x < xb; x += o) ring.push([x, z0]);
-      ring.push([xb, z0], [xb, zm]);
-      for (let x = xb; x > xa; x -= o) ring.push([x, z1]);
-      ring.push([xa, z1], [xa, zm]);
-      projiziert(ring);
-      lauf = undefined;
-    };
-    for (let p = pa; p <= pb; p++) {
-      const [mx, xl, xr] = [(p + 1) * c, p * c + o, (p + 1) * c + o];
-      while (gezaehlt < kreuzungen.length && kreuzungen[gezaehlt]! < mx) gezaehlt++;
+    for (let p = pa; p < pa + nx; p++) {
+      const i = (p - pa) * nz + (q - qa);
+      while (gezaehlt < kreuzungen.length && kreuzungen[gezaehlt]! < (p + 1) * c) gezaehlt++;
       if (rand[p - pa]) {
-        schliesse(p);
-        if (!sichtbar(mx, zm)) continue;
-        for (const r of streifen) {
-          const stueck = zwischen(r, 0, xl, xr);
-          if (stueck.length >= 3) projiziert(mitMitten(stueck));
+        const teile = streifen.map((r) => zwischen(r, 0, p * c + o, (p + 1) * c + o)).filter((r) => r.length >= 3);
+        if (teile.length) {
+          art[i] = 2;
+          stuecke.set(i, teile);
         }
-      } else if (gezaehlt % 2 === 1 && sichtbar(mx, zm)) {
-        lauf ??= p;
-      } else {
-        schliesse(p);
+      } else if (gezaehlt % 2 === 1) {
+        art[i] = 1;
       }
     }
-    schliesse(pb + 1);
+  }
+  const sicht = sichtbareFelder(g, blick, pa, qa, nx, nz, (i) => art[i] !== 0);
+  const aus: Punkt[][] = [];
+  for (const [i, teile] of stuecke) if (sicht[i]) for (const t of teile) aus.push(projiziert(mitMitten(t)));
+  // Der Umriss der sichtbaren Felder ganz drinnen: jede Kante, hinter der kein solches Feld liegt.
+  const voll = (p: number, q: number) => p >= 0 && p < nx && q >= 0 && q < nz && art[p * nz + q] === 1 && sicht[p * nz + q] === 1;
+  const ecke = (p: number, q: number) => p * (nz + 1) + q;
+  const weiter = new Map<number, number[]>();
+  const kante = (a: number, b: number) => {
+    const liste = weiter.get(a);
+    if (liste) liste.push(b);
+    else weiter.set(a, [b]);
+  };
+  for (let p = 0; p < nx; p++) {
+    for (let q = 0; q < nz; q++) {
+      if (!voll(p, q)) continue;
+      if (!voll(p, q - 1)) kante(ecke(p, q), ecke(p + 1, q));
+      if (!voll(p + 1, q)) kante(ecke(p + 1, q), ecke(p + 1, q + 1));
+      if (!voll(p, q + 1)) kante(ecke(p + 1, q + 1), ecke(p, q + 1));
+      if (!voll(p - 1, q)) kante(ecke(p, q + 1), ecke(p, q));
+    }
+  }
+  // Zu Ringen verbinden; wo sich zwei berühren, gleich welcher: gerade/ungerade hängt nur an den Kanten.
+  const welt = (e: number): Punkt => [(pa + Math.floor(e / (nz + 1))) * c + o, (qa + (e % (nz + 1))) * c + o];
+  for (const [start, ziele] of weiter) {
+    while (ziele.length) {
+      const ring: Punkt[] = [];
+      let von = start;
+      do {
+        const nach = weiter.get(von)!.pop()!;
+        ring.push(welt(von));
+        von = nach;
+      } while (von !== start);
+      // Die Kanten laufen von Mitte zu Mitte der Zellen; dort ist H linear, die Projektion gerade: Die Ecken reichen.
+      aus.push(projiziert(ring));
+    }
   }
   return aus;
 }

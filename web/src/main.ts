@@ -693,7 +693,8 @@ async function start(): Promise<void> {
   }
   // Ebenen neben trees.json; ohne layers.json keine. Siehe docs/frontend.md, „Ebenen“.
   if (typeof blick !== 'string') {
-    void ebenen({ map, wurzel, blick, scale: info.scale, maxZoom: info.maxZoom, karten, heightsCell: info.heightsCell, seaLevel: info.seaLevel, minY: info.minY, maxY: info.maxY }).catch(
+    const { scale, maxZoom, heightsCell, seaLevel, minY, maxY, area } = info;
+    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, heightsCell, seaLevel, minY, maxY, area }).catch(
       (error: unknown) => console.error(error),
     );
   }

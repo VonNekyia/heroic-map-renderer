@@ -267,6 +267,11 @@ body {
   display: none;
 }
 
+/* Eine Fläche mit Tafel im Fokus der Tastatur. */
+.leaflet-pane path[tabindex]:focus-visible {
+  outline: 2px solid var(--ui-markiert);
+}
+
 /* Kartenschrift: ein SVG je Schriftzug, nicht anklickbar. */
 .ebene-schrift {
   position: absolute;

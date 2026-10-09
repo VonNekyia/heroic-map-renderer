@@ -45,9 +45,18 @@ Plugin, Webkarte und Mod (#219). Warum so:
 Jede Ebene heisst `modname:ebene`, etwa `beispiel:wasserkarte`.
 
 - **`modname`:** der Name des Plugins oder Mods, dem die Ebene gehört.
-- **Zeichen:** je Teil 1 bis 64 aus `a`–`z`, `0`–`9`, `_`, `-` und `.`,
-  nicht mit `.` am Anfang. Der Server liefert keinen Pfad, dessen Teil mit
-  `.` beginnt, siehe [Server](server.md).
+- **Zeichen:** je Teil 1 bis 64 aus `a`–`z`, `0`–`9`, `_`, `-` und `.`.
+  - nicht mit `.` am Anfang: So schreibt das Plugin halbe Dateien, und `..`
+    fällt weg;
+  - nicht mit `.` am Ende: Den streicht Windows;
+  - kein Gerät von Windows: Der Teil vor dem ersten `.` ist nicht `con`,
+    `prn`, `aux`, `nul`, `com0` bis `com9` oder `lpt0` bis `lpt9`.
+
+  Dieselbe Regel gilt für den Namen der Datei einer Ebene und eines Bilds
+  ohne die Endung, siehe „Bilder“: Eine Ebene mit einem Teil von 64
+  Zeichen liegt in einer Datei mit 64 Zeichen vor `.json`. Was die Regel
+  verletzt, liefert der Server nicht aus, siehe [Server](server.md), „Was
+  er ausliefert“.
 - **Ein Besitzer schreibt nur seine Ebenen.**
 
 ## Liste der Ebenen
@@ -348,8 +357,14 @@ Skripte.
 Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
 
 - **Ablage:** `layers/<modname>/images/`, Pfade in der Ebene relativ zu
-  ihrem Ordner, etwa `images/burg.png`. Nur dieser Ordner; `..`, absolute
-  Pfade und Adressen anderer Server weist jede Ansicht ab.
+  ihrem Ordner, etwa `images/burg.png`. Nur dieser Ordner, ohne
+  Unterordner; `..`, absolute Pfade und Adressen anderer Server weist jede
+  Ansicht ab.
+- **Dateinamen:** der Name ohne die Endung `.png` oder `.webp` wie ein
+  Teil der Kennung, also 1 bis 64 Zeichen, nur kleine `a`–`z`, `0`–`9`,
+  `_`, `-` und `.`, etwa `burg_16.png`; die Regel steht unter „Kennung“.
+  Andere liefert der Server nicht aus, siehe [Server](server.md), „Was er
+  ausliefert“.
 - **Formate:** PNG, oder WebP verlustfrei als einfaches `VP8L`: nur der
   Chunk `VP8L` im `RIFF`, ohne `VP8X` und ohne verlustbehaftetes `VP8`. Mehr
   liest der Mod nicht.

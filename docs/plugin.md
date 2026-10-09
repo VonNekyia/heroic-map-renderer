@@ -84,6 +84,12 @@ dem Plugin-Programmierer ab.
   Beschreibung und Bild der Seite mit `--site-*` aus seiner Konfiguration,
   als eigener Kindprozess neben dem Renderer, siehe
   [Server](benutzung/server.md).
+- **Die Ebenen** liefert der Server aus der Wurzel aus: `layers.json`,
+  `layers/<modname>/<ebene>.json` und `layers/<modname>/images/<bild>`, nur
+  mit Namen wie ein Teil der Kennung, Bilder als `.png` oder `.webp`, siehe
+  [Server](benutzung/server.md), „Was er ausliefert“. Was das Plugin unter
+  einem Namen mit `.` vorn schreibt, liefert er nicht; erst nach dem
+  Umbenennen. Das Format steht in [Ebenen](benutzung/ebenen.md).
 
 ## Fortschritt als JSON
 

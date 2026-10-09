@@ -71,10 +71,28 @@ const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, nadeln: 
 /** Die Panes der Ebenen, 510 bis 573: über `shadowPane` (500), unter `markerPane` (600), `tooltipPane` und Tafel. */
 const PANE_GRUND = 510;
 
-const KENNUNG = /^([a-z0-9_-][a-z0-9_.-]{0,63}):([a-z0-9_-][a-z0-9_.-]{0,63})$/;
 const FARBE = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
-/** Ein Bild der Ebene, siehe docs/benutzung/ebenen.md, „Bilder“: nur unter `images/`, der Name wie ein Teil der Kennung. */
-const BILD = /^images\/[a-z0-9_-][a-z0-9_.-]{0,63}\.(png|webp)$/;
+
+/**
+ * Ein Teil der Kennung oder der Name eines Bilds ohne Endung, nach
+ * docs/benutzung/ebenen.md, „Kennung“: 1 bis 64 Zeichen, kein `.` vorn oder
+ * hinten, vor dem ersten `.` kein Gerät von Windows.
+ */
+function teilGilt(teil: string): boolean {
+  return /^[a-z0-9_-]([a-z0-9_.-]{0,62}[a-z0-9_-])?$/.test(teil) && !/^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/.test(teil.split('.')[0]!);
+}
+
+/** Eine Kennung `modname:ebene`, beide Teile nach `teilGilt`. */
+function kennungGilt(id: string): boolean {
+  const teile = id.split(':');
+  return teile.length === 2 && teile.every(teilGilt);
+}
+
+/** Ein Bild der Ebene, siehe docs/benutzung/ebenen.md, „Bilder“: nur unter `images/`, PNG oder WebP, der Name nach `teilGilt`. */
+function bildGilt(pfad: string): boolean {
+  const name = /^images\/(.+)\.(png|webp)$/.exec(pfad)?.[1];
+  return name !== undefined && teilGilt(name);
+}
 
 const istText = (wert: unknown, max: number): wert is string => typeof wert === 'string' && wert.length > 0 && wert.length <= max;
 const istZahl = (wert: unknown): wert is number => typeof wert === 'number' && Number.isFinite(wert);
@@ -105,7 +123,11 @@ export function punktImBlick(x: number, z: number, k: number): [number, number] 
 }
 
 function eintrag(wert: unknown): Eintrag | undefined {
-  if (!istObjekt(wert) || typeof wert.id !== 'string' || !KENNUNG.test(wert.id) || !istText(wert.version, 256)) return undefined;
+  if (!istObjekt(wert) || typeof wert.id !== 'string' || !istText(wert.version, 256)) return undefined;
+  if (!kennungGilt(wert.id)) {
+    console.warn(`layers.json: Kennung „${wert.id}“ gegen die Regel aus „Kennung“, übergangen`);
+    return undefined;
+  }
   const name = istObjekt(wert.name) ? wert.name : {};
   const de = istText(name.de, 64) ? name.de : undefined;
   const en = istText(name.en, 64) ? name.en : undefined;
@@ -124,7 +146,12 @@ function nadel(wert: unknown): Nadel | undefined {
   const at = wert.at;
   if (!Array.isArray(at) || at.length !== 2 || !at.every(istZahl)) return undefined;
   const symbol = istObjekt(wert.symbol) ? wert.symbol : {};
-  const bild = (pfad: unknown) => (typeof pfad === 'string' && BILD.test(pfad) ? pfad : undefined);
+  const bild = (pfad: unknown) => {
+    if (typeof pfad !== 'string') return undefined;
+    if (bildGilt(pfad)) return pfad;
+    console.warn(`Nadel ${String(wert.id)}: Symbol „${pfad}“ gegen „Bilder“, das Schild bleibt leer`);
+    return undefined;
+  };
   return {
     id: wert.id,
     at: [at[0] as number, at[1] as number],
@@ -205,7 +232,11 @@ export function tafel(bausteine: unknown[], ordner: string, v: string): HTMLElem
   const farbe = (wert: unknown) => (typeof wert === 'string' && FARBE.test(wert) ? wert : undefined);
   const groesse = (wert: unknown) => Number.isInteger(wert) && (wert as number) >= 1 && (wert as number) <= GRENZEN.bild;
   const bildElement = (b: Record<string, unknown>) => {
-    if (typeof b.image !== 'string' || !BILD.test(b.image)) return undefined;
+    if (typeof b.image !== 'string') return undefined;
+    if (!bildGilt(b.image)) {
+      console.warn(`${ordner}: Bild „${b.image}“ gegen „Bilder“, übergangen`);
+      return undefined;
+    }
     if (!groesse(b.width) || !groesse(b.height)) {
       console.warn(`${ordner}/${b.image}: width und height müssen ganze Zahlen von 1 bis ${GRENZEN.bild} sein`);
       return undefined;

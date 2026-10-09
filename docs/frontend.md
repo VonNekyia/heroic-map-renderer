@@ -397,6 +397,8 @@ Infotafel, Regionen, Kreise, Linien und Kartenschrift folgen (#219, Teil 4).
     sie und sagt es in der Konsole, ebenso eine Datei mit `permission` oder
     `web: false`, die auf die Webkarte nicht gehört. Eine ältere `version`
     dieser Ebene weicht dann; die abgewiesene holt sie nicht noch einmal.
+  - Kennungen und Bilder gegen die Regel aus [Ebenen](benutzung/ebenen.md),
+    „Kennung“, übergeht sie ebenso mit Meldung.
 - **Nadeln:** Leaflet-Marker mit dem Wappenschild auf einer Leinwand:
   - Feld, Symbol und Rahmen aus `web/src/ebenen/schild_*.png` nach
     [Ebenen](benutzung/ebenen.md), „Nadel“; die Bilder stammen vom

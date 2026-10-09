@@ -173,38 +173,44 @@ for (const [richtung, drehe] of [
   });
 }
 
-test('ohne y steht die Nadel auf der Oberfläche: bilinear zwischen den Zellen, eine leere Zelle aus ihren Nachbarn, ohne Höhen auf seaLevel', async ({ page }) => {
-  // Gefälle in x und z, eine leere Zelle unter den vier um die Nadel. Gekrümmt in x,
-  // damit der Mittelwert der Nachbarn vom Umkreis abhängt.
-  const hoehe = (i: number, j: number) => (i === 9 && j === -4 ? LEER : 10 + 2 * i * i + 3 * j);
-  const zwischen = { ...HAFEN, id: 'zwischen', name: 'Zwischen', at: [35.5, -14.5] };
-  const ohne = { ...HAFEN, id: 'ohne', name: 'Ohne', at: [600.5, -14.5] };
-  await welt(page, staedte([zwischen, ohne], { mehr: { seaLevel: 40 }, hoehe }));
-  await page.goto(DEMO);
-  await expect(page.locator('.nadel-icon')).toHaveCount(2);
-  // Die Regel aus ebenen.md, hier unabhängig nachgebaut.
-  const zelle = (i: number, j: number) => {
-    const eigen = hoehe(i, j);
-    if (eigen !== LEER) return eigen;
-    const n: number[] = [];
-    for (let di = -2; di <= 2; di++) for (let dj = -2; dj <= 2; dj++) if (hoehe(i + di, j + dj) !== LEER) n.push(hoehe(i + di, j + dj));
-    return n.reduce((a, b) => a + b, 0) / n.length;
-  };
-  const [fx, fz] = [35.5 / 4 - 0.5, -14.5 / 4 - 0.5];
-  const [i, j, tx, tz] = [Math.floor(fx), Math.floor(fz), fx - Math.floor(fx), fz - Math.floor(fz)];
-  expect([i, j, i + 1, j + 1]).toEqual([8, -5, 9, -4]);
-  const h = (zelle(i, j) * (1 - tx) + zelle(i + 1, j) * tx) * (1 - tz) + (zelle(i, j + 1) * (1 - tx) + zelle(i + 1, j + 1) * tx) * tz + 1;
-  for (const [name, x, y, z] of [
-    ['Zwischen', 35.5, h, -14.5],
-    // Keine Höhen dort, kein Nachbar: seaLevel + 1.
-    ['Ohne', 600.5, 41, -14.5],
-  ] as const) {
-    const soll = await aufDemSchirm(page, ...projiziere(x, y, z, zweiZuEins(16)));
-    const ist = await fuss(page, name);
-    expect(Math.abs(ist[0]! - soll[0]!), `${name} x`).toBeLessThanOrEqual(1);
-    expect(Math.abs(ist[1]! - soll[1]!), `${name} y`).toBeLessThanOrEqual(1);
-  }
-});
+for (const [richtung, drehe] of [
+  ['se', (x: number, z: number): [number, number] => [x, z]],
+  ['sw', (x: number, z: number): [number, number] => [z, -x]],
+] as const) {
+  test(`aus ${richtung}: ohne y steht die Nadel auf der Oberfläche: bilinear zwischen den Zellen, eine leere Zelle aus ihren Nachbarn, ohne Höhen auf seaLevel`, async ({ page }) => {
+    // Gefälle in x und z, eine leere Zelle unter den vier um die Nadel. Gekrümmt in x,
+    // damit der Mittelwert der Nachbarn vom Umkreis abhängt.
+    const hoehe = (i: number, j: number) => (i === 9 && j === -4 ? LEER : 10 + 2 * i * i + 3 * j);
+    const zwischen = { ...HAFEN, id: 'zwischen', name: 'Zwischen', at: [35.5, -14.5] };
+    const ohne = { ...HAFEN, id: 'ohne', name: 'Ohne', at: [600.5, -14.5] };
+    await welt(page, staedte([zwischen, ohne], { mehr: { seaLevel: 40, direction: richtung }, hoehe }));
+    await page.goto(DEMO);
+    await expect(page.locator('.nadel-icon')).toHaveCount(2);
+    // Die Regel aus ebenen.md, hier unabhängig nachgebaut.
+    const zelle = (i: number, j: number) => {
+      const eigen = hoehe(i, j);
+      if (eigen !== LEER) return eigen;
+      const n: number[] = [];
+      for (let di = -2; di <= 2; di++) for (let dj = -2; dj <= 2; dj++) if (hoehe(i + di, j + dj) !== LEER) n.push(hoehe(i + di, j + dj));
+      return n.reduce((a, b) => a + b, 0) / n.length;
+    };
+    const [fx, fz] = [35.5 / 4 - 0.5, -14.5 / 4 - 0.5];
+    const [i, j, tx, tz] = [Math.floor(fx), Math.floor(fz), fx - Math.floor(fx), fz - Math.floor(fz)];
+    expect([i, j, i + 1, j + 1]).toEqual([8, -5, 9, -4]);
+    const h = (zelle(i, j) * (1 - tx) + zelle(i + 1, j) * tx) * (1 - tz) + (zelle(i, j + 1) * (1 - tx) + zelle(i + 1, j + 1) * tx) * tz + 1;
+    for (const [name, x, y, z] of [
+      ['Zwischen', 35.5, h, -14.5],
+      // Keine Höhen dort, kein Nachbar: seaLevel + 1.
+      ['Ohne', 600.5, 41, -14.5],
+    ] as const) {
+      const [bx, bz] = drehe(x, z);
+      const soll = await aufDemSchirm(page, ...projiziere(bx, y, bz, zweiZuEins(16)));
+      const ist = await fuss(page, name);
+      expect(Math.abs(ist[0]! - soll[0]!), `${name} x`).toBeLessThanOrEqual(1);
+      expect(Math.abs(ist[1]! - soll[1]!), `${name} y`).toBeLessThanOrEqual(1);
+    }
+  });
+}
 
 /** Das Schild, wie es nach ebenen.md sein muss, aus den Bildern des Designers, mit oder ohne Symbol. */
 const schildSoll = (page: Page, groesse: string, b: number, h: number, farbe: number[], symbol: string | undefined) =>
@@ -381,6 +387,38 @@ test('an, aus, an: es steht genau eine Gruppe, die des letzten Einschaltens, auc
   await expect(page.locator('.nadel-icon[title="Neu"]')).toHaveCount(1);
 });
 
+test('fällt eine Ebene während ihres Ladens aus layers.json, zeigt die Karte ihre Nadeln nicht', async ({ page }) => {
+  await page.clock.install();
+  let liste: object[] = [STAEDTE];
+  let freigeben = () => {};
+  const frei = new Promise<void>((los) => (freigeben = los));
+  await welt(page, { liste: () => liste, datei: () => undefined });
+  await page.route('**/tiles-demo/layers/beispiel/staedte.json', async (route) => {
+    await frei;
+    await route.fulfill({ json: { objects: [HAFEN] } });
+  });
+  await page.goto(DEMO);
+  await page.locator('.ebenen summary').click();
+  await expect(page.locator('.ebenen label')).toHaveCount(1);
+  liste = [];
+  await page.clock.runFor(31_000);
+  await expect(page.locator('.ebenen label')).toHaveCount(0);
+  freigeben();
+  await page.waitForTimeout(800);
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+});
+
+test('sagt Content-Length mehr als die Grenze, liest die Karte die Datei nicht und sagt es', async ({ page }) => {
+  const meldungen: string[] = [];
+  page.on('console', (m) => meldungen.push(m.text()));
+  await page.route('**/tiles-demo/layers.json', (route) =>
+    route.fulfill({ status: 200, headers: { 'content-type': 'application/json', 'content-length': String(64 * 1024 + 1) }, body: JSON.stringify({ layers: [STAEDTE] }) }),
+  );
+  await page.goto(DEMO);
+  await expect.poll(() => meldungen.some((m) => m.includes('grösser als 65536 Byte'))).toBe(true);
+  await expect(page.locator('.ebenen')).toHaveCount(0);
+});
+
 test('ändert der Betreiber visible und der Betrachter hat nie gewählt, folgen die Nadeln', async ({ page }) => {
   await page.clock.install();
   let sichtbar = false;
@@ -539,18 +577,34 @@ test('alle 30 Sekunden und beim Zurückkehren auf den Tab fragt die Karte layers
   expect(new Set(await modi())).toEqual(new Set(['no-cache']));
 });
 
-test('ein Symbol ausserhalb von images/ oder mit einem Namen gegen „Dateinamen“ holt die Karte nicht, und unbekannte Objekte übergeht sie', async ({ page }) => {
-  const anfragen = await welt(page, staedte([
-    { ...HAFEN, symbol: { large: '../geheim.png', medium: 'images/../x.png' } },
-    { ...HAFEN, id: 'gross', at: [20.5, -30.5], symbol: { large: 'images/Burg_16.png', medium: 'images/burg_9.gif' } },
-    { ...HAFEN, id: 'lang', at: [40.5, -10.5], symbol: { large: `images/${'b'.repeat(65)}.png`, medium: 'images/.burg_9.png' } },
-    { id: 'neu', type: 'hologram', at: [1, 1] },
-    { ...HAFEN, id: 'ohne-at', at: 'hier' },
-  ]));
+test('Kennungen und Bilder gegen die Regel aus „Kennung“ übergeht die Karte mit Meldung und holt die Bilder nicht; unbekannte Objekte übergeht sie', async ({ page }) => {
+  const meldungen: string[] = [];
+  page.on('console', (m) => meldungen.push(m.text()));
+  const schlecht = ['images/Burg_16.png', 'images/burg_9.gif', `images/${'b'.repeat(65)}.png`, 'images/.burg_9.png', 'images/burg..png', 'images/nul.png', 'images/com1.x.png', '../geheim.png', 'images/../x.png'];
+  const tafel = { blocks: [{ type: 'image', image: 'images/lpt9.png', width: 16, height: 16 }, { type: 'title', text: 'Tafel' }] };
+  const anfragen = await welt(page, {
+    liste: () => [STAEDTE, ...['beispiel:con', 'beispiel:ende.', 'nul.x:ebene', 'beispiel:.vorn'].map((id) => ({ ...STAEDTE, id }))],
+    datei: (name) =>
+      name === 'staedte'
+        ? { objects: [
+            ...schlecht.map((s, i) => ({ ...HAFEN, id: `s${i}`, name: `S${i}`, at: [20.5 + 4 * i, -30.5], symbol: { large: s }, panel: tafel })),
+            { id: 'neu', type: 'hologram', at: [1, 1] },
+            { ...HAFEN, id: 'ohne-at', at: 'hier' },
+          ] }
+        : { objects: [HAFEN] },
+  });
   await page.goto(DEMO);
-  await expect(page.locator('.nadel-icon')).toHaveCount(3);
+  await page.locator('.ebenen summary').click();
+  await expect(page.locator('.ebenen label')).toHaveCount(1);
+  await expect(page.locator('.nadel-icon')).toHaveCount(schlecht.length);
+  await page.locator('.nadel-icon[title="S0"]').click();
+  await expect(page.locator('.tafel-titel')).toHaveText('Tafel');
+  await expect(page.locator('.tafel img')).toHaveCount(0);
   await page.waitForTimeout(300);
-  expect(anfragen.filter((a) => a.includes('images/'))).toEqual([]);
+  expect(anfragen.filter((a) => a.includes('images/') || !a.startsWith('beispiel/staedte'))).toEqual([]);
+  for (const s of [...schlecht, 'images/lpt9.png', 'beispiel:con', 'beispiel:ende.', 'nul.x:ebene', 'beispiel:.vorn']) {
+    expect(meldungen.some((m) => m.includes(`„${s}“`)), s).toBe(true);
+  }
 });
 
 test('was über die Grenzen geht oder nicht auf die Webkarte gehört, übergeht die Karte und sagt es in der Konsole', async ({ page }) => {

@@ -1,5 +1,5 @@
 ---
-title: "0094: Von oben der nächste Pixel"
+title: "0094: Bei top-north der nächste Pixel"
 description: Warum die Pyramide bei top-north je 2 × 2 einen Pixel nimmt statt zu mitteln, warum top weiter mittelt, welchen Pixel, warum der Baum es sich in map.json merkt und ein älterer Baum einmal ganz umgebaut wird, was es nach Regel 26 kostet und welche Wege verworfen sind.
 status: gilt
 date: 2026-10-09
@@ -9,7 +9,7 @@ code:
   - renderer/src/cli.rs
 ---
 
-# 0094: Von oben der nächste Pixel
+# 0094: Bei top-north der nächste Pixel
 
 ## Anlass
 

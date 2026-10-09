@@ -40,7 +40,7 @@ dem Plugin-Programmierer ab.
     Fortschritt als JSON; das Plugin zeigt die letzte Zeile.
   - **Die Packung eines Baums,** das Feld `compact` in `map.json`, liest
     das Plugin für seinen Status: `true` heisst kompakt, sonst schnell.
-- **Von oben der nächste Pixel** ([0094](entscheidungen/0094-von-oben-der-naechste-pixel.md)):
+- **Bei `top-north` der nächste Pixel** ([0094](entscheidungen/0094-von-oben-der-naechste-pixel.md)):
   Ein Baum aus `top-north` verkleinert seine Pyramide je 2 × 2 mit einem
   Pixel, ohne Schalter. Der erste Lauf des neuen Renderers auf einem
   älteren solchen Baum baut dessen Pyramide einmal ganz neu, auch ein

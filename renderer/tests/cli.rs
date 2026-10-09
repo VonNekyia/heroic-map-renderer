@@ -5398,7 +5398,11 @@ fn versagende_karte_steht_einmal_im_log() {
 #[test]
 fn gemittelter_baum_von_oben_wird_ganz_umgebaut() {
     let args = ["--scale", "8", "--camera", "top-north", "--manifest"];
-    let update: Vec<&str> = args.iter().copied().chain(["--update"]).collect();
+    let update: Vec<&str> = args
+        .iter()
+        .copied()
+        .chain(["--update", "--progress", "json"])
+        .collect();
     for weg in ["Update ohne Änderung", "Update mit Änderung", "--pyramid"] {
         let welt = tempdir();
         baue_gelaende(welt.path());
@@ -5421,6 +5425,18 @@ fn gemittelter_baum_von_oben_wird_ganz_umgebaut() {
         let log = String::from_utf8_lossy(&ausgabe.stdout);
         assert_eq!(log.matches("Verkleinern:").count(), 1, "{weg}: {log}");
         assert!(!log.contains("nichts zu zeichnen"), "{weg}: {log}");
+        if weg == "Update ohne Änderung" {
+            // Das Plugin sieht den Umbau: je Stufe eine Zeile, am Ende die
+            // neuen Kacheln.
+            let json: Vec<serde_json::Value> = log
+                .lines()
+                .filter_map(|z| serde_json::from_str(z).ok())
+                .collect();
+            let stufen = json.iter().filter(|j| j["phase"] == "pyramid").count();
+            assert_eq!(stufen as u32, max_zoom(baum.path()), "{log}");
+            let fertig = json.iter().find(|j| j["phase"] == "done").unwrap();
+            assert!(fertig["tiles"].as_u64().unwrap() > 0, "{log}");
+        }
         assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "{weg}");
         let neu = neuer_baum("top-north-s");
         gelungen(&tiles(welt.path(), neu.path(), &args));
@@ -5486,6 +5502,50 @@ fn umstellen_mit_nativer_stufe_und_prune() {
     let soll = neuer_baum("top-north-s");
     gelungen(&tiles(neu.path(), soll.path(), &args));
     gleiche_baeume(baum.path(), soll.path(), "--prune");
+}
+
+/// Umstellen in einem Teillauf mit nativer Stufe: Das Update ändert nur den
+/// fernen Chunk (20, 20), und doch baut es jede Kachel der Pyramide über der
+/// nativen Stufe neu, auch über dem Chunk (0, 0), der blieb. Dafür hebt es
+/// die Basis auf die gröbste native Stufe. Danach gleicht der Baum einem
+/// neuen.
+#[test]
+fn umstellen_im_update_mit_nativer_stufe() {
+    let welt = tempdir();
+    let chunks = [(0, 0), (20, 20)];
+    let schreibe = |block: fn(i32, i32, i32) -> &'static str, fern: u32| {
+        common::write_world(welt.path(), &chunks, block);
+        common::setze_stempel(welt.path(), 0, 0, 1);
+        common::setze_stempel(welt.path(), 20, 20, fern);
+    };
+    schreibe(streifen, 1);
+    let args = [
+        "--scale",
+        "8",
+        "--camera",
+        "top-north",
+        "--native-levels",
+        "1",
+    ];
+    let baum = neuer_baum("top-north-s");
+    gelungen(&tiles(welt.path(), baum.path(), &args));
+    wie_frueher_gemittelt(baum.path());
+    schreibe(streifen_mit_platte, 2);
+    let update: Vec<&str> = args.iter().copied().chain(["--update"]).collect();
+    let ausgabe = tiles(welt.path(), baum.path(), &update);
+    let log = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(log.contains("Update:     1 Chunks geändert"), "{log}");
+    let neu = neuer_baum("top-north-s");
+    gelungen(&tiles(welt.path(), neu.path(), &args));
+    gleiche_baeume(baum.path(), neu.path(), "Update mit nativer Stufe");
+}
+
+/// [`streifen`] mit einer Platte im Chunk (20, 20).
+fn streifen_mit_platte(x: i32, y: i32, z: i32) -> &'static str {
+    match (x, y, z) {
+        (320..=335, 3, 320..=335) => "minecraft:einfarbig",
+        _ => streifen(x, y, z),
+    }
 }
 
 /// Macht aus einem Baum aus `top-north` einen wie aus einem älteren Stand: jede

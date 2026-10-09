@@ -1746,18 +1746,19 @@ fn write_tiles(
     {
         // Ein Baum, der umstellt, hat trotzdem etwas zu tun: Die Zeile hiesse
         // für das Plugin, dass nichts geschah.
-        if umstellen {
-            rebuild_pyramid(dir, mit_manifest, SystemTime::now(), vorhandene_mit_zeit)?;
+        let neu = if umstellen {
+            rebuild_pyramid(dir, mit_manifest, SystemTime::now(), vorhandene_mit_zeit)?
         } else {
             println!("Update:     nichts zu zeichnen");
             if mit_manifest {
                 manifest::ohne_aenderung(dir)?;
             }
-        }
+            0
+        };
         if let Some(stand) = stand {
             schreibe_stand(dir, world, stand)?;
         }
-        melde_json(serde_json::json!({"phase": "done", "tiles": 0, "s": sekunden(beginn)}));
+        melde_json(serde_json::json!({"phase": "done", "tiles": neu, "s": sekunden(beginn)}));
         return Ok(());
     }
 
@@ -2634,7 +2635,8 @@ fn schreibe_baeume(wurzel: &Path) -> Result<()> {
 }
 
 /// Baut die Zoomstufen über den Basiskacheln eines Kachelbaums nach und
-/// schreibt `map.json`, ohne Welt und ohne Assets. Basisstufe, scale und
+/// schreibt `map.json`, ohne Welt und ohne Assets. Liefert, wie viele
+/// Kacheln es neu gebaut hat. Basisstufe, scale und
 /// Welt nennt `map.json`, das jeder Export vor seiner ersten Kachel
 /// schreibt; ohne diese Datei oder ohne Kachel auf ihrer Basisstufe ändert
 /// der Aufruf nichts.
@@ -2656,7 +2658,7 @@ fn rebuild_pyramid(
     mit_manifest: bool,
     beginn: SystemTime,
     mut liste: impl FnMut(&Path, u32) -> Result<BTreeMap<TileId, SystemTime>>,
-) -> Result<()> {
+) -> Result<usize> {
     let started = Instant::now();
     let stempel = beginn - Duration::from_secs(2);
     let karte = dir.join("map.json");
@@ -2784,6 +2786,7 @@ fn rebuild_pyramid(
             unlesbar.extend(kaputt);
         }
         println!("Zoom {z:>2}:     {neu} neu, {weg} entfernt");
+        melde_json(serde_json::json!({"phase": "pyramid", "level": z, "tiles": neu}));
         gebaut += neu;
         entfernt += weg;
         kinder = eltern;
@@ -2808,7 +2811,7 @@ fn rebuild_pyramid(
             "Karte:      {} ist seit dem Beginn neu geschrieben, etwa vom Render, und bleibt",
             karte.display()
         );
-        return Ok(());
+        return Ok(gebaut);
     }
     let info = MapInfo {
         native_levels: alt.native_levels,
@@ -2833,7 +2836,7 @@ fn rebuild_pyramid(
     };
     let path = schreibe_info(dir, &info, Some(stempel))?;
     melde_karte(&info, basis.len(), &path);
-    Ok(())
+    Ok(gebaut)
 }
 
 /// Baut eine Elternkachel für `--pyramid` aus ihren Kindern auf der Platte

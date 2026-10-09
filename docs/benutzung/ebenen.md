@@ -24,6 +24,7 @@ Plugin, Webkarte und Mod (#219). Warum so:
 | `layers/<modname>/<ebene>.json` | darunter, eine Datei je Ebene | das Plugin | Webkarte |
 | `layers/<modname>/images/…` | Bilder einer Ebene | das Plugin | Webkarte, Mod über den Server |
 | `ebenen/<modname>/<ebene>.json` | im Ordner des Plugins | der Betreiber, von Hand | das Plugin |
+| `ebenen/<modname>/images/…` | Bilder dazu, im Ordner des Plugins | der Betreiber | das Plugin, das sie nach `layers/<modname>/images/` kopiert |
 
 - **Eine Wurzel, eine Welt und Dimension,** wie bei den Bäumen, siehe
   [map.json](map-json.md), „Liste der Bäume“. Die Ebenen gelten für alle
@@ -34,6 +35,8 @@ Plugin, Webkarte und Mod (#219). Warum so:
 - **Dasselbe Format** für die Dateien des Betreibers und für die der
   Webkarte. Was nur das Plugin braucht (`web`, `permission`), schreibt es
   nicht für die Webkarte.
+- **Über die API** kommen Bilder als Bytes; das Plugin prüft Format und
+  Grösse und schreibt sie wie die des Betreibers.
 - **Schlüssel englisch,** wie in `map.json`, `trees.json` und der API des
   Plugins.
 
@@ -104,6 +107,9 @@ selbst, die Webkarte im Browser.
   - `web`, Vorgabe `true`: ob die Ebene auf die Webkarte kommt;
   - `permission`: wer sie im Mod sieht. Eine Ebene mit `permission` kommt
     nie auf die öffentliche Webkarte; `web: true` dazu ist ein Fehler.
+    Sie hat vorerst keine Bilder: `symbol` und Bilder in der Tafel sind
+    dort ein Fehler, denn alles unter `layers/` ist öffentlich. Der Mod
+    zeichnet ihre Nadeln als Nadel der Karte in `color`.
 - **`objects`:** die Objekte, in der Reihenfolge, in der sie liegen; ein
   späteres liegt über einem früheren derselben Art.
 
@@ -133,6 +139,9 @@ selbst, die Webkarte im Browser.
   halbdurchsichtig.
 - **Texte** sind schlichter Text in UTF-8, nie HTML. Jede Ansicht setzt
   sie als Text, nie als Markup.
+- **Unbekanntes übergehen:** Ein Objekt mit unbekanntem `type` und ein
+  unbekanntes Feld übergeht jede Ansicht. So bricht eine ältere Ansicht
+  nicht an einem neueren Plugin.
 
 ### Nadel
 
@@ -156,7 +165,7 @@ Ein Punkt der Karte mit Symbol und Namen, in jeder Zoomstufe gleich gross.
 | `at` | der Punkt | Pflicht |
 | `y` | der Block, auf dem die Nadel steht; ihr Fuss liegt auf seiner Oberseite, `y + 1` | die Höhe aus `map.json` |
 | `name` | steht unter dem Symbol, höchstens 64 Zeichen | ohne |
-| `symbol` | ein Bild der Ebene, siehe „Bilder“, mit dem Fuss in der Mitte der Unterkante | die Nadel der Karte |
+| `symbol` | ein Bild der Ebene, siehe „Bilder“, höchstens 64 × 64 Pixel, mit dem Fuss in der Mitte der Unterkante | die Nadel der Karte |
 | `color` | Farbe der Nadel der Karte; bei einem eigenen Symbol ohne Wirkung | `#D9443A` |
 
 ### Kartenschrift
@@ -313,24 +322,39 @@ Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
 - **Ablage:** `layers/<modname>/images/`, Pfade in der Ebene relativ zu
   ihrem Ordner, etwa `images/burg.png`. Nur dieser Ordner; `..`, absolute
   Pfade und Adressen anderer Server weist jede Ansicht ab.
-- **Formate:** PNG oder WebP, höchstens 512 × 512 Pixel und 256 KiB.
+- **Formate:** PNG, oder WebP verlustfrei als einfaches `VP8L`: nur der
+  Chunk `VP8L` im `RIFF`, ohne `VP8X` und ohne verlustbehaftetes `VP8`. Mehr
+  liest der Mod nicht.
+- **Grösse:** Symbole höchstens 64 × 64 Pixel, Bilder der Tafel höchstens
+  512 × 512, jedes höchstens 256 KiB.
 - **Kein `data:`:** Die Karte läuft unter `img-src 'self'`, siehe
   [Frontend](../frontend.md), „Ausliefern“. Ein Bild, das das Plugin
   erzeugt, etwa ein Banner, schreibt es als Datei.
-- **Im Mod** holt der Mod die Bilder über den Server des Renderers.
+- **Im Mod** holt der Mod die Bilder über den Server des Renderers, ohne
+  Token, erst wenn eine Nadel auf dem Schirm liegt oder die Tafel offen ist.
+- **Bilder einer Ebene mit `permission`** gibt es vorerst nicht, siehe
+  „Datei einer Ebene“.
 
 ## Ändern und Neuladen
 
 - **Schreiben:** Das Plugin schreibt jede Datei erst unter einem Namen mit
   `.` vorn und benennt sie dann um. So sieht eine Ansicht nie eine halbe
   Datei, und der Server liefert die halbe nie aus. Es schreibt nur
-  geänderte Ebenen, und `layers.json` zuletzt.
-- **Erkennen:** Ändert sich eine Ebene, ändert sich ihre `version` in
-  `layers.json`.
+  geänderte Ebenen.
+- **Reihenfolge:** erst die Bilder, dann die Datei der Ebene, dann
+  `layers.json`. Beim Entfernen umgekehrt: erst `layers.json`, dann die
+  Datei, dann die Bilder, die keine Ebene des `modname` mehr nennt. So nennt
+  `layers.json` nie eine fehlende Datei.
+- **Erkennen:** Ändert sich eine Ebene oder eines ihrer Bilder, ändert sich
+  ihre `version` in `layers.json`: Das Plugin rechnet den Hash über die
+  Datei und ihre Bilder. Ein Bild, das unter gleichem Namen neu ist, kommt
+  so auch an.
 - **Neuladen ohne Seitenwechsel:** Die Webkarte fragt `layers.json` alle
   30 Sekunden und beim Zurückkehren auf den Tab nach, mit
   `cache: 'no-cache'`. Der Server antwortet mit ETag und 304, solange
-  nichts neu ist, siehe [Server](server.md). Eine Ebene, deren `version`
+  nichts neu ist, siehe [Server](server.md). Der Server liefert `layers.json`
+  und `layers/` ohne Token und mit Revalidierung über ETag, nicht mit langem
+  Cache. Eine Ebene, deren `version`
   sich geändert hat und die an ist, lädt sie neu; eine verborgene erst beim
   Einschalten.
 - **Ohne `layers.json`** hat die Karte keine Ebenen und zeigt keine Liste.
@@ -342,22 +366,31 @@ es und nennt es in der Konsole oder im Log.
 
 | Was | Höchstens |
 |---|---|
-| Ebenen je Wurzel | 64 |
+| Ebenen je Wurzel, mit denen nur für den Mod | 64 |
 | `layers.json` | 64 KiB |
 | Datei einer Ebene | 4 MiB |
 | Objekte je Ebene | 10 000, davon 1000 Nadeln |
 | Punkte je Objekt, über alle Ringe | 10 000 |
 | Löcher je Polygon | 100 |
 | Bilder je Ebene | 200 |
-| Nachricht an den Mod | 64 KiB |
+| Symbol | 64 × 64 Pixel, 256 KiB |
+| Bild der Tafel | 512 × 512 Pixel, 256 KiB |
+| Nachricht an den Mod | 64 KiB; eine Ebene in Teilen |
 
 ## An den Mod
 
-Vorerst schickt das Plugin dem Mod nur die Nadeln, über seinen Kanal,
-eine ganze Ebene je Nachricht. Eine Nadel hat dort dieselben Felder wie
-hier, ohne `panel`. Die Liste der Ebenen hat dieselben Felder wie
-`layers.json`. Nachrichten und Rechte beschreibt das Plugin in seiner Doku.
-Infotafeln holt der Mod später beim Anklicken, die Bilder über den Server.
+Vorerst schickt das Plugin dem Mod nur die Nadeln, über seinen Kanal.
+
+- **Nadeln:** dieselben Felder wie hier, ohne `panel`.
+- **In Teilen:** 1000 Nadeln sind als JSON 150 bis 310 KiB, eine Nachricht
+  darf 64 KiB haben. Eine Ebene geht deshalb in Teilen, mit `version`,
+  `part` und `parts`. Der Mod ersetzt die Ebene erst, wenn alle Teile einer
+  `version` da sind; unvollständige verwirft er bei einer neuen `version`
+  und beim Trennen.
+- **Liste:** dieselben Felder wie `layers.json`; dazu nennt sie die Adresse
+  des Servers, von dem der Mod die Bilder holt.
+- **Einzelheiten:** Nachrichten und Rechte beschreibt das Plugin in seiner
+  Doku. Infotafeln holt der Mod später beim Anklicken.
 
 ## Zeichnen
 
@@ -367,6 +400,13 @@ aus `projection`, `direction` und den Höhen in `map.json`, siehe
 [Kamera](../renderer/kamera.md), „Projektion“. Geprüft wird gegen
 [`renderer/tests/fixtures/projektion.json`](../../renderer/tests/fixtures/projektion.json),
 wie bei den Koordinaten.
+
+- **Einmal je `version` und Baum:** Projektion, Netz und die Prüfung, was
+  verdeckt ist, hängen nur an der Ebene, dem Baum und seinen Höhen, nicht
+  an Zoom und Verschieben. Jede Ansicht rechnet sie in Pixeln der feinsten
+  Stufe einmal und hält das Ergebnis; ein Zoom verschiebt und skaliert es
+  nur noch. Neu gerechnet wird mit einer neuen `version`, einem anderen
+  Baum oder neu geladenen Höhen.
 
 - **Projektion eines Punkts** (x, y, z): erst in den Blick, k
   Vierteldrehungen von (x, z) nach (z, −x), dann
@@ -394,9 +434,11 @@ wie bei den Koordinaten.
 
 ### Ränder, Linien und Kreise
 
-1. **Dicht abtasten:** Jede Strecke wird so geteilt, dass zwei Punkte
-   höchstens einen Block auseinander liegen; ein Kreis ebenso über seinen
-   Umfang.
+1. **Abtasten an den Zellen:** `H` mischt bilinear zwischen den Mitten der
+   Zellen, feiner bringt nichts Neues. Jede Strecke bekommt deshalb ihre
+   Schnittpunkte mit dem Raster dieser Mitten und je einen Punkt dazwischen.
+   Ein Kreis wird erst als Vieleck mit Seiten von höchstens `heightsCell`
+   Blöcken angenähert, dann ebenso.
 2. **Projizieren:** je Punkt `P(x, H(x, z), z)`.
 3. **Zeichnen** als ein Linienzug in Pixeln des Bildschirms. Die Striche
    eines gestrichelten Rands zählen entlang des gezeichneten Zugs, nicht
@@ -438,7 +480,9 @@ Im iso kann Gelände vor einer Fläche liegen, etwa ein Berg vor einem Tal.
 ### Nadeln
 
 - **Fuss:** `P(x, y + 1, z)` mit `y` aus dem Objekt oder `H(x, z)`.
-- **Grösse:** 24 Pixel hoch auf jeder Stufe, der Name darunter in 12 Pixeln.
+- **Grösse:** auf jeder Stufe gleich, aus der Ansicht: auf der Webkarte
+  24 Pixel hoch, der Name darunter in 12 Pixeln; im Mod in Einheiten seiner
+  Oberfläche, wie seine Wegpunkte.
 
 ### Reihenfolge und Anklicken
 

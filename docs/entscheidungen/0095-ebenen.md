@@ -41,7 +41,12 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
   fragt die Liste alle 30 Sekunden mit `no-cache` nach und lädt nur
   geänderte Ebenen, die an sind.
 - **`web` und `permission`** gibt es nur beim Plugin. Eine Ebene mit
-  `permission` kommt nie auf die öffentliche Webkarte.
+  `permission` kommt nie auf die öffentliche Webkarte und hat vorerst keine
+  Bilder, denn alles unter `layers/` ist öffentlich.
+- **An den Mod** vorerst nur Nadeln, eine Ebene in Teilen von höchstens
+  64 KiB: 1000 Nadeln sind 150 bis 310 KiB.
+- **Gerechnet einmal je `version` und Baum,** in Pixeln der feinsten Stufe;
+  ein Zoom skaliert nur noch.
 
 ## Verworfene Alternativen
 
@@ -88,12 +93,15 @@ Nach Regel 26:
   - Webkarte: die geladenen Ebenen samt Netz der sichtbaren Flächen, dazu
     die Höhen, die sie für die Koordinaten ohnehin hält, siehe
     [Frontend](../frontend.md), „Koordinaten“.
-  - Mod: vorerst nur Nadeln, höchstens 1000 je Ebene; je Nadel ein Punkt,
-    ein Name und ein Symbol, also wenige hundert KiB.
+  - Mod: vorerst nur Nadeln, höchstens 1000 je Ebene und 64 Ebenen, grob
+    200 Byte je Nadel, also höchstens rund 13 MB; Symbole höchstens
+    64 × 64, 16 KiB je Textur, geladen erst, wenn sie zu sehen sind.
 - **Platz:** Kilobytes bis wenige Megabytes je Wurzel, höchstens 4 MiB je
   Ebene, gegen Gigabytes an Kacheln ohne Gewicht.
-- **Rechnen im Browser:** Dicht abgetastete Ränder und das Netz der Flächen
-  kosten bei jedem Neuzeichnen. Wie viel, misst die Umsetzung (#219, Teil
-  4).
+- **Rechnen im Browser:** Abgetastete Ränder, das Netz der Flächen und die
+  Prüfung, was verdeckt ist, kosten einmal je `version` und Baum, nicht bei
+  jedem Neuzeichnen. Abgetastet wird an den Mitten der Zellen, nicht je
+  Block: Eine Route über 10 000 Blöcke hat so rund 5 000 Punkte statt
+  10 000. Wie viel es kostet, misst die Umsetzung (#219, Teil 4).
 - **Abhängig von den Höhen:** Ein Baum ohne `heights` zeigt Ebenen im iso
   flach auf `seaLevel`; von oben braucht er keine.

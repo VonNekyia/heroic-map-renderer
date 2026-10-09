@@ -28,6 +28,32 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet 
   <img src="docs/bilder/dorf.webp" alt="Ein Dorf am Wasser mit Feldern, Stegen und Marktständen, scale 32">
 </p>
 
+## Plugin und Mod
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3><a href="https://github.com/VonNekyia/heroic-map-renderer-plugin">Paper-Plugin</a></h3>
+      <a href="https://bstats.org/plugin/bukkit/heroic-map-renderer-plugin/34598"><img alt="Server mit dem Plugin, gezählt von bStats" src="https://img.shields.io/bstats/servers/34598"></a><br>
+      Rendert die Welt neben dem Spielserver, hält die Karte mit Updates aktuell, liefert sie über den eingebauten Webserver aus und bietet sie Spielern mit dem Mod zum Download an. Was es vom Renderer nutzt: <a href="docs/plugin.md">Plugin</a>.
+    </td>
+    <td width="50%" valign="top">
+      <h3><a href="https://github.com/VonNekyia/heroic-map-renderer-mod">Fabric-Mod</a></h3>
+      Zeigt im Spiel eine Minimap, die er selbst zeichnet, und eine Vollbildkarte aus den Kacheln, die er vom Plugin lädt oder selbst aus den geladenen Chunks zeichnet.
+    </td>
+  </tr>
+  <tr>
+    <td><img src="https://raw.githubusercontent.com/VonNekyia/heroic-map-renderer-mod/main/docs/bilder/minimap-rund.png" alt="Die runde Minimap des Mods in einer Testszene"></td>
+    <td><img src="https://raw.githubusercontent.com/VonNekyia/heroic-map-renderer-mod/main/docs/bilder/vollbildkarte.png" alt="Die Vollbildkarte des Mods in einer Testszene, mit den Knöpfen zum Download und Abgleich"></td>
+  </tr>
+  <tr>
+    <td>Die Minimap, rund</td>
+    <td>Die Vollbildkarte</td>
+  </tr>
+</table>
+
+Beide Bilder stammen aus Gametests des Mods.
+
 ## Auf einen Blick
 
 | | |
@@ -67,26 +93,6 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet 
   Laufzeit, siehe [Server](docs/benutzung/server.md).
 - **Schlankes Frontend:** Leaflet mit Vite und TypeScript. Es lädt nur
   Kacheln, `map.json` und die Höhen für die Koordinaten.
-
-## Plugin und Mod
-
-| | |
-|---|---|
-| **Paper-Plugin**<br>[heroic-map-renderer-plugin](https://github.com/VonNekyia/heroic-map-renderer-plugin) | rendert die Welt neben dem Spielserver, als Vorgabe mit einem Kern und niedrigster Priorität, hält die Karte mit Updates aktuell und startet den Webserver. Spielern mit dem Mod bietet es die Karte zum Download an, mit Token und Grenzen gegen Missbrauch. Was es vom Renderer nutzt: [Plugin](docs/plugin.md) |
-| **Fabric-Mod**<br>[heroic-map-renderer-mod](https://github.com/VonNekyia/heroic-map-renderer-mod) | eine Minimap, die er selbst zeichnet wie `top-north`; eine Vollbildkarte aus den Kacheln, die er vom Plugin lädt; darüber eine Live-Ebene mit allem, was sich seit dem letzten Lauf geändert hat |
-
-<table>
-  <tr>
-    <td width="33%"><img src="https://raw.githubusercontent.com/VonNekyia/heroic-map-renderer-mod/main/docs/bilder/minimap-4px.png" alt="Die Minimap des Mods mit 4 Pixeln je Block"></td>
-    <td width="67%"><img src="https://raw.githubusercontent.com/VonNekyia/heroic-map-renderer-mod/main/docs/bilder/live.png" alt="Die Vollbildkarte des Mods mit der Live-Ebene über den Kacheln"></td>
-  </tr>
-  <tr>
-    <td>Die Minimap, 4 Pixel je Block</td>
-    <td>Die Vollbildkarte; das Stück in der Mitte ist die Live-Ebene</td>
-  </tr>
-</table>
-
-Beide Bilder stammen aus Gametests des Mods.
 
 ## Karte und Cinematic
 
@@ -155,6 +161,9 @@ scale 16. Wie die Kameras rechnen: [Die Kamera](docs/renderer/kamera.md).
   Testwelt 30 bis 38 % kürzer, siehe
   [Native Stufen in Bändern](docs/messungen/2026-10-01-native-stufen-in-baendern.md).
 - **Für die eigene Welt** sagt `--estimate` beides vorher.
+
+<!-- Platz für das Diagramm „Platz, RAM und Geschwindigkeit“; es kommt nach
+     dem Benchmark des Researchers, mit Zahlen nur aus docs/messungen. -->
 
 Grössen sind dezimal, 1 GB = 10^9 Byte.
 

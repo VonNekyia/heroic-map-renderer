@@ -80,7 +80,8 @@
 
 .skin-tablett .leiste,
 .skin-tablett .stand,
-.skin-tablett .lizenzen {
+.skin-tablett .lizenzen,
+.skin-tablett .ebenen {
   border: 1px solid var(--ui-trenner);
 }
 

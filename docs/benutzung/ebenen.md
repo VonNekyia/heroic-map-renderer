@@ -14,7 +14,8 @@ sich einzeln an- und abschalten. Ebenen sind kein Teil der Kacheln: Der
 Renderer zeichnet sie nicht, das Plugin schreibt sie als JSON, und jede
 Ansicht zeichnet sie selbst. Diese Seite ist die Schnittstelle zwischen
 Plugin, Webkarte und Mod (#219). Warum so:
-[0095](../entscheidungen/0095-ebenen.md).
+[0095](../entscheidungen/0095-ebenen.md). Was die Webkarte davon schon zeigt:
+[Frontend](../frontend.md), „Ebenen“.
 
 ## Überblick
 
@@ -191,10 +192,16 @@ der Typ des Orts, und beim Hinauszoomen wird die Nadel kleiner.
   | `small` | 9 × 11 | 4 | ohne |
 
 - **Farbe:** Das Feld des Schilds steht in Graustufen und wird mit `color`
-  multipliziert; Rahmen und Nadel bleiben, wie sie sind. `color` wirkt
-  also auch mit Symbol.
-- **Symbol:** mittig im Feld, Pixel auf Pixel, nie skaliert. Die Bilder
-  von Schild und Nadel liefert jede Ansicht selbst.
+  multipliziert, je Kanal `⌊Feld · Farbe / 255⌋`, abgeschnitten; Rahmen und
+  Nadel bleiben, wie sie sind. `color` wirkt also auch mit Symbol. Das
+  Alpha von `#RRGGBBAA` hat am Schild keine Wirkung, es bleibt deckend.
+- **Symbol:** Pixel auf Pixel, nie skaliert, über dem gefärbten Feld und
+  unter dem Rahmen. Seine linke obere Ecke liegt bei
+  (⌊(Breite − Seite) / 2⌋, 3), in Pixeln des Schildbilds, von links oben
+  ab 0 gezählt; Breite ist die des Schilds, Seite die des Symbols. Bei
+  `large` und `medium` also (3, 3); ihr Feld beginnt in Zeile 2. Hat es
+  nicht genau seine Grösse, bleibt das Schild leer. Die Bilder von Schild
+  und Nadel liefert jede Ansicht selbst.
 - **Fuss:** die Spitze der Nadel, in der Mitte der Unterkante.
 
 ### Kartenschrift
@@ -406,6 +413,8 @@ Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
   sich geändert hat und die an ist, lädt sie neu; eine verborgene erst beim
   Einschalten.
 - **Ohne `layers.json`** hat die Karte keine Ebenen und zeigt keine Liste.
+  Fehlt sie beim Laden der Seite oder ist sie kaputt, fragt die Webkarte bis
+  zum Neuladen nicht nach; eine später angelegte zeigt sie erst danach.
 
 ## Grenzen
 
@@ -421,6 +430,7 @@ es und nennt es in der Konsole oder im Log.
 | Punkte je Objekt, über alle Ringe | 10 000 |
 | Löcher je Polygon | 100 |
 | Bilder je Ebene | 200 |
+| Punkte je Reihe einer Wertung | 20 |
 | Symbol | 16 × 16 oder 9 × 9 Pixel |
 | Bild der Tafel | 512 × 512 Pixel, 256 KiB |
 | Nachricht an den Mod | 64 KiB je Teil; ein grösseres Objekt allein, höchstens 1 MiB |

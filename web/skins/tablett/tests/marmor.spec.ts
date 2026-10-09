@@ -148,6 +148,12 @@ const kanaele = (farbe: string) => farbe.match(/[\d.]+/g)!.slice(0, 3).map(Numbe
 
 test('die UI aus Pergament, Holz und Messing hält den Kontrast nach WCAG AA, und kein Control deckt ein anderes, von Telefonen bis 4K', async ({ page }) => {
   await welt(page);
+  // Eine Ebene, damit die Liste der Ebenen erscheint.
+  await page.route('**/tiles-demo/layers.json', (route) => route.fulfill({ json: { layers: [{ id: 'beispiel:leer', name: { de: 'Leer' }, version: 'a' }] } }));
+  // Darin eine Nadel mit Tafel, für den Kontrast der Tafel.
+  await page.route('**/tiles-demo/layers/beispiel/leer.json', (route) =>
+    route.fulfill({ json: { objects: [{ id: 'n', type: 'pin', at: [35.5, -14.5], name: 'Nadel', panel: { blocks: [{ type: 'lines', lines: ['Zeile'] }] } }] } }),
+  );
   for (const [breite, hoehe] of [
     [360, 740],
     [390, 844],
@@ -161,7 +167,8 @@ test('die UI aus Pergament, Holz und Messing hält den Kontrast nach WCAG AA, un
     await page.mouse.move(breite / 2, hoehe / 2);
     await expect(page.locator('.koordinaten')).toContainText('X');
     // Gesperrte Knöpfe nimmt WCAG aus.
-    for (const selector of ['.stand', '.lizenzen', '.koordinaten', '.kompass', '.leaflet-bar a:not(.leaflet-disabled)']) {
+    await expect(page.locator('.ebenen')).toBeVisible();
+    for (const selector of ['.stand', '.lizenzen', '.ebenen', '.koordinaten', '.kompass', '.leaflet-bar a:not(.leaflet-disabled)']) {
       const [vorn, grund] = await page
         .locator(selector)
         .first()
@@ -180,4 +187,8 @@ test('die UI aus Pergament, Holz und Messing hält den Kontrast nach WCAG AA, un
       }
     }
   }
+  // Die Tafel in Grund und Schrift der UI, mit Kontrast nach WCAG AA.
+  await page.locator('.nadel-icon[title="Nadel"]').click();
+  const [vorn, grund] = await page.locator('.tafel .leaflet-popup-content-wrapper').evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]);
+  expect(kontrast(kanaele(vorn), kanaele(grund)), `.tafel: ${vorn} auf ${grund}`).toBeGreaterThanOrEqual(4.5);
 });

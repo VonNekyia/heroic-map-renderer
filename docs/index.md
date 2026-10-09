@@ -50,7 +50,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Frontend
 
-- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Skins beim Build.
+- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Ebenen mit Nadeln und Infotafel, Skins beim Build.
 - [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet, mit einer Gesamtansicht wie in der Vorlage, Masse nach der Vorlage, Rahmen, Tisch, Lilien und Gegenstände als Bilder aus der Vorlage, geglättet gelegt, Licht, was vor und was hinter der Welt liegt, die UI aus Pergament, Holz und Messing, was eine Näherung bleibt.
 - [Tablett aus Blender](tablett-gerendert.md): das Brett des Skins Tablett als gerenderte Bilder einer Blender-Szene, je Kamera und Richtung fern und nah: rendern, teilen und prüfen mit `werkzeug/brett.py`, `brett.json`, wie der Skin sie lädt, legt und ohne Glättung auf Pixel des Geräts malt, Grösse, Tests.
 

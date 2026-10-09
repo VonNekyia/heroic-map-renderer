@@ -158,6 +158,21 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
     fremden Codes ein Lizenzproblem sein, auch weil eine Lizenz einen
     Hinweis auf die Herkunft verlangt, wird der User direkt gefragt.
 
+### Abwägen
+
+26. Jede Entscheidung wiegt drei Dinge:
+    - **Renderzeit,** in zwei Fällen getrennt:
+      - **Live-Rendern:** die Updates, die laufen, während Spieler auf dem
+        Server sind. Es wiegt schwerer. Dazu zählt die CPU, die es neben
+        dem Server belegt.
+      - **Erster Render:** der erste volle Lauf über die Welt. Seine Zeit
+        wiegt weniger.
+    - **Arbeitsspeicher:** Er ist knapp. Mehr davon braucht einen guten
+      Grund.
+    - **Platz auf der Platte:** Auch er ist knapp. Was sich sparen lässt,
+      wird gespart. Kleine Werte zählen nicht, denn der erste Render
+      überwiegt sie.
+
 ## Gliederung von `docs/`
 
 | Pfad | Inhalt |

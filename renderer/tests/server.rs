@@ -1287,6 +1287,54 @@ fn tiles_nur_fuer_baeume_der_liste() {
     assert_eq!(hole(server.adresse, "/tiles/heights/0.0.bin").status, 200);
 }
 
+/// Die Ebenen aus docs/benutzung/ebenen.md: `layers.json`, die Datei einer
+/// Ebene und ihre Bilder, mit ETag, `304` und `no-cache` wie die Kacheln,
+/// ohne Token und auch ohne lesbare `trees.json`. Eine halb geschriebene
+/// Datei mit Punkt vorn, `..` und ein Unterordner der Bilder geben `404`.
+#[test]
+fn liefert_die_ebenen() {
+    let (kacheln, _seite) = wurzel();
+    let k = kacheln.path();
+    for (pfad, inhalt) in [
+        ("layers.json", &br#"{"layers":[]}"#[..]),
+        ("layers/beispiel/staedte.json", br#"{"objects":[]}"#),
+        ("layers/beispiel/.staedte.json", b"halb"),
+        ("layers/beispiel/images/burg_16.png", b"PNG-bild"),
+        ("layers/beispiel/images/banner.webp", b"RIFF-bild"),
+        ("layers/beispiel/images/a/burg.png", b"tiefer"),
+        ("trees.json", b"kaputt"),
+    ] {
+        std::fs::create_dir_all(k.join(pfad).parent().unwrap()).unwrap();
+        std::fs::write(k.join(pfad), inhalt).unwrap();
+    }
+    let server = starte(k, &[]);
+    for (pfad, art) in [
+        ("/tiles/layers.json", "application/json"),
+        ("/tiles/layers/beispiel/staedte.json", "application/json"),
+        ("/tiles/layers/beispiel/images/burg_16.png", "image/png"),
+        ("/tiles/layers/beispiel/images/banner.webp", "image/webp"),
+    ] {
+        let a = hole(server.adresse, pfad);
+        assert_eq!(
+            (a.status, a.header("content-type")),
+            (200, Some(art)),
+            "{pfad}"
+        );
+        assert_eq!(a.header("cache-control"), Some("no-cache"), "{pfad}");
+        let etag = a.header("etag").unwrap().to_string();
+        let wieder = frage(server.adresse, "GET", pfad, &[("If-None-Match", &etag)]);
+        assert_eq!(wieder.status, 304, "{pfad}");
+    }
+    for pfad in [
+        "/tiles/layers/beispiel/.staedte.json",
+        "/tiles/layers/../trees.json",
+        "/tiles/layers/beispiel/../beispiel/staedte.json",
+        "/tiles/layers/beispiel/images/a/burg.png",
+    ] {
+        assert_eq!(hole(server.adresse, pfad).status, 404, "{pfad}");
+    }
+}
+
 /// Ein einzelner Baum als Wurzel hat keinen Download: Seine Pfade liegen
 /// unter keinem Baum, `403`, und einen Ordner mit dem Baum des Tokens gibt
 /// es nicht, `404`. Unter `/tiles/` liefert er ihn wie immer.

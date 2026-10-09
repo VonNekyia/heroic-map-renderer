@@ -347,8 +347,12 @@ Skripte.
 Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
 
 - **Ablage:** `layers/<modname>/images/`, Pfade in der Ebene relativ zu
-  ihrem Ordner, etwa `images/burg.png`. Nur dieser Ordner; `..`, absolute
-  Pfade und Adressen anderer Server weist jede Ansicht ab.
+  ihrem Ordner, etwa `images/burg.png`. Nur dieser Ordner, ohne
+  Unterordner; `..`, absolute Pfade und Adressen anderer Server weist jede
+  Ansicht ab.
+- **Dateinamen** wie ein Teil der Kennung, mit `.png` oder `.webp`, etwa
+  `burg_16.png`. Andere liefert der Server nicht aus, siehe
+  [Server](server.md), „Was er ausliefert“.
 - **Formate:** PNG, oder WebP verlustfrei als einfaches `VP8L`: nur der
   Chunk `VP8L` im `RIFF`, ohne `VP8X` und ohne verlustbehaftetes `VP8`. Mehr
   liest der Mod nicht.

@@ -40,6 +40,13 @@ dem Plugin-Programmierer ab.
     Fortschritt als JSON; das Plugin zeigt die letzte Zeile.
   - **Die Packung eines Baums,** das Feld `compact` in `map.json`, liest
     das Plugin für seinen Status: `true` heisst kompakt, sonst schnell.
+- **Von oben der nächste Pixel** ([0094](entscheidungen/0094-von-oben-der-naechste-pixel.md)):
+  Ein Baum mit `top` oder `top-north` verkleinert seine Pyramide je 2 × 2 mit
+  einem Pixel, ohne Schalter. Der erste Lauf des neuen Renderers auf einem
+  älteren Baum von oben baut dessen Pyramide einmal ganz neu, auch ein
+  Update ohne Änderung, und sagt es mit einer Zeile `Verkleinern:`. Dieses
+  Update dauert länger, siehe [map.json](benutzung/map-json.md),
+  „Verkleinern“.
 - **Den Ordner eines Baums,** `baum_name` in `cli.rs`. Das Plugin rechnet ihn
   nach, um `stand.bin` und `stand-neu.bin` zu finden; daneben liegt
   `stand-neu-liegen.bin`, das nur `--resume` liest. Siehe

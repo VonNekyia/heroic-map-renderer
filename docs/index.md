@@ -168,6 +168,12 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0092](entscheidungen/0092-kompakt-ohne-vorhersage.md): `--compact` packt mit method 1 und, über einen Patch an libwebp in einer Kopie von `libwebp-sys`, ohne räumliche Vorhersage: Basis ×0,71, rund 8 bis 10 ms mehr je Kachel; ein Baum merkt es sich in `map.json`, der Hash der Pixel nimmt die Packung mit.
 - [0093](entscheidungen/0093-nachverdichten.md): `--compact-tree` packt einen fertigen Baum kompakt nach, ohne Welt und Assets: zuerst `map.json`, jede Kachel mit ihrer alten Zeit, ohne was ein anderer Lauf seit dem Beginn schrieb, fortgesetzt über die Hashes der Pixel.
 
+## Versuche
+
+Gemessen und tragfähig, aber nicht übernommen. Der Code liegt je in einem Tag `versuch/…`.
+
+- [Arbeit je Block über die nativen Stufen](versuche/arbeit-je-block.md): #207 B1, die nativen Stufen eines Bands nehmen Licht, Farben und Masken voneinander, wo ihre Tabellen dasselbe geben; −4 bis −7 % für 0,8 bis 2,0 GiB mehr Speicher.
+
 ## Messungen
 
 - [2026-09-22, WebP gegen PNG](messungen/2026-09-22-webp-gegen-png.md): der erste Export, ein Bild als PNG gegen die Kacheln daneben als WebP.
@@ -232,3 +238,4 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [2026-10-08, Kompakt packen](messungen/2026-10-08-kompakt.md): Grösse und Dauer mit `--compact` gegen die schnelle Packung an der Testwelt, die Prüfung, dass libwebp mit und ohne SIMD dieselben Bytes gibt, und die Hochrechnung für die grosse Welt.
 - [2026-10-08, Nachverdichten](messungen/2026-10-08-nachverdichten.md): was `--compact-tree` an einem schnellen Baum der Testwelt mit einem und vier Threads kostet, was ein zweiter Aufruf kostet, und dass danach jede Kachel dem kompakten Export gleicht.
 - [2026-10-08, Gleiche Pixel nicht kodieren](messungen/2026-10-08-gleiche-pixel.md): was der Hash der Pixel vor dem Kodieren an einem Update mit einem Thread spart und einen Lauf in einen leeren Baum kostet, wie gross die Hashes werden, und dass das Bild in fünf Fällen und nach einem Update gleich bleibt.
+- [2026-10-09, Arbeit je Block über die nativen Stufen](messungen/2026-10-09-arbeit-je-block.md): was der Versuch zu #207 B1 mit drei nativen Stufen an Zeit spart und an Speicher kostet, auf einem Thread und auf allen, dass jedes Bild gleich bleibt, und wie oft die Eingaben zwischen den Stufen abweichen.

@@ -170,4 +170,5 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 | `docs/entwicklung/` | Aufbau des Codes, Tests, CI, Eingabedaten, erzeugte Tabellen |
 | `docs/entscheidungen/` | `NNNN-titel.md`, eine Datei je Entscheidung |
 | `docs/messungen/` | `JJJJ-MM-TT-titel.md`, eine Datei je Messreihe |
+| `docs/versuche/` | eine Seite je Versuch: gemessen, tragfähig, nicht übernommen; der Code im Tag `versuch/…` |
 | `docs/bilder/` | Bilder, nur aus der Testwelt oder aus Szenen der Tests; Quellen in `docs/bilder/quellen/` |

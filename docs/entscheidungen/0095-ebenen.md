@@ -34,6 +34,12 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
   einem Zug gefüllt, Verdecktes gedämpft. Von oben liegt alles eben.
 - **Infotafel aus Bausteinen:** Titel, Zeilen, Bild, Abschnitt mit
   Überschrift als Bild, Wertung mit Punkten, zwei Spalten. Kein HTML.
+- **Die Nadel ist ein Wappenschild** in drei Grössen nach dem Typ des
+  Orts, das Feld in `color`, das Symbol darin. Beim Hinauszoomen wird sie
+  kleiner und verschwindet zuletzt, Städte nach Dörfern. Gewünscht vom
+  User, gezeichnet vom Designer (#219, Teil 6).
+- **Die Tafel** in der Schrift der Oberfläche, nicht der Kartenschrift;
+  wird sie zu hoch, scrollt sie.
 - **Bilder als Dateien** beim Server, kein `data:`.
 - **Schlüssel englisch,** wie `map.json`, `trees.json` und die API des
   Plugins.
@@ -50,6 +56,9 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
 
 ## Verworfene Alternativen
 
+- **Nadeln auf jeder Stufe gleich gross:** In der Gesamtansicht einer
+  grossen Welt deckten die Nadeln aller Orte die Karte zu. Der User will
+  sie nach Ortstyp und Zoom gestuft.
 - **Flach auf einer Höhe,** etwa dem Wasserspiegel: einfach, im iso aber
   falsch. Eine Fläche läge um (Höhe − Ebene) · b Pixel neben dem Gelände,
   bei 2:1 und scale 32 bei 40 Blöcken Unterschied um 640 Pixel. Eine Stadt
@@ -94,8 +103,8 @@ Nach Regel 26:
     die Höhen, die sie für die Koordinaten ohnehin hält, siehe
     [Frontend](../frontend.md), „Koordinaten“.
   - Mod: vorerst nur Nadeln, höchstens 1000 je Ebene und 64 Ebenen, grob
-    200 Byte je Nadel, also höchstens rund 13 MB; Symbole höchstens
-    64 × 64, 16 KiB je Textur, geladen erst, wenn sie zu sehen sind.
+    200 Byte je Nadel, also höchstens rund 13 MB; Symbole 16 × 16 und
+    9 × 9, je unter 1 KiB als Textur, geladen erst, wenn sie zu sehen sind.
 - **Platz:** Kilobytes bis wenige Megabytes je Wurzel, höchstens 4 MiB je
   Ebene, gegen Gigabytes an Kacheln ohne Gewicht.
 - **Rechnen im Browser:** Abgetastete Ränder, das Netz der Flächen und die

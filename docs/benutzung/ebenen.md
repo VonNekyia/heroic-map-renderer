@@ -145,7 +145,8 @@ selbst, die Webkarte im Browser.
 
 ### Nadel
 
-Ein Punkt der Karte mit Symbol und Namen, in jeder Zoomstufe gleich gross.
+Ein Punkt der Karte als Wappenschild mit Symbol und Namen. Wie gross, sagt
+der Typ des Orts, und beim Hinauszoomen wird die Nadel kleiner.
 
 ```json
 {
@@ -154,7 +155,8 @@ Ein Punkt der Karte mit Symbol und Namen, in jeder Zoomstufe gleich gross.
   "at": [120.5, -340.5],
   "y": 71,
   "name": "Hafenstadt",
-  "symbol": "images/burg.png",
+  "size": "large",
+  "symbol": { "large": "images/burg_16.png", "medium": "images/burg_9.png" },
   "color": "#40E53F",
   "panel": { "blocks": [] }
 }
@@ -164,9 +166,26 @@ Ein Punkt der Karte mit Symbol und Namen, in jeder Zoomstufe gleich gross.
 |---|---|---|
 | `at` | der Punkt | Pflicht |
 | `y` | der Block, auf dem die Nadel steht; ihr Fuss liegt auf seiner Oberseite, `y + 1` | die Höhe aus `map.json` |
-| `name` | steht unter dem Symbol, höchstens 64 Zeichen | ohne |
-| `symbol` | ein Bild der Ebene, siehe „Bilder“, höchstens 64 × 64 Pixel, mit dem Fuss in der Mitte der Unterkante | die Nadel der Karte |
-| `color` | Farbe der Nadel der Karte; bei einem eigenen Symbol ohne Wirkung | `#D9443A` |
+| `name` | steht unter der Nadel, höchstens 64 Zeichen | ohne |
+| `size` | Grundgrösse nach dem Typ des Orts: `large`, `medium` oder `small` | `medium` |
+| `symbol` | Bilder der Ebene im Schild, siehe „Bilder“: `large` genau 16 × 16 Pixel, `medium` genau 9 × 9; fehlt eins, steht das Schild in dieser Grösse leer. `small` hat nie ein Symbol | ohne |
+| `color` | Farbe des Schilds | `#D9443A` |
+
+- **Die Nadel der Karte** ist ein Wappenschild auf einer Nadel, in drei
+  Grössen, je in Pixeln der Ansicht:
+
+  | Grösse | Schild | Nadel darunter | Symbol |
+  |---|---|---|---|
+  | `large` | 23 × 27 | 6 | 16 × 16 |
+  | `medium` | 15 × 18 | 5 | 9 × 9 |
+  | `small` | 9 × 11 | 4 | ohne |
+
+- **Farbe:** Das Feld des Schilds steht in Graustufen und wird mit `color`
+  multipliziert; Rahmen und Nadel bleiben, wie sie sind. `color` wirkt
+  also auch mit Symbol.
+- **Symbol:** mittig im Feld, Pixel auf Pixel, nie skaliert. Die Bilder
+  von Schild und Nadel liefert jede Ansicht selbst.
+- **Fuss:** die Spitze der Nadel, in der Mitte der Unterkante.
 
 ### Kartenschrift
 
@@ -308,6 +327,14 @@ Skripte.
 - **Breite:** höchstens 320 Pixel, Innenabstand 8 Pixel, 4 Pixel zwischen
   Bausteinen. Farben von Grund und Schrift kommen aus der Ansicht: auf der
   Webkarte aus der UI, siehe [Frontend](../frontend.md), im Mod aus seiner.
+- **Schrift:** eine schlichte, gut lesbare Schrift der Oberfläche, nie die
+  Kartenschrift: auf der Webkarte die der UI, im Mod die des Spiels. Die
+  Grössen in der Tabelle gelten für die Webkarte; der Mod nimmt die Grösse
+  seiner Schrift.
+- **Höhe:** Die Tafel ist so hoch wie ihr Inhalt. Ist sie höher als der
+  Platz in der Ansicht, scrollt die Ansicht sie, mit Mausrad, Finger oder
+  Tastatur. Die Tafel des Beispiels unten ist rund 216 × 306 Pixel gross
+  und passt im Mod bei 240 Einheiten Höhe nicht ganz.
 - **Grenzen:** höchstens 64 Bausteine je Tafel, zwei Ebenen tief
   verschachtelt (`columns` und `section` nur mit Bausteinen ohne eigene
   `columns` oder `section`).
@@ -325,8 +352,8 @@ Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
 - **Formate:** PNG, oder WebP verlustfrei als einfaches `VP8L`: nur der
   Chunk `VP8L` im `RIFF`, ohne `VP8X` und ohne verlustbehaftetes `VP8`. Mehr
   liest der Mod nicht.
-- **Grösse:** Symbole höchstens 64 × 64 Pixel, Bilder der Tafel höchstens
-  512 × 512, jedes höchstens 256 KiB.
+- **Grösse:** Symbole genau 16 × 16 oder 9 × 9 Pixel, siehe „Nadel“,
+  Bilder der Tafel höchstens 512 × 512, jedes höchstens 256 KiB.
 - **Kein `data:`:** Die Karte läuft unter `img-src 'self'`, siehe
   [Frontend](../frontend.md), „Ausliefern“. Ein Bild, das das Plugin
   erzeugt, etwa ein Banner, schreibt es als Datei.
@@ -373,7 +400,7 @@ es und nennt es in der Konsole oder im Log.
 | Punkte je Objekt, über alle Ringe | 10 000 |
 | Löcher je Polygon | 100 |
 | Bilder je Ebene | 200 |
-| Symbol | 64 × 64 Pixel, 256 KiB |
+| Symbol | 16 × 16 oder 9 × 9 Pixel |
 | Bild der Tafel | 512 × 512 Pixel, 256 KiB |
 | Nachricht an den Mod | 64 KiB; eine Ebene in Teilen |
 
@@ -480,9 +507,24 @@ Im iso kann Gelände vor einer Fläche liegen, etwa ein Berg vor einem Tal.
 ### Nadeln
 
 - **Fuss:** `P(x, y + 1, z)` mit `y` aus dem Objekt oder `H(x, z)`.
-- **Grösse:** auf jeder Stufe gleich, aus der Ansicht: auf der Webkarte
-  24 Pixel hoch, der Name darunter in 12 Pixeln; im Mod in Einheiten seiner
-  Oberfläche, wie seine Wegpunkte.
+- **Grösse:** in Pixeln der Ansicht, siehe „Nadel“; auf der Webkarte
+  Pixel des Bildschirms, im Mod Einheiten seiner Oberfläche wie seine
+  Wegpunkte. Sie hängt nicht am Zoom, nur an der Stufe unten.
+- **Kleiner beim Hinauszoomen:** Massgebend ist `p`, wie breit ein Block
+  auf dem Schirm ist, in Pixeln der Ansicht; auf der Webkarte
+  `scale · 2^(Zoom − maxZoom)`. Die Nadel wird um `n` Grössen kleiner:
+
+  | p | n | `large` | `medium` | `small` |
+  |---|---|---|---|---|
+  | ab 1/2 | 0 | `large` | `medium` | `small` |
+  | ab 1/8 | 1 | `medium` | `small` | aus |
+  | ab 1/32 | 2 | `small` | aus | aus |
+  | darunter | 3 | aus | aus | aus |
+
+  So bleiben Städte länger sichtbar als Dörfer. Bei 1/2 deckt ein Pixel zwei
+  Blöcke, bei 1/32 zweiunddreissig.
+- **Name:** nur, solange die Nadel in ihrer Grundgrösse steht, auf der
+  Webkarte in 12 Pixeln unter der Nadel.
 
 ### Reihenfolge und Anklicken
 

@@ -63,6 +63,8 @@ for (const [ansicht, mehr] of [
     page.on('console', (m) => {
       if (m.type() === 'error' || m.type() === 'warning') fehler.push(m.text());
     });
+    // Die Karte merkt sich die Wahl je Ebene; ohne das stünde die Ebene ab dem zweiten Lauf schon an, und der Klick schaltete sie aus.
+    await page.addInitScript(() => localStorage.clear());
     const cdp = await page.context().newCDPSession(page);
     const heap = async (bereinigen: boolean) => {
       if (bereinigen) await frist('Speicherbereinigung', 60_000, cdp.send('HeapProfiler.collectGarbage'));

@@ -463,7 +463,9 @@ Eingaben.
     Stücke; alles ein Pfad, gerade/ungerade, einmal gefüllt, ohne
     Vereinfachen durch Leaflet (`smoothFactor: 0`), so treffen sich
     gemeinsame Kanten genau. Die Punkte wachsen mit dem Umfang, siehe
-    [0096](entscheidungen/0096-formen-und-schrift-im-browser.md);
+    [0096](entscheidungen/0096-formen-und-schrift-im-browser.md); was das
+    kostet, steht in
+    [Flächen im Browser](messungen/2026-10-09-flaechen-im-browser.md);
   - Ränder und Linien abgetastet an den Zellen; je Punkt geprüft, ob er
     verdeckt ist, und in Läufe geteilt. Ein sichtbarer Lauf setzt die
     Striche des Zugs fort (`dashOffset`, neu bei jedem Zoom); ein

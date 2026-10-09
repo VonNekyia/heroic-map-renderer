@@ -79,7 +79,15 @@ Ein Kreis mit 2000 Blöcken Radius hat rund 785 000 Felder von 4 × 4 Blöcken.
 
 ## Folgen
 
-- **Kosten nach Regel 26:** Die Messung im Browser folgt in dieser PR.
+- **Kosten nach Regel 26,** gemessen in
+  [Flächen im Browser](../messungen/2026-10-09-flaechen-im-browser.md), ein
+  Kreis mit 2000 Blöcken Radius:
+  - im iso gefüllt rund 0,66 s bis zum Pfad, danach 11,1 MiB JS-Heap, 12 bis
+    26 MiB Spitze beim Laden, 73 886 Punkte;
+  - nur mit Rand rund 0,16 s und 1,6 MiB; von oben unter 20 ms und unter
+    1 MiB;
+  - mit Tafel und Schrift kein Zuwachs: Die Höhen fallen weg.
+  - Eine Grenze für gefüllte Flächen im Format braucht es nicht.
 - Gerechnet wird einmal je `version`; ein Zoom projiziert nur neu, und nur
   die Striche über verdeckte Stücke und die Schrift setzen sich neu.
 - Ein Feld, dessen Mitte verdeckt ist, fehlt ganz, auch wenn eine Ecke

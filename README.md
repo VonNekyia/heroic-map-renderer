@@ -34,6 +34,7 @@ Minecraft-Welt + Resourcepack  ->  Rust-Renderer  ->  WebP-Kacheln  ->  Leaflet 
   <tr>
     <td width="50%" valign="top">
       <h3><a href="https://github.com/VonNekyia/heroic-map-renderer-plugin">Paper-Plugin</a></h3>
+      <a href="https://bstats.org/plugin/bukkit/heroic-map-renderer-plugin/34598"><img alt="Server mit dem Plugin, gezählt von bStats" src="https://img.shields.io/bstats/servers/34598"></a><br>
       Rendert die Welt neben dem Spielserver, hält die Karte mit Updates aktuell, liefert sie über den eingebauten Webserver aus und bietet sie Spielern mit dem Mod zum Download an. Was es vom Renderer nutzt: <a href="docs/plugin.md">Plugin</a>.
     </td>
     <td width="50%" valign="top">

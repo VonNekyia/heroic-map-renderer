@@ -114,11 +114,6 @@ impl Kamera {
         matches!(self, Kamera::ObenNord | Kamera::Nord45)
     }
 
-    /// Von oben, `top` oder `top-north`?
-    pub fn von_oben(self) -> bool {
-        matches!(self, Kamera::Oben | Kamera::ObenNord)
-    }
-
     /// Der scale ohne `--scale`: genordet 16, dort ist jedes Texel einer
     /// Oberseite schon ein Pixel; sonst [`Projection::DEFAULT_SCALE`].
     /// Siehe docs/renderer/kamera.md, „Genordet“.

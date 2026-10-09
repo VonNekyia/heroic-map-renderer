@@ -59,7 +59,7 @@ Aufruf baut sie einmal nach; sie bleibt liegen und bekommt seinen Stempel,
 danach baut keiner sie wieder, siehe [Kacheln exportieren](kacheln.md),
 „Gleiche Bytes bleiben liegen“.
 
-Einmal baut ein Aufruf alles: bei einem Baum von oben, dessen `map.json`
+Einmal baut ein Aufruf alles: bei einem Baum aus `top-north`, dessen `map.json`
 noch kein `downscale` nennt. Dessen Pyramide ist gemittelt. Der Aufruf
 baut jede Kachel über der gröbsten gerenderten Stufe mit dem nächsten
 Pixel neu und trägt das Feld am Ende ein, siehe [map.json](map-json.md),

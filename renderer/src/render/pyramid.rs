@@ -66,16 +66,16 @@ pub fn parents(tiles: &BTreeSet<TileId>) -> BTreeSet<TileId> {
     tiles.iter().map(TileId::parent).collect()
 }
 
-/// Wie eine Stufe aus der feineren entsteht: gemittelt, oder bei Kameras
-/// von oben je 2 × 2 ein Pixel.
+/// Wie eine Stufe aus der feineren entsteht: gemittelt, oder bei
+/// `top-north` je 2 × 2 ein Pixel.
 /// Siehe docs/benutzung/zoomstufen.md, „Verkleinern“.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Verkleinern {
     #[default]
     Mitteln,
     /// Auf Stufen in ungerader Tiefe über der gerenderten der Pixel rechts
-    /// unten, in gerader links oben: So liegt er von der gerenderten Stufe
-    /// aus nie auf dem Rand eines Blocks aus 4 Pixeln.
+    /// unten, in gerader links oben: Ab der zweiten Stufe liegt er so nie
+    /// auf dem Rand eines Blocks aus 4 Pixeln der gerenderten.
     Pixel,
 }
 

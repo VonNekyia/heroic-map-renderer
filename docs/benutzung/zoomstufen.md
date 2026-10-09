@@ -11,7 +11,8 @@ code:
 
 Gröbere Stufen entstehen aus vier Kacheln der darunterliegenden, auf die
 halbe Kantenlänge gestaucht, gemittelt in linearem Licht mit
-vormultipliziertem Alpha; die Welt wird dafür kein zweites Mal angefasst.
+vormultipliziertem Alpha, bei `top-north` je 2 × 2 der nächste Pixel; die
+Welt wird dafür kein zweites Mal angefasst.
 Ausgenommen sind native Stufen direkt unter der Basis, wenn
 `--native-levels` sie verlangt. Die Nummerierung hängt an der Welt, nicht am
 Ausschnitt, und ein Baum gehört zu genau einer Welt, einem scale, einer
@@ -24,25 +25,28 @@ die übrigen am Ende aus den Dateien.
 
 ## Verkleinern
 
-Bei Kameras von oben, `top` und `top-north`, nimmt jede Stufe je 2 × 2
-einen Pixel, statt zu mitteln (`Verkleinern::Pixel` in
+Bei `top-north` nimmt jede Stufe je 2 × 2 einen Pixel, statt zu mitteln
+(`Verkleinern::Pixel` in
 [`renderer/src/render/pyramid.rs`](../../renderer/src/render/pyramid.rs)).
-Alle anderen Kameras mitteln wie unten. Von oben liegt jeder Block auf
-ganzen Pixeln. Gemittelt wurden seine Kanten von Stufe zu Stufe weicher,
-und beim Herauszoomen wirkte die Karte verwaschen.
+Alle anderen Kameras mitteln wie unten, auch `top`. Bei `top-north` ist
+jeder Block ein Quadrat auf ganzen Pixeln. Gemittelt wurden seine Kanten
+von Stufe zu Stufe weicher, und beim Herauszoomen wirkte die Karte
+verwaschen. Bei `top` sind die Blöcke Rauten; dort gäbe ein einzelner
+Pixel Treppen an den schrägen Kanten wie in den schrägen Kameras.
 
 - **Welcher Pixel:**
   - in ungerader Tiefe über der gröbsten gerenderten Stufe, der Basis oder
     der gröbsten nativen, der rechts unten;
   - in gerader Tiefe der links oben.
 
-  Von der gerenderten Stufe aus liegt er so nie auf dem Rand eines Blocks
-  aus vier Pixeln. Ein fester Platz läge ab der zweiten Stufe auf einer
-  Ecke jedes Blocks, wo Kanten und Schatten liegen.
+  Ab der zweiten Stufe liegt er so nie auf dem Rand eines Blocks aus vier
+  Pixeln der gerenderten Stufe; auf der ersten nimmt er je Block den
+  zweiten und den vierten. Ein fester Platz läge ab der zweiten Stufe auf
+  einer Ecke jedes Blocks, wo Kanten und Schatten liegen.
 - **Alpha** geht mit. Ein durchsichtiger Pixel hat keine Farbe.
 - **Der Baum merkt es sich,** siehe [map.json](map-json.md), „Verkleinern“.
 
-![Drei Stufen über der Basis von oben: gemittelt, fester Platz und Wechsel](../bilder/verkleinern-von-oben.webp)
+![Drei Stufen über der Basis bei top-north: gemittelt, fester Platz und Wechsel](../bilder/verkleinern-von-oben.webp)
 
 *Testwelt, `top-north` bei scale 4, drei Stufen über der Basis, vierfach
 vergrössert. Links gemittelt, in der Mitte je 2 × 2 der feste Platz rechts
@@ -247,7 +251,8 @@ fest, Cinematic dazu den Fingerabdruck seiner Werte als `lookHash`, siehe
 
 ## Native Stufen
 
-Verkleinern mittelt trotzdem Nachbarblöcke ineinander; zwei Stufen unter
+Verkleinern mittelt trotzdem Nachbarblöcke ineinander, ausser bei
+`top-north`, siehe „Verkleinern“; zwei Stufen unter
 der Basis ist ein Block noch acht Pixel breit, und Blockkanten werden zu
 Verläufen. Wer die Kanten länger scharf haben will, lässt mit
 `--native-levels N` die ersten N gröberen Stufen aus der Welt rendern, mit

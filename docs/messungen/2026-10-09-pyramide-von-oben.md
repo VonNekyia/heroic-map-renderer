@@ -2,7 +2,7 @@
 title: Pyramide von oben
 description: Was die Pyramide eines Baums von oben mit dem nächsten Pixel gegen gemittelt kostet und wie gross sie wird, an der ganzen Testwelt in top-north bei scale 4, mit --pyramid auf einem Thread, dazu die Hochrechnung für den einmaligen Umbau eines Baums der grossen Welt.
 date: 2026-10-09
-commits: [54ded9d, 54635ba]
+commits: [54ded9d, bb4c743]
 code:
   - renderer/src/render/pyramid.rs
   - renderer/src/cli.rs
@@ -22,8 +22,7 @@ Thread.
 
 - **Stände,** Release-Build:
   - `master`, `54ded9d`: gemittelt. `--pyramid` ist seither unverändert.
-  - `pixel`, `54635ba` mit den Folgecommits ohne Änderung am Code: je
-    2 × 2 der nächste Pixel.
+  - `pixel`, `bb4c743`: je 2 × 2 der nächste Pixel.
 - **Basis:** die ganze Testwelt, einmal mit `pixel` gerendert, 16 127
   Basiskacheln:
 

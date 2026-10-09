@@ -41,12 +41,13 @@ dem Plugin-Programmierer ab.
   - **Die Packung eines Baums,** das Feld `compact` in `map.json`, liest
     das Plugin für seinen Status: `true` heisst kompakt, sonst schnell.
 - **Von oben der nächste Pixel** ([0094](entscheidungen/0094-von-oben-der-naechste-pixel.md)):
-  Ein Baum mit `top` oder `top-north` verkleinert seine Pyramide je 2 × 2 mit
-  einem Pixel, ohne Schalter. Der erste Lauf des neuen Renderers auf einem
-  älteren Baum von oben baut dessen Pyramide einmal ganz neu, auch ein
+  Ein Baum aus `top-north` verkleinert seine Pyramide je 2 × 2 mit einem
+  Pixel, ohne Schalter. Der erste Lauf des neuen Renderers auf einem
+  älteren solchen Baum baut dessen Pyramide einmal ganz neu, auch ein
   Update ohne Änderung, und sagt es mit einer Zeile `Verkleinern:`. Dieses
-  Update dauert länger, siehe [map.json](benutzung/map-json.md),
-  „Verkleinern“.
+  Update sagt nicht „nichts zu zeichnen“, kommt also ins Log, dauert
+  länger und schreibt mit `--manifest` das Manifest aus dem ganzen Baum,
+  siehe [map.json](benutzung/map-json.md), „Verkleinern“.
 - **Den Ordner eines Baums,** `baum_name` in `cli.rs`. Das Plugin rechnet ihn
   nach, um `stand.bin` und `stand-neu.bin` zu finden; daneben liegt
   `stand-neu-liegen.bin`, das nur `--resume` liest. Siehe
@@ -286,7 +287,8 @@ Ein Beispiel aus dem Testvektor, entpackt:
 - **Ohne `--manifest`** entfernt ein Lauf, der Kacheln schreibt, am Ende ein
   altes Manifest: Danach stimmte es nicht mehr. Das Plugin gibt den Schalter
   darum bei jedem Lauf eines Baums, den es anbietet.
-- **Ein Update ohne Änderung** lässt es liegen, Byte für Byte. Fehlt es,
+- **Ein Update ohne Änderung** lässt es liegen, Byte für Byte, ausser es
+  baut die Pyramide eines Baums aus `top-north` um, siehe oben. Fehlt es,
   etwa weil `download: true` neu ist, oder lässt es sich nicht lesen,
   schreibt ein solches Update mit `--manifest` es aus dem ganzen Baum.
 - **Getauscht** wie `map.json`: Niemand sieht ein halbes.

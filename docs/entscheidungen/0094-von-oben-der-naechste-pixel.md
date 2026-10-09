@@ -1,6 +1,6 @@
 ---
 title: "0094: Von oben der nächste Pixel"
-description: Warum die Pyramide bei Kameras von oben je 2 × 2 einen Pixel nimmt statt zu mitteln, welchen, warum der Baum es sich in map.json merkt und ein älterer Baum einmal ganz umgebaut wird, was es nach Regel 26 kostet und welche Wege verworfen sind.
+description: Warum die Pyramide bei top-north je 2 × 2 einen Pixel nimmt statt zu mitteln, warum top weiter mittelt, welchen Pixel, warum der Baum es sich in map.json merkt und ein älterer Baum einmal ganz umgebaut wird, was es nach Regel 26 kostet und welche Wege verworfen sind.
 status: gilt
 date: 2026-10-09
 code:
@@ -18,28 +18,32 @@ Herauszoomen wirkte sie unscharf und verwaschen: Jede Stufe der Pyramide
 mittelte 2 × 2 Pixel, und nach drei Stufen war aus jedem Block ein Verlauf
 geworden. Der Reviewer zeigte dem User am 09.10. heruntergeladene Kacheln:
 links die Pyramide, rechts je Stufe jeder zweite Pixel. Der User wählte
-rechts, aber nur für die Ansicht von oben.
+rechts, aber nur für die Ansicht von oben. Gezeigt war `top-north`; im
+Review entschied der Reviewer, dass `top` weiter mittelt.
 
 ## Entscheidung
 
-- **Von oben je 2 × 2 ein Pixel:** Bei `top` und `top-north` mittelt die
-  Pyramide nicht, sie nimmt einen Pixel (`Verkleinern::Pixel` in
+- **Bei `top-north` je 2 × 2 ein Pixel:** Dort mittelt die Pyramide nicht,
+  sie nimmt einen Pixel (`Verkleinern::Pixel` in
   [`renderer/src/render/pyramid.rs`](../../renderer/src/render/pyramid.rs)).
-  Alle anderen Kameras mitteln weiter, siehe
+  Alle anderen Kameras mitteln weiter, auch `top`, siehe
   [Zoomstufen](../benutzung/zoomstufen.md), „Verkleinern“.
 - **Welcher Pixel:** in ungerader Tiefe über der gröbsten gerenderten Stufe
-  der rechts unten, in gerader der links oben. Von dieser Stufe aus liegt
-  er so nie auf dem Rand eines Blocks aus vier Pixeln. Jede Stufe hat ihre
-  Regel, und jeder Lauf nimmt dieselben Pixel.
+  der rechts unten, in gerader der links oben. Ab der zweiten Stufe liegt
+  er so nie auf dem Rand eines Blocks aus vier Pixeln der gerenderten
+  Stufe; auf der ersten nimmt er je Block den zweiten und den vierten.
+  Jede Stufe hat ihre Regel, und jeder Lauf nimmt dieselben Pixel.
 - **Alpha** geht mit, ohne Mischen. Ein durchsichtiger Pixel hat keine
   Farbe.
 - **Der Baum merkt es sich** in `map.json` als `"downscale": "nearest"`,
   wie `compact`. Jeder Lauf auf ihm verkleinert so: voll, `--update`,
   `--resume` und `--pyramid`. Siehe [map.json](../benutzung/map-json.md),
   „Verkleinern“.
-- **Ein älterer Baum von oben** hat das Feld nicht und eine gemittelte
-  Pyramide. Der nächste Lauf auf ihm baut jede Kachel der Pyramide einmal
-  neu, auch ein Update ohne Änderung, und trägt das Feld erst am Ende ein.
+- **Ein älterer Baum aus `top-north`** hat das Feld nicht und eine
+  gemittelte Pyramide. Der nächste Lauf auf ihm baut jede Kachel der
+  Pyramide einmal neu, auch ein Update ohne Änderung, und trägt das Feld
+  erst am Ende ein. Mit `--manifest` liest er den ganzen Baum ins Manifest,
+  denn jede Kachel der Pyramide bekommt neue Bytes.
 - **Gemessen** in [2026-10-09, Pyramide von oben](../messungen/2026-10-09-pyramide-von-oben.md).
 
 ## Abwägen nach Regel 26
@@ -62,9 +66,13 @@ Messung oben:
 
 ## Verworfene Alternativen
 
-- **Weiter mitteln, auch von oben:** Von oben liegt jeder Block auf ganzen
-  Pixeln, und gemittelt werden seine Kanten von Stufe zu Stufe weicher.
-  Daran stiess sich der User.
+- **Weiter mitteln, auch bei `top-north`:** Dort ist jeder Block ein
+  Quadrat auf ganzen Pixeln, und gemittelt werden seine Kanten von Stufe
+  zu Stufe weicher. Daran stiess sich der User.
+- **Der nächste Pixel auch bei `top`:** `top` schaut über eine Ecke, seine
+  Blöcke sind Rauten. Ein einzelner Pixel je 2 × 2 gäbe dort Treppen an den
+  schrägen Kanten wie in den schrägen Kameras. Gezeigt hatte der User nur
+  `top-north`.
 - **Der nächste Pixel für alle Kameras:** Der User wollte ihn nur von
   oben. In den schrägen Kameras liegen die Kanten der Blöcke schräg, und
   ein einzelner Pixel je 2 × 2 gäbe dort Treppen.
@@ -89,7 +97,7 @@ Messung oben:
   blieben, bis sich ihre Kinder ändern. So aber fehlt das Feld, bis alles
   umgebaut ist, und der nächste Lauf fängt von vorn an.
 
-![Drei Stufen über der Basis von oben: gemittelt, fester Platz und Wechsel](../bilder/verkleinern-von-oben.webp)
+![Drei Stufen über der Basis bei top-north: gemittelt, fester Platz und Wechsel](../bilder/verkleinern-von-oben.webp)
 
 *Testwelt, `top-north` bei scale 4, drei Stufen über der Basis, vierfach
 vergrössert. Links gemittelt, in der Mitte je 2 × 2 der feste Platz rechts
@@ -103,8 +111,8 @@ unten, rechts der Wechsel, wie der Renderer ihn nimmt.*
   ([0067](0067-gesamtansicht-zwischen-zwei-stufen.md)); für Bäume mit
   `"nearest"` wäre dort auch der nächste Pixel denkbar. Das ist nicht Teil
   dieser Entscheidung.
-- **Das Plugin:** Der erste Lauf nach dem neuen Renderer auf einem Baum von
-  oben baut dessen Pyramide einmal neu, siehe [Plugin](../plugin.md).
-- **Kacheln mit neuen Bytes:** Jede Kachel der Pyramide eines Baums von
-  oben bekommt einmal neue Pixel und ein neues ETag. Die Mod lädt sie
+- **Das Plugin:** Der erste Lauf nach dem neuen Renderer auf einem Baum aus
+  `top-north` baut dessen Pyramide einmal neu, siehe [Plugin](../plugin.md).
+- **Kacheln mit neuen Bytes:** Jede Kachel der Pyramide eines Baums aus
+  `top-north` bekommt einmal neue Pixel und ein neues ETag. Die Mod lädt sie
   einmal neu, die Basis nicht.

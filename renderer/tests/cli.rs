@@ -1120,8 +1120,8 @@ fn ausschnitt_braucht_keine_assets_fuer_ferne_bloecke() {
 /// so viele Stufen, wie `--native-levels` verlangt, und nur solange ein
 /// Block auf ganzen Pixeln liegt, also bis scale 4 — oder genau die
 /// Verkleinerung ihrer vier Kinder. Und keine Kachel darf fehlen.
-/// Über der Karte wie über Cinematic gemittelt, von oben je 2 × 2 der
-/// nächste Pixel, und `map.json` nennt das.
+/// Über der Karte, über Cinematic und von oben schräg (`top`) gemittelt, bei
+/// `top-north` je 2 × 2 der nächste Pixel, und `map.json` nennt das.
 #[test]
 fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
     let welt = tempdir();
@@ -1135,6 +1135,7 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
             Verkleinern::Mitteln,
         ),
         ("top-north-s", None, Kamera::ObenNord, Verkleinern::Pixel),
+        ("top-se", None, Kamera::Oben, Verkleinern::Mitteln),
     ];
     for (name, look, kamera, verkleinern) in faelle {
         let out = neuer_baum(name);
@@ -5387,16 +5388,16 @@ fn versagende_karte_steht_einmal_im_log() {
     assert_eq!(schnappschuss(cpu.path()), schnappschuss(gpu.path()));
 }
 
-/// Vergleicht zwei Bäume wie `schnappschuss` und nennt, welche Dateien
-/// fehlen, dazukommen oder sich unterscheiden.
-/// Ein Baum von oben aus einem älteren Stand: Seine Pyramide ist gemittelt,
-/// und `map.json` nennt kein `downscale`. Ein Update ohne und mit Änderung
-/// und `--pyramid` bauen dann jede Kachel der Pyramide mit dem nächsten
-/// Pixel neu und tragen das Feld ein. Danach gleicht der Baum einem neuen,
-/// keine Kachel bleibt gemittelt.
+/// Ein Baum aus `top-north` aus einem älteren Stand: Seine Pyramide ist
+/// gemittelt, und `map.json` nennt kein `downscale`. Ein Update ohne und mit
+/// Änderung und `--pyramid` bauen dann jede Kachel der Pyramide mit dem
+/// nächsten Pixel neu und tragen das Feld ein. Danach gleicht der Baum einem
+/// neuen, keine Kachel bleibt gemittelt, und das Manifest kennt jede neue
+/// Kachel. Gesagt wird es einmal, und ein Update ohne Änderung sagt nicht
+/// „nichts zu zeichnen“: Für das Plugin hiesse das, dass nichts geschah.
 #[test]
 fn gemittelter_baum_von_oben_wird_ganz_umgebaut() {
-    let args = ["--scale", "8", "--camera", "top-north"];
+    let args = ["--scale", "8", "--camera", "top-north", "--manifest"];
     let update: Vec<&str> = args.iter().copied().chain(["--update"]).collect();
     for weg in ["Update ohne Änderung", "Update mit Änderung", "--pyramid"] {
         let welt = tempdir();
@@ -5405,7 +5406,11 @@ fn gemittelter_baum_von_oben_wird_ganz_umgebaut() {
         gelungen(&tiles(welt.path(), baum.path(), &args));
         wie_frueher_gemittelt(baum.path());
         let ausgabe = match weg {
-            "--pyramid" => pyramide(baum.path()),
+            "--pyramid" => cli(&[
+                OsStr::new("--pyramid"),
+                baum.path().as_ref(),
+                OsStr::new("--manifest"),
+            ]),
             "Update mit Änderung" => {
                 baue_aenderungen(welt.path());
                 tiles(welt.path(), baum.path(), &update)
@@ -5414,17 +5419,76 @@ fn gemittelter_baum_von_oben_wird_ganz_umgebaut() {
         };
         gelungen(&ausgabe);
         let log = String::from_utf8_lossy(&ausgabe.stdout);
-        assert!(
-            log.contains("baut die Pyramide einmal ganz neu"),
-            "{weg}: {log}"
-        );
+        assert_eq!(log.matches("Verkleinern:").count(), 1, "{weg}: {log}");
+        assert!(!log.contains("nichts zu zeichnen"), "{weg}: {log}");
+        assert_eq!(manifest(baum.path()), manifest_soll(baum.path()), "{weg}");
         let neu = neuer_baum("top-north-s");
         gelungen(&tiles(welt.path(), neu.path(), &args));
         gleiche_baeume(baum.path(), neu.path(), weg);
     }
 }
 
-/// Macht aus einem Baum von oben einen wie aus einem älteren Stand: jede
+/// Streifen in x aus zwei Farben: Welchen Platz aus 2 × 2 eine Stufe nimmt,
+/// ändert ab der dritten Stufe über der gerenderten das Bild.
+fn streifen(x: i32, y: i32, _z: i32) -> &'static str {
+    match (y, x.rem_euclid(2)) {
+        (0..=2, 0) => "minecraft:einfarbig",
+        (0..=2, _) => "minecraft:blauwuerfel",
+        _ => "minecraft:air",
+    }
+}
+
+/// Umstellen wie in `gemittelter_baum_von_oben_wird_ganz_umgebaut`, mit
+/// einer nativen Stufe und mit `--prune`, über Streifen, an denen jeder
+/// Platz in 2 × 2 zählt. `--pyramid` baut nur die Stufen über der nativen um;
+/// die native behält ihre Kacheln samt Zeit. Ein Lauf mit `--prune` über die
+/// Welt ohne den fernen Chunk baut auch die Vorfahren seiner Kacheln mit dem
+/// nächsten Pixel. Beide Bäume gleichen danach einem neuen.
+#[test]
+fn umstellen_mit_nativer_stufe_und_prune() {
+    let nah: Vec<(i32, i32)> = (0..=2).flat_map(|x| (0..=2).map(move |z| (x, z))).collect();
+    let mit_fern: Vec<(i32, i32)> = nah.iter().copied().chain([(6, 6)]).collect();
+    let (alt, neu) = (tempdir(), tempdir());
+    common::write_world(alt.path(), &mit_fern, streifen);
+    common::write_world(neu.path(), &nah, streifen);
+    let args = [
+        "--scale",
+        "8",
+        "--camera",
+        "top-north",
+        "--native-levels",
+        "1",
+    ];
+
+    let baum = neuer_baum("top-north-s");
+    gelungen(&tiles(alt.path(), baum.path(), &args));
+    wie_frueher_gemittelt(baum.path());
+    let nativ = max_zoom(baum.path()) - 1;
+    let zeiten = |b: &Path| -> BTreeMap<TileId, SystemTime> {
+        kacheln(b, nativ)
+            .into_iter()
+            .map(|(tile, pfad)| (tile, zeit_von(&pfad)))
+            .collect()
+    };
+    let vorher = zeiten(baum.path());
+    assert!(!vorher.is_empty());
+    gelungen(&pyramide(baum.path()));
+    assert_eq!(zeiten(baum.path()), vorher, "native Stufe neu geschrieben");
+    let soll = neuer_baum("top-north-s");
+    gelungen(&tiles(alt.path(), soll.path(), &args));
+    gleiche_baeume(baum.path(), soll.path(), "--pyramid mit nativer Stufe");
+
+    let baum = neuer_baum("top-north-s");
+    gelungen(&tiles(alt.path(), baum.path(), &args));
+    wie_frueher_gemittelt(baum.path());
+    let mit_prune: Vec<&str> = args.iter().copied().chain(["--prune"]).collect();
+    gelungen(&tiles(neu.path(), baum.path(), &mit_prune));
+    let soll = neuer_baum("top-north-s");
+    gelungen(&tiles(neu.path(), soll.path(), &args));
+    gleiche_baeume(baum.path(), soll.path(), "--prune");
+}
+
+/// Macht aus einem Baum aus `top-north` einen wie aus einem älteren Stand: jede
 /// Stufe der Pyramide gemittelt, über den nativen, ohne `downscale` in
 /// `map.json`.
 fn wie_frueher_gemittelt(dir: &Path) {
@@ -5454,6 +5518,8 @@ fn wie_frueher_gemittelt(dir: &Path) {
     );
 }
 
+/// Vergleicht zwei Bäume wie `schnappschuss` und nennt, welche Dateien
+/// fehlen, dazukommen oder sich unterscheiden.
 fn gleiche_baeume(ist: &Path, soll: &Path, was: &str) {
     let (ist, soll) = (schnappschuss(ist), schnappschuss(soll));
     let anders: Vec<&String> = ist

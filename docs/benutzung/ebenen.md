@@ -45,9 +45,16 @@ Plugin, Webkarte und Mod (#219). Warum so:
 Jede Ebene heisst `modname:ebene`, etwa `beispiel:wasserkarte`.
 
 - **`modname`:** der Name des Plugins oder Mods, dem die Ebene gehört.
-- **Zeichen:** je Teil 1 bis 64 aus `a`–`z`, `0`–`9`, `_`, `-` und `.`,
-  nicht mit `.` am Anfang. Der Server liefert keinen Pfad, dessen Teil mit
-  `.` beginnt, siehe [Server](server.md).
+- **Zeichen:** je Teil 1 bis 64 aus `a`–`z`, `0`–`9`, `_`, `-` und `.`.
+  - nicht mit `.` am Anfang: So schreibt das Plugin halbe Dateien, und `..`
+    fällt weg;
+  - nicht mit `.` am Ende: Den streicht Windows;
+  - kein Gerät von Windows: Der Teil vor dem ersten `.` ist nicht `con`,
+    `prn`, `aux`, `nul`, `com0` bis `com9` oder `lpt0` bis `lpt9`.
+
+  Dieselbe Regel gilt für die Dateinamen der Bilder, siehe „Bilder“. Was
+  sie verletzt, liefert der Server nicht aus, siehe [Server](server.md),
+  „Was er ausliefert“.
 - **Ein Besitzer schreibt nur seine Ebenen.**
 
 ## Liste der Ebenen

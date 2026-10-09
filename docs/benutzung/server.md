@@ -69,19 +69,18 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   | `layers/<modname>/images/<bild>.png`, `.webp` | ein Bild einer Ebene |
 
   Ein Baum heisst nur `a–z 0–9 -`, die Zahlen stehen, wie der Renderer sie
-  schreibt, ohne `+` und führende Nullen.
+  schreibt, ohne `+` und führende Nullen. Alles andere gibt `404`, auch
+  `stand.bin`, die Hashes unter `pixel/`, die Marken des Manifests und
+  halb geschriebene Dateien `<name>.<pid>.tmp`.
 - **Die Ebenen** liefert er wie die Kacheln, mit ETag, `304` und
   `no-cache`, ohne Token und ohne Blick in `trees.json`: Alles unter
   `layers/` ist öffentlich, siehe [Ebenen](ebenen.md), „Bilder“.
-  - **Namen:** `modname`, `ebene` und `bild` je 1 bis 64 Zeichen aus
-    `a`–`z`, `0`–`9`, `_`, `-` und `.`, wie ein Teil der Kennung, nicht mit
-    `.` vorn oder hinten und kein Gerät von Windows wie `nul`. So liefert
-    er keine halbe Datei, die das Plugin unter einem Namen mit `.` vorn
-    schreibt, und kein `..`.
+  - **Namen:** `modname`, `ebene` und `bild` nur nach der Regel der
+    Kennung, siehe [Ebenen](ebenen.md), „Kennung“. So liefert er keine
+    halbe Datei, die das Plugin unter einem Namen mit `.` vorn schreibt,
+    und kein `..`.
   - **Bilder** nur direkt in `images/`, ohne Unterordner, als `.png` oder
-    `.webp`. Die Karte lädt sie unter `img-src 'self'`. Alles andere gibt `404`, auch
-  `stand.bin`, die Hashes unter `pixel/`, die Marken des Manifests und
-  halb geschriebene Dateien `<name>.<pid>.tmp`.
+    `.webp`. Die Karte lädt sie unter `img-src 'self'`.
 - **Nur Bäume der Webkarte:** Pfade unter `<baum>/` liefert er nur für
   Bäume, die `trees.json` der Wurzel unter `path` nennt, sonst `404`; ohne
   lesbare `trees.json` für keinen. Ein Baum mit der leeren Datei
@@ -112,6 +111,9 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   `trees.json` oder eine Datei der Höhen, sieht die Karte `404` und lädt
   trotzdem.
 - **Links** unter den Wurzeln folgt er, etwa einem Baum als Junction.
+  Wohin ein Link zeigt, prüft er nicht, auch unter `layers/` nicht.
+  Voraussetzung ist: Der Betreiber legt unter den Wurzeln keine
+  Verknüpfung auf etwas, das nicht öffentlich sein soll.
 
 ## Header
 

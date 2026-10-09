@@ -44,7 +44,7 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
   `permission` kommt nie auf die öffentliche Webkarte und hat vorerst keine
   Bilder, denn alles unter `layers/` ist öffentlich.
 - **An den Mod** vorerst nur Nadeln, eine Ebene in Teilen von höchstens
-  64 KiB: 1000 Nadeln sind 150 bis 310 KiB.
+  64 KiB: 1000 Nadeln sind 150 bis 500 KB.
 - **Gerechnet einmal je `version` und Baum,** in Pixeln der feinsten Stufe;
   ein Zoom skaliert nur noch.
 

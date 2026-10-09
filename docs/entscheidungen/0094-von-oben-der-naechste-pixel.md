@@ -44,7 +44,21 @@ rechts, aber nur für die Ansicht von oben.
 
 ## Abwägen nach Regel 26
 
-ZAHLEN
+Gemessen an der ganzen Testwelt in `top-north` bei scale 4, siehe die
+Messung oben:
+
+- **Live-Rendern:** Jede Elternkachel kostet auf einem Thread rund 10,6
+  statt 12,3 ms, rund −14 %. Ein Update baut nur die Eltern seiner
+  Kacheln. Es wird etwas billiger, und die CPU neben dem Server ebenso.
+- **Erster Render:** Die Basis bleibt gleich. Die Pyramide ist ein kleiner
+  Teil des Laufs und wird ebenso etwas billiger.
+- **Arbeitsspeicher:** gleich, 0,02 GiB für `--pyramid` auf einem Thread.
+- **Platz:** Die Pyramide wird 0,9 % kleiner, der ganze Baum 0,3 %. Auf
+  Tiefe 1 packt der nächste Pixel besser, auf den groben Stufen bis zu 8 %
+  schlechter.
+- **Der einmalige Umbau** eines älteren Baums der grossen Welt: rund
+  51 000 Kacheln der Pyramide, hochgerechnet rund 9 min auf einem Thread,
+  im ersten Update.
 
 ## Verworfene Alternativen
 

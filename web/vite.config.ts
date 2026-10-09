@@ -125,7 +125,8 @@ export default defineConfig({
     },
     {
       // Vor die Lizenzen der Pakete NOTICE und LICENSE des Projekts: Apache-2.0
-      // verlangt beide bei jeder Weitergabe. Vorn ein BOM: Server senden .txt
+      // verlangt beide bei jeder Weitergabe. Danach die Lizenz der Kartenschrift:
+      // Die OFL verlangt Copyright und Text bei jeder Kopie. Vorn ein BOM: Server senden .txt
       // meist ohne charset, und der Browser läse UTF-8 sonst als Latin-1.
       // Siehe docs/frontend.md, „Lizenzen“.
       name: 'notice',
@@ -134,7 +135,9 @@ export default defineConfig({
         if (!dir) return;
         const datei = join(dir, 'lizenzen.txt');
         const eigen = ['NOTICE', 'LICENSE'].map((name) => readFileSync(join(WEB, '..', name), 'utf8').trimEnd());
-        writeFileSync(datei, '﻿' + [...eigen, readFileSync(datei, 'utf8')].join('\n\n---\n\n'));
+        const ofl = readFileSync(join(WEB, 'src/ebenen/schrift/OFL.txt'), 'utf8').trimEnd();
+        const schrift = `IM FELL English SC, die Kartenschrift der Ebenen, unverändert:\n\n${ofl}`;
+        writeFileSync(datei, '﻿' + [...eigen, schrift, readFileSync(datei, 'utf8')].join('\n\n---\n\n'));
       },
     },
     {

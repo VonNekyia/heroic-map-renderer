@@ -43,11 +43,11 @@ async function ladeKarte(path: string, n: number): Promise<Int16Array | null> {
  */
 export function hoehen(base: string, muster: string, zelle: number) {
   const karten = new Map<string, Int16Array | null>();
-  const unterwegs = new Map<string, Promise<void>>();
+  const unterwegs = new Map<string, Promise<Int16Array | null>>();
 
-  const ladeRegion = (rx: number, rz: number): Promise<void> => {
+  const ladeRegion = (rx: number, rz: number): Promise<Int16Array | null> => {
     const name = `${rx}.${rz}`;
-    if (karten.has(name)) return Promise.resolve();
+    if (karten.has(name)) return Promise.resolve(karten.get(name)!);
     let laden = unterwegs.get(name);
     if (laden === undefined) {
       const path = `${base}/${muster.replace('{x}', String(rx)).replace('{z}', String(rz))}`;
@@ -60,8 +60,10 @@ export function hoehen(base: string, muster: string, zelle: number) {
           unterwegs.delete(name);
           karten.set(name, karte);
           // ponytail: verdrängt die älteste statt der am längsten
-          // ungenutzten; eine verdrängte kommt aus dem HTTP-Cache wieder.
+          // ungenutzten; eine verdrängte lädt neu, mit Nachfrage beim Server
+          // (no-cache, meist 304) und neuem Entpacken.
           if (karten.size > 64) karten.delete(karten.keys().next().value!);
+          return karte;
         });
       unterwegs.set(name, laden);
     }
@@ -78,6 +80,12 @@ export function hoehen(base: string, muster: string, zelle: number) {
       }
       await Promise.all([...regionen.values()].map(([rx, rz]) => ladeRegion(rx, rz)));
     },
+    /**
+     * Die Karte einer Region, `null` ohne Datei. Wer sie hält, behält sie,
+     * auch wenn der Cache sie verdrängt; so reichen Formen über mehr
+     * Regionen, als er fasst.
+     */
+    karte: ladeRegion,
     /** Die Höhe der Zelle einer Spalte, `undefined` für leer oder nicht geladen. */
     hoehe: (x: number, z: number): number | undefined => {
       const { rx, rz, i } = region(x, z, zelle);

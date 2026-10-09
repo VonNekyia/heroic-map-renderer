@@ -1,7 +1,8 @@
 /**
  * Ebenen über den Kacheln: die Liste zum Umschalten, Nadeln als Wappenschild
- * und ihre Infotafel. Das Format steht in docs/benutzung/ebenen.md, wie die
- * Karte es zeigt in docs/frontend.md, „Ebenen“.
+ * und ihre Infotafel, Regionen, Kreise, Linien und Kartenschrift. Das Format
+ * steht in docs/benutzung/ebenen.md, wie die Karte es zeigt in
+ * docs/frontend.md, „Ebenen“.
  */
 import L from 'leaflet';
 import feldGross from './ebenen/schild_gross.png?url&no-inline';
@@ -10,8 +11,12 @@ import feldKlein from './ebenen/schild_klein.png?url&no-inline';
 import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
-import { FRISCH, type Hoehenkarten } from './hoehen';
-import { projiziere, type Projektion } from './pick';
+import { bereich, form, hatFlaeche, versetze, zeichne, zuege, type Form, type Strich } from './formen';
+import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, zurKamera, type Blick, type Gelaende, type Rechteck } from './gelaende';
+import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
+import { REGION } from './pick';
+import { farbe, istObjekt, istText, punkt } from './pruefen';
+import { Schrift, schriftzug, type Schriftzug } from './schrift';
 
 /** Ein Eintrag in `layers.json`. */
 interface Eintrag {
@@ -41,13 +46,18 @@ export interface Umgebung {
   map: L.Map;
   /** Die Wurzel mit `trees.json`, ohne `/` am Ende. */
   wurzel: string;
-  blick: { p: Projektion; k: number };
+  blick: Blick;
   scale: number;
   maxZoom: number;
   /** Die Höhen; ohne sie liegt im iso alles auf `seaLevel`. */
   karten?: Hoehenkarten;
   heightsCell?: number;
   seaLevel?: number;
+  /** Die Bauhöhe aus `map.json`; sie begrenzt, wie weit Gelände eine Form verdecken kann. */
+  minY?: number;
+  maxY?: number;
+  /** `area` aus `map.json`; Höhen gibt es nur darin. */
+  area?: Rechteck;
 }
 
 /**
@@ -66,12 +76,26 @@ const GROESSEN: Groesse[] = ['large', 'medium', 'small'];
 const TAKT = 30_000;
 
 /** Grenzen aus docs/benutzung/ebenen.md, „Grenzen“. */
-const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20 };
+const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20 };
 
-/** Die Panes der Ebenen, 510 bis 573: über `shadowPane` (500), unter `markerPane` (600), `tooltipPane` und Tafel. */
+/**
+ * So viele Regionen Höhen lädt die Webkarte höchstens je Ebene; darüber liegt
+ * die ganze Ebene auf `seaLevel`. Eine Grenze der Webkarte, nicht des
+ * Formats. Siehe docs/frontend.md, „Ebenen“.
+ */
+const HOEHEN_REGIONEN = 1024;
+
+/**
+ * Die Panes der Nadeln, 510 bis 573: über `shadowPane` (500), unter
+ * `markerPane` (600), `tooltipPane` und Tafel. Darunter die Panes der Formen
+ * und Schrift, 410 bis 473: So liegen die Nadeln aller Ebenen über allem
+ * anderen.
+ */
 const PANE_GRUND = 510;
+const FORM_GRUND = 410;
 
-const FARBE = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
+/** Die Tafel als Popup, für Nadeln und Flächen gleich. */
+const TAFEL: L.PopupOptions = { className: 'tafel', maxWidth: 320, minWidth: 120, autoPanPadding: [8, 8] };
 
 /**
  * Ein Teil der Kennung oder der Name eines Bilds ohne Endung, nach
@@ -94,10 +118,6 @@ function bildGilt(pfad: string): boolean {
   return name !== undefined && teilGilt(name);
 }
 
-const istText = (wert: unknown, max: number): wert is string => typeof wert === 'string' && wert.length > 0 && wert.length <= max;
-const istZahl = (wert: unknown): wert is number => typeof wert === 'number' && Number.isFinite(wert);
-const istObjekt = (wert: unknown): wert is Record<string, unknown> => typeof wert === 'object' && wert !== null && !Array.isArray(wert);
-
 /**
  * Wie viele Grössen kleiner die Nadel beim Hinauszoomen wird, nach der
  * Breite eines Blocks auf dem Schirm in Pixeln. Siehe
@@ -113,13 +133,6 @@ export function kleiner(blockPixel: number): number {
 /** Die Grösse, in der eine Nadel steht, oder `undefined`, wenn sie aus ist. */
 export function gezeigt(grund: Groesse, blockPixel: number): Groesse | undefined {
   return GROESSEN[GROESSEN.indexOf(grund) + kleiner(blockPixel)];
-}
-
-/** Ein Punkt der Welt im Blick, k Vierteldrehungen; ohne −1 wie bei Blöcken. */
-export function punktImBlick(x: number, z: number, k: number): [number, number] {
-  let [a, b] = [x, z];
-  for (let i = 0; i < k; i++) [a, b] = [b, -a];
-  return [a, b];
 }
 
 function eintrag(wert: unknown): Eintrag | undefined {
@@ -143,8 +156,8 @@ function eintrag(wert: unknown): Eintrag | undefined {
 
 function nadel(wert: unknown): Nadel | undefined {
   if (!istObjekt(wert) || wert.type !== 'pin' || !istText(wert.id, 64)) return undefined;
-  const at = wert.at;
-  if (!Array.isArray(at) || at.length !== 2 || !at.every(istZahl)) return undefined;
+  const at = punkt(wert.at);
+  if (!at) return undefined;
   const symbol = istObjekt(wert.symbol) ? wert.symbol : {};
   const bild = (pfad: unknown) => {
     if (typeof pfad !== 'string') return undefined;
@@ -154,12 +167,12 @@ function nadel(wert: unknown): Nadel | undefined {
   };
   return {
     id: wert.id,
-    at: [at[0] as number, at[1] as number],
+    at,
     y: Number.isInteger(wert.y) ? (wert.y as number) : undefined,
     name: istText(wert.name, 64) ? wert.name : undefined,
     size: GROESSEN.includes(wert.size as Groesse) ? (wert.size as Groesse) : 'medium',
     symbol: { large: bild(symbol.large), medium: bild(symbol.medium) },
-    color: typeof wert.color === 'string' && FARBE.test(wert.color) ? wert.color : '#D9443A',
+    color: farbe(wert.color) ?? '#D9443A',
     panel: istObjekt(wert.panel) && Array.isArray(wert.panel.blocks) ? wert.panel.blocks : undefined,
   };
 }
@@ -229,7 +242,6 @@ async function zeichneNadel(
  */
 export function tafel(bausteine: unknown[], ordner: string, v: string): HTMLElement {
   let anzahl = 0;
-  const farbe = (wert: unknown) => (typeof wert === 'string' && FARBE.test(wert) ? wert : undefined);
   const groesse = (wert: unknown) => Number.isInteger(wert) && (wert as number) >= 1 && (wert as number) <= GRENZEN.bild;
   const bildElement = (b: Record<string, unknown>) => {
     if (typeof b.image !== 'string') return undefined;
@@ -371,7 +383,7 @@ async function json(pfad: string, max: number): Promise<unknown> {
 
 /**
  * Die Ebenen der Karte: liest `layers.json` neben `trees.json`, zeigt die
- * Liste zum Umschalten und die Nadeln der Ebenen, die an sind, und fragt
+ * Liste zum Umschalten und die Objekte der Ebenen, die an sind, und fragt
  * alle 30 Sekunden nach Änderungen. Fehlt `layers.json` beim Laden, geschieht
  * bis zum Neuladen nichts.
  */
@@ -380,6 +392,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const sprache = navigator.language.startsWith('de') ? 'de' : 'en';
   const wahl = gemerkt(wurzel);
   const iso = blick.p.y > 0;
+  const grund = seaLevel ?? 64;
+  const c = heightsCell ?? 4;
+  /** Ohne Höhen: eben auf `grund`. */
+  const eben: Gelaende = { c, grund, zelle: () => undefined, max: grund + 1 };
 
   /** Die Oberseite des Geländes je Punkt, einmal gerechnet; siehe ebenen.md, „Die Oberfläche im iso“. */
   const oberflaechen = new Map<string, Promise<number>>();
@@ -388,33 +404,101 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     let wert = oberflaechen.get(schluessel);
     if (!wert) {
       wert = (async () => {
-        const grund = seaLevel ?? 64;
         if (!iso || !karten || !heightsCell) return grund + 1;
-        const c = heightsCell;
         // Vier Zellen um den Punkt und für den Ersatz zwei weitere in jede Richtung.
         await karten.lade([-3 * c, 3 * c].flatMap((dx) => [-3 * c, 3 * c].map((dz) => [Math.floor(x + dx), 0, Math.floor(z + dz)] as [number, number, number])));
-        const zelle = (i: number, j: number): number => {
-          const eigen = karten.hoehe(i * c, j * c);
-          if (eigen !== undefined) return eigen;
-          const nachbarn: number[] = [];
-          for (let di = -2; di <= 2; di++) {
-            for (let dj = -2; dj <= 2; dj++) {
-              const n = karten.hoehe((i + di) * c, (j + dj) * c);
-              if (n !== undefined) nachbarn.push(n);
-            }
-          }
-          return nachbarn.length ? nachbarn.reduce((a, b) => a + b, 0) / nachbarn.length : grund;
-        };
-        const [fx, fz] = [x / c - 0.5, z / c - 0.5];
-        const [i, j] = [Math.floor(fx), Math.floor(fz)];
-        const [tx, tz] = [fx - i, fz - j];
-        const oben = zelle(i, j) * (1 - tx) + zelle(i + 1, j) * tx;
-        const unten = zelle(i, j + 1) * (1 - tx) + zelle(i + 1, j + 1) * tx;
-        return oben * (1 - tz) + unten * tz + 1;
+        return hoeheAuf({ ...eben, zelle: (i, j) => karten.hoehe(i * c, j * c) }, x, z);
       })();
       oberflaechen.set(schluessel, wert);
     }
     return wert;
+  };
+
+  /** Eine Region als Zahl: Ein Schlüssel aus Text kostete je Zugriff. */
+  const schluessel = (rx: number, rz: number) => (rx + 65536) * 131072 + (rz + 65536);
+
+  /**
+   * Die Regionen, deren Höhen Formen und Schrift einer Ebene brauchen, nur
+   * innerhalb von `area`: für eine Fläche ihr Rechteck, für Ränder und Linien
+   * nur die Punkte entlang des Zugs; je samt dem Streifen zur Kamera, aus dem
+   * Gelände sie verdecken kann, und drei Zellen für Mischen und Ersatz.
+   */
+  const regionenFuer = (formen: readonly Form[], schriften: readonly Schriftzug[]): Set<number> => {
+    const menge = new Set<number>();
+    if (!iso || !karten || !heightsCell) return menge;
+    const { wx, wz, steigung } = zurKamera(blick);
+    const weit = ((umgebung.maxY ?? 319) - (umgebung.minY ?? -64)) / steigung;
+    const nimm = ([x0, z0, x1, z1]: Rechteck): void => {
+      let [ax, az] = [Math.min(x0, x0 + wx * weit) - 3 * c, Math.min(z0, z0 + wz * weit) - 3 * c];
+      let [bx, bz] = [Math.max(x1, x1 + wx * weit) + 3 * c, Math.max(z1, z1 + wz * weit) + 3 * c];
+      const area = umgebung.area;
+      if (area) [ax, az, bx, bz] = [Math.max(ax, area[0]), Math.max(az, area[1]), Math.min(bx, area[2]), Math.min(bz, area[3])];
+      // Die obere Kante zählt nicht mit: area endet vor ihr.
+      for (let rx = Math.floor(ax / REGION); rx < Math.ceil(bx / REGION); rx++) {
+        for (let rz = Math.floor(az / REGION); rz < Math.ceil(bz / REGION); rz++) menge.add(schluessel(rx, rz));
+      }
+    };
+    for (const f of formen) {
+      if (hatFlaeche(f)) nimm(bereich(f));
+      if (hatFlaeche(f) || f.rand.breite === 0) continue;
+      // Entlang des Zugs höchstens alle 64 Blöcke ein Punkt, je mit dem halben
+      // Schritt als Rand: So decken die Rechtecke den ganzen Zug, auch wo er
+      // eine Region nur an der Ecke streift.
+      for (const stueck of zuege(f, c, umgebung.area)) {
+        for (let i = 1; i < stueck.length; i++) {
+          const [a, b] = [stueck[i - 1]!, stueck[i]!];
+          const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 64));
+          for (let t = 0; t <= n; t++) {
+            const [x, z] = [a[0] + ((b[0] - a[0]) * t) / n, a[1] + ((b[1] - a[1]) * t) / n];
+            nimm([x - 32, z - 32, x + 32, z + 32]);
+          }
+        }
+      }
+    }
+    for (const s of schriften) {
+      const [x0, z0, x1, z1] = rechteck(s.pfad);
+      nimm([x0 - 16, z0 - 16, x1 + 16, z1 + 16]);
+    }
+    return menge;
+  };
+
+  /**
+   * Die Höhen dieser Regionen, einmal geladen für alle Formen und Schriften
+   * einer Ebene. Die Karten hält das Ergebnis selbst, so verdrängt der Cache
+   * keine, solange es lebt.
+   */
+  const ladeGelaende = async (menge: ReadonlySet<number>): Promise<Gelaende> => {
+    if (!karten || menge.size === 0) return eben;
+    // Gegen eine Ebene ohne area mit riesigem Kreis.
+    if (menge.size > HOEHEN_REGIONEN) {
+      console.warn(`${wurzel}: Ebene bräuchte ${menge.size} Regionen Höhen, mehr als ${HOEHEN_REGIONEN}; sie liegt ganz auf seaLevel`);
+      return eben;
+    }
+    const regionen = new Map<number, Int16Array>();
+    let max = grund + 1;
+    await Promise.all(
+      [...menge].map(async (s) => {
+        const karte = await karten.karte(Math.floor(s / 131072) - 65536, (s % 131072) - 65536);
+        if (!karte) return;
+        regionen.set(s, karte);
+        for (const v of karte) if (v !== LEER && v + 1 > max) max = v + 1;
+      }),
+    );
+    const n = REGION / c;
+    // Die zuletzt gefragte Region: Nachbarn liegen meist in derselben.
+    let [letzte, karte]: [number, Int16Array | undefined] = [Number.NaN, undefined];
+    return {
+      c,
+      grund,
+      max,
+      zelle: (i, j) => {
+        const [rx, rz] = [Math.floor(i / n), Math.floor(j / n)];
+        const s = schluessel(rx, rz);
+        if (s !== letzte) [letzte, karte] = [s, regionen.get(s)];
+        const v = karte?.[(j - rz * n) * n + (i - rx * n)];
+        return v === undefined || v === LEER ? undefined : v;
+      },
+    };
   };
 
   /** Breite eines Blocks auf dem Schirm, in Pixeln. */
@@ -425,6 +509,9 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     version: string;
     gruppe: L.LayerGroup;
     marker: { nadel: Nadel; marker: L.Marker; groesse?: Groesse }[];
+    /** Flächen, Ränder, Linien und Schrift, in dieser Reihenfolge. */
+    formen: L.LayerGroup;
+    striche: Strich[];
     /** Icons und Symbole dieser `version`; sie fallen mit ihr weg. */
     icons: Map<string, Promise<HTMLCanvasElement>>;
     symbole: Map<string, Promise<HTMLImageElement>>;
@@ -435,8 +522,48 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   /** Je Ebene die `version` mit `permission` oder `web: false`; die holt die Karte nicht noch einmal. */
   const abgewiesen = new Map<string, string>();
   let eintraege: Eintrag[] = [];
-  /** Die Nadel, deren Tafel offen ist. */
-  let offen: L.Marker | undefined;
+  /** Was gerade seine Tafel offen hat, und sein Element, das den Fokus zurückbekommt. */
+  let offen: { quelle: L.Layer; element: () => Element | undefined } | undefined;
+
+  /**
+   * Die Tafel einer Nadel oder Fläche per Tastatur: Fokus hinein nur, wenn
+   * die Tastatur sie geöffnet hat; Escape gibt ihn zurück, siehe unten.
+   */
+  const bedienbar = (quelle: L.Layer, element: () => Element | undefined, perTastatur: () => boolean): void => {
+    quelle.on('popupopen', ({ popup }: L.PopupEvent) => {
+      offen = { quelle, element };
+      const inhalt = popup.getElement()?.querySelector<HTMLElement>('.leaflet-popup-content');
+      if (!inhalt) return;
+      inhalt.tabIndex = -1;
+      // Ohne preventScroll dürfte der Browser den Container scrollen, um die Tafel zu zeigen.
+      if (perTastatur()) inhalt.focus({ preventScroll: true });
+    });
+    quelle.on('popupclose', () => {
+      if (offen?.quelle === quelle) offen = undefined;
+    });
+  };
+
+  /** Eine Fläche mit Tafel wird ein Ziel für die Tastatur: Tab erreicht sie, Enter oder Leertaste öffnet die Tafel. */
+  const bediene = (flaeche: L.Polygon, name: string | undefined): void => {
+    let perTastatur = false;
+    flaeche.on('click', () => {
+      perTastatur = false;
+    });
+    flaeche.on('add', () => {
+      const element = flaeche.getElement();
+      if (!element) return;
+      element.setAttribute('tabindex', '0');
+      element.setAttribute('role', 'button');
+      element.setAttribute('aria-label', name ?? 'Tafel');
+      element.addEventListener('keydown', (ereignis) => {
+        if ((ereignis as KeyboardEvent).key !== 'Enter' && (ereignis as KeyboardEvent).key !== ' ') return;
+        ereignis.preventDefault();
+        perTastatur = true;
+        flaeche.openPopup(flaeche.getBounds().getCenter());
+      });
+    });
+    bedienbar(flaeche, () => flaeche.getElement(), () => perTastatur);
+  };
 
   const icon = async (n: Nadel, groesse: Groesse, g: Geladen): Promise<L.DivIcon> => {
     const pfad = groesse === 'small' ? undefined : n.symbol[groesse];
@@ -487,25 +614,65 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
   };
 
-  /** Je Ebene ein Pane; die Namen zählen hoch, so kollidieren keine zwei Kennungen. */
-  const panes = new Map<string, string>();
-  const pane = (id: string): string => {
-    let name = panes.get(id);
-    if (!name) {
-      name = `ebene-${panes.size}`;
-      panes.set(id, name);
+  /**
+   * Je Ebene ein Pane für die Nadeln und eines für Formen und Schrift, mit
+   * eigenem SVG; die Namen zählen hoch, so kollidieren keine zwei Kennungen.
+   * Klicks gehen durch das SVG zu tieferen Panes; nur Flächen mit Namen oder
+   * Tafel fangen sie.
+   */
+  const panes = new Map<string, { nadeln: string; formen: string; renderer: L.Renderer }>();
+  const pane = (id: string) => {
+    let eintrag = panes.get(id);
+    if (!eintrag) {
+      const name = `ebene-${panes.size}`;
       map.createPane(name);
+      map.createPane(`${name}-formen`);
+      eintrag = { nadeln: name, formen: `${name}-formen`, renderer: L.svg({ pane: `${name}-formen` }) };
+      panes.set(id, eintrag);
     }
-    return name;
+    return eintrag;
   };
   /** Ordnet die Panes: über allen mit niedrigerer `order`, bei Gleichstand nach `id`. */
   const stapeln = (): void => {
     eintraege.forEach((e, i) => {
-      map.getPane(pane(e.id))!.style.zIndex = String(PANE_GRUND + eintraege.length - 1 - i);
+      const rang = eintraege.length - 1 - i;
+      map.getPane(pane(e.id).nadeln)!.style.zIndex = String(PANE_GRUND + rang);
+      map.getPane(pane(e.id).formen)!.style.zIndex = String(FORM_GRUND + rang);
     });
   };
 
+  /** Nimmt eine geladene Ebene von der Karte. */
+  const weg = (id: string): void => {
+    const g = geladen.get(id);
+    g?.gruppe.remove();
+    g?.formen.remove();
+    geladen.delete(id);
+  };
+
   const an = (e: Eintrag): boolean => wahl.lies()[e.id] ?? e.visible;
+
+  /** Pixel des Schirms je Pixel der feinsten Stufe. */
+  const faktor = () => 2 ** (map.getZoom() - maxZoom);
+
+  /**
+   * Formen und Schrift einer Ebene, mit einmal geladenen Höhen. Eine eigene
+   * Funktion, die keine Closure zurücklässt: So leben die Höhen nur in ihrem
+   * Aufruf und fallen nach dem Zeichnen weg. In `ladeEbene` hielten die
+   * Closures der Tafeln den gemeinsamen Kontext und damit die Höhen fest.
+   */
+  const formenUndSchrift = async (
+    formen: readonly Form[],
+    schriften: readonly Schriftzug[],
+    renderer: L.Renderer,
+    formPane: string,
+    tafelDerEbene: (bausteine: unknown[]) => HTMLElement,
+  ): Promise<{ flaechen: L.Layer[]; striche: Strich[]; schriftLagen: Schrift[] }> => {
+    const gelaende = await ladeGelaende(regionenFuer(formen, schriften));
+    const { flaechen, striche } = zeichne(formen, { renderer, blick, gelaende, area: umgebung.area, tafel: tafelDerEbene, tafelOptionen: TAFEL, bediene });
+    const schriftLagen: Schrift[] = [];
+    for (const s of schriften) schriftLagen.push(new Schrift(s, schriftPfad(s.pfad, gelaende, blick), faktor, scale, formPane));
+    return { flaechen, striche, schriftLagen };
+  };
 
   const ladeEbene = async (e: Eintrag): Promise<void> => {
     if (abgewiesen.get(e.id) === e.version) return;
@@ -524,25 +691,34 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       console.warn(`${ordner}/${name}.json: Ebene mit permission oder web: false, übergangen`);
       abgewiesen.set(e.id, e.version);
       // Eine ältere version, die schon steht, weicht.
-      geladen.get(e.id)?.gruppe.remove();
-      geladen.delete(e.id);
+      weg(e.id);
       return;
     }
-    const objekte = istObjekt(datei) && Array.isArray(datei.objects) ? datei.objects : [];
+    let objekte = istObjekt(datei) && Array.isArray(datei.objects) ? datei.objects : [];
+    if (objekte.length > GRENZEN.objekte) {
+      console.warn(`${e.id}: ${objekte.length} Objekte, gezeigt die ersten ${GRENZEN.objekte}`);
+      objekte = objekte.slice(0, GRENZEN.objekte);
+    }
+    const warne = (text: string) => console.warn(`${e.id}: ${text}`);
+    const formen = objekte.map((o) => (istObjekt(o) ? form(o, warne) : undefined)).filter((f): f is Form => f !== undefined);
+    const schriften = objekte.map((o) => (istObjekt(o) ? schriftzug(o) : undefined)).filter((s): s is Schriftzug => s !== undefined);
     let nadeln = objekte.map(nadel).filter((n): n is Nadel => n !== undefined);
     if (nadeln.length > GRENZEN.nadeln) {
       console.warn(`${e.id}: ${nadeln.length} Nadeln, gezeigt die ersten ${GRENZEN.nadeln}`);
       nadeln = nadeln.slice(0, GRENZEN.nadeln);
     }
+    const tafelDerEbene = (bausteine: unknown[]) => tafel(bausteine, ordner, e.version);
+    const { renderer, formen: formPane } = pane(e.id);
+    // Formen und Schrift rechnen einmal je version, hier vor dem Tausch.
+    const { flaechen, striche, schriftLagen } = await formenUndSchrift(formen, schriften, renderer, formPane, tafelDerEbene);
     const marker = await Promise.all(
       nadeln.map(async (n, index) => {
-        const [vx, vz] = punktImBlick(n.at[0], n.at[1], blick.k);
         const y = n.y !== undefined ? n.y + 1 : await oberflaeche(n.at[0], n.at[1]);
-        const [px, py] = projiziere(vx, iso ? y : 0, vz, blick.p);
+        const [px, py] = bildpunkt(n.at[0], iso ? y : 0, n.at[1], blick);
         // In der Ebene liegt die spätere oben, gleich wo auf dem Schirm.
         const m = L.marker(L.latLng(py, px), {
           icon: L.divIcon({ html: '' }),
-          pane: pane(e.id),
+          pane: pane(e.id).nadeln,
           zIndexOffset: index * 100_000,
           interactive: n.panel !== undefined,
           keyboard: n.panel !== undefined,
@@ -558,33 +734,34 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
           m.on('click', () => {
             perTastatur = false;
           });
-          m.bindPopup(() => tafel(n.panel!, ordner, e.version), { className: 'tafel', maxWidth: 320, minWidth: 120, autoPanPadding: [8, 8] });
-          m.on('popupopen', ({ popup }: L.PopupEvent) => {
-            offen = m;
-            const inhalt = popup.getElement()?.querySelector<HTMLElement>('.leaflet-popup-content');
-            if (!inhalt) return;
-            inhalt.tabIndex = -1;
-            // Ohne preventScroll dürfte der Browser den Container scrollen, um die Tafel zu zeigen.
-            if (perTastatur) inhalt.focus({ preventScroll: true });
-          });
-          m.on('popupclose', () => {
-            if (offen === m) offen = undefined;
-          });
+          m.bindPopup(() => tafelDerEbene(n.panel!), TAFEL);
+          bedienbar(m, () => m.getElement(), () => perTastatur);
         }
         return { nadel: n, marker: m };
       }),
     );
     // Hat jemand inzwischen umgeschaltet, gilt sein Auftrag; erst jetzt die alte Gruppe ersetzen.
     if (!gilt()) return;
-    geladen.get(e.id)?.gruppe.remove();
-    geladen.set(e.id, { ordner, version: e.version, gruppe: L.layerGroup().addTo(map), marker, icons: new Map(), symbole: new Map() });
+    weg(e.id);
+    // Erst Flächen, dann Ränder und Linien, zuletzt Schrift.
+    const formGruppe = L.layerGroup([...flaechen, ...striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
+    versetze(striche, faktor());
+    geladen.set(e.id, {
+      ordner,
+      version: e.version,
+      gruppe: L.layerGroup().addTo(map),
+      marker,
+      formen: formGruppe,
+      striche,
+      icons: new Map(),
+      symbole: new Map(),
+    });
     await groessen();
   };
 
   const entferne = (id: string): void => {
     auftrag.set(id, (auftrag.get(id) ?? 0) + 1);
-    geladen.get(id)?.gruppe.remove();
-    geladen.delete(id);
+    weg(id);
   };
 
   // Die Liste zum Umschalten, oben rechts unter Kompass und Umschalter.
@@ -656,7 +833,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   if (iso && !karten) console.warn(`${wurzel}: Ebenen ohne Höhen, im iso auf seaLevel`);
   // Erst anmelden, dann abgleichen: Ein Fehler beim ersten Abgleich hält das
   // Nachfragen nicht auf.
-  map.on('zoomend', () => void groessen());
+  map.on('zoomend', () => {
+    for (const g of geladen.values()) versetze(g.striche, 2 ** (map.getZoom() - maxZoom));
+    void groessen();
+  });
   setInterval(() => {
     if (document.visibilityState === 'visible') void nachfragen();
   }, TAKT);
@@ -664,12 +844,12 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     if (document.visibilityState === 'visible') void nachfragen();
   });
   // Escape in der Tafel, auch auf ihrem Schliessknopf, schliesst sie und gibt
-  // den Fokus der Nadel zurück.
+  // den Fokus der Nadel oder Fläche zurück.
   map.getContainer().addEventListener('keydown', (ereignis) => {
-    const nadel = offen;
-    if (ereignis.key !== 'Escape' || !nadel?.getPopup()?.getElement()?.contains(ereignis.target as Node)) return;
-    nadel.closePopup();
-    nadel.getElement()?.focus({ preventScroll: true });
+    const jetzt = offen;
+    if (ereignis.key !== 'Escape' || !jetzt?.quelle.getPopup()?.getElement()?.contains(ereignis.target as Node)) return;
+    jetzt.quelle.closePopup();
+    (jetzt.element() as HTMLElement | SVGElement | undefined)?.focus({ preventScroll: true });
   });
   await abgleichen(erste);
 }

@@ -1,10 +1,14 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, Ebenen mit Nadeln und Infotafel zeigt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, Ebenen mit Nadeln, Infotafel, Regionen, Kreisen, Linien und Kartenschrift zeigt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/ebenen.ts
   - web/src/ebenen
+  - web/src/formen.ts
+  - web/src/gelaende.ts
+  - web/src/pruefen.ts
+  - web/src/schrift.ts
   - web/src/hoehen.ts
   - web/src/pick.ts
   - web/src/skin-api.ts
@@ -334,7 +338,9 @@ wie in [`NOTICE`](../NOTICE), und dahinter der Link „Lizenzen“ auf
 
 1. `NOTICE` des Projekts;
 2. `LICENSE`, die Apache-Lizenz 2.0;
-3. die Lizenzen aller Abhängigkeiten, die im Bündel stecken, heute nur
+3. die SIL Open Font License 1.1 der Kartenschrift IM FELL English SC,
+   aus `web/src/ebenen/schrift/OFL.txt`;
+4. die Lizenzen aller Abhängigkeiten, die im Bündel stecken, heute nur
    Leaflet (BSD-2-Clause).
 
 - **Warum:** Apache-2.0 verlangt bei jeder Weitergabe die Lizenz und
@@ -342,7 +348,8 @@ wie in [`NOTICE`](../NOTICE), und dahinter der Link „Lizenzen“ auf
   weiter. BSD-2-Clause verlangt den Copyright-Hinweis in jeder
   Weitergabe in Binärform, also auch im gebündelten JavaScript. Der Build
   lässt die Kommentare aus der Quelle von Leaflet weg, der Hinweis stand
-  deshalb nirgends (#144).
+  deshalb nirgends (#144). Die OFL verlangt Copyright und Lizenz bei jeder
+  Kopie der Schrift.
 - **Woher:** `build.license` in [`web/vite.config.ts`](../web/vite.config.ts).
   Vite schreibt beim Build je gebündeltem Paket Name, Version, Lizenz und
   den Text seiner Lizenzdatei. Ein Skin wird mitgebündelt; seine Pakete
@@ -366,9 +373,14 @@ wie in [`NOTICE`](../NOTICE), und dahinter der Link „Lizenzen“ auf
 
 Liegt neben `trees.json` eine `layers.json`, zeigt die Karte deren Ebenen.
 Das Format steht in [Ebenen](benutzung/ebenen.md), die Gründe in
-[0095](entscheidungen/0095-ebenen.md). Gebaut in
-[`web/src/ebenen.ts`](../web/src/ebenen.ts); bisher Liste, Nadeln und
-Infotafel, Regionen, Kreise, Linien und Kartenschrift folgen (#219, Teil 4).
+[0095](entscheidungen/0095-ebenen.md), wie der Browser Formen und Schrift
+zeichnet, in [0096](entscheidungen/0096-formen-und-schrift-im-browser.md).
+Gebaut in [`web/src/ebenen.ts`](../web/src/ebenen.ts): Liste, Nadeln und
+Infotafel; dazu [`formen.ts`](../web/src/formen.ts) für Regionen, Kreise
+und Linien, [`schrift.ts`](../web/src/schrift.ts) für die Kartenschrift,
+[`gelaende.ts`](../web/src/gelaende.ts) für Höhen, Netz und was verdeckt
+ist, ohne Leaflet, und [`pruefen.ts`](../web/src/pruefen.ts) für die
+Eingaben.
 
 - **Liste:** oben rechts ein aufklappbares „Ebenen“ mit einem Kästchen je
   Ebene, nach `order`. Die Namen folgen der Sprache des Browsers, Deutsch
@@ -422,6 +434,65 @@ Infotafel, Regionen, Kreise, Linien und Kartenschrift folgen (#219, Teil 4).
   Fokus der Nadel zurück. Nach einem Klick bleibt der Fokus, wo er ist.
   Der Fokus scrollt nie (`preventScroll`): Ein Scrollen des Containers
   setzt Leaflet zwar zurück, aber erst nach dem Sprung.
+- **Regionen, Kreise und Linien:** Pfade von Leaflet in einem SVG je Ebene,
+  nach [Ebenen](benutzung/ebenen.md), „Zeichnen“:
+  - übereinander: je Ebene ein Pane, `z-index` 410 + Rang, unter den Panes
+    der Nadeln; darin erst Flächen, dann Ränder und Linien, zuletzt Schrift.
+    Das Pane lässt Klicks durch. Der Umriss beim Tippen liegt im
+    `shadowPane` (500), über allen Formen und unter den Nadeln;
+  - eine Fläche mit `name` zeigt ihn beim Zeigen als Text, eine mit `panel`
+    öffnet beim Klick die Tafel; nur diese fangen Klicks, auch ohne
+    Füllung. Eine Fläche mit `panel` erreicht Tab, Enter oder Leertaste
+    öffnet die Tafel mit dem Fokus darin, Escape gibt ihn zurück, wie bei
+    den Nadeln;
+  - die Höhen: je Laden einer Ebene einmal, die Regionen aller ihrer Formen
+    und Schriften in einem: für eine Fläche ihr Rechteck, für Ränder und
+    Linien die Regionen entlang des Zugs, je samt dem Streifen zur Kamera,
+    aus dem Gelände verdecken kann, und nur innerhalb von `area`. Danach
+    fallen sie weg. Bräuchte eine Ebene mehr als 1024 Regionen, etwa ohne
+    `area` mit einem riesigen Kreis, liegt die ganze Ebene mit Meldung auf
+    `seaLevel`, auch ihre kleinen Formen. Eine Region kostet
+    (512 / `heightsCell`)² · 2 Byte, bei `heightsCell` 4 also 32 KiB, 1024
+    Regionen 32 MiB. Die Grenze gilt nur für die Webkarte;
+  - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
+    vorher beschnitten;
+  - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,
+    rechnet ein Durchgang je Linie zur Kamera mit laufendem Maximum. Die
+    sichtbaren ganz drinnen ergeben einen Umriss, die mit Rand geben ihre
+    Stücke; alles ein Pfad, gerade/ungerade, einmal gefüllt, ohne
+    Vereinfachen durch Leaflet (`smoothFactor: 0`), so treffen sich
+    gemeinsame Kanten genau. Die Punkte wachsen mit dem Umfang, siehe
+    [0096](entscheidungen/0096-formen-und-schrift-im-browser.md); was das
+    kostet, steht in
+    [Flächen im Browser](messungen/2026-10-09-flaechen-im-browser.md);
+  - Ränder und Linien abgetastet an den Zellen; je Punkt geprüft, ob er
+    verdeckt ist, und in Läufe geteilt. Ein sichtbarer Lauf setzt die
+    Striche des Zugs fort (`dashOffset`, neu bei jedem Zoom); ein
+    gestrichelter wird nicht am Rand des Renderers geschnitten
+    (`noClip`), sonst sprängen seine Striche beim Verschieben;
+  - verdeckte Läufe: halb so breit, mindestens 1 Pixel, Striche 3 und 4
+    Pixel, Deckkraft 0,4;
+  - von oben (b = 0) liegt alles eben, ohne Abtasten und ohne Verdecktes.
+- **Kartenschrift:** je Schriftzug ein SVG im Pane der Formen, mit
+  `textPath` entlang des Pfads, neu gesetzt bei jedem Zoom und während des
+  Zooms ausgeblendet:
+  - die Schrift IM FELL English SC, die TTF unverändert aus
+    `web/src/ebenen/schrift/`, mit `FontFace` geladen, sobald eine Ebene
+    Schrift zeigt;
+  - Höhe der Grossbuchstaben `size · scale · 2^(Zoom − maxZoom)` Pixel;
+    die Schriftgrösse ist sie durch 1384/2048, die Oberkante des „H“ der
+    Schrift. Unter 8 Pixeln aus, über 96 gedeckelt;
+  - Sperrung `spacing` mal diese Höhe; die Kontur als Strich unter den
+    Zeichen (`paint-order: stroke`), doppelt so breit wie `width`, sichtbar
+    bleibt die äussere Hälfte;
+  - mittig auf dem Pfad: die Grundlinie eine halbe Höhe der Grossbuchstaben
+    darunter, als `dy` an einem `<tspan>` im `<textPath>`;
+  - die Punkte ungerundet aus `map.project`, so springt kleine Schrift nicht
+    zwischen ganzen Pixeln;
+  - der Pfad: abgetastet wie ein Rand, die Höhen über 32 Blöcke gemittelt.
+    Läuft er auf dem Schirm nach links, kehrt er um; ist er kürzer als der
+    Text, geht er an beiden Enden weiter; ein einzelner Punkt heisst
+    waagrecht.
 - **Im Skin Tablett** tragen Liste, Namen und Tafel die Farben der UI;
   Kontrast und Platz prüft `skins/tablett/tests/marmor.spec.ts`.
 

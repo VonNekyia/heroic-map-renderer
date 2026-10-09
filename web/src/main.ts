@@ -253,8 +253,9 @@ function koordinaten(
   const control = new L.Control({ position: 'bottomleft' });
   control.onAdd = () => leiste;
   control.addTo(map);
-  // Wie der Auswahlrahmen im Spiel.
-  const rahmen = L.polyline([], { color: '#000', weight: 2, opacity: 0.8, interactive: false });
+  // Wie der Auswahlrahmen im Spiel. Im shadowPane (500): über den Formen der
+  // Ebenen (410 + Rang), unter ihren Nadeln (510 + Rang).
+  const rahmen = L.polyline([], { color: '#000', weight: 2, opacity: 0.8, interactive: false, pane: 'shadowPane' });
   rahmen.addTo(map);
 
   // Den Umriss zeigt nur ein Finger oder Stift; mit der Maus zeigt der
@@ -693,7 +694,8 @@ async function start(): Promise<void> {
   }
   // Ebenen neben trees.json; ohne layers.json keine. Siehe docs/frontend.md, „Ebenen“.
   if (typeof blick !== 'string') {
-    void ebenen({ map, wurzel, blick, scale: info.scale, maxZoom: info.maxZoom, karten, heightsCell: info.heightsCell, seaLevel: info.seaLevel }).catch(
+    const { scale, maxZoom, heightsCell, seaLevel, minY, maxY, area } = info;
+    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, heightsCell, seaLevel, minY, maxY, area }).catch(
       (error: unknown) => console.error(error),
     );
   }

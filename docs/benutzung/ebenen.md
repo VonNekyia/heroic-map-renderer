@@ -143,9 +143,10 @@ selbst, die Webkarte im Browser.
   { "color": "#8640E6DD", "width": 2, "style": "dashed", "dash": [8, 6] }
   ```
 
-  `width` in Pixeln des Bildschirms, Vorgabe 2. `style` ist `solid` oder
-  `dashed`, Vorgabe `solid`. `dash` sind Strich und Lücke in Pixeln,
-  Vorgabe `[8, 6]`.
+  `width` in Pixeln des Bildschirms, Vorgabe 2; 0 heisst ohne Rand.
+  `color` ist bei Region und Kreis als Vorgabe die Farbe von `fill` ohne
+  Alpha, sonst `#2B2B2B`. `style` ist `solid` oder `dashed`, Vorgabe
+  `solid`. `dash` sind Strich und Lücke in Pixeln, Vorgabe `[8, 6]`.
 - **Eine Füllung** (`fill`) ist eine Farbe; das Alpha macht sie
   halbdurchsichtig.
 - **Texte** sind schlichter Text in UTF-8, nie HTML. Jede Ansicht setzt
@@ -230,7 +231,7 @@ Ein Name entlang einer frei gebogenen Linie, wie auf alten Karten.
 | `spacing` | zusätzlicher Abstand zwischen den Zeichen, in Anteilen von `size` | `0` |
 | `font` | eine Schrift der Karte, heute `map`; eine unbekannte gilt als `map` | `map` |
 | `color` | Farbe der Schrift | `#2B2B2B` |
-| `outline` | Kontur um die Zeichen, `color` und `width` in Pixeln; `width` 0 heisst ohne | ohne |
+| `outline` | Kontur um die Zeichen, `color` und `width` in Pixeln; `width` 0 heisst ohne; ohne `color` `#F2E8D0` | ohne |
 
 - **Lesbar:** Unter 8 Pixeln Schrifthöhe blendet die Ansicht die Schrift
   aus, über 96 Pixeln deckelt sie sie.
@@ -510,24 +511,35 @@ wie bei den Koordinaten.
 
 ### Flächen
 
-1. **Als Netz:** Das Polygon samt Löchern wird an den Grenzen der Zellen
-   zerschnitten. Jedes Stück wird in Dreiecke zerlegt, jede Ecke mit ihrer
-   Höhe projiziert.
-2. **In einem Zug gefüllt:** Die Dreiecke kommen erst deckend in eine
-   Maske, dann die Maske einmal in der Farbe von `fill`. So doppelt sich
-   das Alpha nicht an den Kanten zweier Dreiecke.
+1. **Als Netz:** Das Polygon samt Löchern wird an den Linien durch die
+   Mitten der Zellen in Felder zerschnitten, denn dazwischen mischt `H`
+   bilinear. Ein Feld ist das Quadrat zwischen vier Mitten von Zellen.
+   Jedes Stück wird gezeichnet, als Dreiecke oder als Vieleck, jede Ecke
+   mit ihrer Höhe projiziert, auf jeder Kante dazu ihre Mitte. Die
+   Webkarte zeichnet statt der Felder ganz drinnen den Umriss der
+   sichtbaren unter ihnen; das gibt dasselbe Bild, ausser am Rand des
+   Verdeckten, siehe
+   [0096](../entscheidungen/0096-formen-und-schrift-im-browser.md).
+2. **In einem Zug gefüllt:** Die Stücke kommen erst deckend in eine Maske,
+   dann die Maske einmal in der Farbe von `fill`; die Webkarte füllt sie
+   als einen Pfad, gerade/ungerade. So doppelt sich das Alpha nicht an den
+   Kanten zweier Stücke.
 
 ### Was verdeckt ist
 
 Im iso kann Gelände vor einer Fläche liegen, etwa ein Berg vor einem Tal.
+Geprüft wird entlang der Linie vom Punkt zur Kamera: Auf ihr steigt der
+Strahl, der denselben Bildpunkt trifft, je Block in x oder z um die
+Steigung `2a/b`, genordet `a/b`. Gelände zählt erst ab mehr als einer Zelle
+vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
+übernächsten.
 
-- **Prüfen:** Für jeden Punkt eines Rands und die Mitte jedes Dreiecks geht
-  die Ansicht den Strahl durch seinen Bildpunkt ab, wie die Koordinaten,
-  siehe [Frontend](../frontend.md), „Koordinaten“. Trifft der Strahl eine
-  Spalte, die mehr als eine Zelle vor dem Punkt liegt, ist er verdeckt.
+- **Ein Punkt** ist verdeckt, wenn `H` auf dieser Linie über dem Strahl
+  liegt, abgetastet in Schritten einer halben Zelle.
+- **Ein Feld** ist verdeckt, wenn seine Mitte es ist.
 - **Verdeckte Ränder** zeichnet die Ansicht dünn, gestrichelt und mit
   40 % Deckkraft, so bleibt die Form lesbar.
-- **Verdeckte Dreiecke** füllt sie nicht.
+- **Verdeckte Felder** füllt sie nicht.
 - **Nadeln und Schrift** liegen immer obenauf, auch hinter einem Berg.
 
 ### Kartenschrift

@@ -73,7 +73,8 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo nextest run --all-targets --release
 
-      # Grösse und glibc des Binärs für die Weitergabe, gepackt wie im Jar.
+      # Grösse und glibc des Binärs für die Weitergabe, gepackt wie im Jar,
+      # mit xz aus .github/gepackt.py.
       # Über der Grenze fällt der Schritt: Das Jar trägt zwei Binärs unter
       # 10 MB, siehe docs/entwicklung/weitergabe.md, „Grenze“.
       - name: Binär für die Weitergabe (Linux)
@@ -82,8 +83,8 @@ jobs:
         run: |
           exe=target/release/heroic-map-renderer
           grenze=4750000
-          gepackt=$(gzip -6 -c $exe | wc -c)
-          echo "roh $(stat -c %s $exe) Byte, gepackt $gepackt Byte, Grenze $grenze Byte"
+          gepackt=$(python3 ../.github/gepackt.py $exe)
+          echo "roh $(stat -c %s $exe) Byte, gepackt mit xz $gepackt Byte, Grenze $grenze Byte"
           echo "glibc höchstens $(objdump -T $exe | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
           if [ "$gepackt" -gt "$grenze" ]; then
             echo "::error::Das Binär hat gepackt $gepackt Byte, mehr als die Grenze von $grenze"

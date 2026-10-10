@@ -35,7 +35,7 @@ const ebene = {
     },
   },
   objects: [
-    { id: 'gebiet', type: 'region', name: 'Dorfgrund', polygons: [{ outer: [[-474, 486], [-432, 486], [-432, 540], [-474, 540]] }], fill: '#40E53F55', stroke: { color: '#40E53FDD', width: 2 } },
+    { id: 'gebiet', type: 'region', name: 'Dorfgrund', polygons: [{ outer: [[-474, 486], [-432, 486], [-432, 540], [-474, 540]] }], fill: '#40E53F26', stroke: { color: '#40E53FDD', width: 2 } },
     { id: 'nah', type: 'circle', center: [-416, 514], radius: 26, stroke: { color: '#FFFFFFAA', width: 2, style: 'dashed' } },
     { id: 'route', type: 'line', points: [[-410, 540], [-388, 556], [-360, 560]], stroke: { color: '#D9443A', width: 3, style: 'dashed' } },
     { id: 'meer', type: 'label', text: 'Westmeer', path: [[-398, 498], [-374, 504]], size: 2, spacing: 0.2, color: '#2B3A55', outline: { color: '#F2E8D0CC', width: 3 } },

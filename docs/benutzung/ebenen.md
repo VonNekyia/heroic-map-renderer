@@ -327,7 +327,9 @@ layers/<modname>/banner/<ebene>/<satz>/satz.json
   breit; von vorn 20 × 40, schräg fällt seine Unterkante um `20 · H / W`
   Pixel, in `2:1` um 10.
 - **Leinwand und Fuss:** Alle Sprites eines Satzes, mit und ohne Krone,
-  haben dieselbe Leinwand und denselben Fuss.
+  haben dieselbe Leinwand und denselben Fuss, `Leinwand` in
+  [`banner.rs`](../../renderer/src/render/banner.rs): so gross, dass das
+  Banner ohne und mit Krone um denselben Fuss darauf passt.
 - **`satz.json`:** der Fuss im Sprite und der Winkel der Unterkante des
   Tuchs. Die Ansicht setzt das Sprite mit diesem Fuss auf den Ort und dreht
   den Namen darunter um diesen Winkel, so dass er parallel zur Unterkante

@@ -407,6 +407,8 @@ fn lage(wert: fastnbt::Value) -> Option<(Muster, String)> {
 struct HeightmapsNbt {
     #[serde(rename = "WORLD_SURFACE")]
     world_surface: Option<fastnbt::LongArray>,
+    #[serde(rename = "MOTION_BLOCKING_NO_LEAVES")]
+    ohne_laub: Option<fastnbt::LongArray>,
 }
 
 #[derive(Deserialize)]
@@ -534,6 +536,9 @@ pub struct Chunk {
     y_pos: Option<i32>,
     /// `WORLD_SURFACE`, wie sie im Chunk steht, siehe [`Chunk::surface`].
     world_surface: Option<Vec<i64>>,
+    /// `MOTION_BLOCKING_NO_LEAVES`, wie sie im Chunk steht, siehe
+    /// [`Chunk::ground`].
+    ohne_laub: Option<Vec<i64>>,
     /// Je Blockentity mit [`Blockdaten`] seine Lage im Chunk, siehe
     /// [`Chunk::blockentities`].
     blockentities: Vec<([i32; 3], Blockdaten)>,
@@ -600,6 +605,7 @@ impl Chunk {
                 .heightmaps
                 .world_surface
                 .map(fastnbt::LongArray::into_inner),
+            ohne_laub: raw.heightmaps.ohne_laub.map(fastnbt::LongArray::into_inner),
             blockentities,
             laubfarben,
             laubfarben_fehler,
@@ -670,12 +676,27 @@ impl Chunk {
         })
     }
 
-    /// `WORLD_SURFACE` wie im Spiel (`Heightmap`, `SimpleBitStorage` in
+    /// Je Spalte, zeilenweise nach z, das y des obersten Blocks, der Bewegung
+    /// aufhält oder Flüssigkeit hält und kein Laub ist, oder `None` ohne. Aus
+    /// der Heightmap `MOTION_BLOCKING_NO_LEAVES`, die das Spiel wie
+    /// `WORLD_SURFACE` in jedem fertigen Chunk speichert; fehlt sie oder
+    /// passt sie nicht, gilt [`Chunk::surface`].
+    /// Siehe docs/benutzung/map-json.md, „Höhen“.
+    pub fn ground(&self) -> [Option<i32>; 256] {
+        self.gespeichert(self.ohne_laub.as_deref())
+            .unwrap_or_else(|| self.surface())
+    }
+
+    fn stored_surface(&self) -> Option<[Option<i32>; 256]> {
+        self.gespeichert(self.world_surface.as_deref())
+    }
+
+    /// Eine Heightmap wie im Spiel (`Heightmap`, `SimpleBitStorage` in
     /// 26.2): je Long so viele Werte, wie ganz hineinpassen, mit so vielen
     /// Bits, wie die Höhe der Welt plus eins braucht. Der Wert ist
     /// y + 1 − minY, 0 heisst kein Block.
-    fn stored_surface(&self) -> Option<[Option<i32>; 256]> {
-        let longs = self.world_surface.as_deref()?;
+    fn gespeichert(&self, longs: Option<&[i64]>) -> Option<[Option<i32>; 256]> {
+        let longs = longs?;
         let min_y = self.y_pos? * SECTION;
         let hoehe = u32::try_from(self.sections.last()?.y as i32 * SECTION + SECTION - min_y)
             .ok()
@@ -1081,6 +1102,7 @@ mod tests {
             sections: vec![luft()],
             y_pos: Some(-4),
             world_surface: Some(longs),
+            ohne_laub: None,
             blockentities: Vec::new(),
             laubfarben: Vec::new(),
             laubfarben_fehler: None,
@@ -1094,6 +1116,73 @@ mod tests {
             chunk(longs).surface().iter().all(Option::is_none),
             "aus den Blöcken"
         );
+    }
+
+    /// Der Boden ohne Laub kommt aus `MOTION_BLOCKING_NO_LEAVES`, im selben
+    /// Format wie `WORLD_SURFACE`; fehlt sie oder passt ihre Länge nicht,
+    /// gilt die Oberfläche.
+    #[test]
+    fn boden_aus_der_heightmap_ohne_laub() {
+        let luft = || Section {
+            y: 19,
+            blocks: Paletted::new(vec![BlockState::new("minecraft:air", Vec::new())], None),
+            biomes: Paletted::new(Vec::new(), None),
+        };
+        let mut oben = vec![0i64; 37];
+        oben[0] = 30 + 1 + 64;
+        let mut boden = vec![0i64; 37];
+        boden[0] = 12 + 1 + 64;
+        let chunk = |ohne_laub: Option<Vec<i64>>| Chunk {
+            x: 0,
+            z: 0,
+            data_version: 4903,
+            status: "minecraft:full".to_string(),
+            sections: vec![luft()],
+            y_pos: Some(-4),
+            world_surface: Some(oben.clone()),
+            ohne_laub,
+            blockentities: Vec::new(),
+            laubfarben: Vec::new(),
+            laubfarben_fehler: None,
+        };
+        assert_eq!(
+            chunk(Some(boden.clone())).ground()[0],
+            Some(12),
+            "unter der Krone"
+        );
+        assert_eq!(chunk(None).ground()[0], Some(30), "ohne sie die Oberfläche");
+        boden.pop();
+        assert_eq!(chunk(Some(boden)).ground()[0], Some(30), "falsche Länge");
+    }
+
+    /// In den echten Chunks aus 26.2 steht `MOTION_BLOCKING_NO_LEAVES`, und
+    /// der Boden liegt nie über der Oberfläche; unter Laub tiefer.
+    #[test]
+    fn boden_in_der_echten_region() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/world");
+        let world = World::open(&dir).unwrap();
+        let mut tiefer = 0;
+        for (cx, cz) in [(577, 416), (578, 416), (577, 417), (578, 417)] {
+            let chunk = world.chunk(cx, cz).unwrap().expect("Chunk");
+            assert!(chunk.ohne_laub.is_some(), "({cx}, {cz}) ohne Heightmap");
+            let (oben, boden) = (chunk.surface(), chunk.ground());
+            for i in 0..256 {
+                assert!(boden[i] <= oben[i], "({cx}, {cz}) Spalte {i}");
+                if let (Some(b), Some(o)) = (boden[i], oben[i])
+                    && b < o
+                {
+                    tiefer += 1;
+                    let (x, z) = (cx * 16 + (i % 16) as i32, cz * 16 + (i / 16) as i32);
+                    let (_, block) = chunk.highest_block(x, z).unwrap();
+                    assert!(
+                        !block.name().starts_with("minecraft:water"),
+                        "({x}, {z}): Wasser zählt mit"
+                    );
+                }
+            }
+        }
+        // Ohne solche Spalten prüfte die Schleife kein Wasser.
+        assert!(tiefer > 0, "keine Spalte mit Boden unter der Oberfläche");
     }
 
     /// `block_entities` wie im Spiel gelesen: Muster als ID oder mit

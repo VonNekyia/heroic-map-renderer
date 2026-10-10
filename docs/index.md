@@ -178,6 +178,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0100](entscheidungen/0100-der-renderer-zeichnet-die-banner.md): Banner aus einem benannten Entwurf der Ebene, die der Renderer mit `--banners` je Baum als Sprite zeichnet, mit eigener Krone für Hauptstädte, von oben aus `north-45`, für Ebenen mit `permission` über den Kanal des Plugins; ergänzt 0097.
 - [0101](entscheidungen/0101-zeichenstand-je-look.md): ein Zeichenstand je Look, `map`, `cinematic` und `flat`, mit Goldbildern je Look; der Abdruck von Karte und Cinematic bleibt der von v0.7.0; löst 0098 in diesem Punkt ab.
 - [0102](entscheidungen/0102-name-im-bogen.md): der Name eines Banners im Bogen unter dem Fuss, Radius aus der Höhe des Banners, Sperrung 0,125 · Schriftgrösse, im schrägen Satz mit der Unterkante gedreht; Nadeln bleiben gerade; ergänzt 0100.
+- [0103](entscheidungen/0103-boden-ohne-laub.md): neben den Höhen der Boden ohne Laub aus `MOTION_BLOCKING_NO_LEAVES`, je Block als Median der 3 × 3 Spalten, `groundCell` 1, gepackt schon im Vorlauf, für Formen auf dem Gelände; `map.json` nennt ihn erst nach einem ganzen Lauf oder `--heights`; der Zeichenstand bleibt; ergänzt 0036.
 
 ## Versuche
 
@@ -257,3 +258,4 @@ Gemessen und tragfähig, aber nicht übernommen. Der Code liegt je in einem Tag 
 - [2026-10-10, Licht je Spalte](messungen/2026-10-10-licht-je-spalte.md): was das Licht je Spalte statt der Ausbreitung `--flat` über die ganze Testwelt an Zeit und Speicher spart und wie viele Pixel es ändert.
 - [2026-10-10, Licht von der Seite](messungen/2026-10-10-licht-von-der-seite.md): was ein Schritt Licht von der Seite im Chunk `--flat` kostet, wie viele Pixel er zur Ausbreitung zurückholt und ob die Chunkgrenzen auffallen.
 - [2026-10-10, Binärs gepackt mit xz](messungen/2026-10-10-binaer-xz.md): die Binärs von v0.6.0 mit xz, BCJ x86, Preset 9e und 8 MiB Wörterbuch gegen Deflate 6, und die Luft im Budget des Jars.
+- [2026-10-11, Boden je Block](messungen/2026-10-11-boden-je-block.md): der Boden ohne Laub je Block statt je 4×4 auf der Testwelt, mit dem Median 3×3 9,49 MB, ohne 11,19 MB, je 4×4 1,40 MB; Spitze von `--heights` mit allen Kernen und mit einem Thread, ungepackt und gepackt im Vorlauf; wie viele Spalten der Median ändert; hochgerechnet rund 72 MB auf der grossen Welt.

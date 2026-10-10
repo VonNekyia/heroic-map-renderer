@@ -17,6 +17,7 @@ use std::task::Poll;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
+use heroic_map_renderer::ebenen::{geraet, ist_teil};
 use heroic_map_renderer::render::heights;
 use http_body_util::Full;
 use hyper::body::{Body, Bytes, Incoming};
@@ -878,31 +879,20 @@ fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a s
         heights::region_of(name)
             .is_some_and(|(x, z)| heights::path_of(x, z) == format!("heights/{name}"))
     };
-    // Ein Teil der Kennung einer Ebene oder der Name eines Bilds, siehe
-    // docs/benutzung/ebenen.md, „Kennung“. Kein Punkt vorn, wo das Plugin
-    // halbe Dateien schreibt, keiner hinten, den Windows streicht, und kein
-    // Gerät von Windows.
-    let teil = |name: &str| {
-        (1..=64).contains(&name.len())
-            && !name.starts_with('.')
-            && !name.ends_with('.')
-            && !geraet(name)
-            && name.bytes().all(|b| {
-                b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-' | b'.')
-            })
-    };
     // Der Stamm ohne Endung ist ein Teil, bis 64 Zeichen wie im Format.
     let mit = |name: &str, endungen: &[&str]| {
         endungen
             .iter()
-            .any(|e| name.strip_suffix(e).is_some_and(teil))
+            .any(|e| name.strip_suffix(e).is_some_and(ist_teil))
     };
     // Die festen Namen zuerst: `[z, x, y]` nähme jeden Pfad aus drei Teilen.
     let (erlaubt, im_baum) = match teile.as_slice() {
         ["trees.json" | "map.json" | MANIFEST | "layers.json"] => (true, None),
         ["heights", name] => (hoehe(name), None),
-        ["layers", modname, ebene] if teil(modname) && mit(ebene, &[".json"]) => (true, None),
-        ["layers", modname, "images", bild] if teil(modname) && mit(bild, &[".png", ".webp"]) => {
+        ["layers", modname, ebene] if ist_teil(modname) && mit(ebene, &[".json"]) => (true, None),
+        ["layers", modname, "images", bild]
+            if ist_teil(modname) && mit(bild, &[".png", ".webp"]) =>
+        {
             (true, None)
         }
         [b, "map.json" | MANIFEST] => (baum(b), Some(*b)),
@@ -946,18 +936,6 @@ fn unter(wurzel: &Path, url: &str) -> Option<PathBuf> {
         pfad.push(teil);
     }
     Some(pfad)
-}
-
-/// Ob Windows unter diesem Namen ein Gerät öffnet, in jedem Ordner und mit
-/// jeder Endung: `con`, `prn`, `aux`, `nul`, `com0` bis `com9`, `lpt0` bis
-/// `lpt9`.
-fn geraet(teil: &str) -> bool {
-    let stamm = teil.split('.').next().unwrap_or(teil).to_ascii_lowercase();
-    match stamm.as_bytes() {
-        b"con" | b"prn" | b"aux" | b"nul" => true,
-        [b'c', b'o', b'm', d] | [b'l', b'p', b't', d] => d.is_ascii_digit(),
-        _ => false,
-    }
 }
 
 /// Was die Anfrage über den Stand des Browsers sagt.

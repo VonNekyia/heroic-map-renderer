@@ -99,9 +99,13 @@ es je Chunk aus seinen eigenen Spalten (`ChunkLicht::spalten` in
 - **Ohne Nachbarn:** Für sein Licht braucht ein Chunk keinen Nachbarn; der
   Rand von 14 Blöcken der Ausbreitung fällt weg. Das Relief nimmt weiter
   die Zeile im Norden.
-- **Was anders aussieht:** Leuchtendes unter Wasser hellt den Grund daneben
-  nicht mehr auf, und wo Wasser in Stufen fällt, fehlt das Licht von der
-  Seite.
+- **Was anders aussieht:** Das Licht von der Seite fehlt. Am meisten
+  sieht man das an den Rändern der Baumkronen: Die weiche Beleuchtung einer
+  Oberseite liest auch die Zellen unter dem Laub daneben, und die werden
+  dunkler. Leuchtendes unter Wasser hellt den Grund daneben nicht mehr auf.
+  Über die ganze Testwelt ändern sich so 10,5 % der Pixel, die Hälfte um
+  höchstens 4 von 255, fast alle dunkler, siehe
+  [2026-10-10, Licht je Spalte](../messungen/2026-10-10-licht-je-spalte.md).
 
 ## Relief
 
@@ -170,8 +174,12 @@ Belegt per `javap` am Client von 26.2 in `MapItem.update`,
 Über die ganze Testwelt gegen `top-north` bei scale 4, gemessen in
 [2026-10-10, Einfarbige Ansicht](../messungen/2026-10-10-einfarbige-ansicht.md):
 
-- **Zeit:** 35 % weniger. Die −35 % sind ohne Bänder gemessen; mit Bändern lässt sich kein Unterschied zeigen. Lesen und Licht hängen an den
+- **Zeit:** 35 % weniger. Die −35 % sind ohne Bänder gemessen; mit
+  Bändern lässt sich kein Unterschied zeigen. Lesen und Licht hängen an den
   Chunks, nicht an den Pixeln, und sind 61 % der CPU.
+- **Licht je Spalte** spart davon noch einmal 35 % der Zeit, bei gleichem
+  Speicher, siehe
+  [2026-10-10, Licht je Spalte](../messungen/2026-10-10-licht-je-spalte.md).
 - **Platz:** ×0,087.
 - **Arbeitsspeicher:** an der Spitze 1,55 GiB, rund 1,3-mal die Karte. Eine
   Kachel deckt 16 × 16 Chunks; gezeichnet wird sie in Bändern, siehe

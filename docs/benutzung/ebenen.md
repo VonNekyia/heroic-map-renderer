@@ -435,15 +435,19 @@ Webkarte wäre eine Lücke für Skripte.
     1. Kontrast nach WCAG 2.1: `(L1 + 0,05) / (L2 + 0,05)`, `L` die
        relative Leuchtdichte, je Kanal `s = c / 255`,
        `s / 12,92` bis 0,03928, sonst `((s + 0,055) / 1,055)^2,4`,
-       gewichtet 0,2126, 0,7152 und 0,0722.
+       gewichtet 0,2126, 0,7152 und 0,0722. Die Schwelle 0,04045 aus sRGB
+       gibt dasselbe: Kein Kanal von 0 bis 255 liegt dazwischen.
     2. Für s = 0, 1, 2 … 10 je Kanal `⌊(10 · c + (255 − c) · s + 5) / 10⌋`,
-       also um s · 10 % mit Weiss gemischt, auf ganze Zahlen gerundet.
-       Das erste Ergebnis mit 3:1 oder mehr gilt; s = 10 ist Weiss.
+       also um s · 10 % mit Weiss gemischt, auf ganze Zahlen gerundet, 0,5
+       aufwärts. Gleich ist `round(c + (255 − c) · s / 10)`, wenn erst
+       multipliziert und dann geteilt wird; `c + (255 − c) · (0,1 · s)`
+       kann sich verrunden. Das erste Ergebnis mit 3:1 oder mehr gilt;
+       s = 10 ist Weiss.
     3. Alpha bleibt, wie es war.
 
     Beispiele: `#2B3A55` wird nach zwei Schritten `#556177` (3,04:1),
-    `#000000` nach vier `#666666`; `#40E53F` (11,3:1) und `#D9443A`
-    (4,37:1) bleiben.
+    `#000000` nach vier `#666666` (3,31:1); `#40E53F` (11,3:1),
+    `#D9443A` (4,37:1) und `#CC52A7` (4,82:1) bleiben.
 - **Schrift:** eine schlichte, gut lesbare Schrift der Oberfläche, nie die
   Kartenschrift: auf der Webkarte die der UI, im Mod die des Spiels. Die
   Grössen in der Tabelle gelten für die Webkarte; der Mod nimmt die Grösse

@@ -266,7 +266,7 @@ function leuchtdichte(kanaele: readonly number[]): number {
  * Eine Titelfarbe, lesbar auf dem dunklen Grund: unter 3:1 gegen
  * `TAFEL_GRUND` je Schritt s um 10 % mit Weiss gemischt, bis sie 3:1
  * erreicht, in ganzen Zahlen ⌊(10·c + (255 − c)·s + 5) / 10⌋; Alpha bleibt.
- * Siehe docs/benutzung/ebenen.md, „Infotafel“, „Aussehen“.
+ * Siehe docs/benutzung/ebenen.md, „Infotafel“, der Punkt Aussehen.
  */
 function lesbar(farbe: string): string {
   const c = [1, 3, 5].map((i) => Number.parseInt(farbe.slice(i, i + 2), 16));

@@ -1,6 +1,6 @@
 ---
 title: Plugin
-description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt und die Schätzung als JSON, das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft, und das Manifest eines Baums mit Grösse und ETag jeder Kachel.
+description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt und die Schätzung als JSON, das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft, das Manifest eines Baums mit Grösse und ETag jeder Kachel und den Aufruf --banners für die Sprites der Banner samt seiner Meldung.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/stand.rs
@@ -8,6 +8,7 @@ code:
   - renderer/src/cli/token.rs
   - renderer/src/cli/manifest.rs
   - renderer/tests/fixtures/manifest.json
+  - renderer/src/cli/banner.rs
 ---
 
 # Plugin
@@ -135,6 +136,54 @@ dem Plugin-Programmierer ab.
   [Server](benutzung/server.md), „Was er ausliefert“. Was das Plugin unter
   einem Namen mit `.` vorn schreibt, liefert er nicht; erst nach dem
   Umbenennen. Das Format steht in [Ebenen](benutzung/ebenen.md).
+
+## Banner zeichnen: `--banners`
+
+Die Sprites der Banner zu den Entwürfen der Ebenen zeichnet der Renderer in
+einem eigenen Aufruf, ohne Welt und Kacheln, siehe
+[0100](entscheidungen/0100-der-renderer-zeichnet-die-banner.md). Wo die
+Sprites liegen und was `satz.json` sagt, steht in
+[Ebenen](benutzung/ebenen.md), „Sprites“; der Code in
+[`renderer/src/cli/banner.rs`](../renderer/src/cli/banner.rs).
+
+```bash
+heroic-map-renderer --banners <wurzel>/layers/beispiel/staedte.json <wurzel>/layers/anderer/wege.json --out <wurzel>/layers --tiles <wurzel> --download-client-jar --client-version 26.2 --threads 1 --low-priority
+```
+
+- **Dateien:** je Ebene eine mit `id` und `designs`; Objekte dürfen
+  fehlen. Ohne Datei löscht der Aufruf alle Sprites unter `--out`.
+- **`--out`:** der Ordner, unter dem je `modname` `banner/` liegt; für
+  öffentliche Ebenen `layers/` unter der Wurzel.
+- **Ein Aufruf je `--out`, mit allen seinen Ebenen.** Unter jedem
+  `modname` in `--out` verwaltet der Renderer `banner/` ganz. Ein zweiter
+  Aufruf mit anderen Ebenen in dasselbe `--out` löschte die des ersten.
+- **Geheime Ebenen** bekommen ein eigenes `--out` ausserhalb des
+  ausgelieferten Baums und kein `--tiles`: Ohne `--tiles` zeichnet der
+  Renderer nur den Satz `oben`.
+- **`--tiles`** nur für `trees.json`: je Baum, der nicht von oben schaut,
+  ein Satz unter seinem `path`, auch mit Cinematic, gezeichnet im Look der
+  Karte; dazu immer `oben`. Fehlt `trees.json`, nur `oben`.
+- **Assets** wie beim Rendern: `--assets`, `--data`, `--download-client-jar`
+  mit `--client-version`; ohne `--world` nimmt der Renderer sonst das
+  neueste Jar, das er kennt.
+- **Meldung:** die letzte Zeile auf stdout; davor stehen Zeilen zu den
+  Assets, auf stderr das Log.
+
+  ```json
+  {"changed": ["beispiel:staedte"], "failed": ["anderer:wege"]}
+  ```
+
+  - `changed`: die Ebenen, deren Sprites oder `satz.json` sich geändert
+    haben, auch weil sie gelöscht sind. Das Plugin hebt ihre `version`.
+  - `failed`: die Ebenen, die nicht gingen, etwa mit 17 Lagen; den Grund
+    nennt stderr. Ihre alten Sprites, ihr Stempel und ihr `satz.json`
+    bleiben unberührt. Lässt sich die Kennung einer Datei nicht lesen,
+    steht dort ihr Pfad, und der Aufruf räumt nichts auf.
+- **Code:** 0, solange der Aufruf lief, auch mit `failed`. Sonst nicht 0,
+  etwa ohne Assets, mit einem `--out`, das sich nicht anlegen lässt, oder
+  mit falschen Schaltern; dann gibt es keine Meldung.
+- **Neben anderen Läufen:** `--banners` schreibt nur unter `--out`.
+  Höchstens ein Aufruf zur Zeit je `--out`.
 
 ## Fortschritt als JSON
 

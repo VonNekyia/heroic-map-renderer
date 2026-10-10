@@ -10,7 +10,8 @@ code:
 
 `heroic-map-renderer` ist ein einziges Binär; welche Arbeit es tut, entscheiden
 die Schalter. `--tiles` exportiert Kacheln, `--pyramid` baut nur Zoomstufen
-nach, `--heights` trägt nur die Höhen nach, `--render`, `--sprite`,
+nach, `--heights` trägt nur die Höhen nach, `--banners` zeichnet nur die
+Sprites der Banner, `--render`, `--sprite`,
 `--block`, `--at` und `--scan` helfen beim Ansehen und Prüfen. Die Schalter stehen in `Args` in
 [`renderer/src/cli.rs`](../../renderer/src/cli.rs); `--help` nennt dieselben
 Texte. Ohne Schalter startet unter Windows an einer Konsole der
@@ -56,6 +57,8 @@ Texte. Ohne Schalter startet unter Windows an einer Konsole der
 | `--manifest` | mit `--tiles`, `--pyramid` oder `--compact-tree`: am Ende das Manifest des Baums schreiben, je Kachel Grösse und ETag, für den Download; ohne entfernt ein Lauf, der Kacheln schreibt, ein altes | [Plugin](../plugin.md), „Manifest“ |
 | `--serve DIR` | die Wurzel von `--tiles` unter `/tiles/` ausliefern, mit `--web` die Karte dazu; daneben nur `--threads`, `--low-priority` und seine eigenen Schalter | [Server](server.md) |
 | `--web DIR`, `--listen ADRESSE:PORT`, `--max-connections N`, `--header-timeout S`, `--max-header-bytes N`, `--max-headers N`, `--write-timeout S`, `--exit-with-stdin`, `--tls-cert DATEI`, `--tls-key DATEI`, `--secret-file DATEI`, `--site-url URL`, `--site-title TEXT`, `--site-description TEXT`, `--site-image PFAD` | nur mit `--serve`: Seite, Adresse, Grenzen am offenen Netz, Ende mit stdin, HTTPS, Download, Angaben der Seite | [Server](server.md), „Aufruf“ |
+| `--banners DATEI…` | die Sprites der Banner zu den Entwürfen dieser Dateien von Ebenen zeichnen, je Satz ohne und mit Krone, und aufräumen, ohne Welt und Kacheln; mit `--tiles` je Baum, der nicht von oben schaut, ein Satz, dazu immer `oben`; die letzte Zeile auf stdout ist die Meldung als JSON | [Plugin](../plugin.md), „Banner zeichnen: `--banners`“ |
+| `--out DIR` | nur mit `--banners`: der Ordner, unter dem je `modname` `banner/` liegt | [Plugin](../plugin.md), „Banner zeichnen: `--banners`“ |
 | `--heights DIR` | die Höhen für die Koordinatenanzeige in einen bestehenden Baum schreiben, ohne zu rendern; `DIR` ist der Ordner des Baums; braucht nur `--world` | [map.json](map-json.md), „Höhen“ |
 
 ## Einen Block ansehen: `--at`

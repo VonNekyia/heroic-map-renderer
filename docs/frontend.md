@@ -648,7 +648,9 @@ Sprung, Kompass, Umschalter und Stand wissen nichts von ihm. Warum so:
   Port 4173, mit `SKIN=./skins/tablett` nach `web/dist-skin` für das
   Projekt `skin` auf 4175 und mit `SKIN=./skins/tablett/voll` nach
   `web/dist-tablett` für das Projekt `tablett` auf 4176, das ganze, vertagte
-  Tablett ([0079](entscheidungen/0079-tablett-vertagt-nur-marmor.md)). Die
+  Tablett ([0079](entscheidungen/0079-tablett-vertagt-nur-marmor.md)); die
+  Ports lassen sich mit `PW_PORT` verschieben, siehe
+  [Tests](entwicklung/tests.md), „Laufen lassen“. Die
   Smoke-Tests laufen ohne Skin und mit `skins/tablett`, die Tests eines
   Skins nur mit ihm, `karte.spec.ts` nur mit dem ganzen Tablett, Tests mit
   dem Tag `@ohne-skin` nur ohne.

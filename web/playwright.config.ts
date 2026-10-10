@@ -1,11 +1,20 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const HOST = '127.0.0.1';
-const PORT = 4173;
+/**
+ * Der Port des Builds ohne Skin, aus `PW_PORT`, sonst 4173; die beiden
+ * anderen liegen 2 und 3 darüber. Mit `PW_PORT` nutzt Playwright keinen
+ * laufenden Server: Sonst antwortete womöglich ein fremder, und die Tests
+ * prüften fremden Code. Siehe docs/entwicklung/tests.md, „Laufen lassen“.
+ */
+const EIGENER = process.env.PW_PORT;
+if (EIGENER !== undefined && !/^\d+$/.test(EIGENER)) throw new Error(`PW_PORT=${EIGENER}: keine Zahl`);
+const PORT = EIGENER === undefined ? 4173 : Number(EIGENER);
 /** Der Build mit dem Skin aus web/skins/tablett: vorerst nur der Marmor. */
-const PORT_SKIN = 4175;
+const PORT_SKIN = PORT + 2;
 /** Der Build mit dem ganzen, vertagten Tablett aus web/skins/tablett/voll. */
-const PORT_TABLETT = 4176;
+const PORT_TABLETT = PORT + 3;
+const WIEDER = !process.env.CI && EIGENER === undefined;
 
 export default defineConfig({
   forbidOnly: !!process.env.CI,
@@ -41,7 +50,7 @@ export default defineConfig({
       // und Playwright wartet vergeblich auf 127.0.0.1.
       command: `npm run build && npm run preview -- --host ${HOST} --port ${PORT} --strictPort`,
       url: `http://${HOST}:${PORT}`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: WIEDER,
       timeout: 120_000,
     },
     {
@@ -51,7 +60,7 @@ export default defineConfig({
       // Texte für die Buchrücken, nur zum Prüfen; echte setzt der Betreiber.
       env: { SKIN: './skins/tablett' },
       url: `http://${HOST}:${PORT_SKIN}`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: WIEDER,
       timeout: 120_000,
     },
     {
@@ -61,7 +70,7 @@ export default defineConfig({
       // Texte für die Buchrücken, nur zum Prüfen; echte setzt der Betreiber.
       env: { SKIN: './skins/tablett/voll', SKIN_TEXT_BUCH1: 'Probe Eins', SKIN_TEXT_BUCH2: 'Probe Zwei' },
       url: `http://${HOST}:${PORT_TABLETT}`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: WIEDER,
       timeout: 120_000,
     },
   ],

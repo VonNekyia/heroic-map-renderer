@@ -26,9 +26,23 @@ sollen weiter den Block nennen, den man sieht.
 - **Dazu, nicht statt:** Die Höhen bleiben, wie 0036 sie festlegt. Daneben
   schreibt der Renderer den Boden ohne Laub, `ground/{x}.{z}.bin` neben
   `heights/`. Die Koordinaten nehmen weiter die Höhen, die Formen den Boden.
-- **Quelle:** die Heightmap `MOTION_BLOCKING_NO_LEAVES` des Chunks, je
-  Spalte ihr Wert. Fehlt sie einem Chunk oder passt ihre Länge nicht, gilt
-  für ihn die Oberfläche, `WORLD_SURFACE`.
+- **Quelle:** die Heightmap `MOTION_BLOCKING_NO_LEAVES` des Chunks. Fehlt
+  sie einem Chunk oder passt ihre Länge nicht, gilt für ihn die
+  Oberfläche, `WORLD_SURFACE`.
+- **Median 3 × 3:** je Spalte der obere Median der 3 × 3 Spalten um sie,
+  ohne Spalten ohne Block; eine solche bleibt leer. Die Heightmap zählt
+  Stämme mit, denn sie halten Bewegung auf. Je Block ragten sie so als
+  Spitzen aus Rand, Wand und Linien der Formen, im Wald der Testwelt in
+  1,6 % der Spalten, 3 bis 9 Blöcke hoch, vom Frontend gezählt. Je 4×4
+  hatte der Median sie geschluckt. Der Median 3 × 3 nimmt Stämme von 1 × 1
+  und 2 × 2 auf flachem Boden weg und lässt eine Stufe an ihrer Kante.
+  - Der Vorlauf rechnet ihn je Region, wenn er ihre Chunks gelesen hat.
+    Über Chunks hinweg hat er die Nachbarn, über Regionen nicht: Am Rand
+    einer Region zählen nur die Spalten dieser Region, und ein Stamm von
+    2 × 2 genau am Rand bleibt stehen. Ebenso am Rand eines Ausschnitts:
+    Chunks, die er nicht liest, zählen nicht, bis ein ganzer Lauf oder
+    `--heights` die Region neu schreibt.
+  - Entscheid des Reviewers am 11.10., Weg a.
 - **Je Block:** die Wahl des Users am 11.10., zwischen 4×4 wie die Höhen,
   2×2 und je Block. So folgt eine Form jedem Block des Geländes. Die Höhen
   der Koordinaten bleiben je 4×4.
@@ -81,6 +95,13 @@ Per `javap`, am Client von 26.2 und am Server von 26.3:
   Viertel der Werte je Block. Der User nahm je Block.
 - **Je Block ungepackt im Vorlauf halten:** wie bei den Höhen bisher, aber
   mit 1,23 GiB auf der grossen Welt.
+- **Je Block ohne Median:** Die Stämme ragten aus den Formen, siehe oben.
+- **Den Median im Browser rechnen:** Jede Webkarte rechnete ihn je Laden
+  neu, und die Dateien trügen die Stämme weiter. Im Vorlauf kostet er
+  einmal je Region.
+- **Stämme aus den Blöcken erkennen,** etwa am Tag `logs`: Dafür müsste der
+  Vorlauf in jeder Spalte die Blöcke dekodieren, die er für die Heightmap
+  nicht braucht.
 - **Nur die Differenz zur Oberfläche als u8:** ausserhalb von Wald fast nur
   Nullen, also kleiner. Es kostet aber ein zweites Format im Frontend, und
   die Ersparnis zählt neben den Kacheln nicht.
@@ -98,19 +119,21 @@ Gemessen auf der Testwelt in
 [2026-10-11, Boden je Block](../messungen/2026-10-11-boden-je-block.md),
 auf die grosse Welt hochgerechnet:
 
-- **Platz:** auf der Testwelt 11,19 MB, achtmal so viel wie je 4×4; auf der
-  grossen Welt rund 85 MB, neben gut 13 MB Höhen. Vor der Wahl waren 220
-  bis 250 MB geschätzt. Neben den Kacheln zählt beides nicht.
+- **Platz:** auf der Testwelt mit dem Median 9,49 MB, ohne ihn 11,19 MB,
+  je 4×4 1,40 MB; auf der grossen Welt rund 72 MB, neben gut 13 MB Höhen.
+  Vor der Wahl waren 220 bis 250 MB geschätzt. Neben den Kacheln zählt
+  beides nicht.
 - **Arbeitsspeicher:** Der Vorlauf hält Höhen und Boden je Region gepackt,
   auf der grossen Welt rund 100 MB statt 157 MiB je 4×4 ungepackt. Dazu
   hält jeder Thread die Region, die er liest, ungepackt, je Block 512 KiB,
   und den Zustand von zlib. Die Spitze von `--heights` auf der Testwelt:
   mit einem Thread im Mittel 6,5 MiB unter der von vorher, mit allen
-  Kernen 24,5 MiB darüber.
+  Kernen 24,5 MiB darüber. Der Median ändert daran nichts, er hält je
+  Thread zwei Zeilen.
 - **Live-Rendern und erster Render:** je Chunk ein Long-Array mehr, wie die
-  Höhen, und je Region einmal 512 KiB packen. Die Zeit ist nicht gemessen;
-  eine Messung gehört in die Nacht.
-- **Browser:** je Region eine Datei von rund 29 kB, entpackt 512 KiB, 16-mal
+  Höhen, und je Region einmal der Median über 512 × 512 Spalten und 512 KiB
+  packen. Die Zeit ist nicht gemessen; eine Messung gehört in die Nacht.
+- **Browser:** je Region eine Datei von rund 25 kB, entpackt 512 KiB, 16-mal
   so viele Werte wie die Höhen. Wie viele Regionen das Frontend lädt und
   wie es die Sicht rechnet, entscheidet es in seiner PR zu #273; seine
   Grenze von 1024 Regionen für die Höhen hielte je Block 512 MiB.

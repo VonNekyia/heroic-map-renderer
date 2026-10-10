@@ -283,10 +283,18 @@ Höhe. Die liefert der Renderer:
     `maxY` gelten mit. Aber je Block: `groundCell` ist 1, eine Region hat
     512 × 512 Werte, und die Spalte (x, z) liegt an
     (z − 512·rz)·512 + (x − 512·rx).
-  - **Wert:** je Spalte der oberste Block, der Bewegung aufhält oder
-    Flüssigkeit hält und kein Laub ist. Über Wasser also die Oberfläche,
-    im Wald der Boden unter den Kronen; Gras und Blumen zählen nicht,
-    Stämme schon.
+  - **Wert:** je Spalte der obere Median der 3 × 3 Spalten um sie, von
+    deren oberstem Block, der Bewegung aufhält oder Flüssigkeit hält und
+    kein Laub ist. Über Wasser also die Oberfläche, im Wald der Boden unter
+    den Kronen; Gras und Blumen zählen nicht. Stämme von 1 × 1 und 2 × 2
+    auf flachem Boden fallen durch den Median weg, eine Stufe bleibt an
+    ihrer Kante.
+    - Spalten ohne Block und ausserhalb der Region zählen nicht mit; eine
+      Spalte ohne Block bleibt −32768.
+    - Am Rand einer Region fehlen die Nachbarn der nächsten. Dort zählen
+      nur die vorhandenen, ein Stamm von 2 × 2 genau am Rand bleibt stehen.
+      Ebenso am Rand eines Ausschnitts, bis ein ganzer Lauf oder
+      `--heights` die Region neu schreibt.
   - **Quelle:** die Heightmap `MOTION_BLOCKING_NO_LEAVES`, die das Spiel
     wie `WORLD_SURFACE` in jedem fertigen Chunk speichert, `Chunk::ground`.
     Fehlt sie einem Chunk, gilt für ihn die Oberfläche.

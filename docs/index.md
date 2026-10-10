@@ -175,6 +175,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md): Banner als eigenes Objekt für Orte, Nadeln und Banner auf jeder Stufe gleich gross, die Tafel schon beim Zeigen; löst die Stufen und die Tafel nur beim Anklicken aus 0095 ab.
 - [0098](entscheidungen/0098-der-zeichenstand-statt-des-builds.md): Stand, Hashes der Pixel und `--resume` hängen am Zeichenstand im Code und an den eingebauten Tabellen statt an der ausführbaren Datei; ein Test über die Goldbilder sichert ihn ab, ein Stand von v0.4.0 oder v0.5.0 gilt als Zeichenstand 1, die Hashes der Pixel hängen am Kodierstand; löst den Fingerabdruck des Renderers aus 0062 ab.
 - [0099](entscheidungen/0099-einfarbige-ansicht.md): `--flat` zeichnet `top-north` bei scale 1 mit einer Farbe je Block über den bestehenden Pfad, look `flat`, Wasser wie mit Texturen, Relief nach der Karte des Spiels, nur auf der CPU; löst für diese Ansicht den kleinsten scale aus 0013 und 0051 ab.
+- [0100](entscheidungen/0100-der-renderer-zeichnet-die-banner.md): Banner aus einem benannten Entwurf der Ebene, die der Renderer mit `--banners` je Baum als Sprite zeichnet, mit eigener Krone für Hauptstädte, von oben aus `north-45`, für Ebenen mit `permission` über den Kanal des Plugins; ergänzt 0097.
 
 ## Versuche
 
@@ -250,4 +251,3 @@ Gemessen und tragfähig, aber nicht übernommen. Der Code liegt je in einem Tag 
 - [2026-10-09, Pyramide von oben](messungen/2026-10-09-pyramide-von-oben.md): was `--pyramid` auf einem Thread mit dem nächsten Pixel gegen gemittelt kostet und wie gross die Stufen werden, an der ganzen Testwelt in `top-north` bei scale 4, dazu der einmalige Umbau eines Baums der grossen Welt.
 - [2026-10-09, Arbeit je Block über die nativen Stufen](messungen/2026-10-09-arbeit-je-block.md): was der Versuch zu #207 B1 mit drei nativen Stufen an Zeit spart und an Speicher kostet, auf einem Thread und auf allen, dass jedes Bild gleich bleibt, und wie oft die Eingaben zwischen den Stufen abweichen.
 - [2026-10-10, Benchmark gegen andere Karten](messungen/2026-10-10-benchmark-karten.md): Zeit, RAM und Platz von squaremap, Pl3xMap, Dynmap und Heroic auf erzeugten Welten mit 3 000, 5 000 und 15 000 Blöcken Seitenlänge, je Million Pixel verglichen; die Tabelle für das Diagramm im README.
-- [2026-10-10, Einfarbige Ansicht](messungen/2026-10-10-einfarbige-ansicht.md): was `--flat` über die ganze Testwelt an Zeit, Platz und Arbeitsspeicher kostet, gegen die Karte in `top-north` bei scale 4.

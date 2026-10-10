@@ -10,6 +10,10 @@ code:
 
 # 0097: Banner für Orte, feste Grösse, Tafel beim Zeigen
 
+Ergänzt durch [0100](0100-der-renderer-zeichnet-die-banner.md): Banner aus
+einem Entwurf, die der Renderer je Baum zeichnet, und Banner für Ebenen mit
+`permission`.
+
 ## Anlass
 
 Der User will drei Änderungen an den Ebenen (#219), für Webkarte und Mod:

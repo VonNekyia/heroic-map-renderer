@@ -95,15 +95,18 @@ verlangt. Ohne musl, siehe
   dem Budget, mit Deflate 6 waren es 9 180 029, siehe
   [Binärs gepackt mit xz](../messungen/2026-10-10-binaer-xz.md).
 - **Die Grenzen,** entschieden am 06.10. im Review zu #181, die Warnung in
-  der CI angehoben im Review zu #192:
+  der CI angehoben im Review zu #192, mit xz die Grenze je Binär gesenkt im
+  Review zu #251:
 
   | Wo | Grenze, gepackt | Warum |
   |---|---|---|
   | Release-Workflow, beide Binärs zusammen | 9 300 000 Byte | das Jar |
-  | Release-Workflow, je Binär | 4 750 000 Byte | Linux ist kleiner als Windows; keins soll allein das Budget tragen |
-  | CI, Job „Rust“ unter Ubuntu | 4 750 000 Byte | eine frühe Warnung an jeder PR, gegen glibc 2.39 gebaut; dieselbe Grenze je Binär wie im Release |
+  | Release-Workflow, je Binär | 4 000 000 Byte | eine frühe Warnung mit rund 0,6 MB Luft je Binär; keins soll allein das Budget tragen |
+  | CI, Job „Rust“ unter Ubuntu | 4 000 000 Byte | eine frühe Warnung an jeder PR, gegen glibc 2.39 gebaut; dieselbe Grenze je Binär wie im Release |
 
-  Die eigentliche Grenze ist die Summe. Die Warnung lag zuerst bei 4 550 000
+  Die eigentliche Grenze ist die Summe. Mit Deflate lag die Grenze je Binär
+  bei 4 750 000 Byte; mit xz lag sie 1,3 MB über beiden Binärs und warnte
+  kaum noch früh. Die Warnung lag zuerst bei 4 550 000
   Byte, aus der Zeit, als jedes Binär für sich gemessen wurde, vor dem
   Budget als Summe. Mit Client-Jar und Assistent stand der Job „Rust“ auf
   master bei 4 547 199 Byte, und jede weitere Zeile hätte ihn fallen lassen,

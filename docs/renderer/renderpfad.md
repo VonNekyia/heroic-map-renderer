@@ -404,6 +404,15 @@ Speicher sind es mit Karte rund 0,7 GiB, ohne Karte 0,12 GiB; woher das
 Mehr mit Karte kommt, ist offen, siehe
 [2026-10-01, Native Stufen in Bändern](../messungen/2026-10-01-native-stufen-in-baendern.md).
 
+Die einfarbige Ansicht zeichnet eine Kachel in Bändern von 64 Pixeln, vier
+Zeilen Chunks (`FLACH_BAND` in
+[`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)).
+Bei scale 1 deckt eine Kachel 16 × 16 Chunks, samt Rand und Licht rund 400,
+und die nächste teilt davon nur eine Zeile. Jedes Band beginnt im Cache wie
+eine Kachel, er behält nur das vorige. Über die ganze Testwelt sinkt die
+Spitze so von 3,8 auf 1,55 GiB, bei gleichen Ladungen und Bytes, siehe
+[2026-10-10, Einfarbige Ansicht](../messungen/2026-10-10-einfarbige-ansicht.md).
+
 Die Sprite-Tabelle teilen sich alle Threads. Fast jedes Sprite hat eine
 AO-Karte, 4 Bytes je Pixel wie das Bild, siehe
 [Weiche Beleuchtung](weiche-beleuchtung.md), „Was es kostet“.

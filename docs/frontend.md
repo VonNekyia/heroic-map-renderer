@@ -398,6 +398,10 @@ Eingaben.
 Banner, feste Grösse und die Tafel beim Zeigen folgen
 [0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md).
 
+![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben](bilder/ebenen-testwelt.webp)
+
+*Wie es entsteht: [Ebenen](benutzung/ebenen.md), „Zeichnen“.*
+
 - **Liste:** oben rechts ein aufklappbares „Ebenen“ mit einem Kästchen je
   Ebene, nach `order`. Die Namen folgen der Sprache des Browsers, Deutsch
   oder Englisch. Die Wahl merkt sich der Browser je Wurzel in

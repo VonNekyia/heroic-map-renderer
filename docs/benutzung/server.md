@@ -67,16 +67,19 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   | `layers.json` | die Liste der Ebenen, siehe [Ebenen](ebenen.md) |
   | `layers/<modname>/<ebene>.json` | die Datei einer Ebene |
   | `layers/<modname>/images/<bild>.png`, `.webp` | ein Bild einer Ebene |
+  | `layers/<modname>/banner/<ebene>/<satz>/<entwurf>.png`, `…/<satz>/krone/<entwurf>.png`, `…/<satz>/satz.json` | die Sprites der Banner, ohne und mit Krone, und Fuss und Winkel ihres Satzes, siehe [Ebenen](ebenen.md), „Sprites“ |
 
   Ein Baum heisst nur `a–z 0–9 -`, die Zahlen stehen, wie der Renderer sie
   schreibt, ohne `+` und führende Nullen. Alles andere gibt `404`, auch
-  `stand.bin`, die Hashes unter `pixel/`, die Marken des Manifests und
-  halb geschriebene Dateien `<name>.<pid>.tmp`.
+  `stand.bin`, die Hashes unter `pixel/`, die Marken des Manifests, der
+  Stempel `.stempel` eines Satzes und halb geschriebene Dateien
+  `<name>.<pid>.tmp`.
 - **Die Ebenen** liefert er wie die Kacheln, mit ETag, `304` und
   `no-cache`, ohne Token und ohne Blick in `trees.json`: Alles unter
   `layers/` ist öffentlich, siehe [Ebenen](ebenen.md), „Bilder“.
-  - **Namen:** `modname`, `ebene` und `bild` nur nach der Regel der
-    Kennung, siehe [Ebenen](ebenen.md), „Kennung“. So liefert er keine
+  - **Namen:** `modname`, `ebene`, `bild` und `entwurf` nur nach der
+    Regel der Kennung, siehe [Ebenen](ebenen.md), „Kennung“; `satz` nur
+    wie ein Baum. So liefert er keine
     halbe Datei, die das Plugin unter einem Namen mit `.` vorn schreibt,
     und kein `..`.
   - **Bilder** nur direkt in `images/`, ohne Unterordner, als `.png` oder

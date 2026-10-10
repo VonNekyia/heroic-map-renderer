@@ -723,6 +723,21 @@ impl SpriteSet {
         Ok(unbekannt)
     }
 
+    /// Nimmt eine Familie aus fertigen Modellen auf, ohne Welt, etwa ein
+    /// Banner mit Krone: Anders als bei [`SpriteSet::add_entities`] darf sie
+    /// eine andere Form haben als die des Blocks. `None`, wenn sie nichts
+    /// zeichnet.
+    pub fn familie_aus(
+        &mut self,
+        assets: &Assets,
+        state: &BlockState,
+        models: &[(u32, BakedModel)],
+    ) -> Option<u32> {
+        let family = self.rastere_familie(assets, state, models, false)?;
+        self.families.push(family);
+        Some(self.families.len() as u32 - 1)
+    }
+
     /// Die Familie eines Blocks, dessen Blockentity diese Daten trägt, falls
     /// sie sein Bild ändern, siehe [`SpriteSet::add_entities`].
     pub fn variante(&self, family: u32, daten: &Blockdaten) -> Option<u32> {

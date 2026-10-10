@@ -34,6 +34,7 @@ use rayon::prelude::*;
 
 #[cfg(any(windows, test))]
 mod assistent;
+mod banner;
 mod client;
 mod manifest;
 mod pixel;
@@ -270,7 +271,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "compact_tree", "flat",
+        "cache_dir", "compact", "compact_tree", "flat", "banners", "out",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -285,7 +286,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "pyramid", "flat",
+        "cache_dir", "compact", "pyramid", "flat", "banners", "out",
     ])]
     compact_tree: Option<PathBuf>,
 
@@ -295,6 +296,25 @@ pub struct Args {
     #[arg(long)]
     manifest: bool,
 
+    /// Die Sprites der Banner zu den Entwürfen dieser Dateien von Ebenen
+    /// nach --out zeichnen, je Satz ohne und mit Krone, ohne Welt und
+    /// Kacheln; was zu keiner Datei, keinem Entwurf und keinem Satz mehr
+    /// gehört, löschen. Mit --tiles je Baum aus trees.json, der nicht von
+    /// oben schaut, ein Satz, dazu immer `oben`. Die letzte Zeile auf stdout
+    /// nennt als JSON, welche Ebenen sich änderten und welche nicht gingen
+    #[arg(long, value_name = "DATEI", num_args = 0.., requires = "out", conflicts_with_all = [
+        "world", "at", "block", "sprite", "scale", "camera", "direction", "biome_blend", "render",
+        "cinematic", "center", "area", "size", "scan", "prune", "native_levels", "resume", "update",
+        "gpu", "progress", "estimate", "defender_exclusion", "heights", "pyramid", "compact_tree",
+        "manifest", "serve", "compact", "flat",
+    ])]
+    banners: Option<Vec<PathBuf>>,
+
+    /// Mit --banners der Ordner, unter dem je modname `banner/` liegt; für
+    /// öffentliche Ebenen `layers/` unter --tiles
+    #[arg(long, value_name = "VERZEICHNIS", requires = "banners")]
+    out: Option<PathBuf>,
+
     /// Diese Wurzel von --tiles ausliefern, die Kacheln unter /tiles/, mit
     /// den Headern der Karte, ETag und 304. Liest nur und läuft, bis der
     /// Prozess endet
@@ -303,7 +323,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact",
-        "compact_tree", "flat",
+        "compact_tree", "flat", "banners", "out",
     ])]
     serve: Option<PathBuf>,
 
@@ -613,7 +633,12 @@ pub fn run() -> Result<()> {
     // Ohne eigene Assets nur mit Zustimmung zum Client-Jar; sonst nennt die
     // Meldung den Text und den Weg von Hand.
     let ohne_assets = args.assets.is_empty() && !args.download_client_jar;
-    if ohne_assets && (args.render.is_some() || args.tiles.is_some() || !args.block.is_empty()) {
+    if ohne_assets
+        && (args.render.is_some()
+            || args.tiles.is_some()
+            || !args.block.is_empty()
+            || args.banners.is_some())
+    {
         let jar = client::waehle(args.client_version.as_deref(), datenversion(&args.world)?)?;
         bail!(
             "ohne --assets braucht der Lauf das Client-Jar von Mojang. {}\n\
@@ -627,7 +652,7 @@ pub fn run() -> Result<()> {
     if args.render.is_some() && args.world.is_none() {
         bail!("--render braucht --world");
     }
-    if args.tiles.is_some() && args.world.is_none() {
+    if args.tiles.is_some() && args.world.is_none() && args.banners.is_none() {
         bail!("--tiles braucht --world");
     }
     if args.manifest
@@ -656,6 +681,7 @@ pub fn run() -> Result<()> {
     if let Some(dir) = &args.tiles
         && cfg!(windows)
         && !args.estimate
+        && args.banners.is_none()
     {
         match warum_keine_ausnahme(dir) {
             Some(grund) if args.defender_exclusion => println!(
@@ -786,6 +812,29 @@ pub fn run() -> Result<()> {
             Some(assets)
         }
     };
+
+    // --banners zeichnet nur die Sprites der Banner, ohne Welt und Kacheln.
+    // Siehe docs/benutzung/ebenen.md, „Sprites“.
+    if let Some(dateien) = &args.banners {
+        let assets = assets
+            .as_mut()
+            .context("--banners braucht --assets oder --download-client-jar")?;
+        let out = args.out.as_deref().context("--banners braucht --out")?;
+        let wurzeln: Vec<PathBuf> = asset_wurzeln
+            .iter()
+            .chain(&daten_wurzeln)
+            .cloned()
+            .collect();
+        let meldung = banner::banners(
+            assets,
+            dateien,
+            out,
+            args.tiles.as_deref(),
+            fingerabdruck_der_dateien(&wurzeln),
+        )?;
+        println!("{meldung}");
+        return Ok(());
+    }
 
     let world = match &args.world {
         None => None,

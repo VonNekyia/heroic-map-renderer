@@ -787,8 +787,11 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 - **Name eines Banners:** auf einem Bogen unter dem Fuss, nach unten
   gewölbt, jedes Zeichen aufrecht zum Bogen wie die Kartenschrift an ihrem
   Pfad, siehe [0102](../entscheidungen/0102-name-im-bogen.md). In Einheiten
-  der Ansicht, `s` die Schriftgrösse von oben, `h` die Höhe des Sprites oder
-  Bilds, `F` der Fuss, y nach unten:
+  der Ansicht, `s` die Schriftgrösse von oben, `F` der Fuss, y nach unten,
+  `h` die Höhe des Banners, wie die Ansicht es zeichnet, in ihren
+  Einheiten: auf der Webkarte die Höhe von Sprite oder Bild in Pixeln des
+  Bildschirms, im Mod nach seinem Faktor für Ebenen, höchstens 32
+  Einheiten:
   - **Sperrung** `0,125 · s` zwischen den Zeichen, nicht nach dem letzten:
     auf der Webkarte 2 Pixel, im Mod 1,25 Einheiten.
   - **Länge** `L`: die Vorschübe aller Zeichen plus die Sperrung, gemessen

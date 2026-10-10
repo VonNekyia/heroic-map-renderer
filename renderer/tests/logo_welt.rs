@@ -79,22 +79,24 @@ fn eiche(x: i32, y: i32, z: i32) -> &'static str {
     }
 }
 
-/// Die Fichte an derselben Stelle, Stamm bei (6, 6..=11, 6): das Logo des
-/// Mods. Wie im Spiel schmal und in Ringen, abwechselnd breiter und
-/// schmaler, nach oben kleiner; unten ein Stück Stamm frei, oben ein Block.
-/// Einen Block höher als die Eiche; die schmale Spitze passt mit scale 36
-/// noch in denselben Rahmen.
+/// Die Fichte an derselben Stelle, Stamm bei (6, 6..=13, 6): das Logo des
+/// Mods. Ein Kegel wie die Fichte im Spiel: unten mit Radius 2, nach oben
+/// Stufe für Stufe schmaler bis zu einem Block, darunter zwei Blöcke Stamm
+/// frei. Jede Breite hält zwei Lagen, sonst wirkt der Kegel von schräg oben
+/// rund. Drei Blöcke höher als die Eiche: Gerendert mit scale 32 statt 36
+/// passt sie in denselben Rahmen, siehe den Skill.
 fn fichte(x: i32, y: i32, z: i32) -> &'static str {
     let blatt = "minecraft:spruce_leaves[distance=1,persistent=true,waterlogged=false]";
     let (bx, bz) = (x - 6, z - 6);
     let (ax, az) = (bx.abs(), bz.abs());
     match y {
-        6..=11 if (bx, bz) == (0, 0) => "minecraft:spruce_log[axis=y]",
-        // Eine Raute, ein Kreuz, 3 x 3, ein Kreuz, die Spitze.
-        8 if ax + az <= 2 => blatt,
-        9 | 11 if ax + az <= 1 => blatt,
-        10 if ax <= 1 && az <= 1 => blatt,
-        12 if (bx, bz) == (0, 0) => blatt,
+        6..=13 if (bx, bz) == (0, 0) => "minecraft:spruce_log[axis=y]",
+        // Zweimal 5 x 5 ohne Ecken, eine Raute, zweimal 3 x 3, ein Kreuz, die Spitze.
+        8 | 9 if ax <= 2 && az <= 2 && !(ax == 2 && az == 2) => blatt,
+        10 if ax + az <= 2 => blatt,
+        11 | 12 if ax <= 1 && az <= 1 => blatt,
+        13 if ax + az <= 1 => blatt,
+        14 if (bx, bz) == (0, 0) => blatt,
         _ => "minecraft:air",
     }
 }

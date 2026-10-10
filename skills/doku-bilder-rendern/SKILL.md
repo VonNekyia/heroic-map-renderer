@@ -67,12 +67,13 @@ Testwelt liegt unter `./world`, die Assets wie in
    [`logo.py`](logo.py) schneidet zu, legt den Umriss nur um die äussere
    Silhouette, füllt Löcher im Laub dunkelgrün und verdoppelt ohne
    Glättung. Das dritte Argument ist der Abstand der Insel zum oberen Rand,
-   8 für die Eiche, 4 für die einen Block höhere Fichte, die den Rahmen so
-   fast ganz füllt.
+   8 für die Eiche, 4 für die Fichte. Die Fichte ist drei Blöcke höher und
+   wird darum mit `--scale 32` statt 36 gerendert; so trägt sie derselbe
+   Rahmen, die Insel ist 11 % kleiner.
 
    ```bash
    LOGO_WELT=<ordner> cargo test --release --manifest-path renderer/Cargo.toml --test logo_welt -- --ignored --exact logo_welt_fichte
-   cargo run --release --manifest-path renderer/Cargo.toml -- --world <ordner> --assets ./vanilla-assets --data ./vanilla-data --render fichte.png --center 8 8 --size 576 --scale 36
+   cargo run --release --manifest-path renderer/Cargo.toml -- --world <ordner> --assets ./vanilla-assets --data ./vanilla-data --render fichte.png --center 8 8 --size 576 --scale 32
    python skills/doku-bilder-rendern/logo.py fichte.png heroic-map-mod.png 4
    ```
 4. **Die übrigen Bilder** `kacheln.png`, `zoomstufen.png`,

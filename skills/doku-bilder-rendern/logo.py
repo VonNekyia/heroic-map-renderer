@@ -1,7 +1,8 @@
 """Logo aus dem Render der Insel: zuschneiden, Umriss, ins Quadrat, ganzzahlig vergrössern.
 
-Der Render ist `--render … --center 8 8 --size 576 --scale 36` der Szene aus
-renderer/tests/logo_welt.rs. Daraus ein Feld von 300 × 300 mit 2 Pixeln
+Der Render ist `--render … --center 8 8 --size 576` der Szene aus
+renderer/tests/logo_welt.rs, mit `--scale 36` für die Eiche, 32 für die
+höhere Fichte. Daraus ein Feld von 300 × 300 mit 2 Pixeln
 Umriss um die äussere Silhouette, die Insel `oben` Pixel unter dem oberen
 Rand, verdoppelt ohne Glättung auf 600 × 600; dazu geglättet 512 × 512 für
 Modrinth als `<aus>-512.png`. Mit `vergleich.png` zählt es, wie viele Pixel

@@ -420,7 +420,8 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
   - Kennungen und Bilder gegen die Regel aus [Ebenen](benutzung/ebenen.md),
     „Kennung“, übergeht sie ebenso mit Meldung.
 - **Nadeln und Banner:** Leaflet-Marker mit ihrem Bild auf einer Leinwand,
-  Pixel auf Pixel, der Name darunter:
+  Pixel auf Pixel, der Name darunter in der Kartenschrift; die Schrift
+  lädt mit dem ersten Namen, `ladeSchrift` in `schrift.ts`:
   - die Nadel: Feld, Symbol und Rahmen aus `web/src/ebenen/schild_*.png`
     nach [Ebenen](benutzung/ebenen.md), „Nadel“; die Bilder stammen vom
     Designer;
@@ -443,13 +444,14 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
 - **Infotafel:** ein Popup von Leaflet, gebaut nur aus Elementen mit
   `textContent` und Bildern unter `images/` der Ebene, in Grund und Schrift
   der UI. Höchstens 320 Pixel breit und 70 % des Fensters hoch, darüber
-  scrollt sie; breitere Bilder verkleinert CSS mit `max-width`, im
-  Verhältnis von `width` und `height` per `aspect-ratio`, nicht dem der
-  Datei. `image-rendering: pixelated` bekommt ein Bild nur, wenn beide
-  Achsen einen ganzen Faktor aus Pixeln des Geräts je Pixel der Datei
-  haben; sonst gingen beim Verkleinern Zeilen verloren. Bei Nadel und
-  Banner steht sie über dem Icon, bei einer Fläche über dem Ort, an dem
-  der Zeiger ruht.
+  scrollt sie. Bei Nadel und Banner steht sie über dem Icon, bei einer
+  Fläche über dem Ort, an dem der Zeiger ruht.
+  - **Bilder:** Breitere verkleinert CSS mit `max-width`, im Verhältnis von
+    `width` und `height` per `aspect-ratio`, nicht dem der Datei, und
+    geglättet, sonst gingen Zeilen verloren. Vergrössert, mit dem Faktor
+    `f` aus gezeigten Pixeln des Geräts je Pixel der Datei ab 1, ist jedes
+    Pixel `k = round(f)` Pixel des Geräts breit, mit `pixelated`, höchstens
+    320 Pixel breit, wie bei den Bannern.
   - **Zeigen und Halten:** `tafelAn` in `ebenen.ts` nach
     [Ebenen](benutzung/ebenen.md), „Infotafel“, mit Zeitgebern für 150 und
     300 ms. Jede Bewegung auf dem Ziel (`mousemove`) beginnt die Ruhe von
@@ -469,10 +471,11 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Region nur mit Namen zählt als daneben. Ein Klick nach dem Ziehen der
     Karte zählt nicht.
   - **Per Tastatur:** Enter auf Nadel oder Banner öffnet sie mit dem Fokus
-    darin, auch wenn sie beim Zeigen schon offen war; Escape schliesst sie und gibt den Fokus dem Ziel zurück, wenn er
-    in der Tafel war. Nach einem Klick bleibt der Fokus, wo er ist. Der
-    Fokus scrollt nie (`preventScroll`): Ein Scrollen des Containers setzt
-    Leaflet zwar zurück, aber erst nach dem Sprung.
+    darin, auch wenn sie beim Zeigen schon offen war; Escape schliesst sie
+    und gibt den Fokus dem Ziel zurück, wenn er in der Tafel war. Nach
+    einem Klick bleibt der Fokus, wo er ist. Der Fokus scrollt nie
+    (`preventScroll`): Ein Scrollen des Containers setzt Leaflet zwar
+    zurück, aber erst nach dem Sprung.
 - **Regionen, Kreise und Linien:** Pfade von Leaflet in einem SVG je Ebene,
   nach [Ebenen](benutzung/ebenen.md), „Zeichnen“:
   - übereinander: je Ebene ein Pane, `z-index` 410 + Rang, unter den Panes
@@ -517,7 +520,7 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
   Zooms ausgeblendet:
   - die Schrift IM FELL English SC, die TTF unverändert aus
     `web/src/ebenen/schrift/`, mit `FontFace` geladen, sobald eine Ebene
-    Schrift zeigt;
+    Schrift oder den Namen einer Nadel oder eines Banners zeigt;
   - Höhe der Grossbuchstaben `size · scale · 2^(Zoom − maxZoom)` Pixel;
     die Schriftgrösse ist sie durch 1384/2048, die Oberkante des „H“ der
     Schrift. Unter 8 Pixeln aus, über 96 gedeckelt;

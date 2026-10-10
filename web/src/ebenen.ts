@@ -16,7 +16,7 @@ import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, zurKamera, t
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
 import { farbe, istObjekt, istText, punkt } from './pruefen';
-import { Schrift, schriftzug, type Schriftzug } from './schrift';
+import { ladeSchrift, Schrift, schriftzug, type Schriftzug } from './schrift';
 
 /** Ein Eintrag in `layers.json`. */
 interface Eintrag {
@@ -277,11 +277,17 @@ export function tafel(bausteine: unknown[], ordner: string, v: string): HTMLElem
     // Verkleinert per max-width, im Verhältnis von width und height, nicht dem der Datei.
     const [breite, hoehe] = [b.width as number, b.height as number];
     img.style.aspectRatio = `${breite} / ${hoehe}`;
-    // Pixelkunst nur bei ganzem Faktor aus Pixeln des Geräts je Pixel der Datei, sonst gingen Zeilen verloren.
+    // Vergrössert wie ein Banner: k = round(Faktor) Pixel des Geräts je Pixel
+    // der Datei, ohne Glättung, höchstens 320 breit. Verkleinert geglättet,
+    // sonst gingen Zeilen verloren. Siehe docs/frontend.md, „Ebenen“.
     img.addEventListener('load', () => {
+      const [nb, nh] = [img.naturalWidth, img.naturalHeight];
       const gezeigt = Math.min(breite, TAFEL_BREITE);
-      const faktoren = [(gezeigt * devicePixelRatio) / img.naturalWidth, ((gezeigt * hoehe) / breite) * devicePixelRatio / img.naturalHeight];
-      img.classList.toggle('ganz', faktoren.every((f) => f >= 1 && Math.abs(f - Math.round(f)) < 1e-6));
+      const [fb, fh] = [(gezeigt * devicePixelRatio) / nb, ((gezeigt * hoehe) / breite) * devicePixelRatio / nh];
+      const kb = Math.min(Math.round(fb), Math.floor((TAFEL_BREITE * devicePixelRatio) / nb));
+      if (fb < 1 || fh < 1 || kb < 1) return;
+      [img.style.width, img.style.height] = [`${(nb * kb) / devicePixelRatio}px`, `${(nh * Math.round(fh)) / devicePixelRatio}px`];
+      img.classList.add('ganz');
     });
     return img;
   };
@@ -711,7 +717,11 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(bild, 0, 0, b * k, h * k);
     html.append(kopie);
-    if (name) L.DomUtil.create('span', 'nadel-name', html).textContent = name;
+    if (name) {
+      // Der Name steht in der Kartenschrift; bis sie geladen ist, in der Vorgabe von style.css.
+      void ladeSchrift();
+      L.DomUtil.create('span', 'nadel-name', html).textContent = name;
+    }
     return L.divIcon({ html, className: 'nadel-icon', iconSize: [b * s, h * s], iconAnchor: [Math.floor(b / 2) * s, h * s] });
   };
 

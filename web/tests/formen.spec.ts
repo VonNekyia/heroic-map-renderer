@@ -448,6 +448,37 @@ test('die Kartenschrift steht in der Schrift der Karte, ohne Verletzung der Cont
   await expect(schrift(page, 'meer')).toHaveCSS('display', 'none');
 });
 
+test('Grenzfälle der Kartenschrift wie im Format: ohne Kontur bei {}, null oder keinem Objekt, size ≤ 0 oder kein Zahl wird 16, spacing auf 0 bis 1 gekappt, ein Feld mit falschem Typ nimmt die Vorgabe', async ({ page }) => {
+  const zug = (id: string, mehr: object, i: number) => ({ id, type: 'label', text: 'Meer', path: [[-30 + 25 * (i % 6), -40 - 25 * Math.floor(i / 6)]], size: 4, ...mehr });
+  const faelle: [string, object][] = [
+    ['leer', { outline: {} }],
+    ['null', { outline: null }],
+    ['text', { outline: 'rot' }],
+    ['breite-text', { outline: { width: '3' } }],
+    ['farbe-zahl', { outline: { color: 5, width: 3 } }],
+    ['groesse-null', { size: 0 }],
+    ['groesse-minus', { size: -2 }],
+    ['groesse-text', { size: '4' }],
+    ['weit', { spacing: 5 }],
+    ['eng', { spacing: -1 }],
+    ['sperrung-text', { spacing: '0.3' }],
+    ['farbe-falsch', { color: 123 }],
+  ];
+  await welt(page, staedte(faelle.map(([id, mehr], i) => zug(id, mehr, i)), { mehr: { minZoom: -6 } }));
+  // Zwei Stufen unter der feinsten ist ein Block 4 Pixel breit: size 4 heisst 16 Pixel, size 16 heisst 64.
+  await page.goto(`${DEMO}&at=30,0,-40&zoom=-2`);
+  await expect(schrift(page, 'farbe-falsch')).toHaveCount(1);
+  const text = (id: string) => schrift(page, id).locator('text');
+  for (const id of ['leer', 'null', 'text', 'breite-text']) await expect(text(id), id).not.toHaveAttribute('stroke', /.*/);
+  await expect(text('farbe-zahl')).toHaveAttribute('stroke', '#F2E8D0');
+  for (const id of ['groesse-null', 'groesse-minus', 'groesse-text']) expect(Math.abs((await hHoehe(page, id)) - 64), id).toBeLessThanOrEqual(1);
+  // Die Sperrung in Pixeln: Anteil mal Höhe der Grossbuchstaben, hier 16.
+  await expect(text('weit')).toHaveAttribute('letter-spacing', '16');
+  await expect(text('eng')).toHaveAttribute('letter-spacing', '0');
+  await expect(text('sperrung-text')).toHaveAttribute('letter-spacing', '0');
+  await expect(text('farbe-falsch')).toHaveAttribute('fill', '#2B2B2B');
+});
+
 test('die Kartenschrift liegt auf ihrem Pfad im iso über dem Gelände; nach links kehrt sie um, zu kurz geht der Pfad weiter, ein Punkt heisst waagrecht', async ({ page }) => {
   const links = { ...WESTMEER, id: 'links', path: [[90, -40], [-30, -40]] };
   const kurz = { ...WESTMEER, id: 'kurz', text: 'Ein langer Name', path: [[30, -10], [31, -10]] };

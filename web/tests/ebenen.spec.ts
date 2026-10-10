@@ -169,7 +169,7 @@ test('ein Symbol in falscher Grösse bleibt weg, das Schild leer, und die Konsol
   expect(ist).toEqual(await schildSoll(page, 'mittel', 15, 23, [0x40, 0xe5, 0x3f], undefined));
 });
 
-test('Nadeln und Banner bleiben beim Hinauszoomen gleich gross, jede mit ihrem Namen, Städte wie Dörfer', async ({ page }) => {
+test('Nadeln und Banner bleiben beim Hinauszoomen gleich gross, jede mit ihrem Namen in der Kartenschrift, Städte wie Dörfer', async ({ page }) => {
   const dorf = { ...HAFEN, id: 'dorf', name: 'Dorf', size: 'small', at: [30.5, -20.5], panel: undefined };
   const fahne = { id: 'fahne', type: 'banner', at: [40.5, -10.5], image: 'images/fahne.png', name: 'Fahne' };
   // scale 4: Auf Stufe −8 ist ein Block 1/64 Pixel breit; früher war dort jede Nadel aus.
@@ -182,6 +182,9 @@ test('Nadeln und Banner bleiben beim Hinauszoomen gleich gross, jede mit ihrem N
     );
     expect(groessen, `Zoom ${zoom}`).toEqual(['Dorf 9 × 15', 'Fahne 22 × 40', 'Hafenstadt 23 × 33']);
   }
+  // Die Namen in der Kartenschrift, 12 Pixel, auch ohne Kartenschrift in der Ebene.
+  expect(await page.locator('.nadel-name').first().evaluate((e) => [getComputedStyle(e).fontFamily, getComputedStyle(e).fontSize])).toEqual(['Kartenschrift, serif', '12px']);
+  expect(await page.evaluate(async () => (await document.fonts.ready).check('12px Kartenschrift'))).toBe(true);
 });
 
 test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2⌋ auf seinem Block; breiter, höher, ausserhalb von images/ oder in anderem Format übergeht die Karte mit Meldung und holt nur die erlaubten Bilder', async ({ page }) => {
@@ -478,6 +481,8 @@ test('eine gehaltene Tafel übersteht das Zeigen auf ein anderes Ziel, per Klick
   await a.focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('.tafel .leaflet-popup-content')).toBeFocused();
+  // Erst weg, damit das Zeigen auf B wirklich ankommt.
+  await page.mouse.move(0, 0);
   await b.hover();
   await page.clock.runFor(1000);
   expect(await titel()).toEqual(['✪ Hafenstadt']);
@@ -622,24 +627,56 @@ test('Escape und ein Klick daneben schliessen zuerst nur die Tafel: Der festgeha
   expect(await anzeige.textContent()).toBe(block);
 });
 
-test('ein Bild der Tafel breiter als 320 Pixel wird mit gleichem Seitenverhältnis verkleinert, ein schmales nie vergrössert; ohne Glättung nur bei ganzem Faktor', async ({ page }) => {
-  const bild = (image: string, width: number, height: number) => ({ type: 'image', image, width, height });
-  // Die Dateien: burg_16 ist 16 × 16, burg_9 ist 9 × 9.
-  const breit = { ...HAFEN, panel: { blocks: [bild('images/burg_16.png', 512, 64), bild('images/burg_9.png', 9, 9), bild('images/burg_16.png', 32, 32), bild('images/burg_16.png', 24, 24)] } };
-  await welt(page, staedte([breit]));
+/** Breite, Höhe und `image-rendering` der Bilder in der Tafel, sobald alle geladen sind. */
+const tafelBilder = async (page: Page) => {
+  const bilder = page.locator('.tafel img');
+  await expect.poll(() => bilder.evaluateAll((l) => l.length > 0 && l.every((i) => (i as HTMLImageElement).complete))).toBe(true);
+  return bilder.evaluateAll((l) => l.map((i) => [i.getBoundingClientRect().width, i.getBoundingClientRect().height, getComputedStyle(i).imageRendering]));
+};
+
+/** Ein Baustein `image`. */
+const tafelBild = (image: string, width: number, height: number) => ({ type: 'image', image, width, height });
+
+test('ein Bild der Tafel breiter als 320 Pixel wird geglättet verkleinert, im Verhältnis von width und height; vergrössert um ganze k = round(Faktor) ohne Glättung', async ({ page }) => {
+  // burg_16 ist 16 × 16, burg_9 ist 9 × 9.
+  const tafel = { ...HAFEN, panel: { blocks: [
+    tafelBild('images/flach.png', 512, 64),
+    tafelBild('images/quadrat.png', 512, 512),
+    tafelBild('images/burg_9.png', 9, 9),
+    tafelBild('images/burg_16.png', 32, 32),
+    tafelBild('images/burg_16.png', 24, 24),
+    tafelBild('images/burg_16.png', 20, 20),
+  ] } };
+  const dateien: Record<string, Buffer> = { 'flach.png': png(512, 64), 'quadrat.png': png(512, 512) };
+  await welt(page, staedte([tafel], { bild: (n) => dateien[n] ?? BILDER[n] }));
   await page.goto(`${DEMO}&at=35,0,-15`);
   await page.locator('.nadel-icon[title="Hafenstadt"]').click();
-  const bilder = page.locator('.tafel img');
-  await expect(bilder).toHaveCount(4);
-  await expect.poll(() => bilder.evaluateAll((l) => l.every((i) => (i as HTMLImageElement).complete))).toBe(true);
-  const masse = await bilder.evaluateAll((l) => l.map((i) => [i.getBoundingClientRect().width, i.getBoundingClientRect().height, getComputedStyle(i).imageRendering]));
-  expect(masse).toEqual([
-    // 320 / 16 = 20, aber 40 / 16 = 2,5: kein ganzer Faktor.
+  expect(await tafelBilder(page)).toEqual([
     [320, 40, 'auto'],
+    [320, 320, 'auto'],
     [9, 9, 'pixelated'],
     [32, 32, 'pixelated'],
-    [24, 24, 'auto'],
+    // 1,5 rundet auf 2, 1,25 auf 1.
+    [32, 32, 'pixelated'],
+    [16, 16, 'pixelated'],
   ]);
+});
+
+test.describe('bei devicePixelRatio 1.5', () => {
+  test.use({ deviceScaleFactor: 1.5 });
+
+  test('ein Bild der Tafel ist k = round(Faktor) Pixel des Geräts je Pixel der Datei, höchstens 320 Pixel breit', async ({ page }) => {
+    const tafel = { ...HAFEN, panel: { blocks: [tafelBild('images/burg_16.png', 16, 16), tafelBild('images/burg_16.png', 320, 320)] } };
+    await welt(page, staedte([tafel]));
+    await page.goto(`${DEMO}&at=35,0,-15`);
+    await page.locator('.nadel-icon[title="Hafenstadt"]').click();
+    const [klein, gross] = await tafelBilder(page);
+    // 16 · 1,5 / 16 = 1,5 → k = 2: 32 Pixel des Geräts; 320 · 1,5 / 16 = 30 → 480 Pixel des Geräts.
+    expect(Math.abs((klein![0] as number) * 1.5 - 32)).toBeLessThan(1 / 32);
+    expect(klein![2]).toBe('pixelated');
+    expect(Math.abs((gross![0] as number) - 320)).toBeLessThan(1 / 32);
+    expect(gross![2]).toBe('pixelated');
+  });
 });
 
 test.describe('auf dem Touchscreen', () => {

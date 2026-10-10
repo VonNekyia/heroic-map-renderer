@@ -22,7 +22,14 @@ export interface Schriftzug {
   kontur?: { farbe: string; breite: number };
 }
 
-/** Liest eine Kartenschrift; anderes ist `undefined`. Eine unbekannte `font` gilt als `map`. */
+/** Höchste Sperrung, in Anteilen von `size`; siehe docs/benutzung/ebenen.md, „Kartenschrift“. */
+const SPERRUNG = 1;
+
+/**
+ * Liest eine Kartenschrift; anderes ist `undefined`. Eine unbekannte `font`
+ * gilt als `map`, ein Feld mit falschem Typ als fehlend. Die Grenzfälle
+ * stehen in docs/benutzung/ebenen.md, „Kartenschrift“.
+ */
 export function schriftzug(wert: Record<string, unknown>): Schriftzug | undefined {
   if (wert.type !== 'label' || !istText(wert.id, 64) || !istText(wert.text, 64)) return undefined;
   const pfad = punkte(wert.path, 1, 64);
@@ -33,7 +40,7 @@ export function schriftzug(wert: Record<string, unknown>): Schriftzug | undefine
     text: wert.text,
     pfad,
     groesse: istZahl(wert.size) && wert.size > 0 ? wert.size : 16,
-    sperrung: istZahl(wert.spacing) ? wert.spacing : 0,
+    sperrung: istZahl(wert.spacing) ? Math.min(SPERRUNG, Math.max(0, wert.spacing)) : 0,
     farbe: farbe(wert.color) ?? '#2B2B2B',
     kontur: kontur && { farbe: farbe(kontur.color) ?? '#F2E8D0', breite: kontur.width as number },
   };
@@ -49,9 +56,9 @@ const KAPPE = 1384 / 2048;
 /** Grenzen aus docs/benutzung/ebenen.md, „Kartenschrift“, in Pixeln der Höhe der Grossbuchstaben. */
 const LESBAR = { min: 8, max: 96 };
 
-/** Die Schrift der Karte, einmal geladen; bis dahin misst der Browser mit einer anderen. */
+/** Die Schrift der Karte, einmal geladen; bis dahin misst der Browser mit einer anderen. Auch für die Namen von Nadeln und Bannern. */
 let schrift: Promise<unknown> | undefined;
-function ladeSchrift(): Promise<unknown> {
+export function ladeSchrift(): Promise<unknown> {
   schrift ??= new FontFace('Kartenschrift', `url(${schriftDatei})`)
     .load()
     .then((f) => document.fonts.add(f))

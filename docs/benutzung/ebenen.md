@@ -356,9 +356,12 @@ sobald der Zeiger darauf ruht. Sie ist eine Liste von Bausteinen, kein
 HTML: Webkarte und Mod zeichnen dieselbe Tafel, und fremdes Markup auf der
 Webkarte wäre eine Lücke für Skripte.
 
-- **Beim Zeigen:** Ruht der Zeiger 150 ms auf dem Ziel, erscheint die
-  Tafel. Verlässt er Ziel und Tafel, schliesst sie nach 300 ms; dazwischen
-  kann er in die Tafel wandern, etwa zum Scrollen.
+- **Beim Zeigen:** Ruht der Zeiger 50 ms auf dem Ziel, erscheint die
+  Tafel, auf Wunsch des Users am 10.10., vorher 150 ms. Verlässt er Ziel
+  und Tafel, schliesst sie nach 300 ms; dazwischen kann er in die Tafel
+  wandern, etwa zum Scrollen. Bilder in der Tafel halten das Öffnen nicht
+  auf: Die Tafel kommt mit dem Text, ihre Bilder laden nach, in der Grösse
+  aus `width` und `height`.
 - **Ein Klick** hält sie offen, bis zum Schliessknopf, zu Escape oder zu
   einem Klick daneben. Solange eine gehaltene Tafel offen ist, öffnet
   Zeigen auf ein anderes Ziel keine Tafel; ein Klick darauf wechselt.
@@ -418,8 +421,33 @@ Webkarte wäre eine Lücke für Skripte.
   höchstens 200 Einheiten seiner Oberfläche breit, mit Rand 6, denn 320
   wären bei GUI-Massstab 2 fast der ganze Schirm; das legt der Mod in
   seiner eigenen Entscheidung fest (Repository des Mods, #52).
-- **Farben** von Grund und Schrift kommen aus der Ansicht: auf der Webkarte
-  aus der UI, siehe [Frontend](../frontend.md), im Mod aus seiner.
+- **Aussehen,** dunkel und gleich in Webkarte und Mod, auf Wunsch des
+  Users am 10.10.; im Mod in der schlichten Fassung, die Skins des Mods
+  haben eigene Bilder:
+  - Grund `#101014` mit Alpha 0,88 (`0xE0`), leicht durchscheinend;
+  - Rahmen aussen 1 Pixel `#000000`, innen 1 Pixel `#3A3A44`, die Ecken
+    kaum gerundet;
+  - Schrift `#D9D9D9`, ein Titel fett, mit eigener `color` in dieser.
+  - **Ein Titel bleibt lesbar:** Liegt der Kontrast seiner `color` gegen
+    den Grund ohne Alpha, `#101014`, unter 3:1, hellt die Ansicht sie im
+    selben Farbton auf. So bleibt eine Nation an ihrer Farbe erkennbar.
+    Beide Ansichten rechnen genau so:
+    1. Kontrast nach WCAG 2.1: `(L1 + 0,05) / (L2 + 0,05)`, `L` die
+       relative Leuchtdichte, je Kanal `s = c / 255`,
+       `s / 12,92` bis 0,03928, sonst `((s + 0,055) / 1,055)^2,4`,
+       gewichtet 0,2126, 0,7152 und 0,0722. Die Schwelle 0,04045 aus sRGB
+       gibt dasselbe: Kein Kanal von 0 bis 255 liegt dazwischen.
+    2. Für s = 0, 1, 2 … 10 je Kanal `⌊(10 · c + (255 − c) · s + 5) / 10⌋`,
+       also um s · 10 % mit Weiss gemischt, auf ganze Zahlen gerundet, 0,5
+       aufwärts. Gleich ist `round(c + (255 − c) · s / 10)`, wenn erst
+       multipliziert und dann geteilt wird; `c + (255 − c) · (0,1 · s)`
+       kann sich verrunden. Das erste Ergebnis mit 3:1 oder mehr gilt;
+       s = 10 ist Weiss.
+    3. Alpha bleibt, wie es war.
+
+    Beispiele: `#2B3A55` wird nach zwei Schritten `#556177` (3,04:1),
+    `#000000` nach vier `#666666` (3,31:1); `#40E53F` (11,3:1),
+    `#D9443A` (4,37:1) und `#CC52A7` (4,82:1) bleiben.
 - **Schrift:** eine schlichte, gut lesbare Schrift der Oberfläche, nie die
   Kartenschrift: auf der Webkarte die der UI, im Mod die des Spiels. Die
   Grössen in der Tabelle gelten für die Webkarte; der Mod nimmt die Grösse
@@ -644,10 +672,13 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
   seine Wegpunkte. Auf der Webkarte ist ein Pixel des Bilds eine ganze
   Zahl Pixel des Geräts breit, gerundet aus `devicePixelRatio`. Sie hängt
   nicht am Zoom.
-- **Name:** immer, unter dem Fuss der Nadel oder des Banners, in der
-  Kartenschrift (`map`, siehe „Kartenschrift“) und in fester Grösse, auf
-  der Webkarte 12 Pixel. So zeigt ein Plugin für Städte die Namen am
-  Banner, ohne eigene Kartenschrift.
+- **Name:** immer, mittig unter dem Fuss der Nadel oder des Banners, und
+  er sieht aus wie die Kartenschrift, nicht wie die Oberfläche: Schrift
+  `map`, Farbe `#2B2B2B`, Kontur `#F2E8D0` 2 Pixel breit, ohne Kasten.
+  Die Grösse ist fest, auf jeder Stufe gleich: auf der Webkarte
+  Schriftgrösse 16 Pixel, im Mod 10 Einheiten seiner Oberfläche, im
+  Verhältnis wie die Breite der Tafel, 200 zu 320. So zeigt ein Plugin für
+  Städte die Namen am Banner, ohne eigene Kartenschrift.
 
 ### Reihenfolge, Zeigen und Anklicken
 

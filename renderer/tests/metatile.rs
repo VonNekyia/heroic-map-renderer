@@ -6207,13 +6207,17 @@ fn flach_relief_ueber_ein_hoehenfeld() {
     };
     let chunks: Vec<(i32, i32)> = (0..65).map(|cz| (0, cz)).collect();
     let dir = tempdir();
-    common::write_world(dir.path(), &chunks, move |x, y, z| {
+    let block = move |x: i32, y: i32, z: i32| {
         if y <= hoehe(x, z) {
             "minecraft:stone"
         } else {
             "minecraft:air"
         }
-    });
+    };
+    // Je Region eine Datei: 32 Chunks in z.
+    for region in chunks.chunks(32) {
+        common::write_world(dir.path(), region, block);
+    }
     let world = World::open(dir.path()).unwrap();
     let sprites = tabelle(&mut assets(), &world, flach());
     let rect = ScreenRect {
@@ -6247,4 +6251,33 @@ fn flach_relief_ueber_ein_hoehenfeld() {
         }
     }
     assert!(hell.iter().all(|&n| n > 100), "{hell:?}");
+}
+
+/// Durchscheinendes hat seine eigene Höhe: Eis auf y = 2 über Stein auf
+/// y = 0, dazwischen Luft. Am Eis zeichnen zwei Draws, das Eis und der Stein
+/// darunter; der oberste, das Eis, setzt die Höhe. Die Stufe nach Norden ist
+/// hell, der Stein südlich davon dunkel. Nähme das Relief den Stein, wäre
+/// beides eben.
+#[test]
+fn flach_durchscheinendes_hat_seine_hoehe() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |_, y, z| match (y, z) {
+        (0, _) => "minecraft:stone",
+        (2, 8) => "minecraft:ice",
+        _ => "minecraft:air",
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+    let roh = render_area_without_culling(&world, &sprites, bild.1, Y_RANGE).unwrap();
+    let roh = |x: i32, z: i32| roh.get_pixel(x as u32, z as u32).0;
+    for x in 0..16 {
+        assert_ne!(roh(x, 8), roh(x, 4), "Eis über Stein, x {x}");
+        assert_eq!(flach_pixel(&bild, x, 8), roh(x, 8), "Eis hell, x {x}");
+        assert_eq!(
+            flach_pixel(&bild, x, 9),
+            in_helligkeit(roh(x, 9), TIEF),
+            "südlich dunkel, x {x}"
+        );
+    }
 }

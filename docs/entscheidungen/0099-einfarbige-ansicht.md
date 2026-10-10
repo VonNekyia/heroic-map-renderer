@@ -51,8 +51,8 @@ frei.
   Unterschied zum Nachbarn im Norden. Bei ganzen Blöcken und der Karte im
   Massstab 1:1 zählt nur sein Vorzeichen, das Schachbrett aus x + z ändert
   nichts. Wasser bleibt eben. Die Einzelheiten stehen in
-  [Die einfarbige Ansicht](../renderer/einfarbig.md), „Relief“. Der Beleg
-  am Client per `javap` folgt.
+  [Die einfarbige Ansicht](../renderer/einfarbig.md), „Relief“, belegt am
+  Client von 26.2 unter „Die Karte des Spiels“.
 - **Nur die CPU,** wie bei Cinematic: Das Relief braucht je Pixel die Höhe
   aus der Deckung, und bei einem Pixel je Block bringt die Grafikkarte
   wenig.

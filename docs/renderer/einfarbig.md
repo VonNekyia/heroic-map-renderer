@@ -80,8 +80,10 @@ jeden Pixel in eine von drei Helligkeiten der Karte des Spiels.
 
 - **Die Höhe** eines Pixels ist das y des Blocks, der dort von oben als
   erster etwas zeichnet: der erste Draw an dem Pixel von vorn nach hinten
-  (`merke_oben`). Durchscheinendes zählt, gefärbtes Glas über Stein hat die
-  Höhe des Glases. Stufen und Teppiche haben die y ihres Blocks.
+  (`merke_oben`). Durchscheinendes zählt, gefärbtes Glas oder Eis über
+  Stein hat die Höhe des Glases oder Eises
+  (`flach_durchscheinendes_hat_seine_hoehe`). Stufen und Teppiche haben die
+  y ihres Blocks.
 - **Der Nachbar im Norden** ist der Pixel eine Zeile darüber. Jedes Stück
   rendert dafür eine Zeile mehr nach Norden und schneidet sie danach ab
   (`render_flach`). So hat auch die erste Zeile einer Kachel ihren
@@ -103,11 +105,30 @@ jeden Pixel in eine von drei Helligkeiten der Karte des Spiels.
   südlich eines geänderten Chunks mit, ihr Relief hängt an seiner letzten
   Reihe (`flat_update_ueber_den_kachelrand` in
   [`renderer/tests/cli.rs`](../../renderer/tests/cli.rs)).
-- **Beleg folgt:** Die Regel, die Höhe der Karte (der erste Block mit
-  einer Farbe unter `WORLD_SURFACE`), der Zweig für Wasser und die
-  Helligkeiten stehen in `MapItem.update` und `MapColor.Brightness` im
-  Client von 26.2. Der Beleg per `javap` steht noch aus; bis dahin gilt
-  auch der Satz über kleine Modelle unten nur aus der Erinnerung.
+
+### Die Karte des Spiels
+
+Belegt per `javap` am Client von 26.2 in `MapItem.update`,
+`MapColor.calculateARGBColor`, `ARGB.scaleRGB` und `MapColor$Brightness`:
+
+- **Die Höhe:** ab `WORLD_SURFACE` abwärts der erste Block, dessen
+  `getMapColor` nicht `MapColor.NONE` ist; im Massstab 1:1 je Pixel ein
+  Block.
+- **Der Ausdruck:** in double
+  `(h − h_vorher) · 4,0 / (scale + 4) + (((x + z) & 1) − 0,5) · 0,4`, mit
+  `h_vorher` vom Pixel davor in z, also im Norden. Die Zeile davor rechnet
+  nur als Nachbar mit. Über 0,6 HIGH, unter −0,6 LOW, sonst NORMAL; im
+  Massstab 1:1 ist scale 1.
+- **Die Helligkeiten:** LOW 180, NORMAL 220, HIGH 255. LOWEST 135 braucht
+  diese Rechnung nicht.
+- **Die Farbe:** `ARGB.scaleRGB`, je Kanal `c · m / 255` ganzzahlig, auf
+  0 bis 255 begrenzt, Alpha bleibt. So rechnet `relief` auch.
+- **Wasser:** Ein Block mit Flüssigkeit zählt seine Tiefe nach unten. Ist
+  `MapColor.WATER` die häufigste Farbe des Pixels, gilt
+  `Tiefe · 0,1 + ((x + z) & 1) · 0,2`: unter 0,5 HIGH, über 0,9 LOW. Das
+  übernimmt die einfarbige Ansicht nicht, siehe „Biomfarbe und Wasser“.
+  Die Höhe bleibt die des Wasserspiegels; danach vergleicht das Land
+  südlich davon mit ihm.
 
 ## Was bleibt eine Näherung
 
@@ -115,11 +136,12 @@ jeden Pixel in eine von drei Helligkeiten der Karte des Spiels.
   Proben, nicht mit jedem Texel.
 - **Kleine Modelle** wie Fackeln, Zaunpfosten, Ketten und Laternen füllen
   den Pixel mit ihrer Farbe und setzen die Höhe, sobald sie seine Mitte
-  treffen. Die Karte des Spiels überspringt Blöcke ohne Farbe auf der
-  Karte.
+  treffen. Die Karte des Spiels überspringt Blöcke mit `MapColor.NONE`,
+  siehe „Die Karte des Spiels“.
 - **Ausgeschnittene Flächen** zählen ganz oder gar nicht, siehe „Farbe je
   Zustand“.
 - **Pflanzen aus Kreuzen** fehlen von oben, wie in `top-north` bei jedem
-  scale. Die Karte des Spiels gibt ihnen eine Farbe.
+  scale. Die Karte des Spiels nimmt jeden Block, dessen Farbe auf der
+  Karte nicht `MapColor.NONE` ist.
 - **Nur die Richtung `s`:** Das Relief nimmt den Nachbarn im Norden als
   Zeile darüber, und Norden liegt oben.

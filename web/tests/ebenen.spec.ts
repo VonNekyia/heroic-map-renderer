@@ -229,6 +229,68 @@ test('der Name eines Banners steht im Bogen: Radius 2 · Höhe, bis 120° offen,
   await expect(page.locator('.nadel-icon[title="Wegpunkt"] .nadel-bogen')).toHaveCount(0);
 });
 
+/** Ein Satz von Sprites wie aus `--banners`: in 2:1 23 × 51 mit dem Fuss bei (12, 49) und der Unterkante um atan(1/2) gedreht. */
+const SATZ = { foot: [12, 49], angle: 26.56505117707799 };
+const spriteWelt = (objekte: object[], baum: { path: string; camera: string; look?: string }, satz: string, sprites: Record<string, Buffer>, satzJson: object = SATZ) =>
+  staedte(objekte, {
+    baum,
+    bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]),
+    weitere: (pfad) => {
+      const rest = pfad.startsWith(`beispiel/banner/staedte/${satz}/`) ? pfad.slice(`beispiel/banner/staedte/${satz}/`.length) : undefined;
+      if (rest === 'satz.json') return satzJson;
+      return rest === undefined ? undefined : sprites[rest];
+    },
+  });
+
+test('mit design zeigt die Karte das Sprite ihres Satzes, mit capital das aus krone/; Fuss und Winkel aus satz.json, der Bogen des Namens dreht mit', async ({ page }) => {
+  const stadt = { id: 'stadt', type: 'banner', at: [30.5, -20.5], design: 'nordreich', image: 'images/fahne.png', name: 'Hafenstadt' };
+  const haupt = { ...stadt, id: 'haupt', at: [40.5, -10.5], capital: true, name: 'Hauptstadt' };
+  const anfragen = await welt(page, spriteWelt([stadt, haupt], { path: '2x1-se', camera: '2:1' }, '2x1-se', { 'nordreich.png': png(23, 51), 'krone/nordreich.png': png(23, 51) }));
+  await page.goto(`${DEMO}&tree=2x1-se&at=35,0,-15`);
+  const icon = (name: string) => page.locator(`.nadel-icon[title="${name}"]`);
+  await expect(icon('Hauptstadt').locator('canvas')).toHaveJSProperty('width', 23);
+  for (const name of ['Hafenstadt', 'Hauptstadt']) {
+    // Die linke obere Ecke auf Ort − foot, das SVG des Namens am Fuss, um den Winkel gedreht.
+    expect(await icon(name).evaluate((e) => [(e as HTMLElement).style.marginLeft, (e as HTMLElement).style.marginTop]), name).toEqual(['-12px', '-49px']);
+    const bogen = icon(name).locator('.nadel-bogen');
+    expect(await bogen.evaluate((svg) => [(svg as SVGSVGElement).style.left, (svg as SVGSVGElement).style.top])).toEqual(['12px', '49px']);
+    await expect(bogen.locator('g')).toHaveAttribute('transform', 'rotate(26.56505117707799)');
+  }
+  const geholt = anfragen.filter((a) => a.includes('/banner/') || a.includes('images/'));
+  expect(geholt.map((a) => a.replace(/\?.*$/, '')).sort()).toEqual([
+    'beispiel/banner/staedte/2x1-se/krone/nordreich.png',
+    'beispiel/banner/staedte/2x1-se/nordreich.png',
+    'beispiel/banner/staedte/2x1-se/satz.json',
+  ]);
+});
+
+test('ein Baum von oben nimmt den Satz oben; fehlt das Sprite, zeigt die Karte image, ohne image übergeht sie das Banner mit Meldung', async ({ page }) => {
+  const meldungen: string[] = [];
+  page.on('console', (m) => meldungen.push(m.text()));
+  const mitBild = { id: 'mit', type: 'banner', at: [30.5, -20.5], design: 'fehlt', image: 'images/fahne.png', name: 'Mit Bild' };
+  const ohneBild = { id: 'ohne', type: 'banner', at: [40.5, -10.5], design: 'fehlt', name: 'Ohne Bild' };
+  const da = { id: 'da', type: 'banner', at: [35.5, -14.5], design: 'nordreich', name: 'Da' };
+  // Von oben 20 × 46 mit dem Fuss bei (10, 45), ohne Winkel.
+  const anfragen = await welt(page, spriteWelt([mitBild, ohneBild, da], { path: 'top-north-s', camera: 'top-north' }, 'oben', { 'nordreich.png': png(20, 46) }, { foot: [10, 45], angle: 0 }));
+  await page.goto(`${DEMO}&tree=top-north-s`);
+  await expect(page.locator('.nadel-icon')).toHaveCount(2);
+  // Das Bild mit seinem Fuss unten mittig, das Sprite mit dem aus satz.json.
+  await expect(page.locator('.nadel-icon[title="Mit Bild"] canvas')).toHaveJSProperty('width', 22);
+  await expect(page.locator('.nadel-icon[title="Da"] canvas')).toHaveJSProperty('width', 20);
+  expect(anfragen.some((a) => a.startsWith('beispiel/banner/staedte/oben/satz.json'))).toBe(true);
+  await expect.poll(() => meldungen.some((m) => m.includes('Banner ohne') && m.includes('übergangen'))).toBe(true);
+  expect(meldungen.some((m) => m.includes('Banner mit') && m.includes('nimmt image'))).toBe(true);
+});
+
+test('ohne trees.json gibt es keinen Satz: Die Karte zeigt image und fragt unter banner/ nichts an', async ({ page }) => {
+  const stadt = { id: 'stadt', type: 'banner', at: [30.5, -20.5], design: 'nordreich', image: 'images/fahne.png', name: 'Hafenstadt' };
+  const anfragen = await welt(page, staedte([stadt], { bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]) }));
+  await page.goto(`${DEMO}&at=35,0,-15`);
+  await expect(page.locator('.nadel-icon[title="Hafenstadt"] canvas')).toHaveJSProperty('width', 22);
+  expect(anfragen.filter((a) => a.includes('/banner/'))).toEqual([]);
+  await expect(page.locator('.nadel-icon[title="Hafenstadt"] .nadel-bogen g')).toHaveAttribute('transform', 'rotate(0)');
+});
+
 test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2⌋ auf seinem Block; breiter, höher, ausserhalb von images/ oder in anderem Format übergeht die Karte mit Meldung und holt nur die erlaubten Bilder', async ({ page }) => {
   const meldungen: string[] = [];
   page.on('console', (m) => meldungen.push(m.text()));

@@ -15,7 +15,7 @@ import { bereich, form, hatFlaeche, versetze, zeichne, zuege, type Form, type St
 import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, zurKamera, type Blick, type Gelaende, type Rechteck } from './gelaende';
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
-import { farbe, istObjekt, istText, punkt } from './pruefen';
+import { farbe, istObjekt, istText, istZahl, punkt } from './pruefen';
 import { KAPPE, ladeSchrift, Schrift, schriftzug, SVG, type Schriftzug } from './schrift';
 
 /** Ein Eintrag in `layers.json`. */
@@ -46,9 +46,19 @@ interface Banner {
   id: string;
   at: [number, number];
   y?: number;
-  image: string;
+  /** Ein Entwurf der Ebene; dann zeigt die Karte das Sprite ihres Satzes, `image` ist Ersatz. */
+  design?: string;
+  capital: boolean;
+  image?: string;
   name?: string;
   panel?: unknown[];
+}
+
+/** Ein Satz von Sprites aus `satz.json`: Fuss im Sprite und Winkel der Unterkante in Grad. Siehe docs/benutzung/ebenen.md, „Sprites“. */
+interface Satz {
+  ordner: string;
+  fuss: [number, number];
+  winkel: number;
 }
 
 /** Was die Ebenen von der Karte brauchen. */
@@ -68,6 +78,8 @@ export interface Umgebung {
   maxY?: number;
   /** `area` aus `map.json`; Höhen gibt es nur darin. */
   area?: Rechteck;
+  /** Der Satz der Banner-Sprites dieses Baums, siehe docs/benutzung/ebenen.md, „Sprites“; ohne `trees.json` keiner. */
+  satz?: string;
 }
 
 /**
@@ -180,7 +192,13 @@ function banner(wert: unknown): Banner | undefined {
   if (!istObjekt(wert) || wert.type !== 'banner' || !istText(wert.id, 64)) return undefined;
   const at = punkt(wert.at);
   if (!at) return undefined;
-  if (typeof wert.image !== 'string' || !bildGilt(wert.image)) {
+  const design = typeof wert.design === 'string' ? wert.design : undefined;
+  if (design !== undefined && !teilGilt(design)) {
+    console.warn(`Banner ${wert.id}: Entwurf „${design}“ gegen „Kennung“, übergangen`);
+    return undefined;
+  }
+  const image = typeof wert.image === 'string' ? wert.image : undefined;
+  if ((image !== undefined && !bildGilt(image)) || (image === undefined && design === undefined)) {
     console.warn(`Banner ${wert.id}: Bild „${String(wert.image)}“ gegen „Bilder“, übergangen`);
     return undefined;
   }
@@ -188,7 +206,9 @@ function banner(wert: unknown): Banner | undefined {
     id: wert.id,
     at,
     y: Number.isInteger(wert.y) ? (wert.y as number) : undefined,
-    image: wert.image,
+    design,
+    capital: wert.capital === true,
+    image,
     name: istText(wert.name, 64) ? wert.name : undefined,
     panel: istObjekt(wert.panel) && Array.isArray(wert.panel.blocks) ? wert.panel.blocks : undefined,
   };
@@ -469,6 +489,14 @@ function gemerkt(wurzel: string): { lies: () => Readonly<Record<string, boolean>
       }
     },
   };
+}
+
+/** Fuss und Winkel aus `satz.json`, oder `undefined`, wenn sie nicht taugen. */
+function satzDaten(wert: unknown): Omit<Satz, 'ordner'> | undefined {
+  if (!istObjekt(wert) || !istZahl(wert.angle)) return undefined;
+  const fuss = wert.foot;
+  if (!Array.isArray(fuss) || fuss.length !== 2 || !fuss.every((k) => Number.isInteger(k) && (k as number) >= 0)) return undefined;
+  return { fuss: fuss as [number, number], winkel: wert.angle };
 }
 
 /** Holt JSON vom Server bis `max` Byte; `undefined` für fehlend, eine HTML-Seite, zu gross oder kaputt. */
@@ -784,7 +812,15 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    * k = max(1, round(devicePixelRatio)) Pixel des Geräts breit, so bleibt
    * jedes gleich breit, auch bei 1,25 oder 1,5. Siehe docs/frontend.md, „Ebenen“.
    */
-  const ortIcon = (bild: CanvasImageSource, b: number, h: number, name: string | undefined, bogen = false): L.DivIcon => {
+  const ortIcon = (
+    bild: CanvasImageSource,
+    b: number,
+    h: number,
+    name: string | undefined,
+    banner?: { fuss: [number, number]; winkel: number },
+  ): L.DivIcon => {
+    // Der Fuss als Punkt auf den Kanten der Pixel: bei der Nadel und beim Bild (⌊b / 2⌋, h), beim Sprite aus satz.json.
+    const [fx, fy] = banner?.fuss ?? [Math.floor(b / 2), h];
     const k = Math.max(1, Math.round(devicePixelRatio));
     const s = k / devicePixelRatio;
     const html = L.DomUtil.create('div', 'nadel');
@@ -795,17 +831,17 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(bild, 0, 0, b * k, h * k);
     html.append(kopie);
-    if (name && bogen) {
+    if (name && banner) {
       // Gemessen in der Kartenschrift: bannerIcon wartet, bis sie geladen ist.
-      const svg = nameImBogen(name, h * s, 0);
-      [svg.style.left, svg.style.top] = [`${Math.floor(b / 2) * s}px`, `${h * s}px`];
+      const svg = nameImBogen(name, h * s, banner.winkel);
+      [svg.style.left, svg.style.top] = [`${fx * s}px`, `${fy * s}px`];
       html.append(svg);
     } else if (name) {
       // Der Name steht in der Kartenschrift; bis sie geladen ist, in der Vorgabe von style.css.
       void ladeSchrift();
       L.DomUtil.create('span', 'nadel-name', html).textContent = name;
     }
-    return L.divIcon({ html, className: 'nadel-icon', iconSize: [b * s, h * s], iconAnchor: [Math.floor(b / 2) * s, h * s] });
+    return L.divIcon({ html, className: 'nadel-icon', iconSize: [b * s, h * s], iconAnchor: [fx * s, fy * s] });
   };
 
   /** Das Icon einer Nadel, fest in ihrer `size`. Icons und Symbole gelten je Laden einer Ebene. */
@@ -825,17 +861,45 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     return ortIcon(await leinwand, b, h, n.name);
   };
 
-  /** Das Icon eines Banners, oder `undefined` mit Meldung, wenn sein Bild fehlt oder zu gross ist. */
-  const bannerIcon = async (banner: Banner, ordner: string, version: string, symbole: Map<string, Promise<HTMLImageElement>>): Promise<L.DivIcon | undefined> => {
-    const adresse = `${ordner}/${banner.image}?v=${encodeURIComponent(version)}`;
-    const geholt = await bild(adresse, symbole).catch(() => undefined);
+  /**
+   * Das Icon eines Banners: mit `design` und Satz das Sprite des Satzes, mit
+   * `capital` das aus `krone/`, Fuss und Winkel aus `satz.json`; fehlt es,
+   * `image`. Ohne beides `undefined` mit Meldung. Siehe
+   * docs/benutzung/ebenen.md, „Banner“ und „Sprites“.
+   */
+  const bannerIcon = async (
+    banner: Banner,
+    ordner: string,
+    version: string,
+    symbole: Map<string, Promise<HTMLImageElement>>,
+    satz: Satz | undefined,
+  ): Promise<L.DivIcon | undefined> => {
     const [b, h] = GRENZEN.banner as [number, number];
-    if (!geholt || geholt.naturalWidth > b || geholt.naturalHeight > h) {
+    const v = encodeURIComponent(version);
+    const passt = (geholt: HTMLImageElement | undefined) => geholt && geholt.naturalWidth <= b && geholt.naturalHeight <= h;
+    if (banner.design && satz) {
+      const adresse = `${satz.ordner}/${banner.capital ? 'krone/' : ''}${banner.design}.png?v=${v}`;
+      const sprite = await bild(adresse, symbole).catch(() => undefined);
+      const [fx, fy] = satz.fuss;
+      if (sprite && passt(sprite) && fx <= sprite.naturalWidth && fy <= sprite.naturalHeight) {
+        if (banner.name) await ladeSchrift();
+        return ortIcon(sprite, sprite.naturalWidth, sprite.naturalHeight, banner.name, satz);
+      }
+      console.warn(`Banner ${banner.id}: Sprite ${adresse} fehlt, ist zu gross oder passt nicht zum Fuss aus satz.json${banner.image ? ', nimmt image' : ', übergangen'}`);
+    }
+    if (!banner.image) {
+      if (!satz) console.warn(`Banner ${banner.id}: ohne Sprite dieses Baums und ohne image, übergangen`);
+      return undefined;
+    }
+    const adresse = `${ordner}/${banner.image}?v=${v}`;
+    const geholt = await bild(adresse, symbole).catch(() => undefined);
+    if (!geholt || !passt(geholt)) {
       console.warn(`Banner ${banner.id}: ${geholt ? `${geholt.naturalWidth} × ${geholt.naturalHeight} statt höchstens ${b} × ${h}` : `${adresse} lässt sich nicht laden`}, übergangen`);
       return undefined;
     }
     if (banner.name) await ladeSchrift();
-    return ortIcon(geholt, geholt.naturalWidth, geholt.naturalHeight, banner.name, true);
+    // Mit image der Fuss unten mittig und der Name ohne Drehung.
+    return ortIcon(geholt, geholt.naturalWidth, geholt.naturalHeight, banner.name, { fuss: [Math.floor(geholt.naturalWidth / 2), geholt.naturalHeight], winkel: 0 });
   };
 
   /**
@@ -933,6 +997,14 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       orte = orte.slice(0, GRENZEN.nadeln);
     }
     const tafelDerEbene = (bausteine: unknown[]) => tafel(bausteine, ordner, e.version);
+    // Der Satz dieses Baums, einmal je Laden und nur, wenn ein Banner einen Entwurf nennt.
+    let satz: Satz | undefined;
+    if (umgebung.satz && orte.some((o) => 'design' in o && o.design)) {
+      const satzOrdner = `${ordner}/banner/${name}/${umgebung.satz}`;
+      const daten = satzDaten(await json(`${satzOrdner}/satz.json?v=${encodeURIComponent(e.version)}`, 4096));
+      if (daten) satz = { ordner: satzOrdner, ...daten };
+      else console.warn(`${satzOrdner}/satz.json fehlt oder taugt nicht, Banner mit image`);
+    }
     const { renderer, formen: formPane } = pane(e.id);
     // Formen und Schrift rechnen einmal je version, hier vor dem Tausch.
     const { flaechen, striche, schriftLagen } = await formenUndSchrift(formen, schriften, renderer, formPane, tafelDerEbene);
@@ -941,7 +1013,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const symbole = new Map<string, Promise<HTMLImageElement>>();
     const marker = await Promise.all(
       orte.map(async (o, index) => {
-        const icon = 'image' in o ? await bannerIcon(o, ordner, e.version, symbole) : await nadelIcon(o, ordner, e.version, icons, symbole);
+        const icon = 'symbol' in o ? await nadelIcon(o, ordner, e.version, icons, symbole) : await bannerIcon(o, ordner, e.version, symbole, satz);
         if (!icon) return undefined;
         const y = o.y !== undefined ? o.y + 1 : await oberflaeche(o.at[0], o.at[1]);
         const [px, py] = bildpunkt(o.at[0], iso ? y : 0, o.at[1], blick);

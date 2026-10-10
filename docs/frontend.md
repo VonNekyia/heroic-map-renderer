@@ -447,16 +447,24 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Format und setzt ein SVG mit dem Ursprung am Fuss, den Namen als
     `textPath` auf einem unsichtbaren Pfad, wie die Kartenschrift.
     `bannerIcon` wartet dafür, bis die Schrift geladen ist. Die Höhe ist
-    die gezeichnete in CSS-Pixeln; den Winkel aus `satz.json` nimmt die
-    Karte, sobald sie Sprites zeigt, bis dahin 0;
+    die gezeichnete in CSS-Pixeln, der Winkel der aus `satz.json`, mit
+    `image` 0;
   - die Nadel: Feld, Symbol und Rahmen aus `web/src/ebenen/schild_*.png`
     nach [Ebenen](benutzung/ebenen.md), „Nadel“; die Bilder stammen vom
     Designer;
-  - das Banner: sein Bild aus `images/` der Ebene. Ist es grösser als
-    32 × 64 oder lädt es nicht, fehlt das Banner, mit Meldung. Banner mit
-    demselben Bild holen es einmal;
-  - der Fuss auf `P(x, y + 1, z)`, `⌊Breite / 2⌋` Pixel rechts der linken
-    Kante; ohne `y` auf der Oberfläche aus den Höhen, bilinear zwischen den
+  - das Banner mit `design`: das Sprite des Satzes nach
+    [Ebenen](benutzung/ebenen.md), „Sprites“, mit `capital` das aus
+    `krone/`. Den Satz nennt `main.ts`: ein Baum von oben und ein
+    einfarbiger `oben`, jeder andere seinen Pfad aus `trees.json`; ohne
+    `trees.json` keinen. `satz.json` liest `ladeEbene` einmal je Laden, nur
+    wenn ein Banner einen Entwurf nennt. Fehlt das Sprite, ist es zu gross
+    oder liegt der Fuss ausserhalb, nimmt die Karte `image`, mit Meldung;
+  - das Banner ohne Sprite: sein Bild aus `images/` der Ebene. Ist es
+    grösser als 32 × 64 oder lädt es nicht, fehlt das Banner, mit Meldung.
+    Banner mit demselben Bild oder Sprite holen es einmal;
+  - der Fuss auf `P(x, y + 1, z)`: beim Sprite der Punkt `foot` aus
+    `satz.json`, die linke obere Ecke also auf Ort − `foot`; sonst
+    `⌊Breite / 2⌋` Pixel rechts der linken Kante, an der Unterkante; ohne `y` auf der Oberfläche aus den Höhen, bilinear zwischen den
     Zellen, einmal je Punkt gerechnet. Koordinaten und Ebenen teilen sich
     einen Cache der Höhen ([`web/src/hoehen.ts`](../web/src/hoehen.ts));
   - auf jeder Stufe gleich gross; ein Zoom ändert an ihnen nichts. Ein

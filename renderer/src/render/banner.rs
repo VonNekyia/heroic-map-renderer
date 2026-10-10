@@ -75,7 +75,7 @@ pub fn zeichne(
                 .into_rgba8()
         });
         for (_, model) in &mut models {
-            setze_krone(model, &state, textur, kamera.genordet())?;
+            setze_krone(model, &state, textur)?;
         }
     }
     let familie = sprites
@@ -126,7 +126,7 @@ const REIF_ECKE_LINKS: Bereich = [0.0, 0.0, 1.0, 3.0];
 const REIF_ECKE_RECHTS: Bereich = [7.0, 0.0, 8.0, 3.0];
 
 /// Ein Quader der Krone in Pixeln des Modells, x nach rechts, y nach oben,
-/// z nach vorn, zur Seite mit dem Rubin; dazu je Seite ihr
+/// z nach vorn, zur Seite des Tuchs mit seinen Mustern; dazu je Seite ihr
 /// Bereich, in der Reihenfolge von `box_quads`: unten, oben, hinten, vorn,
 /// links, rechts. Die Unterseiten sieht keine Kamera.
 type Quader = ([f32; 3], [f32; 3], [Bereich; 6]);
@@ -161,29 +161,13 @@ const KRONE: [Quader; 8] = {
 
 /// Setzt die Krone mittig auf das Querholz des Banners `state`, in dessen
 /// Lage und Schicht: im selben Massstab und derselben Drehung wie das
-/// Banner. Mit `gedreht` steht sie um 45° gedreht, für die genordeten
-/// Kameras, Wahl des Users: So zeigt sie in jeder Kamera eine Ecke zum
-/// Betrachter. Ein Bereich, der quer zu seiner Seite liegt, dreht mit.
-fn setze_krone(
-    model: &mut BakedModel,
-    state: &BlockState,
-    textur: TextureId,
-    gedreht: bool,
-) -> Result<()> {
+/// Banner. Ein Bereich, der quer zu seiner Seite liegt, dreht mit.
+fn setze_krone(model: &mut BakedModel, state: &BlockState, textur: TextureId) -> Result<()> {
     let (lage, oben, entity) =
         blockentity::erste_form(state).with_context(|| format!("{state} hat kein Querholz"))?;
     // Im Raum des Modells zeigt y nach unten und z nach hinten; die Mitte
-    // der Krone liegt über der Mitte des Querholzes. Die Drehung um die
-    // Senkrechte dreht ihr Vorn zur Seite rechts vorn.
-    let modell = |[x, y, z]: [f32; 3]| {
-        let (x, z) = (x - 0.25, z - 0.25);
-        let h = std::f32::consts::FRAC_1_SQRT_2;
-        let (x, z) = match gedreht {
-            true => (h * (x + z), h * (z - x)),
-            false => (x, z),
-        };
-        [x, oben - y, -z]
-    };
+    // der Krone liegt über der Mitte des Querholzes.
+    let modell = |[x, y, z]: [f32; 3]| [x - 0.25, oben - y, 0.25 - z];
     let welt = |p: [f32; 3]| {
         lage.map(|zeile| zeile[0] * p[0] + zeile[1] * p[1] + zeile[2] * p[2] + zeile[3])
     };
@@ -223,20 +207,17 @@ mod tests {
     use crate::world::chunk::Fnv;
 
     /// Die Krone steht in jeder Drehung mittig auf dem Querholz: 8 Pixel des
-    /// Modells breit und tief, um 45° gedreht über die Ecken 8 · √2, 6 hoch,
-    /// um 2/3 verkleinert wie das Banner, also 1/3 oder √2/3 und 1/4 Block;
-    /// ihr Boden auf der Oberseite des Querholzes, 2/3 · 44/16 Block über dem
-    /// Boden des Blocks. Jede Seite eines Quaders zeigt aus ihm hinaus.
+    /// Modells breit und tief, 6 hoch, um 2/3 verkleinert wie das Banner,
+    /// also 1/3 und 1/4 Block; ihr Boden auf der Oberseite des Querholzes,
+    /// 2/3 · 44/16 Block über dem Boden des Blocks. Jede Seite eines Quaders
+    /// zeigt aus ihm hinaus.
     #[test]
     fn krone_auf_dem_querholz() {
-        for (drehung, gedreht) in [0, 4, 8, 12]
-            .into_iter()
-            .flat_map(|d| [(d, false), (d, true)])
-        {
+        for drehung in [0, 4, 8, 12] {
             let state =
                 BlockState::parse(&format!("minecraft:white_banner[rotation={drehung}]")).unwrap();
             let mut model = BakedModel::default();
-            setze_krone(&mut model, &state, TextureId(0), gedreht).unwrap();
+            setze_krone(&mut model, &state, TextureId(0)).unwrap();
             assert_eq!(model.quads.len(), 6 * KRONE.len());
             let ecken: Vec<[f32; 3]> = model.quads.iter().flat_map(|q| q.corners).collect();
             let rand = |achse: usize| {
@@ -248,12 +229,7 @@ mod tests {
             };
             let nah =
                 |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 1e-5 && (a.1 - b.1).abs() < 1e-5;
-            let boden = 2.0 / 3.0 * 44.0 / 16.0;
-            let halb = if gedreht {
-                2.0f32.sqrt() / 6.0
-            } else {
-                1.0 / 6.0
-            };
+            let (boden, halb) = (2.0 / 3.0 * 44.0 / 16.0, 1.0 / 6.0);
             assert!(
                 nah(rand(0), (0.5 - halb, 0.5 + halb)),
                 "{drehung}: x {:?}",
@@ -287,7 +263,7 @@ mod tests {
     /// FNV-1a über die Goldbilder der Banner unter
     /// `tests/fixtures/golden-banner`, nach Dateinamen, je Bild der Name,
     /// Breite, Höhe und die Pixel.
-    const GOLDBILDER: u64 = 0x2854_fd2c_2697_981d;
+    const GOLDBILDER: u64 = 0x16fc_1103_ab33_e0bc;
 
     /// Ändert sich ein Goldbild der Banner, zeichnet der Renderer die Sprites
     /// anders: `BANNERSTAND` steigt, nicht der Zeichenstand der Bäume.

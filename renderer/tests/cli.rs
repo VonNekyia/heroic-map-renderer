@@ -225,7 +225,7 @@ fn hoehen_von(dir: &Path, rx: i32, rz: i32) -> Heights {
         .join(hoehen_ordner(dir))
         .join(heights::path_of(rx, rz).trim_start_matches("heights/"));
     let daten = std::fs::read(&pfad).unwrap_or_else(|e| panic!("{} lesen: {e}", pfad.display()));
-    Heights::decode(&daten).unwrap()
+    Heights::decode(&daten, heights::CELL).unwrap()
 }
 
 /// Eine Kopie des Baums samt Höhen in einer neuen Wurzel.
@@ -3037,11 +3037,26 @@ fn export_schreibt_hoehen() {
     assert_eq!(hoehe.get(1, 1), EMPTY, "ohne Block");
     assert_eq!(hoehe.get(10, 10), EMPTY, "Chunk (2, 2) fehlt");
 
-    // Der Boden ohne Laub daneben, nach einem Lauf über die ganze Welt in
-    // map.json. Ohne gespeicherte Heightmap gilt die Oberfläche.
+    // Der Boden ohne Laub daneben, je Block, nach einem Lauf über die ganze
+    // Welt in map.json. Ohne gespeicherte Heightmap gilt die Oberfläche.
     assert_eq!(info["ground"], "../ground/{x}.{z}.bin");
-    let boden = std::fs::read(out.path().join("../ground/0.0.bin")).unwrap();
-    assert_eq!(Heights::decode(&boden).unwrap(), hoehe);
+    assert_eq!(info["groundCell"], 1);
+    let daten = std::fs::read(out.path().join("../ground/0.0.bin")).unwrap();
+    let boden = Heights::decode(&daten, heights::GROUND_CELL).unwrap();
+    assert_eq!(boden.get(8, 8), 9, "Wasser");
+    assert_eq!(boden.get(9, 8), 7, "Truhe");
+    assert_eq!(boden.get(10, 8), EMPTY, "ohne Block");
+    assert_eq!(boden.get(0, 0), 6);
+    // Je 4 × 4 Spalten der obere Median wie bei den Höhen.
+    for (zx, zz) in (0..128).flat_map(|zz| (0..128).map(move |zx| (zx, zz))) {
+        let mut werte: Vec<i16> = (0..16)
+            .map(|i| boden.get(zx * 4 + i % 4, zz * 4 + i / 4))
+            .filter(|&y| y != EMPTY)
+            .collect();
+        werte.sort_unstable();
+        let median = werte.get(werte.len() / 2).copied().unwrap_or(EMPTY);
+        assert_eq!(median, hoehe.get(zx, zz), "Zelle ({zx}, {zz})");
+    }
 }
 
 /// Den Boden nennt `map.json` erst, wenn ein Lauf ihn für jede Region
@@ -3084,6 +3099,7 @@ fn boden_erst_nach_einem_ganzen_lauf() {
         "../ground/{x}.{z}.bin",
         "nach --heights"
     );
+    assert_eq!(info(out.path())["groundCell"], 1);
     gelungen(&tiles(welt.path(), out.path(), &ausschnitt));
     assert_eq!(
         info(out.path())["ground"],

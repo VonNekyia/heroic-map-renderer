@@ -2932,6 +2932,7 @@ fn rebuild_pyramid(
         world: alt.world,
         heights: alt.heights,
         ground: alt.ground,
+        ground_cell: alt.ground_cell,
         heights_cell: alt.heights_cell,
         min_y: alt.min_y,
         max_y: alt.max_y,
@@ -3245,9 +3246,11 @@ fn mit_hoehen(info: MapInfo, muster: &str, boden: bool) -> MapInfo {
         (true, false) => Some(heights::PATTERN_BODEN.to_string()),
         (false, _) => info.ground.clone(),
     };
+    let ground_cell = ground.as_ref().map(|_| heights::GROUND_CELL as u32);
     MapInfo {
         heights: Some(muster.to_string()),
         ground,
+        ground_cell,
         heights_cell: Some(heights::CELL as u32),
         min_y: Some(Y_RANGE.0),
         max_y: Some(Y_RANGE.1),
@@ -3273,16 +3276,19 @@ fn schreibe_hoehen(regionen: Vec<RegionHeights>, dir: &Path) -> Result<()> {
                 read,
             } = region;
             let mut je = [0; 2];
-            for (i, (mut werte, pfad)) in [
-                (heights, heights::path_of(x, z)),
-                (ground, heights::ground_path_of(x, z)),
+            for (i, (gepackt, cell, pfad)) in [
+                (heights, heights::CELL, heights::path_of(x, z)),
+                (ground, heights::GROUND_CELL, heights::ground_path_of(x, z)),
             ]
             .into_iter()
             .enumerate()
             {
                 let pfad = dir.join(pfad);
-                if read.contains(&false) {
-                    match lies_hoehen(&pfad) {
+                // Nur was nicht jeden Chunk gelesen hat, wird entpackt und
+                // mit der alten Datei gemischt.
+                let daten = if read.contains(&false) {
+                    let mut werte = Heights::decode(&gepackt, cell)?;
+                    match lies_hoehen(&pfad, cell) {
                         Ok(Some(alt)) => werte.keep_unread(&alt, &read),
                         Ok(None) => {}
                         // Ein Export bricht dafür nicht ab: verloren sind nur
@@ -3291,8 +3297,10 @@ fn schreibe_hoehen(regionen: Vec<RegionHeights>, dir: &Path) -> Result<()> {
                             "Höhen:      {e:#}; ausserhalb des Ausschnitts ist die Region jetzt leer"
                         ),
                     }
-                }
-                let daten = werte.encode()?;
+                    werte.encode()?
+                } else {
+                    gepackt
+                };
                 lege_ab(&pfad, &daten, None)?;
                 je[i] = daten.len();
             }
@@ -3310,13 +3318,14 @@ fn schreibe_hoehen(regionen: Vec<RegionHeights>, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Die Höhen aus einer Datei, `None`, wenn es sie nicht gibt.
-fn lies_hoehen(pfad: &Path) -> Result<Option<Heights>> {
+/// Die Höhen aus einer Datei mit Zellen aus `cell` × `cell` Spalten,
+/// `None`, wenn es sie nicht gibt.
+fn lies_hoehen(pfad: &Path, cell: usize) -> Result<Option<Heights>> {
     let daten = match std::fs::read(pfad) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         daten => daten.with_context(|| format!("{} lesen", pfad.display()))?,
     };
-    Heights::decode(&daten)
+    Heights::decode(&daten, cell)
         .with_context(|| format!("{} lesen", pfad.display()))
         .map(Some)
 }

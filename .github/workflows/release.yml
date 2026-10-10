@@ -18,7 +18,7 @@ env:
   CARGO_TERM_COLOR: always
   # Gepackt höchstens so viele Byte je Binär und für beide zusammen, siehe
   # docs/entwicklung/weitergabe.md, „Grenze“.
-  GRENZE: "4750000"
+  GRENZE: "4000000"
   SUMME: "9300000"
 
 defaults:
@@ -91,9 +91,9 @@ jobs:
         run: |
           exe=target/release/heroic-map-renderer
           glibc=$(objdump -T $exe | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
-          gepackt=$(gzip -6 -c $exe | wc -c)
+          gepackt=$($PYTHON ../.github/gepackt.py $exe)
           echo "gepackt=$gepackt" >> "$GITHUB_OUTPUT"
-          echo "roh $(stat -c %s $exe) Byte, gepackt $gepackt Byte, glibc höchstens $glibc"
+          echo "roh $(stat -c %s $exe) Byte, gepackt mit xz $gepackt Byte, glibc höchstens $glibc"
           test "$(printf '%s\n' "$glibc" GLIBC_2.28 | sort -V | tail -1)" = GLIBC_2.28 \
             || { echo "::error::Das Binär braucht $glibc, mehr als GLIBC_2.28"; exit 1; }
           test "$gepackt" -le "$GRENZE" \
@@ -152,9 +152,9 @@ jobs:
           exe=target/release/heroic-map-renderer.exe
           python -c "import sys; d = open(sys.argv[1], 'rb').read().lower(); sys.exit(any(n in d for n in (b'vcruntime140', b'ucrtbase', b'api-ms-win-crt-')))" $exe \
             || { echo "::error::Das Binär importiert die VC++-Laufzeit"; exit 1; }
-          gepackt=$(python -c "import sys, zlib; print(len(zlib.compress(open(sys.argv[1], 'rb').read(), 6)))" $exe)
+          gepackt=$(python ../.github/gepackt.py $exe)
           echo "gepackt=$gepackt" >> "$GITHUB_OUTPUT"
-          echo "roh $(stat -c %s $exe) Byte, gepackt $gepackt Byte"
+          echo "roh $(stat -c %s $exe) Byte, gepackt mit xz $gepackt Byte"
           test "$gepackt" -le "$GRENZE" \
             || { echo "::error::Gepackt $gepackt Byte, mehr als die Grenze von $GRENZE"; exit 1; }
 

@@ -193,6 +193,7 @@ fn render_flach(
     let deckung = von_vorn(chunks, gross, y_range)?;
     let mut canvas = RgbaImage::new(gross.width, gross.height);
     let mut oben = vec![None; gross.width as usize * gross.height as usize];
+    debug_assert_eq!(chunks.sichtbar.len(), chunks.flachdaten.len());
     // Von vorn nach hinten: Der erste Draw an einem Pixel ist sein oberster.
     for (&(sprite, origin, ref sicht, _), &y) in chunks.sichtbar.iter().zip(&chunks.flachdaten) {
         merke_oben(
@@ -272,8 +273,7 @@ fn relief(canvas: &mut RgbaImage, oben: &[Option<(i32, bool)>], rect: ScreenRect
             continue;
         };
         let norden = oben[p - w].map_or(h, |(h, _)| h);
-        let (x, z) = (rect.x + (p % w) as i32, rect.y + (p / w) as i32);
-        let f = helligkeit(h - norden, (x + z) & 1 == 1, wasser);
+        let f = helligkeit(h - norden, wasser);
         for c in &mut pixel.0[..3] {
             *c = (u32::from(*c) * f / 255) as u8;
         }
@@ -281,22 +281,16 @@ fn relief(canvas: &mut RgbaImage, oben: &[Option<(i32, bool)>], rect: ScreenRect
 }
 
 /// Die Helligkeit eines Pixels der Spielkarte aus dem Höhenunterschied zum
-/// Nachbarn im Norden und dem Feld im Schachbrett aus x + z, das
-/// Unterschiede von einem Block halb hell, halb eben zeigt. Wasser bleibt
-/// eben: Seine Tiefe zeigt das Licht wie in der Karte mit Texturen.
+/// Nachbarn im Norden. Bei ganzen Blöcken und der Karte im Massstab 1:1
+/// zählt nur sein Vorzeichen: hinauf hell, hinab dunkel, sonst eben.
+/// Wasser bleibt eben: Seine Tiefe zeigt das Licht wie in der Karte mit
+/// Texturen.
 /// Siehe docs/renderer/einfarbig.md, „Relief“.
-fn helligkeit(unterschied: i32, ungerade: bool, wasser: bool) -> u32 {
-    if wasser {
-        return EBEN;
-    }
-    let feld = if ungerade { 0.5 } else { -0.5 };
-    let d = f64::from(unterschied) * 4.0 / 5.0 + feld * 0.4;
-    if d > 0.6 {
-        HOCH
-    } else if d < -0.6 {
-        TIEF
-    } else {
-        EBEN
+fn helligkeit(unterschied: i32, wasser: bool) -> u32 {
+    match (wasser, unterschied.signum()) {
+        (false, 1) => HOCH,
+        (false, -1) => TIEF,
+        _ => EBEN,
     }
 }
 
@@ -3816,6 +3810,33 @@ mod tests {
                     "Runde {runde}, {w:?}"
                 );
             }
+        }
+    }
+
+    /// Gegenprobe zu [`helligkeit`]: der Ausdruck der Spielkarte in f64, in
+    /// derselben Reihenfolge, mit dem Feld im Schachbrett aus x + z, für
+    /// Unterschiede von −3 bis 3 und beide Felder. Bei ganzen Blöcken
+    /// ändert das Feld nichts: Schon 1 · 4/5 − 0,5 · 0,4 rundet auf
+    /// 0,6000000000000001.
+    #[test]
+    fn helligkeit_wie_der_ausdruck_der_karte() {
+        for unterschied in -3..=3 {
+            for feld in [0.0, 1.0] {
+                let d = f64::from(unterschied) * 4.0 / (1.0 + 4.0) + (feld - 0.5) * 0.4;
+                let soll = if d > 0.6 {
+                    HOCH
+                } else if d < -0.6 {
+                    TIEF
+                } else {
+                    EBEN
+                };
+                assert_eq!(
+                    helligkeit(unterschied, false),
+                    soll,
+                    "{unterschied}, Feld {feld}"
+                );
+            }
+            assert_eq!(helligkeit(unterschied, true), EBEN, "Wasser, {unterschied}");
         }
     }
 }

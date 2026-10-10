@@ -34,7 +34,7 @@ Texte. Ohne Schalter startet unter Windows an einer Konsole der
 | `--biome-blend N` | wie weit Gras, Laub und Wasser über Biomgrenzen gemischt werden, 0 bis 7 Blöcke wie der Biomübergang im Spiel, Vorgabe 2; ein bestehender Kachelbaum behält seinen | [Biomfarben](../renderer/biomfarben.md), [map.json](map-json.md) |
 | `--render DATEI` | einen Weltausschnitt in eine PNG rendern | unten |
 | `--cinematic` | mit `--render` oder `--tiles`: im Licht des Spiels in HDR zeichnen statt als Karte, in einen eigenen Baum; zeichnet auf der CPU | [Cinematic](../renderer/cinematic.md) |
-| `--flat` | mit `--render` oder `--tiles`: die einfarbige Ansicht, `top-north` bei scale 1 mit einer Farbe je Block und Relief, in einen eigenen Baum; nicht mit `--scale`, `--camera`, `--direction`, `--cinematic` oder `--native-levels`; zeichnet auf der CPU | [Die einfarbige Ansicht](../renderer/einfarbig.md) |
+| `--flat` | mit `--render` oder `--tiles`: die einfarbige Ansicht, `top-north` bei scale 1 mit einer Farbe je Block und Relief, in einen eigenen Baum; nicht mit `--scale`, `--camera`, `--direction`, `--cinematic`, `--native-levels`, `--pyramid`, `--compact-tree` oder `--serve`; zeichnet auf der CPU | [Die einfarbige Ansicht](../renderer/einfarbig.md) |
 | `--center X Z` | der Punkt der Welt in der Bildmitte, Vorgabe `0 0` | unten |
 | `--size N` | Kantenlänge des Ausschnitts in Pixeln, ab 1; für `--render` Vorgabe 1024, ohne Angabe deckt `--tiles` die ganze Welt | [Kacheln exportieren](kacheln.md) |
 | `--area X0 Z0 X1 Z1` | nur dieses Rechteck der Welt zeichnen, zwei inklusive Ecken in Blöcken, nach aussen auf ganze Chunks gerundet; ein Kachelbaum behält seins | [Kacheln exportieren](kacheln.md), „Ein Rechteck der Welt: `--area`“ |

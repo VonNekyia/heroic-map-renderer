@@ -3925,11 +3925,17 @@ fn pruefe_bestand(
     // Siehe docs/benutzung/zoomstufen.md, „Ein Baum, eine Kamera“.
     let dort = projektion_des_baums(dir, alt)?;
     let cinematic = cinematic_des_baums(dir, alt)?;
+    // Womit ein Lauf in den Baum geht: mit seinem scale, oder mit --flat.
+    let schalter = match (dort.flach(), projection.flach()) {
+        (true, _) => "--flat".to_string(),
+        (false, true) => format!("--scale {} ohne --flat", alt.scale),
+        (false, false) => format!("--scale {}", alt.scale),
+    };
     let umbenennen = || {
         let ziel = dir.with_file_name(baum_name(dort, cinematic));
         // Weicht auch der scale ab, gehört er in den Befehl.
         let auch_scale = if alt.scale != scale {
-            format!(", dann mit --scale {} weiterrendern,", alt.scale)
+            format!(", dann mit {schalter} weiterrendern,")
         } else {
             String::new()
         };
@@ -3960,10 +3966,7 @@ fn pruefe_bestand(
         // Ältere Stände nahmen auch scale, die nicht auf ganzen Pixeln
         // liegen. Der scale steht nicht im Namen des Ordners.
         let weiter = if dort.ganze_pixel() {
-            format!(
-                "Mit --scale {} weiterrendern oder eine neue Wurzel nehmen.",
-                alt.scale
-            )
+            format!("Mit {schalter} weiterrendern oder eine neue Wurzel nehmen.")
         } else {
             "Dieser scale geht nicht mehr, eine neue Wurzel nehmen.".to_string()
         };

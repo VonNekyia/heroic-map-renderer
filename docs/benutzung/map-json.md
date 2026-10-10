@@ -1,6 +1,6 @@
 ---
 title: map.json
-description: Die Felder von map.json, Kamera und Projektion samt projektion.json mit Kantenpixeln, die Liste der Bäume trees.json, wann der Export die Dateien schreibt, die Höhen je Region für die Koordinatenanzeige, warum ein Baum seinen Radius der Mischung behält, wie look und lookHash Karte und Cinematic trennen, und Wasserspiegel und Rechteck der Welt.
+description: Die Felder von map.json, Kamera und Projektion samt projektion.json mit Kantenpixeln, die Liste der Bäume trees.json, wann der Export die Dateien schreibt, die Höhen je Region für die Koordinatenanzeige, warum ein Baum seinen Radius der Mischung behält, wie look und lookHash Karte, Cinematic und die einfarbige Ansicht trennen, und Wasserspiegel und Rechteck der Welt.
 code:
   - renderer/src/render/pyramid.rs
   - renderer/src/render/look.rs

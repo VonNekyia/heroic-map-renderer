@@ -23,6 +23,12 @@ fn texture_samples(scale: u32) -> u32 {
     (32 / scale.max(1)).clamp(2, 16)
 }
 
+/// Höchstens so viele Abtastpunkte je Pixelkante bei scale 1, wo ein Pixel
+/// die ganze Oberseite trägt: dort tastet `draw` so dicht ab, wie
+/// der Frame der Textur Texel hat, bei Packs bis 64 × 64 jedes einmal.
+/// Siehe docs/renderer/einfarbig.md, „Farbe je Zustand“.
+const MAX_PROBEN_JE_TEXEL: u32 = 64;
+
 /// Obergrenze für die Kantenlänge eines Sprites, in Blockbreiten. Modelle
 /// dürfen von -16 bis 32 reichen, also drei Blöcke; alles darüber ist
 /// kaputt.
@@ -710,6 +716,7 @@ pub fn rastern(
     let ao = projected.iter().any(|q| q.ao_face.is_some());
     let mut canvas = Canvas::new(width, height);
     let samples = texture_samples(projection.scale());
+    let je_texel = projection.scale() == 1;
     // Von vorn nach hinten gerastert: was hinter einer deckenden Fläche
     // liegt, wird dann gar nicht erst abgetastet.
     for (order, quad) in projected.iter().enumerate().rev() {
@@ -718,7 +725,7 @@ pub fn rastern(
             textures,
             (min_x, min_y),
             tints,
-            samples,
+            (samples, je_texel),
             order as u32,
         );
     }
@@ -809,7 +816,7 @@ impl<'a> ProjectedQuad<'a> {
         textures: &Textures,
         (min_x, min_y): (i32, i32),
         tints: Tints,
-        samples: u32,
+        (samples, je_texel): (u32, bool),
         order: u32,
     ) {
         let texture = textures.image(self.quad.texture);
@@ -817,6 +824,11 @@ impl<'a> ProjectedQuad<'a> {
         if tw == 0 || th == 0 {
             return;
         }
+        // Bei scale 1 zählt jedes Texel des Frames, bis zum Deckel.
+        let samples = match je_texel {
+            true => tw.max(th).clamp(samples, MAX_PROBEN_JE_TEXEL),
+            false => samples,
+        };
 
         // Vanilla rückt jede Flüssigkeitsfläche ein Tausendstel ins
         // Blockinnere; hier rückt sie stattdessen in der Tiefe nach

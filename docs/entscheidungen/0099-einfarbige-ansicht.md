@@ -6,8 +6,10 @@ date: 2026-10-10
 issues: [230]
 code:
   - renderer/src/cli.rs
+  - renderer/src/cli/schaetzung.rs
   - renderer/src/render/projection.rs
   - renderer/src/render/metatile.rs
+  - renderer/src/render/rasterizer.rs
 ---
 
 # 0099: Die einfarbige Ansicht mit --flat
@@ -36,16 +38,19 @@ frei.
 - **Der Pfad bleibt derselbe:** Kandidaten, Deckung, Sprites und Blit wie
   in der Karte mit Texturen. Bei scale 1 ist die Oberseite eines Würfels ein
   Pixel, und der Rasterizer mittelt die Textur darüber schon in linearem
-  Licht, gewichtet mit Alpha. Das ist die Farbe je Zustand. Ein eigener Weg
-  für Spalten kommt nur, wenn die Messung es verlangt.
+  Licht, gewichtet mit Alpha. Das ist die Farbe je Zustand. Bei scale 1
+  tastet er so dicht ab, wie der Frame Texel hat, bis 64 je Kante; andere
+  Bäume trifft das nicht. Ein eigener Weg für Spalten kommt nur, wenn die
+  Messung es verlangt.
 - **Ein eigener Baum:** `top-north-s-flat`, `look` `"flat"` in `map.json`
   und `trees.json`. Der look folgt aus Kamera und scale; ein eigenes Feld
   braucht es nicht.
 - **Biomfarbe und Wasser** wie in der Karte mit Texturen, keine zweite
   Regel für die Tiefe des Wassers.
 - **Relief** nach der Regel der Karte des Spiels: drei Helligkeiten nach dem
-  Unterschied zum Nachbarn im Norden, mit dem Schachbrett aus x + z.
-  Wasser bleibt eben. Die Einzelheiten stehen in
+  Unterschied zum Nachbarn im Norden. Bei ganzen Blöcken und der Karte im
+  Massstab 1:1 zählt nur sein Vorzeichen, das Schachbrett aus x + z ändert
+  nichts. Wasser bleibt eben. Die Einzelheiten stehen in
   [Die einfarbige Ansicht](../renderer/einfarbig.md), „Relief“. Der Beleg
   am Client per `javap` folgt.
 - **Nur die CPU,** wie bei Cinematic: Das Relief braucht je Pixel die Höhe
@@ -58,11 +63,15 @@ frei.
 
 - **Platz:** ein Sechzehntel der Pixel von `top-north` bei scale 4, flache
   Farben packen gut. Gemessen wird in einem eigenen Schritt.
-- **Zeit:** Lesen, Licht und Kandidaten je Block bleiben. Erwartet ist das
-  2- bis 4-Fache von scale 4, nicht das 16-Fache; das zeigt erst die
-  Messung.
-- **RAM:** je Stück der Leinwand eine Höhe je Pixel und eine Zeile mehr,
-  nur mit `--flat`.
+- **Initial:** Lesen, Licht und Kandidaten je Block bleiben. Erwartet ist
+  ein Lauf 2- bis 4-mal so schnell wie `top-north` bei scale 4, nicht
+  16-mal; das zeigt erst die Messung.
+- **Live gerendert:** Ein flacher Baum neben dem mit Texturen heisst auf dem
+  Server ein zweites `--update` über die geänderten Chunks. Es liest
+  dieselben Chunks und zeichnet bei scale 1 ein Sechzehntel der Pixel.
+- **RAM:** nur mit `--flat`. Eine Kachel umfasst 16 × 16 Chunks und ihren
+  Rand; `oben` hält 8 Byte je Pixel, rund 0,5 MB je Kachel und rund 8 MB je
+  Stück von 1024 × 1024 Pixeln, dazu 4 Byte je Draw.
 - **Die Karte mit Texturen** wird weder langsamer noch anders: Sie nimmt
   den Weg mit Relief nie.
 

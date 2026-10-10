@@ -6072,9 +6072,9 @@ fn flach_wasser_ueber_grund_ohne_relief() {
 
 /// Das Relief nach dem Nachbarn im Norden: Eine Stufe zwei Blöcke hinauf
 /// ist hell, zwei hinab dunkel, eben dazwischen; eine Stufe von einem Block
-/// zeigt das Schachbrett aus x + z, halb hell, halb eben. Beginnt das Bild
-/// genau an der Stufe, sieht es den Nachbarn trotzdem. Die Farben ohne
-/// Relief, samt der weichen Beleuchtung am Fuss einer Stufe, zeichnet
+/// ist so hell wie eine von zwei, ohne Schachbrett. Beginnt das Bild genau
+/// an der Stufe, sieht es den Nachbarn trotzdem. Die Farben ohne Relief,
+/// samt der weichen Beleuchtung am Fuss einer Stufe, zeichnet
 /// `render_area_without_culling`.
 #[test]
 fn flach_relief_nach_norden() {
@@ -6114,12 +6114,7 @@ fn flach_relief_nach_norden() {
             in_helligkeit(roh(x, 2), EBEN),
             "eben unten, x {x}"
         );
-        let f = if (x + 12) % 2 == 1 { 255 } else { EBEN };
-        assert_eq!(
-            flach_pixel(&bild, x, 12),
-            in_helligkeit(roh(x, 12), f),
-            "ein Block, x {x}"
-        );
+        assert_eq!(flach_pixel(&bild, x, 12), roh(x, 12), "ein Block, x {x}");
     }
     // Das Bild beginnt an der Stufe bei z = 4: Ihr Nachbar im Norden liegt
     // ausserhalb, und sie bleibt hell.
@@ -6127,4 +6122,129 @@ fn flach_relief_nach_norden() {
     for x in 0..16 {
         assert_eq!(flach_pixel(&rand, x, 4), roh(x, 4), "Rand, x {x}");
     }
+}
+
+/// Bei scale 1 zählt jedes Texel des Frames: Eine Textur von 32 × 32 aus
+/// Spalten zweier Farben im Wechsel gibt das Mittel beider. Mit 16 × 16
+/// Proben träfe jede nur die zweite Farbe.
+#[test]
+fn flach_proben_bis_zum_frame() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |_, y, _| {
+        if y == 0 {
+            "minecraft:fein"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+    let linear = |c: f64| ((c / 255.0 + 0.055) / 1.055).powf(2.4);
+    let srgb = |l: f64| ((1.055 * l.powf(1.0 / 2.4) - 0.055) * 255.0).round() as u8;
+    let mittel = |a: f64, b: f64| srgb((linear(a) + linear(b)) / 2.0);
+    let soll = in_helligkeit([mittel(200.0, 40.0), 40, mittel(40.0, 200.0), 255], EBEN);
+    let ist = flach_pixel(&bild, 8, 8);
+    assert!(
+        ist.iter().zip(&soll).all(|(a, b)| a.abs_diff(*b) <= 1),
+        "{ist:?}, das Mittel {soll:?}"
+    );
+}
+
+/// Eine dünne Oberseite mit Ausschnitt, weniger als halb deckend,
+/// verschwindet bei scale 1 und setzt keine Höhe. Sie liegt über einem Loch
+/// im Stein: Ihr Pixel bleibt leer, und der Stein südlich von ihr bleibt
+/// eben, denn sein Nachbar im Norden fehlt. Ein deckender Teppich an
+/// derselben Stelle ist zu sehen und hell, der Stein südlich davon dunkel.
+#[test]
+fn flach_spaerliche_oberseite_verschwindet() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (y, z, x < 8) {
+        (0, 8, _) => "minecraft:air",
+        (0, _, _) => "minecraft:stone",
+        (1, 8, true) => "minecraft:spaerlich",
+        (1, 8, false) => "minecraft:teppich",
+        _ => "minecraft:air",
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+    let roh = render_area_without_culling(&world, &sprites, bild.1, Y_RANGE).unwrap();
+    let roh = |x: i32, z: i32| roh.get_pixel(x as u32, z as u32).0;
+    for x in 0..8 {
+        assert_eq!(roh(x, 8)[3], 0, "spärlich verschwindet, x {x}");
+        assert_eq!(flach_pixel(&bild, x, 8)[3], 0, "x {x}");
+        assert_eq!(
+            flach_pixel(&bild, x, 9),
+            in_helligkeit(roh(x, 9), EBEN),
+            "südlich, x {x}"
+        );
+    }
+    for x in 8..16 {
+        assert_eq!(roh(x, 8)[3], 255, "Teppich, x {x}");
+        assert_eq!(flach_pixel(&bild, x, 8), roh(x, 8), "Teppich hell, x {x}");
+        assert_eq!(
+            flach_pixel(&bild, x, 9),
+            in_helligkeit(roh(x, 9), TIEF),
+            "südlich, x {x}"
+        );
+    }
+}
+
+/// Das Relief über ein zufälliges Höhenfeld, über den Rand der Stücke von
+/// `render_area` hinweg: ein Chunk breit, 65 Chunks lang, Stein bis zu einer
+/// Höhe von 0 bis 3 aus einer festen Folge. Je Pixel unabhängig aus dem
+/// Höhenfeld gerechnet: hinauf hell, hinab dunkel, sonst eben, am Nordrand
+/// der Welt eben. Die Farben ohne Relief zeichnet
+/// `render_area_without_culling`.
+#[test]
+fn flach_relief_ueber_ein_hoehenfeld() {
+    let hoehe = |x: i32, z: i32| -> i32 {
+        let mut h = (x as u32).wrapping_mul(0x9e37_79b9) ^ (z as u32).wrapping_mul(0x85eb_ca6b);
+        h ^= h >> 15;
+        h = h.wrapping_mul(0x2c1b_3c6d);
+        (h >> 28) as i32 % 4
+    };
+    let chunks: Vec<(i32, i32)> = (0..65).map(|cz| (0, cz)).collect();
+    let dir = tempdir();
+    common::write_world(dir.path(), &chunks, move |x, y, z| {
+        if y <= hoehe(x, z) {
+            "minecraft:stone"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let rect = ScreenRect {
+        x: 0,
+        y: 0,
+        width: 16,
+        height: 16 * 65,
+    };
+    assert!(rect.height > STUECK, "über den Rand eines Stücks");
+    let bild = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+    let roh = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+    let mut hell = [0; 3];
+    for z in 0..rect.height as i32 {
+        for x in 0..16 {
+            let f = match z {
+                0 => EBEN,
+                _ => match (hoehe(x, z) - hoehe(x, z - 1)).signum() {
+                    1 => 255,
+                    -1 => TIEF,
+                    _ => EBEN,
+                },
+            };
+            hell[match f {
+                255 => 0,
+                EBEN => 1,
+                _ => 2,
+            }] += 1;
+            let ist = bild.get_pixel(x as u32, z as u32).0;
+            let soll = in_helligkeit(roh.get_pixel(x as u32, z as u32).0, f);
+            assert_eq!(ist, soll, "({x}, {z})");
+        }
+    }
+    assert!(hell.iter().all(|&n| n > 100), "{hell:?}");
 }

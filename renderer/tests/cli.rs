@@ -7294,7 +7294,8 @@ fn client_jar_nur_mit_zustimmung() {
 #[test]
 fn flat_ist_ein_eigener_baum() {
     let welt = tempdir();
-    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    // Zwei Kacheln: Bei scale 1 trägt eine 16 × 16 Chunks.
+    common::write_world(welt.path(), &[(15, 0), (16, 0)], gelaende);
     let flach = neuer_baum("top-north-s-flat");
     let wurzel = flach.wurzel();
     let lauf = export(welt.path(), flach.path(), &["--flat", "--gpu", "on"]);
@@ -7323,7 +7324,27 @@ fn flat_ist_ein_eigener_baum() {
             {"path": "top-north-s-flat", "camera": "top-north", "direction": "s", "look": "flat"}
         ])
     );
-    gelungen(&export(welt.path(), flach.path(), &["--flat", "--resume"]));
+    // Fortsetzen mit Inhalt: Der Lauf brach vor einer Stunde ab, zuletzt
+    // schrieb er die erste Basiskachel. Die andere ist älter als die zwei
+    // Minuten davor und bleibt stehen; der Baum gleicht danach einem neuen.
+    let basis = kacheln(flach.path(), max_zoom(flach.path()));
+    assert_eq!(basis.len(), 2, "zwei Basiskacheln");
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for (i, pfad) in basis.values().enumerate() {
+        setze_zeit(
+            pfad,
+            damals + Duration::from_secs(if i == 0 { 600 } else { 0 }),
+        );
+    }
+    let lauf = export(welt.path(), flach.path(), &["--flat", "--resume"]);
+    let log = String::from_utf8_lossy(&gelungen(&lauf).stdout).into_owned();
+    assert!(
+        log.contains("1 vorhandene Kacheln übersprungen (--resume)"),
+        "{log}"
+    );
+    let neu = neuer_baum("top-north-s-flat");
+    gelungen(&export(welt.path(), neu.path(), &["--flat"]));
+    gleiche_baeume(flach.path(), neu.path(), "--flat --resume");
 
     let abgelehnt = |extra: &[&str]| {
         let mut args: Vec<&OsStr> = vec![
@@ -7362,4 +7383,43 @@ fn flat_ist_ein_eigener_baum() {
             "{extra:?}: {meldung}"
         );
     }
+}
+
+/// `--flat --update` zeichnet das Relief auch über den Rand einer Kachel:
+/// Ein Block in der südlichen Reihe des Chunks (0, 15), z = 255, steigt; der
+/// Pixel südlich davon, z = 256, liegt in der Kachel darunter und wird
+/// dunkel. Danach gleicht der Baum einem neuen.
+#[test]
+fn flat_update_ueber_den_kachelrand() {
+    let welt = tempdir();
+    let chunks = [(0, 15), (0, 16)];
+    let schreibe = |hoch: bool, stempel: u32| {
+        common::write_world(welt.path(), &chunks, move |x, y, z| {
+            match (y, hoch && x == 5 && z == 255) {
+                (0, _) | (1, true) => "minecraft:stone",
+                _ => "minecraft:air",
+            }
+        });
+        common::setze_stempel(welt.path(), 0, 15, stempel);
+        common::setze_stempel(welt.path(), 0, 16, 1);
+    };
+    schreibe(false, 1);
+    let baum = neuer_baum("top-north-s-flat");
+    gelungen(&export(welt.path(), baum.path(), &["--flat"]));
+    let vorher = schnappschuss(baum.path());
+    schreibe(true, 2);
+    let lauf = export(welt.path(), baum.path(), &["--flat", "--update"]);
+    let log = String::from_utf8_lossy(&gelungen(&lauf).stdout).into_owned();
+    assert!(log.contains("Update:     1 Chunks geändert"), "{log}");
+    let neu = neuer_baum("top-north-s-flat");
+    gelungen(&export(welt.path(), neu.path(), &["--flat"]));
+    gleiche_baeume(baum.path(), neu.path(), "--flat --update");
+    // Gegenprobe: Die Kachel unter dem Rand hat sich wirklich geändert.
+    let basis = max_zoom(neu.path());
+    let unten = format!("{basis}/0/1.webp");
+    assert_ne!(
+        vorher.get(&unten),
+        schnappschuss(neu.path()).get(&unten),
+        "{unten}"
+    );
 }

@@ -42,14 +42,23 @@ Texturen. Entschieden in
 Der Pfad ist derselbe wie für die Karte mit Texturen, siehe
 [Der Weg einer Kachel](renderpfad.md). Von oben stehen senkrechte Flächen
 auf der Kante und fallen weg, siehe [Die Kamera](kamera.md), „Von oben“.
-Bei scale 1 deckt die Oberseite eines Würfels genau einen Pixel. Der
-Rasterizer mittelt die Textur über den Pixel mit 16 × 16 Proben
-(`texture_samples` in
-[`renderer/src/render/rasterizer.rs`](../../renderer/src/render/rasterizer.rs)):
-jedes Texel einer Textur von 16 × 16 einmal, in linearem Licht, gewichtet
-mit Alpha, nach dem Alphatest. Das gibt je Blockzustand das Mittel seiner
-Oberseite (`flach_ist_das_mittel_der_oberseite` in
-[`renderer/tests/metatile.rs`](../../renderer/tests/metatile.rs)).
+Bei scale 1 deckt die Oberseite eines Würfels genau einen Pixel.
+
+- **Das Mittel:** Der Rasterizer mittelt die Textur über den Pixel in
+  linearem Licht, gewichtet mit Alpha. Das gibt je Blockzustand das Mittel
+  seiner Oberseite (`flach_ist_das_mittel_der_oberseite` in
+  [`renderer/tests/metatile.rs`](../../renderer/tests/metatile.rs)).
+- **Jedes Texel:** Bei scale 1 tastet er so dicht ab, wie der Frame der
+  Textur Texel je Kante hat, mindestens 16 und höchstens 64
+  (`MAX_PROBEN_JE_TEXEL` in
+  [`renderer/src/render/rasterizer.rs`](../../renderer/src/render/rasterizer.rs)).
+  Eine Textur von 32 × 32 zählt so jedes Texel einmal
+  (`flach_proben_bis_zum_frame`); bei jedem anderen scale bleibt es bei
+  `texture_samples`.
+- **Ausgeschnittene Flächen** decken nach dem Alphatest den Pixel ganz
+  oder gar nicht. Eine Oberseite, die weniger als halb deckt, verschwindet
+  bei scale 1 und setzt keine Höhe, etwa klares Glas, Schienen oder
+  Spinnweben (`flach_spaerliche_oberseite_verschwindet`).
 
 ## Biomfarbe und Wasser
 
@@ -71,27 +80,45 @@ jeden Pixel in eine von drei Helligkeiten der Karte des Spiels.
 
 - **Die Höhe** eines Pixels ist das y des Blocks, der dort von oben als
   erster etwas zeichnet: der erste Draw an dem Pixel von vorn nach hinten
-  (`merke_oben`). Durchsichtiges zählt, Glas über Stein hat die Höhe des
-  Glases.
+  (`merke_oben`). Durchscheinendes zählt, gefärbtes Glas über Stein hat die
+  Höhe des Glases. Stufen und Teppiche haben die y ihres Blocks.
 - **Der Nachbar im Norden** ist der Pixel eine Zeile darüber. Jedes Stück
   rendert dafür eine Zeile mehr nach Norden und schneidet sie danach ab
   (`render_flach`). So hat auch die erste Zeile einer Kachel ihren
   Nachbarn. Fehlt dort ein Block, gilt der Nachbar als gleich hoch.
-- **Die Regel:** d = Unterschied · 4/5 + (±0,5) · 0,4, mit +0,5, wenn
-  x + z ungerade ist. Über 0,6 hell (255), unter −0,6 dunkel (180),
-  sonst eben (220), je in 255steln auf Rot, Grün und Blau. Ein Unterschied
-  von einem Block zeigt so ein Schachbrett aus hell und eben, ab zwei
-  Blöcken ist der Hang ganz hell oder ganz dunkel
-  (`flach_relief_nach_norden`).
-- **Wasser** bleibt eben (`flach_wasser_ueber_grund_ohne_relief`).
-- **Beleg folgt:** Die Regel soll der Karte des Spiels folgen, `MapItem`
-  und `MapColor.Brightness` im Client von 26.2. Der Beleg per `javap` steht
-  noch aus.
+- **Die Regel der Karte:** d = Unterschied · 4/(1 + 4) + (Feld − 0,5) ·
+  0,4, das Feld 1, wenn x + z ungerade ist, sonst 0. Über 0,6 hell (255),
+  unter −0,6 dunkel (180), sonst eben (220), je in 255steln auf Rot, Grün
+  und Blau.
+- **Bei ganzen Blöcken nur das Vorzeichen:** Schon ein Block ergibt
+  0,8 ± 0,2, in f64 auch 1 · 0,8 − 0,2 = 0,6000000000000001 > 0,6. Ein
+  Schachbrett gibt es also nicht: hinauf hell, hinab dunkel, gleich hoch
+  eben (`helligkeit`, gegen den Ausdruck der Karte geprüft in
+  `helligkeit_wie_der_ausdruck_der_karte`; im Bild
+  `flach_relief_nach_norden` und, über ein zufälliges Höhenfeld und den
+  Rand der Stücke hinweg, `flach_relief_ueber_ein_hoehenfeld`).
+- **Wasser** bleibt eben (`flach_wasser_ueber_grund_ohne_relief`). Land
+  südlich von Wasser vergleicht mit dem Wasserspiegel.
+- **Über den Rand einer Kachel:** `--flat --update` zeichnet die Kachel
+  südlich eines geänderten Chunks mit, ihr Relief hängt an seiner letzten
+  Reihe (`flat_update_ueber_den_kachelrand` in
+  [`renderer/tests/cli.rs`](../../renderer/tests/cli.rs)).
+- **Beleg folgt:** Die Regel, die Höhe der Karte (der erste Block mit
+  einer Farbe unter `WORLD_SURFACE`), der Zweig für Wasser und die
+  Helligkeiten stehen in `MapItem.update` und `MapColor.Brightness` im
+  Client von 26.2. Der Beleg per `javap` steht noch aus; bis dahin gilt
+  auch der Satz über kleine Modelle unten nur aus der Erinnerung.
 
 ## Was bleibt eine Näherung
 
-- **Texturen über 16 Texel** je Kante mittelt der Rasterizer mit 16 × 16
-  Proben wie bei jedem scale, nicht mit jedem Texel.
+- **Texturen über 64 Texel** je Kante mittelt der Rasterizer mit 64 × 64
+  Proben, nicht mit jedem Texel.
+- **Kleine Modelle** wie Fackeln, Zaunpfosten, Ketten und Laternen füllen
+  den Pixel mit ihrer Farbe und setzen die Höhe, sobald sie seine Mitte
+  treffen. Die Karte des Spiels überspringt Blöcke ohne Farbe auf der
+  Karte.
+- **Ausgeschnittene Flächen** zählen ganz oder gar nicht, siehe „Farbe je
+  Zustand“.
 - **Pflanzen aus Kreuzen** fehlen von oben, wie in `top-north` bei jedem
   scale. Die Karte des Spiels gibt ihnen eine Farbe.
 - **Nur die Richtung `s`:** Das Relief nimmt den Nachbarn im Norden als

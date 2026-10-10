@@ -79,24 +79,109 @@ fn eiche(x: i32, y: i32, z: i32) -> &'static str {
     }
 }
 
-/// Die Fichte an derselben Stelle, Stamm bei (6, 6..=13, 6): das Logo des
-/// Mods. Ein Kegel wie die Fichte im Spiel: unten mit Radius 2, nach oben
-/// Stufe für Stufe schmaler bis zu einem Block, darunter zwei Blöcke Stamm
-/// frei. Jede Breite hält zwei Lagen, sonst wirkt der Kegel von schräg oben
-/// rund. Drei Blöcke höher als die Eiche: Gerendert mit scale 32 statt 36
-/// passt sie in denselben Rahmen, siehe den Skill.
+/// Die Fichte an derselben Stelle, der Stammfuss bei (6, 6, 6): das Logo des
+/// Mods. Die Form stammt aus `/place feature minecraft:spruce` im Spiel 26.3,
+/// Block für Block übernommen, relativ zum Stammfuss als (dx, dy, dz,
+/// Stamm). 11 Blöcke hoch: Gerendert mit scale 28 passt sie in denselben
+/// Rahmen wie die Eiche, siehe den Skill.
+const FICHTE: &[(i32, i32, i32, bool)] = &[
+    (0, 0, 0, true),
+    (0, 1, 0, true),
+    (-1, 2, -2, false),
+    (0, 2, -2, false),
+    (1, 2, -2, false),
+    (-2, 2, -1, false),
+    (-1, 2, -1, false),
+    (0, 2, -1, false),
+    (1, 2, -1, false),
+    (2, 2, -1, false),
+    (-2, 2, 0, false),
+    (-1, 2, 0, false),
+    (0, 2, 0, true),
+    (1, 2, 0, false),
+    (2, 2, 0, false),
+    (-2, 2, 1, false),
+    (-1, 2, 1, false),
+    (0, 2, 1, false),
+    (1, 2, 1, false),
+    (2, 2, 1, false),
+    (-1, 2, 2, false),
+    (0, 2, 2, false),
+    (1, 2, 2, false),
+    (0, 3, -1, false),
+    (-1, 3, 0, false),
+    (0, 3, 0, true),
+    (1, 3, 0, false),
+    (0, 3, 1, false),
+    (-1, 4, -2, false),
+    (0, 4, -2, false),
+    (1, 4, -2, false),
+    (-2, 4, -1, false),
+    (-1, 4, -1, false),
+    (0, 4, -1, false),
+    (1, 4, -1, false),
+    (2, 4, -1, false),
+    (-2, 4, 0, false),
+    (-1, 4, 0, false),
+    (0, 4, 0, true),
+    (1, 4, 0, false),
+    (2, 4, 0, false),
+    (-2, 4, 1, false),
+    (-1, 4, 1, false),
+    (0, 4, 1, false),
+    (1, 4, 1, false),
+    (2, 4, 1, false),
+    (-1, 4, 2, false),
+    (0, 4, 2, false),
+    (1, 4, 2, false),
+    (0, 5, -1, false),
+    (-1, 5, 0, false),
+    (0, 5, 0, true),
+    (1, 5, 0, false),
+    (0, 5, 1, false),
+    (-1, 6, -2, false),
+    (0, 6, -2, false),
+    (1, 6, -2, false),
+    (-2, 6, -1, false),
+    (-1, 6, -1, false),
+    (0, 6, -1, false),
+    (1, 6, -1, false),
+    (2, 6, -1, false),
+    (-2, 6, 0, false),
+    (-1, 6, 0, false),
+    (0, 6, 0, true),
+    (1, 6, 0, false),
+    (2, 6, 0, false),
+    (-2, 6, 1, false),
+    (-1, 6, 1, false),
+    (0, 6, 1, false),
+    (1, 6, 1, false),
+    (2, 6, 1, false),
+    (-1, 6, 2, false),
+    (0, 6, 2, false),
+    (1, 6, 2, false),
+    (0, 7, -1, false),
+    (-1, 7, 0, false),
+    (0, 7, 0, true),
+    (1, 7, 0, false),
+    (0, 7, 1, false),
+    (0, 8, 0, false),
+    (0, 9, -1, false),
+    (-1, 9, 0, false),
+    (0, 9, 0, false),
+    (1, 9, 0, false),
+    (0, 9, 1, false),
+    (0, 10, 0, false),
+];
+
 fn fichte(x: i32, y: i32, z: i32) -> &'static str {
-    let blatt = "minecraft:spruce_leaves[distance=1,persistent=true,waterlogged=false]";
-    let (bx, bz) = (x - 6, z - 6);
-    let (ax, az) = (bx.abs(), bz.abs());
-    match y {
-        6..=13 if (bx, bz) == (0, 0) => "minecraft:spruce_log[axis=y]",
-        // Zweimal 5 x 5 ohne Ecken, eine Raute, zweimal 3 x 3, ein Kreuz, die Spitze.
-        8 | 9 if ax <= 2 && az <= 2 && !(ax == 2 && az == 2) => blatt,
-        10 if ax + az <= 2 => blatt,
-        11 | 12 if ax <= 1 && az <= 1 => blatt,
-        13 if ax + az <= 1 => blatt,
-        14 if (bx, bz) == (0, 0) => blatt,
-        _ => "minecraft:air",
+    let stelle = (x - 6, y - 6, z - 6);
+    match FICHTE
+        .iter()
+        .find(|&&(dx, dy, dz, _)| (dx, dy, dz) == stelle)
+    {
+        Some(&(_, _, _, true)) => "minecraft:spruce_log[axis=y]",
+        Some(_) => "minecraft:spruce_leaves[distance=1,persistent=true,waterlogged=false]",
+        None => "minecraft:air",
     }
 }

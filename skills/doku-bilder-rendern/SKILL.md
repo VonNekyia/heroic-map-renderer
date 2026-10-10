@@ -62,19 +62,21 @@ Testwelt liegt unter `./world`, die Assets wie in
    ```
    **Die Logos** von Plugin und Mod kommen aus derselben Szene, das Plugin
    mit der Eiche (`logo_welt`), der Mod mit einer Fichte
-   (`logo_welt_fichte`), 600 × 600 und 512 × 512 für Modrinth. Sie liegen
+   (`logo_welt_fichte`), 600 × 600 und 512 × 512 für Modrinth. Die Fichte
+   ist eine aus `/place feature minecraft:spruce` im Spiel 26.3, die Form
+   Block für Block übernommen; der User wählte sie aus fünf. Sie liegen
    nicht im Repository, der User nimmt sie aus seinem Ordner für Entwürfe.
    [`logo.py`](logo.py) schneidet zu, legt den Umriss nur um die äussere
    Silhouette, füllt Löcher im Laub dunkelgrün und verdoppelt ohne
    Glättung. Das dritte Argument ist der Abstand der Insel zum oberen Rand,
-   8 für die Eiche, 4 für die Fichte. Die Fichte ist drei Blöcke höher und
-   wird darum mit `--scale 32` statt 36 gerendert; so trägt sie derselbe
-   Rahmen, die Insel ist 11 % kleiner.
+   8 für die Eiche, 8 für die Fichte. Die Fichte ist 11 Blöcke hoch und
+   wird darum mit `--scale 28` statt 36 gerendert; so trägt sie derselbe
+   Rahmen, die Insel ist 22 % kleiner.
 
    ```bash
    LOGO_WELT=<ordner> cargo test --release --manifest-path renderer/Cargo.toml --test logo_welt -- --ignored --exact logo_welt_fichte
-   cargo run --release --manifest-path renderer/Cargo.toml -- --world <ordner> --assets ./vanilla-assets --data ./vanilla-data --render fichte.png --center 8 8 --size 576 --scale 32
-   python skills/doku-bilder-rendern/logo.py fichte.png heroic-map-mod.png 4
+   cargo run --release --manifest-path renderer/Cargo.toml -- --world <ordner> --assets ./vanilla-assets --data ./vanilla-data --render fichte.png --center 8 8 --size 576 --scale 28
+   python skills/doku-bilder-rendern/logo.py fichte.png heroic-map-mod.png 8
    ```
 4. **Die übrigen Bilder** `kacheln.png`, `zoomstufen.png`,
    `zeichenreihenfolge.png` und `frontend.png` entstanden in den Schritten

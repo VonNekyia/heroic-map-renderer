@@ -176,7 +176,9 @@ test('Nadeln und Banner bleiben beim Hinauszoomen gleich gross, jede mit ihrem N
   await welt(page, staedte([HAFEN, dorf, fahne], { mehr: { scale: 4, minZoom: -6 }, bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]) }));
   for (const zoom of [0, -8]) {
     await page.goto(`${DEMO}&at=35,0,-15&zoom=${zoom}`);
-    await expect(page.locator('.nadel-name')).toHaveCount(3);
+    // Nadeln mit geradem Namen, das Banner mit dem Namen im Bogen.
+    await expect(page.locator('.nadel-name')).toHaveCount(2);
+    await expect(page.locator('.nadel-bogen textPath')).toHaveText('Fahne');
     const groessen = await page.locator('.nadel-icon').evaluateAll((l) =>
       l.map((e) => `${e.getAttribute('title')} ${e.getBoundingClientRect().width} × ${e.getBoundingClientRect().height}`).sort(),
     );
@@ -190,6 +192,41 @@ test('Nadeln und Banner bleiben beim Hinauszoomen gleich gross, jede mit ihrem N
   expect(stil).toEqual(['Kartenschrift, serif', '16px', 'rgb(43, 43, 43)', 'rgba(0, 0, 0, 0)', '4px', 'rgb(242, 232, 208)', 'stroke']);
   // check() sagt auch für eine nie geladene Schrift ja; es zählt die geladene FontFace.
   await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family === 'Kartenschrift' && f.status === 'loaded'))).toBe(true);
+});
+
+test('der Name eines Banners steht im Bogen: Radius 2 · Höhe, bis 120° offen, dann flacher, der tiefste Punkt 0,75 · s unter dem Fuss, Sperrung 2 px; der einer Nadel bleibt gerade', async ({ page }) => {
+  const fahne = (id: string, name: string, at: [number, number]) => ({ id, type: 'banner', at, image: 'images/fahne.png', name });
+  const nadel = { ...HAFEN, id: 'nadel', name: 'Wegpunkt', panel: undefined };
+  await welt(page, staedte([fahne('kurz', 'Hafenstadt', [30.5, -20.5]), fahne('lang', 'Neu-Hafenstadt am Westmeer', [40.5, -10.5]), nadel], {
+    bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]),
+  }));
+  await page.goto(`${DEMO}&at=35,0,-15`);
+  const bogen = (name: string) =>
+    page.locator(`.nadel-icon[title="${name}"] .nadel-bogen`).evaluate((svg: SVGSVGElement) => {
+      const pfad = svg.querySelector('path')!;
+      const text = svg.querySelector('text')!;
+      const mitte = pfad.getPointAtLength(pfad.getTotalLength() / 2);
+      const r = Number(/A ([\d.]+)/.exec(pfad.getAttribute('d')!)![1]);
+      // Die gerenderte Länge zählt die Sperrung auch nach dem letzten Zeichen.
+      const l = text.getComputedTextLength() - 2;
+      return { r, mitte: [mitte.x, mitte.y], l, sperrung: text.getAttribute('letter-spacing'), lage: [svg.style.left, svg.style.top] };
+    });
+  const kurz = await bogen('Hafenstadt');
+  // Höhe 40, also r = 80; der tiefste Punkt am Fuss in x und 12 = 0,75 · 16 darunter.
+  expect(kurz.r).toBe(80);
+  expect(Math.abs(kurz.mitte[0]!)).toBeLessThan(0.01);
+  expect(Math.abs(kurz.mitte[1]! - 12)).toBeLessThan(0.01);
+  expect(kurz.sperrung).toBe('2');
+  // Der Ursprung des SVG am Fuss: ⌊22 / 2⌋ = 11, Höhe 40.
+  expect(kurz.lage).toEqual(['11px', '40px']);
+  expect(kurz.l / kurz.r).toBeLessThan((2 * Math.PI) / 3);
+  // Der lange Name öffnet bis 120°, darüber wächst r.
+  const lang = await bogen('Neu-Hafenstadt am Westmeer');
+  expect(lang.r).toBeGreaterThan(80);
+  expect(Math.abs(lang.l / lang.r - (2 * Math.PI) / 3)).toBeLessThan(0.05);
+  // Die Nadel: gerade, kein Bogen.
+  await expect(page.locator('.nadel-icon[title="Wegpunkt"] .nadel-name')).toHaveText('Wegpunkt');
+  await expect(page.locator('.nadel-icon[title="Wegpunkt"] .nadel-bogen')).toHaveCount(0);
 });
 
 test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2⌋ auf seinem Block; breiter, höher, ausserhalb von images/ oder in anderem Format übergeht die Karte mit Meldung und holt nur die erlaubten Bilder', async ({ page }) => {

@@ -46,14 +46,34 @@ while IFS= read -r zeile; do
   fi
 done < <(git grep -n -I -E '[Ss]iehe docs/[^ ,]+\.md' -- . ':!*.md' ':!.github/pruefe-doku.sh' "$@")
 
+# Der erste Link in $text: setzt ziel und titel und kürzt text bis hinter
+# ihn. Ohne Zeichenklasse mit „“: Git Bash (MSYS) findet [^“] unter
+# C.UTF-8 nicht, die Überschrift bliebe leer und ungeprüft. (.*) nimmt bis
+# zum letzten “ der Zeile, titel endet darum am ersten.
+naechster_link() {
+  [[ $text =~ \]\(([^\)\ ]+)\)(,\ „(.*)“)? ]] || return 1
+  ziel=${BASH_REMATCH[1]}
+  titel=${BASH_REMATCH[3]%%“*}
+  if [[ -n ${BASH_REMATCH[2]} ]]; then
+    text=${text#*"](${ziel}), „${titel}“"}
+  else
+    text=${text#*"](${ziel})"}
+  fi
+}
+
+# Selbstprobe: Findet diese Bash zwei Links mit Überschrift auf einer Zeile?
+# Sonst wäre die Prüfung der Überschriften blind und meldete nichts.
+text='[a](b.md), „Ein – Titel“ und [c](d.md), „Y“.'
+if ! { naechster_link && [[ $ziel/$titel == 'b.md/Ein – Titel' ]] && naechster_link && [[ $ziel/$titel == d.md/Y ]]; }; then
+  echo "::error::Diese Bash findet Überschriften hinter Links nicht; die Prüfung wäre blind"
+  exit 1
+fi
+
 # Relative Links, ohne Codeblöcke.
 while IFS= read -r datei; do
   ordner=$(dirname "$datei")
   while IFS=$'\t' read -r nummer text; do
-    while [[ $text =~ \]\(([^\)\ ]+)\)(,\ „([^“]*)“)? ]]; do
-      ziel=${BASH_REMATCH[1]}
-      titel=${BASH_REMATCH[3]}
-      text=${text#*"${BASH_REMATCH[0]}"}
+    while naechster_link; do
       case $ziel in http://* | https://* | mailto:* | \#*) continue ;; esac
       pfad="$ordner/${ziel%%#*}"
       if [[ ! -e $pfad ]]; then

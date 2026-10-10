@@ -14,6 +14,9 @@ Ergänzt durch [0100](0100-der-renderer-zeichnet-die-banner.md): Banner aus
 einem Entwurf, die der Renderer je Baum zeichnet, und Banner für Ebenen mit
 `permission`.
 
+Geändert auf Wunsch des Users am 10.10.: Die Tafel erscheint nach 50 statt
+150 ms Ruhe; die 300 ms bis zum Schliessen bleiben.
+
 ## Anlass
 
 Der User will drei Änderungen an den Ebenen (#219), für Webkarte und Mod:
@@ -44,7 +47,8 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
   Blocks fallen weg. `size` bleibt die feste Wahl der Nadel zwischen
   `large`, `medium` und `small`. Der Name steht immer darunter.
 - **Tafel beim Zeigen:**
-  - Ruht der Zeiger 150 ms auf einem Ziel mit Tafel, erscheint sie.
+  - Ruht der Zeiger 50 ms auf einem Ziel mit Tafel, erscheint sie; bis
+    zum 10.10. waren es 150 ms.
   - Verlässt er Ziel und Tafel, schliesst sie nach 300 ms; dazwischen kann
     er in die Tafel wandern, etwa zum Scrollen.
   - Ein Klick hält sie offen, bis zum Schliessknopf, Escape oder einem
@@ -77,8 +81,9 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
 - **Die Stufen behalten:** Sie halten die Gesamtansicht einer grossen Welt
   frei; das war der Grund in 0095. Der User will trotzdem feste Grössen.
 - **Die Tafel sofort beim Zeigen:** Fährt die Maus über viele Nadeln, blitzt
-  eine Tafel nach der anderen auf. 150 ms Ruhe genügen, damit nur die Tafel
-  erscheint, auf der der Zeiger stehen bleibt.
+  eine Tafel nach der anderen auf. 50 ms Ruhe genügen, damit nur die Tafel
+  erscheint, auf der der Zeiger stehen bleibt: Eine Maus in Bewegung meldet
+  sich etwa alle 16 ms, und jede Bewegung beginnt die Ruhe von vorn.
 - **Die Tafel gleich beim Verlassen schliessen:** Der Weg vom Ziel in die
   Tafel führt oft über einen Spalt; sie schlösse, bevor der Zeiger ankommt.
 
@@ -106,5 +111,5 @@ Das Format steht in [Ebenen](../benutzung/ebenen.md). Im Kern:
     nicht;
   - Nadeln und Banner haben auf der feinsten Stufe und weit draussen
     dieselbe Grösse;
-  - die Tafel erscheint nach 150 ms Ruhe und schliesst 300 ms nach dem
+  - die Tafel erscheint nach 50 ms Ruhe und schliesst 300 ms nach dem
     Verlassen, hält per Klick, öffnet per Tippen und per Enter.

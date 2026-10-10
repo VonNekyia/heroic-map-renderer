@@ -1,10 +1,12 @@
 ---
 title: "0100: Der Renderer zeichnet die Banner"
-description: Warum ein Banner aus einem benannten Entwurf der Ebene entsteht statt aus einem fertigen Bild, warum der Renderer es in einem eigenen Modus --banners je Baum als Sprite zeichnet, wie die Krone der Hauptstädte aussieht, warum Bäume von oben die Sicht aus north-45 nehmen, wie geheime Ebenen ihre Banner über den Kanal des Plugins bekommen, was es nach Regel 26 kostet und welche Wege verworfen sind; ergänzt 0097.
+description: Warum ein Banner aus einem benannten Entwurf der Ebene entsteht statt aus einem fertigen Bild, warum der Renderer es in einem eigenen Modus --banners je Satz als Sprite zeichnet, in welchem Massstab und Blick, wie die Krone der Hauptstädte aussieht, warum Bäume von oben und der Mod den Satz oben aus north-45 nehmen, wie der Name schräg unter dem Banner steht, wie Sprites veralten und neu werden, wie geheime Ebenen ihre Banner über den Kanal des Plugins bekommen, was es nach Regel 26 kostet und welche Wege verworfen sind; ergänzt 0097.
 status: gilt
 date: 2026-10-10
+issues: [249]
 code:
-  - docs/benutzung/ebenen.md
+  - renderer/src/assets/blockentity.rs
+  - renderer/src/cli/server.rs
 ---
 
 # 0100: Der Renderer zeichnet die Banner
@@ -25,6 +27,8 @@ Der User hat dazu entschieden:
    aus `north-45`, schräg von vorn.
 3. Ebenen mit `permission` bekommen auch gezeichnete Banner. Webkarte und
    Mod sehen gleich aus.
+4. Der Name unter dem Banner läuft parallel zur Unterkante des Tuchs im
+   Sprite, im selben Winkel wie das Banner auf der Karte.
 
 ## Entscheidung
 
@@ -35,26 +39,28 @@ Der User hat dazu entschieden:
   Lagen wie im Spiel: je `pattern`, die ID eines Musters, und `color`, ein
   Farbstoff.
 - **Am Banner:** `design` nennt einen Entwurf der Ebene, `capital` gibt ihm
-  die Krone, Vorgabe `false`. `image` bleibt, mit `design` nur noch als
-  Ersatz, solange es kein Sprite gibt.
+  die Krone, Vorgabe `false`; ohne `design` bleibt `capital` ohne Wirkung.
+  `image` bleibt, mit `design` nur noch als Ersatz, solange es kein Sprite
+  gibt.
 - **Namen statt eines Entwurfs am Banner:** Alle Städte einer Nation teilen
   einen Entwurf. Webkarte, Mod und Renderer finden das Sprite über den Namen,
   ohne in Rust, TypeScript und Java denselben Hash zu rechnen.
-- **Name eines Entwurfs:** wie ein Teil der Kennung, aber höchstens 58
-  Zeichen, damit `<name>-krone.png` die Regel für Dateinamen hält. Die UUID
-  einer Nation, 36 Zeichen, und `white` passen.
+- **Name eines Entwurfs:** wie ein Teil der Kennung. Die UUID einer Nation,
+  36 Zeichen, und `white` passen.
 - **Grenzen:** höchstens 200 Entwürfe je Ebene wie die Bilder, höchstens 16
-  Lagen je Entwurf wie im Spiel. Mehr Lagen sind ein Fehler im Format. Ein
-  Muster, das der Renderer nicht kennt, lässt er weg und nennt es im Log.
-  Farben nur die 16 Namen der Farbstoffe.
+  Lagen je Entwurf wie im Spiel. Mehr Lagen sind ein Fehler im Format, auch
+  in einer Datei, die `--banners` liest. Ein Muster, das der Renderer nicht
+  kennt, lässt er weg und nennt es im Log. Farben nur die 16 Namen der
+  Farbstoffe.
 - **API des Plugins,** von ihm festgelegt:
   - `Layer.design(name, design)` setzt oder ersetzt einen Entwurf am Kopf
     der Ebene, `Layer.removeDesign(name)` entfernt ihn und wirft, solange
     ein Banner der Ebene ihn nennt.
   - `BannerDesign.of(base)`, dazu `.with(pattern, color)` je Lage, die
     Farben als die 16 Farbstoffe von Bukkit.
-  - `MapObject.Banner` bekommt `design` und `capital`; `put` wirft, wenn
-    `design` keinen Entwurf der Ebene nennt.
+  - `MapObject.Banner` bekommt `design` und `capital`, dazu eine Fabrik
+    ohne `image`, etwa `at(...).withDesign(...)`; `put` wirft, wenn
+    `design` keinen Entwurf der Ebene nennt. Das ist eine Minor-Version.
   - Ein Muster prüft das Plugin nur auf die Form `namespace:pfad`, nicht
     gegen die Tabelle des Renderers.
 
@@ -64,60 +70,78 @@ Die Felder im Einzelnen stehen in [Ebenen](../benutzung/ebenen.md),
 ### Wer zeichnet und wann
 
 - **Ein eigener Modus `--banners`** mit den Dateien der Ebenen als
-  Argumenten, `--tiles` für `trees.json` und `--out` für den Ordner, in den
-  er schreibt. `layers.json` liest er nicht: Geheime Ebenen und Ebenen der
-  API stehen dort nicht.
+  Argumenten, `--tiles` für `trees.json`, `--out` für den Ordner, in den er
+  schreibt, und den Schaltern der Assets wie beim Rendern: `--assets`,
+  `--data` und die Zustimmung zum Client-Jar. `layers.json` liest er nicht:
+  Geheime Ebenen und Ebenen der API stehen dort nicht.
 - **Was er liest:** je Datei nur `id` und `designs`; Objekte dürfen fehlen.
   Das Plugin schreibt für Ebenen der API und für geheime Ebenen nur diese
   zwei Felder in seinen eigenen Ordner.
-- **Wann:** Das Plugin ruft ihn nach jeder Änderung an `designs`, gebündelt
-  mit seinen Updates, nach jedem vollen Lauf und einmal beim Start;
-  eingereiht wie die Läufe, auf einem Thread mit `--low-priority`. Er
-  zeichnet nur, was fehlt oder sich geändert hat; ein Stempel je Sprite hält
-  den Entwurf, aus dem es stammt.
+- **Ein Aufruf für alle öffentlichen Ebenen:** Das Plugin übergibt jede
+  öffentliche Ebene mit Entwürfen; leere `designs` heisst, ihre Sprites zu
+  löschen. Unter jedem `modname` in `<out>` verwaltet der Renderer
+  `banner/` ganz: Er schreibt, was fehlt, und löscht, was zu keiner
+  übergebenen Ebene, keinem Entwurf und keinem Satz mehr gehört. Wird eine
+  Ebene geheim, fehlt sie im Aufruf, und ihre öffentlichen Sprites gehen.
+  Das Plugin lässt `banner/` beim Aufräumen aus.
+- **Wann:** nach jeder Änderung an `designs`, gebündelt mit den Updates,
+  nach jedem vollen Lauf und einmal beim Start. `--banners` darf neben
+  anderen Läufen laufen: Es schreibt nur `banner/`, auf einem Thread mit
+  `--low-priority` und mit wenig Speicher. So bekommt ein neuer Entwurf
+  sein Sprite auch während eines vollen Laufs.
 - **Je Entwurf zwei Sprites,** ohne und mit Krone, unabhängig von
   `capital`. Ein neues `capital: true` braucht so keinen neuen Aufruf.
-- **Je Baum aus `trees.json` ein Satz, dazu immer der Satz `oben`:** die
-  Sicht aus `north-45` im Look der Karte. Den holt der Mod, auch wenn der
-  Server keinen Baum von oben hat oder der Baum des Mods nur zum Download
-  da ist und in `trees.json` fehlt.
-- **Wohin:**
-  `<out>/<modname>/banner/<ebene>/<satz>/<entwurf>.png`, mit Krone
-  `<entwurf>-krone.png`. `<ebene>` ist der Teil der Kennung nach `:`, denn
-  Entwürfe gelten je Ebene; `<satz>` ist der Name des Baums oder `oben`.
-  Für öffentliche Ebenen ist `<out>` der Ordner `layers/` unter `--tiles`;
-  Webkarte und Mod holen die Sprites dort wie die Bilder heute.
-- **Wem `banner/` gehört:** Für jeden `modname`, den ein Aufruf nennt,
-  gehört `<out>/<modname>/banner/` ganz dem Renderer. Er schreibt, was
-  fehlt, und löscht, was zu keinem Entwurf und keinem Satz mehr gehört. Das
-  Plugin übergibt darum alle Dateien eines `modname` mit Entwürfen in einem
-  Aufruf und lässt `banner/` beim Aufräumen aus, solange es den `modname`
-  gibt. Fällt der `modname` weg, löscht das Plugin den Ordner samt
-  `banner/`.
+- **Die Sätze:**
+  - je Baum aus `trees.json`, der nicht von oben schaut, ein Satz mit
+    seinem Namen;
+  - dazu immer der Satz `oben`: `north-45`, Richtung `s`, Look der Karte.
+    Ihn nehmen alle Bäume von oben, `top-north`, `top` und `--flat`, und
+    der Mod, auch wenn der Server keinen Baum von oben hat oder der Baum
+    des Mods nur zum Download da ist.
+- **Wohin:** `<out>/<modname>/banner/<ebene>/<satz>/<entwurf>.png`, mit
+  Krone `<satz>/krone/<entwurf>.png`. `<ebene>` ist der Teil der Kennung
+  nach `:`, denn Entwürfe gelten je Ebene. Für öffentliche Ebenen ist
+  `<out>` der Ordner `layers/` unter `--tiles`; Webkarte und Mod holen die
+  Sprites dort wie die Bilder heute.
+- **Erst die Bilder, dann die Datei:** Jedes Sprite schreibt der Renderer
+  unter einem Namen mit `.` davor und benennt es dann um. Am Ende meldet er
+  als JSON, welche Ebenen geänderte Sprites haben; das Plugin hebt deren
+  `version`. So laden Webkarte und Mod sie neu.
 - **Ohne Sprite** zeichnet die Ansicht `image`; fehlt auch das, übergeht
-  sie das Banner mit Meldung, wie heute.
+  sie das Banner mit Meldung, wie heute. Nations behält `image`, bis
+  Webkarte und Mod Sprites zeigen.
 
-### Grösse, Blick und Licht
+### Massstab, Blick und Licht
 
-- **Feste Grösse wie in 0097:** Ein Pixel des Modells ist ein Pixel des
-  Sprites, auf jeder Stufe und bei jedem scale. Das Tuch ist 20 × 40 Pixel
-  wie das Bild heute; mit Stange und Querholz bleibt das Sprite unter der
-  Grenze von 32 × 64.
-- **Blick:** Kamera und Richtung des Baums. Das Banner steht in der
-  Drehung des Spiels, die dem Blick am nächsten ist, das Tuch von vorn.
-- **Bäume von oben:** Von oben ist ein Banner ein Strich. Für `top-north`
-  und `--flat` zeichnet der Renderer das Sprite aus `north-45`; der Mod
-  nimmt den Satz `oben`.
-- **Licht:** das Licht der Blockentities im Baum, Himmelslicht voll. Ein
-  Baum mit `look` `cinematic` gibt seine Werte mit; sein `lookHash` gehört
-  zum Stempel.
+- **Feste Grösse wie in 0097,** auf jeder Stufe und bei jedem scale: Ein
+  Pixel des Modells ist in der Höhe ein Pixel des Sprites. In der Breite ist
+  es so breit, wie die Kamera eine Strecke quer zum Blick zeigt: von vorn,
+  also genordet und im Satz `oben`, 1 Pixel, schräg in `2:1` rund √2 Pixel.
+  Das Tuch ist so von vorn 20 × 40 Pixel wie das Bild heute, in `2:1` rund
+  28 × 40; mit Stange und Querholz bleibt jedes Sprite unter der Grenze von
+  32 × 64.
+- **Blick:** Kamera und Richtung des Satzes. Das Banner steht in der
+  Drehung, deren Tuch im Blick nach Süden zeigt, und so schräg auf der
+  Karte wie die Blöcke daneben.
+- **Fuss:** Der Renderer legt den Fuss der Stange bei `(⌊Breite / 2⌋,
+  Höhe)` des Sprites, wie die Ansichten den Fuss eines Bilds setzen.
+- **Der Name:** Je Satz schreibt der Renderer `satz.json` neben die
+  Sprites, mit dem Winkel der Unterkante des Tuchs und dem Fuss. Webkarte
+  und Mod drehen den Namen darum gleich: genordet waagrecht, in `2:1`
+  parallel zur Unterkante. Mit `image` bleibt er waagrecht. Grösse und
+  Stil der Kartenschrift bleiben wie bisher.
+- **Licht:** das Licht der Blockentities, Himmelslicht voll, die neutrale
+  Wärme. Ein Satz mit `look` `cinematic` nimmt dessen Werte; passt der
+  `lookHash` des Baums nicht zum Binär, gilt der Look der Karte, mit
+  Meldung.
 
 ### Die Krone
 
 - **Modell:** ein Reif von 8 × 3 × 8 Pixeln aus vier Quadern, Wand 1 dick,
   und vier Zacken von 2 × 3 × 1 mittig auf jeder Seite, mittig auf dem
-  Querholz; im Format der Blockmodelle. Ob je ein Würfel von 1 × 1 × 1 die
-  Zacken spitzer macht, entscheidet die PR der Krone am Bild.
+  Querholz; im Format der Blockmodelle und im Modellraum des Banners, also
+  im selben Massstab und Blick. Ob die Zacken spitze Enden aus je einem
+  Würfel bekommen, entscheidet der User am ersten Goldbild.
 - **Textur:** 16 × 16, eigene Pixelkunst aus dem Team, deckend, mit
   benannten Bereichen je Fläche. Licht und Schatten sind gemalt; die
   Helligkeit der Seiten gibt der Renderer dazu wie jeder Fläche.
@@ -126,32 +150,47 @@ Die Felder im Einzelnen stehen in [Ebenen](../benutzung/ebenen.md),
   stammt aus dem Spiel.
 - **Das Tuch bleibt das der Nation.**
 
+### Stand und Stempel
+
+- **`BANNERSTAND`:** ein eigener Zeichenstand für die Sprites, mit eigenem
+  Hash über ihre Goldbilder, ausserhalb von `GOLDBILDER`. Eine neue Krone
+  zwingt so keinen Baum zu einem vollen Lauf.
+- **Der Stempel je Sprite** hält alles, was sein Bild bestimmt: Entwurf,
+  Krone, `BANNERSTAND`, `ZEICHENSTAND`, die Assets und Packs samt `--data`,
+  Kamera, Richtung, Look und `lookHash`. Ist einer anders, zeichnet
+  `--banners` das Sprite neu. Die Stempel liegen dort, wo der Server nicht
+  ausliefert.
+
 ### Geheime Ebenen
 
 Eine Ebene mit `permission` kommt nie unter `layers/`, denn alles dort ist
 öffentlich. Für sie ruft das Plugin `--banners` mit `--out` in seinem
-eigenen Ordner, den der Server nicht ausliefert. Den Satz `oben` schickt es
-über seinen Kanal an den Mod, wie die Tafeln:
+eigenen Ordner, den der Server nicht ausliefert, und nur mit dem Satz
+`oben`. Den schickt es über seinen Kanal an den Mod, wie die Tafeln:
 
 - erst, wenn der Mod ihn anfragt, mit Ebene, `version`, Entwurf und Krone;
 - nur an Spieler, die die Ebene sehen dürfen, mit den Rechten der Ebene;
-- in denselben Grenzen wie die Tafeln, je Sprite höchstens 256 KiB.
+- gezählt getrennt von den Tafeln, im selben Budget, die Bytes als Base64
+  mit einem Drittel mehr gerechnet; je Sprite höchstens 256 KiB.
 
 Die Felder der Nachricht beschreibt das Plugin in seiner Doku.
 
 ## Kosten nach Regel 26
 
-Geschätzt, nicht gemessen; die PRs messen nach.
+Geschätzt, nicht gemessen; jede PR misst ihren Teil, den Speicher eingeschlossen.
 
 - **Live-Rendern:** Die Kacheln ändern sich nicht. Ändert sich ein Entwurf,
-  zeichnet `--banners` ihn je Baum neu, ein Sprite von rund 25 × 45 Pixeln
+  zeichnet `--banners` ihn je Satz neu, ein Sprite von rund 25 × 45 Pixeln
   in unter 1 ms, dazu einmal der Start samt Texturen, 1 bis 2 s. Eine neue
   Stadt mit einem bekannten Entwurf kostet nichts.
 - **Erster Render:** einmal alle Entwürfe je Satz, bei 200 Entwürfen mit und
-  ohne Krone, 4 Bäumen und dem Satz `oben` 2000 Sprites, unter 2,5 s.
+  ohne Krone, 4 Sätzen und dem Satz `oben` 2000 Sprites, mit dem Start unter
+  5 s.
 - **Arbeitsspeicher:** die Tabelle der Blockentities und die Texturen der
   Banner, nur solange `--banners` läuft, auf einem Thread.
 - **Platz:** rund 1 KB je Sprite, bei 2000 Sprites rund 2 MB.
+- **Regel 22:** Die Karte aus Rasterkacheln braucht dafür nichts: Kein Lauf
+  über Kacheln wird langsamer oder anders, `--banners` läuft für sich.
 
 ## Verworfene Alternativen
 
@@ -163,11 +202,17 @@ Geschätzt, nicht gemessen; die PRs messen nach.
   ändert.
 - **Ein Pfad je `modname` statt je Ebene:** Zwei Ebenen eines `modname` mit
   gleichem Namen und anderem Entwurf überschrieben sich.
-- **Nur die Sätze aus `trees.json`:** Dem Mod fehlte die Sicht von oben,
-  wenn der Server keinen Baum von oben hat oder sein Baum nur zum Download
-  da ist.
+- **Die Krone als `<entwurf>-krone.png`:** stiesse mit dem Sprite eines
+  Entwurfs `<entwurf>-krone` zusammen.
+- **Ein Satz je Baum von oben:** Alle zeigten dasselbe Sprite aus
+  `north-45`; dem Mod fehlte die Sicht, wenn der Server keinen Baum von oben
+  hat.
+- **Das Banner zur Kamera gedreht:** Das Tuch stünde von vorn, aber nicht
+  mehr wie die Blöcke daneben auf der Karte, und der Name liefe waagrecht.
 - **Die Krone nur bei `capital`:** Ein neues `capital: true` bräuchte einen
   neuen Aufruf.
+- **Die Goldbilder der Sprites in `GOLDBILDER`:** Eine neue Krone zwänge
+  jeden Baum zu einem vollen Lauf.
 - **Ein Entwurf direkt am Banner statt eines Namens:** Alle drei Ansichten
   bräuchten denselben Hash über eine kanonische Form des Entwurfs. Das ist
   die Fehlerquelle, die die Namen vermeiden.
@@ -186,18 +231,25 @@ Geschätzt, nicht gemessen; die PRs messen nach.
 ## Folgen
 
 - **Ergänzt 0097:** Das Banner bleibt ein Objekt mit fester Grösse, Pixel
-  auf Pixel. Neu sind Entwurf, Krone und das Sprite je Baum; `image` bleibt
-  als Ersatz. Für geheime Ebenen gilt nicht mehr „vorerst keine Banner“.
-- **Renderer, in dieser Reihenfolge:** ein Banner ohne Welt als Sprite mit
+  auf Pixel. Neu sind Entwurf, Krone, das Sprite je Satz und der schräge
+  Name; `image` bleibt als Ersatz. Für geheime Ebenen gilt nicht mehr
+  „vorerst keine Banner“.
+- **Renderer, in dieser Reihenfolge, jeder Schritt mit seinen eigenen
+  Goldbildern unter `BANNERSTAND`:** ein Banner ohne Welt als Sprite mit
   festem Massstab; die Lagen aus einem Entwurf; die Krone; der Modus
-  `--banners` samt Aufräumen von `banner/`; Goldbilder je Kamera mit und
-  ohne Krone, mit 16 Lagen und einem unbekannten Muster. Der Server liefert
-  dazu `layers/<modname>/banner/` aus wie `images/`.
-- **Plugin:** `designs`, `design` und `capital` in der API, in einer
-  Minor-Version; `designs` in die Ebene schreiben; `--banners` rufen;
-  `banner/` beim Aufräumen auslassen; geheime Sprites über seinen Kanal
-  schicken.
-- **Webkarte und Mod:** das Sprite des Baums wählen, sonst `image`.
+  `--banners` samt Stempeln, `satz.json`, Meldung und Aufräumen von
+  `banner/`. Der Server liefert `layers/<modname>/banner/` aus wie
+  `images/`; seine Freigabeliste kennt den Ordner.
 - **Doku:** [Ebenen](../benutzung/ebenen.md) mit `designs`, `design`,
-  `capital` und dem Weg für geheime Ebenen,
-  [Blockentities](../renderer/blockentities.md) mit dem Banner ohne Welt.
+  `capital`, den Sprites und dem Weg für geheime Ebenen;
+  [Blockentities](../renderer/blockentities.md) mit dem Banner ohne Welt;
+  [Plugin](../plugin.md), [Schalter](../benutzung/schalter.md) mit
+  `--banners` und [Server](../benutzung/server.md) mit `banner/`.
+- **Plugin:** die API mit `designs`, `design` und `capital` in einer
+  Minor-Version; `designs` in die Ebene schreiben; `--banners` rufen und
+  seine Meldung in die `version` übernehmen; `banner/` beim Aufräumen
+  auslassen; geheime Sprites über seinen Kanal schicken.
+- **Webkarte und Mod:** das Sprite des Satzes wählen, sonst `image`, und
+  den Namen nach `satz.json` drehen.
+- **Reihenfolge über die Repos:** Renderer-Release, dann die Minor-Version
+  des Plugins, dann Webkarte und Mod, zuletzt Nations.

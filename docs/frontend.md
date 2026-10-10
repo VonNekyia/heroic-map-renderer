@@ -433,10 +433,18 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     „Kennung“, übergeht sie ebenso mit Meldung.
 - **Nadeln und Banner:** Leaflet-Marker mit ihrem Bild auf einer Leinwand,
   Pixel auf Pixel, der Name darunter wie die Kartenschrift nach
-  [Ebenen](benutzung/ebenen.md), „Nadeln und Banner“: die Kontur als
-  `-webkit-text-stroke` von 4 px unter der Füllung (`paint-order`), so
-  bleiben 2 px sichtbar, wie bei der Kartenschrift der Ebenen. Die Schrift
-  lädt mit dem ersten Namen, `ladeSchrift` in `schrift.ts`:
+  [Ebenen](benutzung/ebenen.md), „Nadeln und Banner“. Die Kontur ist 4 px
+  Strich unter der Füllung (`paint-order`), so bleiben 2 px sichtbar, wie
+  bei der Kartenschrift der Ebenen. Die Schrift lädt mit dem ersten Namen,
+  `ladeSchrift` in `schrift.ts`:
+  - der Name einer Nadel gerade, ein `span` mit `-webkit-text-stroke`;
+  - der Name eines Banners im Bogen: `nameImBogen` in `ebenen.ts` misst ihn
+    in der Kartenschrift samt Sperrung, rechnet Radius und Bogen nach dem
+    Format und setzt ein SVG mit dem Ursprung am Fuss, den Namen als
+    `textPath` auf einem unsichtbaren Pfad, wie die Kartenschrift.
+    `bannerIcon` wartet dafür, bis die Schrift geladen ist. Die Höhe ist
+    die gezeichnete in CSS-Pixeln; den Winkel aus `satz.json` nimmt die
+    Karte, sobald sie Sprites zeigt, bis dahin 0;
   - die Nadel: Feld, Symbol und Rahmen aus `web/src/ebenen/schild_*.png`
     nach [Ebenen](benutzung/ebenen.md), „Nadel“; die Bilder stammen vom
     Designer;

@@ -16,7 +16,7 @@ import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, zurKamera, t
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
 import { farbe, istObjekt, istText, punkt } from './pruefen';
-import { ladeSchrift, Schrift, schriftzug, type Schriftzug } from './schrift';
+import { KAPPE, ladeSchrift, Schrift, schriftzug, SVG, type Schriftzug } from './schrift';
 
 /** Ein Eintrag in `layers.json`. */
 interface Eintrag {
@@ -192,6 +192,52 @@ function banner(wert: unknown): Banner | undefined {
     name: istText(wert.name, 64) ? wert.name : undefined,
     panel: istObjekt(wert.panel) && Array.isArray(wert.panel.blocks) ? wert.panel.blocks : undefined,
   };
+}
+
+/**
+ * Der Name eines Banners im Bogen, in CSS-Pixeln: Schriftgrösse, Sperrung
+ * zwischen den Zeichen, tiefster Punkt unter dem Fuss, grösste Öffnung.
+ * Siehe docs/benutzung/ebenen.md, „Nadeln und Banner“.
+ */
+const NAME = { s: 16, sperrung: 0.125 * 16, tief: 0.75 * 16, oeffnung: (2 * Math.PI) / 3 };
+let bogenNummer = 0;
+
+/**
+ * Ein SVG mit dem Ursprung am Fuss: der Name auf einem Kreisbogen darunter,
+ * jedes Zeichen aufrecht zum Bogen. `h` ist die gezeichnete Höhe des Banners,
+ * `winkel` der aus `satz.json` in Grad, mit `image` 0.
+ */
+function nameImBogen(name: string, h: number, winkel: number): SVGSVGElement {
+  const { s, sperrung, tief, oeffnung } = NAME;
+  const ctx = document.createElement('canvas').getContext('2d')!;
+  ctx.font = `${s}px Kartenschrift, serif`;
+  const l = ctx.measureText(name).width + sperrung * ([...name].length - 1);
+  const r = Math.max(2 * h, l / oeffnung);
+  // Der Pfad etwas länger als der Name, damit textPath an den Enden nichts abschneidet.
+  const phi = Math.min(1.8 * Math.PI, l / r + 0.6);
+  const [x, y] = [r * Math.sin(phi / 2), tief - r + r * Math.cos(phi / 2)];
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'nadel-bogen');
+  const g = document.createElementNS(SVG, 'g');
+  g.setAttribute('transform', `rotate(${winkel})`);
+  const pfad = document.createElementNS(SVG, 'path');
+  const id = `nadel-bogen-${bogenNummer++}`;
+  pfad.id = id;
+  pfad.setAttribute('d', `M ${-x} ${y} A ${r} ${r} 0 ${phi > Math.PI ? 1 : 0} 0 ${x} ${y}`);
+  const text = document.createElementNS(SVG, 'text');
+  text.setAttribute('letter-spacing', String(sperrung));
+  const entlang = document.createElementNS(SVG, 'textPath');
+  entlang.setAttribute('href', `#${id}`);
+  entlang.setAttribute('startOffset', '50%');
+  entlang.setAttribute('text-anchor', 'middle');
+  // Die Sperrung nach dem letzten Zeichen zählt nicht; die Grundlinie eine halbe Höhe der Grossbuchstaben unter dem Bogen.
+  entlang.setAttribute('dx', String(sperrung / 2));
+  entlang.setAttribute('dy', String((KAPPE * s) / 2));
+  entlang.textContent = name;
+  text.append(entlang);
+  g.append(pfad, text);
+  svg.append(g);
+  return svg;
 }
 
 /** Die Bilder des Schilds; die Symbole hält jede geladene Ebene selbst. */
@@ -738,7 +784,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    * k = max(1, round(devicePixelRatio)) Pixel des Geräts breit, so bleibt
    * jedes gleich breit, auch bei 1,25 oder 1,5. Siehe docs/frontend.md, „Ebenen“.
    */
-  const ortIcon = (bild: CanvasImageSource, b: number, h: number, name: string | undefined): L.DivIcon => {
+  const ortIcon = (bild: CanvasImageSource, b: number, h: number, name: string | undefined, bogen = false): L.DivIcon => {
     const k = Math.max(1, Math.round(devicePixelRatio));
     const s = k / devicePixelRatio;
     const html = L.DomUtil.create('div', 'nadel');
@@ -749,7 +795,12 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(bild, 0, 0, b * k, h * k);
     html.append(kopie);
-    if (name) {
+    if (name && bogen) {
+      // Gemessen in der Kartenschrift: bannerIcon wartet, bis sie geladen ist.
+      const svg = nameImBogen(name, h * s, 0);
+      [svg.style.left, svg.style.top] = [`${Math.floor(b / 2) * s}px`, `${h * s}px`];
+      html.append(svg);
+    } else if (name) {
       // Der Name steht in der Kartenschrift; bis sie geladen ist, in der Vorgabe von style.css.
       void ladeSchrift();
       L.DomUtil.create('span', 'nadel-name', html).textContent = name;
@@ -783,7 +834,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       console.warn(`Banner ${banner.id}: ${geholt ? `${geholt.naturalWidth} × ${geholt.naturalHeight} statt höchstens ${b} × ${h}` : `${adresse} lässt sich nicht laden`}, übergangen`);
       return undefined;
     }
-    return ortIcon(geholt, geholt.naturalWidth, geholt.naturalHeight, banner.name);
+    if (banner.name) await ladeSchrift();
+    return ortIcon(geholt, geholt.naturalWidth, geholt.naturalHeight, banner.name, true);
   };
 
   /**

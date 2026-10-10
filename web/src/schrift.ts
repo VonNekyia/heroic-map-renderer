@@ -51,7 +51,7 @@ export function schriftzug(wert: Record<string, unknown>): Schriftzug | undefine
  * (1384) durch `unitsPerEm` (2048), aus der Schrift gelesen. Siehe
  * docs/frontend.md, „Ebenen“.
  */
-const KAPPE = 1384 / 2048;
+export const KAPPE = 1384 / 2048;
 
 /** Grenzen aus docs/benutzung/ebenen.md, „Kartenschrift“, in Pixeln der Höhe der Grossbuchstaben. */
 const LESBAR = { min: 8, max: 96 };
@@ -66,7 +66,7 @@ export function ladeSchrift(): Promise<unknown> {
   return schrift;
 }
 
-const SVG = 'http://www.w3.org/2000/svg';
+export const SVG = 'http://www.w3.org/2000/svg';
 let zaehler = 0;
 
 /**

@@ -48,7 +48,7 @@ Testwelt liegt unter `./world`, die Assets wie in
    [`renderer/tests/logo_welt.rs`](../../renderer/tests/logo_welt.rs):
 
    ```bash
-   LOGO_WELT=<ordner> cargo test --release --manifest-path renderer/Cargo.toml --test logo_welt -- --ignored
+   LOGO_WELT=<ordner> cargo test --release --manifest-path renderer/Cargo.toml --test logo_welt -- --ignored --exact logo_welt
    cargo run --release --manifest-path renderer/Cargo.toml -- --world <ordner> --assets ./vanilla-assets --data ./vanilla-data --render insel.png --center 8 8 --size 576 --scale 36
    ```
 
@@ -59,6 +59,21 @@ Testwelt liegt unter `./world`, die Assets wie in
    ```bash
    aseprite -b --layer Insel docs/bilder/quellen/banner.aseprite --save-as insel.png
    python skills/doku-bilder-rendern/web-bilder.py insel.png
+   ```
+   **Die Logos** von Plugin und Mod kommen aus derselben Szene, das Plugin
+   mit der Eiche (`logo_welt`), der Mod mit einer Fichte
+   (`logo_welt_fichte`), 600 × 600 und 512 × 512 für Modrinth. Sie liegen
+   nicht im Repository, der User nimmt sie aus seinem Ordner für Entwürfe.
+   [`logo.py`](logo.py) schneidet zu, legt den Umriss nur um die äussere
+   Silhouette, füllt Löcher im Laub dunkelgrün und verdoppelt ohne
+   Glättung. Das zweite Argument ist der Abstand der Insel zum oberen Rand,
+   so steht die Insel in beiden Logos gleich: 8 für die Eiche, 17 für die
+   niedrigere Fichte.
+
+   ```bash
+   LOGO_WELT=<ordner> cargo test --release --manifest-path renderer/Cargo.toml --test logo_welt -- --ignored --exact logo_welt_fichte
+   cargo run --release --manifest-path renderer/Cargo.toml -- --world <ordner> --assets ./vanilla-assets --data ./vanilla-data --render fichte.png --center 8 8 --size 576 --scale 36
+   python skills/doku-bilder-rendern/logo.py fichte.png heroic-map-mod.png 17
    ```
 4. **Die übrigen Bilder** `kacheln.png`, `zoomstufen.png`,
    `zeichenreihenfolge.png` und `frontend.png` entstanden in den Schritten

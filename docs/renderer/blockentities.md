@@ -1,6 +1,6 @@
 ---
 title: Blockentities
-description: Wie der Renderer Truhen, Shulkerkisten, Banner, Köpfe, Krüge und die übrigen Blöcke mit Blockentity-Renderer aus den Modellen des Spiels zeichnet, in welchem Licht, und wie Bannermuster und Scherben aus dem Chunk dazukommen.
+description: Wie der Renderer Truhen, Shulkerkisten, Banner, Köpfe, Krüge und die übrigen Blöcke mit Blockentity-Renderer aus den Modellen des Spiels zeichnet, in welchem Licht, wie Bannermuster und Scherben aus dem Chunk dazukommen und wie ein Banner ohne Welt zum Sprite für die Ebenen wird.
 code:
   - renderer/src/assets/blockentity.rs
   - renderer/src/assets/Blockentities.java
@@ -10,6 +10,8 @@ code:
   - renderer/src/render/rasterizer.rs
   - renderer/src/render/metatile.rs
   - renderer/src/render/tiles.rs
+  - renderer/src/render/banner.rs
+  - renderer/tests/banner.rs
   - renderer/src/cli.rs
 ---
 
@@ -182,6 +184,60 @@ ein Muster mit `asset_id` und `translation_key` (`BannerPattern.CODEC`),
   kennt, und ein Farbstoff, den es nicht gibt, lehnt der Codec ab: Die Lage
   fehlt, im Spiel wie hier. Die Ausgabe nennt sie unter „Unbekanntes in
   Bannern“.
+
+### Banner ohne Welt
+
+Für die Ebenen zeichnet der Renderer ein Banner aus einem Entwurf als
+Sprite, ohne Welt (`zeichne` in
+[`renderer/src/render/banner.rs`](../../renderer/src/render/banner.rs)),
+siehe [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
+
+- **Wie:** dieselben Sprites wie im Baum, ein Zustand
+  `<grundfarbe>_banner` mit seinen Lagen als Blockentity, siehe
+  „Banner“ oben. `render_familie` in
+  [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)
+  legt alle Teile der Familie, auch die in den Würfeln darüber, nach Höhe
+  und Tiefe auf eine Leinwand, die gerade alle fasst.
+- **Licht:** volles Himmelslicht, ohne Nachbarn, Wasser und weiche
+  Beleuchtung, im Look der Karte. Die Seiten schattiert das Spiel nach ihrer
+  Richtung in der Welt; ein Tuch nach Westen ist darum dunkler als eins nach
+  Süden, auch im Sprite.
+- **Massstab:** Ein Pixel des Modells, ein Texel des Tuchs, ist ein Pixel
+  des Sprites. Das Spiel zeichnet Banner um 2/3 verkleinert
+  (`BannerRenderer.MODEL_SCALE`, per `javap` am Client von 26.2), ein Texel
+  ist also 2/3 von 1/16 Block. Schräg ist ein Block in der Breite und in der
+  Höhe je scale/2 Pixel, `north-45` je scale; das Banner zeichnet darum
+  schräg bei scale 48, in `north-45` bei 24 (`massstab`). Von oben gibt es
+  kein Sprite.
+- **Drehung:** `4 · Vierteldrehungen der Richtung`, so zeigt das Tuch im
+  Blick nach Süden, zur Kamera. Belegt per `javap` am Client von 26.2:
+  - `BannerBlock.getStateForPlacement` setzt `rotation` auf
+    `RotationSegment.convertToSegment(Blickwinkel + 180°)`: Das Banner
+    schaut zum Spieler zurück.
+  - `Direction.fromYRot` zählt die Blickwinkel in Vierteln ab Süden, über
+    Westen, Norden und Osten (`BY_2D_DATA` nach `data2d`).
+  - Drehung 0 zeigt also nach Süden, 4 nach Westen, 8 nach Norden, 12 nach
+    Osten. `RotationSegment.convertToDirection` nennt die Gegenrichtung.
+  - Dass das Sprite die Vorderseite zeigt und nie die gespiegelte Rückseite,
+    prüft `banner_zeigt_die_vorderseite` in
+    [`renderer/tests/banner.rs`](../../renderer/tests/banner.rs) mit den
+    Assets des Spiels.
+- **Fuss und Winkel:** der Fuss in der Mitte der Unterseite des Blocks; der
+  Winkel der Unterkante des Tuchs aus der Strecke eines Blocks quer zum
+  Blick, schräg `atan(H / W)`, genordet 0°.
+- **Grösse,** gemessen am 10.10. mit `banner_massstab_winkel_und_grenze`,
+  Breite × Höhe: `2:1` 23 × 51, `4:3` 23 × 57, `1:1` 23 × 63, `north-45`
+  20 × 46. Alle bleiben unter der Grenze von 32 × 64 aus
+  [Ebenen](../benutzung/ebenen.md), „Grenzen“.
+- **Gleich in jeder Richtung:** Weil sich die Drehung mit der Richtung
+  dreht, gibt jede Richtung einer Kamera dieselbe Form mit demselben Fuss
+  und Winkel; nur die Schattierung der Seiten folgt der Welt
+  (`banner_in_jeder_richtung_gleich`).
+- **Unbekanntes:** Ein Muster, das der Renderer nicht kennt, fehlt und steht
+  in `unbekannt` (`banner_ohne_unbekanntes_muster`).
+- **Goldbilder** unter `renderer/tests/fixtures/golden-banner`, getrennt von
+  denen der Bäume: Ändert sich eines, steigt `BANNERSTAND`, nicht der
+  Zeichenstand eines Looks (`bannerstand_folgt_den_goldbildern`).
 
 ### Krug
 

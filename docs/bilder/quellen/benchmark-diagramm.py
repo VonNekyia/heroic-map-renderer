@@ -86,18 +86,21 @@ def svg(zeilen: list[dict[str, str]]) -> str:
     teile.append(f'<text class="fuss" x="0" y="{y}">Kürzer ist besser.</text>')
     hoehe = y + 6
     stil = """
+    .grund { fill: #ffffff; }
     text { font: 12px system-ui, sans-serif; fill: #24292f; }
     .kopf, .welt { font-weight: 600; }
     .fuss { fill: #57606a; }
     rect.eigen { fill: #2f81f7; } rect.fremd { fill: #8c959f; }
     .name.eigen { font-weight: 600; }
     @media (prefers-color-scheme: dark) {
-      text { fill: #e6edf3; } .fuss { fill: #8d96a0; } rect.fremd { fill: #6e7681; }
+      .grund { fill: #0d1117; } text { fill: #e6edf3; } .fuss { fill: #8d96a0; } rect.fremd { fill: #6e7681; }
     }
     """
     return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{breite}" height="{hoehe}" viewBox="0 0 {breite} {hoehe}" role="img">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{breite + 24}" height="{hoehe + 12}" viewBox="-12 -6 {breite + 24} {hoehe + 12}" role="img">'
         f"<title>Zeit, RAM und Platz je Werkzeug</title><style>{stil}</style>"
+        # Ein eigener Grund: Das Farbschema folgt dem System, nicht der Seite, die das Bild zeigt.
+        f'<rect class="grund" x="-12" y="-6" width="{breite + 24}" height="{hoehe + 12}" rx="6"/>'
         + "".join(teile)
         + "</svg>\n"
     )
@@ -108,11 +111,11 @@ def selbstpruefung() -> None:
     zeilen = lies(seite)
     assert [z["Werkzeug"] for z in zeilen] == ["Heroic", "B"], zeilen
     bild = svg(zeilen)
-    assert bild.count("<rect") == 6 and "14,3 s" in bild and "5,59 GiB" in bild and "201 MB" in bild, bild
+    assert bild.count("<rect") == 7 and "14,3 s" in bild and "5,59 GiB" in bild and "201 MB" in bild, bild
     assert "s je Mpx" not in bild
     mit = lies(seite.replace("| Platz (MB) |", "| Platz (MB) | Mpx |").replace("|---|---|---|---|---|", "|---|---|---|---|---|---|").replace("| 201 |", "| 201 | 146,313216 |").replace("| 17,9 |", "| 17,9 | |"))
     bild = svg(mit)
-    assert "s je Mpx" in bild and "0,098 s/Mpx" in bild and bild.count("<rect") == 7, bild
+    assert "s je Mpx" in bild and "0,098 s/Mpx" in bild and bild.count("<rect") == 8, bild
     assert text_wert(3584, "s") == "3 584 s" and text_wert(0.0315, "s/Mpx") == "0,032 s/Mpx"
 
 

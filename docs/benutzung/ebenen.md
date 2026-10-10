@@ -696,9 +696,9 @@ und Linien, über seinen Kanal. Regionen braucht der Mod auch zum Anheften
 
 ## Zeichnen
 
-![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben: Region, Kreis, Linie, Kartenschrift, ein Banner mit Name im Bogen und Tafel, eine Nadel](../bilder/ebenen-testwelt.webp)
+![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben: Region, Kreis, Linie, Kartenschrift, ein Banner mit Entwurf und Krone, Name im Bogen und Tafel, eine Nadel](../bilder/ebenen-testwelt.webp)
 
-*Testwelt, scale 16, Kacheln von v0.6.0; Befehle im Skill
+*Testwelt, scale 16, Kacheln und Banner von 0.8.0; Befehle im Skill
 [`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md).*
 
 Jede Ansicht rechnet die Punkte mit derselben Projektion wie die Kacheln,

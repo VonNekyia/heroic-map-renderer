@@ -16,7 +16,7 @@ use heroic_map_renderer::assets::{Assets, DimensionType};
 use heroic_map_renderer::render::heights::{self, EMPTY, Heights};
 use heroic_map_renderer::render::look::LOOK;
 use heroic_map_renderer::render::rasterizer::{Light, Lightmap};
-use heroic_map_renderer::render::stand::{Inhalt, Stand};
+use heroic_map_renderer::render::stand::{ALTE_BUILDS, Inhalt, Stand, ZEICHENSTAND_1};
 use heroic_map_renderer::render::{
     BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Packen, Projection, SpriteSet, TileId,
     Verkleinern, encode_webp, pyramid, render_area, render_area_with, streifenbreite, survey,
@@ -6309,7 +6309,7 @@ fn resume_mit_fremdem_stand_rendert_alles() {
         let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
         let woher = match fall {
             "Update" => "stammt von einem anderen Lauf, ein Update",
-            _ => "anderen Build des Renderers oder anderen Assets",
+            _ => "der anders zeichnet, oder von anderen Assets",
         };
         assert!(text.contains(woher), "{fall}: {text}");
         assert!(text.contains("wie ohne --resume"), "{fall}: {text}");
@@ -6596,9 +6596,10 @@ fn update_setzt_mit_resume_fort() {
     gleiche_baeume(baum.path(), ohne.path(), "");
 }
 
-/// `--update` braucht den Stand eines vollen Laufs, denselben Build des
-/// Renderers und dieselben Assets; sonst bricht es vor der ersten Kachel ab
-/// und sagt, dass erst ein voller Lauf nötig ist. Ein Ausschnitt schreibt
+/// `--update` braucht den Stand eines vollen Laufs, einen Renderer, der
+/// gleich zeichnet, und dieselben Assets; sonst bricht es vor der ersten
+/// Kachel ab und sagt, dass erst ein voller Lauf nötig ist. Auf den Wortlaut
+/// „stammt von einem anderen Build des Renderers“ stützt sich das Plugin. Ein Ausschnitt schreibt
 /// keinen Stand, und `--update` geht nicht mit `--size`.
 #[test]
 fn update_braucht_den_stand_und_dieselben_assets() {
@@ -6640,8 +6641,49 @@ fn update_braucht_den_stand_und_dieselben_assets() {
     let mut bytes = std::fs::read(&stand).unwrap();
     bytes[13] ^= 1;
     std::fs::write(&stand, bytes).unwrap();
-    assert!(fehler(&["--scale", "12", "--update"]).contains("anderen Build"));
+    assert!(
+        fehler(&["--scale", "12", "--update"])
+            .contains("stammt von einem anderen Build des Renderers")
+    );
     assert_eq!(schnappschuss(baum.path()), vorher, "trotzdem geschrieben");
+}
+
+/// Ein Stand eines alten Builds trägt den Fingerabdruck seiner ausführbaren
+/// Datei und gilt als Zeichenstand 1 mit den Tabellen von v0.5.0. Zeichnet
+/// dieser Build noch so, geht das Update und schreibt den heutigen
+/// Fingerabdruck; sonst bricht es ab wie bei jedem anderen Build.
+/// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
+#[test]
+fn update_nimmt_den_stand_alter_builds() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "12"]));
+    let stand = baum.path().join("stand.bin");
+    let heute = std::fs::read(&stand).unwrap()[13..21].to_vec();
+    let wie_die_alten = heute[..] == ZEICHENSTAND_1.to_le_bytes();
+    for &alt in ALTE_BUILDS {
+        let mut bytes = std::fs::read(&stand).unwrap();
+        bytes[13..21].copy_from_slice(&alt.to_le_bytes());
+        std::fs::write(&stand, bytes).unwrap();
+        let ausgabe = tiles(welt.path(), baum.path(), &["--scale", "12", "--update"]);
+        if wie_die_alten {
+            let log = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+            assert!(log.contains("nichts zu zeichnen"), "{alt:#x}: {log}");
+            assert_eq!(
+                std::fs::read(&stand).unwrap()[13..21],
+                heute[..],
+                "{alt:#x}"
+            );
+        } else {
+            assert!(!ausgabe.status.success(), "{alt:#x}");
+            let fehler = String::from_utf8_lossy(&ausgabe.stderr);
+            assert!(
+                fehler.contains("stammt von einem anderen Build des Renderers"),
+                "{alt:#x}: {fehler}"
+            );
+        }
+    }
 }
 
 /// Unter Windows trägt das Binär ein Manifest mit dem Segment-Heap, siehe

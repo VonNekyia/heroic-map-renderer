@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Result, bail, ensure};
 
 use crate::world::chunk::Fnv;
 use crate::world::{Abdruck, Chunk, REGION, Stempel, Stempelkarte};
@@ -406,7 +406,7 @@ impl Stand {
             1 => Art::Update,
             andere => bail!("unbekannte Art {andere}"),
         };
-        let renderer = u64::from_le_bytes(nimm(8)?.try_into()?);
+        let renderer = als_zeichenstand(u64::from_le_bytes(nimm(8)?.try_into()?));
         let assets = u64::from_le_bytes(nimm(8)?.try_into()?);
         let anzahl = u32::from_le_bytes(nimm(4)?.try_into()?);
         let mut stand = Stand::neu(art, renderer, assets);
@@ -444,15 +444,84 @@ impl Stand {
     }
 }
 
-/// Der Fingerabdruck des laufenden Renderers: FNV-1a über seine
-/// ausführbare Datei. Jeder neue Build hat einen anderen.
+/// Wie der Renderer zeichnet. Er steigt um eins mit jeder Änderung, nach der
+/// ein Build eine Kachel, eine Höhe oder den Abdruck eines Chunks anders
+/// schreiben kann, auch wenn kein Goldbild es zeigt.
+/// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
+pub const ZEICHENSTAND: u32 = 1;
+
+/// FNV-1a über die Goldbilder dieses Zeichenstands, siehe
+/// `zeichenstand_folgt_den_goldbildern`.
+#[cfg(test)]
+const GOLDBILDER: u64 = 0x35b8_8860_cd6d_2612;
+
+/// Eine eingebaute Tabelle aus `src/assets`: ihr Name und ihr Inhalt aus
+/// derselben Datei.
+macro_rules! tabelle {
+    ($name:literal) => {
+        ($name, include_str!(concat!("../assets/", $name)))
+    };
+}
+
+/// Die eingebauten Tabellen aus dem Spiel; sie zeichnen mit.
+const TABELLEN: [(&str, &str); 12] = [
+    tabelle!("blockentities.txt"),
+    tabelle!("blocks.txt"),
+    tabelle!("blueten.txt"),
+    tabelle!("dimensionstypen.txt"),
+    tabelle!("grau.txt"),
+    tabelle!("hell.txt"),
+    tabelle!("leuchten.txt"),
+    tabelle!("licht.txt"),
+    tabelle!("nachbarn.txt"),
+    tabelle!("schatten.txt"),
+    tabelle!("seiten.txt"),
+    tabelle!("sicht262.txt"),
+];
+
+/// Der Fingerabdruck von Zeichenstand 1 mit den Tabellen von v0.5.0,
+/// eingefroren: So zeichnen die Builds in [`ALTE_BUILDS`].
+pub const ZEICHENSTAND_1: u64 = 0xb3b0_d74c_abbd_d7c0;
+
+/// Die Fingerabdrücke der ausführbaren Dateien alter Builds, FNV-1a über
+/// die Datei, je für Linux und Windows: v0.5.0 aus den Archiven des
+/// Release, v0.4.0 aus den Paketen seines Release-Laufs. Sie zeichnen wie
+/// [`ZEICHENSTAND_1`].
+pub const ALTE_BUILDS: &[u64] = &[
+    0x7640_47ed_91a4_0173,
+    0x35b7_4919_7aa9_e79f,
+    0x8b8d_0bc0_5c11_2623,
+    0xf0d3_af7b_daef_21a9,
+];
+
+/// Der Fingerabdruck des Renderers: FNV-1a über den Zeichenstand und die
+/// eingebauten Tabellen, je Tabelle ihr Name und ihre Zeilen ohne `\r`. Ein
+/// neuer Build, der gleich zeichnet, hat denselben.
 /// Siehe docs/benutzung/updates.md, „Anderer Renderer, andere Assets“.
-pub fn fingerabdruck_des_renderers() -> Result<u64> {
-    let pfad = std::env::current_exe().context("eigene ausführbare Datei finden")?;
-    let daten = std::fs::read(&pfad).with_context(|| format!("{} lesen", pfad.display()))?;
+pub fn fingerabdruck_des_renderers() -> u64 {
+    fingerabdruck(ZEICHENSTAND, &TABELLEN)
+}
+
+fn fingerabdruck(zeichenstand: u32, tabellen: &[(&str, &str)]) -> u64 {
     let mut fnv = Fnv::default();
-    fnv.nimm(&daten);
-    Ok(fnv.0)
+    fnv.nimm(&zeichenstand.to_le_bytes());
+    for (name, tabelle) in tabellen {
+        fnv.text(name);
+        for zeile in tabelle.lines() {
+            fnv.text(zeile);
+        }
+    }
+    fnv.0
+}
+
+/// Ein gelesener Fingerabdruck des Renderers als der seines Zeichenstands:
+/// Ein alter Build trug den seiner ausführbaren Datei.
+pub fn als_zeichenstand(renderer: u64) -> u64 {
+    if ALTE_BUILDS.contains(&renderer) {
+        ZEICHENSTAND_1
+    } else {
+        renderer
+    }
 }
 
 /// Der Fingerabdruck dieser Asset- und Datenwurzeln: FNV-1a über jede Datei
@@ -879,5 +948,103 @@ mod tests {
         );
         std::fs::write(ordner.path().join("a.json"), "{}").unwrap();
         assert_ne!(fingerabdruck_der_dateien(&wurzel), leer);
+    }
+
+    /// Ändert sich ein Goldbild, zeichnet der Renderer anders. FNV-1a über
+    /// alle, nach Dateinamen, je Bild der Name, Breite, Höhe und die Pixel.
+    /// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
+    #[test]
+    fn zeichenstand_folgt_den_goldbildern() {
+        let ordner = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golden");
+        let mut namen: Vec<String> = std::fs::read_dir(&ordner)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.ends_with(".png") && !n.ends_with("-ist.png"))
+            .collect();
+        namen.sort_unstable();
+        let mut fnv = Fnv::default();
+        for name in &namen {
+            let bild = image::open(ordner.join(name)).unwrap().into_rgba8();
+            fnv.text(name.trim_end_matches(".png"));
+            fnv.nimm(&bild.width().to_le_bytes());
+            fnv.nimm(&bild.height().to_le_bytes());
+            fnv.nimm(bild.as_raw());
+        }
+        assert_eq!(
+            fnv.0,
+            GOLDBILDER,
+            "Die Goldbilder haben sich geändert. Zeichnet der Renderer anders, \
+             ZEICHENSTAND in renderer/src/render/stand.rs auf {} heben; dann \
+             GOLDBILDER auf {:#x} setzen. Siehe skills/goldbild-erneuern/SKILL.md.",
+            ZEICHENSTAND + 1,
+            fnv.0
+        );
+    }
+
+    /// Jede Tabelle unter `src/assets` geht in den Fingerabdruck ein.
+    #[test]
+    fn jede_tabelle_im_fingerabdruck() {
+        let ordner = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/assets");
+        let mut namen: Vec<String> = std::fs::read_dir(ordner)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.ends_with(".txt"))
+            .collect();
+        namen.sort_unstable();
+        let drin: Vec<&str> = TABELLEN.iter().map(|(name, _)| *name).collect();
+        assert_eq!(namen, drin);
+    }
+
+    /// Der Fingerabdruck folgt dem Zeichenstand, dem Namen und jeder Zeile
+    /// einer Tabelle, nicht ihren Zeilenenden.
+    #[test]
+    fn fingerabdruck_folgt_stand_und_tabellen() {
+        let basis = fingerabdruck(1, &[("a.txt", "x 1\ny 2\n")]);
+        assert_eq!(fingerabdruck(1, &[("a.txt", "x 1\r\ny 2\r\n")]), basis);
+        for anders in [
+            fingerabdruck(2, &[("a.txt", "x 1\ny 2\n")]),
+            fingerabdruck(1, &[("b.txt", "x 1\ny 2\n")]),
+            fingerabdruck(1, &[("a.txt", "x 1\ny 3\n")]),
+            fingerabdruck(1, &[("a.txt", "x 1\n")]),
+        ] {
+            assert_ne!(anders, basis);
+        }
+        assert_ne!(
+            fingerabdruck_des_renderers(),
+            fingerabdruck(ZEICHENSTAND, &[])
+        );
+    }
+
+    /// Ein Stand eines alten Builds gilt als Zeichenstand 1 mit den Tabellen
+    /// von v0.5.0, nicht als der heutige; jeder andere Fingerabdruck bleibt,
+    /// wie er ist.
+    #[test]
+    fn stand_alter_builds_gilt_als_zeichenstand_1() {
+        for &alt in ALTE_BUILDS {
+            let bytes = Stand::neu(Art::Voll, alt, 9).als_bytes();
+            assert_eq!(Stand::aus_bytes(&bytes).unwrap().renderer, ZEICHENSTAND_1);
+        }
+        let fremd = Stand::neu(Art::Voll, ZEICHENSTAND_1 ^ 1, 9).als_bytes();
+        assert_eq!(
+            Stand::aus_bytes(&fremd).unwrap().renderer,
+            ZEICHENSTAND_1 ^ 1
+        );
+    }
+
+    /// Bei Zeichenstand 1 zeichnet der Renderer wie die alten Builds, also
+    /// nimmt `update_nimmt_den_stand_alter_builds` den Zweig „angenommen“.
+    /// Ändert sich bei Zeichenstand 1 eine Tabelle, fällt er und sagt es:
+    /// Stände alter Builds gelten dann zu Recht nicht mehr, und der Test geht
+    /// weg. Ab Zeichenstand 2 prüft er nichts mehr.
+    #[test]
+    fn zeichenstand_1_ist_der_heutige_abdruck() {
+        if ZEICHENSTAND == 1 {
+            assert_eq!(
+                fingerabdruck_des_renderers(),
+                ZEICHENSTAND_1,
+                "Eine Tabelle hat sich bei Zeichenstand 1 geändert; Stände alter \
+                 Builds gelten nicht mehr. Siehe 0098, „Stände alter Builds“."
+            );
+        }
     }
 }

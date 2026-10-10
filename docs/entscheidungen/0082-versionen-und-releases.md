@@ -46,4 +46,9 @@ Versionsschema und einen Weg vom Tag zum Release.
 - Vor einem Release wird `version` in `Cargo.toml` gehoben, im selben PR
   wie die Änderungen, die es trägt.
 - Wer veröffentlicht, prüft den Entwurf: Pakete, Prüfsummen, Notizen.
+- Die Notizen sagen, ob jeder Baum einen vollen Lauf braucht: ob sich seit
+  dem letzten Tag `ZEICHENSTAND` oder eine Tabelle unter
+  `renderer/src/assets/` geändert hat
+  ([`voller-lauf.sh`](../../.github/voller-lauf.sh), seit
+  [0098](0098-der-zeichenstand-statt-des-builds.md)).
 - Alpine und andere Systeme mit musl brauchen ein Image mit glibc.

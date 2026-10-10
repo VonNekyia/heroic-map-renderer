@@ -1,8 +1,9 @@
 //! Je Kachel ein Hash ihrer Pixel. Zeichnet ein Lauf eine Kachel mit
 //! denselben Pixeln wieder, kodiert und schreibt er sie nicht. Ein Eintrag
-//! gilt nur, solange die Datei so dasteht, wie ein Lauf desselben Renderers
-//! sie hinterliess: mit derselben Grösse und derselben Zeit der letzten
-//! Änderung. Schrieb sie jemand anders, kodiert der nächste Lauf sie neu.
+//! gilt nur, solange die Datei so dasteht, wie ein Lauf mit demselben
+//! Kodierstand sie hinterliess: mit derselben Grösse und derselben Zeit der
+//! letzten Änderung. Schrieb sie jemand anders, kodiert der nächste Lauf sie
+//! neu.
 //! Siehe docs/benutzung/updates.md, „Gleiche Pixel“.
 
 use std::collections::HashMap;
@@ -12,6 +13,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, Result};
+use heroic_map_renderer::render::stand::ALTE_BUILDS;
 use heroic_map_renderer::render::{Packen, TileId};
 use image::RgbaImage;
 use rayon::prelude::*;
@@ -22,7 +24,13 @@ const MAGIE: &[u8; 8] = b"HMRPIXEL";
 const FASSUNG: u32 = 1;
 /// Kantenlänge eines Blocks in Kacheln.
 const KANTE: i32 = 32;
-/// Kopf: Magie, Fassung, Fingerabdruck des Renderers, Zahl der Einträge.
+/// Wie der Renderer Kacheln kodiert: libwebp samt Patch und die Vorgaben in
+/// `encode_webp` und `Packen`. Er steigt um eins mit jeder Änderung daran,
+/// nach der dieselben Pixel andere Bytes ergeben. Was gezeichnet wird, zählt
+/// nicht: Der Hash gilt den Pixeln.
+/// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
+pub(super) const KODIERSTAND: u64 = 1;
+/// Kopf: Magie, Fassung, Kodierstand, Zahl der Einträge.
 const KOPF: usize = 8 + 4 + 8 + 4;
 /// Bytes je Eintrag: Platz im Block, Hash, Grösse, Zeit in ns.
 const EINTRAG: usize = 2 + 16 + 4 + 8;
@@ -49,7 +57,7 @@ type BlockId = (u32, i32, i32);
 /// Kachel darin schreibt, und schreibt am Ende nur die geänderten.
 pub(super) struct Pixel {
     ordner: PathBuf,
-    renderer: u64,
+    kodierstand: u64,
     bloecke: Mutex<HashMap<BlockId, Block>>,
     gespart: AtomicUsize,
 }
@@ -90,12 +98,12 @@ fn block_von(z: u32, tile: TileId) -> (BlockId, u16) {
 }
 
 impl Pixel {
-    /// Die Hashes des Baums in `baum`, die ein Renderer mit diesem
-    /// Fingerabdruck gelten lässt.
-    pub(super) fn neu(baum: &Path, renderer: u64) -> Pixel {
+    /// Die Hashes des Baums in `baum`, die ein Lauf mit diesem Kodierstand
+    /// gelten lässt.
+    pub(super) fn neu(baum: &Path, kodierstand: u64) -> Pixel {
         Pixel {
             ordner: baum.join(ORDNER),
-            renderer,
+            kodierstand,
             bloecke: Mutex::default(),
             gespart: AtomicUsize::new(0),
         }
@@ -111,7 +119,7 @@ impl Pixel {
         let block = bloecke.entry(id).or_insert_with(|| Block {
             eintraege: std::fs::read(Self::pfad(&self.ordner, id))
                 .ok()
-                .and_then(|daten| aus_bytes(&daten, self.renderer))
+                .and_then(|daten| aus_bytes(&daten, self.kodierstand))
                 .unwrap_or_default(),
             geaendert: false,
         });
@@ -165,7 +173,7 @@ impl Pixel {
         if let Some(block) = bloecke.remove(&id)
             && block.geaendert
         {
-            let daten = als_bytes(self.renderer, &block.eintraege);
+            let daten = als_bytes(self.kodierstand, &block.eintraege);
             super::lege_ab(&Self::pfad(&self.ordner, id), &daten, None)?;
         }
         Ok(())
@@ -183,7 +191,7 @@ impl Pixel {
             .filter(|(_, block)| block.geaendert)
             .collect();
         geaendert.par_iter().try_for_each(|(id, block)| {
-            let daten = als_bytes(self.renderer, &block.eintraege);
+            let daten = als_bytes(self.kodierstand, &block.eintraege);
             super::lege_ab(&Self::pfad(&self.ordner, *id), &daten, None).map(drop)
         })?;
         Ok((self.gespart.into_inner(), geaendert.len()))
@@ -191,13 +199,13 @@ impl Pixel {
 }
 
 /// Die Bytes einer Blockdatei, Little Endian, nach Platz geordnet.
-fn als_bytes(renderer: u64, eintraege: &HashMap<u16, Eintrag>) -> Vec<u8> {
+fn als_bytes(kodierstand: u64, eintraege: &HashMap<u16, Eintrag>) -> Vec<u8> {
     let mut plaetze: Vec<(&u16, &Eintrag)> = eintraege.iter().collect();
     plaetze.sort_unstable_by_key(|(platz, _)| **platz);
     let mut out = Vec::with_capacity(KOPF + plaetze.len() * EINTRAG);
     out.extend_from_slice(MAGIE);
     out.extend_from_slice(&FASSUNG.to_le_bytes());
-    out.extend_from_slice(&renderer.to_le_bytes());
+    out.extend_from_slice(&kodierstand.to_le_bytes());
     out.extend_from_slice(&(plaetze.len() as u32).to_le_bytes());
     for (platz, e) in plaetze {
         out.extend_from_slice(&platz.to_le_bytes());
@@ -209,13 +217,13 @@ fn als_bytes(renderer: u64, eintraege: &HashMap<u16, Eintrag>) -> Vec<u8> {
 }
 
 /// Die Einträge einer Blockdatei; `None`, wenn sie kaputt ist, eine andere
-/// Fassung hat oder von einem anderen Renderer stammt. Dann gilt der Block
-/// als leer, und der Lauf kodiert seine Kacheln wie ohne Hash.
-fn aus_bytes(daten: &[u8], renderer: u64) -> Option<HashMap<u16, Eintrag>> {
+/// Fassung oder einen anderen Kodierstand hat. Dann gilt der Block als leer,
+/// und der Lauf kodiert seine Kacheln wie ohne Hash.
+fn aus_bytes(daten: &[u8], kodierstand: u64) -> Option<HashMap<u16, Eintrag>> {
     let zahl = |von: usize, n: usize| daten.get(von..von + n);
     if zahl(0, 8)? != MAGIE
         || u32::from_le_bytes(zahl(8, 4)?.try_into().ok()?) != FASSUNG
-        || u64::from_le_bytes(zahl(12, 8)?.try_into().ok()?) != renderer
+        || kodierstand_im_kopf(u64::from_le_bytes(zahl(12, 8)?.try_into().ok()?)) != kodierstand
     {
         return None;
     }
@@ -239,6 +247,16 @@ fn aus_bytes(daten: &[u8], renderer: u64) -> Option<HashMap<u16, Eintrag>> {
     Some(eintraege)
 }
 
+/// Der Kodierstand im Kopf einer Blockdatei. Bis v0.5.0 stand dort der
+/// Fingerabdruck der ausführbaren Datei; die alten Builds kodieren wie
+/// Kodierstand 1.
+fn kodierstand_im_kopf(kopf: u64) -> u64 {
+    match ALTE_BUILDS.contains(&kopf) {
+        true => 1,
+        false => kopf,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,9 +266,9 @@ mod tests {
     }
 
     /// Ein Eintrag gilt für dieselben Pixel und dieselbe Datei, auch in
-    /// einem späteren Lauf desselben Renderers. Andere Pixel, eine Datei,
-    /// die jemand neu schrieb, eine fehlende Datei und ein anderer Renderer
-    /// lassen den Lauf neu kodieren.
+    /// einem späteren Lauf mit demselben Kodierstand. Andere Pixel, eine
+    /// Datei, die jemand neu schrieb, eine fehlende Datei und ein anderer
+    /// Kodierstand lassen den Lauf neu kodieren.
     #[test]
     fn eintrag_gilt_nur_fuer_dieselbe_datei() {
         let dir = tempfile::tempdir().unwrap();
@@ -291,6 +309,25 @@ mod tests {
             Pixel::neu(dir.path(), 7).gleich(3, tile, &rot, &kachel),
             None
         );
+    }
+
+    /// Ein Block eines alten Builds gilt als Kodierstand 1, nach dem nächsten
+    /// nicht mehr.
+    #[test]
+    fn block_alter_builds_gilt_als_kodierstand_1() {
+        let eintraege = HashMap::from([(
+            3,
+            Eintrag {
+                hash: [1; 16],
+                bytes: 2,
+                zeit: 3,
+            },
+        )]);
+        for &alt in ALTE_BUILDS {
+            let daten = als_bytes(alt, &eintraege);
+            assert_eq!(aus_bytes(&daten, 1), Some(eintraege.clone()));
+            assert_eq!(aus_bytes(&daten, 2), None);
+        }
     }
 
     /// Eine kaputte oder abgeschnittene Blockdatei gilt als leer und hält

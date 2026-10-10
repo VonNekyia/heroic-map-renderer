@@ -14,6 +14,10 @@ code:
 
 # 0062: Updates nach Stempel und Fingerabdruck je Chunk
 
+Im Fingerabdruck des Renderers abgelöst durch
+[0098](0098-der-zeichenstand-statt-des-builds.md): Er hängt am
+Zeichenstand und den eingebauten Tabellen statt an der ausführbaren Datei.
+
 ## Anlass
 
 Jeder Lauf zeichnete die ganze Welt neu: die grosse Welt in rund 76 bis

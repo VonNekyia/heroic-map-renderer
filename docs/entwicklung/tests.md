@@ -269,6 +269,12 @@ abweichenden das Ist-Bild daneben, als `<name>-ist.png`, und fällt erst
 dann; in CI liegen sie als Artefakt am fehlgeschlagenen Lauf. Neu erzeugen nach einer gewollten Änderung: Skill
 [`goldbild-erneuern`](../../skills/goldbild-erneuern/SKILL.md).
 
+An den Goldbildern hängt der Zeichenstand:
+`zeichenstand_folgt_den_goldbildern` in
+[`renderer/src/render/stand.rs`](../../renderer/src/render/stand.rs) hält
+FNV-1a über alle in `GOLDBILDER` fest und fällt, sobald sich eines ändert,
+siehe [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
+
 ## GPU-Tests
 
 Die Tests, die eine Karte brauchen, überspringen sich ohne Karte und sagen

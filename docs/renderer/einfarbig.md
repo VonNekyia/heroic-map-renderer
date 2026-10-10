@@ -104,7 +104,7 @@ es je Chunk aus seinen eigenen Spalten (`ChunkLicht::spalten` in
   Oberseite liest auch die Zellen unter dem Laub daneben, und die werden
   dunkler. Leuchtendes unter Wasser hellt den Grund daneben nicht mehr auf.
   Über die ganze Testwelt ändern sich so 10,5 % der Pixel, die Hälfte um
-  höchstens 4 von 255, fast alle dunkler, siehe
+  höchstens 4 von 255, 90 % um höchstens 16, fast alle dunkler, siehe
   [2026-10-10, Licht je Spalte](../messungen/2026-10-10-licht-je-spalte.md).
 
 ## Relief

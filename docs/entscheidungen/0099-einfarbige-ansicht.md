@@ -77,6 +77,13 @@ frei.
 - **Gemessen** am 10.10. über die ganze Testwelt: 35 % weniger Zeit,
   ×0,087 Platz, an der Spitze rund 1,3-mal der Speicher der Karte, siehe
   [2026-10-10, Einfarbige Ansicht](../messungen/2026-10-10-einfarbige-ansicht.md).
+- **Licht je Spalte** statt der Ausbreitung spart davon noch einmal 35 %
+  der Zeit. Das Bild weicht ab: Die Ränder der Baumkronen werden dunkler,
+  weil kein Licht von der Seite unter das Laub kommt, und Leuchtendes unter
+  Wasser scheint nicht mehr. Das sind 10,5 % der Pixel, die Hälfte um
+  höchstens 4 von 255, 90 % um höchstens 16, siehe
+  [2026-10-10, Licht je Spalte](../messungen/2026-10-10-licht-je-spalte.md)
+  und [Die einfarbige Ansicht](../renderer/einfarbig.md), „Licht je Spalte“.
 
 ## Verworfene Alternativen
 

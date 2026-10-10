@@ -11,6 +11,10 @@ code:
 
 # 0091: Gleiche Pixel nicht kodieren
 
+Teilweise abgelöst durch
+[0098](0098-der-zeichenstand-statt-des-builds.md): Ein Hash gilt für
+denselben Kodierstand, nicht mehr nur für denselben Build.
+
 ## Anlass
 
 #207, Teil A1: Ein Update zeichnet das ganze Gebiet der geänderten Chunks

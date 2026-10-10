@@ -215,7 +215,12 @@ liegen“. Entschieden in
 - **Wann er gilt:**
   - nur für die Datei, wie ein Lauf sie hinterliess, mit derselben Grösse
     und derselben Zeit der letzten Änderung auf die Nanosekunde;
-  - nur für denselben Build des Renderers.
+  - nur für denselben Kodierstand, `KODIERSTAND` in
+    [`renderer/src/cli/pixel.rs`](../../renderer/src/cli/pixel.rs). Er
+    steigt, wenn sich am Kodieren etwas ändert: libwebp oder sein Patch,
+    die Vorgaben in `encode_webp` oder `Packen`. Was gezeichnet wird, zählt
+    nicht, siehe
+    [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
 
   Schrieb jemand anders die Datei, kodiert der nächste Lauf sie wie ohne
   Hash und merkt sich den neuen. Das gilt für einen abgebrochenen Lauf,
@@ -224,9 +229,9 @@ liegen“. Entschieden in
 - **Jeder Lauf** liest und schreibt die Hashes der Kacheln, die er ablegt,
   auch ein Ausschnitt und `--resume`. Geschrieben wird am Ende. Bricht ein
   Lauf ab, fehlen nur seine Hashes.
-- **Ein neuer Build** kodiert einmal alles neu. Ein Update nimmt er
-  ohnehin erst nach einem vollen Lauf an, siehe „Anderer Renderer, andere
-  Assets“.
+- **Ein anderer Kodierstand** kodiert jede Kachel neu, die ein Lauf
+  ablegt. Ein Block eines alten Builds, bis v0.5.0 mit dem Fingerabdruck
+  der ausführbaren Datei im Kopf, gilt als Kodierstand 1.
 - **Die Ausgabe** nennt am Ende, wie viele Kacheln der Lauf nicht kodiert
   hat:
 
@@ -238,12 +243,12 @@ liegen“. Entschieden in
   Kacheln eine Datei `<bx>.<by>.bin`, mit `bx` = x div 32 und `by` =
   y div 32. Ein Lauf liest einen Block erst, wenn er eine Kachel darin
   ablegt, und schreibt nur geänderte. Ein Update berührt so nur die Blöcke
-  um sein Gebiet. Eine Blockdatei, die sich nicht lesen lässt oder von
-  einem anderen Build stammt, gilt als leer.
+  um sein Gebiet. Eine Blockdatei, die sich nicht lesen lässt oder einen
+  anderen Kodierstand hat, gilt als leer.
 
 | Teil einer Blockdatei | Bytes |
 |---|---|
-| Kopf: `HMRPIXEL`, Fassung 1, Fingerabdruck des Renderers, Zahl der Einträge | 24 |
+| Kopf: `HMRPIXEL`, Fassung 1, Kodierstand als u64, Zahl der Einträge | 24 |
 | je Kachel: Platz `y · 32 + x` im Block, Hash, Grösse, Zeit in ns | 30 |
 
 Alles in Little Endian, nach Platz geordnet.
@@ -270,18 +275,18 @@ siehe [Pyramide und Fortsetzen](pyramide-und-resume.md). Wie ohne
 neu, in die ein Chunk nicht mehr reicht
 (`voller_lauf_mit_resume_raeumt_abgerissenes_weg`).
 
-Stammt der angefangene Stand eines vollen Laufs von einem anderen Build,
-anderen Assets oder einem Update, läuft der volle Lauf wie ohne `--resume`
-und sagt es:
+Stammt der angefangene Stand eines vollen Laufs von einem Renderer, der
+anders zeichnet, von anderen Assets oder einem Update, läuft der volle Lauf
+wie ohne `--resume` und sagt es:
 
 ```
-Stand:      ./tiles/2x1-se/stand-neu.bin stammt von einem anderen Build des Renderers oder anderen Assets
+Stand:      ./tiles/2x1-se/stand-neu.bin stammt von einem anderen Build des Renderers, der anders zeichnet, oder von anderen Assets
 Stand:      dieser Lauf rendert alles wie ohne --resume und schreibt am Ende einen Stand
 ```
 
 Er rendert jede Basiskachel neu, legt einen neuen angefangenen Stand ab und
 schreibt am Ende `stand.bin` (`resume_mit_fremdem_stand_rendert_alles`).
-Fortgesetzt behielte er Kacheln, ohne zu wissen, welcher Build sie zeichnete,
+Fortgesetzt behielte er Kacheln, ohne zu wissen, wie sie gezeichnet sind,
 und schriebe keinen Stand: Das nächste `--update` zeichnete alles noch
 einmal.
 
@@ -297,8 +302,19 @@ Ein Update mischte sonst alte und neue Kacheln. Der Stand trägt deshalb zwei
 Fingerabdrücke, und `--update` bricht vor der ersten Kachel ab, wenn einer
 nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
 
-- **Der Renderer:** FNV-1a über seine ausführbare Datei. Jeder neue Build
-  zählt als anders, auch einer, der dasselbe Bild zeichnet.
+- **Der Renderer:** FNV-1a über den Zeichenstand und die eingebauten
+  Tabellen, je Tabelle ihr Name und ihre Zeilen ohne `\r`
+  (`fingerabdruck_des_renderers` in
+  [`renderer/src/render/stand.rs`](../../renderer/src/render/stand.rs)). Ein
+  neuer Build, der gleich zeichnet, hat denselben: Ein Release, das am
+  Zeichnen nichts ändert, verlangt keinen vollen Lauf. Wann der
+  Zeichenstand steigt, steht in
+  [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
+  - **Ein Stand von v0.4.0 oder v0.5.0** trägt noch den Fingerabdruck der
+    ausführbaren Datei für Linux oder Windows. Er gilt als Zeichenstand 1 mit den
+    Tabellen von v0.5.0, `ZEICHENSTAND_1`: Ein Update nimmt ihn an, solange
+    der Renderer noch so zeichnet, und schreibt dann den neuen
+    (`update_nimmt_den_stand_alter_builds`). Ebenso ein angefangener Stand.
 - **Assets und Daten:** je Wurzel von `--assets` und `--data` ihre Nummer,
   dann je Datei darunter der Pfad, die Grösse und die Zeit der letzten
   Änderung. Den Inhalt liest er nicht; eine kopierte Datei hat eine neue
@@ -318,6 +334,12 @@ Danach zeichnet ein voller Lauf alles neu, und `--update` geht wieder.
   und derselben Zeit auf die Nanosekunde zurücklegt.** Sie bleibt stehen,
   bis sich ihre Pixel ändern, siehe „Gleiche Pixel“.
 - **Ein Stand aus einem anderen Baum,** von Hand kopiert.
+- **Ein vergessener Zeichenstand:** Zeichnet ein neuer Build anders, ohne
+  dass `ZEICHENSTAND` stieg, nimmt `--update` den alten Stand an. Es
+  zeichnet dann nur, wo sich die Welt änderte, und alte Kacheln stehen
+  neben neuen. Ebenso bleiben mit einem vergessenen Kodierstand Kacheln in
+  der alten Kodierung liegen. Das fängt nur das Review, siehe
+  [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
 - **Ein ausgelagerter Chunk, gelesen zwischen Kopf und Verschieben,** siehe
   oben: Liest der Lauf den neuen Stempel und noch vor dem Verschieben den
   Inhalt aus der alten `.mcc`, nennt der Stand den neuen Stempel mit dem

@@ -193,10 +193,10 @@ ersten Kachel neu wie jeder Export, aus seinem Vorlauf, siehe
 [map.json](map-json.md), „Höhen“.
 
 Den Stand für Updates nimmt er vom Beginn des abgebrochenen Laufs, aus dessen
-angefangenem Stand `stand-neu.bin`, wenn der von einem vollen Lauf mit
-demselben Build und denselben Assets stammt. Stammt er von einem anderen
-Build, anderen Assets oder einem Update, läuft er wie ohne `--resume`; fehlt
-er, schreibt er keinen. Wie
+angefangenem Stand `stand-neu.bin`, wenn der von einem vollen Lauf eines
+Renderers, der gleich zeichnet, mit denselben Assets stammt. Stammt er von
+einem Renderer, der anders zeichnet, von anderen Assets oder einem Update,
+läuft er wie ohne `--resume`; fehlt er, schreibt er keinen. Wie
 `--resume` ein abgebrochenes Update fortsetzt, steht in
 [Updates](updates.md), „Abbruch und `--resume`“.
 

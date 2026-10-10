@@ -172,6 +172,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0095](entscheidungen/0095-ebenen.md): Ebenen als eigene Dateien neben den Kacheln, im iso auf dem Gelände statt flach, mit einer Infotafel aus Bausteinen statt HTML, Bildern als Dateien und englischen Schlüsseln; dazu die Kosten nach Regel 26.
 - [0096](entscheidungen/0096-formen-und-schrift-im-browser.md): Formen der Ebenen als SVG je Ebene, Flächen als Umriss der sichtbaren Felder statt Dreiecken mit Maske, Sichtbarkeit in einem Durchgang, Höhen einmal je Ebene, Kartenschrift als SVG-Text in der unveränderten TTF; dazu die Kosten.
 - [0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md): Banner als eigenes Objekt für Orte, Nadeln und Banner auf jeder Stufe gleich gross, die Tafel schon beim Zeigen; löst die Stufen und die Tafel nur beim Anklicken aus 0095 ab.
+- [0098](entscheidungen/0098-der-zeichenstand-statt-des-builds.md): Stand, Hashes der Pixel und `--resume` hängen am Zeichenstand im Code und an den eingebauten Tabellen statt an der ausführbaren Datei; ein Test über die Goldbilder sichert ihn ab, ein Stand von v0.4.0 oder v0.5.0 gilt als Zeichenstand 1, die Hashes der Pixel hängen am Kodierstand; löst den Fingerabdruck des Renderers aus 0062 ab.
 
 ## Versuche
 

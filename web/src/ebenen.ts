@@ -110,7 +110,7 @@ const TAFEL_BREITE = 320;
 const TAFEL: L.PopupOptions = { className: 'tafel', maxWidth: TAFEL_BREITE, minWidth: 120, autoPanPadding: [8, 8] };
 
 /** Die Tafel beim Zeigen: erscheint nach so vielen ms Ruhe, schliesst so viele ms nach dem Verlassen. Siehe docs/benutzung/ebenen.md, „Infotafel“. */
-const TAFEL_AUF = 150;
+const TAFEL_AUF = 50;
 const TAFEL_ZU = 300;
 
 /**
@@ -552,7 +552,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
 
   /**
    * Die Tafel eines Ziels, siehe docs/benutzung/ebenen.md, „Infotafel“:
-   * Ruht der Zeiger 150 ms darauf, erscheint sie dort; 300 ms nachdem er Ziel
+   * Ruht der Zeiger 50 ms darauf, erscheint sie dort; 300 ms nachdem er Ziel
    * und Tafel verlassen hat, schliesst sie. Ein Klick oder Tippen hält sie,
    * und solange eine gehaltene Tafel offen ist, öffnet Zeigen keine andere.
    * Gibt zurück, womit Tastatur sie öffnet, dann mit dem Fokus darin. `ort`

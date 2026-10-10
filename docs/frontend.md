@@ -432,7 +432,10 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
   - Kennungen und Bilder gegen die Regel aus [Ebenen](benutzung/ebenen.md),
     „Kennung“, übergeht sie ebenso mit Meldung.
 - **Nadeln und Banner:** Leaflet-Marker mit ihrem Bild auf einer Leinwand,
-  Pixel auf Pixel, der Name darunter in der Kartenschrift; die Schrift
+  Pixel auf Pixel, der Name darunter wie die Kartenschrift nach
+  [Ebenen](benutzung/ebenen.md), „Name“: die Kontur als
+  `-webkit-text-stroke` von 4 px unter der Füllung (`paint-order`), so
+  bleiben 2 px sichtbar, wie bei der Kartenschrift der Ebenen. Die Schrift
   lädt mit dem ersten Namen, `ladeSchrift` in `schrift.ts`:
   - die Nadel: Feld, Symbol und Rahmen aus `web/src/ebenen/schild_*.png`
     nach [Ebenen](benutzung/ebenen.md), „Nadel“; die Bilder stammen vom
@@ -454,8 +457,9 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     und der Tafel; in einer Ebene liegt das spätere oben;
   - ohne Tafel kein Ziel für Maus und Tastatur.
 - **Infotafel:** ein Popup von Leaflet, gebaut nur aus Elementen mit
-  `textContent` und Bildern unter `images/` der Ebene, in Grund und Schrift
-  der UI. Höchstens 320 Pixel breit und 70 % des Fensters hoch, darüber
+  `textContent` und Bildern unter `images/` der Ebene, dunkel wie im Mod
+  nach [Ebenen](benutzung/ebenen.md), „Infotafel“, in der Schrift der UI.
+  Höchstens 320 Pixel breit und 70 % des Fensters hoch, darüber
   scrollt sie. Bei Nadel und Banner steht sie über dem Icon, bei einer
   Fläche über dem Ort, an dem der Zeiger ruht.
   - **Bilder:** Breitere verkleinert CSS mit `max-width`, im Verhältnis von
@@ -465,7 +469,7 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Pixel `k = round(f)` Pixel des Geräts breit, mit `pixelated`, höchstens
     320 Pixel breit, wie bei den Bannern.
   - **Zeigen und Halten:** `tafelAn` in `ebenen.ts` nach
-    [Ebenen](benutzung/ebenen.md), „Infotafel“, mit Zeitgebern für 150 und
+    [Ebenen](benutzung/ebenen.md), „Infotafel“, mit Zeitgebern für 50 und
     300 ms. Jede Bewegung auf dem Ziel (`mousemove`) beginnt die Ruhe von
     vorn. Ein Klick oder Tippen hält sie; solange eine gehaltene offen ist,
     öffnet Zeigen keine andere (`offen.gehalten`). Nur eine gehaltene Tafel
@@ -473,7 +477,7 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Block los. Weicht das Ziel, mit seiner Ebene oder beim Neuladen,
     schliesst die Tafel. Hat jemand sie unter dem Zeiger
     von Hand geschlossen, öffnet erst ein neues Zeigen sie wieder; sonst
-    käme sie nach 150 ms zurück, sobald sich die Maus rührt. Lag der Zeiger
+    käme sie nach 50 ms zurück, sobald sich die Maus rührt. Lag der Zeiger
     dabei in ihr, entscheidet das erste Element ausserhalb der Tafel, die
     noch 200 ms ausblendet.
   - **Escape und ein Klick daneben** schliessen nur die Tafel: Je ein
@@ -547,7 +551,8 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Richtung und Verlängerung wie in [Ebenen](benutzung/ebenen.md),
     „Kartenschrift“ unter „Zeichnen“, ein einzelner Punkt wie beim Feld
     `path`.
-- **Im Skin Tablett** tragen Liste, Namen und Tafel die Farben der UI;
+- **Im Skin Tablett** tragen Liste und Tafel die Farben der UI, die Namen
+  von Nadeln und Bannern stehen wie ohne Skin in der Kartenschrift;
   Kontrast und Platz prüft `skins/tablett/tests/marmor.spec.ts`.
 
 ## Skins
@@ -588,8 +593,9 @@ Sprung, Kompass, Umschalter und Stand wissen nichts von ihm. Warum so:
     Container. Was Variablen nicht fassen, etwa Rand und Bilder, hängt er an
     die Klassen der UI: `leaflet-bar` mit den Knöpfen für Zoom und ganze
     Karte, `kompass`, `baeume`, `leiste` mit den Koordinaten, `stand`,
-    `lizenzen`, `ebenen` mit der Liste der Ebenen, `nadel-name` und
-    `tafel` mit der Infotafel.
+    `lizenzen`, `ebenen` mit der Liste der Ebenen und `tafel` mit der
+    Infotafel. Die Namen von Nadeln und Bannern gehören zur Karte, nicht
+    zur UI.
   - Abnahme: Kontrast nach WCAG AA, Ziele für Finger ab 24 px, sichtbarer
     Fokus, Tastatur wie ohne Skin. Die Smoke-Tests laufen mit und ohne
     Skin; ohne prüfen sie die Vorgaben.

@@ -356,9 +356,12 @@ sobald der Zeiger darauf ruht. Sie ist eine Liste von Bausteinen, kein
 HTML: Webkarte und Mod zeichnen dieselbe Tafel, und fremdes Markup auf der
 Webkarte wäre eine Lücke für Skripte.
 
-- **Beim Zeigen:** Ruht der Zeiger 150 ms auf dem Ziel, erscheint die
-  Tafel. Verlässt er Ziel und Tafel, schliesst sie nach 300 ms; dazwischen
-  kann er in die Tafel wandern, etwa zum Scrollen.
+- **Beim Zeigen:** Ruht der Zeiger 50 ms auf dem Ziel, erscheint die
+  Tafel, auf Wunsch des Users am 10.10., vorher 150 ms. Verlässt er Ziel
+  und Tafel, schliesst sie nach 300 ms; dazwischen kann er in die Tafel
+  wandern, etwa zum Scrollen. Bilder in der Tafel halten das Öffnen nicht
+  auf: Die Tafel kommt mit dem Text, ihre Bilder laden nach, in der Grösse
+  aus `width` und `height`.
 - **Ein Klick** hält sie offen, bis zum Schliessknopf, zu Escape oder zu
   einem Klick daneben. Solange eine gehaltene Tafel offen ist, öffnet
   Zeigen auf ein anderes Ziel keine Tafel; ein Klick darauf wechselt.
@@ -418,8 +421,16 @@ Webkarte wäre eine Lücke für Skripte.
   höchstens 200 Einheiten seiner Oberfläche breit, mit Rand 6, denn 320
   wären bei GUI-Massstab 2 fast der ganze Schirm; das legt der Mod in
   seiner eigenen Entscheidung fest (Repository des Mods, #52).
-- **Farben** von Grund und Schrift kommen aus der Ansicht: auf der Webkarte
-  aus der UI, siehe [Frontend](../frontend.md), im Mod aus seiner.
+- **Aussehen,** dunkel und gleich in Webkarte und Mod, auf Wunsch des
+  Users am 10.10.; im Mod in der schlichten Fassung, die Skins des Mods
+  haben eigene Bilder:
+  - Grund `#101014` mit Alpha 0,88 (`0xE0`), leicht durchscheinend;
+  - Rahmen aussen 1 Pixel `#000000`, innen 1 Pixel `#3A3A44`, die Ecken
+    kaum gerundet;
+  - Schrift `#D9D9D9`, ein Titel fett, mit eigener `color` in dieser.
+    Gegen den dunklen Grund prüft keine Ansicht den Kontrast einer
+    `color`: Eine dunkle Farbe wählt der Besitzer der Ebene auf eigene
+    Gefahr.
 - **Schrift:** eine schlichte, gut lesbare Schrift der Oberfläche, nie die
   Kartenschrift: auf der Webkarte die der UI, im Mod die des Spiels. Die
   Grössen in der Tabelle gelten für die Webkarte; der Mod nimmt die Grösse
@@ -644,10 +655,13 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
   seine Wegpunkte. Auf der Webkarte ist ein Pixel des Bilds eine ganze
   Zahl Pixel des Geräts breit, gerundet aus `devicePixelRatio`. Sie hängt
   nicht am Zoom.
-- **Name:** immer, unter dem Fuss der Nadel oder des Banners, in der
-  Kartenschrift (`map`, siehe „Kartenschrift“) und in fester Grösse, auf
-  der Webkarte 12 Pixel. So zeigt ein Plugin für Städte die Namen am
-  Banner, ohne eigene Kartenschrift.
+- **Name:** immer, mittig unter dem Fuss der Nadel oder des Banners, und
+  er sieht aus wie die Kartenschrift, nicht wie die Oberfläche: Schrift
+  `map`, Farbe `#2B2B2B`, Kontur `#F2E8D0` 2 Pixel breit, ohne Kasten.
+  Die Grösse ist fest, auf jeder Stufe gleich: auf der Webkarte
+  Schriftgrösse 16 Pixel, im Mod 10 Einheiten seiner Oberfläche, im
+  Verhältnis wie die Breite der Tafel, 200 zu 320. So zeigt ein Plugin für
+  Städte die Namen am Banner, ohne eigene Kartenschrift.
 
 ### Reihenfolge, Zeigen und Anklicken
 

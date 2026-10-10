@@ -182,8 +182,12 @@ test('Nadeln und Banner bleiben beim Hinauszoomen gleich gross, jede mit ihrem N
     );
     expect(groessen, `Zoom ${zoom}`).toEqual(['Dorf 9 × 15', 'Fahne 22 × 40', 'Hafenstadt 23 × 33']);
   }
-  // Die Namen in der Kartenschrift, 12 Pixel, auch ohne Kartenschrift in der Ebene.
-  expect(await page.locator('.nadel-name').first().evaluate((e) => [getComputedStyle(e).fontFamily, getComputedStyle(e).fontSize])).toEqual(['Kartenschrift, serif', '12px']);
+  // Die Namen wie die Kartenschrift, 16 Pixel, ohne Kasten, auch ohne Kartenschrift in der Ebene.
+  const stil = await page.locator('.nadel-name').first().evaluate((e) => {
+    const s = getComputedStyle(e);
+    return [s.fontFamily, s.fontSize, s.color, s.backgroundColor, s.webkitTextStrokeWidth, s.webkitTextStrokeColor, s.paintOrder.split(' ')[0]];
+  });
+  expect(stil).toEqual(['Kartenschrift, serif', '16px', 'rgb(43, 43, 43)', 'rgba(0, 0, 0, 0)', '4px', 'rgb(242, 232, 208)', 'stroke']);
   // check() sagt auch für eine nie geladene Schrift ja; es zählt die geladene FontFace.
   await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family === 'Kartenschrift' && f.status === 'loaded'))).toBe(true);
 });
@@ -411,7 +415,7 @@ test('ein Klick auf eine Nadel öffnet die Tafel, ohne den Fokus hineinzuziehen'
 /** Wie viele Tafeln offen sind; eine schliessende blendet mit Deckkraft 0 aus. */
 const offeneTafeln = (page: Page) => page.locator('.tafel').evaluateAll((l) => l.filter((e) => (e as HTMLElement).style.opacity !== '0').length);
 
-test('beim Zeigen erscheint die Tafel nach 150 ms Ruhe, über der Nadel, und schliesst 300 ms nach dem Verlassen; dazwischen kann der Zeiger in die Tafel; kurz darüber öffnet nichts; ein Klick hält sie', async ({ page }) => {
+test('beim Zeigen erscheint die Tafel nach 50 ms Ruhe, über der Nadel, und schliesst 300 ms nach dem Verlassen; dazwischen kann der Zeiger in die Tafel; kurz darüber öffnet nichts; ein Klick hält sie', async ({ page }) => {
   await page.clock.install();
   await welt(page, staedte([HAFEN]));
   await page.goto(`${DEMO}&at=35,0,-15`);
@@ -421,7 +425,7 @@ test('beim Zeigen erscheint die Tafel nach 150 ms Ruhe, über der Nadel, und sch
   // Ohne Pause liefe die Uhr des Tests mit der echten Zeit.
   await page.clock.pauseAt(Date.now() + 1000);
   await nadel.hover();
-  await page.clock.runFor(149);
+  await page.clock.runFor(49);
   expect(await offeneTafeln(page)).toBe(0);
   await page.clock.runFor(1);
   expect(await offeneTafeln(page)).toBe(1);
@@ -439,13 +443,13 @@ test('beim Zeigen erscheint die Tafel nach 150 ms Ruhe, über der Nadel, und sch
   await page.clock.runFor(1000);
   // Kurz darüber und weiter.
   await nadel.hover();
-  await page.clock.runFor(100);
+  await page.clock.runFor(40);
   await weg();
   await page.clock.runFor(1000);
   expect(await offeneTafeln(page)).toBe(0);
   // Zurück binnen 300 ms: Sie bleibt offen.
   await nadel.hover();
-  await page.clock.runFor(150);
+  await page.clock.runFor(50);
   expect(await offeneTafeln(page)).toBe(1);
   await weg();
   await page.clock.runFor(200);
@@ -628,7 +632,11 @@ test('Escape und ein Klick daneben schliessen zuerst nur die Tafel: Der festgeha
   expect(await anzeige.textContent()).toBe(block);
 });
 
-/** Breite, Höhe und `image-rendering` der Bilder in der Tafel, sobald alle geladen sind. */
+/**
+ * Breite, Höhe und `image-rendering` der Bilder in der Tafel, sobald alle
+ * geladen sind. `complete` kommt vor dem Ereignis `load`, das Grösse und
+ * Klasse setzt: Tests fragen darum mit `expect.poll`.
+ */
 const tafelBilder = async (page: Page) => {
   const bilder = page.locator('.tafel img');
   await expect.poll(() => bilder.evaluateAll((l) => l.length > 0 && l.every((i) => (i as HTMLImageElement).complete))).toBe(true);
@@ -652,7 +660,7 @@ test('ein Bild der Tafel breiter als 320 Pixel wird geglättet verkleinert, im V
   await welt(page, staedte([tafel], { bild: (n) => dateien[n] ?? BILDER[n] }));
   await page.goto(`${DEMO}&at=35,0,-15`);
   await page.locator('.nadel-icon[title="Hafenstadt"]').click();
-  expect(await tafelBilder(page)).toEqual([
+  await expect.poll(() => tafelBilder(page)).toEqual([
     [320, 40, 'auto'],
     [320, 320, 'auto'],
     [9, 9, 'pixelated'],
@@ -671,6 +679,7 @@ test.describe('bei devicePixelRatio 1.5', () => {
     await welt(page, staedte([tafel]));
     await page.goto(`${DEMO}&at=35,0,-15`);
     await page.locator('.nadel-icon[title="Hafenstadt"]').click();
+    await expect.poll(async () => (await tafelBilder(page)).map((b) => b[2])).toEqual(['pixelated', 'pixelated']);
     const [klein, gross] = await tafelBilder(page);
     // 16 · 1,5 / 16 = 1,5 → k = 2: 32 Pixel des Geräts; 320 · 1,5 / 16 = 30 → 480 Pixel des Geräts.
     expect(Math.abs((klein![0] as number) * 1.5 - 32)).toBeLessThan(1 / 32);
@@ -695,7 +704,7 @@ test.describe('auf dem Touchscreen', () => {
   });
 });
 
-test('die Tafel zeigt Bausteine als Text und Bilder vom eigenen Server, nie Markup, in den Farben der UI; zu hoch, scrollt sie; keine Verletzung der Content-Security-Policy', async ({ page }) => {
+test('die Tafel zeigt Bausteine als Text und Bilder vom eigenen Server, nie Markup, dunkel wie im Mod; zu hoch, scrollt sie; keine Verletzung der Content-Security-Policy', async ({ page }) => {
   await page.addInitScript(() => {
     const verletzt: string[] = [];
     Object.assign(window, { verletzt });
@@ -720,17 +729,12 @@ test('die Tafel zeigt Bausteine als Text und Bilder vom eigenen Server, nie Mark
   const punkte = tafel.locator('.tafel-punkt');
   await expect(punkte).toHaveCount(4);
   expect(await punkte.evaluateAll((l) => l.map((p) => getComputedStyle(p).opacity))).toEqual(['1', '1', '1', '0.25']);
-  // Grund und Schrift aus den Variablen der UI.
-  const [grund, schrift, uiGrund, uiSchrift] = await page.locator('.tafel .leaflet-popup-content-wrapper').evaluate((e) => {
-    const probe = document.createElement('div');
-    probe.style.background = 'var(--ui-grund)';
-    probe.style.color = 'var(--ui-schrift)';
-    document.querySelector('#map')!.append(probe);
-    const werte = [getComputedStyle(e).backgroundColor, getComputedStyle(e).color, getComputedStyle(probe).backgroundColor, getComputedStyle(probe).color];
-    probe.remove();
-    return werte;
+  // Dunkel wie im Mod: Grund, Schrift, Rahmen aussen und innen.
+  const stil = await page.locator('.tafel .leaflet-popup-content-wrapper').evaluate((e) => {
+    const s = getComputedStyle(e);
+    return [s.backgroundColor, s.color, s.borderTopColor, s.borderTopWidth, s.boxShadow];
   });
-  expect([grund, schrift]).toEqual([uiGrund, uiSchrift]);
+  expect(stil).toEqual(['rgba(16, 16, 20, 0.88)', 'rgb(217, 217, 217)', 'rgb(0, 0, 0)', '1px', 'rgb(58, 58, 68) 0px 0px 0px 1px inset']);
   // Die lange Tafel scrollt.
   await page.locator('.leaflet-popup-close-button').click();
   await page.locator('.nadel-icon[title="Lang"]').click();

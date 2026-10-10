@@ -485,9 +485,13 @@ pub const V0_5_0: [u64; 2] = [0x7640_47ed_91a4_0173, 0x35b7_4919_7aa9_e79f];
 /// neuer Build, der gleich zeichnet, hat denselben.
 /// Siehe docs/benutzung/updates.md, „Anderer Renderer, andere Assets“.
 pub fn fingerabdruck_des_renderers() -> u64 {
+    fingerabdruck(ZEICHENSTAND, &TABELLEN)
+}
+
+fn fingerabdruck(zeichenstand: u32, tabellen: &[(&str, &str)]) -> u64 {
     let mut fnv = Fnv::default();
-    fnv.nimm(&ZEICHENSTAND.to_le_bytes());
-    for (name, tabelle) in TABELLEN {
+    fnv.nimm(&zeichenstand.to_le_bytes());
+    for (name, tabelle) in tabellen {
         fnv.text(name);
         for zeile in tabelle.lines() {
             fnv.text(zeile);
@@ -976,6 +980,23 @@ mod tests {
         namen.sort_unstable();
         let drin: Vec<&str> = TABELLEN.iter().map(|(name, _)| *name).collect();
         assert_eq!(namen, drin);
+    }
+
+    /// Der Fingerabdruck folgt dem Zeichenstand, dem Namen und jeder Zeile
+    /// einer Tabelle, nicht ihren Zeilenenden.
+    #[test]
+    fn fingerabdruck_folgt_stand_und_tabellen() {
+        let basis = fingerabdruck(1, &[("a.txt", "x 1\ny 2\n")]);
+        assert_eq!(fingerabdruck(1, &[("a.txt", "x 1\r\ny 2\r\n")]), basis);
+        for anders in [
+            fingerabdruck(2, &[("a.txt", "x 1\ny 2\n")]),
+            fingerabdruck(1, &[("b.txt", "x 1\ny 2\n")]),
+            fingerabdruck(1, &[("a.txt", "x 1\ny 3\n")]),
+            fingerabdruck(1, &[("a.txt", "x 1\n")]),
+        ] {
+            assert_ne!(anders, basis);
+        }
+        assert_ne!(fingerabdruck_des_renderers(), fingerabdruck(ZEICHENSTAND, &[]));
     }
 
     /// Ein Stand von v0.5.0 gilt bis zum nächsten Zeichenstand als dieser;

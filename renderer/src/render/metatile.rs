@@ -675,6 +675,46 @@ fn origin_of(
     (bx + sprite.offset.0, by + sprite.offset.1)
 }
 
+/// Eine Familie ohne Welt, etwa ein Banner für die Ebenen: ihre Teile in
+/// allen Würfeln in Zeichenreihenfolge, nach Höhe, dann nach Tiefe, auf
+/// einer Leinwand, die gerade alle fasst. Im Licht `licht`, ohne Nachbarn,
+/// Wasser und weiche Beleuchtung. Dazu, wo der Ursprung ihres Blocks
+/// ([`Projection::project_block`]) auf der Leinwand liegt. `None`, wenn die
+/// Familie nichts zeichnet.
+/// Siehe docs/renderer/blockentities.md, „Banner ohne Welt“.
+pub fn render_familie(
+    sprites: &SpriteSet,
+    family: u32,
+    licht: Light,
+) -> Option<(RgbaImage, (i32, i32))> {
+    assert!(sprites.kino().is_none(), "ohne Welt nur die Karte");
+    let id = sprites.family(family).sprite(0)?;
+    let genordet = sprites.projection().kamera().genordet();
+    let mut zellen: Vec<Cell> = std::iter::once(OWN_CELL)
+        .chain(sprites.foreign_cells().iter().copied())
+        .filter(|&cell| sprites.part(id, cell).is_some())
+        .collect();
+    zellen.sort_by_key(|&[x, y, z]| (y, if genordet { z } else { x + z }, x));
+    let teile: Vec<&Sprite> = zellen.iter().filter_map(|&c| sprites.part(id, c)).collect();
+    let rand =
+        |a: fn(&Sprite) -> i32, b: fn(i32, i32) -> i32| teile.iter().map(|&s| a(s)).reduce(b);
+    let x0 = rand(|s| s.offset.0, i32::min)?;
+    let y0 = rand(|s| s.offset.1, i32::min)?;
+    let x1 = rand(|s| s.offset.0 + s.image.width() as i32, i32::max)?;
+    let y1 = rand(|s| s.offset.1 + s.image.height() as i32, i32::max)?;
+    let mut bild = RgbaImage::new((x1 - x0) as u32, (y1 - y0) as u32);
+    let licht = (sprites.lightmap().factors(licht), None, None, [0; 2]);
+    for teil in teile {
+        blit(
+            &mut bild,
+            teil,
+            (teil.offset.0 - x0, teil.offset.1 - y0),
+            licht,
+        );
+    }
+    Some((bild, (-x0, -y0)))
+}
+
 /// Der Block, dessen Modell in `cell` hineinragen würde.
 fn anchor_of([x, y, z]: [i32; 3], cell: Cell) -> [i32; 3] {
     [x - cell[0], y - cell[1], z - cell[2]]

@@ -1,3 +1,4 @@
+pub mod banner;
 pub mod gpu;
 pub mod heights;
 pub mod kino;

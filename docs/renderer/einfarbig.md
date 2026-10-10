@@ -137,6 +137,16 @@ Belegt per `javap` am Client von 26.2 in `MapItem.update`,
   Die Höhe bleibt die des Wasserspiegels; danach vergleicht das Land
   südlich davon mit ihm.
 
+## Kosten
+
+Über die ganze Testwelt gegen `top-north` bei scale 4, gemessen in
+[2026-10-10, Einfarbige Ansicht](../messungen/2026-10-10-einfarbige-ansicht.md):
+
+- **Zeit:** 35 % weniger. Lesen und Dekodieren der Chunks bleiben gleich.
+- **Platz:** ×0,087.
+- **Arbeitsspeicher:** an der Spitze 3,3-mal so viel, 3,8 statt 1,2 GiB.
+  Warum, ist offen.
+
 ## Was bleibt eine Näherung
 
 - **Texturen über 64 Texel** je Kante mittelt der Rasterizer mit 64 × 64

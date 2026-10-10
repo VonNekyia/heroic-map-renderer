@@ -144,7 +144,7 @@ test('eine gestrichelte Linie zählt ihre Striche über verdeckte Stücke hinweg
   expect(Number(davor1![2])).toBeCloseTo(Number(davor![2]) / 2, 0);
 });
 
-test('eine Fläche nennt beim Zeigen ihren Namen als Text und öffnet beim Klick ihre Tafel; eine Nadel liegt über ihr', async ({ page }) => {
+test('eine Fläche nennt beim Zeigen ihren Namen als Text und hält beim Klick ihre Tafel; eine Nadel liegt über ihr', async ({ page }) => {
   const gebiet = { ...GEBIET, name: '<b>Gebiet</b>', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
   await welt(page, staedte([gebiet, HAFEN]));
   await page.goto(DEMO);
@@ -161,6 +161,89 @@ test('eine Fläche nennt beim Zeigen ihren Namen als Text und öffnet beim Klick
   // Die erste Tafel blendet noch aus; es zählt die der Nadel.
   await expect(page.locator('.tafel .tafel-titel', { hasText: 'Hafenstadt' })).toHaveText('✪ Hafenstadt');
   await expect(page.locator('.tafel .tafel-titel', { hasText: 'Gebietstafel' })).toHaveCount(0);
+});
+
+test('eine Fläche öffnet ihre Tafel beim Zeigen; von Hand geschlossen, öffnet erst ein neues Zeigen sie wieder, auch nach dem Weg vom Schliessknopf hinaus', async ({ page }) => {
+  const gebiet = { ...GEBIET, name: 'Gebiet', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
+  await welt(page, staedte([gebiet]));
+  await page.goto(DEMO);
+  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  const punkt = (x: number, z: number) => aufDemSchirm(page, ...projiziere(x, 1, z, zweiZuEins(16)));
+  // Mitten in der Fläche, so liegt auch der Schliessknopf über ihr.
+  const [[x1, y1], [x2, y2], [x3, y3]] = await Promise.all([punkt(32, -16), punkt(34, -14), punkt(60, 10)]);
+  await page.mouse.move(x1!, y1!);
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+  const knopf = page.locator('.tafel .leaflet-popup-close-button');
+  const ueber = await knopf.evaluate((k) => {
+    const r = k.getBoundingClientRect();
+    return document.elementsFromPoint(r.x + r.width / 2, r.y + r.height / 2).some((e) => e.getAttribute('fill') === '#40E53F55');
+  });
+  expect(ueber).toBe(true);
+  const titel = (await page.locator('.tafel .tafel-titel').boundingBox())!;
+  await knopf.click();
+  // Durch die ausblendende Tafel: Sie zählt nicht als Ort ausserhalb.
+  await page.mouse.move(titel.x + 2, titel.y + titel.height / 2);
+  await expect(page.locator('.tafel')).toHaveCount(0);
+  // Weiter in der Fläche: bleibt zu.
+  await page.mouse.move(x2!, y2!, { steps: 5 });
+  await page.waitForTimeout(600);
+  await expect(page.locator('.tafel')).toHaveCount(0);
+  // Hinaus und wieder hinein: öffnet.
+  await page.mouse.move(x3!, y3!);
+  await page.mouse.move(x2!, y2!);
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+  // An der Ecke, wo der Schliessknopf neben der Fläche liegt: von ihm hinaus, dann hinein, öffnet auch.
+  await page.mouse.move(x3!, y3!);
+  const [ex, ey] = await punkt(20, -28);
+  await page.mouse.move(ex!, ey!);
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+  await page.locator('.tafel .leaflet-popup-close-button').click();
+  await expect(page.locator('.tafel')).toHaveCount(0);
+  await page.mouse.move(x3!, y3!);
+  await page.mouse.move(x2!, y2!);
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+});
+
+test('eine Fläche öffnet ihre Tafel erst nach 150 ms Ruhe, am Ort der Ruhe; jede Bewegung beginnt die Ruhe von vorn', async ({ page }) => {
+  await page.clock.install();
+  const gebiet = { ...GEBIET, name: 'Gebiet', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
+  await welt(page, staedte([gebiet]));
+  await page.goto(DEMO);
+  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  await page.clock.pauseAt(Date.now() + 1000);
+  const offen = () => page.locator('.tafel').evaluateAll((l) => l.filter((e) => (e as HTMLElement).style.opacity !== '0').length);
+  const punkt = (x: number, z: number) => aufDemSchirm(page, ...projiziere(x, 1, z, zweiZuEins(16)));
+  const [[x1, y1], [x2, y2]] = await Promise.all([punkt(24, -24), punkt(36, -12)]);
+  await page.mouse.move(x1!, y1!);
+  for (let i = 1; i <= 4; i++) {
+    await page.clock.runFor(100);
+    await page.mouse.move(x1! + ((x2! - x1!) * i) / 4, y1! + ((y2! - y1!) * i) / 4);
+  }
+  expect(await offen()).toBe(0);
+  await page.clock.runFor(149);
+  expect(await offen()).toBe(0);
+  await page.clock.runFor(1);
+  expect(await offen()).toBe(1);
+  // Die Spitze der Tafel zeigt auf den Ort der Ruhe, nicht auf den Eintritt.
+  const tafel = (await page.locator('.tafel').boundingBox())!;
+  expect(Math.abs(tafel.x + tafel.width / 2 - x2!)).toBeLessThanOrEqual(1);
+});
+
+test('ein Klick auf eine Region nur mit Namen schliesst eine offene Tafel und hält keinen Block; erst der nächste hält einen', async ({ page }) => {
+  const benannt = { ...GEBIET, name: 'Gebiet' };
+  await welt(page, staedte([benannt, HAFEN]));
+  await page.goto(DEMO);
+  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  const anzeige = page.locator('.koordinaten');
+  await page.locator('.nadel-icon[title="Hafenstadt"]').click();
+  await expect(page.locator('.tafel')).toHaveCount(1);
+  // Unter der Nadel in der Region, nicht unter der Tafel über ihr.
+  const [x, y] = await aufDemSchirm(page, ...projiziere(40, 1, -4, zweiZuEins(16)));
+  await page.mouse.click(x!, y!);
+  await expect(page.locator('.tafel')).toHaveCount(0);
+  await expect(anzeige).not.toHaveClass(/gehalten/);
+  await page.mouse.click(x!, y!);
+  await expect(anzeige).toHaveClass(/gehalten/);
 });
 
 test('eine Fläche mit Tafel erreicht die Tastatur: Enter öffnet die Tafel mit dem Fokus darin, Escape gibt ihn der Fläche zurück', async ({ page }) => {
@@ -264,6 +347,16 @@ test('eine Linie, die eine Region nur an der Ecke streift, lädt auch deren Höh
 test.describe('auf dem Touchscreen', () => {
   test.use({ hasTouch: true });
 
+  test('Tippen öffnet die Tafel einer Fläche', async ({ page }) => {
+    const gebiet = { ...GEBIET, panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
+    await welt(page, staedte([gebiet]));
+    await page.goto(DEMO);
+    await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+    const [x, y] = await aufDemSchirm(page, ...projiziere(20, 1, -28, zweiZuEins(16)));
+    await page.touchscreen.tap(x!, y!);
+    await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+  });
+
   test('der Umriss beim Tippen liegt über den Flächen der Ebenen und unter ihren Nadeln', async ({ page }) => {
     await welt(page, staedte([{ ...GEBIET, fill: '#40E53FFF' }]));
     await page.goto(DEMO);
@@ -353,6 +446,37 @@ test('die Kartenschrift steht in der Schrift der Karte, ohne Verletzung der Cont
   // Erst steht die Ebene, dann zählt, dass die kleine Schrift aus ist; ein fehlendes Element wäre auch „hidden“.
   await expect(schrift(page, 'riese')).toBeVisible();
   await expect(schrift(page, 'meer')).toHaveCSS('display', 'none');
+});
+
+test('Grenzfälle der Kartenschrift wie im Format: ohne Kontur bei {}, null oder keinem Objekt, size ≤ 0 oder kein Zahl wird 16, spacing auf 0 bis 1 gekappt, ein Feld mit falschem Typ nimmt die Vorgabe', async ({ page }) => {
+  const zug = (id: string, mehr: object, i: number) => ({ id, type: 'label', text: 'Meer', path: [[-30 + 25 * (i % 6), -40 - 25 * Math.floor(i / 6)]], size: 4, ...mehr });
+  const faelle: [string, object][] = [
+    ['leer', { outline: {} }],
+    ['null', { outline: null }],
+    ['text', { outline: 'rot' }],
+    ['breite-text', { outline: { width: '3' } }],
+    ['farbe-zahl', { outline: { color: 5, width: 3 } }],
+    ['groesse-null', { size: 0 }],
+    ['groesse-minus', { size: -2 }],
+    ['groesse-text', { size: '4' }],
+    ['weit', { spacing: 5 }],
+    ['eng', { spacing: -1 }],
+    ['sperrung-text', { spacing: '0.3' }],
+    ['farbe-falsch', { color: 123 }],
+  ];
+  await welt(page, staedte(faelle.map(([id, mehr], i) => zug(id, mehr, i)), { mehr: { minZoom: -6 } }));
+  // Zwei Stufen unter der feinsten ist ein Block 4 Pixel breit: size 4 heisst 16 Pixel, size 16 heisst 64.
+  await page.goto(`${DEMO}&at=30,0,-40&zoom=-2`);
+  await expect(schrift(page, 'farbe-falsch')).toHaveCount(1);
+  const text = (id: string) => schrift(page, id).locator('text');
+  for (const id of ['leer', 'null', 'text', 'breite-text']) await expect(text(id), id).not.toHaveAttribute('stroke', /.*/);
+  await expect(text('farbe-zahl')).toHaveAttribute('stroke', '#F2E8D0');
+  for (const id of ['groesse-null', 'groesse-minus', 'groesse-text']) expect(Math.abs((await hHoehe(page, id)) - 64), id).toBeLessThanOrEqual(1);
+  // Die Sperrung in Pixeln: Anteil mal Höhe der Grossbuchstaben, hier 16.
+  await expect(text('weit')).toHaveAttribute('letter-spacing', '16');
+  await expect(text('eng')).toHaveAttribute('letter-spacing', '0');
+  await expect(text('sperrung-text')).toHaveAttribute('letter-spacing', '0');
+  await expect(text('farbe-falsch')).toHaveAttribute('fill', '#2B2B2B');
 });
 
 test('die Kartenschrift liegt auf ihrem Pfad im iso über dem Gelände; nach links kehrt sie um, zu kurz geht der Pfad weiter, ein Punkt heisst waagrecht', async ({ page }) => {

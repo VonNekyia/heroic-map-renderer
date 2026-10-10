@@ -126,9 +126,8 @@ export interface Zeichnen {
   /** `area` aus map.json: Ausserhalb gibt es weder Kacheln noch Höhen. */
   area?: Rechteck;
   tafel: (bausteine: unknown[]) => HTMLElement;
-  tafelOptionen: L.PopupOptions;
-  /** Macht eine Fläche mit Tafel per Tastatur bedienbar. */
-  bediene: (flaeche: L.Polygon, name: string | undefined) => void;
+  /** Hängt die Tafel an eine Fläche: beim Zeigen, per Klick und per Tastatur. */
+  bediene: (flaeche: L.Polygon, name: string | undefined, inhalt: () => HTMLElement) => void;
 }
 
 const latLng = ([x, y]: Punkt) => L.latLng(y, x);
@@ -205,7 +204,7 @@ export function zuege(f: Form, c: number, area: Rechteck | undefined): Punkt[][]
 export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Layer[]; striche: Strich[] } {
   // Ausgepackt, und keine Closure greift auf z oder das Gelände: Sonst hielte
   // die Tafel einer Fläche die Höhen am Leben.
-  const { renderer, blick, gelaende: g, area, tafel, tafelOptionen, bediene } = z;
+  const { renderer, blick, gelaende: g, area, tafel, bediene } = z;
   const flaechen: L.Layer[] = [];
   const striche: Strich[] = [];
   for (const f of formen) {
@@ -233,8 +232,7 @@ export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Lay
         }
         const panel = f.panel;
         if (panel) {
-          flaeche.bindPopup(() => tafel(panel), tafelOptionen);
-          bediene(flaeche, f.name);
+          bediene(flaeche, f.name, () => tafel(panel));
         }
         flaechen.push(flaeche);
       }

@@ -115,10 +115,19 @@ Mangrovenwurzeln über einem vollen Block oder über Wurzeln lassen ihre
 untere Schicht weg; durch die Löcher der oberen ist dann der Grund zu sehen,
 und er bleibt Kandidat (#243, `grund_unter_wurzeln_bleibt_zu_sehen` in
 [`renderer/tests/metatile.rs`](../../renderer/tests/metatile.rs)). Das
-trifft nur Familien mit Fassungen: Mangrovenwurzeln, Pulverschnee, Spawner
-und Prüfungsspawner, Trichter, dazu Glas, Eis, Kupferrost, Scheiben und
-Gitter mit ihrer Regel zu gleichen Nachbarn. Unter ihnen bleiben die Blöcke
-Kandidaten; was davon verdeckt ist, lässt die Deckungsmaske fallen.
+trifft nur Familien mit Fassungen, deren Grund-Sprite den Boden deckt. Mit
+den Assets von 26.2, gezählt über alle Zustände aus `blocks.txt` am 10.10.
+in #245:
+
+- **`top-north` bei scale 4,** 31 Zustände: Blaueis, Kupferrost in jeder
+  Stufe, Trichter, Mangrovenwurzeln, Pulverschnee und Spawner.
+- **2:1 bei scale 16,** 2 Zustände: Blaueis und Pulverschnee.
+
+Glas, Eis, Scheiben und Gitter deckten ihren Boden schon vorher nicht. Unter
+den Familien, die kippen, bleiben die Blöcke Kandidaten; was davon verdeckt
+ist, lässt die Deckungsmaske fallen. In der Testwelt sind das von oben
+höchstens 912 400 Blöcke, bei mindestens einem Kandidaten je Säule unter
+80,9 Mio. Säulen.
 
 ## Flächen zu gleichen Nachbarn
 

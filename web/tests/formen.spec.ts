@@ -422,7 +422,8 @@ test('die Kartenschrift steht in der Schrift der Karte, ohne Verletzung der Cont
   await welt(page, staedte([WESTMEER, riese, markup], { mehr: { minZoom: -6 } }));
   await page.goto(`${DEMO}&at=30,0,-30`);
   await expect(schrift(page, 'meer').locator('textPath')).toHaveText('Westmeer');
-  expect(await page.evaluate(async () => (await document.fonts.ready).check('16px Kartenschrift'))).toBe(true);
+  // check() sagt auch für eine nie geladene Schrift ja; es zählt die geladene FontFace.
+  await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family === 'Kartenschrift' && f.status === 'loaded'))).toBe(true);
   expect(await page.evaluate(() => (window as unknown as { verletzt: string[] }).verletzt)).toEqual([]);
   // Auf der feinsten Stufe ist ein Block 16 Pixel breit: 4 Blöcke heissen 64 Pixel, 40 Blöcke gedeckelt auf 96.
   expect(Math.abs((await hHoehe(page, 'meer')) - 64)).toBeLessThanOrEqual(1);

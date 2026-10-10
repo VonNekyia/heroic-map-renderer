@@ -5,6 +5,7 @@ code:
   - renderer/Cargo.toml
   - .cargo/config.toml
   - .github/workflows/ci.yml
+  - .github/gepackt.py
 ---
 
 # Weitergabe des Binärs
@@ -12,9 +13,11 @@ code:
 Das Binär geht an Leute, die keinen Rust-Compiler haben: in Releases (#150),
 im Plugin auf Hangar (#153) und in der Desktop-EXE (#152). Hangar nimmt
 höchstens 10 000 000 Byte je Datei an, und das Jar trägt die Binärs aller
-Plattformen. Darum zählt die Grösse gepackt, mit Deflate 6 wie im Jar. Unter
-Windows hat das Binär 9,15 MB, gepackt 3,57 MB, und braucht keine
-VC++-Laufzeit; unter Linux gepackt 3,49 MB. Was dahinter steht, misst
+Plattformen. Darum zählt die Grösse gepackt, seit dem 10.10. mit xz wie im
+Jar, siehe „Grenze“; Zahlen hier vor diesem Tag sind mit Deflate 6
+gemessen. Unter Windows hat das Binär damals 9,15 MB, gepackt 3,57 MB, und
+braucht keine VC++-Laufzeit; unter Linux gepackt 3,49 MB. Was dahinter
+steht, misst
 [Grösse des Binärs und statische CRT](../messungen/2026-10-05-binaergroesse.md).
 Was jeder Weitergabe beiliegt, steht in [Drittlizenzen](drittlizenzen.md).
 
@@ -83,16 +86,27 @@ verlangt. Ohne musl, siehe
   Das Jar trägt beide Binärs, dazu Plugin, Seite und Hinweise, zusammen
   rund 0,7 MB. Für die Binärs bleiben so gepackt
   10 000 000 − 700 000 = 9 300 000 Byte zusammen.
+- **Gepackt heisst xz,** wie das Plugin die Binärs ins Jar legt: Format
+  `.xz`, Filter BCJ x86, dann LZMA2 mit Preset 9e und 8 MiB Wörterbuch,
+  CRC64. Die Werte stehen in [`.github/gepackt.py`](../../.github/gepackt.py),
+  das Release und CI messen damit; das Plugin packt mit denselben, ändert
+  sich einer, ändern ihn beide. Bis zum 10.10. mass das Budget mit
+  Deflate 6. An v0.6.0 sind es mit xz zusammen 6 818 388 Byte, 2,48 MB unter
+  dem Budget, mit Deflate 6 waren es 9 180 029, siehe
+  [Binärs gepackt mit xz](../messungen/2026-10-10-binaer-xz.md).
 - **Die Grenzen,** entschieden am 06.10. im Review zu #181, die Warnung in
-  der CI angehoben im Review zu #192:
+  der CI angehoben im Review zu #192, mit xz die Grenze je Binär gesenkt im
+  Review zu #251:
 
   | Wo | Grenze, gepackt | Warum |
   |---|---|---|
   | Release-Workflow, beide Binärs zusammen | 9 300 000 Byte | das Jar |
-  | Release-Workflow, je Binär | 4 750 000 Byte | Linux ist kleiner als Windows; keins soll allein das Budget tragen |
-  | CI, Job „Rust“ unter Ubuntu | 4 750 000 Byte | eine frühe Warnung an jeder PR, gegen glibc 2.39 gebaut; dieselbe Grenze je Binär wie im Release |
+  | Release-Workflow, je Binär | 4 000 000 Byte | eine frühe Warnung mit rund 0,6 MB Luft je Binär; keins soll allein das Budget tragen |
+  | CI, Job „Rust“ unter Ubuntu | 4 000 000 Byte | eine frühe Warnung an jeder PR, gegen glibc 2.39 gebaut; dieselbe Grenze je Binär wie im Release |
 
-  Die eigentliche Grenze ist die Summe. Die Warnung lag zuerst bei 4 550 000
+  Die eigentliche Grenze ist die Summe. Mit Deflate lag die Grenze je Binär
+  bei 4 750 000 Byte; mit xz lag sie 1,3 MB über beiden Binärs und warnte
+  kaum noch früh. Die Warnung lag zuerst bei 4 550 000
   Byte, aus der Zeit, als jedes Binär für sich gemessen wurde, vor dem
   Budget als Summe. Mit Client-Jar und Assistent stand der Job „Rust“ auf
   master bei 4 547 199 Byte, und jede weitere Zeile hätte ihn fallen lassen,
@@ -105,9 +119,10 @@ verlangt. Ohne musl, siehe
   auf 0,25 MB gepackt, TLS auf 0,57 MB dazu, siehe
   [0084](../entscheidungen/0084-server-im-renderer.md). Mit ihm und dem
   Download der Assets aus #147, je Binär rund 0,08 MB, passt die Summe.
-- **Stand** mit Server, HTTPS, Download mit Token, Client-Jar (#147) und dem
-  Assistenten (#152), gepackt, die Releases am Kopf `9ba4907` von #192, der
-  Job „Rust“ auf master am Kopf `a1d6cef`:
+- **Stand mit Deflate 6,** vor dem Wechsel zu xz, mit Server, HTTPS,
+  Download mit Token, Client-Jar (#147) und dem Assistenten (#152),
+  gepackt, die Releases am Kopf `9ba4907` von #192, der Job „Rust“ auf
+  master am Kopf `a1d6cef`:
 
   | Binär | gepackt | Luft |
   |---|---|---|

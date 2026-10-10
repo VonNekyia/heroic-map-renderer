@@ -2152,7 +2152,8 @@ fn tempdir() -> TempDir {
 /// Gelände bei scale 16, als Beispiele für die anderen Kameras die Szene aus
 /// `common::szene` in 4:3, von oben und genordet in `top-north` und
 /// `north-45`, wo das Gelände nur Oberseiten gleicher Farbe zeigte, und in
-/// 2:1 aus Nordwesten um die Treppe aus Stein. Neu erzeugen mit
+/// 2:1 aus Nordwesten um die Treppe aus Stein; dazu die Mangrovenwurzeln aus
+/// #243 in `top-north` bei scale 4. Neu erzeugen mit
 /// `UPDATE_GOLDEN=1 cargo test --test metatile`.
 #[test]
 fn goldbild_bleibt_gleich() {
@@ -2210,6 +2211,22 @@ fn goldbild_bleibt_gleich() {
     fehler.extend(goldbild(
         "metatile-cinematic",
         render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
+    ));
+    // Der Chunk aus `welt_mit_wurzeln` in top-north bei scale 4, der Grund
+    // durch die Löcher der Wurzeln.
+    let dir = tempdir();
+    let world = welt_mit_wurzeln(&dir);
+    let projection = Projection::mit_kamera(4, Kamera::parse("top-north").unwrap());
+    let sprites = tabelle(&mut assets_wurzeln_loch(), &world, projection);
+    let rect = ScreenRect {
+        x: 0,
+        y: 0,
+        width: 64,
+        height: 64,
+    };
+    fehler.extend(goldbild(
+        "metatile-wurzeln",
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap(),
     ));
     assert!(fehler.is_empty(), "{}", fehler.join("\n"));
 }
@@ -6323,18 +6340,9 @@ fn assets_wurzeln_loch() -> Assets {
     .unwrap()
 }
 
-/// Mangrovenwurzeln über einem vollen Block lassen ihre untere Schicht weg,
-/// übereinander auch die Flächen zueinander. Durch das Loch in der oberen
-/// Schicht ist dann der Grund zu sehen: Er bleibt Kandidat, denn den Boden
-/// deckt eine Familie nur, wenn jede ihrer Fassungen es tut (#243). Säulen
-/// aus einer, zwei und drei Wurzeln über Gras, dazu eine über Luft, in
-/// top-north bei scale 4 und in 2:1 bei scale 16, gegen
-/// `render_area_without_culling`, das jeden Block zeichnet. In top-north
-/// bleibt kein Pixel des Chunks leer.
-/// Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
-#[test]
-fn grund_unter_wurzeln_bleibt_zu_sehen() {
-    let dir = tempdir();
+/// Säulen aus einer, zwei und drei Mangrovenwurzeln über Gras, dazu eine
+/// über Luft, in einem Chunk.
+fn welt_mit_wurzeln(dir: &TempDir) -> World {
     common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (y, x, z) {
         (0, _, _) => "minecraft:grass_block",
         (1, 2, 2) | (1..=2, 6, 2) | (1..=3, 10, 2) | (2, 2, 8) => {
@@ -6342,7 +6350,21 @@ fn grund_unter_wurzeln_bleibt_zu_sehen() {
         }
         _ => "minecraft:air",
     });
-    let world = World::open(dir.path()).unwrap();
+    World::open(dir.path()).unwrap()
+}
+
+/// Mangrovenwurzeln über einem vollen Block lassen ihre untere Schicht weg,
+/// übereinander auch die Flächen zueinander. Durch das Loch in der oberen
+/// Schicht ist dann der Grund zu sehen: Er bleibt Kandidat, denn den Boden
+/// deckt eine Familie nur, wenn jede ihrer Fassungen es tut (#243). Die
+/// Welt aus `welt_mit_wurzeln` in top-north bei scale 4 und in 2:1 bei
+/// scale 16, gegen `render_area_without_culling`, das jeden Block zeichnet.
+/// In top-north bleibt kein Pixel des Chunks leer.
+/// Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
+#[test]
+fn grund_unter_wurzeln_bleibt_zu_sehen() {
+    let dir = tempdir();
+    let world = welt_mit_wurzeln(&dir);
     for (kamera, scale) in [("top-north", 4), ("2:1", 16)] {
         let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
         let sprites = tabelle(&mut assets_wurzeln_loch(), &world, projection);

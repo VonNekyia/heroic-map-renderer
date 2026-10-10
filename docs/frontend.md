@@ -390,7 +390,8 @@ Das Format steht in [Ebenen](benutzung/ebenen.md), die Gründe in
 zeichnet, in [0096](entscheidungen/0096-formen-und-schrift-im-browser.md).
 Gebaut in [`web/src/ebenen.ts`](../web/src/ebenen.ts): Liste, Nadeln und
 Infotafel; dazu [`formen.ts`](../web/src/formen.ts) für Regionen, Kreise
-und Linien, [`schrift.ts`](../web/src/schrift.ts) für die Kartenschrift,
+und Linien, [`nebel.ts`](../web/src/nebel.ts) für das Muster des Nebels,
+[`schrift.ts`](../web/src/schrift.ts) für die Kartenschrift,
 [`gelaende.ts`](../web/src/gelaende.ts) für Höhen, Netz und was verdeckt
 ist, ohne Leaflet, und [`pruefen.ts`](../web/src/pruefen.ts) für die
 Eingaben.

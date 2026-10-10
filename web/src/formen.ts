@@ -19,6 +19,7 @@ import {
   type Rechteck,
   type Zug,
 } from './gelaende';
+import { nebel } from './nebel';
 import { farbe, istObjekt, istText, istZahl, punkt, punkte } from './pruefen';
 
 /** Ein Rand: Farbe, Breite in Pixeln des Schirms, Strich und Lücke, wenn gestrichelt. */
@@ -225,15 +226,21 @@ export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Lay
       const ringe = netz(beschnitten, g, blick);
       // Ganz verdeckt oder ausserhalb von area: keine Fläche, also auch kein Ziel.
       if (ringe.length) {
+        // Im iso als Nebel: das Muster in der Farbe, im Mittel etwa so deckend wie fill. Siehe ebenen.md, „Der Nebel“.
+        const fuellung = f.fuellung;
+        const alpha = fuellung && fuellung.length === 9 ? parseInt(fuellung.slice(7), 16) / 255 : 1;
+        const imNebel = fuellung !== undefined && blick.p.y > 0;
         // Ohne Vereinfachen durch Leaflet: Es nähme jeden Ring für sich, gemeinsame Kanten liefen auseinander.
         const flaeche = L.polygon(ringe.map((r) => r.map(latLng)), {
           renderer,
           stroke: false,
-          fillColor: f.fuellung ?? '#000000',
-          fillOpacity: f.fuellung ? 1 : 0,
+          fillColor: imNebel ? nebel(fuellung.slice(0, 7).toUpperCase()) : (fuellung ?? '#000000'),
+          fillOpacity: imNebel ? Math.min(1, 2 * alpha) : fuellung ? 1 : 0,
           interactive: f.name !== undefined || f.panel !== undefined,
           smoothFactor: 0,
         });
+        // Die Füllung, wie die Ebene sie nennt, auch wo das Muster sie zeichnet.
+        if (fuellung) flaeche.on('add', () => flaeche.getElement()?.setAttribute('data-fill', fuellung));
         if (f.name) {
           const name = document.createElement('span');
           name.textContent = f.name;

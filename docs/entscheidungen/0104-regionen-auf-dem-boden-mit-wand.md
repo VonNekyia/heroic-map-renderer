@@ -1,6 +1,6 @@
 ---
 title: "0104: Regionen auf dem Boden, mit Wand und Nebel"
-description: Warum Regionen, Kreise und Linien in schrägen Ansichten auf dem Boden ohne Laub liegen und unter Kronen ganz zu sehen bleiben, warum am Rand einer Fläche eine Wand nach oben durchsichtiger wird, wie hoch und wie deckend, und warum der Nebel die Füllung ist; ergänzt 0096.
+description: Warum Regionen, Kreise und Linien in schrägen Ansichten auf dem Boden ohne Laub liegen und unter Kronen ganz zu sehen bleiben, warum am Rand einer Fläche eine Wand nach oben durchsichtiger wird, wie hoch und wie deckend, und warum der Nebel ein gekacheltes Wolkenmuster in der Farbe der Füllung ist; ergänzt 0096.
 status: gilt
 date: 2026-10-10
 issues: [273]
@@ -8,6 +8,7 @@ code:
   - web/src/formen.ts
   - web/src/gelaende.ts
   - web/src/ebenen.ts
+  - web/src/nebel.ts
 ---
 
 # 0104: Regionen auf dem Boden, mit Wand und Nebel
@@ -46,8 +47,12 @@ nur für schräge Ansichten:
   linear bis 0. Der User wählte am Bild die Richtung „nach oben
   durchsichtiger“ gegen „nach oben deckender“ und die Höhe 6. Hinter
   Gelände fällt sie weg.
-- **Der Nebel** ist die Füllung, wie das Plugin sie schickt. Die Doku
-  empfiehlt etwa 15 % Deckkraft.
+- **Der Nebel** ist ein ruhiges Wolkenmuster in der Farbe der Füllung,
+  zur Hälfte mit Weiss gemischt, gekachelt als `pattern` aus SVG, ohne Bild
+  und ohne Filter; doppelt so deckend wie das Alpha von `fill`, im Mittel
+  knapp zwei Drittel davon. Der User wählte
+  es an sechs Vorschauen aus der Testwelt, Variante 3, „Struktur“. Die
+  Doku empfiehlt etwa 15 % Deckkraft.
 - **Kein neues Feld:** Wand und Nebel folgen aus Rand und Füllung. Ohne
   Rand, mit `width: 0`, gibt es auch keine Wand.
 
@@ -70,6 +75,17 @@ Gewählt hat der User an Vorschauen aus der Testwelt; wie es aussieht, zeigt
   mit fester Deckkraft, 12 Stück, je Farbe und Band ein Pfad je Ebene.
 - **Felder für Wand und Nebel in der Ebene:** Regel 22; Rand und Füllung
   reichen.
+- **Nebel als glatte Füllung:** der Stand vor der Wahl; der User wollte
+  ihn realistischer.
+- **Nebel mit weichen Rändern** (2), am Rand dichter, zur Mitte dünner,
+  mit breiten Strichen, auf die Fläche beschnitten: am Bild verworfen.
+- **Nebel in Schichten** (4), drei dünne Lagen bis 4,5 Blöcke hoch, und
+  beide Mischungen, Ränder mit Schichten (2 + 4) und Struktur mit Schichten
+  (3 + 4): am Bild verworfen.
+- **Ein Muster aus einem Bild:** Die Content-Security-Policy der Karte
+  erlaubt kein `data:`; das Muster ist darum aus SVG.
+- **Ein Filter wie `feTurbulence`:** kostet über grossen Flächen bei jedem
+  Zeichnen.
 - **Eine Wand auch um einen Kreis nur mit Rand:** Am Bild der Ebenen stand
   um einen gestrichelten Umkreis eine volle weisse Wand; ein Umkreis ist
   eine Marke, keine Fläche. Entscheid des Frontends.

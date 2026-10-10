@@ -3,6 +3,7 @@ title: Ebenen
 description: Das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, Kartenschrift, Regionen, Kreisen und Linien und einer strukturierten Infotafel ohne HTML; wo die Dateien neben trees.json liegen, wie sie sich ändern, wie gross sie sein dürfen, und wie 2D- und iso-Ansichten sie mit derselben Projektion wie die Kacheln auf das Gelände legen.
 code:
   - web/src/pick.ts
+  - web/src/nebel.ts
   - renderer/src/ebenen.rs
   - renderer/src/cli/banner.rs
   - renderer/tests/fixtures/projektion.json
@@ -775,8 +776,29 @@ wie bei den Koordinaten.
    dann die Maske einmal in der Farbe von `fill`; die Webkarte füllt sie
    als einen Pfad, gerade/ungerade. So doppelt sich das Alpha nicht an den
    Kanten zweier Stücke.
-3. **Als Nebel:** Im iso liegt die Füllung als leichter Nebel über dem
-   Boden; empfohlen sind etwa 15 % Deckkraft, `#RRGGBB26`.
+3. **Im iso als Nebel,** siehe „Der Nebel“.
+
+### Der Nebel
+
+Im iso füllt eine Fläche mit `fill` nicht einfarbig, sondern mit einem
+ruhigen Wolkenmuster in ihrer Farbe. Von oben bleibt es die Füllung selbst.
+
+- **Farbe:** `fill` ohne Alpha, zur Hälfte mit Weiss gemischt, so ist der
+  Nebel auch über Grund in derselben Farbe zu sehen; aus `#40E53F` wird
+  `#A0F29F`.
+- **Muster:** eine Kachel von 128 × 128 Pixeln des Schirms, auf jeder
+  Stufe gleich: ein Grund mit 10 % Deckkraft und 18 flache Wolken, Ellipsen
+  halb so hoch wie breit mit radialem Verlauf bis 0, nahtlos gekachelt. Je
+  Farbe ein Muster, ohne Bild und ohne Filter; `nebel.ts` in
+  [`web/src/`](../../web/src/nebel.ts).
+- **Deckkraft:** doppelt so viel wie das Alpha von `fill`, höchstens 1. Die
+  Kachel deckt im Mittel 32 %, nachgerechnet über ihre Pixel; der Nebel
+  deckt im Mittel also knapp zwei Drittel des Alphas von `fill`, bei
+  `#RRGGBB26`, 15 %, rund 10 %. So sah die Vorschau aus, die der User
+  wählte. Empfohlen sind etwa 15 %.
+- **Kosten:** Das Muster entsteht erst mit der ersten Fläche im iso; ohne
+  Flächen gibt es keins.
+- Gewählt in [0104](../entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md).
 
 ### Die Wand
 

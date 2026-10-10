@@ -67,7 +67,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 - [Aufbau des Codes](entwicklung/aufbau.md): welche Datei was tut.
 - [Tests](entwicklung/tests.md): laufen lassen, Fixtures, Kameras, Goldbilder, GPU-Tests.
-- [CI](entwicklung/ci.md): die Jobs und die Doku-Prüfung.
+- [CI](entwicklung/ci.md): die Jobs, die Basis einer PR und die Doku-Prüfung.
 - [Weitergabe](entwicklung/weitergabe.md): wie das Release-Binär für eine Weitergabe gebaut ist, Release-Profil, statische CRT unter Windows, Grösse roh und gepackt, Linux und glibc, und was die CI daran prüft.
 - [Drittlizenzen](entwicklung/drittlizenzen.md): was jeder Weitergabe des Binärs beiliegt, wie `renderer/drittlizenzen.py` die Hinweise auf die Lizenzen der Crates erzeugt und was die CI daran prüft.
 - [libwebp mit Patch](entwicklung/libwebp-mit-patch.md): warum `libwebp-sys` als Kopie mit einem Patch an libwebp für `--compact` im Repository liegt, was der Patch ändert und was bei einem neuen `libwebp-sys` zu tun ist.

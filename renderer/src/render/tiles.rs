@@ -703,6 +703,7 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
     // Gleich gepackt: Der Lauf hält sonst je Block 512 KiB je Region, bis
     // alle geschrieben sind.
     if gelesen.contains(&true) {
+        boden.median_3x3();
         survey.heights.push(RegionHeights {
             x: rx,
             z: rz,

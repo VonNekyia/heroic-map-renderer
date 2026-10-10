@@ -3038,24 +3038,42 @@ fn export_schreibt_hoehen() {
     assert_eq!(hoehe.get(10, 10), EMPTY, "Chunk (2, 2) fehlt");
 
     // Der Boden ohne Laub daneben, je Block, nach einem Lauf über die ganze
-    // Welt in map.json. Ohne gespeicherte Heightmap gilt die Oberfläche.
+    // Welt in map.json. Ohne gespeicherte Heightmap gilt die Oberfläche, je
+    // Spalte der obere Median der 3 × 3 um sie.
     assert_eq!(info["ground"], "../ground/{x}.{z}.bin");
     assert_eq!(info["groundCell"], 1);
     let daten = std::fs::read(out.path().join("../ground/0.0.bin")).unwrap();
     let boden = Heights::decode(&daten, heights::GROUND_CELL).unwrap();
-    assert_eq!(boden.get(8, 8), 9, "Wasser");
-    assert_eq!(boden.get(9, 8), 7, "Truhe");
+    assert_eq!(boden.get(8, 8), 9, "Wasser und Truhe, der obere Median");
+    assert_eq!(boden.get(9, 8), 9, "die Truhe neben dem Wasser");
+    assert_eq!(boden.get(13, 8), 7, "die Truhe allein");
     assert_eq!(boden.get(10, 8), EMPTY, "ohne Block");
     assert_eq!(boden.get(0, 0), 6);
-    // Je 4 × 4 Spalten der obere Median wie bei den Höhen.
-    for (zx, zz) in (0..128).flat_map(|zz| (0..128).map(move |zx| (zx, zz))) {
-        let mut werte: Vec<i16> = (0..16)
-            .map(|i| boden.get(zx * 4 + i % 4, zz * 4 + i / 4))
-            .filter(|&y| y != EMPTY)
-            .collect();
-        werte.sort_unstable();
-        let median = werte.get(werte.len() / 2).copied().unwrap_or(EMPTY);
-        assert_eq!(median, hoehe.get(zx, zz), "Zelle ({zx}, {zz})");
+}
+
+/// Der Boden je Block geht durch den Median 3 × 3: Stämme von 1 × 1 und
+/// 2 × 2 auf flachem Boden fallen weg, eine Stufe bleibt an ihrer Kante. Die
+/// Welt hat keine gespeicherte Heightmap, der Boden ist also die Oberfläche
+/// mit den Stämmen.
+#[test]
+fn boden_ohne_staemme() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
+        (8, 5..=9, 8) | (3..=4, 5..=12, 3..=4) => "minecraft:einfarbig",
+        (12..=15, 0..=8, _) | (_, 0..=4, _) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    });
+    let out = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+    let daten = std::fs::read(out.path().join("../ground/0.0.bin")).unwrap();
+    let boden = Heights::decode(&daten, heights::GROUND_CELL).unwrap();
+    assert_eq!(boden.get(8, 8), 4, "Stamm 1 × 1");
+    for (x, z) in [(3, 3), (4, 3), (3, 4), (4, 4)] {
+        assert_eq!(boden.get(x, z), 4, "Stamm 2 × 2 bei ({x}, {z})");
+    }
+    for z in 0..16 {
+        assert_eq!(boden.get(11, z), 4, "unter der Stufe bei z {z}");
+        assert_eq!(boden.get(12, z), 8, "auf der Stufe bei z {z}");
     }
 }
 

@@ -128,6 +128,38 @@ impl Heights {
         }
     }
 
+    /// Setzt jede Zelle mit Wert auf den oberen Median der 3 × 3 Zellen um
+    /// sie, so fallen Stämme auf flachem Boden weg. Leere Zellen und solche
+    /// ausserhalb der Region zählen nicht mit; eine leere bleibt leer.
+    /// Siehe docs/entscheidungen/0103-boden-ohne-laub.md, „Entscheidung“.
+    pub fn median_3x3(&mut self) {
+        let edge = self.edge();
+        // Die Zeilen über und in der, die gerade entsteht, noch ohne Median;
+        // die darunter steht so noch in `werte`.
+        let mut ueber = vec![EMPTY; edge];
+        let mut mitte = vec![EMPTY; edge];
+        let mut fenster = Vec::with_capacity(9);
+        for z in 0..edge {
+            mitte.copy_from_slice(&self.werte[z * edge..(z + 1) * edge]);
+            for x in (0..edge).filter(|&x| mitte[x] != EMPTY) {
+                fenster.clear();
+                for nx in x.saturating_sub(1)..(x + 2).min(edge) {
+                    if z > 0 {
+                        fenster.push(ueber[nx]);
+                    }
+                    fenster.push(mitte[nx]);
+                    if z + 1 < edge {
+                        fenster.push(self.werte[(z + 1) * edge + nx]);
+                    }
+                }
+                fenster.retain(|&y| y != EMPTY);
+                fenster.sort_unstable();
+                self.werte[z * edge + x] = fenster[fenster.len() / 2];
+            }
+            std::mem::swap(&mut ueber, &mut mitte);
+        }
+    }
+
     /// Übernimmt aus `old` die Chunks, die dieser Lauf nicht gelesen hat:
     /// `read` trägt je Chunkplatz der Region ein Flag, zeilenweise nach z.
     /// `old` hat dieselbe Zelle.
@@ -230,6 +262,40 @@ mod tests {
         }
         let vier = Heights::new(CELL).encode().unwrap();
         assert!(Heights::decode(&vier, GROUND_CELL).is_err(), "andere Zelle");
+    }
+
+    /// Der Median 3 × 3: Ein Stamm von 1 × 1 und einer von 2 × 2 auf flachem
+    /// Boden fallen weg, eine Klippe bleibt an ihrer Kante. Eine leere Zelle
+    /// zählt nicht und bleibt leer; am Rand der Region zählt, was da ist.
+    #[test]
+    fn median_nimmt_staemme_und_laesst_klippen() {
+        let mut boden = Heights::new(GROUND_CELL);
+        let edge = boden.edge();
+        for z in 0..32 {
+            for x in 0..32 {
+                boden.werte[z * edge + x] = if x >= 20 { 80 } else { 60 };
+            }
+        }
+        let mut setze = |x: usize, z: usize, y: i16| boden.werte[z * edge + x] = y;
+        setze(5, 5, 69);
+        for (x, z) in [(10, 10), (11, 10), (10, 11), (11, 11)] {
+            setze(x, z, 66);
+        }
+        setze(0, 25, 69);
+        setze(3, 15, EMPTY);
+        boden.median_3x3();
+
+        for z in 0..32 {
+            for x in 0..32 {
+                let erwartet = match (x, z) {
+                    (3, 15) => EMPTY,
+                    _ if x >= 20 => 80,
+                    _ => 60,
+                };
+                assert_eq!(boden.get(x, z), erwartet, "({x}, {z})");
+            }
+        }
+        assert_eq!(boden.get(32, 0), EMPTY, "ausserhalb der Fläche bleibt leer");
     }
 
     /// Nicht gelesene Chunkplätze behalten die alten Werte, gelesene die

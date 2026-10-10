@@ -6228,7 +6228,8 @@ fn flach_spaerliche_oberseite_verschwindet() {
 }
 
 /// Das Relief über ein zufälliges Höhenfeld, über den Rand der Stücke von
-/// `render_area` hinweg: ein Chunk breit, 65 Chunks lang, Stein bis zu einer
+/// `render_area` und der Bänder der einfarbigen Ansicht hinweg (`FLACH_BAND`,
+/// 64 Pixel): ein Chunk breit, 65 Chunks lang, Stein bis zu einer
 /// Höhe von 0 bis 3 aus einer festen Folge. Je Pixel unabhängig aus dem
 /// Höhenfeld gerechnet: hinauf hell, hinab dunkel, sonst eben, am Nordrand
 /// der Welt eben. Die Farben ohne Relief zeichnet

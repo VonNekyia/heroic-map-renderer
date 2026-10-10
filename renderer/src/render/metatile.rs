@@ -115,6 +115,13 @@ pub fn render_area(
 /// Siehe docs/renderer/renderpfad.md, „Grosse Ausschnitte“.
 pub const STUECK: u32 = 1024;
 
+/// Wie hoch die einfarbige Ansicht ein Band zeichnet, in Pixeln: vier
+/// Zeilen Chunks. Bei scale 1 deckt eine Kachel 16 × 16 Chunks; Band für
+/// Band behält der Cache nur das laufende und das vorige, denn jedes Band
+/// beginnt in [`ChunkCache`] wie eine Kachel.
+/// Siehe docs/renderer/renderpfad.md, „Speicher“.
+const FLACH_BAND: u32 = 64;
+
 /// Wie [`render_area`], mit einem Cache, der über Kacheln hinweg lebt:
 /// Kacheln, die nacheinander kommen, teilen sich fast alle Chunks.
 ///
@@ -165,7 +172,17 @@ pub fn render_area_with(
         return Ok(bild);
     }
     if sprites.projection().flach() {
-        return render_flach(chunks, rect, y_range);
+        let mut bild = RgbaImage::new(rect.width, rect.height);
+        for dy in (0..rect.height).step_by(FLACH_BAND as usize) {
+            let band = ScreenRect {
+                y: rect.y + dy as i32,
+                height: FLACH_BAND.min(rect.height - dy),
+                ..rect
+            };
+            let teil = render_flach(chunks, band, y_range)?;
+            image::imageops::replace(&mut bild, &teil, 0, i64::from(dy));
+        }
+        return Ok(bild);
     }
     let deckung = von_vorn(chunks, rect, y_range)?;
     let mut canvas = RgbaImage::new(rect.width, rect.height);

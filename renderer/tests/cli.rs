@@ -6246,51 +6246,78 @@ fn voller_lauf_mit_stand_raeumt_abgerissenes_weg() {
     );
 }
 
-/// `--resume` mit anderen Assets übernimmt den angefangenen Stand nicht und
-/// schreibt keinen. Der alte nennt seit dem Abbruch alles unbekannt; das
-/// nächste Update mit den alten Assets zeichnet alles wie ein voller Lauf.
+/// Ein voller Lauf mit `--resume`, dessen angefangener Stand von einem
+/// anderen Build oder anderen Assets stammt, läuft wie ohne den Schalter. Er
+/// zeichnet auch die Kachel neu, die noch die alte Welt zeigt und älter ist
+/// als die zwei Minuten, gleicht danach einem neuen Baum und schreibt
+/// `stand.bin`: Das nächste Update hat nichts zu zeichnen.
+/// Siehe docs/benutzung/updates.md, „Abbruch und `--resume`“.
 #[test]
-fn resume_mit_anderen_assets_schreibt_keinen_stand() {
-    let extra = ["--scale", "12"];
-    let welt = tempdir();
-    baue_gelaende(welt.path());
-    let baum = neuer_baum("2x1-se");
-    gelungen(&tiles(welt.path(), baum.path(), &extra));
-    let neu = neuer_baum("2x1-se");
-    gelungen(&tiles(welt.path(), neu.path(), &extra));
-    let basis = max_zoom(baum.path());
-    let (_, sperre) = kacheln(baum.path(), basis).into_iter().next().unwrap();
-    std::fs::remove_file(&sperre).unwrap();
-    std::fs::create_dir(&sperre).unwrap();
-    assert!(!tiles(welt.path(), baum.path(), &extra).status.success());
-    std::fs::remove_dir(&sperre).unwrap();
-
+fn resume_mit_fremdem_stand_rendert_alles() {
     let leer = tempdir();
     std::fs::write(leer.path().join("pack.mcmeta"), "{}").unwrap();
     let pack = leer.path().to_str().unwrap();
-    let ausgabe = tiles(
-        welt.path(),
-        baum.path(),
-        &["--scale", "12", "--resume", "--assets", pack],
-    );
-    let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
-    assert!(
-        text.contains("anderen Build des Renderers oder anderen Assets"),
-        "{text}"
-    );
-    for (cx, cz) in UPDATE_CHUNKS {
-        assert_eq!(
-            im_stand(baum.path(), cx, cz),
-            Inhalt::Unbekannt,
-            "({cx}, {cz})"
+    for fall in ["anderer Build", "andere Assets"] {
+        let welt = tempdir();
+        baue_aenderungen(welt.path());
+        let baum = neuer_baum("2x1-se");
+        gelungen(&tiles(welt.path(), baum.path(), &["--scale", "12"]));
+        baue_update_welt(welt.path(), mit_dach, &GEAENDERT, 3);
+        let mut extra = vec!["--scale", "12"];
+        if fall == "andere Assets" {
+            extra.extend(["--assets", pack]);
+        }
+        let neu = neuer_baum("2x1-se");
+        gelungen(&tiles(welt.path(), neu.path(), &extra));
+
+        // Der volle Lauf mit den alten Assets scheitert an einer
+        // Basiskachel; eine zweite zeigt danach wieder die alte Welt.
+        let basis = max_zoom(baum.path());
+        let soll = kacheln(neu.path(), basis);
+        let anders: Vec<PathBuf> = kacheln(baum.path(), basis)
+            .into_iter()
+            .filter(|(tile, pfad)| {
+                soll.get(tile)
+                    .is_some_and(|s| std::fs::read(pfad).unwrap() != std::fs::read(s).unwrap())
+            })
+            .map(|(_, pfad)| pfad)
+            .collect();
+        let [sperre, alt, ..] = &anders[..] else {
+            panic!("nur {} Basiskacheln ändern sich", anders.len());
+        };
+        let vorher = std::fs::read(alt).unwrap();
+        std::fs::remove_file(sperre).unwrap();
+        std::fs::create_dir(sperre).unwrap();
+        assert!(
+            !tiles(welt.path(), baum.path(), &["--scale", "12"])
+                .status
+                .success()
         );
+        std::fs::remove_dir(sperre).unwrap();
+        std::fs::write(alt, vorher).unwrap();
+        setze_zeit(alt, SystemTime::now() - Duration::from_secs(3600));
+        if fall == "anderer Build" {
+            let pfad = baum.path().join("stand-neu.bin");
+            let mut bytes = std::fs::read(&pfad).unwrap();
+            bytes[13] ^= 1;
+            std::fs::write(&pfad, bytes).unwrap();
+        }
+
+        let resume: Vec<&str> = extra.iter().copied().chain(["--resume"]).collect();
+        let ausgabe = tiles(welt.path(), baum.path(), &resume);
+        let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+        assert!(
+            text.contains("anderen Build des Renderers oder anderen Assets"),
+            "{fall}: {text}"
+        );
+        assert!(text.contains("wie ohne --resume"), "{fall}: {text}");
+        gleiche_baeume(baum.path(), neu.path(), fall);
+        assert!(!baum.path().join("stand-neu.bin").exists(), "{fall}");
+        let update: Vec<&str> = extra.iter().copied().chain(["--update"]).collect();
+        let ausgabe = tiles(welt.path(), baum.path(), &update);
+        let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+        assert!(text.contains("nichts zu zeichnen"), "{fall}: {text}");
     }
-    gelungen(&tiles(
-        welt.path(),
-        baum.path(),
-        &["--scale", "12", "--update"],
-    ));
-    gleiche_baeume(baum.path(), neu.path(), "nach dem Update");
 }
 
 /// Ein voller Lauf über einen Baum mit Stand bricht ab und geht mit

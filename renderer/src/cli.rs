@@ -183,8 +183,10 @@ pub struct Args {
     compact: bool,
 
     /// Mit --tiles vorhandene Basiskacheln stehen lassen statt sie neu zu
-    /// rendern: setzt einen abgebrochenen Lauf fort, und nur den. Die
-    /// Kacheln nimmt der Lauf, wie sie sind; stammen sie aus einem älteren
+    /// rendern: setzt einen abgebrochenen Lauf fort, und nur den. Stammt
+    /// der angefangene Stand eines vollen Laufs von einem anderen Build oder
+    /// anderen Assets, rendert er alles wie ohne --resume. Sonst nimmt er
+    /// die Kacheln, wie sie sind; stammen sie aus einem älteren
     /// Stand der Welt oder der Assets, bleiben sie das. Neu rendert er die
     /// aus den letzten zwei Minuten vor der jüngsten, die kann ein
     /// Stromausfall getroffen haben, dazu die nativen Stufen und die
@@ -1692,9 +1694,23 @@ fn write_tiles(
         ),
         None => (BTreeMap::new(), (0, 0)),
     };
-    let fortgesetzt = match art {
+    let angefangen = match art {
         Some(art) if resume => fortzusetzen(dir, art, abdruecke)?,
-        _ => None,
+        _ => Angefangen::Keiner,
+    };
+    // Ein voller Lauf über den angefangenen Stand eines anderen Builds wüsste
+    // nicht, welche Kacheln welcher Build zeichnete. Er läuft wie ohne
+    // --resume. Siehe docs/benutzung/updates.md, „Abbruch und `--resume`“.
+    let frisch = art == Some(Art::Voll) && matches!(angefangen, Angefangen::Fremd);
+    if frisch {
+        println!(
+            "Stand:      dieser Lauf rendert alles wie ohne --resume und schreibt am Ende einen Stand"
+        );
+    }
+    let resume = resume && !frisch;
+    let fortgesetzt = match angefangen {
+        Angefangen::Passend(stand, seit) => Some((stand, seit)),
+        Angefangen::Keiner | Angefangen::Fremd => None,
     };
     let (gebiet, stand, aenderungen) = match bereich {
         Bereich::Welt => (None, None, None),
@@ -2401,24 +2417,30 @@ fn stand_fuer_update(dir: &Path, abdruecke: (u64, u64)) -> Result<Stand> {
     Ok(stand)
 }
 
-/// Der angefangene Stand eines abgebrochenen Laufs derselben Art, desselben
-/// Builds und derselben Assets (`abdruecke`), mit der Zeit, zu der er
-/// geschrieben wurde: Jede Kachel ab da stammt aus jenem Lauf.
-fn fortzusetzen(
-    dir: &Path,
-    art: Art,
-    abdruecke: (u64, u64),
-) -> Result<Option<(Stand, SystemTime)>> {
+/// Was `--resume` im angefangenen Stand findet.
+enum Angefangen {
+    /// Ein Stand desselben Laufs, mit der Zeit, zu der er geschrieben wurde:
+    /// Jede Kachel ab da stammt aus jenem Lauf.
+    Passend(Stand, SystemTime),
+    Keiner,
+    /// Er stammt von einem anderen Build, anderen Assets oder einem Lauf der
+    /// anderen Art.
+    Fremd,
+}
+
+/// Der angefangene Stand eines abgebrochenen Laufs, passend, wenn er von
+/// derselben Art, demselben Build und denselben Assets (`abdruecke`) stammt.
+fn fortzusetzen(dir: &Path, art: Art, abdruecke: (u64, u64)) -> Result<Angefangen> {
     let pfad = dir.join(STAND_NEU);
     let Some(stand) = lies_stand(&pfad)? else {
-        return Ok(None);
+        return Ok(Angefangen::Keiner);
     };
     if (stand.renderer, stand.assets) != abdruecke {
         println!(
             "Stand:      {} stammt von einem anderen Build des Renderers oder anderen Assets",
             pfad.display()
         );
-        return Ok(None);
+        return Ok(Angefangen::Fremd);
     }
     if stand.art != art {
         let war = match stand.art {
@@ -2429,10 +2451,10 @@ fn fortzusetzen(
             "Stand:      {} stammt von einem anderen Lauf, {war}",
             pfad.display()
         );
-        return Ok(None);
+        return Ok(Angefangen::Fremd);
     }
     let seit = aenderungszeit(&pfad).with_context(|| format!("{} lesen", pfad.display()))?;
-    Ok(Some((stand, seit)))
+    Ok(Angefangen::Passend(stand, seit))
 }
 
 /// Was der Renderer aus diesen Chunks der Region zeichnet, siehe

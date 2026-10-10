@@ -703,7 +703,10 @@ async function start(): Promise<void> {
   // Ebenen neben trees.json; ohne layers.json keine. Siehe docs/frontend.md, „Ebenen“.
   if (typeof blick !== 'string') {
     const { scale, maxZoom, heightsCell, seaLevel, minY, maxY, area } = info;
-    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, heightsCell, seaLevel, minY, maxY, area }).catch(
+    // Der Satz der Banner-Sprites: ein Baum von oben und ein einfarbiger nehmen
+    // oben, jeder andere seinen Pfad. Siehe docs/benutzung/ebenen.md, „Sprites“.
+    const satz = baum && (baum.camera === 'top' || baum.camera === 'top-north' || baum.look === 'flat' ? 'oben' : baum.path);
+    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, heightsCell, seaLevel, minY, maxY, area, satz: satz ?? undefined }).catch(
       (error: unknown) => console.error(error),
     );
   }

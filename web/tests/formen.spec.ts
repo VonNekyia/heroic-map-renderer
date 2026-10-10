@@ -174,6 +174,93 @@ test('eine gestrichelte Linie zählt ihre Striche über verdeckte Stücke hinweg
   expect(Number(davor1![2])).toBeCloseTo(Number(davor![2]) / 2, 0);
 });
 
+test('mit ground liegen Fläche, Rand und Linie im iso auf dem Boden, Nadel und Kartenschrift auf der Oberfläche', async ({ page }) => {
+  // Kronen auf 40, der Boden darunter auf 10.
+  const linie = { id: 'weg', type: 'line', points: [[20, -40], [44, -40]], stroke: { color: '#123456', width: 2 } };
+  const nadel = { ...HAFEN, id: 'nadel', name: 'Nadel', at: [24.5, -8.5], panel: undefined };
+  const schrift = { id: 'wald', type: 'label', text: 'Wald', path: [[18, -20], [46, -20]], size: 2 };
+  await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53F' } }, linie, nadel, schrift], { hoehe: () => 40, boden: () => 10 }));
+  await page.goto(`${DEMO}&at=32,10,-16`);
+  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  nah(await rahmen(page.locator('path[fill="#40E53F55"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 11));
+  nah(await rahmen(page.locator('path[stroke="#40E53F"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 11));
+  nah(await rahmen(page.locator('path[stroke="#123456"]')), await sollRahmen(page, linie.points, 11));
+  nah(await fuss(page, 'Nadel'), await aufDemSchirm(page, ...projiziere(24.5, 41, -8.5, zweiZuEins(16))));
+  const anfang = await page.locator('svg.ebene-schrift[data-id="wald"]').evaluate((svg: SVGSVGElement) => {
+    const a = svg.querySelector('path')!.getPointAtLength(0);
+    const kasten = svg.getBoundingClientRect();
+    return [kasten.left + a.x, kasten.top + a.y];
+  });
+  nah(anfang, await aufDemSchirm(page, ...projiziere(18, 41, -20, zweiZuEins(16))));
+});
+
+test('fehlt einer Region die Datei in ground, liegen Formen dort auf heights', async ({ page }) => {
+  // GEBIET liegt in der Region (0, −1); deren ground fehlt.
+  await welt(page, staedte([GEBIET], { hoehe: () => 30, boden: (i) => (i >= 0 ? undefined : 5) }));
+  await page.goto(`${DEMO}&at=32,30,-16`);
+  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  nah(await rahmen(page.locator('path[fill="#40E53F55"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 31));
+});
+
+test('unter Kronen bleibt ein Rand auf dem Boden ganz zu sehen; hinter einem Hang des Bodens dünn, gestrichelt und blass', async ({ page }) => {
+  // Ein Wall wo i + j = 10, wie oben; einmal nur in heights, wie eine Reihe Kronen, einmal im Boden.
+  const hinten = rechteck('hinten', 8, 8, 16, 16, { fill: '#FF000080' });
+  const wall = (i: number, j: number) => (i + j === 10 ? 150 : 0);
+  const stile = () =>
+    page.locator('path[stroke="#FF0000"]').evaluateAll((l) => l.map((p) => [p.getAttribute('stroke-opacity'), p.getAttribute('stroke-dasharray')].join()));
+  await welt(page, staedte([hinten], { hoehe: wall, boden: () => 0 }));
+  await page.goto(`${DEMO}&at=40,0,40`);
+  await expect(page.locator('path[fill="#FF000080"]')).toHaveCount(1);
+  expect(new Set(await stile())).toEqual(new Set(['1,']));
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await welt(page, staedte([hinten], { hoehe: wall, boden: wall }));
+  await page.goto(`${DEMO}&at=40,0,40`);
+  await expect(page.locator('path[stroke="#FF0000"]').first()).toBeAttached();
+  await expect(page.locator('path[fill="#FF000080"]')).toHaveCount(0);
+  expect(new Set(await stile())).toEqual(new Set(['0.4,3 4']));
+});
+
+test('im iso steht am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 deckend, nach oben bis 0; nicht an Linien, nicht ohne Rand, nicht von oben', async ({ page }) => {
+  const ohneRand = rechteck('ohne', 60, -32, 80, 0, { fill: '#AA00AA55', stroke: { width: 0 } });
+  const linie = { id: 'weg', type: 'line', points: [[20, -40], [44, -40]], stroke: { color: '#123456', width: 2 } };
+  await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }, ohneRand, linie], { hoehe: () => 10 }));
+  await page.goto(`${DEMO}&at=32,10,-16`);
+  const baender = page.locator('path[fill="#40E53F"]');
+  await expect(baender).toHaveCount(12);
+  // Von unten nach oben, nach der Unterkante jedes Bands: die Deckkraft fällt.
+  const vonUnten = (await baender.evaluateAll((l) => l.map((p) => [p.getBoundingClientRect().bottom, Number(p.getAttribute('fill-opacity'))] as const))).sort((a, b) => b[0] - a[0]);
+  vonUnten.forEach(([, d], k) => expect(d).toBeCloseTo(0.6 * (1 - (k + 0.5) / 12), 5));
+  for (const b of await baender.all()) {
+    await expect(b).toHaveAttribute('stroke', 'none');
+    // Gleich herum gelaufen, siehe wand in gelaende.ts: nur mit nonzero ohne Loch, wo sich Vorder- und Rückseite decken.
+    await expect(b).toHaveAttribute('fill-rule', 'nonzero');
+  }
+  // Zusammen reichen die Bänder vom Rand bis 6 Blöcke darüber.
+  const rand = await sollRahmen(page, GEBIET.polygons[0]!.outer, 11);
+  const alle = await Promise.all((await baender.all()).map(rahmen));
+  nah([Math.min(...alle.map((r) => r[0]!)), Math.min(...alle.map((r) => r[1]!)), Math.max(...alle.map((r) => r[2]!)), Math.max(...alle.map((r) => r[3]!))], [rand[0]!, rand[1]! - 6 * zweiZuEins(16).y, rand[2]!, rand[3]!]);
+  await expect(page.locator('path[fill="#AA00AA"]')).toHaveCount(0);
+  await expect(page.locator('path[fill="#123456"]')).toHaveCount(0);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }], { mehr: VON_OBEN }));
+  await page.goto(`${DEMO}&at=32,0,-16`);
+  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(0);
+});
+
+test('ground holt die Karte nur für Flächen, Ränder und Linien, nicht für Nadeln und Kartenschrift', async ({ page }) => {
+  const boden: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/ground/')) boden.push(r.url());
+  });
+  const schrift = { id: 'wald', type: 'label', text: 'Wald', path: [[18, -20], [46, -20]], size: 2 };
+  await welt(page, staedte([HAFEN, schrift], { hoehe: () => 40, boden: () => 10 }));
+  await page.goto(`${DEMO}&at=32,10,-16`);
+  await expect(page.locator('svg.ebene-schrift[data-id="wald"]')).toBeAttached();
+  await page.waitForLoadState('networkidle');
+  expect(boden).toEqual([]);
+});
+
 test('eine Fläche nennt beim Zeigen ihren Namen als Text und hält beim Klick ihre Tafel; eine Nadel liegt über ihr', async ({ page }) => {
   const gebiet = { ...GEBIET, name: '<b>Gebiet</b>', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
   await welt(page, staedte([gebiet, HAFEN]));

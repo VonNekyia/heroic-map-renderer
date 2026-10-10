@@ -413,6 +413,39 @@ export function zug(punkte: readonly Punkt[], geschlossen: boolean, g: Gelaende,
 }
 
 /**
+ * Die Wand über einem Rand, `hoch` Pixel der feinsten Stufe nach oben, in
+ * `baender` Bändern von unten nach oben: je Band ein Ring je Lauf sichtbarer
+ * Strecken, die in x in dieselbe Richtung gehen. Eine Strecke gehört zum Lauf
+ * ihres Endpunkts, verdeckte fallen weg. Alle Ringe laufen gleich herum; so
+ * füllt `nonzero` auch, wo sich zwei überdecken, statt dort ein Loch zu
+ * lassen. Siehe docs/benutzung/ebenen.md, „Die Wand“.
+ */
+export function wand({ punkte, verdeckt }: Zug, hoch: number, baender: number): Punkt[][][] {
+  const aus: Punkt[][][] = Array.from({ length: baender }, () => []);
+  for (let i = 1; i < punkte.length; ) {
+    if (verdeckt[i]) {
+      i++;
+      continue;
+    }
+    const von = i - 1;
+    let richtung = 0;
+    for (; i < punkte.length && !verdeckt[i]; i++) {
+      const s = Math.sign(punkte[i]![0] - punkte[i - 1]![0]);
+      if (richtung === 0) richtung = s;
+      // Die Richtung kehrt um: Hier beginnt der nächste Lauf, am selben Punkt.
+      else if (s !== 0 && s !== richtung) break;
+    }
+    const lauf = punkte.slice(von, i);
+    for (let k = 0; k < baender; k++) {
+      const [unten, oben] = [(hoch * k) / baender, (hoch * (k + 1)) / baender];
+      const ring: Punkt[] = [...lauf.map(([x, y]): Punkt => [x, y - unten]), ...lauf.map(([x, y]): Punkt => [x, y - oben]).reverse()];
+      aus[k]!.push(richtung < 0 ? ring.reverse() : ring);
+    }
+  }
+  return aus;
+}
+
+/**
  * Der Pfad einer Kartenschrift in Pixeln der feinsten Stufe: abgetastet wie
  * ein Rand, die Höhen gleitend über 32 Blöcke des Pfads gemittelt, damit die
  * Schrift nicht mit jeder Kuppe springt. Von oben eben. Siehe

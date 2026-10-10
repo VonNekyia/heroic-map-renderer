@@ -30,6 +30,8 @@ interface MapInfo {
   heights?: string;
   /** Spalten je Kante einer Zelle der Höhenkarten. */
   heightsCell?: number;
+  /** Pfadmuster der Höhen ohne Laub, im Format von `heights`; Formen liegen im iso darauf. */
+  ground?: string;
   /** Der Bereich in Y, in dem jeder gezeichnete Block liegt. */
   minY?: number;
   maxY?: number;
@@ -706,7 +708,9 @@ async function start(): Promise<void> {
     // Der Satz der Banner-Sprites: ein Baum von oben und ein einfarbiger nehmen
     // oben, jeder andere seinen Pfad. Siehe docs/benutzung/ebenen.md, „Sprites“.
     const satz = baum && (baum.camera === 'top' || baum.camera === 'top-north' || baum.look === 'flat' ? 'oben' : baum.path);
-    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, heightsCell, seaLevel, minY, maxY, area, satz: satz ?? undefined }).catch(
+    // Der Boden ohne Laub, nur mit brauchbaren heights; siehe docs/benutzung/ebenen.md, „Die Oberfläche im iso“.
+    const boden = karten && hatHoehen(info) && typeof info.ground === 'string' ? hoehen(base, info.ground, info.heightsCell) : undefined;
+    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, boden, heightsCell, seaLevel, minY, maxY, area, satz: satz ?? undefined }).catch(
       (error: unknown) => console.error(error),
     );
   }

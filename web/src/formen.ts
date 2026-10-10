@@ -9,6 +9,7 @@ import {
   rechteck,
   ringImRechteck,
   vieleck,
+  wand,
   zug,
   zugImRechteck,
   type Blick,
@@ -43,6 +44,12 @@ export interface Form {
 
 /** Grenzen aus docs/benutzung/ebenen.md, „Grenzen“, und der Radius aus „Kreis“. */
 const GRENZEN = { punkte: 10_000, loecher: 100, radius: 100_000 };
+
+/**
+ * Die Wand am Rand einer Fläche im iso: Höhe in Blöcken, Deckkraft am Boden,
+ * nach oben linear bis 0, in Bändern. Gewählt in 0104.
+ */
+const WAND = { hoehe: 6, unten: 0.6, baender: 12 };
 
 /** Ohne Farbe am Rand: die Füllung ohne Alpha, sonst die der Kartenschrift. */
 const RANDFARBE = '#2B2B2B';
@@ -207,6 +214,8 @@ export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Lay
   const { renderer, blick, gelaende: g, area, tafel, bediene } = z;
   const flaechen: L.Layer[] = [];
   const striche: Strich[] = [];
+  /** Je Farbe die Ringe der Wände, je Band von unten nach oben. */
+  const waende = new Map<string, Punkt[][][]>();
   for (const f of formen) {
     if (hatFlaeche(f)) {
       const beschnitten = polygone(f, g.c).map((p) => {
@@ -238,7 +247,24 @@ export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Lay
       }
     }
     if (f.rand.breite === 0) continue;
-    for (const stueck of zuege(f, g.c, area)) striche.push(...laeufe(zug(stueck, false, g, blick), f.rand, renderer));
+    for (const stueck of zuege(f, g.c, area)) {
+      const z = zug(stueck, false, g, blick);
+      striche.push(...laeufe(z, f.rand, renderer));
+      // Die Wand nur im iso und nur am Rand einer Fläche, nicht an einer Linie.
+      if (blick.p.y === 0 || f.linie) continue;
+      const farbeWand = f.rand.farbe.slice(0, 7);
+      const baender = waende.get(farbeWand) ?? Array.from({ length: WAND.baender }, (): Punkt[][] => []);
+      waende.set(farbeWand, baender);
+      wand(z, WAND.hoehe * blick.p.y, WAND.baender).forEach((ringe, k) => baender[k]!.push(...ringe));
+    }
+  }
+  // Die Wände über den Flächen der Ebene, je Farbe und Band ein Pfad.
+  for (const [farbeWand, baender] of waende) {
+    baender.forEach((ringe, k) => {
+      if (!ringe.length) return;
+      const deckkraft = WAND.unten * (1 - (k + 0.5) / WAND.baender);
+      flaechen.push(L.polygon(ringe.map((r) => [r.map(latLng)]), { renderer, stroke: false, fillColor: farbeWand, fillOpacity: deckkraft, fillRule: 'nonzero', interactive: false, smoothFactor: 0 }));
+    });
   }
   return { flaechen, striche };
 }

@@ -732,6 +732,11 @@ wie bei den Koordinaten.
 
 - **Aus den Höhen:** je Zelle aus `heightsCell` × `heightsCell` Spalten ein
   Wert, siehe [map.json](map-json.md), „Höhen“. Die Oberseite ist Wert + 1.
+- **Welche Höhen:** Flächen, Ränder, Kreise und Linien liegen auf dem Boden
+  ohne Laub aus `ground`; fehlt einer Region die Datei oder dem Baum das
+  Feld, dort auf `heights`. Nadeln, Banner und Kartenschrift liegen immer
+  auf `heights`, auf dem, was das Bild zeigt. Warum:
+  [0104](../entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md).
 - **Weich:** zwischen den Mitten der Zellen bilinear gemischt, damit ein
   Rand nicht in Stufen von 4 Blöcken springt.
 - **Ohne Wert** (−32768 oder eine fehlende Region): der Mittelwert der
@@ -767,10 +772,34 @@ wie bei den Koordinaten.
    dann die Maske einmal in der Farbe von `fill`; die Webkarte füllt sie
    als einen Pfad, gerade/ungerade. So doppelt sich das Alpha nicht an den
    Kanten zweier Stücke.
+3. **Als Nebel:** Im iso liegt die Füllung als leichter Nebel über dem
+   Boden; empfohlen sind etwa 15 % Deckkraft, `#RRGGBB26`.
+
+### Die Wand
+
+Im iso steht am Rand jeder Fläche eine Wand, an Regionen und Kreisen, auch
+um Löcher, nicht an Linien. Von oben gibt es keine.
+
+- **Höhe:** 6 Blöcke über dem Boden, je Punkt des Rands `P(x, H + 6, z)`;
+  in Pixeln der feinsten Stufe also 6 · b über dem Rand.
+- **Farbe:** die des Rands ohne Alpha. Ein Rand mit `width: 0` hat keine
+  Wand.
+- **Verlauf:** am Boden 0,6 deckend, nach oben linear bis 0, in 12 Bändern
+  gleicher Höhe; Band k von unten hat `0,6 · (1 − (k + ½) / 12)`.
+- **Verdeckt:** Eine Strecke des Rands, die hinter Gelände liegt, hat keine
+  Wand; welche das sind, wie beim Rand, siehe „Was verdeckt ist“.
+- **Gezeichnet** je Ebene, Farbe und Band als ein Pfad, `nonzero`: Je Lauf
+  von Strecken, die auf dem Schirm in dieselbe Richtung gehen, ein Streifen,
+  alle gleich herum. So bleibt kein Loch, wo sich Vorder- und Rückseite
+  decken. `wand` in [`gelaende.ts`](../../web/src/gelaende.ts).
+- Gewählt in [0104](../entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md).
 
 ### Was verdeckt ist
 
 Im iso kann Gelände vor einer Fläche liegen, etwa ein Berg vor einem Tal.
+Geprüft wird gegen dieselben Höhen, auf denen die Form liegt: für Flächen,
+Ränder und Linien der Boden ohne Laub. Kronen verdecken sie also nicht; ein
+Rand unter ihnen ist voll über ihnen gezeichnet.
 Geprüft wird entlang der Linie vom Punkt zur Kamera: Auf ihr steigt der
 Strahl, der denselben Bildpunkt trifft, je Block in x oder z um die
 Steigung `2a/b`, genordet `a/b`. Gelände zählt erst ab mehr als einer Zelle

@@ -526,14 +526,19 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     öffnet die Tafel mit dem Fokus darin, Escape gibt ihn zurück, wie bei
     den Nadeln;
   - die Höhen: je Laden einer Ebene einmal, die Regionen aller ihrer Formen
-    und Schriften in einem: für eine Fläche ihr Rechteck, für Ränder und
-    Linien die Regionen entlang des Zugs, je samt dem Streifen zur Kamera,
-    aus dem Gelände verdecken kann, und nur innerhalb von `area`. Danach
+    in einem und die aller ihrer Schriften in einem: für eine Fläche ihr
+    Rechteck, für Ränder und Linien die Regionen entlang des Zugs, je samt
+    dem Streifen zur Kamera, aus dem Gelände verdecken kann, und nur
+    innerhalb von `area`. Formen nehmen `ground`, je Region ohne Datei
+    `heights`, mit einem eigenen Cache; Schriften nehmen `heights`, siehe
+    [Ebenen](benutzung/ebenen.md), „Die Oberfläche im iso“. Danach
     fallen sie weg. Bräuchte eine Ebene mehr als 1024 Regionen, etwa ohne
     `area` mit einem riesigen Kreis, liegt die ganze Ebene mit Meldung auf
     `seaLevel`, auch ihre kleinen Formen. Eine Region kostet
     (512 / `heightsCell`)² · 2 Byte, bei `heightsCell` 4 also 32 KiB, 1024
     Regionen 32 MiB. Die Grenze gilt nur für die Webkarte;
+  - die Wand am Rand einer Fläche im iso, siehe [Ebenen](benutzung/ebenen.md),
+    „Die Wand“;
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
     vorher beschnitten;
   - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,

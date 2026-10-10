@@ -179,6 +179,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0101](entscheidungen/0101-zeichenstand-je-look.md): ein Zeichenstand je Look, `map`, `cinematic` und `flat`, mit Goldbildern je Look; der Abdruck von Karte und Cinematic bleibt der von v0.7.0; löst 0098 in diesem Punkt ab.
 - [0103](entscheidungen/0103-boden-ohne-laub.md): neben den Höhen der Boden ohne Laub aus `MOTION_BLOCKING_NO_LEAVES`, je 4×4 im selben Format, für Formen auf dem Gelände; `map.json` nennt ihn erst nach einem ganzen Lauf oder `--heights`; der Zeichenstand bleibt; ergänzt 0036.
 - [0102](entscheidungen/0102-name-im-bogen.md): der Name eines Banners im Bogen unter dem Fuss, Radius aus der Höhe des Banners, Sperrung 0,125 · Schriftgrösse, im schrägen Satz mit der Unterkante gedreht; Nadeln bleiben gerade; ergänzt 0100.
+- [0104](entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md): Regionen, Kreise und Linien im iso auf dem Boden ohne Laub aus `ground`, unter Kronen ganz zu sehen, hinter Hängen gestrichelt; am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 deckend, nach oben bis 0; der Nebel ist die Füllung; ergänzt 0096.
 
 ## Versuche
 

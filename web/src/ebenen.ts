@@ -71,6 +71,8 @@ export interface Umgebung {
   maxZoom: number;
   /** Die Höhen; ohne sie liegt im iso alles auf `seaLevel`. */
   karten?: Hoehenkarten;
+  /** Die Höhen ohne Laub aus `ground`, nur mit `karten`; Formen liegen darauf, sonst auf `karten`. */
+  boden?: Hoehenkarten;
   heightsCell?: number;
   seaLevel?: number;
   /** Die Bauhöhe aus `map.json`; sie begrenzt, wie weit Gelände eine Form verdecken kann. */
@@ -601,11 +603,12 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   };
 
   /**
-   * Die Höhen dieser Regionen, einmal geladen für alle Formen und Schriften
-   * einer Ebene. Die Karten hält das Ergebnis selbst, so verdrängt der Cache
-   * keine, solange es lebt.
+   * Die Höhen dieser Regionen, einmal geladen für alle Formen oder alle
+   * Schriften einer Ebene; mit `aufDemBoden` aus `boden`, je Region ohne
+   * Datei aus `karten`. Die Karten hält das Ergebnis selbst, so verdrängt der
+   * Cache keine, solange es lebt.
    */
-  const ladeGelaende = async (menge: ReadonlySet<number>): Promise<Gelaende> => {
+  const ladeGelaende = async (menge: ReadonlySet<number>, aufDemBoden: boolean): Promise<Gelaende> => {
     if (!karten || menge.size === 0) return eben;
     // Gegen eine Ebene ohne area mit riesigem Kreis.
     if (menge.size > HOEHEN_REGIONEN) {
@@ -616,7 +619,9 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     let max = grund + 1;
     await Promise.all(
       [...menge].map(async (s) => {
-        const karte = await karten.karte(Math.floor(s / 131072) - 65536, (s % 131072) - 65536);
+        const [rx, rz] = [Math.floor(s / 131072) - 65536, (s % 131072) - 65536];
+        const boden = aufDemBoden ? umgebung.boden : undefined;
+        const karte = (boden && (await boden.karte(rx, rz))) ?? (await karten.karte(rx, rz));
         if (!karte) return;
         regionen.set(s, karte);
         for (const v of karte) if (v !== LEER && v + 1 > max) max = v + 1;
@@ -955,10 +960,14 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     formPane: string,
     tafelDerEbene: (bausteine: unknown[]) => HTMLElement,
   ): Promise<{ flaechen: L.Layer[]; striche: Strich[]; schriftLagen: Schrift[] }> => {
-    const gelaende = await ladeGelaende(regionenFuer(formen, schriften));
-    const { flaechen, striche } = zeichne(formen, { renderer, blick, gelaende, area: umgebung.area, tafel: tafelDerEbene, bediene });
+    // Formen auf dem Boden ohne Laub, die Schrift auf der Oberfläche wie Nadeln und Banner.
+    const [boden, oben] = await Promise.all([
+      ladeGelaende(regionenFuer(formen, []), true),
+      schriften.length ? ladeGelaende(regionenFuer([], schriften), false) : eben,
+    ]);
+    const { flaechen, striche } = zeichne(formen, { renderer, blick, gelaende: boden, area: umgebung.area, tafel: tafelDerEbene, bediene });
     const schriftLagen: Schrift[] = [];
-    for (const s of schriften) schriftLagen.push(new Schrift(s, schriftPfad(s.pfad, gelaende, blick), faktor, scale, formPane));
+    for (const s of schriften) schriftLagen.push(new Schrift(s, schriftPfad(s.pfad, oben, blick), faktor, scale, formPane));
     return { flaechen, striche, schriftLagen };
   };
 

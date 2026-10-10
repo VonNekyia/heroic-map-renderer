@@ -69,17 +69,32 @@ export interface Welt {
   hoehe?: (i: number, j: number) => number;
   /** Ein Bild unter `images/`, nach Name. */
   bild?: (name: string) => Buffer | undefined;
+  /**
+   * Ein Baum in `trees.json`, der den Demobaum unter seinem Pfad zeigt; nur
+   * mit ihm gibt es einen Satz für Banner-Sprites. Ohne Angabe keine `trees.json`.
+   */
+  baum?: { path: string; camera: string; look?: string };
+  /** Weitere Dateien unter `layers/`, nach dem Pfad dahinter, etwa `beispiel/banner/staedte/2x1-se/satz.json`. */
+  weitere?: (pfad: string) => object | Buffer | undefined;
 }
 
 /** Der Demobaum mit Höhen und Ebenen, die der Test liefert; gibt die Pfade der geholten Dateien der Ebenen zurück. */
 export async function welt(page: Page, w: Welt): Promise<string[]> {
   const anfragen: string[] = [];
-  await page.route('**/tiles-demo/map.json', async (route) => {
-    const response = await route.fetch();
+  // Mit Baum liegt der Demobaum unter seinem Pfad; der Server hat ihn an der Wurzel.
+  const baum = w.baum ? `/tiles-demo/${w.baum.path}` : '/tiles-demo';
+  const ansWurzel = (url: string) => url.replace(`${baum}/`, '/tiles-demo/');
+  if (w.baum) {
+    const { path, camera, look = 'map' } = w.baum;
+    await page.route('**/tiles-demo/trees.json', (route) => route.fulfill({ json: { trees: [{ path, camera, direction: 'se', look }] } }));
+    await page.route(`**${baum}/*/*/*.webp`, async (route) => route.fulfill({ response: await route.fetch({ url: ansWurzel(route.request().url()) }) }));
+  }
+  await page.route(`**${baum}/map.json`, async (route) => {
+    const response = await route.fetch({ url: ansWurzel(route.request().url()) });
     const info = (await response.json()) as object;
     await route.fulfill({ response, json: { ...info, heights: 'heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319, seaLevel: 0, ...w.mehr } });
   });
-  await page.route('**/tiles-demo/heights/*.bin', (route) => {
+  await page.route(`**${baum}/heights/*.bin`, (route) => {
     const [rx, rz] = /\/(-?\d+)\.(-?\d+)\.bin$/.exec(route.request().url())!.slice(1).map(Number) as [number, number];
     if (rx >= 1) return route.fulfill({ status: 404 });
     const karte = new Int16Array(128 * 128);
@@ -90,6 +105,9 @@ export async function welt(page: Page, w: Welt): Promise<string[]> {
   await page.route('**/tiles-demo/layers/**', (route) => {
     const pfad = new URL(route.request().url()).pathname;
     anfragen.push(pfad.replace('/tiles-demo/layers/', ''));
+    const weitere = w.weitere?.(pfad.replace('/tiles-demo/layers/', ''));
+    if (Buffer.isBuffer(weitere)) return route.fulfill({ body: weitere, contentType: 'image/png' });
+    if (weitere) return route.fulfill({ json: weitere });
     const datei = /\/beispiel\/([^/]+)\.json$/.exec(pfad)?.[1];
     if (datei) {
       const inhalt = w.datei(datei);

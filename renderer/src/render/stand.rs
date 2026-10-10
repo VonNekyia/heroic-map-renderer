@@ -996,7 +996,10 @@ mod tests {
         ] {
             assert_ne!(anders, basis);
         }
-        assert_ne!(fingerabdruck_des_renderers(), fingerabdruck(ZEICHENSTAND, &[]));
+        assert_ne!(
+            fingerabdruck_des_renderers(),
+            fingerabdruck(ZEICHENSTAND, &[])
+        );
     }
 
     /// Ein Stand von v0.5.0 gilt bis zum nächsten Zeichenstand als dieser;

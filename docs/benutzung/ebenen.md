@@ -731,7 +731,10 @@ wie bei den Koordinaten.
 `H(x, z)` ist die Oberseite des Geländes an einem Punkt:
 
 - **Aus den Höhen:** je Zelle aus `heightsCell` × `heightsCell` Spalten ein
-  Wert, siehe [map.json](map-json.md), „Höhen“. Die Oberseite ist Wert + 1.
+  Wert, bei `ground` aus `groundCell` × `groundCell`, ohne das Feld wie
+  `heightsCell`; siehe [map.json](map-json.md), „Höhen“. Die Oberseite ist
+  Wert + 1. Eine Region, die `heights` statt `ground` nimmt, behält deren
+  gröbere Zellen.
 - **Welche Höhen:** Flächen, Ränder, Kreise und Linien liegen auf dem Boden
   ohne Laub aus `ground`; fehlt einer Region die Datei oder dem Baum das
   Feld, dort auf `heights`. Nadeln, Banner und Kartenschrift liegen immer

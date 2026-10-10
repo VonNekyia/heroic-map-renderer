@@ -202,6 +202,42 @@ test('fehlt einer Region die Datei in ground, liegen Formen dort auf heights', a
   nah(await rahmen(page.locator('path[fill="#40E53F55"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 31));
 });
 
+test('mit groundCell 1 folgt eine Linie dem Boden je Block: ein Grat einen Block breit hebt sie dort bis auf seine Höhe', async ({ page }) => {
+  const linie = { id: 'grat', type: 'line', points: [[0, -20], [40, -20]], stroke: { color: '#123456', width: 2 } };
+  await welt(page, staedte([linie], { hoehe: () => 10, boden: (i) => (i === 21 ? 30 : 10), bodenZelle: 1 }));
+  await page.goto(`${DEMO}&at=20,15,-20`);
+  // Hinter dem Grat ist sie ein Stück verdeckt: drei Läufe.
+  const laeufe = page.locator('path[stroke="#123456"]');
+  await expect(laeufe).toHaveCount(3);
+  // Die Mitte der Zelle 21 liegt bei 21,5, ihre Oberseite bei 31; die Linie reicht genau so hoch.
+  const [, oben] = await aufDemSchirm(page, ...projiziere(21.5, 31, -20, zweiZuEins(16)));
+  const hoechste = Math.min(...(await Promise.all((await laeufe.all()).map(rahmen))).map((r) => r[1]!));
+  expect(Math.abs(hoechste - oben!)).toBeLessThanOrEqual(1);
+});
+
+test('mit groundCell 1 nimmt eine Region ohne Datei in ground die gröberen Zellen aus heights', async ({ page }) => {
+  // GEBIET liegt in der Region (0, −1); deren ground fehlt, heights hat dort je 4 × 4 die 30.
+  await welt(page, staedte([GEBIET], { hoehe: () => 30, boden: (i) => (i >= 0 ? undefined : 5), bodenZelle: 1 }));
+  await page.goto(`${DEMO}&at=32,30,-16`);
+  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  nah(await rahmen(page.locator('path[fill="#40E53F55"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 31));
+});
+
+test('bräuchte eine Ebene mehr als 64 Regionen ground je Block, liegen ihre Formen mit Meldung auf heights', async ({ page }) => {
+  const meldungen: string[] = [];
+  page.on('console', (m) => meldungen.push(m.text()));
+  const boden: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/ground/')) boden.push(r.url());
+  });
+  // Rund 10 × 10 Regionen: über dem Budget für ground, darunter für heights.
+  await welt(page, staedte([rechteck('weit', -5000, -5000, -100, -100, { fill: '#556677FF' })], { hoehe: () => 5, boden: () => 1, bodenZelle: 1 }));
+  await page.goto(`${DEMO}&at=-300,5,-300`);
+  await expect(page.locator('path[fill="#556677FF"]')).toHaveCount(1);
+  expect(meldungen.some((m) => m.includes('Regionen ground, mehr als 64'))).toBe(true);
+  expect(boden).toEqual([]);
+});
+
 test('unter Kronen bleibt ein Rand auf dem Boden ganz zu sehen; hinter einem Hang des Bodens dünn, gestrichelt und blass', async ({ page }) => {
   // Ein Wall wo i + j = 10, wie oben; einmal nur in heights, wie eine Reihe Kronen, einmal im Boden.
   const hinten = rechteck('hinten', 8, 8, 16, 16, { fill: '#FF000080' });

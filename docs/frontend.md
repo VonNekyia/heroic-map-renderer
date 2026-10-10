@@ -532,11 +532,15 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     innerhalb von `area`. Formen nehmen `ground`, je Region ohne Datei
     `heights`, mit einem eigenen Cache; Schriften nehmen `heights`, siehe
     [Ebenen](benutzung/ebenen.md), „Die Oberfläche im iso“. Danach
-    fallen sie weg. Bräuchte eine Ebene mehr als 1024 Regionen, etwa ohne
-    `area` mit einem riesigen Kreis, liegt die ganze Ebene mit Meldung auf
-    `seaLevel`, auch ihre kleinen Formen. Eine Region kostet
-    (512 / `heightsCell`)² · 2 Byte, bei `heightsCell` 4 also 32 KiB, 1024
-    Regionen 32 MiB. Die Grenze gilt nur für die Webkarte;
+    fallen sie weg. Je Ebene lädt die Webkarte höchstens 32 MiB Höhen für
+    die Formen und ebenso viel für die Schrift; eine Region kostet
+    (512 / Zelle)² · 2 Byte, bei 4 also 32 KiB, je Block 512 KiB. Mit
+    `ground` je Block reicht das für 64 Regionen; braucht eine Ebene mehr,
+    liegen ihre Formen mit Meldung auf `heights`. Reicht es auch dafür
+    nicht, bei 4 mehr als 1024 Regionen, etwa ohne `area` mit einem riesigen
+    Kreis, liegt die ganze Ebene mit Meldung auf `seaLevel`, auch ihre
+    kleinen Formen. Der Cache für `ground` hält 8 Regionen, der für
+    `heights` 64. Die Grenze gilt nur für die Webkarte;
   - die Wand am Rand einer Fläche im iso, siehe [Ebenen](benutzung/ebenen.md),
     „Die Wand“;
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden

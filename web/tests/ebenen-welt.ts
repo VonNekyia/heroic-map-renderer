@@ -72,6 +72,8 @@ export interface Welt {
    * `undefined` an der ersten Zelle einer Region: Ihre Datei fehlt.
    */
   boden?: (i: number, j: number) => number | undefined;
+  /** `groundCell` in map.json; `boden` zählt dann Zellen dieser Kante. Ohne Angabe kein Feld, Zellen wie heights. */
+  bodenZelle?: number;
   /** Ein Bild unter `images/`, nach Name. */
   bild?: (name: string) => Buffer | undefined;
   /**
@@ -97,19 +99,19 @@ export async function welt(page: Page, w: Welt): Promise<string[]> {
   await page.route(`**${baum}/map.json`, async (route) => {
     const response = await route.fetch({ url: ansWurzel(route.request().url()) });
     const info = (await response.json()) as object;
-    const boden = w.boden ? { ground: 'ground/{x}.{z}.bin' } : {};
+    const boden = w.boden ? { ground: 'ground/{x}.{z}.bin', ...(w.bodenZelle ? { groundCell: w.bodenZelle } : {}) } : {};
     await route.fulfill({ response, json: { ...info, heights: 'heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319, seaLevel: 0, ...boden, ...w.mehr } });
   });
-  const karte = (art: string, f: ((i: number, j: number) => number | undefined) | undefined) =>
+  const karte = (art: string, f: ((i: number, j: number) => number | undefined) | undefined, n: number) =>
     page.route(`**${baum}/${art}/*.bin`, (route) => {
       const [rx, rz] = /\/(-?\d+)\.(-?\d+)\.bin$/.exec(route.request().url())!.slice(1).map(Number) as [number, number];
-      if (rx >= 1 || (f && f(rx * 128, rz * 128) === undefined)) return route.fulfill({ status: 404 });
-      const werte = new Int16Array(128 * 128);
-      if (f) for (let lj = 0; lj < 128; lj++) for (let li = 0; li < 128; li++) werte[lj * 128 + li] = f(rx * 128 + li, rz * 128 + lj) ?? LEER;
+      if (rx >= 1 || (f && f(rx * n, rz * n) === undefined)) return route.fulfill({ status: 404 });
+      const werte = new Int16Array(n * n);
+      if (f) for (let lj = 0; lj < n; lj++) for (let li = 0; li < n; li++) werte[lj * n + li] = f(rx * n + li, rz * n + lj) ?? LEER;
       return route.fulfill({ body: deflateSync(Buffer.from(werte.buffer)) });
     });
-  await karte('heights', w.hoehe);
-  if (w.boden) await karte('ground', w.boden);
+  await karte('heights', w.hoehe, 128);
+  if (w.boden) await karte('ground', w.boden, 512 / (w.bodenZelle ?? 4));
   await page.route('**/tiles-demo/layers.json', (route) => route.fulfill({ json: { layers: w.liste() } }));
   await page.route('**/tiles-demo/layers/**', (route) => {
     const pfad = new URL(route.request().url()).pathname;

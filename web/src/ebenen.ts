@@ -73,6 +73,8 @@ export interface Umgebung {
   karten?: Hoehenkarten;
   /** Die Höhen ohne Laub aus `ground`, nur mit `karten`; Formen liegen darauf, sonst auf `karten`. */
   boden?: Hoehenkarten;
+  /** Kante einer Zelle von `boden` in Blöcken, `groundCell`, sonst `heightsCell`. */
+  bodenCell?: number;
   heightsCell?: number;
   seaLevel?: number;
   /** Die Bauhöhe aus `map.json`; sie begrenzt, wie weit Gelände eine Form verdecken kann. */
@@ -103,11 +105,16 @@ const TAKT = 30_000;
 const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20, banner: [32, 64] };
 
 /**
- * So viele Regionen Höhen lädt die Webkarte höchstens je Ebene; darüber liegt
- * die ganze Ebene auf `seaLevel`. Eine Grenze der Webkarte, nicht des
+ * So viele Bytes Höhen lädt die Webkarte höchstens je Ebene, für Formen und
+ * für Schrift je für sich: mit `heightsCell` 4 sind das 1024 Regionen. Darüber
+ * nehmen Formen `heights` statt `ground`, und reicht es auch dafür nicht,
+ * liegt die ganze Ebene auf `seaLevel`. Eine Grenze der Webkarte, nicht des
  * Formats. Siehe docs/frontend.md, „Ebenen“.
  */
-const HOEHEN_REGIONEN = 1024;
+const HOEHEN_BYTES = 32 * 1024 * 1024;
+
+/** Bytes einer Region Höhen mit Zellen der Kante `zelle`. */
+const regionBytes = (zelle: number) => (REGION / zelle) ** 2 * 2;
 
 /**
  * Die Panes der Nadeln, 510 bis 573: über `shadowPane` (500), unter
@@ -610,35 +617,46 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    */
   const ladeGelaende = async (menge: ReadonlySet<number>, aufDemBoden: boolean): Promise<Gelaende> => {
     if (!karten || menge.size === 0) return eben;
+    const boden = aufDemBoden ? umgebung.boden : undefined;
+    // Die Zelle des Ergebnisses: die von ground, wenn es Formen auf dem Boden sind.
+    const cg = boden ? (umgebung.bodenCell ?? c) : c;
+    if (boden && menge.size * regionBytes(cg) > HOEHEN_BYTES) {
+      console.warn(`${wurzel}: Ebene bräuchte ${menge.size} Regionen ground, mehr als ${HOEHEN_BYTES / regionBytes(cg)}; ihre Formen liegen auf heights`);
+      return ladeGelaende(menge, false);
+    }
     // Gegen eine Ebene ohne area mit riesigem Kreis.
-    if (menge.size > HOEHEN_REGIONEN) {
-      console.warn(`${wurzel}: Ebene bräuchte ${menge.size} Regionen Höhen, mehr als ${HOEHEN_REGIONEN}; sie liegt ganz auf seaLevel`);
+    if (menge.size * regionBytes(c) > HOEHEN_BYTES) {
+      console.warn(`${wurzel}: Ebene bräuchte ${menge.size} Regionen Höhen, mehr als ${HOEHEN_BYTES / regionBytes(c)}; sie liegt ganz auf seaLevel`);
       return eben;
     }
-    const regionen = new Map<number, Int16Array>();
+    /** Je Region die Karte und ihre Zellen je Kante; ohne ground die gröberen aus heights. */
+    const regionen = new Map<number, { karte: Int16Array; n: number }>();
     let max = grund + 1;
     await Promise.all(
       [...menge].map(async (s) => {
         const [rx, rz] = [Math.floor(s / 131072) - 65536, (s % 131072) - 65536];
-        const boden = aufDemBoden ? umgebung.boden : undefined;
-        const karte = (boden && (await boden.karte(rx, rz))) ?? (await karten.karte(rx, rz));
+        const vomBoden = boden ? await boden.karte(rx, rz) : null;
+        const karte = vomBoden ?? (await karten.karte(rx, rz));
         if (!karte) return;
-        regionen.set(s, karte);
+        regionen.set(s, { karte, n: REGION / (vomBoden ? cg : c) });
         for (const v of karte) if (v !== LEER && v + 1 > max) max = v + 1;
       }),
     );
-    const n = REGION / c;
+    const n = REGION / cg;
     // Die zuletzt gefragte Region: Nachbarn liegen meist in derselben.
-    let [letzte, karte]: [number, Int16Array | undefined] = [Number.NaN, undefined];
+    let [letzte, eintrag]: [number, { karte: Int16Array; n: number } | undefined] = [Number.NaN, undefined];
     return {
-      c,
+      c: cg,
       grund,
       max,
       zelle: (i, j) => {
         const [rx, rz] = [Math.floor(i / n), Math.floor(j / n)];
         const s = schluessel(rx, rz);
-        if (s !== letzte) [letzte, karte] = [s, regionen.get(s)];
-        const v = karte?.[(j - rz * n) * n + (i - rx * n)];
+        if (s !== letzte) [letzte, eintrag] = [s, regionen.get(s)];
+        if (!eintrag) return undefined;
+        // Eine Region aus heights hat gröbere Zellen: die, in der diese liegt.
+        const m = eintrag.n;
+        const v = eintrag.karte[Math.floor(((j - rz * n) * m) / n) * m + Math.floor(((i - rx * n) * m) / n)];
         return v === undefined || v === LEER ? undefined : v;
       },
     };

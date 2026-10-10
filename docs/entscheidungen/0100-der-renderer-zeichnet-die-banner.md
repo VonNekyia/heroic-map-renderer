@@ -175,7 +175,7 @@ Die Felder im Einzelnen stehen in [Ebenen](../benutzung/ebenen.md),
   Hash über ihre Goldbilder, ausserhalb von `GOLDBILDER`. Eine neue Krone
   zwingt so keinen Baum zu einem vollen Lauf.
 - **Der Stempel je Sprite** hält alles, was sein Bild bestimmt: Entwurf,
-  Krone, `BANNERSTAND`, `ZEICHENSTAND`, die Assets und Packs samt `--data`,
+  Krone, `BANNERSTAND`, der Zeichenstand des Looks, die Assets und Packs samt `--data`,
   Kamera, Richtung, Look und `lookHash`. Ist einer anders, zeichnet
   `--banners` das Sprite neu. Die Stempel liegen dort, wo der Server nicht
   ausliefert.

@@ -25,11 +25,15 @@ Die Goldbilder halten fest, wie kleine Ausschnitte aussehen; jede
 
    Der Test schreibt dann alle Goldbilder neu und prüft nichts.
 3. **Zeichenstand:** Danach fällt `zeichenstand_folgt_den_goldbildern` in
-   `renderer/src/render/stand.rs` und nennt den neuen Wert. Zeichnet der
-   Renderer anders, `ZEICHENSTAND` dort um eins heben. In jedem Fall
+   `renderer/src/render/stand.rs` und nennt je Look den neuen Wert. Zeichnet
+   der Renderer diesen Look anders, seinen Zeichenstand dort um eins heben,
+   etwa `ZEICHENSTAND_FLAT`. In jedem Fall den Eintrag des Looks in
    `GOLDBILDER` auf den genannten Wert setzen. Ändert sich nur die Szene
-   eines Tests oder kommt ein Goldbild dazu, bleibt der Zeichenstand.
-   Warum: [0098](../../docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
+   eines Tests oder kommt ein Goldbild dazu, bleibt der Zeichenstand; ein
+   neues Goldbild bekommt seinen Look in `GOLDBILDER_JE_LOOK`, sonst fällt
+   `jedes_goldbild_hat_einen_look`.
+   Warum: [0098](../../docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md),
+   [0101](../../docs/entscheidungen/0101-zeichenstand-je-look.md).
 4. **Prüfen:** `cargo nextest run --all-targets` ohne `UPDATE_GOLDEN`; der
    Test muss grün sein.
 5. **Einchecken:** nur die Goldbilder, die sich gewollt geändert haben;

@@ -91,9 +91,22 @@ dem Plugin-Programmierer ab.
   der Status wieder den ganzen Text, und das Plugin zieht nach. Seit
   [0098](entscheidungen/0098-der-zeichenstand-statt-des-builds.md) kommt
   die Zeile nur nach einem Release mit anderem Zeichenstand oder anderen
-  Tabellen. Ein Stand von v0.4.0 oder v0.5.0 gilt als Zeichenstand 1, solange
-  Zeichenstand und Tabellen die von v0.5.0 sind; ob ein Release einen
-  vollen Lauf verlangt, steht in seinen Notizen.
+  Tabellen, seit [0101](entscheidungen/0101-zeichenstand-je-look.md) nur
+  für Bäume, deren Look anders zeichnet. Ein Stand von v0.4.0 oder v0.5.0
+  gilt als Zeichenstand 1, solange Zeichenstand und Tabellen die von v0.5.0
+  sind.
+- **Die Notizen eines Release** sagen, welche Bäume einen vollen Lauf
+  brauchen, aus `.github/voller-lauf.sh`; das Plugin liest sie nicht, sein
+  CHANGELOG übernimmt sie von Hand. Der Wortlaut, mit den Looks wie in
+  `map.json`, in der Reihenfolge `map`, `cinematic`, `flat`:
+  - „Kein voller Lauf nötig: Zeichenstand und Tabellen wie in vX,
+    --update geht weiter. Einen Baum eines Release vor v0.4.0 rendert der
+    Renderer einmal ganz.“
+  - „Jeder Baum braucht einen vollen Lauf: Zeichenstand oder Tabellen sind
+    anders als in vX.“
+  - „Einen vollen Lauf brauchen nur Bäume mit look flat: ihr Zeichenstand
+    ist anders als in vX. Bäume mit look map und cinematic: kein voller
+    Lauf, --update geht weiter.“ Mehrere Looks verbinden Komma und „und“.
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
   eines Tokens: `--manifest` bei jedem Lauf, `--pyramid` und
   `--compact-tree` eines Baums mit `download: true`, siehe unten,

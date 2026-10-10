@@ -15,7 +15,7 @@ jobs:
   basis:
     name: Basis aktuell
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 120
     steps:
       - name: Basis und Stand prüfen
         timeout-minutes: 2

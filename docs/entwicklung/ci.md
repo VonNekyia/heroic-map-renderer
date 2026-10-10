@@ -59,10 +59,11 @@ enthält, auf Wunsch des Users am 10.10. Der Job „Basis aktuell“ in
 
 Er läuft bei jeder PR, ohne Pfadfilter, auch beim Umstellen der Basis
 (`edited`). Wächst `master` nach einem grünen Lauf, läuft er nicht von
-selbst neu: Dass nur der neueste Stand gemergt wird, verlangt darum
-zusätzlich der Schutz des Zweigs `master` in den Einstellungen des Repos,
-mit „Basis aktuell“ als Pflicht und „Require branches to be up to date
-before merging“. Den Schutz setzt der User.
+selbst neu. Dass nur der neueste Stand gemergt wird, verlangt darum
+zusätzlich eine Regel für den Zweig `master` in den Einstellungen des
+Repos, mit Zustimmung des Users: strikt, also auf dem neuesten Stand,
+„Basis aktuell“ als Pflicht, ein Admin darf sie umgehen. Sie setzt der
+Reviewer nach dem Merge dieses Workflows.
 
 ## Release
 

@@ -56,7 +56,11 @@ dem Plugin-Programmierer ab.
   `Stand::als_bytes` in
   [`renderer/src/render/stand.rs`](../renderer/src/render/stand.rs). Aus der
   Art entscheidet das Plugin, ob es mit `--resume` fortsetzt, siehe
-  [Updates](benutzung/updates.md), „Der Stand“.
+  [Updates](benutzung/updates.md), „Der Stand“. Den Build prüft der
+  Renderer: Stammt der Stand eines vollen Laufs von einem anderen, etwa
+  nach einem Update des Plugins, rendert der Lauf mit `--resume` alles wie
+  ohne den Schalter und schreibt am Ende `stand.bin`, siehe
+  [Updates](benutzung/updates.md), „Abbruch und `--resume`“.
 - **Threads und Priorität:** Das Plugin gibt dem Renderer mit `--threads`
   so viele Threads wie eingestellt, Vorgabe 1, und lässt ihn mit
   `--low-priority` hinter dem Server laufen, siehe

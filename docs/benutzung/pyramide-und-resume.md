@@ -194,7 +194,9 @@ ersten Kachel neu wie jeder Export, aus seinem Vorlauf, siehe
 
 Den Stand für Updates nimmt er vom Beginn des abgebrochenen Laufs, aus dessen
 angefangenem Stand `stand-neu.bin`, wenn der von einem vollen Lauf mit
-demselben Build und denselben Assets stammt; sonst schreibt er keinen. Wie
+demselben Build und denselben Assets stammt. Stammt er von einem anderen
+Build, anderen Assets oder einem Update, läuft er wie ohne `--resume`; fehlt
+er, schreibt er keinen. Wie
 `--resume` ein abgebrochenes Update fortsetzt, steht in
 [Updates](updates.md), „Abbruch und `--resume`“.
 
@@ -205,9 +207,9 @@ schnell auf die Platte bringt, und dass die Uhr in dieser Zeit nicht
 springt. Eine langsame Platte unter Dauerlast hält Geschriebenes womöglich
 länger im Speicher. Gilt eines davon nicht, oder stammen nicht alle
 vorhandenen Kacheln aus dem abgebrochenen Lauf, rendert erst ein Lauf ohne
-den Schalter sicher alles neu. Nach einer Änderung der Welt, neuen Assets
-oder einem neuen Pack behielte `--resume` jede alte Kachel, die der Lauf
-noch nicht erreicht hat.
+den Schalter sicher alles neu. Ohne angefangenen Stand behielte `--resume`
+nach einer Änderung der Welt, neuen Assets oder einem neuen Pack jede alte
+Kachel, die der Lauf noch nicht erreicht hat.
 
 Wie das Frontend die Kacheln eines laufenden Renders ausliefert, steht in
 [Frontend](../frontend.md), „Einem Render zusehen“.

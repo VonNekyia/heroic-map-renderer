@@ -270,11 +270,26 @@ siehe [Pyramide und Fortsetzen](pyramide-und-resume.md). Wie ohne
 neu, in die ein Chunk nicht mehr reicht
 (`voller_lauf_mit_resume_raeumt_abgerissenes_weg`).
 
-Fehlt der angefangene Stand, stammt er von einem Lauf der anderen Art oder
-von einem anderen Build oder anderen Assets, schreibt der Lauf keinen Stand
-und sagt es. In `stand.bin` ist sein Gebiet dann unbekannt: Das nächste
-`--update` zeichnet es noch einmal, nach einem vollen Lauf also alles. Ohne
-`stand.bin` braucht `--update` einen vollen Lauf.
+Stammt der angefangene Stand eines vollen Laufs von einem anderen Build,
+anderen Assets oder einem Update, läuft der volle Lauf wie ohne `--resume`
+und sagt es:
+
+```
+Stand:      ./tiles/2x1-se/stand-neu.bin stammt von einem anderen Build des Renderers oder anderen Assets
+Stand:      dieser Lauf rendert alles wie ohne --resume und schreibt am Ende einen Stand
+```
+
+Er rendert jede Basiskachel neu, legt einen neuen angefangenen Stand ab und
+schreibt am Ende `stand.bin` (`resume_mit_fremdem_stand_rendert_alles`).
+Fortgesetzt behielte er Kacheln, ohne zu wissen, welcher Build sie zeichnete,
+und schriebe keinen Stand: Das nächste `--update` zeichnete alles noch
+einmal.
+
+Fehlt der angefangene Stand eines vollen Laufs, oder passt der eines Updates
+nicht, schreibt der Lauf keinen Stand und sagt es. In `stand.bin` ist sein
+Gebiet dann unbekannt: Das nächste `--update` zeichnet es noch einmal, nach
+einem vollen Lauf also alles. Ohne `stand.bin` braucht `--update` einen
+vollen Lauf.
 
 ## Anderer Renderer, andere Assets
 

@@ -11,6 +11,9 @@ code:
 
 # 0100: Der Renderer zeichnet die Banner
 
+Ergänzt durch [0102](0102-name-im-bogen.md) im Punkt „Der Name“: Er läuft
+im Bogen, der mit der Unterkante des Tuchs dreht.
+
 ## Anlass
 
 Heute schickt ein Plugin für Städte je Nation ein fertiges Bild als `image`

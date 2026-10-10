@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<!-- Quelle von docs/bilder/name-bogen.png: der Name im Bogen unter dem Banner
+     nach docs/benutzung/ebenen.md, „Nadeln und Banner“ unter „Zeichnen“.
+     Grund eine Kachel der Testwelt (2:1, scale 16, v0.6.0), das Banner von
+     vorn ein weisses Bild 22 × 40, schräg als Tuch in 2:1 angedeutet.
+     Weg zum Bild: skills/doku-bilder-rendern/SKILL.md. -->
+<style>
+  @font-face { font-family: Kartenschrift; src: url(../../../../web/src/ebenen/schrift/IMFeENsc28P.ttf); }
+  body { margin: 0; background: #fff; font: 13px system-ui, sans-serif; color: #222; }
+  .blatt { display: grid; grid-template-columns: repeat(4, 220px); gap: 8px; padding: 10px; width: max-content; }
+  .zelle { position: relative; width: 220px; height: 185px; background: url(kachel.png) -10px -40px; overflow: hidden; border-radius: 4px; }
+  .zelle svg { position: absolute; inset: 0; }
+  .titel { position: absolute; left: 6px; top: 4px; padding: 1px 5px; background: rgb(255 255 255 / 0.85); border-radius: 3px; font-size: 12px; }
+  .name { font: 16px Kartenschrift, serif; fill: #2b2b2b; stroke: #f2e8d0; stroke-width: 4px; paint-order: stroke fill; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<div class="blatt" id="blatt"></div>
+<script>
+// Die Regel aus docs/benutzung/ebenen.md, hier in Pixeln der Webkarte.
+const S = 16;                    // Schriftgrösse
+const SPERRUNG = 0.125 * S;      // zwischen den Zeichen
+const TIEF = 0.75 * S;           // tiefster Punkt des Bogens unter dem Fuss
+const KAPPE = (1384 / 2048) * S; // Höhe der Grossbuchstaben
+const OEFFNUNG = (2 * Math.PI) / 3;
+const NS = 'http://www.w3.org/2000/svg';
+let n = 0;
+
+function laenge(text) {
+  const c = document.createElement('canvas').getContext('2d');
+  c.font = `${S}px Kartenschrift`;
+  return c.measureText(text).width + SPERRUNG * (text.length - 1);
+}
+
+function zelle(titel, icon, name, { bogen = true, drehung = 0 } = {}) {
+  const div = document.createElement('div');
+  div.className = 'zelle';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('width', 220);
+  svg.setAttribute('height', 185);
+  const [fx, fy] = [110, 100];
+  svg.insertAdjacentHTML('beforeend', icon(fx, fy));
+  const g = document.createElementNS(NS, 'g');
+  g.setAttribute('transform', `rotate(${drehung} ${fx} ${fy})`);
+  const text = document.createElementNS(NS, 'text');
+  text.setAttribute('class', 'name');
+  text.setAttribute('letter-spacing', bogen ? SPERRUNG : 0);
+  const tspan = document.createElementNS(NS, bogen ? 'textPath' : 'tspan');
+  if (bogen) {
+    const L = laenge(name);
+    const r = Math.max(2 * icon.hoehe, L / OEFFNUNG);
+    // Der Pfad etwas länger als der Text, damit textPath nichts abschneidet.
+    const phi = Math.min(1.8 * Math.PI, L / r + 0.6);
+    const [cx, cy] = [fx, fy + TIEF - r];
+    const p = (a) => [cx + r * Math.sin(a), cy + r * Math.cos(a)];
+    const [links, rechts] = [p(-phi / 2), p(phi / 2)];
+    const id = `b${n++}`;
+    const pfad = document.createElementNS(NS, 'path');
+    pfad.setAttribute('id', id);
+    pfad.setAttribute('fill', 'none');
+    pfad.setAttribute('d', `M ${links[0]} ${links[1]} A ${r} ${r} 0 ${phi > Math.PI ? 1 : 0} 0 ${rechts[0]} ${rechts[1]}`);
+    g.append(pfad);
+    tspan.setAttribute('href', `#${id}`);
+    // Mitte des Texts auf dem tiefsten Punkt; die Sperrung nach dem letzten Zeichen zählt nicht.
+    tspan.setAttribute('startOffset', '50%');
+    tspan.setAttribute('text-anchor', 'middle');
+    tspan.setAttribute('dx', SPERRUNG / 2);
+  } else {
+    text.setAttribute('x', fx);
+    text.setAttribute('y', fy + TIEF);
+    text.setAttribute('text-anchor', 'middle');
+  }
+  // Die Grundlinie eine halbe Höhe der Grossbuchstaben unter dem Bogen, wie bei der Kartenschrift.
+  tspan.setAttribute('dy', KAPPE / 2);
+  tspan.textContent = name;
+  text.append(tspan);
+  g.append(text);
+  svg.append(g);
+  div.append(svg);
+  div.insertAdjacentHTML('beforeend', `<span class="titel">${titel}</span>`);
+  return div;
+}
+
+const vorn = Object.assign((fx, fy) => `<image href="banner.png" x="${fx - 11}" y="${fy - 40}" width="22" height="40" style="image-rendering:pixelated"/>`, { hoehe: 40 });
+const schraeg = Object.assign((fx, fy) => `
+  <polygon points="${fx - 10},${fy - 45} ${fx + 10},${fy - 35} ${fx + 10},${fy + 5} ${fx - 10},${fy - 5}" fill="#f0f0ec" stroke="#444" stroke-width="1"/>
+  <line x1="${fx - 12}" y1="${fy - 46}" x2="${fx + 12}" y2="${fy - 34}" stroke="#6b4a2e" stroke-width="2"/>`, { hoehe: 45 });
+const nadel = Object.assign((fx, fy) => `<image href="../../../../web/src/ebenen/schild_gross.png" x="${fx - 11}" y="${fy - 33}" width="23" height="33" style="image-rendering:pixelated"/><image href="../../../../web/src/ebenen/schild_gross_rahmen.png" x="${fx - 11}" y="${fy - 33}" width="23" height="33" style="image-rendering:pixelated"/>`, { hoehe: 33 });
+
+document.fonts.load(`${S}px Kartenschrift`).then(() => {
+  const b = document.getElementById('blatt');
+  b.append(
+    zelle('Banner von vorn', vorn, 'Hafenstadt'),
+    zelle('langer Name', vorn, 'Neu-Hafenstadt am Westmeer'),
+    zelle('schräg in 2:1, gedreht', schraeg, 'Hafenstadt', { drehung: 26.57 }),
+    zelle('Nadel: gerade', nadel, 'Wegpunkt Nord', { bogen: false }),
+  );
+  document.body.dataset.fertig = '1';
+});
+</script>
+</body>
+</html>

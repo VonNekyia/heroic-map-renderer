@@ -2,7 +2,7 @@
 title: Boden je Block
 description: Was der Boden ohne Laub je Block statt je 4×4 an Platz und an Arbeitsspeicher an der Spitze von --heights kostet, auf der Testwelt mit allen Kernen und mit einem Thread, ungepackt und gepackt im Vorlauf; dazu die Hochrechnung auf die grosse Welt.
 date: 2026-10-11
-commits: [cc83ff2, KOPF]
+commits: [cc83ff2, ff9f3a8]
 code:
   - renderer/src/render/heights.rs
   - renderer/src/render/tiles.rs
@@ -36,7 +36,7 @@ Vorlauf eine Region ungepackt, nicht je Region der Welt.
     sobald er sie gelesen hat; `Heights::encode` legt dafür erst einen
     Puffer mit allen Werten an, je Block 512 KiB;
   - **je Block, Stücke:** wie davor, aber `encode` packt in Stücken von
-    8 KiB. Das ist der Stand dieser PR, `KOPF`.
+    8 KiB. Das ist der Stand dieser PR, `ff9f3a8`.
 - **Threads:** ohne `--threads`, also alle Kerne, und mit `--threads 1`.
   Mit einem Thread läuft auch der Vorlauf eines Updates im Plugin, das
   `renderer.threads` von 1 nimmt.

@@ -782,6 +782,29 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
   Schriftgrösse 16 Pixel, im Mod 10 Einheiten seiner Oberfläche, im
   Verhältnis wie die Breite der Tafel, 200 zu 320. So zeigt ein Plugin für
   Städte die Namen am Banner, ohne eigene Kartenschrift.
+- **Name einer Nadel:** gerade und waagrecht wie bisher, mittig unter dem
+  Fuss, ohne Sperrung.
+- **Name eines Banners:** auf einem Bogen unter dem Fuss, nach unten
+  gewölbt, jedes Zeichen aufrecht zum Bogen wie die Kartenschrift an ihrem
+  Pfad, siehe [0102](../entscheidungen/0102-name-im-bogen.md). In Einheiten
+  der Ansicht, `s` die Schriftgrösse von oben, `h` die Höhe des Sprites oder
+  Bilds, `F` der Fuss, y nach unten:
+  - **Sperrung** `0,125 · s` zwischen den Zeichen, nicht nach dem letzten:
+    auf der Webkarte 2 Pixel, im Mod 1,25 Einheiten.
+  - **Länge** `L`: die Vorschübe aller Zeichen plus die Sperrung, gemessen
+    auf dem Bogen.
+  - **Radius** `r = max(2 · h, L / (2π / 3))`: Mit `2 · h` wird der Bogen
+    für längere Namen weiter, bis er 120° öffnet; darüber wächst `r`, und
+    er wird flacher.
+  - **Lage:** Mittelpunkt `F + (0, 0,75 · s − r)`, der tiefste Punkt also
+    `0,75 · s` unter dem Fuss. Die Mitte des Namens liegt auf dem tiefsten
+    Punkt; die Grundlinie läuft eine halbe Höhe der Grossbuchstaben
+    ausserhalb des Bogens, wie bei der Kartenschrift.
+  - **Schräger Satz:** Der ganze Bogen dreht sich um `F` um den Winkel aus
+    `satz.json`, nach rechts fallend positiv, so folgt er der Unterkante
+    des Tuchs. Mit `image` ist der Winkel 0.
+
+  ![Der Name im Bogen unter dem Banner: von vorn, ein langer Name, schräg in 2:1 gedreht; die Nadel gerade](../bilder/name-bogen.png)
 
 ### Reihenfolge, Zeigen und Anklicken
 

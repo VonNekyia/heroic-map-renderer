@@ -182,6 +182,15 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
       wird gespart. Kleine Werte zählen nicht, denn der erste Render
       überwiegt sie.
 
+### Zeichenstand
+
+27. Zeichnet der Renderer nach einer Änderung eine Kachel, eine Höhe oder
+    den Abdruck eines Chunks anders, hebt dieselbe PR `ZEICHENSTAND` in
+    `renderer/src/render/stand.rs`, auch wenn kein Goldbild es zeigt.
+    Sonst mischt ein Update auf dem Server alte und neue Kacheln. Wann er
+    steigt und wann nicht, steht in
+    [0098](docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
+
 ## Gliederung von `docs/`
 
 | Pfad | Inhalt |

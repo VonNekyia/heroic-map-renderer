@@ -255,6 +255,28 @@ body {
   paint-order: stroke fill;
 }
 
+/* Der Name eines Banners im Bogen: ein SVG mit dem Ursprung am Fuss, die
+   Schrift wie der gerade Name. Der Pfad bleibt unsichtbar. */
+.nadel-bogen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+}
+
+.nadel-bogen path {
+  fill: none;
+}
+
+.nadel-bogen text {
+  font: 16px Kartenschrift, serif;
+  fill: #2b2b2b;
+  stroke: #f2e8d0;
+  stroke-width: 4px;
+  paint-order: stroke fill;
+  stroke-linejoin: round;
+}
+
 /* Der Name einer Region beim Zeigen, in Grund und Schrift der UI. */
 .leaflet-tooltip.ebene-name {
   padding: 0 3px;

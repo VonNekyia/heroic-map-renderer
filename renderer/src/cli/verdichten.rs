@@ -53,7 +53,7 @@ pub(super) fn verdichte(dir: &Path, mit_manifest: bool) -> Result<()> {
         schreibe_info(dir, &info, None)?;
     }
     let manifest = manifest::Lauf::beginne(dir, mit_manifest)?;
-    let hashes = Pixel::neu(dir, fingerabdruck_des_renderers()?);
+    let hashes = Pixel::neu(dir, fingerabdruck_des_renderers());
     let mut summe = BTreeMap::<&str, usize>::new();
     for z in (alt.min_zoom..=alt.max_zoom).rev() {
         let mut je_block: BTreeMap<(i32, i32), Vec<(TileId, SystemTime)>> = BTreeMap::new();

@@ -1,8 +1,9 @@
 //! Je Kachel ein Hash ihrer Pixel. Zeichnet ein Lauf eine Kachel mit
 //! denselben Pixeln wieder, kodiert und schreibt er sie nicht. Ein Eintrag
-//! gilt nur, solange die Datei so dasteht, wie ein Lauf desselben Renderers
-//! sie hinterliess: mit derselben Grösse und derselben Zeit der letzten
-//! Änderung. Schrieb sie jemand anders, kodiert der nächste Lauf sie neu.
+//! gilt nur, solange die Datei so dasteht, wie ein Lauf eines Renderers mit
+//! demselben Fingerabdruck sie hinterliess: mit derselben Grösse und
+//! derselben Zeit der letzten Änderung. Schrieb sie jemand anders, kodiert
+//! der nächste Lauf sie neu.
 //! Siehe docs/benutzung/updates.md, „Gleiche Pixel“.
 
 use std::collections::HashMap;
@@ -12,6 +13,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, Result};
+use heroic_map_renderer::render::stand::wie_heute;
 use heroic_map_renderer::render::{Packen, TileId};
 use image::RgbaImage;
 use rayon::prelude::*;
@@ -209,13 +211,14 @@ fn als_bytes(renderer: u64, eintraege: &HashMap<u16, Eintrag>) -> Vec<u8> {
 }
 
 /// Die Einträge einer Blockdatei; `None`, wenn sie kaputt ist, eine andere
-/// Fassung hat oder von einem anderen Renderer stammt. Dann gilt der Block
+/// Fassung hat oder von einem Renderer stammt, der anders zeichnet
+/// (`renderer`, siehe [`wie_heute`]). Dann gilt der Block
 /// als leer, und der Lauf kodiert seine Kacheln wie ohne Hash.
 fn aus_bytes(daten: &[u8], renderer: u64) -> Option<HashMap<u16, Eintrag>> {
     let zahl = |von: usize, n: usize| daten.get(von..von + n);
     if zahl(0, 8)? != MAGIE
         || u32::from_le_bytes(zahl(8, 4)?.try_into().ok()?) != FASSUNG
-        || u64::from_le_bytes(zahl(12, 8)?.try_into().ok()?) != renderer
+        || wie_heute(u64::from_le_bytes(zahl(12, 8)?.try_into().ok()?)) != renderer
     {
         return None;
     }
@@ -291,6 +294,28 @@ mod tests {
             Pixel::neu(dir.path(), 7).gleich(3, tile, &rot, &kachel),
             None
         );
+    }
+
+    /// Ein Block von v0.5.0 gilt für diesen Build, solange er Zeichenstand 1
+    /// hat.
+    #[test]
+    fn block_von_v0_5_0_gilt() {
+        use heroic_map_renderer::render::stand::{V0_5_0, fingerabdruck_des_renderers};
+        let eintraege = HashMap::from([(
+            3,
+            Eintrag {
+                hash: [1; 16],
+                bytes: 2,
+                zeit: 3,
+            },
+        )]);
+        for alt in V0_5_0 {
+            let daten = als_bytes(alt, &eintraege);
+            assert_eq!(
+                aus_bytes(&daten, fingerabdruck_des_renderers()),
+                Some(eintraege.clone())
+            );
+        }
     }
 
     /// Eine kaputte oder abgeschnittene Blockdatei gilt als leer und hält

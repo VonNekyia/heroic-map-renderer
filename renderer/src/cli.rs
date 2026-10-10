@@ -184,8 +184,9 @@ pub struct Args {
 
     /// Mit --tiles vorhandene Basiskacheln stehen lassen statt sie neu zu
     /// rendern: setzt einen abgebrochenen Lauf fort, und nur den. Stammt
-    /// der angefangene Stand eines vollen Laufs von einem anderen Build oder
-    /// anderen Assets, rendert er alles wie ohne --resume. Sonst nimmt er
+    /// der angefangene Stand eines vollen Laufs von einem Renderer, der
+    /// anders zeichnet, oder anderen Assets, rendert er alles wie ohne
+    /// --resume. Sonst nimmt er
     /// die Kacheln, wie sie sind; stammen sie aus einem älteren
     /// Stand der Welt oder der Assets, bleiben sie das. Neu rendert er die
     /// aus den letzten zwei Minuten vor der jüngsten, die kann ein
@@ -197,8 +198,8 @@ pub struct Args {
 
     /// Mit --tiles nur zeichnen, wo sich die Welt seit dem letzten vollen
     /// Lauf oder Update des Baums geändert hat. Braucht den Stand, den jeder
-    /// volle Lauf über die ganze Welt schreibt, und denselben Build des
-    /// Renderers und dieselben --assets und --data wie dessen Lauf
+    /// volle Lauf über die ganze Welt schreibt, einen Renderer, der gleich
+    /// zeichnet, und dieselben --assets und --data wie dessen Lauf
     #[arg(long, requires = "tiles", conflicts_with = "size")]
     update: bool,
 
@@ -1686,7 +1687,7 @@ fn write_tiles(
         Bereich::Update => Some(Art::Update),
         Bereich::Ausschnitt(_) => None,
     };
-    let renderer = fingerabdruck_des_renderers()?;
+    let renderer = fingerabdruck_des_renderers();
     let (stempel, abdruecke) = match art {
         Some(_) => (
             world.stempel()?,
@@ -1698,9 +1699,10 @@ fn write_tiles(
         Some(art) if resume => fortzusetzen(dir, art, abdruecke)?,
         _ => Angefangen::Keiner,
     };
-    // Ein voller Lauf über den angefangenen Stand eines anderen Builds wüsste
-    // nicht, welche Kacheln welcher Build zeichnete. Er läuft wie ohne
-    // --resume. Siehe docs/benutzung/updates.md, „Abbruch und `--resume`“.
+    // Ein voller Lauf über den angefangenen Stand eines Renderers, der anders
+    // zeichnet, wüsste nicht, welche Kacheln wie gezeichnet sind. Er läuft
+    // wie ohne --resume.
+    // Siehe docs/benutzung/updates.md, „Abbruch und `--resume`“.
     let frisch = art == Some(Art::Voll) && matches!(angefangen, Angefangen::Fremd);
     if frisch {
         println!(
@@ -2390,9 +2392,9 @@ fn lies_stand(pfad: &Path) -> Result<Option<Stand>> {
     }
 }
 
-/// Der Stand, mit dem ein Update vergleicht. Er muss vom selben Build des
-/// Renderers stammen, mit denselben Assets und Daten (`abdruecke`), sonst
-/// mischte das Update alte und neue Kacheln.
+/// Der Stand, mit dem ein Update vergleicht. Er muss von einem Renderer
+/// stammen, der gleich zeichnet, mit denselben Assets und Daten
+/// (`abdruecke`), sonst mischte das Update alte und neue Kacheln.
 /// Siehe docs/benutzung/updates.md, „Anderer Renderer, andere Assets“.
 fn stand_fuer_update(dir: &Path, abdruecke: (u64, u64)) -> Result<Stand> {
     let pfad = dir.join(STAND);
@@ -2404,8 +2406,8 @@ fn stand_fuer_update(dir: &Path, abdruecke: (u64, u64)) -> Result<Stand> {
     })?;
     ensure!(
         stand.renderer == abdruecke.0,
-        "{} stammt von einem anderen Build des Renderers. Erst ein voller Lauf zeichnet alles \
-         mit diesem, danach geht --update wieder.",
+        "{} stammt von einem anderen Build des Renderers, der anders zeichnet. Erst ein voller \
+         Lauf zeichnet alles mit diesem, danach geht --update wieder.",
         pfad.display()
     );
     ensure!(
@@ -2423,13 +2425,14 @@ enum Angefangen {
     /// Jede Kachel ab da stammt aus jenem Lauf.
     Passend(Stand, SystemTime),
     Keiner,
-    /// Er stammt von einem anderen Build, anderen Assets oder einem Lauf der
-    /// anderen Art.
+    /// Er stammt von einem Renderer, der anders zeichnet, anderen Assets
+    /// oder einem Lauf der anderen Art.
     Fremd,
 }
 
 /// Der angefangene Stand eines abgebrochenen Laufs, passend, wenn er von
-/// derselben Art, demselben Build und denselben Assets (`abdruecke`) stammt.
+/// derselben Art, einem Renderer, der gleich zeichnet, und denselben Assets
+/// (`abdruecke`) stammt.
 fn fortzusetzen(dir: &Path, art: Art, abdruecke: (u64, u64)) -> Result<Angefangen> {
     let pfad = dir.join(STAND_NEU);
     let Some(stand) = lies_stand(&pfad)? else {

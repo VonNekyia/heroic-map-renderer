@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Result, bail, ensure};
 
 use crate::world::chunk::Fnv;
 use crate::world::{Abdruck, Chunk, REGION, Stempel, Stempelkarte};
@@ -406,7 +406,7 @@ impl Stand {
             1 => Art::Update,
             andere => bail!("unbekannte Art {andere}"),
         };
-        let renderer = u64::from_le_bytes(nimm(8)?.try_into()?);
+        let renderer = wie_heute(u64::from_le_bytes(nimm(8)?.try_into()?));
         let assets = u64::from_le_bytes(nimm(8)?.try_into()?);
         let anzahl = u32::from_le_bytes(nimm(4)?.try_into()?);
         let mut stand = Stand::neu(art, renderer, assets);
@@ -444,15 +444,61 @@ impl Stand {
     }
 }
 
-/// Der Fingerabdruck des laufenden Renderers: FNV-1a über seine
-/// ausführbare Datei. Jeder neue Build hat einen anderen.
+/// Wie der Renderer zeichnet. Er steigt um eins mit jeder Änderung, nach der
+/// ein Build eine Kachel anders zeichnen kann, auch wenn kein Goldbild es
+/// zeigt. Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
+pub const ZEICHENSTAND: u32 = 1;
+
+/// FNV-1a über die Goldbilder dieses Zeichenstands, siehe
+/// `zeichenstand_folgt_den_goldbildern`.
+#[cfg(test)]
+const GOLDBILDER: u64 = 0x35b8_8860_cd6d_2612;
+
+/// Die eingebauten Tabellen aus dem Spiel; sie zeichnen mit.
+const TABELLEN: [(&str, &str); 12] = [
+    ("blockentities.txt", include_str!("../assets/blockentities.txt")),
+    ("blocks.txt", include_str!("../assets/blocks.txt")),
+    ("blueten.txt", include_str!("../assets/blueten.txt")),
+    ("dimensionstypen.txt", include_str!("../assets/dimensionstypen.txt")),
+    ("grau.txt", include_str!("../assets/grau.txt")),
+    ("hell.txt", include_str!("../assets/hell.txt")),
+    ("leuchten.txt", include_str!("../assets/leuchten.txt")),
+    ("licht.txt", include_str!("../assets/licht.txt")),
+    ("nachbarn.txt", include_str!("../assets/nachbarn.txt")),
+    ("schatten.txt", include_str!("../assets/schatten.txt")),
+    ("seiten.txt", include_str!("../assets/seiten.txt")),
+    ("sicht262.txt", include_str!("../assets/sicht262.txt")),
+];
+
+/// Die Fingerabdrücke der ausführbaren Dateien von v0.5.0 für Linux und
+/// Windows, FNV-1a über die Datei. Sie zeichnen wie Zeichenstand 1.
+pub const V0_5_0: [u64; 2] = [0x7640_47ed_91a4_0173, 0x35b7_4919_7aa9_e79f];
+
+/// Der Fingerabdruck des Renderers: FNV-1a über den Zeichenstand und die
+/// eingebauten Tabellen, je Tabelle ihr Name und ihre Zeilen ohne `\r`. Ein
+/// neuer Build, der gleich zeichnet, hat denselben.
 /// Siehe docs/benutzung/updates.md, „Anderer Renderer, andere Assets“.
-pub fn fingerabdruck_des_renderers() -> Result<u64> {
-    let pfad = std::env::current_exe().context("eigene ausführbare Datei finden")?;
-    let daten = std::fs::read(&pfad).with_context(|| format!("{} lesen", pfad.display()))?;
+pub fn fingerabdruck_des_renderers() -> u64 {
     let mut fnv = Fnv::default();
-    fnv.nimm(&daten);
-    Ok(fnv.0)
+    fnv.nimm(&ZEICHENSTAND.to_le_bytes());
+    for (name, tabelle) in TABELLEN {
+        fnv.text(name);
+        for zeile in tabelle.lines() {
+            fnv.text(zeile);
+        }
+    }
+    fnv.0
+}
+
+/// Ein gelesener Fingerabdruck des Renderers, wie dieser Build ihn
+/// vergleicht: Ein Build von v0.5.0 zählt bis zum nächsten Zeichenstand als
+/// dieser.
+pub fn wie_heute(renderer: u64) -> u64 {
+    if ZEICHENSTAND == 1 && V0_5_0.contains(&renderer) {
+        fingerabdruck_des_renderers()
+    } else {
+        renderer
+    }
 }
 
 /// Der Fingerabdruck dieser Asset- und Datenwurzeln: FNV-1a über jede Datei
@@ -879,5 +925,62 @@ mod tests {
         );
         std::fs::write(ordner.path().join("a.json"), "{}").unwrap();
         assert_ne!(fingerabdruck_der_dateien(&wurzel), leer);
+    }
+
+    /// Ändert sich ein Goldbild, zeichnet der Renderer anders. FNV-1a über
+    /// alle, nach Dateinamen, je Bild der Name, Breite, Höhe und die Pixel.
+    /// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
+    #[test]
+    fn zeichenstand_folgt_den_goldbildern() {
+        let ordner = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golden");
+        let mut namen: Vec<String> = std::fs::read_dir(&ordner)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.ends_with(".png") && !n.ends_with("-ist.png"))
+            .collect();
+        namen.sort_unstable();
+        let mut fnv = Fnv::default();
+        for name in &namen {
+            let bild = image::open(ordner.join(name)).unwrap().into_rgba8();
+            fnv.text(name.trim_end_matches(".png"));
+            fnv.nimm(&bild.width().to_le_bytes());
+            fnv.nimm(&bild.height().to_le_bytes());
+            fnv.nimm(bild.as_raw());
+        }
+        assert_eq!(
+            fnv.0, GOLDBILDER,
+            "Die Goldbilder haben sich geändert. Zeichnet der Renderer anders, \
+             ZEICHENSTAND in renderer/src/render/stand.rs auf {} heben; dann \
+             GOLDBILDER auf {:#x} setzen. Siehe skills/goldbild-erneuern/SKILL.md.",
+            ZEICHENSTAND + 1,
+            fnv.0
+        );
+    }
+
+    /// Jede Tabelle unter `src/assets` geht in den Fingerabdruck ein.
+    #[test]
+    fn jede_tabelle_im_fingerabdruck() {
+        let ordner = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/assets");
+        let mut namen: Vec<String> = std::fs::read_dir(ordner)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.ends_with(".txt"))
+            .collect();
+        namen.sort_unstable();
+        let drin: Vec<&str> = TABELLEN.iter().map(|(name, _)| *name).collect();
+        assert_eq!(namen, drin);
+    }
+
+    /// Ein Stand von v0.5.0 gilt bis zum nächsten Zeichenstand als dieser;
+    /// jeder andere fremde Fingerabdruck bleibt fremd.
+    #[test]
+    fn stand_von_v0_5_0_gilt_als_zeichenstand_1() {
+        let heute = fingerabdruck_des_renderers();
+        for alt in V0_5_0 {
+            let bytes = Stand::neu(Art::Voll, alt, 9).als_bytes();
+            assert_eq!(Stand::aus_bytes(&bytes).unwrap().renderer, heute);
+        }
+        let fremd = Stand::neu(Art::Voll, heute ^ 1, 9).als_bytes();
+        assert_eq!(Stand::aus_bytes(&fremd).unwrap().renderer, heute ^ 1);
     }
 }

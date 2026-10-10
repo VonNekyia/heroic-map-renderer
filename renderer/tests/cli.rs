@@ -16,7 +16,7 @@ use heroic_map_renderer::assets::{Assets, DimensionType};
 use heroic_map_renderer::render::heights::{self, EMPTY, Heights};
 use heroic_map_renderer::render::look::LOOK;
 use heroic_map_renderer::render::rasterizer::{Light, Lightmap};
-use heroic_map_renderer::render::stand::{Inhalt, Stand};
+use heroic_map_renderer::render::stand::{Inhalt, Stand, V0_5_0};
 use heroic_map_renderer::render::{
     BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Packen, Projection, SpriteSet, TileId,
     Verkleinern, encode_webp, pyramid, render_area, render_area_with, streifenbreite, survey,
@@ -6640,6 +6640,29 @@ fn update_braucht_den_stand_und_dieselben_assets() {
     std::fs::write(&stand, bytes).unwrap();
     assert!(fehler(&["--scale", "12", "--update"]).contains("anderen Build"));
     assert_eq!(schnappschuss(baum.path()), vorher, "trotzdem geschrieben");
+}
+
+/// Ein Stand von v0.5.0 trägt den Fingerabdruck der ausführbaren Datei. Er
+/// gilt als Zeichenstand 1: Das Update geht, und danach trägt der Stand den
+/// heutigen Fingerabdruck.
+/// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
+#[test]
+fn update_nimmt_den_stand_von_v0_5_0() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), baum.path(), &["--scale", "12"]));
+    let stand = baum.path().join("stand.bin");
+    let heute = std::fs::read(&stand).unwrap()[13..21].to_vec();
+    for alt in V0_5_0 {
+        let mut bytes = std::fs::read(&stand).unwrap();
+        bytes[13..21].copy_from_slice(&alt.to_le_bytes());
+        std::fs::write(&stand, bytes).unwrap();
+        let ausgabe = tiles(welt.path(), baum.path(), &["--scale", "12", "--update"]);
+        let log = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+        assert!(log.contains("nichts zu zeichnen"), "{alt:#x}: {log}");
+        assert_eq!(std::fs::read(&stand).unwrap()[13..21], heute[..], "{alt:#x}");
+    }
 }
 
 /// Unter Windows trägt das Binär ein Manifest mit dem Segment-Heap, siehe

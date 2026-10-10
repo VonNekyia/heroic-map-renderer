@@ -122,6 +122,12 @@ Was die Tabellen enthalten und wofür der Renderer sie braucht, steht in
    `bild_je_zustand` und `zuordnung_je_zustand` prüfen einzelne Blöcke.
    Ändert sich ein Wert, den ein Test festhält, den Wert im Spiel belegen,
    Skill [`spielverhalten-belegen`](../spielverhalten-belegen/SKILL.md).
+   Die Tabellen gehen in den Fingerabdruck des Renderers ein: Eine
+   geänderte verlangt ohne Zutun einmal einen vollen Lauf je Baum, siehe
+   [`docs/benutzung/updates.md`](../../docs/benutzung/updates.md), „Anderer
+   Renderer, andere Assets“. Eine neue Tabelle unter `renderer/src/assets/`
+   gehört in `TABELLEN` in `renderer/src/render/stand.rs`;
+   `jede_tabelle_im_fingerabdruck` fällt sonst.
 10. **Doku nachziehen:** die Spalte „Stand“ in
    [`docs/entwicklung/tabellen.md`](../../docs/entwicklung/tabellen.md), die
    Zahlen unter „Die Tabelle“ in

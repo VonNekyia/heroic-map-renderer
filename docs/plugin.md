@@ -56,10 +56,11 @@ dem Plugin-Programmierer ab.
   `Stand::als_bytes` in
   [`renderer/src/render/stand.rs`](../renderer/src/render/stand.rs). Aus der
   Art entscheidet das Plugin, ob es mit `--resume` fortsetzt, siehe
-  [Updates](benutzung/updates.md), „Der Stand“. Den Build prüft der
-  Renderer: Stammt der Stand eines vollen Laufs von einem anderen, etwa
-  nach einem Update des Plugins, rendert der Lauf mit `--resume` alles wie
-  ohne den Schalter und schreibt am Ende `stand.bin`, siehe
+  [Updates](benutzung/updates.md), „Der Stand“. Ob er zum Renderer passt,
+  prüft der Renderer: Stammt der Stand eines vollen Laufs von einem, der
+  anders zeichnet, etwa nach einem Update des Plugins, rendert der Lauf mit
+  `--resume` alles wie ohne den Schalter und schreibt am Ende `stand.bin`,
+  siehe
   [Updates](benutzung/updates.md), „Abbruch und `--resume`“.
 - **Threads und Priorität:** Das Plugin gibt dem Renderer mit `--threads`
   so viele Threads wie eingestellt, Vorgabe 1, und lässt ihn mit
@@ -74,13 +75,16 @@ dem Plugin-Programmierer ab.
   aus `write_tiles` in `cli.rs`. Das Plugin startet alle 2 min ein Update.
   Endet eins mit dieser Zeile und Code 0, schreibt es nichts ins Log. Ändert
   sich ihre Form, landet jedes solche Update wieder im Log.
-- **Ein Update auf dem Stand eines anderen Builds:** die Zeile `Error:`
-  aus `stand_fuer_update` in `cli.rs` mit dem Wortlaut „stammt von einem
-  anderen Build des Renderers“. Auf genau diesen Wortlaut stützt sich das
-  Plugin: Dann nennt `/heroicmap status` „neuer Renderer: erst
-  /heroicmap render“ statt des ganzen Texts, der weiter im Log steht.
-  Ändert sich der Wortlaut, etwa mit #232, zeigt der Status wieder den
-  ganzen Text, und das Plugin zieht nach.
+- **Ein Update auf dem Stand eines Renderers, der anders zeichnet:** die
+  Zeile `Error:` aus `stand_fuer_update` in `cli.rs` mit dem Wortlaut
+  „stammt von einem anderen Build des Renderers“, dahinter „, der anders
+  zeichnet“. Auf genau diesen Wortlaut stützt sich das Plugin: Dann nennt
+  `/heroicmap status` „neuer Renderer: erst /heroicmap render“ statt des
+  ganzen Texts, der weiter im Log steht. Ändert sich der Wortlaut, zeigt
+  der Status wieder den ganzen Text, und das Plugin zieht nach. Seit
+  [0098](entscheidungen/0098-der-zeichenstand-statt-des-builds.md) kommt
+  die Zeile nur nach einem Release, das anders zeichnet; ein Stand von
+  v0.5.0 gilt als Zeichenstand 1.
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
   eines Tokens: `--manifest` bei jedem Lauf, `--pyramid` und
   `--compact-tree` eines Baums mit `download: true`, siehe unten,

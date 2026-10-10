@@ -62,8 +62,11 @@ fn neuer_baum(name: &str) -> Baum {
 
 /// Der Ordner, den ein Lauf mit diesen Schaltern unter der Wurzel
 /// beschreibt: `<kamera>-<richtung>` mit `x` statt `:`, mit
-/// `--cinematic` dahinter `-cinematic`.
+/// `--cinematic` dahinter `-cinematic`; mit `--flat` `top-north-s-flat`.
 fn baum_name(extra: &[&str]) -> String {
+    if extra.contains(&"--flat") {
+        return "top-north-s-flat".to_string();
+    }
     let wert = |schalter: &str| {
         extra
             .iter()
@@ -123,7 +126,7 @@ fn wurzel_von<'a>(out: &'a Path, extra: &[&str]) -> &'a Path {
 /// allen nativen Stufen, die der scale hergibt: bei 16 zwei, bei 12 keine.
 /// So prüfen die Tests beide Wege, den nativen und das Verkleinern.
 fn tiles(welt: &Path, out: &Path, extra: &[&str]) -> Output {
-    if extra.contains(&"--native-levels") {
+    if extra.contains(&"--native-levels") || extra.contains(&"--flat") {
         return export(welt, out, extra);
     }
     let mut mit = vec!["--native-levels", "9"];
@@ -7236,5 +7239,76 @@ fn client_jar_nur_mit_zustimmung() {
         assert!(!falsch.status.success(), "{}", unter.display());
         let fehler = String::from_utf8_lossy(&falsch.stderr);
         assert!(fehler.contains("liegt unter --tiles"), "{fehler}");
+    }
+}
+
+/// `--flat` ist die einfarbige Ansicht: top-north bei scale 1 im eigenen
+/// Ordner `top-north-s-flat` mit `look` `"flat"`, in `trees.json` neben
+/// top-north bei scale 16, auf der CPU auch mit `--gpu on`, und `--resume`
+/// geht. scale 1 gibt es nur so: `--scale 1` lehnt der Lauf ab, mit und
+/// ohne top-north, und `--flat` geht weder mit `--scale` noch mit
+/// `--camera`, `--direction`, `--cinematic` oder `--native-levels`.
+/// Siehe docs/renderer/einfarbig.md.
+#[test]
+fn flat_ist_ein_eigener_baum() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], gelaende);
+    let flach = neuer_baum("top-north-s-flat");
+    let wurzel = flach.wurzel();
+    let lauf = export(welt.path(), flach.path(), &["--flat", "--gpu", "on"]);
+    let log = String::from_utf8_lossy(&gelungen(&lauf).stdout).into_owned();
+    assert!(
+        log.contains("GPU:        aus, die einfarbige Ansicht zeichnet die CPU"),
+        "{log}"
+    );
+    let info: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(flach.path().join("map.json")).unwrap())
+            .unwrap();
+    assert_eq!(info["scale"], 1);
+    assert_eq!(info["camera"], "top-north");
+    assert_eq!(info["look"], "flat");
+    gelungen(&export(
+        welt.path(),
+        &wurzel.join("top-north-s"),
+        &["--camera", "top-north"],
+    ));
+    let liste: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(wurzel.join("trees.json")).unwrap()).unwrap();
+    assert_eq!(
+        liste["trees"],
+        serde_json::json!([
+            {"path": "top-north-s", "camera": "top-north", "direction": "s", "look": "map"},
+            {"path": "top-north-s-flat", "camera": "top-north", "direction": "s", "look": "flat"}
+        ])
+    );
+    gelungen(&export(welt.path(), flach.path(), &["--flat", "--resume"]));
+
+    let abgelehnt = |extra: &[&str]| {
+        let mut args: Vec<&OsStr> = vec![
+            OsStr::new("--world"),
+            welt.path().as_os_str(),
+            OsStr::new("--assets"),
+            assets_ref(),
+            OsStr::new("--tiles"),
+            wurzel.as_os_str(),
+        ];
+        args.extend(extra.iter().map(OsStr::new));
+        let ausgabe = cli(&args);
+        assert!(!ausgabe.status.success(), "{extra:?}");
+        String::from_utf8_lossy(&ausgabe.stderr).into_owned()
+    };
+    for extra in [&["--scale", "1"][..], &["--scale", "1", "--camera", "top-north"]] {
+        let meldung = abgelehnt(extra);
+        assert!(meldung.contains("1 ist kleiner als 4"), "{extra:?}: {meldung}");
+    }
+    for extra in [
+        &["--flat", "--scale", "4"][..],
+        &["--flat", "--camera", "top-north"],
+        &["--flat", "--direction", "s"],
+        &["--flat", "--cinematic"],
+        &["--flat", "--native-levels", "0"],
+    ] {
+        let meldung = abgelehnt(extra);
+        assert!(meldung.contains("cannot be used with"), "{extra:?}: {meldung}");
     }
 }

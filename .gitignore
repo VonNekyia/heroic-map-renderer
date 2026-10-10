@@ -20,6 +20,7 @@ web/dist-tablett/
 
 # Ist-Bild eines gefallenen Goldbild-Tests
 metatile*-ist.png
+banner*-ist.png
 
 # Playwright
 web/test-results/

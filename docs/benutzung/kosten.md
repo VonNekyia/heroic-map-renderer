@@ -98,7 +98,9 @@ Die Höhen für die Koordinatenanzeige liest der Vorlauf mit; einen eigenen
 Durchgang brauchen sie nicht, und messbar länger wird er dadurch nicht.
 Geschrieben sind sie auf der Testwelt in 0,2 s, 1,8 MB, auf der grossen
 Welt in gut einer Sekunde, 13,8 MB. Gemessen in
-[2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md).
+[2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md). Der Boden ohne Laub
+daneben kostet geschätzt noch einmal so viel, siehe
+[0103](../entscheidungen/0103-boden-ohne-laub.md).
 
 Bannermuster und Scherben liest der Vorlauf ebenso mit, und auch dadurch
 wird er nicht messbar länger. Für ihre Bilder baut eine Sprite-Tabelle auf

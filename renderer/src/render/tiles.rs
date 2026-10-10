@@ -614,6 +614,7 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
 
     let mut tiles = BTreeSet::new();
     let mut hoehen = Heights::default();
+    let mut boden = Heights::default();
     let mut gelesen = vec![false; (REGION * REGION) as usize];
     for local_z in 0..REGION {
         for local_x in 0..REGION {
@@ -649,6 +650,7 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
             // dessen Blöcke ausserhalb landen, bekommt seine.
             if im_bild {
                 hoehen.record(&chunk);
+                boden.record_ground(&chunk);
             }
 
             // Erst ausschliessen, dann Paletten sammeln. Sonst verlangt ein
@@ -703,6 +705,7 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
             x: rx,
             z: rz,
             heights: hoehen,
+            ground: boden,
             read: gelesen,
         });
     }

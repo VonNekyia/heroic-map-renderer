@@ -894,7 +894,7 @@ fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a s
     // Die festen Namen zuerst: `[z, x, y]` nähme jeden Pfad aus drei Teilen.
     let (erlaubt, im_baum) = match teile.as_slice() {
         ["trees.json" | "map.json" | MANIFEST | "layers.json"] => (true, None),
-        ["heights", name] => (hoehe(name), None),
+        ["heights" | "ground", name] => (hoehe(name), None),
         ["layers", modname, ebene] if ist_teil(modname) && mit(ebene, &[".json"]) => (true, None),
         ["layers", modname, "images", bild]
             if ist_teil(modname) && mit(bild, &[".png", ".webp"]) =>
@@ -915,7 +915,7 @@ fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a s
             (true, None)
         }
         [b, "map.json" | MANIFEST] => (baum(b), Some(*b)),
-        [b, "heights", name] => (baum(b) && hoehe(name), Some(*b)),
+        [b, "heights" | "ground", name] => (baum(b) && hoehe(name), Some(*b)),
         [z, x, y] => (kachel(z, x, y), None),
         [b, z, x, y] => (baum(b) && kachel(z, x, y), Some(*b)),
         _ => (false, None),
@@ -1186,6 +1186,8 @@ mod tests {
             "trees.json",
             "heights/0.0.bin",
             "heights/-3.12.bin",
+            "ground/0.0.bin",
+            "2x1-se/ground/1.-2.bin",
             "2x1-se/map.json",
             "top-north-cinematic/manifest",
             "2x1-se/heights/1.-2.bin",
@@ -1261,6 +1263,9 @@ mod tests {
             "trees.json/x",
             "heights/a.b.bin",
             "heights/0.0.bin.tmp",
+            "ground/a.b.bin",
+            "ground/01.0.bin",
+            "boden/0.0.bin",
             "t/0/0",
             "t/",
             "geheim.txt",

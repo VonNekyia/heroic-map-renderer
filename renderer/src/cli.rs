@@ -253,10 +253,10 @@ pub struct Args {
     #[arg(long, requires = "tiles")]
     defender_exclusion: bool,
 
-    /// Die Höhen für die Koordinatenanzeige zu diesem Kachelbaum schreiben,
-    /// ohne zu rendern, etwa zu einem Baum aus einem Stand ohne sie. Liest
-    /// die ganze Welt, braucht --world und nimmt scale, Kamera und Richtung
-    /// aus seiner map.json. Unter einer Wurzel mit trees.json landen sie
+    /// Die Höhen für die Koordinatenanzeige und den Boden ohne Laub zu diesem
+    /// Kachelbaum schreiben, ohne zu rendern, etwa zu einem Baum aus einem
+    /// Stand ohne sie. Liest die ganze Welt, braucht --world und nimmt scale,
+    /// Kamera und Richtung aus seiner map.json. Unter einer Wurzel mit trees.json landen sie
     /// dort, für alle Bäume. Jeder Export schreibt sie ohnehin
     #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = ["tiles", "camera", "scale", "direction"])]
     heights: Option<PathBuf>,
@@ -1590,6 +1590,11 @@ struct Weltdaten {
     fest: bool,
     /// Wie [`MapInfo::ambient_occlusion`].
     ecke: &'static str,
+    /// Ob `map.json` den Boden ohne Laub nennt: nach einem Lauf über die
+    /// ganze Welt, oder wenn der Baum ihn schon hatte. Ein Ausschnitt oder
+    /// ein Update schreibt ihn sonst nur für seine Regionen.
+    /// Siehe docs/benutzung/map-json.md, „Höhen“.
+    boden: bool,
 }
 
 /// Wie welche Version die weiche Beleuchtung in `world` die Sicht in der
@@ -2026,6 +2031,8 @@ fn write_tiles(
         area: area.map(|area| area.map(|c| 16 * c)),
         fest: fest.is_some(),
         ecke,
+        boden: matches!(bereich, Bereich::Welt)
+            || bestand.as_ref().is_some_and(|b| b.ground.is_some()),
     };
     // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
     // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
@@ -2105,7 +2112,7 @@ fn write_tiles(
     if !hoehen_weg.is_empty() {
         println!(
             "Aufräumen:  Höhen ohne Regionsdatei: {}; sie verschwinden am Ende des Laufs",
-            hoehen_weg.len()
+            regionen_der_hoehen(&hoehen_weg)
         );
     }
 
@@ -2325,7 +2332,7 @@ fn write_tiles(
     if !hoehen_weg.is_empty() {
         println!(
             "Aufräumen:  Höhen ohne Regionsdatei entfernt: {}",
-            hoehen_weg.len()
+            regionen_der_hoehen(&hoehen_weg)
         );
     }
 
@@ -2645,8 +2652,8 @@ fn pruefe_wurzel(wurzel: &Path) -> Result<()> {
     );
     bail!(
         "{} ist ein Kachelbaum der alten Ablage. --tiles ist jetzt die Wurzel, jeder Baum liegt \
-         in einem eigenen Ordner: alles ausser heights/ nach {} verschieben, heights/ bleibt in \
-         der Wurzel; dann weiterrendern, oder eine neue Wurzel nehmen.",
+         in einem eigenen Ordner: alles ausser heights/ und ground/ nach {} verschieben, beide \
+         bleiben in der Wurzel; dann weiterrendern, oder eine neue Wurzel nehmen.",
         wurzel.join("map.json").display(),
         wurzel.join(&name).display()
     )
@@ -2924,6 +2931,7 @@ fn rebuild_pyramid(
         downscale: downscale(verkleinern),
         world: alt.world,
         heights: alt.heights,
+        ground: alt.ground,
         heights_cell: alt.heights_cell,
         min_y: alt.min_y,
         max_y: alt.max_y,
@@ -3200,6 +3208,7 @@ fn schreibe_map_json(
             mit_hoehen(
                 MapInfo::new(projection.scale(), max_zoom, basis),
                 heights::PATTERN_WURZEL,
+                welt.boden,
             ),
             projection,
         )
@@ -3227,10 +3236,18 @@ fn mit_kamera(info: MapInfo, projection: Projection) -> MapInfo {
 
 /// `info` mit den Feldern, die die Höhen beschreiben, siehe
 /// [`schreibe_hoehen`]: `muster` ist [`heights::PATTERN_WURZEL`] unter
-/// einer Wurzel, [`heights::PATTERN`] in einem Baum der alten Ablage.
-fn mit_hoehen(info: MapInfo, muster: &str) -> MapInfo {
+/// einer Wurzel, [`heights::PATTERN`] in einem Baum der alten Ablage. Mit
+/// `boden` auch der Boden ohne Laub daneben; sonst bleibt `ground` aus
+/// `info`.
+fn mit_hoehen(info: MapInfo, muster: &str, boden: bool) -> MapInfo {
+    let ground = match (boden, muster == heights::PATTERN_WURZEL) {
+        (true, true) => Some(heights::PATTERN_BODEN_WURZEL.to_string()),
+        (true, false) => Some(heights::PATTERN_BODEN.to_string()),
+        (false, _) => info.ground.clone(),
+    };
     MapInfo {
         heights: Some(muster.to_string()),
+        ground,
         heights_cell: Some(heights::CELL as u32),
         min_y: Some(Y_RANGE.0),
         max_y: Some(Y_RANGE.1),
@@ -3239,41 +3256,55 @@ fn mit_hoehen(info: MapInfo, muster: &str) -> MapInfo {
 }
 
 /// Schreibt die Höhen, die der Vorlauf gelesen hat, nach `heights/` in
-/// `dir`, der Wurzel oder einem Baum der alten Ablage. Chunkplätze, die
-/// der Lauf nicht liest, behalten, was die Datei schon hatte.
+/// `dir`, der Wurzel oder einem Baum der alten Ablage, und den Boden ohne
+/// Laub nach `ground/` daneben. Chunkplätze, die der Lauf nicht liest,
+/// behalten, was die Datei schon hatte.
 /// Siehe docs/benutzung/map-json.md, „Höhen“.
 fn schreibe_hoehen(regionen: Vec<RegionHeights>, dir: &Path) -> Result<()> {
     let started = Instant::now();
     let bytes = regionen
         .into_par_iter()
-        .map(|region| -> Result<usize> {
+        .map(|region| -> Result<[usize; 2]> {
             let RegionHeights {
                 x,
                 z,
-                mut heights,
+                heights,
+                ground,
                 read,
             } = region;
-            let pfad = dir.join(heights::path_of(x, z));
-            if read.contains(&false) {
-                match lies_hoehen(&pfad) {
-                    Ok(Some(alt)) => heights.keep_unread(&alt, &read),
-                    Ok(None) => {}
-                    // Ein Export bricht dafür nicht ab: verloren sind nur die
-                    // Höhen der Chunks ausserhalb des Ausschnitts.
-                    Err(e) => println!(
-                        "Höhen:      {e:#}; ausserhalb des Ausschnitts ist die Region jetzt leer"
-                    ),
+            let mut je = [0; 2];
+            for (i, (mut werte, pfad)) in [
+                (heights, heights::path_of(x, z)),
+                (ground, heights::ground_path_of(x, z)),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let pfad = dir.join(pfad);
+                if read.contains(&false) {
+                    match lies_hoehen(&pfad) {
+                        Ok(Some(alt)) => werte.keep_unread(&alt, &read),
+                        Ok(None) => {}
+                        // Ein Export bricht dafür nicht ab: verloren sind nur
+                        // die Höhen der Chunks ausserhalb des Ausschnitts.
+                        Err(e) => println!(
+                            "Höhen:      {e:#}; ausserhalb des Ausschnitts ist die Region jetzt leer"
+                        ),
+                    }
                 }
+                let daten = werte.encode()?;
+                lege_ab(&pfad, &daten, None)?;
+                je[i] = daten.len();
             }
-            let daten = heights.encode()?;
-            lege_ab(&pfad, &daten, None)?;
-            Ok(daten.len())
+            Ok(je)
         })
-        .collect::<Result<Vec<usize>>>()?;
+        .collect::<Result<Vec<[usize; 2]>>>()?;
+    let mb = |i: usize| bytes.iter().map(|b| b[i]).sum::<usize>() as f64 / 1_048_576.0;
     println!(
-        "Höhen:      {} Regionen, {:.1} MB in {:.1} s",
+        "Höhen:      {} Regionen, {:.1} MB, Boden ohne Laub {:.1} MB, in {:.1} s",
         bytes.len(),
-        bytes.iter().sum::<usize>() as f64 / 1_048_576.0,
+        mb(0),
+        mb(1),
         started.elapsed().as_secs_f64()
     );
     Ok(())
@@ -3290,25 +3321,36 @@ fn lies_hoehen(pfad: &Path) -> Result<Option<Heights>> {
         .map(Some)
 }
 
-/// Die Höhen von Regionen ohne Regionsdatei, von denen `reach` Chunks
+/// Wie viele Regionen diese Dateien der Höhen und des Bodens nennen: Beide
+/// heissen nach ihrer Region.
+fn regionen_der_hoehen(dateien: &[PathBuf]) -> usize {
+    dateien
+        .iter()
+        .filter_map(|p| p.file_name())
+        .collect::<HashSet<_>>()
+        .len()
+}
+
+/// Die Höhen und den Boden von Regionen ohne Regionsdatei, von denen `reach` Chunks
 /// läse: `--prune` entfernt sie am Ende des Laufs, wie die Kacheln ohne
 /// Chunk.
 fn hoehen_ohne_region(world: &World, reach: Reach, dir: &Path) -> Result<Vec<PathBuf>> {
-    let ordner = dir.join("heights");
-    let eintraege = match std::fs::read_dir(&ordner) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        eintraege => eintraege.with_context(|| format!("{} lesen", ordner.display()))?,
-    };
     let regionen: HashSet<(i32, i32)> = world.regions()?.into_iter().collect();
     let mut weg = Vec::new();
-    for eintrag in eintraege {
-        let eintrag = eintrag.with_context(|| format!("{} lesen", ordner.display()))?;
-        let region = eintrag.file_name().to_str().and_then(heights::region_of);
-        if let Some((rx, rz)) = region
-            && !regionen.contains(&(rx, rz))
-            && reach.region(rx, rz)
-        {
-            weg.push(eintrag.path());
+    for ordner in [dir.join("heights"), dir.join("ground")] {
+        let eintraege = match std::fs::read_dir(&ordner) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            eintraege => eintraege.with_context(|| format!("{} lesen", ordner.display()))?,
+        };
+        for eintrag in eintraege {
+            let eintrag = eintrag.with_context(|| format!("{} lesen", ordner.display()))?;
+            let region = eintrag.file_name().to_str().and_then(heights::region_of);
+            if let Some((rx, rz)) = region
+                && !regionen.contains(&(rx, rz))
+                && reach.region(rx, rz)
+            {
+                weg.push(eintrag.path());
+            }
         }
     }
     Ok(weg)
@@ -3363,7 +3405,7 @@ fn fill_heights(world: &World, dir: &Path) -> Result<()> {
 
     let info = MapInfo {
         world: bestand.world.clone().or(Some(kennung)),
-        ..mit_hoehen(bestand, muster)
+        ..mit_hoehen(bestand, muster, true)
     };
     schreibe_info(dir, &info, None)?;
     if uebernommen {

@@ -322,6 +322,11 @@ pub struct MapInfo {
     /// [`super::heights`]. Fehlt das Feld, hat der Baum keine.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heights: Option<String>,
+    /// Pfadmuster des Bodens ohne Laub, wie `heights`; erst, wenn ein voller
+    /// Lauf oder `--heights` ihn für jede Region geschrieben hat.
+    /// Siehe docs/benutzung/map-json.md, „Höhen“.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ground: Option<String>,
     /// Kantenlänge einer Zelle der Höhen in Blöcken; steht mit `heights`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heights_cell: Option<u32>,
@@ -418,6 +423,7 @@ impl MapInfo {
             downscale: None,
             world: None,
             heights: None,
+            ground: None,
             heights_cell: None,
             min_y: None,
             max_y: None,

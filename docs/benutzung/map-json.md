@@ -223,9 +223,9 @@ die alle Bäume teilen. Entschieden in
   Baum aus einem Stand vor #68. Der Lauf bricht dann ab, bevor er die
   Ausnahme im Echtzeitschutz setzt, Assets oder Welt liest, und nennt den
   Ordner, in den der Baum gehört; er deutet ihn nicht um und verschiebt
-  nichts. Weiter geht es so: alles ausser `heights/` in den genannten
-  Ordner verschieben, `heights/` bleibt in der Wurzel, wo alle Bäume sie
-  lesen. Bis zum nächsten Lauf zeigt das Frontend für den Baum Striche
+  nichts. Weiter geht es so: alles ausser `heights/` und `ground/` in den
+  genannten Ordner verschieben, beide bleiben in der Wurzel, wo alle Bäume
+  sie lesen. Bis zum nächsten Lauf zeigt das Frontend für den Baum Striche
   statt Koordinaten, denn seine `map.json` sucht die Höhen noch in seinem
   eigenen Ordner, siehe [Frontend](../frontend.md), „Koordinaten“. Der nächste Lauf schreibt sie neu, mit `../heights/{x}.{z}.bin`.
   `--pyramid` nimmt weiter jeden Baum, auch einen der alten Ablage.
@@ -270,6 +270,23 @@ Höhe. Die liefert der Renderer:
   sie einem Chunk, rechnet er sie aus den Blöcken, die er ohnehin
   dekodiert. Warum aus ihr, warum je 4×4 und warum über Wasser die
   Oberfläche: [0036](../entscheidungen/0036-hoehen-aus-der-heightmap.md).
+- **Der Boden ohne Laub** steht daneben, je Region `ground/{x}.{z}.bin`,
+  `map.json` nennt ihn als `ground`, etwa `../ground/{x}.{z}.bin`, im
+  selben Format, mit denselben Zellen, `heightsCell`, `minY` und `maxY`.
+  Er ist für Formen auf dem Gelände, die Koordinaten nehmen weiter
+  `heights`. Warum: [0103](../entscheidungen/0103-boden-ohne-laub.md).
+  - **Wert:** je Zelle der obere Median wie oben, aber je Spalte der
+    oberste Block, der Bewegung aufhält oder Flüssigkeit hält und kein
+    Laub ist. Über Wasser also die Oberfläche, im Wald der Boden unter den
+    Kronen; Gras und Blumen zählen nicht, Stämme schon.
+  - **Quelle:** die Heightmap `MOTION_BLOCKING_NO_LEAVES`, die das Spiel
+    wie `WORLD_SURFACE` in jedem fertigen Chunk speichert, `Chunk::ground`.
+    Fehlt sie einem Chunk, gilt für ihn die Oberfläche.
+  - **Wann `map.json` ihn nennt:** erst nach einem Lauf über die ganze Welt
+    oder nach `--heights`, wenn jede Region ihn hat. Ein Ausschnitt oder ein
+    Update in einem Baum ohne das Feld schreibt die Dateien seiner Regionen
+    und lässt das Feld weg; hat der Baum es, bleibt es. Fehlt das Feld oder
+    eine Datei, nimmt ein Frontend `heights`.
 
 Geschrieben werden die Höhen vor der ersten `map.json` eines Laufs; ein
 Frontend, das dem Render zusieht, findet sie also mit der ersten Kachel.
@@ -280,8 +297,9 @@ Welcher Lauf welche Höhen schreibt:
   neu, die er liest, auch die, deren Blöcke daneben landen. Ein Chunk, den
   es dort nicht gibt, wird leer. Die übrigen Chunks einer Region behalten
   ihre Höhen, wie ihre Kacheln.
-- **`--heights DIR`** schreibt Höhen und Felder in einen bestehenden Baum,
-  ohne zu rendern, etwa in einen aus einem Stand ohne Höhen. `DIR` ist der
+- **`--heights DIR`** schreibt Höhen, Boden und Felder in einen
+  bestehenden Baum, ohne zu rendern, etwa in einen aus einem Stand ohne
+  Höhen oder ohne Boden. `DIR` ist der
   Ordner des Baums, auch als `.`. Liegt er unter einer Wurzel mit
   `trees.json`, landen die Höhen dort, sonst in ihm selbst. Der Aufruf
   liest die ganze Welt, braucht nur `--world`, nimmt scale, Kamera und
@@ -290,8 +308,10 @@ Welcher Lauf welche Höhen schreibt:
   zu den Bäumen daneben gehört.
 - **`--resume`** schreibt die Höhen neu wie ein Export.
 - **`--pyramid`** lässt Höhen und Felder stehen.
-- **`--prune`** entfernt am Ende des Laufs die Höhen von Regionen ohne
-  Regionsdatei, soweit der Lauf sie läse, wie die Kacheln ohne Chunk. Ohne
+- **Der Boden** kommt mit jedem dieser Läufe mit, für dieselben Chunks
+  wie die Höhen.
+- **`--prune`** entfernt am Ende des Laufs Höhen und Boden von Regionen
+  ohne Regionsdatei, soweit der Lauf sie läse, wie die Kacheln ohne Chunk. Ohne
   den Schalter bleiben sie stehen.
 - **Nicht fertig erzeugte Chunks** übergeht der Vorlauf wie das Rendern,
   ihre Zellen bleiben leer, siehe [Welten und Kennung](welten.md), „Nicht

@@ -2,7 +2,8 @@
 //! Blockspalten der Median der obersten Blöcke, die nicht Luft sind. Sie
 //! kommen aus der Heightmap `WORLD_SURFACE`, die das Spiel in jedem Chunk
 //! speichert; der Vorlauf liest sie mit, einen eigenen Durchgang gibt es
-//! nicht.
+//! nicht. Ebenso der Boden ohne Laub aus `MOTION_BLOCKING_NO_LEAVES`, für
+//! Formen auf dem Gelände.
 //! Siehe docs/benutzung/map-json.md, „Höhen“.
 
 use std::io::{Read, Write};
@@ -35,10 +36,24 @@ pub const PATTERN: &str = "heights/{x}.{z}.bin";
 /// Siehe docs/benutzung/map-json.md, „Höhen“.
 pub const PATTERN_WURZEL: &str = "../heights/{x}.{z}.bin";
 
+/// Pfadmuster des Bodens ohne Laub, wie [`PATTERN`].
+pub const PATTERN_BODEN: &str = "ground/{x}.{z}.bin";
+
+/// Das Muster des Bodens in `map.json` eines Baums unter der Wurzel, wie
+/// [`PATTERN_WURZEL`].
+pub const PATTERN_BODEN_WURZEL: &str = "../ground/{x}.{z}.bin";
+
 /// Wo die Höhen der Region (rx, rz) liegen, relativ zu dem Ordner mit
 /// `heights/`.
 pub fn path_of(rx: i32, rz: i32) -> String {
     PATTERN
+        .replace("{x}", &rx.to_string())
+        .replace("{z}", &rz.to_string())
+}
+
+/// Wo der Boden der Region (rx, rz) liegt, neben [`path_of`].
+pub fn ground_path_of(rx: i32, rz: i32) -> String {
+    PATTERN_BODEN
         .replace("{x}", &rx.to_string())
         .replace("{z}", &rz.to_string())
 }
@@ -70,7 +85,15 @@ impl Heights {
     /// Spalten mit Block, nach dem Sortieren also der Wert an der Stelle
     /// Anzahl/2; ohne Spalte mit Block [`EMPTY`].
     pub fn record(&mut self, chunk: &Chunk) {
-        let oben = chunk.surface();
+        self.trage_ein(chunk, chunk.surface());
+    }
+
+    /// Wie [`Heights::record`], mit dem Boden ohne Laub, [`Chunk::ground`].
+    pub fn record_ground(&mut self, chunk: &Chunk) {
+        self.trage_ein(chunk, chunk.ground());
+    }
+
+    fn trage_ein(&mut self, chunk: &Chunk, oben: [Option<i32>; 256]) {
         let (x0, z0) = (
             chunk.x.rem_euclid(REGION) as usize * JE_CHUNK,
             chunk.z.rem_euclid(REGION) as usize * JE_CHUNK,
@@ -134,6 +157,8 @@ pub struct RegionHeights {
     pub x: i32,
     pub z: i32,
     pub heights: Heights,
+    /// Der Boden ohne Laub, für dieselben Chunks wie `heights`.
+    pub ground: Heights,
     pub read: Vec<bool>,
 }
 
@@ -144,6 +169,7 @@ mod tests {
     #[test]
     fn datei_und_region() {
         assert_eq!(path_of(-1, 3), "heights/-1.3.bin");
+        assert_eq!(ground_path_of(-1, 3), "ground/-1.3.bin");
         assert_eq!(region_of("-1.3.bin"), Some((-1, 3)));
         assert_eq!(region_of("map.json"), None);
         assert_eq!(region_of("1.2.bin.7.tmp"), None);

@@ -12,6 +12,9 @@ code:
 
 # 0036: Höhen aus der Heightmap, je 4×4
 
+Ergänzt durch [0103](0103-boden-ohne-laub.md): Daneben steht der Boden
+ohne Laub aus `MOTION_BLOCKING_NO_LEAVES`, für Formen auf dem Gelände.
+
 ## Anlass
 
 Die Koordinatenanzeige des Frontends bricht den Strahl eines Pixels an

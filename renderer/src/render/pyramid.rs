@@ -327,6 +327,9 @@ pub struct MapInfo {
     /// Siehe docs/benutzung/map-json.md, „Höhen“.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ground: Option<String>,
+    /// Kantenlänge einer Zelle des Bodens in Blöcken; steht mit `ground`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ground_cell: Option<u32>,
     /// Kantenlänge einer Zelle der Höhen in Blöcken; steht mit `heights`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heights_cell: Option<u32>,
@@ -424,6 +427,7 @@ impl MapInfo {
             world: None,
             heights: None,
             ground: None,
+            ground_cell: None,
             heights_cell: None,
             min_y: None,
             max_y: None,

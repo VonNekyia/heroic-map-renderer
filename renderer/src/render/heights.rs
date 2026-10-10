@@ -2,8 +2,8 @@
 //! Blockspalten der Median der obersten Blöcke, die nicht Luft sind. Sie
 //! kommen aus der Heightmap `WORLD_SURFACE`, die das Spiel in jedem Chunk
 //! speichert; der Vorlauf liest sie mit, einen eigenen Durchgang gibt es
-//! nicht. Ebenso der Boden ohne Laub aus `MOTION_BLOCKING_NO_LEAVES`, für
-//! Formen auf dem Gelände.
+//! nicht. Ebenso der Boden ohne Laub aus `MOTION_BLOCKING_NO_LEAVES`, je
+//! Block, für Formen auf dem Gelände.
 //! Siehe docs/benutzung/map-json.md, „Höhen“.
 
 use std::io::{Read, Write};
@@ -15,14 +15,12 @@ use flate2::write::ZlibEncoder;
 
 use crate::world::{Chunk, REGION};
 
-/// Blöcke je Kante einer Zelle.
+/// Blöcke je Kante einer Zelle der Höhen.
 pub const CELL: usize = 4;
 
-/// Zellen je Kante einer Region.
-pub const EDGE: usize = REGION as usize * 16 / CELL;
-
-/// Zellen je Kante eines Chunks.
-const JE_CHUNK: usize = 16 / CELL;
+/// Blöcke je Kante einer Zelle des Bodens ohne Laub: je Block.
+/// Siehe docs/entscheidungen/0103-boden-ohne-laub.md.
+pub const GROUND_CELL: usize = 1;
 
 /// Eine Zelle ohne Block oder ohne Chunk.
 pub const EMPTY: i16 = i16::MIN;
@@ -64,26 +62,42 @@ pub fn region_of(name: &str) -> Option<(i32, i32)> {
     Some((x.parse().ok()?, z.parse().ok()?))
 }
 
-/// Die Höhen einer Region, zeilenweise nach z: die Zelle mit den Spalten
-/// (x, z) steht an ⌊(z − 512·rz)/4⌋·128 + ⌊(x − 512·rx)/4⌋.
+/// Die Höhen einer Region in Zellen aus `cell` × `cell` Spalten,
+/// zeilenweise nach z: die Zelle mit den Spalten (x, z) steht an
+/// ⌊(z − 512·rz)/cell⌋·edge + ⌊(x − 512·rx)/cell⌋, edge = 512/cell.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Heights(Vec<i16>);
-
-impl Default for Heights {
-    fn default() -> Self {
-        Heights(vec![EMPTY; EDGE * EDGE])
-    }
+pub struct Heights {
+    cell: usize,
+    werte: Vec<i16>,
 }
 
 impl Heights {
-    /// Die Höhe einer Zelle in Zellen der Region, 0 bis 127 je Achse.
-    pub fn get(&self, x: usize, z: usize) -> i16 {
-        self.0[z * EDGE + x]
+    /// Leer, mit `cell` Blöcken je Kante einer Zelle, einem Teiler von 16.
+    pub fn new(cell: usize) -> Self {
+        assert!(
+            cell > 0 && 16 % cell == 0,
+            "Zelle {cell} teilt keinen Chunk"
+        );
+        let edge = REGION as usize * 16 / cell;
+        Heights {
+            cell,
+            werte: vec![EMPTY; edge * edge],
+        }
     }
 
-    /// Trägt die 16 Zellen eines Chunks ein: je Zelle der obere Median der
+    /// Zellen je Kante der Region.
+    pub fn edge(&self) -> usize {
+        REGION as usize * 16 / self.cell
+    }
+
+    /// Die Höhe einer Zelle in Zellen der Region, 0 bis `edge` − 1 je Achse.
+    pub fn get(&self, x: usize, z: usize) -> i16 {
+        self.werte[z * self.edge() + x]
+    }
+
+    /// Trägt die Zellen eines Chunks ein: je Zelle der obere Median der
     /// Spalten mit Block, nach dem Sortieren also der Wert an der Stelle
-    /// Anzahl/2; ohne Spalte mit Block [`EMPTY`].
+    /// Anzahl/2; ohne Spalte mit Block [`EMPTY`]. Bei `cell` 1 die Spalte.
     pub fn record(&mut self, chunk: &Chunk) {
         self.trage_ein(chunk, chunk.surface());
     }
@@ -94,30 +108,36 @@ impl Heights {
     }
 
     fn trage_ein(&mut self, chunk: &Chunk, oben: [Option<i32>; 256]) {
+        let (cell, edge) = (self.cell, self.edge());
+        let je_chunk = 16 / cell;
         let (x0, z0) = (
-            chunk.x.rem_euclid(REGION) as usize * JE_CHUNK,
-            chunk.z.rem_euclid(REGION) as usize * JE_CHUNK,
+            chunk.x.rem_euclid(REGION) as usize * je_chunk,
+            chunk.z.rem_euclid(REGION) as usize * je_chunk,
         );
-        for zelle in 0..JE_CHUNK * JE_CHUNK {
-            let (cx, cz) = (zelle % JE_CHUNK, zelle / JE_CHUNK);
-            let mut werte: Vec<i32> = (0..CELL * CELL)
-                .filter_map(|i| oben[(cz * CELL + i / CELL) * 16 + cx * CELL + i % CELL])
-                .collect();
+        let mut werte = Vec::with_capacity(cell * cell);
+        for zelle in 0..je_chunk * je_chunk {
+            let (cx, cz) = (zelle % je_chunk, zelle / je_chunk);
+            werte.clear();
+            werte.extend(
+                (0..cell * cell)
+                    .filter_map(|i| oben[(cz * cell + i / cell) * 16 + cx * cell + i % cell]),
+            );
             werte.sort_unstable();
-            self.0[(z0 + cz) * EDGE + x0 + cx] =
+            self.werte[(z0 + cz) * edge + x0 + cx] =
                 werte.get(werte.len() / 2).map_or(EMPTY, |&y| y as i16);
         }
     }
 
     /// Übernimmt aus `old` die Chunks, die dieser Lauf nicht gelesen hat:
     /// `read` trägt je Chunkplatz der Region ein Flag, zeilenweise nach z.
+    /// `old` hat dieselbe Zelle.
     pub fn keep_unread(&mut self, old: &Heights, read: &[bool]) {
-        let region = REGION as usize;
+        let (region, edge, je_chunk) = (REGION as usize, self.edge(), 16 / self.cell);
         for (platz, _) in read.iter().enumerate().filter(|(_, gelesen)| !**gelesen) {
-            let (x0, z0) = ((platz % region) * JE_CHUNK, (platz / region) * JE_CHUNK);
-            for z in z0..z0 + JE_CHUNK {
-                let zeile = z * EDGE + x0..z * EDGE + x0 + JE_CHUNK;
-                self.0[zeile.clone()].copy_from_slice(&old.0[zeile]);
+            let (x0, z0) = ((platz % region) * je_chunk, (platz / region) * je_chunk);
+            for z in z0..z0 + je_chunk {
+                let zeile = z * edge + x0..z * edge + x0 + je_chunk;
+                self.werte[zeile.clone()].copy_from_slice(&old.werte[zeile]);
             }
         }
     }
@@ -125,40 +145,51 @@ impl Heights {
     /// Die Datei: ein zlib-Strom (RFC 1950), darin die Werte als i16
     /// little-endian.
     pub fn encode(&self) -> Result<Vec<u8>> {
-        let roh: Vec<u8> = self.0.iter().flat_map(|h| h.to_le_bytes()).collect();
         let mut packer = ZlibEncoder::new(Vec::new(), Compression::default());
-        packer.write_all(&roh)?;
+        // In Stücken: Ein Puffer für alles hielte je Block 512 KiB je Thread.
+        let mut stueck = [0u8; 8192];
+        for teil in self.werte.chunks(stueck.len() / 2) {
+            for (ziel, h) in stueck.as_chunks_mut::<2>().0.iter_mut().zip(teil) {
+                *ziel = h.to_le_bytes();
+            }
+            packer.write_all(&stueck[..teil.len() * 2])?;
+        }
         Ok(packer.finish()?)
     }
 
-    /// Liest eine Datei aus [`Heights::encode`].
-    pub fn decode(daten: &[u8]) -> Result<Heights> {
+    /// Liest eine Datei aus [`Heights::encode`] mit Zellen aus `cell` ×
+    /// `cell` Spalten.
+    pub fn decode(daten: &[u8], cell: usize) -> Result<Heights> {
+        let mut leer = Heights::new(cell);
+        let edge = leer.edge();
         let mut roh = Vec::new();
         ZlibDecoder::new(daten).read_to_end(&mut roh)?;
         ensure!(
-            roh.len() == EDGE * EDGE * 2,
-            "{} Bytes statt {} für {EDGE} × {EDGE} Höhen",
+            roh.len() == edge * edge * 2,
+            "{} Bytes statt {} für {edge} × {edge} Höhen",
             roh.len(),
-            EDGE * EDGE * 2
+            edge * edge * 2
         );
         let (paare, _) = roh.as_chunks::<2>();
-        Ok(Heights(
-            paare.iter().map(|&b| i16::from_le_bytes(b)).collect(),
-        ))
+        leer.werte = paare.iter().map(|&b| i16::from_le_bytes(b)).collect();
+        Ok(leer)
     }
 }
 
-/// Die Höhen einer Region, wie der Vorlauf sie liest: je Chunkplatz,
-/// zeilenweise nach z, ob er gelesen ist. Gelesen sind die Chunks, die der
-/// Lauf liest, auch die ohne Block; einer, den es dort nicht gibt, ist
-/// gelesen und leer.
+/// Die Höhen einer Region, wie der Vorlauf sie liest, schon gepackt wie in
+/// der Datei: So hält er je Region nur die gepackten Bytes, bis sie
+/// geschrieben sind. `read` trägt je Chunkplatz, zeilenweise nach z, ob er
+/// gelesen ist. Gelesen sind die Chunks, die der Lauf liest, auch die ohne
+/// Block; einer, den es dort nicht gibt, ist gelesen und leer.
+/// Siehe docs/entscheidungen/0103-boden-ohne-laub.md, „Kosten nach Regel 26“.
 #[derive(Debug)]
 pub struct RegionHeights {
     pub x: i32,
     pub z: i32,
-    pub heights: Heights,
-    /// Der Boden ohne Laub, für dieselben Chunks wie `heights`.
-    pub ground: Heights,
+    /// [`Heights::encode`] der Höhen, Zelle [`CELL`].
+    pub heights: Vec<u8>,
+    /// Der Boden ohne Laub für dieselben Chunks, Zelle [`GROUND_CELL`].
+    pub ground: Vec<u8>,
     pub read: Vec<bool>,
 }
 
@@ -179,41 +210,49 @@ mod tests {
     /// zeilenweise nach z, wie das Frontend sie liest.
     #[test]
     fn kodiert_wie_beschrieben() {
-        let mut hoehen = Heights::default();
-        hoehen.0[3 * EDGE + 5] = 300;
-        hoehen.0[127 * EDGE + 127] = -64;
-        let daten = hoehen.encode().unwrap();
-        assert_eq!(Heights::decode(&daten).unwrap(), hoehen);
+        for (cell, edge) in [(CELL, 128), (GROUND_CELL, 512)] {
+            let mut hoehen = Heights::new(cell);
+            assert_eq!(hoehen.edge(), edge);
+            hoehen.werte[3 * edge + 5] = 300;
+            hoehen.werte[(edge - 1) * edge + edge - 1] = -64;
+            let daten = hoehen.encode().unwrap();
+            assert_eq!(Heights::decode(&daten, cell).unwrap(), hoehen);
 
-        let mut roh = Vec::new();
-        ZlibDecoder::new(&daten[..]).read_to_end(&mut roh).unwrap();
-        assert_eq!(roh.len(), 128 * 128 * 2);
-        let bei = |i: usize| i16::from_le_bytes([roh[2 * i], roh[2 * i + 1]]);
-        assert_eq!(bei(3 * EDGE + 5), 300);
-        assert_eq!(hoehen.get(5, 3), 300);
-        assert_eq!(bei(127 * EDGE + 127), -64);
-        assert_eq!(bei(0), EMPTY);
-        assert!(Heights::decode(&daten[..daten.len() / 2]).is_err());
+            let mut roh = Vec::new();
+            ZlibDecoder::new(&daten[..]).read_to_end(&mut roh).unwrap();
+            assert_eq!(roh.len(), edge * edge * 2);
+            let bei = |i: usize| i16::from_le_bytes([roh[2 * i], roh[2 * i + 1]]);
+            assert_eq!(bei(3 * edge + 5), 300);
+            assert_eq!(hoehen.get(5, 3), 300);
+            assert_eq!(bei((edge - 1) * edge + edge - 1), -64);
+            assert_eq!(bei(0), EMPTY);
+            assert!(Heights::decode(&daten[..daten.len() / 2], cell).is_err());
+        }
+        let vier = Heights::new(CELL).encode().unwrap();
+        assert!(Heights::decode(&vier, GROUND_CELL).is_err(), "andere Zelle");
     }
 
     /// Nicht gelesene Chunkplätze behalten die alten Werte, gelesene die
-    /// neuen, auch wo die neuen leer sind.
+    /// neuen, auch wo die neuen leer sind; je Zelle 4 Spalten wie je Block.
     #[test]
     fn behaelt_nur_was_nicht_gelesen_ist() {
-        let mut alt = Heights::default();
-        alt.0.fill(7);
-        let mut neu = Heights::default();
-        neu.0[0] = 1;
-        let mut gelesen = vec![true; (REGION * REGION) as usize];
-        gelesen[1] = false;
-        gelesen[REGION as usize * 31 + 31] = false;
-        neu.keep_unread(&alt, &gelesen);
-        assert_eq!(neu.get(0, 0), 1);
-        assert_eq!(neu.get(3, 3), EMPTY);
-        assert_eq!(neu.get(4, 0), 7);
-        assert_eq!(neu.get(7, 3), 7);
-        assert_eq!(neu.get(8, 0), EMPTY);
-        assert_eq!(neu.get(127, 127), 7);
-        assert_eq!(neu.get(124, 123), EMPTY);
+        for (cell, je_chunk) in [(CELL, 4), (GROUND_CELL, 16)] {
+            let mut alt = Heights::new(cell);
+            alt.werte.fill(7);
+            let mut neu = Heights::new(cell);
+            neu.werte[0] = 1;
+            let mut gelesen = vec![true; (REGION * REGION) as usize];
+            gelesen[1] = false;
+            gelesen[REGION as usize * 31 + 31] = false;
+            neu.keep_unread(&alt, &gelesen);
+            let ende = neu.edge() - 1;
+            assert_eq!(neu.get(0, 0), 1);
+            assert_eq!(neu.get(je_chunk - 1, je_chunk - 1), EMPTY);
+            assert_eq!(neu.get(je_chunk, 0), 7);
+            assert_eq!(neu.get(2 * je_chunk - 1, je_chunk - 1), 7);
+            assert_eq!(neu.get(2 * je_chunk, 0), EMPTY);
+            assert_eq!(neu.get(ende, ende), 7);
+            assert_eq!(neu.get(ende + 1 - je_chunk, ende - je_chunk), EMPTY);
+        }
     }
 }

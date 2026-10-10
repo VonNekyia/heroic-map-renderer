@@ -6,7 +6,7 @@ mod common;
 use std::path::PathBuf;
 
 use heroic_map_renderer::assets::Assets;
-use heroic_map_renderer::render::heights::{EMPTY, RegionHeights};
+use heroic_map_renderer::render::heights::{CELL, EMPTY, Heights, RegionHeights};
 use heroic_map_renderer::render::{
     Kamera, Projection, Richtung, ScreenRect, SpriteSet, render_area, survey,
 };
@@ -23,6 +23,11 @@ fn lies(world: &World, bounds: Option<ScreenRect>) -> Vec<RegionHeights> {
         .heights;
     regionen.sort_by_key(|r| (r.x, r.z));
     regionen
+}
+
+/// Die Höhen der Region, entpackt.
+fn hoehen(region: &RegionHeights) -> Heights {
+    Heights::decode(&region.heights, CELL).unwrap()
 }
 
 /// Ob der Chunk (cx, cz) der Region gelesen ist.
@@ -262,7 +267,7 @@ fn median_der_obersten_bloecke_je_zelle() {
     let orte: Vec<(i32, i32)> = regionen.iter().map(|r| (r.x, r.z)).collect();
     assert_eq!(orte, [(-1, -1), (0, 0)]);
     assert!(regionen.iter().all(|r| r.read.iter().all(|&g| g)));
-    let (links, region) = (&regionen[0].heights, &regionen[1].heights);
+    let (links, region) = (hoehen(&regionen[0]), hoehen(&regionen[1]));
 
     let zeile: Vec<i16> = (0..4).map(|x| region.get(x, 0)).collect();
     assert_eq!(zeile, [5, 9, 10, 7], "Stein, Median, Wasser, Truhe");
@@ -310,9 +315,9 @@ fn ausschnitt_liest_die_chunks_im_band() {
     assert!(gelesen(region, 4, 4), "sein Block landet ausserhalb");
     assert!(!gelesen(region, 20, 0), "ausserhalb des Bands");
     assert!(!gelesen(region, 25, 0), "fehlt, ausserhalb des Bands");
-    assert_eq!(region.heights.get(2, 2), 8);
-    assert_eq!(region.heights.get(18, 18), 8);
-    assert_eq!(region.heights.get(82, 2), EMPTY);
+    assert_eq!(hoehen(region).get(2, 2), 8);
+    assert_eq!(hoehen(region).get(18, 18), 8);
+    assert_eq!(hoehen(region).get(82, 2), EMPTY);
 }
 
 /// Die Höhen sehen dieselbe Welt wie die Kacheln: Ein Chunk, der nicht
@@ -342,9 +347,9 @@ fn unfertige_chunks_bleiben_leer() {
     );
     let regionen = lies(&World::open(dir.path()).unwrap(), None);
     let region = &regionen[0];
-    assert_eq!(region.heights.get(2, 2), 10);
+    assert_eq!(hoehen(region).get(2, 2), 10);
     assert!(gelesen(region, 1, 0));
-    assert_eq!(region.heights.get(6, 2), EMPTY);
+    assert_eq!(hoehen(region).get(6, 2), EMPTY);
 }
 
 /// Die Projektion als Datei für das Frontend: je scale ein paar Blöcke und

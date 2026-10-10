@@ -42,6 +42,8 @@ das Frontend liest die Datei in `web/src/main.ts`.
   "world": "cb13a94d6c88dae1-6872d5d8ff54db07",
   "heights": "../heights/{x}.{z}.bin",
   "heightsCell": 4,
+  "ground": "../ground/{x}.{z}.bin",
+  "groundCell": 1,
   "minY": -64,
   "maxY": 319,
   "look": "map",
@@ -68,6 +70,8 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `world` | Kennung der Welt und Dimension, oder `null` | [Welten und Kennung](welten.md) |
 | `heights` | Pfadmuster der Höhen je Region, relativ zum Baum; fehlt es, hat der Baum keine | „Höhen“ unten |
 | `heightsCell` | Kantenlänge einer Zelle der Höhen in Blöcken, heute 4; steht mit `heights` | „Höhen“ unten |
+| `ground` | Pfadmuster des Bodens ohne Laub je Region, relativ zum Baum; erst nach einem Lauf über die ganze Welt oder `--heights` | „Höhen“ unten |
+| `groundCell` | Kantenlänge einer Zelle des Bodens in Blöcken, heute 1; steht mit `ground` | „Höhen“ unten |
 | `minY`, `maxY` | unterster und oberster Block, den der Renderer zeichnet; stehen mit `heights` | „Höhen“ unten |
 | `look` | `"map"` die Karte, `"cinematic"` oder `"flat"`; fehlt es, die Karte | „Look“ unten |
 | `lookHash` | Fingerabdruck der Werte von Cinematic, 16 Hexziffern; nur mit `"cinematic"` | „Look“ unten |
@@ -271,14 +275,18 @@ Höhe. Die liefert der Renderer:
   dekodiert. Warum aus ihr, warum je 4×4 und warum über Wasser die
   Oberfläche: [0036](../entscheidungen/0036-hoehen-aus-der-heightmap.md).
 - **Der Boden ohne Laub** steht daneben, je Region `ground/{x}.{z}.bin`,
-  `map.json` nennt ihn als `ground`, etwa `../ground/{x}.{z}.bin`, im
-  selben Format, mit denselben Zellen, `heightsCell`, `minY` und `maxY`.
-  Er ist für Formen auf dem Gelände, die Koordinaten nehmen weiter
-  `heights`. Warum: [0103](../entscheidungen/0103-boden-ohne-laub.md).
-  - **Wert:** je Zelle der obere Median wie oben, aber je Spalte der
-    oberste Block, der Bewegung aufhält oder Flüssigkeit hält und kein
-    Laub ist. Über Wasser also die Oberfläche, im Wald der Boden unter den
-    Kronen; Gras und Blumen zählen nicht, Stämme schon.
+  `map.json` nennt ihn als `ground`, etwa `../ground/{x}.{z}.bin`. Er ist
+  für Formen auf dem Gelände, die Koordinaten nehmen weiter `heights`.
+  Warum, und warum je Block: [0103](../entscheidungen/0103-boden-ohne-laub.md).
+  - **Inhalt:** ein zlib-Strom wie bei den Höhen, Werte i16 little-endian,
+    zeilenweise nach z, −32768 ohne Block oder ohne Chunk; `minY` und
+    `maxY` gelten mit. Aber je Block: `groundCell` ist 1, eine Region hat
+    512 × 512 Werte, und die Spalte (x, z) liegt an
+    (z − 512·rz)·512 + (x − 512·rx).
+  - **Wert:** je Spalte der oberste Block, der Bewegung aufhält oder
+    Flüssigkeit hält und kein Laub ist. Über Wasser also die Oberfläche,
+    im Wald der Boden unter den Kronen; Gras und Blumen zählen nicht,
+    Stämme schon.
   - **Quelle:** die Heightmap `MOTION_BLOCKING_NO_LEAVES`, die das Spiel
     wie `WORLD_SURFACE` in jedem fertigen Chunk speichert, `Chunk::ground`.
     Fehlt sie einem Chunk, gilt für ihn die Oberfläche.

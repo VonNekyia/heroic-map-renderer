@@ -453,7 +453,7 @@ pub const ZEICHENSTAND: u32 = 2;
 /// FNV-1a über die Goldbilder dieses Zeichenstands, siehe
 /// `zeichenstand_folgt_den_goldbildern`.
 #[cfg(test)]
-const GOLDBILDER: u64 = 0xc594_d75d_35a4_1b49;
+const GOLDBILDER: u64 = 0x864e_a451_e6ea_feea;
 
 /// Eine eingebaute Tabelle aus `src/assets`: ihr Name und ihr Inhalt aus
 /// derselben Datei.

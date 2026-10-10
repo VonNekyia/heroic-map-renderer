@@ -74,6 +74,9 @@ frei.
   Stück von 1024 × 1024 Pixeln, dazu 4 Byte je Draw.
 - **Die Karte mit Texturen** wird weder langsamer noch anders: Sie nimmt
   den Weg mit Relief nie.
+- **Gemessen** am 10.10. über die ganze Testwelt: 35 % weniger Zeit,
+  ×0,087 Platz, an der Spitze rund 1,3-mal der Speicher der Karte, siehe
+  [2026-10-10, Einfarbige Ansicht](../messungen/2026-10-10-einfarbige-ansicht.md).
 
 ## Verworfene Alternativen
 

@@ -116,9 +116,10 @@ pub fn render_area(
 pub const STUECK: u32 = 1024;
 
 /// Wie hoch die einfarbige Ansicht ein Band zeichnet, in Pixeln: vier
-/// Zeilen Chunks. Bei scale 1 deckt eine Kachel 16 × 16 Chunks; Band für
-/// Band behält der Cache nur das laufende und das vorige, denn jedes Band
-/// beginnt in [`ChunkCache`] wie eine Kachel.
+/// Zeilen Chunks. Jedes Band beginnt in [`ChunkCache`] wie eine Kachel. Mit
+/// `--tiles`, wo eine Kachel bei scale 1 16 × 16 Chunks deckt, behält der
+/// Cache so nur das laufende und das vorige Band; in [`render_area`] so
+/// viele Bänder, wie eine Zeile Stücke hat.
 /// Siehe docs/renderer/renderpfad.md, „Speicher“.
 const FLACH_BAND: u32 = 64;
 

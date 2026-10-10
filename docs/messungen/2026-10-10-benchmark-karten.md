@@ -21,6 +21,10 @@ das ein Faktor von rund 80.
 
 ## Aufbau
 
+- **Gemessene Fassungen:** Heroic v0.3.0 (Commit d5b7f9e) als CLI und das
+  Plugin 0.1.0, dem dieselbe CLI v0.3.0 als Renderer gesetzt war. Beim
+  Beginn der Messung gab es schon die CLI v0.4.0 und v0.5.0 und neuere
+  Plugins. Spätere Fassungen sind nicht gemessen.
 - **Messrechner:** AMD Ryzen 9 5900X, 12 Kerne, 24 Threads, 32 GiB RAM,
   NVMe-SSD Samsung 970 EVO Plus, Windows 11. Der Ordner der Messung ist
   vom Echtzeitschutz ausgenommen.
@@ -162,8 +166,9 @@ Einzelheiten:
   Blöcken einzelne Pixel durchsichtig.
   - Auf 5k sind es 75, das sind 0,00002 % der Pixel. Auf 15k fehlen rund
     770.
-  - An Zeit, RAM und Platz ändert das nichts. Es ist ein Fehler im
-    Renderer.
+  - An Zeit, RAM und Platz ändert das nichts.
+  - Die Pixel kommen von Mangrovenwurzeln. Behoben ist das in #245
+    (Issue #243); gemessen war vorher.
 - **Streuung:** Die drei Läufe je Werkzeug liegen bei der Zeit höchstens
   10 % auseinander, beim RAM höchstens 11 %, beim Platz gar nicht.
 
@@ -179,6 +184,10 @@ Einzelheiten:
   | Dynmap `flat` | 0,7 bis 1,5 |
   | squaremap | 1,1 bis 1,3 |
 
+- **Zeit bei gleicher Fläche:** Pl3xMap und squaremap sind schneller als
+  Heroic, auf 15k 113 und 245 s gegen 320 s, denn sie zeichnen ein
+  Sechzehntel der Pixel. Dynmap `flat` ist bei gleicher Fläche das
+  langsamste Werkzeug, auf 15k 2 586 s.
 - **RAM:** Heroic braucht am wenigsten, 1,1 bis 1,5 GiB. squaremap,
   Pl3xMap und Dynmap liegen bei 3 bis 6,5 GiB über dem Leerlauf.
 - **Platz je Million Pixel:** squaremap liegt vorn, es speichert eine Farbe
@@ -191,6 +200,7 @@ Einzelheiten:
   | Dynmap `flat` | 0,96 bis 1,08 |
   | Heroic ohne `--compact` | 1,17 bis 1,38 |
   | Pl3xMap | 1,55 bis 1,95 |
+
 - **Grenzen:**
   - 1k fehlt noch nach dieser Methode, im Pilot liefen andere Fenster.
   - Auf 15k lief je Werkzeug ein Lauf.

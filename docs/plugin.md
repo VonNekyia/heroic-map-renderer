@@ -84,7 +84,7 @@ dem Plugin-Programmierer ab.
   der Status wieder den ganzen Text, und das Plugin zieht nach. Seit
   [0098](entscheidungen/0098-der-zeichenstand-statt-des-builds.md) kommt
   die Zeile nur nach einem Release mit anderem Zeichenstand oder anderen
-  Tabellen. Ein Stand von v0.5.0 gilt als Zeichenstand 1, solange
+  Tabellen. Ein Stand von v0.4.0 oder v0.5.0 gilt als Zeichenstand 1, solange
   Zeichenstand und Tabellen die von v0.5.0 sind; ob ein Release einen
   vollen Lauf verlangt, steht in seinen Notizen.
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel

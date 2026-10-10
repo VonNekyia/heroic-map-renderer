@@ -483,9 +483,15 @@ const TABELLEN: [(&str, &str); 12] = [
 pub const ZEICHENSTAND_1: u64 = 0xb3b0_d74c_abbd_d7c0;
 
 /// Die Fingerabdrücke der ausführbaren Dateien alter Builds, FNV-1a über
-/// die Datei, aus den Archiven des Release: v0.5.0 für Linux und Windows.
-/// Sie zeichnen wie [`ZEICHENSTAND_1`].
-pub const ALTE_BUILDS: &[u64] = &[0x7640_47ed_91a4_0173, 0x35b7_4919_7aa9_e79f];
+/// die Datei, je für Linux und Windows: v0.5.0 aus den Archiven des
+/// Release, v0.4.0 aus den Paketen seines Release-Laufs. Sie zeichnen wie
+/// [`ZEICHENSTAND_1`].
+pub const ALTE_BUILDS: &[u64] = &[
+    0x7640_47ed_91a4_0173,
+    0x35b7_4919_7aa9_e79f,
+    0x8b8d_0bc0_5c11_2623,
+    0xf0d3_af7b_daef_21a9,
+];
 
 /// Der Fingerabdruck des Renderers: FNV-1a über den Zeichenstand und die
 /// eingebauten Tabellen, je Tabelle ihr Name und ihre Zeilen ohne `\r`. Ein

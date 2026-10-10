@@ -77,9 +77,12 @@ sagt dann „neuer Renderer: erst /heroicmap render“ (#232).
   - Ein gehobener Zeichenstand kodiert so keine Kachel neu, deren Pixel
     gleich bleiben.
 - **Stände alter Builds:** `ALTE_BUILDS` in `stand.rs` hält die
-  Fingerabdrücke der ausführbaren Dateien von v0.5.0 für Linux und Windows,
-  gerechnet aus den Archiven des Release. Unter `renderer/` änderte sich
-  zwischen v0.5.0 und dieser Entscheidung nichts.
+  Fingerabdrücke der ausführbaren Dateien von v0.4.0 und v0.5.0 für Linux
+  und Windows. Die von v0.5.0 sind aus den Archiven des Release gerechnet;
+  der für Windows gleicht dem in zwei `stand.bin`, die v0.5.0 schrieb. Von
+  v0.4.0 gibt es kein Release mehr; seine Abdrücke stammen aus den Paketen
+  seines Release-Laufs. Unter `renderer/` änderte sich zwischen v0.4.0 und
+  dieser Entscheidung nur die Version.
   - Ein Stand mit einem davon gilt als `ZEICHENSTAND_1`, eingefroren: der
     Fingerabdruck von Zeichenstand 1 mit den Tabellen von v0.5.0
     (`als_zeichenstand`). Er gilt also nur, solange Zeichenstand und
@@ -87,8 +90,6 @@ sagt dann „neuer Renderer: erst /heroicmap render“ (#232).
     jeder andere.
   - Ein Block unter `pixel/` mit einem davon gilt als Kodierstand 1.
   - Der nächste Lauf schreibt den neuen Wert.
-  - Von v0.4.0 gibt es kein Release mehr. Es zeichnet wie v0.5.0; seine
-    Stände verlangen einen vollen Lauf.
 - **Releases:** Die Notizen eines Release sagen, ob ein voller Lauf kommt:
   ob sich seit dem letzten Tag `ZEICHENSTAND` oder eine Tabelle geändert
   hat, siehe [0082](0082-versionen-und-releases.md), „Folgen“.

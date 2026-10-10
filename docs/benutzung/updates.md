@@ -310,8 +310,8 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
   Zeichnen nichts ändert, verlangt keinen vollen Lauf. Wann der
   Zeichenstand steigt, steht in
   [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
-  - **Ein Stand von v0.5.0** trägt noch den Fingerabdruck der ausführbaren
-    Datei für Linux oder Windows. Er gilt als Zeichenstand 1 mit den
+  - **Ein Stand von v0.4.0 oder v0.5.0** trägt noch den Fingerabdruck der
+    ausführbaren Datei für Linux oder Windows. Er gilt als Zeichenstand 1 mit den
     Tabellen von v0.5.0, `ZEICHENSTAND_1`: Ein Update nimmt ihn an, solange
     der Renderer noch so zeichnet, und schreibt dann den neuen
     (`update_nimmt_den_stand_alter_builds`). Ebenso ein angefangener Stand.

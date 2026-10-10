@@ -250,6 +250,38 @@ async function zeichneNadel(
   return leinwand;
 }
 
+/** Der Grund der Tafel ohne Alpha; gegen ihn muss ein Titel lesbar sein. */
+const TAFEL_GRUND = [16, 16, 20];
+
+/** Relative Leuchtdichte nach WCAG 2.1 aus Kanälen 0 bis 255. */
+function leuchtdichte(kanaele: readonly number[]): number {
+  const [r, g, b] = kanaele.map((k) => {
+    const s = k / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * Eine Titelfarbe, lesbar auf dem dunklen Grund: unter 3:1 gegen
+ * `TAFEL_GRUND` je Schritt s um 10 % mit Weiss gemischt, bis sie 3:1
+ * erreicht, in ganzen Zahlen ⌊(10·c + (255 − c)·s + 5) / 10⌋; Alpha bleibt.
+ * Siehe docs/benutzung/ebenen.md, „Infotafel“, „Aussehen“.
+ */
+function lesbar(farbe: string): string {
+  const c = [1, 3, 5].map((i) => Number.parseInt(farbe.slice(i, i + 2), 16));
+  const grund = leuchtdichte(TAFEL_GRUND);
+  for (let s = 0; s < 10; s++) {
+    const m = c.map((k) => Math.floor((10 * k + (255 - k) * s + 5) / 10));
+    const l = leuchtdichte(m);
+    if ((Math.max(l, grund) + 0.05) / (Math.min(l, grund) + 0.05) >= 3) {
+      return `#${m.map((k) => k.toString(16).padStart(2, '0')).join('').toUpperCase()}${farbe.slice(7)}`;
+    }
+  }
+  // Mit s = 10 ist sie Weiss, rund 17:1.
+  return `#FFFFFF${farbe.slice(7)}`;
+}
+
 /**
  * Baut die Infotafel aus ihren Bausteinen, nur als Text und Bilder vom
  * eigenen Server, nie als Markup. Unbekannte Bausteine übergeht sie, was über
@@ -306,7 +338,7 @@ export function tafel(bausteine: unknown[], ordner: string, v: string): HTMLElem
             const titel = L.DomUtil.create('div', 'tafel-titel');
             titel.textContent = baustein.text;
             const f = farbe(baustein.color);
-            if (f) titel.style.color = f;
+            if (f) titel.style.color = lesbar(f);
             return titel;
           }
           case 'lines': {

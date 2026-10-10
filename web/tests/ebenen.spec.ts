@@ -412,6 +412,22 @@ test('ein Klick auf eine Nadel öffnet die Tafel, ohne den Fokus hineinzuziehen'
   expect(await page.evaluate(() => document.activeElement?.closest('.tafel') !== null)).toBe(false);
 });
 
+test('ein Titel unter 3:1 auf dem dunklen Grund wird im selben Farbton aufgehellt, in Schritten von 10 % mit Weiss; ein heller bleibt', async ({ page }) => {
+  const titel = (id: string, at: [number, number], color: string) => ({ ...HAFEN, id, name: id, at, panel: { blocks: [{ type: 'title', text: id, color }] } });
+  await welt(page, staedte([titel('Blau', [30.5, -20.5], '#2B3A55'), titel('Gruen', [35.5, -14.5], '#40E53F'), titel('Schwarz', [40.5, -10.5], '#000000CC')]));
+  await page.goto(`${DEMO}&at=35,0,-15`);
+  const farbe = async (id: string) => {
+    await page.locator(`.nadel-icon[title="${id}"]`).click();
+    const f = await page.locator('.tafel .tafel-titel', { hasText: id }).evaluate((e) => getComputedStyle(e).color);
+    await page.keyboard.press('Escape');
+    return f;
+  };
+  // Nachgerechnet in docs/benutzung/ebenen.md, „Aussehen“: #2B3A55 nach zwei Schritten #556177 (3,04:1), #000000 nach vier #666666, Alpha bleibt.
+  expect(await farbe('Blau')).toBe('rgb(85, 97, 119)');
+  expect(await farbe('Gruen')).toBe('rgb(64, 229, 63)');
+  expect(await farbe('Schwarz')).toBe('rgba(102, 102, 102, 0.8)');
+});
+
 /** Wie viele Tafeln offen sind; eine schliessende blendet mit Deckkraft 0 aus. */
 const offeneTafeln = (page: Page) => page.locator('.tafel').evaluateAll((l) => l.filter((e) => (e as HTMLElement).style.opacity !== '0').length);
 

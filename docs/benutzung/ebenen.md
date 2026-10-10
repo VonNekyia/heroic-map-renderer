@@ -428,9 +428,22 @@ Webkarte wäre eine Lücke für Skripte.
   - Rahmen aussen 1 Pixel `#000000`, innen 1 Pixel `#3A3A44`, die Ecken
     kaum gerundet;
   - Schrift `#D9D9D9`, ein Titel fett, mit eigener `color` in dieser.
-    Gegen den dunklen Grund prüft keine Ansicht den Kontrast einer
-    `color`: Eine dunkle Farbe wählt der Besitzer der Ebene auf eigene
-    Gefahr.
+  - **Ein Titel bleibt lesbar:** Liegt der Kontrast seiner `color` gegen
+    den Grund ohne Alpha, `#101014`, unter 3:1, hellt die Ansicht sie im
+    selben Farbton auf. So bleibt eine Nation an ihrer Farbe erkennbar.
+    Beide Ansichten rechnen genau so:
+    1. Kontrast nach WCAG 2.1: `(L1 + 0,05) / (L2 + 0,05)`, `L` die
+       relative Leuchtdichte, je Kanal `s = c / 255`,
+       `s / 12,92` bis 0,03928, sonst `((s + 0,055) / 1,055)^2,4`,
+       gewichtet 0,2126, 0,7152 und 0,0722.
+    2. Für s = 0, 1, 2 … 10 je Kanal `⌊(10 · c + (255 − c) · s + 5) / 10⌋`,
+       also um s · 10 % mit Weiss gemischt, auf ganze Zahlen gerundet.
+       Das erste Ergebnis mit 3:1 oder mehr gilt; s = 10 ist Weiss.
+    3. Alpha bleibt, wie es war.
+
+    Beispiele: `#2B3A55` wird nach zwei Schritten `#556177` (3,04:1),
+    `#000000` nach vier `#666666`; `#40E53F` (11,3:1) und `#D9443A`
+    (4,37:1) bleiben.
 - **Schrift:** eine schlichte, gut lesbare Schrift der Oberfläche, nie die
   Kartenschrift: auf der Webkarte die der UI, im Mod die des Spiels. Die
   Grössen in der Tabelle gelten für die Webkarte; der Mod nimmt die Grösse

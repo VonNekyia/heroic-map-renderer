@@ -458,7 +458,9 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
   - ohne Tafel kein Ziel für Maus und Tastatur.
 - **Infotafel:** ein Popup von Leaflet, gebaut nur aus Elementen mit
   `textContent` und Bildern unter `images/` der Ebene, dunkel wie im Mod
-  nach [Ebenen](benutzung/ebenen.md), „Infotafel“, in der Schrift der UI.
+  nach [Ebenen](benutzung/ebenen.md), „Infotafel“, in der Schrift der UI;
+  Titelfarben unter 3:1 hellt `lesbar` in `ebenen.ts` nach der Regel dort
+  auf.
   Höchstens 320 Pixel breit und 70 % des Fensters hoch, darüber
   scrollt sie. Bei Nadel und Banner steht sie über dem Icon, bei einer
   Fläche über dem Ort, an dem der Zeiger ruht.

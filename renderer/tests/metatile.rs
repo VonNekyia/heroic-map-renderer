@@ -2194,11 +2194,13 @@ fn goldbild_bleibt_gleich() {
         ));
     }
     // Die einfarbige Ansicht über die ganze Szene, ein Pixel je Block.
+    // Eigene Namen: `survey` und `assets` ruft der Teil danach noch als
+    // Funktionen.
     let projection = flach();
-    let survey = survey(&world, projection, common::SZENE_Y, None).unwrap();
-    let mut assets = assets();
-    assets.load_biomes(&common::biomdaten()).unwrap();
-    let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+    let flach_survey = survey(&world, projection, common::SZENE_Y, None).unwrap();
+    let mut flach_assets = assets();
+    flach_assets.load_biomes(&common::biomdaten()).unwrap();
+    let sprites = SpriteSet::build_in(&mut flach_assets, &flach_survey.states, projection).unwrap();
     let rect = ScreenRect {
         x: 0,
         y: 0,

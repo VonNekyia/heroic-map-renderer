@@ -7339,9 +7339,15 @@ fn flat_ist_ein_eigener_baum() {
         assert!(!ausgabe.status.success(), "{extra:?}");
         String::from_utf8_lossy(&ausgabe.stderr).into_owned()
     };
-    for extra in [&["--scale", "1"][..], &["--scale", "1", "--camera", "top-north"]] {
+    for extra in [
+        &["--scale", "1"][..],
+        &["--scale", "1", "--camera", "top-north"],
+    ] {
         let meldung = abgelehnt(extra);
-        assert!(meldung.contains("1 ist kleiner als 4"), "{extra:?}: {meldung}");
+        assert!(
+            meldung.contains("1 ist kleiner als 4"),
+            "{extra:?}: {meldung}"
+        );
     }
     for extra in [
         &["--flat", "--scale", "4"][..],
@@ -7351,6 +7357,9 @@ fn flat_ist_ein_eigener_baum() {
         &["--flat", "--native-levels", "0"],
     ] {
         let meldung = abgelehnt(extra);
-        assert!(meldung.contains("cannot be used with"), "{extra:?}: {meldung}");
+        assert!(
+            meldung.contains("cannot be used with"),
+            "{extra:?}: {meldung}"
+        );
     }
 }

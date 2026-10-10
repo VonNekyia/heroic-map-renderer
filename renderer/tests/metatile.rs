@@ -5918,7 +5918,12 @@ fn flach() -> Projection {
 
 /// Rendert die Chunks einer Welt in der einfarbigen Ansicht, über das
 /// Rechteck der Blöcke `x0..x0 + 16 × breite`, `z0..z0 + 16`.
-fn flach_bild(world: &World, sprites: &SpriteSet, (x0, z0): (i32, i32), breite: u32) -> (RgbaImage, ScreenRect) {
+fn flach_bild(
+    world: &World,
+    sprites: &SpriteSet,
+    (x0, z0): (i32, i32),
+    breite: u32,
+) -> (RgbaImage, ScreenRect) {
     let rect = ScreenRect {
         x: x0,
         y: z0,
@@ -5952,7 +5957,11 @@ const TIEF: u32 = 180;
 fn flach_ist_das_mittel_der_oberseite() {
     let dir = tempdir();
     common::write_world(dir.path(), &[(0, 0)], |_, y, _| {
-        if y == 0 { "minecraft:stone" } else { "minecraft:air" }
+        if y == 0 {
+            "minecraft:stone"
+        } else {
+            "minecraft:air"
+        }
     });
     let world = World::open(dir.path()).unwrap();
     let sprites = tabelle(&mut assets(), &world, flach());
@@ -5966,10 +5975,18 @@ fn flach_ist_das_mittel_der_oberseite() {
     .into_rgba8();
     let linear = |c: u8| {
         let c = f64::from(c) / 255.0;
-        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
     };
     let srgb = |l: f64| {
-        let c = if l <= 0.0031308 { l * 12.92 } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 };
+        let c = if l <= 0.0031308 {
+            l * 12.92
+        } else {
+            1.055 * l.powf(1.0 / 2.4) - 0.055
+        };
         (c * 255.0).round() as u8
     };
     let n = f64::from(textur.width() * textur.height());
@@ -5999,8 +6016,20 @@ fn flach_toent_nach_dem_biom() {
     common::write_world_in(
         dir.path(),
         &[(0, 0), (1, 0)],
-        |_, y, _| if y == 0 { "minecraft:grass_block" } else { "minecraft:air" },
-        |cx, _| Some(if cx == 0 { "minecraft:plains" } else { "minecraft:frozen" }),
+        |_, y, _| {
+            if y == 0 {
+                "minecraft:grass_block"
+            } else {
+                "minecraft:air"
+            }
+        },
+        |cx, _| {
+            Some(if cx == 0 {
+                "minecraft:plains"
+            } else {
+                "minecraft:frozen"
+            })
+        },
     );
     let world = World::open(dir.path()).unwrap();
     let sprites = tabelle_mit_biomen(&world, flach(), 0);
@@ -6031,7 +6060,11 @@ fn flach_wasser_ueber_grund_ohne_relief() {
     let bild = flach_bild(&world, &sprites, (0, 0), 1);
     let roh = render_area_without_culling(&world, &sprites, bild.1, Y_RANGE).unwrap();
     let roh = |x: i32, z: i32| roh.get_pixel(x as u32, z as u32).0;
-    assert_eq!(flach_pixel(&bild, 3, 8), in_helligkeit(roh(3, 8), EBEN), "Wasser am Ufer");
+    assert_eq!(
+        flach_pixel(&bild, 3, 8),
+        in_helligkeit(roh(3, 8), EBEN),
+        "Wasser am Ufer"
+    );
     assert_ne!(roh(3, 12), roh(3, 4), "Wasser über Stein");
     assert_eq!(roh(3, 12)[3], 255);
     assert_eq!(flach_pixel(&bild, 11, 8), roh(11, 8), "Stein an der Stufe");
@@ -6053,7 +6086,11 @@ fn flach_relief_nach_norden() {
             12.. => 1,
             _ => 0,
         };
-        if y <= oben { "minecraft:stone" } else { "minecraft:air" }
+        if y <= oben {
+            "minecraft:stone"
+        } else {
+            "minecraft:air"
+        }
     });
     let world = World::open(dir.path()).unwrap();
     let sprites = tabelle(&mut assets(), &world, flach());
@@ -6062,11 +6099,27 @@ fn flach_relief_nach_norden() {
     let roh = |x: i32, z: i32| roh.get_pixel(x as u32, z as u32).0;
     for x in 0..16 {
         assert_eq!(flach_pixel(&bild, x, 4), roh(x, 4), "hinauf, x {x}");
-        assert_eq!(flach_pixel(&bild, x, 5), in_helligkeit(roh(x, 5), EBEN), "eben oben, x {x}");
-        assert_eq!(flach_pixel(&bild, x, 8), in_helligkeit(roh(x, 8), TIEF), "hinab, x {x}");
-        assert_eq!(flach_pixel(&bild, x, 2), in_helligkeit(roh(x, 2), EBEN), "eben unten, x {x}");
+        assert_eq!(
+            flach_pixel(&bild, x, 5),
+            in_helligkeit(roh(x, 5), EBEN),
+            "eben oben, x {x}"
+        );
+        assert_eq!(
+            flach_pixel(&bild, x, 8),
+            in_helligkeit(roh(x, 8), TIEF),
+            "hinab, x {x}"
+        );
+        assert_eq!(
+            flach_pixel(&bild, x, 2),
+            in_helligkeit(roh(x, 2), EBEN),
+            "eben unten, x {x}"
+        );
         let f = if (x + 12) % 2 == 1 { 255 } else { EBEN };
-        assert_eq!(flach_pixel(&bild, x, 12), in_helligkeit(roh(x, 12), f), "ein Block, x {x}");
+        assert_eq!(
+            flach_pixel(&bild, x, 12),
+            in_helligkeit(roh(x, 12), f),
+            "ein Block, x {x}"
+        );
     }
     // Das Bild beginnt an der Stufe bei z = 4: Ihr Nachbar im Norden liegt
     // ausserhalb, und sie bleibt hell.

@@ -96,9 +96,10 @@ pub struct Args {
     #[arg(long, value_name = "DATEI")]
     sprite: Option<PathBuf>,
 
-    /// Pixelbreite eines Blocks; jede Blockecke muss bei der Kamera auf
+    /// Pixelbreite eines Blocks, ab 4; jede Blockecke muss bei der Kamera auf
     /// ganzen Pixeln liegen, bei 2:1 heisst das ein Vielfaches von 4.
-    /// Vorgabe 32, bei top-north und north-45 16
+    /// Vorgabe 32, bei top-north und north-45 16; einen Pixel je Block gibt
+    /// es nur mit --flat
     #[arg(long, value_parser = parse_scale)]
     scale: Option<u32>,
 
@@ -595,7 +596,10 @@ pub fn run() -> Result<()> {
     // Vor allem anderen: Ohne ganze Pixel geht keine Kachel.
     let (kamera, scale) = match args.flat {
         true => (Kamera::ObenNord, 1),
-        false => (args.camera, args.scale.unwrap_or(args.camera.vorgabe_scale())),
+        false => (
+            args.camera,
+            args.scale.unwrap_or(args.camera.vorgabe_scale()),
+        ),
     };
     let richtung = match &args.direction {
         None => Richtung::default(),
@@ -871,45 +875,44 @@ pub fn run() -> Result<()> {
                 (false, true) => Some("die einfarbige Ansicht"),
                 (false, false) => None,
             };
-            let export =
-                oeffne_gpu(args.gpu, nur_cpu, args.threads.is_none()).and_then(|karte| {
-                    let bereich = match args.size {
-                        _ if args.update => Bereich::Update,
-                        Some(size) => Bereich::Ausschnitt(window(projection, center, size)),
-                        None => Bereich::Welt,
-                    };
-                    let wurzeln: Vec<PathBuf> = asset_wurzeln
-                        .iter()
-                        .chain(&daten_wurzeln)
-                        .cloned()
-                        .collect();
-                    let export = write_tiles(
-                        world,
-                        assets.as_mut().expect("oben geprüft"),
-                        projection,
-                        bereich,
-                        &wurzeln,
-                        dir,
-                        args.native_levels,
-                        args.prune,
-                        args.resume,
-                        karte.as_ref(),
-                        args.biome_blend,
-                        args.compact,
-                        args.cinematic.then_some(LOOK),
-                        args.manifest,
-                    );
-                    // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
-                    // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
-                    // endete nie. Sie aufzuräumen bleibt dem System.
-                    if karte
-                        .as_ref()
-                        .is_some_and(|karte| karte.aus.load(Ordering::Relaxed))
-                    {
-                        std::mem::forget(karte);
-                    }
-                    export
-                });
+            let export = oeffne_gpu(args.gpu, nur_cpu, args.threads.is_none()).and_then(|karte| {
+                let bereich = match args.size {
+                    _ if args.update => Bereich::Update,
+                    Some(size) => Bereich::Ausschnitt(window(projection, center, size)),
+                    None => Bereich::Welt,
+                };
+                let wurzeln: Vec<PathBuf> = asset_wurzeln
+                    .iter()
+                    .chain(&daten_wurzeln)
+                    .cloned()
+                    .collect();
+                let export = write_tiles(
+                    world,
+                    assets.as_mut().expect("oben geprüft"),
+                    projection,
+                    bereich,
+                    &wurzeln,
+                    dir,
+                    args.native_levels,
+                    args.prune,
+                    args.resume,
+                    karte.as_ref(),
+                    args.biome_blend,
+                    args.compact,
+                    args.cinematic.then_some(LOOK),
+                    args.manifest,
+                );
+                // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
+                // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
+                // endete nie. Sie aufzuräumen bleibt dem System.
+                if karte
+                    .as_ref()
+                    .is_some_and(|karte| karte.aus.load(Ordering::Relaxed))
+                {
+                    std::mem::forget(karte);
+                }
+                export
+            });
             // Auch nach einem Fehler: Der Befehl vom Anfang steht nach
             // Stunden weit oben.
             if ausnahme {

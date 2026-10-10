@@ -100,7 +100,9 @@ Negative Kachelkoordinaten sind damit kein Sonderfall. Die Felder von
 Über die feinste gerenderte Stufe hinaus sind zwei weitere Zoomstufen
 erlaubt. Dort vergrössert Leaflet nur noch die vorhandenen Kacheln
 (`maxNativeZoom`), und `image-rendering: pixelated` hält die Pixelkunst
-scharf, statt sie zu verwischen.
+scharf, statt sie zu verwischen. Die einfarbige Ansicht hat scale 1, ein
+Pixel je Block; mit den zwei Stufen sind es höchstens 4 Pixel je Block,
+siehe [Die einfarbige Ansicht](renderer/einfarbig.md).
 
 Nach unten geht es unter Zoom 0, wenn die ganze Karte dort nicht ins
 Fenster passt, etwa nachdem die Welt gewachsen ist. Dann verkleinert

@@ -195,7 +195,15 @@ fn render_flach(
     let mut oben = vec![None; gross.width as usize * gross.height as usize];
     // Von vorn nach hinten: Der erste Draw an einem Pixel ist sein oberster.
     for (&(sprite, origin, ref sicht, _), &y) in chunks.sichtbar.iter().zip(&chunks.flachdaten) {
-        merke_oben(&mut oben, gross.width as usize, sprite, origin, sicht, &deckung.vis, y);
+        merke_oben(
+            &mut oben,
+            gross.width as usize,
+            sprite,
+            origin,
+            sicht,
+            &deckung.vis,
+            y,
+        );
     }
     for &(sprite, origin, ref sicht, licht) in chunks.sichtbar.iter().rev() {
         blit_sichtbar(&mut canvas, sprite, origin, licht, sicht, &deckung.vis);
@@ -231,10 +239,14 @@ fn merke_oben(
                     .tint
                     .as_deref()
                     .is_some_and(|karte| karte[2 * i + 1] != 0);
-                match &mut oben[y as usize * cw + x] {
-                    frei @ None => *frei = Some((y_block, wasser)),
-                    Some((h, nass)) if *h == y_block => *nass |= wasser,
-                    Some(_) => {}
+                let platz = &mut oben[y as usize * cw + x];
+                match platz {
+                    None => *platz = Some((y_block, wasser)),
+                    Some((h, nass)) => {
+                        if *h == y_block {
+                            *nass |= wasser;
+                        }
+                    }
                 }
             }
         }

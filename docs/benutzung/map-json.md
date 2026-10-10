@@ -69,7 +69,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `heights` | Pfadmuster der Höhen je Region, relativ zum Baum; fehlt es, hat der Baum keine | „Höhen“ unten |
 | `heightsCell` | Kantenlänge einer Zelle der Höhen in Blöcken, heute 4; steht mit `heights` | „Höhen“ unten |
 | `minY`, `maxY` | unterster und oberster Block, den der Renderer zeichnet; stehen mit `heights` | „Höhen“ unten |
-| `look` | `"map"` die Karte oder `"cinematic"`; fehlt es, die Karte | „Look“ unten |
+| `look` | `"map"` die Karte, `"cinematic"` oder `"flat"`; fehlt es, die Karte | „Look“ unten |
 | `lookHash` | Fingerabdruck der Werte von Cinematic, 16 Hexziffern; nur mit `"cinematic"` | „Look“ unten |
 | `seaLevel` | Wasserspiegel der Dimension in Blöcken, oder `null` | „Die Welt“ unten |
 | `area` | das Rechteck der Welt, das der Baum zeichnet, `[x0, z0, x1, z1]` in Blöcken | „Die Welt“ unten |
@@ -403,7 +403,9 @@ etwa das Tablett, nutzen sie; der Renderer weiss nichts von ihnen.
 ## Look
 
 `look` sagt, wie der Baum zeichnet: `"map"` die Karte, `"cinematic"` mit
-`--cinematic`, siehe [Cinematic](../renderer/cinematic.md). Jeder Export
+`--cinematic`, siehe [Cinematic](../renderer/cinematic.md), `"flat"` mit
+`--flat`, `top-north` bei scale 1, siehe
+[Die einfarbige Ansicht](../renderer/einfarbig.md). Jeder Export
 schreibt es, auch für die Karte. Fehlt es, stammt der Baum aus einem Stand
 vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
 

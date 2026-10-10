@@ -544,9 +544,9 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
   - die Punkte ungerundet aus `map.project`, so springt kleine Schrift nicht
     zwischen ganzen Pixeln;
   - der Pfad: abgetastet wie ein Rand, die Höhen über 32 Blöcke gemittelt.
-    Läuft er auf dem Schirm nach links, kehrt er um; ist er kürzer als der
-    Text, geht er an beiden Enden weiter; ein einzelner Punkt heisst
-    waagrecht.
+    Richtung und Verlängerung wie in [Ebenen](benutzung/ebenen.md),
+    „Kartenschrift“ unter „Zeichnen“, ein einzelner Punkt wie beim Feld
+    `path`.
 - **Im Skin Tablett** tragen Liste, Namen und Tafel die Farben der UI;
   Kontrast und Platz prüft `skins/tablett/tests/marmor.spec.ts`.
 

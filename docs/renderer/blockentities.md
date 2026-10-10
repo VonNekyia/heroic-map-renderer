@@ -1,6 +1,6 @@
 ---
 title: Blockentities
-description: Wie der Renderer Truhen, Shulkerkisten, Banner, Köpfe, Krüge und die übrigen Blöcke mit Blockentity-Renderer aus den Modellen des Spiels zeichnet, in welchem Licht, wie Bannermuster und Scherben aus dem Chunk dazukommen und wie ein Banner ohne Welt zum Sprite für die Ebenen wird.
+description: Wie der Renderer Truhen, Shulkerkisten, Banner, Köpfe, Krüge und die übrigen Blöcke mit Blockentity-Renderer aus den Modellen des Spiels zeichnet, in welchem Licht, wie Bannermuster und Scherben aus dem Chunk dazukommen und wie ein Banner ohne Welt, auch mit Krone, zum Sprite für die Ebenen wird.
 code:
   - renderer/src/assets/blockentity.rs
   - renderer/src/assets/Blockentities.java
@@ -11,7 +11,9 @@ code:
   - renderer/src/render/metatile.rs
   - renderer/src/render/tiles.rs
   - renderer/src/render/banner.rs
+  - renderer/src/render/krone.png
   - renderer/tests/banner.rs
+  - docs/bilder/quellen/krone/krone.aseprite
   - renderer/src/cli.rs
 ---
 
@@ -194,7 +196,9 @@ siehe [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
 
 - **Wie:** dieselben Sprites wie im Baum, ein Zustand
   `<grundfarbe>_banner` mit seinen Lagen als Blockentity, siehe
-  „Banner“ oben. `render_familie` in
+  „Banner“ oben. `SpriteSet::familie_aus` rastert die Modelle mit Lagen und,
+  für eine Hauptstadt, Krone; anders als `add_entities` darf die Familie
+  über die Form des Blocks hinausragen. `render_familie` in
   [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)
   legt alle Teile der Familie, auch die in den Würfeln darüber, nach Höhe
   und Tiefe auf eine Leinwand, die gerade alle fasst.
@@ -226,9 +230,18 @@ siehe [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
   Winkel der Unterkante des Tuchs aus der Strecke eines Blocks quer zum
   Blick, schräg `atan(H / W)`, genordet 0°.
 - **Grösse,** gemessen am 10.10. mit `banner_massstab_winkel_und_grenze`,
-  Breite × Höhe: `2:1` 23 × 51, `4:3` 23 × 57, `1:1` 23 × 63, `north-45`
-  20 × 46. Alle bleiben unter der Grenze von 32 × 64 aus
-  [Ebenen](../benutzung/ebenen.md), „Grenzen“.
+  Breite × Höhe ohne und mit Krone:
+
+  | Kamera | ohne Krone | mit Krone |
+  |---|---|---|
+  | `2:1` | 23 × 51 | 23 × 54 |
+  | `4:3` | 23 × 57 | 23 × 58 |
+  | `1:1` | 23 × 63 | 23 × 63 |
+  | `north-45` | 20 × 46 | 20 × 55 |
+
+  Alle bleiben unter der Grenze von 32 × 64 aus
+  [Ebenen](../benutzung/ebenen.md), „Grenzen“. In `1:1` ragt das Ende des
+  schrägen Querholzes höher als die Krone.
 - **Gleich in jeder Richtung:** Weil sich die Drehung mit der Richtung
   dreht, gibt jede Richtung einer Kamera dieselbe Form mit demselben Fuss
   und Winkel; nur die Schattierung der Seiten folgt der Welt
@@ -238,6 +251,44 @@ siehe [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
 - **Goldbilder** unter `renderer/tests/fixtures/golden-banner`, getrennt von
   denen der Bäume: Ändert sich eines, steigt `BANNERSTAND`, nicht der
   Zeichenstand eines Looks (`bannerstand_folgt_den_goldbildern`).
+
+#### Die Krone
+
+Mit `krone` setzt `zeichne` eine Krone auf das Banner, für eine Hauptstadt,
+siehe [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md),
+„Die Krone“. Nichts davon stammt aus dem Spiel.
+
+- **Modell:** `KRONE` in
+  [`banner.rs`](../../renderer/src/render/banner.rs), in Pixeln des
+  Modells: ein Reif von 8 × 3 × 8 aus vier Wänden, 1 dick, und je Seite
+  mittig eine Zacke von 2 × 3 × 1, zusammen 6 hoch. Die Quader nimmt
+  `box_quads`, so passen Umlaufsinn, Normale und Texturrichtung wie bei
+  jedem gebackenen Modell.
+- **Lage:** mittig auf dem Querholz, im Raum und in der Lage des
+  Bannermodells, also um 2/3 verkleinert und mit dem Banner gedreht. Die
+  Krone steht um 90° gedreht, Wahl des Users am ersten Goldbild: Zur Seite
+  des Tuchs mit den Mustern zeigt ihre Seite mit dem Saphir, die mit dem
+  Rubin nach links und rechts. `blockentity::erste_form`
+  liefert die Lage, die Oberkante von Stange und Querholz, im Raum des
+  Modells bei y = −44/16, und deren Schicht `entity_solid`
+  (`krone_auf_dem_querholz`).
+- **Textur:** [`krone.png`](../../renderer/src/render/krone.png), 16 × 16,
+  eigene Pixelkunst, deckend, eingebunden als Textur `#krone` ohne Datei
+  in den Packs (`Assets::eigene_textur`). Licht und Schatten sind gemalt;
+  die Helligkeit der Seiten gibt der Renderer dazu wie dem Querholz.
+- **Bereiche:** als Konstanten in `banner.rs`, die Aussenseiten vorn und
+  hinten mit Rubin, links und rechts mit Saphir, innen, oben und die
+  Zacken. Liegt ein Bereich quer zu seiner Seite, dreht er mit. Die Enden
+  der Wände vorn und hinten nehmen die Spalte am Rand ihrer Aussenseite,
+  so läuft sie um die Ecke.
+- **Quelle:**
+  [`docs/bilder/quellen/krone/krone.aseprite`](../bilder/quellen/krone/krone.aseprite)
+  mit den Bereichen als Slices. `aseprite -b
+  docs/bilder/quellen/krone/krone.aseprite --save-as
+  renderer/src/render/krone.png` gibt `krone.png` Pixel für Pixel.
+- **Nur oben:** Unter dem Querholz bleibt das Banner Pixel für Pixel
+  gleich, um den Fuss ausgerichtet, Winkel und Fuss im Bild bleiben
+  (`krone_aendert_nur_oben`).
 
 ### Krug
 

@@ -89,7 +89,7 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `renderer/tests/assets.rs` | den Asset-Layer am synthetischen Assetbaum |
 | `renderer/tests/render.rs` | Projektion, Baking und Rasterizer zusammen: von der Blockstate bis zu den Pixeln des Sprites |
 | `renderer/tests/metatile.rs` | ganze Welten im Speicher, gerendert, samt Goldbildern |
-| `renderer/tests/banner.rs` | das Banner ohne Welt für die Ebenen: Drehung je Richtung, Massstab, Winkel, Grenze, unbekannte Muster und seine Goldbilder, siehe [Blockentities](../renderer/blockentities.md), „Banner ohne Welt“ |
+| `renderer/tests/banner.rs` | das Banner ohne Welt für die Ebenen: Drehung je Richtung, auch mit Krone, Massstab, Winkel, Grenze ohne und mit Krone, die Krone nur über dem Querholz, unbekannte Muster und seine Goldbilder, siehe [Blockentities](../renderer/blockentities.md), „Banner ohne Welt“ und „Die Krone“ |
 | `renderer/tests/richtung.rs` | die Richtungen der Kamera: Modelle gedreht, Seiten nach der Welt schattiert, auch die eines Blockentities, Licht, Alternativen und Biome aus der Welt; gedrehte Szenen je Kamera aus allen vier Richtungen wie aus der Vorgabe: Treppen, Türen, Zäune, Scheiben, Licht unter einem Dach, Teile in fremden Würfeln, Blockentities, einen Spawner vor vollen Blöcken und Wasser, dazu Eis und Wasser in Stufen, siehe [Richtungen](../renderer/richtungen.md) |
 | `renderer/tests/heights.rs` | die Höhen für die Koordinatenanzeige und `projektion.json` für das Frontend |
 | `renderer/tests/tiles.rs` | die Naht: jede Kachel gegen den Ausschnitt eines grossen Renderings |
@@ -279,7 +279,9 @@ dann; in CI liegen sie als Artefakt am fehlgeschlagenen Lauf. Neu erzeugen nach 
 
 Die Goldbilder der Banner ohne Welt liegen getrennt unter
 `renderer/tests/fixtures/golden-banner/`: `banner-2x1.png` und
-`banner-north-45.png` mit einer Lage, `banner-16-lagen.png` in 2:1 mit 16.
+`banner-north-45.png` mit einer Lage, `banner-2x1-krone.png` und
+`banner-north-45-krone.png` dasselbe mit Krone, `banner-16-lagen.png` in
+2:1 mit 16.
 An ihnen hängt `BANNERSTAND`, nicht der Zeichenstand eines Looks; neu
 erzeugen mit `UPDATE_GOLDEN=1 cargo test --test banner`.
 

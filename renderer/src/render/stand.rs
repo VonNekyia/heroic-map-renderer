@@ -448,7 +448,7 @@ impl Stand {
 /// ein Build eine Kachel, eine Höhe oder den Abdruck eines Chunks anders
 /// schreiben kann, auch wenn kein Goldbild es zeigt.
 /// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
-pub const ZEICHENSTAND: u32 = 1;
+pub const ZEICHENSTAND: u32 = 2;
 
 /// FNV-1a über die Goldbilder dieses Zeichenstands, siehe
 /// `zeichenstand_folgt_den_goldbildern`.
@@ -1029,22 +1029,5 @@ mod tests {
             Stand::aus_bytes(&fremd).unwrap().renderer,
             ZEICHENSTAND_1 ^ 1
         );
-    }
-
-    /// Bei Zeichenstand 1 zeichnet der Renderer wie die alten Builds, also
-    /// nimmt `update_nimmt_den_stand_alter_builds` den Zweig „angenommen“.
-    /// Ändert sich bei Zeichenstand 1 eine Tabelle, fällt er und sagt es:
-    /// Stände alter Builds gelten dann zu Recht nicht mehr, und der Test geht
-    /// weg. Ab Zeichenstand 2 prüft er nichts mehr.
-    #[test]
-    fn zeichenstand_1_ist_der_heutige_abdruck() {
-        if ZEICHENSTAND == 1 {
-            assert_eq!(
-                fingerabdruck_des_renderers(),
-                ZEICHENSTAND_1,
-                "Eine Tabelle hat sich bei Zeichenstand 1 geändert; Stände alter \
-                 Builds gelten nicht mehr. Siehe 0098, „Stände alter Builds“."
-            );
-        }
     }
 }

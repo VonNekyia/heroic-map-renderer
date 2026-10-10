@@ -6310,3 +6310,68 @@ fn flach_dichter_ausschnitt_ist_das_mittel_der_behaltenen() {
         "{ist:?}, das Mittel der behaltenen {soll:?}"
     );
 }
+
+/// Die Basis mit dem Pack `assets-wurzeln-loch` darüber: Mangrovenwurzeln mit
+/// einem Loch in der oberen Schicht, das die untere deckt, wie die Texturen
+/// des Spiels bei scale 4.
+fn assets_wurzeln_loch() -> Assets {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    Assets::open(vec![
+        fixtures.join("assets-base"),
+        fixtures.join("assets-wurzeln-loch"),
+    ])
+    .unwrap()
+}
+
+/// Mangrovenwurzeln über einem vollen Block lassen ihre untere Schicht weg,
+/// übereinander auch die Flächen zueinander. Durch das Loch in der oberen
+/// Schicht ist dann der Grund zu sehen: Er bleibt Kandidat, denn den Boden
+/// deckt eine Familie nur, wenn jede ihrer Fassungen es tut (#243). Säulen
+/// aus einer, zwei und drei Wurzeln über Gras, dazu eine über Luft, in
+/// top-north bei scale 4 und in 2:1 bei scale 16, gegen
+/// `render_area_without_culling`, das jeden Block zeichnet. In top-north
+/// bleibt kein Pixel des Chunks leer.
+/// Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
+#[test]
+fn grund_unter_wurzeln_bleibt_zu_sehen() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (y, x, z) {
+        (0, _, _) => "minecraft:grass_block",
+        (1, 2, 2) | (1..=2, 6, 2) | (1..=3, 10, 2) | (2, 2, 8) => {
+            "minecraft:mangrove_roots[waterlogged=false]"
+        }
+        _ => "minecraft:air",
+    });
+    let world = World::open(dir.path()).unwrap();
+    for (kamera, scale) in [("top-north", 4), ("2:1", 16)] {
+        let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+        let sprites = tabelle(&mut assets_wurzeln_loch(), &world, projection);
+        let rect = match kamera {
+            "top-north" => ScreenRect {
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 64,
+            },
+            _ => {
+                let (mx, my) = projection.project_block([8, 0, 8]);
+                ScreenRect {
+                    x: mx as i32 - 128,
+                    y: my as i32 - 128,
+                    width: 256,
+                    height: 256,
+                }
+            }
+        };
+        let bild = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+        let soll = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+        let anders = bild
+            .enumerate_pixels()
+            .zip(soll.pixels())
+            .find(|((_, _, a), b)| a != b);
+        assert!(anders.is_none(), "{kamera}: {anders:?}");
+        if kamera == "top-north" {
+            assert!(bild.pixels().all(|p| p.0[3] == 255), "{kamera}: ein Loch");
+        }
+    }
+}

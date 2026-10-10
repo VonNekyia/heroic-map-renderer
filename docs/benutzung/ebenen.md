@@ -11,11 +11,12 @@ code:
 Eine Ebene legt Nadeln, Banner, Kartenschrift, Regionen, Kreise und Linien
 über die Kacheln, auf der Webkarte wie auf der Vollbildkarte des Mods. Jede
 lässt sich einzeln an- und abschalten. Ebenen sind kein Teil der Kacheln:
-Der Renderer zeichnet sie nicht, das Plugin schreibt sie als JSON, und jede
-Ansicht zeichnet sie selbst. Diese Seite ist die Schnittstelle zwischen
+Das Plugin schreibt sie als JSON, und jede Ansicht zeichnet sie selbst. Nur
+die Sprites der Banner zeichnet der Renderer vorab, siehe „Banner“. Diese Seite ist die Schnittstelle zwischen
 Plugin, Webkarte und Mod (#219). Warum so:
 [0095](../entscheidungen/0095-ebenen.md), für Banner, feste Grösse und Tafel
-beim Zeigen [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md).
+beim Zeigen [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md),
+für Banner, die der Renderer zeichnet, [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
 Was die Webkarte davon schon zeigt: [Frontend](../frontend.md), „Ebenen“.
 
 ## Überblick
@@ -25,6 +26,7 @@ Was die Webkarte davon schon zeigt: [Frontend](../frontend.md), „Ebenen“.
 | `layers.json` | neben `trees.json` in der Wurzel von `--tiles` | das Plugin | Webkarte |
 | `layers/<modname>/<ebene>.json` | darunter, eine Datei je Ebene | das Plugin | Webkarte |
 | `layers/<modname>/images/…` | Bilder einer Ebene | das Plugin | Webkarte, Mod über den Server |
+| `layers/<modname>/banner/…` | Sprites der Banner je Ebene und Satz, siehe „Banner“ | der Renderer, `--banners` | Webkarte, Mod über den Server |
 | `ebenen/<modname>/<ebene>.json` | im Ordner des Plugins | der Betreiber, von Hand | das Plugin |
 | `ebenen/<modname>/images/…` | Bilder dazu, im Ordner des Plugins | der Betreiber | das Plugin, das sie nach `layers/<modname>/images/` kopiert |
 
@@ -113,15 +115,18 @@ selbst, die Webkarte im Browser.
 }
 ```
 
-- **Kopf:** `id`, `name`, `visible` und `order` wie in der Liste.
+- **Kopf:** `id`, `name`, `visible` und `order` wie in der Liste, dazu
+  `designs`, die Entwürfe der Banner, siehe „Banner“.
 - **Nur beim Plugin:**
   - `web`, Vorgabe `true`: ob die Ebene auf die Webkarte kommt;
   - `permission`: wer sie im Mod sieht. Eine Ebene mit `permission` kommt
     nie auf die öffentliche Webkarte. Ohne `web` gilt für sie `web: false`;
     nur ein ausdrückliches `web: true` dazu ist ein Fehler.
-    Sie hat vorerst keine Bilder: `symbol`, Banner und Bilder in der Tafel
-    sind dort ein Fehler, denn alles unter `layers/` ist öffentlich. Der Mod
-    zeichnet ihre Nadeln als Nadel der Karte in `color`.
+    Sie hat keine Bilder: `symbol`, `image` und Bilder in der Tafel sind
+    dort ein Fehler, denn alles unter `layers/` ist öffentlich. Banner hat
+    sie nur mit `design`; ihre Sprites gehen über den Kanal des Plugins,
+    siehe „An den Mod“. Der Mod zeichnet ihre Nadeln als Nadel der Karte in
+    `color`.
 - **`objects`:** die Objekte, in der Reihenfolge, in der sie liegen; ein
   späteres liegt über einem früheren derselben Art.
 
@@ -214,11 +219,13 @@ Banner.
 
 ### Banner
 
-Ein Ort der Karte als Bild, etwa eine Stadt mit dem Banner ihrer Nation.
-Das Bild bringt der Besitzer der Ebene mit, etwa ein Plugin für Städte über
-die API; für eine Stadt ohne Nation schickt er ein weisses. Mehrere Banner
-dürfen sich ein Bild teilen, etwa alle Städte einer Nation; so reichen die
-200 Bilder je Ebene auch für 1000 Banner.
+Ein Ort der Karte als Banner, etwa eine Stadt mit dem Banner ihrer Nation.
+Der Besitzer der Ebene gibt einen Entwurf vor, Grundfarbe und Muster wie im
+Spiel, und der Renderer zeichnet das Banner je Baum in dessen Kamera und
+Licht, siehe „Entwürfe“ und „Sprites“. Ohne Entwurf bringt er ein fertiges
+Bild mit wie bisher. Mehrere Banner dürfen sich einen Entwurf oder ein Bild
+teilen, etwa alle Städte einer Nation; so reichen die 200 je Ebene auch für
+1000 Banner.
 
 ```json
 {
@@ -226,6 +233,8 @@ dürfen sich ein Bild teilen, etwa alle Städte einer Nation; so reichen die
   "type": "banner",
   "at": [120.5, -340.5],
   "y": 71,
+  "design": "nordreich",
+  "capital": true,
   "image": "images/banner-nordreich.png",
   "name": "Hafenstadt",
   "panel": { "blocks": [] }
@@ -236,17 +245,99 @@ dürfen sich ein Bild teilen, etwa alle Städte einer Nation; so reichen die
 |---|---|---|
 | `at` | der Punkt | Pflicht |
 | `y` | der Block, auf dem das Banner steht; sein Fuss liegt auf dessen Oberseite, `y + 1` | die Höhe aus `map.json` |
-| `image` | ein Bild der Ebene, siehe „Bilder“, höchstens 32 × 64 Pixel; ein Plugin für Städte schickt etwa 22 × 40 | Pflicht |
+| `design` | der Name eines Entwurfs aus `designs` derselben Ebene | ohne |
+| `capital` | mit Krone, für eine Hauptstadt; ohne `design` ohne Wirkung | `false` |
+| `image` | ein Bild der Ebene, siehe „Bilder“, höchstens 32 × 64 Pixel; ein Plugin für Städte schickt etwa 22 × 40. Mit `design` nur Ersatz, solange es kein Sprite gibt | Pflicht ohne `design` |
 | `name` | steht unter dem Banner, höchstens 64 Zeichen | ohne |
 
-- **Pixel auf Pixel:** in der Grösse des Bilds, in Pixeln der Ansicht, nie
-  skaliert, auf jeder Stufe gleich. Wie die Webkarte rundet, steht unter
-  „Nadeln und Banner“ im Abschnitt „Zeichnen“.
-- **Fuss:** die Unterkante des Bilds, `⌊Breite / 2⌋` Pixel rechts seiner
-  linken Kante, so wie bei der Nadel.
-- **Ohne gültiges Bild,** zu gross, in einem anderen Format oder nicht unter
-  `images/`, übergeht die Ansicht das Banner und nennt es in der Konsole
-  oder im Log.
+- **Pixel auf Pixel:** in der Grösse des Sprites oder Bilds, in Pixeln der
+  Ansicht, nie skaliert, auf jeder Stufe gleich. Wie die Webkarte rundet,
+  steht unter „Nadeln und Banner“ im Abschnitt „Zeichnen“.
+- **Fuss:** beim Bild die Unterkante, `⌊Breite / 2⌋` Pixel rechts seiner
+  linken Kante, so wie bei der Nadel; beim Sprite der aus `satz.json`,
+  siehe „Sprites“.
+- **Was die Ansicht zeichnet:** mit `design` das Sprite ihres Satzes, siehe
+  „Sprites“; fehlt es, `image`. Ohne gültiges Sprite und Bild, zu gross, in
+  einem anderen Format oder nicht an seinem Ort, übergeht die Ansicht das
+  Banner und nennt es in der Konsole oder im Log.
+
+#### Entwürfe
+
+Der Kopf der Ebene nennt ihre Entwürfe unter `designs`, Name → Entwurf:
+
+```json
+{
+  "id": "beispiel:staedte",
+  "name": { "de": "Städte", "en": "Towns" },
+  "designs": {
+    "nordreich": {
+      "base": "white",
+      "layers": [
+        { "pattern": "minecraft:stripe_bottom", "color": "red" },
+        { "pattern": "minecraft:globe", "color": "light_blue" }
+      ]
+    }
+  },
+  "objects": []
+}
+```
+
+| Feld | Inhalt | Vorgabe |
+|---|---|---|
+| Name | wie ein Teil der Kennung, siehe „Kennung“; etwa die UUID einer Nation oder `white` | Pflicht |
+| `base` | die Grundfarbe, einer der 16 Farbstoffe des Spiels, klein mit Unterstrich: `white`, `orange`, `magenta`, `light_blue`, `yellow`, `lime`, `pink`, `gray`, `light_gray`, `cyan`, `purple`, `blue`, `brown`, `green`, `red`, `black` | Pflicht |
+| `layers` | die Lagen von unten nach oben, je `pattern`, die ID eines Musters wie `minecraft:globe`, und `color`, ein Farbstoff | leer |
+
+- **Höchstens 16 Lagen,** wie das Spiel sie zeichnet; mehr sind ein Fehler.
+- **Ein Muster, das der Renderer nicht kennt,** lässt er weg und nennt es im
+  Log, wie das Spiel eine Lage verwirft, die es nicht kennt. Das Plugin
+  prüft nur die Form `namespace:pfad`.
+- **Ein Entwurf gilt in seiner Ebene.** Zwei Ebenen dürfen denselben Namen
+  für verschiedene Entwürfe nutzen.
+
+#### Sprites
+
+Der Renderer zeichnet die Entwürfe mit `--banners`, gerufen vom Plugin, und
+legt je Entwurf zwei Sprites ab, ohne und mit Krone, dazu je Satz
+`satz.json`:
+
+```
+layers/<modname>/banner/<ebene>/<satz>/<entwurf>.png
+layers/<modname>/banner/<ebene>/<satz>/krone/<entwurf>.png
+layers/<modname>/banner/<ebene>/<satz>/satz.json
+```
+
+- **`<ebene>`:** der Teil der Kennung nach `:`.
+- **`<satz>`:** der Name eines Baums aus `trees.json`, der nicht von oben
+  schaut, etwa `2x1-se`, oder `oben`: die Sicht aus `north-45`, Richtung
+  `s`, im Look der Karte. `oben` gibt es immer.
+- **Welches Sprite:** Ein Baum, der nicht von oben schaut, nimmt seinen
+  Satz; jeder Baum von oben, `top-north`, `top` und `--flat`, und der Mod
+  nehmen `oben`. Mit `capital` das aus `krone/`.
+- **Grösse:** fest, auf jeder Stufe gleich, höchstens 32 × 64. Ein Pixel des
+  Modells ist ein Pixel des Sprites, in jeder Kamera. Das Tuch ist 20 Pixel
+  breit; von vorn 20 × 40, schräg fällt seine Unterkante um `20 · H / W`
+  Pixel, in `2:1` um 10.
+- **Leinwand und Fuss:** Alle Sprites eines Satzes, mit und ohne Krone,
+  haben dieselbe Leinwand und denselben Fuss.
+- **`satz.json`:** der Fuss im Sprite und der Winkel der Unterkante des
+  Tuchs. Die Ansicht setzt das Sprite mit diesem Fuss auf den Ort und dreht
+  den Namen darunter um diesen Winkel, so dass er parallel zur Unterkante
+  läuft; von vorn ist er 0. Welcher Winkel je Kamera und Richtung gilt,
+  steht in [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
+  Mit `image` bleibt der Fuss bei `(⌊Breite / 2⌋, Höhe)` und der Name
+  waagrecht. Die Felder nennt die PR, die sie einführt.
+- **Wem `banner/` gehört:** dem Renderer, unter jedem `modname`. Das Plugin
+  übergibt ihm alle öffentlichen Ebenen in einem Aufruf; er schreibt, was
+  fehlt, und löscht, was zu keiner übergebenen Ebene, keinem Entwurf und
+  keinem Satz mehr gehört.
+- **Neu laden:** Jedes Sprite schreibt der Renderer unter einem Namen mit
+  `.` davor und benennt es dann um. Er meldet, welche Ebenen geänderte
+  Sprites haben; das Plugin hebt deren `version`, siehe „Ändern und
+  Neuladen“.
+- **Geheime Ebenen:** Ihre Sprites liegen nicht unter `layers/`; das Plugin
+  lässt nur den Satz `oben` zeichnen und schickt ihn über seinen Kanal,
+  siehe „An den Mod“.
 
 ### Kartenschrift
 
@@ -488,8 +579,11 @@ Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
 - **Im Mod** holt der Mod die Bilder über den Server des Renderers, ohne
   Token, erst wenn eine Nadel oder ein Banner auf dem Schirm liegt oder die
   Tafel offen ist.
-- **Bilder einer Ebene mit `permission`** gibt es vorerst nicht, siehe
-  „Datei einer Ebene“.
+- **Bilder einer Ebene mit `permission`** gibt es nicht, siehe „Datei einer
+  Ebene“; ihre Banner gehen über den Kanal des Plugins.
+- **Sprites der Banner** liegen nicht unter `images/`, sondern unter
+  `layers/<modname>/banner/`, siehe „Banner“, „Sprites“. Sie schreibt der
+  Renderer, nicht das Plugin.
 - **Öffentlich, auch bei `web: false`:** Das Plugin legt die Bilder jeder
   Ebene nach `layers/<modname>/images/`, auch wenn die Ebene selbst nicht
   auf die Webkarte kommt, damit der Mod sie holen kann. Der Server liefert
@@ -509,7 +603,8 @@ Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
 - **Erkennen:** Ändert sich eine Ebene oder eines ihrer Bilder, ändert sich
   ihre `version` in `layers.json`: Das Plugin rechnet den Hash über die
   Datei und ihre Bilder. Ein Bild, das unter gleichem Namen neu ist, kommt
-  so auch an.
+  so auch an. Für die Sprites der Banner hebt es die `version` der Ebenen,
+  die `--banners` als geändert meldet.
 - **Neuladen ohne Seitenwechsel:** Die Webkarte fragt `layers.json` alle
   30 Sekunden und beim Zurückkehren auf den Tab nach, mit
   `cache: 'no-cache'`. Der Server antwortet mit ETag und 304, solange
@@ -536,9 +631,11 @@ es und nennt es in der Konsole oder im Log.
 | Punkte je Objekt, über alle Ringe | 10 000 |
 | Löcher je Polygon | 100 |
 | Bilder je Ebene | 200 |
+| Entwürfe je Ebene | 200 |
+| Lagen je Entwurf | 16 |
 | Punkte je Reihe einer Wertung | 20 |
 | Symbol | 16 × 16 oder 9 × 9 Pixel |
-| Bild eines Banners | 32 × 64 Pixel, 256 KiB |
+| Bild oder Sprite eines Banners | 32 × 64 Pixel, 256 KiB |
 | Bild der Tafel | 512 × 512 Pixel, 256 KiB |
 | Nachricht an den Mod | 64 KiB je Teil; ein grösseres Objekt allein, höchstens 1 MiB |
 
@@ -562,6 +659,12 @@ und Linien, über seinen Kanal. Regionen braucht der Mod auch zum Anheften
   des Servers, von dem der Mod die Bilder holt.
 - **Einzelheiten:** Nachrichten und Rechte beschreibt das Plugin in seiner
   Doku. Infotafeln holt der Mod später, wenn der Zeiger auf dem Ziel ruht.
+- **Banner geheimer Ebenen:** Ihr Sprite fragt der Mod über den Kanal an,
+  erst wenn das Banner auf dem Schirm liegt, mit Ebene, `version`, Entwurf
+  und Krone. Das Plugin schickt den Satz `oben` nur an Spieler, die die
+  Ebene sehen dürfen; die Anfragen zählen getrennt von denen nach Tafeln,
+  im selben Budget, die Bytes als Base64 mit einem Drittel mehr. Öffentliche
+  Sprites und `satz.json` holt der Mod über den Server wie die Bilder.
 
 ## Zeichnen
 

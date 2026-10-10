@@ -271,8 +271,7 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
   [Release](https://github.com/VonNekyia/heroic-map-renderer/releases/latest)
   mit Paketen für Windows und Linux, siehe
   [Installation](docs/benutzung/installation.md); das Plugin auf
-  [Hangar](https://hangar.papermc.io/Neky/heroic-map) und Modrinth, der Mod
-  auf Modrinth.
+  [Hangar](https://hangar.papermc.io/Neky/heroic-map) und der Mod.
 - Liest Welten ab 26.1 und Resourcepacks aus 26.2 und 26.3, mit den
   Tabellen aus 26.3, siehe
   [0059](docs/entscheidungen/0059-welten-aus-26-2-und-26-3.md); eine Welt

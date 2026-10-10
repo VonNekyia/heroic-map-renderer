@@ -162,8 +162,30 @@ scale 16. Wie die Kameras rechnen: [Die Kamera](docs/renderer/kamera.md).
   [Native Stufen in Bändern](docs/messungen/2026-10-01-native-stufen-in-baendern.md).
 - **Für die eigene Welt** sagt `--estimate` beides vorher.
 
-<!-- Platz für das Diagramm „Platz, RAM und Geschwindigkeit“; es kommt nach
-     dem Benchmark des Researchers, mit Zahlen nur aus docs/messungen. -->
+### Gegen andere Karten
+
+![Zeit, RAM, Platz und Sekunden je Million Pixel von squaremap, Pl3xMap, Dynmap und Heroic auf Welten mit 3 000, 5 000 und 15 000 Blöcken Seitenlänge](docs/bilder/benchmark.svg)
+
+- **Bei gleicher Fläche** sind squaremap und Pl3xMap schneller: Auf
+  15 000 Blöcken Seitenlänge brauchen sie 245 und 113 s, Heroic von oben
+  320 s. Sie zeichnen aber ein Pixel je Block, Heroic bei scale 4
+  sechzehn.
+- **Je Million Pixel** ist Heroic darum rund 12-mal schneller als
+  squaremap, 8-mal als Dynmap `flat` und 6-mal als Pl3xMap. Schräg gegen
+  Dynmap `surface` ist es ein Faktor von rund 80.
+- **RAM:** Heroic 1,3 bis 1,5 GiB, squaremap und Pl3xMap je rund 6,4 GiB,
+  Dynmap 3,0 GiB.
+- **Platz** wächst mit den Pixeln, hier liegt Heroic hinten: auf 15 000
+  Blöcken 4,2 GB, mit `--compact` 3,0 GB, Pl3xMap 0,35 GB, squaremap
+  0,15 GB.
+
+Gemessen am 10.10.2026 mit Heroic v0.3.0 als CLI und als Plugin 0.1.0,
+spätere Fassungen nicht. Messrechner: AMD Ryzen 9 5900X, 12 Kerne,
+32 GiB RAM, Samsung 970 EVO Plus, Windows 11. Aufbau und alle Zahlen in
+[Benchmark gegen andere Karten](docs/messungen/2026-10-10-benchmark-karten.md);
+das Bild erzeugt
+[`benchmark-diagramm.py`](docs/bilder/quellen/benchmark-diagramm.py) aus
+dieser Seite.
 
 Grössen sind dezimal, 1 GB = 10^9 Byte.
 

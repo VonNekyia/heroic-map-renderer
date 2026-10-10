@@ -2152,7 +2152,8 @@ fn tempdir() -> TempDir {
 /// Gelände bei scale 16, als Beispiele für die anderen Kameras die Szene aus
 /// `common::szene` in 4:3, von oben und genordet in `top-north` und
 /// `north-45`, wo das Gelände nur Oberseiten gleicher Farbe zeigte, und in
-/// 2:1 aus Nordwesten um die Treppe aus Stein. Neu erzeugen mit
+/// 2:1 aus Nordwesten um die Treppe aus Stein; dazu die Mangrovenwurzeln aus
+/// #243 in `top-north` bei scale 4. Neu erzeugen mit
 /// `UPDATE_GOLDEN=1 cargo test --test metatile`.
 #[test]
 fn goldbild_bleibt_gleich() {
@@ -2210,6 +2211,22 @@ fn goldbild_bleibt_gleich() {
     fehler.extend(goldbild(
         "metatile-cinematic",
         render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
+    ));
+    // Der Chunk aus `welt_mit_wurzeln` in top-north bei scale 4, der Grund
+    // durch die Löcher der Wurzeln.
+    let dir = tempdir();
+    let world = welt_mit_wurzeln(&dir);
+    let projection = Projection::mit_kamera(4, Kamera::parse("top-north").unwrap());
+    let sprites = tabelle(&mut assets_wurzeln_loch(), &world, projection);
+    let rect = ScreenRect {
+        x: 0,
+        y: 0,
+        width: 64,
+        height: 64,
+    };
+    fehler.extend(goldbild(
+        "metatile-wurzeln",
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap(),
     ));
     assert!(fehler.is_empty(), "{}", fehler.join("\n"));
 }
@@ -6309,4 +6326,74 @@ fn flach_dichter_ausschnitt_ist_das_mittel_der_behaltenen() {
         ist.iter().zip(&soll).all(|(a, b)| a.abs_diff(*b) <= 1),
         "{ist:?}, das Mittel der behaltenen {soll:?}"
     );
+}
+
+/// Die Basis mit dem Pack `assets-wurzeln-loch` darüber: Mangrovenwurzeln mit
+/// einem Loch in der oberen Schicht, das die untere deckt, wie die Texturen
+/// des Spiels bei scale 4.
+fn assets_wurzeln_loch() -> Assets {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    Assets::open(vec![
+        fixtures.join("assets-base"),
+        fixtures.join("assets-wurzeln-loch"),
+    ])
+    .unwrap()
+}
+
+/// Säulen aus einer, zwei und drei Mangrovenwurzeln über Gras, dazu eine
+/// über Luft, in einem Chunk.
+fn welt_mit_wurzeln(dir: &TempDir) -> World {
+    common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (y, x, z) {
+        (0, _, _) => "minecraft:grass_block",
+        (1, 2, 2) | (1..=2, 6, 2) | (1..=3, 10, 2) | (2, 2, 8) => {
+            "minecraft:mangrove_roots[waterlogged=false]"
+        }
+        _ => "minecraft:air",
+    });
+    World::open(dir.path()).unwrap()
+}
+
+/// Mangrovenwurzeln über einem vollen Block lassen ihre untere Schicht weg,
+/// übereinander auch die Flächen zueinander. Durch das Loch in der oberen
+/// Schicht ist dann der Grund zu sehen: Er bleibt Kandidat, denn den Boden
+/// deckt eine Familie nur, wenn jede ihrer Fassungen es tut (#243). Die
+/// Welt aus `welt_mit_wurzeln` in top-north bei scale 4 und in 2:1 bei
+/// scale 16, gegen `render_area_without_culling`, das jeden Block zeichnet.
+/// In top-north bleibt kein Pixel des Chunks leer.
+/// Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
+#[test]
+fn grund_unter_wurzeln_bleibt_zu_sehen() {
+    let dir = tempdir();
+    let world = welt_mit_wurzeln(&dir);
+    for (kamera, scale) in [("top-north", 4), ("2:1", 16)] {
+        let projection = Projection::mit_kamera(scale, Kamera::parse(kamera).unwrap());
+        let sprites = tabelle(&mut assets_wurzeln_loch(), &world, projection);
+        let rect = match kamera {
+            "top-north" => ScreenRect {
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 64,
+            },
+            _ => {
+                let (mx, my) = projection.project_block([8, 0, 8]);
+                ScreenRect {
+                    x: mx as i32 - 128,
+                    y: my as i32 - 128,
+                    width: 256,
+                    height: 256,
+                }
+            }
+        };
+        let bild = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+        let soll = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+        let anders = bild
+            .enumerate_pixels()
+            .zip(soll.pixels())
+            .find(|((_, _, a), b)| a != b);
+        assert!(anders.is_none(), "{kamera}: {anders:?}");
+        if kamera == "top-north" {
+            assert!(bild.pixels().all(|p| p.0[3] == 255), "{kamera}: ein Loch");
+        }
+    }
 }

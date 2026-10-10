@@ -151,7 +151,9 @@ der Mangrovenwurzeln eine eigene Farbe. Das Pack `assets-platten` zeichnet
 jeden Zustand der Eichenplatte mit dem Modell der unteren, für zwei
 Familien mit demselben Bild, die verschieden decken. Das Pack
 `assets-wurzeln` gibt den Mangrovenwurzeln die sechs Schichten aus 26.2,
-für ihre Seiten aus jeder Richtung. Biome und Bannermuster für die Tests liegen
+für ihre Seiten aus jeder Richtung. Das Pack `assets-wurzeln-loch` gibt
+ihnen zwei Schichten wie das Modell des Spiels, oben grau mit einem Loch
+von 4 × 4 Texeln, unten blau. Biome und Bannermuster für die Tests liegen
 unter `renderer/tests/fixtures/data-base`.
 
 ## Welten im Speicher
@@ -264,7 +266,9 @@ Projektion, Baking, Rasterizer oder Maleralgorithmus fällt damit auf.
 `common::szene` in 4:3, von oben, genordet von oben und in `north-45`,
 `metatile-nw.png` dieselbe in 2:1 aus `nw` um die Treppe aus Stein,
 `metatile-cinematic.png` sie mit Cinematic in 2:1 aus `se` um dieselbe
-Treppe, alle bei scale 16. Der Test vergleicht alle, schreibt zu jedem
+Treppe, alle bei scale 16. `metatile-wurzeln.png` zeigt die
+Mangrovenwurzeln aus #243 genordet von oben bei scale 4, den Grund durch
+ihre Löcher. Der Test vergleicht alle, schreibt zu jedem
 abweichenden das Ist-Bild daneben, als `<name>-ist.png`, und fällt erst
 dann; in CI liegen sie als Artefakt am fehlgeschlagenen Lauf. Neu erzeugen nach einer gewollten Änderung: Skill
 [`goldbild-erneuern`](../../skills/goldbild-erneuern/SKILL.md).

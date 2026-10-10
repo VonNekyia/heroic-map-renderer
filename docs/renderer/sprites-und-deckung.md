@@ -108,6 +108,18 @@ Block darüber mit seinem Boden; der Ostnachbar liegt daneben. `top-north`
 verdeckt wie von oben, siehe [Die Kamera](kamera.md), „Genordet“. Den Rand
 eines Nachbarchunks, der nicht zählt, liest `expose` gar nicht.
 
+Seinen Boden deckt ein Block nur, wenn es jede seiner Fassungen tut, siehe
+„Flächen zu gleichen Nachbarn“ (`covers_floor` in
+[`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs)).
+Mangrovenwurzeln über einem vollen Block oder über Wurzeln lassen ihre
+untere Schicht weg; durch die Löcher der oberen ist dann der Grund zu sehen,
+und er bleibt Kandidat (#243, `grund_unter_wurzeln_bleibt_zu_sehen` in
+[`renderer/tests/metatile.rs`](../../renderer/tests/metatile.rs)). Das
+trifft nur Familien mit Fassungen: Mangrovenwurzeln, Pulverschnee, Spawner
+und Prüfungsspawner, Trichter, dazu Glas, Eis, Kupferrost, Scheiben und
+Gitter mit ihrer Regel zu gleichen Nachbarn. Unter ihnen bleiben die Blöcke
+Kandidaten; was davon verdeckt ist, lässt die Deckungsmaske fallen.
+
 ## Flächen zu gleichen Nachbarn
 
 Das Spiel zeichnet eine Fläche mit `cullface` nur, wenn

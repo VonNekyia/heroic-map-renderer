@@ -3,6 +3,7 @@ title: Ebenen
 description: Das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, Kartenschrift, Regionen, Kreisen und Linien und einer strukturierten Infotafel ohne HTML; wo die Dateien neben trees.json liegen, wie sie sich ändern, wie gross sie sein dürfen, und wie 2D- und iso-Ansichten sie mit derselben Projektion wie die Kacheln auf das Gelände legen.
 code:
   - web/src/pick.ts
+  - renderer/src/ebenen.rs
   - renderer/tests/fixtures/projektion.json
 ---
 
@@ -294,6 +295,12 @@ Der Kopf der Ebene nennt ihre Entwürfe unter `designs`, Name → Entwurf:
   prüft nur die Form `namespace:pfad`.
 - **Ein Entwurf gilt in seiner Ebene.** Zwei Ebenen dürfen denselben Namen
   für verschiedene Entwürfe nutzen.
+- **Der Renderer prüft noch einmal,** was das Plugin schon geprüft hat:
+  `Ebene::lies` in [`ebenen.rs`](../../renderer/src/ebenen.rs) liest
+  `id` und `designs` und nimmt eine Ebene nicht, deren Kennung oder
+  Entwürfe gegen „Kennung“, diese Tabelle oder „Grenzen“ verstossen, auch
+  ein Muster nicht in der Form `namespace:pfad`. Übrige Felder und Objekte
+  liest er nicht.
 
 #### Sprites
 

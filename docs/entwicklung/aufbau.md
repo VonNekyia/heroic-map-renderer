@@ -8,6 +8,7 @@ code:
   - renderer/src/world/mod.rs
   - renderer/src/assets/mod.rs
   - renderer/src/render/mod.rs
+  - renderer/src/ebenen.rs
   - renderer/Cargo.toml
   - web/src/main.ts
 ---
@@ -17,8 +18,8 @@ code:
 Ein Rust-Crate unter `renderer/` mit einer Bibliothek (`heroic_map_renderer`)
 und einem Binär, dazu das Frontend unter `web/`. Die Daten laufen in einer
 Richtung: Welt und Assets lesen, Sprites vorab rastern, Kacheln rendern und
-kodieren, Zoomstufen stapeln, im Browser anzeigen. Die Bibliothek hat drei
-Module, `world`, `assets` und `render`; die Kommandozeile in
+kodieren, Zoomstufen stapeln, im Browser anzeigen. Die Bibliothek hat vier
+Module, `world`, `assets`, `render` und `ebenen`; die Kommandozeile in
 [`renderer/src/cli.rs`](../../renderer/src/cli.rs) verbindet sie.
 
 ```
@@ -71,13 +72,19 @@ Minecraft World + Resource Pack  ->  Rust Renderer  ->  WebP Tiles  ->  Leaflet
 | `pyramid.rs` | Zoomstufen verkleinern, `map.json`, Kennung der Welt |
 | `gpu.rs`, `gpu.wgsl` | Zeichnen auf der Grafikkarte, siehe [Grafikkarte](../benutzung/grafikkarte.md) |
 
+## `renderer/src/ebenen.rs`: die Entwürfe der Ebenen
+
+| Datei | Inhalt |
+|---|---|
+| `ebenen.rs` | aus der Datei einer Ebene Kennung und Entwürfe der Banner lesen und gegen die Grenzen prüfen, `Ebene::lies`; die Regel für einen Teil der Kennung, `ist_teil`, die auch der Server nimmt; siehe [Ebenen](../benutzung/ebenen.md), „Entwürfe“ |
+
 ## Binär und Bau
 
 | Datei | Inhalt |
 |---|---|
 | `main.rs` | Einstieg, mimalloc als Allokator |
 | `cli.rs` | Schalter, Export, Pyramide, Fortsetzen, Echtzeitschutz, siehe [Schalter und Beispiele](../benutzung/schalter.md) |
-| `lib.rs` | die drei Module der Bibliothek |
+| `lib.rs` | die vier Module der Bibliothek |
 | `build.rs`, `segmentheap.manifest` | unter Windows das Manifest mit dem Segment-Heap |
 | `Cargo.toml`, `deny.toml` | Abhängigkeiten und ihre Lizenzen |
 | `vendor/libwebp-sys/` | `libwebp-sys` mit einem Patch an libwebp für `--compact`, siehe [libwebp mit Patch](libwebp-mit-patch.md) |

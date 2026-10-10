@@ -5910,3 +5910,403 @@ fn vorrat_gilt_nur_bei_gleicher_tabelle() {
         }
     }
 }
+
+/// Die Projektion von `--flat`: top-north bei scale 1, ein Pixel je Block.
+fn flach() -> Projection {
+    Projection::mit_kamera(1, Kamera::ObenNord)
+}
+
+/// Rendert die Chunks einer Welt in der einfarbigen Ansicht, über das
+/// Rechteck der Blöcke `x0..x0 + 16 × breite`, `z0..z0 + 16`.
+fn flach_bild(
+    world: &World,
+    sprites: &SpriteSet,
+    (x0, z0): (i32, i32),
+    breite: u32,
+) -> (RgbaImage, ScreenRect) {
+    let rect = ScreenRect {
+        x: x0,
+        y: z0,
+        width: 16 * breite,
+        height: 16,
+    };
+    (render_area(world, sprites, rect, Y_RANGE).unwrap(), rect)
+}
+
+/// Der Pixel des Blocks in Spalte (x, z) im Bild der einfarbigen Ansicht.
+fn flach_pixel((bild, rect): &(RgbaImage, ScreenRect), x: i32, z: i32) -> [u8; 4] {
+    bild.get_pixel((x - rect.x) as u32, (z - rect.y) as u32).0
+}
+
+/// Eine Farbe in einer Helligkeit der Spielkarte, in 255steln, wie das
+/// Relief sie setzt.
+fn in_helligkeit(farbe: [u8; 4], f: u32) -> [u8; 4] {
+    let k = |c: u8| (u32::from(c) * f / 255) as u8;
+    [k(farbe[0]), k(farbe[1]), k(farbe[2]), farbe[3]]
+}
+
+/// Eben, hinauf und hinab: die Helligkeiten der Spielkarte.
+const EBEN: u32 = 220;
+const TIEF: u32 = 180;
+
+/// Ein Block in der einfarbigen Ansicht hat das Mittel seiner Oberseite in
+/// linearem Licht, gewichtet mit Alpha, nicht eines ihrer Texel; auf ebenem
+/// Grund in der mittleren Helligkeit der Spielkarte. Stein hat zwei Grautöne;
+/// das Mittel rechnet der Test aus seiner Textur.
+#[test]
+fn flach_ist_das_mittel_der_oberseite() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |_, y, _| {
+        if y == 0 {
+            "minecraft:stone"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+
+    let textur = image::open(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/assets-base/minecraft/textures/block/stone.png"),
+    )
+    .unwrap()
+    .into_rgba8();
+    let linear = |c: u8| {
+        let c = f64::from(c) / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let srgb = |l: f64| {
+        let c = if l <= 0.0031308 {
+            l * 12.92
+        } else {
+            1.055 * l.powf(1.0 / 2.4) - 0.055
+        };
+        (c * 255.0).round() as u8
+    };
+    let n = f64::from(textur.width() * textur.height());
+    let mittel: Vec<u8> = (0..3)
+        .map(|k| srgb(textur.pixels().map(|p| linear(p.0[k])).sum::<f64>() / n))
+        .collect();
+    let soll = in_helligkeit([mittel[0], mittel[1], mittel[2], 255], EBEN);
+    let texel: Vec<[u8; 4]> = textur.pixels().map(|p| in_helligkeit(p.0, EBEN)).collect();
+    for z in 1..16 {
+        for x in 0..16 {
+            let ist = flach_pixel(&bild, x, z);
+            assert!(
+                ist.iter().zip(&soll).all(|(a, b)| a.abs_diff(*b) <= 1),
+                "({x}, {z}): {ist:?}, das Mittel {soll:?}"
+            );
+            assert!(!texel.contains(&ist), "({x}, {z}): ein Texel");
+        }
+    }
+}
+
+/// Die Farbe aus dem Biom kommt wie in der Karte mit Texturen beim Zeichnen
+/// dazu: Gras in plains und frozen, ohne Mischen, je in der mittleren
+/// Helligkeit; die beiden Biome unterscheiden sich.
+#[test]
+fn flach_toent_nach_dem_biom() {
+    let dir = tempdir();
+    common::write_world_in(
+        dir.path(),
+        &[(0, 0), (1, 0)],
+        |_, y, _| {
+            if y == 0 {
+                "minecraft:grass_block"
+            } else {
+                "minecraft:air"
+            }
+        },
+        |cx, _| {
+            Some(if cx == 0 {
+                "minecraft:plains"
+            } else {
+                "minecraft:frozen"
+            })
+        },
+    );
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle_mit_biomen(&world, flach(), 0);
+    let bild = flach_bild(&world, &sprites, (0, 0), 2);
+    assert_eq!(flach_pixel(&bild, 4, 8), in_helligkeit(gras(PLAINS), EBEN));
+    assert_eq!(flach_pixel(&bild, 20, 8), in_helligkeit(gras(FROZEN), EBEN));
+    assert_ne!(gras(PLAINS), gras(FROZEN));
+}
+
+/// Wasser liegt über dem Grund wie in der Karte mit Texturen: Über Stein
+/// zeigt es eine andere Farbe als Stein allein, und es hat kein Relief. Am
+/// Ufer im Süden eines tieferen Steins, zwei Blöcke höher, bleibt Wasser
+/// eben; Stein an derselben Stufe wird hell. Die Farben ohne Relief zeichnet
+/// `render_area_without_culling`, die Referenz ohne Relief.
+#[test]
+fn flach_wasser_ueber_grund_ohne_relief() {
+    let dir = tempdir();
+    // Stein auf y = 0; ab z = 8 Wasser auf y = 1 und 2, in x 8..16 statt
+    // dessen Stein bis y = 2.
+    common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (y, z >= 8, x >= 8) {
+        (0, _, _) => "minecraft:stone",
+        (1 | 2, true, false) => "minecraft:water",
+        (1 | 2, true, true) => "minecraft:stone",
+        _ => "minecraft:air",
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+    let roh = render_area_without_culling(&world, &sprites, bild.1, Y_RANGE).unwrap();
+    let roh = |x: i32, z: i32| roh.get_pixel(x as u32, z as u32).0;
+    assert_eq!(
+        flach_pixel(&bild, 3, 8),
+        in_helligkeit(roh(3, 8), EBEN),
+        "Wasser am Ufer"
+    );
+    assert_ne!(roh(3, 12), roh(3, 4), "Wasser über Stein");
+    assert_eq!(roh(3, 12)[3], 255);
+    assert_eq!(flach_pixel(&bild, 11, 8), roh(11, 8), "Stein an der Stufe");
+}
+
+/// Das Relief nach dem Nachbarn im Norden: Eine Stufe zwei Blöcke hinauf
+/// ist hell, zwei hinab dunkel, eben dazwischen; eine Stufe von einem Block
+/// ist so hell wie eine von zwei, ohne Schachbrett. Beginnt das Bild genau
+/// an der Stufe, sieht es den Nachbarn trotzdem. Die Farben ohne Relief,
+/// samt der weichen Beleuchtung am Fuss einer Stufe, zeichnet
+/// `render_area_without_culling`.
+#[test]
+fn flach_relief_nach_norden() {
+    let dir = tempdir();
+    // Stein auf y = 0; in z 4..8 bis y = 2; ab z = 12 bis y = 1.
+    common::write_world(dir.path(), &[(0, 0)], |_, y, z| {
+        let oben = match z {
+            4..8 => 2,
+            12.. => 1,
+            _ => 0,
+        };
+        if y <= oben {
+            "minecraft:stone"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+    let roh = render_area_without_culling(&world, &sprites, bild.1, Y_RANGE).unwrap();
+    let roh = |x: i32, z: i32| roh.get_pixel(x as u32, z as u32).0;
+    for x in 0..16 {
+        assert_eq!(flach_pixel(&bild, x, 4), roh(x, 4), "hinauf, x {x}");
+        assert_eq!(
+            flach_pixel(&bild, x, 5),
+            in_helligkeit(roh(x, 5), EBEN),
+            "eben oben, x {x}"
+        );
+        assert_eq!(
+            flach_pixel(&bild, x, 8),
+            in_helligkeit(roh(x, 8), TIEF),
+            "hinab, x {x}"
+        );
+        assert_eq!(
+            flach_pixel(&bild, x, 2),
+            in_helligkeit(roh(x, 2), EBEN),
+            "eben unten, x {x}"
+        );
+        assert_eq!(flach_pixel(&bild, x, 12), roh(x, 12), "ein Block, x {x}");
+    }
+    // Das Bild beginnt an der Stufe bei z = 4: Ihr Nachbar im Norden liegt
+    // ausserhalb, und sie bleibt hell.
+    let rand = flach_bild(&world, &sprites, (0, 4), 1);
+    for x in 0..16 {
+        assert_eq!(flach_pixel(&rand, x, 4), roh(x, 4), "Rand, x {x}");
+    }
+}
+
+/// Bei scale 1 zählt jedes Texel des Frames: Eine Textur von 32 × 32 aus
+/// Spalten zweier Farben im Wechsel gibt das Mittel beider. Mit 16 × 16
+/// Proben träfe jede nur die zweite Farbe.
+#[test]
+fn flach_proben_bis_zum_frame() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |_, y, _| {
+        if y == 0 {
+            "minecraft:fein"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+    let linear = |c: f64| ((c / 255.0 + 0.055) / 1.055).powf(2.4);
+    let srgb = |l: f64| ((1.055 * l.powf(1.0 / 2.4) - 0.055) * 255.0).round() as u8;
+    let mittel = |a: f64, b: f64| srgb((linear(a) + linear(b)) / 2.0);
+    let soll = in_helligkeit([mittel(200.0, 40.0), 40, mittel(40.0, 200.0), 255], EBEN);
+    let ist = flach_pixel(&bild, 8, 8);
+    assert!(
+        ist.iter().zip(&soll).all(|(a, b)| a.abs_diff(*b) <= 1),
+        "{ist:?}, das Mittel {soll:?}"
+    );
+}
+
+/// Eine dünne Oberseite mit Ausschnitt, weniger als halb deckend,
+/// verschwindet bei scale 1 und setzt keine Höhe. Sie liegt über einem Loch
+/// im Stein: Ihr Pixel bleibt leer, und der Stein südlich von ihr bleibt
+/// eben, denn sein Nachbar im Norden fehlt. Ein deckender Teppich an
+/// derselben Stelle ist zu sehen und hell, der Stein südlich davon dunkel.
+#[test]
+fn flach_spaerliche_oberseite_verschwindet() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (y, z, x < 8) {
+        (0, 8, _) => "minecraft:air",
+        (0, _, _) => "minecraft:stone",
+        (1, 8, true) => "minecraft:spaerlich",
+        (1, 8, false) => "minecraft:teppich",
+        _ => "minecraft:air",
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+    let roh = render_area_without_culling(&world, &sprites, bild.1, Y_RANGE).unwrap();
+    let roh = |x: i32, z: i32| roh.get_pixel(x as u32, z as u32).0;
+    for x in 0..8 {
+        assert_eq!(roh(x, 8)[3], 0, "spärlich verschwindet, x {x}");
+        assert_eq!(flach_pixel(&bild, x, 8)[3], 0, "x {x}");
+        assert_eq!(
+            flach_pixel(&bild, x, 9),
+            in_helligkeit(roh(x, 9), EBEN),
+            "südlich, x {x}"
+        );
+    }
+    for x in 8..16 {
+        assert_eq!(roh(x, 8)[3], 255, "Teppich, x {x}");
+        assert_eq!(flach_pixel(&bild, x, 8), roh(x, 8), "Teppich hell, x {x}");
+        assert_eq!(
+            flach_pixel(&bild, x, 9),
+            in_helligkeit(roh(x, 9), TIEF),
+            "südlich, x {x}"
+        );
+    }
+}
+
+/// Das Relief über ein zufälliges Höhenfeld, über den Rand der Stücke von
+/// `render_area` hinweg: ein Chunk breit, 65 Chunks lang, Stein bis zu einer
+/// Höhe von 0 bis 3 aus einer festen Folge. Je Pixel unabhängig aus dem
+/// Höhenfeld gerechnet: hinauf hell, hinab dunkel, sonst eben, am Nordrand
+/// der Welt eben. Die Farben ohne Relief zeichnet
+/// `render_area_without_culling`.
+#[test]
+fn flach_relief_ueber_ein_hoehenfeld() {
+    let hoehe = |x: i32, z: i32| -> i32 {
+        let mut h = (x as u32).wrapping_mul(0x9e37_79b9) ^ (z as u32).wrapping_mul(0x85eb_ca6b);
+        h ^= h >> 15;
+        h = h.wrapping_mul(0x2c1b_3c6d);
+        (h >> 28) as i32 % 4
+    };
+    let chunks: Vec<(i32, i32)> = (0..65).map(|cz| (0, cz)).collect();
+    let dir = tempdir();
+    let block = move |x: i32, y: i32, z: i32| {
+        if y <= hoehe(x, z) {
+            "minecraft:stone"
+        } else {
+            "minecraft:air"
+        }
+    };
+    // Je Region eine Datei: 32 Chunks in z.
+    for region in chunks.chunks(32) {
+        common::write_world(dir.path(), region, block);
+    }
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let rect = ScreenRect {
+        x: 0,
+        y: 0,
+        width: 16,
+        height: 16 * 65,
+    };
+    assert!(rect.height > STUECK, "über den Rand eines Stücks");
+    let bild = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+    let roh = render_area_without_culling(&world, &sprites, rect, Y_RANGE).unwrap();
+    let mut hell = [0; 3];
+    for z in 0..rect.height as i32 {
+        for x in 0..16 {
+            let f = match z {
+                0 => EBEN,
+                _ => match (hoehe(x, z) - hoehe(x, z - 1)).signum() {
+                    1 => 255,
+                    -1 => TIEF,
+                    _ => EBEN,
+                },
+            };
+            hell[match f {
+                255 => 0,
+                EBEN => 1,
+                _ => 2,
+            }] += 1;
+            let ist = bild.get_pixel(x as u32, z as u32).0;
+            let soll = in_helligkeit(roh.get_pixel(x as u32, z as u32).0, f);
+            assert_eq!(ist, soll, "({x}, {z})");
+        }
+    }
+    assert!(hell.iter().all(|&n| n > 100), "{hell:?}");
+}
+
+/// Durchscheinendes hat seine eigene Höhe: Eis auf y = 2 über Stein auf
+/// y = 0, dazwischen Luft. Am Eis zeichnen zwei Draws, das Eis und der Stein
+/// darunter; der oberste, das Eis, setzt die Höhe. Die Stufe nach Norden ist
+/// hell, der Stein südlich davon dunkel. Nähme das Relief den Stein, wäre
+/// beides eben.
+#[test]
+fn flach_durchscheinendes_hat_seine_hoehe() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |_, y, z| match (y, z) {
+        (0, _) => "minecraft:stone",
+        (2, 8) => "minecraft:ice",
+        _ => "minecraft:air",
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+    let roh = render_area_without_culling(&world, &sprites, bild.1, Y_RANGE).unwrap();
+    let roh = |x: i32, z: i32| roh.get_pixel(x as u32, z as u32).0;
+    for x in 0..16 {
+        assert_ne!(roh(x, 8), roh(x, 4), "Eis über Stein, x {x}");
+        assert_eq!(flach_pixel(&bild, x, 8), roh(x, 8), "Eis hell, x {x}");
+        assert_eq!(
+            flach_pixel(&bild, x, 9),
+            in_helligkeit(roh(x, 9), TIEF),
+            "südlich dunkel, x {x}"
+        );
+    }
+}
+
+/// Ein dichter Ausschnitt, drei Viertel deckend wie Laub, bleibt nach dem
+/// Alphatest ganz: Alpha 255, die Farbe das lineare Mittel der behaltenen
+/// Texel, zwei Drittel der einen Farbe, ein Drittel der anderen. Die
+/// Löcher zählen nicht mit.
+#[test]
+fn flach_dichter_ausschnitt_ist_das_mittel_der_behaltenen() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |_, y, _| {
+        if y == 0 {
+            "minecraft:dicht"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+    let linear = |c: f64| ((c / 255.0 + 0.055) / 1.055).powf(2.4);
+    let srgb = |l: f64| ((1.055 * l.powf(1.0 / 2.4) - 0.055) * 255.0).round() as u8;
+    let mittel = |a: f64, b: f64| srgb((2.0 * linear(a) + linear(b)) / 3.0);
+    let soll = in_helligkeit([mittel(200.0, 40.0), 40, mittel(40.0, 200.0), 255], EBEN);
+    let ist = flach_pixel(&bild, 8, 8);
+    assert_eq!(ist[3], 255, "{ist:?}");
+    assert!(
+        ist.iter().zip(&soll).all(|(a, b)| a.abs_diff(*b) <= 1),
+        "{ist:?}, das Mittel der behaltenen {soll:?}"
+    );
+}

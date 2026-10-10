@@ -164,6 +164,9 @@ pub fn render_area_with(
         chunks.hdr = hdr;
         return Ok(bild);
     }
+    if sprites.projection().flach() {
+        return render_flach(chunks, rect, y_range);
+    }
     let deckung = von_vorn(chunks, rect, y_range)?;
     let mut canvas = RgbaImage::new(rect.width, rect.height);
     for &(sprite, origin, ref sicht, licht) in chunks.sichtbar.iter().rev() {
@@ -171,6 +174,124 @@ pub fn render_area_with(
     }
     chunks.vis = deckung.vis;
     Ok(canvas)
+}
+
+/// Die einfarbige Ansicht: gezeichnet wie die Karte, mit einer Zeile mehr
+/// im Norden, denn das Relief ([`relief`]) braucht über jedem Pixel den
+/// Nachbarn; ohne diese Zeile zurück.
+/// Siehe docs/renderer/einfarbig.md, „Relief“.
+fn render_flach(
+    chunks: &mut ChunkCache,
+    rect: ScreenRect,
+    y_range: (i32, i32),
+) -> Result<RgbaImage> {
+    let gross = ScreenRect {
+        y: rect.y - 1,
+        height: rect.height + 1,
+        ..rect
+    };
+    let deckung = von_vorn(chunks, gross, y_range)?;
+    let mut canvas = RgbaImage::new(gross.width, gross.height);
+    let mut oben = vec![None; gross.width as usize * gross.height as usize];
+    debug_assert_eq!(chunks.sichtbar.len(), chunks.flachdaten.len());
+    // Von vorn nach hinten: Der erste Draw an einem Pixel ist sein oberster.
+    for (&(sprite, origin, ref sicht, _), &y) in chunks.sichtbar.iter().zip(&chunks.flachdaten) {
+        merke_oben(
+            &mut oben,
+            gross.width as usize,
+            sprite,
+            origin,
+            sicht,
+            &deckung.vis,
+            y,
+        );
+    }
+    for &(sprite, origin, ref sicht, licht) in chunks.sichtbar.iter().rev() {
+        blit_sichtbar(&mut canvas, sprite, origin, licht, sicht, &deckung.vis);
+    }
+    chunks.vis = deckung.vis;
+    relief(&mut canvas, &oben, gross);
+    Ok(image::imageops::crop_imm(&canvas, 0, 1, rect.width, rect.height).to_image())
+}
+
+/// Merkt sich an jedem Pixel, den dieser Draw als erster zeigt, das y seines
+/// Blocks und ob dort Wasser liegt: ob der Pixel einen Anteil des Wassers in
+/// der Tönungskarte hat. Ein zweiter Teil desselben Blocks kann nur noch
+/// Wasser dazugeben.
+fn merke_oben(
+    oben: &mut [Option<(i32, bool)>],
+    cw: usize,
+    sprite: &Sprite,
+    (ox, oy): (i32, i32),
+    sicht: &Sicht,
+    vis: &[u64],
+    y_block: i32,
+) {
+    let w = sprite.image.width() as usize;
+    let zeilen = vis[sicht.start..].chunks(sicht.nk);
+    for (y, woerter) in (sicht.y0..sicht.y1).zip(zeilen) {
+        for (j, &bits) in woerter.iter().enumerate() {
+            let mut bits = bits;
+            while bits != 0 {
+                let x = (sicht.k0 + j) * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let i = (y - oy) as usize * w + (x as i32 - ox) as usize;
+                let wasser = sprite
+                    .tint
+                    .as_deref()
+                    .is_some_and(|karte| karte[2 * i + 1] != 0);
+                let platz = &mut oben[y as usize * cw + x];
+                match platz {
+                    None => *platz = Some((y_block, wasser)),
+                    Some((h, nass)) => {
+                        if *h == y_block {
+                            *nass |= wasser;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Die Helligkeiten der Spielkarte in 255steln: Hang nach Norden hinauf,
+/// eben, hinab.
+const HOCH: u32 = 255;
+const EBEN: u32 = 220;
+const TIEF: u32 = 180;
+
+/// Das Relief der einfarbigen Ansicht nach der Regel der Spielkarte: Jeder
+/// Pixel wird so hell, wie der Unterschied zum Nachbarn im Norden, eine
+/// Zeile darüber, es sagt ([`helligkeit`]). Die erste Zeile ist nur
+/// Nachbar. Ein Pixel ohne Block bleibt, wie er ist; fehlt nur der Nachbar,
+/// gilt er als gleich hoch.
+/// Siehe docs/renderer/einfarbig.md, „Relief“.
+fn relief(canvas: &mut RgbaImage, oben: &[Option<(i32, bool)>], rect: ScreenRect) {
+    let w = rect.width as usize;
+    for (p, pixel) in canvas.pixels_mut().enumerate().skip(w) {
+        let Some((h, wasser)) = oben[p] else {
+            continue;
+        };
+        let norden = oben[p - w].map_or(h, |(h, _)| h);
+        let f = helligkeit(h - norden, wasser);
+        for c in &mut pixel.0[..3] {
+            *c = (u32::from(*c) * f / 255) as u8;
+        }
+    }
+}
+
+/// Die Helligkeit eines Pixels der Spielkarte aus dem Höhenunterschied zum
+/// Nachbarn im Norden. Bei ganzen Blöcken und der Karte im Massstab 1:1
+/// zählt nur sein Vorzeichen: hinauf hell, hinab dunkel, sonst eben.
+/// Wasser bleibt eben: Seine Tiefe zeigt das Licht wie in der Karte mit
+/// Texturen.
+/// Siehe docs/renderer/einfarbig.md, „Relief“.
+fn helligkeit(unterschied: i32, wasser: bool) -> u32 {
+    match (wasser, unterschied.signum()) {
+        (false, 1) => HOCH,
+        (false, -1) => TIEF,
+        _ => EBEN,
+    }
 }
 
 /// Wie [`render_area_with`] für Cinematic, vor dem Ton: dieselben Draws mit
@@ -329,6 +450,9 @@ fn von_vorn<'a>(
     sichtbar.clear();
     let mut kinodaten = std::mem::take(&mut chunks.kinodaten);
     kinodaten.clear();
+    let mut flachdaten = std::mem::take(&mut chunks.flachdaten);
+    flachdaten.clear();
+    let flach = projection.flach();
     let kino = sprites.kino();
     for c in candidates.iter().rev() {
         let (anchor, cell) = match c.kind {
@@ -366,6 +490,9 @@ fn von_vorn<'a>(
                 let origin = origin_of(projection, rect, anchor, sprite);
                 if let Some(sicht) = deckung.zeichne(sprite, rows, origin) {
                     sichtbar.push((sprite, origin, sicht, ids.licht()));
+                    if flach {
+                        flachdaten.push(anchor[1]);
+                    }
                     if let Some(kino) = kino {
                         let himmel = match himmel {
                             Some(h) => h,
@@ -384,6 +511,7 @@ fn von_vorn<'a>(
     }
     chunks.sichtbar = sichtbar;
     chunks.kinodaten = kinodaten;
+    chunks.flachdaten = flachdaten;
     Ok(deckung)
 }
 
@@ -456,7 +584,9 @@ pub fn draw_list<'a>(
 /// Kandidaten, ohne verdeckte Würfel auszulassen und ohne Pixel zu
 /// überspringen: die Referenz, gegen die Tests den schnellen Weg prüfen.
 /// Er darf kein Pixel ändern. Nur für die Karte: Cinematic zeichnet
-/// dieselben Draws, das prüft ein eigener Test.
+/// dieselben Draws, das prüft ein eigener Test. In der einfarbigen Ansicht
+/// zeichnet es ohne Relief, die Farben, auf die [`relief`] seine
+/// Helligkeit legt.
 pub fn render_area_without_culling(
     world: &World,
     sprites: &SpriteSet,
@@ -1587,6 +1717,9 @@ pub struct ChunkCache<'a> {
     kinodaten: Vec<Kinodaten>,
     hdr: Hdr,
     bloom: Bloompuffer,
+    /// Nur für die einfarbige Ansicht: je Draw in `sichtbar` das y seines
+    /// Blocks, für das Relief, siehe [`render_flach`].
+    flachdaten: Vec<i32>,
     /// Je Chunk und Höhe das Biom jedes Blocks nach [`BiomeTable::quart`],
     /// `u16::MAX`, solange es nicht gerechnet ist; siehe
     /// [`ChunkCache::biome_of`].
@@ -2105,6 +2238,7 @@ impl<'a> ChunkCache<'a> {
             kinodaten: Vec::new(),
             hdr: Hdr::default(),
             bloom: Bloompuffer::default(),
+            flachdaten: Vec::new(),
             biome_layers: Vec::new(),
             biome_index: HashMap::new(),
             biome_last: usize::MAX,
@@ -3676,6 +3810,33 @@ mod tests {
                     "Runde {runde}, {w:?}"
                 );
             }
+        }
+    }
+
+    /// Gegenprobe zu [`helligkeit`]: der Ausdruck der Spielkarte in f64, in
+    /// derselben Reihenfolge, mit dem Feld im Schachbrett aus x + z, für
+    /// Unterschiede von −3 bis 3 und beide Felder. Bei ganzen Blöcken
+    /// ändert das Feld nichts: Schon 1 · 4/5 − 0,5 · 0,4 rundet auf
+    /// 0,6000000000000001.
+    #[test]
+    fn helligkeit_wie_der_ausdruck_der_karte() {
+        for unterschied in -3..=3 {
+            for feld in [0.0, 1.0] {
+                let d = f64::from(unterschied) * 4.0 / (1.0 + 4.0) + (feld - 0.5) * 0.4;
+                let soll = if d > 0.6 {
+                    HOCH
+                } else if d < -0.6 {
+                    TIEF
+                } else {
+                    EBEN
+                };
+                assert_eq!(
+                    helligkeit(unterschied, false),
+                    soll,
+                    "{unterschied}, Feld {feld}"
+                );
+            }
+            assert_eq!(helligkeit(unterschied, true), EBEN, "Wasser, {unterschied}");
         }
     }
 }

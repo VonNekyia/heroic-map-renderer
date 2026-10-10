@@ -48,6 +48,13 @@ dem Plugin-Programmierer ab.
   Update sagt nicht „nichts zu zeichnen“, kommt also ins Log, dauert
   länger und schreibt mit `--manifest` das Manifest aus dem ganzen Baum,
   siehe [map.json](benutzung/map-json.md), „Verkleinern“.
+- **Die einfarbige Ansicht** ([0099](entscheidungen/0099-einfarbige-ansicht.md)):
+  `--flat` statt `--camera` und `--scale`, ohne `--native-levels`, in den
+  Ordner `top-north-s-flat`. Eine Option in `config.yml` setzt das Plugin
+  um, siehe [Die einfarbige Ansicht](renderer/einfarbig.md). Das Plugin
+  rechnet den Ordner mit `-flat` nach. Ein älterer Renderer, der
+  `trees.json` in derselben Wurzel neu schreibt, kennt look `"flat"` nicht
+  und lässt den flachen Baum aus der Liste.
 - **Den Ordner eines Baums,** `baum_name` in `cli.rs`. Das Plugin rechnet ihn
   nach, um `stand.bin` und `stand-neu.bin` zu finden; daneben liegt
   `stand-neu-liegen.bin`, das nur `--resume` liest. Siehe

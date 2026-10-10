@@ -18,7 +18,9 @@ Basis und auf den nativen Stufen; `--render` und `--pyramid` bleiben auf der
 CPU, `--gpu` verlangt `--tiles`. Mit `--cinematic` zeichnet immer die CPU,
 auch mit `--gpu on`, und das Log sagt es einmal:
 `GPU:        aus, Cinematic zeichnet die CPU`, siehe
-[Cinematic](../renderer/cinematic.md). Der Zeichner steht in
+[Cinematic](../renderer/cinematic.md). Ebenso mit `--flat`:
+`GPU:        aus, die einfarbige Ansicht zeichnet die CPU`, siehe
+[Die einfarbige Ansicht](../renderer/einfarbig.md). Der Zeichner steht in
 [`renderer/src/render/gpu.rs`](../../renderer/src/render/gpu.rs), der
 Shader in `gpu.wgsl` daneben.
 

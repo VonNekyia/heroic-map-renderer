@@ -40,6 +40,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Wasser und Licht](renderer/wasser-und-licht.md): Flüssigkeiten, Flächen, Streifen, Himmels- und Blocklicht.
 - [Weiche Beleuchtung](renderer/weiche-beleuchtung.md): die Regeln von `BlockModelLighter` für Flächen auf dem Rand und im Innern, Welten aus 26.2.
 - [Cinematic](renderer/cinematic.md): `--cinematic`, die Werte des Looks, Sprites ohne Schattierung nach Richtung, Licht an den Ecken und in HDR, Farbe des Himmels, Sonne und Schatten aus dem Strahl, Bodenpflanzen, Wasser, Leuchten, Wärme und Kälte, Bloom, Ton.
+- [Die einfarbige Ansicht](renderer/einfarbig.md): `--flat`, `top-north` bei scale 1, je Block das Mittel seiner Oberseite, Biomfarbe und Wasser wie mit Texturen, Relief nach dem Nachbarn im Norden, ein eigener Baum mit look `flat`.
 - [Biomfarben](renderer/biomfarben.md): Colormaps, gefärbte Blöcke, Biom je Block, Übergänge zwischen Biomen, Sumpfgras, Tönung beim Zeichnen, Biome lesen.
 - [Varianten aus der Position](renderer/varianten.md): die Alternative würfeln wie der Client.
 - [Blockstates](renderer/blockstates.md): lesen und stapeln wie der Client, `blocks.txt`.
@@ -173,6 +174,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0096](entscheidungen/0096-formen-und-schrift-im-browser.md): Formen der Ebenen als SVG je Ebene, Flächen als Umriss der sichtbaren Felder statt Dreiecken mit Maske, Sichtbarkeit in einem Durchgang, Höhen einmal je Ebene, Kartenschrift als SVG-Text in der unveränderten TTF; dazu die Kosten.
 - [0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md): Banner als eigenes Objekt für Orte, Nadeln und Banner auf jeder Stufe gleich gross, die Tafel schon beim Zeigen; löst die Stufen und die Tafel nur beim Anklicken aus 0095 ab.
 - [0098](entscheidungen/0098-der-zeichenstand-statt-des-builds.md): Stand, Hashes der Pixel und `--resume` hängen am Zeichenstand im Code und an den eingebauten Tabellen statt an der ausführbaren Datei; ein Test über die Goldbilder sichert ihn ab, ein Stand von v0.4.0 oder v0.5.0 gilt als Zeichenstand 1, die Hashes der Pixel hängen am Kodierstand; löst den Fingerabdruck des Renderers aus 0062 ab.
+- [0099](entscheidungen/0099-einfarbige-ansicht.md): `--flat` zeichnet `top-north` bei scale 1 mit einer Farbe je Block über den bestehenden Pfad, look `flat`, Wasser wie mit Texturen, Relief nach der Karte des Spiels, nur auf der CPU; löst für diese Ansicht den kleinsten scale aus 0013 und 0051 ab.
 
 ## Versuche
 

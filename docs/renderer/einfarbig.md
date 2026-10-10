@@ -137,6 +137,18 @@ Belegt per `javap` am Client von 26.2 in `MapItem.update`,
   Die Höhe bleibt die des Wasserspiegels; danach vergleicht das Land
   südlich davon mit ihm.
 
+## Kosten
+
+Über die ganze Testwelt gegen `top-north` bei scale 4, gemessen in
+[2026-10-10, Einfarbige Ansicht](../messungen/2026-10-10-einfarbige-ansicht.md):
+
+- **Zeit:** 35 % weniger. Lesen und Licht hängen an den Chunks, nicht an
+  den Pixeln, und sind 61 % der CPU.
+- **Platz:** ×0,087.
+- **Arbeitsspeicher:** an der Spitze 1,55 GiB, 1,4-mal die Karte. Eine
+  Kachel deckt 16 × 16 Chunks; gezeichnet wird sie in Bändern, siehe
+  [Der Weg einer Kachel](renderpfad.md), „Speicher“.
+
 ## Was bleibt eine Näherung
 
 - **Texturen über 64 Texel** je Kante mittelt der Rasterizer mit 64 × 64

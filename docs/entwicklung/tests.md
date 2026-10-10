@@ -268,7 +268,9 @@ Projektion, Baking, Rasterizer oder Maleralgorithmus fällt damit auf.
 `metatile-cinematic.png` sie mit Cinematic in 2:1 aus `se` um dieselbe
 Treppe, alle bei scale 16. `metatile-wurzeln.png` zeigt die
 Mangrovenwurzeln aus #243 genordet von oben bei scale 4, den Grund durch
-ihre Löcher. Der Test vergleicht alle, schreibt zu jedem
+ihre Löcher. `metatile-flat.png` zeigt die ganze Szene in der einfarbigen
+Ansicht von `--flat`, `top-north` bei scale 1, 32 × 32 Pixel, siehe
+[Die einfarbige Ansicht](../renderer/einfarbig.md). Der Test vergleicht alle, schreibt zu jedem
 abweichenden das Ist-Bild daneben, als `<name>-ist.png`, und fällt erst
 dann; in CI liegen sie als Artefakt am fehlgeschlagenen Lauf. Neu erzeugen nach einer gewollten Änderung: Skill
 [`goldbild-erneuern`](../../skills/goldbild-erneuern/SKILL.md).

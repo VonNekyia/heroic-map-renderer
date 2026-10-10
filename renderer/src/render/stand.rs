@@ -453,7 +453,7 @@ pub const ZEICHENSTAND: u32 = 2;
 /// FNV-1a über die Goldbilder dieses Zeichenstands, siehe
 /// `zeichenstand_folgt_den_goldbildern`.
 #[cfg(test)]
-const GOLDBILDER: u64 = 0xc594_d75d_35a4_1b49;
+const GOLDBILDER: u64 = 0x864e_a451_e6ea_feea;
 
 /// Eine eingebaute Tabelle aus `src/assets`: ihr Name und ihr Inhalt aus
 /// derselben Datei.
@@ -974,8 +974,10 @@ mod tests {
             fnv.0,
             GOLDBILDER,
             "Die Goldbilder haben sich geändert. Zeichnet der Renderer anders, \
-             ZEICHENSTAND in renderer/src/render/stand.rs auf {} heben; dann \
-             GOLDBILDER auf {:#x} setzen. Siehe skills/goldbild-erneuern/SKILL.md.",
+             ZEICHENSTAND in renderer/src/render/stand.rs auf {} heben. Kommt \
+             nur ein Goldbild dazu, etwa für einen neuen Baum, oder ändert sich \
+             nur die Szene eines Tests, bleibt er. In jedem Fall GOLDBILDER auf \
+             {:#x} setzen. Siehe skills/goldbild-erneuern/SKILL.md.",
             ZEICHENSTAND + 1,
             fnv.0
         );

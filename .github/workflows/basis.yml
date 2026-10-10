@@ -1,0 +1,39 @@
+name: Basis
+
+# Eine PR geht nur gegen den Standardzweig und nur, wenn sie seinen neuesten
+# Stand enthält. So landet keine gestapelte PR in einem fremden Zweig, und
+# nichts wird über einen veralteten Stand gemergt. Ohne Pfadfilter, damit der
+# Check bei jeder PR läuft; `edited` fängt das Umstellen der Basis.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  basis:
+    name: Basis aktuell
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Basis und Stand prüfen
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASIS: ${{ github.base_ref }}
+          STANDARD: ${{ github.event.repository.default_branch }}
+          KOPF: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$BASIS" != "$STANDARD" ]; then
+            echo "::error::Die Basis ist $BASIS, nicht $STANDARD. Erst den Vorgänger mergen, dann diese PR auf $STANDARD umstellen."
+            exit 1
+          fi
+          hinten=$(gh api "repos/$REPO/compare/$STANDARD...$KOPF" --jq .behind_by)
+          if [ "$hinten" -ne 0 ]; then
+            echo "::error::Es fehlen $hinten Commits von $STANDARD. Erst auf $STANDARD rebasen oder $STANDARD hineinmergen."
+            exit 1
+          fi
+          echo "Basis $STANDARD, auf dem neuesten Stand."

@@ -253,8 +253,9 @@ teilen, etwa alle Städte einer Nation; so reichen die 200 je Ebene auch für
 - **Pixel auf Pixel:** in der Grösse des Sprites oder Bilds, in Pixeln der
   Ansicht, nie skaliert, auf jeder Stufe gleich. Wie die Webkarte rundet,
   steht unter „Nadeln und Banner“ im Abschnitt „Zeichnen“.
-- **Fuss:** die Unterkante des Bilds, `⌊Breite / 2⌋` Pixel rechts seiner
-  linken Kante, so wie bei der Nadel.
+- **Fuss:** beim Bild die Unterkante, `⌊Breite / 2⌋` Pixel rechts seiner
+  linken Kante, so wie bei der Nadel; beim Sprite der aus `satz.json`,
+  siehe „Sprites“.
 - **Was die Ansicht zeichnet:** mit `design` das Sprite ihres Satzes, siehe
   „Sprites“; fehlt es, `image`. Ohne gültiges Sprite und Bild, zu gross, in
   einem anderen Format oder nicht an seinem Ort, übergeht die Ansicht das
@@ -316,11 +317,15 @@ layers/<modname>/banner/<ebene>/<satz>/satz.json
 - **Grösse:** fest, auf jeder Stufe gleich, höchstens 32 × 64. Ein Pixel des
   Modells ist in der Höhe ein Pixel; in der Breite von vorn 1, schräg in
   `2:1` rund √2 Pixel. Das Tuch ist von vorn 20 × 40, in `2:1` rund 28 × 40.
-- **Fuss:** bei `(⌊Breite / 2⌋, Höhe)` des Sprites, wie bei einem Bild.
-- **`satz.json`:** der Winkel der Unterkante des Tuchs im Sprite und der
-  Fuss. Die Ansicht dreht den Namen unter dem Banner um diesen Winkel, so
-  dass er parallel zur Unterkante läuft; von vorn ist er 0. Mit `image`
-  bleibt der Name waagrecht. Die Felder nennt die PR, die sie einführt.
+- **Leinwand und Fuss:** Alle Sprites eines Satzes, mit und ohne Krone,
+  haben dieselbe Leinwand und denselben Fuss.
+- **`satz.json`:** der Fuss im Sprite und der Winkel der Unterkante des
+  Tuchs. Die Ansicht setzt das Sprite mit diesem Fuss auf den Ort und dreht
+  den Namen darunter um diesen Winkel, so dass er parallel zur Unterkante
+  läuft; von vorn ist er 0. Welcher Winkel je Kamera und Richtung gilt,
+  steht in [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
+  Mit `image` bleibt der Fuss bei `(⌊Breite / 2⌋, Höhe)` und der Name
+  waagrecht. Die Felder nennt die PR, die sie einführt.
 - **Wem `banner/` gehört:** dem Renderer, unter jedem `modname`. Das Plugin
   übergibt ihm alle öffentlichen Ebenen in einem Aufruf; er schreibt, was
   fehlt, und löscht, was zu keiner übergebenen Ebene, keinem Entwurf und

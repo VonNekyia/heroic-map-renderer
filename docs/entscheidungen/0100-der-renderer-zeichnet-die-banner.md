@@ -88,7 +88,8 @@ Die Felder im Einzelnen stehen in [Ebenen](../benutzung/ebenen.md),
   nach jedem vollen Lauf und einmal beim Start. `--banners` darf neben
   anderen Läufen laufen: Es schreibt nur `banner/`, auf einem Thread mit
   `--low-priority` und mit wenig Speicher. So bekommt ein neuer Entwurf
-  sein Sprite auch während eines vollen Laufs.
+  sein Sprite auch während eines vollen Laufs. Das Plugin reiht die Aufrufe
+  je `<out>` ein: Höchstens einer schreibt zur Zeit in denselben Ordner.
 - **Je Entwurf zwei Sprites,** ohne und mit Krone, unabhängig von
   `capital`. Ein neues `capital: true` braucht so keinen neuen Aufruf.
 - **Die Sätze:**
@@ -120,16 +121,34 @@ Die Felder im Einzelnen stehen in [Ebenen](../benutzung/ebenen.md),
   Das Tuch ist so von vorn 20 × 40 Pixel wie das Bild heute, in `2:1` rund
   28 × 40; mit Stange und Querholz bleibt jedes Sprite unter der Grenze von
   32 × 64.
-- **Blick:** Kamera und Richtung des Satzes. Das Banner steht in der
-  Drehung, deren Tuch im Blick nach Süden zeigt, und so schräg auf der
-  Karte wie die Blöcke daneben.
-- **Fuss:** Der Renderer legt den Fuss der Stange bei `(⌊Breite / 2⌋,
-  Höhe)` des Sprites, wie die Ansichten den Fuss eines Bilds setzen.
-- **Der Name:** Je Satz schreibt der Renderer `satz.json` neben die
-  Sprites, mit dem Winkel der Unterkante des Tuchs und dem Fuss. Webkarte
-  und Mod drehen den Namen darum gleich: genordet waagrecht, in `2:1`
-  parallel zur Unterkante. Mit `image` bleibt er waagrecht. Grösse und
-  Stil der Kartenschrift bleiben wie bisher.
+- **Blick:** Kamera und Richtung des Satzes. Das Tuch zeigt im Blick nach
+  Süden, also zur Seite, von der die Kamera kommt; in der Welt ist das je
+  Richtung eine andere Seite. Das Banner steht so schräg auf der Karte wie
+  die Blöcke daneben, und die Kamera sieht immer seine Vorderseite. Die
+  Rückseite zeigt im Spiel das Muster gespiegelt; sie kommt nie ins Sprite.
+  Je Richtung gilt:
+
+  | Kamera | Richtung | Drehung des Spiels | Winkel der Unterkante |
+  |---|---|---|---|
+  | schräg, `W:H` von `2:1` bis `1:1` | `se`, `sw`, `nw`, `ne` | 0, 4, 8, 12 | `atan(H / W)`, nach rechts fallend: `2:1` 26,57°, `4:3` 36,87°, `1:1` 45° |
+  | `north-45` | `s`, `w`, `n`, `e` | 0, 4, 8, 12 | 0° |
+  | `oben`, für jeden Baum von oben und den Mod | `north-45`, `s` | 0 | 0° |
+
+  Die Drehung zählt wie das Spiel in Schritten von 22,5° von Süden über
+  Westen: 0 Süden, 4 Westen, 8 Norden, 12 Osten. Belegt wird das per
+  `javap` in der PR, die das Banner ohne Welt zeichnet. Über die Ecke
+  stünden auch die Drehungen 12, 0, 4 und 8 gleich weit von vorn; es gilt
+  die Seite, die im Blick nach Süden zeigt.
+- **Fuss und Leinwand:** Alle Sprites eines Satzes, mit und ohne Krone,
+  haben dieselbe Leinwand und denselben Fuss. In `2:1` fällt die Unterkante
+  des Tuchs über seine Breite um rund 14 Pixel, und eine Ecke kann unter
+  den Fuss reichen. Darum nennt `satz.json` den Fuss und den Winkel, und die
+  Ansichten nehmen beide von dort; gerechnet wird in keiner Ansicht.
+  Mit `image` bleibt der Fuss bei `(⌊Breite / 2⌋, Höhe)` wie heute.
+- **Der Name:** Webkarte und Mod drehen den Namen um den Winkel aus
+  `satz.json`, so dass er parallel zur Unterkante des Tuchs läuft. Mit
+  `image` bleibt er waagrecht. Grösse und Stil der Kartenschrift bleiben
+  wie bisher.
 - **Licht:** das Licht der Blockentities, Himmelslicht voll, die neutrale
   Wärme. Ein Satz mit `look` `cinematic` nimmt dessen Werte; passt der
   `lookHash` des Baums nicht zum Binär, gilt der Look der Karte, mit

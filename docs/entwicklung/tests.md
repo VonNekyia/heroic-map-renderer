@@ -65,6 +65,16 @@ npm run lint      # ESLint
 npm test          # Playwright, baut vorher zweimal: ohne Skin und mit SKIN=./skins/tablett
 ```
 
+Die Builds laufen unter `vite preview` auf 4173, 4175 und 4176. Ohne CI
+nutzt Playwright einen Server, der dort schon läuft. Belegt einen der Ports
+ein fremder Server, etwa einer anderen Sitzung, prüften die Tests dessen
+Code. Dann einen eigenen Port setzen; die anderen liegen 2 und 3 darüber,
+und Playwright startet die Server selbst:
+
+```bash
+PW_PORT=4193 npm test
+```
+
 Lighthouse lokal: [CI](ci.md), „Lighthouse“.
 
 Testbauten rechnen mit Optimierung: die Abhängigkeiten mit `opt-level` 2

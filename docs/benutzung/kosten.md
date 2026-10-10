@@ -99,8 +99,8 @@ Durchgang brauchen sie nicht, und messbar länger wird er dadurch nicht.
 Geschrieben sind sie auf der Testwelt in 0,2 s, 1,8 MB, auf der grossen
 Welt in gut einer Sekunde, 13,8 MB. Gemessen in
 [2026-09-28, Höhen](../messungen/2026-09-28-hoehen.md). Der Boden ohne Laub
-daneben steht je Block: auf der Testwelt 11,2 MB, auf der grossen Welt
-hochgerechnet rund 85 MB. Der Vorlauf hält Höhen und Boden gepackt, bis
+daneben steht je Block: auf der Testwelt 9,5 MB, auf der grossen Welt
+hochgerechnet rund 72 MB. Der Vorlauf hält Höhen und Boden gepackt, bis
 er sie schreibt. Gemessen in
 [2026-10-11, Boden je Block](../messungen/2026-10-11-boden-je-block.md),
 Gründe in [0103](../entscheidungen/0103-boden-ohne-laub.md).

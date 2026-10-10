@@ -1,8 +1,8 @@
 ---
 title: Boden je Block
-description: Was der Boden ohne Laub je Block statt je 4×4 an Platz und an Arbeitsspeicher an der Spitze von --heights kostet, auf der Testwelt mit allen Kernen und mit einem Thread, ungepackt und gepackt im Vorlauf; dazu die Hochrechnung auf die grosse Welt.
+description: Was der Boden ohne Laub je Block statt je 4×4 an Platz und an Arbeitsspeicher an der Spitze von --heights kostet, auf der Testwelt mit allen Kernen und mit einem Thread, ungepackt und gepackt im Vorlauf, dann mit dem Median 3×3 und wie viele Spalten er ändert; dazu die Hochrechnung auf die grosse Welt.
 date: 2026-10-11
-commits: [cc83ff2, ff9f3a8]
+commits: [cc83ff2, ff9f3a8, 4f867cb]
 code:
   - renderer/src/render/heights.rs
   - renderer/src/render/tiles.rs
@@ -16,7 +16,9 @@ hochgerechnet auf die grosse Welt rund 85 MB. Weil der Vorlauf jede Region
 gleich packt, liegt die Spitze von `--heights` mit einem Thread im Mittel
 6,5 MiB unter der von vorher, 0,073 statt 0,079 GiB. Mit allen Kernen liegt
 sie im Mittel 24,5 MiB darüber, 0,150 statt 0,126 GiB: Je Thread hält der
-Vorlauf eine Region ungepackt, nicht je Region der Welt.
+Vorlauf eine Region ungepackt, nicht je Region der Welt. Mit dem Median
+3 × 3, dem Stand dieser PR, sind es 9,49 MB bei gleicher Spitze, siehe
+„Nachtrag: mit dem Median 3 × 3“.
 
 ## Aufbau
 
@@ -36,7 +38,7 @@ Vorlauf eine Region ungepackt, nicht je Region der Welt.
     sobald er sie gelesen hat; `Heights::encode` legt dafür erst einen
     Puffer mit allen Werten an, je Block 512 KiB;
   - **je Block, Stücke:** wie davor, aber `encode` packt in Stücken von
-    8 KiB. Das ist der Stand dieser PR, `ff9f3a8`.
+    8 KiB, `ff9f3a8`.
 - **Threads:** ohne `--threads`, also alle Kerne, und mit `--threads 1`.
   Mit einem Thread läuft auch der Vorlauf eines Updates im Plugin, das
   `renderer.threads` von 1 nimmt.
@@ -98,3 +100,25 @@ Werte, der Boden je Block mit Puffer und mit Stücken auch.
   Stücke von 8 KiB sparen sie, mit allen Kernen im Mittel 16 MiB.
 - **Nicht gemessen:** die Zeit. Das Packen je Region kommt in den Vorlauf;
   eine Zeitmessung gehört in die Nacht.
+
+## Nachtrag: mit dem Median 3 × 3
+
+Nach dem Entscheid für den Median 3 × 3 im Vorlauf, siehe
+[0103](../entscheidungen/0103-boden-ohne-laub.md): derselbe Aufbau, die
+Stände „je Block, Stücke“ und **Median**, `4f867cb`, am 11.10. von 01:27 bis
+01:36 abwechselnd, je 3 Läufe.
+
+| Stand | alle Kerne | `--threads 1` |
+|---|---|---|
+| je Block, Stücke | 0,146 bis 0,153 GiB (152,4 MiB) | 0,070 bis 0,073 GiB (73,7 MiB) |
+| Median | 0,143 bis 0,151 GiB (151,5 MiB) | 0,068 bis 0,072 GiB (72,4 MiB) |
+
+- **Speicher:** gleich, die Unterschiede liegen in der Streuung. Der Median
+  hält je Thread zwei Zeilen von 512 Werten.
+- **Platz:** `ground/` 9,49 MB statt 11,19 MB, 24,8 kB je Datei; der
+  glattere Boden packt besser. Hochgerechnet wie oben rund 72 MB auf der
+  grossen Welt.
+- **Wirkung:** Der Median ändert 3,70 % der Spalten mit Wert, 1,07 % um 3
+  Blöcke oder mehr. 1 427 658 Spalten werden tiefer, 931 192 höher: Er
+  nimmt Stämme weg und füllt einzelne Gruben. Gezählt mit einem Skript über
+  die entpackten 383 Dateien beider Stände.

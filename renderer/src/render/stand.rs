@@ -448,12 +448,12 @@ impl Stand {
 /// ein Build eine Kachel, eine Höhe oder den Abdruck eines Chunks anders
 /// schreiben kann, auch wenn kein Goldbild es zeigt.
 /// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
-pub const ZEICHENSTAND: u32 = 2;
+pub const ZEICHENSTAND: u32 = 3;
 
 /// FNV-1a über die Goldbilder dieses Zeichenstands, siehe
 /// `zeichenstand_folgt_den_goldbildern`.
 #[cfg(test)]
-const GOLDBILDER: u64 = 0x864e_a451_e6ea_feea;
+const GOLDBILDER: u64 = 0x8a2e_a1be_5bf7_2873;
 
 /// Eine eingebaute Tabelle aus `src/assets`: ihr Name und ihr Inhalt aus
 /// derselben Datei.

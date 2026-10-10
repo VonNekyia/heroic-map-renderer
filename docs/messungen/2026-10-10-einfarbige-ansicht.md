@@ -14,8 +14,9 @@ code:
 Platz als die Karte in `top-north` bei scale 4: 57 bis 59 s statt 87 bis
 91 s, 91,5 MB statt 1055,0 MB. An der Spitze brauchte es zuerst 3,3-mal so
 viel Arbeitsspeicher, 3,8 statt 1,2 GiB. In Bändern von vier Zeilen Chunks
-sind es 1,55 GiB, 1,4-mal die Karte, bei gleichen Bytes. Lesen und Licht
-sind 61 % der CPU von `--flat`.
+sind es 1,55 GiB, rund 1,3-mal die Karte, bei gleichen Bytes. Die −35 %
+sind ohne Bänder gemessen; mit Bändern lässt sich kein Unterschied zeigen.
+Lesen und Licht sind 61 % der CPU von `--flat`.
 
 ## Aufbau
 
@@ -40,7 +41,7 @@ sind 61 % der CPU von `--flat`.
 
 ## Ergebnis
 
-| Ansicht | Wanduhr | CPU | Spitze | Kacheln | Platz |
+| Ansicht | Wanduhr | CPU | Spitze | Kacheln, alle Stufen | Platz |
 |---|---|---|---|---|---|
 | Karte, `top-north` 4 | 87,42 s, 90,68 s, 90,91 s | 1767 s bis 1811 s | 1,14 bis 1,19 GiB | 22 037 | 1055,0 MB |
 | `--flat` | 57,34 s, 59,01 s, 57,84 s | 1160 s bis 1175 s | 3,82 bis 3,85 GiB | 1670 | 91,5 MB |
@@ -133,4 +134,4 @@ Kodieren; der Rest von `von_vorn` ist die Differenz.
   schon bei der Karte nur 12 %.
 - **Platz:** ×0,087 für den ganzen Baum. Auf Stufe 6, wo beide gleich
   viele Blöcke je Kachel zeigen, ×0,82.
-- **Arbeitsspeicher:** in Bändern 1,55 GiB, 1,4-mal die Karte.
+- **Arbeitsspeicher:** in Bändern 1,55 GiB, rund 1,3-mal die Karte.

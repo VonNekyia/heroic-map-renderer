@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { projiziere, zweiZuEins } from '../src/pick';
-import { aufDemSchirm, DEMO, HAFEN, STAEDTE, staedte, welt } from './ebenen-welt';
+import { aufDemSchirm, BILDER, DEMO, fuss, HAFEN, png, STAEDTE, staedte, welt } from './ebenen-welt';
 
 /** Eine Region aus einem Rechteck der Welt. */
 const rechteck = (id: string, x0: number, z0: number, x1: number, z1: number, mehr: object = {}) => ({
@@ -10,7 +10,7 @@ const rechteck = (id: string, x0: number, z0: number, x1: number, z1: number, me
   ...mehr,
 });
 const GEBIET = rechteck('gebiet', 16, -32, 48, 0, { fill: '#40E53F55' });
-const VON_OBEN = { camera: 'top', projection: { azimuth: 'north', u: 16, v: 16, y: 0 } };
+const VON_OBEN = { camera: 'top', projection: { azimuth: 'north' as const, u: 16, v: 16, y: 0 } };
 
 /** Die Ecken des Rahmens um ein Element auf dem Schirm. */
 const rahmen = async (l: Locator) => {
@@ -104,6 +104,36 @@ test('von oben liegt eine Region eben, ein Kreis bleibt rund', async ({ page }) 
   const b = (await flaeche.boundingBox())!;
   expect(Math.abs(b.width - 480)).toBeLessThanOrEqual(1);
   expect(Math.abs(b.height - 480)).toBeLessThanOrEqual(1);
+});
+
+test('von oben steht jede Art dort, wo die Projektion sie hinlegt, gleich welche Höhe: Linie, Kartenschrift, Nadel und Banner', async ({ page }) => {
+  // Ein Hang unter allem: Von oben zählt keine Höhe, P = (16 · x, 16 · z).
+  const linie = { id: 'linie', type: 'line', points: [[10, 12], [30, 12], [30, 24]], stroke: { color: '#123456', width: 2 } };
+  const schrift = { id: 'meer', type: 'label', text: 'Meer', path: [[12, 40], [38, 40]], size: 2 };
+  const nadel = { ...HAFEN, id: 'nadel', name: 'Nadel', at: [20.5, 30.5], panel: undefined };
+  const banner = { id: 'banner', type: 'banner', at: [35.5, 30.5], image: 'images/fahne.png', name: 'Banner' };
+  await welt(page, staedte([linie, schrift, nadel, banner], {
+    mehr: VON_OBEN,
+    hoehe: (i, j) => 4 * (i + j),
+    bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]),
+  }));
+  await page.goto(`${DEMO}&at=25,0,28`);
+  const p = (x: number, z: number) => aufDemSchirm(page, ...projiziere(x, 0, z, VON_OBEN.projection));
+  // Die Linie: ihr Rahmen über die drei Punkte.
+  const pfad = page.locator('path[stroke="#123456"]');
+  await expect(pfad).toHaveCount(1);
+  nah(await rahmen(pfad), [...(await p(10, 12)), ...(await p(30, 24))]);
+  // Die Kartenschrift: ihr Pfad von Punkt zu Punkt, waagrecht.
+  const lage = await page.locator('svg.ebene-schrift[data-id="meer"]').evaluate((svg: SVGSVGElement) => {
+    const weg = svg.querySelector('path')!;
+    const kasten = svg.getBoundingClientRect();
+    const [a, b] = [weg.getPointAtLength(0), weg.getPointAtLength(weg.getTotalLength())];
+    return [kasten.left + a.x, kasten.top + a.y, kasten.left + b.x, kasten.top + b.y];
+  });
+  nah(lage, [...(await p(12, 40)), ...(await p(38, 40))]);
+  // Nadel und Banner mit dem Fuss auf ihrem Ort.
+  nah(await fuss(page, 'Nadel'), await p(20.5, 30.5));
+  nah(await fuss(page, 'Banner'), await p(35.5, 30.5));
 });
 
 test('hinter einem Wall füllt die Karte nichts und zeichnet den Rand dünn, gestrichelt und blass; davor alles', async ({ page }) => {

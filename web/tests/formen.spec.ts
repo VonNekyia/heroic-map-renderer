@@ -220,10 +220,11 @@ test('unter Kronen bleibt ein Rand auf dem Boden ganz zu sehen; hinter einem Han
   expect(new Set(await stile())).toEqual(new Set(['0.4,3 4']));
 });
 
-test('im iso steht am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 deckend, nach oben bis 0; nicht an Linien, nicht ohne Rand, nicht von oben', async ({ page }) => {
+test('im iso steht am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 deckend, nach oben bis 0; nicht an Linien, nicht ohne Rand, nicht um einen Kreis ohne Füllung, nicht von oben', async ({ page }) => {
   const ohneRand = rechteck('ohne', 60, -32, 80, 0, { fill: '#AA00AA55', stroke: { width: 0 } });
+  const nurUmriss = { id: 'umkreis', type: 'circle', center: [32, -60], radius: 10, stroke: { color: '#00AAAA', width: 2 } };
   const linie = { id: 'weg', type: 'line', points: [[20, -40], [44, -40]], stroke: { color: '#123456', width: 2 } };
-  await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }, ohneRand, linie], { hoehe: () => 10 }));
+  await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }, ohneRand, nurUmriss, linie], { hoehe: () => 10 }));
   await page.goto(`${DEMO}&at=32,10,-16`);
   const baender = page.locator('path[fill="#40E53F"]');
   await expect(baender).toHaveCount(12);
@@ -241,6 +242,8 @@ test('im iso steht am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 de
   nah([Math.min(...alle.map((r) => r[0]!)), Math.min(...alle.map((r) => r[1]!)), Math.max(...alle.map((r) => r[2]!)), Math.max(...alle.map((r) => r[3]!))], [rand[0]!, rand[1]! - 6 * zweiZuEins(16).y, rand[2]!, rand[3]!]);
   await expect(page.locator('path[fill="#AA00AA"]')).toHaveCount(0);
   await expect(page.locator('path[fill="#123456"]')).toHaveCount(0);
+  await expect(page.locator('path[stroke="#00AAAA"]')).toHaveCount(1);
+  await expect(page.locator('path[fill="#00AAAA"]')).toHaveCount(0);
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }], { mehr: VON_OBEN }));
   await page.goto(`${DEMO}&at=32,0,-16`);

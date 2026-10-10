@@ -40,7 +40,8 @@ nur für schräge Ansichten:
   Blöcke hindurch sehen und nie verlieren.
 - **Nadeln, Banner und Kartenschrift** bleiben auf `heights`, wie die
   Koordinaten: Sie stehen auf dem, was das Bild zeigt.
-- **Die Wand:** an jedem Rand einer Fläche, der gezeichnet wird, 6 Blöcke
+- **Die Wand:** an jedem Rand einer Fläche, der gezeichnet wird, also mit
+  `fill`, `name` oder `panel`, 6 Blöcke
   hoch, in der Farbe des Rands ohne Alpha, am Boden 0,6 deckend, nach oben
   linear bis 0. Der User wählte am Bild die Richtung „nach oben
   durchsichtiger“ gegen „nach oben deckender“ und die Höhe 6. Hinter
@@ -49,6 +50,9 @@ nur für schräge Ansichten:
   empfiehlt etwa 15 % Deckkraft.
 - **Kein neues Feld:** Wand und Nebel folgen aus Rand und Füllung. Ohne
   Rand, mit `width: 0`, gibt es auch keine Wand.
+
+Gewählt hat der User an Vorschauen aus der Testwelt; wie es aussieht, zeigt
+[`regionen-boden.webp`](../bilder/regionen-boden.webp).
 
 ## Verworfene Alternativen
 
@@ -66,6 +70,9 @@ nur für schräge Ansichten:
   mit fester Deckkraft, 12 Stück, je Farbe und Band ein Pfad je Ebene.
 - **Felder für Wand und Nebel in der Ebene:** Regel 22; Rand und Füllung
   reichen.
+- **Eine Wand auch um einen Kreis nur mit Rand:** Am Bild der Ebenen stand
+  um einen gestrichelten Umkreis eine volle weisse Wand; ein Umkreis ist
+  eine Marke, keine Fläche. Entscheid des Frontends.
 
 ## Folgen
 

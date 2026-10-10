@@ -250,8 +250,8 @@ export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Lay
     for (const stueck of zuege(f, g.c, area)) {
       const z = zug(stueck, false, g, blick);
       striche.push(...laeufe(z, f.rand, renderer));
-      // Die Wand nur im iso und nur am Rand einer Fläche, nicht an einer Linie.
-      if (blick.p.y === 0 || f.linie) continue;
+      // Die Wand nur im iso und nur am Rand einer Fläche, nicht an einer Linie oder einem Kreis ohne Füllung, Namen und Tafel.
+      if (blick.p.y === 0 || !hatFlaeche(f)) continue;
       const farbeWand = f.rand.farbe.slice(0, 7);
       const baender = waende.get(farbeWand) ?? Array.from({ length: WAND.baender }, (): Punkt[][] => []);
       waende.set(farbeWand, baender);

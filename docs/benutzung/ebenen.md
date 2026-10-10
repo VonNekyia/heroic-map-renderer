@@ -698,7 +698,7 @@ und Linien, über seinen Kanal. Regionen braucht der Mod auch zum Anheften
 
 ![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben: Region, Kreis, Linie, Kartenschrift, ein Banner mit Entwurf und Krone, Name im Bogen und Tafel, eine Nadel](../bilder/ebenen-testwelt.webp)
 
-*Testwelt, scale 16, Kacheln und Banner von 0.8.0; Befehle im Skill
+*Testwelt, scale 16, Kacheln mit `ground` und Banner von 0.8.0; Befehle im Skill
 [`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md).*
 
 Jede Ansicht rechnet die Punkte mit derselben Projektion wie die Kacheln,
@@ -778,7 +778,9 @@ wie bei den Koordinaten.
 ### Die Wand
 
 Im iso steht am Rand jeder Fläche eine Wand, an Regionen und Kreisen, auch
-um Löcher, nicht an Linien. Von oben gibt es keine.
+um Löcher. Eine Fläche ist eine Region oder ein Kreis mit `fill`, `name`
+oder `panel`; ein Kreis nur mit Rand, etwa als Umkreis, und eine Linie
+haben keine Wand. Von oben gibt es keine.
 
 - **Höhe:** 6 Blöcke über dem Boden, je Punkt des Rands `P(x, H + 6, z)`;
   in Pixeln der feinsten Stufe also 6 · b über dem Rand.
@@ -793,6 +795,11 @@ um Löcher, nicht an Linien. Von oben gibt es keine.
   alle gleich herum. So bleibt kein Loch, wo sich Vorder- und Rückseite
   decken. `wand` in [`gelaende.ts`](../../web/src/gelaende.ts).
 - Gewählt in [0104](../entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md).
+
+![Eine Region über Wald und Ufer der Testwelt auf dem Boden, mit Wand und Nebel, schräg und von oben; eine Linie unter Kronen, voll zu sehen; eine Linie hinter einem Hang, dort dünn und gestrichelt](../bilder/regionen-boden.webp)
+
+*Testwelt, scale 16, Kacheln mit `ground`; Befehle im Skill
+[`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md).*
 
 ### Was verdeckt ist
 

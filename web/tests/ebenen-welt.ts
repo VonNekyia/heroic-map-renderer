@@ -1,7 +1,7 @@
 /** Eine Welt für die Tests der Ebenen: der Demobaum mit Höhen und Ebenen, die der Test liefert. */
 import type { Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { deflateSync } from 'node:zlib';
+import { crc32, deflateSync } from 'node:zlib';
 
 /** Ein kleiner Kachelbaum, der mit im Repository liegt. */
 export const DEMO = '/?tiles=/tiles-demo';
@@ -11,6 +11,25 @@ export const BILDER: Record<string, Buffer> = {
   'rot_16.png': readFileSync(new URL('fixtures/ebenen/rot_16.png', import.meta.url)),
 };
 export const LEER = -32768;
+
+/** Ein PNG b × h, RGBA, jedes Pixel anders gefärbt: (x · 7, y · 3, 128, 255). */
+export function png(b: number, h: number): Buffer {
+  const teil = (art: string, daten: Buffer) => {
+    const laenge = Buffer.alloc(4);
+    laenge.writeUInt32BE(daten.length);
+    const rest = Buffer.concat([Buffer.from(art, 'latin1'), daten]);
+    const pruef = Buffer.alloc(4);
+    pruef.writeUInt32BE(crc32(rest));
+    return Buffer.concat([laenge, rest, pruef]);
+  };
+  const kopf = Buffer.alloc(13);
+  kopf.writeUInt32BE(b, 0);
+  kopf.writeUInt32BE(h, 4);
+  kopf.set([8, 6, 0, 0, 0], 8);
+  const zeilen = Buffer.alloc(h * (1 + 4 * b));
+  for (let y = 0; y < h; y++) for (let x = 0; x < b; x++) zeilen.set([(x * 7) % 256, (y * 3) % 256, 128, 255], y * (1 + 4 * b) + 1 + 4 * x);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), teil('IHDR', kopf), teil('IDAT', deflateSync(zeilen)), teil('IEND', Buffer.alloc(0))]);
+}
 
 export const STAEDTE = { id: 'beispiel:staedte', name: { de: 'Städte', en: 'Towns' }, visible: true, order: 100, version: 'a' };
 export const KREISE = { id: 'beispiel:stadtinfos', name: { de: 'Stadtinfos', en: 'Town info' }, visible: false, order: 99, version: 'a' };

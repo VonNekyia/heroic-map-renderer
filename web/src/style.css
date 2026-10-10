@@ -248,11 +248,11 @@ body {
   padding: 0 3px;
   background: var(--ui-grund);
   color: var(--ui-schrift);
-  font: 12px/1.4 var(--ui-schrift-text);
+  font: 12px/1.4 Kartenschrift, serif;
   white-space: nowrap;
 }
 
-/* Der Name einer Region beim Zeigen, wie der Name einer Nadel. */
+/* Der Name einer Region beim Zeigen, in Grund und Schrift der UI. */
 .leaflet-tooltip.ebene-name {
   padding: 0 3px;
   border: 0;
@@ -317,8 +317,15 @@ body {
   line-height: 1.2;
 }
 
+/* Breiter als der Inhalt der Tafel, 320 px: verkleinert, Seitenverhältnis gleich, nie vergrössert.
+   Pixelkunst ohne Glättung nur bei ganzem Faktor, sonst glättet der Browser. */
 .tafel img {
   display: block;
+  max-width: 320px;
+  height: auto;
+}
+
+.tafel img.ganz {
   image-rendering: pixelated;
 }
 

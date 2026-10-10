@@ -138,16 +138,20 @@ selbst, die Webkarte im Browser.
   Ecke eines Blocks liegt auf ganzen Zahlen, seine Mitte bei `+0.5`. Eine
   Region um die Blöcke 0 bis 9 hat die Ecken 0 und 10.
 - **Farben** sind `#RRGGBB` oder `#RRGGBBAA`.
+- **Pixel der Ansicht:** Grössen, die nicht am Zoom hängen, wie Ränder,
+  Nadeln und Banner. Auf der Webkarte sind das Pixel des Bildschirms, im
+  Mod Einheiten seiner Oberfläche.
 - **Ein Rand** (`stroke`):
 
   ```json
   { "color": "#8640E6DD", "width": 2, "style": "dashed", "dash": [8, 6] }
   ```
 
-  `width` in Pixeln des Bildschirms, Vorgabe 2; 0 heisst ohne Rand.
-  `color` ist bei Region und Kreis als Vorgabe die Farbe von `fill` ohne
-  Alpha, sonst `#2B2B2B`. `style` ist `solid` oder `dashed`, Vorgabe
-  `solid`. `dash` sind Strich und Lücke in Pixeln, Vorgabe `[8, 6]`.
+  `width` in Pixeln der Ansicht, Vorgabe 2; 0 heisst ohne Rand. `color`
+  ist bei Region und Kreis als Vorgabe die Farbe von `fill` ohne Alpha,
+  sonst `#2B2B2B`. `style` ist `solid` oder `dashed`, Vorgabe `solid`.
+  `dash` sind Strich und Lücke, in denselben Einheiten wie `width`,
+  Vorgabe `[8, 6]`.
 - **Eine Füllung** (`fill`) ist eine Farbe; das Alpha macht sie
   halbdurchsichtig.
 - **Texte** sind schlichter Text in UTF-8, nie HTML. Jede Ansicht setzt
@@ -236,7 +240,8 @@ dürfen sich ein Bild teilen, etwa alle Städte einer Nation; so reichen die
 | `name` | steht unter dem Banner, höchstens 64 Zeichen | ohne |
 
 - **Pixel auf Pixel:** in der Grösse des Bilds, in Pixeln der Ansicht, nie
-  skaliert, auf jeder Stufe gleich.
+  skaliert, auf jeder Stufe gleich. Wie die Webkarte rundet, steht unter
+  „Nadeln und Banner“ im Abschnitt „Zeichnen“.
 - **Fuss:** die Unterkante des Bilds, `⌊Breite / 2⌋` Pixel rechts seiner
   linken Kante, so wie bei der Nadel.
 - **Ohne gültiges Bild,** zu gross, in einem anderen Format oder nicht unter
@@ -266,13 +271,22 @@ Ein Name entlang einer frei gebogenen Linie, wie auf alten Karten.
 | `text` | höchstens 64 Zeichen | Pflicht |
 | `path` | 1 bis 64 Punkte; die Schrift läuft mittig entlang der Linie durch sie, ein Punkt heisst waagrecht dort | Pflicht |
 | `size` | Höhe der Grossbuchstaben in Blöcken; die Schrift wächst mit dem Zoom | `16` |
-| `spacing` | zusätzlicher Abstand zwischen den Zeichen, in Anteilen von `size` | `0` |
+| `spacing` | zusätzlicher Abstand zwischen den Zeichen, in Anteilen von `size`, von 0 bis 1 | `0` |
 | `font` | eine Schrift der Karte, heute `map`; eine unbekannte gilt als `map` | `map` |
 | `color` | Farbe der Schrift | `#2B2B2B` |
 | `outline` | Kontur um die Zeichen, `color` und `width` in Pixeln; `width` 0 heisst ohne; ohne `color` `#F2E8D0` | ohne |
 
 - **Lesbar:** Unter 8 Pixeln Schrifthöhe blendet die Ansicht die Schrift
   aus, über 96 Pixeln deckelt sie sie.
+- **Grenzfälle,** gleich in Webkarte und Mod:
+  - Ein Feld mit falschem Typ gilt als fehlend und nimmt die Vorgabe.
+    Fehlt so `text` oder `path`, übergeht die Ansicht die Schrift.
+  - `size` 0 oder kleiner wird `16`.
+  - `spacing` unter 0 wird 0, über 1 wird 1.
+  - `outline` ohne `width` über 0, also auch `{}` oder `null`, heisst ohne
+    Kontur; eine `outline`, die kein Objekt ist, ebenso. Eine `color` in
+    `outline`, die keine Farbe ist, wird `#F2E8D0`.
+  - Eine unbekannte `font` gilt als `map`.
 - **Die Schriften** sind freie Vektorschriften, deren Lizenz die Hinweise
   nennen (#219, Teil 6).
 
@@ -346,7 +360,10 @@ Webkarte wäre eine Lücke für Skripte.
   Tafel. Verlässt er Ziel und Tafel, schliesst sie nach 300 ms; dazwischen
   kann er in die Tafel wandern, etwa zum Scrollen.
 - **Ein Klick** hält sie offen, bis zum Schliessknopf, zu Escape oder zu
-  einem Klick daneben.
+  einem Klick daneben. Solange eine gehaltene Tafel offen ist, öffnet
+  Zeigen auf ein anderes Ziel keine Tafel; ein Klick darauf wechselt.
+- **Mit dem Ziel** schliesst sie, wenn ihre Ebene ausgeschaltet oder neu
+  geladen wird.
 - **Escape und ein Klick daneben** schliessen zuerst nur die Tafel. Erst
   der nächste Druck wirkt auf die Karte, im Mod etwa schliesst er die
   Vollbildkarte.
@@ -391,7 +408,7 @@ Webkarte wäre eine Lücke für Skripte.
 |---|---|---|
 | `title` | `text`, höchstens 64 Zeichen; `color`, Vorgabe die Schrift der Tafel | 20 px, fett |
 | `lines` | `lines`, je Zeile höchstens 120 Zeichen | 13 px, Zeilenhöhe 1,4 |
-| `image` | `image`, `width` und `height` in Pixeln der Tafel, `align` `left`, `center` oder `right`, Vorgabe `left` | in dieser Grösse, Pixelkunst ohne Glättung; breiter als der Inhalt der Tafel, 320 Pixel, verkleinert mit gleichem Seitenverhältnis, nie vergrössert |
+| `image` | `image`, `width` und `height` in Pixeln der Tafel, `align` `left`, `center` oder `right`, Vorgabe `left` | in dieser Grösse; vergrössert ohne Glättung, jedes Pixel der Datei eine ganze Zahl Pixel des Geräts, gerundet aus dem Faktor wie bei Nadeln und Bannern; breiter als der Inhalt der Tafel, 320 Pixel, verkleinert mit gleichem Seitenverhältnis und geglättet |
 | `section` | `heading`: Bild mit `image`, `width`, `height` und `alt`, oder Text mit `text`; `blocks` darin | Überschrift über ihrem Inhalt, 8 px Abstand davor |
 | `rating` | `rows`: je Reihe `label`, `value` und `max` als ganze Zahlen, `color` | `max` Punkte von 10 px, `value` davon in `color`, die übrigen in `color` mit 25 % Deckkraft; das Label links, 100 px breit |
 | `columns` | `columns`: zwei Listen von Bausteinen | nebeneinander, oben bündig, die zweite so breit wie ihr Inhalt |
@@ -562,7 +579,8 @@ wie bei den Koordinaten.
    Ein Kreis wird erst als Vieleck mit Seiten von höchstens `heightsCell`
    Blöcken angenähert, dann ebenso.
 2. **Projizieren:** je Punkt `P(x, H(x, z), z)`.
-3. **Zeichnen** als ein Linienzug in Pixeln des Bildschirms. Die Striche
+3. **Zeichnen** als ein Linienzug in Pixeln der Ansicht, siehe „Ein Rand“
+   unter „Gemeinsame Felder“. Die Striche
    eines gestrichelten Rands zählen entlang des gezeichneten Zugs, nicht
    je Strecke, so laufen sie über Ecken weiter.
 
@@ -616,11 +634,14 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 - **Grösse:** fest, auf jeder Stufe gleich, siehe
   [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md):
   die Nadel in ihrer `size`, siehe „Nadel“, das Banner in der Grösse seines
-  Bilds. In Pixeln der Ansicht, auf der Webkarte Pixel des Bildschirms, im
-  Mod Einheiten seiner Oberfläche wie seine Wegpunkte. Sie hängt nicht am
-  Zoom.
-- **Name:** immer, unter der Nadel oder dem Banner, auf der Webkarte in
-  12 Pixeln.
+  Bilds, in Pixeln der Ansicht, siehe „Gemeinsame Felder“; im Mod wie
+  seine Wegpunkte. Auf der Webkarte ist ein Pixel des Bilds eine ganze
+  Zahl Pixel des Geräts breit, gerundet aus `devicePixelRatio`. Sie hängt
+  nicht am Zoom.
+- **Name:** immer, unter dem Fuss der Nadel oder des Banners, in der
+  Kartenschrift (`map`, siehe „Kartenschrift“) und in fester Grösse, auf
+  der Webkarte 12 Pixel. So zeigt ein Plugin für Städte die Namen am
+  Banner, ohne eigene Kartenschrift.
 
 ### Reihenfolge, Zeigen und Anklicken
 

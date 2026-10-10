@@ -204,6 +204,48 @@ test('eine Fläche öffnet ihre Tafel beim Zeigen; von Hand geschlossen, öffnet
   await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
 });
 
+test('eine Fläche öffnet ihre Tafel erst nach 150 ms Ruhe, am Ort der Ruhe; jede Bewegung beginnt die Ruhe von vorn', async ({ page }) => {
+  await page.clock.install();
+  const gebiet = { ...GEBIET, name: 'Gebiet', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
+  await welt(page, staedte([gebiet]));
+  await page.goto(DEMO);
+  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  await page.clock.pauseAt(Date.now() + 1000);
+  const offen = () => page.locator('.tafel').evaluateAll((l) => l.filter((e) => (e as HTMLElement).style.opacity !== '0').length);
+  const punkt = (x: number, z: number) => aufDemSchirm(page, ...projiziere(x, 1, z, zweiZuEins(16)));
+  const [[x1, y1], [x2, y2]] = await Promise.all([punkt(24, -24), punkt(36, -12)]);
+  await page.mouse.move(x1!, y1!);
+  for (let i = 1; i <= 4; i++) {
+    await page.clock.runFor(100);
+    await page.mouse.move(x1! + ((x2! - x1!) * i) / 4, y1! + ((y2! - y1!) * i) / 4);
+  }
+  expect(await offen()).toBe(0);
+  await page.clock.runFor(149);
+  expect(await offen()).toBe(0);
+  await page.clock.runFor(1);
+  expect(await offen()).toBe(1);
+  // Die Spitze der Tafel zeigt auf den Ort der Ruhe, nicht auf den Eintritt.
+  const tafel = (await page.locator('.tafel').boundingBox())!;
+  expect(Math.abs(tafel.x + tafel.width / 2 - x2!)).toBeLessThanOrEqual(1);
+});
+
+test('ein Klick auf eine Region nur mit Namen schliesst eine offene Tafel und hält keinen Block; erst der nächste hält einen', async ({ page }) => {
+  const benannt = { ...GEBIET, name: 'Gebiet' };
+  await welt(page, staedte([benannt, HAFEN]));
+  await page.goto(DEMO);
+  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  const anzeige = page.locator('.koordinaten');
+  await page.locator('.nadel-icon[title="Hafenstadt"]').click();
+  await expect(page.locator('.tafel')).toHaveCount(1);
+  // Unter der Nadel in der Region, nicht unter der Tafel über ihr.
+  const [x, y] = await aufDemSchirm(page, ...projiziere(40, 1, -4, zweiZuEins(16)));
+  await page.mouse.click(x!, y!);
+  await expect(page.locator('.tafel')).toHaveCount(0);
+  await expect(anzeige).not.toHaveClass(/gehalten/);
+  await page.mouse.click(x!, y!);
+  await expect(anzeige).toHaveClass(/gehalten/);
+});
+
 test('eine Fläche mit Tafel erreicht die Tastatur: Enter öffnet die Tafel mit dem Fokus darin, Escape gibt ihn der Fläche zurück', async ({ page }) => {
   const gebiet = { ...GEBIET, name: 'Gebiet', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
   await welt(page, staedte([gebiet]));

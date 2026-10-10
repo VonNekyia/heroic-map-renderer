@@ -439,12 +439,155 @@ test('beim Zeigen erscheint die Tafel nach 150 ms Ruhe, über der Nadel, und sch
   await weg();
   await page.clock.runFor(1000);
   expect(await offeneTafeln(page)).toBe(0);
+  // Zurück binnen 300 ms: Sie bleibt offen.
+  await nadel.hover();
+  await page.clock.runFor(150);
+  expect(await offeneTafeln(page)).toBe(1);
+  await weg();
+  await page.clock.runFor(200);
+  await nadel.hover();
+  await page.clock.runFor(1000);
+  expect(await offeneTafeln(page)).toBe(1);
+  await weg();
+  await page.clock.runFor(1000);
+  expect(await offeneTafeln(page)).toBe(0);
   // Gehalten bleibt sie, auch ohne Zeiger.
   await nadel.click();
   expect(await offeneTafeln(page)).toBe(1);
   await weg();
   await page.clock.runFor(1000);
   expect(await offeneTafeln(page)).toBe(1);
+});
+
+test('eine gehaltene Tafel übersteht das Zeigen auf ein anderes Ziel, per Klick wie per Tastatur; ein Klick auf das andere Ziel wechselt', async ({ page }) => {
+  await page.clock.install();
+  const zweite = { ...HAFEN, id: 'zweite', name: 'Zweite', at: [44.5, -20.5], panel: { blocks: [{ type: 'title', text: 'Zweite Tafel' }] } };
+  await welt(page, staedte([HAFEN, zweite]));
+  await page.goto(`${DEMO}&at=35,0,-15`);
+  const [a, b] = [page.locator('.nadel-icon[title="Hafenstadt"]'), page.locator('.nadel-icon[title="Zweite"]')];
+  await expect(b).toHaveCount(1);
+  await page.clock.pauseAt(Date.now() + 1000);
+  const titel = () => page.locator('.tafel').evaluateAll((l) => l.filter((e) => (e as HTMLElement).style.opacity !== '0').map((e) => e.querySelector('.tafel-titel')?.textContent));
+  await a.click();
+  await b.hover();
+  await page.clock.runFor(1000);
+  expect(await titel()).toEqual(['✪ Hafenstadt']);
+  // Per Tastatur: Der Fokus bleibt in der Tafel.
+  await page.keyboard.press('Escape');
+  await page.clock.runFor(1000);
+  await a.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.tafel .leaflet-popup-content')).toBeFocused();
+  await b.hover();
+  await page.clock.runFor(1000);
+  expect(await titel()).toEqual(['✪ Hafenstadt']);
+  await expect(page.locator('.tafel .leaflet-popup-content')).toBeFocused();
+  // Ein Klick wechselt.
+  await b.click();
+  await page.clock.runFor(1000);
+  expect(await titel()).toEqual(['Zweite Tafel']);
+});
+
+test('wird die Ebene ausgeschaltet, schliesst ihre offene Tafel', async ({ page }) => {
+  await welt(page, staedte([HAFEN]));
+  await page.goto(`${DEMO}&at=35,0,-15`);
+  await page.locator('.nadel-icon[title="Hafenstadt"]').click();
+  await expect(page.locator('.tafel')).toHaveCount(1);
+  await page.locator('.ebenen summary').click();
+  await page.locator('.ebenen input[data-id="beispiel:staedte"]').uncheck();
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+  await expect(page.locator('.tafel')).toHaveCount(0);
+});
+
+test('nur eine gehaltene Tafel verschiebt die Karte; beim Zeigen bleiben Karte und festgehaltener Block', async ({ page }) => {
+  // Niedrig, so passt die Tafel über der Nadel nicht ins Fenster.
+  await page.setViewportSize({ width: 800, height: 300 });
+  await welt(page, staedte([HAFEN]));
+  await page.goto(`${DEMO}&at=35,0,-15`);
+  const nadel = page.locator('.nadel-icon[title="Hafenstadt"]');
+  await expect(nadel).toHaveCount(1);
+  const anzeige = page.locator('.koordinaten');
+  const box = (await nadel.boundingBox())!;
+  await page.mouse.click(box.x - 120, box.y + box.height + 20);
+  await expect(anzeige).toHaveClass(/gehalten/);
+  await nadel.hover();
+  await expect(page.locator('.tafel')).toHaveCount(1);
+  await page.waitForTimeout(500);
+  expect((await nadel.boundingBox())!.y).toBe(box.y);
+  await expect(anzeige).toHaveClass(/gehalten/);
+  await nadel.click();
+  await expect.poll(async () => (await nadel.boundingBox())!.y).toBeGreaterThan(box.y);
+});
+
+test('ein Banner mit Tafel: Die Tafel steht um seine Höhe versetzt über ihm; Enter öffnet sie mit dem Fokus darin, auch wenn sie beim Zeigen schon offen ist', async ({ page }) => {
+  const fahne = { id: 'fahne', type: 'banner', at: [35.5, -14.5], image: 'images/fahne.png', name: 'Fahne', panel: { blocks: [{ type: 'title', text: 'Bannertafel' }] } };
+  await welt(page, staedte([fahne], { bild: (n) => (n === 'fahne.png' ? png(22, 40) : undefined) }));
+  await page.goto(`${DEMO}&at=35,0,-15`);
+  const banner = page.locator('.nadel-icon[title="Fahne"]');
+  await expect(banner).toHaveAttribute('tabindex', '0');
+  await banner.hover();
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Bannertafel');
+  const [icon, tafel] = await Promise.all([banner.boundingBox(), page.locator('.tafel').boundingBox()]);
+  expect(icon!.height).toBe(40);
+  expect(tafel!.y + tafel!.height).toBeLessThanOrEqual(icon!.y + 1);
+  // Beim Zeigen offen, der Fokus ausserhalb; Enter zieht ihn hinein.
+  await banner.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.tafel .leaflet-popup-content')).toBeFocused();
+});
+
+for (const [dpr, k] of [
+  [1.25, 1],
+  [1.5, 2],
+  [2, 2],
+] as const) {
+  test.describe(`bei devicePixelRatio ${dpr}`, () => {
+    test.use({ deviceScaleFactor: dpr });
+
+    test(`ein Pixel des Banners ist ${k} Pixel des Geräts breit, jedes gleich`, async ({ page }) => {
+      const fahne = { id: 'fahne', type: 'banner', at: [35.5, -14.5], image: 'images/fahne.png', name: 'Fahne' };
+      await welt(page, staedte([fahne], { bild: (n) => (n === 'fahne.png' ? png(21, 40) : undefined) }));
+      await page.goto(`${DEMO}&at=35,0,-15`);
+      const leinwand = page.locator('.nadel-icon[title="Fahne"] canvas');
+      await expect(leinwand).toHaveCount(1);
+      const [w, h, cssW, cssH] = await leinwand.evaluate((c: HTMLCanvasElement) => [c.width, c.height, c.getBoundingClientRect().width, c.getBoundingClientRect().height]);
+      expect([w, h]).toEqual([21 * k, 40 * k]);
+      // So gross auf dem Schirm wie die Leinwand in Pixeln des Geräts; das Layout rechnet in 1/64 Pixel.
+      expect(Math.abs(cssW * dpr - 21 * k)).toBeLessThan(1 / 32);
+      expect(Math.abs(cssH * dpr - 40 * k)).toBeLessThan(1 / 32);
+      expect(await page.locator('.nadel-icon[title="Fahne"]').evaluate((e) => Number.parseFloat((e as HTMLElement).style.marginLeft))).toBeCloseTo((-10 * k) / dpr, 3);
+      const ist = await leinwand.evaluate((c: HTMLCanvasElement) => [...c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data]);
+      const soll: number[] = [];
+      for (let py = 0; py < 40 * k; py++) for (let px = 0; px < 21 * k; px++) soll.push((Math.floor(px / k) * 7) % 256, (Math.floor(py / k) * 3) % 256, 128, 255);
+      expect(ist).toEqual(soll);
+    });
+  });
+}
+
+test('ändert sich devicePixelRatio ohne resize, zeichnet die Karte die Icons neu', async ({ page }) => {
+  // CDP ändert nur deviceScaleFactor und meldet der Anfrage nach der Auflösung
+  // kein change; der Test schickt es wie der Browser beim Wechsel des Monitors.
+  await page.addInitScript(() => {
+    const echt = window.matchMedia.bind(window);
+    const anfragen: MediaQueryList[] = [];
+    window.matchMedia = (frage: string) => {
+      const anfrage = echt(frage);
+      if (frage.includes('resolution')) anfragen.push(anfrage);
+      return anfrage;
+    };
+    Object.assign(window, { anfragen });
+  });
+  const fahne = { id: 'fahne', type: 'banner', at: [35.5, -14.5], image: 'images/fahne.png', name: 'Fahne' };
+  await welt(page, staedte([fahne], { bild: (n) => (n === 'fahne.png' ? png(22, 40) : undefined) }));
+  await page.goto(`${DEMO}&at=35,0,-15`);
+  const leinwand = page.locator('.nadel-icon[title="Fahne"] canvas');
+  await expect(leinwand).toHaveJSProperty('width', 22);
+  const cdp = await page.context().newCDPSession(page);
+  const { width, height } = page.viewportSize()!;
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: false });
+  await page.evaluate(() => (window as unknown as { anfragen: MediaQueryList[] }).anfragen.at(-1)!.dispatchEvent(new Event('change')));
+  await expect(leinwand).toHaveJSProperty('width', 44);
+  expect(await leinwand.evaluate((c) => c.getBoundingClientRect().width)).toBe(22);
 });
 
 test('Escape und ein Klick daneben schliessen zuerst nur die Tafel: Der festgehaltene Block bleibt, ein neuer wird nicht festgehalten', async ({ page }) => {
@@ -479,14 +622,24 @@ test('Escape und ein Klick daneben schliessen zuerst nur die Tafel: Der festgeha
   expect(await anzeige.textContent()).toBe(block);
 });
 
-test('ein Bild der Tafel breiter als 320 Pixel wird mit gleichem Seitenverhältnis verkleinert, ein schmales nie vergrössert', async ({ page }) => {
-  const breit = { ...HAFEN, panel: { blocks: [{ type: 'image', image: 'images/burg_16.png', width: 512, height: 64 }, { type: 'image', image: 'images/burg_9.png', width: 9, height: 9 }] } };
+test('ein Bild der Tafel breiter als 320 Pixel wird mit gleichem Seitenverhältnis verkleinert, ein schmales nie vergrössert; ohne Glättung nur bei ganzem Faktor', async ({ page }) => {
+  const bild = (image: string, width: number, height: number) => ({ type: 'image', image, width, height });
+  // Die Dateien: burg_16 ist 16 × 16, burg_9 ist 9 × 9.
+  const breit = { ...HAFEN, panel: { blocks: [bild('images/burg_16.png', 512, 64), bild('images/burg_9.png', 9, 9), bild('images/burg_16.png', 32, 32), bild('images/burg_16.png', 24, 24)] } };
   await welt(page, staedte([breit]));
   await page.goto(`${DEMO}&at=35,0,-15`);
   await page.locator('.nadel-icon[title="Hafenstadt"]').click();
   const bilder = page.locator('.tafel img');
-  await expect(bilder).toHaveCount(2);
-  expect(await bilder.evaluateAll((l) => l.map((i) => [i.getBoundingClientRect().width, i.getBoundingClientRect().height]))).toEqual([[320, 40], [9, 9]]);
+  await expect(bilder).toHaveCount(4);
+  await expect.poll(() => bilder.evaluateAll((l) => l.every((i) => (i as HTMLImageElement).complete))).toBe(true);
+  const masse = await bilder.evaluateAll((l) => l.map((i) => [i.getBoundingClientRect().width, i.getBoundingClientRect().height, getComputedStyle(i).imageRendering]));
+  expect(masse).toEqual([
+    // 320 / 16 = 20, aber 40 / 16 = 2,5: kein ganzer Faktor.
+    [320, 40, 'auto'],
+    [9, 9, 'pixelated'],
+    [32, 32, 'pixelated'],
+    [24, 24, 'auto'],
+  ]);
 });
 
 test.describe('auf dem Touchscreen', () => {

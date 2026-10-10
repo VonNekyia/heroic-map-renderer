@@ -317,11 +317,15 @@ body {
   line-height: 1.2;
 }
 
-/* Breiter als der Inhalt der Tafel, 320 px: verkleinert, Seitenverhältnis gleich, nie vergrössert. */
+/* Breiter als der Inhalt der Tafel, 320 px: verkleinert, Seitenverhältnis gleich, nie vergrössert.
+   Pixelkunst ohne Glättung nur bei ganzem Faktor, sonst glättet der Browser. */
 .tafel img {
   display: block;
   max-width: 320px;
   height: auto;
+}
+
+.tafel img.ganz {
   image-rendering: pixelated;
 }
 

@@ -138,15 +138,16 @@ selbst, die Webkarte im Browser.
   Ecke eines Blocks liegt auf ganzen Zahlen, seine Mitte bei `+0.5`. Eine
   Region um die Blöcke 0 bis 9 hat die Ecken 0 und 10.
 - **Farben** sind `#RRGGBB` oder `#RRGGBBAA`.
+- **Pixel der Ansicht:** Grössen, die nicht am Zoom hängen, wie Ränder,
+  Nadeln und Banner. Auf der Webkarte sind das Pixel des Bildschirms, im
+  Mod Einheiten seiner Oberfläche.
 - **Ein Rand** (`stroke`):
 
   ```json
   { "color": "#8640E6DD", "width": 2, "style": "dashed", "dash": [8, 6] }
   ```
 
-  `width` in Pixeln der Ansicht, Vorgabe 2; 0 heisst ohne Rand. Auf der
-  Webkarte sind das Pixel des Bildschirms, im Mod Einheiten seiner
-  Oberfläche. `color` ist bei Region und Kreis als Vorgabe die Farbe von
+  `width` in Pixeln der Ansicht, Vorgabe 2; 0 heisst ohne Rand. `color` ist bei Region und Kreis als Vorgabe die Farbe von
   `fill` ohne Alpha, sonst `#2B2B2B`. `style` ist `solid` oder `dashed`,
   Vorgabe `solid`. `dash` sind Strich und Lücke, in denselben Einheiten
   wie `width`, Vorgabe `[8, 6]`.
@@ -348,7 +349,10 @@ Webkarte wäre eine Lücke für Skripte.
   Tafel. Verlässt er Ziel und Tafel, schliesst sie nach 300 ms; dazwischen
   kann er in die Tafel wandern, etwa zum Scrollen.
 - **Ein Klick** hält sie offen, bis zum Schliessknopf, zu Escape oder zu
-  einem Klick daneben.
+  einem Klick daneben. Solange eine gehaltene Tafel offen ist, öffnet
+  Zeigen auf ein anderes Ziel keine Tafel; ein Klick darauf wechselt.
+- **Mit dem Ziel** schliesst sie, wenn ihre Ebene ausgeschaltet oder neu
+  geladen wird.
 - **Escape und ein Klick daneben** schliessen zuerst nur die Tafel. Erst
   der nächste Druck wirkt auf die Karte, im Mod etwa schliesst er die
   Vollbildkarte.
@@ -393,7 +397,7 @@ Webkarte wäre eine Lücke für Skripte.
 |---|---|---|
 | `title` | `text`, höchstens 64 Zeichen; `color`, Vorgabe die Schrift der Tafel | 20 px, fett |
 | `lines` | `lines`, je Zeile höchstens 120 Zeichen | 13 px, Zeilenhöhe 1,4 |
-| `image` | `image`, `width` und `height` in Pixeln der Tafel, `align` `left`, `center` oder `right`, Vorgabe `left` | in dieser Grösse, Pixelkunst ohne Glättung; breiter als der Inhalt der Tafel, 320 Pixel, verkleinert mit gleichem Seitenverhältnis, nie vergrössert |
+| `image` | `image`, `width` und `height` in Pixeln der Tafel, `align` `left`, `center` oder `right`, Vorgabe `left` | in dieser Grösse, Pixelkunst ohne Glättung, wo jedes Pixel der Datei eine ganze Zahl Pixel des Bildschirms deckt, sonst geglättet; breiter als der Inhalt der Tafel, 320 Pixel, verkleinert mit gleichem Seitenverhältnis, nie vergrössert |
 | `section` | `heading`: Bild mit `image`, `width`, `height` und `alt`, oder Text mit `text`; `blocks` darin | Überschrift über ihrem Inhalt, 8 px Abstand davor |
 | `rating` | `rows`: je Reihe `label`, `value` und `max` als ganze Zahlen, `color` | `max` Punkte von 10 px, `value` davon in `color`, die übrigen in `color` mit 25 % Deckkraft; das Label links, 100 px breit |
 | `columns` | `columns`: zwei Listen von Bausteinen | nebeneinander, oben bündig, die zweite so breit wie ihr Inhalt |
@@ -619,9 +623,10 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 - **Grösse:** fest, auf jeder Stufe gleich, siehe
   [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md):
   die Nadel in ihrer `size`, siehe „Nadel“, das Banner in der Grösse seines
-  Bilds. In Pixeln der Ansicht, auf der Webkarte Pixel des Bildschirms, im
-  Mod Einheiten seiner Oberfläche wie seine Wegpunkte. Sie hängt nicht am
-  Zoom.
+  Bilds, in Pixeln der Ansicht, siehe „Gemeinsame Felder“; im Mod wie
+  seine Wegpunkte. Auf der Webkarte ist ein Pixel des Bilds eine ganze
+  Zahl Pixel des Geräts breit, gerundet aus `devicePixelRatio`. Sie hängt
+  nicht am Zoom.
 - **Name:** immer, unter der Nadel oder dem Banner, auf der Webkarte in
   12 Pixeln.
 

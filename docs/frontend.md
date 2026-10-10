@@ -405,8 +405,12 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     alte Gruppe weicht erst der fertig geladenen neuen, und nur, wenn die
     Ebene noch in der Liste steht und an ist.
   - An jeder Bildadresse hängt `?v=<version>`, so kommt ein neues Bild
-    unter gleichem Namen an; ein Fehlschlag bleibt nicht im Cache. Icons
-    und Symbole hält jede geladene `version` selbst, sie fallen mit ihr weg.
+    unter gleichem Namen an; ein Fehlschlag bleibt nicht im Cache. Icons,
+    Symbole und Bilder der Banner hält jedes Laden selbst, sie fallen mit
+    seiner Gruppe weg; Banner mit demselben Bild holen es einmal.
+  - Ändert sich `devicePixelRatio` ohne `resize`, etwa auf einem anderen
+    Bildschirm oder beim Zoom des Browsers, lädt sie die gezeigten Ebenen
+    neu, damit die Icons Pixel auf Pixel bleiben.
   - `json()` prüft erst `Content-Length`, dann den gelesenen Text gegen die
     Grenze.
   - Was über die Grenzen aus [Ebenen](benutzung/ebenen.md) geht, übergeht
@@ -427,8 +431,11 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Kante; ohne `y` auf der Oberfläche aus den Höhen, bilinear zwischen den
     Zellen, einmal je Punkt gerechnet. Koordinaten und Ebenen teilen sich
     einen Cache der Höhen ([`web/src/hoehen.ts`](../web/src/hoehen.ts));
-  - auf jeder Stufe gleich gross, in Pixeln des Bildschirms; ein Zoom
-    ändert an ihnen nichts;
+  - auf jeder Stufe gleich gross; ein Zoom ändert an ihnen nichts. Ein
+    Pixel des Bilds ist `k = max(1, round(devicePixelRatio))` Pixel des
+    Geräts breit, die Leinwand also `k`-mal so gross wie das Bild und
+    `b · k / devicePixelRatio` Pixel des Bildschirms breit. So bleibt jedes
+    Pixel gleich breit, auch bei 1,25 oder 1,5;
   - übereinander: je Ebene ein Pane, `z-index` 510 + Rang nach `order`,
     über `shadowPane` (500) und unter `markerPane` (600), `tooltipPane`
     und der Tafel; in einer Ebene liegt das spätere oben;
@@ -438,21 +445,31 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
   der UI. Höchstens 320 Pixel breit und 70 % des Fensters hoch, darüber
   scrollt sie; breitere Bilder verkleinert CSS mit `max-width`, im
   Verhältnis von `width` und `height` per `aspect-ratio`, nicht dem der
-  Datei. Bei Nadel und Banner steht sie über dem Icon, bei einer Fläche
-  über dem Zeiger.
+  Datei. `image-rendering: pixelated` bekommt ein Bild nur, wenn beide
+  Achsen einen ganzen Faktor aus Pixeln des Geräts je Pixel der Datei
+  haben; sonst gingen beim Verkleinern Zeilen verloren. Bei Nadel und
+  Banner steht sie über dem Icon, bei einer Fläche über dem Ort, an dem
+  der Zeiger ruht.
   - **Zeigen und Halten:** `tafelAn` in `ebenen.ts` nach
     [Ebenen](benutzung/ebenen.md), „Infotafel“, mit Zeitgebern für 150 und
-    300 ms. Ein Klick oder Tippen hält sie. Hat jemand sie unter dem Zeiger
+    300 ms. Jede Bewegung auf dem Ziel (`mousemove`) beginnt die Ruhe von
+    vorn. Ein Klick oder Tippen hält sie; solange eine gehaltene offen ist,
+    öffnet Zeigen keine andere (`offen.gehalten`). Nur eine gehaltene Tafel
+    verschiebt die Karte (`autoPan`), denn das liesse einen festgehaltenen
+    Block los. Weicht das Ziel, mit seiner Ebene oder beim Neuladen,
+    schliesst die Tafel. Hat jemand sie unter dem Zeiger
     von Hand geschlossen, öffnet erst ein neues Zeigen sie wieder; sonst
     käme sie nach 150 ms zurück, sobald sich die Maus rührt. Lag der Zeiger
     dabei in ihr, entscheidet das erste Element ausserhalb der Tafel, die
     noch 200 ms ausblendet.
   - **Escape und ein Klick daneben** schliessen nur die Tafel: Je ein
     Listener im Capture auf `document` und dem Container hält den Druck vor
-    Leaflet und der Leiste zurück. Ein Klick auf ein anderes Ziel öffnet
-    dessen Tafel, ein Klick nach dem Ziehen der Karte zählt nicht.
+    Leaflet und der Leiste zurück. Ein Klick auf ein anderes Ziel mit
+    Tafel, erkannt an der Klasse `tafel-ziel`, öffnet dessen Tafel; eine
+    Region nur mit Namen zählt als daneben. Ein Klick nach dem Ziehen der
+    Karte zählt nicht.
   - **Per Tastatur:** Enter auf Nadel oder Banner öffnet sie mit dem Fokus
-    darin; Escape schliesst sie und gibt den Fokus dem Ziel zurück, wenn er
+    darin, auch wenn sie beim Zeigen schon offen war; Escape schliesst sie und gibt den Fokus dem Ziel zurück, wenn er
     in der Tafel war. Nach einem Klick bleibt der Fokus, wo er ist. Der
     Fokus scrollt nie (`preventScroll`): Ein Scrollen des Containers setzt
     Leaflet zwar zurück, aber erst nach dem Sprung.

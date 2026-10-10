@@ -25,7 +25,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Updates](benutzung/updates.md): `--update` zeichnet nur, wo sich die Welt geändert hat; der Stand je Baum, Stempel und Fingerabdruck je Chunk, das Gebiet einer Änderung.
 - [Eigene Laubfarben](benutzung/laubfarben.md): der Vertrag für Laubfarben im PersistentDataContainer des Chunks, `heroicmap:leaf_colors`, Format, Wirkung, falsche Daten und Updates.
 - [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt den Richtungen und `projektion.json`, die Liste der Bäume `trees.json` unter einer Wurzel, die Höhen, Wasserspiegel und Rechteck der Welt und wann die Dateien entstehen.
-- [Ebenen](benutzung/ebenen.md): das Format der Ebenen für Webkarte und Mod, mit Nadeln, Kartenschrift, Regionen, Kreisen, Linien und einer Infotafel ohne HTML, wo die Dateien neben `trees.json` liegen, wie sie sich ändern, ihre Grenzen und wie 2D und iso sie auf das Gelände legen.
+- [Ebenen](benutzung/ebenen.md): das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, Kartenschrift, Regionen, Kreisen, Linien und einer Infotafel ohne HTML beim Zeigen, wo die Dateien neben `trees.json` liegen, wie sie sich ändern, ihre Grenzen und wie 2D und iso sie auf das Gelände legen.
 - [Was ein Lauf kostet](benutzung/kosten.md): Platz und Dauer je scale, Cinematic gegen die Karte, die grosse Welt gemessen und hochgerechnet.
 - [Grafikkarte](benutzung/grafikkarte.md): `--gpu`, Adapter, Backends, Rückfall auf die CPU.
 - [Echtzeitschutz unter Windows](benutzung/echtzeitschutz.md): die Defender-Ausnahme und `--defender-exclusion`.
@@ -50,7 +50,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Frontend
 
-- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Ebenen mit Nadeln und Infotafel, Skins beim Build.
+- [Frontend](frontend.md): ausliefern, einem Render zusehen, Koordinatensystem, Zoom, Koordinaten unter Maus und Finger, Ebenen mit Nadeln, Bannern und Infotafel beim Zeigen, Skins beim Build.
 - [Tablett](tablett.md): der Skin, der die Welt in ein Holztablett auf einem Tisch legt: nur für quadratische Karten, auf jeder Stufe, je Ansicht gezeichnet, mit einer Gesamtansicht wie in der Vorlage, Masse nach der Vorlage, Rahmen, Tisch, Lilien und Gegenstände als Bilder aus der Vorlage, geglättet gelegt, Licht, was vor und was hinter der Welt liegt, die UI aus Pergament, Holz und Messing, was eine Näherung bleibt.
 - [Tablett aus Blender](tablett-gerendert.md): das Brett des Skins Tablett als gerenderte Bilder einer Blender-Szene, je Kamera und Richtung fern und nah: rendern, teilen und prüfen mit `werkzeug/brett.py`, `brett.json`, wie der Skin sie lädt, legt und ohne Glättung auf Pixel des Geräts malt, Grösse, Tests.
 

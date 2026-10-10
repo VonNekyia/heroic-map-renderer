@@ -105,7 +105,9 @@ const PANE_GRUND = 510;
 const FORM_GRUND = 410;
 
 /** Die Tafel als Popup, für Nadeln und Flächen gleich. */
-const TAFEL: L.PopupOptions = { className: 'tafel', maxWidth: 320, minWidth: 120, autoPanPadding: [8, 8] };
+/** So breit ist der Inhalt der Tafel höchstens, in Pixeln; style.css verkleinert Bilder auf dasselbe Mass. */
+const TAFEL_BREITE = 320;
+const TAFEL: L.PopupOptions = { className: 'tafel', maxWidth: TAFEL_BREITE, minWidth: 120, autoPanPadding: [8, 8] };
 
 /** Die Tafel beim Zeigen: erscheint nach so vielen ms Ruhe, schliesst so viele ms nach dem Verlassen. Siehe docs/benutzung/ebenen.md, „Infotafel“. */
 const TAFEL_AUF = 150;
@@ -273,7 +275,14 @@ export function tafel(bausteine: unknown[], ordner: string, v: string): HTMLElem
     img.alt = typeof b.alt === 'string' ? b.alt : '';
     [img.width, img.height] = [b.width as number, b.height as number];
     // Verkleinert per max-width, im Verhältnis von width und height, nicht dem der Datei.
-    img.style.aspectRatio = `${b.width as number} / ${b.height as number}`;
+    const [breite, hoehe] = [b.width as number, b.height as number];
+    img.style.aspectRatio = `${breite} / ${hoehe}`;
+    // Pixelkunst nur bei ganzem Faktor aus Pixeln des Geräts je Pixel der Datei, sonst gingen Zeilen verloren.
+    img.addEventListener('load', () => {
+      const gezeigt = Math.min(breite, TAFEL_BREITE);
+      const faktoren = [(gezeigt * devicePixelRatio) / img.naturalWidth, ((gezeigt * hoehe) / breite) * devicePixelRatio / img.naturalHeight];
+      img.classList.toggle('ganz', faktoren.every((f) => f >= 1 && Math.abs(f - Math.round(f)) < 1e-6));
+    });
     return img;
   };
   const baue = (liste: unknown[], tiefe: number): HTMLElement => {
@@ -519,7 +528,6 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   };
 
   interface Geladen {
-    ordner: string;
     version: string;
     /** Nadeln und Banner. */
     gruppe: L.LayerGroup;
@@ -533,16 +541,17 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   /** Je Ebene die `version` mit `permission` oder `web: false`; die holt die Karte nicht noch einmal. */
   const abgewiesen = new Map<string, string>();
   let eintraege: Eintrag[] = [];
-  /** Die Tafel, die gerade offen ist, und das Element ihres Ziels, das den Fokus zurückbekommt. */
-  let offen: { popup: L.Popup; element: () => Element | undefined } | undefined;
+  /** Die Tafel, die gerade offen ist, das Element ihres Ziels, das den Fokus zurückbekommt, und ob sie gehalten ist. */
+  let offen: { popup: L.Popup; element: () => Element | undefined; gehalten: () => boolean } | undefined;
 
   /**
    * Die Tafel eines Ziels, siehe docs/benutzung/ebenen.md, „Infotafel“:
-   * Ruht der Zeiger 150 ms darauf, erscheint sie; 300 ms nachdem er Ziel und
-   * Tafel verlassen hat, schliesst sie. Ein Klick oder Tippen hält sie. Gibt
-   * zurück, womit Tastatur sie öffnet, dann mit dem Fokus darin. `ort` sagt,
-   * wo sie erscheint, ohne Ereignis für die Tastatur; `hoehe` hebt sie über
-   * das Icon, damit sie es nicht deckt.
+   * Ruht der Zeiger 150 ms darauf, erscheint sie dort; 300 ms nachdem er Ziel
+   * und Tafel verlassen hat, schliesst sie. Ein Klick oder Tippen hält sie,
+   * und solange eine gehaltene Tafel offen ist, öffnet Zeigen keine andere.
+   * Gibt zurück, womit Tastatur sie öffnet, dann mit dem Fokus darin. `ort`
+   * sagt, wo sie erscheint, ohne Ereignis für die Tastatur; `hoehe` hebt sie
+   * über das Icon, damit sie es nicht deckt.
    */
   const tafelAn = (
     ziel: L.Marker | L.Polygon,
@@ -568,11 +577,31 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       if (danach) document.removeEventListener('mouseover', danach, true);
       danach = undefined;
     };
+    const fokus = () => {
+      const inhaltKasten = popup.getElement()?.querySelector<HTMLElement>('.leaflet-popup-content');
+      if (!inhaltKasten) return;
+      inhaltKasten.tabIndex = -1;
+      // Ohne preventScroll dürfte der Browser den Container scrollen, um die Tafel zu zeigen.
+      if (perTastatur) inhaltKasten.focus({ preventScroll: true });
+    };
     const oeffne = (wo: L.LatLng) => {
       clearTimeout(auf);
       clearTimeout(zu);
+      // Nur eine gehaltene Tafel verschiebt die Karte; beim Zeigen liesse das einen festgehaltenen Block los.
+      popup.options.autoPan = gehalten;
       popup.setLatLng(wo);
       if (!map.hasLayer(popup)) popup.openOn(map);
+      else fokus();
+    };
+    /** Eine gehaltene Tafel eines anderen Ziels ist offen: Zeigen öffnet dann nichts. */
+    const andereGehalten = () => offen !== undefined && offen.popup !== popup && offen.gehalten();
+    // Bei jeder Bewegung von vorn: Erst Ruhe öffnet, und zwar am Ort der Ruhe.
+    const plane = (ereignis: L.LeafletMouseEvent) => {
+      clearTimeout(auf);
+      if (ruhe || map.hasLayer(popup) || andereGehalten()) return;
+      auf = setTimeout(() => {
+        if (!andereGehalten()) oeffne(ort(ereignis));
+      }, TAFEL_AUF);
     };
     const bald = () => {
       clearTimeout(auf);
@@ -581,8 +610,9 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     ziel.on('mouseover', (ereignis) => {
       darauf = true;
       clearTimeout(zu);
-      if (!ruhe && !map.hasLayer(popup)) auf = setTimeout(() => oeffne(ort(ereignis)), TAFEL_AUF);
+      plane(ereignis);
     });
+    ziel.on('mousemove', plane);
     ziel.on('mouseout', () => {
       darauf = ruhe = false;
       bald();
@@ -594,10 +624,18 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       perTastatur = false;
       oeffne(ort(ereignis));
     });
+    // Ein Klick daneben schliesst nur die Tafel; ein Ziel mit Tafel zählt nicht als daneben.
+    ziel.on('add', () => element()?.classList.add('tafel-ziel'));
+    // Weicht das Ziel, mit seiner Ebene oder beim Neuladen, weicht die Tafel mit.
+    ziel.on('remove', () => {
+      clearTimeout(auf);
+      darauf = false;
+      map.closePopup(popup);
+    });
     let angemeldet = false;
     popup.on('add', () => {
       vergiss();
-      offen = { popup, element };
+      offen = { popup, element, gehalten: () => gehalten };
       const kasten = popup.getElement();
       if (kasten && !angemeldet) {
         angemeldet = true;
@@ -610,11 +648,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
           bald();
         });
       }
-      const inhaltKasten = kasten?.querySelector<HTMLElement>('.leaflet-popup-content');
-      if (!inhaltKasten) return;
-      inhaltKasten.tabIndex = -1;
-      // Ohne preventScroll dürfte der Browser den Container scrollen, um die Tafel zu zeigen.
-      if (perTastatur) inhaltKasten.focus({ preventScroll: true });
+      fokus();
     });
     popup.on('remove', () => {
       // Von selbst schliesst sie nur, wenn der Zeiger weder auf dem Ziel noch in ihr ist.
@@ -660,15 +694,25 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     });
   };
 
-  /** Das Icon einer Nadel oder eines Banners: das Bild Pixel auf Pixel, der Fuss unten bei ⌊b / 2⌋, der Name darunter. */
+  /**
+   * Das Icon einer Nadel oder eines Banners: das Bild Pixel auf Pixel, der
+   * Fuss unten bei ⌊b / 2⌋, der Name darunter. Ein Pixel des Bilds ist
+   * k = max(1, round(devicePixelRatio)) Pixel des Geräts breit, so bleibt
+   * jedes gleich breit, auch bei 1,25 oder 1,5. Siehe docs/frontend.md, „Ebenen“.
+   */
   const ortIcon = (bild: CanvasImageSource, b: number, h: number, name: string | undefined): L.DivIcon => {
+    const k = Math.max(1, Math.round(devicePixelRatio));
+    const s = k / devicePixelRatio;
     const html = L.DomUtil.create('div', 'nadel');
     const kopie = document.createElement('canvas');
-    [kopie.width, kopie.height] = [b, h];
-    kopie.getContext('2d')!.drawImage(bild, 0, 0);
+    [kopie.width, kopie.height] = [b * k, h * k];
+    [kopie.style.width, kopie.style.height] = [`${b * s}px`, `${h * s}px`];
+    const ctx = kopie.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(bild, 0, 0, b * k, h * k);
     html.append(kopie);
     if (name) L.DomUtil.create('span', 'nadel-name', html).textContent = name;
-    return L.divIcon({ html, className: 'nadel-icon', iconSize: [b, h], iconAnchor: [Math.floor(b / 2), h] });
+    return L.divIcon({ html, className: 'nadel-icon', iconSize: [b * s, h * s], iconAnchor: [Math.floor(b / 2) * s, h * s] });
   };
 
   /** Das Icon einer Nadel, fest in ihrer `size`. Icons und Symbole gelten je Laden einer Ebene. */
@@ -693,11 +737,11 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const adresse = `${ordner}/${banner.image}?v=${encodeURIComponent(version)}`;
     const geholt = await bild(adresse, symbole).catch(() => undefined);
     const [b, h] = GRENZEN.banner as [number, number];
-    if (!geholt || geholt.width > b || geholt.height > h) {
-      console.warn(`Banner ${banner.id}: ${geholt ? `${geholt.width} × ${geholt.height} statt höchstens ${b} × ${h}` : `${adresse} lässt sich nicht laden`}, übergangen`);
+    if (!geholt || geholt.naturalWidth > b || geholt.naturalHeight > h) {
+      console.warn(`Banner ${banner.id}: ${geholt ? `${geholt.naturalWidth} × ${geholt.naturalHeight} statt höchstens ${b} × ${h}` : `${adresse} lässt sich nicht laden`}, übergangen`);
       return undefined;
     }
-    return ortIcon(geholt, geholt.width, geholt.height, banner.name);
+    return ortIcon(geholt, geholt.naturalWidth, geholt.naturalHeight, banner.name);
   };
 
   /**
@@ -834,7 +878,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const formGruppe = L.layerGroup([...flaechen, ...striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
     versetze(striche, faktor());
     const gruppe = L.layerGroup(marker.filter((m): m is L.Marker => m !== undefined)).addTo(map);
-    geladen.set(e.id, { ordner, version: e.version, gruppe, formen: formGruppe, striche });
+    geladen.set(e.id, { version: e.version, gruppe, formen: formGruppe, striche });
   };
 
   const entferne = (id: string): void => {
@@ -939,13 +983,27 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     'click',
     (ereignis) => {
       const jetzt = offen;
-      // Ein Ziel öffnet seine eigene Tafel; nach einem Ziehen gilt der Klick nicht, wie bei Leaflet.
+      // Ein Ziel mit Tafel öffnet seine eigene; nach einem Ziehen gilt der Klick nicht, wie bei Leaflet.
       const ziel = ereignis.target as Element;
-      if (!jetzt || ziel.closest('.leaflet-popup, .leaflet-interactive, .leaflet-control') || (map.dragging as unknown as { moved(): boolean }).moved()) return;
+      if (!jetzt || ziel.closest('.leaflet-popup, .tafel-ziel, .leaflet-control') || (map.dragging as unknown as { moved(): boolean }).moved()) return;
       ereignis.stopPropagation();
       map.closePopup(jetzt.popup);
     },
     true,
   );
+  // Ändert sich devicePixelRatio ohne resize, etwa beim Wechsel auf einen
+  // anderen Bildschirm oder beim Zoom des Browsers, zeichnet die Karte die
+  // geladenen Ebenen neu, damit die Icons Pixel auf Pixel bleiben.
+  const beiDpr = (): void => {
+    matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener(
+      'change',
+      () => {
+        beiDpr();
+        for (const e of eintraege) if (geladen.has(e.id)) void ladeEbene(e).catch((fehler: unknown) => console.error(e.id, fehler));
+      },
+      { once: true },
+    );
+  };
+  beiDpr();
   await abgleichen(erste);
 }

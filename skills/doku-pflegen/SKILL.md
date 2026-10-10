@@ -67,9 +67,11 @@ Für die eigene PR und im Review:
 - [ ] Kommentare verweisen, statt Entscheidungen zu erzählen. Jeder Verweis
       zeigt auf eine bestehende Seite und Überschrift.
 - [ ] Zeichnet die PR anders, schreibt sie andere Höhen oder einen anderen
-      Abdruck je Chunk, auch ohne neues Goldbild? Dann ist `ZEICHENSTAND` in
-      `renderer/src/render/stand.rs` gehoben. Kodiert sie anders, ist
-      `KODIERSTAND` in `renderer/src/cli/pixel.rs` gehoben. Siehe
-      [0098](../../docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
+      Abdruck je Chunk, auch ohne neues Goldbild? Dann ist der Zeichenstand
+      jedes Looks, den sie berührt, in `renderer/src/render/stand.rs`
+      gehoben; im Zweifel jeder. Kodiert sie anders, ist `KODIERSTAND` in
+      `renderer/src/cli/pixel.rs` gehoben. Siehe
+      [0098](../../docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md)
+      und [0101](../../docs/entscheidungen/0101-zeichenstand-je-look.md).
 - [ ] Keine Interna, siehe `AGENTS.md`, Regel 20.
 - [ ] Links, Verweise und Pfade unter `code:` zeigen auf Bestehendes.

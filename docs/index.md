@@ -176,6 +176,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0098](entscheidungen/0098-der-zeichenstand-statt-des-builds.md): Stand, Hashes der Pixel und `--resume` hängen am Zeichenstand im Code und an den eingebauten Tabellen statt an der ausführbaren Datei; ein Test über die Goldbilder sichert ihn ab, ein Stand von v0.4.0 oder v0.5.0 gilt als Zeichenstand 1, die Hashes der Pixel hängen am Kodierstand; löst den Fingerabdruck des Renderers aus 0062 ab.
 - [0099](entscheidungen/0099-einfarbige-ansicht.md): `--flat` zeichnet `top-north` bei scale 1 mit einer Farbe je Block über den bestehenden Pfad, look `flat`, Wasser wie mit Texturen, Relief nach der Karte des Spiels, nur auf der CPU; löst für diese Ansicht den kleinsten scale aus 0013 und 0051 ab.
 - [0100](entscheidungen/0100-der-renderer-zeichnet-die-banner.md): Banner aus einem benannten Entwurf der Ebene, die der Renderer mit `--banners` je Baum als Sprite zeichnet, mit eigener Krone für Hauptstädte, von oben aus `north-45`, für Ebenen mit `permission` über den Kanal des Plugins; ergänzt 0097.
+- [0101](entscheidungen/0101-zeichenstand-je-look.md): ein Zeichenstand je Look, `map`, `cinematic` und `flat`, mit Goldbildern je Look; der Abdruck von Karte und Cinematic bleibt der von v0.7.0; löst 0098 in diesem Punkt ab.
 
 ## Versuche
 

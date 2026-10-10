@@ -185,11 +185,14 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 ### Zeichenstand
 
 27. Zeichnet der Renderer nach einer Änderung eine Kachel, eine Höhe oder
-    den Abdruck eines Chunks anders, hebt dieselbe PR `ZEICHENSTAND` in
-    `renderer/src/render/stand.rs`, auch wenn kein Goldbild es zeigt.
+    den Abdruck eines Chunks eines Looks anders, hebt dieselbe PR dessen
+    Zeichenstand in `renderer/src/render/stand.rs`, `ZEICHENSTAND_MAP`,
+    `_CINEMATIC` oder `_FLAT`, auch wenn kein Goldbild es zeigt. Berührt
+    die Änderung, was alle Looks teilen, oder ist es unklar, hebt sie jeden.
     Sonst mischt ein Update auf dem Server alte und neue Kacheln. Wann er
-    steigt und wann nicht, steht in
-    [0098](docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
+    steigt und was die Looks teilen, steht in
+    [0098](docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md)
+    und [0101](docs/entscheidungen/0101-zeichenstand-je-look.md).
 
 ## Gliederung von `docs/`
 

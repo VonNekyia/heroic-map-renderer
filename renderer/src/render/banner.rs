@@ -161,16 +161,20 @@ const KRONE: [Quader; 8] = {
 
 /// Setzt die Krone mittig auf das Querholz des Banners `state`, in dessen
 /// Lage und Schicht: im selben Massstab und derselben Drehung wie das
-/// Banner. Sie steht um 90° gedreht, Wahl des Users: Zum Tuch hin zeigt
-/// ihre rechte Seite mit dem Saphir. Ein Bereich, der quer zu seiner Seite
-/// liegt, dreht mit.
+/// Banner. Sie steht um 45° gedreht, Wahl des Users: Von vorn zeigt eine
+/// Ecke zum Betrachter, schräg die Seite mit dem Rubin zur Kamera. Ein
+/// Bereich, der quer zu seiner Seite liegt, dreht mit.
 fn setze_krone(model: &mut BakedModel, state: &BlockState, textur: TextureId) -> Result<()> {
     let (lage, oben, entity) =
         blockentity::erste_form(state).with_context(|| format!("{state} hat kein Querholz"))?;
     // Im Raum des Modells zeigt y nach unten und z nach hinten; die Mitte
     // der Krone liegt über der Mitte des Querholzes. Die Drehung um die
-    // Senkrechte bildet x auf vorn und z auf links ab.
-    let modell = |[x, y, z]: [f32; 3]| [0.25 - z, oben - y, 0.25 - x];
+    // Senkrechte dreht ihr Vorn zur Seite rechts vorn.
+    let modell = |[x, y, z]: [f32; 3]| {
+        let (x, z) = (x - 0.25, z - 0.25);
+        let h = std::f32::consts::FRAC_1_SQRT_2;
+        [h * (x + z), oben - y, h * (x - z)]
+    };
     let welt = |p: [f32; 3]| {
         lage.map(|zeile| zeile[0] * p[0] + zeile[1] * p[1] + zeile[2] * p[2] + zeile[3])
     };
@@ -210,10 +214,10 @@ mod tests {
     use crate::world::chunk::Fnv;
 
     /// Die Krone steht in jeder Drehung mittig auf dem Querholz: 8 Pixel des
-    /// Modells breit und tief, 6 hoch, um 2/3 verkleinert wie das Banner,
-    /// also 1/3 und 1/4 Block; ihr Boden auf der Oberseite des Querholzes,
-    /// 2/3 · 44/16 Block über dem Boden des Blocks. Jede Seite eines Quaders
-    /// zeigt aus ihm hinaus.
+    /// Modells breit und tief, um 45° gedreht, also über die Ecken 8 · √2,
+    /// 6 hoch, um 2/3 verkleinert wie das Banner, also √2/3 und 1/4 Block;
+    /// ihr Boden auf der Oberseite des Querholzes, 2/3 · 44/16 Block über dem
+    /// Boden des Blocks. Jede Seite eines Quaders zeigt aus ihm hinaus.
     #[test]
     fn krone_auf_dem_querholz() {
         for drehung in [0, 4, 8, 12] {
@@ -232,14 +236,14 @@ mod tests {
             };
             let nah =
                 |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 1e-5 && (a.1 - b.1).abs() < 1e-5;
-            let boden = 2.0 / 3.0 * 44.0 / 16.0;
+            let (boden, halb) = (2.0 / 3.0 * 44.0 / 16.0, 2.0f32.sqrt() / 6.0);
             assert!(
-                nah(rand(0), (0.5 - 1.0 / 6.0, 0.5 + 1.0 / 6.0)),
+                nah(rand(0), (0.5 - halb, 0.5 + halb)),
                 "{drehung}: x {:?}",
                 rand(0)
             );
             assert!(
-                nah(rand(2), (0.5 - 1.0 / 6.0, 0.5 + 1.0 / 6.0)),
+                nah(rand(2), (0.5 - halb, 0.5 + halb)),
                 "{drehung}: z {:?}",
                 rand(2)
             );

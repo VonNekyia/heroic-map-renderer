@@ -266,9 +266,10 @@ siehe [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md),
   jedem gebackenen Modell.
 - **Lage:** mittig auf dem Querholz, im Raum und in der Lage des
   Bannermodells, also um 2/3 verkleinert und mit dem Banner gedreht. Die
-  Krone steht um 90° gedreht, Wahl des Users am ersten Goldbild: Zur Seite
-  des Tuchs mit den Mustern zeigt ihre Seite mit dem Saphir, die mit dem
-  Rubin nach links und rechts. `blockentity::erste_form`
+  Krone steht um 45° gedreht, Wahl des Users am ersten Goldbild: Ihre
+  Seite mit dem Rubin zeigt nach rechts vorn. Von vorn, in `north-45`,
+  zeigt so eine Ecke zum Betrachter, schräg die Seite mit dem Rubin zur
+  Kamera. `blockentity::erste_form`
   liefert die Lage, die Oberkante von Stange und Querholz, im Raum des
   Modells bei y = −44/16, und deren Schicht `entity_solid`
   (`krone_auf_dem_querholz`).

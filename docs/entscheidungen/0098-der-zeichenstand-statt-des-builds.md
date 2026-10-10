@@ -36,7 +36,10 @@ sagt dann „neuer Renderer: erst /heroicmap render“ (#232).
   eine Zahl ab 1. Er steigt um eins mit jeder Änderung, nach der der
   Renderer eine Kachel oder eine Höhe anders schreiben kann. Ändert sich,
   was der Stand je Chunk festhält (`Chunk::abdruck`, `oben`), steigt
-  stattdessen `FASSUNG` des Stands.
+  ebenso `ZEICHENSTAND`. `FASSUNG` des Stands steigt nur mit einem neuen
+  Aufbau der Datei, abgesprochen mit dem Plugin: Das Plugin liest den Kopf
+  von `stand-neu.bin`, und `Stand::aus_bytes` lehnt jede andere Fassung
+  ab.
 - **Der Fingerabdruck des Renderers** ist FNV-1a über den Zeichenstand und
   die eingebauten Tabellen unter `renderer/src/assets/`, je Tabelle ihr Name
   und ihre Zeilen ohne `\r`. Er gilt für `stand.bin` und `stand-neu.bin`.
@@ -92,7 +95,8 @@ sagt dann „neuer Renderer: erst /heroicmap render“ (#232).
   - Der nächste Lauf schreibt den neuen Wert.
 - **Releases:** Die Notizen eines Release sagen, ob ein voller Lauf kommt:
   ob sich seit dem letzten Tag `ZEICHENSTAND` oder eine Tabelle geändert
-  hat, siehe [0082](0082-versionen-und-releases.md), „Folgen“.
+  hat, siehe [0082](0082-versionen-und-releases.md), „Folgen“. Sie sagen
+  auch, dass ein Baum eines Release vor v0.4.0 einmal ganz gerendert wird.
 
 ## Kosten nach Regel 26
 

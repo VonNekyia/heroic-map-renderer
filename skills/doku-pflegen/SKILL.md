@@ -66,8 +66,8 @@ Für die eigene PR und im Review:
 - [ ] Neue Entscheidungen und Messungen haben ihre Datei.
 - [ ] Kommentare verweisen, statt Entscheidungen zu erzählen. Jeder Verweis
       zeigt auf eine bestehende Seite und Überschrift.
-- [ ] Zeichnet die PR anders oder schreibt sie andere Höhen, auch ohne
-      neues Goldbild? Dann ist `ZEICHENSTAND` in
+- [ ] Zeichnet die PR anders, schreibt sie andere Höhen oder einen anderen
+      Abdruck je Chunk, auch ohne neues Goldbild? Dann ist `ZEICHENSTAND` in
       `renderer/src/render/stand.rs` gehoben. Kodiert sie anders, ist
       `KODIERSTAND` in `renderer/src/cli/pixel.rs` gehoben. Siehe
       [0098](../../docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md).

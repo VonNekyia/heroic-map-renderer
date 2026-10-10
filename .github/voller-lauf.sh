@@ -16,7 +16,8 @@ vorher=$(stand "$alt")
 vorher=${vorher:-1}
 jetzt=$(stand "$neu")
 if [ "$vorher" = "$jetzt" ] && git diff --quiet "$alt" "$neu" -- 'renderer/src/assets/*.txt'; then
-  echo "Kein voller Lauf nötig: Zeichenstand und Tabellen wie in $alt, --update geht weiter."
+  echo "Kein voller Lauf nötig: Zeichenstand und Tabellen wie in $alt, --update geht weiter." \
+    "Einen Baum eines Release vor v0.4.0 rendert der Renderer einmal ganz."
 else
   echo "Jeder Baum braucht einen vollen Lauf: Zeichenstand oder Tabellen sind anders als in $alt."
 fi

@@ -433,7 +433,7 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     „Kennung“, übergeht sie ebenso mit Meldung.
 - **Nadeln und Banner:** Leaflet-Marker mit ihrem Bild auf einer Leinwand,
   Pixel auf Pixel, der Name darunter wie die Kartenschrift nach
-  [Ebenen](benutzung/ebenen.md), „Name“: die Kontur als
+  [Ebenen](benutzung/ebenen.md), „Nadeln und Banner“: die Kontur als
   `-webkit-text-stroke` von 4 px unter der Füllung (`paint-order`), so
   bleiben 2 px sichtbar, wie bei der Kartenschrift der Ebenen. Die Schrift
   lädt mit dem ersten Namen, `ladeSchrift` in `schrift.ts`:

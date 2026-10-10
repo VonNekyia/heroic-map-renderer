@@ -495,9 +495,12 @@ impl Ausbreitung {
 mod tests {
     use super::*;
 
+    /// `dicht`, `daempft` und `quellen` einer Section.
+    type See = (Box<[u16; 256]>, Box<[u16; 256]>, Vec<(u16, u8)>);
+
     /// Eine Section auf y = 0: Stein in den Zellen 0 und 1, Wasser von 2
     /// bis 5, darüber Luft, in jeder Spalte gleich; dazu `quellen`.
-    fn see(quellen: &[(u16, u8)]) -> (Box<[u16; 256]>, Box<[u16; 256]>, Vec<(u16, u8)>) {
+    fn see(quellen: &[(u16, u8)]) -> See {
         let stein = 0b11;
         let wasser = 0b11_1100;
         (

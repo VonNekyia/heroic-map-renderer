@@ -456,10 +456,16 @@ const GOLDBILDER: u64 = 0x35b8_8860_cd6d_2612;
 
 /// Die eingebauten Tabellen aus dem Spiel; sie zeichnen mit.
 const TABELLEN: [(&str, &str); 12] = [
-    ("blockentities.txt", include_str!("../assets/blockentities.txt")),
+    (
+        "blockentities.txt",
+        include_str!("../assets/blockentities.txt"),
+    ),
     ("blocks.txt", include_str!("../assets/blocks.txt")),
     ("blueten.txt", include_str!("../assets/blueten.txt")),
-    ("dimensionstypen.txt", include_str!("../assets/dimensionstypen.txt")),
+    (
+        "dimensionstypen.txt",
+        include_str!("../assets/dimensionstypen.txt"),
+    ),
     ("grau.txt", include_str!("../assets/grau.txt")),
     ("hell.txt", include_str!("../assets/hell.txt")),
     ("leuchten.txt", include_str!("../assets/leuchten.txt")),
@@ -948,7 +954,8 @@ mod tests {
             fnv.nimm(bild.as_raw());
         }
         assert_eq!(
-            fnv.0, GOLDBILDER,
+            fnv.0,
+            GOLDBILDER,
             "Die Goldbilder haben sich geändert. Zeichnet der Renderer anders, \
              ZEICHENSTAND in renderer/src/render/stand.rs auf {} heben; dann \
              GOLDBILDER auf {:#x} setzen. Siehe skills/goldbild-erneuern/SKILL.md.",

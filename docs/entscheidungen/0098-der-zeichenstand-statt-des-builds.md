@@ -33,9 +33,14 @@ sagt dann „neuer Renderer: erst /heroicmap render“ (#232).
   Renderer eine Kachel anders zeichnen kann.
 - **Der Fingerabdruck des Renderers** ist FNV-1a über den Zeichenstand und
   die eingebauten Tabellen unter `renderer/src/assets/`, je Tabelle ihr Name
-  und ihre Zeilen ohne `\r`. Eine neue Tabelle aus dem Spiel ändert ihn ohne
-  Zutun. Ein neuer Build, der gleich zeichnet, hat denselben. Er gilt für
-  `stand.bin`, `stand-neu.bin` und die Blöcke unter `pixel/`.
+  und ihre Zeilen ohne `\r`, unter Windows und Linux also gleich. Neue
+  Tabellen aus dem Spiel ändern ihn ohne Zutun; eine neue Datei gehört in
+  `TABELLEN`, sonst fällt `jede_tabelle_im_fingerabdruck`. Ein neuer Build,
+  der gleich zeichnet, hat denselben. Er gilt für `stand.bin`,
+  `stand-neu.bin` und die Blöcke unter `pixel/`.
+- **Die Meldung** von `--update` behält „stammt von einem anderen Build des
+  Renderers“, dahinter „, der anders zeichnet“: Auf den Wortlaut stützt sich
+  das Plugin, siehe [Plugin](../plugin.md).
 - **Der Test über die Goldbilder:** `GOLDBILDER` neben dem Zeichenstand ist
   FNV-1a über alle Goldbilder, je Bild Name, Breite, Höhe und Pixel, nach
   Namen. `zeichenstand_folgt_den_goldbildern` fällt, sobald sich eines
@@ -48,10 +53,12 @@ sagt dann „neuer Renderer: erst /heroicmap render“ (#232).
   Fingerabdruck ein. Eine Änderung daran zeigt das Goldbild
   `metatile-cinematic`.
 - **Übergang von v0.5.0:** Die Fingerabdrücke der ausführbaren Dateien von
-  v0.5.0 für Linux und Windows stehen in `stand.rs`. Ein Stand oder Block
-  mit einem davon gilt als Zeichenstand 1, solange der Build Zeichenstand 1
-  hat. Der nächste Lauf schreibt den neuen Fingerabdruck. Zwischen v0.5.0
-  und dieser Entscheidung änderte sich am Zeichnen nichts.
+  v0.5.0 für Linux und Windows stehen als `V0_5_0` in `stand.rs`, gerechnet
+  aus den Archiven des Release. Ein Stand oder Block mit einem davon gilt
+  als Zeichenstand 1, solange der Build Zeichenstand 1 hat (`wie_heute`).
+  Der nächste Lauf schreibt den neuen Fingerabdruck. Zwischen v0.5.0 und
+  dieser Entscheidung änderte sich unter `renderer/` nichts. Ältere Releases
+  zeichnen anders und verlangen weiter einen vollen Lauf.
 
 ## Kosten nach Regel 26
 
@@ -59,8 +66,9 @@ sagt dann „neuer Renderer: erst /heroicmap render“ (#232).
   `--update` gleich weiter. Der volle Lauf, den bisher jedes Release
   verlangte, fällt weg.
 - **Initial:** unverändert.
-- **RAM und Platte:** unverändert. Der Fingerabdruck liest statt der
-  ausführbaren Datei die Tabellen im Speicher, einmal je Lauf.
+- **RAM und Platte:** unverändert. Statt der ausführbaren Datei, bei v0.5.0
+  10,5 MB unter Linux und 11,9 MB unter Windows, liest der Fingerabdruck
+  einmal je Lauf die Tabellen, rund 0,47 MB, die schon im Binär liegen.
 
 ## Verworfene Alternativen
 

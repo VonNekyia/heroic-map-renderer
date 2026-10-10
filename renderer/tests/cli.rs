@@ -6661,7 +6661,11 @@ fn update_nimmt_den_stand_von_v0_5_0() {
         let ausgabe = tiles(welt.path(), baum.path(), &["--scale", "12", "--update"]);
         let log = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
         assert!(log.contains("nichts zu zeichnen"), "{alt:#x}: {log}");
-        assert_eq!(std::fs::read(&stand).unwrap()[13..21], heute[..], "{alt:#x}");
+        assert_eq!(
+            std::fs::read(&stand).unwrap()[13..21],
+            heute[..],
+            "{alt:#x}"
+        );
     }
 }
 

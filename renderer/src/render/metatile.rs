@@ -2439,6 +2439,17 @@ impl<'a> ChunkCache<'a> {
             Some(loaded) if loaded.licht.is_some() => return Ok(Some(i)),
             Some(_) => {}
         }
+        // Von oben bei scale 1 reicht das Licht je Spalte: ohne Ausbreitung,
+        // also ohne die acht Nachbarn.
+        // Siehe docs/renderer/einfarbig.md, „Licht je Spalte“.
+        if self.sprites.projection().flach() {
+            let himmel = self.himmel;
+            let loaded = self.slots[i].loaded.as_mut().expect("eben geprüft");
+            let licht = ChunkLicht::spalten(&loaded.eingabe(), himmel);
+            loaded.licht = Some(Rc::new(licht));
+            self.last = i;
+            return Ok(Some(i));
+        }
         let [wx, wz] = self.richtung.in_die_welt([key.0, key.1]);
         let mut nachbarn = [0; 9];
         for (k, n) in nachbarn.iter_mut().enumerate() {

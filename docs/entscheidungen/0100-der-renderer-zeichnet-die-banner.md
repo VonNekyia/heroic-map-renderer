@@ -115,12 +115,12 @@ Die Felder im Einzelnen stehen in [Ebenen](../benutzung/ebenen.md),
 ### Massstab, Blick und Licht
 
 - **Feste Grösse wie in 0097,** auf jeder Stufe und bei jedem scale: Ein
-  Pixel des Modells ist in der Höhe ein Pixel des Sprites. In der Breite ist
-  es so breit, wie die Kamera eine Strecke quer zum Blick zeigt: von vorn,
-  also genordet und im Satz `oben`, 1 Pixel, schräg in `2:1` rund √2 Pixel.
-  Das Tuch ist so von vorn 20 × 40 Pixel wie das Bild heute, in `2:1` rund
-  28 × 40; mit Stange und Querholz bleibt jedes Sprite unter der Grenze von
-  32 × 64.
+  Pixel des Modells ist ein Pixel des Sprites, in jeder Kamera. Das Tuch ist
+  überall 20 Pixel breit wie das Bild heute. Von vorn, also genordet und im
+  Satz `oben`, ist es 20 × 40; schräg fällt seine Unterkante über die Breite
+  um `20 · H / W` Pixel: in `2:1` um 10, in `4:3` um 15, in `1:1` um 20. Mit
+  Stange und Querholz wird ein Sprite in `1:1` so rund 62 bis 64 Pixel hoch,
+  knapp an der Grenze von 32 × 64.
 - **Blick:** Kamera und Richtung des Satzes. Das Tuch zeigt im Blick nach
   Süden, also zur Seite, von der die Kamera kommt; in der Welt ist das je
   Richtung eine andere Seite. Das Banner steht so schräg auf der Karte wie
@@ -140,9 +140,9 @@ Die Felder im Einzelnen stehen in [Ebenen](../benutzung/ebenen.md),
   stünden auch die Drehungen 12, 0, 4 und 8 gleich weit von vorn; es gilt
   die Seite, die im Blick nach Süden zeigt.
 - **Fuss und Leinwand:** Alle Sprites eines Satzes, mit und ohne Krone,
-  haben dieselbe Leinwand und denselben Fuss. In `2:1` fällt die Unterkante
-  des Tuchs über seine Breite um rund 14 Pixel, und eine Ecke kann unter
-  den Fuss reichen. Darum nennt `satz.json` den Fuss und den Winkel, und die
+  haben dieselbe Leinwand und denselben Fuss. Schräg fällt die Unterkante
+  des Tuchs über seine Breite, in `2:1` um 10 Pixel, und eine Ecke kann
+  unter den Fuss reichen. Darum nennt `satz.json` den Fuss und den Winkel, und die
   Ansichten nehmen beide von dort; gerechnet wird in keiner Ansicht.
   Mit `image` bleibt der Fuss bei `(⌊Breite / 2⌋, Höhe)` wie heute.
 - **Der Name:** Webkarte und Mod drehen den Namen um den Winkel aus
@@ -259,6 +259,9 @@ Geschätzt, nicht gemessen; jede PR misst ihren Teil, den Speicher eingeschlosse
   `--banners` samt Stempeln, `satz.json`, Meldung und Aufräumen von
   `banner/`. Der Server liefert `layers/<modname>/banner/` aus wie
   `images/`; seine Freigabeliste kennt den Ordner.
+- **Die Grenze von 32 × 64:** Die erste PR mit Sprites misst ihre Grösse in
+  jeder Kamera. Reicht die Grenze in `1:1` nicht, hebt sie sie nur für
+  Sprites, in `ebenen.md` und in jeder Ansicht; für `image` bleibt sie.
 - **Doku:** [Ebenen](../benutzung/ebenen.md) mit `designs`, `design`,
   `capital`, den Sprites und dem Weg für geheime Ebenen;
   [Blockentities](../renderer/blockentities.md) mit dem Banner ohne Welt;

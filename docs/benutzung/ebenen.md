@@ -315,8 +315,9 @@ layers/<modname>/banner/<ebene>/<satz>/satz.json
   Satz; jeder Baum von oben, `top-north`, `top` und `--flat`, und der Mod
   nehmen `oben`. Mit `capital` das aus `krone/`.
 - **Grösse:** fest, auf jeder Stufe gleich, höchstens 32 × 64. Ein Pixel des
-  Modells ist in der Höhe ein Pixel; in der Breite von vorn 1, schräg in
-  `2:1` rund √2 Pixel. Das Tuch ist von vorn 20 × 40, in `2:1` rund 28 × 40.
+  Modells ist ein Pixel des Sprites, in jeder Kamera. Das Tuch ist 20 Pixel
+  breit; von vorn 20 × 40, schräg fällt seine Unterkante um `20 · H / W`
+  Pixel, in `2:1` um 10.
 - **Leinwand und Fuss:** Alle Sprites eines Satzes, mit und ohne Krone,
   haben dieselbe Leinwand und denselben Fuss.
 - **`satz.json`:** der Fuss im Sprite und der Winkel der Unterkante des

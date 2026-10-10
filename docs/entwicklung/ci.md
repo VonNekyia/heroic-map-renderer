@@ -1,8 +1,9 @@
 ---
 title: CI
-description: Welche Jobs die CI bei jedem Push und jeder PR laufen lässt, mit welchen Adaptern die GPU-Tests laufen, welche Schwellen Lighthouse an die Karte anlegt und wie die Doku-Prüfung Verweise, Links und Frontmatter prüft.
+description: Welche Jobs die CI bei jedem Push und jeder PR laufen lässt, dass eine PR nur gegen master und auf dessen neuestem Stand geht, mit welchen Adaptern die GPU-Tests laufen, welche Schwellen Lighthouse an die Karte anlegt und wie die Doku-Prüfung Verweise, Links und Frontmatter prüft.
 code:
   - .github/workflows/ci.yml
+  - .github/workflows/basis.yml
   - .github/pruefe-doku.sh
   - renderer/deny.toml
   - web/lighthouserc.cjs
@@ -43,6 +44,26 @@ und Release unterscheidet; die Prüfungen im Regionsleser müssen in beiden
 greifen. Ein Test läuft nur dort, siehe [Tests](tests.md), „Laufen
 lassen“. Fällt ein Goldbild, liegt das Ist-Bild als Artefakt am Lauf, siehe
 [Tests](tests.md), „Goldbild“.
+
+## Basis einer PR
+
+Eine PR geht nur gegen `master` und nur, wenn sie dessen neuesten Stand
+enthält, auf Wunsch des Users am 10.10. Der Job „Basis aktuell“ in
+[`.github/workflows/basis.yml`](../../.github/workflows/basis.yml) fällt:
+
+- wenn die Basis nicht der Standardzweig ist, etwa bei einer gestapelten
+  PR auf einem anderen Zweig. Erst den Vorgänger mergen, dann die PR auf
+  `master` umstellen;
+- wenn `master` Commits hat, die der Kopf nicht hat, gefragt über die API
+  (`compare`, `behind_by`). Dann `master` hineinmergen oder rebasen.
+
+Er läuft bei jeder PR, ohne Pfadfilter, auch beim Umstellen der Basis
+(`edited`). Wächst `master` nach einem grünen Lauf, läuft er nicht von
+selbst neu. Dass nur der neueste Stand gemergt wird, verlangt darum
+zusätzlich eine Regel für den Zweig `master` in den Einstellungen des
+Repos, mit Zustimmung des Users: strikt, also auf dem neuesten Stand,
+„Basis aktuell“ als Pflicht, ein Admin darf sie umgehen. Sie setzt der
+Reviewer nach dem Merge dieses Workflows.
 
 ## Release
 
@@ -135,9 +156,16 @@ Anker hinter `#` prüft sie nicht; auf eine Überschrift zeigt ein Link mit
 
 Jeder Fehler steht als Zeile `::error file=…::…` da, die GitHub an die
 Datei heftet. Danach verbiegt die CI in einer Probe je einen Verweis, eine
-Überschrift, einen Link und einen Pfad unter `code:`, nimmt einer Seite den
-`title` und verlangt genau fünf Meldungen; so fällt auf, wenn die Prüfung
-nichts mehr findet. Lokal aus der Wurzel des Repositorys:
+Überschrift, einen Link, die Überschrift hinter einem Link und einen Pfad
+unter `code:`, nimmt einer Seite den `title` und verlangt genau sechs
+Meldungen; so fällt auf, wenn die Prüfung nichts mehr findet.
+
+Unter Git Bash (MSYS) findet Bash eine Zeichenklasse mit „“ wie `[^“]`
+unter `LC_ALL=C.UTF-8` nicht. Die Überschrift hinter einem Link blieb so
+lokal leer und ungeprüft, nur die CI unter Ubuntu meldete sie (#254). Die
+Prüfung nimmt darum `(.*)` und kürzt am ersten `“`. Beim Start prüft sie
+an zwei Links auf einer Zeile selbst, dass sie Überschriften findet, und
+bricht sonst mit einer Meldung ab. Lokal aus der Wurzel des Repositorys:
 
 ```bash
 bash .github/pruefe-doku.sh

@@ -1708,7 +1708,7 @@ fn write_tiles(
         Bereich::Update => Some(Art::Update),
         Bereich::Ausschnitt(_) => None,
     };
-    let renderer = fingerabdruck_des_renderers();
+    let renderer = fingerabdruck_des_renderers(look_name(projection, look.is_some()));
     let (stempel, abdruecke) = match art {
         Some(_) => (
             world.stempel()?,

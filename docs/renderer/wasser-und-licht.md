@@ -155,8 +155,9 @@ Wie hell jede Zelle ist, rechnet der Renderer selbst aus, wie
 `SkyLightEngine` und `BlockLightEngine` in 26.2, in
 `renderer/src/render/licht.rs`. Das gespeicherte Licht der Welt liest er
 nicht, es fehlt in vielen Chunks, siehe
-[0040](../entscheidungen/0040-licht-selbst-ausbreiten.md). Die Regeln,
-belegt per javap:
+[0040](../entscheidungen/0040-licht-selbst-ausbreiten.md). Die einfarbige
+Ansicht breitet nicht aus, siehe [Die einfarbige Ansicht](einfarbig.md),
+„Licht je Spalte“. Die Regeln, belegt per javap:
 
 - **Schritte.** Jeder Schritt zur Nachbarzelle kostet eine Stufe
   (`LightEngine.propagateIncrease`: `max(1, getLightDampening)`). In einen

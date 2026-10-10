@@ -79,6 +79,116 @@ impl ChunkLicht {
             Some(SectionLicht::Feld(feld)) => feld[((y & 15) as usize) << 8 | z << 4 | x],
         }
     }
+
+    /// Das Licht eines Chunks nur aus seinen eigenen Spalten, ohne
+    /// Ausbreitung und ohne Nachbarn, für die einfarbige Ansicht. Je Spalte
+    /// von oben: Himmelslicht 15 bis zum ersten Block, der dämpft; ab dort
+    /// eine Stufe weniger je Zelle, in einem dichten Block und darunter
+    /// keines; dazu ein Schritt von der Seite im Chunk ([`seite`]).
+    /// Blocklicht nur das eigene einer Quelle. Geschlossene Kanten zählen
+    /// nicht. Das Band wie bei [`Ausbreitung::chunk`].
+    /// Siehe docs/renderer/einfarbig.md, „Licht je Spalte“.
+    pub fn spalten(chunk: &[Eingabe], himmel: bool) -> ChunkLicht {
+        let (lo, hi) = chunk
+            .iter()
+            .map(|s| i32::from(s.y))
+            .fold((i32::MAX, i32::MIN), |(lo, hi), y| (lo.min(y), hi.max(y)));
+        let (unten, oben) = if lo > hi { (0, -1) } else { (lo - 1, hi + 1) };
+        let n = (oben - unten + 1).max(0) as usize;
+        let mut je: Vec<Option<&Eingabe>> = vec![None; n];
+        for s in chunk {
+            je[(i32::from(s.y) - unten) as usize] = Some(s);
+        }
+        let mut werte = vec![0u8; n * 4096];
+        if himmel {
+            for col in 0..256 {
+                let mut stufe = 15u8;
+                let mut frei = true;
+                for s in (0..n).rev() {
+                    let (dicht, daempft) = je[s].map_or((0, 0), |e| (e.dicht[col], e.daempft[col]));
+                    for y in (0..16).rev() {
+                        if dicht >> y & 1 != 0 {
+                            (frei, stufe) = (false, 0);
+                        } else if !frei || daempft >> y & 1 != 0 {
+                            frei = false;
+                            stufe = stufe.saturating_sub(1);
+                        }
+                        werte[s * 4096 + (y << 8 | col)] = stufe << 4;
+                    }
+                }
+            }
+            seite(&mut werte, &je);
+        }
+        for (s, section) in je.iter().enumerate() {
+            for &(i, l) in section.map_or(&[][..], |e| e.quellen) {
+                werte[s * 4096 + i as usize] |= l;
+            }
+        }
+        ChunkLicht {
+            unten,
+            sections: verdichte(&werte),
+            darueber: if himmel { 0xf0 } else { 0 },
+        }
+    }
+}
+
+/// Ein Schritt Himmelslicht von der Seite, für [`ChunkLicht::spalten`]: in
+/// jeder Zelle, die nicht dicht ist, das Höchste aus ihr selbst und ihren
+/// vier Nachbarn im Chunk weniger eine Stufe, gelesen aus einer Kopie. Über
+/// den Rand des Chunks nicht, so hängt das Licht nur am Chunk. `werte` trägt
+/// das Himmelslicht in den oberen vier Bits.
+/// Siehe docs/renderer/einfarbig.md, „Licht je Spalte“.
+fn seite(werte: &mut [u8], je: &[Option<&Eingabe>]) {
+    for (s, section) in je.iter().enumerate() {
+        let feld = &mut werte[s * 4096..(s + 1) * 4096];
+        // Der Schritt geht nur waagrecht: Mit gleichem Licht in jeder Zelle
+        // ändert sich nichts.
+        if feld.iter().all(|&w| w == feld[0]) {
+            continue;
+        }
+        let spalte: Box<[u8; 4096]> = Box::new(feld.try_into().expect("4096 Zellen"));
+        for y in 0..16 {
+            for z in 0..16 {
+                for x in 0..16 {
+                    let col = z << 4 | x;
+                    if section.is_some_and(|e| e.dicht[col] >> y & 1 != 0) {
+                        continue;
+                    }
+                    let i = y << 8 | col;
+                    let nachbar = |nx: usize, nz: usize| spalte[y << 8 | nz << 4 | nx];
+                    let mut hoch = 0;
+                    if x > 0 {
+                        hoch = hoch.max(nachbar(x - 1, z));
+                    }
+                    if x < 15 {
+                        hoch = hoch.max(nachbar(x + 1, z));
+                    }
+                    if z > 0 {
+                        hoch = hoch.max(nachbar(x, z - 1));
+                    }
+                    if z < 15 {
+                        hoch = hoch.max(nachbar(x, z + 1));
+                    }
+                    feld[i] = feld[i].max(hoch.saturating_sub(16));
+                }
+            }
+        }
+    }
+}
+
+/// Die Sections aus dem Licht je Zelle, `section * 4096 + (y << 8 | z << 4
+/// | x)`: eine, in der jede Zelle dasselbe Licht hat, als ein Byte.
+fn verdichte(werte: &[u8]) -> Vec<SectionLicht> {
+    werte
+        .chunks(4096)
+        .map(|feld| {
+            if feld.iter().all(|&w| w == feld[0]) {
+                SectionLicht::Gleich(feld[0])
+            } else {
+                SectionLicht::Feld(Box::new(feld.try_into().expect("4096 Zellen")))
+            }
+        })
+        .collect()
 }
 
 /// Der Arbeitsplatz der Ausbreitung, einer je Thread: Er behält seine
@@ -143,14 +253,7 @@ impl Ausbreitung {
             self.block();
             self.lies(&mut werte, 0);
         }
-        for (s, section) in licht.sections.iter_mut().enumerate() {
-            let feld = &werte[s * 4096..(s + 1) * 4096];
-            *section = if feld.iter().all(|&w| w == feld[0]) {
-                SectionLicht::Gleich(feld[0])
-            } else {
-                SectionLicht::Feld(Box::new(feld.try_into().expect("4096 Zellen")))
-            };
-        }
+        licht.sections = verdichte(&werte);
         licht
     }
 
@@ -431,5 +534,112 @@ impl Ausbreitung {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `dicht`, `daempft` und `quellen` einer Section.
+    type See = (Box<[u16; 256]>, Box<[u16; 256]>, Vec<(u16, u8)>);
+
+    /// Eine Section auf y = 0: Stein in den Zellen 0 und 1, Wasser von 2
+    /// bis 5, darüber Luft, in jeder Spalte gleich; dazu `quellen`.
+    fn see(quellen: &[(u16, u8)]) -> See {
+        let stein = 0b11;
+        let wasser = 0b11_1100;
+        (
+            Box::new([stein; 256]),
+            Box::new([stein | wasser; 256]),
+            quellen.to_vec(),
+        )
+    }
+
+    /// Im offenen Wasser gibt das Licht je Spalte jede Zelle wie die
+    /// Ausbreitung: über dem Wasser 15, darin eine Stufe weniger je Block,
+    /// auf dem Grund 15 − Tiefe, im Stein keines.
+    #[test]
+    fn spalten_wie_ausbreitung_im_offenen_wasser() {
+        let (dicht, daempft, quellen) = see(&[]);
+        let section = [Eingabe {
+            y: 0,
+            dicht: &dicht,
+            daempft: &daempft,
+            formen: &[],
+            quellen: &quellen,
+        }];
+        let spalten = ChunkLicht::spalten(&section, true);
+        let ausbreitung = Ausbreitung::default().chunk(&[Some(&section[..]); 9], true);
+        for (x, z) in [(0, 0), (7, 9), (15, 15)] {
+            for y in -20..40 {
+                assert_eq!(
+                    spalten.at(x, y, z),
+                    ausbreitung.at(x, y, z),
+                    "({x}, {y}, {z})"
+                );
+            }
+            let himmel = |y| spalten.at(x, y, z) >> 4;
+            assert_eq!([6, 5, 2, 1].map(himmel), [15, 14, 11, 0]);
+        }
+    }
+
+    /// Ein Schritt von der Seite: Laub auf y = 5 in den Spalten ab x = 8,
+    /// darunter Luft bis zum Stein, links davon offen. Unter dem Rand des
+    /// Laubs kommt eine Stufe weniger als daneben an, wie bei der
+    /// Ausbreitung; eine Spalte weiter innen nur, was die eigene Spalte
+    /// hergibt, denn es ist nur ein Schritt.
+    #[test]
+    fn spalten_ein_schritt_von_der_seite() {
+        let stein = 0b11;
+        let laub = |col: usize| if col & 15 >= 8 { 1 << 5 } else { 0 };
+        let dicht = Box::new([stein; 256]);
+        let daempft: Box<[u16; 256]> = Box::new(std::array::from_fn(|col| stein | laub(col)));
+        let section = [Eingabe {
+            y: 0,
+            dicht: &dicht,
+            daempft: &daempft,
+            formen: &[],
+            quellen: &[],
+        }];
+        let spalten = ChunkLicht::spalten(&section, true);
+        let ausbreitung = Ausbreitung::default().chunk(&[Some(&section[..]); 9], true);
+        let himmel = |l: &ChunkLicht, x, y| l.at(x, y, 5) >> 4;
+        // Unter dem Rand: 15 von der Seite weniger eins.
+        assert_eq!(
+            [himmel(&spalten, 8, 4), himmel(&ausbreitung, 8, 4)],
+            [14, 14]
+        );
+        assert_eq!(
+            [himmel(&spalten, 8, 2), himmel(&ausbreitung, 8, 2)],
+            [14, 14]
+        );
+        // Eine Spalte weiter: die eigene Spalte, 15 − 1 je Zelle ab dem Laub.
+        assert_eq!(
+            [himmel(&spalten, 9, 2), himmel(&ausbreitung, 9, 2)],
+            [11, 13]
+        );
+        // Draussen bleibt es 15.
+        assert_eq!(himmel(&spalten, 7, 2), 15);
+    }
+
+    /// Blocklicht bleibt bei der Quelle: Ihre Zelle hat ihre Stufe, die
+    /// Zelle daneben keine. Die Ausbreitung gäbe ihr eine weniger.
+    #[test]
+    fn spalten_blocklicht_nur_das_eigene() {
+        // Eine Quelle der Stufe 15 im Wasser bei (8, 3, 8).
+        let (dicht, daempft, quellen) = see(&[(3 << 8 | 8 << 4 | 8, 15)]);
+        let section = [Eingabe {
+            y: 0,
+            dicht: &dicht,
+            daempft: &daempft,
+            formen: &[],
+            quellen: &quellen,
+        }];
+        let spalten = ChunkLicht::spalten(&section, true);
+        assert_eq!(spalten.at(8, 3, 8) & 15, 15);
+        assert_eq!(spalten.at(9, 3, 8) & 15, 0);
+        let ausbreitung = Ausbreitung::default().chunk(&[Some(&section[..]); 9], true);
+        assert_eq!(ausbreitung.at(9, 3, 8) & 15, 14);
     }
 }

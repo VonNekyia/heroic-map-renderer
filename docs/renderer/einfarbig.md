@@ -17,6 +17,11 @@ eine leichte Ergänzung für grosse Welten, kein Ersatz für die Karte mit
 Texturen. Entschieden in
 [0099](../entscheidungen/0099-einfarbige-ansicht.md).
 
+![Die einfarbige Ansicht: Wald, Strand, Meer nach seiner Tiefe, das Dorf am Ufer, Hänge mit Relief](../bilder/einfarbig.webp)
+
+*Testwelt, `--flat` um (−224, 496), 512 × 512 Blöcke, ein Pixel je Block,
+zweifach vergrössert. Stand von #247, vor dem Licht je Spalte.*
+
 ## Schalter und Baum
 
 - **`--flat`** geht mit `--render` oder `--tiles`. Kamera und scale setzt
@@ -74,6 +79,41 @@ Beides wie in der Karte mit Texturen:
   siehe [Wasser und Licht](wasser-und-licht.md). Die Karte des Spiels
   schattiert Wasser nach seiner Tiefe; diese zweite Regel gibt es hier
   nicht.
+
+## Licht je Spalte
+
+Von oben sieht man nur den obersten Block. Die einfarbige Ansicht breitet
+darum kein Licht aus, wie es die Karte mit Texturen tut (siehe
+[Wasser und Licht](wasser-und-licht.md), „Licht ausbreiten“). Sie rechnet
+es je Chunk aus seinen eigenen Spalten (`ChunkLicht::spalten` in
+[`renderer/src/render/licht.rs`](../../renderer/src/render/licht.rs)):
+
+- **Himmelslicht:** 15 bis zum ersten Block, der dämpft, ab dort eine
+  Stufe weniger je Zelle, in einem dichten Block und darunter keines. Der
+  oberste Block liegt so im Licht 15, der Grund unter offenem Wasser im
+  Licht 15 − Tiefe, wie mit Ausbreitung
+  (`spalten_wie_ausbreitung_im_offenen_wasser`).
+- **Ein Schritt von der Seite:** In jeder Zelle, die nicht dicht ist, gilt
+  das Höchste aus ihr und ihren vier Nachbarn im Chunk weniger eine Stufe,
+  nur einmal und nicht über den Rand des Chunks (`seite`,
+  `spalten_ein_schritt_von_der_seite`). Unter dem Rand des Laubs kommt so
+  wie bei der Ausbreitung Licht von der Seite an.
+- **Blocklicht:** nur das eigene einer Quelle
+  (`spalten_blocklicht_nur_das_eigene`).
+- **Geschlossene Kanten** zählen nicht.
+- **Ohne Nachbarn:** Für sein Licht braucht ein Chunk keinen Nachbarn; der
+  Rand von 14 Blöcken der Ausbreitung fällt weg. Das Relief nimmt weiter
+  die Zeile im Norden.
+- **Was anders aussieht:** Licht von der Seite kommt nur einen Schritt
+  weit und nicht über den Rand des Chunks, und Leuchtendes unter Wasser
+  hellt den Grund daneben nicht auf. Gegen die Ausbreitung weichen über die
+  ganze Testwelt 2,46 % der Pixel ab, am Rand der Chunks 3,37 %, innen
+  2,18 %; als Linie sieht man den Rand nicht, siehe
+  [2026-10-10, Licht von der Seite](../messungen/2026-10-10-licht-von-der-seite.md).
+  Ohne den Schritt waren es 10,5 %, vor allem dunklere Ränder der
+  Baumkronen: Die weiche Beleuchtung einer Oberseite liest auch die Zellen
+  unter dem Laub daneben, siehe
+  [2026-10-10, Licht je Spalte](../messungen/2026-10-10-licht-je-spalte.md).
 
 ## Relief
 
@@ -142,10 +182,14 @@ Belegt per `javap` am Client von 26.2 in `MapItem.update`,
 Über die ganze Testwelt gegen `top-north` bei scale 4, gemessen in
 [2026-10-10, Einfarbige Ansicht](../messungen/2026-10-10-einfarbige-ansicht.md):
 
-- **Zeit:** 35 % weniger. Lesen und Licht hängen an den Chunks, nicht an
-  den Pixeln, und sind 61 % der CPU.
+- **Zeit:** 35 % weniger. Die −35 % sind ohne Bänder gemessen; mit
+  Bändern lässt sich kein Unterschied zeigen. Lesen und Licht hängen an den
+  Chunks, nicht an den Pixeln, und sind 61 % der CPU.
+- **Licht je Spalte** spart davon noch einmal 35 % der Zeit, bei gleichem
+  Speicher, siehe
+  [2026-10-10, Licht je Spalte](../messungen/2026-10-10-licht-je-spalte.md).
 - **Platz:** ×0,087.
-- **Arbeitsspeicher:** an der Spitze 1,55 GiB, 1,4-mal die Karte. Eine
+- **Arbeitsspeicher:** an der Spitze 1,55 GiB, rund 1,3-mal die Karte. Eine
   Kachel deckt 16 × 16 Chunks; gezeichnet wird sie in Bändern, siehe
   [Der Weg einer Kachel](renderpfad.md), „Speicher“.
 

@@ -116,9 +116,10 @@ pub fn render_area(
 pub const STUECK: u32 = 1024;
 
 /// Wie hoch die einfarbige Ansicht ein Band zeichnet, in Pixeln: vier
-/// Zeilen Chunks. Bei scale 1 deckt eine Kachel 16 × 16 Chunks; Band für
-/// Band behält der Cache nur das laufende und das vorige, denn jedes Band
-/// beginnt in [`ChunkCache`] wie eine Kachel.
+/// Zeilen Chunks. Jedes Band beginnt in [`ChunkCache`] wie eine Kachel. Mit
+/// `--tiles`, wo eine Kachel bei scale 1 16 × 16 Chunks deckt, behält der
+/// Cache so nur das laufende und das vorige Band; in [`render_area`] so
+/// viele Bänder, wie eine Zeile Stücke hat.
 /// Siehe docs/renderer/renderpfad.md, „Speicher“.
 const FLACH_BAND: u32 = 64;
 
@@ -2438,6 +2439,17 @@ impl<'a> ChunkCache<'a> {
             None => return Ok(None),
             Some(loaded) if loaded.licht.is_some() => return Ok(Some(i)),
             Some(_) => {}
+        }
+        // Von oben bei scale 1 reicht das Licht je Spalte: ohne Ausbreitung,
+        // also ohne die acht Nachbarn.
+        // Siehe docs/renderer/einfarbig.md, „Licht je Spalte“.
+        if self.sprites.projection().flach() {
+            let himmel = self.himmel;
+            let loaded = self.slots[i].loaded.as_mut().expect("eben geprüft");
+            let licht = ChunkLicht::spalten(&loaded.eingabe(), himmel);
+            loaded.licht = Some(Rc::new(licht));
+            self.last = i;
+            return Ok(Some(i));
         }
         let [wx, wz] = self.richtung.in_die_welt([key.0, key.1]);
         let mut nachbarn = [0; 9];

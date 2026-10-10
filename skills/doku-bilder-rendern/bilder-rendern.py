@@ -59,17 +59,29 @@ BANNER = (520, 690, 1800, 1090)
 # rechts die Kacheln des Renderers. --center X Z, --size, Stufen, Zuschnitt
 # auf der Stufe ab der linken oberen Ecke der Basis, Vergrösserung.
 VERKLEINERN = ((-64, 416), 4096, 3, (150, 175, 310, 295), 4)
+# Die einfarbige Ansicht für docs/renderer/einfarbig.md: --flat mit --center
+# X Z und --size, ein Pixel je Block, so oft vergrössert.
+EINFARBIG = ((-224, 496), 512, 2)
 BILDER = Path("docs/bilder")
 
 
 def rendern(renderer, daten, ziel, center, scale, size, extra=()):
+    """Ohne scale setzt ihn der Schalter in extra, etwa --flat."""
     subprocess.run(
         [renderer, "--world", daten / "world", "--assets", daten / "vanilla-assets",
          "--assets", daten / "assets", "--data", daten / "vanilla-data", "--render", ziel,
-         "--center", str(center[0]), str(center[1]), "--size", str(size), "--scale", str(scale),
-         *extra],
+         "--center", str(center[0]), str(center[1]), "--size", str(size),
+         *(["--scale", str(scale)] if scale else []), *extra],
         check=True,
     )
+
+
+def einfarbig(renderer, daten, tmp):
+    center, size, mal = EINFARBIG
+    png = Path(tmp) / "einfarbig.png"
+    rendern(renderer, daten, png, center, None, size, ["--flat"])
+    bild = Image.open(png).convert("RGBA")
+    webp(bild.resize((size * mal, size * mal), Image.NEAREST), "einfarbig")
 
 
 def kacheln(renderer, daten, ziel, center, scale, size, extra=()):
@@ -201,6 +213,7 @@ def main():
             rendern(renderer, daten, png, center, scale, size, extra)
             felder.append(Image.open(png).convert("RGBA").crop(box))
         webp(nebeneinander(felder), "karte-cinematic")
+        einfarbig(renderer, daten, tmp)
         # Cinematic mit Werten des Looks, die kein Schalter bietet: der
         # ignorierte Test bilder_zu_cinematic, gebaut aus diesem Checkout.
         subprocess.run(

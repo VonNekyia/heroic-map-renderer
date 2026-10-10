@@ -204,7 +204,7 @@ test('eine Fläche öffnet ihre Tafel beim Zeigen; von Hand geschlossen, öffnet
   await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
 });
 
-test('eine Fläche öffnet ihre Tafel erst nach 150 ms Ruhe, am Ort der Ruhe; jede Bewegung beginnt die Ruhe von vorn', async ({ page }) => {
+test('eine Fläche öffnet ihre Tafel erst nach 50 ms Ruhe, am Ort der Ruhe; jede Bewegung beginnt die Ruhe von vorn', async ({ page }) => {
   await page.clock.install();
   const gebiet = { ...GEBIET, name: 'Gebiet', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
   await welt(page, staedte([gebiet]));
@@ -216,11 +216,11 @@ test('eine Fläche öffnet ihre Tafel erst nach 150 ms Ruhe, am Ort der Ruhe; je
   const [[x1, y1], [x2, y2]] = await Promise.all([punkt(24, -24), punkt(36, -12)]);
   await page.mouse.move(x1!, y1!);
   for (let i = 1; i <= 4; i++) {
-    await page.clock.runFor(100);
+    await page.clock.runFor(40);
     await page.mouse.move(x1! + ((x2! - x1!) * i) / 4, y1! + ((y2! - y1!) * i) / 4);
   }
   expect(await offen()).toBe(0);
-  await page.clock.runFor(149);
+  await page.clock.runFor(49);
   expect(await offen()).toBe(0);
   await page.clock.runFor(1);
   expect(await offen()).toBe(1);

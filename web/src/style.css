@@ -230,7 +230,7 @@ body {
   white-space: nowrap;
 }
 
-/* Eine Nadel: das Schild Pixel auf Pixel, der Name darunter. */
+/* Eine Nadel: das Schild Pixel auf Pixel, der Name darunter in der Kartenschrift. */
 .nadel-icon {
   overflow: visible;
 }
@@ -240,16 +240,19 @@ body {
   image-rendering: pixelated;
 }
 
+/* Der Name wie die Kartenschrift, nicht wie die UI: Farbe und Kontur der
+   Vorgaben von `label`, die Kontur 2 px breit sichtbar, also 4 px Strich
+   unter der Füllung. Siehe docs/benutzung/ebenen.md, „Nadeln und Banner“. */
 .nadel-name {
   position: absolute;
   top: 100%;
   left: 50%;
   transform: translateX(-50%);
-  padding: 0 3px;
-  background: var(--ui-grund);
-  color: var(--ui-schrift);
-  font: 12px/1.4 Kartenschrift, serif;
+  color: #2b2b2b;
+  font: 16px/1 Kartenschrift, serif;
   white-space: nowrap;
+  -webkit-text-stroke: 4px #f2e8d0;
+  paint-order: stroke fill;
 }
 
 /* Der Name einer Region beim Zeigen, in Grund und Schrift der UI. */
@@ -284,16 +287,28 @@ body {
   text-anchor: middle;
 }
 
-/* Die Infotafel in den Farben und der Schrift der UI, nie der Kartenschrift;
-   zu hoch, scrollt sie. Rechts Platz für den Knopf zum Schliessen. */
+/* Die Infotafel dunkel wie im Mod, in der Schrift der UI, nie der
+   Kartenschrift; zu hoch, scrollt sie. Rechts Platz für den Knopf zum
+   Schliessen. Farben und Rahmen aus docs/benutzung/ebenen.md, „Infotafel“. */
 .tafel .leaflet-popup-content-wrapper,
 .tafel .leaflet-popup-tip {
-  background: var(--ui-grund);
-  color: var(--ui-schrift);
+  background: rgb(16 16 20 / 0.88);
+  color: #d9d9d9;
+}
+
+/* Aussen 1 px Schwarz, innen 1 px #3A3A44, die Ecken kaum gerundet. */
+.tafel .leaflet-popup-content-wrapper {
+  border: 1px solid #000;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px #3a3a44;
+}
+
+.tafel .leaflet-popup-tip {
+  box-shadow: none;
 }
 
 .tafel a.leaflet-popup-close-button {
-  color: var(--ui-schrift);
+  color: #d9d9d9;
 }
 
 .tafel .leaflet-popup-content {

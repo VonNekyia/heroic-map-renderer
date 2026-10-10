@@ -444,16 +444,57 @@ impl Stand {
     }
 }
 
-/// Wie der Renderer zeichnet. Er steigt um eins mit jeder Änderung, nach der
-/// ein Build eine Kachel, eine Höhe oder den Abdruck eines Chunks anders
-/// schreiben kann, auch wenn kein Goldbild es zeigt.
-/// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
-pub const ZEICHENSTAND: u32 = 2;
+/// Wie der Renderer einen Baum mit `look` `map` zeichnet. Ein Zeichenstand
+/// steigt um eins mit jeder Änderung, nach der ein Build eine Kachel, eine
+/// Höhe oder den Abdruck eines Chunks dieses Looks anders schreiben kann,
+/// auch wenn kein Goldbild es zeigt; was alle Looks teilen, hebt jeden.
+/// Siehe docs/entscheidungen/0101-zeichenstand-je-look.md.
+pub const ZEICHENSTAND_MAP: u32 = 3;
+/// Ebenso für `look` `cinematic`.
+pub const ZEICHENSTAND_CINEMATIC: u32 = 3;
+/// Ebenso für `look` `flat`, die einfarbige Ansicht.
+pub const ZEICHENSTAND_FLAT: u32 = 4;
 
-/// FNV-1a über die Goldbilder dieses Zeichenstands, siehe
+/// Die Looks, wie `look` in `map.json` sie nennt, mit ihrem Zeichenstand.
+pub const LOOKS: [(&str, u32); 3] = [
+    ("map", ZEICHENSTAND_MAP),
+    ("cinematic", ZEICHENSTAND_CINEMATIC),
+    ("flat", ZEICHENSTAND_FLAT),
+];
+
+/// Der Zeichenstand eines Looks aus [`LOOKS`].
+pub fn zeichenstand(look: &str) -> u32 {
+    LOOKS
+        .iter()
+        .find(|(name, _)| *name == look)
+        .map(|&(_, stand)| stand)
+        .unwrap_or_else(|| panic!("unbekannter Look {look}"))
+}
+
+/// Jedes Goldbild unter `tests/fixtures/golden` mit dem Look, dessen
+/// Zeichnung es zeigt; `jedes_goldbild_hat_einen_look` fällt bei einem
+/// Goldbild, das hier fehlt.
+#[cfg(test)]
+const GOLDBILDER_JE_LOOK: [(&str, &str); 9] = [
+    ("metatile", "map"),
+    ("metatile-4x3", "map"),
+    ("metatile-cinematic", "cinematic"),
+    ("metatile-flat", "flat"),
+    ("metatile-north-45", "map"),
+    ("metatile-nw", "map"),
+    ("metatile-top", "map"),
+    ("metatile-top-north", "map"),
+    ("metatile-wurzeln", "map"),
+];
+
+/// FNV-1a über die Goldbilder je Look, siehe
 /// `zeichenstand_folgt_den_goldbildern`.
 #[cfg(test)]
-const GOLDBILDER: u64 = 0x864e_a451_e6ea_feea;
+const GOLDBILDER: [(&str, u64); 3] = [
+    ("map", 0xe326_30b9_2f2f_fe61),
+    ("cinematic", 0x8338_0150_d842_fd85),
+    ("flat", 0x9da5_830a_c6ae_0047),
+];
 
 /// Eine eingebaute Tabelle aus `src/assets`: ihr Name und ihr Inhalt aus
 /// derselben Datei.
@@ -494,12 +535,14 @@ pub const ALTE_BUILDS: &[u64] = &[
     0xf0d3_af7b_daef_21a9,
 ];
 
-/// Der Fingerabdruck des Renderers: FNV-1a über den Zeichenstand und die
-/// eingebauten Tabellen, je Tabelle ihr Name und ihre Zeilen ohne `\r`. Ein
-/// neuer Build, der gleich zeichnet, hat denselben.
+/// Der Fingerabdruck des Renderers für einen Baum mit `look`: FNV-1a über
+/// den Zeichenstand des Looks und die eingebauten Tabellen, je Tabelle ihr
+/// Name und ihre Zeilen ohne `\r`. Ein neuer Build, der diesen Look gleich
+/// zeichnet, hat denselben; den Look selbst nimmt er nicht auf, so gilt der
+/// Stand eines Baums von vor 0101 weiter.
 /// Siehe docs/benutzung/updates.md, „Anderer Renderer, andere Assets“.
-pub fn fingerabdruck_des_renderers() -> u64 {
-    fingerabdruck(ZEICHENSTAND, &TABELLEN)
+pub fn fingerabdruck_des_renderers(look: &str) -> u64 {
+    fingerabdruck(zeichenstand(look), &TABELLEN)
 }
 
 fn fingerabdruck(zeichenstand: u32, tabellen: &[(&str, &str)]) -> u64 {
@@ -950,11 +993,8 @@ mod tests {
         assert_ne!(fingerabdruck_der_dateien(&wurzel), leer);
     }
 
-    /// Ändert sich ein Goldbild, zeichnet der Renderer anders. FNV-1a über
-    /// alle, nach Dateinamen, je Bild der Name, Breite, Höhe und die Pixel.
-    /// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
-    #[test]
-    fn zeichenstand_folgt_den_goldbildern() {
+    /// Die Goldbilder ohne die Ist-Bilder, nach Dateinamen.
+    fn goldbilder() -> Vec<String> {
         let ordner = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golden");
         let mut namen: Vec<String> = std::fs::read_dir(&ordner)
             .unwrap()
@@ -962,25 +1002,76 @@ mod tests {
             .filter(|n| n.ends_with(".png") && !n.ends_with("-ist.png"))
             .collect();
         namen.sort_unstable();
-        let mut fnv = Fnv::default();
-        for name in &namen {
-            let bild = image::open(ordner.join(name)).unwrap().into_rgba8();
-            fnv.text(name.trim_end_matches(".png"));
-            fnv.nimm(&bild.width().to_le_bytes());
-            fnv.nimm(&bild.height().to_le_bytes());
-            fnv.nimm(bild.as_raw());
-        }
+        namen
+    }
+
+    /// Jedes Goldbild gehört genau einem Look; ein neues ohne Eintrag in
+    /// [`GOLDBILDER_JE_LOOK`] fällt hier, statt still zu einem zu zählen.
+    #[test]
+    fn jedes_goldbild_hat_einen_look() {
+        let mut liste: Vec<&str> = GOLDBILDER_JE_LOOK.iter().map(|(name, _)| *name).collect();
+        liste.sort_unstable();
+        let namen: Vec<String> = goldbilder()
+            .iter()
+            .map(|n| n.trim_end_matches(".png").to_string())
+            .collect();
+        let mut sortiert = namen.clone();
+        sortiert.sort_unstable();
         assert_eq!(
-            fnv.0,
-            GOLDBILDER,
-            "Die Goldbilder haben sich geändert. Zeichnet der Renderer anders, \
-             ZEICHENSTAND in renderer/src/render/stand.rs auf {} heben. Kommt \
-             nur ein Goldbild dazu, etwa für einen neuen Baum, oder ändert sich \
-             nur die Szene eines Tests, bleibt er. In jedem Fall GOLDBILDER auf \
-             {:#x} setzen. Siehe skills/goldbild-erneuern/SKILL.md.",
-            ZEICHENSTAND + 1,
-            fnv.0
+            sortiert, liste,
+            "GOLDBILDER_JE_LOOK in renderer/src/render/stand.rs"
         );
+        for (_, look) in GOLDBILDER_JE_LOOK {
+            zeichenstand(look);
+        }
+    }
+
+    /// Ändert sich ein Goldbild eines Looks, zeichnet der Renderer diesen
+    /// Look anders. Je Look FNV-1a über seine Goldbilder, nach Dateinamen, je
+    /// Bild der Name, Breite, Höhe und die Pixel.
+    /// Siehe docs/entscheidungen/0101-zeichenstand-je-look.md.
+    #[test]
+    fn zeichenstand_folgt_den_goldbildern() {
+        let ordner = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golden");
+        let namen = goldbilder();
+        for (look, soll) in GOLDBILDER {
+            let mut fnv = Fnv::default();
+            for name in &namen {
+                let stamm = name.trim_end_matches(".png");
+                if !GOLDBILDER_JE_LOOK.contains(&(stamm, look)) {
+                    continue;
+                }
+                let bild = image::open(ordner.join(name)).unwrap().into_rgba8();
+                fnv.text(stamm);
+                fnv.nimm(&bild.width().to_le_bytes());
+                fnv.nimm(&bild.height().to_le_bytes());
+                fnv.nimm(bild.as_raw());
+            }
+            assert_eq!(
+                fnv.0,
+                soll,
+                "Die Goldbilder von look {look} haben sich geändert. Zeichnet der \
+                 Renderer diesen Look anders, ZEICHENSTAND_{} in \
+                 renderer/src/render/stand.rs auf {} heben. Kommt nur ein Goldbild \
+                 dazu, etwa für einen neuen Baum, oder ändert sich nur die Szene \
+                 eines Tests, bleibt er. In jedem Fall GOLDBILDER für {look} auf \
+                 {:#x} setzen. Siehe skills/goldbild-erneuern/SKILL.md.",
+                look.to_uppercase(),
+                zeichenstand(look) + 1,
+                fnv.0
+            );
+        }
+    }
+
+    /// Karte und Cinematic haben den Abdruck von v0.7.0, Zeichenstand 3 mit
+    /// denselben Tabellen: Ihr Stand gilt nach 0101 weiter. Die einfarbige
+    /// Ansicht zeichnet anders und hat einen anderen.
+    #[test]
+    fn abdruck_von_karte_und_cinematic_wie_in_v0_7_0() {
+        const V0_7_0: u64 = 0x2651_7df1_a999_85d2;
+        assert_eq!(fingerabdruck_des_renderers("map"), V0_7_0);
+        assert_eq!(fingerabdruck_des_renderers("cinematic"), V0_7_0);
+        assert_ne!(fingerabdruck_des_renderers("flat"), V0_7_0);
     }
 
     /// Jede Tabelle unter `src/assets` geht in den Fingerabdruck ein.
@@ -1012,8 +1103,8 @@ mod tests {
             assert_ne!(anders, basis);
         }
         assert_ne!(
-            fingerabdruck_des_renderers(),
-            fingerabdruck(ZEICHENSTAND, &[])
+            fingerabdruck_des_renderers("map"),
+            fingerabdruck(ZEICHENSTAND_MAP, &[])
         );
     }
 

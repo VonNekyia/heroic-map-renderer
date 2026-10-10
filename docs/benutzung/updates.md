@@ -302,14 +302,17 @@ Ein Update mischte sonst alte und neue Kacheln. Der Stand trägt deshalb zwei
 Fingerabdrücke, und `--update` bricht vor der ersten Kachel ab, wenn einer
 nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
 
-- **Der Renderer:** FNV-1a über den Zeichenstand und die eingebauten
-  Tabellen, je Tabelle ihr Name und ihre Zeilen ohne `\r`
+- **Der Renderer:** FNV-1a über den Zeichenstand des Looks und die
+  eingebauten Tabellen, je Tabelle ihr Name und ihre Zeilen ohne `\r`
   (`fingerabdruck_des_renderers` in
-  [`renderer/src/render/stand.rs`](../../renderer/src/render/stand.rs)). Ein
-  neuer Build, der gleich zeichnet, hat denselben: Ein Release, das am
-  Zeichnen nichts ändert, verlangt keinen vollen Lauf. Wann der
+  [`renderer/src/render/stand.rs`](../../renderer/src/render/stand.rs)). Je
+  Wert von `look` in `map.json`, `map`, `cinematic` und `flat`, gibt es
+  einen Zeichenstand. Ein neuer Build, der einen Look gleich zeichnet, hat
+  für ihn denselben Abdruck: Ein Release, das nur `--flat` anders zeichnet,
+  verlangt nur für Bäume mit `look` `flat` einen vollen Lauf. Wann ein
   Zeichenstand steigt, steht in
-  [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
+  [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md) und
+  [0101](../entscheidungen/0101-zeichenstand-je-look.md).
   - **Ein Stand von v0.4.0 oder v0.5.0** trägt noch den Fingerabdruck der
     ausführbaren Datei für Linux oder Windows. Er gilt als Zeichenstand 1 mit den
     Tabellen von v0.5.0, `ZEICHENSTAND_1`: Ein Update nimmt ihn an, solange
@@ -317,10 +320,12 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
     (`update_nimmt_den_stand_alter_builds`). Ebenso ein angefangener Stand.
   - **Die Zeichenstände** bisher:
 
-    | Zeichenstand | ab | was anders zeichnet |
-    |---|---|---|
-    | 1 | 0098, wie v0.4.0 und v0.5.0 | – |
-    | 2 | #243 | der Grund unter Mangrovenwurzeln, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Verdeckte Würfel“ |
+    | ab | `map` | `cinematic` | `flat` | was anders zeichnet |
+    |---|---|---|---|---|
+    | 0098, wie v0.4.0 und v0.5.0 | 1 | 1 | – | – |
+    | #243 | 2 | 2 | – | der Grund unter Mangrovenwurzeln, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Verdeckte Würfel“ |
+    | #250, wie v0.7.0 | 3 | 3 | 3 | das Licht von `--flat`, siehe [Die einfarbige Ansicht](../renderer/einfarbig.md), „Licht je Spalte“; bis 0101 ein Zeichenstand für alle |
+    | #257 | 3 | 3 | 4 | ein Schritt Licht von der Seite in `--flat`, ebenda |
 
 - **Assets und Daten:** je Wurzel von `--assets` und `--data` ihre Nummer,
   dann je Datei darunter der Pfad, die Grösse und die Zeit der letzten
@@ -342,7 +347,8 @@ Danach zeichnet ein voller Lauf alles neu, und `--update` geht wieder.
   bis sich ihre Pixel ändern, siehe „Gleiche Pixel“.
 - **Ein Stand aus einem anderen Baum,** von Hand kopiert.
 - **Ein vergessener Zeichenstand:** Zeichnet ein neuer Build anders, ohne
-  dass `ZEICHENSTAND` stieg, nimmt `--update` den alten Stand an. Es
+  dass der Zeichenstand seines Looks stieg, nimmt `--update` den alten
+  Stand an. Es
   zeichnet dann nur, wo sich die Welt änderte, und alte Kacheln stehen
   neben neuen. Ebenso bleiben mit einem vergessenen Kodierstand Kacheln in
   der alten Kodierung liegen. Das fängt nur das Review, siehe

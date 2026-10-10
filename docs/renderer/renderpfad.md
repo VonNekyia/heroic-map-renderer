@@ -409,7 +409,7 @@ Zeilen Chunks (`FLACH_BAND` in
 [`renderer/src/render/metatile.rs`](../../renderer/src/render/metatile.rs)).
 Bei scale 1 deckt eine Kachel 16 × 16 Chunks, samt Rand und Licht rund 400,
 und die nächste teilt davon nur eine Zeile. Jedes Band beginnt im Cache wie
-eine Kachel, er behält nur das vorige. Über die ganze Testwelt sinkt die
+eine Kachel; mit `--tiles` behält er nur das vorige. Über die ganze Testwelt sinkt die
 Spitze so von 3,8 auf 1,55 GiB, bei gleichen Ladungen und Bytes, siehe
 [2026-10-10, Einfarbige Ansicht](../messungen/2026-10-10-einfarbige-ansicht.md).
 

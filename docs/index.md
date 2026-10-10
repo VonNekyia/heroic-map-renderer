@@ -67,7 +67,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 - [Aufbau des Codes](entwicklung/aufbau.md): welche Datei was tut.
 - [Tests](entwicklung/tests.md): laufen lassen, Fixtures, Kameras, Goldbilder, GPU-Tests.
-- [CI](entwicklung/ci.md): die Jobs und die Doku-Prüfung.
+- [CI](entwicklung/ci.md): die Jobs, die Basis einer PR und die Doku-Prüfung.
 - [Weitergabe](entwicklung/weitergabe.md): wie das Release-Binär für eine Weitergabe gebaut ist, Release-Profil, statische CRT unter Windows, Grösse roh und gepackt, Linux und glibc, und was die CI daran prüft.
 - [Drittlizenzen](entwicklung/drittlizenzen.md): was jeder Weitergabe des Binärs beiliegt, wie `renderer/drittlizenzen.py` die Hinweise auf die Lizenzen der Crates erzeugt und was die CI daran prüft.
 - [libwebp mit Patch](entwicklung/libwebp-mit-patch.md): warum `libwebp-sys` als Kopie mit einem Patch an libwebp für `--compact` im Repository liegt, was der Patch ändert und was bei einem neuen `libwebp-sys` zu tun ist.
@@ -175,6 +175,8 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md): Banner als eigenes Objekt für Orte, Nadeln und Banner auf jeder Stufe gleich gross, die Tafel schon beim Zeigen; löst die Stufen und die Tafel nur beim Anklicken aus 0095 ab.
 - [0098](entscheidungen/0098-der-zeichenstand-statt-des-builds.md): Stand, Hashes der Pixel und `--resume` hängen am Zeichenstand im Code und an den eingebauten Tabellen statt an der ausführbaren Datei; ein Test über die Goldbilder sichert ihn ab, ein Stand von v0.4.0 oder v0.5.0 gilt als Zeichenstand 1, die Hashes der Pixel hängen am Kodierstand; löst den Fingerabdruck des Renderers aus 0062 ab.
 - [0099](entscheidungen/0099-einfarbige-ansicht.md): `--flat` zeichnet `top-north` bei scale 1 mit einer Farbe je Block über den bestehenden Pfad, look `flat`, Wasser wie mit Texturen, Relief nach der Karte des Spiels, nur auf der CPU; löst für diese Ansicht den kleinsten scale aus 0013 und 0051 ab.
+- [0100](entscheidungen/0100-der-renderer-zeichnet-die-banner.md): Banner aus einem benannten Entwurf der Ebene, die der Renderer mit `--banners` je Baum als Sprite zeichnet, mit eigener Krone für Hauptstädte, von oben aus `north-45`, für Ebenen mit `permission` über den Kanal des Plugins; ergänzt 0097.
+- [0101](entscheidungen/0101-zeichenstand-je-look.md): ein Zeichenstand je Look, `map`, `cinematic` und `flat`, mit Goldbildern je Look; der Abdruck von Karte und Cinematic bleibt der von v0.7.0; löst 0098 in diesem Punkt ab.
 
 ## Versuche
 
@@ -251,4 +253,6 @@ Gemessen und tragfähig, aber nicht übernommen. Der Code liegt je in einem Tag 
 - [2026-10-09, Arbeit je Block über die nativen Stufen](messungen/2026-10-09-arbeit-je-block.md): was der Versuch zu #207 B1 mit drei nativen Stufen an Zeit spart und an Speicher kostet, auf einem Thread und auf allen, dass jedes Bild gleich bleibt, und wie oft die Eingaben zwischen den Stufen abweichen.
 - [2026-10-10, Benchmark gegen andere Karten](messungen/2026-10-10-benchmark-karten.md): Zeit, RAM und Platz von squaremap, Pl3xMap, Dynmap und Heroic auf erzeugten Welten mit 3 000, 5 000 und 15 000 Blöcken Seitenlänge, je Million Pixel verglichen; die Tabelle für das Diagramm im README.
 - [2026-10-10, Einfarbige Ansicht](messungen/2026-10-10-einfarbige-ansicht.md): was `--flat` über die ganze Testwelt an Zeit, Platz und Arbeitsspeicher kostet, gegen die Karte in `top-north` bei scale 4.
+- [2026-10-10, Licht je Spalte](messungen/2026-10-10-licht-je-spalte.md): was das Licht je Spalte statt der Ausbreitung `--flat` über die ganze Testwelt an Zeit und Speicher spart und wie viele Pixel es ändert.
+- [2026-10-10, Licht von der Seite](messungen/2026-10-10-licht-von-der-seite.md): was ein Schritt Licht von der Seite im Chunk `--flat` kostet, wie viele Pixel er zur Ausbreitung zurückholt und ob die Chunkgrenzen auffallen.
 - [2026-10-10, Binärs gepackt mit xz](messungen/2026-10-10-binaer-xz.md): die Binärs von v0.6.0 mit xz, BCJ x86, Preset 9e und 8 MiB Wörterbuch gegen Deflate 6, und die Luft im Budget des Jars.

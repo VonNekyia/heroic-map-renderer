@@ -19,6 +19,9 @@ Fingerabdruck des Renderers ab, „Anderer Renderer, andere Assets“, und in
 [0091](0091-gleiche-pixel-nicht-kodieren.md) den Renderer als Bedingung der
 Hashes.
 
+Zum Teil abgelöst durch [0101](0101-zeichenstand-je-look.md): ein
+Zeichenstand je Look statt eines für alle, mit `GOLDBILDER` je Look.
+
 ## Anlass
 
 Der Stand eines Baums, die Hashes der Pixel und der angefangene Stand für

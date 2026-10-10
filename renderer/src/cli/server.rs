@@ -853,23 +853,29 @@ async fn download(
     antwort
 }
 
+/// Ob `name` ein Baum sein kann: 1 bis 64 Zeichen aus `a`–`z`, `0`–`9` und
+/// `-`, wie der Renderer Bäume nennt.
+pub(super) fn ist_baum(name: &str) -> bool {
+    (1..=64).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
 /// Der Pfad unter `/tiles/`, nur für das, was Karte und Mod brauchen:
 /// `trees.json` und die Höhen der Wurzel, je Baum `map.json`, `manifest`,
 /// seine Höhen und `z/x/y.webp`, dasselbe für einen einzelnen Baum als
-/// Wurzel, dazu die Ebenen: `layers.json`, `layers/<modname>/<ebene>.json`
-/// und ihre Bilder unter `layers/<modname>/images/`. Ein Baum heisst nur
-/// `a–z 0–9 -`, die Zahlen stehen, wie der Renderer sie schreibt. Alles
-/// andere, etwa `stand.bin` oder eine halb geschriebene Datei, gibt `None`.
-/// Dazu der Baum, in dem der Pfad liegt.
+/// Wurzel, dazu die Ebenen: `layers.json`, `layers/<modname>/<ebene>.json`,
+/// ihre Bilder unter `layers/<modname>/images/` und die Sprites der Banner
+/// unter `layers/<modname>/banner/<ebene>/<satz>/`, ohne und mit Krone,
+/// samt `satz.json`. Ein Baum und ein Satz heissen nur `a–z 0–9 -`
+/// ([`ist_baum`]), die Zahlen stehen, wie der Renderer sie schreibt. Alles
+/// andere, etwa `stand.bin`, der Stempel eines Satzes oder eine halb
+/// geschriebene Datei, gibt `None`. Dazu der Baum, in dem der Pfad liegt.
 /// Siehe docs/benutzung/server.md, „Was er ausliefert“.
 fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a str>)> {
     let teile: Vec<&str> = rest.split('/').collect();
-    let baum = |name: &str| {
-        (1..=64).contains(&name.len())
-            && name
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-    };
+    let baum = ist_baum;
     let ganz = |text: &str| text.parse::<i32>().is_ok_and(|n| n.to_string() == text);
     let stufe = |text: &str| text.parse::<u32>().is_ok_and(|n| n.to_string() == text);
     let kachel = |z: &str, x: &str, y: &str| {
@@ -892,6 +898,19 @@ fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a s
         ["layers", modname, ebene] if ist_teil(modname) && mit(ebene, &[".json"]) => (true, None),
         ["layers", modname, "images", bild]
             if ist_teil(modname) && mit(bild, &[".png", ".webp"]) =>
+        {
+            (true, None)
+        }
+        ["layers", modname, "banner", ebene, satz, datei]
+            if ist_teil(modname)
+                && ist_teil(ebene)
+                && baum(satz)
+                && (*datei == "satz.json" || mit(datei, &[".png"])) =>
+        {
+            (true, None)
+        }
+        ["layers", modname, "banner", ebene, satz, "krone", sprite]
+            if ist_teil(modname) && ist_teil(ebene) && baum(satz) && mit(sprite, &[".png"]) =>
         {
             (true, None)
         }
@@ -1180,6 +1199,10 @@ mod tests {
             "layers/mein-plugin_2/wasser.karte.json",
             "layers/beispiel/images/burg_16.png",
             "layers/beispiel/images/banner.webp",
+            "layers/beispiel/banner/staedte/2x1-se/nordreich.png",
+            "layers/beispiel/banner/staedte/oben/0f8fad5b-d9cb-469f-a165-70867728950e.png",
+            "layers/beispiel/banner/staedte/2x1-se-cinematic/krone/nordreich.png",
+            "layers/beispiel/banner/staedte/oben/satz.json",
         ] {
             assert!(kachelpfad(wurzel, erlaubt).is_some(), "{erlaubt}");
         }
@@ -1268,6 +1291,21 @@ mod tests {
             "layers/beispiel/staedte.json/x",
             "layers.json/x",
             "layers/beispiel/images/burg.png.tmp",
+            // Die Sprites der Banner: kein Stempel, keine halbe Datei, nur
+            // Sätze mit dem Namen eines Baums, nur PNG.
+            "layers/beispiel/banner/staedte/oben/.stempel",
+            "layers/beispiel/banner/staedte/oben/nordreich.png.12.tmp",
+            "layers/beispiel/banner/staedte/oben/satz.json.12.tmp",
+            "layers/beispiel/banner/staedte/oben/nordreich.webp",
+            "layers/beispiel/banner/staedte/oben/.nordreich.png",
+            "layers/beispiel/banner/staedte/Oben/nordreich.png",
+            "layers/beispiel/banner/staedte/2x1_se/nordreich.png",
+            "layers/beispiel/banner/staedte/oben/krone/satz.json",
+            "layers/beispiel/banner/staedte/oben/krone/a/nordreich.png",
+            "layers/beispiel/banner/staedte/oben",
+            "layers/beispiel/banner/staedte/nordreich.png",
+            "layers/beispiel/banner/.staedte/oben/nordreich.png",
+            "layers/beispiel/banner/staedte/oben/con.png",
         ] {
             assert_eq!(kachelpfad(wurzel, verboten), None, "{verboten}");
         }

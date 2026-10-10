@@ -5,14 +5,16 @@
 
 use std::collections::BTreeSet;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, ensure};
 use image::RgbaImage;
 
 use crate::assets::baker::{BakedModel, box_quads};
 use crate::assets::{Assets, TextureId, blockentity, models_of};
 use crate::render::metatile::render_familie;
 use crate::render::rasterizer::Light;
+use crate::render::stand::zeichenstand;
 use crate::render::{Kamera, Projection, Richtung, SpriteSet};
+use crate::world::chunk::Fnv;
 use crate::world::{BlockState, Blockdaten, Muster};
 
 /// Der Zeichenstand der Sprites der Banner, unabhängig von den Zeichenständen
@@ -100,6 +102,101 @@ pub fn zeichne(
         winkel: quer.1.atan2(quer.0).to_degrees(),
         unbekannt,
     })
+}
+
+/// Die grösste Leinwand eines Sprites, wie die eines Bilds.
+/// Siehe docs/benutzung/ebenen.md, „Grenzen“.
+pub const HOECHSTENS: (u32, u32) = (32, 64);
+
+/// Die gemeinsame Leinwand eines Satzes: Jedes Sprite des Satzes, ohne und
+/// mit Krone, liegt mit demselben Fuss darauf; `satz.json` nennt Fuss und
+/// Winkel.
+/// Siehe docs/benutzung/ebenen.md, „Sprites“.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Leinwand {
+    pub groesse: (u32, u32),
+    pub fuss: (i32, i32),
+    pub winkel: f64,
+}
+
+impl Leinwand {
+    /// Die Leinwand eines Satzes aus einem Banner ohne Lagen, ohne und mit
+    /// Krone: Die Lagen liegen auf dem Tuch und ändern seine Form nicht.
+    /// Grösser als [`HOECHSTENS`] ist ein Fehler.
+    pub fn fuer(assets: &mut Assets, kamera: Kamera, richtung: Richtung) -> Result<Leinwand> {
+        let mut bilder = Vec::new();
+        for krone in [false, true] {
+            bilder.push(zeichne(assets, kamera, richtung, "white", &[], krone)?);
+        }
+        let rand = |f: fn(&Bannerbild) -> i32| bilder.iter().map(f).max().unwrap_or(0);
+        let links = rand(|b| b.fuss.0);
+        let oben = rand(|b| b.fuss.1);
+        let rechts = rand(|b| b.bild.width() as i32 - b.fuss.0);
+        let unten = rand(|b| b.bild.height() as i32 - b.fuss.1);
+        let groesse = ((links + rechts) as u32, (oben + unten) as u32);
+        ensure!(
+            groesse.0 <= HOECHSTENS.0 && groesse.1 <= HOECHSTENS.1,
+            "{kamera} {}: Sprites {} × {}, höchstens {} × {}",
+            richtung.name(kamera),
+            groesse.0,
+            groesse.1,
+            HOECHSTENS.0,
+            HOECHSTENS.1
+        );
+        Ok(Leinwand {
+            groesse,
+            fuss: (links, oben),
+            winkel: bilder[0].winkel,
+        })
+    }
+
+    /// Setzt ein Sprite des Satzes mit seinem Fuss auf den der Leinwand.
+    pub fn setze(&self, banner: &Bannerbild) -> Result<RgbaImage> {
+        let (dx, dy) = (self.fuss.0 - banner.fuss.0, self.fuss.1 - banner.fuss.1);
+        let (w, h) = banner.bild.dimensions();
+        ensure!(
+            dx >= 0
+                && dy >= 0
+                && dx as u32 + w <= self.groesse.0
+                && dy as u32 + h <= self.groesse.1,
+            "das Sprite passt nicht auf die Leinwand seines Satzes"
+        );
+        let mut bild = RgbaImage::new(self.groesse.0, self.groesse.1);
+        image::imageops::replace(&mut bild, &banner.bild, dx.into(), dy.into());
+        Ok(bild)
+    }
+}
+
+/// Der Stempel eines Entwurfs in einem Satz: FNV-1a über alles, was seine
+/// beiden Sprites, ohne und mit Krone, bestimmt. Das sind `BANNERSTAND`, Look
+/// und Zeichenstand, in dem gezeichnet wird, also die der Karte, `abdruck`
+/// der Assets und Daten, Kamera, Richtung, Grundfarbe und Lagen.
+/// Siehe docs/entscheidungen/0100-der-renderer-zeichnet-die-banner.md, „Stand und Stempel“.
+pub fn stempel(
+    kamera: Kamera,
+    richtung: Richtung,
+    grund: &str,
+    lagen: &[(Muster, String)],
+    abdruck: u64,
+) -> u64 {
+    let mut fnv = Fnv::default();
+    fnv.nimm(&BANNERSTAND.to_le_bytes());
+    fnv.text("map");
+    fnv.nimm(&zeichenstand("map").to_le_bytes());
+    fnv.nimm(&abdruck.to_le_bytes());
+    fnv.text(&kamera.to_string());
+    fnv.text(richtung.name(kamera));
+    fnv.text(grund);
+    for (muster, farbe) in lagen {
+        let (art, name) = match muster {
+            Muster::Id(id) => (1, id),
+            Muster::Asset(asset) => (2, asset),
+        };
+        fnv.nimm(&[art]);
+        fnv.text(name);
+        fnv.text(farbe);
+    }
+    fnv.0
 }
 
 /// Die Textur der Krone, 16 × 16, eigene Pixelkunst, deckend. Die Quelle
@@ -204,7 +301,6 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::world::chunk::Fnv;
 
     /// Die Krone steht in jeder Drehung mittig auf dem Querholz: 8 Pixel des
     /// Modells breit und tief, 6 hoch, um 2/3 verkleinert wie das Banner,

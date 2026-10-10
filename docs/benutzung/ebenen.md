@@ -4,6 +4,7 @@ description: Das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, K
 code:
   - web/src/pick.ts
   - renderer/src/ebenen.rs
+  - renderer/src/cli/banner.rs
   - renderer/tests/fixtures/projektion.json
 ---
 
@@ -326,22 +327,42 @@ layers/<modname>/banner/<ebene>/<satz>/satz.json
   breit; von vorn 20 × 40, schräg fällt seine Unterkante um `20 · H / W`
   Pixel, in `2:1` um 10.
 - **Leinwand und Fuss:** Alle Sprites eines Satzes, mit und ohne Krone,
-  haben dieselbe Leinwand und denselben Fuss.
+  haben dieselbe Leinwand und denselben Fuss, `Leinwand` in
+  [`banner.rs`](../../renderer/src/render/banner.rs): so gross, dass das
+  Banner ohne und mit Krone um denselben Fuss darauf passt.
 - **`satz.json`:** der Fuss im Sprite und der Winkel der Unterkante des
   Tuchs. Die Ansicht setzt das Sprite mit diesem Fuss auf den Ort und dreht
   den Namen darunter um diesen Winkel, so dass er parallel zur Unterkante
   läuft; von vorn ist er 0. Welcher Winkel je Kamera und Richtung gilt,
   steht in [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
   Mit `image` bleibt der Fuss bei `(⌊Breite / 2⌋, Höhe)` und der Name
-  waagrecht. Die Felder nennt die PR, die sie einführt.
+  waagrecht.
+
+  ```json
+  { "foot": [12, 52], "angle": 26.56505117707799 }
+  ```
+
+  - `foot`: in Pixeln des Sprites, ganze Zahlen, y nach unten, ein Punkt
+    auf den Kanten der Pixel, nicht ein Pixel: Die linke obere Ecke des
+    Sprites liegt auf dem Ort weniger `foot`, wie beim Bild. Gültig ist
+    `0 ≤ x ≤ Breite` und `0 ≤ y ≤ Höhe`.
+  - `angle`: in Grad, nach rechts fallend positiv, ungerundet.
+  - Die Leinwand nennt das PNG; `satz.json` hat kein Feld dafür.
+- **Stempel:** je Satz `.stempel`, je Entwurf ein Hash über alles, was
+  seine beiden Sprites bestimmt, `stempel` in
+  [`banner.rs`](../../renderer/src/render/banner.rs). Passt er und liegen
+  beide Sprites da, zeichnet `--banners` den Entwurf nicht neu. Der Server
+  liefert den Stempel nie aus.
 - **Wem `banner/` gehört:** dem Renderer, unter jedem `modname`. Das Plugin
   übergibt ihm alle öffentlichen Ebenen in einem Aufruf; er schreibt, was
   fehlt, und löscht, was zu keiner übergebenen Ebene, keinem Entwurf und
-  keinem Satz mehr gehört.
-- **Neu laden:** Jedes Sprite schreibt der Renderer unter einem Namen mit
-  `.` davor und benennt es dann um. Er meldet, welche Ebenen geänderte
-  Sprites haben; das Plugin hebt deren `version`, siehe „Ändern und
-  Neuladen“.
+  keinem Satz mehr gehört. Den Aufruf und seine Meldung beschreibt
+  [Plugin](../plugin.md), „Banner zeichnen: `--banners`“.
+- **Neu laden:** Jedes Sprite und `satz.json` schreibt der Renderer erst
+  als `<name>.<pid>.tmp` daneben und benennt es dann um, siehe
+  [0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md).
+  Er meldet, welche Ebenen geänderte Sprites haben; das Plugin hebt deren
+  `version`, siehe „Ändern und Neuladen“.
 - **Geheime Ebenen:** Ihre Sprites liegen nicht unter `layers/`; das Plugin
   lässt nur den Satz `oben` zeichnen und schickt ihn über seinen Kanal,
   siehe „An den Mod“.

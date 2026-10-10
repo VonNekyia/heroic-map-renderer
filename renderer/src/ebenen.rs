@@ -64,6 +64,16 @@ pub fn geraet(teil: &str) -> bool {
     }
 }
 
+/// `modname` und Name aus der `id` des JSON einer Ebene, wenn sie der Regel
+/// für eine Kennung folgt; auch dann, wenn sich ihre Entwürfe nicht lesen
+/// lassen.
+pub fn kennung(json: &Value) -> Option<(&str, &str)> {
+    json.get("id")?
+        .as_str()?
+        .split_once(':')
+        .filter(|(m, n)| ist_teil(m) && ist_teil(n))
+}
+
 /// Ein Entwurf eines Banners: Grundfarbe und Lagen wie im Spiel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entwurf {
@@ -98,10 +108,8 @@ impl Ebene {
             .get("id")
             .and_then(Value::as_str)
             .context("ohne `id`")?;
-        let (modname, name) = id
-            .split_once(':')
-            .filter(|(m, n)| ist_teil(m) && ist_teil(n))
-            .with_context(|| format!("`{id}` ist keine Kennung `modname:ebene`"))?;
+        let (modname, name) =
+            kennung(&json).with_context(|| format!("`{id}` ist keine Kennung `modname:ebene`"))?;
         let mut designs = BTreeMap::new();
         if let Some(liste) = json.get("designs") {
             let liste = liste
@@ -256,6 +264,12 @@ mod tests {
         }
         assert!(Ebene::lies(r#"{"id": "staedte"}"#).is_err());
         assert!(Ebene::lies(r#"{"id": "Beispiel:staedte"}"#).is_err());
+        // Die Kennung bleibt lesbar, auch wenn die Entwürfe es nicht sind.
+        let kaputt: Value =
+            serde_json::from_str(r#"{"id": "beispiel:staedte", "designs": []}"#).unwrap();
+        assert_eq!(kennung(&kaputt), Some(("beispiel", "staedte")));
+        let ohne: Value = serde_json::from_str(r#"{"id": "Beispiel:staedte"}"#).unwrap();
+        assert_eq!(kennung(&ohne), None);
     }
 
     /// Die Regel für einen Teil der Kennung.

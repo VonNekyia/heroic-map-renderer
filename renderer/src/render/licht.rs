@@ -84,8 +84,9 @@ impl ChunkLicht {
     /// Ausbreitung und ohne Nachbarn, für die einfarbige Ansicht. Je Spalte
     /// von oben: Himmelslicht 15 bis zum ersten Block, der dämpft; ab dort
     /// eine Stufe weniger je Zelle, in einem dichten Block und darunter
-    /// keines. Blocklicht nur das eigene einer Quelle. Geschlossene Kanten
-    /// zählen nicht. Das Band wie bei [`Ausbreitung::chunk`].
+    /// keines; dazu ein Schritt von der Seite im Chunk ([`seite`]).
+    /// Blocklicht nur das eigene einer Quelle. Geschlossene Kanten zählen
+    /// nicht. Das Band wie bei [`Ausbreitung::chunk`].
     /// Siehe docs/renderer/einfarbig.md, „Licht je Spalte“.
     pub fn spalten(chunk: &[Eingabe], himmel: bool) -> ChunkLicht {
         let (lo, hi) = chunk
@@ -116,6 +117,7 @@ impl ChunkLicht {
                     }
                 }
             }
+            seite(&mut werte, &je);
         }
         for (s, section) in je.iter().enumerate() {
             for &(i, l) in section.map_or(&[][..], |e| e.quellen) {
@@ -126,6 +128,50 @@ impl ChunkLicht {
             unten,
             sections: verdichte(&werte),
             darueber: if himmel { 0xf0 } else { 0 },
+        }
+    }
+}
+
+/// Ein Schritt Himmelslicht von der Seite, für [`ChunkLicht::spalten`]: in
+/// jeder Zelle, die nicht dicht ist, das Höchste aus ihr selbst und ihren
+/// vier Nachbarn im Chunk weniger eine Stufe, gelesen aus einer Kopie. Über
+/// den Rand des Chunks nicht, so hängt das Licht nur am Chunk. `werte` trägt
+/// das Himmelslicht in den oberen vier Bits.
+/// Siehe docs/renderer/einfarbig.md, „Licht je Spalte“.
+fn seite(werte: &mut [u8], je: &[Option<&Eingabe>]) {
+    for (s, section) in je.iter().enumerate() {
+        let feld = &mut werte[s * 4096..(s + 1) * 4096];
+        // Der Schritt geht nur waagrecht: Mit gleichem Licht in jeder Zelle
+        // ändert sich nichts.
+        if feld.iter().all(|&w| w == feld[0]) {
+            continue;
+        }
+        let spalte: Box<[u8; 4096]> = Box::new(feld.try_into().expect("4096 Zellen"));
+        for y in 0..16 {
+            for z in 0..16 {
+                for x in 0..16 {
+                    let col = z << 4 | x;
+                    if section.is_some_and(|e| e.dicht[col] >> y & 1 != 0) {
+                        continue;
+                    }
+                    let i = y << 8 | col;
+                    let nachbar = |nx: usize, nz: usize| spalte[y << 8 | nz << 4 | nx];
+                    let mut hoch = 0;
+                    if x > 0 {
+                        hoch = hoch.max(nachbar(x - 1, z));
+                    }
+                    if x < 15 {
+                        hoch = hoch.max(nachbar(x + 1, z));
+                    }
+                    if z > 0 {
+                        hoch = hoch.max(nachbar(x, z - 1));
+                    }
+                    if z < 15 {
+                        hoch = hoch.max(nachbar(x, z + 1));
+                    }
+                    feld[i] = feld[i].max(hoch.saturating_sub(16));
+                }
+            }
         }
     }
 }
@@ -536,6 +582,45 @@ mod tests {
             let himmel = |y| spalten.at(x, y, z) >> 4;
             assert_eq!([6, 5, 2, 1].map(himmel), [15, 14, 11, 0]);
         }
+    }
+
+    /// Ein Schritt von der Seite: Laub auf y = 5 in den Spalten ab x = 8,
+    /// darunter Luft bis zum Stein, links davon offen. Unter dem Rand des
+    /// Laubs kommt eine Stufe weniger als daneben an, wie bei der
+    /// Ausbreitung; eine Spalte weiter innen nur, was die eigene Spalte
+    /// hergibt, denn es ist nur ein Schritt.
+    #[test]
+    fn spalten_ein_schritt_von_der_seite() {
+        let stein = 0b11;
+        let laub = |col: usize| if col & 15 >= 8 { 1 << 5 } else { 0 };
+        let dicht = Box::new([stein; 256]);
+        let daempft: Box<[u16; 256]> = Box::new(std::array::from_fn(|col| stein | laub(col)));
+        let section = [Eingabe {
+            y: 0,
+            dicht: &dicht,
+            daempft: &daempft,
+            formen: &[],
+            quellen: &[],
+        }];
+        let spalten = ChunkLicht::spalten(&section, true);
+        let ausbreitung = Ausbreitung::default().chunk(&[Some(&section[..]); 9], true);
+        let himmel = |l: &ChunkLicht, x, y| l.at(x, y, 5) >> 4;
+        // Unter dem Rand: 15 von der Seite weniger eins.
+        assert_eq!(
+            [himmel(&spalten, 8, 4), himmel(&ausbreitung, 8, 4)],
+            [14, 14]
+        );
+        assert_eq!(
+            [himmel(&spalten, 8, 2), himmel(&ausbreitung, 8, 2)],
+            [14, 14]
+        );
+        // Eine Spalte weiter: die eigene Spalte, 15 − 1 je Zelle ab dem Laub.
+        assert_eq!(
+            [himmel(&spalten, 9, 2), himmel(&ausbreitung, 9, 2)],
+            [11, 13]
+        );
+        // Draussen bleibt es 15.
+        assert_eq!(himmel(&spalten, 7, 2), 15);
     }
 
     /// Blocklicht bleibt bei der Quelle: Ihre Zelle hat ihre Stufe, die

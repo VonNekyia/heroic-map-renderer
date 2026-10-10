@@ -93,6 +93,11 @@ es je Chunk aus seinen eigenen Spalten (`ChunkLicht::spalten` in
   oberste Block liegt so im Licht 15, der Grund unter offenem Wasser im
   Licht 15 − Tiefe, wie mit Ausbreitung
   (`spalten_wie_ausbreitung_im_offenen_wasser`).
+- **Ein Schritt von der Seite:** In jeder Zelle, die nicht dicht ist, gilt
+  das Höchste aus ihr und ihren vier Nachbarn im Chunk weniger eine Stufe,
+  nur einmal und nicht über den Rand des Chunks (`seite`,
+  `spalten_ein_schritt_von_der_seite`). Unter dem Rand des Laubs kommt so
+  wie bei der Ausbreitung Licht von der Seite an.
 - **Blocklicht:** nur das eigene einer Quelle
   (`spalten_blocklicht_nur_das_eigene`).
 - **Geschlossene Kanten** zählen nicht.

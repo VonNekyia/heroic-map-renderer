@@ -448,7 +448,7 @@ impl Stand {
 /// ein Build eine Kachel, eine Höhe oder den Abdruck eines Chunks anders
 /// schreiben kann, auch wenn kein Goldbild es zeigt.
 /// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
-pub const ZEICHENSTAND: u32 = 3;
+pub const ZEICHENSTAND: u32 = 4;
 
 /// FNV-1a über die Goldbilder dieses Zeichenstands, siehe
 /// `zeichenstand_folgt_den_goldbildern`.

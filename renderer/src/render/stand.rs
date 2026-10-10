@@ -406,7 +406,7 @@ impl Stand {
             1 => Art::Update,
             andere => bail!("unbekannte Art {andere}"),
         };
-        let renderer = wie_heute(u64::from_le_bytes(nimm(8)?.try_into()?));
+        let renderer = als_zeichenstand(u64::from_le_bytes(nimm(8)?.try_into()?));
         let assets = u64::from_le_bytes(nimm(8)?.try_into()?);
         let anzahl = u32::from_le_bytes(nimm(4)?.try_into()?);
         let mut stand = Stand::neu(art, renderer, assets);
@@ -445,8 +445,8 @@ impl Stand {
 }
 
 /// Wie der Renderer zeichnet. Er steigt um eins mit jeder Änderung, nach der
-/// ein Build eine Kachel anders zeichnen kann, auch wenn kein Goldbild es
-/// zeigt. Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
+/// ein Build eine Kachel oder eine Höhe anders schreiben kann, auch wenn kein
+/// Goldbild es zeigt. Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
 pub const ZEICHENSTAND: u32 = 1;
 
 /// FNV-1a über die Goldbilder dieses Zeichenstands, siehe
@@ -454,31 +454,38 @@ pub const ZEICHENSTAND: u32 = 1;
 #[cfg(test)]
 const GOLDBILDER: u64 = 0x35b8_8860_cd6d_2612;
 
+/// Eine eingebaute Tabelle aus `src/assets`: ihr Name und ihr Inhalt aus
+/// derselben Datei.
+macro_rules! tabelle {
+    ($name:literal) => {
+        ($name, include_str!(concat!("../assets/", $name)))
+    };
+}
+
 /// Die eingebauten Tabellen aus dem Spiel; sie zeichnen mit.
 const TABELLEN: [(&str, &str); 12] = [
-    (
-        "blockentities.txt",
-        include_str!("../assets/blockentities.txt"),
-    ),
-    ("blocks.txt", include_str!("../assets/blocks.txt")),
-    ("blueten.txt", include_str!("../assets/blueten.txt")),
-    (
-        "dimensionstypen.txt",
-        include_str!("../assets/dimensionstypen.txt"),
-    ),
-    ("grau.txt", include_str!("../assets/grau.txt")),
-    ("hell.txt", include_str!("../assets/hell.txt")),
-    ("leuchten.txt", include_str!("../assets/leuchten.txt")),
-    ("licht.txt", include_str!("../assets/licht.txt")),
-    ("nachbarn.txt", include_str!("../assets/nachbarn.txt")),
-    ("schatten.txt", include_str!("../assets/schatten.txt")),
-    ("seiten.txt", include_str!("../assets/seiten.txt")),
-    ("sicht262.txt", include_str!("../assets/sicht262.txt")),
+    tabelle!("blockentities.txt"),
+    tabelle!("blocks.txt"),
+    tabelle!("blueten.txt"),
+    tabelle!("dimensionstypen.txt"),
+    tabelle!("grau.txt"),
+    tabelle!("hell.txt"),
+    tabelle!("leuchten.txt"),
+    tabelle!("licht.txt"),
+    tabelle!("nachbarn.txt"),
+    tabelle!("schatten.txt"),
+    tabelle!("seiten.txt"),
+    tabelle!("sicht262.txt"),
 ];
 
-/// Die Fingerabdrücke der ausführbaren Dateien von v0.5.0 für Linux und
-/// Windows, FNV-1a über die Datei. Sie zeichnen wie Zeichenstand 1.
-pub const V0_5_0: [u64; 2] = [0x7640_47ed_91a4_0173, 0x35b7_4919_7aa9_e79f];
+/// Der Fingerabdruck von Zeichenstand 1 mit den Tabellen von v0.5.0,
+/// eingefroren: So zeichnen die Builds in [`ALTE_BUILDS`].
+pub const ZEICHENSTAND_1: u64 = 0xb3b0_d74c_abbd_d7c0;
+
+/// Die Fingerabdrücke der ausführbaren Dateien alter Builds, FNV-1a über
+/// die Datei, aus den Archiven des Release: v0.5.0 für Linux und Windows.
+/// Sie zeichnen wie [`ZEICHENSTAND_1`].
+pub const ALTE_BUILDS: &[u64] = &[0x7640_47ed_91a4_0173, 0x35b7_4919_7aa9_e79f];
 
 /// Der Fingerabdruck des Renderers: FNV-1a über den Zeichenstand und die
 /// eingebauten Tabellen, je Tabelle ihr Name und ihre Zeilen ohne `\r`. Ein
@@ -500,12 +507,11 @@ fn fingerabdruck(zeichenstand: u32, tabellen: &[(&str, &str)]) -> u64 {
     fnv.0
 }
 
-/// Ein gelesener Fingerabdruck des Renderers, wie dieser Build ihn
-/// vergleicht: Ein Build von v0.5.0 zählt bis zum nächsten Zeichenstand als
-/// dieser.
-pub fn wie_heute(renderer: u64) -> u64 {
-    if ZEICHENSTAND == 1 && V0_5_0.contains(&renderer) {
-        fingerabdruck_des_renderers()
+/// Ein gelesener Fingerabdruck des Renderers als der seines Zeichenstands:
+/// Ein alter Build trug den seiner ausführbaren Datei.
+pub fn als_zeichenstand(renderer: u64) -> u64 {
+    if ALTE_BUILDS.contains(&renderer) {
+        ZEICHENSTAND_1
     } else {
         renderer
     }
@@ -1002,16 +1008,19 @@ mod tests {
         );
     }
 
-    /// Ein Stand von v0.5.0 gilt bis zum nächsten Zeichenstand als dieser;
-    /// jeder andere fremde Fingerabdruck bleibt fremd.
+    /// Ein Stand eines alten Builds gilt als Zeichenstand 1 mit den Tabellen
+    /// von v0.5.0, nicht als der heutige; jeder andere Fingerabdruck bleibt,
+    /// wie er ist.
     #[test]
-    fn stand_von_v0_5_0_gilt_als_zeichenstand_1() {
-        let heute = fingerabdruck_des_renderers();
-        for alt in V0_5_0 {
+    fn stand_alter_builds_gilt_als_zeichenstand_1() {
+        for &alt in ALTE_BUILDS {
             let bytes = Stand::neu(Art::Voll, alt, 9).als_bytes();
-            assert_eq!(Stand::aus_bytes(&bytes).unwrap().renderer, heute);
+            assert_eq!(Stand::aus_bytes(&bytes).unwrap().renderer, ZEICHENSTAND_1);
         }
-        let fremd = Stand::neu(Art::Voll, heute ^ 1, 9).als_bytes();
-        assert_eq!(Stand::aus_bytes(&fremd).unwrap().renderer, heute ^ 1);
+        let fremd = Stand::neu(Art::Voll, ZEICHENSTAND_1 ^ 1, 9).als_bytes();
+        assert_eq!(
+            Stand::aus_bytes(&fremd).unwrap().renderer,
+            ZEICHENSTAND_1 ^ 1
+        );
     }
 }

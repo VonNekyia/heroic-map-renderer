@@ -57,11 +57,11 @@ dem Plugin-Programmierer ab.
   [`renderer/src/render/stand.rs`](../renderer/src/render/stand.rs). Aus der
   Art entscheidet das Plugin, ob es mit `--resume` fortsetzt, siehe
   [Updates](benutzung/updates.md), „Der Stand“. Ob er zum Renderer passt,
-  prüft der Renderer: Stammt der Stand eines vollen Laufs von einem, der
-  anders zeichnet, etwa nach einem Update des Plugins, rendert der Lauf mit
-  `--resume` alles wie ohne den Schalter und schreibt am Ende `stand.bin`,
-  siehe
-  [Updates](benutzung/updates.md), „Abbruch und `--resume`“.
+  prüft der Renderer: Stammt der Stand eines vollen Laufs von einem mit
+  anderem Zeichenstand oder anderen Tabellen, etwa nach einem Update des
+  Plugins, rendert der Lauf mit `--resume` alles wie ohne den Schalter und
+  schreibt am Ende `stand.bin`, siehe [Updates](benutzung/updates.md),
+  „Abbruch und `--resume`“.
 - **Threads und Priorität:** Das Plugin gibt dem Renderer mit `--threads`
   so viele Threads wie eingestellt, Vorgabe 1, und lässt ihn mit
   `--low-priority` hinter dem Server laufen, siehe
@@ -83,8 +83,10 @@ dem Plugin-Programmierer ab.
   ganzen Texts, der weiter im Log steht. Ändert sich der Wortlaut, zeigt
   der Status wieder den ganzen Text, und das Plugin zieht nach. Seit
   [0098](entscheidungen/0098-der-zeichenstand-statt-des-builds.md) kommt
-  die Zeile nur nach einem Release, das anders zeichnet; ein Stand von
-  v0.5.0 gilt als Zeichenstand 1.
+  die Zeile nur nach einem Release mit anderem Zeichenstand oder anderen
+  Tabellen. Ein Stand von v0.5.0 gilt als Zeichenstand 1, solange
+  Zeichenstand und Tabellen die von v0.5.0 sind; ob ein Release einen
+  vollen Lauf verlangt, steht in seinen Notizen.
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
   eines Tokens: `--manifest` bei jedem Lauf, `--pyramid` und
   `--compact-tree` eines Baums mit `download: true`, siehe unten,

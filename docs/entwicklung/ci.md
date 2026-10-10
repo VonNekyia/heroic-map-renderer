@@ -57,7 +57,7 @@ Warum so: [0082](../entscheidungen/0082-versionen-und-releases.md).
 | Linux x64 | Container `quay.io/pypa/manylinux_2_28_x86_64` auf Ubuntu | Release-Build, glibc höchstens 2.28, gepackt unter der Grenze je Binär, `--version`, Paket mit `web/` als `.tar.gz` |
 | Windows x64 | Windows | Release-Build, ohne VC++-Laufzeit, gepackt unter der Grenze je Binär, `--version`, Paket mit `web/` als `.zip` |
 | Budget beider Binärs | Ubuntu | die Summe beider gepackten Binärs unter der Grenze für das Jar |
-| Release-Entwurf | Ubuntu | nur auf einem Tag: `SHA256SUMS` und ein Entwurf des Releases mit beiden Paketen; die Notizen verlinken die Installation und nehmen den Hinweis von Mojang und den Herausgeber aus `NOTICE` |
+| Release-Entwurf | Ubuntu | nur auf einem Tag: `SHA256SUMS` und ein Entwurf des Releases mit beiden Paketen; die Notizen verlinken die Installation, sagen mit `.github/voller-lauf.sh`, ob ein voller Lauf kommt, siehe [0082](../entscheidungen/0082-versionen-und-releases.md), und nehmen den Hinweis von Mojang und den Herausgeber aus `NOTICE` |
 
 - **Auslöser:** ein Tag `v*`. Auf einem Tag prüfen beide Builds, dass die
   Version in `renderer/Cargo.toml` dem Tag gleicht.

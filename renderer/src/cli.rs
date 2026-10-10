@@ -2091,7 +2091,7 @@ fn write_tiles(
     }
     // Was schon dieselben Pixel zeigt, kodiert der Lauf nicht, auf keiner
     // Stufe.
-    let hashes = pixel::Pixel::neu(dir, renderer);
+    let hashes = pixel::Pixel::neu(dir, pixel::KODIERSTAND);
     let ablage = Ablage {
         packen,
         hashes: Some(&hashes),
@@ -2440,7 +2440,8 @@ fn fortzusetzen(dir: &Path, art: Art, abdruecke: (u64, u64)) -> Result<Angefange
     };
     if (stand.renderer, stand.assets) != abdruecke {
         println!(
-            "Stand:      {} stammt von einem anderen Build des Renderers oder anderen Assets",
+            "Stand:      {} stammt von einem anderen Build des Renderers, der anders zeichnet, \
+             oder von anderen Assets",
             pfad.display()
         );
         return Ok(Angefangen::Fremd);

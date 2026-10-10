@@ -135,9 +135,16 @@ Anker hinter `#` prüft sie nicht; auf eine Überschrift zeigt ein Link mit
 
 Jeder Fehler steht als Zeile `::error file=…::…` da, die GitHub an die
 Datei heftet. Danach verbiegt die CI in einer Probe je einen Verweis, eine
-Überschrift, einen Link und einen Pfad unter `code:`, nimmt einer Seite den
-`title` und verlangt genau fünf Meldungen; so fällt auf, wenn die Prüfung
-nichts mehr findet. Lokal aus der Wurzel des Repositorys:
+Überschrift, einen Link, die Überschrift hinter einem Link und einen Pfad
+unter `code:`, nimmt einer Seite den `title` und verlangt genau sechs
+Meldungen; so fällt auf, wenn die Prüfung nichts mehr findet.
+
+Unter Git Bash (MSYS) findet Bash eine Zeichenklasse mit „“ wie `[^“]`
+unter `LC_ALL=C.UTF-8` nicht. Die Überschrift hinter einem Link blieb so
+lokal leer und ungeprüft, nur die CI unter Ubuntu meldete sie (#254). Die
+Prüfung nimmt darum `(.*)` und kürzt am ersten `“`. Beim Start prüft sie
+an zwei Links auf einer Zeile selbst, dass sie Überschriften findet, und
+bricht sonst mit einer Meldung ab. Lokal aus der Wurzel des Repositorys:
 
 ```bash
 bash .github/pruefe-doku.sh

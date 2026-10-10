@@ -259,6 +259,16 @@ impl Assets {
         &self.textures
     }
 
+    /// Eine Textur des Renderers ohne Datei in den Packs, siehe
+    /// [`Textures::eigene`].
+    pub fn eigene_textur(
+        &mut self,
+        name: &str,
+        bild: impl FnOnce() -> image::RgbaImage,
+    ) -> TextureId {
+        self.textures.eigene(name, bild)
+    }
+
     /// Eine Kopie einer Blatttextur für eigene Laubfarben, siehe
     /// [`Textures::kopie`].
     pub fn laub_kopie(

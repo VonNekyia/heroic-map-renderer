@@ -1,4 +1,5 @@
-//! Das Banner ohne Welt: Drehung, Massstab, Fuss, Winkel und Goldbilder.
+//! Das Banner ohne Welt: Drehung, Massstab, Fuss, Winkel, Krone und
+//! Goldbilder.
 //! Siehe docs/renderer/blockentities.md, „Banner ohne Welt“.
 
 use std::path::PathBuf;
@@ -26,9 +27,13 @@ fn lage(muster: &str, farbe: &str) -> (Muster, String) {
 }
 
 fn banner(kamera: &str, richtung: &str, lagen: &[(Muster, String)]) -> Bannerbild {
+    mit_krone(kamera, richtung, lagen, false)
+}
+
+fn mit_krone(kamera: &str, richtung: &str, lagen: &[(Muster, String)], krone: bool) -> Bannerbild {
     let kamera = Kamera::parse(kamera).unwrap();
     let richtung = Richtung::parse(richtung, kamera).unwrap();
-    zeichne(&mut assets(), kamera, richtung, "white", lagen).unwrap()
+    zeichne(&mut assets(), kamera, richtung, "white", lagen, krone).unwrap()
 }
 
 /// Das Tuch zeigt im Blick nach Süden: Jede Richtung einer Kamera gibt
@@ -40,13 +45,15 @@ fn banner(kamera: &str, richtung: &str, lagen: &[(Muster, String)]) -> Bannerbil
 fn banner_in_jeder_richtung_gleich() {
     let lagen = [lage("minecraft:stripe_top", "red")];
     let form = |b: &Bannerbild| -> Vec<u8> { b.bild.pixels().map(|p| p.0[3]).collect() };
-    for (kamera, richtungen) in [
-        ("2:1", ["se", "sw", "nw", "ne"]),
-        ("north-45", ["s", "w", "n", "e"]),
+    for (kamera, richtungen, krone) in [
+        ("2:1", ["se", "sw", "nw", "ne"], false),
+        ("north-45", ["s", "w", "n", "e"], false),
+        ("2:1", ["se", "sw", "nw", "ne"], true),
+        ("north-45", ["s", "w", "n", "e"], true),
     ] {
-        let erstes = banner(kamera, richtungen[0], &lagen);
+        let erstes = mit_krone(kamera, richtungen[0], &lagen, krone);
         for richtung in &richtungen[1..] {
-            let anderes = banner(kamera, richtung, &lagen);
+            let anderes = mit_krone(kamera, richtung, &lagen, krone);
             assert_eq!(
                 anderes.bild.dimensions(),
                 erstes.bild.dimensions(),
@@ -61,7 +68,7 @@ fn banner_in_jeder_richtung_gleich() {
 
 /// Ein Pixel des Modells ist ein Pixel des Sprites: Das Tuch ist 20 breit
 /// und fällt schräg um 20 · H / W. Der Winkel der Unterkante je Kamera, die
-/// Grösse unter der Grenze von 32 × 64, der Fuss im Bild.
+/// Grösse unter der Grenze von 32 × 64, auch mit Krone, der Fuss im Bild.
 #[test]
 fn banner_massstab_winkel_und_grenze() {
     for (kamera, richtung, winkel) in [
@@ -70,16 +77,50 @@ fn banner_massstab_winkel_und_grenze() {
         ("1:1", "se", 45.0),
         ("north-45", "s", 0.0),
     ] {
-        let b = banner(kamera, richtung, &[]);
-        let (w, h) = b.bild.dimensions();
-        println!(
-            "{kamera}: {w} × {h}, Fuss {:?}, Winkel {:.2}°",
-            b.fuss, b.winkel
+        for krone in [false, true] {
+            let b = mit_krone(kamera, richtung, &[], krone);
+            let (w, h) = b.bild.dimensions();
+            println!(
+                "{kamera}, Krone {krone}: {w} × {h}, Fuss {:?}, Winkel {:.2}°",
+                b.fuss, b.winkel
+            );
+            assert!((b.winkel - winkel).abs() < 1e-9, "{kamera}: {}", b.winkel);
+            assert!((20..=32).contains(&w), "{kamera}: {w} breit");
+            assert!(h <= 64, "{kamera}, Krone {krone}: {h} hoch");
+            assert!((0..w as i32).contains(&b.fuss.0) && (0..=h as i32).contains(&b.fuss.1));
+        }
+    }
+}
+
+/// Die Krone kommt nur oben dazu: Unter dem Querholz bleibt das Banner Pixel
+/// für Pixel gleich, um den Fuss ausgerichtet, und der Winkel bleibt.
+#[test]
+fn krone_aendert_nur_oben() {
+    let lagen = [lage("minecraft:stripe_top", "red")];
+    for (kamera, richtung) in [("2:1", "se"), ("1:1", "se"), ("north-45", "s")] {
+        let ohne = banner(kamera, richtung, &lagen);
+        let mit = mit_krone(kamera, richtung, &lagen, true);
+        assert_eq!(mit.winkel, ohne.winkel);
+        // In 1:1 ragt das Querholz an seinem Ende höher als die Krone; die
+        // Leinwand wächst dort nicht.
+        let (dx, dy) = (mit.fuss.0 - ohne.fuss.0, mit.fuss.1 - ohne.fuss.1);
+        assert!(
+            dx == 0 && dy >= 0,
+            "{kamera}: Fuss um ({dx}, {dy}) verschoben"
         );
-        assert!((b.winkel - winkel).abs() < 1e-9, "{kamera}: {}", b.winkel);
-        assert!((20..=32).contains(&w), "{kamera}: {w} breit");
-        assert!(h <= 64, "{kamera}: {h} hoch");
-        assert!((0..w as i32).contains(&b.fuss.0) && (0..=h as i32).contains(&b.fuss.1));
+        assert!(mit.bild != ohne.bild, "{kamera}: keine Krone zu sehen");
+        let (w, h) = ohne.bild.dimensions();
+        // Die untere Hälfte, unter dem Querholz.
+        for y in h / 2..h {
+            for x in 0..w {
+                let (mx, my) = (x as i32 + dx, y as i32 + dy);
+                assert_eq!(
+                    mit.bild.get_pixel(mx as u32, my as u32),
+                    ohne.bild.get_pixel(x, y),
+                    "{kamera}: ({x}, {y})"
+                );
+            }
+        }
     }
 }
 
@@ -126,6 +167,7 @@ fn banner_zeigt_die_vorderseite() {
             r,
             "white",
             &[lage("minecraft:half_vertical", "red")],
+            false,
         )
         .unwrap();
         let (w, h) = b.bild.dimensions();
@@ -148,7 +190,8 @@ fn banner_zeigt_die_vorderseite() {
 }
 
 /// Goldbilder der Banner, getrennt von denen der Bäume, unter
-/// `BANNERSTAND`: 2:1 und `north-45` mit einer Lage, 2:1 mit 16 Lagen.
+/// `BANNERSTAND`: 2:1 und `north-45` mit einer Lage, ohne und mit Krone,
+/// 2:1 mit 16 Lagen.
 /// Neu erzeugen mit `UPDATE_GOLDEN=1 cargo test --test banner`.
 #[test]
 fn banner_goldbild_bleibt_gleich() {
@@ -156,22 +199,16 @@ fn banner_goldbild_bleibt_gleich() {
         .map(|i| lage("minecraft:stripe_top", ["red", "blue"][i % 2]))
         .collect();
     let mut fehler = Vec::new();
-    for (name, kamera, richtung, lagen) in [
-        (
-            "banner-2x1",
-            "2:1",
-            "se",
-            vec![lage("minecraft:stripe_top", "red")],
-        ),
-        (
-            "banner-north-45",
-            "north-45",
-            "s",
-            vec![lage("minecraft:stripe_top", "red")],
-        ),
-        ("banner-16-lagen", "2:1", "se", sechzehn),
+    let eine = || vec![lage("minecraft:stripe_top", "red")];
+    for (name, kamera, richtung, lagen, krone) in [
+        ("banner-2x1", "2:1", "se", eine(), false),
+        ("banner-north-45", "north-45", "s", eine(), false),
+        ("banner-16-lagen", "2:1", "se", sechzehn, false),
+        ("banner-2x1-krone", "2:1", "se", eine(), true),
+        ("banner-north-45-krone", "north-45", "s", eine(), true),
     ] {
-        fehler.extend(goldbild(name, &banner(kamera, richtung, &lagen).bild));
+        let bild = mit_krone(kamera, richtung, &lagen, krone).bild;
+        fehler.extend(goldbild(name, &bild));
     }
     assert!(fehler.is_empty(), "{}", fehler.join("\n"));
 }

@@ -235,6 +235,26 @@ pub fn beschreibung(state: &BlockState) -> Option<(usize, Vec<&'static str>)> {
     Some((flaechen, texturen))
 }
 
+/// Die erste Zeichnung im Bild eines Zustands: ihre Lage, die Oberkante
+/// ihrer Form im Raum des Modells, dessen y nach unten zeigt, und Schicht
+/// und Farbe. Beim stehenden Banner sind das Stange und Querholz, die
+/// Oberkante die des Querholzes; darauf steht die Krone, siehe
+/// `render::banner`.
+pub fn erste_form(state: &BlockState) -> Option<([[f32; 4]; 3], f32, Entity)> {
+    let t = &*TABELLE;
+    let z = t.bilder[bild(state)?].first()?;
+    let oben = t.formen[z.form]
+        .iter()
+        .flatten()
+        .map(|ecke| ecke[1])
+        .fold(f32::INFINITY, f32::min);
+    let entity = Entity {
+        schicht: t.schichten[z.schicht],
+        farbe: z.farbe,
+    };
+    Some((t.lagen[z.lage], oben, entity))
+}
+
 /// Hängt die Flächen an, die das Spiel für den Zustand aus einem Modell
 /// zeichnet, jede in ihrer Lage, mit den Daten seines Blockentity: die
 /// Muster eines Banners wie `BannerRenderer.submitPatterns`, die Scherben

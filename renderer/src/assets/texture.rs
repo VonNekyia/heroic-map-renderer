@@ -165,6 +165,18 @@ impl Textures {
         Some((kopie, self.ids.get(&blueten_name).copied()))
     }
 
+    /// Nimmt ein Bild des Renderers als Textur auf, etwa die Krone der
+    /// Banner, je Name einmal. Ein Name mit `#` stösst mit keiner Textur
+    /// eines Packs zusammen.
+    pub fn eigene(&mut self, name: &str, bild: impl FnOnce() -> RgbaImage) -> TextureId {
+        if let Some(&id) = self.ids.get(name) {
+            return id;
+        }
+        let id = self.ohne_datei(name, bild());
+        self.ids.insert(name.to_string(), id);
+        id
+    }
+
     /// Nimmt ein Bild ohne Datei auf, statisch und ohne `dark_cutout`.
     fn ohne_datei(&mut self, name: &str, bild: RgbaImage) -> TextureId {
         let groesse = (bild.width(), bild.height());

@@ -374,7 +374,7 @@ fn projektion_als_datei_ist_aktuell() {
     // Je Kamera scale 32 und ein kleinerer, bei dem sie auf ganzen Pixeln
     // liegt, 1:1 und top auch bei 6 mit ungeraden h und a; 5:3 nur bei 30,
     // wo Blockkanten Pixelmitten treffen. Genordet geht jeder scale, auch
-    // ein ungerader.
+    // ein ungerader; top-north auch 1, die einfarbige Ansicht.
     let kameras = [
         ("2:1", &[4, 12, 16, 24, 32, 48, 64][..]),
         ("8:5", &[16, 32]),
@@ -382,7 +382,7 @@ fn projektion_als_datei_ist_aktuell() {
         ("1:1", &[4, 6, 32]),
         ("top", &[4, 6, 32]),
         ("5:3", &[30]),
-        ("top-north", &[6, 12, 16, 24, 32, 48]),
+        ("top-north", &[1, 6, 12, 16, 24, 32, 48]),
         ("north-45", &[6, 7, 12, 16, 24, 32, 48]),
     ];
     // Aus den anderen Richtungen je Art ein scale: `block` liegt in der

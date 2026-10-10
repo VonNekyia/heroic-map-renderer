@@ -914,7 +914,16 @@ impl SpriteSet {
             total: alternatives.iter().map(|(weight, _)| *weight).sum(),
             seed_offset: seed_offset(state),
             opaque: all(|e| e.opaque),
-            covers_floor: all(|e| e.covers_floor),
+            // Den Boden deckt eine Familie nur, wenn es jede ihrer Fassungen
+            // tut: Gezeichnet wird die ohne die Flächen zu Nachbarn, über
+            // einem vollen Block etwa die Mangrovenwurzeln ohne ihre untere
+            // Schicht.
+            // Siehe docs/renderer/sprites-und-deckung.md, „Verdeckte Würfel“.
+            covers_floor: all(|e| e.covers_floor)
+                && fassungen
+                    .iter()
+                    .flatten()
+                    .all(|id| id.is_some_and(|id| self.sprites[id.0 as usize].covers_floor)),
             contained,
             foreign,
             wuerfelform: models

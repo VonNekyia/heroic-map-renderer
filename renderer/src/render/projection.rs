@@ -274,6 +274,14 @@ impl Richtung {
     }
 }
 
+/// Der kleinste scale einer Kamera, siehe [`Projection::mit_kamera`].
+fn kleinster_scale(kamera: Kamera) -> u32 {
+    match kamera {
+        Kamera::ObenNord => 1,
+        _ => 2,
+    }
+}
+
 fn ggt(a: u64, b: u64) -> u64 {
     if b == 0 { a } else { ggt(b, a % b) }
 }
@@ -291,13 +299,21 @@ impl Projection {
         Projection::mit_kamera(scale, Kamera::ZWEI_ZU_EINS)
     }
 
-    /// Die Kamera in ihrer Vorgabe-Richtung.
+    /// Die Kamera in ihrer Vorgabe-Richtung, bei mindestens scale 2; nur
+    /// `top-north` geht bis scale 1, die einfarbige Ansicht.
+    /// Siehe docs/renderer/einfarbig.md.
     pub fn mit_kamera(scale: u32, kamera: Kamera) -> Projection {
         Projection {
-            scale: scale.max(2),
+            scale: scale.max(kleinster_scale(kamera)),
             kamera,
             richtung: Richtung::default(),
         }
+    }
+
+    /// Die einfarbige Ansicht von `--flat`: `top-north` bei scale 1, ein
+    /// Pixel je Block.
+    pub fn flach(&self) -> bool {
+        self.kamera == Kamera::ObenNord && self.scale == 1
     }
 
     /// Dieselbe Projektion aus einer anderen Richtung.
@@ -321,7 +337,7 @@ impl Projection {
     /// für eine native Stufe.
     pub fn bei(&self, scale: u32) -> Projection {
         Projection {
-            scale: scale.max(2),
+            scale: scale.max(kleinster_scale(self.kamera)),
             ..*self
         }
     }
@@ -763,9 +779,25 @@ mod tests {
         assert_eq!(Kamera::parse("4294967295:4294967295"), Kamera::parse("1:1"));
     }
 
+    /// Jede Kamera ausser `top-north` bleibt bei mindestens scale 2, auch
+    /// über [`Projection::bei`]; nur `top-north` geht bis 1.
     #[test]
     fn scale_hat_eine_untergrenze() {
         assert_eq!(Projection::new(0).scale(), 2);
+        for kamera in ["2:1", "4:3", "1:1", "top", "north-45"] {
+            let kamera = Kamera::parse(kamera).unwrap();
+            for scale in [0, 1] {
+                let p = Projection::mit_kamera(scale, kamera);
+                assert_eq!(p.scale(), 2, "{kamera} bei {scale}");
+                assert_eq!(Projection::mit_kamera(8, kamera).bei(scale).scale(), 2);
+                assert!(!p.flach(), "{kamera}");
+            }
+        }
+        let nord = Projection::mit_kamera(1, Kamera::ObenNord);
+        assert_eq!(nord.scale(), 1);
+        assert!(nord.flach());
+        assert_eq!(Projection::mit_kamera(0, Kamera::ObenNord).scale(), 1);
+        assert!(!Projection::mit_kamera(2, Kamera::ObenNord).flach());
     }
 
     /// Jenseits von 2^24 unterscheidet f32 benachbarte Blöcke nicht mehr.

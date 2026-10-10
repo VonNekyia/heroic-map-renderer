@@ -96,9 +96,10 @@ pub struct Args {
     #[arg(long, value_name = "DATEI")]
     sprite: Option<PathBuf>,
 
-    /// Pixelbreite eines Blocks; jede Blockecke muss bei der Kamera auf
+    /// Pixelbreite eines Blocks, ab 4; jede Blockecke muss bei der Kamera auf
     /// ganzen Pixeln liegen, bei 2:1 heisst das ein Vielfaches von 4.
-    /// Vorgabe 32, bei top-north und north-45 16
+    /// Vorgabe 32, bei top-north und north-45 16; einen Pixel je Block gibt
+    /// es nur mit --flat
     #[arg(long, value_parser = parse_scale)]
     scale: Option<u32>,
 
@@ -132,6 +133,15 @@ pub struct Args {
     /// Zeichnet auf der CPU, auch mit --gpu
     #[arg(long, requires = "bild")]
     cinematic: bool,
+
+    /// Mit --render oder --tiles die einfarbige Ansicht: top-north bei
+    /// scale 1, je Block eine Farbe statt seiner Textur, mit Relief nach dem
+    /// Nachbarn im Norden. Ein eigener Baum `top-north-s-flat`; zeichnet auf
+    /// der CPU, auch mit --gpu
+    #[arg(long, requires = "bild", conflicts_with_all = [
+        "scale", "camera", "direction", "cinematic", "native_levels",
+    ])]
+    flat: bool,
 
     /// Blockkoordinate, die in der Bildmitte landet: --center X Z
     #[arg(long, num_args = 2, allow_negative_numbers = true, value_names = ["X", "Z"], default_values_t = [0, 0])]
@@ -260,7 +270,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "compact_tree",
+        "cache_dir", "compact", "compact_tree", "flat",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -275,7 +285,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "pyramid",
+        "cache_dir", "compact", "pyramid", "flat",
     ])]
     compact_tree: Option<PathBuf>,
 
@@ -293,7 +303,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact",
-        "compact_tree",
+        "compact_tree", "flat",
     ])]
     serve: Option<PathBuf>,
 
@@ -584,12 +594,18 @@ pub fn run() -> Result<()> {
             .context("Threads anlegen")?;
     }
     // Vor allem anderen: Ohne ganze Pixel geht keine Kachel.
-    let scale = args.scale.unwrap_or(args.camera.vorgabe_scale());
+    let (kamera, scale) = match args.flat {
+        true => (Kamera::ObenNord, 1),
+        false => (
+            args.camera,
+            args.scale.unwrap_or(args.camera.vorgabe_scale()),
+        ),
+    };
     let richtung = match &args.direction {
         None => Richtung::default(),
-        Some(text) => Richtung::parse(text, args.camera).map_err(|e| anyhow::anyhow!(e))?,
+        Some(text) => Richtung::parse(text, kamera).map_err(|e| anyhow::anyhow!(e))?,
     };
-    let projection = projektion(scale, args.camera)?.aus(richtung);
+    let projection = projektion(scale, kamera)?.aus(richtung);
 
     if args.world.is_none() && (args.at.is_some() || args.scan) {
         bail!("--at und --scan brauchen --world");
@@ -854,45 +870,49 @@ pub fn run() -> Result<()> {
             let bounds = args.size.map(|size| window(projection, center, size));
             schaetzung::schaetze(world, projection, &args, bounds, dir)?;
         } else if let Some(dir) = &args.tiles {
-            let export =
-                oeffne_gpu(args.gpu, args.cinematic, args.threads.is_none()).and_then(|karte| {
-                    let bereich = match args.size {
-                        _ if args.update => Bereich::Update,
-                        Some(size) => Bereich::Ausschnitt(window(projection, center, size)),
-                        None => Bereich::Welt,
-                    };
-                    let wurzeln: Vec<PathBuf> = asset_wurzeln
-                        .iter()
-                        .chain(&daten_wurzeln)
-                        .cloned()
-                        .collect();
-                    let export = write_tiles(
-                        world,
-                        assets.as_mut().expect("oben geprüft"),
-                        projection,
-                        bereich,
-                        &wurzeln,
-                        dir,
-                        args.native_levels,
-                        args.prune,
-                        args.resume,
-                        karte.as_ref(),
-                        args.biome_blend,
-                        args.compact,
-                        args.cinematic.then_some(LOOK),
-                        args.manifest,
-                    );
-                    // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
-                    // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
-                    // endete nie. Sie aufzuräumen bleibt dem System.
-                    if karte
-                        .as_ref()
-                        .is_some_and(|karte| karte.aus.load(Ordering::Relaxed))
-                    {
-                        std::mem::forget(karte);
-                    }
-                    export
-                });
+            let nur_cpu = match (args.cinematic, args.flat) {
+                (true, _) => Some("Cinematic"),
+                (false, true) => Some("die einfarbige Ansicht"),
+                (false, false) => None,
+            };
+            let export = oeffne_gpu(args.gpu, nur_cpu, args.threads.is_none()).and_then(|karte| {
+                let bereich = match args.size {
+                    _ if args.update => Bereich::Update,
+                    Some(size) => Bereich::Ausschnitt(window(projection, center, size)),
+                    None => Bereich::Welt,
+                };
+                let wurzeln: Vec<PathBuf> = asset_wurzeln
+                    .iter()
+                    .chain(&daten_wurzeln)
+                    .cloned()
+                    .collect();
+                let export = write_tiles(
+                    world,
+                    assets.as_mut().expect("oben geprüft"),
+                    projection,
+                    bereich,
+                    &wurzeln,
+                    dir,
+                    args.native_levels,
+                    args.prune,
+                    args.resume,
+                    karte.as_ref(),
+                    args.biome_blend,
+                    args.compact,
+                    args.cinematic.then_some(LOOK),
+                    args.manifest,
+                );
+                // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
+                // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
+                // endete nie. Sie aufzuräumen bleibt dem System.
+                if karte
+                    .as_ref()
+                    .is_some_and(|karte| karte.aus.load(Ordering::Relaxed))
+                {
+                    std::mem::forget(karte);
+                }
+                export
+            });
             // Auch nach einem Fehler: Der Befehl vom Anfang steht nach
             // Stunden weit oben.
             if ausnahme {
@@ -1125,13 +1145,14 @@ fn senke_prioritaet() -> Result<&'static str> {
 }
 
 /// Die Grafikkarte nach `--gpu`; einen Software-Adapter nur mit `on` und
-/// `software`, also ohne `--threads`.
-fn oeffne_gpu(mode: GpuMode, cinematic: bool, software: bool) -> Result<Option<Karte>> {
+/// `software`, also ohne `--threads`. Keine, wenn `nur_cpu` sagt, was nur
+/// die CPU zeichnet.
+fn oeffne_gpu(mode: GpuMode, nur_cpu: Option<&str>, software: bool) -> Result<Option<Karte>> {
+    if let Some(was) = nur_cpu {
+        println!("GPU:        aus, {was} zeichnet die CPU");
+        return Ok(None);
+    }
     let gpu = match mode {
-        _ if cinematic => {
-            println!("GPU:        aus, Cinematic zeichnet die CPU");
-            return Ok(None);
-        }
         GpuMode::Off => {
             println!("GPU:        aus (--gpu off)");
             return Ok(None);
@@ -2510,28 +2531,36 @@ const NUR_DOWNLOAD: &str = "nur-download";
 
 /// Der Ordner eines Baums unter der Wurzel: `<kamera>-<richtung>`, die
 /// Kamera mit `x` statt `:`, den Windows im Pfad nicht erlaubt, mit
-/// `--cinematic` dahinter `-cinematic`.
+/// `--cinematic` dahinter `-cinematic`, mit `--flat` `-flat`.
 fn baum_name(projection: Projection, cinematic: bool) -> String {
     let kamera = projection.kamera();
     let richtung = projection.richtung().name(kamera);
-    let look = if cinematic { "-cinematic" } else { "" };
+    let look = match look_name(projection, cinematic) {
+        "map" => String::new(),
+        look => format!("-{look}"),
+    };
     format!("{}-{richtung}{look}", kamera.to_string().replace(':', "x"))
 }
 
 /// Was ein Baum in `look` seiner `map.json` trägt, siehe [`MapInfo::look`].
-fn look_name(cinematic: bool) -> &'static str {
-    if cinematic { "cinematic" } else { "map" }
+fn look_name(projection: Projection, cinematic: bool) -> &'static str {
+    match (cinematic, projection.flach()) {
+        (true, _) => "cinematic",
+        (false, true) => "flat",
+        (false, false) => "map",
+    }
 }
 
 /// Zeichnet der bestehende Baum mit Cinematic? Ohne `look` stammt er aus
-/// einem älteren Stand und zeigt die Karte.
+/// einem älteren Stand und zeigt die Karte. Die einfarbige Ansicht folgt
+/// aus scale und Kamera.
 /// Siehe docs/benutzung/map-json.md, „Look“.
 fn cinematic_des_baums(dir: &Path, info: &MapInfo) -> Result<bool> {
     match info.look.as_deref() {
-        None | Some("map") => Ok(false),
+        None | Some("map" | "flat") => Ok(false),
         Some("cinematic") => Ok(true),
         Some(look) => bail!(
-            "{}: look {look} gibt es nicht, nur map und cinematic",
+            "{}: look {look} gibt es nicht, nur map, cinematic und flat",
             dir.join("map.json").display()
         ),
     }
@@ -2650,7 +2679,7 @@ fn schreibe_baeume(wurzel: &Path) -> Result<()> {
             "path": name,
             "camera": kamera.to_string(),
             "direction": projection.richtung().name(kamera),
-            "look": info.look.as_deref().unwrap_or(look_name(false)),
+            "look": info.look.as_deref().unwrap_or(look_name(projection, false)),
         }));
     }
     let pfad = |baum: &serde_json::Value| baum["path"].as_str().unwrap_or_default().to_string();
@@ -3116,7 +3145,7 @@ fn schreibe_map_json(
         area_fixed: welt.fest.then_some(true),
         ambient_occlusion: Some(welt.ecke.to_string()),
         world: Some(kennung.map(str::to_string)),
-        look: Some(look_name(look.is_some()).to_string()),
+        look: Some(look_name(projection, look.is_some()).to_string()),
         look_hash: look.map(Look::fingerabdruck),
         ..mit_kamera(
             mit_hoehen(
@@ -3896,11 +3925,17 @@ fn pruefe_bestand(
     // Siehe docs/benutzung/zoomstufen.md, „Ein Baum, eine Kamera“.
     let dort = projektion_des_baums(dir, alt)?;
     let cinematic = cinematic_des_baums(dir, alt)?;
+    // Womit ein Lauf in den Baum geht: mit seinem scale, oder mit --flat.
+    let schalter = match (dort.flach(), projection.flach()) {
+        (true, _) => "--flat".to_string(),
+        (false, true) => format!("--scale {} ohne --flat", alt.scale),
+        (false, false) => format!("--scale {}", alt.scale),
+    };
     let umbenennen = || {
         let ziel = dir.with_file_name(baum_name(dort, cinematic));
         // Weicht auch der scale ab, gehört er in den Befehl.
         let auch_scale = if alt.scale != scale {
-            format!(", dann mit --scale {} weiterrendern,", alt.scale)
+            format!(", dann mit {schalter} weiterrendern,")
         } else {
             String::new()
         };
@@ -3931,10 +3966,7 @@ fn pruefe_bestand(
         // Ältere Stände nahmen auch scale, die nicht auf ganzen Pixeln
         // liegen. Der scale steht nicht im Namen des Ordners.
         let weiter = if dort.ganze_pixel() {
-            format!(
-                "Mit --scale {} weiterrendern oder eine neue Wurzel nehmen.",
-                alt.scale
-            )
+            format!("Mit {schalter} weiterrendern oder eine neue Wurzel nehmen.")
         } else {
             "Dieser scale geht nicht mehr, eine neue Wurzel nehmen.".to_string()
         };

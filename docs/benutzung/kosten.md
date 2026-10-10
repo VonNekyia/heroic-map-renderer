@@ -207,7 +207,12 @@ Spanne. Unter `--tiles` schreibt es nichts. Der Code steht in
    „Den Bestand zählen“.
 
 Wie der Lauf nimmt die Schätzung native Stufen, Mischung und Rechteck aus
-einem bestehenden Baum und bricht ab, wo der Aufruf davon abweicht. Mit
+einem bestehenden Baum und bricht ab, wo der Aufruf davon abweicht. Für
+`--estimate --flat` ist sie nicht geeicht: Die Kacheln je Fläche
+(`KACHELN_JE_FLAECHE_UNTER_8` in
+[`renderer/src/cli/schaetzung.rs`](../../renderer/src/cli/schaetzung.rs))
+sind bei scale 4 bis 8 gemessen, und die Ausschnitte des Probelaufs, 4 bis
+32 Kacheln je Kante, decken bei scale 1 eine kleine Welt fast ganz. Mit
 `--size` zählt sie höchstens die Kacheln des Fensters, gerundet wie im Lauf;
 das ist die genaue obere Grenze.
 

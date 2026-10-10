@@ -315,6 +315,13 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
     Tabellen von v0.5.0, `ZEICHENSTAND_1`: Ein Update nimmt ihn an, solange
     der Renderer noch so zeichnet, und schreibt dann den neuen
     (`update_nimmt_den_stand_alter_builds`). Ebenso ein angefangener Stand.
+  - **Die Zeichenstände** bisher:
+
+    | Zeichenstand | ab | was anders zeichnet |
+    |---|---|---|
+    | 1 | 0098, wie v0.4.0 und v0.5.0 | – |
+    | 2 | #243 | der Grund unter Mangrovenwurzeln, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Verdeckte Würfel“ |
+
 - **Assets und Daten:** je Wurzel von `--assets` und `--data` ihre Nummer,
   dann je Datei darunter der Pfad, die Grösse und die Zeit der letzten
   Änderung. Den Inhalt liest er nicht; eine kopierte Datei hat eine neue

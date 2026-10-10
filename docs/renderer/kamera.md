@@ -160,7 +160,9 @@ Standard, siehe [0013](../entscheidungen/0013-scale-32-als-standard.md). Der
 Preis: viermal so viele Kacheln, für die Testwelt rund 300 000 statt 74 000
 bei scale 16. Wer die Hälfte der Texturzeilen verschmerzen kann, gibt
 `--scale 16` an. Das gilt diagonal; genordet ist 16 die Vorgabe, siehe
-„Genordet“.
+„Genordet“. `--scale` nimmt erst ab 4; scale 1 gibt es nur in der
+einfarbigen Ansicht `--flat`, siehe
+[Die einfarbige Ansicht](einfarbig.md).
 
 ## Ganze Pixel
 

@@ -15,6 +15,10 @@ code:
 
 # 0051: Kameras und Richtungen
 
+Im kleinsten scale teilweise abgelöst durch
+[0099](0099-einfarbige-ansicht.md): `top-north` geht mit `--flat` bis
+scale 1.
+
 Stufe 2, die genordeten Kameras `top-north` und `north-45`, hält
 [0052](0052-genordete-kameras.md) fest. Die Ablage je Kamera und Richtung
 unter einer Wurzel mit der Liste der Bäume hält

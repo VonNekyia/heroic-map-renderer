@@ -408,14 +408,18 @@ Webkarte wäre eine Lücke für Skripte.
 |---|---|---|
 | `title` | `text`, höchstens 64 Zeichen; `color`, Vorgabe die Schrift der Tafel | 20 px, fett |
 | `lines` | `lines`, je Zeile höchstens 120 Zeichen | 13 px, Zeilenhöhe 1,4 |
-| `image` | `image`, `width` und `height` in Pixeln der Tafel, `align` `left`, `center` oder `right`, Vorgabe `left` | in dieser Grösse; vergrössert ohne Glättung, jedes Pixel der Datei eine ganze Zahl Pixel des Geräts, gerundet aus dem Faktor wie bei Nadeln und Bannern; breiter als der Inhalt der Tafel, 320 Pixel, verkleinert mit gleichem Seitenverhältnis und geglättet |
+| `image` | `image`, `width` und `height` in Pixeln der Tafel, `align` `left`, `center` oder `right`, Vorgabe `left` | in dieser Grösse; vergrössert ohne Glättung, jedes Pixel der Datei eine ganze Zahl Pixel des Geräts, gerundet aus dem Faktor wie bei Nadeln und Bannern; breiter als der Inhalt der Tafel, siehe „Breite“, verkleinert mit gleichem Seitenverhältnis und geglättet |
 | `section` | `heading`: Bild mit `image`, `width`, `height` und `alt`, oder Text mit `text`; `blocks` darin | Überschrift über ihrem Inhalt, 8 px Abstand davor |
 | `rating` | `rows`: je Reihe `label`, `value` und `max` als ganze Zahlen, `color` | `max` Punkte von 10 px, `value` davon in `color`, die übrigen in `color` mit 25 % Deckkraft; das Label links, 100 px breit |
 | `columns` | `columns`: zwei Listen von Bausteinen | nebeneinander, oben bündig, die zweite so breit wie ihr Inhalt |
 
-- **Breite:** Der Inhalt ist höchstens 320 Pixel breit, um ihn 8 Pixel
-  Innenabstand, 4 Pixel zwischen Bausteinen. Farben von Grund und Schrift kommen aus der Ansicht: auf der
-  Webkarte aus der UI, siehe [Frontend](../frontend.md), im Mod aus seiner.
+- **Breite:** Auf der Webkarte ist der Inhalt höchstens 320 Pixel breit,
+  um ihn 8 Pixel Innenabstand, 4 Pixel zwischen Bausteinen. Im Mod ist er
+  höchstens 200 Einheiten seiner Oberfläche breit, mit Rand 6, denn 320
+  wären bei GUI-Massstab 2 fast der ganze Schirm; das legt der Mod in
+  seiner eigenen Entscheidung fest (Repository des Mods, #52).
+- **Farben** von Grund und Schrift kommen aus der Ansicht: auf der Webkarte
+  aus der UI, siehe [Frontend](../frontend.md), im Mod aus seiner.
 - **Schrift:** eine schlichte, gut lesbare Schrift der Oberfläche, nie die
   Kartenschrift: auf der Webkarte die der UI, im Mod die des Spiels. Die
   Grössen in der Tabelle gelten für die Webkarte; der Mod nimmt die Grösse
@@ -622,6 +626,8 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 - **Pfad:** dicht abgetastet und projiziert wie ein Rand. Die Höhen entlang
   des Pfads werden über 32 Blöcke gemittelt, damit die Schrift nicht mit
   jeder Kuppe springt.
+- **Richtung:** Läuft der gezeichnete Pfad im Bild nach links, kehrt die
+  Ansicht ihn um, so steht die Schrift nie auf dem Kopf.
 - **Zeichen:** jedes aufrecht zur gezeichneten Linie, mittig auf ihr, mit
   der Sperrung aus `spacing`. Ist der Pfad kürzer als der Text, läuft die
   Schrift an beiden Enden in Richtung des letzten Stücks weiter.

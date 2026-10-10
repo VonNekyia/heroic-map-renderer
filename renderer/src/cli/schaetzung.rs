@@ -459,7 +459,10 @@ fn probe_schalter(
         paar("--cache-dir", cache.into());
     }
     paar("--tiles", wurzel.into());
-    paar("--camera", args.camera.to_string().into());
+    // --flat setzt Kamera und scale selbst und hat keine native Stufe.
+    if !args.flat {
+        paar("--camera", args.camera.to_string().into());
+    }
     if let Some(richtung) = &args.direction {
         paar("--direction", richtung.into());
     }
@@ -467,7 +470,9 @@ fn probe_schalter(
         paar("--scale", scale.to_string().into());
     }
     paar("--biome-blend", einstellung.blend.to_string().into());
-    paar("--native-levels", einstellung.stufen.to_string().into());
+    if !args.flat {
+        paar("--native-levels", einstellung.stufen.to_string().into());
+    }
     let gpu = args
         .gpu
         .to_possible_value()
@@ -479,6 +484,9 @@ fn probe_schalter(
     paar("--progress", "json".into());
     if args.cinematic {
         s.push("--cinematic".into());
+    }
+    if args.flat {
+        s.push("--flat".into());
     }
     if args.low_priority {
         s.push("--low-priority".into());

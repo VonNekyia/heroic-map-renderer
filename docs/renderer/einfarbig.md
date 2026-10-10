@@ -93,18 +93,26 @@ es je Chunk aus seinen eigenen Spalten (`ChunkLicht::spalten` in
   oberste Block liegt so im Licht 15, der Grund unter offenem Wasser im
   Licht 15 − Tiefe, wie mit Ausbreitung
   (`spalten_wie_ausbreitung_im_offenen_wasser`).
+- **Ein Schritt von der Seite:** In jeder Zelle, die nicht dicht ist, gilt
+  das Höchste aus ihr und ihren vier Nachbarn im Chunk weniger eine Stufe,
+  nur einmal und nicht über den Rand des Chunks (`seite`,
+  `spalten_ein_schritt_von_der_seite`). Unter dem Rand des Laubs kommt so
+  wie bei der Ausbreitung Licht von der Seite an.
 - **Blocklicht:** nur das eigene einer Quelle
   (`spalten_blocklicht_nur_das_eigene`).
 - **Geschlossene Kanten** zählen nicht.
 - **Ohne Nachbarn:** Für sein Licht braucht ein Chunk keinen Nachbarn; der
   Rand von 14 Blöcken der Ausbreitung fällt weg. Das Relief nimmt weiter
   die Zeile im Norden.
-- **Was anders aussieht:** Das Licht von der Seite fehlt. Am meisten
-  sieht man das an den Rändern der Baumkronen: Die weiche Beleuchtung einer
-  Oberseite liest auch die Zellen unter dem Laub daneben, und die werden
-  dunkler. Leuchtendes unter Wasser hellt den Grund daneben nicht mehr auf.
-  Über die ganze Testwelt ändern sich so 10,5 % der Pixel, die Hälfte um
-  höchstens 4 von 255, 90 % um höchstens 16, fast alle dunkler, siehe
+- **Was anders aussieht:** Licht von der Seite kommt nur einen Schritt
+  weit und nicht über den Rand des Chunks, und Leuchtendes unter Wasser
+  hellt den Grund daneben nicht auf. Gegen die Ausbreitung weichen über die
+  ganze Testwelt 2,46 % der Pixel ab, am Rand der Chunks 3,37 %, innen
+  2,18 %; als Linie sieht man den Rand nicht, siehe
+  [2026-10-10, Licht von der Seite](../messungen/2026-10-10-licht-von-der-seite.md).
+  Ohne den Schritt waren es 10,5 %, vor allem dunklere Ränder der
+  Baumkronen: Die weiche Beleuchtung einer Oberseite liest auch die Zellen
+  unter dem Laub daneben, siehe
   [2026-10-10, Licht je Spalte](../messungen/2026-10-10-licht-je-spalte.md).
 
 ## Relief

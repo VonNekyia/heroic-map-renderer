@@ -322,6 +322,7 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
     | 1 | 0098, wie v0.4.0 und v0.5.0 | – |
     | 2 | #243 | der Grund unter Mangrovenwurzeln, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Verdeckte Würfel“ |
     | 3 | #250 | das Licht von `--flat`, siehe [Die einfarbige Ansicht](../renderer/einfarbig.md), „Licht je Spalte“ |
+    | 4 | Licht von der Seite | ein Schritt Licht von der Seite in `--flat`, ebenda |
 
 - **Assets und Daten:** je Wurzel von `--assets` und `--data` ihre Nummer,
   dann je Datei darunter der Pfad, die Grösse und die Zeit der letzten

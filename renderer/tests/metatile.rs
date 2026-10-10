@@ -2152,8 +2152,9 @@ fn tempdir() -> TempDir {
 /// Gelände bei scale 16, als Beispiele für die anderen Kameras die Szene aus
 /// `common::szene` in 4:3, von oben und genordet in `top-north` und
 /// `north-45`, wo das Gelände nur Oberseiten gleicher Farbe zeigte, und in
-/// 2:1 aus Nordwesten um die Treppe aus Stein; dazu die Mangrovenwurzeln aus
-/// #243 in `top-north` bei scale 4. Neu erzeugen mit
+/// 2:1 aus Nordwesten um die Treppe aus Stein, ganz in der einfarbigen
+/// Ansicht von `--flat`; dazu die Mangrovenwurzeln aus #243 in `top-north`
+/// bei scale 4. Neu erzeugen mit
 /// `UPDATE_GOLDEN=1 cargo test --test metatile`.
 #[test]
 fn goldbild_bleibt_gleich() {
@@ -2192,6 +2193,22 @@ fn goldbild_bleibt_gleich() {
             render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
         ));
     }
+    // Die einfarbige Ansicht über die ganze Szene, ein Pixel je Block.
+    let projection = flach();
+    let survey = survey(&world, projection, common::SZENE_Y, None).unwrap();
+    let mut assets = assets();
+    assets.load_biomes(&common::biomdaten()).unwrap();
+    let sprites = SpriteSet::build_in(&mut assets, &survey.states, projection).unwrap();
+    let rect = ScreenRect {
+        x: 0,
+        y: 0,
+        width: 32,
+        height: 32,
+    };
+    fehler.extend(goldbild(
+        "metatile-flat",
+        render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
+    ));
     // Cinematic in 2:1 um die Treppe aus Stein, mit Gras, Lava und dem Rand
     // des Beckens, 10 mal 12 Blöcke wie oben.
     let projection = Projection::new(16);

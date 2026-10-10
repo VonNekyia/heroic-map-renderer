@@ -974,8 +974,10 @@ mod tests {
             fnv.0,
             GOLDBILDER,
             "Die Goldbilder haben sich geändert. Zeichnet der Renderer anders, \
-             ZEICHENSTAND in renderer/src/render/stand.rs auf {} heben; dann \
-             GOLDBILDER auf {:#x} setzen. Siehe skills/goldbild-erneuern/SKILL.md.",
+             ZEICHENSTAND in renderer/src/render/stand.rs auf {} heben. Kommt \
+             nur ein Goldbild dazu, etwa für einen neuen Baum, oder ändert sich \
+             nur die Szene eines Tests, bleibt er. In jedem Fall GOLDBILDER auf \
+             {:#x} setzen. Siehe skills/goldbild-erneuern/SKILL.md.",
             ZEICHENSTAND + 1,
             fnv.0
         );

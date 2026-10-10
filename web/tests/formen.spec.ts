@@ -144,7 +144,7 @@ test('eine gestrichelte Linie zählt ihre Striche über verdeckte Stücke hinweg
   expect(Number(davor1![2])).toBeCloseTo(Number(davor![2]) / 2, 0);
 });
 
-test('eine Fläche nennt beim Zeigen ihren Namen als Text und öffnet beim Klick ihre Tafel; eine Nadel liegt über ihr', async ({ page }) => {
+test('eine Fläche nennt beim Zeigen ihren Namen als Text und hält beim Klick ihre Tafel; eine Nadel liegt über ihr', async ({ page }) => {
   const gebiet = { ...GEBIET, name: '<b>Gebiet</b>', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
   await welt(page, staedte([gebiet, HAFEN]));
   await page.goto(DEMO);
@@ -161,6 +161,47 @@ test('eine Fläche nennt beim Zeigen ihren Namen als Text und öffnet beim Klick
   // Die erste Tafel blendet noch aus; es zählt die der Nadel.
   await expect(page.locator('.tafel .tafel-titel', { hasText: 'Hafenstadt' })).toHaveText('✪ Hafenstadt');
   await expect(page.locator('.tafel .tafel-titel', { hasText: 'Gebietstafel' })).toHaveCount(0);
+});
+
+test('eine Fläche öffnet ihre Tafel beim Zeigen; von Hand geschlossen, öffnet erst ein neues Zeigen sie wieder, auch nach dem Weg vom Schliessknopf hinaus', async ({ page }) => {
+  const gebiet = { ...GEBIET, name: 'Gebiet', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
+  await welt(page, staedte([gebiet]));
+  await page.goto(DEMO);
+  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  const punkt = (x: number, z: number) => aufDemSchirm(page, ...projiziere(x, 1, z, zweiZuEins(16)));
+  // Mitten in der Fläche, so liegt auch der Schliessknopf über ihr.
+  const [[x1, y1], [x2, y2], [x3, y3]] = await Promise.all([punkt(32, -16), punkt(34, -14), punkt(60, 10)]);
+  await page.mouse.move(x1!, y1!);
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+  const knopf = page.locator('.tafel .leaflet-popup-close-button');
+  const ueber = await knopf.evaluate((k) => {
+    const r = k.getBoundingClientRect();
+    return document.elementsFromPoint(r.x + r.width / 2, r.y + r.height / 2).some((e) => e.getAttribute('fill') === '#40E53F55');
+  });
+  expect(ueber).toBe(true);
+  const titel = (await page.locator('.tafel .tafel-titel').boundingBox())!;
+  await knopf.click();
+  // Durch die ausblendende Tafel: Sie zählt nicht als Ort ausserhalb.
+  await page.mouse.move(titel.x + 2, titel.y + titel.height / 2);
+  await expect(page.locator('.tafel')).toHaveCount(0);
+  // Weiter in der Fläche: bleibt zu.
+  await page.mouse.move(x2!, y2!, { steps: 5 });
+  await page.waitForTimeout(600);
+  await expect(page.locator('.tafel')).toHaveCount(0);
+  // Hinaus und wieder hinein: öffnet.
+  await page.mouse.move(x3!, y3!);
+  await page.mouse.move(x2!, y2!);
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+  // An der Ecke, wo der Schliessknopf neben der Fläche liegt: von ihm hinaus, dann hinein, öffnet auch.
+  await page.mouse.move(x3!, y3!);
+  const [ex, ey] = await punkt(20, -28);
+  await page.mouse.move(ex!, ey!);
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+  await page.locator('.tafel .leaflet-popup-close-button').click();
+  await expect(page.locator('.tafel')).toHaveCount(0);
+  await page.mouse.move(x3!, y3!);
+  await page.mouse.move(x2!, y2!);
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
 });
 
 test('eine Fläche mit Tafel erreicht die Tastatur: Enter öffnet die Tafel mit dem Fokus darin, Escape gibt ihn der Fläche zurück', async ({ page }) => {
@@ -263,6 +304,16 @@ test('eine Linie, die eine Region nur an der Ecke streift, lädt auch deren Höh
 
 test.describe('auf dem Touchscreen', () => {
   test.use({ hasTouch: true });
+
+  test('Tippen öffnet die Tafel einer Fläche', async ({ page }) => {
+    const gebiet = { ...GEBIET, panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
+    await welt(page, staedte([gebiet]));
+    await page.goto(DEMO);
+    await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+    const [x, y] = await aufDemSchirm(page, ...projiziere(20, 1, -28, zweiZuEins(16)));
+    await page.touchscreen.tap(x!, y!);
+    await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+  });
 
   test('der Umriss beim Tippen liegt über den Flächen der Ebenen und unter ihren Nadeln', async ({ page }) => {
     await welt(page, staedte([{ ...GEBIET, fill: '#40E53FFF' }]));

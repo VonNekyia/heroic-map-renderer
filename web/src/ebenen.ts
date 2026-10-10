@@ -41,6 +41,16 @@ interface Nadel {
   panel?: unknown[];
 }
 
+/** Ein Banner: ein Bild der Ebene, Pixel auf Pixel. Siehe docs/benutzung/ebenen.md, „Banner“. */
+interface Banner {
+  id: string;
+  at: [number, number];
+  y?: number;
+  image: string;
+  name?: string;
+  panel?: unknown[];
+}
+
 /** Was die Ebenen von der Karte brauchen. */
 export interface Umgebung {
   map: L.Map;
@@ -76,7 +86,7 @@ const GROESSEN: Groesse[] = ['large', 'medium', 'small'];
 const TAKT = 30_000;
 
 /** Grenzen aus docs/benutzung/ebenen.md, „Grenzen“. */
-const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20 };
+const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20, banner: [32, 64] };
 
 /**
  * So viele Regionen Höhen lädt die Webkarte höchstens je Ebene; darüber liegt
@@ -97,6 +107,10 @@ const FORM_GRUND = 410;
 /** Die Tafel als Popup, für Nadeln und Flächen gleich. */
 const TAFEL: L.PopupOptions = { className: 'tafel', maxWidth: 320, minWidth: 120, autoPanPadding: [8, 8] };
 
+/** Die Tafel beim Zeigen: erscheint nach so vielen ms Ruhe, schliesst so viele ms nach dem Verlassen. Siehe docs/benutzung/ebenen.md, „Infotafel“. */
+const TAFEL_AUF = 150;
+const TAFEL_ZU = 300;
+
 /**
  * Ein Teil der Kennung oder der Name eines Bilds ohne Endung, nach
  * docs/benutzung/ebenen.md, „Kennung“: 1 bis 64 Zeichen, kein `.` vorn oder
@@ -116,23 +130,6 @@ function kennungGilt(id: string): boolean {
 function bildGilt(pfad: string): boolean {
   const name = /^images\/(.+)\.(png|webp)$/.exec(pfad)?.[1];
   return name !== undefined && teilGilt(name);
-}
-
-/**
- * Wie viele Grössen kleiner die Nadel beim Hinauszoomen wird, nach der
- * Breite eines Blocks auf dem Schirm in Pixeln. Siehe
- * docs/benutzung/ebenen.md, „Nadeln“.
- */
-export function kleiner(blockPixel: number): number {
-  if (blockPixel >= 1 / 2) return 0;
-  if (blockPixel >= 1 / 8) return 1;
-  if (blockPixel >= 1 / 32) return 2;
-  return 3;
-}
-
-/** Die Grösse, in der eine Nadel steht, oder `undefined`, wenn sie aus ist. */
-export function gezeigt(grund: Groesse, blockPixel: number): Groesse | undefined {
-  return GROESSEN[GROESSEN.indexOf(grund) + kleiner(blockPixel)];
 }
 
 function eintrag(wert: unknown): Eintrag | undefined {
@@ -173,6 +170,24 @@ function nadel(wert: unknown): Nadel | undefined {
     size: GROESSEN.includes(wert.size as Groesse) ? (wert.size as Groesse) : 'medium',
     symbol: { large: bild(symbol.large), medium: bild(symbol.medium) },
     color: farbe(wert.color) ?? '#D9443A',
+    panel: istObjekt(wert.panel) && Array.isArray(wert.panel.blocks) ? wert.panel.blocks : undefined,
+  };
+}
+
+function banner(wert: unknown): Banner | undefined {
+  if (!istObjekt(wert) || wert.type !== 'banner' || !istText(wert.id, 64)) return undefined;
+  const at = punkt(wert.at);
+  if (!at) return undefined;
+  if (typeof wert.image !== 'string' || !bildGilt(wert.image)) {
+    console.warn(`Banner ${wert.id}: Bild „${String(wert.image)}“ gegen „Bilder“, übergangen`);
+    return undefined;
+  }
+  return {
+    id: wert.id,
+    at,
+    y: Number.isInteger(wert.y) ? (wert.y as number) : undefined,
+    image: wert.image,
+    name: istText(wert.name, 64) ? wert.name : undefined,
     panel: istObjekt(wert.panel) && Array.isArray(wert.panel.blocks) ? wert.panel.blocks : undefined,
   };
 }
@@ -257,6 +272,8 @@ export function tafel(bausteine: unknown[], ordner: string, v: string): HTMLElem
     img.src = `${ordner}/${b.image}?v=${encodeURIComponent(v)}`;
     img.alt = typeof b.alt === 'string' ? b.alt : '';
     [img.width, img.height] = [b.width as number, b.height as number];
+    // Verkleinert per max-width, im Verhältnis von width und height, nicht dem der Datei.
+    img.style.aspectRatio = `${b.width as number} / ${b.height as number}`;
     return img;
   };
   const baue = (liste: unknown[], tiefe: number): HTMLElement => {
@@ -501,20 +518,14 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     };
   };
 
-  /** Breite eines Blocks auf dem Schirm, in Pixeln. */
-  const blockPixel = () => scale * 2 ** (map.getZoom() - maxZoom);
-
   interface Geladen {
     ordner: string;
     version: string;
+    /** Nadeln und Banner. */
     gruppe: L.LayerGroup;
-    marker: { nadel: Nadel; marker: L.Marker; groesse?: Groesse }[];
     /** Flächen, Ränder, Linien und Schrift, in dieser Reihenfolge. */
     formen: L.LayerGroup;
     striche: Strich[];
-    /** Icons und Symbole dieser `version`; sie fallen mit ihr weg. */
-    icons: Map<string, Promise<HTMLCanvasElement>>;
-    symbole: Map<string, Promise<HTMLImageElement>>;
   }
   const geladen = new Map<string, Geladen>();
   /** Je Ebene ein Zähler: Ein Laden, das ein späteres Umschalten überholt, verwirft sich selbst. */
@@ -522,33 +533,119 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   /** Je Ebene die `version` mit `permission` oder `web: false`; die holt die Karte nicht noch einmal. */
   const abgewiesen = new Map<string, string>();
   let eintraege: Eintrag[] = [];
-  /** Was gerade seine Tafel offen hat, und sein Element, das den Fokus zurückbekommt. */
-  let offen: { quelle: L.Layer; element: () => Element | undefined } | undefined;
+  /** Die Tafel, die gerade offen ist, und das Element ihres Ziels, das den Fokus zurückbekommt. */
+  let offen: { popup: L.Popup; element: () => Element | undefined } | undefined;
 
   /**
-   * Die Tafel einer Nadel oder Fläche per Tastatur: Fokus hinein nur, wenn
-   * die Tastatur sie geöffnet hat; Escape gibt ihn zurück, siehe unten.
+   * Die Tafel eines Ziels, siehe docs/benutzung/ebenen.md, „Infotafel“:
+   * Ruht der Zeiger 150 ms darauf, erscheint sie; 300 ms nachdem er Ziel und
+   * Tafel verlassen hat, schliesst sie. Ein Klick oder Tippen hält sie. Gibt
+   * zurück, womit Tastatur sie öffnet, dann mit dem Fokus darin. `ort` sagt,
+   * wo sie erscheint, ohne Ereignis für die Tastatur; `hoehe` hebt sie über
+   * das Icon, damit sie es nicht deckt.
    */
-  const bedienbar = (quelle: L.Layer, element: () => Element | undefined, perTastatur: () => boolean): void => {
-    quelle.on('popupopen', ({ popup }: L.PopupEvent) => {
-      offen = { quelle, element };
-      const inhalt = popup.getElement()?.querySelector<HTMLElement>('.leaflet-popup-content');
-      if (!inhalt) return;
-      inhalt.tabIndex = -1;
+  const tafelAn = (
+    ziel: L.Marker | L.Polygon,
+    inhalt: () => HTMLElement,
+    element: () => Element | undefined,
+    ort: (ereignis?: L.LeafletMouseEvent) => L.LatLng,
+    hoehe = 0,
+  ): ((perTastatur: boolean) => void) => {
+    // 7 ist der Versatz, den Leaflet sonst hat.
+    const popup = L.popup({ ...TAFEL, offset: [0, 7 - hoehe] }).setContent(inhalt);
+    let gehalten = false;
+    let perTastatur = false;
+    let auf: ReturnType<typeof setTimeout> | undefined;
+    let zu: ReturnType<typeof setTimeout> | undefined;
+    // Ob der Zeiger auf dem Ziel oder in der Tafel ist.
+    let darauf = false;
+    let imKasten = false;
+    // Von Hand unter dem Zeiger geschlossen: Erst ein neues Zeigen öffnet sie wieder.
+    let ruhe = false;
+    /** Wartet nach dem Schliessen in der Tafel auf das erste Element ausserhalb der Tafel. */
+    let danach: ((e: MouseEvent) => void) | undefined;
+    const vergiss = () => {
+      if (danach) document.removeEventListener('mouseover', danach, true);
+      danach = undefined;
+    };
+    const oeffne = (wo: L.LatLng) => {
+      clearTimeout(auf);
+      clearTimeout(zu);
+      popup.setLatLng(wo);
+      if (!map.hasLayer(popup)) popup.openOn(map);
+    };
+    const bald = () => {
+      clearTimeout(auf);
+      if (!gehalten) zu = setTimeout(() => map.closePopup(popup), TAFEL_ZU);
+    };
+    ziel.on('mouseover', (ereignis) => {
+      darauf = true;
+      clearTimeout(zu);
+      if (!ruhe && !map.hasLayer(popup)) auf = setTimeout(() => oeffne(ort(ereignis)), TAFEL_AUF);
+    });
+    ziel.on('mouseout', () => {
+      darauf = ruhe = false;
+      bald();
+    });
+    // Sonst schlösse der Klick auf der Karte die Tafel gleich wieder (closeOnClick).
+    ziel.on('preclick', L.DomEvent.stopPropagation);
+    ziel.on('click', (ereignis) => {
+      gehalten = true;
+      perTastatur = false;
+      oeffne(ort(ereignis));
+    });
+    let angemeldet = false;
+    popup.on('add', () => {
+      vergiss();
+      offen = { popup, element };
+      const kasten = popup.getElement();
+      if (kasten && !angemeldet) {
+        angemeldet = true;
+        kasten.addEventListener('mouseenter', () => {
+          imKasten = true;
+          clearTimeout(zu);
+        });
+        kasten.addEventListener('mouseleave', () => {
+          imKasten = false;
+          bald();
+        });
+      }
+      const inhaltKasten = kasten?.querySelector<HTMLElement>('.leaflet-popup-content');
+      if (!inhaltKasten) return;
+      inhaltKasten.tabIndex = -1;
       // Ohne preventScroll dürfte der Browser den Container scrollen, um die Tafel zu zeigen.
-      if (perTastatur()) inhalt.focus({ preventScroll: true });
+      if (perTastatur) inhaltKasten.focus({ preventScroll: true });
     });
-    quelle.on('popupclose', () => {
-      if (offen?.quelle === quelle) offen = undefined;
+    popup.on('remove', () => {
+      // Von selbst schliesst sie nur, wenn der Zeiger weder auf dem Ziel noch in ihr ist.
+      ruhe = darauf || imKasten;
+      // Lag der Zeiger in der Tafel, entscheidet, wo er als Nächstes ist; die
+      // ausblendende Tafel liegt noch 200 ms unter ihm und zählt nicht.
+      if (ruhe && imKasten) {
+        const kasten = popup.getElement();
+        danach = (e) => {
+          if (kasten?.contains(e.target as Node)) return;
+          vergiss();
+          ruhe = element()?.contains(e.target as Node) === true;
+        };
+        document.addEventListener('mouseover', danach, true);
+      }
+      imKasten = false;
+      gehalten = perTastatur = false;
+      clearTimeout(auf);
+      clearTimeout(zu);
+      if (offen?.popup === popup) offen = undefined;
     });
+    return (tastatur) => {
+      gehalten = true;
+      perTastatur = tastatur;
+      oeffne(ort());
+    };
   };
 
-  /** Eine Fläche mit Tafel wird ein Ziel für die Tastatur: Tab erreicht sie, Enter oder Leertaste öffnet die Tafel. */
-  const bediene = (flaeche: L.Polygon, name: string | undefined): void => {
-    let perTastatur = false;
-    flaeche.on('click', () => {
-      perTastatur = false;
-    });
+  /** Eine Fläche mit Tafel: beim Zeigen wie jedes Ziel, dazu ein Ziel für Tab; Enter oder Leertaste öffnet die Tafel. */
+  const bediene = (flaeche: L.Polygon, name: string | undefined, inhalt: () => HTMLElement): void => {
+    const oeffne = tafelAn(flaeche, inhalt, () => flaeche.getElement(), (ereignis) => ereignis?.latlng ?? flaeche.getBounds().getCenter());
     flaeche.on('add', () => {
       const element = flaeche.getElement();
       if (!element) return;
@@ -558,60 +655,49 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       element.addEventListener('keydown', (ereignis) => {
         if ((ereignis as KeyboardEvent).key !== 'Enter' && (ereignis as KeyboardEvent).key !== ' ') return;
         ereignis.preventDefault();
-        perTastatur = true;
-        flaeche.openPopup(flaeche.getBounds().getCenter());
+        oeffne(true);
       });
     });
-    bedienbar(flaeche, () => flaeche.getElement(), () => perTastatur);
   };
 
-  const icon = async (n: Nadel, groesse: Groesse, g: Geladen): Promise<L.DivIcon> => {
-    const pfad = groesse === 'small' ? undefined : n.symbol[groesse];
-    const symbol = pfad && `${g.ordner}/${pfad}?v=${encodeURIComponent(g.version)}`;
-    const schluessel = `${groesse} ${n.color} ${symbol ?? ''}`;
-    let leinwand = g.icons.get(schluessel);
-    if (!leinwand) g.icons.set(schluessel, (leinwand = zeichneNadel(groesse, n.color, symbol, g.symbole)));
-    const { b, h } = SCHILDE[groesse];
+  /** Das Icon einer Nadel oder eines Banners: das Bild Pixel auf Pixel, der Fuss unten bei ⌊b / 2⌋, der Name darunter. */
+  const ortIcon = (bild: CanvasImageSource, b: number, h: number, name: string | undefined): L.DivIcon => {
     const html = L.DomUtil.create('div', 'nadel');
     const kopie = document.createElement('canvas');
     [kopie.width, kopie.height] = [b, h];
-    kopie.getContext('2d')!.drawImage(await leinwand, 0, 0);
+    kopie.getContext('2d')!.drawImage(bild, 0, 0);
     html.append(kopie);
-    if (n.name && groesse === n.size) L.DomUtil.create('span', 'nadel-name', html).textContent = n.name;
+    if (name) L.DomUtil.create('span', 'nadel-name', html).textContent = name;
     return L.divIcon({ html, className: 'nadel-icon', iconSize: [b, h], iconAnchor: [Math.floor(b / 2), h] });
   };
 
-  /**
-   * Setzt jede Nadel in die Grösse der Stufe, oder nimmt sie weg. Erst alle
-   * Icons, dann setzen; hat sich die Stufe inzwischen geändert, setzt der
-   * spätere Aufruf.
-   */
-  const groessen = async (): Promise<void> => {
-    const p = blockPixel();
-    const neu = await Promise.all(
-      [...geladen.values()].flatMap((g) =>
-        g.marker.map(async (eintrag) => {
-          const groesse = gezeigt(eintrag.nadel.size, p);
-          const fertig = groesse && groesse !== eintrag.groesse ? await icon(eintrag.nadel, groesse, g) : undefined;
-          return { gruppe: g.gruppe, eintrag, groesse, fertig };
-        }),
-      ),
-    );
-    if (blockPixel() !== p) return;
-    // Eine Ebene, die inzwischen aus oder ersetzt ist, bleibt, wie sie ist.
-    const lebend = new Set([...geladen.values()].map((g) => g.gruppe));
-    for (const { gruppe, eintrag, groesse, fertig } of neu) {
-      if (!lebend.has(gruppe)) continue;
-      if (!groesse) {
-        gruppe.removeLayer(eintrag.marker);
-        continue;
-      }
-      if (fertig) {
-        eintrag.marker.setIcon(fertig);
-        eintrag.groesse = groesse;
-      }
-      gruppe.addLayer(eintrag.marker);
+  /** Das Icon einer Nadel, fest in ihrer `size`. Icons und Symbole gelten je Laden einer Ebene. */
+  const nadelIcon = async (
+    n: Nadel,
+    ordner: string,
+    version: string,
+    icons: Map<string, Promise<HTMLCanvasElement>>,
+    symbole: Map<string, Promise<HTMLImageElement>>,
+  ): Promise<L.DivIcon> => {
+    const pfad = n.size === 'small' ? undefined : n.symbol[n.size];
+    const symbol = pfad && `${ordner}/${pfad}?v=${encodeURIComponent(version)}`;
+    const schluessel = `${n.size} ${n.color} ${symbol ?? ''}`;
+    let leinwand = icons.get(schluessel);
+    if (!leinwand) icons.set(schluessel, (leinwand = zeichneNadel(n.size, n.color, symbol, symbole)));
+    const { b, h } = SCHILDE[n.size];
+    return ortIcon(await leinwand, b, h, n.name);
+  };
+
+  /** Das Icon eines Banners, oder `undefined` mit Meldung, wenn sein Bild fehlt oder zu gross ist. */
+  const bannerIcon = async (banner: Banner, ordner: string, version: string, symbole: Map<string, Promise<HTMLImageElement>>): Promise<L.DivIcon | undefined> => {
+    const adresse = `${ordner}/${banner.image}?v=${encodeURIComponent(version)}`;
+    const geholt = await bild(adresse, symbole).catch(() => undefined);
+    const [b, h] = GRENZEN.banner as [number, number];
+    if (!geholt || geholt.width > b || geholt.height > h) {
+      console.warn(`Banner ${banner.id}: ${geholt ? `${geholt.width} × ${geholt.height} statt höchstens ${b} × ${h}` : `${adresse} lässt sich nicht laden`}, übergangen`);
+      return undefined;
     }
+    return ortIcon(geholt, geholt.width, geholt.height, banner.name);
   };
 
   /**
@@ -668,7 +754,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     tafelDerEbene: (bausteine: unknown[]) => HTMLElement,
   ): Promise<{ flaechen: L.Layer[]; striche: Strich[]; schriftLagen: Schrift[] }> => {
     const gelaende = await ladeGelaende(regionenFuer(formen, schriften));
-    const { flaechen, striche } = zeichne(formen, { renderer, blick, gelaende, area: umgebung.area, tafel: tafelDerEbene, tafelOptionen: TAFEL, bediene });
+    const { flaechen, striche } = zeichne(formen, { renderer, blick, gelaende, area: umgebung.area, tafel: tafelDerEbene, bediene });
     const schriftLagen: Schrift[] = [];
     for (const s of schriften) schriftLagen.push(new Schrift(s, schriftPfad(s.pfad, gelaende, blick), faktor, scale, formPane));
     return { flaechen, striche, schriftLagen };
@@ -702,42 +788,43 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const warne = (text: string) => console.warn(`${e.id}: ${text}`);
     const formen = objekte.map((o) => (istObjekt(o) ? form(o, warne) : undefined)).filter((f): f is Form => f !== undefined);
     const schriften = objekte.map((o) => (istObjekt(o) ? schriftzug(o) : undefined)).filter((s): s is Schriftzug => s !== undefined);
-    let nadeln = objekte.map(nadel).filter((n): n is Nadel => n !== undefined);
-    if (nadeln.length > GRENZEN.nadeln) {
-      console.warn(`${e.id}: ${nadeln.length} Nadeln, gezeigt die ersten ${GRENZEN.nadeln}`);
-      nadeln = nadeln.slice(0, GRENZEN.nadeln);
+    // Nadeln und Banner in der Reihenfolge der Datei: In der Ebene liegt das spätere oben.
+    let orte = objekte.map((o) => nadel(o) ?? banner(o)).filter((o): o is Nadel | Banner => o !== undefined);
+    if (orte.length > GRENZEN.nadeln) {
+      console.warn(`${e.id}: ${orte.length} Nadeln und Banner, gezeigt die ersten ${GRENZEN.nadeln}`);
+      orte = orte.slice(0, GRENZEN.nadeln);
     }
     const tafelDerEbene = (bausteine: unknown[]) => tafel(bausteine, ordner, e.version);
     const { renderer, formen: formPane } = pane(e.id);
     // Formen und Schrift rechnen einmal je version, hier vor dem Tausch.
     const { flaechen, striche, schriftLagen } = await formenUndSchrift(formen, schriften, renderer, formPane, tafelDerEbene);
+    // Icons und Symbole gelten nur für dieses Laden und fallen danach weg.
+    const icons = new Map<string, Promise<HTMLCanvasElement>>();
+    const symbole = new Map<string, Promise<HTMLImageElement>>();
     const marker = await Promise.all(
-      nadeln.map(async (n, index) => {
-        const y = n.y !== undefined ? n.y + 1 : await oberflaeche(n.at[0], n.at[1]);
-        const [px, py] = bildpunkt(n.at[0], iso ? y : 0, n.at[1], blick);
-        // In der Ebene liegt die spätere oben, gleich wo auf dem Schirm.
+      orte.map(async (o, index) => {
+        const icon = 'image' in o ? await bannerIcon(o, ordner, e.version, symbole) : await nadelIcon(o, ordner, e.version, icons, symbole);
+        if (!icon) return undefined;
+        const y = o.y !== undefined ? o.y + 1 : await oberflaeche(o.at[0], o.at[1]);
+        const [px, py] = bildpunkt(o.at[0], iso ? y : 0, o.at[1], blick);
+        // In der Ebene liegt das spätere oben, gleich wo auf dem Schirm.
         const m = L.marker(L.latLng(py, px), {
-          icon: L.divIcon({ html: '' }),
+          icon,
           pane: pane(e.id).nadeln,
           zIndexOffset: index * 100_000,
-          interactive: n.panel !== undefined,
-          keyboard: n.panel !== undefined,
-          title: n.name ?? '',
-          alt: n.name ?? '',
+          interactive: o.panel !== undefined,
+          keyboard: o.panel !== undefined,
+          title: o.name ?? '',
+          alt: o.name ?? '',
         });
-        if (n.panel) {
-          // Vor bindPopup angemeldet, damit es vor dem Öffnen läuft: Fokus in die Tafel nur nach Enter.
-          let perTastatur = false;
+        const panel = o.panel;
+        if (panel) {
+          const oeffne = tafelAn(m, () => tafelDerEbene(panel), () => m.getElement(), () => m.getLatLng(), (icon.options.iconSize as L.PointTuple)[1]);
           m.on('keypress', (ereignis) => {
-            perTastatur = ereignis.originalEvent.key === 'Enter';
+            if (ereignis.originalEvent.key === 'Enter') oeffne(true);
           });
-          m.on('click', () => {
-            perTastatur = false;
-          });
-          m.bindPopup(() => tafelDerEbene(n.panel!), TAFEL);
-          bedienbar(m, () => m.getElement(), () => perTastatur);
         }
-        return { nadel: n, marker: m };
+        return m;
       }),
     );
     // Hat jemand inzwischen umgeschaltet, gilt sein Auftrag; erst jetzt die alte Gruppe ersetzen.
@@ -746,17 +833,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Erst Flächen, dann Ränder und Linien, zuletzt Schrift.
     const formGruppe = L.layerGroup([...flaechen, ...striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
     versetze(striche, faktor());
-    geladen.set(e.id, {
-      ordner,
-      version: e.version,
-      gruppe: L.layerGroup().addTo(map),
-      marker,
-      formen: formGruppe,
-      striche,
-      icons: new Map(),
-      symbole: new Map(),
-    });
-    await groessen();
+    const gruppe = L.layerGroup(marker.filter((m): m is L.Marker => m !== undefined)).addTo(map);
+    geladen.set(e.id, { ordner, version: e.version, gruppe, formen: formGruppe, striche });
   };
 
   const entferne = (id: string): void => {
@@ -834,8 +912,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   // Erst anmelden, dann abgleichen: Ein Fehler beim ersten Abgleich hält das
   // Nachfragen nicht auf.
   map.on('zoomend', () => {
-    for (const g of geladen.values()) versetze(g.striche, 2 ** (map.getZoom() - maxZoom));
-    void groessen();
+    for (const g of geladen.values()) versetze(g.striche, faktor());
   });
   setInterval(() => {
     if (document.visibilityState === 'visible') void nachfragen();
@@ -843,13 +920,32 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void nachfragen();
   });
-  // Escape in der Tafel, auch auf ihrem Schliessknopf, schliesst sie und gibt
-  // den Fokus der Nadel oder Fläche zurück.
-  map.getContainer().addEventListener('keydown', (ereignis) => {
-    const jetzt = offen;
-    if (ereignis.key !== 'Escape' || !jetzt?.quelle.getPopup()?.getElement()?.contains(ereignis.target as Node)) return;
-    jetzt.quelle.closePopup();
-    (jetzt.element() as HTMLElement | SVGElement | undefined)?.focus({ preventScroll: true });
-  });
+  // Escape und ein Klick daneben schliessen zuerst nur die Tafel, siehe
+  // docs/benutzung/ebenen.md, „Infotafel“: Im Capture, so erreichen sie weder
+  // Leaflet noch die Leiste. War der Fokus in der Tafel, geht er an ihr Ziel zurück.
+  document.addEventListener(
+    'keydown',
+    (ereignis) => {
+      const jetzt = offen;
+      if (ereignis.key !== 'Escape' || !jetzt) return;
+      ereignis.stopPropagation();
+      const darin = jetzt.popup.getElement()?.contains(ereignis.target as Node);
+      map.closePopup(jetzt.popup);
+      if (darin) (jetzt.element() as HTMLElement | SVGElement | undefined)?.focus({ preventScroll: true });
+    },
+    true,
+  );
+  map.getContainer().addEventListener(
+    'click',
+    (ereignis) => {
+      const jetzt = offen;
+      // Ein Ziel öffnet seine eigene Tafel; nach einem Ziehen gilt der Klick nicht, wie bei Leaflet.
+      const ziel = ereignis.target as Element;
+      if (!jetzt || ziel.closest('.leaflet-popup, .leaflet-interactive, .leaflet-control') || (map.dragging as unknown as { moved(): boolean }).moved()) return;
+      ereignis.stopPropagation();
+      map.closePopup(jetzt.popup);
+    },
+    true,
+  );
   await abgleichen(erste);
 }

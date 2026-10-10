@@ -144,10 +144,12 @@ selbst, die Webkarte im Browser.
   { "color": "#8640E6DD", "width": 2, "style": "dashed", "dash": [8, 6] }
   ```
 
-  `width` in Pixeln des Bildschirms, Vorgabe 2; 0 heisst ohne Rand.
-  `color` ist bei Region und Kreis als Vorgabe die Farbe von `fill` ohne
-  Alpha, sonst `#2B2B2B`. `style` ist `solid` oder `dashed`, Vorgabe
-  `solid`. `dash` sind Strich und Lücke in Pixeln, Vorgabe `[8, 6]`.
+  `width` in Pixeln der Ansicht, Vorgabe 2; 0 heisst ohne Rand. Auf der
+  Webkarte sind das Pixel des Bildschirms, im Mod Einheiten seiner
+  Oberfläche. `color` ist bei Region und Kreis als Vorgabe die Farbe von
+  `fill` ohne Alpha, sonst `#2B2B2B`. `style` ist `solid` oder `dashed`,
+  Vorgabe `solid`. `dash` sind Strich und Lücke, in denselben Einheiten
+  wie `width`, Vorgabe `[8, 6]`.
 - **Eine Füllung** (`fill`) ist eine Farbe; das Alpha macht sie
   halbdurchsichtig.
 - **Texte** sind schlichter Text in UTF-8, nie HTML. Jede Ansicht setzt
@@ -562,7 +564,8 @@ wie bei den Koordinaten.
    Ein Kreis wird erst als Vieleck mit Seiten von höchstens `heightsCell`
    Blöcken angenähert, dann ebenso.
 2. **Projizieren:** je Punkt `P(x, H(x, z), z)`.
-3. **Zeichnen** als ein Linienzug in Pixeln des Bildschirms. Die Striche
+3. **Zeichnen** als ein Linienzug in Pixeln der Ansicht, siehe „Ein Rand“
+   unter „Gemeinsame Felder“. Die Striche
    eines gestrichelten Rands zählen entlang des gezeichneten Zugs, nicht
    je Strecke, so laufen sie über Ecken weiter.
 

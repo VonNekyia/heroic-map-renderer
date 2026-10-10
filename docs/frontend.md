@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, Ebenen mit Nadeln, Infotafel, Regionen, Kreisen, Linien und Kartenschrift zeigt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, Ebenen mit Nadeln, Bannern, Infotafel, Regionen, Kreisen, Linien und Kartenschrift zeigt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/ebenen.ts
@@ -205,7 +205,8 @@ Screenreader „/tp kopieren“, per Tastatur erreichbar. Er kopiert
   Maus weiter nicht, siehe
   [0049](entscheidungen/0049-umriss-nur-ohne-zeiger.md). Los lässt sie,
   sobald sich die Karte bewegt, bei Escape oder mit dem nächsten Klick auf
-  einen anderen Block.
+  einen anderen Block. Ist eine Tafel offen, schliessen Escape und Klick
+  erst sie, siehe „Ebenen“.
 - **Mit Finger oder Stift** bleibt der getippte Block ohnehin stehen: auf
   den Block tippen, dann auf das Symbol.
 - **In der Leiste** aus Anzeige, Knopf und Rückmeldung verschiebt Ziehen
@@ -382,11 +383,8 @@ und Linien, [`schrift.ts`](../web/src/schrift.ts) für die Kartenschrift,
 ist, ohne Leaflet, und [`pruefen.ts`](../web/src/pruefen.ts) für die
 Eingaben.
 
-Noch nicht umgesetzt ist
-[0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md):
-Banner, feste Grösse und die Tafel beim Zeigen. Bis dahin stuft die Karte
-Nadeln nach dem Zoom, wie unten beschrieben, und öffnet die Tafel beim
-Klick.
+Banner, feste Grösse und die Tafel beim Zeigen folgen
+[0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md).
 
 - **Liste:** oben rechts ein aufklappbares „Ebenen“ mit einem Kästchen je
   Ebene, nach `order`. Die Namen folgen der Sprache des Browsers, Deutsch
@@ -417,29 +415,47 @@ Klick.
     dieser Ebene weicht dann; die abgewiesene holt sie nicht noch einmal.
   - Kennungen und Bilder gegen die Regel aus [Ebenen](benutzung/ebenen.md),
     „Kennung“, übergeht sie ebenso mit Meldung.
-- **Nadeln:** Leaflet-Marker mit dem Wappenschild auf einer Leinwand:
-  - Feld, Symbol und Rahmen aus `web/src/ebenen/schild_*.png` nach
-    [Ebenen](benutzung/ebenen.md), „Nadel“; die Bilder stammen vom
+- **Nadeln und Banner:** Leaflet-Marker mit ihrem Bild auf einer Leinwand,
+  Pixel auf Pixel, der Name darunter:
+  - die Nadel: Feld, Symbol und Rahmen aus `web/src/ebenen/schild_*.png`
+    nach [Ebenen](benutzung/ebenen.md), „Nadel“; die Bilder stammen vom
     Designer;
-  - die Spitze auf `P(x, y + 1, z)`; ohne `y` auf der Oberfläche aus den
-    Höhen, bilinear zwischen den Zellen, einmal je Punkt gerechnet.
-    Koordinaten und Ebenen teilen sich einen Cache der Höhen
-    ([`web/src/hoehen.ts`](../web/src/hoehen.ts));
-  - Grösse und Ausblenden nach der Breite eines Blocks auf dem Schirm,
-    `scale · 2^(Zoom − maxZoom)`, neu bei jedem Zoom; der Name nur in der
-    Grundgrösse;
+  - das Banner: sein Bild aus `images/` der Ebene. Ist es grösser als
+    32 × 64 oder lädt es nicht, fehlt das Banner, mit Meldung. Banner mit
+    demselben Bild holen es einmal;
+  - der Fuss auf `P(x, y + 1, z)`, `⌊Breite / 2⌋` Pixel rechts der linken
+    Kante; ohne `y` auf der Oberfläche aus den Höhen, bilinear zwischen den
+    Zellen, einmal je Punkt gerechnet. Koordinaten und Ebenen teilen sich
+    einen Cache der Höhen ([`web/src/hoehen.ts`](../web/src/hoehen.ts));
+  - auf jeder Stufe gleich gross, in Pixeln des Bildschirms; ein Zoom
+    ändert an ihnen nichts;
   - übereinander: je Ebene ein Pane, `z-index` 510 + Rang nach `order`,
     über `shadowPane` (500) und unter `markerPane` (600), `tooltipPane`
-    und der Tafel; in einer Ebene liegt die spätere Nadel oben;
-  - eine Nadel ohne Tafel ist kein Ziel für Maus und Tastatur.
+    und der Tafel; in einer Ebene liegt das spätere oben;
+  - ohne Tafel kein Ziel für Maus und Tastatur.
 - **Infotafel:** ein Popup von Leaflet, gebaut nur aus Elementen mit
   `textContent` und Bildern unter `images/` der Ebene, in Grund und Schrift
   der UI. Höchstens 320 Pixel breit und 70 % des Fensters hoch, darüber
-  scrollt sie. Per Tastatur: Enter auf der Nadel öffnet sie mit dem Fokus
-  darin, Escape schliesst sie, auch auf dem Schliessknopf, und gibt den
-  Fokus der Nadel zurück. Nach einem Klick bleibt der Fokus, wo er ist.
-  Der Fokus scrollt nie (`preventScroll`): Ein Scrollen des Containers
-  setzt Leaflet zwar zurück, aber erst nach dem Sprung.
+  scrollt sie; breitere Bilder verkleinert CSS mit `max-width`, im
+  Verhältnis von `width` und `height` per `aspect-ratio`, nicht dem der
+  Datei. Bei Nadel und Banner steht sie über dem Icon, bei einer Fläche
+  über dem Zeiger.
+  - **Zeigen und Halten:** `tafelAn` in `ebenen.ts` nach
+    [Ebenen](benutzung/ebenen.md), „Infotafel“, mit Zeitgebern für 150 und
+    300 ms. Ein Klick oder Tippen hält sie. Hat jemand sie unter dem Zeiger
+    von Hand geschlossen, öffnet erst ein neues Zeigen sie wieder; sonst
+    käme sie nach 150 ms zurück, sobald sich die Maus rührt. Lag der Zeiger
+    dabei in ihr, entscheidet das erste Element ausserhalb der Tafel, die
+    noch 200 ms ausblendet.
+  - **Escape und ein Klick daneben** schliessen nur die Tafel: Je ein
+    Listener im Capture auf `document` und dem Container hält den Druck vor
+    Leaflet und der Leiste zurück. Ein Klick auf ein anderes Ziel öffnet
+    dessen Tafel, ein Klick nach dem Ziehen der Karte zählt nicht.
+  - **Per Tastatur:** Enter auf Nadel oder Banner öffnet sie mit dem Fokus
+    darin; Escape schliesst sie und gibt den Fokus dem Ziel zurück, wenn er
+    in der Tafel war. Nach einem Klick bleibt der Fokus, wo er ist. Der
+    Fokus scrollt nie (`preventScroll`): Ein Scrollen des Containers setzt
+    Leaflet zwar zurück, aber erst nach dem Sprung.
 - **Regionen, Kreise und Linien:** Pfade von Leaflet in einem SVG je Ebene,
   nach [Ebenen](benutzung/ebenen.md), „Zeichnen“:
   - übereinander: je Ebene ein Pane, `z-index` 410 + Rang, unter den Panes
@@ -447,7 +463,7 @@ Klick.
     Das Pane lässt Klicks durch. Der Umriss beim Tippen liegt im
     `shadowPane` (500), über allen Formen und unter den Nadeln;
   - eine Fläche mit `name` zeigt ihn beim Zeigen als Text, eine mit `panel`
-    öffnet beim Klick die Tafel; nur diese fangen Klicks, auch ohne
+    ihre Tafel wie Nadel und Banner; nur diese fangen Klicks, auch ohne
     Füllung. Eine Fläche mit `panel` erreicht Tab, Enter oder Leertaste
     öffnet die Tafel mit dem Fokus darin, Escape gibt ihn zurück, wie bei
     den Nadeln;

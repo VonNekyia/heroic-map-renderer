@@ -6247,7 +6247,8 @@ fn voller_lauf_mit_stand_raeumt_abgerissenes_weg() {
 }
 
 /// Ein voller Lauf mit `--resume`, dessen angefangener Stand von einem
-/// anderen Build oder anderen Assets stammt, läuft wie ohne den Schalter. Er
+/// anderen Build, anderen Assets oder einem Update stammt, läuft wie ohne
+/// den Schalter. Er
 /// zeichnet auch die Kachel neu, die noch die alte Welt zeigt und älter ist
 /// als die zwei Minuten, gleicht danach einem neuen Baum und schreibt
 /// `stand.bin`: Das nächste Update hat nichts zu zeichnen.
@@ -6257,7 +6258,7 @@ fn resume_mit_fremdem_stand_rendert_alles() {
     let leer = tempdir();
     std::fs::write(leer.path().join("pack.mcmeta"), "{}").unwrap();
     let pack = leer.path().to_str().unwrap();
-    for fall in ["anderer Build", "andere Assets"] {
+    for fall in ["anderer Build", "andere Assets", "Update"] {
         let welt = tempdir();
         baue_aenderungen(welt.path());
         let baum = neuer_baum("2x1-se");
@@ -6270,8 +6271,8 @@ fn resume_mit_fremdem_stand_rendert_alles() {
         let neu = neuer_baum("2x1-se");
         gelungen(&tiles(welt.path(), neu.path(), &extra));
 
-        // Der volle Lauf mit den alten Assets scheitert an einer
-        // Basiskachel; eine zweite zeigt danach wieder die alte Welt.
+        // Ein Lauf mit den alten Assets, voll oder ein Update, scheitert an
+        // einer Basiskachel; eine zweite zeigt danach wieder die alte Welt.
         let basis = max_zoom(baum.path());
         let soll = kacheln(neu.path(), basis);
         let anders: Vec<PathBuf> = kacheln(baum.path(), basis)
@@ -6288,11 +6289,11 @@ fn resume_mit_fremdem_stand_rendert_alles() {
         let vorher = std::fs::read(alt).unwrap();
         std::fs::remove_file(sperre).unwrap();
         std::fs::create_dir(sperre).unwrap();
-        assert!(
-            !tiles(welt.path(), baum.path(), &["--scale", "12"])
-                .status
-                .success()
-        );
+        let abbruch: &[&str] = match fall {
+            "Update" => &["--scale", "12", "--update"],
+            _ => &["--scale", "12"],
+        };
+        assert!(!tiles(welt.path(), baum.path(), abbruch).status.success());
         std::fs::remove_dir(sperre).unwrap();
         std::fs::write(alt, vorher).unwrap();
         setze_zeit(alt, SystemTime::now() - Duration::from_secs(3600));
@@ -6306,10 +6307,11 @@ fn resume_mit_fremdem_stand_rendert_alles() {
         let resume: Vec<&str> = extra.iter().copied().chain(["--resume"]).collect();
         let ausgabe = tiles(welt.path(), baum.path(), &resume);
         let text = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
-        assert!(
-            text.contains("anderen Build des Renderers oder anderen Assets"),
-            "{fall}: {text}"
-        );
+        let woher = match fall {
+            "Update" => "stammt von einem anderen Lauf, ein Update",
+            _ => "anderen Build des Renderers oder anderen Assets",
+        };
+        assert!(text.contains(woher), "{fall}: {text}");
         assert!(text.contains("wie ohne --resume"), "{fall}: {text}");
         gleiche_baeume(baum.path(), neu.path(), fall);
         assert!(!baum.path().join("stand-neu.bin").exists(), "{fall}");

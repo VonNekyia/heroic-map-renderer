@@ -184,7 +184,8 @@ test('Nadeln und Banner bleiben beim Hinauszoomen gleich gross, jede mit ihrem N
   }
   // Die Namen in der Kartenschrift, 12 Pixel, auch ohne Kartenschrift in der Ebene.
   expect(await page.locator('.nadel-name').first().evaluate((e) => [getComputedStyle(e).fontFamily, getComputedStyle(e).fontSize])).toEqual(['Kartenschrift, serif', '12px']);
-  expect(await page.evaluate(async () => (await document.fonts.ready).check('12px Kartenschrift'))).toBe(true);
+  // check() sagt auch für eine nie geladene Schrift ja; es zählt die geladene FontFace.
+  await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family === 'Kartenschrift' && f.status === 'loaded'))).toBe(true);
 });
 
 test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2⌋ auf seinem Block; breiter, höher, ausserhalb von images/ oder in anderem Format übergeht die Karte mit Meldung und holt nur die erlaubten Bilder', async ({ page }) => {

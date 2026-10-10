@@ -237,7 +237,7 @@ siehe [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
   | `2:1` | 23 × 51 | 23 × 54 |
   | `4:3` | 23 × 57 | 23 × 58 |
   | `1:1` | 23 × 63 | 23 × 63 |
-  | `north-45` | 20 × 46 | 20 × 55 |
+  | `north-45` | 20 × 46 | 20 × 54 |
 
   Alle bleiben unter der Grenze von 32 × 64 aus
   [Ebenen](../benutzung/ebenen.md), „Grenzen“. In `1:1` ragt das Ende des
@@ -265,11 +265,11 @@ siehe [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md),
   `box_quads`, so passen Umlaufsinn, Normale und Texturrichtung wie bei
   jedem gebackenen Modell.
 - **Lage:** mittig auf dem Querholz, im Raum und in der Lage des
-  Bannermodells, also um 2/3 verkleinert und mit dem Banner gedreht. Die
-  Krone steht um 45° gedreht, Wahl des Users am ersten Goldbild: Ihre
-  Seite mit dem Rubin zeigt nach rechts vorn. Von vorn, in `north-45`,
-  zeigt so eine Ecke zum Betrachter, schräg die Seite mit dem Rubin zur
-  Kamera. `blockentity::erste_form`
+  Bannermodells, also um 2/3 verkleinert und mit dem Banner gedreht. In
+  den genordeten Kameras, `north-45` und damit dem Satz `oben`, steht die
+  Krone zusätzlich um 45° gedreht, ihre Seite mit dem Rubin nach rechts
+  vorn; Wahl des Users am ersten Goldbild. So zeigt sie in jeder Kamera
+  eine Ecke zum Betrachter, schräg schon ungedreht. `blockentity::erste_form`
   liefert die Lage, die Oberkante von Stange und Querholz, im Raum des
   Modells bei y = −44/16, und deren Schicht `entity_solid`
   (`krone_auf_dem_querholz`).

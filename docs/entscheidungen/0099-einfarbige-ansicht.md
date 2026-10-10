@@ -84,6 +84,9 @@ frei.
   höchstens 4 von 255, 90 % um höchstens 16, siehe
   [2026-10-10, Licht je Spalte](../messungen/2026-10-10-licht-je-spalte.md)
   und [Die einfarbige Ansicht](../renderer/einfarbig.md), „Licht je Spalte“.
+- **Ein Schritt Licht von der Seite** im Chunk holt davon 76,6 % zurück,
+  ohne messbare Kosten: Es weichen noch 2,46 % der Pixel ab, siehe
+  [2026-10-10, Licht von der Seite](../messungen/2026-10-10-licht-von-der-seite.md).
 
 ## Verworfene Alternativen
 

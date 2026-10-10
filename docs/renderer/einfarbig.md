@@ -104,12 +104,15 @@ es je Chunk aus seinen eigenen Spalten (`ChunkLicht::spalten` in
 - **Ohne Nachbarn:** Für sein Licht braucht ein Chunk keinen Nachbarn; der
   Rand von 14 Blöcken der Ausbreitung fällt weg. Das Relief nimmt weiter
   die Zeile im Norden.
-- **Was anders aussieht:** Das Licht von der Seite fehlt. Am meisten
-  sieht man das an den Rändern der Baumkronen: Die weiche Beleuchtung einer
-  Oberseite liest auch die Zellen unter dem Laub daneben, und die werden
-  dunkler. Leuchtendes unter Wasser hellt den Grund daneben nicht mehr auf.
-  Über die ganze Testwelt ändern sich so 10,5 % der Pixel, die Hälfte um
-  höchstens 4 von 255, 90 % um höchstens 16, fast alle dunkler, siehe
+- **Was anders aussieht:** Licht von der Seite kommt nur einen Schritt
+  weit und nicht über den Rand des Chunks, und Leuchtendes unter Wasser
+  hellt den Grund daneben nicht auf. Gegen die Ausbreitung weichen über die
+  ganze Testwelt 2,46 % der Pixel ab, am Rand der Chunks 3,37 %, innen
+  2,18 %; als Linie sieht man den Rand nicht, siehe
+  [2026-10-10, Licht von der Seite](../messungen/2026-10-10-licht-von-der-seite.md).
+  Ohne den Schritt waren es 10,5 %, vor allem dunklere Ränder der
+  Baumkronen: Die weiche Beleuchtung einer Oberseite liest auch die Zellen
+  unter dem Laub daneben, siehe
   [2026-10-10, Licht je Spalte](../messungen/2026-10-10-licht-je-spalte.md).
 
 ## Relief

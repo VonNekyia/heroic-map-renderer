@@ -97,10 +97,13 @@ Negative Kachelkoordinaten sind damit kein Sonderfall. Die Felder von
 
 ## Zoom über und unter den Kacheln
 
-Über die feinste gerenderte Stufe hinaus sind zwei weitere Zoomstufen
-erlaubt. Dort vergrössert Leaflet nur noch die vorhandenen Kacheln
-(`maxNativeZoom`), und `image-rendering: pixelated` hält die Pixelkunst
-scharf, statt sie zu verwischen.
+Über die feinste gerenderte Stufe hinaus sind weitere Zoomstufen erlaubt,
+mindestens zwei und so viele, dass ein Block 64 Pixel breit werden kann:
+`max(2, ⌈log2(64 / scale)⌉)`, `extraZoom` in `main.ts`. Ab `scale` 16 sind
+es zwei, bei einem einfarbigen Baum mit `scale` 1 sechs. Dort vergrössert
+Leaflet nur noch die vorhandenen Kacheln (`maxNativeZoom`), und
+`image-rendering: pixelated` hält die Pixelkunst scharf, statt sie zu
+verwischen.
 
 Nach unten geht es unter Zoom 0, wenn die ganze Karte dort nicht ins
 Fenster passt, etwa nachdem die Welt gewachsen ist. Dann verkleinert
@@ -284,7 +287,8 @@ jeden Baum lesbar, nicht mit seinen Kürzeln:
 | `top-north` | „Von oben, Norden oben“; aus `w` Osten, aus `n` Süden, aus `e` Westen |
 | `north-45` | „Schräg, Norden oben“, ebenso |
 
-Ein `look` ausser `map` kommt dazu, `cinematic` als „· Cinematic“. Eine
+Ein `look` ausser `map` kommt dazu, `cinematic` als „· Cinematic“, `flat`
+als „· Einfarbig“; ein unbekannter wie in `trees.json`. Eine
 unbekannte Kamera oder Richtung steht als `camera · direction` da. Die
 Wahl lädt die Seite neu, mit drei Parametern in der Adresse:
 
@@ -297,9 +301,17 @@ Wahl lädt die Seite neu, mit drei Parametern in der Adresse:
 Der neue Baum setzt die Mitte der Oberseite von `at` in die Mitte der
 Karte. `zoom` zählt ab `maxZoom`, weil `maxZoom` je Baum an seiner
 Ausdehnung hängt, siehe [Zoomstufen](benutzung/zoomstufen.md),
-„Nummerierung“. So bleibt beim Umschalten derselbe Block in der Mitte, mit
-derselben Vergrösserung, auch aus einer anderen Richtung. Ohne Koordinaten
-im alten Baum fehlt `at`, und der neue zeigt die ganze Karte.
+„Nummerierung“. So bleibt beim Umschalten derselbe Block in der Mitte, auch
+aus einer anderen Richtung.
+
+Ein Block bleibt dabei gleich gross auf dem Schirm. Auf der feinsten Stufe
+ist er `scale` Pixel breit, und das ist je Baum anders, etwa 16 von oben
+und 1 einfarbig. Der Umschalter holt darum vor dem Wechsel `map.json` des
+neuen Baums und verschiebt `zoom` um `round(log2(scale_alt / scale_neu))`.
+Gerundet, weil Leaflet nur ganze Stufen kennt; über die Stufen des neuen
+Baums hinaus hält ihn Leaflet an der Grenze. Lädt `map.json` nicht, bleibt
+`zoom`, wie es war. Ohne Koordinaten im alten Baum fehlt `at`, und der
+neue zeigt die ganze Karte.
 
 Die Adresse folgt der Karte: Nach jedem Verschieben oder Zoomen schreibt
 das Frontend `at` und `zoom` hinein, mit dem Baum in `tree`, wenn es eine

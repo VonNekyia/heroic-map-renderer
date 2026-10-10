@@ -1,6 +1,6 @@
 ---
 title: Ebenen
-description: Das Format der Ebenen für Webkarte und Mod, mit Nadeln, Kartenschrift, Regionen, Kreisen und Linien und einer strukturierten Infotafel ohne HTML; wo die Dateien neben trees.json liegen, wie sie sich ändern, wie gross sie sein dürfen, und wie 2D- und iso-Ansichten sie mit derselben Projektion wie die Kacheln auf das Gelände legen.
+description: Das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, Kartenschrift, Regionen, Kreisen und Linien und einer strukturierten Infotafel ohne HTML; wo die Dateien neben trees.json liegen, wie sie sich ändern, wie gross sie sein dürfen, und wie 2D- und iso-Ansichten sie mit derselben Projektion wie die Kacheln auf das Gelände legen.
 code:
   - web/src/pick.ts
   - renderer/tests/fixtures/projektion.json
@@ -8,14 +8,15 @@ code:
 
 # Ebenen
 
-Eine Ebene legt Nadeln, Kartenschrift, Regionen, Kreise und Linien über die
-Kacheln, auf der Webkarte wie auf der Vollbildkarte des Mods. Jede lässt
-sich einzeln an- und abschalten. Ebenen sind kein Teil der Kacheln: Der
-Renderer zeichnet sie nicht, das Plugin schreibt sie als JSON, und jede
+Eine Ebene legt Nadeln, Banner, Kartenschrift, Regionen, Kreise und Linien
+über die Kacheln, auf der Webkarte wie auf der Vollbildkarte des Mods. Jede
+lässt sich einzeln an- und abschalten. Ebenen sind kein Teil der Kacheln:
+Der Renderer zeichnet sie nicht, das Plugin schreibt sie als JSON, und jede
 Ansicht zeichnet sie selbst. Diese Seite ist die Schnittstelle zwischen
 Plugin, Webkarte und Mod (#219). Warum so:
-[0095](../entscheidungen/0095-ebenen.md). Was die Webkarte davon schon zeigt:
-[Frontend](../frontend.md), „Ebenen“.
+[0095](../entscheidungen/0095-ebenen.md), für Banner, feste Grösse und Tafel
+beim Zeigen [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md).
+Was die Webkarte davon schon zeigt: [Frontend](../frontend.md), „Ebenen“.
 
 ## Überblick
 
@@ -118,8 +119,8 @@ selbst, die Webkarte im Browser.
   - `permission`: wer sie im Mod sieht. Eine Ebene mit `permission` kommt
     nie auf die öffentliche Webkarte. Ohne `web` gilt für sie `web: false`;
     nur ein ausdrückliches `web: true` dazu ist ein Fehler.
-    Sie hat vorerst keine Bilder: `symbol` und Bilder in der Tafel sind
-    dort ein Fehler, denn alles unter `layers/` ist öffentlich. Der Mod
+    Sie hat vorerst keine Bilder: `symbol`, Banner und Bilder in der Tafel
+    sind dort ein Fehler, denn alles unter `layers/` ist öffentlich. Der Mod
     zeichnet ihre Nadeln als Nadel der Karte in `color`.
 - **`objects`:** die Objekte, in der Reihenfolge, in der sie liegen; ein
   späteres liegt über einem früheren derselben Art.
@@ -129,9 +130,9 @@ selbst, die Webkarte im Browser.
 | Feld | Inhalt |
 |---|---|
 | `id` | eindeutig in der Ebene, 1 bis 64 Zeichen; damit ersetzt das Plugin ein Objekt |
-| `type` | `pin`, `label`, `region`, `circle` oder `line` |
+| `type` | `pin`, `banner`, `label`, `region`, `circle` oder `line` |
 | `dimension` | etwa `minecraft:overworld`; Vorgabe `minecraft:overworld`. Für die Webkarte schreibt das Plugin nur die Objekte der Dimension ihrer Wurzel |
-| `panel` | eine Infotafel beim Anklicken, nur bei `pin`, `region` und `circle`, siehe „Infotafel“ |
+| `panel` | eine Infotafel beim Zeigen, nur bei `pin`, `banner`, `region` und `circle`, siehe „Infotafel“ |
 
 - **Punkte** sind `[x, z]` in Blöcken der Welt, als Zahlen mit Komma. Die
   Ecke eines Blocks liegt auf ganzen Zahlen, seine Mitte bei `+0.5`. Eine
@@ -157,8 +158,10 @@ selbst, die Webkarte im Browser.
 
 ### Nadel
 
-Ein Punkt der Karte als Wappenschild mit Symbol und Namen. Wie gross, sagt
-der Typ des Orts, und beim Hinauszoomen wird die Nadel kleiner.
+Ein Punkt der Karte als Wappenschild mit Symbol und Namen, etwa ein
+Wegpunkt. `size` wählt die Grösse fest; sie bleibt auf jeder Stufe gleich,
+siehe „Nadeln und Banner“ unter „Zeichnen“. Für Orte wie Städte gibt es das
+Banner.
 
 ```json
 {
@@ -179,7 +182,7 @@ der Typ des Orts, und beim Hinauszoomen wird die Nadel kleiner.
 | `at` | der Punkt | Pflicht |
 | `y` | der Block, auf dem die Nadel steht; ihr Fuss liegt auf seiner Oberseite, `y + 1` | die Höhe aus `map.json` |
 | `name` | steht unter der Nadel, höchstens 64 Zeichen | ohne |
-| `size` | Grundgrösse nach dem Typ des Orts: `large`, `medium` oder `small` | `medium` |
+| `size` | Grösse, fest auf jeder Stufe: `large`, `medium` oder `small` | `medium` |
 | `symbol` | Bilder der Ebene im Schild, siehe „Bilder“: `large` genau 16 × 16 Pixel, `medium` genau 9 × 9; fehlt eins, steht das Schild in dieser Grösse leer. `small` hat nie ein Symbol | ohne |
 | `color` | Farbe des Schilds | `#D9443A` |
 
@@ -204,6 +207,41 @@ der Typ des Orts, und beim Hinauszoomen wird die Nadel kleiner.
   nicht genau seine Grösse, bleibt das Schild leer. Die Bilder von Schild
   und Nadel liefert jede Ansicht selbst.
 - **Fuss:** die Spitze der Nadel, in der Mitte der Unterkante.
+
+### Banner
+
+Ein Ort der Karte als Bild, etwa eine Stadt mit dem Banner ihrer Nation.
+Das Bild bringt der Besitzer der Ebene mit, etwa ein Plugin für Städte über
+die API; für eine Stadt ohne Nation schickt er ein weisses. Mehrere Banner
+dürfen sich ein Bild teilen, etwa alle Städte einer Nation; so reichen die
+200 Bilder je Ebene auch für 1000 Banner.
+
+```json
+{
+  "id": "stadt-17",
+  "type": "banner",
+  "at": [120.5, -340.5],
+  "y": 71,
+  "image": "images/banner-nordreich.png",
+  "name": "Hafenstadt",
+  "panel": { "blocks": [] }
+}
+```
+
+| Feld | Inhalt | Vorgabe |
+|---|---|---|
+| `at` | der Punkt | Pflicht |
+| `y` | der Block, auf dem das Banner steht; sein Fuss liegt auf dessen Oberseite, `y + 1` | die Höhe aus `map.json` |
+| `image` | ein Bild der Ebene, siehe „Bilder“, höchstens 32 × 64 Pixel; ein Plugin für Städte schickt etwa 22 × 40 | Pflicht |
+| `name` | steht unter dem Banner, höchstens 64 Zeichen | ohne |
+
+- **Pixel auf Pixel:** in der Grösse des Bilds, in Pixeln der Ansicht, nie
+  skaliert, auf jeder Stufe gleich.
+- **Fuss:** die Unterkante des Bilds, `⌊Breite / 2⌋` Pixel rechts seiner
+  linken Kante, so wie bei der Nadel.
+- **Ohne gültiges Bild,** zu gross, in einem anderen Format oder nicht unter
+  `images/`, übergeht die Ansicht das Banner und nennt es in der Konsole
+  oder im Log.
 
 ### Kartenschrift
 
@@ -299,10 +337,26 @@ Region, deren Rand im Abstand `radius` liegt.
 
 ## Infotafel
 
-Eine Nadel, Region oder ein Kreis kann beim Anklicken eine Tafel zeigen.
-Sie ist eine Liste von Bausteinen, kein HTML: Webkarte und Mod zeichnen
-dieselbe Tafel, und fremdes Markup auf der Webkarte wäre eine Lücke für
-Skripte.
+Eine Nadel, ein Banner, eine Region oder ein Kreis kann eine Tafel zeigen,
+sobald der Zeiger darauf ruht. Sie ist eine Liste von Bausteinen, kein
+HTML: Webkarte und Mod zeichnen dieselbe Tafel, und fremdes Markup auf der
+Webkarte wäre eine Lücke für Skripte.
+
+- **Beim Zeigen:** Ruht der Zeiger 150 ms auf dem Ziel, erscheint die
+  Tafel. Verlässt er Ziel und Tafel, schliesst sie nach 300 ms; dazwischen
+  kann er in die Tafel wandern, etwa zum Scrollen.
+- **Ein Klick** hält sie offen, bis zum Schliessknopf, zu Escape oder zu
+  einem Klick daneben.
+- **Escape und ein Klick daneben** schliessen zuerst nur die Tafel. Erst
+  der nächste Druck wirkt auf die Karte, im Mod etwa schliesst er die
+  Vollbildkarte.
+- **Ohne Zeiger,** auf Telefon und Tablett, öffnet Tippen die Tafel, Tippen
+  daneben schliesst sie.
+- **Per Tastatur,** nur auf der Webkarte: Nadeln, Banner und Flächen mit
+  Tafel sind Ziele für Tab, Enter öffnet die Tafel des Ziels im Fokus,
+  Escape schliesst sie. Im Mod sind sie keine Ziele für die Tastatur.
+- **Im Mod** gibt es die Tafel nur auf der Vollbildkarte, nicht auf der
+  Minimap.
 
 ```json
 "panel": {
@@ -337,13 +391,13 @@ Skripte.
 |---|---|---|
 | `title` | `text`, höchstens 64 Zeichen; `color`, Vorgabe die Schrift der Tafel | 20 px, fett |
 | `lines` | `lines`, je Zeile höchstens 120 Zeichen | 13 px, Zeilenhöhe 1,4 |
-| `image` | `image`, `width` und `height` in Pixeln der Tafel, `align` `left`, `center` oder `right`, Vorgabe `left` | in dieser Grösse, Pixelkunst ohne Glättung |
+| `image` | `image`, `width` und `height` in Pixeln der Tafel, `align` `left`, `center` oder `right`, Vorgabe `left` | in dieser Grösse, Pixelkunst ohne Glättung; breiter als der Inhalt der Tafel, 320 Pixel, verkleinert mit gleichem Seitenverhältnis, nie vergrössert |
 | `section` | `heading`: Bild mit `image`, `width`, `height` und `alt`, oder Text mit `text`; `blocks` darin | Überschrift über ihrem Inhalt, 8 px Abstand davor |
 | `rating` | `rows`: je Reihe `label`, `value` und `max` als ganze Zahlen, `color` | `max` Punkte von 10 px, `value` davon in `color`, die übrigen in `color` mit 25 % Deckkraft; das Label links, 100 px breit |
 | `columns` | `columns`: zwei Listen von Bausteinen | nebeneinander, oben bündig, die zweite so breit wie ihr Inhalt |
 
-- **Breite:** höchstens 320 Pixel, Innenabstand 8 Pixel, 4 Pixel zwischen
-  Bausteinen. Farben von Grund und Schrift kommen aus der Ansicht: auf der
+- **Breite:** Der Inhalt ist höchstens 320 Pixel breit, um ihn 8 Pixel
+  Innenabstand, 4 Pixel zwischen Bausteinen. Farben von Grund und Schrift kommen aus der Ansicht: auf der
   Webkarte aus der UI, siehe [Frontend](../frontend.md), im Mod aus seiner.
 - **Schrift:** eine schlichte, gut lesbare Schrift der Oberfläche, nie die
   Kartenschrift: auf der Webkarte die der UI, im Mod die des Spiels. Die
@@ -377,12 +431,14 @@ Symbole und Bilder der Tafeln liegen beim Server, nicht im JSON.
   Chunk `VP8L` im `RIFF`, ohne `VP8X` und ohne verlustbehaftetes `VP8`. Mehr
   liest der Mod nicht.
 - **Grösse:** Symbole genau 16 × 16 oder 9 × 9 Pixel, siehe „Nadel“,
-  Bilder der Tafel höchstens 512 × 512, jedes höchstens 256 KiB.
+  Banner höchstens 32 × 64, siehe „Banner“, Bilder der Tafel höchstens
+  512 × 512, jedes höchstens 256 KiB.
 - **Kein `data:`:** Die Karte läuft unter `img-src 'self'`, siehe
   [Frontend](../frontend.md), „Ausliefern“. Ein Bild, das das Plugin
   erzeugt, etwa ein Banner, schreibt es als Datei.
 - **Im Mod** holt der Mod die Bilder über den Server des Renderers, ohne
-  Token, erst wenn eine Nadel auf dem Schirm liegt oder die Tafel offen ist.
+  Token, erst wenn eine Nadel oder ein Banner auf dem Schirm liegt oder die
+  Tafel offen ist.
 - **Bilder einer Ebene mit `permission`** gibt es vorerst nicht, siehe
   „Datei einer Ebene“.
 - **Öffentlich, auch bei `web: false`:** Das Plugin legt die Bilder jeder
@@ -427,20 +483,21 @@ es und nennt es in der Konsole oder im Log.
 | Ebenen je Wurzel, mit denen nur für den Mod | 64 |
 | `layers.json` | 64 KiB |
 | Datei einer Ebene | 4 MiB |
-| Objekte je Ebene | 10 000, davon 1000 Nadeln |
+| Objekte je Ebene | 10 000, davon 1000 Nadeln und Banner zusammen |
 | Punkte je Objekt, über alle Ringe | 10 000 |
 | Löcher je Polygon | 100 |
 | Bilder je Ebene | 200 |
 | Punkte je Reihe einer Wertung | 20 |
 | Symbol | 16 × 16 oder 9 × 9 Pixel |
+| Bild eines Banners | 32 × 64 Pixel, 256 KiB |
 | Bild der Tafel | 512 × 512 Pixel, 256 KiB |
 | Nachricht an den Mod | 64 KiB je Teil; ein grösseres Objekt allein, höchstens 1 MiB |
 
 ## An den Mod
 
-Das Plugin schickt dem Mod Nadeln, Regionen und Kreise, über seinen Kanal.
-Regionen braucht der Mod zum Anheften (heroic-map-renderer-mod#36).
-Kartenschrift und Linien schickt es vorerst nicht.
+Das Plugin schickt dem Mod Nadeln, Banner, Kartenschrift, Regionen, Kreise
+und Linien, über seinen Kanal. Regionen braucht der Mod auch zum Anheften
+(heroic-map-renderer-mod#36).
 
 - **Objekte:** dieselben Felder wie hier, ohne `panel`, in derselben
   Reihenfolge.
@@ -455,7 +512,7 @@ Kartenschrift und Linien schickt es vorerst nicht.
 - **Liste:** dieselben Felder wie `layers.json`; dazu nennt sie die Adresse
   des Servers, von dem der Mod die Bilder holt.
 - **Einzelheiten:** Nachrichten und Rechte beschreibt das Plugin in seiner
-  Doku. Infotafeln holt der Mod später beim Anklicken.
+  Doku. Infotafeln holt der Mod später, wenn der Zeiger auf dem Ziel ruht.
 
 ## Zeichnen
 
@@ -553,43 +610,36 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 - **Grösse:** `size` Blöcke auf dem Boden, in Pixeln also `size · scale`
   auf der feinsten Stufe, mal 2^(Zoom − maxZoom).
 
-### Nadeln
+### Nadeln und Banner
 
 - **Fuss:** `P(x, y + 1, z)` mit `y` aus dem Objekt oder `H(x, z)`.
-- **Grösse:** in Pixeln der Ansicht, siehe „Nadel“; auf der Webkarte
-  Pixel des Bildschirms, im Mod Einheiten seiner Oberfläche wie seine
-  Wegpunkte. Sie hängt nicht am Zoom, nur an der Stufe unten.
-- **Kleiner beim Hinauszoomen:** Massgebend ist `p`, wie breit ein Block
-  auf dem Schirm ist, in Pixeln der Ansicht; auf der Webkarte
-  `scale · 2^(Zoom − maxZoom)`. Die Nadel wird um `n` Grössen kleiner:
+- **Grösse:** fest, auf jeder Stufe gleich, siehe
+  [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md):
+  die Nadel in ihrer `size`, siehe „Nadel“, das Banner in der Grösse seines
+  Bilds. In Pixeln der Ansicht, auf der Webkarte Pixel des Bildschirms, im
+  Mod Einheiten seiner Oberfläche wie seine Wegpunkte. Sie hängt nicht am
+  Zoom.
+- **Name:** immer, unter der Nadel oder dem Banner, auf der Webkarte in
+  12 Pixeln.
 
-  | p | n | `large` | `medium` | `small` |
-  |---|---|---|---|---|
-  | ab 1/2 | 0 | `large` | `medium` | `small` |
-  | ab 1/8 | 1 | `medium` | `small` | aus |
-  | ab 1/32 | 2 | `small` | aus | aus |
-  | darunter | 3 | aus | aus | aus |
-
-  So bleiben Städte länger sichtbar als Dörfer. Bei 1/2 deckt ein Pixel zwei
-  Blöcke, bei 1/32 zweiunddreissig.
-- **Name:** nur, solange die Nadel in ihrer Grundgrösse steht, auf der
-  Webkarte in 12 Pixeln unter der Nadel.
-
-### Reihenfolge und Anklicken
+### Reihenfolge, Zeigen und Anklicken
 
 - **Ebenen:** nach `order`, die höhere oben.
 - **In einer Ebene:** Füllungen, dann Ränder und Linien, dann Schrift.
-  Nadeln aller Ebenen liegen über allem anderen.
-- **Anklicken:** Es gilt, was oben liegt: eine Nadel, sonst eine Region
-  oder ein Kreis, in dessen gezeichnetem Umriss der Klick liegt.
+  Nadeln und Banner aller Ebenen liegen über allem anderen; in einer Ebene
+  liegt das spätere oben.
+- **Zeigen und Anklicken:** Es gilt, was oben liegt: eine Nadel oder ein
+  Banner, sonst eine Region oder ein Kreis, in dessen gezeichnetem Umriss
+  der Zeiger liegt. Was dann geschieht, steht unter „Infotafel“.
 
 ## Beispiel: Städte, Stadtinfos, Schiffsrouten
 
 Drei Ebenen eines Plugins für Städte, wie #219 sie als Prüfstein nennt:
 
-- **`beispiel:staedte`,** sichtbar: je Stadt eine Nadel mit Burg und der
-  Tafel oben, dazu die Fläche der Stadt in der Farbe ihrer Nation,
-  `fill` mit Alpha `55`, `stroke` mit `DD`, siehe „Region“.
+- **`beispiel:staedte`,** sichtbar: je Stadt das Banner ihrer Nation, ohne
+  Nation ein weisses, mit der Tafel oben, dazu die Fläche der Stadt in der
+  Farbe ihrer Nation, `fill` mit Alpha `55`, `stroke` mit `DD`, siehe
+  „Region“.
 - **`beispiel:stadtinfos`,** verborgen: je Stadt zwei Kreise, 750 und 2000
   Blöcke, der äussere gestrichelt:
 
@@ -603,5 +653,5 @@ Drei Ebenen eines Plugins für Städte, wie #219 sie als Prüfstein nennt:
 - **`beispiel:schiffsrouten`,** verborgen: gestrichelte Linien zwischen den
   Häfen, siehe „Linie“.
 
-Die Bilder (Burg, Überschriften, Banner) liefert das Plugin unter
+Die Bilder (Banner, Überschriften) liefert das Plugin unter
 `layers/beispiel/images/`.

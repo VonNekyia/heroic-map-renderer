@@ -94,6 +94,16 @@ Beide Bilder stammen aus Gametests des Mods.
 - **Schlankes Frontend:** Leaflet mit Vite und TypeScript. Es lädt nur
   Kacheln, `map.json` und die Höhen für die Koordinaten.
 
+## Ebenen
+
+Server und Plugins legen Ebenen über die Karte: Regionen, Kreise, Linien,
+Kartenschrift, Nadeln und Banner mit Tafel, schräg wie von oben auf dem
+Gelände, siehe [Ebenen](docs/benutzung/ebenen.md).
+
+<p align="center">
+  <img src="docs/bilder/ebenen-testwelt.webp" alt="Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben: Region, Kreis, Linie, Kartenschrift, ein Banner mit Entwurf und Krone, Name im Bogen und Tafel, eine Nadel">
+</p>
+
 ## Karte und Cinematic
 
 <p align="center">
@@ -257,6 +267,12 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
 
 ## Stand
 
+- **Veröffentlicht:** der Renderer als
+  [Release](https://github.com/VonNekyia/heroic-map-renderer/releases/latest)
+  mit Paketen für Windows und Linux, siehe
+  [Installation](docs/benutzung/installation.md); das Plugin auf
+  [Hangar](https://hangar.papermc.io/Neky/heroic-map) und Modrinth, der Mod
+  auf Modrinth.
 - Liest Welten ab 26.1 und Resourcepacks aus 26.2 und 26.3, mit den
   Tabellen aus 26.3, siehe
   [0059](docs/entscheidungen/0059-welten-aus-26-2-und-26-3.md); eine Welt
@@ -264,9 +280,16 @@ Alle Schalter: [Schalter und Beispiele](docs/benutzung/schalter.md).
   [0065](docs/entscheidungen/0065-sicht-in-der-ecke-nach-der-version.md).
 - Truhen, Banner, Köpfe, Krüge und die übrigen Blockentities aus den
   Modellen des Spiels, mit Bannermustern und Scherben.
-- Server, Plugin und Mod sind gebaut und getestet, dazu eine EXE mit
-  Assistent für Windows, siehe [Assistent](docs/benutzung/assistent.md).
-  Veröffentlicht ist noch nichts: keine Pakete, kein Plugin, kein Mod.
+- Ebenen für Server und Plugins: Nadeln, Regionen, Kreise, Linien und
+  Kartenschrift, auf der Webkarte wie im Mod, siehe
+  [Ebenen](docs/benutzung/ebenen.md).
+- Banner, die der Renderer selbst zeichnet, mit Krone für Hauptstädte und
+  dem Namen im Bogen, siehe [Blockentities](docs/renderer/blockentities.md),
+  „Banner ohne Welt“.
+- Die einfarbige Ansicht `--flat`: von oben, ein Pixel je Block, siehe
+  [Die einfarbige Ansicht](docs/renderer/einfarbig.md).
+- Eine EXE mit Assistent für Windows, siehe
+  [Assistent](docs/benutzung/assistent.md).
 - Noch nicht: Text auf Schildern und Gegenstände in Blöcken.
 
 ## AI driven development, human driven design

@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
+import { zweiZuEins } from '../src/pick';
 
 /** Ein kleiner Kachelbaum, der mit im Repository liegt. */
 const DEMO = '/?tiles=/tiles-demo';
@@ -790,8 +791,10 @@ test('ohne map.json sagt die Seite warum', async ({ page }) => {
  * mit `2x1-se` und `2x1-nw`, je ein `map.json`, Höhen geteilt in `heights/`.
  * Beide zeigen die Kacheln des Demobaums; die Höhen sind eben auf Y 0.
  * `2x1-nw` hat eine Stufe mehr, wie ein Baum mit grösserer Ausdehnung:
- * seine Stufe z ist die Stufe z − 1 des Demobaums. Zwei weitere Einträge
- * stehen nur in der Liste, für die Namen im Umschalter.
+ * seine Stufe z ist die Stufe z − 1 des Demobaums. `2x1-se-flat` ist
+ * einfarbig mit `scale` 1, zeigt aber die Kacheln von `2x1-se` mit deren
+ * Projektion. Zwei weitere Einträge stehen nur in der Liste, für die Namen
+ * im Umschalter.
  */
 async function baeume(page: Page): Promise<void> {
   const trees = [
@@ -801,6 +804,7 @@ async function baeume(page: Page): Promise<void> {
       direction,
       look: 'map',
     })),
+    { path: '2x1-se-flat', camera: '2:1', direction: 'se', look: 'flat' },
     { path: 'top-se', camera: 'top', direction: 'se', look: 'map' },
     { path: 'top-north-w-cinematic', camera: 'top-north', direction: 'w', look: 'cinematic' },
   ];
@@ -809,21 +813,22 @@ async function baeume(page: Page): Promise<void> {
     const url = route
       .request()
       .url()
-      .replace(/\/tiles-baeume\/2x1-se\//, '/tiles-demo/')
+      .replace(/\/tiles-baeume\/2x1-se(-flat)?\//, '/tiles-demo/')
       .replace(/\/tiles-baeume\/2x1-nw\/(\d+)\//, (_, z: string) => `/tiles-demo/${Number(z) - 1}/`);
     await route.fulfill({ response: await route.fetch({ url }) });
   });
   await page.route('**/tiles-baeume/*/map.json', async (route) => {
-    const direction = /2x1-(\w+)\//.exec(route.request().url())![1]!;
-    const url = route.request().url().replace(/\/tiles-baeume\/2x1-\w+\//, '/tiles-demo/');
+    const [, direction, flat] = /2x1-(\w+)(-flat)?\//.exec(route.request().url())!;
+    const url = route.request().url().replace(/\/tiles-baeume\/2x1-[\w-]+\//, '/tiles-demo/');
     const response = await route.fetch({ url });
     const info = (await response.json()) as { minZoom: number; maxZoom: number };
     const hoehen = { heights: '../heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319 };
     const stufen =
       direction === 'nw' ? { minZoom: info.minZoom + 1, maxZoom: info.maxZoom + 1 } : {};
+    const einfarbig = flat ? { scale: 1, projection: zweiZuEins(16) } : {};
     await route.fulfill({
       response,
-      json: { ...info, ...hoehen, ...stufen, camera: '2:1', direction },
+      json: { ...info, ...hoehen, ...stufen, ...einfarbig, camera: '2:1', direction },
     });
   });
   await page.route('**/tiles-baeume/heights/*.bin', (route) =>
@@ -861,6 +866,7 @@ test('der Umschalter öffnet den anderen Baum mit demselben Block in der Mitte',
   await expect(auswahl.locator('option')).toHaveText([
     '2:1 aus Südost',
     '2:1 aus Nordwest',
+    '2:1 aus Südost · Einfarbig',
     'Von oben aus Südost',
     'Von oben, Osten oben · Cinematic',
   ]);
@@ -880,6 +886,37 @@ test('der Umschalter öffnet den anderen Baum mit demselben Block in der Mitte',
   await expect(page.locator('select.baeume')).toHaveValue('2x1-nw');
   await expect(page.locator('.kompass')).toHaveAttribute('style', /rotate\(-116\.6deg\)/);
   expect(await mitte(page)).toBe(vorher);
+});
+
+/** Wie breit eine Kachel auf dem Schirm ist; über der feinsten Stufe vergrössert Leaflet sie. */
+async function kachelBreite(page: Page): Promise<number> {
+  const kachel = page.locator('img.leaflet-tile-loaded').first();
+  await expect(kachel).toBeVisible();
+  return (await kachel.boundingBox())!.width;
+}
+
+test('beim Wechsel bleibt ein Block gleich gross, auch zu einem einfarbigen Baum mit scale 1; dort reicht der Zoom, bis ein Block 64 Pixel breit ist', async ({
+  page,
+}) => {
+  await baeume(page);
+  // scale 16, eine Stufe über der feinsten: ein Block 32 Pixel, eine Kachel 512.
+  await page.goto('/?tiles=/tiles-baeume&tree=2x1-se&at=20,0,-20&zoom=1');
+  expect(await kachelBreite(page)).toBe(512);
+  await page.locator('select.baeume').selectOption('2x1-se-flat');
+  await page.waitForURL(/tree=2x1-se-flat/);
+  // scale 1: Für 32 Pixel je Block fünf Stufen über der feinsten, eine Kachel 256 · 2^5.
+  expect(new URL(page.url()).searchParams.get('zoom')).toBe('5');
+  expect(await kachelBreite(page)).toBe(256 * 32);
+  // Und zurück.
+  await page.locator('select.baeume').selectOption('2x1-se');
+  await page.waitForURL(/tree=2x1-se&/);
+  expect(new URL(page.url()).searchParams.get('zoom')).toBe('1');
+  expect(await kachelBreite(page)).toBe(512);
+  // Die Grenzen: bei scale 1 sechs Stufen über der feinsten, 64 Pixel je Block; bei scale 16 zwei.
+  await page.goto('/?tiles=/tiles-baeume&tree=2x1-se-flat&at=20,0,-20&zoom=7');
+  expect(await kachelBreite(page)).toBe(256 * 64);
+  await page.goto('/?tiles=/tiles-baeume&tree=2x1-se&at=20,0,-20&zoom=3');
+  expect(await kachelBreite(page)).toBe(256 * 4);
 });
 
 test('ein Baum allein braucht keinen Umschalter, nur den Kompass', async ({ page }) => {

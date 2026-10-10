@@ -46,13 +46,18 @@ interface MapInfo {
 }
 
 /**
- * Wie viele Stufen über die feinste gerenderte hinaus gezoomt werden darf.
+ * Wie viele Stufen über die feinste gerenderte hinaus gezoomt werden darf:
+ * mindestens zwei, und so viele, dass ein Block `BLOCK_MAX` Pixel breit
+ * werden kann, auch bei kleinem `scale` wie einem einfarbigen Baum.
  *
  * Darüber vergrössert Leaflet nur noch die vorhandenen Kacheln. Bei
  * Pixelkunst ist das kein Verlust, solange der Browser nicht glättet —
- * dafür sorgt `image-rendering: pixelated`.
+ * dafür sorgt `image-rendering: pixelated`. Siehe docs/frontend.md, „Zoom
+ * über und unter den Kacheln“.
  */
 const EXTRA_ZOOM = 2;
+const BLOCK_MAX = 64;
+const extraZoom = (scale: number): number => Math.max(EXTRA_ZOOM, Math.ceil(Math.log2(BLOCK_MAX / scale)));
 
 /**
  * Ein Bildpunkt der feinsten Stufe als Leaflet-Koordinate.
@@ -524,6 +529,9 @@ const HIMMEL: Record<string, string> = {
   e: 'Westen',
 };
 
+/** Die Namen der Looks ausser `map` im Umschalter; ein unbekannter heisst wie in `trees.json`. */
+const LOOKS: Record<string, string> = { cinematic: 'Cinematic', flat: 'Einfarbig' };
+
 /** Der Name eines Baums im Umschalter, etwa „2:1 aus Südost“. */
 function anzeigename({ camera, direction, look }: Baum): string {
   const himmel = HIMMEL[direction];
@@ -535,7 +543,7 @@ function anzeigename({ camera, direction, look }: Baum): string {
         ? `Schräg, ${himmel} oben`
         : `${camera === 'top' ? 'Von oben' : camera} aus ${himmel}`;
   if (look === 'map') return name;
-  return `${name} · ${look === 'cinematic' ? 'Cinematic' : look}`;
+  return `${name} · ${LOOKS[look] ?? look}`;
 }
 
 /**
@@ -561,7 +569,7 @@ async function adresse(
 /**
  * Der Umschalter zwischen den Bäumen. Er öffnet den gewählten Baum mit dem
  * Block, der in der Mitte zu sehen ist, wieder in der Mitte, mit derselben
- * Vergrösserung.
+ * Grösse eines Blocks auf dem Schirm, soweit dessen Stufen reichen.
  */
 function umschalter(
   map: L.Map,
@@ -630,7 +638,7 @@ async function start(): Promise<void> {
 
   const map = L.map('map', {
     crs: crs(info),
-    maxZoom: info.maxZoom + EXTRA_ZOOM,
+    maxZoom: info.maxZoom + extraZoom(info.scale),
     attributionControl: false,
   });
   // Ein Skin gestaltet um die Karte und sagt, was als ganze Karte gilt. Er
@@ -668,7 +676,7 @@ async function start(): Promise<void> {
     // Die Untergrenze setzt die Karte, und ein Skin senkt sie, wird das
     // Fenster kleiner. Die Ebene zeigt auf jeder Stufe Kacheln.
     minZoom: -Infinity,
-    maxZoom: info.maxZoom + EXTRA_ZOOM,
+    maxZoom: info.maxZoom + extraZoom(info.scale),
     // Über die gerenderte Stufe hinaus gibt es keine Kacheln mehr; Leaflet
     // soll dann die vorhandenen vergrössern statt ins Leere zu laden.
     // Unter Zoom 0 ebenso, nur verkleinert.
@@ -704,7 +712,15 @@ async function start(): Promise<void> {
     return bei ? bei(lng, lat) : Promise.resolve(undefined);
   };
   const ansicht = (tree: string | undefined) => adresse(map, info.maxZoom, mitte, tree);
-  if (liste && baum && liste.length > 1) umschalter(map, liste, baum, ansicht);
+  // Beim Wechsel bleibt ein Block gleich gross: `zoom` zählt ab der feinsten
+  // Stufe, und dort ist ein Block `scale` Pixel breit, je Baum anders.
+  const wechsel = async (tree: string): Promise<URL> => {
+    const [url, ziel] = await Promise.all([ansicht(tree), load(`${wurzel}/${tree}`).catch(() => undefined)]);
+    const zoom = Number(url.searchParams.get('zoom'));
+    if (ziel) url.searchParams.set('zoom', String(zoom + Math.round(Math.log2(info.scale / ziel.info.scale))));
+    return url;
+  };
+  if (liste && baum && liste.length > 1) umschalter(map, liste, baum, wechsel);
   // Die Adresse folgt der Karte, ohne Einträge im Verlauf. Ohne Koordinaten
   // gibt es keinen Block für `at`, und sie bleibt, wie sie ist. Es gilt die
   // letzte Bewegung.

@@ -50,7 +50,7 @@ Bei scale 1 deckt die Oberseite eines Würfels genau einen Pixel.
   [`renderer/tests/metatile.rs`](../../renderer/tests/metatile.rs)).
 - **Jedes Texel:** Bei scale 1 tastet er so dicht ab, wie der Frame der
   Textur Texel je Kante hat, mindestens 16 und höchstens 64
-  (`MAX_PROBEN_JE_TEXEL` in
+  (`MAX_PROBEN_JE_KANTE` in
   [`renderer/src/render/rasterizer.rs`](../../renderer/src/render/rasterizer.rs)).
   Eine Textur von 32 × 32 zählt so jedes Texel einmal
   (`flach_proben_bis_zum_frame`); bei jedem anderen scale bleibt es bei
@@ -58,7 +58,10 @@ Bei scale 1 deckt die Oberseite eines Würfels genau einen Pixel.
 - **Ausgeschnittene Flächen** decken nach dem Alphatest den Pixel ganz
   oder gar nicht. Eine Oberseite, die weniger als halb deckt, verschwindet
   bei scale 1 und setzt keine Höhe, etwa klares Glas, Schienen oder
-  Spinnweben (`flach_spaerliche_oberseite_verschwindet`).
+  Spinnweben, wenn ihre Textur weniger als halb deckt
+  (`flach_spaerliche_oberseite_verschwindet`). Deckt sie mindestens die
+  Hälfte wie dichtes Laub, hat der Pixel Alpha 255 und das lineare Mittel
+  der Texel, die bleiben (`flach_dichter_ausschnitt_ist_das_mittel_der_behaltenen`).
 
 ## Biomfarbe und Wasser
 
@@ -115,10 +118,14 @@ Belegt per `javap` am Client von 26.2 in `MapItem.update`,
   `getMapColor` nicht `MapColor.NONE` ist; im Massstab 1:1 je Pixel ein
   Block.
 - **Der Ausdruck:** in double
-  `(h − h_vorher) · 4,0 / (scale + 4) + (((x + z) & 1) − 0,5) · 0,4`, mit
-  `h_vorher` vom Pixel davor in z, also im Norden. Die Zeile davor rechnet
-  nur als Nachbar mit. Über 0,6 HIGH, unter −0,6 LOW, sonst NORMAL; im
-  Massstab 1:1 ist scale 1.
+  `(h − h_vorher) · 4,0 / (i + 4) + (((x + z) & 1) − 0,5) · 0,4`, mit
+  `i = 1 << scale` aus dem Feld `scale` der Karte, bei 1:1 also 0 und
+  `i` = 1. `h_vorher` kommt vom Pixel davor in z, also im Norden; die Zeile
+  davor rechnet nur als Nachbar mit. Über 0,6 HIGH, unter −0,6 LOW, sonst
+  NORMAL.
+- **Die Parität** rechnet mit den Pixeln der Karte (`k1 + l1`), nicht mit
+  Blöcken. Bei 1:1 ist sie dieselbe wie die von x + z, und für Land spielt
+  sie keine Rolle mehr, siehe „Bei ganzen Blöcken nur das Vorzeichen“.
 - **Die Helligkeiten:** LOW 180, NORMAL 220, HIGH 255. LOWEST 135 braucht
   diese Rechnung nicht.
 - **Die Farbe:** `ARGB.scaleRGB`, je Kanal `c · m / 255` ganzzahlig, auf

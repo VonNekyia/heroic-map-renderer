@@ -27,7 +27,7 @@ fn texture_samples(scale: u32) -> u32 {
 /// die ganze Oberseite trägt: dort tastet `draw` so dicht ab, wie
 /// der Frame der Textur Texel hat, bei Packs bis 64 × 64 jedes einmal.
 /// Siehe docs/renderer/einfarbig.md, „Farbe je Zustand“.
-const MAX_PROBEN_JE_TEXEL: u32 = 64;
+const MAX_PROBEN_JE_KANTE: u32 = 64;
 
 /// Obergrenze für die Kantenlänge eines Sprites, in Blockbreiten. Modelle
 /// dürfen von -16 bis 32 reichen, also drei Blöcke; alles darüber ist
@@ -826,7 +826,7 @@ impl<'a> ProjectedQuad<'a> {
         }
         // Bei scale 1 zählt jedes Texel des Frames, bis zum Deckel.
         let samples = match je_texel {
-            true => tw.max(th).clamp(samples, MAX_PROBEN_JE_TEXEL),
+            true => tw.max(th).clamp(samples, MAX_PROBEN_JE_KANTE),
             false => samples,
         };
 

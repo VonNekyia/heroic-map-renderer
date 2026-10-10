@@ -6281,3 +6281,32 @@ fn flach_durchscheinendes_hat_seine_hoehe() {
         );
     }
 }
+
+/// Ein dichter Ausschnitt, drei Viertel deckend wie Laub, bleibt nach dem
+/// Alphatest ganz: Alpha 255, die Farbe das lineare Mittel der behaltenen
+/// Texel, zwei Drittel der einen Farbe, ein Drittel der anderen. Die
+/// Löcher zählen nicht mit.
+#[test]
+fn flach_dichter_ausschnitt_ist_das_mittel_der_behaltenen() {
+    let dir = tempdir();
+    common::write_world(dir.path(), &[(0, 0)], |_, y, _| {
+        if y == 0 {
+            "minecraft:dicht"
+        } else {
+            "minecraft:air"
+        }
+    });
+    let world = World::open(dir.path()).unwrap();
+    let sprites = tabelle(&mut assets(), &world, flach());
+    let bild = flach_bild(&world, &sprites, (0, 0), 1);
+    let linear = |c: f64| ((c / 255.0 + 0.055) / 1.055).powf(2.4);
+    let srgb = |l: f64| ((1.055 * l.powf(1.0 / 2.4) - 0.055) * 255.0).round() as u8;
+    let mittel = |a: f64, b: f64| srgb((2.0 * linear(a) + linear(b)) / 3.0);
+    let soll = in_helligkeit([mittel(200.0, 40.0), 40, mittel(40.0, 200.0), 255], EBEN);
+    let ist = flach_pixel(&bild, 8, 8);
+    assert_eq!(ist[3], 255, "{ist:?}");
+    assert!(
+        ist.iter().zip(&soll).all(|(a, b)| a.abs_diff(*b) <= 1),
+        "{ist:?}, das Mittel der behaltenen {soll:?}"
+    );
+}

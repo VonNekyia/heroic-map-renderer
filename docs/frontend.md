@@ -393,7 +393,7 @@ Das Format steht in [Ebenen](benutzung/ebenen.md), die Gründe in
 zeichnet, in [0096](entscheidungen/0096-formen-und-schrift-im-browser.md).
 Gebaut in [`web/src/ebenen.ts`](../web/src/ebenen.ts): Liste, Nadeln und
 Infotafel; dazu [`formen.ts`](../web/src/formen.ts) für Regionen, Kreise
-und Linien, [`nebel.ts`](../web/src/nebel.ts) für das Muster des Nebels,
+und Linien,
 [`schrift.ts`](../web/src/schrift.ts) für die Kartenschrift,
 [`gelaende.ts`](../web/src/gelaende.ts) für Höhen, Netz und was verdeckt
 ist, ohne Leaflet, und [`pruefen.ts`](../web/src/pruefen.ts) für die
@@ -546,9 +546,8 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Kreis, liegt die ganze Ebene mit Meldung auf `seaLevel`, auch ihre
     kleinen Formen. Der Cache für `ground` hält 8 Regionen, der für
     `heights` 64. Die Grenze gilt nur für die Webkarte;
-  - die Wand und das Band aus Nebel am Rand einer Fläche im iso, siehe
-    [Ebenen](benutzung/ebenen.md), „Die Wand“ und „Der Nebel“; die Breite
-    des Bands setzt die Ebene nach jedem Zoom, `weite` in `formen.ts`;
+  - die Wand am Rand einer Fläche im iso, siehe [Ebenen](benutzung/ebenen.md),
+    „Die Wand“; im iso füllt eine Fläche nicht, siehe „Flächen“;
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
     vorher beschnitten;
   - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,

@@ -391,7 +391,7 @@ export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick): P
 /** Ein Linienzug auf dem Gelände: Bildpunkte und je Punkt, ob er verdeckt ist. */
 export interface Zug {
   punkte: Punkt[];
-  /** Je Punkt, ob Gelände ihn verdeckt; die Strecke zu ihm gehört dazu. Für Wand und Nebelband. */
+  /** Je Punkt, ob Gelände ihn verdeckt; die Strecke zu ihm gehört dazu. Für die Wand. */
   verdeckt: boolean[];
   /** Wie `verdeckt`, nur verdeckte Stücke kürzer als `GLATT.luecke` nicht: Für die Linie selbst, sie bleibt hinter Häusern voll. */
   gestrichelt: boolean[];

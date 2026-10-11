@@ -11,7 +11,7 @@ import feldKlein from './ebenen/schild_klein.png?url&no-inline';
 import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
-import { bereich, form, hatFlaeche, versetze, weite, zeichne, zuege, type Band, type Form, type Strich } from './formen';
+import { bereich, form, hatFlaeche, versetze, zeichne, zuege, type Form, type Strich } from './formen';
 import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, zurKamera, type Blick, type Gelaende, type Rechteck } from './gelaende';
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
@@ -669,8 +669,6 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     /** Flächen, Ränder, Linien und Schrift, in dieser Reihenfolge. */
     formen: L.LayerGroup;
     striche: Strich[];
-    /** Die Striche der Nebelbänder, deren Breite dem Zoom folgt. */
-    baender: Band[];
   }
   const geladen = new Map<string, Geladen>();
   /** Je Ebene ein Zähler: Ein Laden, das ein späteres Umschalten überholt, verwirft sich selbst. */
@@ -979,16 +977,16 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     renderer: L.Renderer,
     formPane: string,
     tafelDerEbene: (bausteine: unknown[]) => HTMLElement,
-  ): Promise<{ flaechen: L.Layer[]; striche: Strich[]; baender: Band[]; schriftLagen: Schrift[] }> => {
+  ): Promise<{ flaechen: L.Layer[]; striche: Strich[]; schriftLagen: Schrift[] }> => {
     // Formen auf dem Boden ohne Laub, die Schrift auf der Oberfläche wie Nadeln und Banner.
     const [boden, oben] = await Promise.all([
       ladeGelaende(regionenFuer(formen, []), true),
       schriften.length ? ladeGelaende(regionenFuer([], schriften), false) : eben,
     ]);
-    const { flaechen, striche, baender } = zeichne(formen, { renderer, blick, gelaende: boden, area: umgebung.area, tafel: tafelDerEbene, bediene });
+    const { flaechen, striche } = zeichne(formen, { renderer, blick, gelaende: boden, area: umgebung.area, tafel: tafelDerEbene, bediene });
     const schriftLagen: Schrift[] = [];
     for (const s of schriften) schriftLagen.push(new Schrift(s, schriftPfad(s.pfad, oben, blick), faktor, scale, formPane));
-    return { flaechen, striche, baender, schriftLagen };
+    return { flaechen, striche, schriftLagen };
   };
 
   const ladeEbene = async (e: Eintrag): Promise<void> => {
@@ -1036,7 +1034,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
     const { renderer, formen: formPane } = pane(e.id);
     // Formen und Schrift rechnen einmal je version, hier vor dem Tausch.
-    const { flaechen, striche, baender, schriftLagen } = await formenUndSchrift(formen, schriften, renderer, formPane, tafelDerEbene);
+    const { flaechen, striche, schriftLagen } = await formenUndSchrift(formen, schriften, renderer, formPane, tafelDerEbene);
     // Icons und Symbole gelten nur für dieses Laden und fallen danach weg.
     const icons = new Map<string, Promise<HTMLCanvasElement>>();
     const symbole = new Map<string, Promise<HTMLImageElement>>();
@@ -1072,9 +1070,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Erst Flächen, dann Ränder und Linien, zuletzt Schrift.
     const formGruppe = L.layerGroup([...flaechen, ...striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
     versetze(striche, faktor());
-    weite(baender, faktor());
     const gruppe = L.layerGroup(marker.filter((m): m is L.Marker => m !== undefined)).addTo(map);
-    geladen.set(e.id, { version: e.version, gruppe, formen: formGruppe, striche, baender });
+    geladen.set(e.id, { version: e.version, gruppe, formen: formGruppe, striche });
   };
 
   const entferne = (id: string): void => {
@@ -1152,15 +1149,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   // Erst anmelden, dann abgleichen: Ein Fehler beim ersten Abgleich hält das
   // Nachfragen nicht auf.
   map.on('zoomend', () => {
-    for (const g of geladen.values()) {
-      versetze(g.striche, faktor());
-      weite(g.baender, faktor());
-    }
+    for (const g of geladen.values()) versetze(g.striche, faktor());
   });
-  // Während eines Zooms skaliert Leaflet die Formen; das Muster des Nebels hätte
-  // dann nicht seine feste Grösse. Siehe docs/benutzung/ebenen.md, „Der Nebel“.
-  map.on('zoomstart', () => map.getContainer().classList.add('zoomt'));
-  map.on('zoomend', () => map.getContainer().classList.remove('zoomt'));
   setInterval(() => {
     if (document.visibilityState === 'visible') void nachfragen();
   }, TAKT);

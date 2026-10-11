@@ -1,6 +1,6 @@
 ---
 title: "0104: Regionen auf dem Boden, mit Wand und Nebel"
-description: Warum Regionen, Kreise und Linien in schrägen Ansichten auf dem Boden ohne Laub liegen und unter Kronen ganz zu sehen bleiben, warum am Rand einer Fläche eine Wand nach oben durchsichtiger wird, wie hoch und wie deckend, warum Rand und Linie entlang des Wegs geglättet sind, und warum der Nebel ein gekacheltes Wolkenmuster in der Farbe der Füllung ist, als Band von 16 Blöcken innen am Rand, auf dem Schirm fest gross und gespiegelt gekachelt; ergänzt 0096.
+description: Warum Regionen, Kreise und Linien in schrägen Ansichten auf dem Boden ohne Laub liegen und unter Kronen ganz zu sehen bleiben, warum am Rand einer Fläche eine Wand nach oben durchsichtiger wird, wie hoch und wie deckend, warum Rand und Linie entlang des Wegs geglättet sind, und warum der Nebel ein gekacheltes Wolkenmuster in der Farbe der Füllung ist, als Band von 16 Blöcken innen am Rand, auf dem Schirm fest gross und gespiegelt gekachelt; ergänzt 0096; den Nebel löst 0105 ab.
 status: gilt
 date: 2026-10-10
 issues: [273]
@@ -8,7 +8,6 @@ code:
   - web/src/formen.ts
   - web/src/gelaende.ts
   - web/src/ebenen.ts
-  - web/src/nebel.ts
 ---
 
 # 0104: Regionen auf dem Boden, mit Wand und Nebel
@@ -42,8 +41,8 @@ nur für schräge Ansichten:
   Blöcke hindurch sehen und nie verlieren.
 - **Geglättet entlang des Wegs:** Ränder, Linien und Kreise springen nicht
   über Häuser und Mauern; je Punkt erst der Median über ±8 Blöcke des Wegs,
-  dann das Mittel über ±4, im Frontend, nicht in `ground`. Wand und
-  Nebelband hängen an derselben geglätteten Linie. Wunsch des Users vom
+  dann das Mittel über ±4, im Frontend, nicht in `ground`. Die Wand hängt
+  an derselben geglätteten Linie. Wunsch des Users vom
   11.10., das Verfahren wählte das Frontend.
 - **Nadeln, Banner und Kartenschrift** bleiben auf `heights`, wie die
   Koordinaten: Sie stehen auf dem, was das Bild zeigt.
@@ -53,7 +52,10 @@ nur für schräge Ansichten:
   linear bis 0. Der User wählte am Bild die Richtung „nach oben
   durchsichtiger“ gegen „nach oben deckender“ und die Höhe 6. Hinter
   Gelände fällt sie weg.
-- **Der Nebel** ist ein ruhiges Wolkenmuster in der Farbe der Füllung,
+- **Der Nebel,** abgelöst durch
+  [0105](0105-regionen-im-iso-ohne-nebel.md): Am 11.10. wünschte der User,
+  ihn ganz zu entfernen; im iso zeigen Rand und Wand die Fläche. Bis dahin
+  galt: ein ruhiges Wolkenmuster in der Farbe der Füllung,
   zur Hälfte mit Weiss gemischt, gekachelt als `pattern` aus SVG, ohne Bild
   und ohne Filter. Der User wählte es an sechs Vorschauen aus der
   Testwelt, Variante 3, „Struktur“. Am 11.10. nach dem Testnetz änderte er

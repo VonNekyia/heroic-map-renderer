@@ -1,5 +1,5 @@
 // Das Bild docs/bilder/regionen-boden.webp: eine Region über Wald und Ufer der
-// Testwelt auf dem Boden ohne Laub, mit Wand und Nebel, schräg in 2:1 und von
+// Testwelt auf dem Boden ohne Laub, mit Wand, schräg in 2:1 und von
 // oben; dazu eine Linie unter Baumkronen und eine hinter einem Hang. Die
 // Kacheln samt ground rendert der Renderer vorher in <wurzel>, siehe SKILL.md.
 // Aus web/, nach `npm run build`:

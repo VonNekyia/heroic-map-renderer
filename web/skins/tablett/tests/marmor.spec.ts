@@ -187,7 +187,7 @@ test('die UI aus Pergament, Holz und Messing hält den Kontrast nach WCAG AA, un
       }
     }
   }
-  // Die Tafel in Grund und Schrift der UI, mit Kontrast nach WCAG AA.
+  // Die Tafel in ihren festen Farben wie im Mod, auch im Tablett lesbar: Kontrast nach WCAG AA.
   await page.locator('.nadel-icon[title="Nadel"]').click();
   const [vorn, grund] = await page.locator('.tafel .leaflet-popup-content-wrapper').evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]);
   expect(kontrast(kanaele(vorn), kanaele(grund)), `.tafel: ${vorn} auf ${grund}`).toBeGreaterThanOrEqual(4.5);

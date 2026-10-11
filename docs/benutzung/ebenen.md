@@ -354,6 +354,9 @@ layers/<modname>/banner/<ebene>/<satz>/satz.json
   [`banner.rs`](../../renderer/src/render/banner.rs). Passt er und liegen
   beide Sprites da, zeichnet `--banners` den Entwurf nicht neu. Der Server
   liefert den Stempel nie aus.
+- **Kosten:** auf einem Thread rund 2,9 ms je Sprite, ein Aufruf ohne neues
+  Bild gut 0,6 s, unter 20 MiB; gemessen in
+  [2026-10-11, Sprites der Banner](../messungen/2026-10-11-banner-sprites.md).
 - **Wem `banner/` gehört:** dem Renderer, unter jedem `modname`. Das Plugin
   übergibt ihm alle öffentlichen Ebenen in einem Aufruf; er schreibt, was
   fehlt, und löscht, was zu keiner übergebenen Ebene, keinem Entwurf und

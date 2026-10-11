@@ -758,8 +758,18 @@ wie bei den Koordinaten.
    Schnittpunkte mit dem Raster dieser Mitten und je einen Punkt dazwischen.
    Ein Kreis wird erst als Vieleck mit Seiten von höchstens `heightsCell`
    Blöcken angenähert, dann ebenso.
-2. **Projizieren:** je Punkt `P(x, H(x, z), z)`.
-3. **Zeichnen** als ein Linienzug in Pixeln der Ansicht, siehe „Ein Rand“
+2. **Glätten entlang des Wegs,** nur im iso, `glaetten` in
+   [`gelaende.ts`](../../web/src/gelaende.ts): je Punkt erst der Median von
+   `H` über die Punkte im Fenster ±8 Blöcke des Wegs, dann das Mittel dieser
+   Mediane über ±4. So springt ein Rand oder eine Linie nicht über Häuser
+   und Mauern bis etwa 8 Blöcke Breite; ein Plateau ab etwa 16 Blöcken und
+   eine gleichmässige Steigung bleiben. Das Fenster ist symmetrisch: an den
+   Enden einer offenen Linie kleiner, ein Ring, erster gleich letzter
+   Punkt, läuft über den Anfang. `ground` selbst bleibt ungeglättet,
+   Teleport und Deckung brauchen es genau.
+3. **Projizieren:** je Punkt `P(x, h, z)` mit der geglätteten Höhe `h`; auch
+   was verdeckt ist, prüft die Ansicht mit `h`.
+4. **Zeichnen** als ein Linienzug in Pixeln der Ansicht, siehe „Ein Rand“
    unter „Gemeinsame Felder“. Die Striche
    eines gestrichelten Rands zählen entlang des gezeichneten Zugs, nicht
    je Strecke, so laufen sie über Ecken weiter.
@@ -788,7 +798,8 @@ ruhiges Wolkenmuster in ihrer Farbe; die Fläche selbst füllt nicht. Von
 oben bleibt es die Füllung selbst.
 
 - **Band:** 16 Blöcke breit, ein Chunk, innen am Rand und um Löcher. Sechs
-  Striche auf dem Rand, auf die sichtbare Fläche beschnitten, reichen
+  Striche auf dem geglätteten Rand, nur auf seinen sichtbaren Strecken wie
+  die Wand, beschnitten auf den Umriss aus den geglätteten Rändern, reichen
   16 · k / 6 Blöcke nach innen, k = 6 bis 1; am Rand decken sich alle, so
   ist der Nebel dort am dichtesten und wird nach innen in feinen Stufen
   dünner. Ein Block ist dabei das Mittel aus einem Schritt
@@ -859,6 +870,12 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 - **Ein Feld** ist verdeckt, wenn seine Mitte es ist.
 - **Verdeckte Ränder** zeichnet die Ansicht dünn, gestrichelt und mit
   40 % Deckkraft, so bleibt die Form lesbar.
+- **Häuser verdecken einen Rand oder eine Linie nicht:** Ein verdecktes
+  Stück kürzer als 16 Blöcke entlang des Wegs, so lang wie das Fenster des
+  Medians beim Glätten, bleibt voll gezeichnet; so etwas verdeckt ein Haus
+  oder eine Mauer, kein Hang. Wand und Nebelband nehmen dagegen jedes
+  verdeckte Stück aus, sie malten sonst über das Haus. `gestrichelt` in
+  [`gelaende.ts`](../../web/src/gelaende.ts).
 - **Verdeckte Felder** füllt sie nicht.
 - **Nadeln und Schrift** liegen immer obenauf, auch hinter einem Berg.
 

@@ -142,6 +142,17 @@ export function weite(baender: readonly Band[], faktor: number): void {
 /** Für die Kennungen der Pfade, auf die ein Nebelband beschnitten wird. */
 let flaechenNummer = 0;
 
+/** Die sichtbaren Läufe eines Zugs; eine Strecke gehört zum Lauf ihres Endpunkts, wie bei `laeufe`. */
+function sichtbar({ punkte, verdeckt }: Zug): Punkt[][] {
+  const aus: Punkt[][] = [];
+  for (let i = 1; i < punkte.length; i++) {
+    if (verdeckt[i]) continue;
+    if (i === 1 || verdeckt[i - 1]) aus.push([punkte[i - 1]!]);
+    aus[aus.length - 1]!.push(punkte[i]!);
+  }
+  return aus;
+}
+
 /** Ein Lauf eines Rands und wie weit er vom Anfang des ganzen Zugs beginnt, in Pixeln der feinsten Stufe. */
 export interface Strich {
   linie: L.Polyline;
@@ -182,8 +193,9 @@ function laeufe(z: Zug, r: Rand, renderer: L.Renderer): Strich[] {
   const aus: Strich[] = [];
   let weg = 0;
   for (let i = 1; i < z.punkte.length; ) {
-    const [von, verdeckt, versatz] = [i - 1, z.verdeckt[i], weg];
-    for (; i < z.punkte.length && z.verdeckt[i] === verdeckt; i++) {
+    // Die Linie selbst bleibt hinter Häusern voll: `gestrichelt`, nicht `verdeckt`.
+    const [von, verdeckt, versatz] = [i - 1, z.gestrichelt[i], weg];
+    for (; i < z.punkte.length && z.gestrichelt[i] === verdeckt; i++) {
       const [a, b] = [z.punkte[i - 1]!, z.punkte[i]!];
       weg += Math.hypot(b[0] - a[0], b[1] - a[1]);
     }
@@ -272,14 +284,23 @@ export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Lay
           const alpha = fuellung.length === 9 ? parseInt(fuellung.slice(7), 16) / 255 : 1;
           const pfad = `nebel-flaeche-${++flaechenNummer}`;
           const [clip, entferne] = schnitt(pfad);
-          flaeche.on('add', () => flaeche.getElement()?.setAttribute('id', pfad));
-          flaeche.on('remove', entferne);
+          // Der Umriss aus den geglätteten Rändern, unsichtbar: auf ihn ist das Band beschnitten.
+          // Die Füllung taugt dafür nicht mehr, ihr Rand folgt dem Boden ungeglättet.
+          const ringe = beschnitten.flatMap((p) => [p.aussen, ...p.loecher]).filter((r) => r.length >= 3);
+          const umriss = L.polygon(ringe.map((r) => zug(r, true, g, blick).punkte.map(latLng)), { renderer, stroke: false, fillOpacity: 0, interactive: false, smoothFactor: 0, className: 'nebel-umriss' });
+          umriss.on('add', () => {
+            umriss.getElement()?.setAttribute('id', pfad);
+            umriss.getElement()?.setAttribute('data-umriss', fuellung);
+          });
+          umriss.on('remove', entferne);
+          flaechen.push(umriss);
           const muster = nebel(fuellung.slice(0, 7).toUpperCase());
           // Am Rand decken alle Striche zusammen 1 − (1 − a)³ mit a = min(1, 2 · Alpha) / 2, gleich wie viele es sind.
           const amRand = 1 - (1 - Math.min(1, 2 * alpha) / 2) ** 3;
           const jeStrich = 1 - (1 - amRand) ** (1 / NEBELBAND.striche);
-          for (const stueck of zuege(f, g.c, area)) {
-            const punkte = zug(stueck, false, g, blick).punkte.map(latLng);
+          // Nur auf sichtbaren Strecken des Rands, wie die Wand: Hinter einem Hang malte das Band sonst über ihn.
+          for (const lauf of zuege(f, g.c, area).flatMap((stueck) => sichtbar(zug(stueck, false, g, blick)))) {
+            const punkte = lauf.map(latLng);
             for (let k = NEBELBAND.striche; k > 0; k--) {
               const anteil = k / NEBELBAND.striche;
               const linie = L.polyline(punkte, { renderer, color: muster, opacity: jeStrich, weight: 1, lineJoin: 'round', lineCap: 'round', className: 'nebel-band', interactive: false, noClip: true, smoothFactor: 0 });

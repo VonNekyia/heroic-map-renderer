@@ -1,6 +1,6 @@
 ---
 title: "0104: Regionen auf dem Boden, mit Wand und Nebel"
-description: Warum Regionen, Kreise und Linien in schrägen Ansichten auf dem Boden ohne Laub liegen und unter Kronen ganz zu sehen bleiben, warum am Rand einer Fläche eine Wand nach oben durchsichtiger wird, wie hoch und wie deckend, und warum der Nebel ein gekacheltes Wolkenmuster in der Farbe der Füllung ist, als Band von 16 Blöcken innen am Rand, auf dem Schirm fest gross und gespiegelt gekachelt; ergänzt 0096.
+description: Warum Regionen, Kreise und Linien in schrägen Ansichten auf dem Boden ohne Laub liegen und unter Kronen ganz zu sehen bleiben, warum am Rand einer Fläche eine Wand nach oben durchsichtiger wird, wie hoch und wie deckend, warum Rand und Linie entlang des Wegs geglättet sind, und warum der Nebel ein gekacheltes Wolkenmuster in der Farbe der Füllung ist, als Band von 16 Blöcken innen am Rand, auf dem Schirm fest gross und gespiegelt gekachelt; ergänzt 0096.
 status: gilt
 date: 2026-10-10
 issues: [273]
@@ -37,8 +37,14 @@ nur für schräge Ansichten:
   nimmt den Boden. Kronen verdecken also nichts; ein Rand oder eine Linie
   unter ihnen ist über ihnen gezeichnet, voll und nicht gestrichelt.
   Hinter einem Hang des Bodens bleibt sie dünn, gestrichelt und blass
-  sichtbar wie bisher. Beides Wunsch des Users: Die Linie soll man durch
+  sichtbar wie bisher. Hinter einem Haus oder einer Mauer bleibt sie voll:
+  Ein verdecktes Stück kürzer als 16 Blöcke gilt als Haus. Beides Wunsch des Users: Die Linie soll man durch
   Blöcke hindurch sehen und nie verlieren.
+- **Geglättet entlang des Wegs:** Ränder, Linien und Kreise springen nicht
+  über Häuser und Mauern; je Punkt erst der Median über ±8 Blöcke des Wegs,
+  dann das Mittel über ±4, im Frontend, nicht in `ground`. Wand und
+  Nebelband hängen an derselben geglätteten Linie. Wunsch des Users vom
+  11.10., das Verfahren wählte das Frontend.
 - **Nadeln, Banner und Kartenschrift** bleiben auf `heights`, wie die
   Koordinaten: Sie stehen auf dem, was das Bild zeigt.
 - **Die Wand:** an jedem Rand einer Fläche, der gezeichnet wird, also mit
@@ -102,6 +108,17 @@ Gewählt hat der User an Vorschauen aus der Testwelt; wie es aussieht, zeigt
 - **Drei oder acht Striche im Band:** Drei zeigten harte Stufen. Acht
   hätten etwa ein Drittel mehr Fläche zum Zeichnen als sechs, gerechnet, nicht
   gemessen, und sehen kaum anders aus.
+- **Ein unteres Quantil statt des Medians:** zieht die Linie an jedem Hang
+  nach unten; der Median lässt eine gleichmässige Steigung, wie sie ist.
+- **Glätten in `ground`:** Teleport und Deckung brauchen den Boden genau.
+- **Ein Filter über das ganze Raster der Höhen:** rechnet je Zelle über
+  17 × 17 Spalten und glättet auch, was keine Form berührt; entlang des Wegs
+  sind es je Punkt rund 33 Werte.
+- **Das Band an der Füllung beschneiden:** Ihr Rand folgt dem Boden
+  ungeglättet und passt nicht mehr zur Linie. Das Band wird statt dessen am
+  Umriss aus den geglätteten Rändern beschnitten und läuft nur auf
+  sichtbaren Strecken. Ein Rest: Vor einem Kamm, der das Innere verdeckt,
+  kann es bis zu 16 Blöcke über den Kamm reichen.
 - **Gedrehte Kacheln:** Um 90° gedreht stünden die flachen Wolken
   senkrecht. Gespiegelt wird nahtlos, gedreht bräuchte eine eigene Kachel.
 - **Eine Wand auch um einen Kreis nur mit Rand:** Am Bild der Ebenen stand

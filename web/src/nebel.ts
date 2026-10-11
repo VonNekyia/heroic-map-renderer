@@ -39,7 +39,10 @@ export function hell(farbe: string, weiss = NEBEL.weiss): string {
  * Die Füllung des Nebels zu `#RRGGBB`, `url(#nebel-RRGGBB)`: auf einem dünnen
  * Grund weiche Ellipsen mit radialem Verlauf, flach wie der Boden im Bild.
  * Ellipsen am Rand der Kachel kommen gegenüber noch einmal, so ist sie
- * nahtlos. Die Lage folgt einem festen Zufall: Jedes Muster sieht gleich aus.
+ * nahtlos. Das Muster wiederholt sich erst nach 2 × 2 Kacheln: daneben
+ * waagrecht gespiegelt, darunter senkrecht, schräg beides. Eine Spiegelachse
+ * ist immer nahtlos. Die Lage folgt einem festen Zufall: Jedes Muster sieht
+ * gleich aus.
  */
 export function nebel(farbe: string): string {
   const fertig = muster.get(farbe);
@@ -59,14 +62,24 @@ export function nebel(farbe: string): string {
   const kachel = document.createElementNS(NS, 'pattern');
   kachel.id = id;
   kachel.setAttribute('patternUnits', 'userSpaceOnUse');
-  kachel.setAttribute('width', String(n));
-  kachel.setAttribute('height', String(n));
+  kachel.setAttribute('width', String(2 * n));
+  kachel.setAttribute('height', String(2 * n));
   const grund = document.createElementNS(NS, 'rect');
-  grund.setAttribute('width', String(n));
-  grund.setAttribute('height', String(n));
+  grund.setAttribute('width', String(2 * n));
+  grund.setAttribute('height', String(2 * n));
   grund.setAttribute('fill', licht);
   grund.setAttribute('fill-opacity', String(1 - NEBEL.wolken));
-  kachel.append(grund);
+  // Die Wolken einer Kachel, auf sie beschnitten: Was über ihren Rand ragt, kommt gegenüber noch einmal.
+  const ausschnitt = document.createElementNS(NS, 'clipPath');
+  ausschnitt.id = `${id}-kachel`;
+  const feld = document.createElementNS(NS, 'rect');
+  feld.setAttribute('width', String(n));
+  feld.setAttribute('height', String(n));
+  ausschnitt.append(feld);
+  const wolken = document.createElementNS(NS, 'g');
+  wolken.id = `${id}-wolken`;
+  wolken.setAttribute('clip-path', `url(#${id}-kachel)`);
+  kachel.append(grund, wolken);
   let saat = 11;
   const zufall = () => (saat = (saat * 1103515245 + 12345) % 2147483648) / 2147483648;
   for (let k = 0; k < NEBEL.anzahl; k++) {
@@ -81,11 +94,33 @@ export function nebel(farbe: string): string {
         wolke.setAttribute('ry', String(r / 2));
         wolke.setAttribute('fill', `url(#${id}-wolke)`);
         wolke.setAttribute('fill-opacity', String(NEBEL.wolken));
-        kachel.append(wolke);
+        wolken.append(wolke);
       }
     }
   }
-  defs().append(verlauf, kachel);
+  for (const spiegel of [`translate(${2 * n} 0) scale(-1 1)`, `translate(0 ${2 * n}) scale(1 -1)`, `translate(${2 * n} ${2 * n}) scale(-1 -1)`]) {
+    const kopie = document.createElementNS(NS, 'use');
+    kopie.setAttribute('href', `#${id}-wolken`);
+    kopie.setAttribute('transform', spiegel);
+    kachel.append(kopie);
+  }
+  defs().append(verlauf, ausschnitt, kachel);
   muster.set(farbe, `url(#${id})`);
   return `url(#${id})`;
+}
+
+/**
+ * Beschneidet auf eine Fläche: ein `clipPath` mit dem Pfad, der die Fläche
+ * zeichnet, gerade/ungerade wie sie. Gibt den Verweis für `clip-path` und
+ * eine Funktion zurück, die ihn wieder entfernt.
+ */
+export function schnitt(pfad: string): [string, () => void] {
+  const clip = document.createElementNS(NS, 'clipPath');
+  clip.id = `${pfad}-schnitt`;
+  const flaeche = document.createElementNS(NS, 'use');
+  flaeche.setAttribute('href', `#${pfad}`);
+  flaeche.setAttribute('clip-rule', 'evenodd');
+  clip.append(flaeche);
+  defs().append(clip);
+  return [`url(#${clip.id})`, () => clip.remove()];
 }

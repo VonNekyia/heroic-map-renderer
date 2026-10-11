@@ -24,6 +24,13 @@ const sollRahmen = async (page: Page, punkte: number[][], y: number) => {
   return [Math.min(...auf.map((p) => p[0]!)), Math.min(...auf.map((p) => p[1]!)), Math.max(...auf.map((p) => p[0]!)), Math.max(...auf.map((p) => p[1]!))];
 };
 
+/**
+ * Die Deckkraft eines der sechs Striche im Nebelband zum Alpha von fill:
+ * Zusammen decken sie am Rand 1 − (1 − a)³ mit a = min(1, 2 · Alpha) / 2, je
+ * Strich also 1 − (1 − a)^(3/6) = 1 − √(1 − a).
+ */
+const jeStrich = (alpha: number) => 1 - Math.sqrt(1 - Math.min(1, 2 * alpha) / 2);
+
 const nah = (ist: number[], soll: number[], toleranz = 1) => ist.forEach((w, i) => expect(Math.abs(w - soll[i]!), `${i}: ${w} statt ${soll[i]}`).toBeLessThanOrEqual(toleranz));
 
 /** Länge eines Pfads aus seinem `d`, in Pixeln. */
@@ -35,16 +42,33 @@ const laenge = (d: string) => {
 };
 
 for (const hoehe of [10, 40]) {
-  test(`eine Region liegt im iso auf dem Gelände, auf Höhe ${hoehe} um deren Pixel höher; Füllung als Nebel in ihrer Farbe, Rand in der Farbe ohne Alpha`, async ({ page }) => {
+  test(`eine Region liegt im iso auf dem Gelände, auf Höhe ${hoehe} um deren Pixel höher; der Nebel als Band innen am Rand in ihrer Farbe, Rand in der Farbe ohne Alpha`, async ({ page }) => {
     await welt(page, staedte([GEBIET], { hoehe: () => hoehe }));
     // Die Mitte der Region in der Mitte des Fensters, damit Leaflet nichts abschneidet.
     await page.goto(`${DEMO}&at=32,${hoehe},-16`);
     const flaeche = page.locator('path[data-fill="#40E53F55"]');
     await expect(flaeche).toHaveCount(1);
     nah(await rahmen(flaeche), await sollRahmen(page, GEBIET.polygons[0]!.outer, hoehe + 1));
-    // Das Muster der Farbe, doppelt so deckend wie das Alpha von fill, 0x55.
-    await expect(flaeche).toHaveAttribute('fill', 'url(#nebel-40E53F)');
-    expect(Number(await flaeche.getAttribute('fill-opacity'))).toBeCloseTo((2 * 0x55) / 255, 5);
+    // Die Fläche selbst füllt nicht, sie ist Ziel und Umriss für das Band.
+    await expect(flaeche).toHaveAttribute('fill-opacity', '0');
+    // Das Band: sechs Striche im Muster der Farbe, auf die Fläche beschnitten, innen 16 · k / 6 Blöcke breit;
+    // ein Block in 2:1 bei scale 16 ist √80 Pixel. Zusammen am Rand so dicht wie drei Striche mit a = 0x55 / 255.
+    const band = page.locator('path.nebel-band');
+    await expect(band).toHaveCount(6);
+    const striche = await band.evaluateAll((l) =>
+      l.map((p) => {
+        const clip = /^url\(#(.+)\)$/.exec(p.getAttribute('clip-path') ?? '')?.[1];
+        const ziel = clip ? document.getElementById(clip)?.querySelector('use')?.getAttribute('href') : undefined;
+        return { stroke: p.getAttribute('stroke'), deckkraft: Number(p.getAttribute('stroke-opacity')), breite: Number(p.getAttribute('stroke-width')), ziel };
+      }),
+    );
+    const id = await flaeche.getAttribute('id');
+    for (const s of striche) {
+      expect(s.stroke).toBe('url(#nebel-40E53F)');
+      expect(s.deckkraft).toBeCloseTo(jeStrich(0x55 / 255), 5);
+      expect(s.ziel).toBe(`#${id}`);
+    }
+    striche.map((s) => s.breite).forEach((b, k) => expect(b).toBeCloseTo((2 * 16 * (6 - k)) / 6 * Math.sqrt(80), 3));
     const raender = page.locator('path[stroke="#40E53F"]');
     await expect(raender).toHaveCount(1);
     await expect(raender).toHaveAttribute('stroke-width', '2');
@@ -289,30 +313,48 @@ test('im iso steht am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 de
   await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(0);
 });
 
-test('der Nebel ist ein Muster aus SVG in der Farbe, halb zum Weiss gemischt, ohne Bild und Filter; je Farbe eins; von oben die Füllung selbst', async ({ page }) => {
+test('der Nebel ist ein Muster aus SVG in der Farbe, halb zum Weiss gemischt, ohne Bild und Filter, je Farbe eins, erst nach 2 × 2 gespiegelten Kacheln wiederholt; von oben die Füllung selbst', async ({ page }) => {
   const zweite = rechteck('zweite', 60, -32, 80, 0, { fill: '#40E53F11' });
   const dritte = rechteck('dritte', 16, 20, 48, 40, { fill: '#2040e0aa' });
   await welt(page, staedte([GEBIET, zweite, dritte], { hoehe: () => 10 }));
   await page.goto(`${DEMO}&at=40,10,0`);
-  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveAttribute('fill', 'url(#nebel-40E53F)');
+  /** Muster und Deckkraft der Striche im Band einer Fläche, erkannt am Pfad, auf den sie beschnitten sind. */
+  const band = (fill: string) =>
+    page.evaluate((fill) => {
+      const id = document.querySelector(`path[data-fill="${fill}"]`)!.id;
+      return [...document.querySelectorAll('path.nebel-band')]
+        .filter((p) => document.querySelector(`${/^url\((#.+)\)$/.exec(p.getAttribute('clip-path')!)![1]} use`)?.getAttribute('href') === `#${id}`)
+        .map((p) => [p.getAttribute('stroke'), Math.round(Number(p.getAttribute('stroke-opacity')) * 1e4) / 1e4].join());
+    }, fill);
+  const auf4 = (x: number) => Math.round(x * 1e4) / 1e4;
+  await expect(page.locator('path.nebel-band')).toHaveCount(18);
+  expect(await band('#40E53F55')).toEqual(Array(6).fill(`url(#nebel-40E53F),${auf4(jeStrich(0x55 / 255))}`));
   // Gleiche Farbe, anderes Alpha: dasselbe Muster, nur dünner.
-  await expect(page.locator('path[data-fill="#40E53F11"]')).toHaveAttribute('fill', 'url(#nebel-40E53F)');
-  expect(Number(await page.locator('path[data-fill="#40E53F11"]').getAttribute('fill-opacity'))).toBeCloseTo((2 * 0x11) / 255, 5);
-  await expect(page.locator('path[data-fill="#2040e0aa"]')).toHaveAttribute('fill', 'url(#nebel-2040E0)');
+  expect(await band('#40E53F11')).toEqual(Array(6).fill(`url(#nebel-40E53F),${auf4(jeStrich(0x11 / 255))}`));
+  // Das doppelte Alpha, 2 · 0xAA / 255 = 1,33, gedeckelt auf 1: a = 0,5, je Strich 1 − √0,5.
+  expect(await band('#2040e0aa')).toEqual(Array(6).fill(`url(#nebel-2040E0),${auf4(1 - Math.sqrt(0.5))}`));
   const muster = await page.evaluate(() =>
     [...document.querySelectorAll('pattern')].map((p) => ({
       id: p.id,
+      groesse: [p.getAttribute('width'), p.getAttribute('height')].join(),
       grund: p.querySelector('rect')?.getAttribute('fill'),
       wolken: p.querySelectorAll('ellipse').length,
+      kachel: document.querySelector(`#${p.id}-wolken`)?.getAttribute('clip-path'),
+      kopien: [...p.querySelectorAll('use')].map((u) => [u.getAttribute('href'), u.getAttribute('transform')].join()),
       farben: [...new Set([...document.querySelectorAll(`#${p.id}-wolke stop`)].map((s) => s.getAttribute('stop-color')))],
     })),
   );
   // (0x40 + 0xFF) / 2 = 0xA0, (0xE5 + 0xFF) / 2 = 0xF2, (0x3F + 0xFF) / 2 = 0x9F.
-  expect(muster.map((m) => [m.id, m.grund, m.farben.join()])).toEqual([
-    ['nebel-40E53F', '#A0F29F', '#A0F29F'],
-    ['nebel-2040E0', '#90A0F0', '#90A0F0'],
+  expect(muster.map((m) => [m.id, m.groesse, m.grund, m.farben.join()])).toEqual([
+    ['nebel-40E53F', '256,256', '#A0F29F', '#A0F29F'],
+    ['nebel-2040E0', '256,256', '#90A0F0', '#90A0F0'],
   ]);
-  for (const m of muster) expect(m.wolken).toBeGreaterThanOrEqual(18);
+  for (const m of muster) {
+    expect(m.wolken).toBeGreaterThanOrEqual(18);
+    // Die Wolken einer Kachel von 128, auf sie beschnitten, dazu ihre drei Spiegelungen.
+    expect(m.kachel).toBe(`url(#${m.id}-kachel)`);
+    expect(m.kopien).toEqual([`#${m.id}-wolken,translate(256 0) scale(-1 1)`, `#${m.id}-wolken,translate(0 256) scale(1 -1)`, `#${m.id}-wolken,translate(256 256) scale(-1 -1)`]);
+  }
   expect(await page.evaluate(() => document.querySelectorAll('pattern image, filter').length)).toBe(0);
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await welt(page, staedte([GEBIET], { mehr: VON_OBEN }));
@@ -330,7 +372,28 @@ test('ohne Flächen im iso legt die Karte kein Muster an, auch mit Linien, Kreis
   await page.goto(`${DEMO}&at=32,10,-16`);
   await expect(page.locator('path[stroke="#00AAAA"]')).toHaveCount(1);
   await expect(page.locator('svg.ebene-schrift[data-id="wald"]')).toBeAttached();
-  expect(await page.evaluate(() => document.querySelectorAll('pattern, radialGradient').length)).toBe(0);
+  expect(await page.evaluate(() => document.querySelectorAll('pattern, radialGradient, clipPath, path.nebel-band').length)).toBe(0);
+});
+
+test('während eines Zooms ist das Nebelband aus, danach in der Breite der neuen Stufe wieder da; das Muster bleibt so gross auf dem Schirm', async ({ page }) => {
+  await welt(page, staedte([GEBIET], { hoehe: () => 10 }));
+  await page.goto(`${DEMO}&at=32,10,-16&zoom=-1`);
+  const band = page.locator('path.nebel-band').first();
+  await expect(band).toBeAttached();
+  const vorher = Number(await band.getAttribute('stroke-width'));
+  // Ob das Band während des Zooms je aus war, ohne auf den Moment zu warten: Jeder Wechsel der Klasse wird gezählt.
+  await page.evaluate(() => {
+    const karte = document.querySelector('.leaflet-container')!;
+    const w = window as unknown as { aus: string[] };
+    w.aus = [];
+    new MutationObserver(() => w.aus.push(getComputedStyle(document.querySelector('path.nebel-band')!).opacity)).observe(karte, { attributes: true, attributeFilter: ['class'] });
+  });
+  await page.locator('.leaflet-control-zoom-in').click();
+  await expect.poll(() => band.getAttribute('stroke-width').then(Number)).toBeCloseTo(2 * vorher, 3);
+  await expect.poll(() => band.evaluate((p) => getComputedStyle(p).opacity)).toBe('1');
+  expect(await page.evaluate(() => (window as unknown as { aus: string[] }).aus)).toContain('0');
+  // Eine Kachel von 256 Einheiten ist auf dem Schirm 256 Pixel gross, auf jeder Stufe.
+  expect(await band.evaluate((p) => (p as SVGPathElement).ownerSVGElement!.getScreenCTM()!.a)).toBeCloseTo(1, 5);
 });
 
 test('ground holt die Karte nur für Flächen, Ränder und Linien, nicht für Nadeln und Kartenschrift', async ({ page }) => {

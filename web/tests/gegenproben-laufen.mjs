@@ -67,7 +67,7 @@ for (const { name, datei, alt, neu, spec, titel } of liste) {
   offen = { pfad: datei, original };
   writeFileSync(SICHERUNG, JSON.stringify({ pfad: datei, bytes: original.toString('base64') }));
   try {
-    writeFileSync(datei, text.replace(a, n));
+    writeFileSync(datei, text.replace(a, () => n));
     const bleibt = await gruen(spec, titel);
     console.log(`${bleibt ? 'GRÜN' : 'ROT '} ${name}`);
     if (bleibt) schlecht++;

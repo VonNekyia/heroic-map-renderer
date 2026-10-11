@@ -334,6 +334,13 @@ test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2�
   expect(anfragen.filter((a) => a !== 'beispiel/staedte.json').sort()).toEqual(['beispiel/images/breit.png', 'beispiel/images/gross.png', 'beispiel/images/hoch.png', 'beispiel/images/schmal.png']);
 });
 
+test('eine Nadel mit Namen lädt die Kartenschrift, auch ohne Banner und Kartenschrift in der Ebene', async ({ page }) => {
+  await welt(page, staedte([HAFEN]));
+  await page.goto(DEMO);
+  await expect(page.locator('.nadel-name')).toHaveText('Hafenstadt');
+  await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family === 'Kartenschrift' && f.status === 'loaded'))).toBe(true);
+});
+
 test('Banner teilen sich ein Bild: die Karte holt es einmal', async ({ page }) => {
   const fahne = (id: string, at: [number, number]) => ({ id, type: 'banner', at, image: 'images/nation.png', name: id });
   const anfragen = await welt(page, staedte([fahne('A', [20.5, -30.5]), fahne('B', [30.5, -20.5]), fahne('C', [40.5, -10.5])], { bild: (n) => (n === 'nation.png' ? png(22, 40) : undefined) }));
@@ -766,18 +773,21 @@ test('ein Bild der Tafel breiter als 320 Pixel wird geglättet verkleinert, im V
   const tafel = { ...HAFEN, panel: { blocks: [
     tafelBild('images/flach.png', 512, 64),
     tafelBild('images/quadrat.png', 512, 512),
+    // Die Datei quadratisch, die Angabe flach: Es gilt die Angabe.
+    tafelBild('images/quadrat-gross.png', 512, 64),
     tafelBild('images/burg_9.png', 9, 9),
     tafelBild('images/burg_16.png', 32, 32),
     tafelBild('images/burg_16.png', 24, 24),
     tafelBild('images/burg_16.png', 20, 20),
   ] } };
-  const dateien: Record<string, Buffer> = { 'flach.png': png(512, 64), 'quadrat.png': png(512, 512) };
+  const dateien: Record<string, Buffer> = { 'flach.png': png(512, 64), 'quadrat.png': png(512, 512), 'quadrat-gross.png': png(640, 640) };
   await welt(page, staedte([tafel], { bild: (n) => dateien[n] ?? BILDER[n] }));
   await page.goto(`${DEMO}&at=35,0,-15`);
   await page.locator('.nadel-icon[title="Hafenstadt"]').click();
   await expect.poll(() => tafelBilder(page)).toEqual([
     [320, 40, 'auto'],
     [320, 320, 'auto'],
+    [320, 40, 'auto'],
     [9, 9, 'pixelated'],
     [32, 32, 'pixelated'],
     // 1,5 rundet auf 2, 1,25 auf 1.

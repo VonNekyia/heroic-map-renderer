@@ -248,6 +248,11 @@ Das Frontend zeigt unter Maus und Finger die Koordinaten des Blocks, siehe
 [Frontend](../frontend.md), „Koordinaten“. Dafür braucht es je Zelle eine
 Höhe. Die liefert der Renderer:
 
+- **Auch der Mod liest sie:** Höhen und Boden über `/tiles/`, für den
+  Teleport mit fester Höhe, siehe im Mod
+  [Vollbildkarte, „Teleportieren“](https://github.com/VonNekyia/heroic-map-renderer-mod/blob/main/docs/vollbildkarte.md#teleportieren).
+  Dateien, Format und die Felder in `map.json` hier sind damit auch eine
+  Schnittstelle zum Mod. Wer sie ändert, spricht es vorher mit dem Mod ab.
 - **Datei:** je Region `heights/{x}.{z}.bin` unter der Wurzel, die alle
   Bäume einer Welt teilen; `map.json` nennt sie als
   `../heights/{x}.{z}.bin`. Ein Baum der alten Ablage hat sie in seinem

@@ -165,9 +165,11 @@ pub(super) struct Bericht {
     pub ende: Ende,
 }
 
-/// Ein Stück des Körpers für die Verbindung; ein Fehler bricht sie ab, ohne
-/// das letzte Stück des chunked-Körpers.
-pub(super) type Stueck = std::io::Result<Frame<Bytes>>;
+/// Ein Stück des Körpers für die Verbindung. Einen Fehler gibt es darin
+/// nicht: Bricht hyper eine Verbindung wegen eines Fehlers ab, verwirft er
+/// Stücke, die er schon hat, und der Mod verlöre gesendete Dateien. Ein
+/// Abbruch endet darum regulär, nur ohne [`ENDE`].
+pub(super) type Stueck = Bytes;
 
 /// Eine gelesene Datei: `None`, wenn es sie nicht mehr gibt.
 type Gelesen = std::io::Result<Option<Vec<u8>>>;
@@ -175,7 +177,8 @@ type Gelesen = std::io::Result<Option<Vec<u8>>>;
 /// Schreibt den Strom in `aus`. [`LESER`] Threads lesen die Dateien voraus,
 /// höchstens [`FENSTER`] vor dem Schreiben; geschrieben wird in der
 /// Reihenfolge von `eintraege`: buchen, dann Kopf und Inhalt als ein Stück.
-/// Eine Datei, die inzwischen fehlt, fällt weg. Am Ende [`ENDE`]. Blockiert.
+/// Eine Datei, die inzwischen fehlt, fällt weg. Am Ende [`ENDE`]; am Deckel
+/// oder bei einem Lesefehler endet er ohne. Blockiert.
 pub(super) fn schreibe(
     eintraege: &[Eintrag],
     aus: &mpsc::Sender<Stueck>,
@@ -244,16 +247,12 @@ pub(super) fn schreibe(
             let stueck = match stueck {
                 Ok(stueck) => stueck,
                 Err(ende) => {
-                    let _ = aus.blocking_send(Err(std::io::Error::other(format!("{ende:?}"))));
                     bericht.ende = ende;
                     break;
                 }
             };
             bericht.bytes += stueck.len() as u64;
-            if aus
-                .blocking_send(Ok(Frame::data(Bytes::from(stueck))))
-                .is_err()
-            {
+            if aus.blocking_send(Bytes::from(stueck)).is_err() {
                 bericht.ende = Ende::Weg;
                 break;
             }
@@ -266,10 +265,7 @@ pub(super) fn schreibe(
     });
     if bericht.ende == Ende::Fertig {
         let ende = eintrag(ENDE, &[]).unwrap_or_default();
-        if aus
-            .blocking_send(Ok(Frame::data(Bytes::from(ende))))
-            .is_err()
-        {
+        if aus.blocking_send(Bytes::from(ende)).is_err() {
             bericht.ende = Ende::Weg;
         } else {
             bericht.bytes += KOPF + ENDE.len() as u64;
@@ -317,7 +313,9 @@ impl Body for Kanal {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Bytes>, std::io::Error>>> {
-        self.0.poll_recv(cx)
+        self.0
+            .poll_recv(cx)
+            .map(|stueck| stueck.map(|b| Ok(Frame::data(b))))
     }
 }
 
@@ -382,23 +380,20 @@ pub(super) mod tests {
         std::fs::write(dir.join(MANIFEST), gz.finish().unwrap()).unwrap();
     }
 
-    /// Schreibt den Strom wie die Verbindung ihn bekäme: die Bytes, der Grund
-    /// eines Abbruchs und der Bericht.
+    /// Schreibt den Strom wie die Verbindung ihn bekäme: die Bytes und der
+    /// Bericht.
     pub(crate) fn strom(
         eintraege: &[Eintrag],
         buche: impl FnMut(u64) -> bool + Send,
-    ) -> (Vec<u8>, Option<String>, Bericht) {
+    ) -> (Vec<u8>, Bericht) {
         std::thread::scope(|s| {
             let (tx, mut rx) = mpsc::channel(PUFFER);
             let schreiber = s.spawn(move || schreibe(eintraege, &tx, buche));
-            let (mut bytes, mut fehler) = (Vec::new(), None);
+            let mut bytes = Vec::new();
             while let Some(stueck) = rx.blocking_recv() {
-                match stueck {
-                    Ok(frame) => bytes.extend_from_slice(&frame.into_data().unwrap()),
-                    Err(e) => fehler = Some(e.to_string()),
-                }
+                bytes.extend_from_slice(&stueck);
             }
-            (bytes, fehler, schreiber.join().unwrap())
+            (bytes, schreiber.join().unwrap())
         })
     }
 
@@ -429,11 +424,8 @@ pub(super) mod tests {
                 "1/0/0.webp"
             ]
         );
-        let (zip, fehler, bericht) = strom(&plan, |_| true);
-        assert_eq!(
-            (fehler, &bericht.ende, bericht.dateien),
-            (None, &Ende::Fertig, 5)
-        );
+        let (zip, bericht) = strom(&plan, |_| true);
+        assert_eq!((&bericht.ende, bericht.dateien), (&Ende::Fertig, 5));
         assert_eq!(
             erwartet,
             zip.len() as u64,
@@ -476,7 +468,7 @@ pub(super) mod tests {
             ]
         );
         let gebucht = std::sync::atomic::AtomicU64::new(0);
-        let (zip, _, _) = strom(&plan, |n| {
+        let (zip, _) = strom(&plan, |n| {
             gebucht.fetch_add(n, Ordering::Relaxed);
             true
         });
@@ -512,8 +504,8 @@ pub(super) mod tests {
         let (plan, _) = super::plan(dir.path(), 2, None).unwrap();
         std::fs::write(dir.path().join("1/0/1.webp"), b"inzwischen neu und laenger").unwrap();
         std::fs::remove_file(dir.path().join("2/0/0.webp")).unwrap();
-        let (zip, fehler, bericht) = strom(&plan, |_| true);
-        assert_eq!((fehler, bericht.ende), (None, Ende::Fertig));
+        let (zip, bericht) = strom(&plan, |_| true);
+        assert_eq!(bericht.ende, Ende::Fertig);
         let (eintraege, ganz) = auspacken(&zip);
         assert!(ganz);
         let namen: Vec<&str> = eintraege.iter().map(|(n, _)| n.as_str()).collect();
@@ -544,13 +536,13 @@ pub(super) mod tests {
             .len()
             + std::fs::metadata(dir.path().join(MANIFEST)).unwrap().len()
             + 4;
-        let (zip, fehler, bericht) = strom(&plan, move |n| {
+        let (zip, bericht) = strom(&plan, move |n| {
             frei.checked_sub(n).map(|rest| frei = rest).is_some()
         });
         assert_eq!(bericht.ende, Ende::Deckel);
-        assert!(fehler.is_some(), "die Verbindung bricht ab");
+        assert_eq!(bericht.bytes, zip.len() as u64, "alles Gesendete kommt an");
         let (eintraege, ganz) = auspacken(&zip);
-        assert!(!ganz, "ohne {ENDE}");
+        assert!(!ganz, "regulär zu Ende, aber ohne {ENDE}");
         assert_eq!(
             eintraege.len(),
             3,
@@ -575,8 +567,7 @@ pub(super) mod tests {
             .collect();
         baum(dir.path(), &kacheln);
         let (plan, _) = super::plan(dir.path(), 3, None).unwrap();
-        let (zip, fehler, _) = strom(&plan, |_| true);
-        assert_eq!(fehler, None);
+        let (zip, _) = strom(&plan, |_| true);
         let (eintraege, ganz) = auspacken(&zip);
         assert!(ganz);
         for (i, (name, inhalt)) in eintraege[2..].iter().enumerate() {

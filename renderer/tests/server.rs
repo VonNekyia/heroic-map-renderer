@@ -1249,8 +1249,8 @@ fn download_als_zip() {
     );
 }
 
-/// Am Deckel des Tokens bricht der Strom ab: ohne das letzte Stück des
-/// chunked-Körpers und ohne `ende`.
+/// Am Deckel des Tokens endet der Strom regulär, mit dem letzten Stück des
+/// chunked-Körpers, aber ohne `ende`; alles bis dahin kommt an.
 #[test]
 fn zip_bricht_am_deckel_ab() {
     let (kacheln, _seite) = wurzel();
@@ -1264,9 +1264,12 @@ fn zip_bricht_am_deckel_ab() {
     let a = mit_token(server.adresse, "GET", "/download/t.zip", &t, &[]);
     assert_eq!(a.status, 200, "der Strom beginnt");
     let (zip, ganz) = entchunke(&a.koerper);
-    assert!(!ganz, "ohne das letzte Stück");
+    assert!(
+        ganz,
+        "regulär zu Ende, sonst gingen gepufferte Dateien verloren"
+    );
     let (liste, mit_ende) = eintraege(&zip);
-    assert!(!mit_ende);
+    assert!(!mit_ende, "ohne ende");
     let namen: Vec<&str> = liste.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(namen, ["map.json", "manifest", "0/0/0.webp"]);
 }

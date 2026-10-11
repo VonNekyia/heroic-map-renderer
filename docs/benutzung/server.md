@@ -357,8 +357,12 @@ einer Anfrage statt einer je Kachel (#289). Code: `download_strom` in
 - **Deckel:** Der Server bucht je Eintrag vor dem Senden, wie bei den
   Einzelabrufen, und nur, was er sendet. Brächte ein Eintrag die Summe über
   den Deckel, bricht er ab.
-- **Abbruch im Strom:** am Deckel oder bei einem Lesefehler endet die
-  Verbindung ohne das letzte Stück des chunked-Körpers, und `ende` fehlt.
+- **Abbruch im Strom:** am Deckel oder bei einem Lesefehler endet der
+  Körper regulär, mit dem letzten Stück des chunked-Körpers, nur ohne
+  `ende`. Alles bis dahin kommt so sicher an; bräche der Server die
+  Verbindung mit einem Fehler ab, verwürfe hyper schon gepufferte Stücke.
+  Den Abbruch erkennt der Mod am fehlenden `ende`, ebenso einen Abbruch der
+  Verbindung.
 - **Pausen:** zwischen zwei Einträgen höchstens die Zeit, eine Datei zu
   lesen; vor dem ersten Byte liest er nur `map.json` und das Manifest. Ein
   Proxy, der nach einer Weile ohne Bytes abbricht, kommt so mit.

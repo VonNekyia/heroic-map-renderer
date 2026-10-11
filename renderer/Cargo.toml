@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+crc32fast = "1"                     # CRC-32 der Einträge im ZIP unter /download/<baum>.zip; steckt schon über flate2 im Baum
 fastnbt = "2"                       # NBT; simdnbt 0.10 ist nightly-only
 flate2 = "1"                        # gzip/zlib der Chunkdaten
 http-body-util = "0.1"              # Körper der Antworten von --serve

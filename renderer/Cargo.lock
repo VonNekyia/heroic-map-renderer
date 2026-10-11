@@ -529,6 +529,7 @@ version = "0.9.2"
 dependencies = [
  "anyhow",
  "clap",
+ "crc32fast",
  "fastnbt",
  "flate2",
  "http-body-util",

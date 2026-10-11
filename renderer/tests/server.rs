@@ -1076,6 +1076,204 @@ fn deckel_je_zufall() {
     assert_eq!(mit("GET", kachel, &neu, &[]), 200);
 }
 
+/// Der Körper einer Antwort mit `Transfer-Encoding: chunked` und ob ihr
+/// letztes, leeres Stück ankam.
+fn entchunke(roh: &[u8]) -> (Vec<u8>, bool) {
+    let (mut aus, mut i) = (Vec::new(), 0);
+    while let Some(zeile) = roh[i..].windows(2).position(|w| w == b"\r\n") {
+        let laenge =
+            usize::from_str_radix(std::str::from_utf8(&roh[i..i + zeile]).unwrap(), 16).unwrap();
+        i += zeile + 2;
+        if laenge == 0 {
+            return (aus, true);
+        }
+        if i + laenge > roh.len() {
+            aus.extend_from_slice(&roh[i..]);
+            return (aus, false);
+        }
+        aus.extend_from_slice(&roh[i..i + laenge]);
+        i += laenge + 2;
+    }
+    (aus, false)
+}
+
+/// Die Einträge eines ZIP aus `/download/<baum>.zip` der Reihe nach, wie
+/// `ZipInputStream` sie läse, mit geprüfter CRC; `true`, wenn als letzter
+/// `ende` kam und danach nichts.
+fn eintraege(zip: &[u8]) -> (Vec<(String, Vec<u8>)>, bool) {
+    let zahl = |a: usize, n: usize| {
+        zip[a..a + n]
+            .iter()
+            .rev()
+            .fold(0u64, |s, &b| s << 8 | u64::from(b))
+    };
+    let (mut aus, mut i) = (Vec::new(), 0);
+    while i + 30 <= zip.len() {
+        assert_eq!(zahl(i, 4), 0x0403_4b50, "lokaler Kopf bei {i}");
+        assert_eq!((zahl(i + 6, 2), zahl(i + 8, 2)), (0, 0), "Flags 0, stored");
+        let (n, laenge) = (zahl(i + 18, 4) as usize, zahl(i + 26, 2) as usize);
+        let name = String::from_utf8(zip[i + 30..i + 30 + laenge].to_vec()).unwrap();
+        let inhalt = zip[i + 30 + laenge..i + 30 + laenge + n].to_vec();
+        assert_eq!(
+            u64::from(crc32fast::hash(&inhalt)),
+            zahl(i + 14, 4),
+            "CRC von {name}"
+        );
+        i += 30 + laenge + n;
+        if name == "ende" {
+            return (aus, i == zip.len());
+        }
+        aus.push((name, inhalt));
+    }
+    (aus, false)
+}
+
+/// Ein echtes Manifest für den Baum `t` der Wurzel, mit seinen Kacheln.
+fn manifest_fuer_t(kacheln: &Path) {
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    for lage in ["0/0/0", "0/-1/2", "1/0/0"] {
+        let pfad = kacheln.join(format!("t/{lage}.webp"));
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        if !pfad.exists() {
+            std::fs::write(&pfad, format!("kachel {lage}")).unwrap();
+        }
+        let n = std::fs::metadata(&pfad).unwrap().len();
+        writeln!(gz, "{lage} {n} \"e\"").unwrap();
+    }
+    std::fs::write(kacheln.join("t/manifest"), gz.finish().unwrap()).unwrap();
+}
+
+/// `/download/<baum>.zip`: der Satz des Tokens als ZIP stored, chunked, in
+/// fester Reihenfolge, `map.json`, `manifest`, die Kacheln bis zur Stufe,
+/// zuletzt `ende`; `X-Heroic-Bytes` ist seine Grösse, auch für HEAD. Mit
+/// `nach` nur die Kacheln danach, ein falsches `nach` `400`. Prüfungen wie
+/// unter `/download/`: ohne Token `401`, fremder Baum `403`.
+#[test]
+fn download_als_zip() {
+    let (kacheln, _seite) = wurzel();
+    manifest_fuer_t(kacheln.path());
+    let dir = tempfile::tempdir().unwrap();
+    let (datei, geheimnis) = geheimnis_in(dir.path());
+    let server = starte(kacheln.path(), &["--secret-file", datei.to_str().unwrap()]);
+    let t = token(&geheimnis, "t", 0, 1 << 20, jetzt() + 600, 1);
+    let lies = |name: &str| std::fs::read(kacheln.path().join("t").join(name)).unwrap();
+
+    let a = mit_token(server.adresse, "GET", "/download/t.zip", &t, &[]);
+    assert_eq!(a.status, 200);
+    assert_eq!(a.header("content-type"), Some("application/zip"));
+    assert_eq!(a.header("cache-control"), Some("private, no-cache"));
+    assert_eq!(a.header("transfer-encoding"), Some("chunked"));
+    assert_eq!(a.header("content-length"), None);
+    let (zip, ganz) = entchunke(&a.koerper);
+    assert!(ganz, "mit dem letzten Stück");
+    assert_eq!(
+        a.header("x-heroic-bytes"),
+        Some(zip.len().to_string().as_str())
+    );
+    let (liste, mit_ende) = eintraege(&zip);
+    assert!(mit_ende, "zuletzt ende");
+    let namen: Vec<&str> = liste.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(
+        namen,
+        ["map.json", "manifest", "0/0/0.webp", "0/-1/2.webp"],
+        "Stufe 1 nicht für Stufe 0"
+    );
+    for (name, inhalt) in &liste {
+        assert_eq!(inhalt, &lies(name), "{name}");
+    }
+
+    let kopf = mit_token(server.adresse, "HEAD", "/download/t.zip", &t, &[]);
+    assert_eq!(
+        (kopf.status, kopf.header("x-heroic-bytes")),
+        (200, a.header("x-heroic-bytes"))
+    );
+    assert!(kopf.koerper.is_empty());
+
+    let t1 = token(&geheimnis, "t", 1, 1 << 20, jetzt() + 600, 2);
+    let rest = mit_token(
+        server.adresse,
+        "GET",
+        "/download/t.zip?nach=0/-1/2",
+        &t1,
+        &[],
+    );
+    let (zip, _) = entchunke(&rest.koerper);
+    let namen: Vec<String> = eintraege(&zip).0.into_iter().map(|(n, _)| n).collect();
+    assert_eq!(
+        namen,
+        ["map.json", "manifest", "1/0/0.webp"],
+        "nach: nur was danach kommt"
+    );
+    assert_eq!(
+        rest.header("x-heroic-bytes"),
+        Some(zip.len().to_string().as_str())
+    );
+    let kodiert = mit_token(
+        server.adresse,
+        "GET",
+        "/download/t.zip?nach=0%2F-1%2F2",
+        &t1,
+        &[],
+    );
+    assert_eq!(entchunke(&kodiert.koerper).0, zip, "kodierter Schrägstrich");
+    assert_eq!(
+        mit_token(
+            server.adresse,
+            "GET",
+            "/download/t.zip?nach=0/x/2",
+            &t1,
+            &[]
+        )
+        .status,
+        400
+    );
+
+    let ohne = hole(server.adresse, "/download/t.zip");
+    assert_eq!(
+        (ohne.status, ohne.header("www-authenticate")),
+        (401, Some("Bearer"))
+    );
+    let u = token(&geheimnis, "u", 0, 1 << 20, jetzt() + 600, 3);
+    assert_eq!(
+        mit_token(server.adresse, "GET", "/download/t.zip", &u, &[]).status,
+        403
+    );
+    assert_eq!(
+        mit_token(server.adresse, "GET", "/download/T.zip", &t, &[]).status,
+        404
+    );
+    assert_eq!(
+        mit_token(server.adresse, "GET", "/download/u.zip", &u, &[]).status,
+        404,
+        "kein Baum u"
+    );
+}
+
+/// Am Deckel des Tokens endet der Strom regulär, mit dem letzten Stück des
+/// chunked-Körpers, aber ohne `ende`; alles bis dahin kommt an.
+#[test]
+fn zip_bricht_am_deckel_ab() {
+    let (kacheln, _seite) = wurzel();
+    manifest_fuer_t(kacheln.path());
+    let dir = tempfile::tempdir().unwrap();
+    let (datei, geheimnis) = geheimnis_in(dir.path());
+    let server = starte(kacheln.path(), &["--secret-file", datei.to_str().unwrap()]);
+    let groesse = |datei: &str| std::fs::metadata(kacheln.path().join(datei)).unwrap().len();
+    let deckel = groesse("t/map.json") + groesse("t/manifest") + groesse("t/0/0/0.webp");
+    let t = token(&geheimnis, "t", 0, deckel, jetzt() + 600, 1);
+    let a = mit_token(server.adresse, "GET", "/download/t.zip", &t, &[]);
+    assert_eq!(a.status, 200, "der Strom beginnt");
+    let (zip, ganz) = entchunke(&a.koerper);
+    assert!(
+        ganz,
+        "regulär zu Ende, sonst gingen gepufferte Dateien verloren"
+    );
+    let (liste, mit_ende) = eintraege(&zip);
+    assert!(!mit_ende, "ohne ende");
+    let namen: Vec<&str> = liste.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(namen, ["map.json", "manifest", "0/0/0.webp"]);
+}
+
 /// Ohne `--secret-file` gibt es `/download/` nicht: `404`, auch mit Token.
 /// Hat die Datei nicht genau 32 Byte oder fehlt sie, startet der Server
 /// nicht.

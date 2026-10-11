@@ -40,12 +40,18 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   });
 }
 
-/** Läuft der Test, ohne zu fallen? Ohne Shell, damit Strg+C ihn trifft. */
-const gruen = (spec, titel) =>
+/**
+ * Wie der Test ausgeht: `gruen`, `rot`, oder `bau`, wenn schon der Build fiel,
+ * etwa weil die Mutation eine Funktion ungenutzt lässt; dann hat kein Test
+ * etwas gefunden. Ohne Shell, damit Strg+C ihn trifft.
+ */
+const lauf = (spec, titel) =>
   new Promise((fertig) => {
     const muster = titel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const kind = spawn(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', '--project=grund', spec, '--grep', muster, '--retries=0', '--reporter=line'], { stdio: 'ignore' });
-    kind.on('exit', (code) => fertig(code === 0));
+    const kind = spawn(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', '--project=grund', spec, '--grep', muster, '--retries=0', '--reporter=line'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let text = '';
+    for (const strom of [kind.stdout, kind.stderr]) strom.on('data', (d) => (text += d));
+    kind.on('exit', (code) => fertig(code === 0 ? 'gruen' : text.includes('config.webServer') ? 'bau' : 'rot'));
   });
 
 const nur = process.argv.slice(2);
@@ -68,12 +74,12 @@ for (const { name, datei, alt, neu, spec, titel } of liste) {
   writeFileSync(SICHERUNG, JSON.stringify({ pfad: datei, bytes: original.toString('base64') }));
   try {
     writeFileSync(datei, text.replace(a, () => n));
-    const bleibt = await gruen(spec, titel);
-    console.log(`${bleibt ? 'GRÜN' : 'ROT '} ${name}`);
-    if (bleibt) schlecht++;
+    const ausgang = await lauf(spec, titel);
+    console.log(`${{ gruen: 'GRÜN', rot: 'ROT ', bau: 'BAUFEHLER' }[ausgang]} ${name}`);
+    if (ausgang !== 'rot') schlecht++;
   } finally {
     zurueck();
   }
 }
-console.log(schlecht ? `${schlecht} Gegenproben ohne Wirkung oder veraltet` : 'alle Gegenproben rot');
+console.log(schlecht ? `${schlecht} Gegenproben ohne Wirkung, mit Baufehler oder veraltet` : 'alle Gegenproben rot');
 process.exitCode = schlecht ? 1 : 0;

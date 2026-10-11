@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   abtasten,
+  glaetten,
   netz,
   oberflaeche,
   punktImBlick,
@@ -193,15 +194,18 @@ test('netz: ein Feld, dessen Mitte verdeckt ist, fällt weg; vor dem Wall bleibt
   expect(flaeche(netz(vorn, wall, SE), 1)).toBe(flaeche(netz(vorn, flach, SE), 1));
 });
 
-test('zug: im iso auf dem Gelände, jeder Punkt auf seiner Höhe auf einem Grat; verdeckt hinter der Mauer; von oben eben und nie verdeckt', () => {
-  const f = (i: number) => grat(2)(i);
+test('zug: im iso auf dem Gelände, auf einer gleichmässigen Steigung jeder Punkt im Inneren auf seiner Höhe; verdeckt hinter der Mauer; von oben eben und nie verdeckt', () => {
+  // Eine Steigung ändert das Glätten nicht, wo die Punkte gleich dicht liegen: abseits der Enden.
+  const f = (i: number) => 2 * i;
   const H = bilinear(f);
-  const g = gelaende(f, 21);
-  const punkte: Punkt[] = [[0, 4], [40, 4]];
+  const g = gelaende(f, 101);
+  const punkte: Punkt[] = [[0, 4], [60, 4]];
   const z = zug(punkte, false, g, SE);
-  const soll = abtasten(punkte, false, 4).map(([x, zz]) => projiziere(x, H(x, zz), zz, ZWEI));
+  const abgetastet = abtasten(punkte, false, 4);
+  const soll = abgetastet.map(([x, zz]) => projiziere(x, H(x, zz), zz, ZWEI));
   expect(z.punkte.length).toBe(soll.length);
   z.punkte.forEach((p, i) => {
+    if (abgetastet[i]![0] < 14 || abgetastet[i]![0] > 46) return;
     expect(p[0]).toBeCloseTo(soll[i]![0], 9);
     expect(p[1]).toBeCloseTo(soll[i]![1], 9);
   });
@@ -209,7 +213,19 @@ test('zug: im iso auf dem Gelände, jeder Punkt auf seiner Höhe auf einem Grat;
   const iso = zug([[2, 2], [2, 40]], false, mauer, SE);
   expect(iso.verdeckt[0]).toBe(true);
   expect(iso.verdeckt.at(-1)).toBe(false);
-  expect(zug([[0, 0], [10, 0]], false, mauer, OBEN)).toEqual({ punkte: [[0, 0], [160, 0]], verdeckt: [false, false] });
+  expect(zug([[0, 0], [10, 0]], false, mauer, OBEN)).toEqual({ punkte: [[0, 0], [160, 0]], verdeckt: [false, false], gestrichelt: [false, false] });
+});
+
+test('zug: ein Haus verdeckt die Linie nur kurz, sie bleibt voll; ein langer Kamm verdeckt sie, sie wird gestrichelt', () => {
+  // Ein Haus von einer Zelle, 4 Blöcke, 6 hoch, vor der Linie bei z 2; aus se liegt vorn, wo z gross ist.
+  const haus = gelaende((i, j) => (i === 5 && j === 1 ? 6 : 0), 7);
+  const z = zug([[0, 2], [40, 2]], false, haus, SE);
+  expect(z.verdeckt.some((v) => v)).toBe(true);
+  expect(z.gestrichelt.some((v) => v)).toBe(false);
+  // Ein Kamm über die ganze Länge, 100 hoch: alles verdeckt, alles gestrichelt.
+  const kamm = gelaende((_, j) => (j === 1 ? 100 : 0), 101);
+  const k = zug([[0, 2], [40, 2]], false, kamm, SE);
+  expect(k.gestrichelt.slice(1).every((v) => v)).toBe(true);
 });
 
 test('wand: Bänder übereinander, alle Ringe gleich herum, kein Loch, wo sich Vorder- und Rückseite decken; verdeckte Strecken fallen weg', () => {
@@ -242,6 +258,32 @@ test('wand: Bänder übereinander, alle Ringe gleich herum, kein Loch, wo sich V
   expect(mitLuecke[0]!.map((r) => [...new Set(r.map((p) => p[0]))].sort((a, b) => a - b))).toEqual([[0, 10], [20, 30, 40]]);
   // Ganz verdeckt: keine Wand.
   expect(wand({ punkte: [[0, 0], [10, 0]], verdeckt: [true, true] }, 6, 2)).toEqual([[], []]);
+});
+
+test('glaetten: eine Steigung bleibt, ein Grat bis 8 Blöcke breit fällt heraus, ein Plateau von 20 bleibt in der Mitte; ein Ring läuft über den Anfang', () => {
+  // Alle 0,5 Blöcke ein Punkt, wie abtasten bei Zellen von 1.
+  const zug = (n: number): Punkt[] => Array.from({ length: n + 1 }, (_, k): Punkt => [k / 2, 0]);
+  const punkte = zug(160);
+  const im = (werte: number[], von: number, bis: number) => werte.filter((_, k) => k / 2 >= von && k / 2 <= bis);
+  // Steigung: im Inneren unverändert.
+  const steigung = punkte.map(([x]) => 3 * x);
+  im(glaetten(punkte, steigung), 12, 68).forEach((h, k) => expect(h).toBeCloseTo(3 * (12 + k / 2), 9));
+  // Ein Haus von 6 Blöcken bei x 40: weg, die Linie bleibt auf 10.
+  const haus = punkte.map(([x]) => (x >= 37 && x < 43 ? 17 : 10));
+  for (const h of im(glaetten(punkte, haus), 30, 50)) expect(h).toBeCloseTo(10, 9);
+  // Ein Plateau von 20 Blöcken: in seiner Mitte bleibt seine Höhe.
+  const plateau = punkte.map(([x]) => (x >= 30 && x < 50 ? 20 : 10));
+  for (const h of im(glaetten(punkte, plateau), 38, 42)) expect(h).toBeCloseTo(20, 9);
+  // Ein offener Zug: am Ende ein Fenster der Breite 0, der Wert bleibt.
+  expect(glaetten(punkte, haus.map((h, k) => (k === 160 ? 99 : h))).at(-1)).toBe(99);
+  // Ein Ring: erster und letzter Punkt gleich; ein Haus über dem Anfang fällt auch heraus.
+  const ring: Punkt[] = Array.from({ length: 161 }, (_, k): Punkt => [20 * Math.cos((k / 160) * 2 * Math.PI), 20 * Math.sin((k / 160) * 2 * Math.PI)]);
+  // Genau geschlossen, wie abtasten einen Ring schliesst; sin(2π) wäre nicht genau 0.
+  ring[160] = ring[0]!;
+  const amAnfang = ring.map((_, k) => (k < 4 || k > 156 ? 17 : 10));
+  const glatt = glaetten(ring, amAnfang);
+  for (const h of glatt) expect(h).toBeCloseTo(10, 9);
+  expect(glatt.at(-1)).toBe(glatt[0]);
 });
 
 test('ringImRechteck: eine Fläche, beschnitten auf das Rechteck', () => {

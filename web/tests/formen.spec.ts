@@ -33,6 +33,23 @@ const jeStrich = (alpha: number) => 1 - Math.sqrt(1 - Math.min(1, 2 * alpha) / 2
 
 const nah = (ist: number[], soll: number[], toleranz = 1) => ist.forEach((w, i) => expect(Math.abs(w - soll[i]!), `${i}: ${w} statt ${soll[i]}`).toBeLessThanOrEqual(toleranz));
 
+/** Wo die Pfade auf dem Schirm bei x liegen: y ihres Punkts, der x am nächsten kommt, abgetastet alle 0,5 Pixel des Pfads. */
+const yBei = (pfade: Locator, x: number) =>
+  pfade.evaluateAll(
+    (l, x) => {
+      let best: [number, number] = [Infinity, 0];
+      for (const p of l as SVGPathElement[]) {
+        const m = p.getScreenCTM()!;
+        for (let s = 0; s <= p.getTotalLength(); s += 0.5) {
+          const q = p.getPointAtLength(s).matrixTransform(m);
+          if (Math.abs(q.x - x) < best[0]) best = [Math.abs(q.x - x), q.y];
+        }
+      }
+      return best[1];
+    },
+    x,
+  );
+
 /** Länge eines Pfads aus seinem `d`, in Pixeln. */
 const laenge = (d: string) => {
   const z = (d.match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
@@ -51,7 +68,7 @@ for (const hoehe of [10, 40]) {
     nah(await rahmen(flaeche), await sollRahmen(page, GEBIET.polygons[0]!.outer, hoehe + 1));
     // Die Fläche selbst füllt nicht, sie ist Ziel und Umriss für das Band.
     await expect(flaeche).toHaveAttribute('fill-opacity', '0');
-    // Das Band: sechs Striche im Muster der Farbe, auf die Fläche beschnitten, innen 16 · k / 6 Blöcke breit;
+    // Das Band: sechs Striche im Muster der Farbe, auf den geglätteten Umriss beschnitten, innen 16 · k / 6 Blöcke breit;
     // ein Block in 2:1 bei scale 16 ist √80 Pixel. Zusammen am Rand so dicht wie drei Striche mit a = 0x55 / 255.
     const band = page.locator('path.nebel-band');
     await expect(band).toHaveCount(6);
@@ -62,7 +79,7 @@ for (const hoehe of [10, 40]) {
         return { stroke: p.getAttribute('stroke'), deckkraft: Number(p.getAttribute('stroke-opacity')), breite: Number(p.getAttribute('stroke-width')), ziel };
       }),
     );
-    const id = await flaeche.getAttribute('id');
+    const id = await page.locator('path[data-umriss="#40E53F55"]').getAttribute('id');
     for (const s of striche) {
       expect(s.stroke).toBe('url(#nebel-40E53F)');
       expect(s.deckkraft).toBeCloseTo(jeStrich(0x55 / 255), 5);
@@ -228,17 +245,16 @@ test('fehlt einer Region die Datei in ground, liegen Formen dort auf heights', a
   nah(await rahmen(page.locator('path[data-fill="#40E53F55"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 31));
 });
 
-test('mit groundCell 1 folgt eine Linie dem Boden je Block: ein Grat einen Block breit hebt sie dort bis auf seine Höhe', async ({ page }) => {
-  const linie = { id: 'grat', type: 'line', points: [[0, -20], [40, -20]], stroke: { color: '#123456', width: 2 } };
-  await welt(page, staedte([linie], { hoehe: () => 10, boden: (i) => (i === 21 ? 30 : 10), bodenZelle: 1 }));
-  await page.goto(`${DEMO}&at=20,15,-20`);
-  // Hinter dem Grat ist sie ein Stück verdeckt: drei Läufe.
+test('mit groundCell 1 folgt eine Linie dem Boden je Block: ein Plateau von 20 Blöcken hebt sie auf seine Höhe', async ({ page }) => {
+  const linie = { id: 'plateau', type: 'line', points: [[0, -20], [52, -20]], stroke: { color: '#123456', width: 2 } };
+  await welt(page, staedte([linie], { hoehe: () => 10, boden: (i) => (i >= 16 && i < 36 ? 30 : 10), bodenZelle: 1 }));
+  await page.goto(`${DEMO}&at=26,15,-20`);
   const laeufe = page.locator('path[stroke="#123456"]');
-  await expect(laeufe).toHaveCount(3);
-  // Die Mitte der Zelle 21 liegt bei 21,5, ihre Oberseite bei 31; die Linie reicht genau so hoch.
-  const [, oben] = await aufDemSchirm(page, ...projiziere(21.5, 31, -20, zweiZuEins(16)));
-  const hoechste = Math.min(...(await Promise.all((await laeufe.all()).map(rahmen))).map((r) => r[1]!));
-  expect(Math.abs(hoechste - oben!)).toBeLessThanOrEqual(1);
+  await expect(laeufe.first()).toBeAttached();
+  // Mitten auf dem Plateau, bei x 26, liegt sie auch geglättet auf seiner Oberseite, 31: ihr Punkt dort auf dem Schirm.
+  const [sx, sy] = await aufDemSchirm(page, ...projiziere(26, 31, -20, zweiZuEins(16)));
+  const dort = await yBei(laeufe, sx!);
+  expect(Math.abs(dort - sy!)).toBeLessThanOrEqual(1);
 });
 
 test('mit groundCell 1 nimmt eine Region ohne Datei in ground die gröberen Zellen aus heights', async ({ page }) => {
@@ -282,6 +298,55 @@ test('unter Kronen bleibt ein Rand auf dem Boden ganz zu sehen; hinter einem Han
   expect(new Set(await stile())).toEqual(new Set(['0.4,3 4']));
 });
 
+test('das Nebelband liegt nur an sichtbaren Strecken des Rands; hinter einem Hang des Bodens fehlt es, es malte sonst über den Hang', async ({ page }) => {
+  // Ein Wall wo i + j = 10, also x + z zwischen 40 und 48; die Region reicht von davor bis dahinter.
+  const wall = (i: number, j: number) => (i + j === 10 ? 150 : 0);
+  await welt(page, staedte([rechteck('teil', 8, 8, 44, 44, { fill: '#AA5500FF' })], { hoehe: wall, boden: wall }));
+  await page.goto(`${DEMO}&at=36,0,36`);
+  const band = page.locator('path.nebel-band');
+  await expect(band.first()).toBeAttached();
+  // Die hintere Ecke (8, 8) liegt weit hinter dem Wall: Kein Punkt des Bands kommt ihr näher als 40 Pixel.
+  // Die Breite der Striche zählt nicht, nur ihre Punkte; über die Krone des Walls läuft der Rand sichtbar und hat Band.
+  const [ex, ey] = await aufDemSchirm(page, ...projiziere(8, 1, 8, zweiZuEins(16)));
+  const naechster = await band.evaluateAll(
+    (l, [ex, ey]) =>
+      Math.min(
+        ...(l as SVGPathElement[]).flatMap((p) => {
+          const m = p.getScreenCTM()!;
+          return Array.from({ length: Math.ceil(p.getTotalLength()) + 1 }, (_, s) => {
+            const q = p.getPointAtLength(s).matrixTransform(m);
+            return Math.hypot(q.x - ex, q.y - ey);
+          });
+        }),
+      ),
+    [ex!, ey!] as const,
+  );
+  expect(naechster).toBeGreaterThan(40);
+});
+
+test('hinter einem Haus bleibt eine Linie voll gezeichnet, nicht gestrichelt und nicht blass', async ({ page }) => {
+  // Ein Haus von 6 × 4 Blöcken, 7 hoch, vor der Linie bei z −20; aus se liegt vorn, wo z gross ist.
+  const linie = { id: 'weg', type: 'line', points: [[0, -20], [44, -20]], stroke: { color: '#123456', width: 2 } };
+  await welt(page, staedte([linie], { hoehe: () => 10, boden: (i, j) => (i >= 19 && i < 25 && j >= -17 && j < -13 ? 17 : 10), bodenZelle: 1 }));
+  await page.goto(`${DEMO}&at=22,12,-18`);
+  const laeufe = page.locator('path[stroke="#123456"]');
+  await expect(laeufe.first()).toBeAttached();
+  const stile = await laeufe.evaluateAll((l) => l.map((p) => [p.getAttribute('stroke-dasharray'), p.getAttribute('stroke-opacity')].join()));
+  expect(new Set(stile)).toEqual(new Set([',1']));
+});
+
+test('ein Haus von 6 Blöcken am Weg hebt die Linie nicht: entlang des Wegs geglättet, über ihm liegt sie auf dem Boden daneben', async ({ page }) => {
+  const linie = { id: 'weg', type: 'line', points: [[0, -20], [60, -20]], stroke: { color: '#123456', width: 2 } };
+  await welt(page, staedte([linie], { hoehe: () => 10, boden: (i) => (i >= 27 && i < 33 ? 17 : 10), bodenZelle: 1 }));
+  await page.goto(`${DEMO}&at=30,12,-20`);
+  const laeufe = page.locator('path[stroke="#123456"]');
+  await expect(laeufe.first()).toBeAttached();
+  // Ihr Punkt bei x 30, mitten über dem Haus, liegt auf dem Boden neben ihm, 11, nicht auf dem Dach, 18.
+  const [sx, sy] = await aufDemSchirm(page, ...projiziere(30, 11, -20, zweiZuEins(16)));
+  const dort = await yBei(laeufe, sx!);
+  expect(Math.abs(dort - sy!)).toBeLessThanOrEqual(1);
+});
+
 test('im iso steht am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 deckend, nach oben bis 0; nicht an Linien, nicht ohne Rand, nicht um einen Kreis ohne Füllung, nicht von oben', async ({ page }) => {
   const ohneRand = rechteck('ohne', 60, -32, 80, 0, { fill: '#AA00AA55', stroke: { width: 0 } });
   const nurUmriss = { id: 'umkreis', type: 'circle', center: [32, -60], radius: 10, stroke: { color: '#00AAAA', width: 2 } };
@@ -321,7 +386,7 @@ test('der Nebel ist ein Muster aus SVG in der Farbe, halb zum Weiss gemischt, oh
   /** Muster und Deckkraft der Striche im Band einer Fläche, erkannt am Pfad, auf den sie beschnitten sind. */
   const band = (fill: string) =>
     page.evaluate((fill) => {
-      const id = document.querySelector(`path[data-fill="${fill}"]`)!.id;
+      const id = document.querySelector(`path[data-umriss="${fill}"]`)!.id;
       return [...document.querySelectorAll('path.nebel-band')]
         .filter((p) => document.querySelector(`${/^url\((#.+)\)$/.exec(p.getAttribute('clip-path')!)![1]} use`)?.getAttribute('href') === `#${id}`)
         .map((p) => [p.getAttribute('stroke'), Math.round(Number(p.getAttribute('stroke-opacity')) * 1e4) / 1e4].join());

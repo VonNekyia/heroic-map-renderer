@@ -391,24 +391,101 @@ export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick): P
 /** Ein Linienzug auf dem Gelände: Bildpunkte und je Punkt, ob er verdeckt ist. */
 export interface Zug {
   punkte: Punkt[];
+  /** Je Punkt, ob Gelände ihn verdeckt; die Strecke zu ihm gehört dazu. Für Wand und Nebelband. */
   verdeckt: boolean[];
+  /** Wie `verdeckt`, nur verdeckte Stücke kürzer als `GLATT.luecke` nicht: Für die Linie selbst, sie bleibt hinter Häusern voll. */
+  gestrichelt: boolean[];
+}
+
+/** Glätten entlang eines Zugs: erst der Median über ±`median` Blöcke des Wegs, dann das Mittel über ±`mittel`. Gewählt in 0104. */
+const GLATT = { median: 8, mittel: 4, luecke: 16 };
+
+/**
+ * Die Punkte eines Zugs, an denen die Linie gestrichelt läuft: die
+ * verdeckten, ausser in Stücken kürzer als `GLATT.luecke` Blöcke des Wegs.
+ * Solche verdeckt ein Haus oder eine Mauer, kein Hang; durch sie hindurch
+ * bleibt die Linie voll. Siehe docs/benutzung/ebenen.md, „Was verdeckt ist“.
+ */
+function gestrichelt(punkte: readonly Punkt[], verdeckt: readonly boolean[]): boolean[] {
+  const aus = [...verdeckt];
+  for (let i = 0; i < verdeckt.length; ) {
+    if (!verdeckt[i]) {
+      i++;
+      continue;
+    }
+    // Ein Stück [von, bis) verdeckter Punkte; die Strecke vor dem ersten gehört dazu.
+    const von = i;
+    while (i < verdeckt.length && verdeckt[i]) i++;
+    let lang = 0;
+    for (let k = Math.max(1, von); k < i; k++) lang += Math.hypot(punkte[k]![0] - punkte[k - 1]![0], punkte[k]![1] - punkte[k - 1]![1]);
+    if (lang < GLATT.luecke) aus.fill(false, von, i);
+  }
+  return aus;
 }
 
 /**
- * Ein Rand oder eine Linie auf dem Gelände. Von oben bleibt der Zug, wie er
- * ist, und liegt eben. Siehe docs/benutzung/ebenen.md, „Ränder, Linien und
- * Kreise“.
+ * Die Höhen eines abgetasteten Zugs, geglättet entlang seines Wegs: erst je
+ * Punkt der Median der Höhen im Fenster ±`GLATT.median` Blöcke, dann das
+ * Mittel dieser Mediane im Fenster ±`GLATT.mittel`. So fallen Häuser und
+ * Mauern bis etwa 8 Blöcke Breite heraus, ein gleichmässiger Hang bleibt, wie
+ * er ist. Das Fenster ist symmetrisch, an den Enden eines offenen Zugs
+ * entsprechend kleiner; ein Ring, erster gleich letzter Punkt, läuft um.
+ * Siehe docs/benutzung/ebenen.md, „Ränder, Linien und Kreise“.
+ */
+export function glaetten(punkte: readonly Punkt[], hoehen: readonly number[]): number[] {
+  const n = punkte.length;
+  const ring = n > 2 && punkte[0]![0] === punkte[n - 1]![0] && punkte[0]![1] === punkte[n - 1]![1];
+  // Im Ring zählt der doppelte letzte Punkt nicht mit; er bekommt am Ende den Wert des ersten.
+  const m = ring ? n - 1 : n;
+  const weg = [0];
+  for (let i = 1; i < n; i++) weg.push(weg[i - 1]! + Math.hypot(punkte[i]![0] - punkte[i - 1]![0], punkte[i]![1] - punkte[i - 1]![1]));
+  const lang = weg[n - 1]!;
+  /** Die Werte im Fenster ±r um i, im Ring über den Anfang hinweg. */
+  const fenster = (werte: readonly number[], i: number, r: number): number[] => {
+    const w = ring ? Math.min(r, lang / 2) : Math.min(r, weg[i]!, lang - weg[i]!);
+    const im = [werte[i]!];
+    for (const richtung of [1, -1]) {
+      for (let k = 1; k < m; k++) {
+        const j = ring ? (((i + richtung * k) % m) + m) % m : i + richtung * k;
+        if (j < 0 || j >= m) break;
+        const d = Math.abs(weg[i]! - weg[j]!);
+        if ((ring ? Math.min(d, lang - d) : d) > w + 1e-9) break;
+        im.push(werte[j]!);
+      }
+    }
+    return im;
+  };
+  const roh = hoehen.slice(0, m);
+  const mediane = roh.map((_, i) => {
+    const im = fenster(roh, i, GLATT.median).sort((a, b) => a - b);
+    return im[im.length >> 1]!;
+  });
+  const glatt = mediane.map((_, i) => {
+    const im = fenster(mediane, i, GLATT.mittel);
+    return im.reduce((a, b) => a + b, 0) / im.length;
+  });
+  if (ring) glatt.push(glatt[0]!);
+  return glatt;
+}
+
+/**
+ * Ein Rand oder eine Linie auf dem Gelände, im iso entlang des Wegs geglättet,
+ * `glaetten`. Von oben bleibt der Zug, wie er ist, und liegt eben. Siehe
+ * docs/benutzung/ebenen.md, „Ränder, Linien und Kreise“.
  */
 export function zug(punkte: readonly Punkt[], geschlossen: boolean, g: Gelaende, blick: Blick): Zug {
   if (blick.p.y === 0) {
     const ebene = geschlossen && punkte.length ? [...punkte, punkte[0]!] : [...punkte];
-    return { punkte: ebene.map(([x, z]) => bildpunkt(x, 0, z, blick)), verdeckt: ebene.map(() => false) };
+    const nie = ebene.map(() => false);
+    return { punkte: ebene.map(([x, z]) => bildpunkt(x, 0, z, blick)), verdeckt: nie, gestrichelt: nie };
   }
   const abgetastet = abtasten(punkte, geschlossen, g.c);
-  const hoehen = abgetastet.map(([x, z]) => oberflaeche(g, x, z));
+  const hoehen = glaetten(abgetastet, abgetastet.map(([x, z]) => oberflaeche(g, x, z)));
+  const hinter = abgetastet.map(([x, z], i) => verdeckt(g, x, hoehen[i]!, z, blick));
   return {
     punkte: abgetastet.map(([x, z], i) => bildpunkt(x, hoehen[i]!, z, blick)),
-    verdeckt: abgetastet.map(([x, z], i) => verdeckt(g, x, hoehen[i]!, z, blick)),
+    verdeckt: hinter,
+    gestrichelt: gestrichelt(abgetastet, hinter),
   };
 }
 
@@ -420,7 +497,7 @@ export function zug(punkte: readonly Punkt[], geschlossen: boolean, g: Gelaende,
  * füllt `nonzero` auch, wo sich zwei überdecken, statt dort ein Loch zu
  * lassen. Siehe docs/benutzung/ebenen.md, „Die Wand“.
  */
-export function wand({ punkte, verdeckt }: Zug, hoch: number, baender: number): Punkt[][][] {
+export function wand({ punkte, verdeckt }: Pick<Zug, 'punkte' | 'verdeckt'>, hoch: number, baender: number): Punkt[][][] {
   const aus: Punkt[][][] = Array.from({ length: baender }, () => []);
   for (let i = 1; i < punkte.length; ) {
     if (verdeckt[i]) {

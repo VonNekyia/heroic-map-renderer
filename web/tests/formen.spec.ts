@@ -395,11 +395,18 @@ test('eine Fläche öffnet ihre Tafel beim Zeigen; von Hand geschlossen, öffnet
   await page.mouse.move(x2!, y2!);
   await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
   // An der Ecke, wo der Schliessknopf neben der Fläche liegt: von ihm hinaus, dann hinein, öffnet auch.
+  // Erst zu, sonst bliebe die Tafel von eben mit ihrem Knopf über der Fläche offen.
   await page.mouse.move(x3!, y3!);
+  await expect(page.locator('.tafel')).toHaveCount(0);
   const [ex, ey] = await punkt(20, -28);
   await page.mouse.move(ex!, ey!);
   await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
-  await page.locator('.tafel .leaflet-popup-close-button').click();
+  const daneben = await knopf.evaluate((k) => {
+    const r = k.getBoundingClientRect();
+    return !document.elementsFromPoint(r.x + r.width / 2, r.y + r.height / 2).some((e) => e.getAttribute('data-fill') === '#40E53F55');
+  });
+  expect(daneben).toBe(true);
+  await knopf.click();
   await expect(page.locator('.tafel')).toHaveCount(0);
   await page.mouse.move(x3!, y3!);
   await page.mouse.move(x2!, y2!);

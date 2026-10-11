@@ -19,6 +19,8 @@ export default tseslint.config(
       },
     },
   },
+  // Die Gegenproben sind reines JavaScript ohne Typen, siehe docs/entwicklung/tests.md, „Mutationen“.
+  { files: ['tests/*.mjs'], ...tseslint.configs.disableTypeChecked },
   {
     files: ['tests/**', 'skins/*/tests/**', 'playwright.config.ts', 'vite.config.ts', 'lighthouserc.cjs'],
     languageOptions: { globals: globals.node },

@@ -124,8 +124,8 @@ dem Plugin-Programmierer ab.
   `trees.json` und ist nur über den Download zu haben. Fehlt die Marke, ist
   der Baum öffentlich, siehe [`map.json`](benutzung/map-json.md), „Liste
   der Bäume“.
-- **Den Server,** `--serve` mit `--web`, `--listen`, `--threads 1`,
-  `--low-priority` und `--exit-with-stdin`, für HTTPS mit `--tls-cert` und
+- **Den Server,** `--serve` mit `--web`, `--listen`, `--threads 1` und
+  `--exit-with-stdin`, ohne `--low-priority`, für HTTPS mit `--tls-cert` und
   `--tls-key`, für den Download mit `--secret-file`, für Adresse, Titel,
   Beschreibung und Bild der Seite mit `--site-*` aus seiner Konfiguration,
   als eigener Kindprozess neben dem Renderer, siehe

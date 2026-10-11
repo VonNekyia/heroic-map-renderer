@@ -10,6 +10,7 @@ import {
   sichtbareFelder,
   verdeckt,
   vieleck,
+  wand,
   zug,
   zugImRechteck,
   type Blick,
@@ -209,6 +210,38 @@ test('zug: im iso auf dem Gelände, jeder Punkt auf seiner Höhe auf einem Grat;
   expect(iso.verdeckt[0]).toBe(true);
   expect(iso.verdeckt.at(-1)).toBe(false);
   expect(zug([[0, 0], [10, 0]], false, mauer, OBEN)).toEqual({ punkte: [[0, 0], [160, 0]], verdeckt: [false, false] });
+});
+
+test('wand: Bänder übereinander, alle Ringe gleich herum, kein Loch, wo sich Vorder- und Rückseite decken; verdeckte Strecken fallen weg', () => {
+  /** Umlaufzahl aller Ringe um (x, y); nonzero füllt, wo sie nicht 0 ist. */
+  const umlauf = (ringe: Punkt[][], x: number, y: number) => {
+    let w = 0;
+    for (const r of ringe) {
+      for (let i = 0; i < r.length; i++) {
+        const [a, b] = [r[i]!, r[(i + 1) % r.length]!];
+        const links = (b[0] - a[0]) * (y - a[1]) - (x - a[0]) * (b[1] - a[1]);
+        if (a[1] <= y && b[1] > y && links > 0) w++;
+        if (a[1] > y && b[1] <= y && links < 0) w--;
+      }
+    }
+    return w;
+  };
+  const vorzeichen = (r: Punkt[]) => Math.sign(r.reduce((s, a, i) => s + a[0] * r[(i + 1) % r.length]![1] - r[(i + 1) % r.length]![0] * a[1], 0));
+  // Hin und auf derselben Strecke zurück, wie Vorder- und Rückseite einer Region im Bild: zwei Läufe.
+  const hinUndHer = wand({ punkte: [[0, 100], [40, 120], [80, 100], [40, 120], [0, 100]], verdeckt: [false, false, false, false, false] }, 30, 3);
+  expect(hinUndHer.map((b) => b.length)).toEqual([2, 2, 2]);
+  const alle = hinUndHer.flat();
+  expect(new Set(alle.map(vorzeichen))).toEqual(new Set([vorzeichen(alle[0]!)]));
+  // Mitten in jedem Band, über beiden Läufen: gefüllt, nicht ausgespart.
+  for (let k = 0; k < 3; k++) expect(Math.abs(umlauf(hinUndHer[k]!, 40, 120 - 10 * k - 5))).toBe(2);
+  // Band k reicht von 10 · k bis 10 · (k + 1) Pixel über dem Rand.
+  expect(Math.max(...hinUndHer[1]!.flat().map((p) => p[1]))).toBe(120 - 10);
+  expect(Math.min(...hinUndHer[1]!.flat().map((p) => p[1]))).toBe(100 - 20);
+  // Die Strecken zu den verdeckten Punkten fallen weg; vor und nach ihnen je ein Lauf.
+  const mitLuecke = wand({ punkte: [[0, 0], [10, 0], [20, 0], [30, 0], [40, 0]], verdeckt: [false, false, true, false, false] }, 6, 1);
+  expect(mitLuecke[0]!.map((r) => [...new Set(r.map((p) => p[0]))].sort((a, b) => a - b))).toEqual([[0, 10], [20, 30, 40]]);
+  // Ganz verdeckt: keine Wand.
+  expect(wand({ punkte: [[0, 0], [10, 0]], verdeckt: [true, true] }, 6, 2)).toEqual([[], []]);
 });
 
 test('ringImRechteck: eine Fläche, beschnitten auf das Rechteck', () => {

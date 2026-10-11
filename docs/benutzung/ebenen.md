@@ -3,6 +3,7 @@ title: Ebenen
 description: Das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, Kartenschrift, Regionen, Kreisen und Linien und einer strukturierten Infotafel ohne HTML; wo die Dateien neben trees.json liegen, wie sie sich ändern, wie gross sie sein dürfen, und wie 2D- und iso-Ansichten sie mit derselben Projektion wie die Kacheln auf das Gelände legen.
 code:
   - web/src/pick.ts
+  - web/src/nebel.ts
   - renderer/src/ebenen.rs
   - renderer/src/cli/banner.rs
   - renderer/tests/fixtures/projektion.json
@@ -698,7 +699,7 @@ und Linien, über seinen Kanal. Regionen braucht der Mod auch zum Anheften
 
 ![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben: Region, Kreis, Linie, Kartenschrift, ein Banner mit Entwurf und Krone, Name im Bogen und Tafel, eine Nadel](../bilder/ebenen-testwelt.webp)
 
-*Testwelt, scale 16, Kacheln und Banner von 0.8.0; Befehle im Skill
+*Testwelt, scale 16, Kacheln mit `ground` und Banner von 0.8.0; Befehle im Skill
 [`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md).*
 
 Jede Ansicht rechnet die Punkte mit derselben Projektion wie die Kacheln,
@@ -731,7 +732,15 @@ wie bei den Koordinaten.
 `H(x, z)` ist die Oberseite des Geländes an einem Punkt:
 
 - **Aus den Höhen:** je Zelle aus `heightsCell` × `heightsCell` Spalten ein
-  Wert, siehe [map.json](map-json.md), „Höhen“. Die Oberseite ist Wert + 1.
+  Wert, bei `ground` aus `groundCell` × `groundCell`, ohne das Feld wie
+  `heightsCell`; siehe [map.json](map-json.md), „Höhen“. Die Oberseite ist
+  Wert + 1. Eine Region, die `heights` statt `ground` nimmt, behält deren
+  gröbere Zellen.
+- **Welche Höhen:** Flächen, Ränder, Kreise und Linien liegen auf dem Boden
+  ohne Laub aus `ground`; fehlt einer Region die Datei oder dem Baum das
+  Feld, dort auf `heights`. Nadeln, Banner und Kartenschrift liegen immer
+  auf `heights`, auf dem, was das Bild zeigt. Warum:
+  [0104](../entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md).
 - **Weich:** zwischen den Mitten der Zellen bilinear gemischt, damit ein
   Rand nicht in Stufen von 4 Blöcken springt.
 - **Ohne Wert** (−32768 oder eine fehlende Region): der Mittelwert der
@@ -767,10 +776,62 @@ wie bei den Koordinaten.
    dann die Maske einmal in der Farbe von `fill`; die Webkarte füllt sie
    als einen Pfad, gerade/ungerade. So doppelt sich das Alpha nicht an den
    Kanten zweier Stücke.
+3. **Im iso als Nebel,** siehe „Der Nebel“.
+
+### Der Nebel
+
+Im iso füllt eine Fläche mit `fill` nicht einfarbig, sondern mit einem
+ruhigen Wolkenmuster in ihrer Farbe. Von oben bleibt es die Füllung selbst.
+
+- **Farbe:** `fill` ohne Alpha, zur Hälfte mit Weiss gemischt, so ist der
+  Nebel auch über Grund in derselben Farbe zu sehen; aus `#40E53F` wird
+  `#A0F29F`.
+- **Muster:** eine Kachel von 128 × 128 Pixeln des Schirms, auf jeder
+  Stufe gleich: ein Grund mit 10 % Deckkraft und 18 flache Wolken, Ellipsen
+  halb so hoch wie breit mit radialem Verlauf bis 0, nahtlos gekachelt. Je
+  Farbe ein Muster, ohne Bild und ohne Filter; `nebel.ts` in
+  [`web/src/`](../../web/src/nebel.ts).
+- **Deckkraft:** doppelt so viel wie das Alpha von `fill`, höchstens 1. Die
+  Kachel deckt im Mittel 32 %, nachgerechnet über ihre Pixel; der Nebel
+  deckt im Mittel also knapp zwei Drittel des Alphas von `fill`, bei
+  `#RRGGBB26`, 15 %, rund 10 %. So sah die Vorschau aus, die der User
+  wählte. Empfohlen sind etwa 15 %.
+- **Kosten:** Das Muster entsteht erst mit der ersten Fläche im iso; ohne
+  Flächen gibt es keins.
+- Gewählt in [0104](../entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md).
+
+### Die Wand
+
+Im iso steht am Rand jeder Fläche eine Wand, an Regionen und Kreisen, auch
+um Löcher. Eine Fläche ist eine Region oder ein Kreis mit `fill`, `name`
+oder `panel`; ein Kreis nur mit Rand, etwa als Umkreis, und eine Linie
+haben keine Wand. Von oben gibt es keine.
+
+- **Höhe:** 6 Blöcke über dem Boden, je Punkt des Rands `P(x, H + 6, z)`;
+  in Pixeln der feinsten Stufe also 6 · b über dem Rand.
+- **Farbe:** die des Rands ohne Alpha. Ein Rand mit `width: 0` hat keine
+  Wand.
+- **Verlauf:** am Boden 0,6 deckend, nach oben linear bis 0, in 12 Bändern
+  gleicher Höhe; Band k von unten hat `0,6 · (1 − (k + ½) / 12)`.
+- **Verdeckt:** Eine Strecke des Rands, die hinter Gelände liegt, hat keine
+  Wand; welche das sind, wie beim Rand, siehe „Was verdeckt ist“.
+- **Gezeichnet** je Ebene, Farbe und Band als ein Pfad, `nonzero`: Je Lauf
+  von Strecken, die auf dem Schirm in dieselbe Richtung gehen, ein Streifen,
+  alle gleich herum. So bleibt kein Loch, wo sich Vorder- und Rückseite
+  decken. `wand` in [`gelaende.ts`](../../web/src/gelaende.ts).
+- Gewählt in [0104](../entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md).
+
+![Eine Region über Wald und Ufer der Testwelt auf dem Boden, mit Wand und Nebel, schräg und von oben; eine Linie unter Kronen, voll zu sehen; eine Linie hinter einem Hang, dort dünn und gestrichelt](../bilder/regionen-boden.webp)
+
+*Testwelt, scale 16, Kacheln mit `ground`; Befehle im Skill
+[`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md).*
 
 ### Was verdeckt ist
 
 Im iso kann Gelände vor einer Fläche liegen, etwa ein Berg vor einem Tal.
+Geprüft wird gegen dieselben Höhen, auf denen die Form liegt: für Flächen,
+Ränder und Linien der Boden ohne Laub. Kronen verdecken sie also nicht; ein
+Rand unter ihnen ist voll über ihnen gezeichnet.
 Geprüft wird entlang der Linie vom Punkt zur Kamera: Auf ihr steigt der
 Strahl, der denselben Bildpunkt trifft, je Block in x oder z um die
 Steigung `2a/b`, genordet `a/b`. Gelände zählt erst ab mehr als einer Zelle

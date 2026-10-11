@@ -30,6 +30,10 @@ interface MapInfo {
   heights?: string;
   /** Spalten je Kante einer Zelle der Höhenkarten. */
   heightsCell?: number;
+  /** Pfadmuster der Höhen ohne Laub, im Format von `heights`; Formen liegen im iso darauf. */
+  ground?: string;
+  /** Spalten je Kante einer Zelle von `ground`; ohne Angabe `heightsCell`. */
+  groundCell?: number;
   /** Der Bereich in Y, in dem jeder gezeichnete Block liegt. */
   minY?: number;
   maxY?: number;
@@ -180,16 +184,11 @@ type Hoehen = Required<Pick<MapInfo, 'heights' | 'heightsCell' | 'minY' | 'maxY'
  */
 function hatHoehen(info: MapInfo): info is MapInfo & Hoehen {
   const { heights, heightsCell, minY, maxY } = info;
-  return (
-    typeof heights === 'string' &&
-    typeof minY === 'number' &&
-    typeof maxY === 'number' &&
-    typeof heightsCell === 'number' &&
-    Number.isInteger(heightsCell) &&
-    heightsCell > 0 &&
-    REGION % heightsCell === 0
-  );
+  return typeof heights === 'string' && typeof minY === 'number' && typeof maxY === 'number' && zelleGilt(heightsCell);
 }
+
+/** Eine Kante einer Zelle der Höhen, die eine Region ganz teilt. */
+const zelleGilt = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0 && REGION % n === 0;
 
 /**
  * Die Projektion, mit der die Koordinaten rechnen, oder der Grund, warum
@@ -706,7 +705,12 @@ async function start(): Promise<void> {
     // Der Satz der Banner-Sprites: ein Baum von oben und ein einfarbiger nehmen
     // oben, jeder andere seinen Pfad. Siehe docs/benutzung/ebenen.md, „Sprites“.
     const satz = baum && (baum.camera === 'top' || baum.camera === 'top-north' || baum.look === 'flat' ? 'oben' : baum.path);
-    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, heightsCell, seaLevel, minY, maxY, area, satz: satz ?? undefined }).catch(
+    // Der Boden ohne Laub, nur mit brauchbaren heights, je Zelle aus groundCell, sonst heightsCell;
+    // siehe docs/benutzung/ebenen.md, „Die Oberfläche im iso“. Er wiegt je Block 512 KB je Region,
+    // darum behält der Cache nur wenige.
+    const bodenCell = hatHoehen(info) && zelleGilt(info.groundCell) ? info.groundCell : heightsCell;
+    const boden = karten && hatHoehen(info) && typeof info.ground === 'string' ? hoehen(base, info.ground, bodenCell!, 8) : undefined;
+    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, boden, bodenCell, heightsCell, seaLevel, minY, maxY, area, satz: satz ?? undefined }).catch(
       (error: unknown) => console.error(error),
     );
   }

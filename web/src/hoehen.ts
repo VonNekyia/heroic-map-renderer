@@ -40,8 +40,9 @@ async function ladeKarte(path: string, n: number): Promise<Int16Array | null> {
 /**
  * Die Höhenkarten der Regionen, je Zelle aus `zelle` × `zelle` Spalten die
  * Höhe dessen, was man sieht. Siehe docs/benutzung/map-json.md.
+ * `behalte` Karten hält der Cache höchstens.
  */
-export function hoehen(base: string, muster: string, zelle: number) {
+export function hoehen(base: string, muster: string, zelle: number, behalte = 64) {
   const karten = new Map<string, Int16Array | null>();
   const unterwegs = new Map<string, Promise<Int16Array | null>>();
 
@@ -62,7 +63,7 @@ export function hoehen(base: string, muster: string, zelle: number) {
           // ponytail: verdrängt die älteste statt der am längsten
           // ungenutzten; eine verdrängte lädt neu, mit Nachfrage beim Server
           // (no-cache, meist 304) und neuem Entpacken.
-          if (karten.size > 64) karten.delete(karten.keys().next().value!);
+          if (karten.size > behalte) karten.delete(karten.keys().next().value!);
           return karte;
         });
       unterwegs.set(name, laden);

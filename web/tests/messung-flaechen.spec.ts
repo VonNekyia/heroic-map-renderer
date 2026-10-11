@@ -96,7 +96,7 @@ for (const [ansicht, mehr] of [
               new Promise<number>((ja) => {
                 const anfang = performance.now();
                 const da = () => {
-                  const pfad = gefuellt ? document.querySelector('path[fill="#FF000055"]') : document.querySelector('path[stroke="#FF0000"]');
+                  const pfad = gefuellt ? document.querySelector('path[data-fill="#FF000055"]') : document.querySelector('path[stroke="#FF0000"]');
                   return Boolean(pfad?.getAttribute('d'));
                 };
                 const beobachter = new MutationObserver(() => {

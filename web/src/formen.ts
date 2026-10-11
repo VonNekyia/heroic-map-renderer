@@ -8,6 +8,7 @@ import {
   netz,
   rechteck,
   ringImRechteck,
+  bildpunkt,
   vieleck,
   wand,
   zug,
@@ -19,7 +20,7 @@ import {
   type Rechteck,
   type Zug,
 } from './gelaende';
-import { nebel } from './nebel';
+import { nebel, schnitt } from './nebel';
 import { farbe, istObjekt, istText, istZahl, punkt, punkte } from './pruefen';
 
 /** Ein Rand: Farbe, Breite in Pixeln des Schirms, Strich und Lücke, wenn gestrichelt. */
@@ -119,6 +120,28 @@ export function form(wert: Record<string, unknown>, warne: (text: string) => voi
   return grund.polygone.length ? grund : undefined;
 }
 
+/**
+ * Das Band des Nebels innen am Rand einer Fläche im iso: so breit wie
+ * `bloecke` Blöcke, aus `striche` Strichen, die die Fläche beschneidet, nach
+ * innen gleichmässig gestuft; wo sie sich decken, am Rand, ist es dichter.
+ * Gewählt in 0104.
+ */
+const NEBELBAND = { bloecke: 16, striche: 6 };
+
+/** Ein Strich des Nebelbands und seine Breite in Pixeln der feinsten Stufe; die Ebene setzt sie je Zoom, `weite`. */
+export interface Band {
+  linie: L.Polyline;
+  breite: number;
+}
+
+/** Setzt die Breite der Striche eines Nebelbands, `faktor` Pixel des Schirms je Pixel der feinsten Stufe. */
+export function weite(baender: readonly Band[], faktor: number): void {
+  for (const { linie, breite } of baender) linie.setStyle({ weight: breite * faktor });
+}
+
+/** Für die Kennungen der Pfade, auf die ein Nebelband beschnitten wird. */
+let flaechenNummer = 0;
+
 /** Ein Lauf eines Rands und wie weit er vom Anfang des ganzen Zugs beginnt, in Pixeln der feinsten Stufe. */
 export interface Strich {
   linie: L.Polyline;
@@ -209,12 +232,17 @@ export function zuege(f: Form, c: number, area: Rechteck | undefined): Punkt[][]
  * mit Namen oder Tafel ist ein Ziel, auch ohne Füllung. Was ausserhalb von
  * `area` liegt, fällt vorher weg.
  */
-export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Layer[]; striche: Strich[] } {
+export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Layer[]; striche: Strich[]; baender: Band[] } {
   // Ausgepackt, und keine Closure greift auf z oder das Gelände: Sonst hielte
   // die Tafel einer Fläche die Höhen am Leben.
   const { renderer, blick, gelaende: g, area, tafel, bediene } = z;
   const flaechen: L.Layer[] = [];
   const striche: Strich[] = [];
+  const baender: Band[] = [];
+  // Ein Block in x und in z auf dem Schirm, gemittelt: daraus die Breite des Nebelbands.
+  const [ox, oy] = bildpunkt(0, 0, 0, blick);
+  const [[ax, ay], [bx, by]] = [bildpunkt(1, 0, 0, blick), bildpunkt(0, 0, 1, blick)];
+  const proBlock = (Math.hypot(ax - ox, ay - oy) + Math.hypot(bx - ox, by - oy)) / 2;
   /** Je Farbe die Ringe der Wände, je Band von unten nach oben. */
   const waende = new Map<string, Punkt[][][]>();
   for (const f of formen) {
@@ -226,21 +254,42 @@ export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Lay
       const ringe = netz(beschnitten, g, blick);
       // Ganz verdeckt oder ausserhalb von area: keine Fläche, also auch kein Ziel.
       if (ringe.length) {
-        // Im iso als Nebel: das Muster in der Farbe, im Mittel etwa so deckend wie fill. Siehe ebenen.md, „Der Nebel“.
+        // Im iso statt der Füllung ein Band aus Nebel innen am Rand, siehe ebenen.md, „Der Nebel“.
         const fuellung = f.fuellung;
-        const alpha = fuellung && fuellung.length === 9 ? parseInt(fuellung.slice(7), 16) / 255 : 1;
         const imNebel = fuellung !== undefined && blick.p.y > 0;
         // Ohne Vereinfachen durch Leaflet: Es nähme jeden Ring für sich, gemeinsame Kanten liefen auseinander.
         const flaeche = L.polygon(ringe.map((r) => r.map(latLng)), {
           renderer,
           stroke: false,
-          fillColor: imNebel ? nebel(fuellung.slice(0, 7).toUpperCase()) : (fuellung ?? '#000000'),
-          fillOpacity: imNebel ? Math.min(1, 2 * alpha) : fuellung ? 1 : 0,
+          fillColor: fuellung ?? '#000000',
+          fillOpacity: fuellung && !imNebel ? 1 : 0,
           interactive: f.name !== undefined || f.panel !== undefined,
           smoothFactor: 0,
         });
-        // Die Füllung, wie die Ebene sie nennt, auch wo das Muster sie zeichnet.
+        // Die Füllung, wie die Ebene sie nennt, auch wo das Band sie zeichnet.
         if (fuellung) flaeche.on('add', () => flaeche.getElement()?.setAttribute('data-fill', fuellung));
+        if (imNebel) {
+          const alpha = fuellung.length === 9 ? parseInt(fuellung.slice(7), 16) / 255 : 1;
+          const pfad = `nebel-flaeche-${++flaechenNummer}`;
+          const [clip, entferne] = schnitt(pfad);
+          flaeche.on('add', () => flaeche.getElement()?.setAttribute('id', pfad));
+          flaeche.on('remove', entferne);
+          const muster = nebel(fuellung.slice(0, 7).toUpperCase());
+          // Am Rand decken alle Striche zusammen 1 − (1 − a)³ mit a = min(1, 2 · Alpha) / 2, gleich wie viele es sind.
+          const amRand = 1 - (1 - Math.min(1, 2 * alpha) / 2) ** 3;
+          const jeStrich = 1 - (1 - amRand) ** (1 / NEBELBAND.striche);
+          for (const stueck of zuege(f, g.c, area)) {
+            const punkte = zug(stueck, false, g, blick).punkte.map(latLng);
+            for (let k = NEBELBAND.striche; k > 0; k--) {
+              const anteil = k / NEBELBAND.striche;
+              const linie = L.polyline(punkte, { renderer, color: muster, opacity: jeStrich, weight: 1, lineJoin: 'round', lineCap: 'round', className: 'nebel-band', interactive: false, noClip: true, smoothFactor: 0 });
+              linie.on('add', () => linie.getElement()?.setAttribute('clip-path', clip));
+              // Mittig auf dem Rand: Innen bleibt die Hälfte.
+              baender.push({ linie, breite: 2 * NEBELBAND.bloecke * anteil * proBlock });
+              flaechen.push(linie);
+            }
+          }
+        }
         if (f.name) {
           const name = document.createElement('span');
           name.textContent = f.name;
@@ -273,5 +322,5 @@ export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Lay
       flaechen.push(L.polygon(ringe.map((r) => [r.map(latLng)]), { renderer, stroke: false, fillColor: farbeWand, fillOpacity: deckkraft, fillRule: 'nonzero', interactive: false, smoothFactor: 0 }));
     });
   }
-  return { flaechen, striche };
+  return { flaechen, striche, baender };
 }

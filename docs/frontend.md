@@ -546,8 +546,9 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Kreis, liegt die ganze Ebene mit Meldung auf `seaLevel`, auch ihre
     kleinen Formen. Der Cache für `ground` hält 8 Regionen, der für
     `heights` 64. Die Grenze gilt nur für die Webkarte;
-  - die Wand am Rand einer Fläche im iso, siehe [Ebenen](benutzung/ebenen.md),
-    „Die Wand“;
+  - die Wand und das Band aus Nebel am Rand einer Fläche im iso, siehe
+    [Ebenen](benutzung/ebenen.md), „Die Wand“ und „Der Nebel“; die Breite
+    des Bands setzt die Ebene nach jedem Zoom, `weite` in `formen.ts`;
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
     vorher beschnitten;
   - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,

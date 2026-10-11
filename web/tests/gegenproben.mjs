@@ -60,5 +60,15 @@ export default [
   { name: 'je-flaeche-ein-muster', datei: 'src/nebel.ts', alt: '  const fertig = muster.get(farbe);\n  if (fertig) return fertig;\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'der Nebel ist ein Muster' },
   { name: 'evenodd', datei: 'src/formen.ts', alt: 'fillRule: \'nonzero\'', neu: 'fillRule: \'evenodd\'', spec: 'tests/formen.spec.ts', titel: 'im iso steht am Rand' },
   { name: 'ohne-ersatz-aus-heights', datei: 'src/ebenen.ts', alt: 'const karte = vomBoden ?? (await karten.karte(rx, rz));', neu: 'const karte = vomBoden ?? (boden ? null : await karten.karte(rx, rz));', spec: 'tests/formen.spec.ts', titel: 'fehlt einer Region die Datei in ground' },
-  { name: 'deckkraft-nicht-verdoppelt', datei: 'src/formen.ts', alt: 'fillOpacity: imNebel ? Math.min(1, 2 * alpha) :', neu: 'fillOpacity: imNebel ? alpha :', spec: 'tests/formen.spec.ts', titel: 'auf Höhe 10 um deren Pixel' },
+  { name: 'deckkraft-nicht-verdoppelt', datei: 'src/formen.ts', alt: 'const amRand = 1 - (1 - Math.min(1, 2 * alpha) / 2) ** 3;', neu: 'const amRand = 1 - (1 - alpha / 2) ** 3;', spec: 'tests/formen.spec.ts', titel: 'auf Höhe 10 um deren Pixel' },
+  // Der Nebel als Band innen am Rand, feste Grösse, gespiegelte Kacheln, #273.
+  { name: 'band-ganze-flaeche', datei: 'src/formen.ts', alt: 'fillOpacity: fuellung && !imNebel ? 1 : 0,', neu: 'fillOpacity: fuellung ? 1 : 0,', spec: 'tests/formen.spec.ts', titel: 'auf Höhe 10 um deren Pixel' },
+  { name: 'band-8-bloecke', datei: 'src/formen.ts', alt: 'const NEBELBAND = { bloecke: 16,', neu: 'const NEBELBAND = { bloecke: 8,', spec: 'tests/formen.spec.ts', titel: 'auf Höhe 10 um deren Pixel' },
+  { name: 'band-ohne-schnitt', datei: 'src/formen.ts', alt: 'linie.on(\'add\', () => linie.getElement()?.setAttribute(\'clip-path\', clip));', neu: 'linie.on(\'add\', () => linie.getElement()?.setAttribute(\'data-clip\', clip));', spec: 'tests/formen.spec.ts', titel: 'auf Höhe 10 um deren Pixel' },
+  { name: 'band-breite-nicht-beim-zoom', datei: 'src/ebenen.ts', alt: '      versetze(g.striche, faktor());\n      weite(g.baender, faktor());\n', neu: '      versetze(g.striche, faktor());\n', spec: 'tests/formen.spec.ts', titel: 'während eines Zooms ist das Nebelband aus' },
+  { name: 'band-beim-zoom-sichtbar', datei: 'src/style.css', alt: '.zoomt .nebel-band {\n  opacity: 0;', neu: '.zoomt .nebel-band {\n  opacity: 1;', spec: 'tests/formen.spec.ts', titel: 'während eines Zooms ist das Nebelband aus' },
+  { name: 'ohne-spiegel', datei: 'src/nebel.ts', alt: '`translate(0 ${2 * n}) scale(1 -1)`, ', neu: '', spec: 'tests/formen.spec.ts', titel: 'der Nebel ist ein Muster' },
+  { name: 'band-ohne-flaechen', datei: 'src/formen.ts', alt: '  const baender: Band[] = [];\n', neu: '  const baender: Band[] = [];\n  schnitt(\'leer\');\n', spec: 'tests/formen.spec.ts', titel: 'legt die Karte kein Muster an' },
+  { name: 'band-3-striche', datei: 'src/formen.ts', alt: 'const NEBELBAND = { bloecke: 16, striche: 6 };', neu: 'const NEBELBAND = { bloecke: 16, striche: 3 };', spec: 'tests/formen.spec.ts', titel: 'auf Höhe 10 um deren Pixel' },
+  { name: 'deckkraft-je-strich-wie-am-rand', datei: 'src/formen.ts', alt: 'const jeStrich = 1 - (1 - amRand) ** (1 / NEBELBAND.striche);', neu: 'const jeStrich = amRand;', spec: 'tests/formen.spec.ts', titel: 'auf Höhe 10 um deren Pixel' },
 ];

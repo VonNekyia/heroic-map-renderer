@@ -42,6 +42,8 @@ das Frontend liest die Datei in `web/src/main.ts`.
   "world": "cb13a94d6c88dae1-6872d5d8ff54db07",
   "heights": "../heights/{x}.{z}.bin",
   "heightsCell": 4,
+  "ground": "../ground/{x}.{z}.bin",
+  "groundCell": 1,
   "minY": -64,
   "maxY": 319,
   "look": "map",
@@ -68,6 +70,8 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `world` | Kennung der Welt und Dimension, oder `null` | [Welten und Kennung](welten.md) |
 | `heights` | Pfadmuster der Höhen je Region, relativ zum Baum; fehlt es, hat der Baum keine | „Höhen“ unten |
 | `heightsCell` | Kantenlänge einer Zelle der Höhen in Blöcken, heute 4; steht mit `heights` | „Höhen“ unten |
+| `ground` | Pfadmuster des Bodens ohne Laub je Region, relativ zum Baum; erst nach einem Lauf über die ganze Welt oder `--heights` | „Höhen“ unten |
+| `groundCell` | Kantenlänge einer Zelle des Bodens in Blöcken, heute 1; steht mit `ground` | „Höhen“ unten |
 | `minY`, `maxY` | unterster und oberster Block, den der Renderer zeichnet; stehen mit `heights` | „Höhen“ unten |
 | `look` | `"map"` die Karte, `"cinematic"` oder `"flat"`; fehlt es, die Karte | „Look“ unten |
 | `lookHash` | Fingerabdruck der Werte von Cinematic, 16 Hexziffern; nur mit `"cinematic"` | „Look“ unten |
@@ -223,9 +227,9 @@ die alle Bäume teilen. Entschieden in
   Baum aus einem Stand vor #68. Der Lauf bricht dann ab, bevor er die
   Ausnahme im Echtzeitschutz setzt, Assets oder Welt liest, und nennt den
   Ordner, in den der Baum gehört; er deutet ihn nicht um und verschiebt
-  nichts. Weiter geht es so: alles ausser `heights/` in den genannten
-  Ordner verschieben, `heights/` bleibt in der Wurzel, wo alle Bäume sie
-  lesen. Bis zum nächsten Lauf zeigt das Frontend für den Baum Striche
+  nichts. Weiter geht es so: alles ausser `heights/` und `ground/` in den
+  genannten Ordner verschieben, beide bleiben in der Wurzel, wo alle Bäume
+  sie lesen. Bis zum nächsten Lauf zeigt das Frontend für den Baum Striche
   statt Koordinaten, denn seine `map.json` sucht die Höhen noch in seinem
   eigenen Ordner, siehe [Frontend](../frontend.md), „Koordinaten“. Der nächste Lauf schreibt sie neu, mit `../heights/{x}.{z}.bin`.
   `--pyramid` nimmt weiter jeden Baum, auch einen der alten Ablage.
@@ -270,6 +274,35 @@ Höhe. Die liefert der Renderer:
   sie einem Chunk, rechnet er sie aus den Blöcken, die er ohnehin
   dekodiert. Warum aus ihr, warum je 4×4 und warum über Wasser die
   Oberfläche: [0036](../entscheidungen/0036-hoehen-aus-der-heightmap.md).
+- **Der Boden ohne Laub** steht daneben, je Region `ground/{x}.{z}.bin`,
+  `map.json` nennt ihn als `ground`, etwa `../ground/{x}.{z}.bin`. Er ist
+  für Formen auf dem Gelände, die Koordinaten nehmen weiter `heights`.
+  Warum, und warum je Block: [0103](../entscheidungen/0103-boden-ohne-laub.md).
+  - **Inhalt:** ein zlib-Strom wie bei den Höhen, Werte i16 little-endian,
+    zeilenweise nach z, −32768 ohne Block oder ohne Chunk; `minY` und
+    `maxY` gelten mit. Aber je Block: `groundCell` ist 1, eine Region hat
+    512 × 512 Werte, und die Spalte (x, z) liegt an
+    (z − 512·rz)·512 + (x − 512·rx).
+  - **Wert:** je Spalte der obere Median der 3 × 3 Spalten um sie, von
+    deren oberstem Block, der Bewegung aufhält oder Flüssigkeit hält und
+    kein Laub ist. Über Wasser also die Oberfläche, im Wald der Boden unter
+    den Kronen; Gras und Blumen zählen nicht. Stämme von 1 × 1 und 2 × 2
+    auf flachem Boden fallen durch den Median weg, eine Stufe bleibt an
+    ihrer Kante.
+    - Spalten ohne Block und ausserhalb der Region zählen nicht mit; eine
+      Spalte ohne Block bleibt −32768.
+    - Am Rand einer Region fehlen die Nachbarn der nächsten. Dort zählen
+      nur die vorhandenen, ein Stamm von 2 × 2 genau am Rand bleibt stehen.
+      Ebenso am Rand eines Ausschnitts, bis ein ganzer Lauf oder
+      `--heights` die Region neu schreibt.
+  - **Quelle:** die Heightmap `MOTION_BLOCKING_NO_LEAVES`, die das Spiel
+    wie `WORLD_SURFACE` in jedem fertigen Chunk speichert, `Chunk::ground`.
+    Fehlt sie einem Chunk, gilt für ihn die Oberfläche.
+  - **Wann `map.json` ihn nennt:** erst nach einem Lauf über die ganze Welt
+    oder nach `--heights`, wenn jede Region ihn hat. Ein Ausschnitt oder ein
+    Update in einem Baum ohne das Feld schreibt die Dateien seiner Regionen
+    und lässt das Feld weg; hat der Baum es, bleibt es. Fehlt das Feld oder
+    eine Datei, nimmt ein Frontend `heights`.
 
 Geschrieben werden die Höhen vor der ersten `map.json` eines Laufs; ein
 Frontend, das dem Render zusieht, findet sie also mit der ersten Kachel.
@@ -280,8 +313,9 @@ Welcher Lauf welche Höhen schreibt:
   neu, die er liest, auch die, deren Blöcke daneben landen. Ein Chunk, den
   es dort nicht gibt, wird leer. Die übrigen Chunks einer Region behalten
   ihre Höhen, wie ihre Kacheln.
-- **`--heights DIR`** schreibt Höhen und Felder in einen bestehenden Baum,
-  ohne zu rendern, etwa in einen aus einem Stand ohne Höhen. `DIR` ist der
+- **`--heights DIR`** schreibt Höhen, Boden und Felder in einen
+  bestehenden Baum, ohne zu rendern, etwa in einen aus einem Stand ohne
+  Höhen oder ohne Boden. `DIR` ist der
   Ordner des Baums, auch als `.`. Liegt er unter einer Wurzel mit
   `trees.json`, landen die Höhen dort, sonst in ihm selbst. Der Aufruf
   liest die ganze Welt, braucht nur `--world`, nimmt scale, Kamera und
@@ -290,8 +324,10 @@ Welcher Lauf welche Höhen schreibt:
   zu den Bäumen daneben gehört.
 - **`--resume`** schreibt die Höhen neu wie ein Export.
 - **`--pyramid`** lässt Höhen und Felder stehen.
-- **`--prune`** entfernt am Ende des Laufs die Höhen von Regionen ohne
-  Regionsdatei, soweit der Lauf sie läse, wie die Kacheln ohne Chunk. Ohne
+- **Der Boden** kommt mit jedem dieser Läufe mit, für dieselben Chunks
+  wie die Höhen.
+- **`--prune`** entfernt am Ende des Laufs Höhen und Boden von Regionen
+  ohne Regionsdatei, soweit der Lauf sie läse, wie die Kacheln ohne Chunk. Ohne
   den Schalter bleiben sie stehen.
 - **Nicht fertig erzeugte Chunks** übergeht der Vorlauf wie das Rendern,
   ihre Zellen bleiben leer, siehe [Welten und Kennung](welten.md), „Nicht

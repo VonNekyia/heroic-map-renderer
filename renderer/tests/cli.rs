@@ -225,7 +225,7 @@ fn hoehen_von(dir: &Path, rx: i32, rz: i32) -> Heights {
         .join(hoehen_ordner(dir))
         .join(heights::path_of(rx, rz).trim_start_matches("heights/"));
     let daten = std::fs::read(&pfad).unwrap_or_else(|e| panic!("{} lesen: {e}", pfad.display()));
-    Heights::decode(&daten).unwrap()
+    Heights::decode(&daten, heights::CELL).unwrap()
 }
 
 /// Eine Kopie des Baums samt Höhen in einer neuen Wurzel.
@@ -3036,6 +3036,94 @@ fn export_schreibt_hoehen() {
     assert_eq!(hoehe.get(0, 0), 6, "nur Wasser");
     assert_eq!(hoehe.get(1, 1), EMPTY, "ohne Block");
     assert_eq!(hoehe.get(10, 10), EMPTY, "Chunk (2, 2) fehlt");
+
+    // Der Boden ohne Laub daneben, je Block, nach einem Lauf über die ganze
+    // Welt in map.json. Ohne gespeicherte Heightmap gilt die Oberfläche, je
+    // Spalte der obere Median der 3 × 3 um sie.
+    assert_eq!(info["ground"], "../ground/{x}.{z}.bin");
+    assert_eq!(info["groundCell"], 1);
+    let daten = std::fs::read(out.path().join("../ground/0.0.bin")).unwrap();
+    let boden = Heights::decode(&daten, heights::GROUND_CELL).unwrap();
+    assert_eq!(boden.get(8, 8), 9, "Wasser und Truhe, der obere Median");
+    assert_eq!(boden.get(9, 8), 9, "die Truhe neben dem Wasser");
+    assert_eq!(boden.get(13, 8), 7, "die Truhe allein");
+    assert_eq!(boden.get(10, 8), EMPTY, "ohne Block");
+    assert_eq!(boden.get(0, 0), 6);
+}
+
+/// Der Boden je Block geht durch den Median 3 × 3: Stämme von 1 × 1 und
+/// 2 × 2 auf flachem Boden fallen weg, eine Stufe bleibt an ihrer Kante. Die
+/// Welt hat keine gespeicherte Heightmap, der Boden ist also die Oberfläche
+/// mit den Stämmen.
+#[test]
+fn boden_ohne_staemme() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
+        (8, 5..=9, 8) | (3..=4, 5..=12, 3..=4) => "minecraft:einfarbig",
+        (12..=15, 0..=8, _) | (_, 0..=4, _) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    });
+    let out = neuer_baum("2x1-se");
+    gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+    let daten = std::fs::read(out.path().join("../ground/0.0.bin")).unwrap();
+    let boden = Heights::decode(&daten, heights::GROUND_CELL).unwrap();
+    assert_eq!(boden.get(8, 8), 4, "Stamm 1 × 1");
+    for (x, z) in [(3, 3), (4, 3), (3, 4), (4, 4)] {
+        assert_eq!(boden.get(x, z), 4, "Stamm 2 × 2 bei ({x}, {z})");
+    }
+    for z in 0..16 {
+        assert_eq!(boden.get(11, z), 4, "unter der Stufe bei z {z}");
+        assert_eq!(boden.get(12, z), 8, "auf der Stufe bei z {z}");
+    }
+}
+
+/// Den Boden nennt `map.json` erst, wenn ein Lauf ihn für jede Region
+/// geschrieben hat: nach einem Ausschnitt in einem neuen Baum nicht, obwohl
+/// die Datei schon liegt; nach `--heights` schon, und ein Ausschnitt danach
+/// behält ihn.
+#[test]
+fn boden_erst_nach_einem_ganzen_lauf() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], |x, y, z| match (x, y, z) {
+        (8, 0..=4, 8) => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    });
+    let out = neuer_baum("2x1-se");
+    let ausschnitt = ["--scale", "16", "--center", "8", "8", "--size", "64"];
+    gelungen(&tiles(welt.path(), out.path(), &ausschnitt));
+    let info = |p: &Path| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(p.join("map.json")).unwrap()).unwrap()
+    };
+    assert_eq!(info(out.path())["heights"], "../heights/{x}.{z}.bin");
+    assert!(
+        info(out.path()).get("ground").is_none(),
+        "nach einem Ausschnitt"
+    );
+    assert!(
+        out.path().join("../ground/0.0.bin").is_file(),
+        "die Datei liegt schon"
+    );
+
+    let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+        .arg("--world")
+        .arg(welt.path())
+        .arg("--heights")
+        .arg(out.path())
+        .output()
+        .unwrap();
+    gelungen(&ausgabe);
+    assert_eq!(
+        info(out.path())["ground"],
+        "../ground/{x}.{z}.bin",
+        "nach --heights"
+    );
+    assert_eq!(info(out.path())["groundCell"], 1);
+    gelungen(&tiles(welt.path(), out.path(), &ausschnitt));
+    assert_eq!(
+        info(out.path())["ground"],
+        "../ground/{x}.{z}.bin",
+        "ein Ausschnitt behält ihn"
+    );
 }
 
 /// Der Export sagt, wie viele Chunks er übergeht, weil sie nicht fertig
@@ -3602,6 +3690,7 @@ fn schreiben_tauscht_die_datei() {
     ));
     let karte = baum.path().join("map.json");
     let region = baum.wurzel().join(heights::path_of(0, 0));
+    let boden = baum.wurzel().join(heights::ground_path_of(0, 0));
     let liste = baum.wurzel().join("trees.json");
     let stand = baum.path().join("stand.bin");
     let manifest = baum.path().join("manifest");
@@ -3620,6 +3709,7 @@ fn schreiben_tauscht_die_datei() {
         .chain([
             karte.clone(),
             region.clone(),
+            boden.clone(),
             liste,
             stand.clone(),
             manifest.clone(),
@@ -3649,11 +3739,12 @@ fn schreiben_tauscht_die_datei() {
     assert!(
         geaendert.contains(&karte)
             && geaendert.contains(&region)
+            && geaendert.contains(&boden)
             && geaendert.contains(&stand)
             && geaendert.contains(&manifest)
             && bloecke.iter().any(|block| geaendert.contains(block))
             && geaendert.len() > 5,
-        "map.json, die Höhen, der Stand, das Manifest, die Hashes und eine Kachel hätten sich ändern müssen: {geaendert:?}"
+        "map.json, die Höhen, der Boden, der Stand, das Manifest, die Hashes und eine Kachel hätten sich ändern müssen: {geaendert:?}"
     );
 
     let mut reste = Vec::new();
@@ -3661,7 +3752,8 @@ fn schreiben_tauscht_die_datei() {
     while let Some(ordner) = stapel.pop() {
         for eintrag in std::fs::read_dir(&ordner).unwrap().flatten() {
             let name = eintrag.file_name().to_string_lossy().into_owned();
-            let hoehen = ordner.ends_with("heights") && name.ends_with(".bin");
+            let hoehen = (ordner.ends_with("heights") || ordner.ends_with("ground"))
+                && name.ends_with(".bin");
             let liste = ordner == baum.wurzel() && name == "trees.json";
             let stand = ordner == baum.path() && (name == "stand.bin" || name == "manifest");
             let hashes = ordner.starts_with(baum.path().join("pixel")) && name.ends_with(".bin");
@@ -5177,8 +5269,11 @@ fn alte_ablage_nennt_den_ordner() {
     let ziel = alt.path().join("north-45-s");
     assert!(
         meldung.contains("alten Ablage")
-            && meldung.contains(&format!("alles ausser heights/ nach {}", ziel.display()))
-            && meldung.contains("heights/ bleibt in der Wurzel"),
+            && meldung.contains(&format!(
+                "alles ausser heights/ und ground/ nach {}",
+                ziel.display()
+            ))
+            && meldung.contains("beide bleiben in der Wurzel"),
         "Meldung: {meldung}"
     );
     let text = String::from_utf8_lossy(&ausgabe.stdout);

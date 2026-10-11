@@ -59,9 +59,9 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   | Pfad | Inhalt |
   |---|---|
   | `trees.json` | die Liste der Bäume |
-  | `heights/<x>.<z>.bin` | die Höhen der Wurzel |
+  | `heights/<x>.<z>.bin`, `ground/<x>.<z>.bin` | die Höhen der Wurzel und der Boden ohne Laub |
   | `<baum>/map.json`, `<baum>/manifest` | Angaben und Manifest eines Baums |
-  | `<baum>/heights/<x>.<z>.bin` | die Höhen eines Baums ohne Wurzel |
+  | `<baum>/heights/<x>.<z>.bin`, `<baum>/ground/<x>.<z>.bin` | dasselbe für einen Baum ohne Wurzel |
   | `<baum>/<z>/<x>/<y>.webp` | eine Kachel |
   | `map.json`, `manifest`, `<z>/<x>/<y>.webp` | dasselbe für einen einzelnen Baum als Wurzel |
   | `layers.json` | die Liste der Ebenen, siehe [Ebenen](ebenen.md) |

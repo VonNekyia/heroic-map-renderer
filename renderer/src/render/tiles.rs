@@ -16,7 +16,7 @@ use crate::assets::colors::{Source, eigene_laubfarbe, source_of, ungetoentes_lau
 use crate::world::chunk::LAUB_HELL;
 use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
-use super::heights::{Heights, RegionHeights};
+use super::heights::{self, Heights, RegionHeights};
 use super::look::Look;
 use super::stand::{Aenderung, Inhalt};
 use super::{BLEED_BLOCKS, Projection, ScreenRect};
@@ -613,7 +613,8 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
     let mut biomes: HashSet<String> = HashSet::new();
 
     let mut tiles = BTreeSet::new();
-    let mut hoehen = Heights::default();
+    let mut hoehen = Heights::new(heights::CELL);
+    let mut boden = Heights::new(heights::GROUND_CELL);
     let mut gelesen = vec![false; (REGION * REGION) as usize];
     for local_z in 0..REGION {
         for local_x in 0..REGION {
@@ -649,6 +650,7 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
             // dessen Blöcke ausserhalb landen, bekommt seine.
             if im_bild {
                 hoehen.record(&chunk);
+                boden.record_ground(&chunk);
             }
 
             // Erst ausschliessen, dann Paletten sammeln. Sonst verlangt ein
@@ -698,11 +700,15 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
     survey.biomes = biomes.into_iter().collect();
     survey.states = states.into_iter().collect();
     survey.tiles = tiles.into_iter().collect();
+    // Gleich gepackt: Der Lauf hält sonst je Block 512 KiB je Region, bis
+    // alle geschrieben sind.
     if gelesen.contains(&true) {
+        boden.median_3x3();
         survey.heights.push(RegionHeights {
             x: rx,
             z: rz,
-            heights: hoehen,
+            heights: hoehen.encode()?,
+            ground: boden.encode()?,
             read: gelesen,
         });
     }

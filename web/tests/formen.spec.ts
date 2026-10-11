@@ -35,14 +35,16 @@ const laenge = (d: string) => {
 };
 
 for (const hoehe of [10, 40]) {
-  test(`eine Region liegt im iso auf dem Gelände, auf Höhe ${hoehe} um deren Pixel höher; Füllung in ihrer Farbe, Rand in der Farbe ohne Alpha`, async ({ page }) => {
+  test(`eine Region liegt im iso auf dem Gelände, auf Höhe ${hoehe} um deren Pixel höher; Füllung als Nebel in ihrer Farbe, Rand in der Farbe ohne Alpha`, async ({ page }) => {
     await welt(page, staedte([GEBIET], { hoehe: () => hoehe }));
     // Die Mitte der Region in der Mitte des Fensters, damit Leaflet nichts abschneidet.
     await page.goto(`${DEMO}&at=32,${hoehe},-16`);
-    const flaeche = page.locator('path[fill="#40E53F55"]');
+    const flaeche = page.locator('path[data-fill="#40E53F55"]');
     await expect(flaeche).toHaveCount(1);
     nah(await rahmen(flaeche), await sollRahmen(page, GEBIET.polygons[0]!.outer, hoehe + 1));
-    await expect(flaeche).toHaveAttribute('fill-opacity', '1');
+    // Das Muster der Farbe, doppelt so deckend wie das Alpha von fill, 0x55.
+    await expect(flaeche).toHaveAttribute('fill', 'url(#nebel-40E53F)');
+    expect(Number(await flaeche.getAttribute('fill-opacity'))).toBeCloseTo((2 * 0x55) / 255, 5);
     const raender = page.locator('path[stroke="#40E53F"]');
     await expect(raender).toHaveCount(1);
     await expect(raender).toHaveAttribute('stroke-width', '2');
@@ -86,8 +88,8 @@ test('Leaflet vereinfacht eine Fläche nicht: auf jeder Stufe dieselben Punkte',
   await welt(page, staedte([rechteck('rau', 17, -31, 47, -1, { fill: '#ABCDEFFF' })], { hoehe: f, mehr: { minZoom: -6 } }));
   const punkte = async (zoom: number) => {
     await page.goto(`${DEMO}&at=32,5,-16&zoom=${zoom}`);
-    await expect(page.locator('path[fill="#ABCDEFFF"]')).toHaveCount(1);
-    return (await page.locator('path[fill="#ABCDEFFF"]').getAttribute('d'))!.match(/[ML]/g)!.length;
+    await expect(page.locator('path[data-fill="#ABCDEFFF"]')).toHaveCount(1);
+    return (await page.locator('path[data-fill="#ABCDEFFF"]').getAttribute('d'))!.match(/[ML]/g)!.length;
   };
   const fein = await punkte(0);
   expect(fein).toBeGreaterThan(50);
@@ -99,7 +101,7 @@ test('von oben liegt eine Region eben, ein Kreis bleibt rund', async ({ page }) 
   await welt(page, staedte([kreis], { mehr: VON_OBEN, hoehe: (i, j) => 4 * (i + j) }));
   // Zwei Stufen unter der feinsten: ein Block ist 4 Pixel breit.
   await page.goto(`${DEMO}&at=60,0,60&zoom=-2`);
-  const flaeche = page.locator('path[fill="#2040E0AA"]');
+  const flaeche = page.locator('path[data-fill="#2040E0AA"]');
   await expect(flaeche).toHaveCount(1);
   const b = (await flaeche.boundingBox())!;
   expect(Math.abs(b.width - 480)).toBeLessThanOrEqual(1);
@@ -143,10 +145,10 @@ test('hinter einem Wall füllt die Karte nichts und zeichnet den Rand dünn, ges
   const vorn = rechteck('vorn', 60, 60, 68, 68, { fill: '#0000FF80' });
   await welt(page, staedte([hinten, vorn], { hoehe: (i, j) => (i + j === 10 ? 150 : 0) }));
   await page.goto(`${DEMO}&at=40,0,40`);
-  await expect(page.locator('path[fill="#0000FF80"]')).toHaveCount(1);
-  await expect(page.locator('path[fill="#FF000080"]')).toHaveCount(0);
+  await expect(page.locator('path[data-fill="#0000FF80"]')).toHaveCount(1);
+  await expect(page.locator('path[data-fill="#FF000080"]')).toHaveCount(0);
   await expect(page.locator('path[tabindex]')).toHaveCount(0);
-  expect((await page.locator('path[fill="#0000FF80"]').boundingBox())!.width).toBeGreaterThan(50);
+  expect((await page.locator('path[data-fill="#0000FF80"]').boundingBox())!.width).toBeGreaterThan(50);
   const stile = (farbe: string) =>
     page.locator(`path[stroke="${farbe}"]`).evaluateAll((l) => l.map((p) => [p.getAttribute('stroke-opacity'), p.getAttribute('stroke-dasharray'), p.getAttribute('stroke-width')]));
   expect(new Set((await stile('#FF0000')).map(String))).toEqual(new Set([['0.4', '3 4', '1'].join()]));
@@ -174,11 +176,181 @@ test('eine gestrichelte Linie zählt ihre Striche über verdeckte Stücke hinweg
   expect(Number(davor1![2])).toBeCloseTo(Number(davor![2]) / 2, 0);
 });
 
+test('mit ground liegen Fläche, Rand und Linie im iso auf dem Boden, Nadel und Kartenschrift auf der Oberfläche', async ({ page }) => {
+  // Kronen auf 40, der Boden darunter auf 10.
+  const linie = { id: 'weg', type: 'line', points: [[20, -40], [44, -40]], stroke: { color: '#123456', width: 2 } };
+  const nadel = { ...HAFEN, id: 'nadel', name: 'Nadel', at: [24.5, -8.5], panel: undefined };
+  const schrift = { id: 'wald', type: 'label', text: 'Wald', path: [[18, -20], [46, -20]], size: 2 };
+  await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53F' } }, linie, nadel, schrift], { hoehe: () => 40, boden: () => 10 }));
+  await page.goto(`${DEMO}&at=32,10,-16`);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
+  nah(await rahmen(page.locator('path[data-fill="#40E53F55"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 11));
+  nah(await rahmen(page.locator('path[stroke="#40E53F"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 11));
+  nah(await rahmen(page.locator('path[stroke="#123456"]')), await sollRahmen(page, linie.points, 11));
+  nah(await fuss(page, 'Nadel'), await aufDemSchirm(page, ...projiziere(24.5, 41, -8.5, zweiZuEins(16))));
+  const anfang = await page.locator('svg.ebene-schrift[data-id="wald"]').evaluate((svg: SVGSVGElement) => {
+    const a = svg.querySelector('path')!.getPointAtLength(0);
+    const kasten = svg.getBoundingClientRect();
+    return [kasten.left + a.x, kasten.top + a.y];
+  });
+  nah(anfang, await aufDemSchirm(page, ...projiziere(18, 41, -20, zweiZuEins(16))));
+});
+
+test('fehlt einer Region die Datei in ground, liegen Formen dort auf heights', async ({ page }) => {
+  // GEBIET liegt in der Region (0, −1); deren ground fehlt.
+  await welt(page, staedte([GEBIET], { hoehe: () => 30, boden: (i) => (i >= 0 ? undefined : 5) }));
+  await page.goto(`${DEMO}&at=32,30,-16`);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
+  nah(await rahmen(page.locator('path[data-fill="#40E53F55"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 31));
+});
+
+test('mit groundCell 1 folgt eine Linie dem Boden je Block: ein Grat einen Block breit hebt sie dort bis auf seine Höhe', async ({ page }) => {
+  const linie = { id: 'grat', type: 'line', points: [[0, -20], [40, -20]], stroke: { color: '#123456', width: 2 } };
+  await welt(page, staedte([linie], { hoehe: () => 10, boden: (i) => (i === 21 ? 30 : 10), bodenZelle: 1 }));
+  await page.goto(`${DEMO}&at=20,15,-20`);
+  // Hinter dem Grat ist sie ein Stück verdeckt: drei Läufe.
+  const laeufe = page.locator('path[stroke="#123456"]');
+  await expect(laeufe).toHaveCount(3);
+  // Die Mitte der Zelle 21 liegt bei 21,5, ihre Oberseite bei 31; die Linie reicht genau so hoch.
+  const [, oben] = await aufDemSchirm(page, ...projiziere(21.5, 31, -20, zweiZuEins(16)));
+  const hoechste = Math.min(...(await Promise.all((await laeufe.all()).map(rahmen))).map((r) => r[1]!));
+  expect(Math.abs(hoechste - oben!)).toBeLessThanOrEqual(1);
+});
+
+test('mit groundCell 1 nimmt eine Region ohne Datei in ground die gröberen Zellen aus heights', async ({ page }) => {
+  // GEBIET liegt in der Region (0, −1); deren ground fehlt, heights hat dort je 4 × 4 die 30.
+  await welt(page, staedte([GEBIET], { hoehe: () => 30, boden: (i) => (i >= 0 ? undefined : 5), bodenZelle: 1 }));
+  await page.goto(`${DEMO}&at=32,30,-16`);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
+  nah(await rahmen(page.locator('path[data-fill="#40E53F55"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 31));
+});
+
+test('bräuchte eine Ebene mehr als 64 Regionen ground je Block, liegen ihre Formen mit Meldung auf heights', async ({ page }) => {
+  const meldungen: string[] = [];
+  page.on('console', (m) => meldungen.push(m.text()));
+  const boden: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/ground/')) boden.push(r.url());
+  });
+  // Rund 10 × 10 Regionen: über dem Budget für ground, darunter für heights.
+  await welt(page, staedte([rechteck('weit', -5000, -5000, -100, -100, { fill: '#556677FF' })], { hoehe: () => 5, boden: () => 1, bodenZelle: 1 }));
+  await page.goto(`${DEMO}&at=-300,5,-300`);
+  await expect(page.locator('path[data-fill="#556677FF"]')).toHaveCount(1);
+  expect(meldungen.some((m) => m.includes('Regionen ground, mehr als 64'))).toBe(true);
+  expect(boden).toEqual([]);
+});
+
+test('unter Kronen bleibt ein Rand auf dem Boden ganz zu sehen; hinter einem Hang des Bodens dünn, gestrichelt und blass', async ({ page }) => {
+  // Ein Wall wo i + j = 10, wie oben; einmal nur in heights, wie eine Reihe Kronen, einmal im Boden.
+  const hinten = rechteck('hinten', 8, 8, 16, 16, { fill: '#FF000080' });
+  const wall = (i: number, j: number) => (i + j === 10 ? 150 : 0);
+  const stile = () =>
+    page.locator('path[stroke="#FF0000"]').evaluateAll((l) => l.map((p) => [p.getAttribute('stroke-opacity'), p.getAttribute('stroke-dasharray')].join()));
+  await welt(page, staedte([hinten], { hoehe: wall, boden: () => 0 }));
+  await page.goto(`${DEMO}&at=40,0,40`);
+  await expect(page.locator('path[data-fill="#FF000080"]')).toHaveCount(1);
+  expect(new Set(await stile())).toEqual(new Set(['1,']));
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await welt(page, staedte([hinten], { hoehe: wall, boden: wall }));
+  await page.goto(`${DEMO}&at=40,0,40`);
+  await expect(page.locator('path[stroke="#FF0000"]').first()).toBeAttached();
+  await expect(page.locator('path[data-fill="#FF000080"]')).toHaveCount(0);
+  expect(new Set(await stile())).toEqual(new Set(['0.4,3 4']));
+});
+
+test('im iso steht am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 deckend, nach oben bis 0; nicht an Linien, nicht ohne Rand, nicht um einen Kreis ohne Füllung, nicht von oben', async ({ page }) => {
+  const ohneRand = rechteck('ohne', 60, -32, 80, 0, { fill: '#AA00AA55', stroke: { width: 0 } });
+  const nurUmriss = { id: 'umkreis', type: 'circle', center: [32, -60], radius: 10, stroke: { color: '#00AAAA', width: 2 } };
+  const linie = { id: 'weg', type: 'line', points: [[20, -40], [44, -40]], stroke: { color: '#123456', width: 2 } };
+  await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }, ohneRand, nurUmriss, linie], { hoehe: () => 10 }));
+  await page.goto(`${DEMO}&at=32,10,-16`);
+  const baender = page.locator('path[fill="#40E53F"]');
+  await expect(baender).toHaveCount(12);
+  // Von unten nach oben, nach der Unterkante jedes Bands: die Deckkraft fällt.
+  const vonUnten = (await baender.evaluateAll((l) => l.map((p) => [p.getBoundingClientRect().bottom, Number(p.getAttribute('fill-opacity'))] as const))).sort((a, b) => b[0] - a[0]);
+  vonUnten.forEach(([, d], k) => expect(d).toBeCloseTo(0.6 * (1 - (k + 0.5) / 12), 5));
+  for (const b of await baender.all()) {
+    await expect(b).toHaveAttribute('stroke', 'none');
+    // Gleich herum gelaufen, siehe wand in gelaende.ts: nur mit nonzero ohne Loch, wo sich Vorder- und Rückseite decken.
+    await expect(b).toHaveAttribute('fill-rule', 'nonzero');
+  }
+  // Zusammen reichen die Bänder vom Rand bis 6 Blöcke darüber.
+  const rand = await sollRahmen(page, GEBIET.polygons[0]!.outer, 11);
+  const alle = await Promise.all((await baender.all()).map(rahmen));
+  nah([Math.min(...alle.map((r) => r[0]!)), Math.min(...alle.map((r) => r[1]!)), Math.max(...alle.map((r) => r[2]!)), Math.max(...alle.map((r) => r[3]!))], [rand[0]!, rand[1]! - 6 * zweiZuEins(16).y, rand[2]!, rand[3]!]);
+  await expect(page.locator('path[fill="#AA00AA"]')).toHaveCount(0);
+  await expect(page.locator('path[fill="#123456"]')).toHaveCount(0);
+  await expect(page.locator('path[stroke="#00AAAA"]')).toHaveCount(1);
+  await expect(page.locator('path[fill="#00AAAA"]')).toHaveCount(0);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }], { mehr: VON_OBEN }));
+  await page.goto(`${DEMO}&at=32,0,-16`);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
+  await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(0);
+});
+
+test('der Nebel ist ein Muster aus SVG in der Farbe, halb zum Weiss gemischt, ohne Bild und Filter; je Farbe eins; von oben die Füllung selbst', async ({ page }) => {
+  const zweite = rechteck('zweite', 60, -32, 80, 0, { fill: '#40E53F11' });
+  const dritte = rechteck('dritte', 16, 20, 48, 40, { fill: '#2040e0aa' });
+  await welt(page, staedte([GEBIET, zweite, dritte], { hoehe: () => 10 }));
+  await page.goto(`${DEMO}&at=40,10,0`);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveAttribute('fill', 'url(#nebel-40E53F)');
+  // Gleiche Farbe, anderes Alpha: dasselbe Muster, nur dünner.
+  await expect(page.locator('path[data-fill="#40E53F11"]')).toHaveAttribute('fill', 'url(#nebel-40E53F)');
+  expect(Number(await page.locator('path[data-fill="#40E53F11"]').getAttribute('fill-opacity'))).toBeCloseTo((2 * 0x11) / 255, 5);
+  await expect(page.locator('path[data-fill="#2040e0aa"]')).toHaveAttribute('fill', 'url(#nebel-2040E0)');
+  const muster = await page.evaluate(() =>
+    [...document.querySelectorAll('pattern')].map((p) => ({
+      id: p.id,
+      grund: p.querySelector('rect')?.getAttribute('fill'),
+      wolken: p.querySelectorAll('ellipse').length,
+      farben: [...new Set([...document.querySelectorAll(`#${p.id}-wolke stop`)].map((s) => s.getAttribute('stop-color')))],
+    })),
+  );
+  // (0x40 + 0xFF) / 2 = 0xA0, (0xE5 + 0xFF) / 2 = 0xF2, (0x3F + 0xFF) / 2 = 0x9F.
+  expect(muster.map((m) => [m.id, m.grund, m.farben.join()])).toEqual([
+    ['nebel-40E53F', '#A0F29F', '#A0F29F'],
+    ['nebel-2040E0', '#90A0F0', '#90A0F0'],
+  ]);
+  for (const m of muster) expect(m.wolken).toBeGreaterThanOrEqual(18);
+  expect(await page.evaluate(() => document.querySelectorAll('pattern image, filter').length)).toBe(0);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await welt(page, staedte([GEBIET], { mehr: VON_OBEN }));
+  await page.goto(`${DEMO}&at=32,0,-16`);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveAttribute('fill', '#40E53F55');
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveAttribute('fill-opacity', '1');
+  expect(await page.evaluate(() => document.querySelectorAll('pattern').length)).toBe(0);
+});
+
+test('ohne Flächen im iso legt die Karte kein Muster an, auch mit Linien, Kreisen nur mit Rand, Nadeln und Schrift', async ({ page }) => {
+  const linie = { id: 'weg', type: 'line', points: [[20, -40], [44, -40]], stroke: { color: '#123456', width: 2 } };
+  const umkreis = { id: 'umkreis', type: 'circle', center: [32, -60], radius: 10, stroke: { color: '#00AAAA', width: 2 } };
+  const schrift = { id: 'wald', type: 'label', text: 'Wald', path: [[18, -20], [46, -20]], size: 2 };
+  await welt(page, staedte([linie, umkreis, HAFEN, schrift], { hoehe: () => 10 }));
+  await page.goto(`${DEMO}&at=32,10,-16`);
+  await expect(page.locator('path[stroke="#00AAAA"]')).toHaveCount(1);
+  await expect(page.locator('svg.ebene-schrift[data-id="wald"]')).toBeAttached();
+  expect(await page.evaluate(() => document.querySelectorAll('pattern, radialGradient').length)).toBe(0);
+});
+
+test('ground holt die Karte nur für Flächen, Ränder und Linien, nicht für Nadeln und Kartenschrift', async ({ page }) => {
+  const boden: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/ground/')) boden.push(r.url());
+  });
+  const schrift = { id: 'wald', type: 'label', text: 'Wald', path: [[18, -20], [46, -20]], size: 2 };
+  await welt(page, staedte([HAFEN, schrift], { hoehe: () => 40, boden: () => 10 }));
+  await page.goto(`${DEMO}&at=32,10,-16`);
+  await expect(page.locator('svg.ebene-schrift[data-id="wald"]')).toBeAttached();
+  await page.waitForLoadState('networkidle');
+  expect(boden).toEqual([]);
+});
+
 test('eine Fläche nennt beim Zeigen ihren Namen als Text und hält beim Klick ihre Tafel; eine Nadel liegt über ihr', async ({ page }) => {
   const gebiet = { ...GEBIET, name: '<b>Gebiet</b>', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
   await welt(page, staedte([gebiet, HAFEN]));
   await page.goto(DEMO);
-  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
   const [x, y] = await aufDemSchirm(page, ...projiziere(20, 1, -28, zweiZuEins(16)));
   await page.mouse.move(x!, y!);
   const name = page.locator('.leaflet-tooltip.ebene-name');
@@ -197,7 +369,7 @@ test('eine Fläche öffnet ihre Tafel beim Zeigen; von Hand geschlossen, öffnet
   const gebiet = { ...GEBIET, name: 'Gebiet', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
   await welt(page, staedte([gebiet]));
   await page.goto(DEMO);
-  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
   const punkt = (x: number, z: number) => aufDemSchirm(page, ...projiziere(x, 1, z, zweiZuEins(16)));
   // Mitten in der Fläche, so liegt auch der Schliessknopf über ihr.
   const [[x1, y1], [x2, y2], [x3, y3]] = await Promise.all([punkt(32, -16), punkt(34, -14), punkt(60, 10)]);
@@ -206,7 +378,7 @@ test('eine Fläche öffnet ihre Tafel beim Zeigen; von Hand geschlossen, öffnet
   const knopf = page.locator('.tafel .leaflet-popup-close-button');
   const ueber = await knopf.evaluate((k) => {
     const r = k.getBoundingClientRect();
-    return document.elementsFromPoint(r.x + r.width / 2, r.y + r.height / 2).some((e) => e.getAttribute('fill') === '#40E53F55');
+    return document.elementsFromPoint(r.x + r.width / 2, r.y + r.height / 2).some((e) => e.getAttribute('data-fill') === '#40E53F55');
   });
   expect(ueber).toBe(true);
   const titel = (await page.locator('.tafel .tafel-titel').boundingBox())!;
@@ -239,7 +411,7 @@ test('eine Fläche öffnet ihre Tafel erst nach 50 ms Ruhe, am Ort der Ruhe; jed
   const gebiet = { ...GEBIET, name: 'Gebiet', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
   await welt(page, staedte([gebiet]));
   await page.goto(DEMO);
-  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
   await page.clock.pauseAt(Date.now() + 1000);
   const offen = () => page.locator('.tafel').evaluateAll((l) => l.filter((e) => (e as HTMLElement).style.opacity !== '0').length);
   const punkt = (x: number, z: number) => aufDemSchirm(page, ...projiziere(x, 1, z, zweiZuEins(16)));
@@ -263,7 +435,7 @@ test('ein Klick auf eine Region nur mit Namen schliesst eine offene Tafel und h�
   const benannt = { ...GEBIET, name: 'Gebiet' };
   await welt(page, staedte([benannt, HAFEN]));
   await page.goto(DEMO);
-  await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
   const anzeige = page.locator('.koordinaten');
   await page.locator('.nadel-icon[title="Hafenstadt"]').click();
   await expect(page.locator('.tafel')).toHaveCount(1);
@@ -306,14 +478,14 @@ test('Flächen liegen nach order übereinander; eine ohne Namen und Tafel lässt
       })[n],
   });
   await page.goto(DEMO);
-  await expect(page.locator('path[fill="#FF0000FF"]')).toHaveCount(1);
+  await expect(page.locator('path[data-fill="#FF0000FF"]')).toHaveCount(1);
   const [x, y] = await aufDemSchirm(page, ...projiziere(32, 1, -16, zweiZuEins(16)));
   // Zu sehen ist die oberste, zu treffen die oberste mit Namen.
-  const z = (farbe: string) => page.locator(`path[fill="${farbe}"]`).evaluate((p) => Number(getComputedStyle(p.closest('.leaflet-pane')!).zIndex));
+  const z = (farbe: string) => page.locator(`path[data-fill="${farbe}"]`).evaluate((p) => Number(getComputedStyle(p.closest('.leaflet-pane')!).zIndex));
   expect(await z('#FF0000FF')).toBeGreaterThan(await z('#00FF00FF'));
   expect(await z('#00FF00FF')).toBeGreaterThan(await z('#0000FFFF'));
   expect(await z('#FF0000FF')).toBeLessThan(510);
-  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x!, y!)?.getAttribute('fill'), [x, y])).toBe('#00FF00FF');
+  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x!, y!)?.getAttribute('data-fill'), [x, y])).toBe('#00FF00FF');
 });
 
 test('bräuchte eine Ebene mehr als 1024 Regionen Höhen, liegt sie mit Meldung auf seaLevel und erscheint trotzdem', async ({ page }) => {
@@ -350,7 +522,7 @@ test('Höhen lädt die Karte nur innerhalb von area, jede Region einmal, auch f�
   anfragen.length = 0;
   await page.locator('.ebenen summary').click();
   await page.locator('.ebenen input').check();
-  await expect(page.locator('path[fill="#222222FF"]')).toHaveCount(1);
+  await expect(page.locator('path[data-fill="#222222FF"]')).toHaveCount(1);
   await expect(page.locator('path[stroke="#333333"]')).toHaveCount(1);
   // Genau die eine Region in area, genau einmal.
   expect(anfragen).toEqual(['-1.-1.bin']);
@@ -381,7 +553,7 @@ test.describe('auf dem Touchscreen', () => {
     const gebiet = { ...GEBIET, panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
     await welt(page, staedte([gebiet]));
     await page.goto(DEMO);
-    await expect(page.locator('path[fill="#40E53F55"]')).toHaveCount(1);
+    await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
     const [x, y] = await aufDemSchirm(page, ...projiziere(20, 1, -28, zweiZuEins(16)));
     await page.touchscreen.tap(x!, y!);
     await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
@@ -390,7 +562,7 @@ test.describe('auf dem Touchscreen', () => {
   test('der Umriss beim Tippen liegt über den Flächen der Ebenen und unter ihren Nadeln', async ({ page }) => {
     await welt(page, staedte([{ ...GEBIET, fill: '#40E53FFF' }]));
     await page.goto(DEMO);
-    const flaeche = page.locator('path[fill="#40E53FFF"]');
+    const flaeche = page.locator('path[data-fill="#40E53FFF"]');
     await expect(flaeche).toHaveCount(1);
     const [x, y] = await aufDemSchirm(page, ...projiziere(32, 1, -16, zweiZuEins(16)));
     await page.touchscreen.tap(x!, y!);
@@ -413,8 +585,8 @@ test('was über die Grenzen geht, übergeht die Karte mit Meldung', async ({ pag
     rechteck('gut', 16, -32, 48, 0, { fill: '#0000FFFF' }),
   ]));
   await page.goto(DEMO);
-  await expect(page.locator('path[fill="#0000FFFF"]')).toHaveCount(1);
-  await expect(page.locator('path[fill="#FF0000FF"], path[fill="#00FF00FF"]')).toHaveCount(0);
+  await expect(page.locator('path[data-fill="#0000FFFF"]')).toHaveCount(1);
+  await expect(page.locator('path[data-fill="#FF0000FF"], path[data-fill="#00FF00FF"]')).toHaveCount(0);
   for (const m of ['Radius 100001', 'mehr als 10000 Punkte', 'mehr als 100 Löcher']) expect(meldungen.some((x) => x.includes(m)), m).toBe(true);
 });
 
@@ -556,10 +728,10 @@ test('die Kartenschrift liegt im Pane ihrer Ebene, über deren Flächen', async 
   await welt(page, staedte([{ ...GEBIET, fill: '#40E53FFF' }, { ...WESTMEER, path: [[16, -16], [48, -16]] }]));
   await page.goto(`${DEMO}&at=32,0,-16`);
   await expect(schrift(page, 'meer')).toHaveCount(1);
-  await expect(page.locator('path[fill="#40E53FFF"]')).toHaveCount(1);
+  await expect(page.locator('path[data-fill="#40E53FFF"]')).toHaveCount(1);
   const [gleich, danach] = await page.evaluate(() => {
     const s = document.querySelector('svg.ebene-schrift')!;
-    const f = document.querySelector('path[fill="#40E53FFF"]')!;
+    const f = document.querySelector('path[data-fill="#40E53FFF"]')!;
     return [s.closest('.leaflet-pane') === f.closest('.leaflet-pane'), Boolean(f.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING)];
   });
   expect(gleich).toBe(true);

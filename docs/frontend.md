@@ -393,7 +393,8 @@ Das Format steht in [Ebenen](benutzung/ebenen.md), die Gründe in
 zeichnet, in [0096](entscheidungen/0096-formen-und-schrift-im-browser.md).
 Gebaut in [`web/src/ebenen.ts`](../web/src/ebenen.ts): Liste, Nadeln und
 Infotafel; dazu [`formen.ts`](../web/src/formen.ts) für Regionen, Kreise
-und Linien, [`schrift.ts`](../web/src/schrift.ts) für die Kartenschrift,
+und Linien, [`nebel.ts`](../web/src/nebel.ts) für das Muster des Nebels,
+[`schrift.ts`](../web/src/schrift.ts) für die Kartenschrift,
 [`gelaende.ts`](../web/src/gelaende.ts) für Höhen, Netz und was verdeckt
 ist, ohne Leaflet, und [`pruefen.ts`](../web/src/pruefen.ts) für die
 Eingaben.
@@ -530,14 +531,23 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     öffnet die Tafel mit dem Fokus darin, Escape gibt ihn zurück, wie bei
     den Nadeln;
   - die Höhen: je Laden einer Ebene einmal, die Regionen aller ihrer Formen
-    und Schriften in einem: für eine Fläche ihr Rechteck, für Ränder und
-    Linien die Regionen entlang des Zugs, je samt dem Streifen zur Kamera,
-    aus dem Gelände verdecken kann, und nur innerhalb von `area`. Danach
-    fallen sie weg. Bräuchte eine Ebene mehr als 1024 Regionen, etwa ohne
-    `area` mit einem riesigen Kreis, liegt die ganze Ebene mit Meldung auf
-    `seaLevel`, auch ihre kleinen Formen. Eine Region kostet
-    (512 / `heightsCell`)² · 2 Byte, bei `heightsCell` 4 also 32 KiB, 1024
-    Regionen 32 MiB. Die Grenze gilt nur für die Webkarte;
+    in einem und die aller ihrer Schriften in einem: für eine Fläche ihr
+    Rechteck, für Ränder und Linien die Regionen entlang des Zugs, je samt
+    dem Streifen zur Kamera, aus dem Gelände verdecken kann, und nur
+    innerhalb von `area`. Formen nehmen `ground`, je Region ohne Datei
+    `heights`, mit einem eigenen Cache; Schriften nehmen `heights`, siehe
+    [Ebenen](benutzung/ebenen.md), „Die Oberfläche im iso“. Danach
+    fallen sie weg. Je Ebene lädt die Webkarte höchstens 32 MiB Höhen für
+    die Formen und ebenso viel für die Schrift; eine Region kostet
+    (512 / Zelle)² · 2 Byte, bei 4 also 32 KiB, je Block 512 KiB. Mit
+    `ground` je Block reicht das für 64 Regionen; braucht eine Ebene mehr,
+    liegen ihre Formen mit Meldung auf `heights`. Reicht es auch dafür
+    nicht, bei 4 mehr als 1024 Regionen, etwa ohne `area` mit einem riesigen
+    Kreis, liegt die ganze Ebene mit Meldung auf `seaLevel`, auch ihre
+    kleinen Formen. Der Cache für `ground` hält 8 Regionen, der für
+    `heights` 64. Die Grenze gilt nur für die Webkarte;
+  - die Wand am Rand einer Fläche im iso, siehe [Ebenen](benutzung/ebenen.md),
+    „Die Wand“;
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
     vorher beschnitten;
   - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,

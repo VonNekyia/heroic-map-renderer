@@ -200,6 +200,9 @@ Die Felder der Nachricht beschreibt das Plugin in seiner Doku.
 ## Kosten nach Regel 26
 
 Geschätzt, nicht gemessen; jede PR misst ihren Teil, den Speicher eingeschlossen.
+Gemessen in [2026-10-11, Sprites der Banner](../messungen/2026-10-11-banner-sprites.md):
+2000 Sprites kalt in 6,3 bis 6,5 s, 2,9 ms je Sprite, mit passenden
+Stempeln 0,6 s, unter 20 MiB, 1,9 kB je Sprite.
 
 - **Live-Rendern:** Die Kacheln ändern sich nicht. Ändert sich ein Entwurf,
   zeichnet `--banners` ihn je Satz neu, ein Sprite von rund 25 × 45 Pixeln

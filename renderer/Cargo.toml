@@ -1,6 +1,6 @@
 [package]
 name = "heroic-map-renderer"
-version = "0.9.1"
+version = "0.9.2"
 edition = "2024"
 description = "Isometrischer Offline-Renderer für Minecraft-Java-Welten"
 license = "Apache-2.0"

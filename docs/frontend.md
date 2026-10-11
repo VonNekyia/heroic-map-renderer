@@ -134,9 +134,10 @@ oder Stift; mit der Maus zeigt der Zeiger selbst, wohin man zielt, und die
 Anzeige genügt, siehe
 [0049](entscheidungen/0049-umriss-nur-ohne-zeiger.md). Über Wasser nennt
 die Anzeige die Oberfläche, die man sieht; das Spiel zielt dort auf den
-Grund. Ohne `heights` in `map.json` gibt es keine Anzeige, ebenso ohne
-brauchbare `heightsCell`, `minY` und `maxY`; die Karte lädt dann trotzdem,
-und die Konsole sagt, was fehlt. Fehlt nur die Höhenkarte einer Region (404
+Grund. Ohne `heights` in `map.json` gibt es keine Anzeige, ohne Meldung:
+Ein Baum ohne Höhen ist kein Fehler. Steht `heights` da, aber ohne
+brauchbare `heightsCell`, `minY` und `maxY`, gibt es ebenso keine Anzeige,
+und die Konsole sagt, was fehlt. Die Karte lädt in beiden Fällen. Fehlt nur die Höhenkarte einer Region (404
 oder eine HTML-Seite statt der Datei), steht dort `X –  Y –  Z –`.
 
 Ein Bildpunkt allein verrät den Block nicht: Die Projektion wirft die
@@ -149,7 +150,9 @@ rechnet es 2:1 aus `scale`. Kennt es `azimuth` oder `direction` nicht,
 alles ausser `diagonal` mit `se`, `sw`, `nw`, `ne` und `north` mit `s`,
 `w`, `n`, `e`, oder sind `u` und `v` keine ganzen Zahlen ab 1 oder `y`
 keine ganze Zahl ab 0, zeigt es keine Koordinaten, und die Konsole nennt
-den Grund.
+den Grund. Ohne Projektion fehlen auch Kompass, Ebenen und Skin, und
+`at` in der Adresse springt nicht: Alle vier rechnen mit ihr. Die Kacheln
+zeigt die Karte trotzdem.
 [`web/src/pick.ts`](../web/src/pick.ts) geht deshalb den Strahl durch die
 Mitte des Pixels ab, wo auch der Renderer abtastet:
 
@@ -347,7 +350,7 @@ Ortszeit des Browsers, etwa `Stand: 02.10.2026, 21:40`.
 
 Unten rechts, unter dem Stand, steht der Pflichthinweis von Mojang, wörtlich
 wie in [`NOTICE`](../NOTICE), und dahinter der Link „Lizenzen“ auf
-`lizenzen.txt`. Die Datei hat drei Teile, getrennt durch `---`:
+`lizenzen.txt`. Die Datei hat vier Teile, getrennt durch `---`:
 
 1. `NOTICE` des Projekts;
 2. `LICENSE`, die Apache-Lizenz 2.0;
@@ -507,7 +510,8 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Listener im Capture auf `document` und dem Container hält den Druck vor
     Leaflet und der Leiste zurück. Ein Klick auf ein anderes Ziel mit
     Tafel, erkannt an der Klasse `tafel-ziel`, öffnet dessen Tafel; eine
-    Region nur mit Namen zählt als daneben. Ein Klick nach dem Ziehen der
+    Region nur mit Namen zählt als daneben. Ein Klick auf ein Control von
+    Leaflet, etwa Zoom oder die Liste der Ebenen, lässt die Tafel offen. Ein Klick nach dem Ziehen der
     Karte zählt nicht.
   - **Per Tastatur:** Enter auf Nadel oder Banner öffnet sie mit dem Fokus
     darin, auch wenn sie beim Zeigen schon offen war; Escape schliesst sie
@@ -583,9 +587,11 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Richtung und Verlängerung wie in [Ebenen](benutzung/ebenen.md),
     „Kartenschrift“ unter „Zeichnen“, ein einzelner Punkt wie beim Feld
     `path`.
-- **Im Skin Tablett** tragen Liste und Tafel die Farben der UI, die Namen
-  von Nadeln und Bannern stehen wie ohne Skin in der Kartenschrift;
-  Kontrast und Platz prüft `skins/tablett/tests/marmor.spec.ts`.
+- **Im Skin Tablett** trägt die Liste der Ebenen die Farben der UI. Die
+  Tafel bleibt dunkel wie ohne Skin, in festen Farben wie im Mod (#253),
+  und die Namen von Nadeln und Bannern stehen wie ohne Skin in der
+  Kartenschrift. Kontrast und Platz prüft
+  `skins/tablett/tests/marmor.spec.ts`.
 
 ## Skins
 
@@ -625,9 +631,10 @@ Sprung, Kompass, Umschalter und Stand wissen nichts von ihm. Warum so:
     Container. Was Variablen nicht fassen, etwa Rand und Bilder, hängt er an
     die Klassen der UI: `leaflet-bar` mit den Knöpfen für Zoom und ganze
     Karte, `kompass`, `baeume`, `leiste` mit den Koordinaten, `stand`,
-    `lizenzen`, `ebenen` mit der Liste der Ebenen und `tafel` mit der
-    Infotafel. Die Namen von Nadeln und Bannern gehören zur Karte, nicht
-    zur UI.
+    `lizenzen` und `ebenen` mit der Liste der Ebenen. Die Infotafel,
+    `tafel`, hat feste Farben wie im Mod und nimmt keine Variablen; ein
+    Skin kann sie über die Klasse trotzdem umgestalten. Die Namen von
+    Nadeln und Bannern gehören zur Karte, nicht zur UI.
   - Abnahme: Kontrast nach WCAG AA, Ziele für Finger ab 24 px, sichtbarer
     Fokus, Tastatur wie ohne Skin. Die Smoke-Tests laufen mit und ohne
     Skin; ohne prüfen sie die Vorgaben.

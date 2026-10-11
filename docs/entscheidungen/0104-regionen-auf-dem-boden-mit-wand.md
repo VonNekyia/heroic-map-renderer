@@ -1,6 +1,6 @@
 ---
 title: "0104: Regionen auf dem Boden, mit Wand und Nebel"
-description: Warum Regionen, Kreise und Linien in schrägen Ansichten auf dem Boden ohne Laub liegen und unter Kronen ganz zu sehen bleiben, warum am Rand einer Fläche eine Wand nach oben durchsichtiger wird, wie hoch und wie deckend, und warum der Nebel ein gekacheltes Wolkenmuster in der Farbe der Füllung ist; ergänzt 0096.
+description: Warum Regionen, Kreise und Linien in schrägen Ansichten auf dem Boden ohne Laub liegen und unter Kronen ganz zu sehen bleiben, warum am Rand einer Fläche eine Wand nach oben durchsichtiger wird, wie hoch und wie deckend, und warum der Nebel ein gekacheltes Wolkenmuster in der Farbe der Füllung ist, als Band von 16 Blöcken innen am Rand, auf dem Schirm fest gross und gespiegelt gekachelt; ergänzt 0096.
 status: gilt
 date: 2026-10-10
 issues: [273]
@@ -49,10 +49,14 @@ nur für schräge Ansichten:
   Gelände fällt sie weg.
 - **Der Nebel** ist ein ruhiges Wolkenmuster in der Farbe der Füllung,
   zur Hälfte mit Weiss gemischt, gekachelt als `pattern` aus SVG, ohne Bild
-  und ohne Filter; doppelt so deckend wie das Alpha von `fill`, im Mittel
-  knapp zwei Drittel davon. Der User wählte
-  es an sechs Vorschauen aus der Testwelt, Variante 3, „Struktur“. Die
-  Doku empfiehlt etwa 15 % Deckkraft.
+  und ohne Filter. Der User wählte es an sechs Vorschauen aus der
+  Testwelt, Variante 3, „Struktur“. Am 11.10. nach dem Testnetz änderte er
+  drei Dinge: Der Nebel liegt nur in einem Band von 16 Blöcken innen am
+  Rand; das Muster behält auf dem Schirm seine Grösse, auch beim Zoomen;
+  es wiederholt sich weniger, mit gespiegelten Kacheln. Das Band besteht
+  aus sechs Strichen, nach innen gleichmässig gestuft; mit dreien waren die
+  Stufen am Bild hart, mit acht kaum weicher als mit sechs. Der User wählte
+  sechs. Die Doku empfiehlt etwa 15 %.
 - **Kein neues Feld:** Wand und Nebel folgen aus Rand und Füllung. Ohne
   Rand, mit `width: 0`, gibt es auch keine Wand.
 
@@ -86,6 +90,20 @@ Gewählt hat der User an Vorschauen aus der Testwelt; wie es aussieht, zeigt
   erlaubt kein `data:`; das Muster ist darum aus SVG.
 - **Ein Filter wie `feTurbulence`:** kostet über grossen Flächen bei jedem
   Zeichnen.
+- **Nebel über die ganze Fläche:** der Stand vor dem 11.10.; der User
+  wollte ihn nur am Rand.
+- **Das Band als eigene Fläche,** die Fläche nach innen um 16 Blöcke
+  verkleinert und abgezogen: genauer bei spitzen Ecken, braucht aber ein
+  Versatzverfahren für Polygone mit Löchern. Striche auf dem Rand, auf die
+  Fläche beschnitten, geben dasselbe Band mit dem, was schon da ist.
+- **Das Muster während des Zooms gegenskalieren:** Leaflet skaliert per
+  CSS-Übergang; ein `patternTransform` liefe nicht im Takt mit. Das Band
+  blendet statt dessen für den Zoom aus.
+- **Drei oder acht Striche im Band:** Drei zeigten harte Stufen. Acht
+  hätten etwa ein Drittel mehr Fläche zum Zeichnen als sechs, gerechnet, nicht
+  gemessen, und sehen kaum anders aus.
+- **Gedrehte Kacheln:** Um 90° gedreht stünden die flachen Wolken
+  senkrecht. Gespiegelt wird nahtlos, gedreht bräuchte eine eigene Kachel.
 - **Eine Wand auch um einen Kreis nur mit Rand:** Am Bild der Ebenen stand
   um einen gestrichelten Umkreis eine volle weisse Wand; ein Umkreis ist
   eine Marke, keine Fläche. Entscheid des Frontends.

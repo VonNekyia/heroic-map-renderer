@@ -1,8 +1,9 @@
 ---
 title: "Server: --serve"
-description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin, den Download mit Token für den Mod und die Angaben der Seite zur Laufzeit.
+description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin, den Download mit Token für den Mod, einzeln und als ein Strom im ZIP, und die Angaben der Seite zur Laufzeit.
 code:
   - renderer/src/cli/server.rs
+  - renderer/src/cli/server/strom.rs
   - renderer/src/cli/token.rs
   - renderer/src/cli.rs
   - renderer/tests/server.rs
@@ -15,7 +16,7 @@ gebaute Karte selbst aus, ohne nginx oder `vite preview`. Plugin und EXE
 starten ihn so (#151, #152, #153). Er liest nur und schreibt nichts; ein
 Export darf gleichzeitig in dieselbe Wurzel schreiben. Warum der Server im
 Renderer sitzt: [0084](../entscheidungen/0084-server-im-renderer.md).
-Den Download mit Token für den Mod beschreibt „Download“.
+Den Download mit Token für den Mod beschreiben „Download“ und „Download als Strom“.
 
 ## Aufruf
 
@@ -282,6 +283,7 @@ heroic-map-renderer --serve ./tiles --listen 0.0.0.0:8080 --secret-file geheimni
   | `/download/<baum>/map.json` | die Angaben des Baums |
   | `/download/<baum>/manifest` | das Manifest, siehe [Plugin](../plugin.md), „Manifest“ |
   | `/download/<baum>/<z>/<x>/<y>.webp` | eine Kachel bis zur Stufe des Tokens |
+  | `/download/<baum>.zip` | alles davon in einer Antwort, siehe „Download als Strom“ |
 
   Baum und Kachel heissen wie unter `/tiles/`, nur muss `trees.json` den
   Baum nicht nennen. Die Wurzel muss Bäume tragen; ein einzelner Baum als
@@ -304,6 +306,66 @@ heroic-map-renderer --serve ./tiles --listen 0.0.0.0:8080 --secret-file geheimni
   weiter. Die Summen liegen nur im Speicher, ein Neustart des Servers setzt
   sie zurück. Abgelaufene fallen weg, sobald ein neuer Zufall dazukommt.
 
+## Download als Strom
+
+Unter `/download/<baum>.zip` gibt der Server den ganzen Satz eines Tokens
+in einer Antwort, als ZIP ohne Kompression. Der Mod lädt einen Baum so mit
+einer Anfrage statt einer je Kachel (#289). Code: `download_strom` in
+[`server.rs`](../../renderer/src/cli/server.rs) und
+[`server/strom.rs`](../../renderer/src/cli/server/strom.rs). Warum so:
+[0106](../entscheidungen/0106-download-als-zip-strom.md).
+
+- **Anfrage:** `GET /download/<baum>.zip` mit demselben Token wie für die
+  Einzelabrufe, HEAD nur für die Header. Optional `?nach=<z>/<x>/<y>`, um
+  nach einem Abbruch hinter dieser Kachel fortzusetzen, auch mit
+  kodiertem Schrägstrich `%2F`.
+- **Inhalt in fester Reihenfolge:** `map.json`, `manifest`, dann jede
+  Kachel des Manifests bis zur Stufe des Tokens, von grob nach fein,
+  innerhalb einer Stufe wie im Manifest; zuletzt der leere Eintrag `ende`.
+  - Mit `nach` fallen die Kacheln bis einschliesslich dieser weg. Steht sie
+    nicht im Manifest, kommen alle.
+  - Höhen und Boden sind nicht dabei; sie stehen unter `/tiles/`.
+- **Format:** je Eintrag nur der lokale Kopf, Version 1.0, Flags 0,
+  Methode 0 (stored), Zeit 1980-01-01 00:00, CRC-32, beide Grössen, der
+  Name in ASCII ohne Extra-Feld, dann der Inhalt.
+  - Kein Data Descriptor, kein ZIP64, kein zentrales Verzeichnis: Der Mod
+    liest der Reihe nach.
+  - Ohne Verzeichnis zeigt erst `ende`, dass der Strom vollständig ist.
+- **Namen** entstehen aus den Zahlen des Manifests neu: `map.json`,
+  `manifest`, `<z>/<x>/<y>.webp`; nie `..` und nie absolut.
+- **Lesen:** je Datei erst ganz, dann Kopf und Inhalt, so stimmen Grösse und
+  CRC, auch wenn der Renderer währenddessen schreibt.
+  - Eine Kachel, die inzwischen fehlt, fällt weg; eine neue kommt mit ihrer
+    echten Grösse.
+  - 8 Threads lesen je Strom voraus, höchstens 64 Dateien vor dem Senden.
+    Sie laufen neben den Threads aus `--threads`, nicht in ihnen; ein langer
+    Download hält die Karte so nicht an.
+- **Antwort:** `200`, `Content-Type: application/zip`,
+  `Cache-Control: private, no-cache`, chunked ohne `Content-Length`.
+  `X-Heroic-Bytes` nennt als Dezimalzahl die erwartete Grösse, mit `nach`
+  die des Rests; sie stimmt, solange sich keine Datei ändert.
+- **Status vor dem Strom:**
+
+  | Status | wann |
+  |---|---|
+  | `401` mit `WWW-Authenticate: Bearer` | kein Token oder ein ungültiges |
+  | `403` | ein anderer Baum als im Token |
+  | `404` | ohne `--secret-file`, kein Baum dieses Namens oder kein lesbares Manifest |
+  | `400` | `nach` ist kein `<z>/<x>/<y>` |
+  | `429` | mit diesem Zufall läuft schon ein Strom, oder es laufen schon 4 |
+
+- **Deckel:** Der Server bucht je Eintrag vor dem Senden, wie bei den
+  Einzelabrufen, und nur, was er sendet. Brächte ein Eintrag die Summe über
+  den Deckel, bricht er ab.
+- **Abbruch im Strom:** am Deckel oder bei einem Lesefehler endet die
+  Verbindung ohne das letzte Stück des chunked-Körpers, und `ende` fehlt.
+- **Pausen:** zwischen zwei Einträgen höchstens die Zeit, eine Datei zu
+  lesen; vor dem ersten Byte liest er nur `map.json` und das Manifest. Ein
+  Proxy, der nach einer Weile ohne Bytes abbricht, kommt so mit.
+- **Log:** je Strom eine Zeile, wenn er endet, etwa
+  `Download:   <baum> als ZIP bis Stufe <s> für <uuid>: <n> Dateien, <mb> MB in <sek> s`,
+  mit `nach` und dem Grund eines Abbruchs.
+
 ## HTTP und das Token
 
 Ohne HTTPS gehen die Anfragen im Klartext. Das Token für den Download aus
@@ -321,7 +383,8 @@ Schreiben ohne Fortschritt, die Zahl der Verbindungen und das Ende mit
 stdin, dazu HTTPS mit Zertifikaten, die `rcgen` nur für die Tests erzeugt:
 der Handschlag, der Tausch ohne Neustart, ein kaputtes Neues und ein Start
 ohne gültiges Zertifikat; dazu der Download mit Token, die der Test selbst
-unterschreibt: jeder Status, Baum und Stufe, der Deckel je Zufall, das
+unterschreibt: jeder Status, Baum und Stufe, der Deckel je Zufall, der Strom
+als ZIP mit `nach` und Abbruch am Deckel, das
 Geheimnis, ein einzelner Baum als Wurzel und dass `/tiles/` nur Bäume aus
 `trees.json` liefert; dazu die Angaben der Seite mit Vorlagen von Hand. In
 [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)

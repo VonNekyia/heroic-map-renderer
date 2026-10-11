@@ -4,7 +4,7 @@
 //! `--site-*` die Angaben der Seite zur Laufzeit.
 //! Siehe docs/benutzung/server.md.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fs::File;
 use std::future::Future;
@@ -19,7 +19,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail, ensure};
 use heroic_map_renderer::ebenen::{geraet, ist_teil};
 use heroic_map_renderer::render::heights;
-use http_body_util::Full;
+use http_body_util::combinators::UnsyncBoxBody;
+use http_body_util::{BodyExt, Full};
 use hyper::body::{Body, Bytes, Incoming};
 use hyper::header::{self, HeaderMap, HeaderName, HeaderValue};
 use hyper::server::conn::http1;
@@ -39,11 +40,20 @@ use super::NUR_DOWNLOAD;
 use super::manifest::{MANIFEST, etag};
 use super::token::{self, Token};
 
+mod strom;
+
 /// Unter diesem Pfad liegen die Kacheln, wie die Karte sie neben sich sucht.
 const KACHELN: &str = "/tiles/";
 
 /// Unter diesem Pfad lädt der Mod die Karte, mit Token.
 const DOWNLOAD: &str = "/download/";
+
+/// Höchstens so viele Ströme unter `/download/<baum>.zip` zugleich; jeder
+/// hält einen Schreiber und die Leser aus [`strom`].
+const STROEME: usize = 4;
+
+/// Der Körper jeder Antwort: ganz oder als Strom.
+type Koerper = UnsyncBoxBody<Bytes, std::io::Error>;
 
 /// Was `--serve` ausliefert und mit welchen Grenzen.
 pub(super) struct Einstellung {
@@ -323,6 +333,7 @@ async fn lausche(
         freigabe,
         angaben: e.angaben,
         liste: Mutex::default(),
+        stroeme: Mutex::default(),
     });
     let plaetze = Arc::new(Semaphore::new(e.verbindungen));
     loop {
@@ -576,6 +587,8 @@ struct Zustand {
     freigabe: Option<Freigabe>,
     angaben: Option<Angaben>,
     liste: Mutex<Liste>,
+    /// Die Zufälle der Token, deren Strom gerade läuft.
+    stroeme: Mutex<HashSet<[u8; 16]>>,
 }
 
 /// Die Bäume, die `trees.json` der Wurzel nennt, also was die Webkarte zeigt.
@@ -707,25 +720,52 @@ fn karte(z: &Zustand, h: &mut HeaderMap) {
 async fn antwort(
     z: Arc<Zustand>,
     anfrage: Request<Incoming>,
-) -> Result<Response<Full<Bytes>>, Infallible> {
+) -> Result<Response<Koerper>, Infallible> {
+    let kopf = anfrage.method() == Method::HEAD;
+    let zip = anfrage
+        .uri()
+        .path()
+        .strip_prefix(DOWNLOAD)
+        .and_then(|rest| rest.strip_suffix(".zip"));
+    if let Some(baum) = zip
+        && (kopf || anfrage.method() == Method::GET)
+    {
+        // `nach` ohne Kodierung; ein kodierter Schrägstrich geht auch.
+        let nach = anfrage.uri().query().and_then(|q| {
+            q.split('&')
+                .find_map(|teil| teil.strip_prefix("nach="))
+                .map(|wert| wert.replace("%2F", "/").replace("%2f", "/"))
+        });
+        return Ok(download_strom(&z, anfrage.headers(), baum, nach.as_deref(), kopf).await);
+    }
+    Ok(voll(ganz(z, anfrage).await))
+}
+
+/// Eine ganze Antwort als [`Koerper`].
+fn voll(antwort: Response<Full<Bytes>>) -> Response<Koerper> {
+    antwort.map(|koerper| koerper.map_err(|nie| match nie {}).boxed_unsync())
+}
+
+/// Jede Antwort ausser dem Strom: ganz, aus dem Speicher.
+async fn ganz(z: Arc<Zustand>, anfrage: Request<Incoming>) -> Response<Full<Bytes>> {
     let kopf = anfrage.method() == Method::HEAD;
     if anfrage.method() != Method::GET && !kopf {
         let mut antwort = leer(&z, StatusCode::METHOD_NOT_ALLOWED);
         antwort
             .headers_mut()
             .insert(header::ALLOW, HeaderValue::from_static("GET, HEAD"));
-        return Ok(antwort);
+        return antwort;
     }
     let pfad = anfrage.uri().path();
     if let Some(rest) = pfad.strip_prefix(DOWNLOAD) {
-        return Ok(download(&z, anfrage.headers(), rest, kopf).await);
+        return download(&z, anfrage.headers(), rest, kopf).await;
     }
     // Die Vorlagen selbst nie, auch nicht in anderer Schreibung.
     if [VORLAGE_SEITE, VORLAGE_ROBOTS].iter().any(|v| {
         pfad.strip_prefix('/')
             .is_some_and(|p| p.eq_ignore_ascii_case(v))
     }) {
-        return Ok(leer(&z, StatusCode::NOT_FOUND));
+        return leer(&z, StatusCode::NOT_FOUND);
     }
     if let (Some(_), Some(seite)) = (&z.angaben, &z.seite) {
         // Ohne Rücksicht auf die Schreibung: Windows öffnete sonst mit
@@ -742,11 +782,11 @@ async fn antwort(
             let bei = Arc::clone(&z);
             let gelesen =
                 tokio::task::spawn_blocking(move || gefuellt(&bei, &vorlage, name, kopf)).await;
-            return Ok(match gelesen {
+            return match gelesen {
                 Ok(Some(antwort)) => antwort,
                 Ok(None) => leer(&z, StatusCode::NOT_FOUND),
                 Err(_) => leer(&z, StatusCode::INTERNAL_SERVER_ERROR),
-            });
+            };
         }
     }
     let ziel = match pfad.strip_prefix(KACHELN) {
@@ -768,18 +808,18 @@ async fn antwort(
             }),
     };
     let Some(ziel) = ziel else {
-        return Ok(leer(&z, StatusCode::NOT_FOUND));
+        return leer(&z, StatusCode::NOT_FOUND);
     };
     let bedingung = Bedingung::aus(anfrage.headers());
     // Lesen blockiert; dafür hält die Laufzeit eigene Threads, gedeckelt.
     // Jeder Fehler wird 404 ohne Zeile im Log, sonst füllte jemand das Log.
     let bei = Arc::clone(&z);
     let gelesen = tokio::task::spawn_blocking(move || lies(&bei, &ziel, kopf, &bedingung)).await;
-    Ok(match gelesen {
+    match gelesen {
         Ok(Some(antwort)) => antwort,
         Ok(None) => leer(&z, StatusCode::NOT_FOUND),
         Err(_) => leer(&z, StatusCode::INTERNAL_SERVER_ERROR),
-    })
+    }
 }
 
 /// Unter `/download/` nur mit gültigem Token: aus seinem Baum `map.json`,
@@ -793,24 +833,10 @@ async fn download(
     rest: &str,
     kopf: bool,
 ) -> Response<Full<Bytes>> {
-    let Some(freigabe) = &z.freigabe else {
-        return leer(z, StatusCode::NOT_FOUND);
-    };
-    // Steht die Uhr vor 1970, gilt jedes Token als abgelaufen.
-    let jetzt = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(u64::MAX, |d| d.as_secs());
-    let token = felder
-        .get(header::AUTHORIZATION)
-        .and_then(|wert| wert.to_str().ok())
-        .and_then(|wert| wert.strip_prefix("Bearer "))
-        .and_then(|text| token::pruefe(text, &freigabe.geheimnis, jetzt).ok());
-    let Some(token) = token else {
-        let mut antwort = leer(z, StatusCode::UNAUTHORIZED);
-        antwort
-            .headers_mut()
-            .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
-        return antwort;
+    let jetzt = jetzt();
+    let (freigabe, token) = match gueltig(z, felder, jetzt) {
+        Ok(gueltig) => gueltig,
+        Err(status) => return abgelehnt(z, status),
     };
     let Some((pfad, _)) = kachelpfad(&z.kacheln, rest) else {
         return leer(z, StatusCode::NOT_FOUND);
@@ -851,6 +877,168 @@ async fn download(
         HeaderValue::from_static("private, no-cache"),
     );
     antwort
+}
+
+/// Die Zeit in s seit 1970; steht die Uhr davor, gilt jedes Token als
+/// abgelaufen.
+fn jetzt() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(u64::MAX, |d| d.as_secs())
+}
+
+/// Die Freigabe und das gültige Token der Anfrage; sonst der Status: ohne
+/// Geheimnis `404`, ohne Token oder mit einem ungültigen `401`.
+fn gueltig<'a>(
+    z: &'a Zustand,
+    felder: &HeaderMap,
+    jetzt: u64,
+) -> Result<(&'a Freigabe, Token), StatusCode> {
+    let freigabe = z.freigabe.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    felder
+        .get(header::AUTHORIZATION)
+        .and_then(|wert| wert.to_str().ok())
+        .and_then(|wert| wert.strip_prefix("Bearer "))
+        .and_then(|text| token::pruefe(text, &freigabe.geheimnis, jetzt).ok())
+        .map(|token| (freigabe, token))
+        .ok_or(StatusCode::UNAUTHORIZED)
+}
+
+/// Die Antwort zu einem Status aus [`gueltig`]; `401` mit `WWW-Authenticate`.
+fn abgelehnt(z: &Zustand, status: StatusCode) -> Response<Full<Bytes>> {
+    let mut antwort = leer(z, status);
+    if status == StatusCode::UNAUTHORIZED {
+        antwort
+            .headers_mut()
+            .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+    }
+    antwort
+}
+
+/// Unter `/download/<baum>.zip` der ganze Satz eines Tokens als ein Strom,
+/// siehe [`strom`]: dieselben Prüfungen wie [`download`], dazu `400` für ein
+/// falsches `nach`, `429` für einen zweiten Strom desselben Tokens oder mehr
+/// als [`STROEME`] zugleich. Je Strom eine Zeile im Log.
+/// Siehe docs/benutzung/server.md, „Download als Strom“.
+async fn download_strom(
+    z: &Arc<Zustand>,
+    felder: &HeaderMap,
+    baum: &str,
+    nach: Option<&str>,
+    kopf: bool,
+) -> Response<Koerper> {
+    let (_, token) = match gueltig(z, felder, jetzt()) {
+        Ok(gueltig) => gueltig,
+        Err(status) => return voll(abgelehnt(z, status)),
+    };
+    if !ist_baum(baum) {
+        return voll(leer(z, StatusCode::NOT_FOUND));
+    }
+    if baum != token.baum {
+        return voll(leer(z, StatusCode::FORBIDDEN));
+    }
+    let nach = match nach.map(strom::lage) {
+        None => None,
+        Some(Some(lage)) => Some(lage),
+        Some(None) => return voll(leer(z, StatusCode::BAD_REQUEST)),
+    };
+    let (dir, stufe) = (z.kacheln.join(baum), token.stufe);
+    let Ok(Ok((eintraege, erwartet))) =
+        tokio::task::spawn_blocking(move || strom::plan(&dir, stufe, nach)).await
+    else {
+        return voll(leer(z, StatusCode::NOT_FOUND));
+    };
+    let mut antwort = Response::new(Full::new(Bytes::new()));
+    let h = antwort.headers_mut();
+    karte(z, h);
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/zip"),
+    );
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
+    h.insert("x-heroic-bytes", HeaderValue::from(erwartet));
+    if kopf {
+        return voll(antwort);
+    }
+    let Some(platz) = Platz::nimm(z, token.zufall) else {
+        return voll(leer(z, StatusCode::TOO_MANY_REQUESTS));
+    };
+    let spieler = uuid(&token.spieler);
+    let bei = Arc::clone(z);
+    let buche = move |n| {
+        bei.freigabe
+            .as_ref()
+            .is_some_and(|f| f.buche(&token, n, jetzt()))
+    };
+    let baum = baum.to_string();
+    let ab = nach
+        .map(|(z, x, y)| format!(" nach {z}/{x}/{y}"))
+        .unwrap_or_default();
+    let fertig = move |bericht: strom::Bericht, dauer: Duration| {
+        drop(platz);
+        let grund = match bericht.ende {
+            strom::Ende::Fertig => String::new(),
+            strom::Ende::Deckel => ", abgebrochen am Deckel des Tokens".into(),
+            strom::Ende::Weg => ", abgebrochen, die Verbindung ist weg".into(),
+            strom::Ende::Fehler(text) => format!(", abgebrochen: {text}"),
+        };
+        println!(
+            "Download:   {baum} als ZIP bis Stufe {stufe}{ab} für {spieler}: {} Dateien, {:.1} MB in {:.1} s{grund}",
+            bericht.dateien,
+            bericht.bytes as f64 / 1e6,
+            dauer.as_secs_f64()
+        );
+    };
+    match strom::starte(eintraege, buche, fertig) {
+        Ok(kanal) => antwort.map(|_| kanal.boxed_unsync()),
+        Err(_) => voll(leer(z, StatusCode::INTERNAL_SERVER_ERROR)),
+    }
+}
+
+/// 16 Byte als UUID nach RFC 4122, klein, mit Bindestrichen.
+fn uuid(b: &[u8; 16]) -> String {
+    let hex =
+        |r: std::ops::Range<usize>| b[r].iter().map(|x| format!("{x:02x}")).collect::<String>();
+    format!(
+        "{}-{}-{}-{}-{}",
+        hex(0..4),
+        hex(4..6),
+        hex(6..8),
+        hex(8..10),
+        hex(10..16)
+    )
+}
+
+/// Ein laufender Strom unter [`Zustand::stroeme`]; gibt seinen Platz frei,
+/// wenn er endet.
+struct Platz {
+    z: Arc<Zustand>,
+    zufall: [u8; 16],
+}
+
+impl Platz {
+    /// `None`, wenn mit diesem Token schon ein Strom läuft oder schon
+    /// [`STROEME`].
+    fn nimm(z: &Arc<Zustand>, zufall: [u8; 16]) -> Option<Platz> {
+        let mut laufend = z.stroeme.lock().unwrap_or_else(PoisonError::into_inner);
+        (laufend.len() < STROEME && laufend.insert(zufall)).then(|| Platz {
+            z: Arc::clone(z),
+            zufall,
+        })
+    }
+}
+
+impl Drop for Platz {
+    fn drop(&mut self) {
+        self.z
+            .stroeme
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.zufall);
+    }
 }
 
 /// Ob `name` ein Baum sein kann: 1 bis 64 Zeichen aus `a`–`z`, `0`–`9` und
@@ -1552,5 +1740,42 @@ mod tests {
         let bytes = freigabe.bytes.lock().unwrap();
         assert_eq!(bytes.get(&[4; 16]), Some(&(500, 2)));
         assert_eq!(bytes.get(&[2; 16]), None);
+    }
+
+    /// Je Zufall ein Strom zur Zeit, zusammen höchstens [`STROEME`]; das
+    /// Ende gibt den Platz frei.
+    #[test]
+    fn ein_strom_je_token_und_hoechstens_stroeme() {
+        let z = Arc::new(Zustand {
+            kacheln: PathBuf::new(),
+            seite: None,
+            header: Vec::new(),
+            freigabe: None,
+            angaben: None,
+            liste: Mutex::default(),
+            stroeme: Mutex::default(),
+        });
+        let erster = Platz::nimm(&z, [1; 16]).expect("frei");
+        assert!(
+            Platz::nimm(&z, [1; 16]).is_none(),
+            "derselbe Zufall läuft schon"
+        );
+        let weitere: Vec<Platz> = (2..=STROEME as u8)
+            .map(|i| Platz::nimm(&z, [i; 16]).expect("frei"))
+            .collect();
+        assert!(Platz::nimm(&z, [99; 16]).is_none(), "schon {STROEME}");
+        drop(erster);
+        assert!(
+            Platz::nimm(&z, [1; 16]).is_some(),
+            "nach dem Ende wieder frei"
+        );
+        drop(weitere);
+        assert!(z.stroeme.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn uuid_wie_rfc_4122() {
+        let b: [u8; 16] = std::array::from_fn(|i| i as u8 * 17);
+        assert_eq!(uuid(&b), "00112233-4455-6677-8899-aabbccddeeff");
     }
 }

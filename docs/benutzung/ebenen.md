@@ -3,7 +3,6 @@ title: Ebenen
 description: Das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, Kartenschrift, Regionen, Kreisen und Linien und einer strukturierten Infotafel ohne HTML; wo die Dateien neben trees.json liegen, wie sie sich ändern, wie gross sie sein dürfen, und wie 2D- und iso-Ansichten sie mit derselben Projektion wie die Kacheln auf das Gelände legen.
 code:
   - web/src/pick.ts
-  - web/src/nebel.ts
   - renderer/src/ebenen.rs
   - renderer/src/cli/banner.rs
   - renderer/tests/fixtures/projektion.json
@@ -789,43 +788,9 @@ wie bei den Koordinaten.
    dann die Maske einmal in der Farbe von `fill`; die Webkarte füllt sie
    als einen Pfad, gerade/ungerade. So doppelt sich das Alpha nicht an den
    Kanten zweier Stücke.
-3. **Im iso statt dessen ein Band aus Nebel,** siehe „Der Nebel“.
-
-### Der Nebel
-
-Im iso liegt innen am Rand einer Fläche mit `fill` ein Band aus Nebel, ein
-ruhiges Wolkenmuster in ihrer Farbe; die Fläche selbst füllt nicht. Von
-oben bleibt es die Füllung selbst.
-
-- **Band:** 16 Blöcke breit, ein Chunk, innen am Rand und um Löcher. Sechs
-  Striche auf dem geglätteten Rand, nur auf seinen sichtbaren Strecken wie
-  die Wand, beschnitten auf den Umriss aus den geglätteten Rändern, reichen
-  16 · k / 6 Blöcke nach innen, k = 6 bis 1; am Rand decken sich alle, so
-  ist der Nebel dort am dichtesten und wird nach innen in feinen Stufen
-  dünner. Ein Block ist dabei das Mittel aus einem Schritt
-  in x und einem in z im Bild, in 2:1 √80 Pixel der feinsten Stufe. Die
-  Breite folgt dem Zoom.
-- **Farbe:** `fill` ohne Alpha, zur Hälfte mit Weiss gemischt, so ist der
-  Nebel auch über Grund in derselben Farbe zu sehen; aus `#40E53F` wird
-  `#A0F29F`.
-- **Muster:** eine Kachel von 128 × 128 Pixeln: ein Grund mit 10 %
-  Deckkraft und 18 flache Wolken, Ellipsen halb so hoch wie breit mit
-  radialem Verlauf bis 0. Wiederholt erst nach 256 × 256: daneben
-  waagrecht gespiegelt, darunter senkrecht, schräg beides; eine
-  Spiegelachse ist immer nahtlos. Gedreht wird nicht, die Wolken liegen
-  flach wie der Boden. Je Farbe ein Muster, ohne Bild und ohne Filter;
-  `nebel.ts` in [`web/src/`](../../web/src/nebel.ts).
-- **Feste Grösse:** Auf dem Schirm ist die Kachel auf jeder Stufe gleich
-  gross, auch über der feinsten. Während eines Zooms skaliert Leaflet die
-  Formen und mit ihnen das Muster; das Band ist darum von `zoomstart` bis
-  `zoomend` aus und blendet danach in 0,15 s ein, auch beim Kneifen.
-- **Deckkraft:** Am Rand decken alle Striche zusammen 1 − (1 − a)³ mit
-  a = min(1, 2 · Alpha von `fill`) / 2, je Strich also 1 − √(1 − a); bei
-  15 % rund 8 %. Empfohlen sind etwa 15 %, `#RRGGBB26`.
-- **Kosten:** je Rand sechs Striche und je Fläche ein `clipPath`; ihre Punkte
-  wachsen mit dem Umfang. Das Muster entsteht erst mit der ersten Fläche im
-  iso; ohne Flächen gibt es keins.
-- Gewählt in [0104](../entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md).
+3. **Im iso ohne Füllung:** Dort ist die Fläche ein unsichtbarer Pfad, nur
+   Ziel für Name und Tafel; zu sehen sind Rand und Wand. Warum:
+   [0105](../entscheidungen/0105-regionen-im-iso-ohne-nebel.md).
 
 ### Die Wand
 
@@ -848,7 +813,7 @@ haben keine Wand. Von oben gibt es keine.
   decken. `wand` in [`gelaende.ts`](../../web/src/gelaende.ts).
 - Gewählt in [0104](../entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md).
 
-![Eine Region über Wald und Ufer der Testwelt auf dem Boden, mit Wand und Nebel, schräg und von oben; eine Linie unter Kronen, voll zu sehen; eine Linie hinter einem Hang, dort dünn und gestrichelt](../bilder/regionen-boden.webp)
+![Eine Region über Wald und Ufer der Testwelt auf dem Boden, mit Wand, schräg und von oben; eine Linie unter Kronen, voll zu sehen; eine Linie hinter einem Hang, dort dünn und gestrichelt](../bilder/regionen-boden.webp)
 
 *Testwelt, scale 16, Kacheln mit `ground`; Befehle im Skill
 [`doku-bilder-rendern`](../../skills/doku-bilder-rendern/SKILL.md).*
@@ -873,8 +838,8 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 - **Häuser verdecken einen Rand oder eine Linie nicht:** Ein verdecktes
   Stück kürzer als 16 Blöcke entlang des Wegs, so lang wie das Fenster des
   Medians beim Glätten, bleibt voll gezeichnet; so etwas verdeckt ein Haus
-  oder eine Mauer, kein Hang. Wand und Nebelband nehmen dagegen jedes
-  verdeckte Stück aus, sie malten sonst über das Haus. `gestrichelt` in
+  oder eine Mauer, kein Hang. Die Wand nimmt dagegen jedes verdeckte Stück
+  aus, sie malte sonst über das Haus. `gestrichelt` in
   [`gelaende.ts`](../../web/src/gelaende.ts).
 - **Verdeckte Felder** füllt sie nicht.
 - **Nadeln und Schrift** liegen immer obenauf, auch hinter einem Berg.

@@ -397,13 +397,3 @@ body {
   height: 10px;
   border-radius: 50%;
 }
-
-/* Das Nebelband zeigt sein Muster nur in fester Grösse: während eines Zooms
-   aus, danach blendet es ein. Siehe docs/benutzung/ebenen.md, „Der Nebel“. */
-.nebel-band {
-  transition: opacity 0.15s;
-}
-.zoomt .nebel-band {
-  opacity: 0;
-  transition: none;
-}

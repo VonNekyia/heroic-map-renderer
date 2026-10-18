@@ -25,7 +25,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Updates](benutzung/updates.md): `--update` zeichnet nur, wo sich die Welt geändert hat; der Stand je Baum, Stempel und Fingerabdruck je Chunk, das Gebiet einer Änderung.
 - [Eigene Laubfarben](benutzung/laubfarben.md): der Vertrag für Laubfarben im PersistentDataContainer des Chunks, `heroicmap:leaf_colors`, Format, Wirkung, falsche Daten und Updates.
 - [map.json](benutzung/map-json.md): die Felder, Kamera und Projektion samt den Richtungen und `projektion.json`, die Liste der Bäume `trees.json` unter einer Wurzel, die Höhen, Wasserspiegel und Rechteck der Welt und wann die Dateien entstehen.
-- [Ebenen](benutzung/ebenen.md): das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, Kartenschrift, Regionen, Kreisen, Linien und einer Infotafel ohne HTML beim Zeigen, wo die Dateien neben `trees.json` liegen, wie sie sich ändern, ihre Grenzen und wie 2D und iso sie auf das Gelände legen.
+- [Ebenen](benutzung/ebenen.md): das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, Kartenschrift, Regionen, Kreisen, Linien und einer Infotafel ohne HTML beim Zeigen, Aktionsebenen und Knöpfe je Spieler, wo die Dateien neben `trees.json` liegen, wie sie sich ändern, ihre Grenzen und wie 2D und iso sie auf das Gelände legen.
 - [Was ein Lauf kostet](benutzung/kosten.md): Platz und Dauer je scale, Cinematic gegen die Karte, die grosse Welt gemessen und hochgerechnet.
 - [Grafikkarte](benutzung/grafikkarte.md): `--gpu`, Adapter, Backends, Rückfall auf die CPU.
 - [Echtzeitschutz unter Windows](benutzung/echtzeitschutz.md): die Defender-Ausnahme und `--defender-exclusion`.
@@ -57,7 +57,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 ## Plugin
 
-- [Plugin](plugin.md): das Paper-Plugin im eigenen Repo, und was es vom Renderer nutzt: Schalter, Ordner der Bäume, den Kopf von `stand-neu.bin`, Ausgabe und Code, Token und Manifest.
+- [Plugin](plugin.md): das Paper-Plugin im eigenen Repo, und was es vom Renderer nutzt: Schalter, Ordner der Bäume, den Kopf von `stand-neu.bin`, Ausgabe und Code, die Tokens für Download, Anmeldung und Sitzung, und Manifest.
 
 ## Mod
 
@@ -182,6 +182,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0104](entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md): Regionen, Kreise und Linien im iso auf dem Boden ohne Laub aus `ground`, entlang des Wegs geglättet, unter Kronen ganz zu sehen, hinter Hängen gestrichelt; am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 deckend, nach oben bis 0; ergänzt 0096; den Nebel löst 0105 ab.
 - [0105](entscheidungen/0105-regionen-im-iso-ohne-nebel.md): Regionen im iso ohne Nebel und ohne Füllung, nur Rand und Wand, der Code des Nebels gelöscht; von oben bleibt die Füllung; Wahl des Users vom 11.10.; löst 0104 im Punkt Nebel ab.
 - [0106](entscheidungen/0106-download-als-zip-strom.md): der Download für den Mod als ein Strom unter `/download/<baum>.zip`, ZIP stored ohne Verzeichnis mit `ende`, von grob nach fein, 8 Threads lesen voraus, `?nach=` setzt fort; tar, Verzeichnis, Deflate und Höhen im Strom verworfen.
+- [0107](entscheidungen/0107-aktionsebenen.md): Aktionsebenen und Knöpfe je Spieler: Knöpfe an Objekten, nicht in Dateien; Inhalte je Spieler; Anmeldung im Web per Link aus dem Spiel, Sitzung vom Server, Klicks als Zeile `Aktion:` ans Plugin; Haken je Plugin, eigener Dienst, Push und Token in der Query verworfen.
 
 ## Versuche
 

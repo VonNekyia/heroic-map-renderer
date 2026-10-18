@@ -1,6 +1,6 @@
 ---
 title: Ebenen
-description: Das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, Kartenschrift, Regionen, Kreisen und Linien und einer strukturierten Infotafel ohne HTML; wo die Dateien neben trees.json liegen, wie sie sich ändern, wie gross sie sein dürfen, und wie 2D- und iso-Ansichten sie mit derselben Projektion wie die Kacheln auf das Gelände legen.
+description: Das Format der Ebenen für Webkarte und Mod, mit Nadeln, Bannern, Kartenschrift, Regionen, Kreisen und Linien und einer strukturierten Infotafel ohne HTML; Aktionsebenen mit Inhalten je Spieler und Knöpfe in der Tafel; wo die Dateien neben trees.json liegen, wie sie sich ändern, wie gross sie sein dürfen, und wie 2D- und iso-Ansichten sie mit derselben Projektion wie die Kacheln auf das Gelände legen.
 code:
   - web/src/pick.ts
   - renderer/src/ebenen.rs
@@ -18,7 +18,8 @@ die Sprites der Banner zeichnet der Renderer vorab, siehe „Banner“. Diese Se
 Plugin, Webkarte und Mod (#219). Warum so:
 [0095](../entscheidungen/0095-ebenen.md), für Banner, feste Grösse und Tafel
 beim Zeigen [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md),
-für Banner, die der Renderer zeichnet, [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
+für Banner, die der Renderer zeichnet, [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md),
+für Aktionsebenen und Knöpfe [0107](../entscheidungen/0107-aktionsebenen.md).
 Was die Webkarte davon schon zeigt: [Frontend](../frontend.md), „Ebenen“.
 
 ## Überblick
@@ -99,6 +100,7 @@ sichtbar ist.
 | `visible` | sichtbar, bis der Betrachter es ändert | `true` |
 | `order` | ganze Zahl; höher liegt oben und steht in der Liste weiter vorn; bei Gleichstand nach `id` | `0` |
 | `version` | ändert sich mit jeder Änderung der Datei der Ebene, etwa ein Hash ihres Inhalts | Pflicht |
+| `player` | `true`: eine Aktionsebene, ihre Datei kommt je Spieler vom Server, siehe „Aktionsebenen und Knöpfe“ | `false` |
 
 Die Wahl des Betrachters, welche Ebene an ist, merkt sich jede Ansicht
 selbst, die Webkarte im Browser.
@@ -537,6 +539,7 @@ Webkarte wäre eine Lücke für Skripte.
 | `section` | `heading`: Bild mit `image`, `width`, `height` und `alt`, oder Text mit `text`; `blocks` darin | Überschrift über ihrem Inhalt, 8 px Abstand davor |
 | `rating` | `rows`: je Reihe `label`, `value` und `max` als ganze Zahlen, `color` | `max` Punkte von 10 px, `value` davon in `color`, die übrigen in `color` mit 25 % Deckkraft; das Label links, 100 px breit |
 | `columns` | `columns`: zwei Listen von Bausteinen | nebeneinander, oben bündig, die zweite so breit wie ihr Inhalt |
+| `button` | `id`, `label`, `on`, siehe „Aktionsebenen und Knöpfe“ | ein Knopf mit Zustand an oder aus; nur von der Ansicht angehängt, nie aus einer Datei |
 
 - **Breite:** Auf der Webkarte ist der Inhalt höchstens 320 Pixel breit,
   um ihn 8 Pixel Innenabstand, 4 Pixel zwischen Bausteinen. Im Mod ist er
@@ -583,6 +586,8 @@ Webkarte wäre eine Lücke für Skripte.
   `columns` oder `section`).
 - **Unbekannte Bausteine** übergeht jede Ansicht. Neue Arten brechen alte
   Ansichten so nicht.
+- **Knöpfe** stehen nie in einer Datei unter `layers/`, denn ihr Zustand
+  ist je Spieler. Einen `button` dort übergeht jede Ansicht.
 - **`alt`** steht für Screenreader und dort, wo ein Bild fehlt.
 
 ## Bilder
@@ -669,6 +674,9 @@ es und nennt es in der Konsole oder im Log.
 | Bild oder Sprite eines Banners | 32 × 64 Pixel, 256 KiB |
 | Bild der Tafel | 512 × 512 Pixel, 256 KiB |
 | Nachricht an den Mod | 64 KiB je Teil; ein grösseres Objekt allein, höchstens 1 MiB |
+| Knöpfe je Besitzer | 64 |
+| Knöpfe je Objekt | 4 |
+| Eigene Objekte einer Aktionsebene je Spieler | 1000 und 1 MiB; mit den gemeinsamen zusammen die Grenzen einer Ebene |
 
 ## An den Mod
 
@@ -696,6 +704,69 @@ und Linien, über seinen Kanal. Regionen braucht der Mod auch zum Anheften
   Ebene sehen dürfen; die Anfragen zählen getrennt von denen nach Tafeln,
   im selben Budget, die Bytes als Base64 mit einem Drittel mehr. Öffentliche
   Sprites und `satz.json` holt der Mod über den Server wie die Bilder.
+
+## Aktionsebenen und Knöpfe
+
+Eine Aktionsebene zeigt jedem Spieler neben den gemeinsamen Objekten seine
+eigenen, und ein Knopf in der Tafel eines Objekts schaltet je Spieler etwas
+an oder aus. Ein Klick geht als Ereignis an das Plugin, dem der Knopf
+gehört; was er bewirkt, entscheidet dieses Plugin. So schaltet ein Spieler
+etwa an jeder Stadt den Knopf „Schiff“ und sieht die Routen zwischen seinen
+Städten (#294). Im Spiel geht das über den Kanal, auf der Webkarte nach
+einer Anmeldung über den Server des Renderers. Entschieden in
+[0107](../entscheidungen/0107-aktionsebenen.md).
+
+### Aktionsebene
+
+- **In `layers.json`** mit `"player": true`, sonst wie jede Ebene.
+- **Ihre Datei** liegt nicht unter `layers/`. Die Webkarte holt sie je
+  Spieler unter `api/ebenen/<modname>/<ebene>.json`, relativ zur Karte, vom
+  Server des Renderers, nur mit Sitzung. Sie hat das Format einer Datei
+  einer Ebene, mit den gemeinsamen Objekten und denen des Spielers, und
+  ihre eigene `version`.
+- **Eigene Objekte** verdecken keine gemeinsamen: Ihre `id` ist eine
+  andere. Die Grenzen einer Ebene gelten für beide zusammen, siehe
+  „Grenzen“.
+- **Ohne Anmeldung** zeigt die Webkarte die Ebene nicht; die Liste nennt
+  sie mit einem Hinweis, wie man sich im Spiel anmeldet.
+- **Im Mod** ist sie eine gewöhnliche Ebene: Das Plugin schickt jedem
+  Spieler seine Fassung, mit ihrer eigenen `version`.
+
+### Knopf
+
+```json
+{ "type": "button", "id": "beispiel:schiff", "label": { "de": "Schiff", "en": "Ship" }, "on": true }
+```
+
+| Feld | Inhalt |
+|---|---|
+| `id` | `modname:name` des Knopfs, je Teil nach der Regel einer Kennung |
+| `label` | wie `name` einer Ebene, mindestens `de` oder `en`, je höchstens 32 Zeichen |
+| `on` | der Zustand für diesen Spieler |
+
+- **An Objekten:** Ein Plugin hängt seinen Knopf an ein Objekt einer
+  beliebigen Ebene, auch einer fremden, nach Absprache mit deren Besitzer.
+  Die Ansicht hängt ihn unter die Tafel dieses Objekts, in der Reihenfolge
+  des Anhängens; ein Objekt ohne Tafel bekommt eine nur mit den Knöpfen.
+- **Woher:** im Web aus `api/knoepfe.json` des Spielers, im Mod mit der
+  Antwort auf die Anfrage nach der Tafel. Die Liste im Web:
+
+  ```json
+  { "knoepfe": [
+    { "ebene": "beispiel:staedte", "objekt": "stadt-17", "knopf": "beispiel:schiff",
+      "label": { "de": "Schiff", "en": "Ship" }, "on": true }
+  ] }
+  ```
+
+- **Ein Klick** geht im Web als `POST api/aktion` an den Server des
+  Renderers, im Mod als Nachricht über den Kanal. Den neuen Zustand kennt
+  erst das Plugin; die Ansicht holt ihn danach neu. Die Anmeldung und das
+  Web beschreibt [Server](server.md), sobald der Server sie kann; die
+  Nachrichten im Kanal die Doku des Plugins.
+- **Im Web** ein `<button aria-pressed>`, mit der Tastatur bedienbar.
+- **Ebenen mit `permission`** bekommen Knöpfe und Inhalte je Spieler nur im
+  Mod, nie im Web: Die Rechte eines Spielers kennt das Plugin nur, solange
+  er online ist.
 
 ## Zeichnen
 
